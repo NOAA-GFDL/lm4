@@ -1,0 +1,642 @@
+module land_tile_io_mod
+
+use fms_mod, only: error_mesg, FATAL, mpp_pe
+use time_manager_mod, only : time_type
+use data_override_mod, only : data_override
+
+use nf_utils_mod, only : nfu_inq_dim, nfu_inq_var, nfu_def_dim, nfu_def_var, &
+     nfu_get_var_int, nfu_put_att_text
+use land_io_mod, only : print_netcdf_error, read_field
+use land_tile_mod, only : land_tile_type, land_tile_list_type, land_tile_enum_type, &
+     first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
+     get_elmt_indices
+use land_data_mod, only  : lnd
+use land_utils_mod, only : put_to_tiles_r0d_fptr
+
+implicit none
+private
+
+! ==== public interfaces =====================================================
+! restart i/o subroutines: those use CF "compression by gathering" technique
+! to pack tile data.
+public :: create_tile_out_file
+public :: read_tile_data_r0d_fptr,  read_tile_data_r1d_fptr
+public :: read_tile_data_i0d_fptr
+public :: write_tile_data
+public :: write_tile_data_r0d_fptr, write_tile_data_r1d_fptr
+public :: write_tile_data_i0d_fptr
+
+! data override subroutines
+public :: override_tile_data_r0d_fptr
+
+! auxilary subroutines
+public :: get_tile_by_idx
+public :: print_netcdf_error
+
+public :: read_field
+! ==== end of public interfaces ==============================================
+interface create_tile_out_file
+   module procedure create_tile_out_file_idx
+   module procedure create_tile_out_file_fptr
+end interface
+
+interface write_tile_data
+   module procedure write_tile_data_i1d
+   module procedure write_tile_data_r1d
+   module procedure write_tile_data_r2d
+end interface
+
+! ==== module constants ======================================================
+character(len=*),   parameter :: module_name = 'land_tile_io_mod'
+character(len=128), parameter :: version = '$Id: land_tile_io.F90,v 15.0 2007/08/14 18:48:25 fms Exp $'
+character(len=128), parameter :: tagname = '$Name: omsk $'
+! name of the "compressed" dimension (and dimension variable) in the output 
+! netcdf files -- that is, the dimensions written out using compression by 
+! gathering, as described in CF conventions. See subroutines write_tile_data,
+! read_tile_data, read_unpack_tile_data, write_cohort_data
+character(len=*),   parameter :: tile_index_name   = 'tile_index'
+
+
+! ==== NetCDF declarations ===================================================
+include 'netcdf.inc'
+#define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
+
+
+contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+! =============================================================================
+! this subroutine creates netcdf file for output of tiled data using "compression
+! by gathering," as described in CF conventions, and creates coordinate system
+! necassary for write_tile_data subroutines.
+! In particular:
+!  "compressed" dimension and integer variable with appropriate attributes, with 
+! variable filled with packing indices
+!   horizontal dimensions "lat" and "lon" with associated variable, and boundaries, 
+! describing global grid
+!   dimension "tile," without any associated variable. length of this dimension is
+! equal to current global max of number of tiles per grid cell
+subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, n_tiles, reserve)
+  integer          , intent(out) :: ncid      ! resulting NetCDF id
+  character(len=*) , intent(in)  :: name      ! name of the file to create
+  real             , intent(in)  :: glon(:)   ! longitudes of the grid centers
+  real             , intent(in)  :: glat(:)   ! latitudes of the grid centers
+  integer          , intent(in)  :: tidx(:)   ! integer compressed index of tiles
+  integer          , intent(in)  :: n_tiles   ! length of tile axis
+  integer, optional, intent(in)  :: reserve   ! amount of space to reserve for 
+       ! header expansion. This subroutine and following calls to write_tile_data
+       ! will work even if this is set to 0, but for efficiency it is useful to
+       ! specify some non-zero value, so that netcdf library do not have to rewrite
+       ! entire file each time a new variable is added. Default value (8K) should do
+       ! fine in most cases.
+
+  ! ---- local vars
+  integer        :: reserve_  ! local value of space to reserve at the end of NetCDF header
+  character(256) :: full_name ! full name of the file, including the processor number
+
+  ! form the full name of the file
+  write(full_name,'(".",I4.4)') mpp_pe()
+  full_name = trim(name)//trim(full_name)
+
+  ! determine the local value of reserved space; by default 8K
+  reserve_ = 1024*8
+  if(PRESENT(reserve)) reserve_ = reserve
+
+  if(n_tiles<=0) call error_mesg('create_tile_out_file','tile axis length must be positive', FATAL)
+
+  ! create netcdf file
+  __NF_ASRT__(nf_create(full_name,NF_NOCLOBBER,ncid))
+  
+  ! create lon, lat, dimensions and variables
+  __NF_ASRT__(nfu_def_dim(ncid,'lon' ,glon ,'longitude','degrees_east'))
+  __NF_ASRT__(nfu_def_dim(ncid,'lat' ,glat ,'latitude','degrees_north'))
+
+  __NF_ASRT__(nfu_def_dim(ncid,'tile',n_tiles))
+  ! the size of tile dimension really does not matter for the output, but it does
+  ! matter for uncompressing utility, since it uses it as a size of the array to
+  ! unpack to
+
+  ! create tile index dimension and variable
+  __NF_ASRT__(nfu_def_dim(ncid,tile_index_name,tidx,'compressed land point index'))
+  __NF_ASRT__(nfu_put_att_text(ncid,tile_index_name,'compress','tile lat lon'))
+
+  ! end definition mode, reserving some space for future additions
+  __NF_ASRT__(nf__enddef(ncid,reserve_,4,0,4))
+  ! arguments are ncid,h_minfree,v_align,v_minfree,r_align; default is (ncid,0,4,0,4).
+  ! The above call reserves some space at the end of the netcdf header for
+  ! future expansion without library's having to rewrite the entire file. See 
+  ! manual pages netcdf(3f) or netcdf(3) for more information.
+
+end subroutine
+
+! =============================================================================
+subroutine create_tile_out_file_fptr(ncid, name, glon, glat, tile_exists, &
+     n_tiles, reserve, created)
+  integer          , intent(out) :: ncid      ! resulting NetCDF id
+  character(len=*) , intent(in)  :: name      ! name of the file to create
+  real             , intent(in)  :: glon(:)   ! longitudes of the grid centers
+  real             , intent(in)  :: glat(:)   ! latitudes of the grid centers
+  integer          , intent(in)  :: n_tiles   ! length of tile axis
+  integer, optional, intent(in)  :: reserve   ! amount of space to reserve for
+  logical, optional, intent(out) :: created   ! indicates wether the file was 
+      ! created; it is set to false if no restart needs to be written, in case 
+      ! the total number of qualifying tiles in this domain is equal to zero
+  ! the following interface describes the "detector function", which is passed 
+  ! through the argument list and must return true for any tile to be written 
+  ! to the specific restart, false otherwise
+  interface
+     logical function tile_exists(tile)
+        use land_tile_mod, only : land_tile_type
+        type(land_tile_type), pointer :: tile
+     end function tile_exists
+  end interface
+
+  ! ---- local vars
+  type(land_tile_enum_type) :: ce, te ! tile list elements
+  integer, allocatable :: idx(:)   ! integer compressed index of tiles
+  integer :: i,j,k,n
+
+  ! count total number of tiles in this domain
+  ce = first_elmt(lnd%tile_map, lnd%is, lnd%js)
+  te = tail_elmt (lnd%tile_map)
+  n  = 0
+  do while (ce/=te)
+     if (tile_exists(current_tile(ce))) n = n+1
+     ce=next_elmt(ce)
+  end do
+  
+  if (n>0) then
+     ! calculate compressed tile index to be written to the restart file
+     allocate(idx(n))
+     ce = first_elmt(lnd%tile_map, lnd%is, lnd%js)
+     n = 1
+     do while (ce/=te)
+        call get_elmt_indices(ce,i,j,k)
+        
+        if(tile_exists(current_tile(ce))) then
+          idx (n) = (k-1)*size(lnd%glon)*size(lnd%glat) + (j-1)*size(lnd%glon) + (i-1)        
+          n = n+1
+        endif
+        ce=next_elmt(ce)
+     end do
+     ! create tile output file, defining horizontal coordinate and compressed
+     ! dimension
+     call create_tile_out_file_idx(ncid, name, glon, glat, idx, n_tiles, reserve)
+  endif
+
+  if (present(created)) created = (n>0)
+  
+end subroutine
+
+! ============================================================================
+! given compressed index, sizes of the global grid, 2D array of tile lists
+! and the lower boundaries of this array returns a pointer to the tile
+! corresponding to the compressed index, or NULL is the index is outside 
+! current domain, or such tile does not exist.
+subroutine get_tile_by_idx(idx,nlon,nlat,tiles,is,js,ptr)
+   integer, intent(in) :: idx ! index
+   integer, intent(in) :: nlon, nlat
+   integer, intent(in) :: is, js
+   type(land_tile_list_type), intent(in) :: tiles(is:,js:)
+   type(land_tile_type), pointer :: ptr
+
+   ! ---- local vars
+   integer :: i,j,k
+   type(land_tile_enum_type) :: ce,te
+   
+   ptr=>NULL()
+   ! given tile idx, calculate global lon, lat, and tile indices
+   k = idx
+   i = modulo(k,nlon)+1 ; k = k/nlon
+   j = modulo(k,nlat)+1 ; k = k/nlat
+   ! do nothing if the indices is outside of our domain
+   if (i<is.or.i>is+size(tiles,1)-1) return ! skip points outside of domain
+   if (j<js.or.j>js+size(tiles,2)-1) return ! skip points outside of domain
+   ! loop through the list of tiles at the given point to find k+1st tile
+   ce = first_elmt (tiles(i,j))
+   te = tail_elmt  (tiles(i,j))
+   do while(ce/=te.and.k>0)
+     ce=next_elmt(ce); k = k-1
+   enddo
+   ! set the returned pointer   
+   ! NOTE that if (ce==te) at the end of the loop (that is, there are less
+   ! tiles in the list then requested by the idx), current_tile(ce) returns
+   ! NULL
+   ptr=>current_tile(ce)
+   
+end subroutine
+
+! ============================================================================
+! given the netcdf file id, name of the variable, and accessor subroutine, this
+! subroutine reads integer 2D data (a scalar value per grid cell, that's why 
+! there is 0d in the name of this subroutine) and assigns the input values to 
+! each tile in respective gridcell.  
+subroutine read_tile_data_i0d_fptr(ncid,name,fptr)
+   integer     , intent(in) :: ncid ! netcdf file id
+   character(*), intent(in) :: name ! name of the variable to read
+   ! subroutine returning the pointer to the data to be written
+   interface
+      subroutine fptr(tile, ptr)
+        use land_tile_mod, only : land_tile_type
+        type(land_tile_type), pointer :: tile ! input
+        integer             , pointer :: ptr  ! returned pointer to the data
+      end subroutine fptr
+   end interface
+   
+   ! ---- local constants
+   character(*), parameter :: module_name='read_tile_data_i0d_fptr'
+   ! ---- local vars
+   integer :: ndims     ! number of the variable dimensions
+   integer :: dimids(1) ! IDs of the variable dimensions
+   integer :: dimlen(1) ! size of the variable dimensions
+   character(NF_MAX_NAME) :: idxname ! name of the index variable
+   integer, allocatable :: idx(:) ! storage for compressed index 
+   integer, allocatable :: x1d(:) ! storage for the data
+   integer :: i
+   integer :: varid
+   type(land_tile_type), pointer :: tileptr ! pointer to tile   
+   integer, pointer :: ptr
+   
+   ! get the number of variable dimensions, and their lengths
+   __NF_ASRT__(nfu_inq_var(ncid,name,id=varid,ndims=ndims,dimids=dimids,dimlens=dimlen))
+   if(ndims/=1) then
+      call error_mesg(module_name,'variable "'//trim(name)//'" has incorrect number of dimensions -- must be 1-dimensional', FATAL)
+   endif
+   ! get the name of compressed dimension
+   __NF_ASRT__(nfu_inq_dim(ncid,dimids(1),idxname))
+   ! allocate input buffers for compression index and the variable
+   allocate(idx(dimlen(1)),x1d(dimlen(1)))
+   ! read the index variable
+   __NF_ASRT__(nfu_get_var_int(ncid,idxname,idx))
+   ! read the data
+   __NF_ASRT__(nf_get_var_int(ncid,varid,x1d))
+   ! distribute the data over the tiles
+   do i = 1, size(idx)
+      call get_tile_by_idx(idx(i),size(lnd%glon),size(lnd%glat),lnd%tile_map,&
+                           lnd%is,lnd%js, tileptr)
+      call fptr(tileptr, ptr)
+      if(associated(ptr)) ptr = x1d(i)
+   enddo   
+   
+end subroutine
+
+
+! ============================================================================
+subroutine read_tile_data_r0d_fptr(ncid,name,fptr)
+   integer     , intent(in) :: ncid ! netcdf file id
+   character(*), intent(in) :: name ! name of the variable to read
+   ! subroutine returning the pointer to the data to be written
+   interface
+      subroutine fptr(tile, ptr)
+        use land_tile_mod, only : land_tile_type
+        type(land_tile_type), pointer :: tile ! input
+        real                , pointer :: ptr  ! returned pointer to the data
+      end subroutine fptr
+   end interface
+   
+   ! ---- local constants
+   character(*), parameter :: module_name='read_tile_data_r0d_fptr'
+   ! ---- local vars
+   integer :: ndims     ! number of the variable dimensions
+   integer :: dimids(1) ! IDs of the variable dimensions
+   integer :: dimlen(1) ! size of the variable dimensions
+   character(NF_MAX_NAME) :: idxname ! name of the index variable
+   integer, allocatable :: idx(:) ! storage for compressed index 
+   real   , allocatable :: x1d(:) ! storage for the data
+   integer :: i
+   integer :: varid
+   type(land_tile_type), pointer :: tileptr ! pointer to tile   
+   real, pointer :: ptr
+   
+   ! get the number of variable dimensions, and their lengths
+   __NF_ASRT__(nfu_inq_var(ncid,name,id=varid,ndims=ndims,dimids=dimids,dimlens=dimlen))
+   if(ndims/=1) then
+      call error_mesg(module_name,'variable "'//trim(name)//'" has incorrect number of dimensions -- must be 1-dimensional', FATAL)
+   endif
+   ! get the name of compressed dimension
+   __NF_ASRT__(nfu_inq_dim(ncid,dimids(1),idxname))
+   ! allocate input buffers for compression index and the variable
+   allocate(idx(dimlen(1)),x1d(dimlen(1)))
+   ! read the index variable
+   __NF_ASRT__(nfu_get_var_int(ncid,idxname,idx))
+   ! read the data
+   __NF_ASRT__(nf_get_var_double(ncid,varid,x1d))
+   ! distribute the data over the tiles
+   do i = 1, size(idx)
+      call get_tile_by_idx(idx(i),size(lnd%glon),size(lnd%glat),lnd%tile_map,&
+                           lnd%is,lnd%js, tileptr)
+      call fptr(tileptr, ptr)
+      if(associated(ptr)) ptr = x1d(i)
+   enddo   
+end subroutine
+
+! ============================================================================
+subroutine read_tile_data_r1d_fptr(ncid,name,fptr)
+   integer     , intent(in) :: ncid ! netcdf file id
+   character(*), intent(in) :: name ! name of the variable to read
+   ! subroutine returning the pointer to the data to be written
+   interface
+      subroutine fptr(tile, ptr)
+        use land_tile_mod, only : land_tile_type
+        type(land_tile_type), pointer :: tile ! input
+        real                , pointer :: ptr(:) ! returned pointer to the data
+      end subroutine fptr
+   end interface
+   
+   ! ---- local constants
+   character(*), parameter :: module_name='read_tile_data_r1d_fptr'
+   ! ---- local vars
+   integer :: ndims     ! number of the variable dimensions
+   integer :: dimids(2) ! IDs of the variable dimensions
+   integer :: dimlen(2) ! size of the variable dimensions
+   character(NF_MAX_NAME) :: idxname ! name of the index variable
+   integer, allocatable :: idx(:)   ! storage for compressed index 
+   real   , allocatable :: x2d(:,:) ! storage for the data
+   integer :: i
+   integer :: varid
+   type(land_tile_type), pointer :: tileptr ! pointer to tile   
+   real, pointer :: ptr(:)
+   
+   ! get the number of variable dimensions, and their lengths
+   __NF_ASRT__(nfu_inq_var(ncid,name,id=varid,ndims=ndims,dimids=dimids,dimlens=dimlen))
+   if(ndims/=2) then
+      call error_mesg(module_name,'variable "'//trim(name)//'" has incorrect number of dimensions -- must be 2-dimensional', FATAL)
+   endif
+   ! get the name of compressed dimension
+   __NF_ASRT__(nfu_inq_dim(ncid,dimids(1),idxname))
+   ! allocate input buffers for compression index and the variable
+   allocate(idx(dimlen(1)),x2d(dimlen(1),dimlen(2)))
+   ! read the index variable
+   __NF_ASRT__(nfu_get_var_int(ncid,idxname,idx))
+   ! read the data
+   __NF_ASRT__(nf_get_var_double(ncid,varid,x2d))
+   ! distribute the data over the tiles
+   do i = 1, size(idx)
+      call get_tile_by_idx(idx(i),size(lnd%glon),size(lnd%glat),lnd%tile_map,&
+                           lnd%is,lnd%js, tileptr)
+      call fptr(tileptr, ptr)
+      if(associated(ptr)) ptr(:) = x2d(i,:)
+   enddo
+end subroutine
+
+
+! ============================================================================
+! The subroutines write_tile_data_* below write tiled data (that is, data provided
+! in arrays conformant with current tiling) to NetCDF files using "compression
+! by gathering" (see CF conventions). They assume that the compressed dimension
+! is already created, has certain name (see parameter "tile_index_name" at the beginning
+! of this file), and has length equal to the number of actually used tiles in the 
+! current domain.
+
+! ============================================================================
+! writes out 1-d integer tiled data using "compression by gathering"
+subroutine write_tile_data_i1d(ncid,name,data,long_name,units)
+  integer         , intent(in) :: ncid
+  character(len=*), intent(in) :: name
+  integer         , intent(in) :: data(:)
+  character(len=*), intent(in), optional :: units, long_name
+
+  ! local vars
+  integer :: varid,iret
+
+  ! create variable, if it does not exist
+  if(nf_inq_varid(ncid,name,varid)/=NF_NOERR) then
+     __NF_ASRT__(nfu_def_var(ncid,name,NF_INT,(/tile_index_name/),long_name,units,varid))
+  endif
+  ! write data
+  iret = nf_enddef(ncid) ! ignore errors (file may be in data mode already)
+  __NF_ASRT__(nf_put_var_int(ncid,varid,data))
+  
+end subroutine
+
+
+! ============================================================================
+! writes out 1-d real tiled data using "compression by gathering"
+subroutine write_tile_data_r1d(ncid,name,data,long_name,units)
+  integer         , intent(in) :: ncid    ! netcdf ID
+  character(len=*), intent(in) :: name    ! name of the variable
+  real            , intent(in) :: data(:) ! data to write
+  character(len=*), intent(in), optional :: units, long_name ! attributes
+
+  ! ---- local vars
+  integer :: varid,iret
+
+  ! create variable, if it does not exist
+  if(nf_inq_varid(ncid,name,varid)/=NF_NOERR) then
+     __NF_ASRT__(nfu_def_var(ncid,name,NF_DOUBLE,(/tile_index_name/),long_name,units,varid))
+  endif
+  ! write data
+  iret = nf_enddef(ncid) ! ignore errors (file may be in data mode already)
+  __NF_ASRT__(nf_put_var_double(ncid,varid,data))
+  
+end subroutine
+
+
+! ============================================================================
+! writes out 2-d real tiled data using "compression by gathering". The dimesion
+! of the data is (tile,z), and both tile and z dimensions are assumed to be 
+! already created
+subroutine write_tile_data_r2d(ncid,name,data,zdim,long_name,units)
+  integer         , intent(in) :: ncid ! netcdf id
+  character(len=*), intent(in) :: name ! name of the variable to write
+  character(len=*), intent(in) :: zdim ! name of the z-dimension
+  real            , intent(in) :: data(:,:) ! (tile,z)
+  character(len=*), intent(in), optional :: units, long_name
+
+  ! local vars
+  integer :: varid,iret
+  character(NF_MAX_NAME)::dimnames(2)
+
+  ! create variable, if it does not exist
+  if(nf_inq_varid(ncid,name,varid)/=NF_NOERR) then
+     dimnames(1) = tile_index_name
+     dimnames(2) = zdim
+     __NF_ASRT__(nfu_def_var(ncid,name,NF_DOUBLE,dimnames,long_name,units,varid))
+  endif
+  ! write data
+  iret = nf_enddef(ncid) ! ignore errors: its OK if file is in data mode already
+  __NF_ASRT__(nf_put_var_double(ncid,varid,data))
+  
+end subroutine
+
+
+! ============================================================================
+subroutine write_tile_data_i0d_fptr(ncid,name,fptr,long_name,units)
+  integer         , intent(in) :: ncid ! netcdf id
+  character(len=*), intent(in) :: name ! name of the variable to write
+  character(len=*), intent(in), optional :: units, long_name
+  ! subroutine returning the pointer to the data to be written
+  interface
+     subroutine fptr(tile, ptr)
+       use land_tile_mod, only : land_tile_type
+       type(land_tile_type), pointer :: tile ! input
+       integer             , pointer :: ptr  ! returned pointer to the data
+     end subroutine fptr
+  end interface
+  
+  ! ---- local vars
+  integer, allocatable :: idx(:)    ! index dimension
+  integer, allocatable :: data(:)   ! data to be written
+  type(land_tile_type), pointer :: tileptr ! pointer to tile
+  integer, pointer     :: ptr ! pointer to the tile data
+  integer :: ntiles  ! total number of tiles (length of compressed diemnsion)
+  integer :: i
+  
+  ! get the size of the output array. Note that at this point the variable
+  ! might not yet exist, so we can't use nfu_inq_var
+  __NF_ASRT__(nfu_inq_dim(ncid,tile_index_name,len=ntiles))
+
+  ! allocate data
+  allocate(data(ntiles),idx(ntiles))
+
+  ! read tile index
+  i = nf_enddef(ncid) ! ignore errors (file may be in data mode already)
+  __NF_ASRT__(nfu_get_var_int(ncid,tile_index_name,idx))
+
+  ! gather data into an array along the tile dimension. It is assumed that 
+  ! the tile dimension spans all the tiles that need to be written.
+  do i = 1, size(idx)
+     call get_tile_by_idx(idx(i),size(lnd%glon),size(lnd%glat),lnd%tile_map,&
+                          lnd%is,lnd%js, tileptr)
+     call fptr(tileptr, ptr)
+     if(associated(ptr)) data(i) = ptr
+  enddo
+
+  ! write data
+  call write_tile_data_i1d(ncid,name,data,long_name,units)
+  
+  ! release allocated memory
+  deallocate(data,idx)
+end subroutine
+
+
+! ============================================================================
+subroutine write_tile_data_r0d_fptr(ncid,name,fptr,long_name,units)
+  integer         , intent(in) :: ncid ! netcdf id
+  character(len=*), intent(in) :: name ! name of the variable to write
+  character(len=*), intent(in), optional :: units, long_name
+  ! subroutine returning the pointer to the data to be written
+  interface
+     subroutine fptr(tile, ptr)
+       use land_tile_mod, only : land_tile_type
+       type(land_tile_type), pointer :: tile ! input
+       real                , pointer :: ptr  ! returned pointer to the data
+     end subroutine fptr
+  end interface
+  
+  ! ---- local vars
+  integer, allocatable :: idx(:)    ! index dimension
+  real   , allocatable :: data(:)   ! data to be written
+  type(land_tile_type), pointer :: tileptr ! pointer to tiles
+  real   , pointer :: ptr ! pointer to the tile data
+  integer :: ntiles  ! total number of tiles (length of compressed diemnsion)
+  integer :: i
+  
+  ! get the size of the output array. Note that at this point the variable
+  ! might not yet exist, so we can't use nfu_inq_var
+  __NF_ASRT__(nfu_inq_dim(ncid,tile_index_name,len=ntiles))
+
+  ! allocate data
+  allocate(data(ntiles),idx(ntiles))
+
+  ! read tile index
+  i = nf_enddef(ncid) ! ignore errors (file may be in data mode already)
+  __NF_ASRT__(nfu_get_var_int(ncid,tile_index_name,idx))
+
+  ! gather data into an array along the tile dimension. It is assumed that 
+  ! the tile dimension spans all the tiles that need to be written.
+  do i = 1, size(idx)
+     call get_tile_by_idx(idx(i),size(lnd%glon),size(lnd%glat),lnd%tile_map,&
+                          lnd%is,lnd%js, tileptr)
+     call fptr(tileptr, ptr)
+     if(associated(ptr)) data(i) = ptr
+  enddo
+
+  ! write data
+  call write_tile_data_r1d(ncid,name,data,long_name,units)
+
+  ! free allocated memory
+  deallocate(data,idx)
+end subroutine
+
+
+! ============================================================================
+subroutine write_tile_data_r1d_fptr(ncid,name,fptr,zdim,long_name,units)
+  integer         , intent(in) :: ncid ! netcdf id
+  character(len=*), intent(in) :: name ! name of the variable to write
+  character(len=*), intent(in) :: zdim ! name of the z-dimension
+  character(len=*), intent(in), optional :: units, long_name
+  ! subroutine returning the pointer to the data to be written
+  interface
+     subroutine fptr(tile, ptr)
+       use land_tile_mod, only : land_tile_type
+       type(land_tile_type), pointer :: tile ! input
+       real                , pointer :: ptr(:) ! returned pointer to the data
+     end subroutine fptr
+  end interface
+  
+  ! ---- local vars
+  integer, allocatable :: idx(:)    ! index dimension
+  real   , allocatable :: data(:,:) ! data to be written
+  type(land_tile_type), pointer :: tileptr ! pointer to tiles
+  real   , pointer :: ptr(:) ! pointer to the tile data
+  integer :: ntiles  ! total number of tiles (length of compressed diemnsion)
+  integer :: i
+  integer :: nlev ! number of levels of the output variable
+  
+  ! get the size of the output array. Note that at this point the variable
+  ! might not yet exist, so we can't use nfu_inq_var
+  __NF_ASRT__(nfu_inq_dim(ncid,tile_index_name,len=ntiles))
+  __NF_ASRT__(nfu_inq_dim(ncid,zdim,len=nlev))
+
+  ! allocate data
+  allocate(data(ntiles,nlev),idx(ntiles))
+
+  ! read tile index
+  i = nf_enddef(ncid) ! ignore errors (file may be in data mode already)
+  __NF_ASRT__(nfu_get_var_int(ncid,tile_index_name,idx))
+
+  ! gather data into an array along the tile dimension. It is assumed that 
+  ! the tile dimension spans all the tiles that need to be written.
+  do i = 1, size(idx)
+     call get_tile_by_idx(idx(i),size(lnd%glon),size(lnd%glat),lnd%tile_map,&
+                          lnd%is,lnd%js, tileptr)
+     call fptr(tileptr, ptr)
+     if(associated(ptr)) data(i,:) = ptr(:)
+  enddo
+
+  ! write data
+  call write_tile_data_r2d(ncid,name,data,zdim,long_name,units)
+  
+  ! free allocated memory
+  deallocate(data,idx)
+  
+end subroutine
+
+! ============================================================================
+subroutine override_tile_data_r0d_fptr(fieldname,fptr,time,override)
+  character(len=*), intent(in)   :: fieldname ! field to override
+  type(time_type),  intent(in)   :: time      ! model time
+  logical, optional, intent(out) :: override  ! true if the field has been overriden succesfully
+  ! subroutine returning the pointer to the data to be overriden
+  interface
+     subroutine fptr(tile, ptr)
+       use land_tile_mod, only : land_tile_type
+       type(land_tile_type), pointer :: tile ! input
+       real                , pointer :: ptr  ! returned pointer to the data
+     end subroutine fptr
+  end interface
+
+  ! ---- local vars
+  real    :: data2D(lnd%is:lnd%ie,lnd%js:lnd%je) ! storage for the input data
+  logical :: override_
+  
+  call data_override('LND',fieldname,data2D, time, override_ )
+  if(present(override)) override=override_
+  if(.not.override_) return ! do nothing if the field was not overriden 
+
+  ! distribute the data over the tiles
+  call put_to_tiles_r0d_fptr(data2d,lnd%tile_map,fptr)
+  
+end subroutine
+
+end module
