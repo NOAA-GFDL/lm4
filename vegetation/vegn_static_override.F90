@@ -7,14 +7,8 @@ use fms_mod,            only : write_version_number, error_mesg, FATAL, NOTE, &
      mpp_root_pe
 use time_interp_mod,    only : time_interp
 
-use vegn_data_mod,      only : C2B, agf_bs, spdata, mcv_lai, mcv_min
-use land_tile_mod,      only : land_tile_type, land_tile_list_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
-use vegn_cohort_mod,    only : vegn_cohort_type, height_from_biomass, lai_from_biomass, &
-     update_bio_living_fraction
-use cohort_list_mod,    only : vegn_cohort_enum_type, &
-     first_cohort, tail_cohort, next_cohort, current_cohort, operator(/=)
 use land_io_mod,        only : print_netcdf_error
+use vegn_cohort_mod,    only : vegn_cohort_type
 use cohort_io_mod,      only : read_cohort_data_i0d_fptr, read_cohort_data_r0d_fptr 
 
 
@@ -29,9 +23,10 @@ public :: static_vegn_override
 ! ==== end of public interface ==============================================
 
 ! ==== module constants =====================================================
-character(len=*),   parameter :: module_name = 'static_vegn_mod'
-character(len=128), parameter :: version = '$Id: vegn_static_override.F90,v 15.0 2007/08/14 03:59:59 fms Exp $'
-character(len=128), parameter :: tagname = '$Name: omsk $'
+character(len=*), parameter :: &
+     module_name = 'static_vegn_mod', &
+     version     = '$Id: vegn_static_override.F90,v 15.0.2.1 2007/09/16 22:14:24 slm Exp $', &
+     tagname     = '$Name: omsk_2007_10 $'
 
 ! ==== module data ==========================================================
 logical :: module_is_initialized = .FALSE.
@@ -141,18 +136,12 @@ subroutine static_vegn_end()
 end subroutine static_vegn_end
 
 ! ===========================================================================
-subroutine static_vegn_override(time, tile_map)
+subroutine static_vegn_override (time)
   type(time_type), intent(in)    :: time
-  type(land_tile_list_type), intent(in) :: tile_map(:,:)
 
   ! ---- local vars 
-  type(land_tile_enum_type)     :: tt,ct ! current and tail tile list elements
-  type(land_tile_type), pointer :: tile  ! pointer to current tile
-  type(vegn_cohort_enum_type)   :: cc,ce ! cohort enumerators
-  type(vegn_cohort_type), pointer :: c   ! pointer to current cohort 
   integer :: index1, index2 ! result of time interpolation (only index1 is used)
   real    :: weight         ! another result of time interp, not used
-  integer :: sp             ! species, local var for convenience of indexing only
 
   if(.not.use_static_veg)return;
 
@@ -177,53 +166,7 @@ subroutine static_vegn_override(time, tile_map)
   call read_cohort_data_r0d_fptr(ncid, 'bliving' , cohort_bliving_ptr , index1)
   call read_cohort_data_i0d_fptr(ncid, 'status'  , cohort_status_ptr  , index1)
 
-  ! update derived variables 
-  ct=first_elmt(tile_map)
-  tt=tail_elmt (tile_map)
-  do while(ct /= tt)
-     tile=>current_tile(ct)  ! get pointer to current tile
-     ct=next_elmt(ct)        ! advance position to the next tile
-     
-     if (.not.associated(tile%vegn)) cycle
-
-     cc=first_cohort(tile%vegn%cohorts)
-     ce=tail_cohort (tile%vegn%cohorts)
-     do while(cc/=ce)
-        c=>current_cohort(cc) 
-        cc=next_cohort(cc) ! advance the cohort enumerator
-
-        ! store the species in an integer variable, for convenience
-        sp = c%species
-        ! set the physiology type according to species
-        c%pt = spdata(sp)%pt
-        ! update fractions of the living biomass
-        call update_bio_living_fraction(c)
-        ! given total biomass, calculate height
-        c%height = height_from_biomass(c%bliving+c%bwood)
-        ! calculate the leaf area index based on the biomass of leaves
-        c%lai = lai_from_biomass(c%bl, sp)
-        ! calculate stem area index
-        c%sai = 0.035*c%height
-        ! calculate the root density as the total biomass below ground, in
-        ! biomass (not carbon!) units
-        c%root_density = (c%br + &
-             (c%bsw+c%bwood+c%blv)*(1-agf_bs))*C2B
-
-        ! set species parameters
-        c%leaf_size = spdata(sp)%leaf_size
-        c%root_zeta = spdata(sp)%dat_root_zeta
-        c%rs_min    = spdata(sp)%dat_rs_min
-        c%leaf_refl = spdata(sp)%leaf_refl
-        c%leaf_tran = spdata(sp)%leaf_tran
-        c%leaf_emis = spdata(sp)%leaf_emis
-        c%snow_crit = spdata(sp)%dat_snow_crit
-  
-        ! putting this initialization within the cohort loop is probably incorrect 
-        ! in case of multiple-cohort vegetation, however for a single cohort it works
-        c%W_max   = spdata(sp)%cmc_lai*c%lai
-        c%mcv_dry = max(mcv_min, mcv_lai*c%lai)
-     enddo
-  enddo
+  ! derived variables will be updated in update_land_bc_fast
 end subroutine static_vegn_override
 
 ! ============================================================================

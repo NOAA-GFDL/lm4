@@ -31,6 +31,7 @@ public :: register_tiled_diag_field
 public :: register_tiled_static_field
 public :: send_tile_data
 public :: send_tile_data_r0d_fptr, send_tile_data_r1d_fptr
+public :: send_tile_data_i0d_fptr
 
 public :: dump_tile_diag_fields
 
@@ -45,9 +46,10 @@ end interface
 
 
 ! ==== module constants ======================================================
-character(len=*),   parameter :: module_name = 'lan_tile_diag_mod'
-character(len=128), parameter :: version = '$Id: land_tile_diag.F90,v 15.0 2007/08/14 18:48:22 fms Exp $'
-character(len=128), parameter :: tagname = '$Name: omsk $'
+character(len=*), parameter :: &
+     module_name = 'lan_tile_diag_mod', &
+     version     = '$Id: land_tile_diag.F90,v 15.0.2.2 2007/09/16 22:14:23 slm Exp $', &
+     tagname     = '$Name: omsk_2007_10 $'
 
 integer, parameter :: INIT_FIELDS_SIZE     = 1     ! initial size of the fields array
 integer, parameter :: BASE_TILED_FIELD_ID  = 65536 ! base value for tiled field 
@@ -66,6 +68,7 @@ type :: tiled_diag_field_type
    integer :: offset ! offset of the field data in the buffer
    integer :: size   ! size of the field data in the per-tile buffers
    integer :: op     ! aggregation operation
+   logical :: static ! if true, the diag field is static
    character(32) :: name ! for debugging purposes only
 end type tiled_diag_field_type
 
@@ -254,7 +257,9 @@ function reg_field(static, module_name, field_name, init_time, axes, &
      else
         fields(id)%op = OP_AVERAGE
      endif
-     ! store the name of the field -- for now omly to be able to see waht it is 
+     ! store the static field flag
+     fields(id)%static = static
+     ! store the name of the field -- for now only to be able to see waht it is 
      ! in the debugger
      fields(id)%name=field_name
      ! increment the field id by some (large) number to distinguish it from the 
@@ -428,6 +433,36 @@ end subroutine
 
 
 ! ============================================================================
+subroutine send_tile_data_i0d_fptr(id, tile_map, fptr)
+  integer, intent(in) :: id
+  type(land_tile_list_type), intent(inout) :: tile_map(:,:)
+  ! subroutine returning the pointer to the tile data
+  interface
+     subroutine fptr(tile, ptr)
+       use land_tile_mod, only : land_tile_type
+       type(land_tile_type), pointer :: tile ! input
+       integer             , pointer :: ptr  ! returned pointer to the data
+     end subroutine fptr 
+  end interface
+
+  integer :: i,j
+  type(land_tile_enum_type)     :: te,ce   ! tail and current tile list elements
+  type(land_tile_type), pointer :: tileptr ! pointer to tile   
+  integer             , pointer :: ptr     ! pointer to the data element within a tile
+
+  if(id <= 0) return
+  ce = first_elmt( tile_map )
+  te = tail_elmt ( tile_map )
+  do while(ce /= te)
+     tileptr => current_tile(ce)
+     call fptr(tileptr,ptr)
+     if(associated(ptr)) call send_tile_data(id,real(ptr),tileptr%diag)
+     ce=next_elmt(ce)
+  enddo
+end subroutine
+
+
+! ============================================================================
 subroutine dump_tile_diag_fields(tiles, time)
   type(land_tile_list_type), intent(in) :: tiles(:,:) ! 
   type(time_type)          , intent(in) :: time       ! current time
@@ -437,12 +472,15 @@ subroutine dump_tile_diag_fields(tiles, time)
   integer :: isel ! selector number
   type(land_tile_enum_type)     :: ce, te
   type(land_tile_type), pointer :: tile
+  ! ---- local static variables -- saved between calls
+  logical :: first_dump = .TRUE.
 
   do ifld = 1, n_fields
   do isel = 1, get_n_selectors()
      if (fields(ifld)%ids(isel) <= 0) cycle
      call dump_diag_field_with_sel ( fields(ifld)%ids(isel), tiles, &
-           fields(ifld), get_selector(isel), time)
+          fields(ifld), get_selector(isel), time, &
+          first_dump.or..not.fields(ifld)%static )
   enddo
   enddo
   
@@ -455,16 +493,20 @@ subroutine dump_tile_diag_fields(tiles, time)
     tile%diag%mask(:) = .FALSE.
     ce = next_elmt(ce)            ! move to the next position
   enddo
+  ! reset the first_dump flag
+  first_dump = .FALSE.
 
 end subroutine
 
 ! ============================================================================
-subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
+subroutine dump_diag_field_with_sel(id, tiles, field, sel, time, force_send_data)
   integer :: id
   type(land_tile_list_type),   intent(in) :: tiles(:,:)
   type(tiled_diag_field_type), intent(in) :: field
   type(tile_selector_type)   , intent(in) :: sel
-  type(time_type),   intent(in) :: time      ! current time
+  type(time_type)            , intent(in) :: time ! current time
+  logical                    , intent(in) :: force_send_data ! if true, the send_data 
+  ! subroutine is called even if there is no data
    
   ! ---- local vars
   integer :: i,j ! iterators
@@ -508,7 +550,10 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
     end select
   enddo
 
-  if(any(weight>0))then
+  ! for dynamic fields, the data are always sent; for static fields the data are sent
+  ! on the first dump (the calling subroutine dump_tile_diag_fields sets force_cend_data
+  ! to true in this case) or when the data are not empty.
+  if(force_send_data.or.any(weight>0))then
      ! normalize accumulated data
      where (weight>0) buffer=buffer/weight
   

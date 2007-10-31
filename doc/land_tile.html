@@ -53,10 +53,9 @@
 
 <pre>
 type :: land_tile_type
-   integer :: tag = 0   ! defines type of the tag 
+   integer :: tag = 0   ! defines type of the tile 
+
    real    :: frac      ! fractional tile area, dimensionless
-   type(diag_buff_type), pointer :: diag => NULL() ! diagnostic data storage
-   
    type(glac_tile_type), pointer :: glac => NULL() ! glacier model data
    type(lake_tile_type), pointer :: lake => NULL() ! lake model data
    type(soil_tile_type), pointer :: soil => NULL() ! soil model data
@@ -64,20 +63,25 @@ type :: land_tile_type
    type(cana_tile_type), pointer :: cana => NULL() ! canopy air data
    type(vegn_tile_type), pointer :: vegn => NULL() ! vegetation model data
 
-   ! data that are carried over from the previous time step
-   real :: Sg ! fraction of downward short-wave absorbed by ground and snow
-   real :: Lg0! net energy source at ground and snow from LW, minus atmos_lw term,
-              ! evaluated explicitly with current Ts and Tv
-   real :: Lg_a_coef
-   real :: DLgDTg, DLgDTv
-   real :: Sv
-   real :: Lv0
-   real :: Lv_a_coef
-   real :: DLvDTg, DLvDTv
-   real :: land_albedo
+   type(diag_buff_type), pointer :: diag => NULL() ! diagnostic data storage
    
-   real :: con_v_coef, con_g_coef
+   ! data that are carried over from the previous time step
+   real :: Sg_dir(NBANDS), Sg_dif(NBANDS) ! fractions of downward direct and 
+       ! diffuse short-wave radiation absorbed by ground and snow
+   real :: grnd_emis ! emissivity of ground
+   real :: Sv_dir(NBANDS), Sv_dif(NBANDS) ! fractions of downward direct and 
+       ! diffuse radiation absorbed by the vegetation.
+   real :: land_refl_dir(NBANDS), land_refl_dif(NBANDS)
+   
    real :: land_d, land_z0m, land_z0s
+   real :: surf_refl_lw ! long-wave reflectivity of the ground surface (possibly snow-covered)
+   real :: vegn_refl_lw ! black background long-wave reflectivity of the vegetation canopy
+   real :: vegn_tran_lw ! black background long-wave transmissivity of the vegetation canopy
+
+   real :: lwup    = 200.0  ! upward long-wave flux from the entire land (W/m2), the result of
+           ! the implicit time step -- used in update_bc_fast to return to the flux exchange.
+   real :: e_res_1 = 0.0 ! energy residual in canopy air EB equation
+   real :: e_res_2 = 0.0 ! energy residual in canopy EB equation
 end type land_tile_type
 </pre>
   <p>
@@ -96,11 +100,17 @@ end type land_tile_type
   <p>Figure 2. Structure of the land tile for a vegetated site.
   </div>
   <p>
-  Note that some of components are mutually exclusive: for example either lake,
-  glacier or soil can be present in a land tile, but not any two of them
-  together. Other sub-tiles must be present in every land tile, like snow or
+  Note that some of the components are mutually exclusive: for example either lake,
+  glacier or soil can be present in a given land tile, but not any two of them
+  together. Other components must be present in every land tile, like snow or
   canopy air. Vegetation can be either present or absent &mdash; for example
-  over glaciers or lakes there can be no vegetation.
+  over glaciers or lakes there can be no vegetation, while we assume that over
+  soil there is vegetation, even if it is degenerate.
+  <p>
+  More specifically, there are only three combinations of the components that the model
+  currently uses: <code>glac+snow+cana</code>, <code>lake+snow+cana</code>, and 
+  <code>soil+snow+vegn+cana</code>. Naturally, the latter is the most widespread
+  situation.
   <p>
   The upper-level land model code is kept mostly ignorant of the contents of the
   components; currently there are rare instances where the fields of the

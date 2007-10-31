@@ -1,7 +1,7 @@
 module vegn_tile_mod
 
 use fms_mod, only : &
-     write_version_number, stdlog
+     write_version_number, stdlog, error_mesg, FATAL
 
 use land_constants_mod, only : NBANDS
 use land_io_mod, only : &
@@ -15,12 +15,11 @@ use vegn_data_mod, only : NSPECIES, MSPECIES, NCMPT, C2B, n_dim_vegn_types, &
     mcv_min, mcv_lai, &
     use_bucket, use_mcm_masking, vegn_index_constant, &
     critical_root_density, &
-    init_pars_from_restart, &
-    agf_bs
+    agf_bs, BSEED
 
 use vegn_cohort_mod, only : vegn_cohort_type, vegn_phys_prog_type, &
      height_from_biomass, lai_from_biomass, update_bio_living_fraction, &
-     cohort_data_uptake_frac_max
+     cohort_data_uptake_frac_max, update_biomass_pools
 use cohort_list_mod, only : &
      vegn_cohort_list_type, vegn_cohort_enum_type, &
      cohort_list_init, cohort_list_end, first_cohort, tail_cohort, next_cohort, &
@@ -42,14 +41,17 @@ public :: vegn_cover_cold_start
 
 public :: vegn_data_uptake_frac_max
 public :: vegn_data_rs_min
+public :: vegn_seed_supply
+public :: vegn_seed_demand
 
-public :: init_derived_vegn_data  ! given state variables, calculate derived values
+public :: vegn_add_bliving
+public :: update_derived_vegn_data  ! given state variables, calculate derived values
 ! =====end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
 character(len=*), parameter   :: &
-     version = '', &
-     tagname = '', &
+     version = '$Id: vegn_tile.F90,v 15.0.2.1 2007/09/16 22:14:24 slm Exp $', &
+     tagname = '$Name: omsk_2007_10 $', &
      module_name = 'vegn_tile_mod'
 
 ! ==== types =================================================================
@@ -71,15 +73,50 @@ type :: vegn_tile_type
    real :: fsc_pool=0, fsc_rate=0 ! for fast soil carbon
    real :: ssc_pool=0, ssc_rate=0 ! for slow soil carbon
 
+   real :: csmoke_pool=0 ! carbon lost through fires, kg C/m2 
+   real :: csmoke_rate=0 ! rate of release of the above to atmosphere, kg C/(m2 yr)
+
    ! values for the diagnostic of carbon budget and soil carbon acceleration
    real :: asoil_in=0
    real :: ssc_in=0, ssc_out=0
    real :: fsc_in=0, fsc_out=0
    real :: veg_in=0, veg_out=0
 
+   real :: disturbance_rate(0:1) ! 1/year
+   real :: lambda   ! cumulative drought months per year
+   real :: fuel     ! fuel over dry months
+   real :: litter   ! litter flux
+
+   ! monthly accumulated/averaged values
+   real :: theta_av ! realtive soil_moisture availablity not soil moisture
+   real :: tsoil_av ! bulk soil temperature
+   real :: tc_av    ! leaf temperature
+   real :: precip_av! precipitation
+
+   ! accumulation counters for long-term averages (monthly and annual). Having
+   ! these counters in the tile is a bit stupid, since the values are the same for
+   ! each tile, but it simplifies the current code, and they are going away when we
+   ! switch to exponential averaging in any case.
+   integer :: n_accum ! number of accumulated values for monthly averages
+   integer :: nmn_acm ! number of accumulated values for annual averages
+   ! annual-mean values
+   real :: t_ann    ! annual mean T, degK
+   real :: t_cold   ! average temperture of the coldest month, degK
+   real :: p_ann    ! annual mean precip
+   real :: ncm      ! number of cold months
+   ! annual accumulated values
+   real :: t_ann_acm  ! accumulated annual temperature for t_ann
+   real :: t_cold_acm ! temperature of the coldest month in current year
+   real :: p_ann_acm  ! accumulated annual precipitation for p_ann
+   real :: ncm_acm    ! accumulated number of cold months
+
+
    ! it's probably possible to get rid of the fields below
    real :: rh=0 ! soil carbon lost to the atmosphere
-   real :: total_biomass ! 
+   real :: total_biomass !
+   real :: area_disturbed_by_treefall
+   real :: area_disturbed_by_fire
+   real :: total_disturbance_rate
 end type vegn_tile_type
 
 ! ==== module data ===========================================================
@@ -119,64 +156,63 @@ end function
 ! ============================================================================
 ! given a vegetation tile with the state variables set up, calculate derived
 ! parameters to get a consistent state
-subroutine init_derived_vegn_data(vegn)
+subroutine update_derived_vegn_data(vegn)
   type(vegn_tile_type), intent(inout) :: vegn
   
   ! ---- local vars 
-  integer :: k ! shorthand for the vegetation tile tag
-  type(vegn_cohort_enum_type) :: cc,ce ! cohort enumerators
-  type(vegn_cohort_type), pointer :: cohort ! pointer to the cohort at hand
+  type(vegn_cohort_enum_type) :: ci,ce ! cohort enumerators
+  type(vegn_cohort_type), pointer :: cc ! pointer to the current cohort
+  integer :: sp ! shorthand for the vegetation species
   real :: cmc_max
   
-  k = vegn%tag
-
   ! given that the cohort state variables are initialized, fill in
   ! the intermediate variables
-  cc=first_cohort(vegn%cohorts)
-  ce=tail_cohort (vegn%cohorts)
-  do while(cc/=ce)
-    cohort=>current_cohort(cc) 
-    cc=next_cohort(cc) ! advance the enumerator
+  ci=first_cohort(vegn%cohorts) ; ce=tail_cohort (vegn%cohorts)
+  do while(ci/=ce)
+    cc=>current_cohort(ci) ; ci=next_cohort(ci)
     
-    cohort%pt     = spdata(cohort%species)%pt
-    cohort%b      = cohort%bliving + cohort%bwood
-    call update_bio_living_fraction(cohort)
-    cohort%bs     = cohort%bsw + cohort%bwood;   
-    cohort%bstem  = agf_bs*cohort%bs;
-    cohort%babove = cohort%bl + agf_bs*cohort%bs; 
+    sp = cc%species
+    ! set the physiology type according to species
+    cc%pt     = spdata(sp)%pt
+    ! calculate total biomass, calculate height
+    cc%b      = cc%bliving + cc%bwood
+    cc%height = height_from_biomass(cc%b);
+    ! update fractions of the living biomass
+    call update_bio_living_fraction(cc)
+    cc%bs     = cc%bsw + cc%bwood;   
+    cc%bstem  = agf_bs*cc%bs;
+    cc%babove = cc%bl + agf_bs*cc%bs; 
 
-    if(init_pars_from_restart) then
-       ! the height has been read from restart
+    if(sp<NSPECIES) then ! LM3V species
        ! calculate the leaf area index based on the biomass of leaves
-       cohort%lai = lai_from_biomass(cohort%bl, cohort%species)
+       cc%lai = lai_from_biomass(cc%bl, sp)
        ! calculate the root density as the total biomass below ground, in
        ! biomass (not carbon!) units
-       cohort%root_density = (cohort%br + &
-            (cohort%bsw+cohort%bwood+cohort%blv)*(1-agf_bs))*C2B
+       cc%root_density = (cc%br + (cc%bsw+cc%bwood+cc%blv)*(1-agf_bs))*C2B
     else
-       cohort%height        = spdata(k)%dat_height
-       cohort%lai           = spdata(k)%dat_lai
-       cohort%root_density  = spdata(k)%dat_root_density
+       cc%height        = spdata(sp)%dat_height
+       cc%lai           = spdata(sp)%dat_lai
+       cc%root_density  = spdata(sp)%dat_root_density
     endif
-    cohort%sai = 0.035*cohort%height
-    cmc_max  = cohort%lai*spdata(cohort%species)%cmc_lai;
-    if (cohort%prog%Wl>0.and.cmc_max > 0) then
-       cohort%frac_moist = (cohort%prog%Wl/cmc_max)**spdata(cohort%species)%cmc_pow;
+    cc%sai = 0.035*cc%height
+    cmc_max  = cc%lai*spdata(sp)%cmc_lai;
+    if (cc%prog%Wl>0.and.cmc_max > 0) then
+       cc%frac_moist = (cc%prog%Wl/cmc_max)**spdata(sp)%cmc_pow;
     else 
-       cohort%frac_moist = 0
+       cc%frac_moist = 0
     endif
-    cohort%leaf_size     = spdata(k)%leaf_size
-    cohort%root_zeta     = spdata(k)%dat_root_zeta
-    cohort%rs_min        = spdata(k)%dat_rs_min
-    cohort%leaf_refl     = spdata(k)%leaf_refl
-    cohort%leaf_tran     = spdata(k)%leaf_tran
-    cohort%leaf_emis     = spdata(k)%leaf_emis
-    cohort%snow_crit     = spdata(k)%dat_snow_crit
+    cc%leaf_size     = spdata(sp)%leaf_size
+    cc%root_zeta     = spdata(sp)%dat_root_zeta
+    cc%rs_min        = spdata(sp)%dat_rs_min
+    cc%leaf_refl     = spdata(sp)%leaf_refl
+    cc%leaf_tran     = spdata(sp)%leaf_tran
+    cc%leaf_emis     = spdata(sp)%leaf_emis
+    cc%snow_crit     = spdata(sp)%dat_snow_crit
   
     ! putting this initialization within the cohort loop is probably incorrect 
     ! in case of multiple-cohort vegetation, however for a single cohort it works
-    cohort%W_max   = spdata(k)%cmc_lai*cohort%lai
-    cohort%mcv_dry = max(mcv_min, mcv_lai*cohort%lai)
+    cc%W_max   = spdata(sp)%cmc_lai*cc%lai
+    cc%mcv_dry = max(mcv_min, mcv_lai*cc%lai)
   enddo
     
 end subroutine
@@ -211,6 +247,60 @@ function vegn_data_rs_min ( vegn )
   vegn_data_rs_min = cohort%rs_min
 end function
 
+
+! ============================================================================
+function vegn_seed_supply ( vegn )
+  real :: vegn_seed_supply
+  type(vegn_tile_type), intent(in) :: vegn
+
+  ! ---- local vars 
+  type(vegn_cohort_enum_type) :: ci,ce ! cohort enumerators
+  type(vegn_cohort_type), pointer :: cc ! pointer to the current cohort
+  real :: vegn_bliving
+  
+  vegn_bliving = 0
+  ci=first_cohort(vegn%cohorts) ; ce=tail_cohort (vegn%cohorts)
+  do while(ci/=ce)
+     cc=>current_cohort(ci) ; ci=next_cohort(ci)
+     vegn_bliving = vegn_bliving + cc%bliving
+  enddo
+  vegn_seed_supply = MAX (vegn_bliving-BSEED, 0.0)
+  
+end function 
+
+! ============================================================================
+function vegn_seed_demand ( vegn )
+  real :: vegn_seed_demand
+  type(vegn_tile_type), intent(in) :: vegn
+
+  ! ---- local vars 
+  type(vegn_cohort_enum_type) :: ci,ce ! cohort enumerators
+  type(vegn_cohort_type), pointer :: cc ! pointer to the current cohort
+
+  vegn_seed_demand = 0
+  ci=first_cohort(vegn%cohorts) ; ce=tail_cohort (vegn%cohorts)
+  do while(ci/=ce)
+     cc=>current_cohort(ci) ; ci=next_cohort(ci)
+     if(cc%bliving<BSEED.and.vegn%t_ann>253.16.and.vegn%p_ann>1E-6) then
+        vegn_seed_demand = vegn_seed_demand + BSEED
+     endif
+  enddo
+end function 
+
+! ============================================================================
+subroutine vegn_add_bliving ( vegn, delta )
+  type(vegn_tile_type), intent(inout) :: vegn
+  real :: delta ! increment of bliving
+
+  type(vegn_cohort_type), pointer :: cc ! pointer to the current cohort
+  cc=>current_cohort(first_cohort(vegn%cohorts))
+  cc%bliving = cc%bliving + delta
+
+  if (cc%bliving < 0)then
+     call error_mesg('vegn_add_bliving','resulting bliving is less then 0', FATAL)
+  endif
+  call update_biomass_pools(cc)
+end subroutine 
 
 ! ============================================================================
 function vegn_cover_cold_start(land_mask, glonb, glatb) result (vegn_frac)

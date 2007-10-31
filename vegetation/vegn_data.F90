@@ -50,6 +50,7 @@ integer, public, parameter :: & ! land use types
 
 real, public, parameter :: C2B = 2.0  ! carbon to biomass conversion factor
 
+real, public, parameter :: BSEED = 5e-5 ! seed density for supply/demand calculations, kg C/m2 
 ! ---- public types
 public :: spec_data_type
 
@@ -65,7 +66,8 @@ public :: &
     tau_drip_l, tau_drip_s, & ! canopy water and snow residence times, for drip calculations
     GR_factor, tg_c3_thresh, tg_c4_thresh, &
     fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
-    l_fract, init_pars_from_restart, T_transp_min
+    l_fract, T_transp_min, soil_carbon_depth_scale, &
+    cold_month_threshold, theta_crit
 
 ! ---- public subroutine
 public :: read_vegn_data_namelist
@@ -125,6 +127,9 @@ type spec_data_type
   real    :: fuel_intensity
   real    :: hight_eq
 
+  ! critical temperature for leaf drop, was internal to phenology
+  real    :: tc_crit
+
   ! data from LM3W, temporarily here
   real    :: dat_height
   real    :: dat_lai
@@ -138,7 +143,6 @@ end type
 integer :: idata,jdata ! iterators used in data initialization statements
 
 ! ---- namelist --------------------------------------------------------------
-!type(spec_data_type), save :: spdata(0:NSPECIES-1)
 type(spec_data_type), save :: spdata(0:MSPECIES)
 
 logical :: use_bucket = .false.
@@ -161,9 +165,6 @@ integer, dimension(1:MSPECIES) :: &
                           1,    2,    3,    4,    5,    6,    7,    8,    9/)
 !character(len=4), dimension(n_dim_vegn_types) :: &
 !  tile_names=      (/'be  ','bd  ','bn  ','ne  ','nd  ','g   ','d   ','t   ','a   ' /)
-logical :: init_pars_from_restart = .FALSE. ! if true, some vegetation parameters
-   ! are initialized from biomasses stored in the vegetation restart, rather
-   ! than from dat_* tables
 
 !  BE -- broadleaf evergreen trees
 !  BD -- broadleaf deciduous trees
@@ -202,13 +203,13 @@ real :: treefall_disturbance_rate(0:MSPECIES); data treefall_disturbance_rate(0:
 integer :: pt(0:MSPECIES)= &
 !       c4grass       c3grass    temp-decid      tropical     evergreen      BE     BD     BN     NE     ND      G      D      T      A
        (/ PT_C4,        PT_C3,        PT_C3,        PT_C3,        PT_C3,  PT_C3, PT_C3, PT_C3, PT_C3, PT_C3, PT_C4, PT_C4, PT_C3, PT_C3 /)
-real :: alpha(0:MSPECIES,NCMPT) ; data ((alpha(idata,jdata), idata=0,NSPECIES-1),jdata=1,NCMPT) &
-        /   0.0,          0.0,          0.0,          0.0,          0.0,& ! reproduction
-            0.0,          0.0,          0.0,          0.0,          0.0,& ! sapwood
-            1.0,          1.0,          1.0,          0.8,         0.12,& ! leaf
-            0.9,         0.55,          1.0,          0.8,          0.6,& ! root
-            0.0,          0.0,          0.0,          0.0,          0.0,& ! virtual leaf
-            0.0,          0.0,        0.006,        0.012,        0.006 / ! structural
+real :: alpha(0:MSPECIES,NCMPT) ; data ((alpha(idata,jdata), idata=0,MSPECIES),jdata=1,NCMPT) &
+        /   0.0,          0.0,          0.0,          0.0,          0.0,      0,     0,     0,     0,     0,     0,     0,     0,     0, & ! reproduction
+            0.0,          0.0,          0.0,          0.0,          0.0,      0,     0,     0,     0,     0,     0,     0,     0,     0, & ! sapwood
+            1.0,          1.0,          1.0,          0.8,         0.12,    0.8,   1.0,   1.0,  0.12,   1.0,   1.0,   1.0,   1.0,   1.0, & ! leaf
+            0.9,         0.55,          1.0,          0.8,          0.6,    0.8,   1.0,   1.0,   0.6,   1.0,  0.55,   0.9,  0.55,  0.55, & ! root
+            0.0,          0.0,          0.0,          0.0,          0.0,      0,     0,     0,     0,     0,     0,     0,     0,     0, & ! virtual leaf
+            0.0,          0.0,        0.006,        0.012,        0.006,  0.012, 0.006, 0.006, 0.006, 0.006,     0,     0,     0,     0  / ! structural
 
 ! From Foley (Ibis model) 1996 gbc v10 pp. 603-628
 real :: beta(0:MSPECIES,NCMPT) ; data ((beta(idata,jdata), idata=0,NSPECIES-1),jdata=1,NCMPT) &
@@ -262,7 +263,11 @@ real :: alpha_phot(0:MSPECIES)= & ! photosynthesis efficiency
 real :: gamma_resp(0:MSPECIES)= &
        (/   0.03,        0.02,         0.02,          0.02,        0.03,   0.02,  0.02,  0.02,  0.03,  0.03,  0.03,  0.03,  0.03,  0.02  /)
 !       c4grass       c3grass    temp-decid      tropical     evergreen      BE     BD     BN     NE     ND      G      D      T      A
+real :: tc_crit(0:MSPECIES)= &
+       (/ 283.16,      278.16,       283.16,        283.16,      263.16,      0,     0,     0,     0,     0,     0,     0,     0,     0  /)
 
+real :: soil_carbon_depth_scale = 0.2   ! depth of active soil for carbon decomposition
+real :: cold_month_threshold    = 283.0 ! monthly temperature threshold for calculations of number of cold months
 real :: smoke_fraction = 0.9
 real :: k_fw           = 0.1 ! water parameter used in fire disturbance rate calculation
 real :: agf_bs         = 0.8 ! ratio of above ground stem to total stem
@@ -285,7 +290,7 @@ real :: harvest_spending_time  = 1.0 ! time (yrs) during which intermediate pool
 real :: l_fract      = 0.5 ! fraction of the leaves retained after leaf drop
 real :: T_transp_min = 0.0 ! lowest temperature at which transporation is enabled
                            ! 0 means no limit, lm3v value is 268.0
-
+real :: theta_crit   = 0.01! theta threshold for leaf drop (mm)
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
   mcv_min, mcv_lai, &
@@ -301,11 +306,13 @@ namelist /vegn_data_nml/ &
   cmc_lai, cmc_pow, &
   leaf_refl, leaf_tran, leaf_emis, ksi, &
   hight_eq, leaf_size, &
+  soil_carbon_depth_scale, cold_month_threshold, &
 
   smoke_fraction, k_fw, agf_bs, K1,K2, fsc_liv, fsc_wood, &
   tau_drip_l, tau_drip_s, GR_factor, tg_c3_thresh, tg_c4_thresh, &
   fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
-  l_fract, init_pars_from_restart, T_transp_min
+  l_fract, T_transp_min, &
+  tc_crit, theta_crit
 
 
 contains ! ###################################################################
@@ -360,6 +367,8 @@ subroutine read_vegn_data_namelist()
   spdata%cmc_pow = cmc_pow
   
   spdata%leaf_size = leaf_size
+
+  spdata%tc_crit   = tc_crit
 
   do i = 0, MSPECIES
      spdata(i)%alpha     = alpha(i,:)

@@ -4,7 +4,7 @@ use fms_mod,            only : write_version_number, error_mesg, FATAL
 use constants_mod,      only : TFREEZE 
 use sphum_mod,          only : qscomp
 
-use land_constants_mod, only : BAND_VIS, Rugas
+use land_constants_mod, only : BAND_VIS, Rugas,seconds_per_year
 use land_debug_mod,     only : is_watch_point
 use vegn_data_mod,      only : MSPECIES, PT_C4, spdata
 use vegn_tile_mod,      only : vegn_tile_type
@@ -21,8 +21,8 @@ public :: vegn_photosynthesis
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-   version = '$Id: ', &
-   tagname = '$Name: ' ,&
+   version = '$Id: vegn_photosynthesis.F90,v 15.0.2.2 2007/09/16 21:37:26 slm Exp $', &
+   tagname = '$Name: omsk_2007_10 $', &
    module_name = 'vegn_photosynthesis'
 ! values for internal vegetation radiation option selector
 integer, parameter :: VEGN_PHOT_SIMPLE  = 1 ! zero photosynthesis
@@ -84,7 +84,7 @@ subroutine vegn_photosynthesis ( vegn, &
 
   ! ---- local vars
   type(vegn_cohort_type), pointer :: cohort
-  integer :: sp ! vegetation species
+  integer :: sp ! shorthand vegetation species
   real    :: leaf_abs ! leaf absorption coefficient for PAR
   real    :: kappa    ! canopy extinction coefficient
   real    :: water_supply ! water supply per m2 of leaves
@@ -97,6 +97,8 @@ subroutine vegn_photosynthesis ( vegn, &
   case(VEGN_PHOT_SIMPLE)
      ! beta non-unity only for "beta" models
      stomatal_cond = soil_beta / (cohort%rs_min  + (1-soil_beta)/drag_q)
+     cohort%An_op  = 0
+     cohort%An_cl  = 0
      psyn = 0
      resp = 0
 
@@ -114,6 +116,10 @@ subroutine vegn_photosynthesis ( vegn, &
         call gs_Leuning(PAR_dn, PAR_net, cohort%prog%Tv, cana_q, cohort%lai, &
              p_surf, water_supply, sp, cana_co2, &
              cohort%extinct, leaf_abs, stomatal_cond, psyn, resp, cohort%pt)
+        ! store the calculated photosythesis and fotorespiration for future use
+        ! in carbon_int
+        cohort%An_op  = psyn * seconds_per_year
+        cohort%An_cl  = resp * seconds_per_year
         ! convert stomatal conductance, photosynthesis and leaf respiration from units
         ! per unit area of leaf to the units per unit area of land
         stomatal_cond = stomatal_cond*cohort%lai
@@ -121,6 +127,8 @@ subroutine vegn_photosynthesis ( vegn, &
         resp          = resp         *cohort%lai
      else
         ! no leaves means no photosynthesis and no stomatal conductance either
+        cohort%An_op  = 0
+        cohort%An_cl  = 0
         stomatal_cond = 0
         psyn          = 0
         resp          = 0
@@ -258,32 +266,21 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, &
         coef0=(1+ds/do1)/spdata(pft)%m_cond;
         ci=(ca+1.6*coef0*capgam)/(1+1.6*coef0);
         if (ci>capgam) then
-           ! if (C4)
-           !   f1=alpha4*light*kappa*1.00;
            f2=vm;
            f3=18000.0*vm*ci;       
-           ! /*if (f1<f2) an=f1;
-           !  else an=f1;
-           !  if (f3<an) an=f3;*/
        
            dum2=min(f2,f3)
            
            ! find LAI level at which rubisco limited rate is equal to light limited rate
-           lai_eq=-log(dum2/(kappa*spdata(pft)%alpha_phot*light_top))/kappa;
-           if (lai_eq > lai) then
-              Ag_l  = 0.0; 
-              Ag_rb = dum2*lai;
-           else
-              if (lai_eq > 0.01) then
-                 ! solve for both gross photosynthesis
-                 Ag_l = spdata(pft)%alpha_phot*par_net*exp(-kappa*lai_eq);
-                 Ag_rb= dum2*lai_eq;        
-              else     
-                 Ag_rb= 0.0;
-                 Ag_l = spdata(pft)%alpha_phot*par_net;
-              endif
-           endif
-           
+           lai_eq = -log(dum2/(kappa*spdata(pft)%alpha_phot*light_top))/kappa;
+           lai_eq = min(max(0.0,lai_eq),lai) ! limit lai_eq to physically possible range
+
+           ! gross photosynthesis for light-limited part of the canopy
+           Ag_l   = spdata(pft)%alpha_phot * par_net &
+                * (exp(-lai_eq*kappa)-exp(-lai*kappa))/(1-exp(-lai*kappa))
+           ! gross photosynthesis for rubisco-limited part of the canopy
+           Ag_rb  = dum2*lai_eq
+
            Ag=(Ag_l+Ag_rb)/ &
              ((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))));
            An=Ag-Resp;
@@ -304,21 +301,14 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, &
            ! find LAI level at which rubisco limited rate is equal to light limited rate
            lai_eq=-log(dum2*(ci+2.*capgam)/(ci-capgam)/ &
                        (spdata(pft)%alpha_phot*light_top*leaf_abs))/kappa;
-           if (lai_eq > lai) then
-              ! all rubisco or transport limited
-              Ag_l=0;
-              Ag_rb=dum2*lai;          
-           else 
-              if(lai_eq > 0.000001) then
-                 ! solve for both rates
-                 Ag_l=spdata(pft)%alpha_phot*(ci-capgam)/(ci+2.*capgam)*par_net*exp(-kappa*lai_eq);
-                 Ag_rb=dum2*lai_eq;           
-              else ! only light limited rate 
-                 Ag_rb=0;
-                 Ag_l=spdata(pft)%alpha_phot*(ci-capgam)/(ci+2.*capgam)*par_net;
-              endif
-           endif
-          
+           lai_eq = min(max(0.0,lai_eq),lai) ! limit lai_eq to physically possible range
+
+           ! gross photosynthesis for light-limited part of the canopy
+           Ag_l   = spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * par_net &
+                * (exp(-lai_eq*kappa)-exp(-lai*kappa))/(1-exp(-lai*kappa))
+           ! gross photosynthesis for rubisco-limited part of the canopy
+           Ag_rb  = dum2*lai_eq
+
            Ag=(Ag_l+Ag_rb)/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))));
            An=Ag-Resp;
            anbar=An/lai;

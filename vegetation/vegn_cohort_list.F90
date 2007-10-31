@@ -16,6 +16,7 @@ public :: current_cohort ! returns pointer to cohort at a position
 public :: insert_cohort  ! inserts a cohort at a given position, or appends it to a list
 public :: remove_cohort  ! given a position, removes the cohort from the list
 public :: erase_cohort   ! given a position, removes the cohort from the list and deletes it
+public :: n_cohorts      ! return number of cohorts in list
 
 ! ==== end of public interfaces ==============================================
 interface operator(==)
@@ -92,7 +93,7 @@ end subroutine cohort_list_end
 
 ! ============================================================================
 ! returns the number of items currently stored in the list
-function n_items_in_list(list) result (n)
+function n_cohorts(list) result (n)
   type(vegn_cohort_list_type), intent(in) :: list
   integer :: n
 
@@ -106,7 +107,7 @@ function n_items_in_list(list) result (n)
      n = n+1
      node => node%next
   enddo
-end function n_items_in_list
+end function n_cohorts
 
 ! ============================================================================
 ! inserts cohort in the list (more precisely, appends it to the end)

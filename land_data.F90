@@ -38,9 +38,10 @@ public :: land_state_type
 ! ==== end of public interfaces ==============================================
 
 ! ---- module constants ------------------------------------------------------
-character(len=*),   parameter :: module_name = 'land_data_mod'
-character(len=128), parameter :: version = '$Id: land_data.F90,v 15.0 2007/08/14 03:59:32 fms Exp $'
-character(len=128), parameter :: tagname = '$Name: omsk $'
+character(len=*), parameter :: &
+     module_name = 'land_data_mod', &
+     version     = '$Id: land_data.F90,v 15.0.2.1 2007/09/16 21:31:50 slm Exp $', &
+     tagname     = '$Name: omsk_2007_10 $'
 
 ! ---- types -----------------------------------------------------------------
 type :: atmos_land_boundary_type

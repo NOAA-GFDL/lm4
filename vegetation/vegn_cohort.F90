@@ -30,7 +30,7 @@ public :: update_species ! updates cohort physiology, phenology type, and specie
 public :: height_from_biomass
 public :: lai_from_biomass
 public :: update_bio_living_fraction
-public :: set_phenology_status
+public :: update_biomass_pools
 ! ==== end of public interfaces ==============================================
 
 ! ==== types =================================================================
@@ -49,7 +49,7 @@ type :: vegn_cohort_type
 ! the restart; clearly some vars there are, strictly speaking, diagnostic,
 ! but saved for reproducibility (to avoid recalculation). exceptions :
 ! npp_previous_day is left outside, since it's obviously auxiliary; height
-! is left outside since it is in phys_pars_type
+! is left outside
   integer :: species ! vegetation species
   real    :: bl      ! biomass of leaves, kg C/m2
   real    :: blv     ! biomass of virtual leaves (labile store), kg C/m2
@@ -98,8 +98,8 @@ type :: vegn_cohort_type
   real :: resg    ! growth respiration
   real :: md      ! plant tissue maintenance kg C/timestep
 
-  real :: An_op
-  real :: An_cl  
+  real :: An_op ! mol C/(m2 of leaf per year)
+  real :: An_cl ! mol C/(m2 of leaf per year)
   
   real :: carbon_gain = 0.0 ! carbon gain during the month
   real :: carbon_loss = 0.0 ! carbon loss during the month
@@ -335,7 +335,7 @@ end function
 function phenology_type(c, cm)
   integer :: phenology_type
   type(vegn_cohort_type), intent(in) :: c  ! cohort (not used???)
-  real,              intent(in) :: cm ! number of cold months
+  real, intent(in) :: cm ! number of cold months
    
   real :: pe  ! prob evergreen
    
@@ -358,7 +358,7 @@ subroutine update_species(c, t_ann, t_cold, p_ann, cm, landuse)
   type(vegn_cohort_type), intent(inout) :: c    ! cohort to update
   real,              intent(in) :: t_ann   ! annual-mean temperature, degK
   real,              intent(in) :: t_cold  ! average temperature of the coldest month, degK
-  real,              intent(in) :: p_ann   ! annual-mean precipitation, ???
+  real,              intent(in) :: p_ann   ! annual-mean precipitation, mm/yr
   real,              intent(in) :: cm      ! number of cold months
   integer,           intent(in) :: landuse ! land use type
 
@@ -426,43 +426,27 @@ end subroutine update_bio_living_fraction
 
 
 ! ============================================================================
-! sets the status of the leaves, updating the carbon pools as necessary
-subroutine set_phenology_status(c, new_status, litter, fast_soil_C, slow_soil_C)
+! redistribute living biomass pools in a given cohort, and update related 
+! properties (height, lai, sai)
+subroutine update_biomass_pools(c)
   type(vegn_cohort_type), intent(inout) :: c
-  integer,           intent(in)    :: new_status
-  real,              intent(inout) :: litter
-  real,              intent(inout) :: fast_soil_C
-  real,              intent(inout) :: slow_soil_C
 
-  real :: leaf_litter, root_litter
-
-  if(c%status==new_status) return ! do nothing if status does not change
-
-  if (new_status == LEAF_OFF) then
-    leaf_litter = (1.0-l_fract)*c%bl
-    root_litter = (1.0-l_fract)*c%br
-    
-    ! add to patch litter flux terms
-    litter = litter + leaf_litter + root_litter;
-    ! add litter input to carbon pools
-    fast_soil_C = fast_soil_C + fsc_liv      *(leaf_litter+root_litter);
-    slow_soil_C = slow_soil_C + (1.0-fsc_liv)*(leaf_litter+root_litter);
-    
-    ! reset leaf and fine root pools to zero
-    c%blv  = c%blv + l_fract*(c%bl+c%br);
-    c%bl   = 0.0;
-    c%br   = 0.0;
-    c%lai  = 0.0;
-    
-    ! update carbon pools
-    c%bliving = c%blv + c%br + c%bl + c%bsw
-    c%b       = c%bliving + c%bwood
-    call update_bio_living_fraction(c)      
+  c%b      = c%bliving + c%bwood;
+  c%height = height_from_biomass(c%b);
+  call update_bio_living_fraction(c);
+  c%bsw = c%Psw*c%bliving;
+  if(c%status == LEAF_OFF) then
+     c%blv = c%Pl*c%bliving + c%Pr*c%bliving;
+     c%bl  = 0;
+     c%br  = 0;
+  else
+     c%blv = 0;
+     c%bl  = c%Pl*c%bliving;
+     c%br  = c%Pr*c%bliving;
   endif
-  
-  c%status = new_status;
-end subroutine
-
+  c%lai = lai_from_biomass(c%bl,c%species)
+  c%sai = 0.035*c%height ! Federer and Lash,1978
+end subroutine 
 
 
 end module vegn_cohort_mod

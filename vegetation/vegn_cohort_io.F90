@@ -1,6 +1,6 @@
 module cohort_io_mod
 
-use fms_mod,          only : error_mesg, FATAL
+use fms_mod,          only : error_mesg, FATAL, WARNING
 use mpp_mod,          only : mpp_max
 
 use nf_utils_mod,     only : nfu_inq_dim, nfu_get_var_int, nfu_get_var_double, &
@@ -32,9 +32,10 @@ public :: write_cohort_data_i0d_fptr
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
-character(len=*),   parameter :: module_name = 'cohort_io_mod'
-character(len=128), parameter :: version = '$Id: vegn_cohort_io.F90,v 15.0 2007/08/14 03:59:54 fms Exp $'
-character(len=128), parameter :: tagname = '$Name: omsk $'
+character(len=*), parameter :: &
+     module_name = 'cohort_io_mod', &
+     version     = '$Id: vegn_cohort_io.F90,v 15.0.2.2 2007/09/16 21:37:25 slm Exp $', &
+     tagname     = '$Name: omsk_2007_10 $'
 ! name of the "compressed" dimension (and dimension variable) in the output 
 ! netcdf files -- that is, the dimensions written out using compression by 
 ! gathering, as described in CF conventions.
@@ -93,6 +94,7 @@ subroutine read_create_cohorts(ncid)
   type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
   type(vegn_cohort_type)   , pointer :: cohort
+  character(len=64) :: info ! for error message
 
   ! get the size of dimensions
   nlon = size(lnd%glon) ; nlat = size(lnd%glat)
@@ -119,14 +121,16 @@ subroutine read_create_cohorts(ncid)
      enddo
      tile=>current_tile(ce)
      if(.not.associated(tile%vegn)) then
-        write(*,*) nlon, nlat, ntiles
-        write(*,*) idx(n),i,j,t,k
+        ! write(*,*) nlon, nlat, ntiles
+        info = ''
+        write(info,'("(",3i3,")")')i,j,t
         call error_mesg('read_create_cohort',&
-             'vegn tile does not exist, but is necessary to create a cohort', FATAL)
+             'vegn tile'//trim(info)//' does not exist, but is necessary to create a cohort', &
+             WARNING)
+     else
+        allocate(cohort)
+        call insert_cohort(cohort,tile%vegn%cohorts)
      endif
-     allocate(cohort)
-     ! assume vegetation tile exists
-     call insert_cohort(cohort,tile%vegn%cohorts)
   enddo
 
   deallocate(idx)

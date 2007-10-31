@@ -868,12 +868,12 @@ end subroutine snow_step_1
                 *snow%prog(l_old)%T
            snow%prog(l_old)%ws = (1.-frac)*snow%prog(l_old)%ws
            snow%prog(l_old)%wl = (1.-frac)*snow%prog(l_old)%wl
+           if(is_watch_point()) then
+              write(*,*) 'l=',l, ' l_old=',l_old,snow_transfer,frac,&
+                   sum_sno,sum_liq, sum_heat
+           endif
         endif
         
-        if(is_watch_point()) then
-           write(*,*) 'l=',l, ' l_old=',l_old,snow_transfer,frac,&
-                sum_sno,sum_liq, sum_heat
-        endif
      enddo
      if (depth > 0) then
         new_prog(l)%wl = sum_liq

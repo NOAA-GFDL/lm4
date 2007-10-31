@@ -26,8 +26,8 @@ module river_type_mod
   private
 
   !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id: river_type.F90,v 15.0 2007/08/14 03:59:37 fms Exp $'
-  character(len=128) :: tagname = '$Name: omsk $'
+  character(len=128) :: version = ''
+  character(len=128) :: tagname = ''
 
   !--- public interface ------------------------------------------------
   public :: river_type, Leo_Mad_trios
@@ -40,37 +40,48 @@ module river_type_mod
      real, dimension(:),        pointer :: lon   => NULL(), lat   => NULL()
      real, dimension(:),        pointer :: lonb  => NULL(), latb  => NULL()
      real, dimension(:,:),      pointer :: celllength    => NULL()
+     real, dimension(:,:),      pointer :: landfrac      => NULL()
      real, dimension(:,:),      pointer :: cellarea      => NULL()
      integer, dimension(:,:),   pointer :: basinid       => NULL() 
-     integer, dimension(:,:),   pointer :: fromcell      => NULL()
+     integer, dimension(:,:),   pointer :: tocell        => NULL()
      integer, dimension(:,:),   pointer :: travel        => NULL()
      logical, dimension(:,:),   pointer :: pemask        => NULL()
      logical, dimension(:,:),   pointer :: gmask         => NULL()
-     integer, dimension(:,:,:), pointer :: fromcell_coef => NULL()
-     real, dimension(:,:),      pointer :: runoff        => NULL()
-     real, dimension(:,:),      pointer :: runoff_s      => NULL()
-     real, dimension(:,:),      pointer :: runoff_h      => NULL()
-     real, dimension(:,:,:),    pointer :: runoff_c      => NULL()
      real, dimension(:,:),      pointer :: storage       => NULL()     
-     real, dimension(:,:),      pointer :: storage_s     => NULL()     
-     real, dimension(:,:),      pointer :: storage_h     => NULL()     
      real, dimension(:,:,:),    pointer :: storage_c     => NULL()     
+     real, dimension(:,:),      pointer :: inflow        => NULL()
+     real, dimension(:,:,:),    pointer :: inflow_c      => NULL()
+     real, dimension(:,:),      pointer :: infloc        => NULL()
+     real, dimension(:,:,:),    pointer :: infloc_c      => NULL()
      real, dimension(:,:),      pointer :: outflow       => NULL()
-     real, dimension(:,:),      pointer :: outflow_s     => NULL()
-     real, dimension(:,:),      pointer :: outflow_h     => NULL()
      real, dimension(:,:,:),    pointer :: outflow_c     => NULL()
+     real, dimension(:,:),      pointer :: disw2o        => NULL()
+!     real, dimension(:,:),      pointer :: diss2o        => NULL()
+     real, dimension(:,:),      pointer :: disw2l        => NULL()
+!     real, dimension(:,:),      pointer :: diss2l        => NULL()
+     real, dimension(:,:,:),    pointer :: disc2o        => NULL()
+     real, dimension(:,:,:),    pointer :: disc2l        => NULL()
+     real, dimension(:,:,:),    pointer :: removal_c     => NULL()
      real, dimension(:,:),      pointer :: outflowmean   => NULL()
+     real, dimension(:,:),      pointer :: o_coef        => NULL()
+     real, dimension(:,:),      pointer :: o_exp         => NULL()
+     real, dimension(:,:),      pointer :: d_coef        => NULL()
+     real, dimension(:,:),      pointer :: d_exp         => NULL()
+     real, dimension(:,:,:),    pointer :: source_conc   => NULL()
+     real, dimension(:,:,:),    pointer :: source_flux   => NULL()
      real, dimension(:,:),      pointer :: So            => NULL()
-     real, dimension(:,:),      pointer :: width         => NULL()
      real, dimension(:,:),      pointer :: depth         => NULL()
-     real, dimension(:,:),      pointer :: vel           => NULL()
-     real, dimension(:,:),      pointer :: snow_frac     => NULL()
-     real, dimension(:,:),      pointer :: wtr_temp      => NULL()
-     real, dimension(:,:,:),    pointer :: conc          => NULL()
-     real, dimension(:,:),      pointer :: air_temp      => NULL()
+!     real, dimension(:,:),      pointer :: width         => NULL()
+!     real, dimension(:,:),      pointer :: vel           => NULL()
+     real, dimension(:),        pointer :: t_ref         => NULL()
+     real, dimension(:),        pointer :: vf_ref        => NULL()
+     real, dimension(:),        pointer :: q10           => NULL()
+     real, dimension(:),        pointer :: kinv          => NULL()
      type (time_type)                   :: Time
      integer                            :: dt_fast, dt_slow
-     integer                            :: nlon, nlat
+     integer                            :: nlon, nlat, num_species, num_c
+     integer                            :: num_phys
+     logical                            :: do_age
   end type river_type
 
 type Leo_Mad_trios

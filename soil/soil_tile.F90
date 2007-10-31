@@ -37,6 +37,8 @@ public :: soil_data_diffusion
 public :: soil_data_thermodynamics
 public :: soil_data_hydraulics
 public :: soil_data_w_sat
+public :: soil_ave_temp  ! calculate average soil temeperature
+public :: soil_ave_theta ! calculate average soil moisture
 
 public :: max_lev
 ! =====end of public interfaces ==============================================
@@ -423,6 +425,51 @@ subroutine soil_data_beta ( soil, vegn, soil_beta, soil_water_supply )
   enddo
 
 end subroutine soil_data_beta
+
+
+! ============================================================================
+! compute average soil temperature with a given depth scale
+function soil_ave_temp(soil, depth) result (A) ; real :: A
+  type(soil_tile_type), intent(in) :: soil
+  real, intent(in)                 :: depth ! averaging depth
+
+  real    :: w ! averaging weight
+  real    :: N ! normalizing factor for averaging
+  real    :: z ! current depth, m
+  integer :: k
+
+  A = 0 ; N = 0 ; z = 0
+  do k = 1, num_l
+     w = dz(k) * exp(-(z+dz(k)/2)/depth)
+     A = A + soil%prog(k)%T * w
+     N = N + w
+     z = z + dz(k)
+  enddo
+  A = A/N
+end function soil_ave_temp
+
+
+! ============================================================================
+! compute average soil moisture with a given depth scale
+function soil_ave_theta(soil, depth) result (A) ; real :: A
+  type(soil_tile_type), intent(in) :: soil
+  real, intent(in)                 :: depth ! averaging depth
+
+  real    :: w ! averaging weight
+  real    :: N ! normalizing factor for averaging
+  real    :: z ! current depth, m
+  integer :: k
+
+  A = 0 ; N = 0 ; z = 0
+  do k = 1, num_l
+     w = dz(k) * exp(-(z+dz(k)/2)/depth)
+     A = A + max(soil%prog(k)%wl/(dens_h2o*dz(k))-soil%w_wilt(k),0.0)/&
+          (soil%w_fc(k)-soil%w_wilt(k)) * w
+     N = N + w
+     z = z + dz(k)
+  enddo
+  A = A/N
+end function soil_ave_theta
 
 
 ! ============================================================================

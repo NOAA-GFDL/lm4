@@ -34,9 +34,10 @@ end interface
 
 logical :: module_is_initialized =.FALSE.
 ! module constants
-character(len=*), parameter :: mod_name = "numerics_mod"
-character(len=128) :: version = '$Id: land_numerics.F90,v 15.0 2007/08/14 18:48:21 fms Exp $'
-character(len=128) :: tagname = '$Name: omsk $'
+character(len=*), parameter :: &
+     mod_name = 'numerics_mod', &
+     version  = '$Id: land_numerics.F90,v 15.0.2.1 2007/09/16 21:37:07 slm Exp $', &
+     tagname  = '$Name: omsk_2007_10 $'
 
 contains
 

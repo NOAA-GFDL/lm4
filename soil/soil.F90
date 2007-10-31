@@ -24,7 +24,8 @@ use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
 use land_utils_mod, only : put_to_tiles_r0d_fptr, put_to_tiles_r1d_fptr
 use land_tile_diag_mod, only : diag_buff_type, &
      register_tiled_static_field, register_tiled_diag_field, &
-     send_tile_data, send_tile_data_r0d_fptr, send_tile_data_r1d_fptr
+     send_tile_data, send_tile_data_r0d_fptr, send_tile_data_r1d_fptr, &
+     send_tile_data_i0d_fptr
 use land_data_mod,      only : land_state_type, lnd
 use land_io_mod, only : read_field
 use land_tile_io_mod, only : create_tile_out_file, write_tile_data_r1d_fptr, &
@@ -235,6 +236,7 @@ subroutine soil_init ( id_lon, id_lat, id_band, use_E_max   )
   call send_tile_data_r1d_fptr(id_refl_dry_dif, lnd%tile_map, soil_refl_dry_dif_ptr)
   call send_tile_data_r1d_fptr(id_refl_sat_dir, lnd%tile_map, soil_refl_sat_dir_ptr)
   call send_tile_data_r1d_fptr(id_refl_sat_dif, lnd%tile_map, soil_refl_sat_dif_ptr)
+  call send_tile_data_i0d_fptr(id_type,         lnd%tile_map, soil_tag_ptr)
  
 end subroutine soil_init
 
@@ -1043,7 +1045,7 @@ end subroutine soil_step_1
   if(is_watch_point()) then
      write(*,*) ' ***** soil_step_2 checkpoint 3.5 ***** '
      write(*,*) 'hcap', hcap
-     write(*,*) 'cap_flow', cap_flow
+!     write(*,*) 'cap_flow', cap_flow
      do l = 1, num_l
         write(*,*) 'level=', l, ' T', soil%prog(l)%T
      enddo
@@ -1184,9 +1186,21 @@ type(land_tile_type),pointer::t;xtype,pointer::p(:);p=>NULL();if(associated(t))t
 DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars,tau_groundwater)
 
 subroutine soil_w_fc_ptr(t,p);
-type(land_tile_type),pointer::t;
-real,pointer::p(:);
-p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%w_fc;endif;
+  type(land_tile_type),pointer::t;
+  real,pointer::p(:);
+  p=>NULL();
+  if(associated(t))then;
+     if(associated(t%soil))p=>t%soil%w_fc;
+  endif;
+end subroutine
+
+subroutine soil_tag_ptr(t,p);
+  type(land_tile_type),pointer::t;
+  integer,pointer::p;
+  p=>NULL();
+  if(associated(t))then;
+     if(associated(t%soil))p=>t%soil%tag;
+  endif;
 end subroutine
 
 DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,refl_dry_dir)

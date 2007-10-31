@@ -35,9 +35,10 @@ include 'netcdf.inc'
 #define __NF_ASRT__(x) call print_netcdf_error((x),__FILE__,__LINE__)
 
 ! ==== module constants ======================================================
-character(len=*),   parameter :: module_name = 'land_io_mod'
-character(len=128), parameter :: version = '$Id: land_io.F90,v 15.0 2007/08/14 18:48:29 fms Exp $'
-character(len=128), parameter :: tagname = '$Name: omsk $'
+character(len=*), parameter :: &
+     module_name = 'land_io_mod', &
+     version     = '$Id: land_io.F90,v 15.0.2.2 2007/09/16 21:37:06 slm Exp $', &
+     tagname     = '$Name: omsk_2007_10 $'
 
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -148,7 +149,16 @@ subroutine init_cover_field( &
      enddo
      enddo
   else if (cover_to_use == 'uniform') then
-     frac(:,:,uniform_cover) = 1
+     call read_cover_field(filename,cover_field_name,frac_field_name,glonb,glatb,input_cover_types,frac)
+     do j = 1,size(frac,2)
+     do i = 1,size(frac,1)
+        total = sum(frac(i,j,:))
+        if (total <= 0) cycle ! operate on valid input data points only
+        ! set all fractions except dominant fraction to zero
+        frac(i,j,:) = 0.0
+        frac(i,j,uniform_cover) = total
+     enddo
+     enddo
   else
      call error_mesg ( module_name,'illegal value of cover_to_use '//cover_to_use, FATAL )
   endif

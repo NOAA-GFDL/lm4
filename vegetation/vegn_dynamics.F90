@@ -5,7 +5,7 @@
 ! ============================================================================
 ! updates carbon pools and rates on the fast time scale
 ! ============================================================================
-module vegn_carbon_int_mod
+module vegn_dynamics_mod
 
 use fms_mod, only: write_version_number
 use time_manager_mod, only: time_type
@@ -15,31 +15,34 @@ use land_tile_diag_mod, only : &
      register_tiled_diag_field, send_tile_data, diag_buff_type
 use vegn_data_mod, only : spdata, &
      CMPT_VLEAF, CMPT_SAPWOOD, CMPT_ROOT, CMPT_WOOD, CMPT_LEAF, LEAF_ON, LEAF_OFF, &
-     fsc_liv, fsc_wood, K1, K2, soil_carbon_depth_scale, C2B, agf_bs
+     LU_NTRL, &
+     fsc_liv, fsc_wood, K1, K2, soil_carbon_depth_scale, C2B, agf_bs, theta_crit, &
+     l_fract
 use vegn_tile_mod, only: vegn_tile_type
 use soil_tile_mod, only: soil_tile_type, soil_ave_temp, soil_ave_theta
 use cohort_list_mod, only : vegn_cohort_enum_type, first_cohort, tail_cohort, &
      current_cohort, next_cohort, operator(/=)
 use vegn_cohort_mod, only : vegn_cohort_type, height_from_biomass, lai_from_biomass, &
-     update_bio_living_fraction
+     update_bio_living_fraction, update_species
 
 use land_debug_mod, only : is_watch_point
 
 implicit none
-public
+private
 
 ! ==== public interfaces =====================================================
-public :: vegn_carbon_int_init
-public :: vegn_carbon_int_end
+public :: vegn_dynamics_init
 
-public :: vegn_carbon_int ! fast time-scale integrator of carbon balance
-public :: vegn_growth     ! slow time-scale redistributor of accumulated carbon
-public :: vegn_daily_npp  ! updates values of daily-average npp
+public :: vegn_carbon_int   ! fast time-scale integrator of carbon balance
+public :: vegn_growth       ! slow time-scale redistributor of accumulated carbon
+public :: vegn_daily_npp    ! updates values of daily-average npp
+public :: vegn_phenology    !
+public :: vegn_biogeography !
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-   version = '$Id: vegn_carbon_int.F90,v 15.0.2.1 2007/08/29 23:55:19 slm Exp $', &
+   version = '$Id: vegn_dynamics.F90,v 1.1.2.1 2007/09/16 22:14:24 slm Exp $', &
    tagname = '$Name: omsk_2007_10 $' ,&
    module_name = 'vegn'
 real, parameter :: GROWTH_RESP=0.333  ! fraction of npp lost as growth respiration
@@ -57,7 +60,7 @@ integer :: id_soilt, id_theta
 contains
 
 ! ============================================================================
-subroutine vegn_carbon_int_init(id_lon, id_lat, time, delta_time)
+subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
   integer        , intent(in) :: id_lon ! ID of land longitude (X) axis 
   integer        , intent(in) :: id_lat ! ID of land latitude (Y) axis
   type(time_type), intent(in) :: time       ! initial time for diagnostic fields
@@ -101,32 +104,22 @@ subroutine vegn_carbon_int_init(id_lon, id_lat, time, delta_time)
   id_theta = register_tiled_diag_field ( module_name, 'theta',  &
        (/id_lon,id_lat/), time, 'average soil wetness for carbon decomposition', 'm3/m3', &
        missing_value=-100.0 )
-end subroutine vegn_carbon_int_init
+end subroutine vegn_dynamics_init
 
 
 ! ============================================================================
-subroutine vegn_carbon_int_end
-end subroutine vegn_carbon_int_end
-
-
-! ============================================================================
-subroutine vegn_carbon_int(vegn, soil, diag)
+subroutine vegn_carbon_int(vegn, soilt, theta, diag)
   type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(in)    :: soil
+  real, intent(in) :: soilt ! average temperature of soil for soil carbon decomposition, deg K
+  real, intent(in) :: theta ! average soil wetness, unitless
   type(diag_buff_type), intent(inout) :: diag
 
   type(vegn_cohort_type), pointer :: cc
   type(vegn_cohort_enum_type) :: ci,ce ! cohort enumerators
 
-  real :: soilt ! average temperature of soil for soil carbon decomposition, deg K
-  real :: theta ! average soil wetness, unitless
   real :: resp, resl, resr, resg ! respiration terms accumualted for all cohorts 
   real :: md_alive, md_wood;
   integer :: sp ! shorthand for current cohort specie
-
-
-  soilt = soil_ave_temp (soil,soil_carbon_depth_scale)
-  theta = soil_ave_theta(soil,soil_carbon_depth_scale)
 
   if(is_watch_point()) then
      write(*,*)'#### vegn_carbon_int ####'
@@ -454,6 +447,82 @@ end subroutine vegn_daily_npp
 
 
 ! =============================================================================
+subroutine vegn_phenology(vegn)
+  type(vegn_tile_type), intent(inout) :: vegn
+
+  ! ---- local vars
+  type(vegn_cohort_type), pointer :: cc
+  type(vegn_cohort_enum_type) :: ci,ce ! cohort enumerators
+  real :: leaf_litter,root_litter;    
+  
+  vegn%litter = 0
+
+  ci = first_cohort(vegn%cohorts);  ce = tail_cohort (vegn%cohorts);
+  do while(ci/=ce)   
+     cc => current_cohort(ci) ; ci = next_cohort(ci)
+     
+     if(is_watch_point())then
+        write(*,*)'####### vegn_phenology #######'
+        __DEBUG2__(vegn%theta_av, theta_crit)
+        __DEBUG1__(cc%species)
+        __DEBUG2__(vegn%tc_av,spdata(cc%species)%tc_crit)
+     endif
+     ! if drought-deciduous or cold-deciduous species
+     ! temp=10 degrees C gives good growing season pattern        
+     ! spp=0 is c3 grass,1 c3 grass,2 deciduous, 3 evergreen
+     ! assumption is that no difference between drought and cold deciduous
+     cc%status = LEAF_ON; ! set status to indicate no leaf drop
+      
+     if(cc%species < 4 )then! deciduous species
+        if ( (vegn%theta_av < theta_crit).or.(vegn%tc_av < spdata(cc%species)%tc_crit) ) then
+           cc%status = LEAF_OFF; ! set status to indicate leaf drop 
+           
+           leaf_litter = (1.0-l_fract)*cc%bl;
+           root_litter = (1.0-l_fract)*cc%br;
+           
+           ! add to patch litter flux terms
+           vegn%litter = vegn%litter + leaf_litter + root_litter;
+           
+           vegn%fast_soil_C = vegn%fast_soil_C +    fsc_liv *(leaf_litter+root_litter);
+           vegn%slow_soil_C = vegn%slow_soil_C + (1-fsc_liv)*(leaf_litter+root_litter);
+	     
+           ! vegn%fsc_in+=data->fsc_liv*(leaf_litter+root_litter);
+           ! vegn%ssc_in+=(1.0-data->fsc_liv)*(leaf_litter+root_litter);
+           vegn%fsc_in  = vegn%fsc_in  + leaf_litter+root_litter;
+           vegn%veg_out = vegn%veg_out + leaf_litter+root_litter;
+           
+           cc%blv = cc%blv + l_fract*(cc%bl+cc%br);
+           cc%bl  = 0.0;
+           cc%br  = 0.0;
+           cc%lai = 0.0;
+           
+           ! update state
+           cc%bliving = cc%blv + cc%br + cc%bl + cc%bsw;
+           cc%b = cc%bliving + cc%bwood ;
+           call update_bio_living_fraction(cc);   
+        endif
+     endif
+  enddo
+end subroutine vegn_phenology
+
+subroutine vegn_biogeography(vegn)
+  type(vegn_tile_type), intent(inout) :: vegn
+
+  ! ---- local vars
+  type(vegn_cohort_type), pointer :: cc
+  type(vegn_cohort_enum_type) :: ci,ce ! cohort enumerators
+ 
+  ci = first_cohort(vegn%cohorts);  ce = tail_cohort (vegn%cohorts);
+  do while(ci/=ce)   
+     cc => current_cohort(ci) ; ci = next_cohort(ci)
+     ! landuse type is natural for now, update to the appropriate value when
+     ! landuse is introduced
+     call update_species(cc, vegn%t_ann, vegn%t_cold, &
+          vegn%p_ann*seconds_per_year, vegn%ncm, LU_NTRL)
+  enddo
+end subroutine vegn_biogeography
+
+! =============================================================================
 ! The stuff below comes from she_update.c -- it looks like it belongs here, 
 ! since it is essentially a part of the carbon integration (update_patch_fast
 ! is only called immediately after carbon_int in lm3v)
@@ -485,4 +554,5 @@ subroutine update_soil_pools(vegn)
 end subroutine update_soil_pools
 
 
-end module vegn_carbon_int_mod
+
+end module vegn_dynamics_mod
