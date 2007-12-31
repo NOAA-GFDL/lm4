@@ -49,8 +49,8 @@ module river_mod
   private
 
   !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id: river.F90,v 15.0.2.3 2007/09/16 22:14:23 slm Exp $'
-  character(len=128) :: tagname = '$Name: omsk_2007_10 $'
+  character(len=128) :: version = '$Id: river.F90,v 15.0.2.5.2.1 2007/12/12 23:13:32 wfc Exp $'
+  character(len=128) :: tagname = '$Name: omsk_2007_12 $'
 
   !--- public interface ------------------------------------------------
   public :: river_init, river_end, river_type, update_river
@@ -75,13 +75,16 @@ module river_mod
   real, dimension(3) :: ave_DHG_exp = (/0.49,0.33,0.18/)  ! (/B, F, M for avg of many rivers, 15Nov05/)
   real, dimension(3) :: ave_AAS_exp = (/0.19,0.39,0.42/)  ! (/b, f, m for avg of many rivers, 15Nov05/)
   real, dimension(3) :: ave_DHG_coef = (/4.62,0.26,0.82/) ! (/A, C, K for avg of many rivers, 15Nov05/)
-  namelist /river_nml/ do_rivers, dt_slow, diag_freq, runoff_type, debug_river, do_age, &
+  real               :: sinuosity = 1.3
+  namelist /river_nml/ dt_slow, diag_freq, runoff_type, debug_river, do_age, &
                          Somin, outflowmean_min, &
                          num_c, rt_c_name, rt_t_ref, rt_vf_ref, rt_q10, &
                                      rt_kinv, &
                         rt_source_conc_file, rt_source_flux_file, &
                         rt_source_conc_name, rt_source_flux_name, &
-                        ave_DHG_exp, ave_AAS_exp, ave_DHG_coef
+                        ave_DHG_exp, ave_AAS_exp, ave_DHG_coef, &
+                        do_rivers, &
+                        sinuosity
 
   character(len=128) :: runoff_file      = "INPUT/river_runoff.nc"
   character(len=128) :: river_src_file   = 'INPUT/river_data.nc'
@@ -98,7 +101,7 @@ module river_mod
   integer :: nlon, nlat                                 ! size of computational river grid 
   integer :: id_inflow, id_outflow, id_infloc
   integer :: id_storage, id_dx, id_basin, id_So, id_depth !, id_width, id_vel
-  integer :: id_disw2o, id_diss2o, id_disw2l, id_diss2l
+  integer :: id_disw2o, id_disw2l
   integer :: i_species
   integer :: id_travel, id_elev, id_tocell
   integer :: maxtravel
@@ -386,11 +389,9 @@ contains
           River%source_flux(:,:,i_species) = 0
         endif
       enddo
-! TEMPORARY FIXES!!!
-!    River%source_flux = River%source_flux /86400.
-    River%source_conc = max(River%source_conc, 0.)
-    River%source_flux = max(River%source_flux, 0.)
 
+  River%source_conc = max(River%source_conc, 0.)
+  River%source_flux = max(River%source_flux, 0.)
     River%depth     = 0.
 !    River%width     = 0.
 !    River%vel       = 0.
@@ -450,9 +451,19 @@ contains
     call river_physics_init()
     call get_Leo_Mad_params(DHG_exp, DHG_coef, AAS_exp)
     River%o_exp  = 1./ (AAS_exp%on_w + AAS_exp%on_d)
-    River%o_coef = River%outflowmean / &
-               (River%celllength*DHG_coef%on_w*DHG_coef%on_d &
-                 *River%outflowmean**(DHG_exp%on_w+DHG_exp%on_d))**River%o_exp
+    do j = 1, nlat
+       do i = 1, nlon
+       if ( River%celllength(i,j) > 0.0) then
+    River%o_coef(i,j) = River%outflowmean(i,j) / &
+               ((sinuosity*River%celllength(i,j))*DHG_coef%on_w*DHG_coef%on_d &
+                 *(River%outflowmean(i,j)**(DHG_exp%on_w+DHG_exp%on_d)))**River%o_exp(i,j)
+       endif
+       enddo
+    enddo
+!    River%o_coef = River%outflowmean / &
+!               ((sinuosity*River%celllength)*DHG_coef%on_w*DHG_coef%on_d &
+!                 *(River%outflowmean**(DHG_exp%on_w+DHG_exp%on_d)))**o_exp
+!                 *(River%outflowmean**(DHG_exp%on_w+DHG_exp%on_d)))**River%o_exp
     River%d_exp  = AAS_exp%on_d
     River%d_coef = DHG_coef%on_d                        &
                     *(River%outflowmean**(DHG_exp%on_d-AAS_exp%on_d))
@@ -497,6 +508,10 @@ contains
        runoff_total   = runoff_total   + runoff
        runoff_c_total = runoff_c_total + runoff_c
     endif
+       if (isc_lnd.le.120.and.iec_lnd.ge.120.and.jsc_lnd.le.9.and.jec_lnd.ge.9) then
+           write(6,'(2i5,1x,a16,1x,2e10.2)') n,mpp_pe(),'rnf_tot',runoff_total(120,9),gland_mask(120,9)
+           write(6,'(2i5,1x,a16,1x,2e10.2)') n,mpp_pe(),'rnfc_tot',runoff_c_total(120,9,1)
+           endif
     if(n == num_fast_calls) then
        call mpp_clock_begin(slowclock)
        call update_river_slow(runoff_total(:,:)  /real(num_fast_calls), &
@@ -524,30 +539,28 @@ contains
     case(FROM_LAND_MODEL)
 
        wrk2 = 0.0
-       wrk2(isc_lnd:iec_lnd,jsc_lnd:jec_lnd) = runoff(:,:) 
-       ! ---- get the global field
+       wrk2(isc_lnd:iec_lnd,jsc_lnd:jec_lnd) = runoff(:,:) &
+                        *gland_mask(isc_lnd:iec_lnd,jsc_lnd:jec_lnd)
        call mpp_sum(wrk2, nlon_lnd*nlat_lnd)
-!       call horiz_interp(Interp_land_to_river, wrk2, wrk1(isc:iec,jsc:jec) )
-!       call mpp_sum(wrk1, nlon*nlat)
        call horiz_interp(Interp_land_to_river, wrk2, wrk1 )
+       if (isc_lnd.le.120.and.iec_lnd.ge.120.and.jsc_lnd.le.9.and.jec_lnd.ge.9) then
+           write(6,'(2i5,1x,a16,1x,2e10.2)') slow_step,mpp_pe(),'rnf_lnd,mask',runoff(120-isc_lnd+1,9-jsc_lnd+1),gland_mask(120,9)
+           write(6,'(2i5,1x,a16,1x,2e10.2)') slow_step,mpp_pe(),'rnf_rvr,cellarea',wrk1(598,33),River%cellarea(598,33)
+           endif
 
       do i_species = 1, River%num_phys
        wrk2 = 0.0
        wrk2(isc_lnd:iec_lnd,jsc_lnd:jec_lnd) = runoff_c(:,:, i_species)
-       ! ---- get the global field
        call mpp_sum(wrk2, nlon_lnd*nlat_lnd)
-!       call horiz_interp(Interp_land_to_river, wrk2, wrk1_c(isc:iec,jsc:jec,i_species) )
-!       call mpp_sum(wrk1_c(:,:,i_species), nlon*nlat)
-       call horiz_interp(Interp_land_to_river, wrk2, wrk1_c(:,:,i_species) )
+       call horiz_interp(Interp_land_to_river, wrk2*gland_mask, wrk1_c(:,:,i_species) )
        enddo
 
       if (River%do_age) then
       i_species = 3
        wrk2 = 0.0
        wrk2(isc_lnd:iec_lnd,jsc_lnd:jec_lnd) = runoff_c(:,:, i_species)
-       ! ---- get the global field
        call mpp_sum(wrk2, nlon_lnd*nlat_lnd)
-       call horiz_interp(Interp_land_to_river, wrk2, wrk1_c(:,:,i_species) )
+       call horiz_interp(Interp_land_to_river, wrk2*gland_mask, wrk1_c(:,:,i_species) )
        endif
 
     case(READ_ON_LAND)
@@ -561,16 +574,16 @@ contains
        wrk1(is_model:ie_model,js_model:je_model) = wrk4(is_runoff:ie_runoff,js_runoff:je_runoff)
     end select 
 
-    River%infloc   = River%cellarea*River%landfrac*wrk1  /DENS_H2O
+    River%infloc   = River%cellarea*wrk1  /DENS_H2O
     River%infloc_c = 0
     do i_species = 1, River%num_phys
       River%infloc_c(:,:,i_species) = &
-           River%cellarea*River%landfrac*wrk1_c(:,:,i_species)/DENS_H2O
+           River%cellarea*wrk1_c(:,:,i_species)/DENS_H2O
       enddo
     if (River%do_age) then
         i_species = 3
         River%infloc_c(:,:,i_species) = &
-           River%cellarea*River%landfrac*wrk1_c(:,:,i_species)/DENS_H2O
+           River%cellarea*wrk1_c(:,:,i_species)/DENS_H2O
       endif
     do i_species = num_species-River%num_c+1, num_species  ! create mass flux inputs from c data
       where (River%cellarea.gt.0.)  &
@@ -593,25 +606,36 @@ call mpp_sum(River%inflow,  nlon*nlat            )
 call mpp_sum(River%inflow_c,nlon*nlat*num_species)
 
     River%disw2o = 0.
-!    River%diss2o = 0.
     where (River%tocell.eq.0 .and. River%landfrac.lt.1.)
-              River%disw2o = River%infloc          + River%inflow
-!              River%diss2o = River%infloc_c(:,:,1) + River%inflow_c(:,:,1)
+              River%disw2o = River%inflow
+      endwhere
+    where (River%landfrac.lt.1. .and. River%tocell.eq.0)
+              River%disw2o = River%disw2o + River%infloc
+      endwhere
+    where (River%landfrac.eq.0. .and. River%tocell.ne.0)
+              River%disw2o = River%disw2o + River%infloc
       endwhere
     River%disc2o = 0.
     do i_species = 1, num_species
       where (River%tocell.eq.0 .and. River%landfrac.lt.1.)
               River%disc2o(:,:,i_species) = &
-                 River%infloc_c(:,:,i_species) &
                + River%inflow_c(:,:,i_species)
+        endwhere
+      where (River%landfrac.lt.1. .and. River%tocell.eq.0)
+              River%disc2o(:,:,i_species) = &
+                 River%disc2o(:,:,i_species) &
+                 + River%infloc_c(:,:,i_species)
+        endwhere
+      where (River%landfrac.eq.0. .and. River%tocell.ne.0)
+              River%disc2o(:,:,i_species) = &
+                 River%disc2o(:,:,i_species) &
+                 + River%infloc_c(:,:,i_species)
         endwhere
       enddo
 
     River%disw2l = 0.
-!    River%diss2l = 0.
     where (River%tocell.eq.0 .and. River%landfrac.ge.1.)
               River%disw2l = River%infloc          + River%inflow
-!              River%diss2l = River%infloc_c(:,:,1) + River%inflow_c(:,:,1)
       endwhere
     River%disc2l = 0.
     do i_species = 1, num_species
@@ -632,19 +656,17 @@ call mpp_sum(River%inflow_c,nlon*nlat*num_species)
 
     subroutine update_river_bnd_slow
 
-    wrk1 = 0.
-    where (River%landfrac.lt.1.)&
+!!    wrk1 = 0.
+!!    where (River%landfrac.lt.1.)&
         wrk1 = (River%disw2o - River%disc2o(:,:,1)) &
                                 / River%cellarea
- !   call mpp_sum(wrk1,nlon*nlat)
     call horiz_interp(Interp_river_to_land, wrk1, wrk3)
     discharge2ocean_next = DENS_H2O*wrk3
 
-    wrk1 = 0.
-    where (River%landfrac.ge.1.)&
+!!    wrk1 = 0.
+!!    where (River%landfrac.ge.1.)&
         wrk1 = (River%disw2l - River%disc2l(:,:,1)) &
                                 / River%cellarea
- !   call mpp_sum(wrk1,nlon*nlat)
     call horiz_interp(Interp_river_to_land, wrk1, wrk3)
     discharge2land_next = DENS_H2O*wrk3
 
@@ -652,13 +674,11 @@ call mpp_sum(River%inflow_c,nlon*nlat*num_species)
       wrk1 = 0
       where (River%landfrac.lt.1) &
         wrk1 = River%disc2o(:,:,i_species) / River%cellarea
- !     call mpp_sum(wrk1,nlon*nlat)
       call horiz_interp(Interp_river_to_land, wrk1, wrk3)
       discharge2ocean_next_c(:,:,i_species) = DENS_H2O*wrk3
       wrk1 = 0
       where (River%landfrac.ge.1.) &
         wrk1 = River%disc2l(:,:,i_species) / River%cellarea
- !     call mpp_sum(wrk1,nlon*nlat)
       call horiz_interp(Interp_river_to_land, wrk1, wrk3)
       discharge2land_next_c(:,:,i_species) = DENS_H2O*wrk3
       enddo
@@ -710,7 +730,6 @@ call mpp_sum(River%inflow_c,nlon*nlat*num_species)
     deallocate(River%inflow  )
     deallocate(River%storage        )
     deallocate(River%disw2o        )
-!    deallocate(River%diss2o        )
     deallocate(River%disc2o        )
     deallocate(River%disw2l        )
 !    deallocate(River%diss2l        )
@@ -737,49 +756,50 @@ call mpp_sum(River%inflow_c,nlon*nlat*num_species)
   !#####################################################################
   ! compare ocean grid in grid_spec.nc and river networking. 
   subroutine compare_ocean_grid( )
-    integer                           :: ni, nj, i, j, siz(4)
-    real, dimension(:,:), allocatable :: lon1, lat1, mask1
-    real, dimension(:,:), allocatable :: lon2, lat2, mask2
-    character(len=128)                :: grid_file = "INPUT/grid_spec.nc"
 
-    !--- check if the model land grid is the same as the land grid 
-    !--- used to do river_regrid.
-
-    !--- nullify land domain to aviod size mismatch.
-    call field_size(river_src_file, 'mask_ocean', siz)
-    ni = siz(1)
-    nj = siz(2)
-    call field_size(grid_file, "wet", siz)
-    if(siz(1) .NE. ni .OR. siz(2) .NE. nj) call mpp_error(FATAL, &
-       "river_mod: size mismatch of ocean grid between INPUT/grid_spec.nc and the grid file used in river_regrid.")
-
-    allocate(lon1(ni,nj), lat1(ni,nj), mask1(ni,nj) )
-    allocate(lon2(ni,nj), lat2(ni,nj), mask2(ni,nj) )
-    call read_data(river_src_file, 'lon_ocean', lon1, no_domain = .true.)
-    call read_data(river_src_file, 'lat_ocean', lat1, no_domain = .true.)
-    call read_data(river_src_file, 'mask_ocean', mask1, no_domain = .true.)  
-
-    call read_data(grid_file, 'wet', mask2, no_domain = .true.)   
-    if(field_exist(grid_file, "geolon_t")) then
-       call read_data(grid_file, 'geolon_t', lon2, no_domain = .true.)
-       call read_data(grid_file, 'geolat_t', lat2, no_domain = .true.)       
-    else
-       call read_data(grid_file, 'x_T', lon2, no_domain = .true.)
-       call read_data(grid_file, 'y_T', lat2, no_domain = .true.)   
-    end if
-
-    do j = 1, nj
-       do i = 1, ni
-          if(abs(lon1(i,j)-lon2(i,j)) > epsln) call mpp_error(FATAL, &
-               "river_mod: ocean longitude mismatch between INPUT/grid_spec.nc and the grid file used in river_regrid.")
-          if(abs(lat1(i,j)-lat2(i,j)) > epsln) call mpp_error(FATAL, &
-               "river_mod: ocean latitude mismatch between INPUT/grid_spec.nc and the grid file used in river_regrid.")
-          if(abs(mask1(i,j)-mask2(i,j)) > epsln) call mpp_error(FATAL, &
-               "river_mod: ocean mask mismatch between INPUT/grid_spec.nc and the grid file used in river_regrid.")
-       end do
-    end do
-
-    deallocate(lon1, lat1, mask1, lon2, lat2, mask2)
+!!$    integer                           :: ni, nj, i, j, siz(4)
+!!$    real, dimension(:,:), allocatable :: lon1, lat1, mask1
+!!$    real, dimension(:,:), allocatable :: lon2, lat2, mask2
+!!$    character(len=128)                :: grid_file = "INPUT/grid_spec.nc"
+!!$
+!!$    !--- check if the model land grid is the same as the land grid 
+!!$    !--- used to do river_regrid.
+!!$
+!!$    !--- nullify land domain to aviod size mismatch.
+!!$    call field_size(river_src_file, 'mask_ocean', siz)
+!!$    ni = siz(1)
+!!$    nj = siz(2)
+!!$    call field_size(grid_file, "wet", siz)
+!!$    if(siz(1) .NE. ni .OR. siz(2) .NE. nj) call mpp_error(FATAL, &
+!!$       "river_mod: size mismatch of ocean grid between INPUT/grid_spec.nc and the grid file used in river_regrid.")
+!!$
+!!$    allocate(lon1(ni,nj), lat1(ni,nj), mask1(ni,nj) )
+!!$    allocate(lon2(ni,nj), lat2(ni,nj), mask2(ni,nj) )
+!!$    call read_data(river_src_file, 'lon_ocean', lon1, no_domain = .true.)
+!!$    call read_data(river_src_file, 'lat_ocean', lat1, no_domain = .true.)
+!!$    call read_data(river_src_file, 'mask_ocean', mask1, no_domain = .true.)  
+!!$
+!!$    call read_data(grid_file, 'wet', mask2, no_domain = .true.)   
+!!$    if(field_exist(grid_file, "geolon_t")) then
+!!$       call read_data(grid_file, 'geolon_t', lon2, no_domain = .true.)
+!!$       call read_data(grid_file, 'geolat_t', lat2, no_domain = .true.)       
+!!$    else
+!!$       call read_data(grid_file, 'x_T', lon2, no_domain = .true.)
+!!$       call read_data(grid_file, 'y_T', lat2, no_domain = .true.)   
+!!$    end if
+!!$
+!!$    do j = 1, nj
+!!$       do i = 1, ni
+!!$          if(abs(lon1(i,j)-lon2(i,j)) > epsln) call mpp_error(FATAL, &
+!!$               "river_mod: ocean longitude mismatch between INPUT/grid_spec.nc and the grid file used in river_regrid.")
+!!$          if(abs(lat1(i,j)-lat2(i,j)) > epsln) call mpp_error(FATAL, &
+!!$               "river_mod: ocean latitude mismatch between INPUT/grid_spec.nc and the grid file used in river_regrid.")
+!!$          if(abs(mask1(i,j)-mask2(i,j)) > epsln) call mpp_error(FATAL, &
+!!$               "river_mod: ocean mask mismatch between INPUT/grid_spec.nc and the grid file used in river_regrid.")
+!!$       end do
+!!$    end do
+!!$
+!!$    deallocate(lon1, lat1, mask1, lon2, lat2, mask2)
 
   end subroutine compare_ocean_grid
 
@@ -856,7 +876,6 @@ call mpp_sum(River%inflow_c,nlon*nlat*num_species)
     allocate(River%outflow  (0:nlon+1,0:nlat+1)  )
     allocate(River%storage  (nlon,    nlat)      )
     allocate(River%disw2o  (nlon,    nlat)      )
- !   allocate(River%diss2o  (nlon,    nlat)      )
     allocate(River%disc2o  (nlon,    nlat, num_species)      )
     allocate(River%disw2l  (nlon,    nlat)      )
  !   allocate(River%diss2l  (nlon,    nlat)      )
@@ -1222,12 +1241,12 @@ end subroutine sort_basins
          River%Time, 'infloc', 'm3/s', missing_value=missing )
     id_disw2o   = register_diag_field ( mod_name, 'disw2o', (/id_lon, id_lat/), &
          River%Time, 'disw2o', 'm3/s', missing_value=missing )
-    id_diss2o   = register_diag_field ( mod_name, 'diss2o', (/id_lon, id_lat/), &
-         River%Time, 'diss2o', 'm3/s', missing_value=missing )
+!    id_diss2o   = register_diag_field ( mod_name, 'diss2o', (/id_lon, id_lat/), &
+!         River%Time, 'diss2o', 'm3/s', missing_value=missing )
     id_disw2l   = register_diag_field ( mod_name, 'disw2l', (/id_lon, id_lat/), &
          River%Time, 'disw2l', 'm3/s', missing_value=missing )
-    id_diss2l   = register_diag_field ( mod_name, 'diss2l', (/id_lon, id_lat/), &
-         River%Time, 'diss2l', 'm3/s', missing_value=missing )
+!    id_diss2l   = register_diag_field ( mod_name, 'diss2l', (/id_lon, id_lat/), &
+!         River%Time, 'diss2l', 'm3/s', missing_value=missing )
     do i_species = 1, num_species
       id_inflow_c(i_species) = register_diag_field ( mod_name, ifname(i_species),     &
          (/id_lon, id_lat/), River%Time, ifname(i_species), ifunits(i_species),    &
@@ -1338,11 +1357,11 @@ end subroutine sort_basins
        used = send_data (id_disw2o, tmp(isc:iec,jsc:jec), River%Time)
     endif
 
-    if (id_diss2o > 0) then
-       tmp = River%disc2o(:,:,1)
- !      call mpp_sum(tmp,nlon*nlat)
-       used = send_data (id_diss2o, tmp(isc:iec,jsc:jec), River%Time)
-    endif
+!    if (id_diss2o > 0) then
+!       tmp = River%disc2o(:,:,1)
+! !      call mpp_sum(tmp,nlon*nlat)
+!       used = send_data (id_diss2o, tmp(isc:iec,jsc:jec), River%Time)
+!    endif
 
     if (id_disw2l > 0) then
        tmp = River%disw2l
@@ -1350,12 +1369,12 @@ end subroutine sort_basins
        used = send_data (id_disw2l, tmp(isc:iec,jsc:jec), River%Time)
     endif
 
-    if (id_diss2l > 0) then
-!       tmp = River%diss2l
-       tmp = River%disc2l(:,:,1)
- !      call mpp_sum(tmp,nlon*nlat)
-       used = send_data (id_diss2l, tmp(isc:iec,jsc:jec), River%Time)
-    endif
+!    if (id_diss2l > 0) then
+!!       tmp = River%diss2l
+!       tmp = River%disc2l(:,:,1)
+! !      call mpp_sum(tmp,nlon*nlat)
+!       used = send_data (id_diss2l, tmp(isc:iec,jsc:jec), River%Time)
+!    endif
 
     do i_species = 1, num_species
       if (id_outflow_c(i_species) > 0) then

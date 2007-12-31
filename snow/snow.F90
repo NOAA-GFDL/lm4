@@ -3,9 +3,9 @@
 ! ============================================================================
 module snow_mod
 
-use fms_mod,            only: error_mesg, file_exist,  open_namelist_file, &
-                              check_nml_error, stdlog, write_version_number, &
-                              close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
+use fms_mod, only : error_mesg, file_exist, open_namelist_file, check_nml_error, &
+     stdlog, write_version_number, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE, &
+     get_mosaic_tile_file
 use time_manager_mod,   only: time_type, increment_time, time_type_to_real
 use constants_mod,      only: tfreeze, hlv, hlf, PI
 
@@ -132,15 +132,16 @@ subroutine snow_init ( id_lon, id_lat )
   integer :: unit         ! unit for various i/o
   type(land_tile_enum_type)     :: te,ce ! tail and current tile list elements
   type(land_tile_type), pointer :: tile  ! pointer to current tile
+  character(len=256) :: restart_file_name
 
   module_is_initialized = .TRUE.
   time       = lnd%time
   delta_time = time_type_to_real(lnd%dt_fast)
 
   ! -------- initialize snow state --------
-  if (file_exist('INPUT/snow.res.nc')) then
-     call error_mesg('snow_init','reading NetCDF restart',NOTE)
-     __NF_ASRT__(nf_open('INPUT/snow.res.nc',NF_NOWRITE,unit))
+  call get_mosaic_tile_file('INPUT/snow.res.nc',restart_file_name,.FALSE.,lnd%domain)
+  if (file_exist(restart_file_name)) then
+     __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
      call read_tile_data_r1d_fptr(unit, 'temp', snow_temp_ptr  )
      call read_tile_data_r1d_fptr(unit, 'wl'  , snow_wl_ptr )
      call read_tile_data_r1d_fptr(unit, 'ws'  , snow_ws_ptr )

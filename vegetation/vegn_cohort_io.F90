@@ -34,8 +34,8 @@ public :: write_cohort_data_i0d_fptr
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'cohort_io_mod', &
-     version     = '$Id: vegn_cohort_io.F90,v 15.0.2.2 2007/09/16 21:37:25 slm Exp $', &
-     tagname     = '$Name: omsk_2007_10 $'
+     version     = '$Id: vegn_cohort_io.F90,v 15.0.2.3 2007/10/11 00:29:51 slm Exp $', &
+     tagname     = '$Name: omsk_2007_12 $'
 ! name of the "compressed" dimension (and dimension variable) in the output 
 ! netcdf files -- that is, the dimensions written out using compression by 
 ! gathering, as described in CF conventions.
@@ -97,7 +97,7 @@ subroutine read_create_cohorts(ncid)
   character(len=64) :: info ! for error message
 
   ! get the size of dimensions
-  nlon = size(lnd%glon) ; nlat = size(lnd%glat)
+  nlon = size(lnd%garea,1) ; nlat = size(lnd%garea,2)
   __NF_ASRT__(nfu_inq_dim(ncid,'tile',len=ntiles))
 
   ! read the cohort index
@@ -188,7 +188,7 @@ subroutine read_cohort_data_r0d_fptr(ncid,name,fptr,rec)
 
   ! distribute data over cohorts
   do i = 1, size(idx)
-     call get_cohort_by_idx ( idx(i), size(lnd%glon), size(lnd%glat), ntiles,&
+     call get_cohort_by_idx ( idx(i), size(lnd%garea,1), size(lnd%garea,2), ntiles,&
                              lnd%tile_map, lnd%is, lnd%js,cohort)
      if (associated(cohort)) then
         call fptr(cohort, ptr)
@@ -253,7 +253,7 @@ subroutine read_cohort_data_i0d_fptr(ncid,name,fptr,rec)
 
   ! distribute data over cohorts
   do i = 1, size(idx)
-     call get_cohort_by_idx ( idx(i), size(lnd%glon), size(lnd%glat), ntiles,&
+     call get_cohort_by_idx ( idx(i), size(lnd%garea,1), size(lnd%garea,2), ntiles,&
                              lnd%tile_map, lnd%is, lnd%js,cohort)
      if (associated(cohort)) then
         call fptr(cohort, ptr)
@@ -327,9 +327,9 @@ subroutine create_cohort_dimension(ncid)
            c = 1
            do while(cc/=tc)
               idx (n) = &
-                   (c-1)*size(lnd%glon)*size(lnd%glat)*ntiles + &
-                   (k-1)*size(lnd%glon)*size(lnd%glat) + &
-                   (j-1)*size(lnd%glon) + &
+                   (c-1)*size(lnd%garea,1)*size(lnd%garea,2)*ntiles + &
+                   (k-1)*size(lnd%garea,1)*size(lnd%garea,2) + &
+                   (j-1)*size(lnd%garea,1) + &
                    (i-1)        
               n = n+1
               c = c+1
@@ -386,7 +386,7 @@ subroutine write_cohort_data_r0d_fptr(ncid,name,fptr,long_name,units)
 
   ! gather data into an array along the cohort dimension
   do i = 1, size(idx)
-     call get_cohort_by_idx ( idx(i), size(lnd%glon), size(lnd%glat), ntiles,&
+     call get_cohort_by_idx ( idx(i), size(lnd%garea,1), size(lnd%garea,2), ntiles,&
                              lnd%tile_map, lnd%is, lnd%js,cohort)
      if (associated(cohort)) then
         call fptr(cohort, ptr)
@@ -446,7 +446,7 @@ subroutine write_cohort_data_i0d_fptr(ncid,name,fptr,long_name,units)
 
   ! gather data into an array along the cohort dimension
   do i = 1, size(idx)
-     call get_cohort_by_idx ( idx(i), size(lnd%glon), size(lnd%glat), ntiles,&
+     call get_cohort_by_idx ( idx(i), size(lnd%garea,1), size(lnd%garea,2), ntiles,&
                              lnd%tile_map, lnd%is, lnd%js,cohort)
      if (associated(cohort)) then
         call fptr(cohort, ptr)

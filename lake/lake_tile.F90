@@ -312,7 +312,7 @@ function lake_cover_cold_start(land_mask, glonb, glatb) result (lake_frac)
 ! missing data points may fail to find any good data, or do it in nproc-
 ! dependent way
   logical, intent(in) :: land_mask(:,:)    ! global land mask
-  real,    intent(in) :: glonb(:), glatb(:)! boundaries of the global grid cells
+  real,    intent(in) :: glonb(:,:), glatb(:,:)! boundaries of the global grid cells
   real,    pointer    :: lake_frac (:,:,:) ! output-global map of lake fractional coverage
 
   allocate( lake_frac(size(land_mask,1),size(land_mask,2),n_dim_lake_types))

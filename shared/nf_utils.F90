@@ -77,7 +77,7 @@ end interface
 character(len=*), parameter :: &
      module_name = 'nf_utils_mod', &
      version     = '$Id: nf_utils.F90,v 15.0.2.1 2007/09/16 21:37:07 slm Exp $', &
-     tagname     = '$Name: omsk_2007_10 $'
+     tagname     = '$Name: omsk_2007_12 $'
 
 ! ---- module types ----------------------------------------------------------
 type nfu_validtype

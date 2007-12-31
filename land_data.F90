@@ -1,12 +1,16 @@
 module land_data_mod
 
+use constants_mod     , only : PI
 use mpp_domains_mod   , only : domain2d, mpp_get_compute_domain, &
-     mpp_define_layout, mpp_define_domains, &
-     CYCLIC_GLOBAL_DOMAIN
-use fms_mod           , only : write_version_number, mpp_npes
+     mpp_define_layout, mpp_define_domains, mpp_get_current_ntile, &
+     mpp_get_tile_id, CYCLIC_GLOBAL_DOMAIN
+use fms_mod           , only : write_version_number, mpp_npes, error_mesg, FATAL
 use time_manager_mod  , only : time_type
-use tracer_manager_mod, only : NO_TRACER
-
+use tracer_manager_mod, only : register_tracers, get_tracer_index, NO_TRACER
+use field_manager_mod , only : MODEL_LAND
+use grid_mod          , only : get_grid_ntiles, get_grid_size, get_grid_cell_vertices, &
+     get_grid_cell_centers, get_grid_cell_area, get_grid_comp_area, &
+     define_cube_mosaic
 use land_tile_mod     , only : land_tile_type, land_tile_list_type, &
      land_tile_list_init, land_tile_list_end, nitems
 
@@ -40,49 +44,50 @@ public :: land_state_type
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: &
      module_name = 'land_data_mod', &
-     version     = '$Id: land_data.F90,v 15.0.2.1 2007/09/16 21:31:50 slm Exp $', &
-     tagname     = '$Name: omsk_2007_10 $'
+     version     = '$Id: land_data.F90,v 15.0.2.2 2007/10/11 00:29:41 slm Exp $', &
+     tagname     = '$Name: omsk_2007_12 $'
 
 ! ---- types -----------------------------------------------------------------
 type :: atmos_land_boundary_type
    ! data passed from the coupler to the surface
    real, dimension(:,:,:), pointer :: & ! (lon, lat, tile)
         t_flux    => NULL(), &   ! sensible heat flux, W/m2
-        lw_flux   => NULL(), &   ! net longwave radiadion flux, W/m2
+        lw_flux   => NULL(), &   ! net longwave radiation flux, W/m2
         lwdn_flux => NULL(), &   ! downward longwave radiation flux, W/m2
         sw_flux   => NULL(), &   ! net shortwave radiation flux, W/m2
         swdn_flux => NULL(), &   ! downward shortwave radiation flux, W/m2
-        lprec     => NULL(), &   ! liquid precip, kg/m2/s
-        fprec     => NULL(), &   ! frozen precip, kg/m2/s
+        lprec     => NULL(), &   ! liquid precipitation rate, kg/(m2 s)
+        fprec     => NULL(), &   ! frozen precipitation rate, kg/(m2 s)
         tprec     => NULL(), &   !
    ! components of downward shortwave flux, W/m2  
-        sw_flux_down_vis_dir   => NULL(), & 
-        sw_flux_down_total_dir => NULL(), &
-        sw_flux_down_vis_dif   => NULL(), &
-        sw_flux_down_total_dif => NULL(), &  
+        sw_flux_down_vis_dir   => NULL(), & ! visible direct 
+        sw_flux_down_total_dir => NULL(), & ! total direct
+        sw_flux_down_vis_dif   => NULL(), & ! visible diffuse
+        sw_flux_down_total_dif => NULL(), & ! total diffuse
    ! derivatives of the fluxes
-        dhdt      => NULL(), &   ! sensible w.r.t. surf temperature
-        dhdq      => NULL(), &   ! sensible w.r.t. surf humidity
-        drdt      => NULL(), &   ! longwave w.r.t. surf radiative temperature 
+        dhdt      => NULL(), &   ! sensible w.r.t. surface temperature
+        dhdq      => NULL(), &   ! sensible w.r.t. surface humidity
+        drdt      => NULL(), &   ! longwave w.r.t. surface radiative temperature 
    !
         cd_m      => NULL(), &   ! drag coefficient for momentum, dimensionless
         cd_t      => NULL(), &   ! drag coefficient for tracers, dimensionless
         ustar     => NULL(), &   ! turbulent wind scale, m/s
-        bstar     => NULL(), &   ! turbulent bouyancy scale, m/s
+        bstar     => NULL(), &   ! turbulent buoyancy scale, m/s
         wind      => NULL(), &   ! abs wind speed at the bottom of the atmos, m/s
-        z_bot     => NULL(), &   ! height of the bottom atmos. layer above surface, m
+        z_bot     => NULL(), &   ! height of the bottom atmospheric layer above the surface, m
         drag_q    => NULL(), &   ! product of cd_q by wind
         p_surf    => NULL()      ! surface pressure, Pa
 
 #ifdef LAND_BND_TRACERS
-   real, dimension(:,:,:,:), pointer :: & ! (lon, lat, tile,tracer)
+   real, dimension(:,:,:,:), pointer :: & ! (lon, lat, tile, tracer)
         tr_flux => NULL(),   &   ! tracer flux, including water vapor flux
-        dfdtr   => NULL()        ! tendency, including evap over surface specific humidity
+        dfdtr   => NULL()        ! derivative of the flux w.r.t. tracer surface value, 
+                                 ! including evap over surface specific humidity
 #else
    real, dimension(:,:,:), pointer :: & ! (lon, lat, tile)
         q_flux => NULL(),    &   ! water vapor flux
-        dedt => NULL(),      &   ! evap over surface temperature (assuming saturation @ surf.)
-        dedq => NULL()           ! evap over surface specufuc humidity
+        dedt => NULL(),      &   ! its derivative w.r.t. surface temperature (assuming saturation @ surf.)
+        dedq => NULL()           ! its derivative w.r.t. surface specific humidity
 #endif 
 
    integer :: xtype             !REGRID, REDIST or DIRECT
@@ -90,23 +95,24 @@ end type atmos_land_boundary_type
 
 
 type :: land_data_type
+   ! data passed from the surface to the coupler
    logical :: pe ! data presence indicator for stock calculations
    real, pointer, dimension(:,:,:)   :: &  ! (lon, lat, tile)
         tile_size      => NULL(),  & ! fractional coverage of cell by tile, dimensionless
         t_surf         => NULL(),  & ! ground surface temperature, degK
         t_ca           => NULL(),  & ! canopy air temperature, degK
-        albedo         => NULL(),  & ! snow-adjusted land albedo
-        albedo_vis_dir => NULL(),  & ! albedo for direct visible-band radiation
-        albedo_nir_dir => NULL(),  & ! albedo for direct nir-band radiation 
-        albedo_vis_dif => NULL(),  & ! albedo for diffuse visible-band radiation 
-        albedo_nir_dif => NULL(),  & ! albedo for diffuse nir-band radiation
-        rough_mom      => NULL(),  & ! momentum roughness length, m
-        rough_heat     => NULL(),  & ! roughness length for tracers (heat and water), m
+        albedo         => NULL(),  & ! broadband land albedo [unused?]
+        albedo_vis_dir => NULL(),  & ! albedo for direct visible radiation
+        albedo_nir_dir => NULL(),  & ! albedo for direct NIR radiation 
+        albedo_vis_dif => NULL(),  & ! albedo for diffuse visible radiation 
+        albedo_nir_dif => NULL(),  & ! albedo for diffuse NIR radiation
+        rough_mom      => NULL(),  & ! surface roughness length for momentum, m
+        rough_heat     => NULL(),  & ! roughness length for tracers and heat, m
         rough_scale    => NULL()     ! topographic scaler for momentum drag, m
 
 #ifdef LAND_BND_TRACERS
    real, pointer, dimension(:,:,:,:)   :: &  ! (lon, lat, tile, tracer)
-        tr    => NULL()              ! tracers, including canopy air specific humidity, kg/kg
+        tr    => NULL()              ! tracers, including canopy air specific humidity
 #else
    real, pointer, dimension(:,:,:)   :: &  ! (lon, lat, tile)
         q_ca => NULL()               ! canopy air specific humidity, kg/kg
@@ -122,7 +128,6 @@ type :: land_data_type
    integer :: axes(2)        ! IDs of diagnostic axes
    type(domain2d) :: domain  ! our computation domain
    logical, pointer :: maskmap(:,:) 
-
 end type land_data_type
 
 
@@ -138,18 +143,15 @@ type :: land_state_type
    type(time_type):: dt_slow     ! slow time step
    type(time_type):: time        ! current time
 
-   real, pointer  :: lon(:), lat(:)     ! local grid coordinates, radian
-   real, pointer  :: lonb(:), latb(:)   ! local grid boundaries, radian
-   real, pointer  :: lon2(:,:), lat2(:,:) ! 2-d version, useful in some cases 
-           ! (e.g diurnal_solar calculations)
-   real, pointer  :: glon(:), glat(:)   ! global grid coordinates, radian
-   real, pointer  :: glonb(:), glatb(:) ! global grid boundaries, radian
-   real, pointer  :: garea(:,:)         ! land area per gridcell, m2
+   real, pointer  :: glon (:,:), glat (:,:) ! global grid center coordinates, radian
+   real, pointer  :: glonb(:,:), glatb(:,:) ! global grid vertices, radian
+   real, pointer  :: gcellarea(:,:) ! cell area, m2
+   real, pointer  :: garea(:,:)  ! land area per grid cell, m2
 
    ! map of tiles
    type(land_tile_list_type), pointer :: tile_map(:,:)
    
-   type(domain2d) :: domain ! our domain -- be last since it simplifies
+   type(domain2d) :: domain ! our domain -- should be the last since it simplifies
                             ! debugging in totalview
 end type land_state_type
 
@@ -168,68 +170,65 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 
 ! ============================================================================
-subroutine land_data_init(glon, glat, glonb, glatb, garea, layout)
-  real   , intent(in) :: glon(:), glat(:), glonb(:), glatb(:)
-  real   , intent(in) :: garea(:,:)   ! area of land in grid cells
+subroutine land_data_init(layout, time, dt_fast, dt_slow)
   integer, intent(inout) :: layout(2) ! layout of our domains
+  type(time_type), intent(in) :: &
+       time,    & ! current model time
+       dt_fast, & ! fast (physical) time step
+       dt_slow    ! slow time step
 
   ! ---- local vars
   integer :: nlon, nlat ! size of global grid in lon and lat directions
+  integer :: ntiles     ! number of tiles in the mosaic grid 
+  integer :: tile       ! the current mosaic tile
+  integer :: ntracers, ndiag ! non-optional output from register_tracers
+  integer, allocatable :: tile_ids(:) ! mosaic tile IDs for the current PE
   integer :: i,j
 
-  ! write the version and tagname to the logfile
+  ! write the version and tag name to the logfile
   call write_version_number(version, tagname)
 
-  ! calculate size of the global grid
-  nlon = size(glonb) - 1
-  nlat = size(glatb) - 1
-
-  ! get the processor layout information, either from upper-layer module
-  ! decomposition, or define according to the grid size
+  ! define the processor layout information according to the global grid size 
+  call get_grid_ntiles('LND',ntiles)
+  call get_grid_size('LND',1,nlon,nlat)
   if( layout(1)==0 .AND. layout(2)==0 ) &
-       call mpp_define_layout( (/1,nlon,1,nlat/), mpp_npes(), layout )
-  if( layout(1)/=0 .AND. layout(2)==0 )layout(2) = mpp_npes()/layout(1)
-  if( layout(1)==0 .AND. layout(2)/=0 )layout(1) = mpp_npes()/layout(2)
+       call mpp_define_layout( (/1,nlon,1,nlat/), mpp_npes()/ntiles, layout )
+  if( layout(1)/=0 .AND. layout(2)==0 )layout(2) = mpp_npes()/(layout(1)*ntiles)
+  if( layout(1)==0 .AND. layout(2)/=0 )layout(1) = mpp_npes()/(layout(2)*ntiles)
 
-  call mpp_define_domains ( &
-       (/1,nlon, 1, nlat/),           &  ! global grid size
-       layout,                        &  ! layout for our domains
-       lnd%domain,                    &  ! domain to define
-       xflags = CYCLIC_GLOBAL_DOMAIN, &
-       name = 'LAND MODEL')
-
+  ! defne land model domain
+  if (ntiles==1) then
+     call mpp_define_domains ((/1,nlon, 1, nlat/), layout, lnd%domain, &
+          xflags = CYCLIC_GLOBAL_DOMAIN, name = 'LAND MODEL')
+  else
+     call define_cube_mosaic ('LND', lnd%domain, layout)
+  endif
+  ! get the domain information
   call mpp_get_compute_domain(lnd%domain, lnd%is,lnd%ie,lnd%js,lnd%je)
 
+  ! get the tile number for this processor: this assumes that there is only one
+  ! mosaic tile per PE.
+  allocate(tile_ids(mpp_get_current_ntile(lnd%domain)))
+  tile_ids = mpp_get_tile_id(lnd%domain)
+  tile = tile_ids(1)
+  deallocate(tile_ids)
+
   allocate(lnd%tile_map (lnd%is:lnd%ie, lnd%js:lnd%je))
-  allocate(lnd%glonb    (size(glonb)))
-  allocate(lnd%glatb    (size(glatb)))
-  allocate(lnd%glon     (size(glon)))
-  allocate(lnd%glat     (size(glat)))
-  allocate(lnd%garea    (size(glon),size(glat)))
-  allocate(lnd%lonb     (lnd%is:lnd%ie+1))
-  allocate(lnd%latb     (lnd%js:lnd%je+1))
-  allocate(lnd%lon      (lnd%is:lnd%ie))
-  allocate(lnd%lat      (lnd%js:lnd%je))
-  allocate(lnd%lon2     (lnd%is:lnd%ie, lnd%js:lnd%je))
-  allocate(lnd%lat2     (lnd%is:lnd%ie, lnd%js:lnd%je))
+  allocate(lnd%glonb    (nlon+1,nlat+1))
+  allocate(lnd%glatb    (nlon+1,nlat+1))
+  allocate(lnd%glon     (nlon,nlat))
+  allocate(lnd%glat     (nlon,nlat))
+  allocate(lnd%garea    (nlon,nlat))
+  allocate(lnd%gcellarea(nlon,nlat))
 
   ! initialize coordinates
-  lnd%glonb = glonb
-  lnd%glatb = glatb
-  lnd%lonb  = glonb(lnd%is:lnd%ie+1)
-  lnd%latb  = glatb(lnd%js:lnd%je+1)
-
-  lnd%glon  = glon
-  lnd%glat  = glat
-  lnd%lon   = glon(lnd%is:lnd%ie)
-  lnd%lat   = glat(lnd%js:lnd%je)
-  do i = lnd%js,lnd%je
-     lnd%lon2(:,i) = lnd%lon
-  enddo
-  do i = lnd%is,lnd%ie
-     lnd%lat2(i,:) = lnd%lat
-  enddo
-  
+  call get_grid_cell_vertices('LND',tile,lnd%glonb,lnd%glatb)
+  call get_grid_cell_centers ('LND',tile,lnd%glon, lnd%glat)
+  call get_grid_cell_area    ('LND',tile,lnd%gcellarea)
+  call get_grid_comp_area    ('LND',tile,lnd%garea)
+  ! convert coordinates to radian
+  lnd%glonb = lnd%glonb*pi/180.0 ; lnd%glon = lnd%glon*pi/180.0
+  lnd%glatb = lnd%glatb*pi/180.0 ; lnd%glat = lnd%glat*pi/180.0
   ! initialize land tile map
   do j = lnd%js,lnd%je
   do i = lnd%is,lnd%ie
@@ -237,8 +236,25 @@ subroutine land_data_init(glon, glat, glonb, glatb, garea, layout)
   enddo
   enddo
 
-  ! initialize land_area
-  lnd%garea = garea
+  ! initialize land model tracers, if necessary
+#ifdef LAND_BND_TRACERS
+  ! register land model tracers and find specific humidity
+  call register_tracers ( MODEL_LAND, ntracers, lnd%ntprog, ndiag )
+  lnd%isphum = get_tracer_index ( MODEL_LAND, 'sphum' )
+  if (lnd%isphum==NO_TRACER) then
+     call error_mesg('land_model_init','no required "sphum" tracer',FATAL)
+  endif
+  lnd%ico2 = get_tracer_index ( MODEL_LAND, 'co2' )
+  ! NB: co2 might be absent, in this case ico2 == NO_TRACER
+#else
+  lnd%isphum = NO_TRACER
+  lnd%ico2   = NO_TRACER
+#endif
+
+  ! initialize model's time-related parameters
+  lnd%time    = time
+  lnd%dt_fast = dt_fast
+  lnd%dt_slow = dt_slow
 
 end subroutine land_data_init
 
@@ -257,10 +273,7 @@ subroutine land_data_end()
   enddo
 
   ! deallocate grid data
-  deallocate(&
-       lnd%glonb, lnd%glatb, lnd%glon, lnd%glat, &
-       lnd%lonb,  lnd%latb,  lnd%lon,  lnd%lat,  &
-       lnd%lon2,  lnd%lat2,  lnd%garea           )
+  deallocate(lnd%glonb, lnd%glatb, lnd%glon, lnd%glat, lnd%garea, lnd%tile_map)
 
 end subroutine land_data_end
 

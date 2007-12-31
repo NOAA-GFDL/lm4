@@ -37,7 +37,7 @@ logical :: module_is_initialized =.FALSE.
 character(len=*), parameter :: &
      mod_name = 'numerics_mod', &
      version  = '$Id: land_numerics.F90,v 15.0.2.1 2007/09/16 21:37:07 slm Exp $', &
-     tagname  = '$Name: omsk_2007_10 $'
+     tagname  = '$Name: omsk_2007_12 $'
 
 contains
 

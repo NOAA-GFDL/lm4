@@ -50,8 +50,8 @@ public :: update_derived_vegn_data  ! given state variables, calculate derived v
 
 ! ==== module constants ======================================================
 character(len=*), parameter   :: &
-     version = '$Id: vegn_tile.F90,v 15.0.2.1 2007/09/16 22:14:24 slm Exp $', &
-     tagname = '$Name: omsk_2007_10 $', &
+     version = '$Id: vegn_tile.F90,v 15.0.2.2 2007/10/11 00:29:51 slm Exp $', &
+     tagname = '$Name: omsk_2007_12 $', &
      module_name = 'vegn_tile_mod'
 
 ! ==== types =================================================================
@@ -309,7 +309,7 @@ function vegn_cover_cold_start(land_mask, glonb, glatb) result (vegn_frac)
 ! missing data points may fail to find any good data, or do it in nproc-
 ! dependent way
   logical, intent(in) :: land_mask(:,:)    ! global land mask
-  real,    intent(in) :: glonb(:), glatb(:)! boundaries of the global grid cells
+  real,    intent(in) :: glonb(:,:), glatb(:,:)! boundaries of the global grid cells
   real,    pointer    :: vegn_frac (:,:,:) ! output-global map of vegn fractional coverage
 
 !  allocate( vegn_frac(size(land_mask,1),size(land_mask,2),n_dim_vegn_types))

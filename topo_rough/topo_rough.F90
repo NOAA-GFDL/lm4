@@ -63,8 +63,8 @@ namelist/topo_rough_nml/ use_topo_rough, topo_rough_factor, max_topo_rough, &
 character(len=*), parameter :: &
      module_name   = 'she_topo_rough', &
      diag_mod_name = 'topo_rough', &
-     version       = '$Id: topo_rough.F90,v 15.0.2.1 2007/09/16 21:37:18 slm Exp $', &
-     tagname       = '$Name: omsk_2007_10 $'
+     version       = '$Id: topo_rough.F90,v 15.0.2.3 2007/11/16 21:57:02 slm Exp $', &
+     tagname       = '$Name: omsk_2007_12 $'
 
 ! ==== module private data ===================================================
 real, allocatable, save ::topo_stdev(:,:)
@@ -78,7 +78,7 @@ contains ! ###################################################################
 subroutine topo_rough_init(time, lonb, latb, domain, id_lon,id_lat)
   type(time_type), intent(in) :: time            ! current time
   type(domain2d) , intent(in) :: domain          ! our domain
-  real           , intent(in) :: latb(:),lonb(:) ! boundaries of the grid cells
+  real           , intent(in) :: latb(:,:),lonb(:,:) ! boundaries of the grid cells
   integer        , intent(in) :: id_lon,id_lat   ! IDs of diagnostic axes
 !   <ERROR MSG="could not read topography data" STATUS="FATAL">
 !     get_topog_stdev failed to provide topography variance data.
@@ -117,7 +117,7 @@ subroutine topo_rough_init(time, lonb, latb, domain, id_lon,id_lat)
   endif
 
   ! allocate topo_stdev according to specified domain
-  allocate(topo_stdev(size(lonb)-1, size(latb)-1))
+  allocate(topo_stdev(size(lonb,1)-1, size(lonb,2)-1))
 
   if (use_topo_rough) then
 

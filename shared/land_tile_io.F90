@@ -1,6 +1,6 @@
 module land_tile_io_mod
 
-use fms_mod, only: error_mesg, FATAL, mpp_pe
+use fms_mod, only: error_mesg, FATAL, mpp_pe, get_mosaic_tile_file
 use time_manager_mod, only : time_type
 use data_override_mod, only : data_override
 
@@ -49,8 +49,8 @@ end interface
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land_tile_io_mod', &
-     version     = '$Id: land_tile_io.F90,v 15.0.2.1 2007/09/16 21:37:07 slm Exp $', &
-     tagname     = '$Name: omsk_2007_10 $'
+     version     = '$Id: land_tile_io.F90,v 15.0.2.2 2007/10/11 00:29:50 slm Exp $', &
+     tagname     = '$Name: omsk_2007_12 $'
 ! name of the "compressed" dimension (and dimension variable) in the output 
 ! netcdf files -- that is, the dimensions written out using compression by 
 ! gathering, as described in CF conventions. See subroutines write_tile_data,
@@ -79,8 +79,8 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, n_tiles, reserve)
   integer          , intent(out) :: ncid      ! resulting NetCDF id
   character(len=*) , intent(in)  :: name      ! name of the file to create
-  real             , intent(in)  :: glon(:)   ! longitudes of the grid centers
-  real             , intent(in)  :: glat(:)   ! latitudes of the grid centers
+  real             , intent(in)  :: glon(:,:) ! longitudes of the grid centers
+  real             , intent(in)  :: glat(:,:) ! latitudes of the grid centers
   integer          , intent(in)  :: tidx(:)   ! integer compressed index of tiles
   integer          , intent(in)  :: n_tiles   ! length of tile axis
   integer, optional, intent(in)  :: reserve   ! amount of space to reserve for 
@@ -93,10 +93,12 @@ subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, n_tiles, reser
   ! ---- local vars
   integer        :: reserve_  ! local value of space to reserve at the end of NetCDF header
   character(256) :: full_name ! full name of the file, including the processor number
+  character(6)   :: PE_suffix ! PE number
 
   ! form the full name of the file
-  write(full_name,'(".",I4.4)') mpp_pe()
-  full_name = trim(name)//trim(full_name)
+  call get_mosaic_tile_file(name,full_name,.FALSE.,lnd%domain)
+  write(PE_suffix,'(".",I4.4)') mpp_pe()
+  full_name = trim(full_name)//trim(PE_suffix)
 
   ! determine the local value of reserved space; by default 8K
   reserve_ = 1024*8
@@ -108,8 +110,8 @@ subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, n_tiles, reser
   __NF_ASRT__(nf_create(full_name,NF_NOCLOBBER,ncid))
   
   ! create lon, lat, dimensions and variables
-  __NF_ASRT__(nfu_def_dim(ncid,'lon' ,glon ,'longitude','degrees_east'))
-  __NF_ASRT__(nfu_def_dim(ncid,'lat' ,glat ,'latitude','degrees_north'))
+  __NF_ASRT__(nfu_def_dim(ncid,'lon' ,glon(:,1) ,'longitude','degrees_east'))
+  __NF_ASRT__(nfu_def_dim(ncid,'lat' ,glat(1,:) ,'latitude','degrees_north'))
 
   __NF_ASRT__(nfu_def_dim(ncid,'tile',n_tiles))
   ! the size of tile dimension really does not matter for the output, but it does
@@ -134,8 +136,8 @@ subroutine create_tile_out_file_fptr(ncid, name, glon, glat, tile_exists, &
      n_tiles, reserve, created)
   integer          , intent(out) :: ncid      ! resulting NetCDF id
   character(len=*) , intent(in)  :: name      ! name of the file to create
-  real             , intent(in)  :: glon(:)   ! longitudes of the grid centers
-  real             , intent(in)  :: glat(:)   ! latitudes of the grid centers
+  real             , intent(in)  :: glon(:,:) ! longitudes of the grid centers
+  real             , intent(in)  :: glat(:,:) ! latitudes of the grid centers
   integer          , intent(in)  :: n_tiles   ! length of tile axis
   integer, optional, intent(in)  :: reserve   ! amount of space to reserve for
   logical, optional, intent(out) :: created   ! indicates wether the file was 
@@ -174,7 +176,7 @@ subroutine create_tile_out_file_fptr(ncid, name, glon, glat, tile_exists, &
         call get_elmt_indices(ce,i,j,k)
         
         if(tile_exists(current_tile(ce))) then
-          idx (n) = (k-1)*size(lnd%glon)*size(lnd%glat) + (j-1)*size(lnd%glon) + (i-1)        
+          idx (n) = (k-1)*size(lnd%garea,1)*size(lnd%garea,2) + (j-1)*size(lnd%garea,1) + (i-1)
           n = n+1
         endif
         ce=next_elmt(ce)
@@ -272,7 +274,7 @@ subroutine read_tile_data_i0d_fptr(ncid,name,fptr)
    __NF_ASRT__(nf_get_var_int(ncid,varid,x1d))
    ! distribute the data over the tiles
    do i = 1, size(idx)
-      call get_tile_by_idx(idx(i),size(lnd%glon),size(lnd%glat),lnd%tile_map,&
+      call get_tile_by_idx(idx(i),size(lnd%garea,1),size(lnd%garea,2),lnd%tile_map,&
                            lnd%is,lnd%js, tileptr)
       call fptr(tileptr, ptr)
       if(associated(ptr)) ptr = x1d(i)
@@ -323,7 +325,7 @@ subroutine read_tile_data_r0d_fptr(ncid,name,fptr)
    __NF_ASRT__(nf_get_var_double(ncid,varid,x1d))
    ! distribute the data over the tiles
    do i = 1, size(idx)
-      call get_tile_by_idx(idx(i),size(lnd%glon),size(lnd%glat),lnd%tile_map,&
+      call get_tile_by_idx(idx(i),size(lnd%garea,1),size(lnd%garea,2),lnd%tile_map,&
                            lnd%is,lnd%js, tileptr)
       call fptr(tileptr, ptr)
       if(associated(ptr)) ptr = x1d(i)
@@ -372,7 +374,7 @@ subroutine read_tile_data_r1d_fptr(ncid,name,fptr)
    __NF_ASRT__(nf_get_var_double(ncid,varid,x2d))
    ! distribute the data over the tiles
    do i = 1, size(idx)
-      call get_tile_by_idx(idx(i),size(lnd%glon),size(lnd%glat),lnd%tile_map,&
+      call get_tile_by_idx(idx(i),size(lnd%garea,1),size(lnd%garea,2),lnd%tile_map,&
                            lnd%is,lnd%js, tileptr)
       call fptr(tileptr, ptr)
       if(associated(ptr)) ptr(:) = x2d(i,:)
@@ -496,7 +498,7 @@ subroutine write_tile_data_i0d_fptr(ncid,name,fptr,long_name,units)
   ! gather data into an array along the tile dimension. It is assumed that 
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),size(lnd%glon),size(lnd%glat),lnd%tile_map,&
+     call get_tile_by_idx(idx(i),size(lnd%garea,1),size(lnd%garea,2),lnd%tile_map,&
                           lnd%is,lnd%js, tileptr)
      call fptr(tileptr, ptr)
      if(associated(ptr)) data(i) = ptr
@@ -546,7 +548,7 @@ subroutine write_tile_data_r0d_fptr(ncid,name,fptr,long_name,units)
   ! gather data into an array along the tile dimension. It is assumed that 
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),size(lnd%glon),size(lnd%glat),lnd%tile_map,&
+     call get_tile_by_idx(idx(i),size(lnd%garea,1),size(lnd%garea,2),lnd%tile_map,&
                           lnd%is,lnd%js, tileptr)
      call fptr(tileptr, ptr)
      if(associated(ptr)) data(i) = ptr
@@ -599,7 +601,7 @@ subroutine write_tile_data_r1d_fptr(ncid,name,fptr,zdim,long_name,units)
   ! gather data into an array along the tile dimension. It is assumed that 
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),size(lnd%glon),size(lnd%glat),lnd%tile_map,&
+     call get_tile_by_idx(idx(i),size(lnd%garea,1),size(lnd%garea,2),lnd%tile_map,&
                           lnd%is,lnd%js, tileptr)
      call fptr(tileptr, ptr)
      if(associated(ptr)) data(i,:) = ptr(:)

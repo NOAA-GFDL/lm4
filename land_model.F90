@@ -9,99 +9,41 @@
 
 module land_model_mod
 
-  use time_manager_mod,    only: time_type, get_time, increment_time, &
-       time_type_to_real, operator(+)
-  use mpp_domains_mod,     only: domain1D, domain2d, mpp_get_layout, &
-                                 mpp_define_layout, &
-                                 mpp_define_domains, mpp_get_compute_domain,  &
-                                 CYCLIC_GLOBAL_DOMAIN, mpp_get_compute_domains,&
-                                 mpp_get_domain_components, mpp_get_pelist
-  use mpp_mod,             only: mpp_sync, mpp_max
-  use fms_mod,             only: write_version_number, error_mesg, FATAL, WARNING, NOTE, &
-                                 mpp_pe, mpp_npes, mpp_root_pe, &
-                                 file_exist, field_exist, open_namelist_file,&
-                                 check_nml_error, close_file, &
-                                 stdlog, &
-                                 mpp_clock_id, mpp_clock_begin, mpp_clock_end, &
-                                 CLOCK_FLAG_DEFAULT, CLOCK_COMPONENT, CLOCK_ROUTINE
-  use fms_io_mod, only : read_data, field_size
-  use mosaic_mod, only : get_mosaic_ntiles, calc_mosaic_grid_area, get_mosaic_xgrid_size, &
-       get_mosaic_xgrid
-  use field_manager_mod,   only: MODEL_LAND
-  use tracer_manager_mod,  only: register_tracers, get_tracer_index, NO_TRACER
+use time_manager_mod, only : time_type, get_time, increment_time, time_type_to_real, &
+     operator(+)
+use mpp_domains_mod, only : domain2d, mpp_get_ntile_count
+use mpp_mod, only : mpp_max
+use fms_mod, only : write_version_number, error_mesg, FATAL, WARNING, NOTE, mpp_pe, &
+     mpp_root_pe, file_exist, open_namelist_file, check_nml_error, close_file, &
+     stdlog, get_mosaic_tile_file, mpp_clock_id, mpp_clock_begin, mpp_clock_end, &
+     CLOCK_FLAG_DEFAULT, CLOCK_COMPONENT, CLOCK_ROUTINE
+use diag_manager_mod, only : diag_axis_init, register_static_field, &
+     register_diag_field, send_data
+use constants_mod, only : radius, hlf, hlv, hls, tfreeze, pi, rdgas, rvgas, cp_air, &
+     stefan
+use astronomy_mod, only : diurnal_solar
+use sphum_mod, only : qscomp
 
-  use diag_manager_mod,    only: diag_axis_init, register_static_field, &
-       register_diag_field, send_data
-
-  use constants_mod,       only: radius, hlf, hlv, hls, tfreeze, pi, rdgas, &
-                                 rvgas, cp_air, stefan
-
-  use astronomy_mod,       only: diurnal_solar
-  use sphum_mod,           only: qscomp
-
-  use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR
-  use glacier_mod,         only: read_glac_namelist, glac_init, &
-                                 glac_end, &
-                                 glac_get_sfc_temp, &
-                                 glac_radiation, &
-                                 glac_diffusion, &
-                                 glac_step_1, &
-                                 glac_step_2
-  
-  use lake_mod,            only: read_lake_namelist, lake_init, &
-                                 lake_end, &
-                                 lake_get_sfc_temp, &
-                                 lake_radiation, &
-                                 lake_diffusion, &
-                                 lake_step_1, &
-                                 lake_step_2
-
-  use soil_mod,            only: read_soil_namelist, soil_init, &
-                                 soil_end, &
-                                 soil_get_sfc_temp, &
-                                 soil_radiation, &
-                                 soil_diffusion, &
-                                 soil_step_1, &
-                                 soil_step_2
-
-  use snow_mod,            only: read_snow_namelist, snow_init, &
-                                 snow_end, &
-                                 snow_get_sfc_temp, &
-                                 snow_radiation, &
-                                 snow_diffusion, &
-                                 snow_get_depth_area, &
-                                 snow_step_1, &
-                                 snow_step_2
-                                 
-  
-  use vegetation_mod,      only: read_vegn_namelist, vegn_init, &
-                                 vegn_end, &
-                                 vegn_get_cover, &
-                                 vegn_radiation, &
-                                 vegn_diffusion, &
-                                 vegn_step_1, &
-                                 vegn_step_2, &
-                                 vegn_step_3, &
-                                 update_vegn_slow
-                                 
-  use canopy_air_mod,      only: read_cana_namelist, cana_init, &
-                                 cana_end, &
-                                 cana_state,     &
-                                 cana_step_1,    &
-                                 cana_step_2,    &
-                                 cana_radiation, &
-                                 cana_roughness
-                                 
-  use river_mod,           only: river_init, &
-                                 river_end, &
-                                 update_river
-
-use topo_rough_mod,only : topo_rough_init, topo_rough_end, update_topo_rough
+use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR
+use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_temp, &
+     glac_radiation, glac_diffusion, glac_step_1, glac_step_2
+use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
+     lake_radiation, lake_diffusion, lake_step_1, lake_step_2
+use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
+     soil_radiation, soil_diffusion, soil_step_1, soil_step_2
+use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
+     snow_radiation, snow_diffusion, snow_get_depth_area, snow_step_1, snow_step_2
+use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, vegn_get_cover, &
+     vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
+     update_vegn_slow
+use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, cana_state,&
+     cana_step_1, cana_step_2, cana_radiation, cana_roughness
+use river_mod, only : river_init, river_end, update_river
+use topo_rough_mod, only : topo_rough_init, topo_rough_end, update_topo_rough
 use soil_tile_mod, only : soil_cover_cold_start
 use vegn_tile_mod, only : vegn_cover_cold_start, vegn_data_rs_min, update_derived_vegn_data
 use lake_tile_mod, only : lake_cover_cold_start
 use glac_tile_mod, only : glac_pars_type, glac_cover_cold_start
-
 use numerics_mod, only : ludcmp, lubksb
 use land_tile_mod, only : land_tile_type, land_tile_list_type, &
      land_tile_enum_type, new_land_tile, insert, nitems, &
@@ -133,16 +75,14 @@ public update_land_model_slow   ! time-step integration
 public atmos_land_boundary_type ! data from coupler to land
 public land_data_type           ! data from land to coupler
 
-public :: land_cover_cold_start_0d ! public for unit tests
-
 public :: Lnd_stock_pe          ! return stocks of conservative quantities
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land', &
-     version     = '$Id: land_model.F90,v 15.1.2.5 2007/09/28 04:25:10 slm Exp $', &
-     tagname     = '$Name: omsk_2007_10 $'
+     version     = '$Id: land_model.F90,v 15.1.2.6.2.1 2007/11/20 17:42:17 slm Exp $', &
+     tagname     = '$Name: omsk_2007_12 $'
 
 ! ==== module variables ======================================================
 
@@ -234,18 +174,14 @@ subroutine land_model_init &
   type(time_type), intent(in) :: dt_slow   ! slow time step
 
   ! ---- local vars ----------------------------------------------------------
-  real, pointer :: glonb(:,:),glatb(:,:) ! boundaries of global grid
-  real, pointer :: glon(:,:), glat(:,:)  ! grid cell centers of global grid
-  real, pointer :: glandarea(:,:)    ! area of land (may be less that cell area)
-  real, pointer :: gcellarea(:,:)    ! area of land cells
   integer :: ncid, varid
   integer :: unit, ierr, io
   integer :: id_lon, id_lat, id_band     ! IDs of land diagnostic axes
   logical :: used                        ! return value of send_data diagnostics routine
-  integer :: ntracers, ndiag ! non-optional output from register_tracers
   integer :: i,j,k
   type(land_tile_type), pointer :: tile
   type(land_tile_enum_type) :: ce, te
+  character(len=256) :: restart_file_name
   ! IDs of local clocks
   integer :: landInitClock
 
@@ -261,21 +197,6 @@ subroutine land_model_init &
   landInitClock  = mpp_clock_id('Land init'          ,CLOCK_FLAG_DEFAULT,CLOCK_ROUTINE)
 
   call mpp_clock_begin(landInitClock)
-
-  ! [ ] initialize land model tracers, if necessary
-#ifdef LAND_BND_TRACERS
-  ! register land model tracers and find specific humidity
-  call register_tracers ( MODEL_LAND, ntracers, lnd%ntprog, ndiag )
-  lnd%isphum = get_tracer_index ( MODEL_LAND, 'sphum' )
-  if (lnd%isphum==NO_TRACER) then
-     call error_mesg('land_model_init','no required "sphum" tracer',FATAL)
-  endif
-  lnd%ico2 = get_tracer_index ( MODEL_LAND, 'co2' )
-  ! NB: co2 might be absent, in this case ico2 == NO_TRACER
-#else
-  lnd%isphum = NO_TRACER
-  lnd%ico2   = NO_TRACER
-#endif
 
   ! [ ] initialize land debug output
   call land_debug_init()
@@ -309,35 +230,21 @@ subroutine land_model_init &
   call read_snow_namelist()
   call read_cana_namelist()
 
-  ! [3] initialize model's time-related parameters
-  lnd%time    = time
-  lnd%dt_fast = dt_fast
-  lnd%dt_slow = dt_slow
-  delta_time  = time_type_to_real(lnd%dt_fast) ! module variable for convenience
+  ! [ ] initialize land state data, including grid geometry and processor decomposition
+  call land_data_init(layout, time, dt_fast, dt_slow)
+  delta_time  = time_type_to_real(lnd%dt_fast) ! store in a module variable for convenience
 
-  ! [4] get land grid boundaries and area of land from the grid description file
-  ! open grid description file
-  call read_land_gridspec(glonb, glatb, glon, glat, glandarea, gcellarea)
-  ! [4.2] allocate data for longitude and latitude bounds
-  allocate( gfrac(size(glon,1),size(glon,2)) )
   ! calculate land fraction
-  gfrac     = glandarea/gcellarea
-  ! [4.6] convert coordinate axes units
-  ! convert longitudes and latitudes from degrees to radian
-  glonb = glonb*pi/180.0
-  glatb = glatb*pi/180.0
-  glon  = glon*pi/180.0
-  glat  = glat*pi/180.0
-
-  ! [ ] initialize land state data
-  call land_data_init(glon(:,1), glat(1,:), glonb(:,1), glatb(1,:), glandarea, layout)
+  allocate( gfrac(size(lnd%glon,1),size(lnd%glon,2)) )
+  gfrac = lnd%garea/lnd%gcellarea
 
   ! [5] initialize tiling
-  if(file_exist('INPUT/land.res.nc')) then
+  call get_mosaic_tile_file('INPUT/land.res.nc',restart_file_name,.FALSE.,lnd%domain)
+  if(file_exist(restart_file_name)) then
      ! read map of tiles -- retrieve information from 
      call land_cover_warm_start(lnd)
      ! initialize land model data
-     __NF_ASRT__(nf_open('INPUT/land.res.nc',NF_NOWRITE,ncid))
+     __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,ncid))
      if (nf_inq_varid(ncid,'lwup',varid)==NF_NOERR) &
           call read_tile_data_r0d_fptr(ncid,'lwup',land_lwup_ptr)
      if (nf_inq_varid(ncid,'e_res_1',varid)==NF_NOERR) &
@@ -353,12 +260,13 @@ subroutine land_model_init &
 
   ! [6] initialize land model diagnostics -- must be before *_data_init so that
   ! *_data_init can write static fields if necessary
-  call land_diag_init( glonb(:,1), glatb(1,:), glon(:,1), glat(1,:), time, id_lon, id_lat, id_band )
+  call land_diag_init( lnd%glonb, lnd%glatb, lnd%glon, lnd%glat, time, lnd%domain, &
+       id_lon, id_lat, id_band )
   ! set the land diagnostic axes ids for the flux exchange
   land2cplr%axes = (/id_lon,id_lat/)
   ! send some static diagnostic fields to output
   if ( id_landarea > 0 ) used = send_data &
-       ( id_landarea, glandarea (lnd%is:lnd%ie,lnd%js:lnd%je), lnd%time )
+       ( id_landarea, lnd%garea (lnd%is:lnd%ie,lnd%js:lnd%je), lnd%time )
   if ( id_landfrac > 0 ) used = send_data &
        ( id_landfrac,     gfrac (lnd%is:lnd%ie,lnd%js:lnd%je), lnd%time )
 
@@ -372,8 +280,11 @@ subroutine land_model_init &
   call glac_init ( id_lon, id_lat )
   call snow_init ( id_lon, id_lat )
   call cana_init ( id_lon, id_lat )
-  call topo_rough_init( lnd%time, lnd%lonb, lnd%latb, lnd%domain, id_lon, id_lat)
-  call river_init( lnd%glonb, lnd%glatb, lnd%time, lnd%dt_fast, lnd%domain, &
+  call topo_rough_init( lnd%time, &
+       lnd%glonb(lnd%is:lnd%ie+1,lnd%js:lnd%je+1), &
+       lnd%glatb(lnd%is:lnd%ie+1,lnd%js:lnd%je+1), &
+       lnd%domain, id_lon, id_lat)
+  call river_init( lnd%glonb(:,1), lnd%glatb(1,:), lnd%time, lnd%dt_fast, lnd%domain, &
        lnd%garea(lnd%is:lnd%ie,lnd%js:lnd%je), gfrac)
   
   ! [8] initialize boundary data
@@ -407,6 +318,9 @@ subroutine land_model_init &
         p_surf=1e5, land2cplr=land2cplr, is_init=.true.)
   enddo
 
+  ! [8.2.1] update topographic roughness scaling
+  call update_land_bc_slow( land2cplr )
+
   ! mask error checking
   do j=lnd%js,lnd%je
   do i=lnd%is,lnd%ie
@@ -415,9 +329,6 @@ subroutine land_model_init &
      endif
   enddo
   enddo
-
-  ! [9] clean up memory
-  deallocate ( glonb, glatb, glon, glat, gcellarea, glandarea )
 
   call mpp_clock_end(landInitClock)
 
@@ -469,7 +380,7 @@ subroutine land_model_end (cplr2land, land2cplr)
      do while (ce/=te)
         tile=>current_tile(ce)
         call get_elmt_indices(ce,i,j,k)
-        idx (n) = (k-1)*size(lnd%glon)*size(lnd%glat) + (j-1)*size(lnd%glon) + (i-1)
+        idx (n) = (k-1)*size(lnd%garea,1)*size(lnd%garea,2) + (j-1)*size(lnd%garea,1) + (i-1)
         frac(n) = tile%frac
         call get_tile_tags(tile,glac=glac(n),lake=lake(n),soil=soil(n),vegn=vegn(n))
         ce=next_elmt(ce)
@@ -535,142 +446,6 @@ end subroutine land_model_end
 
 
 ! ============================================================================
-subroutine read_land_gridspec( glonb, glatb, glon, glat, glandarea, gcellarea )
-  real, pointer :: glonb(:,:), glatb(:,:)
-  real, pointer :: glon (:,:), glat (:,:)
-  real, pointer :: glandarea(:,:), gcellarea(:,:)
-  
-  ! ---- local constants
-  character(*), parameter :: grid_file = 'INPUT/grid_spec.nc'
-
-  ! ---- local vars
-  integer :: siz(4) ! size of the fields;
-  integer :: nfaces, nlon, nlat, nxgrid, nfile_axl
-  integer :: i,j, m, n
-!!$  integer :: face
-  real, allocatable  :: buffer(:)
-  real, allocatable  :: tmpx(:,:), tmpy(:,:)
-  integer, allocatable :: i1(:), j1(:), i2(:), j2(:)
-  real, allocatable :: xgrid_area(:)
-  character(len=256) :: face_file, land_mosaic, axl_file
-
-  if( field_exist(grid_file, 'AREA_LND') ) then
-     call field_size( grid_file, 'AREA_LND', siz)
-     nlon = siz(1); nlat = siz(2)
-     ! allocate data for longitude and latitude bounds
-     allocate( glonb(nlon+1,nlat+1), glatb(nlon+1,nlat+1), glon(nlon,nlat), glat(nlon,nlat),&
-               gcellarea(nlon,nlat), glandarea(nlon,nlat) )
-     ! allocate temporary array for input
-     allocate( buffer(max(nlon,nlat)+1) )
-
-     ! read coordinates of grid cell vertices
-     call read_data(grid_file, 'xbl', buffer(1:nlon+1), no_domain=.true.)
-     glonb = spread(buffer(1:nlon+1),2,size(glonb,2))
-     call read_data(grid_file, 'ybl', buffer(1:nlat+1), no_domain=.true.)
-     glatb = spread(buffer(1:nlat+1),1,size(glatb,1))
-
-     ! read coordinates of grid cell centers
-     call read_data(grid_file, 'xtl', buffer(1:nlon), no_domain=.true.)
-     glon = spread(buffer(1:nlon),2,size(glon,2))
-     call read_data(grid_file, 'ytl', buffer(1:nlat), no_domain=.true.)
-     glat = spread(buffer(1:nlat),1,size(glat,1))
-
-     ! read land area and land cell area
-     call read_data(grid_file, 'AREA_LND_CELL', gcellarea, no_domain=.true.)
-     call read_data(grid_file, 'AREA_LND',      glandarea, no_domain=.true.)
-     ! convert relative area to absolute value, m2
-     glandarea = glandarea*4*pi*radius**2
-     gcellarea = gcellarea*4*pi*radius**2
-     ! clean up memory
-     deallocate(buffer)
-  else if( field_exist(grid_file, 'lnd_mosaic_file') ) then ! read from mosaic file
-     call read_data(grid_file, 'lnd_mosaic_file', land_mosaic)     
-     land_mosaic = "INPUT/"//trim(land_mosaic)
-     nfaces = get_mosaic_ntiles(land_mosaic)
-     if (nfaces == 1) then ! lat-lon case
-        call read_data (land_mosaic, 'gridfiles', face_file)
-        face_file = 'INPUT/'//trim(face_file)
-!!$        face = 1
-!!$     else if (nfaces == 6) then ! cubed-sphere case
-!!$        if (present(atmos_domain)) then
-!!$           ! assumes the atmos domain has 6 tiles (probably need to check)
-!!$           call get_mosaic_tile_grid (face_file, land_mosaic, atmos_domain)
-!!$        else
-!!$           if (mod(mpp_npes(),nfaces) /= 0) call error_mesg('land_model_init', &
-!!$                       'Number of processors must be a multiple of 6', FATAL)
-!!$           face = nfaces*mpp_pe()/mpp_npes() + 1  ! assumption
-!!$           call read_data (land_mosaic, "gridfiles", face_file, level=face)
-!!$           face_file = 'INPUT/'//trim(face_file)
-!!$        endif
-     else
-        call error_mesg('land_model_init',  &
-           ' nfaces should be 1 or 6 for land mosaic, contact developer', FATAL)
-     endif
-     call field_size(face_file, "x", siz)
-     if( mod(siz(1)-1,2) /= 0) call error_mesg("land_model_init", "size(x,1) - 1 should be divided by 2", FATAL);
-     if( mod(siz(2)-1,2) /= 0) call error_mesg("land_model_init", "size(x,2) - 1 should be divided by 2", FATAL);
-     nlon = (siz(1)-1)/2
-     nlat = (siz(2)-1)/2
-     allocate( glonb(nlon+1,nlat+1), glatb(nlon+1,nlat+1), glon(nlon,nlat), glat(nlon,nlat),&
-               gcellarea(nlon,nlat), glandarea(nlon,nlat) )
-     !--- read the grid information on supergrid.
-     allocate( tmpx(2*nlon+1, 2*nlat+1) )
-     allocate( tmpy(2*nlon+1, 2*nlat+1) )
-     call read_data(face_file, "x", tmpx, no_domain=.TRUE.)
-     call read_data(face_file, "y", tmpy, no_domain=.TRUE.)
-     do j = 1, nlat+1
-     do i = 1, nlon+1
-        glonb(i,j) = tmpx(2*i-1,2*j-1)
-        glatb(i,j) = tmpy(2*i-1,2*j-1)
-     end do     
-     end do     
-     do j = 1, nlat
-     do i = 1, nlon
-        glon(i,j) = tmpx(2*i,2*j)
-        glat(i,j) = tmpy(2*i,2*j)
-     end do     
-     end do    
-     deallocate(tmpx, tmpy)
-     
-     !--- land_cell_area will be calculated using the same way to calculate the area of xgrid.
-     call calc_mosaic_grid_area(glonb*pi/180.0, glatb*pi/180.0, gcellarea)
-
-     !--- land area will be calculated based on exchange grid area.
-     call field_size(grid_file, "aXl_file", siz)
-     nfile_axl = siz(2)
-     glandarea = 0
-     do n = 1, nfile_axl
-        call read_data(grid_file, "aXl_file", axl_file, level=n)
-!!$        if(nfaces == 6) then
-!!$          ind = index(axl_file, "land_mosaic_tile")
-!!$          if(ind ==0) call error_mesg('land_model_init', &
-!!$              'string land_mosaic_tile should contains in the field aXl_file in file '//trim(grid_file), FATAL )
-!!$          ind = ind + 16
-!!$          digit = ichar(axl_file(ind:ind)) - ichar('0')
-!!$          if( digit > 9 .OR. digit < 1) call error_mesg('land_model_init', &
-!!$              'The character following land_mosaic_tile in field aXl_file of file ' &
-!!$              //trim(grid_file)//' should be a positive integer', FATAL)
-!!$          if( tile .NE. digit ) cycle
-!!$        endif
-        axl_file = 'INPUT/'//trim(axl_file)
-        nxgrid = get_mosaic_xgrid_size(axl_file)
-        allocate(i1(nxgrid), j1(nxgrid), i2(nxgrid), j2(nxgrid), xgrid_area(nxgrid))
-        call get_mosaic_xgrid(aXl_file, i1, j1, i2, j2, xgrid_area)
-        do m = 1, nxgrid
-           i = i2(m); j = j2(m)
-           glandarea(i,j) = glandarea(i,j) + xgrid_area(m)
-        end do
-        ! convert land area to m2
-        deallocate(i1, j1, i2, j2, xgrid_area)
-     end do     
-     glandarea = glandarea*4*PI*radius**2
-  else
-     call error_mesg('land_model_init','both AREA_LND and lnd_mosaic_file do not exist in file '//trim(grid_file),FATAL)
-  endif
-  
-end subroutine read_land_gridspec
-
-! ============================================================================
 subroutine land_cover_cold_start(lnd)
   type(land_state_type), intent(inout) :: lnd
 
@@ -700,10 +475,17 @@ subroutine land_cover_cold_start(lnd)
      if(.not.gmask(i,j)) cycle ! skip ocean points
      if(valid_data(i,j)) cycle ! don't need to do anything with valid points
 
-     call nearest(valid_data,lnd%glon,lnd%glat,lnd%glon(i),lnd%glat(j),i1,j1)
+     call nearest(valid_data,lnd%glon(:,1),lnd%glat(1,:),lnd%glon(i,j),lnd%glat(i,j),i1,j1)
      glac(i,j,:) = glac(i1,j1,:)
      lake(i,j,:) = lake(i1,j1,:)
      soil(i,j,:) = soil(i1,j1,:)
+     call set_current_point(i,j,1)
+     if(is_watch_point())then
+        write(*,*)'###### land_cover_cold_start: reconciling ground with the land mask #####'
+        __DEBUG2__(i,j)
+        __DEBUG2__(lnd%glon(i,j),lnd%glat(i,j))
+        __DEBUG2__(i1,j1)
+     endif
   enddo
   enddo
 
@@ -715,8 +497,15 @@ subroutine land_cover_cold_start(lnd)
      if(valid_data(i,j)) cycle ! don't need to do anything with valid points
      if(sum(glac(i,j,:))+sum(lake(i,j,:))>=1) &
           cycle                ! skip points fully covered by glaciers or lakes
-     call nearest(valid_data,lnd%glon,lnd%glat,lnd%glon(i),lnd%glat(j),i1,j1)
+     call nearest(valid_data,lnd%glon(:,1),lnd%glat(1,:),lnd%glon(i,j),lnd%glat(i,j),i1,j1)
      vegn(i,j,:) = vegn(i1,j1,:)
+     call set_current_point(i,j,1)
+     if(is_watch_point())then
+        write(*,*)'###### land_cover_cold_start: reconciling vegetation with the land mask #####'
+        __DEBUG2__(i,j)
+        __DEBUG2__(lnd%glon(i,j),lnd%glat(i,j))
+        __DEBUG2__(i1,j1)
+     endif
   enddo
   enddo
   
@@ -840,8 +629,10 @@ subroutine land_cover_warm_start ( lnd )
   character(NF_MAX_NAME) :: tile_dim_name ! name of the tile dimension and respective variable
   integer :: i,j,k,it
   type(land_tile_type), pointer :: tile;
+  character(len=256) :: restart_file_name
   
-  __NF_ASRT__(nf_open('INPUT/land.res.nc',NF_NOWRITE,ncid))
+  call get_mosaic_tile_file('INPUT/land.res.nc',restart_file_name,.FALSE.,lnd%domain)
+  __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,ncid))
   ! allocate the input data
   __NF_ASRT__(nfu_inq_var(ncid,'frac',varsize=n,dimids=dimids))
   allocate(idx(n))
@@ -863,8 +654,8 @@ subroutine land_cover_warm_start ( lnd )
   ! create tiles
   do it = 1,n
      k = idx(it)
-     i = modulo(k,size(lnd%glon))+1; k = k/size(lnd%glon)
-     j = modulo(k,size(lnd%glat))+1; k = k/size(lnd%glat)
+     i = modulo(k,size(lnd%garea,1))+1; k = k/size(lnd%garea,1)
+     j = modulo(k,size(lnd%garea,2))+1; k = k/size(lnd%garea,2)
      k = k + 1
      if (i<lnd%is.or.i>lnd%ie) cycle
      if (j<lnd%js.or.j>lnd%je) cycle
@@ -970,7 +761,6 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
        sol_pos,       & ! accumulated snow runoff per grid cell
        tot_pos          ! accumulated total runoff per grid cell
   real, dimension(lnd%is:lnd%ie,lnd%js:lnd%je,num_species) :: &
-
        c_flux           ! flux of tracers into the rivers
   real, dimension(lnd%is:lnd%ie,lnd%js:lnd%je) :: &
        discharge2o_l      ! discharge of liquid water to ocean
@@ -980,6 +770,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
        discharge2o_c      ! discharge of tracers from the rivers to ocean
   real, dimension(lnd%is:lnd%ie,lnd%js:lnd%je,num_species) :: &
        discharge2l_c      ! discharge of tracers from the rivers to land
+  real, dimension(lnd%is:lnd%ie,lnd%js:lnd%je) :: &
+       discharge_work
   logical :: used         ! return value of send_data diagnostics routine
 
   ! start clocks
@@ -988,7 +780,6 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
   ! clear the runoff values, for accumulation over the tiles
   heat_pos = 0 ; sol_pos = 0 ; tot_pos = 0 ; c_flux = 0
-
 
   ! initialize current tile enumerator
   ce = first_elmt(lnd%tile_map,                  &
@@ -1634,13 +1425,33 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   call update_river(tot_pos, c_flux, &
                     discharge2o_l, discharge2o_c, &
                     discharge2l_l, discharge2l_c)
-  where (gfrac.lt.1.) discharge2o_l = discharge2o_l / (1-gfrac)
+! the following mixing and repartitioning makes the earlier partitioning look useless.
+! but i'm allowing for future when river might make a partition without ocean-land leakage.
+! at that time, the code below could be eliminated (but adjustment for ocean areas would
+! still be needed).
+  discharge_work = discharge2o_l + discharge2l_l
+  discharge2o_l = 0.
+  discharge2l_l = 0.
+  where (gfrac(lnd%is:lnd%ie,lnd%js:lnd%je).ge.1.) 
+      discharge2l_l = discharge_work
+    elsewhere
+      discharge2o_l = discharge_work
+    endwhere
   do i_species = 1, num_species
-        where (gfrac.lt.1.) &
-        discharge2o_c(:,:,i_species) = discharge2o_c(:,:,i_species) / (1-gfrac)
+    discharge_work = discharge2o_c(:,:,i_species) + discharge2l_c(:,:,i_species)
+    discharge2o_c(:,:,i_species) = 0.
+    discharge2l_c(:,:,i_species) = 0.
+    where (gfrac(lnd%is:lnd%ie,lnd%js:lnd%je).ge.1.) 
+        discharge2l_c(:,:,i_species) = discharge_work
+      elsewhere
+        discharge2o_c(:,:,i_species) = discharge_work
+      endwhere
     enddo
-  land2cplr%discharge      = discharge2o_l
-  land2cplr%discharge_snow = discharge2o_c(:,:,1)
+
+  where (gfrac(lnd%is:lnd%ie,lnd%js:lnd%je).lt.1.) 
+      land2cplr%discharge      = discharge2o_l        / (1-gfrac(lnd%is:lnd%ie,lnd%js:lnd%je))
+      land2cplr%discharge_snow = discharge2o_c(:,:,1) / (1-gfrac(lnd%is:lnd%ie,lnd%js:lnd%je))
+    endwhere
 
   ! advance land model time
   lnd%time = lnd%time + lnd%dt_fast
@@ -1854,9 +1665,11 @@ subroutine update_land_bc_fast (tile, i,j,k, p_surf, land2cplr, is_init)
   ! at the end of time step (but before time is advanced) to calculate the radiative properties 
   ! for the _next_ time step
   if (do_update) then
-     call diurnal_solar(lnd%lat(j), lnd%lon(i), lnd%time+lnd%dt_fast, cosz, fracday, rrsun, lnd%dt_fast)
+     call diurnal_solar(lnd%glat(i,j), lnd%glon(i,j), lnd%time+lnd%dt_fast, &
+          cosz, fracday, rrsun, lnd%dt_fast)
   else
-     call diurnal_solar(lnd%lat(j), lnd%lon(i), lnd%time, cosz, fracday, rrsun, lnd%dt_fast)
+     call diurnal_solar(lnd%glat(i,j), lnd%glon(i,j), lnd%time, &
+          cosz, fracday, rrsun, lnd%dt_fast)
   endif
   
   if (associated(tile%glac)) then
@@ -2095,42 +1908,53 @@ end subroutine Lnd_stock_pe
 
 
 ! ============================================================================
-subroutine land_diag_init(glonb, glatb, glon, glat, time, id_lon, id_lat, id_band)
-! initialize horizontal axes for land grid so that all submodules use them,
+! initialize horizontal axes for land grid so that all sub-modules can use them,
 ! instead of creating their own
-  real,    intent(in)  :: &
-       glonb(:), glatb(:), & ! longitude and latitude boundaries of grid cells,
-                             ! specified for the global grid (not local domain)
-       glon(:), glat(:)      ! lon and lat of respective grid cell centers
+subroutine land_diag_init(glonb, glatb, glon, glat, time, domain, &
+     id_lon, id_lat, id_band)
+  real, intent(in) :: &
+       glonb(:,:), glatb(:,:), & ! longitude and latitude boundaries of grid cells,
+                                 ! specified for the global grid (not local domain)
+       glon(:,:), glat(:,:)      ! lon and lat of respective grid cell centers
   type(time_type), intent(in) :: time ! initial time for diagnostic fields
+  type(domain2d), intent(in)  :: domain
   integer, intent(out) :: &
-       id_lon, id_lat, id_band  ! IDs of respective diag. manager axes
+       id_lon, id_lat, id_band   ! IDs of respective diag. manager axes
 
   ! ---- local vars ----------------------------------------------------------
   integer :: id_lonb, id_latb ! IDs for cell boundaries
   integer :: nlon, nlat       ! sizes of respective axes
   real    :: rad2deg          ! conversion factor radian -> degrees
   integer :: axes(2)          ! array of axes for 2-D fields
+  integer :: i
 
   rad2deg = 180./pi
+  nlon = size(glonb,1)-1
+  nlat = size(glatb,2)-1
 
-  ! define longitude axes and its edges
-  nlon = size(glonb)-1
-  id_lonb = diag_axis_init ( &
-       'lonb', glonb*rad2deg, 'degrees_E', 'X', 'longitude edges', &
-       set_name='land', domain2=lnd%domain )
-  id_lon  = diag_axis_init (                                                &
-       'lon',  glon*rad2deg, 'degrees_E', 'X',  &
-       'longitude', set_name='land',  edges=id_lonb, domain2=lnd%domain )
+  if(mpp_get_ntile_count(lnd%domain)==1) then
+     ! grid has just one tile, so we assume that the grid is regular lat-lon
+     ! define longitude axes and its edges
+     id_lonb = diag_axis_init ( &
+          'lonb', glonb(:,1)*rad2deg, 'degrees_E', 'X', 'longitude edges', &
+          set_name='land', domain2=domain )
+     id_lon  = diag_axis_init (                                                &
+          'lon',  glon(:,1)*rad2deg, 'degrees_E', 'X',  &
+          'longitude', set_name='land',  edges=id_lonb, domain2=domain )
 
-  ! define latitude axes and its edges
-  nlat = size(glatb)-1
-  id_latb = diag_axis_init ( &
-       'latb', glatb*rad2deg, 'degrees_N', 'Y', 'latitude edges',  &
-       set_name='land',  domain2=lnd%domain   )
-  id_lat = diag_axis_init (                                                &
-       'lat',  glat*rad2deg, 'degrees_N', 'Y', &
-       'latitude', set_name='land', edges=id_latb, domain2=lnd%domain   )
+     ! define latitude axes and its edges
+     id_latb = diag_axis_init ( &
+          'latb', glatb(1,:)*rad2deg, 'degrees_N', 'Y', 'latitude edges',  &
+          set_name='land',  domain2=domain   )
+     id_lat = diag_axis_init (                                                &
+          'lat',  glat(1,:)*rad2deg, 'degrees_N', 'Y', &
+          'latitude', set_name='land', edges=id_latb, domain2=domain   )
+  else
+     id_lon = diag_axis_init ( 'grid_xt', (/(real(i),i=1,nlon)/), 'degrees_E', 'X', &
+            'T-cell longitude', set_name='land',  domain2=domain )
+     id_lat = diag_axis_init ( 'grid_yt', (/(real(i),i=1,nlat)/), 'degrees_N', 'Y', &
+             'T-cell latitude', set_name='land',  domain2=domain )
+  endif
   id_band = diag_axis_init (                                                &
        'band',  (/1.0,2.0/), 'unitless', 'Z', &
        'spectral band', set_name='land' )
@@ -2138,27 +1962,21 @@ subroutine land_diag_init(glonb, glatb, glon, glat, time, id_lon, id_lat, id_ban
   ! set up an array of axes, for convenience
   axes = (/id_lon, id_lat/)
 
-  ! soil and veg diag selectors should be initialized before registering fields
-  ! for tile selectors to work
-!!$  call soil_diag_selectors_init()
-!!$  call vegn_diag_selectors_init()
-!!$
-  id_ntiles = register_tiled_diag_field(module_name,'ntiles',(/id_lon,id_lat/),  &
-       lnd%time, 'number of tiles', 'unitless', missing_value=-1.0, op=OP_SUM)
-  id_frac = register_tiled_diag_field(module_name,'frac',(/id_lon,id_lat/),&
-       lnd%time, 'total fractional area coverage', 'unitless', missing_value=-1.0, &
-       op=OP_SUM )
-  id_area = register_tiled_diag_field(module_name,'area',(/id_lon,id_lat/),&
-       lnd%time, 'area in the grid cell', 'm2', missing_value=-1.0, &
-       op=OP_SUM )
-
   ! register static diagnostic fields
-  id_landarea = register_static_field ( module_name, 'land_area',  (/id_lon,id_lat/), &
+
+  id_landarea = register_static_field ( module_name, 'land_area', axes, &
        'land area in grid cell', 'm2', missing_value=-1.0 )
-  id_landfrac = register_static_field ( module_name, 'land_frac', (/id_lon,id_lat/), &
+  id_landfrac = register_static_field ( module_name, 'land_frac', axes, &
        'fraction of land in grid cell','unitless', missing_value=-1.0 ) 
 
   ! register regular (dynamic) diagnostic fields
+
+  id_ntiles = register_tiled_diag_field(module_name,'ntiles',axes,  &
+       time, 'number of tiles', 'unitless', missing_value=-1.0, op=OP_SUM)
+  id_frac = register_tiled_diag_field(module_name,'frac', axes,&
+       time, 'fraction of land area', 'unitless', missing_value=-1.0, op=OP_SUM )
+  id_area = register_tiled_diag_field(module_name,'area', axes,&
+       time, 'area in the grid cell', 'm2', missing_value=-1.0, op=OP_SUM )
 
   id_dis_l2o   = register_diag_field ( module_name, 'disl2o', axes, &
        time, 'disl2o', 'kg/(m2 s)', missing_value=-1.0e+20 )

@@ -3,9 +3,9 @@
 ! ============================================================================
 module soil_mod
 
-use fms_mod,            only: error_mesg, file_exist,  open_namelist_file,    &
-                              check_nml_error, stdlog, write_version_number, &
-                              close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
+use fms_mod, only: error_mesg, file_exist,  open_namelist_file, check_nml_error, &
+     stdlog, write_version_number, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE, &
+     get_mosaic_tile_file
 use mpp_io_mod,         only: mpp_open, MPP_RDONLY
 use time_manager_mod,   only: time_type, increment_time, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
@@ -151,6 +151,7 @@ subroutine soil_init ( id_lon, id_lat, id_band, use_E_max   )
   type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
   type(land_tile_type), pointer :: tile   ! pointer to current tile
   real, allocatable :: tau_gw(:,:), albedo(:,:,:) ! input data buffers for respective variables
+  character(len=256) :: restart_file_name
 
   module_is_initialized = .TRUE.
   time       = lnd%time
@@ -172,9 +173,9 @@ subroutine soil_init ( id_lon, id_lat, id_band, use_E_max   )
 
 
   ! -------- initialize soil state --------
-  if (file_exist('INPUT/soil.res.nc')) then
-     call error_mesg('soil_init','reading NetCDF restart',NOTE)
-     __NF_ASRT__(nf_open('INPUT/soil.res.nc',NF_NOWRITE,unit))
+  call get_mosaic_tile_file('INPUT/soil.res.nc',restart_file_name,.FALSE.,lnd%domain)
+  if (file_exist(restart_file_name)) then
+     __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
      call read_tile_data_r1d_fptr(unit, 'temp'         , soil_T_ptr  )
      call read_tile_data_r1d_fptr(unit, 'wl'           , soil_wl_ptr )
      call read_tile_data_r1d_fptr(unit, 'ws'           , soil_ws_ptr )
@@ -209,8 +210,9 @@ subroutine soil_init ( id_lon, id_lat, id_band, use_E_max   )
   ! read groundwater residence time field, if requested
   if (.not.use_single_geo) then
      allocate(tau_gw(lnd%is:lnd%ie,lnd%js:lnd%je))
-     call read_field( 'INPUT/groundwater_residence.nc','tau',lnd%lonb, lnd%latb, tau_gw, &
-          interp='bilinear' )
+     call read_field( 'INPUT/groundwater_residence.nc','tau', &
+          lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
+          tau_gw, interp='bilinear' )
      call put_to_tiles_r0d_fptr( tau_gw, lnd%tile_map, soil_tau_groundwater_ptr )
      deallocate(tau_gw)
   endif
@@ -218,8 +220,12 @@ subroutine soil_init ( id_lon, id_lat, id_band, use_E_max   )
   ! set dry soil albedo values, if requested
   if (trim(albedo_to_use)=='albedo-map') then
      allocate(albedo(lnd%is:lnd%ie,lnd%js:lnd%je,NBANDS))
-     call read_field( 'INPUT/soil_albedo.nc','SOIL_ALBEDO_VIS',lnd%lonb, lnd%latb, albedo(:,:,BAND_VIS),'bilinear')
-     call read_field( 'INPUT/soil_albedo.nc','SOIL_ALBEDO_NIR',lnd%lonb, lnd%latb, albedo(:,:,BAND_NIR),'bilinear')
+     call read_field( 'INPUT/soil_albedo.nc','SOIL_ALBEDO_VIS',&
+          lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
+          albedo(:,:,BAND_VIS),'bilinear')
+     call read_field( 'INPUT/soil_albedo.nc','SOIL_ALBEDO_NIR',&
+          lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
+          albedo(:,:,BAND_NIR),'bilinear')
      call put_to_tiles_r1d_fptr( albedo, lnd%tile_map, soil_refl_dry_dir_ptr )
      call put_to_tiles_r1d_fptr( albedo, lnd%tile_map, soil_refl_dry_dif_ptr )
      ! for now, put the same value into the saturated soil albedo, so that
@@ -401,8 +407,8 @@ subroutine soil_step_1 ( soil, vegn, &
        soil_tf,   & ! soil freezing temperature, degK
        soil_G0, soil_DGDT ! linearization of ground heat flux
   ! ---- local vars
-  real :: bbb, denom, dt_e, vlc_sfc, vsc_sfc
-  real, dimension(num_l) :: aaa, ccc, thermal_cond, heat_capacity
+  real :: bbb, denom, dt_e
+  real, dimension(num_l) :: aaa, ccc, thermal_cond, heat_capacity, vlc, vsc
   integer :: l
 
   if(is_watch_point()) then
@@ -422,9 +428,11 @@ subroutine soil_step_1 ( soil, vegn, &
   soil_uptake_T     = sum(soil%uptake_frac*soil%prog%T)
   if (.not.use_beta) soil_beta = 1
 
-  vlc_sfc = max(0.0, soil%prog(1)%wl / (dens_h2o * dz(1)))
-  vsc_sfc = max(0.0, soil%prog(1)%ws / (dens_h2o * dz(1)))
-  call soil_data_thermodynamics ( soil, vlc_sfc, vsc_sfc,  &  
+  do l = 1, num_l
+    vlc(l) = max(0.0, soil%prog(l)%wl / (dens_h2o * dz(l)))
+    vsc(l) = max(0.0, soil%prog(l)%ws / (dens_h2o * dz(l)))
+    enddo
+  call soil_data_thermodynamics ( soil, vlc, vsc,  &  
                                   soil_E_max, soil_rh, &
                                   thermal_cond )
   do l = 1, num_l
@@ -1045,7 +1053,7 @@ end subroutine soil_step_1
   if(is_watch_point()) then
      write(*,*) ' ***** soil_step_2 checkpoint 3.5 ***** '
      write(*,*) 'hcap', hcap
-!     write(*,*) 'cap_flow', cap_flow
+     write(*,*) 'cap_flow', cap_flow
      do l = 1, num_l
         write(*,*) 'level=', l, ' T', soil%prog(l)%T
      enddo

@@ -40,7 +40,7 @@ public :: vegn_daily_npp  ! updates values of daily-average npp
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
    version = '$Id: vegn_carbon_int.F90,v 15.0.2.1 2007/08/29 23:55:19 slm Exp $', &
-   tagname = '$Name: omsk_2007_10 $' ,&
+   tagname = '$Name: omsk_2007_12 $' ,&
    module_name = 'vegn'
 real, parameter :: GROWTH_RESP=0.333  ! fraction of npp lost as growth respiration
 

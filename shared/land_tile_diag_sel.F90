@@ -25,7 +25,7 @@ public :: get_n_selectors         ! number of available selectors
 character(len=*), parameter :: &
      module_name = 'land_tile_selectors_mod', &
      version     = '$Id: land_tile_diag_sel.F90,v 15.0.2.1 2007/09/16 21:37:07 slm Exp $', &
-     tagname     = '$Name: omsk_2007_10 $'
+     tagname     = '$Name: omsk_2007_12 $'
 
 integer, parameter :: SEL_LEN           = 4   ! max length of the selector name
 integer, parameter :: SEL_LONG_NAME_LEN = 128 ! max name of the selector long name

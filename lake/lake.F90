@@ -3,9 +3,9 @@
 ! ============================================================================
 module lake_mod
 
-use fms_mod,            only: error_mesg, file_exist,  open_namelist_file,    &
-                              check_nml_error, stdlog, write_version_number, &
-                              close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
+use fms_mod, only : error_mesg, file_exist,  open_namelist_file, check_nml_error, &
+     stdlog, write_version_number, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE, &
+     get_mosaic_tile_file
 use time_manager_mod,   only: time_type, increment_time, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init, register_diag_field,           &
                               register_static_field, send_data
@@ -136,6 +136,7 @@ subroutine lake_init ( id_lon, id_lat )
   integer :: unit         ! unit for various i/o
   type(land_tile_enum_type)     :: te,ce ! last and current tile list elements
   type(land_tile_type), pointer :: tile  ! pointer to current tile
+  character(len=256) :: restart_file_name
 
   module_is_initialized = .TRUE.
   time       = lnd%time
@@ -154,9 +155,9 @@ subroutine lake_init ( id_lon, id_lat )
   use_beta = .true.
 
   ! -------- initialize lake state --------
-  if (file_exist('INPUT/lake.res.nc')) then
-     call error_mesg('lake_init','reading NetCDF restart',NOTE)
-     __NF_ASRT__(nf_open('INPUT/lake.res.nc',NF_NOWRITE,unit))
+  call get_mosaic_tile_file('INPUT/lake.res.nc',restart_file_name,.FALSE.,lnd%domain)
+  if (file_exist(restart_file_name)) then
+     __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
      call read_tile_data_r1d_fptr(unit, 'temp'         , lake_temp_ptr  )
      call read_tile_data_r1d_fptr(unit, 'wl'           , lake_wl_ptr )
      call read_tile_data_r1d_fptr(unit, 'ws'           , lake_ws_ptr )

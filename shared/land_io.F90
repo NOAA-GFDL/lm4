@@ -37,8 +37,8 @@ include 'netcdf.inc'
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land_io_mod', &
-     version     = '$Id: land_io.F90,v 15.0.2.2 2007/09/16 21:37:06 slm Exp $', &
-     tagname     = '$Name: omsk_2007_10 $'
+     version     = '$Id: land_io.F90,v 15.0.2.3 2007/10/11 00:29:50 slm Exp $', &
+     tagname     = '$Name: omsk_2007_12 $'
 
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -116,7 +116,7 @@ subroutine init_cover_field( &
   character(len=*), intent(in) :: cover_to_use
   character(len=*), intent(in) :: filename
   character(len=*), intent(in) :: cover_field_name, frac_field_name
-  real            , intent(in) :: glonb(:), glatb(:) ! boundaries of the grid cells
+  real            , intent(in) :: glonb(:,:), glatb(:,:) ! boundaries of the grid cells
   integer         , intent(in) :: uniform_cover
   integer         , intent(in) :: input_cover_types(:)
   real            , intent(out):: frac(:,:,:) ! output-global map of soil fractional coverage
@@ -171,7 +171,7 @@ subroutine read_cover_field(file, cover_field_name, frac_field_name,&
      lonb, latb, input_cover_types, frac)
   character(len=*)  , intent(in)  :: file            ! file to read from
   character(len=*)  , intent(in)  :: cover_field_name, frac_field_name
-  real              , intent(in)  :: lonb(:),latb(:) ! boundaries of the model grid
+  real              , intent(in)  :: lonb(:,:),latb(:,:) ! boundaries of the model grid
   real              , intent(out) :: frac(:,:,:)     ! resulting fractions
   integer, optional , intent(in)  :: input_cover_types(:)
 
@@ -199,7 +199,7 @@ end subroutine read_cover_field
 ! ============================================================================
 subroutine do_read_cover_field(ncid,varid,lonb,latb,input_cover_types,frac)
   integer, intent(in)  :: ncid, varid
-  real   , intent(in)  :: lonb(:),latb(:)
+  real   , intent(in)  :: lonb(:,:),latb(:,:)
   integer, intent(in)  :: input_cover_types(:)
   real   , intent(out) :: frac(:,:,:)
 
@@ -260,7 +260,7 @@ end subroutine do_read_cover_field
 ! ============================================================================
 subroutine do_read_fraction_field(ncid,varid,lonb,latb,input_cover_types,frac)
   integer, intent(in)  :: ncid, varid
-  real   , intent(in)  :: lonb(:),latb(:)
+  real   , intent(in)  :: lonb(:,:),latb(:,:)
   integer, intent(in)  :: input_cover_types(:)
   real   , intent(out) :: frac(:,:,:)
 
@@ -319,10 +319,10 @@ end subroutine do_read_fraction_field
 
 
 ! ============================================================================
-subroutine read_field_1(filename, varname, lonb, latb, data, interp)
+subroutine read_field_1(filename, varname, lon, lat, data, interp)
   character(len=*), intent(in) :: filename
   character(len=*), intent(in) :: varname
-  real, intent(in)  :: lonb(:),latb(:)
+  real, intent(in)  :: lon(:,:),lat(:,:)
   real, intent(out) :: data(:,:)
   character(len=*), intent(in), optional :: interp
 
@@ -334,16 +334,16 @@ subroutine read_field_1(filename, varname, lonb, latb, data, interp)
   if(iret/=NF_NOERR) then
      call error_mesg('read_field','Can''t open netcdf file "'//trim(filename)//'"',FATAL)
   endif
-  call read_field_0(ncid, varname, lonb, latb, data, interp)
+  call read_field_0(ncid, varname, lon, lat, data, interp)
   __NF_ASRT__( nf_close(ncid) )
 
 end subroutine read_field_1
 
 ! ============================================================================
-subroutine read_field_0(ncid, varname, lonb, latb, data, interp)
+subroutine read_field_0(ncid, varname, lon, lat, data, interp)
   integer, intent(in) :: ncid
   character(len=*), intent(in) :: varname
-  real, intent(in) :: lonb(:),latb(:)
+  real, intent(in) :: lon(:,:),lat(:,:)
   real, intent(out) :: data(:,:)
   character(len=*), intent(in), optional  :: interp
 
@@ -392,12 +392,11 @@ subroutine read_field_0(ncid, varname, lonb, latb, data, interp)
 
   select case(trim(interpolation))
   case ("bilinear")
-     call horiz_interp(x,in_lonb,in_latb,lonb,latb,data, mask_in=rmask)
+     call horiz_interp(x, in_lonb, in_latb, lon,lat, data, mask_in=rmask, interp_method='bilinear')
   case ("nearest")
      do j = 1,size(data,2)
      do i = 1,size(data,1)
-        call nearest (mask, in_lon, in_lat,                &
-             (lonb(i)+lonb(i+1))/2, (latb(j)+latb(j+1))/2, imap, jmap)
+        call nearest (mask, in_lon, in_lat, lon(i,j), lat(i,j), imap, jmap)
         data(i,j) = x(imap,jmap)
      enddo
      enddo

@@ -305,7 +305,7 @@ end subroutine glacier_data_init_0d
 ! ============================================================================
 function glac_cover_cold_start(land_mask, glonb, glatb) result (glac_frac)
   logical, intent(in) :: land_mask(:,:)    ! global land mask
-  real,    intent(in) :: glonb(:), glatb(:)! boundaries of the global grid cells
+  real,    intent(in) :: glonb(:,:), glatb(:,:)! boundaries of the global grid cells
   real,    pointer    :: glac_frac (:,:,:) ! output-global map of fractional coverage
 
   allocate( glac_frac(size(land_mask,1),size(land_mask,2),n_dim_glac_types))

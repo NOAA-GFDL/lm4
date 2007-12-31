@@ -7,12 +7,11 @@
 ! ============================================================================
 module canopy_air_mod
 
-  use fms_mod,          only: write_version_number, error_mesg, FATAL, NOTE, &
-                              file_exist, close_file, &
-                              open_namelist_file, check_nml_error, &
-                              mpp_pe, mpp_root_pe, stdlog
-  use time_manager_mod, only: time_type, time_type_to_real
-  use constants_mod,    only: rdgas, rvgas, cp_air, PI, VONKARM
+use fms_mod, only : write_version_number, error_mesg, FATAL, NOTE, file_exist, &
+     close_file, get_mosaic_tile_file, open_namelist_file, check_nml_error, &
+     mpp_pe, mpp_root_pe, stdlog
+use time_manager_mod, only : time_type, time_type_to_real
+use constants_mod, only : rdgas, rvgas, cp_air, PI, VONKARM
 use sphum_mod, only : qscomp
 
 use land_constants_mod, only : NBANDS,d608
@@ -43,8 +42,8 @@ public :: cana_step_2
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-  version = '$Id: canopy_air.F90,v 15.0 2007/08/14 03:59:19 fms Exp $', &
-  tagname = '$Name: omsk_2007_10 $' ,&
+  version = '$Id: canopy_air.F90,v 15.0.2.1 2007/10/11 00:29:49 slm Exp $', &
+  tagname = '$Name: omsk_2007_12 $', &
   module_name = 'canopy_air_mod'
 
 ! options for turbulence parameter calculations
@@ -107,6 +106,7 @@ subroutine cana_init ( id_lon, id_lat )
   integer :: unit         ! unit for various i/o
   type(land_tile_enum_type)     :: te,ce ! last and current tile
   type(land_tile_type), pointer :: tile   ! pointer to current tile
+  character(len=256) :: restart_file_name
 
   module_is_initialized = .TRUE.
 
@@ -116,9 +116,9 @@ subroutine cana_init ( id_lon, id_lat )
 
 
   ! ---- initialize cana state ---------------------------------------------
-  if (file_exist('INPUT/cana.res.nc')) then
-     call error_mesg('cana_init','reading NetCDF restart',NOTE)
-     __NF_ASRT__(nf_open('INPUT/cana.res.nc',NF_NOWRITE,unit))
+  call get_mosaic_tile_file('INPUT/cana.res.nc',restart_file_name,.FALSE.,lnd%domain)
+  if (file_exist(restart_file_name)) then
+     __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
      call read_tile_data_r0d_fptr(unit, 'temp'  , cana_temp_ptr  )
      call read_tile_data_r0d_fptr(unit, 'sphum' , cana_sphum_ptr )
      __NF_ASRT__(nf_close(unit))     

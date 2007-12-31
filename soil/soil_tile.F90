@@ -65,8 +65,10 @@ type :: soil_pars_type
   real psi_sat_ref
   real chb
   real alpha              ! *** REPLACE LATER BY alpha(layer)
-  real heat_capacity_ref
-  real thermal_cond_ref
+  real heat_capacity_dry
+  real thermal_cond_dry
+  real thermal_cond_sat
+  real thermal_cond_exp
   real refl_dry_dir(NBANDS)
   real refl_dry_dif(NBANDS)
   real refl_sat_dir(NBANDS)
@@ -110,7 +112,7 @@ end type soil_tile_type
 real    :: k_over_B              = 2         ! reset to 0 for MCM
 real    :: rate_fc               = 0.1/86400 ! 0.1 mm/d drainage rate at FC
 real    :: sfc_heat_factor       = 1
-integer :: z_sfc_layer           = 0
+real    :: z_sfc_layer           = 0.0
 integer :: num_l                 = 18        ! number of soil levels
 real    :: dz(max_lev)           = (/ &
     0.02, 0.04, 0.04, 0.05, 0.05, 0.1, 0.1, 0.2, 0.2, &
@@ -146,10 +148,32 @@ real    :: rsa_exp_global        = 1.5
   (/ -.059, -0.28, -0.27, -0.13, -0.13, -0.27, -0.16, -0.28, -0.28   /),&
   dat_chb=&
   (/   3.5,   6.4,  11.0,   4.8,   6.3,   8.4,   6.3,   6.4,   6.4   /),&
-  dat_heat_capacity_ref =&
-  (/ 1.8e6, 2.0e6, 2.6e6, 1.9e6, 2.2e6, 2.3e6, 2.1e6, 3.0e6,   1.0   /),&
-  dat_thermal_cond_ref =&
-  (/   1.5,   0.8,  1.35,  1.15, 1.475, 1.075, 1.217,  0.39, 2.e-7   /),&
+!  dat_heat_capacity_ref =&
+!  (/ 1.8e6, 2.0e6, 2.6e6, 1.9e6, 2.2e6, 2.3e6, 2.1e6, 3.0e6,   1.0   /),&
+! previous (ref) values were based on typical water contents
+! following dry values are based on w_min=(1-w_sat) w_org=0
+! except for peat, where            w_org-(1-w_sat) w_min=0
+! microscopic rho*c for w_min is 2650*733 and for w_org is 1300*1926
+! (brutsaert 1982 evaporation into the atmosphere p 146)
+! ignored air
+  dat_heat_capacity_dry =&
+  (/ 1.2e6, 1.1e6, 1.1e6, 1.1e6, 1.1e6, 1.1e6, 1.1e6, 1.4e6,   1.0   /),&
+!  dat_thermal_cond_ref =&
+!  (/   1.5,   0.8,  1.35,  1.15, 1.475, 1.075, 1.217,  0.39, 2.e-7   /),&
+! previous (ref) values were based on typical water contents
+! following dry and sat values and interpolating exponents are based on
+! computations after deVries. i computed C M and F functions for
+! unfrozen soil in
+! spreadsheet Research\LaD2\soil thermal conductivity. the dry and
+! sat values come right out of those computations. the exponent was
+! done by eye. curves look like typical literature curves.
+! TEMP: still need to treat freezing, maybe import deVries model into code.
+  dat_thermal_cond_dry =&
+  (/  0.14,  0.39,  0.21,  .265, 0.175, 0.300, 0.247,  0.05, 2.e-7   /),&
+  dat_thermal_cond_sat =&
+  (/  2.32,  1.60,  1.50,  1.96, 1.910, 1.550, 1.807,  0.50, 2.e-7   /),&
+  dat_thermal_cond_exp =&
+  (/  0.33,  1.25,   0.6,  0.79, 0.465, 0.925, 0.727,   1.0,   1.0   /),&
   dat_emis_dry=&
   (/ 0.950, 0.950, 0.950, 0.950, 0.950, 0.950, 0.950, 0.950,   1.0   /),&
   dat_emis_sat=&
@@ -192,7 +216,8 @@ namelist /soil_data_nml/ &
      dat_w_sat,               dat_awc_lm2,     &
      dat_k_sat_ref,            &
      dat_psi_sat_ref,               dat_chb,          &
-     dat_heat_capacity_ref,         dat_thermal_cond_ref,   &
+     dat_heat_capacity_dry,       dat_thermal_cond_dry,   &
+     dat_thermal_cond_sat,        dat_thermal_cond_exp,   &
      dat_refl_dry_dir,            dat_refl_sat_dir,              &
      dat_refl_dry_dif,            dat_refl_sat_dif,              &
      dat_emis_dry,              dat_emis_sat,                &
@@ -299,8 +324,10 @@ subroutine soil_data_init_0d(soil)
   soil%pars%psi_sat_ref       = dat_psi_sat_ref      (k)
   soil%pars%chb               = dat_chb              (k)
   soil%pars%alpha             = 1
-  soil%pars%heat_capacity_ref = dat_heat_capacity_ref(k)
-  soil%pars%thermal_cond_ref  = dat_thermal_cond_ref (k)
+  soil%pars%heat_capacity_dry = dat_heat_capacity_dry(k)
+  soil%pars%thermal_cond_dry  = dat_thermal_cond_dry (k)
+  soil%pars%thermal_cond_sat  = dat_thermal_cond_sat (k)
+  soil%pars%thermal_cond_exp  = dat_thermal_cond_exp (k)
   soil%pars%refl_dry_dir      = dat_refl_dry_dir     (k,:)
   soil%pars%refl_dry_dif      = dat_refl_dry_dif     (k,:)
   soil%pars%refl_sat_dir      = dat_refl_sat_dir     (k,:)
@@ -343,7 +370,7 @@ function soil_cover_cold_start(land_mask, glonb, glatb) result (soil_frac)
 ! missing data points may fail to find any good data, or do it in nproc-
 ! dependent way
   logical, intent(in) :: land_mask(:,:)    ! global land mask
-  real,    intent(in) :: glonb(:), glatb(:)! boundaries of the global grid cells
+  real,    intent(in) :: glonb(:,:), glatb(:,:)! boundaries of the global grid cells
   real,    pointer    :: soil_frac (:,:,:) ! output-global map of soil fractional coverage
 
   allocate( soil_frac(size(land_mask,1),size(land_mask,2),n_dim_soil_types))
@@ -502,12 +529,12 @@ end subroutine soil_data_diffusion
 
 ! ============================================================================
 ! compute soil thermodynmamic properties.
-subroutine soil_data_thermodynamics ( soil, vlc_sfc, vsc_sfc, &  
+subroutine soil_data_thermodynamics ( soil, vlc, vsc, &  
                                              soil_E_max, soil_rh, &
                                              thermal_cond)
   type(soil_tile_type), intent(inout) :: soil
-  real,                 intent(in)  :: vlc_sfc
-  real,                 intent(in)  :: vsc_sfc
+  real,                 intent(in)  :: vlc(:)
+  real,                 intent(in)  :: vsc(:)
   real,                 intent(out) :: soil_E_max
   real,                 intent(out) :: soil_rh
   real,                 intent(out) :: thermal_cond(:)
@@ -520,20 +547,28 @@ subroutine soil_data_thermodynamics ( soil, vlc_sfc, vsc_sfc, &
 ! ----------------------------------------------------------------------------
 
   ! assign some index of water availability for snow-free soil
-  soil_E_max = soil%Eg_part_ref / ( max(small, soil%w_fc(1) - vlc_sfc) )  ! NEEDS T adj
+  soil_E_max = soil%Eg_part_ref / ( max(small, soil%w_fc(1) - vlc(1)) )  ! NEEDS T adj
+  if (vlc(1)+vsc(1)>0) then
   soil_rh = exp ( ((soil%pars%psi_sat_ref/soil%pars%alpha) &
-               *(soil%pars%w_sat/(vlc_sfc+vsc_sfc))**soil%pars%chb)*g_RT )
-!!$  soil_rh = max(0.,min(1.,1.*(vlc_sfc+vsc_sfc)/soil%pars%w_sat)) !********* TEMP FIX
-!!$  soil_rh = max(0.,min(1.,(vlc_sfc+vsc_sfc-soil%w_wilt(1))/(soil%pars%w_sat-soil%w_wilt(1)))) !********* TEMP FIX
+               *(soil%pars%w_sat/(vlc(1)+vsc(1)))**soil%pars%chb)*g_RT )
+  else
+     soil_rh = 0
+  endif
+!!$  soil_rh = max(0.,min(1.,1.*(vlc(1)+vsc(1))/soil%pars%w_sat)) !********* TEMP FIX
+!!$  soil_rh = max(0.,min(1.,(vlc(1)+vsc(1)-soil%w_wilt(1))/(soil%pars%w_sat-soil%w_wilt(1)))) !********* TEMP FIX
 
-  ! these will eventually be functions of water content (or psi) and T.
   do l = 1, num_sfc_layers
-     soil%heat_capacity_dry(l) = sfc_heat_factor*soil%pars%heat_capacity_ref
-     thermal_cond(l)      = sfc_heat_factor*soil%pars%thermal_cond_ref
+     soil%heat_capacity_dry(l) = sfc_heat_factor*soil%pars%heat_capacity_dry
+     thermal_cond(l)      = sfc_heat_factor &
+         * ( soil%pars%thermal_cond_dry+ &
+            (soil%pars%thermal_cond_sat-soil%pars%thermal_cond_dry) &
+            *((vlc(l)+vsc(l))/soil%pars%w_sat)**soil%pars%thermal_cond_exp )
   enddo
   do l = num_sfc_layers+1, num_l
-     soil%heat_capacity_dry(l) = soil%pars%heat_capacity_ref
-     thermal_cond(l)  = soil%pars%thermal_cond_ref
+     soil%heat_capacity_dry(l) = soil%pars%heat_capacity_dry
+     thermal_cond(l)  = ( soil%pars%thermal_cond_dry+ &
+            (soil%pars%thermal_cond_sat-soil%pars%thermal_cond_dry) &
+            *((vlc(l)+vsc(l))/soil%pars%w_sat)**soil%pars%thermal_cond_exp )
   enddo
   
 end subroutine soil_data_thermodynamics

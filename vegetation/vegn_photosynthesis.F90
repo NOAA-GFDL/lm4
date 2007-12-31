@@ -22,7 +22,7 @@ public :: vegn_photosynthesis
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
    version = '$Id: vegn_photosynthesis.F90,v 15.0.2.2 2007/09/16 21:37:26 slm Exp $', &
-   tagname = '$Name: omsk_2007_10 $', &
+   tagname = '$Name: omsk_2007_12 $', &
    module_name = 'vegn_photosynthesis'
 ! values for internal vegetation radiation option selector
 integer, parameter :: VEGN_PHOT_SIMPLE  = 1 ! zero photosynthesis

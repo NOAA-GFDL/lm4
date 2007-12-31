@@ -26,7 +26,7 @@ public :: static_vegn_override
 character(len=*), parameter :: &
      module_name = 'static_vegn_mod', &
      version     = '$Id: vegn_static_override.F90,v 15.0.2.1 2007/09/16 22:14:24 slm Exp $', &
-     tagname     = '$Name: omsk_2007_10 $'
+     tagname     = '$Name: omsk_2007_12 $'
 
 ! ==== module data ==========================================================
 logical :: module_is_initialized = .FALSE.

@@ -8,7 +8,7 @@
 module vegetation_mod
 
 use fms_mod, only: write_version_number, error_mesg, NOTE, file_exist, close_file, &
-     open_namelist_file, check_nml_error, stdlog
+     open_namelist_file, check_nml_error, stdlog, get_mosaic_tile_file 
 use mpp_mod, only: mpp_sum, mpp_pe, mpp_root_pe
 use time_manager_mod, only: time_type, time_type_to_real, get_date, operator(-)
 use constants_mod,    only: tfreeze, rdgas, rvgas, hlv, hlf, cp_air, PI
@@ -70,8 +70,8 @@ public :: update_vegn_slow
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-   version = '$Id: vegetation.F90,v 15.1.2.2 2007/09/16 22:14:23 slm Exp $', &
-   tagname = '$Name: omsk_2007_10 $', &
+   version = '$Id: vegetation.F90,v 15.1.2.3 2007/10/11 00:29:51 slm Exp $', &
+   tagname = '$Name: omsk_2007_12 $', &
    module_name = 'vegn'
 
 ! ==== module variables ======================================================
@@ -176,6 +176,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
   type(vegn_cohort_type), pointer :: cohort! pointer to initial cohort for cold-start
   integer :: n_accum
   integer :: nmn_acm
+  character(len=256) :: restart_file_name_1, restart_file_name_2
 
   module_is_initialized = .TRUE.
 
@@ -187,8 +188,10 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
   ! ---- initialize vegn state ---------------------------------------------
   n_accum = 0
   nmn_acm = 0
-  if (file_exist('INPUT/vegn1.res.nc')) then
-     __NF_ASRT__(nf_open('INPUT/vegn1.res.nc',NF_NOWRITE,unit))
+  call get_mosaic_tile_file('INPUT/vegn1.res.nc',restart_file_name_1,.FALSE.,lnd%domain)
+  call get_mosaic_tile_file('INPUT/vegn2.res.nc',restart_file_name_2,.FALSE.,lnd%domain)
+  if (file_exist(restart_file_name_1)) then
+     __NF_ASRT__(nf_open(restart_file_name_1,NF_NOWRITE,unit))
      ! read the cohort index and generate appropriate number of cohorts
      ! for each vegetation tile
      call read_create_cohorts(unit)
@@ -199,7 +202,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      call read_cohort_data_r0d_fptr(unit, 'ws', cohort_ws_ptr )
      __NF_ASRT__(nf_close(unit))     
 
-     __NF_ASRT__(nf_open('INPUT/vegn2.res.nc',NF_NOWRITE,unit))
+     __NF_ASRT__(nf_open(restart_file_name_2,NF_NOWRITE,unit))
      ! read global variables
      __NF_ASRT__(nfu_get_var_int(unit,'n_accum',n_accum))
      __NF_ASRT__(nfu_get_var_int(unit,'nmn_acm',nmn_acm))
@@ -278,8 +281,9 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      cohort=>NULL()
   enddo
   
-  if (file_exist('INPUT/soil_carbon.res.nc')) then
-     __NF_ASRT__(nf_open('INPUT/soil_carbon.res.nc',NF_NOWRITE,unit))
+  call get_mosaic_tile_file('INPUT/soil_carbon.res.nc',restart_file_name_1,.FALSE.,lnd%domain)
+  if (file_exist(restart_file_name_1)) then
+     __NF_ASRT__(nf_open(restart_file_name_1,NF_NOWRITE,unit))
      call error_mesg('veg_data_init','reading soil_carbon restart',NOTE)
      call read_tile_data_r0d_fptr(unit,'asoil_in',vegn_asoil_in_ptr)
      call read_tile_data_r0d_fptr(unit,'fsc_in',vegn_fsc_in_ptr)
@@ -763,14 +767,14 @@ subroutine vegn_step_2 ( vegn, diag, &
                 ! implicit time step
   type(vegn_cohort_type), pointer :: cohort
   
+  ! get the pointer to the first (and, currently, the only) cohort
+  cohort => current_cohort(first_cohort(vegn%cohorts))
+
   if (is_watch_point()) then
      write(*,*)'#### vegn_step_2 input ####'
      __DEBUG3__(delta_Tv, delta_wl, delta_wf)
      __DEBUG1__(cohort%prog%Tv)
   endif
-
-  ! get the pointer to the first (and, currently, the only) cohort
-  cohort => current_cohort(first_cohort(vegn%cohorts))
 
   ! update vegetation state
   cohort%prog%Tv = cohort%prog%Tv + delta_Tv
