@@ -1,8 +1,3 @@
-#ifndef BEFORE_NALANDA
-#define horiz_interp_init horiz_interp_new
-#define horiz_interp_end horiz_interp_del
-#endif
-
 module river_mod
 !-----------------------------------------------------------------------
 !                   GNU General Public License                        
@@ -39,7 +34,7 @@ module river_mod
   use axis_utils_mod,      only : get_axis_cart, nearest_index
   use diag_manager_mod,    only : diag_axis_init, register_diag_field, register_static_field, send_data
   use time_manager_mod,    only : time_type, increment_time, get_time
-  use horiz_interp_mod,    only : horiz_interp_type, horiz_interp_init, horiz_interp, horiz_interp_end
+  use horiz_interp_mod,    only : horiz_interp_type, horiz_interp_new, horiz_interp, horiz_interp_del
   use river_type_mod,      only : river_type, Leo_Mad_trios
   use river_physics_mod,   only : river_physics_step, river_physics_init
   use constants_mod,       only : PI, RADIAN, tfreeze, DENS_H2O
@@ -49,8 +44,8 @@ module river_mod
   private
 
   !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id: river.F90,v 15.0.2.5.2.1 2007/12/12 23:13:32 wfc Exp $'
-  character(len=128) :: tagname = '$Name: omsk_2007_12 $'
+  character(len=128) :: version = '$Id: river.F90,v 15.0.2.7 2007/12/19 23:25:41 slm Exp $'
+  character(len=128) :: tagname = '$Name: omsk_2008_03 $'
 
   !--- public interface ------------------------------------------------
   public :: river_init, river_end, river_type, update_river
@@ -349,11 +344,11 @@ contains
     wrk3 = 0.0
 
     !--- set up the interp relation between land and river
-!    call horiz_interp_init(Interp_land_to_river, gblon, gblat,                &
+!    call horiz_interp_new(Interp_land_to_river, gblon, gblat,                &
 !                          River%lonb(isc:iec+1), River%latb(jsc:jec+1) )
-    call horiz_interp_init(Interp_land_to_river, gblon, gblat,                &
+    call horiz_interp_new(Interp_land_to_river, gblon, gblat,                &
                           River%lonb, River%latb )
-    call horiz_interp_init(Interp_river_to_land, River%lonb, River%latb,      &
+    call horiz_interp_new(Interp_river_to_land, River%lonb, River%latb,      &
                           gblon(isc_lnd:iec_lnd+1), gblat(jsc_lnd:jec_lnd+1) )
 
     call sort_basins
@@ -452,18 +447,14 @@ contains
     call get_Leo_Mad_params(DHG_exp, DHG_coef, AAS_exp)
     River%o_exp  = 1./ (AAS_exp%on_w + AAS_exp%on_d)
     do j = 1, nlat
-       do i = 1, nlon
+    do i = 1, nlon
        if ( River%celllength(i,j) > 0.0) then
-    River%o_coef(i,j) = River%outflowmean(i,j) / &
+          River%o_coef(i,j) = River%outflowmean(i,j) / &
                ((sinuosity*River%celllength(i,j))*DHG_coef%on_w*DHG_coef%on_d &
                  *(River%outflowmean(i,j)**(DHG_exp%on_w+DHG_exp%on_d)))**River%o_exp(i,j)
        endif
-       enddo
     enddo
-!    River%o_coef = River%outflowmean / &
-!               ((sinuosity*River%celllength)*DHG_coef%on_w*DHG_coef%on_d &
-!                 *(River%outflowmean**(DHG_exp%on_w+DHG_exp%on_d)))**o_exp
-!                 *(River%outflowmean**(DHG_exp%on_w+DHG_exp%on_d)))**River%o_exp
+    enddo
     River%d_exp  = AAS_exp%on_d
     River%d_coef = DHG_coef%on_d                        &
                     *(River%outflowmean**(DHG_exp%on_d-AAS_exp%on_d))
@@ -483,7 +474,6 @@ contains
     real, dimension(:,:,:), intent(out) :: discharge2ocean_c
     real, dimension(:,:,:), intent(out) :: discharge2land_c
     integer, save :: n = 0  ! fast time step with each slow time step
-    integer :: i, j
 
     if (.not.do_rivers) then
       discharge2ocean = 0; discharge2ocean_c = 0
@@ -746,8 +736,8 @@ call mpp_sum(River%inflow_c,nlon*nlat*num_species)
     deallocate(River%removal_c )
     deallocate(River%vf_ref,River%t_ref,River%q10,River%kinv)
     deallocate(River%d_exp,River%d_coef,River%o_exp,River%o_coef)
-    call horiz_interp_end(Interp_land_to_river)
-    call horiz_interp_end(Interp_river_to_land)
+    call horiz_interp_del(Interp_land_to_river)
+    call horiz_interp_del(Interp_river_to_land)
 
     module_is_initialized = .FALSE.
 

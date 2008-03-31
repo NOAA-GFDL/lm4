@@ -1,6 +1,6 @@
 module land_constants_mod
 
-use constants_mod, only : rdgas, rvgas
+use constants_mod, only : rdgas, rvgas, wtmair
 
 implicit none
 private
@@ -19,6 +19,7 @@ real, public, parameter :: Rugas = 8.314472 ! universal gas constant, J K-1 mol-
 
 real, public, parameter :: seconds_per_year = 86400.0*365.0
 real, public, parameter :: mol_C = 12.0e-3 ! molar mass of carbon, kg
+real, public, parameter :: mol_air = wtmair/1000.0 ! molar mass of air, kg
 ! ==== end of public interfaces ==============================================
 
 end module

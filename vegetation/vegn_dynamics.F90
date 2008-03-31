@@ -15,15 +15,12 @@ use land_tile_diag_mod, only : &
      register_tiled_diag_field, send_tile_data, diag_buff_type
 use vegn_data_mod, only : spdata, &
      CMPT_VLEAF, CMPT_SAPWOOD, CMPT_ROOT, CMPT_WOOD, CMPT_LEAF, LEAF_ON, LEAF_OFF, &
-     LU_NTRL, &
      fsc_liv, fsc_wood, K1, K2, soil_carbon_depth_scale, C2B, agf_bs, theta_crit, &
      l_fract
 use vegn_tile_mod, only: vegn_tile_type
 use soil_tile_mod, only: soil_tile_type, soil_ave_temp, soil_ave_theta
-use cohort_list_mod, only : vegn_cohort_enum_type, first_cohort, tail_cohort, &
-     current_cohort, next_cohort, operator(/=)
 use vegn_cohort_mod, only : vegn_cohort_type, height_from_biomass, lai_from_biomass, &
-     update_bio_living_fraction, update_species
+     update_biomass_pools, update_bio_living_fraction, update_species
 
 use land_debug_mod, only : is_watch_point
 
@@ -42,8 +39,8 @@ public :: vegn_biogeography !
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-   version = '$Id: vegn_dynamics.F90,v 1.1.2.1 2007/09/16 22:14:24 slm Exp $', &
-   tagname = '$Name: omsk_2007_12 $' ,&
+   version = '$Id: vegn_dynamics.F90,v 1.1.2.4 2007/12/05 19:53:01 slm Exp $', &
+   tagname = '$Name: omsk_2008_03 $' ,&
    module_name = 'vegn'
 real, parameter :: GROWTH_RESP=0.333  ! fraction of npp lost as growth respiration
 
@@ -52,7 +49,7 @@ real, parameter :: GROWTH_RESP=0.333  ! fraction of npp lost as growth respirati
 real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 days)
 
 ! diagnostic field IDs
-integer :: id_npp, id_nep, id_fast_soil_C, id_slow_soil_C, id_rsoil, id_rsoil_fast
+integer :: id_npp, id_nep, id_gpp, id_fast_soil_C, id_slow_soil_C, id_rsoil, id_rsoil_fast
 integer :: id_resp, id_resl, id_resr, id_resg
 integer :: id_soilt, id_theta
 
@@ -72,6 +69,9 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
   dt_fast_yr = delta_time/seconds_per_year
 
   ! register diagnostic fields
+  id_gpp = register_tiled_diag_field ( module_name, 'gpp',  &
+       (/id_lon,id_lat/), time, 'gross primary productivity', 'kg C/(m2 year)', &
+       missing_value=-100.0 )
   id_npp = register_tiled_diag_field ( module_name, 'npp',  &
        (/id_lon,id_lat/), time, 'net primary productivity', 'kg C/(m2 year)', &
        missing_value=-100.0 )
@@ -115,11 +115,11 @@ subroutine vegn_carbon_int(vegn, soilt, theta, diag)
   type(diag_buff_type), intent(inout) :: diag
 
   type(vegn_cohort_type), pointer :: cc
-  type(vegn_cohort_enum_type) :: ci,ce ! cohort enumerators
-
   real :: resp, resl, resr, resg ! respiration terms accumualted for all cohorts 
   real :: md_alive, md_wood;
+  real :: gpp ! gross primary productivity per tile
   integer :: sp ! shorthand for current cohort specie
+  integer :: i
 
   if(is_watch_point()) then
      write(*,*)'#### vegn_carbon_int ####'
@@ -128,13 +128,9 @@ subroutine vegn_carbon_int(vegn, soilt, theta, diag)
 
   !  update plant carbon
   vegn%npp = 0
-  resp = 0 ; resl = 0 ; resr = 0 ; resg = 0 
-  ci = first_cohort(vegn%cohorts);
-  ce = tail_cohort (vegn%cohorts);
-  do while(ci/=ce)   
-     cc => current_cohort(ci)
-     ci = next_cohort(ci) ! advance the enumerator for the next step
-
+  resp = 0 ; resl = 0 ; resr = 0 ; resg = 0 ; gpp = 0
+  do i = 1, vegn%n_cohorts   
+     cc => vegn%cohorts(i)
      sp = cc%species
 
      call eddy_npp(cc,soilt);
@@ -187,8 +183,9 @@ subroutine vegn_carbon_int(vegn, soilt, theta, diag)
         __DEBUG2__(cc%carbon_gain, cc%carbon_loss)
         __DEBUG1__(cc%bwood_gain)
      endif
-     ! accumulate tile-level NPP
+     ! accumulate tile-level NPP and GPP
      vegn%npp = vegn%npp + cc%npp
+     gpp = gpp + cc%gpp 
      ! accumulate respiration terms for tile-level reporting
      resp = resp + cc%resp ; resl = resl + cc%resl
      resr = resr + cc%resr ; resg = resg + cc%resg
@@ -206,6 +203,7 @@ subroutine vegn_carbon_int(vegn, soilt, theta, diag)
 
 
   ! ---- diagnostic section
+  call send_tile_data(id_gpp,gpp,diag)
   call send_tile_data(id_npp,vegn%npp,diag)
   call send_tile_data(id_nep,vegn%nep,diag)
   call send_tile_data(id_resp, resp, diag)
@@ -226,13 +224,10 @@ subroutine vegn_growth (vegn)
 
   ! ---- local vars
   type(vegn_cohort_type), pointer :: cc    ! current cohort
-  type(vegn_cohort_enum_type)     :: ci,ce ! cohort enumerators
+  integer :: i
 
-  ci = first_cohort(vegn%cohorts);
-  ce = tail_cohort (vegn%cohorts);
-  do while(ci/=ce)   
-     cc => current_cohort(ci)
-     ci = next_cohort(ci) ! advance the enumerator for the next step
+  do i = 1, vegn%n_cohorts   
+     cc => vegn%cohorts(i)
 
      cc%bwood   = cc%bwood   + cc%bwood_gain
      cc%bliving = cc%bliving + cc%carbon_gain
@@ -244,29 +239,11 @@ subroutine vegn_growth (vegn)
              cc%bwood = 0 ! in principle, that's not conserving carbon
      endif
      
-     cc%b           = cc%bliving + cc%bwood
-     cc%height = height_from_biomass(cc%bliving+cc%bwood)
-     ! update biomass compartment fractions
-     call update_bio_living_fraction(cc)
-     ! update biomass compartments
-     cc%bsw = cc%Psw*cc%bliving
-     if(cc%status == LEAF_OFF) then
-        ! leaves are off, no fine roots, comes out of bliving
-        cc%bl = 0
-        cc%br = 0
-        cc%blv = cc%Pl*cc%bliving + cc%Pr*cc%bliving
-     else
-        ! leaves and fine roots are on
-        cc%bl = cc%Pl*cc%bliving
-        cc%br = cc%Pr*cc%bliving
-        cc%blv = 0
-     endif
-     
-     cc%lai = lai_from_biomass(cc%bl, cc%species)
-     cc%sai = 0.035 * cc%height ! Federer and Lash,1978
+     call update_biomass_pools(cc)
      cc%root_density = (cc%br + &
             (cc%bsw+cc%bwood+cc%blv)*(1-agf_bs))*C2B
-     cc%W_max = spdata(cc%species)%cmc_lai*cc%lai
+     cc%Wl_max = spdata(cc%species)%cmc_lai*cc%lai
+     cc%Ws_max = spdata(cc%species)%csc_lai*cc%lai
      
      ! reset carbon acculmulation terms
      cc%carbon_gain = 0
@@ -430,18 +407,14 @@ subroutine vegn_daily_npp(vegn)
   type(vegn_tile_type), intent(inout) :: vegn
 
   integer :: n_fast_step;
+  integer :: i
   type(vegn_cohort_type), pointer :: cc
-  type(vegn_cohort_enum_type) :: ci,ce ! cohort enumerators
 
   n_fast_step = 1.0/365.0/dt_fast_yr;
-  ci = first_cohort(vegn%cohorts);
-  ce = tail_cohort (vegn%cohorts);
-  do while(ci/=ce)   
-     cc => current_cohort(ci)
-     ci = next_cohort(ci) ! advance the enumerator for the next step
-
-     cc%npp_previous_day=cc%npp_previous_day_tmp/n_fast_step;
-     cc%npp_previous_day_tmp=0.0
+  do i = 1, vegn%n_cohorts   
+     cc => vegn%cohorts(i)
+     vegn%cohorts(i)%npp_previous_day=vegn%cohorts(i)%npp_previous_day_tmp/n_fast_step;
+     vegn%cohorts(i)%npp_previous_day_tmp=0.0
   enddo
 end subroutine vegn_daily_npp
 
@@ -452,14 +425,13 @@ subroutine vegn_phenology(vegn)
 
   ! ---- local vars
   type(vegn_cohort_type), pointer :: cc
-  type(vegn_cohort_enum_type) :: ci,ce ! cohort enumerators
   real :: leaf_litter,root_litter;    
+  integer :: i
   
   vegn%litter = 0
 
-  ci = first_cohort(vegn%cohorts);  ce = tail_cohort (vegn%cohorts);
-  do while(ci/=ce)   
-     cc => current_cohort(ci) ; ci = next_cohort(ci)
+  do i = 1,vegn%n_cohorts   
+     cc => vegn%cohorts(i)
      
      if(is_watch_point())then
         write(*,*)'####### vegn_phenology #######'
@@ -505,22 +477,19 @@ subroutine vegn_phenology(vegn)
   enddo
 end subroutine vegn_phenology
 
+
+! =============================================================================
 subroutine vegn_biogeography(vegn)
   type(vegn_tile_type), intent(inout) :: vegn
 
   ! ---- local vars
-  type(vegn_cohort_type), pointer :: cc
-  type(vegn_cohort_enum_type) :: ci,ce ! cohort enumerators
- 
-  ci = first_cohort(vegn%cohorts);  ce = tail_cohort (vegn%cohorts);
-  do while(ci/=ce)   
-     cc => current_cohort(ci) ; ci = next_cohort(ci)
-     ! landuse type is natural for now, update to the appropriate value when
-     ! landuse is introduced
-     call update_species(cc, vegn%t_ann, vegn%t_cold, &
-          vegn%p_ann*seconds_per_year, vegn%ncm, LU_NTRL)
+  integer :: i
+
+  do i = 1, vegn%n_cohorts   
+     call update_species(vegn%cohorts(i), vegn%t_ann, vegn%t_cold, &
+          vegn%p_ann*seconds_per_year, vegn%ncm, vegn%landuse)
   enddo
-end subroutine vegn_biogeography
+end subroutine
 
 ! =============================================================================
 ! The stuff below comes from she_update.c -- it looks like it belongs here, 

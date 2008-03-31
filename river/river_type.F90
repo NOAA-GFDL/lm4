@@ -26,8 +26,8 @@ module river_type_mod
   private
 
   !--- version information ---------------------------------------------
-  character(len=128) :: version = ''
-  character(len=128) :: tagname = ''
+  character(len=128) :: version = '$Id: river_type.F90,v 15.0.2.2 2007/12/05 19:41:35 slm Exp $'
+  character(len=128) :: tagname = '$Name: omsk_2008_03 $'
 
   !--- public interface ------------------------------------------------
   public :: river_type, Leo_Mad_trios

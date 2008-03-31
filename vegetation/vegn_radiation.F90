@@ -7,7 +7,6 @@ use land_constants_mod, only : NBANDS
 use vegn_data_mod,      only : spdata
 use vegn_tile_mod,      only : vegn_tile_type
 use vegn_cohort_mod,    only : vegn_cohort_type, vegn_data_cover, get_vegn_wet_frac
-use cohort_list_mod,    only : first_cohort, current_cohort
 use snow_tile_mod,      only : snow_data_radiation
 
 use land_debug_mod,     only : is_watch_point 
@@ -22,8 +21,8 @@ public :: vegn_radiation
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-   version = '$Id: vegn_radiation.F90,v 15.0.2.1 2007/09/16 21:37:26 slm Exp $', &
-   tagname = '$Name: omsk_2007_12 $' ,&
+   version = '$Id: vegn_radiation.F90,v 15.0.2.5 2008/02/01 20:30:58 slm Exp $', &
+   tagname = '$Name: omsk_2008_03 $' ,&
    module_name = 'vegn_radiation'
 ! values for internal vegetation radiation option selector
 integer, parameter :: VEGN_RAD_BIGLEAF   = 1 ! "big-leaf" radiation
@@ -93,7 +92,8 @@ subroutine vegn_radiation ( vegn, &
      vegn_refl_dif, vegn_tran_dif, vegn_refl_dir, vegn_sctr_dir, vegn_tran_dir, &
      vegn_refl_lw, vegn_tran_lw )
 
-  type(vegn_tile_type), intent(in) :: vegn
+  type(vegn_tile_type), intent(inout) :: vegn ! it is only inout because 
+                                ! vegn_data_cover modifies cohort; cane we avoid this?
   real, intent(in)  :: cosz     ! cosine of zenith angle of direct (solar) beam
   real, intent(in)  :: snow_depth
   real, intent(in)  :: snow_refl_dif(NBANDS)
@@ -110,15 +110,11 @@ subroutine vegn_radiation ( vegn, &
   ! ---- local vars 
   real :: vegn_cover, vegn_cover_snow_factor, vegn_lai, &
        vegn_leaf_refl(NBANDS), vegn_leaf_emis, vegn_K
-  type(vegn_cohort_type), pointer :: cohort
 
-  ! get the pointer to the first (and, currently, the only) cohort
-  cohort => current_cohort(first_cohort(vegn%cohorts))
-
-  call vegn_data_cover ( cohort, snow_depth, vegn_cover, vegn_cover_snow_factor )
+  call vegn_data_cover ( vegn%cohorts(1), snow_depth, vegn_cover, vegn_cover_snow_factor )
   select case(vegn_rad_option)
   case(VEGN_RAD_BIGLEAF)
-     call vegn_rad_properties_bigleaf ( cohort, snow_refl_dif, snow_emis, &
+     call vegn_rad_properties_bigleaf ( vegn%cohorts(1), snow_refl_dif, snow_emis, &
           vegn_leaf_refl, vegn_leaf_emis, vegn_lai, vegn_K )
      vegn_refl_dif = vegn_cover * vegn_leaf_refl
      vegn_refl_dir = vegn_cover * vegn_leaf_refl
@@ -126,9 +122,7 @@ subroutine vegn_radiation ( vegn, &
      vegn_sctr_dir = 0
      vegn_tran_dir = 1 - vegn_cover
   case(VEGN_RAD_TWOSTREAM)
-     ! in case VEGN_RAD_TWOSTREAM the leaf reflectance does not depend on the 
-     ! presence snow on leafs, like in LM3v, but unlike LM3w -- change later ? 
-     call vegn_rad_properties_twostream ( cohort, cosz, &
+     call vegn_rad_properties_twostream ( vegn%cohorts(1), cosz, &
           vegn_refl_dif, vegn_tran_dif, &
           vegn_refl_dir, vegn_sctr_dir, vegn_tran_dir,&
           vegn_leaf_emis )
@@ -156,8 +150,8 @@ subroutine vegn_radiation ( vegn, &
 
   ! store the extinction coefficients for use in photosynthesis calculations -- 
   ! currently calculated as if all light were direct
-  cohort%extinct = &
-       (spdata(cohort%species)%phi1+spdata(cohort%species)%phi2*cosz)&
+  vegn%cohorts(1)%extinct = &
+       (spdata(vegn%cohorts(1)%species)%phi1+spdata(vegn%cohorts(1)%species)%phi2*cosz)&
        / max(cosz,min_cosz)
 
 end subroutine vegn_radiation
@@ -174,8 +168,10 @@ subroutine vegn_rad_properties_bigleaf ( cohort, snow_refl, snow_emis, &
   ! ---- local vars 
   real :: a_vs
 
-  if ( cohort%W_max > 0 ) then
-     a_vs = max(cohort%prog%Ws, 0.0) / cohort%W_max
+  if ( cohort%Ws_max > 0 ) then
+     a_vs = cohort%prog%Ws / cohort%Ws_max
+     ! restrict snow-covered fraction to the interval [0,1]:
+     a_vs = min(max(a_vs,0.0), 1.0)
   else
      a_vs = 0
   endif
@@ -278,8 +274,6 @@ subroutine twostream( &
   ! ---- local vars 
   real :: G_mu        ! relative projected leaf area in direction of direct beam
   real :: K           ! optical depth for direct beam per unit LAI
-  real :: albedo_single_scatter ! single scattering albedo
-  real :: upscatter_dir ! up-scatter coefficient for direct light
   real :: g1,g2,g3,g4 ! coefficients in the two-stream equation
   real :: kappa       ! eigenvalue of free solution
   real :: a_up, b_up, c_up ! coefficients of upward diffuse light flux
@@ -289,7 +283,6 @@ subroutine twostream( &
   real :: D           ! determinant of the matrix
   real :: A,B         ! coefficients of diffuse light function
   real :: dif_dn_bot, dif_up_bot, dif_up_top
-  real :: tau_dir
    
   real, parameter :: eta = 6.0; ! this value is suitable only for uniform leaf 
                                 ! angular distribution !!!

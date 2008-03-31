@@ -13,7 +13,7 @@ use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o, PI
 
 use glac_tile_mod,      only: glac_tile_type, glac_pars_type, glac_prog_type, &
      read_glac_data_namelist, glac_data_thermodynamics, glac_data_hydraulics, &
-     glac_data_radiation, glac_data_diffusion, max_lev
+     glac_data_radiation, glac_data_diffusion, max_lev, cpw, clw, csw
 
 use land_constants_mod, only : &
      NBANDS
@@ -45,8 +45,8 @@ public :: glac_step_2
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
        module_name = 'glacier',&
-       version = '',&
-       tagname = ''
+       version     = '$Id: glacier.F90,v 15.0.2.4 2008/02/17 21:01:29 slm Exp $',&
+       tagname     = '$Name: omsk_2008_03 $'
  
 ! ==== module variables ======================================================
 
@@ -58,10 +58,6 @@ logical :: conserve_glacier_mass = .false.
 real    :: init_temp            = 260.       ! cold-start glac T
 real    :: init_w               = 150.       ! cold-start w(l)/dz(l)
 real    :: init_groundwater     =   0.       ! cold-start gw storage
-   real :: cpw = 1952.  ! specific heat of water vapor at constant pressure
-   real :: clw = 4218.  ! specific heat of water (liquid)
-   real :: csw = 2106.  ! specific heat of water (ice)
-
 namelist /glac_nml/ lm2, use_bucket,             bifurcate,  &
                     conserve_glacier_mass,           &
                     init_temp,      &
@@ -159,6 +155,9 @@ subroutine glac_init ( id_lon, id_lat )
   ! -------- initialize glac state --------
   call get_mosaic_tile_file('INPUT/glac.res.nc',restart_file_name,.FALSE.,lnd%domain)
   if (file_exist(restart_file_name)) then
+     call error_mesg('glac_init',&
+          'reading NetCDF restart "'//trim(restart_file_name)//'"',&
+          NOTE)
      __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
      call read_tile_data_r1d_fptr(unit, 'temp'         , glac_temp_ptr  )
      call read_tile_data_r1d_fptr(unit, 'wl'           , glac_wl_ptr )
@@ -167,6 +166,9 @@ subroutine glac_init ( id_lon, id_lat )
      call read_tile_data_r1d_fptr(unit, 'groundwater_T', glac_gwT_ptr)
      __NF_ASRT__(nf_close(unit))     
   else
+     call error_mesg('glac_init',&
+          'cold-starting glacier',&
+          NOTE)
      te = tail_elmt (lnd%tile_map)
      ce = first_elmt(lnd%tile_map)
      do while(ce /= te)

@@ -24,9 +24,9 @@ public :: soil_prog_type
 public :: soil_tile_type
 
 public :: new_soil_tile, delete_soil_tile
-public :: soil_can_be_merged
+public :: soil_tiles_can_be_merged, merge_soil_tiles
 public :: soil_is_selected
-public :: get_soil_tag
+public :: get_soil_tile_tag
 
 public :: read_soil_data_namelist
 public :: soil_cover_cold_start
@@ -42,11 +42,15 @@ public :: soil_ave_theta ! calculate average soil moisture
 
 public :: max_lev
 ! =====end of public interfaces ==============================================
+interface new_soil_tile
+   module procedure soil_tile_ctor
+   module procedure soil_tile_copy_ctor
+end interface
 
 ! ==== module constants ======================================================
 character(len=*), parameter   :: &
-     version = '', &
-     tagname = '', &
+     version     = '$Id: soil_tile.F90,v 15.0.2.5 2007/12/05 19:41:35 slm Exp $', &
+     tagname     = '$Name: omsk_2008_03 $', &
      module_name = 'soil_tile_mod'
 
 integer, parameter :: max_lev          = 30 
@@ -69,6 +73,8 @@ type :: soil_pars_type
   real thermal_cond_dry
   real thermal_cond_sat
   real thermal_cond_exp
+  real thermal_cond_scale
+  real thermal_cond_weight
   real refl_dry_dir(NBANDS)
   real refl_dry_dif(NBANDS)
   real refl_sat_dir(NBANDS)
@@ -94,19 +100,23 @@ end type soil_prog_type
 type :: soil_tile_type
    integer :: tag ! kind of the soil
    type(soil_pars_type)               :: pars
-   type(soil_prog_type), _ALLOCATABLE :: prog(:)
-   real,                 _ALLOCATABLE :: w_fc(:)
-   real,                 _ALLOCATABLE :: w_wilt(:)
-   real,                 _ALLOCATABLE :: uptake_frac_max(:)
+   type(soil_prog_type), pointer :: prog(:)
+   real,                 pointer :: w_fc(:)
+   real,                 pointer :: w_wilt(:)
+   real,                 pointer :: uptake_frac_max(:)
    real :: Eg_part_ref
    real :: z0_scalar
    ! data that were local to soil.f90
-   real,                 _ALLOCATABLE :: uptake_frac(:)
-   real,                 _ALLOCATABLE :: heat_capacity_dry(:)
-   real,                 _ALLOCATABLE :: e(:),f(:)
+   real,                 pointer :: uptake_frac(:)
+   real,                 pointer :: heat_capacity_dry(:)
+   real,                 pointer :: e(:),f(:)
 end type soil_tile_type
 
 ! ==== module data ===========================================================
+real, public :: &
+     cpw = 1952.0, & ! specific heat of water vapor at constant pressure
+     clw = 4218.0, & ! specific heat of water (liquid)
+     csw = 2106.0    ! specific heat of water (ice)
 
 !---- namelist ---------------------------------------------------------------
 real    :: k_over_B              = 2         ! reset to 0 for MCM
@@ -169,11 +179,15 @@ real    :: rsa_exp_global        = 1.5
 ! done by eye. curves look like typical literature curves.
 ! TEMP: still need to treat freezing, maybe import deVries model into code.
   dat_thermal_cond_dry =&
-  (/  0.14,  0.39,  0.21,  .265, 0.175, 0.300, 0.247,  0.05, 2.e-7   /),&
+  (/  0.14,  0.21,  0.20,  .175, 0.170, 0.205, 0.183,  0.05, 2.e-7   /),&
   dat_thermal_cond_sat =&
-  (/  2.32,  1.60,  1.50,  1.96, 1.910, 1.550, 1.807,  0.50, 2.e-7   /),&
+  (/  2.30,  1.50,  1.50,  1.90, 1.900, 1.500, 1.767,  0.50, 2.e-7   /),&
+  dat_thermal_cond_scale =&
+  (/  15.0,  0.50,   10.,  2.74,  12.2,  2.24,  4.22,   1.0,   1.0   /),&
   dat_thermal_cond_exp =&
-  (/  0.33,  1.25,   0.6,  0.79, 0.465, 0.925, 0.727,   1.0,   1.0   /),&
+  (/   3.0,   5.0,   6.0,   4.0,   4.5,   5.5, 4.667,   1.0,   1.0   /),&
+  dat_thermal_cond_weight =&
+  (/  0.20,  0.70,   0.7,  0.45, 0.450, 0.700, 0.533,   1.0,   1.0   /),&
   dat_emis_dry=&
   (/ 0.950, 0.950, 0.950, 0.950, 0.950, 0.950, 0.950, 0.950,   1.0   /),&
   dat_emis_sat=&
@@ -218,6 +232,7 @@ namelist /soil_data_nml/ &
      dat_psi_sat_ref,               dat_chb,          &
      dat_heat_capacity_dry,       dat_thermal_cond_dry,   &
      dat_thermal_cond_sat,        dat_thermal_cond_exp,   &
+     dat_thermal_cond_scale,        dat_thermal_cond_weight,   &
      dat_refl_dry_dir,            dat_refl_sat_dir,              &
      dat_refl_dry_dif,            dat_refl_sat_dif,              &
      dat_emis_dry,              dat_emis_sat,                &
@@ -276,8 +291,9 @@ subroutine read_soil_data_namelist(soil_num_l, soil_dz, soil_single_geo)
 
 end subroutine 
 
+
 ! ============================================================================
-function new_soil_tile(tag) result(ptr)
+function soil_tile_ctor(tag) result(ptr)
   type(soil_tile_type), pointer :: ptr ! return value
   integer, intent(in)  :: tag ! kind of tile
 
@@ -294,8 +310,35 @@ function new_soil_tile(tag) result(ptr)
             ptr%f                 (num_l)   )
 
   call soil_data_init_0d(ptr)
+end function soil_tile_ctor
 
-end function new_soil_tile
+
+! ============================================================================
+function soil_tile_copy_ctor(soil) result(ptr)
+  type(soil_tile_type), pointer :: ptr ! return value
+  type(soil_tile_type), intent(in) :: soil ! tile to copy
+
+  allocate(ptr)
+  ptr = soil ! copy all non-pointer members
+  ! allocate storage for tile data
+  allocate( ptr%prog(num_l))
+  allocate( ptr%w_fc              (num_l),  &
+            ptr%w_wilt            (num_l),  &
+            ptr%uptake_frac_max   (num_l),  &
+            ptr%uptake_frac       (num_l),  &
+            ptr%heat_capacity_dry (num_l),  &
+            ptr%e                 (num_l),  &
+            ptr%f                 (num_l)   )
+  ! copy all pointer members
+  ptr%prog(:) = soil%prog(:)
+  ptr%w_fc(:) = soil%w_fc(:)
+  ptr%w_wilt(:) = soil%w_wilt(:)
+  ptr%uptake_frac_max(:) = soil%uptake_frac_max(:)
+  ptr%uptake_frac(:) = soil%uptake_frac(:)
+  ptr%heat_capacity_dry(:) = soil%heat_capacity_dry(:)
+  ptr%e(:) = soil%e(:)
+  ptr%f(:) = soil%f(:)
+end function soil_tile_copy_ctor
 
 
 ! ============================================================================
@@ -328,6 +371,8 @@ subroutine soil_data_init_0d(soil)
   soil%pars%thermal_cond_dry  = dat_thermal_cond_dry (k)
   soil%pars%thermal_cond_sat  = dat_thermal_cond_sat (k)
   soil%pars%thermal_cond_exp  = dat_thermal_cond_exp (k)
+  soil%pars%thermal_cond_scale  = dat_thermal_cond_scale (k)
+  soil%pars%thermal_cond_weight  = dat_thermal_cond_weight (k)
   soil%pars%refl_dry_dir      = dat_refl_dry_dir     (k,:)
   soil%pars%refl_dry_dif      = dat_refl_dry_dif     (k,:)
   soil%pars%refl_sat_dir      = dat_refl_sat_dir     (k,:)
@@ -382,13 +427,63 @@ end function
 
 
 ! =============================================================================
-function soil_can_be_merged(soil1,soil2)
-  logical :: soil_can_be_merged
+function soil_tiles_can_be_merged(soil1,soil2) result(response)
+  logical :: response
   type(soil_tile_type), intent(in) :: soil1,soil2
 
-  soil_can_be_merged = (soil1%tag==soil2%tag)
+  response = (soil1%tag==soil2%tag)
 end function
 
+
+! =============================================================================
+subroutine merge_soil_tiles(s1,w1,s2,w2)
+  type(soil_tile_type), intent(in) :: s1
+  type(soil_tile_type), intent(inout) :: s2
+  real                , intent(in) :: w1,w2
+
+  ! ---- local vars
+  real    :: x1, x2 ! normalized relative weights
+  real    :: gw, HEAT1, HEAT2 ! temporaries for groundwater and heat
+  integer :: i
+  
+  ! calculate normalized weights
+  x1 = w1/(w1+w2)
+  x2 = 1.0 - x1
+
+  ! combine state variables
+  do i = 1,num_l
+     ! calculate heat content at this level for both source tiles
+     HEAT1 = &
+          (s1%heat_capacity_dry(i)+clw*s1%prog(i)%Wl+csw*s1%prog(i)%Ws)* &
+          (s1%prog(i)%T-tfreeze)
+     HEAT2 = &
+          (s2%heat_capacity_dry(i)+clw*s2%prog(i)%Wl+csw*s2%prog(i)%Ws)* &
+          (s2%prog(i)%T-tfreeze)
+     ! merge the amounts of water
+     s2%prog(i)%Wl = x1*s1%prog(i)%Wl + x2*s2%prog(i)%Wl
+     s2%prog(i)%Ws = x1*s1%prog(i)%Ws + x2*s2%prog(i)%Ws
+     ! if the dry heat capacity of merged soil is to be changed, do it here
+     ! ...
+     ! calculate the merged temperature based on heat content
+     s2%prog(i)%T = tfreeze + (x1*HEAT1+x2*HEAT2)/ &
+          (s2%heat_capacity_dry(i)+clw*s2%prog(i)%Wl+csw*s2%prog(i)%Ws)
+
+     ! calculate combined groundwater content
+     gw = s1%prog(i)%groundwater*x1 + s2%prog(i)%groundwater*x2
+     ! calculate combined groundwater temperature
+     if (gw/=0) then
+        s2%prog(i)%groundwater_T = ( &
+             s1%prog(i)%groundwater*x1*(s1%prog(i)%groundwater_T-tfreeze) + &
+             s2%prog(i)%groundwater*x2*(s2%prog(i)%groundwater_T-tfreeze)   &
+             ) / gw + tfreeze
+     else
+        s2%prog(i)%groundwater_T = &
+             s1%prog(i)%groundwater_T*x1 + s2%prog(i)%groundwater_T*x2
+     endif
+     s2%prog(i)%groundwater = gw
+  enddo
+  
+end subroutine
 
 ! =============================================================================
 ! returns true if tile fits the specified selector
@@ -403,7 +498,7 @@ end function
 
 ! ============================================================================
 ! returns tag of the tile
-function get_soil_tag(soil) result(tag)
+function get_soil_tile_tag(soil) result(tag)
   integer :: tag
   type(soil_tile_type), intent(in) :: soil
   
@@ -538,6 +633,7 @@ subroutine soil_data_thermodynamics ( soil, vlc, vsc, &
   real,                 intent(out) :: soil_E_max
   real,                 intent(out) :: soil_rh
   real,                 intent(out) :: thermal_cond(:)
+  real s, w, a, n
 
   integer l
 
@@ -549,26 +645,32 @@ subroutine soil_data_thermodynamics ( soil, vlc, vsc, &
   ! assign some index of water availability for snow-free soil
   soil_E_max = soil%Eg_part_ref / ( max(small, soil%w_fc(1) - vlc(1)) )  ! NEEDS T adj
   if (vlc(1)+vsc(1)>0) then
-  soil_rh = exp ( ((soil%pars%psi_sat_ref/soil%pars%alpha) &
-               *(soil%pars%w_sat/(vlc(1)+vsc(1)))**soil%pars%chb)*g_RT )
+     soil_rh = exp ( ((soil%pars%psi_sat_ref/soil%pars%alpha) &
+                    *(soil%pars%w_sat/(vlc(1)+vsc(1)))**soil%pars%chb)*g_RT )
   else
      soil_rh = 0
   endif
 !!$  soil_rh = max(0.,min(1.,1.*(vlc(1)+vsc(1))/soil%pars%w_sat)) !********* TEMP FIX
 !!$  soil_rh = max(0.,min(1.,(vlc(1)+vsc(1)-soil%w_wilt(1))/(soil%pars%w_sat-soil%w_wilt(1)))) !********* TEMP FIX
 
+     w = soil%pars%thermal_cond_weight
+     a = soil%pars%thermal_cond_scale
+     n = soil%pars%thermal_cond_exp
   do l = 1, num_sfc_layers
      soil%heat_capacity_dry(l) = sfc_heat_factor*soil%pars%heat_capacity_dry
-     thermal_cond(l)      = sfc_heat_factor &
-         * ( soil%pars%thermal_cond_dry+ &
+     s = (vlc(l)+vsc(l))/soil%pars%w_sat
+     thermal_cond(l)      = sfc_heat_factor * &
+          ( soil%pars%thermal_cond_dry+ &
             (soil%pars%thermal_cond_sat-soil%pars%thermal_cond_dry) &
-            *((vlc(l)+vsc(l))/soil%pars%w_sat)**soil%pars%thermal_cond_exp )
+            *(w*s +(1-w)*(1+a**n)*(s**n)/(1+(a*s)**n))    )
   enddo
   do l = num_sfc_layers+1, num_l
      soil%heat_capacity_dry(l) = soil%pars%heat_capacity_dry
-     thermal_cond(l)  = ( soil%pars%thermal_cond_dry+ &
+     s = (vlc(l)+vsc(l))/soil%pars%w_sat
+     thermal_cond(l)  = &
+          ( soil%pars%thermal_cond_dry+ &
             (soil%pars%thermal_cond_sat-soil%pars%thermal_cond_dry) &
-            *((vlc(l)+vsc(l))/soil%pars%w_sat)**soil%pars%thermal_cond_exp )
+            *(w*s +(1-w)*(1+a**n)*(s**n)/(1+(a*s)**n))    )
   enddo
   
 end subroutine soil_data_thermodynamics

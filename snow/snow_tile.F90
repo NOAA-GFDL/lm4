@@ -19,9 +19,9 @@ public :: snow_prog_type
 public :: snow_tile_type
 
 public :: new_snow_tile, delete_snow_tile
-public :: snow_can_be_merged, merge_snow
+public :: snow_tiles_can_be_merged, merge_snow_tiles
 public :: snow_is_selected
-public :: get_snow_tag
+public :: get_snow_tile_tag
 
 public :: read_snow_data_namelist
 
@@ -34,12 +34,17 @@ public :: snow_data_diffusion
 public :: max_lev
 public :: cpw, clw, csw
 ! ==== end of public interfaces ==============================================
+interface new_snow_tile
+   module procedure snow_tile_ctor
+   module procedure snow_tile_copy_ctor
+end interface
+
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'snow_tile_mod' ,&
-     version = '' ,&
-     tagname = ''
+     version     = '$Id: snow_tile.F90,v 15.0.2.2 2007/12/05 19:41:35 slm Exp $' ,&
+     tagname     = '$Name: omsk_2008_03 $'
 integer, parameter :: max_lev = 10
 real   , parameter :: t_range = 10.0 ! degK
 
@@ -53,8 +58,8 @@ end type snow_prog_type
 
 type :: snow_tile_type
    integer :: tag ! kind of the tile
-   type(snow_prog_type), _ALLOCATABLE :: prog(:)
-   real,                 _ALLOCATABLE :: e(:), f(:)
+   type(snow_prog_type), pointer :: prog(:)
+   real,                 pointer :: e(:), f(:)
 end type snow_tile_type
 
 ! ==== module data ===========================================================
@@ -127,7 +132,7 @@ subroutine read_snow_data_namelist(snow_num_l, snow_dz)
 end subroutine 
 
 ! ============================================================================
-function new_snow_tile(tag) result(ptr)
+function snow_tile_ctor(tag) result(ptr)
   type(snow_tile_type), pointer :: ptr ! return value
   integer, optional, intent(in) :: tag ! kind of tile
 
@@ -138,8 +143,25 @@ function new_snow_tile(tag) result(ptr)
   allocate(ptr%e(num_l))
   allocate(ptr%f(num_l))
 
-end function new_snow_tile
+end function snow_tile_ctor
 
+! ============================================================================
+function snow_tile_copy_ctor(snow) result(ptr)
+  type(snow_tile_type), pointer :: ptr ! return value
+  type(snow_tile_type), intent(in) :: snow ! tile to copy
+
+  allocate(ptr)
+  ! copy all non-pointer members
+  ptr = snow
+  ! allocate storage for tile data
+  allocate(ptr%prog(num_l))
+  allocate(ptr%e(num_l))
+  allocate(ptr%f(num_l))
+  ! copy all pointer members
+  ptr%prog(:) = snow%prog(:)
+  ptr%e(:) = snow%e(:)
+  ptr%f(:) = snow%f(:)
+end function snow_tile_copy_ctor
 
 ! ============================================================================
 subroutine delete_snow_tile(snow)
@@ -152,15 +174,15 @@ subroutine delete_snow_tile(snow)
 end subroutine delete_snow_tile
 
 ! =============================================================================
-function snow_can_be_merged(snow1,snow2)
-  logical :: snow_can_be_merged
+function snow_tiles_can_be_merged(snow1,snow2) result(response)
+  logical :: response
   type(snow_tile_type), intent(in) :: snow1,snow2
 
-  snow_can_be_merged = .TRUE.
+  response = .TRUE.
 end function
 
 ! =============================================================================
-subroutine merge_snow(snow1, w1, snow2, w2)
+subroutine merge_snow_tiles(snow1, w1, snow2, w2)
   type(snow_tile_type), intent(in)    :: snow1
   type(snow_tile_type), intent(inout) :: snow2
   real                , intent(in)    :: w1, w2 ! relative weights
@@ -180,7 +202,11 @@ subroutine merge_snow(snow1, w1, snow2, w2)
       (clw*snow2%prog(i)%wl+csw*snow2%prog(i)%ws)*(snow2%prog(i)%T-tfreeze)*x2
     snow2%prog(i)%wl = snow1%prog(i)%wl*x1 + snow2%prog(i)%wl*x2
     snow2%prog(i)%ws = snow1%prog(i)%ws*x1 + snow2%prog(i)%ws*x2
-    snow2%prog(i)%T  = heat/(clw*snow2%prog(i)%wl+csw*snow2%prog(i)%ws)+tfreeze
+    if (snow2%prog(i)%wl/=0.or.snow2%prog(i)%ws/=0) then
+       snow2%prog(i)%T  = heat/(clw*snow2%prog(i)%wl+csw*snow2%prog(i)%ws)+tfreeze
+    else
+       snow2%prog(i)%T  = snow1%prog(i)%T*x1 + snow2%prog(i)%T*x2
+    endif
   enddo
 end subroutine
 
@@ -196,7 +222,7 @@ end function
 
 ! ============================================================================
 ! retruns tag of the tile
-function get_snow_tag(snow) result(tag)
+function get_snow_tile_tag(snow) result(tag)
   integer :: tag
   type(snow_tile_type), intent(in) :: snow
   

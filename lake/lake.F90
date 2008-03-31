@@ -17,7 +17,7 @@ use lake_tile_mod, only : &
      lake_tile_type, lake_pars_type, lake_prog_type, read_lake_data_namelist, &
      lake_data_radiation, lake_data_diffusion, &
      lake_data_thermodynamics, lake_data_hydraulics, &
-     max_lev
+     max_lev, cpw,clw,csw
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
 use land_tile_diag_mod, only : &
@@ -47,8 +47,8 @@ public :: lake_step_2
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'lake',&
-    version = '',&
-    tagname = ''
+    version     = '$Id: lake.F90,v 15.0.2.4 2008/02/17 21:01:29 slm Exp $',&
+    tagname     = '$Name: omsk_2008_03 $'
 
 ! ==== module variables ======================================================
 
@@ -59,9 +59,6 @@ logical :: bifurcate            = .false.    ! consider direct evap from bucket
 real    :: init_temp            = 288.        ! cold-start lake T
 real    :: init_w               = 1000.      ! cold-start w(l)/dz(l)
 real    :: init_groundwater     =   0.        ! cold-start gw storage
-   real :: cpw = 1952. ! specific heat of water vapor at constant pressure
-   real :: clw = 4218. ! specific heat of water (liquid)
-   real :: csw = 2106. ! specific heat of water (ice)
 
 namelist /lake_nml/ lm2, use_bucket,             bifurcate,             &
                     init_temp,      &
@@ -157,6 +154,9 @@ subroutine lake_init ( id_lon, id_lat )
   ! -------- initialize lake state --------
   call get_mosaic_tile_file('INPUT/lake.res.nc',restart_file_name,.FALSE.,lnd%domain)
   if (file_exist(restart_file_name)) then
+     call error_mesg('lake_init',&
+          'reading NetCDF restart "'//trim(restart_file_name)//'"',&
+          NOTE)
      __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
      call read_tile_data_r1d_fptr(unit, 'temp'         , lake_temp_ptr  )
      call read_tile_data_r1d_fptr(unit, 'wl'           , lake_wl_ptr )
@@ -165,6 +165,9 @@ subroutine lake_init ( id_lon, id_lat )
      call read_tile_data_r1d_fptr(unit, 'groundwater_T', lake_gwT_ptr)
      __NF_ASRT__(nf_close(unit))     
   else
+     call error_mesg('lake_init',&
+          'cold-starting lake',&
+          NOTE)
      te = tail_elmt (lnd%tile_map)
      ce = first_elmt(lnd%tile_map)
      do while(ce /= te)

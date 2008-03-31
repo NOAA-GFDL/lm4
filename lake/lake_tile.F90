@@ -23,9 +23,9 @@ public :: lake_prog_type
 public :: lake_tile_type
 
 public :: new_lake_tile, delete_lake_tile
-public :: lake_can_be_merged
+public :: lake_tiles_can_be_merged, merge_lake_tiles
 public :: lake_is_selected
-public :: get_lake_tag
+public :: get_lake_tile_tag
 
 public :: read_lake_data_namelist
 public :: lake_cover_cold_start
@@ -37,11 +37,16 @@ public :: lake_data_hydraulics
 
 public :: max_lev
 ! =====end of public interfaces ==============================================
+interface new_lake_tile
+   module procedure lake_tile_ctor
+   module procedure lake_tile_copy_ctor
+end interface
+
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter   :: &
-     version = '', &
-     tagname = '', &
+     version     = '$Id: lake_tile.F90,v 15.0.2.3 2007/12/05 19:41:35 slm Exp $', &
+     tagname     = '$Name: omsk_2008_03 $', &
      module_name = 'lake_tile_mod'
 
 integer, parameter :: max_lev          = 30
@@ -81,17 +86,21 @@ end type lake_prog_type
 
 type :: lake_tile_type
    integer :: tag ! kind of the lake
-   type(lake_prog_type), _ALLOCATABLE :: prog(:)
-   type(lake_pars_type)               :: pars
-   real,                 _ALLOCATABLE :: w_fc(:)
-   real,                 _ALLOCATABLE :: w_wilt(:)
+   type(lake_prog_type), pointer :: prog(:)
+   type(lake_pars_type)          :: pars
+   real,                 pointer :: w_fc(:)
+   real,                 pointer :: w_wilt(:)
    real :: Eg_part_ref
    real :: z0_scalar
-   real, _ALLOCATABLE :: e(:),f(:)
-   real, _ALLOCATABLE :: heat_capacity_dry(:)
+   real, pointer :: e(:),f(:)
+   real, pointer :: heat_capacity_dry(:)
 end type lake_tile_type
 
 ! ==== module data ===========================================================
+real, public :: &
+     cpw = 1952.0, & ! specific heat of water vapor at constant pressure
+     clw = 4218.0, & ! specific heat of water (liquid)
+     csw = 2106.0    ! specific heat of water (ice)
 
 !---- namelist ---------------------------------------------------------------
 real    :: k_over_B              = 0.25      ! reset to 0 for MCM
@@ -220,13 +229,12 @@ end subroutine
 
 
 ! ============================================================================
-function new_lake_tile(tag) result(ptr)
+function lake_tile_ctor(tag) result(ptr)
   type(lake_tile_type), pointer :: ptr ! return value
   integer, intent(in)           :: tag ! kind of lake
 
   allocate(ptr)
   ptr%tag = tag
-  ! allocate storage for tile data
   ! allocate storage for tile data
   allocate(ptr%prog   (num_l),  &
            ptr%w_fc   (num_l),  &
@@ -234,10 +242,33 @@ function new_lake_tile(tag) result(ptr)
            ptr%heat_capacity_dry(num_l),  &
            ptr%e      (num_l),  &
            ptr%f      (num_l)   )
-
   call init_lake_data_0d(ptr)
 
-end function new_lake_tile
+end function lake_tile_ctor
+
+
+! ============================================================================
+function lake_tile_copy_ctor(lake) result(ptr)
+  type(lake_tile_type), pointer    :: ptr  ! return value
+  type(lake_tile_type), intent(in) :: lake ! tile to copy
+  
+  allocate(ptr)
+  ptr=lake ! copy all non-pointer data
+  ! allocate storage for tile data
+  allocate(ptr%prog   (num_l),  &
+           ptr%w_fc   (num_l),  &
+           ptr%w_wilt (num_l),  &
+           ptr%heat_capacity_dry(num_l),  &
+           ptr%e      (num_l),  &
+           ptr%f      (num_l)   )
+  ! copy all allocatable data
+  ptr%prog(:)   = lake%prog(:)
+  ptr%w_fc(:)   = lake%w_fc(:)
+  ptr%w_wilt(:) = lake%w_wilt(:)
+  ptr%e(:)      = lake%e(:)
+  ptr%f(:)      = lake%f(:)
+  ptr%heat_capacity_dry(:) = lake%heat_capacity_dry(:)
+end function lake_tile_copy_ctor
 
 
 ! ============================================================================
@@ -323,12 +354,68 @@ function lake_cover_cold_start(land_mask, glonb, glatb) result (lake_frac)
 end function 
 
 ! =============================================================================
-function lake_can_be_merged(lake1,lake2)
-  logical :: lake_can_be_merged
+function lake_tiles_can_be_merged(lake1,lake2) result(response)
+  logical :: response
   type(lake_tile_type), intent(in) :: lake1,lake2
 
-  lake_can_be_merged = (lake1%tag==lake2%tag)
+  response = (lake1%tag==lake2%tag)
 end function
+
+! =============================================================================
+! combine two lake tiles with specified weights; the results goes into the 
+! second one
+subroutine merge_lake_tiles(t1,w1,t2,w2)
+  type(lake_tile_type), intent(in)    :: t1
+  type(lake_tile_type), intent(inout) :: t2
+  real, intent(in) :: w1, w2 ! relative weights
+
+  ! ---- local vars
+  real    :: x1, x2 ! normalized relative weights
+  real    :: HEAT1, HEAT2 ! temporaries for heat
+  real    :: C1, C2 ! heat capacities
+  real    :: gw
+  integer :: i
+
+  ! calculate normalized weights
+  x1 = w1/(w1+w2)
+  x2 = 1.0 - x1
+
+  ! combine state variables
+  do i = 1,num_l
+    ! calculate "dry" heat capacities:
+    C1 = sfc_heat_factor*t1%pars%heat_capacity_ref
+    C2 = sfc_heat_factor*t2%pars%heat_capacity_ref
+    ! calculate heat content at this level for both source tiles
+    HEAT1 = &
+    (C1*dz(i)+clw*t1%prog(i)%wl+csw*t1%prog(i)%ws) * (t1%prog(i)%T-tfreeze)
+    HEAT2 = &
+    (C2*dz(i)+clw*t2%prog(i)%wl+csw*t2%prog(i)%ws) * (t2%prog(i)%T-tfreeze)
+    ! calculate (and assign) combined water mass
+    t2%prog(i)%wl = t1%prog(i)%wl*x1 + t2%prog(i)%wl*x2
+    t2%prog(i)%ws = t1%prog(i)%ws*x1 + t2%prog(i)%ws*x2
+    ! if dry heat capacity of combined lake is to be changed, update it here
+    ! ...
+    ! calculate combined temperature, based on total heat content and combined
+    ! heat capacity
+    t2%prog(i)%T = (HEAT1*x1+HEAT2*x2) / &
+      (C2*dz(i)+clw*t2%prog(i)%wl+csw*t2%prog(i)%ws) + tfreeze
+
+    ! calculate combined groundwater content
+    gw = t1%prog(i)%groundwater*x1 + t2%prog(i)%groundwater*x2
+    ! calculate combined groundwater temperature
+    if(gw/=0) then
+       t2%prog(i)%groundwater_T = ( &
+            t1%prog(i)%groundwater*x1*(t1%prog(i)%groundwater_T-tfreeze) + &
+            t2%prog(i)%groundwater*x2*(t2%prog(i)%groundwater_T-tfreeze)   &
+            ) / gw + Tfreeze
+    else
+       t2%prog(i)%groundwater_T = &
+            x1*t1%prog(i)%groundwater_T + x2*t2%prog(i)%groundwater_T
+    endif
+    t2%prog(i)%groundwater = gw
+  enddo
+
+end subroutine
 
 ! =============================================================================
 ! returns true if tile fits the specified selector
@@ -343,7 +430,7 @@ end function
 
 ! ============================================================================
 ! retruns tag of the tile
-function get_lake_tag(lake) result(tag)
+function get_lake_tile_tag(lake) result(tag)
   integer :: tag
   type(lake_tile_type), intent(in) :: lake
   

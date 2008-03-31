@@ -4,11 +4,7 @@ use constants_mod,     only : PI
 use fms_mod,           only : file_exist, error_mesg, FATAL, stdlog, mpp_pe, &
      mpp_root_pe, write_version_number
 use horiz_interp_mod,  only : horiz_interp_type, &
-#ifdef BEFORE_NALANDA
-     horiz_interp_init, horiz_interp_end, &
-#else
      horiz_interp_new, horiz_interp_del, &
-#endif
      horiz_interp
 
 use nf_utils_mod,      only : nfu_validtype, nfu_get_dim, nfu_get_dim_bounds, &
@@ -37,8 +33,8 @@ include 'netcdf.inc'
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land_io_mod', &
-     version     = '$Id: land_io.F90,v 15.0.2.3 2007/10/11 00:29:50 slm Exp $', &
-     tagname     = '$Name: omsk_2007_12 $'
+     version     = '$Id: land_io.F90,v 15.0.2.4 2007/12/05 19:46:39 slm Exp $', &
+     tagname     = '$Name: omsk_2008_03 $'
 
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -230,13 +226,8 @@ subroutine do_read_cover_field(ncid,varid,lonb,latb,input_cover_types,frac)
   __NF_ASRT__( nf_get_var_int(ncid,varid,in_cover) )
   __NF_ASRT__( nfu_get_valid_range(ncid,varid,v) )
 
-#ifdef BEFORE_NALANDA
-  call horiz_interp_init(interp, in_lonb,in_latb, lonb,latb, &
-       interp_method='conservative')
-#else
   call horiz_interp_new(interp, in_lonb,in_latb, lonb,latb, &
        interp_method='conservative')
-#endif
   frac=0
   do k = 1,size(input_cover_types(:))
      x=0
@@ -245,11 +236,7 @@ subroutine do_read_cover_field(ncid,varid,lonb,latb,input_cover_types,frac)
      call horiz_interp(interp,x,frac(:,:,k))
   enddo
 
-#ifdef BEFORE_NALANDA
-  call horiz_interp_end(interp)
-#else
   call horiz_interp_del(interp)
-#endif
 
   ! clean up memory
   deallocate(in_lonb, in_latb, in_cover, x)
@@ -292,13 +279,8 @@ subroutine do_read_fraction_field(ncid,varid,lonb,latb,input_cover_types,frac)
   __NF_ASRT__( nf_get_var_double(ncid,varid,in_frac) )
   __NF_ASRT__( nfu_get_valid_range(ncid,varid,v) )
 
-#ifdef BEFORE_NALANDA
-  call horiz_interp_init(interp, in_lonb,in_latb, lonb,latb,&
-       interp_method='conservative')
-#else
   call horiz_interp_new(interp, in_lonb,in_latb, lonb,latb,&
        interp_method='conservative')
-#endif
   frac = 0
   do k = 1,size(input_cover_types)
      cover = input_cover_types(k)
@@ -306,11 +288,7 @@ subroutine do_read_fraction_field(ncid,varid,lonb,latb,input_cover_types,frac)
      where(nfu_is_valid(in_frac(:,:,cover),v)) in_mask = 1.0
      call horiz_interp(interp,in_frac(:,:,cover),frac(:,:,k),mask_in=in_mask)
   enddo
-#ifdef BEFORE_NALANDA
-  call horiz_interp_end(interp)
-#else
   call horiz_interp_del(interp)
-#endif
 
   ! clean up memory
   deallocate(in_lonb, in_latb, in_frac, in_mask)

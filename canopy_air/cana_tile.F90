@@ -11,15 +11,20 @@ public :: cana_prog_type
 public :: cana_tile_type
 
 public :: new_cana_tile, delete_cana_tile
-public :: cana_can_be_merged, merge_cana
-public :: get_cana_tag
+public :: cana_tiles_can_be_merged, merge_cana_tiles
+public :: get_cana_tile_tag
 public :: cana_is_selected
 
 ! ==== end of public interfaces ==============================================
+interface new_cana_tile
+   module procedure cana_tile_ctor
+   module procedure cana_tile_copy_ctor
+end interface
 
 type :: cana_prog_type
   real T
   real q
+  real :: co2 ! co2 concentration in canopy air, mol/mol
 end type cana_prog_type
 
 type :: cana_tile_type
@@ -30,12 +35,20 @@ end type cana_tile_type
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! =============================================================================
-function new_cana_tile() result(ptr)
+function cana_tile_ctor() result(ptr)
   type(cana_tile_type), pointer :: ptr ! return value
 
   allocate(ptr)
+end function cana_tile_ctor
 
-end function new_cana_tile
+! =============================================================================
+function cana_tile_copy_ctor(cana) result(ptr)
+  type(cana_tile_type), pointer :: ptr ! return value
+  type(cana_tile_type), intent(in) :: cana ! return value
+
+  allocate(ptr)
+  ptr = cana
+end function cana_tile_copy_ctor
 
 ! =============================================================================
 subroutine delete_cana_tile(cana)
@@ -45,15 +58,15 @@ subroutine delete_cana_tile(cana)
 end subroutine delete_cana_tile
 
 ! =============================================================================
-function cana_can_be_merged(cana1,cana2)
-  logical :: cana_can_be_merged
+function cana_tiles_can_be_merged(cana1,cana2) result(response)
+  logical :: response
   type(cana_tile_type), intent(in) :: cana1,cana2
 
-  cana_can_be_merged = .TRUE.
+  response = .TRUE.
 end function
 
 ! =============================================================================
-subroutine merge_cana(cana1,w1,cana2,w2)
+subroutine merge_cana_tiles(cana1,w1,cana2,w2)
   type(cana_tile_type), intent(in)    :: cana1
   type(cana_tile_type), intent(inout) :: cana2
   real                , intent(in)    :: w1, w2
@@ -71,7 +84,7 @@ end subroutine
 
 ! =============================================================================
 ! returns tag of the tile
-function get_cana_tag(cana) result(tag)
+function get_cana_tile_tag(cana) result(tag)
   integer :: tag
   type(cana_tile_type), intent(in) :: cana
   

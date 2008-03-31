@@ -44,8 +44,14 @@ public :: land_state_type
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: &
      module_name = 'land_data_mod', &
-     version     = '$Id: land_data.F90,v 15.0.2.2 2007/10/11 00:29:41 slm Exp $', &
-     tagname     = '$Name: omsk_2007_12 $'
+     version     = '$Id: land_data.F90,v 15.0.2.4 2008/02/17 21:06:23 slm Exp $', &
+     tagname     = '$Name: omsk_2008_03 $'
+
+! init_value is used to fill most of the allocated boundary condition arrays.
+! It is supposed to be double-precision signaling NaN, to triger a trap when
+! the program is compiled with trapping uninitialized values.  
+! See http://ftp.uniovi.es/~antonio/uned/ieee754/IEEE-754references.html
+real, parameter :: init_value = Z'FFF0000000000001'
 
 ! ---- types -----------------------------------------------------------------
 type :: atmos_land_boundary_type
@@ -78,17 +84,10 @@ type :: atmos_land_boundary_type
         drag_q    => NULL(), &   ! product of cd_q by wind
         p_surf    => NULL()      ! surface pressure, Pa
 
-#ifdef LAND_BND_TRACERS
    real, dimension(:,:,:,:), pointer :: & ! (lon, lat, tile, tracer)
         tr_flux => NULL(),   &   ! tracer flux, including water vapor flux
         dfdtr   => NULL()        ! derivative of the flux w.r.t. tracer surface value, 
                                  ! including evap over surface specific humidity
-#else
-   real, dimension(:,:,:), pointer :: & ! (lon, lat, tile)
-        q_flux => NULL(),    &   ! water vapor flux
-        dedt => NULL(),      &   ! its derivative w.r.t. surface temperature (assuming saturation @ surf.)
-        dedq => NULL()           ! its derivative w.r.t. surface specific humidity
-#endif 
 
    integer :: xtype             !REGRID, REDIST or DIRECT
 end type atmos_land_boundary_type
@@ -110,14 +109,12 @@ type :: land_data_type
         rough_heat     => NULL(),  & ! roughness length for tracers and heat, m
         rough_scale    => NULL()     ! topographic scaler for momentum drag, m
 
-#ifdef LAND_BND_TRACERS
    real, pointer, dimension(:,:,:,:)   :: &  ! (lon, lat, tile, tracer)
         tr    => NULL()              ! tracers, including canopy air specific humidity
-#else
-   real, pointer, dimension(:,:,:)   :: &  ! (lon, lat, tile)
-        q_ca => NULL()               ! canopy air specific humidity, kg/kg
-#endif
 
+   ! NOTE that in contrast to most of the other fields in this structure, the discharges
+   ! hold data per-gridcell, rather than per-tile basis. This, and the order of updates,
+   ! have implications for the data reallocation procedure.
    real, pointer, dimension(:,:) :: &  ! (lon, lat)
         discharge      => NULL(),  & ! flux from surface drainage network out of land model
         discharge_snow => NULL()     ! snow analogue of discharge
@@ -237,7 +234,6 @@ subroutine land_data_init(layout, time, dt_fast, dt_slow)
   enddo
 
   ! initialize land model tracers, if necessary
-#ifdef LAND_BND_TRACERS
   ! register land model tracers and find specific humidity
   call register_tracers ( MODEL_LAND, ntracers, lnd%ntprog, ndiag )
   lnd%isphum = get_tracer_index ( MODEL_LAND, 'sphum' )
@@ -246,10 +242,6 @@ subroutine land_data_init(layout, time, dt_fast, dt_slow)
   endif
   lnd%ico2 = get_tracer_index ( MODEL_LAND, 'co2' )
   ! NB: co2 might be absent, in this case ico2 == NO_TRACER
-#else
-  lnd%isphum = NO_TRACER
-  lnd%ico2   = NO_TRACER
-#endif
 
   ! initialize model's time-related parameters
   lnd%time    = time
@@ -286,7 +278,7 @@ subroutine realloc_land2cplr ( bnd )
   ! ---- local vars
   integer :: n_tiles
 
-  call dealloc_land2cplr(bnd)
+  call dealloc_land2cplr(bnd, dealloc_discharges=.FALSE.)
 
   bnd%domain = lnd%domain
   n_tiles = max_n_tiles()
@@ -298,11 +290,7 @@ subroutine realloc_land2cplr ( bnd )
   allocate( bnd%tile_size(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
   allocate( bnd%t_surf(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
   allocate( bnd%t_ca(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
-#ifdef LAND_BND_TRACERS
   allocate( bnd%tr(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles,lnd%ntprog) )
-#else
-  allocate( bnd%q_ca(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
-#endif
   allocate( bnd%albedo(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
   allocate( bnd%albedo_vis_dir(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
   allocate( bnd%albedo_nir_dir(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
@@ -312,26 +300,52 @@ subroutine realloc_land2cplr ( bnd )
   allocate( bnd%rough_heat(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
   allocate( bnd%rough_scale(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
 
-  allocate( bnd%discharge(lnd%is:lnd%ie,lnd%js:lnd%je) )
-  allocate( bnd%discharge_snow(lnd%is:lnd%ie,lnd%js:lnd%je) )
+  bnd%mask              = .FALSE.
+  bnd%tile_size         = init_value
+  bnd%t_surf            = init_value
+  bnd%t_ca              = init_value
+  bnd%tr                = init_value
+  bnd%albedo            = init_value
+  bnd%albedo_vis_dir    = init_value
+  bnd%albedo_nir_dir    = init_value
+  bnd%albedo_vis_dif    = init_value
+  bnd%albedo_nir_dif    = init_value
+  bnd%rough_mom         = init_value
+  bnd%rough_heat        = init_value
+  bnd%rough_scale       = init_value
 
+  ! in contrast to the rest of the land boundary condition fields, discharges 
+  ! are specified per grid cell, not per tile; therefore they should not be 
+  ! re-allocated when the number of tiles changes. In fact, they must not be
+  ! changed at all here because their values are assigned in update_land_model_fast,
+  ! not in update_land_bc_*, and therefore would be lost if re-allocated.
+  if (.not.associated(bnd%discharge)) then
+     allocate( bnd%discharge(lnd%is:lnd%ie,lnd%js:lnd%je) )
+     allocate( bnd%discharge_snow(lnd%is:lnd%ie,lnd%js:lnd%je) )
+
+     ! discharge and discaharge_snow must be, in contrast to the rest of the boundary
+     ! values, filled with zeroes. The reason is because not all of the usable elements
+     ! are updated by the land model (only coastal points are).
+     bnd%discharge         = 0.0
+     bnd%discharge_snow    = 0.0
+  endif
 end subroutine realloc_land2cplr
 
 
 ! ============================================================================
 ! deallocates boundary data memory
-subroutine dealloc_land2cplr ( bnd )
+! NOTE that the discharges should be deallocated only at the final clean-up
+! stage; during the model run they should be preserved unchanged even when
+! other fields are reallocated.
+subroutine dealloc_land2cplr ( bnd, dealloc_discharges )
   type(land_data_type), intent(inout) :: bnd  ! data to de-allocate
+  logical, intent(in) :: dealloc_discharges
 
   __DEALLOC__( bnd%tile_size )
   __DEALLOC__( bnd%tile_size )
   __DEALLOC__( bnd%t_surf )
   __DEALLOC__( bnd%t_ca )
-#ifdef LAND_BND_TRACERS
   __DEALLOC__( bnd%tr )
-#else
-  __DEALLOC__( bnd%q_ca )
-#endif
   __DEALLOC__( bnd%albedo )
   __DEALLOC__( bnd%albedo_vis_dir )
   __DEALLOC__( bnd%albedo_nir_dir )
@@ -340,9 +354,12 @@ subroutine dealloc_land2cplr ( bnd )
   __DEALLOC__( bnd%rough_mom )
   __DEALLOC__( bnd%rough_heat )
   __DEALLOC__( bnd%rough_scale )
-  __DEALLOC__( bnd%discharge )
-  __DEALLOC__( bnd%discharge_snow )
   __DEALLOC__( bnd%mask )
+
+  if (dealloc_discharges) then
+     __DEALLOC__( bnd%discharge )
+     __DEALLOC__( bnd%discharge_snow )
+  end if
 
 end subroutine dealloc_land2cplr
 
@@ -373,29 +390,9 @@ subroutine realloc_cplr2land( bnd )
   allocate( bnd%dhdq(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
   allocate( bnd%drdt(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
   allocate( bnd%p_surf(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-#ifdef LAND_BND_TRACERS
   allocate( bnd%tr_flux(lnd%is:lnd%ie,lnd%js:lnd%je,kd,lnd%ntprog) )
   allocate( bnd%dfdtr(lnd%is:lnd%ie,lnd%js:lnd%je,kd,lnd%ntprog) )
-#else
-  allocate( bnd%q_flux(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-  allocate( bnd%dedt(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-  allocate( bnd%dedq(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-#endif
-!slm[unwated init?]  bnd%q_flux=0.0
-!slm[unwated init?]  bnd%dedt=0.0
-!slm[unwated init?]  bnd%dedq=0.0
 
-! initialize boundary values for override experiments (mjh)
-!slm[unwated init?]  bnd%t_flux=0.0
-!slm[unwated init?]  bnd%lw_flux=0.0
-!slm[unwated init?]  bnd%sw_flux=0.0
-!slm[unwated init?]  bnd%lprec=0.0
-!slm[unwated init?]  bnd%fprec=0.0
-!slm[unwated init?]  bnd%dhdt=0.0
-!slm[unwated init?]  bnd%drdt=0.0
-!slm[unwated init?]  bnd%p_surf=0.0
-
-! + slm May 13 2003 -- fields for lm3 
   allocate( bnd%lwdn_flux(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
   allocate( bnd%swdn_flux(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
   allocate( bnd%sw_flux_down_vis_dir(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
@@ -409,22 +406,35 @@ subroutine realloc_cplr2land( bnd )
   allocate( bnd%wind(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
   allocate( bnd%z_bot(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
 
-!slm[unwated init?]  bnd%lwdn_flux=0.0
-!slm[unwated init?]  bnd%swdn_flux=0.0
-!slm[unwated init?]  bnd%sw_flux_down_vis_dir=0.0
-!slm[unwated init?]  bnd%sw_flux_down_total_dir=0.0
-!slm[unwated init?]  bnd%sw_flux_down_vis_dif=0.0
-!slm[unwated init?]  bnd%sw_flux_down_total_dif=0.0
-!slm[unwated init?]  bnd%cd_t = 1e-3
-!slm[unwated init?]  bnd%cd_m = 1e-3
-!slm[unwated init?]  bnd%bstar = 0.0
-!slm[unwated init?]  bnd%ustar = 0.0
-!slm[unwated init?]  bnd%wind = 0.0
-!slm[unwated init?]  bnd%z_bot = 30.0
-! - slm May 13 2003
-
   allocate( bnd%drag_q(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
 
+  bnd%t_flux                 = init_value
+  bnd%lw_flux                = init_value
+  bnd%sw_flux                = init_value
+  bnd%lprec                  = init_value
+  bnd%fprec                  = init_value
+  bnd%tprec                  = init_value
+  bnd%dhdt                   = init_value
+  bnd%dhdq                   = init_value
+  bnd%drdt                   = init_value
+  bnd%p_surf                 = init_value
+  bnd%tr_flux                = init_value
+  bnd%dfdtr                  = init_value
+
+  bnd%lwdn_flux              = init_value
+  bnd%swdn_flux              = init_value
+  bnd%sw_flux_down_vis_dir   = init_value
+  bnd%sw_flux_down_total_dir = init_value
+  bnd%sw_flux_down_vis_dif   = init_value
+  bnd%sw_flux_down_total_dif = init_value
+  bnd%cd_t                   = init_value
+  bnd%cd_m                   = init_value
+  bnd%bstar                  = init_value
+  bnd%ustar                  = init_value
+  bnd%wind                   = init_value
+  bnd%z_bot                  = init_value
+
+  bnd%drag_q                 = init_value
 
 end subroutine realloc_cplr2land
 
@@ -454,14 +464,8 @@ subroutine dealloc_cplr2land( bnd )
   __DEALLOC__( bnd%ustar )
   __DEALLOC__( bnd%wind )
   __DEALLOC__( bnd%z_bot )
-#ifdef LAND_BND_TRACERS
   __DEALLOC__( bnd%tr_flux )
   __DEALLOC__( bnd%dfdtr )
-#else
-  __DEALLOC__( bnd%q_flux )
-  __DEALLOC__( bnd%dedt )
-  __DEALLOC__( bnd%dedq )
-#endif
 
 end subroutine dealloc_cplr2land
 

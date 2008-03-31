@@ -5,22 +5,22 @@ use fms_mod, only : error_mesg, FATAL
 use land_constants_mod, only : NBANDS
 use glac_tile_mod, only : &
      glac_tile_type, new_glac_tile, delete_glac_tile, glac_is_selected, &
-     glac_can_be_merged, merge_glac, get_glac_tag
+     glac_tiles_can_be_merged, merge_glac_tiles, get_glac_tile_tag
 use lake_tile_mod, only : &
      lake_tile_type, new_lake_tile, delete_lake_tile, lake_is_selected, &
-     lake_can_be_merged, get_lake_tag
+     lake_tiles_can_be_merged, merge_lake_tiles, get_lake_tile_tag
 use soil_tile_mod, only : &
      soil_tile_type, new_soil_tile, delete_soil_tile, soil_is_selected, &
-     soil_can_be_merged, get_soil_tag
+     soil_tiles_can_be_merged, merge_soil_tiles, get_soil_tile_tag
 use cana_tile_mod, only : &
      cana_tile_type, new_cana_tile, delete_cana_tile, cana_is_selected, &
-     cana_can_be_merged, merge_cana, get_cana_tag
+     cana_tiles_can_be_merged, merge_cana_tiles, get_cana_tile_tag
 use vegn_tile_mod, only : &
      vegn_tile_type, new_vegn_tile, delete_vegn_tile, vegn_is_selected, &
-     vegn_can_be_merged, get_vegn_tag
+     vegn_tiles_can_be_merged, merge_vegn_tiles, get_vegn_tile_tag
 use snow_tile_mod, only : &
      snow_tile_type, new_snow_tile, delete_snow_tile, snow_is_selected, &
-     snow_can_be_merged, merge_snow, get_snow_tag
+     snow_tiles_can_be_merged, merge_snow_tiles, get_snow_tile_tag
 use land_tile_selectors_mod, only : tile_selector_type, &
      SEL_SOIL, SEL_VEGN, SEL_LAKE, SEL_GLAC, SEL_SNOW, SEL_CANA
 use tile_diag_buff_mod, only : &
@@ -51,6 +51,7 @@ public :: erase   ! erases tile at current position
 public :: remove  ! removes tile at current position, but does not delete it
 public :: get_elmt_indices ! returns i,j,k of current element
 
+public :: empty   ! returns true if the list of tiles is empty
 public :: nitems  ! count of items in list
 
 public :: tile_is_selected
@@ -58,6 +59,10 @@ public :: tile_is_selected
 public :: print_land_tile_info
 public :: print_land_tile_statistics
 ! ==== end of public interfaces ==============================================
+interface new_land_tile
+   module procedure land_tile_ctor
+   module procedure land_tile_copy_ctor
+end interface
 
 interface first_elmt
    module procedure land_tile_list_begin_0d
@@ -108,7 +113,6 @@ type :: land_tile_type
    ! data that are carried over from the previous time step
    real :: Sg_dir(NBANDS), Sg_dif(NBANDS) ! fractions of downward direct and 
        ! diffuse short-wave radiation absorbed by ground and snow
-   real :: grnd_emis ! emissivity of ground
    real :: Sv_dir(NBANDS), Sv_dif(NBANDS) ! fractions of downward direct and 
        ! diffuse radiation absorbed by the vegetation.
    real :: land_refl_dir(NBANDS), land_refl_dif(NBANDS)
@@ -162,7 +166,7 @@ contains
 ! ============================================================================
 ! tile constructor: given a list of sub-model tile tags, creates a land tile
 ! calls sub-tile constructors from individual component models
-function new_land_tile(frac,glac,lake,soil,vegn,tag) result(tile)
+function land_tile_ctor(frac,glac,lake,soil,vegn,tag) result(tile)
   real   , optional, intent(in) :: frac ! fractional area of tile
   integer, optional, intent(in) :: &
                glac,lake,soil,vegn ! kinds of respective tiles
@@ -197,7 +201,25 @@ function new_land_tile(frac,glac,lake,soil,vegn,tag) result(tile)
   ! increment total number of created files for tile statistics
   n_created_land_tiles = n_created_land_tiles + 1
 
-end function new_land_tile
+end function land_tile_ctor
+
+
+! ============================================================================
+function land_tile_copy_ctor(t) result(tile)
+  type(land_tile_type), intent(in) :: t    ! tile to copy
+  type(land_tile_type), pointer :: tile ! return value
+
+  allocate(tile)
+  tile = t ! copy all non-pointer members
+  if (associated(t%glac)) tile%glac=>new_glac_tile(t%glac)
+  if (associated(t%lake)) tile%lake=>new_lake_tile(t%lake)
+  if (associated(t%soil)) tile%soil=>new_soil_tile(t%soil)
+  if (associated(t%snow)) tile%snow=>new_snow_tile(t%snow)
+  if (associated(t%cana)) tile%cana=>new_cana_tile(t%cana)
+  if (associated(t%vegn)) tile%vegn=>new_vegn_tile(t%vegn)
+
+  if (associated(t%diag)) tile%diag=>new_diag_buff(t%diag)
+end function land_tile_copy_ctor
 
 
 ! ============================================================================
@@ -236,27 +258,27 @@ subroutine get_tile_tags(tile,land,glac,lake,soil,snow,cana,vegn)
    if(present(land)) land=tile%tag
    if(present(glac)) then
       glac=-HUGE(glac)
-      if (associated(tile%glac)) glac=get_glac_tag(tile%glac)
+      if (associated(tile%glac)) glac=get_glac_tile_tag(tile%glac)
    endif
    if(present(lake)) then
       lake=-HUGE(lake)
-      if (associated(tile%lake)) lake=get_lake_tag(tile%lake)
+      if (associated(tile%lake)) lake=get_lake_tile_tag(tile%lake)
    endif
    if(present(soil)) then
       soil=-HUGE(soil)
-      if (associated(tile%soil)) soil=get_soil_tag(tile%soil)
+      if (associated(tile%soil)) soil=get_soil_tile_tag(tile%soil)
    endif
    if(present(snow)) then
       snow=-HUGE(snow)
-      if (associated(tile%snow)) snow=get_snow_tag(tile%snow)
+      if (associated(tile%snow)) snow=get_snow_tile_tag(tile%snow)
    endif
    if(present(cana)) then
       cana=-HUGE(cana)
-      if (associated(tile%cana)) cana=get_cana_tag(tile%cana)
+      if (associated(tile%cana)) cana=get_cana_tile_tag(tile%cana)
    endif
    if(present(vegn)) then
       vegn=-HUGE(vegn)
-      if (associated(tile%vegn)) vegn=get_vegn_tag(tile%vegn)
+      if (associated(tile%vegn)) vegn=get_vegn_tile_tag(tile%vegn)
    endif
 end subroutine
 
@@ -304,17 +326,17 @@ function land_tiles_can_be_merged(tile1,tile2) result (answer)
             (associated(tile1%vegn).eqv.associated(tile2%vegn))
      
    if (answer.and.associated(tile1%glac)) &
-      answer = answer.and.glac_can_be_merged(tile1%glac,tile2%glac)
+      answer = answer.and.glac_tiles_can_be_merged(tile1%glac,tile2%glac)
    if (answer.and.associated(tile1%lake)) &
-      answer = answer.and.lake_can_be_merged(tile1%lake,tile2%lake)
+      answer = answer.and.lake_tiles_can_be_merged(tile1%lake,tile2%lake)
    if (answer.and.associated(tile1%soil)) &
-      answer = answer.and.soil_can_be_merged(tile1%soil,tile2%soil)
+      answer = answer.and.soil_tiles_can_be_merged(tile1%soil,tile2%soil)
    if (answer.and.associated(tile1%cana)) &
-      answer = answer.and.cana_can_be_merged(tile1%cana,tile2%cana)
+      answer = answer.and.cana_tiles_can_be_merged(tile1%cana,tile2%cana)
    if (answer.and.associated(tile1%snow)) &
-      answer = answer.and.snow_can_be_merged(tile1%snow,tile2%snow)
+      answer = answer.and.snow_tiles_can_be_merged(tile1%snow,tile2%snow)
    if (answer.and.associated(tile1%vegn)) &
-      answer = answer.and.vegn_can_be_merged(tile1%vegn,tile2%vegn)
+      answer = answer.and.vegn_tiles_can_be_merged(tile1%vegn,tile2%vegn)
    
 end function
 
@@ -325,13 +347,33 @@ subroutine merge_land_tiles(tile1,tile2)
   type(land_tile_type), intent(in)    :: tile1
   type(land_tile_type), intent(inout) :: tile2
 
+  ! ---- local vars
+  real :: x1,x2
+
   if(associated(tile1%glac)) &
-     call merge_glac(tile1%glac, tile1%frac, tile2%glac, tile2%frac)
+       call merge_glac_tiles(tile1%glac, tile1%frac, tile2%glac, tile2%frac)
+  if(associated(tile1%lake)) &
+       call merge_lake_tiles(tile1%lake, tile1%frac, tile2%lake, tile2%frac)
+  if(associated(tile1%soil)) &
+       call merge_soil_tiles(tile1%soil, tile1%frac, tile2%soil, tile2%frac)
   
   if(associated(tile1%cana)) &
-     call merge_cana(tile1%cana, tile1%frac, tile2%cana, tile2%frac)
+       call merge_cana_tiles(tile1%cana, tile1%frac, tile2%cana, tile2%frac)
   if(associated(tile1%snow)) &
-     call merge_snow(tile1%snow, tile1%frac, tile2%snow, tile2%frac)
+       call merge_snow_tiles(tile1%snow, tile1%frac, tile2%snow, tile2%frac)
+
+  if(associated(tile1%vegn)) &
+       call merge_vegn_tiles(tile1%vegn, tile1%frac, tile2%vegn, tile2%frac)
+
+  ! calculate normalized weights
+  x1 = tile1%frac/(tile1%frac+tile2%frac)
+  x2 = 1.0 - x1
+
+#define __MERGE__(field) tile2%field = x1*tile1%field + x2*tile2%field
+  __MERGE__(lwup)
+  __MERGE__(e_res_1)
+  __MERGE__(e_res_2)
+#undef __MERGE__
 
   tile2%frac = tile1%frac + tile2%frac
 end subroutine
@@ -373,6 +415,18 @@ subroutine check_tile_list_inited(list)
      
 end subroutine
 
+
+! ============================================================================
+! returns true is the list is empty
+function empty(list)
+  logical empty
+  type(land_tile_list_type), intent(in) :: list
+
+  empty = .not.associated(list%head)
+  if (.not.empty) &
+       empty = associated(list%head%next,list%head)
+
+end function empty
 
 ! ============================================================================
 ! returns the number of items currently stored in the list

@@ -1,6 +1,5 @@
-module nf_utils_mod
+module nfu_mod
 
-use platform_mod, only : r8_kind
 implicit none
 private
 
@@ -9,9 +8,8 @@ public :: nfu_inq_dim, nfu_inq_var, nfu_inq_att
 public :: nfu_def_dim, nfu_def_var
 public :: nfu_put_att_text
 public :: nfu_get_dim, nfu_get_dim_bounds
-public :: nfu_put_var_double, nfu_put_var_int
-public :: nfu_get_var_double, nfu_get_var_int
-public :: nfu_get_rec_double, nfu_get_rec_int
+public :: nfu_put_var
+public :: nfu_get_var, nfu_get_rec
 
 public :: nfu_get_valid_range, nfu_is_valid, nfu_validtype, nfu_validtype2ascii
 ! ==== end of public interfaces ==============================================
@@ -39,29 +37,21 @@ interface nfu_put_att_text
    module procedure put_att_text_i
    module procedure put_att_text_n
 end interface
-interface nfu_get_var_int
-   module procedure get_var_int_0d
-   module procedure get_var_int_Nd
+interface nfu_get_var
+   module procedure get_var_int_0d, get_var_int_1D, get_var_int_2D, get_var_int_3D
 end interface
-interface nfu_get_var_double
-   module procedure get_var_double_0d
-   module procedure get_var_double_Nd
+interface nfu_get_var
+   module procedure get_var_re8_0d, get_var_re8_1D, get_var_re8_2D, get_var_re8_3D
 end interface
-interface nfu_put_var_int
-   module procedure put_var_int_0d
-   module procedure put_var_int_Nd
+interface nfu_put_var
+   module procedure put_var_int_0d, put_var_int_1d, put_var_int_2d, put_var_int_3d
+   module procedure put_var_re8_0d, put_var_re8_1d, put_var_re8_2d, put_var_re8_3d
 end interface
-interface nfu_put_var_double
-   module procedure put_var_double_0d
-   module procedure put_var_double_Nd
-end interface
-interface nfu_get_rec_double
-   module procedure get_rec_double_0d
-   module procedure get_rec_double_Nd
-end interface
-interface nfu_get_rec_int
-   module procedure get_rec_int_0d
-   module procedure get_rec_int_Nd
+interface nfu_get_rec
+   module procedure get_rec_int_0d_n, get_rec_int_1d_n, get_rec_int_2d_n, get_rec_int_3d_n
+   module procedure get_rec_int_0d_i, get_rec_int_1d_i, get_rec_int_2d_i, get_rec_int_3d_i
+   module procedure get_rec_re8_0d_n, get_rec_re8_1d_n, get_rec_re8_2d_n, get_rec_re8_3d_n
+   module procedure get_rec_re8_0d_i, get_rec_re8_1d_i, get_rec_re8_2d_i, get_rec_re8_3d_i
 end interface
 
 interface nfu_get_valid_range
@@ -76,8 +66,8 @@ end interface
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: &
      module_name = 'nf_utils_mod', &
-     version     = '$Id: nf_utils.F90,v 15.0.2.1 2007/09/16 21:37:07 slm Exp $', &
-     tagname     = '$Name: omsk_2007_12 $'
+     version     = '$Id: nfu.F90,v 1.1.2.1 2008/02/01 20:30:58 slm Exp $', &
+     tagname     = '$Name: omsk_2008_03 $'
 
 ! ---- module types ----------------------------------------------------------
 type nfu_validtype
@@ -210,7 +200,7 @@ function inq_var_i(ncid, vid, name, xtype, ndims, dimids, dimlens,natts, &
   endif
   if(present(nrec)) then
      nrec=1
-     if(unlimdim/=-1) then
+     if(unlimdim/=-1.and.ANY(vdimids(1:vndims)==unlimdim)) then
         __NF_TRY__(nf_inq_dimlen(ncid,unlimdim,nrec),iret,7)
      endif
   endif
@@ -470,8 +460,14 @@ function nfu_get_dim_bounds(ncid,dimid,edges)result(iret)
 7 return
 end function
 
+
+
+
+
 ! ============================================================================
-function get_var_int_0d(ncid,name,var) result(iret)
+! nfu_get_var interface
+! ============================================================================
+function get_var_int_0D(ncid,name,var) result(iret)
   integer     , intent(in) :: ncid   ! id of netcdf file
   character(*), intent(in) :: name   ! name of the variable
   integer     , intent(inout) :: var   ! storage for the variable
@@ -482,9 +478,8 @@ function get_var_int_0d(ncid,name,var) result(iret)
   iret = nf_get_var_int(ncid,varid,var)
 7 return
 end function
-
 ! ============================================================================
-function get_var_int_Nd(ncid,name,var) result(iret)
+function get_var_int_1D(ncid,name,var) result(iret)
   integer     , intent(in) :: ncid   ! id of netcdf file
   character(*), intent(in) :: name   ! name of the variable
   integer     , intent(inout) :: var(*) ! storage for the variable
@@ -495,9 +490,76 @@ function get_var_int_Nd(ncid,name,var) result(iret)
   iret = nf_get_var_int(ncid,varid,var)
 7 return
 end function
+! ============================================================================
+function get_var_int_2D(ncid,name,var) result(iret)
+  integer     , intent(in) :: ncid   ! id of netcdf file
+  character(*), intent(in) :: name   ! name of the variable
+  integer     , intent(inout) :: var(:,:) ! storage for the variable
+  integer :: iret ! return value
+
+  iret = get_var_int_1d(ncid,name,var)
+7 return
+end function
+! ============================================================================
+function get_var_int_3D(ncid,name,var) result(iret)
+  integer     , intent(in) :: ncid   ! id of netcdf file
+  character(*), intent(in) :: name   ! name of the variable
+  integer     , intent(inout) :: var(:,:,:) ! storage for the variable
+  integer :: iret ! return value
+
+  iret = get_var_int_1d(ncid,name,var)
+7 return
+end function
+! ============================================================================
+function get_var_re8_0D(ncid,name,var) result(iret)
+  integer     , intent(in)    :: ncid ! id of netcdf file
+  character(*), intent(in)    :: name ! name of the variable
+  real(8)     , intent(inout) :: var  ! storage for the variable
+  integer :: iret ! return value
+
+  integer :: varid
+  __NF_TRY__(nf_inq_varid(ncid,name,varid),iret,7)
+  iret = nf_get_var_double(ncid,varid,var)
+7 return
+end function
+! ============================================================================
+function get_var_re8_1D(ncid,name,var) result(iret)
+  integer     , intent(in)    :: ncid  ! id of netcdf file
+  character(*), intent(in)    :: name  ! name of the variable
+  real(8)     , intent(inout) :: var(*)! storage for the variable
+  integer :: iret ! return value
+
+  integer :: varid
+  __NF_TRY__(nf_inq_varid(ncid,name,varid),iret,7)
+  iret = nf_get_var_double(ncid,varid,var)
+7 return
+end function
+! ============================================================================
+function get_var_re8_2D(ncid,name,var) result(iret)
+  integer     , intent(in)    :: ncid    ! id of netcdf file
+  character(*), intent(in)    :: name    ! name of the variable
+  real(8)     , intent(inout) :: var(:,:)! storage for the variable
+  integer :: iret ! return value
+
+  iret = get_var_re8_1D(ncid,name,var)
+end function
+! ============================================================================
+function get_var_re8_3D(ncid,name,var) result(iret)
+  integer     , intent(in)    :: ncid    ! id of netcdf file
+  character(*), intent(in)    :: name    ! name of the variable
+  real(8)     , intent(inout) :: var(:,:,:)! storage for the variable
+  integer :: iret ! return value
+
+  iret = get_var_re8_1D(ncid,name,var)
+end function
+
+
+
 
 ! ============================================================================
-function get_rec_int_0d(ncid,name,rec,var) result(iret)
+! nfu_get_rec interface
+! ============================================================================
+function get_rec_int_0D_n(ncid,name,rec,var) result(iret)
   integer      , intent(in)    :: ncid   ! id of netcdf file
   character(*) , intent(in)    :: name   ! name of the variable
   integer      , intent(in)    :: rec    ! number of the record to get
@@ -505,15 +567,60 @@ function get_rec_int_0d(ncid,name,rec,var) result(iret)
   integer :: iret ! return value
 
   integer :: var1(1)
-  __NF_TRY__(get_rec_int_Nd(ncid,name,rec,var1),iret,7)
+  __NF_TRY__(get_rec_int_1D_n(ncid,name,rec,var1),iret,7)
   var=var1(1)
 7 return
 end function
-
 ! ============================================================================
-function get_rec_int_Nd(ncid,name,rec,var) result(iret)
+function get_rec_int_1d_n(ncid,name,rec,var) result(iret)
+  integer      , intent(in)    :: ncid   ! id of netcdf file
+  character(*) , intent(in)    :: name   ! name of the variable
+  integer      , intent(in)    :: rec    ! number of the record to get
+  integer      , intent(inout) :: var(*) ! storage for the variable
+  integer :: iret ! return value
+
+  integer :: varid
+  __NF_TRY__(nf_inq_varid(ncid,name,varid),iret,7)
+  __NF_TRY__(get_rec_int_1D_i(ncid,varid,rec,var),iret,7)
+7 return
+end function
+! ============================================================================
+function get_rec_int_2D_n(ncid,name,rec,var) result(iret)
+  integer      , intent(in)    :: ncid   ! id of netcdf file
+  character(*) , intent(in)    :: name   ! name of the variable
+  integer      , intent(in)    :: rec    ! number of the record to get
+  integer      , intent(inout) :: var(:,:) ! storage for the variable
+  integer :: iret ! return value
+
+  iret=get_rec_int_1D_n(ncid,name,rec,var)
+end function
+! ============================================================================
+function get_rec_int_3D_n(ncid,name,rec,var) result(iret)
+  integer      , intent(in)    :: ncid   ! id of netcdf file
+  character(*) , intent(in)    :: name   ! name of the variable
+  integer      , intent(in)    :: rec    ! number of the record to get
+  integer      , intent(inout) :: var(:,:,:) ! storage for the variable
+  integer :: iret ! return value
+
+  iret=get_rec_int_1D_n(ncid,name,rec,var)
+end function
+! ============================================================================
+function get_rec_int_0D_i(ncid,varid,rec,var) result(iret)
+  integer      , intent(in)    :: ncid   ! id of netcdf file
+  integer      , intent(in)    :: varid  ! id of the variable
+  integer      , intent(in)    :: rec    ! number of the record to get
+  integer      , intent(inout) :: var    ! storage for the variable
+  integer :: iret ! return value
+
+  integer :: var1(1)
+  __NF_TRY__(get_rec_int_1D_i(ncid,varid,rec,var1),iret,7)
+  var=var1(1)
+7 return
+end function
+! ============================================================================
+function get_rec_int_1D_i(ncid,varid,rec,var) result(iret)
   integer      , intent(in)     :: ncid   ! id of netcdf file
-  character(*) , intent(in)     :: name   ! name of the variable
+  integer      , intent(in)     :: varid  ! id of the variable
   integer      , intent(in)     :: rec    ! number of the record to get
   integer      , intent(inout)  :: var(*) ! storage for the variable
   integer :: iret ! return value
@@ -521,9 +628,8 @@ function get_rec_int_Nd(ncid,name,rec,var) result(iret)
   integer :: dimids(NF_MAX_VAR_DIMS), ndims, unlimdim
   integer :: start(NF_MAX_VAR_DIMS)
   integer :: count(NF_MAX_VAR_DIMS)
-  integer :: i, varid
+  integer :: i
       
-  __NF_TRY__(nf_inq_varid(ncid,name,varid),iret,7)
   __NF_TRY__(nf_inq_unlimdim(ncid,unlimdim),iret,7)
   __NF_TRY__(nf_inq_varndims(ncid,varid,ndims),iret,7)
   __NF_TRY__(nf_inq_vardimid(ncid,varid,dimids),iret,7)
@@ -542,61 +648,105 @@ function get_rec_int_Nd(ncid,name,rec,var) result(iret)
 
 7 return
 end function
-
 ! ============================================================================
-function get_var_double_0d(ncid,name,var) result(iret)
-  integer     , intent(in)    :: ncid   ! id of netcdf file
-  character(*), intent(in)    :: name   ! name of the variable
-  real(r8_kind),intent(inout) :: var   ! storage for the variable
+function get_rec_int_2D_i(ncid,varid,rec,var) result(iret)
+  integer      , intent(in)    :: ncid   ! id of netcdf file
+  integer      , intent(in)    :: varid  ! id of the variable
+  integer      , intent(in)    :: rec    ! number of the record to get
+  integer      , intent(inout) :: var(:,:)    ! storage for the variable
   integer :: iret ! return value
 
-  integer :: varid
-  __NF_TRY__(nf_inq_varid(ncid,name,varid),iret,7)
-  iret = nf_get_var_double(ncid,varid,var)
-7 return
+  iret=get_rec_int_1D_i(ncid,varid,rec,var)
 end function
-
 ! ============================================================================
-function get_var_double_Nd(ncid,name,var) result(iret)
-  integer     , intent(in)     :: ncid   ! id of netcdf file
-  character(*), intent(in)     :: name   ! name of the variable
-  real(r8_kind), intent(inout) :: var(*)! storage for the variable
+function get_rec_int_3D_i(ncid,varid,rec,var) result(iret)
+  integer      , intent(in)    :: ncid   ! id of netcdf file
+  integer      , intent(in)    :: varid  ! id of the variable
+  integer      , intent(in)    :: rec    ! number of the record to get
+  integer      , intent(inout) :: var(:,:,:)    ! storage for the variable
   integer :: iret ! return value
 
-  integer :: varid
-  __NF_TRY__(nf_inq_varid(ncid,name,varid),iret,7)
-  iret = nf_get_var_double(ncid,varid,var)
-7 return
+  iret=get_rec_int_1D_i(ncid,varid,rec,var)
 end function
 
+
+
+
+
+
 ! ============================================================================
-function get_rec_double_0d(ncid,name,rec,var) result(iret)
+function get_rec_re8_0D_n(ncid,name,rec,var) result(iret)
   integer      , intent(in)    :: ncid   ! id of netcdf file
   character(*) , intent(in)    :: name   ! name of the variable
   integer      , intent(in)    :: rec    ! number of the record to get
-  real(r8_kind),intent(inout)  :: var    ! storage for the variable
+  real(8)      , intent(inout) :: var    ! storage for the variable
   integer :: iret ! return value
 
-  real(r8_kind) :: var1(1)
-  __NF_TRY__(get_rec_double_Nd(ncid,name,rec,var1),iret,7)
+  real(8) :: var1(1)
+  __NF_TRY__(get_rec_re8_1D_n(ncid,name,rec,var1),iret,7)
   var=var1(1)
 7 return
 end function
-
 ! ============================================================================
-function get_rec_double_Nd(ncid,name,rec,var) result(iret)
+function get_rec_re8_1D_n(ncid,name,rec,var) result(iret)
   integer      , intent(in)     :: ncid   ! id of netcdf file
   character(*) , intent(in)     :: name   ! name of the variable
   integer      , intent(in)     :: rec    ! number of the record to get
-  real(r8_kind), intent(inout)  :: var(*) ! storage for the variable
+  real(8)      , intent(inout)  :: var(*) ! storage for the variable
+  integer :: iret ! return value
+
+  integer :: varid
+  __NF_TRY__(nf_inq_varid(ncid,name,varid),iret,7)
+  iret = get_rec_re8_1D_i(ncid,varid,rec,var)
+7 return
+end function
+! ============================================================================
+function get_rec_re8_2D_n(ncid,name,rec,var) result(iret)
+  integer      , intent(in)     :: ncid   ! id of netcdf file
+  character(*) , intent(in)     :: name   ! name of the variable
+  integer      , intent(in)     :: rec    ! number of the record to get
+  real(8)      , intent(inout)  :: var(:,:) ! storage for the variable
+  integer :: iret ! return value
+
+  iret=get_rec_re8_1D_n(ncid,name,rec,var)
+end function
+! ============================================================================
+function get_rec_re8_3D_n(ncid,name,rec,var) result(iret)
+  integer      , intent(in)     :: ncid   ! id of netcdf file
+  character(*) , intent(in)     :: name   ! name of the variable
+  integer      , intent(in)     :: rec    ! number of the record to get
+  real(8)      , intent(inout)  :: var(:,:,:) ! storage for the variable
+  integer :: iret ! return value
+
+  iret=get_rec_re8_1D_n(ncid,name,rec,var)
+end function
+
+! ============================================================================
+function get_rec_re8_0D_i(ncid,varid,rec,var) result(iret)
+  integer      , intent(in)     :: ncid   ! id of netcdf file
+  integer      , intent(in)     :: varid  ! id of the variable
+  integer      , intent(in)     :: rec    ! number of the record to get
+  real(8),intent(inout)   :: var    ! storage for the variable
+  integer :: iret ! return value
+
+  real(8) :: var1(1)
+  __NF_TRY__(get_rec_re8_1D_i(ncid,varid,rec,var1),iret,7)
+  var=var1(1)
+7 return
+end function
+! ============================================================================
+function get_rec_re8_1D_i(ncid,varid,rec,var) result(iret)
+  integer      , intent(in)     :: ncid   ! id of netcdf file
+  integer      , intent(in)     :: varid  ! id of the variable
+  integer      , intent(in)     :: rec    ! number of the record to get
+  real(8), intent(inout)  :: var(*) ! storage for the variable
   integer :: iret ! return value
 
   integer :: dimids(NF_MAX_VAR_DIMS), ndims, unlimdim
   integer :: start(NF_MAX_VAR_DIMS)
   integer :: count(NF_MAX_VAR_DIMS)
-  integer :: i, varid
+  integer :: i
       
-  __NF_TRY__(nf_inq_varid(ncid,name,varid),iret,7)
   __NF_TRY__(nf_inq_unlimdim(ncid,unlimdim),iret,7)
   __NF_TRY__(nf_inq_varndims(ncid,varid,ndims),iret,7)
   __NF_TRY__(nf_inq_vardimid(ncid,varid,dimids),iret,7)
@@ -615,6 +765,26 @@ function get_rec_double_Nd(ncid,name,rec,var) result(iret)
 
 7 return
 end function
+! ============================================================================
+function get_rec_re8_2D_i(ncid,varid,rec,var) result(iret)
+  integer      , intent(in)     :: ncid   ! id of netcdf file
+  integer      , intent(in)     :: varid  ! id of the variable
+  integer      , intent(in)     :: rec    ! number of the record to get
+  real(8)      , intent(inout)  :: var(:,:) ! storage for the variable
+  integer :: iret ! return value
+
+  iret = get_rec_re8_1D_i(ncid,varid,rec,var)
+end function
+! ============================================================================
+function get_rec_re8_3D_i(ncid,varid,rec,var) result(iret)
+  integer      , intent(in)     :: ncid   ! id of netcdf file
+  integer      , intent(in)     :: varid  ! id of the variable
+  integer      , intent(in)     :: rec    ! number of the record to get
+  real(8)      , intent(inout)  :: var(:,:,:) ! storage for the variable
+  integer :: iret ! return value
+
+  iret = get_rec_re8_1D_i(ncid,varid,rec,var)
+end function
 
 ! ============================================================================
 function put_var_int_0d(ncid,name,var) result(iret)
@@ -628,9 +798,8 @@ function put_var_int_0d(ncid,name,var) result(iret)
   iret = nf_put_var_int(ncid,varid,var)
 7 return
 end function
-
 ! ============================================================================
-function put_var_int_Nd(ncid,name,var) result(iret)
+function put_var_int_1d(ncid,name,var) result(iret)
   integer     , intent(in) :: ncid   ! id of netcdf file
   character(*), intent(in) :: name   ! name of the variable
   integer     , intent(in) :: var(*) ! storage for the variable
@@ -641,12 +810,36 @@ function put_var_int_Nd(ncid,name,var) result(iret)
   iret = nf_put_var_int(ncid,varid,var)
 7 return
 end function
+! ============================================================================
+function put_var_int_2d(ncid,name,var) result(iret)
+  integer     , intent(in) :: ncid   ! id of netcdf file
+  character(*), intent(in) :: name   ! name of the variable
+  integer     , intent(in) :: var(:,:) ! storage for the variable
+  integer :: iret ! return value
+
+  integer :: varid
+  __NF_TRY__(nf_inq_varid(ncid, name, varid), iret, 7)
+  iret = nf_put_var_int(ncid,varid,var)
+7 return
+end function
+! ============================================================================
+function put_var_int_3d(ncid,name,var) result(iret)
+  integer     , intent(in) :: ncid   ! id of netcdf file
+  character(*), intent(in) :: name   ! name of the variable
+  integer     , intent(in) :: var(:,:,:) ! storage for the variable
+  integer :: iret ! return value
+
+  integer :: varid
+  __NF_TRY__(nf_inq_varid(ncid, name, varid), iret, 7)
+  iret = nf_put_var_int(ncid,varid,var)
+7 return
+end function
 
 ! ============================================================================
-function put_var_double_0d(ncid,name,var) result(iret)
+function put_var_re8_0d(ncid,name,var) result(iret)
   integer     , intent(in)  :: ncid   ! id of netcdf file
   character(*), intent(in)  :: name   ! name of the variable
-  real(r8_kind), intent(in) :: var    ! storage for the variable
+  real(8), intent(in) :: var    ! storage for the variable
   integer :: iret ! return value
 
   integer :: varid
@@ -654,12 +847,35 @@ function put_var_double_0d(ncid,name,var) result(iret)
   iret = nf_put_var_double(ncid,varid,var)
 7 return
 end function
-
 ! ============================================================================
-function put_var_double_Nd(ncid,name,var) result(iret)
+function put_var_re8_1d(ncid,name,var) result(iret)
   integer     , intent(in)  :: ncid   ! id of netcdf file
   character(*), intent(in)  :: name   ! name of the variable
-  real(r8_kind), intent(in) :: var(*) ! storage for the variable
+  real(8), intent(in) :: var(*) ! storage for the variable
+  integer :: iret ! return value
+
+  integer :: varid
+  __NF_TRY__(nf_inq_varid(ncid, name, varid), iret, 7)
+  iret = nf_put_var_double(ncid,varid,var)
+7 return
+end function
+! ============================================================================
+function put_var_re8_2d(ncid,name,var) result(iret)
+  integer     , intent(in)  :: ncid   ! id of netcdf file
+  character(*), intent(in)  :: name   ! name of the variable
+  real(8)     , intent(in)  :: var(:,:) ! storage for the variable
+  integer :: iret ! return value
+
+  integer :: varid
+  __NF_TRY__(nf_inq_varid(ncid, name, varid), iret, 7)
+  iret = nf_put_var_double(ncid,varid,var)
+7 return
+end function
+! ============================================================================
+function put_var_re8_3d(ncid,name,var) result(iret)
+  integer     , intent(in)  :: ncid   ! id of netcdf file
+  character(*), intent(in)  :: name   ! name of the variable
+  real(8)     , intent(in)  :: var(:,:,:) ! storage for the variable
   integer :: iret ! return value
 
   integer :: varid
@@ -818,6 +1034,7 @@ elemental function nfu_is_valid_i(x, v) result (lret)
   lret = nfu_is_valid_r(real(x),v)
 end function
 
+! ========================================================================
 function nfu_validtype2ascii(v) result (string)
   character(len=64) :: string
   type(nfu_validtype), intent(in) :: v
@@ -833,4 +1050,4 @@ function nfu_validtype2ascii(v) result (string)
   endif
 end function
 
-end module nf_utils_mod
+end module nfu_mod

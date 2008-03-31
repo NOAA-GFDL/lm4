@@ -44,8 +44,8 @@ public :: snow_step_2
 ! ==== module variables ======================================================
 character(len=*), parameter, private   :: &
        module_name = 'snow_mod' ,&
-       version = '' ,&
-       tagname = ''
+       version     = '$Id: snow.F90,v 15.0.2.4 2008/02/17 21:01:29 slm Exp $' ,&
+       tagname     = '$Name: omsk_2008_03 $'
 
 ! ==== module variables ======================================================
 
@@ -141,12 +141,18 @@ subroutine snow_init ( id_lon, id_lat )
   ! -------- initialize snow state --------
   call get_mosaic_tile_file('INPUT/snow.res.nc',restart_file_name,.FALSE.,lnd%domain)
   if (file_exist(restart_file_name)) then
+     call error_mesg('snow_init',&
+          'reading NetCDF restart "'//trim(restart_file_name)//'"',&
+          NOTE)
      __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
      call read_tile_data_r1d_fptr(unit, 'temp', snow_temp_ptr  )
      call read_tile_data_r1d_fptr(unit, 'wl'  , snow_wl_ptr )
      call read_tile_data_r1d_fptr(unit, 'ws'  , snow_ws_ptr )
      __NF_ASRT__(nf_close(unit))     
   else
+     call error_mesg('snow_init',&
+          'cold-starting snow',&
+          NOTE)
      te = tail_elmt (lnd%tile_map)
      ce = first_elmt(lnd%tile_map)
      do while(ce /= te)

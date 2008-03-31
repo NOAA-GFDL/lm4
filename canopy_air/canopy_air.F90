@@ -14,6 +14,7 @@ use time_manager_mod, only : time_type, time_type_to_real
 use constants_mod, only : rdgas, rvgas, cp_air, PI, VONKARM
 use sphum_mod, only : qscomp
 
+use nf_utils_mod, only : nfu_inq_var
 use land_constants_mod, only : NBANDS,d608
 use cana_tile_mod, only : cana_tile_type, cana_prog_type
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
@@ -42,8 +43,8 @@ public :: cana_step_2
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-  version = '$Id: canopy_air.F90,v 15.0.2.1 2007/10/11 00:29:49 slm Exp $', &
-  tagname = '$Name: omsk_2007_12 $', &
+  version = '$Id: canopy_air.F90,v 15.0.2.4 2008/02/21 18:05:39 slm Exp $', &
+  tagname = '$Name: omsk_2008_03 $', &
   module_name = 'canopy_air_mod'
 
 ! options for turbulence parameter calculations
@@ -54,9 +55,10 @@ integer, parameter :: TURB_LM3W = 1, TURB_LM3V = 2
 real :: init_T           = 288.
 real :: init_T_cold      = 260.
 real :: init_q           = 0.
+real :: init_co2         = 350.0e-6
 character(len=32) :: turbulence_to_use = 'lm3w' ! or lm3v
 namelist /cana_nml/ &
-  init_T, init_T_cold, init_q, turbulence_to_use
+  init_T, init_T_cold, init_q, init_co2, turbulence_to_use
 !---- end of namelist --------------------------------------------------------
 
 logical            :: module_is_initialized =.FALSE.
@@ -115,29 +117,41 @@ subroutine cana_init ( id_lon, id_lat )
   delta_time = time_type_to_real(lnd%dt_fast)
 
 
-  ! ---- initialize cana state ---------------------------------------------
+  ! ---- initialize cana state -----------------------------------------------
+  ! first, set the initial values
+  te = tail_elmt (lnd%tile_map)
+  ce = first_elmt(lnd%tile_map)
+  do while(ce /= te)
+     tile=>current_tile(ce)  ! get pointer to current tile
+     ce=next_elmt(ce)       ! advance position to the next tile
+     
+     if (.not.associated(tile%cana)) cycle
+     
+     if (associated(tile%glac)) then
+        tile%cana%prog%T = init_T_cold
+     else
+        tile%cana%prog%T = init_T
+     endif
+     tile%cana%prog%q = init_q
+     tile%cana%prog%co2 = init_co2
+  enddo
+
+  ! then read the restart if it exists
   call get_mosaic_tile_file('INPUT/cana.res.nc',restart_file_name,.FALSE.,lnd%domain)
   if (file_exist(restart_file_name)) then
+     call error_mesg('cana_init',&
+          'reading NetCDF restart "'//trim(restart_file_name)//'"',&
+          NOTE)
      __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
-     call read_tile_data_r0d_fptr(unit, 'temp'  , cana_temp_ptr  )
-     call read_tile_data_r0d_fptr(unit, 'sphum' , cana_sphum_ptr )
+     call read_tile_data_r0d_fptr(unit, 'temp'  , cana_T_ptr  )
+     call read_tile_data_r0d_fptr(unit, 'sphum' , cana_q_ptr )
+     if(nfu_inq_var(unit,'co2')==NF_NOERR) &
+          call read_tile_data_r0d_fptr(unit, 'co2', cana_co2_ptr )
      __NF_ASRT__(nf_close(unit))     
   else
-     te = tail_elmt (lnd%tile_map)
-     ce = first_elmt(lnd%tile_map)
-     do while(ce /= te)
-        tile=>current_tile(ce)  ! get pointer to current tile
-        ce=next_elmt(ce)       ! advance position to the next tile
-        
-        if (.not.associated(tile%cana)) cycle
-        
-        if (associated(tile%glac)) then
-           tile%cana%prog%T = init_T_cold
-        else
-           tile%cana%prog%T = init_T
-        endif
-        tile%cana%prog%q = init_q
-     enddo
+     call error_mesg('cana_init',&
+          'cold-starting canopy air',&
+          NOTE)
   endif
 
   ! initilaize options, to avoid expensive character comparisons during 
@@ -179,8 +193,9 @@ subroutine cana_end (tile_dim_length)
 
   if (restart_created) then
      ! write fields
-     call write_tile_data_r0d_fptr(unit,'temp' ,cana_temp_ptr,'canopy air temperature','degrees_K')
-     call write_tile_data_r0d_fptr(unit,'sphum',cana_sphum_ptr,'canopy air specific humidity','kg/kg')
+     call write_tile_data_r0d_fptr(unit,'temp' ,cana_T_ptr,'canopy air temperature','degrees_K')
+     call write_tile_data_r0d_fptr(unit,'sphum',cana_q_ptr,'canopy air specific humidity','kg/kg')
+     call write_tile_data_r0d_fptr(unit,'co2'  ,cana_co2_ptr,'canopy air co2 concentration','mol/mol')
      ! close output file
      __NF_ASRT__(nf_close(unit))
   endif
@@ -425,12 +440,13 @@ subroutine cana_roughness(lm2, &
 end subroutine cana_roughness
 
 ! ============================================================================
-subroutine cana_state ( cana, cana_T, cana_q)
+subroutine cana_state ( cana, cana_T, cana_q, cana_co2 )
   type(cana_tile_type), intent(in)  :: cana
-  real                , intent(out) :: cana_T, cana_q
+  real                , intent(out) :: cana_T, cana_q, cana_co2
 
-  cana_T = cana%prog%T
-  cana_q = cana%prog%q
+  cana_T   = cana%prog%T
+  cana_q   = cana%prog%q
+  cana_co2 = cana%prog%co2
   
 end subroutine
 
@@ -487,12 +503,6 @@ subroutine cana_step_2 ( cana, delta_Tc, delta_qc )
 
   cana%prog%T = cana%prog%T + delta_Tc
   cana%prog%q = cana%prog%q + delta_qc
-
-  if(120.0<cana%prog%T.and.cana%prog%T<373.0) then
-     continue
-  else
-     write(*,'(a,3i4,g)')'cana_step_2: t_ca out of range',cana%prog%T
-  endif
 end subroutine cana_step_2
 
 ! ============================================================================
@@ -507,23 +517,11 @@ end function cana_tile_exists
 ! accessor functions: given a pointer to a land tile, they return pointer
 ! to the desired member of the land tile, of NULL if this member does not
 ! exist.
-subroutine cana_temp_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr
-   ptr=>NULL()
-   if(associated(tile)) then
-      if(associated(tile%cana)) ptr=>tile%cana%prog%T
-   endif
-end subroutine cana_temp_ptr
+#define DEFINE_CANA_ACCESSOR_0D(xtype,x) subroutine cana_ ## x ## _ptr(t,p);\
+type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%cana))p=>t%cana%prog%x;endif;end subroutine
 
-subroutine cana_sphum_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr
-   ptr=>NULL()
-   if(associated(tile)) then
-      if(associated(tile%cana)) ptr=>tile%cana%prog%q
-   endif
-end subroutine cana_sphum_ptr
+DEFINE_CANA_ACCESSOR_0D(real,T)
+DEFINE_CANA_ACCESSOR_0D(real,q)
+DEFINE_CANA_ACCESSOR_0D(real,co2)
 
-   
 end module canopy_air_mod

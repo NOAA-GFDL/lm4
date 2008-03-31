@@ -75,7 +75,8 @@ type :: vegn_cohort_type
 
 ! ---- auxiliary variables 
 
-  real    :: W_max   ! maximum water comtent of canopy, kg/(m2 of ground)
+  real    :: Wl_max   ! maximum liquid water content of canopy, kg/(m2 of ground)
+  real    :: Ws_max   ! maximum soild water content of canopy, kg/(m2 of ground)
   real    :: mcv_dry ! heat capacity of dry canopy
   real    :: cover
 
@@ -114,7 +115,6 @@ type :: vegn_cohort_type
   
   real :: gs;
   real :: gb;
-  real :: frac_moist;
 !moved to prog%Wl  real :: cmc;
 !moved to prog%Tv  real :: tleaf ! temperature of leaves, degK
 
@@ -151,16 +151,17 @@ end subroutine
 
 
 ! ============================================================================
-subroutine vegn_data_intrcptn_cap ( cohort, vegn_W_max )
+subroutine vegn_data_intrcptn_cap ( cohort, vegn_Wl_max, vegn_Ws_max )
   type(vegn_cohort_type), intent(in)  :: cohort
-  real                  , intent(out) :: vegn_W_max
+  real                  , intent(out) :: vegn_Wl_max, vegn_Ws_max
 
-  vegn_W_max = cohort%W_max  
+  vegn_Wl_max = cohort%Wl_max
+  vegn_Ws_max = cohort%Ws_max
 end subroutine
 
 ! ============================================================================
 ! calculates functional dependence of wet canopy function f = x**p and its 
-! derivative, but approximates it with linear function in the eps-vicinity 
+! derivative, but approximates it with linear function in the vicinity 
 ! of zero, to make sure that derivative doesn't become infinite
 subroutine wet_frac(w, w_max, p, eps, f, DfDw)
   real, intent(in) :: &
@@ -199,23 +200,25 @@ subroutine get_vegn_wet_frac (cohort, &
   real, parameter :: eps = 0.01 ! value of w/w_max for transition to linear function
 
   ! ---- local vars
-  integer :: sp  ! current cohort species
+  integer :: sp  ! shorthand for current cohort species
   real    :: fw0 ! total water-covered fraction (without overlap)
-
-  if (cohort%W_max <= 0) then
-     fw = 0.0; DfwDwl=0.0; DfwDws=0.0
-     fs = 0.0; DfsDwl=0.0; DfsDws=0.0
-     return
-  endif
 
   sp = cohort%species
 
   ! snow-covered fraction
-  call wet_frac(cohort%prog%Ws, cohort%W_max, spdata(sp)%cmc_pow, eps, fs,  DfsDws)
+  if(cohort%Ws_max > 0) then
+     call wet_frac(cohort%prog%Ws, cohort%Ws_max, spdata(sp)%csc_pow, eps, fs,  DfsDws)
+  else
+     fs = 0.0; DfsDws=0.0
+  endif
   DfsDwl = 0
-
+     
   ! wet fraction
-  call wet_frac(cohort%prog%Wl, cohort%W_max, spdata(sp)%cmc_pow, eps, fw0, DfwDwl)
+  if(cohort%Wl_max > 0) then
+     call wet_frac(cohort%prog%Wl, cohort%Wl_max, spdata(sp)%cmc_pow, eps, fw0, DfwDwl)
+  else
+     fw0 = 0.0; DfwDwl=0.0
+  endif
   ! take into account overlap by snow
   fw     = fw0*(1-fs)
   DfwDwl = DfwDwl*(1-fs)

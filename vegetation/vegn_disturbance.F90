@@ -7,10 +7,8 @@ use land_constants_mod, only : seconds_per_year
 use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, smoke_fraction, spdata, &
      agf_bs, LEAF_OFF
 use vegn_tile_mod,   only : vegn_tile_type
-use cohort_list_mod, only : vegn_cohort_enum_type, first_cohort, tail_cohort, &
-     current_cohort, next_cohort, operator(/=)
 use vegn_cohort_mod, only : vegn_cohort_type, height_from_biomass, lai_from_biomass, &
-     update_bio_living_fraction, update_biomass_pools
+     update_biomass_pools
 
 implicit none
 private
@@ -23,8 +21,8 @@ public :: update_fuel
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
-     version = '$Id: vegn_disturbance.F90,v 1.1.2.1 2007/09/16 22:14:24 slm Exp $', &
-     tagname = '$Name: omsk_2007_12 $', &
+     version = '$Id: vegn_disturbance.F90,v 1.1.2.3 2008/02/01 20:30:58 slm Exp $', &
+     tagname = '$Name: omsk_2008_03 $', &
      module_name = 'vegn_disturbance_mod'
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -37,14 +35,12 @@ subroutine vegn_disturbance(vegn, dt)
   real, parameter :: BMIN = 1e-10; ! should be the same as in growth function
   ! ---- local vars
   type(vegn_cohort_type), pointer :: cc    ! current cohort
-  type(vegn_cohort_enum_type)     :: ci,ce ! cohort enumerators
-  real :: area_disturbed_by_treefall;
   real :: precip;
   real :: delta;
   real :: fraction_lost;
-  real :: bdead, balive; ! combined biomass pools
   real :: drought_month;
   real :: deltat
+  integer :: i
 
   deltat = dt/seconds_per_year ! convert time interval to years
 
@@ -59,9 +55,8 @@ subroutine vegn_disturbance(vegn, dt)
   ! Fire disturbance implicitly, i.e.  not patch creating
   vegn%area_disturbed_by_fire = (1.0-exp(-vegn%disturbance_rate(1)*deltat));
   
-  ci = first_cohort(vegn%cohorts); ce = tail_cohort(vegn%cohorts);
-  do while(ci/=ce)   
-     cc => current_cohort(ci) ; ci = next_cohort(ci)
+  do i = 1,vegn%n_cohorts   
+     cc => vegn%cohorts(i)
 
      fraction_lost = 1.0-exp(-vegn%disturbance_rate(1)*deltat);	
       
@@ -128,7 +123,6 @@ subroutine calculate_patch_disturbance_rates(vegn)
   ! ---- local vars
   real :: fire_prob;
   real :: fuel;
-  type(vegn_cohort_type), pointer :: cc
 
   fuel = vegn%fuel
 
@@ -150,8 +144,7 @@ subroutine calculate_patch_disturbance_rates(vegn)
   if(vegn%disturbance_rate(1) > 0.33) vegn%disturbance_rate(1)=0.33;
   
   ! this is only true for the one cohort per patch case
-  cc => current_cohort(first_cohort(vegn%cohorts))
-  vegn%disturbance_rate(0) = spdata(cc%species)%treefall_disturbance_rate;
+  vegn%disturbance_rate(0) = spdata(vegn%cohorts(1)%species)%treefall_disturbance_rate;
   vegn%total_disturbance_rate = vegn%disturbance_rate(1)+vegn%disturbance_rate(0);
   
   vegn%fuel = fuel;
@@ -190,13 +183,12 @@ subroutine update_fuel(vegn)
   real, parameter :: fp1 = 1.; ! disturbance rate per kgC/m2 of fuel
   ! ---- local vars
   type(vegn_cohort_type), pointer :: cc    ! current cohort
-  type(vegn_cohort_enum_type)     :: ci,ce ! cohort enumerators
   real :: ignition_rate;
   real ::  babove;
+  integer :: i
 
-  ci = first_cohort(vegn%cohorts); ce = tail_cohort(vegn%cohorts);
-  do while(ci/=ce)   
-     cc => current_cohort(ci) ; ci = next_cohort(ci)
+  do i = 1,vegn%n_cohorts   
+     cc => vegn%cohorts(i)
      if((cc%height < fire_height_threashold).and.(vegn%theta_av < k_fw).and.(vegn%tsoil_av>278.16)) then
         babove = cc%bl + agf_bs * (cc%bsw + cc%bwood + cc%blv);
         ! this is fuel available durng the drought months only
@@ -220,17 +212,16 @@ subroutine vegn_nat_mortality(vegn, deltat)
   
   ! ---- local vars
   type(vegn_cohort_type), pointer :: cc    ! current cohort
-  type(vegn_cohort_enum_type)     :: ci,ce ! cohort enumerators
   real :: delta;
   real :: fraction_lost;
   real :: bdead, balive; ! combined biomass pools
+  integer :: i
   
   vegn%disturbance_rate(0)        = 0.0; 
   vegn%area_disturbed_by_treefall = 0.0;
   
-  ci = first_cohort(vegn%cohorts); ce = tail_cohort(vegn%cohorts);
-  do while(ci/=ce)   
-     cc => current_cohort(ci) ; ci = next_cohort(ci)
+  do i = 1,vegn%n_cohorts
+     cc => vegn%cohorts(i)
      ! Treat treefall disturbance implicitly, i.e. not creating a new tile.
      ! note that this disturbance rate calculation only works for the one cohort per 
      ! tile case -- in case of multiple cohort disturbance rate pehaps needs to be 

@@ -22,9 +22,9 @@ public :: glac_pars_type
 public :: glac_tile_type
 
 public :: new_glac_tile, delete_glac_tile
-public :: glac_can_be_merged, merge_glac
+public :: glac_tiles_can_be_merged, merge_glac_tiles
 public :: glac_is_selected
-public :: get_glac_tag
+public :: get_glac_tile_tag
 
 public :: read_glac_data_namelist
 public :: glac_cover_cold_start
@@ -36,11 +36,16 @@ public :: glac_data_hydraulics
 
 public :: max_lev
 ! =====end of public interfaces ==============================================
+interface new_glac_tile
+   module procedure glac_tile_ctor
+   module procedure glac_tile_copy_ctor
+end interface
+
 
 ! ==== module constants ======================================================
 character(len=*), parameter   :: &
-     version = '', &
-     tagname = '', &
+     version     = '$Id: glac_tile.F90,v 15.0.2.3 2007/12/05 19:41:28 slm Exp $', &
+     tagname     = '$Name: omsk_2008_03 $', &
      module_name = 'glac_tile_mod'
 
 integer, parameter :: max_lev          = 30 ! max number of levels in glacier
@@ -79,16 +84,17 @@ end type glac_prog_type
 type :: glac_tile_type
    integer :: tag ! kind of the glacier
    type(glac_pars_type)               :: pars
-   type(glac_prog_type), _ALLOCATABLE :: prog(:)
-   real,                 _ALLOCATABLE :: w_fc(:)
-   real,                 _ALLOCATABLE :: w_wilt(:)
+   type(glac_prog_type), pointer :: prog(:)
+   real,                 pointer :: w_fc(:)
+   real,                 pointer :: w_wilt(:)
    real :: Eg_part_ref
    real :: z0_scalar
 
-   real, _ALLOCATABLE :: heat_capacity_dry(:)
-   real, _ALLOCATABLE :: e(:), f(:)
+   real, pointer :: heat_capacity_dry(:)
+   real, pointer :: e(:), f(:)
 end type glac_tile_type
-
+! NOTE: When adding or modifying fields of this types, don't forget to change
+! the operations on tile (e.g. copy) accordingly
 ! ==== module data ===========================================================
 
 !---- namelist ---------------------------------------------------------------
@@ -149,9 +155,10 @@ integer, dimension(n_dim_glac_types) :: &
      input_cover_types     =(/ 9 /)
 character(len=4), dimension(n_dim_glac_types) :: &
      tile_names            =(/'glac'/)
-real :: cpw = 1952.  ! specific heat of water vapor at constant pressure
-real :: clw = 4218.  ! specific heat of water (liquid)
-real :: csw = 2106.  ! specific heat of water (ice)
+real, public :: &
+     cpw = 1952.0, &  ! specific heat of water vapor at constant pressure
+     clw = 4218.0, &  ! specific heat of water (liquid)
+     csw = 2106.0     ! specific heat of water (ice)
 
 namelist /glac_data_nml/ &
      glac_to_use, tile_names, input_cover_types, &
@@ -170,7 +177,7 @@ namelist /glac_data_nml/ &
      dat_refl_min_dir,  dat_refl_min_dif,  &
      dat_emis_dry,              dat_emis_sat,                &
      dat_z0_momentum,           dat_tf_depr, &
-     tile_names, input_cover_types, cpw, clw, csw
+     tile_names, input_cover_types
 
 ! ---- end of namelist
 
@@ -224,7 +231,7 @@ end subroutine
 
 
 ! ============================================================================
-function new_glac_tile(tag) result(ptr)
+function glac_tile_ctor(tag) result(ptr)
   type(glac_tile_type), pointer :: ptr ! return value
   integer, intent(in)  :: tag ! kind of tile
 
@@ -240,9 +247,32 @@ function new_glac_tile(tag) result(ptr)
 
   ! set initial values of the tile data
   call glacier_data_init_0d(ptr)
-
-end function new_glac_tile
+end function glac_tile_ctor
   
+
+! ============================================================================
+function glac_tile_copy_ctor(glac) result(ptr)
+  type(glac_tile_type), intent(in) :: glac ! return value
+  type(glac_tile_type), pointer    :: ptr  ! return value
+
+  allocate(ptr)
+  ptr = glac ! copy all non-allocatable data
+  ! allocate storage for tile data
+  allocate(ptr%prog   (num_l),  &
+           ptr%w_fc   (num_l),  &
+           ptr%w_wilt (num_l),  &
+           ptr%heat_capacity_dry (num_l),  &
+           ptr%e      (num_l),  &
+           ptr%f      (num_l)   )
+  ! copy allocatable data
+   ptr%prog(:)   = glac%prog(:)
+   ptr%w_fc(:)   = glac%w_fc(:)
+   ptr%w_wilt(:) = glac%w_wilt(:)
+   ptr%heat_capacity_dry(:) = glac%heat_capacity_dry(:) 
+   ptr%e(:)      = glac%e(:)
+   ptr%f(:)      = glac%f(:)
+ end function glac_tile_copy_ctor
+
 
 ! ============================================================================
 subroutine delete_glac_tile(ptr)
@@ -316,11 +346,11 @@ function glac_cover_cold_start(land_mask, glonb, glatb) result (glac_frac)
 end function 
 
 ! =============================================================================
-function glac_can_be_merged(glac1,glac2)
-  logical :: glac_can_be_merged
+function glac_tiles_can_be_merged(glac1,glac2) result(response)
+  logical :: response
   type(glac_tile_type), intent(in) :: glac1,glac2
 
-  glac_can_be_merged = (glac1%tag==glac2%tag)
+  response = (glac1%tag==glac2%tag)
 end function
 
 ! =============================================================================
@@ -328,7 +358,7 @@ end function
 ! the second one.
 ! t1 does not change; the properties of t2 (that is, heat capacity, etc) do not 
 ! change either -- that might be not good in the long run
-subroutine merge_glac(g1,w1,g2,w2)
+subroutine merge_glac_tiles(g1,w1,g2,w2)
   type(glac_tile_type), intent(in)    :: g1
   type(glac_tile_type), intent(inout) :: g2     
   real                , intent(in)    :: w1, w2 ! realtive weights
@@ -367,10 +397,15 @@ subroutine merge_glac(g1,w1,g2,w2)
     ! calculate combined groundwater content
     gw = g1%prog(i)%groundwater*x1 + g2%prog(i)%groundwater*x2
     ! calculate combined groundwater temperature
-    g2%prog(i)%groundwater_T = ( &
-       g1%prog(i)%groundwater*x1*(g1%prog(i)%groundwater_T-tfreeze) + &
-       g2%prog(i)%groundwater*x2*(g2%prog(i)%groundwater_T-tfreeze)   &
-       ) / gw + Tfreeze
+    if(gw/=0) then
+       g2%prog(i)%groundwater_T = ( &
+            g1%prog(i)%groundwater*x1*(g1%prog(i)%groundwater_T-tfreeze) + &
+            g2%prog(i)%groundwater*x2*(g2%prog(i)%groundwater_T-tfreeze)   &
+            ) / gw + Tfreeze
+    else
+       g2%prog(i)%groundwater_T = &
+            x1*g1%prog(i)%groundwater_T + x2*g2%prog(i)%groundwater_T
+    endif
     g2%prog(i)%groundwater = gw
   enddo
   
@@ -389,7 +424,7 @@ end function
 
 ! ============================================================================
 ! retruns tag of the tile
-function get_glac_tag(glac) result(tag)
+function get_glac_tile_tag(glac) result(tag)
   integer :: tag
   type(glac_tile_type), intent(in) :: glac
   

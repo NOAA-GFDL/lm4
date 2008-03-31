@@ -26,8 +26,8 @@ module river_physics_mod
 
 
   !--- version information ---------------------------------------------
-  character(len=128) :: version = ''
-  character(len=128) :: tagname = ''
+  character(len=128) :: version = '$Id: river_physics.F90,v 15.0.2.4 2007/12/05 19:41:35 slm Exp $'
+  character(len=128) :: tagname = '$Name: omsk_2008_03 $'
 
 
   ! ---- public interfaces -----------------------------------------------------

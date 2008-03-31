@@ -18,15 +18,15 @@ public :: is_watch_point
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'land_debug',&
-    version = '',&
-    tagname = ''
+    version     = '$Id: land_debug.F90,v 15.0.2.3 2007/12/05 19:41:35 slm Exp $',&
+    tagname     = '$Name: omsk_2008_03 $'
 
 ! ==== module variables ======================================================
 integer :: current_debug_level = 0
 integer :: mosaic_tile = 0
 
 !---- namelist ---------------------------------------------------------------
-integer :: watch_point(4) ! coordinates of the point of interest, i,j,tile
+integer :: watch_point(4)=(/0,0,0,1/) ! coordinates of the point of interest, i,j,tile,mosaic_tile
 
 namelist/land_debug_nml/ watch_point
 

@@ -16,7 +16,8 @@ use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR
 use soil_tile_mod, only : &
      soil_tile_type, soil_pars_type, soil_prog_type, read_soil_data_namelist, &
      soil_data_beta, soil_data_radiation, soil_data_diffusion, soil_data_thermodynamics, &
-     soil_data_hydraulics, soil_data_w_sat, max_lev
+     soil_data_hydraulics, soil_data_w_sat, max_lev, &
+     cpw, clw, csw
 
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, get_elmt_indices, &
@@ -54,8 +55,8 @@ public :: soil_step_2
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'soil',&
-    version = '',&
-    tagname = ''
+    version     = '$Id: soil.F90,v 15.0.2.6 2008/02/17 21:01:29 slm Exp $',&
+    tagname     = '$Name: omsk_2008_03 $'
 
 
 ! ==== module variables ======================================================
@@ -67,9 +68,6 @@ logical :: bifurcate            = .false.    ! consider direct evap from bucket
 real    :: init_temp            = 288.        ! cold-start soil T
 real    :: init_w               = 150.      ! cold-start w(l)/dz(l)
 real    :: init_groundwater     =   0.        ! cold-start gw storage
-   real :: cpw = 1952. ! specific heat of water vapor at constant pressure
-   real :: clw = 4218. ! specific heat of water (liquid)
-   real :: csw = 2106. ! specific heat of water (ice)
 character(len=16) :: albedo_to_use = '' ! or 'albedo-map'
 
 namelist /soil_nml/ lm2, use_bucket,             bifurcate,             &
@@ -92,7 +90,7 @@ real            :: zhalf (max_lev+1)
 
 ! ---- diagnostic field IDs
 integer :: id_lwc, id_swc, id_temp, id_ie, id_sn, id_bf, id_hie, id_hsn, &
-    id_hbf, id_heat_cap, id_type, id_tau_gw, id_w_fc, &
+    id_hbf, id_heat_cap, id_thermal_cond, id_type, id_tau_gw, id_w_fc, &
     id_refl_dry_dif, id_refl_dry_dir, id_refl_sat_dif, id_refl_sat_dir
 
 ! ==== end of module variables ===============================================
@@ -175,6 +173,9 @@ subroutine soil_init ( id_lon, id_lat, id_band, use_E_max   )
   ! -------- initialize soil state --------
   call get_mosaic_tile_file('INPUT/soil.res.nc',restart_file_name,.FALSE.,lnd%domain)
   if (file_exist(restart_file_name)) then
+     call error_mesg('soil_init',&
+          'reading NetCDF restart "'//trim(restart_file_name)//'"',&
+          NOTE)
      __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
      call read_tile_data_r1d_fptr(unit, 'temp'         , soil_T_ptr  )
      call read_tile_data_r1d_fptr(unit, 'wl'           , soil_wl_ptr )
@@ -183,6 +184,9 @@ subroutine soil_init ( id_lon, id_lat, id_band, use_E_max   )
      call read_tile_data_r1d_fptr(unit, 'groundwater_T', soil_groundwater_T_ptr)
      __NF_ASRT__(nf_close(unit))     
   else
+     call error_mesg('soil_init',&
+          'cold-starting soil',&
+          NOTE)
      te = tail_elmt (lnd%tile_map)
      ce = first_elmt(lnd%tile_map)
      do while(ce /= te)
@@ -288,7 +292,9 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band )
        Time, 'heat bf runf',            'W/m2',  missing_value=-100.0 )
 
   id_heat_cap = register_tiled_diag_field ( module_name, 'soil_heat_cap',  &
-       axes, Time, 'heat capacity of dry soil','J/(kg K)', missing_value=-100.0 )
+       axes, Time, 'heat capacity of dry soil','J/(m3 K)', missing_value=-100.0 )
+  id_thermal_cond =  register_tiled_diag_field ( module_name, 'soil_tcon', &
+       axes, Time, 'soil thermal conductivity', 'W/(m K)',  missing_value=-100.0 )
   
   id_type = register_tiled_static_field ( module_name, 'soil_type',  &
        axes(1:2), 'soil type', missing_value=-1.0 )
@@ -388,12 +394,13 @@ end subroutine soil_diffusion
 ! T-DEPENDENCE OF HYDRAULIC PROPERTIES COULD BE DONE LESS FREQUENTLY.
 ! integrate soil-heat conduction equation upward from bottom of soil
 ! to surface, delivering linearization of surface ground heat flux.
-subroutine soil_step_1 ( soil, vegn, &
+subroutine soil_step_1 ( soil, vegn, diag, &
                          soil_T, soil_uptake_T, soil_beta, soil_water_supply, soil_E_max, &
                          soil_rh, soil_liq, soil_ice, soil_subl, soil_tf, &
                          soil_G0, soil_DGDT )
   type(soil_tile_type), intent(inout) :: soil
   type(vegn_tile_type), intent(in)    :: vegn
+  type(diag_buff_type), intent(inout) :: diag
   real, intent(out) :: &
        soil_T, &    ! temperature of the upper layer of the soil, degK
        soil_uptake_T, & ! effective temperature for vegetation water uptake, degK
@@ -502,6 +509,9 @@ subroutine soil_step_1 ( soil, vegn, &
              'T=', soil%prog(l)%T
      enddo
   endif
+
+  call send_tile_data(id_thermal_cond, thermal_cond, diag)
+
 end subroutine soil_step_1
 
 

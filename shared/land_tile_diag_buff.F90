@@ -6,6 +6,11 @@ private
 ! ==== public interfaces =====================================================
 public :: diag_buff_type
 public :: new_diag_buff, delete_diag_buff, realloc_diag_buff
+! ==== end of public interfaces ==============================================
+interface new_diag_buff
+   module procedure diag_buff_ctor
+   module procedure diag_buff_copy_ctor
+end interface
 
 ! storage for tile diagnostic data
 type :: diag_buff_type
@@ -19,7 +24,7 @@ integer, parameter :: MIN_DIAG_BUFF_SIZE = 1
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
-function new_diag_buff() result(buffer)
+function diag_buff_ctor() result(buffer)
   type(diag_buff_type), pointer :: buffer
   
   integer :: m ! initial size of the buffer
@@ -30,7 +35,19 @@ function new_diag_buff() result(buffer)
   ! initialize buffer content
   buffer%mask(:) = .FALSE.
   buffer%data(:) = 0.0
+end function
 
+
+! ============================================================================
+function diag_buff_copy_ctor(buffer) result(ptr)
+  type(diag_buff_type), pointer :: ptr ! return value
+  type(diag_buff_type), intent(in) :: buffer ! buffer to copy
+  
+  allocate(ptr)
+  allocate(ptr%mask(size(buffer%mask)),ptr%data(size(buffer%data)))
+  ! initialize buffer content
+  ptr%mask(:) = buffer%mask(:)
+  ptr%data(:) = buffer%data(:)
 end function
 
 

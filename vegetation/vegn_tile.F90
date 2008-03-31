@@ -2,6 +2,8 @@ module vegn_tile_mod
 
 use fms_mod, only : &
      write_version_number, stdlog, error_mesg, FATAL
+use constants_mod, only : &
+     tfreeze
 
 use land_constants_mod, only : NBANDS
 use land_io_mod, only : &
@@ -9,21 +11,19 @@ use land_io_mod, only : &
 use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_VEGN
 
-use vegn_data_mod, only : NSPECIES, MSPECIES, NCMPT, C2B, n_dim_vegn_types, &
-    read_vegn_data_namelist, spdata, &
-    vegn_to_use,  input_cover_types, &
-    mcv_min, mcv_lai, &
-    use_bucket, use_mcm_masking, vegn_index_constant, &
-    critical_root_density, &
-    agf_bs, BSEED
+use vegn_data_mod, only : &
+     NSPECIES, MSPECIES, NCMPT, C2B, n_dim_vegn_types, &
+     read_vegn_data_namelist, spdata, &
+     vegn_to_use,  input_cover_types, &
+     mcv_min, mcv_lai, &
+     use_bucket, use_mcm_masking, vegn_index_constant, &
+     critical_root_density, &
+     agf_bs, BSEED, LU_NTRL, LU_SCND, N_HARV_POOLS, &
+     scnd_biomass_bins
 
 use vegn_cohort_mod, only : vegn_cohort_type, vegn_phys_prog_type, &
      height_from_biomass, lai_from_biomass, update_bio_living_fraction, &
      cohort_data_uptake_frac_max, update_biomass_pools
-use cohort_list_mod, only : &
-     vegn_cohort_list_type, vegn_cohort_enum_type, &
-     cohort_list_init, cohort_list_end, first_cohort, tail_cohort, next_cohort, &
-     operator(/=), current_cohort
 
 implicit none
 private
@@ -32,9 +32,9 @@ private
 public :: vegn_tile_type
 
 public :: new_vegn_tile, delete_vegn_tile
-public :: vegn_can_be_merged
+public :: vegn_tiles_can_be_merged, merge_vegn_tiles
 public :: vegn_is_selected
-public :: get_vegn_tag
+public :: get_vegn_tile_tag
 
 public :: read_vegn_data_namelist
 public :: vegn_cover_cold_start
@@ -44,26 +44,32 @@ public :: vegn_data_rs_min
 public :: vegn_seed_supply
 public :: vegn_seed_demand
 
+public :: vegn_tran_priority ! returns transition priority for landuse 
+
 public :: vegn_add_bliving
 public :: update_derived_vegn_data  ! given state variables, calculate derived values
 ! =====end of public interfaces ==============================================
+interface new_vegn_tile
+   module procedure vegn_tile_ctor
+   module procedure vegn_tile_copy_ctor
+end interface
+
 
 ! ==== module constants ======================================================
 character(len=*), parameter   :: &
-     version = '$Id: vegn_tile.F90,v 15.0.2.2 2007/10/11 00:29:51 slm Exp $', &
-     tagname = '$Name: omsk_2007_12 $', &
+     version = '$Id: vegn_tile.F90,v 15.0.2.6 2008/02/01 20:30:58 slm Exp $', & 
+     tagname = '$Name: omsk_2008_03 $', &
      module_name = 'vegn_tile_mod'
 
 ! ==== types =================================================================
 type :: vegn_tile_type
    integer :: tag ! kind of the tile
+   integer :: landuse = LU_NTRL
 
-   type(vegn_cohort_list_type) :: cohorts
+   integer :: n_cohorts = 0
+   type(vegn_cohort_type), pointer :: cohorts(:)=>NULL()
 
    real :: age=0 ! tile age
-
-   real :: npp=0 ! net primary productivity
-   real :: nep=0 ! net ecosystem productivity
 
    real :: fast_soil_C=0  ! fast soil carbon pool, (kg C/m2)
    real :: slow_soil_C=0  ! slow soil carbon pool, (kg C/m2)
@@ -75,6 +81,9 @@ type :: vegn_tile_type
 
    real :: csmoke_pool=0 ! carbon lost through fires, kg C/m2 
    real :: csmoke_rate=0 ! rate of release of the above to atmosphere, kg C/(m2 yr)
+
+   real :: harv_pool(N_HARV_POOLS) ! pools of harvested carbon, kg C/m2
+   real :: harv_rate(N_HARV_POOLS) ! rates of spending (release to the atmosphere), kg C/(m2 yr)
 
    ! values for the diagnostic of carbon budget and soil carbon acceleration
    real :: asoil_in=0
@@ -112,6 +121,8 @@ type :: vegn_tile_type
 
 
    ! it's probably possible to get rid of the fields below
+   real :: npp=0 ! net primary productivity
+   real :: nep=0 ! net ecosystem productivity
    real :: rh=0 ! soil carbon lost to the atmosphere
    real :: total_biomass !
    real :: area_disturbed_by_treefall
@@ -120,56 +131,193 @@ type :: vegn_tile_type
 end type vegn_tile_type
 
 ! ==== module data ===========================================================
-
+real, public :: &
+     cpw = 1952.0, & ! specific heat of water vapor at constant pressure
+     clw = 4218.0, & ! specific heat of water (liquid)
+     csw = 2106.0    ! specific heat of water (ice)
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 
 ! ============================================================================
-function new_vegn_tile(tag) result(ptr)
+function vegn_tile_ctor(tag) result(ptr)
   type(vegn_tile_type), pointer :: ptr ! return value
   integer, intent(in)  :: tag ! kind of tile
 
   allocate(ptr)
   ptr%tag = tag
+end function vegn_tile_ctor
 
-  call cohort_list_init(ptr%cohorts)
+! ============================================================================
+function vegn_tile_copy_ctor(vegn) result(ptr)
+  type(vegn_tile_type), pointer :: ptr ! return value
+  type(vegn_tile_type), intent(in) :: vegn ! return value
 
-end function new_vegn_tile
+  allocate(ptr)
+  ! copy all non-pointer members
+  ptr=vegn
+  ! copy pointer members (cohorts)
+  allocate(ptr%cohorts(ptr%n_cohorts))
+  ptr%cohorts(:) = vegn%cohorts(1:ptr%n_cohorts)
+end function vegn_tile_copy_ctor
 
 ! ============================================================================
 subroutine delete_vegn_tile(vegn)
   type(vegn_tile_type), pointer :: vegn
 
-  call cohort_list_end(vegn%cohorts)
+  deallocate(vegn%cohorts)
   deallocate(vegn)
 end subroutine delete_vegn_tile
 
 ! =============================================================================
-function vegn_can_be_merged(vegn1,vegn2)
-  logical :: vegn_can_be_merged
+function vegn_tiles_can_be_merged(vegn1,vegn2) result(response)
+  logical :: response
   type(vegn_tile_type), intent(in) :: vegn1,vegn2
 
-  vegn_can_be_merged = (vegn1%tag==vegn2%tag)
+  real    :: b1, b2 
+  integer :: i, i1, i2
+
+  if (vegn1%landuse /= vegn2%landuse) then
+     response = .false. ! different landuse tiles can't be merged
+  else if (vegn1%landuse == LU_SCND) then ! secondary vegetation tiles
+     ! get tile wood biomasses
+     b1 = get_vegn_tile_bwood(vegn1)
+     b2 = get_vegn_tile_bwood(vegn2)
+     ! find biomass bins where each the tiles belongs to
+     i1 = 0 ; i2 = 0
+     do i = 1, size(scnd_biomass_bins(:))
+        if (b1>scnd_biomass_bins(i)) i1 = i
+        if (b2>scnd_biomass_bins(i)) i2 = i
+     enddo
+     ! tiles can be merged only if biomasses belong to the same bin
+     response = (i1 == i2)
+  else
+     response = .true. ! non-secondary tiles of the same landuse type can always be merged
+  endif
 end function
+
+
+! ============================================================================
+subroutine merge_vegn_tiles(t1,w1,t2,w2)
+  type(vegn_tile_type), intent(in) :: t1
+  type(vegn_tile_type), intent(inout) :: t2
+  real, intent(in) :: w1, w2 ! relative weights
+  
+  ! ---- local vars
+  real :: x1, x2 ! normalized relative weights
+  real :: HEAT1, HEAT2 ! heat stored in respective canopies
+  type(vegn_cohort_type), pointer :: c1, c2
+  
+  ! calculate normalized weights
+  x1 = w1/(w1+w2)
+  x2 = 1.0 - x1
+
+  ! the following assumes that there is one, and only one, cohort per tile 
+  c1 => t1%cohorts(1)
+  c2 => t2%cohorts(1)
+  ! define macro for merging cohort values
+#define __MERGE__(field) c2%field = x1*c1%field + x2*c2%field
+  HEAT1 = (clw*c1%prog%Wl + csw*c1%prog%Ws + c1%mcv_dry)*(c1%prog%Tv-tfreeze)
+  HEAT2 = (clw*c2%prog%Wl + csw*c2%prog%Ws + c2%mcv_dry)*(c2%prog%Tv-tfreeze)
+  __MERGE__(prog%Wl)
+  __MERGE__(prog%Ws)
+
+  __MERGE__(bl)      ! biomass of leaves, kg C/m2
+  __MERGE__(blv)     ! biomass of virtual leaves (labile store), kg C/m2
+  __MERGE__(br)      ! biomass of fine roots, kg C/m2
+  __MERGE__(bsw)     ! biomass of sapwood, kg C/m2
+  __MERGE__(bwood)   ! biomass of heartwood, kg C/m2
+  __MERGE__(bliving) ! leaves, fine roots, and sapwood biomass
+
+  ! should we do update_derived_vegn_data here? to get mcv_dry, etc
+  call update_biomass_pools(c2)
+
+  ! calculate the resulting dry heat capacity
+  c2%mcv_dry = max(mcv_min,mcv_lai*c2%lai)
+  ! update canopy temperature -- just merge it based on area weights if the heat 
+  ! capacities are zero, or merge it based on the heat content if the heat contents
+  ! are non-zero
+  if(HEAT1==0.and.HEAT2==0) then
+     __MERGE__(prog%Tv)
+  else
+     c2%prog%Tv = (HEAT1*x1+HEAT2*x2) / &
+          (clw*c2%prog%Wl + csw*c2%prog%Ws + c2%mcv_dry) + tfreeze
+  endif
+
+#undef  __MERGE__
+! re-define macro for tile values
+#define __MERGE__(field) t2%field = x1*t1%field + x2*t2%field
+
+  __MERGE__(age);
+  
+  __MERGE__(fast_soil_C)
+  __MERGE__(slow_soil_C)
+  
+  __MERGE__(fsc_pool); __MERGE__(fsc_rate)
+  __MERGE__(ssc_pool); __MERGE__(ssc_rate)
+
+  __MERGE__(csmoke_pool)
+  __MERGE__(csmoke_rate)
+
+  __MERGE__(harv_pool)
+  __MERGE__(harv_rate)
+
+  ! do we need to merge these?
+  __MERGE__(asoil_in)
+  __MERGE__(ssc_in); __MERGE__(ssc_out)
+  __MERGE__(fsc_in); __MERGE__(fsc_out)
+  __MERGE__(veg_in); __MERGE__(veg_out)
+  
+  ! or these?
+  __MERGE__(disturbance_rate)
+  __MERGE__(lambda)     ! cumulative drought months per year
+  __MERGE__(fuel)       ! fuel over dry months
+  __MERGE__(litter)     ! litter flux
+
+  ! monthly accumulated/averaged values
+  __MERGE__(theta_av)   ! realtive soil_moisture availablity not soil moisture
+  __MERGE__(tsoil_av)   ! bulk soil temperature
+  __MERGE__(tc_av)      ! leaf temperature
+  __MERGE__(precip_av)  ! precipitation
+  __MERGE__(n_accum)    ! number of accumulated values for monthly averages
+  __MERGE__(nmn_acm)    ! number of accumulated values for annual averages
+
+  ! annual-mean values
+  __MERGE__(t_ann)      ! annual mean T, degK
+  __MERGE__(t_cold)     ! average temperture of the coldest month, degK
+  __MERGE__(p_ann)      ! annual mean precip
+  __MERGE__(ncm)        ! number of cold months
+
+  ! annual accumulated values
+  __MERGE__(t_ann_acm)  ! accumulated annual temperature for t_ann
+  __MERGE__(t_cold_acm) ! temperature of the coldest month in current year
+  __MERGE__(p_ann_acm)  ! accumulated annual precipitation for p_ann
+  __MERGE__(ncm_acm)    ! accumulated number of cold months
+
+#undef __MERGE__
+
+end subroutine merge_vegn_tiles
+
 
 ! ============================================================================
 ! given a vegetation tile with the state variables set up, calculate derived
 ! parameters to get a consistent state
+! NOTE: this subroutine does not call update_biomass_pools, although some 
+! of the calculations are the same. Ther reason is because this function may 
+! be used in the situation when the biomasses are not precisely consistent, for
+! example when they come from the data override or from initial conditions.
 subroutine update_derived_vegn_data(vegn)
   type(vegn_tile_type), intent(inout) :: vegn
   
   ! ---- local vars 
-  type(vegn_cohort_enum_type) :: ci,ce ! cohort enumerators
   type(vegn_cohort_type), pointer :: cc ! pointer to the current cohort
+  integer :: i  ! cohort index
   integer :: sp ! shorthand for the vegetation species
-  real :: cmc_max
   
   ! given that the cohort state variables are initialized, fill in
   ! the intermediate variables
-  ci=first_cohort(vegn%cohorts) ; ce=tail_cohort (vegn%cohorts)
-  do while(ci/=ce)
-    cc=>current_cohort(ci) ; ci=next_cohort(ci)
+  do i = 1,vegn%n_cohorts
+    cc=>vegn%cohorts(i)
     
     sp = cc%species
     ! set the physiology type according to species
@@ -194,13 +342,7 @@ subroutine update_derived_vegn_data(vegn)
        cc%lai           = spdata(sp)%dat_lai
        cc%root_density  = spdata(sp)%dat_root_density
     endif
-    cc%sai = 0.035*cc%height
-    cmc_max  = cc%lai*spdata(sp)%cmc_lai;
-    if (cc%prog%Wl>0.and.cmc_max > 0) then
-       cc%frac_moist = (cc%prog%Wl/cmc_max)**spdata(sp)%cmc_pow;
-    else 
-       cc%frac_moist = 0
-    endif
+    cc%sai           = 0.035*cc%height
     cc%leaf_size     = spdata(sp)%leaf_size
     cc%root_zeta     = spdata(sp)%dat_root_zeta
     cc%rs_min        = spdata(sp)%dat_rs_min
@@ -211,11 +353,12 @@ subroutine update_derived_vegn_data(vegn)
   
     ! putting this initialization within the cohort loop is probably incorrect 
     ! in case of multiple-cohort vegetation, however for a single cohort it works
-    cc%W_max   = spdata(sp)%cmc_lai*cc%lai
+    cc%Wl_max   = spdata(sp)%cmc_lai*cc%lai
+    cc%Ws_max   = spdata(sp)%csc_lai*cc%lai
     cc%mcv_dry = max(mcv_min, mcv_lai*cc%lai)
   enddo
     
-end subroutine
+end subroutine update_derived_vegn_data
 
 ! ============================================================================
 ! vegn_data_uptake_frac_max probably should stay here, since it is called 
@@ -226,25 +369,15 @@ subroutine vegn_data_uptake_frac_max(vegn,dz,uptake_frac_max)
   real,                 intent(in)  :: dz(:)
   real,                 intent(out) :: uptake_frac_max(:)
 
-  type(vegn_cohort_type), pointer :: cohort
-  
-  ! get the pointer to the first (and, currently, the only) cohort
-  ! of the tile
-  cohort => current_cohort(first_cohort(vegn%cohorts))
-  call cohort_data_uptake_frac_max(cohort, dz, uptake_frac_max)
-
+  call cohort_data_uptake_frac_max(vegn%cohorts(1), dz, uptake_frac_max)
 end subroutine
 
 ! ============================================================================
 function vegn_data_rs_min ( vegn )
   real :: vegn_data_rs_min
   type(vegn_tile_type), intent(in)  :: vegn
-  type(vegn_cohort_type), pointer :: cohort
   
-  ! get the pointer to the first (and, currently, the only) cohort
-  ! of the tile
-  cohort => current_cohort(first_cohort(vegn%cohorts))
-  vegn_data_rs_min = cohort%rs_min
+  vegn_data_rs_min = vegn%cohorts(1)%rs_min
 end function
 
 
@@ -254,15 +387,12 @@ function vegn_seed_supply ( vegn )
   type(vegn_tile_type), intent(in) :: vegn
 
   ! ---- local vars 
-  type(vegn_cohort_enum_type) :: ci,ce ! cohort enumerators
-  type(vegn_cohort_type), pointer :: cc ! pointer to the current cohort
   real :: vegn_bliving
+  integer :: i
   
   vegn_bliving = 0
-  ci=first_cohort(vegn%cohorts) ; ce=tail_cohort (vegn%cohorts)
-  do while(ci/=ce)
-     cc=>current_cohort(ci) ; ci=next_cohort(ci)
-     vegn_bliving = vegn_bliving + cc%bliving
+  do i = 1,vegn%n_cohorts
+     vegn_bliving = vegn_bliving + vegn%cohorts(i)%bliving
   enddo
   vegn_seed_supply = MAX (vegn_bliving-BSEED, 0.0)
   
@@ -273,15 +403,11 @@ function vegn_seed_demand ( vegn )
   real :: vegn_seed_demand
   type(vegn_tile_type), intent(in) :: vegn
 
-  ! ---- local vars 
-  type(vegn_cohort_enum_type) :: ci,ce ! cohort enumerators
-  type(vegn_cohort_type), pointer :: cc ! pointer to the current cohort
+  integer :: i
 
   vegn_seed_demand = 0
-  ci=first_cohort(vegn%cohorts) ; ce=tail_cohort (vegn%cohorts)
-  do while(ci/=ce)
-     cc=>current_cohort(ci) ; ci=next_cohort(ci)
-     if(cc%bliving<BSEED.and.vegn%t_ann>253.16.and.vegn%p_ann>1E-6) then
+  do i = 1,vegn%n_cohorts
+     if(vegn%cohorts(i)%bliving<BSEED.and.vegn%t_ann>253.16.and.vegn%p_ann>1E-6) then
         vegn_seed_demand = vegn_seed_demand + BSEED
      endif
   enddo
@@ -292,15 +418,55 @@ subroutine vegn_add_bliving ( vegn, delta )
   type(vegn_tile_type), intent(inout) :: vegn
   real :: delta ! increment of bliving
 
-  type(vegn_cohort_type), pointer :: cc ! pointer to the current cohort
-  cc=>current_cohort(first_cohort(vegn%cohorts))
-  cc%bliving = cc%bliving + delta
+  vegn%cohorts(1)%bliving = vegn%cohorts(1)%bliving + delta
 
-  if (cc%bliving < 0)then
+  if (vegn%cohorts(1)%bliving < 0)then
      call error_mesg('vegn_add_bliving','resulting bliving is less then 0', FATAL)
   endif
-  call update_biomass_pools(cc)
+  call update_biomass_pools(vegn%cohorts(1))
 end subroutine 
+
+
+
+
+
+! ============================================================================
+! given a vegetation patch, destination kind of transition, and "transition 
+! intensity" value, this function returns a fraction of tile that will parti-
+! cipate in transition.
+!
+! this function must be contiguous, monothonic, its value must be within
+! interval [0,1]
+!
+! this function is used to determine what part of each tile is to be converted
+! to another landuse kind; the equation is solved to get "transition intensity" 
+! tau for which total area is equal to requested. Tau is, therefore, a dummy
+! parameter, and only relative values of the priority functions for tiles 
+! participating in transition have any meaning. For most transitions the priority 
+! function is just equal to tau: therefore there is no preference, and all tiles
+! contribute equally to converted area. For secondary vegetation harvesting, 
+! however, priority also depends on wood biomass, and therefore tiles
+! with high wood biomass are harvested first.
+function vegn_tran_priority(vegn, dst_kind, tau) result(pri)
+  real :: pri
+  type(vegn_tile_type), intent(in) :: vegn
+  integer             , intent(in) :: dst_kind
+  real                , intent(in) :: tau
+
+  real :: vegn_bwood
+  integer :: i
+
+  if (vegn%landuse==LU_SCND.and.dst_kind==LU_SCND) then ! secondary biomass harvesting
+     vegn_bwood = 0
+     do i = 1,vegn%n_cohorts
+        vegn_bwood = vegn_bwood + vegn%cohorts(i)%bwood
+     enddo
+     pri = max(min(tau+vegn_bwood,1.0),0.0)
+  else
+     pri = max(min(tau,1.0),0.0)
+  endif
+end function 
+
 
 ! ============================================================================
 function vegn_cover_cold_start(land_mask, glonb, glatb) result (vegn_frac)
@@ -327,17 +493,32 @@ function vegn_is_selected(vegn, sel)
   type(tile_selector_type),  intent(in) :: sel
   type(vegn_tile_type),      intent(in) :: vegn
 
-  vegn_is_selected = (sel%idata1 == vegn%tag)
+  vegn_is_selected = (sel%idata1 == vegn%landuse)
 end function
 
 
 ! ============================================================================
 ! returns tag of the tile
-function get_vegn_tag(vegn) result(tag)
+function get_vegn_tile_tag(vegn) result(tag)
   integer :: tag
   type(vegn_tile_type), intent(in) :: vegn
   
   tag = vegn%tag
+end function
+
+! ============================================================================
+! returns total wood biomass per tile 
+function get_vegn_tile_bwood(vegn) result(bwood)
+  real :: bwood
+  type(vegn_tile_type), intent(in) :: vegn
+
+  ! ---- local vars
+  integer :: i
+
+  bwood = 0
+  do i = 1,vegn%n_cohorts
+     bwood = bwood + vegn%cohorts(i)%bwood
+  enddo
 end function
 
 end module vegn_tile_mod

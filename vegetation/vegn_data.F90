@@ -43,10 +43,24 @@ integer, public, parameter :: & ! status of leaves
  LEAF_OFF     = 5     ! leaves are dropped
 
 integer, public, parameter :: & ! land use types
- LU_PAST = 1, & ! pasture
- LU_CROP = 2, & ! crops
- LU_NTRL = 3, & ! natural vegetation
- LU_SCND = 4    ! secondary vegetation
+ N_LU_TYPES = 4, & ! number of different land use types
+ LU_PAST    = 1, & ! pasture
+ LU_CROP    = 2, & ! crops
+ LU_NTRL    = 3, & ! natural vegetation
+ LU_SCND    = 4    ! secondary vegetation
+character(len=4), public, parameter  :: &
+     landuse_name (N_LU_TYPES) = (/ 'past','crop','ntrl','scnd'/)
+character(len=32), public, parameter :: &
+     landuse_longname (N_LU_TYPES) = (/ 'pasture', 'crop', 'natural', 'secondary' /)
+
+integer, public, parameter :: & ! harvesing pools paraneters
+ N_HARV_POOLS   = 4, & ! number of harvesting pools
+ HARV_POOL_PAST = 1, & 
+ HARV_POOL_CROP = 2, &
+ HARV_POOL_NTRL = 3, &
+ HARV_POOL_SCND = 4
+character(len=4), public, parameter :: &
+ HARV_POOL_NAMES(N_HARV_POOLS) = (/ 'past', 'crop', 'ntrl', 'scnd' /)
 
 real, public, parameter :: C2B = 2.0  ! carbon to biomass conversion factor
 
@@ -67,7 +81,7 @@ public :: &
     GR_factor, tg_c3_thresh, tg_c4_thresh, &
     fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
     l_fract, T_transp_min, soil_carbon_depth_scale, &
-    cold_month_threshold, theta_crit
+    cold_month_threshold, theta_crit, scnd_biomass_bins
 
 ! ---- public subroutine
 public :: read_vegn_data_namelist
@@ -75,8 +89,8 @@ public :: read_vegn_data_namelist
 
 ! ==== constants =============================================================
 character(len=*), parameter   :: &
-     version = '', &
-     tagname = '', &
+     version     = '$Id: vegn_data.F90,v 15.0.2.8 2008/02/01 20:30:58 slm Exp $', &
+     tagname     = '$Name: omsk_2008_03 $', &
      module_name = 'vegn_data_mod'
 real, parameter :: TWOTHIRDS  = 2.0/3.0
 
@@ -122,8 +136,10 @@ type spec_data_type
   real    :: mu_bar ! average inverse diffuse optical depth per unit leaf are
 
   ! canopy intercepted water parameters
-  real    :: cmc_lai      ! mm of water on leaves (kg/m2 of leaves)
-  real    :: cmc_pow
+  real    :: cmc_lai ! max amount of liquid water on vegetation, kg/(m2 of leaf)
+  real    :: cmc_pow ! power of wet fraction dependance on amount of canopy water
+  real    :: csc_lai ! max amount of snow on vegetation, kg/(m2 of leaf)
+  real    :: csc_pow ! power of snow-covered fraction dependance on amount of canopy snow
   real    :: fuel_intensity
   real    :: hight_eq
 
@@ -247,6 +263,11 @@ real :: cmc_lai(0:MSPECIES)= & ! maximum canopy water conntent per unit LAI
        (/    0.1,         0.1,          0.1,          0.1,          0.1,    0.1,    0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,  0.1  /)
 real :: cmc_pow(0:MSPECIES)= & ! power of the wet canopy fraction relation 
   (/   TWOTHIRDS,   TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,      1,      1,     1,     1,     1,     1,     1,     1,    1  /)
+real :: csc_lai(0:MSPECIES)= & ! maximum canopy snow conntent per unit LAI
+       (/    0.1,         0.1,          0.1,          0.1,          0.1,    0.1,    0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,  0.1  /)
+real :: csc_pow(0:MSPECIES)= & ! power of the snow-covered fraction relation 
+  (/   TWOTHIRDS,   TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,      1,      1,     1,     1,     1,     1,     1,     1,    1  /)
+
 real :: fuel_intensity(0:MSPECIES) ; data fuel_intensity(0:NSPECIES-1) &
         /    1.0,         1.0,        0.002,        0.002,        0.004 /
 real :: hight_eq(0:MSPECIES) ; data hight_eq(0:NSPECIES-1) &
@@ -284,13 +305,20 @@ real :: fsc_pool_spending_time = 1.0 ! time (yrs) during which intermediate pool
                   ! fast soil carbon is entirely converted to the fast soil carbon
 real :: ssc_pool_spending_time = 1.0 ! time (yrs) during which intermediate pool of
                   ! slow soil carbon is entirely converted to the slow soil carbon
-real :: harvest_spending_time  = 1.0 ! time (yrs) during which intermediate pool of
-                  ! harvested carbon is entirely released to the atmosphere
-! NOTE: a year in the above *_spending_time definitions is exactly 365*86400 seconds
+real :: harvest_spending_time(N_HARV_POOLS) = &
+     (/1.0, 1.0, 1.0, 1.0/)
+     ! time (yrs) during which intermediate pool of harvested carbon is completely
+     ! released to the atmosphere. 
+     ! NOTE: a year in the above *_spending_time definitions is exactly 365*86400 seconds
 real :: l_fract      = 0.5 ! fraction of the leaves retained after leaf drop
 real :: T_transp_min = 0.0 ! lowest temperature at which transporation is enabled
                            ! 0 means no limit, lm3v value is 268.0
 real :: theta_crit   = 0.01! theta threshold for leaf drop (mm)
+! boundaries of wood biomass bins for secondary veg. (kg C/m2); used to decide 
+! whether secondary vegetation tiles can be merged or not. MUST BE IN ASCENDING 
+! ORDER.
+real  :: scnd_biomass_bins(10) &  
+     = (/ 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 1000.0 /)
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
   mcv_min, mcv_lai, &
@@ -303,7 +331,7 @@ namelist /vegn_data_nml/ &
   treefall_disturbance_rate,fuel_intensity, &
   alpha, beta, c1,c2,c3, &
   dfr, &
-  cmc_lai, cmc_pow, &
+  cmc_lai, cmc_pow, csc_lai, csc_pow, &
   leaf_refl, leaf_tran, leaf_emis, ksi, &
   hight_eq, leaf_size, &
   soil_carbon_depth_scale, cold_month_threshold, &
@@ -312,7 +340,8 @@ namelist /vegn_data_nml/ &
   tau_drip_l, tau_drip_s, GR_factor, tg_c3_thresh, tg_c4_thresh, &
   fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
   l_fract, T_transp_min, &
-  tc_crit, theta_crit
+  tc_crit, theta_crit, &
+  scnd_biomass_bins
 
 
 contains ! ###################################################################
@@ -365,6 +394,8 @@ subroutine read_vegn_data_namelist()
 
   spdata%cmc_lai = cmc_lai
   spdata%cmc_pow = cmc_pow
+  spdata%csc_lai = csc_lai
+  spdata%csc_pow = csc_pow
   
   spdata%leaf_size = leaf_size
 
@@ -381,10 +412,10 @@ subroutine read_vegn_data_namelist()
   enddo
 
   ! register selectors for tile-specific diagnostics
-!  do i=1, n_dim_vegn_types
-!     call register_tile_selector(tile_names(i), long_name='',&
-!          tag = SEL_VEGN, idata1 = i )
-!  enddo
+  do i=1, N_LU_TYPES
+     call register_tile_selector(landuse_name(i), long_name=landuse_longname(i),&
+          tag = SEL_VEGN, idata1 = i )
+  enddo
 
   write (stdlog(), nml=vegn_data_nml)
 

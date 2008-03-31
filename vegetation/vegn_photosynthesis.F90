@@ -9,7 +9,6 @@ use land_debug_mod,     only : is_watch_point
 use vegn_data_mod,      only : MSPECIES, PT_C4, spdata
 use vegn_tile_mod,      only : vegn_tile_type
 use vegn_cohort_mod,    only : vegn_cohort_type
-use cohort_list_mod,    only : first_cohort, current_cohort
 
 implicit none
 private
@@ -21,10 +20,10 @@ public :: vegn_photosynthesis
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-   version = '$Id: vegn_photosynthesis.F90,v 15.0.2.2 2007/09/16 21:37:26 slm Exp $', &
-   tagname = '$Name: omsk_2007_12 $', &
+   version = '$Id: vegn_photosynthesis.F90,v 15.0.2.4 2007/12/19 20:55:39 slm Exp $', &
+   tagname = '$Name: omsk_2008_03 $', &
    module_name = 'vegn_photosynthesis'
-! values for internal vegetation radiation option selector
+! values for internal vegetation photosynthesis option selector
 integer, parameter :: VEGN_PHOT_SIMPLE  = 1 ! zero photosynthesis
 integer, parameter :: VEGN_PHOT_LEUNING = 2 ! photosynthesis according to simplified Leuning model
 
@@ -90,7 +89,7 @@ subroutine vegn_photosynthesis ( vegn, &
   real    :: water_supply ! water supply per m2 of leaves
 
   ! get the pointer to the first (and, currently, the only) cohort
-  cohort => current_cohort(first_cohort(vegn%cohorts))
+  cohort => vegn%cohorts(1)
 
   select case (vegn_phot_option)
 

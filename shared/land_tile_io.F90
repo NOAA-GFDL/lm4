@@ -5,7 +5,7 @@ use time_manager_mod, only : time_type
 use data_override_mod, only : data_override
 
 use nf_utils_mod, only : nfu_inq_dim, nfu_inq_var, nfu_def_dim, nfu_def_var, &
-     nfu_get_var_int, nfu_put_att_text
+     nfu_get_var, nfu_put_att_text
 use land_io_mod, only : print_netcdf_error, read_field
 use land_tile_mod, only : land_tile_type, land_tile_list_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
@@ -46,11 +46,21 @@ interface write_tile_data
    module procedure write_tile_data_r2d
 end interface
 
+interface read_tile_data_r1d_fptr
+   module procedure read_tile_data_r1d_fptr_all
+   module procedure read_tile_data_r1d_fptr_idx
+end interface
+
+interface write_tile_data_r1d_fptr
+   module procedure write_tile_data_r1d_fptr_all
+   module procedure write_tile_data_r1d_fptr_idx
+end interface
+
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land_tile_io_mod', &
-     version     = '$Id: land_tile_io.F90,v 15.0.2.2 2007/10/11 00:29:50 slm Exp $', &
-     tagname     = '$Name: omsk_2007_12 $'
+     version     = '$Id: land_tile_io.F90,v 15.0.2.4 2008/02/01 20:30:57 slm Exp $', &
+     tagname     = '$Name: omsk_2008_03 $'
 ! name of the "compressed" dimension (and dimension variable) in the output 
 ! netcdf files -- that is, the dimensions written out using compression by 
 ! gathering, as described in CF conventions. See subroutines write_tile_data,
@@ -237,12 +247,11 @@ subroutine read_tile_data_i0d_fptr(ncid,name,fptr)
    integer     , intent(in) :: ncid ! netcdf file id
    character(*), intent(in) :: name ! name of the variable to read
    ! subroutine returning the pointer to the data to be written
-   interface
-      subroutine fptr(tile, ptr)
-        use land_tile_mod, only : land_tile_type
-        type(land_tile_type), pointer :: tile ! input
-        integer             , pointer :: ptr  ! returned pointer to the data
-      end subroutine fptr
+   interface ; subroutine fptr(tile, ptr)
+      use land_tile_mod, only : land_tile_type
+      type(land_tile_type), pointer :: tile ! input
+      integer             , pointer :: ptr  ! returned pointer to the data
+    end subroutine fptr 
    end interface
    
    ! ---- local constants
@@ -269,7 +278,7 @@ subroutine read_tile_data_i0d_fptr(ncid,name,fptr)
    ! allocate input buffers for compression index and the variable
    allocate(idx(dimlen(1)),x1d(dimlen(1)))
    ! read the index variable
-   __NF_ASRT__(nfu_get_var_int(ncid,idxname,idx))
+   __NF_ASRT__(nfu_get_var(ncid,idxname,idx))
    ! read the data
    __NF_ASRT__(nf_get_var_int(ncid,varid,x1d))
    ! distribute the data over the tiles
@@ -288,12 +297,11 @@ subroutine read_tile_data_r0d_fptr(ncid,name,fptr)
    integer     , intent(in) :: ncid ! netcdf file id
    character(*), intent(in) :: name ! name of the variable to read
    ! subroutine returning the pointer to the data to be written
-   interface
-      subroutine fptr(tile, ptr)
-        use land_tile_mod, only : land_tile_type
-        type(land_tile_type), pointer :: tile ! input
-        real                , pointer :: ptr  ! returned pointer to the data
-      end subroutine fptr
+   interface ; subroutine fptr(tile, ptr)
+      use land_tile_mod, only : land_tile_type
+      type(land_tile_type), pointer :: tile ! input
+      real                , pointer :: ptr  ! returned pointer to the data
+   end subroutine fptr
    end interface
    
    ! ---- local constants
@@ -320,7 +328,7 @@ subroutine read_tile_data_r0d_fptr(ncid,name,fptr)
    ! allocate input buffers for compression index and the variable
    allocate(idx(dimlen(1)),x1d(dimlen(1)))
    ! read the index variable
-   __NF_ASRT__(nfu_get_var_int(ncid,idxname,idx))
+   __NF_ASRT__(nfu_get_var(ncid,idxname,idx))
    ! read the data
    __NF_ASRT__(nf_get_var_double(ncid,varid,x1d))
    ! distribute the data over the tiles
@@ -333,16 +341,15 @@ subroutine read_tile_data_r0d_fptr(ncid,name,fptr)
 end subroutine
 
 ! ============================================================================
-subroutine read_tile_data_r1d_fptr(ncid,name,fptr)
+subroutine read_tile_data_r1d_fptr_all(ncid,name,fptr)
    integer     , intent(in) :: ncid ! netcdf file id
    character(*), intent(in) :: name ! name of the variable to read
    ! subroutine returning the pointer to the data to be written
-   interface
-      subroutine fptr(tile, ptr)
-        use land_tile_mod, only : land_tile_type
-        type(land_tile_type), pointer :: tile ! input
-        real                , pointer :: ptr(:) ! returned pointer to the data
-      end subroutine fptr
+   interface ; subroutine fptr(tile, ptr)
+      use land_tile_mod, only : land_tile_type
+      type(land_tile_type), pointer :: tile ! input
+      real                , pointer :: ptr(:) ! returned pointer to the data
+   end subroutine fptr
    end interface
    
    ! ---- local constants
@@ -369,7 +376,7 @@ subroutine read_tile_data_r1d_fptr(ncid,name,fptr)
    ! allocate input buffers for compression index and the variable
    allocate(idx(dimlen(1)),x2d(dimlen(1),dimlen(2)))
    ! read the index variable
-   __NF_ASRT__(nfu_get_var_int(ncid,idxname,idx))
+   __NF_ASRT__(nfu_get_var(ncid,idxname,idx))
    ! read the data
    __NF_ASRT__(nf_get_var_double(ncid,varid,x2d))
    ! distribute the data over the tiles
@@ -379,6 +386,56 @@ subroutine read_tile_data_r1d_fptr(ncid,name,fptr)
       call fptr(tileptr, ptr)
       if(associated(ptr)) ptr(:) = x2d(i,:)
    enddo
+end subroutine
+
+
+! ============================================================================
+subroutine read_tile_data_r1d_fptr_idx (ncid,name,fptr,index)
+   integer     , intent(in) :: ncid ! netcdf file id
+   character(*), intent(in) :: name ! name of the variable to read
+   ! subroutine returning the pointer to the data to be written
+   interface ; subroutine fptr(tile, ptr)
+      use land_tile_mod, only : land_tile_type
+      type(land_tile_type), pointer :: tile ! input
+      real                , pointer :: ptr(:) ! returned pointer to the data
+   end subroutine fptr 
+   end interface
+   integer    , intent(in) :: index ! index where to read the data
+   
+   ! ---- local constants
+   character(*), parameter :: module_name='read_tile_data_r0d_fptr'
+   ! ---- local vars
+   integer :: ndims     ! number of the variable dimensions
+   integer :: dimids(1) ! IDs of the variable dimensions
+   integer :: dimlen(1) ! size of the variable dimensions
+   character(NF_MAX_NAME) :: idxname ! name of the index variable
+   integer, allocatable :: idx(:) ! storage for compressed index 
+   real   , allocatable :: x1d(:) ! storage for the data
+   integer :: i
+   integer :: varid
+   type(land_tile_type), pointer :: tileptr ! pointer to tile   
+   real, pointer :: ptr(:)
+   
+   ! get the number of variable dimensions, and their lengths
+   __NF_ASRT__(nfu_inq_var(ncid,name,id=varid,ndims=ndims,dimids=dimids,dimlens=dimlen))
+   if(ndims/=1) then
+      call error_mesg(module_name,'variable "'//trim(name)//'" has incorrect number of dimensions -- must be 1-dimensional', FATAL)
+   endif
+   ! get the name of compressed dimension
+   __NF_ASRT__(nfu_inq_dim(ncid,dimids(1),idxname))
+   ! allocate input buffers for compression index and the variable
+   allocate(idx(dimlen(1)),x1d(dimlen(1)))
+   ! read the index variable
+   __NF_ASRT__(nfu_get_var(ncid,idxname,idx))
+   ! read the data
+   __NF_ASRT__(nf_get_var_double(ncid,varid,x1d))
+   ! distribute the data over the tiles
+   do i = 1, size(idx)
+      call get_tile_by_idx(idx(i),size(lnd%garea,1),size(lnd%garea,2),lnd%tile_map,&
+                           lnd%is,lnd%js, tileptr)
+      call fptr(tileptr, ptr)
+      if(associated(ptr)) ptr(index) = x1d(i)
+   enddo   
 end subroutine
 
 
@@ -468,12 +525,11 @@ subroutine write_tile_data_i0d_fptr(ncid,name,fptr,long_name,units)
   character(len=*), intent(in) :: name ! name of the variable to write
   character(len=*), intent(in), optional :: units, long_name
   ! subroutine returning the pointer to the data to be written
-  interface
-     subroutine fptr(tile, ptr)
-       use land_tile_mod, only : land_tile_type
-       type(land_tile_type), pointer :: tile ! input
-       integer             , pointer :: ptr  ! returned pointer to the data
-     end subroutine fptr
+  interface ; subroutine fptr(tile, ptr)
+     use land_tile_mod, only : land_tile_type
+     type(land_tile_type), pointer :: tile ! input
+     integer             , pointer :: ptr  ! returned pointer to the data
+  end subroutine fptr
   end interface
   
   ! ---- local vars
@@ -493,7 +549,7 @@ subroutine write_tile_data_i0d_fptr(ncid,name,fptr,long_name,units)
 
   ! read tile index
   i = nf_enddef(ncid) ! ignore errors (file may be in data mode already)
-  __NF_ASRT__(nfu_get_var_int(ncid,tile_index_name,idx))
+  __NF_ASRT__(nfu_get_var(ncid,tile_index_name,idx))
 
   ! gather data into an array along the tile dimension. It is assumed that 
   ! the tile dimension spans all the tiles that need to be written.
@@ -518,12 +574,11 @@ subroutine write_tile_data_r0d_fptr(ncid,name,fptr,long_name,units)
   character(len=*), intent(in) :: name ! name of the variable to write
   character(len=*), intent(in), optional :: units, long_name
   ! subroutine returning the pointer to the data to be written
-  interface
-     subroutine fptr(tile, ptr)
-       use land_tile_mod, only : land_tile_type
-       type(land_tile_type), pointer :: tile ! input
-       real                , pointer :: ptr  ! returned pointer to the data
-     end subroutine fptr
+  interface ; subroutine fptr(tile, ptr)
+     use land_tile_mod, only : land_tile_type
+     type(land_tile_type), pointer :: tile ! input
+     real                , pointer :: ptr  ! returned pointer to the data
+  end subroutine fptr
   end interface
   
   ! ---- local vars
@@ -543,7 +598,7 @@ subroutine write_tile_data_r0d_fptr(ncid,name,fptr,long_name,units)
 
   ! read tile index
   i = nf_enddef(ncid) ! ignore errors (file may be in data mode already)
-  __NF_ASRT__(nfu_get_var_int(ncid,tile_index_name,idx))
+  __NF_ASRT__(nfu_get_var(ncid,tile_index_name,idx))
 
   ! gather data into an array along the tile dimension. It is assumed that 
   ! the tile dimension spans all the tiles that need to be written.
@@ -563,18 +618,17 @@ end subroutine
 
 
 ! ============================================================================
-subroutine write_tile_data_r1d_fptr(ncid,name,fptr,zdim,long_name,units)
+subroutine write_tile_data_r1d_fptr_all(ncid,name,fptr,zdim,long_name,units)
   integer         , intent(in) :: ncid ! netcdf id
   character(len=*), intent(in) :: name ! name of the variable to write
   character(len=*), intent(in) :: zdim ! name of the z-dimension
   character(len=*), intent(in), optional :: units, long_name
   ! subroutine returning the pointer to the data to be written
-  interface
-     subroutine fptr(tile, ptr)
-       use land_tile_mod, only : land_tile_type
-       type(land_tile_type), pointer :: tile ! input
-       real                , pointer :: ptr(:) ! returned pointer to the data
-     end subroutine fptr
+  interface ; subroutine fptr(tile, ptr)
+     use land_tile_mod, only : land_tile_type
+     type(land_tile_type), pointer :: tile ! input
+     real                , pointer :: ptr(:) ! returned pointer to the data
+  end subroutine fptr
   end interface
   
   ! ---- local vars
@@ -596,7 +650,7 @@ subroutine write_tile_data_r1d_fptr(ncid,name,fptr,zdim,long_name,units)
 
   ! read tile index
   i = nf_enddef(ncid) ! ignore errors (file may be in data mode already)
-  __NF_ASRT__(nfu_get_var_int(ncid,tile_index_name,idx))
+  __NF_ASRT__(nfu_get_var(ncid,tile_index_name,idx))
 
   ! gather data into an array along the tile dimension. It is assumed that 
   ! the tile dimension spans all the tiles that need to be written.
@@ -615,18 +669,68 @@ subroutine write_tile_data_r1d_fptr(ncid,name,fptr,zdim,long_name,units)
   
 end subroutine
 
+
+! ============================================================================
+subroutine write_tile_data_r1d_fptr_idx(ncid,name,fptr,index,long_name,units)
+  integer         , intent(in) :: ncid ! netcdf id
+  character(len=*), intent(in) :: name ! name of the variable to write
+  integer         , intent(in) :: index  ! index of the fptr array element to write out
+  character(len=*), intent(in), optional :: units, long_name
+  ! subroutine returning the pointer to the data to be written
+  interface ; subroutine fptr(tile, ptr)
+     use land_tile_mod, only : land_tile_type
+     type(land_tile_type), pointer :: tile ! input
+     real                , pointer :: ptr(:) ! returned pointer to the data
+  end subroutine fptr 
+  end interface
+  
+  ! ---- local vars
+  integer, allocatable :: idx(:)    ! index dimension
+  real   , allocatable :: data(:)   ! data to be written
+  type(land_tile_type), pointer :: tileptr ! pointer to tiles
+  real   , pointer :: ptr(:) ! pointer to the tile data
+  integer :: ntiles  ! total number of tiles (length of compressed diemnsion)
+  integer :: i
+  
+  ! get the size of the output array. Note that at this point the variable
+  ! might not yet exist, so we can't use nfu_inq_var
+  __NF_ASRT__(nfu_inq_dim(ncid,tile_index_name,len=ntiles))
+
+  ! allocate data
+  allocate(data(ntiles),idx(ntiles))
+
+  ! read tile index
+  i = nf_enddef(ncid) ! ignore errors (file may be in data mode already)
+  __NF_ASRT__(nfu_get_var(ncid,tile_index_name,idx))
+
+  ! gather data into an array along the tile dimension. It is assumed that 
+  ! the tile dimension spans all the tiles that need to be written.
+  do i = 1, size(idx)
+     call get_tile_by_idx(idx(i),size(lnd%garea,1),size(lnd%garea,2),lnd%tile_map,&
+                          lnd%is,lnd%js, tileptr)
+     call fptr(tileptr, ptr)
+     if(associated(ptr)) data(i) = ptr(index)
+  enddo
+
+  ! write data
+  call write_tile_data_r1d(ncid,name,data,long_name,units)
+
+  ! free allocated memory
+  deallocate(data,idx)
+end subroutine
+
+
 ! ============================================================================
 subroutine override_tile_data_r0d_fptr(fieldname,fptr,time,override)
   character(len=*), intent(in)   :: fieldname ! field to override
   type(time_type),  intent(in)   :: time      ! model time
   logical, optional, intent(out) :: override  ! true if the field has been overriden succesfully
   ! subroutine returning the pointer to the data to be overriden
-  interface
-     subroutine fptr(tile, ptr)
-       use land_tile_mod, only : land_tile_type
-       type(land_tile_type), pointer :: tile ! input
-       real                , pointer :: ptr  ! returned pointer to the data
-     end subroutine fptr
+  interface ; subroutine fptr(tile, ptr)
+     use land_tile_mod, only : land_tile_type
+     type(land_tile_type), pointer :: tile ! input
+     real                , pointer :: ptr  ! returned pointer to the data
+  end subroutine fptr
   end interface
 
   ! ---- local vars

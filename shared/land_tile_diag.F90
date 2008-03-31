@@ -48,8 +48,8 @@ end interface
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'lan_tile_diag_mod', &
-     version     = '$Id: land_tile_diag.F90,v 15.0.2.2 2007/09/16 22:14:23 slm Exp $', &
-     tagname     = '$Name: omsk_2007_12 $'
+     version     = '$Id: land_tile_diag.F90,v 15.0.2.3 2007/12/05 19:48:06 slm Exp $', &
+     tagname     = '$Name: omsk_2008_03 $'
 
 integer, parameter :: INIT_FIELDS_SIZE     = 1     ! initial size of the fields array
 integer, parameter :: BASE_TILED_FIELD_ID  = 65536 ! base value for tiled field 
@@ -203,9 +203,8 @@ function reg_field(static, module_name, field_name, init_time, axes, &
 
 #ifdef USE_LOG_DIAG_FIELD_INFO
   ! log diagnostic field information
-  call log_diag_field_info ( module_name, trim(field_name)//'[_tile]', axes, long_name, units, &
-                             missing_value, range, mask_variant=.not.static, require=require, &
-                             dynamic=.not.static )
+  call log_diag_field_info ( module_name, trim(field_name), axes, long_name, units,&
+                             missing_value, range, dynamic=.not.static )
 #endif
   ! go through all possible selectors and try to register a diagnostic field 
   ! with the name derived from field name and selector; if any of the 

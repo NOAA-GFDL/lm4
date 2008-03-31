@@ -3,8 +3,8 @@ module cohort_io_mod
 use fms_mod,          only : error_mesg, FATAL, WARNING
 use mpp_mod,          only : mpp_max
 
-use nf_utils_mod,     only : nfu_inq_dim, nfu_get_var_int, nfu_get_var_double, &
-     nfu_get_rec_int, nfu_get_rec_double, nfu_def_dim, nfu_def_var, nfu_put_att_text
+use nf_utils_mod,     only : nfu_inq_dim, nfu_get_var, &
+     nfu_get_rec, nfu_def_dim, nfu_def_var, nfu_put_att_text
 use land_io_mod,      only : print_netcdf_error
 use land_tile_mod,    only : land_tile_type, land_tile_list_type, &
      land_tile_enum_type, first_elmt, tail_elmt, next_elmt, get_elmt_indices, &
@@ -12,9 +12,6 @@ use land_tile_mod,    only : land_tile_type, land_tile_list_type, &
 use land_tile_io_mod, only : write_tile_data, get_tile_by_idx 
 
 use vegn_cohort_mod, only: vegn_cohort_type
-use cohort_list_mod,  only : vegn_cohort_enum_type, &
-     first_cohort, tail_cohort, next_cohort, current_cohort, &
-     insert_cohort, operator(/=)
 use land_data_mod, only : lnd
 
 implicit none
@@ -34,8 +31,8 @@ public :: write_cohort_data_i0d_fptr
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'cohort_io_mod', &
-     version     = '$Id: vegn_cohort_io.F90,v 15.0.2.3 2007/10/11 00:29:51 slm Exp $', &
-     tagname     = '$Name: omsk_2007_12 $'
+     version     = '$Id: vegn_cohort_io.F90,v 15.0.2.5 2008/02/01 20:30:58 slm Exp $', &
+     tagname     = '$Name: omsk_2008_03 $'
 ! name of the "compressed" dimension (and dimension variable) in the output 
 ! netcdf files -- that is, the dimensions written out using compression by 
 ! gathering, as described in CF conventions.
@@ -62,7 +59,6 @@ subroutine get_cohort_by_idx(idx,nlon,nlat,ntiles,tiles,is,js,ptr)
    ! ---- local vars
    integer :: tile_idx, k
    type(land_tile_type), pointer :: tile
-   type(vegn_cohort_enum_type) :: cc, ct
    
    ptr=>NULL()
    
@@ -71,12 +67,7 @@ subroutine get_cohort_by_idx(idx,nlon,nlat,ntiles,tiles,is,js,ptr)
    if(associated(tile)) then
       if (associated(tile%vegn)) then
          k = idx/(nlon*nlat*ntiles) ! calculate cohort index within a tile
-         cc = first_cohort(tile%vegn%cohorts)
-         ct = tail_cohort (tile%vegn%cohorts)
-         do while(cc/=ct.and.k>0)
-           cc=next_cohort(cc); k = k-1
-         enddo
-         ptr=>current_cohort(cc)
+         ptr=>tile%vegn%cohorts(k+1)
       endif
    endif
 
@@ -91,9 +82,8 @@ subroutine read_create_cohorts(ncid)
  
   integer, allocatable :: idx(:)
   integer :: i,j,t,k,m, n
-  type(land_tile_enum_type) :: ce
+  type(land_tile_enum_type) :: ce, te
   type(land_tile_type), pointer :: tile
-  type(vegn_cohort_type)   , pointer :: cohort
   character(len=64) :: info ! for error message
 
   ! get the size of dimensions
@@ -103,7 +93,7 @@ subroutine read_create_cohorts(ncid)
   ! read the cohort index
   __NF_ASRT__(nfu_inq_dim(ncid,cohort_index_name,len=ncohorts))
   allocate(idx(ncohorts))
-  __NF_ASRT__(nfu_get_var_int(ncid,cohort_index_name,idx))
+  __NF_ASRT__(nfu_get_var(ncid,cohort_index_name,idx))
   
   do n = 1,size(idx)
      k = idx(n)
@@ -121,18 +111,25 @@ subroutine read_create_cohorts(ncid)
      enddo
      tile=>current_tile(ce)
      if(.not.associated(tile%vegn)) then
-        ! write(*,*) nlon, nlat, ntiles
         info = ''
         write(info,'("(",3i3,")")')i,j,t
         call error_mesg('read_create_cohort',&
              'vegn tile'//trim(info)//' does not exist, but is necessary to create a cohort', &
              WARNING)
      else
-        allocate(cohort)
-        call insert_cohort(cohort,tile%vegn%cohorts)
+        tile%vegn%n_cohorts = tile%vegn%n_cohorts + 1
      endif
   enddo
 
+  ! go through all tiles in the domain and allocate requested numner of cohorts
+  ce = first_elmt(lnd%tile_map); te = tail_elmt(lnd%tile_map)
+  do while (ce/=te)
+     tile=>current_tile(ce); ce = next_elmt(ce)
+     if(.not.associated(tile%vegn))cycle
+     allocate(tile%vegn%cohorts(tile%vegn%n_cohorts))
+  enddo
+
+  ! clean up memory
   deallocate(idx)
 end subroutine read_create_cohorts
 
@@ -182,9 +179,9 @@ subroutine read_cohort_data_r0d_fptr(ncid,name,fptr,rec)
   allocate(data(ncohorts),idx(ncohorts))
 
   ! read the cohort index
-  __NF_ASRT__(nfu_get_var_int(ncid,cohort_index_name,idx))
+  __NF_ASRT__(nfu_get_var(ncid,cohort_index_name,idx))
   ! read the data
-  __NF_ASRT__(nfu_get_rec_double(ncid,name,rec_,data))
+  __NF_ASRT__(nfu_get_rec(ncid,name,rec_,data))
 
   ! distribute data over cohorts
   do i = 1, size(idx)
@@ -247,9 +244,9 @@ subroutine read_cohort_data_i0d_fptr(ncid,name,fptr,rec)
   allocate(data(ncohorts),idx(ncohorts))
 
   ! read the cohort index
-  __NF_ASRT__(nfu_get_var_int(ncid,cohort_index_name,idx))
+  __NF_ASRT__(nfu_get_var(ncid,cohort_index_name,idx))
   ! read the data
-  __NF_ASRT__(nfu_get_rec_int(ncid,name,rec_,data))
+  __NF_ASRT__(nfu_get_rec(ncid,name,rec_,data))
 
   ! distribute data over cohorts
   do i = 1, size(idx)
@@ -279,11 +276,10 @@ subroutine create_cohort_dimension(ncid)
 
   ! ---- local vars
   type(land_tile_enum_type) :: ce, te ! tile list enumerators
-  type(vegn_cohort_enum_type)    :: cc, tc ! tile list enumerators
   type(land_tile_type), pointer :: tile
  
   integer, allocatable :: idx(:)   ! integer compressed index of tiles
-  integer :: i,j,k,c,m,n,ntiles,max_cohorts
+  integer :: i,j,k,c,n,ntiles,max_cohorts
   integer :: iret
 
   ! count total number of cohorts in compute domain and max number of
@@ -295,15 +291,8 @@ subroutine create_cohort_dimension(ncid)
   do while (ce/=te)
      tile=>current_tile(ce)
      if(associated(tile%vegn))then
-        cc=first_cohort(tile%vegn%cohorts)
-        tc=tail_cohort (tile%vegn%cohorts)
-        m=0
-        do while(cc/=tc)
-           n = n+1
-           m = m+1
-           cc=next_cohort(cc)
-        enddo
-        max_cohorts = max(max_cohorts,m)
+        n = n+tile%vegn%n_cohorts 
+        max_cohorts = max(max_cohorts,tile%vegn%n_cohorts)
      endif
      ce=next_elmt(ce)
   enddo
@@ -322,18 +311,13 @@ subroutine create_cohort_dimension(ncid)
         tile=>current_tile(ce)
         if(associated(tile%vegn)) then
            call get_elmt_indices(ce,i,j,k)
-           cc=first_cohort(tile%vegn%cohorts)
-           tc=tail_cohort (tile%vegn%cohorts)
-           c = 1
-           do while(cc/=tc)
+           do c = 1,tile%vegn%n_cohorts
               idx (n) = &
                    (c-1)*size(lnd%garea,1)*size(lnd%garea,2)*ntiles + &
                    (k-1)*size(lnd%garea,1)*size(lnd%garea,2) + &
                    (j-1)*size(lnd%garea,1) + &
                    (i-1)        
               n = n+1
-              c = c+1
-              cc=next_cohort(cc)
            enddo
         endif
         ce=next_elmt(ce)
@@ -382,7 +366,7 @@ subroutine write_cohort_data_r0d_fptr(ncid,name,fptr,long_name,units)
 
   ! read cohort index
   i = nf_enddef(ncid) ! ignore errors (the file may be in data mode already)
-  __NF_ASRT__(nfu_get_var_int(ncid,cohort_index_name,idx))
+  __NF_ASRT__(nfu_get_var(ncid,cohort_index_name,idx))
 
   ! gather data into an array along the cohort dimension
   do i = 1, size(idx)
@@ -442,7 +426,7 @@ subroutine write_cohort_data_i0d_fptr(ncid,name,fptr,long_name,units)
 
   ! read cohort index
   i = nf_enddef(ncid) ! ignore errors (file may be in data mode already)
-  __NF_ASRT__(nfu_get_var_int(ncid,cohort_index_name,idx))
+  __NF_ASRT__(nfu_get_var(ncid,cohort_index_name,idx))
 
   ! gather data into an array along the cohort dimension
   do i = 1, size(idx)
