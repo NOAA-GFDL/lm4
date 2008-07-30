@@ -122,10 +122,15 @@ type :: land_tile_type
    real :: vegn_refl_lw ! black background long-wave reflectivity of the vegetation canopy
    real :: vegn_tran_lw ! black background long-wave transmissivity of the vegetation canopy
 
-   real :: lwup    = 200.0  ! upward long-wave flux from the entire land (W/m2), the result of
+   real :: lwup     = 200.0  ! upward long-wave flux from the entire land (W/m2), the result of
            ! the implicit time step -- used in update_bc_fast to return to the flux exchange.
-   real :: e_res_1 = 0.0 ! energy residual in canopy air EB equation
-   real :: e_res_2 = 0.0 ! energy residual in canopy EB equation
+   real :: e_res_1  = 0.0 ! energy residual in canopy air EB equation
+   real :: e_res_2  = 0.0 ! energy residual in canopy EB equation
+   real :: runon_l  = 0.0 ! water discharged by rivers into the tile, kg/(m2 s)
+   real :: runon_s  = 0.0 ! snow discharged by rivers into the tile, kg/(m2 s)
+   real :: runon_H  = 0.0 ! heat carried by water discharged by rivers into the tile, W/m2
+   real :: runon_Hl  = 0.0 ! heat carried by water discharged by rivers into the tile, W/m2
+   real :: runon_Hs  = 0.0 ! heat carried by water discharged by rivers into the tile, W/m2
 end type land_tile_type
 
 ! tile_list_type provides a container for the tiles
@@ -373,6 +378,11 @@ subroutine merge_land_tiles(tile1,tile2)
   __MERGE__(lwup)
   __MERGE__(e_res_1)
   __MERGE__(e_res_2)
+  __MERGE__(runon_l)
+  __MERGE__(runon_s)
+  __MERGE__(runon_H)
+  __MERGE__(runon_Hl)
+  __MERGE__(runon_Hs)
 #undef __MERGE__
 
   tile2%frac = tile1%frac + tile2%frac

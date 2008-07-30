@@ -30,8 +30,8 @@ public :: vegn_cut_forest
 
 ! ==== module constants =====================================================
 character(len=*), parameter   :: &
-     version = '$Id: vegn_harvesting.F90,v 1.1.2.1 2007/11/23 21:33:55 slm Exp $', &
-     tagname = '$Name: omsk_2008_03 $', &
+     version = '$Id: vegn_harvesting.F90,v 16.0 2008/07/30 22:30:16 fms Exp $', &
+     tagname = '$Name: perth $', &
      module_name = 'vegn_harvesting_mod'
 
 ! ==== module data ==========================================================

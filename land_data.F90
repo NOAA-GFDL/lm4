@@ -44,8 +44,8 @@ public :: land_state_type
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: &
      module_name = 'land_data_mod', &
-     version     = '$Id: land_data.F90,v 15.0.2.4 2008/02/17 21:06:23 slm Exp $', &
-     tagname     = '$Name: omsk_2008_03 $'
+     version     = '$Id: land_data.F90,v 16.0 2008/07/30 22:12:55 fms Exp $', &
+     tagname     = '$Name: perth $'
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
 ! It is supposed to be double-precision signaling NaN, to triger a trap when
@@ -117,7 +117,8 @@ type :: land_data_type
    ! have implications for the data reallocation procedure.
    real, pointer, dimension(:,:) :: &  ! (lon, lat)
         discharge      => NULL(),  & ! flux from surface drainage network out of land model
-        discharge_snow => NULL()     ! snow analogue of discharge
+        discharge_snow => NULL(),  & ! snow analogue of discharge
+        discharge_heat => NULL()     ! heat analogue of discharge
 
    logical, pointer, dimension(:,:,:):: &
         mask => NULL()               ! true if land
@@ -194,12 +195,12 @@ subroutine land_data_init(layout, time, dt_fast, dt_slow)
   if( layout(1)==0 .AND. layout(2)/=0 )layout(1) = mpp_npes()/(layout(2)*ntiles)
 
   ! defne land model domain
-  if (ntiles==1) then
-     call mpp_define_domains ((/1,nlon, 1, nlat/), layout, lnd%domain, &
-          xflags = CYCLIC_GLOBAL_DOMAIN, name = 'LAND MODEL')
-  else
-     call define_cube_mosaic ('LND', lnd%domain, layout)
-  endif
+ if (ntiles==1) then
+    call mpp_define_domains ((/1,nlon, 1, nlat/), layout, lnd%domain, xhalo=1, yhalo=1,&
+         xflags = CYCLIC_GLOBAL_DOMAIN, name = 'LAND MODEL')
+ else
+    call define_cube_mosaic ('LND', lnd%domain, layout, halo=1)
+ endif
   ! get the domain information
   call mpp_get_compute_domain(lnd%domain, lnd%is,lnd%ie,lnd%js,lnd%je)
 
@@ -322,12 +323,14 @@ subroutine realloc_land2cplr ( bnd )
   if (.not.associated(bnd%discharge)) then
      allocate( bnd%discharge(lnd%is:lnd%ie,lnd%js:lnd%je) )
      allocate( bnd%discharge_snow(lnd%is:lnd%ie,lnd%js:lnd%je) )
+     allocate( bnd%discharge_heat(lnd%is:lnd%ie,lnd%js:lnd%je) )
 
      ! discharge and discaharge_snow must be, in contrast to the rest of the boundary
      ! values, filled with zeroes. The reason is because not all of the usable elements
      ! are updated by the land model (only coastal points are).
      bnd%discharge         = 0.0
      bnd%discharge_snow    = 0.0
+     bnd%discharge_heat    = 0.0
   endif
 end subroutine realloc_land2cplr
 
@@ -359,6 +362,7 @@ subroutine dealloc_land2cplr ( bnd, dealloc_discharges )
   if (dealloc_discharges) then
      __DEALLOC__( bnd%discharge )
      __DEALLOC__( bnd%discharge_snow )
+     __DEALLOC__( bnd%discharge_heat )
   end if
 
 end subroutine dealloc_land2cplr

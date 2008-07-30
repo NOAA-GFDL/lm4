@@ -16,7 +16,7 @@ use land_constants_mod, only : &
 use lake_tile_mod, only : &
      lake_tile_type, lake_pars_type, lake_prog_type, read_lake_data_namelist, &
      lake_data_radiation, lake_data_diffusion, &
-     lake_data_thermodynamics, lake_data_hydraulics, &
+     lake_data_thermodynamics, &
      max_lev, cpw,clw,csw
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
@@ -47,30 +47,25 @@ public :: lake_step_2
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'lake',&
-    version     = '$Id: lake.F90,v 15.0.2.4 2008/02/17 21:01:29 slm Exp $',&
-    tagname     = '$Name: omsk_2008_03 $'
+    version     = '$Id: lake.F90,v 16.0 2008/07/30 22:12:49 fms Exp $',&
+    tagname     = '$Name: perth $'
 
 ! ==== module variables ======================================================
 
 !---- namelist ---------------------------------------------------------------
-logical :: lm2                  = .false.
-logical :: use_bucket           = .false.    ! single-layer lake water
-logical :: bifurcate            = .false.    ! consider direct evap from bucket
 real    :: init_temp            = 288.        ! cold-start lake T
 real    :: init_w               = 1000.      ! cold-start w(l)/dz(l)
 real    :: init_groundwater     =   0.        ! cold-start gw storage
+logical :: use_rh_feedback      = .true.
 
-namelist /lake_nml/ lm2, use_bucket,             bifurcate,             &
-                    init_temp,      &
+namelist /lake_nml/ init_temp,      &
                     init_w,       &
-                    init_groundwater, cpw, clw, csw
+                    init_groundwater, use_rh_feedback, cpw, clw, csw
 !---- end of namelist --------------------------------------------------------
 
 logical         :: module_is_initialized =.FALSE.
 type(time_type) :: time
 real            :: delta_time
-
-logical         :: use_beta, use_lake_rh
 
 integer         :: num_l              ! # of water layers
 real            :: dz    (max_lev)    ! thicknesses of layers
@@ -79,7 +74,7 @@ real            :: zhalf (max_lev+1)
 
 ! ---- diagnostic field IDs
 integer :: id_lwc, id_swc, id_temp, id_ie, id_sn, id_bf, id_hie, id_hsn, id_hbf
-
+integer :: id_evap
 ! ==== end of module variables ===============================================
 
 ! ==== NetCDF declarations ===================================================
@@ -139,18 +134,6 @@ subroutine lake_init ( id_lon, id_lat )
   time       = lnd%time
   delta_time = time_type_to_real(lnd%dt_fast)
 
-  ! ---- set flags for use in water-availability constraints -----------------
-  use_beta    = .false.
-  use_lake_rh = .false.
-!  if (use_bucket .and. .not.bifurcate) then    !************* TEMPORARY!!!!
-!      use_beta = .true.
-!    else if (use_bucket .and. bifurcate) then
-!    else
-!      use_lake_rh = .true.
-!    endif
-  use_lake_rh = .true.
-  use_beta = .true.
-
   ! -------- initialize lake state --------
   call get_mosaic_tile_file('INPUT/lake.res.nc',restart_file_name,.FALSE.,lnd%domain)
   if (file_exist(restart_file_name)) then
@@ -176,7 +159,7 @@ subroutine lake_init ( id_lon, id_lat )
         
         if (.not.associated(tile%lake)) cycle
         
-        if (init_temp.ge.tfreeze) then      ! USE lake TFREEZE HERE
+        if (init_temp.ge.tfreeze) then
            tile%lake%prog(1:num_l)%wl = init_w*dz(1:num_l)
            tile%lake%prog(1:num_l)%ws = 0
         else
@@ -264,8 +247,6 @@ end subroutine lake_diffusion
 
 ! ============================================================================
 ! update lake properties explicitly for time step.
-! MAY WISH TO INTRODUCE 'UNIVERSAL' SENSITIVITIES FOR SIMPLICITY.
-! T-DEPENDENCE OF HYDRAULIC PROPERTIES COULD BE DONE LESS FREQUENTLY.
 ! integrate lake-heat conduction equation upward from bottom of lake
 ! to surface, delivering linearization of surface ground heat flux.
 subroutine lake_step_1 ( lake, &
@@ -283,7 +264,7 @@ subroutine lake_step_1 ( lake, &
 
   ! ---- local vars
   real                  :: bbb, denom, dt_e, vlc_sfc, vsc_sfc
-  real, dimension(num_l):: aaa, ccc, thermal_cond, heat_capacity, vlc, vsc
+  real, dimension(num_l):: aaa, ccc, thermal_cond, heat_capacity, dz_alt
   integer               :: l
 
 ! ----------------------------------------------------------------------------
@@ -292,30 +273,24 @@ subroutine lake_step_1 ( lake, &
 ! ----------------------------------------------------------------------------
 
   lake_T = lake%prog(1)%T
-  do l = 1, num_l
-     vlc(l) = max(0., lake%prog(l)%wl / (dens_h2o * dz(l)))
-     vsc(l) = max(0., lake%prog(l)%ws / (dens_h2o * dz(l)))
-  enddo
-
-  vlc_sfc = vlc(1)
-  vsc_sfc = vsc(1)
-
+  if (use_rh_feedback) then
+      vlc_sfc = max(0., lake%prog(1)%wl / (dens_h2o * dz(1)))
+      vsc_sfc = max(0., lake%prog(1)%ws / (dens_h2o * dz(1)))
+    else
+      vlc_sfc = 1
+      vsc_sfc = 0
+    endif
   call lake_data_thermodynamics ( lake%pars, vlc_sfc, vsc_sfc,  &  
                                   lake_rh, &
                                   lake%heat_capacity_dry, thermal_cond )
   do l = 1, num_l
-     heat_capacity(l) = lake%heat_capacity_dry(l) *dz(l) &
-          + clw*lake%prog(l)%wl + csw*lake%prog(l)%ws
-  enddo
-  if (.not.use_lake_rh) lake_rh=1
+    heat_capacity(l) = lake%heat_capacity_dry(l) * dz(l) &
+            + clw*lake%prog(l)%wl + csw*lake%prog(l)%ws
+    dz_alt(l) = (lake%prog(l)%wl + lake%prog(l)%ws)/dens_h2o
+    enddo
 
-  if (lm2) then
-     lake_liq = 0
-     lake_ice = 0
-  else
-     lake_liq  = max(lake%prog(1)%wl, 0.)
-     lake_ice  = max(lake%prog(1)%ws, 0.)
-  endif
+  lake_liq  = max(lake%prog(1)%wl, 0.)
+  lake_ice  = max(lake%prog(1)%ws, 0.)
   if (lake_liq + lake_ice > 0 ) then
      lake_subl = lake_ice / (lake_liq + lake_ice)
   else
@@ -324,8 +299,8 @@ subroutine lake_step_1 ( lake, &
 
   if(num_l > 1) then
      do l = 1, num_l-1
-        dt_e = 2 / ( dz(l+1)/thermal_cond(l+1) &
-             + dz(l)/thermal_cond(l)   )
+        dt_e = 2 / ( dz_alt(l+1)/thermal_cond(l+1) &
+             + dz_alt(l)/thermal_cond(l)   )
         aaa(l+1) = - dt_e * delta_time / heat_capacity(l+1)
         ccc(l)   = - dt_e * delta_time / heat_capacity(l)
      enddo
@@ -354,7 +329,7 @@ subroutine lake_step_1 ( lake, &
   end if
   
   ! set the freezing temperature of the lake
-  lake_tf = lake%pars%tfreeze
+  lake_tf = tfreeze
   
   if(is_watch_point()) then
      write(*,*) 'lake_step_1 checkpoint 1, lake_fe(dbg)'
@@ -400,16 +375,13 @@ end subroutine lake_step_1
   ! ---- local vars
   real, dimension(num_l) :: del_t, eee, fff, &
              psi, DThDP, hyd_cond, DKDP, K, DKDPm, DKDPp, grad, &
-             vlc, vsc, dW_l, u_minus, u_plus, DPsi, lake_w_fc
+             dW_l, u_minus, u_plus, DPsi, lake_w_fc
   real, dimension(num_l+1) :: flow
   real, dimension(num_l  ) :: div
   real :: &
-     lprec_eff, hlprec_eff, tflow, hcap,cap_flow, &
+     lprec_eff, hlprec_eff, hcap, &
      melt_per_deg, melt,&
-     lrunf_sn,lrunf_ie,lrunf_bf, hlrunf_sn,hlrunf_ie,hlrunf_bf, &
-     Qout, DQoutDP,&
-     tau_gw, c0, c1, c2, x, aaa, bbb, ccc, ddd, xxx, Dpsi_min, Dpsi_max
-  logical  :: stiff
+     lrunf_sn,lrunf_ie,lrunf_bf, hlrunf_sn,hlrunf_ie,hlrunf_bf
   real, dimension(num_l-1) :: del_z
   integer :: l
   real :: jj
@@ -479,206 +451,30 @@ end subroutine lake_step_1
      enddo
   endif
 
-  ! ---- fetch lake hydraulic properties -------------------------------------
-  vlc=0;vsc=0
-  do l = 1, num_l
-    vlc(l) = max(0., lake%prog(l)%wl / (dens_h2o*dz(l)))
-    vsc(l) = max(0., lake%prog(l)%ws / (dens_h2o*dz(l)))
-  enddo
-  call lake_data_hydraulics (lake, vlc, vsc, &
-                   psi, DThDP, hyd_cond, DKDP, Dpsi_min, Dpsi_max, tau_gw, &
-                   lake_w_fc )
-
-  IF (lm2) THEN ! ********************************
-
-     if(is_watch_point()) then
-        write(*,*) ' ***** lake_step_2 checkpoint 3.1 ***** '
-        do l = 1, num_l
-           write(*,*) 'level=', l, 'vlc', vlc(l), 'K  ', hyd_cond(l)
-        enddo
-     endif
   ! ---- remainder of mass fluxes and associated sensible heat fluxes --------
     flow=1
     flow(1)  = snow_lprec *delta_time
     do l = 1, num_l
-!        flow(l+1) = max(0., lake%prog(l)%wl + flow(l) &
-!                       - lake_w_fc(l)*dz(l)*dens_h2o)
-!        flow(l+1) = flow(l)
-      flow(l+1) = lake%prog(l)%wl + flow(l) &
-                     - lake_w_fc(l)*dz(l)*dens_h2o
+      flow(l+1) = 0
       dW_l(l) = flow(l) - flow(l+1)
       lake%prog(l)%wl = lake%prog(l)%wl + dW_l(l)
     enddo
-  ELSE   ! ********************************
-    div = 0.
-    do l = 1, num_l
-      if (vsc(l).eq.0. .and. psi(l).gt.0.) then
-        div(l) = 0.15*dens_h2o*dz(l)/tau_gw
-      endif
-    enddo
-    lrunf_bf = sum(div)
-
-    ! ---- lake-water flow ----------------------------------------------------
-    stiff = all(DThDP.eq.0)
-    if (snow_lprec.ne.0. .and. psi(num_l).gt.0.) then
-      lrunf_sn = snow_lprec*min((psi(num_l)/zhalf(num_l))**lake%pars%rsa_exp,1.)
-      hlrunf_sn = lrunf_sn*snow_hlprec/snow_lprec
-    else
-      lrunf_sn = 0.
-      hlrunf_sn = 0.
-    endif
-    lprec_eff = snow_lprec - lrunf_sn
-    hlprec_eff = snow_hlprec - hlrunf_sn
-    flow(1) = delta_time*lprec_eff
-    do l = 1, num_l-1
-      del_z(l) = zfull(l+1)-zfull(l)
-        K(l) = 0.5*(hyd_cond(l)+hyd_cond(l+1))
-        DKDPm(l) = 0. !0.5*DKDP(l)
-        DKDPp(l) = 0. ! 0.5*DKDP(l+1)
-!        K(l) = hyd_cond(l)
-!        DKDPm(l) = DKDP(l)
-!        DKDPp(l) = 0
-        grad(l)  = jj*(psi(l+1)-psi(l))/del_z(l) - 1
-    enddo
-
-    if(is_watch_point()) then
-       write(*,*) ' ***** lake_step_2 checkpoint 3.1 ***** '
-       do l = 1, num_l
-          write(*,*) 'level=', l, 'DThDP,hyd_cond,psi,DKDP', &
-               DThDP(l),&
-               hyd_cond(l),&
-               psi(l),&
-               DKDP(l)
-       enddo
-       do l = 1, num_l-1
-          write(*,*) 'interface=', l, 'K,DKDPm,DKDPp,grad,del_z', &
-               K(l),&
-               DKDPm(l),&
-               DKDPp(l),&
-               grad(l)
-       enddo
-    endif
-    
-    l = num_l
-    xxx = dens_h2o*dz(l)*DThDP(l)/delta_time
-    aaa =     - ( jj* K(l-1)/del_z(l-1) - DKDPm(l-1)*grad(l-1))
-!      where (stiff)
-          bbb = xxx - (- jj*K(l-1)/del_z(l-1) - DKDPp(l-1)*grad(l-1) )
-          ddd = - K(l-1) *grad(l-1) - div(l)
-!        elsewhere
-!          Qout = hyd_cond(l) ! gravity drainage
-!          DQoutDP = DKDP(l)  ! gravity drainage
-!          Qout = 0.                ! no drainage
-!          DQoutDP = 0.             ! no drainage
-!          where (psi(l).gt.0.) ! linear baseflow from gw
-!              Qout = 0.15*psi(l)/tau_gw
-!              DQoutDP = 0.15/tau_gw
-!            elsewhere
-!              Qout = 0.
-!              DQoutDP = 0.
-!            endwhere
-!          bbb = xxx - (- jj*K(l-1)/del_z(l-1) - DKDPp(l-1)*grad(l-1)&
-!                      -DQoutDP )
-!          ddd = -Qout - K(l-1) *grad(l-1)
-!        endwhere
-    eee(l-1) = -aaa/bbb
-    fff(l-1) =  ddd/bbb
-
-    if(is_watch_point()) write(*,*) 'l,a,b, ,d', l,aaa, &
-                       bbb,ddd
-
-    do l = num_l-1, 2, -1
-      xxx = dens_h2o*dz(l)*DThDP(l)/delta_time
-      aaa = - ( jj*K(l-1)/del_z(l-1) - DKDPm(l-1)*grad(l-1))
-      bbb = xxx-( -jj*K(l-1)/del_z(l-1) - DKDPp(l-1)*grad(l-1)&
-                  -jj*K(l  )/del_z(l  ) + DKDPm(l  )*grad(l  ))
-      ccc =   - (  jj*K(l  )/del_z(l  ) + DKDPp(l  )*grad(l  ))
-      ddd =       K(l)*grad(l) - K(l-1)*grad(l-1) &
-                            - div(l)
-      eee(l-1) =                    -aaa/(bbb+ccc*eee(l))
-      fff(l-1) =  (ddd-ccc*fff(l))/(bbb+ccc*eee(l))
-      if(is_watch_point()) write(*,*) 'l,a,b,c,d', l,aaa, &
-                       bbb,ccc,ddd
-    enddo
-
-    l = 1
-    xxx = dens_h2o*dz(l)*DThDP(l)/delta_time
-    bbb = xxx - ( -jj*K(l  )/del_z(l  ) + DKDPm(l  )*grad(l  ))
-    ccc =     - (  jj*K(l  )/del_z(l  ) + DKDPp(l  )*grad(l  ))
-    ddd =          flow(1)/delta_time +    K(l)     *grad(l) &
-                            - div(l)
-    if (stiff) then
-      dPsi(l) =  - psi(l)
-    else
-      dPsi(l) = (ddd-ccc*fff(l))/(bbb+ccc*eee(l))
-      dPsi(l) = min (dPsi(l), Dpsi_max)
-      dPsi(l) = max (dPsi(l), Dpsi_min)
-    endif
-    flow(l) = (dPsi(l)*(bbb+ccc*eee(l))+ccc*fff(l) &
-                      - K(l)*grad(l))*delta_time
-    lrunf_ie         = lprec_eff - flow(l)/delta_time
-
-    if(is_watch_point()) write(*,*) 'l,  b,c,d', l, &
-                       bbb,ccc,ddd
-
-    if(is_watch_point()) then
-       write(*,*) ' ***** lake_step_2 checkpoint 3.2 ***** '
-       write(*,*) 'ie,sn,bf:', lrunf_ie,lrunf_sn,lrunf_bf
-       do l = 1, num_l-1
-          write(*,*) 'l,eee(l),fff(l)', l,eee(l), fff(l)
-       enddo
-       write(*,*) 'DThDP(1)', DThDP(1)
-       write(*,*) 'ddd(1)', ddd
-       write(*,*) 'ccc(1)', ccc
-       write(*,*) 'bbb(1)', bbb
-       write(*,*) 'dPsi(1)', dPsi(1)
-       write(*,*) 'Psi(1)', Psi(1)
-    endif
-
-    do l = 2, num_l
-      dPsi(l) = eee(l-1)*dPsi(l-1) + fff(l-1)
-    enddo
-
-    do l = 1, num_l-1
-      flow(l+1) = delta_time*( &
-           -K(l)*(grad(l)&
-           +jj*(DPsi(l+1)-DPsi(l))/ del_z(l)) &
-           -grad(l)*(DKDPp(l)*Dpsi(l+1)+ &
-                           DKDPm(l)*Dpsi(l) )  )
-      dW_l(l) = flow(l) - flow(l+1) - div(l)*delta_time
-      lake%prog(l)%wl = lake%prog(l)%wl + dW_l(l)
-    enddo
-!  where (stiff)
-    flow(num_l+1) = 0.
-!    elsewhere
-!      flow(num_l+1) = (Qout &
-!                         + DQoutDP*DPsi(num_l)) * delta_time
-!    endwhere
-    dW_l(num_l) = flow(num_l) - flow(num_l+1) &
-                            - div(num_l)*delta_time
-    lake%prog(num_l)%wl = lake%prog(num_l)%wl + dW_l(num_l)
-  
-  ENDIF ! ************************************
 
   if(is_watch_point()) then
      write(*,*) ' ***** lake_step_2 checkpoint 3.3 ***** '
-     write(*,*) 'psi_sat',lake%pars%psi_sat_ref
-     write(*,*) 'Dpsi_max',Dpsi_max
      do l = 1, num_l
         write(*,*) ' level=', l,&
-             ' Th=', (lake%prog(l)%ws +lake%prog(l)%wl)/(dens_h2o*dz(l)),&
              ' wl=', lake%prog(l)%wl,&
-             'Dpsi=', dPsi(l), &
              'flow=', flow(l)
      enddo
   endif
   
   lake_hadvec = lake_hadvec + snow_hlprec
-  if (snow_lprec.ne.0.) then
-    tflow = tfreeze + snow_hlprec/(clw*snow_lprec)
-  else
-    tflow = tfreeze
-  endif
+  hcap = lake%heat_capacity_dry(1)*dz(1) &
+                     + clw*(lake%prog(1)%wl-dW_l(1)) + csw*lake%prog(1)%ws
+  lake%prog(1)%T = tfreeze + (hcap*(lake%prog(1)%T-tfreeze) +  &
+                                 snow_hlprec*delta_time) &
+                            / ( hcap + clw*dW_l(1) )
 
   if(is_watch_point()) then
     write(*,*) ' ***** lake_step_2 checkpoint 3.4 ***** '
@@ -686,124 +482,24 @@ end subroutine lake_step_1
     write(*,*) ' snow_hlprec', snow_hlprec
   endif
 
-! For initial testing, use top-down-flow weights to advect heat.
-  u_minus = 1.
-  u_plus  = 0.
-  if (flow(1).lt.0.) u_minus(1) = 0.
-  hcap = (lake%heat_capacity_dry(num_l)*dz(num_l) &
-                              + csw*lake%prog(num_l)%ws)/clw
-  aaa = -flow(num_l) * u_minus(num_l)
-  bbb =  hcap + lake%prog(num_l)%wl - dW_l(num_l) - aaa
-  eee(num_l-1) = -aaa/bbb
-  fff(num_l-1) = aaa*(lake%prog(num_l)%T-lake%prog(num_l-1)%T) / bbb
-
-  do l = num_l-1, 2, -1
-    hcap = (lake%heat_capacity_dry(l)*dz(l) &
-                              + csw*lake%prog(l)%ws)/clw
-    aaa = -flow(l)   * u_minus(l)
-    ccc =  flow(l+1) * u_plus (l)
-    bbb =  hcap + lake%prog(l)%wl - dW_l(l) - aaa - ccc
-    eee(l-1) = -aaa / ( bbb +ccc*eee(l) )
-    fff(l-1) = (   aaa*(lake%prog(l)%T-lake%prog(l-1)%T)    &
-                       + ccc*(lake%prog(l)%T-lake%prog(l+1)%T)    &
-                       - ccc*fff(l) ) / ( bbb +ccc*eee(l) )
-  enddo
-    
-  hcap = (lake%heat_capacity_dry(1)*dz(1) + csw*lake%prog(1)%ws)/clw
-  aaa = -flow(1) * u_minus(1)
-  ccc =  flow(2) * u_plus (1)
-  bbb =  hcap + lake%prog(1)%wl - dW_l(1) - aaa - ccc
-
-  del_t(1) =  (  aaa*(lake%prog(1)%T-tflow          ) &
-                     + ccc*(lake%prog(1)%T-lake%prog(2)%T) &
-                     - ccc*fff(1) ) / (bbb+ccc*eee(1))
-  lake%prog(1)%T = lake%prog(1)%T + del_t(1)
-
-  if(is_watch_point()) then
-     write(*,*) ' ***** lake_step_2 checkpoint 3.4.1 ***** '
-     write(*,*) 'hcap', hcap
-     write(*,*) 'aaa', aaa
-     write(*,*) 'bbb', bbb
-     write(*,*) 'ccc', ccc
-     write(*,*) 'del_t(1)', del_t(1)
-     write(*,*) ' T(1)', lake%prog(1)%T
-  endif
-
-  do l = 1, num_l-1
-    del_t(l+1) = eee(l)*del_t(l) + fff(l)
-    lake%prog(l+1)%T = lake%prog(l+1)%T + del_t(l+1)
-  enddo
-
-  tflow = lake%prog(num_l)%T
-
-!  do l = 1, num_l
-!    where (mask)
-!        hcap = lake%heat_capacity_dry(l)*dz(l) &
-!                 + clw*(lake%prog(l)%wl-dW_l(l)) + csw*lake%prog(l)%ws
-!        cap_flow = clw*flow(l)
-!        lake%prog(l)%T = (hcap*lake%prog(l)%T + cap_flow*tflow) &
-!                         /(hcap                 + cap_flow      )
-!        tflow  = lake%prog(l)%T
-!      endwhere
-!    enddo
-
-
-  if(is_watch_point()) then
-     write(*,*) ' ***** lake_step_2 checkpoint 3.5 ***** '
-     write(*,*) 'hcap', hcap
-     write(*,*) 'cap_flow', cap_flow
-     do l = 1, num_l
-        write(*,*) 'level=', l, ' T', lake%prog(l)%T
-     enddo
-  endif
-
-  ! ---- groundwater ---------------------------------------------------------
-  ! THIS T AVERAGING IS WRONG, BECAUSE IT NEGLECTS THE MEDIUM  ***
-  ! ALSO, FREEZE-THAW IS NEEDED!
-  ! PROBABLY THIS SECTION WILL BE DELETED ANYWAY, WITH GW TREATED ABOVE.
-  IF (lm2) THEN
-    do l = 1, 1      !TEMPORARY LAYER THING !!!!***
-      if (lake%prog(l)%groundwater + flow(num_l+1) .ne. 0.) then ! TEMP FIX
-          lake%prog(l)%groundwater_T =    &
-           + (lake%prog(l)%groundwater*lake%prog(l)%groundwater_T &
-              + flow(num_l+1)*tflow) &
-            /(lake%prog(l)%groundwater + flow(num_l+1))
-      endif
-      c0 = delta_time/tau_gw
-      c1 = exp(-c0)
-      c2 = (1-c1)/c0
-      x  = (1-c1)*lake%prog(l)%groundwater/delta_time &
-                          + (1-c2)*flow(num_l+1)/delta_time
-      lake%prog(l)%groundwater = c1 * lake%prog(l)%groundwater &
-                                + c2 * flow(num_l+1)
-      lake_lrunf  = x
-      lake_hlrunf = x*clw*(lake%prog(l)%groundwater_T-tfreeze)
-      lake_hadvec = lake_hadvec - lake_hlrunf
-    enddo
-  ELSE
-    if (lprec_eff.ne.0. .and. flow(1).ge.0. ) then
-      hlrunf_ie = lrunf_ie*hlprec_eff/lprec_eff
-    else if (flow(1).lt.0. ) then
-      hlrunf_ie = hlprec_eff - (flow(1)/delta_time)*clw &
-                             *(lake%prog(1)%T-tfreeze)
-    else
-      hlrunf_ie = 0.
-    endif
-    hlrunf_bf = clw*sum(div*(lake%prog%T-tfreeze))
+    lrunf_sn = 0
+    lrunf_ie = 0
+    lrunf_bf = 0
+    hlrunf_sn = 0
+    hlrunf_ie = 0
+    hlrunf_bf = 0
     lake_lrunf  = lrunf_sn + lrunf_ie + lrunf_bf
     lake_hlrunf = hlrunf_sn + hlrunf_bf + hlrunf_ie 
-    lake_hadvec = lake_hadvec - lake_hlrunf
-  ENDIF
 
   do l = 1, num_l
     ! ---- compute explicit melt/freeze --------------------------------------
     hcap = lake%heat_capacity_dry(l)*dz(l) &
              + clw*lake%prog(l)%wl + csw*lake%prog(l)%ws
     melt_per_deg = hcap/hlf
-    if (lake%prog(l)%ws>0 .and. lake%prog(l)%T>lake%pars%tfreeze) then
-      melt =  min(lake%prog(l)%ws, (lake%prog(l)%T-lake%pars%tfreeze)*melt_per_deg)
-    else if (lake%prog(l)%wl>0 .and. lake%prog(l)%T<lake%pars%tfreeze) then
-      melt = -min(lake%prog(l)%wl, (lake%pars%tfreeze-lake%prog(l)%T)*melt_per_deg)
+    if (lake%prog(l)%ws>0 .and. lake%prog(l)%T>tfreeze) then
+      melt =  min(lake%prog(l)%ws, (lake%prog(l)%T-tfreeze)*melt_per_deg)
+    else if (lake%prog(l)%wl>0 .and. lake%prog(l)%T<tfreeze) then
+      melt = -min(lake%prog(l)%wl, (tfreeze-lake%prog(l)%T)*melt_per_deg)
     else
       melt = 0
     endif
@@ -831,10 +527,8 @@ end subroutine lake_step_1
   lake_FMASS = 0
   lake_HEAT = 0
   do l = 1, num_l
-    lake_LMASS = lake_LMASS &
-         +      lake%prog(l)%wl
-    lake_FMASS = lake_FMASS &
-         +      lake%prog(l)%ws
+    lake_LMASS = lake_LMASS + lake%prog(l)%wl
+    lake_FMASS = lake_FMASS + lake%prog(l)%ws
     lake_HEAT = lake_HEAT &
          + (lake%heat_capacity_dry(l)*dz(l) &
              + clw*lake%prog(l)%wl + csw*lake%prog(l)%ws)  &
@@ -857,13 +551,14 @@ end subroutine lake_step_1
   ! ---- diagnostic section
   call send_tile_data (id_temp, lake%prog%T,     diag )
   call send_tile_data (id_lwc,  lake%prog(1:num_l)%wl/dz(1:num_l), diag )
-  call send_tile_data (id_swc,  lake%prog(1:num_l)%wl/dz(1:num_l), diag )
+  call send_tile_data (id_swc,  lake%prog(1:num_l)%ws/dz(1:num_l), diag )
   call send_tile_data (id_ie,   lrunf_ie,        diag )
   call send_tile_data (id_sn,   lrunf_sn,        diag )
   call send_tile_data (id_bf,   lrunf_bf,        diag )
   call send_tile_data (id_hie,  hlrunf_ie,       diag )
   call send_tile_data (id_hsn,  hlrunf_sn,       diag )
   call send_tile_data (id_hbf,  hlrunf_bf,       diag )
+  call send_tile_data (id_evap, lake_levap+lake_fevap, diag )
 
 end subroutine lake_step_2
 
@@ -906,6 +601,8 @@ subroutine lake_diag_init ( id_lon, id_lat )
        Time, 'heat sn runf',            'W/m2',  missing_value=-100.0 )
   id_hbf  = register_tiled_diag_field ( module_name, 'lake_hbf',  axes(1:2),  &
        Time, 'heat bf runf',            'W/m2',  missing_value=-100.0 )
+  id_evap  = register_tiled_diag_field ( module_name, 'lake_evap',  axes(1:2),  &
+       Time, 'lake evap',            'kg/(m2 s)',  missing_value=-100.0 )
 
   ! define static diagnostic fields
   

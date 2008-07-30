@@ -49,8 +49,8 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), parameter   :: &
-     version     = '$Id: soil_tile.F90,v 15.0.2.5 2007/12/05 19:41:35 slm Exp $', &
-     tagname     = '$Name: omsk_2008_03 $', &
+     version     = '$Id: soil_tile.F90,v 16.0 2008/07/30 22:30:01 fms Exp $', &
+     tagname     = '$Name: perth $', &
      module_name = 'soil_tile_mod'
 
 integer, parameter :: max_lev          = 30 

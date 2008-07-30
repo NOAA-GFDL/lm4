@@ -33,8 +33,8 @@ include 'netcdf.inc'
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land_io_mod', &
-     version     = '$Id: land_io.F90,v 15.0.2.4 2007/12/05 19:46:39 slm Exp $', &
-     tagname     = '$Name: omsk_2008_03 $'
+     version     = '$Id: land_io.F90,v 16.0 2008/07/30 22:13:09 fms Exp $', &
+     tagname     = '$Name: perth $'
 
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-

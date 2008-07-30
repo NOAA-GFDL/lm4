@@ -44,8 +44,8 @@ public :: snow_step_2
 ! ==== module variables ======================================================
 character(len=*), parameter, private   :: &
        module_name = 'snow_mod' ,&
-       version     = '$Id: snow.F90,v 15.0.2.4 2008/02/17 21:01:29 slm Exp $' ,&
-       tagname     = '$Name: omsk_2008_03 $'
+       version     = '$Id: snow.F90,v 16.0 2008/07/30 22:29:55 fms Exp $' ,&
+       tagname     = '$Name: perth $'
 
 ! ==== module variables ======================================================
 
@@ -755,50 +755,57 @@ end subroutine snow_step_1
     fict_heat = fict_heat + dz(l)*snow%prog(l)%T     ! (*mc_fict)
   enddo
 
-! ---- sweep excess snow from top down ---------------------------------------
-  snow_lrunf = 0
-  snow_hlrunf = 0
-  snow_hfrunf = 0
-
   snow_mass  = sum(snow%prog%ws)
-  snow_frunf = max(snow_mass-max_snow,0.)/delta_time
-  snow_mass  = min(snow_mass, max_snow)
-  if (snow_mass < min_snow_mass .and. snow_mass > 0.) then
-        snow_frunf = snow_frunf + snow_mass/delta_time
-        snow_mass = 0.
-  endif
-
   if(is_watch_point()) then
      write(*,*) ' ***** snow_step_2 checkpoint 4d ***** '
      write(*,*) 'max_snow    ', max_snow
      write(*,*) 'snow_mass   ', snow_mass
-     write(*,*) 'snow_frunf', snow_frunf
   endif
 
-  sum_sno  = 0
-  snow_transfer = 0
-  do l = 1, num_l
-    if (snow_frunf > 0) then
-      if (sum_sno + snow%prog(l)%ws > snow_frunf) then
-            snow_transfer = delta_time*snow_frunf - sum_sno
-      else
-            snow_transfer = snow%prog(l)%ws
-      endif
-      if (snow%prog(l)%ws > 0) then        ! THIS COULD BE A BUG********
-            frac = snow_transfer / snow%prog(l)%ws
-      else
-!            frac = 0
-            frac = 1.
-      endif
+! ---- remove any isolated snow molecules (!) or sweep any excess snow from top of pack ----
+
+  snow_lrunf  = 0.
+  snow_frunf  = 0.
+  snow_hlrunf = 0.
+  snow_hfrunf = 0.
+  if (0. < snow_mass .and. snow_mass < min_snow_mass ) then
+        do l = 1, num_l
+          snow_hlrunf = snow_hlrunf  &
+            + clw*snow%prog(l)%wl*(snow%prog(l)%T-tfreeze)
+          snow_hfrunf = snow_hfrunf  &
+            + csw*snow%prog(l)%ws*(snow%prog(l)%T-tfreeze)
+          enddo
+        snow_lrunf  = sum(snow%prog%wl)
+        snow_frunf  = snow_mass
+        snow_mass   = 0.
+        snow%prog%ws = 0.
+        snow%prog%wl = 0.
+    else if (max_snow < snow_mass) then
+        snow_frunf  = snow_mass - max_snow
+        snow_mass  = max_snow
+        sum_sno  = 0
+        snow_transfer = 0
+        do l = 1, num_l
+          if (sum_sno + snow%prog(l)%ws > snow_frunf) then
+              snow_transfer = snow_frunf - sum_sno
+            else
+              snow_transfer = snow%prog(l)%ws
+            endif
+          if (snow%prog(l)%ws > 0) then
+              frac = snow_transfer / snow%prog(l)%ws
+            else
+              frac = 1.
+            endif
           sum_sno  = sum_sno  + snow_transfer
           snow_lrunf  = snow_lrunf  +     frac*snow%prog(l)%wl
           snow_hlrunf = snow_hlrunf + clw*frac*snow%prog(l)%wl*(snow%prog(l)%T-tfreeze)
           snow_hfrunf = snow_hfrunf + csw*frac*snow%prog(l)%ws*(snow%prog(l)%T-tfreeze)
           snow%prog(l)%ws = (1-frac)*snow%prog(l)%ws
           snow%prog(l)%wl = (1-frac)*snow%prog(l)%wl
+          enddo
     endif
-  enddo
-  snow_lrunf = snow_lrunf / delta_time
+  snow_lrunf  = snow_lrunf  / delta_time
+  snow_frunf  = snow_frunf  / delta_time
   snow_hlrunf = snow_hlrunf / delta_time
   snow_hfrunf = snow_hfrunf / delta_time
   snow_hadvec = snow_hadvec - snow_hlrunf - snow_hfrunf
@@ -841,12 +848,11 @@ end subroutine snow_step_1
   depth = depth / snow_density
 
 !************************** fudge to avoid T=NaN from too-small mass **
-  do l = 1, num_l
-     if(depth*snow_density < min_snow_mass .and. depth>0.) then
-        depth = 0
-        snow%prog(l)%ws = 0
-     endif
-  enddo
+!   if(depth*snow_density < min_snow_mass .and. depth>0.) then
+!       depth = 0
+!       snow%prog%ws = 0
+!       snow%prog%wl = 0
+!     endif
 
 ! ---- re-layer the snowpack ------------------------------------------------
   do l = 1, num_l

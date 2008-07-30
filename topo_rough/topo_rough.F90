@@ -63,8 +63,8 @@ namelist/topo_rough_nml/ use_topo_rough, topo_rough_factor, max_topo_rough, &
 character(len=*), parameter :: &
      module_name   = 'she_topo_rough', &
      diag_mod_name = 'topo_rough', &
-     version       = '$Id: topo_rough.F90,v 15.0.2.3 2007/11/16 21:57:02 slm Exp $', &
-     tagname       = '$Name: omsk_2008_03 $'
+     version       = '$Id: topo_rough.F90,v 16.0 2008/07/30 22:30:03 fms Exp $', &
+     tagname       = '$Name: perth $'
 
 ! ==== module private data ===================================================
 real, allocatable, save ::topo_stdev(:,:)

@@ -47,8 +47,8 @@ public :: land_transitions
 
 ! ==== module constants =====================================================
 character(len=*), parameter   :: &
-     version = '$Id: transitions.F90,v 1.1.2.4 2008/02/17 21:01:29 slm Exp $', &
-     tagname = '$Name: omsk_2008_03 $', &
+     version = '$Id: transitions.F90,v 16.0 2008/07/30 22:30:04 fms Exp $', &
+     tagname = '$Name: perth $', &
      module_name = 'land_transitions_mod', &
      diag_mod_name = 'landuse'
 

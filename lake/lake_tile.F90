@@ -33,7 +33,6 @@ public :: lake_cover_cold_start
 public :: lake_data_radiation
 public :: lake_data_diffusion
 public :: lake_data_thermodynamics
-public :: lake_data_hydraulics
 
 public :: max_lev
 ! =====end of public interfaces ==============================================
@@ -45,8 +44,8 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter   :: &
-     version     = '$Id: lake_tile.F90,v 15.0.2.3 2007/12/05 19:41:35 slm Exp $', &
-     tagname     = '$Name: omsk_2008_03 $', &
+     version     = '$Id: lake_tile.F90,v 16.0 2008/07/30 22:12:51 fms Exp $', &
+     tagname     = '$Name: perth $', &
      module_name = 'lake_tile_mod'
 
 integer, parameter :: max_lev          = 30
@@ -73,7 +72,6 @@ type :: lake_pars_type
   real z0_momentum
   real tau_groundwater
   real rsa_exp         ! riparian source-area exponent
-  real tfreeze
 end type lake_pars_type
 
 type :: lake_prog_type
@@ -106,7 +104,6 @@ real, public :: &
 real    :: k_over_B              = 0.25      ! reset to 0 for MCM
 real    :: rate_fc               = 0.1/86400 ! 0.1 mm/d drainage rate at FC
 real    :: sfc_heat_factor       = 1
-integer :: z_sfc_layer           = 0
 integer :: num_l                 = 18           ! number of lake levels
 real    :: dz(max_lev)           = (/ &
     0.02, 0.04, 0.04, 0.05, 0.05, 0.1, 0.1, 0.2, 0.2, &
@@ -161,7 +158,7 @@ character(len=4), dimension(n_dim_lake_types) :: &
 namelist /lake_data_nml/ &
      lake_to_use,input_cover_types, tile_names, &
      k_over_B,             &
-     rate_fc, sfc_heat_factor, z_sfc_layer,          &
+     rate_fc, sfc_heat_factor,        &
      num_l,                   dz,                      &
      use_lm2_awc,    n_map_1st_lake_type, &
      use_single_lake,           use_mcm_albedo,            &
@@ -177,8 +174,6 @@ namelist /lake_data_nml/ &
      dat_z0_momentum,           dat_tf_depr
 
 !---- end of namelist --------------------------------------------------------
-
-integer :: num_sfc_layers
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -212,14 +207,6 @@ subroutine read_lake_data_namelist(lake_n_lev, lake_dz)
   do i=1, n_dim_lake_types
      call register_tile_selector(tile_names(i), long_name='',&
           tag = SEL_LAKE, idata1 = i )
-  enddo
-
-  ! initialize num_sfc_layers
-  z = 0
-  num_sfc_layers = 0
-  do i = 1, num_l
-     z = z + dz(i)
-     if (z < z_sfc_layer+1.e-4) num_sfc_layers = i
   enddo
 
   ! set up output arguments
@@ -305,9 +292,6 @@ subroutine init_lake_data_0d(lake)
   lake%pars%emis_dry          = dat_emis_dry         (k)
   lake%pars%emis_sat          = dat_emis_sat         (k)
   lake%pars%z0_momentum       = dat_z0_momentum      (k)
-  lake%pars%tfreeze           = tfreeze - dat_tf_depr(k)
-
-!   lake_type_tfreeze(:,:,iii)       = tfreeze - dat_tf_depr  (k)
 
   lake%pars%tau_groundwater   = 86400.*30.
   lake%pars%rsa_exp           = rsa_exp_global
@@ -429,7 +413,7 @@ end function
 
 
 ! ============================================================================
-! retruns tag of the tile
+! returns tag of the tile
 function get_lake_tile_tag(lake) result(tag)
   integer :: tag
   type(lake_tile_type), intent(in) :: lake
@@ -485,105 +469,15 @@ subroutine lake_data_thermodynamics ( lake_pars, vlc_sfc, vsc_sfc, &
 ! of water availability, so that vapor fluxes will not exceed mass limits
 ! ----------------------------------------------------------------------------
 
-  ! assign some index of water availability for snow-free lake
-  lake_rh = 1
+  lake_rh = 0
+  if (vlc_sfc+vsc_sfc .gt. 0.) lake_rh = (vlc_sfc+vsc_sfc)/lake_pars%w_sat
 
-  ! these will eventually be functions of water content (or psi) and T.
-  do l = 1, num_sfc_layers
-     heat_capacity_dry(l) = sfc_heat_factor*lake_pars%heat_capacity_ref
-     thermal_cond(l)  = sfc_heat_factor*lake_pars%thermal_cond_ref
-  enddo
-  do l = num_sfc_layers+1, num_l
+  do l = 1, num_l
      heat_capacity_dry(l) = lake_pars%heat_capacity_ref
      thermal_cond(l)  = lake_pars%thermal_cond_ref
   enddo
 
 end subroutine
-
-! ============================================================================
-! compute lake hydraulic properties.
-subroutine lake_data_hydraulics (lake, vlc, vsc, &
-                    psi, DThDP, hyd_cond, DKDP, DPsi_min, DPsi_max, tau_gw, &
-                    lake_w_fc  )
-  type(lake_tile_type),        intent(in) :: lake
-  real,                        intent(in),  dimension(:) :: vlc, vsc
-  real,                        intent(out), dimension(:) :: &
-      psi, DThDP, hyd_cond, DKDP, lake_w_fc
-  real,                        intent(out) :: &
-                     DPsi_min, DPsi_max, tau_gw
-  ! ---- local vars ----------------------------------------------------------
-  integer l
-  real,  dimension(num_l) :: vlc_loc
-  
-  ! ---- T-dependence of hydraulic properties --------------------------------
-  ! k_sat   = lake%pars%k_sat0   !  * mu(t0)/mu(t), where mu is dynamic viscosity
-  ! psi_sat = lake%pars%psi_sat0 !  * exp(c*(psi-psi0)), where c~+/-(?)0.0068
-                     ! better approach would be to adopt air entrapment model
-                     ! or at least to scale against surface tension model
-
-
-  ! ---- water and ice dependence of hydraulic properties --------------------
-  ! ---- (T-dependence can be added later)
-  hyd_cond=1;DThDP=1
-  do l = 1, num_l
-    hyd_cond(l) = (lake%pars%k_sat_ref*lake%pars%alpha**2)*  &
-                  ! * mu(T)/mu(t_ref), where mu is dynamic viscosity
-                 (vlc(l)/lake%pars%w_sat)**(3+2*lake%pars%chb)
-    if (hyd_cond(l).lt.1.e-12*lake%pars%k_sat_ref) then
-      vlc_loc (l) = lake%pars%w_sat*(1.e-12)**(1./(3+2*lake%pars%chb))
-      hyd_cond(l) = 1.e-12*lake%pars%k_sat_ref
-      if (vsc(l).eq.0.) then
-        DThDP   (l) = -vlc_loc(l)  &
-                         *(vlc_loc(l)/lake%pars%w_sat)**lake%pars%chb &
-                 /(lake%pars%psi_sat_ref*lake%pars%chb)
-        psi     (l) = (lake%pars%psi_sat_ref/lake%pars%alpha) &
-            *(lake%pars%w_sat/vlc_loc(l))**lake%pars%chb &
-            + (vlc(l)-vlc_loc (l))/DThDP   (l)
-        DKDP    (l) = 0.
-      else
-        psi     (l) = ((lake%pars%psi_sat_ref/lake%pars%alpha) / 2.2) &
-            *(lake%pars%w_sat/vlc_loc(l))**lake%pars%chb
-        DKDP    (l) = 0.
-        DThDP   (l) = 0.
-      endif
-    else
-      if (vsc(l).eq.0.) then
-         if (vlc(l).le.lake%pars%w_sat) then
-           psi     (l) = (lake%pars%psi_sat_ref/lake%pars%alpha) &
-              *(lake%pars%w_sat/vlc(l))**lake%pars%chb
-           DKDP    (l) = -(2+3/lake%pars%chb)*hyd_cond(l) &
-                                                  /psi(l)
-           DThDP   (l) = -vlc(l)/(psi(l)*lake%pars%chb)
-         else
-           psi(l) = lake%pars%psi_sat_ref &
-              + (vlc(l)-lake%pars%w_sat)/comp
-           DThDP(l) = comp
-           hyd_cond(l) = lake%pars%k_sat_ref
-           DKDP(l) = 0.
-         endif
-       else
-         psi     (l) = ((lake%pars%psi_sat_ref/lake%pars%alpha) / 2.2) &
-                 *(lake%pars%w_sat/vlc(l))**lake%pars%chb
-         DKDP    (l) = 0.
-         DThDP   (l) = 0.
-       endif
-    endif
-  enddo
-
-  if (DThDP(1).ne.0.) then
-    DPsi_min =            -vlc(1) /DThDP(1)
-    DPsi_max = (lake%pars%w_sat-vlc(1))/DThDP(1)
-  else
-    Dpsi_min = -1.e16
-    DPsi_max = -psi(1)
-  endif
-
-  lake_w_fc = lake%w_fc
-  
-  ! ---- groundwater ---------------------------------------------------------
-  tau_gw = lake%pars%tau_groundwater
- 
-end subroutine lake_data_hydraulics
 
 
 end module lake_tile_mod

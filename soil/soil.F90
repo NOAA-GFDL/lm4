@@ -55,8 +55,8 @@ public :: soil_step_2
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'soil',&
-    version     = '$Id: soil.F90,v 15.0.2.6 2008/02/17 21:01:29 slm Exp $',&
-    tagname     = '$Name: omsk_2008_03 $'
+    version     = '$Id: soil.F90,v 16.0 2008/07/30 22:29:59 fms Exp $',&
+    tagname     = '$Name: perth $'
 
 
 ! ==== module variables ======================================================
@@ -91,7 +91,8 @@ real            :: zhalf (max_lev+1)
 ! ---- diagnostic field IDs
 integer :: id_lwc, id_swc, id_temp, id_ie, id_sn, id_bf, id_hie, id_hsn, &
     id_hbf, id_heat_cap, id_thermal_cond, id_type, id_tau_gw, id_w_fc, &
-    id_refl_dry_dif, id_refl_dry_dir, id_refl_sat_dif, id_refl_sat_dir
+    id_refl_dry_dif, id_refl_dry_dir, id_refl_sat_dif, id_refl_sat_dir, &
+    id_evap
 
 ! ==== end of module variables ===============================================
 
@@ -290,6 +291,8 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band )
        Time, 'heat sn runf',            'W/m2',  missing_value=-100.0 )
   id_hbf  = register_tiled_diag_field ( module_name, 'soil_hbf',  axes(1:2), &
        Time, 'heat bf runf',            'W/m2',  missing_value=-100.0 )
+  id_evap  = register_tiled_diag_field ( module_name, 'soil_evap',  axes(1:2), &
+       Time, 'soil evap',            'kg/(m2 s)',  missing_value=-100.0 )
 
   id_heat_cap = register_tiled_diag_field ( module_name, 'soil_heat_cap',  &
        axes, Time, 'heat capacity of dry soil','J/(m3 K)', missing_value=-100.0 )
@@ -873,17 +876,21 @@ end subroutine soil_step_1
     ccc =     - (  jj*K(l  )/del_z(l  ) + DKDPp(l  )*grad(l  ))
     ddd =          flow(1)/delta_time +    K(l)     *grad(l) &
                             - div(l)
-    if (stiff) then
-      dPsi(l) =  - psi(l)
-    else
-      dPsi(l) = (ddd-ccc*fff(l))/(bbb+ccc*eee(l))
-      dPsi(l) = min (dPsi(l), Dpsi_max)
-      dPsi(l) = max (dPsi(l), Dpsi_min)
-    endif
-    flow(l) = (dPsi(l)*(bbb+ccc*eee(l))+ccc*fff(l) &
+    dPsi(l) = (ddd-ccc*fff(l))/(bbb+ccc*eee(l))
+    if (.not.stiff .and. dPsi(l).gt.Dpsi_min .and. dPsi(l).lt.Dpsi_max) then
+        lrunf_ie = 0.
+      else
+      	if (stiff) then
+            dPsi(l) = - psi(l)
+          else
+            dPsi(l) = min (dPsi(l), Dpsi_max)
+            dPsi(l) = max (dPsi(l), Dpsi_min)
+          endif
+        flow(l) = (dPsi(l)*(bbb+ccc*eee(l))+ccc*fff(l) &
                       - K(l)*grad(l))*delta_time
-    lrunf_ie         = lprec_eff - flow(l)/delta_time
-  
+        lrunf_ie = lprec_eff - flow(l)/delta_time
+      endif
+      
     if(is_watch_point()) then
        write(*,'(a,i2.2,100(2x,g))') 'l,  b,c,d', l, bbb,ccc,ddd
        write(*,*) ' ##### soil_step_2 checkpoint 3.2 #####'
@@ -904,7 +911,7 @@ end subroutine soil_step_1
 
     do l = 2, num_l
       dPsi(l) = eee(l-1)*dPsi(l-1) + fff(l-1)
-    enddo
+      enddo
   
     do l = 1, num_l-1
       flow(l+1) = delta_time*( &
@@ -913,17 +920,10 @@ end subroutine soil_step_1
            -grad(l)*(DKDPp(l)*Dpsi(l+1)+ &
                            DKDPm(l)*Dpsi(l) )  )
       dW_l(l) = flow(l) - flow(l+1) - div(l)*delta_time
-!      soil%prog(l)%wl = soil%prog(l)%wl + dW_l(l)
-    enddo
-!  where (stiff)
+      enddo
     flow(num_l+1) = 0.
-!    elsewhere
-!      flow(num_l+1) = (Qout &
-!                         + DQoutDP*DPsi(num_l)) * delta_time
-!    endwhere
     dW_l(num_l) = flow(num_l) - flow(num_l+1) &
                             - div(num_l)*delta_time
-!    soil%prog(num_l)%wl = soil%prog(num_l)%wl + dW_l(num_l)
 
     if(is_watch_point()) then
        write(*,*) ' ##### soil_step_2 checkpoint 3.21 #####'
@@ -995,6 +995,7 @@ end subroutine soil_step_1
   if(is_watch_point()) then
      write(*,*) ' ***** soil_step_2 checkpoint 3.4 ***** '
      write(*,*) ' tfreeze', tfreeze
+     write(*,*) '  tflow ', tflow
      write(*,*) ' snow_hlprec', snow_hlprec
   endif
 
@@ -1178,6 +1179,7 @@ end subroutine soil_step_1
    call send_tile_data(id_hie,  hlrunf_ie, diag)
    call send_tile_data(id_hsn,  hlrunf_sn, diag)
    call send_tile_data(id_hbf,  hlrunf_bf, diag)
+   call send_tile_data(id_evap,  soil_levap+soil_fevap, diag)
 
    call send_tile_data(id_heat_cap, soil%heat_capacity_dry(1:num_l), diag)
 

@@ -31,8 +31,8 @@ public :: write_cohort_data_i0d_fptr
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'cohort_io_mod', &
-     version     = '$Id: vegn_cohort_io.F90,v 15.0.2.5 2008/02/01 20:30:58 slm Exp $', &
-     tagname     = '$Name: omsk_2008_03 $'
+     version     = '$Id: vegn_cohort_io.F90,v 16.0 2008/07/30 22:30:10 fms Exp $', &
+     tagname     = '$Name: perth $'
 ! name of the "compressed" dimension (and dimension variable) in the output 
 ! netcdf files -- that is, the dimensions written out using compression by 
 ! gathering, as described in CF conventions.

@@ -17,36 +17,37 @@ module river_type_mod
 !           675 Mass Ave, Cambridge, MA 02139, USA.                   
 ! or see:   http://www.gnu.org/licenses/gpl.html                      
 !-----------------------------------------------------------------------
-  ! <CONTACT EMAIL="klf@gfdl.noaa.gov"> Kirsten Findell </CONTACT> 
-  ! <CONTACT EMAIL="z1l@gfdl.noaa.gov"> Zhi Liang </CONTACT> 
+! <CONTACT EMAIL="klf@gfdl.noaa.gov"> Kirsten Findell </CONTACT> 
+! <CONTACT EMAIL="z1l@gfdl.noaa.gov"> Zhi Liang </CONTACT> 
 
   use time_manager_mod, only : time_type
 
   implicit none
   private
 
-  !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id: river_type.F90,v 15.0.2.2 2007/12/05 19:41:35 slm Exp $'
-  character(len=128) :: tagname = '$Name: omsk_2008_03 $'
+!--- version information ---------------------------------------------
+  character(len=128) :: version = '$Id: river_type.F90,v 16.0 2008/07/30 22:13:05 fms Exp $'
+  character(len=128) :: tagname = '$Name: perth $'
 
-  !--- public interface ------------------------------------------------
+!--- public interface ------------------------------------------------
   public :: river_type, Leo_Mad_trios
 
-  !--- public data type ------------------------------------------------
+!--- public data type ------------------------------------------------
 
   type river_type
-     integer, dimension(:),     pointer :: is    => NULL(), ie    => NULL()
-     integer, dimension(:),     pointer :: js    => NULL(), je    => NULL()
-     real, dimension(:),        pointer :: lon   => NULL(), lat   => NULL()
-     real, dimension(:),        pointer :: lonb  => NULL(), latb  => NULL()
+     real, dimension(:),        pointer :: lon_1d        => NULL()  ! in degree
+     real, dimension(:),        pointer :: lat_1d        => NULL()  ! in degree
+     real, dimension(:,:),      pointer :: lon           => NULL()  ! in radians
+     real, dimension(:,:),      pointer :: lat           => NULL()  ! in radians
      real, dimension(:,:),      pointer :: celllength    => NULL()
      real, dimension(:,:),      pointer :: landfrac      => NULL()
+     logical, dimension(:,:),   pointer :: mask          => NULL()
      real, dimension(:,:),      pointer :: cellarea      => NULL()
      integer, dimension(:,:),   pointer :: basinid       => NULL() 
      integer, dimension(:,:),   pointer :: tocell        => NULL()
      integer, dimension(:,:),   pointer :: travel        => NULL()
-     logical, dimension(:,:),   pointer :: pemask        => NULL()
-     logical, dimension(:,:),   pointer :: gmask         => NULL()
+     integer, dimension(:,:),   pointer :: i_tocell      => NULL()
+     integer, dimension(:,:),   pointer :: j_tocell      => NULL()
      real, dimension(:,:),      pointer :: storage       => NULL()     
      real, dimension(:,:,:),    pointer :: storage_c     => NULL()     
      real, dimension(:,:),      pointer :: inflow        => NULL()
@@ -56,27 +57,28 @@ module river_type_mod
      real, dimension(:,:),      pointer :: outflow       => NULL()
      real, dimension(:,:,:),    pointer :: outflow_c     => NULL()
      real, dimension(:,:),      pointer :: disw2o        => NULL()
-!     real, dimension(:,:),      pointer :: diss2o        => NULL()
      real, dimension(:,:),      pointer :: disw2l        => NULL()
-!     real, dimension(:,:),      pointer :: diss2l        => NULL()
      real, dimension(:,:,:),    pointer :: disc2o        => NULL()
      real, dimension(:,:,:),    pointer :: disc2l        => NULL()
      real, dimension(:,:,:),    pointer :: removal_c     => NULL()
      real, dimension(:,:),      pointer :: outflowmean   => NULL()
      real, dimension(:,:),      pointer :: o_coef        => NULL()
-     real, dimension(:,:),      pointer :: o_exp         => NULL()
      real, dimension(:,:),      pointer :: d_coef        => NULL()
-     real, dimension(:,:),      pointer :: d_exp         => NULL()
+     real, dimension(:,:),      pointer :: w_coef        => NULL()
      real, dimension(:,:,:),    pointer :: source_conc   => NULL()
      real, dimension(:,:,:),    pointer :: source_flux   => NULL()
      real, dimension(:,:),      pointer :: So            => NULL()
      real, dimension(:,:),      pointer :: depth         => NULL()
-!     real, dimension(:,:),      pointer :: width         => NULL()
-!     real, dimension(:,:),      pointer :: vel           => NULL()
+     real, dimension(:,:),      pointer :: width         => NULL()
+     real, dimension(:,:),      pointer :: vel           => NULL()
      real, dimension(:),        pointer :: t_ref         => NULL()
      real, dimension(:),        pointer :: vf_ref        => NULL()
      real, dimension(:),        pointer :: q10           => NULL()
      real, dimension(:),        pointer :: kinv          => NULL()
+     real                               :: o_exp
+     real                               :: d_exp
+     real                               :: w_exp
+     real                               :: channel_tau
      type (time_type)                   :: Time
      integer                            :: dt_fast, dt_slow
      integer                            :: nlon, nlat, num_species, num_c
@@ -84,9 +86,9 @@ module river_type_mod
      logical                            :: do_age
   end type river_type
 
-type Leo_Mad_trios
-   real :: on_V, on_d, on_w
-end type Leo_Mad_trios
+  type Leo_Mad_trios
+     real :: on_V, on_d, on_w
+  end type Leo_Mad_trios
 
 
 end module river_type_mod

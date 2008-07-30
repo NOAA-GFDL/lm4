@@ -21,8 +21,8 @@ public :: vegn_radiation
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-   version = '$Id: vegn_radiation.F90,v 15.0.2.5 2008/02/01 20:30:58 slm Exp $', &
-   tagname = '$Name: omsk_2008_03 $' ,&
+   version = '$Id: vegn_radiation.F90,v 16.0 2008/07/30 22:30:20 fms Exp $', &
+   tagname = '$Name: perth $' ,&
    module_name = 'vegn_radiation'
 ! values for internal vegetation radiation option selector
 integer, parameter :: VEGN_RAD_BIGLEAF   = 1 ! "big-leaf" radiation

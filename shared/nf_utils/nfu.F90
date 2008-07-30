@@ -66,8 +66,8 @@ end interface
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: &
      module_name = 'nf_utils_mod', &
-     version     = '$Id: nfu.F90,v 1.1.2.1 2008/02/01 20:30:58 slm Exp $', &
-     tagname     = '$Name: omsk_2008_03 $'
+     version     = '$Id: nfu.F90,v 16.0 2008/07/30 22:29:51 fms Exp $', &
+     tagname     = '$Name: perth $'
 
 ! ---- module types ----------------------------------------------------------
 type nfu_validtype
