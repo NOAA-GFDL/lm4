@@ -45,8 +45,8 @@ public :: glac_step_2
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
        module_name = 'glacier',&
-       version     = '$Id: glacier.F90,v 16.0 2008/07/30 22:12:45 fms Exp $',&
-       tagname     = '$Name: perth $'
+       version     = '$Id: glacier.F90,v 15.0.2.4.4.1 2008/07/08 01:13:34 pcm Exp $',&
+       tagname     = '$Name: perth_2008_10 $'
  
 ! ==== module variables ======================================================
 
@@ -934,7 +934,7 @@ end subroutine glac_step_1
   ! ---- diagnostic section
   call send_tile_data (id_temp, glac%prog%T,     diag )
   call send_tile_data (id_lwc,  glac%prog(1:num_l)%wl/dz(1:num_l), diag )
-  call send_tile_data (id_swc,  glac%prog(1:num_l)%wl/dz(1:num_l), diag )
+  call send_tile_data (id_swc,  glac%prog(1:num_l)%ws/dz(1:num_l), diag )
   call send_tile_data (id_ie,   lrunf_ie,        diag )
   call send_tile_data (id_sn,   lrunf_sn,        diag )
   call send_tile_data (id_bf,   lrunf_bf,        diag )

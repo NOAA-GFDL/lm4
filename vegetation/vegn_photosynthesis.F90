@@ -21,7 +21,7 @@ public :: vegn_photosynthesis
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
    version = '$Id: vegn_photosynthesis.F90,v 16.0 2008/07/30 22:30:18 fms Exp $', &
-   tagname = '$Name: perth $', &
+   tagname = '$Name: perth_2008_10 $', &
    module_name = 'vegn_photosynthesis'
 ! values for internal vegetation photosynthesis option selector
 integer, parameter :: VEGN_PHOT_SIMPLE  = 1 ! zero photosynthesis

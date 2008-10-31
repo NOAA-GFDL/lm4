@@ -64,7 +64,7 @@ character(len=*), parameter :: &
      module_name   = 'she_topo_rough', &
      diag_mod_name = 'topo_rough', &
      version       = '$Id: topo_rough.F90,v 16.0 2008/07/30 22:30:03 fms Exp $', &
-     tagname       = '$Name: perth $'
+     tagname       = '$Name: perth_2008_10 $'
 
 ! ==== module private data ===================================================
 real, allocatable, save ::topo_stdev(:,:)

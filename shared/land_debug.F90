@@ -19,7 +19,7 @@ public :: is_watch_point
 character(len=*), parameter, private   :: &
     module_name = 'land_debug',&
     version     = '$Id: land_debug.F90,v 16.0 2008/07/30 22:13:07 fms Exp $',&
-    tagname     = '$Name: perth $'
+    tagname     = '$Name: perth_2008_10 $'
 
 ! ==== module variables ======================================================
 integer :: current_debug_level = 0

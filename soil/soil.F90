@@ -55,8 +55,8 @@ public :: soil_step_2
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'soil',&
-    version     = '$Id: soil.F90,v 16.0 2008/07/30 22:29:59 fms Exp $',&
-    tagname     = '$Name: perth $'
+    version     = '$Id: soil.F90,v 16.0.6.1 2008/09/15 17:42:15 pcm Exp $',&
+    tagname     = '$Name: perth_2008_10 $'
 
 
 ! ==== module variables ======================================================
@@ -876,6 +876,8 @@ end subroutine soil_step_1
     ccc =     - (  jj*K(l  )/del_z(l  ) + DKDPp(l  )*grad(l  ))
     ddd =          flow(1)/delta_time +    K(l)     *grad(l) &
                             - div(l)
+
+IF (bbb+ccc*eee(l) .NE. 0.) THEN
     dPsi(l) = (ddd-ccc*fff(l))/(bbb+ccc*eee(l))
     if (.not.stiff .and. dPsi(l).gt.Dpsi_min .and. dPsi(l).lt.Dpsi_max) then
         lrunf_ie = 0.
@@ -890,6 +892,16 @@ end subroutine soil_step_1
                       - K(l)*grad(l))*delta_time
         lrunf_ie = lprec_eff - flow(l)/delta_time
       endif
+  ELSE
+      	if (stiff) then
+            dPsi(l) = - psi(l)
+          else
+            dPsi(l) = Dpsi_max
+          endif
+        flow(l) = (dPsi(l)*(bbb+ccc*eee(l))+ccc*fff(l) &
+                      - K(l)*grad(l))*delta_time
+        lrunf_ie = lprec_eff - flow(l)/delta_time
+  ENDIF
       
     if(is_watch_point()) then
        write(*,'(a,i2.2,100(2x,g))') 'l,  b,c,d', l, bbb,ccc,ddd

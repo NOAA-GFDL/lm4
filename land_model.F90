@@ -13,7 +13,7 @@ use time_manager_mod, only : time_type, get_time, increment_time, time_type_to_r
      operator(+)
 use mpp_domains_mod, only : domain2d, mpp_get_ntile_count
 use mpp_mod, only : mpp_max
-use fms_mod, only : write_version_number, error_mesg, FATAL, WARNING, NOTE, mpp_pe, &
+use fms_mod, only : write_version_number, error_mesg, FATAL, NOTE, mpp_pe, &
      mpp_root_pe, file_exist, open_namelist_file, check_nml_error, close_file, &
      stdlog, get_mosaic_tile_file, mpp_clock_id, mpp_clock_begin, mpp_clock_end, &
      CLOCK_FLAG_DEFAULT, CLOCK_COMPONENT, CLOCK_ROUTINE
@@ -74,6 +74,7 @@ private
 ! ==== public interfaces =====================================================
 public land_model_init          ! initialize the land model
 public land_model_end           ! finish land model calculations
+public land_model_restart       ! dummy routines
 public update_land_model_fast   ! time-step integration
 public update_land_model_slow   ! time-step integration
 public atmos_land_boundary_type ! data from coupler to land
@@ -85,8 +86,8 @@ public :: Lnd_stock_pe          ! return stocks of conservative quantities
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land', &
-     version     = '$Id: land_model.F90,v 16.0 2008/07/30 22:12:57 fms Exp $', &
-     tagname     = '$Name: perth $'
+     version     = '$Id: land_model.F90,v 16.0.6.1.2.1 2008/09/20 14:13:07 pjp Exp $', &
+     tagname     = '$Name: perth_2008_10 $'
 
 ! ==== module variables ======================================================
 
@@ -354,7 +355,7 @@ subroutine land_model_init &
   if (canopy_air_mass==0.and.lnd%ico2==NO_TRACER) then
      call error_mesg('land_model_init', &
           'canopy_air_mass is set to zero, and CO2 exchange with the atmosphere is not set up: '// &
-          'canopy air CO2 concentration will not be updated',WARNING)
+          'canopy air CO2 concentration will not be updated',NOTE)
      update_cana_co2 = .FALSE.
   else
      update_cana_co2 = .TRUE.
@@ -483,6 +484,14 @@ subroutine land_model_end (cplr2land, land2cplr)
   call land_debug_end
   
 end subroutine land_model_end
+
+subroutine land_model_restart(timestamp)
+  character(*), intent(in), optional :: timestamp ! timestamp to add to the file name
+
+    call error_mesg ('land_model_restart in land_model_mod', &
+                     'intermediate restart capability is not implemented for this model', FATAL)
+
+end subroutine land_model_restart
 
 
 ! ============================================================================
@@ -2049,7 +2058,7 @@ case(ISTOCK_WATER)
   enddo
 case(ISTOCK_HEAT)
   if(.not.stock_warning_issued) then
-    call error_mesg('Lnd_stock_pe','Heat stock not yet implemented',WARNING)
+    call error_mesg('Lnd_stock_pe','Heat stock not yet implemented',NOTE)
     stock_warning_issued = .true.
   endif
 ! do j = js, je

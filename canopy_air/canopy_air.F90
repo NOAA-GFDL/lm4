@@ -44,7 +44,7 @@ public :: cana_step_2
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
   version = '$Id: canopy_air.F90,v 16.0 2008/07/30 22:12:31 fms Exp $', &
-  tagname = '$Name: perth $', &
+  tagname = '$Name: perth_2008_10 $', &
   module_name = 'canopy_air_mod'
 
 ! options for turbulence parameter calculations

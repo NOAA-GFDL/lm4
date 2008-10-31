@@ -34,7 +34,7 @@ include 'netcdf.inc'
 character(len=*), parameter :: &
      module_name = 'land_io_mod', &
      version     = '$Id: land_io.F90,v 16.0 2008/07/30 22:13:09 fms Exp $', &
-     tagname     = '$Name: perth $'
+     tagname     = '$Name: perth_2008_10 $'
 
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
