@@ -25,16 +25,21 @@ module river_physics_mod
   use mpp_domains_mod, only : mpp_get_num_overlap, mpp_get_overlap
   use fms_mod,         only : stdlog, open_namelist_file, write_version_number
   use fms_mod,         only : close_file, check_nml_error
+  use diag_manager_mod,only : register_diag_field, send_data
   use river_type_mod,  only : river_type, Leo_Mad_trios
-  use constants_mod,   only : tfreeze, hlf
+  use lake_mod,        only : large_dyn_small_stat
+  use lake_tile_mod,   only : num_l
+  use constants_mod,   only : tfreeze, hlf, DENS_H2O
+  use land_debug_mod,  only : set_current_point, is_watch_point
 
   implicit none
   private
 
+  real    :: missing = -1.e8
 
 !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id: river_physics.F90,v 16.0 2008/07/30 22:13:03 fms Exp $'
-  character(len=128) :: tagname = '$Name: perth_2008_10 $'
+  character(len=128) :: version = '$Id: river_physics.F90,v 17.0 2009/07/21 03:02:28 fms Exp $'
+  character(len=128) :: tagname = '$Name: quebec $'
 
 
 ! ---- public interfaces -----------------------------------------------------
@@ -45,11 +50,23 @@ module river_physics_mod
   real               :: clw = 4218.
   real               :: csw = 2106.
   real,    parameter :: sec_in_day = 86400.
+  integer :: num_lake_lev
 
 ! ---- namelist interface
   character*6 :: algor = 'linear'
+  real :: lake_outflow_frac_ceiling = 1.e20
+  real :: lake_sfc_w_min = -1.e20
+  real :: storage_threshold_for_melt = 1.
+  real :: storage_threshold_for_diag = 1.e6
+  logical :: ice_frac_from_sfc = .false.
+  logical :: use_lake_area_bug = .false.
+  real :: ice_frac_factor = 0.
 
-  namelist /river_physics_nml/ algor
+  namelist /river_physics_nml/ algor, lake_outflow_frac_ceiling, &
+                               lake_sfc_w_min, storage_threshold_for_melt, &
+                               storage_threshold_for_diag, &
+                               ice_frac_from_sfc, ice_frac_factor, &
+                               use_lake_area_bug
 
   integer, parameter, dimension(8) :: di=(/1,1,0,-1,-1,-1,0,1/)
   integer, parameter, dimension(8) :: dj=(/0,-1,-1,-1,0,1,1,1/)
@@ -77,13 +94,19 @@ module river_physics_mod
   logical, dimension(:,:), allocatable :: in_domain
   integer, dimension(:,:), allocatable :: nlev
 
+  ! ---- diag field IDs
+  integer :: id_temp, id_ice
+  integer :: id_temp_old, id_ice_old ! for compatibility with older diagTables
+
 contains
 
 !#######################################################################
 
-  subroutine river_physics_init(River, domain )
+  subroutine river_physics_init(River, domain, id_lon, id_lat )
     type(river_type), intent(inout) :: River
     type(domain2d),   intent(inout) :: domain
+    integer, intent(in) :: id_lon, id_lat ! diag field IDs
+
     integer                         :: unit, io_status, ierr
     integer                         :: i, j
 
@@ -99,13 +122,15 @@ contains
 
 !--- write version and namelist info to logfile --------------------
     call write_version_number(version,tagname)
-    write (stdlog(), river_physics_nml)  
+    unit=stdlog()
+    write (unit, river_physics_nml)  
 
     npes     = mpp_npes()
 
     call mpp_get_compute_domain(domain, isc, iec, jsc, jec)
     call mpp_get_data_domain(domain, isd, ied, jsd, jed)
 
+    num_lake_lev = num_l
     num_species = size(River%outflow_c,3)
     maxtravel = maxval(River%travel)
     call mpp_max(maxtravel)
@@ -122,143 +147,321 @@ contains
        end do
     end do
  
+    ! ---- register diagnostic fields
+    id_ice  = register_diag_field ( 'river', 'rv_ice', (/id_lon, id_lat/), &
+         River%Time, 'river ice mass fraction', '-', missing_value=missing, &
+         mask_variant=.TRUE. )
+    id_temp = register_diag_field ( 'river', 'rv_T', (/id_lon, id_lat/), &
+         River%Time, 'river temperature', 'K', missing_value=missing, &
+         mask_variant=.TRUE. )
 
+    id_ice_old = register_diag_field ( 'river', 'ice', (/id_lon, id_lat/), &
+         River%Time, 'obsolete, pls use rv_ice', '-', missing_value=missing, &
+         mask_variant=.TRUE. )
+    id_temp_old = register_diag_field ( 'river', 'temp', (/id_lon, id_lat/), &
+         River%Time, 'obsolete, pls use rv_T', 'K', missing_value=missing, &
+         mask_variant=.TRUE. )
   end subroutine river_physics_init
 
 !#####################################################################
 
-  subroutine river_physics_step(River, cur_travel)
+  subroutine river_physics_step(River, cur_travel, &
+         lake_sfc_A, lake_sfc_bot, lake_depth_sill, lake_width_sill, &
+         lake_whole_area, lake_T, lake_wl, lake_ws )
 
     type(river_type),     intent(inout) :: River
     integer,                 intent(in) :: cur_travel
 
+    real, dimension(isd:ied,jsd:jed), intent(in) :: &
+                             lake_sfc_A, lake_sfc_bot
+    real, dimension(isd:ied,jsd:jed,num_lake_lev), intent(inout) :: &
+                             lake_wl, lake_ws
+    real, dimension(isc:iec,jsc:jec), intent(in) :: &
+                lake_depth_sill, lake_width_sill, lake_whole_area
+    real, dimension(isc:iec,jsc:jec,num_lake_lev), intent(inout) :: &
+                             lake_T
 ! ---- local vars ----------------------------------------------------------
-    integer   :: i, j
+    integer   :: i, j, to_i, to_j, i_species, lev
     real      :: Q0, dQ_dV, avail, out_frac, qmelt
+    real      :: liq_to_flow, ice_to_flow, liq_this_lev, ice_this_lev
+    real      :: lake_area, h, ql, qs, qh, qt, h0, t_scale
+    real      :: influx
+    real      :: influx_c(River%num_species)
     real      :: v_r_d(River%num_species-River%num_c+1:River%num_species)
     real      :: conc(1:River%num_species)
+    logical, dimension(isc:iec,jsc:jec) :: &
+         diag_mask ! mask of valid ice and temperature values fo diagnostics
+    real, dimension(isc:iec,jsc:jec) :: &
+         ice, temperature ! variables for diag output (were in River_type) 
+    logical :: used ! flag returned by the send_data
 
+    ! invalidate diag_mask everywhere
+    diag_mask = .FALSE.
 
     ! do for all cells at current number of steps from river mouth
     do j = jsc, jec 
-       do i = isc, iec
-          if (River%travel(i,j)==cur_travel) then
+      do i = isc, iec
+        call set_current_point(i,j,1) ! for debug output
+        if (River%travel(i,j)==cur_travel .and. River%landfrac(i,j).gt.0.) then   ! second condition redundant???
 
-! avail is amount of water to be partitioned between outflow and new storage
-              avail = River%storage(i,j)  &
-                   +(River%inflow(i,j)+River%infloc(i,j))*River%dt_slow
-! determine total water storage at end of step
-              if (algor.eq.'linear') then
-! linear algorithm assumes outflow = Q0+dQ_dV*dS
-                  if (River%storage(i,j) .le. 0.) then
-                      Q0 = 0.; dQ_dV = 0.
-                  else
-                      Q0=River%o_coef(i,j)*River%storage(i,j)**River%o_exp
-                      dQ_dV=River%o_exp*Q0/River%storage(i,j)
-                  endif
-                  River%storage(i,j) = River%storage(i,j) + River%dt_slow *   &
-                       (River%inflow(i,j)+River%infloc(i,j)-Q0) &
-                       /(1.+River%dt_slow*dQ_dV)
-              else if (algor.eq.'nonlin') then
-! nonlin algorithm assumes all inflow at start of step 
-! and then integrates analytically
-                  if (avail .gt. 0.) then
-                      River%storage(i,j) = (avail**(1.-River%o_exp) &
-                           + River%o_coef(i,j)*(River%o_exp-1.)*River%dt_slow) &
-                           **(1./(1.-River%o_exp))
-                  else
-                      River%storage(i,j) = avail
-                  endif
-              endif
-! determine total water outflow during step
-              River%outflow(i,j) = (avail - River%storage(i,j)) / River%dt_slow
-! given outflow, determine flow width, depth, velocity
-              if (River%outflow(i,j) .le. 0.) then
-                  River%depth(i,j) = 0.
-                  River%width(i,j) = 0.
-                  River%vel(i,j)   = 0.
+            ! FIRST COMPUTE LAKE MASS BALANCE (FROM INFLOC AND INFLOW TO LAKE_OUTFLOW)
+          
+            lake_area = lake_sfc_A(i,j)
+            influx   =(River%inflow  (i,j)  +River%infloc  (i,j))  *DENS_H2O*River%dt_slow
+            influx_c =(River%inflow_c(i,j,:)+River%infloc_c(i,j,:))*DENS_H2O*River%dt_slow
+            if (River%tocell(i,j).eq.0 .and. River%landfrac(i,j).ge.1.) then
+                ! terminal, all-land cell (must have lake)
+                h = (clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1))*(lake_T(i,j,1)-tfreeze)
+                lake_wl(i,j,1) = lake_wl(i,j,1) + (influx-influx_c(1))/lake_area
+                lake_ws(i,j,1) = lake_ws(i,j,1) +         influx_c(1) /lake_area
+                lake_T (i,j,1) = tfreeze + &
+                   (h+influx_c(2)/lake_area)/(clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1))
+                ! LAKE_SFC_C(I,J,:) = LAKE_SFC_C(I,J,:) + INFLUX_C / LAKE_AREA
               else
-                  River%depth(i,j) = River%d_coef(i,j) &
-                       * River%outflow(i,j)**River%d_exp
-                  River%width(i,j) = River%w_coef(i,j) &
-                       * River%outflow(i,j)**River%w_exp
-                  River%vel(i,j) = River%outflow(i,j) /                   &
-                                        (River%width(i,j) * River%depth(i,j))
-              endif
-! given water outflow and storage, apportion other tracked stuff in same ratio
-              out_frac = 0.
-              if (avail .gt. 0.) out_frac = River%outflow(i,j)/avail
-              River%outflow_c(i,j,:) = out_frac * (River%storage_c(i,j,:) &
-                   +(River%inflow_c(i,j,:)+River%infloc_c(i,j,:))*River%dt_slow)
-! add outflows to the inputs for downstream cells
-
-              River%storage_c(i,j,:) = River%storage_c(i,j,:)       &
-                      + (River%inflow_c(i,j,:) - River%outflow_c(i,j,:)   &
-                      + River%infloc_c(i,j,:) ) * River%dt_slow
-! define intensive variables for diagnostics and for use in transformations.
-! along the way, melt swept snow as necessary. freeze will be a separate
-! process, added later; it will be different in that frozen river water will
-! be stationary, thus a different species
-              if (River%storage(i,j) .gt. 0.) then
-                  conc(1) = River%storage_c(i,j,1)/River%storage(i,j)
-                  conc(2) = tfreeze + River%storage_c(i,j,2) /  &
-                       ( clw*River%storage(i,j) + (csw-clw)*River%storage_c(i,j,1))
-                  if (River%storage_c(i,j,1).gt.0. .and. conc(2).gt.tfreeze) then
-                      qmelt = min(hlf*River%storage_c(i,j,1), River%storage_c(i,j,2))
-                      River%storage_c(i,j,1) = River%storage_c(i,j,1) - qmelt/hlf
-                      River%storage_c(i,j,2) = River%storage_c(i,j,2) - qmelt
-                      conc(2) = tfreeze + River%storage_c(i,j,2) /  &
-                           ( clw*River%storage(i,j) + (csw-clw)*River%storage_c(i,j,1))
+                ! non-terminal all-land cell (possible lake), or terminal coastal cell (possible lake)
+                if (lake_area.gt.0.) then
+                     h = (clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1))*(lake_T(i,j,1)-tfreeze)
+                     lake_wl(i,j,1) = lake_wl(i,j,1) + (influx-influx_c(1))/lake_area
+                     lake_ws(i,j,1) = lake_ws(i,j,1) +         influx_c(1) /lake_area
+                     lake_T (i,j,1) = tfreeze + &
+                        (h+influx_c(2)/lake_area)/(clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1))
+                     ! LAKE_SFC_C(I,J,:) = LAKE_SFC_C(I,J,:) + INFLUX_C / LAKE_AREA
+                     h0 = lake_sfc_bot(i,j) + (lake_wl(i,j,1)+lake_ws(i,j,1))/DENS_H2O &
+                                           -lake_depth_sill(i,j)
+                     qt = lake_area * h0 * DENS_H2O
+                     ! qt is mass of water stored transiently above sill
+                     ! now reduce it to amount that discharges this time step
+                     if (qt.gt.0.) then
+                         IF (large_dyn_small_stat) THEN
+                             if (lake_width_sill(i,j) .gt. 0.) then
+                                 t_scale = lake_whole_area(i,j)/(0.9*lake_width_sill(i,j)*sqrt(h0))
+                                 qt = qt * (1. - (1.+River%dt_slow/t_scale)**(-2) )
+                                 if (.not.use_lake_area_bug) qt = qt * lake_whole_area(i,j)/lake_area
+                               endif
+                             qt = min(qt, lake_outflow_frac_ceiling * lake_area &
+                                          * max(0.,(lake_wl(i,j,1)+lake_ws(i,j,1))))
+                             qt = min(qt, (lake_wl(i,j,1)+lake_ws(i,j,1)-lake_sfc_w_min)*lake_area )
+                           ELSE
+                             t_scale = lake_whole_area(i,j)/(0.9*lake_width_sill(i,j)*sqrt(h0))
+                             qt = qt * (1. - (1.+River%dt_slow/t_scale)**(-2) )
+                             if (.not.use_lake_area_bug) qt = qt * lake_whole_area(i,j)/lake_area
+                             qt = min(qt, lake_outflow_frac_ceiling * lake_area &
+                                          * max(0.,(lake_wl(i,j,1)+lake_ws(i,j,1))))
+                             qt = min(qt, (lake_wl(i,j,1)+lake_ws(i,j,1)-lake_sfc_w_min)*lake_area )
+                           ENDIF
+                         if (ice_frac_from_sfc) then
+                             out_frac = lake_wl(i,j,1)/(lake_wl(i,j,1)+lake_ws(i,j,1))
+                           else
+                             out_frac = max (sum(lake_wl(i,j,:))/sum(lake_wl(i,j,:)+lake_ws(i,j,:)), &
+                                           lake_wl(i,j,1)/(lake_wl(i,j,1)+lake_ws(i,j,1)))
+                           endif
+                         out_frac = min(1., max(0., out_frac))
+                         if (ice_frac_factor.lt.1.) then
+                             ql = (1.-ice_frac_factor*(1.-out_frac)) * qt
+                             ql = min (ql, lake_area*sum(lake_wl(i,j,:)))
+                           else
+                             ql = out_frac * qt
+                           endif
+                         qs = qt - ql
+                         liq_to_flow = ql
+                         ice_to_flow = qs
+                         qh = 0.
+                         if (is_watch_point()) &
+                              write(*,*) 'ql/A,qs/A,A',ql/lake_area,qs/lake_area,lake_area
+                         do lev = 1, num_lake_lev
+                           if (is_watch_point()) &
+                                write(*,*) 'wl(1),ws(1),wl(l),ws(l):',&
+                                           lake_wl(i,j,1),lake_ws(i,j,1),&
+                                           lake_wl(i,j,lev),lake_ws(i,j,lev)
+                           liq_this_lev = max(0.,min(liq_to_flow, lake_area*lake_wl(i,j,lev)))
+                           ice_this_lev = max(0.,min(ice_to_flow, lake_area*lake_ws(i,j,lev)))
+                           lake_wl(i,j,lev) = lake_wl(i,j,lev) - liq_this_lev/lake_area
+                           lake_ws(i,j,lev) = lake_ws(i,j,lev) - ice_this_lev/lake_area
+                           liq_to_flow = liq_to_flow - liq_this_lev
+                           ice_to_flow = ice_to_flow - ice_this_lev
+                           qh = qh + (clw*liq_this_lev+csw*ice_this_lev)*(lake_T(i,j,lev)-tfreeze)
+                           if (lev.gt.1) then
+                             ! replensih (liquid) water lost from depth, using ice from surface,
+                             ! so as to preserve thickness of deeper layer
+                             h = (clw*lake_wl(i,j,lev)+csw*lake_ws(i,j,lev)) &
+                                                            *(lake_T(i,j,lev)-tfreeze)
+                             lake_ws(i,j,lev) = lake_ws(i,j,lev) + liq_this_lev/lake_area
+                             lake_ws(i,j,1)   = lake_ws(i,j,1)   - liq_this_lev/lake_area
+                             lake_T (i,j,lev) = tfreeze + &
+                                (h +(liq_this_lev/lake_area)*csw*(lake_T(i,j,1)-tfreeze))  &
+                                            /(clw*lake_wl(i,j,lev)+csw*lake_ws(i,j,lev))
+                             endif
+                             if (is_watch_point()) &
+                                  write(*,*) 'wl(1),ws(1),wl(l),ws(l):',&
+                                             lake_wl(i,j,1),lake_ws(i,j,1),&
+                                             lake_wl(i,j,lev),lake_ws(i,j,lev)
+                           if (liq_to_flow.eq.0..and.ice_to_flow.eq.0.) exit
+                           enddo
+                         River%lake_outflow  (i,j)   = qt
+                         River%lake_outflow_c(i,j,1) = qs
+                         River%lake_outflow_c(i,j,2) = qh
+                       endif
+                   else
+                     River%lake_outflow  (i,j  ) = influx
+                     River%lake_outflow_c(i,j,1) = influx_c(1)
+                     River%lake_outflow_c(i,j,2) = influx_c(2)
                    endif
-              else
-                  conc(1) = 0.
-                  conc(2) = tfreeze   ! TEMPORARY
               endif
 
-              if (River%do_age) then
-                  River%removal_c(i,j,River%num_phys+1) = -River%storage(i,j)/sec_in_day
-                  River%storage_c(i,j,River%num_phys+1) = River%storage_c(i,j,River%num_phys+1) &
+            ! NEXT COMPUTE RIVER-REACH MASS BALANCE (FROM LAKE_OUTFLOW TO OUTFLOW)
+          
+            if (River%tocell(i,j).gt.0 .or. River%landfrac(i,j).lt.1.) then
+                ! avail is volume to be split between outflow and new storage
+                avail = River%storage(i,j) + River%lake_outflow(i,j) / DENS_H2O
+                ! determine total water storage at end of step
+                if (River%reach_length(i,j) .gt. 0.) then
+                    if (algor.eq.'linear') then   ! assume outflow = Q0+dQ_dV*dS
+                        if (River%storage(i,j) .le. 0.) then
+                            Q0 = 0.; dQ_dV = 0.
+                          else
+                            Q0=River%o_coef(i,j)*River%storage(i,j)**River%o_exp
+                            dQ_dV=River%o_exp*Q0/River%storage(i,j)
+                          endif
+                        River%storage(i,j) = River%storage(i,j) + River%dt_slow *   &
+                             (River%lake_outflow(i,j)/(DENS_H2O*River%dt_slow)-Q0) &
+                             /(1.+River%dt_slow*dQ_dV)
+                      else if (algor.eq.'nonlin') then   ! assume all inflow at start of step 
+                        if (avail .gt. 0.) then
+                            River%storage(i,j) = (avail**(1.-River%o_exp) &
+                                 + River%o_coef(i,j)*(River%o_exp-1.)*River%dt_slow) &
+                                 **(1./(1.-River%o_exp))
+                          else
+                            River%storage(i,j) = avail
+                          endif
+                      endif
+                  endif
+                ! determine total water outflow during step
+                River%outflow(i,j) = (avail - River%storage(i,j)) / River%dt_slow
+                ! given outflow, determine flow width, depth, velocity
+                if (River%outflow(i,j) .le. 0.) then
+                    River%depth(i,j) = 0.
+                    River%width(i,j) = 0.
+                    River%vel(i,j)   = 0.
+                  else
+                    River%depth(i,j) = River%d_coef(i,j) &
+                         * River%outflow(i,j)**River%d_exp
+                    River%width(i,j) = River%w_coef(i,j) &
+                         * River%outflow(i,j)**River%w_exp
+                    River%vel(i,j) = River%outflow(i,j) /                   &
+                                        (River%width(i,j) * River%depth(i,j))
+                  endif
+                ! given water outflow and storage, split other tracked stuff same way
+                out_frac = 0.
+                if (avail .gt. 0.) out_frac = River%outflow(i,j)/avail
+                River%outflow_c(i,j,:) = out_frac * (River%storage_c(i,j,:) &
+                                         +River%lake_outflow_c(i,j,:)/DENS_H2O)
+                River%outflow_c(i,j,:) = max(River%outflow_c(i,j,:), 0.)
+                River%outflow_c(i,j,1) = min(River%outflow_c(i,j,1), River%outflow(i,j))
+                River%storage_c(i,j,:) = River%storage_c(i,j,:)       &
+                      + River%lake_outflow_c(i,j,:)/DENS_H2O       &
+                      - River%outflow_c(i,j,:)*River%dt_slow
+                ! define intensive variables for diagnostics and for use in transformations.
+                ! along the way, melt swept snow as necessary. freeze will be a separate
+                ! process, added later; it will be different in that frozen river water will
+                ! be stationary, thus a different species
+
+                if (River%storage(i,j) .gt. storage_threshold_for_melt) then
+                    conc(1) = River%storage_c(i,j,1)/River%storage(i,j)
+                    conc(2) = tfreeze + River%storage_c(i,j,2) /  &
+                       ( clw*River%storage(i,j) + (csw-clw)*River%storage_c(i,j,1))
+                    if (River%storage_c(i,j,1).gt.0. .and. conc(2).gt.tfreeze) then
+!                    if (River%storage_c(i,j,1).gt.0. .and. River%storage_c(i,j,2).gt.0.) then
+                        qmelt = min(hlf*River%storage_c(i,j,1), River%storage_c(i,j,2))
+                        River%melt(i,j) = qmelt
+                        River%storage_c(i,j,1) = River%storage_c(i,j,1) - qmelt/hlf
+                        River%storage_c(i,j,2) = River%storage_c(i,j,2) - qmelt
+!                        conc(2) = tfreeze + River%storage_c(i,j,2) /  &
+!                           ( clw*River%storage(i,j) + (csw-clw)*River%storage_c(i,j,1))
+                      endif
+                  endif
+
+                if (River%storage(i,j) .gt. storage_threshold_for_diag) then
+                    conc(1) = River%storage_c(i,j,1)/River%storage(i,j)
+                    conc(2) = tfreeze + River%storage_c(i,j,2) /  &
+                       ( clw*River%storage(i,j) + (csw-clw)*River%storage_c(i,j,1))
+                    diag_mask(i,j) = .TRUE. 
+                  else
+                    conc(1) = missing
+                    conc(2) = missing
+                  endif
+
+                ice(i,j)=conc(1)
+                temperature(i,j)=conc(2)
+
+                if (River%do_age) then
+                    River%removal_c(i,j,River%num_phys+1) = -River%storage(i,j)/sec_in_day
+                    River%storage_c(i,j,River%num_phys+1) = River%storage_c(i,j,River%num_phys+1) &
                        - River%removal_c(i,j,River%num_phys+1)*River%dt_slow
-              endif
+                  endif
 
-              if (River%storage(i,j) .gt. 0.) then
-                  conc(River%num_phys+1:River%num_species) = &
+                if (River%storage(i,j) .gt. 0.) then
+                    conc(River%num_phys+1:River%num_species) = &
                        River%storage_c(i,j,River%num_phys+1:River%num_species)/River%storage(i,j)
-              else
-                  conc(River%num_phys+1:River%num_species) = 0.
-              endif
+                  else
+                    conc(River%num_phys+1:River%num_species) = 0.
+                  endif
 
-              if(River%num_c.gt.0) then
-                  if (River%depth(i,j).gt.0.) then
-                      v_r_d = River%vf_ref * River%Q10**((conc(2)-River%t_ref)/10.)&
+                if(River%num_c.gt.0) then
+                    if (River%depth(i,j).gt.0. .and. conc(2).gt.100.) then
+                        v_r_d = River%vf_ref * River%Q10**((conc(2)-River%t_ref)/10.)&
                            / ((1+River%kinv*conc(River%num_species-River%num_c+1:River%num_species)) &
                            *River%depth(i,j))
-! next should not be necessary if storage_c is positive, but maybe it's not.
-                      v_r_d = River%vf_ref * River%Q10**((conc(2)-River%t_ref)/10.)&
+                        ! next should not be necessary if storage_c is positive, but maybe it's not.
+                        v_r_d = River%vf_ref * River%Q10**((conc(2)-River%t_ref)/10.)&
                            / ((1+River%kinv*max(0.,conc(River%num_species-River%num_c+1:River%num_species)))*River%depth(i,j))
-                  else
-                      v_r_d = 0.
-                  endif
-                  River%removal_c(i,j,River%num_species-River%num_c+1:River%num_species) = &
+                      else
+                        v_r_d = 0.
+                      endif
+                    River%removal_c(i,j,River%num_species-River%num_c+1:River%num_species) = &
                        River%storage_c(i,j,River%num_species-River%num_c+1:River%num_species) &
                        * (1-exp( -v_r_d * River%dt_slow)) &
                        / River%dt_slow
-                  River%storage_c(i,j,River%num_species-River%num_c+1:River%num_species) = &
+                    River%storage_c(i,j,River%num_species-River%num_c+1:River%num_species) = &
                        River%storage_c(i,j,River%num_species-River%num_c+1:River%num_species) &
                        - River%removal_c(i,j,River%num_species-River%num_c+1:River%num_species)* River%dt_slow
+                  endif
+              endif
+
+            ! FINALLY, REDEFINE OUTFLOW AS DISCHARGE IF WE HAVE OCEAN HERE
+          
+            if (River%landfrac(i,j).lt.1.) then
+                River%disw2o(i,j) = River%outflow(i,j)
+                River%outflow(i,j) = 0.
+                do i_species = 1, num_species
+                  River%disc2o(i,j,i_species) = River%outflow_c(i,j,i_species)
+                  River%outflow_c(i,j,i_species) = 0.
+                  enddo
               endif
 
           endif
-       enddo
-    enddo
+        enddo
+      enddo
 
-    call do_halo_update(River, halo_update(cur_travel))
+    
+
+    if (cur_travel .gt. 0) call do_halo_update(River, halo_update(cur_travel))
+    
+    ! ---- diagnostic section
+    if (id_ice > 0) used = send_data (id_ice, &
+         ice(isc:iec,jsc:jec), River%Time, mask=diag_mask)
+    if (id_temp > 0) used = send_data (id_temp, &
+         temperature(isc:iec,jsc:jec), River%Time, mask=diag_mask)
+    ! for compatibility with old diag table
+    if (id_ice_old > 0) used = send_data (id_ice_old, &
+         ice(isc:iec,jsc:jec), River%Time, mask=diag_mask)
+    if (id_temp_old > 0) used = send_data (id_temp_old, &
+         temperature(isc:iec,jsc:jec), River%Time, mask=diag_mask)
 
   end subroutine river_physics_step
 
 !#####################################################################
   subroutine setup_halo_update(River, domain)
-    type(river_type),         intent(in) :: River
+    type(river_type),      intent(inout) :: River
     type(domain2d),        intent(inout) :: domain
 
     integer, parameter                   :: MAXCOMM      = 8  ! should be no larger than 8.

@@ -6,7 +6,7 @@ use fms_mod, only : &
      write_version_number, file_exist, open_namelist_file, check_nml_error, &
      close_file, stdlog
 use constants_mod, only : &
-     pi, tfreeze
+     pi, tfreeze, hlf
 use land_constants_mod, only : NBANDS
 use land_io_mod, only : &
      init_cover_field
@@ -25,6 +25,8 @@ public :: new_glac_tile, delete_glac_tile
 public :: glac_tiles_can_be_merged, merge_glac_tiles
 public :: glac_is_selected
 public :: get_glac_tile_tag
+public :: glac_tile_stock_pe
+public :: glac_tile_heat
 
 public :: read_glac_data_namelist
 public :: glac_cover_cold_start
@@ -44,14 +46,28 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), parameter   :: &
-     version     = '$Id: glac_tile.F90,v 16.0 2008/07/30 22:12:47 fms Exp $', &
-     tagname     = '$Name: perth_2008_10 $', &
+     version     = '$Id: glac_tile.F90,v 17.0 2009/07/21 03:02:12 fms Exp $', &
+     tagname     = '$Name: quebec $', &
      module_name = 'glac_tile_mod'
 
 integer, parameter :: max_lev          = 30 ! max number of levels in glacier
 integer, parameter :: n_dim_glac_types = 1  ! size of lookup table
 real,    parameter :: psi_wilt         = -150.  ! matric head at wilting
 real,    parameter :: comp             = 0.001  ! m^-1
+
+! from the modis brdf/albedo product user's guide:
+real            :: g_iso  = 1.
+real            :: g_vol  = 0.189184
+real            :: g_geo  = -1.377622
+real            :: g0_iso = 1.0
+real            :: g1_iso = 0.0
+real            :: g2_iso = 0.0
+real            :: g0_vol = -0.007574
+real            :: g1_vol = -0.070987
+real            :: g2_vol =  0.307588
+real            :: g0_geo = -1.284909
+real            :: g1_geo = -0.166314
+real            :: g2_geo =  0.041840
 
 ! ==== types =================================================================
 type :: glac_pars_type
@@ -113,6 +129,15 @@ logical :: use_lm2_awc           = .false.
 logical :: use_lad1_glac         = .false.
 real    :: t_range               = 10.0
 
+! from analysis of modis data (ignoring temperature dependence):
+  real :: f_iso_cold(NBANDS) = (/ 0.177, 0.265 /)
+  real :: f_vol_cold(NBANDS) = (/ 0.100, 0.126 /)
+  real :: f_geo_cold(NBANDS) = (/ 0.027, 0.032 /)
+  real :: f_iso_warm(NBANDS) = (/ 0.177, 0.265 /)
+  real :: f_vol_warm(NBANDS) = (/ 0.100, 0.126 /)
+  real :: f_geo_warm(NBANDS) = (/ 0.027, 0.032 /)
+  real :: refl_cold_dif(NBANDS), refl_warm_dif(NBANDS)
+
 ! ---- remainder are used only for cold start ---------
 character(len=16):: glac_to_use  = 'single-tile'
        ! 'multi-tile' for tiled soil [default]
@@ -142,15 +167,13 @@ real, dimension(n_dim_glac_types) :: &
      dat_z0_momentum       =(/  0.01   /),&
      dat_tf_depr           =(/  0.00   /)
 real, dimension(n_dim_glac_types, NBANDS) :: &
-                            !  VIS    NIR
-     dat_refl_max_dir      =(/ 0.800  ,   & ! visible
-                               0.800  /), & ! NIR
-     dat_refl_max_dif      =(/ 0.800  ,   & ! visible
-                               0.800  /), & ! NIR 
-     dat_refl_min_dir      =(/ 0.650  ,   & ! visible
-                               0.650  /), & ! NIR
-     dat_refl_min_dif      =(/ 0.650  ,   & ! visible
-                               0.650  /)    ! NIR
+     dat_refl_max_dir, dat_refl_max_dif, &
+     dat_refl_min_dir, dat_refl_min_dif
+                      !  VIS    NIR
+data dat_refl_max_dir / 0.800, 0.800 /, & 
+     dat_refl_max_dif / 0.800, 0.800 /, & 
+     dat_refl_min_dir / 0.650, 0.650 /, &
+     dat_refl_min_dif / 0.650, 0.650 /
 integer, dimension(n_dim_glac_types) :: &
      input_cover_types     =(/ 9 /)
 character(len=4), dimension(n_dim_glac_types) :: &
@@ -177,7 +200,8 @@ namelist /glac_data_nml/ &
      dat_refl_min_dir,  dat_refl_min_dif,  &
      dat_emis_dry,              dat_emis_sat,                &
      dat_z0_momentum,           dat_tf_depr, &
-     tile_names, input_cover_types
+     tile_names, input_cover_types, &
+     f_iso_cold, f_vol_cold, f_geo_cold, f_iso_warm, f_vol_warm, f_geo_warm 
 
 ! ---- end of namelist
 
@@ -208,7 +232,11 @@ subroutine read_glac_data_namelist(glac_n_lev, glac_dz)
 10   continue
      call close_file (unit)
   endif
-  write (stdlog(), nml=glac_data_nml)
+  unit=stdlog()
+  write (unit, nml=glac_data_nml)
+
+  refl_cold_dif = g_iso*f_iso_cold + g_vol*f_vol_cold + g_geo*f_geo_cold
+  refl_warm_dif = g_iso*f_iso_warm + g_vol*f_vol_warm + g_geo*f_geo_warm
 
   ! register selectors for tile-specific diagnostics
   do i=1, n_dim_glac_types
@@ -361,7 +389,7 @@ end function
 subroutine merge_glac_tiles(g1,w1,g2,w2)
   type(glac_tile_type), intent(in)    :: g1
   type(glac_tile_type), intent(inout) :: g2     
-  real                , intent(in)    :: w1, w2 ! realtive weights
+  real                , intent(in)    :: w1, w2 ! relative weights
   
   ! ---- local vars
   real    :: x1, x2 ! normalized relative weights
@@ -423,7 +451,7 @@ end function
 
 
 ! ============================================================================
-! retruns tag of the tile
+! returns tag of the tile
 function get_glac_tile_tag(glac) result(tag)
   integer :: tag
   type(glac_tile_type), intent(in) :: glac
@@ -453,20 +481,43 @@ end subroutine
 
 ! ============================================================================
 ! compute bare-glacier albedos and bare-glacier emissivity
-subroutine glac_data_radiation ( glac, &
+subroutine glac_data_radiation ( glac, cosz, use_brdf, &
                                  glac_refl_dir, glac_refl_dif, glac_emis )
   type(glac_tile_type), intent(in) :: glac
+  real,                 intent(in) :: cosz
+  logical,              intent(in) :: use_brdf
   real,                 intent(out):: glac_refl_dir(:), glac_refl_dif(:), glac_emis
 
   ! ---- local vars 
   real  :: blend, t_crit
+  real :: warm_value_dir(NBANDS), cold_value_dir(NBANDS)
+  real :: warm_value_dif(NBANDS), cold_value_dif(NBANDS)
+  real :: zenith_angle, zsq, zcu
 
   t_crit = tfreeze - t_range
   blend = (glac%prog(1)%T - t_crit) / t_range
   if (blend < 0.0) blend = 0.0
   if (blend > 1.0) blend = 1.0
-  glac_refl_dir = glac%pars%refl_max_dir + blend*(glac%pars%refl_min_dir-glac%pars%refl_max_dir)
-  glac_refl_dif = glac%pars%refl_max_dif + blend*(glac%pars%refl_min_dif-glac%pars%refl_max_dif)
+  if (use_brdf) then
+      zenith_angle = acos(cosz)
+      zsq = zenith_angle*zenith_angle
+      zcu = zenith_angle*zsq
+      warm_value_dir = f_iso_warm*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
+                     + f_vol_warm*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
+                     + f_geo_warm*(g0_geo+g1_geo*zsq+g2_geo*zcu)
+      cold_value_dir = f_iso_cold*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
+                     + f_vol_cold*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
+                     + f_geo_cold*(g0_geo+g1_geo*zsq+g2_geo*zcu)
+      warm_value_dif = refl_warm_dif
+      cold_value_dif = refl_cold_dif
+    else
+      warm_value_dir = glac%pars%refl_min_dir
+      cold_value_dir = glac%pars%refl_max_dir
+      warm_value_dif = glac%pars%refl_min_dif
+      cold_value_dif = glac%pars%refl_max_dif
+    endif
+  glac_refl_dir = cold_value_dir + blend*(warm_value_dir-cold_value_dir)
+  glac_refl_dif = cold_value_dif + blend*(warm_value_dif-cold_value_dif)
   glac_emis     = glac%pars%emis_dry + blend*(glac%pars%emis_sat-glac%pars%emis_dry)
 
 end subroutine glac_data_radiation
@@ -609,5 +660,37 @@ subroutine glac_data_hydraulics (glac, vlc, vsc, &
   tau_gw = glac%pars%tau_groundwater
 
 end subroutine glac_data_hydraulics
+
+! ============================================================================
+subroutine glac_tile_stock_pe (glac, twd_liq, twd_sol  )
+  type(glac_tile_type),  intent(in)    :: glac
+  real,                  intent(out)   :: twd_liq, twd_sol
+  integer n
+  
+  twd_liq = 0.
+  twd_sol = 0.
+  do n=1, size(glac%prog)
+    twd_liq = twd_liq + glac%prog(n)%wl + glac%prog(n)%groundwater
+    twd_sol = twd_sol + glac%prog(n)%ws
+    enddo
+
+end subroutine glac_tile_stock_pe
+
+! ============================================================================
+! returns glacier heat content, J/m2
+function glac_tile_heat (glac) result(heat) ; real heat
+  type(glac_tile_type),  intent(in)  :: glac
+
+  integer :: i
+
+  heat = 0
+  do i = 1, num_l
+     heat = heat + &
+          (glac%heat_capacity_dry(i)*dz(i) + clw*glac%prog(i)%wl + csw*glac%prog(i)%ws)&
+                           *(glac%prog(i)%T-tfreeze) + &
+          clw*glac%prog(i)%groundwater*(glac%prog(i)%groundwater_T-tfreeze) - &
+          hlf*glac%prog(i)%ws
+  enddo
+end function
 
 end module glac_tile_mod

@@ -10,6 +10,11 @@ public :: put_to_tiles_r0d_fptr
 public :: put_to_tiles_r1d_fptr
 ! ==== end of public interfaces ==============================================
 
+! ==== module constants ======================================================
+character(len=*), parameter :: &
+     version = '$Id: land_utils.F90,v 17.0 2009/07/21 03:02:46 fms Exp $', &
+     tagname = '$Name: quebec $'
+
 contains
 
 ! ============================================================================

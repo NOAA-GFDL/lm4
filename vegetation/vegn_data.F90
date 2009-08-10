@@ -54,13 +54,16 @@ character(len=32), public, parameter :: &
      landuse_longname (N_LU_TYPES) = (/ 'pasture', 'crop', 'natural', 'secondary' /)
 
 integer, public, parameter :: & ! harvesing pools paraneters
- N_HARV_POOLS   = 4, & ! number of harvesting pools
- HARV_POOL_PAST = 1, & 
- HARV_POOL_CROP = 2, &
- HARV_POOL_NTRL = 3, &
- HARV_POOL_SCND = 4
-character(len=4), public, parameter :: &
- HARV_POOL_NAMES(N_HARV_POOLS) = (/ 'past', 'crop', 'ntrl', 'scnd' /)
+ N_HARV_POOLS        = 6, & ! number of harvesting pools
+ HARV_POOL_PAST      = 1, & 
+ HARV_POOL_CROP      = 2, &
+ HARV_POOL_CLEARED   = 3, &
+ HARV_POOL_WOOD_FAST = 4, &
+ HARV_POOL_WOOD_MED  = 5, &
+ HARV_POOL_WOOD_SLOW = 6
+character(len=9), public :: HARV_POOL_NAMES(N_HARV_POOLS)
+data HARV_POOL_NAMES &
+ / 'past', 'crop', 'cleared', 'wood_fast', 'wood_med', 'wood_slow' /
 
 real, public, parameter :: C2B = 2.0  ! carbon to biomass conversion factor
 
@@ -76,12 +79,14 @@ public :: &
     critical_root_density, &
     ! vegetation data, imported from LM3V
     spdata, &
-    smoke_fraction, k_fw, agf_bs, K1,K2, fsc_liv, fsc_wood, &
+    min_cosz, &
+    agf_bs, K1,K2, fsc_liv, fsc_wood, &
     tau_drip_l, tau_drip_s, & ! canopy water and snow residence times, for drip calculations
     GR_factor, tg_c3_thresh, tg_c4_thresh, &
     fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
     l_fract, T_transp_min, soil_carbon_depth_scale, &
-    cold_month_threshold, theta_crit, scnd_biomass_bins
+    cold_month_threshold, scnd_biomass_bins, &
+    phen_ev1, phen_ev2
 
 ! ---- public subroutine
 public :: read_vegn_data_namelist
@@ -89,8 +94,8 @@ public :: read_vegn_data_namelist
 
 ! ==== constants =============================================================
 character(len=*), parameter   :: &
-     version     = '$Id: vegn_data.F90,v 16.0 2008/07/30 22:30:13 fms Exp $', &
-     tagname     = '$Name: perth_2008_10 $', &
+     version     = '$Id: vegn_data.F90,v 17.1 2009/07/31 16:45:20 fms Exp $', &
+     tagname     = '$Name: quebec $', &
      module_name = 'vegn_data_mod'
 real, parameter :: TWOTHIRDS  = 2.0/3.0
 
@@ -109,6 +114,10 @@ type spec_data_type
   real    :: beta (NCMPT) ! respiration rates of plant carbon pools
   
   real    :: dfr          ! fine root diameter ? or parameter relating diameter of fine roots to resistance
+  ! the following two parameters are used in the Darcy-law calculations of water supply
+  real    :: srl  ! specific root length, m/(kg C)
+  real    :: root_r       ! radius of the fine roots, m
+  real    :: root_perm    ! fine root membrane permeability per unit area, kg/(m3 s)
 !!$  real    :: ltrans       ! leaf translocation fraction
 !!$  real    :: rtrans       ! fine root translocation fraction
 
@@ -120,6 +129,8 @@ type spec_data_type
   real    :: m_cond       ! factor of stomatal conductance
   real    :: Vmax         ! max rubisco rate
   real    :: gamma_resp
+  real    :: wet_leaf_dreg ! wet leaf photosynthesis down-regulation
+  real    :: leaf_age_onset, leaf_age_tau
 
   ! radiation parameters for 2 bands, VIS and NIR
   real    :: leaf_refl (NBANDS) ! reflectance of leaf
@@ -141,10 +152,15 @@ type spec_data_type
   real    :: csc_lai ! max amount of snow on vegetation, kg/(m2 of leaf)
   real    :: csc_pow ! power of snow-covered fraction dependance on amount of canopy snow
   real    :: fuel_intensity
-  real    :: hight_eq
 
   ! critical temperature for leaf drop, was internal to phenology
   real    :: tc_crit
+  real    :: fact_crit_phen, cnst_crit_phen ! wilting factor and offset to 
+    ! get critical value for leaf drop -- only one is non-zero at any time
+  real    :: fact_crit_fire, cnst_crit_fire ! wilting factor and offset to 
+    ! get critical value for fire -- only one is non-zero at the time
+
+  real    :: smoke_fraction ! fraction of carbon lost as smoke during fires
 
   ! data from LM3W, temporarily here
   real    :: dat_height
@@ -220,12 +236,12 @@ integer :: pt(0:MSPECIES)= &
 !       c4grass       c3grass    temp-decid      tropical     evergreen      BE     BD     BN     NE     ND      G      D      T      A
        (/ PT_C4,        PT_C3,        PT_C3,        PT_C3,        PT_C3,  PT_C3, PT_C3, PT_C3, PT_C3, PT_C3, PT_C4, PT_C4, PT_C3, PT_C3 /)
 real :: alpha(0:MSPECIES,NCMPT) ; data ((alpha(idata,jdata), idata=0,MSPECIES),jdata=1,NCMPT) &
-        /   0.0,          0.0,          0.0,          0.0,          0.0,      0,     0,     0,     0,     0,     0,     0,     0,     0, & ! reproduction
-            0.0,          0.0,          0.0,          0.0,          0.0,      0,     0,     0,     0,     0,     0,     0,     0,     0, & ! sapwood
+        /   0.0,          0.0,          0.0,          0.0,          0.0,     0.,    0.,    0.,    0.,    0.,    0.,    0.,    0.,    0., & ! reproduction
+            0.0,          0.0,          0.0,          0.0,          0.0,     0.,    0.,    0.,    0.,    0.,    0.,    0.,    0.,    0., & ! sapwood
             1.0,          1.0,          1.0,          0.8,         0.12,    0.8,   1.0,   1.0,  0.12,   1.0,   1.0,   1.0,   1.0,   1.0, & ! leaf
             0.9,         0.55,          1.0,          0.8,          0.6,    0.8,   1.0,   1.0,   0.6,   1.0,  0.55,   0.9,  0.55,  0.55, & ! root
-            0.0,          0.0,          0.0,          0.0,          0.0,      0,     0,     0,     0,     0,     0,     0,     0,     0, & ! virtual leaf
-            0.0,          0.0,        0.006,        0.012,        0.006,  0.012, 0.006, 0.006, 0.006, 0.006,     0,     0,     0,     0  / ! structural
+            0.0,          0.0,          0.0,          0.0,          0.0,     0.,    0.,    0.,    0.,    0.,    0.,    0.,    0.,    0., & ! virtual leaf
+            0.0,          0.0,        0.006,        0.012,        0.006,  0.012, 0.006, 0.006, 0.006, 0.006,    0.,    0.,    0.,    0. /  ! structural
 
 ! From Foley (Ibis model) 1996 gbc v10 pp. 603-628
 real :: beta(0:MSPECIES,NCMPT) ; data ((beta(idata,jdata), idata=0,NSPECIES-1),jdata=1,NCMPT) &
@@ -236,9 +252,23 @@ real :: beta(0:MSPECIES,NCMPT) ; data ((beta(idata,jdata), idata=0,NSPECIES-1),j
             0.0,          0.0,          0.0,          0.0,          0.0,& ! virtual leaf
             0.0,          0.0,          0.0,          0.0,          0.0 / ! structural
 
-real :: dfr(0:MSPECIES)= &
-!       c4grass       c3grass    temp-decid      tropical     evergreen      BE     BD     BN     NE     ND      G      D      T      A
-       (/   2.2,          2.2,          5.8,          5.8,          5.8,    5.8,   5.8,   5.8,   5.8,   5.8,   2.2,   2.2,   2.2,   2.2  /)
+! root parameters
+real :: dfr(0:MSPECIES) ; data dfr &
+!       c4grass       c3grass    temp-decid      tropical     evergreen      BE      BD      BN      NE      ND       G       D       T      A
+        /   2.2,          2.2,          5.8,          5.8,          5.8,    5.8,    5.8,    5.8,    5.8,    5.8,    2.2,    2.2,    2.2,    2.2 /
+real :: srl(0:MSPECIES); data srl & ! specific root length, m/(kg C)
+        / 236e3,        236e3,       24.4e3,       24.4e3,       24.4e3, 24.4e3, 24.4e3, 24.4e3, 24.4e3, 24.4e3,  236e3,  236e3,   60e3,   60e3 /
+real :: root_r(0:MSPECIES); data root_r & ! radius of fine roots, m
+        /1.1e-4,       1.1e-4,       2.9e-4,       2.9e-4,       2.9e-4, 2.9e-4, 2.9e-4, 2.9e-4, 2.9e-4, 2.9e-4, 1.1e-4, 1.1e-4, 2.2e-4, 2.2e-4 /
+real :: root_perm(0:MSPECIES); data root_perm & ! fine root membrane permeability per unit membrane area, kg/(m3 s)
+        / 1e-5,          1e-5,         1e-5,         1e-5,         1e-5,   1e-5,   1e-5,   1e-5,   1e-5,   1e-5,   1e-5,   1e-5,   1e-5,   1e-5 /
+! Specific root length is from Jackson et al., 1997, PNAS  Vol.94, pp.7362--7366, 
+! converted to m/(kg C) from m/(g biomass). Biomass/C mass ratio was assumed 
+! to be 2. The fine root radius is from the same source.
+!
+! Root membrane permeability is "high" value from Siqueira et al., 2008, Water 
+! Resource Research Vol. 44, W01432, converted to mass units
+
 real :: c1(0:MSPECIES); data c1(0:NSPECIES-1) &
         /   1.358025,     2.222222,     0.4807692,    0.3333333,    0.1948718 /
 real :: c2(0:MSPECIES); data c2(0:NSPECIES-1) &
@@ -251,27 +281,31 @@ real :: leaf_refl(0:MSPECIES,NBANDS) ; data leaf_refl & ! leaf reflectance
         /   0.11,        0.11,         0.10,         0.10,         0.07,  0.149, 0.130, 0.132, 0.126, 0.143, 0.182, 0.300, 0.139, 0.160, & ! VIS
             0.45,        0.45,         0.45,         0.45,         0.35,  0.149, 0.130, 0.132, 0.126, 0.143, 0.182, 0.300, 0.139, 0.160  / ! NIR
 real :: leaf_tran(0:MSPECIES,NBANDS) ; data leaf_tran & ! leaf transmittance
-        /   0.07,        0.07,         0.05,         0.05,         0.05,      0,     0,     0,     0,     0,     0,     0,     0,     0, & ! VIS
-            0.25,        0.25,         0.25,         0.25,         0.10,      0,     0,     0,     0,     0,     0,     0,     0,     0  / ! NIR
+        /   0.07,        0.07,         0.05,         0.05,         0.05,     0.,    0.,    0.,    0.,    0.,    0.,    0.,    0.,    0., & ! VIS
+            0.25,        0.25,         0.25,         0.25,         0.10,     0.,    0.,    0.,    0.,    0.,    0.,    0.,    0.,    0.  / ! NIR
 real :: leaf_emis(0:MSPECIES)= & ! leaf emissivity
        (/   1.00,        1.00,         1.00,         1.00,         1.00,   0.98,   0.96,  0.97,  0.98,  0.96, 0.96,   1.0,  0.96,  0.96  /)
 real :: ksi(0:MSPECIES)= & ! leaf inclination index
-       (/  -0.30,       -0.30,         0.25,         0.10,         0.01,      0,      0,     0,     0,     0,     0,     0,     0,    0  /)
+       (/      0.,          0.,           0.,           0.,          0.,     0.,     0.,    0.,    0.,    0.,    0.,    0.,    0.,   0.  /)
+real :: min_cosz = 0.01 ! minimum allowed value of cosz for vegetation radiation
+   ! properties calculations.
+   ! It probably doesn't make sense to set it any less than the default value, because the angular 
+   ! diameter of the sun is about 0.01 radian (0.5 degree), so the spread of the direct radiation 
+   ! zenith angles is about this. Besides, the sub-grid variations of land surface slope are 
+   ! probably even larger that that. 
 
 ! canopy interception parameters
 real :: cmc_lai(0:MSPECIES)= & ! maximum canopy water conntent per unit LAI
        (/    0.1,         0.1,          0.1,          0.1,          0.1,    0.1,    0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,  0.1  /)
 real :: cmc_pow(0:MSPECIES)= & ! power of the wet canopy fraction relation 
-  (/   TWOTHIRDS,   TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,      1,      1,     1,     1,     1,     1,     1,     1,    1  /)
+  (/   TWOTHIRDS,   TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,     1.,     1.,    1.,    1.,    1.,    1.,    1.,    1.,   1.  /)
 real :: csc_lai(0:MSPECIES)= & ! maximum canopy snow conntent per unit LAI
        (/    0.1,         0.1,          0.1,          0.1,          0.1,    0.1,    0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,  0.1  /)
 real :: csc_pow(0:MSPECIES)= & ! power of the snow-covered fraction relation 
-  (/   TWOTHIRDS,   TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,      1,      1,     1,     1,     1,     1,     1,     1,    1  /)
+  (/   TWOTHIRDS,   TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,     1.,     1.,    1.,    1.,    1.,    1.,    1.,    1.,   1.  /)
 
 real :: fuel_intensity(0:MSPECIES) ; data fuel_intensity(0:NSPECIES-1) &
         /    1.0,         1.0,        0.002,        0.002,        0.004 /
-real :: hight_eq(0:MSPECIES) ; data hight_eq(0:NSPECIES-1) &
-        /    3.8,         4.2,         22.8,         23.6,         20.6 /
 real :: leaf_size(0:MSPECIES)= & ! characteristic leaf size
        (/   0.04,        0.04,         0.04,          0.04,        0.04,    0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1  /)
 ! photosynthesis parameters
@@ -285,12 +319,28 @@ real :: gamma_resp(0:MSPECIES)= &
        (/   0.03,        0.02,         0.02,          0.02,        0.03,   0.02,  0.02,  0.02,  0.03,  0.03,  0.03,  0.03,  0.03,  0.02  /)
 !       c4grass       c3grass    temp-decid      tropical     evergreen      BE     BD     BN     NE     ND      G      D      T      A
 real :: tc_crit(0:MSPECIES)= &
-       (/ 283.16,      278.16,       283.16,        283.16,      263.16,      0,     0,     0,     0,     0,     0,     0,     0,     0  /)
+       (/ 283.16,      278.16,       283.16,        283.16,      263.16,      0.,    0.,    0.,    0.,    0.,    0.,    0.,    0.,    0. /)
+real :: cnst_crit_phen(0:MSPECIES)= & ! constant critical value for leaf drop
+       (/    0.1,         0.1,          0.1,           0.1,         0.1,    0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1  /)
+real :: fact_crit_phen(0:MSPECIES)= & ! factor for wilting to get critical value for leaf drop
+       (/    0.0,         0.0,          0.0,           0.0,         0.0,    0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0  /)
+real :: cnst_crit_fire(0:MSPECIES)= & ! constant critical value for leaf drop
+       (/    0.1,         0.1,          0.1,           0.1,         0.1,    0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1  /)  
+real :: fact_crit_fire(0:MSPECIES)= & ! factor for wilting to get critical value for fire
+       (/    0.0,         0.0,          0.0,           0.0,         0.0,    0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0  /)
+real :: wet_leaf_dreg(0:MSPECIES) = & ! wet leaf photosynthesis down-regulation: 0.3 means 
+        ! photosynthesis of completely wet leaf will be 30% less than that of dry one,
+        ! provided everything else is the same 
+       (/    0.3,         0.3,          0.3,           0.3,         0.3,    0.3,   0.3,   0.3,   0.3,   0.3,   0.3,   0.3,   0.3,   0.3  /)
+real :: leaf_age_onset(0:MSPECIES) = & ! onset of Vmax decrease due to leaf aging, days
+       (/  100.0,       100.0,        100.0,         100.0,       100.0,  100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0  /)
+real :: leaf_age_tau(0:MSPECIES) = &  ! e-folding time of Vmax decrease due to leaf aging, days (0 or less means no aging)
+       (/    0.0,         0.0,          0.0,           0.0,         0.0,    0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0  /)
 
 real :: soil_carbon_depth_scale = 0.2   ! depth of active soil for carbon decomposition
 real :: cold_month_threshold    = 283.0 ! monthly temperature threshold for calculations of number of cold months
-real :: smoke_fraction = 0.9
-real :: k_fw           = 0.1 ! water parameter used in fire disturbance rate calculation
+real :: smoke_fraction(0:MSPECIES) = & ! fration of carbon lost as smoke
+       (/    0.9,         0.9,          0.9,           0.9,         0.9,    0.9,   0.9,   0.9,   0.9,   0.9,   0.9,   0.9,   0.9,   0.9  /)
 real :: agf_bs         = 0.8 ! ratio of above ground stem to total stem
 real :: K1 = 10.0, K2 = 0.05 ! soil decomposition parameters
 real :: fsc_liv        = 0.8
@@ -306,19 +356,21 @@ real :: fsc_pool_spending_time = 1.0 ! time (yrs) during which intermediate pool
 real :: ssc_pool_spending_time = 1.0 ! time (yrs) during which intermediate pool of
                   ! slow soil carbon is entirely converted to the slow soil carbon
 real :: harvest_spending_time(N_HARV_POOLS) = &
-     (/1.0, 1.0, 1.0, 1.0/)
+     (/1.0, 1.0, 1.0, 1.0, 10.0, 100.0/)
      ! time (yrs) during which intermediate pool of harvested carbon is completely
      ! released to the atmosphere. 
      ! NOTE: a year in the above *_spending_time definitions is exactly 365*86400 seconds
 real :: l_fract      = 0.5 ! fraction of the leaves retained after leaf drop
 real :: T_transp_min = 0.0 ! lowest temperature at which transporation is enabled
                            ! 0 means no limit, lm3v value is 268.0
-real :: theta_crit   = 0.01! theta threshold for leaf drop (mm)
 ! boundaries of wood biomass bins for secondary veg. (kg C/m2); used to decide 
 ! whether secondary vegetation tiles can be merged or not. MUST BE IN ASCENDING 
 ! ORDER.
 real  :: scnd_biomass_bins(10) &  
      = (/ 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 1000.0 /)
+real :: phen_ev1 = 0.5, phen_ev2 = 0.9 ! thresholds for evergreen/decidious 
+      ! differentiation (see phenology_type in cohort.F90)
+
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
   mcv_min, mcv_lai, &
@@ -327,21 +379,24 @@ namelist /vegn_data_nml/ &
 
   dat_height, dat_lai, dat_root_density, dat_root_zeta, dat_rs_min, dat_snow_crit, &
   ! vegetation data, imported from LM3V
-  pt, Vmax, m_cond, alpha_phot, gamma_resp, &
+  pt, Vmax, m_cond, alpha_phot, gamma_resp, wet_leaf_dreg, &
+  leaf_age_onset, leaf_age_tau, &
   treefall_disturbance_rate,fuel_intensity, &
   alpha, beta, c1,c2,c3, &
   dfr, &
+  srl, root_r, root_perm, &
   cmc_lai, cmc_pow, csc_lai, csc_pow, &
+  min_cosz, &
   leaf_refl, leaf_tran, leaf_emis, ksi, &
-  hight_eq, leaf_size, &
+  leaf_size, &
   soil_carbon_depth_scale, cold_month_threshold, &
 
-  smoke_fraction, k_fw, agf_bs, K1,K2, fsc_liv, fsc_wood, &
+  smoke_fraction, agf_bs, K1,K2, fsc_liv, fsc_wood, &
   tau_drip_l, tau_drip_s, GR_factor, tg_c3_thresh, tg_c4_thresh, &
   fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
   l_fract, T_transp_min, &
-  tc_crit, theta_crit, &
-  scnd_biomass_bins
+  tc_crit, cnst_crit_phen, fact_crit_phen, cnst_crit_fire, fact_crit_fire, &
+  scnd_biomass_bins, phen_ev1, phen_ev2
 
 
 contains ! ###################################################################
@@ -368,6 +423,19 @@ subroutine read_vegn_data_namelist()
      call close_file (unit)
   endif
 
+  unit=stdlog()
+
+  ! reconcile values of fact_crit_phen and cnst_crit_phen
+  cnst_crit_phen = max(0.0,min(1.0,cnst_crit_phen))
+  fact_crit_phen = max(0.0,fact_crit_phen)
+  where (cnst_crit_phen/=0) fact_crit_phen=0.0
+  write(unit,*)'reconciled fact_crit_phen and cnst_crit_phen'
+
+  ! do the same for fire
+  cnst_crit_fire = max(0.0,min(1.0,cnst_crit_fire))
+  fact_crit_fire = max(0.0,fact_crit_fire)
+  where (cnst_crit_fire/=0) fact_crit_fire=0.0 
+  write(unit,*)'reconciled fact_crit_fire and cnst_crit_fire'
 
   ! initialize vegetation data structure
 
@@ -386,7 +454,14 @@ subroutine read_vegn_data_namelist()
   spdata%m_cond     = m_cond
   spdata%alpha_phot = alpha_phot
   spdata%gamma_resp = gamma_resp
+  spdata%wet_leaf_dreg = wet_leaf_dreg
+  spdata%leaf_age_onset = leaf_age_onset
+  spdata%leaf_age_tau = leaf_age_tau
   spdata%dfr        = dfr
+
+  spdata%srl        = srl
+  spdata%root_r     = root_r
+  spdata%root_perm  = root_perm
   
   spdata%c1 = c1
   spdata%c2 = c2
@@ -400,6 +475,12 @@ subroutine read_vegn_data_namelist()
   spdata%leaf_size = leaf_size
 
   spdata%tc_crit   = tc_crit
+  spdata%cnst_crit_phen = cnst_crit_phen
+  spdata%fact_crit_phen = fact_crit_phen
+  spdata%cnst_crit_fire = cnst_crit_fire
+  spdata%fact_crit_fire = fact_crit_fire
+
+  spdata%smoke_fraction = smoke_fraction
 
   do i = 0, MSPECIES
      spdata(i)%alpha     = alpha(i,:)
@@ -417,7 +498,7 @@ subroutine read_vegn_data_namelist()
           tag = SEL_VEGN, idata1 = i )
   enddo
 
-  write (stdlog(), nml=vegn_data_nml)
+  write (unit, nml=vegn_data_nml)
 
 end subroutine 
 

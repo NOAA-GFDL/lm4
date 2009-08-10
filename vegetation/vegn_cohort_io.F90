@@ -1,15 +1,15 @@
 module cohort_io_mod
 
 use fms_mod,          only : error_mesg, FATAL, WARNING
-use mpp_mod,          only : mpp_max
+use mpp_mod,          only : mpp_pe, mpp_max, mpp_send, mpp_recv, mpp_sync
 
-use nf_utils_mod,     only : nfu_inq_dim, nfu_get_var, &
-     nfu_get_rec, nfu_def_dim, nfu_def_var, nfu_put_att_text
+use nf_utils_mod,     only : nfu_inq_dim, nfu_get_var, nfu_put_var, &
+     nfu_get_rec, nfu_put_rec, nfu_def_dim, nfu_def_var, nfu_put_att
 use land_io_mod,      only : print_netcdf_error
 use land_tile_mod,    only : land_tile_type, land_tile_list_type, &
      land_tile_enum_type, first_elmt, tail_elmt, next_elmt, get_elmt_indices, &
      current_tile, operator(/=)
-use land_tile_io_mod, only : write_tile_data, get_tile_by_idx 
+use land_tile_io_mod, only : get_tile_by_idx, sync_nc_files
 
 use vegn_cohort_mod, only: vegn_cohort_type
 use land_data_mod, only : lnd
@@ -31,8 +31,8 @@ public :: write_cohort_data_i0d_fptr
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'cohort_io_mod', &
-     version     = '$Id: vegn_cohort_io.F90,v 16.0 2008/07/30 22:30:10 fms Exp $', &
-     tagname     = '$Name: perth_2008_10 $'
+     version     = '$Id: vegn_cohort_io.F90,v 17.0 2009/07/21 03:03:15 fms Exp $', &
+     tagname     = '$Name: quebec $'
 ! name of the "compressed" dimension (and dimension variable) in the output 
 ! netcdf files -- that is, the dimensions written out using compression by 
 ! gathering, as described in CF conventions.
@@ -96,6 +96,7 @@ subroutine read_create_cohorts(ncid)
   __NF_ASRT__(nfu_get_var(ncid,cohort_index_name,idx))
   
   do n = 1,size(idx)
+     if(idx(n)<0) cycle ! skip illegal indices
      k = idx(n)
      i = modulo(k,nlon)+1   ; k = k/nlon
      j = modulo(k,nlat)+1   ; k = k/nlat
@@ -135,136 +136,6 @@ end subroutine read_create_cohorts
 
 
 ! ============================================================================
-subroutine read_cohort_data_r0d_fptr(ncid,name,fptr,rec)
-  integer           , intent(in) :: ncid ! netcdf id
-  character(len=*)  , intent(in) :: name ! name of the variable to read
-  integer, optional , intent(in) :: rec  ! record number (in case there are 
-                                         ! several in the file) 
-  ! subroutine returning the pointer to the data to be written
-  interface
-     subroutine fptr(cohort, ptr)
-       use vegn_cohort_mod, only : vegn_cohort_type
-       type(vegn_cohort_type), pointer :: cohort ! input
-       real                  , pointer :: ptr    ! returned pointer to the data
-     end subroutine fptr
-  end interface
-
-  ! ---- local constants
-  character(*), parameter :: module_name = 'read_cohort_data_r0d_fptr'
-
-  ! ---- local vars
-  integer :: i
-  integer :: rec_     ! record number
-  integer :: ntiles   ! size of the tile dimension in restart file
-  integer :: ncohorts ! total number of cohorts in restart file
-  integer, allocatable :: idx(:)    ! index dimension
-  real   , allocatable :: data(:)   ! data to be read
-  real   , pointer :: ptr ! pointer to the individual cohort data
-  type(vegn_cohort_type), pointer :: cohort
-
-  ! assign the internal record number
-  if(present(rec)) then
-     rec_ = rec
-  else
-     rec_ = 1
-  endif
-
-  ! get the size of the tile dimension
-  __NF_ASRT__(nfu_inq_dim(ncid,'tile',len=ntiles))
-
-  ! get the length of cohort compressed index
-  __NF_ASRT__(nfu_inq_dim(ncid,cohort_index_name,len=ncohorts))
-
-  ! allocate data
-  allocate(data(ncohorts),idx(ncohorts))
-
-  ! read the cohort index
-  __NF_ASRT__(nfu_get_var(ncid,cohort_index_name,idx))
-  ! read the data
-  __NF_ASRT__(nfu_get_rec(ncid,name,rec_,data))
-
-  ! distribute data over cohorts
-  do i = 1, size(idx)
-     call get_cohort_by_idx ( idx(i), size(lnd%garea,1), size(lnd%garea,2), ntiles,&
-                             lnd%tile_map, lnd%is, lnd%js,cohort)
-     if (associated(cohort)) then
-        call fptr(cohort, ptr)
-        if(associated(ptr)) ptr = data(i)
-     endif
-  enddo
-  
-  ! free allocated memory
-  deallocate(data,idx)
-  
-end subroutine read_cohort_data_r0d_fptr
-  
-
-! ============================================================================
-subroutine read_cohort_data_i0d_fptr(ncid,name,fptr,rec)
-  integer           , intent(in) :: ncid ! netcdf id
-  character(len=*)  , intent(in) :: name ! name of the variable to read
-  integer, optional , intent(in) :: rec  ! record number (in case there are 
-                                         ! several in the file) 
-  ! subroutine returning the pointer to the data to be written
-  interface
-     subroutine fptr(cohort, ptr)
-       use vegn_cohort_mod, only : vegn_cohort_type
-       type(vegn_cohort_type), pointer :: cohort ! input
-       integer          , pointer :: ptr    ! returned pointer to the data
-     end subroutine fptr
-  end interface
-
-  ! ---- local constants
-  character(*), parameter :: module_name = 'read_cohort_data_i0d_fptr'
-
-  ! ---- local vars
-  integer :: i
-  integer :: rec_     ! record number
-  integer :: ntiles   ! size of the tile dimension in restart file
-  integer :: ncohorts ! total number of cohorts in restart file
-  integer, allocatable :: idx(:)    ! index dimension
-  integer, allocatable :: data(:)   ! data to be read
-  integer, pointer :: ptr ! pointer to the individual cohort data
-  type(vegn_cohort_type), pointer :: cohort
-
-  ! assign the internal record number
-  if(present(rec)) then
-     rec_ = rec
-  else
-     rec_ = 1
-  endif
-
-  ! get the size of dimensions
-  __NF_ASRT__(nfu_inq_dim(ncid,'tile',len=ntiles))
-
-  ! get the length of cohort compressed index
-  __NF_ASRT__(nfu_inq_dim(ncid,cohort_index_name,len=ncohorts))
-
-  ! allocate data
-  allocate(data(ncohorts),idx(ncohorts))
-
-  ! read the cohort index
-  __NF_ASRT__(nfu_get_var(ncid,cohort_index_name,idx))
-  ! read the data
-  __NF_ASRT__(nfu_get_rec(ncid,name,rec_,data))
-
-  ! distribute data over cohorts
-  do i = 1, size(idx)
-     call get_cohort_by_idx ( idx(i), size(lnd%garea,1), size(lnd%garea,2), ntiles,&
-                             lnd%tile_map, lnd%is, lnd%js,cohort)
-     if (associated(cohort)) then
-        call fptr(cohort, ptr)
-        if(associated(ptr)) ptr = data(i)
-     endif
-  enddo
-  
-  ! free allocated memory
-  deallocate(data,idx)
-  
-end subroutine read_cohort_data_i0d_fptr
-
-
-! ============================================================================
 ! creates cohort dimension, if necessary, in the output restart file. NOTE 
 ! that this subroutine should be called even if restart has not been created
 ! (because, for example, there happen to be no vegetation in a certain domain),
@@ -279,8 +150,10 @@ subroutine create_cohort_dimension(ncid)
   type(land_tile_type), pointer :: tile
  
   integer, allocatable :: idx(:)   ! integer compressed index of tiles
-  integer :: i,j,k,c,n,ntiles,max_cohorts
+  integer :: i,j,k,c,n,ntiles,max_cohorts,p
   integer :: iret
+  integer, allocatable :: ncohorts(:) ! array of idx sizes from all PEs in io_domain
+  integer, allocatable :: idx2(:) ! array of cohort indices from all PEs in io_domain
 
   ! count total number of cohorts in compute domain and max number of
   ! of cohorts per tile
@@ -299,156 +172,77 @@ subroutine create_cohort_dimension(ncid)
 
   call mpp_max(max_cohorts)
 
-  if (n>0) then
-     ! get the size of the tile dimension from the file
-     __NF_ASRT__(nfu_inq_dim(ncid,'tile',len=ntiles))
+  ! get the size of the tile dimension from the file
+  __NF_ASRT__(nfu_inq_dim(ncid,'tile',len=ntiles))
+  
+  ! calculate compressed cohort index to be written to the restart file
+  allocate(idx(max(n,1))) ; idx(:) = -1
+  ce = first_elmt(lnd%tile_map, lnd%is, lnd%js)
+  n = 1
+  do while (ce/=te)
+     tile=>current_tile(ce)
+     if(associated(tile%vegn)) then
+        call get_elmt_indices(ce,i,j,k)
+        do c = 1,tile%vegn%n_cohorts
+           idx (n) = &
+                (c-1)*size(lnd%garea,1)*size(lnd%garea,2)*ntiles + &
+                (k-1)*size(lnd%garea,1)*size(lnd%garea,2) + &
+                (j-1)*size(lnd%garea,1) + &
+                (i-1)        
+           n = n+1
+        enddo
+     endif
+     ce=next_elmt(ce)
+  end do
 
-     ! calculate compressed cohort index to be written to the restart file
-     allocate(idx(n))
-     ce = first_elmt(lnd%tile_map, lnd%is, lnd%js)
-     n = 1
-     do while (ce/=te)
-        tile=>current_tile(ce)
-        if(associated(tile%vegn)) then
-           call get_elmt_indices(ce,i,j,k)
-           do c = 1,tile%vegn%n_cohorts
-              idx (n) = &
-                   (c-1)*size(lnd%garea,1)*size(lnd%garea,2)*ntiles + &
-                   (k-1)*size(lnd%garea,1)*size(lnd%garea,2) + &
-                   (j-1)*size(lnd%garea,1) + &
-                   (i-1)        
-              n = n+1
-           enddo
-        endif
-        ce=next_elmt(ce)
-     end do
-     ! create tile output file, defining horizontal coordinate and compressed
-     ! dimension
+  if (mpp_pe()/=lnd%io_pelist(1)) then
+     ! if this processor is not doing io (that is, it's not root io_domain
+     ! processor), simply send the data to the root io_domain PE
+     call mpp_send(size(idx), plen=1,         to_pe=lnd%io_pelist(1))
+     call mpp_send(idx(1),    plen=size(idx), to_pe=lnd%io_pelist(1))
+  else
+     ! gather the array of cohort index sizes
+     allocate(ncohorts(size(lnd%io_pelist)))
+     ncohorts(1) = size(idx)
+     do p = 2,size(lnd%io_pelist)
+        call mpp_recv(ncohorts(p), from_pe=lnd%io_pelist(p), glen=1)
+     enddo
+     ! gather cohort index from the processors in our io_domain
+     allocate(idx2(sum(ncohorts(:))))
+     idx2(1:ncohorts(1))=idx(:)
+     k=ncohorts(1)+1
+     do p = 2,size(lnd%io_pelist)
+        call mpp_recv(idx2(k), from_pe=lnd%io_pelist(p), glen=ncohorts(p))
+        k = k+ncohorts(p)
+     enddo
+     ! create cohort dimension in the output file
      iret = nf_redef(ncid)
      __NF_ASRT__(nfu_def_dim(ncid,'cohort',max_cohorts))
-     __NF_ASRT__(nfu_def_dim(ncid,cohort_index_name,idx,'compressed vegetation cohort index'))
-     __NF_ASRT__(nfu_put_att_text(ncid,cohort_index_name,'compress','cohort tile lat lon'))
+     ! create cohort index
+     __NF_ASRT__(nfu_def_dim(ncid,cohort_index_name,idx2,'compressed vegetation cohort index'))
+     __NF_ASRT__(nfu_put_att(ncid,cohort_index_name,'compress','cohort tile lat lon'))
+     __NF_ASRT__(nfu_put_att(ncid,cohort_index_name,'valid_min',0))
+     ! deallocate the data we no longer need
+     deallocate(ncohorts,idx2)
+     ! leave the define mode to commit the new definitions to the disk
+     iret = nf_enddef(ncid)
   endif
+  call sync_nc_files(ncid)
 end subroutine create_cohort_dimension
 
 
-! ============================================================================
-subroutine write_cohort_data_r0d_fptr(ncid,name,fptr,long_name,units)
-  integer         , intent(in) :: ncid ! netcdf id
-  character(len=*), intent(in) :: name ! name of the variable to write
-  character(len=*), intent(in), optional :: units, long_name
-  ! subroutine returning the pointer to the data to be written
-  interface
-     subroutine fptr(cohort, ptr)
-       use vegn_cohort_mod, only : vegn_cohort_type
-       type(vegn_cohort_type), pointer :: cohort ! input
-       real             , pointer :: ptr    ! returned pointer to the data
-     end subroutine fptr
-  end interface
+#define F90_TYPE real
+#define NF_TYPE NF_DOUBLE
+#define NF_FILL_VALUE NF_FILL_DOUBLE
+#define READ_0D_FPTR read_cohort_data_r0d_fptr
+#define WRITE_0D_FPTR write_cohort_data_r0d_fptr
+#include "vegn_cohort_io.inc"
 
-  ! ---- local vars
-  integer :: i, varid
-  integer :: ntiles   ! size of the tile dimension in the output file
-  integer :: ncohorts ! size of the cohort index dimension in the output file
-  integer, allocatable :: idx(:)    ! index dimension
-  real   , allocatable :: data(:)   ! data to be written
-  real, pointer :: ptr ! pointer to the individual cohort data
-  type(vegn_cohort_type), pointer :: cohort 
-
-  ! get the length of cohort compressed index
-  __NF_ASRT__(nfu_inq_dim(ncid,cohort_index_name,len=ncohorts))
-
-  ! get the length of tile dimension
-  __NF_ASRT__(nfu_inq_dim(ncid,'tile',len=ntiles))
-
-  ! allocate data
-  allocate(data(ncohorts),idx(ncohorts))
-
-  ! read cohort index
-  i = nf_enddef(ncid) ! ignore errors (the file may be in data mode already)
-  __NF_ASRT__(nfu_get_var(ncid,cohort_index_name,idx))
-
-  ! gather data into an array along the cohort dimension
-  do i = 1, size(idx)
-     call get_cohort_by_idx ( idx(i), size(lnd%garea,1), size(lnd%garea,2), ntiles,&
-                             lnd%tile_map, lnd%is, lnd%js,cohort)
-     if (associated(cohort)) then
-        call fptr(cohort, ptr)
-        if(associated(ptr)) data(i) = ptr
-     endif
-  enddo
-  
-  ! create variable, if it does not exist
-  if(nf_inq_varid(ncid,name,varid)/=NF_NOERR) then
-     __NF_ASRT__(nfu_def_var(ncid,name,NF_DOUBLE,(/cohort_index_name/),long_name,units,varid))
-  endif
-  ! write data
-  i = nf_enddef(ncid) ! ignore errors (file may be in data mode already)
-  __NF_ASRT__(nf_put_var_double(ncid,varid,data))
-  
-  ! free allocated memory
-  deallocate(data,idx)
-  
-end subroutine write_cohort_data_r0d_fptr
-
-
-! ============================================================================
-subroutine write_cohort_data_i0d_fptr(ncid,name,fptr,long_name,units)
-  integer         , intent(in) :: ncid ! netcdf id
-  character(len=*), intent(in) :: name ! name of the variable to write
-  character(len=*), intent(in), optional :: units, long_name
-  ! subroutine returning the pointer to the data to be written
-  interface
-     subroutine fptr(cohort, ptr)
-       use vegn_cohort_mod, only : vegn_cohort_type
-       type(vegn_cohort_type), pointer :: cohort ! input
-       integer          , pointer :: ptr    ! returned pointer to the data
-     end subroutine fptr
-  end interface
-
-  ! ---- local vars
-  integer :: i, varid
-  integer :: ntiles   ! size of the tile dimension in the output file
-  integer :: ncohorts ! size of the cohort dimension in the output file
-  integer, allocatable :: idx(:)    ! index dimension
-  integer, allocatable :: data(:)   ! data to be written
-  integer, pointer :: ptr ! pointer to the individual cohort data
-  type(vegn_cohort_type), pointer :: cohort 
-
-  ! get the length of cohort compressed index
-  __NF_ASRT__(nfu_inq_dim(ncid,cohort_index_name,len=ncohorts))
-
-  ! get the length of tile dimension
-  __NF_ASRT__(nfu_inq_dim(ncid,'tile',len=ntiles))
-
-  ! allocate data
-  allocate(data(ncohorts),idx(ncohorts))
-
-  ! read cohort index
-  i = nf_enddef(ncid) ! ignore errors (file may be in data mode already)
-  __NF_ASRT__(nfu_get_var(ncid,cohort_index_name,idx))
-
-  ! gather data into an array along the cohort dimension
-  do i = 1, size(idx)
-     call get_cohort_by_idx ( idx(i), size(lnd%garea,1), size(lnd%garea,2), ntiles,&
-                             lnd%tile_map, lnd%is, lnd%js,cohort)
-     if (associated(cohort)) then
-        call fptr(cohort, ptr)
-        if(associated(ptr)) data(i) = ptr
-     endif
-  enddo
-  
-  ! create variable, if it does not exist
-  if(nf_inq_varid(ncid,name,varid)/=NF_NOERR) then
-     __NF_ASRT__(nfu_def_var(ncid,name,NF_INT,(/cohort_index_name/),long_name,units,varid))
-  endif
-  ! write data
-  i = nf_enddef(ncid) ! ignore errors (file may be in data mode already)
-  __NF_ASRT__(nf_put_var_int(ncid,varid,data))
-  
-  ! free allocated memory
-  deallocate(data,idx)
-  
-end subroutine write_cohort_data_i0d_fptr
+#define F90_TYPE integer
+#define NF_TYPE NF_INT
+#define NF_FILL_VALUE NF_FILL_INT
+#define READ_0D_FPTR read_cohort_data_i0d_fptr
+#define WRITE_0D_FPTR write_cohort_data_i0d_fptr
+#include "vegn_cohort_io.inc"
 
 end module cohort_io_mod

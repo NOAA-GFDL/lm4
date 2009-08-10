@@ -2,13 +2,13 @@ module land_io_mod
 
 use constants_mod,     only : PI
 use fms_mod,           only : file_exist, error_mesg, FATAL, stdlog, mpp_pe, &
-     mpp_root_pe, write_version_number
+     mpp_root_pe, write_version_number, string
 use horiz_interp_mod,  only : horiz_interp_type, &
      horiz_interp_new, horiz_interp_del, &
      horiz_interp
 
 use nf_utils_mod,      only : nfu_validtype, nfu_get_dim, nfu_get_dim_bounds, &
-     nfu_get_valid_range, nfu_is_valid
+     nfu_get_valid_range, nfu_is_valid, nfu_inq_var, nfu_get_var
 
 implicit none
 private
@@ -20,10 +20,13 @@ public :: read_field
 
 public :: print_netcdf_error
 ! ==== end of public interface ===============================================
+interface nearest
+   module procedure nearest1D, nearest2D
+end interface
 
 interface read_field
-   module procedure read_field_0
-   module procedure read_field_1
+   module procedure read_field_N_2D, read_field_N_3D
+   module procedure read_field_I_2D, read_field_I_3D
 end interface
 
 ! ==== NetCDF declarations ===================================================
@@ -33,33 +36,27 @@ include 'netcdf.inc'
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land_io_mod', &
-     version     = '$Id: land_io.F90,v 16.0 2008/07/30 22:13:09 fms Exp $', &
-     tagname     = '$Name: perth_2008_10 $'
+     version     = '$Id: land_io.F90,v 17.0 2009/07/21 03:02:35 fms Exp $', &
+     tagname     = '$Name: quebec $'
 
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
-subroutine nearest(mask, lon, lat, plon, plat, iout, jout, aspect)
 ! finds nearest point that is not masked out in input data
+! NOTE: implemented in very naive and inefficient way
+subroutine nearest1D(mask, lon, lat, plon, plat, iout, jout)
   logical, intent(in) :: mask(:,:)  ! mask of valid input points (.true. if valid point)
   real,    intent(in) :: lon(:)     ! longitudes of input grd central points, radian
   real,    intent(in) :: lat(:)     ! latitudes of input grd central points, radian
   real,    intent(in) :: plon, plat ! coordinates of destination point, radian
   integer, intent(out):: iout, jout ! indices of nearest valid (unmasked) point
-  real,    intent(in), optional :: &
-       aspect ! aspect ratio of metrics; >1 means longitudinal direction is
-              ! preferred
 
   ! ---- local vars ----------------------------------------------------------
   integer :: i,j
   real    :: r,r1
-  real    :: zsize
 
-  zsize = 1.0
-  if(present(aspect)) zsize = aspect 
-
-  r = 2*PI*max(zsize,1.0)  ! some value larger than any possible distance
+  r = HUGE(r)  ! some value larger than any possible distance
 
   do j = 1, size(mask,2)
   do i = 1, size(mask,1)
@@ -72,33 +69,50 @@ subroutine nearest(mask, lon, lat, plon, plat, iout, jout, aspect)
      endif
   enddo
   enddo
+end subroutine nearest1D
 
-  ! ---- NOTES ---------------------------------------------------------------
-  ! implemented in very naive and inefficient approach
-  ! ---- BUGS ----------------------------------------------------------------
-  ! aspect ratio is not used in this formulation: one can fix it by multiplying
-  ! longitude difference by aspect (and confining the result to [-PI, +PI]). 
-  ! however, in this case the actual aspect ratio (as measured by raitio of 
-  ! distances in two directions) would depend on latitude.
+subroutine nearest2D(mask, lon, lat, plon, plat, iout, jout)
+  logical, intent(in) :: mask(:,:)  ! mask of valid input points (.true. if valid point)
+  real,    intent(in) :: lon(:,:)   ! longitudes of input grd central points, radian
+  real,    intent(in) :: lat(:,:)   ! latitudes of input grd central points, radian
+  real,    intent(in) :: plon, plat ! coordinates of destination point, radian
+  integer, intent(out):: iout, jout ! indices of nearest valid (unmasked) point
 
-contains 
-  real function distance(lon1, lat1, lon2, lat2)
-    ! calculates distance between points on unit square
-    real, intent(in) :: lon1,lat1,lon2,lat2
-    
-    real :: x1,y1,z1, x2,y2,z2
-    real :: dlon
-    dlon = (lon2-lon1)
-    
-    z1 = sin(lat1)*zsize ;  z2 = sin(lat2)*zsize
-    y1 = 0.0             ;  y2 = cos(lat2)*sin(dlon)
-    x1 = cos(lat1)       ;  x2 = cos(lat2)*cos(dlon)
-    
-    ! distance = acos(x1*x2 + z1*z2)
-    distance = (x1-x2)**2+(y1-y2)**2+(z1-z2)**2
-  end function distance
+  ! ---- local vars 
+  integer :: i,j
+  real    :: r,r1
 
-end subroutine nearest
+  r = HUGE(r)  ! some value larger than any possible distance
+
+  do j = 1, size(mask,2)
+  do i = 1, size(mask,1)
+     if (.not.mask(i,j)) cycle
+     r1 = distance(plon,plat,lon(i,j),lat(i,j))
+     if ( r1 < r ) then
+        iout = i
+        jout = j
+        r = r1
+     endif
+  enddo
+  enddo
+end subroutine nearest2D
+
+
+function distance(lon1, lat1, lon2, lat2) ; real distance
+  ! calculates distance between points on unit square
+  real, intent(in) :: lon1,lat1,lon2,lat2
+  
+  real :: x1,y1,z1, x2,y2,z2
+  real :: dlon
+  dlon = (lon2-lon1)
+  
+  z1 = sin(lat1) ;  z2 = sin(lat2)
+  y1 = 0.0       ;  y2 = cos(lat2)*sin(dlon)
+  x1 = cos(lat1) ;  x2 = cos(lat2)*cos(dlon)
+  
+  ! distance = acos(x1*x2 + z1*z2)
+  distance = (x1-x2)**2+(y1-y2)**2+(z1-z2)**2
+end function distance
 
 
 ! ============================================================================
@@ -279,16 +293,19 @@ subroutine do_read_fraction_field(ncid,varid,lonb,latb,input_cover_types,frac)
   __NF_ASRT__( nf_get_var_double(ncid,varid,in_frac) )
   __NF_ASRT__( nfu_get_valid_range(ncid,varid,v) )
 
-  call horiz_interp_new(interp, in_lonb,in_latb, lonb,latb,&
-       interp_method='conservative')
   frac = 0
   do k = 1,size(input_cover_types)
      cover = input_cover_types(k)
+     if (cover<1.or.cover>ntypes) then
+        cycle ! skip all invalid indices in the array of input cover types
+     endif
      in_mask = 0.0
      where(nfu_is_valid(in_frac(:,:,cover),v)) in_mask = 1.0
-     call horiz_interp(interp,in_frac(:,:,cover),frac(:,:,k),mask_in=in_mask)
+     call horiz_interp_new(interp, in_lonb,in_latb, lonb,latb,&
+          interp_method='conservative',mask_in=in_mask)
+     call horiz_interp(interp,in_frac(:,:,cover),frac(:,:,k))
+     call horiz_interp_del(interp)
   enddo
-  call horiz_interp_del(interp)
 
   ! clean up memory
   deallocate(in_lonb, in_latb, in_frac, in_mask)
@@ -297,11 +314,27 @@ end subroutine do_read_fraction_field
 
 
 ! ============================================================================
-subroutine read_field_1(filename, varname, lon, lat, data, interp)
+subroutine read_field_N_2D(filename, varname, lon, lat, data, interp)
   character(len=*), intent(in) :: filename
   character(len=*), intent(in) :: varname
   real, intent(in)  :: lon(:,:),lat(:,:)
   real, intent(out) :: data(:,:)
+  character(len=*), intent(in), optional :: interp
+
+  ! ---- local vars ----------------------------------------------------------
+  real    :: data3(size(data,1),size(data,2),1)
+
+  call read_field_N_3D(filename, varname, lon, lat, data3, interp)
+  data = data3(:,:,1)
+
+end subroutine read_field_N_2D
+
+! ============================================================================
+subroutine read_field_N_3D(filename, varname, lon, lat, data, interp)
+  character(len=*), intent(in) :: filename
+  character(len=*), intent(in) :: varname
+  real, intent(in)  :: lon(:,:),lat(:,:)
+  real, intent(out) :: data(:,:,:)
   character(len=*), intent(in), optional :: interp
 
   ! ---- local vars ----------------------------------------------------------
@@ -312,44 +345,70 @@ subroutine read_field_1(filename, varname, lon, lat, data, interp)
   if(iret/=NF_NOERR) then
      call error_mesg('read_field','Can''t open netcdf file "'//trim(filename)//'"',FATAL)
   endif
-  call read_field_0(ncid, varname, lon, lat, data, interp)
+  call read_field_I_3D(ncid, varname, lon, lat, data, interp)
   __NF_ASRT__( nf_close(ncid) )
 
-end subroutine read_field_1
+end subroutine read_field_N_3D
 
 ! ============================================================================
-subroutine read_field_0(ncid, varname, lon, lat, data, interp)
+subroutine read_field_I_2D(ncid, varname, lon, lat, data, interp)
   integer, intent(in) :: ncid
   character(len=*), intent(in) :: varname
   real, intent(in) :: lon(:,:),lat(:,:)
   real, intent(out) :: data(:,:)
   character(len=*), intent(in), optional  :: interp
+  ! ---- local vars
+  real    :: data3(size(data,1),size(data,2),1)
+
+  call read_field_I_3D(ncid, varname, lon, lat, data3, interp)
+  data = data3(:,:,1)
+
+end subroutine read_field_I_2D
+
+! ============================================================================
+subroutine read_field_I_3D(ncid, varname, lon, lat, data, interp)
+  integer, intent(in) :: ncid
+  character(len=*), intent(in) :: varname
+  real, intent(in) :: lon(:,:),lat(:,:)
+  real, intent(out) :: data(:,:,:)
+  character(len=*), intent(in), optional  :: interp
 
   ! ---- local vars ----------------------------------------------------------
-  integer :: varid
-  integer :: nlon, nlat ! size of input grid
-  integer :: vardims(NF_MAX_VAR_DIMS)
-  real,    allocatable :: in_lonb(:), in_latb(:), in_lon(:), in_lat(:), x(:,:), rmask(:,:)
-  logical, allocatable :: mask(:,:)
+  integer :: nlon, nlat, nlev ! size of input grid
+  integer :: varndims ! number of variable dimension
+  integer :: vardims(NF_MAX_VAR_DIMS) ! IDs of variable dimension
+  integer :: dimlens(NF_MAX_VAR_DIMS) ! sizes of respective dimansions
+  real,    allocatable :: in_lonb(:), in_latb(:), in_lon(:), in_lat(:)
+  real,    allocatable :: x(:,:,:) ! input buffer
+  logical, allocatable :: mask(:,:,:) ! mask of valid values
+  real,    allocatable :: rmask(:,:,:) ! real mask for interpolator
   character(len=20) :: interpolation 
-  integer :: i,j,imap,jmap !
-  real    :: missing
+  integer :: i,j,k,imap,jmap !
+  type(nfu_validtype) :: v
 
   interpolation = "bilinear"
   if(present(interp)) interpolation = interp
   
   ! get the dimensions of our variable
-  __NF_ASRT__( nf_inq_varid(ncid,varname,varid) )
-  __NF_ASRT__( nf_inq_vardimid(ncid,varid,vardims) )
-  ! get size of the longitude and latitude axes
-  __NF_ASRT__( nf_inq_dimlen(ncid, vardims(1), nlon) )
-  __NF_ASRT__( nf_inq_dimlen(ncid, vardims(2), nlat) )
+  __NF_ASRT__( nfu_inq_var(ncid,varname,ndims=varndims,dimids=vardims,dimlens=dimlens) )
+  if(varndims<2.or.varndims>3) then
+     call error_mesg('read_field','variable "'//trim(varname)//'" is '//string(varndims)//&
+          'D, but only reading 2D or 3D variables is supported', FATAL)
+  endif
+  nlon = dimlens(1) ; nlat = dimlens(2)
+  nlev = 1; 
+  if (varndims==3) nlev=dimlens(3)
+  if(nlev/=size(data,3)) then
+     call error_mesg('read_field','3rd dimension length of the variable "'&
+          //trim(varname)//'" ('//trim(string(nlev))//') is different from the expected size of data ('// &
+          trim(string(size(data,3)))//')', FATAL)
+  endif
 
   allocate (                 &
        in_lon  (nlon),   in_lat  (nlat),   &
        in_lonb (nlon+1), in_latb (nlat+1), &
-       x       (nlon, nlat) ,&
-       mask    (nlon, nlat) , rmask(nlon, nlat) )
+       x       (nlon, nlat, nlev) ,&
+       mask    (nlon, nlat, nlev) , rmask(nlon, nlat, nlev) )
 
   ! read boundaries of the grid cells in longitudinal direction
   __NF_ASRT__(nfu_get_dim(ncid, vardims(1), in_lon))
@@ -358,24 +417,26 @@ subroutine read_field_0(ncid, varname, lon, lat, data, interp)
   __NF_ASRT__(nfu_get_dim_bounds(ncid, vardims(1), in_lonb))
   __NF_ASRT__(nfu_get_dim_bounds(ncid, vardims(2), in_latb))
   in_lonb = in_lonb*PI/180.0; in_latb = in_latb*PI/180.0
+  __NF_ASRT__(nfu_get_valid_range(ncid,varname,v))
   ! read input data
-  __NF_ASRT__( nf_inq_varid(ncid,varname,varid) )
-  __NF_ASRT__( nf_get_var_double(ncid,varid,x) ) ! assuming real is real*8
-  mask = .true.
+  __NF_ASRT__( nfu_get_var(ncid,varname,x) ) ! assuming real is real*8
+  mask = nfu_is_valid(x,v)
   rmask = 1.0
-  if(nf_get_att_double(ncid,varid,"missing_value",missing)==NF_NOERR) then
-     mask = x/=missing
-     where(.not.mask) rmask = 0.0
-  endif
+  where(.not.mask) rmask = 0.0
 
   select case(trim(interpolation))
   case ("bilinear")
-     call horiz_interp(x, in_lonb, in_latb, lon,lat, data, mask_in=rmask, interp_method='bilinear')
+     do k = 1,size(data,3)
+        call horiz_interp(x(:,:,k), in_lonb, in_latb, lon,lat, data(:,:,k), mask_in=rmask(:,:,k), &
+             interp_method='bilinear')
+     enddo
   case ("nearest")
+     do k = 1,size(data,3)
      do j = 1,size(data,2)
      do i = 1,size(data,1)
-        call nearest (mask, in_lon, in_lat, lon(i,j), lat(i,j), imap, jmap)
-        data(i,j) = x(imap,jmap)
+        call nearest (mask(:,:,k), in_lon, in_lat, lon(i,j), lat(i,j), imap, jmap)
+        data(i,j,k) = x(imap,jmap,k)
+     enddo
      enddo
      enddo
   case default
@@ -384,7 +445,7 @@ subroutine read_field_0(ncid, varname, lon, lat, data, interp)
 
   deallocate(in_lonb, in_latb, in_lon, in_lat, x, mask, rmask)
 
-end subroutine read_field_0
+end subroutine read_field_I_3D
 
 ! ============================================================================
 subroutine print_netcdf_error(ierr, file, line)

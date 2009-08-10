@@ -1,9 +1,11 @@
 module land_data_mod
 
+use mpp_mod           , only : mpp_get_current_pelist, mpp_pe
 use constants_mod     , only : PI
 use mpp_domains_mod   , only : domain2d, mpp_get_compute_domain, &
-     mpp_define_layout, mpp_define_domains, mpp_get_current_ntile, &
-     mpp_get_tile_id, CYCLIC_GLOBAL_DOMAIN
+     mpp_define_layout, mpp_define_domains, mpp_define_io_domain, &
+     mpp_get_current_ntile, mpp_get_tile_id, CYCLIC_GLOBAL_DOMAIN, &
+     mpp_get_io_domain, mpp_get_pelist, mpp_get_layout
 use fms_mod           , only : write_version_number, mpp_npes, error_mesg, FATAL
 use time_manager_mod  , only : time_type
 use tracer_manager_mod, only : register_tracers, get_tracer_index, NO_TRACER
@@ -44,8 +46,8 @@ public :: land_state_type
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: &
      module_name = 'land_data_mod', &
-     version     = '$Id: land_data.F90,v 16.0 2008/07/30 22:12:55 fms Exp $', &
-     tagname     = '$Name: perth_2008_10 $'
+     version     = '$Id: land_data.F90,v 17.0 2009/07/21 03:02:20 fms Exp $', &
+     tagname     = '$Name: quebec $'
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
 ! It is supposed to be double-precision signaling NaN, to triger a trap when
@@ -64,7 +66,7 @@ type :: atmos_land_boundary_type
         swdn_flux => NULL(), &   ! downward shortwave radiation flux, W/m2
         lprec     => NULL(), &   ! liquid precipitation rate, kg/(m2 s)
         fprec     => NULL(), &   ! frozen precipitation rate, kg/(m2 s)
-        tprec     => NULL(), &   !
+        tprec     => NULL(), &   ! temperture of precipitation, degK
    ! components of downward shortwave flux, W/m2  
         sw_flux_down_vis_dir   => NULL(), & ! visible direct 
         sw_flux_down_total_dir => NULL(), & ! total direct
@@ -116,9 +118,10 @@ type :: land_data_type
    ! hold data per-gridcell, rather than per-tile basis. This, and the order of updates,
    ! have implications for the data reallocation procedure.
    real, pointer, dimension(:,:) :: &  ! (lon, lat)
-        discharge      => NULL(),  & ! flux from surface drainage network out of land model
-        discharge_snow => NULL(),  & ! snow analogue of discharge
-        discharge_heat => NULL()     ! heat analogue of discharge
+     discharge           => NULL(),  & ! liquid water flux from land to ocean
+     discharge_heat      => NULL(),  & ! sensible heat of discharge (0 C datum)
+     discharge_snow      => NULL(),  & ! solid water flux from land to ocean
+     discharge_snow_heat => NULL()     ! sensible heat of discharge_snow (0 C datum)
 
    logical, pointer, dimension(:,:,:):: &
         mask => NULL()               ! true if land
@@ -151,6 +154,13 @@ type :: land_state_type
    
    type(domain2d) :: domain ! our domain -- should be the last since it simplifies
                             ! debugging in totalview
+   integer :: nfaces ! number of mosaic faces
+   integer :: face  ! the current mosaic face
+   integer, allocatable :: pelist(:) ! list of processors that run land model
+   integer, allocatable :: io_pelist(:) ! list of processors in our io_domain
+   ! if io_domain was not defined, then there is just one element in this
+   ! array, and it's equal to current PE
+   integer :: io_id     ! suffix in the distributed files.
 end type land_state_type
 
 ! ---- public module variables -----------------------------------------------
@@ -168,8 +178,9 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 
 ! ============================================================================
-subroutine land_data_init(layout, time, dt_fast, dt_slow)
+subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow)
   integer, intent(inout) :: layout(2) ! layout of our domains
+  integer, intent(inout) :: io_layout(2) ! layout for land model io
   type(time_type), intent(in) :: &
        time,    & ! current model time
        dt_fast, & ! fast (physical) time step
@@ -178,16 +189,19 @@ subroutine land_data_init(layout, time, dt_fast, dt_slow)
   ! ---- local vars
   integer :: nlon, nlat ! size of global grid in lon and lat directions
   integer :: ntiles     ! number of tiles in the mosaic grid 
-  integer :: tile       ! the current mosaic tile
   integer :: ntracers, ndiag ! non-optional output from register_tracers
   integer, allocatable :: tile_ids(:) ! mosaic tile IDs for the current PE
   integer :: i,j
+  type(domain2d), pointer :: io_domain ! our io_domain
+  integer :: n_io_pes(2) ! number of PEs in our io_domain along x and y
+  integer :: io_id(1)
 
   ! write the version and tag name to the logfile
   call write_version_number(version, tagname)
 
   ! define the processor layout information according to the global grid size 
   call get_grid_ntiles('LND',ntiles)
+  lnd%nfaces = ntiles
   call get_grid_size('LND',1,nlon,nlat)
   if( layout(1)==0 .AND. layout(2)==0 ) &
        call mpp_define_layout( (/1,nlon,1,nlat/), mpp_npes()/ntiles, layout )
@@ -195,20 +209,40 @@ subroutine land_data_init(layout, time, dt_fast, dt_slow)
   if( layout(1)==0 .AND. layout(2)/=0 )layout(1) = mpp_npes()/(layout(2)*ntiles)
 
   ! defne land model domain
- if (ntiles==1) then
-    call mpp_define_domains ((/1,nlon, 1, nlat/), layout, lnd%domain, xhalo=1, yhalo=1,&
-         xflags = CYCLIC_GLOBAL_DOMAIN, name = 'LAND MODEL')
- else
-    call define_cube_mosaic ('LND', lnd%domain, layout, halo=1)
- endif
+  if (ntiles==1) then
+     call mpp_define_domains ((/1,nlon, 1, nlat/), layout, lnd%domain, xhalo=1, yhalo=1,&
+          xflags = CYCLIC_GLOBAL_DOMAIN, name = 'LAND MODEL')
+  else
+     call define_cube_mosaic ('LND', lnd%domain, layout, halo=1)
+  endif
+
+  ! define io domain
+  call mpp_define_io_domain(lnd%domain, io_layout)
+
+  ! set up list of processors for collective io: only the first processor in this
+  ! list actually writes data, the rest just send the data to it.
+  io_domain=>mpp_get_io_domain(lnd%domain)
+  if (associated(io_domain)) then
+     call mpp_get_layout(io_domain,n_io_pes)
+     allocate(lnd%io_pelist(n_io_pes(1)*n_io_pes(2)))
+     call mpp_get_pelist(io_domain,lnd%io_pelist)
+     io_id = mpp_get_tile_id(io_domain)
+     lnd%io_id = io_id(1)
+  else
+     allocate(lnd%io_pelist(1))
+     lnd%io_pelist(1) = mpp_pe()
+     lnd%io_id        = mpp_pe()
+  endif
+     
+
   ! get the domain information
   call mpp_get_compute_domain(lnd%domain, lnd%is,lnd%ie,lnd%js,lnd%je)
 
-  ! get the tile number for this processor: this assumes that there is only one
+  ! get the mosaic tile number for this processor: this assumes that there is only one
   ! mosaic tile per PE.
   allocate(tile_ids(mpp_get_current_ntile(lnd%domain)))
   tile_ids = mpp_get_tile_id(lnd%domain)
-  tile = tile_ids(1)
+  lnd%face = tile_ids(1)
   deallocate(tile_ids)
 
   allocate(lnd%tile_map (lnd%is:lnd%ie, lnd%js:lnd%je))
@@ -220,10 +254,10 @@ subroutine land_data_init(layout, time, dt_fast, dt_slow)
   allocate(lnd%gcellarea(nlon,nlat))
 
   ! initialize coordinates
-  call get_grid_cell_vertices('LND',tile,lnd%glonb,lnd%glatb)
-  call get_grid_cell_centers ('LND',tile,lnd%glon, lnd%glat)
-  call get_grid_cell_area    ('LND',tile,lnd%gcellarea)
-  call get_grid_comp_area    ('LND',tile,lnd%garea)
+  call get_grid_cell_vertices('LND',lnd%face,lnd%glonb,lnd%glatb)
+  call get_grid_cell_centers ('LND',lnd%face,lnd%glon, lnd%glat)
+  call get_grid_cell_area    ('LND',lnd%face,lnd%gcellarea)
+  call get_grid_comp_area    ('LND',lnd%face,lnd%garea)
   ! convert coordinates to radian
   lnd%glonb = lnd%glonb*pi/180.0 ; lnd%glon = lnd%glon*pi/180.0
   lnd%glatb = lnd%glatb*pi/180.0 ; lnd%glat = lnd%glat*pi/180.0
@@ -249,6 +283,10 @@ subroutine land_data_init(layout, time, dt_fast, dt_slow)
   lnd%dt_fast = dt_fast
   lnd%dt_slow = dt_slow
 
+  ! initialize the land model processor list
+  allocate(lnd%pelist(0:mpp_npes()-1))
+  call mpp_get_current_pelist(lnd%pelist)
+
 end subroutine land_data_init
 
 ! ============================================================================
@@ -266,7 +304,8 @@ subroutine land_data_end()
   enddo
 
   ! deallocate grid data
-  deallocate(lnd%glonb, lnd%glatb, lnd%glon, lnd%glat, lnd%garea, lnd%tile_map)
+  deallocate(lnd%glonb, lnd%glatb, lnd%glon, lnd%glat, lnd%garea, lnd%tile_map,&
+       lnd%pelist, lnd%io_pelist)
 
 end subroutine land_data_end
 
@@ -321,16 +360,18 @@ subroutine realloc_land2cplr ( bnd )
   ! changed at all here because their values are assigned in update_land_model_fast,
   ! not in update_land_bc_*, and therefore would be lost if re-allocated.
   if (.not.associated(bnd%discharge)) then
-     allocate( bnd%discharge(lnd%is:lnd%ie,lnd%js:lnd%je) )
-     allocate( bnd%discharge_snow(lnd%is:lnd%ie,lnd%js:lnd%je) )
-     allocate( bnd%discharge_heat(lnd%is:lnd%ie,lnd%js:lnd%je) )
+     allocate( bnd%discharge          (lnd%is:lnd%ie,lnd%js:lnd%je) )
+     allocate( bnd%discharge_heat     (lnd%is:lnd%ie,lnd%js:lnd%je) )
+     allocate( bnd%discharge_snow     (lnd%is:lnd%ie,lnd%js:lnd%je) )
+     allocate( bnd%discharge_snow_heat(lnd%is:lnd%ie,lnd%js:lnd%je) )
 
      ! discharge and discaharge_snow must be, in contrast to the rest of the boundary
      ! values, filled with zeroes. The reason is because not all of the usable elements
      ! are updated by the land model (only coastal points are).
-     bnd%discharge         = 0.0
-     bnd%discharge_snow    = 0.0
-     bnd%discharge_heat    = 0.0
+     bnd%discharge           = 0.0
+     bnd%discharge_heat      = 0.0
+     bnd%discharge_snow      = 0.0
+     bnd%discharge_snow_heat = 0.0
   endif
 end subroutine realloc_land2cplr
 
@@ -360,9 +401,10 @@ subroutine dealloc_land2cplr ( bnd, dealloc_discharges )
   __DEALLOC__( bnd%mask )
 
   if (dealloc_discharges) then
-     __DEALLOC__( bnd%discharge )
-     __DEALLOC__( bnd%discharge_snow )
-     __DEALLOC__( bnd%discharge_heat )
+     __DEALLOC__( bnd%discharge           )
+     __DEALLOC__( bnd%discharge_heat      )
+     __DEALLOC__( bnd%discharge_snow      )
+     __DEALLOC__( bnd%discharge_snow_heat )
   end if
 
 end subroutine dealloc_land2cplr

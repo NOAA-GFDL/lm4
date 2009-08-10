@@ -3,7 +3,7 @@ module vegn_tile_mod
 use fms_mod, only : &
      write_version_number, stdlog, error_mesg, FATAL
 use constants_mod, only : &
-     tfreeze
+     tfreeze, hlf
 
 use land_constants_mod, only : NBANDS
 use land_io_mod, only : &
@@ -12,18 +12,17 @@ use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_VEGN
 
 use vegn_data_mod, only : &
-     NSPECIES, MSPECIES, NCMPT, C2B, n_dim_vegn_types, &
+     NSPECIES, MSPECIES, NCMPT, C2B, &
      read_vegn_data_namelist, spdata, &
      vegn_to_use,  input_cover_types, &
      mcv_min, mcv_lai, &
-     use_bucket, use_mcm_masking, vegn_index_constant, &
-     critical_root_density, &
+     vegn_index_constant, &
      agf_bs, BSEED, LU_NTRL, LU_SCND, N_HARV_POOLS, &
      scnd_biomass_bins
 
 use vegn_cohort_mod, only : vegn_cohort_type, vegn_phys_prog_type, &
      height_from_biomass, lai_from_biomass, update_bio_living_fraction, &
-     cohort_data_uptake_frac_max, update_biomass_pools
+     cohort_uptake_profile, cohort_root_properties, update_biomass_pools
 
 implicit none
 private
@@ -35,11 +34,15 @@ public :: new_vegn_tile, delete_vegn_tile
 public :: vegn_tiles_can_be_merged, merge_vegn_tiles
 public :: vegn_is_selected
 public :: get_vegn_tile_tag
+public :: vegn_tile_stock_pe
+public :: vegn_tile_carbon ! returns total carbon per tile
+public :: vegn_tile_heat ! returns hate content of the vegetation
 
 public :: read_vegn_data_namelist
 public :: vegn_cover_cold_start
 
-public :: vegn_data_uptake_frac_max
+public :: vegn_uptake_profile
+public :: vegn_root_properties
 public :: vegn_data_rs_min
 public :: vegn_seed_supply
 public :: vegn_seed_demand
@@ -57,8 +60,8 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), parameter   :: &
-     version = '$Id: vegn_tile.F90,v 16.0 2008/07/30 22:30:24 fms Exp $', & 
-     tagname = '$Name: perth_2008_10 $', &
+     version = '$Id: vegn_tile.F90,v 17.0 2009/07/21 03:03:32 fms Exp $', & 
+     tagname = '$Name: quebec $', &
      module_name = 'vegn_tile_mod'
 
 ! ==== types =================================================================
@@ -91,7 +94,7 @@ type :: vegn_tile_type
    real :: fsc_in=0, fsc_out=0
    real :: veg_in=0, veg_out=0
 
-   real :: disturbance_rate(0:1) ! 1/year
+   real :: disturbance_rate(0:1) = 0 ! 1/year
    real :: lambda   ! cumulative drought months per year
    real :: fuel     ! fuel over dry months
    real :: litter   ! litter flux
@@ -361,16 +364,29 @@ subroutine update_derived_vegn_data(vegn)
 end subroutine update_derived_vegn_data
 
 ! ============================================================================
-! vegn_data_uptake_frac_max probably should stay here, since it is called 
-! by soil, and exposing internals of the vegetation tile to the other modules
-! is not good. By internals I mean the cohort list
-subroutine vegn_data_uptake_frac_max(vegn,dz,uptake_frac_max)
+! returns the profiles of uptake used in the 'LINEAR' uptake option
+subroutine vegn_uptake_profile(vegn, dz, uptake_frac_max, vegn_uptake_term)
   type(vegn_tile_type), intent(in)  :: vegn
   real,                 intent(in)  :: dz(:)
   real,                 intent(out) :: uptake_frac_max(:)
+  real,                 intent(out) :: vegn_uptake_term(:)
 
-  call cohort_data_uptake_frac_max(vegn%cohorts(1), dz, uptake_frac_max)
+  call cohort_uptake_profile(vegn%cohorts(1), dz, uptake_frac_max, vegn_uptake_term)
 end subroutine
+
+
+! ============================================================================
+subroutine vegn_root_properties (vegn, dz, VRL, K_r, r_r)
+  type(vegn_tile_type), intent(in)  :: vegn 
+  real,                 intent(in)  :: dz(:)
+  real, intent(out) :: &
+       vrl(:), & ! volumetric fine root length, m/m3
+       K_r,    & ! root membrane permeability per unit area, kg/(m3 s)
+       r_r       ! radius of fine roots, m
+
+  call cohort_root_properties(vegn%cohorts(1), dz, VRL, K_r, r_r)
+end subroutine 
+
 
 ! ============================================================================
 function vegn_data_rs_min ( vegn )
@@ -478,7 +494,6 @@ function vegn_cover_cold_start(land_mask, glonb, glatb) result (vegn_frac)
   real,    intent(in) :: glonb(:,:), glatb(:,:)! boundaries of the global grid cells
   real,    pointer    :: vegn_frac (:,:,:) ! output-global map of vegn fractional coverage
 
-!  allocate( vegn_frac(size(land_mask,1),size(land_mask,2),n_dim_vegn_types))
   allocate( vegn_frac(size(land_mask,1),size(land_mask,2),MSPECIES))
 
   call init_cover_field(vegn_to_use, 'INPUT/cover_type.nc', 'cover','frac', &
@@ -518,6 +533,59 @@ function get_vegn_tile_bwood(vegn) result(bwood)
   bwood = 0
   do i = 1,vegn%n_cohorts
      bwood = bwood + vegn%cohorts(i)%bwood
+  enddo
+end function
+
+! ============================================================================
+subroutine vegn_tile_stock_pe (vegn, twd_liq, twd_sol  )
+  type(vegn_tile_type),  intent(in)    :: vegn
+  real,                  intent(out)   :: twd_liq, twd_sol
+  integer n
+  
+  twd_liq = 0.
+  twd_sol = 0.
+  do n=1, vegn%n_cohorts
+    twd_liq = twd_liq + vegn%cohorts(n)%prog%wl
+    twd_sol = twd_sol + vegn%cohorts(n)%prog%ws
+!      vegn_HEAT  = (mcv + clw*cohort%prog%Wl+ csw*cohort%prog%Ws)*(cohort%prog%Tv-tfreeze)
+
+    enddo
+end subroutine vegn_tile_stock_pe
+
+
+! ============================================================================
+! returns total carbon in the tile, kg C/m2
+function vegn_tile_carbon(vegn) result(carbon) ; real carbon
+  type(vegn_tile_type), intent(in)  :: vegn
+
+  integer :: i
+
+  carbon = 0
+  do i = 1,vegn%n_cohorts
+     carbon = carbon + &
+          vegn%cohorts(i)%bl + vegn%cohorts(i)%blv + &
+          vegn%cohorts(i)%br + vegn%cohorts(i)%bwood + &
+          vegn%cohorts(i)%bsw
+  enddo
+  carbon = carbon + &
+       sum(vegn%harv_pool) + vegn%fsc_pool + vegn%ssc_pool + vegn%csmoke_pool
+end function
+
+
+! ============================================================================
+! returns heat content of the vegetation, J/m2
+function vegn_tile_heat (vegn) result(heat) ; real heat
+  type(vegn_tile_type), intent(in)  :: vegn
+
+  integer :: i
+
+  heat = 0
+  do i = 1, vegn%n_cohorts
+     heat = heat + &
+          (clw*vegn%cohorts(i)%prog%Wl + &
+             csw*vegn%cohorts(i)%prog%Ws + &
+             vegn%cohorts(i)%mcv_dry)*(vegn%cohorts(i)%prog%Tv-tfreeze) - &
+           hlf*vegn%cohorts(i)%prog%Ws
   enddo
 end function
 

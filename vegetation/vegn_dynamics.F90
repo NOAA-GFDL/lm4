@@ -1,11 +1,9 @@
-#define __DEBUG1__(x) write(*,'(a12,g)')#x,x
-#define __DEBUG2__(x1,x2) write(*,'(99(a12,g))')#x1,x1,#x2,x2 
-#define __DEBUG3__(x1,x2,x3) write(*,'(99(a12,g))')#x1,x1,#x2,x2,#x3,x3 
-#define __DEBUG4__(x1,x2,x3,x4) write(*,'(99(a12,g))')#x1,x1,#x2,x2,#x3,x3,#x4,x4 
 ! ============================================================================
 ! updates carbon pools and rates on the fast time scale
 ! ============================================================================
 module vegn_dynamics_mod
+
+#include "../shared/debug.inc"
 
 use fms_mod, only: write_version_number
 use time_manager_mod, only: time_type
@@ -15,7 +13,7 @@ use land_tile_diag_mod, only : &
      register_tiled_diag_field, send_tile_data, diag_buff_type
 use vegn_data_mod, only : spdata, &
      CMPT_VLEAF, CMPT_SAPWOOD, CMPT_ROOT, CMPT_WOOD, CMPT_LEAF, LEAF_ON, LEAF_OFF, &
-     fsc_liv, fsc_wood, K1, K2, soil_carbon_depth_scale, C2B, agf_bs, theta_crit, &
+     fsc_liv, fsc_wood, K1, K2, soil_carbon_depth_scale, C2B, agf_bs, &
      l_fract
 use vegn_tile_mod, only: vegn_tile_type
 use soil_tile_mod, only: soil_tile_type, soil_ave_temp, soil_ave_theta
@@ -39,8 +37,8 @@ public :: vegn_biogeography !
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-   version = '$Id: vegn_dynamics.F90,v 16.0 2008/07/30 22:30:15 fms Exp $', &
-   tagname = '$Name: perth_2008_10 $' ,&
+   version = '$Id: vegn_dynamics.F90,v 17.0 2009/07/21 03:03:22 fms Exp $', &
+   tagname = '$Name: quebec $' ,&
    module_name = 'vegn'
 real, parameter :: GROWTH_RESP=0.333  ! fraction of npp lost as growth respiration
 
@@ -50,8 +48,8 @@ real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 da
 
 ! diagnostic field IDs
 integer :: id_npp, id_nep, id_gpp, id_fast_soil_C, id_slow_soil_C, id_rsoil, id_rsoil_fast
-integer :: id_resp, id_resl, id_resr, id_resg
-integer :: id_soilt, id_theta
+integer :: id_resp, id_resl, id_resr, id_resg, id_asoil
+integer :: id_soilt, id_theta, id_litter
 
 
 contains
@@ -78,6 +76,8 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
   id_nep = register_tiled_diag_field ( module_name, 'nep',  &
        (/id_lon,id_lat/), time, 'net ecosystem productivity', 'kg C/(m2 year)', &
        missing_value=-100.0 )
+  id_litter = register_tiled_diag_field (module_name, 'litter', (/id_lon,id_lat/), &
+       time, 'litter productivity', 'kg C/(m2 year)', missing_value=-100.0)
   id_fast_soil_C = register_tiled_diag_field ( module_name, 'fsc',  &
        (/id_lon,id_lat/), time, 'fast soil carbon', 'kg C/m2', &
        missing_value=-100.0 )
@@ -98,7 +98,10 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
   id_rsoil_fast = register_tiled_diag_field ( module_name, 'rsoil_fast',  &
        (/id_lon,id_lat/), time, 'fast soil carbon respiration', 'kg C/(m2 year)', &
        missing_value=-100.0 )
-  id_soilt = register_tiled_diag_field ( module_name, 'soilt',  &
+  id_asoil = register_tiled_diag_field ( module_name, 'asoil',  &
+       (/id_lon,id_lat/), time, 'aerobic activity modifier', &
+       missing_value=-100.0 )
+  id_soilt = register_tiled_diag_field ( module_name, 'tsoil_av',  &
        (/id_lon,id_lat/), time, 'average soil temperature for carbon decomposition', 'degK', &
        missing_value=-100.0 )
   id_theta = register_tiled_diag_field ( module_name, 'theta',  &
@@ -116,6 +119,7 @@ subroutine vegn_carbon_int(vegn, soilt, theta, diag)
 
   type(vegn_cohort_type), pointer :: cc
   real :: resp, resl, resr, resg ! respiration terms accumualted for all cohorts 
+  real :: cgain, closs ! carbon gain and loss accumulated for entire tile 
   real :: md_alive, md_wood;
   real :: gpp ! gross primary productivity per tile
   integer :: sp ! shorthand for current cohort specie
@@ -129,6 +133,7 @@ subroutine vegn_carbon_int(vegn, soilt, theta, diag)
   !  update plant carbon
   vegn%npp = 0
   resp = 0 ; resl = 0 ; resr = 0 ; resg = 0 ; gpp = 0
+  cgain = 0 ; closs = 0
   do i = 1, vegn%n_cohorts   
      cc => vegn%cohorts(i)
      sp = cc%species
@@ -189,7 +194,9 @@ subroutine vegn_carbon_int(vegn, soilt, theta, diag)
      ! accumulate respiration terms for tile-level reporting
      resp = resp + cc%resp ; resl = resl + cc%resl
      resr = resr + cc%resr ; resg = resg + cc%resg
-
+     ! accumulate gain/loss terms for tile-level reporting
+     cgain = cgain + cc%carbon_gain
+     closs = closs + cc%carbon_loss
   enddo
 
   ! update soil carbon
@@ -206,6 +213,7 @@ subroutine vegn_carbon_int(vegn, soilt, theta, diag)
   call send_tile_data(id_gpp,gpp,diag)
   call send_tile_data(id_npp,vegn%npp,diag)
   call send_tile_data(id_nep,vegn%nep,diag)
+  call send_tile_data(id_litter,vegn%litter,diag)
   call send_tile_data(id_resp, resp, diag)
   call send_tile_data(id_resl, resl, diag)
   call send_tile_data(id_resr, resr, diag)
@@ -249,6 +257,14 @@ subroutine vegn_growth (vegn)
      cc%carbon_gain = 0
      cc%carbon_loss = 0
      cc%bwood_gain  = 0
+     if (cc%status == LEAF_ON) then
+        cc%leaf_age = cc%leaf_age + 1.0
+        ! limit the maximum leaf age by the leaf time span (reciprocal of leaf 
+        ! turnover rate alpha) for given species. alpha is in 1/year, factor of
+        ! 365 converts the result to days.
+        if (spdata(cc%species)%alpha(CMPT_LEAF) > 0) &
+             cc%leaf_age = min(cc%leaf_age,365.0/spdata(cc%species)%alpha(CMPT_LEAF))
+     endif
   end do
 
 end subroutine vegn_growth
@@ -289,6 +305,7 @@ subroutine Dsdt(vegn, diag, soilt, theta)
   call send_tile_data(id_slow_soil_C, vegn%slow_soil_C, diag)
   call send_tile_data(id_rsoil_fast, fast_C_loss/dt_fast_yr, diag)
   call send_tile_data(id_rsoil, vegn%rh, diag)
+  call send_tile_data(id_asoil, A, diag)
 
 end subroutine Dsdt
 
@@ -420,12 +437,14 @@ end subroutine vegn_daily_npp
 
 
 ! =============================================================================
-subroutine vegn_phenology(vegn)
+subroutine vegn_phenology(vegn, wilt)
   type(vegn_tile_type), intent(inout) :: vegn
+  real, intent(in) :: wilt ! ratio of wilting to saturated water content
 
   ! ---- local vars
   type(vegn_cohort_type), pointer :: cc
   real :: leaf_litter,root_litter;    
+  real :: theta_crit; ! critical ratio of average soil water to sat. water
   integer :: i
   
   vegn%litter = 0
@@ -435,7 +454,7 @@ subroutine vegn_phenology(vegn)
      
      if(is_watch_point())then
         write(*,*)'####### vegn_phenology #######'
-        __DEBUG2__(vegn%theta_av, theta_crit)
+        __DEBUG4__(vegn%theta_av, wilt, spdata(cc%species)%cnst_crit_phen, spdata(cc%species)%fact_crit_phen)
         __DEBUG1__(cc%species)
         __DEBUG2__(vegn%tc_av,spdata(cc%species)%tc_crit)
      endif
@@ -446,8 +465,15 @@ subroutine vegn_phenology(vegn)
      cc%status = LEAF_ON; ! set status to indicate no leaf drop
       
      if(cc%species < 4 )then! deciduous species
-        if ( (vegn%theta_av < theta_crit).or.(vegn%tc_av < spdata(cc%species)%tc_crit) ) then
+        ! actually either fact_crit_phen or cnst_crit_phen is zero, enforced
+        ! by logic in the vegn_data.F90
+        theta_crit = spdata(cc%species)%cnst_crit_phen &
+              + wilt*spdata(cc%species)%fact_crit_phen
+        theta_crit = max(0.0,min(1.0, theta_crit))
+        if ( (vegn%theta_av < theta_crit) &
+             .or.(vegn%tc_av < spdata(cc%species)%tc_crit) ) then
            cc%status = LEAF_OFF; ! set status to indicate leaf drop 
+           cc%leaf_age = 0;
            
            leaf_litter = (1.0-l_fract)*cc%bl;
            root_litter = (1.0-l_fract)*cc%br;

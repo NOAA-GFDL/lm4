@@ -19,6 +19,7 @@ private
 public :: bisect    ! finds a position of point in array of bounds
 public :: lin_int   ! linear interpolation
 public :: ludcmp, lubksb ! LU decomposition and back substitution
+public :: tridiag   ! tridiagonal system solver
 public :: numerics_init
 ! ==== end of public interfaces ==============================================
 
@@ -36,8 +37,8 @@ logical :: module_is_initialized =.FALSE.
 ! module constants
 character(len=*), parameter :: &
      mod_name = 'numerics_mod', &
-     version  = '$Id: land_numerics.F90,v 16.0 2008/07/30 22:13:11 fms Exp $', &
-     tagname  = '$Name: perth_2008_10 $'
+     version  = '$Id: land_numerics.F90,v 17.0 2009/07/21 03:02:37 fms Exp $', &
+     tagname  = '$Name: quebec $'
 
 contains
 
@@ -50,6 +51,7 @@ subroutine numerics_init()
   call write_version_number(version,tagname)
 
 end subroutine numerics_init
+
 
 ! ============================================================================
 !  Finds a position of point in array of bounds. Returns i, such that x is
@@ -354,6 +356,40 @@ subroutine lubksb(a,indx,b)
      b(i) = sum/a(i,i)
   enddo
 end subroutine lubksb
+
+
+! ============================================================================
+! given values of the triadiagonal matrix coefficients, computes a solution
+subroutine tridiag(a,b,c,r,u)
+  real, intent(in)  :: a(:),b(:),c(:),r(:)
+  real, intent(out) :: u(:)
+
+  integer :: j
+  real :: bet, gam(size(a))
+  
+  ! check that the sizes are the same
+  if(size(a)/=size(b).or.size(a)/=size(c).or.size(a)/=size(r)) &
+       call error_mesg('tridiag','sizes of input arrays are not equal',FATAL)
+  if(size(u)<size(a)) &
+       call error_mesg('tridiag','size of the result is insufficient',FATAL)
+  ! check that a(1)==0 and c(N)==0
+  if(a(1)/=0.or.c(size(a))/=0) &
+       call error_mesg('tridiag','a(1) and c(N) must be equal to 0',FATAL)
+  ! decomposition and forward substitution
+  bet = b(1)
+  u(1) = r(1)/bet
+  do j = 2,size(a)
+     gam(j) = c(j-1)/bet
+     bet = b(j)-a(j)*gam(j)
+     if(bet==0) &
+          call error_mesg('tridiag','system is ill-defined',FATAL)
+     u(j) = (r(j)-a(j)*u(j-1))/bet
+  enddo
+  ! backward substitution
+  do j = size(a)-1,1,-1
+     u(j) = u(j)-gam(j+1)*u(j+1)
+  enddo
+end subroutine tridiag
 
 
 ! ==============================================================================

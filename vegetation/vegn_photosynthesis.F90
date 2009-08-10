@@ -1,14 +1,16 @@
 module vegn_photosynthesis_mod
 
+#include "../shared/debug.inc"
+
 use fms_mod,            only : write_version_number, error_mesg, FATAL
 use constants_mod,      only : TFREEZE 
 use sphum_mod,          only : qscomp
 
-use land_constants_mod, only : BAND_VIS, Rugas,seconds_per_year
+use land_constants_mod, only : BAND_VIS, Rugas,seconds_per_year, mol_h2o, mol_air
 use land_debug_mod,     only : is_watch_point
 use vegn_data_mod,      only : MSPECIES, PT_C4, spdata
 use vegn_tile_mod,      only : vegn_tile_type
-use vegn_cohort_mod,    only : vegn_cohort_type
+use vegn_cohort_mod,    only : vegn_cohort_type, get_vegn_wet_frac
 
 implicit none
 private
@@ -20,8 +22,8 @@ public :: vegn_photosynthesis
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-   version = '$Id: vegn_photosynthesis.F90,v 16.0 2008/07/30 22:30:18 fms Exp $', &
-   tagname = '$Name: perth_2008_10 $', &
+   version = '$Id: vegn_photosynthesis.F90,v 17.0 2009/07/21 03:03:26 fms Exp $', &
+   tagname = '$Name: quebec $', &
    module_name = 'vegn_photosynthesis'
 ! values for internal vegetation photosynthesis option selector
 integer, parameter :: VEGN_PHOT_SIMPLE  = 1 ! zero photosynthesis
@@ -66,7 +68,7 @@ subroutine vegn_photosynthesis ( vegn, &
   real, intent(in)  :: PAR_dn   ! downward PAR at the top of the canopy, W/m2 
   real, intent(in)  :: PAR_net  ! net PAR absorbed by the canopy, W/m2
   real, intent(in)  :: cana_q   ! specific humidity in canopy air space, kg/kg
-  real, intent(in)  :: cana_co2 ! co2 concentration in canopy air space, ?
+  real, intent(in)  :: cana_co2 ! co2 concentration in canopy air space, mol CO2/mol dry air
   real, intent(in)  :: p_surf   ! surface pressure
   real, intent(in)  :: drag_q   ! drag coefficient for specific humidity
   real, intent(in)  :: soil_beta
@@ -79,14 +81,12 @@ subroutine vegn_photosynthesis ( vegn, &
 
   ! ---- local constants
   real, parameter :: res_scaler = 20.0    ! scaling factor for water supply
-  real, parameter :: mol_H20    = 18.0e-3 ! molar mass of H20, kg
 
   ! ---- local vars
   type(vegn_cohort_type), pointer :: cohort
-  integer :: sp ! shorthand vegetation species
-  real    :: leaf_abs ! leaf absorption coefficient for PAR
-  real    :: kappa    ! canopy extinction coefficient
+  integer :: sp ! shorthand for vegetation species
   real    :: water_supply ! water supply per m2 of leaves
+  real    :: fw, fs ! wet and snow-covered fraction of leaves
 
   ! get the pointer to the first (and, currently, the only) cohort
   cohort => vegn%cohorts(1)
@@ -105,16 +105,13 @@ subroutine vegn_photosynthesis ( vegn, &
      if(cohort%lai > 0) then
         ! assign species type to local var, purely for convenience 
         sp = cohort%species
-        ! calculate leaf absorption coefficient
-        leaf_abs = 1 - spdata(sp)%leaf_refl(BAND_VIS) - spdata(sp)%leaf_tran(BAND_VIS)
-        ! calculate total water supply, taking into account fine root biomass and
-        ! fine root diameter
-        water_supply = soil_water_supply * res_scaler * spdata(sp)%dfr * cohort%br
         ! recalculate the water supply to mol H20 per m2 of leaf per second
-        water_supply = water_supply/(mol_H20*cohort%lai)
+        water_supply = soil_water_supply/(mol_h2o*cohort%lai)
+      
+        call get_vegn_wet_frac (cohort, fw=fw, fs=fs)
         call gs_Leuning(PAR_dn, PAR_net, cohort%prog%Tv, cana_q, cohort%lai, &
-             p_surf, water_supply, sp, cana_co2, &
-             cohort%extinct, leaf_abs, stomatal_cond, psyn, resp, cohort%pt)
+             cohort%leaf_age, p_surf, water_supply, sp, cana_co2, &
+             cohort%extinct, fs+fw, stomatal_cond, psyn, resp, cohort%pt)
         ! store the calculated photosythesis and fotorespiration for future use
         ! in carbon_int
         cohort%An_op  = psyn * seconds_per_year
@@ -142,22 +139,22 @@ end subroutine vegn_photosynthesis
 
 
 ! ============================================================================
-subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, &
+subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
                    p_surf, ws, pft, ca, &
-                   kappa, leaf_abs,  &
+                   kappa, leaf_wet,  &
                    gs, apot, acl, pt)
   real,    intent(in)    :: rad_top ! PAR dn on top of the canopy, w/m2
   real,    intent(in)    :: rad_net ! PAR net on top of the canopy, w/m2
   real,    intent(in)    :: tl   ! leaf temperature, degK
   real,    intent(in)    :: ea   ! specific humidity in the canopy air (?), kg/kg
   real,    intent(in)    :: lai  ! leaf area index
-
+  real,    intent(in)    :: leaf_age ! age of leaf since budburst (deciduos), days
   real,    intent(in)    :: p_surf ! surface pressure, Pa
   real,    intent(in)    :: ws   ! water supply, mol H20/(m2 of leaf s)
   integer, intent(in)    :: pft  ! species
-  real,    intent(in)    :: ca   ! concentartion of CO2 in the canopy air space
+  real,    intent(in)    :: ca   ! concentartion of CO2 in the canopy air space, mol CO2/mol dry air
   real,    intent(in)    :: kappa! canopy extinction coefficient (move inside f(pft))
-  real,    intent(in)    :: leaf_abs ! leaf absorption (move inside f(pft))
+  real,    intent(in)    :: leaf_wet ! fraction of leaf that's wet or snow-covered
   ! note that the output is per area of leaf; to get the quantities per area of
   ! land, multiply them by LAI
   real,    intent(out)   :: gs   ! stomatal conductance, m/s
@@ -178,7 +175,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, &
 
   ! conductance related
   real :: b;
-  real :: ds;
+  real :: ds;  ! humidity deficit, kg/kg
   real :: hl;  ! saturated specific humidity at the leaf temperature, kg/kg
   real :: do1;
   
@@ -204,20 +201,19 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, &
   real :: Ed,an_w,gs_w;
 
   if (is_watch_point()) then
-#define __DEBUG__(x) write(*,*) #x , x
      write(*,*) '####### gs_leuning input #######'
-     __DEBUG__(rad_top) 
-     __DEBUG__(rad_net)
-     __DEBUG__(tl)
-     __DEBUG__(ea)
-     __DEBUG__(lai)
-     __DEBUG__(p_surf)
-     __DEBUG__(ws)
-     __DEBUG__(pft)
-     __DEBUG__(ca)
-     __DEBUG__(kappa)
-     __DEBUG__(leaf_abs)
-     __DEBUG__(pt)
+     __DEBUG2__(rad_top, rad_net)
+     __DEBUG1__(tl)
+     __DEBUG1__(ea)
+     __DEBUG1__(lai)
+     __DEBUG1__(leaf_age)
+     __DEBUG1__(p_surf)
+     __DEBUG1__(ws)
+     __DEBUG1__(pft)
+     __DEBUG1__(ca)
+     __DEBUG1__(kappa)
+     __DEBUG1__(leaf_wet)
+     __DEBUG1__(pt)
      write(*,*) '####### end of ### gs_leuning input #######'
   endif
 
@@ -231,7 +227,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, &
   light_top = rad_top*rad_phot;
   par_net   = rad_net*rad_phot;
   
-  ! calculate humidity deficit
+  ! calculate humidity deficit, kg/kg
   call qscomp(tl, p_surf, hl)
   ds = max(hl-ea,0.0)
 
@@ -240,6 +236,12 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, &
   ko=0.25   *exp(1400.0*(1.0/288.2-1.0/tl))*p_sea/p_surf;
   kc=0.00015*exp(6000.0*(1.0/288.2-1.0/tl))*p_sea/p_surf;
   vm=spdata(pft)%Vmax*exp(3000.0*(1.0/288.2-1.0/tl));
+  !decrease Vmax due to aging of temperate deciduous leaves 
+  !(based on Wilson, Baldocchi and Hanson (2001)."Plant,Cell, and Environment", vol 24, 571-583)
+  if (spdata(pft)%leaf_age_tau>0 .and. leaf_age>spdata(pft)%leaf_age_onset) then
+     vm=vm*exp(-(leaf_age-spdata(pft)%leaf_age_onset)/spdata(pft)%leaf_age_tau)
+  endif
+
   capgam=0.5*kc/ko*0.21*0.209; ! Farquhar & Caemmerer 1982
 
   ! Find respiration for the whole canopy layer
@@ -299,7 +301,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, &
         if (ci>capgam) then
            ! find LAI level at which rubisco limited rate is equal to light limited rate
            lai_eq=-log(dum2*(ci+2.*capgam)/(ci-capgam)/ &
-                       (spdata(pft)%alpha_phot*light_top*leaf_abs))/kappa;
+                       (spdata(pft)%alpha_phot*light_top*kappa))/kappa;
            lai_eq = min(max(0.0,lai_eq),lai) ! limit lai_eq to physically possible range
 
            ! gross photosynthesis for light-limited part of the canopy
@@ -320,7 +322,11 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, &
   endif ! light is available for photosynthesis
   
   an_w=anbar;
-  gs_w=gsbar;
+  if (an_w > 0.) then
+     an_w=an_w*(1-spdata(pft)%wet_leaf_dreg*leaf_wet);
+  endif
+  
+  gs_w=gsbar*(1-spdata(pft)%wet_leaf_dreg*leaf_wet);
 
   if (gs_w > gs_lim) then
       if(an_w > 0.) an_w = an_w*gs_lim/gs_w;
@@ -331,13 +337,20 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, &
   ! find water availability
   ! diagnostic demand
 
-  Ed=gs_w*ds;
+  Ed=gs_w*ds*mol_air/mol_h2o;
+  ! the factor mol_air/mol_h2o makes units of gs_w and humidity deficit ds compatible:
+  ! ds*mol_air/mol_h2o is the humidity deficit in [mol_h2o/mol_air]
 
   if (Ed>ws) then
      w_scale=ws/Ed;
      gs_w=w_scale*gs_w;
      if(an_w > 0.0) an_w = an_w*w_scale;
      if(an_w < 0.0.and.gs_w >b) gs_w=b;
+     if (is_watch_point()) then
+        write(*,*)'#### gs is water-limited'
+        __DEBUG1__(w_scale)
+        __DEBUG3__(gs_w, an_w, b)
+     endif
   endif
   gs=gs_w;
   apot=an_w;
@@ -356,9 +369,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, &
    gs = gs * Rugas * Tl / p_surf
 
    if (is_watch_point()) then
-      __DEBUG__(gs)
-      __DEBUG__(apot)
-      __DEBUG__(acl)
+      __DEBUG3__(gs, apot, acl)
    endif
 end subroutine gs_Leuning
 

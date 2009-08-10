@@ -5,22 +5,28 @@ use fms_mod, only : error_mesg, FATAL
 use land_constants_mod, only : NBANDS
 use glac_tile_mod, only : &
      glac_tile_type, new_glac_tile, delete_glac_tile, glac_is_selected, &
-     glac_tiles_can_be_merged, merge_glac_tiles, get_glac_tile_tag
+     glac_tiles_can_be_merged, merge_glac_tiles, get_glac_tile_tag, &
+     glac_tile_stock_pe, glac_tile_heat
 use lake_tile_mod, only : &
      lake_tile_type, new_lake_tile, delete_lake_tile, lake_is_selected, &
-     lake_tiles_can_be_merged, merge_lake_tiles, get_lake_tile_tag
+     lake_tiles_can_be_merged, merge_lake_tiles, get_lake_tile_tag, &
+     lake_tile_stock_pe, lake_tile_heat
 use soil_tile_mod, only : &
      soil_tile_type, new_soil_tile, delete_soil_tile, soil_is_selected, &
-     soil_tiles_can_be_merged, merge_soil_tiles, get_soil_tile_tag
+     soil_tiles_can_be_merged, merge_soil_tiles, get_soil_tile_tag, &
+     soil_tile_stock_pe, soil_tile_heat
 use cana_tile_mod, only : &
      cana_tile_type, new_cana_tile, delete_cana_tile, cana_is_selected, &
-     cana_tiles_can_be_merged, merge_cana_tiles, get_cana_tile_tag
+     cana_tiles_can_be_merged, merge_cana_tiles, get_cana_tile_tag, &
+     cana_tile_stock_pe, cana_tile_carbon, cana_tile_heat
 use vegn_tile_mod, only : &
      vegn_tile_type, new_vegn_tile, delete_vegn_tile, vegn_is_selected, &
-     vegn_tiles_can_be_merged, merge_vegn_tiles, get_vegn_tile_tag
+     vegn_tiles_can_be_merged, merge_vegn_tiles, get_vegn_tile_tag, &
+     vegn_tile_stock_pe, vegn_tile_carbon, vegn_tile_heat
 use snow_tile_mod, only : &
      snow_tile_type, new_snow_tile, delete_snow_tile, snow_is_selected, &
-     snow_tiles_can_be_merged, merge_snow_tiles, get_snow_tile_tag
+     snow_tiles_can_be_merged, merge_snow_tiles, get_snow_tile_tag, &
+     snow_tile_stock_pe, snow_tile_heat
 use land_tile_selectors_mod, only : tile_selector_type, &
      SEL_SOIL, SEL_VEGN, SEL_LAKE, SEL_GLAC, SEL_SNOW, SEL_CANA
 use tile_diag_buff_mod, only : &
@@ -39,6 +45,9 @@ public :: new_land_tile, delete_land_tile
 public :: land_tiles_can_be_merged, merge_land_tiles
 
 public :: get_tile_tags ! returns the tags of the sub-model tiles
+public :: get_tile_water ! returns liquid and frozen water masses
+public :: land_tile_carbon ! returns total carbon in the tile
+public :: land_tile_heat ! returns tile heat content
 
 ! operations with tile lists and tile list enumerators
 public :: land_tile_list_init, land_tile_list_end
@@ -94,6 +103,12 @@ interface nitems
 end interface
 
 
+! ==== module constants ======================================================
+character(len=*), parameter :: &
+     version = '$Id: land_tile.F90,v 17.0 2009/07/21 03:02:24 fms Exp $', &
+     tagname = '$Name: quebec $'
+
+! ==== data types ============================================================
 ! land_tile_type describes the structure of the land model tile; basically
 ! it is a container for tile-specific data, plus some information common to 
 ! all of them: fraction of tile area, etc.
@@ -289,29 +304,75 @@ end subroutine
 
 
 ! ============================================================================
-! returns totals associated with tile
-subroutine get_tile_totals(tile, HEAT, LMASS, FMASS)
+! returns totals water and ice masses associated with tile
+subroutine get_tile_water(tile, lmass, fmass)
   type(land_tile_type), intent(in) :: tile
-  real, intent(out), optional :: HEAT, LMASS, FMASS
+  real, intent(out) :: lmass, fmass ! liquid and solid water masses, kg/m2
 
-  real :: h,l,f, tile_HEAT, tile_LMASS, tile_FMASS
+  ! ---- local vars
+  real :: lm, fm
 
-  tile_HEAT = 0; tile_LMASS = 0; tile_FMASS = 0;
-
+  lmass = 0; fmass = 0
+  if (associated(tile%cana)) then
+     call cana_tile_stock_pe(tile%cana, lm, fm)
+     lmass = lmass+lm ; fmass = fmass + fm
+  endif
   if (associated(tile%glac)) then
-!!$     call get_glac_totals(tile%glac,HEAT=h,LMASS=l,FMASS=f)
-!!$     tile_HEAT = tile_HEAT+h; tile_LMASS = tile_LMASS+l; tile_FMASS = tile_FMASS+f
+     call glac_tile_stock_pe(tile%glac, lm, fm)
+     lmass = lmass+lm ; fmass = fmass + fm
+  endif
+  if (associated(tile%lake)) then
+     call lake_tile_stock_pe(tile%lake, lm, fm)
+     lmass = lmass+lm ; fmass = fmass + fm
   endif
   if (associated(tile%soil)) then
-!!$     call get_soil_totals(tile%soil,HEAT=h,LMASS=l,FMASS=f)
-!!$     tile_HEAT = tile_HEAT+h; tile_LMASS = tile_LMASS+l; tile_FMASS = tile_FMASS+f
+     call soil_tile_stock_pe(tile%soil, lm, fm)
+     lmass = lmass+lm ; fmass = fmass + fm
   endif
-! etc...
+  if (associated(tile%snow)) then
+     call snow_tile_stock_pe(tile%snow, lm, fm)
+     lmass = lmass+lm ; fmass = fmass + fm
+  endif
+  if (associated(tile%vegn)) then
+     call vegn_tile_stock_pe(tile%vegn, lm, fm)
+     lmass = lmass+lm ; fmass = fmass + fm
+  endif
 
-  if (present(HEAT))  HEAT  = tile_HEAT
-  if (present(LMASS)) LMASS = tile_LMASS
-  if (present(FMASS)) FMASS = tile_FMASS
 end subroutine
+
+
+! ============================================================================
+! returns total tile carbon, kg C/m2
+function land_tile_carbon(tile) result(carbon) ; real carbon
+  type(land_tile_type), intent(in) :: tile
+
+  carbon = 0
+  if (associated(tile%cana)) &
+     carbon = carbon + cana_tile_carbon(tile%cana)
+  if (associated(tile%vegn)) &
+     carbon = carbon + vegn_tile_carbon(tile%vegn)
+end function 
+
+
+! ============================================================================
+! returns total heat content of the tile
+function land_tile_heat(tile) result(heat) ; real heat
+  type(land_tile_type), intent(in) :: tile
+
+  heat = 0
+  if (associated(tile%cana)) &
+       heat = heat+cana_tile_heat(tile%cana)
+  if (associated(tile%glac)) &
+       heat = heat+glac_tile_heat(tile%glac)
+  if (associated(tile%lake)) &
+       heat = heat+lake_tile_heat(tile%lake)
+  if (associated(tile%soil)) &
+       heat = heat+soil_tile_heat(tile%soil)
+  if (associated(tile%snow)) &
+       heat = heat+snow_tile_heat(tile%snow)
+  if (associated(tile%vegn)) &
+       heat = heat+vegn_tile_heat(tile%vegn)
+end function
 
 
 ! ============================================================================

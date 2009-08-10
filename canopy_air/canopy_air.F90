@@ -1,30 +1,29 @@
-#define __DEBUG1__(x) write(*,'(a12,g)')#x,x
-#define __DEBUG2__(x1,x2) write(*,'(99(a12,g))')#x1,x1,#x2,x2 
-#define __DEBUG3__(x1,x2,x3) write(*,'(99(a12,g))')#x1,x1,#x2,x2,#x3,x3 
-#define __DEBUG4__(x1,x2,x3,x4) write(*,'(99(a12,g))')#x1,x1,#x2,x2,#x3,x3,#x4,x4 
 ! ============================================================================
 ! canopy air
 ! ============================================================================
+#include "../shared/debug.inc"
+
 module canopy_air_mod
 
 use fms_mod, only : write_version_number, error_mesg, FATAL, NOTE, file_exist, &
-     close_file, get_mosaic_tile_file, open_namelist_file, check_nml_error, &
+     close_file, open_namelist_file, check_nml_error, &
      mpp_pe, mpp_root_pe, stdlog
 use time_manager_mod, only : time_type, time_type_to_real
 use constants_mod, only : rdgas, rvgas, cp_air, PI, VONKARM
 use sphum_mod, only : qscomp
 
 use nf_utils_mod, only : nfu_inq_var
-use land_constants_mod, only : NBANDS,d608
-use cana_tile_mod, only : cana_tile_type, cana_prog_type
+use land_constants_mod, only : NBANDS,d608,mol_CO2,mol_air
+use cana_tile_mod, only : cana_tile_type, cana_prog_type, &
+     canopy_air_mass, cpw
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
 use land_tile_diag_mod, only : &
      register_tiled_diag_field, send_tile_data, diag_buff_type
 use land_data_mod,      only : land_state_type, lnd
 use land_tile_io_mod, only : create_tile_out_file, read_tile_data_r0d_fptr, write_tile_data_r0d_fptr, &
-     print_netcdf_error
-use land_debug_mod, only : is_watch_point
+     get_input_restart_name, print_netcdf_error
+use land_debug_mod, only : is_watch_point, check_temp_range
 
 implicit none
 private
@@ -33,6 +32,7 @@ private
 public :: read_cana_namelist
 public :: cana_init
 public :: cana_end
+public :: save_cana_restart
 public :: cana_radiation
 public :: cana_turbulence
 public :: cana_roughness
@@ -43,8 +43,8 @@ public :: cana_step_2
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-  version = '$Id: canopy_air.F90,v 16.0 2008/07/30 22:12:31 fms Exp $', &
-  tagname = '$Name: perth_2008_10 $', &
+  version = '$Id: canopy_air.F90,v 17.0 2009/07/21 03:01:57 fms Exp $', &
+  tagname = '$Name: quebec $', &
   module_name = 'canopy_air_mod'
 
 ! options for turbulence parameter calculations
@@ -55,10 +55,13 @@ integer, parameter :: TURB_LM3W = 1, TURB_LM3V = 2
 real :: init_T           = 288.
 real :: init_T_cold      = 260.
 real :: init_q           = 0.
-real :: init_co2         = 350.0e-6
+real :: init_co2         = 350.0e-6 ! ppmv = mol co2/mol of dry air
+real :: rav_lit_vi       = 0.       ! litter resistance to vapor per v_idx
 character(len=32) :: turbulence_to_use = 'lm3w' ! or lm3v
+logical :: save_qco2     = .TRUE.
 namelist /cana_nml/ &
-  init_T, init_T_cold, init_q, init_co2, turbulence_to_use
+  init_T, init_T_cold, init_q, init_co2, turbulence_to_use, &
+  canopy_air_mass, cpw, rav_lit_vi, save_qco2
 !---- end of namelist --------------------------------------------------------
 
 logical            :: module_is_initialized =.FALSE.
@@ -94,7 +97,8 @@ subroutine read_cana_namelist()
      call close_file (unit)
   endif
   if (mpp_pe() == mpp_root_pe()) then
-     write (stdlog(), nml=cana_nml)
+     unit = stdlog()
+     write (unit, nml=cana_nml)
   endif
 end subroutine read_cana_namelist
 
@@ -109,13 +113,13 @@ subroutine cana_init ( id_lon, id_lat )
   type(land_tile_enum_type)     :: te,ce ! last and current tile
   type(land_tile_type), pointer :: tile   ! pointer to current tile
   character(len=256) :: restart_file_name
+  logical :: restart_exists
 
   module_is_initialized = .TRUE.
 
   ! ---- make module copy of time --------------------------------------------
   time       = lnd%time
   delta_time = time_type_to_real(lnd%dt_fast)
-
 
   ! ---- initialize cana state -----------------------------------------------
   ! first, set the initial values
@@ -133,20 +137,22 @@ subroutine cana_init ( id_lon, id_lat )
         tile%cana%prog%T = init_T
      endif
      tile%cana%prog%q = init_q
-     tile%cana%prog%co2 = init_co2
+     ! convert to kg CO2/kg wet air
+     tile%cana%prog%co2 = init_co2*mol_CO2/mol_air*(1-tile%cana%prog%q) 
   enddo
 
   ! then read the restart if it exists
-  call get_mosaic_tile_file('INPUT/cana.res.nc',restart_file_name,.FALSE.,lnd%domain)
-  if (file_exist(restart_file_name)) then
+  call get_input_restart_name('INPUT/cana.res.nc',restart_exists,restart_file_name)
+  if (restart_exists) then
      call error_mesg('cana_init',&
           'reading NetCDF restart "'//trim(restart_file_name)//'"',&
           NOTE)
      __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
      call read_tile_data_r0d_fptr(unit, 'temp'  , cana_T_ptr  )
      call read_tile_data_r0d_fptr(unit, 'sphum' , cana_q_ptr )
-     if(nfu_inq_var(unit,'co2')==NF_NOERR) &
-          call read_tile_data_r0d_fptr(unit, 'co2', cana_co2_ptr )
+     if(nfu_inq_var(unit,'co2')==NF_NOERR) then
+        call read_tile_data_r0d_fptr(unit, 'co2', cana_co2_ptr )
+     endif
      __NF_ASRT__(nf_close(unit))     
   else
      call error_mesg('cana_init',&
@@ -154,7 +160,7 @@ subroutine cana_init ( id_lon, id_lat )
           NOTE)
   endif
 
-  ! initilaize options, to avoid expensive character comparisons during 
+  ! initialize options, to avoid expensive character comparisons during 
   ! run-time
   if (trim(turbulence_to_use)=='lm3v') then
      turbulence_option = TURB_LM3V
@@ -164,43 +170,40 @@ subroutine cana_init ( id_lon, id_lat )
      call error_mesg('cana_init', 'canopy air turbulence option turbulence_to_use="'// &
           trim(turbulence_to_use)//'" is invalid, use "lm3w" or "lm3v"', FATAL)
   endif
-     
-!  call canopy_air_diag_init(id_lon, id_lat)
-  
   
 end subroutine cana_init
 
 
 ! ============================================================================
-! write restart file and release memory
-subroutine cana_end (tile_dim_length)
-  integer, intent(in) :: tile_dim_length ! length of tile dimension in the 
-                                         ! output file
-
-  ! ---- local vars ----------------------------------------------------------
-  integer :: unit            ! restart file i/o unit
-  logical :: restart_created ! flag indicating that the restart file was created
+! release memory
+subroutine cana_end ()
 
   module_is_initialized =.FALSE.
 
-  ! ---- write restart file --------------------------------------------------
+end subroutine cana_end
 
-  ! create output file, including internal structure necessary for tile output
+
+! ============================================================================
+subroutine save_cana_restart (tile_dim_length, timestamp)
+  integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
+  character(*), intent(in) :: timestamp ! timestamp to add to the file name
+
+  ! ---- local vars ----------------------------------------------------------
+  integer :: unit            ! restart file i/o unit
+
   call error_mesg('cana_end','writing NetCDF restart',NOTE)
-  call create_tile_out_file(unit,'RESTART/cana.res.nc', &
-          lnd%glon*180.0/PI, lnd%glat*180/PI, cana_tile_exists, tile_dim_length, &
-          created=restart_created)
+  call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'cana.res.nc',&
+          lnd%glon*180.0/PI, lnd%glat*180/PI, cana_tile_exists, tile_dim_length)
 
-  if (restart_created) then
      ! write fields
      call write_tile_data_r0d_fptr(unit,'temp' ,cana_T_ptr,'canopy air temperature','degrees_K')
      call write_tile_data_r0d_fptr(unit,'sphum',cana_q_ptr,'canopy air specific humidity','kg/kg')
-     call write_tile_data_r0d_fptr(unit,'co2'  ,cana_co2_ptr,'canopy air co2 concentration','mol/mol')
+     if (save_qco2) then
+        call write_tile_data_r0d_fptr(unit,'co2'  ,cana_co2_ptr,'canopy air co2 concentration','(kg CO2)/(kg wet air)')
+     endif
      ! close output file
      __NF_ASRT__(nf_close(unit))
-  endif
-
-end subroutine cana_end
+end subroutine save_cana_restart
 
 
 ! ============================================================================
@@ -239,8 +242,7 @@ subroutine cana_radiation (lm2, &
        grnd_refl_lw             ! LW reflectance of ground surface
   real :: &
        subs_up_from_dir(NBANDS), subs_up_from_dif(NBANDS), &
-       subs_dn_dir_from_dir(NBANDS),  subs_dn_dif_from_dif(NBANDS), subs_dn_dif_from_dir(NBANDS), &
-       subs_dif_up_from_dir(NBANDS),  subs_dif_up_from_dif(NBANDS)
+       subs_dn_dir_from_dir(NBANDS),  subs_dn_dif_from_dif(NBANDS), subs_dn_dif_from_dir(NBANDS)
 
   grnd_refl_dir = subs_refl_dir + (snow_refl_dir - subs_refl_dir) * snow_area
   grnd_refl_dif = subs_refl_dif + (snow_refl_dif - subs_refl_dif) * snow_area
@@ -304,12 +306,14 @@ subroutine cana_turbulence (u_star,&
   ! ---- local vars 
   real :: a        ! parameter of exponential wind profile within canopy:
                    ! u = u(ztop)*exp(-a*(1-z/ztop))
-  real :: height   ! efective height of vegetation
+  real :: height   ! effective height of vegetation
   real :: wind     ! normalized wind on top of canopy, m/s
   real :: Kh_top   ! turbulent exchange coefficient on top of the canopy
   real :: vegn_idx ! total vegetation index = LAI+SAI
   real :: rah_sca  ! ground-SCA resistance
+  real :: rav_lit  ! additional resistance of litter to vapor transport
 
+  vegn_idx = vegn_lai+vegn_sai  ! total vegetation index
   select case(turbulence_option)
   case(TURB_LM3W)
      if(vegn_cover > 0) then
@@ -322,10 +326,8 @@ subroutine cana_turbulence (u_star,&
         con_v_h = 0
         con_g_h = 0
      endif
-     con_v_v = con_v_h ; con_g_v = con_g_h
   case(TURB_LM3V)
      height = max(vegn_height,0.1) ! effective height of the vegetation
-     vegn_idx = vegn_lai+vegn_sai  ! total vegetation index
      a = a_max
      wind=u_star/VONKARM*log((height-land_d)/land_z0m) ! normalized wind on top of the canopy
   
@@ -340,15 +342,19 @@ subroutine cana_turbulence (u_star,&
         rah_sca=0.01
      endif
      con_g_h = 1.0/rah_sca
-     con_v_v = con_v_h ; con_g_v = con_g_h
   end select
+! not a good parameterization, but just using for sensitivity analyses now.
+! ignores differing biomass and litter turnover rates.
+  rav_lit = rav_lit_vi * vegn_idx
+  con_g_v = con_g_h/(1.+rav_lit*con_g_h)
+  con_v_v = con_v_h
 end subroutine
 
 ! ============================================================================
 ! update effective surface roughness lengths for CAS-to-atmosphere fluxes
 ! and conductances for canopy-to-CAS and ground-to-CAS fluxes
 !
-! Strategy: Always define a canopy present. Unvegetated situation is simply
+! Strategy: Always define a canopy present. Non-vegetated situation is simply
 ! a limit as vegetation density approaches (but isn't allowed to reach) zero.
 ! Create expressions for the outputs that reduce to the special
 ! cases of full canopy cover and no canopy. Full canopy solution is that
@@ -442,54 +448,58 @@ end subroutine cana_roughness
 ! ============================================================================
 subroutine cana_state ( cana, cana_T, cana_q, cana_co2 )
   type(cana_tile_type), intent(in)  :: cana
-  real                , intent(out) :: cana_T, cana_q, cana_co2
+  real, optional      , intent(out) :: cana_T, cana_q, cana_co2
 
-  cana_T   = cana%prog%T
-  cana_q   = cana%prog%q
-  cana_co2 = cana%prog%co2
+  if (present(cana_T))   cana_T   = cana%prog%T
+  if (present(cana_q))   cana_q   = cana%prog%q
+  if (present(cana_co2)) cana_co2 = cana%prog%co2
   
 end subroutine
 
 ! ============================================================================
 subroutine cana_step_1 ( cana,&
-     p_surf, con_g_h, con_g_v, grnd_T, grnd_rh, &
+     p_surf, con_g_h, con_g_v, grnd_T, grnd_rh, grnd_rh_psi, &
      Hge,  DHgDTg, DHgDTc,    &
-     Ege,  DEgDTg, DEgDqc     )
+     Ege,  DEgDTg, DEgDqc, DEgDpsig     )
   type(cana_tile_type), intent(in) :: cana
   real, intent(in) :: &
-     p_surf,  & ! sutface pressure, Pa
+     p_surf,  & ! surface pressure, Pa
      con_g_h, & ! conductivity between ground and CAS for heat
      con_g_v, & ! conductivity between ground and CAS for vapor
      grnd_T,  & ! ground temperature, degK
-     grnd_rh
+     grnd_rh, & ! ground relative humidity
+     grnd_rh_psi ! psi derivative of ground relative humidity
   real, intent(out) ::   &
      Hge,  DHgDTg, DHgDTc, & ! linearization of the sensible heat flux from ground
-     Ege,  DEgDTg, DEgDqc    ! linearization of evaporation from ground
+     Ege,  DEgDTg, DEgDqc, DEgDpsig    ! linearization of evaporation from ground
 
   ! ---- local vars
-  real :: rho, grnd_q, DqsatDTg
+  real :: rho, grnd_q, qsat, DqsatDTg
 
-  call qscomp(grnd_T,p_surf,grnd_q,DqsatDTg)
-  grnd_q = grnd_rh * grnd_q
+  call check_temp_range(grnd_T,'cana_step_1','grnd_T')
 
-  rho    =  p_surf/(rdgas*cana%prog%T*(1+d608*cana%prog%q))
-  Hge    =  rho*cp_air*con_g_h*(grnd_T - cana%prog%T)
-  DHgDTg =  rho*cp_air*con_g_h
-  DHgDTc = -rho*cp_air*con_g_h
-  Ege    =  rho*con_g_v*(grnd_q  - cana%prog%q)
-  DEgDTg =  rho*con_g_v*DqsatDTg*grnd_rh
-  DEgDqc = -rho*con_g_v
+  call qscomp(grnd_T,p_surf,qsat,DqsatDTg)
+  grnd_q = grnd_rh * qsat
+
+  rho      =  p_surf/(rdgas*cana%prog%T*(1+d608*cana%prog%q))
+  Hge      =  rho*cp_air*con_g_h*(grnd_T - cana%prog%T)
+  DHgDTg   =  rho*cp_air*con_g_h
+  DHgDTc   = -rho*cp_air*con_g_h
+  Ege      =  rho*con_g_v*(grnd_q  - cana%prog%q)
+  DEgDTg   =  rho*con_g_v*DqsatDTg*grnd_rh
+  DEgDqc   = -rho*con_g_v
+  DEgDpsig =  rho*con_g_v*qsat*grnd_rh_psi
   if(is_watch_point())then
      write(*,*)'#### cana_step_1 input ####'
      __DEBUG1__(p_surf)
      __DEBUG2__(con_g_h,con_g_v)
      __DEBUG2__(grnd_T,grnd_rh)
      write(*,*)'#### cana_step_1 internals ####'
-     __DEBUG3__(rho, grnd_q, DqsatDTg)
+     __DEBUG4__(rho, grnd_q, qsat, DqsatDTg)
      __DEBUG2__(cana%prog%T,cana%prog%q)
      write(*,*)'#### cana_step_1 output ####'
      __DEBUG3__(Hge,  DHgDTg, DHgDTc)
-     __DEBUG3__(Ege,  DEgDTg, DEgDqc)
+     __DEBUG4__(Ege,  DEgDTg, DEgDqc, DEgDpsig)
   endif
 end subroutine 
 
@@ -506,7 +516,7 @@ subroutine cana_step_2 ( cana, delta_Tc, delta_qc )
 end subroutine cana_step_2
 
 ! ============================================================================
-! tile existance detector: returns a logical value indicating wether component
+! tile existence detector: returns a logical value indicating wether component
 ! model tile exists or not
 logical function cana_tile_exists(tile)
    type(land_tile_type), pointer :: tile

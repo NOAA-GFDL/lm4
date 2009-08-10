@@ -7,7 +7,8 @@ use mpp_io_mod, only : axistype, mpp_get_atts, mpp_get_axis_data, &
      mpp_open, mpp_close, MPP_RDONLY, MPP_WRONLY, MPP_ASCII
 use vegn_data_mod, only : &
      N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, &
-     HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_NTRL, HARV_POOL_SCND, &
+     HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, &
+     HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
      agf_bs, fsc_liv, fsc_wood
 use vegn_tile_mod, only : &
      vegn_tile_type
@@ -30,20 +31,27 @@ public :: vegn_cut_forest
 
 ! ==== module constants =====================================================
 character(len=*), parameter   :: &
-     version = '$Id: vegn_harvesting.F90,v 16.0 2008/07/30 22:30:16 fms Exp $', &
-     tagname = '$Name: perth_2008_10 $', &
+     version = '$Id: vegn_harvesting.F90,v 17.0 2009/07/21 03:03:24 fms Exp $', &
+     tagname = '$Name: quebec $', &
      module_name = 'vegn_harvesting_mod'
+real, parameter :: ONETHIRD = 1.0/3.0
 
 ! ==== module data ==========================================================
 
 ! ---- namelist variables ---------------------------------------------------
-logical :: do_harvesting     = .TRUE.  ! if true, then harvesting of crops and pastures is done
-real :: grazing_intensity    = 0.25    ! fraction of biomass removed each time by grazing
-real :: grazing_residue      = 0.1     ! fraction of the grazed biomass transferred into soil pools
-real :: fraction_wood_wasted = 0.25    ! fraction of wood wasted while cutting it
-real :: crop_seed_density    = 0.1     ! biomass of seeds left after crop harvesting, kg/m2
+logical :: do_harvesting       = .TRUE.  ! if true, then harvesting of crops and pastures is done
+real :: grazing_intensity      = 0.25    ! fraction of biomass removed each time by grazing
+real :: grazing_residue        = 0.1     ! fraction of the grazed biomass transferred into soil pools
+real :: frac_wood_wasted_harv  = 0.25    ! fraction of wood wasted while harvesting
+real :: frac_wood_wasted_clear = 0.25    ! fraction of wood wasted while clearing land for pastures or crops
+real :: frac_wood_fast         = ONETHIRD ! fraction of wood consumed fast
+real :: frac_wood_med          = ONETHIRD ! fraction of wood consumed with medium speed
+real :: frac_wood_slow         = ONETHIRD ! fraction of wood consumed slowly
+real :: crop_seed_density      = 0.1     ! biomass of seeds left after crop harvesting, kg/m2
 namelist/harvesting_nml/ do_harvesting, grazing_intensity, grazing_residue, &
-     fraction_wood_wasted, crop_seed_density
+     frac_wood_wasted_harv, frac_wood_wasted_clear, &
+     frac_wood_fast, frac_wood_med, frac_wood_slow, &
+     crop_seed_density
 
 contains ! ###################################################################
 
@@ -65,7 +73,14 @@ subroutine vegn_harvesting_init
   endif
   
   if (mpp_pe() == mpp_root_pe()) then
-     write (stdlog(), nml=harvesting_nml)
+     unit=stdlog()
+     write(unit, nml=harvesting_nml)
+  endif
+
+  if (frac_wood_fast+frac_wood_med+frac_wood_slow/=1.0) then
+     call error_mesg('vegn_harvesting_init', &
+          'sum of frac_wood_fast, frac_wood_med, and frac_wood_slow must be 1.0',&
+          FATAL)
   endif
 end subroutine vegn_harvesting_init
 
@@ -179,32 +194,20 @@ end subroutine vegn_harvest_cropland
 ! ============================================================================
 ! for now cutting forest is the same as harvesting cropland --
 ! we basically cut down everything, leaving only seeds
-subroutine vegn_cut_forest(vegn)
+subroutine vegn_cut_forest(vegn, new_landuse)
   type(vegn_tile_type), intent(inout) :: vegn
+  integer, intent(in) :: new_landuse ! new land use type that gets assigned to
+                                     ! the tile after the wood harvesting
 
   ! ---- local vars
   type(vegn_cohort_type), pointer :: cc ! pointer to the current cohort
-  real :: fraction_harvested;    ! fraction of biomass harvested this time
+  real :: frac_harvested;        ! fraction of biomass harvested this time
+  real :: frac_wood_wasted       ! fraction of wood wasted during transition
+  real :: wood_harvested         ! anount of harvested wood, kgC/m2
   real :: bdead, balive, btotal; ! combined biomass pools
-  integer :: idx; ! index of harvested pool, depends on type of landuse
-                  ! of the current patch
   real :: delta
   integer :: i
   
-
-  ! calculate index of the harvesting pool
-  select case(vegn%landuse)
-  case (LU_NTRL) 
-     idx=HARV_POOL_NTRL;
-  case (LU_SCND) 
-     idx=HARV_POOL_SCND; 
-  case default
-     call error_mesg('vegn_cut_forest',&
-          'landuse type is '//string(vegn%landuse)//': it must be LU_NTRL('//&
-          string(LU_NTRL)//') or LU_SCND('//string(LU_SCND)//')', &
-          FATAL)     
-  end select
-
   balive = 0 ; bdead = 0
   ! calculate initial combined biomass pools for the patch
   do i = 1, vegn%n_cohorts
@@ -216,32 +219,55 @@ subroutine vegn_cut_forest(vegn)
   btotal = balive+bdead;
 
   ! calculate harvested fraction: cut everything down to seed level
-  fraction_harvested = MIN(MAX((btotal-crop_seed_density)/btotal,0.0),1.0);
+  frac_harvested = MIN(MAX((btotal-crop_seed_density)/btotal,0.0),1.0);
+
+  ! define fraction of wood wasted, based on the transition type
+  if (new_landuse==LU_SCND) then
+     frac_wood_wasted = frac_wood_wasted_harv
+  else
+     frac_wood_wasted = frac_wood_wasted_clear
+  endif
 
   ! update biomass pools for each cohort according to harvested fraction
   do i = 1, vegn%n_cohorts
      cc => vegn%cohorts(i)
 
-     vegn%harv_pool(idx) = vegn%harv_pool(idx) + &
-          (cc%bwood+cc%bsw) * fraction_harvested*(1-fraction_wood_wasted);
+     ! calculate total amount of harvested wood, minus the wasted part
+     wood_harvested = (cc%bwood+cc%bsw)*frac_harvested*(1-frac_wood_wasted)
+
+     ! distribute harvested wood between pools
+     if (new_landuse==LU_SCND) then
+        ! this is harvesting, distribute between 3 different wood pools 
+        vegn%harv_pool(HARV_POOL_WOOD_FAST) = vegn%harv_pool(HARV_POOL_WOOD_FAST) &
+             + wood_harvested*frac_wood_fast
+        vegn%harv_pool(HARV_POOL_WOOD_MED) = vegn%harv_pool(HARV_POOL_WOOD_MED) &
+             + wood_harvested*frac_wood_med
+        vegn%harv_pool(HARV_POOL_WOOD_SLOW) = vegn%harv_pool(HARV_POOL_WOOD_SLOW) &
+             + wood_harvested*frac_wood_slow
+     else
+        ! this is land clearance: everything goes into "cleared" pool
+        vegn%harv_pool(HARV_POOL_CLEARED) = vegn%harv_pool(HARV_POOL_CLEARED) &
+             + wood_harvested
+     endif
+
      ! distribute wood and living biomass between fast and slow intermediate 
      ! soil carbon pools according to fractions specified thorough the namelists
-     delta = (cc%bwood+cc%bsw)*fraction_harvested*fraction_wood_wasted;
+     delta = (cc%bwood+cc%bsw)*frac_harvested*frac_wood_wasted;
      if(delta<0) call error_mesg('vegn_cut_forest', &
           'harvested amount of dead biomass ('//string(delta)//' kgC/m2) is below zero', &
           FATAL)
      vegn%ssc_pool = vegn%ssc_pool + delta*(1-fsc_wood);
      vegn%fsc_pool = vegn%fsc_pool + delta*   fsc_wood ;
 
-     delta = balive * fraction_harvested;
+     delta = balive * frac_harvested;
      if(delta<0) call error_mesg('vegn_cut_forest', &
           'harvested amount of live biomass ('//string(delta)//' kgC/m2) is below zero', &
           FATAL)
      vegn%ssc_pool = vegn%ssc_pool + delta*(1-fsc_liv) ;
      vegn%fsc_pool = vegn%fsc_pool + delta*   fsc_liv  ;
 
-     cc%bliving = cc%bliving*(1-fraction_harvested);
-     cc%bwood   = cc%bwood*(1-fraction_harvested);
+     cc%bliving = cc%bliving*(1-frac_harvested);
+     cc%bwood   = cc%bwood*(1-frac_harvested);
      ! redistribute leftover biomass between biomass pools
      call update_biomass_pools(cc);
   enddo

@@ -1,9 +1,13 @@
 module vegn_cohort_mod
 
-use land_constants_mod, only: NBANDS
+use constants_mod, only: PI
+
+use land_constants_mod, only: NBANDS, &
+     mol_h2o, mol_air
 use vegn_data_mod, only : spdata, &
    use_mcm_masking, use_bucket, critical_root_density, &
-   tg_c4_thresh, tg_c3_thresh, l_fract, fsc_liv
+   tg_c4_thresh, tg_c3_thresh, l_fract, fsc_liv, &
+   phen_ev1, phen_ev2
 use vegn_data_mod, only : PT_C3, PT_C4, CMPT_ROOT, CMPT_LEAF, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
    LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDIOUS
@@ -20,9 +24,9 @@ public :: vegn_data_heat_capacity
 public :: vegn_data_intrcptn_cap
 public :: get_vegn_wet_frac
 public :: vegn_data_cover
-public :: cohort_data_uptake_frac_max
-
-
+public :: cohort_uptake_profile
+public :: cohort_root_properties
+ 
 public :: btotal ! returns cohort total biomass
 public :: c3c4   ! returns physiology type for given biomasses and conditions
 public :: phenology_type ! returns type of phenology for given conditions
@@ -32,6 +36,11 @@ public :: lai_from_biomass
 public :: update_bio_living_fraction
 public :: update_biomass_pools
 ! ==== end of public interfaces ==============================================
+
+! ==== module constants ======================================================
+character(len=*), parameter :: &
+     version = '$Id: vegn_cohort.F90,v 17.1 2009/07/31 16:45:18 fms Exp $', &
+     tagname = '$Name: quebec $'
 
 ! ==== types =================================================================
 type :: vegn_phys_prog_type
@@ -59,6 +68,7 @@ type :: vegn_cohort_type
 
   real    :: bliving ! leaves, fine roots, and sapwood biomass
   integer :: status  ! growth status of plant
+  real    :: leaf_age! age of leaf in days since budburst
 
 ! ---- physical parameters
   real    :: height     ! vegetation height, m
@@ -192,7 +202,7 @@ subroutine get_vegn_wet_frac (cohort, &
      fw, DfwDwl, DfwDws, &
      fs, DfsDwl, DfsDws  )
   type(vegn_cohort_type), intent(in)  :: cohort
-  real, intent(out) :: &
+  real, intent(out), optional :: &
        fw, DfwDwl, DfwDws, & ! water-covered fraction of canopy and its derivatives
        fs, DfsDwl, DfsDws    ! snow-covered fraction of canopy and its derivatives
 
@@ -202,31 +212,39 @@ subroutine get_vegn_wet_frac (cohort, &
   ! ---- local vars
   integer :: sp  ! shorthand for current cohort species
   real    :: fw0 ! total water-covered fraction (without overlap)
+  real    :: &   ! local variable for fractions and derivatives
+       fwL, DfwDwlL, DfwDwsL, & ! water-covered fraction of canopy and its derivatives
+       fsL, DfsDwlL, DfsDwsL    ! snow-covered fraction of canopy and its derivatives
 
   sp = cohort%species
 
   ! snow-covered fraction
   if(cohort%Ws_max > 0) then
-     call wet_frac(cohort%prog%Ws, cohort%Ws_max, spdata(sp)%csc_pow, eps, fs,  DfsDws)
+     call wet_frac(cohort%prog%Ws, cohort%Ws_max, spdata(sp)%csc_pow, eps, fsL,  DfsDwsL)
   else
-     fs = 0.0; DfsDws=0.0
+     fsL = 0.0; DfsDwsL=0.0
   endif
-  DfsDwl = 0
+  DfsDwlL = 0
      
   ! wet fraction
   if(cohort%Wl_max > 0) then
-     call wet_frac(cohort%prog%Wl, cohort%Wl_max, spdata(sp)%cmc_pow, eps, fw0, DfwDwl)
+     call wet_frac(cohort%prog%Wl, cohort%Wl_max, spdata(sp)%cmc_pow, eps, fw0, DfwDwlL)
   else
-     fw0 = 0.0; DfwDwl=0.0
+     fw0 = 0.0; DfwDwlL=0.0
   endif
   ! take into account overlap by snow
-  fw     = fw0*(1-fs)
-  DfwDwl = DfwDwl*(1-fs)
-  DfwDws = -fw0*DfsDws
+  fwL     = fw0*(1-fsL)
+  DfwDwlL = DfwDwlL*(1-fsL)
+  DfwDwsL = -fw0*DfsDwsL
 
-!!$  fs = max(cohort%prog%Ws, 0.0)/cohort%W_max; DfwDwl = 1.0/cohort%W_max
-!!$  fw = max(cohort%prog%Wl, 0.0)/cohort%W_max; DfsDws = 1.0/cohort%W_max
-!!$  ! shouldn't be there some check to make sure a_v<=1 and a_vs<=1?
+  ! assign result to output parameters, if present
+  if (present(fw))     fw = fwL
+  if (present(DfwDwl)) DfwDwl = DfwDwlL
+  if (present(DfwDws)) DfwDws = DfwDwsL
+  if (present(fs))     fs = fsL
+  if (present(DfsDwl)) DfsDwl = DfsDwlL
+  if (present(DfsDws)) DfsDws = DfsDwsL
+  
 end subroutine
 
 
@@ -257,12 +275,57 @@ end subroutine vegn_data_cover
 
 
 ! ============================================================================
+! returns properties of the fine roots
+subroutine cohort_root_properties(cohort, dz, vrl, K_r, r_r)
+  type(vegn_cohort_type), intent(in)  :: cohort
+  real, intent(in)  :: dz(:)
+  real, intent(out) :: &
+       vrl(:), & ! volumetric fine root length, m/m3
+       K_r,    & ! root membrane permeability per unit area, kg/(m3 s)
+       r_r       ! radius of fine roots, m
+
+  integer :: sp, l
+  real :: factor, z
+  real :: vbr ! volumetric biomass of fine roots, kg C/m3
+
+  sp = cohort%species
+
+  factor = 1.0/(1.0-exp(-sum(dz)/cohort%root_zeta))
+  z = 0
+  do l = 1, size(dz)
+     ! calculate the volumetric fine root biomass density [kgC/m3] for current layer
+     ! NOTE: sum(brv*dz) must be equal to cohort%br, which is achieved by nomalizing
+     ! factor
+     vbr = cohort%br * &
+          (exp(-z/cohort%root_zeta) - exp(-(z+dz(l))/cohort%root_zeta))*factor/dz(l)
+     ! calculate the volumetric fine root length
+     vrl(l) = vbr*spdata(sp)%srl
+
+     z = z + dz(l)
+  enddo
+
+  K_r = spdata(sp)%root_perm
+  r_r = spdata(sp)%root_r
+
+end subroutine 
+
+
+! ============================================================================
 ! calculates vertical distribution of active roots: given layer thicknesses,
 ! returns fraction of active roots per level
-subroutine cohort_data_uptake_frac_max(cohort,dz,uptake_frac_max)
+subroutine cohort_uptake_profile(cohort, dz, uptake_frac_max, vegn_uptake_term)
   type(vegn_cohort_type), intent(in)  :: cohort
   real, intent(in)  :: dz(:)
   real, intent(out) :: uptake_frac_max(:)
+  real, intent(out) :: vegn_uptake_term(:)
+
+  real, parameter :: res_scaler = mol_air/mol_h2o  ! scaling factor for water supply
+  ! NOTE: there is an inconsistency there between the 
+  ! units of stomatal conductance [mol/(m2 s)], and the units of humidity deficit [kg/kg],
+  ! in the calculations of water demand. Since the uptake options other than LINEAR can't 
+  ! use res_scaler, in this code the units of humidity deficit are converted to mol/mol,
+  ! and the additional factor is introduced in res_scaler to ensure that the LINEAR uptake 
+  ! gives the same results.
 
   integer :: l
   real    :: z, sum_rf
@@ -281,21 +344,29 @@ subroutine cohort_data_uptake_frac_max(cohort,dz,uptake_frac_max)
         z = z + dz(l)
      enddo
   else
+     !linear scaling, LM3V
      z = 0
      do l = 1, size(dz)
-        uptake_frac_max(l) = &
-                cohort%root_density*(exp(-z/cohort%root_zeta)    &
-                - exp(-(z+dz(l))/cohort%root_zeta))/dz(l)
-        uptake_frac_max(l) = &
-                max( uptake_frac_max(l)-critical_root_density, 0.0)*dz(l)
+        uptake_frac_max(l) = (exp(-z/cohort%root_zeta)    &
+                - exp(-(z+dz(l))/cohort%root_zeta))
+         uptake_frac_max(l) = &
+                max( uptake_frac_max(l), 0.0)
         z = z + dz(l)
      enddo
+
   endif
   
   sum_rf = sum(uptake_frac_max)
   if(sum_rf>0) &
        uptake_frac_max(:) = uptake_frac_max(:)/sum_rf
   
+  if (cohort%br <= 0) then
+     vegn_uptake_term(:) = 0.0
+  else   
+     vegn_uptake_term(:) = uptake_frac_max(:) * &
+          res_scaler * spdata(cohort%species)%dfr * cohort%br
+  endif
+
 end subroutine 
 
 
@@ -346,7 +417,7 @@ function phenology_type(c, cm)
   ! GCH, Parameters updated 2/9/02 from JPC
   pe = 1.0/(1.0+((1.0/0.00144)*exp(-0.7491*cm)));
   
-  if(pe>0.5 .and. pe<0.9) then
+  if(pe>phen_ev1 .and. pe<phen_ev2) then
      phenology_type = PHEN_EVERGREEN ! its evergreen
   else
      phenology_type = PHEN_DECIDIOUS ! its deciduous
@@ -383,7 +454,10 @@ subroutine update_species(c, t_ann, t_cold, p_ann, cm, landuse)
   else 
      spp=SP_TEMPDEC;  ! temperate deciduous non-grass
   endif
-  
+
+  ! reset leaf age to zero if species are chnaged
+  if (spp/=c%species) c%leaf_age = 0.0
+
   c%species = spp
 end subroutine
 

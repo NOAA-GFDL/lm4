@@ -5,8 +5,7 @@ module glacier_mod
 
 use fms_mod,            only: error_mesg, file_exist,  open_namelist_file,    &
                               check_nml_error, stdlog, write_version_number, &
-                              close_file, mpp_pe, mpp_root_pe, FATAL, NOTE, &
-                              get_mosaic_tile_file
+                              close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
 use time_manager_mod,   only: time_type, increment_time, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o, PI
@@ -23,8 +22,9 @@ use land_tile_diag_mod, only : &
      register_tiled_diag_field, send_tile_data, diag_buff_type
 use land_data_mod,      only : land_state_type, lnd
 use land_io_mod, only : print_netcdf_error
-use land_tile_io_mod, only: create_tile_out_file, read_tile_data_r1d_fptr, write_tile_data_r1d_fptr
-use nf_utils_mod, only : nfu_def_dim, nfu_put_att_text
+use land_tile_io_mod, only: create_tile_out_file, read_tile_data_r1d_fptr, &
+     write_tile_data_r1d_fptr, get_input_restart_name, sync_nc_files
+use nf_utils_mod, only : nfu_def_dim, nfu_put_att
 use land_debug_mod, only : is_watch_point
 implicit none
 private
@@ -33,6 +33,7 @@ private
 public :: read_glac_namelist
 public :: glac_init
 public :: glac_end
+public :: save_glac_restart
 public :: glac_get_sfc_temp
 public :: glac_radiation
 public :: glac_diffusion
@@ -45,31 +46,26 @@ public :: glac_step_2
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
        module_name = 'glacier',&
-       version     = '$Id: glacier.F90,v 15.0.2.4.4.1 2008/07/08 01:13:34 pcm Exp $',&
-       tagname     = '$Name: perth_2008_10 $'
+       version     = '$Id: glacier.F90,v 17.0 2009/07/21 03:02:10 fms Exp $',&
+       tagname     = '$Name: quebec $'
  
 ! ==== module variables ======================================================
 
 !---- namelist ---------------------------------------------------------------
-logical :: lm2                  = .false.
-logical :: use_bucket           = .false.    ! single-layer glac water
-logical :: bifurcate            = .false.    ! consider direct evap from bucket
-logical :: conserve_glacier_mass = .false.
+logical :: lm2                   = .true.  ! *** CODE WORKS ONLY FOR .TRUE. !!! ****
+logical :: conserve_glacier_mass = .true.
+character(len=16):: albedo_to_use = ''  ! or 'brdf-params'
 real    :: init_temp            = 260.       ! cold-start glac T
 real    :: init_w               = 150.       ! cold-start w(l)/dz(l)
 real    :: init_groundwater     =   0.       ! cold-start gw storage
-namelist /glac_nml/ lm2, use_bucket,             bifurcate,  &
-                    conserve_glacier_mass,           &
-                    init_temp,      &
-                    init_w,       &
-                    init_groundwater, cpw, clw, csw
+namelist /glac_nml/ lm2, conserve_glacier_mass,  albedo_to_use, &
+                    init_temp, init_w, init_groundwater, cpw, clw, csw
 !---- end of namelist --------------------------------------------------------
 
 logical         :: module_is_initialized =.FALSE.
+logical         :: use_brdf
 type(time_type) :: time
 real            :: delta_time       ! fast time step
-
-logical         :: use_beta, use_glac_rh
 
 integer         :: num_l            ! # of water layers
 real            :: dz    (max_lev)  ! thicknesses of layers
@@ -111,7 +107,8 @@ subroutine read_glac_namelist()
      call close_file (unit)
   endif
   if (mpp_pe() == mpp_root_pe()) then
-     write (stdlog(), nml=glac_nml)
+     unit = stdlog()
+     write (unit, nml=glac_nml)
   endif
 
   ! ---- set up vertical discretization
@@ -135,26 +132,15 @@ subroutine glac_init ( id_lon, id_lat )
   type(land_tile_enum_type)     :: te,ce ! last and current tile list elements
   type(land_tile_type), pointer :: tile  ! pointer to current tile
   character(len=256) :: restart_file_name
+  logical :: restart_exists
 
   module_is_initialized = .TRUE.
   time       = lnd%time
   delta_time = time_type_to_real(lnd%dt_fast)
 
-  ! ---- set flags for use in water-availability constraints -----------------
-  use_beta    = .false.
-  use_glac_rh = .false.
-!  if (use_bucket .and. .not.bifurcate) then    !************* TEMPORARY!!!!
-!      use_beta = .true.
-!    else if (use_bucket .and. bifurcate) then
-!    else
-!      use_glac_rh = .true.
-!    endif
-  use_glac_rh = .true.
-  use_beta = .true.
-
   ! -------- initialize glac state --------
-  call get_mosaic_tile_file('INPUT/glac.res.nc',restart_file_name,.FALSE.,lnd%domain)
-  if (file_exist(restart_file_name)) then
+  call get_input_restart_name('INPUT/glac.res.nc',restart_exists,restart_file_name)
+  if (restart_exists) then
      call error_mesg('glac_init',&
           'reading NetCDF restart "'//trim(restart_file_name)//'"',&
           NOTE)
@@ -189,6 +175,23 @@ subroutine glac_init ( id_lon, id_lat )
         tile%glac%prog%groundwater_T = init_temp
      enddo
   endif
+  
+  if (trim(albedo_to_use)=='brdf-params') then
+     use_brdf = .true.
+  else if (trim(albedo_to_use)=='') then
+     use_brdf = .false.
+  else
+     call error_mesg('glac_init',&
+          'option albedo_to_use="'// trim(albedo_to_use)//&
+          '" is invalid, use "brdf-params", or nothing ("")',&
+          FATAL)
+  endif
+
+  if (.not.lm2) then
+     call error_mesg('glac_init',&
+          'currently only lm2=.TRUE. is supported',&
+          FATAL)
+  endif
 
   call glac_diag_init ( id_lon, id_lat, zfull(1:num_l), zhalf(1:num_l+1) )
 
@@ -196,40 +199,43 @@ end subroutine glac_init
 
 
 ! ============================================================================
-subroutine glac_end (tile_dim_length)
-  integer, intent(in) :: tile_dim_length ! length of tile dimension in the 
-                                         ! output file
-
-  integer :: unit             ! unit for i/o
-  logical :: restart_created ! flag indicating that the restart file was created
+subroutine glac_end ()
 
   module_is_initialized =.FALSE.
 
-  ! ---- write restart file --------------------------------------------------
-  
-  ! create output file, including internal structure necessary for output
-  call error_mesg('glac_end','writing NetCDF restart',NOTE)
-  call create_tile_out_file(unit,'RESTART/glac.res.nc', &
-          lnd%glon*180.0/PI, lnd%glat*180/PI, glac_tile_exists, tile_dim_length,&
-          created=restart_created)
-
-  if (restart_created) then
-     ! in addition, define vertical coordinate
-     __NF_ASRT__(nfu_def_dim(unit,'zfull',zfull(1:num_l),'full level','m'))
-     __NF_ASRT__(nfu_put_att_text(unit,'zfull','positive','down'))
-        
-     ! write out fields
-     call write_tile_data_r1d_fptr(unit,'temp'         ,glac_temp_ptr,'zfull','glacier temperature','degrees_K')
-     call write_tile_data_r1d_fptr(unit,'wl'           ,glac_wl_ptr  ,'zfull','liquid water content','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'ws'           ,glac_ws_ptr  ,'zfull','solid water content','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'groundwater'  ,glac_gw_ptr  ,'zfull')
-     call write_tile_data_r1d_fptr(unit,'groundwater_T',glac_gwT_ptr ,'zfull')
-   
-     ! close file
-     __NF_ASRT__(nf_close(unit))
-  endif
-
 end subroutine glac_end
+
+
+! ============================================================================
+subroutine save_glac_restart (tile_dim_length, timestamp)
+  integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
+  character(*), intent(in) :: timestamp ! timestamp to add to the file name
+
+  integer :: unit ! restart file i/o unit
+
+  call error_mesg('glac_end','writing NetCDF restart',NOTE)
+  call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'glac.res.nc', &
+          lnd%glon*180.0/PI, lnd%glat*180/PI, glac_tile_exists, tile_dim_length)
+
+  ! in addition, define vertical coordinate
+  if (mpp_pe()==lnd%io_pelist(1)) then
+     __NF_ASRT__(nfu_def_dim(unit,'zfull',zfull(1:num_l),'full level','m'))
+     __NF_ASRT__(nfu_put_att(unit,'zfull','positive','down'))
+  endif
+  ! synchronize the output between writers and readers
+  call sync_nc_files(unit)
+        
+  ! write out fields
+  call write_tile_data_r1d_fptr(unit,'temp'         ,glac_temp_ptr,'zfull','glacier temperature','degrees_K')
+  call write_tile_data_r1d_fptr(unit,'wl'           ,glac_wl_ptr  ,'zfull','liquid water content','kg/m2')
+  call write_tile_data_r1d_fptr(unit,'ws'           ,glac_ws_ptr  ,'zfull','solid water content','kg/m2')
+  call write_tile_data_r1d_fptr(unit,'groundwater'  ,glac_gw_ptr  ,'zfull')
+  call write_tile_data_r1d_fptr(unit,'groundwater_T',glac_gwT_ptr ,'zfull')
+   
+  ! close file
+  __NF_ASRT__(nf_close(unit))
+
+end subroutine save_glac_restart
 
 
 ! ============================================================================
@@ -243,15 +249,16 @@ end subroutine glac_get_sfc_temp
 
 
 ! ============================================================================
-subroutine glac_radiation ( glac, &
+subroutine glac_radiation ( glac, cosz, &
      glac_refl_dir, glac_refl_dif, glac_refl_lw, glac_emis )
   type(glac_tile_type), intent(in) :: glac
+  real, intent(in)  :: cosz
   real, intent(out) :: &
        glac_refl_dir(NBANDS), glac_refl_dif(NBANDS), & ! glacier albedos for direct and diffuse light
        glac_refl_lw,   &  ! glacier reflectance for longwave (thermal) radiation
        glac_emis          ! glacier emissivity
 
-  call glac_data_radiation ( glac, glac_refl_dir, glac_refl_dif, glac_emis )
+  call glac_data_radiation ( glac, cosz, use_brdf, glac_refl_dir, glac_refl_dif, glac_emis )
   glac_refl_lw = 1 - glac_emis
 end subroutine glac_radiation
 
@@ -269,13 +276,11 @@ end subroutine glac_diffusion
 
 ! ============================================================================
 ! update glac properties explicitly for time step.
-! MAY WISH TO INTRODUCE 'UNIVERSAL' SENSITIVITIES FOR SIMPLICITY.
-! T-DEPENDENCE OF HYDRAULIC PROPERTIES COULD BE DONE LESS FREQUENTLY.
 ! integrate glac-heat conduction equation upward from bottom of glac
 ! to surface, delivering linearization of surface ground heat flux.
 subroutine glac_step_1 ( glac, &
-                         glac_T, &
-                         glac_rh, glac_liq, glac_ice, glac_subl, glac_tf, glac_G0, &
+                         glac_T, glac_rh, glac_liq, glac_ice, glac_subl, &
+                         glac_tf, glac_G0, &
                          glac_DGDT, conserve_glacier_mass_out )
   type(glac_tile_type),intent(inout) :: glac
   real, intent(out) :: &
@@ -324,8 +329,6 @@ subroutine glac_step_1 ( glac, &
      heat_capacity(l) = glac%heat_capacity_dry(l)*dz(l) &
           + clw*glac%prog(l)%wl + csw*glac%prog(l)%ws
   enddo
-
-  if (.not.use_glac_rh) glac_rh=1.0
 
   if (lm2) then
      glac_liq = 0
@@ -396,9 +399,17 @@ end subroutine glac_step_1
 ! apply boundary flows to glac water and move glac water vertically.
   subroutine glac_step_2 ( glac, diag, glac_subl, snow_lprec, snow_hlprec,  &
                            subs_DT, subs_M_imp, subs_evap, &
-                           glac_levap, glac_fevap, glac_hadvec, glac_melt, &
-                           glac_lrunf, glac_hlrunf, glac_Ttop, glac_Ctop, &
-                           glac_LMASS, glac_FMASS, glac_HEAT )
+                           glac_levap, glac_fevap, glac_melt, &
+                           glac_lrunf, glac_hlrunf, glac_Ttop, glac_Ctop )
+! *** WARNING!!! MOST OF THIS CODE IS SIMPLY COPIED FROM SOIL FOR POSSIBLE
+! FUTURE DEVELOPMENT. (AND SIMILAR CODE IN SOIL MOD HAS BEEN FURTHER DEVELOPED,
+! SO THIS IS MAINLY JUNK.) ONLY THE LM2 BRANCHES WORK. FOR LM2, THE SURFACE OF THE
+! GLACIER IS EFFECTIVELY SEALED W.R.T. MASS TRANSER: 
+! NO LIQUID CAN INFILTRATE, AND NO GLACIER MASS
+! CAN ENTER THE ATMOSPHERE. ONLY SUPERFICIAL SNOW PARTICIPATES IN THE WATER
+! CYCLE. HOWEVER, SENSIBLE HEAT TRANSFER AND GLACIER MELT CAN OCCUR,
+! TO AN UNLIMITED EXTENT, AS NEEDED
+! TO KEEP GLACIER AT OR BELOW FREEZING. MELT WATER STAYS IN GLACIER.
 
   type(glac_tile_type), intent(inout) :: glac
   type(diag_buff_type), intent(inout) :: diag
@@ -411,9 +422,8 @@ end subroutine glac_step_1
      subs_M_imp,       &! rate of phase change of non-evaporated glac water
      subs_evap
   real, intent(out) :: &
-     glac_levap, glac_fevap, glac_hadvec, glac_melt, &
-     glac_lrunf, glac_hlrunf, glac_Ttop, glac_Ctop, &
-     glac_LMASS, glac_FMASS, glac_HEAT
+     glac_levap, glac_fevap, glac_melt, &
+     glac_lrunf, glac_hlrunf, glac_Ttop, glac_Ctop
 
   ! ---- local vars ----------------------------------------------------------
   real, dimension(num_l) :: del_t, eee, fff, &
@@ -456,8 +466,13 @@ end subroutine glac_step_1
   endif
 
   ! ---- record fluxes ---------
+  IF (LM2) THEN ! EVAP SHOULD BE ZERO ANYWAY, BUT THIS IS JUST TO BE SURE...
+  glac_levap  = 0.
+  glac_fevap  = 0.
+  ELSE
   glac_levap  = subs_evap*(1-glac_subl)
   glac_fevap  = subs_evap*   glac_subl
+  ENDIF
   glac_melt   = subs_M_imp / delta_time
 
   ! ---- load surface temp change and perform back substitution --------------
@@ -480,27 +495,13 @@ end subroutine glac_step_1
      enddo
   endif
 
-
-  glac_hadvec = 0.
+IF (LM2) THEN ! *********************************************************
+    glac_lrunf  = snow_lprec
+    glac_hlrunf = snow_hlprec
+ELSE   ! ****************************************************************
   ! ---- extract evap from glac and do implicit melt --------------------
-  IF(LM2)THEN
-!      glac%prog(1)%wl = glac%prog(1)%wl - glac_levap*delta_time
-!      glac%prog(1)%ws = glac%prog(1)%ws - glac_fevap*delta_time
-      glac_hadvec = -cpw*subs_evap*(glac%prog(1)%T-tfreeze)
-!      hcap = glac%heat_capacity_dry(1)*dz(1) &
-!                         + clw*glac%prog(1)%wl + csw*glac%prog(1)%ws
-!      glac%prog(1)%T = glac%prog(1)%T + (   &
-!                    +((clw-cpw)*glac_levap                              &
-!                    + (csw-cpw)*glac_fevap)*(glac%prog(1)%T  -tfreeze) &
-!                                                 )*delta_time/ hcap
-!      glac%prog(1)%wl = glac%prog(1)%wl + subs_M_imp
-!      glac%prog(1)%ws = glac%prog(1)%ws - subs_M_imp
-!      glac%prog(1)%T  = tfreeze + (hcap*(glac%prog(1)%T-tfreeze) ) &
-!                                / ( hcap + (clw-csw)*subs_M_imp )
-  ELSE
     glac%prog(1)%wl = glac%prog(1)%wl - glac_levap*delta_time
     glac%prog(1)%ws = glac%prog(1)%ws - glac_fevap*delta_time
-    glac_hadvec = -cpw*subs_evap*(glac%prog(1)%T-tfreeze)
     hcap = glac%heat_capacity_dry(1)*dz(1) &
                        + clw*glac%prog(1)%wl + csw*glac%prog(1)%ws
     glac%prog(1)%T = glac%prog(1)%T + (   &
@@ -511,8 +512,7 @@ end subroutine glac_step_1
     glac%prog(1)%ws = glac%prog(1)%ws - subs_M_imp
     glac%prog(1)%T  = tfreeze + (hcap*(glac%prog(1)%T-tfreeze) ) &
                               / ( hcap + (clw-csw)*subs_M_imp )
-  ENDIF
-
+  ! ---- remainder of mass fluxes and associated sensible heat fluxes --------
   if(is_watch_point()) then
      write(*,*) ' ***** glac_step_2 checkpoint 3 ***** '
      do l = 1, num_l
@@ -532,7 +532,6 @@ end subroutine glac_step_1
   call glac_data_hydraulics (glac, vlc, vsc, &
                    psi, DThDP, hyd_cond, DKDP, Dpsi_min, Dpsi_max, tau_gw, &
                    glac_w_fc )
-  IF (lm2) THEN ! ********************************
      if(is_watch_point()) then
         write(*,*) ' ***** glac_step_2 checkpoint 3.1 ***** '
         do l = 1, num_l
@@ -541,14 +540,6 @@ end subroutine glac_step_1
         enddo
      
      endif
-     ! ---- remainder of mass fluxes and associated sensible heat fluxes --------
-     flow = 1
-     flow(1)  = snow_lprec *delta_time + subs_M_imp
-     do l = 1, num_l
-        flow(l+1) = flow(l)
-     enddo
-     dW_l = 0
-  ELSE   ! ********************************
     div = 0.
     do l = 1, num_l
       div(l) = 0.15*dens_h2o*dz(l)/tau_gw
@@ -594,25 +585,8 @@ end subroutine glac_step_1
     l = num_l
     xxx = dens_h2o*dz(l)*DThDP(l)/delta_time
     aaa =     - ( jj* K(l-1)/del_z(l-1) - DKDPm(l-1)*grad(l-1))
-!      where (stiff)
         bbb = xxx - (- jj*K(l-1)/del_z(l-1) - DKDPp(l-1)*grad(l-1) )
         ddd = - K(l-1) *grad(l-1) - div(l)
-!        elsewhere
-!          Qout = hyd_cond(l) ! gravity drainage
-!          DQoutDP = DKDP(l)  ! gravity drainage
-!          Qout = 0.                ! no drainage
-!          DQoutDP = 0.             ! no drainage
-!          where (psi(l).gt.0.) ! linear baseflow from gw
-!              Qout = 0.15*psi(l)/tau_gw
-!              DQoutDP = 0.15/tau_gw
-!            elsewhere
-!              Qout = 0.
-!              DQoutDP = 0.
-!            endwhere
-!          bbb = xxx - (- jj*K(l-1)/del_z(l-1) - DKDPp(l-1)*grad(l-1)&
-!                      -DQoutDP )
-!          ddd = -Qout - K(l-1) *grad(l-1)
-!        endwhere
     eee(l-1) = -aaa/bbb
     fff(l-1) =  ddd/bbb
     
@@ -682,18 +656,11 @@ end subroutine glac_step_1
       dW_l(l) = flow(l) - flow(l+1) - div(l)*delta_time
       glac%prog(l)%wl = glac%prog(l)%wl + dW_l(l)
     enddo
-!  where (stiff)
     flow(num_l+1) = 0.
-!    elsewhere
-!      flow(num_l+1) = (Qout &
-!                         + DQoutDP*DPsi(num_l)) * delta_time
-!    endwhere
     dW_l(num_l) = flow(num_l) - flow(num_l+1) &
                           - div(num_l)*delta_time
     glac%prog(num_l)%wl = glac%prog(num_l)%wl + dW_l(num_l)
   
-  ENDIF ! ************************************
-
   if(is_watch_point()) then
      write(*,*) ' ***** glac_step_2 checkpoint 3.3 ***** '
      write(*,*) 'psi_sat',glac%pars%psi_sat_ref
@@ -708,7 +675,6 @@ end subroutine glac_step_1
      enddo
   endif
 
-  glac_hadvec = glac_hadvec + snow_hlprec
   if  (snow_hlprec.ne.0.) then
     tflow = tfreeze + snow_hlprec/(clw*snow_lprec)
   else
@@ -771,17 +737,6 @@ end subroutine glac_step_1
 
   tflow = glac%prog(num_l)%T
 
-!  do l = 1, num_l
-!    where (mask)
-!        hcap = glac%heat_capacity_dry(l)*dz(l) &
-!                 + clw*(glac%prog(l)%wl-dW_l(l)) + csw*glac%prog(l)%ws
-!        cap_flow = clw*flow(l)
-!        glac%prog(l)%T = (hcap*glac%prog(l)%T + cap_flow*tflow) &
-!                         /(hcap                 + cap_flow      )
-!        tflow  = glac%prog(l)%T
-!      endwhere
-!    enddo
-
   if(is_watch_point()) then
      write(*,*) ' ***** glac_step_2 checkpoint 3.5 ***** '
      write(*,*) 'hcap', hcap
@@ -799,40 +754,6 @@ end subroutine glac_step_1
   ! THIS T AVERAGING IS WRONG, BECAUSE IT NEGLECTS THE MEDIUM  ***
   ! ALSO, FREEZE-THAW IS NEEDED!
   ! PROBABLY THIS SECTION WILL BE DELETED ANYWAY, WITH GW TREATED ABOVE.
-  IF (lm2) THEN
-    if (conserve_glacier_mass) flow(num_l+1) = snow_lprec*delta_time
-    do l = 1, 1      !TEMPORARY LAYER THING !!!!***
-      if (glac%prog(l)%groundwater + flow(num_l+1) .ne. 0.) then ! TEMP FIX
-         glac%prog(l)%groundwater_T =    &
-          + (glac%prog(l)%groundwater*glac%prog(l)%groundwater_T &
-             + flow(num_l+1)*tflow) &
-           /(glac%prog(l)%groundwater + flow(num_l+1))
-      endif
-      c0 = delta_time/tau_gw
-      c1 = exp(-c0)
-      c2 = (1-c1)/c0
-      x  = (1-c1)*glac%prog(l)%groundwater/delta_time &
-                          + (1-c2)*flow(num_l+1)/delta_time
-      glac%prog(l)%groundwater = c1 * glac%prog(l)%groundwater &
-                                + c2 * flow(num_l+1)
-      glac_lrunf  = x
-      glac_hlrunf = x*clw*(glac%prog(l)%groundwater_T-tfreeze)
-      glac_hadvec = glac_hadvec - glac_hlrunf
-    enddo
-    if(is_watch_point()) then
-       write(*,*) ' ***** glac_step_2 checkpoint 3.6 ***** '
-       write(*,*) 'delta_time,tau_gw,c0,c1,c2,x',&
-            delta_time,tau_gw,c0,c1,c2,x
-       write(*,*) 'level=', num_l+1, ' flow ',flow(num_l+1)
-       write(*,*) 'gw(1)',glac%prog(1)%groundwater
-       write(*,*) 'hcap', hcap
-       write(*,*) 'cap_flow', cap_flow
-       do l = 1, num_l
-          write(*,*) 'level=', l, ' T', glac%prog(l)%T
-       enddo
-    endif
-
-  ELSE
     if (lprec_eff.ne.0. .and. flow(1).ge.0. ) then
       hlrunf_ie = lrunf_ie*hlprec_eff/lprec_eff
     else if (flow(1).lt.0. ) then
@@ -844,9 +765,6 @@ end subroutine glac_step_1
     hlrunf_bf = clw*sum(div*(glac%prog%T-tfreeze))
     glac_lrunf  = lrunf_sn + lrunf_ie + lrunf_bf
     glac_hlrunf = hlrunf_sn + hlrunf_bf + hlrunf_ie 
-    glac_hadvec = glac_hadvec - glac_hlrunf
-  ENDIF
-
   if(is_watch_point()) then
      write(*,*) ' ***** glac_step_2 checkpoint 3.7 ***** '
      write(*,*) 'hcap', hcap
@@ -855,9 +773,6 @@ end subroutine glac_step_1
         write(*,'(i2.2,99(a,g))')l, ' T', glac%prog(l)%T
      enddo
   endif
-
-  IF(LM2) THEN
-  ELSE
     do l = 1, num_l
     ! ---- compute explicit melt/freeze --------------------------------------
       hcap = glac%heat_capacity_dry(l)*dz(l) &
@@ -888,8 +803,6 @@ end subroutine glac_step_1
 
       glac_melt = glac_melt + melt / delta_time
     enddo
-  ENDIF
-
   if(is_watch_point()) then
      write(*,*) ' ***** glac_step_2 checkpoint 5 ***** '
      write(*,*) 'i,j,k,melt:',&
@@ -904,22 +817,8 @@ end subroutine glac_step_1
      enddo
   endif
 
-  glac_LMASS = 0
-  glac_FMASS = 0
-  glac_HEAT = 0
-  do l = 1, num_l
-    glac_LMASS = glac_LMASS &
-         +      glac%prog(l)%wl
-    glac_FMASS = glac_FMASS &
-         +      glac%prog(l)%ws
-    glac_HEAT = glac_HEAT &
-         + (glac%heat_capacity_dry(l)*dz(l) &
-             + clw*glac%prog(l)%wl + csw*glac%prog(l)%ws)  &
-                        * (glac%prog(l)%T-tfreeze)
-  enddo
-  glac_LMASS = glac_LMASS +     glac%prog(1)%groundwater
-  glac_HEAT = glac_HEAT + clw*glac%prog(1)%groundwater    &
-                                  *(glac%prog(1)%groundwater_T-tfreeze)
+ENDIF  !*****************************************************************************
+
   glac_Ttop = glac%prog(1)%T
   glac_Ctop = glac%heat_capacity_dry(1)*dz(1) &
     + clw*glac%prog(1)%wl + csw*glac%prog(1)%ws
@@ -935,12 +834,14 @@ end subroutine glac_step_1
   call send_tile_data (id_temp, glac%prog%T,     diag )
   call send_tile_data (id_lwc,  glac%prog(1:num_l)%wl/dz(1:num_l), diag )
   call send_tile_data (id_swc,  glac%prog(1:num_l)%ws/dz(1:num_l), diag )
+  if (.not.lm2) then
   call send_tile_data (id_ie,   lrunf_ie,        diag )
   call send_tile_data (id_sn,   lrunf_sn,        diag )
   call send_tile_data (id_bf,   lrunf_bf,        diag )
   call send_tile_data (id_hie,  hlrunf_ie,       diag )
   call send_tile_data (id_hsn,  hlrunf_sn,       diag )
   call send_tile_data (id_hbf,  hlrunf_bf,       diag )
+  endif
 
 end subroutine glac_step_2
 
@@ -971,6 +872,7 @@ subroutine glac_diag_init ( id_lon, id_lat, zfull, zhalf )
        Time, 'bulk density of solid water', 'kg/m3',  missing_value=-100.0 )
   id_temp  = register_tiled_diag_field ( module_name, 'glac_T',  axes,       &
        Time, 'temperature',            'degK',  missing_value=-100.0 )
+if (.not.lm2) then
   id_ie  = register_tiled_diag_field ( module_name, 'glac_rie',  axes(1:2),  &
        Time, 'inf exc runf',            'kg/(m2 s)',  missing_value=-100.0 )
   id_sn  = register_tiled_diag_field ( module_name, 'glac_rsn',  axes(1:2),  &
@@ -983,14 +885,13 @@ subroutine glac_diag_init ( id_lon, id_lat, zfull, zhalf )
        Time, 'heat sn runf',            'W/m2',  missing_value=-100.0 )
   id_hbf  = register_tiled_diag_field ( module_name, 'glac_hbf',  axes(1:2), &
        Time, 'heat bf runf',            'W/m2',  missing_value=-100.0 )
-
-  ! define static diagnostic fields
+endif
 
   
 end subroutine glac_diag_init
 
 ! ============================================================================
-! tile existance detector: returns a logical value indicating wether component
+! tile existence detector: returns a logical value indicating wether component
 ! model tile exists or not
 logical function glac_tile_exists(tile)
    type(land_tile_type), pointer :: tile
@@ -1048,6 +949,3 @@ subroutine glac_gwT_ptr(tile, ptr)
 end subroutine glac_gwT_ptr
 
 end module glacier_mod
-
-
-

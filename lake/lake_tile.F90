@@ -2,11 +2,13 @@
 
 module lake_tile_mod
 
+use mpp_domains_mod, only : &
+     domain2d, mpp_get_compute_domain, mpp_global_field
 use fms_mod, only : &
      write_version_number, file_exist, open_namelist_file, check_nml_error, &
-     close_file, stdlog
+     read_data, close_file, stdlog
 use constants_mod, only : &
-     pi, tfreeze
+     pi, tfreeze, hlf
 use land_constants_mod, only : &
      NBANDS
 use land_io_mod, only : &
@@ -26,6 +28,8 @@ public :: new_lake_tile, delete_lake_tile
 public :: lake_tiles_can_be_merged, merge_lake_tiles
 public :: lake_is_selected
 public :: get_lake_tile_tag
+public :: lake_tile_stock_pe
+public :: lake_tile_heat
 
 public :: read_lake_data_namelist
 public :: lake_cover_cold_start
@@ -35,6 +39,8 @@ public :: lake_data_diffusion
 public :: lake_data_thermodynamics
 
 public :: max_lev
+public :: lake_width_inside_lake
+public :: large_lake_sill_width
 ! =====end of public interfaces ==============================================
 interface new_lake_tile
    module procedure lake_tile_ctor
@@ -44,14 +50,28 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter   :: &
-     version     = '$Id: lake_tile.F90,v 16.0 2008/07/30 22:12:51 fms Exp $', &
-     tagname     = '$Name: perth_2008_10 $', &
+     version     = '$Id: lake_tile.F90,v 17.0 2009/07/21 03:02:16 fms Exp $', &
+     tagname     = '$Name: quebec $', &
      module_name = 'lake_tile_mod'
 
-integer, parameter :: max_lev          = 30
+integer, parameter :: max_lev          = 80
 integer, parameter :: n_dim_lake_types = 1  ! size of lookup table
 real,    parameter :: psi_wilt         = -150.  ! matric head at wilting
 real,    parameter :: comp             = 0.001  ! m^-1
+
+! from the modis brdf/albedo product user's guide:
+real            :: g_iso  = 1.
+real            :: g_vol  = 0.189184
+real            :: g_geo  = -1.377622
+real            :: g0_iso = 1.0
+real            :: g1_iso = 0.0
+real            :: g2_iso = 0.0
+real            :: g0_vol = -0.007574
+real            :: g1_vol = -0.070987
+real            :: g2_vol =  0.307588
+real            :: g0_geo = -1.284909
+real            :: g1_geo = -0.166314
+real            :: g2_geo =  0.041840
 
 ! ==== types =================================================================
 type :: lake_pars_type
@@ -70,14 +90,20 @@ type :: lake_pars_type
   real emis_dry
   real emis_sat
   real z0_momentum
+  real depth_sill
+  real width_sill
+  real whole_area
+  real connected_to_next
   real tau_groundwater
   real rsa_exp         ! riparian source-area exponent
 end type lake_pars_type
 
 type :: lake_prog_type
+  real dz
   real wl
   real ws
   real T
+  real K_z
   real groundwater
   real groundwater_T
 end type lake_prog_type
@@ -101,24 +127,47 @@ real, public :: &
      csw = 2106.0    ! specific heat of water (ice)
 
 !---- namelist ---------------------------------------------------------------
+real    :: lake_width_inside_lake = 1.e5
+real    :: large_lake_sill_width = 200.
+real    :: min_lake_frac         = 0.
+real    :: max_lake_rh           = 1.
 real    :: k_over_B              = 0.25      ! reset to 0 for MCM
 real    :: rate_fc               = 0.1/86400 ! 0.1 mm/d drainage rate at FC
 real    :: sfc_heat_factor       = 1
-integer :: num_l                 = 18           ! number of lake levels
+integer, public :: num_l                 = 18           ! number of lake levels
 real    :: dz(max_lev)           = (/ &
     0.02, 0.04, 0.04, 0.05, 0.05, 0.1, 0.1, 0.2, 0.2, &
     0.2,   0.4,  0.4,  0.4,  0.4, 0.4,  1.,  1.,  1., &
-    0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0. /)
+    0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0., &
+    0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0., &
+    0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0., &
+    0.,0.,0.,0.,0. /)
                                               ! thickness (m) of model layers,
                                               ! from top down
 logical :: use_lm2_awc           = .false.
   integer :: n_map_1st_lake_type = 10
+
+! from analysis of modis data (ignoring temperature dependence):
+  real :: f_iso_ice(NBANDS) = (/ 0.056, 0.131 /)
+  real :: f_vol_ice(NBANDS) = (/ 0.017, 0.053 /)
+  real :: f_geo_ice(NBANDS) = (/ 0.004, 0.010 /)
+  real :: f_iso_liq(NBANDS) = (/ 0.056, 0.131 /)
+  real :: f_vol_liq(NBANDS) = (/ 0.017, 0.053 /)
+  real :: f_geo_liq(NBANDS) = (/ 0.004, 0.010 /)
+  real :: refl_ice_dif(NBANDS), refl_liq_dif(NBANDS)
+
 ! ---- remainder are used only for cold start ---------
+logical :: round_frac_down       = .false.  ! when false, any lake_frac < min_lake_frac
+                                            ! is set to min_lake_frac.
+                                            ! when true, any lake_frac < min_lake_frac
+                                            ! is set to 0.
+                                            
 character(len=16):: lake_to_use     = 'single-tile'
        ! 'multi-tile' for tiled soil [default]
        ! 'single-tile' for geographically varying soil with single type per
        !     model grid cell
        ! 'uniform' for global constant soil, e.g., to reproduce MCM
+       ! 'from-rivers' to get the fraction of lakes from river module
 logical :: use_single_lake       = .false.   ! true for single global lake,
                                              ! e.g., to recover MCM
 logical :: use_mcm_albedo        = .false.   ! .true. for CLIMAP albedo inputs
@@ -142,22 +191,24 @@ real, dimension(n_dim_lake_types) :: &
   dat_z0_momentum       =(/ 1.4e-4  /),&
   dat_tf_depr           =(/  0.00   /)
 real, dimension(n_dim_lake_types, NBANDS) :: &
-  dat_refl_dry_dif      =(/ 0.060   ,   & ! visible  
-                            0.060   /), & ! NIR
-  dat_refl_dry_dir      =(/ 0.060   ,   & ! visible
-                            0.060   /), & ! NIR
-  dat_refl_sat_dir      =(/ 0.060   ,   & ! visible
-                            0.060   /), & ! NIR
-  dat_refl_sat_dif      =(/ 0.060   ,   & ! visible
-                            0.060   /)    ! NIR
+     dat_refl_dry_dif, dat_refl_dry_dir, &
+     dat_refl_sat_dif, dat_refl_sat_dir
+data &
+                   !  VIS    NIR
+  dat_refl_dry_dif / 0.060, 0.060 /, &
+  dat_refl_dry_dir / 0.060, 0.060 /, &
+  dat_refl_sat_dir / 0.060, 0.060 /, &
+  dat_refl_sat_dif / 0.060, 0.060 /
 integer, dimension(n_dim_lake_types) :: &
   input_cover_types     =(/ 10 /)
 character(len=4), dimension(n_dim_lake_types) :: &
   tile_names            =(/ 'lake' /)
 
-namelist /lake_data_nml/ &
+namelist /lake_data_nml/ lake_width_inside_lake, &
+     large_lake_sill_width, &
+     min_lake_frac, round_frac_down, max_lake_rh, &
      lake_to_use,input_cover_types, tile_names, &
-     k_over_B,             &
+     k_over_B,         &
      rate_fc, sfc_heat_factor,        &
      num_l,                   dz,                      &
      use_lm2_awc,    n_map_1st_lake_type, &
@@ -171,16 +222,17 @@ namelist /lake_data_nml/ &
      dat_refl_dry_dir,            dat_refl_sat_dir,              &
      dat_refl_dry_dif,            dat_refl_sat_dif,              &
      dat_emis_dry,              dat_emis_sat,                &
-     dat_z0_momentum,           dat_tf_depr
+     dat_z0_momentum,           dat_tf_depr, &
+     f_iso_ice, f_vol_ice, f_geo_ice, f_iso_liq, f_vol_liq, f_geo_liq 
+
 
 !---- end of namelist --------------------------------------------------------
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
-subroutine read_lake_data_namelist(lake_n_lev, lake_dz)
+subroutine read_lake_data_namelist(lake_n_lev)
   integer, intent(out) :: lake_n_lev
-  real,    intent(out) :: lake_dz(:)
   ! ---- local vars
   integer :: unit         ! unit for namelist i/o
   integer :: io           ! i/o status for the namelist
@@ -199,9 +251,13 @@ subroutine read_lake_data_namelist(lake_n_lev, lake_dz)
 10   continue
      call close_file (unit)
   endif
-  write (stdlog(), nml=lake_data_nml)
+  unit=stdlog()
+  write(unit, nml=lake_data_nml)
 
   ! initialize global module data here
+
+  refl_ice_dif = g_iso*f_iso_ice + g_vol*f_vol_ice + g_geo*f_geo_ice
+  refl_liq_dif = g_iso*f_iso_liq + g_vol*f_vol_liq + g_geo*f_geo_liq
 
   ! register selectors for tile-specific diagnostics
   do i=1, n_dim_lake_types
@@ -211,7 +267,6 @@ subroutine read_lake_data_namelist(lake_n_lev, lake_dz)
 
   ! set up output arguments
   lake_n_lev = num_l
-  lake_dz    = dz
 end subroutine 
 
 
@@ -321,7 +376,7 @@ end subroutine
 
 
 ! ============================================================================
-function lake_cover_cold_start(land_mask, glonb, glatb) result (lake_frac)
+function lake_cover_cold_start(land_mask, glonb, glatb, domain) result (lake_frac)
 ! creates and initializes a field of fractional lake coverage
 ! should be called for global grid; othervise the parth that fills
 ! missing data points may fail to find any good data, or do it in nproc-
@@ -329,11 +384,27 @@ function lake_cover_cold_start(land_mask, glonb, glatb) result (lake_frac)
   logical, intent(in) :: land_mask(:,:)    ! global land mask
   real,    intent(in) :: glonb(:,:), glatb(:,:)! boundaries of the global grid cells
   real,    pointer    :: lake_frac (:,:,:) ! output-global map of lake fractional coverage
+  type(domain2d), intent(in) :: domain
 
   allocate( lake_frac(size(land_mask,1),size(land_mask,2),n_dim_lake_types))
 
-  call init_cover_field(lake_to_use, 'INPUT/ground_type.nc', 'cover','frac', &
-       glonb, glatb, lake_index_constant, input_cover_types, lake_frac)
+  if (trim(lake_to_use)=='from-rivers') then
+     lake_frac = 0.0
+     call read_data('INPUT/river_data.nc', 'lake_frac', lake_frac(:,:,1), &
+          domain=domain, no_domain=.TRUE.)
+     ! make sure 'missing values' don't get into the result
+     where (lake_frac < 0) lake_frac = 0
+     where (lake_frac > 1) lake_frac = 1
+  else
+     call init_cover_field(lake_to_use, 'INPUT/ground_type.nc', 'cover','frac', &
+          glonb, glatb, lake_index_constant, input_cover_types, lake_frac)
+  endif
+  
+  if (round_frac_down) then
+      where (lake_frac.gt.0. .and. lake_frac.lt.min_lake_frac) lake_frac = 0.
+    else
+      where (lake_frac.gt.0. .and. lake_frac.lt.min_lake_frac) lake_frac = min_lake_frac
+    endif
   
 end function 
 
@@ -348,6 +419,7 @@ end function
 ! =============================================================================
 ! combine two lake tiles with specified weights; the results goes into the 
 ! second one
+! THIS NEEDS TO BE REVISED FOR TILE-DEPENDENT DZ
 subroutine merge_lake_tiles(t1,w1,t2,w2)
   type(lake_tile_type), intent(in)    :: t1
   type(lake_tile_type), intent(inout) :: t2
@@ -359,6 +431,9 @@ subroutine merge_lake_tiles(t1,w1,t2,w2)
   real    :: C1, C2 ! heat capacities
   real    :: gw
   integer :: i
+
+WRITE (*,*) 'SORRY, BUT merge_lake_tiles NEEDS TO BE REVISED TO ALLOW FOR ', &
+            'HORIZONTALLY VARYING VERTICAL DISCRETIZATION'
 
   ! calculate normalized weights
   x1 = w1/(w1+w2)
@@ -424,18 +499,42 @@ end function
 
 ! ============================================================================
 ! compute bare-lake albedos and bare-lake emissivity
-subroutine lake_data_radiation ( lake, lake_alb_dir, lake_alb_dif, lake_emis )
+subroutine lake_data_radiation ( lake, cosz, use_brdf, &
+                                  lake_alb_dir, lake_alb_dif, lake_emis )
   type(lake_tile_type), intent(in)  :: lake
+  real,                 intent(in)  :: cosz
+  logical,              intent(in)  :: use_brdf
   real,                 intent(out) :: lake_alb_dir(:), lake_alb_dif(:), lake_emis
 
   ! ---- local vars
   real :: lake_sfc_vlc, blend
+  real :: liq_value_dir(NBANDS), ice_value_dir(NBANDS)
+  real :: liq_value_dif(NBANDS), ice_value_dif(NBANDS)
+  real :: zenith_angle, zsq, zcu
 
   ! ---- radiation properties
-  lake_sfc_vlc = lake%prog(1)%wl/dz(1)
+  lake_sfc_vlc = lake%prog(1)%wl/lake%prog(1)%dz
   blend        = lake_sfc_vlc/lake%pars%w_sat
-  lake_alb_dir = lake%pars%refl_dry_dir + blend*(lake%pars%refl_sat_dir-lake%pars%refl_dry_dir)
-  lake_alb_dif = lake%pars%refl_dry_dif + blend*(lake%pars%refl_sat_dif-lake%pars%refl_dry_dif)
+  if (use_brdf) then
+      zenith_angle = acos(cosz)
+      zsq = zenith_angle*zenith_angle
+      zcu = zenith_angle*zsq
+      liq_value_dir =  f_iso_liq*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
+                     + f_vol_liq*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
+                     + f_geo_liq*(g0_geo+g1_geo*zsq+g2_geo*zcu)
+      ice_value_dir =  f_iso_ice*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
+                     + f_vol_ice*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
+                     + f_geo_ice*(g0_geo+g1_geo*zsq+g2_geo*zcu)
+      liq_value_dif = refl_liq_dif
+      ice_value_dif = refl_ice_dif
+    else
+      liq_value_dir = lake%pars%refl_sat_dir
+      ice_value_dir = lake%pars%refl_dry_dir
+      liq_value_dif = lake%pars%refl_sat_dif
+      ice_value_dif = lake%pars%refl_dry_dif
+    endif
+  lake_alb_dir = ice_value_dir + blend*(liq_value_dir-ice_value_dir)
+  lake_alb_dif = ice_value_dif + blend*(liq_value_dif-ice_value_dif)
   lake_emis = lake%pars%emis_dry   + blend*(lake%pars%emis_sat-lake%pars%emis_dry  )
 end subroutine
 
@@ -452,11 +551,10 @@ end subroutine
 
 ! ============================================================================
 ! compute lake thermodynamic properties.
-subroutine lake_data_thermodynamics ( lake_pars, vlc_sfc, vsc_sfc, &
+subroutine lake_data_thermodynamics ( lake_pars, lake_depth, &
      lake_rh, heat_capacity_dry, thermal_cond)
   type(lake_pars_type), intent(in)  :: lake_pars
-  real,                 intent(in)  :: vlc_sfc
-  real,                 intent(in)  :: vsc_sfc
+  real,                 intent(in)  :: lake_depth
   real,                 intent(out) :: lake_rh
   real,                 intent(out) :: heat_capacity_dry(:)
   real,                 intent(out) :: thermal_cond(:)
@@ -465,12 +563,8 @@ subroutine lake_data_thermodynamics ( lake_pars, vlc_sfc, vsc_sfc, &
   integer l
 
 ! ----------------------------------------------------------------------------
-! in preparation for implicit energy balance, determine various measures
-! of water availability, so that vapor fluxes will not exceed mass limits
-! ----------------------------------------------------------------------------
 
-  lake_rh = 0
-  if (vlc_sfc+vsc_sfc .gt. 0.) lake_rh = (vlc_sfc+vsc_sfc)/lake_pars%w_sat
+  lake_rh = min(max_lake_rh, max(lake_depth/lake_pars%depth_sill,0.))
 
   do l = 1, num_l
      heat_capacity_dry(l) = lake_pars%heat_capacity_ref
@@ -479,5 +573,37 @@ subroutine lake_data_thermodynamics ( lake_pars, vlc_sfc, vsc_sfc, &
 
 end subroutine
 
+! ============================================================================
+subroutine lake_tile_stock_pe (lake, twd_liq, twd_sol  )
+  type(lake_tile_type),  intent(in)    :: lake
+  real,                  intent(out)   :: twd_liq, twd_sol
+  integer n
+  
+  twd_liq = 0.
+  twd_sol = 0.
+  do n=1, size(lake%prog)
+    twd_liq = twd_liq + lake%prog(n)%wl + lake%prog(n)%groundwater
+    twd_sol = twd_sol + lake%prog(n)%ws
+    enddo
+
+end subroutine lake_tile_stock_pe
+
+
+! ============================================================================
+! returns lake tile heat content, J/m2
+function lake_tile_heat (lake) result(heat) ; real heat
+  type(lake_tile_type),  intent(in)  :: lake
+
+  integer :: i
+
+  heat = 0
+  do i = 1, num_l
+     heat = heat + &
+          (lake%heat_capacity_dry(i)*dz(i) + clw*lake%prog(i)%wl + csw*lake%prog(i)%ws)&
+                           *(lake%prog(i)%T-tfreeze) + &
+          clw*lake%prog(i)%groundwater*(lake%prog(i)%groundwater_T-tfreeze) - &
+          hlf*lake%prog(i)%ws
+  enddo
+end function
 
 end module lake_tile_mod

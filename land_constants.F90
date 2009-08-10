@@ -20,6 +20,13 @@ real, public, parameter :: Rugas = 8.314472 ! universal gas constant, J K-1 mol-
 real, public, parameter :: seconds_per_year = 86400.0*365.0
 real, public, parameter :: mol_C = 12.0e-3 ! molar mass of carbon, kg
 real, public, parameter :: mol_air = wtmair/1000.0 ! molar mass of air, kg
+real, public, parameter :: mol_CO2 = 44.00995e-3 ! molar mass of CO2,kg
+real, public, parameter :: mol_h2o = 18.0e-3 ! molar mass of water, kg
 ! ==== end of public interfaces ==============================================
+
+! ==== module constants ======================================================
+character(len=*), parameter :: &
+     version = '$Id: land_constants.F90,v 17.0 2009/07/21 03:02:18 fms Exp $', &
+     tagname = '$Name: quebec $'
 
 end module

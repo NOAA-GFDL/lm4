@@ -1,5 +1,6 @@
 module land_tile_diag_mod
 
+use mpp_mod,            only : mpp_sum
 use time_manager_mod,   only : time_type
 use diag_axis_mod,      only : get_axis_length
 use diag_manager_mod,   only : register_diag_field, register_static_field, &
@@ -16,7 +17,9 @@ use land_tile_mod,      only : land_tile_type, diag_buff_type, &
      land_tile_list_type, first_elmt, tail_elmt, next_elmt, get_elmt_indices, &
      land_tile_enum_type, operator(/=), current_tile, &
      tile_is_selected
+use land_data_mod,      only : lnd
 use tile_diag_buff_mod, only : diag_buff_type, realloc_diag_buff
+
 implicit none
 private
 
@@ -48,8 +51,8 @@ end interface
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'lan_tile_diag_mod', &
-     version     = '$Id: land_tile_diag.F90,v 16.0 2008/07/30 22:13:15 fms Exp $', &
-     tagname     = '$Name: perth_2008_10 $'
+     version     = '$Id: land_tile_diag.F90,v 17.0 2009/07/21 03:02:41 fms Exp $', &
+     tagname     = '$Name: quebec $'
 
 integer, parameter :: INIT_FIELDS_SIZE     = 1     ! initial size of the fields array
 integer, parameter :: BASE_TILED_FIELD_ID  = 65536 ! base value for tiled field 
@@ -69,6 +72,7 @@ type :: tiled_diag_field_type
    integer :: size   ! size of the field data in the per-tile buffers
    integer :: op     ! aggregation operation
    logical :: static ! if true, the diag field is static
+   integer :: n_sends! number of data points sent to the field since last dump
    character(32) :: name ! for debugging purposes only
 end type tiled_diag_field_type
 
@@ -258,7 +262,9 @@ function reg_field(static, module_name, field_name, init_time, axes, &
      endif
      ! store the static field flag
      fields(id)%static = static
-     ! store the name of the field -- for now only to be able to see waht it is 
+     ! zero out the number of data points ent to the field
+     fields(id)%n_sends = 0
+     ! store the name of the field -- for now, only to be able to see what it is 
      ! in the debugger
      fields(id)%name=field_name
      ! increment the field id by some (large) number to distinguish it from the 
@@ -345,6 +351,9 @@ subroutine send_tile_data_0d(id, x, buffer)
   ! store the diagnostic data
   buffer%data(idx) = x
   buffer%mask(idx) = .TRUE.
+
+  ! increment sent data counter
+  fields(i)%n_sends = fields(i)%n_sends + 1
 end subroutine
 
 ! ============================================================================
@@ -367,6 +376,9 @@ subroutine send_tile_data_1d(id, x, buffer)
   ! store the data
   buffer%data(is:ie) = x(:)
   buffer%mask(is:ie) = .TRUE.
+
+  ! increment sent data counter
+  fields(i)%n_sends = fields(i)%n_sends + 1
 end subroutine
 
 ! NOTE: 2-d fields can be handled similarly to 1-d with reshape
@@ -384,7 +396,6 @@ subroutine send_tile_data_r0d_fptr(id, tile_map, fptr)
      end subroutine fptr 
   end interface
 
-  integer :: i,j
   type(land_tile_enum_type)     :: te,ce   ! tail and current tile list elements
   type(land_tile_type), pointer :: tileptr ! pointer to tile   
   real                , pointer :: ptr     ! pointer to the data element within a tile
@@ -414,7 +425,6 @@ subroutine send_tile_data_r1d_fptr(id, tile_map, fptr)
      end subroutine fptr 
   end interface
 
-  integer :: i,j
   type(land_tile_enum_type)     :: te,ce   ! tail and current tile list elements
   type(land_tile_type), pointer :: tileptr ! pointer to tile   
   real                , pointer :: ptr(:)     ! pointer to the data element within a tile
@@ -444,7 +454,6 @@ subroutine send_tile_data_i0d_fptr(id, tile_map, fptr)
      end subroutine fptr 
   end interface
 
-  integer :: i,j
   type(land_tile_enum_type)     :: te,ce   ! tail and current tile list elements
   type(land_tile_type), pointer :: tileptr ! pointer to tile   
   integer             , pointer :: ptr     ! pointer to the data element within a tile
@@ -471,18 +480,24 @@ subroutine dump_tile_diag_fields(tiles, time)
   integer :: isel ! selector number
   type(land_tile_enum_type)     :: ce, te
   type(land_tile_type), pointer :: tile
+  integer :: total_n_sends(n_fields)
   ! ---- local static variables -- saved between calls
   logical :: first_dump = .TRUE.
 
+  total_n_sends(:) = fields(1:n_fields)%n_sends
+  call mpp_sum(total_n_sends, n_fields, pelist=lnd%pelist)
+
   do ifld = 1, n_fields
-  do isel = 1, get_n_selectors()
-     if (fields(ifld)%ids(isel) <= 0) cycle
-     call dump_diag_field_with_sel ( fields(ifld)%ids(isel), tiles, &
-          fields(ifld), get_selector(isel), time, &
-          first_dump.or..not.fields(ifld)%static )
+     if (total_n_sends(ifld) == 0) cycle ! no data to send 
+     do isel = 1, get_n_selectors()
+        if (fields(ifld)%ids(isel) <= 0) cycle
+        call dump_diag_field_with_sel ( fields(ifld)%ids(isel), tiles, &
+             fields(ifld), get_selector(isel), time )
+     enddo
   enddo
-  enddo
-  
+  ! zero out the number of data points sent to the field 
+  fields(1:n_fields)%n_sends=0
+
   ! all the data are sent to the output, so set the data presence tag to FALSE 
   ! in all diag buffers in preparation for the next time step
   ce = first_elmt(tiles)
@@ -498,14 +513,12 @@ subroutine dump_tile_diag_fields(tiles, time)
 end subroutine
 
 ! ============================================================================
-subroutine dump_diag_field_with_sel(id, tiles, field, sel, time, force_send_data)
+subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
   integer :: id
   type(land_tile_list_type),   intent(in) :: tiles(:,:)
   type(tiled_diag_field_type), intent(in) :: field
   type(tile_selector_type)   , intent(in) :: sel
   type(time_type)            , intent(in) :: time ! current time
-  logical                    , intent(in) :: force_send_data ! if true, the send_data 
-  ! subroutine is called even if there is no data
    
   ! ---- local vars
   integer :: i,j ! iterators
@@ -549,16 +562,11 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time, force_send_data
     end select
   enddo
 
-  ! for dynamic fields, the data are always sent; for static fields the data are sent
-  ! on the first dump (the calling subroutine dump_tile_diag_fields sets force_cend_data
-  ! to true in this case) or when the data are not empty.
-  if(force_send_data.or.any(weight>0))then
-     ! normalize accumulated data
-     where (weight>0) buffer=buffer/weight
+  ! normalize accumulated data
+  where (weight>0) buffer=buffer/weight
   
-     ! send diag field
-     used = send_data ( id, buffer, time, mask=weight>0 )   
-  endif
+  ! send diag field
+  used = send_data ( id, buffer, time, mask=weight>0 )   
 
   ! clean up temporary data
   deallocate(buffer,weight)

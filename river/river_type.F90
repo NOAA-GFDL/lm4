@@ -17,8 +17,8 @@ module river_type_mod
 !           675 Mass Ave, Cambridge, MA 02139, USA.                   
 ! or see:   http://www.gnu.org/licenses/gpl.html                      
 !-----------------------------------------------------------------------
-! <CONTACT EMAIL="klf@gfdl.noaa.gov"> Kirsten Findell </CONTACT> 
-! <CONTACT EMAIL="z1l@gfdl.noaa.gov"> Zhi Liang </CONTACT> 
+! <CONTACT EMAIL="klf@@gfdl.noaa.gov"> Kirsten Findell </CONTACT> 
+! <CONTACT EMAIL="z1l@@gfdl.noaa.gov"> Zhi Liang </CONTACT> 
 
   use time_manager_mod, only : time_type
 
@@ -26,8 +26,8 @@ module river_type_mod
   private
 
 !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id: river_type.F90,v 16.0 2008/07/30 22:13:05 fms Exp $'
-  character(len=128) :: tagname = '$Name: perth_2008_10 $'
+  character(len=128) :: version = '$Id: river_type.F90,v 17.0 2009/07/21 03:02:30 fms Exp $'
+  character(len=128) :: tagname = '$Name: quebec $'
 
 !--- public interface ------------------------------------------------
   public :: river_type, Leo_Mad_trios
@@ -39,27 +39,32 @@ module river_type_mod
      real, dimension(:),        pointer :: lat_1d        => NULL()  ! in degree
      real, dimension(:,:),      pointer :: lon           => NULL()  ! in radians
      real, dimension(:,:),      pointer :: lat           => NULL()  ! in radians
-     real, dimension(:,:),      pointer :: celllength    => NULL()
+     real, dimension(:,:),      pointer :: reach_length  => NULL()
      real, dimension(:,:),      pointer :: landfrac      => NULL()
      logical, dimension(:,:),   pointer :: mask          => NULL()
-     real, dimension(:,:),      pointer :: cellarea      => NULL()
+     real, dimension(:,:),      pointer :: land_area     => NULL()
      integer, dimension(:,:),   pointer :: basinid       => NULL() 
      integer, dimension(:,:),   pointer :: tocell        => NULL()
      integer, dimension(:,:),   pointer :: travel        => NULL()
      integer, dimension(:,:),   pointer :: i_tocell      => NULL()
      integer, dimension(:,:),   pointer :: j_tocell      => NULL()
      real, dimension(:,:),      pointer :: storage       => NULL()     
+     real, dimension(:,:),      pointer :: stordis       => NULL()     
      real, dimension(:,:,:),    pointer :: storage_c     => NULL()     
+     real, dimension(:,:,:),    pointer :: stordis_c     => NULL()     
      real, dimension(:,:),      pointer :: inflow        => NULL()
      real, dimension(:,:,:),    pointer :: inflow_c      => NULL()
      real, dimension(:,:),      pointer :: infloc        => NULL()
      real, dimension(:,:,:),    pointer :: infloc_c      => NULL()
      real, dimension(:,:),      pointer :: outflow       => NULL()
      real, dimension(:,:,:),    pointer :: outflow_c     => NULL()
+     real, dimension(:,:),      pointer :: lake_outflow   => NULL()
+     real, dimension(:,:,:),    pointer :: lake_outflow_c => NULL()
      real, dimension(:,:),      pointer :: disw2o        => NULL()
      real, dimension(:,:),      pointer :: disw2l        => NULL()
      real, dimension(:,:,:),    pointer :: disc2o        => NULL()
      real, dimension(:,:,:),    pointer :: disc2l        => NULL()
+     real, dimension(:,:),      pointer :: melt          => NULL()
      real, dimension(:,:,:),    pointer :: removal_c     => NULL()
      real, dimension(:,:),      pointer :: outflowmean   => NULL()
      real, dimension(:,:),      pointer :: o_coef        => NULL()

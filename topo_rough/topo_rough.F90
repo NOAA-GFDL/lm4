@@ -5,7 +5,7 @@ module topo_rough_mod
 
   use time_manager_mod,   only : time_type
   use mpp_domains_mod,    only : domain2d
-  use fms_mod,            only : write_version_number, error_mesg, FATAL, &
+  use fms_mod,            only : write_version_number, error_mesg, FATAL, NOTE, &
        open_restart_file, open_namelist_file, set_domain, read_data, &
        write_data, close_file, file_exist, check_nml_error, mpp_pe, &
        mpp_root_pe, stdlog
@@ -63,8 +63,8 @@ namelist/topo_rough_nml/ use_topo_rough, topo_rough_factor, max_topo_rough, &
 character(len=*), parameter :: &
      module_name   = 'she_topo_rough', &
      diag_mod_name = 'topo_rough', &
-     version       = '$Id: topo_rough.F90,v 16.0 2008/07/30 22:30:03 fms Exp $', &
-     tagname       = '$Name: perth_2008_10 $'
+     version       = '$Id: topo_rough.F90,v 17.0 2009/07/21 03:03:06 fms Exp $', &
+     tagname       = '$Name: quebec $'
 
 ! ==== module private data ===================================================
 real, allocatable, save ::topo_stdev(:,:)
@@ -113,7 +113,8 @@ subroutine topo_rough_init(time, lonb, latb, domain, id_lon,id_lat)
   endif
 
   if (mpp_pe() == mpp_root_pe()) then
-     write (stdlog(), nml=topo_rough_nml)
+     unit=stdlog()
+     write(unit, nml=topo_rough_nml)
   endif
 
   ! allocate topo_stdev according to specified domain
@@ -122,25 +123,21 @@ subroutine topo_rough_init(time, lonb, latb, domain, id_lon,id_lat)
   if (use_topo_rough) then
 
      if(trim(topo_rough_source) == 'computed') then
+        call error_mesg('topo_rough_init','computing topography standard deviation',NOTE)
         got_stdev = get_topog_stdev(lonb,latb,topo_stdev)
         if (.not.got_stdev) &
              call error_mesg ('topo_rough_init', &
              'could not read topography data', FATAL)
      else if (trim(topo_rough_source)=='input') then
-        if(.not.file_exist(topo_rough_file))&
+        call error_mesg('topo_rough_init','reading topography standard deviation from "'&
+             //trim(topo_rough_file)//'"',NOTE)
+        if(.not.file_exist(topo_rough_file,domain))&
              call error_mesg('topo_rough_init',            &
              'input file for topography standard deviation "'// &
              trim(topo_rough_file)//'" does not exist', FATAL)
         
-        if (nf_open(topo_rough_file,NF_NOWRITE,unit)==NF_NOERR) then
-           ierr = nf_close(unit)
-           call set_domain(domain)
-           call read_data(topo_rough_file,topo_rough_var,topo_stdev)
-        else
-           unit = open_restart_file(topo_rough_file,'read')
-           call read_data(unit,topo_stdev)
-           call close_file(unit)
-        endif
+        call set_domain(domain)
+        call read_data(topo_rough_file,topo_rough_var,topo_stdev)
      else
         call error_mesg('topo_rough_init','"'//trim(topo_rough_source)//&
              '" is not a valid value for topo_rough_source', FATAL)

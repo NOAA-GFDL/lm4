@@ -4,10 +4,10 @@ use fms_mod,            only : write_version_number, error_mesg, FATAL
 use constants_mod,      only : stefan
 
 use land_constants_mod, only : NBANDS
-use vegn_data_mod,      only : spdata
+use vegn_data_mod,      only : spdata, min_cosz
 use vegn_tile_mod,      only : vegn_tile_type
 use vegn_cohort_mod,    only : vegn_cohort_type, vegn_data_cover, get_vegn_wet_frac
-use snow_tile_mod,      only : snow_data_radiation
+use snow_mod,           only : snow_radiation
 
 use land_debug_mod,     only : is_watch_point 
 
@@ -21,8 +21,8 @@ public :: vegn_radiation
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-   version = '$Id: vegn_radiation.F90,v 16.0 2008/07/30 22:30:20 fms Exp $', &
-   tagname = '$Name: perth_2008_10 $' ,&
+   version = '$Id: vegn_radiation.F90,v 17.0 2009/07/21 03:03:28 fms Exp $', &
+   tagname = '$Name: quebec $' ,&
    module_name = 'vegn_radiation'
 ! values for internal vegetation radiation option selector
 integer, parameter :: VEGN_RAD_BIGLEAF   = 1 ! "big-leaf" radiation
@@ -33,10 +33,6 @@ integer, parameter :: VEGN_RAD_TWOSTREAM = 2 ! two-stream radiation code
 integer, parameter :: SNOW_RAD_IGNORE       = 1 ! no influence of intercepted snow
 integer, parameter :: SNOW_RAD_PAINT_LEAVES = 2 ! intecepted snow modifies leaf 
    ! reflectance and transmittance
-
-real,    parameter :: min_cosz = 0.01 ! minimum allowed value of cosz
-   ! it probably doesn't make sense to use any less than that, since sub-grid 
-   ! variations of land surface slope are probably larger that that.
 
 ! ==== module variables ======================================================
 integer :: vegn_rad_option = -1 ! selector of the current vegetation radiation option
@@ -127,9 +123,7 @@ subroutine vegn_radiation ( vegn, &
           vegn_refl_dir, vegn_sctr_dir, vegn_tran_dir,&
           vegn_leaf_emis )
 !
-! pcm
-!\
-! \
+! ++++ pcm
      vegn_refl_dif = vegn_cover_snow_factor * vegn_refl_dif
      vegn_refl_dir = vegn_cover_snow_factor * vegn_refl_dir
      vegn_sctr_dir = vegn_cover_snow_factor * vegn_sctr_dir
@@ -137,9 +131,7 @@ subroutine vegn_radiation ( vegn, &
                        + (1-vegn_cover_snow_factor)
      vegn_tran_dir = vegn_cover_snow_factor * vegn_tran_dir &
                        + (1-vegn_cover_snow_factor)
-! /
-!/
-! pcm
+! ---- pcm
 !
   case default
      call error_mesg('vegn_radiation', &
@@ -212,22 +204,19 @@ subroutine vegn_rad_properties_twostream( cohort, cosz, &
   integer :: sp ! current species, solely to shorten the notation 
   real :: leaf_refl, leaf_tran ! optical properties of partially snow-covered leaves
   real :: snow_refl_dif(NBANDS) ! snow reflectances
-  real :: snow_refl_dir(NBANDS), snow_emis ! snow rad. properies (unused)
+  real :: snow_refl_dir(NBANDS), snow_refl_lw, snow_emis ! snow rad. properies (unused)
   real :: fs ! fractional coverage of intercepted snow
-  real :: fw, DfwDwl, DfwDws, DfsDwl, DfsDws ! dummy arguments, values not used
 
   ! get the snow fraction
   select case (snow_rad_option)
   case(SNOW_RAD_PAINT_LEAVES) 
-     call get_vegn_wet_frac(cohort, &
-          fw, DfwDwl, DfwDws, &
-          fs, DfsDwl, DfsDws  )
+     call get_vegn_wet_frac(cohort, fs=fs)
   case default
      fs = 0
   end select
 
   ! get the snow radiative properties for current canopy temperature
-  call snow_data_radiation ( cohort%prog%Tv, snow_refl_dir, snow_refl_dif, snow_emis )
+  call snow_radiation ( cohort%prog%Tv, cosz, snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis )
 
   sp = cohort%species
   do i = 1, NBANDS
