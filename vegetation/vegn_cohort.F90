@@ -7,7 +7,7 @@ use land_constants_mod, only: NBANDS, &
 use vegn_data_mod, only : spdata, &
    use_mcm_masking, use_bucket, critical_root_density, &
    tg_c4_thresh, tg_c3_thresh, l_fract, fsc_liv, &
-   phen_ev1, phen_ev2
+   phen_ev1, phen_ev2, cmc_eps
 use vegn_data_mod, only : PT_C3, PT_C4, CMPT_ROOT, CMPT_LEAF, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
    LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDIOUS
@@ -39,8 +39,8 @@ public :: update_biomass_pools
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
-     version = '$Id: vegn_cohort.F90,v 17.1 2009/07/31 16:45:18 fms Exp $', &
-     tagname = '$Name: quebec $'
+     version = '$Id: vegn_cohort.F90,v 17.1.2.1 2009/09/21 22:07:41 slm Exp $', &
+     tagname = '$Name: quebec_200910 $'
 
 ! ==== types =================================================================
 type :: vegn_phys_prog_type
@@ -206,9 +206,6 @@ subroutine get_vegn_wet_frac (cohort, &
        fw, DfwDwl, DfwDws, & ! water-covered fraction of canopy and its derivatives
        fs, DfsDwl, DfsDws    ! snow-covered fraction of canopy and its derivatives
 
-  ! ---- local constants
-  real, parameter :: eps = 0.01 ! value of w/w_max for transition to linear function
-
   ! ---- local vars
   integer :: sp  ! shorthand for current cohort species
   real    :: fw0 ! total water-covered fraction (without overlap)
@@ -220,7 +217,7 @@ subroutine get_vegn_wet_frac (cohort, &
 
   ! snow-covered fraction
   if(cohort%Ws_max > 0) then
-     call wet_frac(cohort%prog%Ws, cohort%Ws_max, spdata(sp)%csc_pow, eps, fsL,  DfsDwsL)
+     call wet_frac(cohort%prog%Ws, cohort%Ws_max, spdata(sp)%csc_pow, cmc_eps, fsL,  DfsDwsL)
   else
      fsL = 0.0; DfsDwsL=0.0
   endif
@@ -228,7 +225,7 @@ subroutine get_vegn_wet_frac (cohort, &
      
   ! wet fraction
   if(cohort%Wl_max > 0) then
-     call wet_frac(cohort%prog%Wl, cohort%Wl_max, spdata(sp)%cmc_pow, eps, fw0, DfwDwlL)
+     call wet_frac(cohort%prog%Wl, cohort%Wl_max, spdata(sp)%cmc_pow, cmc_eps, fw0, DfwDwlL)
   else
      fw0 = 0.0; DfwDwlL=0.0
   endif

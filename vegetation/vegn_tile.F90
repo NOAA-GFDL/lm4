@@ -18,6 +18,8 @@ use vegn_data_mod, only : &
      mcv_min, mcv_lai, &
      vegn_index_constant, &
      agf_bs, BSEED, LU_NTRL, LU_SCND, N_HARV_POOLS, &
+     LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, &
+     SP_C3GRASS, SP_C4GRASS, &
      scnd_biomass_bins
 
 use vegn_cohort_mod, only : vegn_cohort_type, vegn_phys_prog_type, &
@@ -60,8 +62,8 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), parameter   :: &
-     version = '$Id: vegn_tile.F90,v 17.0 2009/07/21 03:03:32 fms Exp $', & 
-     tagname = '$Name: quebec $', &
+     version = '$Id: vegn_tile.F90,v 17.0.2.2 2009/09/26 18:00:31 slm Exp $', & 
+     tagname = '$Name: quebec_200910 $', &
      module_name = 'vegn_tile_mod'
 
 ! ==== types =================================================================
@@ -508,7 +510,29 @@ function vegn_is_selected(vegn, sel)
   type(tile_selector_type),  intent(in) :: sel
   type(vegn_tile_type),      intent(in) :: vegn
 
-  vegn_is_selected = (sel%idata1 == vegn%landuse)
+  select case (sel%idata1)
+  case (LU_SEL_TAG)
+     vegn_is_selected = (sel%idata2 == vegn%landuse)
+  case (SP_SEL_TAG)
+     if (.not.associated(vegn%cohorts)) then
+        vegn_is_selected = .FALSE.
+     else
+        vegn_is_selected = (sel%idata2 == vegn%cohorts(1)%species)
+     endif
+  case (NG_SEL_TAG)
+     if (.not.associated(vegn%cohorts)) then
+        vegn_is_selected = .FALSE.
+     else
+        vegn_is_selected = &
+             ((vegn%cohorts(1)%species==SP_C4GRASS) .or.&
+              (vegn%cohorts(1)%species==SP_C3GRASS)).and.&
+             ((vegn%landuse==LU_NTRL).or. &
+              (vegn%landuse==LU_SCND))
+     endif
+  case default
+     vegn_is_selected = .FALSE.
+  end select  
+     
 end function
 
 

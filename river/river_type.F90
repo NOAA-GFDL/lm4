@@ -26,8 +26,8 @@ module river_type_mod
   private
 
 !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id: river_type.F90,v 17.0 2009/07/21 03:02:30 fms Exp $'
-  character(len=128) :: tagname = '$Name: quebec $'
+  character(len=128) :: version = '$Id: river_type.F90,v 17.0.2.2 2009/08/27 19:36:56 slm Exp $'
+  character(len=128) :: tagname = '$Name: quebec_200910 $'
 
 !--- public interface ------------------------------------------------
   public :: river_type, Leo_Mad_trios
@@ -50,8 +50,10 @@ module river_type_mod
      integer, dimension(:,:),   pointer :: j_tocell      => NULL()
      real, dimension(:,:),      pointer :: storage       => NULL()     
      real, dimension(:,:),      pointer :: stordis       => NULL()     
+     real, dimension(:,:),      pointer :: run_stor      => NULL()  ! runoff storage
      real, dimension(:,:,:),    pointer :: storage_c     => NULL()     
      real, dimension(:,:,:),    pointer :: stordis_c     => NULL()     
+     real, dimension(:,:,:),    pointer :: run_stor_c    => NULL()  ! tracer runoff storage
      real, dimension(:,:),      pointer :: inflow        => NULL()
      real, dimension(:,:,:),    pointer :: inflow_c      => NULL()
      real, dimension(:,:),      pointer :: infloc        => NULL()

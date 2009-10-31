@@ -58,7 +58,7 @@ end interface
 character(len=*), parameter :: &
      module_name = 'land_tile_io_mod', &
      version     = '$Id: land_tile_io.F90,v 17.0 2009/07/21 03:02:44 fms Exp $', &
-     tagname     = '$Name: quebec $'
+     tagname     = '$Name: quebec_200910 $'
 ! name of the "compressed" dimension (and dimension variable) in the output 
 ! netcdf files -- that is, the dimensions written out using compression by 
 ! gathering, as described in CF conventions. See subroutines write_tile_data,

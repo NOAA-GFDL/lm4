@@ -24,10 +24,10 @@ public :: get_n_selectors         ! number of available selectors
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land_tile_selectors_mod', &
-     version     = '$Id: land_tile_diag_sel.F90,v 16.0 2008/07/30 22:13:17 fms Exp $', &
-     tagname     = '$Name: quebec $'
+     version     = '$Id: land_tile_diag_sel.F90,v 16.0.8.1 2009/09/25 23:59:44 slm Exp $', &
+     tagname     = '$Name: quebec_200910 $'
 
-integer, parameter :: SEL_LEN           = 4   ! max length of the selector name
+integer, parameter :: SEL_LEN           = 16  ! max length of the selector name
 integer, parameter :: SEL_LONG_NAME_LEN = 128 ! max name of the selector long name
 integer, parameter :: INIT_SEL_SIZE     = 1   ! initial size of the array of selectors
 

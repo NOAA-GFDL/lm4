@@ -13,12 +13,24 @@ private
 
 ! ==== public interfaces =====================================================
 ! ---- public constants
+integer, public, parameter :: LU_SEL_TAG = 1 ! tag for the land use selectors
+integer, public, parameter :: SP_SEL_TAG = 2 ! tag for the species selectors
+integer, public, parameter :: NG_SEL_TAG = 3 ! tag for natural grass selector
+  ! by "natural" it means non-human-maintained, so secondary vegetation
+  ! grassland will be included. 
+
 integer, public, parameter :: NSPECIES = 5, & ! number of species
  SP_C4GRASS   = 0, & ! c4 grass
  SP_C3GRASS   = 1, & ! c3 grass
  SP_TEMPDEC   = 2, & ! temperate deciduous
  SP_TROPICAL  = 3, & ! non-grass tropical
  SP_EVERGR    = 4    ! non-grass evergreen
+character(len=12), parameter :: species_name(0:NSPECIES-1) = &
+    (/'c4grass',  'c3grass' ,  'tempdec', 'tropical','evergreen'/)
+character(len=32), parameter :: species_longname(0:NSPECIES-1) = &
+    (/'c4 grass', 'c3 grass',  'temperate deciduous trees',&
+      'tropical trees','evergreen trees'/)
+
 integer, public, parameter :: n_dim_vegn_types = 9
 integer, public, parameter :: MSPECIES = NSPECIES+n_dim_vegn_types-1
  
@@ -86,7 +98,7 @@ public :: &
     fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
     l_fract, T_transp_min, soil_carbon_depth_scale, &
     cold_month_threshold, scnd_biomass_bins, &
-    phen_ev1, phen_ev2
+    phen_ev1, phen_ev2, cmc_eps
 
 ! ---- public subroutine
 public :: read_vegn_data_namelist
@@ -94,8 +106,8 @@ public :: read_vegn_data_namelist
 
 ! ==== constants =============================================================
 character(len=*), parameter   :: &
-     version     = '$Id: vegn_data.F90,v 17.1 2009/07/31 16:45:20 fms Exp $', &
-     tagname     = '$Name: quebec $', &
+     version     = '$Id: vegn_data.F90,v 17.1.2.3 2009/09/26 18:00:31 slm Exp $', &
+     tagname     = '$Name: quebec_200910 $', &
      module_name = 'vegn_data_mod'
 real, parameter :: TWOTHIRDS  = 2.0/3.0
 
@@ -303,6 +315,8 @@ real :: csc_lai(0:MSPECIES)= & ! maximum canopy snow conntent per unit LAI
        (/    0.1,         0.1,          0.1,          0.1,          0.1,    0.1,    0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,  0.1  /)
 real :: csc_pow(0:MSPECIES)= & ! power of the snow-covered fraction relation 
   (/   TWOTHIRDS,   TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,     1.,     1.,    1.,    1.,    1.,    1.,    1.,    1.,   1.  /)
+real :: cmc_eps = 0.01 ! value of w/w_max for transition to linear function; 
+                       ! the same value is used for liquid and snow
 
 real :: fuel_intensity(0:MSPECIES) ; data fuel_intensity(0:NSPECIES-1) &
         /    1.0,         1.0,        0.002,        0.002,        0.004 /
@@ -385,7 +399,7 @@ namelist /vegn_data_nml/ &
   alpha, beta, c1,c2,c3, &
   dfr, &
   srl, root_r, root_perm, &
-  cmc_lai, cmc_pow, csc_lai, csc_pow, &
+  cmc_lai, cmc_pow, csc_lai, csc_pow, cmc_eps, &
   min_cosz, &
   leaf_refl, leaf_tran, leaf_emis, ksi, &
   leaf_size, &
@@ -492,11 +506,21 @@ subroutine read_vegn_data_namelist()
      call init_derived_species_data(spdata(i))
   enddo
 
-  ! register selectors for tile-specific diagnostics
+  ! register selectors for land use type-specific diagnostics
   do i=1, N_LU_TYPES
      call register_tile_selector(landuse_name(i), long_name=landuse_longname(i),&
-          tag = SEL_VEGN, idata1 = i )
+          tag = SEL_VEGN, idata1 = LU_SEL_TAG, idata2 = i )
   enddo
+  
+  ! register selectors for species-specific diagnostics
+  do i=0,NSPECIES-1
+     call register_tile_selector(species_name(i), long_name=species_longname(i),&
+          tag = SEL_VEGN, idata1 = SP_SEL_TAG, idata2 = i )
+  enddo
+
+  ! register selector for natural grass
+  call register_tile_selector('ntrlgrass', long_name='natural (non-human-maintained) grass',&
+          tag = SEL_VEGN, idata1 = NG_SEL_TAG)
 
   write (unit, nml=vegn_data_nml)
 

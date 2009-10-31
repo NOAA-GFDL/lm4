@@ -76,10 +76,10 @@ public :: update_vegn_slow
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-   version = '$Id: vegetation.F90,v 17.0 2009/07/21 03:03:11 fms Exp $', &
-   tagname = '$Name: quebec $', &
+   version = '$Id: vegetation.F90,v 17.0.2.2 2009/09/04 18:33:46 slm Exp $', &
+   tagname = '$Name: quebec_200910 $', &
    module_name = 'vegn'
-! values for internal selector of CO2 option used for photosysthesis
+! values for internal selector of CO2 option used for photosynthesis
 integer, parameter :: VEGN_PHOT_CO2_PRESCRIBED  = 1
 integer, parameter :: VEGN_PHOT_CO2_INTERACTIVE = 2
 
@@ -147,7 +147,8 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, id_lai, id_sai, id_le
    id_csmoke_pool, id_csmoke_rate, id_fsc_in, id_fsc_out, id_ssc_in, &
    id_ssc_out, id_veg_in, id_veg_out, id_fsc_pool, id_fsc_rate, &
    id_ssc_pool, id_ssc_rate, id_t_ann, id_t_cold, id_p_ann, id_ncm, &
-   id_lambda, id_afire, id_atfall, id_closs, id_cgain, id_wdgain, id_leaf_age
+   id_lambda, id_afire, id_atfall, id_closs, id_cgain, id_wdgain, id_leaf_age, &
+   id_phot_co2
 ! ==== end of module variables ===============================================
 
 ! ==== NetCDF declarations ===================================================
@@ -356,7 +357,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
           ncm, interp='nearest')
      did_read_biodata = .TRUE.
   endif
-  ! Go through all tiles and initilize the cohorts that have not been initilialized yet --
+  ! Go through all tiles and initialize the cohorts that have not been initialized yet --
   ! this allows to read partial restarts. Also initialize accumulation counters to zero
   ! or the values from the restarts.
   te = tail_elmt(lnd%tile_map)
@@ -426,7 +427,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
   do while(ce /= te)
      tile => current_tile(ce)
      ce=next_elmt(ce)     
-     if (.not.associated(tile%vegn)) cycle ! skip non-vegetetion tiles
+     if (.not.associated(tile%vegn)) cycle ! skip non-vegetation tiles
      ! send the data
      call send_tile_data(id_vegn_type,  real(tile%vegn%tag), tile%diag)
   enddo
@@ -583,6 +584,10 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
        time, 'area been fired', missing_value=-100.0)
   id_atfall = register_tiled_diag_field (module_name, 'atfall',(/id_lon,id_lat/), &
        time, 'area been disturbed', missing_value=-100.0)
+
+  id_phot_co2 = register_tiled_diag_field (module_name, 'qco2_phot',(/id_lon,id_lat/), &
+       time, 'CO2 mixing ratio for photosynthesis calculations', 'mol CO2/mol dry air', &
+       missing_value=-1.0)
 end subroutine
 
 
@@ -592,7 +597,7 @@ subroutine vegn_end ()
 
   module_is_initialized =.FALSE.
 
-  ! finalise harvesting
+  ! finalize harvesting
   call vegn_harvesting_end ()
 
   ! finalize static vegetation, if necessary
@@ -762,7 +767,7 @@ subroutine vegn_step_1 ( vegn, diag, &
         SWdn, RSv, precip_l, precip_s, &
         land_d, land_z0s, land_z0m, grnd_z0s, &
         soil_beta, soil_water_supply, &
-        cana_T, cana_q, cana_co2, &
+        cana_T, cana_q, cana_co2_mol, &
         ! output
         con_g_h, con_g_v, & ! aerodynamic conductance between canopy air and canopy, for heat and vapor flux
         vegn_T,vegn_Wl,  vegn_Ws,           & ! temperature, water and snow mass of the canopy
@@ -789,7 +794,7 @@ subroutine vegn_step_1 ( vegn, diag, &
        soil_water_supply, & ! max rate of water supply to the roots, kg/(m2 s)
        cana_T,    & ! temperature of canopy air, deg K
        cana_q,    & ! specific humidity of canopy air, kg/kg
-       cana_co2     ! co2 concentration in canopy air, kg CO2/kg wet air
+       cana_co2_mol ! co2 mixing ratio in the canopy air, mol CO2/mol dry air
   ! output -- coefficients of linearized expressions for fluxes
   real, intent(out) ::   &
        vegn_T,vegn_Wl,  vegn_Ws,& ! temperature, water and snow mass of the canopy
@@ -817,7 +822,7 @@ subroutine vegn_step_1 ( vegn, diag, &
        qvsat,     & ! sat. specific humidity at the leaf T
        DqvsatDTv, & ! derivative of qvsat w.r.t. leaf T
        rho,       & ! density of canopy air
-       phot_co2,  & ! co2 concentration for photosynthesis, mol CO2/mol dry air
+       phot_co2,  & ! co2 mixing ratio for photosynthesis, mol CO2/mol dry air
        photosynt, & ! photosynthesis
        photoresp    ! photo-respiration
   type(vegn_cohort_type), pointer :: cohort
@@ -833,7 +838,7 @@ subroutine vegn_step_1 ( vegn, diag, &
      __DEBUG2__(precip_l, precip_s)
      __DEBUG4__(land_d, land_z0s, land_z0m, grnd_z0s)
      __DEBUG2__(soil_beta, soil_water_supply)
-     __DEBUG3__(cana_T, cana_q, cana_co2)
+     __DEBUG3__(cana_T, cana_q, cana_co2_mol)
      write(*,*)'#### end of vegn_step_1 input ####'
      __DEBUG3__(cohort%height, cohort%lai, cohort%sai)
      __DEBUG2__(cohort%cover,cohort%leaf_size)
@@ -849,7 +854,7 @@ subroutine vegn_step_1 ( vegn, diag, &
   ! get the lai
   vegn_lai = cohort%lai
 
-  ! calculate the aerodynamic conductance coeficients
+  ! calculate the aerodynamic conductance coefficients
   call cana_turbulence(ustar, &
      cohort%cover, cohort%height, cohort%lai, cohort%sai, cohort%leaf_size, &
      land_d, land_z0m, land_z0s, grnd_z0s, &
@@ -857,9 +862,7 @@ subroutine vegn_step_1 ( vegn, diag, &
 
   ! calculate the vegetation photosynthesis and associated stomatal conductance
   if (vegn_phot_co2_option == VEGN_PHOT_CO2_INTERACTIVE) then
-     ! cana_co2 is moist mass mixing ratio [kg CO2/kg wet air], convert it to dry
-     ! volumetric mixing ratio [mol CO2/mol dry air] 
-     phot_co2 = cana_co2*mol_air/mol_CO2/(1-cana_q)
+     phot_co2 = cana_co2_mol
   else 
      phot_co2 = co2_for_photosynthesis
   endif
@@ -931,7 +934,7 @@ subroutine vegn_step_1 ( vegn, diag, &
      DEfiDwl =  rho*con_v_v*DfsDwl*(qvsat-cana_q)
      DEfiDwf =  rho*con_v_v*DfsDwf*(qvsat-cana_q)
   else
-     ! Flux is ditected TOWARD the surface: no transpration (assuming plants do not
+     ! Flux is directed TOWARD the surface: no transpiration (assuming plants do not
      ! take water through stomata), and condensation does not depend on the fraction
      ! of wet canopy -- dew formation occurs on the entire surface
 
@@ -972,6 +975,7 @@ subroutine vegn_step_1 ( vegn, diag, &
   call send_tile_data(id_an_cl, cohort%An_cl, diag)
   call send_tile_data(id_con_v_h, con_v_h, diag)
   call send_tile_data(id_con_v_v, con_v_v, diag)
+  call send_tile_data(id_phot_co2, phot_co2, diag)
 
 end subroutine vegn_step_1
 
@@ -1034,7 +1038,7 @@ subroutine vegn_step_2 ( vegn, diag, &
      __DEBUG2__(cohort%prog%Wl, cohort%prog%Ws)
   endif
   ! melt on the vegetation should probably be prohibited altogether, since
-  ! the amount of melt or freeze calculated this way is severly underestimated 
+  ! the amount of melt or freeze calculated this way is severely underestimated 
   ! (depending on the overall vegetation heat capacity) which leads to extended 
   ! periods when the canopy temperature is fixed at freezing point.
   if (lm2) then 
@@ -1109,7 +1113,7 @@ end subroutine vegn_step_2
 
 ! ============================================================================
 ! do the vegetation calculations that require updated (end-of-timestep) values 
-! of progtnostic land variables
+! of prognostic land variables
 subroutine vegn_step_3(vegn, soil, cana_T, precip, vegn_fco2, diag)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(in)    :: soil
@@ -1121,7 +1125,7 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, vegn_fco2, diag)
   ! ---- local vars
   real :: tsoil ! average temperature of soil for soil carbon decomposition, deg K
   real :: theta ! average soil wetness, unitless
-  real :: depth_ave! depth for averaging soil moisture based on jackosn function for root distribution  
+  real :: depth_ave! depth for averaging soil moisture based on Jackson function for root distribution  
   real :: percentile = 0.95
 
   tsoil = soil_ave_temp (soil,soil_carbon_depth_scale)
@@ -1348,7 +1352,7 @@ subroutine vegn_seed_transport()
   real :: total_seed_supply
   real :: total_seed_demand
   real :: f_supply ! fraction of the supply that gets spent
-  real :: f_demand ! fraction of the demand thet gets satisfied
+  real :: f_demand ! fraction of the demand that gets satisfied
 
   ce = first_elmt(lnd%tile_map, lnd%is, lnd%js) ; te = tail_elmt(lnd%tile_map)
   total_seed_supply = 0.0; total_seed_demand = 0.0
@@ -1363,7 +1367,7 @@ subroutine vegn_seed_transport()
   ! sum totals globally
   call mpp_sum(total_seed_demand, pelist=lnd%pelist)
   call mpp_sum(total_seed_supply, pelist=lnd%pelist)
-  ! if either demand or supply are zeros we dont need (or can't) transport anythig
+  ! if either demand or supply are zeros we don't need (or can't) transport anything
   if (total_seed_demand==0.or.total_seed_supply==0)then
      return
   end if

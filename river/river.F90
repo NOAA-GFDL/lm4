@@ -66,8 +66,8 @@ module river_mod
   private
 
 !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id: river.F90,v 17.0 2009/07/21 03:02:26 fms Exp $'
-  character(len=128) :: tagname = '$Name: quebec $'
+  character(len=128) :: version = '$Id: river.F90,v 17.0.2.9 2009/10/01 22:05:17 slm Exp $'
+  character(len=128) :: tagname = '$Name: quebec_200910 $'
 
 !--- public interface ------------------------------------------------
   public :: river_init, river_end, river_type, update_river, river_stock_pe
@@ -97,13 +97,17 @@ module river_mod
   real, dimension(3) :: ave_DHG_coef = (/4.62,0.26,0.82/) ! (/A, C, K for avg of many rivers, 15Nov05/)
   real               :: sinuosity = 1.3
   real               :: channel_tau = 86400*365.25*10     ! channel geometry reflects average flow over O(10 y)
+  logical :: lake_area_bug = .FALSE. ! if set to true, reverts to buggy (quebec)
+      ! behavior, where by mistake cell area was used instead of land area to 
+      ! compute the area of lakes. 
   namelist /river_nml/ dt_slow, diag_freq, debug_river, do_age,              &
                        Somin, outflowmean_min, num_c, rt_c_name, rt_t_ref,   &
                        rt_vf_ref, rt_q10, rt_kinv, rt_source_conc_file,      &
                        rt_source_flux_file, rt_source_conc_name,             &
                        rt_source_flux_name, ave_DHG_exp, ave_AAS_exp,        &
                        ave_DHG_coef, do_rivers, sinuosity, channel_tau,      &
-                       land_area_called_cellarea, all_big_outlet_ctn0
+                       land_area_called_cellarea, all_big_outlet_ctn0,       &
+                       lake_area_bug
 
   character(len=128) :: river_src_file   = 'INPUT/river_data.nc'
   character(len=128) :: river_Omean_file = 'INPUT/river_Omean.nc'
@@ -136,17 +140,16 @@ module river_mod
 
   real,  allocatable, dimension(:,:)   :: discharge2ocean_next   ! store discharge value
   real,  allocatable, dimension(:,:,:) :: discharge2ocean_next_c ! store discharge value
-  real,  allocatable, dimension(:,:)   :: runoff_total(:,:)      ! store runoff accumulation
-  real,  allocatable, dimension(:,:,:) :: runoff_c_total(:,:,:)  ! store runoff_c accumulation
   integer,          allocatable, dimension(:) :: id_infloc,  id_storage, id_stordis, id_inflow
+  integer,          allocatable, dimension(:) :: id_run_stor
   integer,          allocatable, dimension(:) :: id_outflow, id_removal, id_dis
   integer,          allocatable, dimension(:) :: id_lake_outflow
   character(len=4), allocatable, dimension(:) :: c_name
   character(len=8), allocatable, dimension(:) :: if_name, of_name, lo_name, do_name
-  character(len=8), allocatable, dimension(:) :: st_name, sd_name, rf_name, rm_name
+  character(len=8), allocatable, dimension(:) :: st_name, sd_name, rf_name, rm_name, sr_name
   character(len=8), allocatable, dimension(:) :: c_desc
   character(len=24), allocatable, dimension(:) :: if_desc, of_desc, lo_desc, do_desc
-  character(len=24), allocatable, dimension(:) :: st_desc, sd_desc, rf_desc, rm_desc
+  character(len=64), allocatable, dimension(:) :: st_desc, sd_desc, rf_desc, rm_desc, sr_desc
   character(len=7), allocatable, dimension(:) :: flux_units, store_units
   character(len=5), allocatable, dimension(:) :: conc_units
   integer                       :: num_fast_calls 
@@ -257,21 +260,19 @@ contains
 
     allocate(discharge2ocean_next  (isc:iec,jsc:jec            ))
     allocate(discharge2ocean_next_c(isc:iec,jsc:jec,num_species))
-    allocate(runoff_total          (isc:iec,jsc:jec            ))
-    allocate(runoff_c_total        (isc:iec,jsc:jec,num_species))
     allocate(id_infloc (0:num_species), id_storage(0:num_species))
     allocate(id_inflow (0:num_species), id_outflow(0:num_species))
     allocate(id_dis    (0:num_species), id_lake_outflow (0:num_species))
-    allocate(id_removal(0:num_species), id_stordis(0:num_species))
+    allocate(id_removal(0:num_species), id_stordis(0:num_species), id_run_stor(0:num_species))
     allocate(c_name       (0:num_species))
     allocate(if_name      (0:num_species), of_name      (0:num_species))
     allocate(rf_name      (0:num_species), rm_name      (0:num_species))
-    allocate(st_name      (0:num_species), sd_name      (0:num_species))
+    allocate(st_name      (0:num_species), sd_name      (0:num_species),  sr_name(0:num_species))
     allocate(lo_name      (0:num_species), do_name      (0:num_species))
     allocate(c_desc       (0:num_species))
     allocate(if_desc      (0:num_species), of_desc      (0:num_species))
     allocate(rf_desc      (0:num_species), rm_desc      (0:num_species))
-    allocate(st_desc      (0:num_species), sd_desc      (0:num_species))
+    allocate(st_desc      (0:num_species), sd_desc      (0:num_species),  sr_desc(0:num_species))
     allocate(lo_desc      (0:num_species), do_desc      (0:num_species))
     allocate(store_units (0:num_species), flux_units  (0:num_species))
     allocate(conc_units  (num_species))
@@ -279,9 +280,6 @@ contains
     allocate(source_flux_file(num_species-num_c+1:num_species))
     allocate(source_conc_name(num_species-num_c+1:num_species))
     allocate(source_flux_name(num_species-num_c+1:num_species))
-
-    runoff_total = 0.0
-    runoff_c_total = 0.0
 
 !--- read the data from the file river_src_file -- has all static river network data
     call get_river_data(land_lon, land_lat, land_frac)
@@ -335,6 +333,7 @@ contains
       rm_name(i_species)='rv_m'//trim(c_name(i_species))
       st_name(i_species)='rv_s'//trim(c_name(i_species))
       sd_name(i_species)='rv_n'//trim(c_name(i_species))
+      sr_name(i_species)='rv_u'//trim(c_name(i_species))
       enddo
 
     do i_species = 0, num_species
@@ -345,7 +344,10 @@ contains
       rf_desc(i_species)='local runoff, '   //trim(c_desc(i_species))
       rm_desc(i_species)='river removal, '  //trim(c_desc(i_species))
       st_desc(i_species)='river storage '   //trim(c_desc(i_species))
-      sd_desc(i_species)='river num. stor.' //trim(c_desc(i_species))
+      sd_desc(i_species)='river discharge lag (numerical) storage, ' &
+                        //trim(c_desc(i_species))
+      sr_desc(i_species)='river runoff lag (numerical) storage, ' &
+                        //trim(c_desc(i_species))
       enddo
 
 !--- register diag field
@@ -374,6 +376,9 @@ contains
         end if
         write(outunit,*) 'cold restart, set data to 0 '
     endif
+    River%stordis_c = River%dt_slow * discharge2ocean_next_c/DENS_H2O
+    River%stordis   = River%dt_slow *(discharge2ocean_next + &
+                                      discharge2ocean_next_c(:,:,1))/DENS_H2O
     where(River%outflowmean .le. outflowmean_min) River%outflowmean=outflowmean_min
 
     maxtravel = maxval(River%travel)
@@ -422,27 +427,31 @@ contains
 
     discharge2ocean   = discharge2ocean_next
     discharge2ocean_c = discharge2ocean_next_c
+! deplete the discharge storage pools
+    River%stordis_c = River%stordis_c &
+         - River%dt_fast * discharge2ocean_c/DENS_H2O
+    River%stordis   = River%stordis   &
+         - River%dt_fast *(discharge2ocean + &
+                           discharge2ocean_c(:,:,1))/DENS_H2O
 
 !  increment time
     River%Time = increment_time(River%Time, River%dt_fast, 0)
     n = n + 1
 !--- accumulate runoff ---------------------
-    if( n == 1) then
-       runoff_total = 0.0
-       runoff_c_total = 0.0
-    endif
-    runoff_total   = runoff_total   + runoff
-    runoff_c_total = runoff_c_total + runoff_c
+    River%run_stor   = River%run_stor   + runoff
+    River%run_stor_c = River%run_stor_c + runoff_c
 
     if(n == num_fast_calls) then
         call mpp_clock_begin(slowclock)
-        call update_river_slow(runoff_total(:,:)/real(num_fast_calls), &
-             runoff_c_total(:,:,:)/real(num_fast_calls) )
+        call update_river_slow(River%run_stor(:,:)/real(num_fast_calls), &
+             River%run_stor_c(:,:,:)/real(num_fast_calls) )
         call mpp_clock_end(slowclock)       
         call mpp_clock_begin(bndslowclock)
         call update_river_bnd_slow
         call mpp_clock_end(bndslowclock)
         n = 0
+        River%run_stor = 0
+        River%run_stor_c = 0
     endif
 
     call mpp_clock_end(riverclock)
@@ -518,7 +527,11 @@ contains
        tile=>current_tile(ce)  ! get pointer to current tile
        ce=next_elmt(ce)        ! advance position to the next tile
        if (.not.associated(tile%lake)) cycle
-       lake_sfc_A (i,j) = tile%frac * lnd%gcellarea(i,j)
+       if (lake_area_bug) then
+          lake_sfc_A (i,j) = tile%frac * lnd%gcellarea(i,j)
+       else
+          lake_sfc_A (i,j) = tile%frac * lnd%garea(i,j)
+       endif
        do lev = 1, num_lake_lev
          lake_T (i,j,lev)   = tile%lake%prog(lev)%T
          lake_wl(i,j,lev)   = tile%lake%prog(lev)%wl
@@ -670,7 +683,7 @@ call mpp_update_domains (lake_conn,   domain)
 
 !--- release memory
     deallocate(discharge2ocean_next, discharge2ocean_next_c,&
-         runoff_total, runoff_c_total)
+         River%run_stor, River%run_stor_c)
 
     deallocate( River%lon, River%lat)
     deallocate(River%land_area ,     River%basinid        )
@@ -791,6 +804,7 @@ call mpp_update_domains (lake_conn,   domain)
     allocate(River%lake_outflow(isc:iec, jsc:jec) )
     allocate(River%storage   (isc:iec, jsc:jec) )
     allocate(River%stordis   (isc:iec, jsc:jec) )
+    allocate(River%run_stor   (isc:iec, jsc:jec) )
     allocate(River%melt      (isc:iec, jsc:jec) )
     allocate(River%disw2o    (isc:iec, jsc:jec) )
     allocate(River%infloc    (isc:iec, jsc:jec))
@@ -802,6 +816,7 @@ call mpp_update_domains (lake_conn,   domain)
     allocate(River%infloc_c  (isc:iec, jsc:jec, num_species) )
     allocate(River%storage_c (isc:iec, jsc:jec, num_species) )
     allocate(River%stordis_c (isc:iec, jsc:jec, num_species) )
+    allocate(River%run_stor_c (isc:iec, jsc:jec, num_species) )
     allocate(River%outflow_c (isc:iec, jsc:jec, num_species) )
     allocate(River%lake_outflow_c (isc:iec, jsc:jec, num_species) )
     allocate(River%removal_c (isc:iec, jsc:jec, num_species) )
@@ -834,7 +849,9 @@ call mpp_update_domains (lake_conn,   domain)
     River%storage   = 0.0
     River%storage_c = 0.0
     River%stordis   = 0.0
+    River%run_stor  = 0.0
     River%stordis_c = 0.0
+    River%run_stor_c= 0.0
     River%removal_c = 0.0
     River%depth     = 0.
     River%width     = 0.
@@ -871,6 +888,7 @@ call mpp_update_domains (lake_conn,   domain)
         call read_data(river_src_file, 'land_area', River%land_area, domain) 
       endif
 !    call read_data(river_src_file, 'So', River%So, domain) 
+    River%So = 0.0
     where (River%So .LT. 0.0) River%So = Somin
 
     do i_species = num_species-num_c+1, num_species
@@ -938,6 +956,9 @@ call mpp_update_domains (lake_conn,   domain)
            missing_value=missing )
       id_stordis(i_species) = register_diag_field ( mod_name, sd_name(i_species),     &
            (/id_lon, id_lat/), River%Time, sd_desc(i_species), store_units(i_species),    &
+           missing_value=missing )
+      id_run_stor(i_species) = register_diag_field ( mod_name, sr_name(i_species),     &
+           (/id_lon, id_lat/), River%Time, sr_desc(i_species), store_units(i_species),    &
            missing_value=missing )
       enddo
 
@@ -1060,6 +1081,8 @@ call mpp_update_domains (lake_conn,   domain)
             diag_factor*River%storage(isc:iec,jsc:jec), River%Time, mask=River%mask )
     if (id_stordis(0) > 0) used = send_data (id_stordis(0), &
             diag_factor*River%stordis(isc:iec,jsc:jec), River%Time, mask=River%mask )
+    if (id_run_stor(0) > 0) used = send_data (id_run_stor(0), &
+            River%dt_fast*River%run_stor(isc:iec,jsc:jec), River%Time, mask=River%mask )
     if (id_infloc(0) > 0) used = send_data (id_infloc(0), &
             diag_factor*River%infloc(isc:iec,jsc:jec), River%Time, mask=River%mask )
     if (id_dis(0) > 0)    used = send_data (id_dis(0), &
@@ -1117,6 +1140,8 @@ call mpp_update_domains (lake_conn,   domain)
         diag_factor*River%storage_c(isc:iec,jsc:jec,i_species), River%Time, mask=River%mask )
       if (id_stordis(i_species) > 0) used = send_data (id_stordis(i_species), &
         diag_factor*River%stordis_c(isc:iec,jsc:jec,i_species), River%Time, mask=River%mask )
+      if (id_run_stor(i_species) > 0) used = send_data (id_run_stor(i_species), &
+        River%dt_fast*River%run_stor_c(isc:iec,jsc:jec,i_species), River%Time, mask=River%mask )
       if (id_infloc(i_species) > 0) used = send_data (id_infloc(i_species), &
         diag_factor*River%infloc_c(isc:iec,jsc:jec,i_species), River%Time, mask=River%mask )
       if (id_removal(i_species) > 0) used = send_data (id_removal(i_species), &
@@ -1181,7 +1206,8 @@ if (.not.do_rivers) return
 
 select case(index)
 case(ISTOCK_WATER)
-  value = DENS_H2O*(sum(River%storage)+sum(River%stordis))
+  value = DENS_H2O*(sum(River%storage)+sum(River%stordis)) &
+        + sum(River%run_stor*River%land_area)*River%dt_fast
 case(ISTOCK_HEAT)
 ! heat stock not yet implemented
   value = 0

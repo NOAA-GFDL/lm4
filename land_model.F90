@@ -13,6 +13,8 @@ use fms_mod, only : write_version_number, error_mesg, FATAL, NOTE, mpp_pe, &
      mpp_root_pe, file_exist, open_namelist_file, check_nml_error, close_file, &
      stdlog, stderr, mpp_clock_id, mpp_clock_begin, mpp_clock_end, string, &
      CLOCK_FLAG_DEFAULT, CLOCK_COMPONENT, CLOCK_ROUTINE
+use field_manager_mod, only : MODEL_LAND
+use data_override_mod, only : data_override
 use diag_manager_mod, only : diag_axis_init, register_static_field, &
      register_diag_field, send_data
 use constants_mod, only : radius, hlf, hlv, hls, tfreeze, pi, rdgas, rvgas, cp_air, &
@@ -21,7 +23,7 @@ use astronomy_mod, only : diurnal_solar
 use sphum_mod, only : qscomp
 use tracer_manager_mod, only : NO_TRACER
 
-use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, mol_air
+use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, mol_air, mol_C, mol_co2
 use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_temp, &
      glac_radiation, glac_diffusion, glac_step_1, glac_step_2, save_glac_restart
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
@@ -96,8 +98,8 @@ public :: Lnd_stock_pe          ! return stocks of conservative quantities
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land', &
-     version     = '$Id: land_model.F90,v 17.1 2009/07/31 16:45:22 fms Exp $', &
-     tagname     = '$Name: quebec $'
+     version     = '$Id: land_model.F90,v 17.1.2.8 2009/09/26 17:22:29 slm Exp $', &
+     tagname     = '$Name: quebec_200910 $'
 
 ! ==== module variables ======================================================
 
@@ -177,6 +179,7 @@ integer :: &
 !
   id_e_res_1,  id_e_res_2,                                                 &
   id_cellarea, id_landarea, id_landfrac, id_no_riv,                        &
+  id_geolon_t, id_geolat_t,                                                &
   id_frac,     id_area,     id_ntiles,                                     &
   id_dis_liq,  id_dis_ice,  id_dis_heat, id_dis_sink,                      &
   id_z0m,      id_z0s,      id_con_g_h,                                    &
@@ -186,8 +189,9 @@ integer :: &
   id_grnd_flux,                                                            &
   id_soil_water_supply,     id_levapg_max,                                 &
   id_water,    id_snow,                                                    &
-  id_Trad,     id_Tca,      id_qca,      id_qco2,                          &
+  id_Trad,     id_Tca,      id_qca,      id_qco2,     id_qco2_dvmr,        &
   id_swdn_dir, id_swdn_dif, id_swup_dir, id_swup_dif, id_lwdn,             &
+  id_fco2,                                                                 &
   id_vegn_cover,    id_cosz,                                               &
   id_albedo_dir,    id_albedo_dif,                                         &
   id_vegn_refl_dir, id_vegn_refl_dif, id_vegn_refl_lw,                     &
@@ -333,6 +337,10 @@ subroutine land_model_init &
        ( id_landarea, lnd%garea (lnd%is:lnd%ie,lnd%js:lnd%je), lnd%time )
   if ( id_landfrac > 0 ) used = send_data &
        ( id_landfrac,     gfrac (lnd%is:lnd%ie,lnd%js:lnd%je), lnd%time )
+  if ( id_geolon_t > 0 ) used = send_data &
+       ( id_geolon_t,  lnd%glon (lnd%is:lnd%ie,lnd%js:lnd%je), lnd%time )
+  if ( id_geolat_t > 0 ) used = send_data &
+       ( id_geolat_t,  lnd%glat (lnd%is:lnd%ie,lnd%js:lnd%je), lnd%time )
 
   ! [7] initialize individual sub-models
   num_species = num_phys + num_c
@@ -473,7 +481,7 @@ subroutine land_model_restart(timestamp)
   type(land_tile_type), pointer :: tile
   character(256) :: timestamp_
 
-  ! [1] count all land tiles and determine the lenght of tile dimension
+  ! [1] count all land tiles and determine the length of tile dimension
   ! sufficient for the current domain
     tile_dim_length = 0
   do j = lnd%js, lnd%je
@@ -549,6 +557,13 @@ subroutine land_cover_cold_start(lnd)
 
   ! remove any input lake fraction in coastal cells
   where (gfrac.lt. 1.-gfrac_tol) lake(:,:,1) = 0.
+  ! NOTE that the lake area in the coastal cells can be set to non-zero
+  ! again by the "ground fraction reconciliation code" below. Strictly
+  ! speaking the above line of code should be replaced with the section
+  ! commented out with "!-zero" below, but we preserve the old way to avoid
+  ! backward incompatibility with older runs. This needs updating in the
+  ! future when the decision about what to do with lakes in coastal cells is
+  ! made.
 
   ! reconcile ground fractions with the land mask within compute domain
   valid_data = gmask.and.(sum(glac,3)+sum(lake,3)+sum(soil,3)>0)
@@ -582,6 +597,20 @@ subroutine land_cover_cold_start(lnd)
   enddo
   enddo
 
+
+!-zero  ! remove any input lake fraction in coastal cells
+!-zero  do j = lnd%js,lnd%je
+!-zero  do i = lnd%is,lnd%ie
+!-zero     call set_current_point(i,j,1)
+!-zero     if (gfrac(i,j) < 1-gfrac_tol) then
+!-zero        lake(i,j,:) = 0.0
+!-zero        if(is_watch_point())then
+!-zero           write(*,*)'###### land_cover_cold_start: lake fraction is set to zero #####'
+!-zero        endif
+!-zero     endif
+!-zero  enddo
+!-zero  enddo
+  
   ! reconcile vegetation fractions with the land mask within compute domain
   valid_data = sum(vegn,3) > 0
   do j = lnd%js,lnd%je
@@ -810,7 +839,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
        vegn_T, vT, & ! vegetation (canopy) temperature
        cana_T, cT, & ! canopy air temperature
        evap_T, eT, & ! temperature assigned to vapor going between land and atmosphere
-       soil_uptake_T, & ! average temperatue of water taken up by the vegetation
+       soil_uptake_T, & ! average temperature of water taken up by the vegetation
        vegn_Wl,  vegn_Ws, & ! water and snow mass of the canopy
        vegn_ifrac, & ! intercepted fraction of liquid or frozen precipitation
        vegn_hcap,      & ! vegetation heat capacity, including intercepted water and snow
@@ -833,9 +862,10 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
        snow_area, &
        cana_q, & ! specific humidity of canopy air
        cana_co2, & ! co2 moist mixing ratio in canopy air, kg CO2/kg wet air
+       cana_co2_mol, & ! co2 dry mixing ratio in canopy air, mol CO2/mol dry air
        fswg, evapg, sensg, &
        subs_G, subs_G2, Mg_imp, snow_G_Z, snow_G_TZ, &
-       snow_avrg_T, delta_T_snow,  & ! vertically-average snow temperature and it's chnage due to s
+       snow_avrg_T, delta_T_snow,  & ! vertically-average snow temperature and it's change due to s
        vegn_ovfl_l,  vegn_ovfl_s,  & ! overflow of liquid and solid water from the canopy
        vegn_ovfl_Hl, vegn_ovfl_Hs, & ! heat flux from canopy due to overflow
        delta_fprec, & ! correction of below-canopy solid precip in case it's average T > tfreeze 
@@ -876,6 +906,11 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
        discharge_c         ! discharge of tracers to ocean
   logical :: used          ! return value of send_data diagnostics routine
 
+  ! variables for data override
+  real, allocatable :: phot_co2_data(:,:)  ! buffer for data
+  logical           :: phot_co2_overridden ! flag indicating successfull override
+  integer :: is,ie,js,je ! horizontal bounds of the override buffer
+
   ! start clocks
   call mpp_clock_begin(landClock)
   call mpp_clock_begin(landFastClock)
@@ -887,10 +922,15 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   ! clear the runoff values, for accumulation over the tiles
   runoff = 0 ; runoff_snow = 0 ; runoff_heat = 0 ; runoff_c = 0
 
+  ! override data at the beginning of the time step
+  is=lbound(cplr2land%t_flux,1) ; ie = is+size(cplr2land%t_flux,1)-1
+  js=lbound(cplr2land%t_flux,2) ; je = js+size(cplr2land%t_flux,2)-1
+  allocate(phot_co2_data(is:ie,js:je))
+  call data_override('LND','phot_co2',phot_co2_data,lnd%time, &
+       override=phot_co2_overridden)
+
   ! initialize current tile enumerator
-  ce = first_elmt(lnd%tile_map,                  &
-              is=lbound(cplr2land%t_flux,1), &
-              js=lbound(cplr2land%t_flux,2)  )
+  ce = first_elmt(lnd%tile_map, is=is, js=js)
   ! get the end marker (end tile enumerator)
   te = tail_elmt(lnd%tile_map)
   ! main tile loop
@@ -984,6 +1024,10 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
         call snow_diffusion(tile%snow, snow_z0s, snow_z0m)
         grnd_z0s = exp( (1-snow_area)*log(subs_z0s) + snow_area*log(snow_z0s))
         
+        ! cana_co2 is moist mass mixing ratio [kg CO2/kg wet air], convert it to dry
+        ! volumetric mixing ratio [mol CO2/mol dry air] 
+        cana_co2_mol = cana_co2*mol_air/mol_CO2/(1-cana_q)
+        if (phot_co2_overridden) cana_co2_mol = phot_co2_data(i,j)
         call vegn_step_1 ( tile%vegn, tile%diag, &
            cplr2land%p_surf(i,j,k), &
            cplr2land%ustar (i,j,k), &
@@ -991,7 +1035,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
            ISa_dn_dir+ISa_dn_dif, RSv, precip_l, precip_s, &
            tile%land_d, tile%land_z0s, tile%land_z0m, grnd_z0s, & 
            soil_beta, soil_water_supply,&
-           cana_T, cana_q, cana_co2, &
+           cana_T, cana_q, cana_co2_mol, &
            ! output
            con_g_h, con_g_v, &
            vegn_T, vegn_Wl, vegn_Ws, & ! temperature, water and snow mass on the canopy
@@ -1328,7 +1372,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
                          + vegn_drip_s*(vegn_T+delta_Tv-tfreeze)) &
                          + vegn_ovfl_Hs
         ! make sure the temperature of the snow falling below canopy is below freezing
-        ! this correction was introduced in an attempt to fix the problem with ficticious 
+        ! this correction was introduced in an attempt to fix the problem with fictitious 
         ! heat accumulating in near-zero-mass snow; however it does not seem to make a 
         ! difference.
         if(vegn_hfprec>0)then
@@ -1555,6 +1599,9 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      call send_tile_data(id_Tca,     land2cplr%t_ca(i,j,k),              tile%diag)
      call send_tile_data(id_qca,     land2cplr%tr(i,j,k,lnd%isphum),     tile%diag)
      call send_tile_data(id_qco2,    tile%cana%prog%co2,                 tile%diag)
+     call send_tile_data(id_qco2_dvmr,&
+          tile%cana%prog%co2*mol_air/mol_co2/(1-tile%cana%prog%q),       tile%diag)
+     call send_tile_data(id_fco2,    vegn_fco2*mol_C/mol_co2,            tile%diag)
      call send_tile_data(id_swdn_dir, ISa_dn_dir,                        tile%diag)
      call send_tile_data(id_swdn_dif, ISa_dn_dif,                        tile%diag)
      call send_tile_data(id_swup_dir, ISa_dn_dir*tile%land_refl_dir,     tile%diag)
@@ -1697,6 +1744,9 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   if (id_dis_heat > 0) used = send_data (id_dis_heat, discharge_c(:,:,2), lnd%time) 
   if (id_dis_sink > 0) used = send_data (id_dis_sink, discharge_sink,     lnd%time) 
 
+  ! deallocate override buffer
+  deallocate(phot_co2_data)
+
   call mpp_clock_end(landFastClock)
   call mpp_clock_end(landClock)
 end subroutine update_land_model_fast
@@ -1773,7 +1823,7 @@ subroutine land_surface_energy_balance ( &
      grnd_E_max,      & ! exfiltration rate limit, kg/(m2 s)
      ! components of the ground energy balance linearization. Note that those
      ! are full derivatives, which include the response of the other surface
-     ! cheme parameters to the change in ground temperature.
+     ! scheme parameters to the change in ground temperature.
      fswg,            & ! net short-wave
      flwg0, DflwgDTg, DflwgDpsig, & ! net long-wave
      Hg0,   DHgDTg,   DHgDpsig,   & ! sensible heat
@@ -1802,8 +1852,8 @@ subroutine land_surface_energy_balance ( &
                         ! time step, kg/m2
 
   real :: grnd_B     ! surface energy balance
-  real :: grnd_DBDTg ! full derivative of grnd_B w.r.t. surace temperature
-  real :: grnd_DBDpsig ! full derivative of grnd_B w.r.t. surace soil-water matric head
+  real :: grnd_DBDTg ! full derivative of grnd_B w.r.t. surface temperature
+  real :: grnd_DBDpsig ! full derivative of grnd_B w.r.t. surface soil-water matric head
   real :: grnd_E_force, Eg_trial, Eg_check, determinant
 
   grnd_B      = fswg + flwg0      - Hg0      - grnd_latent*Eg0      - G0
@@ -1901,7 +1951,7 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
   real :: grnd_emis ! ground emissivity
   ! NOTE :  grnd_emis is used only to satisfy xxxx_radiation interfaces; its value is ignored, but
   ! 1-refl is used instead. snow_emis is used in the the vegn_radiation, but it shouldn't be since
-  ! properties of intercaepted snowpack are, in general, different from the snow on the ground 
+  ! properties of intercepted snowpack are, in general, different from the snow on the ground 
   real :: snow_area_rad ! "snow area for radiation calculations" -- introduced
                         ! to reproduce lm2 behavior
   real :: vegn_refl_lw, vegn_tran_lw ! reflectance and transmittance of vegetation for thermal radiation
@@ -2228,9 +2278,9 @@ case(ISTOCK_WATER)
     v_soil = v_soil + gcwd_soil * lnd%garea(i,j)*area_factor
     v_snow = v_snow + gcwd_snow * lnd%garea(i,j)*area_factor
     v_vegn = v_vegn + gcwd_vegn * lnd%garea(i,j)*area_factor
-    value  = v_cana + v_glac + v_lake + v_soil + v_snow + v_vegn
   enddo
   enddo
+  value  = v_cana + v_glac + v_lake + v_soil + v_snow + v_vegn
 a_globe = 4. * pi * radius**2
 case(ISTOCK_HEAT)
   if(.not.stock_warning_issued) then
@@ -2349,9 +2399,9 @@ subroutine land_diag_init(glonb, glatb, glon, glat, time, domain, &
           'latitude', set_name='land', edges=id_latb, domain2=domain   )
   else
      id_lon = diag_axis_init ( 'grid_xt', (/(real(i),i=1,nlon)/), 'degrees_E', 'X', &
-            'T-cell longitude', set_name='land',  domain2=domain )
+          'T-cell longitude', set_name='land',  domain2=domain, aux='geolon_t' )
      id_lat = diag_axis_init ( 'grid_yt', (/(real(i),i=1,nlat)/), 'degrees_N', 'Y', &
-             'T-cell latitude', set_name='land',  domain2=domain )
+          'T-cell latitude', set_name='land',  domain2=domain, aux='geolat_t' )
   endif
   id_band = diag_axis_init (                                                &
        'band',  (/1.0,2.0/), 'unitless', 'Z', &
@@ -2359,6 +2409,13 @@ subroutine land_diag_init(glonb, glatb, glon, glat, time, domain, &
 
   ! set up an array of axes, for convenience
   axes = (/id_lon, id_lat/)
+
+  ! register auxilary coordinate variables
+
+  id_geolon_t = register_static_field ( module_name, 'geolon_t', axes, &
+       'longitude of grid cell centers', 'degrees_E', missing_value = -1.0e+20 )
+  id_geolat_t = register_static_field ( module_name, 'geolat_t', axes, &
+       'latitude of grid cell centers', 'degrees_N', missing_value = -1.0e+20 )
 
   ! register static diagnostic fields
 
@@ -2590,6 +2647,10 @@ subroutine land_diag_init(glonb, glatb, glon, glat, time, domain, &
              'canopy-air specific humidity', 'kg/kg', missing_value=-1.0 )
   id_qco2    = register_tiled_diag_field ( module_name, 'qco2', axes, time, &
              'canopy-air CO2 moist mass mixing ratio', 'kg/kg', missing_value=-1.0 )
+  id_qco2_dvmr = register_tiled_diag_field ( module_name, 'qco2_dvmr', axes, time, &
+             'canopy-air CO2 dry volumetric mixing ratio', 'mol CO2/mol air', missing_value=-1.0 )
+  id_fco2    = register_tiled_diag_field ( module_name, 'fco2', axes, time, &
+             'flux of CO2 to canopy air', 'kg C/(m2 s)', missing_value=-1.0 )
   id_swdn_dir = register_tiled_diag_field ( module_name, 'swdn_dir', (/id_lon,id_lat,id_band/), time, &
        'downward direct short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0)
   id_swdn_dif = register_tiled_diag_field ( module_name, 'swdn_dif', (/id_lon,id_lat,id_band/), time, &

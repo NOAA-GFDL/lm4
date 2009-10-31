@@ -38,8 +38,8 @@ module river_physics_mod
   real    :: missing = -1.e8
 
 !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id: river_physics.F90,v 17.0 2009/07/21 03:02:28 fms Exp $'
-  character(len=128) :: tagname = '$Name: quebec $'
+  character(len=128) :: version = '$Id: river_physics.F90,v 17.0.4.2 2009/10/01 22:57:25 slm Exp $'
+  character(len=128) :: tagname = '$Name: quebec_200910 $'
 
 
 ! ---- public interfaces -----------------------------------------------------
@@ -60,13 +60,16 @@ module river_physics_mod
   real :: storage_threshold_for_diag = 1.e6
   logical :: ice_frac_from_sfc = .false.
   logical :: use_lake_area_bug = .false.
+  logical :: zero_frac_bug     = .false. ! it TRUE, reverts to quebec (buggy)
+      ! behavior, where the discharge points with zero land fraction were
+      ! missed, resulting in water non-conservation
   real :: ice_frac_factor = 0.
 
   namelist /river_physics_nml/ algor, lake_outflow_frac_ceiling, &
                                lake_sfc_w_min, storage_threshold_for_melt, &
                                storage_threshold_for_diag, &
                                ice_frac_from_sfc, ice_frac_factor, &
-                               use_lake_area_bug
+                               use_lake_area_bug, zero_frac_bug
 
   integer, parameter, dimension(8) :: di=(/1,1,0,-1,-1,-1,0,1/)
   integer, parameter, dimension(8) :: dj=(/0,-1,-1,-1,0,1,1,1/)
@@ -202,7 +205,12 @@ contains
     do j = jsc, jec 
       do i = isc, iec
         call set_current_point(i,j,1) ! for debug output
-        if (River%travel(i,j)==cur_travel .and. River%landfrac(i,j).gt.0.) then   ! second condition redundant???
+        if (River%travel(i,j)==cur_travel.and.&
+            ((.not.zero_frac_bug).or.(River%landfrac(i,j).gt.0))) then
+            ! if zero_frac_bug is FALSE, the second line of condition is
+            ! always TRUE, so we revert to bugfix
+            ! if zero_frac_bug is TRUE, the second line is simply
+            ! River%landfrac(i,j).gt.0, so we get quebec (buggy) condition
 
             ! FIRST COMPUTE LAKE MASS BALANCE (FROM INFLOC AND INFLOW TO LAKE_OUTFLOW)
           
