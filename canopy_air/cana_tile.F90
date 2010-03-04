@@ -22,7 +22,14 @@ public :: cana_tile_carbon
 public :: cana_tile_heat
 
 ! public data:
-real, public :: canopy_air_mass = 0.0    ! mass of wet air in the canopy air space, kg/m2
+real, public :: canopy_air_mass = 0.0    ! mass of wet air in the canopy air 
+                                         ! space for heat and water vapor, kg/m2
+real, public :: canopy_air_mass_for_tracers = 0.0 ! mass of wet air in the canopy air 
+                                         ! space for tracers other than water vapor, kg/m2
+! Water vapor is bundled with heat and not with other tracers because it is
+! tightly coupled with the heat capacity of the canopy air and therefore with
+! the equations for heat. We assume that other tracers do not contribute to
+! the heat capacity of the canopy air.
 real, public :: cpw             = 1952.0 ! specific heat of water vapor at constant pressure, J/(kg K)
 ! ==== end of public interfaces ==============================================
 interface new_cana_tile
@@ -32,8 +39,8 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
-     version = '$Id: cana_tile.F90,v 17.0 2009/07/21 03:01:55 fms Exp $', &
-     tagname = '$Name: quebec_200910 $'
+     version = '$Id: cana_tile.F90,v 18.0 2010/03/02 23:36:42 fms Exp $', &
+     tagname = '$Name: riga $'
 
 ! ==== data types ======================================================
 type :: cana_prog_type
@@ -144,7 +151,7 @@ end function
 function cana_tile_carbon (cana) result(c) ; real c
   type(cana_tile_type), intent(in) :: cana
 
-  c = canopy_air_mass * cana%prog%co2
+  c = canopy_air_mass_for_tracers * cana%prog%co2
 end function 
 
 end module cana_tile_mod

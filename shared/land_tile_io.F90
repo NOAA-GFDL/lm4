@@ -57,8 +57,8 @@ end interface
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land_tile_io_mod', &
-     version     = '$Id: land_tile_io.F90,v 17.0 2009/07/21 03:02:44 fms Exp $', &
-     tagname     = '$Name: quebec_200910 $'
+     version     = '$Id: land_tile_io.F90,v 18.0 2010/03/02 23:37:12 fms Exp $', &
+     tagname     = '$Name: riga $'
 ! name of the "compressed" dimension (and dimension variable) in the output 
 ! netcdf files -- that is, the dimensions written out using compression by 
 ! gathering, as described in CF conventions. See subroutines write_tile_data,
@@ -166,7 +166,13 @@ subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, tile_dim_lengt
      enddo
 
      ! create netcdf file
-     __NF_ASRT__(nf_create(full_name,NF_CLOBBER,ncid))
+#ifdef use_netCDF3
+     __NF_ASRT__(nf__create(full_name,NF_CLOBBER,0,65536,ncid))
+#elif use_LARGEFILE
+     __NF_ASRT__(nf__create(full_name,IOR(NF_64BIT_OFFSET,NF_CLOBBER),0,65536,ncid))
+#else
+     __NF_ASRT__(nf__create(full_name,IOR(NF_NETCDF4,NF_CLASSIC_MODEL),0,65536,ncid))
+#endif
 
      ! create lon, lat, dimensions and variables
      __NF_ASRT__(nfu_def_dim(ncid,'lon' ,glon(:,1) ,'longitude','degrees_east'))
@@ -183,8 +189,8 @@ subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, tile_dim_lengt
      ! release the data we no longer need
      deallocate(ntiles,tidx2)
 
-     ! determine the local value of space reserved in the header; by default 8K
-     reserve_ = 1024*8
+     ! determine the local value of space reserved in the header; by default 16K
+     reserve_ = 1024*16
      if(PRESENT(reserve)) reserve_ = reserve
 
      ! end definition mode, reserving some space for future additions

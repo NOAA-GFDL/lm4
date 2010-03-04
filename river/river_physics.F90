@@ -23,6 +23,7 @@ module river_physics_mod
   use mpp_domains_mod, only : ZERO, NINETY, MINUS_NINETY, mpp_update_domains 
   use mpp_domains_mod, only : mpp_get_compute_domains
   use mpp_domains_mod, only : mpp_get_num_overlap, mpp_get_overlap
+  use mpp_domains_mod, only : mpp_get_update_size, mpp_get_update_pelist
   use fms_mod,         only : stdlog, open_namelist_file, write_version_number
   use fms_mod,         only : close_file, check_nml_error
   use diag_manager_mod,only : register_diag_field, send_data
@@ -38,8 +39,8 @@ module river_physics_mod
   real    :: missing = -1.e8
 
 !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id: river_physics.F90,v 17.0.4.2 2009/10/01 22:57:25 slm Exp $'
-  character(len=128) :: tagname = '$Name: quebec_200910 $'
+  character(len=128) :: version = '$Id: river_physics.F90,v 18.0 2010/03/02 23:37:02 fms Exp $'
+  character(len=128) :: tagname = '$Name: riga $'
 
 
 ! ---- public interfaces -----------------------------------------------------
@@ -93,6 +94,7 @@ module river_physics_mod
   end type halo_update_type
 
   type(halo_update_type),  allocatable :: halo_update(:)
+  integer                              :: nsend_update, nrecv_update
   real, dimension(:),      allocatable :: send_buffer, recv_buffer
   logical, dimension(:,:), allocatable :: in_domain
   integer, dimension(:,:), allocatable :: nlev
@@ -478,35 +480,23 @@ contains
     integer                              :: buffer_pos, pos, msgsize
     integer                              :: i, j, i1, j1, i2, j2, i3, j3, i4, j4, k, kk
     integer                              :: send_size, recv_size, siz, i_dest, j_dest
+    logical                              :: is_my_recv, is_my_send
+    integer                              :: my_recv_index, my_send_index, roff, soff, pe, total_size
+    integer                              :: nsend, nrecv, total_send, total_recv, max_send, max_recv
     integer, allocatable, dimension(:,:) :: tocell
     integer, allocatable, dimension(:,:) :: is_recv, ie_recv, js_recv, je_recv
     integer, allocatable, dimension(:,:) :: is1_send, ie1_send, js1_send, je1_send
     integer, allocatable, dimension(:,:) :: is2_send, ie2_send, js2_send, je2_send
     integer, allocatable, dimension(:,:) :: rot_send, rot_recv, dir_send, dir_recv
-    integer, allocatable, dimension(:)   :: nsend, nrecv, pelist
+    integer, allocatable, dimension(:)   :: send_pelist, recv_pelist, pelist_r, pelist_s
+    integer, allocatable, dimension(:)   :: send_count, recv_count, recv_size2
     integer, allocatable, dimension(:)   :: isl, iel, jsl, jel  
     integer, allocatable, dimension(:)   :: sbuf, rbuf
     type(comm_type), pointer             :: send => NULL()
     integer, allocatable, dimension(:,:,:) :: i_send, j_send, t_send, p_send, n_send
 
     call mpp_get_data_domain   (domain, isd, ied, jsd, jed)
-    allocate(pelist  (0:npes-1        )                             )
-    call mpp_get_current_pelist(pelist)
     
-    allocate(halo_update(maxtravel) )
-    do travelnow = 1, maxtravel
-       allocate(halo_update(travelnow)%send(0:npes-1))
-       allocate(halo_update(travelnow)%recv(0:npes-1))
-       halo_update(travelnow)%send(:)%count = 0
-       halo_update(travelnow)%recv(:)%count = 0
-       do p = 0, npes-1
-          halo_update(travelnow)%send(p)%count = 0
-          halo_update(travelnow)%recv(p)%count = 0
-          halo_update(travelnow)%send(p)%pe    = pelist(p)
-          halo_update(travelnow)%recv(p)%pe    = pelist(p)
-       end do
-    end do
-
     !--- first get the travel and tocell information onto data domain
     allocate(tocell(isd:ied,jsd:jed))
     allocate(isl(0:npes-1), iel(0:npes-1), jsl(0:npes-1), jel(0:npes-1) )
@@ -515,71 +505,169 @@ contains
     call mpp_get_compute_domains(domain, xbegin=isl, xend=iel, ybegin=jsl, yend=jel)
 
     !--- first get the halo update information for send and recv.
-    allocate(is_recv (0:npes-1,MAXCOMM), ie_recv (0:npes-1,MAXCOMM) )
-    allocate(js_recv (0:npes-1,MAXCOMM), je_recv (0:npes-1,MAXCOMM) )
-    allocate(is1_send(0:npes-1,MAXCOMM), ie1_send(0:npes-1,MAXCOMM) )
-    allocate(js1_send(0:npes-1,MAXCOMM), je1_send(0:npes-1,MAXCOMM) )
-    allocate(is2_send(0:npes-1,MAXCOMM), ie2_send(0:npes-1,MAXCOMM) )
-    allocate(js2_send(0:npes-1,MAXCOMM), je2_send(0:npes-1,MAXCOMM) )
-    allocate(rot_recv(0:npes-1,MAXCOMM), rot_send(0:npes-1,MAXCOMM) )
-    allocate(dir_recv(0:npes-1,MAXCOMM), dir_send(0:npes-1,MAXCOMM) )
-    allocate(rbuf    (npes*MAXCOMM*4  ), sbuf    (npes*MAXCOMM*4  ) )
-    allocate(nrecv   (0:npes-1        ), nsend   (0:npes-1        ) )
+    call mpp_get_update_size(domain, nsend, nrecv)
+
+    if(nsend>0) then
+       allocate(send_count(nsend))
+       do p = 1, nsend
+          send_count(p) = mpp_get_num_overlap(domain, EVENT_SEND, p)
+       enddo
+       if(ANY(send_count .LE. 0)) call mpp_error(FATAL, &
+                  "river_mod: send_count should be positive for any entry")
+       total_send = sum(send_count)
+       allocate(rbuf(4*total_send))
+    endif
+
+    if(nrecv>0) then
+       allocate(recv_count(nrecv))
+       do p = 1, nrecv
+          recv_count(p) = mpp_get_num_overlap(domain, EVENT_RECV, p)
+       enddo
+       if(ANY(recv_count .LE. 0)) call mpp_error(FATAL, &
+            "river_mod: recv_count should be positive for any entry")
+       total_recv = sum(recv_count)
+       allocate(sbuf(4*total_recv))
+    endif
+ 
+    !--- pre-post recv
+    rpos = 0
+    if(nsend > 0) then
+       allocate(pelist_s(nsend))
+       max_send = maxval(send_count)
+       allocate(is1_send(nsend,max_send), ie1_send(nsend,max_send) )
+       allocate(js1_send(nsend,max_send), je1_send(nsend,max_send) )
+       allocate(is2_send(nsend,max_send), ie2_send(nsend,max_send) )
+       allocate(js2_send(nsend,max_send), je2_send(nsend,max_send) )
+       allocate(dir_send(nsend,max_send), rot_send(nsend,max_send) )
+       call mpp_get_update_pelist(domain, EVENT_SEND, pelist_s)
+       do p = 1, nsend    
+          call mpp_get_overlap(domain, EVENT_SEND, p, is1_send(p,1:send_count(p)), ie1_send(p,1:send_count(p)), &
+               js1_send(p,1:send_count(p)), je1_send(p,1:send_count(p)), dir_send(p,1:send_count(p)), &
+               rot_send(p,1:send_count(p)) )
+          call mpp_recv(rbuf(rpos+1), glen=4*send_count(p), from_pe=pelist_s(p), block=.FALSE.)
+          rpos = rpos + 4*send_count(p)
+       enddo
+    endif
 
     spos = 0
-    do p = 0, npes-1
-       nrecv(p) = mpp_get_num_overlap(domain, EVENT_RECV, p)
-       call mpp_send(nrecv(p),     plen = 1,       to_pe = pelist(p))
-       if(nrecv(p) >0) then
-          if(nrecv(p) > MAXCOMM) call mpp_error(FATAL, &
-          "river_mod: number of overlapping for recving is larger than MAXCOMM, increase MAXCOMM")
-          call mpp_get_overlap(domain, EVENT_RECV, p, is_recv(p,1:nrecv(p)), ie_recv(p,1:nrecv(p)), &
-                               js_recv(p,1:nrecv(p)), je_recv(p,1:nrecv(p)), dir_recv(p,1:nrecv(p)), rot_recv(p,1:nrecv(p)) )
+    if(nrecv>0) then
+       allocate(pelist_r(nrecv))
+       max_recv = maxval(recv_count)
+       allocate(is_recv (nrecv,max_recv), ie_recv (nrecv,max_recv) )
+       allocate(js_recv (nrecv,max_recv), je_recv (nrecv,max_recv) )
+       allocate(rot_recv(nrecv,max_recv), dir_recv(nrecv,max_recv) )
+       call mpp_get_update_pelist(domain, EVENT_RECV, pelist_r)
+       do p = 1, nrecv
+          call mpp_get_overlap(domain, EVENT_RECV, p, is_recv(p,1:recv_count(p)), ie_recv(p,1:recv_count(p)), &
+               js_recv(p,1:recv_count(p)), je_recv(p,1:recv_count(p)), dir_recv(p,1:recv_count(p)), &
+               rot_recv(p,1:recv_count(p)))
           !--- send the information to the process that send data.
-          do n = 1, nrecv(p)
+          do n = 1, recv_count(p)
              sbuf(spos+(n-1)*4+1) = is_recv(p,n)
              sbuf(spos+(n-1)*4+2) = ie_recv(p,n)
              sbuf(spos+(n-1)*4+3) = js_recv(p,n)
              sbuf(spos+(n-1)*4+4) = je_recv(p,n)
           end do
+          call mpp_send(sbuf(spos+1), plen = 4*recv_count(p), to_pe = pelist_r(p) )
+          spos = spos + 4*recv_count(p)
+       end do
+    endif
 
-          call mpp_send(sbuf(spos+1), plen = 4*nrecv(p), to_pe = pelist(p))
-          spos = spos + 4*nrecv(p)
-       end if
+    call mpp_sync_self(check=EVENT_RECV)
+    !--- unpack
+    do p = nsend, 1, -1
+       rpos = rpos - 4*send_count(p)
+       do n = 1, send_count(p)
+          is2_send(p,n) = rbuf(rpos+(n-1)*4+1)
+          ie2_send(p,n) = rbuf(rpos+(n-1)*4+2)
+          js2_send(p,n) = rbuf(rpos+(n-1)*4+3)
+          je2_send(p,n) = rbuf(rpos+(n-1)*4+4)
+       end do
     end do
-
-    rpos = 0
-    do p = 0, npes-1
-       nsend(p) = mpp_get_num_overlap(domain, EVENT_SEND, p)
-       call mpp_recv(nsend2,     glen = 1,       from_pe = pelist(p))
-       if(nsend(p) .NE. nsend2) call mpp_error(FATAL, &
-              "river_mod: number of send and recv between two processors are not equal")
-       if(nsend(p) >0) then
-          if(nsend(p) > MAXCOMM) call mpp_error(FATAL, &
-          "river_mod: number of overlapping for sending is larger than MAXCOMM, increase MAXCOMM")
-          call mpp_get_overlap(domain, EVENT_SEND, p, is1_send(p,1:nsend(p)), ie1_send(p,1:nsend(p)), &
-                               js1_send(p,1:nsend(p)), je1_send(p,1:nsend(p)), dir_send(p,1:nsend(p)), rot_send(p,1:nsend(p)) )
-          call mpp_recv(rbuf(rpos+1), glen=4*nsend(p), from_pe=pelist(p))
-          do n = 1, nsend(p)
-             is2_send(p,n) = rbuf(rpos+(n-1)*4+1)
-             ie2_send(p,n) = rbuf(rpos+(n-1)*4+2)
-             js2_send(p,n) = rbuf(rpos+(n-1)*4+3)
-             je2_send(p,n) = rbuf(rpos+(n-1)*4+4)
-          end do
-          rpos = rpos + 4*nsend(p)           
-       end if
-    end do
-
+        
     call mpp_sync_self()
 
-    do p = 0, npes-1
+    is_my_recv = .false.
+    do p = 1, nsend
+       if(pelist_s(p) == mpp_pe()) then
+          is_my_recv = .true.
+          my_recv_index = p
+       endif
+    enddo
+    is_my_send = .false.
+    do p = 1, nrecv
+       if(pelist_r(p) == mpp_pe()) then
+          is_my_send = .true.
+          my_send_index = p
+       endif
+    enddo
+    roff = 0
+    soff = 0
+    if( is_my_recv) then
+       nrecv_update = nsend
+       if(nsend > 0) then
+          allocate(recv_pelist(nrecv_update))
+          recv_pelist = pelist_s
+       endif
+    else
+       nrecv_update = nsend + 1
+       allocate(recv_pelist(nrecv_update))
+       my_recv_index = 1
+       roff = 1
+       recv_pelist(1) = mpp_pe()
+       do p = 1, nsend
+          recv_pelist(p+1) = pelist_s(p)
+       enddo
+    endif
+    if( is_my_send ) then
+       nsend_update = nrecv
+       if(nrecv>0) then
+          allocate(send_pelist(nsend_update))
+          send_pelist = pelist_r
+       endif
+    else
+       nsend_update = nrecv + 1
+       allocate(send_pelist(nsend_update))
+       my_send_index = 1
+       soff = 1
+       send_pelist(1) = mpp_pe()
+       do p = 1, nrecv
+          send_pelist(p+1) = pelist_r(p)
+       enddo
+    endif
+
+    allocate(halo_update(maxtravel) )
+    if(nsend_update>0) then
+       do travelnow = 1, maxtravel
+          allocate(halo_update(travelnow)%send(nsend_update))
+          halo_update(travelnow)%send(:)%count = 0
+          do p = 1, nsend_update
+             halo_update(travelnow)%send(p)%count = 0
+             halo_update(travelnow)%send(p)%pe    = send_pelist(p)
+          end do
+       end do
+    endif
+
+    if(nrecv_update>0) then
+       do travelnow = 1, maxtravel
+          allocate(halo_update(travelnow)%recv(nrecv_update))
+          halo_update(travelnow)%recv(:)%count = 0
+          do p = 1, nrecv_update
+             halo_update(travelnow)%recv(p)%count = 0
+             halo_update(travelnow)%recv(p)%pe    = recv_pelist(p)
+          end do
+       end do
+    endif
+
+    do p = 1, nsend
+       pe = pelist_s(p) - mpp_root_pe()
        !--- configure points need to receive from other pe.
        !--- (i,j) --- halo index on the pe sent to, one neighbor pe data domain
        !--- (i1,j1) --- neighbor index of (i,j) on the pe sent to, on neighbor pe compute domain
        !--- (i2,j2) --- my index corresponding to (i,j), on my compute domain
        !--- (i3,j3) --- neighbor index of (i2,j2), on my data domain
        !--- (i4,j4) --- index of (i1,j1) tocell. 
-       do n = 1, nsend(p)
+       do n = 1, send_count(p)
           select case ( dir_send(p,n) )
           case(1)  ! east
              i = is2_send(p,n)  ! is2_send(p,n) == ie2_send(p,n)
@@ -587,7 +675,7 @@ contains
              do j = js2_send(p,n), je2_send(p,n)
                 do l = -1,1
                    j1 = j + l
-                   if(j1<jsl(p) .OR. j1 > jel(p) ) cycle
+                   if(j1<jsl(pe) .OR. j1 > jel(pe) ) cycle
                    select case(rot_send(p,n))
                    case (ZERO) ! w->e
                       i2 = is1_send(p,n)
@@ -605,7 +693,7 @@ contains
                       i4 = i1 + di(toc)
                       j4 = j1 + dj(toc) 
                       if(i4 == i .AND. j4 == j) then
-                         call add_single_overlap(halo_update(River%travel(i3,j3))%recv(p), i2, j2)
+                         call add_single_overlap(halo_update(River%travel(i3,j3))%recv(p+roff), i2, j2)
                       end if
                    end if
                 end do
@@ -633,7 +721,7 @@ contains
                 i4 = i1 + di(toc)
                 j4 = j1 + dj(toc) 
                 if(i4 == i .AND. j4 == j) then
-                   call add_single_overlap(halo_update(River%travel(i3,j3))%recv(p), i2, j2)
+                   call add_single_overlap(halo_update(River%travel(i3,j3))%recv(p+roff), i2, j2)
                 end if
              end if
           case(3)  ! south
@@ -642,7 +730,7 @@ contains
              do i = is2_send(p,n), ie2_send(p,n)
                 do l = -1,1
                    i1 = i + l
-                   if(i1<isl(p) .OR. i1 > iel(p) ) cycle
+                   if(i1<isl(pe) .OR. i1 > iel(pe) ) cycle
                    select case(rot_send(p,n))
                    case (ZERO) ! n->s
                       i2 = is1_send(p,n) + i  - is2_send(p,n)
@@ -660,7 +748,7 @@ contains
                       i4 = i1 + di(toc)
                       j4 = j1 + dj(toc) 
                       if(i4 == i .AND. j4 == j) then
-                         call add_single_overlap(halo_update(River%travel(i3,j3))%recv(p), i2, j2)
+                         call add_single_overlap(halo_update(River%travel(i3,j3))%recv(p+roff), i2, j2)
                       end if
                    end if
                 end do
@@ -688,7 +776,7 @@ contains
                 i4 = i1 + di(toc)
                 j4 = j1 + dj(toc) 
                 if(i4 == i .AND. j4 == j) then
-                   call add_single_overlap(halo_update(River%travel(i3,j3))%recv(p), i2, j2)
+                   call add_single_overlap(halo_update(River%travel(i3,j3))%recv(p+roff), i2, j2)
                 end if
              end if
           case(5)  ! west
@@ -697,7 +785,7 @@ contains
              do j = js2_send(p,n), je2_send(p,n)
                 do l = -1,1
                    j1 = j + l
-                   if(j1<jsl(p) .OR. j1 > jel(p) ) cycle
+                   if(j1<jsl(pe) .OR. j1 > jel(pe) ) cycle
                    select case(rot_send(p,n))
                    case (ZERO) ! e->w
                       i2 = is1_send(p,n)
@@ -715,7 +803,7 @@ contains
                       i4 = i1 + di(toc)
                       j4 = j1 + dj(toc) 
                       if(i4 == i .AND. j4 == j) then
-                         call add_single_overlap(halo_update(River%travel(i3,j3))%recv(p), i2, j2)
+                         call add_single_overlap(halo_update(River%travel(i3,j3))%recv(p+roff), i2, j2)
                       end if
                    end if
                 end do
@@ -743,7 +831,7 @@ contains
                 i4 = i1 + di(toc)
                 j4 = j1 + dj(toc) 
                 if(i4 == i .AND. j4 == j) then
-                   call add_single_overlap(halo_update(River%travel(i3,j3))%recv(p), i2, j2)
+                   call add_single_overlap(halo_update(River%travel(i3,j3))%recv(p+roff), i2, j2)
                 end if
              end if
           case(7)  ! north
@@ -752,7 +840,7 @@ contains
              do i = is2_send(p,n), ie2_send(p,n)
                 do l = -1,1
                    i1 = i + l
-                   if(i1<isl(p) .OR. i1 > iel(p)) cycle
+                   if(i1<isl(pe) .OR. i1 > iel(pe)) cycle
                    select case(rot_send(p,n))
                    case (ZERO) ! s->n
                       i2 = is1_send(p,n) + i  - is2_send(p,n)
@@ -770,7 +858,7 @@ contains
                       i4 = i1 + di(toc)
                       j4 = j1 + dj(toc) 
                       if(i4 == i .AND. j4 == j) then
-                         call add_single_overlap(halo_update(River%travel(i3,j3))%recv(p), i2, j2)
+                         call add_single_overlap(halo_update(River%travel(i3,j3))%recv(p+roff), i2, j2)
                       end if
                    end if
                 end do
@@ -798,17 +886,19 @@ contains
                 i4 = i1 + di(toc)
                 j4 = j1 + dj(toc) 
                 if(i4 == i .AND. j4 == j) then
-                   call add_single_overlap(halo_update(River%travel(i3,j3))%recv(p), i2, j2)
+                   call add_single_overlap(halo_update(River%travel(i3,j3))%recv(p+roff), i2, j2)
                 end if
              end if
           end select
        end do       
+    enddo
 
+    do p = 1, nrecv
        !--- configure points need to send to other pe.
        !--- (i,j) ---  index on my data domain
        !--- (i1,j1) --- index on my compute domain corresponding to (i,j)
        !--- (i2,j2) --- index of (i1,j1) tocell
-       do n = 1, nrecv(p)
+       do n = 1, recv_count(p)
           select case ( dir_recv(p,n) )
           case(1)  ! east
              i = is_recv(p,n)  ! is_recv(p,n) == ie_recv(p,n)
@@ -820,7 +910,7 @@ contains
                    i2 = i1 + di(tocell(i1,j1))
                    j2 = j1 + dj(tocell(i1,j1)) 
                    if(i2 == i .AND. j2 == j) then
-                      call add_single_overlap(halo_update(River%travel(i1,j1))%send(p), i1, j1)
+                      call add_single_overlap(halo_update(River%travel(i1,j1))%send(p+soff), i1, j1)
                    end if
                 end do
              end do
@@ -833,7 +923,7 @@ contains
                 i2 = i1 + di(tocell(i1,j1))
                 j2 = j1 + dj(tocell(i1,j1)) 
                 if(i2 == i .AND. j2 == j) then
-                   call add_single_overlap(halo_update(River%travel(i1,j1))%send(p), i1, j1)
+                   call add_single_overlap(halo_update(River%travel(i1,j1))%send(p+soff), i1, j1)
                 end if
              end if
           case(3)  ! south
@@ -846,7 +936,7 @@ contains
                    i2 = i1 + di(tocell(i1,j1))
                    j2 = j1 + dj(tocell(i1,j1)) 
                    if(i2 == i .AND. j2 == j) then
-                      call add_single_overlap(halo_update(River%travel(i1,j1))%send(p), i1, j1)
+                      call add_single_overlap(halo_update(River%travel(i1,j1))%send(p+soff), i1, j1)
                    end if
                 end do
              end do
@@ -859,7 +949,7 @@ contains
                 i2 = i1 + di(tocell(i1,j1))
                 j2 = j1 + dj(tocell(i1,j1)) 
                 if(i2 == i .AND. j2 == j) then
-                   call add_single_overlap(halo_update(River%travel(i1,j1))%send(p), i1, j1)
+                   call add_single_overlap(halo_update(River%travel(i1,j1))%send(p+soff), i1, j1)
                 end if
              end if
           case(5)  ! west
@@ -872,7 +962,7 @@ contains
                    i2 = i1 + di(tocell(i1,j1))
                    j2 = j1 + dj(tocell(i1,j1)) 
                    if(i2 == i .AND. j2 == j) then
-                      call add_single_overlap(halo_update(River%travel(i1,j1))%send(p), i1, j1)
+                      call add_single_overlap(halo_update(River%travel(i1,j1))%send(p+soff), i1, j1)
                    end if
                 end do
              end do
@@ -885,7 +975,7 @@ contains
                 i2 = i1 + di(tocell(i1,j1))
                 j2 = j1 + dj(tocell(i1,j1)) 
                 if(i2 == i .AND. j2 == j) then
-                   call add_single_overlap(halo_update(River%travel(i1,j1))%send(p), i1, j1)
+                   call add_single_overlap(halo_update(River%travel(i1,j1))%send(p+soff), i1, j1)
                 end if
              end if
           case(7)  ! north
@@ -898,7 +988,7 @@ contains
                    i2 = i1 + di(tocell(i1,j1))
                    j2 = j1 + dj(tocell(i1,j1)) 
                    if(i2 == i .AND. j2 == j) then
-                      call add_single_overlap(halo_update(River%travel(i1,j1))%send(p), i1, j1)
+                      call add_single_overlap(halo_update(River%travel(i1,j1))%send(p+soff), i1, j1)
                    end if
                 end do
              end do
@@ -911,12 +1001,12 @@ contains
                 i2 = i1 + di(tocell(i1,j1))
                 j2 = j1 + dj(tocell(i1,j1)) 
                 if(i2 == i .AND. j2 == j) then
-                   call add_single_overlap(halo_update(River%travel(i1,j1))%send(p), i1, j1)
+                   call add_single_overlap(halo_update(River%travel(i1,j1))%send(p+soff), i1, j1)
                 end if
              end if
           end select
        end do       
-    end do ! end do p = 0, npes-1
+    end do
 
     allocate(in_domain(isc:iec,jsc:jec))
     in_domain = .true.
@@ -927,8 +1017,8 @@ contains
              j_dest = j + dj(River%tocell(i,j))
              if(i_dest < isc .OR. i_dest > iec .OR. j_dest < jsc .OR. j_dest > jec) then 
                 LOOP_TRAVEL: do travelnow = 1, maxtravel
-                   do p = 0, npes-1
-                      send => halo_update(travelnow)%send(p)
+                   do p = 1, nrecv
+                      send => halo_update(travelnow)%send(p+soff)
                       do n = 1, send%count
                          if(send%i(n) == i .AND. send%j(n) == j) then
                             in_domain(i,j) = .false.
@@ -949,28 +1039,68 @@ contains
     end do
 
     !--- add points that sent to self.
-    p = mpp_pe() - mpp_root_pe()
     do j = jsc, jec
        do i = isc, iec
           m = River%travel(i,j)
           if(m >0 .and. in_domain(i,j) ) then
-             call add_single_overlap(halo_update(m)%send(p), i, j)
-             call add_single_overlap(halo_update(m)%recv(p), River%i_tocell(i, j), River%j_tocell(i, j))
+             call add_single_overlap(halo_update(m)%send(my_send_index), i, j)
+             call add_single_overlap(halo_update(m)%recv(my_recv_index), River%i_tocell(i, j), River%j_tocell(i, j))
           end if
        end do
     end do
 
     !--- the following is for the purpose of bitwise reproduce between processor count
+    if(nrecv_update>0) allocate(recv_size2(nrecv_update))
+    do p=1, nrecv_update
+       call mpp_recv(recv_size2(p), glen = 1, from_pe = recv_pelist(p), block=.FALSE. )
+    enddo
+
+    do p= 1, nsend_update
+       msgsize = 0
+       do m = 1, maxtravel
+          msgsize = msgsize + 2*halo_update(m)%send(p)%count
+       enddo
+       call mpp_send(msgsize, plen = 1, to_pe = send_pelist(p))
+    enddo
+
+    call mpp_sync_self(check=EVENT_RECV)
+    do p=1, nrecv_update 
+       recv_size = 0   
+       do m = 1, maxtravel
+          recv_size = recv_size + halo_update(m)%recv(p)%count
+       end do
+       recv_size = recv_size*2
+       if(recv_size2(p) .NE. recv_size) then
+          print*, "At pe = ", mpp_pe()," p = ", p, " from_pe = ", recv_pelist(p), ", send_size = ", recv_size2(p), "recv_size = ", recv_size
+          call mpp_error(FATAL, "river_physics_mod: mismatch at send size and recv size")
+       endif
+    enddo
+    call mpp_sync_self()
+
+    total_size = 0
+    do p = 1, nrecv_update
+       total_size = total_size + recv_size2(p)
+    enddo
+
+    if(total_size >0) allocate(recv_buffer(total_size))
+    pos = 0
+    do p=1, nrecv_update
+       if(recv_size2(p) >0) then
+          call mpp_recv(recv_buffer(pos+1), glen = recv_size2(p), from_pe = recv_pelist(p), block=.FALSE. )
+          pos = pos + recv_size2(p)
+       endif
+    enddo
+
     send_size = 0
-    do p = 0, npes-1
+    do p = 1, nsend_update
        do m = 1, maxtravel
           send_size = send_size + halo_update(m)%send(p)%count
        end do
     end do
     send_size = send_size*2
-    allocate(send_buffer(send_size))
+    if(send_size>0) allocate(send_buffer(send_size))
     pos = 0
-    do p=0, npes-1
+    do p= 1, nsend_update
        buffer_pos = pos
        do m = 1, maxtravel
           do n = 1, halo_update(m)%send(p)%count
@@ -980,30 +1110,21 @@ contains
           end do
        end do
        msgsize = pos - buffer_pos
-       call mpp_send(msgsize, plen=1, to_pe = pelist(p))
        if(msgsize >0) then
-          call mpp_send(send_buffer(buffer_pos+1), plen = msgsize, to_pe = pelist(p))
+          call mpp_send(send_buffer(buffer_pos+1), plen = msgsize, to_pe = send_pelist(p))
        end if      
     end do
 
+    call mpp_sync_self(check=EVENT_RECV)
+
+    !--- unpack buffer
     allocate(i_send(isc:iec,jsc:jec,8), j_send(isc:iec,jsc:jec,8) )
     allocate(p_send(isc:iec,jsc:jec,8), t_send(isc:iec,jsc:jec,8) )
     allocate(n_send(isc:iec,jsc:jec,8), nlev(isc:iec,jsc:jec))
     nlev = 0
-    do p=0, npes-1
-       recv_size = 0
-       do m = 1, maxtravel
-          recv_size = recv_size + halo_update(m)%recv(p)%count
-       end do
-       recv_size = recv_size*2
-       call mpp_recv(msgsize, glen = 1, from_pe = pelist(p) )
-       if(msgsize .NE. recv_size) call mpp_error(FATAL, "river_physics_mod: mismatch at send size and recv size")
-
-       if(recv_size >0) then
-          allocate(recv_buffer(recv_size))
-          call mpp_recv(recv_buffer(1), glen = recv_size, from_pe = pelist(p))
-
-          pos = 0
+    pos = 0
+    do p=1, nrecv_update
+       if(recv_size2(p) >0) then
           do m = 1, maxtravel
              do n = 1, halo_update(m)%recv(p)%count
                 i = halo_update(m)%recv(p)%i(n)
@@ -1034,20 +1155,22 @@ contains
                 halo_update(m)%recv(p)%k(n) = k               
              end do
           end do
-          deallocate(recv_buffer)
        end if
     end do
 
     call mpp_sync_self()    
-    deallocate(send_buffer)
+    if(allocated(send_buffer)) deallocate(send_buffer)
+    if(allocated(recv_buffer)) deallocate(recv_buffer)
+    if(allocated(recv_size2 )) deallocate(recv_size2 )
 
     !--- set up buffer for send and recv.
     send_size = 0
     do m = 1, maxtravel
        siz = 0
-       do p = 0, npes-1
-          send_size = send_size + halo_update(m)%send(p)%count
+       do p = 1, nsend_update
+          siz = siz + halo_update(m)%send(p)%count
        end do
+       send_size = max(send_size, siz)
     end do
     send_size = send_size*(num_species+1)
     if(send_size > 0) allocate(send_buffer(send_size))
@@ -1055,7 +1178,7 @@ contains
     recv_size = 0
     do m = 1, maxtravel
        siz = 0
-       do p = 0, npes-1
+       do p = 1, nrecv_update
           siz = siz + halo_update(m)%recv(p)%count
        end do
        recv_size = max(recv_size, siz)
@@ -1069,7 +1192,11 @@ contains
     deallocate(is_recv, ie_recv, js_recv, je_recv)
     deallocate(is1_send, ie1_send, js1_send, je1_send)
     deallocate(is2_send, ie2_send, js2_send, je2_send)
-    deallocate(rot_send, rot_recv, nsend, nrecv, pelist)
+    deallocate(rot_send, rot_recv, send_count, recv_count)
+    if(ALLOCATED(pelist_r)) deallocate(pelist_r)
+    if(ALLOCATED(pelist_s)) deallocate(pelist_s)
+    if(ALLOCATED(send_pelist)) deallocate(send_pelist)
+    if(ALLOCATED(recv_pelist)) deallocate(recv_pelist)
     return
 
   end subroutine setup_halo_update
@@ -1080,14 +1207,25 @@ contains
      type(halo_update_type), intent(in) :: update
      type(comm_type), pointer           :: send=>NULL()
      type(comm_type), pointer           :: recv=>NULL()
-     integer                            :: buffer_pos, pos
+     integer                            :: buffer_pos, pos, recv_buffer_pos
      integer                            :: p, n, i, j, count, l, k
      real                               :: wrk_c(isc:iec,jsc:jec,num_species, 8)
      real                               :: wrk  (isc:iec,jsc:jec, 8)
 
+     !--- pre-post recv data
+     pos = 0
+     do p = 1, nrecv_update
+        recv => update%recv(p)
+        count = recv%count
+        if(count == 0) cycle
+        call mpp_recv(recv_buffer(pos+1), glen=count*(num_species+1), from_pe=recv%pe, block=.FALSE. ) 
+        pos = pos + count*(num_species+1)
+     enddo
+     recv_buffer_pos = pos
+
      !--- send the data
      pos = 0
-     do p = 0, npes-1
+     do p = 1, nsend_update
         send => update%send(p)
         count = send%count
         if(count == 0) cycle
@@ -1105,14 +1243,17 @@ contains
         call mpp_send(send_buffer(buffer_pos+1), plen=count*(num_species+1), to_pe = send%pe ) 
      end do
 
-     !--- receive the data, must receive the data in the order 0, 1, 2, ... npes-1 to bitwise reproducing.
+     call mpp_sync_self(check=EVENT_RECV)
+
+     !--- update the buffer in reverse order
      nlev = 0
-     do p = 0, npes-1
+     pos = recv_buffer_pos
+     do p = nrecv_update, 1, -1
         recv => update%recv(p)
         count = recv%count
         if(count == 0) cycle
-        call mpp_recv(recv_buffer(1), glen=count*(num_species+1), from_pe=recv%pe ) 
-        pos = 0
+        pos = recv_buffer_pos - count*(num_species+1)
+        recv_buffer_pos = pos
         do n = 1, count
            i = recv%i(n)
            j = recv%j(n)
@@ -1125,7 +1266,7 @@ contains
               wrk_c(i,j,l,k) = recv_buffer(pos)
            end do
         end do
-     end do
+     enddo
 
      do j = jsc, jec
         do i = isc, iec
@@ -1180,6 +1321,7 @@ contains
     end if
     comm%i(count) = i
     comm%j(count) = j    
+    comm%k(count) = 0
     comm%count    = count
 
     return    

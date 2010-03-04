@@ -15,7 +15,7 @@ use sphum_mod, only : qscomp
 use nf_utils_mod, only : nfu_inq_var
 use land_constants_mod, only : NBANDS,d608,mol_CO2,mol_air
 use cana_tile_mod, only : cana_tile_type, cana_prog_type, &
-     canopy_air_mass, cpw
+     canopy_air_mass, canopy_air_mass_for_tracers, cpw
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
 use land_tile_diag_mod, only : &
@@ -43,8 +43,8 @@ public :: cana_step_2
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-  version = '$Id: canopy_air.F90,v 17.0.2.2 2009/10/01 21:22:42 slm Exp $', &
-  tagname = '$Name: quebec_200910 $', &
+  version = '$Id: canopy_air.F90,v 18.0 2010/03/02 23:36:44 fms Exp $', &
+  tagname = '$Name: riga $', &
   module_name = 'canopy_air_mod'
 
 ! options for turbulence parameter calculations
@@ -63,7 +63,8 @@ logical :: sfc_dir_albedo_bug = .FALSE. ! if true, reverts to buggy behavior
 ! where direct albedo was mistakenly used for part of sub-canopy diffuse light
 namelist /cana_nml/ &
   init_T, init_T_cold, init_q, init_co2, turbulence_to_use, &
-  canopy_air_mass, cpw, rav_lit_vi, save_qco2, sfc_dir_albedo_bug
+  canopy_air_mass, canopy_air_mass_for_tracers, cpw, rav_lit_vi, save_qco2, &
+  sfc_dir_albedo_bug
 !---- end of namelist --------------------------------------------------------
 
 logical            :: module_is_initialized =.FALSE.

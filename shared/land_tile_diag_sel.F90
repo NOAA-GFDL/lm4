@@ -24,8 +24,8 @@ public :: get_n_selectors         ! number of available selectors
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land_tile_selectors_mod', &
-     version     = '$Id: land_tile_diag_sel.F90,v 16.0.8.1 2009/09/25 23:59:44 slm Exp $', &
-     tagname     = '$Name: quebec_200910 $'
+     version     = '$Id: land_tile_diag_sel.F90,v 18.0 2010/03/02 23:37:10 fms Exp $', &
+     tagname     = '$Name: riga $'
 
 integer, parameter :: SEL_LEN           = 16  ! max length of the selector name
 integer, parameter :: SEL_LONG_NAME_LEN = 128 ! max name of the selector long name
@@ -98,12 +98,14 @@ subroutine register_tile_selector( name, long_name, tag, idata1, idata2, rdata1,
 
   ! ---- local vars
   type(tile_selector_type), pointer :: new_selectors(:)
+  character(len=SEL_LEN) :: name_
   integer :: i
 
   ! check for conflict of names -- presumably, if the selector was already
   ! registered, then it is an error to register it again
+  name_=name
   do i = 1, n_selectors
-     if (trim(name(1:SEL_LEN))==trim(selectors(i)%name)) then
+     if (trim(name_)==trim(selectors(i)%name)) then
         call error_mesg(module_name,'attempt to register selector "'&
              //trim(name)//'" which has already been registered',WARNING)
         return ! just skip it 

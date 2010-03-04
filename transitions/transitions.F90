@@ -60,8 +60,8 @@ public :: land_transitions
 
 ! ==== module constants =====================================================
 character(len=*), parameter   :: &
-     version = '$Id: transitions.F90,v 17.0 2009/07/21 03:03:08 fms Exp $', &
-     tagname = '$Name: quebec_200910 $', &
+     version = '$Id: transitions.F90,v 18.0 2010/03/02 23:37:23 fms Exp $', &
+     tagname = '$Name: riga $', &
      module_name = 'land_transitions_mod', &
      diag_mod_name = 'landuse'
 ! selectors for overshoot handling options, for efficiency
@@ -87,7 +87,7 @@ integer :: ncid ! netcd id of the input file
 integer :: input_ids (N_LU_TYPES,N_LU_TYPES) ! id's of input transition rate fields
 integer :: diag_ids  (N_LU_TYPES,N_LU_TYPES)
 real, allocatable :: buffer_in(:,:) ! buffer for input data
-type(horiz_interp_type) :: interp
+type(horiz_interp_type), save :: interp
 type(time_type), allocatable :: time_in(:) ! time axis in input data
 type(time_type) :: time0 ! time of previous transition calculations
 integer :: overshoot_opt ! selector for overshoot handling options, for efficiency

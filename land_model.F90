@@ -36,7 +36,7 @@ use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp,
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, vegn_get_cover, &
      vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
      update_vegn_slow, save_vegn_restart
-use cana_tile_mod, only : canopy_air_mass, cana_tile_heat
+use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, cana_state,&
      cana_step_1, cana_step_2, cana_radiation, cana_roughness, &
      save_cana_restart
@@ -98,8 +98,8 @@ public :: Lnd_stock_pe          ! return stocks of conservative quantities
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land', &
-     version     = '$Id: land_model.F90,v 17.1.2.8 2009/09/26 17:22:29 slm Exp $', &
-     tagname     = '$Name: quebec_200910 $'
+     version     = '$Id: land_model.F90,v 18.0 2010/03/02 23:36:39 fms Exp $', &
+     tagname     = '$Name: riga $'
 
 ! ==== module variables ======================================================
 
@@ -411,9 +411,9 @@ subroutine land_model_init &
 
   ! [9] check the properties of co2 exchange with the atmosphere and set appropriate
   ! flags
-  if (canopy_air_mass==0.and.lnd%ico2==NO_TRACER) then
+  if (canopy_air_mass_for_tracers==0.and.lnd%ico2==NO_TRACER) then
      call error_mesg('land_model_init', &
-          'canopy_air_mass is set to zero, and CO2 exchange with the atmosphere is not set up: '// &
+          'canopy_air_mass_for_tracers is set to zero, and CO2 exchange with the atmosphere is not set up: '// &
           'canopy air CO2 concentration will not be updated',NOTE)
      update_cana_co2 = .FALSE.
   else
@@ -1487,7 +1487,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      ! the concentration.
      if(update_cana_co2) then
         tile%cana%prog%co2 = tile%cana%prog%co2 + &
-             (vegn_fco2 - fco2_0)/(canopy_air_mass/delta_time+Dfco2Dq)
+             (vegn_fco2 - fco2_0)/(canopy_air_mass_for_tracers/delta_time+Dfco2Dq)
      endif
      if(is_watch_point())then
         __DEBUG1__(tile%cana%prog%co2)

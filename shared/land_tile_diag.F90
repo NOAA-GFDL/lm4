@@ -52,7 +52,7 @@ end interface
 character(len=*), parameter :: &
      module_name = 'lan_tile_diag_mod', &
      version     = '$Id: land_tile_diag.F90,v 17.0 2009/07/21 03:02:41 fms Exp $', &
-     tagname     = '$Name: quebec_200910 $'
+     tagname     = '$Name: riga $'
 
 integer, parameter :: INIT_FIELDS_SIZE     = 1     ! initial size of the fields array
 integer, parameter :: BASE_TILED_FIELD_ID  = 65536 ! base value for tiled field 

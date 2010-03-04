@@ -26,10 +26,10 @@ integer, public, parameter :: NSPECIES = 5, & ! number of species
  SP_TROPICAL  = 3, & ! non-grass tropical
  SP_EVERGR    = 4    ! non-grass evergreen
 character(len=12), parameter :: species_name(0:NSPECIES-1) = &
-    (/'c4grass',  'c3grass' ,  'tempdec', 'tropical','evergreen'/)
+    (/'c4grass  ',  'c3grass  ' ,  'tempdec  ', 'tropical ','evergreen'/)
 character(len=32), parameter :: species_longname(0:NSPECIES-1) = &
-    (/'c4 grass', 'c3 grass',  'temperate deciduous trees',&
-      'tropical trees','evergreen trees'/)
+    (/'c4 grass                 ', 'c3 grass                 ',  'temperate deciduous trees',&
+      'tropical trees           ', 'evergreen trees          '/)
 
 integer, public, parameter :: n_dim_vegn_types = 9
 integer, public, parameter :: MSPECIES = NSPECIES+n_dim_vegn_types-1
@@ -63,7 +63,7 @@ integer, public, parameter :: & ! land use types
 character(len=4), public, parameter  :: &
      landuse_name (N_LU_TYPES) = (/ 'past','crop','ntrl','scnd'/)
 character(len=32), public, parameter :: &
-     landuse_longname (N_LU_TYPES) = (/ 'pasture', 'crop', 'natural', 'secondary' /)
+     landuse_longname (N_LU_TYPES) = (/ 'pasture  ', 'crop     ', 'natural  ', 'secondary' /)
 
 integer, public, parameter :: & ! harvesing pools paraneters
  N_HARV_POOLS        = 6, & ! number of harvesting pools
@@ -106,8 +106,8 @@ public :: read_vegn_data_namelist
 
 ! ==== constants =============================================================
 character(len=*), parameter   :: &
-     version     = '$Id: vegn_data.F90,v 17.1.2.3 2009/09/26 18:00:31 slm Exp $', &
-     tagname     = '$Name: quebec_200910 $', &
+     version     = '$Id: vegn_data.F90,v 18.0 2010/03/02 23:37:32 fms Exp $', &
+     tagname     = '$Name: riga $', &
      module_name = 'vegn_data_mod'
 real, parameter :: TWOTHIRDS  = 2.0/3.0
 
