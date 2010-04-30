@@ -34,7 +34,7 @@ end interface
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: &
      version = '$Id: nfc.F90,v 17.0 2009/07/21 03:02:50 fms Exp $', &
-     tagname = '$Name: riga $'
+     tagname = '$Name: riga_201004 $'
 
 ! ---- private type - used to hold dimension/packing information during unpacking
 ! (see get_compressed_var_i_r8)

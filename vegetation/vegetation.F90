@@ -76,8 +76,8 @@ public :: update_vegn_slow
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-   version = '$Id: vegetation.F90,v 18.0 2010/03/02 23:37:26 fms Exp $', &
-   tagname = '$Name: riga $', &
+   version = '$Id: vegetation.F90,v 17.0.2.2.4.1 2010/01/08 19:20:44 slm Exp $', &
+   tagname = '$Name: riga_201004 $', &
    module_name = 'vegn'
 ! values for internal selector of CO2 option used for photosynthesis
 integer, parameter :: VEGN_PHOT_CO2_PRESCRIBED  = 1
@@ -118,6 +118,8 @@ real    :: min_Wl=-1.0, min_Ws=-1.0 ! threshold values for condensation numerics
    ! if water or snow on canopy fall below these values, the derivatives of
    ! condensation are set to zero, thereby prohibiting switching from condensation to
    ! evaporation in one time step.
+real    :: tau_smooth_ncm      = 0.0 ! Time scale for ncm smoothing (low-pass 
+   ! filtering), years. 0.0 retrieves previous behavior (no smoothing) 
 namelist /vegn_nml/ &
     lm2, init_Wl, init_Ws, init_Tv, cpw, clw, csw, &
     init_cohort_bl, init_cohort_blv, init_cohort_br, init_cohort_bsw, &
@@ -127,7 +129,7 @@ namelist /vegn_nml/ &
     write_soil_carbon_restart, &
     do_cohort_dynamics, do_patch_disturbance, do_phenology, &
     do_biogeography, do_seed_transport, &
-    min_Wl, min_Ws
+    min_Wl, min_Ws, tau_smooth_ncm
     
 !---- end of namelist --------------------------------------------------------
 
@@ -1183,6 +1185,7 @@ subroutine update_vegn_slow( )
   integer :: i,j,k ! current point indices
   integer :: ii ! pool iterator
   integer :: n ! number of cohorts
+  real    :: weight_ncm ! low-pass filer value for the number of cold months
 
   ! get components of calendar dates for this and previous time step
   call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
@@ -1217,12 +1220,15 @@ subroutine update_vegn_slow( )
 
      ! annual averaging
      if (year1 /= year0) then
+        ! The ncm smoothing is coded as a low-pass exponential filter. See, for example
+        ! http://en.wikipedia.org/wiki/Low-pass_filter
+        weight_ncm = 1/(1+tau_smooth_ncm)
         if(tile%vegn%nmn_acm /= 0) then
            ! calculate annual averages from accumulated values
            tile%vegn%p_ann  = tile%vegn%p_ann_acm/tile%vegn%nmn_acm
            tile%vegn%t_ann  = tile%vegn%t_ann_acm/tile%vegn%nmn_acm
            tile%vegn%t_cold = tile%vegn%t_cold_acm
-           tile%vegn%ncm    = tile%vegn%ncm_acm
+           tile%vegn%ncm    = weight_ncm*tile%vegn%ncm_acm + (1-weight_ncm)*tile%vegn%ncm
            ! reset accumulated values
            tile%vegn%ncm_acm    = 0
            tile%vegn%p_ann_acm  = 0
