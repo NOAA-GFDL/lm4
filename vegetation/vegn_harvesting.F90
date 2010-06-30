@@ -32,7 +32,7 @@ public :: vegn_cut_forest
 ! ==== module constants =====================================================
 character(len=*), parameter   :: &
      version = '$Id: vegn_harvesting.F90,v 17.0 2009/07/21 03:03:24 fms Exp $', &
-     tagname = '$Name: riga_201004 $', &
+     tagname = '$Name: riga_201006 $', &
      module_name = 'vegn_harvesting_mod'
 real, parameter :: ONETHIRD = 1.0/3.0
 

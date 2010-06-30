@@ -57,8 +57,8 @@ end interface
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land_tile_io_mod', &
-     version     = '$Id: land_tile_io.F90,v 18.0 2010/03/02 23:37:12 fms Exp $', &
-     tagname     = '$Name: riga_201004 $'
+     version     = '$Id: land_tile_io.F90,v 18.0.4.1 2010/05/06 19:56:42 slm Exp $', &
+     tagname     = '$Name: riga_201006 $'
 ! name of the "compressed" dimension (and dimension variable) in the output 
 ! netcdf files -- that is, the dimensions written out using compression by 
 ! gathering, as described in CF conventions. See subroutines write_tile_data,
@@ -167,11 +167,11 @@ subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, tile_dim_lengt
 
      ! create netcdf file
 #ifdef use_netCDF3
-     __NF_ASRT__(nf__create(full_name,NF_CLOBBER,0,65536,ncid))
+     __NF_ASRT__(nf_create(full_name,NF_CLOBBER,ncid))
 #elif use_LARGEFILE
-     __NF_ASRT__(nf__create(full_name,IOR(NF_64BIT_OFFSET,NF_CLOBBER),0,65536,ncid))
+     __NF_ASRT__(nf_create(full_name,IOR(NF_64BIT_OFFSET,NF_CLOBBER),ncid))
 #else
-     __NF_ASRT__(nf__create(full_name,IOR(NF_NETCDF4,NF_CLASSIC_MODEL),0,65536,ncid))
+     __NF_ASRT__(nf_create(full_name,IOR(NF_NETCDF4,NF_CLASSIC_MODEL),ncid))
 #endif
 
      ! create lon, lat, dimensions and variables

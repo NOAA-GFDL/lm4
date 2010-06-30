@@ -21,7 +21,7 @@ public :: update_fuel
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      version = '$Id: vegn_disturbance.F90,v 17.0 2009/07/21 03:03:20 fms Exp $', &
-     tagname = '$Name: riga_201004 $', &
+     tagname = '$Name: riga_201006 $', &
      module_name = 'vegn_disturbance_mod'
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
