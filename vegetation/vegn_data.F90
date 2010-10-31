@@ -1,7 +1,13 @@
 module vegn_data_mod
 
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
+
 use fms_mod, only : &
-     write_version_number, file_exist, open_namelist_file, check_nml_error, &
+     write_version_number, file_exist, check_nml_error, &
      close_file, stdlog
 
 use land_constants_mod, only : NBANDS
@@ -106,8 +112,8 @@ public :: read_vegn_data_namelist
 
 ! ==== constants =============================================================
 character(len=*), parameter   :: &
-     version     = '$Id: vegn_data.F90,v 18.0 2010/03/02 23:37:32 fms Exp $', &
-     tagname     = '$Name: riga_201006 $', &
+     version     = '$Id: vegn_data.F90,v 18.0.4.1 2010/08/24 12:11:36 pjp Exp $', &
+     tagname     = '$Name: riga_201012 $', &
      module_name = 'vegn_data_mod'
 real, parameter :: TWOTHIRDS  = 2.0/3.0
 
@@ -426,6 +432,10 @@ subroutine read_vegn_data_namelist()
   integer :: i
 
   call write_version_number(version, tagname)
+#ifdef INTERNAL_FILE_NML
+  read (input_nml_file, nml=vegn_data_nml, iostat=io)
+  ierr = check_nml_error(io, 'vegn_data_nml')
+#else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
      ierr = 1;  
@@ -436,6 +446,7 @@ subroutine read_vegn_data_namelist()
 10   continue
      call close_file (unit)
   endif
+#endif
 
   unit=stdlog()
 

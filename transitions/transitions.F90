@@ -5,8 +5,15 @@ module land_transitions_mod
 #include "../shared/debug.inc"
 
 use constants_mod, only : PI
+
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
+
 use fms_mod, only : write_version_number, string, error_mesg, FATAL, WARNING, NOTE, &
-     mpp_pe, write_version_number, file_exist, open_namelist_file, close_file, &
+     mpp_pe, write_version_number, file_exist, close_file, &
      check_nml_error, stdlog, mpp_root_pe
 use mpp_io_mod, only : mpp_open, mpp_close, MPP_RDONLY, MPP_ASCII
 use time_manager_mod, only : time_type, set_date, get_date, set_time, &
@@ -60,8 +67,8 @@ public :: land_transitions
 
 ! ==== module constants =====================================================
 character(len=*), parameter   :: &
-     version = '$Id: transitions.F90,v 18.0 2010/03/02 23:37:23 fms Exp $', &
-     tagname = '$Name: riga_201006 $', &
+     version = '$Id: transitions.F90,v 17.0.2.1.2.1.2.1 2010/08/24 12:11:36 pjp Exp $', &
+     tagname = '$Name: riga_201012 $', &
      module_name = 'land_transitions_mod', &
      diag_mod_name = 'landuse'
 ! selectors for overshoot handling options, for efficiency
@@ -137,6 +144,10 @@ subroutine land_transitions_init(id_lon, id_lat)
   call horiz_interp_init
   call write_version_number(version, tagname)
 
+#ifdef INTERNAL_FILE_NML
+  read (input_nml_file, nml=landuse_nml, iostat=io)
+  ierr = check_nml_error(io, 'landuse_nml')
+#else
   if (file_exist('input.nml')) then
      unit = open_namelist_file ( )
      ierr = 1;  
@@ -147,6 +158,7 @@ subroutine land_transitions_init(id_lon, id_lat)
 10   continue
      call close_file (unit)
   endif
+#endif
   
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
@@ -259,8 +271,7 @@ subroutine land_transitions_init(id_lon, id_lat)
 
            ! add mask_in and mask_out to this call
            call horiz_interp_new(interp, lon_in*PI/180,lat_in*PI/180, &
-                lnd%glonb(lnd%is:lnd%ie+1,lnd%js:lnd%je+1), &
-                lnd%glatb(lnd%is:lnd%ie+1,lnd%js:lnd%je+1), &
+                lnd%lonb, lnd%latb, &
                 interp_method='conservative',&
                 mask_in=mask_in, is_latlon_in=.TRUE. )
            

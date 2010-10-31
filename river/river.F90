@@ -40,13 +40,19 @@ module river_mod
 !  </DATA> 
 ! </NAMELIST>
 
+#ifdef INTERNAL_FILE_NML
+  use mpp_mod, only: input_nml_file
+#else
+  use fms_mod, only: open_namelist_file
+#endif
+
   use mpp_mod,             only : CLOCK_SUBCOMPONENT, CLOCK_ROUTINE
   use mpp_mod,             only : mpp_error, mpp_chksum, FATAL, WARNING, stdlog, mpp_npes
   use mpp_mod,             only : mpp_pe, stdout, mpp_chksum, mpp_max
   use mpp_mod,             only : mpp_clock_id, mpp_clock_begin, mpp_clock_end, MPP_CLOCK_DETAILED
   use mpp_domains_mod,     only : domain2d, mpp_get_compute_domain, mpp_get_global_domain 
   use mpp_domains_mod,     only : mpp_get_data_domain, mpp_update_domains, mpp_get_ntile_count
-  use fms_mod,             only : write_version_number, open_namelist_file, check_nml_error
+  use fms_mod,             only : write_version_number, check_nml_error
   use fms_mod,             only : close_file, file_exist, field_size, read_data, write_data, lowercase
   use fms_mod,             only : field_exist, CLOCK_FLAG_DEFAULT
   use fms_io_mod,          only : get_mosaic_tile_file
@@ -66,8 +72,8 @@ module river_mod
   private
 
 !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id: river.F90,v 18.0 2010/03/02 23:37:00 fms Exp $'
-  character(len=128) :: tagname = '$Name: riga_201006 $'
+  character(len=128) :: version = '$Id: river.F90,v 17.0.2.9.2.1.2.1.2.1 2010/08/24 12:11:35 pjp Exp $'
+  character(len=128) :: tagname = '$Name: riga_201012 $'
 
 !--- public interface ------------------------------------------------
   public :: river_init, river_end, river_type, update_river, river_stock_pe
@@ -196,13 +202,21 @@ contains
     physicsclock = mpp_clock_id('river phys'           , CLOCK_FLAG_DEFAULT, CLOCK_ROUTINE)
     diagclock    = mpp_clock_id('river diag'           , CLOCK_FLAG_DEFAULT, CLOCK_ROUTINE)
 !--- read namelist -------------------------------------------------
-    unit = open_namelist_file()
-    ierr = 1;
-    do while (ierr /= 0)
-       read  (unit, nml=river_nml, iostat=io_status, end=10)
-       ierr = check_nml_error(io_status,'river_nml')
-    enddo
-10  call close_file (unit)
+#ifdef INTERNAL_FILE_NML
+     read (input_nml_file, nml=river_nml, iostat=io_status)
+     ierr = check_nml_error(io_status, 'river_nml')
+#else
+    if (file_exist('input.nml')) then
+      unit = open_namelist_file()
+      ierr = 1;
+      do while (ierr /= 0)
+         read  (unit, nml=river_nml, iostat=io_status, end=10)
+         ierr = check_nml_error(io_status,'river_nml')
+      enddo
+10    continue
+      call close_file (unit)
+    endif
+#endif
 
 !--- write version and namelist info to logfile --------------------
     call write_version_number(version,tagname)
@@ -528,9 +542,9 @@ contains
        ce=next_elmt(ce)        ! advance position to the next tile
        if (.not.associated(tile%lake)) cycle
        if (lake_area_bug) then
-          lake_sfc_A (i,j) = tile%frac * lnd%gcellarea(i,j)
+          lake_sfc_A (i,j) = tile%frac * lnd%cellarea(i,j)
        else
-          lake_sfc_A (i,j) = tile%frac * lnd%garea(i,j)
+          lake_sfc_A (i,j) = tile%frac * lnd%area(i,j)
        endif
        do lev = 1, num_lake_lev
          lake_T (i,j,lev)   = tile%lake%prog(lev)%T
@@ -627,24 +641,24 @@ call mpp_update_domains (lake_conn,   domain)
   ! convert area-integrated river outputs to unit-area quantities,
   ! using land area for stores, cell area for fluxes to ocean
     if (id_LWSr > 0) then
-       where (lnd%garea(isc:iec,jsc:jec) > 0) &
-            rivr_LMASS = rivr_LMASS / lnd%garea(isc:iec,jsc:jec)
-       used = send_data (id_LWSr, rivr_LMASS, River%time, mask=lnd%garea(isc:iec,jsc:jec)>0) 
+       where (lnd%area > 0) &
+            rivr_LMASS = rivr_LMASS / lnd%area
+       used = send_data (id_LWSr, rivr_LMASS, River%time, mask=lnd%area>0) 
     endif
     if (id_FWSr > 0) then   
-       where (lnd%garea(isc:iec,jsc:jec) > 0) &
-            rivr_FMASS = rivr_FMASS / lnd%garea(isc:iec,jsc:jec)
-       used = send_data (id_FWSr, rivr_FMASS, River%time, mask=lnd%garea(isc:iec,jsc:jec)>0) 
+       where (lnd%area > 0) &
+            rivr_FMASS = rivr_FMASS / lnd%area
+       used = send_data (id_FWSr, rivr_FMASS, River%time, mask=lnd%area>0) 
     endif
     if (id_HSr > 0) then
-       where (lnd%garea(isc:iec,jsc:jec) > 0) &
-            rivr_HEAT = rivr_HEAT / lnd%garea(isc:iec,jsc:jec)
-       used = send_data (id_HSr, rivr_HEAT, River%time, mask=lnd%garea(isc:iec,jsc:jec)>0) 
+       where (lnd%area > 0) &
+            rivr_HEAT = rivr_HEAT / lnd%area
+       used = send_data (id_HSr, rivr_HEAT, River%time, mask=lnd%area>0) 
     endif
     if (id_meltr > 0) then
-       where (lnd%garea(isc:iec,jsc:jec) > 0) &
-            rivr_MELT = rivr_MELT / lnd%garea(isc:iec,jsc:jec)
-       used = send_data (id_meltr, rivr_MELT, River%time, mask=lnd%garea(isc:iec,jsc:jec)>0) 
+       where (lnd%area > 0) &
+            rivr_MELT = rivr_MELT / lnd%area
+       used = send_data (id_meltr, rivr_MELT, River%time, mask=lnd%area>0) 
     end if
     if(mod(slow_step, diag_freq) == 0)  call river_diag()
     call mpp_clock_end(diagclock)
@@ -746,7 +760,8 @@ call mpp_update_domains (lake_conn,   domain)
     real,            intent(in) :: land_frac(isc:,jsc:) ! land area fraction of land grid.
 
     integer                           :: ni, nj, i, j, siz(4), ntiles
-    real, dimension(:,:), allocatable :: xt, yt, frac, glon, glat, lake_frac
+    real, dimension(:,:), allocatable :: xt, yt, frac, lake_frac, tmp
+    integer                           :: start(4), nread(4)
 
     ntiles = mpp_get_ntile_count(domain)
 
@@ -756,14 +771,9 @@ call mpp_update_domains (lake_conn,   domain)
     if(ni .NE. River%nlon .OR. nj .NE. River%nlat) call mpp_error(FATAL, &
        "river_mod: size mismatch between river grid and land grid")
 
-    allocate(glon(ni,nj), glat(ni, nj))
     allocate(xt(isc:iec, jsc:jec), yt(isc:iec, jsc:jec), frac(isc:iec, jsc:jec) )
     allocate(lake_frac(isc:iec, jsc:jec))
 
-    if (ntiles == 1) then
-        call read_data(river_src_file, 'x', glon, no_domain=.true.)
-        call read_data(river_src_file, 'y', glat, no_domain=.true.)
-      endif
     call read_data(river_src_file, 'x', xt, domain)
     call read_data(river_src_file, 'y', yt, domain) 
     call read_data(river_src_file, 'land_frac', frac, domain) 
@@ -832,13 +842,22 @@ call mpp_update_domains (lake_conn,   domain)
     allocate(River%source_flux(isc:iec, jsc:jec,num_species-num_c+1:num_species))
 
     if(ntiles == 1) then   ! lat-lon grid, use actual grid location
-       River%lon_1d(:)      = glon(:,1)
-       River%lat_1d(:)      = glat(1,:)
+       start = 1; nread = 1
+       nread(1) = ni
+       allocate(tmp(ni,1))
+       call read_data(river_src_file, 'x', tmp, start, nread, no_domain=.TRUE.)
+       River%lon_1d = tmp(:,1)
+       deallocate(tmp)
+       start = 1; nread = 1
+       nread(2) = nj      
+       allocate(tmp(1,nj))            
+       call read_data(river_src_file, 'y', tmp, start, nread, no_domain=.TRUE.)
+       River%lat_1d = tmp(1,:)
+       deallocate(tmp)
     else                   ! cubic grid, use index.
        River%lon_1d(:)      = (/ (i, i=1,River%nlon) /)
        River%lat_1d(:)      = (/ (i, i=1,River%nlat) /)
     end if
-    deallocate(glon, glat)
 
     River%lon(:,:)       = land_lon(:,:)
     River%lat(:,:)       = land_lat(:,:)
@@ -1325,20 +1344,28 @@ contains
     integer                     :: ni, nj, npes, isc, iec, jsc, jec, ntiles, tile
     type(domain2d)              :: Domain
     integer, allocatable        :: tile_ids(:)             ! mosaic tile IDs for the current PE
-    real,   allocatable         :: glon(:,:), glat(:,:)
+    real,   allocatable         :: lon(:,:), lat(:,:)
     real,   allocatable         :: area_lnd(:,:), area_lnd_cell(:,:), gfrac(:,:)
     integer                     :: date(6)
     character(len=9)            :: month
 
     call constants_init
 
-    unit = open_namelist_file ()
-    ierr=1
-    do while (ierr /= 0)
-       read  (unit, nml=river_solo_nml, iostat=io, end=10)
-       ierr = check_nml_error (io, 'river_solo_nml')
-    enddo
-10  call close_file (unit)
+#ifdef INTERNAL_FILE_NML
+    read (input_nml_file, nml=river_solo_nml, iostat=io)
+    ierr = check_nml_error(io, 'river_solo_nml')
+#else
+    if (file_exist('input.nml')) then
+      unit = open_namelist_file ()
+      ierr=1
+      do while (ierr /= 0)
+         read  (unit, nml=river_solo_nml, iostat=io, end=10)
+         ierr = check_nml_error (io, 'river_solo_nml')
+      enddo
+10    continue
+      call close_file (unit)
+    endif
+#endif
 
     unit=stdlog()
     write(unit, nml= river_solo_nml)
@@ -1422,19 +1449,19 @@ contains
     deallocate(tile_ids)
 
 !--- get grid information
-    allocate( glon(ni,nj), glat(ni,nj) )
+    allocate( lon(isc:iec,jsc:jec), lat(isc:iec,jsc:jec) )
     allocate( area_lnd(ni,nj), area_lnd_cell(ni,nj), gfrac(ni,nj) )
-    call get_grid_cell_centers ('LND', tile, glon, glat)
+    call get_grid_cell_centers ('LND', tile, lon, lat, domain)
 !!$    call get_grid_cell_area    ('LND',tile, area_lnd_cell)
 !!$    call get_grid_comp_area    ('LND',tile, area_lnd)
 
-    glon = glon * PI/180.
-    glat = glat * PI/180.
+    lon = lon * PI/180.
+    lat = lat * PI/180.
 !!$    gfrac = area_lnd/area_lnd_cell
     gfrac = 1
     npes = mpp_npes()
 
-    call river_init( glon(isc:iec,jsc:jec), glat(isc:iec,jsc:jec), Time_start, Time_step_fast, Domain, gfrac(isc:iec,jsc:jec)  )
+    call river_init( lon, lat, Time_start, Time_step_fast, Domain, gfrac(isc:iec,jsc:jec)  )
 
     allocate(runoff_c(isc:iec,jsc:jec,num_species) )
     allocate(runoff(isc:iec,jsc:jec), discharge(isc:iec,jsc:jec) )

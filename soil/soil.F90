@@ -5,7 +5,13 @@ module soil_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod, only: error_mesg, file_exist,  open_namelist_file, check_nml_error, &
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
+
+use fms_mod, only: error_mesg, file_exist, check_nml_error, &
      stdlog, write_version_number, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
 use mpp_io_mod,         only: mpp_open, MPP_RDONLY
 use time_manager_mod,   only: time_type, increment_time, time_type_to_real
@@ -64,8 +70,8 @@ public :: soil_step_2
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'soil',&
-    version     = '$Id: soil.F90,v 17.0 2009/07/21 03:03:01 fms Exp $',&
-    tagname     = '$Name: riga_201006 $'
+    version     = '$Id: soil.F90,v 17.0.2.2.2.1 2010/08/24 12:11:36 pjp Exp $',&
+    tagname     = '$Name: riga_201012 $'
 
 ! ==== module variables ======================================================
 
@@ -151,6 +157,10 @@ subroutine read_soil_namelist()
   call read_soil_data_namelist(num_l,dz,use_single_geo,use_geohydrology)
 
   call write_version_number(version, tagname)
+#ifdef INTERNAL_FILE_NML
+  read (input_nml_file, nml=soil_nml, iostat=io)
+  ierr = check_nml_error(io, 'soil_nml')
+#else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
      ierr = 1;  
@@ -161,6 +171,7 @@ subroutine read_soil_namelist()
 10   continue
      call close_file (unit)
   endif
+#endif
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=soil_nml)
@@ -274,29 +285,24 @@ subroutine soil_init ( id_lon, id_lat, id_band )
       if (.not.use_geohydrology) then
           allocate(gw_param(lnd%is:lnd%ie,lnd%js:lnd%je))
           call read_field( 'INPUT/groundwater_residence.nc','tau', &
-               lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-               gw_param, interp='bilinear' )
+               lnd%lon, lnd%lat, gw_param, interp='bilinear' )
           call put_to_tiles_r0d_fptr( gw_param, lnd%tile_map, soil_tau_groundwater_ptr )
           deallocate(gw_param)
         else
           allocate(gw_param (lnd%is:lnd%ie,lnd%js:lnd%je))
           allocate(gw_param2(lnd%is:lnd%ie,lnd%js:lnd%je))
           call read_field( 'INPUT/geohydrology.nc','hillslope_length', &
-               lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-               gw_param, interp='bilinear' )
+               lnd%lon, lnd%lat, gw_param, interp='bilinear' )
           call put_to_tiles_r0d_fptr( gw_param*gw_scale_length, lnd%tile_map, soil_hillslope_length_ptr )
           call read_field( 'INPUT/geohydrology.nc','slope', &
-               lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-               gw_param2, interp='bilinear' )
+               lnd%lon, lnd%lat, gw_param2, interp='bilinear' )
           gw_param = gw_param*gw_param2
           call put_to_tiles_r0d_fptr( gw_param*gw_scale_relief, lnd%tile_map, soil_hillslope_relief_ptr )
           call read_field( 'INPUT/geohydrology.nc','hillslope_zeta_bar', &
-               lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-               gw_param, interp='bilinear' )
+               lnd%lon, lnd%lat, gw_param, interp='bilinear' )
           call put_to_tiles_r0d_fptr( gw_param, lnd%tile_map, soil_hillslope_zeta_bar_ptr )
           call read_field( 'INPUT/geohydrology.nc','soil_e_depth', &
-               lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-               gw_param, interp='bilinear' )
+               lnd%lon, lnd%lat, gw_param, interp='bilinear' )
           call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth, lnd%tile_map, soil_soil_e_depth_ptr )
           deallocate(gw_param, gw_param2)
           te = tail_elmt (lnd%tile_map)
@@ -337,11 +343,9 @@ subroutine soil_init ( id_lon, id_lat, id_band )
   if (trim(albedo_to_use)=='albedo-map') then
      allocate(albedo(lnd%is:lnd%ie,lnd%js:lnd%je,NBANDS))
      call read_field( 'INPUT/soil_albedo.nc','SOIL_ALBEDO_VIS',&
-          lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-          albedo(:,:,BAND_VIS),'bilinear')
+          lnd%lon, lnd%lat, albedo(:,:,BAND_VIS),'bilinear')
      call read_field( 'INPUT/soil_albedo.nc','SOIL_ALBEDO_NIR',&
-          lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-          albedo(:,:,BAND_NIR),'bilinear')
+          lnd%lon, lnd%lat, albedo(:,:,BAND_NIR),'bilinear')
      call put_to_tiles_r1d_fptr( albedo, lnd%tile_map, soil_refl_dry_dir_ptr )
      call put_to_tiles_r1d_fptr( albedo, lnd%tile_map, soil_refl_dry_dif_ptr )
      ! for now, put the same value into the saturated soil albedo, so that
@@ -360,23 +364,17 @@ subroutine soil_init ( id_lon, id_lat, id_band )
 ! copied it from the albedo-map option.
 ! *********************** ????????? *************
      call read_field( 'INPUT/soil_brdf.nc','f_iso_vis',&
-          lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-          f_iso(:,:,BAND_VIS),'bilinear')
+          lnd%lon, lnd%lat, f_iso(:,:,BAND_VIS),'bilinear')
      call read_field( 'INPUT/soil_brdf.nc','f_vol_vis',&
-          lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-          f_vol(:,:,BAND_VIS),'bilinear')
+          lnd%lon, lnd%lat, f_vol(:,:,BAND_VIS),'bilinear')
      call read_field( 'INPUT/soil_brdf.nc','f_geo_vis',&
-          lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-          f_geo(:,:,BAND_VIS),'bilinear')
+          lnd%lon, lnd%lat, f_geo(:,:,BAND_VIS),'bilinear')
      call read_field( 'INPUT/soil_brdf.nc','f_iso_nir',&
-          lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-          f_iso(:,:,BAND_NIR),'bilinear')
+          lnd%lon, lnd%lat, f_iso(:,:,BAND_NIR),'bilinear')
      call read_field( 'INPUT/soil_brdf.nc','f_vol_nir',&
-          lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-          f_vol(:,:,BAND_NIR),'bilinear')
+          lnd%lon, lnd%lat, f_vol(:,:,BAND_NIR),'bilinear')
      call read_field( 'INPUT/soil_brdf.nc','f_geo_nir',&
-          lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-          f_geo(:,:,BAND_NIR),'bilinear')
+          lnd%lon, lnd%lat, f_geo(:,:,BAND_NIR),'bilinear')
      refl_dif = g_iso*f_iso + g_vol*f_vol + g_geo*f_geo
      call put_to_tiles_r1d_fptr( f_iso,    lnd%tile_map, soil_f_iso_dry_ptr )
      call put_to_tiles_r1d_fptr( f_vol,    lnd%tile_map, soil_f_vol_dry_ptr )
@@ -612,7 +610,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   call error_mesg('soil_end','writing NetCDF restart',NOTE)
   ! create output file, including internal structure necessary for output
   call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'soil.res.nc', &
-          lnd%glon*180.0/PI, lnd%glat*180/PI, soil_tile_exists, tile_dim_length )
+          lnd%coord_glon, lnd%coord_glat, soil_tile_exists, tile_dim_length )
   ! in addition, define vertical coordinate
   if (mpp_pe()==lnd%io_pelist(1)) then
      __NF_ASRT__(nfu_def_dim(unit,'zfull',zfull(1:num_l),'full level','m'))

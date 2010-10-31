@@ -6,7 +6,9 @@ use mpp_domains_mod   , only : domain2d, mpp_get_compute_domain, &
      mpp_define_layout, mpp_define_domains, mpp_define_io_domain, &
      mpp_get_current_ntile, mpp_get_tile_id, CYCLIC_GLOBAL_DOMAIN, &
      mpp_get_io_domain, mpp_get_pelist, mpp_get_layout
-use fms_mod           , only : write_version_number, mpp_npes, error_mesg, FATAL
+use mpp_mod,            only : mpp_chksum
+use fms_mod           , only : write_version_number, mpp_npes, &
+                               error_mesg, FATAL, stdout
 use time_manager_mod  , only : time_type
 use tracer_manager_mod, only : register_tracers, get_tracer_index, NO_TRACER
 use field_manager_mod , only : MODEL_LAND
@@ -30,6 +32,8 @@ public :: land_data_type ! container for information passed from land to
                          ! the atmosphere
 ! both hold information on land grid (that is, after flux exchange translated 
 ! it from the atmosphere)
+public land_data_type_chksum    ! routine to print checksums for land_data_type
+public atm_lnd_bnd_type_chksum  ! routine to print checksums for atmos_land_boundary_type
 
 public :: dealloc_land2cplr ! deallocates a land_data_type structure
 public :: realloc_land2cplr ! allocates a land_data_type members for current 
@@ -46,12 +50,12 @@ public :: land_state_type
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: &
      module_name = 'land_data_mod', &
-     version     = '$Id: land_data.F90,v 17.0 2009/07/21 03:02:20 fms Exp $', &
-     tagname     = '$Name: riga_201006 $'
+     version     = '$Id: land_data.F90,v 17.0.2.6.2.1 2010/08/13 16:52:14 wfc Exp $', &
+     tagname     = '$Name: riga_201012 $'
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
-! It is supposed to be double-precision signaling NaN, to triger a trap when
-! the program is compiled with trapping uninitialized values.  
+! It is supposed to be double-precision signaling NaN, to trigger a trap when
+! the program is compiled with trapping non-initialized values.  
 ! See http://ftp.uniovi.es/~antonio/uned/ieee754/IEEE-754references.html
 real, parameter :: init_value = Z'FFF0000000000001'
 
@@ -66,7 +70,7 @@ type :: atmos_land_boundary_type
         swdn_flux => NULL(), &   ! downward shortwave radiation flux, W/m2
         lprec     => NULL(), &   ! liquid precipitation rate, kg/(m2 s)
         fprec     => NULL(), &   ! frozen precipitation rate, kg/(m2 s)
-        tprec     => NULL(), &   ! temperture of precipitation, degK
+        tprec     => NULL(), &   ! temperature of precipitation, degK
    ! components of downward shortwave flux, W/m2  
         sw_flux_down_vis_dir   => NULL(), & ! visible direct 
         sw_flux_down_total_dir => NULL(), & ! total direct
@@ -137,6 +141,7 @@ end type land_data_type
 ! and it is public in this module.
 type :: land_state_type
    integer        :: is,ie,js,je ! compute domain boundaries
+   integer        :: nlon,nlat   ! size of global grid
    integer        :: ntprog      ! number of prognostic tracers
    integer        :: isphum      ! index of specific humidity in tracer table
    integer        :: ico2        ! index of carbon dioxide in tracer table
@@ -144,10 +149,12 @@ type :: land_state_type
    type(time_type):: dt_slow     ! slow time step
    type(time_type):: time        ! current time
 
-   real, pointer  :: glon (:,:), glat (:,:) ! global grid center coordinates, radian
-   real, pointer  :: glonb(:,:), glatb(:,:) ! global grid vertices, radian
-   real, pointer  :: gcellarea(:,:) ! cell area, m2
-   real, pointer  :: garea(:,:)  ! land area per grid cell, m2
+   real, pointer  :: lon (:,:), lat (:,:) ! domain grid center coordinates, radian
+   real, pointer  :: lonb(:,:), latb(:,:) ! domain grid vertices, radian
+   real, pointer  :: area(:,:)  ! land area per grid cell, m2
+   real, pointer  :: cellarea(:,:)  ! grid cell area, m2
+   real, pointer  :: coord_glon(:), coord_glonb(:) ! longitudes for use in diag axis and such, degrees East
+   real, pointer  :: coord_glat(:), coord_glatb(:) ! latitudes for use in diag axis and such, degrees North
 
    ! map of tiles
    type(land_tile_list_type), pointer :: tile_map(:,:)
@@ -203,12 +210,14 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow)
   call get_grid_ntiles('LND',ntiles)
   lnd%nfaces = ntiles
   call get_grid_size('LND',1,nlon,nlat)
+  ! set the size of global grid
+  lnd%nlon = nlon; lnd%nlat = nlat
   if( layout(1)==0 .AND. layout(2)==0 ) &
        call mpp_define_layout( (/1,nlon,1,nlat/), mpp_npes()/ntiles, layout )
   if( layout(1)/=0 .AND. layout(2)==0 )layout(2) = mpp_npes()/(layout(1)*ntiles)
   if( layout(1)==0 .AND. layout(2)/=0 )layout(1) = mpp_npes()/(layout(2)*ntiles)
 
-  ! defne land model domain
+  ! define land model domain
   if (ntiles==1) then
      call mpp_define_domains ((/1,nlon, 1, nlat/), layout, lnd%domain, xhalo=1, yhalo=1,&
           xflags = CYCLIC_GLOBAL_DOMAIN, name = 'LAND MODEL')
@@ -246,21 +255,30 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow)
   deallocate(tile_ids)
 
   allocate(lnd%tile_map (lnd%is:lnd%ie, lnd%js:lnd%je))
-  allocate(lnd%glonb    (nlon+1,nlat+1))
-  allocate(lnd%glatb    (nlon+1,nlat+1))
-  allocate(lnd%glon     (nlon,nlat))
-  allocate(lnd%glat     (nlon,nlat))
-  allocate(lnd%garea    (nlon,nlat))
-  allocate(lnd%gcellarea(nlon,nlat))
+
+  allocate(lnd%lonb    (lnd%is:lnd%ie+1, lnd%js:lnd%je+1))
+  allocate(lnd%latb    (lnd%is:lnd%ie+1, lnd%js:lnd%je+1))
+  allocate(lnd%lon     (lnd%is:lnd%ie,   lnd%js:lnd%je))
+  allocate(lnd%lat     (lnd%is:lnd%ie,   lnd%js:lnd%je))
+  allocate(lnd%area    (lnd%is:lnd%ie,   lnd%js:lnd%je))
+  allocate(lnd%cellarea(lnd%is:lnd%ie,   lnd%js:lnd%je))
+  allocate(lnd%coord_glon(nlon), lnd%coord_glonb(nlon+1))
+  allocate(lnd%coord_glat(nlat), lnd%coord_glatb(nlat+1))
 
   ! initialize coordinates
-  call get_grid_cell_vertices('LND',lnd%face,lnd%glonb,lnd%glatb)
-  call get_grid_cell_centers ('LND',lnd%face,lnd%glon, lnd%glat)
-  call get_grid_cell_area    ('LND',lnd%face,lnd%gcellarea)
-  call get_grid_comp_area    ('LND',lnd%face,lnd%garea)
-  ! convert coordinates to radian
-  lnd%glonb = lnd%glonb*pi/180.0 ; lnd%glon = lnd%glon*pi/180.0
-  lnd%glatb = lnd%glatb*pi/180.0 ; lnd%glat = lnd%glat*pi/180.0
+  call get_grid_cell_vertices('LND',lnd%face,lnd%coord_glonb,lnd%coord_glatb)
+  call get_grid_cell_centers ('LND',lnd%face,lnd%coord_glon, lnd%coord_glat)
+  call get_grid_cell_area    ('LND',lnd%face,lnd%cellarea, domain=lnd%domain)
+  call get_grid_comp_area    ('LND',lnd%face,lnd%area,     domain=lnd%domain)
+  
+  ! set local coordinates arrays -- temporary, till such time as the global arrays
+  ! are not necessary
+  call get_grid_cell_vertices('LND',lnd%face,lnd%lonb,lnd%latb, domain=lnd%domain)
+  call get_grid_cell_centers ('LND',lnd%face,lnd%lon, lnd%lat, domain=lnd%domain)
+  ! convert coordinates to radian; note that 1D versions stay in degrees
+  lnd%lonb = lnd%lonb*pi/180.0 ; lnd%lon = lnd%lon*pi/180.0
+  lnd%latb = lnd%latb*pi/180.0 ; lnd%lat = lnd%lat*pi/180.0
+  
   ! initialize land tile map
   do j = lnd%js,lnd%je
   do i = lnd%is,lnd%ie
@@ -296,7 +314,7 @@ subroutine land_data_end()
   
   module_is_initialized = .FALSE.
 
-  ! dealocate land tile map here. 
+  ! deallocate land tile map here. 
   do j = lnd%js,lnd%je
   do i = lnd%is,lnd%ie
      call land_tile_list_end(lnd%tile_map(i,j))
@@ -304,7 +322,11 @@ subroutine land_data_end()
   enddo
 
   ! deallocate grid data
-  deallocate(lnd%glonb, lnd%glatb, lnd%glon, lnd%glat, lnd%garea, lnd%tile_map,&
+  deallocate(lnd%lonb, lnd%latb, lnd%lon, lnd%lat,&
+       lnd%area, lnd%cellarea,&
+       lnd%coord_glonb, lnd%coord_glon, &
+       lnd%coord_glatb, lnd%coord_glat, &       
+       lnd%tile_map,&
        lnd%pelist, lnd%io_pelist)
 
 end subroutine land_data_end
@@ -412,7 +434,7 @@ end subroutine dealloc_land2cplr
 
 ! ============================================================================
 ! allocates boundary data for land domain and current number of tiles;
-! initializes data for datat override.
+! initializes data for data override.
 ! NOTE: previously the body of the procedure was in the flux_exchange_init,
 ! currently it is called from land_model_init
 subroutine realloc_cplr2land( bnd )
@@ -529,5 +551,144 @@ function max_n_tiles() result(n)
   enddo
 
 end function 
+
+!#######################################################################
+! <SUBROUTINE NAME="atm_lnd_bnd_type_chksum">
+!
+! <OVERVIEW>
+!  Print checksums of the various fields in the atmos_land_boundary_type.
+! </OVERVIEW>
+
+! <DESCRIPTION>
+!  Routine to print checksums of the various fields in the atmos_land_boundary_type.
+! </DESCRIPTION>
+
+! <TEMPLATE>
+!   call atm_lnd_bnd_type_chksum(id, timestep, albt)
+! </TEMPLATE>
+
+! <IN NAME="albt" TYPE="type(atmos_land_boundary_type)">
+!   Derived-type variable that contains fields in the atmos_land_boundary_type.
+! </INOUT>
+!
+! <IN NAME="id" TYPE="character">
+!   Label to differentiate where this routine in being called from.
+! </IN>
+!
+! <IN NAME="timestep" TYPE="integer">
+!   An integer to indicate which timestep this routine is being called for.
+! </IN>
+!
+subroutine atm_lnd_bnd_type_chksum(id, timestep, albt)
+
+    character(len=*), intent(in) :: id
+    integer         , intent(in) :: timestep
+    type(atmos_land_boundary_type), intent(in) :: albt
+    integer ::   n, outunit
+    
+    outunit = stdout()
+
+    write(outunit,*) 'BEGIN CHECKSUM(atmos_land_boundary_type):: ', id, timestep
+    write(outunit,100) 'albt%t_flux                ', mpp_chksum( albt%t_flux)
+    write(outunit,100) 'albt%lw_flux               ', mpp_chksum( albt%lw_flux)
+    write(outunit,100) 'albt%lwdn_flux             ', mpp_chksum( albt%lwdn_flux)
+    write(outunit,100) 'albt%sw_flux               ', mpp_chksum( albt%sw_flux)
+    write(outunit,100) 'albt%swdn_flux               ', mpp_chksum( albt%swdn_flux)
+    write(outunit,100) 'albt%lprec                 ', mpp_chksum( albt%lprec)
+    write(outunit,100) 'albt%fprec                 ', mpp_chksum( albt%fprec)
+    write(outunit,100) 'albt%tprec                 ', mpp_chksum( albt%tprec)
+    write(outunit,100) 'albt%sw_flux_down_vis_dir  ', mpp_chksum( albt%sw_flux_down_vis_dir)
+    write(outunit,100) 'albt%sw_flux_down_total_dir', mpp_chksum( albt%sw_flux_down_total_dir)
+    write(outunit,100) 'albt%sw_flux_down_vis_dif  ', mpp_chksum( albt%sw_flux_down_vis_dif)
+    write(outunit,100) 'albt%sw_flux_down_total_dif', mpp_chksum( albt%sw_flux_down_total_dif)
+    write(outunit,100) 'albt%dhdt                  ', mpp_chksum( albt%dhdt)
+    write(outunit,100) 'albt%dhdq                  ', mpp_chksum( albt%dhdq)
+    write(outunit,100) 'albt%drdt                  ', mpp_chksum( albt%drdt)
+    write(outunit,100) 'albt%cd_m                  ', mpp_chksum( albt%cd_m)
+    write(outunit,100) 'albt%cd_t                  ', mpp_chksum( albt%cd_t)
+    write(outunit,100) 'albt%ustar                 ', mpp_chksum( albt%ustar)
+    write(outunit,100) 'albt%bstar                 ', mpp_chksum( albt%bstar)
+    write(outunit,100) 'albt%wind                  ', mpp_chksum( albt%wind)
+    write(outunit,100) 'albt%z_bot                 ', mpp_chksum( albt%z_bot)
+    write(outunit,100) 'albt%drag_q                ', mpp_chksum( albt%drag_q)
+    write(outunit,100) 'albt%p_surf                ', mpp_chksum( albt%p_surf)
+    do n = 1,size(albt%tr_flux,4)
+    write(outunit,100) 'albt%tr_flux               ', mpp_chksum( albt%tr_flux(:,:,:,n))
+    enddo
+    do n = 1,size(albt%dfdtr,4)
+    write(outunit,100) 'albt%dfdtr                 ', mpp_chksum( albt%dfdtr(:,:,:,n))
+    enddo
+
+100 FORMAT("CHECKSUM::",A32," = ",Z20)
+
+end subroutine atm_lnd_bnd_type_chksum
+
+! </SUBROUTINE>
+
+!#######################################################################
+! <SUBROUTINE NAME="land_data_type_chksum">
+!
+! <OVERVIEW>
+!  Print checksums of the various fields in the land_data_type.
+! </OVERVIEW>
+
+! <DESCRIPTION>
+!  Routine to print checksums of the various fields in the land_data_type.
+! </DESCRIPTION>
+
+! <TEMPLATE>
+!   call land_data_type_chksum(id, timestep, land)
+! </TEMPLATE>
+
+! <IN NAME="land" TYPE="type(land_data_type)">
+!   Derived-type variable that contains fields in the land_data_type.
+! </INOUT>
+!
+! <IN NAME="id" TYPE="character">
+!   Label to differentiate where this routine in being called from.
+! </IN>
+!
+! <IN NAME="timestep" TYPE="integer">
+!   An integer to indicate which timestep this routine is being called for.
+! </IN>
+!
+
+subroutine land_data_type_chksum(id, timestep, land)
+  use fms_mod,                 only: stdout
+  use mpp_mod,                 only: mpp_chksum
+
+    character(len=*), intent(in) :: id
+    integer         , intent(in) :: timestep
+    type(land_data_type), intent(in) :: land
+    integer ::   n, outunit
+    
+    outunit = stdout()
+
+    write(outunit,*) 'BEGIN CHECKSUM(land_data_type):: ', id, timestep
+    write(outunit,100) 'land%tile_size         ',mpp_chksum(land%tile_size)
+    write(outunit,100) 'land%t_surf            ',mpp_chksum(land%t_surf)
+    write(outunit,100) 'land%t_ca              ',mpp_chksum(land%t_ca)
+    write(outunit,100) 'land%albedo            ',mpp_chksum(land%albedo)
+    write(outunit,100) 'land%albedo_vis_dir    ',mpp_chksum(land%albedo_vis_dir)
+    write(outunit,100) 'land%albedo_nir_dir    ',mpp_chksum(land%albedo_nir_dir)
+    write(outunit,100) 'land%albedo_vis_dif    ',mpp_chksum(land%albedo_vis_dif)
+    write(outunit,100) 'land%albedo_nir_dif    ',mpp_chksum(land%albedo_nir_dif)
+    write(outunit,100) 'land%rough_mom         ',mpp_chksum(land%rough_mom)
+    write(outunit,100) 'land%rough_heat        ',mpp_chksum(land%rough_heat)
+    write(outunit,100) 'land%rough_scale       ',mpp_chksum(land%rough_scale)
+
+    do n = 1, size(land%tr,4)
+    write(outunit,100) 'land%tr                ',mpp_chksum(land%tr(:,:,:,n))
+    enddo
+    write(outunit,100) 'land%discharge         ',mpp_chksum(land%discharge)
+    write(outunit,100) 'land%discharge_snow    ',mpp_chksum(land%discharge_snow)
+    write(outunit,100) 'land%discharge_heat    ',mpp_chksum(land%discharge_heat)
+
+
+100 FORMAT("CHECKSUM::",A32," = ",Z20)
+end subroutine land_data_type_chksum
+
+! </SUBROUTINE>
+
 
 end module land_data_mod

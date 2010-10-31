@@ -5,8 +5,14 @@
 
 module canopy_air_mod
 
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
+
 use fms_mod, only : write_version_number, error_mesg, FATAL, NOTE, file_exist, &
-     close_file, open_namelist_file, check_nml_error, &
+     close_file, check_nml_error, &
      mpp_pe, mpp_root_pe, stdlog
 use time_manager_mod, only : time_type, time_type_to_real
 use constants_mod, only : rdgas, rvgas, cp_air, PI, VONKARM
@@ -43,8 +49,8 @@ public :: cana_step_2
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-  version = '$Id: canopy_air.F90,v 18.0 2010/03/02 23:36:44 fms Exp $', &
-  tagname = '$Name: riga_201006 $', &
+  version = '$Id: canopy_air.F90,v 17.0.2.2.2.1.2.1.2.1 2010/08/24 12:11:35 pjp Exp $', &
+  tagname = '$Name: riga_201012 $', &
   module_name = 'canopy_air_mod'
 
 ! options for turbulence parameter calculations
@@ -89,6 +95,10 @@ subroutine read_cana_namelist()
   integer :: ierr         ! error code, returned by i/o routines
 
   call write_version_number(version, tagname)
+#ifdef INTERNAL_FILE_NML
+     read (input_nml_file, nml=cana_nml, iostat=io)
+     ierr = check_nml_error(io, 'cana_nml')
+#else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
      ierr = 1;  
@@ -99,6 +109,7 @@ subroutine read_cana_namelist()
 10   continue
      call close_file (unit)
   endif
+#endif
   if (mpp_pe() == mpp_root_pe()) then
      unit = stdlog()
      write (unit, nml=cana_nml)
@@ -196,7 +207,7 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
 
   call error_mesg('cana_end','writing NetCDF restart',NOTE)
   call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'cana.res.nc',&
-          lnd%glon*180.0/PI, lnd%glat*180/PI, cana_tile_exists, tile_dim_length)
+          lnd%coord_glon, lnd%coord_glat, cana_tile_exists, tile_dim_length)
 
      ! write fields
      call write_tile_data_r0d_fptr(unit,'temp' ,cana_T_ptr,'canopy air temperature','degrees_K')

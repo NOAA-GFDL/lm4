@@ -2,8 +2,14 @@
 
 module glac_tile_mod
 
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
+
 use fms_mod, only : &
-     write_version_number, file_exist, open_namelist_file, check_nml_error, &
+     write_version_number, file_exist, check_nml_error, &
      close_file, stdlog
 use constants_mod, only : &
      pi, tfreeze, hlf
@@ -46,8 +52,8 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), parameter   :: &
-     version     = '$Id: glac_tile.F90,v 17.0 2009/07/21 03:02:12 fms Exp $', &
-     tagname     = '$Name: riga_201006 $', &
+     version     = '$Id: glac_tile.F90,v 17.0.2.1.2.1 2010/08/24 12:11:35 pjp Exp $', &
+     tagname     = '$Name: riga_201012 $', &
      module_name = 'glac_tile_mod'
 
 integer, parameter :: max_lev          = 30 ! max number of levels in glacier
@@ -222,6 +228,10 @@ subroutine read_glac_data_namelist(glac_n_lev, glac_dz)
   real    :: z
 
   call write_version_number(version, tagname)
+#ifdef INTERNAL_FILE_NML
+     read (input_nml_file, nml=glac_data_nml, iostat=io)
+     ierr = check_nml_error(io, 'glac_data_nml')
+#else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
      ierr = 1;  
@@ -232,6 +242,7 @@ subroutine read_glac_data_namelist(glac_n_lev, glac_dz)
 10   continue
      call close_file (unit)
   endif
+#endif
   unit=stdlog()
   write (unit, nml=glac_data_nml)
 
@@ -361,15 +372,15 @@ end subroutine glacier_data_init_0d
 
 
 ! ============================================================================
-function glac_cover_cold_start(land_mask, glonb, glatb) result (glac_frac)
-  logical, intent(in) :: land_mask(:,:)    ! global land mask
-  real,    intent(in) :: glonb(:,:), glatb(:,:)! boundaries of the global grid cells
-  real,    pointer    :: glac_frac (:,:,:) ! output-global map of fractional coverage
+function glac_cover_cold_start(land_mask, lonb, latb) result (glac_frac)
+  logical, intent(in) :: land_mask(:,:)    ! land mask
+  real,    intent(in) :: lonb(:,:), latb(:,:) ! boundaries of the grid cells
+  real,    pointer    :: glac_frac (:,:,:) ! output: map of fractional coverage
 
   allocate( glac_frac(size(land_mask,1),size(land_mask,2),n_dim_glac_types))
 
   call init_cover_field(glac_to_use, 'INPUT/ground_type.nc', 'cover','frac', &
-       glonb, glatb, glac_index_constant, input_cover_types, glac_frac)
+       lonb, latb, glac_index_constant, input_cover_types, glac_frac)
   
 end function 
 

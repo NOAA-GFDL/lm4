@@ -1,7 +1,13 @@
 module vegn_harvesting_mod
 
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
+
 use fms_mod, only : write_version_number, string, error_mesg, FATAL, NOTE, &
-     mpp_pe, write_version_number, file_exist, open_namelist_file, close_file, &
+     mpp_pe, write_version_number, file_exist, close_file, &
      check_nml_error, stdlog, mpp_root_pe
 use mpp_io_mod, only : axistype, mpp_get_atts, mpp_get_axis_data, &
      mpp_open, mpp_close, MPP_RDONLY, MPP_WRONLY, MPP_ASCII
@@ -31,8 +37,8 @@ public :: vegn_cut_forest
 
 ! ==== module constants =====================================================
 character(len=*), parameter   :: &
-     version = '$Id: vegn_harvesting.F90,v 17.0 2009/07/21 03:03:24 fms Exp $', &
-     tagname = '$Name: riga_201006 $', &
+     version = '$Id: vegn_harvesting.F90,v 17.0.4.1 2010/08/24 12:11:36 pjp Exp $', &
+     tagname = '$Name: riga_201012 $', &
      module_name = 'vegn_harvesting_mod'
 real, parameter :: ONETHIRD = 1.0/3.0
 
@@ -61,6 +67,10 @@ subroutine vegn_harvesting_init
 
   call write_version_number(version, tagname)
 
+#ifdef INTERNAL_FILE_NML
+  read (input_nml_file, nml=harvesting_nml, iostat=io)
+  ierr = check_nml_error(io, 'harvesting_nml')
+#else
   if (file_exist('input.nml')) then
      unit = open_namelist_file ( )
      ierr = 1;  
@@ -71,6 +81,7 @@ subroutine vegn_harvesting_init
 10   continue
      call close_file (unit)
   endif
+#endif
   
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()

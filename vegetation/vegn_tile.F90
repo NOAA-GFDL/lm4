@@ -49,7 +49,7 @@ public :: vegn_data_rs_min
 public :: vegn_seed_supply
 public :: vegn_seed_demand
 
-public :: vegn_tran_priority ! returns transition priority for landuse 
+public :: vegn_tran_priority ! returns transition priority for land use 
 
 public :: vegn_add_bliving
 public :: update_derived_vegn_data  ! given state variables, calculate derived values
@@ -62,8 +62,8 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), parameter   :: &
-     version = '$Id: vegn_tile.F90,v 18.0 2010/03/02 23:37:38 fms Exp $', & 
-     tagname = '$Name: riga_201006 $', &
+     version = '$Id: vegn_tile.F90,v 17.0.2.2.2.1.2.1 2010/06/28 14:44:58 pjp Exp $', & 
+     tagname = '$Name: riga_201012 $', &
      module_name = 'vegn_tile_mod'
 
 ! ==== types =================================================================
@@ -87,8 +87,8 @@ type :: vegn_tile_type
    real :: csmoke_pool=0 ! carbon lost through fires, kg C/m2 
    real :: csmoke_rate=0 ! rate of release of the above to atmosphere, kg C/(m2 yr)
 
-   real :: harv_pool(N_HARV_POOLS) ! pools of harvested carbon, kg C/m2
-   real :: harv_rate(N_HARV_POOLS) ! rates of spending (release to the atmosphere), kg C/(m2 yr)
+   real :: harv_pool(N_HARV_POOLS) = 0. ! pools of harvested carbon, kg C/m2
+   real :: harv_rate(N_HARV_POOLS) = 0. ! rates of spending (release to the atmosphere), kg C/(m2 yr)
 
    ! values for the diagnostic of carbon budget and soil carbon acceleration
    real :: asoil_in=0
@@ -97,32 +97,32 @@ type :: vegn_tile_type
    real :: veg_in=0, veg_out=0
 
    real :: disturbance_rate(0:1) = 0 ! 1/year
-   real :: lambda   ! cumulative drought months per year
-   real :: fuel     ! fuel over dry months
-   real :: litter   ! litter flux
+   real :: lambda = 0. ! cumulative drought months per year
+   real :: fuel   = 0. ! fuel over dry months
+   real :: litter = 0. ! litter flux
 
    ! monthly accumulated/averaged values
-   real :: theta_av ! realtive soil_moisture availablity not soil moisture
-   real :: tsoil_av ! bulk soil temperature
-   real :: tc_av    ! leaf temperature
-   real :: precip_av! precipitation
+   real :: theta_av = 0. ! relative soil_moisture availability not soil moisture
+   real :: tsoil_av = 0. ! bulk soil temperature
+   real :: tc_av    = 0. ! leaf temperature
+   real :: precip_av= 0. ! precipitation
 
    ! accumulation counters for long-term averages (monthly and annual). Having
    ! these counters in the tile is a bit stupid, since the values are the same for
    ! each tile, but it simplifies the current code, and they are going away when we
    ! switch to exponential averaging in any case.
-   integer :: n_accum ! number of accumulated values for monthly averages
-   integer :: nmn_acm ! number of accumulated values for annual averages
+   integer :: n_accum = 0. ! number of accumulated values for monthly averages
+   integer :: nmn_acm = 0. ! number of accumulated values for annual averages
    ! annual-mean values
-   real :: t_ann    ! annual mean T, degK
-   real :: t_cold   ! average temperture of the coldest month, degK
-   real :: p_ann    ! annual mean precip
-   real :: ncm      ! number of cold months
+   real :: t_ann  = 0. ! annual mean T, degK
+   real :: t_cold = 0. ! average temperature of the coldest month, degK
+   real :: p_ann  = 0. ! annual mean precip
+   real :: ncm    = 0. ! number of cold months
    ! annual accumulated values
-   real :: t_ann_acm  ! accumulated annual temperature for t_ann
-   real :: t_cold_acm ! temperature of the coldest month in current year
-   real :: p_ann_acm  ! accumulated annual precipitation for p_ann
-   real :: ncm_acm    ! accumulated number of cold months
+   real :: t_ann_acm  = 0. ! accumulated annual temperature for t_ann
+   real :: t_cold_acm = 0. ! temperature of the coldest month in current year
+   real :: p_ann_acm  = 0. ! accumulated annual precipitation for p_ann
+   real :: ncm_acm    = 0. ! accumulated number of cold months
 
 
    ! it's probably possible to get rid of the fields below
@@ -183,7 +183,7 @@ function vegn_tiles_can_be_merged(vegn1,vegn2) result(response)
   integer :: i, i1, i2
 
   if (vegn1%landuse /= vegn2%landuse) then
-     response = .false. ! different landuse tiles can't be merged
+     response = .false. ! different land use tiles can't be merged
   else if (vegn1%landuse == LU_SCND) then ! secondary vegetation tiles
      ! get tile wood biomasses
      b1 = get_vegn_tile_bwood(vegn1)
@@ -197,7 +197,7 @@ function vegn_tiles_can_be_merged(vegn1,vegn2) result(response)
      ! tiles can be merged only if biomasses belong to the same bin
      response = (i1 == i2)
   else
-     response = .true. ! non-secondary tiles of the same landuse type can always be merged
+     response = .true. ! non-secondary tiles of the same land use type can always be merged
   endif
 end function
 
@@ -280,7 +280,7 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   __MERGE__(litter)     ! litter flux
 
   ! monthly accumulated/averaged values
-  __MERGE__(theta_av)   ! realtive soil_moisture availablity not soil moisture
+  __MERGE__(theta_av)   ! relative soil_moisture availability not soil moisture
   __MERGE__(tsoil_av)   ! bulk soil temperature
   __MERGE__(tc_av)      ! leaf temperature
   __MERGE__(precip_av)  ! precipitation
@@ -289,7 +289,7 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
 
   ! annual-mean values
   __MERGE__(t_ann)      ! annual mean T, degK
-  __MERGE__(t_cold)     ! average temperture of the coldest month, degK
+  __MERGE__(t_cold)     ! average temperature of the coldest month, degK
   __MERGE__(p_ann)      ! annual mean precip
   __MERGE__(ncm)        ! number of cold months
 
@@ -308,7 +308,7 @@ end subroutine merge_vegn_tiles
 ! given a vegetation tile with the state variables set up, calculate derived
 ! parameters to get a consistent state
 ! NOTE: this subroutine does not call update_biomass_pools, although some 
-! of the calculations are the same. Ther reason is because this function may 
+! of the calculations are the same. The reason is because this function may 
 ! be used in the situation when the biomasses are not precisely consistent, for
 ! example when they come from the data override or from initial conditions.
 subroutine update_derived_vegn_data(vegn)
@@ -453,11 +453,11 @@ end subroutine
 ! intensity" value, this function returns a fraction of tile that will parti-
 ! cipate in transition.
 !
-! this function must be contiguous, monothonic, its value must be within
+! this function must be contiguous, monotonic, its value must be within
 ! interval [0,1]
 !
 ! this function is used to determine what part of each tile is to be converted
-! to another landuse kind; the equation is solved to get "transition intensity" 
+! to another land use kind; the equation is solved to get "transition intensity" 
 ! tau for which total area is equal to requested. Tau is, therefore, a dummy
 ! parameter, and only relative values of the priority functions for tiles 
 ! participating in transition have any meaning. For most transitions the priority 
@@ -487,19 +487,16 @@ end function
 
 
 ! ============================================================================
-function vegn_cover_cold_start(land_mask, glonb, glatb) result (vegn_frac)
+function vegn_cover_cold_start(land_mask, lonb, latb) result (vegn_frac)
 ! creates and initializes a field of fractional vegn coverage
-! should be called for global grid; otherwise the part that fills
-! missing data points may fail to find any good data, or do it in nproc-
-! dependent way
-  logical, intent(in) :: land_mask(:,:)    ! global land mask
-  real,    intent(in) :: glonb(:,:), glatb(:,:)! boundaries of the global grid cells
-  real,    pointer    :: vegn_frac (:,:,:) ! output-global map of vegn fractional coverage
+  logical, intent(in) :: land_mask(:,:)    ! land mask
+  real,    intent(in) :: lonb(:,:), latb(:,:)! boundaries of the grid cells
+  real,    pointer    :: vegn_frac (:,:,:) ! output: map of vegn fractional coverage
 
   allocate( vegn_frac(size(land_mask,1),size(land_mask,2),MSPECIES))
 
   call init_cover_field(vegn_to_use, 'INPUT/cover_type.nc', 'cover','frac', &
-       glonb, glatb, vegn_index_constant, input_cover_types, vegn_frac)
+       lonb, latb, vegn_index_constant, input_cover_types, vegn_frac)
   
 end function 
 

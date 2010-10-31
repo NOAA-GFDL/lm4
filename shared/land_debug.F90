@@ -1,7 +1,13 @@
 module land_debug_mod
 
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
+
 use fms_mod, only: &
-     error_mesg, file_exist, open_namelist_file, check_nml_error, stdlog, &
+     error_mesg, file_exist, check_nml_error, stdlog, &
      write_version_number, close_file, mpp_pe, mpp_npes, mpp_root_pe, FATAL, NOTE
 use time_manager_mod, only : &
      get_date
@@ -27,8 +33,8 @@ public :: check_temp_range
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'land_debug',&
-    version     = '$Id: land_debug.F90,v 17.0 2009/07/21 03:02:33 fms Exp $',&
-    tagname     = '$Name: riga_201006 $'
+    version     = '$Id: land_debug.F90,v 17.0.6.1 2010/08/24 12:11:35 pjp Exp $',&
+    tagname     = '$Name: riga_201012 $'
 
 ! ==== module variables ======================================================
 integer :: current_debug_level = 0
@@ -51,6 +57,10 @@ subroutine land_debug_init()
 
   call write_version_number(version, tagname)
   
+#ifdef INTERNAL_FILE_NML
+  read (input_nml_file, nml=land_debug_nml, iostat=io)
+  ierr = check_nml_error(io, 'land_debug_nml')
+#else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
      ierr = 1;  
@@ -61,6 +71,7 @@ subroutine land_debug_init()
 10   continue
      call close_file (unit)
   endif
+#endif
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=land_debug_nml)

@@ -4,8 +4,15 @@ module lake_tile_mod
 
 use mpp_domains_mod, only : &
      domain2d, mpp_get_compute_domain, mpp_global_field
+
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
+
 use fms_mod, only : &
-     write_version_number, file_exist, open_namelist_file, check_nml_error, &
+     write_version_number, file_exist, check_nml_error, &
      read_data, close_file, stdlog
 use constants_mod, only : &
      pi, tfreeze, hlf
@@ -50,8 +57,8 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter   :: &
-     version     = '$Id: lake_tile.F90,v 17.0 2009/07/21 03:02:16 fms Exp $', &
-     tagname     = '$Name: riga_201006 $', &
+     version     = '$Id: lake_tile.F90,v 17.0.2.2.2.1 2010/08/24 12:11:35 pjp Exp $', &
+     tagname     = '$Name: riga_201012 $', &
      module_name = 'lake_tile_mod'
 
 integer, parameter :: max_lev          = 80
@@ -241,6 +248,10 @@ subroutine read_lake_data_namelist(lake_n_lev)
   real    :: z
 
   call write_version_number(version, tagname)
+#ifdef INTERNAL_FILE_NML
+     read (input_nml_file, nml=lake_data_nml, iostat=io)
+     ierr = check_nml_error(io, 'lake_data_nml')
+#else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
      ierr = 1;  
@@ -251,6 +262,7 @@ subroutine read_lake_data_namelist(lake_n_lev)
 10   continue
      call close_file (unit)
   endif
+#endif
   unit=stdlog()
   write(unit, nml=lake_data_nml)
 
@@ -376,14 +388,11 @@ end subroutine
 
 
 ! ============================================================================
-function lake_cover_cold_start(land_mask, glonb, glatb, domain) result (lake_frac)
+function lake_cover_cold_start(land_mask, lonb, latb, domain) result (lake_frac)
 ! creates and initializes a field of fractional lake coverage
-! should be called for global grid; othervise the parth that fills
-! missing data points may fail to find any good data, or do it in nproc-
-! dependent way
-  logical, intent(in) :: land_mask(:,:)    ! global land mask
-  real,    intent(in) :: glonb(:,:), glatb(:,:)! boundaries of the global grid cells
-  real,    pointer    :: lake_frac (:,:,:) ! output-global map of lake fractional coverage
+  logical, intent(in) :: land_mask(:,:)    ! land mask
+  real,    intent(in) :: lonb(:,:), latb(:,:)! boundaries of the grid cells
+  real,    pointer    :: lake_frac (:,:,:) ! output: map of lake fractional coverage
   type(domain2d), intent(in) :: domain
 
   allocate( lake_frac(size(land_mask,1),size(land_mask,2),n_dim_lake_types))
@@ -391,13 +400,13 @@ function lake_cover_cold_start(land_mask, glonb, glatb, domain) result (lake_fra
   if (trim(lake_to_use)=='from-rivers') then
      lake_frac = 0.0
      call read_data('INPUT/river_data.nc', 'lake_frac', lake_frac(:,:,1), &
-          domain=domain, no_domain=.TRUE.)
+          domain=domain)
      ! make sure 'missing values' don't get into the result
      where (lake_frac < 0) lake_frac = 0
      where (lake_frac > 1) lake_frac = 1
   else
      call init_cover_field(lake_to_use, 'INPUT/ground_type.nc', 'cover','frac', &
-          glonb, glatb, lake_index_constant, input_cover_types, lake_frac)
+          lonb, latb, lake_index_constant, input_cover_types, lake_frac)
   endif
   
   if (round_frac_down) then

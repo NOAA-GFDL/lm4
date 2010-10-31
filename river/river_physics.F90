@@ -16,6 +16,12 @@ module river_physics_mod
 ! <CONTACT EMAIL="klf@gfdl.noaa.gov"> Kirsten Findell </CONTACT> 
 ! <CONTACT EMAIL="z1l@gfdl.noaa.gov"> Zhi Liang </CONTACT> 
 
+#ifdef INTERNAL_FILE_NML
+  use mpp_mod, only: input_nml_file
+#else
+  use fms_mod, only: open_namelist_file
+#endif
+
   use mpp_mod,         only : mpp_sync_self, mpp_send, mpp_recv, EVENT_RECV, EVENT_SEND
   use mpp_mod,         only : mpp_npes, mpp_error, FATAL, mpp_get_current_pelist
   use mpp_mod,         only : mpp_root_pe, mpp_pe, mpp_max
@@ -24,8 +30,8 @@ module river_physics_mod
   use mpp_domains_mod, only : mpp_get_compute_domains
   use mpp_domains_mod, only : mpp_get_num_overlap, mpp_get_overlap
   use mpp_domains_mod, only : mpp_get_update_size, mpp_get_update_pelist
-  use fms_mod,         only : stdlog, open_namelist_file, write_version_number
-  use fms_mod,         only : close_file, check_nml_error
+  use fms_mod,         only : stdlog, write_version_number
+  use fms_mod,         only : close_file, check_nml_error, file_exist
   use diag_manager_mod,only : register_diag_field, send_data
   use river_type_mod,  only : river_type, Leo_Mad_trios
   use lake_mod,        only : large_dyn_small_stat
@@ -39,8 +45,8 @@ module river_physics_mod
   real    :: missing = -1.e8
 
 !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id: river_physics.F90,v 18.0 2010/03/02 23:37:02 fms Exp $'
-  character(len=128) :: tagname = '$Name: riga_201006 $'
+  character(len=128) :: version = '$Id: river_physics.F90,v 18.0.6.1 2010/08/24 12:11:35 pjp Exp $'
+  character(len=128) :: tagname = '$Name: riga_201012 $'
 
 
 ! ---- public interfaces -----------------------------------------------------
@@ -117,13 +123,21 @@ contains
 
 
 !--- read namelist -------------------------------------------------
-    unit = open_namelist_file()
-    ierr = 1;
-    do while ( ierr/=0 )
-       read  (unit, river_physics_nml, iostat=io_status, end=10)
-       ierr = check_nml_error(io_status,'river_physics_nml')
-    enddo
-10  call close_file (unit)
+#ifdef INTERNAL_FILE_NML
+    read (input_nml_file, nml=river_physics_nml, iostat=io_status)
+    ierr = check_nml_error(io_status, 'river_physics_nml')
+#else
+    if (file_exist('input.nml')) then
+      unit = open_namelist_file()
+      ierr = 1;
+      do while ( ierr/=0 )
+         read  (unit, river_physics_nml, iostat=io_status, end=10)
+         ierr = check_nml_error(io_status,'river_physics_nml')
+      enddo
+10    continue
+      call close_file (unit)
+    endif
+#endif
 
 !--- write version and namelist info to logfile --------------------
     call write_version_number(version,tagname)

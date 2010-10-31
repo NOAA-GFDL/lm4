@@ -4,7 +4,8 @@ use fms_mod,          only : error_mesg, FATAL, WARNING
 use mpp_mod,          only : mpp_pe, mpp_max, mpp_send, mpp_recv, mpp_sync
 
 use nf_utils_mod,     only : nfu_inq_dim, nfu_get_var, nfu_put_var, &
-     nfu_get_rec, nfu_put_rec, nfu_def_dim, nfu_def_var, nfu_put_att
+     nfu_get_rec, nfu_put_rec, nfu_def_dim, nfu_def_var, nfu_put_att, &
+     nfu_inq_var
 use land_io_mod,      only : print_netcdf_error
 use land_tile_mod,    only : land_tile_type, land_tile_list_type, &
      land_tile_enum_type, first_elmt, tail_elmt, next_elmt, get_elmt_indices, &
@@ -31,12 +32,14 @@ public :: write_cohort_data_i0d_fptr
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'cohort_io_mod', &
-     version     = '$Id: vegn_cohort_io.F90,v 17.0 2009/07/21 03:03:15 fms Exp $', &
-     tagname     = '$Name: riga_201006 $'
+     version     = '$Id: vegn_cohort_io.F90,v 17.0.2.2 2010/03/21 20:53:09 slm Exp $', &
+     tagname     = '$Name: riga_201012 $'
 ! name of the "compressed" dimension (and dimension variable) in the output 
 ! netcdf files -- that is, the dimensions written out using compression by 
 ! gathering, as described in CF conventions.
 character(len=*),   parameter :: cohort_index_name   = 'cohort_index'
+integer, parameter :: INPUT_BUF_SIZE = 1024 ! max size of the input buffer for
+                                     ! cohort input
 
 ! ==== NetCDF declarations ===================================================
 include 'netcdf.inc'
@@ -81,45 +84,51 @@ subroutine read_create_cohorts(ncid)
   integer :: nlon, nlat, ntiles ! size of respective dimensions
  
   integer, allocatable :: idx(:)
-  integer :: i,j,t,k,m, n
+  integer :: i,j,t,k,m, n, nn, idxid
+  integer :: bufsize
   type(land_tile_enum_type) :: ce, te
   type(land_tile_type), pointer :: tile
   character(len=64) :: info ! for error message
 
   ! get the size of dimensions
-  nlon = size(lnd%garea,1) ; nlat = size(lnd%garea,2)
+  nlon = lnd%nlon ; nlat = lnd%nlat
   __NF_ASRT__(nfu_inq_dim(ncid,'tile',len=ntiles))
 
   ! read the cohort index
   __NF_ASRT__(nfu_inq_dim(ncid,cohort_index_name,len=ncohorts))
-  allocate(idx(ncohorts))
-  __NF_ASRT__(nfu_get_var(ncid,cohort_index_name,idx))
+  __NF_ASRT__(nfu_inq_var(ncid,cohort_index_name,id=idxid))
+  bufsize = min(INPUT_BUF_SIZE,ncohorts)
+  allocate(idx(bufsize))
   
-  do n = 1,size(idx)
-     if(idx(n)<0) cycle ! skip illegal indices
-     k = idx(n)
-     i = modulo(k,nlon)+1   ; k = k/nlon
-     j = modulo(k,nlat)+1   ; k = k/nlat
-     t = modulo(k,ntiles)+1 ; k = k/ntiles
-     k = k+1
-
-     if (i<lnd%is.or.i>lnd%ie) cycle ! skip points outside of domain
-     if (j<lnd%js.or.j>lnd%je) cycle ! skip points outside of domain
-
-     ce = first_elmt(lnd%tile_map(i,j))
-     do m = 1,t-1
-        ce=next_elmt(ce)
+  do nn = 1, ncohorts, bufsize
+     __NF_ASRT__(nf_get_vara_int(ncid,idxid,nn,min(bufsize,ncohorts-nn+1),idx))
+     
+     do n = 1,min(bufsize,ncohorts-nn+1)
+        if(idx(n)<0) cycle ! skip illegal indices
+        k = idx(n)
+        i = modulo(k,nlon)+1   ; k = k/nlon
+        j = modulo(k,nlat)+1   ; k = k/nlat
+        t = modulo(k,ntiles)+1 ; k = k/ntiles
+        k = k+1
+        
+        if (i<lnd%is.or.i>lnd%ie) cycle ! skip points outside of domain
+        if (j<lnd%js.or.j>lnd%je) cycle ! skip points outside of domain
+        
+        ce = first_elmt(lnd%tile_map(i,j))
+        do m = 1,t-1
+           ce=next_elmt(ce)
+        enddo
+        tile=>current_tile(ce)
+        if(.not.associated(tile%vegn)) then
+           info = ''
+           write(info,'("(",3i3,")")')i,j,t
+           call error_mesg('read_create_cohort',&
+                'vegn tile'//trim(info)//' does not exist, but is necessary to create a cohort', &
+                WARNING)
+        else
+           tile%vegn%n_cohorts = tile%vegn%n_cohorts + 1
+        endif
      enddo
-     tile=>current_tile(ce)
-     if(.not.associated(tile%vegn)) then
-        info = ''
-        write(info,'("(",3i3,")")')i,j,t
-        call error_mesg('read_create_cohort',&
-             'vegn tile'//trim(info)//' does not exist, but is necessary to create a cohort', &
-             WARNING)
-     else
-        tile%vegn%n_cohorts = tile%vegn%n_cohorts + 1
-     endif
   enddo
 
   ! go through all tiles in the domain and allocate requested numner of cohorts
@@ -185,9 +194,9 @@ subroutine create_cohort_dimension(ncid)
         call get_elmt_indices(ce,i,j,k)
         do c = 1,tile%vegn%n_cohorts
            idx (n) = &
-                (c-1)*size(lnd%garea,1)*size(lnd%garea,2)*ntiles + &
-                (k-1)*size(lnd%garea,1)*size(lnd%garea,2) + &
-                (j-1)*size(lnd%garea,1) + &
+                (c-1)*lnd%nlon*lnd%nlat*ntiles + &
+                (k-1)*lnd%nlon*lnd%nlat + &
+                (j-1)*lnd%nlon + &
                 (i-1)        
            n = n+1
         enddo

@@ -2,8 +2,14 @@
 
 module soil_tile_mod
 
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
+
 use fms_mod, only : &
-     write_version_number, file_exist, open_namelist_file, check_nml_error, &
+     write_version_number, file_exist, check_nml_error, &
      close_file, stdlog, read_data
 use constants_mod, only : &
      pi, tfreeze, rvgas, grav, dens_h2o, hlf
@@ -38,7 +44,7 @@ public :: soil_data_thermodynamics
 public :: soil_data_hydraulics
 public :: soil_data_gw_hydraulics
 public :: soil_data_vwc_sat
-public :: soil_ave_temp  ! calculate average soil temeperature
+public :: soil_ave_temp  ! calculate average soil temperature
 public :: soil_ave_theta ! calculate average soil moisture, slm based on available capacity formulation  
 public :: soil_ave_theta1! calculate average soil moisture, ens based on all available water
 public :: g_iso, g_vol, g_geo, g_RT
@@ -55,8 +61,8 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), parameter   :: &
-     version     = '$Id: soil_tile.F90,v 17.0 2009/07/21 03:03:03 fms Exp $', &
-     tagname     = '$Name: riga_201006 $', &
+     version     = '$Id: soil_tile.F90,v 17.0.2.1.2.1 2010/08/24 12:11:36 pjp Exp $', &
+     tagname     = '$Name: riga_201012 $', &
      module_name = 'soil_tile_mod'
 
 integer, parameter :: max_lev          = 30 
@@ -148,7 +154,7 @@ type :: soil_tile_type
    real,                 pointer :: uptake_frac(:)
    real,                 pointer :: heat_capacity_dry(:)
    real,                 pointer :: e(:),f(:)
-   ! added to avoid recalculation of soil hyraulics in case of Darcy uptake
+   ! added to avoid recalculation of soil hydraulics in case of Darcy uptake
    real          :: uptake_T
    real, pointer :: psi(:) ! soil water potential
 end type soil_tile_type
@@ -348,6 +354,10 @@ subroutine read_soil_data_namelist(soil_num_l, soil_dz, soil_single_geo, &
   real    :: z
 
   call write_version_number(version, tagname)
+#ifdef INTERNAL_FILE_NML
+  read (input_nml_file, nml=soil_data_nml, iostat=io)
+  ierr = check_nml_error(io, 'soil_data_nml')
+#else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
      ierr = 1;  
@@ -358,6 +368,7 @@ subroutine read_soil_data_namelist(soil_num_l, soil_dz, soil_single_geo, &
 10   continue
      call close_file (unit)
   endif
+#endif
   unit=stdlog()
   write(unit, nml=soil_data_nml)
   
@@ -528,19 +539,16 @@ subroutine soil_data_init_0d(soil)
 end subroutine 
 
 ! ============================================================================
-function soil_cover_cold_start(land_mask, glonb, glatb) result (soil_frac)
+function soil_cover_cold_start(land_mask, lonb, latb) result (soil_frac)
 ! creates and initializes a field of fractional soil coverage
-! should be called for global grid; othervise the parth that fills
-! missing data points may fail to find any good data, or do it in nproc-
-! dependent way
-  logical, intent(in) :: land_mask(:,:)    ! global land mask
-  real,    intent(in) :: glonb(:,:), glatb(:,:)! boundaries of the global grid cells
-  real,    pointer    :: soil_frac (:,:,:) ! output-global map of soil fractional coverage
+  logical, intent(in) :: land_mask(:,:)    ! land mask
+  real,    intent(in) :: lonb(:,:), latb(:,:) ! boundaries of the grid cells
+  real,    pointer    :: soil_frac (:,:,:) ! output: map of soil fractional coverage
 
   allocate( soil_frac(size(land_mask,1),size(land_mask,2),n_dim_soil_types))
 
   call init_cover_field(soil_to_use, 'INPUT/ground_type.nc', 'cover','frac', &
-       glonb, glatb, soil_index_constant, input_cover_types, soil_frac)
+       lonb, latb, soil_index_constant, input_cover_types, soil_frac)
   
 end function 
 
@@ -737,7 +745,7 @@ subroutine soil_data_diffusion ( soil, soil_z0s, soil_z0m )
 end subroutine soil_data_diffusion
 
 ! ============================================================================
-! compute soil thermodynmamic properties.
+! compute soil thermodynamic properties.
 subroutine soil_data_thermodynamics ( soil, vlc, vsc, &
                                       soil_E_max, thermal_cond)
   type(soil_tile_type), intent(inout) :: soil

@@ -5,8 +5,15 @@ module topo_rough_mod
 
   use time_manager_mod,   only : time_type
   use mpp_domains_mod,    only : domain2d
+
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
+
   use fms_mod,            only : write_version_number, error_mesg, FATAL, NOTE, &
-       open_restart_file, open_namelist_file, set_domain, read_data, &
+       open_restart_file, set_domain, read_data, &
        write_data, close_file, file_exist, check_nml_error, mpp_pe, &
        mpp_root_pe, stdlog
   use diag_manager_mod,   only : register_static_field, send_data
@@ -63,8 +70,8 @@ namelist/topo_rough_nml/ use_topo_rough, topo_rough_factor, max_topo_rough, &
 character(len=*), parameter :: &
      module_name   = 'she_topo_rough', &
      diag_mod_name = 'topo_rough', &
-     version       = '$Id: topo_rough.F90,v 17.0 2009/07/21 03:03:06 fms Exp $', &
-     tagname       = '$Name: riga_201006 $'
+     version       = '$Id: topo_rough.F90,v 17.0.4.1 2010/08/24 12:11:36 pjp Exp $', &
+     tagname       = '$Name: riga_201012 $'
 
 ! ==== module private data ===================================================
 real, allocatable, save ::topo_stdev(:,:)
@@ -101,6 +108,10 @@ subroutine topo_rough_init(time, lonb, latb, domain, id_lon,id_lat)
   call write_version_number(version, tagname)
 
   ! read and write (to logfile) namelist variables
+#ifdef INTERNAL_FILE_NML
+  read (input_nml_file, nml=topo_rough_nml, iostat=io)
+  ierr = check_nml_error(io, 'topo_rough_nml')
+#else
   if (file_exist('input.nml')) then
      unit = open_namelist_file ( )
      ierr = 1;  
@@ -111,6 +122,7 @@ subroutine topo_rough_init(time, lonb, latb, domain, id_lon,id_lat)
 10   continue
      call close_file (unit)
   endif
+#endif
 
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()

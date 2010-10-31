@@ -3,10 +3,12 @@ module land_io_mod
 use constants_mod,     only : PI
 use fms_mod,           only : file_exist, error_mesg, FATAL, stdlog, mpp_pe, &
      mpp_root_pe, write_version_number, string
+
 use horiz_interp_mod,  only : horiz_interp_type, &
      horiz_interp_new, horiz_interp_del, &
      horiz_interp
 
+use land_numerics_mod, only : nearest, bisect
 use nf_utils_mod,      only : nfu_validtype, nfu_get_dim, nfu_get_dim_bounds, &
      nfu_get_valid_range, nfu_is_valid, nfu_inq_var, nfu_get_var
 
@@ -14,15 +16,11 @@ implicit none
 private
 
 ! ==== public interface ======================================================
-public :: nearest
 public :: init_cover_field
 public :: read_field
 
 public :: print_netcdf_error
 ! ==== end of public interface ===============================================
-interface nearest
-   module procedure nearest1D, nearest2D
-end interface
 
 interface read_field
    module procedure read_field_N_2D, read_field_N_3D
@@ -36,97 +34,21 @@ include 'netcdf.inc'
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land_io_mod', &
-     version     = '$Id: land_io.F90,v 17.0 2009/07/21 03:02:35 fms Exp $', &
-     tagname     = '$Name: riga_201006 $'
-
+     version     = '$Id: land_io.F90,v 17.0.2.5 2010/03/23 22:11:14 slm Exp $', &
+     tagname     = '$Name: riga_201012 $'
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-
-! ============================================================================
-! finds nearest point that is not masked out in input data
-! NOTE: implemented in very naive and inefficient way
-subroutine nearest1D(mask, lon, lat, plon, plat, iout, jout)
-  logical, intent(in) :: mask(:,:)  ! mask of valid input points (.true. if valid point)
-  real,    intent(in) :: lon(:)     ! longitudes of input grd central points, radian
-  real,    intent(in) :: lat(:)     ! latitudes of input grd central points, radian
-  real,    intent(in) :: plon, plat ! coordinates of destination point, radian
-  integer, intent(out):: iout, jout ! indices of nearest valid (unmasked) point
-
-  ! ---- local vars ----------------------------------------------------------
-  integer :: i,j
-  real    :: r,r1
-
-  r = HUGE(r)  ! some value larger than any possible distance
-
-  do j = 1, size(mask,2)
-  do i = 1, size(mask,1)
-     if (.not.mask(i,j)) cycle
-     r1 = distance(plon,plat,lon(i),lat(j))
-     if ( r1 < r ) then
-        iout = i
-        jout = j
-        r = r1
-     endif
-  enddo
-  enddo
-end subroutine nearest1D
-
-subroutine nearest2D(mask, lon, lat, plon, plat, iout, jout)
-  logical, intent(in) :: mask(:,:)  ! mask of valid input points (.true. if valid point)
-  real,    intent(in) :: lon(:,:)   ! longitudes of input grd central points, radian
-  real,    intent(in) :: lat(:,:)   ! latitudes of input grd central points, radian
-  real,    intent(in) :: plon, plat ! coordinates of destination point, radian
-  integer, intent(out):: iout, jout ! indices of nearest valid (unmasked) point
-
-  ! ---- local vars 
-  integer :: i,j
-  real    :: r,r1
-
-  r = HUGE(r)  ! some value larger than any possible distance
-
-  do j = 1, size(mask,2)
-  do i = 1, size(mask,1)
-     if (.not.mask(i,j)) cycle
-     r1 = distance(plon,plat,lon(i,j),lat(i,j))
-     if ( r1 < r ) then
-        iout = i
-        jout = j
-        r = r1
-     endif
-  enddo
-  enddo
-end subroutine nearest2D
-
-
-function distance(lon1, lat1, lon2, lat2) ; real distance
-  ! calculates distance between points on unit square
-  real, intent(in) :: lon1,lat1,lon2,lat2
-  
-  real :: x1,y1,z1, x2,y2,z2
-  real :: dlon
-  dlon = (lon2-lon1)
-  
-  z1 = sin(lat1) ;  z2 = sin(lat2)
-  y1 = 0.0       ;  y2 = cos(lat2)*sin(dlon)
-  x1 = cos(lat1) ;  x2 = cos(lat2)*cos(dlon)
-  
-  ! distance = acos(x1*x2 + z1*z2)
-  distance = (x1-x2)**2+(y1-y2)**2+(z1-z2)**2
-end function distance
 
 
 ! ============================================================================
 ! This procedure creates and initializes a field of fractional coverage.
-! It should be called for global grid; otherwise the part that fills
-! missing data points may fail to find any good data, or do it in nproc-
-! dependent way.
 subroutine init_cover_field( &
      cover_to_use, filename, cover_field_name, frac_field_name, &
-     glonb, glatb, uniform_cover, input_cover_types, frac)
+     lonb, latb, uniform_cover, input_cover_types, frac)
   character(len=*), intent(in) :: cover_to_use
   character(len=*), intent(in) :: filename
   character(len=*), intent(in) :: cover_field_name, frac_field_name
-  real            , intent(in) :: glonb(:,:), glatb(:,:) ! boundaries of the grid cells
+  real            , intent(in) :: lonb(:,:), latb(:,:) ! boundaries of the grid cells
   integer         , intent(in) :: uniform_cover
   integer         , intent(in) :: input_cover_types(:)
   real            , intent(out):: frac(:,:,:) ! output-global map of soil fractional coverage
@@ -139,9 +61,9 @@ subroutine init_cover_field( &
   frac = 0
   
   if (cover_to_use == 'multi-tile') then
-     call read_cover_field(filename,cover_field_name,frac_field_name,glonb,glatb,input_cover_types,frac)
+     call read_cover_field(filename,cover_field_name,frac_field_name,lonb,latb,input_cover_types,frac)
   else if (cover_to_use=='single-tile') then
-     call read_cover_field(filename,cover_field_name,frac_field_name,glonb,glatb,input_cover_types,frac)
+     call read_cover_field(filename,cover_field_name,frac_field_name,lonb,latb,input_cover_types,frac)
      do j = 1,size(frac,2)
      do i = 1,size(frac,1)
         total = sum(frac(i,j,:))
@@ -159,7 +81,7 @@ subroutine init_cover_field( &
      enddo
      enddo
   else if (cover_to_use == 'uniform') then
-     call read_cover_field(filename,cover_field_name,frac_field_name,glonb,glatb,input_cover_types,frac)
+     call read_cover_field(filename,cover_field_name,frac_field_name,lonb,latb,input_cover_types,frac)
      do j = 1,size(frac,2)
      do i = 1,size(frac,1)
         total = sum(frac(i,j,:))
@@ -221,27 +143,44 @@ subroutine do_read_cover_field(ncid,varid,lonb,latb,input_cover_types,frac)
   type(horiz_interp_type) :: interp
   integer :: vardims(NF_MAX_VAR_DIMS)
   type(nfu_validtype) :: v
+  integer :: in_j_start, in_j_count ! limits of the latitude belt we read
+  integer :: iret ! result of netcdf calls
 
   ! find out dimensions, etc
   __NF_ASRT__( nf_inq_vardimid(ncid,varid,vardims) )
   ! get size of the longitude and latitude axes
   __NF_ASRT__( nf_inq_dimlen(ncid, vardims(1), nlon) )
   __NF_ASRT__( nf_inq_dimlen(ncid, vardims(2), nlat) )
-  allocate (                         &
-       in_lonb (nlon+1)             ,&
-       in_latb (nlat+1)             ,&
-       x       (0:nlon-1, 0:nlat-1) ,&
-       in_cover(0:nlon-1, 0:nlat-1)  )
+  allocate ( in_lonb (nlon+1), in_latb (nlat+1) )
   __NF_ASRT__( nfu_get_dim_bounds(ncid, vardims(1), in_lonb) )
   __NF_ASRT__( nfu_get_dim_bounds(ncid, vardims(2), in_latb) )
   in_lonb = in_lonb*PI/180.0; in_latb = in_latb*PI/180.0
 
+  ! to minimize the i/o and work done by horiz_interp, find the boundaries
+  ! of latitude belt in input data that covers the entire latb array
+  in_j_start=bisect(in_latb, minval(latb))
+  in_j_count=bisect(in_latb, maxval(latb))-in_j_start+1
+
+  ! check for unreasonable values
+  if (in_j_start<1) &
+     call error_mesg('do_read_cover_field','input latitude start index ('&
+                     //string(in_j_start)//') is out of bounds', FATAL)
+  if (in_j_start+in_j_count-1>nlat) &
+     call error_mesg('do_read_cover_field','input latitude count ('&
+                     //string(in_j_count)//') is too large (start index='&
+                     //string(in_j_start)//')', FATAL)
+
+  ! allocate input data buffers
+  allocate ( x(nlon,in_j_count), in_cover(nlon,in_j_count) )
+
   ! read input data
-  __NF_ASRT__( nf_get_var_int(ncid,varid,in_cover) )
+  iret = nf_get_vara_int(ncid,varid, &
+                    (/1,in_j_start/), (/nlon,in_j_count/), in_cover)
+  __NF_ASRT__( iret )
   __NF_ASRT__( nfu_get_valid_range(ncid,varid,v) )
 
-  call horiz_interp_new(interp, in_lonb,in_latb, lonb,latb, &
-       interp_method='conservative')
+  call horiz_interp_new(interp, in_lonb,in_latb(in_j_start:in_j_start+in_j_count), &
+       lonb,latb, interp_method='conservative')
   frac=0
   do k = 1,size(input_cover_types(:))
      x=0
@@ -273,6 +212,8 @@ subroutine do_read_fraction_field(ncid,varid,lonb,latb,input_cover_types,frac)
   type(horiz_interp_type) :: interp
   type(nfu_validtype) :: v
   integer :: vardims(NF_MAX_VAR_DIMS)
+  integer :: in_j_start, in_j_count ! limits of the latitude belt we read
+  integer :: iret ! result of netcdf calls
 
   ! find out dimensions, etc
   __NF_ASRT__( nf_inq_vardimid(ncid,varid,vardims) )
@@ -280,17 +221,31 @@ subroutine do_read_fraction_field(ncid,varid,lonb,latb,input_cover_types,frac)
   __NF_ASRT__( nf_inq_dimlen(ncid, vardims(1), nlon) )
   __NF_ASRT__( nf_inq_dimlen(ncid, vardims(2), nlat) )
   __NF_ASRT__( nf_inq_dimlen(ncid, vardims(3), ntypes))
-  allocate (                         &
-       in_lonb (nlon+1)             ,&
-       in_latb (nlat+1)             ,&
-       in_mask (0:nlon-1, 0:nlat-1) ,&
-       in_frac (0:nlon-1, 0:nlat-1, ntypes) )
+  allocate ( in_lonb(nlon+1), in_latb(nlat+1) )
   __NF_ASRT__(nfu_get_dim_bounds(ncid, vardims(1), in_lonb))
   __NF_ASRT__(nfu_get_dim_bounds(ncid, vardims(2), in_latb))
   in_lonb = in_lonb*PI/180.0; in_latb = in_latb*PI/180.0
 
+  ! find the boundaries of latitude belt in input data that covers the 
+  ! entire latb array
+  in_j_start=bisect(in_latb, minval(latb))
+  in_j_count=bisect(in_latb, maxval(latb))-in_j_start+1
+
+  ! check for unreasonable values
+  if (in_j_start<1) &
+     call error_mesg('do_read_fraction_field','input latitude start index ('&
+                     //string(in_j_start)//') is out of bounds', FATAL)
+  if (in_j_start+in_j_count-1>nlat) &
+     call error_mesg('do_read_fraction_field','input latitude count ('&
+                     //string(in_j_count)//') is too large (start index='&
+                     //string(in_j_start)//')', FATAL)
+
+  allocate( in_mask(nlon,in_j_count), in_frac(nlon,in_j_count,ntypes) )
+
   ! read input data
-  __NF_ASRT__( nf_get_var_double(ncid,varid,in_frac) )
+  iret = nf_get_vara_double(ncid, varid, &
+          (/1,in_j_start,1/), (/nlon,in_j_count,ntypes/), in_frac)
+  __NF_ASRT__( iret ) 
   __NF_ASRT__( nfu_get_valid_range(ncid,varid,v) )
 
   frac = 0
@@ -301,7 +256,8 @@ subroutine do_read_fraction_field(ncid,varid,lonb,latb,input_cover_types,frac)
      endif
      in_mask = 0.0
      where(nfu_is_valid(in_frac(:,:,cover),v)) in_mask = 1.0
-     call horiz_interp_new(interp, in_lonb,in_latb, lonb,latb,&
+     call horiz_interp_new(interp, &
+          in_lonb,in_latb(in_j_start:in_j_start+in_j_count), lonb,latb,&
           interp_method='conservative',mask_in=in_mask)
      call horiz_interp(interp,in_frac(:,:,cover),frac(:,:,k))
      call horiz_interp_del(interp)
@@ -377,7 +333,7 @@ subroutine read_field_I_3D(ncid, varname, lon, lat, data, interp)
   integer :: nlon, nlat, nlev ! size of input grid
   integer :: varndims ! number of variable dimension
   integer :: vardims(NF_MAX_VAR_DIMS) ! IDs of variable dimension
-  integer :: dimlens(NF_MAX_VAR_DIMS) ! sizes of respective dimansions
+  integer :: dimlens(NF_MAX_VAR_DIMS) ! sizes of respective dimensions
   real,    allocatable :: in_lonb(:), in_latb(:), in_lon(:), in_lat(:)
   real,    allocatable :: x(:,:,:) ! input buffer
   logical, allocatable :: mask(:,:,:) ! mask of valid values

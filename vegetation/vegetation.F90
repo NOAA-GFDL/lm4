@@ -2,8 +2,14 @@ module vegetation_mod
 
 #include "../shared/debug.inc"
 
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
+
 use fms_mod, only: write_version_number, error_mesg, NOTE,FATAL, file_exist, close_file, &
-     open_namelist_file, check_nml_error, stdlog 
+                   check_nml_error, stdlog 
 use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe
 use time_manager_mod, only: time_type, time_type_to_real, get_date, operator(-)
 use constants_mod,    only: tfreeze, rdgas, rvgas, hlv, hlf, cp_air, PI
@@ -76,8 +82,8 @@ public :: update_vegn_slow
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-   version = '$Id: vegetation.F90,v 17.0.2.2.4.1 2010/01/08 19:20:44 slm Exp $', &
-   tagname = '$Name: riga_201006 $', &
+   version = '$Id: vegetation.F90,v 17.0.2.2.2.3.2.1.2.1 2010/08/24 12:11:36 pjp Exp $', &
+   tagname = '$Name: riga_201012 $', &
    module_name = 'vegn'
 ! values for internal selector of CO2 option used for photosynthesis
 integer, parameter :: VEGN_PHOT_CO2_PRESCRIBED  = 1
@@ -118,8 +124,8 @@ real    :: min_Wl=-1.0, min_Ws=-1.0 ! threshold values for condensation numerics
    ! if water or snow on canopy fall below these values, the derivatives of
    ! condensation are set to zero, thereby prohibiting switching from condensation to
    ! evaporation in one time step.
-real    :: tau_smooth_ncm      = 0.0 ! Time scale for ncm smoothing (low-pass 
-   ! filtering), years. 0.0 retrieves previous behavior (no smoothing) 
+real    :: tau_smooth_ncm = 0.0 ! Time scale for ncm smoothing
+   ! (low-pass filtering), years. 0.0 retrieves previous behavior (no smoothing)
 namelist /vegn_nml/ &
     lm2, init_Wl, init_Ws, init_Tv, cpw, clw, csw, &
     init_cohort_bl, init_cohort_blv, init_cohort_br, init_cohort_bsw, &
@@ -171,6 +177,10 @@ subroutine read_vegn_namelist()
   call read_static_vegn_namelist(use_static_veg)
 
   call write_version_number(version, tagname)
+#ifdef INTERNAL_FILE_NML
+    read (input_nml_file, nml=vegn_nml, iostat=io)
+    ierr = check_nml_error(io, 'vegn_nml')
+#else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
      ierr = 1;  
@@ -181,6 +191,7 @@ subroutine read_vegn_namelist()
 10   continue
      call close_file (unit)
   endif
+#endif
 
   unit=stdlog()
 
@@ -342,21 +353,13 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
           p_ann (lnd%is:lnd%ie,lnd%js:lnd%je),&
           ncm   (lnd%is:lnd%ie,lnd%js:lnd%je) )
      call read_field( 'INPUT/biodata.nc','T_ANN', &
-          lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), &
-          lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-          t_ann, interp='nearest')
+          lnd%lon, lnd%lat, t_ann, interp='nearest')
      call read_field( 'INPUT/biodata.nc','T_COLD', &
-          lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), &
-          lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-          t_cold, interp='nearest')
+          lnd%lon, lnd%lat, t_cold, interp='nearest')
      call read_field( 'INPUT/biodata.nc','P_ANN', &
-          lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), &
-          lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-          p_ann, interp='nearest')
+          lnd%lon, lnd%lat, p_ann, interp='nearest')
      call read_field( 'INPUT/biodata.nc','NCM', &
-          lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), &
-          lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-          ncm, interp='nearest')
+          lnd%lon, lnd%lat, ncm, interp='nearest')
      did_read_biodata = .TRUE.
   endif
   ! Go through all tiles and initialize the cohorts that have not been initialized yet --
@@ -622,7 +625,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call error_mesg('vegn_end','writing NetCDF restart',NOTE)
   ! create output file, including internal structure necessary for tile output
   call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'vegn1.res.nc', &
-          lnd%glon*180.0/PI, lnd%glat*180/PI, vegn_tile_exists, tile_dim_length)
+          lnd%coord_glon, lnd%coord_glat, vegn_tile_exists, tile_dim_length)
   ! create compressed dimension for vegetation cohorts -- must be called even
   ! if restart has not been created, because it calls mpp_max and that should 
   ! be called on all PEs to work
@@ -636,7 +639,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
 
 
   call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'vegn2.res.nc', &
-          lnd%glon*180.0/PI, lnd%glat*180/PI, vegn_tile_exists, tile_dim_length )
+          lnd%coord_glon, lnd%coord_glat, vegn_tile_exists, tile_dim_length )
   ! create compressed dimension for vegetation cohorts -- see note above
   call create_cohort_dimension(unit)
 
@@ -723,7 +726,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
 
   if (write_soil_carbon_restart) then
      call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'soil_carbon.res.nc', &
-          lnd%glon*180.0/PI, lnd%glat*180/PI, vegn_tile_exists, tile_dim_length )
+          lnd%coord_glon, lnd%coord_glat, vegn_tile_exists, tile_dim_length )
 
      call write_tile_data_r0d_fptr(unit,'asoil_in',vegn_asoil_in_ptr,'aerobic activity modifier', 'unitless')
      call write_tile_data_r0d_fptr(unit,'fsc_in',vegn_fsc_in_ptr,'fast soil carbon input', 'kg C/m2')
@@ -1185,7 +1188,7 @@ subroutine update_vegn_slow( )
   integer :: i,j,k ! current point indices
   integer :: ii ! pool iterator
   integer :: n ! number of cohorts
-  real    :: weight_ncm ! low-pass filer value for the number of cold months
+  real    :: weight_ncm ! low-pass filter value for the number of cold months
 
   ! get components of calendar dates for this and previous time step
   call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
@@ -1220,9 +1223,9 @@ subroutine update_vegn_slow( )
 
      ! annual averaging
      if (year1 /= year0) then
-        ! The ncm smoothing is coded as a low-pass exponential filter. See, for example
-        ! http://en.wikipedia.org/wiki/Low-pass_filter
-        weight_ncm = 1/(1+tau_smooth_ncm)
+         ! The ncm smoothing is coded as a low-pass exponential filter. See, for example
+         ! http://en.wikipedia.org/wiki/Low-pass_filter
+         weight_ncm = 1/(1+tau_smooth_ncm)
         if(tile%vegn%nmn_acm /= 0) then
            ! calculate annual averages from accumulated values
            tile%vegn%p_ann  = tile%vegn%p_ann_acm/tile%vegn%nmn_acm
@@ -1367,8 +1370,8 @@ subroutine vegn_seed_transport()
      tile => current_tile(ce) ; ce=next_elmt(ce)
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
 
-     total_seed_supply = total_seed_supply + vegn_seed_supply(tile%vegn)*tile%frac*lnd%garea(i,j)
-     total_seed_demand = total_seed_demand + vegn_seed_demand(tile%vegn)*tile%frac*lnd%garea(i,j)
+     total_seed_supply = total_seed_supply + vegn_seed_supply(tile%vegn)*tile%frac*lnd%area(i,j)
+     total_seed_demand = total_seed_demand + vegn_seed_demand(tile%vegn)*tile%frac*lnd%area(i,j)
   enddo
   ! sum totals globally
   call mpp_sum(total_seed_demand, pelist=lnd%pelist)

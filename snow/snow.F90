@@ -3,7 +3,13 @@
 ! ============================================================================
 module snow_mod
 
-use fms_mod, only : error_mesg, file_exist, open_namelist_file, check_nml_error, &
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
+
+use fms_mod, only : error_mesg, file_exist, check_nml_error, &
      stdlog, write_version_number, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
 use time_manager_mod,   only: time_type, increment_time, time_type_to_real
 use constants_mod,      only: tfreeze, hlv, hlf, PI
@@ -45,8 +51,8 @@ public :: snow_step_2
 ! ==== module variables ======================================================
 character(len=*), parameter, private   :: &
        module_name = 'snow_mod' ,&
-       version     = '$Id: snow.F90,v 17.1 2009/07/31 16:45:24 fms Exp $' ,&
-       tagname     = '$Name: riga_201006 $'
+       version     = '$Id: snow.F90,v 17.1.2.1.2.1 2010/08/24 12:11:35 pjp Exp $' ,&
+       tagname     = '$Name: riga_201012 $'
 
 ! ==== module variables ======================================================
 
@@ -100,6 +106,10 @@ subroutine read_snow_namelist()
   call read_snow_data_namelist(num_l,dz,mc_fict)
 
   call write_version_number(version, tagname)
+#ifdef INTERNAL_FILE_NML
+  read (input_nml_file, nml=snow_nml, iostat=io)
+  ierr = check_nml_error(io, 'snow_nml')
+#else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
      ierr = 1;  
@@ -110,6 +120,7 @@ subroutine read_snow_namelist()
 10   continue
      call close_file (unit)
   endif
+#endif
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=snow_nml)
@@ -204,7 +215,7 @@ subroutine save_snow_restart (tile_dim_length, timestamp)
   call error_mesg('snow_end','writing NetCDF restart',NOTE)
   ! create output file, including internal structure necessary for tile output
   call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'snow.res.nc', &
-          lnd%glon*180.0/PI, lnd%glat*180/PI, snow_tile_exists, tile_dim_length )
+          lnd%coord_glon, lnd%coord_glat, snow_tile_exists, tile_dim_length )
 
   ! additionally, define vertical coordinate
   if (mpp_pe()==lnd%io_pelist(1)) then

@@ -1,5 +1,5 @@
 ! -*-f90-*-
-! $Id: vegn_cohort_io.inc,v 17.0 2009/07/21 03:03:16 fms Exp $
+! $Id: vegn_cohort_io.inc,v 17.0.2.2 2010/03/21 20:53:09 slm Exp $
 
 ! some sanity checks
 #ifndef F90_TYPE
@@ -36,10 +36,13 @@ subroutine READ_0D_FPTR(ncid,name,fptr,rec)
   character(*), parameter :: module_name = 'read_cohort_data_r0d_fptr'
 
   ! ---- local vars
-  integer :: i
+  integer :: i, n
   integer :: rec_     ! record number
   integer :: ntiles   ! size of the tile dimension in restart file
   integer :: ncohorts ! total number of cohorts in restart file
+  integer :: bufsize  ! size of the input buffer
+  integer :: idxid    ! id of the index dimension
+  integer :: start(1),count(1) ! definition of slab for reading
   integer, allocatable :: idx(:) ! index dimension
   F90_TYPE, allocatable :: data(:) ! data to be read
   F90_TYPE, pointer :: ptr ! pointer to the individual cohort data
@@ -57,23 +60,28 @@ subroutine READ_0D_FPTR(ncid,name,fptr,rec)
 
   ! get the length of cohort compressed index
   __NF_ASRT__(nfu_inq_dim(ncid,cohort_index_name,len=ncohorts))
+  __NF_ASRT__(nfu_inq_var(ncid,cohort_index_name,id=idxid))
 
   ! allocate data
-  allocate(data(ncohorts),idx(ncohorts))
+  bufsize=min(INPUT_BUF_SIZE,ncohorts)
+  allocate(data(bufsize),idx(bufsize))
 
-  ! read the cohort index
-  __NF_ASRT__(nfu_get_var(ncid,cohort_index_name,idx))
-  ! read the data
-  __NF_ASRT__(nfu_get_rec(ncid,name,rec_,data))
-
-  ! distribute data over cohorts
-  do i = 1, size(idx)
-     call get_cohort_by_idx ( idx(i), size(lnd%garea,1), size(lnd%garea,2), ntiles,&
-                             lnd%tile_map, lnd%is, lnd%js,cohort)
-     if (associated(cohort)) then
-        call fptr(cohort, ptr)
-        if(associated(ptr)) ptr = data(i)
-     endif
+  do n = 1, ncohorts, bufsize
+     ! read the cohort index
+     __NF_ASRT__(nf_get_vara_int(ncid,idxid,n,min(bufsize,ncohorts-n+1),idx))
+     ! read the data
+     start(1) = n; count(1) = min(bufsize,ncohorts-n+1)
+     __NF_ASRT__(nfu_get_rec(ncid,name,rec_,data,start,count))
+     
+     ! distribute data over cohorts
+     do i = 1, size(idx)
+        call get_cohort_by_idx ( idx(i), lnd%nlon, lnd%nlat, ntiles,&
+             lnd%tile_map, lnd%is, lnd%js,cohort)
+        if (associated(cohort)) then
+           call fptr(cohort, ptr)
+           if(associated(ptr)) ptr = data(i)
+        endif
+     enddo
   enddo
   
   ! free allocated memory
@@ -125,7 +133,7 @@ subroutine WRITE_0D_FPTR(ncid,name,fptr,long_name,units,record)
 
   ! gather data into an array along the cohort dimension
   do i = 1, size(idx)
-     call get_cohort_by_idx ( idx(i), size(lnd%garea,1), size(lnd%garea,2), ntiles,&
+     call get_cohort_by_idx ( idx(i), lnd%nlon, lnd%nlat, ntiles,&
                              lnd%tile_map, lnd%is, lnd%js,cohort)
      if (associated(cohort)) then
         call fptr(cohort, ptr)

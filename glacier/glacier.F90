@@ -3,7 +3,13 @@
 ! ============================================================================
 module glacier_mod
 
-use fms_mod,            only: error_mesg, file_exist,  open_namelist_file,    &
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
+
+use fms_mod,            only: error_mesg, file_exist,     &
                               check_nml_error, stdlog, write_version_number, &
                               close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
 use time_manager_mod,   only: time_type, increment_time, time_type_to_real
@@ -46,8 +52,8 @@ public :: glac_step_2
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
        module_name = 'glacier',&
-       version     = '$Id: glacier.F90,v 17.0 2009/07/21 03:02:10 fms Exp $',&
-       tagname     = '$Name: riga_201006 $'
+       version     = '$Id: glacier.F90,v 17.0.2.1.2.1 2010/08/24 12:11:35 pjp Exp $',&
+       tagname     = '$Name: riga_201012 $'
  
 ! ==== module variables ======================================================
 
@@ -96,6 +102,10 @@ subroutine read_glac_namelist()
   call read_glac_data_namelist(num_l, dz)
 
   call write_version_number(version, tagname)
+#ifdef INTERNAL_FILE_NML
+     read (input_nml_file, nml=glac_nml, iostat=io)
+     ierr = check_nml_error(io, 'glac_nml')
+#else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
      ierr = 1;  
@@ -106,6 +116,7 @@ subroutine read_glac_namelist()
 10   continue
      call close_file (unit)
   endif
+#endif
   if (mpp_pe() == mpp_root_pe()) then
      unit = stdlog()
      write (unit, nml=glac_nml)
@@ -215,7 +226,7 @@ subroutine save_glac_restart (tile_dim_length, timestamp)
 
   call error_mesg('glac_end','writing NetCDF restart',NOTE)
   call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'glac.res.nc', &
-          lnd%glon*180.0/PI, lnd%glat*180/PI, glac_tile_exists, tile_dim_length)
+          lnd%coord_glon, lnd%coord_glat, glac_tile_exists, tile_dim_length)
 
   ! in addition, define vertical coordinate
   if (mpp_pe()==lnd%io_pelist(1)) then

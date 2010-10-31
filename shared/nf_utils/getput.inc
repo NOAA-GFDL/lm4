@@ -1,5 +1,5 @@
 ! -*-f90-*-
-! $Id: getput.inc,v 17.0 2009/07/21 03:02:48 fms Exp $
+! $Id: getput.inc,v 17.0.2.1 2010/03/21 20:49:33 slm Exp $
 
 ! ============================================================================
 ! nfu_get_var, nfu_get_rec interface and implementation
@@ -208,62 +208,71 @@ function GET_REC_D0N(ncid,name,rec,var) result(iret)
 7 return
 end function
 ! ============================================================================
-function GET_REC_D1N(ncid,name,rec,var) result(iret)
+function GET_REC_D1N(ncid,name,rec,var,start,count) result(iret)
   integer      , intent(in)    :: ncid   ! id of netcdf file
   character(*) , intent(in)    :: name   ! name of the variable
   integer      , intent(in)    :: rec    ! number of the record to get
   F90_TYPE     , intent(inout) :: var(*) ! storage for the variable
+  integer, optional, intent(in) :: start(:), count(:) ! slab to read
   integer :: iret ! return value
 
   integer :: varid
   __NF_TRY__(nf_inq_varid(ncid,name,varid),iret,7)
-  __NF_TRY__(GET_REC_D1I(ncid,varid,rec,var),iret,7)
+  __NF_TRY__(GET_REC_D1I(ncid,varid,rec,var,start,count),iret,7)
 7 return
 end function
 ! ============================================================================
-function GET_REC_D2N(ncid,name,rec,var) result(iret)
+function GET_REC_D2N(ncid,name,rec,var,start,count) result(iret)
   integer      , intent(in)    :: ncid   ! id of netcdf file
   character(*) , intent(in)    :: name   ! name of the variable
   integer      , intent(in)    :: rec    ! number of the record to get
   F90_TYPE     , intent(inout) :: var(:,:) ! storage for the variable
+  integer, optional, intent(in) :: start(2), count(2) ! slab to read
   integer :: iret ! return value
 
-  iret=GET_REC_D1N(ncid,name,rec,var)
+  iret=GET_REC_D1N(ncid,name,rec,var,start,count)
 end function
 ! ============================================================================
-function GET_REC_D3N(ncid,name,rec,var) result(iret)
+function GET_REC_D3N(ncid,name,rec,var,start,count) result(iret)
   integer      , intent(in)    :: ncid   ! id of netcdf file
   character(*) , intent(in)    :: name   ! name of the variable
   integer      , intent(in)    :: rec    ! number of the record to get
   F90_TYPE     , intent(inout) :: var(:,:,:) ! storage for the variable
+  integer, optional, intent(in) :: start(3), count(3) ! slab to read
   integer :: iret ! return value
 
   iret=GET_REC_D1N(ncid,name,rec,var)
 end function
 ! ============================================================================
-function GET_REC_D0I(ncid,varid,rec,var) result(iret)
+function GET_REC_D0I(ncid,varid,rec,var,start) result(iret)
   integer      , intent(in)    :: ncid   ! id of netcdf file
   integer      , intent(in)    :: varid  ! id of the variable
   integer      , intent(in)    :: rec    ! number of the record to get
   F90_TYPE     , intent(inout) :: var    ! storage for the variable
+  integer, optional, intent(in) :: start(:) ! slab to read
   integer :: iret ! return value
 
   F90_TYPE :: var1(1)
-  __NF_TRY__(GET_REC_D1I(ncid,varid,rec,var1),iret,7)
+  integer :: count_(NF_MAX_VAR_DIMS)
+
+  count_(:) = 1
+  __NF_TRY__(GET_REC_D1I(ncid,varid,rec,var1,start,count_),iret,7)
   var=var1(1)
 7 return
 end function
 ! ============================================================================
-function GET_REC_D1I(ncid,varid,rec,var) result(iret)
+function GET_REC_D1I(ncid,varid,rec,var,start,count) result(iret)
   integer      , intent(in)     :: ncid   ! id of netcdf file
   integer      , intent(in)     :: varid  ! id of the variable
   integer      , intent(in)     :: rec    ! number of the record to get
   F90_TYPE     , intent(inout)  :: var(*) ! storage for the variable
+  integer      , intent(in), optional :: start(:), count(:) ! definition of
+                                          ! the slab to read
   integer :: iret ! return value
 
   integer :: dimids(NF_MAX_VAR_DIMS), ndims, unlimdim
-  integer :: start(NF_MAX_VAR_DIMS)
-  integer :: count(NF_MAX_VAR_DIMS)
+  integer :: start_(NF_MAX_VAR_DIMS)
+  integer :: count_(NF_MAX_VAR_DIMS)
   integer :: i
       
   __NF_TRY__(nf_inq_unlimdim(ncid,unlimdim),iret,7)
@@ -272,37 +281,48 @@ function GET_REC_D1I(ncid,varid,rec,var) result(iret)
 
   do i = 1, ndims
      if (dimids(i).eq.unlimdim) then
-        start(i) = rec
-        count(i) = 1
+        start_(i) = rec
+        count_(i) = 1
      else
-        start(i) = 1
-        __NF_TRY__(nf_inq_dimlen(ncid,dimids(i),count(i)),iret,7)
+        start_(i) = 1
+        __NF_TRY__(nf_inq_dimlen(ncid,dimids(i),count_(i)),iret,7)
+        if (present(start)) then
+           start_(i) = start(i)
+           count_(i) = count_(i)-start_(i)+1
+        endif
+        if (present(count)) then
+           count_(i) = count(i)
+        endif 
      endif
-     ! write(*,*) i, dimids(i), start(i), count(i)
+     ! write(*,*) i, dimids(i), start_(i), count_(i)
   enddo
-  iret = NF_GET_VARA_T(ncid,varid,start,count,var)
+  iret = NF_GET_VARA_T(ncid,varid,start_,count_,var)
 
 7 return
 end function
 ! ============================================================================
-function GET_REC_D2I(ncid,varid,rec,var) result(iret)
+function GET_REC_D2I(ncid,varid,rec,var,start,count) result(iret)
   integer      , intent(in)    :: ncid   ! id of netcdf file
   integer      , intent(in)    :: varid  ! id of the variable
   integer      , intent(in)    :: rec    ! number of the record to get
   F90_TYPE     , intent(inout) :: var(:,:)    ! storage for the variable
+  integer      , intent(in), optional :: start(2), count(2) ! definition of
+                                         ! the slab to read
   integer :: iret ! return value
 
-  iret=GET_REC_D1I(ncid,varid,rec,var)
+  iret=GET_REC_D1I(ncid,varid,rec,var,start,count)
 end function
 ! ============================================================================
-function GET_REC_D3I(ncid,varid,rec,var) result(iret)
+function GET_REC_D3I(ncid,varid,rec,var,start,count) result(iret)
   integer      , intent(in)    :: ncid   ! id of netcdf file
   integer      , intent(in)    :: varid  ! id of the variable
   integer      , intent(in)    :: rec    ! number of the record to get
   F90_TYPE     , intent(inout) :: var(:,:,:)    ! storage for the variable
+  integer      , intent(in), optional :: start(3), count(3) ! definition of
+                                          ! the slab to read
   integer :: iret ! return value
 
-  iret=GET_REC_D1I(ncid,varid,rec,var)
+  iret=GET_REC_D1I(ncid,varid,rec,var,start,count)
 end function
 
 ! ============================================================================
