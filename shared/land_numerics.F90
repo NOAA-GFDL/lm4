@@ -53,8 +53,8 @@ logical :: module_is_initialized =.FALSE.
 ! module constants
 character(len=*), parameter :: &
      mod_name = 'land_numerics_mod', &
-     version  = '$Id: land_numerics.F90,v 17.0.2.6.2.1 2010/06/28 14:44:50 pjp Exp $', &
-     tagname  = '$Name: riga_201012 $'
+     version  = '$Id: land_numerics.F90,v 17.0.2.6.2.1.2.1 2011/02/17 20:35:21 Zhi.Liang Exp $', &
+     tagname  = '$Name: riga_201104 $'
 
 ! ==== public type ===========================================================
 ! this data structure describes the horizontal remapping: that is, the operation 
@@ -628,6 +628,7 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
      ntot = sum(np)
      do p = 1, npes
         call mpp_send(ntot,pes(p))
+        call mpp_sync_self()
      enddo
   endif
   call mpp_recv(ntot,root_pe)
@@ -685,6 +686,7 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
         if (pes(p)==root_pe) cycle
         call mpp_send(glon(1),plen=ntot,to_pe=pes(p))
         call mpp_send(glat(1),plen=ntot,to_pe=pes(p))
+        call mpp_sync_self()
      enddo
   endif
 
@@ -783,6 +785,7 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
            call mpp_send(map%srcPE(1),plen=map%mapSize,to_pe=pes(p))
            call mpp_send(map%dstPE(1),plen=map%mapSize,to_pe=pes(p))
         endif
+        call mpp_sync_self()
         k = k+np(p)
      enddo
      
@@ -860,6 +863,8 @@ subroutine horiz_remap(map,domain,d)
         call mpp_send(n,map%srcPE(k))
         call mpp_send(ii(1),plen=n,to_pe=map%srcPE(k))
         call mpp_send(jj(1),plen=n,to_pe=map%srcPE(k))
+        call mpp_sync_self()
+
         ! get the response
         call mpp_recv(buf(1,1),glen=size(buf),from_pe=map%srcPE(k))
         ! fill the data 

@@ -34,7 +34,7 @@ public :: check_temp_range
 character(len=*), parameter, private   :: &
     module_name = 'land_debug',&
     version     = '$Id: land_debug.F90,v 17.0.6.1 2010/08/24 12:11:35 pjp Exp $',&
-    tagname     = '$Name: riga_201012 $'
+    tagname     = '$Name: riga_201104 $'
 
 ! ==== module variables ======================================================
 integer :: current_debug_level = 0

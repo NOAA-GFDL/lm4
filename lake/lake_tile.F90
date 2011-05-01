@@ -58,7 +58,7 @@ end interface
 ! ==== module constants ======================================================
 character(len=*), private, parameter   :: &
      version     = '$Id: lake_tile.F90,v 17.0.2.2.2.1 2010/08/24 12:11:35 pjp Exp $', &
-     tagname     = '$Name: riga_201012 $', &
+     tagname     = '$Name: riga_201104 $', &
      module_name = 'lake_tile_mod'
 
 integer, parameter :: max_lev          = 80
