@@ -45,8 +45,8 @@ module river_physics_mod
   real    :: missing = -1.e8
 
 !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id: river_physics.F90,v 18.0.6.1 2010/08/24 12:11:35 pjp Exp $'
-  character(len=128) :: tagname = '$Name: riga_201104 $'
+  character(len=128) :: version = '$Id: river_physics.F90,v 19.0 2012/01/06 20:40:57 fms Exp $'
+  character(len=128) :: tagname = '$Name: siena $'
 
 
 ! ---- public interfaces -----------------------------------------------------

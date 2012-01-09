@@ -51,8 +51,8 @@ end interface
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'lan_tile_diag_mod', &
-     version     = '$Id: land_tile_diag.F90,v 17.0 2009/07/21 03:02:41 fms Exp $', &
-     tagname     = '$Name: riga_201104 $'
+     version     = '$Id: land_tile_diag.F90,v 19.0 2012/01/06 20:42:05 fms Exp $', &
+     tagname     = '$Name: siena $'
 
 integer, parameter :: INIT_FIELDS_SIZE     = 1     ! initial size of the fields array
 integer, parameter :: BASE_TILED_FIELD_ID  = 65536 ! base value for tiled field 
@@ -487,6 +487,7 @@ subroutine dump_tile_diag_fields(tiles, time)
   total_n_sends(:) = fields(1:n_fields)%n_sends
   call mpp_sum(total_n_sends, n_fields, pelist=lnd%pelist)
 
+!$OMP parallel do schedule(dynamic) default(shared) private(ifld,isel)
   do ifld = 1, n_fields
      if (total_n_sends(ifld) == 0) cycle ! no data to send 
      do isel = 1, get_n_selectors()

@@ -20,8 +20,8 @@ public :: update_fuel
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
-     version = '$Id: vegn_disturbance.F90,v 17.0 2009/07/21 03:03:20 fms Exp $', &
-     tagname = '$Name: riga_201104 $', &
+     version = '$Id: vegn_disturbance.F90,v 19.0 2012/01/06 20:44:34 fms Exp $', &
+     tagname = '$Name: siena $', &
      module_name = 'vegn_disturbance_mod'
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -237,7 +237,7 @@ subroutine vegn_nat_mortality(vegn, deltat)
      cc => vegn%cohorts(i)
      ! Treat treefall disturbance implicitly, i.e. not creating a new tile.
      ! note that this disturbance rate calculation only works for the one cohort per 
-     ! tile case -- in case of multiple cohort disturbance rate pehaps needs to be 
+     ! tile case -- in case of multiple cohort disturbance rate perhaps needs to be 
      ! accumulated (or averaged? or something else?) over the cohorts.
      vegn%disturbance_rate(0) = spdata(cc%species)%treefall_disturbance_rate;
      vegn%area_disturbed_by_treefall = &
@@ -259,12 +259,28 @@ subroutine vegn_nat_mortality(vegn, deltat)
      cc%bsw   = cc%bsw   * (1-fraction_lost);
 
      ! for budget tracking -temporarily
+     ! It doesn't look correct to me: ssc_in should probably include factor 
+     ! (1-fsc_wood) and the whole calculations should be moved up in front
+     ! of bwood and bsw modification
      ! vegn%fsc_in+= cc%bsw*fraction_lost;
      vegn%ssc_in  = vegn%ssc_in  + (cc%bwood+cc%bsw)*fraction_lost;
      vegn%veg_out = vegn%veg_out + delta;
      
-     ! note that fast "living" pools are not included into mortality because their 
-     ! turnover is calculated separately
+     ! kill the live biomass if mortality is set to affect it
+     if (spdata(cc%species)%mortality_kills_balive) then
+        delta = (cc%bl + cc%blv + cc%br)*fraction_lost
+        
+        vegn%slow_soil_C = vegn%slow_soil_C + (1-fsc_liv)*delta;
+        vegn%fast_soil_C = vegn%fast_soil_C +    fsc_liv *delta;
+        
+        cc%br  = cc%br  * (1-fraction_lost);
+        cc%bl  = cc%bl  * (1-fraction_lost);
+        cc%blv = cc%blv * (1-fraction_lost);
+
+        ! for budget tracking
+        vegn%ssc_in  = vegn%ssc_in  + (cc%bwood+cc%bsw)*fraction_lost;
+        vegn%veg_out = vegn%veg_out + delta;
+     endif
 
      cc%bliving = cc%bsw + cc%bl + cc%br + cc%blv;
      call update_biomass_pools(cc);

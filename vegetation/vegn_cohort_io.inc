@@ -1,5 +1,5 @@
 ! -*-f90-*-
-! $Id: vegn_cohort_io.inc,v 17.0.2.2 2010/03/21 20:53:09 slm Exp $
+! $Id: vegn_cohort_io.inc,v 19.0 2012/01/06 20:44:30 fms Exp $
 
 ! some sanity checks
 #ifndef F90_TYPE
@@ -181,8 +181,7 @@ subroutine WRITE_0D_FPTR(ncid,name,fptr,long_name,units,record)
   ! wait for all PEs to finish: necessary because mpp_send doesn't seem to 
   ! copy the data, and therefore on non-root io_domain PE there would be a chance
   ! that the data and mask are destroyed before they are actually sent.
-  call mpp_sync(lnd%io_pelist)
-
+  call mpp_sync()
   ! free allocated memory
   deallocate(data,idx)
   

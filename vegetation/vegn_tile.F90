@@ -62,8 +62,8 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), parameter   :: &
-     version = '$Id: vegn_tile.F90,v 17.0.2.2.2.1.2.1 2010/06/28 14:44:58 pjp Exp $', & 
-     tagname = '$Name: riga_201104 $', &
+     version = '$Id: vegn_tile.F90,v 19.0 2012/01/06 20:44:40 fms Exp $', & 
+     tagname = '$Name: siena $', &
      module_name = 'vegn_tile_mod'
 
 ! ==== types =================================================================
@@ -111,8 +111,8 @@ type :: vegn_tile_type
    ! these counters in the tile is a bit stupid, since the values are the same for
    ! each tile, but it simplifies the current code, and they are going away when we
    ! switch to exponential averaging in any case.
-   integer :: n_accum = 0. ! number of accumulated values for monthly averages
-   integer :: nmn_acm = 0. ! number of accumulated values for annual averages
+   integer :: n_accum = 0 ! number of accumulated values for monthly averages
+   integer :: nmn_acm = 0 ! number of accumulated values for annual averages
    ! annual-mean values
    real :: t_ann  = 0. ! annual mean T, degK
    real :: t_cold = 0. ! average temperature of the coldest month, degK
@@ -233,6 +233,10 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   __MERGE__(bsw)     ! biomass of sapwood, kg C/m2
   __MERGE__(bwood)   ! biomass of heartwood, kg C/m2
   __MERGE__(bliving) ! leaves, fine roots, and sapwood biomass
+  
+  __MERGE__(carbon_gain) ! carbon gain during a day, kg C/m2
+  __MERGE__(carbon_loss) ! carbon loss during a day, kg C/m2 [diag only]
+  __MERGE__(bwood_gain)  ! heartwood gain during a day, kg C/m2
 
   ! should we do update_derived_vegn_data here? to get mcv_dry, etc
   call update_biomass_pools(c2)
@@ -284,8 +288,6 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   __MERGE__(tsoil_av)   ! bulk soil temperature
   __MERGE__(tc_av)      ! leaf temperature
   __MERGE__(precip_av)  ! precipitation
-  __MERGE__(n_accum)    ! number of accumulated values for monthly averages
-  __MERGE__(nmn_acm)    ! number of accumulated values for annual averages
 
   ! annual-mean values
   __MERGE__(t_ann)      ! annual mean T, degK
@@ -586,7 +588,8 @@ function vegn_tile_carbon(vegn) result(carbon) ; real carbon
      carbon = carbon + &
           vegn%cohorts(i)%bl + vegn%cohorts(i)%blv + &
           vegn%cohorts(i)%br + vegn%cohorts(i)%bwood + &
-          vegn%cohorts(i)%bsw
+          vegn%cohorts(i)%bsw + &
+          vegn%cohorts(i)%carbon_gain + vegn%cohorts(i)%bwood_gain
   enddo
   carbon = carbon + &
        sum(vegn%harv_pool) + vegn%fsc_pool + vegn%ssc_pool + vegn%csmoke_pool

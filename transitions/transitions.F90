@@ -67,8 +67,8 @@ public :: land_transitions
 
 ! ==== module constants =====================================================
 character(len=*), parameter   :: &
-     version = '$Id: transitions.F90,v 17.0.2.1.2.1.2.1 2010/08/24 12:11:36 pjp Exp $', &
-     tagname = '$Name: riga_201104 $', &
+     version = '$Id: transitions.F90,v 19.0 2012/01/06 20:43:22 fms Exp $', &
+     tagname = '$Name: siena $', &
      module_name = 'land_transitions_mod', &
      diag_mod_name = 'landuse'
 ! selectors for overshoot handling options, for efficiency
@@ -845,6 +845,7 @@ subroutine integral_transition(t1, t2, id, frac)
      sum = sum+frac*dt
      i2 = i2+1
      i1 = i2-1
+     if(i2>size(time_in)) exit ! from loop
   enddo
 
   call time_interp(te,time_in,w,i1,i2)

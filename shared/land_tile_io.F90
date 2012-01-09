@@ -2,6 +2,7 @@ module land_tile_io_mod
 
 use mpp_mod, only : mpp_send, mpp_recv, mpp_sync
 use fms_mod, only : error_mesg, FATAL, mpp_pe, get_mosaic_tile_file
+use fms_io_mod, only : get_instance_filename
 use time_manager_mod, only : time_type
 use data_override_mod, only : data_override
 
@@ -57,8 +58,9 @@ end interface
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land_tile_io_mod', &
-     version     = '$Id: land_tile_io.F90,v 17.0.2.3.2.1 2010/06/28 14:44:52 pjp Exp $', &
-     tagname     = '$Name: riga_201104 $'
+     version     = '$Id: land_tile_io.F90,v 19.0 2012/01/06 20:42:07 fms Exp $', &
+     tagname     = '$Name: siena $'
+
 ! name of the "compressed" dimension (and dimension variable) in the output 
 ! netcdf files -- that is, the dimensions written out using compression by 
 ! gathering, as described in CF conventions. See subroutines write_tile_data,
@@ -86,12 +88,14 @@ subroutine get_input_restart_name(name, restart_exists, actual_name)
   ! ---- local vars
   character(6) :: PE_suffix ! PE number
   
-  call get_mosaic_tile_file(trim(name),actual_name,.FALSE.,lnd%domain)
+  ! Build the restart file name.
+  call get_instance_filename(trim(name), actual_name)
+  call get_mosaic_tile_file(trim(actual_name),actual_name,.false.,lnd%domain)
   ! we can't use fms file_exist function here, because it lies: it checks not
   ! just the original name, but the name with PE suffix, and returns true if
   ! either of those exist
   inquire (file=trim(actual_name), exist=restart_exists)
-  if (.NOT.restart_exists) then
+  if (.not.restart_exists) then
      ! try the name with current PE number attached
      write(PE_suffix,'(".",I4.4)') lnd%io_id
      actual_name = trim(actual_name)//trim(PE_suffix)
@@ -138,8 +142,14 @@ subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, tile_dim_lengt
   integer :: k ! current index in tidx2 array for receive operation
 
   ! form the full name of the file
-  call get_mosaic_tile_file(name,full_name,.FALSE.,lnd%domain)
-  write(PE_suffix,'(".",I4.4)') lnd%io_id
+  call get_instance_filename(trim(name), full_name)
+  call get_mosaic_tile_file(trim(full_name),full_name,.false.,lnd%domain)
+  if (lnd%append_io_id) then
+      write(PE_suffix,'(".",I4.4)') lnd%io_id
+  else
+      PE_suffix = ''
+  endif
+
   full_name = trim(full_name)//trim(PE_suffix)
 
   if(tile_dim_length<=0) &
@@ -170,9 +180,9 @@ subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, tile_dim_lengt
 #ifdef use_netCDF3
      __NF_ASRT__(nf_create(full_name,NF_CLOBBER,ncid))
 #elif use_LARGEFILE
-     __NF_ASRT__(nf_create(full_name,IOR(NF_64BIT_OFFSET,NF_CLOBBER),ncid))
+     __NF_ASRT__(nf_create(full_name,ior(NF_64BIT_OFFSET,NF_CLOBBER),ncid))
 #else
-     __NF_ASRT__(nf_create(full_name,IOR(NF_NETCDF4,NF_CLASSIC_MODEL),ncid))
+     __NF_ASRT__(nf_create(full_name,ior(NF_NETCDF4,NF_CLASSIC_MODEL),ncid))
 #endif
 
      ! create lon, lat, dimensions and variables
@@ -192,7 +202,7 @@ subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, tile_dim_lengt
 
      ! determine the local value of space reserved in the header; by default 16K
      reserve_ = 1024*16
-     if(PRESENT(reserve)) reserve_ = reserve
+     if(present(reserve)) reserve_ = reserve
 
      ! end definition mode, reserving some space for future additions
      ! this call also commits the changes to the disk
@@ -203,7 +213,7 @@ subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, tile_dim_lengt
      ! manual pages netcdf(3f) or netcdf(3) for more information.
   endif
   ! make sure send-receive operations and file creation have finished
-  call mpp_sync(lnd%io_pelist)
+  call mpp_sync()
   ! open file on non-writing processors to have access to the tile index
   if (mpp_pe()/=lnd%io_pelist(1)) then
      __NF_ASRT__(nf_open(full_name,NF_NOWRITE,ncid))
@@ -263,7 +273,7 @@ subroutine create_tile_out_file_fptr(ncid, name, glon, glat, tile_exists, &
   ! dimension
   call create_tile_out_file_idx(ncid, name, glon, glat, idx, tile_dim_length, reserve)
 
-  if (present(created)) created = .TRUE.
+  if (present(created)) created = .true.
   
 end subroutine
 
@@ -283,7 +293,7 @@ subroutine get_tile_by_idx(idx,nlon,nlat,tiles,is,js,ptr)
    integer :: i,j,k
    type(land_tile_enum_type) :: ce,te
    
-   ptr=>NULL()
+   ptr=>null()
 
    if(idx<0) return ! negative indices do not correspond to any tile
 
@@ -592,7 +602,7 @@ subroutine write_tile_data_i1d(ncid,name,data,mask,long_name,units)
   ! wait for all PEs to finish: necessary because mpp_send doesn't seem to 
   ! copy the data, and therefore on non-root io_domain PE there would be a chance
   ! that the data and mask are destroyed before they are actually sent.
-  call mpp_sync(lnd%io_pelist)
+  call mpp_sync()
 end subroutine
 
 
@@ -639,7 +649,7 @@ subroutine write_tile_data_r1d(ncid,name,data,mask,long_name,units)
   ! wait for all PEs to finish: necessary because mpp_send doesn't seem to 
   ! copy the data, and therefore on non-root io_domain PE there would be a chance
   ! that the data and mask are destroyed before they are actually sent.
-  call mpp_sync(lnd%io_pelist)
+  call mpp_sync()
 end subroutine
 
 
@@ -694,8 +704,7 @@ subroutine write_tile_data_r2d(ncid,name,data,mask,zdim,long_name,units)
   ! wait for all PEs to finish: necessary because mpp_send doesn't seem to 
   ! copy the data, and therefore on non-root io_domain PE there would be a chance
   ! that the data and mask are destroyed before they are actually sent.
-  call mpp_sync(lnd%io_pelist)
-
+  call mpp_sync()
 end subroutine
 
 
@@ -970,7 +979,7 @@ subroutine sync_nc_files(ncid)
      ! commit possible definition changes and data to the disk
      __NF_ASRT__(nf_sync(ncid))
   endif
-  call mpp_sync(lnd%io_pelist)
+  call mpp_sync()
   if(mpp_pe()/=lnd%io_pelist(1)) then
      ! synchronize in-memory data structures with the changes on the disk
     __NF_ASRT__(nf_sync(ncid))

@@ -16,6 +16,10 @@ use grid_mod, only: &
 use land_data_mod, only : &
      lnd
 
+! NOTE TO SELF: the "!$" sentinels are not comments: they are compiled if OpenMP 
+! support is turned on
+!$ use omp_lib, only: OMP_GET_MAX_THREADS, OMP_GET_THREAD_NUM
+
 implicit none
 private
 
@@ -27,19 +31,20 @@ public :: set_current_point
 public :: get_current_point
 public :: current_i, current_j, current_k, current_face
 public :: is_watch_point
+public :: is_watch_cell
 public :: get_watch_point
 
 public :: check_temp_range
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'land_debug',&
-    version     = '$Id: land_debug.F90,v 17.0.6.1 2010/08/24 12:11:35 pjp Exp $',&
-    tagname     = '$Name: riga_201104 $'
+    version     = '$Id: land_debug.F90,v 19.0 2012/01/06 20:41:29 fms Exp $',&
+    tagname     = '$Name: siena $'
 
 ! ==== module variables ======================================================
-integer :: current_debug_level = 0
+integer, allocatable :: current_debug_level(:)
 integer :: mosaic_tile = 0
-integer :: curr_i, curr_j, curr_k
+integer, allocatable :: curr_i(:), curr_j(:), curr_k(:)
 
 !---- namelist ---------------------------------------------------------------
 integer :: watch_point(4)=(/0,0,0,1/) ! coordinates of the point of interest, i,j,tile,mosaic_tile
@@ -54,6 +59,7 @@ contains
 subroutine land_debug_init()
   ! ---- local vars
   integer :: unit, ierr, io, ntiles
+  integer :: max_threads
 
   call write_version_number(version, tagname)
   
@@ -80,47 +86,97 @@ subroutine land_debug_init()
   call get_grid_ntiles('LND',ntiles)
   mosaic_tile = ntiles*mpp_pe()/mpp_npes() + 1  ! assumption
 
+  ! set number of threads and allocate by-thread arrays
+    max_threads = 1  
+!$  max_threads = OMP_GET_MAX_THREADS()
+  allocate(curr_i(max_threads),curr_j(max_threads),curr_k(max_threads))
+  allocate(current_debug_level(max_threads))
+  current_debug_level(:) = 0
 end subroutine land_debug_init
 
 ! ============================================================================
 subroutine land_debug_end()
+  deallocate(curr_i,curr_j,curr_k)
+  deallocate(current_debug_level)
 end subroutine
 
 ! ============================================================================
 subroutine set_current_point(i,j,k)
   integer, intent(in) :: i,j,k
 
-  curr_i = i ; curr_j = j ; curr_k = k
+  integer :: thread
+    thread = 1
+!$  thread = OMP_GET_THREAD_NUM()+1
 
-  current_debug_level = 0
+  curr_i(thread) = i ; curr_j(thread) = j ; curr_k(thread) = k
+
+  current_debug_level(thread) = 0
   if ( watch_point(1)==i.and. &
        watch_point(2)==j.and. &
        watch_point(3)==k.and. &
        watch_point(4)==mosaic_tile) then
-     current_debug_level = 1
+     current_debug_level(thread) = 1
   endif
 end subroutine set_current_point
 
 ! ============================================================================
 subroutine get_current_point(i,j,k,face)
   integer, intent(out), optional :: i,j,k,face
-  if (present(i)) i = curr_i
-  if (present(j)) j = curr_j
-  if (present(k)) k = curr_k
+
+  integer :: thread
+    thread = 1
+!$  thread = OMP_GET_THREAD_NUM()+1
+
+  if (present(i)) i = curr_i(thread)
+  if (present(j)) j = curr_j(thread)
+  if (present(k)) k = curr_k(thread)
   if (present(face)) face = mosaic_tile
 end subroutine get_current_point
 
 ! ============================================================================
-integer function current_i() ; current_i = curr_i ; end function
-integer function current_j() ; current_j = curr_j ; end function
-integer function current_k() ; current_k = curr_k ; end function
+integer function current_i()
+  integer :: thread
+    thread = 1
+!$  thread = OMP_GET_THREAD_NUM()+1
+  current_i = curr_i(thread)
+end function
+
+integer function current_j()
+  integer :: thread
+    thread = 1
+!$  thread = OMP_GET_THREAD_NUM()+1
+  current_j = curr_j(thread)
+end function
+
+integer function current_k()
+  integer :: thread
+    thread = 1
+!$  thread = OMP_GET_THREAD_NUM()+1
+  current_k = curr_k(thread)
+end function
+
 integer function current_face() ; current_face = mosaic_tile ; end function
 
 ! ============================================================================
 function is_watch_point()
   logical :: is_watch_point
-  is_watch_point = (current_debug_level > 0)
+
+  integer :: thread
+    thread = 1
+!$  thread = OMP_GET_THREAD_NUM()+1
+  is_watch_point = (current_debug_level(thread) > 0)
 end function is_watch_point
+
+! ============================================================================
+! returns true, if the watch point is within the grid cell, regardless of
+! the tile number
+function is_watch_cell()
+  logical :: is_watch_cell
+  is_watch_cell = ( current_i() == watch_point(1) &
+              .and. current_j() == watch_point(2) &
+              .and. mosaic_tile == watch_point(4) )
+end function is_watch_cell
+
 
 ! ============================================================================
 subroutine get_watch_point(i,j,k,face)
@@ -141,14 +197,18 @@ subroutine check_temp_range(temp, tag, varname)
 
   ! ---- local vars
   integer :: y,mo,d,h,m,s ! components of date
+  integer :: thread
+
 
   if(temp_lo<temp.and.temp<temp_hi) then
      return
   else
+     thread = 1
+!$   thread = OMP_GET_THREAD_NUM()+1
      call get_date(lnd%time,y,mo,d,h,m,s)
      write(*,'(a," : ",a,g,4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
           trim(tag), trim(varname)//' out of range: value=', &
-         temp,'at i=',curr_i,'j=',curr_j,'tile=',curr_k,'face=',mosaic_tile, &
+         temp,'at i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
          'time=',y,mo,d,h,m,s
   endif
 end subroutine 

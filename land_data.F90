@@ -50,8 +50,8 @@ public :: land_state_type
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: &
      module_name = 'land_data_mod', &
-     version     = '$Id: land_data.F90,v 17.0.2.6.2.1 2010/08/13 16:52:14 wfc Exp $', &
-     tagname     = '$Name: riga_201104 $'
+     version     = '$Id: land_data.F90,v 19.0 2012/01/06 20:40:07 fms Exp $', &
+     tagname     = '$Name: siena $'
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
 ! It is supposed to be double-precision signaling NaN, to trigger a trap when
@@ -167,7 +167,9 @@ type :: land_state_type
    integer, allocatable :: io_pelist(:) ! list of processors in our io_domain
    ! if io_domain was not defined, then there is just one element in this
    ! array, and it's equal to current PE
-   integer :: io_id     ! suffix in the distributed files.
+   integer :: io_id        ! suffix in the distributed files.
+   logical :: append_io_id ! if FALSE, io_id is not appended to the file names
+                           ! (for the case io_layout = 1,1)
 end type land_state_type
 
 ! ---- public module variables -----------------------------------------------
@@ -242,6 +244,7 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow)
      lnd%io_pelist(1) = mpp_pe()
      lnd%io_id        = mpp_pe()
   endif
+  lnd%append_io_id = (io_layout(1)/=1.or.io_layout(2)/=1)
      
 
   ! get the domain information

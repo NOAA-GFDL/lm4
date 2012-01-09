@@ -51,8 +51,8 @@ end interface
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'snow_tile_mod' ,&
-     version     = '$Id: snow_tile.F90,v 17.0.4.1 2010/08/24 12:11:35 pjp Exp $' ,&
-     tagname     = '$Name: riga_201104 $'
+     version     = '$Id: snow_tile.F90,v 19.0 2012/01/06 20:42:44 fms Exp $' ,&
+     tagname     = '$Name: siena $'
 integer, parameter :: max_lev = 10
 real   , parameter :: t_range = 10.0 ! degK
 

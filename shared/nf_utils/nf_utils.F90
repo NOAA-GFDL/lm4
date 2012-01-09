@@ -25,6 +25,6 @@ public :: nfu_get_compressed_rec
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      version = '$Id: nf_utils.F90,v 17.0 2009/07/21 03:02:54 fms Exp $', &
-     tagname = '$Name: riga_201104 $'
+     tagname = '$Name: siena $'
 
 end module nf_utils_mod

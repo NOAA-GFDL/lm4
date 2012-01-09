@@ -112,8 +112,8 @@ public :: read_vegn_data_namelist
 
 ! ==== constants =============================================================
 character(len=*), parameter   :: &
-     version     = '$Id: vegn_data.F90,v 18.0.4.1 2010/08/24 12:11:36 pjp Exp $', &
-     tagname     = '$Name: riga_201104 $', &
+     version     = '$Id: vegn_data.F90,v 19.0 2012/01/06 20:44:32 fms Exp $', &
+     tagname     = '$Name: siena $', &
      module_name = 'vegn_data_mod'
 real, parameter :: TWOTHIRDS  = 2.0/3.0
 
@@ -121,6 +121,7 @@ real, parameter :: TWOTHIRDS  = 2.0/3.0
 ! ==== types ================================================================
 type spec_data_type
   real    :: treefall_disturbance_rate;
+  logical :: mortality_kills_balive ! if true, then bl, blv, and br are affected by natural mortality
   integer :: pt           ! photosynthetic physiology of species
 
   real    :: c1 ! unitless, coefficient for living biomass allocation
@@ -250,6 +251,8 @@ real :: dat_snow_crit(0:MSPECIES)= &
 !         c4 grass      c3 grass      c3 temperate  c3 tropical   c3 evergreed
 real :: treefall_disturbance_rate(0:MSPECIES); data treefall_disturbance_rate(0:NSPECIES-1) &
         / 0.175,        0.185,        0.015,        0.025,        0.015 /
+logical :: mortality_kills_balive(0:MSPECIES); data mortality_kills_balive(0:NSPECIES-1) &
+        /.false.,      .false.,      .false.,      .false.,      .false./
 integer :: pt(0:MSPECIES)= &
 !       c4grass       c3grass    temp-decid      tropical     evergreen      BE     BD     BN     NE     ND      G      D      T      A
        (/ PT_C4,        PT_C3,        PT_C3,        PT_C3,        PT_C3,  PT_C3, PT_C3, PT_C3, PT_C3, PT_C3, PT_C4, PT_C4, PT_C3, PT_C3 /)
@@ -401,7 +404,7 @@ namelist /vegn_data_nml/ &
   ! vegetation data, imported from LM3V
   pt, Vmax, m_cond, alpha_phot, gamma_resp, wet_leaf_dreg, &
   leaf_age_onset, leaf_age_tau, &
-  treefall_disturbance_rate,fuel_intensity, &
+  treefall_disturbance_rate, mortality_kills_balive, fuel_intensity, &
   alpha, beta, c1,c2,c3, &
   dfr, &
   srl, root_r, root_perm, &
@@ -472,6 +475,7 @@ subroutine read_vegn_data_namelist()
   spdata%dat_snow_crit = dat_snow_crit
 
   spdata%treefall_disturbance_rate = treefall_disturbance_rate
+  spdata%mortality_kills_balive    = mortality_kills_balive
   spdata%fuel_intensity            = fuel_intensity
  
   spdata%pt         = pt

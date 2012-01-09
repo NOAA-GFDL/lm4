@@ -2,18 +2,18 @@
 ! module numerics: a collection of useful general-purpose routines
 ! ============================================================================
 #define __ERROR__(message) \
-call my_error(mod_name,message,FATAL,__FILE__,__LINE__)
+call my_error(mod_name,message,FATAL,thisfile,__LINE__)
 #define __NOTE__(message) \
-call my_error(mod_name,message,NOTE,__FILE__,__LINE__)
+call my_error(mod_name,message,NOTE,thisfile,__LINE__)
 #define __ASSERT__(x, message) \
-if(.NOT.(x))call my_error(mod_name,message,FATAL,__FILE__,__LINE__)
+if(.NOT.(x))call my_error(mod_name,message,FATAL,thisfile,__LINE__)
 
 module land_numerics_mod
 
 use fms_mod, only: error_mesg, FATAL, NOTE, write_version_number, mpp_pe, &
      stdout
 use mpp_mod, only: mpp_npes, mpp_get_current_pelist, mpp_send, mpp_recv, &
-     mpp_sync, mpp_sync_self, mpp_transmit
+     mpp_sync, mpp_sync_self, mpp_transmit, EVENT_RECV
 use mpp_domains_mod, only : domain2d, mpp_get_compute_domain, &
      mpp_get_global_domain
 
@@ -53,9 +53,9 @@ logical :: module_is_initialized =.FALSE.
 ! module constants
 character(len=*), parameter :: &
      mod_name = 'land_numerics_mod', &
-     version  = '$Id: land_numerics.F90,v 17.0.2.6.2.1.2.1 2011/02/17 20:35:21 Zhi.Liang Exp $', &
-     tagname  = '$Name: riga_201104 $'
-
+     version  = '$Id: land_numerics.F90,v 19.0 2012/01/06 20:42:03 fms Exp $', &
+     tagname  = '$Name: siena $', &
+     thisfile = __FILE__
 ! ==== public type ===========================================================
 ! this data structure describes the horizontal remapping: that is, the operation 
 ! of copying the data from the source points to the destination points. The source
@@ -115,9 +115,11 @@ function bisect(xx, x1, periodic)
   x = x1
 
   ! bring the point inside bounds of the period
-  if (present(periodic).AND.periodic) then
-     __ASSERT__(xx(n)-xx(1)/=0,"periodic bisect: period equal to zero")
-     x = modulo(x-min(xx(1),xx(n)),abs(xx(n)-xx(1)))+min(xx(1),xx(n))
+  if (present(periodic)) then
+     if (periodic) then
+        __ASSERT__(xx(n)-xx(1)/=0,"periodic bisect: period equal to zero")
+        x = modulo(x-min(xx(1),xx(n)),abs(xx(n)-xx(1)))+min(xx(1),xx(n))
+     endif
   endif
 
   ! find the coordinates
@@ -619,19 +621,23 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
 
   ! [x] compute the global number of missing points and assemble the 
   ! array of point numbers per PE on root PE
-  call mpp_send(map%n,root_pe)
-  if (mpp_pe()==root_pe) then
+  ! no need to send data to oneself (rab)
+  if (mpp_pe()/=root_pe) then
+     call mpp_send(map%n,root_pe)
+     call mpp_recv(ntot,root_pe, block=.false.)
+     call mpp_sync_self(check=EVENT_RECV)
+  else
      allocate(np(npes))
-     do p = 1,npes
-        call mpp_recv(np(p),pes(p))
+     np(1)=map%n
+     do p = 2,npes
+        call mpp_recv(np(p),pes(p), block=.false.)
      enddo
+     call mpp_sync_self(check=EVENT_RECV)
      ntot = sum(np)
-     do p = 1, npes
+     do p = 2, npes
         call mpp_send(ntot,pes(p))
-        call mpp_sync_self()
      enddo
   endif
-  call mpp_recv(ntot,root_pe)
   
   ! we don't need to do anything if there are no missing points anywhere
   if (ntot==0) return
@@ -814,12 +820,14 @@ subroutine horiz_remap(map,domain,d)
   integer :: i,j,k,n
   integer, allocatable :: ii(:),jj(:)
   real   , allocatable :: buf(:,:)
+  logical :: ltmp
 
   ! get the boundaries of the compute domain, for global->local index
   ! conversion
   call mpp_get_compute_domain(domain, is,ie,js,je)
 
-  __ASSERT__(size(d,1)==ie-is+1.or.size(d,2)==je-js+1,'shape of data must be the same as shape of compute domain')
+  ltmp = size(d,1)==ie-is+1.or.size(d,2)==je-js+1
+  __ASSERT__(ltmp,'shape of data must be the same as shape of compute domain')
 
   ! handle the local points
   do i = 1, map%n
