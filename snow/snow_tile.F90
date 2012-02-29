@@ -52,7 +52,7 @@ end interface
 character(len=*), parameter :: &
      module_name = 'snow_tile_mod' ,&
      version     = '$Id: snow_tile.F90,v 19.0 2012/01/06 20:42:44 fms Exp $' ,&
-     tagname     = '$Name: siena $'
+     tagname     = '$Name: siena_201202 $'
 integer, parameter :: max_lev = 10
 real   , parameter :: t_range = 10.0 ! degK
 

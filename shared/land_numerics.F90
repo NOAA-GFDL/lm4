@@ -54,7 +54,7 @@ logical :: module_is_initialized =.FALSE.
 character(len=*), parameter :: &
      mod_name = 'land_numerics_mod', &
      version  = '$Id: land_numerics.F90,v 19.0 2012/01/06 20:42:03 fms Exp $', &
-     tagname  = '$Name: siena $', &
+     tagname  = '$Name: siena_201202 $', &
      thisfile = __FILE__
 ! ==== public type ===========================================================
 ! this data structure describes the horizontal remapping: that is, the operation 

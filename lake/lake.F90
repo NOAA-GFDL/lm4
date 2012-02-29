@@ -62,7 +62,7 @@ public :: large_dyn_small_stat
 character(len=*), parameter, private   :: &
     module_name = 'lake',&
     version     = '$Id: lake.F90,v 19.0 2012/01/06 20:40:51 fms Exp $',&
-    tagname     = '$Name: siena $'
+    tagname     = '$Name: siena_201202 $'
 
 ! ==== module variables ======================================================
 

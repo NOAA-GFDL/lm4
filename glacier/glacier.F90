@@ -53,7 +53,7 @@ public :: glac_step_2
 character(len=*), parameter :: &
        module_name = 'glacier',&
        version     = '$Id: glacier.F90,v 19.0 2012/01/06 20:40:49 fms Exp $',&
-       tagname     = '$Name: siena $'
+       tagname     = '$Name: siena_201202 $'
  
 ! ==== module variables ======================================================
 

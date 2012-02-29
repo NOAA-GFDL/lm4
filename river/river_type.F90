@@ -27,7 +27,7 @@ module river_type_mod
 
 !--- version information ---------------------------------------------
   character(len=128) :: version = '$Id: river_type.F90,v 18.0 2010/03/02 23:37:04 fms Exp $'
-  character(len=128) :: tagname = '$Name: siena $'
+  character(len=128) :: tagname = '$Name: siena_201202 $'
 
 !--- public interface ------------------------------------------------
   public :: river_type, Leo_Mad_trios

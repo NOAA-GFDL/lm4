@@ -66,7 +66,7 @@ end interface
 character(len=*), parameter :: &
      module_name = 'nf_utils_mod', &
      version     = '$Id: nfu.F90,v 17.0 2009/07/21 03:02:52 fms Exp $', &
-     tagname     = '$Name: siena $'
+     tagname     = '$Name: siena_201202 $'
 
 ! ---- module types ----------------------------------------------------------
 type nfu_validtype
