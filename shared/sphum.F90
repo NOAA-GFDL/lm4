@@ -11,7 +11,7 @@ public :: qscomp
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
    version = '$Id: sphum.F90,v 15.0 2007/08/14 18:48:28 fms Exp $', &
-   tagname = '$Name: siena_201202 $' ,&
+   tagname = '$Name: siena_201203 $' ,&
    module_name = 'vegn'
 real, parameter :: d622 = rdgas/rvgas
 real, parameter :: d378 = 1.0-d622
