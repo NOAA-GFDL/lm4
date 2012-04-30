@@ -70,8 +70,8 @@ public :: soil_step_2
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'soil',&
-    version     = '$Id: soil.F90,v 19.0 2012/01/06 20:42:46 fms Exp $',&
-    tagname     = '$Name: siena_201203 $'
+    version     = '$Id: soil.F90,v 17.0.2.2.2.2 2011/12/16 19:01:57 pjp Exp $',&
+    tagname     = '$Name: siena_201204 $'
 
 ! ==== module variables ======================================================
 
@@ -1672,7 +1672,7 @@ ENDIF                                              ! BYPASS_RICHARDS_WHEN_STIFF
   if(is_watch_point()) then
      write(*,*) ' ***** soil_step_2 checkpoint 3.5 ***** '
      write(*,*) 'hcap', hcap
-     write(*,*) 'cap_flow', cap_flow
+!    write(*,*) 'cap_flow', cap_flow
      do l = 1, num_l
         write(*,*) 'level=', l, ' T', soil%prog(l)%T
      enddo
