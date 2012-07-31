@@ -1,6 +1,8 @@
 module land_tile_io_mod
 
 use mpp_mod, only : mpp_send, mpp_recv, mpp_sync
+use mpp_mod, only : COMM_TAG_1,  COMM_TAG_2,  COMM_TAG_3,  COMM_TAG_4
+use mpp_mod, only : COMM_TAG_5,  COMM_TAG_6,  COMM_TAG_7,  COMM_TAG_8
 use fms_mod, only : error_mesg, FATAL, mpp_pe, get_mosaic_tile_file
 use fms_io_mod, only : get_instance_filename
 use time_manager_mod, only : time_type
@@ -58,8 +60,8 @@ end interface
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land_tile_io_mod', &
-     version     = '$Id: land_tile_io.F90,v 19.0 2012/01/06 20:42:07 fms Exp $', &
-     tagname     = '$Name: siena_201204 $'
+     version     = '$Id: land_tile_io.F90,v 19.0.6.2 2012/05/14 19:16:06 Zhi.Liang Exp $', &
+     tagname     = '$Name: siena_201207 $'
 
 ! name of the "compressed" dimension (and dimension variable) in the output 
 ! netcdf files -- that is, the dimensions written out using compression by 
@@ -72,7 +74,6 @@ integer, parameter :: INPUT_BUF_SIZE=1024 ! size of the input buffer for tile in
 ! ==== NetCDF declarations ===================================================
 include 'netcdf.inc'
 #define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
-
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -158,21 +159,21 @@ subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, tile_dim_lengt
   if (mpp_pe()/=lnd%io_pelist(1)) then
      ! if current PE doesn't do io, we just send the data to the processor that
      ! does
-     call mpp_send(size(tidx), plen=1,          to_pe=lnd%io_pelist(1))
-     call mpp_send(tidx(1),    plen=size(tidx), to_pe=lnd%io_pelist(1))
+     call mpp_send(size(tidx), plen=1,          to_pe=lnd%io_pelist(1), tag=COMM_TAG_1)
+     call mpp_send(tidx(1),    plen=size(tidx), to_pe=lnd%io_pelist(1), tag=COMM_TAG_2)
   else
      ! gather an array of tile sizes from all processors in our io_domain
      allocate(ntiles(size(lnd%io_pelist)))
      ntiles(1) = size(tidx)
      do p = 2,size(lnd%io_pelist)
-        call mpp_recv(ntiles(p), from_pe=lnd%io_pelist(p), glen=1)
+        call mpp_recv(ntiles(p), from_pe=lnd%io_pelist(p), glen=1, tag=COMM_TAG_1)
      enddo
      ! gather tile indices from all processors in our io_domain
      allocate(tidx2(sum(ntiles(:))))
      tidx2(1:ntiles(1))=tidx(:)
      k=ntiles(1)+1
      do p = 2,size(lnd%io_pelist)
-        call mpp_recv(tidx2(k), from_pe=lnd%io_pelist(p), glen=ntiles(p))
+        call mpp_recv(tidx2(k), from_pe=lnd%io_pelist(p), glen=ntiles(p), tag=COMM_TAG_2)
         k = k+ntiles(p)
      enddo
 
@@ -578,14 +579,14 @@ subroutine write_tile_data_i1d(ncid,name,data,mask,long_name,units)
   ! if our PE doesn't do io (that is, it isn't the root io_domain processor),  
   ! simply send the data and mask of valid data to the root IO processor
   if (mpp_pe()/=lnd%io_pelist(1)) then
-     call mpp_send(data(1), plen=size(data), to_pe=lnd%io_pelist(1))
-     call mpp_send(mask(1), plen=size(data), to_pe=lnd%io_pelist(1))
+     call mpp_send(data(1), plen=size(data), to_pe=lnd%io_pelist(1), tag=COMM_TAG_3)
+     call mpp_send(mask(1), plen=size(data), to_pe=lnd%io_pelist(1), tag=COMM_TAG_4)
   else
      ! gather data and masks from all processors in io_domain
      allocate(buffer(size(data)))
      do p = 2,size(lnd%io_pelist)
-        call mpp_recv(buffer(1), glen=size(data), from_pe=lnd%io_pelist(p))
-        call mpp_recv(mask(1),   glen=size(data), from_pe=lnd%io_pelist(p))
+        call mpp_recv(buffer(1), glen=size(data), from_pe=lnd%io_pelist(p), tag=COMM_TAG_3)
+        call mpp_recv(mask(1),   glen=size(data), from_pe=lnd%io_pelist(p), tag=COMM_TAG_4)
         where (mask>0) data = buffer
      enddo
      ! clean up allocated memory
@@ -625,14 +626,14 @@ subroutine write_tile_data_r1d(ncid,name,data,mask,long_name,units)
   ! if our PE doesn't do io (that is, it isn't the root io_domain processor),  
   ! simply send the data and mask of valid data to the root IO processor
   if (mpp_pe()/=lnd%io_pelist(1)) then
-     call mpp_send(data(1), plen=size(data), to_pe=lnd%io_pelist(1))
-     call mpp_send(mask(1), plen=size(data), to_pe=lnd%io_pelist(1))
+     call mpp_send(data(1), plen=size(data), to_pe=lnd%io_pelist(1), tag=COMM_TAG_5)
+     call mpp_send(mask(1), plen=size(data), to_pe=lnd%io_pelist(1), tag=COMM_TAG_6)
   else
      ! gather data and masks from the processors in io_domain
      allocate(buffer(size(data)))
      do p = 2,size(lnd%io_pelist)
-        call mpp_recv(buffer(1), glen=size(data), from_pe=lnd%io_pelist(p))
-        call mpp_recv(mask(1),   glen=size(data), from_pe=lnd%io_pelist(p))
+        call mpp_recv(buffer(1), glen=size(data), from_pe=lnd%io_pelist(p), tag=COMM_TAG_5)
+        call mpp_recv(mask(1),   glen=size(data), from_pe=lnd%io_pelist(p), tag=COMM_TAG_6)
         where(mask>0) data = buffer
      enddo
      ! clean up allocated memory
@@ -676,14 +677,14 @@ subroutine write_tile_data_r2d(ncid,name,data,mask,zdim,long_name,units)
   ! if our PE doesn't do io (that is, it isn't the root io_domain processor),  
   ! simply send the data and mask of valid data to the root IO processor
   if (mpp_pe()/=lnd%io_pelist(1)) then
-     call mpp_send(data(1,1), plen=size(data),   to_pe=lnd%io_pelist(1))
-     call mpp_send(mask(1),   plen=size(data,1), to_pe=lnd%io_pelist(1))
+     call mpp_send(data(1,1), plen=size(data),   to_pe=lnd%io_pelist(1), tag=COMM_TAG_7)
+     call mpp_send(mask(1),   plen=size(data,1), to_pe=lnd%io_pelist(1), tag=COMM_TAG_8)
   else
      allocate(buffer(size(data,1),size(data,2)))
      ! gather data and masks from the processors in our io_domain
      do p = 2,size(lnd%io_pelist)
-        call mpp_recv(buffer(1,1), glen=size(data),   from_pe=lnd%io_pelist(p))
-        call mpp_recv(mask(1),     glen=size(data,1), from_pe=lnd%io_pelist(p))
+        call mpp_recv(buffer(1,1), glen=size(data),   from_pe=lnd%io_pelist(p), tag=COMM_TAG_7)
+        call mpp_recv(mask(1),     glen=size(data,1), from_pe=lnd%io_pelist(p), tag=COMM_TAG_8)
         do i=1,size(data,1)
            if(mask(i)>0) data(i,:) = buffer(i,:)
         enddo

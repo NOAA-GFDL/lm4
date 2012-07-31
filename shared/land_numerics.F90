@@ -13,7 +13,13 @@ module land_numerics_mod
 use fms_mod, only: error_mesg, FATAL, NOTE, write_version_number, mpp_pe, &
      stdout
 use mpp_mod, only: mpp_npes, mpp_get_current_pelist, mpp_send, mpp_recv, &
-     mpp_sync, mpp_sync_self, mpp_transmit, EVENT_RECV
+     mpp_sync, mpp_sync_self, EVENT_RECV, COMM_TAG_1,  COMM_TAG_2,       &
+     COMM_TAG_3,  COMM_TAG_4, COMM_TAG_5,  COMM_TAG_6, COMM_TAG_7,       &
+     COMM_TAG_8, COMM_TAG_9,  COMM_TAG_10, COMM_TAG_11,  COMM_TAG_12,    &
+     COMM_TAG_13, COMM_TAG_14,  COMM_TAG_15, COMM_TAG_16,  COMM_TAG_17,    &
+     COMM_TAG_18, COMM_TAG_19,  COMM_TAG_20
+
+
 use mpp_domains_mod, only : domain2d, mpp_get_compute_domain, &
      mpp_get_global_domain
 
@@ -53,8 +59,8 @@ logical :: module_is_initialized =.FALSE.
 ! module constants
 character(len=*), parameter :: &
      mod_name = 'land_numerics_mod', &
-     version  = '$Id: land_numerics.F90,v 19.0 2012/01/06 20:42:03 fms Exp $', &
-     tagname  = '$Name: siena_201204 $', &
+     version  = '$Id: land_numerics.F90,v 19.0.4.2 2012/05/14 19:13:46 Zhi.Liang Exp $', &
+     tagname  = '$Name: siena_201207 $', &
      thisfile = __FILE__
 ! ==== public type ===========================================================
 ! this data structure describes the horizontal remapping: that is, the operation 
@@ -78,6 +84,7 @@ type :: horiz_remap_type
        srcPE(:) => NULL(), & ! PE that provides the data
        dstPE(:) => NULL()    ! PE that requests and then uses the data
 end type horiz_remap_type
+
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -623,22 +630,21 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
   ! array of point numbers per PE on root PE
   ! no need to send data to oneself (rab)
   if (mpp_pe()/=root_pe) then
-     call mpp_send(map%n,root_pe)
-     call mpp_recv(ntot,root_pe, block=.false.)
-     call mpp_sync_self(check=EVENT_RECV)
+     call mpp_send(map%n,root_pe,tag=COMM_TAG_1)
+     call mpp_recv(ntot,root_pe,tag=COMM_TAG_2)
   else
      allocate(np(npes))
      np(1)=map%n
      do p = 2,npes
-        call mpp_recv(np(p),pes(p), block=.false.)
+        call mpp_recv(np(p),pes(p),tag=COMM_TAG_1)
      enddo
-     call mpp_sync_self(check=EVENT_RECV)
      ntot = sum(np)
      do p = 2, npes
-        call mpp_send(ntot,pes(p))
+        call mpp_send(ntot,pes(p),tag=COMM_TAG_2)
      enddo
   endif
   
+  call mpp_sync_self()
   ! we don't need to do anything if there are no missing points anywhere
   if (ntot==0) return
   
@@ -664,14 +670,14 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
   ! arrays of point coordinates in return
   if (mpp_pe()/=root_pe) then
      ! non-root PE sends its data to the root
-     call mpp_send(map%n,root_pe)
+     call mpp_send(map%n,root_pe, tag=COMM_TAG_3)
      if (map%n>0) then
-        call mpp_send(glon(1), plen=map%n, to_pe=root_pe)
-        call mpp_send(glat(1), plen=map%n, to_pe=root_pe)
+        call mpp_send(glon(1), plen=map%n, to_pe=root_pe, tag=COMM_TAG_4)
+        call mpp_send(glat(1), plen=map%n, to_pe=root_pe, tag=COMM_TAG_5)
      endif
      ! and then receives the global data in response
-     call mpp_recv(glon(1),glen=ntot,from_pe=root_pe)
-     call mpp_recv(glat(1),glen=ntot,from_pe=root_pe)
+     call mpp_recv(glon(1),glen=ntot,from_pe=root_pe, tag=COMM_TAG_6)
+     call mpp_recv(glat(1),glen=ntot,from_pe=root_pe, tag=COMM_TAG_7)
   else
      ! root PE receives data from all PEs and assembles global coordinate arrays 
      ! in the order of PEs in the list, except that it puts its own data first.
@@ -679,10 +685,10 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
      k=map%n+1
      do p = 1,npes 
         if (pes(p)==root_pe) cycle
-        call mpp_recv(n1,pes(p))
+        call mpp_recv(n1,pes(p), tag=COMM_TAG_3)
         if (n1>0) then
-           call mpp_recv(glon(k),glen=n1,from_pe=pes(p))
-           call mpp_recv(glat(k),glen=n1,from_pe=pes(p))
+           call mpp_recv(glon(k),glen=n1,from_pe=pes(p), tag=COMM_TAG_4)
+           call mpp_recv(glat(k),glen=n1,from_pe=pes(p), tag=COMM_TAG_5)
            from_pe(k:k+n1-1)=pes(p)
         endif
         k = k+n1
@@ -690,11 +696,11 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
      ! then it distributes the resulting array among PEs
      do p = 1,npes
         if (pes(p)==root_pe) cycle
-        call mpp_send(glon(1),plen=ntot,to_pe=pes(p))
-        call mpp_send(glat(1),plen=ntot,to_pe=pes(p))
-        call mpp_sync_self()
+        call mpp_send(glon(1),plen=ntot,to_pe=pes(p), tag=COMM_TAG_6)
+        call mpp_send(glat(1),plen=ntot,to_pe=pes(p), tag=COMM_TAG_7)
      enddo
   endif
+  call mpp_sync_self()
 
   ! [x] find the nearest points in the domain
   do k = 1, ntot
@@ -707,22 +713,22 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
   ! the global minimum distance
   if (mpp_pe()/=root_pe) then
      ! non-root PE just sends the data
-     call mpp_send(ii(1)  ,plen=ntot,to_pe=root_pe)
-     call mpp_send(jj(1)  ,plen=ntot,to_pe=root_pe)
-     call mpp_send(dist(1),plen=ntot,to_pe=root_pe)
+     call mpp_send(ii(1)  ,plen=ntot,to_pe=root_pe, tag=COMM_TAG_8)
+     call mpp_send(jj(1)  ,plen=ntot,to_pe=root_pe, tag=COMM_TAG_9)
+     call mpp_send(dist(1),plen=ntot,to_pe=root_pe, tag=COMM_TAG_10)
      ! and receives the updated data in response
      if(map%n>0) then
         ! receive the nearest point locations and PEs
-        call mpp_recv(map%src_i(1),glen=map%n,from_pe=root_pe)
-        call mpp_recv(map%src_j(1),glen=map%n,from_pe=root_pe)
-        call mpp_recv(map%src_p(1),glen=map%n,from_pe=root_pe)
+        call mpp_recv(map%src_i(1),glen=map%n,from_pe=root_pe, tag=COMM_TAG_11)
+        call mpp_recv(map%src_j(1),glen=map%n,from_pe=root_pe, tag=COMM_TAG_12)
+        call mpp_recv(map%src_p(1),glen=map%n,from_pe=root_pe, tag=COMM_TAG_13)
      endif
      ! receive communication map
-     call mpp_recv(map%mapSize,glen=1,from_pe=root_pe)
+     call mpp_recv(map%mapSize,glen=1,from_pe=root_pe, tag=COMM_TAG_14)
      if (map%mapSize>0) then
         allocate (map%srcPE(map%mapSize),map%dstPE(map%mapSize))
-        call mpp_recv(map%srcPE(1),glen=map%mapSize,from_pe=root_pe)
-        call mpp_recv(map%dstPE(1),glen=map%mapSize,from_pe=root_pe)
+        call mpp_recv(map%srcPE(1),glen=map%mapSize,from_pe=root_pe, tag=COMM_TAG_15)
+        call mpp_recv(map%dstPE(1),glen=map%mapSize,from_pe=root_pe, tag=COMM_TAG_16)
      endif
   else
      ! root PE does the bulk of processing: it assembles all the data
@@ -736,9 +742,9 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
      from_pe(:) = root_pe
      do p = 1,npes
         if (pes(p)==root_pe) cycle
-        call mpp_recv(ibuf(1),glen=ntot,from_pe=pes(p))
-        call mpp_recv(jbuf(1),glen=ntot,from_pe=pes(p))
-        call mpp_recv(dbuf(1),glen=ntot,from_pe=pes(p))
+        call mpp_recv(ibuf(1),glen=ntot,from_pe=pes(p), tag=COMM_TAG_8)
+        call mpp_recv(jbuf(1),glen=ntot,from_pe=pes(p), tag=COMM_TAG_9)
+        call mpp_recv(dbuf(1),glen=ntot,from_pe=pes(p), tag=COMM_TAG_10)
         do k = 1,ntot
            ! to avoid dependence on the order of operations, give preference
            ! to the lowest leftmost point among the equidistant points
@@ -781,15 +787,15 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
         if (pes(p)==root_pe) cycle
         if (np(p)>0) then
            ! send nearest point location
-           call mpp_send(ii(k),plen=np(p),to_pe=pes(p))
-           call mpp_send(jj(k),plen=np(p),to_pe=pes(p))
-           call mpp_send(from_pe(k),plen=np(p),to_pe=pes(p))
+           call mpp_send(ii(k),plen=np(p),to_pe=pes(p), tag=COMM_TAG_11)
+           call mpp_send(jj(k),plen=np(p),to_pe=pes(p), tag=COMM_TAG_12)
+           call mpp_send(from_pe(k),plen=np(p),to_pe=pes(p), tag=COMM_TAG_13)
         endif
         ! broadcast comm. map
-        call mpp_send(map%mapSize,plen=1,to_pe=pes(p))
+        call mpp_send(map%mapSize,plen=1,to_pe=pes(p), tag=COMM_TAG_14)
         if (map%mapSize>0) then
-           call mpp_send(map%srcPE(1),plen=map%mapSize,to_pe=pes(p))
-           call mpp_send(map%dstPE(1),plen=map%mapSize,to_pe=pes(p))
+           call mpp_send(map%srcPE(1),plen=map%mapSize,to_pe=pes(p), tag=COMM_TAG_15)
+           call mpp_send(map%dstPE(1),plen=map%mapSize,to_pe=pes(p), tag=COMM_TAG_16)
         endif
         call mpp_sync_self()
         k = k+np(p)
@@ -841,11 +847,11 @@ subroutine horiz_remap(map,domain,d)
   do k = 1, map%mapSize
      if (map%srcPE(k)==mpp_pe()) then
         ! get the size of the data from the other PE
-        call mpp_recv(n,map%dstPE(k))
+        call mpp_recv(n,map%dstPE(k), tag=COMM_TAG_17)
         allocate(ii(n),jj(n),buf(n,size(d,3)))
         ! get the indices
-        call mpp_recv(ii(1),glen=n,from_pe=map%dstPE(k))
-        call mpp_recv(jj(1),glen=n,from_pe=map%dstPE(k))
+        call mpp_recv(ii(1),glen=n,from_pe=map%dstPE(k), tag=COMM_TAG_18)
+        call mpp_recv(jj(1),glen=n,from_pe=map%dstPE(k), tag=COMM_TAG_19)
         ! fill the buffer
         do i = 1,n
            if(ii(i)<is.or.ii(i)>ie) call error_mesg('distr_fill','requested index i outside of domain', FATAL)
@@ -853,7 +859,7 @@ subroutine horiz_remap(map,domain,d)
            buf(i,:) = d(ii(i)-is+1,jj(i)-js+1,:)
         enddo
         ! send the buffer
-        call mpp_send(buf(1,1),plen=size(buf),to_pe=map%dstPE(k))
+        call mpp_send(buf(1,1),plen=size(buf),to_pe=map%dstPE(k), tag=COMM_TAG_20)
         call mpp_sync_self()
         deallocate (ii,jj,buf)
      else if (map%dstPE(k)==mpp_pe()) then
@@ -868,13 +874,12 @@ subroutine horiz_remap(map,domain,d)
            endif
         enddo
         ! send the data request
-        call mpp_send(n,map%srcPE(k))
-        call mpp_send(ii(1),plen=n,to_pe=map%srcPE(k))
-        call mpp_send(jj(1),plen=n,to_pe=map%srcPE(k))
-        call mpp_sync_self()
+        call mpp_send(n,map%srcPE(k), tag=COMM_TAG_17)
+        call mpp_send(ii(1),plen=n,to_pe=map%srcPE(k), tag=COMM_TAG_18)
+        call mpp_send(jj(1),plen=n,to_pe=map%srcPE(k), tag=COMM_TAG_19)
 
         ! get the response
-        call mpp_recv(buf(1,1),glen=size(buf),from_pe=map%srcPE(k))
+        call mpp_recv(buf(1,1),glen=size(buf),from_pe=map%srcPE(k), tag=COMM_TAG_20)
         ! fill the data 
         j = 1
         do i = 1,map%n

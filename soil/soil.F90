@@ -71,7 +71,7 @@ public :: soil_step_2
 character(len=*), parameter, private   :: &
     module_name = 'soil',&
     version     = '$Id: soil.F90,v 17.0.2.2.2.2 2011/12/16 19:01:57 pjp Exp $',&
-    tagname     = '$Name: siena_201204 $'
+    tagname     = '$Name: siena_201207 $'
 
 ! ==== module variables ======================================================
 

@@ -25,6 +25,7 @@ module river_physics_mod
   use mpp_mod,         only : mpp_sync_self, mpp_send, mpp_recv, EVENT_RECV, EVENT_SEND
   use mpp_mod,         only : mpp_npes, mpp_error, FATAL, mpp_get_current_pelist
   use mpp_mod,         only : mpp_root_pe, mpp_pe, mpp_max
+  use mpp_mod,         only : COMM_TAG_1, COMM_TAG_2, COMM_TAG_3, COMM_TAG_4
   use mpp_domains_mod, only : domain2d, mpp_get_compute_domain, mpp_get_data_domain
   use mpp_domains_mod, only : ZERO, NINETY, MINUS_NINETY, mpp_update_domains 
   use mpp_domains_mod, only : mpp_get_compute_domains
@@ -45,8 +46,8 @@ module river_physics_mod
   real    :: missing = -1.e8
 
 !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id: river_physics.F90,v 19.0 2012/01/06 20:40:57 fms Exp $'
-  character(len=128) :: tagname = '$Name: siena_201204 $'
+  character(len=128) :: version = '$Id: river_physics.F90,v 19.0.4.2 2012/05/14 19:11:07 Zhi.Liang Exp $'
+  character(len=128) :: tagname = '$Name: siena_201207 $'
 
 
 ! ---- public interfaces -----------------------------------------------------
@@ -558,7 +559,7 @@ contains
           call mpp_get_overlap(domain, EVENT_SEND, p, is1_send(p,1:send_count(p)), ie1_send(p,1:send_count(p)), &
                js1_send(p,1:send_count(p)), je1_send(p,1:send_count(p)), dir_send(p,1:send_count(p)), &
                rot_send(p,1:send_count(p)) )
-          call mpp_recv(rbuf(rpos+1), glen=4*send_count(p), from_pe=pelist_s(p), block=.FALSE.)
+          call mpp_recv(rbuf(rpos+1), glen=4*send_count(p), from_pe=pelist_s(p), block=.FALSE., tag=COMM_TAG_1)
           rpos = rpos + 4*send_count(p)
        enddo
     endif
@@ -582,7 +583,7 @@ contains
              sbuf(spos+(n-1)*4+3) = js_recv(p,n)
              sbuf(spos+(n-1)*4+4) = je_recv(p,n)
           end do
-          call mpp_send(sbuf(spos+1), plen = 4*recv_count(p), to_pe = pelist_r(p) )
+          call mpp_send(sbuf(spos+1), plen = 4*recv_count(p), to_pe = pelist_r(p), tag=COMM_TAG_1)
           spos = spos + 4*recv_count(p)
        end do
     endif
@@ -1066,7 +1067,7 @@ contains
     !--- the following is for the purpose of bitwise reproduce between processor count
     if(nrecv_update>0) allocate(recv_size2(nrecv_update))
     do p=1, nrecv_update
-       call mpp_recv(recv_size2(p), glen = 1, from_pe = recv_pelist(p), block=.FALSE. )
+       call mpp_recv(recv_size2(p), glen = 1, from_pe = recv_pelist(p), block=.FALSE., tag=COMM_TAG_2 )
     enddo
 
     do p= 1, nsend_update
@@ -1074,7 +1075,7 @@ contains
        do m = 1, maxtravel
           msgsize = msgsize + 2*halo_update(m)%send(p)%count
        enddo
-       call mpp_send(msgsize, plen = 1, to_pe = send_pelist(p))
+       call mpp_send(msgsize, plen = 1, to_pe = send_pelist(p), tag=COMM_TAG_2)
     enddo
 
     call mpp_sync_self(check=EVENT_RECV)
@@ -1100,7 +1101,7 @@ contains
     pos = 0
     do p=1, nrecv_update
        if(recv_size2(p) >0) then
-          call mpp_recv(recv_buffer(pos+1), glen = recv_size2(p), from_pe = recv_pelist(p), block=.FALSE. )
+          call mpp_recv(recv_buffer(pos+1), glen = recv_size2(p), from_pe = recv_pelist(p), block=.FALSE., tag=COMM_TAG_3 )
           pos = pos + recv_size2(p)
        endif
     enddo
@@ -1125,7 +1126,7 @@ contains
        end do
        msgsize = pos - buffer_pos
        if(msgsize >0) then
-          call mpp_send(send_buffer(buffer_pos+1), plen = msgsize, to_pe = send_pelist(p))
+          call mpp_send(send_buffer(buffer_pos+1), plen = msgsize, to_pe = send_pelist(p), tag=COMM_TAG_3)
        end if      
     end do
 
@@ -1232,7 +1233,7 @@ contains
         recv => update%recv(p)
         count = recv%count
         if(count == 0) cycle
-        call mpp_recv(recv_buffer(pos+1), glen=count*(num_species+1), from_pe=recv%pe, block=.FALSE. ) 
+        call mpp_recv(recv_buffer(pos+1), glen=count*(num_species+1), from_pe=recv%pe, block=.FALSE., tag=COMM_TAG_4 )            
         pos = pos + count*(num_species+1)
      enddo
      recv_buffer_pos = pos
@@ -1254,7 +1255,7 @@ contains
               send_buffer(pos) = River%outflow_c(i,j,l)
            end do
         end do
-        call mpp_send(send_buffer(buffer_pos+1), plen=count*(num_species+1), to_pe = send%pe ) 
+        call mpp_send(send_buffer(buffer_pos+1), plen=count*(num_species+1), to_pe = send%pe, tag=COMM_TAG_4 ) 
      end do
 
      call mpp_sync_self(check=EVENT_RECV)

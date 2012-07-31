@@ -1,8 +1,8 @@
 module cohort_io_mod
 
 use fms_mod,          only : error_mesg, FATAL, WARNING
-use mpp_mod,          only : mpp_pe, mpp_max, mpp_send, mpp_recv, mpp_sync
-
+use mpp_mod,          only : mpp_pe, mpp_max, mpp_send, mpp_recv, mpp_sync, &
+                             COMM_TAG_1, COMM_TAG_2
 use nf_utils_mod,     only : nfu_inq_dim, nfu_get_var, nfu_put_var, &
      nfu_get_rec, nfu_put_rec, nfu_def_dim, nfu_def_var, nfu_put_att, &
      nfu_inq_var
@@ -32,8 +32,8 @@ public :: write_cohort_data_i0d_fptr
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'cohort_io_mod', &
-     version     = '$Id: vegn_cohort_io.F90,v 19.0 2012/01/06 20:43:58 fms Exp $', &
-     tagname     = '$Name: siena_201204 $'
+     version     = '$Id: vegn_cohort_io.F90,v 19.0.4.2 2012/05/14 19:18:34 Zhi.Liang Exp $', &
+     tagname     = '$Name: siena_201207 $'
 ! name of the "compressed" dimension (and dimension variable) in the output 
 ! netcdf files -- that is, the dimensions written out using compression by 
 ! gathering, as described in CF conventions.
@@ -207,21 +207,21 @@ subroutine create_cohort_dimension(ncid)
   if (mpp_pe()/=lnd%io_pelist(1)) then
      ! if this processor is not doing io (that is, it's not root io_domain
      ! processor), simply send the data to the root io_domain PE
-     call mpp_send(size(idx), plen=1,         to_pe=lnd%io_pelist(1))
-     call mpp_send(idx(1),    plen=size(idx), to_pe=lnd%io_pelist(1))
+     call mpp_send(size(idx), plen=1,         to_pe=lnd%io_pelist(1), tag=COMM_TAG_1)
+     call mpp_send(idx(1),    plen=size(idx), to_pe=lnd%io_pelist(1), tag=COMM_TAG_2)
   else
      ! gather the array of cohort index sizes
      allocate(ncohorts(size(lnd%io_pelist)))
      ncohorts(1) = size(idx)
      do p = 2,size(lnd%io_pelist)
-        call mpp_recv(ncohorts(p), from_pe=lnd%io_pelist(p), glen=1)
+        call mpp_recv(ncohorts(p), from_pe=lnd%io_pelist(p), glen=1, tag=COMM_TAG_1)
      enddo
      ! gather cohort index from the processors in our io_domain
      allocate(idx2(sum(ncohorts(:))))
      idx2(1:ncohorts(1))=idx(:)
      k=ncohorts(1)+1
      do p = 2,size(lnd%io_pelist)
-        call mpp_recv(idx2(k), from_pe=lnd%io_pelist(p), glen=ncohorts(p))
+        call mpp_recv(idx2(k), from_pe=lnd%io_pelist(p), glen=ncohorts(p), tag=COMM_TAG_2)
         k = k+ncohorts(p)
      enddo
      ! create cohort dimension in the output file
