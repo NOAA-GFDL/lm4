@@ -38,8 +38,8 @@ public :: check_temp_range
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'land_debug',&
-    version     = '$Id: land_debug.F90,v 19.0 2012/01/06 20:41:29 fms Exp $',&
-    tagname     = '$Name: siena_201207 $'
+    version     = '$Id: land_debug.F90,v 19.0.4.1 2012/08/08 17:02:38 William.Cooke Exp $',&
+    tagname     = '$Name: siena_201211 $'
 
 ! ==== module variables ======================================================
 integer, allocatable :: current_debug_level(:)
@@ -206,7 +206,7 @@ subroutine check_temp_range(temp, tag, varname)
      thread = 1
 !$   thread = OMP_GET_THREAD_NUM()+1
      call get_date(lnd%time,y,mo,d,h,m,s)
-     write(*,'(a," : ",a,g,4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
+     write(*,'(a," : ",a,g23.16,4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
           trim(tag), trim(varname)//' out of range: value=', &
          temp,'at i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
          'time=',y,mo,d,h,m,s

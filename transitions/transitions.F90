@@ -67,8 +67,8 @@ public :: land_transitions
 
 ! ==== module constants =====================================================
 character(len=*), parameter   :: &
-     version = '$Id: transitions.F90,v 19.0 2012/01/06 20:43:22 fms Exp $', &
-     tagname = '$Name: siena_201207 $', &
+     version = '$Id: transitions.F90,v 19.0.4.1 2012/08/08 17:02:38 William.Cooke Exp $', &
+     tagname = '$Name: siena_201211 $', &
      module_name = 'land_transitions_mod', &
      diag_mod_name = 'landuse'
 ! selectors for overshoot handling options, for efficiency
@@ -465,7 +465,7 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
         if (.not.associated(ptr%vegn)) cycle
         write(*,*)'landuse=',ptr%vegn%landuse,' area=',ptr%frac
      enddo
-     write(*,'(a,g)')'total area=',atot
+     write(*,'(a,g23.16)')'total area=',atot
   endif
 
   ! split each donor tile and gather the parts that undergo a 
@@ -486,17 +486,17 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      do while (ts /= te)
         ptr=>current_tile(ts); ts=next_elmt(ts)
         if (.not.associated(ptr%vegn)) cycle
-        write(*,'(2(a,g,2x))')'   donor: landuse=',ptr%vegn%landuse,' area=',ptr%frac
+        write(*,'(2(a,g23.16,2x))')'   donor: landuse=',ptr%vegn%landuse,' area=',ptr%frac
         atot = atot + ptr%frac
      enddo
      ts = first_elmt(a_list); te=tail_elmt(a_list)
      do while (ts /= te)
         ptr=>current_tile(ts); ts=next_elmt(ts)
         if (.not.associated(ptr%vegn)) cycle
-        write(*,'(2(a,g,2x))')'acceptor: landuse=',ptr%vegn%landuse,' area=',ptr%frac
+        write(*,'(2(a,g23.16,2x))')'acceptor: landuse=',ptr%vegn%landuse,' area=',ptr%frac
         atot = atot + ptr%frac
      enddo
-     write(*,'(a,g)')'total area=',atot
+     write(*,'(a,g23.16)')'total area=',atot
   endif
 
   ! move all tiles from the donor list to the acceptor list -- this will ensure
@@ -535,10 +535,10 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      do while (ts /= te)
         ptr=>current_tile(ts); ts=next_elmt(ts)
         if (.not.associated(ptr%vegn)) cycle
-        write(*,'(2(a,g,2x))')'landuse=',ptr%vegn%landuse,' area=',ptr%frac
+        write(*,'(2(a,g23.16,2x))')'landuse=',ptr%vegn%landuse,' area=',ptr%frac
         atot = atot + ptr%frac
      enddo
-     write(*,'(a,g)')'total area=',atot
+     write(*,'(a,g23.16)')'total area=',atot
   endif
 
   ! conservation check part 2: calculate grid cell totals in final state, and 
@@ -881,7 +881,7 @@ subroutine check_conservation(name, d1, d2, tolerance)
   
   if (abs(d1-d2)>tolerance) then
      call get_current_point(i=curr_i,j=curr_j,face=face)
-     write(message,'(a,3(x,a,i4), 2(x,a,g))')&
+     write(message,'(a,3(x,a,i4), 2(x,a,g23.16))')&
           'conservation of '//trim(name)//' is violated', &
           'at i=',curr_i,'j=',curr_j,'face=',face, &
           'value before=', d1, 'after=', d2

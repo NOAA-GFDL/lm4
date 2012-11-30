@@ -27,8 +27,8 @@ public :: darcy2d_uptake_lin, darcy2d_uptake_solver_lin
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'uptake',&
-    version     = '$Id: uptake.F90,v 17.0 2009/07/21 03:03:04 fms Exp $',&
-    tagname     = '$Name: siena_201207 $'
+    version     = '$Id: uptake.F90,v 17.0.18.1 2012/08/08 17:02:38 William.Cooke Exp $',&
+    tagname     = '$Name: siena_201211 $'
 
 ! values for internal soil uptake option selector
 integer, parameter ::   &
@@ -224,7 +224,7 @@ subroutine darcy2d_uptake ( soil, psi_x0, VRL, K_r, r_r, uptake_oneway, &
      ! from the current soil layer
      uptake(l)  = VRL(l)*dz(l)*u ; duptake(l) = VRL(l)*dz(l)*du
      if(is_watch_point()) then
-        write(*,'(a,i2.2,100(2x,a,g))')'level=',l, &
+        write(*,'(a,i2.2,100(2x,a,g23.16))')'level=',l, &
              'VRL=', VRL(l), 'R=', R,&
              'psi_x=', psi_x, 'psi_r=', psi_r, 'psi_soil=', psi_soil, &
              'U=',u,&

@@ -47,7 +47,7 @@ module river_physics_mod
 
 !--- version information ---------------------------------------------
   character(len=128) :: version = '$Id: river_physics.F90,v 19.0.4.2 2012/05/14 19:11:07 Zhi.Liang Exp $'
-  character(len=128) :: tagname = '$Name: siena_201207 $'
+  character(len=128) :: tagname = '$Name: siena_201211 $'
 
 
 ! ---- public interfaces -----------------------------------------------------

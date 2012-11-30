@@ -51,8 +51,8 @@ public :: snow_step_2
 ! ==== module variables ======================================================
 character(len=*), parameter, private   :: &
        module_name = 'snow_mod' ,&
-       version     = '$Id: snow.F90,v 19.0 2012/01/06 20:42:42 fms Exp $' ,&
-       tagname     = '$Name: siena_201207 $'
+       version     = '$Id: snow.F90,v 19.0.4.1 2012/08/08 17:02:38 William.Cooke Exp $' ,&
+       tagname     = '$Name: siena_201211 $'
 
 ! ==== module variables ======================================================
 
@@ -481,7 +481,7 @@ end subroutine snow_step_1
 
      write(*,*) 'depth   ', depth
      do l = 1, num_l
-        write(*,'(i2,3(x,a,g))') l,&
+        write(*,'(i2,3(x,a,g23.16))') l,&
              ' wl=', snow%prog(l)%wl,&
              ' ws=', snow%prog(l)%ws,&
              ' T =', snow%prog(l)%T
@@ -566,7 +566,7 @@ end subroutine snow_step_1
   if(is_watch_point()) then
      write(*,*) ' ***** snow_step_2 checkpoint 2 ***** '
      do l = 1, num_l
-        write(*,'(i2,a,g)') l,' T =', snow%prog(l)%T
+        write(*,'(i2,a,g23.16)') l,' T =', snow%prog(l)%T
      enddo
   endif
 
@@ -603,7 +603,7 @@ end subroutine snow_step_1
   if(is_watch_point()) then
      write(*,*) ' ***** snow_step_2 checkpoint 2.5 ***** '
      do l = 1, num_l
-        write(*,'(i2,3(a,g))')l,&
+        write(*,'(i2,3(a,g23.16))')l,&
              ' wl=', snow%prog(l)%wl,&
              ' ws=', snow%prog(l)%ws,&
              ' T =', snow%prog(l)%T
@@ -657,7 +657,7 @@ end subroutine snow_step_1
   if(is_watch_point()) then
      write(*,*) ' ***** snow_step_2 checkpoint 3 ***** '
      do l = 1, num_l
-        write(*,'(i2,3(a,g))') l,&
+        write(*,'(i2,3(a,g23.16))') l,&
              ' wl=', snow%prog(l)%wl,&
              ' ws=', snow%prog(l)%ws,&
              '  T=', snow%prog(l)%T
@@ -709,7 +709,7 @@ end subroutine snow_step_1
 
     if(is_watch_point()) then
        write(*,*) ' ***** snow_step_2 checkpoint 4a ***** '
-       write(*,'(i2,3(a,g))') l,&
+       write(*,'(i2,3(a,g23.16))') l,&
             ' wl=', snow%prog(l)%wl,&
             ' ws=', snow%prog(l)%ws,&
             '  T=', snow%prog(l)%T
@@ -737,7 +737,7 @@ end subroutine snow_step_1
 
    if(is_watch_point()) then
       write(*,*) ' ***** snow_step_2 checkpoint 4b ***** '
-      write(*,'(i2,3(a,g))')l,&
+      write(*,'(i2,3(a,g23.16))')l,&
             ' wl=', snow%prog(l)%wl,&
             ' ws=', snow%prog(l)%ws,&
             '  T=', snow%prog(l)%T
@@ -838,7 +838,7 @@ end subroutine snow_step_1
      write(*,*) ' ***** snow_step_2 checkpoint 5 ***** '
      write(*,*) 'fict_heat         ', fict_heat
      do l = 1, num_l
-        write(*,'(i2,3(a,g))')l,&
+        write(*,'(i2,3(a,g23.16))')l,&
              ' wl=', snow%prog(l)%wl,&
              ' ws=', snow%prog(l)%ws,&
              ' T =', snow%prog(l)%T 
@@ -923,7 +923,7 @@ end subroutine snow_step_1
      write(*,*) 'depth             ', depth
      write(*,*) 'fict_heat         ', fict_heat
      do l = 1, num_l
-        write(*,'(i2,3(a,g))')l,&
+        write(*,'(i2,3(a,g23.16))')l,&
              ' new_wl=', new_prog(l)%wl,&
              ' new_ws=', new_prog(l)%ws,&
              ' new_T =', new_prog(l)%T 
@@ -950,7 +950,7 @@ end subroutine snow_step_1
      write(*,*) 'snow_lprec', snow_lprec
      write(*,*) 'depth        ', depth
      do l = 1, num_l
-        write(*,'(i2,3(a,g))')l,&
+        write(*,'(i2,3(a,g23.16))')l,&
              ' wl=', snow%prog(l)%wl,&
              ' ws=', snow%prog(l)%ws,&
              ' T =', snow%prog(l)%T 

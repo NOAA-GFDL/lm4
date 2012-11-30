@@ -40,7 +40,7 @@ public :: update_biomass_pools
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      version = '$Id: vegn_cohort.F90,v 19.0 2012/01/06 20:43:56 fms Exp $', &
-     tagname = '$Name: siena_201207 $'
+     tagname = '$Name: siena_201211 $'
 
 ! ==== types =================================================================
 type :: vegn_phys_prog_type

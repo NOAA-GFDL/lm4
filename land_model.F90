@@ -63,6 +63,7 @@ use snow_tile_mod, only : snow_tile_stock_pe, snow_tile_heat
 use land_numerics_mod, only : ludcmp, lubksb, nearest, &
      horiz_remap_type, horiz_remap_new, horiz_remap, horiz_remap_del, &
      horiz_remap_print
+use land_io_mod, only : read_land_io_namelist
 use land_tile_mod, only : land_tile_type, land_tile_list_type, &
      land_tile_enum_type, new_land_tile, insert, nitems, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
@@ -109,8 +110,8 @@ public :: Lnd_stock_pe          ! return stocks of conservative quantities
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land', &
-     version     = '$Id: land_model.F90,v 19.0 2012/01/06 20:40:09 fms Exp $', &
-     tagname     = '$Name: siena_201207 $'
+     version     = '$Id: land_model.F90,v 19.0.12.2 2012/08/29 18:03:40 z1l Exp $', &
+     tagname     = '$Name: siena_201211 $'
 
 ! ==== module variables ======================================================
 
@@ -304,6 +305,7 @@ subroutine land_model_init &
   endif
   ! [2.2] read sub-model namelists: then need to be read before initialization
   ! because they can affect the way cover and tiling is initialized on cold start.
+  call read_land_io_namelist()
   call read_soil_namelist()
   call read_vegn_namelist()
   call read_lake_namelist()
@@ -584,7 +586,7 @@ subroutine land_cover_cold_start(lnd)
   if (face==lnd%face.and.(lnd%is<=i.and.i<=lnd%ie).and.(lnd%js<=j.and.j<=lnd%je)) then
      write(*,*)'###### land_cover_cold_start: input data #####'
      write(*,'(99(a,i4.2,x))')'i=',i,'j=',j,'face=',lnd%face
-     write(*,'(99(a,g,x))')'lon=',lnd%lon(i,j)*180/PI,'lat=',lnd%lat(i,j)*180/PI
+     write(*,'(99(a,g23.16,x))')'lon=',lnd%lon(i,j)*180/PI,'lat=',lnd%lat(i,j)*180/PI
      ! calculate local compute domain indices; we assume glac,lake,soil,vegn all
      ! have the same lbounds
      i0 = i-lnd%is+lbound(glac,1); j0 = j-lnd%js+lbound(glac,2)
@@ -1487,7 +1489,7 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   if(is_watch_point()) then
      write(*,*)'#### A, B0, B1, B2 ####'
      do ii = 1, size(A,1)
-        write(*,'(99g)')(A(ii,jj),jj=1,size(A,2)),B0(ii),B1(ii),B2(ii)
+        write(*,'(99g23.16)')(A(ii,jj),jj=1,size(A,2)),B0(ii),B1(ii),B2(ii)
      enddo
   endif
 

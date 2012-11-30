@@ -65,8 +65,8 @@ end interface
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: &
      module_name = 'nf_utils_mod', &
-     version     = '$Id: nfu.F90,v 17.0 2009/07/21 03:02:52 fms Exp $', &
-     tagname     = '$Name: siena_201207 $'
+     version     = '$Id: nfu.F90,v 17.0.12.1 2012/08/08 17:02:38 William.Cooke Exp $', &
+     tagname     = '$Name: siena_201211 $'
 
 ! ---- module types ----------------------------------------------------------
 type nfu_validtype
@@ -707,13 +707,13 @@ function nfu_validtype2ascii(v) result (string)
   type(nfu_validtype), intent(in) :: v
 
   if(v%hasmin.and.v%hasmax) then
-     write(string,'("[",g,",",g,"]")') v%min, v%max
+     write(string,'("[",g23.16,",",g23.16,"]")') v%min, v%max
   else if (v%hasmin) then
-     write(string,'("[",g,")")') v%min
+     write(string,'("[",g23.16,")")') v%min
   else if (v%hasmax) then
-     write(string,'("(",g,"]")') v%max
+     write(string,'("(",g23.16,"]")') v%max
   else 
-     write(string,'("/=",g)') v%min
+     write(string,'("/=",g23.16)') v%min
   endif
 end function
 

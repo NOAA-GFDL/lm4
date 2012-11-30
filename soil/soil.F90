@@ -70,8 +70,8 @@ public :: soil_step_2
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'soil',&
-    version     = '$Id: soil.F90,v 17.0.2.2.2.2 2011/12/16 19:01:57 pjp Exp $',&
-    tagname     = '$Name: siena_201207 $'
+    version     = '$Id: soil.F90,v 17.0.2.2.2.2.2.1 2012/08/08 17:02:38 William.Cooke Exp $',&
+    tagname     = '$Name: siena_201211 $'
 
 ! ==== module variables ======================================================
 
@@ -960,7 +960,7 @@ end subroutine soil_step_1
      write(*,*) 'subs_M_imp   ', subs_M_imp
      write(*,*) 'theta_s ', soil%pars%vwc_sat
      do l = 1, num_l
-        write(*,'(a,i2.2,100(2x,a,g))') 'level=', l,&
+        write(*,'(a,i2.2,100(2x,a,g23.16))') 'level=', l,&
              ' T =', soil%prog(l)%T,&
              ' Th=', (soil%prog(l)%ws+soil%prog(l)%wl)/(dens_h2o*dz(l)),&
              ' wl=', soil%prog(l)%wl,&
@@ -987,7 +987,7 @@ end subroutine soil_step_1
   if(is_watch_point()) then
      write(*,*) ' ##### soil_step_2 checkpoint 2 #####'
      do l = 1, num_l
-        write(*,'(a,i2.2,100(2x,a,g))') 'level=',l, 'T=', soil%prog(l)%T, &
+        write(*,'(a,i2.2,100(2x,a,g23.16))') 'level=',l, 'T=', soil%prog(l)%T, &
              'del_t=', del_t(l), 'e=', soil%e(l), 'f=', soil%f(l)
      enddo
   endif
@@ -1059,7 +1059,7 @@ end subroutine soil_step_1
      write(*,*) ' ##### soil_step_2 checkpoint 2.1 #####'
      __DEBUG2__(vegn_uptk,sum(uptake))
      do l = 1,num_l
-        write(*,'(a,i2.2,100(2x,a,g))')'level=',l, &
+        write(*,'(a,i2.2,100(2x,a,g23.16))')'level=',l, &
              'uptake=',uptake(l),'dwl=',-uptake(l)*delta_time,&
              'wl=',soil%prog(l)%wl,'new wl=',soil%prog(l)%wl - uptake(l)*delta_time
      enddo
@@ -1091,7 +1091,7 @@ end subroutine soil_step_1
   if(is_watch_point()) then
      write(*,*) ' ##### soil_step_2 checkpoint 3 #####'
      do l = 1, num_l
-        write(*,'(a,i2.2,100(2x,a,g))') ' level=', l,&
+        write(*,'(a,i2.2,100(2x,a,g23.16))') ' level=', l,&
              ' T =', soil%prog(l)%T,&
              ' Th=', (soil%prog(l)%ws+soil%prog(l)%wl)/(dens_h2o*dz(l)),&
              ' wl=', soil%prog(l)%wl,&
@@ -1162,7 +1162,7 @@ end subroutine soil_step_1
      write(*,*) ' lrunf_nu',lrunf_nu
      write(*,*) 'hlrunf_nu',hlrunf_nu
      do l = 1, num_l
-        write(*,'(x,a,x,i2.2,100(x,a,g))') ' level=', l,&
+        write(*,'(x,a,x,i2.2,100(x,a,g23.16))') ' level=', l,&
              ' T =', soil%prog(l)%T,&
              ' Th=', (soil%prog(l)%ws +soil%prog(l)%wl)/(dens_h2o*dz(l)),&
              ' wl=', soil%prog(l)%wl,&
@@ -1185,7 +1185,7 @@ end subroutine soil_step_1
      if(is_watch_point()) then
         write(*,*) ' ##### soil_step_2 checkpoint 3.1 #####'
         do l = 1, num_l
-           write(*,'(x,a,x,i2.2,100(x,a,g))')'level=', l, 'vlc', vlc(l), 'K  ', hyd_cond(l)
+           write(*,'(x,a,x,i2.2,100(x,a,g23.16))')'level=', l, 'vlc', vlc(l), 'K  ', hyd_cond(l)
         enddo
      endif
   ! ---- remainder of mass fluxes and associated sensible heat fluxes --------
@@ -1282,7 +1282,7 @@ end subroutine soil_step_1
 
     if(is_watch_point()) then
        do l = 1, num_l
-          write(*,'(a,1x,i2.2,100(2x,g))')'div,vsc,psi,dz',l,div(l),vsc(l),psi(l),dz(l)
+          write(*,'(a,1x,i2.2,100(2x,g23.16))')'div,vsc,psi,dz',l,div(l),vsc(l),psi(l),dz(l)
        enddo
        write(*,*)'lrunf_bf',lrunf_bf
        write(*,*)'tau_gw',tau_gw
@@ -1319,14 +1319,14 @@ ELSE                                              ! BYPASS_RICHARDS_WHEN_STIFF
     if(is_watch_point()) then
        write(*,*) '##### soil_step_2 checkpoint 3.1 #####'
        do l = 1, num_l
-          write(*,'(x,a,x,i2.2,x,a,100(x,g))') 'level=', l, 'DThDP,hyd_cond,psi,DKDP', &
+          write(*,'(x,a,x,i2.2,x,a,100(x,g23.16))') 'level=', l, 'DThDP,hyd_cond,psi,DKDP', &
                DThDP(l),&
                hyd_cond(l),&
                psi(l),&
                DKDP(l)
        enddo
        do l = 1, num_l-1
-          write(*,'(a,i2.2,1x,a,100(2x,g))') 'interface=', l, 'K,DKDPm,DKDPp,grad,del_z', &
+          write(*,'(a,i2.2,1x,a,100(2x,g23.16))') 'interface=', l, 'K,DKDPm,DKDPp,grad,del_z', &
                K(l),&
                DKDPm(l),&
                DKDPp(l),&
@@ -1361,7 +1361,7 @@ ELSE                                              ! BYPASS_RICHARDS_WHEN_STIFF
     fff(l-1) =  ddd/bbb
   
     if(is_watch_point()) then
-       write(*,'(a,i2.2,100(2x,g))') 'l,a,b, ,d', l,aaa, bbb,ddd
+       write(*,'(a,i2.2,100(2x,g23.16))') 'l,a,b, ,d', l,aaa, bbb,ddd
     endif
 
     do l = num_l-1, 2, -1
@@ -1375,7 +1375,7 @@ ELSE                                              ! BYPASS_RICHARDS_WHEN_STIFF
       eee(l-1) =                    -aaa/(bbb+ccc*eee(l))
       fff(l-1) =  (ddd-ccc*fff(l))/(bbb+ccc*eee(l))
       if(is_watch_point()) then
-         write(*,'(a,i2.2,100(2x,g))') 'l,a,b,c,d', l,aaa, bbb,ccc,ddd
+         write(*,'(a,i2.2,100(2x,g23.16))') 'l,a,b,c,d', l,aaa, bbb,ccc,ddd
       endif
     enddo
   
@@ -1438,11 +1438,11 @@ IF (bbb+ccc*eee(l) .NE. 0.) THEN
   ENDIF
       
     if(is_watch_point().or.(flag.and.write_when_flagged)) then
-       write(*,'(a,i2.2,100(2x,g))') 'l,  b,c,d', l, bbb,ccc,ddd
+       write(*,'(a,i2.2,100(2x,g23.16))') 'l,  b,c,d', l, bbb,ccc,ddd
        write(*,*) ' ##### soil_step_2 checkpoint 3.2 #####'
        write(*,*) 'ie,sn,bf:', lrunf_ie,lrunf_sn,lrunf_bf
        do l = 1, num_l-1
-          write(*,'(a,i2.2,100(2x,g))') 'l,eee(l),fff(l)',l,eee(l),fff(l)
+          write(*,'(a,i2.2,100(2x,g23.16))') 'l,eee(l),fff(l)',l,eee(l),fff(l)
        enddo
        write(*,*) 'DThDP(1)', DThDP(1)
        write(*,*) 'K(1)', K(1)
@@ -1484,7 +1484,7 @@ IF (bbb+ccc*eee(l) .NE. 0.) THEN
     if(is_watch_point().or.(flag.and.write_when_flagged)) then
        write(*,*) ' ##### soil_step_2 checkpoint 3.21 #####'
        do l = 1, num_l
-          write(*,'(i2.2,100(2x,a,g))') l,&
+          write(*,'(i2.2,100(2x,a,g23.16))') l,&
                ' dW_l=', dW_l(l),&
                ' flow=', flow(l),&
                ' div=', div(l)
@@ -1510,7 +1510,7 @@ IF (bbb+ccc*eee(l) .NE. 0.) THEN
     if(is_watch_point().or.(flag.and.write_when_flagged)) then
        write(*,*) ' ##### soil_step_2 checkpoint 3.22 #####'
        do l = 1, num_l
-          write(*,'(i2.2,100(2x,a,g))') l,&
+          write(*,'(i2.2,100(2x,a,g23.16))') l,&
                ' dW_l=', dW_l(l),&
                ' flow=', flow(l),&
                ' div=', div(l)
@@ -1579,7 +1579,7 @@ IF (bbb+ccc*eee(l) .NE. 0.) THEN
      write(*,*) 'psi_sat',soil%pars%psi_sat_ref
      write(*,*) 'Dpsi_max',Dpsi_max
      do l = 1, num_l
-        write(*,'(i2.2,100(2x,a,g))') l, &
+        write(*,'(i2.2,100(2x,a,g23.16))') l, &
              'Th=', (soil%prog(l)%ws +soil%prog(l)%wl)/(dens_h2o*dz(l)), &
              'wl=', soil%prog(l)%wl, &
              'ws=', soil%prog(l)%ws, &
@@ -1739,7 +1739,7 @@ ENDIF                                              ! BYPASS_RICHARDS_WHEN_STIFF
   if(is_watch_point()) then
      write(*,*) ' ##### soil_step_2 checkpoint 5 #####'
      do l = 1, num_l
-        write(*,'(a,i2.2,100(2x,a,g))') ' level=', l,&
+        write(*,'(a,i2.2,100(2x,a,g23.16))') ' level=', l,&
              ' T =', soil%prog(l)%T,&
              ' Th=', (soil%prog(l)%ws +soil%prog(l)%wl)/(dens_h2o*dz(l)),&
              ' wl=', soil%prog(l)%wl,&
