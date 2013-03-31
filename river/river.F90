@@ -55,7 +55,7 @@ module river_mod
   use fms_mod,             only : write_version_number, check_nml_error
   use fms_mod,             only : close_file, file_exist, field_size, read_data, write_data, lowercase
   use fms_mod,             only : field_exist, CLOCK_FLAG_DEFAULT
-  use fms_io_mod,          only : get_mosaic_tile_file
+  use fms_io_mod,          only : get_mosaic_tile_file, get_instance_filename
   use diag_manager_mod,    only : diag_axis_init, register_diag_field, register_static_field, send_data
   use time_manager_mod,    only : time_type, increment_time, get_time
   use river_type_mod,      only : river_type, Leo_Mad_trios
@@ -72,8 +72,8 @@ module river_mod
   private
 
 !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id: river.F90,v 19.0 2012/01/06 20:40:55 fms Exp $'
-  character(len=128) :: tagname = '$Name: siena_201211 $'
+  character(len=128) :: version = '$Id: river.F90,v 19.0.4.3 2013/03/01 15:10:59 Seth.Underwood Exp $'
+  character(len=128) :: tagname = '$Name: siena_201303 $'
 
 !--- public interface ------------------------------------------------
   public :: river_init, river_end, river_type, update_river, river_stock_pe
@@ -368,7 +368,8 @@ contains
     call river_diag_init (id_lon, id_lat)
 
 !--- read restart file 
-    call get_mosaic_tile_file('INPUT/river.res.nc', filename, .false., domain)
+    call get_instance_filename('INPUT/river.res.nc', filename)
+    call get_mosaic_tile_file(trim(filename), filename, .false., domain)
 
     outunit=stdout()
     if(file_exist(trim(filename),domain) ) then
@@ -377,7 +378,7 @@ contains
         call read_data(filename,'discharge2ocean',  discharge2ocean_next,   domain)
         call read_data(filename,'discharge2ocean_c',discharge2ocean_next_c, domain)
         call read_data(filename,'Omean',            River%outflowmean,      domain)
-        write(outunit,*) 'Read restart files INPUT/river.res.nc'
+        write(outunit,*) 'Read restart files ',trim(filename)
     else
         River%storage    = 0.0
         River%storage_c  = 0.0

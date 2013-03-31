@@ -51,8 +51,8 @@ public :: snow_step_2
 ! ==== module variables ======================================================
 character(len=*), parameter, private   :: &
        module_name = 'snow_mod' ,&
-       version     = '$Id: snow.F90,v 19.0.4.1 2012/08/08 17:02:38 William.Cooke Exp $' ,&
-       tagname     = '$Name: siena_201211 $'
+       version     = '$Id: snow.F90,v 19.0.6.4 2012/11/29 21:26:17 Zhi.Liang Exp $' ,&
+       tagname     = '$Name: siena_201303 $'
 
 ! ==== module variables ======================================================
 
@@ -143,7 +143,7 @@ subroutine snow_init ( id_lon, id_lat )
   integer, intent(in)               :: id_lat  ! ID of land latitude (Y) axis
 
   ! ---- local vars ----------------------------------------------------------
-  integer :: unit         ! unit for various i/o
+  integer :: unit, n         ! unit for various i/o
   type(land_tile_enum_type)     :: te,ce ! tail and current tile list elements
   type(land_tile_type), pointer :: tile  ! pointer to current tile
   character(len=256) :: restart_file_name
@@ -175,10 +175,14 @@ subroutine snow_init ( id_lon, id_lat )
         ce=next_elmt(ce)       ! advance position to the next tile
         
         if (.not.associated(tile%snow)) cycle
-     
-        tile%snow%prog(1:num_l)%wl = init_pack_wl * dz(1:num_l)
-        tile%snow%prog(1:num_l)%ws = init_pack_wl * dz(1:num_l)
-        tile%snow%prog(1:num_l)%T  = init_temp
+        do n = 1, num_l
+           tile%snow%prog(n)%wl = init_pack_wl * dz(n)
+           tile%snow%prog(n)%ws = init_pack_wl * dz(n)
+           tile%snow%prog(n)%T  = init_temp
+        enddo
+!        tile%snow%prog(1:num_l)%wl = init_pack_wl * dz(1:num_l)
+!        tile%snow%prog(1:num_l)%ws = init_pack_wl * dz(1:num_l)
+!        tile%snow%prog(1:num_l)%T  = init_temp
      enddo
   endif
 

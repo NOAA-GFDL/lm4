@@ -28,7 +28,7 @@ public :: darcy2d_uptake_lin, darcy2d_uptake_solver_lin
 character(len=*), parameter, private   :: &
     module_name = 'uptake',&
     version     = '$Id: uptake.F90,v 17.0.18.1 2012/08/08 17:02:38 William.Cooke Exp $',&
-    tagname     = '$Name: siena_201211 $'
+    tagname     = '$Name: siena_201303 $'
 
 ! values for internal soil uptake option selector
 integer, parameter ::   &

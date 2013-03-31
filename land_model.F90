@@ -63,7 +63,6 @@ use snow_tile_mod, only : snow_tile_stock_pe, snow_tile_heat
 use land_numerics_mod, only : ludcmp, lubksb, nearest, &
      horiz_remap_type, horiz_remap_new, horiz_remap, horiz_remap_del, &
      horiz_remap_print
-use land_io_mod, only : read_land_io_namelist
 use land_tile_mod, only : land_tile_type, land_tile_list_type, &
      land_tile_enum_type, new_land_tile, insert, nitems, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
@@ -110,8 +109,8 @@ public :: Lnd_stock_pe          ! return stocks of conservative quantities
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land', &
-     version     = '$Id: land_model.F90,v 19.0.12.2 2012/08/29 18:03:40 z1l Exp $', &
-     tagname     = '$Name: siena_201211 $'
+     version     = '$Id: land_model.F90,v 19.0.12.4.2.1 2013/02/28 21:00:44 wfc Exp $', &
+     tagname     = '$Name: siena_201303 $'
 
 ! ==== module variables ======================================================
 
@@ -305,7 +304,6 @@ subroutine land_model_init &
   endif
   ! [2.2] read sub-model namelists: then need to be read before initialization
   ! because they can affect the way cover and tiling is initialized on cold start.
-  call read_land_io_namelist()
   call read_soil_namelist()
   call read_vegn_namelist()
   call read_lake_namelist()

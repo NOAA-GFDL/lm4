@@ -46,8 +46,8 @@ module river_physics_mod
   real    :: missing = -1.e8
 
 !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id: river_physics.F90,v 19.0.4.2 2012/05/14 19:11:07 Zhi.Liang Exp $'
-  character(len=128) :: tagname = '$Name: siena_201211 $'
+  character(len=128) :: version = '$Id: river_physics.F90,v 19.0.4.2.2.1 2012/10/05 19:55:37 pjp Exp $'
+  character(len=128) :: tagname = '$Name: siena_201303 $'
 
 
 ! ---- public interfaces -----------------------------------------------------
@@ -72,12 +72,14 @@ module river_physics_mod
       ! behavior, where the discharge points with zero land fraction were
       ! missed, resulting in water non-conservation
   real :: ice_frac_factor = 0.
-
+  logical :: prohibit_cold_ice_outflow = .TRUE. ! default retrieves old behavior,
+      ! to activate bugfix, set it to FALSE
   namelist /river_physics_nml/ algor, lake_outflow_frac_ceiling, &
                                lake_sfc_w_min, storage_threshold_for_melt, &
                                storage_threshold_for_diag, &
                                ice_frac_from_sfc, ice_frac_factor, &
-                               use_lake_area_bug, zero_frac_bug
+                               use_lake_area_bug, zero_frac_bug, &
+                               prohibit_cold_ice_outflow
 
   integer, parameter, dimension(8) :: di=(/1,1,0,-1,-1,-1,0,1/)
   integer, parameter, dimension(8) :: dj=(/0,-1,-1,-1,0,1,1,1/)
@@ -380,7 +382,16 @@ contains
                 if (avail .gt. 0.) out_frac = River%outflow(i,j)/avail
                 River%outflow_c(i,j,:) = out_frac * (River%storage_c(i,j,:) &
                                          +River%lake_outflow_c(i,j,:)/DENS_H2O)
-                River%outflow_c(i,j,:) = max(River%outflow_c(i,j,:), 0.)
+                ! 2011/05/13 PCM: fix ice outflow temperature bug
+                if (prohibit_cold_ice_outflow) then
+                  River%outflow_c(i,j,:) = max(River%outflow_c(i,j,:), 0.)
+                else
+                  River%outflow_c(i,j,1) = max(River%outflow_c(i,j,1), 0.)
+                  if(River%num_phys+1 <= River%num_species) then
+                     River%outflow_c(i,j,River%num_phys+1:River%num_species) = &
+                       max(River%outflow_c(i,j,River%num_phys+1:River%num_species), 0.)
+                  endif
+                endif
                 River%outflow_c(i,j,1) = min(River%outflow_c(i,j,1), River%outflow(i,j))
                 River%storage_c(i,j,:) = River%storage_c(i,j,:)       &
                       + River%lake_outflow_c(i,j,:)/DENS_H2O       &
