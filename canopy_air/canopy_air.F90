@@ -11,9 +11,13 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod, only : write_version_number, error_mesg, FATAL, NOTE, file_exist, &
-     close_file, check_nml_error, &
-     mpp_pe, mpp_root_pe, stdlog
+use mpp_io_mod,         only: mpp_close, fieldtype
+use fms_mod,            only: error_mesg, file_exist,     &
+                              check_nml_error, stdlog, &
+                              write_version_number, &
+                              close_file, mpp_pe, mpp_root_pe, &
+                              FATAL, NOTE
+use fms_io_mod,         only: get_mosaic_tile_file
 use time_manager_mod, only : time_type, time_type_to_real
 use constants_mod, only : rdgas, rvgas, cp_air, PI, VONKARM
 use sphum_mod, only : qscomp
@@ -28,7 +32,9 @@ use land_tile_diag_mod, only : &
      register_tiled_diag_field, send_tile_data, diag_buff_type
 use land_data_mod,      only : land_state_type, lnd
 use land_tile_io_mod, only : create_tile_out_file, read_tile_data_r0d_fptr, write_tile_data_r0d_fptr, &
-     get_input_restart_name, print_netcdf_error
+     get_input_restart_name, print_netcdf_error, &
+     write_tile_data_r0d_fptr_new, write_meta_data, &
+     read_tile_data_r0d_fptr_new
 use land_debug_mod, only : is_watch_point, check_temp_range
 
 implicit none
@@ -36,9 +42,10 @@ private
 
 ! ==== public interfaces =====================================================
 public :: read_cana_namelist
-public :: cana_init
+public :: cana_init, cana_init_new
 public :: cana_end
 public :: save_cana_restart
+public :: save_cana_restart_new
 public :: cana_radiation
 public :: cana_turbulence
 public :: cana_roughness
@@ -49,8 +56,8 @@ public :: cana_step_2
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-  version = '$Id: canopy_air.F90,v 19.0 2012/01/06 20:40:41 fms Exp $', &
-  tagname = '$Name: siena_201303 $', &
+  version = '$Id: canopy_air.F90,v 19.0.12.1.2.1 2013/03/25 19:45:00 Seth.Underwood Exp $', &
+  tagname = '$Name: siena_201305 $', &
   module_name = 'canopy_air_mod'
 
 ! options for turbulence parameter calculations
@@ -189,6 +196,72 @@ end subroutine cana_init
 
 
 ! ============================================================================
+! initialize canopy air
+subroutine cana_init_new ( id_lon, id_lat )
+  integer, intent(in)          :: id_lon  ! ID of land longitude (X) axis  
+  integer, intent(in)          :: id_lat  ! ID of land latitude (Y) axis
+
+  ! ---- local vars ----------------------------------------------------------
+  integer :: unit         ! unit for various i/o
+  type(land_tile_enum_type)     :: te,ce ! last and current tile
+  type(land_tile_type), pointer :: tile   ! pointer to current tile
+  character(len=256) :: restart_file_name
+  logical :: restart_exists
+
+  module_is_initialized = .TRUE.
+
+  ! ---- make module copy of time --------------------------------------------
+  time       = lnd%time
+  delta_time = time_type_to_real(lnd%dt_fast)
+
+  ! ---- initialize cana state -----------------------------------------------
+  ! first, set the initial values
+  te = tail_elmt (lnd%tile_map)
+  ce = first_elmt(lnd%tile_map)
+  do while(ce /= te)
+     tile=>current_tile(ce)  ! get pointer to current tile
+     ce=next_elmt(ce)       ! advance position to the next tile
+     
+     if (.not.associated(tile%cana)) cycle
+     
+     if (associated(tile%glac)) then
+        tile%cana%prog%T = init_T_cold
+     else
+        tile%cana%prog%T = init_T
+     endif
+     tile%cana%prog%q = init_q
+     ! convert to kg CO2/kg wet air
+     tile%cana%prog%co2 = init_co2*mol_CO2/mol_air*(1-tile%cana%prog%q) 
+  enddo
+
+  ! then read the restart if it exists
+  restart_file_name='INPUT/cana.res.nc'
+  if (file_exist(trim(restart_file_name),domain=lnd%domain)) then
+     call error_mesg('cana_init_new', 'Reading restart data from '//trim(restart_file_name), NOTE)
+     call read_tile_data_r0d_fptr_new(restart_file_name, 'temp',  cana_T_ptr  )
+     call read_tile_data_r0d_fptr_new(restart_file_name, 'sphum', cana_q_ptr  )
+     call read_tile_data_r0d_fptr_new(restart_file_name, 'co2',   cana_co2_ptr)
+  else
+     call error_mesg('cana_init',&
+          'cold-starting canopy air',&
+          NOTE)
+  endif
+
+  ! initialize options, to avoid expensive character comparisons during 
+  ! run-time
+  if (trim(turbulence_to_use)=='lm3v') then
+     turbulence_option = TURB_LM3V
+  else if (trim(turbulence_to_use)=='lm3w') then
+     turbulence_option = TURB_LM3W
+  else
+     call error_mesg('cana_init', 'canopy air turbulence option turbulence_to_use="'// &
+          trim(turbulence_to_use)//'" is invalid, use "lm3w" or "lm3v"', FATAL)
+  endif
+  
+end subroutine cana_init_new
+
+
+! ============================================================================
 ! release memory
 subroutine cana_end ()
 
@@ -219,6 +292,38 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
      __NF_ASRT__(nf_close(unit))
 end subroutine save_cana_restart
 
+
+! ============================================================================
+subroutine save_cana_restart_new (tile_dim_length, timestamp)
+  integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
+  character(*), intent(in) :: timestamp ! timestamp to add to the file name
+
+  ! ---- local vars ----------------------------------------------------------
+  integer :: unit            ! restart file i/o unit
+  integer :: iotiles ! number of tiles on I/O domain
+  type(fieldtype) :: fields(3)
+
+  call error_mesg('cana_end','writing NetCDF restart',NOTE)
+  call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'cana.res.nc',&
+          lnd, cana_tile_exists, tile_dim_length, iotiles)
+
+  ! write out meta data
+  ! pack=0 implies integer, pack=1 implies real.
+  call write_meta_data(unit,'temp' ,fields(1),'canopy air temperature','degrees_K',pack=1)
+  call write_meta_data(unit,'sphum',fields(2),'canopy air specific humidity','kg/kg',pack=1)
+  if (save_qco2) &
+    call write_meta_data(unit,'co2',fields(3),'canopy air co2 concentration','(kg CO2)/(kg wet air)',pack=1)
+   
+  ! write out fields
+  call write_tile_data_r0d_fptr_new(unit, iotiles, fields(1), cana_T_ptr)
+  call write_tile_data_r0d_fptr_new(unit, iotiles, fields(2), cana_q_ptr)
+  if (save_qco2) &
+    call write_tile_data_r0d_fptr_new(unit, iotiles, fields(3), cana_co2_ptr)
+   
+  ! close file
+  call mpp_close(unit)
+
+end subroutine save_cana_restart_new
 
 ! ============================================================================
 ! set up constants for linearization of radiative transfer, using information

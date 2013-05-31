@@ -9,9 +9,12 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod, only : error_mesg, file_exist,  &
-     read_data, check_nml_error, &
-     stdlog, write_version_number, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
+use mpp_io_mod,         only: mpp_close, fieldtype
+use fms_mod,            only: error_mesg, file_exist,     &
+                              read_data, check_nml_error, stdlog, &
+                              write_version_number, close_file, &
+                              mpp_pe, mpp_root_pe, FATAL, NOTE
+use fms_io_mod,         only: get_mosaic_tile_file
 use time_manager_mod,   only: time_type, increment_time, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init, register_diag_field,           &
                               register_static_field, send_data
@@ -34,7 +37,9 @@ use land_tile_diag_mod, only : register_tiled_static_field, &
 use land_data_mod,      only : land_state_type, lnd
 use land_tile_io_mod, only : print_netcdf_error, create_tile_out_file, &
      read_tile_data_r1d_fptr, write_tile_data_r1d_fptr, sync_nc_files, &
-     get_input_restart_name
+     get_input_restart_name, &
+     write_tile_data_r1d_fptr_new, write_meta_data, &
+     read_tile_data_r1d_fptr_new
 use nf_utils_mod, only : nfu_inq_var, nfu_def_dim, nfu_put_att
 use land_debug_mod, only: is_watch_point
 use land_utils_mod, only : put_to_tiles_r0d_fptr
@@ -44,9 +49,10 @@ private
 
 ! ==== public interfaces =====================================================
 public :: read_lake_namelist
-public :: lake_init
+public :: lake_init, lake_init_new
 public :: lake_end
 public :: save_lake_restart
+public :: save_lake_restart_new
 
 public :: lake_get_sfc_temp
 public :: lake_radiation
@@ -61,8 +67,8 @@ public :: large_dyn_small_stat
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'lake',&
-    version     = '$Id: lake.F90,v 19.0 2012/01/06 20:40:51 fms Exp $',&
-    tagname     = '$Name: siena_201303 $'
+    version     = '$Id: lake.F90,v 19.0.8.1.4.2 2013/05/06 19:23:25 William.Cooke Exp $',&
+    tagname     = '$Name: siena_201305 $'
 
 ! ==== module variables ======================================================
 
@@ -277,6 +283,111 @@ deallocate (buffer, bufferc, buffert)
 end subroutine lake_init
 
 
+! initialize lake model
+subroutine lake_init_new ( id_lon, id_lat )
+  integer, intent(in) :: id_lon  ! ID of land longitude (X) axis  
+  integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
+
+  ! ---- local vars 
+  integer :: unit         ! unit for various i/o
+  type(land_tile_enum_type)     :: te,ce ! last and current tile list elements
+  type(land_tile_type), pointer :: tile  ! pointer to current tile
+  character(len=256) :: restart_file_name
+  logical :: restart_exists
+  real, allocatable :: buffer(:,:),bufferc(:,:),buffert(:,:)
+
+  module_is_initialized = .TRUE.
+  time       = lnd%time
+  delta_time = time_type_to_real(lnd%dt_fast)
+
+allocate(buffer (lnd%is:lnd%ie,lnd%js:lnd%je))
+allocate(bufferc(lnd%is:lnd%ie,lnd%js:lnd%je))
+allocate(buffert(lnd%is:lnd%ie,lnd%js:lnd%je))
+
+IF (LARGE_DYN_SMALL_STAT) THEN
+
+  call read_data('INPUT/river_data.nc', 'connected_to_next', bufferc(:,:), lnd%domain)
+  call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_connected_to_next_ptr)
+
+  call read_data('INPUT/river_data.nc', 'whole_lake_area', buffer(:,:), lnd%domain)
+  call put_to_tiles_r0d_fptr(buffer, lnd%tile_map, lake_whole_area_ptr)
+
+  call read_data('INPUT/river_data.nc', 'lake_depth_sill', buffer(:,:),  lnd%domain)
+  call put_to_tiles_r0d_fptr(buffer,  lnd%tile_map, lake_depth_sill_ptr)
+
+! lake_tau is just used here as a flag for 'large lakes'
+! sill width of -1 is a flag saying not to allow transient storage
+  call read_data('INPUT/river_data.nc', 'lake_tau', buffert(:,:),  lnd%domain)
+  buffer = -1.
+!where (bufferc.gt.0.5) buffer = lake_width_inside_lake
+  where (bufferc.lt.0.5 .and. buffert.gt.1.) buffer = large_lake_sill_width
+  call put_to_tiles_r0d_fptr(buffer, lnd%tile_map, lake_width_sill_ptr)
+
+ELSE
+  call read_data('INPUT/river_data.nc', 'whole_lake_area', bufferc(:,:), lnd%domain)
+
+  call read_data('INPUT/river_data.nc', 'lake_depth_sill', buffer(:,:), lnd%domain)
+  where (bufferc.eq.0.)                      buffer = 0.
+  where (bufferc.gt.0..and.bufferc.lt.2.e10) buffer = max(2., 2.5e-4*sqrt(bufferc))
+  call put_to_tiles_r0d_fptr(buffer,  lnd%tile_map, lake_depth_sill_ptr)
+  call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_whole_area_ptr)
+
+  buffer = 4. * buffer
+  where (bufferc.gt.2.e10) buffer = min(buffer, 60.)
+  call read_data('INPUT/river_data.nc', 'connected_to_next', bufferc(:,:), lnd%domain)
+  call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_connected_to_next_ptr)
+
+  where (bufferc.gt.0.5) buffer=lake_width_inside_lake
+  if (make_all_lakes_wide) buffer = lake_width_inside_lake
+  call put_to_tiles_r0d_fptr(buffer, lnd%tile_map, lake_width_sill_ptr)
+ENDIF
+
+deallocate (buffer, bufferc, buffert)
+
+  ! -------- initialize lake state --------
+  te = tail_elmt (lnd%tile_map)
+  ce = first_elmt(lnd%tile_map)
+  do while(ce /= te)
+     tile=>current_tile(ce)  ! get pointer to current tile
+     ce=next_elmt(ce)        ! advance position to the next tile
+     
+     if (.not.associated(tile%lake)) cycle
+     
+     tile%lake%prog%dz = tile%lake%pars%depth_sill/num_l
+     if (init_temp.ge.tfreeze) then
+        tile%lake%prog%wl = init_w*tile%lake%prog%dz
+        tile%lake%prog%ws = 0
+     else
+        tile%lake%prog%wl = 0
+        tile%lake%prog%ws = init_w*tile%lake%prog%dz
+     endif
+     tile%lake%prog%T             = init_temp
+     tile%lake%prog%groundwater   = init_groundwater
+     tile%lake%prog%groundwater_T = init_temp
+  enddo
+
+  restart_file_name='INPUT/lake.res.nc'
+  if (file_exist(trim(restart_file_name),domain=lnd%domain)) then
+     call error_mesg('lake_init_new', 'Reading restart data from '//trim(restart_file_name), NOTE)
+     call read_tile_data_r1d_fptr_new(restart_file_name, 'dz', lake_dz_ptr  )
+     call read_tile_data_r1d_fptr_new(restart_file_name, 'temp', lake_temp_ptr  )
+     call read_tile_data_r1d_fptr_new(restart_file_name, 'wl', lake_wl_ptr )
+     call read_tile_data_r1d_fptr_new(restart_file_name, 'ws', lake_ws_ptr )
+     call read_tile_data_r1d_fptr_new(restart_file_name, 'groundwater', lake_gw_ptr )
+     call read_tile_data_r1d_fptr_new(restart_file_name, 'groundwater_T', lake_gwT_ptr)
+  else
+     call error_mesg('lake_init',&
+          'cold-starting lake',&
+          NOTE)
+  endif
+
+  call lake_diag_init ( id_lon, id_lat )
+  ! ---- static diagnostic section
+  call send_tile_data_r0d_fptr(id_sillw, lnd%tile_map, lake_width_sill_ptr)
+  call send_tile_data_r0d_fptr(id_silld, lnd%tile_map, lake_depth_sill_ptr)
+
+end subroutine lake_init_new
+
 ! ============================================================================
 subroutine lake_end ()
 
@@ -318,6 +429,44 @@ subroutine save_lake_restart (tile_dim_length, timestamp)
 end subroutine save_lake_restart
 
 
+! ============================================================================
+subroutine save_lake_restart_new (tile_dim_length, timestamp)
+  integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
+  character(*), intent(in) :: timestamp ! timestamp to add to the file name
+
+  ! ---- local vars ----------------------------------------------------------
+  integer :: unit            ! restart file i/o unit
+  integer :: iotiles ! number of tiles on I/O domain
+  type(fieldtype) :: fields(6) ! Number of variables being output to restart file.
+  character(len=12) :: axis_names(2)
+
+  call error_mesg('lake_end','writing NetCDF restart',NOTE)
+  call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'lake.res.nc', &
+          lnd, lake_tile_exists, tile_dim_length, iotiles, zfull(1:num_l))
+
+  ! write out meta data
+  axis_names(1) = 'tile_index'
+  axis_names(2) = 'zfull'
+  ! pack=0 implies integer, pack=1 implies real.
+  call write_meta_data(unit,'dz'           ,axis_names,fields(1),'layer thickness','m',pack=1)
+  call write_meta_data(unit,'temp'         ,axis_names,fields(2),'lake temperature','degrees_K',pack=1)
+  call write_meta_data(unit,'wl'           ,axis_names,fields(3),'liquid water content','kg/m2',pack=1)
+  call write_meta_data(unit,'ws'           ,axis_names,fields(4),'solid water content','kg/m2',pack=1)
+  call write_meta_data(unit,'groundwater'  ,axis_names,fields(5),pack=1)
+  call write_meta_data(unit,'groundwater_T',axis_names,fields(6),pack=1)
+   
+  ! write out fields
+  call write_tile_data_r1d_fptr_new(unit, iotiles, fields(1), lake_dz_ptr)
+  call write_tile_data_r1d_fptr_new(unit, iotiles, fields(2), lake_temp_ptr)
+  call write_tile_data_r1d_fptr_new(unit, iotiles, fields(3), lake_wl_ptr)
+  call write_tile_data_r1d_fptr_new(unit, iotiles, fields(4), lake_ws_ptr)
+  call write_tile_data_r1d_fptr_new(unit, iotiles, fields(5), lake_gw_ptr)
+  call write_tile_data_r1d_fptr_new(unit, iotiles, fields(6), lake_gwT_ptr)
+
+  ! close file
+  call mpp_close(unit)
+
+end subroutine save_lake_restart_new
 ! ============================================================================
 subroutine lake_get_sfc_temp(lake, lake_T)
   type(lake_tile_type), intent(in) :: lake
@@ -967,54 +1116,84 @@ end function lake_tile_exists
 subroutine lake_dz_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
+   integer                       :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%lake)) ptr=>tile%lake%prog%dz
+!      if(associated(tile%lake)) ptr=>tile%lake%prog%dz
+      if(associated(tile%lake)) then
+        n=size(tile%lake%prog(:))
+        ptr(1:n)=>tile%lake%prog(1:n)%dz
+      endif
    endif
 end subroutine lake_dz_ptr
 
 subroutine lake_temp_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
+   integer                       :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%lake)) ptr=>tile%lake%prog%T
+!      if(associated(tile%lake)) ptr=>tile%lake%prog%T
+      if(associated(tile%lake)) then
+        n=size(tile%lake%prog(:))
+        ptr(1:n)=>tile%lake%prog(1:n)%T
+      endif
    endif
 end subroutine lake_temp_ptr
 
 subroutine lake_wl_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
+   integer                       :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%lake)) ptr=>tile%lake%prog%wl
+!      if(associated(tile%lake)) ptr=>tile%lake%prog%wl
+      if(associated(tile%lake)) then
+        n=size(tile%lake%prog(:))
+        ptr(1:n)=>tile%lake%prog(1:n)%wl
+      endif
    endif
 end subroutine lake_wl_ptr
 
 subroutine lake_ws_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
+   integer                       :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%lake)) ptr=>tile%lake%prog%ws
+!      if(associated(tile%lake)) ptr=>tile%lake%prog%ws
+      if(associated(tile%lake)) then
+        n=size(tile%lake%prog(:))
+        ptr(1:n)=>tile%lake%prog(1:n)%ws
+      endif
    endif
 end subroutine lake_ws_ptr
 
 subroutine lake_gw_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
+   integer                       :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%lake)) ptr=>tile%lake%prog%groundwater
+!      if(associated(tile%lake)) ptr=>tile%lake%prog%groundwater
+      if(associated(tile%lake)) then
+        n=size(tile%lake%prog(:))
+        ptr(1:n)=>tile%lake%prog(1:n)%groundwater
+      endif
    endif
 end subroutine lake_gw_ptr
 
 subroutine lake_gwT_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
+   integer                       :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%lake)) ptr=>tile%lake%prog%groundwater_T
+!      if(associated(tile%lake)) ptr=>tile%lake%prog%groundwater_T
+      if(associated(tile%lake)) then
+        n=size(tile%lake%prog(:))
+        ptr(1:n)=>tile%lake%prog(1:n)%groundwater_T
+      endif
    endif
 end subroutine lake_gwT_ptr
 

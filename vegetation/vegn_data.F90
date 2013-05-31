@@ -113,7 +113,7 @@ public :: read_vegn_data_namelist
 ! ==== constants =============================================================
 character(len=*), parameter   :: &
      version     = '$Id: vegn_data.F90,v 19.0 2012/01/06 20:44:32 fms Exp $', &
-     tagname     = '$Name: siena_201303 $', &
+     tagname     = '$Name: siena_201305 $', &
      module_name = 'vegn_data_mod'
 real, parameter :: TWOTHIRDS  = 2.0/3.0
 
