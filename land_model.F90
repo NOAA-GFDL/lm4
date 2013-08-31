@@ -16,7 +16,6 @@ use fms_mod, only: open_namelist_file
 #endif
 
 use mpp_mod, only : mpp_max, mpp_sum
-use mpp_io_mod, only:  mpp_close, fieldtype
 use fms_mod, only : write_version_number, error_mesg, FATAL, NOTE, mpp_pe, &
      mpp_root_pe, file_exist, check_nml_error, close_file, &
      stdlog, stderr, mpp_clock_id, mpp_clock_begin, mpp_clock_end, string, &
@@ -33,24 +32,21 @@ use tracer_manager_mod, only : NO_TRACER
 
 use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, mol_air, mol_C, mol_co2
 use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_temp, &
-     glac_radiation, glac_diffusion, glac_step_1, glac_step_2, save_glac_restart, &
-     save_glac_restart_new, glac_init_new
+     glac_radiation, glac_diffusion, glac_step_1, glac_step_2, save_glac_restart
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
-     lake_radiation, lake_diffusion, lake_step_1, lake_step_2, save_lake_restart, &
-     save_lake_restart_new, lake_init_new
+     lake_radiation, lake_diffusion, lake_step_1, lake_step_2, save_lake_restart
 use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
-     soil_radiation, soil_diffusion, soil_step_1, soil_step_2, save_soil_restart, &
-     save_soil_restart_new, soil_init_new
+     soil_radiation, soil_diffusion, soil_step_1, soil_step_2, save_soil_restart
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
      snow_radiation, snow_diffusion, snow_get_depth_area, snow_step_1, snow_step_2, &
-     save_snow_restart, save_snow_restart_new, snow_init_new
+     save_snow_restart
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, vegn_get_cover, &
      vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
-     update_vegn_slow, save_vegn_restart, vegn_init_new, save_vegn_restart_new
+     update_vegn_slow, save_vegn_restart
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, cana_state,&
      cana_step_1, cana_step_2, cana_radiation, cana_roughness, &
-     save_cana_restart, save_cana_restart_new, cana_init_new
+     save_cana_restart
 use river_mod, only : river_init, river_end, update_river, river_stock_pe, &
      save_river_restart
 use topo_rough_mod, only : topo_rough_init, topo_rough_end, update_topo_rough
@@ -80,8 +76,7 @@ use nf_utils_mod,  only : nfu_inq_var, nfu_inq_dim, nfu_get_var
 use land_utils_mod, only : put_to_tiles_r0d_fptr
 use land_tile_io_mod, only : print_netcdf_error, create_tile_out_file, &
     read_tile_data_r0d_fptr, write_tile_data_r0d_fptr, &
-    write_tile_data_i0d_fptr_new, write_tile_data_r0d_fptr_new, &
-    write_tile_data_i0d_fptr, get_input_restart_name, write_meta_data
+    write_tile_data_i0d_fptr, get_input_restart_name
 use land_tile_diag_mod, only : tile_diag_init, tile_diag_end, &
     register_tiled_diag_field, send_tile_data, dump_tile_diag_fields, &
     OP_AVERAGE, OP_SUM
@@ -114,8 +109,8 @@ public :: Lnd_stock_pe          ! return stocks of conservative quantities
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land', &
-     version     = '$Id: land_model.F90,v 19.0.12.2.2.4 2013/03/22 18:21:14 William.Cooke Exp $', &
-     tagname     = '$Name: siena_201305 $'
+     version     = '$Id: land_model.F90,v 19.0.12.4.2.1 2013/02/28 21:00:44 wfc Exp $', &
+     tagname     = '$Name: siena_201308 $'
 
 ! ==== module variables ======================================================
 
@@ -143,8 +138,7 @@ character(16) :: nearest_point_search = 'global' ! specifies where to look for
 logical :: print_remapping = .FALSE. ! if true, full land cover remapping
               ! information is printed on the cold start
 integer :: layout(2) = (/0,0/)
-integer :: io_layout(2) = (/1,1/)
-logical :: call_modified_restart = .true.
+integer :: io_layout(2) = (/0,0/)
 namelist /land_model_nml/ use_old_conservation_equations, &
                           lm2, do_age, give_stock_details, &
                           use_tfreeze_in_grnd_latent, &
@@ -155,7 +149,7 @@ namelist /land_model_nml/ use_old_conservation_equations, &
                           con_fac_large, con_fac_small, num_c, &
                           tau_snow_T_adj, &
                           nearest_point_search, print_remapping, &
-                          layout, io_layout, call_modified_restart
+                          layout, io_layout
 ! ---- end of namelist -------------------------------------------------------
 
 logical  :: module_is_initialized = .FALSE.
@@ -222,10 +216,7 @@ integer :: &
   id_subs_refl_dir, id_subs_refl_dif, id_grnd_T
 
 ! ---- global clock IDs
-integer :: landClock, landFastClock, landSlowClock,  SoilInitClock, &
- VegnInitClock, LakeInitClock, GlacInitClock, SnowInitClock, &
- CanaInitClock, TopoInitClock, RiveInitClock, TranInitClock, &
- RestInitClock, LandTermClock
+integer :: landClock, landFastClock, landSlowClock
 
 
 ! ==== NetCDF declarations ===================================================
@@ -281,18 +272,6 @@ subroutine land_model_init &
   landSlowClock  = mpp_clock_id('Update-Land-Slow'   ,CLOCK_FLAG_DEFAULT,CLOCK_ROUTINE)
   landInitClock  = mpp_clock_id('Land init'          ,CLOCK_FLAG_DEFAULT,CLOCK_ROUTINE)
 
-  RestInitClock  = mpp_clock_id('Land : Restart init'    ,CLOCK_FLAG_DEFAULT,CLOCK_ROUTINE)
-  SoilInitClock  = mpp_clock_id('Land : Soil init'       ,CLOCK_FLAG_DEFAULT,CLOCK_ROUTINE)
-  VegnInitClock  = mpp_clock_id('Land : Vegn init'       ,CLOCK_FLAG_DEFAULT,CLOCK_ROUTINE)
-  LakeInitClock  = mpp_clock_id('Land : Lake init'       ,CLOCK_FLAG_DEFAULT,CLOCK_ROUTINE)
-  GlacInitClock  = mpp_clock_id('Land : Glac init'       ,CLOCK_FLAG_DEFAULT,CLOCK_ROUTINE)
-  SnowInitClock  = mpp_clock_id('Land : Snow init'       ,CLOCK_FLAG_DEFAULT,CLOCK_ROUTINE)
-  CanaInitClock  = mpp_clock_id('Land : Cana init'       ,CLOCK_FLAG_DEFAULT,CLOCK_ROUTINE)
-  TopoInitClock  = mpp_clock_id('Land : Topo_rough init' ,CLOCK_FLAG_DEFAULT,CLOCK_ROUTINE)
-  RiveInitClock  = mpp_clock_id('Land : River init'      ,CLOCK_FLAG_DEFAULT,CLOCK_ROUTINE)
-  TranInitClock  = mpp_clock_id('Land : Transitions init',CLOCK_FLAG_DEFAULT,CLOCK_ROUTINE)
-
-  LandTermClock  = mpp_clock_id('Land : Termination     ',CLOCK_FLAG_DEFAULT,CLOCK_ROUTINE)
   call mpp_clock_begin(landInitClock)
 
   ! [ ] initialize land debug output
@@ -341,7 +320,6 @@ subroutine land_model_init &
   frac = lnd%area/lnd%cellarea
 
   ! [5] initialize tiling
-  call mpp_clock_begin(RestInitClock)
   call get_input_restart_name('INPUT/land.res.nc',restart_exists,restart_file_name)
   if(restart_exists) then
      call error_mesg('land_model_init',&
@@ -366,7 +344,6 @@ subroutine land_model_init &
           NOTE)
      call land_cover_cold_start(lnd)
   endif
-  call mpp_clock_end  (RestInitClock)
 
   ! [6] initialize land model diagnostics -- must be before *_data_init so that
   ! *_data_init can write static fields if necessary
@@ -385,50 +362,14 @@ subroutine land_model_init &
   num_species = num_phys + num_c
   if (do_age) num_species = num_species + 1
 
-if (call_modified_restart) then
-  call mpp_clock_begin(SoilInitClock)
-  call soil_init_new ( id_lon, id_lat, id_band )
-  call mpp_clock_end  (SoilInitClock)
-  call mpp_clock_begin(VegnInitClock)
-  call vegn_init_new ( id_lon, id_lat, id_band )
-  call mpp_clock_end  (VegnInitClock)
-  call mpp_clock_begin(LakeInitClock)
-  call lake_init_new ( id_lon, id_lat )
-  call mpp_clock_end  (LakeInitClock)
-  call mpp_clock_begin(GlacInitClock)
-  call glac_init_new ( id_lon, id_lat )
-  call mpp_clock_end  (GlacInitClock)
-  call mpp_clock_begin(SnowInitClock)
-  call snow_init_new ( id_lon, id_lat )
-  call mpp_clock_end  (SnowInitClock)
-  call mpp_clock_begin(CanaInitClock)
-  call cana_init_new ( id_lon, id_lat )
-  call mpp_clock_end  (CanaInitClock)
-else
-  call mpp_clock_begin(SoilInitClock)
   call soil_init ( id_lon, id_lat, id_band )
-  call mpp_clock_end  (SoilInitClock)
-  call mpp_clock_begin(VegnInitClock)
   call vegn_init ( id_lon, id_lat, id_band )
-  call mpp_clock_end  (VegnInitClock)
-  call mpp_clock_begin(LakeInitClock)
   call lake_init ( id_lon, id_lat )
-  call mpp_clock_end  (LakeInitClock)
-  call mpp_clock_begin(GlacInitClock)
   call glac_init ( id_lon, id_lat )
-  call mpp_clock_end  (GlacInitClock)
-  call mpp_clock_begin(SnowInitClock)
   call snow_init ( id_lon, id_lat )
-  call mpp_clock_end  (SnowInitClock)
-  call mpp_clock_begin(CanaInitClock)
   call cana_init ( id_lon, id_lat )
-  call mpp_clock_end  (CanaInitClock)
-endif
-  call mpp_clock_begin(TopoInitClock)
   call topo_rough_init( lnd%time, lnd%lonb, lnd%latb, &
        lnd%domain, id_lon, id_lat)
-  call mpp_clock_end  (TopoInitClock)
-  call mpp_clock_begin(RiveInitClock)
   allocate (river_land_mask(lnd%is:lnd%ie,lnd%js:lnd%je))
   allocate ( missing_rivers(lnd%is:lnd%ie,lnd%js:lnd%je))
   allocate ( no_riv        (lnd%is:lnd%ie,lnd%js:lnd%je))
@@ -441,10 +382,7 @@ endif
   no_riv = 0.
   where (missing_rivers) no_riv = 1.
   if ( id_no_riv > 0 ) used = send_data( id_no_riv, no_riv, lnd%time )
-  call mpp_clock_end  (RiveInitClock)
-  call mpp_clock_begin(TranInitClock)
   call land_transitions_init (id_lon, id_lat) 
-  call mpp_clock_end  (TranInitClock)
   ! [8] initialize boundary data
   ! [8.1] allocate storage for the boundary data 
   call realloc_land2cplr ( land2cplr )
@@ -509,16 +447,8 @@ subroutine land_model_end (cplr2land, land2cplr)
   
   module_is_initialized = .FALSE.
 
-  call mpp_clock_begin(landTermClock)
   call error_mesg('land_model_end','writing NetCDF restart',NOTE)
-  if (call_modified_restart ) then 
-  call error_mesg('land_model_end','new style restart',NOTE)
-    call land_model_restart_new()
-  else
-  call error_mesg('land_model_end','old style restart',NOTE)
-    call land_model_restart()
-  endif
-  call mpp_clock_end(landTermClock)
+  call land_model_restart()
 
   ! we still want to call the *_end procedures for component models, even
   ! if the number of tiles in this domain is zero, in case they are doing 
@@ -533,7 +463,6 @@ subroutine land_model_end (cplr2land, land2cplr)
   call cana_end ()
   call topo_rough_end()
   call river_end()
-
 
   deallocate(frac)
   deallocate(river_land_mask, missing_rivers, no_riv)
@@ -613,84 +542,6 @@ subroutine land_model_restart(timestamp)
   call save_river_restart(timestamp_)
 
 end subroutine land_model_restart
-
-! ============================================================================
-! write land model restarts 
-subroutine land_model_restart_new(timestamp)
-  character(*), intent(in), optional :: timestamp ! timestamp to add to the file name
-  
-  ! ---- local vars
-  integer :: tile_dim_length ! length of tile dimension in output files 
-                             ! global max of number of tiles per gridcell 
-  integer :: i,j,k,iotiles
-  integer :: unit ! netcdf id of the restart file
-  character(256) :: timestamp_
-  type(fieldtype) :: fields(8)
-
-  ! [1] count all land tiles and determine the length of tile dimension
-  ! sufficient for the current domain
-    tile_dim_length = 0
-  do j = lnd%js, lnd%je
-  do i = lnd%is, lnd%ie
-     k = nitems(lnd%tile_map(i,j))
-     tile_dim_length = max(tile_dim_length,k)
-  enddo
-  enddo
-
-  ! [2] calculate the tile dimension length by taking the max across all domains
-  call mpp_max(tile_dim_length)
-   
-  ! [3] create tile output file
-  timestamp_=''
-  if (present(timestamp)) then
-     if(trim(timestamp)/='') timestamp_=trim(timestamp)//'.'
-  endif
-  call create_tile_out_file(unit,'RESTART/'//trim(timestamp_)//'land.res.nc', &
-       lnd, land_tile_exists, tile_dim_length, iotiles)
-     
-  ! [4] write data fields
-  ! write meta data
-  ! pack=0 implies integer, pack=1 implies real.
-  call write_meta_data(unit,'frac',fields(1),'fractional area of tile',pack=1)
-  call write_meta_data(unit,'glac',fields(2),'tag of glacier tiles',pack=0)
-  call write_meta_data(unit,'lake',fields(3),'tag of lake tiles',pack=0)
-  call write_meta_data(unit,'soil',fields(4),'tag of soil tiles',pack=0)
-  call write_meta_data(unit,'vegn',fields(5),'tag of vegetation tiles',pack=0)
-  ! write the upward long-wave flux 
-  call write_meta_data(unit,'lwup',fields(6),'upward long-wave flux',pack=1)
-  ! write energy residuals
-  call write_meta_data(unit,'e_res_1',fields(7),&
-       'energy residual in canopy air energy balance equation', 'W/m2',pack=1)
-  call write_meta_data(unit,'e_res_2',fields(8),&
-       'energy residual in canopy energy balance equation', 'W/m2',pack=1)
-
-  ! write fractions and tile tags
-  call write_tile_data_r0d_fptr_new(unit,iotiles,fields(1),land_frac_ptr)
-  call write_tile_data_i0d_fptr_new(unit,iotiles,fields(2),glac_tag_ptr)
-  call write_tile_data_i0d_fptr_new(unit,iotiles,fields(3),lake_tag_ptr)
-  call write_tile_data_i0d_fptr_new(unit,iotiles,fields(4),soil_tag_ptr)
-  call write_tile_data_i0d_fptr_new(unit,iotiles,fields(5),vegn_tag_ptr)
-  ! write the upward long-wave flux 
-  call write_tile_data_r0d_fptr_new(unit,iotiles,fields(6),land_lwup_ptr)
-  ! write energy residuals
-  call write_tile_data_r0d_fptr_new(unit,iotiles,fields(7),land_e_res_1_ptr)
-  call write_tile_data_r0d_fptr_new(unit,iotiles,fields(8),land_e_res_2_ptr)
-  
-  ! [5] close file
-!  __NF_ASRT__(nf_close(unit))
-  call mpp_close(unit)
-
-  ! [6] save component models' restarts
-  call save_land_transitions_restart(timestamp_)
-  call save_glac_restart_new(tile_dim_length,timestamp_)
-  call save_lake_restart_new(tile_dim_length,timestamp_)
-  call save_soil_restart_new(tile_dim_length,timestamp_)
-  call save_snow_restart_new(tile_dim_length,timestamp_)
-  call save_vegn_restart_new(tile_dim_length,timestamp_)
-  call save_cana_restart_new(tile_dim_length,timestamp_)
-  call save_river_restart(timestamp_)
-
-end subroutine land_model_restart_new
 
 ! ============================================================================
 subroutine land_cover_cold_start(lnd)
@@ -911,7 +762,7 @@ subroutine land_cover_warm_start ( restart_file_name, lnd )
   character(len=*), intent(in) :: restart_file_name
   type(land_state_type), intent(inout) :: lnd
   
-  integer, parameter :: INPUT_BUF_SIZE = 2048
+  integer, parameter :: INPUT_BUF_SIZE = 1024
   
   ! ---- local vars
   integer, allocatable :: idx(:) ! compressed tile index

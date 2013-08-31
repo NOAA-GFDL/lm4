@@ -9,12 +9,8 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use mpp_io_mod,         only: mpp_close, fieldtype
-use fms_mod,            only: error_mesg, file_exist,     &
-                              check_nml_error, stdlog, &
-                              write_version_number, close_file, &
-                              mpp_pe, mpp_root_pe, FATAL, NOTE
-use fms_io_mod,         only: get_mosaic_tile_file
+use fms_mod, only : error_mesg, file_exist, check_nml_error, &
+     stdlog, write_version_number, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
 use time_manager_mod,   only: time_type, increment_time, time_type_to_real
 use constants_mod,      only: tfreeze, hlv, hlf, PI
 
@@ -31,9 +27,7 @@ use land_tile_diag_mod, only : &
 use land_data_mod,      only : land_state_type, lnd
 use land_tile_io_mod, only : create_tile_out_file, read_tile_data_r1d_fptr, &
      write_tile_data_r1d_fptr, print_netcdf_error, get_input_restart_name, &
-     sync_nc_files, &
-     write_tile_data_r1d_fptr_new, write_meta_data, &
-     read_tile_data_r1d_fptr_new
+     sync_nc_files
 use nf_utils_mod, only : nfu_def_dim, nfu_put_att
 use land_debug_mod, only : is_watch_point
 
@@ -42,10 +36,9 @@ private
 
 ! ==== public interfaces =====================================================
 public :: read_snow_namelist
-public :: snow_init, snow_init_new
+public :: snow_init
 public :: snow_end
 public :: save_snow_restart
-public :: save_snow_restart_new
 public :: snow_get_sfc_temp
 public :: snow_get_depth_area
 public :: snow_radiation
@@ -58,8 +51,8 @@ public :: snow_step_2
 ! ==== module variables ======================================================
 character(len=*), parameter, private   :: &
        module_name = 'snow_mod' ,&
-       version     = '$Id: snow.F90,v 19.0.4.1.4.2.4.3 2013/05/06 19:23:25 William.Cooke Exp $' ,&
-       tagname     = '$Name: siena_201305 $'
+       version     = '$Id: snow.F90,v 19.0.6.4 2012/11/29 21:26:17 Zhi.Liang Exp $' ,&
+       tagname     = '$Name: siena_201308 $'
 
 ! ==== module variables ======================================================
 
@@ -206,66 +199,6 @@ subroutine snow_init ( id_lon, id_lat )
 
 end subroutine snow_init
 
-! ============================================================================
-! initialize snow model
-subroutine snow_init_new ( id_lon, id_lat )
-  integer, intent(in)               :: id_lon  ! ID of land longitude (X) axis  
-  integer, intent(in)               :: id_lat  ! ID of land latitude (Y) axis
-
-  ! ---- local vars ----------------------------------------------------------
-  integer :: unit, n         ! unit for various i/o
-  type(land_tile_enum_type)     :: te,ce ! tail and current tile list elements
-  type(land_tile_type), pointer :: tile  ! pointer to current tile
-  character(len=256) :: restart_file_name
-  logical :: restart_exists
-
-  module_is_initialized = .TRUE.
-  time       = lnd%time
-  delta_time = time_type_to_real(lnd%dt_fast)
-
-  ! -------- initialize snow state --------
-  restart_file_name='INPUT/snow.res.nc'
-  if (file_exist(trim(restart_file_name),domain=lnd%domain)) then
-     call error_mesg('snow_init_new', 'Reading restart data from '//trim(restart_file_name), NOTE)
-     call read_tile_data_r1d_fptr_new(restart_file_name, 'temp', snow_temp_ptr  )
-     call read_tile_data_r1d_fptr_new(restart_file_name, 'wl', snow_wl_ptr  )
-     call read_tile_data_r1d_fptr_new(restart_file_name, 'ws', snow_ws_ptr  )
-  else
-     call error_mesg('snow_init',&
-          'cold-starting snow',&
-          NOTE)
-     te = tail_elmt (lnd%tile_map)
-     ce = first_elmt(lnd%tile_map)
-     do while(ce /= te)
-        tile=>current_tile(ce)  ! get pointer to current tile
-        ce=next_elmt(ce)       ! advance position to the next tile
-        
-        if (.not.associated(tile%snow)) cycle
-     
-        do n = 1, num_l
-           tile%snow%prog(n)%wl = init_pack_wl * dz(n)
-           tile%snow%prog(n)%ws = init_pack_wl * dz(n)
-           tile%snow%prog(n)%T  = init_temp
-        enddo
-!        tile%snow%prog(1:num_l)%wl = init_pack_wl * dz(1:num_l)
-!        tile%snow%prog(1:num_l)%ws = init_pack_wl * dz(1:num_l)
-!        tile%snow%prog(1:num_l)%T  = init_temp
-     enddo
-  endif
-
-  if (trim(albedo_to_use)=='') then
-     use_brdf = .false.
-  elseif (trim(albedo_to_use)=='brdf-params') then
-     use_brdf = .true.
-  else
-     call error_mesg('snow_init',&
-          'option albedo_to_use="'//&
-          trim(albedo_to_use)//'" is invalid, use "" or "brdf-params"',&
-          FATAL)
-  endif
-
-end subroutine snow_init_new
-
 
 ! ============================================================================
 subroutine snow_end ()
@@ -304,40 +237,6 @@ subroutine save_snow_restart (tile_dim_length, timestamp)
        __NF_ASRT__(nf_close(unit))
 
 end subroutine save_snow_restart
-
-! ============================================================================
-subroutine save_snow_restart_new (tile_dim_length, timestamp)
-  integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
-  character(*), intent(in) :: timestamp ! timestamp to add to the file name
-
-  ! ---- local vars ----------------------------------------------------------
-  integer :: unit            ! restart file i/o unit
-  integer :: iotiles ! number of tiles on I/O domain
-  type(fieldtype) :: fields(3) ! Number of variables being output to restart file.
-  character(len=12) :: axis_names(2)
-
-  call error_mesg('snow_end','writing NetCDF restart',NOTE)
-  ! create output file, including internal structure necessary for tile output
-  call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'snow.res.nc', &
-          lnd, snow_tile_exists, tile_dim_length, iotiles, zz(1:num_l))
-
-  ! write fields
-  axis_names(1) = 'tile_index'
-  axis_names(2) = 'zfull'
-  ! pack=0 implies integer, pack=1 implies real.
-  call write_meta_data(unit,'temp' ,axis_names,fields(1),'snow temperature','degrees_K',pack=1)
-  call write_meta_data(unit,'wl'   ,axis_names,fields(2),'snow liquid water content','kg/m2',pack=1)
-  call write_meta_data(unit,'ws'   ,axis_names,fields(3),'snow solid water content','kg/m2',pack=1)
-   
-  ! write out fields
-  call write_tile_data_r1d_fptr_new(unit, iotiles, fields(1), snow_temp_ptr)
-  call write_tile_data_r1d_fptr_new(unit, iotiles, fields(2), snow_wl_ptr)
-  call write_tile_data_r1d_fptr_new(unit, iotiles, fields(3), snow_ws_ptr)
-
-  ! close file
-  call mpp_close(unit)
-
-end subroutine save_snow_restart_new
 
 ! ============================================================================
 subroutine snow_get_sfc_temp(snow, snow_T)
@@ -1106,42 +1005,27 @@ end function snow_tile_exists
 subroutine snow_temp_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
-   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-!      if(associated(tile%snow)) ptr=>tile%snow%prog%T
-      if(associated(tile%snow)) then
-        n =size(tile%snow%prog(:))
-        ptr(1:n)=>tile%snow%prog(1:n)%T
-      endif
+      if(associated(tile%snow)) ptr=>tile%snow%prog%T
    endif
 end subroutine snow_temp_ptr
 
 subroutine snow_wl_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
-   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-!      if(associated(tile%snow)) ptr=>tile%snow%prog%wl
-      if(associated(tile%snow)) then
-        n =size(tile%snow%prog(:))
-        ptr(1:n)=>tile%snow%prog(1:n)%wl
-      endif
+      if(associated(tile%snow)) ptr=>tile%snow%prog%wl
    endif
 end subroutine snow_wl_ptr
 
 subroutine snow_ws_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
-   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-!      if(associated(tile%snow)) ptr=>tile%snow%prog%ws
-      if(associated(tile%snow)) then
-        n =size(tile%snow%prog(:))
-        ptr(1:n)=>tile%snow%prog(1:n)%ws
-      endif
+      if(associated(tile%snow)) ptr=>tile%snow%prog%ws
    endif
 end subroutine snow_ws_ptr
 
