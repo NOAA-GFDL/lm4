@@ -73,7 +73,7 @@ module river_mod
 
 !--- version information ---------------------------------------------
   character(len=128) :: version = '$Id: river.F90,v 19.0.4.3 2013/03/01 15:10:59 Seth.Underwood Exp $'
-  character(len=128) :: tagname = '$Name: siena_201308 $'
+  character(len=128) :: tagname = '$Name: siena_201309 $'
 
 !--- public interface ------------------------------------------------
   public :: river_init, river_end, river_type, update_river, river_stock_pe

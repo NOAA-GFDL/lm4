@@ -52,7 +52,7 @@ public :: snow_step_2
 character(len=*), parameter, private   :: &
        module_name = 'snow_mod' ,&
        version     = '$Id: snow.F90,v 19.0.6.4 2012/11/29 21:26:17 Zhi.Liang Exp $' ,&
-       tagname     = '$Name: siena_201308 $'
+       tagname     = '$Name: siena_201309 $'
 
 ! ==== module variables ======================================================
 
