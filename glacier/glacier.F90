@@ -52,8 +52,8 @@ public :: glac_step_2
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
        module_name = 'glacier',&
-       version     = '$Id: glacier.F90,v 19.0.4.1 2012/08/08 17:02:38 William.Cooke Exp $',&
-       tagname     = '$Name: siena_201309 $'
+       version     = '$Id: glacier.F90,v 20.0 2013/12/13 23:29:35 fms Exp $',&
+       tagname     = '$Name: tikal $'
  
 ! ==== module variables ======================================================
 
@@ -364,7 +364,8 @@ subroutine glac_step_1 ( glac, &
 
      bbb = 1.0 - aaa(num_l)
      denom = bbb
-     dt_e = aaa(num_l)*(glac%prog(num_l)%T - glac%prog(num_l-1)%T)
+     dt_e = aaa(num_l)*(glac%prog(num_l)%T - glac%prog(num_l-1)%T) &
+               + glac%geothermal_heat_flux * delta_time / heat_capacity(num_l)
      glac%e(num_l-1) = -aaa(num_l)/denom
      glac%f(num_l-1) = dt_e/denom
      do l = num_l-1, 2, -1
@@ -917,45 +918,65 @@ end function glac_tile_exists
 subroutine glac_temp_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
+   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%glac)) ptr=>tile%glac%prog%T
+      if(associated(tile%glac)) then
+        n = size(tile%glac%prog)
+        ptr(1:n) => tile%glac%prog(1:n)%T
+      endif
    endif
 end subroutine glac_temp_ptr
 
 subroutine glac_wl_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
+   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%glac)) ptr=>tile%glac%prog%wl
+      if(associated(tile%glac)) then
+        n = size(tile%glac%prog)
+        ptr(1:n) => tile%glac%prog(1:n)%wl
+      endif
    endif
 end subroutine glac_wl_ptr
 
 subroutine glac_ws_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
+   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%glac)) ptr=>tile%glac%prog%ws
+      if(associated(tile%glac)) then
+        n = size(tile%glac%prog)
+        ptr(1:n) => tile%glac%prog(1:n)%ws
+      endif
    endif
 end subroutine glac_ws_ptr
 
 subroutine glac_gw_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
+   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%glac)) ptr=>tile%glac%prog%groundwater
+      if(associated(tile%glac)) then
+        n = size(tile%glac%prog)
+        ptr(1:n) => tile%glac%prog(1:n)%groundwater
+      endif
    endif
 end subroutine glac_gw_ptr
 
 subroutine glac_gwT_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
+   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%glac)) ptr=>tile%glac%prog%groundwater_T
+      if(associated(tile%glac)) then
+        n = size(tile%glac%prog)
+        ptr(1:n) => tile%glac%prog(1:n)%groundwater_T
+      endif
    endif
 end subroutine glac_gwT_ptr
 

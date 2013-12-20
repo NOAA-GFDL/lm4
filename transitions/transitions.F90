@@ -14,7 +14,7 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only : write_version_number, string, error_mesg, FATAL, WARNING, NOTE, &
      mpp_pe, write_version_number, file_exist, close_file, &
-     check_nml_error, stdlog, mpp_root_pe
+     check_nml_error, stdlog, mpp_root_pe, fms_error_handler
 use mpp_io_mod, only : mpp_open, mpp_close, MPP_RDONLY, MPP_ASCII
 use time_manager_mod, only : time_type, set_date, get_date, set_time, &
      operator(+), operator(-), operator(>), operator(<), operator(<=), operator(/), &
@@ -67,8 +67,8 @@ public :: land_transitions
 
 ! ==== module constants =====================================================
 character(len=*), parameter   :: &
-     version = '$Id: transitions.F90,v 19.0.4.1 2012/08/08 17:02:38 William.Cooke Exp $', &
-     tagname = '$Name: siena_201309 $', &
+     version = '$Id: transitions.F90,v 20.0 2013/12/13 23:30:55 fms Exp $', &
+     tagname = '$Name: tikal $', &
      module_name = 'land_transitions_mod', &
      diag_mod_name = 'landuse'
 ! selectors for overshoot handling options, for efficiency
@@ -808,10 +808,11 @@ end subroutine get_transitions
 ! tile transition field, calculates total transition during the specified period.
 ! The transition rate data are assumed to be in fraction of land area per year,
 ! timestamped at the beginning of the year
-subroutine integral_transition(t1, t2, id, frac)
+subroutine integral_transition(t1, t2, id, frac, err_msg)
   type(time_type), intent(in)  :: t1,t2 ! time boundaries
   integer        , intent(in)  :: id    ! id of the field
   real           , intent(out) :: frac(:,:)
+  character(len=*),intent(out), optional :: err_msg
 
   ! ---- local vars
   integer :: n ! size of time axis
@@ -821,7 +822,9 @@ subroutine integral_transition(t1, t2, id, frac)
   real :: dt ! current time interval, in years
   real :: sum(size(frac,1),size(frac,2))
   integer :: i,j
+  character(len=256) :: msg
 
+  msg = ''
   ! adjust the integration limits, in case they are out of range   
   n = size(time_in)
   ts = t1; 
@@ -831,7 +834,10 @@ subroutine integral_transition(t1, t2, id, frac)
   if (te<time_in(1)) te = time_in(1)
   if (te>time_in(n)) te = time_in(n) 
 
-  call time_interp(ts, time_in, w, i1,i2)
+  call time_interp(ts, time_in, w, i1,i2, err_msg=msg)
+  if(msg /= '') then
+    if(fms_error_handler('integral_transition','Message from time_interp: '//trim(msg),err_msg)) return
+  endif
   __NF_ASRT__(nfu_get_rec(ncid,id,i1,buffer_in))
 
   frac = 0;
@@ -848,7 +854,10 @@ subroutine integral_transition(t1, t2, id, frac)
      if(i2>size(time_in)) exit ! from loop
   enddo
 
-  call time_interp(te,time_in,w,i1,i2)
+  call time_interp(te,time_in,w,i1,i2, err_msg=msg)
+  if(msg /= '') then
+    if(fms_error_handler('integral_transition','Message from time_interp: '//trim(msg),err_msg)) return
+  endif
   __NF_ASRT__(nfu_get_rec(ncid,id,i1,buffer_in))
   call horiz_interp(interp,buffer_in,frac)
   dt = (time_in(i2)-time_in(i1))//set_time(0,days_in_year((time_in(i2)+time_in(i1))/2))

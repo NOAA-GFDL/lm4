@@ -10,8 +10,8 @@ public :: qscomp
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-   version = '$Id: sphum.F90,v 15.0.26.1 2012/08/08 17:02:38 William.Cooke Exp $', &
-   tagname = '$Name: siena_201309 $' ,&
+   version = '$Id: sphum.F90,v 20.0 2013/12/13 23:30:34 fms Exp $', &
+   tagname = '$Name: tikal $' ,&
    module_name = 'vegn'
 real, parameter :: d622 = rdgas/rvgas
 real, parameter :: d378 = 1.0-d622
