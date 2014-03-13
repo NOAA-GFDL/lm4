@@ -12,11 +12,15 @@ use fms_mod, only: open_namelist_file
 use fms_mod,            only: error_mesg, file_exist,     &
                               check_nml_error, stdlog, write_version_number, &
                               close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
+use fms_io_mod, only : read_compressed, restart_file_type, free_restart_type
+use fms_io_mod, only : get_field_size, save_restart
+use fms_io_mod, only : register_restart_axis, register_restart_field, set_domain, nullify_domain
+
 use time_manager_mod,   only: time_type, increment_time, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o, PI
 
-use glac_tile_mod,      only: glac_tile_type, glac_pars_type, glac_prog_type, &
+use glac_tile_mod,      only: glac_tile_type, glac_pars_type, &
      read_glac_data_namelist, glac_data_thermodynamics, glac_data_hydraulics, &
      glac_data_radiation, glac_data_diffusion, max_lev, cpw, clw, csw
 
@@ -29,7 +33,8 @@ use land_tile_diag_mod, only : &
 use land_data_mod,      only : land_state_type, lnd
 use land_io_mod, only : print_netcdf_error
 use land_tile_io_mod, only: create_tile_out_file, read_tile_data_r1d_fptr, &
-     write_tile_data_r1d_fptr, get_input_restart_name, sync_nc_files
+     write_tile_data_r1d_fptr, get_input_restart_name, sync_nc_files, &
+     gather_tile_data, assemble_tiles
 use nf_utils_mod, only : nfu_def_dim, nfu_put_att
 use land_debug_mod, only : is_watch_point
 implicit none
@@ -40,6 +45,7 @@ public :: read_glac_namelist
 public :: glac_init
 public :: glac_end
 public :: save_glac_restart
+public :: save_glac_restart_new
 public :: glac_get_sfc_temp
 public :: glac_radiation
 public :: glac_diffusion
@@ -52,8 +58,8 @@ public :: glac_step_2
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
        module_name = 'glacier',&
-       version     = '$Id: glacier.F90,v 20.0 2013/12/13 23:29:35 fms Exp $',&
-       tagname     = '$Name: tikal $'
+       version     = '$Id: glacier.F90,v 20.0.2.1.6.1 2014/02/28 17:21:28 Niki.Zadeh Exp $',&
+       tagname     = '$Name: tikal_201403 $'
  
 ! ==== module variables ======================================================
 
@@ -134,27 +140,66 @@ end subroutine read_glac_namelist
 
 ! ============================================================================
 ! initialize glacier model
-subroutine glac_init ( id_lon, id_lat )
+subroutine glac_init ( id_lon, id_lat, new_restart )
   integer, intent(in)  :: id_lon  ! ID of land longitude (X) axis  
   integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
+  logical, intent(in)  :: new_restart  ! This is a transition var and will be removed
 
   ! ---- local vars
   integer :: unit         ! unit for various i/o
+  integer :: isize,nz     ! Len of io domain vector and number of levels
   type(land_tile_enum_type)     :: te,ce ! last and current tile list elements
   type(land_tile_type), pointer :: tile  ! pointer to current tile
   character(len=256) :: restart_file_name
-  logical :: restart_exists
+  character(len=17) :: restart_base_name='INPUT/glac.res.nc'
+  integer :: siz(4)
+  integer, allocatable :: idx(:)         ! I/O domain vector of compressed indices
+  real,    allocatable :: r1d(:,:)       ! I/O domain level dependent vector of real data
+  logical :: found,restart_exists
+
 
   module_is_initialized = .TRUE.
   time       = lnd%time
   delta_time = time_type_to_real(lnd%dt_fast)
 
   ! -------- initialize glac state --------
-  call get_input_restart_name('INPUT/glac.res.nc',restart_exists,restart_file_name)
+  call get_input_restart_name(restart_base_name,restart_exists,restart_file_name)
   if (restart_exists) then
      call error_mesg('glac_init',&
           'reading NetCDF restart "'//trim(restart_file_name)//'"',&
           NOTE)
+     if(new_restart)then
+        call error_mesg('glac_init', 'Using new glacier restart read', NOTE)
+
+        call get_field_size(restart_base_name,'tile_index',siz, field_found=found, domain=lnd%domain)
+        if ( .not. found ) call error_mesg(trim(module_name), &
+                       'tile_index axis not found in '//trim(restart_file_name), FATAL)
+        isize = siz(1)
+        call get_field_size(restart_base_name,'zfull',siz, field_found=found, domain=lnd%domain)
+        if ( .not. found ) call error_mesg(trim(module_name), &
+                       'Z axis not found in '//trim(restart_file_name), FATAL)
+        nz = siz(1)
+        allocate(idx(isize),r1d(isize,nz))
+
+        call read_compressed(restart_base_name,'tile_index',idx, domain=lnd%domain)
+
+        call read_compressed(restart_base_name,'temp',r1d, domain=lnd%domain)
+        call assemble_tiles(glac_temp_ptr,idx,r1d)
+
+        call read_compressed(restart_base_name,'wl',r1d, domain=lnd%domain)
+        call assemble_tiles(glac_wl_ptr,idx,r1d)
+
+        call read_compressed(restart_base_name,'ws',r1d, domain=lnd%domain)
+        call assemble_tiles(glac_ws_ptr,idx,r1d)
+
+        call read_compressed(restart_base_name,'groundwater',r1d, domain=lnd%domain)
+        call assemble_tiles(glac_gw_ptr,idx,r1d)
+
+        call read_compressed(restart_base_name,'groundwater_T',r1d, domain=lnd%domain)
+        call assemble_tiles(glac_gwT_ptr,idx,r1d)
+
+        deallocate(idx,r1d)
+     else
      __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
      call read_tile_data_r1d_fptr(unit, 'temp'         , glac_temp_ptr  )
      call read_tile_data_r1d_fptr(unit, 'wl'           , glac_wl_ptr )
@@ -162,6 +207,7 @@ subroutine glac_init ( id_lon, id_lat )
      call read_tile_data_r1d_fptr(unit, 'groundwater'  , glac_gw_ptr )
      call read_tile_data_r1d_fptr(unit, 'groundwater_T', glac_gwT_ptr)
      __NF_ASRT__(nf_close(unit))     
+     endif
   else
      call error_mesg('glac_init',&
           'cold-starting glacier',&
@@ -175,15 +221,15 @@ subroutine glac_init ( id_lon, id_lat )
         if (.not.associated(tile%glac)) cycle
 
         if (init_temp.ge.tfreeze.or.lm2) then      ! USE glac TFREEZE HERE
-           tile%glac%prog(1:num_l)%wl = init_w*dz(1:num_l)
-           tile%glac%prog(1:num_l)%ws = 0
+           tile%glac%wl(1:num_l) = init_w*dz(1:num_l)
+           tile%glac%ws(1:num_l) = 0
         else
-           tile%glac%prog(1:num_l)%wl = 0
-           tile%glac%prog(1:num_l)%ws = init_w*dz(1:num_l)
+           tile%glac%wl(1:num_l) = 0
+           tile%glac%ws(1:num_l) = init_w*dz(1:num_l)
         endif
-        tile%glac%prog%T             = init_temp
-        tile%glac%prog%groundwater   = init_groundwater
-        tile%glac%prog%groundwater_T = init_temp
+        tile%glac%T             = init_temp
+        tile%glac%groundwater   = init_groundwater
+        tile%glac%groundwater_T = init_temp
      enddo
   endif
   
@@ -248,6 +294,63 @@ subroutine save_glac_restart (tile_dim_length, timestamp)
 
 end subroutine save_glac_restart
 
+! ============================================================================
+subroutine save_glac_restart_new (tile_dim_length, timestamp)
+  integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
+  character(*), intent(in) :: timestamp ! timestamp to add to the file name
+
+  ! ---- local vars ----------------------------------------------------------
+  character(267) :: fname
+  type(restart_file_type) :: glac_restart ! restart file i/o object
+  integer, allocatable :: idx(:)
+  real, allocatable :: temp(:,:)
+  real, allocatable :: wl(:,:)
+  real, allocatable :: ws(:,:)
+  real, allocatable :: gw(:,:)
+  real, allocatable :: gwT(:,:)
+  integer :: id_restart, isize
+
+  call error_mesg('glac_end','writing new format NetCDF restart',NOTE)
+! must set domain so that io_domain is available
+  call set_domain(lnd%domain)
+! Note that fname is updated for tile & rank numbers during file creation
+  fname = trim(timestamp)//'glac.res.nc'
+  call create_tile_out_file(glac_restart,idx,fname,lnd,glac_tile_exists,tile_dim_length,zfull(1:num_l))
+  isize = size(idx)
+  allocate(temp(isize,num_l), &
+              wl(isize,num_l), &
+              ws(isize,num_l), &
+              gw(isize,num_l), &
+              gwT(isize,num_l))
+
+  ! Output data provides signature
+  call gather_tile_data(glac_temp_ptr,idx,temp)
+  id_restart = register_restart_field(glac_restart,fname,'temp',temp,compressed=.true., &
+                                      longname='glacier temperature',units='degrees_K')
+
+  call gather_tile_data(glac_wl_ptr,idx,wl)
+  id_restart = register_restart_field(glac_restart,fname,'wl',wl,compressed=.true., &
+                                      longname='liquid water content',units='kg/m2')
+
+  call gather_tile_data(glac_ws_ptr,idx,ws)
+  id_restart = register_restart_field(glac_restart,fname,'ws',ws,compressed=.true., &
+                                      longname='solid water content',units='kg/m2')
+
+  call gather_tile_data(glac_gw_ptr,idx,gw)
+  id_restart = register_restart_field(glac_restart,fname,'groundwater',gw,compressed=.true.)
+
+  call gather_tile_data(glac_gwT_ptr,idx,gwT)
+  id_restart = register_restart_field(glac_restart,fname,'groundwater_T',gwT,compressed=.true.)
+
+  ! save performs io domain aggregation through mpp_io as with regular domain data
+  call save_restart(glac_restart)
+
+  deallocate(idx,temp,wl,ws,gw,gwT)
+
+  call free_restart_type(glac_restart)
+  call nullify_domain()
+end subroutine save_glac_restart_new
+
 
 ! ============================================================================
 ! returns glacier surface temperature
@@ -255,7 +358,7 @@ subroutine glac_get_sfc_temp ( glac, glac_T )
   type(glac_tile_type), intent(in)  :: glac
   real,                 intent(out) :: glac_T
 
-  glac_T = glac%prog(1)%T
+  glac_T = glac%T(1)
 end subroutine glac_get_sfc_temp
 
 
@@ -317,10 +420,10 @@ subroutine glac_step_1 ( glac, &
   if(is_watch_point()) then
     write(*,*) 'checkpoint gs1 a'
     write(*,*) 'mask    ',  .TRUE.
-    write(*,*) 'T       ', glac%prog(1)%T
+    write(*,*) 'T       ', glac%T(1)
   endif
 
-  glac_T = glac%prog(1)%T
+  glac_T = glac%T(1)
 
   if(is_watch_point()) then
      write(*,*) 'checkpoint gs1 b'
@@ -329,8 +432,8 @@ subroutine glac_step_1 ( glac, &
   endif
 
   do l = 1, num_l
-     vlc(l) = max(0.0, glac%prog(l)%wl / (dens_h2o * dz(l)))
-     vsc(l) = max(0.0, glac%prog(l)%ws / (dens_h2o * dz(l)))
+     vlc(l) = max(0.0, glac%wl(l) / (dens_h2o * dz(l)))
+     vsc(l) = max(0.0, glac%ws(l) / (dens_h2o * dz(l)))
   enddo
 
   call glac_data_thermodynamics ( glac%pars, vlc(1), vsc(1),  &  
@@ -338,15 +441,15 @@ subroutine glac_step_1 ( glac, &
 
   do l = 1, num_l
      heat_capacity(l) = glac%heat_capacity_dry(l)*dz(l) &
-          + clw*glac%prog(l)%wl + csw*glac%prog(l)%ws
+          + clw*glac%wl(l) + csw*glac%ws(l)
   enddo
 
   if (lm2) then
      glac_liq = 0
      glac_ice = 1.e6
   else
-     glac_liq  = max(glac%prog(1)%wl, 0.0)
-     glac_ice  = max(glac%prog(1)%ws, 0.0)
+     glac_liq  = max(glac%wl(1), 0.0)
+     glac_ice  = max(glac%ws(1), 0.0)
   endif
   if (glac_liq + glac_ice > 0 ) then
      glac_subl = glac_ice / (glac_liq + glac_ice)
@@ -364,20 +467,20 @@ subroutine glac_step_1 ( glac, &
 
      bbb = 1.0 - aaa(num_l)
      denom = bbb
-     dt_e = aaa(num_l)*(glac%prog(num_l)%T - glac%prog(num_l-1)%T) &
+     dt_e = aaa(num_l)*(glac%T(num_l) - glac%T(num_l-1)) &
                + glac%geothermal_heat_flux * delta_time / heat_capacity(num_l)
      glac%e(num_l-1) = -aaa(num_l)/denom
      glac%f(num_l-1) = dt_e/denom
      do l = num_l-1, 2, -1
         bbb = 1.0 - aaa(l) - ccc(l)
         denom = bbb + ccc(l)*glac%e(l)
-        dt_e = - ( ccc(l)*(glac%prog(l+1)%T - glac%prog(l)%T  ) &
-             -aaa(l)*(glac%prog(l)%T   - glac%prog(l-1)%T) )
+        dt_e = - ( ccc(l)*(glac%T(l+1) - glac%T(l)  ) &
+             -aaa(l)*(glac%T(l)   - glac%T(l-1)) )
         glac%e(l-1) = -aaa(l)/denom
         glac%f(l-1) = (dt_e - ccc(l)*glac%f(l))/denom
      enddo
      denom = delta_time/(heat_capacity(1) )
-     glac_G0    = ccc(1)*(glac%prog(2)%T- glac%prog(1)%T &
+     glac_G0    = ccc(1)*(glac%T(2)- glac%T(1) &
           + glac%f(1)) / denom
      glac_DGDT  = (1 - ccc(1)*(1-glac%e(1))) / denom   
   else  ! one-level case
@@ -400,7 +503,7 @@ subroutine glac_step_1 ( glac, &
      write(*,*) 'G0      ', glac_G0
      write(*,*) 'DGDT    ', glac_DGDT
      do l = 1, num_l
-        write(*,*) 'T(dbg,l)', glac%prog(l)%T
+        write(*,*) 'T(dbg,l)', glac%T(l)
      enddo
 
   endif
@@ -468,11 +571,11 @@ end subroutine glac_step_1
      write(*,*) 'theta_s ', glac%pars%w_sat
      do l = 1, num_l
         write(*,'(i2.2,99(a,g23.16))')l,&
-             ' T =', glac%prog(l)%T,&
-             ' Th=', (glac%prog(l)%ws+glac%prog(l)%wl)/(dens_h2o*dz(l)),&
-             ' wl=', glac%prog(l)%wl,&
-             ' ws=', glac%prog(l)%ws,&
-             ' gw=', glac%prog(l)%groundwater
+             ' T =', glac%T(l),&
+             ' Th=', (glac%ws(l)+glac%wl(l))/(dens_h2o*dz(l)),&
+             ' wl=', glac%wl(l),&
+             ' ws=', glac%ws(l),&
+             ' gw=', glac%groundwater(l)
      enddo
      
   endif
@@ -489,11 +592,11 @@ end subroutine glac_step_1
 
   ! ---- load surface temp change and perform back substitution --------------
   del_t(1) = subs_DT
-  glac%prog(1)%T = glac%prog(1)%T + del_t(1)
+  glac%T(1) = glac%T(1) + del_t(1)
   if ( num_l > 1) then
     do l = 1, num_l-1
       del_t(l+1) = glac%e(l) * del_t(l) + glac%f(l)
-      glac%prog(l+1)%T = glac%prog(l+1)%T + del_t(l+1)
+      glac%T(l+1) = glac%T(l+1) + del_t(l+1)
     end do
   end if
 
@@ -503,7 +606,7 @@ end subroutine glac_step_1
      write(*,*) 'fevap=',glac_fevap
      write(*,*) 'subs_M_imp=',subs_M_imp
      do l = 1, num_l
-        write(*,'(i2.2,x,a,g23.16)') l, 'T', glac%prog(l)%T
+        write(*,'(i2.2,x,a,g23.16)') l, 'T', glac%T(l)
      enddo
   endif
 
@@ -512,34 +615,34 @@ IF (LM2) THEN ! *********************************************************
     glac_hlrunf = snow_hlprec
 ELSE   ! ****************************************************************
   ! ---- extract evap from glac and do implicit melt --------------------
-    glac%prog(1)%wl = glac%prog(1)%wl - glac_levap*delta_time
-    glac%prog(1)%ws = glac%prog(1)%ws - glac_fevap*delta_time
+    glac%wl(1) = glac%wl(1) - glac_levap*delta_time
+    glac%ws(1) = glac%ws(1) - glac_fevap*delta_time
     hcap = glac%heat_capacity_dry(1)*dz(1) &
-                       + clw*glac%prog(1)%wl + csw*glac%prog(1)%ws
-    glac%prog(1)%T = glac%prog(1)%T + (   &
+                       + clw*glac%wl(1) + csw*glac%ws(1)
+    glac%T(1) = glac%T(1) + (   &
                   +((clw-cpw)*glac_levap                              &
-                  + (csw-cpw)*glac_fevap)*(glac%prog(1)%T  -tfreeze) &
+                  + (csw-cpw)*glac_fevap)*(glac%T(1)  -tfreeze) &
                                                )*delta_time/ hcap
-    glac%prog(1)%wl = glac%prog(1)%wl + subs_M_imp
-    glac%prog(1)%ws = glac%prog(1)%ws - subs_M_imp
-    glac%prog(1)%T  = tfreeze + (hcap*(glac%prog(1)%T-tfreeze) ) &
+    glac%wl(1) = glac%wl(1) + subs_M_imp
+    glac%ws(1) = glac%ws(1) - subs_M_imp
+    glac%T(1)  = tfreeze + (hcap*(glac%T(1)-tfreeze) ) &
                               / ( hcap + (clw-csw)*subs_M_imp )
   ! ---- remainder of mass fluxes and associated sensible heat fluxes --------
   if(is_watch_point()) then
      write(*,*) ' ***** glac_step_2 checkpoint 3 ***** '
      do l = 1, num_l
         write(*,'(i2.2,99(a,g23.16))') l,&
-             ' T =', glac%prog(l)%T,&
-             ' wl=', glac%prog(l)%wl,&
-             ' ws=', glac%prog(l)%ws
+             ' T =', glac%T(l),&
+             ' wl=', glac%wl(l),&
+             ' ws=', glac%ws(l)
      enddo
   endif
 
   ! ---- fetch glac hydraulic properties -------------------------------------
   vlc=1;vsc=0
   do l = 1, num_l
-     vlc(l) = max(0., glac%prog(l)%wl / (dens_h2o*dz(l)))
-     vsc(l) = max(0., glac%prog(l)%ws / (dens_h2o*dz(l)))
+     vlc(l) = max(0., glac%wl(l) / (dens_h2o*dz(l)))
+     vsc(l) = max(0., glac%ws(l) / (dens_h2o*dz(l)))
   enddo
   call glac_data_hydraulics (glac, vlc, vsc, &
                    psi, DThDP, hyd_cond, DKDP, Dpsi_min, Dpsi_max, tau_gw, &
@@ -666,12 +769,12 @@ ELSE   ! ****************************************************************
            -grad(l)*(DKDPp(l)*Dpsi(l+1)+ &
                            DKDPm(l)*Dpsi(l) )  )
       dW_l(l) = flow(l) - flow(l+1) - div(l)*delta_time
-      glac%prog(l)%wl = glac%prog(l)%wl + dW_l(l)
+      glac%wl(l) = glac%wl(l) + dW_l(l)
     enddo
     flow(num_l+1) = 0.
     dW_l(num_l) = flow(num_l) - flow(num_l+1) &
                           - div(num_l)*delta_time
-    glac%prog(num_l)%wl = glac%prog(num_l)%wl + dW_l(num_l)
+    glac%wl(num_l) = glac%wl(num_l) + dW_l(num_l)
   
   if(is_watch_point()) then
      write(*,*) ' ***** glac_step_2 checkpoint 3.3 ***** '
@@ -679,9 +782,9 @@ ELSE   ! ****************************************************************
      write(*,*) 'Dpsi_max',Dpsi_max
      do l = 1, num_l
         write(*,'(i2.2,99(a,g23.16))')l,&
-             ' Th=', (glac%prog(l)%ws+glac%prog(l)%wl)/(dens_h2o*dz(l)),&
-             ' wl=', glac%prog(l)%wl,&
-             ' ws=', glac%prog(l)%ws,&
+             ' Th=', (glac%ws(l)+glac%wl(l))/(dens_h2o*dz(l)),&
+             ' wl=', glac%wl(l),&
+             ' ws=', glac%ws(l),&
              'Dpsi=', dPsi(l), &
              'flow=', flow(l)
      enddo
@@ -704,33 +807,33 @@ ELSE   ! ****************************************************************
   u_plus  = 0.
   if (flow(1).lt.0.) u_minus(1) = 0.
   hcap = (glac%heat_capacity_dry(num_l)*dz(num_l) &
-                              + csw*glac%prog(num_l)%ws)/clw
+                              + csw*glac%ws(num_l))/clw
   aaa = -flow(num_l) * u_minus(num_l)
-  bbb =  hcap + glac%prog(num_l)%wl - dW_l(num_l) - aaa
+  bbb =  hcap + glac%wl(num_l) - dW_l(num_l) - aaa
   eee(num_l-1) = -aaa/bbb
-  fff(num_l-1) = aaa*(glac%prog(num_l)%T-glac%prog(num_l-1)%T) / bbb
+  fff(num_l-1) = aaa*(glac%T(num_l)-glac%T(num_l-1)) / bbb
 
   do l = num_l-1, 2, -1
     hcap = (glac%heat_capacity_dry(l)*dz(l) &
-                              + csw*glac%prog(l)%ws)/clw
+                              + csw*glac%ws(l))/clw
     aaa = -flow(l)   * u_minus(l)
     ccc =  flow(l+1) * u_plus (l)
-    bbb =  hcap + glac%prog(l)%wl - dW_l(l) - aaa - ccc
+    bbb =  hcap + glac%wl(l) - dW_l(l) - aaa - ccc
     eee(l-1) = -aaa / ( bbb +ccc*eee(l) )
-    fff(l-1) = (   aaa*(glac%prog(l)%T-glac%prog(l-1)%T)    &
-                       + ccc*(glac%prog(l)%T-glac%prog(l+1)%T)    &
+    fff(l-1) = (   aaa*(glac%T(l)-glac%T(l-1))    &
+                       + ccc*(glac%T(l)-glac%T(l+1))    &
                        - ccc*fff(l) ) / ( bbb +ccc*eee(l) )
   enddo
     
-  hcap = (glac%heat_capacity_dry(1)*dz(1) + csw*glac%prog(1)%ws)/clw
+  hcap = (glac%heat_capacity_dry(1)*dz(1) + csw*glac%ws(1))/clw
   aaa = -flow(1) * u_minus(1)
   ccc =  flow(2) * u_plus (1)
-  bbb =  hcap + glac%prog(1)%wl - dW_l(1) - aaa - ccc
+  bbb =  hcap + glac%wl(1) - dW_l(1) - aaa - ccc
 
-  del_t(1) =  (  aaa*(glac%prog(1)%T-tflow          ) &
-                     + ccc*(glac%prog(1)%T-glac%prog(2)%T) &
+  del_t(1) =  (  aaa*(glac%T(1)-tflow          ) &
+                     + ccc*(glac%T(1)-glac%T(2)) &
                      - ccc*fff(1) ) / (bbb+ccc*eee(1))
-  glac%prog(1)%T = glac%prog(1)%T + del_t(1)
+  glac%T(1) = glac%T(1) + del_t(1)
 
   if(is_watch_point()) then
      write(*,*) ' ***** glac_step_2 checkpoint 3.4.1 ***** '
@@ -739,27 +842,27 @@ ELSE   ! ****************************************************************
      write(*,*) 'bbb', bbb
      write(*,*) 'ccc', ccc
      write(*,*) 'del_t(1)', del_t(1)
-     write(*,*) ' T(1)', glac%prog(1)%T
+     write(*,*) ' T(1)', glac%T(1)
   endif
 
   do l = 1, num_l-1
     del_t(l+1) = eee(l)*del_t(l) + fff(l)
-    glac%prog(l+1)%T = glac%prog(l+1)%T + del_t(l+1)
+    glac%T(l+1) = glac%T(l+1) + del_t(l+1)
   enddo
 
-  tflow = glac%prog(num_l)%T
+  tflow = glac%T(num_l)
 
   if(is_watch_point()) then
      write(*,*) ' ***** glac_step_2 checkpoint 3.5 ***** '
      write(*,*) 'hcap', hcap
      write(*,*) 'cap_flow', cap_flow
      do l = 1, num_l
-        write(*,'(i2.2,99(a,g23.16))')l, ' T', glac%prog(l)%T, ' flow ',flow(l)
+        write(*,'(i2.2,99(a,g23.16))')l, ' T', glac%T(l), ' flow ',flow(l)
      enddo
      write(*,*) 'delta_time,tau_gw,c0,c1,c2,x', delta_time,tau_gw,c0,&
           c1,c2,x
      write(*,*) 'level=', num_l+1, ' flow ',flow(num_l+1)
-     write(*,*) 'gw(1)',glac%prog(1)%groundwater
+     write(*,*) 'gw(1)',glac%groundwater(1)
   endif
 
   ! ---- groundwater ---------------------------------------------------------
@@ -770,11 +873,11 @@ ELSE   ! ****************************************************************
       hlrunf_ie = lrunf_ie*hlprec_eff/lprec_eff
     else if (flow(1).lt.0. ) then
       hlrunf_ie = hlprec_eff - (flow(1)/delta_time)*clw &
-                         *(glac%prog(1)%T-tfreeze)
+                         *(glac%T(1)-tfreeze)
     else
       hlrunf_ie = 0.
     endif
-    hlrunf_bf = clw*sum(div*(glac%prog%T-tfreeze))
+    hlrunf_bf = clw*sum(div*(glac%T-tfreeze))
     glac_lrunf  = lrunf_sn + lrunf_ie + lrunf_bf
     glac_hlrunf = hlrunf_sn + hlrunf_bf + hlrunf_ie 
   if(is_watch_point()) then
@@ -782,35 +885,35 @@ ELSE   ! ****************************************************************
      write(*,*) 'hcap', hcap
      write(*,*) 'cap_flow', cap_flow
      do l = 1, num_l
-        write(*,'(i2.2,99(a,g23.16))')l, ' T', glac%prog(l)%T
+        write(*,'(i2.2,99(a,g23.16))')l, ' T', glac%T(l)
      enddo
   endif
     do l = 1, num_l
     ! ---- compute explicit melt/freeze --------------------------------------
       hcap = glac%heat_capacity_dry(l)*dz(l) &
-               + clw*glac%prog(l)%wl + csw*glac%prog(l)%ws
+               + clw*glac%wl(l) + csw*glac%ws(l)
       melt_per_deg = hcap/hlf
-      if (glac%prog(l)%ws>0 .and. glac%prog(l)%T>glac%pars%tfreeze) then
-        melt =  min(glac%prog(l)%ws, (glac%prog(l)%T-glac%pars%tfreeze)*melt_per_deg)
-      else if (glac%prog(l)%wl>0 .and. glac%prog(l)%T<glac%pars%tfreeze) then
-        melt = -min(glac%prog(l)%wl, (glac%pars%tfreeze-glac%prog(l)%T)*melt_per_deg)
+      if (glac%ws(l)>0 .and. glac%T(l)>glac%pars%tfreeze) then
+        melt =  min(glac%ws(l), (glac%T(l)-glac%pars%tfreeze)*melt_per_deg)
+      else if (glac%wl(l)>0 .and. glac%T(l)<glac%pars%tfreeze) then
+        melt = -min(glac%wl(l), (glac%pars%tfreeze-glac%T(l))*melt_per_deg)
       else
         melt = 0
       endif
 
       if(is_watch_point()) then
-         write(*,'(a,i4,99g23.16)') 'l,T,wl(1),ws(1),melt:', l,glac%prog(l)%T, glac%prog(l)%wl, &
-              glac%prog(l)%ws, melt
+         write(*,'(a,i4,99g23.16)') 'l,T,wl(1),ws(1),melt:', l,glac%T(l), glac%wl(l), &
+              glac%ws(l), melt
       endif
 
-      glac%prog(l)%wl = glac%prog(l)%wl + melt
-      glac%prog(l)%ws = glac%prog(l)%ws - melt
-      glac%prog(l)%T = tfreeze &
-         + (hcap*(glac%prog(l)%T-tfreeze) - hlf*melt) &
+      glac%wl(l) = glac%wl(l) + melt
+      glac%ws(l) = glac%ws(l) - melt
+      glac%T(l) = tfreeze &
+         + (hcap*(glac%T(l)-tfreeze) - hlf*melt) &
                               / ( hcap + (clw-csw)*melt )
       if(is_watch_point()) then
-         write(*,'(a,i4,99g23.16)') 'l,T,wl(1),ws(1):', l,glac%prog(l)%T, glac%prog(l)%wl, &
-              glac%prog(l)%ws
+         write(*,'(a,i4,99g23.16)') 'l,T,wl(1),ws(1):', l,glac%T(l), glac%wl(l), &
+              glac%ws(l)
       endif
 
       glac_melt = glac_melt + melt / delta_time
@@ -821,19 +924,19 @@ ELSE   ! ****************************************************************
           glac_melt*delta_time
      do l = 1, num_l
         write(*,'(i2.2,99(a,g23.16))')l, &
-             ' T =', glac%prog(l)%T, &
-             ' Th=', (glac%prog(l)%ws+glac%prog(l)%wl)/(dens_h2o*dz(l)),&
-             ' wl=', glac%prog(l)%wl,&
-             ' ws=', glac%prog(l)%ws,&
-             ' gw=', glac%prog(l)%groundwater
+             ' T =', glac%T(l), &
+             ' Th=', (glac%ws(l)+glac%wl(l))/(dens_h2o*dz(l)),&
+             ' wl=', glac%wl(l),&
+             ' ws=', glac%ws(l),&
+             ' gw=', glac%groundwater(l)
      enddo
   endif
 
 ENDIF  !*****************************************************************************
 
-  glac_Ttop = glac%prog(1)%T
+  glac_Ttop = glac%T(1)
   glac_Ctop = glac%heat_capacity_dry(1)*dz(1) &
-    + clw*glac%prog(1)%wl + csw*glac%prog(1)%ws
+    + clw*glac%wl(1) + csw*glac%ws(1)
 
 ! ----------------------------------------------------------------------------
 ! given solution for surface energy balance, write diagnostic output.
@@ -843,9 +946,9 @@ ENDIF  !************************************************************************
   time = increment_time(time, int(delta_time), 0)
   
   ! ---- diagnostic section
-  call send_tile_data (id_temp, glac%prog%T,     diag )
-  call send_tile_data (id_lwc,  glac%prog(1:num_l)%wl/dz(1:num_l), diag )
-  call send_tile_data (id_swc,  glac%prog(1:num_l)%ws/dz(1:num_l), diag )
+  call send_tile_data (id_temp, glac%T,     diag )
+  call send_tile_data (id_lwc,  glac%wl(1:num_l)/dz(1:num_l), diag )
+  call send_tile_data (id_swc,  glac%ws(1:num_l)/dz(1:num_l), diag )
   if (.not.lm2) then
   call send_tile_data (id_ie,   lrunf_ie,        diag )
   call send_tile_data (id_sn,   lrunf_sn,        diag )
@@ -922,8 +1025,8 @@ subroutine glac_temp_ptr(tile, ptr)
    ptr=>NULL()
    if(associated(tile)) then
       if(associated(tile%glac)) then
-        n = size(tile%glac%prog)
-        ptr(1:n) => tile%glac%prog(1:n)%T
+        n = size(tile%glac%T)
+        ptr(1:n) => tile%glac%T(1:n)
       endif
    endif
 end subroutine glac_temp_ptr
@@ -935,8 +1038,8 @@ subroutine glac_wl_ptr(tile, ptr)
    ptr=>NULL()
    if(associated(tile)) then
       if(associated(tile%glac)) then
-        n = size(tile%glac%prog)
-        ptr(1:n) => tile%glac%prog(1:n)%wl
+        n = size(tile%glac%wl)
+        ptr(1:n) => tile%glac%wl(1:n)
       endif
    endif
 end subroutine glac_wl_ptr
@@ -948,8 +1051,8 @@ subroutine glac_ws_ptr(tile, ptr)
    ptr=>NULL()
    if(associated(tile)) then
       if(associated(tile%glac)) then
-        n = size(tile%glac%prog)
-        ptr(1:n) => tile%glac%prog(1:n)%ws
+        n = size(tile%glac%ws)
+        ptr(1:n) => tile%glac%ws(1:n)
       endif
    endif
 end subroutine glac_ws_ptr
@@ -961,8 +1064,8 @@ subroutine glac_gw_ptr(tile, ptr)
    ptr=>NULL()
    if(associated(tile)) then
       if(associated(tile%glac)) then
-        n = size(tile%glac%prog)
-        ptr(1:n) => tile%glac%prog(1:n)%groundwater
+        n = size(tile%glac%groundwater)
+        ptr(1:n) => tile%glac%groundwater(1:n)
       endif
    endif
 end subroutine glac_gw_ptr
@@ -974,8 +1077,8 @@ subroutine glac_gwT_ptr(tile, ptr)
    ptr=>NULL()
    if(associated(tile)) then
       if(associated(tile%glac)) then
-        n = size(tile%glac%prog)
-        ptr(1:n) => tile%glac%prog(1:n)%groundwater_T
+        n = size(tile%glac%groundwater_T)
+        ptr(1:n) => tile%glac%groundwater_T(1:n)
       endif
    endif
 end subroutine glac_gwT_ptr

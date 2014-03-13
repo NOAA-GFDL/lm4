@@ -47,7 +47,7 @@ module river_physics_mod
 
 !--- version information ---------------------------------------------
   character(len=128) :: version = '$Id: river_physics.F90,v 20.0 2013/12/13 23:29:43 fms Exp $'
-  character(len=128) :: tagname = '$Name: tikal $'
+  character(len=128) :: tagname = '$Name: tikal_201403 $'
 
 
 ! ---- public interfaces -----------------------------------------------------

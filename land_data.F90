@@ -50,8 +50,8 @@ public :: land_state_type
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: &
      module_name = 'land_data_mod', &
-     version     = '$Id: land_data.F90,v 20.0 2013/12/13 23:29:24 fms Exp $', &
-     tagname     = '$Name: tikal $'
+     version     = '$Id: land_data.F90,v 20.0.2.1 2014/01/17 21:20:31 Peter.Phillipps Exp $', &
+     tagname     = '$Name: tikal_201403 $'
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
 ! It is supposed to be double-precision signaling NaN, to trigger a trap when
@@ -220,6 +220,8 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow)
   if( layout(1)/=0 .AND. layout(2)==0 )layout(2) = mpp_npes()/(layout(1)*ntiles)
   if( layout(1)==0 .AND. layout(2)/=0 )layout(1) = mpp_npes()/(layout(2)*ntiles)
 
+  if( io_layout(1) == 0 .AND. io_layout(2) == 0 ) io_layout = layout
+
   ! define land model domain
   if (ntiles==1) then
      call mpp_define_domains ((/1,nlon, 1, nlat/), layout, lnd%domain, xhalo=1, yhalo=1,&
@@ -241,9 +243,7 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow)
      io_id = mpp_get_tile_id(io_domain)
      lnd%io_id = io_id(1)
   else
-     allocate(lnd%io_pelist(1))
-     lnd%io_pelist(1) = mpp_pe()
-     lnd%io_id        = mpp_pe()
+     call error_mesg('land_data_init','io_domain is undefined, contact developer', FATAL)
   endif
   lnd%append_io_id = (io_layout(1)/=1.or.io_layout(2)/=1)
      

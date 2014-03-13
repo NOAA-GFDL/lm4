@@ -73,8 +73,8 @@ module river_mod
   private
 
 !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id: river.F90,v 20.0 2013/12/13 23:29:41 fms Exp $'
-  character(len=128) :: tagname = '$Name: tikal $'
+  character(len=128) :: version = '$Id: river.F90,v 20.0.2.1 2014/02/19 19:08:43 Sergey.Malyshev Exp $'
+  character(len=128) :: tagname = '$Name: tikal_201403 $'
 
 !--- public interface ------------------------------------------------
   public :: river_init, river_end, river_type, update_river, river_stock_pe
@@ -558,12 +558,12 @@ contains
           lake_sfc_A (i,j) = tile%frac * lnd%area(i,j)
        endif
        do lev = 1, num_lake_lev
-         lake_T (i,j,lev)   = tile%lake%prog(lev)%T
-         lake_wl(i,j,lev)   = tile%lake%prog(lev)%wl
-         lake_ws(i,j,lev)   = tile%lake%prog(lev)%ws
+         lake_T (i,j,lev)   = tile%lake%T(lev)
+         lake_wl(i,j,lev)   = tile%lake%wl(lev)
+         lake_ws(i,j,lev)   = tile%lake%ws(lev)
          enddo
-       lake_sfc_bot(i,j) = (sum(tile%lake%prog(:)%wl+tile%lake%prog(:)%ws) &
-                               -tile%lake%prog(1)%wl-tile%lake%prog(1)%ws ) &
+       lake_sfc_bot(i,j) = (sum(tile%lake%wl(:)+tile%lake%ws(:)) &
+                               -tile%lake%wl(1)-tile%lake%ws(1) ) &
                                     / DENS_H2O
        lake_depth_sill(i,j)  = tile%lake%pars%depth_sill
        lake_width_sill(i,j)  = tile%lake%pars%width_sill
@@ -639,9 +639,9 @@ call mpp_update_domains (lake_conn,   domain)
        ce=next_elmt(ce)        ! advance position to the next tile
        if (.not.associated(tile%lake)) cycle
        do lev = 1, num_lake_lev
-         tile%lake%prog(lev)%T  = lake_T (i,j,lev)
-         tile%lake%prog(lev)%wl = lake_wl(i,j,lev)
-         tile%lake%prog(lev)%ws = lake_ws(i,j,lev)
+         tile%lake%T(lev)  = lake_T (i,j,lev)
+         tile%lake%wl(lev) = lake_wl(i,j,lev)
+         tile%lake%ws(lev) = lake_ws(i,j,lev)
          enddo
        enddo
 

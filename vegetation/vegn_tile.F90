@@ -22,7 +22,7 @@ use vegn_data_mod, only : &
      SP_C3GRASS, SP_C4GRASS, &
      scnd_biomass_bins
 
-use vegn_cohort_mod, only : vegn_cohort_type, vegn_phys_prog_type, &
+use vegn_cohort_mod, only : vegn_cohort_type, &
      height_from_biomass, lai_from_biomass, update_bio_living_fraction, &
      cohort_uptake_profile, cohort_root_properties, update_biomass_pools
 
@@ -62,8 +62,8 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), parameter   :: &
-     version = '$Id: vegn_tile.F90,v 20.0 2013/12/13 23:31:19 fms Exp $', & 
-     tagname = '$Name: tikal $', &
+     version = '$Id: vegn_tile.F90,v 20.0.2.2 2014/02/28 16:20:00 Sergey.Malyshev Exp $', & 
+     tagname = '$Name: tikal_201403 $', &
      module_name = 'vegn_tile_mod'
 
 ! ==== types =================================================================
@@ -220,10 +220,10 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   c2 => t2%cohorts(1)
   ! define macro for merging cohort values
 #define __MERGE__(field) c2%field = x1*c1%field + x2*c2%field
-  HEAT1 = (clw*c1%prog%Wl + csw*c1%prog%Ws + c1%mcv_dry)*(c1%prog%Tv-tfreeze)
-  HEAT2 = (clw*c2%prog%Wl + csw*c2%prog%Ws + c2%mcv_dry)*(c2%prog%Tv-tfreeze)
-  __MERGE__(prog%Wl)
-  __MERGE__(prog%Ws)
+  HEAT1 = (clw*c1%Wl + csw*c1%Ws + c1%mcv_dry)*(c1%Tv-tfreeze)
+  HEAT2 = (clw*c2%Wl + csw*c2%Ws + c2%mcv_dry)*(c2%Tv-tfreeze)
+  __MERGE__(Wl)
+  __MERGE__(Ws)
 
   __MERGE__(bl)      ! biomass of leaves, kg C/m2
   __MERGE__(blv)     ! biomass of virtual leaves (labile store), kg C/m2
@@ -245,10 +245,10 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   ! capacities are zero, or merge it based on the heat content if the heat contents
   ! are non-zero
   if(HEAT1==0.and.HEAT2==0) then
-     __MERGE__(prog%Tv)
+     __MERGE__(Tv)
   else
-     c2%prog%Tv = (HEAT1*x1+HEAT2*x2) / &
-          (clw*c2%prog%Wl + csw*c2%prog%Ws + c2%mcv_dry) + tfreeze
+     c2%Tv = (HEAT1*x1+HEAT2*x2) / &
+          (clw*c2%Wl + csw*c2%Ws + c2%mcv_dry) + tfreeze
   endif
 
 #undef  __MERGE__
@@ -564,9 +564,9 @@ subroutine vegn_tile_stock_pe (vegn, twd_liq, twd_sol  )
   twd_liq = 0.
   twd_sol = 0.
   do n=1, vegn%n_cohorts
-    twd_liq = twd_liq + vegn%cohorts(n)%prog%wl
-    twd_sol = twd_sol + vegn%cohorts(n)%prog%ws
-!      vegn_HEAT  = (mcv + clw*cohort%prog%Wl+ csw*cohort%prog%Ws)*(cohort%prog%Tv-tfreeze)
+    twd_liq = twd_liq + vegn%cohorts(n)%wl
+    twd_sol = twd_sol + vegn%cohorts(n)%ws
+!      vegn_HEAT  = (mcv + clw*cohort%Wl+ csw*cohort%Ws)*(cohort%Tv-tfreeze)
 
     enddo
 end subroutine vegn_tile_stock_pe
@@ -602,10 +602,10 @@ function vegn_tile_heat (vegn) result(heat) ; real heat
   heat = 0
   do i = 1, vegn%n_cohorts
      heat = heat + &
-          (clw*vegn%cohorts(i)%prog%Wl + &
-             csw*vegn%cohorts(i)%prog%Ws + &
-             vegn%cohorts(i)%mcv_dry)*(vegn%cohorts(i)%prog%Tv-tfreeze) - &
-           hlf*vegn%cohorts(i)%prog%Ws
+          (clw*vegn%cohorts(i)%Wl + &
+             csw*vegn%cohorts(i)%Ws + &
+             vegn%cohorts(i)%mcv_dry)*(vegn%cohorts(i)%Tv-tfreeze) - &
+           hlf*vegn%cohorts(i)%Ws
   enddo
 end function
 

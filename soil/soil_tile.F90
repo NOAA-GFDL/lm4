@@ -29,7 +29,6 @@ include 'netcdf.inc'
 
 ! ==== public interfaces =====================================================
 public :: soil_pars_type
-public :: soil_prog_type
 public :: soil_tile_type
 
 public :: new_soil_tile, delete_soil_tile
@@ -74,8 +73,8 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), parameter   :: &
-     version     = '$Id: soil_tile.F90,v 20.0 2013/12/13 23:30:50 fms Exp $', &
-     tagname     = '$Name: tikal $', &
+     version     = '$Id: soil_tile.F90,v 20.0.2.1 2014/02/19 19:08:44 Sergey.Malyshev Exp $', &
+     tagname     = '$Name: tikal_201403 $', &
      module_name = 'soil_tile_mod'
 
 integer, parameter :: max_lev          = 100 
@@ -152,37 +151,32 @@ type :: soil_pars_type
 end type soil_pars_type
 
 
-type :: soil_prog_type
-  real wl
-  real ws
-  real T
-  real groundwater
-  real groundwater_T
-end type soil_prog_type
-
-
 type :: soil_tile_type
    integer :: tag ! kind of the soil
    type(soil_pars_type)               :: pars
-   type(soil_prog_type), pointer :: prog(:)
-   real,                 pointer :: w_fc(:)
-   real,                 pointer :: w_wilt(:)
-   real,                 pointer :: d_trans(:)
-   real,                 pointer :: alpha(:)
-   real,                 pointer :: k_macro(:)
+   real, pointer :: wl(:)      => NULL() ! liquid water, kg/m2
+   real, pointer :: ws(:)      => NULL() ! solid water, kg/m2
+   real, pointer :: T(:)       => NULL() ! temperature, degK
+   real, pointer :: groundwater(:) => NULL()
+   real, pointer :: groundwater_T(:) => NULL()
+   real, pointer :: w_fc(:)    => NULL()
+   real, pointer :: w_wilt(:)  => NULL()
+   real, pointer :: d_trans(:) => NULL()
+   real, pointer :: alpha(:)   => NULL()
+   real, pointer :: k_macro(:) => NULL()
    real :: Eg_part_ref
    real :: z0_scalar
    real :: geothermal_heat_flux
    real :: psi_x0 = -1000.
    ! data that were local to soil.f90
-   real,                 pointer :: uptake_frac(:)
-   real,                 pointer :: heat_capacity_dry(:)
-   real,                 pointer :: e(:),f(:)
+   real, pointer :: uptake_frac(:) => NULL()
+   real, pointer :: heat_capacity_dry(:) => NULL()
+   real, pointer :: e(:) => NULL(),f(:) => NULL()
    ! added to avoid recalculation of soil hydraulics in case of Darcy uptake
    real          :: uptake_T
-   real, pointer :: psi(:) ! soil water potential
-   real,                 pointer ::  gw_flux_norm(:)
-   real,                 pointer ::  gw_area_norm(:)
+   real, pointer :: psi(:) => NULL() ! soil water potential
+   real, pointer :: gw_flux_norm(:) => NULL()
+   real, pointer :: gw_area_norm(:) => NULL()
 
    ! soil carbon
    real, pointer :: fast_soil_C(:) => NULL() ! fast soil carbon pool, (kg C/m2), per layer
@@ -542,8 +536,12 @@ function soil_tile_ctor(tag) result(ptr)
   allocate(ptr)
   ptr%tag = tag
   ! allocate storage for tile data
-  allocate( ptr%prog(num_l))
-  allocate( ptr%w_fc              (num_l),  &
+  allocate( ptr%wl                (num_l),  &
+            ptr%ws                (num_l),  &
+            ptr%T                 (num_l),  &
+            ptr%groundwater       (num_l),  &
+            ptr%groundwater_T     (num_l),  &
+            ptr%w_fc              (num_l),  &
             ptr%w_wilt            (num_l),  &
             ptr%d_trans           (num_l),  &
             ptr%alpha             (num_l),  &
@@ -572,8 +570,12 @@ function soil_tile_copy_ctor(soil) result(ptr)
   allocate(ptr)
   ptr = soil ! copy all non-pointer members
   ! allocate storage for tile data
-  allocate( ptr%prog(num_l))
-  allocate( ptr%w_fc              (num_l),  &
+  allocate( ptr%wl                (num_l),  &
+            ptr%ws                (num_l),  &
+            ptr%T                 (num_l),  &
+            ptr%groundwater       (num_l),  &
+            ptr%groundwater_T     (num_l),  &
+            ptr%w_fc              (num_l),  &
             ptr%w_wilt            (num_l),  &
             ptr%d_trans           (num_l),  &
             ptr%alpha             (num_l),  &
@@ -591,7 +593,11 @@ function soil_tile_copy_ctor(soil) result(ptr)
             ptr%ssc_in            (num_l),  & 
             ptr%asoil_in          (num_l)   )
   ! copy all pointer members
-  ptr%prog(:) = soil%prog(:)
+  ptr%wl(:) = soil%wl(:)
+  ptr%ws(:) = soil%ws(:)
+  ptr%T(:) = soil%T(:)
+  ptr%groundwater(:) = soil%groundwater(:)
+  ptr%groundwater_T(:) = soil%groundwater_T(:)
   ptr%w_fc(:) = soil%w_fc(:)
   ptr%w_wilt(:) = soil%w_wilt(:)
   ptr%d_trans(:) = soil%d_trans(:)
@@ -617,8 +623,8 @@ end function soil_tile_copy_ctor
 subroutine delete_soil_tile(ptr)
   type(soil_tile_type), pointer :: ptr
 
-  deallocate(ptr%prog)
-  deallocate(ptr%w_fc, ptr%w_wilt, ptr%d_trans, ptr%alpha, ptr%k_macro, &
+  deallocate(ptr%wl, ptr%ws, ptr%T, ptr%groundwater, ptr%groundwater_T, &
+             ptr%w_fc, ptr%w_wilt, ptr%d_trans, ptr%alpha, ptr%k_macro, &
              ptr%uptake_frac,&
              ptr%heat_capacity_dry, ptr%e, ptr%f, ptr%psi, &
              ptr%gw_flux_norm, ptr%gw_area_norm, &
@@ -874,33 +880,33 @@ subroutine merge_soil_tiles(s1,w1,s2,w2)
   do i = 1,num_l
      ! calculate heat content at this level for both source tiles
      HEAT1 = &
-          (s1%heat_capacity_dry(i)*dz(i)+clw*s1%prog(i)%Wl+csw*s1%prog(i)%Ws)* &
-          (s1%prog(i)%T-tfreeze)
+          (s1%heat_capacity_dry(i)*dz(i)+clw*s1%Wl(i)+csw*s1%Ws(i))* &
+          (s1%T(i)-tfreeze)
      HEAT2 = &
-          (s2%heat_capacity_dry(i)*dz(i)+clw*s2%prog(i)%Wl+csw*s2%prog(i)%Ws)* &
-          (s2%prog(i)%T-tfreeze)
+          (s2%heat_capacity_dry(i)*dz(i)+clw*s2%Wl(i)+csw*s2%Ws(i))* &
+          (s2%T(i)-tfreeze)
      ! merge the amounts of water
-     s2%prog(i)%Wl = x1*s1%prog(i)%Wl + x2*s2%prog(i)%Wl
-     s2%prog(i)%Ws = x1*s1%prog(i)%Ws + x2*s2%prog(i)%Ws
+     s2%Wl(i) = x1*s1%Wl(i) + x2*s2%Wl(i)
+     s2%Ws(i) = x1*s1%Ws(i) + x2*s2%Ws(i)
      ! if the dry heat capacity of merged soil is to be changed, do it here
      ! ...
      ! calculate the merged temperature based on heat content
-     s2%prog(i)%T = tfreeze + (x1*HEAT1+x2*HEAT2)/ &
-          (s2%heat_capacity_dry(i)*dz(i)+clw*s2%prog(i)%Wl+csw*s2%prog(i)%Ws)
+     s2%T(i) = tfreeze + (x1*HEAT1+x2*HEAT2)/ &
+          (s2%heat_capacity_dry(i)*dz(i)+clw*s2%Wl(i)+csw*s2%Ws(i))
 
      ! calculate combined groundwater content
-     gw = s1%prog(i)%groundwater*x1 + s2%prog(i)%groundwater*x2
+     gw = s1%groundwater(i)*x1 + s2%groundwater(i)*x2
      ! calculate combined groundwater temperature
      if (gw/=0) then
-        s2%prog(i)%groundwater_T = ( &
-             s1%prog(i)%groundwater*x1*(s1%prog(i)%groundwater_T-tfreeze) + &
-             s2%prog(i)%groundwater*x2*(s2%prog(i)%groundwater_T-tfreeze)   &
+        s2%groundwater_T(i) = ( &
+             s1%groundwater(i)*x1*(s1%groundwater_T(i)-tfreeze) + &
+             s2%groundwater(i)*x2*(s2%groundwater_T(i)-tfreeze)   &
              ) / gw + tfreeze
      else
-        s2%prog(i)%groundwater_T = &
-             s1%prog(i)%groundwater_T*x1 + s2%prog(i)%groundwater_T*x2
+        s2%groundwater_T(i) = &
+             s1%groundwater_T(i)*x1 + s2%groundwater_T(i)*x2
      endif
-     s2%prog(i)%groundwater = gw
+     s2%groundwater(i) = gw
 
   enddo
   s2%uptake_T    = s1%uptake_T*x1 + s2%uptake_T*x2
@@ -947,7 +953,7 @@ function soil_ave_temp(soil, depth) result (A) ; real :: A
   A = 0 ; N = 0 
   do k = 1, num_l
      w = dz(k) * exp(-zfull(k)/depth)
-     A = A + soil%prog(k)%T * w
+     A = A + soil%T(k) * w
      N = N + w
      if (zhalf(k+1).gt.depth) exit
   enddo
@@ -969,7 +975,7 @@ function soil_ave_theta0(soil, zeta) result (A) ; real :: A
   zeta2 = zeta*zeta_mult
   do k = 1, num_l
      w = exp(-zhalf(k)/zeta2)-exp(-zhalf(k+1)/zeta2)
-     A = A + max(soil%prog(k)%wl/(dens_h2o*dz(k))-soil%w_wilt(k),0.0)/&
+     A = A + max(soil%wl(k)/(dens_h2o*dz(k))-soil%w_wilt(k),0.0)/&
           (soil%w_fc(k)-soil%w_wilt(k)) * w
      N = N + w
   enddo
@@ -989,7 +995,7 @@ function soil_ave_theta1(soil, depth) result (A) ; real :: A
   A = 0 ; N = 0 
   do k = 1, num_l
      w = dz(k) * exp(-zfull(k)/depth)
-     A = A +min(max(soil%prog(k)%wl/(dens_h2o*dz(k)),0.0)/&
+     A = A +min(max(soil%wl(k)/(dens_h2o*dz(k)),0.0)/&
           (soil%pars%vwc_sat),1.0) * w
      N = N + w
      if (zhalf(k+1).gt.depth) exit
@@ -1004,7 +1010,7 @@ function soil_theta(soil) result (theta1)
   type(soil_tile_type), intent(in) :: soil
   real :: theta1(num_l)
 
-  theta1(:) = min(max(soil%prog(:)%wl/(dens_h2o*dz(:)),0.0)/(soil%pars%vwc_sat),1.0)
+  theta1(:) = min(max(soil%wl(:)/(dens_h2o*dz(:)),0.0)/(soil%pars%vwc_sat),1.0)
 end function soil_theta
 
 
@@ -1040,7 +1046,7 @@ subroutine soil_data_radiation ( soil, cosz, use_brdf, soil_alb_dir, soil_alb_di
   real :: soil_sfc_vlc, blend, dry_value(NBANDS), sat_value(NBANDS)
   real :: zenith_angle, zsq, zcu
 
-  soil_sfc_vlc  = soil%prog(1)%wl/(dens_h2o*dz(1))
+  soil_sfc_vlc  = soil%wl(1)/(dens_h2o*dz(1))
   blend         = max(0., min(1., soil_sfc_vlc/soil%pars%vwc_sat))
   if (use_brdf) then
       zenith_angle = acos(cosz)
@@ -1479,9 +1485,9 @@ subroutine soil_tile_stock_pe (soil, twd_liq, twd_sol  )
   
   twd_liq = 0.
   twd_sol = 0.
-  do n=1, size(soil%prog)
-    twd_liq = twd_liq + soil%prog(n)%wl + soil%prog(n)%groundwater
-    twd_sol = twd_sol + soil%prog(n)%ws
+  do n=1, size(soil%wl)
+    twd_liq = twd_liq + soil%wl(n) + soil%groundwater(n)
+    twd_sol = twd_sol + soil%ws(n)
     enddo
 
 end subroutine soil_tile_stock_pe
@@ -1497,10 +1503,10 @@ function soil_tile_heat (soil) result(heat) ; real heat
   heat = 0
   do i = 1, num_l
      heat = heat + &
-          (soil%heat_capacity_dry(i)*dz(i)+clw*soil%prog(i)%Wl+csw*soil%prog(i)%Ws)&
-                           *(soil%prog(i)%T-tfreeze) + &
-          clw*soil%prog(i)%groundwater*(soil%prog(i)%groundwater_T-tfreeze) - &
-          hlf*soil%prog(i)%ws
+          (soil%heat_capacity_dry(i)*dz(i)+clw*soil%Wl(i)+csw*soil%Ws(i))&
+                           *(soil%T(i)-tfreeze) + &
+          clw*soil%groundwater(i)*(soil%groundwater_T(i)-tfreeze) - &
+          hlf*soil%ws(i)
   enddo
 end function
 

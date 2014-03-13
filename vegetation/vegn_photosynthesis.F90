@@ -22,8 +22,8 @@ public :: vegn_photosynthesis
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-   version = '$Id: vegn_photosynthesis.F90,v 20.0 2013/12/13 23:31:14 fms Exp $', &
-   tagname = '$Name: tikal $', &
+   version = '$Id: vegn_photosynthesis.F90,v 20.0.2.1 2014/02/19 19:08:44 Sergey.Malyshev Exp $', &
+   tagname = '$Name: tikal_201403 $', &
    module_name = 'vegn_photosynthesis'
 ! values for internal vegetation photosynthesis option selector
 integer, parameter :: VEGN_PHOT_SIMPLE  = 1 ! zero photosynthesis
@@ -112,7 +112,7 @@ subroutine vegn_photosynthesis ( vegn, &
         water_supply = soil_water_supply/(mol_h2o*cohort%lai)
       
         call get_vegn_wet_frac (cohort, fw=fw, fs=fs)
-        call gs_Leuning(PAR_dn, PAR_net, cohort%prog%Tv, cana_q, cohort%lai, &
+        call gs_Leuning(PAR_dn, PAR_net, cohort%Tv, cana_q, cohort%lai, &
              cohort%leaf_age, p_surf, water_supply, sp, cohort%pt, cana_co2, &
              cohort%extinct, fs+fw, stomatal_cond, psyn, resp, Ed)
         ! store the calculated photosythesis and fotorespiration for future use

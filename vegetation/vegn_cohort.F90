@@ -15,7 +15,6 @@ use vegn_data_mod, only : PT_C3, PT_C4, CMPT_ROOT, CMPT_LEAF, &
 implicit none
 private
 ! ==== public interfaces =====================================================
-public :: vegn_phys_prog_type
 public :: vegn_cohort_type
 
 ! operations defined for cohorts
@@ -39,19 +38,16 @@ public :: update_biomass_pools
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
-     version = '$Id: vegn_cohort.F90,v 20.0 2013/12/13 23:31:00 fms Exp $', &
-     tagname = '$Name: tikal $'
+     version = '$Id: vegn_cohort.F90,v 20.0.4.2 2014/02/28 16:20:00 Sergey.Malyshev Exp $', &
+     tagname = '$Name: tikal_201403 $'
 
 ! ==== types =================================================================
-type :: vegn_phys_prog_type
-  real Wl
-  real Ws
-  real Tv
-end type vegn_phys_prog_type
-
 ! vegn_cohort_type describes the data that belong to a vegetation cohort
 type :: vegn_cohort_type
-  type(vegn_phys_prog_type) :: prog
+! ---- physical prognostic variables
+  real    :: Wl ! liquid intercepted water, kg/m2
+  real    :: Ws ! soild intercepted water, kg/m2
+  real    :: Tv ! leaf temperature, degK
 
 ! ---- biological prognostic variables
 ! Currently bio prognostic variable is defined as anything that's saved in
@@ -125,8 +121,6 @@ type :: vegn_cohort_type
   
   real :: gs = 0.0
   real :: gb = 0.0
-!moved to prog%Wl  real :: cmc;
-!moved to prog%Tv  real :: tleaf ! temperature of leaves, degK
 
   real :: ds = 0.0
 
@@ -217,7 +211,7 @@ subroutine get_vegn_wet_frac (cohort, &
 
   ! snow-covered fraction
   if(cohort%Ws_max > 0) then
-     call wet_frac(cohort%prog%Ws, cohort%Ws_max, spdata(sp)%csc_pow, cmc_eps, fsL,  DfsDwsL)
+     call wet_frac(cohort%Ws, cohort%Ws_max, spdata(sp)%csc_pow, cmc_eps, fsL,  DfsDwsL)
   else
      fsL = 0.0; DfsDwsL=0.0
   endif
@@ -225,7 +219,7 @@ subroutine get_vegn_wet_frac (cohort, &
      
   ! wet fraction
   if(cohort%Wl_max > 0) then
-     call wet_frac(cohort%prog%Wl, cohort%Wl_max, spdata(sp)%cmc_pow, cmc_eps, fw0, DfwDwlL)
+     call wet_frac(cohort%Wl, cohort%Wl_max, spdata(sp)%cmc_pow, cmc_eps, fw0, DfwDwlL)
   else
      fw0 = 0.0; DfwDwlL=0.0
   endif

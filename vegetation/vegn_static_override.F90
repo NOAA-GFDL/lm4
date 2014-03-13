@@ -48,7 +48,7 @@ public :: write_static_vegn
 character(len=*), parameter :: &
      module_name = 'static_vegn_mod', &
      version     = '$Id: vegn_static_override.F90,v 20.0 2013/12/13 23:31:17 fms Exp $', &
-     tagname     = '$Name: tikal $'
+     tagname     = '$Name: tikal_201403 $'
 
 ! ==== module data ==========================================================
 logical :: module_is_initialized = .FALSE.

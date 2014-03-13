@@ -13,13 +13,16 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only: error_mesg, file_exist, check_nml_error, &
      stdlog, write_version_number, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
+use fms_io_mod, only: read_compressed, restart_file_type, free_restart_type, &
+     field_exist, save_restart, register_restart_axis, &
+     register_restart_field, set_domain, nullify_domain, get_field_size
 use time_manager_mod,   only: time_type, increment_time, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o
 
 use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR
 use soil_tile_mod, only : GW_LM2, GW_LINEAR, GW_HILL_AR5, GW_HILL, GW_TILED, &
-     soil_tile_type, soil_pars_type, soil_prog_type, read_soil_data_namelist, &
+     soil_tile_type, soil_pars_type, read_soil_data_namelist, &
      soil_data_radiation, soil_data_diffusion, soil_data_thermodynamics, &
      soil_data_hydraulic_properties, soil_data_psi_for_rh, &
      soil_data_gw_hydraulics, soil_data_gw_hydraulics_ar5, &
@@ -47,7 +50,7 @@ use land_data_mod, only : land_state_type, lnd
 use land_io_mod, only : read_field
 use land_tile_io_mod, only : create_tile_out_file, write_tile_data_r0d_fptr,& 
      write_tile_data_r1d_fptr, read_tile_data_r0d_fptr, read_tile_data_r1d_fptr,&
-     print_netcdf_error, get_input_restart_name, sync_nc_files
+     print_netcdf_error, get_input_restart_name, sync_nc_files, gather_tile_data, assemble_tiles
 use nf_utils_mod, only : nfu_def_dim, nfu_put_att, nfu_inq_var
 use vegn_tile_mod, only : vegn_tile_type, vegn_uptake_profile, vegn_root_properties
 use land_debug_mod, only : is_watch_point, get_current_point, check_var_range
@@ -63,6 +66,7 @@ public :: read_soil_namelist
 public :: soil_init
 public :: soil_end
 public :: save_soil_restart
+public :: save_soil_restart_new
 
 public :: soil_get_sfc_temp
 public :: soil_radiation
@@ -77,8 +81,8 @@ public :: soil_step_3
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'soil',&
-    version     = '$Id: soil.F90,v 20.0 2013/12/13 23:30:48 fms Exp $',&
-    tagname     = '$Name: tikal $'
+    version     = '$Id: soil.F90,v 20.0.4.1.2.2.2.1 2014/03/04 20:55:03 Seth.Underwood Exp $',&
+    tagname     = '$Name: tikal_201403 $'
 
 ! ==== module variables ======================================================
 
@@ -242,10 +246,11 @@ end subroutine read_soil_namelist
 
 ! ============================================================================
 ! initialize soil model
-subroutine soil_init ( id_lon, id_lat, id_band )
+subroutine soil_init ( id_lon, id_lat, id_band, new_restart )
   integer, intent(in)  :: id_lon  ! ID of land longitude (X) axis  
   integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
   integer, intent(in)  :: id_band ! ID of spectral band axis
+  logical, intent(in)  :: new_restart
 
   ! ---- local vars
   integer :: unit, unit1  ! unit numbers for various i/o
@@ -257,7 +262,11 @@ subroutine soil_init ( id_lon, id_lat, id_band )
   integer :: i
   real :: psi(num_l), mwc(num_l)
   character(len=256) :: restart_file_name
-  logical :: restart_exists
+  character(len=17)  :: restart_base_name='INPUT/soil.res.nc'
+  integer :: siz(4), isize,  nz
+  integer, allocatable :: idx(:)          ! I/O domain vector of compressed indices
+  real,    allocatable :: r1d(:,:),r0d(:) ! I/O domain level dependent vector of real data
+  logical :: restart_exists, found
 
   module_is_initialized = .TRUE.
   time       = lnd%time
@@ -368,10 +377,8 @@ subroutine soil_init ( id_lon, id_lat, id_band )
   else if (trim(albedo_to_use)=='') then
      ! do nothing, that is leave soil albedo parameters as defined based on the data table
   else
-     call error_mesg('soil_init',&
-          'option albedo_to_use="'// trim(albedo_to_use)//&
-          '" is invalid, use "albedo-map", "brdf-maps", or empty line ("")',&
-          FATAL)
+     call error_mesg('soil_init', 'option albedo_to_use="'// trim(albedo_to_use)//&
+          '" is invalid, use "albedo-map", "brdf-maps", or empty line ("")', FATAL)
   endif
   
   ! -------- initialize soil state --------
@@ -382,7 +389,7 @@ subroutine soil_init ( id_lon, id_lat, id_band )
      ce=next_elmt(ce)        ! advance position to the next tile
      if (.not.associated(tile%soil)) cycle
      if (init_wtdep .gt. 0.) then
-         psi = zfull - init_wtdep
+         psi = zfull(1:num_l) - init_wtdep
 	 call soil_data_vwc_for_init_only(tile%soil, psi, mwc)
 	 mwc = mwc * dens_h2o
        else if (init_w .ge. 0.) then
@@ -391,62 +398,128 @@ subroutine soil_init ( id_lon, id_lat, id_band )
          mwc = -init_w*tile%soil%pars%vwc_sat*dens_h2o
        endif
      if (init_temp.ge.tile%soil%pars%tfreeze) then
-         tile%soil%prog%wl = mwc*dz(1:num_l)
-         tile%soil%prog%ws = 0
+         tile%soil%wl = mwc*dz(1:num_l)
+         tile%soil%ws = 0
        else
-         tile%soil%prog%wl = 0
-         tile%soil%prog%ws = mwc*dz(1:num_l)
+         tile%soil%wl = 0
+         tile%soil%ws = mwc*dz(1:num_l)
        endif
-     tile%soil%prog%T             = init_temp
-     tile%soil%prog%groundwater   = init_groundwater
-     tile%soil%prog%groundwater_T = init_temp
+     tile%soil%T             = init_temp
+     tile%soil%groundwater   = init_groundwater
+     tile%soil%groundwater_T = init_temp
      tile%soil%uptake_T           = init_temp
      enddo
 
-  call get_input_restart_name('INPUT/soil.res.nc',restart_exists,restart_file_name)
+  call get_input_restart_name(restart_base_name,restart_exists,restart_file_name)
   if (restart_exists) then
-     call error_mesg('soil_init',&
-          'reading NetCDF restart "'//trim(restart_file_name)//'"',&
-          NOTE)
-     __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
-     call read_tile_data_r1d_fptr(unit, 'temp'         , soil_T_ptr  )
-     call read_tile_data_r1d_fptr(unit, 'wl'           , soil_wl_ptr )
-     call read_tile_data_r1d_fptr(unit, 'ws'           , soil_ws_ptr )
-     call read_tile_data_r1d_fptr(unit, 'groundwater'  , soil_groundwater_ptr )
-     call read_tile_data_r1d_fptr(unit, 'groundwater_T', soil_groundwater_T_ptr)
-     if(nfu_inq_var(unit, 'uptake_T')==NF_NOERR) &
-          call read_tile_data_r0d_fptr(unit, 'uptake_T', soil_uptake_T_ptr)
-     if(nfu_inq_var(unit, 'fsc')==NF_NOERR) then 
-        call read_tile_data_r1d_fptr(unit,'fsc',soil_fast_soil_C_ptr)
-        call read_tile_data_r1d_fptr(unit,'ssc',soil_slow_soil_C_ptr)
-     else
-        ! try to read fsc and ssc from vegetation restart
-        call get_input_restart_name('INPUT/vegn2.res.nc',restart_exists,restart_file_name)
+     if(new_restart) then
+        call error_mesg('soil_init', 'Using new soil restart read', NOTE)
+
+        restart_file_name = restart_base_name
+
+        call get_field_size(restart_file_name, 'tile_index', siz, field_found=found, domain=lnd%domain)
+        if ( .not.found ) call error_mesg(trim(module_name), &
+             'tile_index axis not found in '//trim(restart_file_name), FATAL)
+        isize = siz(1)
+
+        call get_field_size(restart_file_name, 'zfull', siz, field_found=found, domain=lnd%domain)
+        if ( .not.found ) call error_mesg(trim(module_name), &
+             'Z axis not found in '//trim(restart_file_name), FATAL)
+        nz = siz(1)
+
+        allocate(idx(isize),r1d(isize,nz),r0d(isize))
+        call read_compressed(restart_file_name,'tile_index',idx, domain=lnd%domain)
+
+        call read_compressed(restart_file_name,'temp',r1d, domain=lnd%domain)
+        call assemble_tiles(soil_T_ptr,idx,r1d)
+ 
+        call read_compressed(restart_file_name,'wl',r1d, domain=lnd%domain)
+        call assemble_tiles(soil_wl_ptr,idx,r1d)
+ 
+        call read_compressed(restart_file_name,'ws',r1d, domain=lnd%domain)
+        call assemble_tiles(soil_ws_ptr,idx,r1d)
+ 
+        call read_compressed(restart_file_name,'groundwater',r1d, domain=lnd%domain)
+        call assemble_tiles(soil_groundwater_ptr,idx,r1d)
+ 
+        call read_compressed(restart_file_name,'groundwater_T',r1d, domain=lnd%domain)
+        call assemble_tiles(soil_groundwater_T_ptr,idx,r1d)
+
+        if ( field_exist(restart_file_name,'uptake_T') ) then
+           call read_compressed(restart_file_name,'uptake_T',r0d, domain=lnd%domain)
+           call assemble_tiles(soil_uptake_T_ptr,idx,r0d)
+        endif
+
+        if ( field_exist(restart_file_name,'fsc') ) then
+           call read_compressed(restart_file_name,'fsc',r1d, domain=lnd%domain)
+           call assemble_tiles(soil_fast_soil_C_ptr,idx,r1d)
+ 
+           call read_compressed(restart_file_name,'ssc',r1d, domain=lnd%domain)
+           call assemble_tiles(soil_slow_soil_C_ptr,idx,r1d)
+        else
+           ! try to read fsc and ssc from vegetation restart
+           call get_input_restart_name('INPUT/vegn2.res.nc',restart_exists,restart_file_name)
+           if (restart_exists) then
+             call read_compressed('INPUT/vegn2.res.nc','fsc',r1d, domain=lnd%domain)
+             call assemble_tiles(soil_fast_soil_C_ptr,idx,r1d)
+ 
+             call read_compressed('INPUT/vegn2.res.nc','ssc',r1d, domain=lnd%domain)
+             call assemble_tiles(soil_slow_soil_C_ptr,idx,r1d)
+           endif
+        endif
+
+        ! read soil carbon restart, if present
+        call get_input_restart_name('INPUT/soil_carbon.res.nc',restart_exists,restart_file_name)
         if (restart_exists) then
-           __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit1))
-           ! read old (scalar) fsc and ssc into the first element of the fast_soil_C
-           ! and slow_soil_C arrays
-           call read_tile_data_r1d_fptr(unit1,'fsc',soil_fast_soil_C_ptr,1)
-           call read_tile_data_r1d_fptr(unit1,'ssc',soil_slow_soil_C_ptr,1)
+           call read_compressed('INPUT/soil_carbon.res.nc','asoil_in',r1d, domain=lnd%domain)
+           call assemble_tiles(soil_asoil_in_ptr,idx,r1d)
+
+           call read_compressed('INPUT/soil_carbon.res.nc','fsc_in',r1d, domain=lnd%domain)
+           call assemble_tiles(soil_fsc_in_ptr,idx,r1d)
+
+           call read_compressed('INPUT/soil_carbon.res.nc','ssc_in',r1d, domain=lnd%domain)
+           call assemble_tiles(soil_ssc_in_ptr,idx,r1d)
+        endif
+        deallocate(idx,r1d,r0d)
+     else
+        call error_mesg('soil_init', 'reading NetCDF restart "'//trim(restart_file_name)//'"', NOTE)
+        __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
+        call read_tile_data_r1d_fptr(unit, 'temp'         , soil_T_ptr  )
+        call read_tile_data_r1d_fptr(unit, 'wl'           , soil_wl_ptr )
+        call read_tile_data_r1d_fptr(unit, 'ws'           , soil_ws_ptr )
+        call read_tile_data_r1d_fptr(unit, 'groundwater'  , soil_groundwater_ptr )
+        call read_tile_data_r1d_fptr(unit, 'groundwater_T', soil_groundwater_T_ptr)
+        if(nfu_inq_var(unit, 'uptake_T')==NF_NOERR) call read_tile_data_r0d_fptr(unit, 'uptake_T', soil_uptake_T_ptr)
+        if(nfu_inq_var(unit, 'fsc')==NF_NOERR) then 
+           call read_tile_data_r1d_fptr(unit,'fsc',soil_fast_soil_C_ptr)
+           call read_tile_data_r1d_fptr(unit,'ssc',soil_slow_soil_C_ptr)
+        else
+           ! try to read fsc and ssc from vegetation restart
+           call get_input_restart_name('INPUT/vegn2.res.nc',restart_exists,restart_file_name)
+           if (restart_exists) then
+              __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit1))
+              ! read old (scalar) fsc and ssc into the first element of the fast_soil_C
+              ! and slow_soil_C arrays
+              call read_tile_data_r1d_fptr(unit1,'fsc',soil_fast_soil_C_ptr,1)
+              call read_tile_data_r1d_fptr(unit1,'ssc',soil_slow_soil_C_ptr,1)
+           endif
+        endif
+        __NF_ASRT__(nf_close(unit))     
+        ! read soil carbon restart, if present
+        call get_input_restart_name('INPUT/soil_carbon.res.nc',restart_exists,restart_file_name)
+        if (restart_exists) then
+           __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
+           call error_mesg('veg_data_init','reading soil_carbon restart',NOTE)
+           call read_tile_data_r1d_fptr(unit,'asoil_in',soil_asoil_in_ptr)
+           call read_tile_data_r1d_fptr(unit,'fsc_in',soil_fsc_in_ptr)
+           call read_tile_data_r1d_fptr(unit,'ssc_in',soil_ssc_in_ptr)
+           __NF_ASRT__(nf_close(unit))
         endif
      endif
-          
-     __NF_ASRT__(nf_close(unit))     
   else
      call error_mesg('soil_init', 'cold-starting soil', NOTE)
   endif
 
-  ! read soil carbon restart, if present
-  call get_input_restart_name('INPUT/soil_carbon.res.nc',restart_exists,restart_file_name)
-  if (restart_exists) then
-     __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
-     call error_mesg('veg_data_init','reading soil_carbon restart',NOTE)
-     call read_tile_data_r1d_fptr(unit,'asoil_in',soil_asoil_in_ptr)
-     call read_tile_data_r1d_fptr(unit,'fsc_in',soil_fsc_in_ptr)
-     call read_tile_data_r1d_fptr(unit,'ssc_in',soil_ssc_in_ptr)
-     __NF_ASRT__(nf_close(unit))     
-  endif
-  
   ! ---- static diagnostic section
   call send_tile_data_r0d_fptr(id_tau_gw,       lnd%tile_map, soil_tau_groundwater_ptr)
   call send_tile_data_r0d_fptr(id_slope_l,      lnd%tile_map, soil_hillslope_length_ptr)
@@ -740,13 +813,101 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
 
 end subroutine save_soil_restart
 
+! ============================================================================
+subroutine save_soil_restart_new (tile_dim_length, timestamp)
+  integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
+  character(*), intent(in) :: timestamp ! timestamp to add to the file name
+
+  ! ---- local vars ----------------------------------------------------------
+  integer :: unit            ! restart file i/o unit
+  character(267) :: fname
+  type(restart_file_type) :: soil_restart, soil_carbon_restart ! restart files i/o object
+  integer, allocatable :: idx(:)
+  real, allocatable, dimension(:,:) :: temp, wl, ws, groundwater, groundwater_T, fsc, ssc
+  real, allocatable, dimension(:)   :: uptake_T
+  real, allocatable, dimension(:,:) :: asoil_in, fsc_in, ssc_in ! soil carbon variables
+  integer :: id_restart, isize
+
+  call error_mesg('soil_end','writing new format NetCDF restart',NOTE)
+
+  ! must set domain so that io_domain is available
+  call set_domain(lnd%domain)
+! Note that fname is updated for tile & rank numbers during file creation
+  fname = trim(timestamp)//'soil.res.nc'
+  call create_tile_out_file(soil_restart,idx,fname,lnd,soil_tile_exists,tile_dim_length,zfull(1:num_l))
+  isize = size(idx)
+  allocate(temp(isize,num_l), wl(isize,num_l), ws(isize,num_l), groundwater(isize,num_l))
+  allocate(groundwater_T(isize,num_l), fsc(isize,num_l), ssc(isize,num_l))
+  allocate(uptake_T(isize))
+        
+ ! Output data provides signature
+  call gather_tile_data(soil_T_ptr,idx,temp)
+  id_restart = register_restart_field(soil_restart,fname,'temp',temp,compressed=.true., &
+                                      longname='soil temperature',units='degrees_K')
+
+  call gather_tile_data(soil_wl_ptr,idx,wl)
+  id_restart = register_restart_field(soil_restart,fname,'wl',wl,compressed=.true., &
+                                      longname='liquid water content',units='kg/m2')
+
+  call gather_tile_data(soil_ws_ptr,idx,ws)
+  id_restart = register_restart_field(soil_restart,fname,'ws',ws,compressed=.true., &
+                                      longname='solid water content',units='kg/m2')
+
+  call gather_tile_data(soil_groundwater_ptr,idx,groundwater)
+  id_restart = register_restart_field(soil_restart,fname,'groundwater',groundwater,compressed=.true., &
+                                      longname='groundwater',units='kg/m2')
+
+  call gather_tile_data(soil_groundwater_T_ptr,idx,groundwater_T)
+  id_restart = register_restart_field(soil_restart,fname,'groundwater_T',groundwater_T,compressed=.true., &
+                                      longname='groundwater temperature',units='degrees_K')
+
+  call gather_tile_data(soil_fast_soil_C_ptr,idx,fsc)
+  id_restart = register_restart_field(soil_restart,fname,'fsc',fsc,compressed=.true., &
+                                      longname='fast soil carbon',units='kg C/m2')
+
+  call gather_tile_data(soil_slow_soil_C_ptr,idx,ssc)
+  id_restart = register_restart_field(soil_restart,fname,'ssc',ssc,compressed=.true., &
+                                      longname='slow soil carbon',units='kg C/m2')
+
+  call gather_tile_data(soil_uptake_T_ptr,idx,uptake_T)
+  id_restart = register_restart_field(soil_restart,fname,'uptake_T',uptake_T, & !
+                                      longname='temperature of transpiring water',units='degrees_K')
+
+  ! save performs io domain aggregation through mpp_io as with regular domain data
+  call save_restart(soil_restart)
+
+  deallocate(temp,wl,ws,groundwater,groundwater_T,fsc,ssc,uptake_T)
+
+  if (write_soil_carbon_restart) then
+    fname = trim(timestamp)//'soil_carbon.res.nc'
+    call create_tile_out_file(soil_carbon_restart,idx,fname,lnd,soil_tile_exists,tile_dim_length,zfull(1:num_l))
+    allocate(asoil_in(isize,num_l), fsc_in(isize,num_l),  ssc_in(isize,num_l))
+
+    call gather_tile_data(soil_asoil_in_ptr,idx,asoil_in)
+    id_restart = register_restart_field(soil_carbon_restart,fname,'asoil_in',asoil_in,compressed=.true., &
+                                        longname='aerobic activity modifier',units='unitless')
+
+    call gather_tile_data(soil_fsc_in_ptr,idx,fsc_in)
+    id_restart = register_restart_field(soil_carbon_restart,fname,'fsc_in',fsc_in,compressed=.true., &
+                                        longname='fast soil carbon input',units='kg C/m2')
+
+    call gather_tile_data(soil_ssc_in_ptr,idx,ssc_in)
+    id_restart = register_restart_field(soil_carbon_restart,fname,'ssc_in',ssc_in,compressed=.true., &
+                                        longname='slow soil carbon input',units='kg C/m2')
+
+    call save_restart(soil_carbon_restart)
+    deallocate(asoil_in, fsc_in,  ssc_in)
+  endif
+  deallocate(idx)
+
+end subroutine save_soil_restart_new
 
 ! ============================================================================
 subroutine soil_get_sfc_temp ( soil, soil_T )
   type(soil_tile_type), intent(in) :: soil
   real, intent(out) :: soil_T
 
-  soil_T= soil%prog(1)%T
+  soil_T= soil%T(1)
 end subroutine soil_get_sfc_temp
 
 
@@ -809,8 +970,8 @@ subroutine soil_data_beta ( soil, vegn, soil_beta, soil_water_supply, &
 
   vlc=0;vsc=0
   do l = 1, num_l
-    vlc(l) = max(0., soil%prog(l)%wl / (dens_h2o*dz(l)))
-    vsc(l) = max(0., soil%prog(l)%ws / (dens_h2o*dz(l)))
+    vlc(l) = max(0., soil%wl(l) / (dens_h2o*dz(l)))
+    vsc(l) = max(0., soil%ws(l) / (dens_h2o*dz(l)))
     enddo
   
   soil%uptake_frac = 0
@@ -841,12 +1002,12 @@ subroutine soil_data_beta ( soil, vegn, soil_beta, soil_water_supply, &
      z = 0
      do l = 1, num_l
         soil_water_supply = soil_water_supply + &
-          vegn_uptake_term(l)*max(0.0,soil%prog(l)%wl/dz(l)-soil%w_wilt(l)*dens_h2o)
+          vegn_uptake_term(l)*max(0.0,soil%wl(l)/dz(l)-soil%w_wilt(l)*dens_h2o)
         z = z + dz(l)
      enddo
      soil_water_supply = z * soil_water_supply
      soil_water_supply = soil_water_supply/delta_time
-     soil_uptake_T = sum(soil%uptake_frac*soil%prog%T)
+     soil_uptake_T = sum(soil%uptake_frac*soil%T)
   case(UPTAKE_DARCY2D)
      call vegn_root_properties (vegn, dz(1:num_l), VRL, K_r, r_r)
      call darcy2d_uptake ( soil, psi_wilt, VRL, K_r, r_r, uptake_oneway,&
@@ -908,13 +1069,13 @@ subroutine soil_step_1 ( soil, vegn, diag, &
 ! of water availability, so that vapor fluxes will not exceed mass limits
 ! ----------------------------------------------------------------------------
 
-  soil_T = soil%prog(1)%T
+  soil_T = soil%T(1)
   call soil_data_beta ( soil, vegn, soil_beta, soil_water_supply, soil_uptake_T, &
                         soil_rh, soil_rh_psi )
 
   do l = 1, num_l
-    vlc(l) = max(0.0, soil%prog(l)%wl / (dens_h2o * dz(l)))
-    vsc(l) = max(0.0, soil%prog(l)%ws / (dens_h2o * dz(l)))
+    vlc(l) = max(0.0, soil%wl(l) / (dens_h2o * dz(l)))
+    vsc(l) = max(0.0, soil%ws(l) / (dens_h2o * dz(l)))
     enddo
   call soil_data_thermodynamics ( soil, vlc, vsc,  &  
                                   soil_E_max, thermal_cond )
@@ -923,11 +1084,11 @@ subroutine soil_step_1 ( soil, vegn, diag, &
 
   do l = 1, num_l
      heat_capacity(l) = soil%heat_capacity_dry(l) *dz(l) &
-          + clw*soil%prog(l)%wl + csw*soil%prog(l)%ws
+          + clw*soil%wl(l) + csw*soil%ws(l)
   enddo
 
-  soil_liq  = max(soil%prog(1)%wl, 0.)
-  soil_ice  = max(soil%prog(1)%ws, 0.)
+  soil_liq  = max(soil%wl(1), 0.)
+  soil_ice  = max(soil%ws(1), 0.)
   if (soil_liq + soil_ice > 0) then
      soil_subl = soil_ice / (soil_liq + soil_ice)
   else
@@ -946,20 +1107,20 @@ subroutine soil_step_1 ( soil, vegn, diag, &
 
      bbb = 1.0 - aaa(num_l)
      denom = bbb
-     dt_e = aaa(num_l)*(soil%prog(num_l)%T - soil%prog(num_l-1)%T) &
+     dt_e = aaa(num_l)*(soil%T(num_l) - soil%T(num_l-1)) &
                + soil%geothermal_heat_flux * delta_time / heat_capacity(num_l)
      soil%e(num_l-1) = -aaa(num_l)/denom
      soil%f(num_l-1) = dt_e/denom
      do l = num_l-1, 2, -1
         bbb = 1.0 - aaa(l) - ccc(l)
         denom = bbb + ccc(l)*soil%e(l)
-        dt_e = - ( ccc(l)*(soil%prog(l+1)%T - soil%prog(l)%T  ) &
-                  -aaa(l)*(soil%prog(l)%T   - soil%prog(l-1)%T) )
+        dt_e = - ( ccc(l)*(soil%T(l+1) - soil%T(l)  ) &
+                  -aaa(l)*(soil%T(l)   - soil%T(l-1)) )
         soil%e(l-1) = -aaa(l)/denom
         soil%f(l-1) = (dt_e - ccc(l)*soil%f(l))/denom
      end do
      denom = delta_time/(heat_capacity(1) )
-     soil_G0   = ccc(1)*(soil%prog(2)%T- soil%prog(1)%T + soil%f(1)) / denom
+     soil_G0   = ccc(1)*(soil%T(2)- soil%T(1) + soil%f(1)) / denom
      soil_DGDT = (1 - ccc(1)*(1-soil%e(1))) / denom   
   else  ! one-level case
      denom = delta_time/heat_capacity(1)
@@ -1063,11 +1224,11 @@ end subroutine soil_step_1
      write(*,*) 'theta_s ', soil%pars%vwc_sat
      do l = 1, num_l
         write(*,'(a,i2.2,100(2x,a,g23.16))') 'level=', l,&
-             ' T =', soil%prog(l)%T,&
-             ' Th=', (soil%prog(l)%ws+soil%prog(l)%wl)/(dens_h2o*dz(l)),&
-             ' wl=', soil%prog(l)%wl,&
-             ' ws=', soil%prog(l)%ws,&
-             ' gw=', soil%prog(l)%groundwater
+             ' T =', soil%T(l),&
+             ' Th=', (soil%ws(l)+soil%wl(l))/(dens_h2o*dz(l)),&
+             ' wl=', soil%wl(l),&
+             ' ws=', soil%ws(l),&
+             ' gw=', soil%groundwater(l)
      enddo
     endif
   !.........................................................................
@@ -1079,11 +1240,11 @@ end subroutine soil_step_1
 
   ! ---- load surface temp change and perform back substitution ------------
   del_t(1) = subs_DT
-  soil%prog(1)%T = soil%prog(1)%T + del_t(1)
+  soil%T(1) = soil%T(1) + del_t(1)
   if ( num_l > 1) then
     do l = 1, num_l-1
       del_t(l+1) = soil%e(l) * del_t(l) + soil%f(l)
-      soil%prog(l+1)%T = soil%prog(l+1)%T + del_t(l+1)
+      soil%T(l+1) = soil%T(l+1) + del_t(l+1)
       enddo
     endif
 
@@ -1091,7 +1252,7 @@ end subroutine soil_step_1
   if(is_watch_point()) then
      write(*,*) ' ##### soil_step_2 checkpoint 2 #####'
      do l = 1, num_l
-        write(*,'(a,i2.2,100(2x,a,g23.16))') 'level=',l, 'T=', soil%prog(l)%T, &
+        write(*,'(a,i2.2,100(2x,a,g23.16))') 'level=',l, 'T=', soil%T(l), &
              'del_t=', del_t(l), 'e=', soil%e(l), 'f=', soil%f(l)
        enddo
     endif
@@ -1100,25 +1261,25 @@ end subroutine soil_step_1
   ! ---- extract evap from soil, adjusting T, and do implicit melt ---------
   IF (LM2) THEN  ! (extract surface E--is there any?--uniformly from bucket)
       do l = 1, num_l
-        soil%prog(l)%wl = soil%prog(l)%wl &
+        soil%wl(l) = soil%wl(l) &
                       - soil%uptake_frac(l)*soil_levap*delta_time
         enddo
     ELSE
-      soil%prog(1)%wl = soil%prog(1)%wl - soil_levap*delta_time
-      soil%prog(1)%ws = soil%prog(1)%ws - soil_fevap*delta_time
+      soil%wl(1) = soil%wl(1) - soil_levap*delta_time
+      soil%ws(1) = soil%ws(1) - soil_fevap*delta_time
     ENDIF
   hcap = soil%heat_capacity_dry(1)*dz(1) &
-                       + clw*soil%prog(1)%wl + csw*soil%prog(1)%ws
+                       + clw*soil%wl(1) + csw*soil%ws(1)
   ! T adjustment for nonlinear terms (del_T)*(del_W)
   dheat = delta_time*(clw*soil_levap+csw*soil_fevap)*del_T(1)
   ! take out extra heat not claimed in advance for evaporation
   if (use_tfreeze_in_grnd_latent) dheat = dheat &
           - delta_time*((cpw-clw)*soil_levap+(cpw-csw)*soil_fevap) &
-                                 *(soil%prog(1)%T-del_T(1)-tfreeze)
-  soil%prog(1)%T  = soil%prog(1)%T  + dheat/hcap
-  soil%prog(1)%wl = soil%prog(1)%wl + subs_M_imp
-  soil%prog(1)%ws = soil%prog(1)%ws - subs_M_imp
-  soil%prog(1)%T  = tfreeze + (hcap*(soil%prog(1)%T-tfreeze) ) &
+                                 *(soil%T(1)-del_T(1)-tfreeze)
+  soil%T(1)  = soil%T(1)  + dheat/hcap
+  soil%wl(1) = soil%wl(1) + subs_M_imp
+  soil%ws(1) = soil%ws(1) - subs_M_imp
+  soil%T(1)  = tfreeze + (hcap*(soil%T(1)-tfreeze) ) &
                               / ( hcap + (clw-csw)*subs_M_imp )
 
   ! ---- calculate actual uptake and update its T --------------------------
@@ -1145,7 +1306,7 @@ end subroutine soil_step_1
      uptake_pos = sum(uptake(:),mask=uptake(:)>0)
      if (uptake_pos > 0) then
         ! calculate actual temperature of uptake
-        uptake_T_new  = sum(uptake*soil%prog%T,mask=uptake>0)/uptake_pos
+        uptake_T_new  = sum(uptake*soil%T,mask=uptake>0)/uptake_pos
         ! and temperature correction
         uptake_T_corr = soil%uptake_T - uptake_T_new
         if(is_watch_point()) then
@@ -1169,7 +1330,7 @@ end subroutine soil_step_1
       do l = 1,num_l
         write(*,'(a,i2.2,100(2x,a,g23.16))')'level=',l, &
              'uptake=',uptake(l),'dwl=',-uptake(l)*delta_time,&
-             'wl=',soil%prog(l)%wl,'new wl=',soil%prog(l)%wl - uptake(l)*delta_time
+             'wl=',soil%wl(l),'new wl=',soil%wl(l) - uptake(l)*delta_time
         enddo
     endif
   !.........................................................................
@@ -1183,16 +1344,16 @@ end subroutine soil_step_1
     ! calculate the temperature of water that is taken from the layer (or added 
     ! to the layer), including energy balance correction 
     if (uptake(l) > 0) then
-        Tu = soil%prog(l)%T + uptake_T_corr
+        Tu = soil%T(l) + uptake_T_corr
       else
         Tu = soil%uptake_T + uptake_T_corr
       endif
     hcap = soil%heat_capacity_dry(l)*dz(l) &
-          + clw*soil%prog(l)%wl + csw*soil%prog(l)%ws
-    soil%prog(l)%T = soil%prog(l)%T - &
-          uptake(l)*delta_time*clw*( Tu-soil%prog(l)%T ) / &
+          + clw*soil%wl(l) + csw*soil%ws(l)
+    soil%T(l) = soil%T(l) - &
+          uptake(l)*delta_time*clw*( Tu-soil%T(l) ) / &
           ( hcap - uptake(l)*delta_time*clw )
-    soil%prog(l)%wl = soil%prog(l)%wl - uptake(l)*delta_time
+    soil%wl(l) = soil%wl(l) - uptake(l)*delta_time
     enddo
 
   !.........................................................................
@@ -1200,10 +1361,10 @@ end subroutine soil_step_1
       write(*,*) ' ##### soil_step_2 checkpoint 3 #####'
       do l = 1, num_l
         write(*,'(a,i2.2,100(2x,a,g23.16))') ' level=', l,&
-             ' T =', soil%prog(l)%T,&
-             ' Th=', (soil%prog(l)%ws+soil%prog(l)%wl)/(dens_h2o*dz(l)),&
-             ' wl=', soil%prog(l)%wl,&
-             ' ws=', soil%prog(l)%ws
+             ' T =', soil%T(l),&
+             ' Th=', (soil%ws(l)+soil%wl(l))/(dens_h2o*dz(l)),&
+             ' wl=', soil%wl(l),&
+             ' ws=', soil%ws(l)
         enddo
     endif
   !.........................................................................
@@ -1217,8 +1378,8 @@ end subroutine soil_step_1
 
   ! ---- fetch soil hydraulic properties -----------------------------------
   do l = 1, num_l
-    vlc(l) = max(0., soil%prog(l)%wl / (dens_h2o*dz(l)))
-    vsc(l) = max(0., soil%prog(l)%ws / (dens_h2o*dz(l)))
+    vlc(l) = max(0., soil%wl(l) / (dens_h2o*dz(l)))
+    vsc(l) = max(0., soil%ws(l) / (dens_h2o*dz(l)))
   enddo
   call soil_data_hydraulic_properties (soil, vlc, vsc, &
                    psi, DThDP, hyd_cond, DKDP, Dpsi_min, Dpsi_max )
@@ -1236,7 +1397,7 @@ end subroutine soil_step_1
 
     depth_to_wt_2a = 0.
     do l=1,num_l
-      if (soil%prog(l)%wl+soil%prog(l)%ws .lt. &
+      if (soil%wl(l)+soil%ws(l) .lt. &
                        soil%pars%vwc_sat*dens_h2o*dz(l)) then
           depth_to_wt_2a = depth_to_wt_2a + dz(l)
           if (l.eq.num_l) depth_to_wt_2a = -1.
@@ -1452,10 +1613,10 @@ end subroutine soil_step_1
       flow(1) = 0
       do l = 1, num_l
         infilt(l) = soil%uptake_frac(l)*lprec_eff *delta_time
-        flow(l+1) = max(0., soil%prog(l)%wl + flow(l) &
+        flow(l+1) = max(0., soil%wl(l) + flow(l) &
               + infilt(l) - soil%w_fc(l)*dz(l)*dens_h2o)
         dW_l(l) = flow(l) - flow(l+1) + infilt(l)
-        soil%prog(l)%wl = soil%prog(l)%wl + dW_l(l)
+        soil%wl(l) = soil%wl(l) + dW_l(l)
         enddo
       do l = 1, num_l
         flow(l) = flow(l) + infilt(l)
@@ -1466,10 +1627,10 @@ end subroutine soil_step_1
       c1 = exp(-c0)
       c2 = (1-c1)/c0
       l = 1
-      d_GW = c1 * soil%prog(l)%groundwater + c2 * flow(num_l+1) &
-	                    - soil%prog(l)%groundwater
-      soil%prog(l)%groundwater = soil%prog(l)%groundwater + d_GW
-      lrunf_sc  = (1-c1)*soil%prog(l)%groundwater/delta_time &
+      d_GW = c1 * soil%groundwater(l) + c2 * flow(num_l+1) &
+	                    - soil%groundwater(l)
+      soil%groundwater(l) = soil%groundwater(l) + d_GW
+      lrunf_sc  = (1-c1)*soil%groundwater(l)/delta_time &
                           + (1-c2)*flow(num_l+1)/delta_time
       lrunf_ie=0
     ELSE
@@ -1484,9 +1645,9 @@ end subroutine soil_step_1
           lrunf_ie = lprec_eff
           hlrunf_ie = hlprec_eff
           if (use_stiff_bug) then
-              psi=-zfull
+              psi=-zfull(1:num_l)
             else
-              psi=zfull
+              psi=zfull(1:num_l)
             endif
           dpsi=0.
         ELSE
@@ -1516,18 +1677,18 @@ end subroutine soil_step_1
       hlrunf_ie = lrunf_ie*hlprec_eff/lprec_eff
     else if (flow(1).lt.0. ) then
       hlrunf_ie = hlprec_eff - (flow(1)/delta_time)*clw &
-                         *(soil%prog(1)%T-tfreeze)
+                         *(soil%T(1)-tfreeze)
     else
       hlrunf_ie = 0.
     endif
 
-  hlrunf_bf = clw*sum(div_bf*(soil%prog%T-tfreeze))
-  hlrunf_if = clw*sum(div_if*(soil%prog%T-tfreeze))
-  hlrunf_al = clw*sum(div_al*(soil%prog%T-tfreeze))
-  hlrunf_sc = clw*lrunf_sc  *(soil%prog(1)%groundwater_T-tfreeze)
+  hlrunf_bf = clw*sum(div_bf*(soil%T-tfreeze))
+  hlrunf_if = clw*sum(div_if*(soil%T-tfreeze))
+  hlrunf_al = clw*sum(div_al*(soil%T-tfreeze))
+  hlrunf_sc = clw*lrunf_sc  *(soil%groundwater_T(1)-tfreeze)
   if (lrunf_from_div) then
       soil_lrunf  =  lrunf_sn +  lrunf_ie +  sum(div) +  lrunf_nu +  lrunf_sc
-      soil_hlrunf = hlrunf_sn + hlrunf_ie +  clw*sum(div*(soil%prog%T-tfreeze)) &
+      soil_hlrunf = hlrunf_sn + hlrunf_ie +  clw*sum(div*(soil%T-tfreeze)) &
                                                       + hlrunf_nu + hlrunf_sc
     else
       soil_lrunf  =  lrunf_sn +  lrunf_ie +  lrunf_bf +  lrunf_if &
@@ -1539,19 +1700,19 @@ end subroutine soil_step_1
   do l = 1, num_l
     ! ---- compute explicit melt/freeze --------------------------------------
     hcap = soil%heat_capacity_dry(l)*dz(l) &
-             + clw*soil%prog(l)%wl + csw*soil%prog(l)%ws
+             + clw*soil%wl(l) + csw*soil%ws(l)
     melt_per_deg = hcap/(hlf_factor*hlf)
-    if       (soil%prog(l)%ws>0 .and. soil%prog(l)%T>soil%pars%tfreeze) then
-      melt =  min(soil%prog(l)%ws, (soil%prog(l)%T-soil%pars%tfreeze)*melt_per_deg)
-    else if (soil%prog(l)%wl>0 .and. soil%prog(l)%T<soil%pars%tfreeze) then
-      melt = -min(soil%prog(l)%wl, (soil%pars%tfreeze-soil%prog(l)%T)*melt_per_deg)
+    if       (soil%ws(l)>0 .and. soil%T(l)>soil%pars%tfreeze) then
+      melt =  min(soil%ws(l), (soil%T(l)-soil%pars%tfreeze)*melt_per_deg)
+    else if (soil%wl(l)>0 .and. soil%T(l)<soil%pars%tfreeze) then
+      melt = -min(soil%wl(l), (soil%pars%tfreeze-soil%T(l))*melt_per_deg)
     else
       melt = 0
     endif
-    soil%prog(l)%wl = soil%prog(l)%wl + melt
-    soil%prog(l)%ws = soil%prog(l)%ws - melt
-    soil%prog(l)%T = tfreeze &
-       + (hcap*(soil%prog(l)%T-tfreeze) - hlf_factor*hlf*melt) &
+    soil%wl(l) = soil%wl(l) + melt
+    soil%ws(l) = soil%ws(l) - melt
+    soil%T(l) = tfreeze &
+       + (hcap*(soil%T(l)-tfreeze) - hlf_factor*hlf*melt) &
                             / ( hcap + (clw-csw)*melt )
     soil_melt = soil_melt + melt / delta_time
   enddo
@@ -1560,27 +1721,27 @@ end subroutine soil_step_1
      write(*,*) ' ##### soil_step_2 checkpoint 5 #####'
      do l = 1, num_l
         write(*,'(a,i2.2,100(2x,a,g23.16))') ' level=', l,&
-             ' T =', soil%prog(l)%T,&
-             ' Th=', (soil%prog(l)%ws +soil%prog(l)%wl)/(dens_h2o*dz(l)),&
-             ' wl=', soil%prog(l)%wl,&
-             ' ws=', soil%prog(l)%ws,&
-             ' gw=', soil%prog(l)%groundwater
+             ' T =', soil%T(l),&
+             ' Th=', (soil%ws(l) +soil%wl(l))/(dens_h2o*dz(l)),&
+             ' wl=', soil%wl(l),&
+             ' ws=', soil%ws(l),&
+             ' gw=', soil%groundwater(l)
      enddo
   endif
 
   active_layer_thickness = 0.
   do l = 1, num_l
-    if (soil%prog(l)%ws.gt.0.) then
+    if (soil%ws(l).gt.0.) then
         active_layer_thickness = active_layer_thickness &
-	  + dz(l)*soil%prog(l)%wl/(soil%prog(l)%wl+soil%prog(l)%ws)
+	  + dz(l)*soil%wl(l)/(soil%wl(l)+soil%ws(l))
         exit
       endif
     active_layer_thickness = active_layer_thickness + dz(l)
     enddo
 
-  soil_Ttop = soil%prog(1)%T
+  soil_Ttop = soil%T(1)
   soil_Ctop = soil%heat_capacity_dry(1)*dz(1) &
-    + clw*soil%prog(1)%wl + csw*soil%prog(1)%ws
+    + clw*soil%wl(1) + csw*soil%ws(1)
 
 if (update_psi) soil%psi=psi+dPsi
 
@@ -1592,9 +1753,9 @@ if (update_psi) soil%psi=psi+dPsi
   time = increment_time(time, int(delta_time), 0)
   
   ! ---- diagnostic section
-   call send_tile_data(id_temp, soil%prog%T, diag)
-   if (id_lwc > 0) call send_tile_data(id_lwc,  soil%prog%wl/dz(1:num_l), diag)
-   if (id_swc > 0) call send_tile_data(id_swc,  soil%prog%ws/dz(1:num_l), diag)
+   call send_tile_data(id_temp, soil%T, diag)
+   if (id_lwc > 0) call send_tile_data(id_lwc,  soil%wl/dz(1:num_l), diag)
+   if (id_swc > 0) call send_tile_data(id_swc,  soil%ws/dz(1:num_l), diag)
    if (id_psi > 0) call send_tile_data(id_psi,  psi+dPsi, diag)
 !    call send_tile_data(id_deficit, deficit, diag)
 !    call send_tile_data(id_sat_depth, depth_to_wt_3, diag)
@@ -1643,8 +1804,8 @@ subroutine soil_step_3(soil, diag)
   type(soil_tile_type), intent(in) :: soil
   type(diag_buff_type), intent(inout) :: diag
 
-  if(id_fast_soil_C>0) call send_tile_data(id_fast_soil_C, soil%fast_soil_C(:)/dz(:), diag)
-  if(id_slow_soil_C>0) call send_tile_data(id_slow_soil_C, soil%slow_soil_C(:)/dz(:), diag)
+  if(id_fast_soil_C>0) call send_tile_data(id_fast_soil_C, soil%fast_soil_C(:)/dz(1:num_l), diag)
+  if(id_slow_soil_C>0) call send_tile_data(id_slow_soil_C, soil%slow_soil_C(:)/dz(1:num_l), diag)
   if (id_fsc > 0)      call send_tile_data(id_fsc, sum(soil%fast_soil_C(:)), diag)
   if (id_ssc > 0)      call send_tile_data(id_ssc, sum(soil%slow_soil_C(:)), diag)
 end subroutine soil_step_3
@@ -1664,19 +1825,19 @@ end subroutine soil_step_3
 
   liq_frac=0;excess_wat=0;excess_liq=0;excess_ice=0;h1=0;h2=0
   l = 1
-  summax = max(0.,soil%prog(l)%wl)+max(0.,soil%prog(l)%ws)
+  summax = max(0.,soil%wl(l))+max(0.,soil%ws(l))
   if (summax > 0) then
-     liq_frac = max(0.,soil%prog(l)%wl) / summax
+     liq_frac = max(0.,soil%wl(l)) / summax
   else
      liq_frac = 1
   endif
-  excess_wat = max(0., soil%prog(l)%wl + soil%prog(l)%ws &
+  excess_wat = max(0., soil%wl(l) + soil%ws(l) &
        - dens_h2o*dz(l)*soil%pars%vwc_sat )
   excess_liq = excess_wat*liq_frac
   excess_ice = excess_wat-excess_liq
-  excess_t   = soil%prog(l)%T
-  soil%prog(l)%wl = soil%prog(l)%wl - excess_liq
-  soil%prog(l)%ws = soil%prog(l)%ws - excess_ice
+  excess_t   = soil%T(l)
+  soil%wl(l) = soil%wl(l) - excess_liq
+  soil%ws(l) = soil%ws(l) - excess_ice
   call send_tile_data(id_excess, excess_wat/delta_time, diag)
 
   if(is_watch_point()) then
@@ -1694,16 +1855,16 @@ end subroutine soil_step_3
   do l = 2, num_l
      if (excess_liq+excess_ice>0) then
         space_avail = dens_h2o*dz(l)*soil%pars%vwc_sat &
-             - (soil%prog(l)%wl + soil%prog(l)%ws)
+             - (soil%wl(l) + soil%ws(l))
         liq_placed = max(min(space_avail, excess_liq), 0.)
         ice_placed = max(min(space_avail-liq_placed, excess_ice), 0.)
         h1 = (soil%heat_capacity_dry(l)*dz(l) &
-             + csw*soil%prog(l)%ws + clw*soil%prog(l)%wl)
+             + csw*soil%ws(l) + clw*soil%wl(l))
         h2 = liq_placed*clw+ice_placed*csw
-        soil%prog(l)%T = (h1 * soil%prog(l)%T &
+        soil%T(l) = (h1 * soil%T(l) &
              + h2 * excess_T )  / (h1+h2)
-        soil%prog(l)%wl = soil%prog(l)%wl + liq_placed
-        soil%prog(l)%ws = soil%prog(l)%ws + ice_placed
+        soil%wl(l) = soil%wl(l) + liq_placed
+        soil%ws(l) = soil%ws(l) + ice_placed
         excess_liq = excess_liq - liq_placed
         excess_ice = excess_ice - ice_placed
      endif
@@ -1722,10 +1883,10 @@ end subroutine soil_step_3
      write(*,*) 'hlrunf_nu',hlrunf_nu
      do l = 1, num_l
         write(*,'(x,a,x,i2.2,100(x,a,g23.16))') ' level=', l,&
-             ' T =', soil%prog(l)%T,&
-             ' Th=', (soil%prog(l)%ws +soil%prog(l)%wl)/(dens_h2o*dz(l)),&
-             ' wl=', soil%prog(l)%wl,&
-             ' ws=', soil%prog(l)%ws
+             ' T =', soil%T(l),&
+             ' Th=', (soil%ws(l) +soil%wl(l))/(dens_h2o*dz(l)),&
+             ' wl=', soil%wl(l),&
+             ' ws=', soil%ws(l)
      enddo
   endif
 end subroutine soil_push_down_excess
@@ -1970,11 +2131,11 @@ IF (bbb+ccc*eee(l) .NE. 0.) THEN
     endif
 
     if (flag) then
-        w_to_move_up = min(dW_l_internal, -(soil%prog(1)%wl+dW_l(1)))
+        w_to_move_up = min(dW_l_internal, -(soil%wl(1)+dW_l(1)))
         w_to_move_up = max(w_to_move_up, 0.)
         write(*,*) 'l_internal=',l_internal
         write(*,*) 'dW_l(l_internal)=',dW_l(l_internal)
-        write(*,*) 'soil%prog(1)%wl+dW_l(1)',soil%prog(1)%wl+dW_l(1)
+        write(*,*) 'soil%wl(1)+dW_l(1)',soil%wl(1)+dW_l(1)
         write(*,*) 'w_to_move_up=',w_to_move_up
         if (l_internal.gt.1) then
             dW_l(1) = dW_l(1) + w_to_move_up
@@ -2001,19 +2162,19 @@ IF (bbb+ccc*eee(l) .NE. 0.) THEN
        call get_current_point(ipt,jpt,kpt,fpt)
        write(*,*) 'note: at point ',ipt,jpt,kpt,fpt,' clip triggered by lrunf_ie=',lrunf_ie
        do l = num_l, 1, -1
-          adj = max(dW_l(l)+soil%prog(l)%ws+soil%prog(l)%wl &
+          adj = max(dW_l(l)+soil%ws(l)+soil%wl(l) &
                - soil%pars%vwc_sat*dz(l)*dens_h2o, 0. )
 
           if(is_watch_point()) then
              write(*,*) '3.22 l=', l,&
-                  ' soil_prog%wl=',soil%prog(l)%wl,  &
-                  ' soil_prog%ws=',soil%prog(l)%ws , &
+                  ' soil%wl=',soil%wl(l),  &
+                  ' soil%ws=',soil%ws(l) , &
                   ' soil%pars%vwc_sat=', soil%pars%vwc_sat, &
                   ' dz=', dz(l), &
                   ' adj=', adj
           endif
 
-          adj = min(adj, max(0.,soil%prog(l)%wl))
+          adj = min(adj, max(0.,soil%wl(l)))
 
           if(is_watch_point()) then
              write(*,*) '3.23 l=', l, ' adj=', adj
@@ -2027,7 +2188,7 @@ IF (bbb+ccc*eee(l) .NE. 0.) THEN
   ENDIF
        
        do l = 1, num_l
-         soil%prog(l)%wl = soil%prog(l)%wl + dW_l(l)
+         soil%wl(l) = soil%wl(l) + dW_l(l)
          enddo
 
   if(is_watch_point().or.(flag.and.write_when_flagged)) then
@@ -2036,9 +2197,9 @@ IF (bbb+ccc*eee(l) .NE. 0.) THEN
      write(*,*) 'Dpsi_max',Dpsi_max
      do l = 1, num_l
         write(*,'(i2.2,100(2x,a,g23.16))') l, &
-             'Th=', (soil%prog(l)%ws +soil%prog(l)%wl)/(dens_h2o*dz(l)), &
-             'wl=', soil%prog(l)%wl, &
-             'ws=', soil%prog(l)%ws, &
+             'Th=', (soil%ws(l) +soil%wl(l))/(dens_h2o*dz(l)), &
+             'wl=', soil%wl(l), &
+             'ws=', soil%ws(l), &
              'dW_l=', dW_l(l), &
              'dPsi=', dPsi(l), &
              'flow=', flow(l)
@@ -2065,38 +2226,38 @@ end subroutine richards
   
 ! Upstream weighting of advection. Preserving u_plus here for now.
   u_minus = 1.
-  where (flow.lt.0.) u_minus = 0.
+  where (flow(1:num_l).lt.0.) u_minus = 0.
   do l = 1, num_l-1
     u_plus(l) = 1. - u_minus(l+1)
     enddo
   hcap = (soil%heat_capacity_dry(num_l)*dz(num_l) &
-                              + csw*soil%prog(num_l)%ws)/clw
+                              + csw*soil%ws(num_l))/clw
   aaa = -flow(num_l) * u_minus(num_l)
-  bbb =  hcap + soil%prog(num_l)%wl - dW_l(num_l) - aaa
+  bbb =  hcap + soil%wl(num_l) - dW_l(num_l) - aaa
   eee(num_l-1) = -aaa/bbb
-  fff(num_l-1) = aaa*(soil%prog(num_l)%T-soil%prog(num_l-1)%T) / bbb
+  fff(num_l-1) = aaa*(soil%T(num_l)-soil%T(num_l-1)) / bbb
 
   do l = num_l-1, 2, -1
     hcap = (soil%heat_capacity_dry(l)*dz(l) &
-                              + csw*soil%prog(l)%ws)/clw
+                              + csw*soil%ws(l))/clw
     aaa = -flow(l)   * u_minus(l)
     ccc =  flow(l+1) * u_plus (l)
-    bbb =  hcap + soil%prog(l)%wl - dW_l(l) - aaa - ccc
+    bbb =  hcap + soil%wl(l) - dW_l(l) - aaa - ccc
     eee(l-1) = -aaa / ( bbb +ccc*eee(l) )
-    fff(l-1) = (   aaa*(soil%prog(l)%T-soil%prog(l-1)%T)    &
-                       + ccc*(soil%prog(l)%T-soil%prog(l+1)%T)    &
+    fff(l-1) = (   aaa*(soil%T(l)-soil%T(l-1))    &
+                       + ccc*(soil%T(l)-soil%T(l+1))    &
                        - ccc*fff(l) ) / ( bbb +ccc*eee(l) )
   enddo
     
-  hcap = (soil%heat_capacity_dry(1)*dz(1) + csw*soil%prog(1)%ws)/clw
+  hcap = (soil%heat_capacity_dry(1)*dz(1) + csw*soil%ws(1))/clw
   aaa = -flow(1) * u_minus(1)
   ccc =  flow(2) * u_plus (1)
-  bbb =  hcap + soil%prog(1)%wl - dW_l(1) - aaa - ccc
+  bbb =  hcap + soil%wl(1) - dW_l(1) - aaa - ccc
 
-  del_t(1) =  (  aaa*(soil%prog(1)%T-tflow          ) &
-                     + ccc*(soil%prog(1)%T-soil%prog(2)%T) &
+  del_t(1) =  (  aaa*(soil%T(1)-tflow          ) &
+                     + ccc*(soil%T(1)-soil%T(2)) &
                      - ccc*fff(1) ) / (bbb+ccc*eee(1))
-  soil%prog(1)%T = soil%prog(1)%T + del_t(1)
+  soil%T(1) = soil%T(1) + del_t(1)
 
   if(is_watch_point()) then
      write(*,*) ' ***** soil_step_2 checkpoint 3.4.1 ***** '
@@ -2105,20 +2266,20 @@ end subroutine richards
      write(*,*) 'bbb', bbb
      write(*,*) 'ccc', ccc
      write(*,*) 'del_t(1)', del_t(1)
-     write(*,*) ' T(1)', soil%prog(1)%T
+     write(*,*) ' T(1)', soil%T(1)
   endif
 
   do l = 1, num_l-1
     del_t(l+1) = eee(l)*del_t(l) + fff(l)
-    soil%prog(l+1)%T = soil%prog(l+1)%T + del_t(l+1)
+    soil%T(l+1) = soil%T(l+1) + del_t(l+1)
     enddo
 
-  ! (lumped=lm2 groundwater stored in l=1 prog variable, liquid only)
-  if (soil%prog(1)%groundwater.ne. 0.) soil%prog(1)%groundwater_T =    &
-       + ((aquifer_heat_cap+soil%prog(1)%groundwater-d_GW)  &
-	                         *soil%prog(1)%groundwater_T &
-        + flow(num_l+1)*soil%prog(num_l)%T) &
-         /((aquifer_heat_cap+soil%prog(1)%groundwater-d_GW) + flow(num_l+1))
+  ! (lumped=lm2 groundwater stored in l=1 variable, liquid only)
+  if (soil%groundwater(1).ne. 0.) soil%groundwater_T(1) =    &
+       + ((aquifer_heat_cap+soil%groundwater(1)-d_GW)  &
+	                         *soil%groundwater_T(1) &
+        + flow(num_l+1)*soil%T(num_l)) &
+         /((aquifer_heat_cap+soil%groundwater(1)-d_GW) + flow(num_l+1))
 
 end subroutine advection
 
@@ -2176,12 +2337,6 @@ DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_iso_sat)
 DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_vol_sat)
 DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_geo_sat)
 
-!DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,prog,T)
-!DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,prog,wl)
-!DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,prog,ws)
-!DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,prog,groundwater)
-!DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,prog,groundwater_T)
-
 ! ============================================================================
   subroutine soil_T_ptr(t,p)
   type(land_tile_type),pointer::t
@@ -2191,8 +2346,8 @@ DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_geo_sat)
   p=>NULL()
   if(associated(t))then
     if(associated(t%soil))then
-      n=size(t%soil%prog(:))
-      p(1:n)=>t%soil%prog(1:n)%T
+      n=size(t%soil%T(:))
+      p(1:n)=>t%soil%T(1:n)
     endif
   endif
   end subroutine
@@ -2206,8 +2361,8 @@ DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_geo_sat)
   p=>NULL()
   if(associated(t))then
   if(associated(t%soil))then
-  n=size(t%soil%prog(:))
-  p(1:n)=>t%soil%prog(1:n)%wl
+  n=size(t%soil%wl(:))
+  p(1:n)=>t%soil%wl(1:n)
   endif
   endif
   end subroutine
@@ -2221,8 +2376,8 @@ DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_geo_sat)
   p=>NULL()
   if(associated(t))then
   if(associated(t%soil))then
-  n=size(t%soil%prog(:))
-  p(1:n)=>t%soil%prog(1:n)%ws
+  n=size(t%soil%ws(:))
+  p(1:n)=>t%soil%ws(1:n)
   endif
   endif
   end subroutine
@@ -2236,8 +2391,8 @@ DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_geo_sat)
   p=>NULL()
   if(associated(t))then
   if(associated(t%soil))then
-  n=size(t%soil%prog(:))
-  p(1:n)=>t%soil%prog(1:n)%groundwater
+  n=size(t%soil%groundwater(:))
+  p(1:n)=>t%soil%groundwater(1:n)
   endif
   endif
   end subroutine
@@ -2251,8 +2406,8 @@ DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_geo_sat)
   p=>NULL()
   if(associated(t))then
   if(associated(t%soil))then
-  n=size(t%soil%prog(:))
-  p(1:n)=>t%soil%prog(1:n)%groundwater_T
+  n=size(t%soil%groundwater_T(:))
+  p(1:n)=>t%soil%groundwater_T(1:n)
   endif
   endif
   end subroutine

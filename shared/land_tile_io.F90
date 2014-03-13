@@ -4,7 +4,9 @@ use mpp_mod, only : mpp_send, mpp_recv, mpp_sync
 use mpp_mod, only : COMM_TAG_1,  COMM_TAG_2,  COMM_TAG_3,  COMM_TAG_4
 use mpp_mod, only : COMM_TAG_5,  COMM_TAG_6,  COMM_TAG_7,  COMM_TAG_8
 use fms_mod, only : error_mesg, FATAL, mpp_pe, get_mosaic_tile_file
-use fms_io_mod, only : get_instance_filename
+use fms_io_mod, only : get_instance_filename, field_size
+use fms_io_mod, only : register_restart_axis, register_restart_field
+use fms_io_mod, only : restart_file_type
 use time_manager_mod, only : time_type
 use data_override_mod, only : data_override
 
@@ -14,7 +16,7 @@ use land_io_mod, only : print_netcdf_error, read_field, input_buf_size
 use land_tile_mod, only : land_tile_type, land_tile_list_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
      get_elmt_indices
-use land_data_mod, only  : lnd
+use land_data_mod, only  : lnd, land_state_type
 use land_utils_mod, only : put_to_tiles_r0d_fptr
 
 implicit none
@@ -28,6 +30,8 @@ public :: read_tile_data_r0d_fptr,  read_tile_data_r1d_fptr
 public :: read_tile_data_i0d_fptr
 public :: write_tile_data_r0d_fptr, write_tile_data_r1d_fptr
 public :: write_tile_data_i0d_fptr
+public :: gather_tile_data
+public :: assemble_tiles
 
 ! data override subroutines
 public :: override_tile_data_r0d_fptr
@@ -45,6 +49,8 @@ public :: sync_nc_files ! synchronizes writer and reader processors
 interface create_tile_out_file
    module procedure create_tile_out_file_idx
    module procedure create_tile_out_file_fptr
+   module procedure create_tile_out_file_idx_new
+   module procedure create_tile_out_file_fptr_new
 end interface
 
 interface read_tile_data_r1d_fptr
@@ -57,11 +63,24 @@ interface write_tile_data_r1d_fptr
    module procedure write_tile_data_r1d_fptr_idx
 end interface
 
+interface assemble_tiles
+   module procedure assemble_tiles_r0d
+   module procedure assemble_tiles_r1d
+   module procedure assemble_tiles_i0d
+end interface
+
+interface gather_tile_data
+   module procedure gather_tile_data_r0d
+   module procedure gather_tile_data_r1d
+   module procedure gather_tile_data_i0d
+   module procedure gather_tile_data_r1d_idx
+end interface
+
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land_tile_io_mod', &
-     version     = '$Id: land_tile_io.F90,v 20.0 2013/12/13 23:29:59 fms Exp $', &
-     tagname     = '$Name: tikal $'
+     version     = '$Id: land_tile_io.F90,v 20.0.2.1.4.1.2.1 2014/01/28 17:54:47 Seth.Underwood Exp $', &
+     tagname     = '$Name: tikal_201403 $'
 
 ! name of the "compressed" dimension (and dimension variable) in the output 
 ! netcdf files -- that is, the dimensions written out using compression by 
@@ -280,6 +299,92 @@ subroutine create_tile_out_file_fptr(ncid, name, glon, glat, tile_exists, &
   if (present(created)) created = .true.
   
 end subroutine
+
+subroutine create_tile_out_file_idx_new(rhandle,name,land,tidx,tile_dim_length,zaxis_data)
+  type(restart_file_type), intent(inout) :: rhandle     ! restart file handle
+  character(len=*),      intent(inout) :: name                ! name of the file to create
+  type(land_state_type), intent(in)  :: land
+  integer              , intent(in)  :: tidx(:)             ! integer compressed index of tiles (local)
+  integer              , intent(in)  :: tile_dim_length     ! length of tile axis
+  real,        optional, intent(in)  :: zaxis_data(:)       ! data for the Z-axis
+
+  ! ---- local vars
+  character(256) :: file_name ! full name of the file, including the processor number
+
+  ! form the full name of the file
+  call get_instance_filename(trim(name), file_name)
+  call get_mosaic_tile_file(trim(file_name),file_name,.false.,land%domain)
+
+  call register_restart_axis(rhandle,file_name,'lon',land%coord_glon(:),'X',units='degrees_east',longname='longitude')
+  call register_restart_axis(rhandle,file_name,'lat',land%coord_glat(:),'Y',units='degrees_north',longname='latitude')
+  ! the size of tile dimension really does not matter for the output, but it does
+  ! matter for uncompressing utility, since it uses it as a size of the array to
+  ! unpack to create tile index dimension and variable.
+  call register_restart_axis(rhandle,file_name,trim(tile_index_name),tidx(:),compressed='tile lat lon', &
+                             compressed_axis='C', dimlen=tile_dim_length, dimlen_name='tile', &
+                             dimlen_lname='tile number within grid cell', units='compressed land point index', &
+                             longname='tile_index',imin=0)
+
+  if (present(zaxis_data)) &
+      call register_restart_axis(rhandle,file_name,'zfull',zaxis_data(:),'Z',units='m',longname='full level',sense=-1)
+
+end subroutine create_tile_out_file_idx_new
+
+subroutine create_tile_out_file_fptr_new(rhandle,idx,name,land,tile_exists,tile_dim_length,zaxis_data,created)
+  type(restart_file_type),intent(out) :: rhandle            ! resulting NetCDF id
+  integer, allocatable,   intent(out) :: idx(:)             ! rank local tile index vector
+  character(len=*),      intent(inout) :: name              ! name of the file to create
+  type(land_state_type), intent(in)  :: land
+  integer              , intent(in)  :: tile_dim_length     ! length of tile axis
+  real,        optional, intent(in)  :: zaxis_data(:)       ! data for the Z-axis
+  logical,     optional, intent(out) :: created   ! indicates wether the file was 
+
+
+      ! created; it is set to false if no restart needs to be written, in case 
+      ! the total number of qualifying tiles in this domain is equal to zero
+  ! the following interface describes the "detector function", which is passed 
+  ! through the argument list and must return true for any tile to be written 
+  ! to the specific restart, false otherwise
+  interface
+     logical function tile_exists(tile)
+        use land_tile_mod, only : land_tile_type
+        type(land_tile_type), pointer :: tile
+     end function tile_exists
+  end interface
+
+  ! ---- local vars
+  type(land_tile_enum_type) :: ce, te ! tile list elements
+  integer :: i,j,k,n
+
+  ! count total number of tiles in this domain
+  ce = first_elmt(land%tile_map, land%is, land%js)
+  te = tail_elmt (land%tile_map)
+  n  = 0
+  do while (ce/=te)
+     if (tile_exists(current_tile(ce))) n = n+1
+     ce=next_elmt(ce)
+  end do
+
+  ! calculate compressed tile index to be written to the restart file;
+  allocate(idx(max(n,1))); idx(:) = -1 ! set init value to a known invalid index
+  ce = first_elmt(lnd%tile_map, land%is, land%js)
+  n = 1
+  do while (ce/=te)
+     call get_elmt_indices(ce,i,j,k)
+
+     if(tile_exists(current_tile(ce))) then
+        idx(n) = (k-1)*land%nlon*land%nlat + (j-1)*land%nlon + (i-1)
+        n = n+1
+     endif
+     ce=next_elmt(ce)
+  end do
+  ! create tile output file, defining horizontal coordinate and compressed
+  ! dimension
+  call create_tile_out_file_idx_new(rhandle,name,land,idx,tile_dim_length,zaxis_data)
+
+  if (present(created)) created = .true.
+
+end subroutine create_tile_out_file_fptr_new
 
 ! ============================================================================
 ! given compressed index, sizes of the global grid, 2D array of tile lists
@@ -942,6 +1047,197 @@ subroutine write_tile_data_r1d_fptr_idx(ncid,name,fptr,index,long_name,units)
   deallocate(data,idx)
 end subroutine
 
+
+subroutine gather_tile_data_i0d(fptr,idx,data)
+  integer, intent(in) :: idx(:)  ! local vector of tile indices
+  integer, intent(out) :: data(:) ! local tile data
+  ! subroutine returning the pointer to the data to be written
+  interface ; subroutine fptr(tile, ptr)
+     use land_tile_mod, only : land_tile_type
+     type(land_tile_type), pointer :: tile ! input
+     integer             , pointer :: ptr  ! returned pointer to the data
+  end subroutine fptr
+  end interface
+
+  ! ---- local vars
+  type(land_tile_type), pointer :: tileptr ! pointer to tiles
+  integer, pointer :: ptr ! pointer to the tile data
+  integer :: i,p
+
+  data = NF_FILL_INT
+
+! gather data into an array along the tile dimension. It is assumed that 
+! the tile dimension spans all the tiles that need to be written.
+  do i = 1, size(idx)
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+                          lnd%is,lnd%js, tileptr)
+     call fptr(tileptr, ptr)
+     if(associated(ptr)) data(i)=ptr
+  enddo
+end subroutine gather_tile_data_i0d
+
+subroutine gather_tile_data_r0d(fptr,idx,data)
+  integer, intent(in) :: idx(:)  ! local vector of tile indices
+  real, intent(out) :: data(:) ! local tile data
+  ! subroutine returning the pointer to the data to be written
+  interface ; subroutine fptr(tile, ptr)
+     use land_tile_mod, only : land_tile_type
+     type(land_tile_type), pointer :: tile ! input
+     real                , pointer :: ptr  ! returned pointer to the data
+  end subroutine fptr
+  end interface
+
+  ! ---- local vars
+  type(land_tile_type), pointer :: tileptr ! pointer to tiles
+  real   , pointer :: ptr ! pointer to the tile data
+  integer :: i,p
+
+  data = NF_FILL_DOUBLE
+
+! gather data into an array along the tile dimension. It is assumed that 
+! the tile dimension spans all the tiles that need to be written.
+  do i = 1, size(idx)
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+                          lnd%is,lnd%js, tileptr)
+     call fptr(tileptr, ptr)
+     if(associated(ptr)) data(i)=ptr
+  enddo
+end subroutine gather_tile_data_r0d
+
+subroutine gather_tile_data_r1d(fptr,idx,data)
+  integer, intent(in) :: idx(:)  ! local vector of tile indices
+  real, intent(out) :: data(:,:) ! local tile data
+  ! subroutine returning the pointer to the data to be written
+  interface ; subroutine fptr(tile, ptr)
+     use land_tile_mod, only : land_tile_type
+     type(land_tile_type), pointer :: tile ! input
+     real                , pointer :: ptr(:)  ! returned pointer to the data
+  end subroutine fptr
+  end interface
+
+  ! ---- local vars
+  type(land_tile_type), pointer :: tileptr ! pointer to tiles
+  real   , pointer :: ptr(:) ! pointer to the tile data
+  integer :: i,p
+
+  data = NF_FILL_DOUBLE
+
+! gather data into an array along the tile dimension. It is assumed that 
+! the tile dimension spans all the tiles that need to be written.
+  do i = 1, size(idx)
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+                          lnd%is,lnd%js, tileptr)
+     call fptr(tileptr, ptr)
+     if(associated(ptr)) data(i,:)=ptr(:)
+  enddo
+end subroutine gather_tile_data_r1d
+
+subroutine gather_tile_data_r1d_idx(fptr,idx,nidx,data)
+  integer, intent(in) :: idx(:) ! local vector of tile indices
+  integer, intent(in) :: nidx ! index of the fptr array element to write out
+  real, intent(out) :: data(:) ! local tile data
+  ! subroutine returning the pointer to the data to be written
+  interface
+     subroutine fptr(tile, ptr)
+       use land_tile_mod, only : land_tile_type
+       type(land_tile_type), pointer :: tile ! input
+       real                , pointer :: ptr(:) ! returned pointer to the data
+     end subroutine fptr
+  end interface
+
+  ! ---- local vars
+  type(land_tile_type), pointer :: tileptr ! pointer to tiles
+  real, pointer :: ptr(:) ! pointer to the tile data
+  integer :: i
+
+  data = NF_FILL_DOUBLE
+
+  ! gather data into an array along the tile dimension. It is assumed that 
+  ! the tile dimension spans all the tiles that need to be written.
+  do i = 1, size(idx)
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+                          lnd%is,lnd%js, tileptr)
+     call fptr(tileptr, ptr)
+     if(associated(ptr)) then
+        data(i) = ptr(nidx)
+     endif
+  enddo
+end subroutine gather_tile_data_r1d_idx
+
+subroutine assemble_tiles_i0d(fptr,idx,data)
+  integer, intent(in) :: idx(:)  ! local vector of tile indices
+  integer, intent(in) :: data(:) ! local tile data
+  ! subroutine returning the pointer to the data to be written
+  interface ; subroutine fptr(tile, ptr)
+     use land_tile_mod, only : land_tile_type
+     type(land_tile_type), pointer :: tile ! input
+     integer             , pointer :: ptr  ! returned pointer to the data
+  end subroutine fptr
+  end interface
+
+  ! ---- local vars
+  type(land_tile_type), pointer :: tileptr ! pointer to tiles
+  integer, pointer :: ptr ! pointer to the tile data
+  integer :: i,p
+
+! distribute the data over the tiles
+  do i = 1, size(idx)
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+                          lnd%is,lnd%js, tileptr)
+     call fptr(tileptr, ptr)
+     if(associated(ptr)) ptr=data(i)
+  enddo
+end subroutine assemble_tiles_i0d
+
+subroutine assemble_tiles_r0d(fptr,idx,data)
+  integer, intent(in) :: idx(:)  ! local vector of tile indices
+  real,    intent(in) :: data(:) ! local tile data
+  ! subroutine returning the pointer to the data to be written
+  interface ; subroutine fptr(tile, ptr)
+     use land_tile_mod, only : land_tile_type
+     type(land_tile_type), pointer :: tile ! input
+     real                , pointer :: ptr  ! returned pointer to the data
+  end subroutine fptr
+  end interface
+
+  ! ---- local vars
+  type(land_tile_type), pointer :: tileptr ! pointer to tiles
+  real   , pointer :: ptr ! pointer to the tile data
+  integer :: i,p
+
+! distribute the data over the tiles
+  do i = 1, size(idx)
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+                          lnd%is,lnd%js, tileptr)
+     call fptr(tileptr, ptr)
+     if(associated(ptr)) ptr=data(i)
+  enddo
+end subroutine assemble_tiles_r0d
+
+subroutine assemble_tiles_r1d(fptr,idx,data)
+  integer, intent(in) :: idx(:)  ! local vector of tile indices
+  real,    intent(in) :: data(:,:) ! local tile data
+  ! subroutine returning the pointer to the data to be written
+  interface ; subroutine fptr(tile, ptr)
+     use land_tile_mod, only : land_tile_type
+     type(land_tile_type), pointer :: tile ! input
+     real                , pointer :: ptr(:)  ! returned pointer to the data
+  end subroutine fptr
+  end interface
+
+  ! ---- local vars
+  type(land_tile_type), pointer :: tileptr ! pointer to tiles
+  real   , pointer :: ptr(:) ! pointer to the tile data
+  integer :: i,p
+
+! distribute the data over the tiles
+  do i = 1, size(idx)
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+                          lnd%is,lnd%js, tileptr)
+     call fptr(tileptr, ptr)
+     if(associated(ptr)) ptr(:)=data(i,:)
+  enddo
+end subroutine assemble_tiles_r1d
 
 ! ============================================================================
 subroutine override_tile_data_r0d_fptr(fieldname,fptr,time,override)

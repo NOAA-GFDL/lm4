@@ -23,7 +23,6 @@ implicit none
 private
 
 ! ==== public interfaces =====================================================
-public :: glac_prog_type
 public :: glac_pars_type
 public :: glac_tile_type
 
@@ -52,8 +51,8 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), parameter   :: &
-     version     = '$Id: glac_tile.F90,v 20.0 2013/12/13 23:29:33 fms Exp $', &
-     tagname     = '$Name: tikal $', &
+     version     = '$Id: glac_tile.F90,v 20.0.2.1 2014/02/19 19:08:43 Sergey.Malyshev Exp $', &
+     tagname     = '$Name: tikal_201403 $', &
      module_name = 'glac_tile_mod'
 
 integer, parameter :: max_lev          = 30 ! max number of levels in glacier
@@ -95,26 +94,22 @@ type :: glac_pars_type
   real tfreeze
 end type glac_pars_type
 
-type :: glac_prog_type
-  real wl
-  real ws
-  real T
-  real groundwater
-  real groundwater_T
-end type glac_prog_type
-
 type :: glac_tile_type
    integer :: tag ! kind of the glacier
    type(glac_pars_type)               :: pars
-   type(glac_prog_type), pointer :: prog(:)
-   real,                 pointer :: w_fc(:)
-   real,                 pointer :: w_wilt(:)
+   real, pointer :: wl(:) => NULL()
+   real, pointer :: ws(:) => NULL()
+   real, pointer :: T(:)  => NULL()
+   real, pointer :: groundwater(:) => NULL()
+   real, pointer :: groundwater_T(:) => NULL()
+   real, pointer :: w_fc(:) => NULL()
+   real, pointer :: w_wilt(:) => NULL()
    real :: Eg_part_ref
    real :: z0_scalar
    real :: geothermal_heat_flux
 
-   real, pointer :: heat_capacity_dry(:)
-   real, pointer :: e(:), f(:)
+   real, pointer :: heat_capacity_dry(:) => NULL()
+   real, pointer :: e(:), f(:) => NULL()
 end type glac_tile_type
 ! NOTE: When adding or modifying fields of this types, don't forget to change
 ! the operations on tile (e.g. copy) accordingly
@@ -268,7 +263,7 @@ subroutine read_glac_data_namelist(glac_n_lev, glac_dz)
   ! set up output arguments
   glac_n_lev = num_l
   glac_dz = dz
-end subroutine 
+end subroutine read_glac_data_namelist
 
 
 ! ============================================================================
@@ -279,7 +274,11 @@ function glac_tile_ctor(tag) result(ptr)
   allocate(ptr)
   ptr%tag = tag
   ! allocate storage for tile data
-  allocate(ptr%prog   (num_l),  &
+  allocate(ptr%wl     (num_l), &
+           ptr%ws     (num_l), &
+           ptr%T      (num_l), &
+           ptr%groundwater(num_l), &
+           ptr%groundwater_T(num_l), &
            ptr%w_fc   (num_l),  &
            ptr%w_wilt (num_l),  &
            ptr%heat_capacity_dry (num_l),  &
@@ -299,14 +298,22 @@ function glac_tile_copy_ctor(glac) result(ptr)
   allocate(ptr)
   ptr = glac ! copy all non-allocatable data
   ! allocate storage for tile data
-  allocate(ptr%prog   (num_l),  &
+  allocate(ptr%wl     (num_l), &
+           ptr%ws     (num_l), &
+           ptr%T      (num_l), &
+           ptr%groundwater(num_l), &
+           ptr%groundwater_T(num_l), &
            ptr%w_fc   (num_l),  &
            ptr%w_wilt (num_l),  &
            ptr%heat_capacity_dry (num_l),  &
            ptr%e      (num_l),  &
            ptr%f      (num_l)   )
   ! copy allocatable data
-   ptr%prog(:)   = glac%prog(:)
+   ptr%wl(:)     = glac%wl(:)
+   ptr%ws(:)     = glac%ws(:)
+   ptr%T(:)      = glac%T(:)
+   ptr%groundwater(:) = glac%groundwater(:)
+   ptr%groundwater_T(:) = glac%groundwater_T(:)
    ptr%w_fc(:)   = glac%w_fc(:)
    ptr%w_wilt(:) = glac%w_wilt(:)
    ptr%heat_capacity_dry(:) = glac%heat_capacity_dry(:) 
@@ -319,7 +326,8 @@ function glac_tile_copy_ctor(glac) result(ptr)
 subroutine delete_glac_tile(ptr)
   type(glac_tile_type), pointer :: ptr
 
-  deallocate(ptr%prog, ptr%w_fc, ptr%w_wilt, ptr%heat_capacity_dry, &
+  deallocate(ptr%wl, ptr%ws, ptr%T, ptr%groundwater, ptr%groundwater_T, &
+        ptr%w_fc, ptr%w_wilt, ptr%heat_capacity_dry, &
         ptr%e,  ptr%f)
   deallocate(ptr)
 end subroutine delete_glac_tile
@@ -385,7 +393,7 @@ function glac_cover_cold_start(land_mask, lonb, latb) result (glac_frac)
   call init_cover_field(glac_to_use, 'INPUT/ground_type.nc', 'cover','frac', &
        lonb, latb, glac_index_constant, input_cover_types, glac_frac)
   
-end function 
+end function glac_cover_cold_start
 
 ! =============================================================================
 function glac_tiles_can_be_merged(glac1,glac2) result(response)
@@ -393,7 +401,7 @@ function glac_tiles_can_be_merged(glac1,glac2) result(response)
   type(glac_tile_type), intent(in) :: glac1,glac2
 
   response = (glac1%tag==glac2%tag)
-end function
+end function glac_tiles_can_be_merged
 
 ! =============================================================================
 ! combine two glacier states with specified weights; the result goes into
@@ -423,32 +431,32 @@ subroutine merge_glac_tiles(g1,w1,g2,w2)
   do i = 1,num_l
     ! calculate heat content at this level for both source tiles
     HEAT1 = &
-    (C1(i)*dz(i)+clw*g1%prog(i)%wl+csw*g1%prog(i)%ws) * (g1%prog(i)%T-tfreeze)
+    (C1(i)*dz(i)+clw*g1%wl(i)+csw*g1%ws(i)) * (g1%T(i)-tfreeze)
     HEAT2 = &
-    (C2(i)*dz(i)+clw*g2%prog(i)%wl+csw*g2%prog(i)%ws) * (g2%prog(i)%T-tfreeze)
+    (C2(i)*dz(i)+clw*g2%wl(i)+csw*g2%ws(i)) * (g2%T(i)-tfreeze)
     ! calculate (and assign) combined water mass
-    g2%prog(i)%wl = g1%prog(i)%wl*x1 + g2%prog(i)%wl*x2
-    g2%prog(i)%ws = g1%prog(i)%ws*x1 + g2%prog(i)%ws*x2
+    g2%wl(i) = g1%wl(i)*x1 + g2%wl(i)*x2
+    g2%ws(i) = g1%ws(i)*x1 + g2%ws(i)*x2
     ! if dry heat capacity of combined glacier is to be changed, update it here
     ! ...
     ! calculate combined temperature, based on total heat content and combined
     ! heat capacity
-    g2%prog(i)%T = (HEAT1*x1+HEAT2*x2) / &
-      (C2(i)*dz(i)+clw*g2%prog(i)%wl+csw*g2%prog(i)%ws) + tfreeze
+    g2%T(i) = (HEAT1*x1+HEAT2*x2) / &
+      (C2(i)*dz(i)+clw*g2%wl(i)+csw*g2%ws(i)) + tfreeze
 
     ! calculate combined groundwater content
-    gw = g1%prog(i)%groundwater*x1 + g2%prog(i)%groundwater*x2
+    gw = g1%groundwater(i)*x1 + g2%groundwater(i)*x2
     ! calculate combined groundwater temperature
     if(gw/=0) then
-       g2%prog(i)%groundwater_T = ( &
-            g1%prog(i)%groundwater*x1*(g1%prog(i)%groundwater_T-tfreeze) + &
-            g2%prog(i)%groundwater*x2*(g2%prog(i)%groundwater_T-tfreeze)   &
+       g2%groundwater_T(i) = ( &
+            g1%groundwater(i)*x1*(g1%groundwater_T(i)-tfreeze) + &
+            g2%groundwater(i)*x2*(g2%groundwater_T(i)-tfreeze)   &
             ) / gw + Tfreeze
     else
-       g2%prog(i)%groundwater_T = &
-            x1*g1%prog(i)%groundwater_T + x2*g2%prog(i)%groundwater_T
+       g2%groundwater_T(i) = &
+            x1*g1%groundwater_T(i) + x2*g2%groundwater_T(i)
     endif
-    g2%prog(i)%groundwater = gw
+    g2%groundwater(i) = gw
   enddo
   
 end subroutine
@@ -461,7 +469,7 @@ function glac_is_selected(glac, sel)
   type(glac_tile_type),      intent(in) :: glac
 
   glac_is_selected = (sel%idata1 == glac%tag)
-end function 
+end function glac_is_selected
 
 
 ! ============================================================================
@@ -490,7 +498,7 @@ subroutine glac_dry_heat_cap ( glac, heat_capacity_dry)
      heat_capacity_dry(l) = glac%pars%heat_capacity_ref
   enddo
 
-end subroutine 
+end subroutine glac_dry_heat_cap
 
 
 ! ============================================================================
@@ -509,7 +517,7 @@ subroutine glac_data_radiation ( glac, cosz, use_brdf, &
   real :: zenith_angle, zsq, zcu
 
   t_crit = tfreeze - t_range
-  blend = (glac%prog(1)%T - t_crit) / t_range
+  blend = (glac%T(1) - t_crit) / t_range
   if (blend < 0.0) blend = 0.0
   if (blend > 1.0) blend = 1.0
   if (use_brdf) then
@@ -581,7 +589,7 @@ subroutine glac_data_thermodynamics ( glac_pars, vlc_sfc, vsc_sfc, &
      thermal_cond(l)  = glac_pars%thermal_cond_ref
   enddo
 
-end subroutine 
+end subroutine glac_data_thermodynamics
 
 
 ! ============================================================================
@@ -683,9 +691,9 @@ subroutine glac_tile_stock_pe (glac, twd_liq, twd_sol  )
   
   twd_liq = 0.
   twd_sol = 0.
-  do n=1, size(glac%prog)
-    twd_liq = twd_liq + glac%prog(n)%wl + glac%prog(n)%groundwater
-    twd_sol = twd_sol + glac%prog(n)%ws
+  do n=1, size(glac%wl)
+    twd_liq = twd_liq + glac%wl(n) + glac%groundwater(n)
+    twd_sol = twd_sol + glac%ws(n)
     enddo
 
 end subroutine glac_tile_stock_pe
@@ -700,10 +708,10 @@ function glac_tile_heat (glac) result(heat) ; real heat
   heat = 0
   do i = 1, num_l
      heat = heat + &
-          (glac%heat_capacity_dry(i)*dz(i) + clw*glac%prog(i)%wl + csw*glac%prog(i)%ws)&
-                           *(glac%prog(i)%T-tfreeze) + &
-          clw*glac%prog(i)%groundwater*(glac%prog(i)%groundwater_T-tfreeze) - &
-          hlf*glac%prog(i)%ws
+          (glac%heat_capacity_dry(i)*dz(i) + clw*glac%wl(i) + csw*glac%ws(i))&
+                           *(glac%T(i)-tfreeze) + &
+          clw*glac%groundwater(i)*(glac%groundwater_T(i)-tfreeze) - &
+          hlf*glac%ws(i)
   enddo
 end function
 

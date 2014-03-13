@@ -28,7 +28,6 @@ private
 
 ! ==== public interfaces =====================================================
 public :: lake_pars_type
-public :: lake_prog_type
 public :: lake_tile_type
 
 public :: new_lake_tile, delete_lake_tile
@@ -57,8 +56,8 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter   :: &
-     version     = '$Id: lake_tile.F90,v 20.0 2013/12/13 23:29:39 fms Exp $', &
-     tagname     = '$Name: tikal $', &
+     version     = '$Id: lake_tile.F90,v 20.0.2.1 2014/02/19 19:08:43 Sergey.Malyshev Exp $', &
+     tagname     = '$Name: tikal_201403 $', &
      module_name = 'lake_tile_mod'
 
 integer, parameter :: max_lev          = 80
@@ -108,28 +107,26 @@ type :: lake_pars_type
   real rsa_exp         ! riparian source-area exponent
 end type lake_pars_type
 
-type :: lake_prog_type
-  real dz
-  real wl
-  real ws
-  real T
-  real K_z
-  real groundwater
-  real groundwater_T
-end type lake_prog_type
-
 type :: lake_tile_type
    integer :: tag ! kind of the lake
-   type(lake_prog_type), pointer :: prog(:)
    type(lake_pars_type)          :: pars
-   real,                 pointer :: w_fc(:)
-   real,                 pointer :: w_wilt(:)
+
+   real, pointer :: dz(:)  => NULL()
+   real, pointer :: wl(:)  => NULL()
+   real, pointer :: ws(:)  => NULL()
+   real, pointer :: T(:)   => NULL()
+   real, pointer :: K_z(:) => NULL()
+   real, pointer :: groundwater(:) => NULL()
+   real, pointer :: groundwater_T(:) => NULL()
+
+   real, pointer :: w_fc(:) => NULL()
+   real, pointer :: w_wilt(:) => NULL()
    real :: Eg_part_ref
    real :: z0_scalar
    real :: z0_scalar_ice
    real :: geothermal_heat_flux
-   real, pointer :: e(:),f(:)
-   real, pointer :: heat_capacity_dry(:)
+   real, pointer :: e(:) => NULL(),f(:) => NULL()
+   real, pointer :: heat_capacity_dry(:) => NULL()
 end type lake_tile_type
 
 ! ==== module data ===========================================================
@@ -300,7 +297,13 @@ function lake_tile_ctor(tag) result(ptr)
   allocate(ptr)
   ptr%tag = tag
   ! allocate storage for tile data
-  allocate(ptr%prog   (num_l),  &
+  allocate(ptr%dz     (num_l), &
+           ptr%wl     (num_l), &
+           ptr%ws     (num_l), &
+           ptr%T      (num_l), &
+           ptr%K_z    (num_l), &
+           ptr%groundwater(num_l), &
+           ptr%groundwater_T(num_l), &
            ptr%w_fc   (num_l),  &
            ptr%w_wilt (num_l),  &
            ptr%heat_capacity_dry(num_l),  &
@@ -319,14 +322,26 @@ function lake_tile_copy_ctor(lake) result(ptr)
   allocate(ptr)
   ptr=lake ! copy all non-pointer data
   ! allocate storage for tile data
-  allocate(ptr%prog   (num_l),  &
+  allocate(ptr%dz     (num_l), &
+           ptr%wl     (num_l), &
+           ptr%ws     (num_l), &
+           ptr%T      (num_l), &
+           ptr%K_z    (num_l), &
+           ptr%groundwater(num_l), &
+           ptr%groundwater_T(num_l), &
            ptr%w_fc   (num_l),  &
            ptr%w_wilt (num_l),  &
            ptr%heat_capacity_dry(num_l),  &
            ptr%e      (num_l),  &
            ptr%f      (num_l)   )
   ! copy all allocatable data
-  ptr%prog(:)   = lake%prog(:)
+  ptr%dz(:)     = lake%dz(:)
+  ptr%wl(:)     = lake%wl(:)
+  ptr%ws(:)     = lake%ws(:)
+  ptr%T(:)      = lake%T(:)
+  ptr%K_z(:)    = lake%K_z(:)
+  ptr%groundwater(:) = lake%groundwater(:)
+  ptr%groundwater_T(:) = lake%groundwater_T(:)
   ptr%w_fc(:)   = lake%w_fc(:)
   ptr%w_wilt(:) = lake%w_wilt(:)
   ptr%e(:)      = lake%e(:)
@@ -339,7 +354,9 @@ end function lake_tile_copy_ctor
 subroutine delete_lake_tile(ptr)
   type(lake_tile_type), pointer :: ptr
 
-  deallocate(ptr%prog, ptr%w_fc, ptr%w_wilt,ptr%heat_capacity_dry, ptr%e, ptr%f)
+  deallocate(ptr%dz, ptr%wl, ptr%ws, ptr%T, ptr%K_z, &
+             ptr%groundwater, ptr%groundwater_T, &
+             ptr%w_fc, ptr%w_wilt,ptr%heat_capacity_dry, ptr%e, ptr%f)
 
   deallocate(ptr)
 end subroutine delete_lake_tile
@@ -469,34 +486,34 @@ WRITE (*,*) 'SORRY, BUT merge_lake_tiles NEEDS TO BE REVISED TO ALLOW FOR ', &
     ! calculate heat content at this level for both source tiles
     HEAT1 = &
     0.
-!    (C1*dz(i)+clw*t1%prog(i)%wl+csw*t1%prog(i)%ws) * (t1%prog(i)%T-tfreeze)
+!    (C1*dz(i)+clw*t1%wl(i)+csw*t1%ws(i)) * (t1%T(i)-tfreeze)
     HEAT2 = &
     0.
-!    (C2*dz(i)+clw*t2%prog(i)%wl+csw*t2%prog(i)%ws) * (t2%prog(i)%T-tfreeze)
+!    (C2*dz(i)+clw*t2%wl(i)+csw*t2%ws(i)) * (t2%T(i)-tfreeze)
     ! calculate (and assign) combined water mass
-    t2%prog(i)%wl = t1%prog(i)%wl*x1 + t2%prog(i)%wl*x2
-    t2%prog(i)%ws = t1%prog(i)%ws*x1 + t2%prog(i)%ws*x2
+    t2%wl(i) = t1%wl(i)*x1 + t2%wl(i)*x2
+    t2%ws(i) = t1%ws(i)*x1 + t2%ws(i)*x2
     ! if dry heat capacity of combined lake is to be changed, update it here
     ! ...
     ! calculate combined temperature, based on total heat content and combined
     ! heat capacity
-!    t2%prog(i)%T = (HEAT1*x1+HEAT2*x2) / &
-!      (C2*dz(i)+clw*t2%prog(i)%wl+csw*t2%prog(i)%ws) + tfreeze
-    t2%prog(i)%T = 0.
+!    t2%T(i) = (HEAT1*x1+HEAT2*x2) / &
+!      (C2*dz(i)+clw*t2%wl(i)+csw*t2%ws(i)) + tfreeze
+    t2%T(i) = 0.
 
     ! calculate combined groundwater content
-    gw = t1%prog(i)%groundwater*x1 + t2%prog(i)%groundwater*x2
+    gw = t1%groundwater(i)*x1 + t2%groundwater(i)*x2
     ! calculate combined groundwater temperature
     if(gw/=0) then
-       t2%prog(i)%groundwater_T = ( &
-            t1%prog(i)%groundwater*x1*(t1%prog(i)%groundwater_T-tfreeze) + &
-            t2%prog(i)%groundwater*x2*(t2%prog(i)%groundwater_T-tfreeze)   &
+       t2%groundwater_T(i) = ( &
+            t1%groundwater(i)*x1*(t1%groundwater_T(i)-tfreeze) + &
+            t2%groundwater(i)*x2*(t2%groundwater_T(i)-tfreeze)   &
             ) / gw + Tfreeze
     else
-       t2%prog(i)%groundwater_T = &
-            x1*t1%prog(i)%groundwater_T + x2*t2%prog(i)%groundwater_T
+       t2%groundwater_T(i) = &
+            x1*t1%groundwater_T(i) + x2*t2%groundwater_T(i)
     endif
-    t2%prog(i)%groundwater = gw
+    t2%groundwater(i) = gw
   enddo
 
 end subroutine
@@ -538,7 +555,7 @@ subroutine lake_data_radiation ( lake, cosz, use_brdf, &
   real :: zenith_angle, zsq, zcu
 
   ! ---- radiation properties
-  lake_sfc_vlc = lake%prog(1)%wl/lake%prog(1)%dz
+  lake_sfc_vlc = lake%wl(1)/lake%dz(1)
   blend        = lake_sfc_vlc/lake%pars%w_sat
   if (use_brdf) then
       zenith_angle = acos(cosz)
@@ -570,7 +587,7 @@ subroutine lake_data_diffusion ( lake,lake_z0s, lake_z0m )
   real,                 intent(out) :: lake_z0s, lake_z0m
 
   ! ---- surface roughness
-  if (lake%prog(1)%ws.le.0.) then
+  if (lake%ws(1).le.0.) then
       lake_z0s = lake%z0_scalar
       lake_z0m = lake%pars%z0_momentum
     else
@@ -618,9 +635,9 @@ subroutine lake_tile_stock_pe (lake, twd_liq, twd_sol  )
   
   twd_liq = 0.
   twd_sol = 0.
-  do n=1, size(lake%prog)
-    twd_liq = twd_liq + lake%prog(n)%wl + lake%prog(n)%groundwater
-    twd_sol = twd_sol + lake%prog(n)%ws
+  do n=1, size(lake%wl)
+    twd_liq = twd_liq + lake%wl(n) + lake%groundwater(n)
+    twd_sol = twd_sol + lake%ws(n)
     enddo
 
 end subroutine lake_tile_stock_pe
@@ -636,10 +653,10 @@ function lake_tile_heat (lake) result(heat) ; real heat
   heat = 0
   do i = 1, num_l
      heat = heat + &
-          (lake%heat_capacity_dry(i)*lake%prog(i)%dz + clw*lake%prog(i)%wl &
-	     + csw*lake%prog(i)%ws)*(lake%prog(i)%T-tfreeze) + &
-          clw*lake%prog(i)%groundwater*(lake%prog(i)%groundwater_T-tfreeze) - &
-          hlf*lake%prog(i)%ws
+          (lake%heat_capacity_dry(i)*lake%dz(i) + clw*lake%wl(i) &
+	     + csw*lake%ws(i))*(lake%T(i)-tfreeze) + &
+          clw*lake%groundwater(i)*(lake%groundwater_T(i)-tfreeze) - &
+          hlf*lake%ws(i)
   enddo
 end function
 

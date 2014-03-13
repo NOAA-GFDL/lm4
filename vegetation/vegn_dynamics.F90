@@ -37,8 +37,8 @@ public :: vegn_biogeography !
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-   version = '$Id: vegn_dynamics.F90,v 20.0 2013/12/13 23:31:10 fms Exp $', &
-   tagname = '$Name: tikal $' ,&
+   version = '$Id: vegn_dynamics.F90,v 20.0.2.1 2014/02/19 19:08:44 Sergey.Malyshev Exp $', &
+   tagname = '$Name: tikal_201403 $' ,&
    module_name = 'vegn'
 
 real, parameter :: GROWTH_RESP=0.333  ! fraction of npp lost as growth respiration
@@ -311,7 +311,7 @@ subroutine Dsdt(vegn, soil, diag, soilt, theta)
   case(USE_AVE_T_AND_THETA)
       A(:) = A_function(soilt, theta)
   case(USE_LAYER_T_AND_THETA)
-      A(:) = A_function(soil%prog(:)%T, soil_theta(soil))
+      A(:) = A_function(soil%T, soil_theta(soil))
   case default
     call error_mesg('Dsdt','The value of soil_decomp_to_use is invalid. This should never happen. See developer.',FATAL)
   end select
@@ -432,10 +432,10 @@ subroutine plant_respiration(cc, tsoil)
   integer :: sp ! shorthand for cohort species
   sp = cc%species
 
-  tf = exp(3000.0*(1.0/288.16-1.0/cc%prog%Tv));
+  tf = exp(3000.0*(1.0/288.16-1.0/cc%Tv));
   tf = tf / ( &
-            (1.0+exp(0.4*(5.0-cc%prog%Tv+273.16)))*&
-            (1.0+exp(0.4*(cc%prog%Tv - 273.16-45.0)))&
+            (1.0+exp(0.4*(5.0-cc%Tv+273.16)))*&
+            (1.0+exp(0.4*(cc%Tv - 273.16-45.0)))&
             )
 
   tfs = exp(3000.0*(1.0/288.16-1.0/tsoil));

@@ -45,7 +45,7 @@ include 'netcdf.inc'
 character(len=*), parameter :: &
      module_name = 'land_io_mod', &
      version     = '$Id: land_io.F90,v 20.0 2013/12/13 23:29:51 fms Exp $', &
-     tagname     = '$Name: tikal $'
+     tagname     = '$Name: tikal_201403 $'
 
 logical :: module_is_initialized = .false.
 

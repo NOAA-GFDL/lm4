@@ -27,8 +27,8 @@ public :: darcy2d_uptake_lin, darcy2d_uptake_solver_lin
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'uptake',&
-    version     = '$Id: uptake.F90,v 20.0 2013/12/13 23:30:52 fms Exp $',&
-    tagname     = '$Name: tikal $'
+    version     = '$Id: uptake.F90,v 20.0.2.1 2014/02/19 19:08:44 Sergey.Malyshev Exp $',&
+    tagname     = '$Name: tikal_201403 $'
 
 ! values for internal soil uptake option selector
 integer, parameter ::   &
@@ -208,7 +208,7 @@ subroutine darcy2d_uptake ( soil, psi_x0, VRL, K_r, r_r, uptake_oneway, &
         R     = 1.0 ! the value doesn't matter since uptake is 0 anyway 
      endif
 
-     if ( soil%prog(l)%ws > 0 ) &
+     if ( soil%ws(l) > 0 ) &
           cycle ! skip layers with ice
      if ( uptake_oneway.and.psi_x > soil%psi(l) ) &
           cycle ! skip layers where roots would loose water
@@ -492,7 +492,7 @@ subroutine darcy2d_uptake_lin ( soil, psi_x0, VRL, K_r, r_r,uptake_oneway, &
      else
         R     = 1.0 ! the value doesn't matter since uptake is 0 anyway (no roots) 
      endif
-     if ( soil%prog(k)%ws > 0 ) &
+     if ( soil%ws(k) > 0 ) &
           cycle ! skip layers with ice
      if ( uptake_oneway.and.psi_x > soil%psi(k) ) &
           cycle ! skip layers where roots would loose water
@@ -543,7 +543,7 @@ subroutine darcy2d_uptake_solver_lin ( soil, vegn_uptk, VRL, K_r, r_r, &
      ! since the numerical solution is not exact, adjust the vertical profile 
      ! of uptake to ensure that the sum is equal to transpiration exactly
      uptake_tot = sum(uptake(:))
-     uptake(:) = uptake(:)+(vegn_uptk-uptake_tot)/sum(dz(:))*dz(:) 
+     uptake(:) = uptake(:)+(vegn_uptk-uptake_tot)/sum(dz(1:num_l))*dz(1:num_l) 
   else
      psi_x0 = 0.0
      call darcy2d_uptake_lin ( soil, psi_x0, VRL, K_r, r_r, uptake_oneway, &
