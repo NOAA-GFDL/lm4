@@ -58,8 +58,8 @@ public :: glac_step_2
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
        module_name = 'glacier',&
-       version     = '$Id: glacier.F90,v 20.0.2.1.6.1 2014/02/28 17:21:28 Niki.Zadeh Exp $',&
-       tagname     = '$Name: tikal_201403 $'
+       version     = '$Id: glacier.F90,v 20.0.2.1.6.1.4.2 2014/06/07 13:58:54 Peter.Phillipps Exp $',&
+       tagname     = '$Name: tikal_201409 $'
  
 ! ==== module variables ======================================================
 
@@ -140,10 +140,10 @@ end subroutine read_glac_namelist
 
 ! ============================================================================
 ! initialize glacier model
-subroutine glac_init ( id_lon, id_lat, new_restart )
+subroutine glac_init ( id_lon, id_lat, new_land_io )
   integer, intent(in)  :: id_lon  ! ID of land longitude (X) axis  
   integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
-  logical, intent(in)  :: new_restart  ! This is a transition var and will be removed
+  logical, intent(in)  :: new_land_io  ! This is a transition var and will be removed
 
   ! ---- local vars
   integer :: unit         ! unit for various i/o
@@ -168,7 +168,7 @@ subroutine glac_init ( id_lon, id_lat, new_restart )
      call error_mesg('glac_init',&
           'reading NetCDF restart "'//trim(restart_file_name)//'"',&
           NOTE)
-     if(new_restart)then
+     if(new_land_io)then
         call error_mesg('glac_init', 'Using new glacier restart read', NOTE)
 
         call get_field_size(restart_base_name,'tile_index',siz, field_found=found, domain=lnd%domain)
@@ -1021,65 +1021,45 @@ end function glac_tile_exists
 subroutine glac_temp_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
-   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%glac)) then
-        n = size(tile%glac%T)
-        ptr(1:n) => tile%glac%T(1:n)
-      endif
+      if(associated(tile%glac)) ptr => tile%glac%T(:)
    endif
 end subroutine glac_temp_ptr
 
 subroutine glac_wl_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
-   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%glac)) then
-        n = size(tile%glac%wl)
-        ptr(1:n) => tile%glac%wl(1:n)
-      endif
+      if(associated(tile%glac)) ptr => tile%glac%wl(:)
    endif
 end subroutine glac_wl_ptr
 
 subroutine glac_ws_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
-   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%glac)) then
-        n = size(tile%glac%ws)
-        ptr(1:n) => tile%glac%ws(1:n)
-      endif
+      if(associated(tile%glac)) ptr => tile%glac%ws(:)
    endif
 end subroutine glac_ws_ptr
 
 subroutine glac_gw_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
-   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%glac)) then
-        n = size(tile%glac%groundwater)
-        ptr(1:n) => tile%glac%groundwater(1:n)
-      endif
+      if(associated(tile%glac)) ptr => tile%glac%groundwater(:)
    endif
 end subroutine glac_gw_ptr
 
 subroutine glac_gwT_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
-   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%glac)) then
-        n = size(tile%glac%groundwater_T)
-        ptr(1:n) => tile%glac%groundwater_T(1:n)
-      endif
+      if(associated(tile%glac)) ptr => tile%glac%groundwater_T(:)
    endif
 end subroutine glac_gwT_ptr
 

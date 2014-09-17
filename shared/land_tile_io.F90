@@ -1,5 +1,4 @@
 module land_tile_io_mod
-
 use mpp_mod, only : mpp_send, mpp_recv, mpp_sync
 use mpp_mod, only : COMM_TAG_1,  COMM_TAG_2,  COMM_TAG_3,  COMM_TAG_4
 use mpp_mod, only : COMM_TAG_5,  COMM_TAG_6,  COMM_TAG_7,  COMM_TAG_8
@@ -67,6 +66,7 @@ interface assemble_tiles
    module procedure assemble_tiles_r0d
    module procedure assemble_tiles_r1d
    module procedure assemble_tiles_i0d
+   module procedure assemble_tiles_r1d_idx
 end interface
 
 interface gather_tile_data
@@ -79,8 +79,8 @@ end interface
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land_tile_io_mod', &
-     version     = '$Id: land_tile_io.F90,v 20.0.2.1.4.1.2.1 2014/01/28 17:54:47 Seth.Underwood Exp $', &
-     tagname     = '$Name: tikal_201403 $'
+     version     = '$Id: land_tile_io.F90,v 20.0.2.1.4.1.2.1.4.5 2014/06/27 18:48:35 pjp Exp $', &
+     tagname     = '$Name: tikal_201409 $'
 
 ! name of the "compressed" dimension (and dimension variable) in the output 
 ! netcdf files -- that is, the dimensions written out using compression by 
@@ -100,13 +100,15 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 ! given a generic name of the restart file, checks if a file with one of the 
 ! possible restarts file names exists, and if it does returns the tile-qualified 
 ! (or tile- and processor-qualified) name of the restart.
-subroutine get_input_restart_name(name, restart_exists, actual_name)
+subroutine get_input_restart_name(name, restart_exists, actual_name, new_land_io)
   character(*), intent(in)  :: name        ! "generic" name of the restart
   logical     , intent(out) :: restart_exists ! TRUE if any file found
   character(*), intent(out) :: actual_name ! name of the found file, if any
+  logical, intent(in), optional :: new_land_io
 
   ! ---- local vars
   character(6) :: PE_suffix ! PE number
+  character(len=256) :: distributed_name
   
   ! Build the restart file name.
   call get_instance_filename(trim(name), actual_name)
@@ -118,8 +120,14 @@ subroutine get_input_restart_name(name, restart_exists, actual_name)
   if (.not.restart_exists) then
      ! try the name with current PE number attached
      write(PE_suffix,'(".",I4.4)') lnd%io_id
-     actual_name = trim(actual_name)//trim(PE_suffix)
-     inquire (file=trim(actual_name), exist=restart_exists)
+     distributed_name = trim(actual_name)//trim(PE_suffix)
+     inquire (file=trim(distributed_name), exist=restart_exists)
+     if(present(new_land_io)) then
+       if(.not.new_land_io) actual_name = trim(distributed_name)
+     else
+       ! if new_land_io is not present then revert to behavior of previous revision. That is, as if new_land_io=.false.
+       actual_name = trim(distributed_name)
+     endif
   endif
 
 end subroutine
@@ -295,6 +303,7 @@ subroutine create_tile_out_file_fptr(ncid, name, glon, glat, tile_exists, &
   ! create tile output file, defining horizontal coordinate and compressed
   ! dimension
   call create_tile_out_file_idx(ncid, name, glon, glat, idx, tile_dim_length, reserve)
+  deallocate(idx)
 
   if (present(created)) created = .true.
   
@@ -302,7 +311,7 @@ end subroutine
 
 subroutine create_tile_out_file_idx_new(rhandle,name,land,tidx,tile_dim_length,zaxis_data)
   type(restart_file_type), intent(inout) :: rhandle     ! restart file handle
-  character(len=*),      intent(inout) :: name                ! name of the file to create
+  character(len=*),      intent(in)  :: name                ! name of the file to create
   type(land_state_type), intent(in)  :: land
   integer              , intent(in)  :: tidx(:)             ! integer compressed index of tiles (local)
   integer              , intent(in)  :: tile_dim_length     ! length of tile axis
@@ -322,8 +331,8 @@ subroutine create_tile_out_file_idx_new(rhandle,name,land,tidx,tile_dim_length,z
   ! unpack to create tile index dimension and variable.
   call register_restart_axis(rhandle,file_name,trim(tile_index_name),tidx(:),compressed='tile lat lon', &
                              compressed_axis='C', dimlen=tile_dim_length, dimlen_name='tile', &
-                             dimlen_lname='tile number within grid cell', units='compressed land point index', &
-                             longname='tile_index',imin=0)
+                             dimlen_lname='tile number within grid cell',  &
+                             longname='compressed land point index',imin=0)
 
   if (present(zaxis_data)) &
       call register_restart_axis(rhandle,file_name,'zfull',zaxis_data(:),'Z',units='m',longname='full level',sense=-1)
@@ -333,7 +342,7 @@ end subroutine create_tile_out_file_idx_new
 subroutine create_tile_out_file_fptr_new(rhandle,idx,name,land,tile_exists,tile_dim_length,zaxis_data,created)
   type(restart_file_type),intent(out) :: rhandle            ! resulting NetCDF id
   integer, allocatable,   intent(out) :: idx(:)             ! rank local tile index vector
-  character(len=*),      intent(inout) :: name              ! name of the file to create
+  character(len=*),      intent(in)  :: name                ! name of the file to create
   type(land_state_type), intent(in)  :: land
   integer              , intent(in)  :: tile_dim_length     ! length of tile axis
   real,        optional, intent(in)  :: zaxis_data(:)       ! data for the Z-axis
@@ -1239,6 +1248,32 @@ subroutine assemble_tiles_r1d(fptr,idx,data)
   enddo
 end subroutine assemble_tiles_r1d
 
+! ============================================================================
+subroutine assemble_tiles_r1d_idx(fptr,idx,data,index)
+  integer, intent(in) :: idx(:)  ! local vector of tile indices
+  real,    intent(in) :: data(:) ! local tile data
+  ! subroutine returning the pointer to the data to be written
+  interface ; subroutine fptr(tile, ptr)
+     use land_tile_mod, only : land_tile_type
+     type(land_tile_type), pointer :: tile ! input
+     real                , pointer :: ptr(:)  ! returned pointer to the data
+  end subroutine fptr
+  end interface
+  integer, intent(in) :: index
+
+  ! ---- local vars
+  type(land_tile_type), pointer :: tileptr ! pointer to tiles
+  real   , pointer :: ptr(:) ! pointer to the tile data
+  integer :: i,p
+
+! distribute the data over the tiles
+  do i = 1, size(idx)
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+                          lnd%is,lnd%js, tileptr)
+     call fptr(tileptr, ptr)
+     if(associated(ptr)) ptr(index)=data(i)
+  enddo
+end subroutine assemble_tiles_r1d_idx
 ! ============================================================================
 subroutine override_tile_data_r0d_fptr(fieldname,fptr,time,override)
   character(len=*), intent(in)   :: fieldname ! field to override

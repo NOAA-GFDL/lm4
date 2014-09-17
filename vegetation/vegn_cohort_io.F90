@@ -55,8 +55,8 @@ end interface read_create_cohorts
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'cohort_io_mod', &
-     version     = '$Id: vegn_cohort_io.F90,v 20.0.2.1.2.1 2014/01/28 17:54:47 Seth.Underwood Exp $', &
-     tagname     = '$Name: tikal_201403 $'
+     version     = '$Id: vegn_cohort_io.F90,v 20.0.2.1.2.1.4.1 2014/04/22 16:11:02 Peter.Phillipps Exp $', &
+     tagname     = '$Name: tikal_201409 $'
 ! name of the "compressed" dimension (and dimension variable) in the output 
 ! netcdf files -- that is, the dimensions written out using compression by 
 ! gathering, as described in CF conventions.
@@ -314,8 +314,8 @@ end subroutine create_cohort_dimension_orig
 
 subroutine create_cohort_dimension_new(rhandle,cidx,name,land,tile_dim_length)
   type(restart_file_type), intent(inout) :: rhandle ! restart file handle
-  integer, allocatable,    intent(out)   :: cidx(:)  ! rank local tile index vector
-  character(len=*),        intent(inout) :: name    ! name of the restart file
+  integer, allocatable,    intent(out)   :: cidx(:) ! rank local tile index vector
+  character(len=*),        intent(in)    :: name    ! name of the restart file
   type(land_state_type),   intent(in)    :: land
   integer,                 intent(in)    :: tile_dim_length ! length of tile axis
 
@@ -367,7 +367,7 @@ end subroutine create_cohort_dimension_new
 
 subroutine create_cohort_out_file_idx(rhandle,name,land,cidx,cohorts_dim_length)
   type(restart_file_type), intent(inout) :: rhandle     ! restart file handle
-  character(len=*),      intent(inout) :: name                ! name of the file to create
+  character(len=*),      intent(in)  :: name                ! name of the file to create
   type(land_state_type), intent(in)  :: land
   integer              , intent(in)  :: cidx(:)             ! integer compressed index of tiles (local)
   integer              , intent(in)  :: cohorts_dim_length  ! length of cohorts axis

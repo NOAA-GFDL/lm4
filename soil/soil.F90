@@ -81,8 +81,8 @@ public :: soil_step_3
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'soil',&
-    version     = '$Id: soil.F90,v 20.0.4.1.2.2.2.1 2014/03/04 20:55:03 Seth.Underwood Exp $',&
-    tagname     = '$Name: tikal_201403 $'
+    version     = '$Id: soil.F90,v 20.0.4.1.2.2.2.1.4.5 2014/09/03 14:18:13 Peter.Phillipps Exp $',&
+    tagname     = '$Name: tikal_201409 $'
 
 ! ==== module variables ======================================================
 
@@ -99,7 +99,7 @@ real    :: lrunf_ie_min         = -1.0e-4     ! trigger for clip and runoff
 real    :: lrunf_ie_tol         =  1.e-12
 character(len=16) :: albedo_to_use = ''       ! or 'albedo-map' or 'brdf-maps'
 character(len=24) :: uptake_to_use = 'linear' ! or 'darcy2d', or 'darcy2d-linearized'
-logical :: uptake_oneway        = .false.     ! if true, roots can't loose water to soil
+logical :: uptake_oneway        = .false.     ! if true, roots cannot loose water to soil
 logical :: uptake_from_sat      = .true.      ! if false, the uptake from saturated soil is prohibited
 logical :: allow_negative_rie   = .false.
 logical :: baseflow_where_frozen = .false.
@@ -246,11 +246,11 @@ end subroutine read_soil_namelist
 
 ! ============================================================================
 ! initialize soil model
-subroutine soil_init ( id_lon, id_lat, id_band, new_restart )
+subroutine soil_init ( id_lon, id_lat, id_band, new_land_io )
   integer, intent(in)  :: id_lon  ! ID of land longitude (X) axis  
   integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
   integer, intent(in)  :: id_band ! ID of spectral band axis
-  logical, intent(in)  :: new_restart
+  logical, intent(in)  :: new_land_io
 
   ! ---- local vars
   integer :: unit, unit1  ! unit numbers for various i/o
@@ -340,7 +340,7 @@ subroutine soil_init ( id_lon, id_lat, id_band, new_restart )
      call put_to_tiles_r1d_fptr( albedo, lnd%tile_map, soil_refl_dry_dir_ptr )
      call put_to_tiles_r1d_fptr( albedo, lnd%tile_map, soil_refl_dry_dif_ptr )
      ! for now, put the same value into the saturated soil albedo, so that
-     ! the albedo doesn't depend on soil wetness
+     ! the albedo does not depend on soil wetness
      call put_to_tiles_r1d_fptr( albedo, lnd%tile_map, soil_refl_sat_dir_ptr )
      call put_to_tiles_r1d_fptr( albedo, lnd%tile_map, soil_refl_sat_dif_ptr )
      deallocate(albedo)
@@ -368,7 +368,7 @@ subroutine soil_init ( id_lon, id_lat, id_band, new_restart )
      call put_to_tiles_r1d_fptr( f_geo,    lnd%tile_map, soil_f_geo_dry_ptr )
      call put_to_tiles_r1d_fptr( refl_dif, lnd%tile_map, soil_refl_dry_dif_ptr )
      ! for now, put the same value into the saturated soil albedo, so that
-     ! the albedo doesn't depend on soil wetness
+     ! the albedo does not depend on soil wetness
      call put_to_tiles_r1d_fptr( f_iso,    lnd%tile_map, soil_f_iso_sat_ptr )
      call put_to_tiles_r1d_fptr( f_vol,    lnd%tile_map, soil_f_vol_sat_ptr )
      call put_to_tiles_r1d_fptr( f_geo,    lnd%tile_map, soil_f_geo_sat_ptr )
@@ -390,8 +390,8 @@ subroutine soil_init ( id_lon, id_lat, id_band, new_restart )
      if (.not.associated(tile%soil)) cycle
      if (init_wtdep .gt. 0.) then
          psi = zfull(1:num_l) - init_wtdep
-	 call soil_data_vwc_for_init_only(tile%soil, psi, mwc)
-	 mwc = mwc * dens_h2o
+         call soil_data_vwc_for_init_only(tile%soil, psi, mwc)
+         mwc = mwc * dens_h2o
        else if (init_w .ge. 0.) then
          mwc = init_w
        else ! negative init_w is to be intrepreted as prescribed saturation
@@ -407,15 +407,13 @@ subroutine soil_init ( id_lon, id_lat, id_band, new_restart )
      tile%soil%T             = init_temp
      tile%soil%groundwater   = init_groundwater
      tile%soil%groundwater_T = init_temp
-     tile%soil%uptake_T           = init_temp
-     enddo
+     tile%soil%uptake_T      = init_temp
+  enddo
 
-  call get_input_restart_name(restart_base_name,restart_exists,restart_file_name)
+  call get_input_restart_name(restart_base_name,restart_exists,restart_file_name,new_land_io)
   if (restart_exists) then
-     if(new_restart) then
+     if(new_land_io) then
         call error_mesg('soil_init', 'Using new soil restart read', NOTE)
-
-        restart_file_name = restart_base_name
 
         call get_field_size(restart_file_name, 'tile_index', siz, field_found=found, domain=lnd%domain)
         if ( .not.found ) call error_mesg(trim(module_name), &
@@ -445,12 +443,12 @@ subroutine soil_init ( id_lon, id_lat, id_band, new_restart )
         call read_compressed(restart_file_name,'groundwater_T',r1d, domain=lnd%domain)
         call assemble_tiles(soil_groundwater_T_ptr,idx,r1d)
 
-        if ( field_exist(restart_file_name,'uptake_T') ) then
+        if ( field_exist(restart_file_name,'uptake_T', domain=lnd%domain) ) then
            call read_compressed(restart_file_name,'uptake_T',r0d, domain=lnd%domain)
            call assemble_tiles(soil_uptake_T_ptr,idx,r0d)
         endif
 
-        if ( field_exist(restart_file_name,'fsc') ) then
+        if ( field_exist(restart_file_name,'fsc', domain=lnd%domain) ) then
            call read_compressed(restart_file_name,'fsc',r1d, domain=lnd%domain)
            call assemble_tiles(soil_fast_soil_C_ptr,idx,r1d)
  
@@ -458,26 +456,26 @@ subroutine soil_init ( id_lon, id_lat, id_band, new_restart )
            call assemble_tiles(soil_slow_soil_C_ptr,idx,r1d)
         else
            ! try to read fsc and ssc from vegetation restart
-           call get_input_restart_name('INPUT/vegn2.res.nc',restart_exists,restart_file_name)
+           call get_input_restart_name('INPUT/vegn2.res.nc',restart_exists,restart_file_name,new_land_io)
            if (restart_exists) then
-             call read_compressed('INPUT/vegn2.res.nc','fsc',r1d, domain=lnd%domain)
-             call assemble_tiles(soil_fast_soil_C_ptr,idx,r1d)
+             call read_compressed(restart_file_name,'fsc',r0d, domain=lnd%domain)
+             call assemble_tiles(soil_fast_soil_C_ptr,idx,r0d,1)
  
-             call read_compressed('INPUT/vegn2.res.nc','ssc',r1d, domain=lnd%domain)
-             call assemble_tiles(soil_slow_soil_C_ptr,idx,r1d)
+             call read_compressed(restart_file_name,'ssc',r0d, domain=lnd%domain)
+             call assemble_tiles(soil_slow_soil_C_ptr,idx,r0d,1)
            endif
         endif
 
         ! read soil carbon restart, if present
-        call get_input_restart_name('INPUT/soil_carbon.res.nc',restart_exists,restart_file_name)
+        call get_input_restart_name('INPUT/soil_carbon.res.nc',restart_exists,restart_file_name,new_land_io)
         if (restart_exists) then
-           call read_compressed('INPUT/soil_carbon.res.nc','asoil_in',r1d, domain=lnd%domain)
+           call read_compressed(restart_file_name,'asoil_in',r1d, domain=lnd%domain)
            call assemble_tiles(soil_asoil_in_ptr,idx,r1d)
 
-           call read_compressed('INPUT/soil_carbon.res.nc','fsc_in',r1d, domain=lnd%domain)
+           call read_compressed(restart_file_name,'fsc_in',r1d, domain=lnd%domain)
            call assemble_tiles(soil_fsc_in_ptr,idx,r1d)
 
-           call read_compressed('INPUT/soil_carbon.res.nc','ssc_in',r1d, domain=lnd%domain)
+           call read_compressed(restart_file_name,'ssc_in',r1d, domain=lnd%domain)
            call assemble_tiles(soil_ssc_in_ptr,idx,r1d)
         endif
         deallocate(idx,r1d,r0d)
@@ -558,7 +556,7 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band )
   integer :: axes(3)
   integer :: id_zhalf, id_zfull
 
-  ! define vertical axis and its' edges
+  ! define vertical axis and its edges
   id_zhalf = diag_axis_init ( &
        'zhalf_soil', zhalf(1:num_l+1), 'meters', 'z', 'half level',  -1, set_name='soil' )
   id_zfull = diag_axis_init ( &
@@ -1317,7 +1315,7 @@ end subroutine soil_step_1
         soil%uptake_T    = uptake_T_new
      else
         uptake_T_corr = 0.0
-        ! and don't change the soil%uptake_T
+        ! and do not change the soil%uptake_T
      endif
   case default
      call error_mesg('soil_step_2', 'invalid soil uptake option', FATAL)
@@ -2341,14 +2339,10 @@ DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_geo_sat)
   subroutine soil_T_ptr(t,p)
   type(land_tile_type),pointer::t
   real,pointer::p(:)
-  integer :: n
 
   p=>NULL()
   if(associated(t))then
-    if(associated(t%soil))then
-      n=size(t%soil%T(:))
-      p(1:n)=>t%soil%T(1:n)
-    endif
+    if(associated(t%soil)) p=>t%soil%T(:)
   endif
   end subroutine
  
@@ -2356,14 +2350,10 @@ DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_geo_sat)
   subroutine soil_wl_ptr(t,p)
   type(land_tile_type),pointer::t
   real,pointer::p(:)
-  integer :: n
 
   p=>NULL()
   if(associated(t))then
-  if(associated(t%soil))then
-  n=size(t%soil%wl(:))
-  p(1:n)=>t%soil%wl(1:n)
-  endif
+  if(associated(t%soil)) p=>t%soil%wl(:)
   endif
   end subroutine
  
@@ -2371,14 +2361,10 @@ DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_geo_sat)
   subroutine soil_ws_ptr(t,p)
   type(land_tile_type),pointer::t
   real,pointer::p(:)
-  integer :: n
 
   p=>NULL()
   if(associated(t))then
-  if(associated(t%soil))then
-  n=size(t%soil%ws(:))
-  p(1:n)=>t%soil%ws(1:n)
-  endif
+  if(associated(t%soil)) p=>t%soil%ws(:)
   endif
   end subroutine
 
@@ -2386,14 +2372,10 @@ DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_geo_sat)
   subroutine soil_groundwater_ptr(t,p)
   type(land_tile_type),pointer::t
   real,pointer::p(:)
-  integer :: n
 
   p=>NULL()
   if(associated(t))then
-  if(associated(t%soil))then
-  n=size(t%soil%groundwater(:))
-  p(1:n)=>t%soil%groundwater(1:n)
-  endif
+  if(associated(t%soil)) p=>t%soil%groundwater(:)
   endif
   end subroutine
 
@@ -2401,14 +2383,10 @@ DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_geo_sat)
   subroutine soil_groundwater_T_ptr(t,p)
   type(land_tile_type),pointer::t
   real,pointer::p(:)
-  integer :: n
 
   p=>NULL()
   if(associated(t))then
-  if(associated(t%soil))then
-  n=size(t%soil%groundwater_T(:))
-  p(1:n)=>t%soil%groundwater_T(1:n)
-  endif
+  if(associated(t%soil)) p=>t%soil%groundwater_T(:)
   endif
   end subroutine
 

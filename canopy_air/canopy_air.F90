@@ -54,8 +54,8 @@ public :: cana_step_2
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-  version = '$Id: canopy_air.F90,v 20.0.2.1.4.1.2.1 2014/02/28 17:21:28 Niki.Zadeh Exp $', &
-  tagname = '$Name: tikal_201403 $', &
+  version = '$Id: canopy_air.F90,v 20.0.2.1.4.1.2.1.4.1 2014/05/28 20:45:30 pjp Exp $', &
+  tagname = '$Name: tikal_201409 $', &
   module_name = 'canopy_air_mod'
 
 ! options for turbulence parameter calculations
@@ -124,10 +124,10 @@ end subroutine read_cana_namelist
 
 ! ============================================================================
 ! initialize canopy air
-subroutine cana_init ( id_lon, id_lat, new_restart )
+subroutine cana_init ( id_lon, id_lat, new_land_io )
   integer, intent(in)          :: id_lon  ! ID of land longitude (X) axis  
   integer, intent(in)          :: id_lat  ! ID of land latitude (Y) axis
-  logical, intent(in)          :: new_restart  ! This is a transition var and will be removed
+  logical, intent(in)          :: new_land_io  ! This is a transition var and will be removed
 
   ! ---- local vars ----------------------------------------------------------
   integer :: unit         ! unit for various i/o
@@ -172,7 +172,7 @@ subroutine cana_init ( id_lon, id_lat, new_restart )
      call error_mesg('cana_init',&
           'reading NetCDF restart "'//trim(restart_file_name)//'"',&
           NOTE)
-     if(new_restart)then
+     if(new_land_io)then
         call error_mesg('cana_init', 'Using new canopy restart read', NOTE)
 
         call get_field_size(restart_base_name,'tile_index',siz, field_found=found, domain=lnd%domain)

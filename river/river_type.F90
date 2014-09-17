@@ -27,7 +27,7 @@ module river_type_mod
 
 !--- version information ---------------------------------------------
   character(len=128) :: version = '$Id: river_type.F90,v 20.0 2013/12/13 23:29:45 fms Exp $'
-  character(len=128) :: tagname = '$Name: tikal_201403 $'
+  character(len=128) :: tagname = '$Name: tikal_201409 $'
 
 !--- public interface ------------------------------------------------
   public :: river_type, Leo_Mad_trios

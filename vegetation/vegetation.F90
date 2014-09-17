@@ -86,8 +86,8 @@ public :: update_vegn_slow
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-   version = '$Id: vegetation.F90,v 20.0.4.1.2.2.6.2 2014/02/28 17:58:28 Niki.Zadeh Exp $', &
-   tagname = '$Name: tikal_201403 $', &
+   version = '$Id: vegetation.F90,v 20.0.4.1.2.2.6.2.2.3 2014/05/28 20:48:55 pjp Exp $', &
+   tagname = '$Name: tikal_201409 $', &
    module_name = 'vegn'
 ! values for internal selector of CO2 option used for photosynthesis
 integer, parameter :: VEGN_PHOT_CO2_PRESCRIBED  = 1
@@ -246,11 +246,11 @@ end subroutine read_vegn_namelist
 
 ! ============================================================================
 ! initialize vegetation
-subroutine vegn_init ( id_lon, id_lat, id_band, new_restart )
+subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
   integer, intent(in) :: id_lon  ! ID of land longitude (X) axis  
   integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
   integer, intent(in) :: id_band ! ID of spectral band axis
-  logical, intent(in) :: new_restart !< This is a transition var and will be removed
+  logical, intent(in) :: new_land_io !< This is a transition var and will be removed
 
   ! ---- local vars
   integer :: unit         ! unit for various i/o
@@ -267,7 +267,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_restart )
   logical :: found !< used to determine if a field is found.
   integer :: siz(4), csize, tsize, tdimlen
   integer, allocatable :: i0d(:), idx(:)
-  real, allocatable :: r0d(:),r1d(:,:)
+  real, allocatable :: r0d(:)
   module_is_initialized = .TRUE.
 
   ! ---- make module copy of time and calculate time step ------------------
@@ -288,7 +288,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_restart )
           '" and "'//trim(restart_file_name_2)//'"',&
           NOTE)
 
-     if (new_restart) then
+     if (new_land_io) then
         ! fms read routine expect the "original" restart file name, not the one
         ! modified with the get_input_restart_name
         restart_file_name_1 = 'INPUT/vegn1.res.nc'
@@ -364,7 +364,6 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_restart )
         tsize = siz(1)
 
         allocate(idx(tsize), i0d(tsize), r0d(tsize))
-        allocate(r1d(N_HARV_POOLS,tsize))
         call read_compressed(restart_file_name_2,'tile_index',idx,domain=lnd%domain)
 
         call read_data(restart_file_name_2, 'n_accum', n_accum, domain=lnd%domain)
@@ -463,15 +462,15 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_restart )
         do i = 1, N_HARV_POOLS
            if ( field_exist(restart_file_name_2, trim(HARV_POOL_NAMES(i))//'_harv_pool', domain=lnd%domain) ) then
               call read_compressed(restart_file_name_2, trim(HARV_POOL_NAMES(i))//'_harv_pool', r0d, domain=lnd%domain)
-              call assemble_tiles(vegn_harv_pool_ptr,idx,r1d)
+              call assemble_tiles(vegn_harv_pool_ptr,idx,r0d,i)
            endif
            if ( field_exist(restart_file_name_2, trim(HARV_POOL_NAMES(i))//'_harv_rate', domain=lnd%domain) ) then
               call read_compressed(restart_file_name_2, trim(HARV_POOL_NAMES(i))//'_harv_rate', r0d, domain=lnd%domain)
-              call assemble_tiles(vegn_harv_rate_ptr,idx,r1d)
+              call assemble_tiles(vegn_harv_rate_ptr,idx,r0d,i)
            endif
         enddo
 
-        deallocate(idx, i0d, r0d, r1d)
+        deallocate(idx, i0d, r0d)
      else
         __NF_ASRT__(nf_open(restart_file_name_1,NF_NOWRITE,unit))
         ! read the cohort index and generate appropriate number of cohorts
@@ -616,7 +615,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_restart )
   call vegn_dynamics_init ( id_lon, id_lat, lnd%time, delta_time, soil_decomp_option )
 
   ! initialize static vegetation
-  call static_vegn_init ()
+  call static_vegn_init (new_land_io)
   call read_static_vegn ( lnd%time )
 
   ! initialize harvesting options
@@ -1121,8 +1120,8 @@ subroutine save_vegn_restart_new(tile_dim_length, timestamp)
            ncm_acm(tsize),               &
            csmoke_pool(tsize),           &
            csmoke_rate(tsize),           &
-           harv_pool(N_HARV_POOLS,tsize),&
-           harv_rate(N_HARV_POOLS,tsize))
+           harv_pool(tsize,N_HARV_POOLS),&
+           harv_rate(tsize,N_HARV_POOLS))
 
 
   ! ** tile
@@ -1209,11 +1208,11 @@ subroutine save_vegn_restart_new(tile_dim_length, timestamp)
 
   ! harvesting pools and rates
   do i = 1, N_HARV_POOLS
-     call gather_tile_data(vegn_harv_pool_ptr,tidx,i,harv_pool(i,:))
-     id_restart = register_restart_field(vegn2_restart,fname,trim(HARV_POOL_NAMES(i))//'_harv_pool',harv_pool(i,:),&
+     call gather_tile_data(vegn_harv_pool_ptr,tidx,i,harv_pool(:,i))
+     id_restart = register_restart_field(vegn2_restart,fname,trim(HARV_POOL_NAMES(i))//'_harv_pool',harv_pool(:,i),&
           longname='harvested carbon',units='kg C/m2', compressed_axis='C')
-     call gather_tile_data(vegn_harv_rate_ptr,tidx,i,harv_rate(i,:))
-     id_restart = register_restart_field(vegn2_restart,fname,trim(HARV_POOL_NAMES(i))//'_harv_rate',harv_rate(i,:),&
+     call gather_tile_data(vegn_harv_rate_ptr,tidx,i,harv_rate(:,i))
+     id_restart = register_restart_field(vegn2_restart,fname,trim(HARV_POOL_NAMES(i))//'_harv_rate',harv_rate(:,i),&
           longname='rate of release of harvested carbon to the atmosphere',units='kg C/(m2 yr)', compressed_axis='C')
   enddo
 

@@ -37,8 +37,8 @@ public :: vegn_cut_forest
 
 ! ==== module constants =====================================================
 character(len=*), parameter   :: &
-     version = '$Id: vegn_harvesting.F90,v 20.0 2013/12/13 23:31:12 fms Exp $', &
-     tagname = '$Name: tikal_201403 $', &
+     version = '$Id: vegn_harvesting.F90,v 20.0.10.1 2014/09/03 14:23:23 Peter.Phillipps Exp $', &
+     tagname = '$Name: tikal_201409 $', &
      module_name = 'vegn_harvesting_mod'
 real, parameter :: ONETHIRD = 1.0/3.0
 
@@ -183,7 +183,11 @@ subroutine vegn_harvest_cropland(vegn)
   btotal = balive+bdead;
 
   ! calculate harvested fraction: cut everything down to seed level
-  fraction_harvested = MIN(MAX((btotal-crop_seed_density)/btotal,0.0),1.0);
+  if(btotal > 0.0) then
+    fraction_harvested = MIN(MAX((btotal-crop_seed_density)/btotal,0.0),1.0);
+  else
+    fraction_harvested = 0.0
+  endif
 
   ! update biomass pools for each cohort according to harvested fraction
   do i = 1, vegn%n_cohorts
@@ -232,7 +236,11 @@ subroutine vegn_cut_forest(vegn, new_landuse)
   btotal = balive+bdead;
 
   ! calculate harvested fraction: cut everything down to seed level
-  frac_harvested = MIN(MAX((btotal-crop_seed_density)/btotal,0.0),1.0);
+  if(btotal > 0.0) then
+    frac_harvested = MIN(MAX((btotal-crop_seed_density)/btotal,0.0),1.0);
+  else
+    frac_harvested = 0.0
+  endif
 
   ! define fraction of wood wasted, based on the transition type
   if (new_landuse==LU_SCND) then

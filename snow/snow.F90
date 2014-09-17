@@ -55,8 +55,8 @@ public :: snow_step_2
 ! ==== module variables ======================================================
 character(len=*), parameter, private   :: &
        module_name = 'snow_mod' ,&
-       version     = '$Id: snow.F90,v 20.0.4.1 2014/01/30 15:54:26 Seth.Underwood Exp $' ,&
-       tagname     = '$Name: tikal_201403 $'
+       version     = '$Id: snow.F90,v 20.0.4.1.6.2 2014/06/07 13:58:56 Peter.Phillipps Exp $' ,&
+       tagname     = '$Name: tikal_201409 $'
 
 ! ==== module variables ======================================================
 
@@ -142,10 +142,10 @@ end subroutine read_snow_namelist
 
 ! ============================================================================
 ! initialize snow model
-subroutine snow_init ( id_lon, id_lat, new_restart )
+subroutine snow_init ( id_lon, id_lat, new_land_io )
   integer, intent(in)               :: id_lon  ! ID of land longitude (X) axis  
   integer, intent(in)               :: id_lat  ! ID of land latitude (Y) axis
-  logical, intent(in)               :: new_restart ! This is a transition var and will be removed
+  logical, intent(in)               :: new_land_io ! This is a transition var and will be removed
 
   ! ---- local vars ----------------------------------------------------------
   integer :: unit,k       ! unit for various i/o
@@ -166,7 +166,7 @@ subroutine snow_init ( id_lon, id_lat, new_restart )
   ! -------- initialize snow state --------
   call get_input_restart_name(restart_base_name,restart_exists,restart_file_name)
   if (restart_exists) then
-    if(new_restart)then
+    if(new_land_io)then
         call error_mesg('snow_init', 'Using new snow restart read', NOTE)
 
         restart_file_name = restart_base_name
@@ -1087,39 +1087,27 @@ end function snow_tile_exists
 subroutine snow_temp_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
-   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%snow)) then
-        n = size(tile%snow%T)
-        ptr(1:n) => tile%snow%T(1:n)
-      endif
+      if(associated(tile%snow)) ptr => tile%snow%T(:)
    endif
 end subroutine snow_temp_ptr
 
 subroutine snow_wl_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
-   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%snow)) then
-        n = size(tile%snow%wl)
-        ptr(1:n) => tile%snow%wl(1:n)
-      endif
+      if(associated(tile%snow)) ptr => tile%snow%wl(:)
    endif
 end subroutine snow_wl_ptr
 
 subroutine snow_ws_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
-   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%snow)) then
-        n = size(tile%snow%ws)
-        ptr(1:n) => tile%snow%ws(1:n)
-      endif
+      if(associated(tile%snow)) ptr => tile%snow%ws(:)
    endif
 end subroutine snow_ws_ptr
 

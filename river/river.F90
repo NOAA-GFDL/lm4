@@ -56,6 +56,7 @@ module river_mod
   use fms_mod,             only : close_file, file_exist, field_size, read_data, write_data, lowercase
   use fms_mod,             only : field_exist, CLOCK_FLAG_DEFAULT
   use fms_io_mod,          only : get_mosaic_tile_file, get_instance_filename
+  use fms_io_mod,          only : restart_file_type, register_restart_field, restore_state, save_restart
   use diag_manager_mod,    only : diag_axis_init, register_diag_field, register_static_field, send_data
   use time_manager_mod,    only : time_type, increment_time, get_time
   use river_type_mod,      only : river_type, Leo_Mad_trios, NO_RIVER_FLAG
@@ -73,8 +74,8 @@ module river_mod
   private
 
 !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id: river.F90,v 20.0.2.1 2014/02/19 19:08:43 Sergey.Malyshev Exp $'
-  character(len=128) :: tagname = '$Name: tikal_201403 $'
+  character(len=128) :: version = '$Id: river.F90,v 20.0.2.1.2.4 2014/06/27 20:45:27 Peter.Phillipps Exp $'
+  character(len=128) :: tagname = '$Name: tikal_201409 $'
 
 !--- public interface ------------------------------------------------
   public :: river_init, river_end, river_type, update_river, river_stock_pe
@@ -166,6 +167,7 @@ module river_mod
   integer                       :: slow_step = 0          ! record number of slow time step run.
   type(domain2d),          save :: domain
   type(river_type) ,       save :: River
+  type(restart_file_type)       :: river_restart
 
 !--- these variables are for communication purpose
   integer              :: pe
@@ -173,13 +175,14 @@ module river_mod
 
 !--- clock id variable 
   integer :: slowclock, bndslowclock, physicsclock, diagclock, riverclock
+  logical :: remember_new_land_io
 
 contains
 
 
 !#####################################################################
   subroutine river_init( land_lon, land_lat, time, dt_fast, land_domain, &
-                         land_frac, id_lon, id_lat, river_land_mask )
+                         land_frac, id_lon, id_lat, new_land_io, river_land_mask )
     real,            intent(in) :: land_lon(:,:)     ! geographical lontitude of cell center
     real,            intent(in) :: land_lat(:,:)     ! geographical lattitude of cell center
     type(time_type), intent(in) :: time              ! current time
@@ -187,9 +190,11 @@ contains
     type(domain2d),  intent(in) :: land_domain       ! land domain
     real,            intent(in) :: land_frac(:,:)    ! land area fraction from land model
     integer,         intent(in) :: id_lon, id_lat    ! IDs of diagnostic axes
+    logical,         intent(in) :: new_land_io
     logical,         intent(out):: river_land_mask(:,:) ! land mask seen by rivers
 
-    integer              :: unit, io_status, ierr
+
+    integer              :: unit, io_status, ierr, id_restart
     integer              :: sec, day, i, j
     integer              :: nxc, nyc
     character(len=128)   :: filename
@@ -203,6 +208,11 @@ contains
     bndslowclock = mpp_clock_id('update_river_bnd_slow', CLOCK_FLAG_DEFAULT, CLOCK_ROUTINE)
     physicsclock = mpp_clock_id('river phys'           , CLOCK_FLAG_DEFAULT, CLOCK_ROUTINE)
     diagclock    = mpp_clock_id('river diag'           , CLOCK_FLAG_DEFAULT, CLOCK_ROUTINE)
+
+    rt_source_conc_file(:) = ''
+    rt_source_flux_file(:) = ''
+    rt_source_conc_name(:) = ''
+    rt_source_flux_name(:) = ''
 !--- read namelist -------------------------------------------------
 #ifdef INTERNAL_FILE_NML
      read (input_nml_file, nml=river_nml, iostat=io_status)
@@ -370,22 +380,34 @@ contains
     call river_diag_init (id_lon, id_lat)
 
 !--- read restart file 
+    remember_new_land_io = new_land_io
     call get_instance_filename('INPUT/river.res.nc', filename)
     call get_mosaic_tile_file(trim(filename), filename, .false., domain)
 
+  id_restart = register_restart_field(river_restart,'river.res.nc','storage',          River%storage,          domain)
+  id_restart = register_restart_field(river_restart,'river.res.nc','storage_c',        River%storage_c,        domain)
+  id_restart = register_restart_field(river_restart,'river.res.nc','discharge2ocean',  discharge2ocean_next,   domain)
+  id_restart = register_restart_field(river_restart,'river.res.nc','discharge2ocean_c',discharge2ocean_next_c, domain)
+  id_restart = register_restart_field(river_restart,'river.res.nc','Omean',            River%outflowmean,      domain)
+  id_restart = register_restart_field(river_restart,'river.res.nc','depth',            River%depth,            domain, mandatory=.false.)
+
     if(file_exist(trim(filename),domain) ) then
         call mpp_error(NOTE, 'river_init : Read restart files '//trim(filename))
-        call read_data(filename,'storage',          River%storage,          domain)
-        call read_data(filename,'storage_c',        River%storage_c,        domain)
-        call read_data(filename,'discharge2ocean',  discharge2ocean_next,   domain)
-        call read_data(filename,'discharge2ocean_c',discharge2ocean_next_c, domain)
-        call read_data(filename,'Omean',            River%outflowmean,      domain)
-        if (field_exist(filename,'depth',domain)) then 
-             ! call mpp_error(WARNING, 'river_init : Reading field "depth" from '//trim(filename))
-             call read_data(filename,'depth',       River%depth,            domain)
+        if(new_land_io) then
+          call restore_state(river_restart)
         else
-             ! call mpp_error(WARNING, 'river_init : "depth" is not present in '//trim(filename))
-        endif     
+          call read_data(filename,'storage',          River%storage,          domain)
+          call read_data(filename,'storage_c',        River%storage_c,        domain)
+          call read_data(filename,'discharge2ocean',  discharge2ocean_next,   domain)
+          call read_data(filename,'discharge2ocean_c',discharge2ocean_next_c, domain)
+          call read_data(filename,'Omean',            River%outflowmean,      domain)
+          if (field_exist(filename,'depth',domain)) then 
+              ! call mpp_error(WARNING, 'river_init : Reading field "depth" from '//trim(filename))
+              call read_data(filename,'depth',       River%depth,            domain)
+          else
+              ! call mpp_error(WARNING, 'river_init : "depth" is not present in '//trim(filename))
+          endif
+        endif
     else
         call mpp_error(NOTE, 'river_init : cold start, set data to 0')
         River%storage    = 0.0
@@ -776,18 +798,21 @@ call mpp_update_domains (lake_conn,   domain)
     character(len=128) :: filename
 
     if(.not.do_rivers) return ! do nothing further if rivers are turned off
-
-    filename = 'RESTART/'//trim(timestamp)//'river.res.nc'
-
-    call write_data(filename,'storage', River%storage(isc:iec,jsc:jec), domain)
-    call write_data(filename,'storage_c', River%storage_c(isc:iec,jsc:jec,:), domain)
-
-    !--- write out discharge data
-    call write_data(filename,'discharge2ocean'  ,discharge2ocean_next  (isc:iec,jsc:jec),   domain)
-    call write_data(filename,'discharge2ocean_c',discharge2ocean_next_c(isc:iec,jsc:jec,:), domain)
-    call write_data(filename,'Omean',            River%outflowmean,                         domain)
-    call write_data(filename,'depth', River%depth, domain)
+    if(remember_new_land_io) then
+      call save_restart(river_restart)
+    else
+      filename = 'RESTART/'//trim(timestamp)//'river.res.nc'
   
+      call write_data(filename,'storage', River%storage(isc:iec,jsc:jec), domain)
+      call write_data(filename,'storage_c', River%storage_c(isc:iec,jsc:jec,:), domain)
+  
+      !--- write out discharge data
+      call write_data(filename,'discharge2ocean'  ,discharge2ocean_next  (isc:iec,jsc:jec),   domain)
+      call write_data(filename,'discharge2ocean_c',discharge2ocean_next_c(isc:iec,jsc:jec,:), domain)
+      call write_data(filename,'Omean',            River%outflowmean,                         domain)
+      call write_data(filename,'depth', River%depth, domain)
+    endif
+
   end subroutine save_river_restart
   
 !#####################################################################

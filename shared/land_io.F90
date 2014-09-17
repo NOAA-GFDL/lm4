@@ -1,9 +1,19 @@
 module land_io_mod
 
+use mpp_io_mod, only : fieldtype, mpp_get_info, mpp_get_fields
+use mpp_io_mod, only : mpp_get_axes, mpp_get_axis_data, mpp_read, validtype
+use mpp_io_mod, only : mpp_get_atts, MPP_RDONLY, MPP_NETCDF, MPP_MULTI, MPP_SINGLE
+use mpp_io_mod, only : axistype, mpp_open, mpp_close, mpp_is_valid, mpp_get_file_name
+use mpp_io_mod, only : mpp_get_field_index
+use mpp_io_mod, only : mpp_get_file_name
+
+use axis_utils_mod, only : get_axis_bounds
+
 use constants_mod,     only : PI
 use fms_mod,           only : file_exist, error_mesg, FATAL, stdlog, mpp_pe, &
      mpp_root_pe, write_version_number, string, check_nml_error, close_file
 
+use mpp_mod, only: mpp_sync
 #ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
 #else
@@ -44,11 +54,10 @@ include 'netcdf.inc'
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land_io_mod', &
-     version     = '$Id: land_io.F90,v 20.0 2013/12/13 23:29:51 fms Exp $', &
-     tagname     = '$Name: tikal_201403 $'
+     version     = '$Id: land_io.F90,v 20.0.2.7 2014/05/28 20:47:07 pjp Exp $', &
+     tagname     = '$Name: tikal_201409 $'
 
 logical :: module_is_initialized = .false.
-
 character(len=64)  :: interp_method = "conservative"
 integer :: input_buf_size = 65536 ! input buffer size for tile and cohort reading
 namelist /land_io_nml/ interp_method, input_buf_size
@@ -167,29 +176,62 @@ subroutine read_cover_field(file, cover_field_name, frac_field_name,&
   integer, optional , intent(in)  :: input_cover_types(:)
 
   ! --- local vars
-  integer :: ncid, varid
+! integer :: ncid, varid
+  integer :: input_unit , ndim , nvar , natt , nrec , iret
+  type(fieldtype), allocatable, dimension(:) :: fields
+  type(fieldtype) :: field
 
-  if (.not.file_exist(file)) &
-       call error_mesg(module_name,'input file "'//trim(file)//'" does not exist',FATAL)
+  if (.not.file_exist(file)) call error_mesg(module_name,'input file "'//trim(file)//'" does not exist',FATAL)
 
-  __NF_ASRT__( nf_open(file, NF_NOWRITE, ncid) )
-  if(nf_inq_varid(ncid,cover_field_name,varid)==NF_NOERR) then
-     call do_read_cover_field(ncid,varid,lonb,latb,input_cover_types,frac)
-  else if ( nf_inq_varid(ncid,frac_field_name,varid)==NF_NOERR) then
-     call do_read_fraction_field(ncid,varid,lonb,latb,input_cover_types,frac)
+! If field named 'cover' does not exist in file then read field named 'frac'
+! 'cover' does not exist in either ground_type.nc or cover_type.nc
+! The extent of the third dimension is 10 in ground_type.nc and 11 in cover_type.nc
+  call mpp_open(input_unit, trim(file), action=MPP_RDONLY, form=MPP_NETCDF, &
+       threading=MPP_MULTI, fileset=MPP_SINGLE, iostat=iret)
+  call mpp_get_info(input_unit,ndim,nvar,natt,nrec)
+  allocate(fields(nvar))
+  call mpp_get_fields(input_unit,fields)
+
+! if(nf_inq_varid(ncid,cover_field_name,varid)==NF_NOERR) then
+!    call do_read_cover_field(ncid,varid,lonb,latb,input_cover_types,frac)
+! else if ( nf_inq_varid(ncid,frac_field_name,varid)==NF_NOERR) then
+!     call do_read_fraction_field(ncid,varid,lonb,latb,input_cover_types,frac)
+
+  if(get_field(fields,cover_field_name,field)==0) then
+     call do_read_cover_field(input_unit,field,lonb,latb,input_cover_types,frac)
+  else if ( get_field(fields,frac_field_name,field)==0) then
+     call do_read_fraction_field(input_unit,field,lonb,latb,input_cover_types,frac)
   else
      call error_mesg(module_name,&
           'neither "'//trim(cover_field_name)//'" nor "'//&
           frac_field_name//'" is present in input file "'//trim(file)//'"' ,&
           FATAL)
   endif
-  __NF_ASRT__( nf_close(ncid) )
+  call mpp_close(input_unit)
 
 end subroutine read_cover_field
 
 ! ============================================================================
-subroutine do_read_cover_field(ncid,varid,lonb,latb,input_cover_types,frac)
-  integer, intent(in)  :: ncid, varid
+function get_field(fields,field_name,field)
+  type(fieldtype), intent(in) :: fields(:)
+  character(len=*), intent(in) :: field_name
+  type(fieldtype), intent(out) :: field
+  integer :: get_field, n
+  character(len=256) :: name_out
+
+  n =  mpp_get_field_index(fields,trim(field_name))
+  if ( n > 0 ) then
+    get_field = 0
+    field = fields(n)
+  else
+    get_field = 1
+  endif
+
+end function get_field
+! ============================================================================
+subroutine do_read_cover_field(input_unit, field, lonb, latb, input_cover_types, frac)
+  integer, intent(in)  :: input_unit
+  type(fieldtype), intent(in) :: field
   real   , intent(in)  :: lonb(:,:),latb(:,:)
   integer, intent(in)  :: input_cover_types(:)
   real   , intent(out) :: frac(:,:,:)
@@ -198,21 +240,32 @@ subroutine do_read_cover_field(ncid,varid,lonb,latb,input_cover_types,frac)
   integer :: nlon, nlat ! size of input map
   integer :: k
   integer, allocatable :: in_cover(:,:)
-  real, allocatable    :: in_lonb(:), in_latb(:), x(:,:)
+  real, allocatable    :: in_lonb(:), in_latb(:), x(:,:), r_in_cover(:,:)
   type(horiz_interp_type) :: interp
-  integer :: vardims(NF_MAX_VAR_DIMS)
-  type(nfu_validtype) :: v
+  integer :: vardims(1024)
+  type(validtype) :: v
   integer :: in_j_start, in_j_count ! limits of the latitude belt we read
-  integer :: iret ! result of netcdf calls
+  integer :: num_dims, dimlens(1024)
+  type(fieldtype), allocatable :: fields(:)
+  type(axistype),  allocatable :: axes(:)
+  type(axistype) :: axes_bnd
+  integer :: ndim,nvar,natt,nrec
+  integer :: start(4), count(4)
 
   ! find out dimensions, etc
-  __NF_ASRT__( nf_inq_vardimid(ncid,varid,vardims) )
+  call mpp_get_info(input_unit,ndim,nvar,natt,nrec)
+  allocate(axes(ndim), fields(nvar))
+  call mpp_get_axes(input_unit, axes)
+  call mpp_get_fields(input_unit, fields)
   ! get size of the longitude and latitude axes
-  __NF_ASRT__( nf_inq_dimlen(ncid, vardims(1), nlon) )
-  __NF_ASRT__( nf_inq_dimlen(ncid, vardims(2), nlat) )
-  allocate ( in_lonb (nlon+1), in_latb (nlat+1) )
-  __NF_ASRT__( nfu_get_dim_bounds(ncid, vardims(1), in_lonb) )
-  __NF_ASRT__( nfu_get_dim_bounds(ncid, vardims(2), in_latb) )
+  call mpp_get_atts(field, ndim=num_dims, siz=dimlens) ! field is of type fieldtype and replaces varid.
+  nlon = dimlens(1); nlat = dimlens(2)
+  allocate ( in_lonb(nlon+1), in_latb(nlat+1), axes(num_dims) )
+  call mpp_get_axes(input_unit, axes) ! input_unit replaces ncid. axes is of type axistype.
+  call get_axis_bounds(axes(3), axes_bnd, axes)
+  call mpp_get_axis_data(axes_bnd, in_lonb(:))
+  call get_axis_bounds(axes(2), axes_bnd, axes)
+  call mpp_get_axis_data(axes_bnd, in_latb(:))
   in_lonb = in_lonb*PI/180.0; in_latb = in_latb*PI/180.0
 
   ! to minimize the i/o and work done by horiz_interp, find the boundaries
@@ -230,21 +283,23 @@ subroutine do_read_cover_field(ncid,varid,lonb,latb,input_cover_types,frac)
                      //string(in_j_start)//')', FATAL)
 
   ! allocate input data buffers
-  allocate ( x(nlon,in_j_count), in_cover(nlon,in_j_count) )
+  allocate ( x(nlon,in_j_count), in_cover(nlon,in_j_count), r_in_cover(nlon,in_j_count) )
 
   ! read input data
-  iret = nf_get_vara_int(ncid,varid, &
-                    (/1,in_j_start/), (/nlon,in_j_count/), in_cover)
-  __NF_ASRT__( iret )
-  __NF_ASRT__( nfu_get_valid_range(ncid,varid,v) )
+! iret = nf_get_vara_int(ncid,varid, (/1,in_j_start/), (/nlon,in_j_count/), in_cover)
+  start = (/1,in_j_start,1,1/)
+  count(1:2) = shape(in_cover)
+  count(3:4) = 1
+  call mpp_read( input_unit, field, r_in_cover, start, count )
+  in_cover = r_in_cover
+  call mpp_get_atts(field,valid=v)
 
   call horiz_interp_new(interp, in_lonb,in_latb(in_j_start:in_j_start+in_j_count), &
        lonb,latb, interp_method=trim(interp_method))
   frac=0
   do k = 1,size(input_cover_types(:))
      x=0
-     where(nfu_is_valid(in_cover,v).and.in_cover==input_cover_types(k)) x = 1
-
+     where(mpp_is_valid(r_in_cover,v).and.in_cover==input_cover_types(k)) x = 1
      call horiz_interp(interp,x,frac(:,:,k))
   enddo
 
@@ -257,8 +312,9 @@ end subroutine do_read_cover_field
 
 
 ! ============================================================================
-subroutine do_read_fraction_field(ncid,varid,lonb,latb,input_cover_types,frac)
-  integer, intent(in)  :: ncid, varid
+ subroutine do_read_fraction_field(input_unit,field,lonb,latb,input_cover_types,frac)
+  integer, intent(in)  :: input_unit
+  type(fieldtype), intent(in) :: field
   real   , intent(in)  :: lonb(:,:),latb(:,:)
   integer, intent(in)  :: input_cover_types(:)
   real   , intent(out) :: frac(:,:,:)
@@ -269,26 +325,47 @@ subroutine do_read_fraction_field(ncid,varid,lonb,latb,input_cover_types,frac)
   real, allocatable :: in_lonb(:), in_latb(:)
   real, allocatable :: in_mask(:,:)
   type(horiz_interp_type) :: interp
-  type(nfu_validtype) :: v
-  integer :: vardims(NF_MAX_VAR_DIMS)
-  integer :: in_j_start, in_j_count ! limits of the latitude belt we read
-  integer :: iret ! result of netcdf calls
+  type(validtype) :: v
+  integer :: vardims(1024)
+  integer :: in_j_end, in_j_start, in_j_count ! limits of the latitude belt we read
+  integer :: num_dims, dimlens(1024)
+  type(fieldtype), allocatable :: fields(:)
+  type(axistype),  allocatable :: axes(:)
+  type(axistype) :: axes_bnd
+  integer :: ndim,nvar,natt,nrec
+  integer :: start(4), count(4)
+  character(len=256) :: bnd_name, err_msg
 
   ! find out dimensions, etc
-  __NF_ASRT__( nf_inq_vardimid(ncid,varid,vardims) )
+  call mpp_get_info(input_unit,ndim,nvar,natt,nrec)
+  allocate(axes(ndim), fields(nvar))
+  call mpp_get_axes(input_unit, axes)
+  call mpp_get_fields(input_unit, fields)
   ! get size of the longitude and latitude axes
-  __NF_ASRT__( nf_inq_dimlen(ncid, vardims(1), nlon) )
-  __NF_ASRT__( nf_inq_dimlen(ncid, vardims(2), nlat) )
-  __NF_ASRT__( nf_inq_dimlen(ncid, vardims(3), ntypes))
+  call mpp_get_atts(field, ndim=num_dims, siz=dimlens)
+  nlon = dimlens(1); nlat = dimlens(2) ; ntypes = dimlens(3)
   allocate ( in_lonb(nlon+1), in_latb(nlat+1) )
-  __NF_ASRT__(nfu_get_dim_bounds(ncid, vardims(1), in_lonb))
-  __NF_ASRT__(nfu_get_dim_bounds(ncid, vardims(2), in_latb))
-  in_lonb = in_lonb*PI/180.0; in_latb = in_latb*PI/180.0
 
+  call get_axis_bounds(axes(1), axes_bnd, axes) ! This routine requires some explanation. See below.
+! get_axis_bounds works like this:
+! It looks at the axis appearing as the first argument to see if the name of a bounds axis exists.
+! If it does then: It looks for the bounds axis amoung the array of axes supplied as the third argument and returns it as the second argument.
+! If it does not then: It creates a bounds axis using data from the axis appearing as the first argument and returns this as the second argument.
+
+  call mpp_get_axis_data(axes_bnd, in_lonb)
+  err_msg = ''
+  call get_axis_bounds(axes(2), axes_bnd, axes, bnd_name=bnd_name, err_msg=err_msg)
+  if(len_trim(err_msg) > 0 ) then
+    err_msg = trim(err_msg)//' File: '//trim(mpp_get_file_name(input_unit))
+    call error_mesg('do_read_fraction_field',err_msg, FATAL)
+  endif
+  call mpp_get_axis_data(axes_bnd, in_latb)
+  in_lonb = in_lonb*PI/180.0; in_latb = in_latb*PI/180.0
   ! find the boundaries of latitude belt in input data that covers the 
   ! entire latb array
   in_j_start=bisect(in_latb, minval(latb))
   in_j_count=bisect(in_latb, maxval(latb))-in_j_start+1
+  in_j_end = in_j_start + in_j_count - 1
 
   ! check for unreasonable values
   if (in_j_start<1) &
@@ -302,10 +379,12 @@ subroutine do_read_fraction_field(ncid,varid,lonb,latb,input_cover_types,frac)
   allocate( in_mask(nlon,in_j_count), in_frac(nlon,in_j_count,ntypes) )
 
   ! read input data
-  iret = nf_get_vara_double(ncid, varid, &
-          (/1,in_j_start,1/), (/nlon,in_j_count,ntypes/), in_frac)
-  __NF_ASRT__( iret ) 
-  __NF_ASRT__( nfu_get_valid_range(ncid,varid,v) )
+! iret = nf_get_vara_double(ncid, varid, (/1,in_j_start,1/), (/nlon,in_j_count,ntypes/), in_frac)
+  start = (/1,in_j_start,1,1/)
+  count(1:3) = shape(in_frac)
+  count(4) = 1
+  call mpp_read( input_unit, field, in_frac, start, count ) ! interface called here is mpp_read_region_r3D
+  call mpp_get_atts(field,valid=v)
 
   frac = 0
   do k = 1,size(input_cover_types)
@@ -313,8 +392,12 @@ subroutine do_read_fraction_field(ncid,varid,lonb,latb,input_cover_types,frac)
      if (cover<1.or.cover>ntypes) then
         cycle ! skip all invalid indices in the array of input cover types
      endif
-     in_mask = 0.0
-     where(nfu_is_valid(in_frac(:,:,cover),v)) in_mask = 1.0
+
+     where(mpp_is_valid(in_frac(:,:,cover),v))
+        in_mask = 1.0
+     elsewhere
+        in_mask = 0
+     end where
      call horiz_interp_new(interp, &
           in_lonb,in_latb(in_j_start:in_j_start+in_j_count), lonb,latb,&
           interp_method=trim(interp_method), mask_in=in_mask)
@@ -353,15 +436,15 @@ subroutine read_field_N_3D(filename, varname, lon, lat, data, interp)
   character(len=*), intent(in), optional :: interp
 
   ! ---- local vars ----------------------------------------------------------
-  integer :: ncid
-  integer :: iret
+  integer :: ierr, input_unit
 
-  iret = nf_open(filename,NF_NOWRITE,ncid)
-  if(iret/=NF_NOERR) then
-     call error_mesg('read_field','Can''t open netcdf file "'//trim(filename)//'"',FATAL)
-  endif
-  call read_field_I_3D(ncid, varname, lon, lat, data, interp)
-  __NF_ASRT__( nf_close(ncid) )
+  ! Files read: biodata.nc, geohydrology.nc, soil_brdf.nc
+  input_unit = -9999
+  call mpp_open(input_unit, trim(filename), action=MPP_RDONLY, form=MPP_NETCDF, &
+           threading=MPP_MULTI, fileset=MPP_SINGLE, iostat=ierr)
+  call read_field_I_3D(input_unit, varname, lon, lat, data, interp)
+  call mpp_sync()
+  call mpp_close(input_unit)
 
 end subroutine read_field_N_3D
 
@@ -381,8 +464,8 @@ subroutine read_field_I_2D(ncid, varname, lon, lat, data, interp)
 end subroutine read_field_I_2D
 
 ! ============================================================================
-subroutine read_field_I_3D(ncid, varname, lon, lat, data, interp)
-  integer, intent(in) :: ncid
+subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp)
+  integer, intent(in) :: input_unit
   character(len=*), intent(in) :: varname
   real, intent(in) :: lon(:,:),lat(:,:)
   real, intent(out) :: data(:,:,:)
@@ -391,25 +474,50 @@ subroutine read_field_I_3D(ncid, varname, lon, lat, data, interp)
   ! ---- local vars ----------------------------------------------------------
   integer :: nlon, nlat, nlev ! size of input grid
   integer :: varndims ! number of variable dimension
-  integer :: vardims(NF_MAX_VAR_DIMS) ! IDs of variable dimension
-  integer :: dimlens(NF_MAX_VAR_DIMS) ! sizes of respective dimensions
+  integer :: vardims(1024) ! IDs of variable dimension
+  integer :: dimlens(1024) ! sizes of respective dimensions
   real,    allocatable :: in_lonb(:), in_latb(:), in_lon(:), in_lat(:)
   real,    allocatable :: x(:,:,:) ! input buffer
   logical, allocatable :: mask(:,:,:) ! mask of valid values
   real,    allocatable :: rmask(:,:,:) ! real mask for interpolator
   character(len=20) :: interpolation 
   integer :: i,j,k,imap,jmap !
-  type(nfu_validtype) :: v
+  type(validtype) :: v
+  integer :: ndim,nvar,natt,nrec
+  type(axistype), allocatable :: all_axes(:), varaxes(:)
+  type(axistype):: axis_bnd
+  type(fieldtype), allocatable :: fields(:)
+  type(fieldtype) :: fld
+  character(len=256) :: bnd_name, axis_name, field_name, file_name
+  character(len=512) :: err_msg
+  logical :: found
+  integer :: bnd_ndims, bnd_index
+  real, allocatable  :: bnd_data(:,:)
+  integer :: bnd_dimlens(4)
 
   interpolation = "bilinear"
   if(present(interp)) interpolation = interp
   
+  call mpp_get_info(input_unit,ndim,nvar,natt,nrec)
+  allocate(fields(nvar), all_axes(ndim))
+  call mpp_get_axes(input_unit, all_axes)
+  call mpp_get_fields(input_unit, fields)
+  k = mpp_get_field_index(fields,trim(varname))
+  if(k > 0) then
+    fld = fields(k)
+  else
+    file_name = mpp_get_file_name(input_unit)
+    call error_mesg('read_field','variable "'//trim(varname)//'" not found in file "'//trim(file_name)//'"',FATAL)
+  endif
   ! get the dimensions of our variable
-  __NF_ASRT__( nfu_inq_var(ncid,varname,ndims=varndims,dimids=vardims,dimlens=dimlens) )
+
+  call mpp_get_atts(fld, ndim=varndims, siz=dimlens, valid=v)
   if(varndims<2.or.varndims>3) then
      call error_mesg('read_field','variable "'//trim(varname)//'" is '//string(varndims)//&
           'D, but only reading 2D or 3D variables is supported', FATAL)
   endif
+  allocate(varaxes(varndims))
+  call mpp_get_atts(fld, axes=varaxes)
   nlon = dimlens(1) ; nlat = dimlens(2)
   nlev = 1; 
   if (varndims==3) nlev=dimlens(3)
@@ -426,16 +534,76 @@ subroutine read_field_I_3D(ncid, varname, lon, lat, data, interp)
        mask    (nlon, nlat, nlev) , rmask(nlon, nlat, nlev) )
 
   ! read boundaries of the grid cells in longitudinal direction
-  __NF_ASRT__(nfu_get_dim(ncid, vardims(1), in_lon))
-  __NF_ASRT__(nfu_get_dim(ncid, vardims(2), in_lat))
+  call mpp_get_axis_data(varaxes(1), in_lon)
+  call mpp_get_axis_data(varaxes(2), in_lat)
   in_lon = in_lon*PI/180.0; in_lat = in_lat*PI/180.0
-  __NF_ASRT__(nfu_get_dim_bounds(ncid, vardims(1), in_lonb))
-  __NF_ASRT__(nfu_get_dim_bounds(ncid, vardims(2), in_latb))
+  call get_axis_bounds(varaxes(1), axis_bnd, all_axes)
+  call mpp_get_axis_data(axis_bnd, in_lonb)
+  err_msg = ''
+  call get_axis_bounds(varaxes(2), axis_bnd, all_axes, bnd_name=bnd_name, err_msg=err_msg)
+  if(len_trim(err_msg) > 0 ) then
+    ! The boundary data for varaxes(2) was not found amoung the axes passed in as "all_axes".
+    ! Look for a field (as opposed to as axis) that has the name of the boundary data.
+    bnd_index = mpp_get_field_index(fields,bnd_name)
+    if(bnd_index > 0) then
+      found = .TRUE.
+    else
+      found = .FALSE.
+    endif
+
+    ! There are multiple error checks in the code below.
+    ! Each requires a long error message. The bulk of the error
+    ! message is assigned here in case it is needed later.
+    file_name = mpp_get_file_name(input_unit)
+    call mpp_get_atts(varaxes(2), name=axis_name)
+    err_msg = 'axis bound "'//trim(bnd_name)//'" of axis "'//trim(axis_name)
+    err_msg = trim(err_msg)//'" of variable "'//trim(varname)//'" of file "'//trim(file_name)//'"'
+
+    if(.not.found) then
+      ! Neither an axis or a field was found that has the name of the boundary data.
+      err_msg = trim(err_msg)//'  The axis bound name is not found in this file.'
+      call error_mesg('read_field',trim(err_msg),FATAL)
+    endif
+
+    if(found) then
+      ! A field was found that has the name of the boundary data.
+      ! This field could have one or two dimensions.
+      ! Lets handle both cases.
+      call mpp_get_atts(fields(bnd_index), ndim=bnd_ndims, siz=bnd_dimlens)
+      if(bnd_ndims < 1 .or. bnd_ndims > 2) then
+        err_msg = trim(err_msg)//'  The axis bound data has more that 2 dimensions. Only 1 or 2 is allowed.'
+        call error_mesg('read_field',trim(err_msg),FATAL)
+      endif
+      if(bnd_dimlens(2) < nlat .or. bnd_dimlens(2) > nlat+1) then
+         err_msg = trim(err_msg)//'  The size of the axis bound data does not conform to the size of the axis data.'
+         call error_mesg('read_field',trim(err_msg),FATAL)
+      endif
+      if(bnd_ndims == 1) then
+        allocate(bnd_data(nlat+1,1))
+      else if(bnd_ndims == 2) then
+        if(bnd_dimlens(1) /= 2) then
+          err_msg = trim(err_msg)//'  The first dimension of the bound data must be 2 or nlat'
+          call error_mesg('read_field',trim(err_msg),FATAL)
+        endif
+        allocate(bnd_data(2,nlat))
+      endif
+      call mpp_read(input_unit, fields(bnd_index), bnd_data)
+      if(bnd_ndims == 1) then
+        in_latb = bnd_data(:,1)
+      else
+        in_latb(1:nlat) = bnd_data(1,:)
+        in_latb(nlat+1) = bnd_data(2,nlat)
+      endif
+      deallocate(bnd_data)
+    endif
+  else
+    call mpp_get_axis_data(axis_bnd, in_latb)
+  endif
   in_lonb = in_lonb*PI/180.0; in_latb = in_latb*PI/180.0
-  __NF_ASRT__(nfu_get_valid_range(ncid,varname,v))
   ! read input data
-  __NF_ASRT__( nfu_get_var(ncid,varname,x) ) ! assuming real is real*8
-  mask = nfu_is_valid(x,v)
+  call mpp_read(input_unit, fld, x)
+  
+  mask = mpp_is_valid(x,v)
   rmask = 1.0
   where(.not.mask) rmask = 0.0
 
@@ -459,6 +627,7 @@ subroutine read_field_I_3D(ncid, varname, lon, lat, data, interp)
   end select
 
   deallocate(in_lonb, in_latb, in_lon, in_lat, x, mask, rmask)
+  deallocate(all_axes, varaxes, fields)
 
 end subroutine read_field_I_3D
 

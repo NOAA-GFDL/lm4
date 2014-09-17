@@ -63,8 +63,8 @@ public :: large_dyn_small_stat
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'lake',&
-    version     = '$Id: lake.F90,v 20.0.4.1.2.1 2014/02/28 17:21:28 Niki.Zadeh Exp $',&
-    tagname     = '$Name: tikal_201403 $'
+    version     = '$Id: lake.F90,v 20.0.4.1.2.1.4.2 2014/06/07 13:58:55 Peter.Phillipps Exp $',&
+    tagname     = '$Name: tikal_201409 $'
 
 ! ==== module variables ======================================================
 
@@ -180,10 +180,10 @@ end subroutine read_lake_namelist
 
 ! ============================================================================
 ! initialize lake model
-subroutine lake_init ( id_lon, id_lat, new_restart )
+subroutine lake_init ( id_lon, id_lat, new_land_io )
   integer, intent(in) :: id_lon  ! ID of land longitude (X) axis  
   integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
-  logical, intent(in)  :: new_restart  ! This is a transition var and will be removed
+  logical, intent(in)  :: new_land_io  ! This is a transition var and will be removed
 
   ! ---- local vars 
   integer :: unit         ! unit for various i/o
@@ -292,7 +292,7 @@ deallocate (buffer, bufferc, buffert)
   call get_input_restart_name(restart_base_name,restart_exists,restart_file_name)
   if (restart_exists) then
      call error_mesg('lake_init', 'reading NetCDF restart "'//trim(restart_file_name)//'"', NOTE)
-     if(new_restart)then
+     if(new_land_io)then
          call error_mesg('lake_init', 'Using new lake restart read', NOTE)
  
          restart_file_name = restart_base_name
@@ -1109,78 +1109,54 @@ end function lake_tile_exists
 subroutine lake_dz_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
-   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%lake)) then
-        n = size(tile%lake%dz)
-        ptr(1:n) => tile%lake%dz(1:n)
-      endif
+      if(associated(tile%lake)) ptr => tile%lake%dz(:)
    endif
 end subroutine lake_dz_ptr
 
 subroutine lake_temp_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
-   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%lake)) then
-        n = size(tile%lake%T)
-        ptr(1:n) => tile%lake%T(1:n)
-      endif
+      if(associated(tile%lake)) ptr => tile%lake%T(:)
    endif
 end subroutine lake_temp_ptr
 
 subroutine lake_wl_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
-   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%lake)) then
-        n = size(tile%lake%wl)
-        ptr(1:n) => tile%lake%wl(1:n)
-      endif
+      if(associated(tile%lake)) ptr => tile%lake%wl(:)
    endif
 end subroutine lake_wl_ptr
 
 subroutine lake_ws_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
-   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%lake)) then
-        n = size(tile%lake%ws)
-        ptr(1:n) => tile%lake%ws(1:n)
-      endif
+      if(associated(tile%lake)) ptr => tile%lake%ws(:)
    endif
 end subroutine lake_ws_ptr
 
 subroutine lake_gw_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
-   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%lake)) then
-        n = size(tile%lake%groundwater)
-        ptr(1:n) => tile%lake%groundwater(1:n)
-      endif
+      if(associated(tile%lake)) ptr => tile%lake%groundwater(:)
    endif
 end subroutine lake_gw_ptr
 
 subroutine lake_gwT_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
-   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%lake)) then
-        n = size(tile%lake%groundwater_T)
-        ptr(1:n) => tile%lake%groundwater_T(1:n)
-      endif
+      if(associated(tile%lake)) ptr => tile%lake%groundwater_T(:)
    endif
 end subroutine lake_gwT_ptr
 

@@ -28,7 +28,7 @@ public :: darcy2d_uptake_lin, darcy2d_uptake_solver_lin
 character(len=*), parameter, private   :: &
     module_name = 'uptake',&
     version     = '$Id: uptake.F90,v 20.0.2.1 2014/02/19 19:08:44 Sergey.Malyshev Exp $',&
-    tagname     = '$Name: tikal_201403 $'
+    tagname     = '$Name: tikal_201409 $'
 
 ! values for internal soil uptake option selector
 integer, parameter ::   &

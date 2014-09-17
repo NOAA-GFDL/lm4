@@ -8,6 +8,10 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
+use mpp_io_mod, only : &
+     mpp_open, mpp_close, MPP_NETCDF, MPP_MULTI, MPP_SINGLE, MPP_RDONLY, &
+     mpp_get_fields, mpp_get_atts, mpp_get_field_index, fieldtype, &
+     axistype, mpp_get_info
 use fms_mod, only : &
      write_version_number, file_exist, check_nml_error, &
      close_file, stdlog, read_data, error_mesg, FATAL
@@ -22,10 +26,6 @@ use land_tile_selectors_mod, only : &
 
 implicit none
 private
-
-! ==== netcdf declarations ===================================================
-include 'netcdf.inc'
-#define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
 
 ! ==== public interfaces =====================================================
 public :: soil_pars_type
@@ -73,8 +73,8 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), parameter   :: &
-     version     = '$Id: soil_tile.F90,v 20.0.2.1 2014/02/19 19:08:44 Sergey.Malyshev Exp $', &
-     tagname     = '$Name: tikal_201403 $', &
+     version     = '$Id: soil_tile.F90,v 20.0.2.1.2.2 2014/06/16 20:11:08 Peter.Phillipps Exp $', &
+     tagname     = '$Name: tikal_201409 $', &
      module_name = 'soil_tile_mod'
 
 integer, parameter :: max_lev          = 100 
@@ -418,8 +418,11 @@ subroutine read_soil_data_namelist(soil_num_l, soil_dz, soil_single_geo, &
   integer :: unit         ! unit for namelist i/o
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
-  integer :: i, rcode, ncid, varid, dimids(3)
+  integer :: i, rcode, input_unit, varid, dimids(3)
+  integer :: ndim, nvar, natt, timelen
   real    :: z
+  type(fieldtype), allocatable :: Fields(:)
+  type(axistype),  allocatable :: axes(:)
 
   call write_version_number(version, tagname)
 #ifdef INTERNAL_FILE_NML
@@ -494,13 +497,26 @@ subroutine read_soil_data_namelist(soil_num_l, soil_dz, soil_single_geo, &
      call read_data('INPUT/geohydrology_table.nc', 'gw_area_norm', &
                  gw_area_table, no_domain=.true.)
   else if (gw_option==GW_HILL.or.gw_option==GW_HILL_AR5) then
-     __NF_ASRT__(nf_open('INPUT/geohydrology_table.nc',NF_NOWRITE,ncid))
-     __NF_ASRT__(nf_inq_varid(ncid,'log_rho',varid))
-     __NF_ASRT__(nf_inq_vardimid(ncid,varid,dimids))
-     __NF_ASRT__(nf_inq_dimlen(ncid,dimids(1),num_storage_pts))
-     __NF_ASRT__(nf_inq_dimlen(ncid,dimids(2),num_tau_pts))
-     __NF_ASRT__(nf_inq_dimlen(ncid,dimids(3),num_zeta_pts))
-     __NF_ASRT__(nf_close(ncid))
+!    __NF_ASRT__(nf_open('INPUT/geohydrology_table.nc',NF_NOWRITE,ncid))
+!    __NF_ASRT__(nf_inq_varid(ncid,'log_rho',varid))
+!    __NF_ASRT__(nf_inq_vardimid(ncid,varid,dimids))
+!    __NF_ASRT__(nf_inq_dimlen(ncid,dimids(1),num_storage_pts))
+!    __NF_ASRT__(nf_inq_dimlen(ncid,dimids(2),num_tau_pts))
+!    __NF_ASRT__(nf_inq_dimlen(ncid,dimids(3),num_zeta_pts))
+!    __NF_ASRT__(nf_close(ncid))
+     call mpp_open(input_unit, 'INPUT/geohydrology_table.nc', action=MPP_RDONLY, form=MPP_NETCDF, &
+          threading=MPP_MULTI, fileset=MPP_SINGLE, iostat=ierr)
+     call mpp_get_info(input_unit,ndim,nvar,natt,timelen)
+     allocate(Fields(nvar))
+     call mpp_get_fields(input_unit, Fields)
+     call mpp_get_atts(Fields(mpp_get_field_index(Fields, 'log_rho')), ndim=ndim)
+     allocate (axes(ndim))
+     call mpp_get_atts(Fields(mpp_get_field_index(Fields, 'log_rho')), axes=axes)
+     call mpp_get_atts(axes(1), len=num_storage_pts)
+     call mpp_get_atts(axes(2), len=num_tau_pts)
+     call mpp_get_atts(axes(3), len=num_zeta_pts)
+     call mpp_close(input_unit)
+     deallocate (Fields, axes)
      
      allocate (log_rho_table(num_storage_pts,  &
                                  num_tau_pts, num_zeta_pts))

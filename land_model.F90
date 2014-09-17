@@ -94,6 +94,7 @@ use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
 use static_vegn_mod, only : write_static_vegn
 use land_transitions_mod, only : &
      land_transitions_init, land_transitions_end, land_transitions, &
+     land_transitions_init_new, land_transitions_new, &
      save_land_transitions_restart
 use stock_constants_mod, only: ISTOCK_WATER, ISTOCK_HEAT, ISTOCK_SALT
 
@@ -117,8 +118,8 @@ public :: Lnd_stock_pe          ! return stocks of conservative quantities
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land', &
-     version     = '$Id: land_model.F90,v 20.0.2.1.4.1.2.1.2.1.2.2 2014/02/28 17:58:27 Niki.Zadeh Exp $', &
-     tagname     = '$Name: tikal_201403 $'
+     version     = '$Id: land_model.F90,v 20.0.2.1.4.1.2.1.2.1.2.2.2.2 2014/05/28 20:46:32 pjp Exp $', &
+     tagname     = '$Name: tikal_201409 $'
 
 ! ==== module variables ======================================================
 
@@ -149,9 +150,7 @@ character(16) :: nearest_point_search = 'global' ! specifies where to look for
               ! nearest points for missing data, "global" or "face"
 logical :: print_remapping = .FALSE. ! if true, full land cover remapping
               ! information is printed on the cold start
-logical :: new_land_restart=.false.
-logical :: new_land_restart_read=.false.
-logical :: new_land_restart_write=.false.
+logical :: new_land_io=.false.
 integer :: layout(2) = (/0,0/)
 integer :: io_layout(2) = (/0,0/)
 namelist /land_model_nml/ use_old_conservation_equations, &
@@ -164,8 +163,7 @@ namelist /land_model_nml/ use_old_conservation_equations, &
                           con_fac_large, con_fac_small, num_c, &
                           tau_snow_T_adj, prohibit_negative_canopy_water, &
                           nearest_point_search, print_remapping, &
-                          layout, io_layout, new_land_restart, &
-                          new_land_restart_read, new_land_restart_write
+                          layout, io_layout, new_land_io
 ! ---- end of namelist -------------------------------------------------------
 
 logical  :: module_is_initialized = .FALSE.
@@ -275,7 +273,7 @@ subroutine land_model_init &
   type(land_tile_enum_type) :: ce, te
   character(len=256) :: restart_file_name
   character(len=17) :: restart_base_name='INPUT/land.res.nc'
-  logical :: restart_exists, found, new_restart
+  logical :: restart_exists, found
 
   ! IDs of local clocks
   integer :: landInitClock
@@ -346,8 +344,7 @@ subroutine land_model_init &
           'reading NetCDF restart "'//trim(restart_file_name)//'"',&
           NOTE)
   
-     new_restart = new_land_restart .or. new_land_restart_read
-     if(new_restart)then
+     if(new_land_io)then
 
      restart_file_name = restart_base_name
      call error_mesg('land_model_init', 'Using new land restart read', NOTE)
@@ -419,27 +416,32 @@ subroutine land_model_init &
   num_species = num_phys + num_c
   if (do_age) num_species = num_species + 1
 
-  call soil_init ( id_lon, id_lat, id_band, new_restart )
-  call vegn_init ( id_lon, id_lat, id_band, new_restart )
-  call lake_init ( id_lon, id_lat, new_restart )
-  call glac_init ( id_lon, id_lat, new_restart )
-  call snow_init ( id_lon, id_lat, new_restart )
-  call cana_init ( id_lon, id_lat, new_restart )
+  call soil_init ( id_lon, id_lat, id_band, new_land_io )
+  call vegn_init ( id_lon, id_lat, id_band, new_land_io )
+  call lake_init ( id_lon, id_lat, new_land_io )
+  call glac_init ( id_lon, id_lat, new_land_io )
+  call snow_init ( id_lon, id_lat, new_land_io )
+  call cana_init ( id_lon, id_lat, new_land_io )
   call topo_rough_init( lnd%time, lnd%lonb, lnd%latb, &
        lnd%domain, id_lon, id_lat)
   allocate (river_land_mask(lnd%is:lnd%ie,lnd%js:lnd%je))
   allocate ( missing_rivers(lnd%is:lnd%ie,lnd%js:lnd%je))
   allocate ( no_riv        (lnd%is:lnd%ie,lnd%js:lnd%je))
   call river_init( lnd%lon, lnd%lat, &
-                   lnd%time, lnd%dt_fast, lnd%domain,     &
-                   frac, &
-                   id_lon, id_lat,                        &
-                   river_land_mask                        )
+                   lnd%time, lnd%dt_fast, lnd%domain, &
+                   frac,                              &
+                   id_lon, id_lat,                    &
+                   new_land_io,                       &
+                   river_land_mask                    )
   missing_rivers = frac.gt.0. .and. .not.river_land_mask
   no_riv = 0.
   where (missing_rivers) no_riv = 1.
   if ( id_no_riv > 0 ) used = send_data( id_no_riv, no_riv, lnd%time )
-  call land_transitions_init (id_lon, id_lat) 
+  if(new_land_io) then
+    call land_transitions_init_new (id_lon, id_lat) 
+  else
+    call land_transitions_init (id_lon, id_lat) 
+  endif
   ! [8] initialize boundary data
   ! [8.1] allocate storage for the boundary data 
   call realloc_land2cplr ( land2cplr )
@@ -542,7 +544,7 @@ end subroutine land_model_end
 subroutine land_model_restart(timestamp)
   character(*), intent(in), optional :: timestamp ! timestamp to add to the file name
   
-  if (new_land_restart .or. new_land_restart_write) then
+  if (new_land_io) then
      call land_model_restart_new(timestamp)
   else
      call land_model_restart_orig(timestamp)
@@ -2132,7 +2134,11 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   call mpp_clock_begin(landClock)
   call mpp_clock_begin(landSlowClock)
 
-  call land_transitions( lnd%time )
+  if(new_land_io) then
+    call land_transitions_new( lnd%time )
+  else
+    call land_transitions( lnd%time )
+  endif
   call update_vegn_slow( )
   ! send the accumulated diagnostics to the output
   call dump_tile_diag_fields(lnd%tile_map, lnd%time)

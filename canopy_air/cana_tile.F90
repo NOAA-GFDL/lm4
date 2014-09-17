@@ -39,7 +39,7 @@ end interface
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      version = '$Id: cana_tile.F90,v 18.0.28.1 2014/02/19 19:08:43 Sergey.Malyshev Exp $', &
-     tagname = '$Name: tikal_201403 $'
+     tagname = '$Name: tikal_201409 $'
 
 ! ==== data types ======================================================
 type :: cana_tile_type

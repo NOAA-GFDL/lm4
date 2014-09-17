@@ -51,7 +51,7 @@ public :: land_state_type
 character(len=*), parameter :: &
      module_name = 'land_data_mod', &
      version     = '$Id: land_data.F90,v 20.0.2.1 2014/01/17 21:20:31 Peter.Phillipps Exp $', &
-     tagname     = '$Name: tikal_201403 $'
+     tagname     = '$Name: tikal_201409 $'
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
 ! It is supposed to be double-precision signaling NaN, to trigger a trap when
