@@ -53,8 +53,8 @@ public :: write_static_vegn
 ! ==== module constants =====================================================
 character(len=*), parameter :: &
      module_name = 'static_vegn_mod', &
-     version     = '$Id: vegn_static_override.F90,v 20.0.2.6 2014/08/18 15:42:23 Peter.Phillipps Exp $', &
-     tagname     = '$Name: tikal_201409 $'
+     version     = '$Id: vegn_static_override.F90,v 21.0 2014/12/15 21:51:45 fms Exp $', &
+     tagname     = '$Name: ulm $'
 
 ! ==== module data ==========================================================
 logical :: module_is_initialized = .FALSE.
@@ -291,8 +291,8 @@ subroutine static_vegn_init(new_land_io)
           call get_field_size(trim(input_file),'cohort_index',siz, domain=lnd%domain)
           allocate(cidx(siz(1)), idata(siz(1)))
           call set_domain(lnd%domain)
-          call read_compressed(trim(input_file),'cohort_index',cidx)
-          call read_compressed(trim(input_file),'species', idata, timelevel=1)
+          call read_compressed(trim(input_file),'cohort_index',cidx,timelevel=1)
+          call read_compressed(trim(input_file),'species', idata,timelevel=1)
           do n = 1,size(cidx)
              m = cidx(n)
              i = modulo(m,dimlens(1))+1
@@ -484,7 +484,7 @@ subroutine static_vegn_init(new_land_io)
              bliving, longname='total living biomass per individual', units='', compressed_axis='H')
         id = register_restart_field(static_veg_file,'static_veg_out.nc','status', &
              status, longname='leaf status', units='', compressed_axis='H')
-        call save_restart(static_veg_file,time_level=-1.0)
+        call save_restart(static_veg_file,directory='',time_level=-1.0)
      else
         call create_tile_out_file(ncid2,'static_veg_out.nc', &
              lnd%coord_glon, lnd%coord_glat, vegn_tile_exists, tile_dim_length)
@@ -560,7 +560,7 @@ subroutine read_static_vegn (time, err_msg)
   if(new_land_io_for_static_vegn) then
      call get_field_size(trim(input_file),'cohort_index',siz, domain=lnd%domain)
      allocate(cidx(siz(1)), idata(siz(1)), rdata(siz(1)))
-     call read_compressed(trim(input_file),'cohort_index',cidx, domain=lnd%domain)
+     call read_compressed(trim(input_file),'cohort_index',cidx, domain=lnd%domain, timelevel=index1)
      call read_compressed(trim(input_file),'species', idata, domain=lnd%domain, timelevel=index1)
      call read_remap_cohort_data_i0d_new(Fields(ispecies), cohort_species_ptr, map_i, map_j, cidx, idata)
      call read_compressed(trim(input_file),'bl', rdata, domain=lnd%domain, timelevel=index1)
@@ -622,7 +622,7 @@ subroutine write_static_vegn()
      call gather_cohort_data(cohort_bwood_ptr,cidx,tile_dim_length,bwood)
      call gather_cohort_data(cohort_bliving_ptr,cidx,tile_dim_length,bliving)
      call gather_cohort_data(cohort_status_ptr,cidx,tile_dim_length,status)
-     call save_restart(static_veg_file,time_level=t,append=.true.)
+     call save_restart(static_veg_file,directory='',time_level=t,append=.true.)
   else
      ! sync output files with the disk so that every processor sees the same 
      ! information, number of records being critical here

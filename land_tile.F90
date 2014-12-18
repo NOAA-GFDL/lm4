@@ -15,6 +15,7 @@ use soil_tile_mod, only : &
      soil_tile_type, new_soil_tile, delete_soil_tile, soil_is_selected, &
      soil_tiles_can_be_merged, merge_soil_tiles, get_soil_tile_tag, &
      soil_tile_stock_pe, soil_tile_carbon, soil_tile_heat
+use hillslope_tile_mod, only : hlsp_is_selected
 use cana_tile_mod, only : &
      cana_tile_type, new_cana_tile, delete_cana_tile, cana_is_selected, &
      cana_tiles_can_be_merged, merge_cana_tiles, get_cana_tile_tag, &
@@ -28,7 +29,7 @@ use snow_tile_mod, only : &
      snow_tiles_can_be_merged, merge_snow_tiles, get_snow_tile_tag, &
      snow_tile_stock_pe, snow_tile_heat
 use land_tile_selectors_mod, only : tile_selector_type, &
-     SEL_SOIL, SEL_VEGN, SEL_LAKE, SEL_GLAC, SEL_SNOW, SEL_CANA
+     SEL_SOIL, SEL_VEGN, SEL_LAKE, SEL_GLAC, SEL_SNOW, SEL_CANA, SEL_HLSP
 use tile_diag_buff_mod, only : &
      diag_buff_type, new_diag_buff, delete_diag_buff
 
@@ -105,8 +106,8 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
-     version = '$Id: land_tile.F90,v 20.0 2013/12/13 23:29:28 fms Exp $', &
-     tagname = '$Name: tikal_201409 $'
+     version = '$Id: land_tile.F90,v 21.0 2014/12/15 21:50:31 fms Exp $', &
+     tagname = '$Name: ulm $'
 
 ! ==== data types ============================================================
 ! land_tile_type describes the structure of the land model tile; basically
@@ -186,11 +187,13 @@ contains
 ! ============================================================================
 ! tile constructor: given a list of sub-model tile tags, creates a land tile
 ! calls sub-tile constructors from individual component models
-function land_tile_ctor(frac,glac,lake,soil,vegn,tag) result(tile)
+function land_tile_ctor(frac,glac,lake,soil,vegn,tag,htag_j,htag_k) result(tile)
   real   , optional, intent(in) :: frac ! fractional area of tile
   integer, optional, intent(in) :: &
                glac,lake,soil,vegn ! kinds of respective tiles
   integer, optional, intent(in) :: tag  ! general tile tag
+  integer, optional, intent(in) :: htag_j  ! optional hillslope position tag
+  integer, optional, intent(in) :: htag_k  ! optional hillslope parent tag
   type(land_tile_type), pointer :: tile ! return value
 
   ! ---- local vars
@@ -212,7 +215,14 @@ function land_tile_ctor(frac,glac,lake,soil,vegn,tag) result(tile)
   if(glac_>=0) tile%glac => new_glac_tile(glac_)
   if(lake_>=0) tile%lake => new_lake_tile(lake_)
   tile%snow => new_snow_tile()
-  if(soil_>=0) tile%soil => new_soil_tile(soil_)
+  if(soil_>=0) then
+    if (present(htag_j) .and. present(htag_k)) then
+        tile%soil => new_soil_tile(soil_, htag_j, htag_k)
+    else
+        tile%soil => new_soil_tile(soil_, 0, 0) ! Hillslope model is inactive or
+        ! these indices will be set in hlsp_init.
+    end if
+  end if
   if(vegn_>=0) tile%vegn => new_vegn_tile(vegn_)
 
   ! create a buffer for diagnostic output
@@ -353,7 +363,7 @@ function land_tile_carbon(tile) result(carbon) ; real carbon
      carbon = carbon + vegn_tile_carbon(tile%vegn)
   if (associated(tile%soil)) &
      carbon = carbon + soil_tile_carbon(tile%soil)
-end function 
+end function
 
 
 ! ============================================================================
@@ -733,7 +743,7 @@ function current_tile(ce) result(ptr)
   type(land_tile_enum_type), intent(in) :: ce 
 
   ptr => ce%node%data
-end function 
+end function
 
 ! ============================================================================
 ! returns indices corresponding to the enumerator; for enumerator associated
@@ -832,6 +842,9 @@ function tile_is_selected(tile, sel)
   case(SEL_CANA)
      if(associated(tile%cana)) &
           tile_is_selected = cana_is_selected(tile%cana,sel)
+  case(SEL_HLSP)
+     if(associated(tile%soil)) &
+          tile_is_selected = hlsp_is_selected(tile%soil,sel)
   case default
      tile_is_selected=.true.
   end select

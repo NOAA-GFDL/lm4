@@ -29,7 +29,8 @@ use land_constants_mod, only : &
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
 use land_tile_diag_mod, only : &
-     register_tiled_diag_field, send_tile_data, diag_buff_type
+     register_tiled_diag_field, send_tile_data, diag_buff_type, &
+     set_default_diag_filter
 use land_data_mod,      only : land_state_type, lnd
 use land_io_mod, only : print_netcdf_error
 use land_tile_io_mod, only: create_tile_out_file, read_tile_data_r1d_fptr, &
@@ -58,8 +59,8 @@ public :: glac_step_2
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
        module_name = 'glacier',&
-       version     = '$Id: glacier.F90,v 20.0.2.1.6.1.4.2 2014/06/07 13:58:54 Peter.Phillipps Exp $',&
-       tagname     = '$Name: tikal_201409 $'
+       version     = '$Id: glacier.F90,v 21.0 2014/12/15 21:50:39 fms Exp $',&
+       tagname     = '$Name: ulm $'
  
 ! ==== module variables ======================================================
 
@@ -69,9 +70,8 @@ logical :: conserve_glacier_mass = .true.
 character(len=16):: albedo_to_use = ''  ! or 'brdf-params'
 real    :: init_temp            = 260.       ! cold-start glac T
 real    :: init_w               = 150.       ! cold-start w(l)/dz(l)
-real    :: init_groundwater     =   0.       ! cold-start gw storage
 namelist /glac_nml/ lm2, conserve_glacier_mass,  albedo_to_use, &
-                    init_temp, init_w, init_groundwater, cpw, clw, csw
+                    init_temp, init_w, cpw, clw, csw
 !---- end of namelist --------------------------------------------------------
 
 logical         :: module_is_initialized =.FALSE.
@@ -181,22 +181,16 @@ subroutine glac_init ( id_lon, id_lat, new_land_io )
         nz = siz(1)
         allocate(idx(isize),r1d(isize,nz))
 
-        call read_compressed(restart_base_name,'tile_index',idx, domain=lnd%domain)
+        call read_compressed(restart_base_name,'tile_index',idx, domain=lnd%domain, timelevel=1)
 
-        call read_compressed(restart_base_name,'temp',r1d, domain=lnd%domain)
+        call read_compressed(restart_base_name,'temp',r1d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(glac_temp_ptr,idx,r1d)
 
-        call read_compressed(restart_base_name,'wl',r1d, domain=lnd%domain)
+        call read_compressed(restart_base_name,'wl',r1d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(glac_wl_ptr,idx,r1d)
 
-        call read_compressed(restart_base_name,'ws',r1d, domain=lnd%domain)
+        call read_compressed(restart_base_name,'ws',r1d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(glac_ws_ptr,idx,r1d)
-
-        call read_compressed(restart_base_name,'groundwater',r1d, domain=lnd%domain)
-        call assemble_tiles(glac_gw_ptr,idx,r1d)
-
-        call read_compressed(restart_base_name,'groundwater_T',r1d, domain=lnd%domain)
-        call assemble_tiles(glac_gwT_ptr,idx,r1d)
 
         deallocate(idx,r1d)
      else
@@ -204,8 +198,6 @@ subroutine glac_init ( id_lon, id_lat, new_land_io )
      call read_tile_data_r1d_fptr(unit, 'temp'         , glac_temp_ptr  )
      call read_tile_data_r1d_fptr(unit, 'wl'           , glac_wl_ptr )
      call read_tile_data_r1d_fptr(unit, 'ws'           , glac_ws_ptr )
-     call read_tile_data_r1d_fptr(unit, 'groundwater'  , glac_gw_ptr )
-     call read_tile_data_r1d_fptr(unit, 'groundwater_T', glac_gwT_ptr)
      __NF_ASRT__(nf_close(unit))     
      endif
   else
@@ -228,8 +220,6 @@ subroutine glac_init ( id_lon, id_lat, new_land_io )
            tile%glac%ws(1:num_l) = init_w*dz(1:num_l)
         endif
         tile%glac%T             = init_temp
-        tile%glac%groundwater   = init_groundwater
-        tile%glac%groundwater_T = init_temp
      enddo
   endif
   
@@ -286,8 +276,6 @@ subroutine save_glac_restart (tile_dim_length, timestamp)
   call write_tile_data_r1d_fptr(unit,'temp'         ,glac_temp_ptr,'zfull','glacier temperature','degrees_K')
   call write_tile_data_r1d_fptr(unit,'wl'           ,glac_wl_ptr  ,'zfull','liquid water content','kg/m2')
   call write_tile_data_r1d_fptr(unit,'ws'           ,glac_ws_ptr  ,'zfull','solid water content','kg/m2')
-  call write_tile_data_r1d_fptr(unit,'groundwater'  ,glac_gw_ptr  ,'zfull')
-  call write_tile_data_r1d_fptr(unit,'groundwater_T',glac_gwT_ptr ,'zfull')
    
   ! close file
   __NF_ASRT__(nf_close(unit))
@@ -335,12 +323,6 @@ subroutine save_glac_restart_new (tile_dim_length, timestamp)
   call gather_tile_data(glac_ws_ptr,idx,ws)
   id_restart = register_restart_field(glac_restart,fname,'ws',ws,compressed=.true., &
                                       longname='solid water content',units='kg/m2')
-
-  call gather_tile_data(glac_gw_ptr,idx,gw)
-  id_restart = register_restart_field(glac_restart,fname,'groundwater',gw,compressed=.true.)
-
-  call gather_tile_data(glac_gwT_ptr,idx,gwT)
-  id_restart = register_restart_field(glac_restart,fname,'groundwater_T',gwT,compressed=.true.)
 
   ! save performs io domain aggregation through mpp_io as with regular domain data
   call save_restart(glac_restart)
@@ -574,8 +556,7 @@ end subroutine glac_step_1
              ' T =', glac%T(l),&
              ' Th=', (glac%ws(l)+glac%wl(l))/(dens_h2o*dz(l)),&
              ' wl=', glac%wl(l),&
-             ' ws=', glac%ws(l),&
-             ' gw=', glac%groundwater(l)
+             ' ws=', glac%ws(l)
      enddo
      
   endif
@@ -862,10 +843,8 @@ ELSE   ! ****************************************************************
      write(*,*) 'delta_time,tau_gw,c0,c1,c2,x', delta_time,tau_gw,c0,&
           c1,c2,x
      write(*,*) 'level=', num_l+1, ' flow ',flow(num_l+1)
-     write(*,*) 'gw(1)',glac%groundwater(1)
   endif
 
-  ! ---- groundwater ---------------------------------------------------------
   ! THIS T AVERAGING IS WRONG, BECAUSE IT NEGLECTS THE MEDIUM  ***
   ! ALSO, FREEZE-THAW IS NEEDED!
   ! PROBABLY THIS SECTION WILL BE DELETED ANYWAY, WITH GW TREATED ABOVE.
@@ -927,8 +906,7 @@ ELSE   ! ****************************************************************
              ' T =', glac%T(l), &
              ' Th=', (glac%ws(l)+glac%wl(l))/(dens_h2o*dz(l)),&
              ' wl=', glac%wl(l),&
-             ' ws=', glac%ws(l),&
-             ' gw=', glac%groundwater(l)
+             ' ws=', glac%ws(l)
      enddo
   endif
 
@@ -979,6 +957,9 @@ subroutine glac_diag_init ( id_lon, id_lat, zfull, zhalf )
 
   ! define array of axis indices
   axes = (/ id_lon, id_lat, id_zfull /)
+
+  ! set the default sub-sampling filter for the fields below
+  call set_default_diag_filter('glac')
 
   ! define diagnostic fields
   id_lwc = register_tiled_diag_field ( module_name, 'glac_liq', axes,        &
@@ -1044,23 +1025,5 @@ subroutine glac_ws_ptr(tile, ptr)
       if(associated(tile%glac)) ptr => tile%glac%ws(:)
    endif
 end subroutine glac_ws_ptr
-
-subroutine glac_gw_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr(:)
-   ptr=>NULL()
-   if(associated(tile)) then
-      if(associated(tile%glac)) ptr => tile%glac%groundwater(:)
-   endif
-end subroutine glac_gw_ptr
-
-subroutine glac_gwT_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr(:)
-   ptr=>NULL()
-   if(associated(tile)) then
-      if(associated(tile%glac)) ptr => tile%glac%groundwater_T(:)
-   endif
-end subroutine glac_gwT_ptr
 
 end module glacier_mod

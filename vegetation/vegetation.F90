@@ -27,10 +27,10 @@ use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, mol_air, 
      seconds_per_year
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
-     get_elmt_indices
+     get_elmt_indices, land_tile_heat, land_tile_carbon, get_tile_water
 use land_tile_diag_mod, only : &
      register_tiled_static_field, register_tiled_diag_field, &
-     send_tile_data, diag_buff_type
+     send_tile_data, diag_buff_type, OP_STD, OP_VAR, set_default_diag_filter
 use land_data_mod,      only : land_state_type, lnd
 use land_io_mod, only : read_field
 use land_tile_io_mod, only : &
@@ -52,7 +52,8 @@ use cohort_io_mod, only :  read_create_cohorts, create_cohort_dimension, &
      read_cohort_data_r0d_fptr,  read_cohort_data_i0d_fptr,&
      write_cohort_data_r0d_fptr, write_cohort_data_i0d_fptr, gather_cohort_data,&
      assemble_cohorts
-use land_debug_mod, only : is_watch_point, set_current_point, check_temp_range
+use land_debug_mod, only : is_watch_point, set_current_point, check_temp_range, &
+     carbon_cons_tol, water_cons_tol, check_conservation, do_check_conservation
 use vegn_radiation_mod, only : vegn_radiation_init, vegn_radiation
 use vegn_photosynthesis_mod, only : vegn_photosynthesis_init, vegn_photosynthesis
 use static_vegn_mod, only : read_static_vegn_namelist, static_vegn_init, static_vegn_end, &
@@ -86,8 +87,8 @@ public :: update_vegn_slow
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-   version = '$Id: vegetation.F90,v 20.0.4.1.2.2.6.2.2.3 2014/05/28 20:48:55 pjp Exp $', &
-   tagname = '$Name: tikal_201409 $', &
+   version = '$Id: vegetation.F90,v 21.0 2014/12/15 21:51:27 fms Exp $', &
+   tagname = '$Name: ulm $', &
    module_name = 'vegn'
 ! values for internal selector of CO2 option used for photosynthesis
 integer, parameter :: VEGN_PHOT_CO2_PRESCRIBED  = 1
@@ -157,7 +158,8 @@ real            :: dt_fast_yr      ! fast time step in years
 integer         :: vegn_phot_co2_option = -1 ! internal selector of co2 option 
                                    ! used for photosynthesis
 ! diagnostic field ids
-integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, id_lai, id_sai, id_leaf_size, &
+integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
+   id_lai, id_lai_var, id_lai_std, id_sai, id_leaf_size, &
    id_root_density, id_root_zeta, id_rs_min, id_leaf_refl, id_leaf_tran,&
    id_leaf_emis, id_snow_crit, id_stomatal, id_an_op, id_an_cl, &
    id_bl, id_blv, id_br, id_bsw, id_bwood, id_btot, id_species, id_status, &
@@ -307,53 +309,53 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
 
         allocate(idx(csize), i0d(csize), r0d(csize))
 
-        call read_compressed(restart_file_name_1, 'cohort_index', idx, domain=lnd%domain)
+        call read_compressed(restart_file_name_1, 'cohort_index', idx, domain=lnd%domain, timelevel=1)
 
         call read_create_cohorts(idx,tdimlen)
 
-        call read_compressed(restart_file_name_1, 'tv', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_1, 'tv', r0d, domain=lnd%domain, timelevel=1)
         call assemble_cohorts(cohort_tv_ptr,idx,tdimlen,r0d)
 
-        call read_compressed(restart_file_name_1, 'wl', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_1, 'wl', r0d, domain=lnd%domain, timelevel=1)
         call assemble_cohorts(cohort_wl_ptr,idx,tdimlen,r0d)
 
-        call read_compressed(restart_file_name_1, 'ws', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_1, 'ws', r0d, domain=lnd%domain, timelevel=1)
         call assemble_cohorts(cohort_ws_ptr,idx,tdimlen,r0d)
 
         ! ** cohorts
-        call read_compressed(restart_file_name_2, 'species', i0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 'species', i0d, domain=lnd%domain, timelevel=1)
         call assemble_cohorts(cohort_species_ptr,idx,tdimlen,i0d)
 
-        call read_compressed(restart_file_name_2, 'hite', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 'hite', r0d, domain=lnd%domain, timelevel=1)
         call assemble_cohorts(cohort_height_ptr,idx,tdimlen,r0d)
 
-        call read_compressed(restart_file_name_2, 'bl', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 'bl', r0d, domain=lnd%domain, timelevel=1)
         call assemble_cohorts(cohort_bl_ptr,idx,tdimlen,r0d)
 
-        call read_compressed(restart_file_name_2, 'blv', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 'blv', r0d, domain=lnd%domain, timelevel=1)
         call assemble_cohorts(cohort_blv_ptr,idx,tdimlen,r0d)
 
-        call read_compressed(restart_file_name_2, 'br', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 'br', r0d, domain=lnd%domain, timelevel=1)
         call assemble_cohorts(cohort_br_ptr,idx,tdimlen,r0d)
 
-        call read_compressed(restart_file_name_2, 'bsw', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 'bsw', r0d, domain=lnd%domain, timelevel=1)
         call assemble_cohorts(cohort_bsw_ptr,idx,tdimlen,r0d)
 
-        call read_compressed(restart_file_name_2, 'bwood', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 'bwood', r0d, domain=lnd%domain, timelevel=1)
         call assemble_cohorts(cohort_bwood_ptr,idx,tdimlen,r0d)
 
-        call read_compressed(restart_file_name_2, 'bliving', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 'bliving', r0d, domain=lnd%domain, timelevel=1)
         call assemble_cohorts(cohort_bliving_ptr,idx,tdimlen,r0d)
 
-        call read_compressed(restart_file_name_2, 'status', i0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 'status', i0d, domain=lnd%domain, timelevel=1)
         call assemble_cohorts(cohort_status_ptr,idx,tdimlen,i0d)
 
         if ( field_exist(restart_file_name_2, 'leaf_age', domain=lnd%domain) ) then
-           call read_compressed(restart_file_name_2, 'leaf_age', r0d, domain=lnd%domain)
+           call read_compressed(restart_file_name_2, 'leaf_age', r0d, domain=lnd%domain, timelevel=1)
            call assemble_cohorts(cohort_leaf_age_ptr,idx,tdimlen,r0d)
         endif
 
-        call read_compressed(restart_file_name_2, 'npp_prev_day', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 'npp_prev_day', r0d, domain=lnd%domain, timelevel=1)
         call assemble_cohorts(cohort_npp_previous_day_ptr,idx,tdimlen,r0d)
 
         deallocate(idx, i0d, r0d)
@@ -364,108 +366,108 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
         tsize = siz(1)
 
         allocate(idx(tsize), i0d(tsize), r0d(tsize))
-        call read_compressed(restart_file_name_2,'tile_index',idx,domain=lnd%domain)
+        call read_compressed(restart_file_name_2,'tile_index',idx,domain=lnd%domain, timelevel=1)
 
         call read_data(restart_file_name_2, 'n_accum', n_accum, domain=lnd%domain)
         call read_data(restart_file_name_2, 'nmn_acm', nmn_acm, domain=lnd%domain)
 
         if ( field_exist(restart_file_name_2, 'landuse', domain=lnd%domain) ) then
-           call read_compressed(restart_file_name_2, 'landuse', i0d, domain=lnd%domain)
+           call read_compressed(restart_file_name_2, 'landuse', i0d, domain=lnd%domain, timelevel=1)
            call assemble_tiles(vegn_landuse_ptr,idx,i0d)
         endif
 
-        call read_compressed(restart_file_name_2, 'age', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 'age', r0d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(vegn_age_ptr,idx,r0d)
 
-        call read_compressed(restart_file_name_2, 'fsc_pool', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 'fsc_pool', r0d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(vegn_fsc_pool_ptr,idx,r0d)
 
-        call read_compressed(restart_file_name_2, 'fsc_rate', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 'fsc_rate', r0d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(vegn_fsc_rate_ptr,idx,r0d)
 
-        call read_compressed(restart_file_name_2, 'ssc_pool', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 'ssc_pool', r0d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(vegn_ssc_pool_ptr,idx,r0d)
 
-        call read_compressed(restart_file_name_2, 'ssc_rate', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 'ssc_rate', r0d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(vegn_ssc_rate_ptr,idx,r0d)
 
         ! monthly-mean values
-        call read_compressed(restart_file_name_2, 'tc_av', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 'tc_av', r0d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(vegn_tc_av_ptr,idx,r0d)
 
         if ( field_exist(restart_file_name_2, 'theta_av_phen', domain=lnd%domain) ) then
-           call read_compressed(restart_file_name_2, 'theta_av_phen', r0d, domain=lnd%domain)
+           call read_compressed(restart_file_name_2, 'theta_av_phen', r0d, domain=lnd%domain, timelevel=1)
            call assemble_tiles(vegn_theta_av_phen_ptr,idx,r0d)
 
-           call read_compressed(restart_file_name_2, 'theta_av_fire', r0d, domain=lnd%domain)
+           call read_compressed(restart_file_name_2, 'theta_av_fire', r0d, domain=lnd%domain, timelevel=1)
            call assemble_tiles(vegn_theta_av_fire_ptr,idx,r0d)
 
-           call read_compressed(restart_file_name_2, 'psist_av', r0d, domain=lnd%domain)
+           call read_compressed(restart_file_name_2, 'psist_av', r0d, domain=lnd%domain, timelevel=1)
            call assemble_tiles(vegn_psist_av_ptr,idx,r0d)
         else
-           call read_compressed(restart_file_name_2, 'theta_av', r0d, domain=lnd%domain)
+           call read_compressed(restart_file_name_2, 'theta_av', r0d, domain=lnd%domain, timelevel=1)
            call assemble_tiles(vegn_theta_av_phen_ptr,idx,r0d)
 
-           call read_compressed(restart_file_name_2, 'theta_av', r0d, domain=lnd%domain)
+           call read_compressed(restart_file_name_2, 'theta_av', r0d, domain=lnd%domain, timelevel=1)
            call assemble_tiles(vegn_theta_av_fire_ptr,idx,r0d)
         endif
 
-        call read_compressed(restart_file_name_2, 'tsoil_av', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 'tsoil_av', r0d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(vegn_tsoil_av_ptr,idx,r0d)
 
-        call read_compressed(restart_file_name_2, 'precip_av', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 'precip_av', r0d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(vegn_precip_av_ptr,idx,r0d)
 
-        call read_compressed(restart_file_name_2, 'lambda', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 'lambda', r0d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(vegn_lambda_ptr,idx,r0d)
 
-        call read_compressed(restart_file_name_2, 'fuel', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 'fuel', r0d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(vegn_fuel_ptr,idx,r0d)
 
         ! annual-mean values
-        call read_compressed(restart_file_name_2, 't_ann', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 't_ann', r0d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(vegn_t_ann_ptr,idx,r0d)
 
-        call read_compressed(restart_file_name_2, 't_cold', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 't_cold', r0d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(vegn_t_cold_ptr,idx,r0d)
 
-        call read_compressed(restart_file_name_2, 'p_ann', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 'p_ann', r0d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(vegn_p_ann_ptr,idx,r0d)
 
-        call read_compressed(restart_file_name_2, 'ncm', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 'ncm', r0d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(vegn_ncm_ptr,idx,r0d)
 
         ! accumulated values for annual averaging
-        call read_compressed(restart_file_name_2, 't_ann_acm', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 't_ann_acm', r0d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(vegn_t_ann_acm_ptr,idx,r0d)
 
-        call read_compressed(restart_file_name_2, 't_cold_acm', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 't_cold_acm', r0d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(vegn_t_cold_acm_ptr,idx,r0d)
 
-        call read_compressed(restart_file_name_2, 'p_ann_acm', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 'p_ann_acm', r0d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(vegn_p_ann_acm_ptr,idx,r0d)
 
-        call read_compressed(restart_file_name_2, 'ncm_acm', r0d, domain=lnd%domain)
+        call read_compressed(restart_file_name_2, 'ncm_acm', r0d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(vegn_ncm_acm_ptr,idx,r0d)
 
         ! burned carbon pool and rate
         if ( field_exist(restart_file_name_2, 'csmoke_pool', domain=lnd%domain) ) then
-           call read_compressed(restart_file_name_2, 'csmoke_pool', r0d, domain=lnd%domain)
+           call read_compressed(restart_file_name_2, 'csmoke_pool', r0d, domain=lnd%domain, timelevel=1)
            call assemble_tiles(vegn_csmoke_pool_ptr,idx,r0d)
         endif
         if ( field_exist(restart_file_name_2, 'csmoke_rate', domain=lnd%domain) ) then
-           call read_compressed(restart_file_name_2, 'csmoke_rate', r0d, domain=lnd%domain)
+           call read_compressed(restart_file_name_2, 'csmoke_rate', r0d, domain=lnd%domain, timelevel=1)
            call assemble_tiles(vegn_csmoke_rate_ptr,idx,r0d)
         endif
 
         ! harvesting pools and rates
         do i = 1, N_HARV_POOLS
            if ( field_exist(restart_file_name_2, trim(HARV_POOL_NAMES(i))//'_harv_pool', domain=lnd%domain) ) then
-              call read_compressed(restart_file_name_2, trim(HARV_POOL_NAMES(i))//'_harv_pool', r0d, domain=lnd%domain)
+              call read_compressed(restart_file_name_2, trim(HARV_POOL_NAMES(i))//'_harv_pool', r0d, domain=lnd%domain, timelevel=1)
               call assemble_tiles(vegn_harv_pool_ptr,idx,r0d,i)
            endif
            if ( field_exist(restart_file_name_2, trim(HARV_POOL_NAMES(i))//'_harv_rate', domain=lnd%domain) ) then
-              call read_compressed(restart_file_name_2, trim(HARV_POOL_NAMES(i))//'_harv_rate', r0d, domain=lnd%domain)
+              call read_compressed(restart_file_name_2, trim(HARV_POOL_NAMES(i))//'_harv_rate', r0d, domain=lnd%domain, timelevel=1)
               call assemble_tiles(vegn_harv_rate_ptr,idx,r0d,i)
            endif
         enddo
@@ -652,6 +654,9 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
   ! ---- local vars
   integer :: i
 
+  ! set the default sub-sampling filter for the fields below
+  call set_default_diag_filter('soil')
+
   id_vegn_type = register_tiled_static_field ( module_name, 'vegn_type',  &
        (/id_lon,id_lat/), 'vegetation type', missing_value=-1.0 )
 
@@ -666,6 +671,12 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
        (/id_lon,id_lat/), time, 'vegetation height', 'm', missing_value=-1.0 )
   id_lai    = register_tiled_diag_field ( module_name, 'lai',  &
        (/id_lon,id_lat/), time, 'leaf area index', 'm2/m2', missing_value=-1.0 )
+  id_lai_var = register_tiled_diag_field ( module_name, 'lai_var',  &
+       (/id_lon,id_lat/), time, 'variance of leaf area index across tiles in grid cell', 'm4/m4', &
+       missing_value=-1.0 , op=OP_VAR)
+  id_lai_std = register_tiled_diag_field ( module_name, 'lai_std',  &
+       (/id_lon,id_lat/), time, 'standard deviation of leaf area index across tiles in grid cell', 'm2/m2', &
+       missing_value=-1.0, op=OP_STD)
   id_sai    = register_tiled_diag_field ( module_name, 'sai',  &
        (/id_lon,id_lat/), time, 'stem area index', 'm2/m2', missing_value=-1.0 )
   id_leaf_size = register_tiled_diag_field ( module_name, 'leaf_size',  &
@@ -1660,6 +1671,8 @@ subroutine vegn_step_2 ( vegn, diag, &
 
   call send_tile_data(id_height, cohort%height, diag)
   call send_tile_data(id_lai, cohort%lai, diag)
+  call send_tile_data(id_lai_var, cohort%lai, diag)
+  call send_tile_data(id_lai_std, cohort%lai, diag)
   call send_tile_data(id_sai, cohort%sai, diag)
   call send_tile_data(id_leaf_size, cohort%leaf_size, diag)
   call send_tile_data(id_root_density, cohort%root_density, diag)
@@ -1758,16 +1771,36 @@ subroutine update_vegn_slow( )
   integer :: ii ! pool iterator
   integer :: n ! number of cohorts
   real    :: weight_ncm ! low-pass filter value for the number of cold months
+  character(64) :: timestamp
+
+  ! variables for conservation checks
+  real :: lmass0, fmass0, heat0, cmass0
+  real :: lmass1, fmass1, heat1, cmass1
+  character(64) :: tag
 
   ! get components of calendar dates for this and previous time step
   call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
   call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
+
+  if(month0 /= month1) then
+     ! heartbeat
+     write(timestamp,'("Current date is ",i4.4,"-",i2.2,"-",i2.2)'),year0,month0,day0
+     call error_mesg('update_vegn_slow',trim(timestamp),NOTE)
+  endif
 
   ce = first_elmt(lnd%tile_map, lnd%is, lnd%js) ; te = tail_elmt(lnd%tile_map)
   do while ( ce /= te )
      call get_elmt_indices(ce,i,j,k) ; call set_current_point(i,j,k) ! this is for debug output only
      tile => current_tile(ce) ; ce=next_elmt(ce)
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
+
+     if(do_check_conservation) then
+        ! + conservation check, part 1: calculate the pre-transition totals
+        call get_tile_water(tile,lmass0,fmass0)
+        heat0  = land_tile_heat  (tile)
+        cmass0 = land_tile_carbon(tile)
+        ! - end of conservation check, part 1
+     endif
 
      if (day1 /= day0) then
         call vegn_daily_npp(tile%vegn)
@@ -1850,6 +1883,20 @@ subroutine update_vegn_slow( )
         elsewhere
            tile%vegn%harv_rate(:) = 0.0
         end where
+     endif
+
+     if(do_check_conservation) then
+     ! + conservation check, part 2: calculate totals in final state, and compare 
+     ! with previous totals
+     tag = 'update_vegn_slow'
+     call get_tile_water(tile,lmass1,fmass1)
+     heat1  = land_tile_heat  (tile)
+     cmass1 = land_tile_carbon(tile)     
+     call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol, lnd%time)
+     call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol, lnd%time)
+     call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol, lnd%time)
+!     call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16, lnd%time)
+     ! - end of conservation check, part 2
      endif
 
      ! ---- diagnostic section

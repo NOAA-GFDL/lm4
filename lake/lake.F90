@@ -32,7 +32,8 @@ use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
 use land_tile_diag_mod, only : register_tiled_static_field, &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
-     send_tile_data_r0d_fptr, add_tiled_static_field_alias
+     send_tile_data_r0d_fptr, add_tiled_static_field_alias, &
+     set_default_diag_filter
 use land_data_mod,      only : land_state_type, lnd
 use land_tile_io_mod, only : print_netcdf_error, create_tile_out_file, &
      read_tile_data_r1d_fptr, write_tile_data_r1d_fptr, sync_nc_files, &
@@ -63,15 +64,14 @@ public :: large_dyn_small_stat
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'lake',&
-    version     = '$Id: lake.F90,v 20.0.4.1.2.1.4.2 2014/06/07 13:58:55 Peter.Phillipps Exp $',&
-    tagname     = '$Name: tikal_201409 $'
+    version     = '$Id: lake.F90,v 21.0 2014/12/15 21:50:41 fms Exp $',&
+    tagname     = '$Name: ulm $'
 
 ! ==== module variables ======================================================
 
 !---- namelist ---------------------------------------------------------------
 real    :: init_temp            = 288.        ! cold-start lake T
 real    :: init_w               = 1000.      ! cold-start w(l)/dz(l)
-real    :: init_groundwater     =   0.        ! cold-start gw storage
 logical :: use_rh_feedback      = .true.
 logical :: make_all_lakes_wide  = .false.
 logical :: large_dyn_small_stat = .true.
@@ -91,7 +91,7 @@ real    :: lake_depth_min       = 1.99
 real    :: max_plain_slope      = -1.e10
 
 namelist /lake_nml/ init_temp, init_w,       &
-                    init_groundwater, use_rh_feedback, cpw, clw, csw, &
+                    use_rh_feedback, cpw, clw, csw, &
                     make_all_lakes_wide, large_dyn_small_stat, &
                     relayer_in_step_one, float_ice_to_top, &
                     min_rat, do_stratify, albedo_to_use, K_z_large, &
@@ -285,8 +285,6 @@ deallocate (buffer, bufferc, buffert)
         tile%lake%ws = init_w*tile%lake%dz
      endif
      tile%lake%T             = init_temp
-     tile%lake%groundwater   = init_groundwater
-     tile%lake%groundwater_T = init_temp
   enddo
 
   call get_input_restart_name(restart_base_name,restart_exists,restart_file_name)
@@ -309,27 +307,21 @@ deallocate (buffer, bufferc, buffert)
 
          allocate(idx(isize),r1d(isize,nz))
 
-         call read_compressed(restart_file_name,'tile_index',idx, domain=lnd%domain)
+         call read_compressed(restart_file_name,'tile_index',idx, domain=lnd%domain, timelevel=1)
          
          if (field_exist(restart_file_name, 'dz', domain=lnd%domain)) then
-            call read_compressed(restart_file_name,'dz',r1d,domain=lnd%domain)
+            call read_compressed(restart_file_name,'dz',r1d,domain=lnd%domain, timelevel=1)
             call assemble_tiles(lake_dz_ptr,idx,r1d)
          endif
 
-         call read_compressed(restart_file_name,'temp',r1d, domain=lnd%domain)
+         call read_compressed(restart_file_name,'temp',r1d, domain=lnd%domain, timelevel=1)
          call assemble_tiles(lake_temp_ptr,idx,r1d)
  
-         call read_compressed(restart_file_name,'wl',r1d, domain=lnd%domain)
+         call read_compressed(restart_file_name,'wl',r1d, domain=lnd%domain, timelevel=1)
          call assemble_tiles(lake_wl_ptr,idx,r1d)
  
-         call read_compressed(restart_file_name,'ws',r1d, domain=lnd%domain)
+         call read_compressed(restart_file_name,'ws',r1d, domain=lnd%domain, timelevel=1)
          call assemble_tiles(lake_ws_ptr,idx,r1d)
- 
-         call read_compressed(restart_file_name,'groundwater',r1d, domain=lnd%domain)
-         call assemble_tiles(lake_gw_ptr,idx,r1d)
- 
-         call read_compressed(restart_file_name,'groundwater_T',r1d, domain=lnd%domain)
-         call assemble_tiles(lake_gwT_ptr,idx,r1d)
  
          deallocate(idx,r1d)
      else
@@ -338,8 +330,6 @@ deallocate (buffer, bufferc, buffert)
          call read_tile_data_r1d_fptr(unit, 'temp'         , lake_temp_ptr )
          call read_tile_data_r1d_fptr(unit, 'wl'           , lake_wl_ptr )
          call read_tile_data_r1d_fptr(unit, 'ws'           , lake_ws_ptr )
-         call read_tile_data_r1d_fptr(unit, 'groundwater'  , lake_gw_ptr )
-         call read_tile_data_r1d_fptr(unit, 'groundwater_T', lake_gwT_ptr)
          __NF_ASRT__(nf_close(unit))     
      endif
   else
@@ -388,8 +378,6 @@ subroutine save_lake_restart (tile_dim_length, timestamp)
   call write_tile_data_r1d_fptr(unit,'temp'         ,lake_temp_ptr,'zfull','lake temperature','degrees_K')
   call write_tile_data_r1d_fptr(unit,'wl'           ,lake_wl_ptr  ,'zfull','liquid water content','kg/m2')
   call write_tile_data_r1d_fptr(unit,'ws'           ,lake_ws_ptr  ,'zfull','solid water content','kg/m2')
-  call write_tile_data_r1d_fptr(unit,'groundwater'  ,lake_gw_ptr  ,'zfull')
-  call write_tile_data_r1d_fptr(unit,'groundwater_T',lake_gwT_ptr ,'zfull')
   
   ! close file
   __NF_ASRT__(nf_close(unit))
@@ -438,12 +426,6 @@ subroutine save_lake_restart_new (tile_dim_length, timestamp)
   call gather_tile_data(lake_ws_ptr,idx,ws)
   id_restart = register_restart_field(lake_restart,fname,'ws',ws,compressed=.true., &
                                       longname='solid water content',units='kg/m2')
-
-  call gather_tile_data(lake_gw_ptr,idx,gw)
-  id_restart = register_restart_field(lake_restart,fname,'groundwater',gw,compressed=.true.)
-
-  call gather_tile_data(lake_gwT_ptr,idx,gwT)
-  id_restart = register_restart_field(lake_restart,fname,'groundwater_T',gwT,compressed=.true.)
 
   ! save performs io domain aggregation through mpp_io as with regular domain data
   call save_restart(lake_restart)
@@ -727,8 +709,7 @@ end subroutine lake_step_1
                  ' Th=', (lake%ws(l) &
                          +lake%wl(l))/(dens_h2o*lake%dz(l)),&
                  ' wl=', lake%wl(l),&
-                 ' ws=', lake%ws(l),&
-                 ' gw=', lake%groundwater(l)
+                 ' ws=', lake%ws(l)
       enddo
   endif
 
@@ -840,8 +821,7 @@ end subroutine lake_step_1
              ' T =', lake%T(l),&
              ' Th=', (lake%ws(l) +lake%wl(l))/(dens_h2o*lake%dz(l)),&
              ' wl=', lake%wl(l),&
-             ' ws=', lake%ws(l),&
-             ' gw=', lake%groundwater(l)
+             ' ws=', lake%ws(l)
      enddo
   endif
 
@@ -855,8 +835,7 @@ end subroutine lake_step_1
              ' T =', lake%T(l),&
              ' Th=', (lake%ws(l) +lake%wl(l))/(dens_h2o*lake%dz(l)),&
              ' wl=', lake%wl(l),&
-             ' ws=', lake%ws(l),&
-             ' gw=', lake%groundwater(l)
+             ' ws=', lake%ws(l)
      enddo
   endif
 
@@ -887,8 +866,7 @@ end subroutine lake_step_1
              ' T =', lake%T(l),&
              ' Th=', (lake%ws(l) +lake%wl(l))/(dens_h2o*lake%dz(l)),&
              ' wl=', lake%wl(l),&
-             ' ws=', lake%ws(l),&
-             ' gw=', lake%groundwater(l)
+             ' ws=', lake%ws(l)
      enddo
   endif
 
@@ -1057,6 +1035,9 @@ subroutine lake_diag_init ( id_lon, id_lat )
   ! define array of axis indices
   axes = (/ id_lon, id_lat, id_zfull /)
 
+  ! set the default sub-sampling filter for the fields below
+  call set_default_diag_filter('lake')
+
   ! define static diagnostic fields
   id_sillw = register_tiled_static_field ( module_name, 'lake_width', &
        axes(1:2), 'lake width at outflow', 'm', missing_value=-100.0 )
@@ -1141,24 +1122,6 @@ subroutine lake_ws_ptr(tile, ptr)
       if(associated(tile%lake)) ptr => tile%lake%ws(:)
    endif
 end subroutine lake_ws_ptr
-
-subroutine lake_gw_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr(:)
-   ptr=>NULL()
-   if(associated(tile)) then
-      if(associated(tile%lake)) ptr => tile%lake%groundwater(:)
-   endif
-end subroutine lake_gw_ptr
-
-subroutine lake_gwT_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr(:)
-   ptr=>NULL()
-   if(associated(tile)) then
-      if(associated(tile%lake)) ptr => tile%lake%groundwater_T(:)
-   endif
-end subroutine lake_gwT_ptr
 
 subroutine lake_connected_to_next_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile

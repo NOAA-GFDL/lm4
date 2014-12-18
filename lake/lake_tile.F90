@@ -56,8 +56,8 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter   :: &
-     version     = '$Id: lake_tile.F90,v 20.0.2.1 2014/02/19 19:08:43 Sergey.Malyshev Exp $', &
-     tagname     = '$Name: tikal_201409 $', &
+     version     = '$Id: lake_tile.F90,v 21.0 2014/12/15 21:50:43 fms Exp $', &
+     tagname     = '$Name: ulm $', &
      module_name = 'lake_tile_mod'
 
 integer, parameter :: max_lev          = 80
@@ -103,7 +103,6 @@ type :: lake_pars_type
   real connected_to_next
   real backwater
   real backwater_1
-  real tau_groundwater
   real rsa_exp         ! riparian source-area exponent
 end type lake_pars_type
 
@@ -116,8 +115,6 @@ type :: lake_tile_type
    real, pointer :: ws(:)  => NULL()
    real, pointer :: T(:)   => NULL()
    real, pointer :: K_z(:) => NULL()
-   real, pointer :: groundwater(:) => NULL()
-   real, pointer :: groundwater_T(:) => NULL()
 
    real, pointer :: w_fc(:) => NULL()
    real, pointer :: w_wilt(:) => NULL()
@@ -186,8 +183,6 @@ logical :: use_single_geo        = .false.   ! .true. for global gw res time,
                                              ! e.g., to recover MCM
 integer :: lake_index_constant   = 1         ! index of global constant lake,
                                              ! used when use_single_lake
-real    :: gw_res_time           = 60.*86400 ! mean groundwater residence time,
-                                             ! used when use_single_geo
 real    :: rsa_exp_global        = 1.5
 real, dimension(n_dim_lake_types) :: &
   dat_w_sat             =(/ 1.000   /),&
@@ -228,7 +223,7 @@ namelist /lake_data_nml/ lake_width_inside_lake, &
      use_lm2_awc,    n_map_1st_lake_type, &
      use_single_lake,           use_mcm_albedo,            &
      use_single_geo,            lake_index_constant,         &
-     gw_res_time,            rsa_exp_global,      &
+     rsa_exp_global,      &
      dat_w_sat,               dat_awc_lm2,     &
      dat_k_sat_ref,            &
      dat_psi_sat_ref,               dat_chb,          &
@@ -281,7 +276,7 @@ subroutine read_lake_data_namelist(lake_n_lev)
   ! register selectors for tile-specific diagnostics
   do i=1, n_dim_lake_types
      call register_tile_selector(tile_names(i), long_name='',&
-          tag = SEL_LAKE, idata1 = i )
+          tag = SEL_LAKE, idata1 = i, area_depends_on_time=.FALSE. )
   enddo
 
   ! set up output arguments
@@ -302,8 +297,6 @@ function lake_tile_ctor(tag) result(ptr)
            ptr%ws     (num_l), &
            ptr%T      (num_l), &
            ptr%K_z    (num_l), &
-           ptr%groundwater(num_l), &
-           ptr%groundwater_T(num_l), &
            ptr%w_fc   (num_l),  &
            ptr%w_wilt (num_l),  &
            ptr%heat_capacity_dry(num_l),  &
@@ -327,8 +320,6 @@ function lake_tile_copy_ctor(lake) result(ptr)
            ptr%ws     (num_l), &
            ptr%T      (num_l), &
            ptr%K_z    (num_l), &
-           ptr%groundwater(num_l), &
-           ptr%groundwater_T(num_l), &
            ptr%w_fc   (num_l),  &
            ptr%w_wilt (num_l),  &
            ptr%heat_capacity_dry(num_l),  &
@@ -340,8 +331,6 @@ function lake_tile_copy_ctor(lake) result(ptr)
   ptr%ws(:)     = lake%ws(:)
   ptr%T(:)      = lake%T(:)
   ptr%K_z(:)    = lake%K_z(:)
-  ptr%groundwater(:) = lake%groundwater(:)
-  ptr%groundwater_T(:) = lake%groundwater_T(:)
   ptr%w_fc(:)   = lake%w_fc(:)
   ptr%w_wilt(:) = lake%w_wilt(:)
   ptr%e(:)      = lake%e(:)
@@ -355,7 +344,6 @@ subroutine delete_lake_tile(ptr)
   type(lake_tile_type), pointer :: ptr
 
   deallocate(ptr%dz, ptr%wl, ptr%ws, ptr%T, ptr%K_z, &
-             ptr%groundwater, ptr%groundwater_T, &
              ptr%w_fc, ptr%w_wilt,ptr%heat_capacity_dry, ptr%e, ptr%f)
 
   deallocate(ptr)
@@ -365,7 +353,6 @@ end subroutine delete_lake_tile
 subroutine init_lake_data_0d(lake)
   type(lake_tile_type), intent(inout) :: lake
 
-!  real tau_groundwater
 !  real rsa_exp         ! riparian source-area exponent
 
   integer :: k
@@ -388,7 +375,6 @@ subroutine init_lake_data_0d(lake)
   lake%pars%z0_momentum       = dat_z0_momentum      (k)
   lake%pars%z0_momentum_ice   = dat_z0_momentum_ice  (k)
 
-  lake%pars%tau_groundwater   = 86400.*30.
   lake%pars%rsa_exp           = rsa_exp_global
 
   ! -------- derived constant lake parameters --------
@@ -500,20 +486,6 @@ WRITE (*,*) 'SORRY, BUT merge_lake_tiles NEEDS TO BE REVISED TO ALLOW FOR ', &
 !    t2%T(i) = (HEAT1*x1+HEAT2*x2) / &
 !      (C2*dz(i)+clw*t2%wl(i)+csw*t2%ws(i)) + tfreeze
     t2%T(i) = 0.
-
-    ! calculate combined groundwater content
-    gw = t1%groundwater(i)*x1 + t2%groundwater(i)*x2
-    ! calculate combined groundwater temperature
-    if(gw/=0) then
-       t2%groundwater_T(i) = ( &
-            t1%groundwater(i)*x1*(t1%groundwater_T(i)-tfreeze) + &
-            t2%groundwater(i)*x2*(t2%groundwater_T(i)-tfreeze)   &
-            ) / gw + Tfreeze
-    else
-       t2%groundwater_T(i) = &
-            x1*t1%groundwater_T(i) + x2*t2%groundwater_T(i)
-    endif
-    t2%groundwater(i) = gw
   enddo
 
 end subroutine
@@ -636,7 +608,7 @@ subroutine lake_tile_stock_pe (lake, twd_liq, twd_sol  )
   twd_liq = 0.
   twd_sol = 0.
   do n=1, size(lake%wl)
-    twd_liq = twd_liq + lake%wl(n) + lake%groundwater(n)
+    twd_liq = twd_liq + lake%wl(n)
     twd_sol = twd_sol + lake%ws(n)
     enddo
 
@@ -655,7 +627,6 @@ function lake_tile_heat (lake) result(heat) ; real heat
      heat = heat + &
           (lake%heat_capacity_dry(i)*lake%dz(i) + clw*lake%wl(i) &
 	     + csw*lake%ws(i))*(lake%T(i)-tfreeze) + &
-          clw*lake%groundwater(i)*(lake%groundwater_T(i)-tfreeze) - &
           hlf*lake%ws(i)
   enddo
 end function

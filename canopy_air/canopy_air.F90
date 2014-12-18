@@ -27,8 +27,6 @@ use cana_tile_mod, only : cana_tile_type, &
      canopy_air_mass, canopy_air_mass_for_tracers, cpw
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
-use land_tile_diag_mod, only : &
-     register_tiled_diag_field, send_tile_data, diag_buff_type
 use land_data_mod,      only : land_state_type, lnd
 use land_tile_io_mod, only : create_tile_out_file, read_tile_data_r0d_fptr, write_tile_data_r0d_fptr, &
      get_input_restart_name, print_netcdf_error, &
@@ -54,8 +52,8 @@ public :: cana_step_2
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-  version = '$Id: canopy_air.F90,v 20.0.2.1.4.1.2.1.4.1 2014/05/28 20:45:30 pjp Exp $', &
-  tagname = '$Name: tikal_201409 $', &
+  version = '$Id: canopy_air.F90,v 21.0 2014/12/15 21:50:35 fms Exp $', &
+  tagname = '$Name: ulm $', &
   module_name = 'canopy_air_mod'
 
 ! options for turbulence parameter calculations
@@ -179,16 +177,16 @@ subroutine cana_init ( id_lon, id_lat, new_land_io )
         if ( .not. found ) call error_mesg(trim(module_name), &
                        'tile_index axis not found in '//trim(restart_file_name), FATAL)
         allocate(idx(siz(1)),r0d(siz(1)))
-        call read_compressed(restart_base_name,'tile_index',idx, domain=lnd%domain)
+        call read_compressed(restart_base_name,'tile_index',idx, domain=lnd%domain, timelevel=1)
 
-        call read_compressed(restart_base_name,'temp',r0d, domain=lnd%domain)
+        call read_compressed(restart_base_name,'temp',r0d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(cana_T_ptr,idx,r0d)
 
-        call read_compressed(restart_base_name,'sphum',r0d, domain=lnd%domain)
+        call read_compressed(restart_base_name,'sphum',r0d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(cana_q_ptr,idx,r0d)
 
         if(field_exist(restart_base_name,'co2',domain=lnd%domain)) then
-           call read_compressed(restart_base_name,'co2',r0d, domain=lnd%domain)
+           call read_compressed(restart_base_name,'co2',r0d, domain=lnd%domain, timelevel=1)
            call assemble_tiles(cana_co2_ptr,idx,r0d)
         endif
         deallocate(idx,r0d)

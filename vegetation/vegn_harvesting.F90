@@ -37,15 +37,15 @@ public :: vegn_cut_forest
 
 ! ==== module constants =====================================================
 character(len=*), parameter   :: &
-     version = '$Id: vegn_harvesting.F90,v 20.0.10.1 2014/09/03 14:23:23 Peter.Phillipps Exp $', &
-     tagname = '$Name: tikal_201409 $', &
+     version = '$Id: vegn_harvesting.F90,v 21.0 2014/12/15 21:51:39 fms Exp $', &
+     tagname = '$Name: ulm $', &
      module_name = 'vegn_harvesting_mod'
 real, parameter :: ONETHIRD = 1.0/3.0
 
 ! ==== module data ==========================================================
 
 ! ---- namelist variables ---------------------------------------------------
-logical :: do_harvesting       = .TRUE.  ! if true, then harvesting of crops and pastures is done
+logical, public :: do_harvesting = .TRUE.! if true, then harvesting of crops and pastures is done
 real :: grazing_intensity      = 0.25    ! fraction of biomass removed each time by grazing
 real :: grazing_residue        = 0.1     ! fraction of the grazed biomass transferred into soil pools
 real :: frac_wood_wasted_harv  = 0.25    ! fraction of wood wasted while harvesting

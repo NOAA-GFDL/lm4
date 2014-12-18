@@ -1,5 +1,5 @@
 ! -*-f90-*-
-! $Id: read_remap_cohort_data_new.inc,v 1.1.2.1 2014/05/08 19:48:28 Peter.Phillipps Exp $
+! $Id: read_remap_cohort_data_new.inc,v 21.0 2014/12/15 21:51:25 fms Exp $
 
 ! some sanity checks
 #ifndef F90_TYPE

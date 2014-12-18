@@ -4,6 +4,7 @@ use land_tile_selectors_mod, only : &
      tile_selector_type
 use constants_mod, only : &
      cp_air, tfreeze
+use land_constants_mod, only : mol_C, mol_co2
 
 implicit none
 private
@@ -38,8 +39,8 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
-     version = '$Id: cana_tile.F90,v 18.0.28.1 2014/02/19 19:08:43 Sergey.Malyshev Exp $', &
-     tagname = '$Name: tikal_201409 $'
+     version = '$Id: cana_tile.F90,v 21.0 2014/12/15 21:50:33 fms Exp $', &
+     tagname = '$Name: ulm $'
 
 ! ==== data types ======================================================
 type :: cana_tile_type
@@ -146,7 +147,7 @@ end function
 function cana_tile_carbon (cana) result(c) ; real c
   type(cana_tile_type), intent(in) :: cana
 
-  c = canopy_air_mass_for_tracers * cana%co2
+  c = canopy_air_mass_for_tracers * cana%co2 * mol_C/mol_CO2
 end function 
 
 end module cana_tile_mod

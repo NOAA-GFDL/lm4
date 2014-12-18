@@ -113,8 +113,8 @@ public :: read_vegn_data_namelist
 
 ! ==== constants =============================================================
 character(len=*), parameter   :: &
-     version     = '$Id: vegn_data.F90,v 20.0 2013/12/13 23:31:06 fms Exp $', &
-     tagname     = '$Name: tikal_201409 $', &
+     version     = '$Id: vegn_data.F90,v 21.0 2014/12/15 21:51:34 fms Exp $', &
+     tagname     = '$Name: ulm $', &
      module_name = 'vegn_data_mod'
 real, parameter :: TWOTHIRDS  = 2.0/3.0
 
@@ -138,8 +138,7 @@ type spec_data_type
   real    :: srl  ! specific root length, m/(kg C)
   real    :: root_r       ! radius of the fine roots, m
   real    :: root_perm    ! fine root membrane permeability per unit area, kg/(m3 s)
-!!$  real    :: ltrans       ! leaf translocation fraction
-!!$  real    :: rtrans       ! fine root translocation fraction
+  real    :: xylem_res    ! xylem hydraulic resistance, s/m
 
   real    :: specific_leaf_area ! cm2/(g biomass)
   real    :: leaf_size    ! characteristic leaf size
@@ -294,6 +293,9 @@ real :: root_perm(0:MSPECIES); data root_perm & ! fine root membrane permeabilit
 ! Root membrane permeability is "high" value from Siqueira et al., 2008, Water 
 ! Resource Research Vol. 44, W01432, converted to mass units
 
+! xylem resistance, s/m
+real :: xylem_res(0:MSPECIES); data xylem_res(0:NSPECIES-1) /0., 0., 0., 0., 0. /
+
 real :: c1(0:MSPECIES); data c1(0:NSPECIES-1) &
         /   1.358025,     2.222222,     0.4807692,    0.3333333,    0.1948718 /
 real :: c2(0:MSPECIES); data c2(0:NSPECIES-1) &
@@ -413,7 +415,7 @@ namelist /vegn_data_nml/ &
   treefall_disturbance_rate, mortality_kills_balive, fuel_intensity, &
   alpha, beta, c1,c2,c3, &
   dfr, &
-  srl, root_r, root_perm, &
+  srl, root_r, root_perm, xylem_res, &
   cmc_lai, cmc_pow, csc_lai, csc_pow, cmc_eps, &
   min_cosz, &
   leaf_refl, leaf_tran, leaf_emis, ksi, &
@@ -499,6 +501,7 @@ subroutine read_vegn_data_namelist()
   spdata%srl        = srl
   spdata%root_r     = root_r
   spdata%root_perm  = root_perm
+  spdata%xylem_res  = xylem_res
   
   spdata%c1 = c1
   spdata%c2 = c2
@@ -575,6 +578,7 @@ subroutine read_vegn_data_namelist()
   call add_row(table,'srl',           spdata(:)%srl)
   call add_row(table,'root_r',        spdata(:)%root_r)
   call add_row(table,'root_perm',     spdata(:)%root_perm)
+  call add_row(table,'xylem_res',     spdata(:)%xylem_res)
 
   call add_row(table,'specific_leaf_area', spdata(:)%specific_leaf_area)
   call add_row(table,'leaf_size',     spdata(:)%leaf_size)

@@ -76,8 +76,8 @@ public :: land_transitions
 
 ! ==== module constants =====================================================
 character(len=*), parameter   :: &
-     version = '$Id: transitions.F90,v 20.0.2.10 2014/05/28 20:48:43 pjp Exp $', &
-     tagname = '$Name: tikal_201409 $', &
+     version = '$Id: transitions.F90,v 21.0 2014/12/15 21:51:23 fms Exp $', &
+     tagname = '$Name: ulm $', &
      module_name = 'land_transitions_mod', &
      diag_mod_name = 'landuse'
 ! selectors for overshoot handling options, for efficiency
@@ -115,7 +115,7 @@ type(axistype) :: axis_bnd
 type(fieldtype), allocatable, dimension(:) :: fields
 
 ! ---- namelist variables ---------------------------------------------------
-logical :: do_landuse_change = .FALSE. ! if true, then the landuse changes with time
+logical, public :: do_landuse_change = .FALSE. ! if true, then the landuse changes with time
 character(len=512) :: input_file = ''
 ! sets how to handle transition overshoot: that is, the situation when transition 
 ! is larger than available area of the given land use type.

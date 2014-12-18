@@ -45,6 +45,8 @@ public :: input_buf_size
 interface read_field
    module procedure read_field_N_2D, read_field_N_3D
    module procedure read_field_I_2D, read_field_I_3D
+   module procedure read_field_N_2D_int, read_field_N_3D_int
+   module procedure read_field_I_2D_int, read_field_I_3D_int
 end interface
 
 ! ==== NetCDF declarations ===================================================
@@ -54,8 +56,8 @@ include 'netcdf.inc'
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land_io_mod', &
-     version     = '$Id: land_io.F90,v 20.0.2.7 2014/05/28 20:47:07 pjp Exp $', &
-     tagname     = '$Name: tikal_201409 $'
+     version     = '$Id: land_io.F90,v 21.0 2014/12/15 21:50:52 fms Exp $', &
+     tagname     = '$Name: ulm $'
 
 logical :: module_is_initialized = .false.
 character(len=64)  :: interp_method = "conservative"
@@ -260,9 +262,8 @@ subroutine do_read_cover_field(input_unit, field, lonb, latb, input_cover_types,
   ! get size of the longitude and latitude axes
   call mpp_get_atts(field, ndim=num_dims, siz=dimlens) ! field is of type fieldtype and replaces varid.
   nlon = dimlens(1); nlat = dimlens(2)
-  allocate ( in_lonb(nlon+1), in_latb(nlat+1), axes(num_dims) )
-  call mpp_get_axes(input_unit, axes) ! input_unit replaces ncid. axes is of type axistype.
-  call get_axis_bounds(axes(3), axes_bnd, axes)
+  allocate ( in_lonb(nlon+1), in_latb(nlat+1) )
+  call get_axis_bounds(axes(1), axes_bnd, axes)
   call mpp_get_axis_data(axes_bnd, in_lonb(:))
   call get_axis_bounds(axes(2), axes_bnd, axes)
   call mpp_get_axis_data(axes_bnd, in_latb(:))
@@ -410,30 +411,104 @@ end subroutine do_read_cover_field
 
 end subroutine do_read_fraction_field
 
+! ============================================================================
+subroutine read_field_N_2D_int(filename, varname, lon, lat, data, interp, mask)
+  character(len=*), intent(in) :: filename
+  character(len=*), intent(in) :: varname
+  real, intent(in)  :: lon(:,:),lat(:,:)
+  integer, intent(out) :: data(:,:)
+  character(len=*), intent(in), optional :: interp
+  logical, intent(out), optional :: mask(:,:)
+
+  ! ---- local vars ----------------------------------------------------------
+  real    :: data3(size(data,1),size(data,2),1)
+  logical :: mask3(size(data,1),size(data,2),1)
+
+  call read_field_N_3D(filename, varname, lon, lat, data3, interp, mask3)
+  data = nint(data3(:,:,1))
+  if (present(mask)) &
+     mask = mask3(:,:,1)
+
+end subroutine read_field_N_2D_int
 
 ! ============================================================================
-subroutine read_field_N_2D(filename, varname, lon, lat, data, interp)
+subroutine read_field_N_3D_int(filename, varname, lon, lat, data, interp, mask)
+  character(len=*), intent(in) :: filename
+  character(len=*), intent(in) :: varname
+  real, intent(in)  :: lon(:,:),lat(:,:)
+  integer, intent(out) :: data(:,:,:)
+  character(len=*), intent(in), optional :: interp
+  logical, intent(out), optional :: mask(:,:,:)
+
+  ! ---- local vars ----------------------------------------------------------
+  real    :: data3(size(data,1),size(data,2),size(data,3))
+
+  call read_field_N_3D(filename, varname, lon, lat, data3, interp, mask)
+  data = nint(data3(:,:,:))
+
+end subroutine read_field_N_3D_int
+
+! ============================================================================
+subroutine read_field_I_2D_int(ncid, varname, lon, lat, data, interp, mask)
+  integer, intent(in) :: ncid
+  character(len=*), intent(in) :: varname
+  real, intent(in) :: lon(:,:),lat(:,:)
+  integer, intent(out) :: data(:,:)
+  character(len=*), intent(in), optional  :: interp
+  logical, intent(out), optional :: mask(:,:)
+  ! ---- local vars
+  real    :: data3(size(data,1),size(data,2),1)
+  logical :: mask3(size(data,1),size(data,2),1)
+
+  call read_field_I_3D(ncid, varname, lon, lat, data3, interp, mask3)
+  data = nint(data3(:,:,1))
+  if (present(mask)) mask = mask3(:,:,1)
+
+end subroutine read_field_I_2D_int
+
+! ============================================================================
+subroutine read_field_I_3D_int(ncid, varname, lon, lat, data, interp, mask)
+  integer, intent(in) :: ncid
+  character(len=*), intent(in) :: varname
+  real, intent(in) :: lon(:,:),lat(:,:)
+  integer, intent(out) :: data(:,:,:)
+  character(len=*), intent(in), optional  :: interp
+  logical, intent(out), optional :: mask(:,:,:)
+  ! ---- local vars
+  real    :: data3(size(data,1),size(data,2),size(data,3))
+
+  call read_field_I_3D(ncid, varname, lon, lat, data3, interp, mask)
+  data = nint(data3(:,:,:))
+
+end subroutine read_field_I_3D_int
+
+! ============================================================================
+subroutine read_field_N_2D(filename, varname, lon, lat, data, interp, mask)
   character(len=*), intent(in) :: filename
   character(len=*), intent(in) :: varname
   real, intent(in)  :: lon(:,:),lat(:,:)
   real, intent(out) :: data(:,:)
   character(len=*), intent(in), optional :: interp
+  logical, intent(out), optional :: mask(:,:)
 
   ! ---- local vars ----------------------------------------------------------
   real    :: data3(size(data,1),size(data,2),1)
+  logical :: mask3(size(data,1),size(data,2),1)
 
-  call read_field_N_3D(filename, varname, lon, lat, data3, interp)
+  call read_field_N_3D(filename, varname, lon, lat, data3, interp, mask3)
   data = data3(:,:,1)
+  if (present(mask)) mask = mask3(:,:,1)
 
 end subroutine read_field_N_2D
 
 ! ============================================================================
-subroutine read_field_N_3D(filename, varname, lon, lat, data, interp)
+subroutine read_field_N_3D(filename, varname, lon, lat, data, interp, mask)
   character(len=*), intent(in) :: filename
   character(len=*), intent(in) :: varname
   real, intent(in)  :: lon(:,:),lat(:,:)
   real, intent(out) :: data(:,:,:)
   character(len=*), intent(in), optional :: interp
+  logical, intent(out), optional :: mask(:,:,:)
 
   ! ---- local vars ----------------------------------------------------------
   integer :: ierr, input_unit
@@ -442,34 +517,39 @@ subroutine read_field_N_3D(filename, varname, lon, lat, data, interp)
   input_unit = -9999
   call mpp_open(input_unit, trim(filename), action=MPP_RDONLY, form=MPP_NETCDF, &
            threading=MPP_MULTI, fileset=MPP_SINGLE, iostat=ierr)
-  call read_field_I_3D(input_unit, varname, lon, lat, data, interp)
+  call read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
   call mpp_sync()
   call mpp_close(input_unit)
 
 end subroutine read_field_N_3D
 
 ! ============================================================================
-subroutine read_field_I_2D(ncid, varname, lon, lat, data, interp)
+subroutine read_field_I_2D(ncid, varname, lon, lat, data, interp, mask)
   integer, intent(in) :: ncid
   character(len=*), intent(in) :: varname
   real, intent(in) :: lon(:,:),lat(:,:)
   real, intent(out) :: data(:,:)
   character(len=*), intent(in), optional  :: interp
+  logical, intent(out), optional :: mask(:,:)
+
   ! ---- local vars
   real    :: data3(size(data,1),size(data,2),1)
+  logical :: mask3(size(data,1),size(data,2),1)
 
-  call read_field_I_3D(ncid, varname, lon, lat, data3, interp)
+  call read_field_I_3D(ncid, varname, lon, lat, data3, interp, mask3)
   data = data3(:,:,1)
+  if (present(mask)) mask = mask3(:,:,1)
 
 end subroutine read_field_I_2D
 
 ! ============================================================================
-subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp)
+subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
   integer, intent(in) :: input_unit
   character(len=*), intent(in) :: varname
   real, intent(in) :: lon(:,:),lat(:,:)
   real, intent(out) :: data(:,:,:)
   character(len=*), intent(in), optional  :: interp
+  logical, intent(out), optional :: mask(:,:,:)
 
   ! ---- local vars ----------------------------------------------------------
   integer :: nlon, nlat, nlev ! size of input grid
@@ -478,11 +558,13 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp)
   integer :: dimlens(1024) ! sizes of respective dimensions
   real,    allocatable :: in_lonb(:), in_latb(:), in_lon(:), in_lat(:)
   real,    allocatable :: x(:,:,:) ! input buffer
-  logical, allocatable :: mask(:,:,:) ! mask of valid values
+  logical, allocatable :: imask(:,:,:) ! mask of valid input values
   real,    allocatable :: rmask(:,:,:) ! real mask for interpolator
+  real    :: omask(size(data,1),size(data,2),size(data,3)) ! mask of valid output data
   character(len=20) :: interpolation 
   integer :: i,j,k,imap,jmap !
   type(validtype) :: v
+  type(horiz_interp_type) :: hinterp
   integer :: ndim,nvar,natt,nrec
   type(axistype), allocatable :: all_axes(:), varaxes(:)
   type(axistype):: axis_bnd
@@ -531,7 +613,7 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp)
        in_lon  (nlon),   in_lat  (nlat),   &
        in_lonb (nlon+1), in_latb (nlat+1), &
        x       (nlon, nlat, nlev) ,&
-       mask    (nlon, nlat, nlev) , rmask(nlon, nlat, nlev) )
+       imask    (nlon, nlat, nlev) , rmask(nlon, nlat, nlev) )
 
   ! read boundaries of the grid cells in longitudinal direction
   call mpp_get_axis_data(varaxes(1), in_lon)
@@ -603,30 +685,30 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp)
   ! read input data
   call mpp_read(input_unit, fld, x)
   
-  mask = mpp_is_valid(x,v)
+  imask = mpp_is_valid(x,v)
   rmask = 1.0
-  where(.not.mask) rmask = 0.0
+  where(.not.imask) rmask = 0.0
 
   select case(trim(interpolation))
-  case ("bilinear")
-     do k = 1,size(data,3)
-        call horiz_interp(x(:,:,k), in_lonb, in_latb, lon,lat, data(:,:,k), mask_in=rmask(:,:,k), &
-             interp_method='bilinear')
-     enddo
   case ("nearest")
      do k = 1,size(data,3)
      do j = 1,size(data,2)
      do i = 1,size(data,1)
-        call nearest (mask(:,:,k), in_lon, in_lat, lon(i,j), lat(i,j), imap, jmap)
+        call nearest (imask(:,:,k), in_lon, in_lat, lon(i,j), lat(i,j), imap, jmap)
         data(i,j,k) = x(imap,jmap,k)
      enddo
      enddo
      enddo
   case default
-     call error_mesg(module_name, interpolation//" is not a valid interpolation method",FATAL)
+     call horiz_interp_new(hinterp, in_lonb, in_latb, lon, lat, interp_method=interpolation)
+     do k = 1,size(data,3)
+        call horiz_interp(hinterp,x(:,:,k),data(:,:,k),mask_in=rmask(:,:,k), mask_out=omask(:,:,k))
+     enddo
+     if (present(mask)) mask(:,:,:) = (omask(:,:,:)/=0.0)
+     call horiz_interp_del(hinterp)
   end select
 
-  deallocate(in_lonb, in_latb, in_lon, in_lat, x, mask, rmask)
+  deallocate(in_lonb, in_latb, in_lon, in_lat, x, imask, rmask)
   deallocate(all_axes, varaxes, fields)
 
 end subroutine read_field_I_3D

@@ -4,13 +4,13 @@ use mpp_mod,            only : mpp_sum
 use time_manager_mod,   only : time_type
 use diag_axis_mod,      only : get_axis_length
 use diag_manager_mod,   only : register_diag_field, register_static_field, &
-     send_data
+     diag_field_add_attribute, diag_field_add_cell_measures, send_data
 use diag_util_mod,      only : log_diag_field_info
 use fms_mod,            only : write_version_number, error_mesg, string, FATAL
 
 use land_tile_selectors_mod, only : tile_selectors_init, tile_selectors_end, &
      tile_selector_type, register_tile_selector, selector_suffix, &
-     get_n_selectors, get_selector
+     n_selectors, selectors
 use land_tile_mod,      only : land_tile_type, diag_buff_type, &
      land_tile_list_type, first_elmt, tail_elmt, next_elmt, get_elmt_indices, &
      land_tile_enum_type, operator(/=), current_tile, &
@@ -26,8 +26,13 @@ private
 public :: tile_diag_init
 public :: tile_diag_end
 
+public :: set_default_diag_filter ! set the default filter for the consequent
+          ! register_tiled_diag_field calls. The default filter will handle the
+          ! fields that appear in diag_table without subsampling suffix.
+
 public :: diag_buff_type
 
+public :: register_tiled_area_fields
 public :: register_tiled_diag_field
 public :: register_tiled_static_field
 public :: add_tiled_diag_field_alias
@@ -38,21 +43,23 @@ public :: send_tile_data_i0d_fptr
 
 public :: dump_tile_diag_fields
 
-! codes of tile aggregaton operations
-public :: OP_AVERAGE, OP_SUM
+! codes of tile aggregation operations
+public :: OP_AVERAGE, OP_SUM, OP_VAR, OP_STD
 
 interface send_tile_data
    module procedure send_tile_data_0d
    module procedure send_tile_data_1d
 end interface
+
+public :: get_area_id
 ! ==== end of public interface ===============================================
 
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
-     module_name = 'lan_tile_diag_mod', &
-     version     = '$Id: land_tile_diag.F90,v 20.0 2013/12/13 23:29:55 fms Exp $', &
-     tagname     = '$Name: tikal_201409 $'
+     mod_name = 'lan_tile_diag_mod', &
+     version  = '$Id: land_tile_diag.F90,v 21.0 2014/12/15 21:50:55 fms Exp $', &
+     tagname  = '$Name: ulm $'
 
 integer, parameter :: INIT_FIELDS_SIZE     = 1     ! initial size of the fields array
 integer, parameter :: BASE_TILED_FIELD_ID  = 65536 ! base value for tiled field 
@@ -63,6 +70,12 @@ integer, parameter :: MIN_DIAG_BUFFER_SIZE = 1     ! min size of the per-tile di
 ! operations used for tile data aggregation
 integer, parameter :: OP_AVERAGE = 0 ! weighted average of tile values
 integer, parameter :: OP_SUM     = 1 ! sum of all tile values
+integer, parameter :: OP_VAR     = 2 ! variance of tile values
+integer, parameter :: OP_STD     = 3 ! standard deviation of tile values
+
+integer, parameter :: FLD_STATIC    = 0
+integer, parameter :: FLD_DYNAMIC   = 1
+integer, parameter :: FLD_LIKE_AREA = 2
 
 
 ! ==== derived types =========================================================
@@ -71,7 +84,7 @@ type :: tiled_diag_field_type
    integer :: offset ! offset of the field data in the buffer
    integer :: size   ! size of the field data in the per-tile buffers
    integer :: op     ! aggregation operation
-   logical :: static ! if true, the diag field is static
+   integer :: static ! static/dynamic indicator, one of FLD_STATIC/FLD_DYNAMIC/FLD_LIKE_AREA
    integer :: n_sends! number of data points sent to the field since last dump
    integer :: alias = 0 ! ID of the first alias in the chain
    character(32) :: module,name ! for debugging purposes only
@@ -102,9 +115,9 @@ subroutine tile_diag_init()
 
   ! initialize diag selectors
   call tile_selectors_init()
-  call register_tile_selector('')
+  call register_tile_selector('land',area_depends_on_time=.FALSE.)
 
-  ! initailze global data
+  ! initialize global data
   allocate(fields(INIT_FIELDS_SIZE))
   n_fields       = 0
   current_offset = 1
@@ -131,6 +144,140 @@ subroutine tile_diag_end()
 
 end subroutine tile_diag_end
 
+! ============================================================================
+! give a name of the diagnostic selector, returns id of area variable associated
+! with this selector
+function get_area_id(name); integer get_area_id
+   character(*), intent(in) :: name ! name of the selector
+   
+   integer :: i
+
+   do i = 1, n_selectors
+      if (trim(name)==trim(selectors(i)%name)) then
+         get_area_id = selectors(i)%area_id
+         return
+      endif
+   enddo
+   call error_mesg(mod_name,&
+      'diag filter "'//trim(name)//'" was not found among registered diag filters', FATAL)
+end function get_area_id
+
+! ============================================================================
+! sets the default tile diagnostic selector: all tiled diag fields registered 
+! after calling this function (until the next call) will be associated with the 
+! specified selector
+subroutine set_default_diag_filter(name)
+   character(*), intent(in) :: name ! name of the selector
+   
+   integer :: i
+
+   selectors(:)%is_default = .FALSE.
+   do i = 1, n_selectors
+      if (trim(name)==trim(selectors(i)%name)) then
+         selectors(i)%is_default = .TRUE.
+         return
+      endif
+   enddo
+   call error_mesg(mod_name,&
+      'diag filter "'//trim(name)//'" was not found among registered diag filters', FATAL)
+end subroutine set_default_diag_filter
+
+
+! ============================================================================
+! area and frac are special, because:
+! * static/dynamic is controlled by the selectors, not by the registration
+! * frac is always associated with the land area
+! * frac is average over land area, despite being calculated with OP_SUM
+! TODO: somehow make sure that frac_land is the fraction of the area in the 
+!       grid cell, not 1
+subroutine register_tiled_area_fields(module_name, axes, init_time, &
+     id_area, id_frac)
+
+  character(len=*), intent(in)  :: module_name
+  integer,          intent(in)  :: axes(:)
+  type(time_type),  intent(in)  :: init_time
+  integer,          intent(out) :: id_area, id_frac
+  
+  integer :: i_area, k
+  
+  ! register areas for all tiles
+  id_area = reg_field(FLD_LIKE_AREA, module_name, 'area', init_time, axes, &
+         'area in the grid cell', 'm2', missing_value=-1.0, op=OP_SUM)
+  ! store the ids of area for each of the selectors
+  if (id_area > 0) then
+     i_area = id_area - BASE_TILED_FIELD_ID
+     do k = 1, n_selectors
+        selectors(k)%area_id = fields(i_area)%ids(k)
+     enddo
+  endif
+  id_frac = reg_field(FLD_LIKE_AREA, module_name, 'frac', init_time, axes, &
+         'fraction of land area', 'unitless', missing_value=-1.0, op=OP_SUM)
+  if (id_frac > 0) then
+     call add_cell_measures(id_frac, get_area_id('land'))
+     call add_cell_methods(id_frac,'area: mean')
+  endif
+end subroutine register_tiled_area_fields
+
+
+! ============================================================================
+! sets cell_measures for all selectors of the tiled diag field
+subroutine add_cell_measures(id, area)
+   integer, intent(in) :: id ! id of the tiled diag field
+   integer, intent(in), optional :: area ! id of the area diag field. 
+     ! If "area" is present, cell_measures for all selectors are set to indicated
+     ! output field; otherwise diag field for each selector is associated with the
+     ! area for the selector.
+
+   integer :: i,k, area_id
+   
+   if (id<=0) return ! do nothing if the field is not registered
+
+   i = id - BASE_TILED_FIELD_ID
+   do k = 1, n_selectors
+      if (present(area)) then
+         area_id = area
+      else
+         area_id = selectors(k)%area_id
+      endif
+      if (fields(i)%ids(k)>0) then
+         call diag_field_add_cell_measures(fields(i)%ids(k),area_id)
+      endif
+   enddo
+end subroutine add_cell_measures
+
+
+! ============================================================================
+! adds cell_methods attribute to all selectors of specified tiled field
+! if cell_method is present, its value is used for all selectors; otherwise 
+! the value is deduced based on aggreagtion opertaion code
+subroutine add_cell_methods(id,cell_methods)
+  integer, intent(in) :: id ! id of the tiled diagnostic field
+  character(*), intent(in), optional :: cell_methods ! value cell_method attribute
+
+   integer :: i,k
+   character(64) :: cell_methods_
+   
+   if (id<=0) return ! do nothing if the field is not registered
+
+   i = id - BASE_TILED_FIELD_ID
+   if (present(cell_methods)) then
+      cell_methods_ = cell_methods
+   else
+      select case (fields(i)%op)
+      case (OP_AVERAGE)
+         cell_methods_ = 'area: mean'
+      case (OP_SUM)
+         cell_methods_ = 'area: sum'
+      end select
+   endif
+
+   do k = 1, n_selectors
+      if (fields(i)%ids(k)>0) then
+         call diag_field_add_attribute(fields(i)%ids(k),'cell_methods',trim(cell_methods_))
+      endif
+   enddo
+end subroutine add_cell_methods
+
 
 ! ============================================================================
 function register_tiled_diag_field(module_name, field_name, axes, init_time, &
@@ -148,9 +295,10 @@ function register_tiled_diag_field(module_name, field_name, axes, init_time, &
   real,             intent(in), optional :: range(2)
   integer,          intent(in), optional :: op ! aggregation operation code
   
-  id = reg_field(.false., module_name, field_name, init_time, axes, long_name, &
+  id = reg_field(FLD_DYNAMIC, module_name, field_name, init_time, axes, long_name, &
          units, missing_value, range, op=op)
-
+  call add_cell_measures(id)
+  call add_cell_methods(id)
 end function
 
 ! ============================================================================
@@ -172,9 +320,10 @@ function register_tiled_static_field(module_name, field_name, axes, &
   ! --- local vars
   type(time_type) :: init_time
 
-  id = reg_field(.true., module_name, field_name, init_time, axes, long_name, &
+  id = reg_field(FLD_STATIC, module_name, field_name, init_time, axes, long_name, &
          units, missing_value, range, require, op)
-
+  call add_cell_measures(id)
+  call add_cell_methods(id)
 end function
 
 
@@ -195,7 +344,7 @@ subroutine add_tiled_static_field_alias(id0, module_name, field_name, axes, &
   ! --- local vars
   type(time_type) :: init_time
 
-  call reg_field_alias(id0, .true., module_name, field_name, axes, init_time, &
+  call reg_field_alias(id0, FLD_STATIC, module_name, field_name, axes, init_time, &
      long_name, units, missing_value, range, op)
 end subroutine
 
@@ -215,7 +364,7 @@ subroutine add_tiled_diag_field_alias(id0, module_name, field_name, axes, init_t
   real,             intent(in), optional :: range(2)
   integer,          intent(in), optional :: op ! aggregation operation code
 
-  call reg_field_alias(id0, .false., module_name, field_name, axes, init_time, &
+  call reg_field_alias(id0, FLD_DYNAMIC, module_name, field_name, axes, init_time, &
      long_name, units, missing_value, range, op)
 end subroutine
 
@@ -225,7 +374,7 @@ subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time
 
 
   integer,          intent(inout) :: id0 ! id of the original diag field on input;
-  logical,          intent(in) :: static
+  integer,          intent(in) :: static
    ! if negative then it may be replaced with the alias id on output
   character(len=*), intent(in) :: module_name
   character(len=*), intent(in) :: field_name
@@ -244,7 +393,7 @@ subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time
   if (id0>0) then
     ifld0 = id0-BASE_TILED_FIELD_ID
     if (ifld0<1.or.ifld0>n_fields) &
-       call error_mesg(module_name, 'incorrect index ifld0 '//string(ifld0)//&
+       call error_mesg(mod_name, 'incorrect index ifld0 '//string(ifld0)//&
                     ' in definition of tiled diag field alias "'//&
                     trim(module_name)//'/'//trim(field_name)//'"', FATAL)
     id1 = reg_field(static, module_name, field_name, init_time, axes, long_name, &
@@ -253,48 +402,40 @@ subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time
       ifld1 = id1-BASE_TILED_FIELD_ID
       ! check that sizes of the fields are identical
       if (fields(ifld0)%size/=fields(ifld1)%size) &
-         call error_mesg(module_name, 'sizes of diag field "'//           &
+         call error_mesg(mod_name, 'sizes of diag field "'//              &
            trim(fields(ifld0)%module)//'/'//trim(fields(ifld0)%name)//    &
            '" and its alias "'//trim(module_name)//'/'//trim(field_name)//&
            '" are not the same', FATAL)
       ! check that "static" status of the fields is the same
-      if(fields(ifld0)%static.and..not.fields(ifld1)%static) &
-         call error_mesg(module_name,                                     &
-           'attempt to register non-static alias"'//                      &
-           trim(module_name)//'/'//trim(field_name)//                     &
-           '" of static field "'//                                        &
-           trim(fields(ifld0)%module)//'/'//trim(fields(ifld0)%name)//'"',&
+      if(fields(ifld0)%static.ne.fields(ifld1)%static) &
+         call error_mesg(mod_name,                                        &
+           'attempt to register alias "'//trim(module_name)//'/'//trim(field_name)//   &
+           '" of field "'//trim(fields(ifld0)%module)//'/'//trim(fields(ifld0)%name)// &
+           '" with different static/dynamic status',&
            FATAL)
-      if(.not.fields(ifld0)%static.and.fields(ifld1)%static) &
-         call error_mesg(module_name,                                     &
-           'attempt to register static alias"'//                          &
-           trim(module_name)//'/'//trim(field_name)//                     &
-           '" of non-static field "'//                                    &
-           trim(fields(ifld0)%module)//'/'//trim(fields(ifld0)%name)//'"',&
-           FATAL)
-
       ! copy alias field from the original into the alias, to preserve the chain
       fields(ifld1)%alias = fields(ifld0)%alias
       ! update alias field in the head of alias chain
       fields(ifld0)%alias = ifld1
     endif
   else
-    ! the "main" field has not been registered, so simply redister the alias
+    ! the "main" field has not been registered, so simply register the alias
     ! as a diag field
     id0 = reg_field(static, module_name, field_name, init_time, axes, long_name, &
           units, missing_value, range, op=op)
   endif
-end subroutine
+end subroutine reg_field_alias
 
 ! ============================================================================
 ! provides unified interface for registering a diagnostic field with full set
 ! of selectors
 function reg_field(static, module_name, field_name, init_time, axes, &
-     long_name, units, missing_value, range, require, op, offset) result(id)
+     long_name, units, missing_value, range, require, op, offset, &
+     area, cell_methods) result(id)
  
   integer :: id
 
-  logical,          intent(in) :: static
+  integer,          intent(in) :: static
   character(len=*), intent(in) :: module_name
   character(len=*), intent(in) :: field_name
   integer,          intent(in) :: axes(:)
@@ -306,34 +447,31 @@ function reg_field(static, module_name, field_name, init_time, axes, &
   logical,          intent(in), optional :: require
   integer,          intent(in), optional :: op
   integer,          intent(in), optional :: offset
+  character(len=*), intent(in), optional :: area ! name of the area associated with this field, if not default
+  character(len=*), intent(in), optional :: cell_methods ! cell_methods associated with this field, if not default
 
   ! ---- local vars
   integer, pointer :: diag_ids(:) ! ids returned by FMS diag manager for each selector
-  integer :: i
-  integer :: isel    ! selector iterator
-  integer :: n_selectors ! number of registered diagnostic tile selectors
+  integer :: i, j
   type(tiled_diag_field_type), pointer :: new_fields(:)
-  type(tile_selector_type) :: sel
   ! ---- global vars: n_fields, fields, current_offset -- all used and updated
 
   ! log diagnostic field information
   call log_diag_field_info ( module_name, trim(field_name), axes, long_name, units,&
-                             missing_value, range, dynamic=.not.static )
+                             missing_value, range, dynamic=(static.ne.FLD_STATIC) )
+  
   ! go through all possible selectors and try to register a diagnostic field 
   ! with the name derived from field name and selector; if any of the 
   ! registrations succeeds, return a tiled field id, otherwise return 0.
   ! Note that by design one of the selectors have empty name and selects all
   ! the tiles.
   id = 0
-  n_selectors = get_n_selectors()
   allocate(diag_ids(n_selectors))
   
-  do isel = 1, n_selectors
-     ! try to register field+selector pair with FMS diagnostics manager
-     sel = get_selector(isel)
-     diag_ids(isel) = reg_field_set(static, sel, module_name, field_name, axes, &
+  do i = 1, n_selectors
+     diag_ids(i) = reg_field_set(static, selectors(i), &
+          module_name, field_name, axes, &
           init_time, long_name, units, missing_value, range, require)
-
   enddo
   
   if(any(diag_ids>0)) then
@@ -378,7 +516,7 @@ function reg_field(static, module_name, field_name, init_time, axes, &
      endif
      ! store the static field flag
      fields(id)%static = static
-     ! zero out the number of data points ent to the field
+     ! zero out the number of data points sent to the field
      fields(id)%n_sends = 0
      ! store the name of the field -- for now, only to be able to see what it is 
      ! in the debugger
@@ -391,18 +529,18 @@ function reg_field(static, module_name, field_name, init_time, axes, &
      deallocate(diag_ids)
   endif
 
-end function
+end function reg_field
 
 
 ! ============================================================================
 ! provides unified interface for registering a diagnostic field with a given
 ! selector, whether static or time-dependent
 function reg_field_set(static, sel, module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, require) result (id)
+     long_name, units, missing_value, range, require, area) result (id)
 
   integer :: id 
 
-  logical,          intent(in) :: static
+  integer,          intent(in) :: static
   type(tile_selector_type), intent(in) :: sel
   character(len=*), intent(in) :: module_name
   character(len=*), intent(in) :: field_name
@@ -413,30 +551,34 @@ function reg_field_set(static, sel, module_name, field_name, axes, init_time, &
   real,             intent(in), optional :: missing_value
   real,             intent(in), optional :: range(2)
   logical,          intent(in), optional :: require
+  integer,          intent(in), optional :: area
 
   character(len=128) :: fname
-  character(len=128) :: lname
+  logical :: static_
 
   ! form field name as concatenation of name of the field and selector suffix
   fname = trim(field_name)//trim(selector_suffix(sel))
-  ! form long name as concatenation of specified long name (if present) and
-  ! selector long name
-  lname = ''
-  if(present(long_name)) lname=long_name
-  if(trim(sel%long_name)/='') &
-     lname = trim(lname)//' ('//trim(sel%long_name)//')'
 
   ! try registering diagnostic field with FMS diagnostic manager.
-  if (static) then
+  select case(static)
+  case (FLD_STATIC)
+     static_=.TRUE.
+  case (FLD_DYNAMIC)
+     static_=.FALSE.
+  case (FLD_LIKE_AREA)
+     static_ = sel%area_is_static
+  end select
+  if (static_) then
      id = register_static_field ( module_name, fname,   &
-          axes, lname, units, missing_value, range, require, do_not_log=.TRUE. )
+          axes, long_name, units, missing_value, range, require, &
+          do_not_log=.TRUE., area=area)
   else
      id = register_diag_field ( module_name,  fname,   &
-          axes, init_time, lname, units, missing_value, range, &
-          mask_variant=.true., do_not_log=.TRUE. )
+          axes, init_time, long_name, units, missing_value, range, &
+          mask_variant=.true., do_not_log=.TRUE., area=area )
   endif
 
-end function
+end function reg_field_set
 
 
 ! ============================================================================
@@ -609,10 +751,10 @@ subroutine dump_tile_diag_fields(tiles, time)
 !$OMP parallel do schedule(dynamic) default(shared) private(ifld,isel)
   do ifld = 1, n_fields
      if (total_n_sends(ifld) == 0) cycle ! no data to send 
-     do isel = 1, get_n_selectors()
+     do isel = 1, n_selectors
         if (fields(ifld)%ids(isel) <= 0) cycle
         call dump_diag_field_with_sel ( fields(ifld)%ids(isel), tiles, &
-             fields(ifld), get_selector(isel), time )
+             fields(ifld), selectors(isel), time )
      enddo
   enddo
   ! zero out the number of data points sent to the field 
@@ -644,7 +786,7 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
   integer :: i,j ! iterators
   integer :: is,ie,js,je,ks,ke ! array boundaries
   logical :: used ! value returned from send_data (ignored)
-  real, allocatable :: buffer(:,:,:), weight(:,:,:)
+  real, allocatable :: buffer(:,:,:), weight(:,:,:), var(:,:,:)
   type(land_tile_enum_type)     :: ce, te
   type(land_tile_type), pointer :: tile
   
@@ -669,21 +811,58 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
     if ( size(tile%diag%data) < ke )       cycle ! do nothing if there is no data in the buffer
     if ( .not.tile_is_selected(tile,sel) ) cycle ! do nothing if tile is not selected
     select case (field%op)
-    case (OP_AVERAGE)
+    case (OP_AVERAGE,OP_VAR,OP_STD)
        where(tile%diag%mask(ks:ke)) 
           buffer(i,j,:) = buffer(i,j,:) + tile%diag%data(ks:ke)*tile%frac
-          weight(i,j,:) = weight(i,j,:) + tile%frac
        end where
+       weight(i,j,:) = weight(i,j,:) + tile%frac
     case (OP_SUM)
        where(tile%diag%mask(ks:ke)) 
           buffer(i,j,:) = buffer(i,j,:) + tile%diag%data(ks:ke)
-          weight(i,j,:) = 1
        end where
+       weight(i,j,:) = 1
     end select
   enddo
 
   ! normalize accumulated data
   where (weight>0) buffer=buffer/weight
+
+  if (field%op == OP_VAR.or.field%op==OP_STD) then
+     ! second loop to process the variance and standard deviation diagnostics.
+     ! it may be possible to calc. var and std in one pass with weighted incremental 
+     ! algorithm from http://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
+     ! code her is more straightforward. buffer(:,:,:) already contains the mean,
+     ! and weight(:,:,:) -- sum of  tile fractions
+     allocate(var(is:ie,js:je,ks:ke))
+     var(:,:,:) = 0.0
+     ! the loop is somewhat different from the first, for no particular reason: 
+     ! perhaps this way is better for performance?
+     do j = js,je
+     do i = is,ie
+        ce = first_elmt(tiles(i,j))
+        te = tail_elmt (tiles(i,j))
+        do while(ce /= te)
+           tile => current_tile(ce) ! get the pointer to current tile
+           ce = next_elmt(ce)       ! move to the next position
+    
+           if ( size(tile%diag%data) < ke )       cycle ! do nothing if there is no data in the buffer
+           if ( .not.tile_is_selected(tile,sel) ) cycle ! do nothing if tile is not selected
+           where(tile%diag%mask(ks:ke))
+              var(i,j,:) = var(i,j,:) + tile%frac*(tile%diag%data(ks:ke)-buffer(i,j,:))**2
+           end where 
+        enddo
+     enddo
+     enddo
+     ! renormalize the variance or standard deviation. note that weight is 
+     ! calculated in the first loop
+     select case (field%OP)
+     case (OP_VAR)
+         where (weight>0) buffer = var/weight
+     case (OP_STD)
+         where (weight>0) buffer = sqrt(var/weight)
+     end select
+     deallocate(var)
+  endif
   
   ! send diag field
   used = send_data ( id, buffer, time, mask=weight>0 )   

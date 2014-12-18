@@ -45,11 +45,17 @@ interface dpri
    module procedure debug_printout_r1d
 end interface dpri
 
+! conservation tolerances for use across the code. This module doesn't use
+! them, just serves as a convenient place to share them across all land code
+public :: water_cons_tol
+public :: carbon_cons_tol
+public :: do_check_conservation
+
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'land_debug',&
-    version     = '$Id: land_debug.F90,v 20.0 2013/12/13 23:29:49 fms Exp $',&
-    tagname     = '$Name: tikal_201409 $'
+    version     = '$Id: land_debug.F90,v 21.0 2014/12/15 21:50:50 fms Exp $',&
+    tagname     = '$Name: ulm $'
 
 ! ==== module variables ======================================================
 integer, allocatable :: current_debug_level(:)
@@ -72,6 +78,11 @@ logical :: trim_labels = .FALSE. ! if TRUE, the length of text labels in debug
 namelist/land_debug_nml/ watch_point, temp_lo, temp_hi, &
    print_hex_debug, label_len, trim_labels
 
+logical :: do_check_conservation = .FALSE.
+real    :: water_cons_tol  = 1e-11 ! tolerance of water conservation checks 
+real    :: carbon_cons_tol = 1e-13 ! tolerance of carbon conservation checks  
+namelist/land_conservation_nml/ do_check_conservation, water_cons_tol, carbon_cons_tol
+
 
 contains
 
@@ -86,6 +97,8 @@ subroutine land_debug_init()
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=land_debug_nml, iostat=io)
   ierr = check_nml_error(io, 'land_debug_nml')
+  read (input_nml_file, nml=land_conservation_nml, iostat=io)
+  ierr = check_nml_error(io, 'land_conservation_nml')
 #else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
@@ -96,11 +109,20 @@ subroutine land_debug_init()
      enddo
 10   continue
      call close_file (unit)
+     unit = open_namelist_file()
+     ierr = 1;  
+     do while (ierr /= 0)
+        read (unit, nml=land_conservation_nml, iostat=io, end=11)
+        ierr = check_nml_error (io, 'land_conservation_nml')
+     enddo
+11   continue
+     call close_file (unit)
   endif
 #endif
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=land_debug_nml)
+     write(unit, nml=land_conservation_nml)
   endif
   ! set number of our mosaic tile 
   call get_grid_ntiles('LND',ntiles)
@@ -221,7 +243,7 @@ subroutine check_temp_range(temp, tag, varname, time)
   type(time_type), intent(in) :: time ! current time
 
   call check_var_range(temp,temp_lo,temp_hi,tag,varname,time)
-end subroutine 
+end subroutine check_temp_range
 
 ! ============================================================================
 ! checks if the value is within specified range, and prints a message
@@ -258,7 +280,7 @@ subroutine check_var_range(value, lo, hi, tag, varname, time, severity)
           'time=',y,mo,d,h,m,s
      call error_mesg(trim(tag),message,severity_)
   endif
-end subroutine 
+end subroutine check_var_range
 
 ! ============================================================================
 ! debug printout procedures
@@ -303,11 +325,17 @@ subroutine debug_printout_r1d(description,values)
   character(*), intent(in) :: description
   real        , intent(in) :: values(:)
   
+  integer :: i
+
   if (trim_labels.or.len_trim(description)<label_len) then
-     write(*,fixed_format,advance='NO')trim(description),values
+     write(*,fixed_format,advance='NO')trim(description)
   else
-     write(*,'(x,a,99g23.16)',advance='NO')trim(description),values
+     write(*,'(x,a)',advance='NO')trim(description)
   endif
+  do i = 1,size(values)
+     write(*,'(g23.16)',advance='NO')values(i)
+     if(print_hex_debug) write(*,'(z17)',advance='NO')values(i)
+  enddo
 end subroutine
 
 ! ============================================================================
@@ -327,6 +355,8 @@ subroutine check_conservation(tag, substance, d1, d2, tolerance, time, severity)
   integer :: thread
   character(512) :: message
   integer :: severity_
+
+  if(.not.do_check_conservation) return
   
   severity_=FATAL
   if (present(severity))severity_=severity
@@ -334,7 +364,10 @@ subroutine check_conservation(tag, substance, d1, d2, tolerance, time, severity)
   if (severity_<0) return
 
   if (abs(d2-d1)<tolerance) then
-     return
+     if (is_watch_point()) then
+     write(*,'(3(x,a,g23.16))')&
+          trim(tag)//': conservation of '//trim(substance)//'; before=', d1, 'after=', d2, 'diff=',d2-d1
+     endif
   else
      thread = 1
 !$   thread = OMP_GET_THREAD_NUM()+1

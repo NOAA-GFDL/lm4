@@ -25,8 +25,6 @@ use snow_tile_mod, only : &
 
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
-use land_tile_diag_mod, only : &
-     register_tiled_diag_field, send_tile_data, diag_buff_type
 use land_data_mod,      only : land_state_type, lnd
 use land_tile_io_mod, only : create_tile_out_file, read_tile_data_r1d_fptr, &
      write_tile_data_r1d_fptr, print_netcdf_error, get_input_restart_name, &
@@ -55,8 +53,8 @@ public :: snow_step_2
 ! ==== module variables ======================================================
 character(len=*), parameter, private   :: &
        module_name = 'snow_mod' ,&
-       version     = '$Id: snow.F90,v 20.0.4.1.6.2 2014/06/07 13:58:56 Peter.Phillipps Exp $' ,&
-       tagname     = '$Name: tikal_201409 $'
+       version     = '$Id: snow.F90,v 21.0 2014/12/15 21:51:10 fms Exp $' ,&
+       tagname     = '$Name: ulm $'
 
 ! ==== module variables ======================================================
 
@@ -183,15 +181,15 @@ subroutine snow_init ( id_lon, id_lat, new_land_io )
 
         allocate(idx(isize),r1d(isize,nz))
 
-        call read_compressed(restart_file_name,'tile_index',idx, domain=lnd%domain)
+        call read_compressed(restart_file_name,'tile_index',idx, domain=lnd%domain, timelevel=1)
 
-        call read_compressed(restart_file_name,'temp',r1d, domain=lnd%domain)
+        call read_compressed(restart_file_name,'temp',r1d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(snow_temp_ptr,idx,r1d)
 
-        call read_compressed(restart_file_name,'wl',r1d, domain=lnd%domain)
+        call read_compressed(restart_file_name,'wl',r1d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(snow_wl_ptr,idx,r1d)
 
-        call read_compressed(restart_file_name,'ws',r1d, domain=lnd%domain)
+        call read_compressed(restart_file_name,'ws',r1d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(snow_ws_ptr,idx,r1d)
     else
         call error_mesg('snow_init', 'reading NetCDF restart "'//trim(restart_file_name)//'"', NOTE)
@@ -264,8 +262,7 @@ subroutine save_snow_restart (tile_dim_length, timestamp)
   call write_tile_data_r1d_fptr(unit,'temp',snow_temp_ptr,'zfull','snow temperature','degrees_K')
   call write_tile_data_r1d_fptr(unit,'wl'  ,snow_wl_ptr,  'zfull','snow liquid water content','kg/m2')
   call write_tile_data_r1d_fptr(unit,'ws'  ,snow_ws_ptr,  'zfull','snow solid water content','kg/m2')
-  ! close output file
-  if (mpp_pe()==lnd%io_pelist(1)) &
+  ! close output file on all ranks (writers and readers)
        __NF_ASRT__(nf_close(unit))
 
 end subroutine save_snow_restart
@@ -869,6 +866,12 @@ end subroutine snow_step_1
      write(*,*) ' ***** snow_step_2 checkpoint 4d ***** '
      write(*,*) 'max_snow    ', max_snow
      write(*,*) 'snow_mass   ', snow_mass
+     do l=1, num_l
+       write(*,'(i2,3(a,g23.16))') l,&
+            ' wl=', snow%wl(l),&
+            ' ws=', snow%ws(l),&
+            '  T=', snow%T(l)
+     enddo
   endif
 
 ! ---- remove any isolated snow molecules (!) or sweep any excess snow from top of pack ----
@@ -883,13 +886,18 @@ end subroutine snow_step_1
             + clw*snow%wl(l)*(snow%T(l)-tfreeze)
           snow_hfrunf = snow_hfrunf  &
             + csw*snow%ws(l)*(snow%T(l)-tfreeze)
-          enddo
+        enddo
         snow_lrunf  = sum(snow%wl)
         snow_frunf  = snow_mass
         snow_mass   = 0.
         snow%ws = 0.
         snow%wl = 0.
-    else if (max_snow < snow_mass) then
+        if(is_watch_point()) then
+           write(*,*) ' ***** snow_step_2 checkpoint 4e ***** '
+           write(*,*) 'snow_lrunf    ', snow_lrunf
+           write(*,*) 'snow_frunf    ', snow_frunf
+        endif
+  else if (max_snow < snow_mass) then
         snow_frunf  = snow_mass - max_snow
         snow_mass  = max_snow
         sum_sno  = 0
@@ -897,22 +905,27 @@ end subroutine snow_step_1
         do l = 1, num_l
           if (sum_sno + snow%ws(l) > snow_frunf) then
               snow_transfer = snow_frunf - sum_sno
-            else
+          else
               snow_transfer = snow%ws(l)
-            endif
+          endif
           if (snow%ws(l) > 0) then
               frac = snow_transfer / snow%ws(l)
-            else
+          else
               frac = 1.
-            endif
+          endif
           sum_sno  = sum_sno  + snow_transfer
           snow_lrunf  = snow_lrunf  +     frac*snow%wl(l)
           snow_hlrunf = snow_hlrunf + clw*frac*snow%wl(l)*(snow%T(l)-tfreeze)
           snow_hfrunf = snow_hfrunf + csw*frac*snow%ws(l)*(snow%T(l)-tfreeze)
           snow%ws(l) = (1-frac)*snow%ws(l)
           snow%wl(l) = (1-frac)*snow%wl(l)
-          enddo
-    endif
+        enddo
+        if(is_watch_point()) then
+           write(*,*) ' ***** snow_step_2 checkpoint 4f ***** '
+           write(*,*) 'snow_lrunf    ', snow_lrunf
+           write(*,*) 'snow_frunf    ', snow_frunf
+        endif
+  endif
   snow_lrunf  = snow_lrunf  / delta_time
   snow_frunf  = snow_frunf  / delta_time
   snow_hlrunf = snow_hlrunf / delta_time

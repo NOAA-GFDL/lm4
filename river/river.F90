@@ -57,7 +57,7 @@ module river_mod
   use fms_mod,             only : field_exist, CLOCK_FLAG_DEFAULT
   use fms_io_mod,          only : get_mosaic_tile_file, get_instance_filename
   use fms_io_mod,          only : restart_file_type, register_restart_field, restore_state, save_restart
-  use diag_manager_mod,    only : diag_axis_init, register_diag_field, register_static_field, send_data
+  use diag_manager_mod,    only : diag_axis_init, register_diag_field, register_static_field, send_data, diag_field_add_attribute
   use time_manager_mod,    only : time_type, increment_time, get_time
   use river_type_mod,      only : river_type, Leo_Mad_trios, NO_RIVER_FLAG
   use river_physics_mod,   only : river_physics_step, river_physics_init, river_impedes_lake, &
@@ -74,8 +74,8 @@ module river_mod
   private
 
 !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id: river.F90,v 20.0.2.1.2.4 2014/06/27 20:45:27 Peter.Phillipps Exp $'
-  character(len=128) :: tagname = '$Name: tikal_201409 $'
+  character(len=128) :: version = '$Id: river.F90,v 21.0 2014/12/15 21:50:45 fms Exp $'
+  character(len=128) :: tagname = '$Name: ulm $'
 
 !--- public interface ------------------------------------------------
   public :: river_init, river_end, river_type, update_river, river_stock_pe
@@ -182,7 +182,7 @@ contains
 
 !#####################################################################
   subroutine river_init( land_lon, land_lat, time, dt_fast, land_domain, &
-                         land_frac, id_lon, id_lat, new_land_io, river_land_mask )
+                         land_frac, id_lon, id_lat, id_area_land, new_land_io, river_land_mask )
     real,            intent(in) :: land_lon(:,:)     ! geographical lontitude of cell center
     real,            intent(in) :: land_lat(:,:)     ! geographical lattitude of cell center
     type(time_type), intent(in) :: time              ! current time
@@ -190,6 +190,7 @@ contains
     type(domain2d),  intent(in) :: land_domain       ! land domain
     real,            intent(in) :: land_frac(:,:)    ! land area fraction from land model
     integer,         intent(in) :: id_lon, id_lat    ! IDs of diagnostic axes
+    integer,         intent(in) :: id_area_land      ! IDs of the and area diag field
     logical,         intent(in) :: new_land_io
     logical,         intent(out):: river_land_mask(:,:) ! land mask seen by rivers
 
@@ -377,7 +378,7 @@ contains
       enddo
 
 !--- register diag field
-    call river_diag_init (id_lon, id_lat)
+    call river_diag_init (id_lon, id_lat, id_area_land)
 
 !--- read restart file 
     remember_new_land_io = new_land_io
@@ -1015,9 +1016,10 @@ call mpp_update_domains (lake_conn,   domain)
 
 !#####################################################################
 
-  subroutine river_diag_init(id_lon, id_lat)
+  subroutine river_diag_init(id_lon, id_lat, id_area_land)
     integer, intent(in) :: id_lon  ! ID of land longitude (X) diag axis
     integer, intent(in) :: id_lat  ! ID of land latitude (Y) diag axis
+    integer, intent(in) :: id_area_land  ! ID of land area diag field
 
     character(len=11)                :: mod_name = 'river'
     real, dimension(isc:iec,jsc:jec) :: tmp
@@ -1034,7 +1036,8 @@ call mpp_update_domains (lake_conn,   domain)
            missing_value=missing )
       id_dis(i_species)     = register_diag_field ( mod_name, do_name(i_species),       &
            (/id_lon, id_lat/), River%Time, do_desc(i_species), flux_units(i_species), &
-           missing_value=missing )
+           missing_value=missing, area=id_area_land )
+      call diag_field_add_attribute(id_dis(i_species),'cell_methods', 'area: mean')
       id_lake_outflow(i_species) = register_diag_field ( mod_name, lo_name(i_species),     &
            (/id_lon, id_lat/), River%Time, lo_desc(i_species), flux_units(i_species),    &
            missing_value=missing )
@@ -1046,7 +1049,8 @@ call mpp_update_domains (lake_conn,   domain)
            missing_value=missing )
       id_storage(i_species) = register_diag_field ( mod_name, st_name(i_species),     &
            (/id_lon, id_lat/), River%Time, st_desc(i_species), store_units(i_species),    &
-           missing_value=missing )
+           missing_value=missing, area=id_area_land )
+      call diag_field_add_attribute(id_storage(i_species),'cell_methods', 'area: mean')
       id_stordis(i_species) = register_diag_field ( mod_name, sd_name(i_species),     &
            (/id_lon, id_lat/), River%Time, sd_desc(i_species), store_units(i_species),    &
            missing_value=missing )
@@ -1117,13 +1121,17 @@ call mpp_update_domains (lake_conn,   domain)
   ! fields that historically were in the the land_model.F90. They are registered
   ! for module 'land' to preserve compatibility with older diag tables
   id_LWSr   = register_diag_field ( 'land', 'LWSr', (/id_lon, id_lat/), &
-       River%Time, 'river liquid mass storage', 'kg/m2', missing_value=-1.0e+20 )
+       River%Time, 'river liquid mass storage', 'kg/m2', missing_value=-1.0e+20, area=id_area_land )
+  call diag_field_add_attribute(id_LWSr,'cell_methods', 'area: mean')
   id_FWSr   = register_diag_field ( 'land', 'FWSr', (/id_lon, id_lat/), &
-       River%Time, 'river ice mass storage', 'kg/m2', missing_value=-1.0e+20 )
+       River%Time, 'river ice mass storage', 'kg/m2', missing_value=-1.0e+20, area=id_area_land )
+  call diag_field_add_attribute(id_FWSr,'cell_methods', 'area: mean')
   id_HSr   = register_diag_field ( 'land', 'HSr', (/id_lon, id_lat/), &
-       River%Time, 'river heat storage', 'J/m2', missing_value=-1.0e+20 )
+       River%Time, 'river heat storage', 'J/m2', missing_value=-1.0e+20, area=id_area_land )
+  call diag_field_add_attribute(id_HSr,'cell_methods', 'area: mean')
   id_meltr   = register_diag_field ( 'land', 'meltr', (/id_lon, id_lat/), &
-       River%Time, 'melt in river system', 'kg/m2/s', missing_value=-1.0e+20 )
+       River%Time, 'melt in river system', 'kg/m2/s', missing_value=-1.0e+20, area=id_area_land )
+  call diag_field_add_attribute(id_meltr,'cell_methods', 'area: mean')
 
 ! static fields
     id_dx = register_static_field ( mod_name, 'rv_length', (/id_lon, id_lat/), &
