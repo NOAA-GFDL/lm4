@@ -38,8 +38,8 @@ public :: update_biomass_pools
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
-     version = '$Id: vegn_cohort.F90,v 21.0 2014/12/15 21:51:29 fms Exp $', &
-     tagname = '$Name: ulm $'
+     version = '$Id: vegn_cohort.F90,v 20.0.4.2.2.3 2014/10/07 20:18:35 Sergey.Malyshev Exp $', &
+     tagname = '$Name: ulm_201505 $'
 
 ! ==== types =================================================================
 ! vegn_cohort_type describes the data that belong to a vegetation cohort

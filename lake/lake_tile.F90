@@ -56,8 +56,8 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter   :: &
-     version     = '$Id: lake_tile.F90,v 21.0 2014/12/15 21:50:43 fms Exp $', &
-     tagname     = '$Name: ulm $', &
+     version     = '$Id: lake_tile.F90,v 21.0.2.1 2015/01/29 19:00:34 Zhi.Liang Exp $', &
+     tagname     = '$Name: ulm_201505 $', &
      module_name = 'lake_tile_mod'
 
 integer, parameter :: max_lev          = 80
@@ -415,8 +415,10 @@ function lake_cover_cold_start(land_mask, lonb, latb, domain) result (lake_frac)
 
   if (trim(lake_to_use)=='from-rivers') then
      lake_frac = 0.0
-     call read_data('INPUT/river_data.nc', 'lake_frac', lake_frac(:,:,1), &
+     if(file_exist('INPUT/river_data.nc', domain) ) then
+       call read_data('INPUT/river_data.nc', 'lake_frac', lake_frac(:,:,1), &
           domain=domain)
+     endif
      ! make sure 'missing values' don't get into the result
      where (lake_frac < 0) lake_frac = 0
      where (lake_frac > 1) lake_frac = 1

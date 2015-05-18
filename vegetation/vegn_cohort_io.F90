@@ -55,8 +55,8 @@ end interface read_create_cohorts
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'cohort_io_mod', &
-     version     = '$Id: vegn_cohort_io.F90,v 21.0 2014/12/15 21:51:31 fms Exp $', &
-     tagname     = '$Name: ulm $'
+     version     = '$Id: vegn_cohort_io.F90,v 20.0.2.1.2.1.4.1 2014/04/22 16:11:02 Peter.Phillipps Exp $', &
+     tagname     = '$Name: ulm_201505 $'
 ! name of the "compressed" dimension (and dimension variable) in the output 
 ! netcdf files -- that is, the dimensions written out using compression by 
 ! gathering, as described in CF conventions.

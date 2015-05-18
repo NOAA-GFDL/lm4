@@ -46,8 +46,8 @@ module river_physics_mod
   real    :: missing = -1.e8
 
 !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id: river_physics.F90,v 20.0 2013/12/13 23:29:43 fms Exp $'
-  character(len=128) :: tagname = '$Name: ulm $'
+  character(len=128) :: version = '$Id: river_physics.F90,v 20.0.12.1 2015/01/29 19:00:34 Zhi.Liang Exp $'
+  character(len=128) :: tagname = '$Name: ulm_201505 $'
 
 
 ! ---- public interfaces -----------------------------------------------------
@@ -1251,11 +1251,24 @@ contains
 
     deallocate(tocell)
     deallocate(isl, iel, jsl, jel )
-    deallocate(sbuf, rbuf)
-    deallocate(is_recv, ie_recv, js_recv, je_recv)
-    deallocate(is1_send, ie1_send, js1_send, je1_send)
-    deallocate(is2_send, ie2_send, js2_send, je2_send)
-    deallocate(rot_send, rot_recv, send_count, recv_count)
+    if(allocated(sbuf)) deallocate(sbuf)
+    if(allocated(rbuf)) deallocate(rbuf)
+    if(allocated(is_recv)) deallocate(is_recv)
+    if(allocated(ie_recv)) deallocate(ie_recv)
+    if(allocated(js_recv)) deallocate(js_recv) 
+    if(allocated(je_recv)) deallocate(je_recv) 
+    if(allocated(is1_send)) deallocate(is1_send)
+    if(allocated(ie1_send)) deallocate(ie1_send)
+    if(allocated(js1_send)) deallocate(js1_send)
+    if(allocated(je1_send)) deallocate(je1_send)
+    if(allocated(is2_send)) deallocate(is2_send)
+    if(allocated(ie2_send)) deallocate(ie2_send)
+    if(allocated(js2_send)) deallocate(js2_send)
+    if(allocated(je2_send)) deallocate(je2_send)
+    if(allocated(rot_send)) deallocate(rot_send)
+    if(allocated(rot_recv)) deallocate(rot_recv)
+    if(allocated(send_count)) deallocate(send_count)
+    if(allocated(recv_count)) deallocate(recv_count)
     if(ALLOCATED(pelist_r)) deallocate(pelist_r)
     if(ALLOCATED(pelist_s)) deallocate(pelist_s)
     if(ALLOCATED(send_pelist)) deallocate(send_pelist)

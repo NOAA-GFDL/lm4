@@ -97,8 +97,8 @@ public :: soil_step_3
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'soil',&
-    version     = '$Id: soil.F90,v 21.0 2014/12/15 21:51:16 fms Exp $',&
-    tagname     = '$Name: ulm $'
+    version     = '$Id: soil.F90,v 21.0.4.1 2015/02/23 20:09:02 Zhi.Liang Exp $',&
+    tagname     = '$Name: ulm_201505 $'
 
 ! ==== module variables ======================================================
 
@@ -337,8 +337,9 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
   character(len=17)  :: restart_base_name='INPUT/soil.res.nc'
   integer :: siz(4), isize,  nz
   integer, allocatable :: idx(:)          ! I/O domain vector of compressed indices
-  real,    allocatable :: r1d(:,:),r0d(:) ! I/O domain level dependent vector of real data
+  real,    allocatable :: r0d(:) ! I/O domain level dependent vector of real data
   logical :: restart_exists, found
+  integer :: start(4), nread(4)
 
   module_is_initialized = .TRUE.
   time       = lnd%time
@@ -618,24 +619,28 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
         if ( .not.found ) call error_mesg(trim(module_name), &
              'Z axis not found in '//trim(restart_file_name), FATAL)
         nz = siz(1)
-
-        allocate(idx(isize),r1d(isize,nz),r0d(isize))
+ 
+        allocate(idx(isize),r0d(isize))
         call read_compressed(restart_file_name,'tile_index',idx, domain=lnd%domain, timelevel=1)
+        start(:) = 1; nread(:) = 1
+        nread(1) = isize
+        do k = 1, nz
+           start(2) = k
+           call read_compressed(restart_file_name,'temp',r0d, domain=lnd%domain, start=start, nread=nread)
+           call assemble_tiles(soil_T_ptr,idx,r0d,k)
 
-        call read_compressed(restart_file_name,'temp',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_T_ptr,idx,r1d)
+           call read_compressed(restart_file_name,'wl',r0d, domain=lnd%domain, start=start, nread=nread)
+           call assemble_tiles(soil_wl_ptr,idx,r0d,k)
+
+           call read_compressed(restart_file_name,'ws',r0d, domain=lnd%domain, start=start, nread=nread)
+           call assemble_tiles(soil_ws_ptr,idx,r0d,k)
+
+           call read_compressed(restart_file_name,'groundwater',r0d, domain=lnd%domain, start=start, nread=nread)
+           call assemble_tiles(soil_groundwater_ptr,idx,r0d,k)
  
-        call read_compressed(restart_file_name,'wl',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_wl_ptr,idx,r1d)
- 
-        call read_compressed(restart_file_name,'ws',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_ws_ptr,idx,r1d)
- 
-        call read_compressed(restart_file_name,'groundwater',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_groundwater_ptr,idx,r1d)
- 
-        call read_compressed(restart_file_name,'groundwater_T',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_groundwater_T_ptr,idx,r1d)
+           call read_compressed(restart_file_name,'groundwater_T',r0d, domain=lnd%domain, start=start, nread=nread)
+           call assemble_tiles(soil_groundwater_T_ptr,idx,r0d,k)
+        enddo
 
         if ( field_exist(restart_file_name,'uptake_T', domain=lnd%domain) ) then
            call read_compressed(restart_file_name,'uptake_T',r0d, domain=lnd%domain, timelevel=1)
@@ -643,11 +648,14 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
         endif
 
         if ( field_exist(restart_file_name,'fsc', domain=lnd%domain) ) then
-           call read_compressed(restart_file_name,'fsc',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_fast_soil_C_ptr,idx,r1d)
+           do k = 1, nz
+              start(2) = k
+              call read_compressed(restart_file_name,'fsc',r0d, domain=lnd%domain, start=start, nread=nread)
+              call assemble_tiles(soil_fast_soil_C_ptr,idx,r0d,k)
  
-           call read_compressed(restart_file_name,'ssc',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_slow_soil_C_ptr,idx,r1d)
+              call read_compressed(restart_file_name,'ssc',r0d, domain=lnd%domain, start=start, nread=nread)
+              call assemble_tiles(soil_slow_soil_C_ptr,idx,r0d,k)
+           enddo
         else
            ! try to read fsc and ssc from vegetation restart
            call get_input_restart_name('INPUT/vegn2.res.nc',restart_exists,restart_file_name,new_land_io)
@@ -660,7 +668,7 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
              call assemble_tiles(soil_slow_soil_C_ptr,idx,r0d,1)
            endif
         endif
-        deallocate(idx,r1d,r0d)
+        deallocate(idx,r0d)
      else
         call error_mesg('soil_init','reading NetCDF restart "'//trim(restart_file_name)//'"',NOTE)
         __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
@@ -706,18 +714,23 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
              'Z axis not found in '//trim(restart_file_name), FATAL)
         nz = siz(1)
 
-        allocate(idx(isize),r1d(isize,nz))
+        allocate(idx(isize),r0d(isize))
         call read_compressed(restart_file_name,'tile_index',idx, domain=lnd%domain, timelevel=1)
 
-        call read_compressed(restart_file_name,'asoil_in',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_asoil_in_ptr,idx,r1d)
+        start(:) = 1; nread(:) = 1
+        nread(1) = isize
+        do k = 1, nz
+           start(2) = k
+           call read_compressed(restart_file_name,'asoil_in',r0d, domain=lnd%domain, start=start, nread=nread)
+           call assemble_tiles(soil_asoil_in_ptr,idx,r0d,k)
 
-        call read_compressed(restart_file_name,'fsc_in',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_fsc_in_ptr,idx,r1d)
+           call read_compressed(restart_file_name,'fsc_in',r0d, domain=lnd%domain, start=start, nread=nread)
+           call assemble_tiles(soil_fsc_in_ptr,idx,r0d,k)
 
-        call read_compressed(restart_file_name,'ssc_in',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_ssc_in_ptr,idx,r1d)
-        deallocate(idx,r1d)
+           call read_compressed(restart_file_name,'ssc_in',r0d, domain=lnd%domain, start=start, nread=nread)
+           call assemble_tiles(soil_ssc_in_ptr,idx,r0d,k)
+        enddo
+        deallocate(idx,r0d)
      else
         __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
         call read_tile_data_r1d_fptr(unit,'asoil_in',soil_asoil_in_ptr)

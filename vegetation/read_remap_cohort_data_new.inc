@@ -1,5 +1,5 @@
 ! -*-f90-*-
-! $Id: read_remap_cohort_data_new.inc,v 21.0 2014/12/15 21:51:25 fms Exp $
+! $Id: read_remap_cohort_data_new.inc,v 21.0.2.1 2015/02/23 20:09:02 Zhi.Liang Exp $
 
 ! some sanity checks
 #ifndef F90_TYPE
@@ -32,6 +32,7 @@ subroutine READ_REMAP_SUB(Field, fptr, map_i, map_j, cidx, compressed_data)
 
   ! ---- local vars
   integer :: i,j,k,n,ii,jj,ndims, t, c, npos
+  integer :: is,ie,js,je
   type(land_tile_enum_type) :: ce, te
   type(land_tile_type)   , pointer :: tile
   type(vegn_cohort_type) , pointer :: cohort
@@ -76,20 +77,38 @@ subroutine READ_REMAP_SUB(Field, fptr, map_i, map_j, cidx, compressed_data)
      npos = verify(string, ' ')
      if(npos == 0) exit
   enddo
-  
-  allocate(expanded_data(dimlens(4),dimlens(3),dimlens(2),dimlens(1)))
-  allocate(         mask(dimlens(4),dimlens(3),dimlens(2),dimlens(1)))
-  expanded_data = 0.0
-  mask = .FALSE.
-  do n=1,size(cidx)
-     k = cidx(n)
-     i = modulo(k,dimlens(4))+1 ; k = k/dimlens(4)
-     j = modulo(k,dimlens(3))+1 ; k = k/dimlens(3)
-     t = modulo(k,dimlens(2))+1 ; k = k/dimlens(2)
-     c = k+1
-     expanded_data(i,j,t,c) = compressed_data(n)
-     mask(i,j,t,c) = .TRUE.
+
+  !--- first two dimension of expanded_data and mask can be limited to the minimum and maximum of map_i and map_j
+  is = dimlens(4); ie = 1
+  js = dimlens(3); je = 1
+  do j = lnd%js, lnd%je
+  do i = lnd%is, lnd%ie
+     ii = map_i(i,j); jj = map_j(i,j)
+     if ((ii.le.0).or.(jj.le.0)) cycle ! skip un-mapped points
+     is = min(is, ii)
+     ie = max(ie, ii)
+     js = min(js, jj)
+     je = max(je, jj)
   enddo
+  enddo
+
+  if(ie .GE. is .AND. je .GE. js) then
+     allocate(expanded_data(is:ie,js:je,dimlens(2),dimlens(1)))
+     allocate(         mask(is:ie,js:je,dimlens(2),dimlens(1)))
+     expanded_data = 0.0
+     mask = .FALSE.
+     do n=1,size(cidx)
+        k = cidx(n)
+        if(k<0) cycle ! skip negative value
+        i = modulo(k,dimlens(4))+1 ; k = k/dimlens(4)
+        j = modulo(k,dimlens(3))+1 ; k = k/dimlens(3)
+        if( i<is .OR. i>ie .OR. j<js .OR. j>je ) cycle
+        t = modulo(k,dimlens(2))+1 ; k = k/dimlens(2)
+        c = k+1
+        expanded_data(i,j,t,c) = compressed_data(n)
+        mask(i,j,t,c) = .TRUE.
+     enddo
+  endif
 
   ! distribute data over cohorts. NOTE that this is slightly different from the restart
   ! reading procedure. On reading the restart, all the tiles are counted in sequence,
@@ -124,6 +143,7 @@ tile_loop:  do while(ce/=te.and.k<=dimlens(3))
   enddo
   
   ! free allocated memory
-  deallocate(expanded_data,mask)
+  if(allocated(expanded_data)) deallocate(expanded_data)
+  if(allocated(mask)) deallocate(mask)  
 
 end subroutine 

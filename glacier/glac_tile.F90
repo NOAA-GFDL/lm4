@@ -51,8 +51,8 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), parameter   :: &
-     version     = '$Id: glac_tile.F90,v 21.0 2014/12/15 21:50:37 fms Exp $', &
-     tagname     = '$Name: ulm $', &
+     version     = '$Id: glac_tile.F90,v 20.0.2.1.2.1.2.1 2014/10/30 18:48:28 pjp Exp $', &
+     tagname     = '$Name: ulm_201505 $', &
      module_name = 'glac_tile_mod'
 
 integer, parameter :: max_lev          = 30 ! max number of levels in glacier

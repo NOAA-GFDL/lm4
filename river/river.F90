@@ -74,8 +74,8 @@ module river_mod
   private
 
 !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id: river.F90,v 21.0 2014/12/15 21:50:45 fms Exp $'
-  character(len=128) :: tagname = '$Name: ulm $'
+  character(len=128) :: version = '$Id: river.F90,v 20.0.2.1.2.4.2.1 2014/08/08 23:56:03 Sergey.Malyshev Exp $'
+  character(len=128) :: tagname = '$Name: ulm_201505 $'
 
 !--- public interface ------------------------------------------------
   public :: river_init, river_end, river_type, update_river, river_stock_pe
