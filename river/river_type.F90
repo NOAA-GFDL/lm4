@@ -26,8 +26,8 @@ module river_type_mod
   private
 
 !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id: river_type.F90,v 20.0 2013/12/13 23:29:45 fms Exp $'
-  character(len=128) :: tagname = '$Name: ulm_201505 $'
+  character(len=128) :: version = '$Id: river_type.F90,v 20.0.10.2 2014/09/30 00:44:05 Sergey.Malyshev Exp $'
+  character(len=128) :: tagname = '$Name: testing $'
 
 !--- public interface ------------------------------------------------
   public :: river_type, Leo_Mad_trios
@@ -73,8 +73,6 @@ module river_type_mod
      real, dimension(:,:),      pointer :: o_coef        => NULL()
      real, dimension(:,:),      pointer :: d_coef        => NULL()
      real, dimension(:,:),      pointer :: w_coef        => NULL()
-     real, dimension(:,:,:),    pointer :: source_conc   => NULL()
-     real, dimension(:,:,:),    pointer :: source_flux   => NULL()
      real, dimension(:,:),      pointer :: So            => NULL()
      real, dimension(:,:),      pointer :: depth         => NULL()
      real, dimension(:,:),      pointer :: width         => NULL()
@@ -91,7 +89,7 @@ module river_type_mod
      integer                            :: dt_fast, dt_slow
      integer                            :: nlon, nlat, num_species, num_c
      integer                            :: num_phys
-     logical                            :: do_age
+     integer                            :: i_age ! index of the age tracer (or NO_TRACER)
   end type river_type
 
   type Leo_Mad_trios

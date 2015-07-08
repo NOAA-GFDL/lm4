@@ -55,8 +55,8 @@ end interface read_create_cohorts
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'cohort_io_mod', &
-     version     = '$Id: vegn_cohort_io.F90,v 20.0.2.1.2.1.4.1 2014/04/22 16:11:02 Peter.Phillipps Exp $', &
-     tagname     = '$Name: ulm_201505 $'
+     version     = '$Id: vegn_cohort_io.F90,v 21.0.2.1 2015/02/25 19:25:52 pjp Exp $', &
+     tagname     = '$Name: testing $'
 ! name of the "compressed" dimension (and dimension variable) in the output 
 ! netcdf files -- that is, the dimensions written out using compression by 
 ! gathering, as described in CF conventions.
@@ -312,11 +312,10 @@ subroutine create_cohort_dimension_orig(ncid)
   call sync_nc_files(ncid)
 end subroutine create_cohort_dimension_orig
 
-subroutine create_cohort_dimension_new(rhandle,cidx,name,land,tile_dim_length)
+subroutine create_cohort_dimension_new(rhandle,cidx,name,tile_dim_length)
   type(restart_file_type), intent(inout) :: rhandle ! restart file handle
   integer, allocatable,    intent(out)   :: cidx(:) ! rank local tile index vector
   character(len=*),        intent(in)    :: name    ! name of the restart file
-  type(land_state_type),   intent(in)    :: land
   integer,                 intent(in)    :: tile_dim_length ! length of tile axis
 
   ! ---- local vars
@@ -327,8 +326,8 @@ subroutine create_cohort_dimension_new(rhandle,cidx,name,land,tile_dim_length)
 
   ! count total number of cohorts in compute domain and max number of
   ! of cohorts per tile
-  ce = first_elmt(land%tile_map)
-  te = tail_elmt (land%tile_map)
+  ce = first_elmt(lnd%tile_map)
+  te = tail_elmt (lnd%tile_map)
   n  = 0
   max_cohorts = 0
   do while (ce/=te)
@@ -344,7 +343,7 @@ subroutine create_cohort_dimension_new(rhandle,cidx,name,land,tile_dim_length)
 
   ! calculate compressed cohort index to be written to the restart file
   allocate(cidx(max(n,1))) ; cidx(:) = -1 ! set initial value to a known invalid index
-  ce = first_elmt(land%tile_map, land%is, land%js)
+  ce = first_elmt(lnd%tile_map, lnd%is, lnd%js)
   n = 1
   do while (ce/=te)
      tile=>current_tile(ce)
@@ -352,9 +351,9 @@ subroutine create_cohort_dimension_new(rhandle,cidx,name,land,tile_dim_length)
         call get_elmt_indices(ce,i,j,k)
         do c = 1,tile%vegn%n_cohorts
            cidx(n) = &
-                (c-1)*land%nlon*land%nlat*tile_dim_length + &
-                (k-1)*land%nlon*land%nlat + &
-                (j-1)*land%nlon + &
+                (c-1)*lnd%nlon*lnd%nlat*tile_dim_length + &
+                (k-1)*lnd%nlon*lnd%nlat + &
+                (j-1)*lnd%nlon + &
                 (i-1)        
            n = n+1
         enddo
@@ -362,13 +361,12 @@ subroutine create_cohort_dimension_new(rhandle,cidx,name,land,tile_dim_length)
      ce=next_elmt(ce)
   end do
 
-  call create_cohort_out_file_idx(rhandle,name,land,cidx,max_cohorts)
+  call create_cohort_out_file_idx(rhandle,name,cidx,max_cohorts)
 end subroutine create_cohort_dimension_new
 
-subroutine create_cohort_out_file_idx(rhandle,name,land,cidx,cohorts_dim_length)
+subroutine create_cohort_out_file_idx(rhandle,name,cidx,cohorts_dim_length)
   type(restart_file_type), intent(inout) :: rhandle     ! restart file handle
   character(len=*),      intent(in)  :: name                ! name of the file to create
-  type(land_state_type), intent(in)  :: land
   integer              , intent(in)  :: cidx(:)             ! integer compressed index of tiles (local)
   integer              , intent(in)  :: cohorts_dim_length  ! length of cohorts axis
 
@@ -377,7 +375,7 @@ subroutine create_cohort_out_file_idx(rhandle,name,land,cidx,cohorts_dim_length)
 
   ! form the full name of the file
   call get_instance_filename(trim(name), file_name)
-  call get_mosaic_tile_file(trim(file_name),file_name,.false.,land%domain)
+  call get_mosaic_tile_file(trim(file_name),file_name,.false.,lnd%domain)
 
   ! the size of tile dimension really does not matter for the output, but it does
   ! matter for uncompressing utility, since it uses it as a size of the array to

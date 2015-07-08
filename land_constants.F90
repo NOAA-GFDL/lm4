@@ -16,6 +16,7 @@ real, public, parameter :: d378 = 1.0-d622
 real, public, parameter :: d608 = d378/d622
 
 real, public, parameter :: Rugas = 8.314472 ! universal gas constant, J K-1 mol-1
+real, public, parameter :: kBoltz= 1.3807e-23 ! Boltzmann's constant, J K-1 Rugas/Avogadro number
 
 real, public, parameter :: seconds_per_year = 86400.0*365.0
 real, public, parameter :: mol_C = 12.0e-3 ! molar mass of carbon, kg
@@ -26,7 +27,7 @@ real, public, parameter :: mol_h2o = 18.0e-3 ! molar mass of water, kg
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
-     version = '$Id: land_constants.F90,v 17.0 2009/07/21 03:02:18 fms Exp $', &
-     tagname = '$Name: ulm_201505 $'
+     version = '$Id: land_constants.F90,v 17.0.38.1 2015/03/23 15:47:39 Sergey.Malyshev Exp $', &
+     tagname = '$Name: testing $'
 
 end module

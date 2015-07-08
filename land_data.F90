@@ -5,20 +5,18 @@ use constants_mod     , only : PI
 use mpp_domains_mod   , only : domain2d, mpp_get_compute_domain, &
      mpp_define_layout, mpp_define_domains, mpp_define_io_domain, &
      mpp_get_current_ntile, mpp_get_tile_id, CYCLIC_GLOBAL_DOMAIN, &
-     mpp_get_io_domain, mpp_get_pelist, mpp_get_layout,            &
-     mpp_get_domain_npes
+     mpp_get_io_domain, mpp_get_pelist, mpp_get_layout
 use mpp_mod,            only : mpp_chksum
 use fms_mod           , only : write_version_number, mpp_npes, &
-                               error_mesg, FATAL, stdout, file_exist
-use fms_io_mod        , only : parse_mask_table
+                               error_mesg, FATAL, stdout
 use time_manager_mod  , only : time_type
-use tracer_manager_mod, only : register_tracers, get_tracer_index, NO_TRACER
-use field_manager_mod , only : MODEL_LAND
 use grid_mod          , only : get_grid_ntiles, get_grid_size, get_grid_cell_vertices, &
      get_grid_cell_centers, get_grid_cell_area, get_grid_comp_area, &
      define_cube_mosaic
+use land_tracers_mod  , only : ntcana
 use land_tile_mod     , only : land_tile_type, land_tile_list_type, &
      land_tile_list_init, land_tile_list_end, nitems
+use land_debug_mod    , only : land_time
 
 implicit none
 private
@@ -27,6 +25,7 @@ private
 public :: land_data_init
 public :: land_data_end
 public :: lnd            ! global data 
+public :: land_time      ! current time
 
 public :: atmos_land_boundary_type ! container for information passed from the 
                          ! atmosphere to land
@@ -52,8 +51,8 @@ public :: land_state_type
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: &
      module_name = 'land_data_mod', &
-     version     = '$Id: land_data.F90,v 20.0.2.1.8.1 2014/12/16 18:31:33 Zhi.Liang Exp $', &
-     tagname     = '$Name: ulm_201505 $'
+     version     = '$Id: land_data.F90,v 21.0.2.1.2.1 2015/03/24 22:26:02 Sergey.Malyshev Exp $', &
+     tagname     = '$Name: testing $'
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
 ! It is supposed to be double-precision signaling NaN, to trigger a trap when
@@ -134,6 +133,7 @@ type :: land_data_type
 
    integer :: axes(2)        ! IDs of diagnostic axes
    type(domain2d) :: domain  ! our computation domain
+   logical, pointer :: maskmap(:,:) 
    integer, pointer, dimension(:) :: pelist
 end type land_data_type
 
@@ -144,12 +144,8 @@ end type land_data_type
 type :: land_state_type
    integer        :: is,ie,js,je ! compute domain boundaries
    integer        :: nlon,nlat   ! size of global grid
-   integer        :: ntprog      ! number of prognostic tracers
-   integer        :: isphum      ! index of specific humidity in tracer table
-   integer        :: ico2        ! index of carbon dioxide in tracer table
    type(time_type):: dt_fast     ! fast (physical) time step
    type(time_type):: dt_slow     ! slow time step
-   type(time_type):: time        ! current time
 
    real, pointer  :: lon (:,:), lat (:,:) ! domain grid center coordinates, radian
    real, pointer  :: lonb(:,:), latb(:,:) ! domain grid vertices, radian
@@ -189,14 +185,13 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 
 ! ============================================================================
-subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table)
+subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow)
   integer, intent(inout) :: layout(2) ! layout of our domains
   integer, intent(inout) :: io_layout(2) ! layout for land model io
   type(time_type), intent(in) :: &
        time,    & ! current model time
        dt_fast, & ! fast (physical) time step
        dt_slow    ! slow time step
-  character(len=*), intent(in) :: mask_table
 
   ! ---- local vars
   integer :: nlon, nlat ! size of global grid in lon and lat directions
@@ -205,17 +200,8 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table)
   integer, allocatable :: tile_ids(:) ! mosaic tile IDs for the current PE
   integer :: i,j
   type(domain2d), pointer :: io_domain ! our io_domain
-  integer :: n_io_pes ! number of PEs in our io_domain along x and y
+  integer :: n_io_pes(2) ! number of PEs in our io_domain along x and y
   integer :: io_id(1)
-  integer :: outunit
-  logical :: mask_table_exist
-  logical, allocatable :: maskmap(:,:,:)  ! A pointer to an array indicating which
-                                          ! logical processors are actually used for
-                                          ! the land code. The other logical
-                                          ! processors would be all ocean points and
-                                          ! are not assigned to actual processors.
-                                          ! This need not be assigned if all logical
-                                          ! processors are used. 
 
   ! write the version and tag name to the logfile
   call write_version_number(version, tagname)
@@ -226,19 +212,6 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table)
   call get_grid_size('LND',1,nlon,nlat)
   ! set the size of global grid
   lnd%nlon = nlon; lnd%nlat = nlat
-
-  mask_table_exist = .false.
-  outunit = stdout()
-  if(file_exist(mask_table)) then
-     mask_table_exist = .true.
-     write(outunit, *) '==> NOTE from land_data_init:  reading maskmap information from '//trim(mask_table)
-     if(layout(1) == 0 .OR. layout(2) == 0 ) call error_mesg('land_model_init', &
-        'land_model_nml layout should be set when file '//trim(mask_table)//' exists', FATAL)
-
-     allocate(maskmap(layout(1), layout(2), ntiles))
-     call parse_mask_table(mask_table, maskmap, "Land model")
-  endif
-
   if( layout(1)==0 .AND. layout(2)==0 ) &
        call mpp_define_layout( (/1,nlon,1,nlat/), mpp_npes()/ntiles, layout )
   if( layout(1)/=0 .AND. layout(2)==0 )layout(2) = mpp_npes()/(layout(1)*ntiles)
@@ -248,21 +221,11 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table)
 
   ! define land model domain
   if (ntiles==1) then
-     if( mask_table_exist ) then
-        call mpp_define_domains ((/1,nlon, 1, nlat/), layout, lnd%domain, xhalo=1, yhalo=1,&
-             xflags = CYCLIC_GLOBAL_DOMAIN, name = 'LAND MODEL', maskmap=maskmap(:,:,1) )
-     else
-        call mpp_define_domains ((/1,nlon, 1, nlat/), layout, lnd%domain, xhalo=1, yhalo=1,&
-             xflags = CYCLIC_GLOBAL_DOMAIN, name = 'LAND MODEL')
-     endif
+     call mpp_define_domains ((/1,nlon, 1, nlat/), layout, lnd%domain, xhalo=1, yhalo=1,&
+          xflags = CYCLIC_GLOBAL_DOMAIN, name = 'LAND MODEL')
   else
-     if( mask_table_exist ) then
-        call define_cube_mosaic ('LND', lnd%domain, layout, halo=1, maskmap=maskmap)
-     else
-        call define_cube_mosaic ('LND', lnd%domain, layout, halo=1)
-     endif
+     call define_cube_mosaic ('LND', lnd%domain, layout, halo=1)
   endif
-  if(mask_table_exist) deallocate(maskmap)
 
   ! define io domain
   call mpp_define_io_domain(lnd%domain, io_layout)
@@ -271,8 +234,8 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table)
   ! list actually writes data, the rest just send the data to it.
   io_domain=>mpp_get_io_domain(lnd%domain)
   if (associated(io_domain)) then
-     n_io_pes = mpp_get_domain_npes(io_domain)
-     allocate(lnd%io_pelist(n_io_pes))
+     call mpp_get_layout(io_domain,n_io_pes)
+     allocate(lnd%io_pelist(n_io_pes(1)*n_io_pes(2)))
      call mpp_get_pelist(io_domain,lnd%io_pelist)
      io_id = mpp_get_tile_id(io_domain)
      lnd%io_id = io_id(1)
@@ -324,18 +287,8 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table)
   enddo
   enddo
 
-  ! initialize land model tracers, if necessary
-  ! register land model tracers and find specific humidity
-  call register_tracers ( MODEL_LAND, ntracers, lnd%ntprog, ndiag )
-  lnd%isphum = get_tracer_index ( MODEL_LAND, 'sphum' )
-  if (lnd%isphum==NO_TRACER) then
-     call error_mesg('land_model_init','no required "sphum" tracer',FATAL)
-  endif
-  lnd%ico2 = get_tracer_index ( MODEL_LAND, 'co2' )
-  ! NB: co2 might be absent, in this case ico2 == NO_TRACER
-
   ! initialize model's time-related parameters
-  lnd%time    = time
+  land_time   = time
   lnd%dt_fast = dt_fast
   lnd%dt_slow = dt_slow
 
@@ -390,7 +343,7 @@ subroutine realloc_land2cplr ( bnd )
   allocate( bnd%tile_size(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
   allocate( bnd%t_surf(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
   allocate( bnd%t_ca(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
-  allocate( bnd%tr(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles,lnd%ntprog) )
+  allocate( bnd%tr(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles,ntcana) )
   allocate( bnd%albedo(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
   allocate( bnd%albedo_vis_dir(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
   allocate( bnd%albedo_nir_dir(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
@@ -496,8 +449,8 @@ subroutine realloc_cplr2land( bnd )
   allocate( bnd%dhdq(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
   allocate( bnd%drdt(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
   allocate( bnd%p_surf(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-  allocate( bnd%tr_flux(lnd%is:lnd%ie,lnd%js:lnd%je,kd,lnd%ntprog) )
-  allocate( bnd%dfdtr(lnd%is:lnd%ie,lnd%js:lnd%je,kd,lnd%ntprog) )
+  allocate( bnd%tr_flux(lnd%is:lnd%ie,lnd%js:lnd%je,kd,ntcana) )
+  allocate( bnd%dfdtr(lnd%is:lnd%ie,lnd%js:lnd%je,kd,ntcana) )
 
   allocate( bnd%lwdn_flux(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
   allocate( bnd%swdn_flux(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
@@ -588,7 +541,7 @@ function max_n_tiles() result(n)
   enddo
   enddo
 
-end function 
+end function max_n_tiles
 
 
 ! ===========================================================================

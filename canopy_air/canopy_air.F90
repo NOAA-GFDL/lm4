@@ -12,23 +12,28 @@ use fms_mod, only: open_namelist_file
 #endif
 
 use fms_mod, only : write_version_number, error_mesg, FATAL, NOTE, file_exist, &
-     close_file, check_nml_error, &
-     mpp_pe, mpp_root_pe, stdlog
+     close_file, check_nml_error, mpp_pe, mpp_root_pe, stdlog, string
 use fms_io_mod, only : read_compressed, restart_file_type, free_restart_type
 use fms_io_mod, only : field_exist, get_field_size, save_restart
 use fms_io_mod, only : register_restart_axis, register_restart_field, set_domain, nullify_domain
 use time_manager_mod, only : time_type, time_type_to_real
 use constants_mod, only : rdgas, rvgas, cp_air, PI, VONKARM
 use sphum_mod, only : qscomp
+use field_manager_mod, only : parse, MODEL_ATMOS, MODEL_LAND
+use tracer_manager_mod, only : get_number_tracers, get_tracer_index, get_tracer_names
+use tracer_manager_mod, only : get_tracer_index, query_method, NO_TRACER
 
 use nf_utils_mod, only : nfu_inq_var
 use land_constants_mod, only : NBANDS,d608,mol_CO2,mol_air
+use land_tracers_mod, only : ntcana, isphum, ico2
 use cana_tile_mod, only : cana_tile_type, &
      canopy_air_mass, canopy_air_mass_for_tracers, cpw
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
 use land_data_mod,      only : land_state_type, lnd
-use land_tile_io_mod, only : create_tile_out_file, read_tile_data_r0d_fptr, write_tile_data_r0d_fptr, &
+use land_tile_io_mod, only : create_tile_out_file, &
+     read_tile_data_r0d_fptr, write_tile_data_r0d_fptr, &
+     read_tile_data_r1d_fptr, write_tile_data_r1d_fptr, &
      get_input_restart_name, print_netcdf_error, &
      gather_tile_data, assemble_tiles
 use land_debug_mod, only : is_watch_point, check_temp_range
@@ -52,8 +57,8 @@ public :: cana_step_2
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-  version = '$Id: canopy_air.F90,v 20.0.2.1.4.1.2.1.4.1.4.1.2.1 2014/10/30 18:33:20 pjp Exp $', &
-  tagname = '$Name: ulm_201505 $', &
+  version = '$Id: canopy_air.F90,v 21.0.2.7 2015/04/09 19:29:13 pjp Exp $', &
+  tagname = '$Name: testing $', &
   module_name = 'canopy_air_mod'
 
 ! options for turbulence parameter calculations
@@ -71,15 +76,14 @@ logical :: sfc_dir_albedo_bug = .FALSE. ! if true, reverts to buggy behavior
 ! where direct albedo was mistakenly used for part of sub-canopy diffuse light
 logical :: allow_small_z0 = .FALSE. ! to use z0 provided by lake and glac modules
 real :: lai_min_turb = 0.0 ! fudge to desensitize Tv to SW/cosz inconsistency
+real :: bare_rah_sca     = 0.01     ! bare-ground resistance between ground and canopy air, s/m
 namelist /cana_nml/ &
   init_T, init_T_cold, init_q, init_co2, turbulence_to_use, &
   canopy_air_mass, canopy_air_mass_for_tracers, cpw, save_qco2, &
-  sfc_dir_albedo_bug, allow_small_z0, lai_min_turb
+  sfc_dir_albedo_bug, allow_small_z0, lai_min_turb, bare_rah_sca
 !---- end of namelist --------------------------------------------------------
 
 logical            :: module_is_initialized =.FALSE.
-type(time_type)    :: time ! *** NOT YET USED
-real               :: delta_time      ! fast time step
 integer :: turbulence_option ! selected option of turbulence parameters 
      ! calculations
 
@@ -138,13 +142,38 @@ subroutine cana_init ( id_lon, id_lat, new_land_io )
   real,    allocatable :: r0d(:)         ! I/O domain vector of real data
   logical :: found,restart_exists
 
+  character(len=32)  :: name  ! name of the tracer
+  integer            :: tr, i ! tracer indices
+  real               :: init_tr(ntcana) ! initial (cold-start) values of tracers
+  real               :: value ! used for parameter parsing
+  character(len=32)  :: scheme
+  character(len=128) :: parameters
+
   module_is_initialized = .TRUE.
 
-  ! ---- make module copy of time --------------------------------------------
-  time       = lnd%time
-  delta_time = time_type_to_real(lnd%dt_fast)
-
   ! ---- initialize cana state -----------------------------------------------
+  ! get the initial conditions for tracers
+
+  ! For  now, we get the initial value from the surface_value parameter of the
+  ! *atmospheric* tracer vertical profile, except for co2 and sphum. init_q in 
+  ! the cana_nml sets the initial value of the specific humidity, and init_co2
+  ! sets the initial value of the dry volumetric mixing ration for co2.
+  ! If surface_value is not defined in tracer table, then initial condition is zero
+  init_tr(:) = 0.0
+  do i = 1, ntcana
+     call get_tracer_names(MODEL_LAND, i, name=name)
+     tr = get_tracer_index(MODEL_ATMOS, name)
+     if (tr==NO_TRACER) cycle ! no such tracer in the atmos
+     ! TODO: possibly we need to add an ability to read init value from some parameter
+     ! in the land tracer table?
+     scheme = ''; parameters = ''
+     if (query_method('profile_type', MODEL_ATMOS, tr, scheme, parameters)) then
+        if (parse(parameters,'surface_value',value)>0) init_tr(i) = value
+     endif
+  enddo
+  init_tr(isphum) = init_q
+  init_tr(ico2)   = init_co2*mol_CO2/mol_air*(1-init_tr(isphum)) ! convert to kg CO2/kg wet air
+
   ! first, set the initial values
   te = tail_elmt (lnd%tile_map)
   ce = first_elmt(lnd%tile_map)
@@ -159,9 +188,7 @@ subroutine cana_init ( id_lon, id_lat, new_land_io )
      else
         tile%cana%T = init_T
      endif
-     tile%cana%q = init_q
-     ! convert to kg CO2/kg wet air
-     tile%cana%co2 = init_co2*mol_CO2/mol_air*(1-tile%cana%q) 
+     tile%cana%tr(:) = init_tr(:)
   enddo
 
   ! then read the restart if it exists
@@ -182,22 +209,28 @@ subroutine cana_init ( id_lon, id_lat, new_land_io )
         call read_compressed(restart_base_name,'temp',r0d, domain=lnd%domain, timelevel=1)
         call assemble_tiles(cana_T_ptr,idx,r0d)
 
-        call read_compressed(restart_base_name,'sphum',r0d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(cana_q_ptr,idx,r0d)
-
-        if(field_exist(restart_base_name,'co2',domain=lnd%domain)) then
-           call read_compressed(restart_base_name,'co2',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(cana_co2_ptr,idx,r0d)
-        endif
+        do tr = 1, ntcana
+          call get_tracer_names(MODEL_LAND, tr, name=name)
+          if(field_exist(restart_base_name,name,domain=lnd%domain)) then
+            call read_compressed(restart_base_name,name,r0d, domain=lnd%domain, timelevel=1)
+            call assemble_tiles(cana_tr_ptr,idx,r0d,tr)
+          endif
+        enddo
         deallocate(idx,r0d)
      else
-     __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
-     call read_tile_data_r0d_fptr(unit, 'temp'  , cana_T_ptr  )
-     call read_tile_data_r0d_fptr(unit, 'sphum' , cana_q_ptr )
-     if(nfu_inq_var(unit,'co2')==NF_NOERR) then
-        call read_tile_data_r0d_fptr(unit, 'co2', cana_co2_ptr )
-     endif
-     __NF_ASRT__(nf_close(unit))     
+        __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
+        call read_tile_data_r0d_fptr(unit, 'temp', cana_T_ptr  )
+        do tr = 1, ntcana
+           call get_tracer_names(MODEL_LAND, tr, name=name)
+           if(nfu_inq_var(unit,trim(name))==NF_NOERR) then
+              call error_mesg('cana_init','reading tracer "'//trim(name)//'"',NOTE)
+              call read_tile_data_r1d_fptr(unit,name,cana_tr_ptr,tr)
+           else
+              call error_mesg('cana_init', 'tracer "'//trim(name)// &
+                   '" was set to initial value '//string(init_tr(tr)), NOTE)
+           endif
+        enddo
+        __NF_ASRT__(nf_close(unit))     
      endif
   else
      call error_mesg('cana_init',&
@@ -235,17 +268,22 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
 
   ! ---- local vars ----------------------------------------------------------
   integer :: unit            ! restart file i/o unit
+  character(len=32)  :: name,units
+  character(len=128) :: longname
+  integer :: tr
 
   call error_mesg('cana_end','writing NetCDF restart',NOTE)
   call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'cana.res.nc',&
           lnd%coord_glon, lnd%coord_glat, cana_tile_exists, tile_dim_length)
 
-     ! write fields
+     ! write temperature
      call write_tile_data_r0d_fptr(unit,'temp' ,cana_T_ptr,'canopy air temperature','degrees_K')
-     call write_tile_data_r0d_fptr(unit,'sphum',cana_q_ptr,'canopy air specific humidity','kg/kg')
-     if (save_qco2) then
-        call write_tile_data_r0d_fptr(unit,'co2'  ,cana_co2_ptr,'canopy air co2 concentration','(kg CO2)/(kg wet air)')
-     endif
+     ! write all tracers
+     do tr = 1,ntcana
+        call get_tracer_names(MODEL_LAND, tr, name, longname, units)
+        if (tr==ico2.and..not.save_qco2) cycle
+        call write_tile_data_r1d_fptr(unit,name,cana_tr_ptr,tr,'canopy air '//trim(longname),trim(units))
+     enddo
      ! close output file
      __NF_ASRT__(nf_close(unit))
 end subroutine save_cana_restart
@@ -256,43 +294,43 @@ subroutine save_cana_restart_new(tile_dim_length, timestamp)
   character(*), intent(in) :: timestamp ! timestamp to add to the file name
 
   ! ---- local vars ----------------------------------------------------------
-  character(267) :: fname
+  character(len=267) :: fname
   type(restart_file_type) :: cana_restart ! restart file i/o object
   integer, allocatable :: idx(:)
   real, allocatable :: cana_T(:)
-  real, allocatable :: cana_q(:)
-  real, allocatable :: cana_co2(:)
-  integer :: id_restart, isize
+  real, allocatable :: cana_tr(:,:)
+  integer :: id_restart, isize, tr
+  character(len=32)  :: name,units
+  character(len=128) :: longname
 
   call error_mesg('cana_end','writing new format NetCDF restart',NOTE)
 ! must set domain so that io_domain is available
   call set_domain(lnd%domain)
 ! Note that fname is updated for tile & rank numbers during file creation
   fname = trim(timestamp)//'cana.res.nc'
-  call create_tile_out_file(cana_restart,idx,fname,lnd,cana_tile_exists,tile_dim_length)
+  call create_tile_out_file(cana_restart,idx,fname,cana_tile_exists,tile_dim_length)
   isize = size(idx)
 
-  allocate(cana_T(isize), cana_q(isize))
-  if (save_qco2) allocate(cana_co2(isize))
+  allocate(cana_T(isize))
+  allocate(cana_tr(isize,ntcana))
 
   ! Output data provides signature
   call gather_tile_data(cana_T_ptr,idx,cana_T)
   id_restart = register_restart_field(cana_restart,fname,'temp',cana_T, &
                                       longname='canopy air temperature',units='degrees_K')
-  call gather_tile_data(cana_q_ptr,idx,cana_q)
-  id_restart = register_restart_field(cana_restart,fname,'sphum',cana_q, &
-                                      longname='canopy air specific humidity',units='kg/kg')
-  if (save_qco2) then
-     call gather_tile_data(cana_co2_ptr,idx,cana_co2)
-     id_restart = register_restart_field(cana_restart,fname,'co2',cana_co2, &
-                                      longname='canopy air co2 concentration',units='(kg CO2)/(kg wet air)')
-  endif
+
+  do tr = 1,ntcana
+     call get_tracer_names(MODEL_LAND, tr, name, longname, units)
+     if (tr==ico2.and..not.save_qco2) cycle
+     call gather_tile_data(cana_tr_ptr,idx,tr,cana_tr(:,tr))
+     id_restart = register_restart_field(cana_restart,fname,name,cana_tr(:,tr), &
+                                         longname='canopy air '//trim(longname), units=trim(units))
+  enddo
 
   ! save performs io domain aggregation through mpp_io as with regular domain data
   call save_restart(cana_restart)
 
-  deallocate(idx,cana_T,cana_q)
-  if (save_qco2) deallocate(cana_co2)
+  deallocate(idx,cana_T,cana_tr)
 
   call free_restart_type(cana_restart)
   call nullify_domain()
@@ -441,7 +479,7 @@ subroutine cana_turbulence (u_star,&
              (exp(a*(1-grnd_z0s/height)) - exp(a*(1-(land_z0m+land_d)/height)))
         rah_sca = min(rah_sca,1250.0)
      else
-        rah_sca=0.01
+        rah_sca = bare_rah_sca
      endif
      con_g_h = 1.0/rah_sca
   end select
@@ -556,8 +594,8 @@ subroutine cana_state ( cana, cana_T, cana_q, cana_co2 )
   real, optional      , intent(out) :: cana_T, cana_q, cana_co2
 
   if (present(cana_T))   cana_T   = cana%T
-  if (present(cana_q))   cana_q   = cana%q
-  if (present(cana_co2)) cana_co2 = cana%co2
+  if (present(cana_q))   cana_q   = cana%tr(isphum)
+  if (present(cana_co2)) cana_co2 = cana%tr(ico2)
   
 end subroutine
 
@@ -581,16 +619,16 @@ subroutine cana_step_1 ( cana,&
   ! ---- local vars
   real :: rho, grnd_q, qsat, DqsatDTg
 
-  call check_temp_range(grnd_T,'cana_step_1','grnd_T', lnd%time)
+  call check_temp_range(grnd_T,'cana_step_1','grnd_T')
 
   call qscomp(grnd_T,p_surf,qsat,DqsatDTg)
   grnd_q = grnd_rh * qsat
 
-  rho      =  p_surf/(rdgas*cana%T*(1+d608*cana%q))
+  rho      =  p_surf/(rdgas*cana%T*(1+d608*cana%tr(isphum)))
   Hge      =  rho*cp_air*con_g_h*(grnd_T - cana%T)
   DHgDTg   =  rho*cp_air*con_g_h
   DHgDTc   = -rho*cp_air*con_g_h
-  Ege      =  rho*con_g_v*(grnd_q  - cana%q)
+  Ege      =  rho*con_g_v*(grnd_q  - cana%tr(isphum))
   DEgDTg   =  rho*con_g_v*DqsatDTg*grnd_rh
   DEgDqc   = -rho*con_g_v
   DEgDpsig =  rho*con_g_v*qsat*grnd_rh_psi
@@ -601,12 +639,12 @@ subroutine cana_step_1 ( cana,&
      __DEBUG2__(grnd_T,grnd_rh)
      write(*,*)'#### cana_step_1 internals ####'
      __DEBUG4__(rho, grnd_q, qsat, DqsatDTg)
-     __DEBUG2__(cana%T,cana%q)
+     __DEBUG2__(cana%T,cana%tr(isphum))
      write(*,*)'#### cana_step_1 output ####'
      __DEBUG3__(Hge,  DHgDTg, DHgDTc)
      __DEBUG4__(Ege,  DEgDTg, DEgDqc, DEgDpsig)
   endif
-end subroutine 
+end subroutine cana_step_1 
 
 
 ! ============================================================================
@@ -617,7 +655,7 @@ subroutine cana_step_2 ( cana, delta_Tc, delta_qc )
      delta_qc    ! change in canopy air humidity
 
   cana%T = cana%T + delta_Tc
-  cana%q = cana%q + delta_qc
+  cana%tr(isphum) = cana%tr(isphum) + delta_qc
 end subroutine cana_step_2
 
 ! ============================================================================
@@ -634,9 +672,10 @@ end function cana_tile_exists
 ! exist.
 #define DEFINE_CANA_ACCESSOR_0D(xtype,x) subroutine cana_ ## x ## _ptr(t,p);\
 type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%cana))p=>t%cana%x;endif;end subroutine
+#define DEFINE_CANA_ACCESSOR_1D(xtype,x) subroutine cana_ ## x ## _ptr(t,p);\
+type(land_tile_type),pointer::t;xtype,pointer::p(:);p=>NULL();if(associated(t))then;if(associated(t%cana))p=>t%cana%x;endif;end subroutine
 
 DEFINE_CANA_ACCESSOR_0D(real,T)
-DEFINE_CANA_ACCESSOR_0D(real,q)
-DEFINE_CANA_ACCESSOR_0D(real,co2)
+DEFINE_CANA_ACCESSOR_1D(real,tr)
 
 end module canopy_air_mod

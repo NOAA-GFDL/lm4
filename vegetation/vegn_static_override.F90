@@ -7,7 +7,7 @@ use mpp_io_mod, only : fieldtype, axistype, mpp_get_atts, mpp_open, MPP_RDONLY, 
       mpp_get_info, mpp_get_times, mpp_get_fields, mpp_get_axis_data, mpp_get_axis_data, &
       validtype, mpp_is_valid, mpp_get_time_axis
 use fms_io_mod, only : register_restart_axis, restart_file_type, set_domain, nullify_domain, &
-     register_restart_field, save_restart, read_compressed, get_field_size, get_file_name
+     register_restart_field, save_restart, read_compressed, get_field_size
 use time_manager_mod,   only : time_type, set_date, time_type_to_real, &
      get_calendar_type, valid_calendar_types, operator(-), get_date
 use get_cal_time_mod,   only : get_cal_time
@@ -27,7 +27,7 @@ use diag_manager_mod,   only : get_base_date
 use nf_utils_mod,       only : nfu_inq_dim, nfu_get_dim, nfu_def_dim, &
      nfu_inq_compressed_var, nfu_get_compressed_rec, nfu_validtype, &
      nfu_get_valid_range, nfu_is_valid, nfu_put_rec, nfu_put_att
-use land_data_mod,      only : lnd
+use land_data_mod,      only : lnd, land_time
 use land_io_mod,        only : print_netcdf_error
 use land_numerics_mod,  only : nearest
 use land_tile_io_mod,   only : create_tile_out_file,sync_nc_files
@@ -53,8 +53,8 @@ public :: write_static_vegn
 ! ==== module constants =====================================================
 character(len=*), parameter :: &
      module_name = 'static_vegn_mod', &
-     version     = '$Id: vegn_static_override.F90,v 21.0.2.1 2015/02/23 20:09:02 Zhi.Liang Exp $', &
-     tagname     = '$Name: ulm_201505 $'
+     version     = '$Id: vegn_static_override.F90,v 21.0.4.1.2.1 2015/03/24 22:26:03 Sergey.Malyshev Exp $', &
+     tagname     = '$Name: testing $'
 
 ! ==== module data ==========================================================
 logical :: module_is_initialized = .FALSE.
@@ -168,9 +168,8 @@ subroutine static_vegn_init(new_land_io)
   logical                    :: has_records ! true if input variable has records
   integer :: year, month, day, hour, minute, sec ! components of base date
   integer :: m, n, siz(4), ndim, nvar, natt
-  character(len=1024) :: actual_input_file, actual_input_file2
+  character(len=1024) :: actual_input_file
   logical :: input_is_multiface ! TRUE if the input files are face-specific
-  logical :: found_file, read_dist, io_domain_exist
   type(axistype) :: Lon_axis, Lat_axis, Tile_axis, Cohort_axis
   type(axistype) :: Time_axis
   character(len=256) :: name
@@ -199,22 +198,18 @@ subroutine static_vegn_init(new_land_io)
              call error_mesg('static_vegn_init','input file "'//trim(input_file)&
                      //'" does not exist', FATAL)
           else
-             ! if there's more then one face, try opening face-specific input with consideration of io_layout
-             call get_mosaic_tile_file(trim(input_file),actual_input_file2,.FALSE.,lnd%domain)
-             found_file = get_file_name(input_file, actual_input_file, read_dist, io_domain_exist, &
-                             domain=lnd%domain)
-             if(.not.found_file) call error_mesg('static_vegn_init','"'//trim(actual_input_file2)// &
-                '" and corresponding distributed file are not found', FATAL)
-             if(read_dist) then
+             ! if there's more then one face, try opening face-specific input
+             call get_mosaic_tile_file(trim(input_file),actual_input_file,.FALSE.,lnd%domain)
+             if(file_exist(trim(actual_input_file))) then 
                 call mpp_open(input_unit, trim(actual_input_file), action=MPP_RDONLY, form=MPP_NETCDF, &
-                                 threading=MPP_MULTI, fileset=MPP_MULTI, domain=lnd%domain)
-             else
-                call mpp_open(input_unit, trim(actual_input_file), action=MPP_RDONLY, form=MPP_NETCDF, &
-                                 threading=MPP_MULTI, fileset=MPP_SINGLE)
-             endif                
-             call error_mesg('static_vegn_init','Reading face-specific vegetation file "'&
+                              threading=MPP_MULTI, fileset=MPP_SINGLE)
+                call error_mesg('static_vegn_init','Reading face-specific vegetation file "'&
                      //trim(actual_input_file)//'"', NOTE)
-             input_is_multiface = .TRUE.
+                input_is_multiface = .TRUE.
+             else
+                call error_mesg('static_vegn_init','Neither "'//trim(input_file)&
+                     //'" nor "'//trim(actual_input_file)//'" files exist', FATAL)
+             endif
           endif
        endif
 
@@ -277,43 +272,44 @@ subroutine static_vegn_init(new_land_io)
        ! COMPUTE INDEX REMAPPING ARRAY
        allocate(map_i(lnd%is:lnd%ie,lnd%js:lnd%je))
        allocate(map_j(lnd%is:lnd%ie,lnd%js:lnd%je))
+       allocate(mask(size(in_lon),size(in_lat)))
+
        map_i = -1
        map_j = -1
-       if( .not. input_is_multiface ) then
-          allocate(mask(size(in_lon),size(in_lat)))
-          mask = .false.
+       mask = .false.
 
-          if(fill_land_mask) then
-             ! READ THE FIRST RECORD AND CALCULATE THE MASK OF THE VALID INPUT DATA
-             Tile_axis   = mpp_get_axis_by_name(input_unit,'tile')
-             call mpp_get_atts(Tile_axis, len=dimlens(3))
-             Cohort_axis = mpp_get_axis_by_name(input_unit,'cohort')
-             call mpp_get_atts(Cohort_axis, len=dimlens(4))
-             ! Note: The input file used for initial testing had lon = 144, lat = 90, tile = 2, cohort = 1
-             call get_field_size(trim(input_file),'cohort_index',siz, domain=lnd%domain)
-             allocate(cidx(siz(1)), idata(siz(1)))
-             call set_domain(lnd%domain)
-             call read_compressed(trim(input_file),'cohort_index',cidx,timelevel=1)
-             call read_compressed(trim(input_file),'species', idata,timelevel=1)
-             do n = 1,size(cidx)
-                m = cidx(n)
-                i = modulo(m,dimlens(1))+1
-                m = m/dimlens(1)
-                j = modulo(m,dimlens(2))+1
-                m = m/dimlens(2)
-                ! k = modulo(m,dimlens(3))+1 ! This is how to get tile number, if it were needed.
-                m = m/dimlens(3)
-                ! L = m+1  ! This is how to get cohort number, if it were needed. No need to do 
-                           ! modulo with dimlens(4) because at this point m is always < dimlens(4)
-                if(idata(n)>=0 .or. mask(i,j)) then
-                   mask(i,j) = .TRUE. ! If species exists in any cohort of this grid cell then mask is .TRUE.
-                endif
-             enddo
-             deallocate(idata)
-             call nullify_domain()
-          else
-             mask(:,:) = .TRUE.
-          endif
+       if(fill_land_mask) then
+          ! READ THE FIRST RECORD AND CALCULATE THE MASK OF THE VALID INPUT DATA
+          Tile_axis   = mpp_get_axis_by_name(input_unit,'tile')
+          call mpp_get_atts(Tile_axis, len=dimlens(3))
+          Cohort_axis = mpp_get_axis_by_name(input_unit,'cohort')
+          call mpp_get_atts(Cohort_axis, len=dimlens(4))
+          allocate(data(dimlens(1),dimlens(2),dimlens(3),dimlens(4)))
+          !             lon        lat        tile       cohort
+          data(:,:,:,:) = -1
+! Note: The input file used for initial testing had lon = 144, lat = 90, tile = 2, cohort = 1
+          call get_field_size(trim(input_file),'cohort_index',siz, domain=lnd%domain)
+          allocate(cidx(siz(1)), idata(siz(1)))
+          call set_domain(lnd%domain)
+          call read_compressed(trim(input_file),'cohort_index',cidx,timelevel=1)
+          call read_compressed(trim(input_file),'species', idata,timelevel=1)
+          do n = 1,size(cidx)
+             m = cidx(n)
+             i = modulo(m,dimlens(1))+1
+             m = m/dimlens(1)
+             j = modulo(m,dimlens(2))+1
+             m = m/dimlens(2)
+             ! k = modulo(m,dimlens(3))+1 ! This is how to get tile number, if it were needed.
+             m = m/dimlens(3)
+             ! L = m+1  ! This is how to get cohort number, if it were needed. No need to do modulo with dimlens(4) because at this point m is always < dimlens(4)
+             if(idata(n)>=0 .or. mask(i,j)) then
+               mask(i,j) = .TRUE. ! If species exists in any cohort of this grid cell then mask is .TRUE.
+             endif
+          enddo
+          deallocate(idata)
+          call nullify_domain()
+       else
+          mask(:,:) = .TRUE.
        endif
      else ! original code below here. i.e. if(.not.new_land_io)
        ! OPEN INPUT FILE
@@ -439,8 +435,8 @@ subroutine static_vegn_init(new_land_io)
        enddo
        enddo
     endif
-    deallocate (in_lon,in_lat)
-    if(allocated(mask)) deallocate(mask)
+
+    deallocate (in_lon,in_lat,mask)
     deallocate(t)
   endif
 
@@ -462,8 +458,8 @@ subroutine static_vegn_init(new_land_io)
 
      if(new_land_io) then
         call set_domain(lnd%domain)
-        call create_tile_out_file(static_veg_file, tidx, 'static_veg_out.nc', lnd, vegn_tile_exists, tile_dim_length)
-        call create_cohort_dimension(static_veg_file, cidx, 'static_veg_out.nc', lnd, tile_dim_length)
+        call create_tile_out_file(static_veg_file, tidx, 'static_veg_out.nc', vegn_tile_exists, tile_dim_length)
+        call create_cohort_dimension(static_veg_file, cidx, 'static_veg_out.nc', tile_dim_length)
         call get_base_date(year,month,day,hour,minute,sec)
         base_time = set_date(year, month, day, hour, minute, sec)
         units = ' '
@@ -609,14 +605,14 @@ subroutine write_static_vegn()
   if(.not.write_static_veg) return;
 
   ! get components of calendar dates for this and previous time step
-  call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
-  call get_date(lnd%time-lnd%dt_fast, year1,month1,day1,hour,minute,second)
+  call get_date(land_time,             year0,month0,day0,hour,minute,second)
+  call get_date(land_time-lnd%dt_fast, year1,month1,day1,hour,minute,second)
 
   if (     (trim(static_veg_freq)=='daily'  .and.  day1/=day0)   &
        .or.(trim(static_veg_freq)=='monthly'.and.month1/=month0) &
        .or.(trim(static_veg_freq)=='annual' .and. year1/=year0) )&
        then
-  t = (time_type_to_real(lnd%time)-time_type_to_real(base_time))/86400
+  t = (time_type_to_real(land_time)-time_type_to_real(base_time))/86400
   if(new_land_io_for_static_vegn) then
      call gather_cohort_data(cohort_species_ptr,cidx,tile_dim_length,species)
      call gather_cohort_data(cohort_bl_ptr,cidx,tile_dim_length,bl)
