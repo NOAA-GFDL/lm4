@@ -113,8 +113,8 @@ public :: read_vegn_data_namelist
 
 ! ==== constants =============================================================
 character(len=*), parameter   :: &
-     version     = '$Id: vegn_data.F90,v 20.0.6.2.2.1 2015/03/23 22:48:21 Sergey.Malyshev Exp $', &
-     tagname     = '$Name: testing $', &
+     version     = '$Id$', &
+     tagname     = '$Name$', &
      module_name = 'vegn_data_mod'
 real, parameter :: TWOTHIRDS  = 2.0/3.0
 

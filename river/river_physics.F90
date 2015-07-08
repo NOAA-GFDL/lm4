@@ -47,8 +47,8 @@ module river_physics_mod
   real    :: missing = -1.e8
 
 !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id: river_physics.F90,v 20.0.6.3 2014/09/30 00:44:05 Sergey.Malyshev Exp $'
-  character(len=128) :: tagname = '$Name: testing $'
+  character(len=128) :: version = '$Id$'
+  character(len=128) :: tagname = '$Name$'
 
 
 ! ---- public interfaces -----------------------------------------------------

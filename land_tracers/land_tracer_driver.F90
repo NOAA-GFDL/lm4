@@ -37,8 +37,8 @@ public :: update_cana_tracers
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: &
      module_name = 'land_tracer_driver_mod', &
-     version     = '$Id: land_tracer_driver.F90,v 1.1.8.4 2015/03/24 22:26:02 Sergey.Malyshev Exp $', &
-     tagname     = '$Name: testing $', &
+     version     = '$Id$', &
+     tagname     = '$Name$', &
      diag_name   = 'land_tracers'
 
 real :: diffusivity_h2o = 0.282e-4 ! diffusivity of water vapor m2/s, 

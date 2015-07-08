@@ -19,8 +19,8 @@ integer, public :: isphum, ico2 ! indices of specific humidity and CO2
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: &
      module_name = 'land_tracers_mod', &
-     version     = '$Id: land_tracers.F90,v 1.1.8.2 2014/09/10 22:26:02 Sergey.Malyshev Exp $', &
-     tagname     = '$Name: testing $'
+     version     = '$Id$', &
+     tagname     = '$Name$'
 
 ! ---- private module variables ----------------------------------------------
 logical :: module_is_initialized = .FALSE.

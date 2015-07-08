@@ -1,5 +1,5 @@
 ! -*-f90-*-
-! $Id: read_remap_cohort_data_new.inc,v 21.0.2.1 2015/02/23 20:09:02 Zhi.Liang Exp $
+! $Id$
 
 ! some sanity checks
 #ifndef F90_TYPE

@@ -60,8 +60,8 @@ public :: soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPS
 ! ==== module constants ======================================================
 integer,parameter,public::n_c_types=3  !Carbon chemical species (Cellulose, lignin, microbial products)
 character(len=*), parameter   :: &
-     version     = '$Id: soil_carbon.F90,v 1.1.6.8.4.1 2015/04/09 19:20:02 pjp Exp $', &
-     tagname     = '$Name: testing $', &
+     version     = '$Id$', &
+     tagname     = '$Name$', &
      module_name = 'soil_carbon_mod'
 integer, parameter :: SOILC_CENTURY          = 1
 integer, parameter :: SOILC_CENTURY_BY_LAYER = 2

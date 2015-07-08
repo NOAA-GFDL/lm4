@@ -109,8 +109,8 @@ public :: redistribute_peat_carbon
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'soil',&
-    version     = '$Id: soil.F90,v 21.0.2.14 2015/05/19 18:50:29 Peter.Phillipps Exp $',&
-    tagname     = '$Name: testing $'
+    version     = '$Id$',&
+    tagname     = '$Name$'
 
 ! ==== module variables ======================================================
 

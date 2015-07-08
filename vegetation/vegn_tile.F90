@@ -64,8 +64,8 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), parameter   :: &
-     version = '$Id: vegn_tile.F90,v 20.0.2.2.2.2.2.1 2015/03/23 15:50:28 Sergey.Malyshev Exp $', &
-     tagname = '$Name: testing $', &
+     version = '$Id$', &
+     tagname = '$Name$', &
      module_name = 'vegn_tile_mod'
 
 ! ==== types =================================================================
