@@ -59,8 +59,8 @@ public :: glac_step_2
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
        module_name = 'glacier',&
-       version     = '$Id: glacier.F90,v 20.0.2.1.6.1.4.2.4.3 2014/10/30 18:42:20 pjp Exp $',&
-       tagname     = '$Name: ulm_201505 $'
+       version     = '$Id$',&
+       tagname     = '$Name$'
  
 ! ==== module variables ======================================================
 

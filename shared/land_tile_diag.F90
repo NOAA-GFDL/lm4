@@ -58,8 +58,8 @@ public :: get_area_id
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      mod_name = 'lan_tile_diag_mod', &
-     version  = '$Id: land_tile_diag.F90,v 20.0.10.7.2.1 2014/10/30 17:27:12 pjp Exp $', &
-     tagname  = '$Name: ulm_201505 $'
+     version  = '$Id$', &
+     tagname  = '$Name$'
 
 integer, parameter :: INIT_FIELDS_SIZE     = 1     ! initial size of the fields array
 integer, parameter :: BASE_TILED_FIELD_ID  = 65536 ! base value for tiled field 

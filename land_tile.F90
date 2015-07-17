@@ -106,8 +106,8 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
-     version = '$Id: land_tile.F90,v 20.0.8.2 2014/06/26 19:36:54 Sergey.Malyshev Exp $', &
-     tagname = '$Name: ulm_201505 $'
+     version = '$Id$', &
+     tagname = '$Name$'
 
 ! ==== data types ============================================================
 ! land_tile_type describes the structure of the land model tile; basically

@@ -1,5 +1,5 @@
 ! -*-f90-*-
-! $Id: debug.inc,v 20.0 2013/12/13 23:29:47 fms Exp $
+! $Id$
 
 use land_debug_mod, only : dpri
 

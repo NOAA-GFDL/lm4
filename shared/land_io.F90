@@ -56,8 +56,8 @@ include 'netcdf.inc'
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land_io_mod', &
-     version     = '$Id: land_io.F90,v 21.0.2.1 2015/02/23 20:09:02 Zhi.Liang Exp $', &
-     tagname     = '$Name: ulm_201505 $'
+     version     = '$Id$', &
+     tagname     = '$Name$'
 
 logical :: module_is_initialized = .false.
 character(len=64)  :: interp_method = "conservative"

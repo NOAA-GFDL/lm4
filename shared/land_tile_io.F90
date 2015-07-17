@@ -79,8 +79,8 @@ end interface
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land_tile_io_mod', &
-     version     = '$Id: land_tile_io.F90,v 20.0.2.1.4.1.2.1.4.5 2014/06/27 18:48:35 pjp Exp $', &
-     tagname     = '$Name: ulm_201505 $'
+     version     = '$Id$', &
+     tagname     = '$Name$'
 
 ! name of the "compressed" dimension (and dimension variable) in the output 
 ! netcdf files -- that is, the dimensions written out using compression by 
