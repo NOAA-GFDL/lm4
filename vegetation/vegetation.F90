@@ -31,7 +31,7 @@ use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
 use land_tile_diag_mod, only : &
      register_tiled_static_field, register_tiled_diag_field, &
      send_tile_data, diag_buff_type, OP_STD, OP_VAR, set_default_diag_filter
-use land_data_mod,      only : land_state_type, lnd
+use land_data_mod,      only : land_state_type, lnd, land_time
 use land_io_mod, only : read_field
 use land_tile_io_mod, only : &
      create_tile_out_file, gather_tile_data, &
@@ -282,7 +282,6 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
   module_is_initialized = .TRUE.
 
   ! ---- make module copy of time and calculate time step ------------------
-  time       = lnd%time
   delta_time = time_type_to_real(lnd%dt_fast)
   dt_fast_yr = delta_time/seconds_per_year
 
@@ -661,17 +660,17 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
   enddo
     
   ! initialize carbon integrator
-  call vegn_dynamics_init ( id_lon, id_lat, lnd%time, delta_time )
+  call vegn_dynamics_init ( id_lon, id_lat, land_time, delta_time )
 
   ! initialize static vegetation
   call static_vegn_init (new_land_io)
-  call read_static_vegn ( lnd%time )
+  call read_static_vegn ( land_time )
 
   ! initialize harvesting options
   call vegn_harvesting_init()
 
   ! initialize vegetation diagnostic fields
-  call vegn_diag_init ( id_lon, id_lat, id_band, lnd%time )
+  call vegn_diag_init ( id_lon, id_lat, id_band, land_time )
 
   ! ---- diagnostic section
   ce = first_elmt(lnd%tile_map, is=lnd%is, js=lnd%js)
@@ -1549,7 +1548,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   endif
 
   ! check the range of input temperature
-  call check_temp_range(cohort%Tv,'vegn_step_1','cohort%Tv', lnd%time) 
+  call check_temp_range(cohort%Tv,'vegn_step_1','cohort%Tv') 
 
   ! calculate the fractions of intercepted precipitation
   vegn_ifrac = cohort%cover
@@ -1930,8 +1929,8 @@ subroutine update_vegn_slow( )
   character(64) :: tag
 
   ! get components of calendar dates for this and previous time step
-  call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
-  call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
+  call get_date(land_time,             year0,month0,day0,hour,minute,second)
+  call get_date(land_time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
 
   if(month0 /= month1) then
      ! heartbeat
@@ -2052,10 +2051,10 @@ subroutine update_vegn_slow( )
         call get_tile_water(tile,lmass1,fmass1)
         heat1  = land_tile_heat  (tile)
         cmass1 = land_tile_carbon(tile)     
-        call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol, lnd%time)
-        call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol, lnd%time)
-        call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol, lnd%time)
-        ! call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16, lnd%time)
+        call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol)
+        call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
+        call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
+        ! call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16)
         ! - end of conservation check, part 2
      endif
 
@@ -2150,7 +2149,7 @@ subroutine update_vegn_slow( )
 
   ! override with static vegetation
   if(day1/=day0) &
-       call  read_static_vegn(lnd%time)
+       call  read_static_vegn(land_time)
 end subroutine update_vegn_slow
 
 

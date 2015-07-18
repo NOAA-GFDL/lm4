@@ -317,7 +317,7 @@ subroutine vegn_nat_mortality(vegn, soil, deltat)
         !Add above ground fraction to top soil layer, and the rest to the soil profile
         call add_litter(soil%coarseWoodLitter,(/fsc_wood *delta*agf_bs,(1-fsc_wood)*delta*agf_bs,0.0/))
         soil%coarseWoodlitter_fsc_in=soil%coarseWoodlitter_fsc_in+fsc_wood *delta*agf_bs
-        soil%coarseWoodlitter_ssc_in=soil%coarseWoodlitter_fsc_in+(1-fsc_wood)*delta*agf_bs
+        soil%coarseWoodlitter_ssc_in=soil%coarseWoodlitter_ssc_in+(1-fsc_wood)*delta*agf_bs
         !fsc_in and ssc_in updated in add_root_litter
         call add_root_litter(soil,vegn,  (/fsc_wood *delta*(1.0-agf_bs),(1-fsc_wood)*delta*(1.0-agf_bs),0.0/))
      case default

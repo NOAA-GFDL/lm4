@@ -11,7 +11,7 @@ use soil_tile_mod, only : &
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), nitems
 use fms_mod, only : write_version_number
-use land_data_mod,      only : land_state_type, lnd
+use land_data_mod,      only : land_state_type, lnd, land_time
 use land_debug_mod, only : is_watch_point, set_current_point, get_current_point, &
                            check_conservation, is_watch_cell
 use hillslope_mod, only : do_hillslope_model, strm_depth_penetration, use_hlsp_aspect_in_gwflow, &
@@ -755,15 +755,15 @@ subroutine hlsp_hydrology_1(num_species)
          !! Tracers add code
 
          call check_conservation('hlsp_hydrology_1, between-tile fluxes (k value following is not valid)', &
-                                 'Water', wbal, 0., wthresh, lnd%time, FATAL)
+                                 'Water', wbal, 0., wthresh, FATAL)
 
          call check_conservation('hlsp_hydrology_1, between-tile energy fluxes (k value following is not valid)', &
-                                 'Energy', ebal, 0., ethresh, lnd%time, FATAL)
+                                 'Energy', ebal, 0., ethresh, FATAL)
          do s=1,num_species
             speciesname=''
             write(speciesname,*) 'Tracer Species ', s
             call check_conservation('hlsp_hydrology_1, between-tile tracer fluxes (k value following is not valid)', &
-                                    trim(speciesname), tbal(s), 0., tthresh, lnd%time, FATAL)
+                                    trim(speciesname), tbal(s), 0., tthresh, FATAL)
          end do
 
          deallocate(gtos_bytile, gtosh_bytile, gtost_bytile)
@@ -797,19 +797,19 @@ subroutine hlsp_hydro_init (id_lon, id_lat, id_zfull)
 !       Time, 'advected groundwater heat flux to stream at hillslope bottom, normalized by hillslope area', 'W/m^2',  missing_value=initval )
 
    id_gdiv = register_tiled_diag_field ( module_name, 'groundwater_divergence', axes, &
-       lnd%time, 'groundwater divergence out of tiles, excluding flow to stream (i.e., baseflow)', 'mm/s', &
+       land_time, 'groundwater divergence out of tiles, excluding flow to stream (i.e., baseflow)', 'mm/s', &
        missing_value=initval )
    id_ghdiv = register_tiled_diag_field ( module_name, 'groundwater_heat_div', axes, &
-       lnd%time, 'heat flux associated with groundwater divergence (excl. to stream)', 'W/m^2', missing_value=initval )
+       land_time, 'heat flux associated with groundwater divergence (excl. to stream)', 'W/m^2', missing_value=initval )
    id_gtos = register_tiled_diag_field ( module_name, 'grounddiv_to_stream', axes, &
-       lnd%time, 'groundwater divergence out of tiles directly to stream', 'mm/s', &
+       land_time, 'groundwater divergence out of tiles directly to stream', 'mm/s', &
        missing_value=initval )
    id_gtosh = register_tiled_diag_field ( module_name, 'groundheatdiv_to_stream', axes, &
-       lnd%time, 'heat flux associated with groundwater divergence to stream', 'W/m^2', missing_value=initval )
+       land_time, 'heat flux associated with groundwater divergence to stream', 'W/m^2', missing_value=initval )
    id_gtdiv = register_tiled_diag_field ( module_name, 'groundwater_tracer_div', axes, &
-       lnd%time, 'DOC groundwater divergence out of tiles, excluding to stream', 'kg C/m^2/s', missing_value=initval )
+       land_time, 'DOC groundwater divergence out of tiles, excluding to stream', 'kg C/m^2/s', missing_value=initval )
    id_gtost = register_tiled_diag_field ( module_name, 'groundtracer_to_stream', axes, &
-       lnd%time, 'DOC flux to stream via groundwater', 'kg C/m^2/s', missing_value=initval )
+       land_time, 'DOC flux to stream via groundwater', 'kg C/m^2/s', missing_value=initval )
 
 end subroutine hlsp_hydro_init
 
@@ -829,7 +829,7 @@ subroutine stiff_explicit_gwupdate (soil, div_it, hdiv_it, div, lrunf_bf)
    integer :: i,j,k,t
 
    call get_current_point(i,j,k,t)
-   time = time_type_to_real(lnd%time)
+   time = time_type_to_real(land_time)
    write(mesg,*)'Tile at point (i,j,k,face): ', i,',', j, ',', k, ',', t, ' has become stiff', &
                 ' (i.e., completely frozen) during the timestep at time ', time, '.', &
                 'Explicitly updating for inter-tile ', &

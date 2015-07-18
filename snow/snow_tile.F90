@@ -74,10 +74,10 @@ real            :: g2_geo =  0.041840
 
 type :: snow_tile_type
    integer :: tag ! kind of the tile
-   real, pointer :: wl(:)
-   real, pointer :: ws(:)
-   real, pointer :: T(:)
-   real,                 pointer :: e(:), f(:)
+   real, allocatable :: wl(:)
+   real, allocatable :: ws(:)
+   real, allocatable :: T(:)
+   real, allocatable :: e(:), f(:)
 end type snow_tile_type
 
 ! ==== module data ===========================================================
@@ -197,29 +197,16 @@ function snow_tile_copy_ctor(snow) result(ptr)
   allocate(ptr)
   ! copy all non-pointer members
   ptr = snow
-  ! allocate storage for tile data
-  allocate(ptr%ws(num_l))
-  allocate(ptr%wl(num_l))
-  allocate(ptr%T(num_l))
-  allocate(ptr%e(num_l))
-  allocate(ptr%f(num_l))
-  ! copy all pointer members
-  ptr%ws(:) = snow%ws(:)
-  ptr%wl(:) = snow%wl(:)
-  ptr%T(:) = snow%T(:)
-  ptr%e(:) = snow%e(:)
-  ptr%f(:) = snow%f(:)
+  ! no need to allocate storage for allocatable components of the type, because 
+  ! F2003 takes care of that, and also takes care of copying data
 end function snow_tile_copy_ctor
 
 ! ============================================================================
 subroutine delete_snow_tile(snow)
   type(snow_tile_type), pointer :: snow
 
-  deallocate(snow%ws)
-  deallocate(snow%wl)
-  deallocate(snow%T)
-  deallocate(snow%e)
-  deallocate(snow%f)
+  ! no need to deallocate components of tile, because F2003 takes care of
+  ! allocatable components deallocation when tile is deallocated
   deallocate(snow)
 end subroutine delete_snow_tile
 

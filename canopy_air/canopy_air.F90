@@ -619,7 +619,7 @@ subroutine cana_step_1 ( cana,&
   ! ---- local vars
   real :: rho, grnd_q, qsat, DqsatDTg
 
-  call check_temp_range(grnd_T,'cana_step_1','grnd_T', lnd%time)
+  call check_temp_range(grnd_T,'cana_step_1','grnd_T')
 
   call qscomp(grnd_T,p_surf,qsat,DqsatDTg)
   grnd_q = grnd_rh * qsat

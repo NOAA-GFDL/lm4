@@ -96,17 +96,17 @@ end type glac_pars_type
 type :: glac_tile_type
    integer :: tag ! kind of the glacier
    type(glac_pars_type)               :: pars
-   real, pointer :: wl(:) => NULL()
-   real, pointer :: ws(:) => NULL()
-   real, pointer :: T(:)  => NULL()
-   real, pointer :: w_fc(:) => NULL()
-   real, pointer :: w_wilt(:) => NULL()
+   real, allocatable :: wl(:)
+   real, allocatable :: ws(:)
+   real, allocatable :: T(:)
+   real, allocatable :: w_fc(:)
+   real, allocatable :: w_wilt(:)
    real :: Eg_part_ref
    real :: z0_scalar
    real :: geothermal_heat_flux
 
-   real, pointer :: heat_capacity_dry(:) => NULL()
-   real, pointer :: e(:), f(:) => NULL()
+   real, allocatable :: heat_capacity_dry(:)
+   real, allocatable :: e(:), f(:)
 end type glac_tile_type
 ! NOTE: When adding or modifying fields of this types, don't forget to change
 ! the operations on tile (e.g. copy) accordingly
@@ -290,24 +290,8 @@ function glac_tile_copy_ctor(glac) result(ptr)
 
   allocate(ptr)
   ptr = glac ! copy all non-allocatable data
-  ! allocate storage for tile data
-  allocate(ptr%wl     (num_l), &
-           ptr%ws     (num_l), &
-           ptr%T      (num_l), &
-           ptr%w_fc   (num_l),  &
-           ptr%w_wilt (num_l),  &
-           ptr%heat_capacity_dry (num_l),  &
-           ptr%e      (num_l),  &
-           ptr%f      (num_l)   )
-  ! copy allocatable data
-   ptr%wl(:)     = glac%wl(:)
-   ptr%ws(:)     = glac%ws(:)
-   ptr%T(:)      = glac%T(:)
-   ptr%w_fc(:)   = glac%w_fc(:)
-   ptr%w_wilt(:) = glac%w_wilt(:)
-   ptr%heat_capacity_dry(:) = glac%heat_capacity_dry(:) 
-   ptr%e(:)      = glac%e(:)
-   ptr%f(:)      = glac%f(:)
+  ! no need to allocate storage for allocatable components of the tile, because 
+  ! F2003 takes care of that, and also takes care of copying data
  end function glac_tile_copy_ctor
 
 
@@ -315,9 +299,8 @@ function glac_tile_copy_ctor(glac) result(ptr)
 subroutine delete_glac_tile(ptr)
   type(glac_tile_type), pointer :: ptr
 
-  deallocate(ptr%wl, ptr%ws, ptr%T, &
-        ptr%w_fc, ptr%w_wilt, ptr%heat_capacity_dry, &
-        ptr%e,  ptr%f)
+  ! no need to deallocate components of the tile, because F2003 takes care of
+  ! allocatable components deallocation when tile is deallocated
   deallocate(ptr)
 end subroutine delete_glac_tile
 

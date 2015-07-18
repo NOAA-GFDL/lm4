@@ -56,7 +56,7 @@ module river_mod
   use fms_mod,             only : close_file, file_exist, field_size, read_data, write_data
   use fms_mod,             only : field_exist, CLOCK_FLAG_DEFAULT
   use fms_io_mod,          only : get_mosaic_tile_file, get_instance_filename
-  use fms_io_mod,          only : restart_file_type, register_restart_field, restore_state, save_restart
+  use fms_io_mod,          only : restart_file_type, register_restart_field, restore_state, save_restart, free_restart_type
   use diag_manager_mod,    only : diag_axis_init, register_diag_field, register_static_field, send_data, diag_field_add_attribute
   use time_manager_mod,    only : time_type, increment_time, get_time
   use data_override_mod,   only : data_override
@@ -159,7 +159,6 @@ module river_mod
   integer                       :: slow_step = 0          ! record number of slow time step run.
   type(domain2d),          save :: domain
   type(river_type) ,       save :: River
-  type(restart_file_type)       :: river_restart
 
 !--- clock id variable 
   integer :: slowclock, bndslowclock, physicsclock, diagclock, riverclock
@@ -211,6 +210,8 @@ contains
     type(Leo_Mad_trios)   :: DHG_exp            ! downstream equation exponents
     type(Leo_Mad_trios)   :: DHG_coef           ! downstream equation coefficients
     type(Leo_Mad_trios)   :: AAS_exp            ! at-a-station equation exponents 
+
+    type(restart_file_type) :: river_restart
 
     riverclock = mpp_clock_id('update_river'           , CLOCK_FLAG_DEFAULT, CLOCK_SUBCOMPONENT)
     slowclock = mpp_clock_id('update_river_slow'       , CLOCK_FLAG_DEFAULT, CLOCK_ROUTINE)
@@ -325,10 +326,18 @@ contains
               id_restart = register_restart_field(river_restart,'river.res.nc','storage_c', River%storage_c, domain)
            else
               do i_species = 1, num_species
-                id_restart = register_restart_field(river_restart,'river.res.nc','disch2ocn_'//trdata(i_species)%name, &
-                             discharge2ocean_next_c(:,:,i_species),domain)
-                id_restart = register_restart_field(river_restart,'river.res.nc','storage_'//trdata(i_species)%name, &
-                             River%storage_c(:,:,i_species),domain)
+                if (field_exist(filename,'disch2ocn_'//trdata(i_species)%name,domain)) then
+                  id_restart = register_restart_field(river_restart,'river.res.nc','disch2ocn_'//trdata(i_species)%name, &
+                               discharge2ocean_next_c(:,:,i_species),domain)
+                else
+                  call mpp_error(WARNING, 'river_init: disch2ocn_'//trim(trdata(i_species)%name)//' does not exist in '//trim(filename))
+                endif
+                if (field_exist(filename,'storage_'//trdata(i_species)%name,domain)) then
+                  id_restart = register_restart_field(river_restart,'river.res.nc','storage_'//trdata(i_species)%name, &
+                               River%storage_c(:,:,i_species),domain)
+                else
+                  call mpp_error(WARNING, 'river_init: storage_'//trim(trdata(i_species)%name)//' does not exist in '//trim(filename))
+                endif
               enddo
            endif
            id_restart = register_restart_field(river_restart,'river.res.nc','Omean', River%outflowmean, domain)
@@ -336,6 +345,7 @@ contains
               id_restart = register_restart_field(river_restart,'river.res.nc','depth', River%depth, domain, mandatory=.false.)
            endif
            call restore_state(river_restart)
+           call free_restart_type(river_restart)
         else
            call read_data(filename,'storage',          River%storage,          domain)
            call read_data(filename,'discharge2ocean',  discharge2ocean_next,   domain)
@@ -347,8 +357,16 @@ contains
               ! different from the name of the older 3D tracer array, to avoid conflicts
               ! with a tracer is called "C"
               do i_species = 1, num_species
-                 call read_data(filename,'disch2ocn_'//trdata(i_species)%name,discharge2ocean_next_c(:,:,i_species), domain)
-                 call read_data(filename,'storage_'//trdata(i_species)%name,River%storage_c(:,:,i_species), domain)
+                 if (field_exist(filename,'disch2ocn_'//trdata(i_species)%name,domain)) then
+                   call read_data(filename,'disch2ocn_'//trdata(i_species)%name,discharge2ocean_next_c(:,:,i_species), domain)
+                 else
+                    call mpp_error(WARNING, 'river_init: disch2ocn_'//trim(trdata(i_species)%name)//' does not exist in '//trim(filename))
+                 endif
+                 if (field_exist(filename,'storage_'//trdata(i_species)%name,domain)) then
+                   call read_data(filename,'storage_'//trdata(i_species)%name,River%storage_c(:,:,i_species), domain)
+                 else
+                    call mpp_error(WARNING, 'river_init: storage_'//trim(trdata(i_species)%name)//' does not exist in '//trim(filename))
+                 endif
               enddo
            endif
            call read_data(filename,'Omean',            River%outflowmean,      domain)
@@ -880,11 +898,23 @@ end subroutine print_river_tracer_data
     character(*), intent(in) :: timestamp
 
     character(len=128) :: filename
-    integer :: tr
+    integer :: tr, id_restart
+    type(restart_file_type) :: river_restart
 
     if(.not.do_rivers) return ! do nothing further if rivers are turned off
     if(remember_new_land_io) then
+       id_restart = register_restart_field(river_restart,'river.res.nc','storage', River%storage, domain)
+       id_restart = register_restart_field(river_restart,'river.res.nc','discharge2ocean', discharge2ocean_next, domain)
+       do tr = 1, num_species
+          id_restart = register_restart_field(river_restart,'river.res.nc','storage_'//trdata(tr)%name, &
+                       River%storage_c(:,:,tr),domain)
+          id_restart = register_restart_field(river_restart,'river.res.nc','disch2ocn_'//trdata(tr)%name, &
+                       discharge2ocean_next_c(:,:,tr),domain)
+       enddo
+       id_restart = register_restart_field(river_restart,'river.res.nc','Omean', River%outflowmean, domain)
+       id_restart = register_restart_field(river_restart,'river.res.nc','depth', River%depth, domain, mandatory=.false.)
        call save_restart(river_restart)
+       call free_restart_type(river_restart)
     else
 
        filename = 'RESTART/'//trim(timestamp)//'river.res.nc'

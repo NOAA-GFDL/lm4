@@ -46,7 +46,7 @@ character(len=*), parameter :: &
 ! ==== data types ======================================================
 type :: cana_tile_type
   real T                 ! temperature of canopy air, deg K
-  real, pointer :: tr(:) ! concentrations of tracers in canopy air
+  real, allocatable :: tr(:) ! concentrations of tracers in canopy air
 end type cana_tile_type
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -66,17 +66,13 @@ function cana_tile_copy_ctor(cana) result(ptr)
   type(cana_tile_type), intent(in) :: cana ! return value
 
   allocate(ptr)
-  ptr = cana
-  ! copy tracer concentrations
-  allocate(ptr%tr(ntcana))
-  ptr%tr(:) = cana%tr(:)
+  ptr = cana ! copy all non-pointer components
 end function cana_tile_copy_ctor
 
 ! =============================================================================
 subroutine delete_cana_tile(cana)
   type(cana_tile_type), pointer :: cana
 
-  deallocate(cana%tr)
   deallocate(cana)
 end subroutine delete_cana_tile
 

@@ -25,7 +25,7 @@ use snow_tile_mod, only : &
 
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
-use land_data_mod,      only : land_state_type, lnd
+use land_data_mod,      only : land_state_type, lnd, land_time
 use land_tile_io_mod, only : create_tile_out_file, read_tile_data_r1d_fptr, &
      write_tile_data_r1d_fptr, print_netcdf_error, get_input_restart_name, &
      sync_nc_files, gather_tile_data, assemble_tiles
@@ -79,7 +79,6 @@ namelist /snow_nml/ retro_heat_capacity, lm2, steal, albedo_to_use, &
 
 logical         :: module_is_initialized =.FALSE.
 logical         :: use_brdf
-type(time_type) :: time
 real            :: delta_time
 integer         :: num_l    ! # of snow layers
 ! next three 'z' variables are all normalized by total snow pack depth
@@ -158,7 +157,6 @@ subroutine snow_init ( id_lon, id_lat, new_land_io )
   logical :: found,restart_exists
 
   module_is_initialized = .TRUE.
-  time       = lnd%time
   delta_time = time_type_to_real(lnd%dt_fast)
 
   ! -------- initialize snow state --------
@@ -1079,9 +1077,6 @@ end subroutine snow_step_1
      write(*,*) 'FMASS         ', snow_FMASS
      write(*,*) 'HEAT          ', snow_HEAT
   endif
-
-  ! ---- increment time and do diagnostics -----------------------------------
-  time = increment_time(time, int(delta_time), 0)
 
 end subroutine snow_step_2
 

@@ -58,6 +58,7 @@ public :: soil_data_init_derive_subsurf_pars_tiled
 public :: soil_ave_temp  ! calculate average soil temeperature
 public :: soil_ave_theta0! calculate average soil moisture, pcm based on available water, zeta input
 public :: soil_ave_theta1! calculate average soil moisture, ens based on all water
+public :: soil_ave_wetness ! calculate average soil wetness
 public :: soil_theta     ! returns array of soil moisture, for all layers
 public :: soil_psi_stress ! return soil-water-stress index
 public :: g_iso, g_vol, g_geo, g_RT
@@ -190,89 +191,96 @@ type :: soil_tile_type
        ! disturbance. So these indices function similarly to "tag".)
    ! !
    type(soil_pars_type) :: pars
-   real, pointer :: wl(:)            => NULL() ! liquid water, kg/m2
-   real, pointer :: ws(:)            => NULL() ! solid water, kg/m2
-   real, pointer :: T(:)             => NULL() ! temperature, degK
-   real, pointer :: groundwater(:)   => NULL()
-   real, pointer :: groundwater_T(:) => NULL()
-   real, pointer :: w_fc(:)          => NULL()
-   real, pointer :: w_wilt(:)        => NULL()
-   real, pointer :: d_trans(:)       => NULL()
-   real, pointer :: alpha(:)         => NULL()
-   real, pointer :: k_macro_z(:)     => NULL() ! Vertical macroporosity [mm/s]
-   real, pointer :: k_macro_x(:)     => NULL() ! Horizontal macroporosity [mm/s]
-   real, pointer :: vwc_max(:)       => NULL()
+   real, allocatable ::  &
+       wl(:)           , & ! liquid water, kg/m2
+       ws(:)           , & ! solid water, kg/m2
+       T(:)            , & ! temperature, degK
+       groundwater(:)  , &
+       groundwater_T(:), &
+       w_fc(:)         , &
+       w_wilt(:)       , &
+       d_trans(:)      , &
+       alpha(:)        , &
+       k_macro_z(:)    , & ! Vertical macroporosity [mm/s]
+       k_macro_x(:)    , & ! Horizontal macroporosity [mm/s]
+       vwc_max(:)
    real :: Eg_part_ref
    real :: z0_scalar
    real :: geothermal_heat_flux
    real :: psi_x0 = -1000.
    ! data that were local to soil.f90
-   real, pointer :: uptake_frac(:) => NULL()
-   real, pointer :: heat_capacity_dry(:) => NULL()
-   real, pointer :: e(:) => NULL(),f(:) => NULL()
-   real, pointer ::  gw_flux_norm(:) => NULL()
-   real, pointer ::  gw_area_norm(:) => NULL()
+   real, allocatable ::  &
+       uptake_frac(:),   &
+       heat_capacity_dry(:), &
+       e(:), f(:),       &
+       gw_flux_norm(:),  &
+       gw_area_norm(:)
    ! added to avoid recalculation of soil hydraulics in case of Darcy uptake
    real          :: uptake_T
    ! These two are needed for tiled hillslope hydrology
-   real, pointer :: psi(:) => NULL() ! soil water potential [m]
-   real, pointer :: hyd_cond_horz(:) => NULL() ! soil hydraulic conductivity for inter-tile transfers [mm/s]
+   real, allocatable :: psi(:) ! soil water potential [m]
+   real, allocatable :: hyd_cond_horz(:) ! soil hydraulic conductivity for inter-tile transfers [mm/s]
    ! flux variables for tiled hillslope hydrology
-   real, pointer :: div_hlsp(:) => NULL() ! net groundwater divergence flux from tile to hillslope 
+   real, allocatable :: div_hlsp(:) ! net groundwater divergence flux from tile to hillslope 
                                      ! or stream [mm/s]
-   real, pointer :: div_hlsp_heat(:) => NULL() ! net heat divergence flux associated with groundwater
+   real, allocatable :: div_hlsp_heat(:) ! net heat divergence flux associated with groundwater
                                      ! (relative to tfreeze) [W/m^2]
 
    ! soil carbon
    ! CENTURY-style values
-   real, pointer :: fast_soil_C(:) => NULL() ! fast soil carbon pool, (kg C/m2), per layer
-   real, pointer :: slow_soil_C(:) => NULL() ! slow soil carbon pool, (kg C/m2), per layer
+   real, allocatable :: &
+       fast_soil_C(:), & ! fast soil carbon pool, (kg C/m2), per layer
+       slow_soil_C(:)    ! slow soil carbon pool, (kg C/m2), per layer
    ! values for CORPSE
-   type(soil_carbon_pool), pointer :: soil_C(:) => NULL()      ! Soil carbon in soil layers, using soil_carbon_mod soil carbon pool type
-   integer,pointer                   :: is_peat(:) => NULL()  ! Keeps track of whether soil layer is peat, for redistribution
-   type(soil_carbon_pool)            :: leafLitter              ! Surface litter pools, just one layer 
-   type(soil_carbon_pool)            :: fineWoodLitter         ! Separating makes fire modeling easier
-   type(soil_carbon_pool)            :: coarseWoodLitter
-   real                              :: fast_DOC_leached !Carbon that has been leached out of the column
-   real                              :: slow_DOC_leached !Carbon that has been leached out of the column
-   real                              :: deadmic_DOC_leached !Carbon that has been leached out of the column
+   type(soil_carbon_pool), allocatable :: soil_C(:) ! Soil carbon in soil layers, using soil_carbon_mod soil carbon pool type
+   integer, allocatable   :: is_peat(:)             ! Keeps track of whether soil layer is peat, for redistribution
+   type(soil_carbon_pool) :: leafLitter             ! Surface litter pools, just one layer 
+   type(soil_carbon_pool) :: fineWoodLitter         ! Separating makes fire modeling easier
+   type(soil_carbon_pool) :: coarseWoodLitter
+   real                   :: fast_DOC_leached !Carbon that has been leached out of the column
+   real                   :: slow_DOC_leached !Carbon that has been leached out of the column
+   real                   :: deadmic_DOC_leached !Carbon that has been leached out of the column
    ! values for the diagnostic of carbon budget and soil carbon acceleration
-   real, pointer :: asoil_in(:)    => NULL()
-   real, pointer :: fsc_in(:)      => NULL()
-   real, pointer :: ssc_in(:)      => NULL()
-   real, pointer :: deadmic_in(:)  => NULL()
-   real, pointer :: fast_protected_in(:)  => NULL()
-   real, pointer :: slow_protected_in(:)  => NULL()
-   real, pointer :: deadmic_protected_in(:)  => NULL()
-   real, pointer :: fast_protected_turnover_accumulated(:) => NULL()
-   real, pointer :: slow_protected_turnover_accumulated(:) => NULL()
-   real, pointer :: deadmic_protected_turnover_accumulated(:) => NULL()
-   real, pointer :: fast_turnover_accumulated(:)  => NULL()
-   real, pointer :: slow_turnover_accumulated(:)  => NULL()
-   real, pointer :: deadmic_turnover_accumulated(:)  => NULL()
-   real          :: leaflitter_fast_turnover_accumulated
-   real          :: leaflitter_slow_turnover_accumulated
-   real          :: leaflitter_deadmic_turnover_accumulated
-   real          :: leaflitter_fsc_in
-   real          :: leaflitter_ssc_in
-   real          :: leaflitter_deadmic_in
-   
-   real          :: finewoodlitter_fast_turnover_accumulated
-   real          :: finewoodlitter_slow_turnover_accumulated
-   real          :: finewoodlitter_deadmic_turnover_accumulated
-   real          :: finewoodlitter_fsc_in
-   real          :: finewoodlitter_ssc_in
-   real          :: finewoodlitter_deadmic_in
-   
-   real          :: coarsewoodlitter_fast_turnover_accumulated
-   real          :: coarsewoodlitter_slow_turnover_accumulated
-   real          :: coarsewoodlitter_deadmic_turnover_accumulated
-   real          :: coarsewoodlitter_fsc_in
-   real          :: coarsewoodlitter_ssc_in
-   real          :: coarsewoodlitter_deadmic_in
+   real, allocatable :: &
+       asoil_in(:), &
+       fsc_in(:), &
+       ssc_in(:), &
+       deadmic_in(:), &
+       fast_protected_in(:), &
+       slow_protected_in(:), &
+       deadmic_protected_in(:), &
+       fast_protected_turnover_accumulated(:), &
+       slow_protected_turnover_accumulated(:), &
+       deadmic_protected_turnover_accumulated(:), &
+       fast_turnover_accumulated(:), &
+       slow_turnover_accumulated(:), &
+       deadmic_turnover_accumulated(:)
+   real :: leaflitter_fast_turnover_accumulated
+   real :: leaflitter_slow_turnover_accumulated
+   real :: leaflitter_deadmic_turnover_accumulated
+   real :: leaflitter_fsc_in
+   real :: leaflitter_ssc_in
+   real :: leaflitter_deadmic_in
+
+   real :: finewoodlitter_fast_turnover_accumulated
+   real :: finewoodlitter_slow_turnover_accumulated
+   real :: finewoodlitter_deadmic_turnover_accumulated
+   real :: finewoodlitter_fsc_in
+   real :: finewoodlitter_ssc_in
+   real :: finewoodlitter_deadmic_in
+
+   real :: coarsewoodlitter_fast_turnover_accumulated
+   real :: coarsewoodlitter_slow_turnover_accumulated
+   real :: coarsewoodlitter_deadmic_turnover_accumulated
+   real :: coarsewoodlitter_fsc_in
+   real :: coarsewoodlitter_ssc_in
+   real :: coarsewoodlitter_deadmic_in
+
+   !f1p: saturated fraction of soil area, for tracer deposition calculations
+   real :: sat_area_frac
 
    ! For storing DOC fluxes in tiled model
-   real, pointer :: div_hlsp_DOC(:,:) ! dimension (n_c_types, num_l) [kg C/m^2/s] net flux of carbon pools
+   real, allocatable :: div_hlsp_DOC(:,:) ! dimension (n_c_types, num_l) [kg C/m^2/s] net flux of carbon pools
                                       ! out of tile
 end type soil_tile_type
 
@@ -539,7 +547,7 @@ subroutine read_soil_data_namelist(soil_num_l, soil_dz, soil_single_geo, &
   integer :: unit         ! unit for namelist i/o
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
-  integer :: i, rcode, ncid, input_unit, varid, dimids(3)
+  integer :: i, rcode, input_unit, varid, dimids(3)
   integer :: ndim, nvar, natt, timelen
 
   type(fieldtype), allocatable :: Fields(:)
@@ -752,110 +760,10 @@ function soil_tile_copy_ctor(soil) result(ptr)
   type(soil_tile_type), pointer :: ptr ! return value
   type(soil_tile_type), intent(in) :: soil ! tile to copy
 
-  integer :: i
-
   allocate(ptr)
   ptr = soil ! copy all non-pointer members
-  ! allocate storage for tile data
-  allocate( ptr%wl                (num_l),  &
-            ptr%ws                (num_l),  &
-            ptr%T                 (num_l),  &
-            ptr%groundwater       (num_l),  &
-            ptr%groundwater_T     (num_l),  &
-            ptr%w_fc              (num_l),  &
-            ptr%w_wilt            (num_l),  &
-            ptr%d_trans           (num_l),  &
-            ptr%alpha             (num_l),  &
-            ptr%k_macro_z         (num_l),  &
-            ptr%k_macro_x         (num_l),  &
-            ptr%vwc_max           (num_l),  &
-            ptr%uptake_frac       (num_l),  &
-            ptr%heat_capacity_dry (num_l),  &
-            ptr%e                 (num_l),  &
-            ptr%f                 (num_l),  &
-            ptr%psi               (num_l),  &
-            ptr%gw_flux_norm      (num_storage_pts),  &
-            ptr%gw_area_norm      (num_storage_pts),  &
-            ptr%hyd_cond_horz     (num_l),  &
-            ptr%div_hlsp          (num_l),  &
-            ptr%div_hlsp_heat     (num_l),  &
-            ptr%fast_soil_C       (num_l),  &
-            ptr%slow_soil_C       (num_l),  &
-            ptr%fsc_in            (num_l),  & 
-            ptr%ssc_in            (num_l),  & 
-            ptr%deadmic_in            (num_l),  &
-            ptr%fast_protected_in            (num_l),  &
-            ptr%slow_protected_in            (num_l),  &
-            ptr%deadmic_protected_in            (num_l),  &
-            ptr%fast_turnover_accumulated    (num_l),  &
-            ptr%slow_turnover_accumulated    (num_l),  &
-            ptr%deadmic_turnover_accumulated    (num_l),  &
-            ptr%fast_protected_turnover_accumulated    (num_l),  &
-            ptr%slow_protected_turnover_accumulated    (num_l),  &
-            ptr%deadmic_protected_turnover_accumulated    (num_l),  &
-            ptr%asoil_in          (num_l),  &
-            ptr%is_peat        (num_l), &
-            ptr%soil_C            (num_l), &
-            ptr%div_hlsp_DOC      (n_c_types, num_l) )
-  ! copy all pointer members
-  ptr%wl(:) = soil%wl(:)
-  ptr%ws(:) = soil%ws(:)
-  ptr%T(:) = soil%T(:)
-  ptr%groundwater(:) = soil%groundwater(:)
-  ptr%groundwater_T(:) = soil%groundwater_T(:)
-  ptr%w_fc(:) = soil%w_fc(:)
-  ptr%w_wilt(:) = soil%w_wilt(:)
-  ptr%d_trans(:) = soil%d_trans(:)
-  ptr%alpha(:) = soil%alpha(:)
-  ptr%k_macro_z(:) = soil%k_macro_z(:)
-  ptr%k_macro_x(:) = soil%k_macro_x(:)
-  ptr%vwc_max(:) = soil%vwc_max(:)
-  ptr%uptake_frac(:) = soil%uptake_frac(:)
-  ptr%uptake_T = soil%uptake_T
-  ptr%heat_capacity_dry(:) = soil%heat_capacity_dry(:)
-  ptr%e(:) = soil%e(:)
-  ptr%f(:) = soil%f(:)
-  ptr%psi(:) = soil%psi(:)
-  ptr%gw_flux_norm(:) = soil%gw_flux_norm(:)
-  ptr%gw_area_norm(:) = soil%gw_area_norm(:)
-  ptr%hyd_cond_horz(:) = soil%hyd_cond_horz(:)
-  ptr%div_hlsp(:) = soil%div_hlsp(:)
-  ptr%div_hlsp_heat(:) = soil%div_hlsp_heat(:)
-  ptr%fast_soil_C(:)  = soil%fast_soil_C(:)
-  ptr%slow_soil_C(:)  = soil%slow_soil_C(:)
-  ptr%fsc_in(:)       = soil%fsc_in(:)
-  ptr%ssc_in(:)       = soil%ssc_in(:)
-  ptr%fast_protected_in(:)       = soil%fast_protected_in(:)
-  ptr%slow_protected_in(:)       = soil%slow_protected_in(:)
-  ptr%deadmic_protected_in(:)       = soil%deadmic_protected_in(:)
-  ptr%deadmic_in(:)       = soil%deadmic_in(:)
-  ptr%fast_turnover_accumulated(:)       = soil%fast_turnover_accumulated(:)
-  ptr%slow_turnover_accumulated(:)       = soil%slow_turnover_accumulated(:)
-  ptr%deadmic_turnover_accumulated(:)       = soil%deadmic_turnover_accumulated(:)
-  ptr%fast_protected_turnover_accumulated(:)       = soil%fast_protected_turnover_accumulated(:)
-  ptr%slow_protected_turnover_accumulated(:)       = soil%slow_protected_turnover_accumulated(:)
-  ptr%deadmic_protected_turnover_accumulated(:)       = soil%deadmic_protected_turnover_accumulated(:)
-  ptr%asoil_in(:)     = soil%asoil_in(:)
-  ptr%is_peat(:)    =  soil%is_peat(:)
-  ptr%fast_DOC_leached=soil%fast_DOC_leached
-  ptr%slow_DOC_leached=soil%slow_DOC_leached
-  ptr%deadmic_DOC_leached=soil%deadmic_DOC_leached
-  if(allocated(ptr%leafLitter%litterCohorts)) deallocate(ptr%leafLitter%litterCohorts)
-  if(allocated(ptr%fineWoodLitter%litterCohorts)) deallocate(ptr%fineWoodLitter%litterCohorts)
-  if(allocated(ptr%coarseWoodLitter%litterCohorts)) deallocate(ptr%coarseWoodLitter%litterCohorts)
-  allocate(ptr%leafLitter%litterCohorts(size(soil%leafLitter%litterCohorts)))
-  allocate(ptr%fineWoodLitter%litterCohorts(size(soil%fineWoodLitter%litterCohorts)))
-  allocate(ptr%coarseWoodLitter%litterCohorts(size(soil%coarseWoodLitter%litterCohorts)))
-  ptr%leafLitter=soil%leafLitter
-  ptr%fineWoodLitter=soil%fineWoodLitter
-  ptr%coarseWoodLitter=soil%coarseWoodLitter
-  DO i=1,num_l
-	if(allocated(ptr%soil_C(i)%litterCohorts)) deallocate(ptr%soil_C(i)%litterCohorts)
-	allocate(ptr%soil_C(i)%litterCohorts(size(soil%soil_C(i)%litterCohorts)))
-	ptr%soil_C(i)=soil%soil_C(i)
-  ENDDO
-  ptr%div_hlsp_DOC(:,:) = soil%div_hlsp_DOC(:,:)
-
+  ! no need to allocate storage for allocatable components of the type, because 
+  ! F2003 takes care of that, and also takes care of copying data
 end function soil_tile_copy_ctor
 
 
@@ -863,32 +771,8 @@ end function soil_tile_copy_ctor
 subroutine delete_soil_tile(ptr)
   type(soil_tile_type), pointer :: ptr
 
-  integer :: i
-
-  do i=1,num_l
-	if(allocated(ptr%soil_C(i)%litterCohorts)) deallocate(ptr%soil_C(i)%litterCohorts)
-  enddo
-  deallocate(ptr%soil_C)
-  
-  if(allocated(ptr%leafLitter%litterCohorts))       deallocate(ptr%leafLitter%litterCohorts)
-  if(allocated(ptr%fineWoodLitter%litterCohorts))   deallocate(ptr%fineWoodLitter%litterCohorts)
-  if(allocated(ptr%coarseWoodLitter%litterCohorts)) deallocate(ptr%coarseWoodLitter%litterCohorts)
-
-  deallocate(ptr%wl, ptr%ws, ptr%T, ptr%groundwater, ptr%groundwater_T, &
-             ptr%w_fc, ptr%w_wilt, ptr%d_trans, ptr%alpha, &
-             ptr%k_macro_z, ptr%k_macro_x, ptr%vwc_max, &
-             ptr%uptake_frac,&
-             ptr%heat_capacity_dry, ptr%e, ptr%f, ptr%psi, &
-             ptr%gw_flux_norm, ptr%gw_area_norm, &
-             ptr%hyd_cond_horz, ptr%div_hlsp, ptr%div_hlsp_heat, &
-             ptr%fast_soil_C, ptr%slow_soil_C, &
-             ptr%fsc_in, ptr%ssc_in, ptr%asoil_in, ptr%is_peat, &
-             ptr%fast_protected_in, ptr%slow_protected_in,&
-             ptr%deadmic_protected_in, ptr%deadmic_in, &
-             ptr%fast_turnover_accumulated, ptr%slow_turnover_accumulated, &
-             ptr%deadmic_turnover_accumulated, &
-             ptr%fast_protected_turnover_accumulated,ptr%slow_protected_turnover_accumulated,&
-             ptr%deadmic_protected_turnover_accumulated, ptr%div_hlsp_DOC )
+  ! no need to deallocate components of soil_tile, because F2003 takes care of
+  ! allocatable components deallocation when soil_tile is deallocated
   deallocate(ptr)
 end subroutine delete_soil_tile
 
@@ -1368,7 +1252,7 @@ subroutine merge_soil_tiles(s1,w1,s2,w2)
     call combine_pools(s1%soil_C(i),s2%soil_C(i),w1,w2)
   enddo
   !is_peat is 1 or 0, so multiplying is like an AND operation
-  s2%is_peat(i) = s1%is_peat(i) * s2%is_peat(i)
+  s2%is_peat(:) = s1%is_peat(:) * s2%is_peat(:)
   call combine_pools(s1%leafLitter,s2%leafLitter,w1,w2)
   call combine_pools(s1%fineWoodLitter,s2%fineWoodLitter,w1,w2)
   call combine_pools(s1%coarseWoodLitter,s2%coarseWoodLitter,w1,w2)
@@ -1496,6 +1380,29 @@ function soil_ave_theta1(soil, depth) result (A) ; real :: A
   A = A/N
 end function soil_ave_theta1
 
+
+! ============================================================================
+! returns soil surface "wetness" -- fraction of the pores filled with water 
+subroutine soil_ave_wetness(soil, depth, SW, SI)
+  type(soil_tile_type), intent(in) :: soil
+  real                , intent(in) :: depth ! averaging depth
+  real                , intent(out):: SW ! water volume / saturation
+  real                , intent(out):: SI ! ice volume / saturation
+  real    :: w ! averaging weight
+  real    :: N ! normalizing factor for averaging
+  real    :: z ! current depth, m
+  integer :: k
+
+  SW = 0 ; SI = 0; N = 0 ; z = 0
+  do k = 1, num_l
+     w = dz(k) * exp(-(z+dz(k)/2)/depth)
+     SW = SW + max(soil%wl(k)/(dens_h2o*dz(k)*soil%pars%vwc_sat),0.0) * w
+     SI = SI + max(soil%ws(k)/(dens_h2o*dz(k)*soil%pars%vwc_sat),0.0) * w
+     N = N + w
+     z = z + dz(k)
+  enddo
+  SW = SW/N ; SI = SI/N
+end subroutine soil_ave_wetness
 
 ! ============================================================================
 ! returns array of soil moisture
@@ -1840,7 +1747,6 @@ subroutine soil_data_hydraulics_alt3 (soil, vlc, vsc, &
                  ! excessive pressures and smooth numerics
   real :: Xmax   ! [-] theta associated with psimax
   real, parameter :: supercomp = 0.01 ! [1/m] comp to use above psimax
-  real, parameter :: minXl = 0.001 ! [-]
   
   K_z=1;K_x=1;DThDP=1;psi=1
   DKDP=0

@@ -11,7 +11,7 @@ use table_printer_mod
 
 use land_constants_mod, only : d608, kBoltz
 use land_debug_mod, only : is_watch_point
-use land_data_mod, only : land_state_type, lnd
+use land_data_mod, only : land_state_type, lnd, land_time
 use land_tracers_mod, only : ntcana, isphum, ico2
 use land_tile_mod, only : land_tile_type, land_tile_grnd_T
 use land_tile_diag_mod, only : set_default_diag_filter, &
@@ -153,39 +153,39 @@ subroutine land_tracer_driver_init(id_lon, id_lat)
      funits = flux_units(units)
      trdata(tr)%id_flux_atm = &
        register_tiled_diag_field(diag_name, trim(name)//'_flux_atm', &
-       (/id_lon,id_lat/),  lnd%time, trim(name)//' flux to the atmosphere', &
+       (/id_lon,id_lat/),  land_time, trim(name)//' flux to the atmosphere', &
        trim(funits), missing_value=-1.0)
      ! TODO: verify units of dfdtr
      trdata(tr)%id_dfdtr = &
        register_tiled_diag_field(diag_name, trim(name)//'_dfdtr', &
-       (/id_lon,id_lat/),  lnd%time,'derivative of '//trim(name)//' flux to the atmosphere', &
+       (/id_lon,id_lat/),  land_time,'derivative of '//trim(name)//' flux to the atmosphere', &
        trim(funits), missing_value=-1.0)
      if (trdata(tr)%do_deposition) then
         ! TODO: initialize parameters of generic dry deposition here
         
         trdata(tr)%id_ddep = &
           register_tiled_diag_field(diag_name, trim(name)//'_ddep', &
-          (/id_lon,id_lat/),  lnd%time, trim(name)//' dry deposition', 'kg/(m2 s)', &
+          (/id_lon,id_lat/),  land_time, trim(name)//' dry deposition', 'kg/(m2 s)', &
           missing_value=-1.0)
         trdata(tr)%id_con_v_lam = &
           register_tiled_diag_field(diag_name, trim(name)//'_con_v_lam', &
-          (/id_lon,id_lat/),  lnd%time, 'quasi-laminar conductance between canopy and canopy air for '//trim(name), &
+          (/id_lon,id_lat/),  land_time, 'quasi-laminar conductance between canopy and canopy air for '//trim(name), &
           'm/s', missing_value=-1.0)
         trdata(tr)%id_con_g_lam = &
           register_tiled_diag_field(diag_name, trim(name)//'_con_g_lam', &
-          (/id_lon,id_lat/),  lnd%time, 'quasi-laminar conductance between ground and canopy air for '//trim(name), &
+          (/id_lon,id_lat/),  land_time, 'quasi-laminar conductance between ground and canopy air for '//trim(name), &
           'm/s', missing_value=-1.0)
         trdata(tr)%id_con_v = &
           register_tiled_diag_field(diag_name, trim(name)//'_con_v', &
-          (/id_lon,id_lat/),  lnd%time, 'total conductance between canopy and canopy air for'//trim(name), &
+          (/id_lon,id_lat/),  land_time, 'total conductance between canopy and canopy air for'//trim(name), &
           'm/s', missing_value=-1.0)
         trdata(tr)%id_con_g = &
           register_tiled_diag_field(diag_name, trim(name)//'_con_g', &
-          (/id_lon,id_lat/),  lnd%time, 'total conductance between ground and canopy air for '//trim(name), &
+          (/id_lon,id_lat/),  land_time, 'total conductance between ground and canopy air for '//trim(name), &
           'm/s', missing_value=-1.0)
         trdata(tr)%id_conc = &
           register_tiled_diag_field(diag_name, trim(name), &
-          (/id_lon,id_lat/),  lnd%time, 'concentration or '//trim(name)//' in canopy air', &
+          (/id_lon,id_lat/),  land_time, 'concentration or '//trim(name)//' in canopy air', &
           units, missing_value=-1.0)
      endif
   enddo
