@@ -142,6 +142,8 @@ real :: rav_lit_bwood     = 0.0 ! litter resistance to vapor per bwood
 
 logical :: do_peat_redistribution = .FALSE.
 
+logical :: biodata_bug    = .FALSE. ! if true, initialization of t_ann, t_cold, p_ann,
+                                    ! and p_cold from biodata is not done
 namelist /vegn_nml/ &
     lm2, init_Wl, init_Ws, init_Tv, cpw, clw, csw, &
     init_cohort_bl, init_cohort_blv, init_cohort_br, init_cohort_bsw, &
@@ -153,7 +155,8 @@ namelist /vegn_nml/ &
     do_biogeography, do_seed_transport, &
     min_Wl, min_Ws, tau_smooth_ncm, &
     rav_lit_0, rav_lit_vi, rav_lit_fsc, rav_lit_ssc, rav_lit_deadmic, rav_lit_bwood,&
-    do_peat_redistribution
+    do_peat_redistribution, &
+    biodata_bug
     
 !---- end of namelist --------------------------------------------------------
 
@@ -273,7 +276,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
   character(len=256) :: restart_file_name_1, restart_file_name_2
   logical :: restart_1_exists, restart_2_exists
   real, allocatable :: t_ann(:,:),t_cold(:,:),p_ann(:,:),ncm(:,:) ! buffers for biodata reading 
-  logical :: did_read_biodata = .FALSE.
+  logical :: did_read_biodata
   integer :: i,j ! indices of current tile
   logical :: found !< used to determine if a field is found.
   integer :: siz(4), csize, tsize, tdimlen
@@ -608,15 +611,15 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
           t_cold(lnd%is:lnd%ie,lnd%js:lnd%je),&
           p_ann (lnd%is:lnd%ie,lnd%js:lnd%je),&
           ncm   (lnd%is:lnd%ie,lnd%js:lnd%je) )
-     call read_field( 'INPUT/biodata.nc','T_ANN', &
-          lnd%lon, lnd%lat, t_ann, interp='nearest')
-     call read_field( 'INPUT/biodata.nc','T_COLD', &
-          lnd%lon, lnd%lat, t_cold, interp='nearest')
-     call read_field( 'INPUT/biodata.nc','P_ANN', &
-          lnd%lon, lnd%lat, p_ann, interp='nearest')
-     call read_field( 'INPUT/biodata.nc','NCM', &
-          lnd%lon, lnd%lat, ncm, interp='nearest')
+     call read_field( 'INPUT/biodata.nc','T_ANN', lnd%lon, lnd%lat, t_ann,  interp='nearest')
+     call read_field( 'INPUT/biodata.nc','T_COLD',lnd%lon, lnd%lat, t_cold, interp='nearest')
+     call read_field( 'INPUT/biodata.nc','P_ANN', lnd%lon, lnd%lat, p_ann,  interp='nearest')
+     call read_field( 'INPUT/biodata.nc','NCM',   lnd%lon, lnd%lat, ncm,    interp='nearest')
      did_read_biodata = .TRUE.
+     call error_mesg('vegn_init','did read INPUT/biodata.nc',NOTE)
+  else 
+     did_read_biodata = .FALSE.
+     call error_mesg('vegn_init','did NOT read INPUT/biodata.nc',NOTE)
   endif
   ! Go through all tiles and initialize the cohorts that have not been initialized yet --
   ! this allows to read partial restarts. Also initialize accumulation counters to zero
@@ -654,6 +657,12 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
      cohort%leaf_age = 0.0
      if(did_read_biodata.and.do_biogeography) then
         call update_species(cohort,t_ann(i,j),t_cold(i,j),p_ann(i,j),ncm(i,j),LU_NTRL)
+        if (.not.biodata_bug) then
+           tile%vegn%t_ann  = t_ann (i,j)
+           tile%vegn%t_cold = t_cold(i,j)
+           tile%vegn%p_ann  = p_ann (i,j)
+           tile%vegn%ncm    = ncm   (i,j)
+        endif
      else
         cohort%species = tile%vegn%tag
      endif
