@@ -16,6 +16,7 @@ real, public, parameter :: d378 = 1.0-d622
 real, public, parameter :: d608 = d378/d622
 
 real, public, parameter :: Rugas = 8.314472 ! universal gas constant, J K-1 mol-1
+real, public, parameter :: kBoltz= 1.3807e-23 ! Boltzmann's constant, J K-1 Rugas/Avogadro number
 
 real, public, parameter :: seconds_per_year = 86400.0*365.0
 real, public, parameter :: mol_C = 12.0e-3 ! molar mass of carbon, kg

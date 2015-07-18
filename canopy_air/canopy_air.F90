@@ -83,9 +83,7 @@ namelist /cana_nml/ &
   sfc_dir_albedo_bug, allow_small_z0, lai_min_turb, bare_rah_sca
 !---- end of namelist --------------------------------------------------------
 
-logical            :: module_is_initialized =.FALSE.
-type(time_type)    :: time ! *** NOT YET USED
-real               :: delta_time      ! fast time step
+logical :: module_is_initialized =.FALSE.
 integer :: turbulence_option ! selected option of turbulence parameters 
      ! calculations
 
@@ -152,10 +150,6 @@ subroutine cana_init ( id_lon, id_lat, new_land_io )
   character(len=128) :: parameters
 
   module_is_initialized = .TRUE.
-
-  ! ---- make module copy of time --------------------------------------------
-  time       = lnd%time
-  delta_time = time_type_to_real(lnd%dt_fast)
 
   ! ---- initialize cana state -----------------------------------------------
   ! get the initial conditions for tracers
@@ -650,7 +644,7 @@ subroutine cana_step_1 ( cana,&
      __DEBUG3__(Hge,  DHgDTg, DHgDTc)
      __DEBUG4__(Ege,  DEgDTg, DEgDqc, DEgDpsig)
   endif
-end subroutine 
+end subroutine cana_step_1
 
 
 ! ============================================================================

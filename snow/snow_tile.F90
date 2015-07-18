@@ -29,6 +29,7 @@ public :: snow_is_selected
 public :: get_snow_tile_tag
 public :: snow_tile_stock_pe
 public :: snow_tile_heat
+public :: snow_active
 
 public :: read_snow_data_namelist
 
@@ -170,7 +171,7 @@ subroutine read_snow_data_namelist(snow_num_l, snow_dz, snow_mc_fict)
   refl_cold_dif = g_iso*f_iso_cold + g_vol*f_vol_cold + g_geo*f_geo_cold
   refl_warm_dif = g_iso*f_iso_warm + g_vol*f_vol_warm + g_geo*f_geo_warm
 
-end subroutine 
+end subroutine read_snow_data_namelist
 
 ! ============================================================================
 function snow_tile_ctor(tag) result(ptr)
@@ -228,7 +229,7 @@ function snow_tiles_can_be_merged(snow1,snow2) result(response)
   type(snow_tile_type), intent(in) :: snow1,snow2
 
   response = .TRUE.
-end function
+end function snow_tiles_can_be_merged
 
 ! =============================================================================
 subroutine merge_snow_tiles(snow1, w1, snow2, w2)
@@ -257,7 +258,7 @@ subroutine merge_snow_tiles(snow1, w1, snow2, w2)
        snow2%T(i)  = snow1%T(i)*x1 + snow2%T(i)*x2
     endif
   enddo
-end subroutine
+end subroutine merge_snow_tiles
 
 ! =============================================================================
 ! returns true if tile fits the specified selector
@@ -267,7 +268,7 @@ function snow_is_selected(snow, sel)
   type(snow_tile_type),      intent(in) :: snow
 
   snow_is_selected = .TRUE.
-end function
+end function snow_is_selected
 
 ! ============================================================================
 ! retruns tag of the tile
@@ -276,7 +277,7 @@ function get_snow_tile_tag(snow) result(tag)
   type(snow_tile_type), intent(in) :: snow
   
   tag = snow%tag
-end function
+end function get_snow_tile_tag
 
 ! ============================================================================
 ! compute snow thermodynmamic properties.
@@ -290,7 +291,7 @@ subroutine snow_data_thermodynamics ( snow_rh, thermal_cond)
   ! these will eventually be functions of water contents and T.
   thermal_cond  = thermal_cond_ref
 
-end subroutine 
+end subroutine snow_data_thermodynamics
 
 
 ! ============================================================================
@@ -323,7 +324,7 @@ subroutine snow_data_area ( snow_depth, snow_area )
      snow_area = max(0.,snow_depth) / (max(0.,snow_depth) + depth_crit)
   endif
 
-end subroutine
+end subroutine snow_data_area
 
 
 ! ============================================================================
@@ -362,7 +363,7 @@ subroutine snow_data_radiation(snow_T, snow_refl_dir, snow_refl_dif, snow_emis,&
   snow_refl_dir = cold_value_dir + blend*(warm_value_dir-cold_value_dir)
   snow_refl_dif = cold_value_dif + blend*(warm_value_dif-cold_value_dif)
   snow_emis     = emis_snow_max + blend*(emis_snow_min-emis_snow_max  )
-end subroutine
+end subroutine snow_data_radiation
 
 
 ! ============================================================================
@@ -371,7 +372,7 @@ subroutine snow_data_diffusion(snow_z0s, snow_z0m)
 
   snow_z0m =  z0_momentum
   snow_z0s =  z0_momentum * exp(-k_over_B)
-end subroutine
+end subroutine snow_data_diffusion
 
 ! ============================================================================
 subroutine snow_tile_stock_pe (snow, twd_liq, twd_sol  )
@@ -401,6 +402,13 @@ function snow_tile_heat (snow) result(heat) ; real heat
         + (mc_fict*dz(i) + clw*snow%wl(i) + csw*snow%ws(i))  &
                                       * (snow%T(i)-tfreeze) 
   enddo
-end function
+end function snow_tile_heat
+
+! ============================================================================
+! returns true if snow plays a role
+function snow_active(snow) ; logical snow_active
+  type(snow_tile_type), intent(in)  :: snow
+  snow_active = ( sum(snow%ws(1:num_l)) > 0 )
+end function snow_active
 
 end module snow_tile_mod

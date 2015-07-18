@@ -171,17 +171,16 @@ end subroutine hlsp_hydrology_2
 ! Calculate fluxes of water and associated heat between tiles in each gridcell.
 ! Called from update_land_model_fast. Occurs outside main tile loop. 
 ! ============================================================================
-subroutine hlsp_hydrology_1(ground_to_stream, ground_to_stream_heat, ground_to_stream_tracers, &
-                        num_species)
+subroutine hlsp_hydrology_1(num_species)
    ! Arguments
    integer, intent(in)  :: num_species ! number of tracer species
    ! Now tied to nspecies in soil_carbon_mod
 
-   real, dimension(lnd%is:lnd%ie,lnd%js:lnd%je), intent(out) :: &
+   real, dimension(lnd%is:lnd%ie,lnd%js:lnd%je) :: &
        ground_to_stream,  &  ! groundwater runoff directly to stream (mm/s)
        ground_to_stream_heat ! groundwater runoff heat directly to stream (W/m^2)
 
-   real, dimension(lnd%is:lnd%ie,lnd%js:lnd%je,num_species), intent(out) :: &
+   real, dimension(lnd%is:lnd%ie,lnd%js:lnd%je,num_species) :: &
        ground_to_stream_tracers ! groundwater runoff tracers directly to stream (1/m/s)
 
    integer ::     j,i,l,k,s

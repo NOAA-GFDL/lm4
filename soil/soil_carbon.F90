@@ -544,17 +544,6 @@ subroutine initializeCohort(cohort,litterInputC,initialMicrobeC,initialProtected
 end subroutine initializeCohort
 
 
-!Do decomposition CENTURY-style
-function Resp_CENTURY(C,T,theta) result(Resp)
-    real,intent(in)::C(n_c_types),T,theta
-    real,dimension(n_c_types) :: Resp
-    
-    
-    Resp=C*A_function(T,theta)*vmaxref
-
-end function
-
-
 function Resp(Ctotal,Chet,T,theta,air_filled_porosity)
     real,intent(in)::Chet                       !heterotrophic (microbial) C
     real,intent(in)::T,theta                    !temperature (k), theta (fraction of 1.0)

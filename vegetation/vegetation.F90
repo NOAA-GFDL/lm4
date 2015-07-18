@@ -1465,6 +1465,8 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
         cana_T, cana_q, cana_co2_mol, &
         ! output
         con_g_h, con_g_v, & ! aerodynamic conductance between canopy air and canopy, for heat and vapor flux
+        con_v_h, con_v_v, & ! aerodynamic conductance between canopy and canopy air, for heat and vapor
+        stomatal_cond, &    ! integral stomatal conductance of canopy (that is, multiplied by LAI), for water vapor, m/s
         vegn_T,vegn_Wl,  vegn_Ws,           & ! temperature, water and snow mass of the canopy
         vegn_ifrac,                         & ! intercepted fraction of liquid and frozen precipitation
         vegn_lai,                           & ! leaf area index
@@ -1500,7 +1502,9 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
        vegn_lai, & ! vegetation leaf area index
        drip_l, drip_s, & ! water and snow drip rate from precipitation, kg/(m2 s)
        vegn_hcap, & ! total vegetation heat capacity, including intercepted water and snow
-       con_g_h, con_g_v, & ! aerodynamic conductance between ground and canopy air
+       con_g_h, con_g_v, & ! aerodynamic conductance between ground and canopy air, for heat and vapor
+       con_v_h, con_v_v, & ! aerodynamic conductance between canopy and canopy air, for heat and vapor
+       stomatal_cond, &    ! integral stomatal conductance of canopy (that is, multiplied by LAI), for water vapor, m/s
        Hv0,   DHvDTv,   DHvDTc, & ! sens heat flux
        Et0,   DEtDTv,   DEtDqc,   DEtDwl,   DEtDwf,  & ! transpiration
        Eli0,  DEliDTv,  DEliDqc,  DEliDwl,  DEliDwf, & ! evaporation of intercepted water
@@ -1514,8 +1518,6 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
                     ! derivatives w.r.t. intercepted water masses 
        fs,DfsDwl,DfsDwf, & ! fraction of canopy covered by intercepted snow, and its
                     ! derivatives w.r.t. intercepted water masses
-       stomatal_cond, & ! integral stomatal conductance of canopy
-       con_v_h, con_v_v, & ! aerodyn. conductance between canopy and CAS, for heat and vapor
        rav_lit,   & ! additional resistance of litter to vapor transport
        total_cond, &! overall conductance from inside stomata to canopy air 
        qvsat,     & ! sat. specific humidity at the leaf T
@@ -2043,18 +2045,18 @@ subroutine update_vegn_slow( )
         end where
      endif
 
-     if(do_check_conservation) then
-     ! + conservation check, part 2: calculate totals in final state, and compare 
-     ! with previous totals
-     tag = 'update_vegn_slow'
-     call get_tile_water(tile,lmass1,fmass1)
-     heat1  = land_tile_heat  (tile)
-     cmass1 = land_tile_carbon(tile)     
-     call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol, lnd%time)
-     call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol, lnd%time)
-     call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol, lnd%time)
-!     call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16, lnd%time)
-     ! - end of conservation check, part 2
+     if (do_check_conservation) then
+        ! + conservation check, part 2: calculate totals in final state, and compare 
+        ! with previous totals
+        tag = 'update_vegn_slow'
+        call get_tile_water(tile,lmass1,fmass1)
+        heat1  = land_tile_heat  (tile)
+        cmass1 = land_tile_carbon(tile)     
+        call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol, lnd%time)
+        call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol, lnd%time)
+        call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol, lnd%time)
+        ! call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16, lnd%time)
+        ! - end of conservation check, part 2
      endif
 
      ! ---- diagnostic section

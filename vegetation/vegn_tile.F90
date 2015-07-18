@@ -39,6 +39,8 @@ public :: get_vegn_tile_tag
 public :: vegn_tile_stock_pe
 public :: vegn_tile_carbon ! returns total carbon per tile
 public :: vegn_tile_heat ! returns hate content of the vegetation
+public :: vegn_tile_LAI ! returns LAI of the vegetation
+public :: vegn_tile_SAI ! returns LAI of the vegetation
 
 public :: read_vegn_data_namelist
 public :: vegn_cover_cold_start
@@ -203,7 +205,7 @@ function vegn_tiles_can_be_merged(vegn1,vegn2) result(response)
   else
      response = .true. ! non-secondary tiles of the same land use type can always be merged
   endif
-end function
+end function vegn_tiles_can_be_merged
 
 
 ! ============================================================================
@@ -384,7 +386,7 @@ subroutine vegn_uptake_profile(vegn, dz, uptake_frac_max, vegn_uptake_term)
   real,                 intent(out) :: vegn_uptake_term(:)
 
   call cohort_uptake_profile(vegn%cohorts(1), dz, uptake_frac_max, vegn_uptake_term)
-end subroutine
+end subroutine vegn_uptake_profile
 
 
 ! ============================================================================
@@ -415,7 +417,7 @@ function vegn_data_rs_min ( vegn )
   type(vegn_tile_type), intent(in)  :: vegn
 
   vegn_data_rs_min = vegn%cohorts(1)%rs_min
-end function
+end function vegn_data_rs_min
 
 
 ! ============================================================================
@@ -433,7 +435,7 @@ function vegn_seed_supply ( vegn )
   enddo
   vegn_seed_supply = MAX (vegn_bliving-BSEED, 0.0)
 
-end function
+end function vegn_seed_supply
 
 ! ============================================================================
 function vegn_seed_demand ( vegn )
@@ -448,7 +450,7 @@ function vegn_seed_demand ( vegn )
         vegn_seed_demand = vegn_seed_demand + BSEED
      endif
   enddo
-end function
+end function vegn_seed_demand
 
 ! ============================================================================
 subroutine vegn_add_bliving ( vegn, delta )
@@ -461,7 +463,7 @@ subroutine vegn_add_bliving ( vegn, delta )
      call error_mesg('vegn_add_bliving','resulting bliving is less then 0', FATAL)
   endif
   call update_biomass_pools(vegn%cohorts(1))
-end subroutine
+end subroutine vegn_add_bliving
 
 
 
@@ -502,7 +504,7 @@ function vegn_tran_priority(vegn, dst_kind, tau) result(pri)
   else
      pri = max(min(tau,1.0),0.0)
   endif
-end function
+end function vegn_tran_priority
 
 
 ! ============================================================================
@@ -517,7 +519,7 @@ function vegn_cover_cold_start(land_mask, lonb, latb) result (vegn_frac)
   call init_cover_field(vegn_to_use, 'INPUT/cover_type.nc', 'cover','frac', &
        lonb, latb, vegn_index_constant, input_cover_types, vegn_frac)
 
-end function
+end function vegn_cover_cold_start
 
 ! =============================================================================
 ! returns true if tile fits the specified selector
@@ -549,7 +551,7 @@ function vegn_is_selected(vegn, sel)
      vegn_is_selected = .FALSE.
   end select
 
-end function
+end function vegn_is_selected
 
 
 ! ============================================================================
@@ -559,7 +561,7 @@ function get_vegn_tile_tag(vegn) result(tag)
   type(vegn_tile_type), intent(in) :: vegn
 
   tag = vegn%tag
-end function
+end function get_vegn_tile_tag
 
 ! ============================================================================
 ! returns total wood biomass per tile
@@ -574,7 +576,33 @@ function get_vegn_tile_bwood(vegn) result(bwood)
   do i = 1,vegn%n_cohorts
      bwood = bwood + vegn%cohorts(i)%bwood
   enddo
-end function
+end function get_vegn_tile_bwood
+
+! ============================================================================
+! returns total leaf area index
+function vegn_tile_LAI(vegn) result(LAI) ; real LAI
+  type(vegn_tile_type), intent(in) :: vegn
+
+  integer :: i
+
+  LAI = 0
+  do i = 1,vegn%n_cohorts
+     LAI = LAI + vegn%cohorts(i)%lai
+  enddo
+end function vegn_tile_LAI
+
+! ============================================================================
+! returns total stem area index
+function vegn_tile_SAI(vegn) result(SAI) ; real SAI
+  type(vegn_tile_type), intent(in) :: vegn
+
+  integer :: i
+
+  SAI = 0
+  do i = 1,vegn%n_cohorts
+     SAI = SAI + vegn%cohorts(i)%sai
+  enddo
+end function vegn_tile_SAI
 
 ! ============================================================================
 subroutine vegn_tile_stock_pe (vegn, twd_liq, twd_sol  )
@@ -611,7 +639,7 @@ function vegn_tile_carbon(vegn) result(carbon) ; real carbon
   carbon = carbon + sum(vegn%harv_pool) + &
            vegn%fsc_pool_ag + vegn%ssc_pool_ag + &
            vegn%fsc_pool_bg + vegn%ssc_pool_bg + vegn%csmoke_pool
-end function
+end function vegn_tile_carbon
 
 
 ! ============================================================================
@@ -629,6 +657,6 @@ function vegn_tile_heat (vegn) result(heat) ; real heat
              vegn%cohorts(i)%mcv_dry)*(vegn%cohorts(i)%Tv-tfreeze) - &
            hlf*vegn%cohorts(i)%Ws
   enddo
-end function
+end function vegn_tile_heat
 
 end module vegn_tile_mod

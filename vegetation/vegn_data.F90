@@ -184,6 +184,7 @@ type spec_data_type
 
   real    :: smoke_fraction ! fraction of carbon lost as smoke during fires
 
+  real    :: tracer_cuticular_cond ! cuticular conductance for all tracers, m/s
   ! data from LM3W, temporarily here
   real    :: dat_height
   real    :: dat_lai
@@ -379,6 +380,8 @@ real :: soil_carbon_depth_scale = 0.2   ! depth of active soil for carbon decomp
 real :: cold_month_threshold    = 283.0 ! monthly temperature threshold for calculations of number of cold months
 real :: smoke_fraction(0:MSPECIES) = & ! fration of carbon lost as smoke
        (/    0.9,         0.9,          0.9,           0.9,         0.9,    0.9,   0.9,   0.9,   0.9,   0.9,   0.9,   0.9,   0.9,   0.9  /)
+real :: tracer_cuticular_cond(0:MSPECIES)= & ! cuticular conductance for tracer dry deposition, m/s 
+       (/   5e-4,        5e-4,         5e-4,          5e-4,        5e-4,   5e-4,  5e-4,  5e-4,  5e-4,  5e-4,  5e-4,  5e-4,  5e-4,  5e-4  /)
 real :: agf_bs         = 0.8 ! ratio of above ground stem to total stem
 real :: K1 = 10.0, K2 = 0.05 ! soil decomposition parameters
 real :: fsc_liv        = 0.8
@@ -436,7 +439,7 @@ namelist /vegn_data_nml/ &
   l_fract, T_transp_min,  tc_crit, psi_stress_crit_phen, &
   cnst_crit_phen, fact_crit_phen, cnst_crit_fire, fact_crit_fire, &
   scnd_biomass_bins, phen_ev1, phen_ev2, &
-  root_exudate_frac
+  root_exudate_frac, tracer_cuticular_cond
 
 
 contains ! ###################################################################
@@ -534,6 +537,8 @@ subroutine read_vegn_data_namelist()
 
   spdata%root_exudate_frac = root_exudate_frac
 
+  spdata%tracer_cuticular_cond = tracer_cuticular_cond
+
   do i = 0, MSPECIES
      spdata(i)%alpha     = alpha(i,:)
      spdata(i)%beta      = beta(i,:)
@@ -628,6 +633,8 @@ subroutine read_vegn_data_namelist()
 
   call add_row(table,'smoke_fraction',spdata(:)%smoke_fraction)
   call add_row(table,'root_exudate_frac',spdata(:)%root_exudate_frac)
+
+  call add_row(table,'tracer_cuticular_cond',spdata(:)%tracer_cuticular_cond)
 
   call print(table,stdout())
   call print(table,unit)

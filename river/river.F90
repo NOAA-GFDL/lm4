@@ -87,6 +87,7 @@ module river_mod
 !--- public interface ------------------------------------------------
   public :: river_init, river_end, river_type, update_river, river_stock_pe
   public :: save_river_restart
+  public :: river_tracers_init
   public :: num_river_tracers
   public :: river_tracer_index
 
@@ -202,13 +203,10 @@ contains
     logical,         intent(in) :: new_land_io
     logical,         intent(out):: river_land_mask(:,:) ! land mask seen by rivers
 
-    integer              :: unit, io_status, ierr, n, id_restart
+    integer              :: unit, io_status, ierr, id_restart
     integer              :: sec, day, i, j, i_species
     integer              :: nxc, nyc
     character(len=128)   :: filename
-
-    character(fm_field_name_len) :: name ! name of the river tracer
-    character(fm_type_name_len)  :: typ  ! type of the river tracer
 
     type(Leo_Mad_trios)   :: DHG_exp            ! downstream equation exponents
     type(Leo_Mad_trios)   :: DHG_coef           ! downstream equation coefficients
@@ -247,51 +245,6 @@ contains
 !--- check name list variables 
 
     if(diag_freq .le. 0) call mpp_error(FATAL,'river_mod: diag_freq should be a positive integer')
-
-!--- initialize river tracers
-    ! number of river tracers in the field table (can be 0)
-    num_species = fm_get_length(trtable)
-
-    ! dump river tracer table
-    if(.not.fm_dump_list(trtable, recursive=.TRUE.)) &
-       call mpp_error(NOTE, 'river_mod: Cannot dump field list "'//trtable//'"')
-
-    ! allocating more space than absolutely necessary, in case water, and "physical 
-    ! tracers" (ice and heat) are not present in the user-supplied tracer table
-    allocate(trdata(0:num_species+num_phys))
-    ! initialize some parameters of the pre-defined species (water and "physical" tracres)
-    trdata(0)%name = 'h2o'; trdata(0)%longname = 'h2o mass'
-    trdata(0)%units = 'kg'; trdata(0)%flux_units = 'kg/m2/s'; trdata(0)%store_units = 'kg/m2'
-
-    trdata(1)%name = 'ice'; trdata(1)%longname = 'ice mass'
-    trdata(1)%units = 'kg/kg'; trdata(1)%flux_units = 'kg/m2/s'; trdata(1)%store_units = 'kg/m2'
-
-    trdata(2)%name = 'het'; trdata(2)%longname = 'sensible heat content'
-    trdata(2)%units = 'K'; trdata(2)%flux_units = 'W/m2'; trdata(2)%store_units = 'J/m2'
-    
-    ! read generic parameters of the tracers
-    do while (fm_loop_over_list(trtable, name, typ, n))
-       ! look for the tracer already in the table
-       do i = 0,ubound(trdata,1)
-          if (trim(trdata(i)%name)==trim(name)) exit ! found existing slot for this tracer
-       enddo
-       ! if tracer not found, look for an empty slot in the table
-       if (i>=ubound(trdata,1)) then
-          do i = 0, ubound(trdata,1)
-             if (trim(trdata(i)%name)=='') exit ! found an empty slot
-          enddo
-       endif
-       call read_river_tracer_data(name,trdata(i))
-    enddo
-    ! finally, calculate the actual number of tracers
-    do num_species = ubound(trdata,1),0,-1
-       if (trdata(num_species)%name/='') exit ! from loop
-    enddo
-    
-    ! TODO: read specific tracer parameters. Different tracers might have different parameter sets.
-
-    call print_river_tracer_data(stdout())
-    call print_river_tracer_data(stdlog())
 
 ! set up time-related values
     River%time = time
@@ -449,6 +402,60 @@ contains
     module_is_initialized = .TRUE.
 
   end subroutine river_init
+
+!#####################################################################
+! initialize river tracers
+subroutine river_tracers_init()
+
+ integer :: i, m, n 
+ character(fm_field_name_len) :: name ! name of the river tracer
+ character(fm_type_name_len)  :: typ  ! type of the river tracer
+
+ ! number of river tracers in the field table (can be 0)
+ m = fm_get_length(trtable)
+
+ ! dump river tracer table
+ if(.not.fm_dump_list(trtable, recursive=.TRUE.)) &
+    call mpp_error(NOTE, 'river_mod: Cannot dump field list "'//trtable//'"')
+
+ ! allocating more space than absolutely necessary, in case water, and "physical 
+ ! tracers" (ice and heat) are not present in the user-supplied tracer table
+ allocate(trdata(0:m+num_phys))
+ ! initialize some parameters of the pre-defined species (water and "physical" tracres)
+ trdata(0)%name = 'h2o'; trdata(0)%longname = 'h2o mass'
+ trdata(0)%units = 'kg'; trdata(0)%flux_units = 'kg/m2/s'; trdata(0)%store_units = 'kg/m2'
+
+ trdata(1)%name = 'ice'; trdata(1)%longname = 'ice mass'
+ trdata(1)%units = 'kg/kg'; trdata(1)%flux_units = 'kg/m2/s'; trdata(1)%store_units = 'kg/m2'
+
+ trdata(2)%name = 'het'; trdata(2)%longname = 'sensible heat content'
+ trdata(2)%units = 'K'; trdata(2)%flux_units = 'W/m2'; trdata(2)%store_units = 'J/m2'
+ 
+ ! read generic parameters of the tracers
+ do while (fm_loop_over_list(trtable, name, typ, n))
+    ! look for the tracer already in the table
+    do i = 0,ubound(trdata,1)
+       if (trim(trdata(i)%name)==trim(name)) exit ! found existing slot for this tracer
+    enddo
+    ! if tracer not found, look for an empty slot in the table
+    if (i>=ubound(trdata,1)) then
+       do i = 0, ubound(trdata,1)
+          if (trim(trdata(i)%name)=='') exit ! found an empty slot
+       enddo
+    endif
+    call read_river_tracer_data(name,trdata(i))
+ enddo
+ ! finally, calculate the actual number of tracers
+ do num_species = ubound(trdata,1),0,-1
+    if (trdata(num_species)%name/='') exit ! from loop
+ enddo
+ 
+ ! TODO: read specific tracer parameters. Different tracers might have different parameter sets.
+
+ call print_river_tracer_data(stdout())
+ call print_river_tracer_data(stdlog())
+
+end subroutine river_tracers_init
 
 !#####################################################################
 function num_river_tracers()

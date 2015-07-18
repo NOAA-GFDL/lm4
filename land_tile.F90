@@ -27,7 +27,7 @@ use vegn_tile_mod, only : &
 use snow_tile_mod, only : &
      snow_tile_type, new_snow_tile, delete_snow_tile, snow_is_selected, &
      snow_tiles_can_be_merged, merge_snow_tiles, get_snow_tile_tag, &
-     snow_tile_stock_pe, snow_tile_heat
+     snow_tile_stock_pe, snow_tile_heat, snow_active
 use land_tile_selectors_mod, only : tile_selector_type, &
      SEL_SOIL, SEL_VEGN, SEL_LAKE, SEL_GLAC, SEL_SNOW, SEL_CANA, SEL_HLSP
 use tile_diag_buff_mod, only : &
@@ -49,6 +49,7 @@ public :: get_tile_tags ! returns the tags of the sub-model tiles
 public :: get_tile_water ! returns liquid and frozen water masses
 public :: land_tile_carbon ! returns total carbon in the tile
 public :: land_tile_heat ! returns tile heat content
+public :: land_tile_grnd_T ! returns temperature of the ground surface
 
 ! operations with tile lists and tile list enumerators
 public :: land_tile_list_init, land_tile_list_end
@@ -385,6 +386,23 @@ function land_tile_heat(tile) result(heat) ; real heat
   if (associated(tile%vegn)) &
        heat = heat+vegn_tile_heat(tile%vegn)
 end function
+
+
+! ============================================================================
+! returns ground surface temperature
+function land_tile_grnd_T(tile) result(T) ; real T
+  type(land_tile_type), intent(in) :: tile
+
+  if (snow_active(tile%snow)) then ! always associated
+     T = tile%snow%T(1)
+  else if (associated(tile%soil)) then
+     T = tile%soil%T(1)
+  else if (associated(tile%glac)) then
+     T = tile%glac%T(1)
+  else if (associated(tile%lake)) then
+     T = tile%lake%T(1)
+  endif
+end function land_tile_grnd_T
 
 
 ! ============================================================================
