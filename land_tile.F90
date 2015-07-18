@@ -363,7 +363,7 @@ function land_tile_carbon(tile) result(carbon) ; real carbon
      carbon = carbon + vegn_tile_carbon(tile%vegn)
   if (associated(tile%soil)) &
      carbon = carbon + soil_tile_carbon(tile%soil)
-end function
+end function land_tile_carbon
 
 
 ! ============================================================================
@@ -743,7 +743,7 @@ function current_tile(ce) result(ptr)
   type(land_tile_enum_type), intent(in) :: ce 
 
   ptr => ce%node%data
-end function
+end function current_tile
 
 ! ============================================================================
 ! returns indices corresponding to the enumerator; for enumerator associated

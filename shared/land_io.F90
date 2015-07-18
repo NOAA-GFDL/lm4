@@ -576,8 +576,6 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
   integer :: bnd_ndims, bnd_index
   real, allocatable  :: bnd_data(:,:)
   integer :: bnd_dimlens(4)
-  real    :: minlat, maxlat
-  integer :: jstart, jend, start(4), count(4)
 
   interpolation = "bilinear"
   if(present(interp)) interpolation = interp
@@ -613,7 +611,9 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
 
   allocate (                 &
        in_lon  (nlon),   in_lat  (nlat),   &
-       in_lonb (nlon+1), in_latb (nlat+1) )
+       in_lonb (nlon+1), in_latb (nlat+1), &
+       x       (nlon, nlat, nlev) ,&
+       imask    (nlon, nlat, nlev) , rmask(nlon, nlat, nlev) )
 
   ! read boundaries of the grid cells in longitudinal direction
   call mpp_get_axis_data(varaxes(1), in_lon)
@@ -682,14 +682,15 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
     call mpp_get_axis_data(axis_bnd, in_latb)
   endif
   in_lonb = in_lonb*PI/180.0; in_latb = in_latb*PI/180.0
+  ! read input data
+  call mpp_read(input_unit, fld, x)
+  
+  imask = mpp_is_valid(x,v)
+  rmask = 1.0
+  where(.not.imask) rmask = 0.0
 
-  !-- compute the jstart and jend.
   select case(trim(interpolation))
- case("nearest")
-     allocate (x(nlon, nlat, nlev), imask(nlon, nlat, nlev))
-     ! read input data
-     call mpp_read(input_unit, fld, x)
-     imask = mpp_is_valid(x,v)
+  case ("nearest")
      do k = 1,size(data,3)
      do j = 1,size(data,2)
      do i = 1,size(data,1)
@@ -698,50 +699,16 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
      enddo
      enddo
      enddo
-     deallocate(x,imask)
-  case ("bilinear")
-     minlat = minval(lat)
-     maxlat = maxval(lat)
-     jstart = 1; jend = nlat
-     do j = 1, nlat
-        if(minlat < in_lat(j)) then
-          jstart = j-1
-          exit
-        endif
-     enddo
-     jstart = max(jstart-1,1)
-     do j = 1, nlat
-        if(maxlat < in_lat(j)) then
-          jend = j
-          exit
-        endif
-     enddo
-     jend = min(jend+1,nlat)
-     allocate(x(nlon,jstart:jend,nlev), imask(nlon,jstart:jend,nlev), &
-              rmask(nlon,jstart:jend,nlev))
-     start(:) = 1
-     count(:) = 1
-     count(1) = nlon
-     start(2) = jstart;  count(2) = jend-jstart+1
-     count(3) = nlev
-     ! read input data
-     call mpp_read(input_unit, fld, x, start, count)
-     imask = mpp_is_valid(x,v)
-     rmask = 1.0
-     where(.not.imask) rmask = 0.0
-
-     call horiz_interp_new(hinterp, in_lonb, in_latb(jstart:jend+1), lon, lat, interp_method=interpolation)
+  case default
+     call horiz_interp_new(hinterp, in_lonb, in_latb, lon, lat, interp_method=interpolation)
      do k = 1,size(data,3)
         call horiz_interp(hinterp,x(:,:,k),data(:,:,k),mask_in=rmask(:,:,k), mask_out=omask(:,:,k))
      enddo
      if (present(mask)) mask(:,:,:) = (omask(:,:,:)/=0.0)
      call horiz_interp_del(hinterp)
-     deallocate(x,imask, rmask)
-  case default
-     call error_mesg(module_name, interpolation//" is not a valid interpolation method",FATAL)
   end select
 
-  deallocate(in_lonb, in_latb, in_lon, in_lat)
+  deallocate(in_lonb, in_latb, in_lon, in_lat, x, imask, rmask)
   deallocate(all_axes, varaxes, fields)
 
 end subroutine read_field_I_3D

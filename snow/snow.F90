@@ -286,7 +286,7 @@ subroutine save_snow_restart_new (tile_dim_length, timestamp)
   call set_domain(lnd%domain)
 ! Note that fname is updated for tile & rank numbers during file creation
   fname = trim(timestamp)//'snow.res.nc'
-  call create_tile_out_file(snow_restart,idx,fname,lnd,snow_tile_exists,tile_dim_length,zz(1:num_l))
+  call create_tile_out_file(snow_restart,idx,fname,snow_tile_exists,tile_dim_length,zz(1:num_l))
   isize = size(idx)
   allocate(temp(isize,num_l), wl(isize,num_l), ws(isize,num_l))
 

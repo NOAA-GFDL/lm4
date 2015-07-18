@@ -303,7 +303,7 @@ subroutine save_glac_restart_new (tile_dim_length, timestamp)
   call set_domain(lnd%domain)
 ! Note that fname is updated for tile & rank numbers during file creation
   fname = trim(timestamp)//'glac.res.nc'
-  call create_tile_out_file(glac_restart,idx,fname,lnd,glac_tile_exists,tile_dim_length,zfull(1:num_l))
+  call create_tile_out_file(glac_restart,idx,fname,glac_tile_exists,tile_dim_length,zfull(1:num_l))
   isize = size(idx)
   allocate(temp(isize,num_l), &
               wl(isize,num_l), &
