@@ -180,9 +180,11 @@ real, public :: &
      cpw = 1952.0, &  ! specific heat of water vapor at constant pressure
      clw = 4218.0, &  ! specific heat of water (liquid)
      csw = 2106.0     ! specific heat of water (ice)
+character(256) :: input_glac_file = 'INPUT/ground_type.nc'
+real :: min_glac_frac = 0.0 ! glacier fraction below this threshold is set to 0
 
 namelist /glac_data_nml/ &
-     glac_to_use, tile_names, input_cover_types, &
+     glac_to_use, tile_names, input_cover_types, input_glac_file, min_glac_frac, &
      k_over_B,  &
      rate_fc, sfc_heat_factor, z_sfc_layer,          &
      num_l, dz,             &
@@ -361,8 +363,9 @@ function glac_cover_cold_start(land_mask, lonb, latb) result (glac_frac)
 
   allocate( glac_frac(size(land_mask,1),size(land_mask,2),n_dim_glac_types))
 
-  call init_cover_field(glac_to_use, 'INPUT/ground_type.nc', 'cover','frac', &
+  call init_cover_field(glac_to_use, input_glac_file, 'cover','frac', &
        lonb, latb, glac_index_constant, input_cover_types, glac_frac)
+  where (glac_frac<min_glac_frac) glac_frac = 0.0
   
 end function glac_cover_cold_start
 
