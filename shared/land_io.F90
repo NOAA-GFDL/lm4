@@ -372,6 +372,9 @@ end subroutine do_read_cover_field
   if (in_j_start<1) &
      call error_mesg('do_read_fraction_field','input latitude start index ('&
                      //string(in_j_start)//') is out of bounds', FATAL)
+  if (in_j_count<1) &
+     call error_mesg('do_read_fraction_field','computed input latitude count for domain'&
+                     //' is not positive, perhaps input data do not cover entire globe', FATAL)
   if (in_j_start+in_j_count-1>nlat) &
      call error_mesg('do_read_fraction_field','input latitude count ('&
                      //string(in_j_count)//') is too large (start index='&
@@ -387,6 +390,18 @@ end subroutine do_read_cover_field
   call mpp_read( input_unit, field, in_frac, start, count ) ! interface called here is mpp_read_region_r3D
   call mpp_get_atts(field,valid=v)
 
+  ! Initialize horizontal interpolator; we assume that the valid data mask is 
+  ! the same for all levels in input frac array. This is probably a good assumption
+  ! in all cases.
+  where(mpp_is_valid(in_frac(:,:,1),v))
+     in_mask = 1.0
+  elsewhere
+     in_mask = 0.0
+  end where
+  call horiz_interp_new(interp, &
+       in_lonb,in_latb(in_j_start:in_j_start+in_j_count), lonb,latb,&
+       interp_method=trim(interp_method), mask_in=in_mask)
+
   frac = 0
   do k = 1,size(input_cover_types)
      cover = input_cover_types(k)
@@ -394,19 +409,11 @@ end subroutine do_read_cover_field
         cycle ! skip all invalid indices in the array of input cover types
      endif
 
-     where(mpp_is_valid(in_frac(:,:,cover),v))
-        in_mask = 1.0
-     elsewhere
-        in_mask = 0
-     end where
-     call horiz_interp_new(interp, &
-          in_lonb,in_latb(in_j_start:in_j_start+in_j_count), lonb,latb,&
-          interp_method=trim(interp_method), mask_in=in_mask)
      call horiz_interp(interp,in_frac(:,:,cover),frac(:,:,k))
-     call horiz_interp_del(interp)
   enddo
 
   ! clean up memory
+  call horiz_interp_del(interp)
   deallocate(in_lonb, in_latb, in_frac, in_mask)
 
 end subroutine do_read_fraction_field
