@@ -13,8 +13,9 @@ use nf_utils_mod, only : nfu_inq_dim, nfu_inq_var, nfu_def_dim, nfu_def_var, &
      nfu_get_var, nfu_put_att
 use land_io_mod, only : print_netcdf_error, read_field, input_buf_size
 use land_tile_mod, only : land_tile_type, land_tile_list_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
-     get_elmt_indices
+     first_elmt, tail_elmt, next_elmt, current_tile, get_elmt_indices, operator(/=), &
+     tile_exists_func, fptr_i0, fptr_i1, fptr_r0, fptr_r0i, fptr_r1, fptr_r0ij, fptr_r0ijk
+     
 use land_data_mod, only  : lnd, land_state_type
 use land_utils_mod, only : put_to_tiles_r0d_fptr
 
@@ -266,20 +267,13 @@ subroutine create_tile_out_file_fptr(ncid, name, glon, glat, tile_exists, &
   character(len=*) , intent(in)  :: name      ! name of the file to create
   real             , intent(in)  :: glon(:)   ! longitudes of the grid centers
   real             , intent(in)  :: glat(:)   ! latitudes of the grid centers
+  procedure(tile_exists_func)    :: tile_exists ! existence detector function:
+      ! returns true if specific tile exists (hence should be written to restart)
   integer          , intent(in)  :: tile_dim_length ! length of tile axis
   integer, optional, intent(in)  :: reserve   ! amount of space to reserve for
   logical, optional, intent(out) :: created   ! indicates wether the file was 
       ! created; it is set to false if no restart needs to be written, in case 
       ! the total number of qualifying tiles in this domain is equal to zero
-  ! the following interface describes the "detector function", which is passed 
-  ! through the argument list and must return true for any tile to be written 
-  ! to the specific restart, false otherwise
-  interface
-     logical function tile_exists(tile)
-        use land_tile_mod, only : land_tile_type
-        type(land_tile_type), pointer :: tile
-     end function tile_exists
-  end interface
 
   ! ---- local vars
   type(land_tile_enum_type) :: ce, te ! tile list elements
@@ -354,6 +348,8 @@ subroutine create_tile_out_file_fptr_new(rhandle,idx,name,tile_exists,tile_dim_l
   type(restart_file_type),intent(out) :: rhandle            ! resulting NetCDF id
   integer, allocatable,   intent(out) :: idx(:)             ! rank local tile index vector
   character(len=*),      intent(in)  :: name                ! name of the file to create
+  procedure(tile_exists_func)    :: tile_exists ! existence detector function:
+      ! returns true if specific tile exists (hence should be written to restart)
   integer              , intent(in)  :: tile_dim_length     ! length of tile axis
   real,        optional, intent(in)  :: zaxis_data(:)       ! data for the Z-axis
   logical,     optional, intent(out) :: created   ! indicates wether the file was 
@@ -362,15 +358,6 @@ subroutine create_tile_out_file_fptr_new(rhandle,idx,name,tile_exists,tile_dim_l
 
       ! created; it is set to false if no restart needs to be written, in case 
       ! the total number of qualifying tiles in this domain is equal to zero
-  ! the following interface describes the "detector function", which is passed 
-  ! through the argument list and must return true for any tile to be written 
-  ! to the specific restart, false otherwise
-  interface
-     logical function tile_exists(tile)
-        use land_tile_mod, only : land_tile_type
-        type(land_tile_type), pointer :: tile
-     end function tile_exists
-  end interface
 
   ! ---- local vars
   type(land_tile_enum_type) :: ce, te ! tile list elements
@@ -456,13 +443,8 @@ end subroutine get_tile_by_idx
 subroutine read_tile_data_i0d_fptr(ncid,name,fptr)
    integer     , intent(in) :: ncid ! netcdf file id
    character(*), intent(in) :: name ! name of the variable to read
-   ! subroutine returning the pointer to the data to be written
-   interface ; subroutine fptr(tile, ptr)
-      use land_tile_mod, only : land_tile_type
-      type(land_tile_type), pointer :: tile ! input
-      integer             , pointer :: ptr  ! returned pointer to the data
-    end subroutine fptr 
-   end interface
+   procedure(fptr_i0)       :: fptr ! subroutine returning the pointer to the &
+                                    ! data to be written
    
    ! ---- local constants
    character(*), parameter :: module_name='read_tile_data_i0d_fptr'
@@ -512,14 +494,8 @@ end subroutine read_tile_data_i0d_fptr
 subroutine read_tile_data_r0d_fptr(ncid,name,fptr)
    integer     , intent(in) :: ncid ! netcdf file id
    character(*), intent(in) :: name ! name of the variable to read
-   ! subroutine returning the pointer to the data to be written
-   interface ; subroutine fptr(tile, ptr)
-      use land_tile_mod, only : land_tile_type
-      type(land_tile_type), pointer :: tile ! input
-      real                , pointer :: ptr  ! returned pointer to the data
-   end subroutine fptr
-   end interface
-   
+   procedure(fptr_r0)       :: fptr ! subroutine returning the pointer to the 
+                                    ! data to be written   
    ! ---- local constants
    character(*), parameter :: module_name='read_tile_data_r0d_fptr'
    ! ---- local vars
@@ -567,13 +543,8 @@ end subroutine read_tile_data_r0d_fptr
 subroutine read_tile_data_r1d_fptr_all(ncid,name,fptr)
    integer     , intent(in) :: ncid ! netcdf file id
    character(*), intent(in) :: name ! name of the variable to read
-   ! subroutine returning the pointer to the data to be written
-   interface ; subroutine fptr(tile, ptr)
-      use land_tile_mod, only : land_tile_type
-      type(land_tile_type), pointer :: tile ! input
-      real                , pointer :: ptr(:) ! returned pointer to the data
-   end subroutine fptr
-   end interface
+   procedure(fptr_r1)       :: fptr ! subroutine returning the pointer to the 
+                                    ! data to be written   
    
    ! ---- local constants
    character(*), parameter :: module_name='read_tile_data_r1d_fptr'
@@ -627,14 +598,9 @@ end subroutine read_tile_data_r1d_fptr_all
 subroutine read_tile_data_r1d_fptr_idx (ncid,name,fptr,index)
    integer     , intent(in) :: ncid ! netcdf file id
    character(*), intent(in) :: name ! name of the variable to read
-   ! subroutine returning the pointer to the data to be written
-   interface ; subroutine fptr(tile, ptr)
-      use land_tile_mod, only : land_tile_type
-      type(land_tile_type), pointer :: tile ! input
-      real                , pointer :: ptr(:) ! returned pointer to the data
-   end subroutine fptr 
-   end interface
-   integer    , intent(in) :: index ! index where to read the data
+   procedure(fptr_r1)       :: fptr ! subroutine returning the pointer to the 
+                                    ! data to be written   
+   integer     , intent(in) :: index! index where to read the data
    
    ! ---- local constants
    character(*), parameter :: module_name='read_tile_data_r0d_fptr'
@@ -841,14 +807,8 @@ end subroutine write_tile_data_r2d
 subroutine write_tile_data_i0d_fptr(ncid,name,fptr,long_name,units)
   integer         , intent(in) :: ncid ! netcdf id
   character(len=*), intent(in) :: name ! name of the variable to write
+  procedure(fptr_i0)          :: fptr ! subroutine returning the pointer to the data
   character(len=*), intent(in), optional :: units, long_name
-  ! subroutine returning the pointer to the data to be written
-  interface ; subroutine fptr(tile, ptr)
-     use land_tile_mod, only : land_tile_type
-     type(land_tile_type), pointer :: tile ! input
-     integer             , pointer :: ptr  ! returned pointer to the data
-  end subroutine fptr
-  end interface
   
   ! ---- local vars
   integer, allocatable :: idx(:)    ! index dimension
@@ -901,14 +861,8 @@ end subroutine write_tile_data_i0d_fptr
 subroutine write_tile_data_r0d_fptr(ncid,name,fptr,long_name,units)
   integer         , intent(in) :: ncid ! netcdf id
   character(len=*), intent(in) :: name ! name of the variable to write
+  procedure(fptr_r0)           :: fptr ! subroutine returning pointer to the data
   character(len=*), intent(in), optional :: units, long_name
-  ! subroutine returning the pointer to the data to be written
-  interface ; subroutine fptr(tile, ptr)
-     use land_tile_mod, only : land_tile_type
-     type(land_tile_type), pointer :: tile ! input
-     real                , pointer :: ptr  ! returned pointer to the data
-  end subroutine fptr
-  end interface
   
   ! ---- local vars
   integer, allocatable :: mask(:)   ! mask of valid data
@@ -957,14 +911,8 @@ subroutine write_tile_data_r1d_fptr_all(ncid,name,fptr,zdim,long_name,units)
   integer         , intent(in) :: ncid ! netcdf id
   character(len=*), intent(in) :: name ! name of the variable to write
   character(len=*), intent(in) :: zdim ! name of the z-dimension
+  procedure(fptr_r1)           :: fptr ! subroutine returning pointer to the data
   character(len=*), intent(in), optional :: units, long_name
-  ! subroutine returning the pointer to the data to be written
-  interface ; subroutine fptr(tile, ptr)
-     use land_tile_mod, only : land_tile_type
-     type(land_tile_type), pointer :: tile ! input
-     real                , pointer :: ptr(:) ! returned pointer to the data
-  end subroutine fptr
-  end interface
   
   ! ---- local vars
   integer, allocatable :: idx(:)    ! index dimension
@@ -1015,16 +963,10 @@ end subroutine write_tile_data_r1d_fptr_all
 subroutine write_tile_data_r1d_fptr_idx(ncid,name,fptr,index,long_name,units)
   integer         , intent(in) :: ncid  ! netcdf id
   character(len=*), intent(in) :: name  ! name of the variable to write
+  procedure(fptr_r1)           :: fptr ! subroutine returning pointer to the data
   integer         , intent(in) :: index ! index of the fptr array element to 
                                         ! write out
   character(len=*), intent(in), optional :: units, long_name
-  ! subroutine returning the pointer to the data to be written
-  interface ; subroutine fptr(tile, ptr)
-     use land_tile_mod, only : land_tile_type
-     type(land_tile_type), pointer :: tile ! input
-     real                , pointer :: ptr(:) ! returned pointer to the data
-  end subroutine fptr 
-  end interface
   
   ! ---- local vars
   integer, allocatable :: idx(:)    ! index dimension
@@ -1069,15 +1011,9 @@ end subroutine write_tile_data_r1d_fptr_idx
 
 
 subroutine gather_tile_data_i0d(fptr,idx,data)
+  procedure(fptr_i0)  :: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: idx(:)  ! local vector of tile indices
   integer, intent(out) :: data(:) ! local tile data
-  ! subroutine returning the pointer to the data to be written
-  interface ; subroutine fptr(tile, ptr)
-     use land_tile_mod, only : land_tile_type
-     type(land_tile_type), pointer :: tile ! input
-     integer             , pointer :: ptr  ! returned pointer to the data
-  end subroutine fptr
-  end interface
 
   ! ---- local vars
   type(land_tile_type), pointer :: tileptr ! pointer to tiles
@@ -1097,15 +1033,9 @@ subroutine gather_tile_data_i0d(fptr,idx,data)
 end subroutine gather_tile_data_i0d
 
 subroutine gather_tile_data_r0d(fptr,idx,data)
+  procedure(fptr_r0) :: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: idx(:)  ! local vector of tile indices
   real, intent(out) :: data(:) ! local tile data
-  ! subroutine returning the pointer to the data to be written
-  interface ; subroutine fptr(tile, ptr)
-     use land_tile_mod, only : land_tile_type
-     type(land_tile_type), pointer :: tile ! input
-     real                , pointer :: ptr  ! returned pointer to the data
-  end subroutine fptr
-  end interface
 
   ! ---- local vars
   type(land_tile_type), pointer :: tileptr ! pointer to tiles
@@ -1125,15 +1055,9 @@ subroutine gather_tile_data_r0d(fptr,idx,data)
 end subroutine gather_tile_data_r0d
 
 subroutine gather_tile_data_r1d(fptr,idx,data)
+  procedure(fptr_r1) :: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: idx(:)  ! local vector of tile indices
   real, intent(out) :: data(:,:) ! local tile data
-  ! subroutine returning the pointer to the data to be written
-  interface ; subroutine fptr(tile, ptr)
-     use land_tile_mod, only : land_tile_type
-     type(land_tile_type), pointer :: tile ! input
-     real                , pointer :: ptr(:)  ! returned pointer to the data
-  end subroutine fptr
-  end interface
 
   ! ---- local vars
   type(land_tile_type), pointer :: tileptr ! pointer to tiles
@@ -1153,15 +1077,9 @@ subroutine gather_tile_data_r1d(fptr,idx,data)
 end subroutine gather_tile_data_r1d
 
 subroutine gather_tile_data_i1d(fptr,idx,data)
+  procedure(fptr_i1) :: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: idx(:)  ! local vector of tile indices
   integer, intent(out) :: data(:,:) ! local tile data
-  ! subroutine returning the pointer to the data to be written
-  interface ; subroutine fptr(tile, ptr)
-     use land_tile_mod, only : land_tile_type
-     type(land_tile_type), pointer :: tile ! input
-     integer             , pointer :: ptr(:)  ! returned pointer to the data
-  end subroutine fptr
-  end interface
 
   ! ---- local vars
   type(land_tile_type), pointer :: tileptr ! pointer to tiles
@@ -1212,17 +1130,10 @@ subroutine gather_tile_data_r2d(fptr,idx,data)
 end subroutine gather_tile_data_r2d
 
 subroutine gather_tile_data_r1d_idx(fptr,idx,nidx,data)
+  procedure(fptr_r1) :: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: idx(:) ! local vector of tile indices
   integer, intent(in) :: nidx ! index of the fptr array element to write out
   real, intent(out) :: data(:) ! local tile data
-  ! subroutine returning the pointer to the data to be written
-  interface
-     subroutine fptr(tile, ptr)
-       use land_tile_mod, only : land_tile_type
-       type(land_tile_type), pointer :: tile ! input
-       real                , pointer :: ptr(:) ! returned pointer to the data
-     end subroutine fptr
-  end interface
 
   ! ---- local vars
   type(land_tile_type), pointer :: tileptr ! pointer to tiles
@@ -1244,15 +1155,9 @@ subroutine gather_tile_data_r1d_idx(fptr,idx,nidx,data)
 end subroutine gather_tile_data_r1d_idx
 
 subroutine assemble_tiles_i0d(fptr,idx,data)
+  procedure(fptr_i0) :: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: idx(:)  ! local vector of tile indices
   integer, intent(in) :: data(:) ! local tile data
-  ! subroutine returning the pointer to the data to be written
-  interface ; subroutine fptr(tile, ptr)
-     use land_tile_mod, only : land_tile_type
-     type(land_tile_type), pointer :: tile ! input
-     integer             , pointer :: ptr  ! returned pointer to the data
-  end subroutine fptr
-  end interface
 
   ! ---- local vars
   type(land_tile_type), pointer :: tileptr ! pointer to tiles
@@ -1269,15 +1174,9 @@ subroutine assemble_tiles_i0d(fptr,idx,data)
 end subroutine assemble_tiles_i0d
 
 subroutine assemble_tiles_r0d(fptr,idx,data)
+  procedure(fptr_r0) :: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: idx(:)  ! local vector of tile indices
   real,    intent(in) :: data(:) ! local tile data
-  ! subroutine returning the pointer to the data to be written
-  interface ; subroutine fptr(tile, ptr)
-     use land_tile_mod, only : land_tile_type
-     type(land_tile_type), pointer :: tile ! input
-     real                , pointer :: ptr  ! returned pointer to the data
-  end subroutine fptr
-  end interface
 
   ! ---- local vars
   type(land_tile_type), pointer :: tileptr ! pointer to tiles
@@ -1294,15 +1193,9 @@ subroutine assemble_tiles_r0d(fptr,idx,data)
 end subroutine assemble_tiles_r0d
 
 subroutine assemble_tiles_r1d(fptr,idx,data)
+  procedure(fptr_r1) :: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: idx(:)  ! local vector of tile indices
   real,    intent(in) :: data(:,:) ! local tile data
-  ! subroutine returning the pointer to the data to be written
-  interface ; subroutine fptr(tile, ptr)
-     use land_tile_mod, only : land_tile_type
-     type(land_tile_type), pointer :: tile ! input
-     real                , pointer :: ptr(:)  ! returned pointer to the data
-  end subroutine fptr
-  end interface
 
   ! ---- local vars
   type(land_tile_type), pointer :: tileptr ! pointer to tiles
@@ -1319,15 +1212,9 @@ subroutine assemble_tiles_r1d(fptr,idx,data)
 end subroutine assemble_tiles_r1d
 
 subroutine assemble_tiles_i1d(fptr,idx,data)
+  procedure(fptr_i1) :: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: idx(:)  ! local vector of tile indices
   integer, intent(in) :: data(:,:) ! local tile data
-  ! subroutine returning the pointer to the data to be written
-  interface ; subroutine fptr(tile, ptr)
-     use land_tile_mod, only : land_tile_type
-     type(land_tile_type), pointer :: tile ! input
-     integer             , pointer :: ptr(:)  ! returned pointer to the data
-  end subroutine fptr
-  end interface
 
   ! ---- local vars
   type(land_tile_type), pointer :: tileptr ! pointer to tiles
@@ -1373,15 +1260,9 @@ end subroutine assemble_tiles_r2d
 
 ! ============================================================================
 subroutine assemble_tiles_r1d_idx(fptr,idx,data,index)
+  procedure(fptr_r1) :: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: idx(:)  ! local vector of tile indices
   real,    intent(in) :: data(:) ! local tile data
-  ! subroutine returning the pointer to the data to be written
-  interface ; subroutine fptr(tile, ptr)
-     use land_tile_mod, only : land_tile_type
-     type(land_tile_type), pointer :: tile ! input
-     real                , pointer :: ptr(:)  ! returned pointer to the data
-  end subroutine fptr
-  end interface
   integer, intent(in) :: index
 
   ! ---- local vars
@@ -1397,19 +1278,14 @@ subroutine assemble_tiles_r1d_idx(fptr,idx,data,index)
      if(associated(ptr)) ptr(index)=data(i)
   enddo
 end subroutine assemble_tiles_r1d_idx
+
 ! ============================================================================
 subroutine override_tile_data_r0d_fptr(fieldname,fptr,time,override)
   character(len=*), intent(in)   :: fieldname ! field to override
+  procedure(fptr_r0) :: fptr ! subroutine returning pointer to the data
   type(time_type),  intent(in)   :: time      ! model time
   logical, optional, intent(out) :: override  ! true if the field has been 
                                               ! overridden successfully
-  ! subroutine returning the pointer to the data to be overridden
-  interface ; subroutine fptr(tile, ptr)
-     use land_tile_mod, only : land_tile_type
-     type(land_tile_type), pointer :: tile ! input
-     real                , pointer :: ptr  ! returned pointer to the data
-  end subroutine fptr
-  end interface
 
   ! ---- local vars
   real    :: data2D(lnd%is:lnd%ie,lnd%js:lnd%je) ! storage for the input data

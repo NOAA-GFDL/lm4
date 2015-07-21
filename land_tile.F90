@@ -69,6 +69,11 @@ public :: tile_is_selected
 
 public :: print_land_tile_info
 public :: print_land_tile_statistics
+
+! abstract interfaces for accessor functions
+public :: tile_exists_func, fptr_i0, fptr_i1, fptr_r0, fptr_r1, fptr_r0i, &
+          fptr_r0ij, fptr_r0ijk
+
 ! ==== end of public interfaces ==============================================
 interface new_land_tile
    module procedure land_tile_ctor
@@ -175,6 +180,77 @@ type :: land_tile_list_node_type
    type(land_tile_list_node_type), pointer :: next => NULL()
    type(land_tile_type), pointer :: data => NULL()
 end type land_tile_list_node_type
+
+! ==== abstract interfaces ===================================================
+abstract interface
+  ! the following interface describes the "detector function", which is passed 
+  ! through the argument list and must return true for any tile to be written 
+  ! to the specific restart, false otherwise
+  logical function tile_exists_func(tile)
+     import land_tile_type
+     type(land_tile_type), pointer :: tile
+  end function tile_exists_func
+  ! the following interfaces describe various accessor subroutines, used to access
+  ! data im massive operations on tiles, such as i/o or (sometimes) diagnostics
+  
+  ! given land tile, returns pointer to some scalar real data 
+  ! within this tile, or an NULL pointer if there is no data
+  subroutine fptr_r0(tile, ptr)
+     import land_tile_type
+     type(land_tile_type), pointer :: tile ! input
+     real                , pointer :: ptr  ! returned pointer to the data
+  end subroutine fptr_r0
+  ! given land tile and an index, returns pointer to some scalar real data
+  ! within this tile, or an NULL pointer if there is no data
+  subroutine fptr_r0i(tile, i, ptr)
+     import land_tile_type
+     type(land_tile_type), pointer :: tile ! input
+     integer             , intent(in) :: i ! indices in the array
+     real                , pointer :: ptr  ! returned pointer to the data
+  end subroutine fptr_r0i
+  ! given land tile and an 2 indices, returns pointer to some scalar real data
+  ! within this tile, or an NULL pointer if there is no data
+  subroutine fptr_r0ij(tile, i,j, ptr)
+     import land_tile_type
+     type(land_tile_type), pointer :: tile ! input
+     integer             , intent(in) :: i,j ! indices in the array
+     real                , pointer :: ptr  ! returned pointer to the data
+  end subroutine fptr_r0ij
+  ! given land tile and an 3 indices, returns pointer to some scalar real data
+  ! within this tile, or an NULL pointer if there is no data
+  subroutine fptr_r0ijk(tile, i,j,k, ptr)
+     import land_tile_type
+     type(land_tile_type), pointer :: tile ! input
+     integer             , intent(in) :: i,j,k ! indices in the array
+     real                , pointer :: ptr  ! returned pointer to the data
+  end subroutine fptr_r0ijk
+  ! given land tile, returns pointer to some real 1D array 
+  ! within this tile, or an NULL pointer if there is no data
+  subroutine fptr_r1(tile, ptr)
+     import land_tile_type
+     type(land_tile_type), pointer :: tile ! input
+     real                , pointer :: ptr(:) ! returned pointer to the data
+  end subroutine fptr_r1
+
+  ! given land tile, returns pointer to some scalar integer data 
+  ! within this tile, or an NULL pointer if there is no data
+  subroutine fptr_i0(tile, ptr)
+     import land_tile_type
+     type(land_tile_type), pointer :: tile ! input
+     integer             , pointer :: ptr  ! returned pointer to the data
+  end subroutine fptr_i0
+  ! given land tile, returns pointer to some integer 1D array 
+  ! within this tile, or an NULL pointer if there is no data
+  subroutine fptr_i1(tile, ptr)
+     import land_tile_type
+     type(land_tile_type), pointer :: tile ! input
+     integer             , pointer :: ptr(:) ! returned pointer to the data
+  end subroutine fptr_i1
+  ! NOTE: import statements are needed because in FORTRAN interface blocks
+  ! do not have access to their environment by host association, so without
+  ! "import" they don't know the definition of land_tile_type, and compilation
+  ! fails
+end interface
 
 ! ==== module data ===========================================================
 integer :: n_created_land_tiles = 0 ! total number of created tiles
@@ -311,7 +387,7 @@ subroutine get_tile_tags(tile,land,glac,lake,soil,snow,cana,vegn)
       vegn=-HUGE(vegn)
       if (associated(tile%vegn)) vegn=get_vegn_tile_tag(tile%vegn)
    endif
-end subroutine
+end subroutine get_tile_tags
 
 
 ! ============================================================================
@@ -349,7 +425,7 @@ subroutine get_tile_water(tile, lmass, fmass)
      lmass = lmass+lm ; fmass = fmass + fm
   endif
 
-end subroutine
+end subroutine get_tile_water
 
 
 ! ============================================================================
@@ -385,7 +461,7 @@ function land_tile_heat(tile) result(heat) ; real heat
        heat = heat+snow_tile_heat(tile%snow)
   if (associated(tile%vegn)) &
        heat = heat+vegn_tile_heat(tile%vegn)
-end function
+end function land_tile_heat
 
 
 ! ============================================================================
@@ -434,7 +510,7 @@ function land_tiles_can_be_merged(tile1,tile2) result (answer)
    if (answer.and.associated(tile1%vegn)) &
       answer = answer.and.vegn_tiles_can_be_merged(tile1%vegn,tile2%vegn)
    
-end function
+end function land_tiles_can_be_merged
 
 ! ============================================================================
 ! merges the two tiles, putting merged state into the second tile. The first
@@ -477,7 +553,7 @@ subroutine merge_land_tiles(tile1,tile2)
 #undef __MERGE__
 
   tile2%frac = tile1%frac + tile2%frac
-end subroutine
+end subroutine merge_land_tiles
 
 ! #### tile container ########################################################
 
@@ -514,7 +590,7 @@ subroutine check_tile_list_inited(list)
   if (.not.associated(list%head)) &
      call error_mesg('land_tile_mod','tile container was not initialized before use', FATAL)
      
-end subroutine
+end subroutine check_tile_list_inited
 
 
 ! ============================================================================
@@ -593,7 +669,7 @@ function land_tile_list_begin_0d(list) result(ce)
   call check_tile_list_inited(list)
   ce%node=>list%head%next
   ce%i = 1 ; ce%j = 1 ; ce%k = 1 
-end function
+end function land_tile_list_begin_0d
 
 
 ! ============================================================================
@@ -626,7 +702,7 @@ function land_tile_list_begin_2d(tiles, is, js) result(ce)
      if(associated(ce%node%data)) return
   enddo
   enddo
-end function
+end function land_tile_list_begin_2d
 
 
 ! ============================================================================
@@ -639,7 +715,7 @@ function land_tile_list_end_0d(list) result (ce)
   call check_tile_list_inited(list)
   ce%node=>list%head
   ce%i = 1 ; ce%j = 1 ; ce%k = nitems(list)+1
-end function
+end function land_tile_list_end_0d
 
 
 ! ============================================================================
@@ -667,7 +743,7 @@ function land_tile_list_end_2d(tiles,is,js) result (ce)
   call check_tile_list_inited(tiles(ce%i,ce%j))
   ce%node=>tiles(ce%i,ce%j)%head
 
-end function
+end function land_tile_list_end_2d
 
 
 ! ============================================================================
@@ -697,7 +773,7 @@ function next_elmt(pos0) result(ce)
         ce%node => ce%tiles(ce%i,ce%j)%head%next
      enddo
   endif
-end function
+end function next_elmt
 
 
 ! ============================================================================
@@ -729,7 +805,7 @@ function prev_elmt(pos0) result(ce)
      enddo
   endif
 
-end function
+end function prev_elmt
 
 ! ============================================================================
 ! returns TRUE if both enums refer to the same list node (and, therefore, tile)
@@ -775,7 +851,7 @@ subroutine get_elmt_indices(ce,i,j,k)
   if (present(j)) j = ce%j+ce%jo
   if (present(k)) k = ce%k
 
-end subroutine
+end subroutine get_elmt_indices
 
 ! ============================================================================
 ! inserts tile at the position indicated by enumerator: in fact right in front 
@@ -883,13 +959,13 @@ subroutine print_land_tile_info(tile)
   if(associated(tile%vegn)) write(*,'(a)',advance='no')', vegn'
   write(*,'(")")',advance='no')
   
-end subroutine
+end subroutine print_land_tile_info
 
 
 ! ============================================================================
 subroutine print_land_tile_statistics()
   write(*,*)'Total number of created land_tiles =',n_created_land_tiles
   write(*,*)'Total number of deleted land_tiles =',n_deleted_land_tiles
-end subroutine
+end subroutine print_land_tile_statistics
 
 end module land_tile_mod
