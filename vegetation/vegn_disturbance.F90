@@ -102,7 +102,7 @@ subroutine vegn_disturbance(vegn, dt)
      cc%bliving = cc%bliving - delta;
 
      if(cc%bliving < BMIN) then
-        ! remove vegetaion competely 	      
+        ! remove vegetation completely 	      
         vegn%fast_soil_C = vegn%fast_soil_C + fsc_liv*cc%bliving+ fsc_wood*cc%bwood;
         vegn%slow_soil_C = vegn%slow_soil_C + (1.- fsc_liv)*cc%bliving+ (1-fsc_wood)*cc%bwood;
         
@@ -179,7 +179,7 @@ subroutine update_fuel(vegn, wilt)
           .and.(vegn%theta_av < theta_crit)  &
           .and.(vegn%tsoil_av > 278.16)) then
         babove = cc%bl + agf_bs * (cc%bsw + cc%bwood + cc%blv);
-        ! this is fuel available durng the drought months only
+        ! this is fuel available during the drought months only
         vegn%fuel = vegn%fuel + spdata(cc%species)%fuel_intensity*babove;	
      endif
   enddo
@@ -213,7 +213,7 @@ subroutine vegn_nat_mortality_lm3(vegn, deltat)
      cc => vegn%cohorts(i)
      ! Treat treefall disturbance implicitly, i.e. not creating a new tile.
      ! note that this disturbance rate calculation only works for the one cohort per 
-     ! tile case -- in case of multiple cohort disturbance rate pehaps needs to be 
+     ! tile case -- in case of multiple cohort disturbance rate perhaps needs to be 
      ! accumulated (or averaged? or something else?) over the cohorts.
      vegn%disturbance_rate(0) = spdata(cc%species)%treefall_disturbance_rate;
 
@@ -248,6 +248,8 @@ end subroutine vegn_nat_mortality_lm3
 
 
 ! ============================================================================
+! TODO: spread the mortality input to fsc and ssc over a year, to avoid spikes 
+! in carbon fluxes
 subroutine vegn_nat_mortality_ppa (vegn, deltat)
   type(vegn_tile_type), intent(inout) :: vegn
   real, intent(in) :: deltat ! time since last mortality calculations, s
@@ -279,7 +281,6 @@ subroutine vegn_nat_mortality_ppa (vegn, deltat)
         deathrate = sp%mortrate_d_c
      endif
      ! Mortality due to starvation
-     ! TODO: do something about comparison with previous year biomass
      if (cc%bwood+cc%bsw < cc%BM_ys-0.5*cc%bl_max .or. cc%nsc<0.01*cc%bl_max .or. cc%bsw<0) then
          deathrate = mortrate_s
      endif

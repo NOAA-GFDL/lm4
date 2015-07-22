@@ -42,7 +42,7 @@ use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp,
      save_snow_restart
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
      vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
-     update_vegn_slow, save_vegn_restart
+     update_derived_vegn_data, update_vegn_slow, save_vegn_restart
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, cana_state,&
      cana_step_1, cana_step_2, cana_roughness, &
@@ -53,8 +53,7 @@ use topo_rough_mod, only : topo_rough_init, topo_rough_end, update_topo_rough
 use soil_tile_mod, only : soil_cover_cold_start, soil_tile_stock_pe, &
                           soil_tile_heat, soil_roughness
 use vegn_tile_mod, only : vegn_cover_cold_start, &
-                          update_derived_vegn_data, vegn_tile_stock_pe, &
-                          vegn_tile_heat, vegn_tile_carbon
+                          vegn_tile_stock_pe, vegn_tile_heat, vegn_tile_carbon
 use lake_tile_mod, only : lake_cover_cold_start, lake_tile_stock_pe, &
                           lake_tile_heat, lake_roughness
 use glac_tile_mod, only : glac_pars_type, glac_cover_cold_start, &
@@ -133,7 +132,7 @@ real    :: discharge_tol = -1.e20
 integer :: max_improv_steps = 5    ! max number of solution improvement iterations, 
                                    ! set to 0 to turn improvement off (LM3-like)
 real    :: solution_tol    = 1e-16 ! tolerance for solution improvement
-logical :: prohibit_negative_leaf_water = .FALSE. ! if true, the solution of energy/water
+logical :: prohibit_negative_leaf_water = .TRUE. ! if true, the solution of energy/water
                                    ! balance is iterated (at most twice) to ensure
                                    ! water and snow on leaves do not go negative
 real    :: con_fac_large = 1.e6
@@ -216,13 +215,14 @@ integer :: &
   id_Trad,     id_Tca,      id_qca,      id_qco2,     id_qco2_dvmr,        &
   id_swdn_dir, id_swdn_dif, id_swup_dir, id_swup_dif, id_lwdn,             &
   id_fco2,                                                                 &
-  id_vegn_cover,    id_cosz,                                               &
+  id_vegn_cover,    id_vegn_cover_1,  id_vegn_cover_N, id_cosz,            &
   id_albedo_dir,    id_albedo_dif,                                         &
   id_vegn_refl_dir, id_vegn_refl_dif, id_vegn_refl_lw,                     &
   id_vegn_tran_dir, id_vegn_tran_dif, id_vegn_tran_lw,                     &
   id_vegn_sctr_dir,                                                        &
   id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T,             &
-  id_water_cons,    id_carbon_cons
+  id_water_cons,    id_carbon_cons,                                        &
+  id_parnet, id_parnet_1, id_parnet_N
 
 ! ---- global clock IDs
 integer :: landClock, landFastClock, landSlowClock
@@ -1938,25 +1938,25 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   call send_tile_data(id_hfprecs, vegn_hfprec,                        tile%diag)
   call send_tile_data(id_evap,    land_evap,                          tile%diag)
   call send_tile_data(id_hevap,   hevap,                              tile%diag)
-  call send_tile_data(id_levap,   vegn_levap+snow_levap+subs_levap+vegn_uptk, &
+  call send_tile_data(id_levap,   sum(f(:)*(vegn_levap+vegn_uptk))+snow_levap+subs_levap, &
                                                                       tile%diag)
-  call send_tile_data(id_levapv,  vegn_levap,                         tile%diag)
+  call send_tile_data(id_levapv,  sum(f(:)*vegn_levap),                  tile%diag)
   call send_tile_data(id_levaps,  snow_levap,                         tile%diag)
   call send_tile_data(id_levapg,  subs_levap,                         tile%diag)
-  call send_tile_data(id_hlevap,  cpw*vegn_levap*(vegn_T-tfreeze) &
+  call send_tile_data(id_hlevap,  sum(f(:)*cpw*vegn_levap*(vegn_T-tfreeze)) &
                                     +cpw*snow_levap*(snow_T-tfreeze) &
                                     +cpw*subs_levap*(grnd_T-tfreeze), tile%diag)
-  call send_tile_data(id_hlevapv, cpw*vegn_levap*(vegn_T-tfreeze),    tile%diag)
+  call send_tile_data(id_hlevapv, sum(f(:)*cpw*vegn_levap*(vegn_T-tfreeze)), tile%diag)
   call send_tile_data(id_hlevaps, cpw*snow_levap*(snow_T-tfreeze),    tile%diag)
   call send_tile_data(id_hlevapg, cpw*subs_levap*(grnd_T-tfreeze),    tile%diag)
-  call send_tile_data(id_fevap,   vegn_fevap+snow_fevap+subs_fevap,   tile%diag)
-  call send_tile_data(id_fevapv,  vegn_fevap,                         tile%diag)
+  call send_tile_data(id_fevap,   sum(f(:)*vegn_fevap)+snow_fevap+subs_fevap, tile%diag)
+  call send_tile_data(id_fevapv,  sum(f(:)*vegn_fevap),                 tile%diag)
   call send_tile_data(id_fevaps,  snow_fevap,                         tile%diag)
   call send_tile_data(id_fevapg,  subs_fevap,                         tile%diag)
-  call send_tile_data(id_hfevap,  cpw*vegn_fevap*(vegn_T-tfreeze) &
+  call send_tile_data(id_hfevap,  sum(f(:)*cpw*vegn_fevap*(vegn_T-tfreeze)) &
                                     +cpw*snow_fevap*(snow_T-tfreeze) &
                                     +cpw*subs_fevap*(grnd_T-tfreeze), tile%diag)
-  call send_tile_data(id_hfevapv, cpw*vegn_fevap*(vegn_T-tfreeze),    tile%diag)
+  call send_tile_data(id_hfevapv, sum(f(:)*cpw*vegn_fevap*(vegn_T-tfreeze)), tile%diag)
   call send_tile_data(id_hfevaps, cpw*snow_fevap*(snow_T-tfreeze),    tile%diag)
   call send_tile_data(id_hfevapg, cpw*subs_fevap*(grnd_T-tfreeze),    tile%diag)
   call send_tile_data(id_runf,    snow_lrunf+snow_frunf+subs_lrunf,   tile%diag)
@@ -1990,11 +1990,11 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   call send_tile_data(id_e_res_1, tile%e_res_1,                       tile%diag)
   call send_tile_data(id_e_res_2, tile%e_res_2,                       tile%diag)
   call send_tile_data(id_con_g_h, con_g_h,                            tile%diag)
-  call send_tile_data(id_transp,  vegn_uptk,                          tile%diag)
+  call send_tile_data(id_transp,  sum(f(:)*vegn_uptk),                   tile%diag)
   call send_tile_data(id_wroff,   snow_lrunf+subs_lrunf,              tile%diag)
   call send_tile_data(id_sroff,   snow_frunf,                         tile%diag)
-  call send_tile_data(id_htransp, cpw*vegn_uptk*(vegn_T-tfreeze),     tile%diag)
-  call send_tile_data(id_huptake, clw*vegn_uptk*(soil_uptake_T-tfreeze), &
+  call send_tile_data(id_htransp, sum(f(:)*cpw*vegn_uptk*(vegn_T-tfreeze)), tile%diag)
+  call send_tile_data(id_huptake, sum(f(:)*clw*vegn_uptk*(soil_uptake_T-tfreeze)), &
                                                                       tile%diag)
   call send_tile_data(id_hroff,   snow_hlrunf+subs_hlrunf+snow_hfrunf, &
                                                                       tile%diag)
@@ -2012,6 +2012,12 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   call send_tile_data(id_swup_dir, ISa_dn_dir*tile%land_refl_dir,     tile%diag)
   call send_tile_data(id_swup_dif, ISa_dn_dif*tile%land_refl_dif,     tile%diag)
   call send_tile_data(id_lwdn,     ILa_dn,                            tile%diag)
+
+  associate(c=>tile%vegn%cohorts)
+  call send_tile_data(id_parnet,   sum(swnet(:,BAND_VIS)*c(1:N)%layerfrac),    tile%diag)
+  call send_tile_data(id_parnet_1, sum(swnet(:,BAND_VIS)*c(1:N)%layerfrac, mask=(c(1:N)%layer==1)), tile%diag)
+  call send_tile_data(id_parnet_N, sum(swnet(:,BAND_VIS)*c(1:N)%layerfrac, mask=(c(1:N)%layer>1)), tile%diag)
+  end associate
 
 end subroutine update_land_model_fast_0d
 
@@ -2326,7 +2332,12 @@ subroutine land_lw_balance(lwdn_atm, layer, frac, vegn_T, surf_T, &
     B(i) = B(i) + bbrad(k)*frac(k)
     layer_area(i) = layer_area(i) + frac(k)
   enddo
-  ! TODO: normalize with layer_area, or verify that layer_area is 1
+  ! take into account possible gaps in the canopy layers
+  do i = 1,N
+    if (layer_area(i) < 1) then
+       layer_tran_lw(i) = layer_tran_lw(i) + (1-layer_area(i))
+    endif
+  enddo
   
   ! [2] go upward through the canopy and calculate integral reflectances and emissions
   emis(N) = stefan*surf_emis_lw*surf_T**4
@@ -2491,7 +2502,13 @@ subroutine land_sw_balance ( &
      layer_sctr_dir(i) = layer_sctr_dir(i)+vegn_sctr_dir(k)*vegn_frac(k)
      layer_area(i)     = layer_area(i)+vegn_frac(k)
   enddo
-  ! TODO: check that layer_area is indeed 1 for each i
+  ! take into account possible gaps in the canopy
+  do i = 1,N
+     if (layer_area(i) < 1) then
+        layer_tran_dif(i) = layer_tran_dif(i) + (1-layer_area(i))
+        layer_tran_dir(i) = layer_tran_dir(i) + (1-layer_area(i))
+     endif
+  enddo
 
   ! [1] go upward through the canopy and calculate integral reflectances
   refl_dir(N) = surf_refl_dir
@@ -2685,10 +2702,7 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
                   ! of orbital ellipse (a) : (a/r)**2
   integer :: face ! for debugging
   integer :: N    ! shorthand for vegn%n_cohorts, 1 if no vegetation
-  integer :: il   ! layer iterator
-  integer :: ic   ! cohort iterator
   integer :: band ! spectral band iterator 
-  real :: area    ! total crown area in the layer, m2/m2
 
   vegn_Tv = 0
 
@@ -2762,20 +2776,7 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
                    vegn_cover, vegn_height, vegn_lai, vegn_sai)
      ! assign layers and fractions
      vegn_layer(:) = tile%vegn%cohorts(1:N)%layer
-     do il = 1, vegn_layer(N)
-        area = 0
-        do ic = 1, N
-           if (vegn_layer(ic)==il) &
-              area = area + tile%vegn%cohorts(ic)%crownarea*tile%vegn%cohorts(ic)%nindivs
-        enddo
-        if (area==0) call error_mesg('update_land_bc_fast', 'crown area in layer is zero', FATAL)
-        do ic = 1, N
-           if (vegn_layer(ic)==il) then
-              vegn_frac(ic) = tile%vegn%cohorts(ic)%crownarea*tile%vegn%cohorts(ic)%nindivs/area
-!              vegn_lai (ic) = tile%vegn%lai(ic)*area
-           endif
-        enddo
-     enddo
+     vegn_frac (:) = tile%vegn%cohorts(1:N)%layerfrac
   else
      ! set radiative properties for null vegetation
      vegn_refl_dif = 0
@@ -2846,11 +2847,6 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
        ! output:
        tile%Sg_dir, tile%Sg_dif, tile%Sv_dir, tile%Sv_dif, tile%Sdn_dir, tile%Sdn_dif, &
        tile%land_refl_dir, tile%land_refl_dif )
-
-  ! deallocate temporary storage that is no longer needed
-  deallocate(vegn_refl_dif, vegn_tran_dif, &
-             vegn_refl_dir, vegn_sctr_dir, vegn_tran_dir)
-  deallocate(vegn_layer, vegn_frac) ! may need to move down if layers or fracs are used elsewhere
 
   call cana_roughness( lm2, &
      subs_z0m, subs_z0s, &
@@ -2932,6 +2928,10 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
   endif
 
   ! ---- diagnostic section
+  if (id_vegn_cover_1 > 0) &
+     call send_tile_data(id_vegn_cover_1, sum(vegn_frac(:),mask=(vegn_layer==1)), tile%diag)
+  if (id_vegn_cover_N > 0) &
+     call send_tile_data(id_vegn_cover_N, sum(vegn_frac(:),mask=(vegn_layer>1)), tile%diag)
   call send_tile_data(id_vegn_cover, vegn_cover, tile%diag)
   call send_tile_data(id_cosz, cosz, tile%diag)
   call send_tile_data(id_albedo_dir, tile%land_refl_dir, tile%diag)
@@ -2949,6 +2949,11 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
 
   ! --- debug section
   call check_temp_range(land2cplr%t_ca(i,j,k),'update_land_bc_fast','T_ca',lnd%time)
+
+  ! deallocate temporary storage that is no longer needed
+  deallocate(vegn_refl_dif, vegn_tran_dif, &
+             vegn_refl_dir, vegn_sctr_dir, vegn_tran_dir)
+  deallocate(vegn_layer, vegn_frac) ! may need to move down if layers or fracs are used elsewhere
 
 end subroutine update_land_bc_fast
 
@@ -3445,6 +3450,10 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
        'downward long-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0)
   id_vegn_cover = register_tiled_diag_field ( module_name, 'vegn_cover', axes, time, &
              'fraction covered by vegetation', missing_value=-1.0 )
+  id_vegn_cover_1 = register_tiled_diag_field ( module_name, 'vegn_cover_1', axes, time, &
+             'fraction of vegetation in the top layer', missing_value=-1.0 )
+  id_vegn_cover_N = register_tiled_diag_field ( module_name, 'vegn_cover_N', axes, time, &
+             'fraction of vegetation in the understory', missing_value=-1.0 )
   id_cosz = register_tiled_diag_field ( module_name, 'coszen', axes, time, &
        'cosine of zenith angle', missing_value=-2.0 )
   id_albedo_dir = register_tiled_diag_field ( module_name, 'albedo_dir', &
@@ -3488,6 +3497,13 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
        'water non-conservation in update_land_model_fast_0d', 'kg/(m2 s)', missing_value=-1.0 )
   id_carbon_cons = register_tiled_diag_field ( module_name, 'carbon_cons', axes, time, &
        'carbon non-conservation in update_land_model_fast_0d', 'kgC/(m2 s)', missing_value=-1.0 )
+
+  id_parnet = register_tiled_diag_field ( module_name, 'parnet', axes, time, &
+             'net PAR to the vegetation', 'W/m2', missing_value=-1.0e+20 )
+  id_parnet_1 = register_tiled_diag_field ( module_name, 'parnet_1', axes, time, &
+             'net PAR to the vegetation top layer', 'W/m2', missing_value=-1.0e+20 )
+  id_parnet_N = register_tiled_diag_field ( module_name, 'parnet_N', axes, time, &
+             'net PAR to the vegetation understory', 'W/m2', missing_value=-1.0e+20 )
 end subroutine land_diag_init
 
 ! the code below defines the accessor routines that are used to access fields of the 

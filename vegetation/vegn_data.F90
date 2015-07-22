@@ -172,6 +172,11 @@ type spec_data_type
   real    :: cmc_pow ! power of wet fraction dependance on amount of canopy water
   real    :: csc_lai ! max amount of snow on vegetation, kg/(m2 of leaf)
   real    :: csc_pow ! power of snow-covered fraction dependance on amount of canopy snow
+
+  real    :: internal_gap_frac ! fraction of internal gaps in the canopy
+  ! "internal" gaps are the gaps that are created within the canopy by the
+  ! branch fall processes.
+
   real    :: fuel_intensity
 
   ! critical temperature for leaf drop, was internal to phenology
@@ -344,6 +349,8 @@ real :: csc_pow(0:MSPECIES)= & ! power of the snow-covered fraction relation
   (/   TWOTHIRDS,   TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,     1.,     1.,    1.,    1.,    1.,    1.,    1.,    1.,   1.  /)
 real :: cmc_eps = 0.01 ! value of w/w_max for transition to linear function; 
                        ! the same value is used for liquid and snow
+real :: internal_gap_frac(0:MSPECIES)= & ! maximum canopy water conntent per unit LAI
+       (/      0.,         0.,          0.1,          0.1,          0.1,     0.,     0.,    0.,    0.,    0.,    0.,    0.,    0.,   0.  /)
 
 real :: fuel_intensity(0:MSPECIES) ; data fuel_intensity(0:NSPECIES-1) &
         /    1.0,         1.0,        0.002,        0.002,        0.004 /
@@ -486,6 +493,7 @@ namelist /vegn_data_nml/ &
   dfr, &
   srl, root_r, root_perm, &
   cmc_lai, cmc_pow, csc_lai, csc_pow, cmc_eps, &
+  internal_gap_frac, &
   min_cosz, &
   leaf_refl, leaf_tran, leaf_emis, ksi, &
   leaf_size, &
@@ -585,6 +593,8 @@ subroutine read_vegn_data_namelist()
   spdata%cmc_pow = cmc_pow
   spdata%csc_lai = csc_lai
   spdata%csc_pow = csc_pow
+
+  spdata%internal_gap_frac = internal_gap_frac
   
   spdata%leaf_size = leaf_size
 
@@ -715,6 +725,9 @@ subroutine read_vegn_data_namelist()
   call add_row(table, 'cmc_pow',       spdata(:)%cmc_pow)
   call add_row(table, 'csc_lai',       spdata(:)%csc_lai)
   call add_row(table, 'csc_pow',       spdata(:)%csc_pow)
+
+  call add_row(table, 'internal_gap_frac', spdata(:)%internal_gap_frac)
+
   call add_row(table, 'fuel_intensity',spdata(:)%fuel_intensity)
 
   call add_row(table, 'tc_crit',       spdata(:)%tc_crit)

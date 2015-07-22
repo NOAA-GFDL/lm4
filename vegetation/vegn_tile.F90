@@ -12,19 +12,17 @@ use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_VEGN
 
 use vegn_data_mod, only : &
-     NSPECIES, MSPECIES, NCMPT, C2B, &
-     read_vegn_data_namelist, spdata, &
+     MSPECIES, &
+     read_vegn_data_namelist, &
      vegn_to_use,  input_cover_types, &
      mcv_min, mcv_lai, &
      vegn_index_constant, &
-     agf_bs, BSEED, LU_NTRL, LU_SCND, N_HARV_POOLS, &
+     BSEED, LU_NTRL, LU_SCND, N_HARV_POOLS, &
      LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, &
      SP_C3GRASS, SP_C4GRASS, &
-     scnd_biomass_bins, do_ppa
+     scnd_biomass_bins
 
-use vegn_cohort_mod, only : vegn_cohort_type, vegn_phys_prog_type, &
-     leaf_area_from_biomass, height_from_biomass, update_bio_living_fraction, &
-     cohort_uptake_profile, cohort_root_properties, update_biomass_pools, btotal
+use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools
 
 use soil_tile_mod, only : max_lev
 
@@ -51,7 +49,6 @@ public :: vegn_seed_demand
 public :: vegn_tran_priority ! returns transition priority for land use 
 
 public :: vegn_add_bliving
-public :: update_derived_vegn_data  ! given state variables, calculate derived values
 ! =====end of public interfaces ==============================================
 interface new_vegn_tile
    module procedure vegn_tile_ctor
@@ -316,106 +313,6 @@ end subroutine merge_vegn_tiles
 
 
 ! ============================================================================
-! given a vegetation tile with the state variables set up, calculate derived
-! parameters to get a consistent state
-! NOTE: this subroutine does not call update_biomass_pools, although some 
-! of the calculations are the same. The reason is because this function may 
-! be used in the situation when the biomasses are not precisely consistent, for
-! example when they come from the data override or from initial conditions.
-subroutine update_derived_vegn_data(vegn)
-  type(vegn_tile_type), intent(inout) :: vegn
-  
-  ! ---- local vars 
-  type(vegn_cohort_type), pointer :: cc ! pointer to the current cohort
-  integer :: k  ! cohort index
-  integer :: sp ! shorthand for the vegetation species
-  integer :: n_layers ! number of layers in cohort
-  real, allocatable :: layer_area(:) ! total area of crowns in the layer
-  integer :: current_layer
-  real :: zbot ! height of the bottom of the canopy, m (=top of the lower layer)
-  real :: stemarea ! individual stem area, for SAI calculations, m2/individual
-  
-  ! determine layer boundaries in the array of cohorts
-  n_layers = maxval(vegn%cohorts(:)%layer)
-  allocate (layer_area(n_layers))
-  
-  ! calculate fractions of cohort canopies in layers
-  layer_area(:) = 0
-  do k = 1, vegn%n_cohorts
-     cc=>vegn%cohorts(k)
-     layer_area(cc%layer) = layer_area(cc%layer) + cc%crownarea*cc%nindivs
-  enddo
-  
-  ! given that the cohort state variables are initialized, fill in
-  ! the intermediate variables
-  do k = 1,vegn%n_cohorts
-    cc=>vegn%cohorts(k)
-    
-    sp = cc%species
-    ! set the physiology type according to species
-    cc%pt = spdata(sp)%pt
-    ! update fractions of the living biomass
-    if (.not.do_ppa) then
-       cc%height = height_from_biomass(btotal(cc))
-    endif
-    call update_bio_living_fraction(cc) ! this should not have any effect in PPA,
-    ! since it only updates Px fractions of bliving, but I am not sure if this is 
-    ! implemented consistently right now.
-    ! TODO: check that Pl, Pr, Psw, Psw_alphasw are not used in PPA, move the
-    ! above call inside "if (.not.do_ppa)" statement
-
-    if(sp<NSPECIES) then ! LM3V species
-       ! calculate area fraction that the cohort occupies in its layer
-!       if (layer_area(cc%layer)<=0) call error_mesg('update_derived_vegn_data', &
-!          'total area of canopy layer '//string(cc%layer)//' is zero', FATAL) 
-       cc%layerfrac = cc%crownarea*cc%nindivs/layer_area(cc%layer)
-       ! calculate the leaf area index based on the biomass of leaves
-       ! leaf_area_from_biomass returns the total area of leaves per individual;
-       ! convert it to leaf area per m2, and re-normalize to take into account 
-       ! stretching of canopies
-       cc%leafarea = leaf_area_from_biomass(cc%bl, sp)
-       cc%lai = cc%leafarea/cc%crownarea*layer_area(cc%layer)
-       ! calculate the root density as the total biomass below ground, in
-       ! biomass (not carbon!) units
-       cc%root_density = (cc%br + (cc%bsw+cc%bwood+cc%blv)*(1-agf_bs))*C2B
-    else
-       cc%height        = spdata(sp)%dat_height
-       cc%lai           = spdata(sp)%dat_lai
-       cc%root_density  = spdata(sp)%dat_root_density
-    endif
-    stemarea         = 0.035*cc%height ! Federer and Lash, 1978
-    ! convert sai to units per area of land
-    cc%sai           = stemarea/cc%crownarea*layer_area(cc%layer)
-    cc%leaf_size     = spdata(sp)%leaf_size
-    cc%root_zeta     = spdata(sp)%dat_root_zeta
-    cc%rs_min        = spdata(sp)%dat_rs_min
-    cc%leaf_refl     = spdata(sp)%leaf_refl
-    cc%leaf_tran     = spdata(sp)%leaf_tran
-    cc%leaf_emis     = spdata(sp)%leaf_emis
-    cc%snow_crit     = spdata(sp)%dat_snow_crit
-  
-    ! the following variables are per individual
-    cc%Wl_max        = spdata(sp)%cmc_lai*cc%leafarea
-    cc%Ws_max        = spdata(sp)%csc_lai*cc%leafarea
-    cc%mcv_dry       = max(mcv_min, mcv_lai*cc%leafarea)
-  enddo
-  
-  ! Calculate height of the canopy bottom: equals to the top of the lower layer.
-  ! this code assumes that cohorts are arranged in descending order
-  zbot = 0; current_layer = vegn%cohorts(vegn%n_cohorts)%layer
-  do k = vegn%n_cohorts, 1, -1
-    if (vegn%cohorts(k)%layer/=current_layer) then
-       zbot = vegn%cohorts(k+1)%height
-       current_layer = vegn%cohorts(k)%layer
-    endif
-    vegn%cohorts(k)%zbot = zbot
-  enddo
-  
-  deallocate(layer_area)
-end subroutine update_derived_vegn_data
-
-
-! ============================================================================
 function vegn_seed_supply ( vegn )
   real :: vegn_seed_supply
   type(vegn_tile_type), intent(in) :: vegn
@@ -467,8 +364,8 @@ end subroutine
 
 ! ============================================================================
 ! given a vegetation patch, destination kind of transition, and "transition 
-! intensity" value, this function returns a fraction of tile that will parti-
-! cipate in transition.
+! intensity" value, this function returns a fraction of tile that will
+! participate in transition.
 !
 ! this function must be contiguous, monotonic, its value must be within
 ! interval [0,1]

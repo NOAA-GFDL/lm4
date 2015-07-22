@@ -57,9 +57,10 @@ real, parameter :: GROWTH_RESP=0.333  ! fraction of npp lost as growth respirati
 real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 days)
 
 ! diagnostic field IDs
-integer :: id_npp, id_nep, id_gpp, id_fast_soil_C, id_slow_soil_C, id_rsoil, id_rsoil_fast
-integer :: id_resp, id_resl, id_resr, id_resg, id_asoil
-integer :: id_soilt, id_theta, id_litter
+integer :: id_npp, id_npp_1, id_npp_N, id_nep, id_gpp, id_gpp_1, id_gpp_N
+integer :: id_fast_soil_C, id_slow_soil_C, id_rsoil, id_rsoil_fast
+integer :: id_resp, id_resp_1, id_resp_N, id_resl, id_resr, id_resg, id_asoil
+integer :: id_soilt, id_theta, id_litter, id_age, id_age_1, id_age_N
 
 
 contains
@@ -80,8 +81,20 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
   id_gpp = register_tiled_diag_field ( module_name, 'gpp',  &
        (/id_lon,id_lat/), time, 'gross primary productivity', 'kg C/(m2 year)', &
        missing_value=-100.0 )
+  id_gpp_1 = register_tiled_diag_field ( module_name, 'gpp_1',  &
+       (/id_lon,id_lat/), time, 'gross primary productivity in the top layer', 'kg C/(m2 year)', &
+       missing_value=-100.0 )
+  id_gpp_N = register_tiled_diag_field ( module_name, 'gpp_N',  &
+       (/id_lon,id_lat/), time, 'gross primary productivity in the understory', 'kg C/(m2 year)', &
+       missing_value=-100.0 )
   id_npp = register_tiled_diag_field ( module_name, 'npp',  &
        (/id_lon,id_lat/), time, 'net primary productivity', 'kg C/(m2 year)', &
+       missing_value=-100.0 )
+  id_npp_1 = register_tiled_diag_field ( module_name, 'npp_1',  &
+       (/id_lon,id_lat/), time, 'net primary productivity in the top layer', 'kg C/(m2 year)', &
+       missing_value=-100.0 )
+  id_npp_N = register_tiled_diag_field ( module_name, 'npp_N',  &
+       (/id_lon,id_lat/), time, 'net primary productivity in the understory', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_nep = register_tiled_diag_field ( module_name, 'nep',  &
        (/id_lon,id_lat/), time, 'net ecosystem productivity', 'kg C/(m2 year)', &
@@ -96,6 +109,10 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
        missing_value=-100.0 )
   id_resp = register_tiled_diag_field ( module_name, 'resp', (/id_lon,id_lat/), &
        time, 'respiration', 'kg C/(m2 year)', missing_value=-100.0 )
+  id_resp_1 = register_tiled_diag_field ( module_name, 'resp_1', (/id_lon,id_lat/), &
+       time, 'respiration in the top layer', 'kg C/(m2 year)', missing_value=-100.0 )
+  id_resp_N = register_tiled_diag_field ( module_name, 'resp_N', (/id_lon,id_lat/), &
+       time, 'respiration in the understory', 'kg C/(m2 year)', missing_value=-100.0 )
   id_resl = register_tiled_diag_field ( module_name, 'resl', (/id_lon,id_lat/), &
        time, 'leaf respiration', 'kg C/(m2 year)', missing_value=-100.0 )
   id_resr = register_tiled_diag_field ( module_name, 'resr', (/id_lon,id_lat/), &
@@ -116,6 +133,15 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
        missing_value=-100.0 )
   id_theta = register_tiled_diag_field ( module_name, 'theta',  &
        (/id_lon,id_lat/), time, 'average soil wetness for carbon decomposition', 'm3/m3', &
+       missing_value=-100.0 )
+  id_age = register_tiled_diag_field ( module_name, 'age',  &
+       (/id_lon,id_lat/), time, 'average cohort age', 'years', &
+       missing_value=-100.0 )
+  id_age_1 = register_tiled_diag_field ( module_name, 'age_1',  &
+       (/id_lon,id_lat/), time, 'average cohort age in the top layer', 'years', &
+       missing_value=-100.0 )
+  id_age_N = register_tiled_diag_field ( module_name, 'age_N',  &
+       (/id_lon,id_lat/), time, 'average cohort age in the understory', 'years', &
        missing_value=-100.0 )
 end subroutine vegn_dynamics_init
 
@@ -273,8 +299,8 @@ subroutine vegn_carbon_int_ppa (vegn, tsoil, theta, diag)
   real :: cgrowth ! carbon spent during this time step for growth, kg C/individual
   real :: deltaBL, deltaBR ! leaf and fine root carbon tendencies
   real :: b  ! temporary var for several calculations
-  integer :: i
-  real :: cmass0, cmass1 ! for debug only
+  integer :: i, N
+  real :: cmass0, cmass1, norm ! for debug only
 
   if(is_watch_point()) then
      write(*,*)'#### vegn_carbon_int_ppa input ####'
@@ -403,16 +429,31 @@ subroutine vegn_carbon_int_ppa (vegn, tsoil, theta, diag)
   vegn%age = vegn%age + dt_fast_yr;
 
 ! ------ diagnostic section
+  associate(c=>vegn%cohorts)
+  N = vegn%n_cohorts
   call send_tile_data(id_gpp,gpp,diag)
+  call send_tile_data(id_gpp_1,sum(c(1:N)%gpp*c(1:N)%nindivs,mask=(c(1:N)%layer==1)),diag)
+  call send_tile_data(id_gpp_N,sum(c(1:N)%gpp*c(1:N)%nindivs,mask=(c(1:N)%layer>1)),diag)
   call send_tile_data(id_npp,vegn%npp,diag)
+  call send_tile_data(id_npp_1,sum(c(1:N)%npp*c(1:N)%nindivs,mask=(c(1:N)%layer==1)),diag)
+  call send_tile_data(id_npp_N,sum(c(1:N)%npp*c(1:N)%nindivs,mask=(c(1:N)%layer>1)),diag)
   call send_tile_data(id_nep,vegn%nep,diag)
   call send_tile_data(id_litter,vegn%litter,diag)
   call send_tile_data(id_resp, resp, diag)
+  call send_tile_data(id_resp_1, sum(c(1:N)%resp*c(1:N)%nindivs,mask=(c(1:N)%layer==1)), diag)
+  call send_tile_data(id_resp_N, sum(c(1:N)%resp*c(1:N)%nindivs,mask=(c(1:N)%layer>1)), diag)
   call send_tile_data(id_resl, resl, diag)
   call send_tile_data(id_resr, resr, diag)
   call send_tile_data(id_resg, resg, diag)
   call send_tile_data(id_soilt,tsoil,diag)
   call send_tile_data(id_theta,theta,diag)
+  norm = sum(c(1:N)%nindivs); if (norm==0) norm = 1
+  call send_tile_data(id_age, sum(c(1:N)%age*c(1:N)%nindivs)/norm,diag)
+  norm = sum(c(1:N)%nindivs,mask=(c(1:N)%layer==1)); if (norm==0) norm = 1
+  call send_tile_data(id_age_1, sum(c(1:N)%age*c(1:N)%nindivs,mask=(c(1:N)%layer==1))/norm,diag)
+  norm = sum(c(1:N)%nindivs,mask=(c(1:N)%layer>1)); if (norm==0) norm = 1
+  call send_tile_data(id_age_N, sum(c(1:N)%age*c(1:N)%nindivs,mask=(c(1:N)%layer>1))/norm,diag)
+  end associate
 !  cc => vegn%cohorts(1)
 !  call send_tile_data(id_nsc_c1,cc%nsc,diag)
   
@@ -910,6 +951,7 @@ subroutine vegn_reproduction_ppa (vegn)
     cc         = parent
 
     cc%status  = LEAF_OFF
+    cc%firstlayer = 0
     cc%age     = 0.0
     cc%bl      = sp%seedlingsize * bseed_distr(CMPT_LEAF)
     cc%br      = sp%seedlingsize * bseed_distr(CMPT_ROOT)

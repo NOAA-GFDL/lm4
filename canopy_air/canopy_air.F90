@@ -221,13 +221,13 @@ end subroutine save_cana_restart
 
 ! ============================================================================
 subroutine cana_turbulence (u_star,&
-     vegn_cover, vegn_height, vegn_bottom, vegn_lai, vegn_sai, vegn_d_leaf, &
+     vegn_cover, vegn_layerfrac, vegn_height, vegn_bottom, vegn_lai, vegn_sai, vegn_d_leaf, &
      land_d, land_z0m, land_z0s, grnd_z0s, &
      con_v_h, con_v_v, con_g_h, con_g_v )
   real, intent(in) :: &
        u_star, & ! friction velocity, m/s
        land_d, land_z0m, land_z0s, grnd_z0s, & 
-       vegn_cover, vegn_height(:), &
+       vegn_cover, vegn_height(:), vegn_layerfrac(:), &
        vegn_bottom(:), & ! height of the bottom of the canopy, m
        vegn_lai(:), vegn_sai(:), vegn_d_leaf(:)
   real, intent(out) :: &
@@ -256,7 +256,7 @@ subroutine cana_turbulence (u_star,&
 
   ! TODO: check array sizes
 
-  vegn_idx = sum(vegn_lai+vegn_sai)  ! total vegetation index
+  vegn_idx = sum((vegn_lai+vegn_sai)*vegn_layerfrac)  ! total vegetation index
   
   select case(turbulence_option)
   case(TURB_LM3W)
