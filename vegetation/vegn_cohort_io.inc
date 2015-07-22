@@ -1,5 +1,5 @@
 ! -*-f90-*-
-! $Id: vegn_cohort_io.inc,v 17.0 2009/07/21 03:03:16 fms Exp $
+! $Id$
 
 ! some sanity checks
 #ifndef F90_TYPE

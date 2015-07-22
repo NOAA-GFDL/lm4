@@ -64,8 +64,8 @@ public :: soil_step_2
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'soil',&
-    version     = '$Id: soil.F90,v 17.0 2009/07/21 03:03:01 fms Exp $',&
-    tagname     = '$Name: riga $'
+    version     = '$Id$',&
+    tagname     = '$Name$'
 
 ! ==== module variables ======================================================
 

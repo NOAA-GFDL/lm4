@@ -76,8 +76,8 @@ public :: update_vegn_slow
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-   version = '$Id: vegetation.F90,v 18.0 2010/03/02 23:37:26 fms Exp $', &
-   tagname = '$Name: riga $', &
+   version = '$Id$', &
+   tagname = '$Name$', &
    module_name = 'vegn'
 ! values for internal selector of CO2 option used for photosynthesis
 integer, parameter :: VEGN_PHOT_CO2_PRESCRIBED  = 1

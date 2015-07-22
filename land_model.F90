@@ -98,8 +98,8 @@ public :: Lnd_stock_pe          ! return stocks of conservative quantities
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land', &
-     version     = '$Id: land_model.F90,v 18.0 2010/03/02 23:36:39 fms Exp $', &
-     tagname     = '$Name: riga $'
+     version     = '$Id$', &
+     tagname     = '$Name$'
 
 ! ==== module variables ======================================================
 

@@ -26,8 +26,8 @@ module river_type_mod
   private
 
 !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id: river_type.F90,v 18.0 2010/03/02 23:37:04 fms Exp $'
-  character(len=128) :: tagname = '$Name: riga $'
+  character(len=128) :: version = '$Id$'
+  character(len=128) :: tagname = '$Name$'
 
 !--- public interface ------------------------------------------------
   public :: river_type, Leo_Mad_trios

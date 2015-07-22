@@ -1,5 +1,5 @@
 ! -*-f90-*-
-! $Id: debug.inc,v 17.0 2009/07/21 03:02:31 fms Exp $
+! $Id$
 
 #define __DEBUG1__(x) write(*,'(a12,99g)')#x,x
 #define __DEBUG2__(x1,x2) write(*,'(99(a12,g))')#x1,x1,#x2,x2 

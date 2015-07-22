@@ -1,5 +1,5 @@
 ! -*-f90-*-
-! $Id: getput.inc,v 17.0 2009/07/21 03:02:48 fms Exp $
+! $Id$
 
 ! ============================================================================
 ! nfu_get_var, nfu_get_rec interface and implementation

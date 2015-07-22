@@ -39,8 +39,8 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
-     version = '$Id: cana_tile.F90,v 18.0 2010/03/02 23:36:42 fms Exp $', &
-     tagname = '$Name: riga $'
+     version = '$Id$', &
+     tagname = '$Name$'
 
 ! ==== data types ======================================================
 type :: cana_prog_type
