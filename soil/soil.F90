@@ -19,7 +19,7 @@ use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o, PI
 
 use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR
 use soil_tile_mod, only : GW_LM2, GW_LINEAR, GW_HILL_AR5, GW_HILL, GW_TILED, &
-     soil_tile_type, soil_pars_type, soil_prog_type, read_soil_data_namelist, &
+     soil_tile_type, soil_pars_type, read_soil_data_namelist, &
      soil_data_radiation, soil_data_thermodynamics, &
      soil_data_hydraulic_properties, soil_data_psi_for_rh, &
      soil_data_gw_hydraulics, soil_data_gw_hydraulics_ar5, &
@@ -394,16 +394,16 @@ subroutine soil_init ( id_lon, id_lat, id_band )
          mwc = -init_w*tile%soil%pars%vwc_sat*dens_h2o
        endif
      if (init_temp.ge.tile%soil%pars%tfreeze) then
-         tile%soil%prog%wl = mwc*dz(1:num_l)
-         tile%soil%prog%ws = 0
+         tile%soil%wl = mwc*dz(1:num_l)
+         tile%soil%ws = 0
        else
-         tile%soil%prog%wl = 0
-         tile%soil%prog%ws = mwc*dz(1:num_l)
+         tile%soil%wl = 0
+         tile%soil%ws = mwc*dz(1:num_l)
        endif
-     tile%soil%prog%T             = init_temp
-     tile%soil%prog%groundwater   = init_groundwater
-     tile%soil%prog%groundwater_T = init_temp
-     tile%soil%uptake_T           = init_temp
+     tile%soil%T             = init_temp
+     tile%soil%groundwater   = init_groundwater
+     tile%soil%groundwater_T = init_temp
+     tile%soil%uptake_T      = init_temp
      enddo
 
   call get_input_restart_name('INPUT/soil.res.nc',restart_exists,restart_file_name)
@@ -749,7 +749,7 @@ subroutine soil_get_sfc_temp ( soil, soil_T )
   type(soil_tile_type), intent(in) :: soil
   real, intent(out) :: soil_T
 
-  soil_T= soil%prog(1)%T
+  soil_T= soil%T(1)
 end subroutine soil_get_sfc_temp
 
 
@@ -796,8 +796,8 @@ subroutine soil_data_beta ( soil, vegn, soil_beta, soil_water_supply, &
   type (vegn_cohort_type), pointer :: cc
 
   do l = 1, num_l
-    vlc(l) = max(0., soil%prog(l)%wl / (dens_h2o*dz(l)))
-    vsc(l) = max(0., soil%prog(l)%ws / (dens_h2o*dz(l)))
+    vlc(l) = max(0., soil%wl(l) / (dens_h2o*dz(l)))
+    vsc(l) = max(0., soil%ws(l) / (dens_h2o*dz(l)))
   enddo
 
   ! calculate volumetric root length for the entire tile
@@ -839,11 +839,11 @@ subroutine soil_data_beta ( soil, vegn, soil_beta, soil_water_supply, &
         z = 0; soil_water_supply(k) = 0
         do l = 1, num_l
            soil_water_supply(k) = soil_water_supply(k) + &
-             vegn_uptake_term(k)*max(0.0,soil%prog(l)%wl/dz(l)-soil%w_wilt(l)*dens_h2o)
+             vegn_uptake_term(k)*max(0.0,soil%wl(l)/dz(l)-soil%w_wilt(l)*dens_h2o)
            z = z + dz(l)
         enddo
         soil_water_supply(k) = z * soil_water_supply(k)/delta_time
-        soil_uptake_T(k) = sum(cc%uptake_frac(:)*soil%prog(:)%T)
+        soil_uptake_T(k) = sum(cc%uptake_frac(:)*soil%T(:))
      case(UPTAKE_DARCY2D)
         call darcy2d_uptake ( soil, psi_wilt, vegn%root_distance, cc%root_length, &
              cc%K_r, cc%r_r, uptake_oneway, uptake_from_sat, u, du )
@@ -902,11 +902,11 @@ subroutine soil_step_1 ( soil, vegn, diag, &
 ! of water availability, so that vapor fluxes will not exceed mass limits
 ! ----------------------------------------------------------------------------
 
-  soil_T = soil%prog(1)%T
+  soil_T = soil%T(1)
 
   do l = 1, num_l
-    vlc(l) = max(0.0, soil%prog(l)%wl / (dens_h2o * dz(l)))
-    vsc(l) = max(0.0, soil%prog(l)%ws / (dens_h2o * dz(l)))
+    vlc(l) = max(0.0, soil%wl(l) / (dens_h2o * dz(l)))
+    vsc(l) = max(0.0, soil%ws(l) / (dens_h2o * dz(l)))
   enddo
   ! calculate relative humidity at soil surface
   call soil_data_psi_for_rh ( soil, vlc, vsc, soil%psi, psi_for_rh )
@@ -920,11 +920,11 @@ subroutine soil_step_1 ( soil, vegn, diag, &
 
   do l = 1, num_l
      heat_capacity(l) = soil%heat_capacity_dry(l) *dz(l) &
-          + clw*soil%prog(l)%wl + csw*soil%prog(l)%ws
+          + clw*soil%wl(l) + csw*soil%ws(l)
   enddo
 
-  soil_liq  = max(soil%prog(1)%wl, 0.)
-  soil_ice  = max(soil%prog(1)%ws, 0.)
+  soil_liq  = max(soil%wl(1), 0.)
+  soil_ice  = max(soil%ws(1), 0.)
   if (soil_liq + soil_ice > 0) then
      soil_subl = soil_ice / (soil_liq + soil_ice)
   else
@@ -943,20 +943,20 @@ subroutine soil_step_1 ( soil, vegn, diag, &
 
      bbb = 1.0 - aaa(num_l)
      denom = bbb
-     dt_e = aaa(num_l)*(soil%prog(num_l)%T - soil%prog(num_l-1)%T) &
+     dt_e = aaa(num_l)*(soil%T(num_l) - soil%T(num_l-1)) &
                + soil%geothermal_heat_flux * delta_time / heat_capacity(num_l)
      soil%e(num_l-1) = -aaa(num_l)/denom
      soil%f(num_l-1) = dt_e/denom
      do l = num_l-1, 2, -1
         bbb = 1.0 - aaa(l) - ccc(l)
         denom = bbb + ccc(l)*soil%e(l)
-        dt_e = - ( ccc(l)*(soil%prog(l+1)%T - soil%prog(l)%T  ) &
-                  -aaa(l)*(soil%prog(l)%T   - soil%prog(l-1)%T) )
+        dt_e = - ( ccc(l)*(soil%T(l+1) - soil%T(l)  ) &
+                  -aaa(l)*(soil%T(l)   - soil%T(l-1)) )
         soil%e(l-1) = -aaa(l)/denom
         soil%f(l-1) = (dt_e - ccc(l)*soil%f(l))/denom
      end do
      denom = delta_time/(heat_capacity(1) )
-     soil_G0   = ccc(1)*(soil%prog(2)%T- soil%prog(1)%T + soil%f(1)) / denom
+     soil_G0   = ccc(1)*(soil%T(2)- soil%T(1) + soil%f(1)) / denom
      soil_DGDT = (1 - ccc(1)*(1-soil%e(1))) / denom   
   else  ! one-level case
      denom = delta_time/heat_capacity(1)
@@ -1060,9 +1060,9 @@ end subroutine soil_step_1
      __DEBUG1__(subs_M_imp)
      __DEBUG1__(soil%pars%vwc_sat)
      do l = 1, num_l
-        Theta = (soil%prog(l)%ws+soil%prog(l)%wl)/(dens_h2o*dz(l))
+        Theta = (soil%ws(l)+soil%wl(l))/(dens_h2o*dz(l))
         write(*,'(x,i2.2,x)',advance='NO')l
-        __DEBUG5__(soil%prog(l)%T,Theta,soil%prog(l)%wl,soil%prog(l)%ws,soil%prog(l)%groundwater)
+        __DEBUG5__(soil%T(l),Theta,soil%wl(l),soil%ws(l),soil%groundwater(l))
      enddo
   endif
 
@@ -1073,11 +1073,11 @@ end subroutine soil_step_1
 
   ! ---- load surface temp change and perform back substitution ------------
   del_t(1) = subs_DT
-  soil%prog(1)%T = soil%prog(1)%T + del_t(1)
+  soil%T(1) = soil%T(1) + del_t(1)
   if ( num_l > 1) then
     do l = 1, num_l-1
       del_t(l+1) = soil%e(l) * del_t(l) + soil%f(l)
-      soil%prog(l+1)%T = soil%prog(l+1)%T + del_t(l+1)
+      soil%T(l+1) = soil%T(l+1) + del_t(l+1)
     end do
   end if
 
@@ -1085,7 +1085,7 @@ end subroutine soil_step_1
      write(*,*) ' ##### soil_step_2 checkpoint 2 #####'
      do l = 1, num_l
         write(*,'(x,i2.2,x)',advance='NO') l
-        __DEBUG4__(soil%prog(l)%T,del_t(l),soil%e(l),soil%f(l))
+        __DEBUG4__(soil%T(l),del_t(l),soil%e(l),soil%f(l))
      enddo
   endif
 
@@ -1100,25 +1100,25 @@ end subroutine soil_step_1
     if (tot_nindivs>0) &
          soil_uptake_frac(:) = soil_uptake_frac(:)/tot_nindivs
     do l = 1, num_l
-      soil%prog(l)%wl = soil%prog(l)%wl &
+      soil%wl(l) = soil%wl(l) &
                       - soil_uptake_frac(l)*soil_levap*delta_time
     enddo
   ELSE
-    soil%prog(1)%wl = soil%prog(1)%wl - soil_levap*delta_time
-    soil%prog(1)%ws = soil%prog(1)%ws - soil_fevap*delta_time
+    soil%wl(1) = soil%wl(1) - soil_levap*delta_time
+    soil%ws(1) = soil%ws(1) - soil_fevap*delta_time
   ENDIF
   hcap = soil%heat_capacity_dry(1)*dz(1) &
-                       + clw*soil%prog(1)%wl + csw*soil%prog(1)%ws
+                       + clw*soil%wl(1) + csw*soil%ws(1)
   ! T adjustment for nonlinear terms (del_T)*(del_W)
   dheat = delta_time*(clw*soil_levap+csw*soil_fevap)*del_T(1)
   ! take out extra heat not claimed in advance for evaporation
   if (use_tfreeze_in_grnd_latent) dheat = dheat &
           - delta_time*((cpw-clw)*soil_levap+(cpw-csw)*soil_fevap) &
-                                 *(soil%prog(1)%T-del_T(1)-tfreeze)
-  soil%prog(1)%T  = soil%prog(1)%T  + dheat/hcap
-  soil%prog(1)%wl = soil%prog(1)%wl + subs_M_imp
-  soil%prog(1)%ws = soil%prog(1)%ws - subs_M_imp
-  soil%prog(1)%T  = tfreeze + (hcap*(soil%prog(1)%T-tfreeze) ) &
+                                 *(soil%T(1)-del_T(1)-tfreeze)
+  soil%T(1)  = soil%T(1)  + dheat/hcap
+  soil%wl(1) = soil%wl(1) + subs_M_imp
+  soil%ws(1) = soil%ws(1) - subs_M_imp
+  soil%T(1)  = tfreeze + (hcap*(soil%T(1)-tfreeze) ) &
                               / ( hcap + (clw-csw)*subs_M_imp )
 
   ! calculate actual vertical distribution of uptake
@@ -1158,7 +1158,7 @@ end subroutine soil_step_1
   uptake_pos = sum(uptake(:),mask=uptake(:)>0)
   if (uptake_option/=UPTAKE_LINEAR.and.uptake_pos > 0) then
      ! calculate actual temperature of uptake
-     uptake_T_new  = sum(uptake*soil%prog%T,mask=uptake>0)/uptake_pos
+     uptake_T_new  = sum(uptake*soil%T,mask=uptake>0)/uptake_pos
      ! and temperature correction
      uptake_T_corr = soil%uptake_T - uptake_T_new
      if(is_watch_point()) then
@@ -1179,7 +1179,7 @@ end subroutine soil_step_1
      do l = 1,num_l
         write(*,'(i2.2,100(2x,a,g))')l, &
              'uptake=',uptake(l),'dwl=',-uptake(l)*delta_time,&
-             'wl=',soil%prog(l)%wl,'new wl=',soil%prog(l)%wl - uptake(l)*delta_time
+             'wl=',soil%wl(l),'new wl=',soil%wl(l) - uptake(l)*delta_time
      enddo
   endif
 
@@ -1192,28 +1192,28 @@ end subroutine soil_step_1
      ! calculate the temperature of water that is taken from the layer (or added 
      ! to the layer), including energy balance correction 
      if (uptake(l) > 0) then
-        Tu = soil%prog(l)%T + uptake_T_corr
+        Tu = soil%T(l) + uptake_T_corr
      else
         Tu = soil%uptake_T + uptake_T_corr
      endif
      ! heat capacity of the layer
      hcap = soil%heat_capacity_dry(l)*dz(l) &
-          + clw*soil%prog(l)%wl + csw*soil%prog(l)%ws
+          + clw*soil%wl(l) + csw*soil%ws(l)
 
-     soil%prog(l)%T = soil%prog(l)%T - &
-          uptake(l)*delta_time*clw*( Tu-soil%prog(l)%T ) / &
+     soil%T(l) = soil%T(l) - &
+          uptake(l)*delta_time*clw*( Tu-soil%T(l) ) / &
           ( hcap - uptake(l)*delta_time*clw )
-     soil%prog(l)%wl = soil%prog(l)%wl - uptake(l)*delta_time
+     soil%wl(l) = soil%wl(l) - uptake(l)*delta_time
   enddo
 
   if(is_watch_point()) then
      write(*,*) ' ##### soil_step_2 checkpoint 3 #####'
      do l = 1, num_l
         write(*,'(i2.2,100(2x,a,g))')l,&
-             ' T =', soil%prog(l)%T,&
-             ' Th=', (soil%prog(l)%ws+soil%prog(l)%wl)/(dens_h2o*dz(l)),&
-             ' wl=', soil%prog(l)%wl,&
-             ' ws=', soil%prog(l)%ws
+             ' T =', soil%T(l),&
+             ' Th=', (soil%ws(l)+soil%wl(l))/(dens_h2o*dz(l)),&
+             ' wl=', soil%wl(l),&
+             ' ws=', soil%ws(l)
      enddo
   endif
 
@@ -1226,8 +1226,8 @@ end subroutine soil_step_1
 
   ! ---- fetch soil hydraulic properties -----------------------------------
   do l = 1, num_l
-    vlc(l) = max(0., soil%prog(l)%wl / (dens_h2o*dz(l)))
-    vsc(l) = max(0., soil%prog(l)%ws / (dens_h2o*dz(l)))
+    vlc(l) = max(0., soil%wl(l) / (dens_h2o*dz(l)))
+    vsc(l) = max(0., soil%ws(l) / (dens_h2o*dz(l)))
   enddo
   call soil_data_hydraulic_properties (soil, vlc, vsc, &
                    psi, DThDP, hyd_cond, DKDP, Dpsi_min, Dpsi_max )
@@ -1245,7 +1245,7 @@ end subroutine soil_step_1
 
     depth_to_wt_2a = 0.
     do l=1,num_l
-      if (soil%prog(l)%wl+soil%prog(l)%ws .lt. &
+      if (soil%wl(l)+soil%ws(l) .lt. &
                        soil%pars%vwc_sat*dens_h2o*dz(l)) then
           depth_to_wt_2a = depth_to_wt_2a + dz(l)
           if (l.eq.num_l) depth_to_wt_2a = -1.
@@ -1461,10 +1461,10 @@ end subroutine soil_step_1
       flow(1) = 0
       do l = 1, num_l
         infilt(l) = soil%uptake_frac(l)*lprec_eff *delta_time
-        flow(l+1) = max(0., soil%prog(l)%wl + flow(l) &
+        flow(l+1) = max(0., soil%wl(l) + flow(l) &
               + infilt(l) - soil%w_fc(l)*dz(l)*dens_h2o)
         dW_l(l) = flow(l) - flow(l+1) + infilt(l)
-        soil%prog(l)%wl = soil%prog(l)%wl + dW_l(l)
+        soil%wl(l) = soil%wl(l) + dW_l(l)
         enddo
       do l = 1, num_l
         flow(l) = flow(l) + infilt(l)
@@ -1475,10 +1475,10 @@ end subroutine soil_step_1
       c1 = exp(-c0)
       c2 = (1-c1)/c0
       l = 1
-      d_GW = c1 * soil%prog(l)%groundwater + c2 * flow(num_l+1) &
-	                    - soil%prog(l)%groundwater
-      soil%prog(l)%groundwater = soil%prog(l)%groundwater + d_GW
-      lrunf_sc  = (1-c1)*soil%prog(l)%groundwater/delta_time &
+      d_GW = c1 * soil%groundwater(l) + c2 * flow(num_l+1) &
+	                    - soil%groundwater(l)
+      soil%groundwater(l) = soil%groundwater(l) + d_GW
+      lrunf_sc  = (1-c1)*soil%groundwater(l)/delta_time &
                           + (1-c2)*flow(num_l+1)/delta_time
       lrunf_ie=0
     ELSE
@@ -1525,18 +1525,18 @@ end subroutine soil_step_1
       hlrunf_ie = lrunf_ie*hlprec_eff/lprec_eff
     else if (flow(1).lt.0. ) then
       hlrunf_ie = hlprec_eff - (flow(1)/delta_time)*clw &
-                         *(soil%prog(1)%T-tfreeze)
+                         *(soil%T(1)-tfreeze)
     else
       hlrunf_ie = 0.
     endif
 
-  hlrunf_bf = clw*sum(div_bf*(soil%prog%T-tfreeze))
-  hlrunf_if = clw*sum(div_if*(soil%prog%T-tfreeze))
-  hlrunf_al = clw*sum(div_al*(soil%prog%T-tfreeze))
-  hlrunf_sc = clw*lrunf_sc  *(soil%prog(1)%groundwater_T-tfreeze)
+  hlrunf_bf = clw*sum(div_bf*(soil%T-tfreeze))
+  hlrunf_if = clw*sum(div_if*(soil%T-tfreeze))
+  hlrunf_al = clw*sum(div_al*(soil%T-tfreeze))
+  hlrunf_sc = clw*lrunf_sc  *(soil%groundwater_T(1)-tfreeze)
   if (lrunf_from_div) then
       soil_lrunf  =  lrunf_sn +  lrunf_ie +  sum(div) +  lrunf_nu +  lrunf_sc
-      soil_hlrunf = hlrunf_sn + hlrunf_ie +  clw*sum(div*(soil%prog%T-tfreeze)) &
+      soil_hlrunf = hlrunf_sn + hlrunf_ie +  clw*sum(div*(soil%T-tfreeze)) &
                                                       + hlrunf_nu + hlrunf_sc
     else
       soil_lrunf  =  lrunf_sn +  lrunf_ie +  lrunf_bf +  lrunf_if &
@@ -1548,19 +1548,19 @@ end subroutine soil_step_1
   do l = 1, num_l
     ! ---- compute explicit melt/freeze --------------------------------------
     hcap = soil%heat_capacity_dry(l)*dz(l) &
-             + clw*soil%prog(l)%wl + csw*soil%prog(l)%ws
+             + clw*soil%wl(l) + csw*soil%ws(l)
     melt_per_deg = hcap/(hlf_factor*hlf)
-    if       (soil%prog(l)%ws>0 .and. soil%prog(l)%T>soil%pars%tfreeze) then
-      melt =  min(soil%prog(l)%ws, (soil%prog(l)%T-soil%pars%tfreeze)*melt_per_deg)
-    else if (soil%prog(l)%wl>0 .and. soil%prog(l)%T<soil%pars%tfreeze) then
-      melt = -min(soil%prog(l)%wl, (soil%pars%tfreeze-soil%prog(l)%T)*melt_per_deg)
+    if       (soil%ws(l)>0 .and. soil%T(l)>soil%pars%tfreeze) then
+      melt =  min(soil%ws(l), (soil%T(l)-soil%pars%tfreeze)*melt_per_deg)
+    else if (soil%wl(l)>0 .and. soil%T(l)<soil%pars%tfreeze) then
+      melt = -min(soil%wl(l), (soil%pars%tfreeze-soil%T(l))*melt_per_deg)
     else
       melt = 0
     endif
-    soil%prog(l)%wl = soil%prog(l)%wl + melt
-    soil%prog(l)%ws = soil%prog(l)%ws - melt
-    soil%prog(l)%T = tfreeze &
-       + (hcap*(soil%prog(l)%T-tfreeze) - hlf_factor*hlf*melt) &
+    soil%wl(l) = soil%wl(l) + melt
+    soil%ws(l) = soil%ws(l) - melt
+    soil%T(l) = tfreeze &
+       + (hcap*(soil%T(l)-tfreeze) - hlf_factor*hlf*melt) &
                             / ( hcap + (clw-csw)*melt )
     soil_melt = soil_melt + melt / delta_time
   enddo
@@ -1569,27 +1569,27 @@ end subroutine soil_step_1
      write(*,*) ' ##### soil_step_2 checkpoint 5 #####'
      do l = 1, num_l
         write(*,'(a,i2.2,100(2x,a,g23.16))') ' level=', l,&
-             ' T =', soil%prog(l)%T,&
-             ' Th=', (soil%prog(l)%ws +soil%prog(l)%wl)/(dens_h2o*dz(l)),&
-             ' wl=', soil%prog(l)%wl,&
-             ' ws=', soil%prog(l)%ws,&
-             ' gw=', soil%prog(l)%groundwater
+             ' T =', soil%T(l),&
+             ' Th=', (soil%ws(l) +soil%wl(l))/(dens_h2o*dz(l)),&
+             ' wl=', soil%wl(l),&
+             ' ws=', soil%ws(l),&
+             ' gw=', soil%groundwater(l)
      enddo
   endif
 
   active_layer_thickness = 0.
   do l = 1, num_l
-    if (soil%prog(l)%ws.gt.0.) then
+    if (soil%ws(l).gt.0.) then
         active_layer_thickness = active_layer_thickness &
-	  + dz(l)*soil%prog(l)%wl/(soil%prog(l)%wl+soil%prog(l)%ws)
+	  + dz(l)*soil%wl(l)/(soil%wl(l)+soil%ws(l))
         exit
     endif
     active_layer_thickness = active_layer_thickness + dz(l)
   enddo
 
-  soil_Ttop = soil%prog(1)%T
+  soil_Ttop = soil%T(1)
   soil_Ctop = soil%heat_capacity_dry(1)*dz(1) &
-    + clw*soil%prog(1)%wl + csw*soil%prog(1)%ws
+    + clw*soil%wl(1) + csw*soil%ws(1)
 
   if (update_psi) soil%psi=psi+dPsi
 
@@ -1601,9 +1601,9 @@ end subroutine soil_step_1
   time = increment_time(time, int(delta_time), 0)
   
   ! ---- diagnostic section
-   call send_tile_data(id_temp, soil%prog%T, diag)
-   if (id_lwc > 0) call send_tile_data(id_lwc,  soil%prog%wl/dz(1:num_l), diag)
-   if (id_swc > 0) call send_tile_data(id_swc,  soil%prog%ws/dz(1:num_l), diag)
+   call send_tile_data(id_temp, soil%T, diag)
+   if (id_lwc > 0) call send_tile_data(id_lwc,  soil%wl/dz(1:num_l), diag)
+   if (id_swc > 0) call send_tile_data(id_swc,  soil%ws/dz(1:num_l), diag)
    if (id_psi > 0) call send_tile_data(id_psi,  psi+dPsi, diag)
 !    call send_tile_data(id_deficit, deficit, diag)
 !    call send_tile_data(id_sat_depth, depth_to_wt_3, diag)
@@ -1673,19 +1673,19 @@ end subroutine soil_step_3
 
   liq_frac=0;excess_wat=0;excess_liq=0;excess_ice=0;h1=0;h2=0
   l = 1
-  summax = max(0.,soil%prog(l)%wl)+max(0.,soil%prog(l)%ws)
+  summax = max(0.,soil%wl(l))+max(0.,soil%ws(l))
   if (summax > 0) then
-     liq_frac = max(0.,soil%prog(l)%wl) / summax
+     liq_frac = max(0.,soil%wl(l)) / summax
   else
      liq_frac = 1
   endif
-  excess_wat = max(0., soil%prog(l)%wl + soil%prog(l)%ws &
+  excess_wat = max(0., soil%wl(l) + soil%ws(l) &
        - dens_h2o*dz(l)*soil%pars%vwc_sat )
   excess_liq = excess_wat*liq_frac
   excess_ice = excess_wat-excess_liq
-  excess_t   = soil%prog(l)%T
-  soil%prog(l)%wl = soil%prog(l)%wl - excess_liq
-  soil%prog(l)%ws = soil%prog(l)%ws - excess_ice
+  excess_t   = soil%T(l)
+  soil%wl(l) = soil%wl(l) - excess_liq
+  soil%ws(l) = soil%ws(l) - excess_ice
   call send_tile_data(id_excess, excess_wat/delta_time, diag)
 
   if(is_watch_point()) then
@@ -1703,16 +1703,16 @@ end subroutine soil_step_3
   do l = 2, num_l
      if (excess_liq+excess_ice>0) then
         space_avail = dens_h2o*dz(l)*soil%pars%vwc_sat &
-             - (soil%prog(l)%wl + soil%prog(l)%ws)
+             - (soil%wl(l) + soil%ws(l))
         liq_placed = max(min(space_avail, excess_liq), 0.)
         ice_placed = max(min(space_avail-liq_placed, excess_ice), 0.)
         h1 = (soil%heat_capacity_dry(l)*dz(l) &
-             + csw*soil%prog(l)%ws + clw*soil%prog(l)%wl)
+             + csw*soil%ws(l) + clw*soil%wl(l))
         h2 = liq_placed*clw+ice_placed*csw
-        soil%prog(l)%T = (h1 * soil%prog(l)%T &
+        soil%T(l) = (h1 * soil%T(l) &
              + h2 * excess_T )  / (h1+h2)
-        soil%prog(l)%wl = soil%prog(l)%wl + liq_placed
-        soil%prog(l)%ws = soil%prog(l)%ws + ice_placed
+        soil%wl(l) = soil%wl(l) + liq_placed
+        soil%ws(l) = soil%ws(l) + ice_placed
         excess_liq = excess_liq - liq_placed
         excess_ice = excess_ice - ice_placed
      endif
@@ -1731,10 +1731,10 @@ end subroutine soil_step_3
      write(*,*) 'hlrunf_nu',hlrunf_nu
      do l = 1, num_l
         write(*,'(x,a,x,i2.2,100(x,a,g23.16))') ' level=', l,&
-             ' T =', soil%prog(l)%T,&
-             ' Th=', (soil%prog(l)%ws +soil%prog(l)%wl)/(dens_h2o*dz(l)),&
-             ' wl=', soil%prog(l)%wl,&
-             ' ws=', soil%prog(l)%ws
+             ' T =', soil%T(l),&
+             ' Th=', (soil%ws(l) +soil%wl(l))/(dens_h2o*dz(l)),&
+             ' wl=', soil%wl(l),&
+             ' ws=', soil%ws(l)
      enddo
   endif
 end subroutine soil_push_down_excess
@@ -1979,11 +1979,11 @@ IF (bbb+ccc*eee(l) .NE. 0.) THEN
     endif
 
     if (flag) then
-        w_to_move_up = min(dW_l_internal, -(soil%prog(1)%wl+dW_l(1)))
+        w_to_move_up = min(dW_l_internal, -(soil%wl(1)+dW_l(1)))
         w_to_move_up = max(w_to_move_up, 0.)
         write(*,*) 'l_internal=',l_internal
         write(*,*) 'dW_l(l_internal)=',dW_l(l_internal)
-        write(*,*) 'soil%prog(1)%wl+dW_l(1)',soil%prog(1)%wl+dW_l(1)
+        write(*,*) 'soil%wl(1)+dW_l(1)',soil%wl(1)+dW_l(1)
         write(*,*) 'w_to_move_up=',w_to_move_up
         if (l_internal.gt.1) then
             dW_l(1) = dW_l(1) + w_to_move_up
@@ -2010,19 +2010,19 @@ IF (bbb+ccc*eee(l) .NE. 0.) THEN
        call get_current_point(ipt,jpt,kpt,fpt)
        write(*,*) 'note: at point ',ipt,jpt,kpt,fpt,' clip triggered by lrunf_ie=',lrunf_ie
        do l = num_l, 1, -1
-          adj = max(dW_l(l)+soil%prog(l)%ws+soil%prog(l)%wl &
+          adj = max(dW_l(l)+soil%ws(l)+soil%wl(l) &
                - soil%pars%vwc_sat*dz(l)*dens_h2o, 0. )
 
           if(is_watch_point()) then
              write(*,*) '3.22 l=', l,&
-                  ' soil_prog%wl=',soil%prog(l)%wl,  &
-                  ' soil_prog%ws=',soil%prog(l)%ws , &
+                  ' soil_prog%wl=',soil%wl(l),  &
+                  ' soil_prog%ws=',soil%ws(l) , &
                   ' soil%pars%vwc_sat=', soil%pars%vwc_sat, &
                   ' dz=', dz(l), &
                   ' adj=', adj
           endif
 
-          adj = min(adj, max(0.,soil%prog(l)%wl))
+          adj = min(adj, max(0.,soil%wl(l)))
 
           if(is_watch_point()) then
              write(*,*) '3.23 l=', l, ' adj=', adj
@@ -2036,7 +2036,7 @@ IF (bbb+ccc*eee(l) .NE. 0.) THEN
   ENDIF
        
        do l = 1, num_l
-         soil%prog(l)%wl = soil%prog(l)%wl + dW_l(l)
+         soil%wl(l) = soil%wl(l) + dW_l(l)
          enddo
 
   if(is_watch_point().or.(flag.and.write_when_flagged)) then
@@ -2045,9 +2045,9 @@ IF (bbb+ccc*eee(l) .NE. 0.) THEN
      write(*,*) 'Dpsi_max',Dpsi_max
      do l = 1, num_l
         write(*,'(i2.2,100(2x,a,g23.16))') l, &
-             'Th=', (soil%prog(l)%ws +soil%prog(l)%wl)/(dens_h2o*dz(l)), &
-             'wl=', soil%prog(l)%wl, &
-             'ws=', soil%prog(l)%ws, &
+             'Th=', (soil%ws(l) +soil%wl(l))/(dens_h2o*dz(l)), &
+             'wl=', soil%wl(l), &
+             'ws=', soil%ws(l), &
              'dW_l=', dW_l(l), &
              'dPsi=', dPsi(l), &
              'flow=', flow(l)
@@ -2079,33 +2079,33 @@ end subroutine richards
     u_plus(l) = 1. - u_minus(l+1)
     enddo
   hcap = (soil%heat_capacity_dry(num_l)*dz(num_l) &
-                              + csw*soil%prog(num_l)%ws)/clw
+                              + csw*soil%ws(num_l))/clw
   aaa = -flow(num_l) * u_minus(num_l)
-  bbb =  hcap + soil%prog(num_l)%wl - dW_l(num_l) - aaa
+  bbb =  hcap + soil%wl(num_l) - dW_l(num_l) - aaa
   eee(num_l-1) = -aaa/bbb
-  fff(num_l-1) = aaa*(soil%prog(num_l)%T-soil%prog(num_l-1)%T) / bbb
+  fff(num_l-1) = aaa*(soil%T(num_l)-soil%T(num_l-1)) / bbb
 
   do l = num_l-1, 2, -1
     hcap = (soil%heat_capacity_dry(l)*dz(l) &
-                              + csw*soil%prog(l)%ws)/clw
+                              + csw*soil%ws(l))/clw
     aaa = -flow(l)   * u_minus(l)
     ccc =  flow(l+1) * u_plus (l)
-    bbb =  hcap + soil%prog(l)%wl - dW_l(l) - aaa - ccc
+    bbb =  hcap + soil%wl(l) - dW_l(l) - aaa - ccc
     eee(l-1) = -aaa / ( bbb +ccc*eee(l) )
-    fff(l-1) = (   aaa*(soil%prog(l)%T-soil%prog(l-1)%T)    &
-                       + ccc*(soil%prog(l)%T-soil%prog(l+1)%T)    &
+    fff(l-1) = (   aaa*(soil%T(l)-soil%T(l-1))    &
+                       + ccc*(soil%T(l)-soil%T(l+1))    &
                        - ccc*fff(l) ) / ( bbb +ccc*eee(l) )
   enddo
     
-  hcap = (soil%heat_capacity_dry(1)*dz(1) + csw*soil%prog(1)%ws)/clw
+  hcap = (soil%heat_capacity_dry(1)*dz(1) + csw*soil%ws(1))/clw
   aaa = -flow(1) * u_minus(1)
   ccc =  flow(2) * u_plus (1)
-  bbb =  hcap + soil%prog(1)%wl - dW_l(1) - aaa - ccc
+  bbb =  hcap + soil%wl(1) - dW_l(1) - aaa - ccc
 
-  del_t(1) =  (  aaa*(soil%prog(1)%T-tflow          ) &
-                     + ccc*(soil%prog(1)%T-soil%prog(2)%T) &
+  del_t(1) =  (  aaa*(soil%T(1)-tflow          ) &
+                     + ccc*(soil%T(1)-soil%T(2)) &
                      - ccc*fff(1) ) / (bbb+ccc*eee(1))
-  soil%prog(1)%T = soil%prog(1)%T + del_t(1)
+  soil%T(1) = soil%T(1) + del_t(1)
 
   if(is_watch_point()) then
      write(*,*) ' ***** soil_step_2 checkpoint 3.4.1 ***** '
@@ -2114,20 +2114,20 @@ end subroutine richards
      write(*,*) 'bbb', bbb
      write(*,*) 'ccc', ccc
      write(*,*) 'del_t(1)', del_t(1)
-     write(*,*) ' T(1)', soil%prog(1)%T
+     write(*,*) ' T(1)', soil%T(1)
   endif
 
   do l = 1, num_l-1
     del_t(l+1) = eee(l)*del_t(l) + fff(l)
-    soil%prog(l+1)%T = soil%prog(l+1)%T + del_t(l+1)
+    soil%T(l+1) = soil%T(l+1) + del_t(l+1)
     enddo
 
   ! (lumped=lm2 groundwater stored in l=1 prog variable, liquid only)
-  if (soil%prog(1)%groundwater.ne. 0.) soil%prog(1)%groundwater_T =    &
-       + ((aquifer_heat_cap+soil%prog(1)%groundwater-d_GW)  &
-	                         *soil%prog(1)%groundwater_T &
-        + flow(num_l+1)*soil%prog(num_l)%T) &
-         /((aquifer_heat_cap+soil%prog(1)%groundwater-d_GW) + flow(num_l+1))
+  if (soil%groundwater(1).ne. 0.) soil%groundwater_T(1) =    &
+       + ((aquifer_heat_cap+soil%groundwater(1)-d_GW)  &
+	                         *soil%groundwater_T(1) &
+        + flow(num_l+1)*soil%T(num_l)) &
+         /((aquifer_heat_cap+soil%groundwater(1)-d_GW) + flow(num_l+1))
 
 end subroutine advection
 
@@ -2152,6 +2152,11 @@ type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then
 #define DEFINE_SOIL_COMPONENT_ACCESSOR_1D(xtype,component,x) subroutine soil_ ## x ## _ptr(t,p);\
 type(land_tile_type),pointer::t;xtype,pointer::p(:);p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%component%x;endif;end subroutine
 
+DEFINE_SOIL_ACCESSOR_1D(real,T)
+DEFINE_SOIL_ACCESSOR_1D(real,wl)
+DEFINE_SOIL_ACCESSOR_1D(real,ws)
+DEFINE_SOIL_ACCESSOR_1D(real,groundwater)
+DEFINE_SOIL_ACCESSOR_1D(real,groundwater_T)
 DEFINE_SOIL_ACCESSOR_1D(real,w_fc)
 DEFINE_SOIL_ACCESSOR_0D(real,uptake_T)
 DEFINE_SOIL_ACCESSOR_0D(integer,tag)
@@ -2184,86 +2189,5 @@ DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_geo_dry)
 DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_iso_sat)
 DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_vol_sat)
 DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_geo_sat)
-
-!DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,prog,T)
-!DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,prog,wl)
-!DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,prog,ws)
-!DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,prog,groundwater)
-!DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,prog,groundwater_T)
-
-! ============================================================================
-  subroutine soil_T_ptr(t,p)
-  type(land_tile_type),pointer::t
-  real,pointer::p(:)
-  integer :: n
-
-  p=>NULL()
-  if(associated(t))then
-    if(associated(t%soil))then
-      n=size(t%soil%prog(:))
-      p(1:n)=>t%soil%prog(1:n)%T
-    endif
-  endif
-  end subroutine
- 
-! ============================================================================
-  subroutine soil_wl_ptr(t,p)
-  type(land_tile_type),pointer::t
-  real,pointer::p(:)
-  integer :: n
-
-  p=>NULL()
-  if(associated(t))then
-  if(associated(t%soil))then
-  n=size(t%soil%prog(:))
-  p(1:n)=>t%soil%prog(1:n)%wl
-  endif
-  endif
-  end subroutine
- 
-! ============================================================================
-  subroutine soil_ws_ptr(t,p)
-  type(land_tile_type),pointer::t
-  real,pointer::p(:)
-  integer :: n
-
-  p=>NULL()
-  if(associated(t))then
-  if(associated(t%soil))then
-  n=size(t%soil%prog(:))
-  p(1:n)=>t%soil%prog(1:n)%ws
-  endif
-  endif
-  end subroutine
-
-! ============================================================================
-  subroutine soil_groundwater_ptr(t,p)
-  type(land_tile_type),pointer::t
-  real,pointer::p(:)
-  integer :: n
-
-  p=>NULL()
-  if(associated(t))then
-  if(associated(t%soil))then
-  n=size(t%soil%prog(:))
-  p(1:n)=>t%soil%prog(1:n)%groundwater
-  endif
-  endif
-  end subroutine
-
-! ============================================================================
-  subroutine soil_groundwater_T_ptr(t,p)
-  type(land_tile_type),pointer::t
-  real,pointer::p(:)
-  integer :: n
-
-  p=>NULL()
-  if(associated(t))then
-  if(associated(t%soil))then
-  n=size(t%soil%prog(:))
-  p(1:n)=>t%soil%prog(1:n)%groundwater_T
-  endif
-  endif
-  end subroutine
 
 end module soil_mod

@@ -202,7 +202,7 @@ subroutine darcy2d_uptake ( soil, psi_x0, R, VRL, K_r, r_r, uptake_oneway, &
      psi_x    = psi_x0+zfull(l)
      psi_soil = soil%psi(l)
 
-     if ( soil%prog(l)%ws > 0 ) &
+     if ( soil%ws(l) > 0 ) &
           cycle ! skip layers with ice
      if ( uptake_oneway.and.psi_x > soil%psi(l) ) &
           cycle ! skip layers where roots would loose water
@@ -484,7 +484,7 @@ subroutine darcy2d_uptake_lin ( soil, psi_x0, R, VRL, K_r, r_r,uptake_oneway, &
      psi_x    = psi_x0 + zfull(k)
      psi_soil = soil%psi(k)
      psi_root0= soil%psi(k) ! change it later to prev. time step value
-     if ( soil%prog(k)%ws > 0 ) &
+     if ( soil%ws(k) > 0 ) &
           cycle ! skip layers with ice
      if ( uptake_oneway.and.psi_x > soil%psi(k) ) &
           cycle ! skip layers where roots would loose water

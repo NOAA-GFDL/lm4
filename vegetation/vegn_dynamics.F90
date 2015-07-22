@@ -710,7 +710,7 @@ subroutine Dsdt(vegn, soil, diag, soilt, theta)
   case(USE_AVE_T_AND_THETA)
       A(:) = A_function(soilt, theta)
   case(USE_LAYER_T_AND_THETA)
-      A(:) = A_function(soil%prog(:)%T, soil_theta(soil))
+      A(:) = A_function(soil%T(:), soil_theta(soil))
   case default
     call error_mesg('Dsdt','The value of soil_decomp_to_use is invalid. This should never happen. See developer.',FATAL)
   end select

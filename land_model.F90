@@ -1873,7 +1873,7 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
         tile%snow%T(size(tile%snow%T)) = new_T
         if(associated(tile%glac)) tile%glac%T(1) = new_T
         if(associated(tile%lake)) tile%lake%T(1) = new_T
-        if(associated(tile%soil)) tile%soil%prog(1)%T = new_T
+        if(associated(tile%soil)) tile%soil%T(1) = new_T
         subs_G2 = subs_Ctop*(new_T-subs_Ttop)/delta_time
      else
         if(tau_snow_T_adj>=0) then
@@ -1884,7 +1884,7 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
            new_T = subs_Ttop-snow_C/subs_Ctop*delta_T_snow
            if(associated(tile%glac)) tile%glac%T(1) = new_T
            if(associated(tile%lake)) tile%lake%T(1) = new_T
-           if(associated(tile%soil)) tile%soil%prog(1)%T = new_T
+           if(associated(tile%soil)) tile%soil%T(1) = new_T
            subs_G2 = subs_Ctop*(new_T-subs_Ttop)/delta_time
         else
            subs_G2 = 0.
@@ -3112,13 +3112,13 @@ case(ISTOCK_HEAT)
 !     tile => current_tile(ce)
 !     tile_heat_density = 0.0
 !     if(associated(tile%soil)) then
-!       do n=1, size(tile%soil%prog)
-!       tile_heat_density = tile_heat_density + (tile%soil%prog(n)%T-tfreeze)* &
+!       do n=1, size(tile%soil%T)
+!       tile_heat_density = tile_heat_density + (tile%soil%T(n)-tfreeze)* &
 !                  (tile%soil%heat_capacity_dry(n)*dz(n) + &
-!                   clw*tile%soil%prog(n)%wl             + &
-!                   csw*tile%soil%prog(n)%ws)
+!                   clw*tile%soil%wl(n)             + &
+!                   csw*tile%soil%ws(n))
 !       enddo
-!       tile_heat_density = tile_heat_density + clw*soil%prog(1)%groundwater*(soil%prog(1)%groundwater_T-tfreeze) ! Why is this outside n loop?
+!       tile_heat_density = tile_heat_density + clw*soil%groundwater(1)*(soil%groundwater_T(1)-tfreeze) ! Why is this outside n loop?
 !     endif
 !     grid_cell_heat_density = grid_cell_heat_density + tile_heat_density * tile%frac
 !     ce=next_elmt(ce)
