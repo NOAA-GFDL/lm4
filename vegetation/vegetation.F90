@@ -34,8 +34,8 @@ use land_tile_diag_mod, only : &
 use land_data_mod,      only : land_state_type, lnd, land_time
 use land_io_mod, only : read_field
 use land_tile_io_mod, only : create_tile_out_file, &
-     write_tile_data_r0d_fptr, write_tile_data_i0d_fptr, write_tile_data_r1d_fptr, &
-     read_tile_data_r0d_fptr,  read_tile_data_i0d_fptr,  read_tile_data_r1d_fptr, &
+     write_tile_data_r0d_fptr, write_tile_data_i0d_fptr, &
+     read_tile_data_r0d_fptr,  read_tile_data_i0d_fptr, &
      print_netcdf_error, get_input_restart_name
 use vegn_data_mod, only : read_vegn_data_namelist, &
      LEAF_ON, LU_NTRL, nspecies, N_HARV_POOLS, HARV_POOL_NAMES, C2B, &
@@ -451,9 +451,9 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      ! harvesting pools and rates
      do i = 1, N_HARV_POOLS
         if (nfu_inq_var(unit,trim(HARV_POOL_NAMES(i))//'_harv_pool')==NF_NOERR) &
-             call read_tile_data_r1d_fptr(unit,trim(HARV_POOL_NAMES(i))//'_harv_pool',vegn_harv_pool_ptr,i)
+             call read_tile_data_r0d_fptr(unit,trim(HARV_POOL_NAMES(i))//'_harv_pool',vegn_harv_pool_ptr,i)
         if (nfu_inq_var(unit,trim(HARV_POOL_NAMES(i))//'_harv_rate')==NF_NOERR) &
-             call read_tile_data_r1d_fptr(unit,trim(HARV_POOL_NAMES(i))//'_harv_rate',vegn_harv_rate_ptr,i)
+             call read_tile_data_r0d_fptr(unit,trim(HARV_POOL_NAMES(i))//'_harv_rate',vegn_harv_rate_ptr,i)
      enddo
      ! read table of species names, if exists, and remap species as necessary
      call read_remap_species(unit)
@@ -1007,9 +1007,9 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
 
   ! harvesting pools and rates
   do i = 1, N_HARV_POOLS
-     call write_tile_data_r1d_fptr(unit, trim(HARV_POOL_NAMES(i))//'_harv_pool', &
+     call write_tile_data_r0d_fptr(unit, trim(HARV_POOL_NAMES(i))//'_harv_pool', &
           vegn_harv_pool_ptr, i, 'harvested carbon','kg C/m2')
-     call write_tile_data_r1d_fptr(unit, trim(HARV_POOL_NAMES(i))//'_harv_rate', &
+     call write_tile_data_r0d_fptr(unit, trim(HARV_POOL_NAMES(i))//'_harv_rate', &
           vegn_harv_rate_ptr, i, 'rate of release of harvested carbon to the atmosphere','kg C/(m2 yr)')
   enddo
      

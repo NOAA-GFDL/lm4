@@ -33,7 +33,6 @@ use land_tile_diag_mod, only : &
 use land_data_mod,      only : land_state_type, lnd
 use land_tile_io_mod, only : create_tile_out_file, &
      read_tile_data_r0d_fptr, write_tile_data_r0d_fptr, &
-     read_tile_data_r1d_fptr, write_tile_data_r1d_fptr, &
      get_input_restart_name, print_netcdf_error
 use land_debug_mod, only : is_watch_point, check_temp_range
 
@@ -193,7 +192,7 @@ subroutine cana_init ( id_lon, id_lat )
         call get_tracer_names(MODEL_LAND, tr, name=name)
         if(nfu_inq_var(unit,trim(name))==NF_NOERR) then
            call error_mesg('cana_init','reading tracer "'//trim(name)//'"',NOTE)
-           call read_tile_data_r1d_fptr(unit,name,cana_tr_ptr,tr)
+           call read_tile_data_r0d_fptr(unit,name,cana_tr_ptr,tr)
         else
            call error_mesg('cana_init', 'tracer "'//trim(name)// &
                 '" was set to initial value '//string(init_tr(tr)), NOTE)
@@ -250,7 +249,7 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
   do tr = 1,ntcana
      call get_tracer_names(MODEL_LAND, tr, name, longname, units)
      if (tr==ico2.and..not.save_qco2) cycle
-     call write_tile_data_r1d_fptr(unit,name,cana_tr_ptr,tr,'canopy air '//trim(longname),trim(units))
+     call write_tile_data_r0d_fptr(unit,name,cana_tr_ptr,tr,'canopy air '//trim(longname),trim(units))
   enddo
   ! close output file
   __NF_ASRT__(nf_close(unit))
