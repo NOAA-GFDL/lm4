@@ -263,9 +263,10 @@ subroutine vegn_nat_mortality_ppa (vegn, deltat)
   ! ---- local vars
   type(vegn_cohort_type), pointer :: cc
   real :: loss_alive,loss_wood
-  real :: deathrate
+  real :: deathrate, deadtrees
   integer :: sp ! shorthand for current cohort specie
   integer :: i
+  real, parameter :: Mdbh = 0.025 ! what is it? why not in the namelist?
 
   do i = 1, vegn%n_cohorts   
      cc => vegn%cohorts(i)
@@ -275,25 +276,27 @@ subroutine vegn_nat_mortality_ppa (vegn, deltat)
      ! story layer (mortrate_d_c and mortrate_d_u)
      ! compute the mortality of trees
      if(cc%layer > 1)then
-        deathrate = spdata(sp)%mortrate_d_u
+!        deathrate = spdata(sp)%mortrate_d_u
+        ! why everything here is hard-coded?
+        deathrate = spdata(sp)%mortrate_d_u + 10.0 * spdata(sp)%mortrate_d_u * &
+                    exp(30.0*(Mdbh - cc%dbh))/(1.0 + exp(30.0*(Mdbh - cc%dbh)))
      else
         deathrate = spdata(sp)%mortrate_d_c
      endif
-     deathrate = cc%nindivs * (1.0-exp(-deathrate*deltat/seconds_per_year)) ! individuals / m2
+     deadtrees = cc%nindivs * (1.0-exp(-deathrate*deltat/seconds_per_year)) ! individuals / m2
      ! recalculate amount of water on canopy: assume that the dead tree are dry,
      ! so all water remains on the survivors
-     cc%prog%Wl = cc%prog%Wl*cc%nindivs/(cc%nindivs-deathrate)
-     cc%prog%Ws = cc%prog%Ws*cc%nindivs/(cc%nindivs-deathrate)
+     cc%prog%Wl = cc%prog%Wl*cc%nindivs/(cc%nindivs-deadtrees)
+     cc%prog%Ws = cc%prog%Ws*cc%nindivs/(cc%nindivs-deadtrees)
      ! it is probably more consistent to add this water on top of soil or snow; 
      ! but for that we need an intermediate buffer (must be included into total 
      ! water calculations), aand I am reluctant to introduce it at the moment.
      ! TODO: invent a better way to handle water on trees lost to mortality
-
-     cc%nindivs = cc%nindivs-deathrate
+     cc%nindivs = cc%nindivs-deadtrees
 
      ! add dead C from leaf and root pools to fast soil carbon
-     loss_wood  = deathrate * cc%bwood
-     loss_alive = deathrate * cc%bliving
+     loss_wood  = deadtrees * cc%bwood
+     loss_alive = deadtrees * (cc%bl+cc%br+cc%bsw+cc%blv+cc%bseed+cc%nsc)
      vegn%fast_soil_C = vegn%fast_soil_C +    fsc_liv *loss_alive +    fsc_wood *loss_wood
      vegn%slow_soil_C = vegn%slow_soil_C + (1-fsc_liv)*loss_alive + (1-fsc_wood)*loss_wood
           

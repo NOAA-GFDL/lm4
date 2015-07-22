@@ -6,6 +6,7 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
+use constants_mod, only : PI
 use fms_mod, only : &
      write_version_number, file_exist, check_nml_error, &
      close_file, stdlog
@@ -145,9 +146,8 @@ type spec_data_type
 !!$  real    :: ltrans       ! leaf translocation fraction
 !!$  real    :: rtrans       ! fine root translocation fraction
 
-  real    :: specific_leaf_area ! cm2/(g biomass)
+  real    :: LMA          ! leaf mass per unit area, kg C/m2
   real    :: leaf_size    ! characteristic leaf size
-  real    :: leaf_life_span ! months
   
   real    :: alpha_phot   ! photosynthesis efficiency
   real    :: m_cond       ! factor of stomatal conductance
@@ -192,13 +192,20 @@ type spec_data_type
   real    :: dat_rs_min
   real    :: dat_snow_crit
   !  for PPA, Weng, 7/25/2011
-  real    :: gammaDBH     ! power of DBH to height
-  real    :: alphaHT      ! scalar from DBH to height of a tree
-  real    :: alphaCA      ! scalar from DBH to crown area of a tree
-  real    :: alphaBM      ! scalar from DBH to biomass of a tree
-  real    :: maturalage   ! the age that can reproduce
-  real    :: mortrate_d_c ! daily mortality rate in canopy
-  real    :: mortrate_d_u ! daily mortality rate in understory
+  real    :: alphaHT, thetaHT ! height = alphaHT * DBH ** thetaHT
+  real    :: alphaCA, thetaCA ! crown area = alphaCA * DBH ** thetaCA
+  real    :: alphaBM, thetaBM ! biomass = alphaBM * DBH ** thetaBM (used in reverse, 
+                              ! to compute DBH given biomass)
+  real    :: alphaCSASW, thetaCSASW ! 
+  real    :: maturalage       ! the age that can reproduce
+  real    :: fecundity        ! max C allocated to next generation per unit canopy area, kg C/m2
+  real    :: mortrate_d_c     ! daily mortality rate in canopy
+  real    :: mortrate_d_u     ! daily mortality rate in understory
+  real    :: rho_wood         ! woody density, kg C m-3 wood
+  real    :: taperfactor
+  real    :: LAImax           ! max. LAI
+  real    :: phiRL            ! ratio of fine root to leaf area
+  real    :: SRA              ! speific fine root area, m2/kg C
 
 end type
 
@@ -405,20 +412,41 @@ real :: phen_ev1 = 0.5, phen_ev2 = 0.9 ! thresholds for evergreen/decidious
       ! differentiation (see phenology_type in cohort.F90)
 
 ! Weng, 7/25/2011
-real    :: gammaDBH(0:MSPECIES)     = & !  power of DBH to height 
-       (/    1.5,         1.5,          1.5,           1.5,         1.5,    1.5,   1.5,   1.5,   1.5,   1.5,   1.5,   1.5,   1.5,   1.5/)
 real    :: alphaHT(0:MSPECIES)      = &  ! scalar from DBH to height of a tree
-       (/    20.,         20.,          20.,           20.,         20.,    20.,   20.,   20.,   20.,   20.,   20.,   20.,   20.,   20./)
+       (/    20.,     20.,     20.,     20.,     20.,     20.,     20.,     20.,     20.,     20.,     20.,     20.,     20.,     20.    /)
+real    :: thetaHT(0:MSPECIES)      = &  ! exponents of DBH to height
+       (/    0.5,     0.5,     0.5,     0.5,     0.5,     0.5,     0.6667,  0.6667,  0.6667,  0.6667,  0.6667,  0.6667,  0.6667,  0.6667 /) 
 real    :: alphaCA(0:MSPECIES)      = &  ! scalar from DBH to crown area of a tree
-       (/    30.,         30.,          30.,           30.,         30.,    30.,   30.,   30.,   30.,   30.,   30.,   30.,   30.,   30./) 
+       (/    30.,     30.,     30.,     30.,     30.,     30.,     30.,     30.,     30.,     30.,     30.,     30.,     30.,     30.    /) 
+real    :: thetaCA(0:MSPECIES)      = &  ! exponents of DBH to crown area
+       (/    1.6667,  1.6667,  1.6667,  1.6667,  1.6667,  1.6667,  1.6667,  1.6667,  1.6667,  1.6667,  1.6667,  1.6667,  1.6667,  1.6667 /) 
 real    :: alphaBM(0:MSPECIES)      = &  ! scalar from DBH to biomass of a tree
-       (/    500.,       500.,         500.,          500.,        500.,   500.,  500.,  500.,  500.,  500.,  500.,  500.,  500.,  500./)  
+       (/    500.,    500.,    500.,    500.,    500.,    500.,    500.,    500.,    500.,    500.,    500.,    500.,    500.,    500.   /)  
+real    :: thetaBM(0:MSPECIES)      = &  ! exponents of DBH to tree biomass
+       (/    2.5,     2.5,     2.5,     2.5,     2.5,     2.5,     2.6667,  2.6667,  2.6667,  2.6667,  2.6667,  2.6667,  2.6667,  2.6667 /) 
+real    :: alphaCSASW(0:MSPECIES)      = &  ! scalar from DBH to cross section area of sapwood
+       (/    500.,    500.,    0.14,    0.14,    0.14,    500.,    500.,    500.,    500.,    500.,    500.,    500.,    500.,    500.   /) 
+real    :: thetaCSASW(0:MSPECIES)      = &  ! exponents of DBH to cross section ara of Sapwood
+       (/    1.6667,  1.6667,  1.6667,  1.6667,  1.6667,  1.6667,  1.6667,  1.6667,  1.6667,  1.6667,  1.6667,  1.6667,  1.6667,  1.6667/) 
 real    :: maturalage(0:MSPECIES)      = &  ! the age that a plant can reproduce 
-       (/    0.,         0.,          1.,           1.,         5.,    5.,   5.,   5.,   5.,   5.,   5.,   5.,   5.,   5./)
+       (/    0.,      0.,      1.,      1.,      5.,      5.,      5.,      5.,      5.,      5.,      5.,      5.,      5.,      5.     /)
+real    :: fecundity(0:MSPECIES)      = &  ! 
+       (/    0.,      0.,      0.02,    0.005,   0.005,   0.005,   0.005,   0.005,   0.005,   0.005,   0.005,   0.005,   0.005,   0.005  /)
 real    :: mortrate_d_c(0:MSPECIES) = & ! yearly mortality rate in canopy
-       (/    5.0E-2,  4.0E-2,        5.0E-2,        5.0E-2,      5.0E-2, 1.0E-2,1.0E-2,1.0E-2,1.0E-2,1.0E-2,1.0E-2,1.0E-2,1.0E-2, 1.0E-2/)
+       (/    5.0E-2,  4.0E-2,  5.0E-2,  5.0E-2,  5.0E-2,  1.0E-2,  1.0E-2,  1.0E-2,  1.0E-2,  1.0E-2,  1.0E-2,  1.0E-2,  1.0E-2,  1.0E-2 /)
 real    :: mortrate_d_u(0:MSPECIES) = & ! yearly mortality rate in understory
-       (/    20.E-2,  20.E-2,        20.E-2,        20.E-2,      20.E-2, 20.E-2,20.E-2,20.E-2,20.E-2,20.E-2,20.E-2,20.E-2,20.E-2, 20.E-2/)
+       (/    20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2 /)
+real    :: LMA(0:MSPECIES) = & !  leaf mass per unit area, kg C/m2
+       (/    0.04,    0.04,    0.032,   0.032,   0.032,   0.036,   0.036,   0.036,   0.036,   0.036,   0.036,   0.036,   0.036,   0.036  /) 
+real    :: rho_wood(0:MSPECIES) = & ! wood density of stems, Kg C m-3
+       (/    250.,    250.,    250.,    250.,    250.,    250.,    250.,    250.,    250.,    250.,    250.,    250.,    250.,    250.   /)
+real    :: taperfactor(0:MSPECIES) = & ! taper factor, from a cylinder to a tree
+       (/    1.2,     1.2,     0.9,     0.9,     0.9,     0.9,     1.0,     1.0,     1.0,     1.0,     1.0,     1.0,     1.0,     1.0    /) 
+real    :: LAImax(0:MSPECIES) = & ! maximum LAI for a tree
+       (/    3.0,     3.0,     3.0,     3.0,     3.0,     3.0,     3.0,     3.0,     3.0,     3.0,     3.0,     3.0,     3.0,     3.0    /) 
+real    :: phiRL(0:MSPECIES) = & ! ratio of fine root area to leaf area
+       (/    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69   /) 
+
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
   mcv_min, mcv_lai, &
@@ -446,7 +474,9 @@ namelist /vegn_data_nml/ &
   tc_crit, cnst_crit_phen, fact_crit_phen, cnst_crit_fire, fact_crit_fire, &
   scnd_biomass_bins, phen_ev1, phen_ev2, &
   ! PPA-related namelist values
-  gammaDBH, alphaHT, alphaCA, alphaBM, maturalage, mortrate_d_c, mortrate_d_u
+  alphaHT, thetaHT, alphaCA, thetaCA, alphaBM, thetaBM, alphaCSASW, thetaCSASW,&
+  maturalage, fecundity, mortrate_d_c, mortrate_d_u, &
+  LAImax, LMA, phiRL, rho_wood, taperfactor
 
 contains ! ###################################################################
 
@@ -535,6 +565,22 @@ subroutine read_vegn_data_namelist()
   spdata%fact_crit_fire = fact_crit_fire
 
   spdata%smoke_fraction = smoke_fraction
+  spdata%LMA            = LMA      ! leaf mass per unit area, kg C/m2
+
+  !  for PPA, Weng, 7/25/2011
+  spdata%alphaHT      = alphaHT    ;  spdata%thetaHT      = thetaHT 
+  spdata%alphaCA      = alphaCA    ;  spdata%thetaCA      = thetaCA 
+  spdata%alphaBM      = alphaBM    ;  spdata%thetaBM      = thetaBM 
+  spdata%alphaCSASW   = alphaCSASW ;  spdata%thetaCSASW   = thetaCSASW
+  spdata%maturalage   = maturalage
+  spdata%maturalage   = fecundity
+  spdata%mortrate_d_c = mortrate_d_c
+  spdata%mortrate_d_u = mortrate_d_u
+  spdata%rho_wood     = rho_wood
+  spdata%taperfactor  = taperfactor
+  spdata%LAImax       = LAImax
+  spdata%phiRL        = phiRL
+  ! end of Weng
 
   do i = 0, MSPECIES
      spdata(i)%alpha     = alpha(i,:)
@@ -545,16 +591,6 @@ subroutine read_vegn_data_namelist()
      spdata(i)%ksi       = ksi(i)
      call init_derived_species_data(spdata(i))
   enddo
-
-  !  for PPA, Weng, 7/25/2011
-  spdata%gammaDBH     = gammaDBH ! power of DBH to height
-  spdata%alphaHT      = alphaHT  ! scalar from DBH to height of a tree
-  spdata%alphaCA      = alphaCA  ! scalar from DBH to crown area of a tree
-  spdata%alphaBM      = alphaBM  ! scalar from DBH to biomass of a tree
-  spdata%maturalage   = maturalage
-  spdata%mortrate_d_c = mortrate_d_c
-  spdata%mortrate_d_u = mortrate_d_u
-  ! end of Weng
 
   ! register selectors for land use type-specific diagnostics
   do i=1, N_LU_TYPES
@@ -582,19 +618,26 @@ subroutine init_derived_species_data(sp)
    type(spec_data_type), intent(inout) :: sp
 
    integer :: j
+   real :: specific_leaf_area  ! m2/kgC
+   real :: leaf_life_span      ! months
    
-   sp%leaf_life_span     = 12.0/sp%alpha(CMPT_LEAF) ! in months
-   ! calculate specific leaf area (cm2/g(biomass))
-   ! Global Raich et al 94 PNAS pp 13730-13734
-   sp%specific_leaf_area = 10.0**(2.4 - 0.46*log10(sp%leaf_life_span));       
-   ! convert to (m2/kg(carbon)
-   sp%specific_leaf_area = C2B*sp%specific_leaf_area*1000.0/10000.0
-
-! rho_wood is not used anywhere?
-!     ! the relationship from Moorcroft, based on Reich
-!     ! units kg C/m^3, hence the factor of 0.001 to convert from g/cm^3
-!      sp%rho_wood = (0.5 + 0.2*(sp%leaf_life_span-1))*0.001;
-!     if (sp%rho_wood > 500.) sp%rho_wood = 0.5*0.001;
+   if (do_ppa) then
+      ! LMA (leaf mass per unit area) comes directly from namelist
+   else
+      ! calculate specific leaf area (cm2/g(biomass))
+      ! Global Raich et al 94 PNAS pp 13730-13734
+      leaf_life_span     = 12.0/sp%alpha(CMPT_LEAF) ! in months
+      specific_leaf_area = 10.0**(2.4 - 0.46*log10(leaf_life_span));       
+      ! convert to m2/kgC
+      specific_leaf_area = C2B*specific_leaf_area*1000.0/10000.0
+      sp%LMA = 1.0/specific_leaf_area
+      ! rho_wood is not used anywhere?
+      ! ! the relationship from Moorcroft, based on Reich
+      ! ! units kg C/m^3, hence the factor of 0.001 to convert from g/cm^3
+      ! sp%rho_wood = (0.5 + 0.2*(leaf_life_span-1))*0.001;
+      ! if (sp%rho_wood > 500.) sp%rho_wood = 0.5*0.001;
+   endif
+   sp%SRA = 2*PI*sp%root_r*sp%srl
 
    sp%phi1=0.5-0.633*sp%ksi-0.33*sp%ksi**2;
    sp%phi2=0.877*(1.0-2.0*sp%phi1);
@@ -607,7 +650,11 @@ subroutine init_derived_species_data(sp)
       ! formula for mu_bar gives an undefined value, so we handle it separately 
       sp%mu_bar = 1.0
    endif
-end subroutine
+   ! calculate alphaBM parameter of allometry
+   ! note that rho_wood was re-introduced for this calculation
+   sp%alphaBM = sp%rho_wood * sp%taperfactor * PI/4. * sp%alphaHT
+   
+end subroutine init_derived_species_data
 
 
 end module

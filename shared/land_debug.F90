@@ -283,7 +283,10 @@ subroutine check_conservation(tag, substance, d1, d2, tolerance, time, severity)
   if (severity_<0)return
 
   if (abs(d2-d1)<tolerance) then
-     return
+     if (is_watch_point()) then
+     write(*,'(3(x,a,g))')&
+          trim(tag)//': conservation of '//trim(substance)//'; before=', d1, 'after=', d2, 'diff=',d2-d1
+     endif
   else
      call get_date(time,y,mo,d,h,m,s)
      write(message,'(3(x,a,g),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&

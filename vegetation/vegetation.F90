@@ -54,8 +54,8 @@ use vegn_radiation_mod, only : vegn_radiation_init, vegn_radiation
 use vegn_photosynthesis_mod, only : vegn_photosynthesis_init, vegn_photosynthesis
 use static_vegn_mod, only : read_static_vegn_namelist, static_vegn_init, static_vegn_end, &
      read_static_vegn
-use vegn_dynamics_mod, only : vegn_dynamics_init, vegn_carbon_int, vegn_growth, &
-     vegn_daily_npp, vegn_phenology, vegn_biogeography, vegn_reproduction_ppa, &
+use vegn_dynamics_mod, only : vegn_dynamics_init, vegn_carbon_int_ppa, vegn_carbon_int_lm3,&
+     vegn_growth, vegn_daily_npp, vegn_phenology, vegn_biogeography, vegn_reproduction_ppa, &
      relayer_cohorts, vegn_mergecohorts_ppa
 use vegn_disturbance_mod, only : vegn_nat_mortality, vegn_disturbance, update_fuel
 use vegn_harvesting_mod, only : &
@@ -295,6 +295,10 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      call read_cohort_data_r0d_fptr(unit, 'br', cohort_br_ptr )
      call read_cohort_data_r0d_fptr(unit, 'bsw', cohort_bsw_ptr )
      call read_cohort_data_r0d_fptr(unit, 'bwood', cohort_bwood_ptr )
+     if(nfu_inq_var(unit,'nsc')==NF_NOERR) &
+          call read_cohort_data_r0d_fptr(unit,'nsc',cohort_nsc_ptr)
+     if(nfu_inq_var(unit,'bseed')==NF_NOERR) &
+          call read_cohort_data_r0d_fptr(unit,'bseed',cohort_bseed_ptr)
      call read_cohort_data_r0d_fptr(unit, 'bliving', cohort_bliving_ptr )
      if(nfu_inq_var(unit,'nindivs')==NF_NOERR) &
           call read_cohort_data_r0d_fptr(unit,'nindivs',cohort_nindivs_ptr)
@@ -655,8 +659,8 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call create_cohort_dimension(unit)
 
   call write_cohort_data_r0d_fptr(unit,'tv',cohort_tv_ptr,'vegetation temperature','degrees_K')
-  call write_cohort_data_r0d_fptr(unit,'wl',cohort_wl_ptr,'vegetation liquid water content','kg/m2')
-  call write_cohort_data_r0d_fptr(unit,'ws',cohort_ws_ptr,'vegetation solid water content','kg/m2')
+  call write_cohort_data_r0d_fptr(unit,'wl',cohort_wl_ptr,'vegetation liquid water content','kg/individual')
+  call write_cohort_data_r0d_fptr(unit,'ws',cohort_ws_ptr,'vegetation solid water content','kg/individual')
   ! close output file
   __NF_ASRT__(nf_close(unit))
 
@@ -692,20 +696,21 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   
   call write_cohort_data_i0d_fptr(unit,'species', cohort_species_ptr, 'vegetation species')
   call write_cohort_data_r0d_fptr(unit,'hite', cohort_height_ptr, 'vegetation height','m')
-  call write_cohort_data_r0d_fptr(unit,'bl', cohort_bl_ptr, 'biomass of leaves per individual','kg C/m2')
-  call write_cohort_data_r0d_fptr(unit,'blv', cohort_blv_ptr, 'biomass of virtual leaves (labile store) per individual','kg C/m2')
-  call write_cohort_data_r0d_fptr(unit,'br', cohort_br_ptr, 'biomass of fine roots per individual','kg C/m2')
-  call write_cohort_data_r0d_fptr(unit,'bsw', cohort_bsw_ptr, 'biomass of sapwood per individual','kg C/m2')
-  call write_cohort_data_r0d_fptr(unit,'bwood', cohort_bwood_ptr, 'biomass of heartwood per individual','kg C/m2')
-  call write_cohort_data_r0d_fptr(unit,'bliving', cohort_bliving_ptr, 'total living biomass per individual','kg C/m2')
+  call write_cohort_data_r0d_fptr(unit,'bl', cohort_bl_ptr, 'biomass of leaves','kg C/individual')
+  call write_cohort_data_r0d_fptr(unit,'blv', cohort_blv_ptr, 'biomass of virtual leaves (labile store)','kg C/individual')
+  call write_cohort_data_r0d_fptr(unit,'br', cohort_br_ptr, 'biomass of fine roots','kg C/individual')
+  call write_cohort_data_r0d_fptr(unit,'bsw', cohort_bsw_ptr, 'biomass of sapwood','kg C/individual')
+  call write_cohort_data_r0d_fptr(unit,'bwood', cohort_bwood_ptr, 'biomass of heartwood','kg C/individual')
+  call write_cohort_data_r0d_fptr(unit,'nsc', cohort_nsc_ptr, 'non-structural biomass','kg C/individual')
+  call write_cohort_data_r0d_fptr(unit,'bseed', cohort_bseed_ptr, 'biomass reserved for future progeny','kg C/individual')
+  
+  call write_cohort_data_r0d_fptr(unit,'bliving', cohort_bliving_ptr, 'total living biomass','kg C/individual')
   call write_cohort_data_r0d_fptr(unit,'nindivs',cohort_nindivs_ptr, 'number of individuals', 'individuals/m2')
   call write_cohort_data_i0d_fptr(unit,'layer',cohort_layer_ptr, 'canopy layer of cohort', 'unitless')
   call write_cohort_data_i0d_fptr(unit,'status', cohort_status_ptr, 'leaf status')
   call write_cohort_data_r0d_fptr(unit,'leaf_age',cohort_leaf_age_ptr, 'age of leaves since bud burst', 'days')
   call write_cohort_data_r0d_fptr(unit,'cohort_age',cohort_age_ptr, 'age of cohort', 'years')
-
-!     call write_cohort_data_r0d_fptr(unit,'intercept_l', cohort_cmc_ptr, 'intercepted water per cohort','kg/m2')
-  call write_cohort_data_r0d_fptr(unit,'npp_prev_day', cohort_npp_previous_day_ptr, 'previous day NPP','kg C/(m2 year)')
+  call write_cohort_data_r0d_fptr(unit,'npp_prev_day', cohort_npp_previous_day_ptr, 'previous day NPP','kg C/year')
 
   call write_tile_data_i0d_fptr(unit,'landuse',vegn_landuse_ptr,'vegetation land use type')
   call write_tile_data_r0d_fptr(unit,'age',vegn_age_ptr,'vegetation age', 'yr')
@@ -1269,7 +1274,11 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, vegn_fco2, diag)
      __DEBUG3__(depth_ave, tsoil, theta)
   endif
 
-  call vegn_carbon_int(vegn, tsoil, theta, diag)
+  if (do_ppa) then
+     call vegn_carbon_int_ppa(vegn, tsoil, theta, diag)
+  else
+     call vegn_carbon_int_lm3(vegn, tsoil, theta, diag)
+  endif
   ! decrease, if necessary, csmoke spending rate so that csmoke pool
   ! is never depleted below zero
   vegn%csmoke_rate = max( 0.0, &
@@ -1631,6 +1640,8 @@ DEFINE_COHORT_ACCESSOR(real,br)
 DEFINE_COHORT_ACCESSOR(real,blv)
 DEFINE_COHORT_ACCESSOR(real,bsw)
 DEFINE_COHORT_ACCESSOR(real,bwood)
+DEFINE_COHORT_ACCESSOR(real,nsc)
+DEFINE_COHORT_ACCESSOR(real,bseed)
 DEFINE_COHORT_ACCESSOR(real,bliving)
 DEFINE_COHORT_ACCESSOR(real,nindivs)
 DEFINE_COHORT_ACCESSOR(integer,layer)

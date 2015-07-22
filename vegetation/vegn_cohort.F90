@@ -58,11 +58,13 @@ type :: vegn_cohort_type
 ! npp_previous_day is left outside, since it's obviously auxiliary; height
 ! is left outside
   integer :: species = 0   ! vegetation species
-  real    :: bl      = 0.0 ! biomass of leaves, kg C/m2
-  real    :: blv     = 0.0 ! biomass of virtual leaves (labile store), kg C/m2
-  real    :: br      = 0.0 ! biomass of fine roots, kg C/m2
-  real    :: bsw     = 0.0 ! biomass of sapwood, kg C/m2
-  real    :: bwood   = 0.0 ! biomass of heartwood, kg C/m2
+  real    :: bl      = 0.0 ! biomass of leaves, kg C/individual
+  real    :: blv     = 0.0 ! biomass of virtual leaves (labile store), kg C/individual
+  real    :: br      = 0.0 ! biomass of fine roots, kg C/individual
+  real    :: bsw     = 0.0 ! biomass of sapwood, kg C/individual
+  real    :: bwood   = 0.0 ! biomass of heartwood, kg C/individual
+  real    :: bseed   = 0.0 ! biomass put aside for future progeny, kg C/individual
+  real    :: nsc     = 0.0 ! non-structural carbon, kg C/individual
 
   real    :: bliving = 0.0 ! leaves, fine roots, and sapwood biomass
   integer :: status  = 0   ! growth status of plant
@@ -90,6 +92,10 @@ type :: vegn_cohort_type
   real    :: nindivs      = 1.0 ! density of vegetation, individuals/m2
   integer :: layer        = 1   ! the layer of this cohort (numbered from top)
   real    :: layerfrac    = 0.0 ! fraction of layer area occupied by this cohort, m2 of cohort per m2 of ground
+  ! TODO: see if we can make MLmax, MFRmax, BSWmax local variables
+  real    :: MLmax        = 0.0 ! Max. leaf biomass, kg C/individual
+  real    :: MFRmax       = 0.0 ! Max. fine root biomass, kg C/individual
+  real    :: BSWmax       = 0.0 ! Max. sapwood biomass, kg C/individual
 
 ! ---- uptake-related variables
   real    :: root_length(max_lev) = 0.0 ! individual's root length per unit depth, m of root/m
@@ -98,9 +104,8 @@ type :: vegn_cohort_type
   real    :: uptake_frac(max_lev) = 0.0 ! normalized vertical distribution of uptake
 
 ! ---- auxiliary variables 
-
   real    :: Wl_max  = 0.0 ! maximum liquid water content of canopy, kg/individual
-  real    :: Ws_max  = 0.0 ! maximum soild water content of canopy, kg/individual
+  real    :: Ws_max  = 0.0 ! maximum solid water content of canopy, kg/individual
   real    :: mcv_dry = 0.0 ! heat capacity of dry canopy J/(K individual)
   real    :: cover
 
@@ -109,21 +114,18 @@ type :: vegn_cohort_type
 
   real :: gpp  = 0.0 ! gross primary productivity kg C/timestep
   real :: npp  = 0.0 ! net primary productivity kg C/timestep
-  real :: npp2 = 0.0 ! temporarily stores eddy_npp
-  real :: miami_npp = 0.0 ! stores miami-model npp
 
   real :: resp = 0.0 ! plant respiration
   real :: resl = 0.0 ! leaf respiration
   real :: resr = 0.0 ! root respiration
   real :: resg = 0.0 ! growth respiration
-  real :: md   = 0.0 ! plant tissue maintenance kg C/timestep
 
   real :: An_op = 0.0 ! mol C/(m2 of leaf per year)
   real :: An_cl = 0.0 ! mol C/(m2 of leaf per year)
   
-  real :: carbon_gain = 0.0 ! carbon gain during the month
-  real :: carbon_loss = 0.0 ! carbon loss during the month
-  real :: bwood_gain  = 0.0 !
+  real :: carbon_gain = 0.0 ! carbon gain since last growth, kg C/individual
+  real :: carbon_loss = 0.0 ! carbon loss since last growth, kg C/individual
+  real :: bwood_gain  = 0.0 ! wood gain since last growth, kg C/individual
 
   ! used in fast time scale calculations
   real :: npp_previous_day     = 0.0
@@ -169,7 +171,7 @@ subroutine wet_frac(w, w_max, p, eps, f, DfDw)
        w, &     ! water content
        w_max, & ! maximum storage capacity
        p, &     ! exponent of the function
-       eps      ! neighbourhood of zero where we approximate x**p with linear function
+       eps      ! neighborhood of zero where we approximate x**p with linear function
   real, intent(out) :: &
        f, & ! function value
        DfDw ! it's derivative
@@ -237,7 +239,7 @@ end subroutine
 
 
 ! ============================================================================
-! given cohort and snow depth, calcualtes the cover (1-fraction of gaps), and
+! given cohort and snow depth, calculates the cover (1-fraction of gaps), and
 ! snow factor for radiation
 ! TODO: we probably need to revise the snow correction, because currently it
 ! does not take into account the height of the cohort, and therefore will
@@ -290,7 +292,7 @@ subroutine cohort_root_properties(cohort, dz, vrl, K_r, r_r)
   z = 0
   do l = 1, size(dz)
      ! calculate the volumetric fine root biomass density [kgC/m3] for current layer
-     ! NOTE: sum(brv*dz) must be equal to cohort%br, which is achieved by nomalizing
+     ! NOTE: sum(brv*dz) must be equal to cohort%br, which is achieved by normalizing
      ! factor
      vbr = cohort%br * &
           (exp(-z/cohort%root_zeta) - exp(-(z+dz(l))/cohort%root_zeta))*factor/dz(l)
@@ -379,7 +381,7 @@ end function
 function c3c4(c, temp, precip) result (pt)
   integer :: pt
   type(vegn_cohort_type), intent(in) :: c
-  real,              intent(in) :: temp   ! temperatire, degK
+  real,              intent(in) :: temp   ! temperature, degK
   real,              intent(in) :: precip ! precipitation, ???
 
   real :: pc4
@@ -451,7 +453,7 @@ subroutine update_species(c, t_ann, t_cold, p_ann, cm, landuse)
      spp=SP_TEMPDEC;  ! temperate deciduous non-grass
   endif
 
-  ! reset leaf age to zero if species are chnaged
+  ! reset leaf age to zero if species are changed
   if (spp/=c%species) c%leaf_age = 0.0
 
   c%species = spp
@@ -464,12 +466,12 @@ function leaf_area_from_biomass(bl,species) result (lai)
   real,    intent(in) :: bl      ! biomass of leaves, kg C/m2
   integer, intent(in) :: species ! species
 
-  lai = bl*(spdata(species)%specific_leaf_area);   
+  lai = bl/spdata(species)%LMA   
 end function 
 
 
 ! ============================================================================
-! calculates fractions of living biomass in differerent compartments
+! calculates fractions of living biomass in different compartments
 subroutine update_bio_living_fraction(c)
   type(vegn_cohort_type), intent(inout) :: c
 
@@ -511,7 +513,7 @@ end subroutine
 ! ============================================================================
 ! for PPA, Weng 07/25/2011
 ! ============================================================================
-! calculate tree height, DBH, height, and crown area by bwood and denstiy 
+! calculate tree height, DBH, height, and crown area by bwood and density 
 ! The allometry equations are from Ray Dybzinski et al. 2011 and Forrior et al. in review
 !         HT = alphaHT * DBH ** (gamma-1)   ! DBH --> Height
 !         CA = alphaCA * DBH ** gamma       ! DBH --> Crown Area
@@ -524,10 +526,11 @@ subroutine update_cohort_structure(cc)
 
   sp     = cc%species 
   if (do_ppa) then
-    btot = MAX(0.0001,btotal(cc))
-    cc%dbh       = (btot / spdata(sp)%alphaBM) ** (1.0/(spdata(sp)%gammaDBH + 1))
-    cc%height    = spdata(sp)%alphaHT * cc%dbh ** (spdata(sp)%gammaDBH - 1.)
-    cc%crownarea = spdata(sp)%alphaCA * cc%dbh **  spdata(sp)%gammaDBH
+    btot = MAX(0.0001,cc%bwood+cc%bsw)
+    cc%DBH        = (btot / spdata(sp)%alphaBM) ** ( 1.0/spdata(sp)%thetaBM )
+!   cc%treeBM     = spdata(sp)%alphaBM * cc%dbh ** spdata(sp)%thetaBM
+    cc%height     = spdata(sp)%alphaHT * cc%dbh ** spdata(sp)%thetaHT
+    cc%crownarea  = spdata(sp)%alphaCA * cc%dbh ** spdata(sp)%thetaCA
   else
     ! GCH, Function from JPC 2/9/02
     !  height = 24.19*(1.0-exp(-0.19*(c%bliving+c%bwood)))

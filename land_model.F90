@@ -130,6 +130,11 @@ real    :: csw = 2106.  ! specific heat of water (ice)
 real    :: min_sum_lake_frac = 1.e-8
 real    :: gfrac_tol         = 1.e-6
 real    :: discharge_tol = -1.e20
+real    :: water_cons_tol  = 1e-11 ! tolerance of water conservation checks 
+real    :: carbon_cons_tol = 1e-13 ! tolerance of carbon conservation checks  
+integer :: max_improv_steps = 5    ! max number of solution improvement iterations, 
+                                   ! set to 0 to turn improvement off (LM3-like)
+real    :: solution_tol    = 1e-16 ! tolerance for soltion improvement 
 real    :: con_fac_large = 1.e6
 real    :: con_fac_small = 1.e-6
 integer :: num_c = 0
@@ -148,6 +153,8 @@ namelist /land_model_nml/ use_old_conservation_equations, &
                           use_atmos_T_for_evap_T, &
                           cpw, clw, csw, min_sum_lake_frac, &
                           gfrac_tol, discharge_tol, &
+                          water_cons_tol, carbon_cons_tol, &
+                          solution_tol, max_improv_steps, &
                           con_fac_large, con_fac_small, num_c, &
                           tau_snow_T_adj, &
                           nearest_point_search, print_remapping, &
@@ -1126,7 +1133,8 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
 
   ! ---- local vars 
   real :: A(3*N+2,3*N+2),B0(3*N+2),B1(3*N+2),B2(3*N+2) ! implicit equation matrix and right-hand side vectors
-  real :: A00(3*N+2,3*N+2),B00(3*N+2),B10(3*N+2),B20(3*N+2) ! copy of the above, only for debugging
+  real :: ALUD(3*N+2,3*N+2) ! LU-decomposed A
+  real :: X0(3*N+2),X1(3*N+2),X2(3*N+2) ! copy of the above, only for debugging
   integer :: indx(3*N+2) ! permutation vector
   ! linearization coefficients of various fluxes between components of land
   ! surface scheme
@@ -1575,59 +1583,56 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
      enddo
   endif
 
-  A00 = A;  B00 = B0;  B10 = B1;  B20 = B2
-
 ! [X.2] solve the system for free terms and delta_Tg and delta_psig terms, getting
 !       linear equation for delta_Tg and delta_psig
-  call ludcmp(A,indx, ierr)
+  ALUD = A
+  call ludcmp(ALUD,indx,ierr)
   if (ierr/=0)&
        write(*,*) 'Matrix is singular',ix,iy,itile
-  call lubksb(A,indx,B0)
-  call lubksb(A,indx,B1)
-  call lubksb(A,indx,B2)
+  call lubksb_and_improve(A,ALUD,indx,B0,max_improv_steps,solution_tol,X0)
+  call lubksb_and_improve(A,ALUD,indx,B1,max_improv_steps,solution_tol,X1)
+  call lubksb_and_improve(A,ALUD,indx,B2,max_improv_steps,solution_tol,X2)
 
   if(is_watch_point()) then
-     write(*,*)'#### solution: B0, B1, B2 ####'
+     write(*,*)'#### solution: X0, X1, X2 ####'
      do ii = 1, size(A,1)
-        __DEBUG3__(B0(ii),B1(ii),B2(ii))
+        __DEBUG3__(X0(ii),X1(ii),X2(ii))
      enddo
      write(*,*)'#### solution check ####'
      do ii = 1, size(A,1)
         sum0 = 0; sum1 = 0; sum2=0
         do jj = 1, size(A,2)
-           sum0 = sum0 + A00(ii,jj)*B0(jj)
-           sum1 = sum1 + A00(ii,jj)*B1(jj)
-           sum2 = sum2 + A00(ii,jj)*B2(jj)
+           sum0 = sum0 + A(ii,jj)*X0(jj)
+           sum1 = sum1 + A(ii,jj)*X1(jj)
+           sum2 = sum2 + A(ii,jj)*X2(jj)
         enddo
-        __DEBUG3__(sum0-B00(ii),sum1-B10(ii),sum2-B20(ii))
+        __DEBUG3__(sum0-B0(ii),sum1-B1(ii),sum2-B2(ii))
      enddo
   endif
 ! the result of this solution is a set of expressions for delta_xx in terms
 ! of delta_Tg and delta_psig: 
-! delta_xx(i) = B0(i) + B1(i)*delta_Tg + B2(i)*delta_psig. Note that A, B0, B1 and B2
-! are destroyed in the process: A is replaced with LU-decomposition, and
-! B0, B1, B2 are replaced with solutions
+! delta_xx(i) = X0(i) + X1(i)*delta_Tg + X2(i)*delta_psig.
 
   ! solve the non-linear equation for energy balance at the surface.
 
   call land_surface_energy_balance( &
        grnd_T, grnd_liq, grnd_ice, grnd_latent, grnd_Tf, grnd_E_min, &
        grnd_E_max, fswg, &
-       flwg0 + sum(b0(iTv:iTv+N-1)*DflwgDTv(:)), &
-       DflwgDTg + sum(b1(iTv:iTv+N-1)*DflwgDTv(:)),&
-       sum(b2(iTv:iTv+N-1)*DflwgDTv(:)), &
-       Hg0 + B0(iTc)*DHgDTc, DHgDTg + B1(iTc)*DHgDTc, B2(iTc)*DHgDTc,   &
-       Eg0 + B0(iqc)*DEgDqc, DEgDTg + B1(iqc)*DEgDqc, DEgDpsig + B2(iqc)*DEgDqc,   &
+       flwg0 + sum(X0(iTv:iTv+N-1)*DflwgDTv(:)), &
+       DflwgDTg + sum(X1(iTv:iTv+N-1)*DflwgDTv(:)),&
+       sum(X2(iTv:iTv+N-1)*DflwgDTv(:)), &
+       Hg0 + X0(iTc)*DHgDTc, DHgDTg + X1(iTc)*DHgDTc, X2(iTc)*DHgDTc,   &
+       Eg0 + X0(iqc)*DEgDqc, DEgDTg + X1(iqc)*DEgDqc, DEgDpsig + X2(iqc)*DEgDqc,   &
        G0,                       DGDTg, &
        ! output
        delta_Tg, delta_psig, Mg_imp )
 
 ! [X.5] calculate final value of other tendencies
-  delta_qc = B0(iqc) + B1(iqc)*delta_Tg + B2(iqc)*delta_psig
-  delta_Tc = B0(iTc) + B1(iTc)*delta_Tg + B2(iTc)*delta_psig
-  delta_Tv(:) = B0(iTv:iTv+N-1) + B1(iTv:iTv+N-1)*delta_Tg + B2(iTv:iTv+N-1)*delta_psig
-  delta_wl(:) = B0(iwl:iwl+N-1) + B1(iwl:iwl+N-1)*delta_Tg + B2(iwl:iwl+N-1)*delta_psig
-  delta_ws(:) = B0(iwf:iwf+N-1) + B1(iwf:iwf+N-1)*delta_Tg + B2(iwf:iwf+N-1)*delta_psig
+  delta_qc = X0(iqc) + X1(iqc)*delta_Tg + X2(iqc)*delta_psig
+  delta_Tc = X0(iTc) + X1(iTc)*delta_Tg + X2(iTc)*delta_psig
+  delta_Tv(:) = X0(iTv:iTv+N-1) + X1(iTv:iTv+N-1)*delta_Tg + X2(iTv:iTv+N-1)*delta_psig
+  delta_wl(:) = X0(iwl:iwl+N-1) + X1(iwl:iwl+N-1)*delta_Tg + X2(iwl:iwl+N-1)*delta_psig
+  delta_ws(:) = X0(iwf:iwf+N-1) + X1(iwf:iwf+N-1)*delta_Tg + X2(iwf:iwf+N-1)*delta_psig
 
 ! [X.6] calculate updated values of energy balance components used in further 
 !       calculations
@@ -1964,6 +1969,57 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
 
 end subroutine update_land_model_fast_0d
 
+! ============================================================================
+! Calculates and improves a solution vector x(1:n) of the linear set of equations 
+! A * X = B. 
+! The matrix a(1:n,1:n), and the vectors b(1:n) and x(1:n) are input. Also input 
+! is alud, the LU decomposition of a as returned by ludcmp, and the vector indx 
+! also returned by that routine. On output, only x(1:n) is modified, to the 
+! solution of the linear system, improved by iterative procedure if necessary.
+subroutine lubksb_and_improve(a,alud,indx,b,max_improv_steps,eps,x)
+  real, intent(in)    :: a(:,:)    ! original matrix
+  real, intent(in)    :: alud(:,:) ! LU-decomposition of original matrix
+  integer, intent(in) :: indx(:)   ! reshuffling indices
+  real, intent(in)    :: b(:)      ! right-hand side
+  integer, intent(in) :: max_improv_steps ! max. number of the improvement steps, 0 to turn improvement off
+  real, intent(in)    :: eps       ! absolute allowed error in the solution
+  real, intent(inout) :: x(:)      ! solution
+  
+  
+  integer :: i,j,n,iter 
+  real    :: r(size(b)), residual
+  
+  ! TODO: check sizes
+  n = size(b)
+
+  ! calculate the initial solution of the system
+  do i = 1,n
+     x(i) = b(i)
+  enddo
+  call lubksb(alud,indx,x)
+  
+  ! improve the solution, if necessary
+  do iter = 1,max_improv_steps
+    residual = 0.0
+    do i=1,n
+      r(i)=-b(i) 
+      do j=1,n
+        ! Calculate the right-hand side, accumulating the residual
+        r(i)=r(i)+a(i,j)*x(j) 
+      enddo
+      residual = max(residual,abs(r(i)))
+    enddo
+    if (is_watch_point()) then
+       __DEBUG2__(iter,residual)
+    endif
+    if (residual < eps) exit    ! from loop, mission accomplished
+    call lubksb(alud,indx,r) ! solve the system for the residuals
+    ! correct the solution
+    do i=1,n
+      x(i)=x(i)-r(i) 
+    enddo
+  enddo
+end subroutine 
 
 ! ============================================================================
 subroutine update_land_model_slow ( cplr2land, land2cplr )

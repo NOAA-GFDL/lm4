@@ -90,7 +90,7 @@ type :: vegn_tile_type
    real :: harv_rate(N_HARV_POOLS) = 0.0 ! rates of spending (release to the atmosphere), kg C/(m2 yr)
 
    ! uptake-related variables
-   real :: root_distance(max_lev) ! characteristic half-distance betwee fine roots, m
+   real :: root_distance(max_lev) ! characteristic half-distance between fine roots, m
    
    ! values for the diagnostic of carbon budget and soil carbon acceleration
    real :: asoil_in=0
@@ -235,6 +235,9 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   __MERGE__(bsw)     ! biomass of sapwood, kg C/m2
   __MERGE__(bwood)   ! biomass of heartwood, kg C/m2
   __MERGE__(bliving) ! leaves, fine roots, and sapwood biomass
+  __MERGE__(nsc)     ! non-structural carbon, kgC/indiv
+  __MERGE__(bseed)   ! future progeny, kgC/indiv
+  __MERGE__(age)     ! age of individual
 
   __MERGE__(carbon_gain) ! carbon gain during a day, kg C/m2
   __MERGE__(carbon_loss) ! carbon loss during a day, kg C/m2 [diag only]
@@ -586,7 +589,8 @@ function vegn_tile_carbon(vegn) result(carbon) ; real carbon
      carbon = carbon + &
          (vegn%cohorts(i)%bl  + vegn%cohorts(i)%blv + &
           vegn%cohorts(i)%br + vegn%cohorts(i)%bwood + &
-          vegn%cohorts(i)%bsw + &
+          vegn%cohorts(i)%bsw + vegn%cohorts(i)%bseed + &
+          vegn%cohorts(i)%nsc + &
           vegn%cohorts(i)%carbon_gain + vegn%cohorts(i)%bwood_gain &
          )*vegn%cohorts(i)%nindivs
   enddo
