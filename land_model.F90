@@ -217,7 +217,7 @@ integer :: &
   id_Trad,     id_Tca,      id_qca,      id_qco2,     id_qco2_dvmr,        &
   id_swdn_dir, id_swdn_dif, id_swup_dir, id_swup_dif, id_lwdn,             &
   id_fco2,                                                                 &
-  id_vegn_cover,    id_vegn_cover_1,  id_vegn_cover_N, id_cosz,            &
+  id_vegn_cover,    id_vegn_cover_1,  id_vegn_cover_U, id_cosz,            &
   id_albedo_dir,    id_albedo_dif,                                         &
   id_vegn_refl_dir, id_vegn_refl_dif, id_vegn_refl_lw,                     &
   id_vegn_tran_dir, id_vegn_tran_dif, id_vegn_tran_lw,                     &
@@ -2931,8 +2931,8 @@ subroutine update_land_bc_fast (tile, N, i,j,k, land2cplr, is_init)
   ! ---- diagnostic section
   if (id_vegn_cover_1 > 0) &
      call send_tile_data(id_vegn_cover_1, sum(vegn_frac(:),mask=(vegn_layer==1)), tile%diag)
-  if (id_vegn_cover_N > 0) &
-     call send_tile_data(id_vegn_cover_N, sum(vegn_frac(:),mask=(vegn_layer>1)), tile%diag)
+  if (id_vegn_cover_U > 0) &
+     call send_tile_data(id_vegn_cover_U, sum(vegn_frac(:),mask=(vegn_layer>1)), tile%diag)
   call send_tile_data(id_vegn_cover, vegn_cover, tile%diag)
   call send_tile_data(id_cosz, cosz, tile%diag)
   call send_tile_data(id_albedo_dir, tile%land_refl_dir, tile%diag)
@@ -3452,7 +3452,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
              'fraction covered by vegetation', missing_value=-1.0 )
   id_vegn_cover_1 = register_tiled_diag_field ( module_name, 'vegn_cover_1', axes, time, &
              'fraction of vegetation in the top layer', missing_value=-1.0 )
-  id_vegn_cover_N = register_tiled_diag_field ( module_name, 'vegn_cover_N', axes, time, &
+  id_vegn_cover_U = register_tiled_diag_field ( module_name, 'vegn_cover_U', axes, time, &
              'fraction of vegetation in the understory', missing_value=-1.0 )
   id_cosz = register_tiled_diag_field ( module_name, 'coszen', axes, time, &
        'cosine of zenith angle', missing_value=-2.0 )
