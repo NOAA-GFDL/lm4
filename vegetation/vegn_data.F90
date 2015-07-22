@@ -15,7 +15,7 @@ use field_manager_mod, only: MODEL_LAND, fm_field_name_len, fm_string_len, &
      fm_get_current_list, fm_loop_over_list, fm_change_list
 use fm_util_mod, only : fm_util_get_real, fm_util_get_logical, fm_util_get_string
 
-use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR
+use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, MPa_per_m
 use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_VEGN, register_tile_selector
 use table_printer_mod
@@ -34,7 +34,7 @@ integer, public, parameter :: NG_SEL_TAG = 3 ! tag for natural grass selector
 integer, public, parameter :: & ! life form of the plant
  FORM_GRASS = 0, &
  FORM_WOODY = 1
- ! in furure, possibly add mosses...
+ ! in future, possibly add mosses...
  
 integer, public, parameter :: N_LM3_SPECIES = 5, & ! number of species
  SP_C4GRASS   = 0, & ! c4 grass
@@ -79,7 +79,7 @@ character(len=4), public, parameter  :: &
 character(len=32), public, parameter :: &
      landuse_longname (N_LU_TYPES) = (/ 'pasture  ', 'crop     ', 'natural  ', 'secondary' /)
 
-integer, public, parameter :: & ! harvesing pools paraneters
+integer, public, parameter :: & ! harvesting pools parameters
  N_HARV_POOLS        = 6, & ! number of harvesting pools
  HARV_POOL_PAST      = 1, & 
  HARV_POOL_CROP      = 2, &
@@ -94,6 +94,7 @@ data HARV_POOL_NAMES &
 real, public, parameter :: C2B = 2.0  ! carbon to biomass conversion factor
 
 real, public, parameter :: BSEED = 5e-5 ! seed density for supply/demand calculations, kg C/m2 
+
 ! ---- public types
 public :: spec_data_type
 
@@ -154,7 +155,6 @@ type spec_data_type
   ! the following two parameters are used in the Darcy-law calculations of water supply
   real    :: srl        = 24.4e3 ! specific root length, m/(kg C)
   real    :: root_r     = 2.9e-4 ! radius of the fine roots, m
-  real    :: root_perm  = 5.0e-7 ! fine root membrane permeability per unit area, kg/(m3 s)
 
   real    :: LMA        = 0.036  ! leaf mass per unit area, kg C/m2
   real    :: leaf_size  = 0.04   ! characteristic leaf size
@@ -219,7 +219,7 @@ type spec_data_type
   real    :: alphaCSASW    = 2.25e-2, thetaCSASW = 1.5 ! 
   real    :: maturalage    = 1.0    ! the age that can reproduce
   real    :: fecundity     = 0.0    ! max C allocated to next generation per unit canopy area, kg C/m2
-  real    :: v_seed        = 0.1    ! fracton of G_SF to G_F
+  real    :: v_seed        = 0.1    ! fraction of G_SF to G_F
   real    :: seedlingsize  = 0.02   ! size of the seedlings, kgC/indiv
   real    :: prob_g = 0.45, prob_e = 0.3 ! germination and establishment probabilities
   real    :: mortrate_d_c  = 0.05   ! daily mortality rate in canopy
@@ -229,9 +229,16 @@ type spec_data_type
   real    :: LAImax        = 3.0    ! max. LAI
   real    :: phiRL         = 2.69   ! ratio of fine root to leaf area
   real    :: phiCSA        = 2.5e-4 ! ratio of sapwood CSA to target leaf area
-  real    :: SRA           = 44.45982 ! speific fine root area, m2/kg C
+  real    :: SRA           = 44.45982 ! specific fine root area, m2/kg C
   real    :: tauNSC        = 0.8    ! residence time of C in NSC (to define storage capacity)
 
+  ! for hydraulics, wolf
+  real    :: Kram=5.0e-7/MPa_per_m ! Conductivity, max, per tissue area: units kg/m2 tissue/s/MPa
+                                   ! the default value is set to reproduce root_perm parameter of LM3
+  real    :: Kxam=0.0, Klam=0.0 ! Conductivity, max, per tissue area: units kg/m2 tissue/s/MPa
+  real    :: dx=0.0, dl=0.0       ! Breakpoint of Weibull function, units MPa
+  real    :: cx=1.0, cl=1.0	  ! Exponent of Weibull function, unitless
+  real    :: psi_tlp=0.0                  ! psi at turgor loss point
 end type
 
 ! ==== module data ===========================================================
@@ -287,7 +294,7 @@ real :: harvest_spending_time(N_HARV_POOLS) = &
      ! released to the atmosphere. 
      ! NOTE: a year in the above *_spending_time definitions is exactly 365*86400 seconds
 real :: l_fract      = 0.5 ! fraction of the leaves retained after leaf drop
-real :: T_transp_min = 0.0 ! lowest temperature at which transporation is enabled
+real :: T_transp_min = 0.0 ! lowest temperature at which transpiration is enabled
                            ! 0 means no limit, lm3v value is 268.0
 ! Ensheng's growth parameters:
 real :: b0_growth   = 0.02   ! min biomass for growth formula, kgC/indiv
@@ -302,7 +309,7 @@ real :: understory_lai_factor = 0.25
 ! ORDER.
 real  :: scnd_biomass_bins(10) &  
      = (/ 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 1000.0 /)
-real :: phen_ev1 = 0.5, phen_ev2 = 0.9 ! thresholds for evergreen/decidious 
+real :: phen_ev1 = 0.5, phen_ev2 = 0.9 ! thresholds for evergreen/deciduous 
       ! differentiation (see phenology_type in cohort.F90)
 real :: cmc_eps = 0.01 ! value of w/w_max for transition to linear function; 
                        ! the same value is used for liquid and snow
@@ -318,6 +325,7 @@ real :: mortrate_s = 2.3   ! mortality rate of starving plants, 1/year, 2.3 = ap
 real :: bseed_distr(NCMPT) = & ! partitioning of of new seedling biomass among compartments 
        (/     0.8,     0.2,     0.0,     0.0,     0.0,    0.0  /)
         !     nsc, sapwood,    leaf,    root,   vleaf,    wood 
+
 
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
@@ -434,7 +442,7 @@ subroutine read_vegn_data_namelist()
   spdata(:)%fact_crit_fire = max(0.0,spdata(:)%fact_crit_fire)
   where (spdata(:)%cnst_crit_fire/=0) spdata(:)%fact_crit_fire=0.0 
   write(unit,*)'reconciled fact_crit_fire and cnst_crit_fire'
-
+  
   call print_species_data(stdout())
   call print_species_data(stdlog())
   
@@ -502,7 +510,7 @@ subroutine read_species_data(name, sp)
   case('c4')
      sp%pt = PT_C4
   case default
-     call error_mesg(module_name,'Phisiology type "'//trim(str)//'" is invalid, use "C3" or "C4"', FATAL)
+     call error_mesg(module_name,'Physiology type "'//trim(str)//'" is invalid, use "C3" or "C4"', FATAL)
   end select
   
   str = fm_util_get_string('phenology_type', caller = module_name, default_value = 'deciduous', scalar = .true.)
@@ -543,7 +551,6 @@ subroutine read_species_data(name, sp)
 
   __PARSE__(srl)
   __PARSE__(root_r)
-  __PARSE__(root_perm)
 
   __PARSE__(cmc_lai)
   __PARSE__(cmc_pow)
@@ -595,7 +602,16 @@ subroutine read_species_data(name, sp)
   __PARSE__(tauNSC)
   __PARSE__(phiRL)
   __PARSE__(phiCSA)
-  ! end of Weng
+  ! hydraulics-related parameters
+  __PARSE__(Kxam)
+  __PARSE__(dx)
+  __PARSE__(cx)
+  __PARSE__(Klam)
+  __PARSE__(dl)
+  __PARSE__(cl)
+  __PARSE__(Kram)
+  __PARSE__(psi_tlp)
+  
 #undef __PARSE__
 
   if (.not.fm_change_list(current_list)) then
@@ -645,6 +661,20 @@ subroutine init_derived_species_data(sp)
    ! note that rho_wood was re-introduced for this calculation
    sp%alphaBM    = sp%rho_wood * sp%taperfactor * PI/4. * sp%alphaHT
    sp%alphaCSASW = sp%phiCSA*sp%LAImax*sp%alphaCA
+
+  ! Convert units: all pressure units stored in meters
+  sp%Kram = sp%Kram * MPa_per_m ! pressure in denominator
+  sp%Kxam = sp%Kxam * MPa_per_m
+  sp%Klam = sp%Klam * MPa_per_m
+  sp%dx   = sp%dx / MPa_per_m
+  sp%dl   = sp%dl / MPa_per_m
+  sp%cx   = sp%cx
+  sp%cl   = sp%cl
+  sp%psi_tlp = sp%psi_tlp / MPa_per_m  ! pressure in numerator
+  ! TLP need not be less than mortality threshold
+  ! TODO: make mortality threshold a namelist (or species) parameter?
+  sp%psi_tlp = max(sp%psi_tlp, sp%dx*(-log(0.1))**(1./sp%cx))  
+
 end subroutine init_derived_species_data
 
 ! ============================================================================
@@ -657,7 +687,7 @@ subroutine print_species_data(unit)
   call init_with_headers(table, spdata(:)%name)
   call add_row(table, 'Treefall dist. rate', spdata(:)%treefall_disturbance_rate)
   call add_row(table, 'Mortality kills balive', spdata(:)%mortality_kills_balive)
-  call add_row(table, 'Phisiology Type', spdata(:)%pt)
+  call add_row(table, 'Physiology Type', spdata(:)%pt)
   call add_row(table, 'Phenology Type',  spdata(:)%phent)
   call add_row(table, 'Life Form',       spdata(:)%form)
   call add_row(table, 'C1',            spdata(:)%c1)
@@ -682,7 +712,6 @@ subroutine print_species_data(unit)
 
   call add_row(table, 'srl',           spdata(:)%srl)
   call add_row(table, 'root_r',        spdata(:)%root_r)
-  call add_row(table, 'root_perm',     spdata(:)%root_perm)
 
   call add_row(table, 'leaf_size',     spdata(:)%leaf_size)
 
@@ -717,6 +746,15 @@ subroutine print_species_data(unit)
   call add_row(table, 'tauNSC', spdata(:)%tauNSC)
   call add_row(table, 'phiRL', spdata(:)%phiRL)
   call add_row(table, 'SRA', spdata(:)%SRA)
+
+  call add_row(table, 'Klam', spdata(:)%Klam)
+  call add_row(table, 'dl', spdata(:)%dl)
+  call add_row(table, 'cl', spdata(:)%cl)
+  call add_row(table, 'Kxam', spdata(:)%Kxam)
+  call add_row(table, 'dx', spdata(:)%dx)
+  call add_row(table, 'cx', spdata(:)%cx)
+  call add_row(table, 'Kram', spdata(:)%Kram)
+  call add_row(table, 'psi_tlp', spdata(:)%psi_tlp)
 
   call add_row(table, 'leaf_refl_vis', spdata(:)%leaf_refl(BAND_VIS))
   call add_row(table, 'leaf_refl_nir', spdata(:)%leaf_refl(BAND_NIR))

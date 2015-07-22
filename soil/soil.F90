@@ -419,6 +419,8 @@ subroutine soil_init ( id_lon, id_lat, id_band )
      call read_tile_data_r1d_fptr(unit, 'groundwater_T', soil_groundwater_T_ptr)
      if(nfu_inq_var(unit, 'uptake_T')==NF_NOERR) &
           call read_tile_data_r0d_fptr(unit, 'uptake_T', soil_uptake_T_ptr)
+     if(nfu_inq_var(unit, 'psi_rootvessel')==NF_NOERR) &
+          call read_tile_data_r0d_fptr(unit, 'psi_rootvessel', soil_psi_rootvessel_ptr)
      if(nfu_inq_var(unit, 'fsc')==NF_NOERR) then 
         call read_tile_data_r1d_fptr(unit,'fsc',soil_fast_soil_C_ptr)
         call read_tile_data_r1d_fptr(unit,'ssc',soil_slow_soil_C_ptr)
@@ -718,6 +720,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   call write_tile_data_r1d_fptr(unit,'groundwater'  ,soil_groundwater_ptr  ,'zfull')
   call write_tile_data_r1d_fptr(unit,'groundwater_T',soil_groundwater_T_ptr ,'zfull')
   call write_tile_data_r0d_fptr(unit,'uptake_T',     soil_uptake_T_ptr, 'temperature of transpiring water', 'degrees_K')
+  call write_tile_data_r0d_fptr(unit,'psi_rootvessel', soil_psi_rootvessel_ptr, 'water potential inside roots', 'm')
   call write_tile_data_r1d_fptr(unit,'fsc',          soil_fast_soil_C_ptr,'zfull','fast soil carbon', 'kg C/m2')
   call write_tile_data_r1d_fptr(unit,'ssc',          soil_slow_soil_C_ptr,'zfull','slow soil carbon', 'kg C/m2')
   
@@ -804,7 +807,7 @@ subroutine soil_data_beta ( soil, vegn, soil_beta, soil_water_supply, &
   VRL(:) = 0.0
   do k = 1, vegn%n_cohorts
      cc=>vegn%cohorts(k)
-     call cohort_root_properties (cc, dz(1:num_l), cc%root_length(1:num_l), cc%K_r, cc%r_r)
+     call cohort_root_properties (cc, dz(1:num_l), cc%root_length(1:num_l), cc%Kra, cc%r_r)
      VRL(:) = VRL(:)+cc%root_length(1:num_l)*cc%nindivs
   enddo
   
@@ -846,12 +849,12 @@ subroutine soil_data_beta ( soil, vegn, soil_beta, soil_water_supply, &
         soil_uptake_T(k) = sum(cc%uptake_frac(:)*soil%T(:))
      case(UPTAKE_DARCY2D)
         call darcy2d_uptake ( soil, psi_wilt, vegn%root_distance, cc%root_length, &
-             cc%K_r, cc%r_r, uptake_oneway, uptake_from_sat, u, du )
+             cc%Kra, cc%r_r, uptake_oneway, uptake_from_sat, u, du )
         soil_water_supply(k) = max(0.0,sum(u))
         soil_uptake_T(k) = soil%uptake_T
      case(UPTAKE_DARCY2D_LIN)
         call darcy2d_uptake_lin ( soil, psi_wilt, vegn%root_distance, cc%root_length, &
-             cc%K_r, cc%r_r, uptake_oneway, uptake_from_sat, u, du)
+             cc%Kra, cc%r_r, uptake_oneway, uptake_from_sat, u, du)
         soil_water_supply(k) = max(0.0,sum(u))
         soil_uptake_T(k) = soil%uptake_T
      end select
@@ -1140,13 +1143,21 @@ end subroutine soil_step_1
         ! transpiration by the vegetation
         if ( uptake_option==UPTAKE_DARCY2D ) then
            call darcy2d_uptake_solver     (soil, transp1, vegn%root_distance, &
-                cc%root_length, cc%K_r, cc%r_r, &
+                cc%root_length, cc%Kra, cc%r_r, &
                 uptake_oneway, uptake_from_sat, uptake1, psi_x0, n_iter)
         else
            call darcy2d_uptake_solver_lin (soil, transp1, vegn%root_distance, &
-                cc%root_length, cc%K_r, cc%r_r, &
+                cc%root_length, cc%Kra, cc%r_r, &
                 uptake_oneway, uptake_from_sat, uptake1, psi_x0, n_iter )
         endif
+        ! Solution provides psi inside the skin, given uptake and K_r for each level
+        ! This calculates effective psi outside the skin (root-soil interface) 
+        ! across all levels using single Kri for use in cavitation calculations.
+
+        cc%psi_rs = soil%psi_rootvessel + sum(uptake1)/cc%Kri ! Wolf
+        if (sum(uptake1) <= 0) cc%psi_rs = soil%psi_rootvessel
+        if (cc%psi_rs >= soil%pars%psi_sat_ref) cc%psi_rs = soil%pars%psi_sat_ref
+
         soil%psi_x0 = psi_x0
      end select
      if (is_watch_point()) then
@@ -2159,6 +2170,7 @@ DEFINE_SOIL_ACCESSOR_1D(real,groundwater)
 DEFINE_SOIL_ACCESSOR_1D(real,groundwater_T)
 DEFINE_SOIL_ACCESSOR_1D(real,w_fc)
 DEFINE_SOIL_ACCESSOR_0D(real,uptake_T)
+DEFINE_SOIL_ACCESSOR_0D(real,psi_rootvessel)
 DEFINE_SOIL_ACCESSOR_0D(integer,tag)
 DEFINE_SOIL_ACCESSOR_1D(real,fast_soil_C)
 DEFINE_SOIL_ACCESSOR_1D(real,slow_soil_C)

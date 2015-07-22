@@ -23,7 +23,7 @@ use vegn_tile_mod, only: vegn_tile_type, &
 use soil_tile_mod, only: soil_tile_type, soil_ave_temp, &
                          soil_ave_theta0, soil_ave_theta1, soil_psi_stress
 use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, mol_air, &
-     seconds_per_year
+     seconds_per_year, MPa_per_m
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
      get_elmt_indices, land_tile_heat, land_tile_carbon, get_tile_water
@@ -43,9 +43,9 @@ use vegn_data_mod, only : read_vegn_data_namelist, &
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time
      
 use vegn_cohort_mod, only : vegn_cohort_type, &
-     update_species, update_bio_living_fraction, &
-     get_vegn_wet_frac, vegn_data_cover, init_cohort_allometry_ppa, &
-     btotal, height_from_biomass, leaf_area_from_biomass
+     init_cohort_allometry_ppa, init_cohort_hydraulics, &
+     update_species, update_bio_living_fraction, get_vegn_wet_frac, &
+     vegn_data_cover, btotal, height_from_biomass, leaf_area_from_biomass
 use canopy_air_mod, only : cana_turbulence
 use soil_mod, only : soil_data_beta
      
@@ -129,6 +129,10 @@ character(32) :: co2_to_use_for_photosynthesis = 'prescribed' ! or 'interactive'
    ! 'interactive' : concentration of co2 in canopy air is used
 real    :: co2_for_photosynthesis = 350.0e-6 ! concentration of co2 for photosynthesis 
    ! calculations, mol/mol. Ignored if co2_to_use_for_photosynthesis is not 'prescribed'
+character(32) :: water_stress_to_use = 'lm3' ! type of water stress formulation:
+   ! 'lm3', 'plant-hydraulics', or 'none' 
+logical :: hydraulics_repair = .TRUE.
+
 logical :: allow_external_gaps = .TRUE. ! if TRUE, there may be gaps between
    ! cohorts of the canopy layers; otherwise canopies are stretched to fill 
    ! every layer completely. These gaps are called "external" in contrast to the
@@ -159,6 +163,7 @@ namelist /vegn_nml/ &
     init_cohort_bwood, init_cohort_bseed, init_cohort_nsc, init_cohort_cmc, &
     rad_to_use, snow_rad_to_use, photosynthesis_to_use, &
     co2_to_use_for_photosynthesis, co2_for_photosynthesis, &
+    water_stress_to_use, hydraulics_repair, &
     allow_external_gaps, &
     soil_decomp_option, &
     do_cohort_dynamics, do_patch_disturbance, do_phenology, &
@@ -195,7 +200,8 @@ integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_nindivs,  &
    id_nlayers, id_dbh, id_dbh_max, &
    id_crownarea, &
-   id_soil_water_supply, id_gdd, id_tc_pheno, id_zstar_1
+   id_soil_water_supply, id_gdd, id_tc_pheno, id_zstar_1, &
+   id_psi_rs, id_psi_r, id_psi_l, id_psi_x, id_Kri, id_Kxi, id_Kli
 ! ==== end of module variables ===============================================
 
 ! ==== NetCDF declarations ===================================================
@@ -267,7 +273,8 @@ subroutine read_vegn_namelist()
   call vegn_radiation_init(rad_to_use, snow_rad_to_use)
 
   ! ---- initialize vegetation photosynthesis options
-  call vegn_photosynthesis_init(photosynthesis_to_use)
+  call vegn_photosynthesis_init(photosynthesis_to_use, water_stress_to_use, &
+         hydraulics_repair)
 
 end subroutine read_vegn_namelist
 
@@ -336,32 +343,43 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      call read_cohort_data_r0d_fptr(unit, 'bsw', cohort_bsw_ptr )
      call read_cohort_data_r0d_fptr(unit, 'bwood', cohort_bwood_ptr )
      if(nfu_inq_var(unit,'nsc')==NF_NOERR) then
-          ! nsc is used as a flag to distinguish between PPA and LM3 restarts
-          call read_cohort_data_r0d_fptr(unit,'nsc',cohort_nsc_ptr)
-          call read_cohort_data_r0d_fptr(unit,'bseed',cohort_bseed_ptr)
-          call read_cohort_data_r0d_fptr(unit,'bl_max',cohort_bl_max_ptr)
-          call read_cohort_data_r0d_fptr(unit,'br_max',cohort_br_max_ptr)
-          call read_cohort_data_r0d_fptr(unit,'dbh',cohort_dbh_ptr)
-          call read_cohort_data_r0d_fptr(unit,'crownarea',cohort_crownarea_ptr)
-          call read_cohort_data_r0d_fptr(unit,'nindivs',cohort_nindivs_ptr)
-          call read_cohort_data_i0d_fptr(unit,'layer',cohort_layer_ptr)
-          call read_cohort_data_i0d_fptr(unit,'firstlayer',cohort_firstlayer_ptr)
-          call read_cohort_data_r0d_fptr(unit,'cohort_age',cohort_age_ptr)
-          ! TODO: possibly initialize cohort age with tile age if the cohort_age is
-          !       not present in the restart
-          call read_cohort_data_r0d_fptr(unit,'BM_ys',cohort_BM_ys_ptr)
-          call read_cohort_data_r0d_fptr(unit,'DBH_ys',cohort_DBH_ys_ptr)
-          call read_cohort_data_r0d_fptr(unit,'topyear',cohort_topyear_ptr)
-          call read_cohort_data_r0d_fptr(unit,'gdd',cohort_gdd_ptr)
+        ! nsc is used as a flag to distinguish between PPA and LM3 restarts
+        call read_cohort_data_r0d_fptr(unit,'nsc',cohort_nsc_ptr)
+        call read_cohort_data_r0d_fptr(unit,'bseed',cohort_bseed_ptr)
+        call read_cohort_data_r0d_fptr(unit,'bl_max',cohort_bl_max_ptr)
+        call read_cohort_data_r0d_fptr(unit,'br_max',cohort_br_max_ptr)
+        call read_cohort_data_r0d_fptr(unit,'dbh',cohort_dbh_ptr)
+        call read_cohort_data_r0d_fptr(unit,'crownarea',cohort_crownarea_ptr)
+        call read_cohort_data_r0d_fptr(unit,'nindivs',cohort_nindivs_ptr)
+        call read_cohort_data_i0d_fptr(unit,'layer',cohort_layer_ptr)
+        call read_cohort_data_i0d_fptr(unit,'firstlayer',cohort_firstlayer_ptr)
+        call read_cohort_data_r0d_fptr(unit,'cohort_age',cohort_age_ptr)
+        ! TODO: possibly initialize cohort age with tile age if the cohort_age is
+        !       not present in the restart
+        call read_cohort_data_r0d_fptr(unit,'BM_ys',cohort_BM_ys_ptr)
+        call read_cohort_data_r0d_fptr(unit,'DBH_ys',cohort_DBH_ys_ptr)
+        call read_cohort_data_r0d_fptr(unit,'topyear',cohort_topyear_ptr)
+        call read_cohort_data_r0d_fptr(unit,'gdd',cohort_gdd_ptr)
 
-          call read_tile_data_r0d_fptr(unit,'drop_wl',vegn_drop_wl_ptr)
-          call read_tile_data_r0d_fptr(unit,'drop_ws',vegn_drop_ws_ptr)
-          call read_tile_data_r0d_fptr(unit,'drop_hl',vegn_drop_hl_ptr)
-          call read_tile_data_r0d_fptr(unit,'drop_hs',vegn_drop_hs_ptr)
-          did_read_cohort_structure=.TRUE.
+        call read_tile_data_r0d_fptr(unit,'drop_wl',vegn_drop_wl_ptr)
+        call read_tile_data_r0d_fptr(unit,'drop_ws',vegn_drop_ws_ptr)
+        call read_tile_data_r0d_fptr(unit,'drop_hl',vegn_drop_hl_ptr)
+        call read_tile_data_r0d_fptr(unit,'drop_hs',vegn_drop_hs_ptr)
+
+        ! read hydraulics-related variables
+        call read_cohort_data_r0d_fptr(unit, 'psi_rs', cohort_psi_rs_ptr )
+        call read_cohort_data_r0d_fptr(unit, 'psi_r', cohort_psi_r_ptr )
+        call read_cohort_data_r0d_fptr(unit, 'psi_x', cohort_psi_x_ptr )
+        call read_cohort_data_r0d_fptr(unit, 'psi_l', cohort_psi_l_ptr )
+        call read_cohort_data_r0d_fptr(unit, 'Kra',   cohort_Kra_ptr )
+        call read_cohort_data_r0d_fptr(unit, 'Kxa',   cohort_Kxa_ptr )
+        call read_cohort_data_r0d_fptr(unit, 'Kla',   cohort_Kla_ptr )
+        call read_cohort_data_r0d_fptr(unit, 'Kri',   cohort_Kri_ptr )
+        did_read_cohort_structure=.TRUE.
      else 
-          did_read_cohort_structure=.FALSE.
+        did_read_cohort_structure=.FALSE.
      endif
+     
      call read_cohort_data_r0d_fptr(unit, 'bliving', cohort_bliving_ptr )
      call read_cohort_data_i0d_fptr(unit, 'status', cohort_status_ptr )
      if(nfu_inq_var(unit,'leaf_age')==NF_NOERR) &
@@ -497,6 +515,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
         else
            cc%species = tile%vegn%tag
         endif
+        cc%Kra = spdata(cc%species)%Kram
         end associate
      enddo
   enddo
@@ -510,13 +529,14 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
         if (.not.associated(tile%vegn)) cycle
         do n = 1, tile%vegn%n_cohorts
            call init_cohort_allometry_ppa(tile%vegn%cohorts(n))
+           call init_cohort_hydraulics(tile%vegn%cohorts(n), tile%soil%pars%psi_sat_ref) ! adam wolf
            ! initialize DBH_ys
            tile%vegn%cohorts(n)%DBH_ys = tile%vegn%cohorts(n)%dbh
            tile%vegn%cohorts(n)%BM_ys  = tile%vegn%cohorts(n)%bsw + &
                                          tile%vegn%cohorts(n)%bwood
         enddo
         call relayer_cohorts(tile%vegn) ! this can change the number of cohorts
-     enddo   
+     enddo
   endif
     
   ! initialize carbon integrator
@@ -575,7 +595,7 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
   id_dbh_max = register_cohort_diag_field( module_name, 'dbh_max', &
        (/id_lon,id_lat/), time, 'maximum diameter at breast height', 'm', missing_value=-1.0, opc='maximum' )
   id_crownarea = register_cohort_diag_field( module_name, 'crownarea', &
-       (/id_lon,id_lat/), time, 'area of individuals crown', 'm2', missing_value=-1.0, opc='mean' )
+       (/id_lon,id_lat/), time, 'mean area of individuals crown', 'm2', missing_value=-1.0, opc='mean' )
 
   id_temp = register_cohort_diag_field ( module_name, 'temp',  &
        (/id_lon,id_lat/), time, 'canopy temperature', 'degK', missing_value=-1.0, opc='mean' )
@@ -624,6 +644,20 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
   id_an_cl = register_cohort_diag_field ( module_name, 'an_cl',  &
        (/id_lon,id_lat/), time, 'net photosynthesis with closed stomata', &
        '(mol CO2)(m2 of leaf)^-1 year^-1', missing_value=-1e20, opc='mean' )
+  id_psi_rs = register_cohort_diag_field ( module_name, 'psi_rs', &
+       (/id_lon,id_lat/), time, 'root-soil water potential', 'MPa', missing_value=-1e20, opc='mean')
+  id_psi_r  = register_cohort_diag_field ( module_name, 'psi_r',  &
+       (/id_lon,id_lat/), time, 'root water potential', 'MPa', missing_value=-1e20, opc='mean')
+  id_psi_x  = register_cohort_diag_field ( module_name, 'psi_x',  &
+       (/id_lon,id_lat/), time, 'stem water potential', 'MPa', missing_value=-1e20, opc='mean')
+  id_psi_l  = register_cohort_diag_field ( module_name, 'psi_l', &
+       (/id_lon,id_lat/), time, 'leaf water potential', 'MPa', missing_value=-1e20, opc='mean')
+  id_Kri  = register_cohort_diag_field ( module_name, 'Kri',  &
+       (/id_lon,id_lat/), time, 'root conductance', 'kg/(indiv s MPa)', missing_value=-1e20, opc='mean')
+  id_Kxi  = register_cohort_diag_field ( module_name, 'Kxi',  &
+       (/id_lon,id_lat/), time, 'stem conductance', 'kg/(indiv s MPa)', missing_value=-1e20, opc='mean')
+  id_Kli  = register_cohort_diag_field ( module_name, 'Kli',  &
+       (/id_lon,id_lat/), time, 'leaf conductance', 'kg/(indiv s MPa)', missing_value=-1e20, opc='mean')
 
   id_bl = register_cohort_diag_field ( module_name, 'bl',  &
        (/id_lon,id_lat/), time, 'biomass of leaves', 'kg C/m2', missing_value=-1.0, opc='sum' )
@@ -854,6 +888,16 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call write_cohort_data_r0d_fptr(unit,'DBH_ys', cohort_DBH_ys_ptr, 'DBH at the end of previous year','m')
   call write_cohort_data_r0d_fptr(unit,'topyear', cohort_topyear_ptr, 'time spent in the top canopy layer','years')
   call write_cohort_data_r0d_fptr(unit,'gdd', cohort_gdd_ptr, 'growing degree days','degC day')
+
+  ! wolf restart data - psi, Kxa
+  call write_cohort_data_r0d_fptr(unit, 'psi_rs', cohort_psi_rs_ptr, 'psi rootsoil', 'm')
+  call write_cohort_data_r0d_fptr(unit, 'psi_r', cohort_psi_r_ptr, 'psi root', 'm')
+  call write_cohort_data_r0d_fptr(unit, 'psi_x', cohort_psi_x_ptr, 'psi stem', 'm' )
+  call write_cohort_data_r0d_fptr(unit, 'psi_l', cohort_psi_l_ptr, 'psi leaf', 'm' )
+  call write_cohort_data_r0d_fptr(unit, 'Kra',   cohort_Kra_ptr, 'K root per area', 'kg/m2s/m')
+  call write_cohort_data_r0d_fptr(unit, 'Kxa',   cohort_Kxa_ptr, 'K stem per area', 'kg/m2s/(m/m)')
+  call write_cohort_data_r0d_fptr(unit, 'Kla',   cohort_Kla_ptr, 'K leaf per area', 'kg/m2s/m')
+  call write_cohort_data_r0d_fptr(unit, 'Kri',   cohort_Kri_ptr, 'K root per indiv', 'kg/s/m')
   
   call write_cohort_data_r0d_fptr(unit,'bliving', cohort_bliving_ptr, 'total living biomass','kg C/individual')
   call write_cohort_data_r0d_fptr(unit,'nindivs',cohort_nindivs_ptr, 'number of individuals', 'individuals/m2')
@@ -1126,9 +1170,9 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   precip_above_s = precip_s ; precip_under_s = precip_s
   current_layer = cc(1)%layer
   do i = 1, vegn%n_cohorts
-     call vegn_photosynthesis ( cc(i), &
-        SWdn(i,BAND_VIS), RSv(i,BAND_VIS), cana_q, phot_co2, p_surf, drag_q, &
-        soil_beta(i), soil_water_supply(i), stomatal_cond )
+     call vegn_photosynthesis (cc(i), &
+        SWdn(i,BAND_VIS), RSv(i,BAND_VIS), cana_T, cana_q, phot_co2, p_surf, drag_q, &
+        soil_beta(i), soil_water_supply(i), con_v_v(i), stomatal_cond )     
 
      ! accumulate total value of stomatal conductance for diagnostics.
      ! stomatal_cond is per unit area of cohort (multiplied by LAI in the
@@ -1286,6 +1330,15 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   call send_tile_data(id_con_v_v, sum(con_v_v(:)*cc(:)%layerfrac), diag)
   call send_tile_data(id_phot_co2, phot_co2, diag)
   call send_tile_data(id_soil_water_supply, sum(soil_water_supply(:)*cc(:)%nindivs), diag)
+  ! plant hydraulics diagnostics
+  call send_cohort_data(id_Kri   , diag, cc(:), cc(:)%Kri    / MPa_per_m, weight=cc(:)%nindivs)
+  call send_cohort_data(id_Kxi   , diag, cc(:), cc(:)%Kxi    / MPa_per_m, weight=cc(:)%nindivs)
+  call send_cohort_data(id_Kli   , diag, cc(:), cc(:)%Kli    / MPa_per_m, weight=cc(:)%nindivs)
+  ! TODO: perhaps use something else for averaging weight
+  call send_cohort_data(id_psi_rs, diag, cc(:), cc(:)%psi_rs * MPa_per_m, weight=cc(:)%nindivs)
+  call send_cohort_data(id_psi_r , diag, cc(:), cc(:)%psi_r  * MPa_per_m, weight=cc(:)%nindivs)
+  call send_cohort_data(id_psi_x , diag, cc(:), cc(:)%psi_x  * MPa_per_m, weight=cc(:)%nindivs)
+  call send_cohort_data(id_psi_l , diag, cc(:), cc(:)%psi_l  * MPa_per_m, weight=cc(:)%nindivs)
 
 end subroutine vegn_step_1
 
@@ -2153,5 +2206,15 @@ DEFINE_COHORT_ACCESSOR(real,DBH_ys)
 DEFINE_COHORT_ACCESSOR(real,topyear)
 DEFINE_COHORT_ACCESSOR(real,gdd)
 DEFINE_COHORT_ACCESSOR(real,height)
+
+! wolf
+DEFINE_COHORT_ACCESSOR(real,psi_rs)
+DEFINE_COHORT_ACCESSOR(real,psi_r)
+DEFINE_COHORT_ACCESSOR(real,psi_x)
+DEFINE_COHORT_ACCESSOR(real,psi_l)
+DEFINE_COHORT_ACCESSOR(real,Kra)
+DEFINE_COHORT_ACCESSOR(real,Kxa)
+DEFINE_COHORT_ACCESSOR(real,Kla)
+DEFINE_COHORT_ACCESSOR(real,Kri)
 
 end module vegetation_mod

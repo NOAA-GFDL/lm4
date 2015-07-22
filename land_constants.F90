@@ -1,6 +1,6 @@
 module land_constants_mod
 
-use constants_mod, only : rdgas, rvgas, wtmair
+use constants_mod, only : rdgas, rvgas, wtmair, dens_h2o, grav
 
 implicit none
 private
@@ -22,6 +22,9 @@ real, public, parameter :: mol_C = 12.0e-3 ! molar mass of carbon, kg
 real, public, parameter :: mol_air = wtmair/1000.0 ! molar mass of air, kg
 real, public, parameter :: mol_CO2 = 44.00995e-3 ! molar mass of CO2,kg
 real, public, parameter :: mol_h2o = 18.0e-3 ! molar mass of water, kg
+
+real, public, parameter :: MPa_per_m = dens_h2o*grav*1.0e-6 ! pressure of one meter of water, Mega Pascal
+
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================

@@ -53,7 +53,7 @@ character(len=*), private, parameter :: &
    tagname = '$Name$' ,&
    module_name = 'vegn'
 
-real, parameter :: GROWTH_RESP=0.333  ! fraction of npp lost as growth respiration
+real, parameter :: GROWTH_RESP=0.333  ! fraction of NPP lost as growth respiration
 integer, parameter :: USE_AVE_T_AND_THETA=1, USE_LAYER_T_AND_THETA=2 ! soil decomposition options
 
 
@@ -380,7 +380,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      md_wood = 0.0
      if (spdata(cc%species)%form == FORM_WOODY) then 
         ! md_wood = 0.6 *cc%bwood * sp%alpha(CMPT_WOOD)*dt_fast_yr
-        ! set turnoverable wood biomass as a linear funcion of bl_max (max.foliage
+        ! set turnoverable wood biomass as a linear function of bl_max (max.foliage
         ! biomass) (Wang, Chuankuan 2006)
         md_wood = MIN(cc%bwood,cc%bl_max) * sp%alpha(CMPT_LEAF)*dt_fast_yr
      endif
@@ -399,7 +399,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      resp = resp + cc%resp*cc%nindivs ; resl = resl + cc%resl*cc%nindivs
      resr = resr + cc%resr*cc%nindivs ; resg = resg + cc%resg*cc%nindivs
 
-     ! increment tha cohort age
+     ! increment cohort age
      cc%age = cc%age + dt_fast_yr
      ! cc%resg = 0 ! slm: that doesn't make much sense to me... why?
      end associate
@@ -428,7 +428,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   ! update soil carbon
   call Dsdt(vegn, soil, diag, tsoil, theta)
 
-  ! NEP is equal to NNP minus soil respiration
+  ! NEP is equal to NPP minus soil respiration
   vegn%nep = vegn%npp - vegn%rh
 
   call update_soil_pools(vegn, soil)
@@ -488,7 +488,7 @@ subroutine vegn_growth (vegn)
         
         call update_biomass_pools(cc)
         
-        ! reset carbon acculmulation terms
+        ! reset carbon accumulation terms
         cc%carbon_gain = 0
         cc%carbon_loss = 0
         cc%bwood_gain  = 0
@@ -619,8 +619,10 @@ subroutine biomass_allocation_ppa(cc)
   real :: deltaDBH ! tendency of breast height diameter, m
   real :: deltaCA ! tendency of crown area, m2/individual
   real :: deltaHeight ! tendency of vegetation height
+  real :: deltaCSAsw ! tendency of sapwood area
 
   real, parameter :: DBHtp = 0.8 ! m
+  logical :: hydraulics_repair = .FALSE.
 
   associate (sp => spdata(cc%species)) ! F2003
 
@@ -673,6 +675,13 @@ subroutine biomass_allocation_ppa(cc)
      DBHwd    = 2*sqrt(CSAwd/PI)
      BSWmax   = sp%alphaBM * (cc%DBH**sp%thetaBM - DBHwd**sp%thetaBM)
    
+    ! Update Kxa, stem conductance if we are tracking past damage
+    ! TODO: make hydraulics_repair a namelist parameter?
+    if (.not.hydraulics_repair) then
+       deltaCSAsw = CSAsw - (sp%alphaCSASW * (cc%DBH - deltaDBH)**sp%thetaCSASW)
+       cc%Kxa = (cc%Kxa*CSAsw + sp%Kxam*deltaCSAsw)/(CSAsw + deltaCSAsw)
+    endif
+
      deltaBwood = max(cc%bsw - BSWmax, 0.0)
      cc%bwood   = cc%bwood + deltaBwood
      cc%bsw     = cc%bsw   - deltaBwood
@@ -684,7 +693,7 @@ subroutine biomass_allocation_ppa(cc)
      cc%nsc = cc%nsc + cc%carbon_gain
   endif ! cc%status == LEAF_ON
 
-  ! reset carbon acculmulation terms
+  ! reset carbon accumulation terms
   cc%carbon_gain = 0
   cc%carbon_loss = 0
   
@@ -742,7 +751,7 @@ end subroutine Dsdt
 
 
 ! ============================================================================
-! The combined reduction in decomposition rate as a funciton of TEMP and MOIST
+! The combined reduction in decomposition rate as a function of TEMP and MOIST
 ! Based on CENTURY Parton et al 1993 GBC 7(4):785-809 and Bolker's copy of
 ! CENTURY code
 elemental function A_function(soilt, theta) result(A)
@@ -752,9 +761,9 @@ elemental function A_function(soilt, theta) result(A)
 
   real :: soil_temp; ! temperature of the soil, deg C
   real :: Td; ! rate multiplier due to temp
-  real :: Wd; ! rate reduction due to mositure
+  real :: Wd; ! rate reduction due to moisture
 
-  ! coefficeints and terms used in temperaturex term
+  ! coefficients and terms used in temperature term
   real :: Topt,Tmax,t1,t2,tshl,tshr;
 
   soil_temp = soilt-273.16;
@@ -794,7 +803,7 @@ end function A_function
 ! ============================================================================
 ! calculated thermal inhibition factor depending on temperature
 function thermal_inhibition(T) result(tfs); real tfs
-  real, intent(in) :: T ! demperature, degK
+  real, intent(in) :: T ! temperature, degK
   
   tfs = exp(3000.0*(1.0/288.16-1.0/T));
   tfs = tfs / ( &
@@ -941,7 +950,7 @@ subroutine vegn_phenology_ppa(vegn, soil)
         vegn%tc_pheno > sp%tc_crit ) then
              cc%status = LEAF_ON
 !       count the time of a tree staying in canopy layer and 
-!       calculate targe ammounts of leaves and fine roots of this growing season
+!       calculate targe amounts of leaves and fine roots of this growing season
         BL_u = sp%LMA * sp%LAImax * cc%crownarea * &
               (1.0-sp%internal_gap_frac) * understory_lai_factor
         BL_c = sp%LMA * sp%LAImax * cc%crownarea * &
@@ -1095,7 +1104,7 @@ end function cohort_can_reproduce
 ! ============================================================================
 ! the reproduction of each canopy cohort, yearly time step
 ! calculate the new cohorts added in this step and states:
-! tree density, DBH, woddy and living biomass
+! tree density, DBH, woody and living biomass
 subroutine vegn_reproduction_ppa (vegn,soil)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil

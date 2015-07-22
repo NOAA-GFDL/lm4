@@ -150,7 +150,7 @@ subroutine darcy2d_flow (psi_x, psi_soil, K_sat, psi_sat, b, K_r, r_r, R, eps, u
   K_s = C_r*K_sat*(min(psi_root,psi_sat)/psi_sat)**(n-1)
   du = -K_root*K_s/(K_root+K_s)
 
-end subroutine 
+end subroutine darcy2d_flow
 
 
 ! ============================================================================
@@ -231,7 +231,7 @@ end subroutine darcy2d_uptake
 ! uptake by the vegetation. 
 subroutine darcy2d_uptake_solver (soil, vegn_uptk, R, VRL, K_r, r_r, uptake_oneway, &
      uptake_from_sat, uptake, psi_x0, n_iter)
-  type(soil_tile_type), intent(in) :: soil
+  type(soil_tile_type), intent(inout) :: soil
   real, intent(in)  :: &
        vegn_uptk, & ! uptake requested by vegetation, kg/(m2 s)
        R(:),      & ! characteristic half-distance between roots, m
@@ -265,7 +265,7 @@ end subroutine darcy2d_uptake_solver
 ! a solution
 subroutine uptake_solver_K (soil, vegn_uptk, R, VRL, K_r, r_r, uptake_oneway, &
      uptake_from_sat, uptake, psi_x0, n_iter, uptake_subr)
-  type(soil_tile_type), intent(in) :: soil
+  type(soil_tile_type), intent(inout) :: soil
   real, intent(in)  :: &
        vegn_uptk, & ! uptake requested by vegetation, kg/(m2 s)
        R(:),      & ! characteristic half-distance between roots, m
@@ -390,6 +390,12 @@ subroutine uptake_solver_K (soil, vegn_uptk, R, VRL, K_r, r_r, uptake_oneway, &
         xh = x2
      endif
      
+     ! x2 is solution of psi on the inside of the root, given the rate of uptake,
+     ! the root skin permeability (K_r) and psi at the root-soil interface.
+     ! x2 is a single value for the entire root system and accounts for
+     ! all variations with depth. Here, for the purposes of plant 
+     soil%psi_rootvessel = x2
+     
      if(is_watch_point()) then
         write(*,*)'#### After iteration',n_iter
         __DEBUG2__(vegn_uptk,sum(uptake))
@@ -446,7 +452,7 @@ subroutine darcy2d_flow_lin (psi_x, psi_soil, psi_root0, K_sat, psi_sat, b, K_r,
   du = K_root/(-du_soil+K_root)*du_soil
   ! water potential at the root-soil interface
   psi_root = psi_x + u/K_root
-end subroutine 
+end subroutine darcy2d_flow_lin
 
 
 ! ============================================================================
@@ -506,7 +512,7 @@ end subroutine
 ! ============================================================================
 subroutine darcy2d_uptake_solver_lin ( soil, vegn_uptk, R, VRL, K_r, r_r, &
      uptake_oneway, uptake_from_sat, uptake, psi_x0, n_iter )
-  type(soil_tile_type), intent(in) :: soil
+  type(soil_tile_type), intent(inout) :: soil
   real, intent(in) :: &
        vegn_uptk, & ! uptake requested by vegetation, kg/(m2 s)
        R(:),      & ! characteristic half-distance between roots, m
