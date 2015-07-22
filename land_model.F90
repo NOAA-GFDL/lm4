@@ -31,6 +31,7 @@ use sphum_mod, only : qscomp
 use tracer_manager_mod, only : NO_TRACER
 
 use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, mol_air, mol_C, mol_co2
+use land_tracers_mod, only : land_tracers_init, land_tracers_end, ntcana, isphum, ico2
 use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_temp, &
      glac_radiation, glac_step_1, glac_step_2, save_glac_restart
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
@@ -299,6 +300,9 @@ subroutine land_model_init &
   ! [ ] initialize tile-specific and cohort-specific diagnostics internals
   call tile_diag_init()
 
+  ! initialize some tracer indices
+  call land_tracers_init()
+  
   ! [2] read namelists
   ! [2.1] read land model namelist
 #ifdef INTERNAL_FILE_NML
@@ -453,7 +457,7 @@ subroutine land_model_init &
 
   ! [9] check the properties of co2 exchange with the atmosphere and set appropriate
   ! flags
-  if (canopy_air_mass_for_tracers==0.and.lnd%ico2==NO_TRACER) then
+  if (canopy_air_mass_for_tracers==0.and.ico2==NO_TRACER) then
      call error_mesg('land_model_init', &
           'canopy_air_mass_for_tracers is set to zero, and CO2 exchange with the atmosphere is not set up: '// &
           'canopy air CO2 concentration will not be updated',NOTE)
@@ -499,6 +503,8 @@ subroutine land_model_end (cplr2land, land2cplr)
   call dealloc_land2cplr(land2cplr, dealloc_discharges=.TRUE.)
   call dealloc_cplr2land(cplr2land)
 
+  call land_tracers_end()
+  
   call tile_diag_end()
 
   ! deallocate tiles
@@ -1013,13 +1019,6 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
         ! set this point coordinates as current for debug output
         call set_current_point(i-is+lnd%is,j-js+lnd%js,k)
    
-        if (lnd%ico2/=NO_TRACER) then
-           fco2_0  = cplr2land%tr_flux(i,j,k, lnd%ico2)
-           Dfco2Dq = cplr2land%dfdtr  (i,j,k, lnd%ico2)
-        else
-           fco2_0  = 0
-           Dfco2Dq = 0
-        endif
         ISa_dn_dir(BAND_VIS) = cplr2land%sw_flux_down_vis_dir(i,j,k)
         ISa_dn_dir(BAND_NIR) = cplr2land%sw_flux_down_total_dir(i,j,k)&
                               -cplr2land%sw_flux_down_vis_dir(i,j,k)
@@ -1040,8 +1039,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
         call update_land_model_fast_0d(tile, i,j,k, n_cohorts, land2cplr, &
            cplr2land%lprec(i,j,k),  cplr2land%fprec(i,j,k), cplr2land%tprec(i,j,k), &
            cplr2land%t_flux(i,j,k), cplr2land%dhdt(i,j,k), &
-           cplr2land%tr_flux(i,j,k, lnd%isphum), cplr2land%dfdtr(i,j,k, lnd%isphum), &
-           fco2_0, Dfco2Dq, &
+           cplr2land%tr_flux(i,j,k,:), cplr2land%dfdtr(i,j,k,:), &
            ISa_dn_dir, ISa_dn_dif, cplr2land%lwdn_flux(i,j,k), &
            cplr2land%ustar(i,j,k), cplr2land%p_surf(i,j,k), cplr2land%drag_q(i,j,k), &
            phot_co2_overridden, phot_co2_data(i,j),&
@@ -1056,7 +1054,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
         call send_tile_data(id_z0s,  land2cplr%rough_heat(i,j,k),    tile%diag)
         call send_tile_data(id_Trad, land2cplr%t_surf(i,j,k),        tile%diag)
         call send_tile_data(id_Tca,  land2cplr%t_ca(i,j,k),          tile%diag)
-        call send_tile_data(id_qca,  land2cplr%tr(i,j,k,lnd%isphum), tile%diag)
+        call send_tile_data(id_qca,  land2cplr%tr(i,j,k,isphum),     tile%diag)
 	call send_tile_data(id_cd_m, cplr2land%cd_m(i,j,k),          tile%diag)
 	call send_tile_data(id_cd_t, cplr2land%cd_t(i,j,k),          tile%diag)
      enddo
@@ -1221,7 +1219,7 @@ end subroutine update_land_model_fast
 ! ============================================================================
 subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
    precip_l, precip_s, atmos_T, &
-   Ha0, DHaDTc, Ea0, DEaDqc, fco2_0, Dfco2Dq,&
+   Ha0, DHaDTc, tr_flux, dfdtr, &
    ISa_dn_dir, ISa_dn_dif, ILa_dn, &
    ustar, p_surf, drag_q, &
    phot_co2_overridden, phot_co2_data, &
@@ -1235,9 +1233,8 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   real, intent(in) :: &
        precip_l, precip_s, & ! liquid and solid precipitation, kg/(m2 s)
        atmos_T, &        ! incoming precipitation temperature (despite its name), deg K
+       tr_flux(:), dfdtr(:), &  ! tracer flux from canopy air to the atmosphere
        Ha0,   DHaDTc, &  ! sensible heat flux from the canopy air to the atmosphere 
-       Ea0,   DEaDqc, &  ! water vapor flux from canopy air to the atmosphere
-       fco2_0,Dfco2Dq,&  ! co2 flux from canopy air to the atmosphere
        ISa_dn_dir(NBANDS), & ! downward direct sw radiation at the top of the canopy
        ISa_dn_dif(NBANDS), & ! downward diffuse sw radiation at the top of the canopy
        ILa_dn,             & ! downward lw radiation at the top of the canopy
@@ -1260,6 +1257,8 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   ! linearization coefficients of various fluxes between components of land
   ! surface scheme
   real :: &
+       Ea0,   DEaDqc, &  ! water vapor flux
+       fco2_0,Dfco2Dq,&  ! co2 flux from canopy air to the atmosphere
        G0,    DGDTg,  &  ! ground heat flux 
        Hg0,   DHgDTg,   DHgDTc, & ! linearization of the sensible heat flux from ground
        Eg0,   DEgDTg,   DEgDqc, DEgDpsig, & ! linearization of evaporation from ground
@@ -1355,6 +1354,9 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
      write(*,*)
      call print_date(land_time, '#### update_land_model_fast_0d begins:')
   endif
+
+  Ea0    = tr_flux(isphum) ; DEaDqc  = dfdtr(isphum)
+  fco2_0 = tr_flux(ico2)   ; Dfco2Dq = dfdtr(ico2)
 
   ! + conservation check, part 1: calculate the pre-transition totals
   call get_tile_water(tile,lmass0,fmass0)
@@ -2015,12 +2017,12 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   ! the concentration.
   if(update_cana_co2) then
      delta_co2 = (vegn_fco2 - fco2_0)/(canopy_air_mass_for_tracers/delta_time+Dfco2Dq)
-     tile%cana%co2 = tile%cana%co2 + delta_co2
+     tile%cana%tr(ico2) = tile%cana%tr(ico2) + delta_co2
   else
      delta_co2 = 0
   endif
   if(is_watch_point())then
-     __DEBUG1__(tile%cana%co2)
+     __DEBUG1__(tile%cana%tr(ico2))
      __DEBUG3__(fco2_0,Dfco2Dq,vegn_fco2)
   endif
   
@@ -2152,9 +2154,9 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   call send_tile_data(id_grnd_flux, grnd_flux,                        tile%diag)
   if(grnd_E_max.lt.0.5*HUGE(grnd_E_Max)) &
       call send_tile_data(id_levapg_max, grnd_E_max,                  tile%diag)
-  call send_tile_data(id_qco2,    tile%cana%co2,                      tile%diag)
+  call send_tile_data(id_qco2,    tile%cana%tr(ico2),                 tile%diag)
   call send_tile_data(id_qco2_dvmr,&
-       tile%cana%co2*mol_air/mol_co2/(1-tile%cana%q),                 tile%diag)
+       tile%cana%tr(ico2)*mol_air/mol_co2/(1-tile%cana%tr(isphum)),   tile%diag)
   call send_tile_data(id_fco2,    vegn_fco2*mol_C/mol_co2,            tile%diag)
   call send_tile_data(id_swdn_dir, ISa_dn_dir,                        tile%diag)
   call send_tile_data(id_swdn_dif, ISa_dn_dif,                        tile%diag)
@@ -2962,7 +2964,7 @@ subroutine update_land_bc_fast (tile, N, i,j,k, land2cplr, is_init)
 
   land2cplr%t_surf         (i,j,k) = tfreeze
   land2cplr%t_ca           (i,j,k) = tfreeze
-  land2cplr%tr             (i,j,k, lnd%isphum) = 0.0
+  land2cplr%tr             (i,j,k, isphum) = 0.0
   land2cplr%albedo         (i,j,k) = 0.0
   land2cplr%albedo_vis_dir (i,j,k) = 0.0
   land2cplr%albedo_nir_dir (i,j,k) = 0.0
@@ -2990,12 +2992,10 @@ subroutine update_land_bc_fast (tile, N, i,j,k, land2cplr, is_init)
   land2cplr%tile_size      (i,j,k) = tile%frac
 
   call cana_state ( tile%cana, land2cplr%t_ca(i,j,k), &
-                               land2cplr%tr(i,j,k,lnd%isphum), cana_co2)
+                               land2cplr%tr(i,j,k,isphum), cana_co2)
 !  land2cplr%t_ca           (i,j,k) = tile%cana%T
-!  land2cplr%tr             (i,j,k,lnd%isphum) = tile%cana%q
-  if(lnd%ico2/=NO_TRACER) then
-     land2cplr%tr(i,j,k,lnd%ico2) = cana_co2
-  endif
+!  land2cplr%tr             (i,j,k,isphum) = tile%cana%q
+  land2cplr%tr(i,j,k,ico2) = cana_co2
   land2cplr%albedo_vis_dir (i,j,k) = tile%land_refl_dir(BAND_VIS)
   land2cplr%albedo_nir_dir (i,j,k) = tile%land_refl_dir(BAND_NIR)
   land2cplr%albedo_vis_dif (i,j,k) = tile%land_refl_dif(BAND_VIS)
