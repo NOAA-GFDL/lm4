@@ -1607,22 +1607,22 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   call lubksb_and_improve(A,ALUD,indx,B1,max_improv_steps,solution_tol,X1)
   call lubksb_and_improve(A,ALUD,indx,B2,max_improv_steps,solution_tol,X2)
 
-  if(is_watch_point()) then
-     write(*,*)'#### solution: X0, X1, X2 ####'
-     do ii = 1, size(A,1)
-        __DEBUG3__(X0(ii),X1(ii),X2(ii))
-     enddo
-     write(*,*)'#### solution check ####'
-     do ii = 1, size(A,1)
-        sum0 = 0; sum1 = 0; sum2=0
-        do jj = 1, size(A,2)
-           sum0 = sum0 + A(ii,jj)*X0(jj)
-           sum1 = sum1 + A(ii,jj)*X1(jj)
-           sum2 = sum2 + A(ii,jj)*X2(jj)
-        enddo
-        __DEBUG3__(sum0-B0(ii),sum1-B1(ii),sum2-B2(ii))
-     enddo
-  endif
+!  if(is_watch_point()) then  
+!     write(*,*)'#### solution: X0, X1, X2 ####'  
+!     do ii = 1, size(A,1)  
+!        __DEBUG3__(X0(ii),X1(ii),X2(ii))  
+!     enddo  
+!     write(*,*)'#### solution check ####'  
+!     do ii = 1, size(A,1)  
+!        sum0 = 0; sum1 = 0; sum2=0  
+!        do jj = 1, size(A,2)  
+!           sum0 = sum0 + A(ii,jj)*X0(jj)  
+!           sum1 = sum1 + A(ii,jj)*X1(jj)  
+!           sum2 = sum2 + A(ii,jj)*X2(jj)  
+!        enddo  
+!        __DEBUG3__(sum0-B0(ii),sum1-B1(ii),sum2-B2(ii))  
+!     enddo  
+!  endif  
 ! the result of this solution is a set of expressions for delta_xx in terms
 ! of delta_Tg and delta_psig: 
 ! delta_xx(i) = X0(i) + X1(i)*delta_Tg + X2(i)*delta_psig.
@@ -1684,12 +1684,15 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
      __DEBUG1__(Mg_imp)
      write(*,*)'#### implicit time steps'
      __DEBUG3__(delta_Tg, grnd_T,  grnd_T+delta_Tg )
-     __DEBUG1__(delta_psig                         )
-     __DEBUG3__(delta_qc, cana_q,  cana_q+delta_qc )
-     __DEBUG3__(delta_Tc, cana_T,  cana_T+delta_Tc )
-     __DEBUG3__(delta_Tv, vegn_T,  vegn_T+delta_Tv )
-     __DEBUG3__(delta_wl, vegn_Wl, vegn_Wl+delta_wl)
-     __DEBUG3__(delta_ws, vegn_Ws, vegn_Ws+delta_ws)
+     __DEBUG1__(delta_psig)
+     __DEBUG2__(delta_qc, cana_q+delta_qc )
+     __DEBUG2__(delta_Tc, cana_T+delta_Tc )
+     __DEBUG1__(delta_Tv)
+     __DEBUG1__(delta_wl)
+     __DEBUG1__(delta_ws)
+     __DEBUG1__(vegn_T+delta_Tv )
+     __DEBUG1__(vegn_Wl+delta_wl)
+     __DEBUG1__(vegn_Ws+delta_ws)
      __DEBUG2__(tile%e_res_1, tile%e_res_2)
      write(*,*)'#### resulting fluxes'
      __DEBUG4__(flwg, evapg, sensg, grnd_flux)

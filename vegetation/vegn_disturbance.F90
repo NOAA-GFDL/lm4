@@ -250,7 +250,8 @@ subroutine vegn_nat_mortality_ppa (vegn, deltat)
 
   ! ---- local vars
   real :: loss_alive,loss_wood
-  real :: deathrate, deadtrees
+  real :: deathrate ! mortality rate, 1/year
+  real :: deadtrees ! number of trees that died over the time step
   integer :: i
 
   do i = 1, vegn%n_cohorts   
@@ -260,7 +261,6 @@ subroutine vegn_nat_mortality_ppa (vegn, deltat)
      ! conditions. Here, we only used two constants for canopy layer and under-
      ! story layer (mortrate_d_c and mortrate_d_u)
      if(cc%layer > 1) then
-        ! why everything here is hard-coded?
         deathrate = sp%mortrate_d_u * &
                  (1 + A_mort*exp(B_mort*(DBH_mort-cc%dbh)) &
                     /(1.0 + exp(B_mort*(DBH_mort-cc%dbh))) &
@@ -269,10 +269,12 @@ subroutine vegn_nat_mortality_ppa (vegn, deltat)
         deathrate = sp%mortrate_d_c
      endif
      ! Mortality due to starvation
-     ! if(cc%bstem_tend < 0 .or. cc%nsc < 0.005*cc%bl_max .or. cc%bwood < 0) then
-     if( cc%nsc < 0.005*cc%bl_max .or. cc%bwood < 0 ) then
+     ! TODO: do something about comparison with previous year biomass
+!     if (cc%bwood+cc%bsw < cc%BM_ys-0.5*cc%bl_max .or. cc%nsc<0.01*cc%bl_max .or. cc%bsw<0) then
+     if (cc%nsc < 0.01*cc%bl_max .or. cc%bsw<0) then
          deathrate = mortrate_s
      endif
+!     cc%BM_ys = cc%bwood+cc%bsw
 
      deadtrees = cc%nindivs * (1.0-exp(-deathrate*deltat/seconds_per_year)) ! individuals / m2
      ! recalculate amount of water on canopy: assume that the dead tree are dry,

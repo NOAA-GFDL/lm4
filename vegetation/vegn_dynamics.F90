@@ -314,21 +314,16 @@ subroutine vegn_carbon_int_ppa (vegn, tsoil, theta, diag)
         cc%age > sp%maturalage                 .AND. &
         cc%bl > 0.75*cc%bl_max                 .AND. &
         cc%bseed < sp%fecundity * cc%crownarea .AND. &
-        cc%nsc > 0.2*(cc%bl_max+cc%br_max)     ) then
-           b       = cc%nsc/tau_seed*dt_fast_yr
-           cc%bseed = cc%bseed + b 
-           cc%nsc   = cc%nsc   - b
+        cc%nsc > 0.2*(cc%bl_max+cc%br_max)     )     &
+     then
+        b        = cc%nsc/tau_seed*dt_fast_yr
+        cc%bseed = cc%bseed + b 
+        cc%nsc   = cc%nsc   - b
      endif
 
      cc%resp = cc%resp + cc%resg
      cc%npp  = cc%gpp - cc%resp;
      cc%nsc  = cc%nsc + (cc%npp - cgrowth)*dt_fast_yr
-     ! adjust NSC if it's very low
-     if(cc%nsc < 0.0001*cc%bsw)then
-         b      = cc%bsw+cc%nsc
-         cc%nsc = 0.0001*b
-         cc%bsw = b-cc%nsc
-     endif
 
      ! the C that will be added to living biomass of a tree, Weng 2011-10-05
      cc%carbon_gain = cc%carbon_gain + cgrowth*dt_fast_yr 
@@ -499,6 +494,7 @@ subroutine biomass_allocation_ppa(cc)
   real :: deltaDBH ! tendency of breast height diameter, m
   real :: deltaCA ! tendency of crown area, m2/individual
   real :: deltaHeight ! tendency of vegetation height
+  real :: sw2nsc ! conversion of sapwood to non-structural carbon
   real :: b
 
   associate (sp => spdata(cc%species)) ! F2003
@@ -506,7 +502,9 @@ subroutine biomass_allocation_ppa(cc)
   ! calculate max biomasses of canopy and fine roots
   cc%bl_max = sp%LMA   * sp%LAImax        * cc%crownarea
   cc%br_max = sp%phiRL * sp%LAImax/sp%SRA * cc%crownarea 
-  if(cc%layer > 1)then
+  if (cc%layer > 1 .and. cc%firstlayer == 0) then
+      ! reduce max bl and br if the cohort is not in the upper layer and never has been
+      ! NOTE: comparing both layer and firstlayer seem redundant
       cc%bl_max = cc%bl_max * understory_lai_factor
       cc%br_max = cc%br_max * understory_lai_factor
   endif
@@ -514,12 +512,10 @@ subroutine biomass_allocation_ppa(cc)
   ! TODO: what if carbon_gain is not 0, but leaves are OFF (marginal case? or
   ! typical in lm3?)
   if (cc%status == LEAF_ON) then
-     ! for the first day of growing season: leaves and fine roots recover from blv
-     if(cc%blv > 0) then
-        b = (cc%blv + cc%bl + cc%br)
-        cc%bl  = cc%bl_max/(cc%bl_max+cc%br_max) * b
-        cc%br  = cc%br_max/(cc%bl_max+cc%br_max) * b
-        cc%blv = 0
+     ! adjust NSC if it's very low. sapwood --> nsc
+     sw2nsc = 0.0
+     if (cc%nsc < 0.5*cc%bl_max) then
+        sw2nsc = 0.5*cc%bl_max - cc%nsc
      endif
      
      ! calculate the carbon spent on growth of leaves and roots
@@ -535,7 +531,8 @@ subroutine biomass_allocation_ppa(cc)
      ! update biomass pools due to growth
      cc%bl     = cc%bl  + deltaBL
      cc%br     = cc%br  + deltaBR
-     cc%bsw    = cc%bsw + deltaBSW
+     cc%bsw    = cc%bsw + deltaBSW - sw2nsc
+     cc%nsc    = cc%nsc + sw2nsc
 
      ! calculate tendency of breast height diameter given increase of bsw
      deltaDBH     = deltaBSW / (sp%thetaBM * sp%alphaBM * cc%DBH**(sp%thetaBM-1))
@@ -556,16 +553,11 @@ subroutine biomass_allocation_ppa(cc)
      deltaBwood = max(cc%bsw - BSWmax, 0.0)
      cc%bwood   = cc%bwood + deltaBwood
      cc%bsw     = cc%bsw   - deltaBwood
+     if(is_watch_point()) then
+        __DEBUG4__(cc%bl, cc%br, cc%bl_max, cc%br_max)
+        __DEBUG5__(cc%carbon_gain, G_LFR, deltaBL, deltaBR, deltaBSW)
+     endif
   endif
-  ! The ncm smoothing is coded as a low-pass exponential filter. See, for 
-  ! example http://en.wikipedia.org/wiki/Low-pass_filter
-  ! weight = 1/(1+tau_smooth_bstem_tend)
-  ! cc%bstem_tend = weight*deltaBsw + (1-weight)*cc%bstem_tend
-  ! deltaBwood is not taken into account here because it describes the
-  ! redistribution between bsw and bwood, both being a part of stem
-  ! but deltaBsw > 0; so thiis is not goint to work for 
-
-  
 
   ! reset carbon acculmulation terms
   cc%carbon_gain = 0
@@ -666,37 +658,49 @@ end function A_function
 
 
 ! ============================================================================
+! calculated thermal inhibition factor depending on temperature
+function thermal_inhibition(T) result(tfs); real tfs
+  real, intent(in) :: T ! demperature, degK
+  
+  tfs = exp(3000.0*(1.0/288.16-1.0/T));
+  tfs = tfs / ( &
+              (1.0+exp(0.4*(5.0-T+273.16)))* &
+              (1.0+exp(0.4*(T - 273.16-45.0)))&
+              )
+end function
+
+
+! ============================================================================
 subroutine plant_respiration(cc, tsoil)
   type(vegn_cohort_type), intent(inout) :: cc
   real, intent(in) :: tsoil
   
-  real :: tf,tfs;
+  real :: tf,tfs ! thermal inhibition factors for above- and below-ground biomass
   real :: r_leaf, r_vleaf, r_stem, r_root
+  real :: Acambium  ! cambium area, m2
   
   integer :: sp ! shorthand for cohort species
   sp = cc%species
 
-  tf = exp(3000.0*(1.0/288.16-1.0/cc%prog%Tv));
-  tf = tf / ( &
-            (1.0+exp(0.4*(5.0-cc%prog%Tv+273.16)))*&
-            (1.0+exp(0.4*(cc%prog%Tv - 273.16-45.0)))&
-            )
-
-  tfs = exp(3000.0*(1.0/288.16-1.0/tsoil));
-  tfs = tfs / ( &
-              (1.0+exp(0.4*(5.0-tsoil+273.16)))* &
-              (1.0+exp(0.4*(tsoil - 273.16-45.0)))&
-              )
+  tf  = thermal_inhibition(cc%prog%Tv)
+  tfs = thermal_inhibition(tsoil)
 
   r_leaf = -mol_C*cc%An_cl*cc%leafarea;
-  r_vleaf = spdata(sp)%beta(CMPT_VLEAF)   * cc%blv*tf;
-  r_stem  = spdata(sp)%beta(CMPT_SAPWOOD) * cc%bsw*tf;
-  r_root  = spdata(sp)%beta(CMPT_ROOT)    * cc%br*tfs;
+  r_vleaf = spdata(sp)%beta(CMPT_VLEAF) * cc%blv*tf;
+  if (do_ppa) then
+     ! Stem auto-respiration is proportional to cambium area, not sapwood biomass
+     Acambium = PI * cc%DBH * cc%height * 1.2
+     r_stem   = spdata(sp)%beta(CMPT_SAPWOOD) * Acambium * tf
+  else
+     r_stem   = spdata(sp)%beta(CMPT_SAPWOOD) * cc%bsw * tf
+  endif
+  r_root  = spdata(sp)%beta(CMPT_ROOT) * cc%br*tfs;
 
   cc%resp = r_leaf + r_vleaf + r_stem + r_root;
   cc%resl = r_leaf;
   cc%resr = r_root;
 end subroutine plant_respiration
+
 
 ! =============================================================================
 subroutine vegn_phenology_lm3(vegn, wilt)
@@ -789,9 +793,7 @@ subroutine vegn_phenology_ppa(vegn)
         vegn%gdd > sp%gdd_crit .and. &
         vegn%tc_pheno > sp%tc_crit ) then
              cc%status = LEAF_ON
-     endif
-
-     if ( cc%status == LEAF_ON .and. vegn%tc_pheno < sp%tc_crit ) then
+     else if ( cc%status == LEAF_ON .and. vegn%tc_pheno < sp%tc_crit ) then
         ! add to patch litter flux terms
         leaf_litter = cc%bl*cc%nindivs
         vegn%litter = vegn%litter + leaf_litter;
@@ -954,10 +956,21 @@ subroutine vegn_reproduction_ppa (vegn)
 end subroutine vegn_reproduction_ppa
 
 
+! ============================================================================
 function cohorts_can_be_merged(c1,c2); logical cohorts_can_be_merged
    type(vegn_cohort_type), intent(in) :: c1,c2
-   cohorts_can_be_merged = (c1%layer == c2%layer) &
-                     .and. (c1%species == c2%species)
+
+   real, parameter :: mindensity = 0.00005
+   logical :: sameSpecies, sameLayer, sameSize, lowDensity
+
+   sameSpecies = c1%species == c2%species
+   sameLayer   = (c1%layer == c2%layer) .and. (c1%firstlayer == c2%firstlayer)
+   sameSize    = (abs(c1%DBH - c2%DBH)/c2%DBH < 0.05 ) .or.  &
+                 (abs(c1%DBH - c2%DBH)        < 0.001)
+   lowDensity  = c1%nindivs < mindensity 
+
+   cohorts_can_be_merged = &
+        sameSpecies .and. sameLayer .and. (sameSize .or.lowDensity)
 end function 
 
 ! ============================================================================
@@ -1085,6 +1098,7 @@ subroutine relayer_cohorts (vegn)
      new(i)         = cc(idx(k))
      new(i)%nindivs = min(nindivs,(1-frac)/cc(idx(k))%crownarea)
      new(i)%layer   = L
+     if (L==1) new(i)%firstlayer = 1
      frac = frac+new(i)%nindivs*new(i)%crownarea
      nindivs = nindivs - new(i)%nindivs
      

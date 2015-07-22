@@ -92,6 +92,7 @@ type :: vegn_cohort_type
   real    :: leafarea     = 0.0 ! total area of leaves, m2/individual
   real    :: nindivs      = 1.0 ! density of vegetation, individuals/m2
   integer :: layer        = 1   ! the layer of this cohort (numbered from top)
+  integer :: firstlayer   = 0   ! 0 = never been in the first layer; 1 = at least one year in first layer
   real    :: layerfrac    = 0.0 ! fraction of layer area occupied by this cohort, m2 of cohort per m2 of ground
   ! TODO: see if we can make bl_max, br_max local variables
   real    :: bl_max       = 0.0 ! Max. leaf biomass, kg C/individual
@@ -461,12 +462,12 @@ end subroutine
 
 
 ! ============================================================================
-function leaf_area_from_biomass(bl,species) result (lai)
-  real :: lai ! returned value
-  real,    intent(in) :: bl      ! biomass of leaves, kg C/m2
+function leaf_area_from_biomass(bl,species) result (area)
+  real :: area ! returned value
+  real,    intent(in) :: bl      ! biomass of leaves, kg C/individual
   integer, intent(in) :: species ! species
 
-  lai = bl/spdata(species)%LMA   
+  area = bl/spdata(species)%LMA   
 end function 
 
 

@@ -297,16 +297,16 @@ subroutine twostream( &
                                 ! angular distribution !!!
    
   if(is_watch_point()) then
-     write(*,*)'############ twostream input ############'
-     __DEBUG__(mu)
-     __DEBUG__(mu_bar)
-     __DEBUG__(LAI)
-     __DEBUG__(albedo_g)
-     __DEBUG__(phi1)
-     __DEBUG__(phi2)
-     __DEBUG__(rl)
-     __DEBUG__(tl)
-     write(*,*)'############ twostream input ############'
+!     write(*,*)'############ twostream input ############'
+!     __DEBUG__(mu)
+!     __DEBUG__(mu_bar)
+!     __DEBUG__(LAI)
+!     __DEBUG__(albedo_g)
+!     __DEBUG__(phi1)
+!     __DEBUG__(phi2)
+!     __DEBUG__(rl)
+!     __DEBUG__(tl)
+!     write(*,*)'############ twostream input ############'
   endif    
   ! calculate coefficients of optical path
   G_mu=phi1+phi2*mu;
@@ -373,13 +373,13 @@ subroutine twostream( &
   albedo_dif = a_up + b_up;
 
   if(is_watch_point()) then
-     write(*,*)'############ twostream output #############'
-     __DEBUG__(transm_dir)
-     __DEBUG__(scatter_dir)
-     __DEBUG__(albedo_dir)
-     __DEBUG__(transm_dif)
-     __DEBUG__(albedo_dif)
-     write(*,*)'############ end of twostream output #############'
+!     write(*,*)'############ twostream output #############'
+!     __DEBUG__(transm_dir)
+!     __DEBUG__(scatter_dir)
+!     __DEBUG__(albedo_dir)
+!     __DEBUG__(transm_dif)
+!     __DEBUG__(albedo_dif)
+!     write(*,*)'############ end of twostream output #############'
   endif
 end subroutine twostream
 

@@ -272,7 +272,7 @@ subroutine cana_turbulence (u_star,&
            h0     = vegn_bottom(i) ! height of the bottom of the canopy
            if(height-h0>min_thickness) then
               con_v_h(i) = 2*vegn_lai(i)*leaf_co*sqrt(wind/vegn_d_leaf(i))*ztop/(height-h0)&
-                 *(exp(-a/2*(ztop-height)/ztop)-exp(-a/2)*(ztop-h0)/ztop)/a
+                 *(exp(-a/2*(ztop-height)/ztop)-exp(-a/2*(ztop-h0)/ztop))/a
            else
               ! thin cohort canopy limit
               con_v_h(i) = vegn_lai(i)*leaf_co*sqrt(wind/vegn_d_leaf(i))&
@@ -296,7 +296,7 @@ subroutine cana_turbulence (u_star,&
         h0     = vegn_bottom(i) ! height of the canopy bottom above ground
         if(height-h0>min_thickness) then
            con_v_h(i) = 2*vegn_lai(i)*leaf_co*sqrt(wind/vegn_d_leaf(i))*ztop/(height-h0)&
-              *(exp(-a/2*(ztop-height)/ztop)-exp(-a/2)*(ztop-h0)/ztop)/a
+              *(exp(-a/2*(ztop-height)/ztop)-exp(-a/2*(ztop-h0)/ztop))/a
         else
            ! thin cohort canopy limit
            con_v_h(i) = vegn_lai(i)*leaf_co*sqrt(wind/vegn_d_leaf(i))&

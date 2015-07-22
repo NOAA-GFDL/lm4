@@ -9,9 +9,10 @@ use fms_mod, only: open_namelist_file
 use constants_mod, only : PI
 use fms_mod, only : &
      write_version_number, file_exist, check_nml_error, &
-     close_file, stdlog
+     close_file, stdlog, stdout
+use table_printer_mod, only : table_printer_type, init_with_headers, add_row, print
 
-use land_constants_mod, only : NBANDS
+use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR
 use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_VEGN, register_tile_selector
 
@@ -453,7 +454,7 @@ real    :: mortrate_d_u(0:MSPECIES) = & ! yearly mortality rate in understory
 real :: DBH_mort   = 0.025 ! characteristic DBH for mortality
 real :: A_mort     = 4.0   ! A coefficient in understory mortality rate correction, 1/year
 real :: B_mort     = 30.0  ! B coefficient in understory mortality rate correction, 1/m
-real :: mortrate_s = 1.0   ! mortality rate of starving plants, 1/year
+real :: mortrate_s = 2.3   ! mortality rate of starving plants, 1/year, 2.3 = approx 0.9 plants die in a year
 
 real    :: LMA(0:MSPECIES) = & !  leaf mass per unit area, kg C/m2
        (/    0.04,    0.04,    0.032,   0.032,   0.032,   0.036,   0.036,   0.036,   0.036,   0.036,   0.036,   0.036,   0.036,   0.036  /) 
@@ -467,7 +468,7 @@ real    :: phiRL(0:MSPECIES) = & ! ratio of fine root area to leaf area
        (/    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69   /) 
 
 real :: bseed_distr(NCMPT) = & ! partitioning of of new seedling biomass among compartments 
-       (/    0.85,     0.1,     0.0,     0.0,     0.0,    0.05  /)
+       (/    0.45,     0.5,     0.0,     0.0,     0.0,    0.05  /)
         !     nsc, sapwood,    leaf,    root,   vleaf,    wood 
 
 namelist /vegn_data_nml/ &
@@ -500,7 +501,8 @@ namelist /vegn_data_nml/ &
   ! PPA-related namelist values
   do_ppa, &
   alphaHT, thetaHT, alphaCA, thetaCA, alphaBM, thetaBM, alphaCSASW, thetaCSASW,&
-  maturalage, fecundity, bseed_distr, mortrate_d_c, mortrate_d_u, mortrate_s, &
+  maturalage, fecundity, seedlingsize, bseed_distr, &
+  mortrate_d_c, mortrate_d_u, mortrate_s, &
   DBH_mort, A_mort, B_mort, &
   LAImax, LMA, phiRL, rho_wood, taperfactor, &
   tau_growth, b0_growth, tau_seed, understory_lai_factor
@@ -516,6 +518,7 @@ subroutine read_vegn_data_namelist()
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
   integer :: i
+  type(table_printer_type) :: table
 
   call write_version_number(version, tagname)
 #ifdef INTERNAL_FILE_NML
@@ -639,7 +642,93 @@ subroutine read_vegn_data_namelist()
 
   write (unit, nml=vegn_data_nml)
 
-end subroutine 
+  ! ---- print a table of species parameters
+  call init_with_headers(table, species_name)
+  call add_row(table, 'Treefall dist. rate', spdata(:)%treefall_disturbance_rate)
+  call add_row(table, 'Phisiology Type', spdata(:)%pt)
+  call add_row(table, 'C1',            spdata(:)%c1)
+  call add_row(table, 'C2',            spdata(:)%c2)
+  call add_row(table, 'C3',            spdata(:)%c3)
+
+  call add_row(table, 'alpha_leaf',    spdata(:)%alpha(CMPT_LEAF))
+  call add_row(table, 'alpha_root',    spdata(:)%alpha(CMPT_ROOT))
+  call add_row(table, 'alpha_vleaf',   spdata(:)%alpha(CMPT_VLEAF))
+  call add_row(table, 'alpha_sapwood', spdata(:)%alpha(CMPT_SAPWOOD))
+  call add_row(table, 'alpha_wood',    spdata(:)%alpha(CMPT_WOOD))
+  call add_row(table, 'alpha_nsc',     spdata(:)%alpha(CMPT_NSC))
+
+  call add_row(table, 'beta_leaf',     spdata(:)%beta(CMPT_LEAF))
+  call add_row(table, 'beta_root',     spdata(:)%beta(CMPT_ROOT))
+  call add_row(table, 'beta_vleaf',    spdata(:)%beta(CMPT_VLEAF))
+  call add_row(table, 'beta_sapwood',  spdata(:)%beta(CMPT_SAPWOOD))
+  call add_row(table, 'beta_wood',     spdata(:)%beta(CMPT_WOOD))
+  call add_row(table, 'beta_nsc',      spdata(:)%beta(CMPT_NSC))
+
+  call add_row(table, 'dfr',           spdata(:)%dfr)
+
+  call add_row(table, 'srl',           spdata(:)%srl)
+  call add_row(table, 'root_r',        spdata(:)%root_r)
+  call add_row(table, 'root_perm',     spdata(:)%root_perm)
+
+  call add_row(table, 'leaf_size',     spdata(:)%leaf_size)
+
+  call add_row(table, 'alpha_phot',    spdata(:)%alpha_phot)
+  call add_row(table, 'm_cond',        spdata(:)%m_cond)
+  call add_row(table, 'Vmax',          spdata(:)%Vmax)
+  call add_row(table, 'gamma_resp',    spdata(:)%gamma_resp)
+  call add_row(table, 'wet_leaf_dreg', spdata(:)%wet_leaf_dreg)
+  call add_row(table, 'leaf_age_onset',spdata(:)%leaf_age_onset)
+  call add_row(table, 'leaf_age_tau',  spdata(:)%leaf_age_tau)
+
+  ! PPA-related parameters
+  call add_row(table, 'alphaHT', spdata(:)%alphaHT)
+  call add_row(table, 'thetaHT', spdata(:)%thetaHT)
+  call add_row(table, 'alphaCA', spdata(:)%alphaCA)
+  call add_row(table, 'thetaCA', spdata(:)%thetaCA)
+  call add_row(table, 'alphaBM', spdata(:)%alphaBM)
+  call add_row(table, 'thetaBM', spdata(:)%thetaBM)
+  call add_row(table, 'alphaCSASW', spdata(:)%alphaCSASW)
+  call add_row(table, 'thetaCSASW', spdata(:)%thetaCSASW)
+  call add_row(table, 'maturalage', spdata(:)%maturalage)
+  call add_row(table, 'fecundity', spdata(:)%fecundity)
+  call add_row(table, 'seedlingsize', spdata(:)%seedlingsize)
+  call add_row(table, 'mortrate_d_c', spdata(:)%mortrate_d_c)
+  call add_row(table, 'mortrate_d_u', spdata(:)%mortrate_d_u)
+  call add_row(table, 'LMA', spdata(:)%LMA)
+  call add_row(table, 'rho_wood', spdata(:)%rho_wood)
+  call add_row(table, 'taperfactor', spdata(:)%taperfactor)
+  call add_row(table, 'LAImax', spdata(:)%LAImax)
+  call add_row(table, 'phiRL', spdata(:)%phiRL)
+  call add_row(table, 'SRA', spdata(:)%SRA)
+
+  call add_row(table, 'leaf_refl_vis', spdata(:)%leaf_refl(BAND_VIS))
+  call add_row(table, 'leaf_refl_nir', spdata(:)%leaf_refl(BAND_NIR))
+  call add_row(table, 'leaf_tran_vis', spdata(:)%leaf_tran(BAND_VIS))
+  call add_row(table, 'leaf_tran_nir', spdata(:)%leaf_tran(BAND_NIR))
+  call add_row(table, 'leaf_emis',     spdata(:)%leaf_emis)
+  call add_row(table, 'ksi',           spdata(:)%ksi)
+  call add_row(table, 'phi1',          spdata(:)%phi1)
+  call add_row(table, 'phi2',          spdata(:)%phi2)
+  call add_row(table, 'mu_bar',        spdata(:)%mu_bar)
+
+  call add_row(table, 'cmc_lai',       spdata(:)%cmc_lai)
+  call add_row(table, 'cmc_pow',       spdata(:)%cmc_pow)
+  call add_row(table, 'csc_lai',       spdata(:)%csc_lai)
+  call add_row(table, 'csc_pow',       spdata(:)%csc_pow)
+  call add_row(table, 'fuel_intensity',spdata(:)%fuel_intensity)
+
+  call add_row(table, 'tc_crit',       spdata(:)%tc_crit)
+  call add_row(table, 'fact_crit_phen',spdata(:)%fact_crit_phen)
+  call add_row(table, 'cnst_crit_phen',spdata(:)%cnst_crit_phen)
+  call add_row(table, 'fact_crit_fire',spdata(:)%fact_crit_fire)
+  call add_row(table, 'cnst_crit_fire',spdata(:)%cnst_crit_fire)
+
+  call add_row(table, 'smoke_fraction',spdata(:)%smoke_fraction)
+
+  call print(table, stdout())
+  call print(table, unit)
+
+end subroutine read_vegn_data_namelist
 
 
 ! ============================================================================

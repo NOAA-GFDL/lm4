@@ -186,20 +186,20 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   real :: Ed,an_w,gs_w;
 
   if (is_watch_point()) then
-     write(*,*) '####### gs_leuning input #######'
-     __DEBUG2__(rad_top, rad_net)
-     __DEBUG1__(tl)
-     __DEBUG1__(ea)
-     __DEBUG1__(lai)
-     __DEBUG1__(leaf_age)
-     __DEBUG1__(p_surf)
-     __DEBUG1__(ws)
-     __DEBUG1__(pft)
-     __DEBUG1__(ca)
-     __DEBUG1__(kappa)
-     __DEBUG1__(leaf_wet)
-     __DEBUG1__(pt)
-     write(*,*) '####### end of ### gs_leuning input #######'
+!     write(*,*) '####### gs_leuning input #######'
+!     __DEBUG2__(rad_top, rad_net)
+!     __DEBUG1__(tl)
+!     __DEBUG1__(ea)
+!     __DEBUG1__(lai)
+!     __DEBUG1__(leaf_age)
+!     __DEBUG1__(p_surf)
+!     __DEBUG1__(ws)
+!     __DEBUG1__(pft)
+!     __DEBUG1__(ca)
+!     __DEBUG1__(kappa)
+!     __DEBUG1__(leaf_wet)
+!     __DEBUG1__(pt)
+!     write(*,*) '####### end of ### gs_leuning input #######'
   endif
 
   b=0.01;
@@ -332,9 +332,9 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
      if(an_w > 0.0) an_w = an_w*w_scale;
      if(an_w < 0.0.and.gs_w >b) gs_w=b;
      if (is_watch_point()) then
-        write(*,*)'#### gs is water-limited'
-        __DEBUG1__(w_scale)
-        __DEBUG3__(gs_w, an_w, b)
+!        write(*,*)'#### gs is water-limited'
+!        __DEBUG1__(w_scale)
+!        __DEBUG3__(gs_w, an_w, b)
      endif
   endif
   gs=gs_w;
@@ -354,7 +354,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
    gs = gs * Rugas * Tl / p_surf
 
    if (is_watch_point()) then
-      __DEBUG3__(gs, apot, acl)
+!      __DEBUG3__(gs, apot, acl)
    endif
 end subroutine gs_Leuning
 
