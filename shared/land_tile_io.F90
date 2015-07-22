@@ -13,7 +13,7 @@ use nf_utils_mod, only : nfu_inq_dim, nfu_inq_var, nfu_def_dim, nfu_def_var, &
 use land_io_mod, only : print_netcdf_error, read_field, input_buf_size
 use land_tile_mod, only : land_tile_type, land_tile_list_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
-     get_elmt_indices, tile_exists_func, fptr_i0, fptr_r0, fptr_r1
+     get_elmt_indices, tile_exists_func, fptr_i0, fptr_i1, fptr_r0, fptr_r1, fptr_r1_l
 use land_data_mod, only  : lnd
 use land_utils_mod, only : put_to_tiles_r0d_fptr
 
@@ -28,6 +28,10 @@ public :: read_tile_data_r0d_fptr,  read_tile_data_r1d_fptr
 public :: read_tile_data_i0d_fptr
 public :: write_tile_data_r0d_fptr, write_tile_data_r1d_fptr
 public :: write_tile_data_i0d_fptr
+public :: read_tile_data_layered_cohort_fptr, write_tile_data_layered_cohort_fptr
+
+public :: write_tile_data_i1d_fptr_all
+public :: read_tile_data_i1d_fptr_all
 
 ! data override subroutines
 public :: override_tile_data_r0d_fptr
@@ -935,5 +939,338 @@ subroutine sync_nc_files(ncid)
     __NF_ASRT__(nf_sync(ncid))
   endif
 end subroutine sync_nc_files
+
+
+! ============================================================================
+subroutine read_tile_data_layered_cohort_fptr(ncid,name,fptr)
+   integer     , intent(in) :: ncid ! netcdf file id
+   character(*), intent(in) :: name ! name of the variable to read
+   procedure(fptr_r1_l)     :: fptr ! subroutine returning the pointer to the 
+                                    ! data to be written 
+   
+   ! ---- local constants
+   character(*), parameter :: module_name='read_tile_data_layered_cohort_fptr'
+   ! ---- local vars
+   integer :: ndims     ! number of the variable dimensions
+   integer :: dimids(3) ! IDs of the variable dimensions
+   integer :: dimlen(3) ! size of the variable dimensions
+   character(NF_MAX_NAME) :: idxname ! name of the index variable
+   integer, allocatable :: idx(:)   ! storage for compressed index 
+   real   , allocatable :: x3d(:,:,:)   ! storage for the data (tile, z, cohort)
+   integer :: i, j, k, bufsize
+   integer :: varid,idxid
+   integer :: start(3), count(3) ! input slab parameters
+   type(land_tile_type), pointer :: tileptr ! pointer to tile   
+   real, pointer :: ptr(:)
+   
+   ! get the number of variable dimensions, and their lengths
+   ! WRITE (*,*),'Getting variable',name
+   ! call error_mesg(module_name,'Getting variable '//trim(name),NOTE)
+   __NF_ASRT__(nfu_inq_var(ncid,name,id=varid,ndims=ndims,dimids=dimids,dimlens=dimlen))
+   if(ndims/=3) then
+      call error_mesg(module_name,'variable "'//trim(name)//'" has incorrect number of dimensions -- must be 3-dimensional', FATAL)
+   endif
+   ! get the name of compressed dimension and ID of corresponding variable
+   __NF_ASRT__(nfu_inq_dim(ncid,dimids(1),idxname))
+   __NF_ASRT__(nfu_inq_var(ncid,idxname,id=idxid))
+   ! allocate input buffers for compression index and the variable
+   bufsize=min(INPUT_BUF_SIZE,dimlen(1))
+   allocate(idx(bufsize),x3d(bufsize,dimlen(2),dimlen(3)))
+   ! read the input buffer-by-buffer
+   do j = 1,dimlen(1),bufsize
+      ! set up slab parameters
+      start(1) = j ; count(1) = min(bufsize,dimlen(1)-j+1)
+      start(2) = 1 ; count(2) = dimlen(2)
+      start(3) = 1 ; count(3) = dimlen(3)
+      ! read the index variable
+      __NF_ASRT__(nf_get_vara_int(ncid,idxid,start(1),count(1),idx))
+      ! read the data
+      __NF_ASRT__(nf_get_vara_double(ncid,varid,start,count,x3d))
+      ! distribute the data over the tiles
+      do i = 1, min(bufsize,dimlen(1)-j+1)
+         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+                              lnd%is,lnd%js, tileptr)
+         do k=1,dimlen(2)
+            call fptr(tileptr, ptr, k)
+            if(associated(ptr)) ptr(:) = x3d(i,k,:)
+         enddo
+      enddo
+   enddo
+   ! release allocated memory
+   deallocate(idx,x3d)
+end subroutine
+
+
+! ============================================================================
+! writes out 3-d real tiled data using "compression by gathering". The dimension
+! of the data is (tile,z,cohort), and both tile and z dimensions are assumed to be 
+! already created
+subroutine write_tile_data_r3d(ncid,name,data,mask,zdim,cohortdim,long_name,units)
+  integer         , intent(in) :: ncid ! netcdf id
+  character(len=*), intent(in) :: name ! name of the variable to write
+  character(len=*), intent(in) :: zdim ! name of the z-dimension
+  character(len=*), intent(in) :: cohortdim ! name of the cohort-dimension
+  real            , intent(inout) :: data(:,:,:) ! (tile,z,cohort)
+  integer         , intent(inout) :: mask(:) ! mask of valid data
+  character(len=*), intent(in), optional :: units, long_name
+  ! data and mask are "inout" to save the memory on send-receive buffers. On the
+  ! root io_domain PE mask is destroyed and data is filled with the information 
+  ! from other PEs in our io_domain. On other PEs these arrays reman intact.
+
+  ! local vars
+  integer :: varid,iret,p,i
+  character(NF_MAX_NAME)::dimnames(3)
+  real, allocatable :: buffer(:,:,:) ! send/receive buffer
+
+  ! if our PE doesn't do io (that is, it isn't the root io_domain processor),  
+  ! simply send the data and mask of valid data to the root IO processor
+  if (mpp_pe()/=lnd%io_pelist(1)) then
+     call mpp_send(data(1,1,1), plen=size(data),   to_pe=lnd%io_pelist(1))
+     call mpp_send(mask(1),   plen=size(data,1), to_pe=lnd%io_pelist(1))
+  else
+     allocate(buffer(size(data,1),size(data,2),size(data,3)))
+     ! gather data and masks from the processors in our io_domain
+     do p = 2,size(lnd%io_pelist)
+        call mpp_recv(buffer(1,1,1), glen=size(data),   from_pe=lnd%io_pelist(p))
+        call mpp_recv(mask(1),     glen=size(data,1), from_pe=lnd%io_pelist(p))
+        do i=1,size(data,1)
+            if(mask(i)>0) data(i,:,:) = buffer(i,:,:)
+        enddo
+     enddo
+     ! clean up allocated memory
+     deallocate(buffer)
+   
+     ! create variable, if it does not exist
+     if(nf_inq_varid(ncid,name,varid)/=NF_NOERR) then
+        dimnames(1) = tile_index_name
+        dimnames(2) = zdim
+        dimnames(3) = cohortdim
+        __NF_ASRT__(nfu_def_var(ncid,name,NF_DOUBLE,dimnames,long_name,units,varid))
+     endif
+     ! write data
+     iret = nf_enddef(ncid) ! ignore errors: its OK if file is in data mode already
+     __NF_ASRT__(nf_put_var_double(ncid,varid,data))
+  endif
+  ! wait for all PEs to finish: necessary because mpp_send doesn't seem to 
+  ! copy the data, and therefore on non-root io_domain PE there would be a chance
+  ! that the data and mask are destroyed before they are actually sent.
+  call mpp_sync()
+end subroutine
+
+
+! ============================================================================
+subroutine write_tile_data_layered_cohort_fptr(ncid,name,fptr,zdim,cohortdim,long_name,units)
+  integer         , intent(in) :: ncid ! netcdf id
+  character(len=*), intent(in) :: name ! name of the variable to write
+  character(len=*), intent(in) :: zdim ! name of the z-dimension
+  character(len=*), intent(in) :: cohortdim ! name of the cohort dimension
+  character(len=*), intent(in), optional :: units, long_name
+  procedure(fptr_r1_l)         :: fptr ! subroutine returning the pointer to the 
+                                       ! data to be written 
+  
+  ! ---- local vars
+  integer, allocatable :: idx(:)    ! index dimension
+  real   , allocatable :: data(:,:,:) ! data to be written
+  integer, allocatable :: mask(:)   ! mask of valid data
+  type(land_tile_type), pointer :: tileptr ! pointer to tiles
+  real   , pointer :: ptr(:) ! pointer to the tile data
+  integer :: ntiles  ! total number of tiles (length of compressed dimension)
+  integer :: i,n
+  integer :: nlev ! number of levels of the output variable
+  integer :: ncohorts ! number of soil carbon cohorts
+  
+  ! get the size of the output array. Note that at this point the variable
+  ! might not yet exist, so we can't use nfu_inq_var
+  __NF_ASRT__(nfu_inq_dim(ncid,tile_index_name,len=ntiles))
+  __NF_ASRT__(nfu_inq_dim(ncid,zdim,len=nlev))
+  __NF_ASRT__(nfu_inq_dim(ncid,cohortdim,len=ncohorts))
+
+  ! allocate data
+  allocate(data(ntiles,nlev,ncohorts),idx(ntiles),mask(ntiles))
+  data = NF_FILL_DOUBLE
+  mask = 0
+
+  ! read tile index
+  i = nf_enddef(ncid) ! ignore errors (file may be in data mode already)
+  __NF_ASRT__(nfu_get_var(ncid,tile_index_name,idx))
+
+  ! gather data into an array along the tile dimension. It is assumed that 
+  ! the tile dimension spans all the tiles that need to be written.
+  do i = 1, size(idx)
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+                          lnd%is,lnd%js, tileptr)
+     do n=1, nlev
+        call fptr(tileptr, ptr, n)
+         if(associated(ptr)) then
+            data(i,n,:) = ptr(:)
+            mask(i) = 1
+         endif
+     enddo
+  enddo
+
+  ! write data
+  call write_tile_data_r3d(ncid,name,data,mask,zdim,cohortdim,long_name,units)
+  
+  ! free allocated memory
+  deallocate(data,idx)
+  
+end subroutine
+
+subroutine write_tile_data_i1d_fptr_all(ncid,name,fptr,zdim,long_name,units)
+  integer         , intent(in) :: ncid ! netcdf id
+  character(len=*), intent(in) :: name ! name of the variable to write
+  character(len=*), intent(in) :: zdim ! name of the z-dimension
+  character(len=*), intent(in), optional :: units, long_name
+  procedure(fptr_i1)           :: fptr ! subroutine returning the pointer to the 
+                                       ! data to be written 
+  
+  ! ---- local vars
+  integer, allocatable :: idx(:)    ! index dimension
+  integer   , allocatable :: data(:,:) ! data to be written
+  integer, allocatable :: mask(:)   ! mask of valid data
+  type(land_tile_type), pointer :: tileptr ! pointer to tiles
+  integer   , pointer :: ptr(:) ! pointer to the tile data
+  integer :: ntiles  ! total number of tiles (length of compressed dimension)
+  integer :: i
+  integer :: nlev ! number of levels of the output variable
+  
+  ! get the size of the output array. Note that at this point the variable
+  ! might not yet exist, so we can't use nfu_inq_var
+  __NF_ASRT__(nfu_inq_dim(ncid,tile_index_name,len=ntiles))
+  __NF_ASRT__(nfu_inq_dim(ncid,zdim,len=nlev))
+
+  ! allocate data
+  allocate(data(ntiles,nlev),idx(ntiles),mask(ntiles))
+  data = NF_FILL_INT
+  mask = 0
+
+  ! read tile index
+  i = nf_enddef(ncid) ! ignore errors (file may be in data mode already)
+  __NF_ASRT__(nfu_get_var(ncid,tile_index_name,idx))
+
+  ! gather data into an array along the tile dimension. It is assumed that 
+  ! the tile dimension spans all the tiles that need to be written.
+  do i = 1, size(idx)
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+                          lnd%is,lnd%js, tileptr)
+     call fptr(tileptr, ptr)
+     if(associated(ptr)) then
+        data(i,:) = ptr(:)
+        mask(i) = 1
+     endif
+  enddo
+
+  ! write data
+  call write_tile_data_i2d(ncid,name,data,mask,zdim,long_name,units)
+  
+  ! free allocated memory
+  deallocate(data,idx)
+  
+end subroutine
+
+subroutine write_tile_data_i2d(ncid,name,data,mask,zdim,long_name,units)
+  integer         , intent(in) :: ncid ! netcdf id
+  character(len=*), intent(in) :: name ! name of the variable to write
+  character(len=*), intent(in) :: zdim ! name of the z-dimension
+  integer            , intent(inout) :: data(:,:) ! (tile,z)
+  integer         , intent(inout) :: mask(:) ! mask of valid data
+  character(len=*), intent(in), optional :: units, long_name
+  ! data and mask are "inout" to save the memory on send-receive buffers. On the
+  ! root io_domain PE mask is destroyed and data is filled with the information 
+  ! from other PEs in our io_domain. On other PEs these arrays reman intact.
+
+  ! local vars
+  integer :: varid,iret,p,i
+  character(NF_MAX_NAME)::dimnames(2)
+  integer, allocatable :: buffer(:,:) ! send/receive buffer
+
+  ! if our PE doesn't do io (that is, it isn't the root io_domain processor),  
+  ! simply send the data and mask of valid data to the root IO processor
+  if (mpp_pe()/=lnd%io_pelist(1)) then
+     call mpp_send(data(1,1), plen=size(data),   to_pe=lnd%io_pelist(1), tag=COMM_TAG_7)
+     call mpp_send(mask(1),   plen=size(data,1), to_pe=lnd%io_pelist(1), tag=COMM_TAG_8)
+  else
+     allocate(buffer(size(data,1),size(data,2)))
+     ! gather data and masks from the processors in our io_domain
+     do p = 2,size(lnd%io_pelist)
+        call mpp_recv(buffer(1,1), glen=size(data),   from_pe=lnd%io_pelist(p), tag=COMM_TAG_7)
+        call mpp_recv(mask(1),     glen=size(data,1), from_pe=lnd%io_pelist(p), tag=COMM_TAG_8)
+        do i=1,size(data,1)
+           if(mask(i)>0) data(i,:) = buffer(i,:)
+        enddo
+     enddo
+     ! clean up allocated memory
+     deallocate(buffer)
+   
+     ! create variable, if it does not exist
+     if(nf_inq_varid(ncid,name,varid)/=NF_NOERR) then
+        dimnames(1) = tile_index_name
+        dimnames(2) = zdim
+        __NF_ASRT__(nfu_def_var(ncid,name,NF_INT,dimnames,long_name,units,varid))
+     endif
+     ! write data
+     iret = nf_enddef(ncid) ! ignore errors: its OK if file is in data mode already
+     __NF_ASRT__(nf_put_var_int(ncid,varid,data))
+  endif
+  ! wait for all PEs to finish: necessary because mpp_send doesn't seem to 
+  ! copy the data, and therefore on non-root io_domain PE there would be a chance
+  ! that the data and mask are destroyed before they are actually sent.
+  call mpp_sync()
+end subroutine
+
+
+subroutine read_tile_data_i1d_fptr_all(ncid,name,fptr)
+   integer     , intent(in) :: ncid ! netcdf file id
+   character(*), intent(in) :: name ! name of the variable to read
+   procedure(fptr_i1)       :: fptr ! subroutine returning the pointer to the 
+                                    ! data to be written 
+   
+   ! ---- local constants
+   character(*), parameter :: module_name='read_tile_data_r1d_fptr'
+   ! ---- local vars
+   integer :: ndims     ! number of the variable dimensions
+   integer :: dimids(2) ! IDs of the variable dimensions
+   integer :: dimlen(2) ! size of the variable dimensions
+   character(NF_MAX_NAME) :: idxname ! name of the index variable
+   integer, allocatable :: idx(:)   ! storage for compressed index 
+   integer   , allocatable :: x1d(:)   ! storage for the data
+   integer :: i, j, bufsize
+   integer :: varid,idxid
+   integer :: start(2), count(2) ! input slab parameters
+   type(land_tile_type), pointer :: tileptr ! pointer to tile   
+   integer, pointer :: ptr(:)
+   
+   ! get the number of variable dimensions, and their lengths
+   __NF_ASRT__(nfu_inq_var(ncid,name,id=varid,ndims=ndims,dimids=dimids,dimlens=dimlen))
+   if(ndims/=2) then
+      call error_mesg(module_name,'variable "'//trim(name)//'" has incorrect number of dimensions -- must be 2-dimensional', FATAL)
+   endif
+   ! get the name of compressed dimension and ID of corresponding variable
+   __NF_ASRT__(nfu_inq_dim(ncid,dimids(1),idxname))
+   __NF_ASRT__(nfu_inq_var(ncid,idxname,id=idxid))
+   ! allocate input buffers for compression index and the variable
+   bufsize=min(input_buf_size,dimlen(1))
+   allocate(idx(bufsize),x1d(bufsize*dimlen(2)))
+   ! read the input buffer-by-buffer
+   do j = 1,dimlen(1),bufsize
+      ! set up slab parameters
+      start(1) = j ; count(1) = min(bufsize,dimlen(1)-j+1)
+      start(2) = 1 ; count(2) = dimlen(2)
+      ! read the index variable
+      __NF_ASRT__(nf_get_vara_int(ncid,idxid,start(1),count(1),idx))
+      ! read the data
+      __NF_ASRT__(nf_get_vara_int(ncid,varid,start,count,x1d))
+      ! distribute the data over the tiles
+      do i = 1, min(bufsize,dimlen(1)-j+1)
+         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+                              lnd%is,lnd%js, tileptr)
+         call fptr(tileptr, ptr)
+         if(associated(ptr)) ptr(:) = x1d(i:count(1)*count(2):count(1))
+      enddo
+   enddo
+   ! release allocated memory
+   deallocate(idx,x1d)
+end subroutine
+
 
 end module

@@ -40,6 +40,8 @@ public :: vegn_tile_stock_pe
 public :: vegn_tile_carbon ! returns total carbon per tile [kgC/m2]
 public :: vegn_tile_bwood  ! returns total woody biomass of tile [kgC/m2]
 public :: vegn_tile_heat   ! returns heat content of the vegetation [J/m2]
+public :: vegn_tile_LAI    ! returns total LAI of vegetation [m2/m2]
+public :: vegn_tile_SAI    ! returns total SAI of vegetation [m2/m2]
 
 public :: read_vegn_data_namelist
 public :: vegn_cover_cold_start
@@ -80,8 +82,13 @@ type :: vegn_tile_type
 
    ! fields for smoothing out the contribution of the spike-type processes (e.g. 
    ! harvesting) to the soil carbon pools over some period of time
-   real :: fsc_pool=0.0, fsc_rate=0.0 ! for fast soil carbon
-   real :: ssc_pool=0.0, ssc_rate=0.0 ! for slow soil carbon
+   real :: fsc_pool_ag=0.0, fsc_rate_ag=0.0 ! for fast soil carbon above ground
+   real :: ssc_pool_ag=0.0, ssc_rate_ag=0.0 ! for slow soil carbon above ground
+   real :: fsc_pool_bg=0.0, fsc_rate_bg=0.0 ! for fast soil carbon below ground
+   real :: ssc_pool_bg=0.0, ssc_rate_bg=0.0 ! for slow soil carbon below ground
+   
+   real :: leaflitter_buffer_ag=0.0,      coarsewoodlitter_buffer_ag=0.0
+   real :: leaflitter_buffer_rate_ag=0.0, coarsewoodlitter_buffer_rate_ag=0.0
 
    real :: csmoke_pool=0.0 ! carbon lost through fires, kg C/m2 
    real :: csmoke_rate=0.0 ! rate of release of the above to atmosphere, kg C/(m2 yr)
@@ -95,6 +102,7 @@ type :: vegn_tile_type
    ! values for the diagnostic of carbon budget and soil carbon acceleration
    real :: ssc_out=0.0
    real :: fsc_out=0.0
+   real :: deadmic_out=0.0
    real :: veg_in=0.0, veg_out=0.0
 
    real :: disturbance_rate(0:1) = 0 ! 1/year
@@ -203,7 +211,7 @@ function vegn_tiles_can_be_merged(vegn1,vegn2) result(response)
   else
      response = .true. ! non-secondary tiles of the same land use type can always be merged
   endif
-end function
+end function vegn_tiles_can_be_merged
 
 
 ! ============================================================================
@@ -274,8 +282,15 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
 
   __MERGE__(age);
   
-  __MERGE__(fsc_pool); __MERGE__(fsc_rate)
-  __MERGE__(ssc_pool); __MERGE__(ssc_rate)
+  __MERGE__(fsc_pool_ag); __MERGE__(fsc_rate_ag)
+  __MERGE__(ssc_pool_ag); __MERGE__(ssc_rate_ag)
+  __MERGE__(fsc_pool_bg); __MERGE__(fsc_rate_bg)
+  __MERGE__(ssc_pool_bg); __MERGE__(ssc_rate_bg)
+  
+  __MERGE__(leaflitter_buffer_ag)
+  __MERGE__(leaflitter_buffer_rate_ag)
+  __MERGE__(coarsewoodlitter_buffer_ag)
+  __MERGE__(coarsewoodlitter_buffer_rate_ag)
 
   __MERGE__(csmoke_pool)
   __MERGE__(csmoke_rate)
@@ -286,6 +301,7 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   ! do we need to merge these?
   __MERGE__(ssc_out)
   __MERGE__(fsc_out)
+  __MERGE__(deadmic_out)
   __MERGE__(veg_in); __MERGE__(veg_out)
   
   ! or these?
@@ -477,6 +493,32 @@ function vegn_tile_bwood(vegn) result(bwood)
 end function vegn_tile_bwood
 
 ! ============================================================================
+! returns total leaf area index
+function vegn_tile_LAI(vegn) result(LAI) ; real LAI
+  type(vegn_tile_type), intent(in) :: vegn
+
+  integer :: i
+
+  LAI = 0
+  do i = 1,vegn%n_cohorts
+     LAI = LAI + vegn%cohorts(i)%lai*vegn%cohorts(i)%nindivs
+  enddo
+end function vegn_tile_LAI
+
+! ============================================================================
+! returns total stem area index
+function vegn_tile_SAI(vegn) result(SAI) ; real SAI
+  type(vegn_tile_type), intent(in) :: vegn
+
+  integer :: i
+
+  SAI = 0
+  do i = 1,vegn%n_cohorts
+     SAI = SAI + vegn%cohorts(i)%sai*vegn%cohorts(i)%nindivs
+  enddo
+end function vegn_tile_SAI
+
+! ============================================================================
 subroutine vegn_tile_stock_pe (vegn, twd_liq, twd_sol  )
   type(vegn_tile_type),  intent(in)    :: vegn
   real,                  intent(out)   :: twd_liq, twd_sol
@@ -507,8 +549,9 @@ function vegn_tile_carbon(vegn) result(carbon) ; real carbon
           vegn%cohorts(i)%carbon_gain + vegn%cohorts(i)%bwood_gain &
          )*vegn%cohorts(i)%nindivs
   enddo
-  carbon = carbon + &
-       sum(vegn%harv_pool) + vegn%fsc_pool + vegn%ssc_pool + vegn%csmoke_pool
+  carbon = carbon + sum(vegn%harv_pool) + &
+           vegn%fsc_pool_ag + vegn%ssc_pool_ag + &
+           vegn%fsc_pool_bg + vegn%ssc_pool_bg + vegn%csmoke_pool
 end function vegn_tile_carbon
 
 

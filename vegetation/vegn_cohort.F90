@@ -21,8 +21,10 @@ public :: vegn_cohort_type
 ! operations defined for cohorts
 public :: get_vegn_wet_frac
 public :: vegn_data_cover
-public :: cohort_uptake_profile
 public :: cohort_root_properties
+public :: cohort_uptake_profile
+public :: cohort_root_litter_profile
+public :: cohort_root_exudate_profile
  
 public :: btotal ! returns cohort total biomass
 public :: c3c4   ! returns physiology type for given biomasses and conditions
@@ -42,13 +44,10 @@ character(len=*), parameter :: &
      tagname = '$Name$'
 
 ! ==== types =================================================================
-type :: vegn_phys_prog_type
-end type vegn_phys_prog_type
-
 ! vegn_cohort_type describes the data that belong to a vegetation cohort
 type :: vegn_cohort_type
-  real :: Wl ! liquid water content of canopy, kg/individual
-  real :: Ws ! solid water (snow) content of canopy, kg/individual
+  real :: Wl ! liquid intercepted water, kg/individual
+  real :: Ws ! solid intercepted water (i.e. snow), kg/individual
   real :: Tv ! canopy temperature, K
 
 ! ---- biological prognostic variables
@@ -374,6 +373,34 @@ subroutine cohort_uptake_profile(cohort, dz, uptake_frac_max, vegn_uptake_term)
 
 end subroutine cohort_uptake_profile
 
+
+! ============================================================================
+! returns normalizes vertical profile for root litter
+subroutine cohort_root_litter_profile(cohort, dz, profile)
+  type(vegn_cohort_type), intent(in) :: cohort
+  real, intent(in)  :: dz(:) ! layer thickneses, m
+  real, intent(out) :: profile(:)
+
+  real :: z
+  integer :: l
+  
+  z = 0
+  do l = 1, size(profile)
+     profile(l) = (exp(-z/cohort%root_zeta) - exp(-(z+dz(l))/cohort%root_zeta))
+     z = z + dz(l)
+  enddo
+  profile(:) = profile(:)/sum(profile)  
+end subroutine cohort_root_litter_profile
+
+! ============================================================================
+! returns normalizes vertical profile for root exudates
+subroutine cohort_root_exudate_profile(cohort, dz, profile)
+  type(vegn_cohort_type), intent(in) :: cohort
+  real, intent(in)  :: dz(:) ! layer thickneses, m
+  real, intent(out) :: profile(:)
+
+  call cohort_root_litter_profile(cohort,dz,profile)
+end subroutine cohort_root_exudate_profile
 
 ! ============================================================================
 function btotal(c)

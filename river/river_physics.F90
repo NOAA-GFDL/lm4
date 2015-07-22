@@ -34,6 +34,7 @@ module river_physics_mod
   use fms_mod,         only : stdlog, write_version_number
   use fms_mod,         only : close_file, check_nml_error, file_exist
   use diag_manager_mod,only : register_diag_field, send_data
+  use tracer_manager_mod, only : NO_TRACER
   use river_type_mod,  only : river_type, Leo_Mad_trios, NO_RIVER_FLAG
   use lake_mod,        only : large_dyn_small_stat
   use lake_tile_mod,   only : num_l
@@ -243,6 +244,18 @@ contains
             lake_area = lake_sfc_A(i,j)
             influx   =(River%inflow  (i,j)  +River%infloc  (i,j))  *DENS_H2O*River%dt_slow
             influx_c =(River%inflow_c(i,j,:)+River%infloc_c(i,j,:))*DENS_H2O*River%dt_slow
+
+!            ! ZMS Simple update for storage_c. Skip over lakes.
+            if (River%num_c > 0) then
+!               River%storage_c(i,j,River%num_phys+1:River%num_species) = &
+!                     River%storage_c(i,j,River%num_phys+1:River%num_species) + influx_c(River%num_phys+1:River%num_species)        
+
+               if (is_watch_cell()) then
+                  write(*,*)'infloc_c(num_phys+1:num_species), inflow_c(numphys+1:num_species) for watch_cell:', &
+                             River%infloc_c(i,j,River%num_phys+1:num_species), River%inflow_c(i,j,River%num_phys+1:num_species)
+               end if
+            end if
+
             if (River%tocell(i,j).eq.0 .and. River%landfrac(i,j).ge.1.) then
                 ! terminal, all-land cell (must have lake)
                 h = (clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1))*(lake_T(i,j,1)-tfreeze)
@@ -368,6 +381,12 @@ contains
                    endif
               endif
 
+            ! ZMS Bypass rivers for tracers.
+            if (River%num_c > 0) then
+               River%lake_outflow_c(i,j,River%num_phys+1:River%num_species) = &
+                     influx_c(River%num_phys+1:River%num_species)
+            end if
+
             ! NEXT COMPUTE RIVER-REACH MASS BALANCE (FROM LAKE_OUTFLOW TO OUTFLOW)
           
             if (River%tocell(i,j).gt.0 .or. River%landfrac(i,j).lt.1.) then
@@ -424,8 +443,14 @@ contains
                 ! given water outflow and storage, split other tracked stuff same way
                 out_frac = 0.
                 if (avail .gt. 0.) out_frac = River%outflow(i,j)/avail
+                ! ZMS:
+                out_frac = min(out_frac, 1.)
                 River%outflow_c(i,j,:) = out_frac * (River%storage_c(i,j,:) &
                                          +River%lake_outflow_c(i,j,:)/DENS_H2O)
+                if (is_watch_cell()) then
+                   write(*,*)'outflow_c(:):', River%outflow_c(i,j,:)
+                end if
+
                 ! 2011/05/13 PCM: fix ice outflow temperature bug
                 if (prohibit_cold_ice_outflow) then
                   River%outflow_c(i,j,:) = max(River%outflow_c(i,j,:), 0.)
@@ -473,10 +498,10 @@ contains
                 ice(i,j)=conc(1)
                 temperature(i,j)=conc(2)
 
-                if (River%do_age) then
-                    River%removal_c(i,j,River%num_phys+1) = -River%storage(i,j)/sec_in_day
-                    River%storage_c(i,j,River%num_phys+1) = River%storage_c(i,j,River%num_phys+1) &
-                       - River%removal_c(i,j,River%num_phys+1)*River%dt_slow
+                if (River%i_age/=NO_TRACER) then
+                    River%removal_c(i,j,River%i_age) = -River%storage(i,j)/sec_in_day
+                    River%storage_c(i,j,River%i_age) = River%storage_c(i,j,River%i_age) &
+                       - River%removal_c(i,j,River%i_age)*River%dt_slow
                   endif
 
                 if (River%storage(i,j) .gt. 0.) then
@@ -504,7 +529,12 @@ contains
                     River%storage_c(i,j,River%num_species-River%num_c+1:River%num_species) = &
                        River%storage_c(i,j,River%num_species-River%num_c+1:River%num_species) &
                        - River%removal_c(i,j,River%num_species-River%num_c+1:River%num_species)* River%dt_slow
-                  endif
+
+                  if (is_watch_cell()) then
+                     write(*,*)'removal_c(num_phys+1:num_species):', &
+                           River%removal_c(i,j,River%num_species-River%num_c+1:River%num_species)
+                  end if
+              end if
               endif
 
             ! FINALLY, REDEFINE OUTFLOW AS DISCHARGE IF WE HAVE OCEAN HERE

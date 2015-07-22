@@ -31,7 +31,7 @@ use snow_tile_mod, only : &
 use land_tile_selectors_mod, only : tile_selector_type, &
      SEL_SOIL, SEL_VEGN, SEL_LAKE, SEL_GLAC, SEL_SNOW, SEL_CANA, SEL_HLSP
 use tile_diag_buff_mod, only : &
-     diag_buff_type, new_diag_buff, delete_diag_buff
+     diag_buff_type, init_diag_buff
 
 implicit none
 private
@@ -70,7 +70,7 @@ public :: print_land_tile_info
 public :: print_land_tile_statistics
 
 ! abstract interfaces for accessor functions
-public :: tile_exists_func, fptr_i0, fptr_r0, fptr_r1
+public :: tile_exists_func, fptr_i0, fptr_i1, fptr_r0, fptr_r1, fptr_r1_l
 
 ! ==== end of public interfaces ==============================================
 interface new_land_tile
@@ -127,24 +127,24 @@ type :: land_tile_type
    type(cana_tile_type), pointer :: cana => NULL() ! canopy air data
    type(vegn_tile_type), pointer :: vegn => NULL() ! vegetation model data
 
-   type(diag_buff_type), pointer :: diag => NULL() ! diagnostic data storage
+   type(diag_buff_type) :: diag ! diagnostic data storage
    
    ! data that are carried from update_land_bc_fast to update_land_fast:
    real :: Sg_dir(NBANDS), Sg_dif(NBANDS) ! fractions of downward direct and 
        ! diffuse short-wave radiation absorbed by ground and snow
    ! fractions of downward direct and diffuse radiation absorbed by the 
    ! vegetation; dimensions are (NCOHORTS,NBANDS).
-   real, pointer :: Sv_dir(:,:)=>NULL(), Sv_dif(:,:)=>NULL() 
+   real, allocatable :: Sv_dir(:,:), Sv_dif(:,:)
    ! fractions of downward direct and diffuse radiation on top of each cohort
    ! dimensions are (NCOHORTS,NBANDS).
-   real, pointer :: Sdn_dir(:,:)=>NULL(), Sdn_dif(:,:)=>NULL() 
+   real, allocatable :: Sdn_dir(:,:), Sdn_dif(:,:) 
    real :: land_refl_dir(NBANDS), land_refl_dif(NBANDS)
    
    real :: land_d, land_z0m, land_z0s
    real :: surf_refl_lw ! long-wave reflectivity of the ground surface (possibly snow-covered)
    ! black-background long-wave radiative properties of the vegetation cohorts
-   real, pointer :: vegn_refl_lw(:) => NULL() ! reflectance
-   real, pointer :: vegn_tran_lw(:) => NULL() ! transmittance
+   real, allocatable :: vegn_refl_lw(:)  ! reflectance
+   real, allocatable :: vegn_tran_lw(:)  ! transmittance
 
    real :: lwup     = 200.0  ! upward long-wave flux from the entire land (W/m2), the result of
            ! the implicit time step -- used in update_land_bc_fast to return to the flux exchange.
@@ -199,6 +199,13 @@ abstract interface
      type(land_tile_type), pointer :: tile ! input
      integer             , pointer :: ptr  ! returned pointer to the data
   end subroutine fptr_i0
+  ! subroutine that given land tile, returns pointer to some real 1D array 
+  ! within this tile, or an unassociated pointer if there is no data
+  subroutine fptr_i1(tile, ptr)
+     import land_tile_type
+     type(land_tile_type), pointer :: tile ! input
+     integer             , pointer :: ptr(:) ! returned pointer to the data
+  end subroutine fptr_i1
   ! subroutine that given land tile, returns pointer to some real data 
   ! within this tile, or an unassociated pointer if there is no data
   subroutine fptr_r0(tile, ptr)
@@ -213,6 +220,15 @@ abstract interface
      type(land_tile_type), pointer :: tile ! input
      real                , pointer :: ptr(:) ! returned pointer to the data
   end subroutine fptr_r1
+  ! subroutine that given land tile and index l, returns pointer to element l 
+  ! of real 1D array within this tile, or an unassociated pointer if there is 
+  ! no data
+  subroutine fptr_r1_l(tile, ptr, l)
+     import land_tile_type
+     type(land_tile_type), pointer :: tile ! input
+     real                , pointer :: ptr(:) ! returned pointer to the data
+     integer             , intent(in) :: l ! layer index in the array
+  end subroutine fptr_r1_l
   ! NOTE: import statements are needed because in FORTRAN interface blocks
   ! do not have access to their environment by host association, so without
   ! "import" they don't know the definition of land_tile_type, and compilation
@@ -270,7 +286,7 @@ function land_tile_ctor(frac,glac,lake,soil,vegn,tag,htag_j,htag_k) result(tile)
   if(vegn_>=0) tile%vegn => new_vegn_tile(vegn_)
 
   ! create a buffer for diagnostic output
-  tile%diag=>new_diag_buff()
+  call init_diag_buff(tile%diag)
 
   ! increment total number of created files for tile statistics
   n_created_land_tiles = n_created_land_tiles + 1
@@ -291,42 +307,6 @@ function land_tile_copy_ctor(t) result(tile)
   if (associated(t%snow)) tile%snow=>new_snow_tile(t%snow)
   if (associated(t%cana)) tile%cana=>new_cana_tile(t%cana)
   if (associated(t%vegn)) tile%vegn=>new_vegn_tile(t%vegn)
-
-  if (associated(t%diag)) tile%diag=>new_diag_buff(t%diag)
-
-  ! copy arays of vegetation optical properties
-  tile%Sv_dir=>NULL(); 
-  if(associated(t%Sv_dir)) then
-    allocate(tile%Sv_dir(size(t%Sv_dir,1),size(t%Sv_dir,2)));
-    tile%Sv_dir=t%Sv_dir
-  endif
-  tile%Sv_dif=>NULL(); 
-  if(associated(t%Sv_dif)) then
-    allocate(tile%Sv_dif(size(t%Sv_dif,1),size(t%Sv_dif,2)));
-    tile%Sv_dif=t%Sv_dif
-  endif
-  tile%Sdn_dir=>NULL(); 
-  if(associated(t%Sdn_dir)) then
-    allocate(tile%Sdn_dir(size(t%Sdn_dir,1),size(t%Sdn_dir,2)));
-    tile%Sdn_dir=t%Sdn_dir
-  endif
-  tile%Sdn_dif=>NULL(); 
-  if(associated(t%Sdn_dif)) then
-    allocate(tile%Sdn_dif(size(t%Sdn_dif,1),size(t%Sdn_dif,2)));
-    tile%Sdn_dif=t%Sdn_dif
-  endif
-  
-  tile%vegn_refl_lw=>NULL(); 
-  if(associated(t%vegn_refl_lw)) then
-    allocate(tile%vegn_refl_lw(size(t%vegn_refl_lw)));
-    tile%vegn_refl_lw=t%vegn_refl_lw
-  endif
-  tile%vegn_tran_lw=>NULL(); 
-  if(associated(t%vegn_tran_lw)) then
-    allocate(tile%vegn_tran_lw(size(t%vegn_tran_lw)));
-    tile%vegn_tran_lw=t%vegn_tran_lw
-  endif
-
 end function land_tile_copy_ctor
 
 
@@ -344,19 +324,6 @@ subroutine delete_land_tile(tile)
   if (associated(tile%snow)) call delete_snow_tile(tile%snow)
   if (associated(tile%cana)) call delete_cana_tile(tile%cana)
   if (associated(tile%vegn)) call delete_vegn_tile(tile%vegn)
-  
-  ! deallocate diagnostic storage
-  call delete_diag_buff(tile%diag)
-
-  ! deallocate optical properties
-#define __DEALLOC__(x) if(associated(x))deallocate(x)
-  __DEALLOC__(tile%Sv_dir)
-  __DEALLOC__(tile%Sv_dif)
-  __DEALLOC__(tile%Sdn_dir)
-  __DEALLOC__(tile%Sdn_dif)
-  __DEALLOC__(tile%vegn_refl_lw)
-  __DEALLOC__(tile%vegn_tran_lw)
-#undef __DEALLOC__
   
   ! release the tile memory
   deallocate(tile)

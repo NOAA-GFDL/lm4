@@ -108,7 +108,7 @@ public :: &
     ! vegetation data, imported from LM3V
     spdata, &
     min_cosz, &
-    agf_bs, K1,K2, fsc_liv, fsc_wood, &
+    agf_bs, K1,K2, fsc_liv, fsc_wood, fsc_froot, &
     tau_drip_l, tau_drip_s, & ! canopy water and snow residence times, for drip calculations
     GR_factor, tg_c3_thresh, tg_c4_thresh, &
     fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
@@ -238,6 +238,8 @@ type spec_data_type
   real    :: dx=0.0, dl=0.0       ! Breakpoint of Weibull function, MPa
   real    :: cx=1.0, cl=1.0	  ! Exponent of Weibull function, unitless
   real    :: psi_tlp=0.0                  ! psi at turgor loss point
+
+  real    :: root_exudate_frac = 0.0 ! fraction of NPP that ends up in root exudates
 end type
 
 ! ==== module data ===========================================================
@@ -277,6 +279,7 @@ real :: agf_bs         = 0.8 ! ratio of above ground stem to total stem
 real :: K1 = 10.0, K2 = 0.05 ! soil decomposition parameters
 real :: fsc_liv        = 0.8
 real :: fsc_wood       = 0.2
+real :: fsc_froot      = 0.3
 real :: tau_drip_l     = 21600.0 ! canopy water residence time, for drip calculations
 real :: tau_drip_s     = 86400.0 ! canopy snow residence time, for drip calculations
 real :: GR_factor = 0.33 ! growth respiration factor     
@@ -334,7 +337,7 @@ namelist /vegn_data_nml/ &
   min_cosz, &
   soil_carbon_depth_scale, cold_month_threshold, &
 
-  agf_bs, K1,K2, fsc_liv, fsc_wood, &
+  agf_bs, K1,K2, fsc_liv, fsc_wood, fsc_froot, &
   tau_drip_l, tau_drip_s, GR_factor, tg_c3_thresh, tg_c4_thresh, &
   fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
   l_fract, wood_fract_min, T_transp_min, &
@@ -653,7 +656,8 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(dl)
   __GET_SPDATA_REAL__(cl)
   __GET_SPDATA_REAL__(psi_tlp)
-  
+
+  __GET_SPDATA_REAL__(root_exudate_frac)
 #undef __GET_SPDATA_REAL__
 
   ! check for typos in the namelist: detects parameters that are listed in the
@@ -871,6 +875,8 @@ subroutine print_species_data(unit)
   call add_row(table, 'cnst_crit_fire',spdata(:)%cnst_crit_fire)
 
   call add_row(table, 'smoke_fraction',spdata(:)%smoke_fraction)
+
+  call add_row(table, 'root_exudate_frac', spdata(:)%root_exudate_frac)
 
   call add_row(table, 'dat_height',       spdata(:)%dat_height)
   call add_row(table, 'dat_lai',          spdata(:)%dat_lai)

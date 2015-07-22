@@ -48,10 +48,17 @@ interface dpri
    module procedure debug_printout_r2d
 end interface dpri
 
+interface check_var_range
+   module procedure check_var_range_0d
+   module procedure check_var_range_1d
+end interface check_var_range
+
+
 ! conservation tolerances for use across the code. This module doesn't use
 ! them, just serves as a convenient place to share them across all land code
 public :: water_cons_tol
 public :: carbon_cons_tol
+public :: do_check_conservation
 
 public :: land_time
 ! ==== module constants ======================================================
@@ -85,14 +92,15 @@ logical :: trim_labels = .FALSE. ! if TRUE, the length of text labels in debug
            ! printout is never allowed to exceed label_len, resulting in 
            ! trimming of the labels. Set it to TRUE to match earlier debug 
            ! printout
-real    :: water_cons_tol  = 1e-11 ! tolerance of water conservation checks 
-real    :: carbon_cons_tol = 1e-13 ! tolerance of carbon conservation checks  
 namelist/land_debug_nml/ watch_point, &
    start_watching, stop_watching, &
    temp_lo, temp_hi, &
-   print_hex_debug, label_len, trim_labels, &
-   water_cons_tol, carbon_cons_tol
+   print_hex_debug, label_len, trim_labels
 
+logical :: do_check_conservation = .FALSE.
+real    :: water_cons_tol  = 1e-11 ! tolerance of water conservation checks 
+real    :: carbon_cons_tol = 1e-13 ! tolerance of carbon conservation checks  
+namelist/land_conservation_nml/ do_check_conservation, water_cons_tol, carbon_cons_tol
 
 contains
 
@@ -107,6 +115,8 @@ subroutine land_debug_init()
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=land_debug_nml, iostat=io)
   ierr = check_nml_error(io, 'land_debug_nml')
+  read (input_nml_file, nml=land_conservation_nml, iostat=io)
+  ierr = check_nml_error(io, 'land_conservation_nml')
 #else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
@@ -117,12 +127,22 @@ subroutine land_debug_init()
      enddo
 10   continue
      call close_file (unit)
+     unit = open_namelist_file()
+     ierr = 1;  
+     do while (ierr /= 0)
+        read (unit, nml=land_conservation_nml, iostat=io, end=11)
+        ierr = check_nml_error (io, 'land_conservation_nml')
+     enddo
+11   continue
+     call close_file (unit)
   endif
 #endif
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=land_debug_nml)
+     write(unit, nml=land_conservation_nml)
   endif
+
   ! set number of our mosaic tile 
   call get_grid_ntiles('LND',ntiles)
   mosaic_tile = ntiles*mpp_pe()/mpp_npes() + 1  ! assumption
@@ -253,30 +273,26 @@ subroutine check_temp_range(temp, tag, varname)
   character(*), intent(in) :: tag ! tag to print
   character(*), intent(in) :: varname ! name of the variable for printout
 
-  call check_var_range(temp,temp_lo,temp_hi,tag,varname)
+  call check_var_range(temp,temp_lo,temp_hi,tag,varname,WARNING)
 end subroutine check_temp_range
 
 ! ============================================================================
 ! checks if the value is within specified range, and prints a message
 ! if it isn't
-subroutine check_var_range(value, lo, hi, tag, varname, severity)
-  real, intent(in) :: value ! value to check
-  real, intent(in) :: lo,hi ! lower and upper bounds of acceptable range
-  character(*), intent(in) :: tag ! tag to print
-  character(*), intent(in) :: varname ! name of the variable for printout
-  integer, intent(in), optional :: severity ! severity of the non-conservation error:
+subroutine check_var_range_0d(value, lo, hi, tag, varname, severity)
+  real        , intent(in) :: value    ! value to check
+  real        , intent(in) :: lo,hi    ! lower and upper bounds of acceptable range
+  character(*), intent(in) :: tag      ! tag to print
+  character(*), intent(in) :: varname  ! name of the variable for printout
+  integer     , intent(in) :: severity ! severity of the non-conservation error:
          ! Can be WARNING, FATAL, or negative. Negative means check is not done.
 
   ! ---- local vars
   integer :: y,mo,d,h,m,s ! components of date
   integer :: thread
   character(512) :: message
-  integer :: severity_
 
-  severity_=WARNING
-  if (present(severity)) severity_=severity
-
-  if (severity_<0) return
+  if (severity<0) return
 
   if(lo<=value.and.value<=hi) then
      return
@@ -288,9 +304,29 @@ subroutine check_var_range(value, lo, hi, tag, varname, severity)
           trim(varname)//' out of range: value=', value,&
 	  'at i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
           'time=',y,mo,d,h,m,s
-     call error_mesg(trim(tag),message,severity_)
+     call error_mesg(trim(tag),message,severity)
   endif
-end subroutine check_var_range
+end subroutine check_var_range_0d
+
+
+! ============================================================================
+subroutine check_var_range_1d(value, lo, hi, tag, varname, severity)
+  real        , intent(in) :: value(:) ! value to check
+  real        , intent(in) :: lo,hi    ! lower and upper bounds of acceptable range
+  character(*), intent(in) :: tag      ! tag to print
+  character(*), intent(in) :: varname  ! name of the variable for printout
+  integer     , intent(in) :: severity ! severity of the non-conservation error:
+         ! Can be WARNING, FATAL, or negative. Negative means check is not done.
+
+  integer :: i
+
+  if (severity<0) return
+
+  do i = 1,size(value)
+     call check_var_range_0d(value(i), lo, hi, tag, trim(varname)//'('//trim(string(i))//')', severity)
+  enddo
+end subroutine check_var_range_1d
+
 
 ! ============================================================================
 ! debug printout procedures

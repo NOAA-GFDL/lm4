@@ -52,7 +52,8 @@ use vegn_tile_mod, only : &
 use vegn_harvesting_mod, only : &
      vegn_cut_forest
 
-use land_debug_mod, only : set_current_point, is_watch_point, get_current_point
+use land_debug_mod, only : set_current_point, is_watch_point, get_current_point, &
+    do_check_conservation
      
 implicit none
 private
@@ -426,24 +427,26 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
        soil_heat1, vegn_heat1, cana_heat1, snow_heat1 ! post-transition values
   real :: lm, fm ! buffers for transition calulations
 
-  ! conservation check code, part 1: calculate the pre-transition grid
-  ! cell totals
-  lmass0 = 0 ; fmass0 = 0 ; cmass0 = 0 ; heat0 = 0
-  soil_heat0 = 0 ;  vegn_heat0 = 0 ; cana_heat0 = 0 ; snow_heat0 = 0
-  ts = first_elmt(d_list) ; te=tail_elmt(d_list)
-  do while (ts /= te)
-     ptr=>current_tile(ts); ts=next_elmt(ts)
-     call get_tile_water(ptr,lm,fm)
-     lmass0 = lmass0 + lm*ptr%frac ; fmass0 = fmass0 + fm*ptr%frac
+  if (do_check_conservation) then
+     ! conservation check code, part 1: calculate the pre-transition grid
+     ! cell totals
+     lmass0 = 0 ; fmass0 = 0 ; cmass0 = 0 ; heat0 = 0
+     soil_heat0 = 0 ;  vegn_heat0 = 0 ; cana_heat0 = 0 ; snow_heat0 = 0
+     ts = first_elmt(d_list) ; te=tail_elmt(d_list)
+     do while (ts /= te)
+        ptr=>current_tile(ts); ts=next_elmt(ts)
+        call get_tile_water(ptr,lm,fm)
+        lmass0 = lmass0 + lm*ptr%frac ; fmass0 = fmass0 + fm*ptr%frac
 
-     heat0  = heat0  + land_tile_heat  (ptr)*ptr%frac
-     cmass0 = cmass0 + land_tile_carbon(ptr)*ptr%frac
+        heat0  = heat0  + land_tile_heat  (ptr)*ptr%frac
+        cmass0 = cmass0 + land_tile_carbon(ptr)*ptr%frac
      
-     if(associated(ptr%soil)) soil_heat0 = soil_heat0 + soil_tile_heat(ptr%soil)*ptr%frac
-     if(associated(ptr%vegn)) vegn_heat0 = vegn_heat0 + vegn_tile_heat(ptr%vegn)*ptr%frac
-     if(associated(ptr%cana)) cana_heat0 = cana_heat0 + cana_tile_heat(ptr%cana)*ptr%frac
-     if(associated(ptr%snow)) snow_heat0 = snow_heat0 + snow_tile_heat(ptr%snow)*ptr%frac
-  enddo
+        if(associated(ptr%soil)) soil_heat0 = soil_heat0 + soil_tile_heat(ptr%soil)*ptr%frac
+        if(associated(ptr%vegn)) vegn_heat0 = vegn_heat0 + vegn_tile_heat(ptr%vegn)*ptr%frac
+        if(associated(ptr%cana)) cana_heat0 = cana_heat0 + cana_tile_heat(ptr%cana)*ptr%frac
+        if(associated(ptr%snow)) snow_heat0 = snow_heat0 + snow_tile_heat(ptr%snow)*ptr%frac
+     enddo
+  endif
 
   ! calculate the area that can participate in land transitions
   atot = 0 ; ts = first_elmt(d_list) ; te=tail_elmt(d_list)
@@ -561,14 +564,16 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      if(associated(ptr%cana)) cana_heat1 = cana_heat1 + cana_tile_heat(ptr%cana)*ptr%frac
      if(associated(ptr%snow)) snow_heat1 = snow_heat1 + snow_tile_heat(ptr%snow)*ptr%frac
   enddo
-  call check_conservation ('liquid water', lmass0, lmass1, 1e-6)
-  call check_conservation ('frozen water', fmass0, fmass1, 1e-6)
-  call check_conservation ('carbon'      , cmass0, cmass1, 1e-6)
-  call check_conservation ('canopy air heat content', cana_heat0 , cana_heat1 , 1e-6)
-  call check_conservation ('vegetation heat content', vegn_heat0 , vegn_heat1 , 1e-6)
-  call check_conservation ('snow heat content',       snow_heat0 , snow_heat1 , 1e-6)
-  call check_conservation ('soil heat content',       soil_heat0 , soil_heat1 , 1e-6)
-  call check_conservation ('heat content', heat0 , heat1 , 1e-6)
+  if (do_check_conservation) then
+     call check_conservation ('liquid water', lmass0, lmass1, 1e-6)
+     call check_conservation ('frozen water', fmass0, fmass1, 1e-6)
+     call check_conservation ('carbon'      , cmass0, cmass1, 1e-6)
+     call check_conservation ('canopy air heat content', cana_heat0 , cana_heat1 , 1e-6)
+     call check_conservation ('vegetation heat content', vegn_heat0 , vegn_heat1 , 1e-6)
+     call check_conservation ('snow heat content',       snow_heat0 , snow_heat1 , 1e-6)
+     call check_conservation ('soil heat content',       soil_heat0 , soil_heat1 , 1e-6)
+     call check_conservation ('heat content', heat0 , heat1 , 1e-6)
+  endif
 
 end subroutine land_transitions_0d
 

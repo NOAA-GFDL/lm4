@@ -124,7 +124,7 @@ real, public        :: surf_flow_velocity = 1.  ! [m/s] Assumed nominal surface 
 logical, public     :: limit_intertile_flow = .false. ! True ==> Limit explicit inter-tile flows
                        ! to improve numerical stability
 real, public        :: flow_ratio_limit = 1.    ! max delta psi to length ratio allowed, if limit_intertile_flow
-
+logical, public     :: tiled_DOC_flux = .false. ! True ==> Calculate DOC fluxes for soil carbon model
 
 character(len=256)  :: hillslope_surfdata = 'INPUT/hillslope.nc'
 character(len=24)   :: hlsp_interpmethod = 'nearest'
@@ -137,7 +137,7 @@ namelist /hlsp_nml/ num_vertclusters, max_num_topo_hlsps, hillslope_horz_subdiv,
                     strm_depth_penetration, use_hlsp_aspect_in_gwflow, use_geohydrodata, &
                     diagnostics_by_cluster, init_wt_strmelev, dammed_strm_bc, &
                     simple_inundation, surf_flow_velocity, dl, equal_length_tiles, &
-                    limit_intertile_flow, flow_ratio_limit, exp_inundation
+                    limit_intertile_flow, flow_ratio_limit, exp_inundation, tiled_DOC_flux
 ! hardwired: fixed_num_vertclusters, hillslope_topo_subdiv, stiff_do_explicit
 !---- end of namelist --------------------------------------------------------
 
