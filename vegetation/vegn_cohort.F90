@@ -94,14 +94,15 @@ type :: vegn_cohort_type
   integer :: layer        = 1   ! the layer of this cohort (numbered from top)
   integer :: firstlayer   = 0   ! 0 = never been in the first layer; 1 = at least one year in first layer
   real    :: layerfrac    = 0.0 ! fraction of layer area occupied by this cohort, m2 of cohort per m2 of ground
-  ! TODO: see if we can make bl_max, br_max local variables
   real    :: bl_max       = 0.0 ! Max. leaf biomass, kg C/individual
   real    :: br_max       = 0.0 ! Max. fine root biomass, kg C/individual
+  real    :: topyear      = 0.0 ! the years that a plant in top layer
   
   ! TODO: figure out how to do starvation mortality without hard-coded assumption
   !       of the mortality call time step
   real    :: BM_ys        = 0.0 ! bwood + bsw at the end the previous year, for starvation 
                                 ! mortality calculation.
+  real    :: DBH_ys
 
 ! ---- uptake-related variables
   real    :: root_length(max_lev) = 0.0 ! individual's root length per unit depth, m of root/m
@@ -155,6 +156,9 @@ type :: vegn_cohort_type
                             ! retirement rate of sapwood into wood
   real :: extinct = 0.0     ! light extinction coefficient in the canopy for photosynthesis calculations
   
+! for phenology
+  real :: gdd = 0.0
+
 ! in LM3V the cohort structure has a handy pointer to the tile it belongs to;
 ! so operations on cohort can update tile-level variables. In this code, it is
 ! probably impossible to have this pointer here: it needs to be of type
@@ -260,14 +264,12 @@ subroutine vegn_data_cover ( cohort, snow_depth, vegn_cover, &
 
   cohort%cover = 1 - exp(-cohort%lai)
   if (use_mcm_masking) then
-     if (present(vegn_cover_snow_factor)) &
-     vegn_cover_snow_factor =  &
+     if (present(vegn_cover_snow_factor)) vegn_cover_snow_factor =  &
            (1 - min(1., 0.5*sqrt(max(snow_depth,0.)/cohort%snow_crit)))
      cohort%cover = cohort%cover * &
            (1 - min(1., 0.5*sqrt(max(snow_depth,0.)/cohort%snow_crit)))
   else
-     if (present(vegn_cover_snow_factor)) &
-     vegn_cover_snow_factor =  &
+     if (present(vegn_cover_snow_factor)) vegn_cover_snow_factor =  &
            cohort%snow_crit / &
           (max(snow_depth,0.0) + cohort%snow_crit)
      cohort%cover = cohort%cover * &
@@ -463,16 +465,21 @@ subroutine update_species(c, t_ann, t_cold, p_ann, cm, landuse)
   if (spp/=c%species) c%leaf_age = 0.0
 
   c%species = spp
-end subroutine 
+end subroutine
 
 
 ! ============================================================================
-function leaf_area_from_biomass(bl,species) result (area)
+function leaf_area_from_biomass(bl,species,layer,firstlayer) result (area)
   real :: area ! returned value
   real,    intent(in) :: bl      ! biomass of leaves, kg C/individual
   integer, intent(in) :: species ! species
+  integer, intent(in) :: layer, firstlayer
 
-  area = bl/spdata(species)%LMA   
+  if (layer > 1 .AND. firstlayer == 0) then
+     area = bl/(0.5*spdata(species)%LMA) ! half thickness for leaves in understory
+  else
+     area = bl/spdata(species)%LMA    
+  endif
 end function 
 
 
@@ -528,8 +535,8 @@ end subroutine
 
 
 ! ============================================================================
-! calculate tree height, DBH, height, and crown area by bwood and denstiy 
-! The allometry equations are from Ray Dybzinski et al. 2011 and Forrior et al. in review
+! calculate tree height, DBH, height, and crown area by bwood and density 
+! The allometry equations are from Ray Dybzinski et al. 2011 and Farrior et al. in review
 !         HT = alphaHT * DBH ** (gamma-1)   ! DBH --> Height
 !         CA = alphaCA * DBH ** gamma       ! DBH --> Crown Area
 !         BM = alphaBM * DBH ** (gamma + 1) ! DBH --> tree biomass

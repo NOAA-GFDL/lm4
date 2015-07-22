@@ -109,22 +109,22 @@ subroutine vegn_radiation ( vegn, &
   integer :: i
 
   ! check that array sizes are correct
-#define CHECK_SIZE(x) if(size(x,1)/=vegn%n_cohorts)call error_mesg('vegn_radiation','size of '//#x//' is inconsistent with NCOHORTS',FATAL)
-  CHECK_SIZE(vegn_refl_dif)
-  CHECK_SIZE(vegn_tran_dif)
-  CHECK_SIZE(vegn_refl_dir)
-  CHECK_SIZE(vegn_sctr_dir)
-  CHECK_SIZE(vegn_tran_dir)
-  CHECK_SIZE(vegn_refl_lw)
-  CHECK_SIZE(vegn_tran_lw)
-#undef CHECK_SIZE
-#define CHECK_SIZE(x) if(size(x,2)/=NBANDS)call error_mesg('vegn_radiation','size of '//#x//' is inconsistent with NBANDS',FATAL)
-  CHECK_SIZE(vegn_refl_dif)
-  CHECK_SIZE(vegn_tran_dif)
-  CHECK_SIZE(vegn_refl_dir)
-  CHECK_SIZE(vegn_sctr_dir)
-  CHECK_SIZE(vegn_tran_dir)
-#undef CHECK_SIZE
+!#define CHECK_SIZE(x) if(size(x,1)/=vegn%n_cohorts)call error_mesg('vegn_radiation','size of '//#x//' is inconsistent with NCOHORTS',FATAL)
+!  CHECK_SIZE(vegn_refl_dif)
+!  CHECK_SIZE(vegn_tran_dif)
+!  CHECK_SIZE(vegn_refl_dir)
+!  CHECK_SIZE(vegn_sctr_dir)
+!  CHECK_SIZE(vegn_tran_dir)
+!  CHECK_SIZE(vegn_refl_lw)
+!  CHECK_SIZE(vegn_tran_lw)
+!#undef CHECK_SIZE
+!#define CHECK_SIZE(x) if(size(x,2)/=NBANDS)call error_mesg('vegn_radiation','size of '//#x//' is inconsistent with NBANDS',FATAL)
+!  CHECK_SIZE(vegn_refl_dif)
+!  CHECK_SIZE(vegn_tran_dif)
+!  CHECK_SIZE(vegn_refl_dir)
+!  CHECK_SIZE(vegn_sctr_dir)
+!  CHECK_SIZE(vegn_tran_dir)
+!#undef CHECK_SIZE
 
   do i = 1,vegn%n_cohorts
      call vegn_data_cover ( vegn%cohorts(i), snow_depth, vegn_cover, vegn_cover_snow_factor )

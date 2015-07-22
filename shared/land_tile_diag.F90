@@ -15,6 +15,7 @@ use land_tile_mod,      only : land_tile_type, diag_buff_type, &
      land_tile_list_type, first_elmt, tail_elmt, next_elmt, get_elmt_indices, &
      land_tile_enum_type, operator(/=), current_tile, &
      tile_is_selected
+use vegn_cohort_mod,    only : vegn_cohort_type
 use land_data_mod,      only : lnd
 use tile_diag_buff_mod, only : diag_buff_type, realloc_diag_buff
 
@@ -32,37 +33,60 @@ public :: register_tiled_diag_field
 public :: register_tiled_static_field
 public :: add_tiled_diag_field_alias
 public :: add_tiled_static_field_alias
+
 public :: send_tile_data
 public :: send_tile_data_r0d_fptr, send_tile_data_r1d_fptr
 public :: send_tile_data_i0d_fptr
 
-public :: dump_tile_diag_fields
+public :: register_cohort_diag_field
+public :: send_cohort_data
 
-! codes of tile aggregaton operations
-public :: OP_AVERAGE, OP_SUM
+public :: dump_tile_diag_fields
 
 interface send_tile_data
    module procedure send_tile_data_0d
    module procedure send_tile_data_1d
+end interface
+interface send_cohort_data
+  module procedure send_cohort_data_with_weight
+  module procedure send_cohort_data_without_weight
 end interface
 ! ==== end of public interface ===============================================
 
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
-     module_name = 'lan_tile_diag_mod', &
-     version     = '$Id$', &
-     tagname     = '$Name$'
+     mod_name = 'lan_tile_diag_mod', &
+     version  = '$Id$', &
+     tagname  = '$Name$'
 
-integer, parameter :: INIT_FIELDS_SIZE     = 1     ! initial size of the fields array
-integer, parameter :: BASE_TILED_FIELD_ID  = 65536 ! base value for tiled field 
+integer, parameter :: INIT_FIELDS_SIZE      = 1       ! initial size of the fields array
+integer, parameter :: BASE_TILED_FIELD_ID   = 65536   ! base value for tiled field 
+integer, parameter :: BASE_COHORT_FIELD_ID  = 65536*2 ! base value for cohort field ids
 ! ids, to distinguish them from regular diagnostic fields. All IDs of tiled
-! (that is, registered by register_*tiled_field functions are larger than 
-! BASE_TILED_FIELD_ID)
+! (that is, registered by register_*tiled_field functions) are larger than 
+! BASE_TILED_FIELD_ID. All cohort field IDs are larger than BASE_COHORT_FIELD_ID
+
 integer, parameter :: MIN_DIAG_BUFFER_SIZE = 1     ! min size of the per-tile diagnostic buffer
 ! operations used for tile data aggregation
-integer, parameter :: OP_AVERAGE = 0 ! weighted average of tile values
-integer, parameter :: OP_SUM     = 1 ! sum of all tile values
+integer, parameter :: &
+    OP_MEAN = 1, & ! weighted average of tile values
+    OP_SUM  = 2, & ! sum of all tile values
+    OP_MAX  = 3, & ! maximum of all  values
+    OP_MIN  = 4    ! minimum of all  values
+character(32), parameter :: opstrings(4) = (/ & ! symbolica names of the aggregation operations
+   'mean', &
+   'sum',  &
+   'maximum', &
+   'minimum' &
+   /)
+
+! TODO: generalize treatment of cohort filters. Possible filters include: selected 
+! species, selected species in the canopy, trees above certain age, etc...
+integer, parameter :: N_CHRT_FILTERS = 3 ! number of pssible distinct cohort filters,
+! currently : all vegetation, upper canopy layer, and understory
+character(2),  parameter :: chrt_filter_suffix(N_CHRT_FILTERS) = (/'','_1','_N'/)
+character(32), parameter :: chrt_filter_name(N_CHRT_FILTERS)   = (/'',' in top canopy layer',' in understory'/)
 
 
 ! ==== derived types =========================================================
@@ -70,12 +94,17 @@ type :: tiled_diag_field_type
    integer, pointer :: ids(:) => NULL()
    integer :: offset ! offset of the field data in the buffer
    integer :: size   ! size of the field data in the per-tile buffers
-   integer :: op     ! aggregation operation
+   integer :: opcode ! aggregation operation
    logical :: static ! if true, the diag field is static
    integer :: n_sends! number of data points sent to the field since last dump
    integer :: alias = 0 ! ID of the first alias in the chain
    character(32) :: module,name ! for debugging purposes only
 end type tiled_diag_field_type
+
+type :: cohort_diag_field_type
+   integer :: ids(N_CHRT_FILTERS) = -1 ! IDs of tiled diag fields for each of cohort filters
+   integer :: opcode = OP_MEAN  ! cohort aggregation operation
+end type cohort_diag_field_type
 
 
 ! ==== module data ===========================================================
@@ -86,6 +115,9 @@ type(tiled_diag_field_type), pointer :: fields(:) => NULL()
 integer :: n_fields       = 0 ! current number of diag fields
 integer :: current_offset = 1 ! current total size of the diag fields per tile
 
+! list of registered cohort fields
+type(cohort_diag_field_type), pointer :: cfields(:) => NULL()
+integer :: n_cfields     = 0 ! current number of diag fields
 
 
 contains
@@ -109,6 +141,10 @@ subroutine tile_diag_init()
   n_fields       = 0
   current_offset = 1
 
+  ! initialize array of cohort fields
+  allocate(cfields(INIT_FIELDS_SIZE))
+  n_cfields       = 0
+
 end subroutine tile_diag_init
 
 
@@ -123,6 +159,7 @@ subroutine tile_diag_end()
      deallocate(fields(i)%ids)
   end do
   deallocate(fields)
+  deallocate(cfields)
 
   ! destroy selectors
   call tile_selectors_end()
@@ -130,6 +167,20 @@ subroutine tile_diag_end()
   module_is_initialized = .false.
 
 end subroutine tile_diag_end
+
+
+! ============================================================================
+function string2opcode(op) result(code)
+  integer :: code ! return value
+  character(*), intent(in) :: op ! aggregation operation
+  
+  integer :: i
+  
+  code =-1
+  do i = 1,size(opstrings)
+     if (trim(op)==trim(opstrings(i))) code = i
+  enddo
+end function string2opcode
 
 
 ! ============================================================================
@@ -146,7 +197,7 @@ function register_tiled_diag_field(module_name, field_name, axes, init_time, &
   character(len=*), intent(in), optional :: units
   real,             intent(in), optional :: missing_value
   real,             intent(in), optional :: range(2)
-  integer,          intent(in), optional :: op ! aggregation operation code
+  character(*),     intent(in), optional :: op ! aggregation operation
   
   id = reg_field(.false., module_name, field_name, init_time, axes, long_name, &
          units, missing_value, range, op=op)
@@ -167,7 +218,7 @@ function register_tiled_static_field(module_name, field_name, axes, &
   real,             intent(in), optional :: missing_value
   real,             intent(in), optional :: range(2)
   logical,          intent(in), optional :: require
-  integer,          intent(in), optional :: op ! aggregation operation code
+  character(*),     intent(in), optional :: op ! aggregation operation
   
   ! --- local vars
   type(time_type) :: init_time
@@ -190,7 +241,7 @@ subroutine add_tiled_static_field_alias(id0, module_name, field_name, axes, &
   character(len=*), intent(in), optional :: units
   real,             intent(in), optional :: missing_value
   real,             intent(in), optional :: range(2)
-  integer,          intent(in), optional :: op ! aggregation operation code
+  character(*),     intent(in), optional :: op ! aggregation operation
 
   ! --- local vars
   type(time_type) :: init_time
@@ -213,7 +264,7 @@ subroutine add_tiled_diag_field_alias(id0, module_name, field_name, axes, init_t
   character(len=*), intent(in), optional :: units
   real,             intent(in), optional :: missing_value
   real,             intent(in), optional :: range(2)
-  integer,          intent(in), optional :: op ! aggregation operation code
+  character(*),     intent(in), optional :: op ! aggregation operation
 
   call reg_field_alias(id0, .false., module_name, field_name, axes, init_time, &
      long_name, units, missing_value, range, op)
@@ -235,7 +286,7 @@ subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time
   character(len=*), intent(in), optional :: units
   real,             intent(in), optional :: missing_value
   real,             intent(in), optional :: range(2)
-  integer,          intent(in), optional :: op ! aggregation operation code
+  character(*),     intent(in), optional :: op ! aggregation operation
   
   ! local vars
   integer :: id1
@@ -244,8 +295,8 @@ subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time
   if (id0>0) then
     ifld0 = id0-BASE_TILED_FIELD_ID
     if (ifld0<1.or.ifld0>n_fields) &
-       call error_mesg(module_name, 'incorrect index ifld0 '//string(ifld0)//&
-                    ' in definition of tiled diag field alias "'//&
+       call error_mesg(mod_name, 'incorrect index ifld0 '//string(ifld0)//  &
+                    ' in definition of tiled diag field alias "'//          &
                     trim(module_name)//'/'//trim(field_name)//'"', FATAL)
     id1 = reg_field(static, module_name, field_name, init_time, axes, long_name, &
           units, missing_value, range, op=op, offset=fields(ifld0)%offset)
@@ -253,20 +304,20 @@ subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time
       ifld1 = id1-BASE_TILED_FIELD_ID
       ! check that sizes of the fields are identical
       if (fields(ifld0)%size/=fields(ifld1)%size) &
-         call error_mesg(module_name, 'sizes of diag field "'//           &
+         call error_mesg(mod_name, 'sizes of diag field "'//              &
            trim(fields(ifld0)%module)//'/'//trim(fields(ifld0)%name)//    &
            '" and its alias "'//trim(module_name)//'/'//trim(field_name)//&
            '" are not the same', FATAL)
       ! check that "static" status of the fields is the same
       if(fields(ifld0)%static.and..not.fields(ifld1)%static) &
-         call error_mesg(module_name,                                     &
+         call error_mesg(mod_name,                                        &
            'attempt to register non-static alias"'//                      &
            trim(module_name)//'/'//trim(field_name)//                     &
            '" of static field "'//                                        &
            trim(fields(ifld0)%module)//'/'//trim(fields(ifld0)%name)//'"',&
            FATAL)
       if(.not.fields(ifld0)%static.and.fields(ifld1)%static) &
-         call error_mesg(module_name,                                     &
+         call error_mesg(mod_name,                                        &
            'attempt to register static alias"'//                          &
            trim(module_name)//'/'//trim(field_name)//                     &
            '" of non-static field "'//                                    &
@@ -304,13 +355,14 @@ function reg_field(static, module_name, field_name, init_time, axes, &
   real,             intent(in), optional :: missing_value
   real,             intent(in), optional :: range(2)
   logical,          intent(in), optional :: require
-  integer,          intent(in), optional :: op
+  character(*),     intent(in), optional :: op ! aggregation operation
   integer,          intent(in), optional :: offset
 
   ! ---- local vars
   integer, pointer :: diag_ids(:) ! ids returned by FMS diag manager for each selector
   integer :: i
   integer :: isel    ! selector iterator
+  integer :: opcode  ! code of the tile aggregation operation
   integer :: n_selectors ! number of registered diagnostic tile selectors
   type(tiled_diag_field_type), pointer :: new_fields(:)
   type(tile_selector_type) :: sel
@@ -372,9 +424,14 @@ function reg_field(static, module_name, field_name, init_time, axes, &
         current_offset = current_offset + fields(id)%size
      ! store the code of the requested tile aggregation operation
      if(present(op)) then
-        fields(id)%op = op
+        fields(id)%opcode = string2opcode(op)
+        if (.not.(fields(id)%opcode==OP_MEAN.or.fields(id)%opcode==OP_SUM)) &
+           call error_mesg(mod_name,&
+              'tile aggregarion operation "'//trim(op)//'" for field "'&
+              //trim(module_name)//'/'//trim(field_name)//'"is incorrect, use "mean" or "sum"',&
+              FATAL)
      else
-        fields(id)%op = OP_AVERAGE
+        fields(id)%opcode = OP_MEAN
      endif
      ! store the static field flag
      fields(id)%static = static
@@ -391,7 +448,7 @@ function reg_field(static, module_name, field_name, init_time, axes, &
      deallocate(diag_ids)
   endif
 
-end function
+end function reg_field
 
 
 ! ============================================================================
@@ -448,6 +505,9 @@ subroutine send_tile_data_0d(id, x, buffer)
   integer :: idx, i
 
   if (id <= 0) return
+  if (id < BASE_TILED_FIELD_ID.or. id >= BASE_COHORT_FIELD_ID ) call error_mesg (mod_name, &
+         'tile diag field ID is out of range. Perhaps the field was not registred with some other call then register_tile_diag_field?', &
+         FATAL)
 
   ! reallocate diagnostic buffer according to the current number and size of 
   ! tiled diag fields
@@ -468,7 +528,7 @@ subroutine send_tile_data_0d(id, x, buffer)
     i=fields(i)%alias
     fields(i)%n_sends = fields(i)%n_sends + 1
   enddo
-end subroutine
+end subroutine send_tile_data_0d
 
 ! ============================================================================
 subroutine send_tile_data_1d(id, x, buffer)
@@ -478,6 +538,9 @@ subroutine send_tile_data_1d(id, x, buffer)
 
   integer :: is, ie, i
   if (id <= 0) return
+  if (id < BASE_TILED_FIELD_ID.or. id >= BASE_COHORT_FIELD_ID ) call error_mesg (mod_name, &
+         'tile diag field ID is out of range. Perhaps the field was not registred with some other call then register_tile_diag_field?', &
+         FATAL)
 
   ! reallocate diagnostic buffer according to the current number and size of 
   ! tiled diag fields
@@ -498,7 +561,7 @@ subroutine send_tile_data_1d(id, x, buffer)
     i=fields(i)%alias
     fields(i)%n_sends = fields(i)%n_sends + 1
   enddo
-end subroutine
+end subroutine send_tile_data_1d
 
 ! NOTE: 2-d fields can be handled similarly to 1-d with reshape
 
@@ -528,7 +591,7 @@ subroutine send_tile_data_r0d_fptr(id, tile_map, fptr)
      if(associated(ptr)) call send_tile_data(id,ptr,tileptr%diag)
      ce=next_elmt(ce)
   enddo
-end subroutine
+end subroutine send_tile_data_r0d_fptr
 
 
 ! ============================================================================
@@ -557,7 +620,7 @@ subroutine send_tile_data_r1d_fptr(id, tile_map, fptr)
      if(associated(ptr)) call send_tile_data(id,ptr,tileptr%diag)
      ce=next_elmt(ce)
   enddo
-end subroutine
+end subroutine send_tile_data_r1d_fptr
 
 
 ! ============================================================================
@@ -586,7 +649,7 @@ subroutine send_tile_data_i0d_fptr(id, tile_map, fptr)
      if(associated(ptr)) call send_tile_data(id,real(ptr),tileptr%diag)
      ce=next_elmt(ce)
   enddo
-end subroutine
+end subroutine send_tile_data_i0d_fptr
 
 
 ! ============================================================================
@@ -606,6 +669,7 @@ subroutine dump_tile_diag_fields(tiles, time)
   total_n_sends(:) = fields(1:n_fields)%n_sends
   call mpp_sum(total_n_sends, n_fields, pelist=lnd%pelist)
 
+!$OMP parallel do schedule(dynamic) default(shared) private(ifld,isel)
   do ifld = 1, n_fields
      if (total_n_sends(ifld) == 0) cycle ! no data to send 
      do isel = 1, get_n_selectors()
@@ -629,7 +693,7 @@ subroutine dump_tile_diag_fields(tiles, time)
   ! reset the first_dump flag
   first_dump = .FALSE.
 
-end subroutine
+end subroutine dump_tile_diag_fields
 
 ! ============================================================================
 subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
@@ -667,8 +731,8 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
     
     if ( size(tile%diag%data) < ke )       cycle ! do nothing if there is no data in the buffer
     if ( .not.tile_is_selected(tile,sel) ) cycle ! do nothing if tile is not selected
-    select case (field%op)
-    case (OP_AVERAGE)
+    select case (field%opcode)
+    case (OP_MEAN)
        where(tile%diag%mask(ks:ke)) 
           buffer(i,j,:) = buffer(i,j,:) + tile%diag%data(ks:ke)*tile%frac
           weight(i,j,:) = weight(i,j,:) + tile%frac
@@ -690,7 +754,149 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
   ! clean up temporary data
   deallocate(buffer,weight)
 
-end subroutine
+end subroutine dump_diag_field_with_sel
+
+! ============================================================================
+function register_cohort_diag_field(module_name, field_name, axes, init_time, &
+     long_name, units, missing_value, range, opt, opc) result (id)
+
+  integer :: id
+
+  character(len=*), intent(in) :: module_name
+  character(len=*), intent(in) :: field_name
+  integer,          intent(in) :: axes(:)
+  type(time_type),  intent(in) :: init_time
+  character(len=*), intent(in), optional :: long_name
+  character(len=*), intent(in), optional :: units
+  real,             intent(in), optional :: missing_value
+  real,             intent(in), optional :: range(2)
+  character(*),     intent(in), optional :: opt ! tile aggregation operation
+  character(*),     intent(in), optional :: opc ! cohort aggregation operation
+
+  integer :: i
+  integer :: diag_ids(N_CHRT_FILTERS)
+  type(cohort_diag_field_type), pointer :: new_fields(:)
+  character(256) :: long_name_
+
+  ! register tiled diag field for each of the samplings
+  do i = 1,N_CHRT_FILTERS
+     if(present(long_name)) then
+         long_name_ = trim(long_name)//trim(chrt_filter_name(i))
+         diag_ids(i) = register_tiled_diag_field( &
+            module_name, trim(field_name)//trim(chrt_filter_suffix(i)), axes, init_time, &
+            long_name_, units, missing_value, range, opt)
+     else
+         diag_ids(i) = register_tiled_diag_field( &
+            module_name, trim(field_name)//trim(chrt_filter_suffix(i)), axes, init_time, &
+            long_name, units, missing_value, range, opt)
+     endif
+  enddo
+  id = 0
+  if (any(diag_ids(:)>0)) then
+     ! if there is not enough slots in the field table to add another one,
+     ! allocate more space
+     if(n_cfields>=size(cfields)) then
+        allocate(new_fields(max(2*n_cfields,1)))
+        new_fields(1:n_cfields) = cfields(1:n_cfields)
+        deallocate(cfields)
+        cfields => new_fields
+     endif
+     ! add the current field to the field table
+     n_cfields = n_cfields+1
+     id       = n_cfields     
+     cfields(id)%ids = diag_ids
+     if (present(opc)) cfields(id)%opcode  = string2opcode(opc)
+     if (cfields(id)%opcode < 0) call error_mesg(mod_name, &
+        'aggregation operation name "'//trim(opc)//'" is incorrect', FATAL)
+     ! write (*,'(99(g,x))')'register_cohort_diag_field:', module_name, field_name, opc, cfields(id)%opcode
+     id       = id+BASE_COHORT_FIELD_ID
+  endif
+end function register_cohort_diag_field
+
+
+! ============================================================================
+subroutine send_cohort_data_without_weight (id, buffer, cc, data)
+  integer,                intent(in)    :: id        ! diag field ID
+  type(diag_buff_type),   intent(inout) :: buffer    ! data buffer
+  type(vegn_cohort_type), intent(in)    :: cc(:)     ! cohort array: used for filtering
+  real,                   intent(in)    :: data(:)   ! data
+
+  real :: weight(size(data))
+  weight(:) = 1.0
+  call send_cohort_data_with_weight (id, buffer, cc, data, weight)
+end subroutine send_cohort_data_without_weight
+
+! ============================================================================
+subroutine send_cohort_data_with_weight (id, buffer, cc, data, weight)
+  integer,                intent(in)    :: id        ! diag field ID
+  type(diag_buff_type),   intent(inout) :: buffer    ! data buffer
+  type(vegn_cohort_type), intent(in)    :: cc(:)     ! cohort array: used for filtering
+  real,                   intent(in)    :: data(:)      ! data
+  real,                   intent(in)    :: weight(:) ! averaging weight
+  
+  integer :: i
+  real    :: value
+  
+  if (id<=0) return
+
+  ! check data size
+  if (size(cc)/=size(data)) call error_mesg(mod_name, &
+     'size of cohort array is not equal to the size of data', FATAL)
+  if (size(weight)/=size(data)) call error_mesg(mod_name,&
+     'size of data is not equal to size of weight',FATAL)
+
+  ! check that ID is in correct range
+  if (id < BASE_COHORT_FIELD_ID.or.id>BASE_COHORT_FIELD_ID+n_cfields) &
+     call error_mesg(mod_name,&
+         'cohort diag field ID is out of range. Perhaps the field was not registred with register_cohort_diag_field?', &
+         FATAL)
+
+  i = id - BASE_COHORT_FIELD_ID
+  ! TODO: generalize cohort subsampling
+  if (cfields(i)%ids(1) > 0) then
+     ! all cohorts
+     value = aggregate(data,weight,cfields(i)%opcode,mask=cc(:)%layer>0)
+     call send_tile_data(cfields(i)%ids(1), value, buffer)
+  endif
+  if (cfields(i)%ids(2) > 0) then
+     ! canopy cohorts
+     value = aggregate(data,weight,cfields(i)%opcode,mask=cc(:)%layer==1)
+     call send_tile_data(cfields(i)%ids(2), value, buffer)
+  endif
+  if (cfields(i)%ids(3) > 0) then
+     ! understory cohorts
+     value = aggregate(data,weight,cfields(i)%opcode,mask=cc(:)%layer>1)
+     call send_tile_data(cfields(i)%ids(3), value, buffer)
+  endif
+end subroutine send_cohort_data_with_weight
+
+
+! ============================================================================
+function aggregate(data,weight,opcode,mask) result(ret)
+  real :: ret
+  real, intent(in) :: data(:),weight(:)
+  integer, intent(in) :: opcode
+  logical, intent(in) :: mask(:)
+
+  real :: w
+  
+  select case(opcode)
+  case(OP_SUM)
+     ret = sum(data*weight,mask=mask)
+  case(OP_MEAN)
+     w = sum(weight,mask=mask)
+     ret = sum(data*weight,mask=mask)
+     if (w/=0) ret = ret/w
+  case(OP_MAX)
+     ret = 0.0
+     if (any(mask)) ret = maxval(data,mask)
+  case(OP_MIN)
+     ret = 0.0
+     if (any(mask)) ret = minval(data,mask)
+  case default
+     call error_mesg(mod_name, 'unrecognized cohort data aggregation opcode', FATAL)
+  end select
+end function aggregate
 
 
 end module land_tile_diag_mod

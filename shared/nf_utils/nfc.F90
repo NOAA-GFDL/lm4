@@ -160,6 +160,7 @@ function inq_compressed_var_i(ncid, vid, name, xtype, ndims, dimids, dimlens, &
   integer :: nd0, dids0(NF_MAX_VAR_DIMS),dlens0(NF_MAX_VAR_DIMS)
   integer :: nd1, dids1(NF_MAX_VAR_DIMS),dlens1(NF_MAX_VAR_DIMS)
   integer :: i,n,unlimdim,vsize,rsize
+  logical :: compressed
 
   iret =  nfu_inq_var(ncid, vid, name, xtype, nd0, dids0, dlens0, natts, &
      is_dim, has_records, varsize, recsize, nrec)
@@ -167,8 +168,11 @@ function inq_compressed_var_i(ncid, vid, name, xtype, ndims, dimids, dimlens, &
   nd1=1
   if(present(is_compressed)) is_compressed=.false.
   do i = 1, nd0
-     if(nfu_inq_compressed_dim(ncid,dids0(i),&
-          ndims=n,dimids=dids1(nd1:),dimlens=dlens1(nd1:))==NF_NOERR) then
+     __NF_TRY__(nfu_inq_dim(ncid,dids0(i),is_compressed=compressed),iret,7)
+     if (compressed) then
+        iret = nfu_inq_compressed_dim(ncid,dids0(i),&
+                             ndims=n,dimids=dids1(nd1:),dimlens=dlens1(nd1:))
+        if (iret/=NF_NOERR) goto 7
         nd1 = nd1+n
         if(present(is_compressed)) is_compressed=.true.
      else

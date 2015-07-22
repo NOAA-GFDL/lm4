@@ -5,12 +5,14 @@ module vegn_disturbance_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod, only: error_mesg, WARNING
+use fms_mod,         only : error_mesg, WARNING
+use constants_mod,   only : tfreeze
 use land_constants_mod, only : seconds_per_year
-use land_debug_mod, only : is_watch_point
+use land_debug_mod,  only : is_watch_point
 use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, agf_bs, do_ppa, LEAF_OFF, &
                             DBH_mort, A_mort, B_mort, mortrate_s
 use vegn_tile_mod,   only : vegn_tile_type
+use soil_tile_mod,   only : soil_tile_type
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools
 
 implicit none
@@ -28,11 +30,17 @@ character(len=*), parameter :: &
      version = '$Id$', &
      tagname = '$Name$', &
      module_name = 'vegn_disturbance_mod'
+! TODO: possibly move all definition of cpw,clw,csw in one place
+real, parameter :: &
+     cpw = 1952.0, & ! specific heat of water vapor at constant pressure
+     clw = 4218.0, & ! specific heat of water (liquid)
+     csw = 2106.0    ! specific heat of water (ice)
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-subroutine vegn_disturbance(vegn, dt)
-  type(vegn_tile_type), intent(inout) :: vegn
+subroutine vegn_disturbance(vegn, soil, dt)
+  type(vegn_tile_type), intent(inout) :: vegn ! vegetation data
+  type(soil_tile_type), intent(inout) :: soil ! soil data
   real, intent(in) :: dt ! time since last disturbance calculations, s
   
   real, parameter :: BMIN = 1e-10; ! should be the same as in growth function
@@ -44,7 +52,7 @@ subroutine vegn_disturbance(vegn, dt)
   real :: drought_month;
   real :: deltat
   integer :: i
-  integer :: sp ! shorhand for cohort species
+  integer :: sp ! shorthand for cohort species
 
   deltat = dt/seconds_per_year ! convert time interval to years
 
@@ -65,25 +73,25 @@ subroutine vegn_disturbance(vegn, dt)
      ! "dead" biomass : wood + sapwood
      delta = (cc%bwood+cc%bsw)*fraction_lost;
       
-     vegn%slow_soil_C = vegn%slow_soil_C + (1.0-spdata(sp)%smoke_fraction)*delta*(1-fsc_wood);
-     vegn%fast_soil_C = vegn%fast_soil_C + (1.0-spdata(sp)%smoke_fraction)*delta*   fsc_wood;
+     soil%slow_soil_C(1) = soil%slow_soil_C(1) + (1.0-spdata(sp)%smoke_fraction)*delta*(1-fsc_wood);
+     soil%fast_soil_C(1) = soil%fast_soil_C(1) + (1.0-spdata(sp)%smoke_fraction)*delta*   fsc_wood;
      cc%bwood = cc%bwood * (1-fraction_lost);
      cc%bsw   = cc%bsw   * (1-fraction_lost);
       
      vegn%csmoke_pool = vegn%csmoke_pool + spdata(sp)%smoke_fraction*delta;
       
      ! for budget tracking - temporarily not keeping wood and the rest separately,ens
-     !      vegn%ssc_in+=delta*(1.0-spdata(sp)%smoke_fraction)*(1-fsc_wood); */
-     !      vegn%fsc_in+=delta*(1.0-spdata(sp)%smoke_fraction)*fsc_wood; */
+     !      soil%ssc_in(1)+=delta*(1.0-spdata(sp)%smoke_fraction)*(1-fsc_wood); */
+     !      soil%fsc_in(1)+=delta*(1.0-spdata(sp)%smoke_fraction)*fsc_wood; */
       
-     vegn%ssc_in = vegn%ssc_in+(cc%bwood+cc%bsw)*fraction_lost *(1.0-spdata(sp)%smoke_fraction);
-     !     vegn%fsc_in+=cc%bsw*fraction_lost *(1.0-spdata(sp)%smoke_fraction);
+     soil%ssc_in(1) = soil%ssc_in(1)+(cc%bwood+cc%bsw)*fraction_lost *(1.0-spdata(sp)%smoke_fraction);
+     !     soil%fsc_in(1)+=cc%bsw*fraction_lost *(1.0-spdata(sp)%smoke_fraction);
      vegn%veg_out = vegn%veg_out+delta;
       
      !"alive" biomass: leaves, roots, and virtual pool
      delta = (cc%bl+cc%blv+cc%br)*fraction_lost;
-     vegn%fast_soil_C = vegn%fast_soil_C + (1.0-spdata(sp)%smoke_fraction)*delta*    fsc_liv ;
-     vegn%slow_soil_C = vegn%slow_soil_C + (1.0-spdata(sp)%smoke_fraction)*delta*(1- fsc_liv);
+     soil%fast_soil_C(1) = soil%fast_soil_C(1) + (1.0-spdata(sp)%smoke_fraction)*delta*    fsc_liv ;
+     soil%slow_soil_C(1) = soil%slow_soil_C(1) + (1.0-spdata(sp)%smoke_fraction)*delta*(1- fsc_liv);
       
      cc%bl  = cc%bl  * (1-fraction_lost);
      cc%blv = cc%blv * (1-fraction_lost);
@@ -92,9 +100,9 @@ subroutine vegn_disturbance(vegn, dt)
      vegn%csmoke_pool = vegn%csmoke_pool + spdata(sp)%smoke_fraction*delta;
       
      ! for budget tracking- temporarily keeping alive separate ens
-     ! /*      vegn%fsc_in+=delta* fsc_liv; */
-     ! /*      vegn%ssc_in+=delta* (1-fsc_liv); */
-     vegn%fsc_in = vegn%fsc_in+delta*(1.0-spdata(sp)%smoke_fraction);
+     ! /*      soil%fsc_in(1)+=delta* fsc_liv; */
+     ! /*      soil%ssc_in(1)+=delta* (1-fsc_liv); */
+     soil%fsc_in(1) = soil%fsc_in(1)+delta*(1.0-spdata(sp)%smoke_fraction);
      vegn%veg_out = vegn%veg_out+delta;
       
      !"living" biomass:leaves, roots and sapwood
@@ -102,11 +110,11 @@ subroutine vegn_disturbance(vegn, dt)
      cc%bliving = cc%bliving - delta;
 
      if(cc%bliving < BMIN) then
-        ! remove vegetation completely 	      
-        vegn%fast_soil_C = vegn%fast_soil_C + fsc_liv*cc%bliving+ fsc_wood*cc%bwood;
-        vegn%slow_soil_C = vegn%slow_soil_C + (1.- fsc_liv)*cc%bliving+ (1-fsc_wood)*cc%bwood;
+        ! remove vegetaion competely 	      
+        soil%fast_soil_C(1) = soil%fast_soil_C(1) + fsc_liv*cc%bliving+ fsc_wood*cc%bwood;
+        soil%slow_soil_C(1) = soil%slow_soil_C(1) + (1.- fsc_liv)*cc%bliving+ (1-fsc_wood)*cc%bwood;
         
-        vegn%fsc_in = vegn%fsc_in + cc%bwood+cc%bliving;
+        soil%fsc_in(1) = soil%fsc_in(1) + cc%bwood+cc%bliving;
         vegn%veg_out = vegn%veg_out + cc%bwood+cc%bliving;
         
         cc%bliving = 0.;
@@ -176,7 +184,7 @@ subroutine update_fuel(vegn, wilt)
            + wilt*spdata(cc%species)%fact_crit_fire
      theta_crit = max(0.0,min(1.0, theta_crit))
      if((cc%height < fire_height_threashold) &
-          .and.(vegn%theta_av < theta_crit)  &
+          .and.(vegn%theta_av_fire < theta_crit)  &
           .and.(vegn%tsoil_av > 278.16)) then
         babove = cc%bl + agf_bs * (cc%bsw + cc%bwood + cc%blv);
         ! this is fuel available during the drought months only
@@ -188,7 +196,7 @@ subroutine update_fuel(vegn, wilt)
   ! the last cohort -- currently it doesn't matter since we have just one cohort, 
   ! but something needs to be done about that in the future
   ignition_rate = 0.;
-  if ( (vegn%theta_av < theta_crit) &
+  if ( (vegn%theta_av_fire < theta_crit) &
        .and. (vegn%tsoil_av>278.16)) ignition_rate = 1.;
   vegn%lambda = vegn%lambda + ignition_rate;
 
@@ -196,8 +204,9 @@ end subroutine update_fuel
 
 
 ! ============================================================================
-subroutine vegn_nat_mortality_lm3(vegn, deltat)
-  type(vegn_tile_type), intent(inout) :: vegn
+subroutine vegn_nat_mortality_lm3(vegn, soil, deltat)
+  type(vegn_tile_type), intent(inout) :: vegn  ! vegetation data
+  type(soil_tile_type), intent(inout) :: soil  ! soil data
   real, intent(in) :: deltat ! time since last mortality calculations, s
   
   ! ---- local vars
@@ -226,15 +235,15 @@ subroutine vegn_nat_mortality_lm3(vegn, deltat)
      ! "dead" biomass : wood + sapwood
      delta = bdead*fraction_lost;
 
-     vegn%slow_soil_C = vegn%slow_soil_C + (1-fsc_wood)*delta;
-     vegn%fast_soil_C = vegn%fast_soil_C +    fsc_wood *delta;
+     soil%slow_soil_C(1) = soil%slow_soil_C(1) + (1-fsc_wood)*delta;
+     soil%fast_soil_C(1) = soil%fast_soil_C(1) +    fsc_wood *delta;
 
      cc%bwood = cc%bwood * (1-fraction_lost);
      cc%bsw   = cc%bsw   * (1-fraction_lost);
 
      ! for budget tracking -temporarily
-     ! vegn%fsc_in+= cc%bsw*fraction_lost;
-     vegn%ssc_in  = vegn%ssc_in  + (cc%bwood+cc%bsw)*fraction_lost;
+     ! soil%fsc_in(1)+= cc%bsw*fraction_lost;
+     soil%ssc_in(1)  = soil%ssc_in(1)  + (cc%bwood+cc%bsw)*fraction_lost;
      vegn%veg_out = vegn%veg_out + delta;
      
      ! note that fast "living" pools are not included into mortality because their 
@@ -250,8 +259,9 @@ end subroutine vegn_nat_mortality_lm3
 ! ============================================================================
 ! TODO: spread the mortality input to fsc and ssc over a year, to avoid spikes 
 ! in carbon fluxes
-subroutine vegn_nat_mortality_ppa (vegn, deltat)
+subroutine vegn_nat_mortality_ppa (vegn, soil, deltat)
   type(vegn_tile_type), intent(inout) :: vegn
+  type(soil_tile_type), intent(inout) :: soil
   real, intent(in) :: deltat ! time since last mortality calculations, s
 
   ! ---- local vars
@@ -262,9 +272,13 @@ subroutine vegn_nat_mortality_ppa (vegn, deltat)
   type(vegn_cohort_type), pointer :: cc(:) ! array to hold new cohorts
   
   
-  real, parameter :: min_nindivs = 2e-15 ! 1/m. If nindivs is less that this number, 
+  real, parameter :: min_nindivs = 1e-5 ! 1/m2. If nindivs is less that this number, 
   ! then the entire cohort is killed; 2e-15 is approximately 1 individual per Earth 
   ! surface area
+  logical :: do_U_shaped_mortality = .FALSE.
+  real :: DBHtp ! for U-shaped mortality
+
+  DBHtp = 1.0  ! for U-shaped mortality
 
   do i = 1, vegn%n_cohorts   
      associate ( cc => vegn%cohorts(i)   , &
@@ -278,78 +292,41 @@ subroutine vegn_nat_mortality_ppa (vegn, deltat)
                     /(1.0 + exp(B_mort*(DBH_mort-cc%dbh))) &
                  )
      else
-        deathrate = sp%mortrate_d_c
+        if(do_U_shaped_mortality)then
+            deathrate = sp%mortrate_d_c *                    &
+                       (1.0 + 12.*exp(8.*(cc%dbh-DBHtp))     &
+                             /(1.0 + exp(8.*(cc%dbh-DBHtp))) &
+                       )
+        else
+            deathrate = sp%mortrate_d_c
+        endif
      endif
-     ! Mortality due to starvation
-     if (cc%bwood+cc%bsw < cc%BM_ys-0.5*cc%bl_max .or. cc%nsc<0.01*cc%bl_max .or. cc%bsw<0) then
-         deathrate = mortrate_s
-     endif
-     cc%BM_ys = cc%bwood+cc%bsw
 
      deadtrees = cc%nindivs * (1.0-exp(-deathrate*deltat/seconds_per_year)) ! individuals / m2
-     ! kill the entire cohort if the the spacial density of individuals is too low
-     if (cc%nindivs-deadtrees < min_nindivs) deadtrees=cc%nindivs
-     ! recalculate amount of water on canopy: assume that the dead tree are dry,
-     ! so all water remains on the survivors
-     if (cc%nindivs-deadtrees > 0) then
-        cc%prog%Wl = cc%prog%Wl*cc%nindivs/(cc%nindivs-deadtrees)
-        cc%prog%Ws = cc%prog%Ws*cc%nindivs/(cc%nindivs-deadtrees)
-        ! this does not conserve water if we are killing the entire cohort; however
-        ! the total amount of water on cohort is so small in this case that it can
-        ! be ignored. It will be fixed anyway if we drop the water on dead trees
-        ! to the ground
-     endif
-     ! it is probably more consistent to add this water on top of soil or snow; 
-     ! but for that we need an intermediate buffer (must be included into total 
-     ! water calculations), and I am reluctant to introduce it at the moment.
-     ! TODO: invent a better way to handle water on trees lost to mortality
      cc%nindivs = cc%nindivs-deadtrees
+     ! water from dead trees goes to intermediate buffers, to be added to the
+     ! precipitation reaching ground
+     vegn%drop_wl = vegn%drop_wl + cc%prog%wl*deadtrees
+     vegn%drop_ws = vegn%drop_ws + cc%prog%ws*deadtrees
+     vegn%drop_hl = vegn%drop_hl + clw*cc%prog%wl*deadtrees*(cc%prog%Tv-tfreeze)
+     vegn%drop_hs = vegn%drop_hs + csw*cc%prog%ws*deadtrees*(cc%prog%Tv-tfreeze)
 
      ! add dead C from leaf and root pools to fast soil carbon
      loss_wood  = deadtrees * cc%bwood
      loss_alive = deadtrees * (cc%bl+cc%br+cc%bsw+cc%blv+cc%bseed+cc%nsc)
-     vegn%fast_soil_C = vegn%fast_soil_C +    fsc_liv *loss_alive +    fsc_wood *loss_wood
-     vegn%slow_soil_C = vegn%slow_soil_C + (1-fsc_liv)*loss_alive + (1-fsc_wood)*loss_wood
+     soil%fast_soil_C(1) = soil%fast_soil_C(1) +    fsc_liv *loss_alive +    fsc_wood *loss_wood
+     soil%slow_soil_C(1) = soil%slow_soil_C(1) + (1-fsc_liv)*loss_alive + (1-fsc_wood)*loss_wood
           
      ! for budget tracking - temporary
-     vegn%ssc_in = vegn%ssc_in + fsc_liv*loss_alive + fsc_wood *loss_wood
+     soil%ssc_in(1) = soil%ssc_in(1) + fsc_liv*loss_alive + fsc_wood *loss_wood
      vegn%veg_out = vegn%veg_out + loss_alive + loss_wood
 
      end associate
      ! note that in contrast to LM3 mortality calculation, living biomasses are
      ! included in loss; does it mean that we double-counting losses in 
      ! maintenance and here?
-     ! TODO: ask Enshend and Elena about possible double-counting of live biomass losses.
+     ! TODO: ask Ensheng and Elena about possible double-counting of live biomass losses.
   enddo
-  
-  ! calculate the number of remaining cohorts
-  k = 0
-  do i = 1, vegn%n_cohorts
-     if (vegn%cohorts(i)%nindivs > min_nindivs) k=k+1
-  enddo
-
-  if (k==0) call error_mesg('vegn_nat_mortality_ppa','All cohorts died',WARNING)
-  if (is_watch_point()) then
-     write(*,*)'###### vegn_nat_mortality_ppa #######'
-     __DEBUG1__(vegn%cohorts%nindivs)
-     __DEBUG1__(k)
-  endif
-
-  ! exclude cohorts that have zero individuals
-  if (k < vegn%n_cohorts) then
-     allocate(cc(k))
-     k=0
-     do i = 1,vegn%n_cohorts
-        if (vegn%cohorts(i)%nindivs > min_nindivs) then
-           k=k+1
-           cc(k) = vegn%cohorts(i)
-        endif
-     enddo
-
-     vegn%n_cohorts = k
-     deallocate (vegn%cohorts)
-     vegn%cohorts=>cc
-  endif
 
 end subroutine vegn_nat_mortality_ppa
 

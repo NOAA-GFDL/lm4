@@ -54,10 +54,11 @@ character(len=*), parameter :: &
      tagname     = '$Name$'
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
-! It is supposed to be double-precision signaling NaN, to triger a trap when
-! the program is compiled with trapping uninitialized values.  
+! It is supposed to be double-precision signaling NaN, to trigger a trap when
+! the program is compiled with trapping non-initialized values.  
 ! See http://ftp.uniovi.es/~antonio/uned/ieee754/IEEE-754references.html
-real, parameter :: init_value = Z'FFF0000000000001'
+! real, parameter :: init_value = Z'FFF0000000000001'
+real, parameter :: init_value = 0.0
 
 ! ---- types -----------------------------------------------------------------
 type :: atmos_land_boundary_type
@@ -133,6 +134,7 @@ type :: land_data_type
    integer :: axes(2)        ! IDs of diagnostic axes
    type(domain2d) :: domain  ! our computation domain
    logical, pointer :: maskmap(:,:) 
+   integer, pointer, dimension(:) :: pelist
 end type land_data_type
 
 
@@ -168,6 +170,8 @@ type :: land_state_type
    ! if io_domain was not defined, then there is just one element in this
    ! array, and it's equal to current PE
    integer :: io_id     ! suffix in the distributed files.
+   logical :: append_io_id ! if FALSE, io_id is not appended to the file names
+                           ! (for the case io_layout = 1,1)
 end type land_state_type
 
 ! ---- public module variables -----------------------------------------------
@@ -242,6 +246,7 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow)
      lnd%io_pelist(1) = mpp_pe()
      lnd%io_id        = mpp_pe()
   endif
+  lnd%append_io_id = (io_layout(1)/=1.or.io_layout(2)/=1)
      
 
   ! get the domain information

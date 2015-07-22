@@ -24,7 +24,9 @@ use cana_tile_mod, only : cana_tile_type, cana_prog_type, &
      canopy_air_mass, canopy_air_mass_for_tracers, cpw
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
-use land_data_mod, only : land_state_type, lnd
+use land_tile_diag_mod, only : &
+     register_tiled_diag_field, send_tile_data, diag_buff_type
+use land_data_mod,      only : land_state_type, lnd
 use land_tile_io_mod, only : create_tile_out_file, read_tile_data_r0d_fptr, write_tile_data_r0d_fptr, &
      get_input_restart_name, print_netcdf_error
 use land_debug_mod, only : is_watch_point, check_temp_range
@@ -59,21 +61,14 @@ real :: init_T           = 288.
 real :: init_T_cold      = 260.
 real :: init_q           = 0.
 real :: init_co2         = 350.0e-6 ! ppmv = mol co2/mol of dry air
-real :: rav_lit_vi       = 0.       ! litter resistance to vapor per v_idx
 character(len=32) :: turbulence_to_use = 'lm3w' ! or lm3v
-logical :: save_qco2     = .TRUE.
-logical :: sfc_dir_albedo_bug = .FALSE. ! if true, reverts to buggy behavior
 ! where direct albedo was mistakenly used for part of sub-canopy diffuse light
-logical :: bare_ground_z0_bug = .FALSE. ! bug switch for bare z0m,d: if TRUE,
-! z0m can't be less then "height", and that has lower limit of 0.1 m
 namelist /cana_nml/ &
   init_T, init_T_cold, init_q, init_co2, turbulence_to_use, &
-  canopy_air_mass, canopy_air_mass_for_tracers, cpw, rav_lit_vi, save_qco2, &
-  sfc_dir_albedo_bug, bare_ground_z0_bug
+  canopy_air_mass, canopy_air_mass_for_tracers, cpw
 !---- end of namelist --------------------------------------------------------
 
 logical            :: module_is_initialized =.FALSE.
-type(time_type)    :: time ! *** NOT YET USED
 real               :: delta_time      ! fast time step
 integer :: turbulence_option ! selected option of turbulence parameters 
      ! calculations
@@ -131,7 +126,6 @@ subroutine cana_init ( id_lon, id_lat )
   module_is_initialized = .TRUE.
 
   ! ---- make module copy of time --------------------------------------------
-  time       = lnd%time
   delta_time = time_type_to_real(lnd%dt_fast)
 
   ! ---- initialize cana state -----------------------------------------------
@@ -211,9 +205,7 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
      ! write fields
      call write_tile_data_r0d_fptr(unit,'temp' ,cana_T_ptr,'canopy air temperature','degrees_K')
      call write_tile_data_r0d_fptr(unit,'sphum',cana_q_ptr,'canopy air specific humidity','kg/kg')
-     if (save_qco2) then
-        call write_tile_data_r0d_fptr(unit,'co2'  ,cana_co2_ptr,'canopy air co2 concentration','(kg CO2)/(kg wet air)')
-     endif
+     call write_tile_data_r0d_fptr(unit,'co2'  ,cana_co2_ptr,'canopy air co2 concentration','(kg CO2)/(kg wet air)')
      ! close output file
      __NF_ASRT__(nf_close(unit))
 end subroutine save_cana_restart
@@ -312,11 +304,8 @@ subroutine cana_turbulence (u_star,&
      endif
      con_g_h = 1.0/rah_sca
   end select
-! not a good parameterization, but just using for sensitivity analyses now.
-! ignores differing biomass and litter turnover rates.
-  rav_lit = rav_lit_vi * vegn_idx
-  con_g_v = con_g_h/(1.+rav_lit*con_g_h)
-  con_v_v = con_v_h  
+  con_g_v = con_g_h
+  con_v_v = con_v_h
 end subroutine
 
 ! ============================================================================
@@ -404,14 +393,8 @@ subroutine cana_roughness(lm2, &
            land_z0m = grnd_z0m + 0.3*height*sqrt(0.07*vegn_idx)
         endif
      else 
-        if (bare_ground_z0_bug) then
-           ! bare soil or leaf off
-           land_z0m = 0.1 *height
-           land_d   = 0.66*height
-        else
-           land_d   = 0
-           land_z0m = grnd_z0m
-        endif
+        land_d   = 0
+        land_z0m = grnd_z0m
      endif
      land_z0s = land_z0m*exp(-2.0) 
 
@@ -450,7 +433,7 @@ subroutine cana_step_1 ( cana,&
   ! ---- local vars
   real :: rho, grnd_q, qsat, DqsatDTg
 
-  call check_temp_range(grnd_T,'cana_step_1','grnd_T',lnd%time)
+  call check_temp_range(grnd_T,'cana_step_1','grnd_T', lnd%time)
 
   call qscomp(grnd_T,p_surf,qsat,DqsatDTg)
   grnd_q = grnd_rh * qsat

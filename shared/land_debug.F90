@@ -8,11 +8,15 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only: &
      error_mesg, file_exist, check_nml_error, stdlog, write_version_number, &
-     close_file, mpp_pe, mpp_npes, mpp_root_pe, string, FATAL, NOTE
+     close_file, mpp_pe, mpp_npes, mpp_root_pe, string, FATAL, WARNING, NOTE
 use time_manager_mod, only : &
      time_type, get_date
 use grid_mod, only: &
      get_grid_ntiles
+
+! NOTE TO SELF: the "!$" sentinels are not comments: they are compiled if OpenMP 
+! support is turned on
+!$ use omp_lib, only: OMP_GET_MAX_THREADS, OMP_GET_THREAD_NUM
 
 implicit none
 private
@@ -25,9 +29,11 @@ public :: set_current_point
 public :: get_current_point
 public :: current_i, current_j, current_k, current_face
 public :: is_watch_point
+public :: is_watch_cell
 public :: get_watch_point
 
 public :: check_temp_range
+public :: check_var_range
 public :: check_conservation
 
 public :: dpri
@@ -53,9 +59,9 @@ character(len=*), parameter, private   :: &
     tagname     = '$Name$'
 
 ! ==== module variables ======================================================
-integer :: current_debug_level = 0
+integer, allocatable :: current_debug_level(:)
 integer :: mosaic_tile = 0
-integer :: curr_i, curr_j, curr_k
+integer, allocatable :: curr_i(:), curr_j(:), curr_k(:)
 character(128) :: fixed_format
 
 !---- namelist ---------------------------------------------------------------
@@ -83,6 +89,7 @@ contains
 subroutine land_debug_init()
   ! ---- local vars
   integer :: unit, ierr, io, ntiles
+  integer :: max_threads
 
   call write_version_number(version, tagname)
   
@@ -109,50 +116,101 @@ subroutine land_debug_init()
   call get_grid_ntiles('LND',ntiles)
   mosaic_tile = ntiles*mpp_pe()/mpp_npes() + 1  ! assumption
 
+  ! set number of threads and allocate by-thread arrays
+    max_threads = 1  
+!$  max_threads = OMP_GET_MAX_THREADS()
+  allocate(curr_i(max_threads),curr_j(max_threads),curr_k(max_threads))
+  allocate(current_debug_level(max_threads))
+  current_debug_level(:) = 0
+
   ! construct the format string for output
-  fixed_format = '(a'//trim(string(label_len))//',99g)'
+  fixed_format = '(a'//trim(string(label_len))//',99g23.16)'
 
 end subroutine land_debug_init
 
 ! ============================================================================
 subroutine land_debug_end()
+  deallocate(curr_i,curr_j,curr_k)
+  deallocate(current_debug_level)
 end subroutine
 
 ! ============================================================================
 subroutine set_current_point(i,j,k)
   integer, intent(in) :: i,j,k
 
-  curr_i = i ; curr_j = j ; curr_k = k
+  integer :: thread
+    thread = 1
+!$  thread = OMP_GET_THREAD_NUM()+1
 
-  current_debug_level = 0
+  curr_i(thread) = i ; curr_j(thread) = j ; curr_k(thread) = k
+
+  current_debug_level(thread) = 0
   if ( watch_point(1)==i.and. &
        watch_point(2)==j.and. &
        watch_point(3)==k.and. &
        watch_point(4)==mosaic_tile) then
-     current_debug_level = 1
+     current_debug_level(thread) = 1
   endif
 end subroutine set_current_point
 
 ! ============================================================================
 subroutine get_current_point(i,j,k,face)
   integer, intent(out), optional :: i,j,k,face
-  if (present(i)) i = curr_i
-  if (present(j)) j = curr_j
-  if (present(k)) k = curr_k
+
+  integer :: thread
+    thread = 1
+!$  thread = OMP_GET_THREAD_NUM()+1
+
+  if (present(i)) i = curr_i(thread)
+  if (present(j)) j = curr_j(thread)
+  if (present(k)) k = curr_k(thread)
   if (present(face)) face = mosaic_tile
 end subroutine get_current_point
 
 ! ============================================================================
-integer function current_i() ; current_i = curr_i ; end function
-integer function current_j() ; current_j = curr_j ; end function
-integer function current_k() ; current_k = curr_k ; end function
+integer function current_i()
+  integer :: thread
+    thread = 1
+!$  thread = OMP_GET_THREAD_NUM()+1
+  current_i = curr_i(thread)
+end function
+
+integer function current_j()
+  integer :: thread
+    thread = 1
+!$  thread = OMP_GET_THREAD_NUM()+1
+  current_j = curr_j(thread)
+end function
+
+integer function current_k()
+  integer :: thread
+    thread = 1
+!$  thread = OMP_GET_THREAD_NUM()+1
+  current_k = curr_k(thread)
+end function
+
 integer function current_face() ; current_face = mosaic_tile ; end function
 
 ! ============================================================================
 function is_watch_point()
   logical :: is_watch_point
-  is_watch_point = (current_debug_level > 0)
+
+  integer :: thread
+    thread = 1
+!$  thread = OMP_GET_THREAD_NUM()+1
+  is_watch_point = (current_debug_level(thread) > 0)
 end function is_watch_point
+
+! ============================================================================
+! returns true, if the watch point is within the grid cell, regardless of
+! the tile number
+function is_watch_cell()
+  logical :: is_watch_cell
+  is_watch_cell = ( current_i() == watch_point(1) &
+              .and. current_j() == watch_point(2) &
+              .and. mosaic_tile == watch_point(4) )
+end function is_watch_cell
+
 
 ! ============================================================================
 subroutine get_watch_point(i,j,k,face)
@@ -172,19 +230,45 @@ subroutine check_temp_range(temp, tag, varname, time)
   character(*), intent(in) :: varname ! name of the variable for printout
   type(time_type), intent(in) :: time ! current time
 
+  call check_var_range(temp,temp_lo,temp_hi,tag,varname,time)
+end subroutine
+
+! ============================================================================
+! checks if the value is within specified range, and prints a message
+! if it isn't
+subroutine check_var_range(value, lo, hi, tag, varname, time, severity)
+  real, intent(in) :: value ! value to check
+  real, intent(in) :: lo,hi ! lower and upper bounds of acceptable range
+  character(*), intent(in) :: tag ! tag to print
+  character(*), intent(in) :: varname ! name of the variable for printout
+  type(time_type), intent(in) :: time ! current time
+  integer, intent(in), optional :: severity ! severity of the non-conservation error:
+         ! Can be WARNING, FATAL, or negative. Negative means check is not done.
+
   ! ---- local vars
   integer :: y,mo,d,h,m,s ! components of date
+  integer :: thread
+  character(512) :: message
+  integer :: severity_
 
-  if(temp_lo<temp.and.temp<temp_hi) then
+  severity_=WARNING
+  if (present(severity)) severity_=severity
+
+  if (severity_<0) return
+
+  if(lo<=value.and.value<=hi) then
      return
   else
+     thread = 1
+!$   thread = OMP_GET_THREAD_NUM()+1
      call get_date(time,y,mo,d,h,m,s)
-     write(*,'(a," : ",a,g,4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
-          trim(tag), trim(varname)//' out of range: value=', &
-         temp,'at i=',curr_i,'j=',curr_j,'tile=',curr_k,'face=',mosaic_tile, &
-         'time=',y,mo,d,h,m,s
+     write(message,'(a,g23.16,4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
+          trim(varname)//' out of range: value=', value,&
+	  'at i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
+          'time=',y,mo,d,h,m,s
+     call error_mesg(trim(tag),message,severity_)
   endif
-end subroutine 
+end subroutine check_var_range
 
 ! ============================================================================
 ! debug printout procedures
@@ -193,11 +277,10 @@ subroutine debug_printout_r0d(description,value)
   real        , intent(in) :: value
   
   if (trim_labels.or.len_trim(description)<label_len) then
-     write(*,fixed_format,advance='NO')trim(description)
+     write(*,fixed_format,advance='NO')trim(description),value
   else
-     write(*,'(x,a)',advance='NO')trim(description)
+     write(*,'(x,a,g23.16)',advance='NO')trim(description),value
   endif
-  write(*,'(g)',advance='NO')value
   if(print_hex_debug) write(*,'(z17)',advance='NO')value
 end subroutine
 
@@ -209,7 +292,7 @@ subroutine debug_printout_i0d(description,value)
   if (trim_labels.or.len_trim(description)<label_len) then
      write(*,fixed_format,advance='NO')trim(description),value
   else
-     write(*,'(x,a,g)',advance='NO')trim(description),value
+     write(*,'(x,a,g23.16)',advance='NO')trim(description),value
   endif
 end subroutine
 
@@ -221,7 +304,7 @@ subroutine debug_printout_l0d(description,value)
   if (trim_labels.or.len_trim(description)<label_len) then
      write(*,fixed_format,advance='NO')trim(description),value
   else
-     write(*,'(x,a,g)',advance='NO')trim(description),value
+     write(*,'(x,a,g23.16)',advance='NO')trim(description),value
   endif
 end subroutine
 
@@ -235,10 +318,10 @@ subroutine debug_printout_r1d(description,values)
   if (trim_labels.or.len_trim(description)<label_len) then
      write(*,fixed_format,advance='NO')trim(description)
   else
-     write(*,'(x,a,99g)',advance='NO')trim(description)
+     write(*,'(x,a)',advance='NO')trim(description)
   endif
   do i = 1,size(values)
-     write(*,'(g)',advance='NO')values(i)
+     write(*,'(g23.16)',advance='NO')values(i)
      if(print_hex_debug) write(*,'(z17)',advance='NO')values(i)
   enddo
 end subroutine
@@ -268,6 +351,7 @@ subroutine debug_printout_r2d(description,values)
   ! TODO: print values as a matrix
 end subroutine
 
+
 ! ============================================================================
 ! checks the conservation of a substance and issues a message with specified
 ! severity if the difference is not within tolerance.
@@ -282,13 +366,14 @@ subroutine check_conservation(tag, substance, d1, d2, tolerance, time, severity)
 
   ! ---- local vars
   integer :: y,mo,d,h,m,s ! components of date
+  integer :: thread
   character(512) :: message
   integer :: severity_
   
   severity_=FATAL
   if (present(severity))severity_=severity
 
-  if (severity_<0)return
+  if (severity_<0) return
 
   if (abs(d2-d1)<tolerance) then
      if (is_watch_point()) then
@@ -296,10 +381,12 @@ subroutine check_conservation(tag, substance, d1, d2, tolerance, time, severity)
           trim(tag)//': conservation of '//trim(substance)//'; before=', d1, 'after=', d2, 'diff=',d2-d1
      endif
   else
+     thread = 1
+!$   thread = OMP_GET_THREAD_NUM()+1
      call get_date(time,y,mo,d,h,m,s)
-     write(message,'(3(x,a,g),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
+     write(message,'(3(x,a,g23.16),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
           'conservation of '//trim(substance)//' is violated; before=', d1, 'after=', d2, 'diff=',d2-d1,&
-          'at i=',curr_i,'j=',curr_j,'tile=',curr_k,'face=',mosaic_tile, &
+          'at i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
           'time=',y,mo,d,h,m,s
      call error_mesg(tag,message,severity_)
   endif

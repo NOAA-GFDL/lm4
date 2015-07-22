@@ -97,10 +97,13 @@ type :: lake_pars_type
   real emis_dry
   real emis_sat
   real z0_momentum
+  real z0_momentum_ice
   real depth_sill
   real width_sill
   real whole_area
   real connected_to_next
+  real backwater
+  real backwater_1
   real tau_groundwater
   real rsa_exp         ! riparian source-area exponent
 end type lake_pars_type
@@ -123,6 +126,8 @@ type :: lake_tile_type
    real,                 pointer :: w_wilt(:)
    real :: Eg_part_ref
    real :: z0_scalar
+   real :: z0_scalar_ice
+   real :: geothermal_heat_flux
    real, pointer :: e(:),f(:)
    real, pointer :: heat_capacity_dry(:)
 end type lake_tile_type
@@ -138,21 +143,23 @@ real    :: lake_width_inside_lake = 1.e5
 real    :: large_lake_sill_width = 200.
 real    :: min_lake_frac         = 0.
 real    :: max_lake_rh           = 1.
+real    :: lake_rh_exp           = 1.
+real    :: dry_lake_depth_frac   = 0.
 real    :: k_over_B              = 0.25      ! reset to 0 for MCM
+real    :: k_over_B_ice          = 0.25
 real    :: rate_fc               = 0.1/86400 ! 0.1 mm/d drainage rate at FC
 real    :: sfc_heat_factor       = 1
-integer, public :: num_l                 = 18           ! number of lake levels
-real    :: dz(max_lev)           = (/ &
-    0.02, 0.04, 0.04, 0.05, 0.05, 0.1, 0.1, 0.2, 0.2, &
-    0.2,   0.4,  0.4,  0.4,  0.4, 0.4,  1.,  1.,  1., &
-    0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0., &
-    0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0., &
-    0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0., &
-    0.,0.,0.,0.,0. /)
-                                              ! thickness (m) of model layers,
-                                              ! from top down
+real    :: geothermal_heat_flux_constant = 0.0  ! true continental average is ~0.065 W/m2
+integer, public :: num_l         = 18           ! number of lake levels
+integer, public :: n_outlet      = 0
 logical :: use_lm2_awc           = .false.
-  integer :: n_map_1st_lake_type = 10
+logical, public :: lake_specific_width    = .false.
+integer :: n_map_1st_lake_type = 10
+  
+integer, public :: outlet_face(100)
+integer, public :: outlet_i(100)
+integer, public :: outlet_j(100)
+real, public :: outlet_width(100)
 
 ! from analysis of modis data (ignoring temperature dependence):
   real :: f_iso_ice(NBANDS) = (/ 0.056, 0.131 /)
@@ -196,6 +203,7 @@ real, dimension(n_dim_lake_types) :: &
   dat_emis_dry          =(/ 0.950   /),&
   dat_emis_sat          =(/ 0.980   /),&
   dat_z0_momentum       =(/ 1.4e-4  /),&
+  dat_z0_momentum_ice   =(/ 1.4e-4  /),&
   dat_tf_depr           =(/  0.00   /)
 real, dimension(n_dim_lake_types, NBANDS) :: &
      dat_refl_dry_dif, dat_refl_dry_dir, &
@@ -213,11 +221,13 @@ character(len=4), dimension(n_dim_lake_types) :: &
 
 namelist /lake_data_nml/ lake_width_inside_lake, &
      large_lake_sill_width, &
-     min_lake_frac, round_frac_down, max_lake_rh, &
+     lake_specific_width, n_outlet, outlet_face, outlet_i, outlet_j, outlet_width, &
+     min_lake_frac, round_frac_down, max_lake_rh, lake_rh_exp, &
+     dry_lake_depth_frac, &
      lake_to_use,input_cover_types, tile_names, &
-     k_over_B,         &
-     rate_fc, sfc_heat_factor,        &
-     num_l,                   dz,                      &
+     k_over_B, k_over_B_ice,         &
+     rate_fc, sfc_heat_factor, geothermal_heat_flux_constant,  &
+     num_l, &
      use_lm2_awc,    n_map_1st_lake_type, &
      use_single_lake,           use_mcm_albedo,            &
      use_single_geo,            lake_index_constant,         &
@@ -229,7 +239,7 @@ namelist /lake_data_nml/ lake_width_inside_lake, &
      dat_refl_dry_dir,            dat_refl_sat_dir,              &
      dat_refl_dry_dif,            dat_refl_sat_dif,              &
      dat_emis_dry,              dat_emis_sat,                &
-     dat_z0_momentum,           dat_tf_depr, &
+     dat_z0_momentum,   dat_z0_momentum_ice,        dat_tf_depr, &
      f_iso_ice, f_vol_ice, f_geo_ice, f_iso_liq, f_vol_liq, f_geo_liq 
 
 
@@ -279,7 +289,7 @@ subroutine read_lake_data_namelist(lake_n_lev)
 
   ! set up output arguments
   lake_n_lev = num_l
-end subroutine 
+end subroutine read_lake_data_namelist
 
 
 ! ============================================================================
@@ -359,6 +369,7 @@ subroutine init_lake_data_0d(lake)
   lake%pars%emis_dry          = dat_emis_dry         (k)
   lake%pars%emis_sat          = dat_emis_sat         (k)
   lake%pars%z0_momentum       = dat_z0_momentum      (k)
+  lake%pars%z0_momentum_ice   = dat_z0_momentum_ice  (k)
 
   lake%pars%tau_groundwater   = 86400.*30.
   lake%pars%rsa_exp           = rsa_exp_global
@@ -383,8 +394,10 @@ subroutine init_lake_data_0d(lake)
        *(2*pi/(3*lake%pars%chb**2*(1+3/lake%pars%chb)*(1+4/lake%pars%chb)))/2
 
   lake%z0_scalar = lake%pars%z0_momentum * exp(-k_over_B)
+  lake%z0_scalar_ice = lake%pars%z0_momentum_ice * exp(-k_over_B_ice)
+  lake%geothermal_heat_flux = geothermal_heat_flux_constant
 
-end subroutine 
+end subroutine init_lake_data_0d
 
 
 ! ============================================================================
@@ -415,7 +428,7 @@ function lake_cover_cold_start(land_mask, lonb, latb, domain) result (lake_frac)
       where (lake_frac.gt.0. .and. lake_frac.lt.min_lake_frac) lake_frac = min_lake_frac
     endif
   
-end function 
+end function lake_cover_cold_start
 
 ! =============================================================================
 function lake_tiles_can_be_merged(lake1,lake2) result(response)
@@ -455,9 +468,11 @@ WRITE (*,*) 'SORRY, BUT merge_lake_tiles NEEDS TO BE REVISED TO ALLOW FOR ', &
     C2 = sfc_heat_factor*t2%pars%heat_capacity_ref
     ! calculate heat content at this level for both source tiles
     HEAT1 = &
-    (C1*dz(i)+clw*t1%prog(i)%wl+csw*t1%prog(i)%ws) * (t1%prog(i)%T-tfreeze)
+    0.
+!    (C1*dz(i)+clw*t1%prog(i)%wl+csw*t1%prog(i)%ws) * (t1%prog(i)%T-tfreeze)
     HEAT2 = &
-    (C2*dz(i)+clw*t2%prog(i)%wl+csw*t2%prog(i)%ws) * (t2%prog(i)%T-tfreeze)
+    0.
+!    (C2*dz(i)+clw*t2%prog(i)%wl+csw*t2%prog(i)%ws) * (t2%prog(i)%T-tfreeze)
     ! calculate (and assign) combined water mass
     t2%prog(i)%wl = t1%prog(i)%wl*x1 + t2%prog(i)%wl*x2
     t2%prog(i)%ws = t1%prog(i)%ws*x1 + t2%prog(i)%ws*x2
@@ -465,8 +480,9 @@ WRITE (*,*) 'SORRY, BUT merge_lake_tiles NEEDS TO BE REVISED TO ALLOW FOR ', &
     ! ...
     ! calculate combined temperature, based on total heat content and combined
     ! heat capacity
-    t2%prog(i)%T = (HEAT1*x1+HEAT2*x2) / &
-      (C2*dz(i)+clw*t2%prog(i)%wl+csw*t2%prog(i)%ws) + tfreeze
+!    t2%prog(i)%T = (HEAT1*x1+HEAT2*x2) / &
+!      (C2*dz(i)+clw*t2%prog(i)%wl+csw*t2%prog(i)%ws) + tfreeze
+    t2%prog(i)%T = 0.
 
     ! calculate combined groundwater content
     gw = t1%prog(i)%groundwater*x1 + t2%prog(i)%groundwater*x2
@@ -483,7 +499,7 @@ WRITE (*,*) 'SORRY, BUT merge_lake_tiles NEEDS TO BE REVISED TO ALLOW FOR ', &
     t2%prog(i)%groundwater = gw
   enddo
 
-end subroutine
+end subroutine merge_lake_tiles
 
 ! =============================================================================
 ! returns true if tile fits the specified selector
@@ -553,8 +569,14 @@ subroutine lake_roughness ( lake,lake_z0s, lake_z0m )
   type(lake_tile_type), intent(in)  :: lake
   real,                 intent(out) :: lake_z0s, lake_z0m
 
-  lake_z0s = lake%z0_scalar
-  lake_z0m = lake%pars%z0_momentum
+  ! ---- surface roughness
+  if (lake%prog(1)%ws.le.0.) then
+      lake_z0s = lake%z0_scalar
+      lake_z0m = lake%pars%z0_momentum
+    else
+      lake_z0s = lake%z0_scalar_ice
+      lake_z0m = lake%pars%z0_momentum_ice
+    endif
 end subroutine
 
 ! ============================================================================
@@ -569,17 +591,24 @@ subroutine lake_data_thermodynamics ( lake_pars, lake_depth, &
 
   ! ---- local vars
   integer l
+  real lake_depth_frac, lake_rh_base
 
 ! ----------------------------------------------------------------------------
 
-  lake_rh = min(max_lake_rh, max(lake_depth/lake_pars%depth_sill,0.))
+  lake_depth_frac = (lake_depth/lake_pars%depth_sill)
+  lake_rh_base = (lake_depth_frac-dry_lake_depth_frac)/(1.-dry_lake_depth_frac)
+  if (lake_rh_base.gt.0.) then
+      lake_rh = min(max_lake_rh, lake_rh_base**lake_rh_exp )
+    else
+      lake_rh = 0.
+    endif
 
   do l = 1, num_l
      heat_capacity_dry(l) = lake_pars%heat_capacity_ref
      thermal_cond(l)  = lake_pars%thermal_cond_ref
   enddo
 
-end subroutine
+end subroutine lake_data_thermodynamics
 
 ! ============================================================================
 subroutine lake_tile_stock_pe (lake, twd_liq, twd_sol  )
@@ -607,8 +636,8 @@ function lake_tile_heat (lake) result(heat) ; real heat
   heat = 0
   do i = 1, num_l
      heat = heat + &
-          (lake%heat_capacity_dry(i)*dz(i) + clw*lake%prog(i)%wl + csw*lake%prog(i)%ws)&
-                           *(lake%prog(i)%T-tfreeze) + &
+          (lake%heat_capacity_dry(i)*lake%prog(i)%dz + clw*lake%prog(i)%wl &
+	     + csw*lake%prog(i)%ws)*(lake%prog(i)%T-tfreeze) + &
           clw*lake%prog(i)%groundwater*(lake%prog(i)%groundwater_T-tfreeze) - &
           hlf*lake%prog(i)%ws
   enddo

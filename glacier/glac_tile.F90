@@ -111,6 +111,7 @@ type :: glac_tile_type
    real,                 pointer :: w_wilt(:)
    real :: Eg_part_ref
    real :: z0_scalar
+   real :: geothermal_heat_flux
 
    real, pointer :: heat_capacity_dry(:)
    real, pointer :: e(:), f(:)
@@ -160,6 +161,7 @@ integer :: glac_index_constant   = 1         ! index of global constant glacier,
 real    :: gw_res_time           = 60.*86400 ! mean groundwater residence time,
                                              ! used when use_single_geo
 real    :: rsa_exp_global        = 1.5
+real    :: geothermal_heat_flux_constant = 0.0  ! true continental average is ~0.065 W/m2
 real, dimension(n_dim_glac_types) :: &
      dat_w_sat             =(/ 1.000   /),&
      dat_awc_lm2           =(/ 1.000   /),&
@@ -197,7 +199,7 @@ namelist /glac_data_nml/ &
      use_lm2_awc,   use_lad1_glac, &
      use_single_glac,      use_mcm_albedo,            &
      use_single_geo,        glac_index_constant,         &
-     gw_res_time,           rsa_exp_global,      &
+     gw_res_time,      rsa_exp_global,  geothermal_heat_flux_constant, &
      dat_w_sat,             dat_awc_lm2,     &
      dat_k_sat_ref,         &
      dat_psi_sat_ref,               dat_chb,          &
@@ -266,7 +268,7 @@ subroutine read_glac_data_namelist(glac_n_lev, glac_dz)
   ! set up output arguments
   glac_n_lev = num_l
   glac_dz = dz
-end subroutine 
+end subroutine read_glac_data_namelist
 
 
 ! ============================================================================
@@ -367,6 +369,7 @@ subroutine glacier_data_init_0d(glac)
        *(2*pi/(3*glac%pars%chb**2*(1+3/glac%pars%chb)*(1+4/glac%pars%chb)))/2
 
   glac%z0_scalar = glac%pars%z0_momentum * exp(-k_over_B)
+  glac%geothermal_heat_flux = geothermal_heat_flux_constant
   
 end subroutine glacier_data_init_0d
 
@@ -382,7 +385,7 @@ function glac_cover_cold_start(land_mask, lonb, latb) result (glac_frac)
   call init_cover_field(glac_to_use, 'INPUT/ground_type.nc', 'cover','frac', &
        lonb, latb, glac_index_constant, input_cover_types, glac_frac)
   
-end function 
+end function glac_cover_cold_start
 
 ! =============================================================================
 function glac_tiles_can_be_merged(glac1,glac2) result(response)
@@ -458,7 +461,7 @@ function glac_is_selected(glac, sel)
   type(glac_tile_type),      intent(in) :: glac
 
   glac_is_selected = (sel%idata1 == glac%tag)
-end function 
+end function glac_is_selected
 
 
 ! ============================================================================
@@ -487,7 +490,7 @@ subroutine glac_dry_heat_cap ( glac, heat_capacity_dry)
      heat_capacity_dry(l) = glac%pars%heat_capacity_ref
   enddo
 
-end subroutine 
+end subroutine glac_dry_heat_cap
 
 
 ! ============================================================================
@@ -540,9 +543,11 @@ subroutine glac_roughness ( glac, glac_z0s, glac_z0m )
   type(glac_tile_type), intent(in) :: glac
   real,                 intent(out):: glac_z0s, glac_z0m
 
+  ! ---- surface roughness ---------------------------------------------------
   glac_z0s = glac%z0_scalar
   glac_z0m = glac%pars%z0_momentum
-end subroutine 
+
+end subroutine glac_roughness
 
 
 ! ============================================================================
@@ -576,7 +581,7 @@ subroutine glac_data_thermodynamics ( glac_pars, vlc_sfc, vsc_sfc, &
      thermal_cond(l)  = glac_pars%thermal_cond_ref
   enddo
 
-end subroutine 
+end subroutine glac_data_thermodynamics
 
 
 ! ============================================================================

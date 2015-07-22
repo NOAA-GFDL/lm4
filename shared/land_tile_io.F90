@@ -1,13 +1,16 @@
 module land_tile_io_mod
 
 use mpp_mod, only : mpp_send, mpp_recv, mpp_sync
+use mpp_mod, only : COMM_TAG_1,  COMM_TAG_2,  COMM_TAG_3,  COMM_TAG_4
+use mpp_mod, only : COMM_TAG_5,  COMM_TAG_6,  COMM_TAG_7,  COMM_TAG_8
 use fms_mod, only : error_mesg, FATAL, mpp_pe, get_mosaic_tile_file
+use fms_io_mod, only : get_instance_filename
 use time_manager_mod, only : time_type
 use data_override_mod, only : data_override
 
 use nf_utils_mod, only : nfu_inq_dim, nfu_inq_var, nfu_def_dim, nfu_def_var, &
      nfu_get_var, nfu_put_att
-use land_io_mod, only : print_netcdf_error, read_field
+use land_io_mod, only : print_netcdf_error, read_field, input_buf_size
 use land_tile_mod, only : land_tile_type, land_tile_list_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
      get_elmt_indices
@@ -59,6 +62,7 @@ character(len=*), parameter :: &
      module_name = 'land_tile_io_mod', &
      version     = '$Id$', &
      tagname     = '$Name$'
+
 ! name of the "compressed" dimension (and dimension variable) in the output 
 ! netcdf files -- that is, the dimensions written out using compression by 
 ! gathering, as described in CF conventions. See subroutines write_tile_data,
@@ -85,12 +89,14 @@ subroutine get_input_restart_name(name, restart_exists, actual_name)
   ! ---- local vars
   character(6) :: PE_suffix ! PE number
   
-  call get_mosaic_tile_file(trim(name),actual_name,.FALSE.,lnd%domain)
+  ! Build the restart file name.
+  call get_instance_filename(trim(name), actual_name)
+  call get_mosaic_tile_file(trim(actual_name),actual_name,.false.,lnd%domain)
   ! we can't use fms file_exist function here, because it lies: it checks not
   ! just the original name, but the name with PE suffix, and returns true if
   ! either of those exist
   inquire (file=trim(actual_name), exist=restart_exists)
-  if (.NOT.restart_exists) then
+  if (.not.restart_exists) then
      ! try the name with current PE number attached
      write(PE_suffix,'(".",I4.4)') lnd%io_id
      actual_name = trim(actual_name)//trim(PE_suffix)
@@ -139,8 +145,14 @@ subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, tile_dim_lengt
   integer :: iret
 
   ! form the full name of the file
-  call get_mosaic_tile_file(name,full_name,.FALSE.,lnd%domain)
-  write(PE_suffix,'(".",I4.4)') lnd%io_id
+  call get_instance_filename(trim(name), full_name)
+  call get_mosaic_tile_file(trim(full_name),full_name,.false.,lnd%domain)
+  if (lnd%append_io_id) then
+      write(PE_suffix,'(".",I4.4)') lnd%io_id
+  else
+      PE_suffix = ''
+  endif
+
   full_name = trim(full_name)//trim(PE_suffix)
 
   if(tile_dim_length<=0) &
@@ -149,21 +161,21 @@ subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, tile_dim_lengt
   if (mpp_pe()/=lnd%io_pelist(1)) then
      ! if current PE doesn't do io, we just send the data to the processor that
      ! does
-     call mpp_send(size(tidx), plen=1,          to_pe=lnd%io_pelist(1))
-     call mpp_send(tidx(1),    plen=size(tidx), to_pe=lnd%io_pelist(1))
+     call mpp_send(size(tidx), plen=1,          to_pe=lnd%io_pelist(1), tag=COMM_TAG_1)
+     call mpp_send(tidx(1),    plen=size(tidx), to_pe=lnd%io_pelist(1), tag=COMM_TAG_2)
   else
      ! gather an array of tile sizes from all processors in our io_domain
      allocate(ntiles(size(lnd%io_pelist)))
      ntiles(1) = size(tidx)
      do p = 2,size(lnd%io_pelist)
-        call mpp_recv(ntiles(p), from_pe=lnd%io_pelist(p), glen=1)
+        call mpp_recv(ntiles(p), from_pe=lnd%io_pelist(p), glen=1, tag=COMM_TAG_1)
      enddo
      ! gather tile indices from all processors in our io_domain
      allocate(tidx2(sum(ntiles(:))))
      tidx2(1:ntiles(1))=tidx(:)
      k=ntiles(1)+1
      do p = 2,size(lnd%io_pelist)
-        call mpp_recv(tidx2(k), from_pe=lnd%io_pelist(p), glen=ntiles(p))
+        call mpp_recv(tidx2(k), from_pe=lnd%io_pelist(p), glen=ntiles(p), tag=COMM_TAG_2)
         k = k+ntiles(p)
      enddo
 
@@ -171,9 +183,9 @@ subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, tile_dim_lengt
 #ifdef use_netCDF3
      __NF_ASRT__(nf_create(full_name,NF_CLOBBER,ncid))
 #elif use_LARGEFILE
-     __NF_ASRT__(nf_create(full_name,IOR(NF_64BIT_OFFSET,NF_CLOBBER),ncid))
+     __NF_ASRT__(nf_create(full_name,ior(NF_64BIT_OFFSET,NF_CLOBBER),ncid))
 #else
-     __NF_ASRT__(nf_create(full_name,IOR(NF_NETCDF4,NF_CLASSIC_MODEL),ncid))
+     __NF_ASRT__(nf_create(full_name,ior(NF_NETCDF4,NF_CLASSIC_MODEL),ncid))
 #endif
 
      ! create lon, lat, dimensions and variables
@@ -194,7 +206,7 @@ subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, tile_dim_lengt
 
      ! determine the local value of space reserved in the header; by default 16K
      reserve_ = 1024*16
-     if(PRESENT(reserve)) reserve_ = reserve
+     if(present(reserve)) reserve_ = reserve
 
      ! end definition mode, reserving some space for future additions
      ! this call also commits the changes to the disk
@@ -205,7 +217,7 @@ subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, tile_dim_lengt
      ! manual pages netcdf(3f) or netcdf(3) for more information.
   endif
   ! make sure send-receive operations and file creation have finished
-  call mpp_sync(lnd%io_pelist)
+  call mpp_sync()
   ! open file on non-writing processors to have access to the tile index
   if (mpp_pe()/=lnd%io_pelist(1)) then
      __NF_ASRT__(nf_open(full_name,NF_NOWRITE,ncid))
@@ -265,7 +277,7 @@ subroutine create_tile_out_file_fptr(ncid, name, glon, glat, tile_exists, &
   ! dimension
   call create_tile_out_file_idx(ncid, name, glon, glat, idx, tile_dim_length, reserve)
 
-  if (present(created)) created = .TRUE.
+  if (present(created)) created = .true.
   
 end subroutine
 
@@ -285,7 +297,7 @@ subroutine get_tile_by_idx(idx,nlon,nlat,tiles,is,js,ptr)
    integer :: i,j,k
    type(land_tile_enum_type) :: ce,te
    
-   ptr=>NULL()
+   ptr=>null()
 
    if(idx<0) return ! negative indices do not correspond to any tile
 
@@ -336,8 +348,8 @@ subroutine read_tile_data_i0d_fptr(ncid,name,fptr)
    character(NF_MAX_NAME) :: idxname ! name of the index variable
    integer, allocatable :: idx(:) ! storage for compressed index 
    integer, allocatable :: x1d(:) ! storage for the data
-   integer :: i
-   integer :: varid
+   integer :: i,j,bufsize
+   integer :: varid, idxid
    type(land_tile_type), pointer :: tileptr ! pointer to tile   
    integer, pointer :: ptr
    
@@ -346,21 +358,26 @@ subroutine read_tile_data_i0d_fptr(ncid,name,fptr)
    if(ndims/=1) then
       call error_mesg(module_name,'variable "'//trim(name)//'" has incorrect number of dimensions -- must be 1-dimensional', FATAL)
    endif
-   ! get the name of compressed dimension
+   ! get the name of compressed dimension and ID of corresponding variable
    __NF_ASRT__(nfu_inq_dim(ncid,dimids(1),idxname))
+   __NF_ASRT__(nfu_inq_var(ncid,idxname,id=idxid))
    ! allocate input buffers for compression index and the variable
-   allocate(idx(dimlen(1)),x1d(dimlen(1)))
-   ! read the index variable
-   __NF_ASRT__(nfu_get_var(ncid,idxname,idx))
-   ! read the data
-   __NF_ASRT__(nf_get_var_int(ncid,varid,x1d))
-   ! distribute the data over the tiles
-   do i = 1, size(idx)
-      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
-                           lnd%is,lnd%js, tileptr)
-      call fptr(tileptr, ptr)
-      if(associated(ptr)) ptr = x1d(i)
-   enddo   
+   bufsize = min(input_buf_size,dimlen(1))
+   allocate(idx(bufsize),x1d(bufsize))
+   ! read the input buffer-by-buffer
+   do j = 1,dimlen(1),bufsize
+      ! read the index variable
+      __NF_ASRT__(nf_get_vara_int(ncid,idxid,(/j/),(/min(bufsize,dimlen(1)-j+1)/),idx))
+      ! read the data
+      __NF_ASRT__(nf_get_vara_int(ncid,varid,(/j/),(/min(bufsize,dimlen(1)-j+1)/),x1d))
+      ! distribute the data over the tiles
+      do i = 1, min(input_buf_size,dimlen(1)-j+1)
+         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+                              lnd%is,lnd%js, tileptr)
+         call fptr(tileptr, ptr)
+         if(associated(ptr)) ptr = x1d(i)
+      enddo
+   enddo
    ! release allocated memory
    deallocate(idx,x1d)
 end subroutine
@@ -387,8 +404,8 @@ subroutine read_tile_data_r0d_fptr(ncid,name,fptr)
    character(NF_MAX_NAME) :: idxname ! name of the index variable
    integer, allocatable :: idx(:) ! storage for compressed index 
    real   , allocatable :: x1d(:) ! storage for the data
-   integer :: i
-   integer :: varid
+   integer :: i, j, bufsize
+   integer :: varid, idxid
    type(land_tile_type), pointer :: tileptr ! pointer to tile   
    real, pointer :: ptr
    
@@ -397,21 +414,26 @@ subroutine read_tile_data_r0d_fptr(ncid,name,fptr)
    if(ndims/=1) then
       call error_mesg(module_name,'variable "'//trim(name)//'" has incorrect number of dimensions -- must be 1-dimensional', FATAL)
    endif
-   ! get the name of compressed dimension
+   ! get the name of compressed dimension and ID of corresponding variable
    __NF_ASRT__(nfu_inq_dim(ncid,dimids(1),idxname))
+   __NF_ASRT__(nfu_inq_var(ncid,idxname,id=idxid))
    ! allocate input buffers for compression index and the variable
-   allocate(idx(dimlen(1)),x1d(dimlen(1)))
-   ! read the index variable
-   __NF_ASRT__(nfu_get_var(ncid,idxname,idx))
-   ! read the data
-   __NF_ASRT__(nf_get_var_double(ncid,varid,x1d))
-   ! distribute the data over the tiles
-   do i = 1, size(idx)
-      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
-                           lnd%is,lnd%js, tileptr)
-      call fptr(tileptr, ptr)
-      if(associated(ptr)) ptr = x1d(i)
-   enddo   
+   bufsize=min(input_buf_size,dimlen(1))
+   allocate(idx(bufsize),x1d(bufsize))
+   ! read the input buffer-by-buffer
+   do j = 1,dimlen(1),bufsize
+      ! read the index variable
+      __NF_ASRT__(nf_get_vara_int(ncid,idxid,(/j/),(/min(bufsize,dimlen(1)-j+1)/),idx))
+      ! read the data
+      __NF_ASRT__(nf_get_vara_double(ncid,varid,(/j/),(/min(bufsize,dimlen(1)-j+1)/),x1d))
+      ! distribute the data over the tiles
+      do i = 1, min(bufsize,dimlen(1)-j+1)
+         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+                              lnd%is,lnd%js, tileptr)
+         call fptr(tileptr, ptr)
+         if(associated(ptr)) ptr = x1d(i)
+      enddo
+   enddo
    ! release allocated memory
    deallocate(idx,x1d)
 end subroutine
@@ -436,9 +458,10 @@ subroutine read_tile_data_r1d_fptr_all(ncid,name,fptr)
    integer :: dimlen(2) ! size of the variable dimensions
    character(NF_MAX_NAME) :: idxname ! name of the index variable
    integer, allocatable :: idx(:)   ! storage for compressed index 
-   real   , allocatable :: x2d(:,:) ! storage for the data
-   integer :: i
-   integer :: varid
+   real   , allocatable :: x1d(:)   ! storage for the data
+   integer :: i, j, bufsize
+   integer :: varid,idxid
+   integer :: start(2), count(2) ! input slab parameters
    type(land_tile_type), pointer :: tileptr ! pointer to tile   
    real, pointer :: ptr(:)
    
@@ -447,23 +470,31 @@ subroutine read_tile_data_r1d_fptr_all(ncid,name,fptr)
    if(ndims/=2) then
       call error_mesg(module_name,'variable "'//trim(name)//'" has incorrect number of dimensions -- must be 2-dimensional', FATAL)
    endif
-   ! get the name of compressed dimension
+   ! get the name of compressed dimension and ID of corresponding variable
    __NF_ASRT__(nfu_inq_dim(ncid,dimids(1),idxname))
+   __NF_ASRT__(nfu_inq_var(ncid,idxname,id=idxid))
    ! allocate input buffers for compression index and the variable
-   allocate(idx(dimlen(1)),x2d(dimlen(1),dimlen(2)))
-   ! read the index variable
-   __NF_ASRT__(nfu_get_var(ncid,idxname,idx))
-   ! read the data
-   __NF_ASRT__(nf_get_var_double(ncid,varid,x2d))
-   ! distribute the data over the tiles
-   do i = 1, size(idx)
-      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
-                           lnd%is,lnd%js, tileptr)
-      call fptr(tileptr, ptr)
-      if(associated(ptr)) ptr(:) = x2d(i,:)
+   bufsize=min(input_buf_size,dimlen(1))
+   allocate(idx(bufsize),x1d(bufsize*dimlen(2)))
+   ! read the input buffer-by-buffer
+   do j = 1,dimlen(1),bufsize
+      ! set up slab parameters
+      start(1) = j ; count(1) = min(bufsize,dimlen(1)-j+1)
+      start(2) = 1 ; count(2) = dimlen(2)
+      ! read the index variable
+      __NF_ASRT__(nf_get_vara_int(ncid,idxid,start(1),count(1),idx))
+      ! read the data
+      __NF_ASRT__(nf_get_vara_double(ncid,varid,start,count,x1d))
+      ! distribute the data over the tiles
+      do i = 1, min(bufsize,dimlen(1)-j+1)
+         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+                              lnd%is,lnd%js, tileptr)
+         call fptr(tileptr, ptr)
+         if(associated(ptr)) ptr(:) = x1d(i:count(1)*count(2):count(1))
+      enddo
    enddo
    ! release allocated memory
-   deallocate(idx,x2d)
+   deallocate(idx,x1d)
 end subroutine
 
 
@@ -489,8 +520,8 @@ subroutine read_tile_data_r1d_fptr_idx (ncid,name,fptr,index)
    character(NF_MAX_NAME) :: idxname ! name of the index variable
    integer, allocatable :: idx(:) ! storage for compressed index 
    real   , allocatable :: x1d(:) ! storage for the data
-   integer :: i
-   integer :: varid
+   integer :: i,j,bufsize
+   integer :: varid, idxid
    type(land_tile_type), pointer :: tileptr ! pointer to tile   
    real, pointer :: ptr(:)
    
@@ -499,21 +530,26 @@ subroutine read_tile_data_r1d_fptr_idx (ncid,name,fptr,index)
    if(ndims/=1) then
       call error_mesg(module_name,'variable "'//trim(name)//'" has incorrect number of dimensions -- must be 1-dimensional', FATAL)
    endif
-   ! get the name of compressed dimension
+   ! get the name of compressed dimension and ID of corresponding variable
    __NF_ASRT__(nfu_inq_dim(ncid,dimids(1),idxname))
+   __NF_ASRT__(nfu_inq_var(ncid,idxname,id=idxid))
    ! allocate input buffers for compression index and the variable
-   allocate(idx(dimlen(1)),x1d(dimlen(1)))
-   ! read the index variable
-   __NF_ASRT__(nfu_get_var(ncid,idxname,idx))
-   ! read the data
-   __NF_ASRT__(nf_get_var_double(ncid,varid,x1d))
-   ! distribute the data over the tiles
-   do i = 1, size(idx)
-      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
-                           lnd%is,lnd%js, tileptr)
-      call fptr(tileptr, ptr)
-      if(associated(ptr)) ptr(index) = x1d(i)
-   enddo   
+   bufsize=min(input_buf_size,dimlen(1))
+   allocate(idx(bufsize),x1d(bufsize))
+   ! read the input buffer-by-buffer
+   do j = 1,dimlen(1),bufsize
+      ! read the index variable
+      __NF_ASRT__(nf_get_vara_int(ncid,idxid,(/j/),(/min(bufsize,dimlen(1)-j+1)/),idx))
+      ! read the data
+      __NF_ASRT__(nf_get_vara_double(ncid,varid,(/j/),(/min(bufsize,dimlen(1)-j+1)/),x1d))
+      ! distribute the data over the tiles
+      do i = 1, min(bufsize,dimlen(1)-j+1)
+         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+                              lnd%is,lnd%js, tileptr)
+         call fptr(tileptr, ptr)
+         if(associated(ptr)) ptr(index) = x1d(i)
+      enddo
+   enddo
    ! release allocated memory
    deallocate(idx,x1d)
 end subroutine
@@ -546,14 +582,14 @@ subroutine write_tile_data_i1d(ncid,name,data,mask,long_name,units)
   ! if our PE doesn't do io (that is, it isn't the root io_domain processor),  
   ! simply send the data and mask of valid data to the root IO processor
   if (mpp_pe()/=lnd%io_pelist(1)) then
-     call mpp_send(data(1), plen=size(data), to_pe=lnd%io_pelist(1))
-     call mpp_send(mask(1), plen=size(data), to_pe=lnd%io_pelist(1))
+     call mpp_send(data(1), plen=size(data), to_pe=lnd%io_pelist(1), tag=COMM_TAG_3)
+     call mpp_send(mask(1), plen=size(data), to_pe=lnd%io_pelist(1), tag=COMM_TAG_4)
   else
      ! gather data and masks from all processors in io_domain
      allocate(buffer(size(data)))
      do p = 2,size(lnd%io_pelist)
-        call mpp_recv(buffer(1), glen=size(data), from_pe=lnd%io_pelist(p))
-        call mpp_recv(mask(1),   glen=size(data), from_pe=lnd%io_pelist(p))
+        call mpp_recv(buffer(1), glen=size(data), from_pe=lnd%io_pelist(p), tag=COMM_TAG_3)
+        call mpp_recv(mask(1),   glen=size(data), from_pe=lnd%io_pelist(p), tag=COMM_TAG_4)
         where (mask>0) data = buffer
      enddo
      ! clean up allocated memory
@@ -570,7 +606,7 @@ subroutine write_tile_data_i1d(ncid,name,data,mask,long_name,units)
   ! wait for all PEs to finish: necessary because mpp_send doesn't seem to 
   ! copy the data, and therefore on non-root io_domain PE there would be a chance
   ! that the data and mask are destroyed before they are actually sent.
-  call mpp_sync(lnd%io_pelist)
+  call mpp_sync()
 end subroutine
 
 
@@ -593,14 +629,14 @@ subroutine write_tile_data_r1d(ncid,name,data,mask,long_name,units)
   ! if our PE doesn't do io (that is, it isn't the root io_domain processor),  
   ! simply send the data and mask of valid data to the root IO processor
   if (mpp_pe()/=lnd%io_pelist(1)) then
-     call mpp_send(data(1), plen=size(data), to_pe=lnd%io_pelist(1))
-     call mpp_send(mask(1), plen=size(data), to_pe=lnd%io_pelist(1))
+     call mpp_send(data(1), plen=size(data), to_pe=lnd%io_pelist(1), tag=COMM_TAG_5)
+     call mpp_send(mask(1), plen=size(data), to_pe=lnd%io_pelist(1), tag=COMM_TAG_6)
   else
      ! gather data and masks from the processors in io_domain
      allocate(buffer(size(data)))
      do p = 2,size(lnd%io_pelist)
-        call mpp_recv(buffer(1), glen=size(data), from_pe=lnd%io_pelist(p))
-        call mpp_recv(mask(1),   glen=size(data), from_pe=lnd%io_pelist(p))
+        call mpp_recv(buffer(1), glen=size(data), from_pe=lnd%io_pelist(p), tag=COMM_TAG_5)
+        call mpp_recv(mask(1),   glen=size(data), from_pe=lnd%io_pelist(p), tag=COMM_TAG_6)
         where(mask>0) data = buffer
      enddo
      ! clean up allocated memory
@@ -617,7 +653,7 @@ subroutine write_tile_data_r1d(ncid,name,data,mask,long_name,units)
   ! wait for all PEs to finish: necessary because mpp_send doesn't seem to 
   ! copy the data, and therefore on non-root io_domain PE there would be a chance
   ! that the data and mask are destroyed before they are actually sent.
-  call mpp_sync(lnd%io_pelist)
+  call mpp_sync()
 end subroutine
 
 
@@ -644,14 +680,14 @@ subroutine write_tile_data_r2d(ncid,name,data,mask,zdim,long_name,units)
   ! if our PE doesn't do io (that is, it isn't the root io_domain processor),  
   ! simply send the data and mask of valid data to the root IO processor
   if (mpp_pe()/=lnd%io_pelist(1)) then
-     call mpp_send(data(1,1), plen=size(data),   to_pe=lnd%io_pelist(1))
-     call mpp_send(mask(1),   plen=size(data,1), to_pe=lnd%io_pelist(1))
+     call mpp_send(data(1,1), plen=size(data),   to_pe=lnd%io_pelist(1), tag=COMM_TAG_7)
+     call mpp_send(mask(1),   plen=size(data,1), to_pe=lnd%io_pelist(1), tag=COMM_TAG_8)
   else
      allocate(buffer(size(data,1),size(data,2)))
      ! gather data and masks from the processors in our io_domain
      do p = 2,size(lnd%io_pelist)
-        call mpp_recv(buffer(1,1), glen=size(data),   from_pe=lnd%io_pelist(p))
-        call mpp_recv(mask(1),     glen=size(data,1), from_pe=lnd%io_pelist(p))
+        call mpp_recv(buffer(1,1), glen=size(data),   from_pe=lnd%io_pelist(p), tag=COMM_TAG_7)
+        call mpp_recv(mask(1),     glen=size(data,1), from_pe=lnd%io_pelist(p), tag=COMM_TAG_8)
         do i=1,size(data,1)
            if(mask(i)>0) data(i,:) = buffer(i,:)
         enddo
@@ -672,8 +708,7 @@ subroutine write_tile_data_r2d(ncid,name,data,mask,zdim,long_name,units)
   ! wait for all PEs to finish: necessary because mpp_send doesn't seem to 
   ! copy the data, and therefore on non-root io_domain PE there would be a chance
   ! that the data and mask are destroyed before they are actually sent.
-  call mpp_sync(lnd%io_pelist)
-
+  call mpp_sync()
 end subroutine
 
 
@@ -948,7 +983,7 @@ subroutine sync_nc_files(ncid)
      ! commit possible definition changes and data to the disk
      __NF_ASRT__(nf_sync(ncid))
   endif
-  call mpp_sync(lnd%io_pelist)
+  call mpp_sync()
   if(mpp_pe()/=lnd%io_pelist(1)) then
      ! synchronize in-memory data structures with the changes on the disk
     __NF_ASRT__(nf_sync(ncid))

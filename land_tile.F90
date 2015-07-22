@@ -14,7 +14,7 @@ use lake_tile_mod, only : &
 use soil_tile_mod, only : &
      soil_tile_type, new_soil_tile, delete_soil_tile, soil_is_selected, &
      soil_tiles_can_be_merged, merge_soil_tiles, get_soil_tile_tag, &
-     soil_tile_stock_pe, soil_tile_heat
+     soil_tile_stock_pe, soil_tile_carbon, soil_tile_heat
 use cana_tile_mod, only : &
      cana_tile_type, new_cana_tile, delete_cana_tile, cana_is_selected, &
      cana_tiles_can_be_merged, merge_cana_tiles, get_cana_tile_tag, &
@@ -135,6 +135,7 @@ type :: land_tile_type
    ! dimensions are (NCOHORTS,NBANDS).
    real, pointer :: Sdn_dir(:,:)=>NULL(), Sdn_dif(:,:)=>NULL() 
    real :: land_refl_dir(NBANDS), land_refl_dif(NBANDS)
+   
    real :: land_d, land_z0m, land_z0s
    real :: surf_refl_lw ! long-wave reflectivity of the ground surface (possibly snow-covered)
    ! black-background long-wave radiative properties of the vegetation cohorts
@@ -399,6 +400,8 @@ function land_tile_carbon(tile) result(carbon) ; real carbon
      carbon = carbon + cana_tile_carbon(tile%cana)
   if (associated(tile%vegn)) &
      carbon = carbon + vegn_tile_carbon(tile%vegn)
+  if (associated(tile%soil)) &
+     carbon = carbon + soil_tile_carbon(tile%soil)
 end function 
 
 

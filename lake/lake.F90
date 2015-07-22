@@ -24,7 +24,8 @@ use lake_tile_mod, only : &
      lake_tile_type, lake_pars_type, lake_prog_type, read_lake_data_namelist, &
      lake_data_radiation, &
      lake_data_thermodynamics, &
-     max_lev, cpw,clw,csw, lake_width_inside_lake, large_lake_sill_width
+     max_lev, cpw,clw,csw, lake_width_inside_lake, large_lake_sill_width, &
+     lake_specific_width, n_outlet, outlet_face, outlet_i, outlet_j, outlet_width
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
 use land_tile_diag_mod, only : register_tiled_static_field, &
@@ -73,16 +74,26 @@ logical :: make_all_lakes_wide  = .false.
 logical :: large_dyn_small_stat = .true.
 logical :: relayer_in_step_one  = .false.
 logical :: float_ice_to_top     = .false.
+logical :: wind_penetrates_ice  = .false.
 real    :: min_rat              = 0.4
 logical :: do_stratify          = .true.
 character(len=16):: albedo_to_use = ''  ! or 'brdf-params'
 real    :: K_z_large            = 1.
+real    :: K_z_background       = 0.
+real    :: K_z_min              = 0.
+real    :: K_z_factor           = 1.
+real    :: c_drag               = 1.2e-3
+real    :: lake_depth_max       = 1.e10
+real    :: lake_depth_min       = 1.99
+real    :: max_plain_slope      = -1.e10
 
 namelist /lake_nml/ init_temp, init_w,       &
                     init_groundwater, use_rh_feedback, cpw, clw, csw, &
                     make_all_lakes_wide, large_dyn_small_stat, &
                     relayer_in_step_one, float_ice_to_top, &
-                    min_rat, do_stratify, albedo_to_use, K_z_large
+                    min_rat, do_stratify, albedo_to_use, K_z_large, &
+		    K_z_background, K_z_min, K_z_factor, &
+		    lake_depth_max, lake_depth_min, max_plain_slope
 !---- end of namelist --------------------------------------------------------
 real    :: K_z_molec            = 1.4e-7
 real    :: tc_molec             = 0.59052 ! dens_h2o*clw*K_z_molec
@@ -94,13 +105,14 @@ type(time_type) :: time
 real            :: delta_time
 
 integer         :: num_l              ! # of water layers
-real            :: zfull (max_lev)    ! diag axis, dimensionless layer number
-real            :: zhalf (max_lev+1)
+real, allocatable:: zfull (:)    ! diag axis, dimensionless layer number
+real, allocatable:: zhalf (:)
 real            :: max_rat
 
 ! ---- diagnostic field IDs
 integer :: id_lwc, id_swc, id_temp, id_ie, id_sn, id_bf, id_hie, id_hsn, id_hbf
-integer :: id_evap, id_dz, id_wl, id_ws, id_K_z, id_silld, id_sillw
+integer :: id_evap, id_dz, id_wl, id_ws, id_K_z, id_silld, id_sillw, id_backw
+integer :: id_back1
 ! ==== end of module variables ===============================================
 
 ! ==== NetCDF declarations ===================================================
@@ -141,6 +153,7 @@ subroutine read_lake_namelist()
   endif
 
   ! ---- set up vertical discretization
+  allocate (zhalf(num_l+1), zfull(num_l))
   zhalf(1) = 0
   do l = 1, num_l;   
      zhalf(l+1) = zhalf(l) + 1.
@@ -175,6 +188,7 @@ subroutine lake_init ( id_lon, id_lat )
   character(len=256) :: restart_file_name
   logical :: restart_exists
   real, allocatable :: buffer(:,:),bufferc(:,:),buffert(:,:)
+  integer i
 
   module_is_initialized = .TRUE.
   time       = lnd%time
@@ -193,6 +207,8 @@ call read_data('INPUT/river_data.nc', 'whole_lake_area', buffer(:,:), lnd%domain
 call put_to_tiles_r0d_fptr(buffer, lnd%tile_map, lake_whole_area_ptr)
 
 call read_data('INPUT/river_data.nc', 'lake_depth_sill', buffer(:,:),  lnd%domain)
+buffer = min(buffer, lake_depth_max)
+buffer = max(buffer, lake_depth_min)
 call put_to_tiles_r0d_fptr(buffer,  lnd%tile_map, lake_depth_sill_ptr)
 
 ! lake_tau is just used here as a flag for 'large lakes'
@@ -201,7 +217,25 @@ call read_data('INPUT/river_data.nc', 'lake_tau', buffert(:,:),  lnd%domain)
 buffer = -1.
 !where (bufferc.gt.0.5) buffer = lake_width_inside_lake
 where (bufferc.lt.0.5 .and. buffert.gt.1.) buffer = large_lake_sill_width
+if (lake_specific_width) then
+    do i = 1, n_outlet
+      if(lnd%face.eq.outlet_face(i).and.lnd%is.le.outlet_i(i).and.lnd%ie.ge.outlet_i(i) &
+                                 .and.lnd%js.le.outlet_j(i).and.lnd%je.ge.outlet_j(i)) &
+        buffer(outlet_i(i),outlet_j(i)) = outlet_width(i)
+      enddo
+endif
 call put_to_tiles_r0d_fptr(buffer, lnd%tile_map, lake_width_sill_ptr)
+
+buffer = 1.e8
+if (max_plain_slope.gt.0.) &
+   call read_data('INPUT/river_data.nc', 'max_slope_to_next', buffer(:,:), lnd%domain)
+call read_data('INPUT/river_data.nc', 'travel', buffert(:,:), lnd%domain)
+bufferc = 0.
+where (buffer.lt.max_plain_slope .and. buffert.gt.1.5) bufferc = 1.
+call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_backwater_ptr)
+bufferc = 0
+where (buffer.lt.max_plain_slope .and. buffert.lt.1.5) bufferc = 1.
+call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_backwater_1_ptr)
 
 ELSE
 call read_data('INPUT/river_data.nc', 'whole_lake_area', bufferc(:,:), lnd%domain)
@@ -270,13 +304,15 @@ deallocate (buffer, bufferc, buffert)
   ! ---- static diagnostic section
   call send_tile_data_r0d_fptr(id_sillw, lnd%tile_map, lake_width_sill_ptr)
   call send_tile_data_r0d_fptr(id_silld, lnd%tile_map, lake_depth_sill_ptr)
-
+  call send_tile_data_r0d_fptr(id_backw, lnd%tile_map, lake_backwater_ptr)
+  call send_tile_data_r0d_fptr(id_back1, lnd%tile_map, lake_backwater_1_ptr)
 end subroutine lake_init
 
 
 ! ============================================================================
 subroutine lake_end ()
 
+  deallocate (zfull, zhalf)
   module_is_initialized =.FALSE.
 
 end subroutine lake_end
@@ -379,7 +415,7 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
      write(*,*) 'G0      ', lake_G0
      write(*,*) 'DGDT    ', lake_DGDT
     do l = 1, num_l
-      write(*,*) ' level=', l,&
+      write(*,'(a,i2.2,100(2x,a,g23.16))') ' level=', l,&
                  ' dz=', lake%prog(l)%dz,&
                  ' T =', lake%prog(l)%T,&
                  ' wl=', lake%prog(l)%wl,&
@@ -403,9 +439,10 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
 ! Ignore air humidity in converting atmospheric friction velocity to lake value
   rho_a = p_surf/(rdgas*lake_T)
 ! No momentum transfer through ice cover
-  if (lake%prog(1)%ws.le.0.) then
+  if (lake%prog(1)%ws.le.0. .or. wind_penetrates_ice) then
       u_star = u_star_a*sqrt(rho_a/dens_h2o)
       k_star = 2.79e-5*sqrt(sin(abs(latitude)))*u_star**(-1.84)
+      k_star = k_star*(c_drag/1.2e-3)**1.84
     else
       u_star = 0.
       k_star = 1.
@@ -455,6 +492,9 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
                 else  ! arbitrary constant for unstable mixing
                   lake%prog(l)%K_z = K_z_large
                 endif
+	      if (lake%pars%depth_sill.gt.2.01) &
+	          lake%prog(l)%K_z = K_z_factor &
+		   * max(lake%prog(l)%K_z + K_z_background, K_z_min)
               aaa(l+1) = - lake%prog(l)%K_z * delta_time / (dz_alt(l+1)*dz_mid)
               ccc(l)   = - lake%prog(l)%K_z * delta_time / (dz_alt(l  )*dz_mid)
             else
@@ -476,7 +516,8 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
 
      bbb = 1.0 - aaa(num_l)
      denom = bbb
-     dt_e = aaa(num_l)*(lake%prog(num_l)%T - lake%prog(num_l-1)%T)
+     dt_e = aaa(num_l)*(lake%prog(num_l)%T - lake%prog(num_l-1)%T) &
+               + lake%geothermal_heat_flux * delta_time / heat_capacity(num_l)
      lake%e(num_l-1) = -aaa(num_l)/denom
      lake%f(num_l-1) = dt_e/denom
      do l = num_l-1, 2, -1
@@ -511,7 +552,7 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
      write(*,*) 'G0      ', lake_G0
      write(*,*) 'DGDT    ', lake_DGDT
     do l = 1, num_l
-      write(*,*) ' level=', l,&
+      write(*,'(a,i2.2,100(2x,a,g23.16))') ' level=', l,&
                  ' dz=', lake%prog(l)%dz,&
                  ' T =', lake%prog(l)%T,&
                  ' wl=', lake%prog(l)%wl,&
@@ -568,7 +609,7 @@ end subroutine lake_step_1
     write(*,*) 'subs_M_imp   ', subs_M_imp   
     write(*,*) 'theta_s ', lake%pars%w_sat
     do l = 1, num_l
-      write(*,*) ' level=', l,&
+      write(*,'(a,i2.2,100(2x,a,g23.16))') ' level=', l,&
                  ' dz=', lake%prog(l)%dz,&
                  ' T =', lake%prog(l)%T,&
                  ' Th=', (lake%prog(l)%ws &
@@ -641,7 +682,7 @@ end subroutine lake_step_1
   if(is_watch_point()) then
      write(*,*) ' ***** lake_step_2 checkpoint 3.3 ***** '
      do l = 1, num_l
-        write(*,*) ' level=', l,&
+        write(*,'(a,i2.2,100(2x,a,g23.16))') ' level=', l,&
              ' wl=', lake%prog(l)%wl,&
              'flow=', flow(l)
      enddo
@@ -682,7 +723,7 @@ end subroutine lake_step_1
   if(is_watch_point()) then
      write(*,*) ' ***** lake_step_2 checkpoint 5 ***** '
      do l = 1, num_l
-        write(*,*) ' level=', l,&
+        write(*,'(a,i2.2,100(2x,a,g23.16))') ' level=', l,&
              ' dz=', lake%prog(l)%dz,&
              ' T =', lake%prog(l)%T,&
              ' Th=', (lake%prog(l)%ws +lake%prog(l)%wl)/(dens_h2o*lake%prog(l)%dz),&
@@ -697,7 +738,7 @@ end subroutine lake_step_1
   if(is_watch_point()) then
      write(*,*) ' ***** lake_step_2 checkpoint 6 ***** '
      do l = 1, num_l
-        write(*,*) ' level=', l,&
+        write(*,'(a,i2.2,100(2x,a,g23.16))') ' level=', l,&
              ' dz=', lake%prog(l)%dz,&
              ' T =', lake%prog(l)%T,&
              ' Th=', (lake%prog(l)%ws +lake%prog(l)%wl)/(dens_h2o*lake%prog(l)%dz),&
@@ -729,7 +770,7 @@ end subroutine lake_step_1
   if(is_watch_point()) then
      write(*,*) ' ***** lake_step_2 checkpoint 7 ***** '
      do l = 1, num_l
-        write(*,*) ' level=', l,&
+        write(*,'(a,i2.2,100(2x,a,g23.16))') ' level=', l,&
              ' dz=', lake%prog(l)%dz,&
              ' T =', lake%prog(l)%T,&
              ' Th=', (lake%prog(l)%ws +lake%prog(l)%wl)/(dens_h2o*lake%prog(l)%dz),&
@@ -909,7 +950,10 @@ subroutine lake_diag_init ( id_lon, id_lat )
        axes(1:2), 'lake width at outflow', 'm', missing_value=-100.0 )
   id_silld = register_tiled_static_field ( module_name, 'lake_depth', &
        axes(1:2), 'lake depth below sill', 'm', missing_value=-100.0 )
-
+  id_backw = register_tiled_static_field ( module_name, 'backwater', &
+       axes(1:2), 'backwater flag', '-', missing_value=-100.0 )
+  id_back1 = register_tiled_static_field ( module_name, 'backwater_1', &
+       axes(1:2), 'backwater1 flag', '-', missing_value=-100.0 )
   ! define dynamic diagnostic fields
   id_dz  = register_tiled_diag_field ( module_name, 'lake_dz', axes,         &
        Time, 'nominal layer thickness', 'm', missing_value=-100.0 )
@@ -953,54 +997,78 @@ end function lake_tile_exists
 subroutine lake_dz_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
+   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%lake)) ptr=>tile%lake%prog%dz
+      if(associated(tile%lake)) then
+        n = size(tile%lake%prog)
+        ptr(1:n) => tile%lake%prog(1:n)%dz
+      endif
    endif
 end subroutine lake_dz_ptr
 
 subroutine lake_temp_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
+   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%lake)) ptr=>tile%lake%prog%T
+      if(associated(tile%lake)) then
+        n = size(tile%lake%prog)
+        ptr(1:n) => tile%lake%prog(1:n)%T
+      endif
    endif
 end subroutine lake_temp_ptr
 
 subroutine lake_wl_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
+   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%lake)) ptr=>tile%lake%prog%wl
+      if(associated(tile%lake)) then
+        n = size(tile%lake%prog)
+        ptr(1:n) => tile%lake%prog(1:n)%wl
+      endif
    endif
 end subroutine lake_wl_ptr
 
 subroutine lake_ws_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
+   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%lake)) ptr=>tile%lake%prog%ws
+      if(associated(tile%lake)) then
+        n = size(tile%lake%prog)
+        ptr(1:n) => tile%lake%prog(1:n)%ws
+      endif
    endif
 end subroutine lake_ws_ptr
 
 subroutine lake_gw_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
+   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%lake)) ptr=>tile%lake%prog%groundwater
+      if(associated(tile%lake)) then
+        n = size(tile%lake%prog)
+        ptr(1:n) => tile%lake%prog(1:n)%groundwater
+      endif
    endif
 end subroutine lake_gw_ptr
 
 subroutine lake_gwT_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
+   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%lake)) ptr=>tile%lake%prog%groundwater_T
+      if(associated(tile%lake)) then
+        n = size(tile%lake%prog)
+        ptr(1:n) => tile%lake%prog(1:n)%groundwater_T
+      endif
    endif
 end subroutine lake_gwT_ptr
 
@@ -1039,6 +1107,24 @@ subroutine lake_width_sill_ptr(tile, ptr)
       if(associated(tile%lake)) ptr=>tile%lake%pars%width_sill
    endif
 end subroutine lake_width_sill_ptr
+
+subroutine lake_backwater_ptr(tile, ptr)
+   type(land_tile_type), pointer :: tile
+   real                , pointer :: ptr
+   ptr=>NULL()
+   if(associated(tile)) then
+      if(associated(tile%lake)) ptr=>tile%lake%pars%backwater
+   endif
+end subroutine lake_backwater_ptr
+
+subroutine lake_backwater_1_ptr(tile, ptr)
+   type(land_tile_type), pointer :: tile
+   real                , pointer :: ptr
+   ptr=>NULL()
+   if(associated(tile)) then
+      if(associated(tile%lake)) ptr=>tile%lake%pars%backwater_1
+   endif
+end subroutine lake_backwater_1_ptr
 
 end module lake_mod
 

@@ -36,10 +36,13 @@ subroutine READ_0D_FPTR(ncid,name,fptr,rec)
   character(*), parameter :: module_name = 'read_cohort_data_r0d_fptr'
 
   ! ---- local vars
-  integer :: i
+  integer :: i, n
   integer :: rec_     ! record number
   integer :: ntiles   ! size of the tile dimension in restart file
   integer :: ncohorts ! total number of cohorts in restart file
+  integer :: bufsize  ! size of the input buffer
+  integer :: idxid    ! id of the index dimension
+  integer :: start(1),count(1) ! definition of slab for reading
   integer, allocatable :: idx(:) ! index dimension
   F90_TYPE, allocatable :: data(:) ! data to be read
   F90_TYPE, pointer :: ptr ! pointer to the individual cohort data
@@ -57,23 +60,28 @@ subroutine READ_0D_FPTR(ncid,name,fptr,rec)
 
   ! get the length of cohort compressed index
   __NF_ASRT__(nfu_inq_dim(ncid,cohort_index_name,len=ncohorts))
+  __NF_ASRT__(nfu_inq_var(ncid,cohort_index_name,id=idxid))
 
   ! allocate data
-  allocate(data(ncohorts),idx(ncohorts))
+  bufsize=min(input_buf_size,ncohorts)
+  allocate(data(bufsize),idx(bufsize))
 
-  ! read the cohort index
-  __NF_ASRT__(nfu_get_var(ncid,cohort_index_name,idx))
-  ! read the data
-  __NF_ASRT__(nfu_get_rec(ncid,name,rec_,data))
-
-  ! distribute data over cohorts
-  do i = 1, size(idx)
+  do n = 1, ncohorts, bufsize
+     ! read the cohort index
+     __NF_ASRT__(nf_get_vara_int(ncid,idxid,n,min(bufsize,ncohorts-n+1),idx))
+     ! read the data
+     start(1) = n; count(1) = min(bufsize,ncohorts-n+1)
+     __NF_ASRT__(nfu_get_rec(ncid,name,rec_,data,start,count))
+     
+     ! distribute data over cohorts
+     do i = 1, size(idx)
         call get_cohort_by_idx ( idx(i), lnd%nlon, lnd%nlat, ntiles,&
-                             lnd%tile_map, lnd%is, lnd%js,cohort)
-     if (associated(cohort)) then
-        call fptr(cohort, ptr)
-        if(associated(ptr)) ptr = data(i)
-     endif
+             lnd%tile_map, lnd%is, lnd%js,cohort)
+        if (associated(cohort)) then
+           call fptr(cohort, ptr)
+           if(associated(ptr)) ptr = data(i)
+        endif
+     enddo
   enddo
   
   ! free allocated memory
@@ -139,14 +147,14 @@ subroutine WRITE_0D_FPTR(ncid,name,fptr,long_name,units,record)
   ! if this processor isn't the root IO processor, simply send data to the root 
   ! IO processor and return from the subroutine
   if (mpp_pe()/=lnd%io_pelist(1)) then
-     call mpp_send(data(1), plen=size(data), to_pe=lnd%io_pelist(1))
-     call mpp_send(mask(1), plen=size(data), to_pe=lnd%io_pelist(1))
+     call mpp_send(data(1), plen=size(data), to_pe=lnd%io_pelist(1), tag=COMM_TAG_1)
+     call mpp_send(mask(1), plen=size(data), to_pe=lnd%io_pelist(1), tag=COMM_TAG_2)
   else
      ! gather data from the processors in io_domain
      allocate(buffer(size(data)))
      do p = 2,size(lnd%io_pelist)
-        call mpp_recv(buffer(1), glen=size(data), from_pe=lnd%io_pelist(p))
-        call mpp_recv(mask(1),   glen=size(data), from_pe=lnd%io_pelist(p))
+        call mpp_recv(buffer(1), glen=size(data), from_pe=lnd%io_pelist(p), tag=COMM_TAG_1)
+        call mpp_recv(mask(1),   glen=size(data), from_pe=lnd%io_pelist(p), tag=COMM_TAG_2)
         where(mask > 0) data = buffer
      enddo
      deallocate(buffer,mask)
@@ -173,8 +181,7 @@ subroutine WRITE_0D_FPTR(ncid,name,fptr,long_name,units,record)
   ! wait for all PEs to finish: necessary because mpp_send doesn't seem to 
   ! copy the data, and therefore on non-root io_domain PE there would be a chance
   ! that the data and mask are destroyed before they are actually sent.
-  call mpp_sync(lnd%io_pelist)
-
+  call mpp_sync()
   ! free allocated memory
   deallocate(data,idx)
   

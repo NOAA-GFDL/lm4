@@ -50,6 +50,7 @@ public :: vegn_tran_priority ! returns transition priority for land use
 
 public :: vegn_add_bliving
 ! =====end of public interfaces ==============================================
+
 interface new_vegn_tile
    module procedure vegn_tile_ctor
    module procedure vegn_tile_copy_ctor
@@ -69,19 +70,20 @@ type :: vegn_tile_type
 
    integer :: n_cohorts = 0
    type(vegn_cohort_type), pointer :: cohorts(:)=>NULL()
+   
+   ! buffers holding amounts of stuff dropped by dead trees, etc
+   real :: drop_wl=0, drop_ws=0 ! buffer accumulating amount of dropped water, kg/m2
+   real :: drop_hl=0, drop_hs=0 ! buffer accumulating heat of dropped water, J/m2
 
-   real :: age=0 ! tile age
-
-   real :: fast_soil_C=0  ! fast soil carbon pool, (kg C/m2)
-   real :: slow_soil_C=0  ! slow soil carbon pool, (kg C/m2)
+   real :: age=0.0 ! tile age
 
    ! fields for smoothing out the contribution of the spike-type processes (e.g. 
    ! harvesting) to the soil carbon pools over some period of time
-   real :: fsc_pool=0, fsc_rate=0 ! for fast soil carbon
-   real :: ssc_pool=0, ssc_rate=0 ! for slow soil carbon
+   real :: fsc_pool=0.0, fsc_rate=0.0 ! for fast soil carbon
+   real :: ssc_pool=0.0, ssc_rate=0.0 ! for slow soil carbon
 
-   real :: csmoke_pool=0 ! carbon lost through fires, kg C/m2 
-   real :: csmoke_rate=0 ! rate of release of the above to atmosphere, kg C/(m2 yr)
+   real :: csmoke_pool=0.0 ! carbon lost through fires, kg C/m2 
+   real :: csmoke_rate=0.0 ! rate of release of the above to atmosphere, kg C/(m2 yr)
 
    real :: harv_pool(N_HARV_POOLS) = 0.0 ! pools of harvested carbon, kg C/m2
    real :: harv_rate(N_HARV_POOLS) = 0.0 ! rates of spending (release to the atmosphere), kg C/(m2 yr)
@@ -90,10 +92,9 @@ type :: vegn_tile_type
    real :: root_distance(max_lev) ! characteristic half-distance between fine roots, m
    
    ! values for the diagnostic of carbon budget and soil carbon acceleration
-   real :: asoil_in=0
-   real :: ssc_in=0, ssc_out=0
-   real :: fsc_in=0, fsc_out=0
-   real :: veg_in=0, veg_out=0
+   real :: ssc_out=0.0
+   real :: fsc_out=0.0
+   real :: veg_in=0.0, veg_out=0.0
 
    real :: disturbance_rate(0:1) = 0 ! 1/year
    real :: lambda = 0.0 ! cumulative drought months per year
@@ -101,7 +102,9 @@ type :: vegn_tile_type
    real :: litter = 0.0 ! litter flux
 
    ! monthly accumulated/averaged values
-   real :: theta_av = 0.0 ! relative soil_moisture availability not soil moisture
+   real :: theta_av_phen = 0.0 ! relative soil_moisture availability not soil moisture
+   real :: theta_av_fire = 0.0
+   real :: psist_av = 0.0 ! soil water stress index
    real :: tsoil_av = 0.0 ! bulk soil temperature
    real :: tc_av    = 0.0 ! leaf temperature
    real :: precip_av= 0.0 ! precipitation
@@ -110,8 +113,8 @@ type :: vegn_tile_type
    ! these counters in the tile is a bit stupid, since the values are the same for
    ! each tile, but it simplifies the current code, and they are going away when we
    ! switch to exponential averaging in any case.
-   integer :: n_accum = 0.0 ! number of accumulated values for monthly averages
-   integer :: nmn_acm = 0.0 ! number of accumulated values for annual averages
+   integer :: n_accum = 0 ! number of accumulated values for monthly averages
+   integer :: nmn_acm = 0 ! number of accumulated values for annual averages
    ! annual-mean values
    real :: t_ann  = 0.0 ! annual mean T, degK
    real :: t_cold = 0.0 ! average temperature of the coldest month, degK
@@ -125,13 +128,14 @@ type :: vegn_tile_type
 
    ! averaged quantities for PPA phenology
    real :: tc_daily = 0.0
-   real :: gdd      = 0.0 ! growing degree-days
    real :: tc_pheno = 0.0 ! smoothed canopy air temperature for phenology
+   real :: daily_t_max = -HUGE(1.0) ! accumulator for daily max, used in GDD calculations
+   real :: daily_t_min =  HUGE(1.0) ! accumulator for daily min, used in GDD calculations
 
    ! it's probably possible to get rid of the fields below
-   real :: npp=0 ! net primary productivity
-   real :: nep=0 ! net ecosystem productivity
-   real :: rh=0 ! soil carbon lost to the atmosphere
+   real :: npp=0.0 ! net primary productivity
+   real :: nep=0.0 ! net ecosystem productivity
+   real :: rh =0.0 ! soil carbon lost to the atmosphere
 end type vegn_tile_type
 
 ! ==== module data ===========================================================
@@ -262,11 +266,12 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
 #undef  __MERGE__
 ! re-define macro for tile values
 #define __MERGE__(field) t2%field = x1*t1%field + x2*t2%field
+  __MERGE__(drop_wl)
+  __MERGE__(drop_ws)
+  __MERGE__(drop_hl)
+  __MERGE__(drop_hs)
 
   __MERGE__(age);
-  
-  __MERGE__(fast_soil_C)
-  __MERGE__(slow_soil_C)
   
   __MERGE__(fsc_pool); __MERGE__(fsc_rate)
   __MERGE__(ssc_pool); __MERGE__(ssc_rate)
@@ -278,9 +283,8 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   __MERGE__(harv_rate)
 
   ! do we need to merge these?
-  __MERGE__(asoil_in)
-  __MERGE__(ssc_in); __MERGE__(ssc_out)
-  __MERGE__(fsc_in); __MERGE__(fsc_out)
+  __MERGE__(ssc_out)
+  __MERGE__(fsc_out)
   __MERGE__(veg_in); __MERGE__(veg_out)
   
   ! or these?
@@ -290,7 +294,9 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   __MERGE__(litter)     ! litter flux
 
   ! monthly accumulated/averaged values
-  __MERGE__(theta_av)   ! relative soil_moisture availability not soil moisture
+  __MERGE__(theta_av_phen)   ! relative soil_moisture availability not soil moisture
+  __MERGE__(theta_av_fire)
+  __MERGE__(psist_av)   ! water potential divided by permanent wilting potential
   __MERGE__(tsoil_av)   ! bulk soil temperature
   __MERGE__(tc_av)      ! leaf temperature
   __MERGE__(precip_av)  ! precipitation
@@ -327,7 +333,7 @@ function vegn_seed_supply ( vegn )
   enddo
   vegn_seed_supply = MAX (vegn_bliving-BSEED, 0.0)
   
-end function 
+end function vegn_seed_supply
 
 ! ============================================================================
 ! TODO: do vegn_seed_demand and vegn_seed_supply make sense for PPA? or even the entire seed transport method?
@@ -343,7 +349,7 @@ function vegn_seed_demand ( vegn )
         vegn_seed_demand = vegn_seed_demand + BSEED
      endif
   enddo
-end function 
+end function vegn_seed_demand
 
 ! ============================================================================
 subroutine vegn_add_bliving ( vegn, delta )
@@ -356,7 +362,7 @@ subroutine vegn_add_bliving ( vegn, delta )
      call error_mesg('vegn_add_bliving','resulting bliving is less then 0', FATAL)
   endif
   call update_biomass_pools(vegn%cohorts(1))
-end subroutine 
+end subroutine vegn_add_bliving
 
 
 
@@ -394,7 +400,7 @@ function vegn_tran_priority(vegn, dst_kind, tau) result(pri)
   else
      pri = max(min(tau,1.0),0.0)
   endif
-end function 
+end function vegn_tran_priority
 
 
 ! ============================================================================
@@ -409,7 +415,7 @@ function vegn_cover_cold_start(land_mask, lonb, latb) result (vegn_frac)
   call init_cover_field(vegn_to_use, 'INPUT/cover_type.nc', 'cover','frac', &
        lonb, latb, vegn_index_constant, input_cover_types, vegn_frac)
   
-end function 
+end function vegn_cover_cold_start
 
 ! =============================================================================
 ! returns true if tile fits the specified selector
@@ -441,7 +447,7 @@ function vegn_is_selected(vegn, sel)
      vegn_is_selected = .FALSE.
   end select  
      
-end function
+end function vegn_is_selected
 
 
 ! ============================================================================
@@ -451,7 +457,7 @@ function get_vegn_tile_tag(vegn) result(tag)
   type(vegn_tile_type), intent(in) :: vegn
   
   tag = vegn%tag
-end function
+end function get_vegn_tile_tag
 
 ! ============================================================================
 ! returns total wood biomass per tile 
@@ -466,7 +472,7 @@ function get_vegn_tile_bwood(vegn) result(bwood)
   do i = 1,vegn%n_cohorts
      bwood = bwood + vegn%cohorts(i)%bwood*vegn%cohorts(i)%nindivs
   enddo
-end function
+end function get_vegn_tile_bwood
 
 ! ============================================================================
 subroutine vegn_tile_stock_pe (vegn, twd_liq, twd_sol  )
@@ -474,7 +480,7 @@ subroutine vegn_tile_stock_pe (vegn, twd_liq, twd_sol  )
   real,                  intent(out)   :: twd_liq, twd_sol
   integer i
   
-  twd_liq = 0.0 ; twd_sol = 0.0
+  twd_liq = vegn%drop_wl ; twd_sol = vegn%drop_ws
   do i=1, vegn%n_cohorts
     twd_liq = twd_liq + vegn%cohorts(i)%prog%wl * vegn%cohorts(i)%nindivs
     twd_sol = twd_sol + vegn%cohorts(i)%prog%ws * vegn%cohorts(i)%nindivs
@@ -493,15 +499,15 @@ function vegn_tile_carbon(vegn) result(carbon) ; real carbon
   do i = 1,vegn%n_cohorts
      carbon = carbon + &
          (vegn%cohorts(i)%bl  + vegn%cohorts(i)%blv + &
-          vegn%cohorts(i)%br + vegn%cohorts(i)%bwood + &
+          vegn%cohorts(i)%br  + vegn%cohorts(i)%bwood + &
           vegn%cohorts(i)%bsw + vegn%cohorts(i)%bseed + &
           vegn%cohorts(i)%nsc + &
           vegn%cohorts(i)%carbon_gain + vegn%cohorts(i)%bwood_gain &
          )*vegn%cohorts(i)%nindivs
   enddo
-  carbon = carbon + vegn%fast_soil_C + vegn%slow_soil_C + &
+  carbon = carbon + &
        sum(vegn%harv_pool) + vegn%fsc_pool + vegn%ssc_pool + vegn%csmoke_pool
-end function
+end function vegn_tile_carbon
 
 
 ! ============================================================================
@@ -511,7 +517,7 @@ function vegn_tile_heat (vegn) result(heat) ; real heat
 
   integer :: i
 
-  heat = 0
+  heat = vegn%drop_hl+vegn%drop_hs
   do i = 1, vegn%n_cohorts
      heat = heat + &
             ( (clw*vegn%cohorts(i)%prog%Wl + &
@@ -520,6 +526,6 @@ function vegn_tile_heat (vegn) result(heat) ; real heat
               - hlf*vegn%cohorts(i)%prog%Ws &
             )*vegn%cohorts(i)%nindivs
   enddo
-end function
+end function vegn_tile_heat
 
 end module vegn_tile_mod

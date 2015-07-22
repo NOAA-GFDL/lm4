@@ -190,18 +190,15 @@ subroutine darcy2d_uptake ( soil, psi_x0, R, VRL, K_r, r_r, uptake_oneway, &
   real :: psi_r
 
 
-  ! calculate some hydraulic properties common for all soil layers
-  psi_sat = soil%pars%psi_sat_ref/soil%pars%alpha
-  k_sat   = soil%pars%k_sat_ref*soil%pars%alpha**2
-
   if(is_watch_point())then
      write(*,*)'##### darcy2d_uptake input #####'
-     __DEBUG3__(psi_x0,psi_sat,K_sat)
-     __DEBUG2__(K_r,r_r)
+     __DEBUG3__(psi_x0,K_r,r_r)
   endif
   ! calculate soil water supply and its derivative
   uptake = 0; duptake = 0
   do l = 1, num_l
+     psi_sat = soil%pars%psi_sat_ref/soil%alpha(l)
+     k_sat   = soil%pars%k_sat_ref*soil%alpha(l)**2
      psi_x    = psi_x0+zfull(l)
      psi_soil = soil%psi(l)
 
@@ -219,7 +216,7 @@ subroutine darcy2d_uptake ( soil, psi_x0, R, VRL, K_r, r_r, uptake_oneway, &
      ! from the current soil layer
      uptake(l)  = VRL(l)*dz(l)*u ; duptake(l) = VRL(l)*dz(l)*du
      if(is_watch_point()) then
-        write(*,'(a,i2.2,100(2x,a,g))')'level=',l, &
+        write(*,'(a,i2.2,100(2x,a,g23.16))')'level=',l, &
              'VRL=', VRL(l), 'R=', R(l),&
              'psi_x=', psi_x, 'psi_r=', psi_r, 'psi_soil=', psi_soil, &
              'U=',u,&
@@ -233,7 +230,7 @@ end subroutine darcy2d_uptake
 ! for Darcy-flow uptake, find the root water potential such to satisfy actual 
 ! uptake by the vegetation. 
 subroutine darcy2d_uptake_solver (soil, vegn_uptk, R, VRL, K_r, r_r, uptake_oneway, &
-     uptake_from_sat, uptake, n_iter)
+     uptake_from_sat, uptake, psi_x0, n_iter)
   type(soil_tile_type), intent(in) :: soil
   real, intent(in)  :: &
        vegn_uptk, & ! uptake requested by vegetation, kg/(m2 s)
@@ -245,13 +242,15 @@ subroutine darcy2d_uptake_solver (soil, vegn_uptk, R, VRL, K_r, r_r, uptake_onew
        uptake_oneway, & ! if true, then the roots can only take up water, but 
                     ! never loose it to the soil
        uptake_from_sat ! if false, uptake from saturated soil is prohibited
-  real,    intent(out) :: uptake(:) ! soil water uptake, by layer
+  real,    intent(out) :: &
+       uptake(:), & ! soil water uptake, by layer
+       psi_x0       ! water potential inside roots (in xylem) at zero depth, m
   integer, intent(out) :: n_iter ! # of iterations made, for diagnostics only
 
   real :: uptake_tot
 
   call uptake_solver_K(soil, vegn_uptk, R, VRL, K_r, r_r, uptake_oneway, &
-     uptake_from_sat, uptake, n_iter, darcy2d_uptake)
+     uptake_from_sat, uptake, psi_x0, n_iter, darcy2d_uptake)
 
   ! since the numerical solution is not exact, adjust the vertical profile 
   ! of uptake to ensure that the sum is equal to transpiration exactly
@@ -265,7 +264,7 @@ end subroutine darcy2d_uptake_solver
 ! the uptake vertical profile for given water potential at the surface, returns
 ! a solution
 subroutine uptake_solver_K (soil, vegn_uptk, R, VRL, K_r, r_r, uptake_oneway, &
-     uptake_from_sat, uptake, n_iter, uptake_subr)
+     uptake_from_sat, uptake, psi_x0, n_iter, uptake_subr)
   type(soil_tile_type), intent(in) :: soil
   real, intent(in)  :: &
        vegn_uptk, & ! uptake requested by vegetation, kg/(m2 s)
@@ -277,7 +276,9 @@ subroutine uptake_solver_K (soil, vegn_uptk, R, VRL, K_r, r_r, uptake_oneway, &
        uptake_oneway, & ! if true, then the roots can only take up water, but 
                     ! never loose it to the soil
        uptake_from_sat ! if false, uptake from saturated soil is prohibited
-  real,    intent(out) :: uptake(:) ! vertical distribution of soil uptake
+  real,    intent(out) :: &
+       uptake(:), & ! vertical distribution of soil uptake
+       psi_x0       ! water potential inside roots (in xylem) at zero depth, m
   integer, intent(out) :: n_iter ! # of iterations made, for diagnostics only
 
   interface 
@@ -357,22 +358,25 @@ subroutine uptake_solver_K (soil, vegn_uptk, R, VRL, K_r, r_r, uptake_oneway, &
   DfDx = sum(duptake)
   do n_iter = 1, max_iter
      ! check if we already reached the desired precision
-     if(abs(f)<eps)exit
+     if(abs(f)<eps) then
+        psi_x0 = x2
+        exit
+     endif
            
-!     if (is_watch_point()) then
-!        write(*,*)'##### solution iteration iter=',n_iter
-!        __DEBUG5__(f,DfDx,xl,xh,x2)
-!        __DEBUG2__((x2-xl)*DfDx,(x2-xh)*DfDx)
-!     endif
+     if (is_watch_point()) then
+        write(*,*)'##### solution iteration iter=',n_iter
+        __DEBUG5__(f,DfDx,xl,xh,x2)
+        __DEBUG2__((x2-xl)*DfDx,(x2-xh)*DfDx)
+     endif
            
      if (((x2-xl)*DfDx-f)*((x2-xh)*DfDx-f)>0) then
         ! the Newton-Raphson step would throw us out of the bonds of the interval,
         ! so we do the bisection
         x2 = (xl+xh)/2
-!        if(is_watch_point()) write(*,*) 'did bisection'
+        if(is_watch_point()) write(*,*) 'did bisection'
      else
         x2 = x2-f/DfDx
-!        if(is_watch_point()) write(*,*) 'did Newton-Raphson step'
+        if(is_watch_point()) write(*,*) 'did Newton-Raphson step'
      endif
            
      call uptake_subr ( soil, x2, R, VRL, K_r, r_r, uptake_oneway, &
@@ -386,10 +390,10 @@ subroutine uptake_solver_K (soil, vegn_uptk, R, VRL, K_r, r_r, uptake_oneway, &
         xh = x2
      endif
      
-!     if(is_watch_point()) then
-!        write(*,*)'#### After iteration',n_iter
-!        __DEBUG2__(vegn_uptk,sum(uptake))
-!     endif
+     if(is_watch_point()) then
+        write(*,*)'#### After iteration',n_iter
+        __DEBUG2__(vegn_uptk,sum(uptake))
+     endif
   enddo
 
 end subroutine uptake_solver_K
@@ -473,12 +477,10 @@ subroutine darcy2d_uptake_lin ( soil, psi_x0, R, VRL, K_r, r_r,uptake_oneway, &
   real :: psi_root0 ! initial guess of psi_root, m
 
 
-  ! calculate some hydraulic properties common for all soil layers
-  psi_sat = soil%pars%psi_sat_ref/soil%pars%alpha
-  K_sat   = soil%pars%k_sat_ref*soil%pars%alpha**2
-
   u = 0; du = 0
   do k = 1, num_l
+     psi_sat = soil%pars%psi_sat_ref/soil%alpha(k)
+     K_sat   = soil%pars%k_sat_ref*soil%alpha(k)**2
      psi_x    = psi_x0 + zfull(k)
      psi_soil = soil%psi(k)
      psi_root0= soil%psi(k) ! change it later to prev. time step value
@@ -503,7 +505,7 @@ end subroutine
 
 ! ============================================================================
 subroutine darcy2d_uptake_solver_lin ( soil, vegn_uptk, R, VRL, K_r, r_r, &
-     uptake_oneway, uptake_from_sat, uptake, n_iter )
+     uptake_oneway, uptake_from_sat, uptake, psi_x0, n_iter )
   type(soil_tile_type), intent(in) :: soil
   real, intent(in) :: &
        vegn_uptk, & ! uptake requested by vegetation, kg/(m2 s)
@@ -516,13 +518,12 @@ subroutine darcy2d_uptake_solver_lin ( soil, vegn_uptk, R, VRL, K_r, r_r, &
                    ! never loose it to the soil
        uptake_from_sat   ! if false, uptake from saturated soil is prohibited
   real, intent(out) :: &
-       uptake(:)    ! layer-by-layer distribution of uptake, kg/(m2 s)
+       uptake(:), & ! layer-by-layer distribution of uptake, kg/(m2 s)
+       psi_x0       ! water potential inside roots (in xylem) at zero depth, m
   integer, intent(out) :: n_iter ! # of iterations made, for diagnostics only
 
   ! ---- local vars
   integer :: k
-  real :: psi_x0    ! water potential inside roots (in xylem) at zero depth, m
-  
   real :: uptake_tot  ! total water uptake by roots, kg/(m2 s)
   real :: Duptake_tot ! derivative of water uptake w.r.t. psi_root, kg/(m3 s)
   real :: du(size(uptake)) ! derivative of u w.r.t. root water potential, kg/(m3 s)
@@ -530,7 +531,7 @@ subroutine darcy2d_uptake_solver_lin ( soil, vegn_uptk, R, VRL, K_r, r_r, &
 
   if (uptake_oneway) then
      call uptake_solver_K(soil, vegn_uptk, R, VRL, K_r, r_r, uptake_oneway, &
-          uptake_from_sat, uptake, n_iter, darcy2d_uptake_lin )
+          uptake_from_sat, uptake, psi_x0, n_iter, darcy2d_uptake_lin )
      
      ! since the numerical solution is not exact, adjust the vertical profile 
      ! of uptake to ensure that the sum is equal to transpiration exactly
@@ -551,6 +552,7 @@ subroutine darcy2d_uptake_solver_lin ( soil, vegn_uptk, R, VRL, K_r, r_r, &
      else
         uptake(:) = 0
      endif
+     psi_x0 = psi_x0 + d_psi_x
      n_iter = 0 ! because we didn't do any iterations
   endif
 

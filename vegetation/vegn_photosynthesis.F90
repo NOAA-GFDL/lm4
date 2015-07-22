@@ -62,7 +62,9 @@ end subroutine vegn_photosynthesis_init
 ! updates cohort%An_op and cohort%An_cl
 subroutine vegn_photosynthesis ( cohort, &
      PAR_dn, PAR_net, cana_q, cana_co2, p_surf, drag_q, &
-     soil_beta, soil_water_supply,  stomatal_cond )
+     soil_beta, soil_water_supply, &
+     stomatal_cond )
+  ! TODO: Add back evaporative demand calculations
   type(vegn_cohort_type), intent(inout) :: cohort
   real, intent(in)  :: PAR_dn   ! downward PAR at the top of the canopy, W/m2 
   real, intent(in)  :: PAR_net  ! net PAR absorbed by the canopy, W/m2
@@ -99,7 +101,7 @@ subroutine vegn_photosynthesis ( cohort, &
         call get_vegn_wet_frac (cohort, fw=fw, fs=fs)
         call gs_Leuning(PAR_dn, PAR_net, cohort%prog%Tv, cana_q, cohort%lai, &
              cohort%leaf_age, p_surf, water_supply, cohort%species, cohort%pt, &
-             cana_co2, cohort%extinct, fs+fw, &
+             cana_co2, cohort%extinct, fs+fw, cohort%layer, &
              ! output:
              stomatal_cond, psyn, resp )
         ! store the calculated photosynthesis and photorespiration for future use
@@ -126,7 +128,7 @@ end subroutine vegn_photosynthesis
 
 ! ============================================================================
 subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
-                   p_surf, ws, pft, pt, ca, kappa, leaf_wet, &
+                   p_surf, ws, pft, pt, ca, kappa, leaf_wet, layer, &
                    gs, apot, acl)
   real,    intent(in)    :: rad_top ! PAR dn on top of the canopy, w/m2
   real,    intent(in)    :: rad_net ! PAR net on top of the canopy, w/m2
@@ -135,12 +137,13 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   real,    intent(in)    :: lai  ! leaf area index
   real,    intent(in)    :: leaf_age ! age of leaf since budburst (deciduos), days
   real,    intent(in)    :: p_surf ! surface pressure, Pa
-  real,    intent(in)    :: ws   ! water supply, mol H20/(m2 of leaf s)
+  real,    intent(in)    :: ws   ! water supply, mol H2O/(m2 of leaf s)
   integer, intent(in)    :: pft  ! species
   integer, intent(in)    :: pt   ! physiology type (C3 or C4)
   real,    intent(in)    :: ca   ! concentartion of CO2 in the canopy air space, mol CO2/mol dry air
   real,    intent(in)    :: kappa! canopy extinction coefficient (move inside f(pft))
   real,    intent(in)    :: leaf_wet ! fraction of leaf that's wet or snow-covered
+  integer, intent(in)    :: layer ! canopy layer of the cohort
   ! note that the output is per area of leaf; to get the quantities per area of
   ! land, multiply them by LAI
   real,    intent(out)   :: gs   ! stomatal conductance, m/s
@@ -231,7 +234,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
 
   ! Find respiration for the whole canopy layer
   
-  Resp=spdata(pft)%gamma_resp*vm*lai;
+  Resp=spdata(pft)%gamma_resp*vm*lai/layer
   Resp=Resp/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))));
   
   
