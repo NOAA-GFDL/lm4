@@ -38,7 +38,7 @@ public :: read_glac_data_namelist
 public :: glac_cover_cold_start
 
 public :: glac_data_radiation
-public :: glac_data_diffusion
+public :: glac_roughness
 public :: glac_data_thermodynamics
 public :: glac_data_hydraulics
 
@@ -536,15 +536,13 @@ end subroutine glac_data_radiation
 
 ! ============================================================================
 ! compute bare-glacier roughness
-subroutine glac_data_diffusion ( glac, glac_z0s, glac_z0m )
+subroutine glac_roughness ( glac, glac_z0s, glac_z0m )
   type(glac_tile_type), intent(in) :: glac
   real,                 intent(out):: glac_z0s, glac_z0m
 
-  ! ---- surface roughness ---------------------------------------------------
   glac_z0s = glac%z0_scalar
   glac_z0m = glac%pars%z0_momentum
-
-end subroutine glac_data_diffusion
+end subroutine 
 
 
 ! ============================================================================

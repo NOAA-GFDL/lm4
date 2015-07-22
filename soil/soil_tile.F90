@@ -39,7 +39,7 @@ public :: read_soil_data_namelist
 public :: soil_cover_cold_start
 
 public :: soil_data_radiation
-public :: soil_data_diffusion
+public :: soil_roughness
 public :: soil_data_thermodynamics
 public :: soil_data_hydraulics
 public :: soil_data_gw_hydraulics
@@ -151,11 +151,10 @@ type :: soil_tile_type
    real :: Eg_part_ref
    real :: z0_scalar
    ! data that were local to soil.f90
-   real,                 pointer :: uptake_frac(:)
    real,                 pointer :: heat_capacity_dry(:)
    real,                 pointer :: e(:),f(:)
    ! added to avoid recalculation of soil hydraulics in case of Darcy uptake
-   real          :: uptake_T
+   real :: uptake_T  ! uptake temperature from previous time step
    real, pointer :: psi(:) ! soil water potential
 end type soil_tile_type
 
@@ -421,7 +420,6 @@ function soil_tile_ctor(tag) result(ptr)
   allocate( ptr%prog(num_l))
   allocate( ptr%w_fc              (num_l),  &
             ptr%w_wilt            (num_l),  &
-            ptr%uptake_frac       (num_l),  &
             ptr%heat_capacity_dry (num_l),  &
             ptr%e                 (num_l),  &
             ptr%f                 (num_l),  &
@@ -441,7 +439,6 @@ function soil_tile_copy_ctor(soil) result(ptr)
   allocate( ptr%prog(num_l))
   allocate( ptr%w_fc              (num_l),  &
             ptr%w_wilt            (num_l),  &
-            ptr%uptake_frac       (num_l),  &
             ptr%heat_capacity_dry (num_l),  &
             ptr%e                 (num_l),  &
             ptr%f                 (num_l),  &
@@ -450,7 +447,6 @@ function soil_tile_copy_ctor(soil) result(ptr)
   ptr%prog(:) = soil%prog(:)
   ptr%w_fc(:) = soil%w_fc(:)
   ptr%w_wilt(:) = soil%w_wilt(:)
-  ptr%uptake_frac(:) = soil%uptake_frac(:)
   ptr%uptake_T = soil%uptake_T
   ptr%heat_capacity_dry(:) = soil%heat_capacity_dry(:)
   ptr%e(:) = soil%e(:)
@@ -464,7 +460,7 @@ subroutine delete_soil_tile(ptr)
   type(soil_tile_type), pointer :: ptr
 
   deallocate(ptr%prog)
-  deallocate(ptr%w_fc, ptr%w_wilt, ptr%uptake_frac,&
+  deallocate(ptr%w_fc, ptr%w_wilt,&
              ptr%heat_capacity_dry, ptr%e, ptr%f, ptr%psi)
   deallocate(ptr)
 end subroutine delete_soil_tile
@@ -736,13 +732,13 @@ end subroutine soil_data_radiation
 ! ============================================================================
 ! compute bare-soil albedo, bare-soil emissivity, bare-soil roughness
 ! for scalar transport, and beta function
-subroutine soil_data_diffusion ( soil, soil_z0s, soil_z0m )
+subroutine soil_roughness ( soil, soil_z0s, soil_z0m )
   type(soil_tile_type), intent(in)  :: soil
   real,                 intent(out) :: soil_z0s, soil_z0m
 
   soil_z0s = soil%z0_scalar
   soil_z0m = soil%pars%z0_momentum
-end subroutine soil_data_diffusion
+end subroutine 
 
 ! ============================================================================
 ! compute soil thermodynamic properties.
@@ -766,24 +762,15 @@ subroutine soil_data_thermodynamics ( soil, vlc, vsc, &
                 ((3.+soil%pars%chb)*soil%pars%vwc_sat))**(3.+soil%pars%chb) &
                 / ((1.+3./soil%pars%chb)*dz(1))
 
-     w = soil%pars%thermal_cond_weight
-     a = soil%pars%thermal_cond_scale
-     n = soil%pars%thermal_cond_exp
-  do l = 1, num_sfc_layers
-     soil%heat_capacity_dry(l) = sfc_heat_factor*soil%pars%heat_capacity_dry
+  w = soil%pars%thermal_cond_weight
+  a = soil%pars%thermal_cond_scale
+  n = soil%pars%thermal_cond_exp
+  do l = 1, num_l
+     f = 1.0
+     if (l<=num_sfc_layers) f = sfc_heat_factor
+     soil%heat_capacity_dry(l) = f*soil%pars%heat_capacity_dry
      s = (vlc(l)+vsc(l))/soil%pars%vwc_sat
-     thermal_cond(l)      = sfc_heat_factor * &
-          ( soil%pars%thermal_cond_dry+ &
-            (soil%pars%thermal_cond_sat-soil%pars%thermal_cond_dry) &
-            *(w*s +(1-w)*(1+a**n)*(s**n)/(1+(a*s)**n))    )
-     f = 1.
-     if (vlc(l)+vsc(l).gt.0.) f = 1.+(freeze_factor-1.)*vsc(l)/(vlc(l)+vsc(l))
-     thermal_cond(l) = f * thermal_cond(l)
-  enddo
-  do l = num_sfc_layers+1, num_l
-     soil%heat_capacity_dry(l) = soil%pars%heat_capacity_dry
-     s = (vlc(l)+vsc(l))/soil%pars%vwc_sat
-     thermal_cond(l)  = &
+     thermal_cond(l) = f * &
           ( soil%pars%thermal_cond_dry+ &
             (soil%pars%thermal_cond_sat-soil%pars%thermal_cond_dry) &
             *(w*s +(1-w)*(1+a**n)*(s**n)/(1+(a*s)**n))    )

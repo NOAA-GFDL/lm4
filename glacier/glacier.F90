@@ -18,7 +18,7 @@ use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o, PI
 
 use glac_tile_mod,      only: glac_tile_type, glac_pars_type, glac_prog_type, &
      read_glac_data_namelist, glac_data_thermodynamics, glac_data_hydraulics, &
-     glac_data_radiation, glac_data_diffusion, max_lev, cpw, clw, csw
+     glac_data_radiation, max_lev, cpw, clw, csw
 
 use land_constants_mod, only : &
      NBANDS
@@ -42,7 +42,6 @@ public :: glac_end
 public :: save_glac_restart
 public :: glac_get_sfc_temp
 public :: glac_radiation
-public :: glac_diffusion
 public :: glac_step_1
 public :: glac_step_2
 ! =====end of public interfaces ==============================================
@@ -272,17 +271,6 @@ subroutine glac_radiation ( glac, cosz, &
   call glac_data_radiation ( glac, cosz, use_brdf, glac_refl_dir, glac_refl_dif, glac_emis )
   glac_refl_lw = 1 - glac_emis
 end subroutine glac_radiation
-
-
-! ============================================================================
-! compute glac-only properties needed to do glac-canopy-atmos energy balance
-subroutine glac_diffusion ( glac, glac_z0s, glac_z0m )
-  type(glac_tile_type), intent(in) :: glac
-  real, intent(out) :: glac_z0s, glac_z0m
-
-  call glac_data_diffusion ( glac, glac_z0s, glac_z0m )
-  
-end subroutine glac_diffusion
 
 
 ! ============================================================================

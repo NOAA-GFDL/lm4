@@ -32,6 +32,8 @@ public :: horiz_remap_new, horiz_remap_del
 public :: horiz_remap_print
 public :: horiz_remap
 
+public :: rank_descending ! rank the input array in descending order
+
 public :: numerics_init
 ! ==== end of public interfaces ==============================================
 
@@ -875,6 +877,99 @@ subroutine horiz_remap(map,domain,d)
   enddo
 
 end subroutine
+
+
+! ======================================================================
+! ranks array x in descending order: on return, idx() contains indices
+! of elements of array x in descending order of x values
+subroutine rank_descending(x,idx)
+   real,    intent(in)  :: x(:)
+   integer, intent(out) :: idx(:)
+
+   integer :: i,n
+   integer, allocatable :: t(:)
+   
+   n = size(x)
+   do i = 1,n
+      idx(i) = i
+   enddo
+   
+   allocate(t((n+1)/2))
+   call mergerank(x,idx,n,t)
+   deallocate(t)
+end subroutine 
+
+! =====================================================================
+! based on:
+! http://rosettacode.org/wiki/Sorting_algorithms/Merge_sort#Fortran
+subroutine merge(x,a,na,b,nb,c,nc)
+   integer, intent(in) :: na,nb,nc ! Normal usage: NA+NB = NC
+   real, intent(in)       :: x(*)
+   integer, intent(in)    :: a(na)    ! B overlays C(NA+1:NC)
+   integer, intent(in)    :: b(nb)
+   integer, intent(inout) :: c(nc)
+ 
+   integer :: i,j,k
+ 
+   i = 1; j = 1; k = 1;
+   do while(i <= na .and. j <= nb)
+      if (x(a(i)) >= x(b(j))) then
+         c(k) = a(i) ; i = i+1
+      else
+         c(k) = b(j) ; j = j+1
+      endif
+      k = k + 1
+   enddo
+   do while (i <= na)
+      c(k) = a(i) ; i = i + 1 ; k = k + 1
+   enddo
+end subroutine merge
+ 
+recursive subroutine mergerank(x,a,n,t)
+  integer, intent(in) :: n
+  real,    intent(in) :: x(*)
+  integer, dimension(n), intent(inout) :: a
+  integer, dimension((n+1)/2), intent (out) :: t
+
+  integer :: na,nb
+  integer :: v
+
+  if (n < 2) return
+  if (n == 2) then
+     if ( x(a(1)) < x(a(2)) ) then
+        v = a(1) ; a(1) = a(2) ; a(2) = v
+     endif
+     return
+  endif      
+  na=(n+1)/2
+  nb=n-na
+
+  call mergerank(x,a,na,t)
+  call mergerank(x,a(na+1),nb,t)
+
+  if (x(a(na)) < x(a(na+1))) then
+     t(1:na)=a(1:na)
+     call merge(x,t,na,a(na+1),nb,a,n)
+  endif
+end subroutine mergerank
+
+! ==============================================================================
+! checks conservation and aborts with fatal error if tolerance is exceeded
+subroutine check_conservation(name, d1, d2, tolerance)
+  character(*), intent(in) :: name ! name of the component
+  real, intent(in) :: d1,d2 ! values to check
+  real, intent(in) :: tolerance ! tolerance of the test
+
+  if (abs(d1-d2)>tolerance) then
+     write(*,'(a,3(x,a,g))')&
+          'Conservation check of "'//trim(name)//'" FAILED.', &
+          'Value before=', d1, 'after=', d2, 'difference=',abs(d1-d2)
+  else
+     write(*,'(a,3(x,a,g))')&
+          'Conservation check of "'//trim(name)//'" passed.', &
+          'Value before=', d1, 'after=', d2, 'difference=',abs(d1-d2)
+  endif
+end subroutine 
 
 ! ==============================================================================
 ! Reports error, including file name and line.

@@ -4,6 +4,7 @@ use land_tile_selectors_mod, only : &
      tile_selector_type
 use constants_mod, only : &
      cp_air, tfreeze
+use land_constants_mod, only : mol_C, mol_co2
 
 implicit none
 private
@@ -151,7 +152,7 @@ end function
 function cana_tile_carbon (cana) result(c) ; real c
   type(cana_tile_type), intent(in) :: cana
 
-  c = canopy_air_mass_for_tracers * cana%prog%co2
+  c = canopy_air_mass_for_tracers * cana%prog%co2 * mol_C/mol_CO2
 end function 
 
 end module cana_tile_mod

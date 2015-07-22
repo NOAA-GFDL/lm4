@@ -6,10 +6,9 @@ use fms_mod,            only : write_version_number, error_mesg, FATAL
 use constants_mod,      only : TFREEZE 
 use sphum_mod,          only : qscomp
 
-use land_constants_mod, only : BAND_VIS, Rugas,seconds_per_year, mol_h2o, mol_air
+use land_constants_mod, only : Rugas, seconds_per_year, mol_h2o, mol_air
 use land_debug_mod,     only : is_watch_point
-use vegn_data_mod,      only : MSPECIES, PT_C4, spdata
-use vegn_tile_mod,      only : vegn_tile_type
+use vegn_data_mod,      only : PT_C4, spdata
 use vegn_cohort_mod,    only : vegn_cohort_type, get_vegn_wet_frac
 
 implicit none
@@ -60,11 +59,11 @@ end subroutine vegn_photosynthesis_init
 
 ! ============================================================================
 ! compute stomatal conductance, photosynthesis and respiration
-subroutine vegn_photosynthesis ( vegn, &
+! updates cohort%An_op and cohort%An_cl
+subroutine vegn_photosynthesis ( cohort, &
      PAR_dn, PAR_net, cana_q, cana_co2, p_surf, drag_q, &
-     soil_beta, soil_water_supply,&
-     stomatal_cond, psyn, resp )
-  type(vegn_tile_type), intent(in) :: vegn
+     soil_beta, soil_water_supply,  stomatal_cond )
+  type(vegn_cohort_type), intent(inout) :: cohort
   real, intent(in)  :: PAR_dn   ! downward PAR at the top of the canopy, W/m2 
   real, intent(in)  :: PAR_net  ! net PAR absorbed by the canopy, W/m2
   real, intent(in)  :: cana_q   ! specific humidity in canopy air space, kg/kg
@@ -73,23 +72,14 @@ subroutine vegn_photosynthesis ( vegn, &
   real, intent(in)  :: drag_q   ! drag coefficient for specific humidity
   real, intent(in)  :: soil_beta
   real, intent(in)  :: soil_water_supply ! max supply of water to roots per unit
-                                ! active root biomass per second, kg/(m2 s)
+                                ! active root biomass per second, kg/(indiv s)
   real, intent(out) :: stomatal_cond ! stomatal conductance, m/s(?)
-  real, intent(out) :: psyn     ! net photosynthesis, mol C/(m2 s)
-  real, intent(out) :: resp     ! leaf respiration, mol C/(m2 s)
-
-
-  ! ---- local constants
-  real, parameter :: res_scaler = 20.0    ! scaling factor for water supply
 
   ! ---- local vars
-  type(vegn_cohort_type), pointer :: cohort
-  integer :: sp ! shorthand for vegetation species
   real    :: water_supply ! water supply per m2 of leaves
   real    :: fw, fs ! wet and snow-covered fraction of leaves
-
-  ! get the pointer to the first (and, currently, the only) cohort
-  cohort => vegn%cohorts(1)
+  real    :: psyn   ! net photosynthesis, mol C/(m2 of leaves s)
+  real    :: resp   ! leaf respiration, mol C/(m2 of leaves s)
 
   select case (vegn_phot_option)
 
@@ -103,31 +93,27 @@ subroutine vegn_photosynthesis ( vegn, &
 
   case(VEGN_PHOT_LEUNING)
      if(cohort%lai > 0) then
-        ! assign species type to local var, purely for convenience 
-        sp = cohort%species
         ! recalculate the water supply to mol H20 per m2 of leaf per second
-        water_supply = soil_water_supply/(mol_h2o*cohort%lai)
+        water_supply = soil_water_supply/(mol_h2o*cohort%leafarea)
       
         call get_vegn_wet_frac (cohort, fw=fw, fs=fs)
         call gs_Leuning(PAR_dn, PAR_net, cohort%prog%Tv, cana_q, cohort%lai, &
-             cohort%leaf_age, p_surf, water_supply, sp, cana_co2, &
-             cohort%extinct, fs+fw, stomatal_cond, psyn, resp, cohort%pt)
-        ! store the calculated photosythesis and fotorespiration for future use
+             cohort%leaf_age, p_surf, water_supply, cohort%species, cohort%pt, &
+             cana_co2, cohort%extinct, fs+fw, &
+             ! output:
+             stomatal_cond, psyn, resp )
+        ! store the calculated photosynthesis and photorespiration for future use
         ! in carbon_int
         cohort%An_op  = psyn * seconds_per_year
         cohort%An_cl  = resp * seconds_per_year
-        ! convert stomatal conductance, photosynthesis and leaf respiration from units
-        ! per unit area of leaf to the units per unit area of land
+        ! convert stomatal conductance from units per unit area of leaf to the 
+        ! units per unit area of cohort
         stomatal_cond = stomatal_cond*cohort%lai
-        psyn          = psyn         *cohort%lai
-        resp          = resp         *cohort%lai
      else
         ! no leaves means no photosynthesis and no stomatal conductance either
         cohort%An_op  = 0
         cohort%An_cl  = 0
         stomatal_cond = 0
-        psyn          = 0
-        resp          = 0
      endif
 
   case default
@@ -140,9 +126,8 @@ end subroutine vegn_photosynthesis
 
 ! ============================================================================
 subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
-                   p_surf, ws, pft, ca, &
-                   kappa, leaf_wet,  &
-                   gs, apot, acl, pt)
+                   p_surf, ws, pft, pt, ca, kappa, leaf_wet, &
+                   gs, apot, acl)
   real,    intent(in)    :: rad_top ! PAR dn on top of the canopy, w/m2
   real,    intent(in)    :: rad_net ! PAR net on top of the canopy, w/m2
   real,    intent(in)    :: tl   ! leaf temperature, degK
@@ -152,6 +137,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   real,    intent(in)    :: p_surf ! surface pressure, Pa
   real,    intent(in)    :: ws   ! water supply, mol H20/(m2 of leaf s)
   integer, intent(in)    :: pft  ! species
+  integer, intent(in)    :: pt   ! physiology type (C3 or C4)
   real,    intent(in)    :: ca   ! concentartion of CO2 in the canopy air space, mol CO2/mol dry air
   real,    intent(in)    :: kappa! canopy extinction coefficient (move inside f(pft))
   real,    intent(in)    :: leaf_wet ! fraction of leaf that's wet or snow-covered
@@ -160,7 +146,6 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   real,    intent(out)   :: gs   ! stomatal conductance, m/s
   real,    intent(out)   :: apot ! net photosynthesis, mol C/(m2 s)
   real,    intent(out)   :: acl  ! leaf respiration, mol C/(m2 s)
-  integer, intent(in)    :: pt   ! physiology type (C3 or C4)
 
   ! ---- local vars     
   ! photosynthesis

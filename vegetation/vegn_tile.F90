@@ -23,8 +23,10 @@ use vegn_data_mod, only : &
      scnd_biomass_bins
 
 use vegn_cohort_mod, only : vegn_cohort_type, vegn_phys_prog_type, &
-     height_from_biomass, lai_from_biomass, update_bio_living_fraction, &
+     leaf_area_from_biomass, update_bio_living_fraction, update_cohort_structure, &
      cohort_uptake_profile, cohort_root_properties, update_biomass_pools
+
+use soil_tile_mod, only : max_lev
 
 implicit none
 private
@@ -43,9 +45,6 @@ public :: vegn_tile_heat ! returns hate content of the vegetation
 public :: read_vegn_data_namelist
 public :: vegn_cover_cold_start
 
-public :: vegn_uptake_profile
-public :: vegn_root_properties
-public :: vegn_data_rs_min
 public :: vegn_seed_supply
 public :: vegn_seed_demand
 
@@ -90,6 +89,9 @@ type :: vegn_tile_type
    real :: harv_pool(N_HARV_POOLS) = 0.0 ! pools of harvested carbon, kg C/m2
    real :: harv_rate(N_HARV_POOLS) = 0.0 ! rates of spending (release to the atmosphere), kg C/(m2 yr)
 
+   ! uptake-related variables
+   real :: root_distance(max_lev) ! characteristic half-distance betwee fine roots, m
+   
    ! values for the diagnostic of carbon budget and soil carbon acceleration
    real :: asoil_in=0
    real :: ssc_in=0, ssc_out=0
@@ -129,10 +131,6 @@ type :: vegn_tile_type
    real :: npp=0 ! net primary productivity
    real :: nep=0 ! net ecosystem productivity
    real :: rh=0 ! soil carbon lost to the atmosphere
-   real :: total_biomass !
-   real :: area_disturbed_by_treefall
-   real :: area_disturbed_by_fire
-   real :: total_disturbance_rate
 end type vegn_tile_type
 
 ! ==== module data ===========================================================
@@ -203,6 +201,7 @@ end function
 
 
 ! ============================================================================
+! TODO: update merge_vegn_tiles for PPA
 subroutine merge_vegn_tiles(t1,w1,t2,w2)
   type(vegn_tile_type), intent(in) :: t1
   type(vegn_tile_type), intent(inout) :: t2
@@ -216,6 +215,9 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   ! calculate normalized weights
   x1 = w1/(w1+w2)
   x2 = 1.0 - x1
+
+  ! TODO: reformulate merging cohorts when merging tiles in PPA mode
+  !       probably combine all cohorts from two tiles + relayer + merge cohorts
 
   ! the following assumes that there is one, and only one, cohort per tile 
   c1 => t1%cohorts(1)
@@ -233,6 +235,10 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   __MERGE__(bsw)     ! biomass of sapwood, kg C/m2
   __MERGE__(bwood)   ! biomass of heartwood, kg C/m2
   __MERGE__(bliving) ! leaves, fine roots, and sapwood biomass
+
+  __MERGE__(carbon_gain) ! carbon gain during a day, kg C/m2
+  __MERGE__(carbon_loss) ! carbon loss during a day, kg C/m2 [diag only]
+  __MERGE__(bwood_gain)  ! heartwood gain during a day, kg C/m2
 
   ! should we do update_derived_vegn_data here? to get mcv_dry, etc
   call update_biomass_pools(c2)
@@ -284,8 +290,6 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   __MERGE__(tsoil_av)   ! bulk soil temperature
   __MERGE__(tc_av)      ! leaf temperature
   __MERGE__(precip_av)  ! precipitation
-  __MERGE__(n_accum)    ! number of accumulated values for monthly averages
-  __MERGE__(nmn_acm)    ! number of accumulated values for annual averages
 
   ! annual-mean values
   __MERGE__(t_ann)      ! annual mean T, degK
@@ -316,28 +320,50 @@ subroutine update_derived_vegn_data(vegn)
   
   ! ---- local vars 
   type(vegn_cohort_type), pointer :: cc ! pointer to the current cohort
-  integer :: i  ! cohort index
+  integer :: k  ! cohort index
   integer :: sp ! shorthand for the vegetation species
   real    :: bs ! structural biomass: stem + structural roots
+  integer :: n_layers ! number of layers in cohort
+  real, allocatable :: layer_area(:) ! total area of crowns in the layer
+  integer :: current_layer
+  real :: zbot ! height of the bottom of the canopy, m (=top of the lower layer)
+  real :: stemarea ! individual stem area, for SAI calculations, m2/individual
+  
+  ! determine layer boundaries in the array of cohorts
+  n_layers = maxval(vegn%cohorts(:)%layer)
+  allocate (layer_area(n_layers))
+  
+  ! calculate fractions of cohort canopies in layers
+  layer_area(:) = 0
+  do k = 1, vegn%n_cohorts
+     cc=>vegn%cohorts(k)
+     call update_cohort_structure(cc) ! updates height, DBH, crown area
+     layer_area(cc%layer) = layer_area(cc%layer) + cc%crownarea*cc%nindivs
+  enddo
   
   ! given that the cohort state variables are initialized, fill in
   ! the intermediate variables
-  do i = 1,vegn%n_cohorts
-    cc=>vegn%cohorts(i)
+  do k = 1,vegn%n_cohorts
+    cc=>vegn%cohorts(k)
     
     sp = cc%species
     ! set the physiology type according to species
     cc%pt     = spdata(sp)%pt
-    ! calculate total biomass, calculate height
-    cc%b      = cc%bliving + cc%bwood
-    cc%height = height_from_biomass(cc%b);
     ! update fractions of the living biomass
     call update_bio_living_fraction(cc)
     bs     = cc%bsw + cc%bwood;   
 
     if(sp<NSPECIES) then ! LM3V species
+       ! calculate area fraction that the cohort occupies in its layer
+!       if (layer_area(cc%layer)<=0) call error_mesg('update_derived_vegn_data', &
+!          'total area of canopy layer '//string(cc%layer)//' is zero', FATAL) 
+       cc%layerfrac = cc%crownarea*cc%nindivs/layer_area(cc%layer)
        ! calculate the leaf area index based on the biomass of leaves
-       cc%lai = lai_from_biomass(cc%bl, sp)
+       ! leaf_area_from_biomass returns the total area of leaves per individual;
+       ! convert it to leaf area per m2, and re-normalize to take into account 
+       ! stretching of canopies
+       cc%leafarea = leaf_area_from_biomass(cc%bl, sp)
+       cc%lai = cc%leafarea/cc%crownarea*layer_area(cc%layer)
        ! calculate the root density as the total biomass below ground, in
        ! biomass (not carbon!) units
        cc%root_density = (cc%br + (cc%bsw+cc%bwood+cc%blv)*(1-agf_bs))*C2B
@@ -346,7 +372,9 @@ subroutine update_derived_vegn_data(vegn)
        cc%lai           = spdata(sp)%dat_lai
        cc%root_density  = spdata(sp)%dat_root_density
     endif
-    cc%sai           = 0.035*cc%height
+    stemarea         = 0.035*cc%height ! Federer and Lash, 1978
+    ! convert sai to units per area of land
+    cc%sai           = stemarea/cc%crownarea*layer_area(cc%layer)
     cc%leaf_size     = spdata(sp)%leaf_size
     cc%root_zeta     = spdata(sp)%dat_root_zeta
     cc%rs_min        = spdata(sp)%dat_rs_min
@@ -355,47 +383,25 @@ subroutine update_derived_vegn_data(vegn)
     cc%leaf_emis     = spdata(sp)%leaf_emis
     cc%snow_crit     = spdata(sp)%dat_snow_crit
   
-    ! putting this initialization within the cohort loop is probably incorrect 
-    ! in case of multiple-cohort vegetation, however for a single cohort it works
-    cc%Wl_max   = spdata(sp)%cmc_lai*cc%lai
-    cc%Ws_max   = spdata(sp)%csc_lai*cc%lai
-    cc%mcv_dry = max(mcv_min, mcv_lai*cc%lai)
+    ! the following variables are per individual
+    cc%Wl_max        = spdata(sp)%cmc_lai*cc%leafarea
+    cc%Ws_max        = spdata(sp)%csc_lai*cc%leafarea
+    cc%mcv_dry       = max(mcv_min, mcv_lai*cc%leafarea)
   enddo
-    
-end subroutine update_derived_vegn_data
-
-! ============================================================================
-! returns the profiles of uptake used in the 'LINEAR' uptake option
-subroutine vegn_uptake_profile(vegn, dz, uptake_frac_max, vegn_uptake_term)
-  type(vegn_tile_type), intent(in)  :: vegn
-  real,                 intent(in)  :: dz(:)
-  real,                 intent(out) :: uptake_frac_max(:)
-  real,                 intent(out) :: vegn_uptake_term(:)
-
-  call cohort_uptake_profile(vegn%cohorts(1), dz, uptake_frac_max, vegn_uptake_term)
-end subroutine
-
-
-! ============================================================================
-subroutine vegn_root_properties (vegn, dz, VRL, K_r, r_r)
-  type(vegn_tile_type), intent(in)  :: vegn 
-  real,                 intent(in)  :: dz(:)
-  real, intent(out) :: &
-       vrl(:), & ! volumetric fine root length, m/m3
-       K_r,    & ! root membrane permeability per unit area, kg/(m3 s)
-       r_r       ! radius of fine roots, m
-
-  call cohort_root_properties(vegn%cohorts(1), dz, VRL, K_r, r_r)
-end subroutine 
-
-
-! ============================================================================
-function vegn_data_rs_min ( vegn )
-  real :: vegn_data_rs_min
-  type(vegn_tile_type), intent(in)  :: vegn
   
-  vegn_data_rs_min = vegn%cohorts(1)%rs_min
-end function
+  ! Calculate height of the canopy bottom: equals to the top of the lower layer.
+  ! this code assumes that cohorts are arranged in descending order
+  zbot = 0; current_layer = vegn%cohorts(vegn%n_cohorts)%layer
+  do k = vegn%n_cohorts, 1, -1
+    if (vegn%cohorts(k)%layer/=current_layer) then
+       zbot = vegn%cohorts(k+1)%height
+       current_layer = vegn%cohorts(k)%layer
+    endif
+    vegn%cohorts(k)%zbot = zbot
+  enddo
+  
+  deallocate(layer_area)
+end subroutine update_derived_vegn_data
 
 
 ! ============================================================================
@@ -416,6 +422,7 @@ function vegn_seed_supply ( vegn )
 end function 
 
 ! ============================================================================
+! TODO: do vegn_seed_demand and vegn_seed_supply make sense for PPA? or even the entire seed transport method?
 function vegn_seed_demand ( vegn )
   real :: vegn_seed_demand
   type(vegn_tile_type), intent(in) :: vegn
@@ -474,10 +481,7 @@ function vegn_tran_priority(vegn, dst_kind, tau) result(pri)
   integer :: i
 
   if (vegn%landuse==LU_SCND.and.dst_kind==LU_SCND) then ! secondary biomass harvesting
-     vegn_bwood = 0
-     do i = 1,vegn%n_cohorts
-        vegn_bwood = vegn_bwood + vegn%cohorts(i)%bwood
-     enddo
+     vegn_bwood = get_vegn_tile_bwood(vegn)
      pri = max(min(tau+vegn_bwood,1.0),0.0)
   else
      pri = max(min(tau,1.0),0.0)
@@ -552,7 +556,7 @@ function get_vegn_tile_bwood(vegn) result(bwood)
 
   bwood = 0
   do i = 1,vegn%n_cohorts
-     bwood = bwood + vegn%cohorts(i)%bwood
+     bwood = bwood + vegn%cohorts(i)%bwood*vegn%cohorts(i)%nindivs
   enddo
 end function
 
@@ -560,16 +564,13 @@ end function
 subroutine vegn_tile_stock_pe (vegn, twd_liq, twd_sol  )
   type(vegn_tile_type),  intent(in)    :: vegn
   real,                  intent(out)   :: twd_liq, twd_sol
-  integer n
+  integer i
   
-  twd_liq = 0.
-  twd_sol = 0.
-  do n=1, vegn%n_cohorts
-    twd_liq = twd_liq + vegn%cohorts(n)%prog%wl
-    twd_sol = twd_sol + vegn%cohorts(n)%prog%ws
-!      vegn_HEAT  = (mcv + clw*cohort%prog%Wl+ csw*cohort%prog%Ws)*(cohort%prog%Tv-tfreeze)
-
-    enddo
+  twd_liq = 0.0 ; twd_sol = 0.0
+  do i=1, vegn%n_cohorts
+    twd_liq = twd_liq + vegn%cohorts(i)%prog%wl * vegn%cohorts(i)%nindivs
+    twd_sol = twd_sol + vegn%cohorts(i)%prog%ws * vegn%cohorts(i)%nindivs
+  enddo
 end subroutine vegn_tile_stock_pe
 
 
@@ -583,11 +584,13 @@ function vegn_tile_carbon(vegn) result(carbon) ; real carbon
   carbon = 0
   do i = 1,vegn%n_cohorts
      carbon = carbon + &
-          vegn%cohorts(i)%bl + vegn%cohorts(i)%blv + &
+         (vegn%cohorts(i)%bl  + vegn%cohorts(i)%blv + &
           vegn%cohorts(i)%br + vegn%cohorts(i)%bwood + &
-          vegn%cohorts(i)%bsw
+          vegn%cohorts(i)%bsw + &
+          vegn%cohorts(i)%carbon_gain + vegn%cohorts(i)%bwood_gain &
+         )*vegn%cohorts(i)%nindivs
   enddo
-  carbon = carbon + &
+  carbon = carbon + vegn%fast_soil_C + vegn%slow_soil_C + &
        sum(vegn%harv_pool) + vegn%fsc_pool + vegn%ssc_pool + vegn%csmoke_pool
 end function
 
@@ -602,10 +605,11 @@ function vegn_tile_heat (vegn) result(heat) ; real heat
   heat = 0
   do i = 1, vegn%n_cohorts
      heat = heat + &
-          (clw*vegn%cohorts(i)%prog%Wl + &
+            ( (clw*vegn%cohorts(i)%prog%Wl + &
              csw*vegn%cohorts(i)%prog%Ws + &
-             vegn%cohorts(i)%mcv_dry)*(vegn%cohorts(i)%prog%Tv-tfreeze) - &
-           hlf*vegn%cohorts(i)%prog%Ws
+               vegn%cohorts(i)%mcv_dry)*(vegn%cohorts(i)%prog%Tv-tfreeze) &
+              - hlf*vegn%cohorts(i)%prog%Ws &
+            )*vegn%cohorts(i)%nindivs
   enddo
 end function
 

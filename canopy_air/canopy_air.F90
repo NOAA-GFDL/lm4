@@ -223,13 +223,14 @@ end subroutine save_cana_restart
 
 ! ============================================================================
 subroutine cana_turbulence (u_star,&
-     vegn_cover, vegn_height, vegn_lai, vegn_sai, vegn_d_leaf, &
+     vegn_cover, vegn_height, vegn_bottom, vegn_lai, vegn_sai, vegn_d_leaf, &
      land_d, land_z0m, land_z0s, grnd_z0s, &
      con_v_h, con_v_v, con_g_h, con_g_v )
   real, intent(in) :: &
        u_star, & ! friction velocity, m/s
        land_d, land_z0m, land_z0s, grnd_z0s, & 
        vegn_cover, vegn_height(:), &
+       vegn_bottom(:), & ! height of the bottom of the canopy, m
        vegn_lai(:), vegn_sai(:), vegn_d_leaf(:)
   real, intent(out) :: &
        con_v_h(:), con_v_v(:), & ! one-sided foliage-CAS conductance per unit ground area
@@ -251,7 +252,7 @@ subroutine cana_turbulence (u_star,&
   real :: vegn_idx ! total vegetation index = LAI+SAI, sum over cohorts
   real :: rah_sca  ! ground-SCA resistance
   real :: rav_lit  ! additional resistance of litter to vapor transport
-  real :: h0       ! height of the shorter canopy layer, or zero for the shortest cohort, m
+  real :: h0       ! height of the canopy bottom, m
 
   integer :: i
 
@@ -266,9 +267,9 @@ subroutine cana_turbulence (u_star,&
         
         wind  = u_star/VONKARM*log((ztop-land_d)/land_z0m) ! normalized wind on top of the canopy
         a     = vegn_cover*a_max
-        h0 = 0
-        do i = size(vegn_lai),1,-1
+        do i = 1,size(vegn_lai)
            height = vegn_height(i) ! effective height of the vegetation
+           h0     = vegn_bottom(i) ! height of the bottom of the canopy
            if(height-h0>min_thickness) then
               con_v_h(i) = 2*vegn_lai(i)*leaf_co*sqrt(wind/vegn_d_leaf(i))*ztop/(height-h0)&
                  *(exp(-a/2*(ztop-height)/ztop)-exp(-a/2)*(ztop-h0)/ztop)/a
@@ -277,7 +278,6 @@ subroutine cana_turbulence (u_star,&
               con_v_h(i) = vegn_lai(i)*leaf_co*sqrt(wind/vegn_d_leaf(i))&
                  *exp(-a/2*(ztop-height)/ztop)
            endif
-           h0 = height
         enddo
         con_g_h = u_star*a*VONKARM*(1-land_d/ztop) &
              / (exp(a*(1-grnd_z0s/ztop)) - exp(a*(1-(land_z0s+land_d)/ztop)))
@@ -291,9 +291,9 @@ subroutine cana_turbulence (u_star,&
      a = a_max
      wind=u_star/VONKARM*log((ztop-land_d)/land_z0m) ! normalized wind on top of the canopy
   
-     h0 = 0
-     do i = size(vegn_lai),1,-1
+     do i = 1,size(vegn_lai)
         height = max(vegn_height(i),min_height) ! effective height of the vegetation
+        h0     = vegn_bottom(i) ! height of the canopy bottom above ground
         if(height-h0>min_thickness) then
            con_v_h(i) = 2*vegn_lai(i)*leaf_co*sqrt(wind/vegn_d_leaf(i))*ztop/(height-h0)&
               *(exp(-a/2*(ztop-height)/ztop)-exp(-a/2)*(ztop-h0)/ztop)/a
@@ -302,7 +302,6 @@ subroutine cana_turbulence (u_star,&
            con_v_h(i) = vegn_lai(i)*leaf_co*sqrt(wind/vegn_d_leaf(i))&
               *exp(-a/2*(ztop-height)/ztop)
         endif
-        h0 = height
      enddo
 
      if (land_d > 0.06 .and. vegn_idx > 0.25) then

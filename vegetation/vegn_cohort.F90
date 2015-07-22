@@ -2,16 +2,17 @@ module vegn_cohort_mod
 
 use constants_mod, only: PI
 
-use land_constants_mod, only: NBANDS, &
-     mol_h2o, mol_air
+use land_constants_mod, only: NBANDS, mol_h2o, mol_air
 use vegn_data_mod, only : spdata, &
    use_mcm_masking, use_bucket, critical_root_density, &
    tg_c4_thresh, tg_c3_thresh, l_fract, fsc_liv, &
    phen_ev1, phen_ev2, cmc_eps
 use vegn_data_mod, only : PT_C3, PT_C4, CMPT_ROOT, CMPT_LEAF, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
-   LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDIOUS
-   
+   LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDIOUS, &
+   do_ppa
+use soil_tile_mod, only : max_lev
+
 implicit none
 private
 ! ==== public interfaces =====================================================
@@ -19,9 +20,6 @@ public :: vegn_phys_prog_type
 public :: vegn_cohort_type
 
 ! operations defined for cohorts
-!public :: new_cohort, delete_cohort
-public :: vegn_data_heat_capacity
-public :: vegn_data_intrcptn_cap
 public :: get_vegn_wet_frac
 public :: vegn_data_cover
 public :: cohort_uptake_profile
@@ -31,8 +29,8 @@ public :: btotal ! returns cohort total biomass
 public :: c3c4   ! returns physiology type for given biomasses and conditions
 public :: phenology_type ! returns type of phenology for given conditions
 public :: update_species ! updates cohort physiology, phenology type, and species
-public :: height_from_biomass
-public :: lai_from_biomass
+public :: update_cohort_structure
+public :: leaf_area_from_biomass
 public :: update_bio_living_fraction
 public :: update_biomass_pools
 ! ==== end of public interfaces ==============================================
@@ -44,9 +42,9 @@ character(len=*), parameter :: &
 
 ! ==== types =================================================================
 type :: vegn_phys_prog_type
-  real Wl
-  real Ws
-  real Tv
+  real :: Wl ! liquid water content of canopy, kg/individual
+  real :: Ws ! solid water (snow) content of canopy, kg/individual
+  real :: Tv ! canopy temperature, K
 end type vegn_phys_prog_type
 
 ! vegn_cohort_type describes the data that belong to a vegetation cohort
@@ -71,29 +69,43 @@ type :: vegn_cohort_type
   real    :: leaf_age= 0.0 ! age of leaf in days since budburst
 
 ! ---- physical parameters
-  real    :: height    = 0.0 ! vegetation height, m
-  real    :: lai       = 0.0 ! leaf area index, m2/m2
-  real    :: sai       = 0.0 ! stem area index, m2/m2
-  real    :: leaf_size = 0.0 ! leaf dimension, m
-  real    :: root_density = 0.0
-  real    :: root_zeta    = 0.0
-  real    :: rs_min       = 0.0
+  real    :: height       = 0.0 ! vegetation height, m
+  real    :: zbot         = 0.0 ! height of bottom of the canopy, m
+  real    :: lai          = 0.0 ! leaf area index, m2/m2
+  real    :: sai          = 0.0 ! stem area index, m2/m2
+  real    :: leaf_size    = 0.0 ! leaf dimension, m
+  real    :: root_density = 0.0 ! total biomass below ground, kg B/m2 -- used in bucket formulation of water uptake
+  real    :: root_zeta    = 0.0 ! e-folding depth of root biomass, m -- used in many places
+  real    :: rs_min       = 0.0 ! min. stomatal conductance -- used in VEGN_PHOT_SIMPLE only
   real    :: leaf_refl(NBANDS) = 0.0 ! reflectance of leaf, per band
   real    :: leaf_tran(NBANDS) = 0.0 ! transmittance of leaf, per band
-  real    :: leaf_emis         = 0.0 ! emissivity of leaf
-  real    :: snow_crit         = 0.0 ! later parameterize this as snow_mask_fac*height
+  real    :: leaf_emis    = 0.0 ! emissivity of leaf
+  real    :: snow_crit    = 0.0 ! later parameterize this as snow_mask_fac*height
+
+! ---- PPA-related variables
+  real    :: age          = 0.0 ! age of cohort, years 
+  real    :: dbh          = 0.0 ! diameter at breast height, m
+  real    :: crownarea    = 1.0 ! crown area, m2/individual
+  real    :: leafarea     = 0.0 ! total area of leaves, m2/individual
+  real    :: nindivs      = 1.0 ! density of vegetation, individuals/m2
+  integer :: layer        = 1   ! the layer of this cohort (numbered from top)
+  real    :: layerfrac    = 0.0 ! fraction of layer area occupied by this cohort, m2 of cohort per m2 of ground
+
+! ---- uptake-related variables
+  real    :: root_length(max_lev) = 0.0 ! individual's root length per unit depth, m of root/m
+  real    :: K_r = 0.0 ! root membrane permeability per unit area, kg/(m3 s)
+  real    :: r_r = 0.0 ! radius of fine roots, m
+  real    :: uptake_frac(max_lev) = 0.0 ! normalized vertical distribution of uptake
 
 ! ---- auxiliary variables 
 
-  real    :: Wl_max  = 0.0 ! maximum liquid water content of canopy, kg/(m2 of ground)
-  real    :: Ws_max  = 0.0 ! maximum soild water content of canopy, kg/(m2 of ground)
-  real    :: mcv_dry = 0.0 ! heat capacity of dry canopy
+  real    :: Wl_max  = 0.0 ! maximum liquid water content of canopy, kg/individual
+  real    :: Ws_max  = 0.0 ! maximum soild water content of canopy, kg/individual
+  real    :: mcv_dry = 0.0 ! heat capacity of dry canopy J/(K individual)
   real    :: cover
 
   integer :: pt = 0  ! physiology type
   integer :: phent = 0 ! phenology type
-
-  real :: b    = 0.0 ! total biomass
 
   real :: gpp  = 0.0 ! gross primary productivity kg C/timestep
   real :: npp  = 0.0 ! net primary productivity kg C/timestep
@@ -147,24 +159,6 @@ end type vegn_cohort_type
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-
-! ============================================================================
-subroutine vegn_data_heat_capacity ( cohort, mcv )
-  type(vegn_cohort_type), intent(in)  :: cohort
-  real                  , intent(out) :: mcv
-  
-  mcv = cohort%mcv_dry        ! later add term in vegn_pars%lai
-end subroutine
-
-
-! ============================================================================
-subroutine vegn_data_intrcptn_cap ( cohort, vegn_Wl_max, vegn_Ws_max )
-  type(vegn_cohort_type), intent(in)  :: cohort
-  real                  , intent(out) :: vegn_Wl_max, vegn_Ws_max
-
-  vegn_Wl_max = cohort%Wl_max
-  vegn_Ws_max = cohort%Ws_max
-end subroutine
 
 ! ============================================================================
 ! calculates functional dependence of wet canopy function f = x**p and its 
@@ -351,7 +345,7 @@ subroutine cohort_uptake_profile(cohort, dz, uptake_frac_max, vegn_uptake_term)
      do l = 1, size(dz)
         uptake_frac_max(l) = (exp(-z/cohort%root_zeta)    &
                 - exp(-(z+dz(l))/cohort%root_zeta))
-         uptake_frac_max(l) = &
+        uptake_frac_max(l) = &
                 max( uptake_frac_max(l), 0.0)
         z = z + dz(l)
      enddo
@@ -461,28 +455,17 @@ subroutine update_species(c, t_ann, t_cold, p_ann, cm, landuse)
   if (spp/=c%species) c%leaf_age = 0.0
 
   c%species = spp
-end subroutine
+end subroutine 
 
 
 ! ============================================================================
-function height_from_biomass(btotal) result (height)
-  real :: height ! returned value
-  real, intent(in) :: btotal
-
-  ! GCH, Function from JPC 2/9/02
-!  height = 24.19*(1.0-exp(-0.19*(c%bliving+c%bwood)))
-  height = 24.19*(1.0-exp(-0.19*btotal))
-end function
-
-
-! ============================================================================
-function lai_from_biomass(bl,species) result (lai)
+function leaf_area_from_biomass(bl,species) result (lai)
   real :: lai ! returned value
   real,    intent(in) :: bl      ! biomass of leaves, kg C/m2
   integer, intent(in) :: species ! species
 
   lai = bl*(spdata(species)%specific_leaf_area);   
-end function
+end function 
 
 
 ! ============================================================================
@@ -510,8 +493,7 @@ end subroutine update_bio_living_fraction
 subroutine update_biomass_pools(c)
   type(vegn_cohort_type), intent(inout) :: c
 
-  c%b      = c%bliving + c%bwood;
-  c%height = height_from_biomass(c%b);
+  call update_cohort_structure(c) ! update height, DBH, crown area
   call update_bio_living_fraction(c);
   c%bsw = c%Psw*c%bliving;
   if(c%status == LEAF_OFF) then
@@ -523,9 +505,35 @@ subroutine update_biomass_pools(c)
      c%bl  = c%Pl*c%bliving;
      c%br  = c%Pr*c%bliving;
   endif
-  c%lai = lai_from_biomass(c%bl,c%species)
-  c%sai = 0.035*c%height ! Federer and Lash,1978
 end subroutine 
 
+
+! ============================================================================
+! for PPA, Weng 07/25/2011
+! ============================================================================
+! calculate tree height, DBH, height, and crown area by bwood and denstiy 
+! The allometry equations are from Ray Dybzinski et al. 2011 and Forrior et al. in review
+!         HT = alphaHT * DBH ** (gamma-1)   ! DBH --> Height
+!         CA = alphaCA * DBH ** gamma       ! DBH --> Crown Area
+!         BM = alphaBM * DBH ** (gamma + 1) ! DBH --> tree biomass
+subroutine update_cohort_structure(cc)
+  type(vegn_cohort_type), intent(inout) :: cc
+
+  integer :: sp ! species, for convenience, ! Weng, 09/14/2011
+  real    :: btot ! total biomass per individual, kg C
+
+  sp     = cc%species 
+  if (do_ppa) then
+    btot = MAX(0.0001,btotal(cc))
+    cc%dbh       = (btot / spdata(sp)%alphaBM) ** (1.0/(spdata(sp)%gammaDBH + 1))
+    cc%height    = spdata(sp)%alphaHT * cc%dbh ** (spdata(sp)%gammaDBH - 1.)
+    cc%crownarea = spdata(sp)%alphaCA * cc%dbh **  spdata(sp)%gammaDBH
+  else
+    ! GCH, Function from JPC 2/9/02
+    !  height = 24.19*(1.0-exp(-0.19*(c%bliving+c%bwood)))
+    cc%height = 24.19*(1.0-exp(-0.19*btotal(cc)))
+    ! do not change dbh and crownarea if we are not doing PPA
+  endif
+end subroutine 
 
 end module vegn_cohort_mod

@@ -32,13 +32,13 @@ use tracer_manager_mod, only : NO_TRACER
 
 use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, mol_air, mol_C, mol_co2
 use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_temp, &
-     glac_radiation, glac_diffusion, glac_step_1, glac_step_2, save_glac_restart
+     glac_radiation, glac_step_1, glac_step_2, save_glac_restart
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
-     lake_radiation, lake_diffusion, lake_step_1, lake_step_2, save_lake_restart
+     lake_radiation, lake_step_1, lake_step_2, save_lake_restart
 use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
-     soil_radiation, soil_diffusion, soil_step_1, soil_step_2, save_soil_restart
+     soil_radiation, soil_step_1, soil_step_2, save_soil_restart
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
-     snow_radiation, snow_diffusion, snow_get_depth_area, snow_step_1, snow_step_2, &
+     snow_radiation, snow_get_depth_area, snow_step_1, snow_step_2, &
      save_snow_restart
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
      vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
@@ -51,22 +51,23 @@ use river_mod, only : river_init, river_end, update_river, river_stock_pe, &
      save_river_restart
 use topo_rough_mod, only : topo_rough_init, topo_rough_end, update_topo_rough
 use soil_tile_mod, only : soil_cover_cold_start, soil_tile_stock_pe, &
-                          soil_tile_heat
-use vegn_tile_mod, only : vegn_cover_cold_start, vegn_data_rs_min, &
+                          soil_tile_heat, soil_roughness
+use vegn_tile_mod, only : vegn_cover_cold_start, &
                           update_derived_vegn_data, vegn_tile_stock_pe, &
-                          vegn_tile_heat
+                          vegn_tile_heat, vegn_tile_carbon
 use lake_tile_mod, only : lake_cover_cold_start, lake_tile_stock_pe, &
-                          lake_tile_heat
+                          lake_tile_heat, lake_roughness
 use glac_tile_mod, only : glac_pars_type, glac_cover_cold_start, &
-                          glac_tile_stock_pe, glac_tile_heat
-use snow_tile_mod, only : snow_tile_stock_pe, snow_tile_heat
+                          glac_tile_stock_pe, glac_tile_heat, glac_roughness
+use snow_tile_mod, only : snow_tile_stock_pe, snow_tile_heat, snow_roughness
 use land_numerics_mod, only : ludcmp, lubksb, nearest, &
      horiz_remap_type, horiz_remap_new, horiz_remap, horiz_remap_del, &
      horiz_remap_print
 use land_tile_mod, only : land_tile_type, land_tile_list_type, &
      land_tile_enum_type, new_land_tile, insert, nitems, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
-     get_elmt_indices, get_tile_tags
+     get_elmt_indices, get_tile_tags, get_tile_water, land_tile_heat, &
+     land_tile_carbon
 use land_data_mod, only : land_data_type, atmos_land_boundary_type, &
      land_state_type, land_data_init, land_data_end, lnd, &
      dealloc_land2cplr, realloc_land2cplr, &
@@ -83,7 +84,7 @@ use land_tile_diag_mod, only : tile_diag_init, tile_diag_end, &
     OP_AVERAGE, OP_SUM
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, get_watch_point, check_temp_range, current_face, &
-     get_current_point
+     get_current_point, check_conservation
 use static_vegn_mod, only : write_static_vegn
 use land_transitions_mod, only : &
      land_transitions_init, land_transitions_end, land_transitions, &
@@ -118,13 +119,11 @@ character(len=*), parameter :: &
 ! ---- namelist --------------------------------------------------------------
 logical :: use_old_conservation_equations  = .false.
 logical :: lm2                             = .false.
-logical :: i_really_mean_lm2               = .true.
 logical :: do_age                          = .false.
 logical :: give_stock_details              = .false.
 logical :: use_tfreeze_in_grnd_latent      = .false.
 logical :: use_atmos_T_for_precip_T        = .false.
 logical :: use_atmos_T_for_evap_T          = .false.
-logical :: destroy_anti_matter             = .false.
 real    :: cpw = 1952.  ! specific heat of water vapor at constant pressure
 real    :: clw = 4218.  ! specific heat of water (liquid)
 real    :: csw = 2106.  ! specific heat of water (ice)
@@ -143,12 +142,10 @@ logical :: print_remapping = .FALSE. ! if true, full land cover remapping
 integer :: layout(2) = (/0,0/)
 integer :: io_layout(2) = (/0,0/)
 namelist /land_model_nml/ use_old_conservation_equations, &
-                          lm2, i_really_mean_lm2, &
-                          do_age, give_stock_details, &
+                          lm2, do_age, give_stock_details, &
                           use_tfreeze_in_grnd_latent, &
                           use_atmos_T_for_precip_T, &
                           use_atmos_T_for_evap_T, &
-                          destroy_anti_matter, &
                           cpw, clw, csw, min_sum_lake_frac, &
                           gfrac_tol, discharge_tol, &
                           con_fac_large, con_fac_small, num_c, &
@@ -207,7 +204,7 @@ integer :: &
   id_transp,                id_wroff,    id_sroff,                         &
   id_htransp,  id_huptake,  id_hroff,    id_gsnow,    id_gequil,           &
   id_grnd_flux,                                                            &
-  id_soil_water_supply,     id_levapg_max,                                 &
+  id_levapg_max,                                                           &
   id_water,    id_snow,                                                    &
   id_Trad,     id_Tca,      id_qca,      id_qco2,     id_qco2_dvmr,        &
   id_swdn_dir, id_swdn_dif, id_swup_dir, id_swup_dif, id_lwdn,             &
@@ -826,102 +823,22 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   type(atmos_land_boundary_type), intent(in)    :: cplr2land
   type(land_data_type)          , intent(inout) :: land2cplr
 
-  ! ---- local constants
-  ! indices of variables and equations for implicit time stepping solution :
-  integer, parameter :: iqc=1, iTc=2, iTv=3, iwl=4, iwf=5
-
   ! ---- local vars 
-  type(land_tile_enum_type) :: ce, te
-  type(land_tile_type), pointer :: tile
-  
-  real :: A(5,5),B0(5),B1(5),B2(5) ! implicit equation matrix and right-hand side vectors
-  real :: A00(5,5),B10(5),B00(5) ! copy of the above, only for debugging
-  integer :: indx(5) ! permutation vector
-  ! linearization coefficients of various fluxes between components of land
-  ! surface scheme
-  real :: &
-       G0,    DGDTg,  &  ! ground heat flux 
-       Ha0,   DHaDTc, &  ! sensible heat flux from the canopy air to the atmosphere 
-       Ea0,   DEaDqc, &  ! water vapor flux from canopy air to the atmosphere
-       fco2_0,Dfco2Dq,&  ! co2 flux from canopy air to the atmosphere
-       Hv0,   DHvDTv,   DHvDTc, & ! sens heat flux from vegetation
-       Et0,   DEtDTv,   DEtDqc,   DEtDwl,   DEtDwf,  & ! transpiration
-       Eli0,  DEliDTv,  DEliDqc,  DEliDwl,  DEliDwf, & ! evaporation of intercepted water
-       Esi0,  DEsiDTv,  DEsiDqc,  DEsiDwl,  DEsiDwf, & ! sublimation of intercepted snow
-       Hg0,   DHgDTg,   DHgDTc, & ! linearization of the sensible heat flux from ground
-       Eg0,   DEgDTg,   DEgDqc, DEgDpsig, & ! linearization of evaporation from ground
-       flwv0(1),  DflwvDTg(1),  DflwvDTv(1,1),& ! linearization of net LW radiation to the canopy
-       flwg0,  DflwgDTg,  DflwgDTv(1),& ! linearization of net LW radiation to the canopy
-       vegn_drip_l, vegn_drip_s, & ! drip rate of water and snow, respectively, kg/(m2 s)
-       vegn_lai
-  
-  ! increments of respective variables over time step, results of the implicit
-  ! time step:
-  real :: delta_qc, delta_Tc, delta_Tv, delta_wl, delta_ws, delta_Tg, delta_psig
-  real :: flwg ! updated value of long-wave ground energy balance
-  real :: denom ! denominator in the LW radiative balance calculations
-  real :: sum0, sum1
-
-  real :: &
-       grnd_T, gT, & ! ground temperature and its value used for sensible heat advection
-       vegn_T, vT, & ! vegetation (canopy) temperature
-       cana_T, cT, & ! canopy air temperature
-       evap_T, eT, & ! temperature assigned to vapor going between land and atmosphere
-       soil_uptake_T, & ! average temperature of water taken up by the vegetation
-       vegn_Wl,  vegn_Ws, & ! water and snow mass of the canopy
-       vegn_ifrac, & ! intercepted fraction of liquid or frozen precipitation
-       vegn_hcap,      & ! vegetation heat capacity, including intercepted water and snow
-       vegn_fco2, & ! co2 flux from the vegetation, kg CO2/(m2 s)
-       hlv_Tv, hlv_Tu, & ! latent heat of vaporization at vegn and uptake temperatures, respectively 
-       hls_Tv, &         ! latent heat of sublimation at vegn temperature
-       grnd_rh,        & ! explicit relative humidity at ground surface
-       grnd_rh_psi,    & ! psi derivative of relative humidity at ground surface
-       grnd_liq, grnd_ice, grnd_subl, &
-       grnd_tf, &  ! temperature of freezing on the ground
-       grnd_latent, &
-       grnd_flux, &
-       grnd_E_min, &
-       grnd_E_max, &
-       soil_E_min, &
-       soil_E_max, &
-       soil_beta, &
-       RSv(NBANDS), & ! net short-wave radiation balance of the canopy, W/m2
-       con_g_h, con_g_v, & ! turbulent cond. between ground and canopy air, for heat and vapor respectively
-       snow_area, &
-       cana_q, & ! specific humidity of canopy air
-       cana_co2, & ! co2 moist mixing ratio in canopy air, kg CO2/kg wet air
-       cana_co2_mol, & ! co2 dry mixing ratio in canopy air, mol CO2/mol dry air
-       fswg, evapg, sensg, &
-       subs_G, subs_G2, Mg_imp, snow_G_Z, snow_G_TZ, &
-       snow_avrg_T, delta_T_snow,  & ! vertically-average snow temperature and it's change due to s
-       vegn_ovfl_l,  vegn_ovfl_s,  & ! overflow of liquid and solid water from the canopy
-       vegn_ovfl_Hl, vegn_ovfl_Hs, & ! heat flux from canopy due to overflow
-       delta_fprec, & ! correction of below-canopy solid precip in case it's average T > tfreeze 
-
+  real :: fco2_0,Dfco2Dq , & ! co2 flux from canopy air to the atmosphere
        ISa_dn_dir(NBANDS), & ! downward direct sw radiation at the top of the canopy
        ISa_dn_dif(NBANDS), & ! downward diffuse sw radiation at the top of the canopy
-       ILa_dn,             & ! downward lw radiation at the top of the canopy
-       hprec,              & ! sensible heat flux carried by precipitation
-       hevap,              & ! sensible heat flux carried by total evapotranspiration
-       land_evap,          & ! total vapor flux from land to atmosphere
-       land_sens,          & ! turbulent sensible heat flux from land to atmosphere
-       vegn_flw,vegn_sens,snow_sens,snow_levap,snow_fevap,snow_melt,&
-       snow_lprec, snow_hlprec,snow_lrunf, precip_s,vegn_levap,vegn_fevap,vegn_uptk,&
-       vegn_fsw, vegn_melt,vegn_lprec,vegn_fprec,vegn_hlprec,vegn_hfprec,vegn_LMASS,&
-       vegn_FMASS,vegn_HEAT, precip_l,atmos_T,precip_T,pT,snow_fsw,snow_flw,snow_frunf,snow_hlrunf,&
-       snow_hfrunf, snow_LMASS,snow_FMASS,snow_HEAT,subs_fsw,subs_flw,subs_sens,&
-       subs_DT, subs_M_imp, subs_evap, snow_Tbot, snow_Cbot, snow_C, subs_levap,&
-       subs_fevap,subs_melt,subs_lrunf,subs_hlrunf,subs_LMASS,subs_FMASS,&
-       glac_LMASS, glac_FMASS, glac_HEAT, lake_LMASS, lake_FMASS, lake_HEAT,  &
-       soil_LMASS, soil_FMASS, soil_HEAT,  &
-       subs_HEAT,subs_Ttop,subs_Ctop, subs_subl, new_T, cana_VMASS, cana_HEAT
-  real :: soil_water_supply ! supply of water to roots, per unit active root biomass, kg/m2
-  real :: snow_T, snow_rh, snow_liq, snow_ice, snow_subl
-  integer :: i, j, k, i_species
-  integer :: ii, jj ! indices for debug output
-  integer :: ierr
-  logical :: conserve_glacier_mass, snow_active
-  real :: subs_z0m, subs_z0s, snow_z0m, snow_z0s, grnd_z0s
+       cana_q
+
+  ! variables for stock calculations
+  real :: &
+     cana_VMASS, cana_HEAT,             &
+     vegn_LMASS, vegn_FMASS, vegn_HEAT, &
+     snow_LMASS, snow_FMASS, snow_HEAT, &
+     subs_LMASS, subs_FMASS, subs_HEAT, &
+     glac_LMASS, glac_FMASS, glac_HEAT, &
+     lake_LMASS, lake_FMASS, lake_HEAT, &
+     soil_LMASS, soil_FMASS, soil_HEAT 
+
   real, dimension(lnd%is:lnd%ie,lnd%js:lnd%je) :: &
        runoff,           & ! total (liquid+snow) runoff accumulated over tiles in cell
        runoff_snow,      & ! runoff snow accumulated over tiles in cell
@@ -933,11 +850,20 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
        runoff_c,         & ! runoff of tracers accumulated over tiles in cell
        discharge_c         ! discharge of tracers to ocean
   logical :: used          ! return value of send_data diagnostics routine
+  real, allocatable :: runoff_1d(:),runoff_snow_1d(:),runoff_heat_1d(:)
+  integer :: i,j,k     ! lon, lat, and tile indices
+  integer :: i_species ! river tracer iterator
+  integer :: i0, i1    ! indices used to iterate over grid cells efficiently
+  integer :: is,ie,js,je ! horizontal bounds of the override buffer
+  type(land_tile_enum_type) :: ce, te ! tile enumarator
+  type(land_tile_type), pointer :: tile ! pointer to current tile
+  integer :: n_cohorts ! number of cohorts per tile
+  integer, parameter :: chunk_size = 10 ! arbitrary constant for now
 
   ! variables for data override
   real, allocatable :: phot_co2_data(:,:)  ! buffer for data
-  logical           :: phot_co2_overridden ! flag indicating successfull override
-  integer :: is,ie,js,je ! horizontal bounds of the override buffer
+  logical           :: phot_co2_overridden ! flag indicating successful override
+  
 
   ! start clocks
   call mpp_clock_begin(landClock)
@@ -947,691 +873,81 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   ! changed the tiling structure, static vegetation output is done here.
   call write_static_vegn()
 
-  ! clear the runoff values, for accumulation over the tiles
-  runoff = 0 ; runoff_snow = 0 ; runoff_heat = 0 ; runoff_c = 0
-
   ! override data at the beginning of the time step
   is=lbound(cplr2land%t_flux,1) ; ie = is+size(cplr2land%t_flux,1)-1
   js=lbound(cplr2land%t_flux,2) ; je = js+size(cplr2land%t_flux,2)-1
   allocate(phot_co2_data(is:ie,js:je))
   call data_override('LND','phot_co2',phot_co2_data,lnd%time, &
        override=phot_co2_overridden)
+  
+  ! clear the runoff values, for accumulation over the tiles
+  runoff = 0 ; runoff_snow = 0 ; runoff_heat = 0  ; runoff_c = 0
 
-  ! initialize current tile enumerator
-  ce = first_elmt(lnd%tile_map, is=is, js=js)
-  ! get the end marker (end tile enumerator)
-  te = tail_elmt(lnd%tile_map)
   ! main tile loop
-  do while(ce /= te)
-     ! calculate indices of the current tile in the input arrays;
-     ! assume all the cplr2land components have the same lbounds
-     call get_elmt_indices(ce,i,j,k)
-     ! set this point coordinates as current for debug output
-     call set_current_point(i,j,k)
-     ! get pointer to current tile
-     tile => current_tile(ce)
-     ! advance enumerator to the next tile
-     ce=next_elmt(ce)
-
-     ! get data from atmosphere
-     precip_l = cplr2land%lprec(i,j,k)
-     precip_s = cplr2land%fprec(i,j,k)
-     atmos_T  = cplr2land%tprec(i,j,k)
-     Ha0    =  cplr2land%t_flux(i,j,k)
-     DHaDTc =  cplr2land%dhdt  (i,j,k)
-     Ea0    = cplr2land%tr_flux(i,j,k, lnd%isphum)
-     DEaDqc = cplr2land%dfdtr  (i,j,k, lnd%isphum)
-     if (lnd%ico2/=NO_TRACER) then
-        fco2_0  = cplr2land%tr_flux(i,j,k, lnd%ico2)
-        Dfco2Dq = cplr2land%dfdtr  (i,j,k, lnd%ico2)
-     else
-        fco2_0  = 0
-        Dfco2Dq = 0
-     endif
-     ISa_dn_dir(BAND_VIS) = cplr2land%sw_flux_down_vis_dir(i,j,k)
-     ISa_dn_dir(BAND_NIR) = cplr2land%sw_flux_down_total_dir(i,j,k)&
-                           -cplr2land%sw_flux_down_vis_dir(i,j,k)
-     ISa_dn_dif(BAND_VIS) = cplr2land%sw_flux_down_vis_dif(i,j,k)
-     ISa_dn_dif(BAND_NIR) = cplr2land%sw_flux_down_total_dif(i,j,k)&
-                           -cplr2land%sw_flux_down_vis_dif(i,j,k)
-     ILa_dn               = cplr2land%lwdn_flux(i,j,k)
-
-     soil_uptake_T = tfreeze ! just to avoid using un-initialized values
-     soil_water_supply = 0.0
-     if (associated(tile%glac)) then
-        call glac_step_1 ( tile%glac, &
-             grnd_T, grnd_rh, grnd_liq, grnd_ice, grnd_subl, grnd_tf, &
-             snow_G_Z, snow_G_TZ, conserve_glacier_mass  )
-        grnd_E_min = -HUGE(grnd_E_min)
-        grnd_E_max =  HUGE(grnd_E_max)
-        grnd_rh_psi = 0
-     else if (associated(tile%lake)) then
-        call lake_step_1 ( cplr2land%ustar(i,j,k), cplr2land%p_surf(i,j,k), &
-             lnd%lat(i,j), tile%lake, &
-             grnd_T, grnd_rh, grnd_liq, grnd_ice, grnd_subl, grnd_tf, &
-             snow_G_Z, snow_G_TZ)
-        grnd_E_min = -HUGE(grnd_E_min)
-        grnd_E_max =  HUGE(grnd_E_max)
-        grnd_rh_psi = 0
-     else if (associated(tile%soil)) then
-        call soil_step_1 ( tile%soil, tile%vegn, tile%diag, &
-             grnd_T, soil_uptake_T, soil_beta, soil_water_supply, soil_E_min, soil_E_max, &
-             grnd_rh, grnd_rh_psi, grnd_liq, grnd_ice, grnd_subl, grnd_tf, &
-             snow_G_Z, snow_G_TZ)
-        grnd_E_min = soil_E_min
-        grnd_E_max = soil_E_max
-        grnd_liq = 0 ! sorry, but solver cannot handle implicit melt anymore
-        grnd_ice = 0 ! sorry, but solver cannot handle implicit melt anymore
-                     ! no big loss, it's just the surface layer anyway
-     else
-        call get_current_point(face=ii)
-        call error_mesg('update_land_model_fast','none of the surface tiles exist at ('//&
-             trim(string(i))//','//trim(string(j))//','//trim(string(k))//&
-             ', face='//trim(string(ii))//')',FATAL)
-     endif
-
-     subs_subl = grnd_subl
-
-     call snow_step_1 ( tile%snow, snow_G_Z, snow_G_TZ, &
-          snow_active, snow_T, snow_rh, snow_liq, snow_ice, &
-          snow_subl, snow_area, G0, DGDTg )
-     if (snow_active) then
-        grnd_T    = snow_T;   grnd_rh   = snow_rh;   grnd_liq  = snow_liq
-        grnd_rh_psi = 0
-        grnd_ice  = snow_ice; grnd_subl = snow_subl; grnd_tf   = tfreeze
-        grnd_E_min = -HUGE(grnd_E_min)
-        grnd_E_max =  HUGE(grnd_E_max)
-     endif
-
-     call cana_state(tile%cana, cana_T, cana_q, cana_co2)
-
-     if (associated(tile%vegn)) then
-     ! Calculate net short-wave radiation input to the vegetation
-        RSv    = tile%Sv_dir(1,:)*ISa_dn_dir + tile%Sv_dif(1,:)*ISa_dn_dif
-        call soil_diffusion(tile%soil, subs_z0s, subs_z0m)
-        call snow_diffusion(tile%snow, snow_z0s, snow_z0m)
-        grnd_z0s = exp( (1-snow_area)*log(subs_z0s) + snow_area*log(snow_z0s))
-        
-        ! cana_co2 is moist mass mixing ratio [kg CO2/kg wet air], convert it to dry
-        ! volumetric mixing ratio [mol CO2/mol dry air] 
-        cana_co2_mol = cana_co2*mol_air/mol_CO2/(1-cana_q)
-        if (phot_co2_overridden) cana_co2_mol = phot_co2_data(i,j)
-        call vegn_step_1 ( tile%vegn, tile%diag, &
-           cplr2land%p_surf(i,j,k), &
-           cplr2land%ustar (i,j,k), &
-           cplr2land%drag_q(i,j,k), &
-           ISa_dn_dir+ISa_dn_dif, RSv, precip_l, precip_s, &
-           tile%land_d, tile%land_z0s, tile%land_z0m, grnd_z0s, & 
-           soil_beta, soil_water_supply,&
-           cana_T, cana_q, cana_co2_mol, &
-           ! output
-           con_g_h, con_g_v, &
-           vegn_T, vegn_Wl, vegn_Ws, & ! temperature, water and snow mass on the canopy
-           vegn_ifrac, vegn_lai, &
-           vegn_drip_l, vegn_drip_s,& 
-           vegn_hcap, & ! total vegetation heat capacity (including intercepted water/snow)
-           Hv0,   DHvDTv,   DHvDTc,            & 
-           Et0,   DEtDTv,   DEtDqc,   DEtDwl,   DEtDwf,  & 
-           Eli0,  DEliDTv,  DEliDqc,  DEliDwl,  DEliDwf, & 
-           Esi0,  DEsiDTv,  DEsiDqc,  DEsiDwl,  DEsiDwf  ) 
-        if (lm2.and.i_really_mean_lm2) then
-           con_g_h = con_g_h*con_fac_large
-           if (snow_active) then
-              con_g_v = con_g_v*con_fac_large
-           else
-              con_g_v = con_g_v*con_fac_small
-           endif
-        endif
-     else
-        RSv    = 0
-        con_g_h = con_fac_large ; con_g_v = con_fac_large
-        if(associated(tile%glac).and.conserve_glacier_mass.and..not.snow_active) &
-             con_g_v = con_fac_small
-        vegn_T  = cana_T ; vegn_Wl = 0 ; vegn_Ws = 0
-        vegn_ifrac  = 0 ; vegn_lai    = 0
-        vegn_drip_l = 0 ; vegn_drip_s = 0
-        vegn_hcap = 1.0
-        Hv0 =0;  DHvDTv =0;  DHvDTc=0;
-        Et0 =0;  DEtDTv =0;  DEtDqc=0;   DEtDwl=0;   DEtDwf=0
-        Eli0=0;  DEliDTv=0;  DEliDqc=0;  DEliDwl=0;  DEliDwf=0 
-        Esi0=0;  DEsiDTv=0;  DEsiDqc=0;  DEsiDwl=0;  DEsiDwf=0
-     endif
-     ! calculate net shortwave for ground and canopy
-     fswg     = SUM(tile%Sg_dir*ISa_dn_dir + tile%Sg_dif*ISa_dn_dif)
-     vegn_fsw = SUM(RSv)
-     
-     call cana_step_1 (tile%cana, cplr2land%p_surf(i,j,k), con_g_h, con_g_v,   &
-          grnd_t, grnd_rh, grnd_rh_psi, &
-          Hg0,  DHgDTg, DHgDTc, Eg0, DEgDTg, DEgDqc, DEgDpsig)
-
-! [X.X] using long-wave optical properties, calculate the explicit long-wave 
-!       radiative balances and their derivatives w.r.t. temperatures
-     call land_lw_balance(ILa_dn, (/vegn_T/), grnd_T, &
-        tile%vegn_tran_lw,tile%vegn_refl_lw,tile%surf_refl_lw, &
-        flwv0, flwg0, DflwvDTv, DflwvDTg, DflwgDTv, DflwgDTg)
-
-! [X.0] calculate the latent heats of vaporization at appropriate temperatures
-     if (use_tfreeze_in_grnd_latent) then
-         grnd_latent = hlv + hlf*grnd_subl
-       else
-         grnd_latent = hlv + (cpw-clw)*(grnd_T-tfreeze) &
-                    + (hlf + (clw-csw)*(grnd_T-tfreeze)) * grnd_subl
-       endif
-     if (use_atmos_T_for_precip_T) then
-         precip_T = atmos_T
-       else
-         precip_T = cana_T
-       endif
-     if (use_atmos_T_for_evap_T) then
-         evap_T = atmos_T
-       else
-         evap_T = cana_T
-       endif
-     if (use_old_conservation_equations) then
-         hlv_Tv = hlv       - (cpw-clw)*tfreeze + cpw*vegn_T
-         hls_Tv = hlv + hlf - (cpw-csw)*tfreeze + cpw*vegn_T
-         hlv_Tu = hlv       - (cpw-clw)*tfreeze + cpw*vegn_T - clw*soil_uptake_T
-         pT = precip_T
-         cT = cana_T
-         eT = evap_T
-         gT = grnd_T
-         vT = vegn_T
-       else
-         hlv_Tv = hlv    + cpw*(vegn_T-tfreeze)
-         hls_Tv = hlf    + hlv_Tv
-         hlv_Tu = hlv_Tv - clw*(soil_uptake_T-tfreeze)
-         pT = precip_T-tfreeze
-         cT = cana_T-tfreeze
-         eT = evap_T-tfreeze
-         gT = grnd_T-tfreeze
-         vT = vegn_T-tfreeze
-       endif
-     if(is_watch_point()) then
-        write(*,*)'#### input data for the matrix ####'
-        __DEBUG1__(delta_time)
-        __DEBUG4__(vegn_T,vT,vegn_Wl,vegn_Ws)
-        __DEBUG3__(grnd_T,gT,grnd_rh)
-        __DEBUG3__(cana_T,cT,cana_q)
-        __DEBUG2__(evap_T,eT)
-        __DEBUG4__(precip_l, vegn_drip_l, pT, precip_T)
-        __DEBUG2__(precip_s, vegn_drip_s)
-        __DEBUG2__(vegn_ifrac, vegn_lai)
-        __DEBUG1__(ILa_dn)
-        __DEBUG2__(ISa_dn_dir(1),ISa_dn_dir(2))
-        __DEBUG2__(ISa_dn_dif(1),ISa_dn_dif(2))
-        __DEBUG2__(fswg, vegn_fsw)
-        __DEBUG1__(vegn_hcap)
-        __DEBUG3__(hlv_Tv, hlv_Tu, hls_Tv)
-        __DEBUG2__(G0, DGDTg)
-        __DEBUG2__(Ha0, DHaDTc)
-        __DEBUG2__(Ea0, DEaDqc)
-        __DEBUG3__(Hv0, DHvDTv, DHvDTc)
-        __DEBUG5__(Et0,  DEtDTv,  DEtDqc,  DEtDwl,  DEtDwf)
-        __DEBUG5__(Eli0, DEliDTv, DEliDqc, DEliDwl, DEliDwf)
-        __DEBUG5__(Esi0, DEsiDTv, DEsiDqc, DEsiDwl, DEsiDwf)
-        __DEBUG3__(Hg0, DHgDTg, DHgDTc)
-        __DEBUG3__(Eg0, DEgDTg, DEgDqc)
-        __DEBUG3__(flwv0(1), DflwvDTg(1), DflwvDTv(1,1))
-        __DEBUG3__(flwg0, DflwgDTg, DflwgDTv(1))
-        __DEBUG2__(tile%e_res_1,tile%e_res_2)
-     endif
-
-! [X.1] form the system of equations for implicit scheme, such that A*X = B1*delta_Tg+B2*delta_psig+B0
-! [X.1.1] equation of canopy air mass balance
-     A(iqc,iqc) = canopy_air_mass/delta_time-DEtDqc-DEliDqc-DEsiDqc-DEgDqc+DEaDqc
-     A(iqc,iTc) = 0
-     A(iqc,iTv) = -DEtDTv-DEliDTv-DEsiDTv
-     A(iqc,iwl) = -DEtDwl-DEliDwl-DEsiDwl
-     A(iqc,iwf) = -DEtDwf-DEliDwf-DEsiDwf
-     B0(iqc)  = Esi0+Eli0+Et0+Eg0-Ea0
-     B1(iqc)  = DEgDTg
-     B2(iqc)  = DEgDpsig
-! [X.1.2] equation of canopy air energy balance
-#ifdef USE_DRY_CANA_MASS
-     A(iTc,iqc) = canopy_air_mass*cpw*cT/delta_time &
-#else
-     A(iTc,iqc) = canopy_air_mass*(cpw-cp_air)*cT/delta_time &
-#endif
-          - cpw*vT*(DEtDqc+DEliDqc+DEsiDqc) - cpw*gT*DEgDqc + cpw*eT*DEaDqc
-#ifdef USE_DRY_CANA_MASS
-     A(iTc,iTc) = canopy_air_mass*cp_air/delta_time-DHvDTc-DHgDTc+DHaDTc
-#else
-     A(iTc,iTc) = canopy_air_mass*(cp_air+cana_q*(cpw-cp_air))/delta_time-DHvDTc-DHgDTc+DHaDTc
-#endif
-     A(iTc,iTv) = -DHvDTv-cpw*vT*(DEtDTv+DEliDTv+DEsiDTv)
-     A(iTc,iwl) =        -cpw*vT*(DEtDwl+DEliDwl+DEsiDwl)
-     A(iTc,iwf) =        -cpw*vT*(DEtDwf+DEliDwf+DEsiDwf)
-     B0(iTc)  = Hv0 + Hg0 - Ha0 + cpw*(vT*(Et0+Eli0+Esi0)+gT*Eg0-eT*Ea0) - tile%e_res_1
-     B1(iTc)  = DHgDTg + cpw*gT*DEgDTg
-     B2(iTc)  =          cpw*gT*DEgDpsig
-! [X.1.3] equation of canopy energy balance
-     A(iTv,iqc) = hlv_Tu*DEtDqc + hlv_Tv*DEliDqc + hls_Tv*DEsiDqc
-     A(iTv,iTc) = DHvDTc
-     A(iTv,iTv) = vegn_hcap/delta_time-DflwvDTv(1,1) + DHvDTv + &
-          hlv_Tu*DEtDTv + hlv_Tv*DEliDTv + hls_Tv*DEsiDTv + clw*vegn_drip_l + csw*vegn_drip_s
-     A(iTv,iwl) = clw*vT/delta_time + hlv_Tu*DEtDwl + hlv_Tv*DEliDwl + hls_Tv*DEsiDwl
-     A(iTv,iwf) = csw*vT/delta_time + hlv_Tu*DEtDwf + hlv_Tv*DEliDwf + hls_Tv*DEsiDwf
-     B0(iTv)  = vegn_fsw + flwv0(1) - Hv0 - hlv_Tu*Et0 - Hlv_Tv*Eli0 - hls_Tv*Esi0 &
-          + clw*precip_l*vegn_ifrac*pT + csw*precip_s*vegn_ifrac*pT &
-          - clw*vegn_drip_l*vT - csw*vegn_drip_s*vT - tile%e_res_2
-     B1(iTv)  = DflwvDTg(1)
-     B2(iTv)  = 0
-! [X.1.4] equation of intercepted liquid water mass balance
-     A(iwl,iqc) = DEliDqc
-     A(iwl,iTc) = 0
-     A(iwl,iTv) = DEliDTv
-     A(iwl,iwl) = 1.0/delta_time + DEliDwl
-     A(iwl,iwf) = DEliDwf
-     B0(iwl)  = -Eli0 + precip_l*vegn_ifrac - vegn_drip_l
-     B1(iwl)  = 0
-     B2(iwl)  = 0
-! [X.1.5] equation of intercepted frozen water mass balance
-     A(iwf,iqc) = DEsiDqc
-     A(iwf,iTc) = 0
-     A(iwf,iTv) = DEsiDTv
-     A(iwf,iwl) = DEsiDwl
-     A(iwf,iwf) = 1.0/delta_time + DEsiDwf
-     B0(iwf)  = -Esi0 + precip_s*vegn_ifrac - vegn_drip_s
-     B1(iwf)  = 0
-     B2(iwf)  = 0
-! [X.1.6] if LAI becomes zero (and, therefore, all fluxes from vegetation and their 
-! derivatives must be zero too) we get a degenerate case. Still, the drip may be non-zero
-! because some water may remain from before leaf drop, and non-zero energy residual can be
-! carried over from the previous time step.
-! To prevent temperature from going haywire in those cases, we simply replace the equations 
-! of canopy energy and mass balance with the following:
-! vegn_T + delta_Tv = cana_T + delta_Tc
-! delta_Wl = -vegn_drip_l*delta_time
-! delta_Ws = -vegn_drip_s*delta_time
-! the residual vegn_Wl and vegn_Ws, if any, are taken care of by the overflow calculations 
-     if(vegn_hcap==0) then
-        ! vegn_T + delta_Tv = cana_T + delta_Tc
-        A(iTv,:)   = 0
-        A(iTv,iTc) = -1
-        A(iTv,iTv) = +1
-        B0(iTv) = cana_T - vegn_T
-        B1(iTv) = 0
-        ! delta_Wl = -vegn_drip_l*delta_time
-        A(iwl,:)   = 0
-        A(iwl,iwl) = 1
-        B0(iwl) = -vegn_drip_l*delta_time
-        B1(iwl) = 0
-        ! delta_Ws = -vegn_drip_s*delta_time
-        A(iwf,:)   = 0
-        A(iwf,iwf) = 1
-        B0(iwf) = -vegn_drip_s*delta_time
-        B1(iwf) = 0
-     endif
-
-
-
-     if(is_watch_point()) then
-        write(*,*)'#### A, B0, B1, B2 ####'
-        do ii = 1, size(A,1)
-           write(*,'(99g)')(A(ii,jj),jj=1,size(A,2)),B0(ii),B1(ii),B2(ii)
-        enddo
-     endif
-
-     A00 = A
-     B00 = B0
-     B10 = B1
-
-! [X.2] solve the system for free terms and delta_Tg and delta_psig terms, getting
-!       linear equation for delta_Tg and delta_psig
-     call ludcmp(A,indx, ierr)
-     if (ierr/=0)&
-          write(*,*) 'Matrix is singular',i,j,k
-     call lubksb(A,indx,B0)
-     call lubksb(A,indx,B1)
-     call lubksb(A,indx,B2)
-
-     if(is_watch_point()) then
-        write(*,*)'#### solution: B0, B1, B2 ####'
-        do ii = 1, size(A,1)
-           __DEBUG3__(B0(ii),B1(ii),B2(ii))
-        enddo
-!!$        write(*,*)'#### solution check ####'
-!!$        do ii = 1, size(A,1)
-!!$           sum0 = 0; sum1 = 0;
-!!$           do jj = 1, size(A,2)
-!!$              sum0 = sum0 + A00(ii,jj)*B0(jj)
-!!$              sum1 = sum1 + A00(ii,jj)*B1(jj)
-!!$           enddo
-!!$           write(*,'(99g)')sum0-B00(ii),sum1-B10(ii)
-!!$        enddo
-     endif
-! the result of this solution is a set of expressions for delta_xx in terms
-! of delta_Tg and delta_psig: 
-! delta_xx(i) = B0(i) + B1(i)*delta_Tg + B2(i)*delta_psig. Note that A, B0, B1 and B2
-! are destroyed in the process: A is replaced with LU-decomposition, and
-! B0, B1, B2 are replaced with solutions
-
-     ! solve the non-linear equation for energy balance at the surface.
-
-     call land_surface_energy_balance( &
-          grnd_T, grnd_liq, grnd_ice, grnd_latent, grnd_Tf, grnd_E_min, &
-          grnd_E_max, fswg, &
-          flwg0 + b0(iTv)*DflwgDTv(1), DflwgDTg + b1(iTv)*DflwgDTv(1), b2(iTv)*DflwgDTv(1), &
-          Hg0   + b0(iTc)*DHgDTc,   DHgDTg   + b1(iTc)*DHgDTc,   b2(iTc)*DHgDTc,   &
-          Eg0   + b0(iqc)*DEgDqc,   DEgDTg   + b1(iqc)*DEgDqc,   DEgDpsig + b2(iqc)*DEgDqc,   &
-          G0,                       DGDTg, &
-          ! output
-          delta_Tg, delta_psig, Mg_imp )
-
-! [X.5] calculate final value of other tendencies
-     delta_qc = B0(iqc) + B1(iqc)*delta_Tg + B2(iqc)*delta_psig
-     delta_Tc = B0(iTc) + B1(iTc)*delta_Tg + B2(iTc)*delta_psig
-     delta_Tv = B0(iTv) + B1(iTv)*delta_Tg + B2(iTv)*delta_psig
-     delta_wl = B0(iwl) + B1(iwl)*delta_Tg + B2(iwl)*delta_psig
-     delta_ws = B0(iwf) + B1(iwf)*delta_Tg + B2(iwf)*delta_psig
-
-! [X.6] calculate updated values of energy balance components used in further 
-!       calculations
-     flwg       = flwg0 + DflwgDTg*delta_Tg + DflwgDTv(1)*delta_Tv
-     evapg      = Eg0   + DEgDTg*delta_Tg   + DEgDpsig*delta_psig + DEgDqc*delta_qc
-     sensg      = Hg0   + DHgDTg*delta_Tg   + DHgDTc*delta_Tc
-     grnd_flux  = G0    + DGDTg*delta_Tg
-     vegn_sens  = Hv0   + DHvDTv*delta_Tv   + DHvDTc*delta_Tc
-     vegn_levap = Eli0  + DEliDTv*delta_Tv  + DEliDqc*delta_qc + DEliDwl*delta_wl + DEliDwf*delta_ws
-     vegn_fevap = Esi0  + DEsiDTv*delta_Tv  + DEsiDqc*delta_qc + DEsiDwl*delta_wl + DEsiDwf*delta_ws
-     vegn_uptk  = Et0   + DEtDTv*delta_Tv   + DEtDqc*delta_qc  + DEtDwl*delta_wl  + DEtDwf*delta_ws
-     vegn_flw   = flwv0(1) + DflwvDTv(1,1)*delta_Tv + DflwvDTg(1)*delta_Tg
-     land_evap  = Ea0   + DEaDqc*delta_qc
-     land_sens  = Ha0   + DHaDTc*delta_Tc
-! [X.7] calculate energy residuals due to cross-product of time tendencies
-#ifdef USE_DRY_CANA_MASS
-     tile%e_res_1 = canopy_air_mass*cpw*delta_qc*delta_Tc/delta_time
-#else
-     tile%e_res_1 = canopy_air_mass*(cpw-cp_air)*delta_qc*delta_Tc/delta_time
-#endif
-     tile%e_res_2 = delta_Tv*(clw*delta_Wl+csw*delta_Ws)/delta_time
-! calculate the final value upward long-wave radiation flux from the land, to be 
-! returned to the flux exchange.
-     tile%lwup = ILa_dn - vegn_flw - flwg 
- 
-     if(is_watch_point())then
-        write(*,*)'#### ground balance'
-        __DEBUG2__(fswg,flwg)
-        __DEBUG2__(sensg,evapg*grnd_latent)
-        __DEBUG1__(grnd_flux)
-        __DEBUG1__(Mg_imp)
-        write(*,*)'#### implicit time steps'
-        __DEBUG3__(delta_Tg, grnd_T,  grnd_T+delta_Tg )
-        __DEBUG1__(delta_psig                         )
-        __DEBUG3__(delta_qc, cana_q,  cana_q+delta_qc )
-        __DEBUG3__(delta_Tc, cana_T,  cana_T+delta_Tc )
-        __DEBUG3__(delta_Tv, vegn_T,  vegn_T+delta_Tv )
-        __DEBUG3__(delta_wl, vegn_Wl, vegn_Wl+delta_wl)
-        __DEBUG3__(delta_ws, vegn_Ws, vegn_Ws+delta_ws)
-        __DEBUG2__(tile%e_res_1, tile%e_res_2)
-        write(*,*)'#### resulting fluxes'
-        __DEBUG4__(flwg, evapg, sensg, grnd_flux)
-        __DEBUG3__(vegn_levap,vegn_fevap,vegn_uptk)
-        __DEBUG2__(vegn_sens,vegn_flw)
-        __DEBUG1__(Ea0+DEaDqc*delta_qc)
-        __DEBUG2__(tile%cana%prog%q,cana_q)
-     endif
-
-     call cana_step_2 ( tile%cana, delta_Tc, delta_qc )
-
-     if(associated(tile%vegn)) then
-        call vegn_step_2 ( tile%vegn, tile%diag, &
-             delta_Tv, delta_wl, delta_ws, &
-             vegn_melt,  &
-             vegn_ovfl_l,   vegn_ovfl_s, &
-             vegn_ovfl_Hl, vegn_ovfl_Hs )
-        ! calculate total amount of liquid and solid precipitation below the canopy
-        vegn_lprec  = (1-vegn_ifrac)*precip_l + vegn_drip_l + vegn_ovfl_l
-        vegn_fprec  = (1-vegn_ifrac)*precip_s + vegn_drip_s + vegn_ovfl_s
-        ! calculate heat carried by liquid and solid precipitation below the canopy
-        vegn_hlprec = clw*((1-vegn_ifrac)*precip_l*(precip_T-tfreeze) &
-                         + vegn_drip_l*(vegn_T+delta_Tv-tfreeze)) &
-                         + vegn_ovfl_Hl
-        vegn_hfprec = csw*((1-vegn_ifrac)*precip_s*(precip_T-tfreeze) &
-                         + vegn_drip_s*(vegn_T+delta_Tv-tfreeze)) &
-                         + vegn_ovfl_Hs
-        ! make sure the temperature of the snow falling below canopy is below freezing
-        ! this correction was introduced in an attempt to fix the problem with fictitious 
-        ! heat accumulating in near-zero-mass snow; however it does not seem to make a 
-        ! difference.
-        if(vegn_hfprec>0)then
-           ! solid precipitation from vegetation carries positive energy -- we can't have
-           ! that, because that would bring snow T above tfreeze, so convert excess to 
-           ! liquid
-           delta_fprec = min(vegn_fprec,vegn_hfprec/hlf)
-           vegn_fprec = vegn_fprec - delta_fprec
-           vegn_lprec = vegn_lprec + delta_fprec
-           vegn_hfprec = vegn_hfprec - hlf*delta_fprec
-           ! we don't need to correct the vegn_hlprec since the temperature of additional
-           ! liquid precip is tfreeze, and therefore its contribution to vegn_hlprec is
-           ! exactly zero
-        endif
-        ! possibly we need to correct for the opposite situation: negative energy carried
-        ! by liquid precipitation.
-     else
-        vegn_lprec  = precip_l
-        vegn_fprec  = precip_s
-        vegn_hlprec = precip_l*clw*(precip_T-tfreeze)
-        vegn_hfprec = precip_s*csw*(precip_T-tfreeze)
-        ! the fields below are only used in diagnostics
-        vegn_melt   = 0
-        vegn_fsw    = 0
-     endif
-
-     call snow_step_2 ( tile%snow, &
-          snow_subl, vegn_lprec, vegn_fprec, vegn_hlprec, vegn_hfprec, &
-          delta_Tg, Mg_imp, evapg, fswg, flwg, sensg, &
-          use_tfreeze_in_grnd_latent, &
-          ! output:
-          subs_DT, subs_M_imp, subs_evap, subs_fsw, subs_flw, subs_sens, &
-          snow_fsw, snow_flw, snow_sens, &
-          snow_levap, snow_fevap, snow_melt, &
-          snow_lprec, snow_hlprec, snow_lrunf, snow_frunf, &
-          snow_hlrunf, snow_hfrunf, snow_Tbot, snow_Cbot, snow_C, snow_avrg_T )
-     if(is_watch_point()) then
-        write(*,*) 'subs_M_imp', subs_M_imp
-     endif
-
-     if (snow_active) then
-        subs_G = snow_G_Z+snow_G_TZ*subs_DT
-     else
-        subs_G = 0
-     endif
-     
-     if (associated(tile%glac)) then
-        call glac_step_2 &
-             ( tile%glac, tile%diag, subs_subl, snow_lprec, snow_hlprec, &
-             subs_DT, subs_M_imp, subs_evap, &
-             subs_levap, subs_fevap, &
-             subs_melt, subs_lrunf, subs_hlrunf, subs_Ttop, subs_Ctop )
-     else if (associated(tile%lake)) then
-        call lake_step_2 &
-             ( tile%lake, tile%diag, subs_subl, snow_lprec, snow_hlprec, &
-             subs_DT, subs_M_imp, subs_evap, &
-             use_tfreeze_in_grnd_latent, subs_levap, subs_fevap, &
-             subs_melt, subs_Ttop, subs_Ctop )
-        subs_lrunf = 0.
-        subs_hlrunf = 0.
-     else if (associated(tile%soil)) then
-        call soil_step_2 &
-             ( tile%soil, tile%vegn, tile%diag, subs_subl, snow_lprec, snow_hlprec, &
-             vegn_uptk, subs_DT, subs_M_imp, subs_evap, &
-             use_tfreeze_in_grnd_latent, &
-             ! output:
-             subs_levap, subs_fevap, &
-             subs_melt, subs_lrunf, subs_hlrunf, subs_Ttop, subs_Ctop )
-     endif
-     
-! TEMP FIX: MAIN PROG SHOULD NOT TOUCH CONTENTS OF PROG VARS. ******
-! ALSO, DIAGNOSTICS IN COMPONENT MODULES SHOULD _FOLLOW_ THIS ADJUSTMENT******
-     IF (LM2) THEN
-        tile%snow%prog%T = subs_Ttop
-        subs_G2 = 0.
-     ELSE
-        if (sum(tile%snow%prog(:)%ws)>0)then
-           new_T = (subs_Ctop*subs_Ttop +snow_Cbot*snow_Tbot) &
-                           / (subs_Ctop+snow_Cbot)
-           tile%snow%prog(size(tile%snow%prog))%T = new_T
-           if(associated(tile%glac)) tile%glac%prog(1)%T = new_T
-           if(associated(tile%lake)) tile%lake%prog(1)%T = new_T
-           if(associated(tile%soil)) tile%soil%prog(1)%T = new_T
-           subs_G2 = subs_Ctop*(new_T-subs_Ttop)/delta_time
+!  do i1 = 0,(ie-is+1)*(je-js+1)-1
+!$OMP parallel do schedule(dynamic) default(shared) private(i0,i1,i,j,k,ce,te,tile,fco2_0,Dfco2Dq,ISa_dn_dir,ISa_dn_dif)
+   do i0 = 0,(ie-is+1)*(je-js+1)-1,chunk_size
+   do i1 = i0, min(i0+chunk_size-1,(ie-is+1)*(je-js+1)-1)
+     i = mod(i1,ie-is+1)+is
+     j = i1/(ie-is+1)+js
+!     __DEBUG4__(is,js,i-is+lnd%is,j-js+lnd%js)
+     ce = first_elmt(lnd%tile_map(i-is+lnd%is,j-js+lnd%js))
+     te = tail_elmt (lnd%tile_map(i-is+lnd%is,j-js+lnd%js))
+     k = 0 
+     do while (ce/=te)
+        k = k+1 ; tile=>current_tile(ce) ; ce = next_elmt(ce)
+   
+        ! set this point coordinates as current for debug output
+        call set_current_point(i-is+lnd%is,j-js+lnd%js,k)
+   
+        if (lnd%ico2/=NO_TRACER) then
+           fco2_0  = cplr2land%tr_flux(i,j,k, lnd%ico2)
+           Dfco2Dq = cplr2land%dfdtr  (i,j,k, lnd%ico2)
         else
-           if(tau_snow_T_adj>=0) then
-              delta_T_snow = subs_Ctop*(subs_Ttop-snow_avrg_T)/&
-                   (subs_Ctop*tau_snow_T_adj/delta_time+subs_Ctop+snow_C)
-              tile%snow%prog(:)%T = snow_avrg_T + delta_T_snow
-
-              new_T = subs_Ttop-snow_C/subs_Ctop*delta_T_snow
-              if(associated(tile%glac)) tile%glac%prog(1)%T = new_T
-              if(associated(tile%lake)) tile%lake%prog(1)%T = new_T
-              if(associated(tile%soil)) tile%soil%prog(1)%T = new_T
-              subs_G2 = subs_Ctop*(new_T-subs_Ttop)/delta_time
-           else
-              subs_G2 = 0.
-           endif
+           fco2_0  = 0
+           Dfco2Dq = 0
         endif
-     ENDIF
-
-     vegn_fco2 = 0
-     if (associated(tile%vegn)) then
-        ! do the calculations that require updated land surface prognostic variables
-        call vegn_step_3 (tile%vegn, tile%soil, tile%cana%prog%T, precip_l+precip_s, &
-             vegn_fco2, tile%diag)
-     endif
-     ! update co2 concentration in the canopy air. It would be more consistent to do that
-     ! in the same place and fashion as the rest of prognostic variables: that is, have the
-     ! vegn_step_1 (and perhaps other *_step_1 procedures) calculate fluxes and their
-     ! derivatives, then solve the linear equation(s), and finally have cana_step_2 update
-     ! the concentration.
-     if(update_cana_co2) then
-        tile%cana%prog%co2 = tile%cana%prog%co2 + &
-             (vegn_fco2 - fco2_0)/(canopy_air_mass_for_tracers/delta_time+Dfco2Dq)
-     endif
-     if(is_watch_point())then
-        __DEBUG1__(tile%cana%prog%co2)
-        __DEBUG3__(fco2_0,Dfco2Dq,vegn_fco2)
-     endif
-     
-     call update_land_bc_fast (tile, i,j,k, land2cplr)
-
-     if (destroy_anti_matter.and.snow_lrunf.lt.0.) then
-        snow_lrunf = 0.
-        snow_hlrunf = 0.
-     endif
-     runoff     (i,j) = runoff     (i,j) + (snow_frunf  + subs_lrunf  + snow_lrunf )*tile%frac
-     runoff_heat(i,j) = runoff_heat(i,j) + (snow_hfrunf + subs_hlrunf + snow_hlrunf)*tile%frac
-     runoff_snow(i,j) = runoff_snow(i,j) +  snow_frunf * tile%frac
-     hprec = (clw*precip_l+csw*precip_s)*(precip_T-tfreeze)
-     hevap = cpw*land_evap*(evap_T-tfreeze)
-
-     ! ---- diagnostic section ----------------------------------------------
-     call send_tile_data(id_frac,    tile%frac,                          tile%diag)
-     call send_tile_data(id_area,    tile%frac*lnd%area(i,j),            tile%diag)
-     call send_tile_data(id_ntiles,  1.0,                                tile%diag)     
-     call send_tile_data(id_precip,  precip_l+precip_s,                  tile%diag)
-     call send_tile_data(id_hprec,   hprec,                              tile%diag)
-     call send_tile_data(id_lprec,   precip_l,                           tile%diag)
-     call send_tile_data(id_lprecv,  precip_l-vegn_lprec,                tile%diag)
-     call send_tile_data(id_lprecs,  vegn_lprec-snow_lprec,              tile%diag)
-     call send_tile_data(id_lprecg,  snow_lprec,                         tile%diag)
-     call send_tile_data(id_hlprec,  clw*precip_l*(precip_T-tfreeze),    tile%diag)
-     call send_tile_data(id_hlprecv, clw*precip_l*(precip_T-tfreeze)-vegn_hlprec, &
-                                                                         tile%diag)
-     call send_tile_data(id_hlprecs, vegn_hlprec-snow_hlprec,            tile%diag)
-     call send_tile_data(id_hlprecg, snow_hlprec,                        tile%diag)
-     call send_tile_data(id_fprec,   precip_s,                           tile%diag)
-     call send_tile_data(id_fprecv,  precip_s-vegn_fprec,                tile%diag)
-     call send_tile_data(id_fprecs,  vegn_fprec,                         tile%diag)
-     call send_tile_data(id_hfprec,  csw*precip_s*(precip_T-tfreeze),    tile%diag)
-     call send_tile_data(id_hfprecv, csw*precip_s*(precip_T-tfreeze)-vegn_hfprec, &
-                                                                         tile%diag)
-     call send_tile_data(id_hfprecs, vegn_hfprec,                        tile%diag)
-     call send_tile_data(id_evap,    land_evap,                          tile%diag)
-     call send_tile_data(id_hevap,   hevap,                              tile%diag)
-     call send_tile_data(id_levap,   vegn_levap+snow_levap+subs_levap+vegn_uptk, &
-                                                                         tile%diag)
-     call send_tile_data(id_levapv,  vegn_levap,                         tile%diag)
-     call send_tile_data(id_levaps,  snow_levap,                         tile%diag)
-     call send_tile_data(id_levapg,  subs_levap,                         tile%diag)
-     call send_tile_data(id_hlevap,  cpw*vegn_levap*(vegn_T-tfreeze) &
-                                       +cpw*snow_levap*(snow_T-tfreeze) &
-                                       +cpw*subs_levap*(grnd_T-tfreeze), tile%diag)
-     call send_tile_data(id_hlevapv, cpw*vegn_levap*(vegn_T-tfreeze),    tile%diag)
-     call send_tile_data(id_hlevaps, cpw*snow_levap*(snow_T-tfreeze),    tile%diag)
-     call send_tile_data(id_hlevapg, cpw*subs_levap*(grnd_T-tfreeze),    tile%diag)
-     call send_tile_data(id_fevap,   vegn_fevap+snow_fevap+subs_fevap,   tile%diag)
-     call send_tile_data(id_fevapv,  vegn_fevap,                         tile%diag)
-     call send_tile_data(id_fevaps,  snow_fevap,                         tile%diag)
-     call send_tile_data(id_fevapg,  subs_fevap,                         tile%diag)
-     call send_tile_data(id_hfevap,  cpw*vegn_fevap*(vegn_T-tfreeze) &
-                                       +cpw*snow_fevap*(snow_T-tfreeze) &
-                                       +cpw*subs_fevap*(grnd_T-tfreeze), tile%diag)
-     call send_tile_data(id_hfevapv, cpw*vegn_fevap*(vegn_T-tfreeze),    tile%diag)
-     call send_tile_data(id_hfevaps, cpw*snow_fevap*(snow_T-tfreeze),    tile%diag)
-     call send_tile_data(id_hfevapg, cpw*subs_fevap*(grnd_T-tfreeze),    tile%diag)
-     call send_tile_data(id_runf,    snow_lrunf+snow_frunf+subs_lrunf,   tile%diag)
-     call send_tile_data(id_hrunf,   snow_hlrunf+snow_hfrunf+subs_hlrunf,tile%diag)
-     call send_tile_data(id_lrunf,   snow_lrunf+subs_lrunf,              tile%diag)
-     call send_tile_data(id_lrunfs,  snow_lrunf,                         tile%diag)
-     call send_tile_data(id_lrunfg,  subs_lrunf,                         tile%diag)
-     call send_tile_data(id_hlrunf,  snow_hlrunf+subs_hlrunf,            tile%diag)
-     call send_tile_data(id_hlrunfs, snow_hlrunf,                        tile%diag)
-     call send_tile_data(id_hlrunfg, subs_hlrunf,                        tile%diag)
-     call send_tile_data(id_frunf,   snow_frunf,                         tile%diag)
-     call send_tile_data(id_frunfs,  snow_frunf,                         tile%diag)
-     call send_tile_data(id_hfrunf,  snow_hfrunf,                        tile%diag)
-     call send_tile_data(id_hfrunfs, snow_hfrunf,                        tile%diag)
-     call send_tile_data(id_melt,    vegn_melt+snow_melt+subs_melt,      tile%diag)
-     call send_tile_data(id_meltv,   vegn_melt,                          tile%diag)
-     call send_tile_data(id_melts,   snow_melt,                          tile%diag)
-     call send_tile_data(id_meltg,   subs_melt,                          tile%diag)
-     call send_tile_data(id_fsw,     vegn_fsw+snow_fsw+subs_fsw,         tile%diag)
-     call send_tile_data(id_fswv,    vegn_fsw,                           tile%diag)
-     call send_tile_data(id_fsws,    snow_fsw,                           tile%diag)
-     call send_tile_data(id_fswg,    subs_fsw,                           tile%diag)
-     call send_tile_data(id_flw,     vegn_flw+snow_flw+subs_flw,         tile%diag)
-     call send_tile_data(id_flwv,    vegn_flw,                           tile%diag)
-     call send_tile_data(id_flws,    snow_flw,                           tile%diag)
-     call send_tile_data(id_flwg,    subs_flw,                           tile%diag)
-     call send_tile_data(id_sens,    land_sens,                          tile%diag)
-     call send_tile_data(id_sensv,   vegn_sens,                          tile%diag)
-     call send_tile_data(id_senss,   snow_sens,                          tile%diag)
-     call send_tile_data(id_sensg,   subs_sens,                          tile%diag)
-     call send_tile_data(id_e_res_1, tile%e_res_1,                       tile%diag)
-     call send_tile_data(id_e_res_2, tile%e_res_2,                       tile%diag)
-     call send_tile_data(id_z0m,     land2cplr%rough_mom(i,j,k),         tile%diag)
-     call send_tile_data(id_z0s,     land2cplr%rough_heat(i,j,k),        tile%diag)
-     call send_tile_data(id_con_g_h, con_g_h,                            tile%diag)
-     call send_tile_data(id_transp,  vegn_uptk,                          tile%diag)
-     call send_tile_data(id_wroff,   snow_lrunf+subs_lrunf,              tile%diag)
-     call send_tile_data(id_sroff,   snow_frunf,                         tile%diag)
-     call send_tile_data(id_htransp, cpw*vegn_uptk*(vegn_T-tfreeze),     tile%diag)
-     call send_tile_data(id_huptake, clw*vegn_uptk*(soil_uptake_T-tfreeze), &
-                                                                         tile%diag)
-     call send_tile_data(id_hroff,   snow_hlrunf+subs_hlrunf+snow_hfrunf, &
-                                                                         tile%diag)
-     call send_tile_data(id_gsnow,   subs_G,                             tile%diag)
-     call send_tile_data(id_gequil,  subs_G2,                            tile%diag)
-     call send_tile_data(id_grnd_flux, grnd_flux,                        tile%diag)
-     call send_tile_data(id_soil_water_supply, soil_water_supply,        tile%diag)
-     if(grnd_E_max.lt.0.5*HUGE(grnd_E_Max)) &
-         call send_tile_data(id_levapg_max, grnd_E_max,                  tile%diag)
-     call send_tile_data(id_Trad,    land2cplr%t_surf(i,j,k),            tile%diag)
-     call send_tile_data(id_Tca,     land2cplr%t_ca(i,j,k),              tile%diag)
-     call send_tile_data(id_qca,     land2cplr%tr(i,j,k,lnd%isphum),     tile%diag)
-     call send_tile_data(id_qco2,    tile%cana%prog%co2,                 tile%diag)
-     call send_tile_data(id_qco2_dvmr,&
-          tile%cana%prog%co2*mol_air/mol_co2/(1-tile%cana%prog%q),       tile%diag)
-     call send_tile_data(id_fco2,    vegn_fco2*mol_C/mol_co2,            tile%diag)
-     call send_tile_data(id_swdn_dir, ISa_dn_dir,                        tile%diag)
-     call send_tile_data(id_swdn_dif, ISa_dn_dif,                        tile%diag)
-     call send_tile_data(id_swup_dir, ISa_dn_dir*tile%land_refl_dir,     tile%diag)
-     call send_tile_data(id_swup_dif, ISa_dn_dif*tile%land_refl_dif,     tile%diag)
-     call send_tile_data(id_lwdn,     ILa_dn,                            tile%diag)
-!     call send_tile_data(id_subs_emis,surf_emis_lw,                      tile%diag)
+        ISa_dn_dir(BAND_VIS) = cplr2land%sw_flux_down_vis_dir(i,j,k)
+        ISa_dn_dir(BAND_NIR) = cplr2land%sw_flux_down_total_dir(i,j,k)&
+                              -cplr2land%sw_flux_down_vis_dir(i,j,k)
+        ISa_dn_dif(BAND_VIS) = cplr2land%sw_flux_down_vis_dif(i,j,k)
+        ISa_dn_dif(BAND_NIR) = cplr2land%sw_flux_down_total_dif(i,j,k)&
+                              -cplr2land%sw_flux_down_vis_dif(i,j,k)
+   
+        ! n_cohorts is calculated and passed down to update_land_model_fast_0d 
+        ! for convenience, so that there is no need to make a lot of by-cohort arrays 
+        ! allocatable -- instead they are created on stack with the size passed
+        ! as an argument.
+        if (associated(tile%vegn)) then
+           n_cohorts = tile%vegn%n_cohorts
+        else
+           n_cohorts = 1
+        endif
+   
+        call update_land_model_fast_0d(tile, i,j,k, n_cohorts, land2cplr, &
+           cplr2land%lprec(i,j,k),  cplr2land%fprec(i,j,k), cplr2land%tprec(i,j,k), &
+           cplr2land%t_flux(i,j,k), cplr2land%dhdt(i,j,k), &
+           cplr2land%tr_flux(i,j,k, lnd%isphum), cplr2land%dfdtr(i,j,k, lnd%isphum), &
+           fco2_0, Dfco2Dq, &
+           ISa_dn_dir, ISa_dn_dif, cplr2land%lwdn_flux(i,j,k), &
+           cplr2land%ustar(i,j,k), cplr2land%p_surf(i,j,k), cplr2land%drag_q(i,j,k), &
+           phot_co2_overridden, phot_co2_data(i,j),&
+           runoff(i,j), runoff_heat(i,j), runoff_snow(i,j) &
+        )
+        ! some of the diagnostic variables are sent from here, purely for coding 
+        ! convenience: the compute domain-level 2d and 3d vars are generally not 
+        ! available inside update_land_model_fast_0d, so the diagnostics for those 
+        ! was left here.
+        call send_tile_data(id_area, tile%frac*lnd%area(i,j),        tile%diag)
+        call send_tile_data(id_z0m,  land2cplr%rough_mom(i,j,k),     tile%diag)
+        call send_tile_data(id_z0s,  land2cplr%rough_heat(i,j,k),    tile%diag)
+        call send_tile_data(id_Trad, land2cplr%t_surf(i,j,k),        tile%diag)
+        call send_tile_data(id_Tca,  land2cplr%t_ca(i,j,k),          tile%diag)
+        call send_tile_data(id_qca,  land2cplr%tr(i,j,k,lnd%isphum), tile%diag)
+     enddo
   enddo
-
+  enddo
+  
   ! set values of tracer fluxes
   runoff_c(:,:,1) = runoff_snow
   runoff_c(:,:,2) = runoff_heat
@@ -1771,6 +1087,882 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   call mpp_clock_end(landFastClock)
   call mpp_clock_end(landClock)
 end subroutine update_land_model_fast
+
+
+! ============================================================================
+subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
+   precip_l, precip_s, atmos_T, &
+   Ha0, DHaDTc, Ea0, DEaDqc, fco2_0, Dfco2Dq,&
+   ISa_dn_dir, ISa_dn_dif, ILa_dn, &
+   ustar, p_surf, drag_q, &
+   phot_co2_overridden, phot_co2_data, &
+   runoff, runoff_heat, runoff_snow &
+   )
+  type (land_tile_type), pointer :: tile
+  integer, intent(in) :: ix,iy,itile ! coordinates
+  integer, intent(in) :: N     ! number of cohorts in the tile
+  type(land_data_type), intent(inout) :: land2cplr
+  
+  real, intent(in) :: &
+       precip_l, precip_s, & ! liquid and solid precipitation, kg/(m2 s)
+       atmos_T, &        ! incoming precipitation temperature (despite its name), deg K
+       Ha0,   DHaDTc, &  ! sensible heat flux from the canopy air to the atmosphere 
+       Ea0,   DEaDqc, &  ! water vapor flux from canopy air to the atmosphere
+       fco2_0,Dfco2Dq,&  ! co2 flux from canopy air to the atmosphere
+       ISa_dn_dir(NBANDS), & ! downward direct sw radiation at the top of the canopy
+       ISa_dn_dif(NBANDS), & ! downward diffuse sw radiation at the top of the canopy
+       ILa_dn,             & ! downward lw radiation at the top of the canopy
+       ustar,              & ! friction velocity, m/s
+       p_surf,             & ! surface pressure, Pa
+       drag_q,             & !
+       phot_co2_data         ! data input for the CO2 for photosynthesis
+  logical, intent(in):: phot_co2_overridden
+  real, intent(inout) :: &
+        runoff, runoff_heat, runoff_snow
+
+  ! ---- local constants
+  ! indices of variables and equations for implicit time stepping solution :
+  integer :: iqc, iTc, iTv, iwl, iwf
+
+  ! ---- local vars 
+  real :: A(3*N+2,3*N+2),B0(3*N+2),B1(3*N+2),B2(3*N+2) ! implicit equation matrix and right-hand side vectors
+  real :: A00(3*N+2,3*N+2),B00(3*N+2),B10(3*N+2),B20(3*N+2) ! copy of the above, only for debugging
+  integer :: indx(3*N+2) ! permutation vector
+  ! linearization coefficients of various fluxes between components of land
+  ! surface scheme
+  real :: &
+       G0,    DGDTg,  &  ! ground heat flux 
+       Hg0,   DHgDTg,   DHgDTc, & ! linearization of the sensible heat flux from ground
+       Eg0,   DEgDTg,   DEgDqc, DEgDpsig, & ! linearization of evaporation from ground
+       flwg0, DflwgDTg, DflwgDTv(N)  ! linearization of net LW radiation og the ground
+  real, dimension(N) :: & ! by cohort
+       Hv0,   DHvDTv,   DHvDTc, & ! sens heat flux from vegetation
+       Et0,   DEtDTv,   DEtDqc,   DEtDwl,   DEtDwf,  & ! transpiration
+       Eli0,  DEliDTv,  DEliDqc,  DEliDwl,  DEliDwf, & ! evaporation of intercepted water
+       Esi0,  DEsiDTv,  DEsiDqc,  DEsiDwl,  DEsiDwf, & ! sublimation of intercepted snow
+       flwv0, DflwvDTg  ! linearization of net LW radiation to the canopy
+  real :: &
+       DflwvDTv(N,N) ! linearization of net LW radiation to the canopy:
+         ! (i,j) == derivative of i-th cohort energy balance w.r.t. j-th cohort temperature 
+
+  real :: &
+       vegn_prec_l(N), vegn_prec_s(N), & ! precipitation rate on top of each cohort, kg/(m2 s);
+       ! the same as precip_{l,s} for the top layer, different for the cohorts below
+       vegn_drip_l(N), vegn_drip_s(N), & ! drip rate of water and snow, respectively, kg/(m2 s)
+       vegn_lai(N), vegn_lwnet(N)
+
+  ! increments of respective variables over time step, results of the implicit
+  ! time step:
+  real :: delta_qc, delta_Tc, delta_Tv(N), delta_wl(N), delta_ws(N), delta_Tg, delta_psig, delta_co2
+  real :: flwg ! updated value of long-wave ground energy balance
+  real :: denom ! denominator in the LW radiative balance calculations
+  real :: sum0, sum1, sum2
+
+  integer :: vegn_layer(N) ! layer number of each cohort
+  real :: &
+       f(N), & ! fraction of each cohort canopy in its layer
+       grnd_T, gT, & ! ground temperature and its value used for sensible heat advection
+       vegn_T(N), vT(N), & ! vegetation (canopy) temperature
+       cana_T, cT, & ! canopy air temperature
+       evap_T, eT, & ! temperature assigned to vapor going between land and atmosphere
+       soil_uptake_T(N), & ! average temperature of water taken up by the vegetation
+       vegn_Wl(N),  vegn_Ws(N), & ! water and snow mass of the canopy
+       vegn_ifrac(N), & ! intercepted fraction of liquid or frozen precipitation
+       vegn_hcap(N),      & ! vegetation heat capacity, including intercepted water and snow
+       vegn_fco2, & ! co2 flux from the vegetation, kg CO2/(m2 s)
+       hlv_Tv(N), hlv_Tu(N), & ! latent heat of vaporization at vegn and uptake temperatures, respectively 
+       hls_Tv(N), &         ! latent heat of sublimation at vegn temperature
+       grnd_rh,        & ! explicit relative humidity at ground surface
+       grnd_rh_psi,    & ! psi derivative of relative humidity at ground surface
+       grnd_liq, grnd_ice, grnd_subl, &
+       grnd_tf, &  ! temperature of freezing on the ground
+       grnd_latent, &
+       grnd_flux, &
+       grnd_E_min, &
+       grnd_E_max, &
+       soil_E_min, &
+       soil_E_max, &
+       swdn(N,NBANDS),  & ! downward short-wave radiation on top of the each cohort canopy, W/m2
+       swnet(N,NBANDS), & ! net short-wave radiation balance of each cohort canopy, W/m2
+       con_g_h, con_g_v, & ! turbulent cond. between ground and canopy air, for heat and vapor respectively
+       snow_area, &
+       cana_q, & ! specific humidity of canopy air
+       cana_co2, & ! co2 moist mixing ratio in canopy air, kg CO2/kg wet air
+       cana_co2_mol, & ! co2 dry mixing ratio in canopy air, mol CO2/mol dry air
+       fswg, evapg, sensg, &
+       subs_G, subs_G2, Mg_imp, snow_G_Z, snow_G_TZ, &
+       snow_avrg_T, delta_T_snow,  & ! vertically-average snow temperature and it's change due to s
+       vegn_ovfl_l,  vegn_ovfl_s,  & ! overflow of liquid and solid water from the canopy
+       vegn_ovfl_Hl, vegn_ovfl_Hs, & ! heat flux from canopy due to overflow
+       delta_fprec, & ! correction of below-canopy solid precip in case it's average T > tfreeze 
+
+       hprec,              & ! sensible heat flux carried by precipitation
+       hevap,              & ! sensible heat flux carried by total evapotranspiration
+       land_evap,          & ! total vapor flux from land to atmosphere
+       land_sens,          & ! turbulent sensible heat flux from land to atmosphere
+       vegn_flw,vegn_sens(N),snow_sens,snow_levap,snow_fevap,snow_melt,&
+       snow_lprec, snow_hlprec,snow_lrunf,vegn_levap(N),vegn_fevap(N),vegn_uptk(N),&
+       vegn_fsw, vegn_melt, &
+       vegn_lprec,  vegn_fprec,  & ! liquid and frozen precip under canopy, kg/(m2 s)
+       vegn_hlprec, vegn_hfprec, & ! heat carried by liquid and frozen precip under canopy, J/(m2 s)
+       precip_T,pT,snow_fsw,snow_flw,snow_frunf,snow_hlrunf,&
+       snow_hfrunf,subs_fsw,subs_flw,subs_sens,&
+       subs_DT, subs_M_imp, subs_evap, snow_Tbot, snow_Cbot, snow_C, subs_levap,&
+       subs_fevap,subs_melt,subs_lrunf,subs_hlrunf,&
+       subs_Ttop,subs_Ctop, subs_subl, new_T
+  real :: snow_T, snow_rh, snow_liq, snow_ice, snow_subl
+  integer :: k, k1 ! cohort indices
+  integer :: ii, jj ! indices for debug output
+  integer :: ierr
+  logical :: conserve_glacier_mass, snow_active
+  real :: subs_z0m, subs_z0s, snow_z0m, snow_z0s, grnd_z0s
+  ! variables for conservation checks
+  real :: lmass0, fmass0, heat0, cmass0
+  real :: lmass1, fmass1, heat1, cmass1
+  character(64) :: tag
+
+
+  ! + conservation check, part 1: calculate the pre-transition totals
+  call get_tile_water(tile,lmass0,fmass0)
+  cmass0 = land_tile_carbon(tile)
+  ! - end of conservation check, part 1
+
+  soil_uptake_T(:) = tfreeze ! just to avoid using un-initialized values
+  if (associated(tile%glac)) then
+     call glac_step_1 ( tile%glac, &
+          grnd_T, grnd_rh, grnd_liq, grnd_ice, grnd_subl, grnd_tf, &
+          snow_G_Z, snow_G_TZ, conserve_glacier_mass  )
+     grnd_E_min = -HUGE(grnd_E_min)
+     grnd_E_max =  HUGE(grnd_E_max)
+     grnd_rh_psi = 0
+  else if (associated(tile%lake)) then
+     call lake_step_1 ( ustar, p_surf, &
+          lnd%lat(ix,iy), tile%lake, &
+          grnd_T, grnd_rh, grnd_liq, grnd_ice, grnd_subl, grnd_tf, &
+          snow_G_Z, snow_G_TZ)
+     grnd_E_min = -HUGE(grnd_E_min)
+     grnd_E_max =  HUGE(grnd_E_max)
+     grnd_rh_psi = 0
+  else if (associated(tile%soil)) then
+     call soil_step_1 ( tile%soil, tile%vegn, tile%diag, &
+          grnd_T, soil_E_min, soil_E_max, &
+          grnd_rh, grnd_rh_psi, grnd_liq, grnd_ice, grnd_subl, grnd_tf, &
+          snow_G_Z, snow_G_TZ)
+     grnd_E_min = soil_E_min
+     grnd_E_max = soil_E_max
+     grnd_liq = 0 ! sorry, but solver cannot handle implicit melt anymore
+     grnd_ice = 0 ! sorry, but solver cannot handle implicit melt anymore
+                  ! no big loss, it's just the surface layer anyway
+  else
+     call get_current_point(face=ii)
+     call error_mesg('update_land_model_fast','none of the surface tiles exist at ('//&
+          trim(string(ix))//','//trim(string(iy))//','//trim(string(itile))//&
+          ', face='//trim(string(ii))//')',FATAL)
+  endif
+
+  ! + heat cknservation check, part 1; land_tile_heat has to be called after
+  !   soil_step_1, because soil dry heat capacity is initialized there
+  heat0  = land_tile_heat(tile)
+
+  subs_subl = grnd_subl
+
+  call snow_step_1 ( tile%snow, snow_G_Z, snow_G_TZ, &
+       snow_active, snow_T, snow_rh, snow_liq, snow_ice, &
+       snow_subl, snow_area, G0, DGDTg )
+  if (snow_active) then
+     grnd_T    = snow_T;   grnd_rh   = snow_rh;   grnd_liq  = snow_liq
+     grnd_rh_psi = 0
+     grnd_ice  = snow_ice; grnd_subl = snow_subl; grnd_tf   = tfreeze
+     grnd_E_min = -HUGE(grnd_E_min)
+     grnd_E_max =  HUGE(grnd_E_max)
+  endif
+
+  call cana_state(tile%cana, cana_T, cana_q, cana_co2)
+
+  if (associated(tile%vegn)) then
+     ! calculate net short-wave radiation input to the vegetation
+     do k = 1,N
+        swnet(k,:) = tile%Sv_dir (k,:)*ISa_dn_dir + tile%Sv_dif (k,:)*ISa_dn_dif
+        swdn (k,:) = tile%Sdn_dir(k,:)*ISa_dn_dir + tile%Sdn_dif(k,:)*ISa_dn_dif
+     enddo
+     ! calculate roughness of sub-canopy surface
+     call soil_roughness(tile%soil, subs_z0s, subs_z0m)
+     call snow_roughness(tile%snow, snow_z0s, snow_z0m)
+     grnd_z0s = exp( (1-snow_area)*log(subs_z0s) + snow_area*log(snow_z0s))
+     
+     ! cana_co2 is moist mass mixing ratio [kg CO2/kg wet air], convert it to dry
+     ! volumetric mixing ratio [mol CO2/mol dry air] 
+     cana_co2_mol = cana_co2*mol_air/mol_CO2/(1-cana_q)
+     if (phot_co2_overridden) cana_co2_mol = phot_co2_data
+
+     call vegn_step_1 ( tile%vegn, tile%soil, tile%diag, &
+        p_surf, ustar, drag_q, &
+        swdn, swnet, precip_l, precip_s, &
+        tile%land_d, tile%land_z0s, tile%land_z0m, grnd_z0s, & 
+        cana_T, cana_q, cana_co2_mol, &
+        ! output
+        con_g_h, con_g_v, &
+        vegn_T, vegn_Wl, vegn_Ws, & ! temperature, water and snow mass on the canopy
+        vegn_ifrac, vegn_lai, &
+        vegn_drip_l, vegn_drip_s, &
+        vegn_prec_l, vegn_prec_s, &
+        vegn_lprec,  vegn_fprec,  &
+        vegn_hcap, & ! total vegetation heat capacity (including intercepted water/snow)
+        Hv0,   DHvDTv,   DHvDTc,            & 
+        Et0,   DEtDTv,   DEtDqc,   DEtDwl,   DEtDwf,  & 
+        Eli0,  DEliDTv,  DEliDqc,  DEliDwl,  DEliDwf, & 
+        Esi0,  DEsiDTv,  DEsiDqc,  DEsiDwl,  DEsiDwf, &
+        soil_uptake_T )
+     ! assign cohort layer area fractions (calculated in update_derived_vegn_properties)
+     f(:) = tile%vegn%cohorts(1:N)%layerfrac
+     vegn_layer(:) = tile%vegn%cohorts(1:N)%layer
+  else
+     swnet    = 0
+     con_g_h = con_fac_large ; con_g_v = con_fac_large
+     if(associated(tile%glac).and.conserve_glacier_mass.and..not.snow_active) &
+          con_g_v = con_fac_small
+     vegn_T  = cana_T ; vegn_Wl = 0 ; vegn_Ws = 0
+     vegn_ifrac  = 0 ; vegn_lai    = 0
+     vegn_drip_l = 0 ; vegn_drip_s = 0
+     vegn_prec_l = 0 ; vegn_prec_s = 0
+     vegn_hcap = 1.0
+     Hv0 =0;  DHvDTv =0;  DHvDTc=0;
+     Et0 =0;  DEtDTv =0;  DEtDqc=0;   DEtDwl=0;   DEtDwf=0
+     Eli0=0;  DEliDTv=0;  DEliDqc=0;  DEliDwl=0;  DEliDwf=0 
+     Esi0=0;  DEsiDTv=0;  DEsiDqc=0;  DEsiDwl=0;  DEsiDwf=0
+     f(:)=1;  vegn_layer(:) = 1
+  endif
+  ! calculate net shortwave for ground and canopy
+  fswg     = SUM(tile%Sg_dir*ISa_dn_dir + tile%Sg_dif*ISa_dn_dif)
+  vegn_fsw = 0
+  do k = 1,N
+     vegn_fsw = vegn_fsw+f(k)*SUM(swnet(k,:))
+  enddo
+  
+  call cana_step_1 (tile%cana, p_surf, con_g_h, con_g_v,   &
+       grnd_t, grnd_rh, grnd_rh_psi, &
+       Hg0,  DHgDTg, DHgDTc, Eg0, DEgDTg, DEgDqc, DEgDpsig)
+
+! [X.X] using long-wave optical properties, calculate the explicit long-wave 
+!       radiative balances and their derivatives w.r.t. temperatures
+  call land_lw_balance(ILa_dn, vegn_layer, f, vegn_T, grnd_T, &
+     tile%vegn_tran_lw,tile%vegn_refl_lw,tile%surf_refl_lw, &
+     flwv0, flwg0, DflwvDTv, DflwvDTg, DflwgDTv, DflwgDTg)
+
+! [X.0] calculate the latent heats of vaporization at appropriate temperatures
+  if (use_tfreeze_in_grnd_latent) then
+      grnd_latent = hlv + hlf*grnd_subl
+    else
+      grnd_latent = hlv + (cpw-clw)*(grnd_T-tfreeze) &
+                 + (hlf + (clw-csw)*(grnd_T-tfreeze)) * grnd_subl
+    endif
+  if (use_atmos_T_for_precip_T) then
+      precip_T = atmos_T
+    else
+      precip_T = cana_T
+    endif
+  if (use_atmos_T_for_evap_T) then
+      evap_T = atmos_T
+    else
+      evap_T = cana_T
+    endif
+  if (use_old_conservation_equations) then
+      hlv_Tv = hlv       - (cpw-clw)*tfreeze + cpw*vegn_T
+      hls_Tv = hlv + hlf - (cpw-csw)*tfreeze + cpw*vegn_T
+      hlv_Tu = hlv       - (cpw-clw)*tfreeze + cpw*vegn_T - clw*soil_uptake_T
+      pT = precip_T
+      cT = cana_T
+      eT = evap_T
+      gT = grnd_T
+      vT = vegn_T
+    else
+      hlv_Tv = hlv    + cpw*(vegn_T-tfreeze)
+      hls_Tv = hlf    + hlv_Tv
+      hlv_Tu = hlv_Tv - clw*(soil_uptake_T-tfreeze)
+      pT = precip_T-tfreeze
+      cT = cana_T-tfreeze
+      eT = evap_T-tfreeze
+      gT = grnd_T-tfreeze
+      vT = vegn_T-tfreeze
+    endif
+  if(is_watch_point()) then
+     write(*,*)'#### input data for the matrix ####'
+     __DEBUG1__(delta_time)
+     __DEBUG1__(canopy_air_mass)
+     __DEBUG2__(vegn_T,vT)
+     __DEBUG1__(vegn_Wl)
+     __DEBUG1__(vegn_Ws)
+     __DEBUG2__(grnd_T,gT)
+     __DEBUG1__(grnd_rh)
+     __DEBUG2__(cana_T,cT)
+     __DEBUG1__(cana_q)
+     __DEBUG2__(evap_T,eT)
+     __DEBUG2__(precip_T,pT)
+     __DEBUG2__(precip_l, precip_s)
+     __DEBUG1__(vegn_prec_l)
+     __DEBUG1__(vegn_prec_s)
+     __DEBUG1__(vegn_drip_l)
+     __DEBUG1__(vegn_drip_s)
+     __DEBUG1__(vegn_ifrac)
+     __DEBUG1__(vegn_lai)
+     __DEBUG1__(ILa_dn)
+     __DEBUG2__(ISa_dn_dir(1),ISa_dn_dir(2))
+     __DEBUG2__(ISa_dn_dif(1),ISa_dn_dif(2))
+     __DEBUG1__(sum(swnet(:,:),2))
+     __DEBUG2__(fswg, vegn_fsw)
+     __DEBUG1__(vegn_hcap)
+     __DEBUG1__(hlv_Tv)
+     __DEBUG1__(hlv_Tu)
+     __DEBUG1__(hls_Tv)
+     __DEBUG2__(G0, DGDTg)
+     __DEBUG2__(Ha0, DHaDTc)
+     __DEBUG2__(Ea0, DEaDqc)
+     __DEBUG3__(Hv0, DHvDTv, DHvDTc)
+     __DEBUG5__(Et0,  DEtDTv,  DEtDqc,  DEtDwl,  DEtDwf)
+     __DEBUG5__(Eli0, DEliDTv, DEliDqc, DEliDwl, DEliDwf)
+     __DEBUG5__(Esi0, DEsiDTv, DEsiDqc, DEsiDwl, DEsiDwf)
+     __DEBUG3__(Hg0, DHgDTg, DHgDTc)
+     __DEBUG3__(Eg0, DEgDTg, DEgDqc)
+     __DEBUG1__(flwv0)
+     write(*,*)'DflwvDTv:'
+     do k = 1,N
+        write(*,'(i12.3,99(x,g))') k, DflwvDTv(k,:)
+     enddo
+     __DEBUG2__(flwg0, DflwgDTg)
+     __DEBUG1__(DflwgDTv)
+!     __DEBUG3__(flwv0(1), DflwvDTg(1), DflwvDTv(1,1))
+!     __DEBUG3__(flwg0, DflwgDTg, DflwgDTv(1))
+     __DEBUG2__(tile%e_res_1,tile%e_res_2)
+     __DEBUG1__(f)
+  endif
+
+  ! calculate indices for equation system:
+  iqc=1;  iTc=2;  iTv=3;  iwl=iTv+N;  iwf=iwl+N
+
+  A(:,:) = 0
+! [X.1] form the system of equations for implicit scheme, such that A*X = B1*delta_Tg+B2*delta_psig+B0
+! [X.1.1] equation of canopy air mass balance
+  A(iqc,iqc) = canopy_air_mass/delta_time &
+     -sum((DEtDqc(:)+DEliDqc(:)+DEsiDqc(:))*f(:))-DEgDqc+DEaDqc
+  A(iqc,iTc) = 0
+  do k = 1,N
+     A(iqc,iTv+k-1) = -f(k)*(DEtDTv(k)+DEliDTv(k)+DEsiDTv(k))
+     A(iqc,iwl+k-1) = -f(k)*(DEtDwl(k)+DEliDwl(k)+DEsiDwl(k))
+     A(iqc,iwf+k-1) = -f(k)*(DEtDwf(k)+DEliDwf(k)+DEsiDwf(k))
+  enddo
+  B0(iqc)  = sum(f(:)*(Esi0(:)+Eli0(:)+Et0(:)))+Eg0-Ea0
+  B1(iqc)  = DEgDTg
+  B2(iqc)  = DEgDpsig
+! [X.1.2] equation of canopy air energy balance
+#ifdef USE_DRY_CANA_MASS
+  A(iTc,iqc) = canopy_air_mass*cpw*cT/delta_time &
+#else
+  A(iTc,iqc) = canopy_air_mass*(cpw*cT-cp_air*cana_T)/delta_time &
+#endif
+       - cpw*sum(f(:)*vT(:)*(DEtDqc(:)+DEliDqc(:)+DEsiDqc(:))) &
+       - cpw*gT*DEgDqc + cpw*eT*DEaDqc
+#ifdef USE_DRY_CANA_MASS
+  A(iTc,iTc) = canopy_air_mass*cp_air/delta_time &
+#else
+  A(iTc,iTc) = canopy_air_mass*(cp_air+cana_q*(cpw-cp_air))/delta_time &
+#endif
+       - sum(f(:)*DHvDTc(:)) - DHgDTc + DHaDTc
+  do k = 1,N
+     A(iTc,iTv+k-1) = -f(k)*(DHvDTv(k)+cpw*vT(k)*(DEtDTv(k)+DEliDTv(k)+DEsiDTv(k)))
+     A(iTc,iwl+k-1) =            -f(k)*cpw*vT(k)*(DEtDwl(k)+DEliDwl(k)+DEsiDwl(k))
+     A(iTc,iwf+k-1) =            -f(k)*cpw*vT(k)*(DEtDwf(k)+DEliDwf(k)+DEsiDwf(k))
+  enddo
+  B0(iTc)  = sum(f(:)*Hv0(:)) + Hg0 - Ha0 &
+     + cpw*sum(f(:)*vT(:)*(Et0(:)+Eli0(:)+Esi0(:)))+cpw*gT*Eg0-cpw*eT*Ea0 &
+     - tile%e_res_1 - tile%e_res_2
+  B1(iTc)  = DHgDTg + cpw*gT*DEgDTg
+  B2(iTc)  =          cpw*gT*DEgDpsig
+! [X.1.3] equation of canopy energy balance
+  do k = 1,N
+     A(iTv+k-1,iqc) = hlv_Tu(k)*DEtDqc(k)+hlv_Tv(k)*DEliDqc(k)+hls_Tv(k)*DEsiDqc(k)
+     A(iTv+k-1,iTc) = DHvDTc(k)
+     A(iTv+k-1,iTv+k-1) = vegn_hcap(k)/delta_time &
+       +DHvDTv(k) &
+       +hlv_Tu(k)*DEtDTv(k) + hlv_Tv(k)*DEliDTv(k) + hls_Tv(k)*DEsiDTv(k) &
+       +clw*vegn_drip_l(k) + csw*vegn_drip_s(k)
+     ! add matrix of long-wave derivatives
+     do k1=1,N
+        A(iTv+k-1,iTv+k1-1) = A(iTv+k-1,iTv+k1-1)-DflwvDTv(k,k1) 
+     enddo
+     A(iTv+k-1,iwl+k-1) = clw*vT(k)/delta_time &
+       +hlv_Tu(k)*DEtDwl(k) + hlv_Tv(k)*DEliDwl(k) + hls_Tv(k)*DEsiDwl(k)
+     A(iTv+k-1,iwf+k-1) = csw*vT(k)/delta_time &
+       +hlv_Tu(k)*DEtDwf(k) + hlv_Tv(k)*DEliDwf(k) + hls_Tv(k)*DEsiDwf(k)
+     B0(iTv+k-1) = sum(swnet(k,:)) &
+       + flwv0(k) - Hv0(k) - hlv_Tu(k)*Et0(k) - Hlv_Tv(k)*Eli0(k) - hls_Tv(k)*Esi0(k) &
+       + clw*vegn_prec_l(k)*vegn_ifrac(k)*pT + csw*vegn_prec_s(k)*vegn_ifrac(k)*pT & ! this is incorrect, needs to be modified. Is it?
+       - clw*vegn_drip_l(k)*vT(k) - csw*vegn_drip_s(k)*vT(k)
+     B1(iTv+k-1) = DflwvDTg(k)
+     B2(iTv+k-1) = 0
+  enddo
+! [X.1.4] equation of intercepted liquid water mass balance
+  do k = 1,N
+     A(iwl+k-1,iqc) = DEliDqc(k)
+     A(iwl+k-1,iTc) = 0
+     A(iwl+k-1,iTv+k-1) = DEliDTv(k)
+     A(iwl+k-1,iwl+k-1) = 1.0/delta_time + DEliDwl(k)
+     A(iwl+k-1,iwf+k-1) = DEliDwf(k)
+     B0(iwl+k-1)  = -Eli0(k) + vegn_prec_l(k)*vegn_ifrac(k) - vegn_drip_l(k) 
+     B1(iwl+k-1)  = 0
+     B2(iwl+k-1)  = 0
+  enddo
+! [X.1.5] equation of intercepted frozen water mass balance
+  do k = 1,N
+     A(iwf+k-1,iqc) = DEsiDqc(k)
+     A(iwf+k-1,iTc) = 0
+     A(iwf+k-1,iTv+k-1) = DEsiDTv(k)
+     A(iwf+k-1,iwl+k-1) = DEsiDwl(k)
+     A(iwf+k-1,iwf+k-1) = 1.0/delta_time + DEsiDwf(k)
+     B0(iwf+k-1)  = -Esi0(k) + vegn_prec_s(k)*vegn_ifrac(k) - vegn_drip_s(k)
+     B1(iwf+k-1)  = 0
+     B2(iwf+k-1)  = 0
+  enddo
+! [X.1.6] if LAI becomes zero (and, therefore, all fluxes from vegetation and
+! their derivatives must be zero too) and heat capacity of the vegetation is
+! zero, we get a degenerate case. Still, the drip may be non-zero because some
+! water may remain from before leaf drop, and non-zero energy residual can be
+! carried over from the previous time step.
+!
+! To prevent temperature from going haywire in those cases, we simply replace the
+! equations of canopy energy and mass balance with the following:
+! vegn_T + delta_Tv = cana_T + delta_Tc
+! delta_Wl = -vegn_drip_l*delta_time
+! delta_Ws = -vegn_drip_s*delta_time
+! The residual vegn_Wl and vegn_Ws, if any, are taken care of by the overflow 
+! calculations.
+!
+! NOTE: currently vegn_hcap can't be zero if mcv_min namelist parameter is not 
+! zero (and it's not by default, it's actually pretty big). Also, in non-vegetated 
+! tiles vegn_hcap is set to 1. So this degenerate case never happens in typical 
+! configurations. The only way for this to happen is to set mcv_min=0 and drop
+! leaves
+  do k = 1,N 
+     if(vegn_hcap(k)==0.and.vegn_lai(k)==0) then
+       ! vegn_T + delta_Tv = cana_T + delta_Tc
+       A(iTv+k-1,:)   = 0
+       A(iTv+k-1,iTc) = -1
+       A(iTv+k-1,iTv+k-1) = +1
+       B0(iTv+k-1) = cana_T - vegn_T(k)
+       B1(iTv+k-1) = 0
+       ! delta_Wl = -vegn_drip_l*delta_time
+       A(iwl+k-1,:)   = 0
+       A(iwl+k-1,iwl+k-1) = 1
+       B0(iwl+k-1) = -vegn_drip_l(k)*delta_time
+       B1(iwl+k-1) = 0
+       ! delta_Ws = -vegn_drip_s*delta_time
+       A(iwf+k-1,:)   = 0
+       A(iwf+k-1,iwf+k-1) = 1
+       B0(iwf+k-1) = -vegn_drip_s(k)*delta_time
+       B1(iwf+k-1) = 0
+     endif
+  enddo
+
+
+
+  if(is_watch_point()) then
+     write(*,*)'#### A ####'
+     do ii = 1, size(A,1)
+        write(*,'(99g)')(A(ii,jj),jj=1,size(A,2))
+     enddo
+     write(*,*)'#### B0, B1, B2 ####'
+     do ii = 1, size(A,1)
+        write(*,'(99g)')B0(ii),B1(ii),B2(ii)
+     enddo
+  endif
+
+  A00 = A;  B00 = B0;  B10 = B1;  B20 = B2
+
+! [X.2] solve the system for free terms and delta_Tg and delta_psig terms, getting
+!       linear equation for delta_Tg and delta_psig
+  call ludcmp(A,indx, ierr)
+  if (ierr/=0)&
+       write(*,*) 'Matrix is singular',ix,iy,itile
+  call lubksb(A,indx,B0)
+  call lubksb(A,indx,B1)
+  call lubksb(A,indx,B2)
+
+  if(is_watch_point()) then
+     write(*,*)'#### solution: B0, B1, B2 ####'
+     do ii = 1, size(A,1)
+        __DEBUG3__(B0(ii),B1(ii),B2(ii))
+     enddo
+     write(*,*)'#### solution check ####'
+     do ii = 1, size(A,1)
+        sum0 = 0; sum1 = 0; sum2=0
+        do jj = 1, size(A,2)
+           sum0 = sum0 + A00(ii,jj)*B0(jj)
+           sum1 = sum1 + A00(ii,jj)*B1(jj)
+           sum2 = sum2 + A00(ii,jj)*B2(jj)
+        enddo
+        __DEBUG3__(sum0-B00(ii),sum1-B10(ii),sum2-B20(ii))
+     enddo
+  endif
+! the result of this solution is a set of expressions for delta_xx in terms
+! of delta_Tg and delta_psig: 
+! delta_xx(i) = B0(i) + B1(i)*delta_Tg + B2(i)*delta_psig. Note that A, B0, B1 and B2
+! are destroyed in the process: A is replaced with LU-decomposition, and
+! B0, B1, B2 are replaced with solutions
+
+  ! solve the non-linear equation for energy balance at the surface.
+
+  call land_surface_energy_balance( &
+       grnd_T, grnd_liq, grnd_ice, grnd_latent, grnd_Tf, grnd_E_min, &
+       grnd_E_max, fswg, &
+       flwg0 + sum(b0(iTv:iTv+N-1)*DflwgDTv(:)), &
+       DflwgDTg + sum(b1(iTv:iTv+N-1)*DflwgDTv(:)),&
+       sum(b2(iTv:iTv+N-1)*DflwgDTv(:)), &
+       Hg0 + B0(iTc)*DHgDTc, DHgDTg + B1(iTc)*DHgDTc, B2(iTc)*DHgDTc,   &
+       Eg0 + B0(iqc)*DEgDqc, DEgDTg + B1(iqc)*DEgDqc, DEgDpsig + B2(iqc)*DEgDqc,   &
+       G0,                       DGDTg, &
+       ! output
+       delta_Tg, delta_psig, Mg_imp )
+
+! [X.5] calculate final value of other tendencies
+  delta_qc = B0(iqc) + B1(iqc)*delta_Tg + B2(iqc)*delta_psig
+  delta_Tc = B0(iTc) + B1(iTc)*delta_Tg + B2(iTc)*delta_psig
+  delta_Tv(:) = B0(iTv:iTv+N-1) + B1(iTv:iTv+N-1)*delta_Tg + B2(iTv:iTv+N-1)*delta_psig
+  delta_wl(:) = B0(iwl:iwl+N-1) + B1(iwl:iwl+N-1)*delta_Tg + B2(iwl:iwl+N-1)*delta_psig
+  delta_ws(:) = B0(iwf:iwf+N-1) + B1(iwf:iwf+N-1)*delta_Tg + B2(iwf:iwf+N-1)*delta_psig
+
+! [X.6] calculate updated values of energy balance components used in further 
+!       calculations
+  flwg       = flwg0 + DflwgDTg*delta_Tg + sum(DflwgDTv(:)*delta_Tv(:))
+  evapg      = Eg0   + DEgDTg*delta_Tg   + DEgDpsig*delta_psig + DEgDqc*delta_qc
+  sensg      = Hg0   + DHgDTg*delta_Tg   + DHgDTc*delta_Tc
+  grnd_flux  = G0    + DGDTg*delta_Tg
+  vegn_sens  = Hv0   + DHvDTv*delta_Tv   + DHvDTc*delta_Tc
+  vegn_flw   = 0
+  do k = 1,N
+     vegn_levap(k) = Eli0(k)  + DEliDTv(k)*delta_Tv(k)  + DEliDqc(k)*delta_qc + DEliDwl(k)*delta_wl(k) + DEliDwf(k)*delta_ws(k)
+     vegn_fevap(k) = Esi0(k)  + DEsiDTv(k)*delta_Tv(k)  + DEsiDqc(k)*delta_qc + DEsiDwl(k)*delta_wl(k) + DEsiDwf(k)*delta_ws(k)
+     vegn_uptk (k) = Et0 (k)  + DEtDTv (k)*delta_Tv(k)  + DEtDqc (k)*delta_qc + DEtDwl (k)*delta_wl(k) + DEtDwf (k)*delta_ws(k)
+     vegn_lwnet(k) = flwv0(k) + sum(DflwvDTv(k,:)*delta_Tv(:)) + DflwvDTg(k)*delta_Tg
+     vegn_flw = vegn_flw + f(k)*vegn_lwnet(k)
+  enddo
+  land_evap  = Ea0   + DEaDqc*delta_qc
+  land_sens  = Ha0   + DHaDTc*delta_Tc
+! [X.7] calculate energy residuals due to cross-product of time tendencies
+#ifdef USE_DRY_CANA_MASS
+  tile%e_res_1 = canopy_air_mass*cpw*delta_qc*delta_Tc/delta_time
+#else
+  tile%e_res_1 = canopy_air_mass*(cpw-cp_air)*delta_qc*delta_Tc/delta_time
+#endif
+  tile%e_res_2 = sum(f(:)*delta_Tv(:)*(clw*delta_Wl(:)+csw*delta_Ws(:)))/delta_time
+! calculate the final value upward long-wave radiation flux from the land, to be 
+! returned to the flux exchange.
+  tile%lwup = ILa_dn - vegn_flw - flwg 
+
+  if(is_watch_point())then
+     write(*,*)'#### ground balance'
+     __DEBUG2__(fswg,flwg)
+     __DEBUG2__(sensg,evapg*grnd_latent)
+     __DEBUG1__(grnd_flux)
+     __DEBUG1__(Mg_imp)
+     write(*,*)'#### implicit time steps'
+     __DEBUG3__(delta_Tg, grnd_T,  grnd_T+delta_Tg )
+     __DEBUG1__(delta_psig                         )
+     __DEBUG3__(delta_qc, cana_q,  cana_q+delta_qc )
+     __DEBUG3__(delta_Tc, cana_T,  cana_T+delta_Tc )
+     __DEBUG3__(delta_Tv, vegn_T,  vegn_T+delta_Tv )
+     __DEBUG3__(delta_wl, vegn_Wl, vegn_Wl+delta_wl)
+     __DEBUG3__(delta_ws, vegn_Ws, vegn_Ws+delta_ws)
+     __DEBUG2__(tile%e_res_1, tile%e_res_2)
+     write(*,*)'#### resulting fluxes'
+     __DEBUG4__(flwg, evapg, sensg, grnd_flux)
+     __DEBUG1__(vegn_levap)
+     __DEBUG1__(vegn_fevap)
+     __DEBUG1__(vegn_uptk)
+     __DEBUG1__(vegn_sens)
+     __DEBUG1__(vegn_lwnet)
+     __DEBUG1__(vegn_flw)
+     __DEBUG1__(land_evap)
+  endif
+
+  call cana_step_2 ( tile%cana, delta_Tc, delta_qc )
+
+  if(associated(tile%vegn)) then
+     call vegn_step_2 ( tile%vegn, tile%diag, &
+          delta_Tv, delta_wl, delta_ws, &
+          vegn_melt,  &
+          vegn_ovfl_l,   vegn_ovfl_s, &
+          vegn_ovfl_Hl, vegn_ovfl_Hs )
+     ! calculate heat carried by liquid and solid precipitation below the canopy
+     vegn_hlprec = clw*(vegn_lprec*(precip_T-tfreeze) &
+                      + sum(f(:)*vegn_drip_l(:)*(vegn_T(:)+delta_Tv(:)-tfreeze)) &
+                      ) + vegn_ovfl_Hl
+     vegn_hfprec = csw*(vegn_fprec*(precip_T-tfreeze) &
+                      + sum(f(:)*vegn_drip_s(:)*(vegn_T(:)+delta_Tv(:)-tfreeze)) &
+                      ) + vegn_ovfl_Hs
+     ! calculate total amount of liquid and solid precipitation below the canopy
+     vegn_lprec  = vegn_lprec + sum(f(:)*vegn_drip_l(:)) + vegn_ovfl_l
+     vegn_fprec  = vegn_fprec + sum(f(:)*vegn_drip_s(:)) + vegn_ovfl_s
+     ! make sure the temperature of the snow falling below canopy is below freezing
+     ! this correction was introduced in an attempt to fix the problem with fictitious 
+     ! heat accumulating in near-zero-mass snow; however it does not seem to make a 
+     ! difference.
+     if(vegn_hfprec>0)then
+        ! solid precipitation from vegetation carries positive energy -- we can't have
+        ! that, because that would bring snow T above tfreeze, so convert excess to 
+        ! liquid
+        delta_fprec = min(vegn_fprec,vegn_hfprec/hlf)
+        vegn_fprec = vegn_fprec - delta_fprec
+        vegn_lprec = vegn_lprec + delta_fprec
+        vegn_hfprec = vegn_hfprec - hlf*delta_fprec
+        ! we don't need to correct the vegn_hlprec since the temperature of additional
+        ! liquid precip is tfreeze, and therefore its contribution to vegn_hlprec is
+        ! exactly zero
+     endif
+     ! possibly we need to correct for the opposite situation: negative energy carried
+     ! by liquid precipitation.
+  else
+     vegn_lprec  = precip_l
+     vegn_fprec  = precip_s
+     vegn_hlprec = precip_l*clw*(precip_T-tfreeze)
+     vegn_hfprec = precip_s*csw*(precip_T-tfreeze)
+     ! the fields below are only used in diagnostics
+     vegn_melt   = 0
+     vegn_fsw    = 0
+  endif
+
+  call snow_step_2 ( tile%snow, &
+       snow_subl, vegn_lprec, vegn_fprec, vegn_hlprec, vegn_hfprec, &
+       delta_Tg, Mg_imp, evapg, fswg, flwg, sensg, &
+       use_tfreeze_in_grnd_latent, &
+       ! output:
+       subs_DT, subs_M_imp, subs_evap, subs_fsw, subs_flw, subs_sens, &
+       snow_fsw, snow_flw, snow_sens, &
+       snow_levap, snow_fevap, snow_melt, &
+       snow_lprec, snow_hlprec, snow_lrunf, snow_frunf, &
+       snow_hlrunf, snow_hfrunf, snow_Tbot, snow_Cbot, snow_C, snow_avrg_T )
+  if(is_watch_point()) then
+     write(*,*) 'subs_M_imp', subs_M_imp
+  endif
+
+  if (snow_active) then
+     subs_G = snow_G_Z+snow_G_TZ*subs_DT
+  else
+     subs_G = 0
+  endif
+  
+  if (associated(tile%glac)) then
+     call glac_step_2 &
+          ( tile%glac, tile%diag, subs_subl, snow_lprec, snow_hlprec, &
+          subs_DT, subs_M_imp, subs_evap, &
+          subs_levap, subs_fevap, &
+          subs_melt, subs_lrunf, subs_hlrunf, subs_Ttop, subs_Ctop )
+  else if (associated(tile%lake)) then
+     call lake_step_2 &
+          ( tile%lake, tile%diag, subs_subl, snow_lprec, snow_hlprec, &
+          subs_DT, subs_M_imp, subs_evap, &
+          use_tfreeze_in_grnd_latent, subs_levap, subs_fevap, &
+          subs_melt, subs_Ttop, subs_Ctop )
+     subs_lrunf = 0.
+     subs_hlrunf = 0.
+  else if (associated(tile%soil)) then
+     call soil_step_2 &
+          ( tile%soil, tile%vegn, tile%diag, subs_subl, snow_lprec, snow_hlprec, &
+          vegn_uptk, subs_DT, subs_M_imp, subs_evap, &
+          use_tfreeze_in_grnd_latent, &
+          ! output:
+          subs_levap, subs_fevap, &
+          subs_melt, subs_lrunf, subs_hlrunf, subs_Ttop, subs_Ctop )
+  endif
+  if (is_watch_point()) then
+     __DEBUG2__(subs_levap, subs_fevap)
+     __DEBUG5__(subs_melt, subs_lrunf, subs_hlrunf, subs_Ttop, subs_Ctop)
+  endif  
+  
+! TEMP FIX: MAIN PROG SHOULD NOT TOUCH CONTENTS OF PROG VARS. ******
+! ALSO, DIAGNOSTICS IN COMPONENT MODULES SHOULD _FOLLOW_ THIS ADJUSTMENT******
+  IF (LM2) THEN
+     tile%snow%prog%T = subs_Ttop
+     subs_G2 = 0.
+  ELSE
+     if (sum(tile%snow%prog(:)%ws)>0)then
+        new_T = (subs_Ctop*subs_Ttop +snow_Cbot*snow_Tbot) &
+                        / (subs_Ctop+snow_Cbot)
+        tile%snow%prog(size(tile%snow%prog))%T = new_T
+        if(associated(tile%glac)) tile%glac%prog(1)%T = new_T
+        if(associated(tile%lake)) tile%lake%prog(1)%T = new_T
+        if(associated(tile%soil)) tile%soil%prog(1)%T = new_T
+        subs_G2 = subs_Ctop*(new_T-subs_Ttop)/delta_time
+     else
+        if(tau_snow_T_adj>=0) then
+           delta_T_snow = subs_Ctop*(subs_Ttop-snow_avrg_T)/&
+                (subs_Ctop*tau_snow_T_adj/delta_time+subs_Ctop+snow_C)
+           tile%snow%prog(:)%T = snow_avrg_T + delta_T_snow
+
+           new_T = subs_Ttop-snow_C/subs_Ctop*delta_T_snow
+           if(associated(tile%glac)) tile%glac%prog(1)%T = new_T
+           if(associated(tile%lake)) tile%lake%prog(1)%T = new_T
+           if(associated(tile%soil)) tile%soil%prog(1)%T = new_T
+           subs_G2 = subs_Ctop*(new_T-subs_Ttop)/delta_time
+        else
+           subs_G2 = 0.
+        endif
+     endif
+  ENDIF
+
+  vegn_fco2 = 0
+  if (associated(tile%vegn)) then
+     ! do the calculations that require updated land surface prognostic variables
+     call vegn_step_3 (tile%vegn, tile%soil, tile%cana%prog%T, precip_l+precip_s, &
+          vegn_fco2, tile%diag)
+  endif
+  ! update co2 concentration in the canopy air. It would be more consistent to do that
+  ! in the same place and fashion as the rest of prognostic variables: that is, have the
+  ! vegn_step_1 (and perhaps other *_step_1 procedures) calculate fluxes and their
+  ! derivatives, then solve the linear equation(s), and finally have cana_step_2 update
+  ! the concentration.
+  if(update_cana_co2) then
+     delta_co2 = (vegn_fco2 - fco2_0)/(canopy_air_mass_for_tracers/delta_time+Dfco2Dq)
+     tile%cana%prog%co2 = tile%cana%prog%co2 + delta_co2
+  else
+     delta_co2 = 0
+  endif
+  if(is_watch_point())then
+     __DEBUG1__(tile%cana%prog%co2)
+     __DEBUG3__(fco2_0,Dfco2Dq,vegn_fco2)
+  endif
+  
+  call update_land_bc_fast (tile, ix,iy,itile, land2cplr)
+
+  runoff      = runoff      + (snow_frunf  + subs_lrunf  + snow_lrunf )*tile%frac
+  runoff_heat = runoff_heat + (snow_hfrunf + subs_hlrunf + snow_hlrunf)*tile%frac
+  runoff_snow = runoff_snow + snow_frunf*tile%frac
+  hprec = (clw*precip_l+csw*precip_s)*(precip_T-tfreeze)
+  hevap = cpw*land_evap*(evap_T-tfreeze)
+
+  ! + conservation check, part 2: calculate totals in final state, and compare 
+  ! with previus totals
+  tag = 'update_land_model_fast_0d'
+  call get_tile_water(tile,lmass1,fmass1)
+  call check_conservation (tag,'water', &
+      lmass0+fmass0+(precip_l+precip_s-land_evap-(snow_frunf+subs_lrunf+snow_lrunf))*delta_time, &
+      lmass1+fmass1, 1e-11, lnd%time)
+
+  cmass1 = land_tile_carbon(tile)  
+  call check_conservation (tag,'carbon', &
+     cmass0-(fco2_0+Dfco2Dq*delta_co2)*mol_C/mol_CO2*delta_time, &
+     cmass1, 1e-13, lnd%time)
+
+  heat1  = land_tile_heat(tile)
+  ! latent heat is missing below, and it's not trivial to add, because there are
+  ! multiple components with their own vaporization heat
+!  call check_conservation (tag,'heat content', &
+!      heat0+(hprec-land_sens-hevap &
+!           +sum(ISa_dn_dir*(1-tile%land_refl_dir)+ISa_dn_dif*(1-tile%land_refl_dif)) &
+!           +ILa_dn-tile%lwup &
+!           -(snow_hfrunf + subs_hlrunf + snow_hlrunf) &
+!           )*delta_time, &
+!      heat1, 1e-16, lnd%time)
+  ! - end of conservation check, part 2
+
+  ! TODO: go through the diagnostics and verify that they do the right thing in PPA case
+  ! ---- diagnostic section ----------------------------------------------
+  call send_tile_data(id_frac,    tile%frac,                          tile%diag)
+  call send_tile_data(id_ntiles,  1.0,                                tile%diag)     
+  call send_tile_data(id_precip,  precip_l+precip_s,                  tile%diag)
+  call send_tile_data(id_hprec,   hprec,                              tile%diag)
+  call send_tile_data(id_lprec,   precip_l,                           tile%diag)
+  call send_tile_data(id_lprecv,  precip_l-vegn_lprec,                tile%diag)
+  call send_tile_data(id_lprecs,  vegn_lprec-snow_lprec,              tile%diag)
+  call send_tile_data(id_lprecg,  snow_lprec,                         tile%diag)
+  call send_tile_data(id_hlprec,  clw*precip_l*(precip_T-tfreeze),    tile%diag)
+  call send_tile_data(id_hlprecv, clw*precip_l*(precip_T-tfreeze)-vegn_hlprec, &
+                                                                      tile%diag)
+  call send_tile_data(id_hlprecs, vegn_hlprec-snow_hlprec,            tile%diag)
+  call send_tile_data(id_hlprecg, snow_hlprec,                        tile%diag)
+  call send_tile_data(id_fprec,   precip_s,                           tile%diag)
+  call send_tile_data(id_fprecv,  precip_s-vegn_fprec,                tile%diag)
+  call send_tile_data(id_fprecs,  vegn_fprec,                         tile%diag)
+  call send_tile_data(id_hfprec,  csw*precip_s*(precip_T-tfreeze),    tile%diag)
+  call send_tile_data(id_hfprecv, csw*precip_s*(precip_T-tfreeze)-vegn_hfprec, &
+                                                                      tile%diag)
+  call send_tile_data(id_hfprecs, vegn_hfprec,                        tile%diag)
+  call send_tile_data(id_evap,    land_evap,                          tile%diag)
+  call send_tile_data(id_hevap,   hevap,                              tile%diag)
+  call send_tile_data(id_levap,   vegn_levap+snow_levap+subs_levap+vegn_uptk, &
+                                                                      tile%diag)
+  call send_tile_data(id_levapv,  vegn_levap,                         tile%diag)
+  call send_tile_data(id_levaps,  snow_levap,                         tile%diag)
+  call send_tile_data(id_levapg,  subs_levap,                         tile%diag)
+  call send_tile_data(id_hlevap,  cpw*vegn_levap*(vegn_T-tfreeze) &
+                                    +cpw*snow_levap*(snow_T-tfreeze) &
+                                    +cpw*subs_levap*(grnd_T-tfreeze), tile%diag)
+  call send_tile_data(id_hlevapv, cpw*vegn_levap*(vegn_T-tfreeze),    tile%diag)
+  call send_tile_data(id_hlevaps, cpw*snow_levap*(snow_T-tfreeze),    tile%diag)
+  call send_tile_data(id_hlevapg, cpw*subs_levap*(grnd_T-tfreeze),    tile%diag)
+  call send_tile_data(id_fevap,   vegn_fevap+snow_fevap+subs_fevap,   tile%diag)
+  call send_tile_data(id_fevapv,  vegn_fevap,                         tile%diag)
+  call send_tile_data(id_fevaps,  snow_fevap,                         tile%diag)
+  call send_tile_data(id_fevapg,  subs_fevap,                         tile%diag)
+  call send_tile_data(id_hfevap,  cpw*vegn_fevap*(vegn_T-tfreeze) &
+                                    +cpw*snow_fevap*(snow_T-tfreeze) &
+                                    +cpw*subs_fevap*(grnd_T-tfreeze), tile%diag)
+  call send_tile_data(id_hfevapv, cpw*vegn_fevap*(vegn_T-tfreeze),    tile%diag)
+  call send_tile_data(id_hfevaps, cpw*snow_fevap*(snow_T-tfreeze),    tile%diag)
+  call send_tile_data(id_hfevapg, cpw*subs_fevap*(grnd_T-tfreeze),    tile%diag)
+  call send_tile_data(id_runf,    snow_lrunf+snow_frunf+subs_lrunf,   tile%diag)
+  call send_tile_data(id_hrunf,   snow_hlrunf+snow_hfrunf+subs_hlrunf,tile%diag)
+  call send_tile_data(id_lrunf,   snow_lrunf+subs_lrunf,              tile%diag)
+  call send_tile_data(id_lrunfs,  snow_lrunf,                         tile%diag)
+  call send_tile_data(id_lrunfg,  subs_lrunf,                         tile%diag)
+  call send_tile_data(id_hlrunf,  snow_hlrunf+subs_hlrunf,            tile%diag)
+  call send_tile_data(id_hlrunfs, snow_hlrunf,                        tile%diag)
+  call send_tile_data(id_hlrunfg, subs_hlrunf,                        tile%diag)
+  call send_tile_data(id_frunf,   snow_frunf,                         tile%diag)
+  call send_tile_data(id_frunfs,  snow_frunf,                         tile%diag)
+  call send_tile_data(id_hfrunf,  snow_hfrunf,                        tile%diag)
+  call send_tile_data(id_hfrunfs, snow_hfrunf,                        tile%diag)
+  call send_tile_data(id_melt,    vegn_melt+snow_melt+subs_melt,      tile%diag)
+  call send_tile_data(id_meltv,   vegn_melt,                          tile%diag)
+  call send_tile_data(id_melts,   snow_melt,                          tile%diag)
+  call send_tile_data(id_meltg,   subs_melt,                          tile%diag)
+  call send_tile_data(id_fsw,     vegn_fsw+snow_fsw+subs_fsw,         tile%diag)
+  call send_tile_data(id_fswv,    vegn_fsw,                           tile%diag)
+  call send_tile_data(id_fsws,    snow_fsw,                           tile%diag)
+  call send_tile_data(id_fswg,    subs_fsw,                           tile%diag)
+  call send_tile_data(id_flw,     vegn_flw+snow_flw+subs_flw,         tile%diag)
+  call send_tile_data(id_flwv,    vegn_flw,                           tile%diag)
+  call send_tile_data(id_flws,    snow_flw,                           tile%diag)
+  call send_tile_data(id_flwg,    subs_flw,                           tile%diag)
+  call send_tile_data(id_sens,    land_sens,                          tile%diag)
+  call send_tile_data(id_sensv,   vegn_sens,                          tile%diag)
+  call send_tile_data(id_senss,   snow_sens,                          tile%diag)
+  call send_tile_data(id_sensg,   subs_sens,                          tile%diag)
+  call send_tile_data(id_e_res_1, tile%e_res_1,                       tile%diag)
+  call send_tile_data(id_e_res_2, tile%e_res_2,                       tile%diag)
+  call send_tile_data(id_con_g_h, con_g_h,                            tile%diag)
+  call send_tile_data(id_transp,  vegn_uptk,                          tile%diag)
+  call send_tile_data(id_wroff,   snow_lrunf+subs_lrunf,              tile%diag)
+  call send_tile_data(id_sroff,   snow_frunf,                         tile%diag)
+  call send_tile_data(id_htransp, cpw*vegn_uptk*(vegn_T-tfreeze),     tile%diag)
+  call send_tile_data(id_huptake, clw*vegn_uptk*(soil_uptake_T-tfreeze), &
+                                                                      tile%diag)
+  call send_tile_data(id_hroff,   snow_hlrunf+subs_hlrunf+snow_hfrunf, &
+                                                                      tile%diag)
+  call send_tile_data(id_gsnow,   subs_G,                             tile%diag)
+  call send_tile_data(id_gequil,  subs_G2,                            tile%diag)
+  call send_tile_data(id_grnd_flux, grnd_flux,                        tile%diag)
+  if(grnd_E_max.lt.0.5*HUGE(grnd_E_Max)) &
+      call send_tile_data(id_levapg_max, grnd_E_max,                  tile%diag)
+  call send_tile_data(id_qco2,    tile%cana%prog%co2,                 tile%diag)
+  call send_tile_data(id_qco2_dvmr,&
+       tile%cana%prog%co2*mol_air/mol_co2/(1-tile%cana%prog%q),       tile%diag)
+  call send_tile_data(id_fco2,    vegn_fco2*mol_C/mol_co2,            tile%diag)
+  call send_tile_data(id_swdn_dir, ISa_dn_dir,                        tile%diag)
+  call send_tile_data(id_swdn_dif, ISa_dn_dif,                        tile%diag)
+  call send_tile_data(id_swup_dir, ISa_dn_dir*tile%land_refl_dir,     tile%diag)
+  call send_tile_data(id_swup_dif, ISa_dn_dif*tile%land_refl_dif,     tile%diag)
+  call send_tile_data(id_lwdn,     ILa_dn,                            tile%diag)
+
+end subroutine update_land_model_fast_0d
 
 
 ! ============================================================================
@@ -1955,137 +2147,168 @@ end subroutine land_surface_energy_balance
 ! given downward long-wave flux from the atmosphere, and optical properties
 ! of vegetation and ground surface, calculates radiative balances of canopy 
 ! layers and ground surface, and their derivatives w.r.t. temperatures
-subroutine land_lw_balance(lwdn, vegn_T, surf_T, &
+subroutine land_lw_balance(lwdn_atm, layer, frac, vegn_T, surf_T, &
   vegn_tran_lw, vegn_refl_lw, surf_refl_lw, &
   flwv, flwg, DflwvDTv, DflwvDTg, DflwgDTv, DflwgDTg )
   
-  real, intent(in) :: lwdn ! downward long-wave radiation on top of the canopy, W/m2
+  real, intent(in) :: lwdn_atm ! downward long-wave radiation on top of the canopy, W/m2
+  integer, intent(in) :: layer(:) ! layer number for cohort, top-down
+  real, intent(in) :: frac(:)   ! fractional crown area of cohorts
   real, intent(in) :: vegn_T(:) ! canopy temperatures, deg K
   real, intent(in) :: surf_T    ! ground surface temperature, deg K
-  real, intent(in) :: vegn_tran_lw(:) ! transmittance of canopy layers to long-wave radiation
-  real, intent(in) :: vegn_refl_lw(:) ! reflectance of canopy layers to long-wave radiation
+  real, intent(in) :: vegn_tran_lw(:) ! transmittance of cohort canopies to long-wave radiation
+  real, intent(in) :: vegn_refl_lw(:) ! reflectance of cohort canopies to long-wave radiation
   real, intent(in) :: surf_refl_lw ! reflectance of ground surface to long-wave
   
   real, intent(out) :: flwv(:) ! long-wave balances of canopy layers, W/m2
   real, intent(out) :: flwg ! ground surface long-wave balance, W/m2
   real, intent(out) :: DflwvDTv(:,:) ! derivatives of canopy balances w.r.t. canopy temperatures, W/(m2 K)
+  ! DflwvDTv(i,j) is the derivative of i-th cohort LW balance w.r.t j-th cohort temperature
   real, intent(out) :: DflwvDTg(:) ! derivatives of canopy balances w.r.t. ground surface temperature, W/(m2 K)
   real, intent(out) :: DflwgDTv(:) ! derivatives of ground surface balance w.r.t. canopy temperatures, W/(m2 K)
   real, intent(out) :: DflwgDTg    ! derivative of ground surface balance w.r.t. ground surface temperature, W/(m2 K)
+  ! the radiative balances and their derivatives are per unit area of 
+  ! respective canopy
 
   ! ---- local vars
   integer :: N ! number of canopy layers
-  real :: surf_emis_lw ! surface emissivity = 1-surf_refl_lw
+  integer :: M ! total number of cohorts
+  real :: surf_emis_lw   ! surface emissivity = 1-surf_refl_lw
   real, allocatable :: &
-     vegn_emis_lw(:), & ! absorptivity of canopy layers
-     scale(:), & ! scaling factor due to multiple reflections, 1/(1-refl*refl(i))
-     B(:), &     ! black-body emission of individual layers, W/m2
-     refl(:), &  ! integral reflectance below layer N, with multiple scattering
-     emis(:), &  ! integral emission from all layers below N, with multiple scattering
-     CL(:),CB(:),CE(:) ! coefficients for radiative balance calculations
-  real :: lwdn_i ! downward long-wave above layer i
-  integer :: i,j
+     vegn_emis_lw(:),  & ! absorptivity of cohorts
+     bbrad(:),         & ! emission from cohort
+     layer_tran_lw(:), & ! average transmittance of layers
+     layer_refl_lw(:), & ! average reflectance of layers
+     layer_emis_lw(:), & ! average absorptivity of layers
+     layer_area(:),    & ! total area of the crowns in the layer
+     scale(:),         & ! scaling factor due to multiple reflections, 1/(1-refl*refl(i))
+     B(:),             & ! black-body emission of individual layers, W/m2
+     refl(:),          & ! integral reflectance below layer N, with multiple scattering
+     emis(:),          & ! integral emission from all layers below N, with multiple scattering
+     lwdn(:),          & ! downward long-wave flux below canopy layer, W/m2
+     CL(:)               ! coefficients for radiative balance calculations
+  integer :: i,j,k
   
-  ! [1] go upward through the canopy and calculate albedo and emissions
-  N = size(vegn_T)
+  surf_emis_lw = 1-surf_refl_lw
+  
+  N = maxval(layer) ! number of layers
+  M = size(vegn_T)  ! number of cohorts
   ! check argument shapes
-#define __CHECK_SIZE__(x)if(size(x)/=N) call error_mesg('land_lw_balance','Size of '//#x//' is incorrect',FATAL)
+#define __CHECK_SIZE__(x)if(size(x)/=M) call error_mesg('land_lw_balance','Size of '//#x//' is incorrect',FATAL)
+  __CHECK_SIZE__(layer)
+  __CHECK_SIZE__(frac)
   __CHECK_SIZE__(vegn_tran_lw)
   __CHECK_SIZE__(vegn_refl_lw)
-  __CHECK_SIZE__(flwv)
   __CHECK_SIZE__(DflwvDTg)
   __CHECK_SIZE__(DflwgDTv)
 #undef __CHECK_SIZE__
-  if(size(DflwvDTv,1)/=N.or.size(DflwvDTv,1)/=N) &
-       call error_mesg('land_lw_balance','Size of DflwvDTv is incorrect',FATAL)
+  if (size(DflwvDTv,1)/=M.or.size(DflwvDTv,2)/=M) &
+    call error_mesg('land_lw_balance','Shape of DflwvDTv is incorrect',FATAL)
   
   ! allocate local variables
-  allocate(vegn_emis_lw(N),scale(N),B(N),refl(0:N),emis(0:N),CL(N),CB(N),CE(N))
+  allocate(layer_emis_lw(N),layer_tran_lw(N),layer_refl_lw(N),layer_area(N), &
+           scale(N),B(N),refl(0:N),emis(0:N),lwdn(0:N),CL(N))
+  allocate(vegn_emis_lw(M),bbrad(M))
+  layer_emis_lw = 0 ; layer_tran_lw = 0 ; layer_refl_lw = 0 ; layer_area = 0 ;
+  B = 0;  
+  ! [1] calculate some cohort and average layer properties
+  do k = 1, M
+    ! canopy radiative properties
+    vegn_emis_lw(k) = 1-vegn_refl_lw(k)-vegn_tran_lw(k) 
+    bbrad(k) = stefan*vegn_emis_lw(k)*vegn_T(k)**4
+    ! average layer properties
+    i = layer(k)
+    layer_tran_lw(i) = layer_tran_lw(i)+vegn_tran_lw(k)*frac(k)
+    layer_refl_lw(i) = layer_refl_lw(i)+vegn_refl_lw(k)*frac(k)
+    ! gray-body radiation emitted by the i-th layer of canopy
+    B(i) = B(i) + bbrad(k)*frac(k)
+    layer_area(i) = layer_area(i) + frac(k)
+  enddo
+  ! TODO: normalize with layer_area, or verify that layer_area is 1
   
-  ! [1] calculate useful coefficients
-  surf_emis_lw = 1-surf_refl_lw
+  ! [2] go upward through the canopy and calculate integral reflectances and emissions
   emis(N) = stefan*surf_emis_lw*surf_T**4
   refl(N) = surf_refl_lw
   do i = N,1,-1
      ! calculate absorptivity according to Kircchoff law
-     vegn_emis_lw(i) = 1-vegn_refl_lw(i)-vegn_tran_lw(i)
-     ! common scale factor due to multiple reflections
-     scale(i) = 1.0/(1-vegn_refl_lw(i)*refl(i))
+     layer_emis_lw(i) = 1-layer_refl_lw(i)-layer_tran_lw(i)
+     ! common scale factor to account for multiple reflections
+     scale(i) = 1.0/(1-layer_refl_lw(i)*refl(i))
      ! reflectance of all layers below i, including ground
-     refl(i-1) = vegn_refl_lw(i) + refl(i)*vegn_tran_lw(i)**2*scale(i)
-     ! coefficients for radiative balance calculations
-     CL(i) = vegn_emis_lw(i)*(1+vegn_tran_lw(i)*refl(i)*scale(i))
-     CE(i) = vegn_emis_lw(i)*scale(i)
-     CB(i) = -2.0+refl(i)*vegn_emis_lw(i)*scale(i)
-  enddo
-  
-  ! [2] calculate radiative balances of canopy layers
-  ! [2.1] gray-body emission and total emissions
-  do i = 1,N
-     ! gray-body radiation emitted by the i-th layer of canopy
-     B(i) = stefan*vegn_emis_lw(i)*vegn_T(i)**4
+     refl(i-1) = layer_refl_lw(i) + refl(i)*layer_tran_lw(i)**2*scale(i)
      ! emission from all layers below i, including ground
-     emis(i-1) = B(i) + vegn_tran_lw(i)*(emis(i)+B(i)*refl(i))*scale(i)
+     emis(i-1) = B(i) + layer_tran_lw(i)*(emis(i)+B(i)*refl(i))*scale(i)
+     ! coefficients for radiative balance calculations
+     CL(i) = (1+layer_tran_lw(i)*refl(i)*scale(i))
+  enddo
+  ! downward lw flux below each layer
+  lwdn(0) = lwdn_atm
+  do i = 1, N
+    lwdn(i)= (B(i) + layer_refl_lw(i)*emis(i) + layer_tran_lw(i)*lwdn(i-1))*scale(i)
   enddo
 
-  ! [2.2] upward flux at the top of the canopy
-  ! lwup = emis(0)+lwdn*refl(0)
-  
-  ! [2.3] downward pass through the canopy calculates the long-waves balances
-  lwdn_i = lwdn
-  do i = 1, N
-     ! calculate energy balance
-     flwv(i) = CL(i)*lwdn_i + CB(i)*B(i) + CE(i)*emis(i)
-     ! re-calculate downward long-wave flux for the next layer
-     lwdn_i = (B(i) + vegn_refl_lw(i)*emis(i) + vegn_tran_lw(i)*lwdn_i)*scale(i)
+  ! [3] go down through the canopy calculates the long-waves balances
+  ! TODO: check that cohorts are sorted in the order of layers
+  do k = 1, M ! loop over cohorts
+    i = layer(k)
+    flwv(k) = -2*bbrad(k) + &
+      vegn_emis_lw(k)*(B(i)*refl(i)*scale(i) + CL(i)*lwdn(i-1) + emis(i)*scale(i))
   enddo
-  flwg = -emis(N) + lwdn_i*(1-refl(N))
+  flwg = -emis(N) + lwdn(N)*(1-refl(N))
   
-  
-  ! [3] calculate the derivatives of vegetation and ground radiative balances
+  ! [4] calculate the derivatives of vegetation and ground radiative balances
   ! w.r.t. vegetation temperatures
-  do j = 1,N 
-     ! surrogate "emission" from the j-th canopy layer -- this is actually
+  do k = 1,M 
+     ! surrogate "emission" from the k-th cohort -- this is actually
      ! a derivative of gray-body radiation which is going to give us derivatives
-     ! for other layers w.r.t j-th temperature due to linearity of the system.
+     ! for other layers w.r.t k-th temperature due to linearity of the system.
      ! See radiation notes (end of multi-layer long-wave flux section) for 
      ! details.
-     B(:) = 0 ; B(j) = 4*stefan*vegn_emis_lw(j)*vegn_T(j)**3
+     bbrad(:) = 0 ; bbrad(k)    = 4*stefan*vegn_emis_lw(k)*vegn_T(k)**3
+     B(:)     = 0 ; B(layer(k)) = bbrad(k)*frac(k)
+     ! recalculate integral emission for "surrogate emissions"
      emis(N) = 0.0
      do i = N,1,-1
-        emis(N-1) = B(i) + vegn_tran_lw(i)*(emis(N)+B(i)*refl(i))*scale(i)
+        emis(i-1) = B(i) + layer_tran_lw(i)*(emis(i)+B(i)*refl(i))*scale(i)
      enddo
-     lwdn_i = 0.0
+     ! calculate downward longwave below layer i; lwdn(0) is the flux from atmos
+     lwdn(0) = 0.0
      do i = 1,N
-        ! calculate derivative of i-th layer energy balance w.r.t. vegn_T(j)
-        DflwvDTv(i,j) = CL(i)*lwdn_i + CB(i)*B(i) + CE(i)*emis(i)
-        ! re-calculate "downward long-wave flux" for the next layer
-        lwdn_i = (B(i) + vegn_refl_lw(i)*emis(i) + vegn_tran_lw(i)*lwdn_i)*scale(i)
+        lwdn(i) = (B(i) + layer_refl_lw(i)*emis(i) + layer_tran_lw(i)*lwdn(i-1))*scale(i)
      enddo
-     DflwgDTv(j) = -emis(N) + lwdn_i*(1-refl(N))
+     do j = 1,M 
+        ! calculate derivative of j-th cohort energy balance w.r.t. vegn_T(k)
+        i = layer(j)
+        DflwvDTv(j,k) = -2*bbrad(j) + &
+            vegn_emis_lw(j)*(B(i)*refl(i)*scale(i) + CL(i)*lwdn(i-1) + emis(i)*scale(i))
+     enddo
+     DflwgDTv(k) = -emis(N) + lwdn(N)*(1-refl(N))
   enddo
 
-  ! [4] calculate the derivatives of vegetation and ground radiative balances
+  ! [5] calculate the derivatives of vegetation and ground radiative balances
   ! w.r.t. ground temperature
-  ! surrgate "emission" for the ground
-  B(:) = 0
+  ! surrogate "emission" for the ground
+  bbrad(:)= 0 ; B(:) = 0
   emis(N) = 4*stefan*surf_emis_lw*surf_T**3
   do i = N,1,-1
-     emis(i-1) = B(i) + vegn_tran_lw(i)*(emis(N)+B(i)*refl(i))*scale(i)
+     emis(i-1) = B(i) + layer_tran_lw(i)*(emis(i)+B(i)*refl(i))*scale(i)
   enddo
-  lwdn_i = 0.0
+  lwdn(0) = 0.0
   do i = 1,N
-     ! calculate derivative of i-th layer energy balance w.r.t. vegn_T(j)
-     DflwvDTg(i) = CL(i)*lwdn_i + CB(i)*B(i) + CE(i)*emis(i)
-     ! re-calculate downward long-wave flux for the next layer
-     lwdn_i = (B(i) + vegn_refl_lw(i)*emis(i) + vegn_tran_lw(i)*lwdn_i)*scale(i)
+     lwdn(i) = (B(i) + layer_refl_lw(i)*emis(i) + layer_tran_lw(i)*lwdn(i-1))*scale(i)
   enddo
-  DflwgDTg = -emis(N) + lwdn_i*(1-refl(N))
+  do k = 1,M
+     ! calculate derivative of i-th cohort energy balance w.r.t. vegn_T(k)
+     i = layer(k)
+     DflwvDTg(k) = -2*bbrad(k) + &
+        vegn_emis_lw(k)*(B(i)*refl(i)*scale(i) + CL(i)*lwdn(i-1) + emis(i)*scale(i))
+  enddo
+  DflwgDTg = -emis(N) + lwdn(N)*(1-refl(N))
 
   ! delete temporary arrays
-  deallocate(vegn_emis_lw,scale,B,refl,emis,CL,CB,CE)
-end subroutine
-
+  deallocate(vegn_emis_lw, bbrad, layer_tran_lw, layer_refl_lw, layer_emis_lw, &
+     layer_area, scale, B, refl, emis, lwdn, CL)
+end subroutine land_lw_balance
 
 ! ===========================================================================
 ! given direct and diffuse light on top of the canopy, and canopy optical
@@ -2093,82 +2316,126 @@ end subroutine
 ! and underlying surface, and land albedo for direct and diffuse light
 subroutine land_sw_balance ( &
   swdn_dif, swdn_dir, &
-  vegn_refl_dif, vegn_refl_dir, &
-  vegn_tran_dif, vegn_sctr_dir, vegn_tran_dir, &
+  vegn_layer, vegn_frac, &
+  vegn_refl_dif, vegn_tran_dif, &
+  vegn_refl_dir, vegn_sctr_dir, vegn_tran_dir, &
   surf_refl_dif, surf_refl_dir, &
-  fswv, fswg, &
+  ! output:
+  fswv, fswg, fswdn, &
   land_albedo_dif, land_albedo_dir )
   real, intent(in) :: swdn_dir ! downward direct radiation from atmos, W/m2
   real, intent(in) :: swdn_dif ! downward diffuse radiation from atmos, W/m2
+  integer, intent(in) :: vegn_layer(:) ! layer number for each cohort, top-down
+  real, intent(in) :: vegn_frac(:)     ! fractional crown area of cohorts
   real, intent(in) :: vegn_tran_dif(:) ! transmittances for diffuse beam
   real, intent(in) :: vegn_refl_dif(:) ! black-background reflectances for diffuse light
+  real, intent(in) :: vegn_tran_dir(:) ! transmittances for direct beam
   real, intent(in) :: vegn_refl_dir(:) ! black-background reflectances for direct light
   real, intent(in) :: vegn_sctr_dir(:) ! downward scattering coefficients for direct beam
-  real, intent(in) :: vegn_tran_dir(:) ! transmittances for direct beam
   real, intent(in) :: surf_refl_dir    ! ground surface albedo for direct light
   real, intent(in) :: surf_refl_dif    ! ground surface albedo for diffuse light
 
   real, intent(out) :: fswv(:) ! resulting radiative balances of canopy layers, W/m2
   real, intent(out) :: fswg    ! resulting radiative balance of ground surface, W/m2
+  real, intent(out) :: fswdn(:) ! downward total flux on top of each cohort, W/m2
   real, intent(out),optional :: land_albedo_dir ! land albedo for direct light
   real, intent(out),optional :: land_albedo_dif ! land albedo for diffuse light
 
   ! ---- local vars
   integer :: N ! number of canopy layers
+  integer :: M ! number of cohorts
   real, allocatable :: &
      scale(:), &    ! scaling factor due to multiple reflections
      refl_dir(:), & ! integral refl. below layer N for direct beam, with multiple scattering 
      refl_dif(:)    ! integral refl. below layer N for diffuse light, with multiple scattering
-  real :: dir, dif ! direct and diffuse light on top of current layer, W/m2
-  integer :: i
+  real, allocatable ::  & ! average optical properties of layers
+     layer_tran_dif(:), & ! transmittances for diffuse beam
+     layer_refl_dif(:), & ! black-background reflectances for diffuse light
+     layer_refl_dir(:), & ! black-background reflectances for direct light
+     layer_tran_dir(:), & ! transmittances for direct beam
+     layer_sctr_dir(:), & ! downward scattering coefficients for direct beam
+     layer_area(:)        ! sum of cohort fractional areas, must be close to 1 for all layers
+     
+  real :: dir, dif ! downward direct and diffuse light on top of the current layer, W/m2
+  integer :: i,k
 
-  N = size(vegn_refl_dif)
-  ! TODO: verify argument shapes
-#define __CHECK_SIZE__(x)if(size(x)/=N) call error_mesg('land_sw_balance','Size of '//#x//' is incorrect',FATAL)
+  ! verify argument shapes
+  M = size(vegn_tran_dir)
+#define __CHECK_SIZE__(x)if(size(x)/=M) call error_mesg('land_sw_balance','Size of '//#x//' is incorrect',FATAL)
   __CHECK_SIZE__(vegn_tran_dif)
   __CHECK_SIZE__(vegn_refl_dir)
   __CHECK_SIZE__(vegn_sctr_dir)
   __CHECK_SIZE__(vegn_tran_dir)
   __CHECK_SIZE__(fswv)
+  __CHECK_SIZE__(fswdn)
 #undef __CHECK_SIZE__
 
   ! allocate local variables
+  N = maxval(vegn_layer)
   allocate(scale(N),refl_dir(0:N),refl_dif(0:N))
+  allocate(layer_tran_dif(N), layer_refl_dif(N), layer_refl_dir(N), &
+           layer_tran_dir(N), layer_sctr_dir(N), layer_area    (N)  )
+  ! calculate optical properties of layers
+  ! layer_area(i) must be 1 (to the numerical precision) for all i
+  ! optical properties of cohorts must be pre-normalized 
+  layer_tran_dif = 0 ; layer_refl_dif = 0 ; layer_refl_dir = 0
+  layer_tran_dir = 0 ; layer_sctr_dir = 0 ; layer_area     = 0
+  do k = 1,M ! loop over cohorts
+     i = vegn_layer(k)
+     layer_tran_dif(i) = layer_tran_dif(i)+vegn_tran_dif(k)*vegn_frac(k)
+     layer_refl_dif(i) = layer_refl_dif(i)+vegn_refl_dif(k)*vegn_frac(k) 
+     layer_refl_dir(i) = layer_refl_dir(i)+vegn_refl_dir(k)*vegn_frac(k)
+     layer_tran_dir(i) = layer_tran_dir(i)+vegn_tran_dir(k)*vegn_frac(k)
+     layer_sctr_dir(i) = layer_sctr_dir(i)+vegn_sctr_dir(k)*vegn_frac(k)
+     layer_area(i)     = layer_area(i)+vegn_frac(k)
+  enddo
+  ! TODO: check that layer_area is indeed 1 for each i
 
   ! [1] go upward through the canopy and calculate integral reflectances
   refl_dir(N) = surf_refl_dir
   refl_dif(N) = surf_refl_dif
   do i = N,1,-1
-    scale(i) = 1.0/(1 - refl_dif(i)*vegn_refl_dif(i))
-    refl_dir(i-1) = vegn_refl_dir(i) &
-      + vegn_tran_dif(i)*(refl_dif(i)*vegn_sctr_dir(i)+refl_dir(i)*vegn_tran_dir(i))&
+    scale(i) = 1.0/(1 - refl_dif(i)*layer_refl_dif(i))
+    refl_dir(i-1) = layer_refl_dir(i) &
+      + layer_tran_dif(i)*(refl_dif(i)*layer_sctr_dir(i)+refl_dir(i)*layer_tran_dir(i))&
       * scale(i)
-    refl_dif(i-1) = vegn_refl_dif(i) &
-      + refl_dif(i)*vegn_tran_dif(i)**2*scale(i)
+    refl_dif(i-1) = layer_refl_dif(i) &
+      + refl_dif(i)*layer_tran_dif(i)**2*scale(i)
   enddo
-
   ! assign land albedo values, if necessary
-  if(present(land_albedo_dir))land_albedo_dir = refl_dir(0)
-  if(present(land_albedo_dif))land_albedo_dif = refl_dif(0)
+  if (present(land_albedo_dir)) land_albedo_dir = refl_dir(0)
+  if (present(land_albedo_dif)) land_albedo_dif = refl_dif(0)
   
   ! [2] go down through the canopy and calculate radiative balances
+  ! TODO : assume that the cohorts are sorted top-down and optimize the loop
+  ! using this property. Also check that the cohorts are sorted.
   dir = swdn_dir
   dif = swdn_dif
   do i = 1,N
-     ! calculate radiative balance of the current canopy layer
-     fswv(i) = &
-       dif * (1-vegn_refl_dif(i)-vegn_tran_dif(i)) &
-           * (1+vegn_tran_dif(i)*refl_dif(i) * scale(i)) &
-     + dir * (1-vegn_tran_dir(i)-vegn_refl_dir(i)-vegn_sctr_dir(i)) &
-     + dir * (1-vegn_tran_dif(i)-vegn_refl_dif(i)) &
-           * (refl_dif(i)*vegn_sctr_dir(i)+refl_dir(i)*vegn_tran_dir(i))*scale(i)
+     do k = 1,M ! loop over cohorts
+        if (vegn_layer(k)/=i) cycle
+        ! assign downward fluxes on top of this cohort
+        fswdn(k) = dif + dir
+        ! calculate radiative balance of the current cohort
+        fswv(k) = &
+          dif * (1-vegn_refl_dif(k)-vegn_tran_dif(k)) &
+              * (1+layer_tran_dif(i)*refl_dif(i) * scale(i)) &
+        + dir * (1-vegn_tran_dir(k)-vegn_refl_dir(k)-vegn_sctr_dir(k)) &
+        + dir * (1-vegn_tran_dif(k)-vegn_refl_dif(k)) &
+              * (refl_dif(i)*layer_sctr_dir(i)+refl_dir(i)*layer_tran_dir(i))*scale(i)
+     enddo
      ! recalculate the fluxes for the lower layer
-     dif = (vegn_sctr_dir(i)+vegn_refl_dif(i)*refl_dir(i)*vegn_tran_dir(i))*scale(i)*dir &
-         + vegn_tran_dif(i)*scale(i)*dif
-     dir = vegn_tran_dir(i)*dir
+     dif = (layer_sctr_dir(i)+layer_refl_dif(i)*refl_dir(i)*layer_tran_dir(i))*scale(i)*dir &
+         + layer_tran_dif(i)*scale(i)*dif
+     dir = layer_tran_dir(i)*dir
   enddo
   fswg = (1-surf_refl_dif)*dif + (1-surf_refl_dir)*dir
-end subroutine
+
+  ! deallocate local variables
+  deallocate(scale,refl_dir,refl_dif)
+  deallocate(layer_tran_dif, layer_refl_dif, layer_refl_dir, &
+             layer_tran_dir, layer_sctr_dir, layer_area      )
+end subroutine land_sw_balance
 
 
 ! ============================================================================
@@ -2178,10 +2445,11 @@ subroutine land_sw_radiation (     &
      subs_refl_dir, subs_refl_dif, & 
      snow_refl_dir, snow_refl_dif, & 
      snow_area, &
+     vegn_layer,    vegn_frac, &
      vegn_refl_dif, vegn_tran_dif, &
      vegn_refl_dir, vegn_sctr_dir, vegn_tran_dir, &
      ! output:
-     Sg_dir, Sg_dif, Sv_dir, Sv_dif, &
+     Sg_dir, Sg_dif, Sv_dir, Sv_dif, Sdn_dir, Sdn_dif, &
      land_albedo_dir, land_albedo_dif )
 
   real, intent(in) :: &
@@ -2195,10 +2463,13 @@ subroutine land_sw_radiation (     &
      vegn_refl_dir(:,:), & ! reflectance (scattering upwards) for direct light
      vegn_sctr_dir(:,:), & ! downward scattering coefficient direct beam
      vegn_tran_dir(:,:)    ! transmittance for direct beam
+  integer, intent(in) :: vegn_layer(:) ! layer number for each cohort, top-down
+  real, intent(in)    :: vegn_frac(:)  ! fractional crown area of each cohort
 
   real, intent(out) :: &
      Sg_dir(NBANDS), Sg_dif(NBANDS), & ! fraction of downward short-wave absorbed by ground and snow
      Sv_dir(:,:),    Sv_dif(:,:),    & ! fraction of downward short-wave absorbed by vegetation (NCOHORTS,NBANDS)
+     Sdn_dir(:,:),   Sdn_dif(:,:),   & ! fraction of downward short-wave on top of each cohort (NCOHORTS,NBANDS)
      land_albedo_dir(NBANDS), land_albedo_dif(NBANDS) ! land albedo for direct and diffuse light
 
   ! ---- local vars
@@ -2214,19 +2485,23 @@ subroutine land_sw_radiation (     &
   do band = 1, NBANDS
      ! diffuse radiation
      call land_sw_balance(1.0, 0.0, &
-        vegn_refl_dif(:,band), vegn_refl_dir(:,band), &
-        vegn_tran_dif(:,band), vegn_sctr_dir(:,band), vegn_tran_dir(:,band), &
+        vegn_layer, vegn_frac, &
+        vegn_refl_dif(:,band), vegn_tran_dif(:,band), &
+        vegn_refl_dir(:,band), vegn_sctr_dir(:,band), vegn_tran_dir(:,band), &
         grnd_refl_dif(band), grnd_refl_dir(band),&
-        Sv_dif(:,band), Sg_dif(band), land_albedo_dif=land_albedo_dif(band) )
+        Sv_dif(:,band), Sg_dif(band), Sdn_dif(:,band), &
+        land_albedo_dif=land_albedo_dif(band) )
      ! direct radiation
      call land_sw_balance(0.0, 1.0, &
-        vegn_refl_dif(:,band), vegn_refl_dir(:,band), &
-        vegn_tran_dif(:,band), vegn_sctr_dir(:,band), vegn_tran_dir(:,band), &
+        vegn_layer, vegn_frac, &
+        vegn_refl_dif(:,band), vegn_tran_dif(:,band), &
+        vegn_refl_dir(:,band), vegn_sctr_dir(:,band), vegn_tran_dir(:,band), &
         grnd_refl_dif(band), grnd_refl_dir(band),&
-        Sv_dir(:,band), Sg_dir(band), land_albedo_dir=land_albedo_dir(band) )
+        Sv_dir(:,band), Sg_dir(band), Sdn_dir(:,band), &
+        land_albedo_dir=land_albedo_dir(band) )
   enddo
 
-end subroutine
+end subroutine land_sw_radiation
 
 subroutine realloc1(x,N)
   real, pointer :: x(:)
@@ -2241,7 +2516,7 @@ subroutine realloc1(x,N)
   endif
   
   allocate(x(N))
-end subroutine
+end subroutine 
 
 subroutine realloc2(x,N)
   real, pointer :: x(:,:)
@@ -2256,7 +2531,7 @@ subroutine realloc2(x,N)
   endif
   
   allocate(x(N,NBANDS))
-end subroutine
+end subroutine 
 
 ! ============================================================================
 subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
@@ -2292,6 +2567,10 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
      vegn_refl_dir(:,:), & ! reflectance (scattering upwards) for direct light
      vegn_sctr_dir(:,:), & ! downward scattering coefficient direct beam
      vegn_tran_dir(:,:)    ! transmittance for direct beam
+  integer, allocatable :: &
+     vegn_layer(:) ! number of layer thet respective cohort belongs to
+  real, allocatable :: &
+     vegn_frac(:) ! fraction of layer covered by respective cohort canopy, unitless
   real :: &
      vegn_Tv,     &
      vegn_cover,  &
@@ -2304,6 +2583,11 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
                   ! of orbital ellipse (a) : (a/r)**2
   integer :: face ! for debugging
   integer :: N    ! shorthand for vegn%n_cohorts, 1 if no vegetation
+  integer :: il   ! layer iterator
+  integer :: ic   ! cohort iterator
+  integer :: band ! spectral band iterator 
+  real :: area    ! total crown area in the layer, m2/m2
+
   vegn_Tv = 0
 
   do_update = .not.present(is_init)
@@ -2322,27 +2606,30 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
   
   if (associated(tile%glac)) then
      call glac_radiation(tile%glac, cosz, subs_refl_dir, subs_refl_dif, subs_refl_lw, grnd_emis)
-     call glac_diffusion(tile%glac, subs_z0s, subs_z0m )
+     call glac_roughness(tile%glac, subs_z0s, subs_z0m )
   else if (associated(tile%lake)) then
      call lake_radiation(tile%lake, cosz, subs_refl_dir, subs_refl_dif, subs_refl_lw, grnd_emis)
-     call lake_diffusion(tile%lake, subs_z0s, subs_z0m )
+     call lake_roughness(tile%lake, subs_z0s, subs_z0m )
   else if (associated(tile%soil)) then
      call soil_radiation(tile%soil, cosz, subs_refl_dir, subs_refl_dif, subs_refl_lw, grnd_emis)
-     call soil_diffusion(tile%soil, subs_z0s, subs_z0m )
+     call soil_roughness(tile%soil, subs_z0s, subs_z0m )
   else
      call get_current_point(face=face)
-     call error_mesg('update_land_model_fast','none of the surface tiles exist at ('//&
+     call error_mesg('update_land_bc_fast','none of the surface tiles exist at ('//&
              trim(string(i))//','//trim(string(j))//','//trim(string(k))//&
              ', face='//trim(string(face))//')',FATAL)
   endif
 
   call snow_radiation ( tile%snow%prog(1)%T, cosz, snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis)
   call snow_get_depth_area ( tile%snow, snow_depth, snow_area )
-  call snow_diffusion ( tile%snow, snow_z0s, snow_z0m )
+  call snow_roughness ( tile%snow, snow_z0s, snow_z0m )
 
   ! store the current number of cohorts
   N=1; if (associated(tile%vegn)) N=tile%vegn%n_cohorts
 
+  ! allocate storage for cohort layer numbers and layer fractions
+  allocate(vegn_layer(N), vegn_frac(N))
+  
   ! allocate storage for vegetation radiative properties. Alternatively, if we new
   ! the maximum number of cohorts up front, we could reserve the space for maximum
   ! N cohorts up front (it's small compared to everything else anyway) and reuse that
@@ -2353,6 +2640,8 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
   ! update_land_bc_fast
   call realloc2(tile%Sv_dir,N)
   call realloc2(tile%Sv_dif,N)
+  call realloc2(tile%Sdn_dir,N)
+  call realloc2(tile%Sdn_dif,N)
   call realloc1(tile%vegn_refl_lw,N)
   call realloc1(tile%vegn_tran_lw,N)
 
@@ -2369,6 +2658,22 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
      ! calculations of the land roughness and displacement
      call vegn_diffusion ( tile%vegn, snow_depth, &
                    vegn_cover, vegn_height, vegn_lai, vegn_sai)
+     ! assign layers and fractions
+     vegn_layer(:) = tile%vegn%cohorts(1:N)%layer
+     do il = 1, vegn_layer(N)
+        area = 0
+        do ic = 1, N
+           if (vegn_layer(ic)==il) &
+              area = area + tile%vegn%cohorts(ic)%crownarea*tile%vegn%cohorts(ic)%nindivs
+        enddo
+        if (area==0) call error_mesg('update_land_bc_fast', 'crown area in layer is zero', FATAL)
+        do ic = 1, N
+           if (vegn_layer(ic)==il) then
+              vegn_frac(ic) = tile%vegn%cohorts(ic)%crownarea*tile%vegn%cohorts(ic)%nindivs/area
+!              vegn_lai (ic) = tile%vegn%lai(ic)*area
+           endif
+        enddo
+     enddo
   else
      ! set radiative properties for null vegetation
      vegn_refl_dif = 0
@@ -2384,6 +2689,9 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
      vegn_height   = 0
      vegn_lai      = 0
      vegn_sai      = 0
+     
+     vegn_layer    = 1
+     vegn_frac     = 1.0
   endif
 
   ! store the values of long-wave optical properties to be used in the update_land_model_fast
@@ -2398,11 +2706,21 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
      __DEBUG2__(vegn_lai,vegn_sai)
      __DEBUG1__(subs_refl_dif)
      __DEBUG1__(subs_refl_dir)
-     __DEBUG1__(vegn_refl_dif)
-     __DEBUG1__(vegn_tran_dif)
-     __DEBUG1__(vegn_refl_dir)
-     __DEBUG1__(vegn_sctr_dir)
-     __DEBUG1__(vegn_tran_dir)
+     do band = 1,NBANDS
+       __DEBUG1__(vegn_refl_dif(:,band))
+     enddo
+     do band = 1,NBANDS
+       __DEBUG1__(vegn_tran_dif(:,band))
+     enddo
+     do band = 1,NBANDS
+       __DEBUG1__(vegn_refl_dir(:,band))
+     enddo
+     do band = 1,NBANDS
+       __DEBUG1__(vegn_sctr_dir(:,band))
+     enddo
+     do band = 1,NBANDS
+       __DEBUG1__(vegn_tran_dir(:,band))
+     enddo
      __DEBUG1__(vegn_refl_lw)
      __DEBUG1__(vegn_tran_lw)
      write(*,*) '#### update_land_bc_fast ### end of checkpoint 1 ####'
@@ -2420,15 +2738,17 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
        subs_refl_dir, subs_refl_dif, &
        snow_refl_dir, snow_refl_dif, &
        snow_area_rad,  &
+       vegn_layer, vegn_frac, &
        vegn_refl_dif, vegn_tran_dif, &
        vegn_refl_dir, vegn_sctr_dir, vegn_tran_dir,  &
        ! output:
-       tile%Sg_dir, tile%Sg_dif, tile%Sv_dir, tile%Sv_dif, &
+       tile%Sg_dir, tile%Sg_dif, tile%Sv_dir, tile%Sv_dif, tile%Sdn_dir, tile%Sdn_dif, &
        tile%land_refl_dir, tile%land_refl_dif )
 
   ! deallocate temporary storage that is no longer needed
   deallocate(vegn_refl_dif, vegn_tran_dif, &
              vegn_refl_dir, vegn_sctr_dir, vegn_tran_dir)
+  deallocate(vegn_layer, vegn_frac) ! may need to move down if layers or fracs are used elsewhere
 
   call cana_roughness( lm2, &
      subs_z0m, subs_z0s, &
@@ -2440,8 +2760,12 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
      write(*,*) '#### update_land_bc_fast ### checkpoint 2 ####'
      __DEBUG1__(tile%Sg_dir)
      __DEBUG1__(tile%Sg_dif)
-     __DEBUG1__(tile%Sv_dir)
-     __DEBUG1__(tile%Sv_dif)
+     do band = 1,NBANDS
+       __DEBUG1__(tile%Sv_dir(:,band))
+       __DEBUG1__(tile%Sv_dif(:,band))
+       __DEBUG1__(tile%Sdn_dir(:,band))
+       __DEBUG1__(tile%Sdn_dif(:,band))
+     enddo
      __DEBUG1__(tile%land_refl_dir)
      __DEBUG1__(tile%land_refl_dif)
      __DEBUG1__(tile%land_z0m)
@@ -2989,8 +3313,6 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
              'snow-subs equilibration flux', 'W/m2', missing_value=-1.0e+20 )
   id_grnd_flux = register_tiled_diag_field ( module_name, 'grnd_flux', axes, time, &
              'sensible heat into ground from surface', 'W/m2', missing_value=-1.0e+20 )
-  id_soil_water_supply = register_tiled_diag_field ( module_name, 'soil_water_supply', axes, time, &
-       'maximum rate of soil water supply to vegetation', 'kg/(m2 s)', missing_value=-1e20)
   id_levapg_max = register_tiled_diag_field ( module_name, 'Eg_max', axes, time, &
              'soil_water limit on vapor flux from ground liquid', 'kg/(m2 s)', missing_value=-1.0e+20)
   id_water = register_tiled_diag_field ( module_name, 'water', axes, time, &

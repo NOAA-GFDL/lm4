@@ -131,6 +131,9 @@ type :: land_tile_type
    ! fractions of downward direct and diffuse radiation absorbed by the 
    ! vegetation; dimensions are (NCOHORTS,NBANDS).
    real, pointer :: Sv_dir(:,:)=>NULL(), Sv_dif(:,:)=>NULL() 
+   ! fractions of downward direct and diffuse radiation on top of each cohort
+   ! dimensions are (NCOHORTS,NBANDS).
+   real, pointer :: Sdn_dir(:,:)=>NULL(), Sdn_dif(:,:)=>NULL() 
    real :: land_refl_dir(NBANDS), land_refl_dif(NBANDS)
    real :: land_d, land_z0m, land_z0s
    real :: surf_refl_lw ! long-wave reflectivity of the ground surface (possibly snow-covered)
@@ -252,6 +255,17 @@ function land_tile_copy_ctor(t) result(tile)
     allocate(tile%Sv_dif(size(t%Sv_dif,1),size(t%Sv_dif,2)));
     tile%Sv_dif=t%Sv_dif
   endif
+  tile%Sdn_dir=>NULL(); 
+  if(associated(t%Sdn_dir)) then
+    allocate(tile%Sdn_dir(size(t%Sdn_dir,1),size(t%Sdn_dir,2)));
+    tile%Sdn_dir=t%Sdn_dir
+  endif
+  tile%Sdn_dif=>NULL(); 
+  if(associated(t%Sdn_dif)) then
+    allocate(tile%Sdn_dif(size(t%Sdn_dif,1),size(t%Sdn_dif,2)));
+    tile%Sdn_dif=t%Sdn_dif
+  endif
+  
   tile%vegn_refl_lw=>NULL(); 
   if(associated(t%vegn_refl_lw)) then
     allocate(tile%vegn_refl_lw(size(t%vegn_refl_lw)));
@@ -288,6 +302,8 @@ subroutine delete_land_tile(tile)
 #define __DEALLOC__(x) if(associated(x))deallocate(x)
   __DEALLOC__(tile%Sv_dir)
   __DEALLOC__(tile%Sv_dif)
+  __DEALLOC__(tile%Sdn_dir)
+  __DEALLOC__(tile%Sdn_dif)
   __DEALLOC__(tile%vegn_refl_lw)
   __DEALLOC__(tile%vegn_tran_lw)
 #undef __DEALLOC__

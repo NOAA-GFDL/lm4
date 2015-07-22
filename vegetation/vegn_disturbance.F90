@@ -4,10 +4,9 @@
 module vegn_disturbance_mod
 
 use land_constants_mod, only : seconds_per_year
-use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, agf_bs, LEAF_OFF
+use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, agf_bs, do_ppa, LEAF_OFF
 use vegn_tile_mod,   only : vegn_tile_type
-use vegn_cohort_mod, only : vegn_cohort_type, height_from_biomass, lai_from_biomass, &
-     update_biomass_pools
+use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools
 
 implicit none
 private
@@ -52,9 +51,6 @@ subroutine vegn_disturbance(vegn, dt)
   
   call calculate_patch_disturbance_rates(vegn)
    
-  ! Fire disturbance implicitly, i.e.  not patch creating
-  vegn%area_disturbed_by_fire = (1.0-exp(-vegn%disturbance_rate(1)*deltat));
-  
   do i = 1,vegn%n_cohorts   
      cc => vegn%cohorts(i)
      sp = cc%species
@@ -146,31 +142,9 @@ subroutine calculate_patch_disturbance_rates(vegn)
   
   ! this is only true for the one cohort per patch case
   vegn%disturbance_rate(0) = spdata(vegn%cohorts(1)%species)%treefall_disturbance_rate;
-  vegn%total_disturbance_rate = vegn%disturbance_rate(1)+vegn%disturbance_rate(0);
   
   vegn%fuel = fuel;
 end subroutine calculate_patch_disturbance_rates
-
-
-! ============================================================================
-function fire(vegn) result(fireterm)
-  real :: fireterm; ! return value
-  type(vegn_tile_type), intent(inout) :: vegn
-
-  ! ---- local vars
-  real :: precip_av ! average precipitation, mm/year
-
-  fireterm = 0
-  precip_av = vegn%p_ann * seconds_per_year;
-!!$  vegn%ignition_rate = 0.00;             
-  vegn%fuel = vegn%total_biomass;
-
-  if(vegn%fuel>0.0) then
-     if(precip_av < 400.+40.*(vegn%t_ann-273.16)) then
-        fireterm = vegn%fuel*(400. + 40.*(vegn%t_ann-273.16) - precip_av);
-     endif
-  endif
-end function
 
 
 ! ============================================================================
@@ -216,10 +190,21 @@ subroutine update_fuel(vegn, wilt)
 end subroutine update_fuel
 
 
+! ============================================================================
+subroutine vegn_nat_mortality(vegn,deltat)
+  type(vegn_tile_type), intent(inout) :: vegn
+  real, intent(in) :: deltat ! time since last mortality calculations, s
+
+  if (do_ppa) then
+     call vegn_nat_mortality_ppa(vegn,deltat)
+  else
+     call vegn_nat_mortality_lm3(vegn,deltat)
+  endif
+end subroutine 
 
 
 ! ============================================================================
-subroutine vegn_nat_mortality(vegn, deltat)
+subroutine vegn_nat_mortality_lm3(vegn, deltat)
   type(vegn_tile_type), intent(inout) :: vegn
   real, intent(in) :: deltat ! time since last mortality calculations, s
   
@@ -231,7 +216,6 @@ subroutine vegn_nat_mortality(vegn, deltat)
   integer :: i
   
   vegn%disturbance_rate(0)        = 0.0; 
-  vegn%area_disturbed_by_treefall = 0.0;
   
   do i = 1,vegn%n_cohorts
      cc => vegn%cohorts(i)
@@ -240,8 +224,6 @@ subroutine vegn_nat_mortality(vegn, deltat)
      ! tile case -- in case of multiple cohort disturbance rate pehaps needs to be 
      ! accumulated (or averaged? or something else?) over the cohorts.
      vegn%disturbance_rate(0) = spdata(cc%species)%treefall_disturbance_rate;
-     vegn%area_disturbed_by_treefall = &
-          1.0-exp(-vegn%disturbance_rate(0)*deltat/seconds_per_year);
 
      ! calculate combined biomass pools
      balive = cc%bl + cc%blv + cc%br;
@@ -270,7 +252,61 @@ subroutine vegn_nat_mortality(vegn, deltat)
      call update_biomass_pools(cc);
   enddo
      
-end subroutine vegn_nat_mortality
+end subroutine vegn_nat_mortality_lm3
+
+
+! ============================================================================
+subroutine vegn_nat_mortality_ppa (vegn, deltat)
+  type(vegn_tile_type), intent(inout) :: vegn
+  real, intent(in) :: deltat ! time since last mortality calculations, s
+
+  ! ---- local vars
+  type(vegn_cohort_type), pointer :: cc
+  real :: loss_alive,loss_wood
+  real :: deathrate
+  integer :: sp ! shorthand for current cohort specie
+  integer :: i
+
+  do i = 1, vegn%n_cohorts   
+     cc => vegn%cohorts(i)
+     sp = cc%species
+     ! mortality rate can be a function of growht rate, age, and environmental
+     ! conditions. Here, we only used two constants for canopy layer and under-
+     ! story layer (mortrate_d_c and mortrate_d_u)
+     ! compute the mortality of trees
+     if(cc%layer > 1)then
+        deathrate = spdata(sp)%mortrate_d_u
+     else
+        deathrate = spdata(sp)%mortrate_d_c
+     endif
+     deathrate = cc%nindivs * (1.0-exp(-deathrate*deltat/seconds_per_year)) ! individuals / m2
+     ! recalculate amount of water on canopy: assume that the dead tree are dry,
+     ! so all water remains on the survivors
+     cc%prog%Wl = cc%prog%Wl*cc%nindivs/(cc%nindivs-deathrate)
+     cc%prog%Ws = cc%prog%Ws*cc%nindivs/(cc%nindivs-deathrate)
+     ! it is probably more consistent to add this water on top of soil or snow; 
+     ! but for that we need an intermediate buffer (must be included into total 
+     ! water calculations), aand I am reluctant to introduce it at the moment.
+     ! TODO: invent a better way to handle water on trees lost to mortality
+
+     cc%nindivs = cc%nindivs-deathrate
+
+     ! add dead C from leaf and root pools to fast soil carbon
+     loss_wood  = deathrate * cc%bwood
+     loss_alive = deathrate * cc%bliving
+     vegn%fast_soil_C = vegn%fast_soil_C +    fsc_liv *loss_alive +    fsc_wood *loss_wood
+     vegn%slow_soil_C = vegn%slow_soil_C + (1-fsc_liv)*loss_alive + (1-fsc_wood)*loss_wood
+          
+     ! for budget tracking - temporary
+     vegn%ssc_in = vegn%ssc_in + fsc_liv*loss_alive + fsc_wood *loss_wood
+     vegn%veg_out = vegn%veg_out + loss_alive + loss_wood
+
+     ! note that in contrast to LM3 mortality calculation, living biomasses are
+     ! included in loss; does it mean that we double-counting losses in 
+     ! maintenance and here?
+     ! TODO: ask Enshend and Elena about possible double-counting of live biomass losses.
+  enddo
+end subroutine vegn_nat_mortality_ppa
 
 
 end module vegn_disturbance_mod

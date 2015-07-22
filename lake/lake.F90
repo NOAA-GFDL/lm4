@@ -22,7 +22,7 @@ use land_constants_mod, only : &
 use land_io_mod, only : read_field
 use lake_tile_mod, only : &
      lake_tile_type, lake_pars_type, lake_prog_type, read_lake_data_namelist, &
-     lake_data_radiation, lake_data_diffusion, &
+     lake_data_radiation, &
      lake_data_thermodynamics, &
      max_lev, cpw,clw,csw, lake_width_inside_lake, large_lake_sill_width
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
@@ -49,7 +49,6 @@ public :: save_lake_restart
 
 public :: lake_get_sfc_temp
 public :: lake_radiation
-public :: lake_diffusion
 public :: lake_step_1
 public :: lake_step_2
 
@@ -337,15 +336,6 @@ subroutine lake_radiation ( lake, cosz, &
   lake_refl_lw = 1 - lake_emis
 end subroutine lake_radiation
 
-
-! ============================================================================
-! compute lake-only roughness parameters
-subroutine lake_diffusion ( lake, lake_z0s, lake_z0m )
-  type(lake_tile_type), intent(in) :: lake
-  real, intent(out) :: lake_z0s, lake_z0m
-
-  call lake_data_diffusion ( lake, lake_z0s, lake_z0m )
-end subroutine lake_diffusion
 
 ! ============================================================================
 ! update lake properties explicitly for time step.

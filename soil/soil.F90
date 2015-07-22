@@ -22,7 +22,7 @@ use horiz_interp_mod,   only: horiz_interp
 use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR
 use soil_tile_mod, only : &
      soil_tile_type, soil_pars_type, soil_prog_type, read_soil_data_namelist, &
-     soil_data_radiation, soil_data_diffusion, soil_data_thermodynamics, &
+     soil_data_radiation, soil_data_thermodynamics, &
      soil_data_hydraulics, soil_data_gw_hydraulics, & ! soil_data_gw_tables, &
      soil_data_vwc_sat, &
      max_lev, psi_wilt, cpw, clw, csw, g_iso, g_vol, g_geo, g_RT, &
@@ -44,7 +44,9 @@ use land_tile_io_mod, only : create_tile_out_file, write_tile_data_r0d_fptr,&
      write_tile_data_r1d_fptr,read_tile_data_r0d_fptr, read_tile_data_r1d_fptr,&
      print_netcdf_error, get_input_restart_name, sync_nc_files
 use nf_utils_mod, only : nfu_def_dim, nfu_put_att, nfu_inq_var
-use vegn_tile_mod, only : vegn_tile_type, vegn_uptake_profile, vegn_root_properties
+use vegn_tile_mod, only : vegn_tile_type
+use vegn_cohort_mod, only : vegn_cohort_type, &
+    cohort_uptake_profile, cohort_root_properties 
 use land_debug_mod, only : is_watch_point, get_current_point
 use uptake_mod, only : UPTAKE_LINEAR, UPTAKE_DARCY2D, UPTAKE_DARCY2D_LIN, &
      uptake_init, &
@@ -61,9 +63,9 @@ public :: save_soil_restart
 
 public :: soil_get_sfc_temp
 public :: soil_radiation
-public :: soil_diffusion
 public :: soil_step_1
 public :: soil_step_2
+public :: soil_data_beta
 ! =====end of public interfaces ==============================================
 
 
@@ -652,105 +654,91 @@ end subroutine soil_radiation
 
 
 ! ============================================================================
-! compute soil roughness
-subroutine soil_diffusion ( soil, soil_z0s, soil_z0m )
-  type(soil_tile_type), intent(in) :: soil
-  real, intent(out) :: soil_z0s, soil_z0m
-
-  call soil_data_diffusion ( soil, soil_z0s, soil_z0m )
-end subroutine soil_diffusion
-
-
-! ============================================================================
-! compute beta function
-! after Manabe (1969), but distributed vertically.
+! compute uptake-related properties
 subroutine soil_data_beta ( soil, vegn, soil_beta, soil_water_supply, &
-                            soil_uptake_T, soil_rh, soil_rh_psi )
-  type(soil_tile_type), intent(inout)  :: soil
-  type(vegn_tile_type), intent(in)     :: vegn
-  real, intent(out) :: soil_beta
-  real, intent(out) :: soil_water_supply ! max rate of water supply to roots, kg/(m2 s)
-  real, intent(out) :: soil_uptake_T ! an estimate of temperature of the water 
+                            soil_uptake_T )
+  type(soil_tile_type), intent(in)    :: soil
+  type(vegn_tile_type), intent(inout) :: vegn
+  real, intent(out) :: soil_beta(:) ! relative water availability, used only in VEGN_PHOT_SIMPLE treatment
+  real, intent(out) :: soil_water_supply(:) ! max rate of water supply to roots, kg/(indiv s)
+  real, intent(out) :: soil_uptake_T(:) ! an estimate of temperature of the water 
              ! taken up by transpiration. In case of 'linear' uptake it is an exact
              ! value; in case of 'darcy*' treatments the actual uptake profile
              ! is calculated only in step 2, so the value returned is an estimate  
-  real, intent(out) :: soil_rh
-  real, intent(out) :: soil_rh_psi
 
   ! ---- local vars
-  integer :: l
+  integer :: k, l
   real, dimension(num_l) :: &
-       uptake_frac_max, & ! root distribution
+       uptake_frac_max, & ! normalized root distribution
        vegn_uptake_term, &
        vlc, vsc, & ! volumetric fractions of water and ice in the layer
-       DThDP, hyd_cond, DKDP, soil_w_fc, & ! soil hydraulic parameters (not used)
-       VRL, & ! vertical distribution of volumetric root length, m/m3
+       root_length, & ! vertical distribution of volumetric root length, m/m3
+       VRL, & ! volumetric root length
        u, du ! uptake and its derivative (the latter is not used)
-  real :: DPsi_min, DPsi_max, tau_gw, psi_for_rh
-  real :: gw_length, gw_relief, gw_zeta_bar, gw_e_depth, K_sat ! soil hydraulic parameters (not used)
-  real :: K_r, r_r ! root properties
   real :: z  !  soil depth
+  type (vegn_cohort_type), pointer :: cc
 
-  call vegn_uptake_profile (vegn, dz(1:num_l), uptake_frac_max, vegn_uptake_term )
-
-  vlc=0;vsc=0
   do l = 1, num_l
     vlc(l) = max(0., soil%prog(l)%wl / (dens_h2o*dz(l)))
     vsc(l) = max(0., soil%prog(l)%ws / (dens_h2o*dz(l)))
-    enddo
-  
-  soil%uptake_frac = 0
-  do l = 1, num_l
-     soil%uptake_frac(l) = uptake_frac_max(l) &
-          * max(0.0, min(1.0,(vlc(l)-soil%w_wilt(l))/&
-               (0.75*(soil%w_fc(l)-soil%w_wilt(l)))))
   enddo
-  soil_beta = sum(soil%uptake_frac)
-  do l = 1, num_l
-     if (soil_beta /= 0) then
-          soil%uptake_frac(l) = soil%uptake_frac(l) / soil_beta
-     else
-          soil%uptake_frac(l) = uptake_frac_max(l)
-     endif
+
+  ! calculate volumetric root length for the entire tile
+  VRL(:) = 0.0
+  do k = 1, vegn%n_cohorts
+     cc=>vegn%cohorts(k)
+     call cohort_root_properties (cc, dz(1:num_l), cc%root_length(1:num_l), cc%K_r, cc%r_r)
+     VRL(:) = VRL(:)+cc%root_length(1:num_l)*cc%nindivs
   enddo
-  if (lm2) soil%uptake_frac = uptake_frac_max
-
-  ! calculate soil hydraulic properties, in particular psi_for_rh -- we don't use 
-  ! anything else in this subroutine. this moved out of 'case' because
-  ! we need psi unconditionally now for soil_rh
   
-  call soil_data_hydraulics ( soil, vlc, vsc, &
-       soil%psi, DThDP, hyd_cond, DKDP, DPsi_min, DPsi_max, tau_gw, &
-       psi_for_rh, soil_w_fc )
-  soil_rh = exp(psi_for_rh*g_RT)
-  soil_rh_psi = g_RT*soil_rh
+  ! calculate characteristic half-distance between roots, m
+  where (VRL(:) > 0)
+     vegn%root_distance(1:num_l) = 1.0/sqrt(PI*VRL(:))
+  elsewhere
+     vegn%root_distance(1:num_l) = 1.0 ! the value doesn't matter since uptake is 0 anyway 
+  end where
 
-  ! calculate total water supply
-  select case (uptake_option)
-  case(UPTAKE_LINEAR)
-     soil_water_supply = 0
-     z = 0
+  do k = 1, vegn%n_cohorts 
+     cc=>vegn%cohorts(k)
+     call cohort_uptake_profile (cc, dz(1:num_l), uptake_frac_max, vegn_uptake_term )
+
      do l = 1, num_l
-        soil_water_supply = soil_water_supply + &
-          vegn_uptake_term(l)*max(0.0,soil%prog(l)%wl/dz(l)-soil%w_wilt(l)*dens_h2o)
-        z = z + dz(l)
+        cc%uptake_frac(l) = uptake_frac_max(l) &
+             * max(0.0, min(1.0,(vlc(l)-soil%w_wilt(l))/&
+                  (0.75*(soil%w_fc(l)-soil%w_wilt(l)))))
      enddo
-     soil_water_supply = z * soil_water_supply
-     soil_water_supply = soil_water_supply/delta_time
-     soil_uptake_T = sum(soil%uptake_frac*soil%prog%T)
-  case(UPTAKE_DARCY2D)
-     call vegn_root_properties (vegn, dz(1:num_l), VRL, K_r, r_r)
-     call darcy2d_uptake ( soil, psi_wilt, VRL, K_r, r_r, uptake_oneway,&
-          uptake_from_sat, u, du )
-     soil_water_supply = max(0.0,sum(u))
-     soil_uptake_T = soil%uptake_T
-  case(UPTAKE_DARCY2D_LIN)
-     call vegn_root_properties (vegn, dz(1:num_l), VRL, K_r, r_r)
-     call darcy2d_uptake_lin ( soil, psi_wilt, VRL, K_r, r_r, uptake_oneway, &
-          uptake_from_sat, u, du)
-     soil_water_supply = max(0.0,sum(u))
-     soil_uptake_T = soil%uptake_T
-  end select
+     soil_beta(k) = sum(cc%uptake_frac(:))
+     if (soil_beta(k) /= 0) then
+          cc%uptake_frac(:) = cc%uptake_frac(:) / soil_beta(k)
+     else
+          cc%uptake_frac(:) = uptake_frac_max(:)
+     endif
+
+     if (lm2) cc%uptake_frac(:) = uptake_frac_max(:)
+
+     ! calculate total water supply
+     select case (uptake_option)
+     case(UPTAKE_LINEAR)
+        z = 0; soil_water_supply(k) = 0
+        do l = 1, num_l
+           soil_water_supply(k) = soil_water_supply(k) + &
+             vegn_uptake_term(k)*max(0.0,soil%prog(l)%wl/dz(l)-soil%w_wilt(l)*dens_h2o)
+           z = z + dz(l)
+        enddo
+        soil_water_supply(k) = z * soil_water_supply(k)/delta_time
+        soil_uptake_T(k) = sum(cc%uptake_frac(:)*soil%prog(:)%T)
+     case(UPTAKE_DARCY2D)
+        call darcy2d_uptake ( soil, psi_wilt, vegn%root_distance, cc%root_length, &
+             cc%K_r, cc%r_r, uptake_oneway, uptake_from_sat, u, du )
+        soil_water_supply(k) = max(0.0,sum(u))
+        soil_uptake_T(k) = soil%uptake_T
+     case(UPTAKE_DARCY2D_LIN)
+        call darcy2d_uptake_lin ( soil, psi_wilt, vegn%root_distance, cc%root_length, &
+             cc%K_r, cc%r_r, uptake_oneway, uptake_from_sat, u, du)
+        soil_water_supply(k) = max(0.0,sum(u))
+        soil_uptake_T(k) = soil%uptake_T
+     end select
+  enddo
 end subroutine soil_data_beta
 
 
@@ -761,7 +749,7 @@ end subroutine soil_data_beta
 ! integrate soil-heat conduction equation upward from bottom of soil
 ! to surface, delivering linearization of surface ground heat flux.
 subroutine soil_step_1 ( soil, vegn, diag, &
-                         soil_T, soil_uptake_T, soil_beta, soil_water_supply, &
+                         soil_T, &
                          soil_E_min, soil_E_max, &
                          soil_rh, soil_rh_psi, soil_liq, soil_ice, soil_subl, soil_tf, &
                          soil_G0, soil_DGDT )
@@ -770,9 +758,6 @@ subroutine soil_step_1 ( soil, vegn, diag, &
   type(diag_buff_type), intent(inout) :: diag
   real, intent(out) :: &
        soil_T, &    ! temperature of the upper layer of the soil, degK
-       soil_uptake_T, & ! estimate of the temperature of the water taken up by transpiration
-       soil_beta, &
-       soil_water_supply, & ! supply of water to vegetation per unit total active root biomass, kg/m2 
        soil_E_min, &
        soil_E_max, &
        soil_rh,   & ! soil surface relative humidity
@@ -786,13 +771,18 @@ subroutine soil_step_1 ( soil, vegn, diag, &
   real :: bbb, denom, dt_e
   real, dimension(num_l) :: aaa, ccc, thermal_cond, heat_capacity, vlc, vsc
   integer :: l
+  real :: psi_for_rh
+  ! the variables below ar added to satisfy soil_data_hydraulics interface
+  real, dimension(num_l) :: DThDP, hyd_cond, DKDP, soil_w_fc   ! soil hydraulic parameters (not used)
+  real :: gw_length, gw_relief, gw_zeta_bar, gw_e_depth, K_sat ! soil hydraulic parameters (not used)
+  real :: DPsi_min, DPsi_max, tau_gw                           ! soil hydraulic parameters (not used)
 
   if(is_watch_point()) then
-     write(*,*) 'soil%tag', soil%tag
-     write(*,*) 'soil%pars%k_sat_ref', soil%pars%k_sat_ref 
-     write(*,*) 'soil%pars%psi_sat_ref', soil%pars%psi_sat_ref
-     write(*,*) 'soil%pars%chb', soil%pars%chb
-     write(*,*) 'soil%pars%w_sa', soil%pars%vwc_sat
+     __DEBUG1__(soil%tag)
+     __DEBUG1__(soil%pars%k_sat_ref)
+     __DEBUG1__(soil%pars%psi_sat_ref)
+     __DEBUG1__(soil%pars%chb)
+     __DEBUG1__(soil%pars%vwc_sat)
   endif
 ! ----------------------------------------------------------------------------
 ! in preparation for implicit energy balance, determine various measures
@@ -800,13 +790,17 @@ subroutine soil_step_1 ( soil, vegn, diag, &
 ! ----------------------------------------------------------------------------
 
   soil_T = soil%prog(1)%T
-  call soil_data_beta ( soil, vegn, soil_beta, soil_water_supply, soil_uptake_T, &
-                        soil_rh, soil_rh_psi )
 
   do l = 1, num_l
     vlc(l) = max(0.0, soil%prog(l)%wl / (dens_h2o * dz(l)))
     vsc(l) = max(0.0, soil%prog(l)%ws / (dens_h2o * dz(l)))
-    enddo
+  enddo
+  ! calculate soil hydraulic properties, in particular psi_for_rh.
+  call soil_data_hydraulics ( soil, vlc, vsc, &
+       soil%psi, DThDP, hyd_cond, DKDP, DPsi_min, DPsi_max, tau_gw, &
+       psi_for_rh, soil_w_fc )
+  soil_rh = exp(psi_for_rh*g_RT)
+  soil_rh_psi = g_RT*soil_rh
   call soil_data_thermodynamics ( soil, vlc, vsc,  &  
                                   soil_E_max, thermal_cond )
   if (.not.use_E_max) soil_E_max =  HUGE(soil_E_max)
@@ -847,6 +841,11 @@ subroutine soil_step_1 ( soil, vegn, diag, &
                   -aaa(l)*(soil%prog(l)%T   - soil%prog(l-1)%T) )
         soil%e(l-1) = -aaa(l)/denom
         soil%f(l-1) = (dt_e - ccc(l)*soil%f(l))/denom
+! two statements below seem to triger off some optimization that results in 
+! irreproducibility on Mac Intel compiler (even with fltconsistency, but without 
+! -pc64)
+!        write(*,'(i2.2,x)',advance='NO') l
+!        __DEBUG5__(soil%f(l-1),dt_e,ccc(l),soil%f(l-1),denom)
      end do
      denom = delta_time/(heat_capacity(1) )
      soil_G0   = ccc(1)*(soil%prog(2)%T- soil%prog(1)%T + soil%f(1)) / denom
@@ -862,18 +861,18 @@ subroutine soil_step_1 ( soil, vegn, diag, &
 
   if(is_watch_point()) then
      write(*,*) '#### soil_step_1 checkpoint 1 ####'
-     write(*,*) 'mask    ', .true.
-     write(*,*) 'T       ', soil_T
-     write(*,*) 'uptake_T', soil_uptake_T
-     write(*,*) 'beta    ', soil_beta
-     write(*,*) 'E_max   ', soil_E_max
-     write(*,*) 'rh      ', soil_rh
-     write(*,*) 'liq     ', soil_liq
-     write(*,*) 'ice     ', soil_ice
-     write(*,*) 'subl    ', soil_subl
-     write(*,*) 'G0      ', soil_G0
-     write(*,*) 'DGDT    ', soil_DGDT
-     __DEBUG1__(soil_water_supply)
+     __DEBUG1__(soil_T)
+     __DEBUG1__(soil_E_max)
+     __DEBUG1__(soil_rh)
+     __DEBUG1__(soil_liq)
+     __DEBUG1__(soil_ice)
+     __DEBUG1__(soil_subl)
+     __DEBUG1__(soil_G0)
+     __DEBUG1__(soil_DGDT)
+!     do l = 1,num_l
+!        write(*,'(i2.2,x)',advance='NO') l
+!        __DEBUG2__(soil%f(l),soil%e(l))
+!     enddo
   endif
 
   call send_tile_data(id_thermal_cond, thermal_cond, diag)
@@ -897,7 +896,7 @@ end subroutine soil_step_1
   real, intent(in) :: &
      snow_lprec, &
      snow_hlprec, &
-     vegn_uptk, &
+     vegn_uptk(:), &
      subs_DT,       &!
      subs_M_imp,       &! rate of phase change of non-evaporated soil water
      subs_evap
@@ -913,7 +912,8 @@ end subroutine soil_step_1
   real, dimension(num_l+1) :: flow, infilt
   real, dimension(num_l  ) :: div, dq, div_active
   real      :: &
-     lprec_eff, hlprec_eff, tflow, hcap,cap_flow, dheat, &
+     lprec_eff, hlprec_eff, tflow, hcap, dheat, &
+     ! cap_flow, &
      melt_per_deg, melt, adj, &
      liq_to_extract, ice_to_extract, heat_of_extract, &
      liq_to_extract_here, ice_to_extract_here, &
@@ -927,36 +927,35 @@ end subroutine soil_step_1
   logical :: stiff, flag
   real, dimension(num_l-1) :: del_z
   integer :: n_iter, l, ipt, jpt, kpt, fpt, l_internal, l_max_active_layer
+  integer :: ic ! cohort iterator
   real :: jj,dpsi_alt
   real :: &
-       VRL(num_l), & ! volumetric root length, m/m3
-       K_r, & ! root membrame permeability, kg/(m3 s)
-       r_r, & ! root radius, m
        uptake(num_l),   & ! uptake by roots per layer, kg/(m2 s)
-       uptake_tot,      & ! total uptake, kg/(m2 s)
+       uptake1(num_l),  & ! uptake by roots per layer per individual, kg/(indiv s)
+       soil_uptake_frac(num_l), & ! fraction of uptake for each layer, for LM2 mode only
+       tot_nindivs,     & ! total number of individuals, for soil_uptake_frac normalization
+       transp1,         & ! transpiration per individual, kg/(indiv s)
        uptake_pos,      & ! sum of the positive uptake, kg/(m2 s) 
        uptake_T_new, & ! updated average temperature of uptaken water, deg K
        uptake_T_corr,& ! correction for uptake temperature, deg K
        Tu ! temperature of water taken up from (or added to) a layer, deg K
-  
+  real :: Theta ! for debug printout only
+  type(vegn_cohort_type), pointer :: cc
   jj = 1.
   flag = .false.
   
   if(is_watch_point()) then
      write(*,*) ' ##### soil_step_2 checkpoint 1 #####'
      write(*,*) 'mask    ', .true.
-     write(*,*) 'subs_evap    ', subs_evap
-     write(*,*) 'snow_lprec   ', snow_lprec
-     write(*,*) 'uptake  ', vegn_uptk
-     write(*,*) 'subs_M_imp   ', subs_M_imp
-     write(*,*) 'theta_s ', soil%pars%vwc_sat
+     __DEBUG1__(subs_evap)
+     __DEBUG1__(snow_lprec)
+     __DEBUG1__(vegn_uptk)
+     __DEBUG1__(subs_M_imp)
+     __DEBUG1__(soil%pars%vwc_sat)
      do l = 1, num_l
-        write(*,'(a,i2.2,100(2x,a,g))') 'level=', l,&
-             ' T =', soil%prog(l)%T,&
-             ' Th=', (soil%prog(l)%ws+soil%prog(l)%wl)/(dens_h2o*dz(l)),&
-             ' wl=', soil%prog(l)%wl,&
-             ' ws=', soil%prog(l)%ws,&
-             ' gw=', soil%prog(l)%groundwater
+        Theta = (soil%prog(l)%ws+soil%prog(l)%wl)/(dens_h2o*dz(l))
+        write(*,'(x,i2.2,x)',advance='NO')l
+        __DEBUG5__(soil%prog(l)%T,Theta,soil%prog(l)%wl,soil%prog(l)%ws,soil%prog(l)%groundwater)
      enddo
   endif
 
@@ -978,16 +977,23 @@ end subroutine soil_step_1
   if(is_watch_point()) then
      write(*,*) ' ##### soil_step_2 checkpoint 2 #####'
      do l = 1, num_l
-        write(*,'(a,i2.2,100(2x,a,g))') 'level=',l, 'T=', soil%prog(l)%T, &
-             'del_t=', del_t(l), 'e=', soil%e(l), 'f=', soil%f(l)
+        write(*,'(x,i2.2,x)',advance='NO') l
+        __DEBUG4__(soil%prog(l)%T,del_t(l),soil%e(l),soil%f(l))
      enddo
   endif
 
   ! ---- extract evap from soil and do implicit melt --------------------
   IF(LM2) THEN
+    soil_uptake_frac(:) = 0.0 ; tot_nindivs = 0.0
+    do ic = 1,vegn%n_cohorts
+       cc=>vegn%cohorts(ic)
+       soil_uptake_frac(:) = soil_uptake_frac(:)+cc%uptake_frac(:)*cc%nindivs
+       tot_nindivs = tot_nindivs+cc%nindivs
+    enddo
+    soil_uptake_frac(:) = soil_uptake_frac(:)/tot_nindivs
     do l = 1, num_l
       soil%prog(l)%wl = soil%prog(l)%wl &
-                      - soil%uptake_frac(l)*soil_levap*delta_time
+                      - soil_uptake_frac(l)*soil_levap*delta_time
     enddo
   ELSE
     soil%prog(1)%wl = soil%prog(1)%wl - soil_levap*delta_time
@@ -1008,49 +1014,56 @@ end subroutine soil_step_1
                               / ( hcap + (clw-csw)*subs_M_imp )
 
   ! calculate actual vertical distribution of uptake
-  select case(uptake_option)
-  case ( UPTAKE_LINEAR )
-     uptake_T_corr = 0
-     n_iter = 0
-     uptake = soil%uptake_frac*vegn_uptk
-  case ( UPTAKE_DARCY2D, UPTAKE_DARCY2D_LIN )     
-     ! for Darcy-flow uptake, find the root water potential to satify actual
-     ! transpiration by the vegetation
-     call vegn_root_properties (vegn, dz(1:num_l), VRL, K_r, r_r)
-     
-     if ( uptake_option==UPTAKE_DARCY2D ) then
-        call darcy2d_uptake_solver ( soil, vegn_uptk, VRL, K_r, r_r, &
-             uptake_oneway, uptake_from_sat, uptake, n_iter)
-     else
-        call darcy2d_uptake_solver_lin ( soil, vegn_uptk, VRL, K_r, r_r, &
-             uptake_oneway, uptake_from_sat, uptake, n_iter )
-     endif
-
-     uptake_pos = sum(uptake(:),mask=uptake(:)>0)
-     if (uptake_pos > 0) then
-        ! calculate actual temperature of uptake
-        uptake_T_new  = sum(uptake*soil%prog%T,mask=uptake>0)/uptake_pos
-        ! and temperature correction
-        uptake_T_corr = soil%uptake_T - uptake_T_new
-        if(is_watch_point()) then
-           __DEBUG3__(soil%uptake_T, uptake_T_new, uptake_T_corr)
+  uptake(:) = 0.0
+  do ic = 1, vegn%n_cohorts
+     cc=>vegn%cohorts(ic)
+     transp1 = vegn_uptk(ic)*cc%layerfrac/cc%nindivs ! transpiration per individual
+     select case(uptake_option)
+     case ( UPTAKE_LINEAR )
+        n_iter = 0
+        uptake1(:) = cc%uptake_frac(:)*transp1
+     case ( UPTAKE_DARCY2D, UPTAKE_DARCY2D_LIN )     
+        ! for Darcy-flow uptake, find the root water potential to satify actual
+        ! transpiration by the vegetation
+        if ( uptake_option==UPTAKE_DARCY2D ) then
+           call darcy2d_uptake_solver     (soil, transp1, vegn%root_distance, &
+                cc%root_length, cc%K_r, cc%r_r, &
+                uptake_oneway, uptake_from_sat, uptake1, n_iter)
+        else
+           call darcy2d_uptake_solver_lin (soil, transp1, vegn%root_distance, &
+                cc%root_length, cc%K_r, cc%r_r, &
+                uptake_oneway, uptake_from_sat, uptake1, n_iter )
         endif
-        ! save new uptake for the next time step to serve as an estimate of uptake 
-        ! temperature
-        soil%uptake_T    = uptake_T_new
-     else
-        uptake_T_corr = 0.0
-        ! and don't change the soil%uptake_T
+     end select
+     if (is_watch_point()) then
+        __DEBUG3__(transp1,sum(uptake1(1:num_l)),n_iter)
      endif
-  case default
-     call error_mesg('soil_step_2', 'invalid soil uptake option', FATAL)
-  end select
+     uptake = uptake + uptake1*cc%nindivs
+  enddo
+
+  uptake_pos = sum(uptake(:),mask=uptake(:)>0)
+  if (uptake_option/=UPTAKE_LINEAR.and.uptake_pos > 0) then
+     ! calculate actual temperature of uptake
+     uptake_T_new  = sum(uptake*soil%prog%T,mask=uptake>0)/uptake_pos
+     ! and temperature correction
+     uptake_T_corr = soil%uptake_T - uptake_T_new
+     if(is_watch_point()) then
+        __DEBUG3__(soil%uptake_T, uptake_T_new, uptake_T_corr)
+     endif
+     ! save new uptake for the next time step to serve as an estimate of uptake 
+     ! temperature
+     soil%uptake_T = uptake_T_new
+  else
+     uptake_T_corr = 0.0
+     ! and don't change the soil%uptake_T
+  endif
 
   if (is_watch_point())then
      write(*,*) ' ##### soil_step_2 checkpoint 2.1 #####'
-     __DEBUG2__(vegn_uptk,sum(uptake))
+     __DEBUG1__(vegn_uptk)
+     __DEBUG2__(sum(vegn_uptk),sum(uptake))
      do l = 1,num_l
-        write(*,'(a,i2.2,100(2x,a,g))')'level=',l, &
+        write(*,'(i2.2,100(2x,a,g))')l, &
              'uptake=',uptake(l),'dwl=',-uptake(l)*delta_time,&
              'wl=',soil%prog(l)%wl,'new wl=',soil%prog(l)%wl - uptake(l)*delta_time
      enddo
@@ -1081,7 +1094,7 @@ end subroutine soil_step_1
   if(is_watch_point()) then
      write(*,*) ' ##### soil_step_2 checkpoint 3 #####'
      do l = 1, num_l
-        write(*,'(a,i2.2,100(2x,a,g))') ' level=', l,&
+        write(*,'(i2.2,100(2x,a,g))')l,&
              ' T =', soil%prog(l)%T,&
              ' Th=', (soil%prog(l)%ws+soil%prog(l)%wl)/(dens_h2o*dz(l)),&
              ' wl=', soil%prog(l)%wl,&
@@ -1152,7 +1165,7 @@ end subroutine soil_step_1
      write(*,*) ' lrunf_nu',lrunf_nu
      write(*,*) 'hlrunf_nu',hlrunf_nu
      do l = 1, num_l
-        write(*,'(x,a,x,i2.2,100(x,a,g))') ' level=', l,&
+        write(*,'(i2.2,100(x,a,g))')l,&
              ' T =', soil%prog(l)%T,&
              ' Th=', (soil%prog(l)%ws +soil%prog(l)%wl)/(dens_h2o*dz(l)),&
              ' wl=', soil%prog(l)%wl,&
@@ -1175,14 +1188,14 @@ end subroutine soil_step_1
      if(is_watch_point()) then
         write(*,*) ' ##### soil_step_2 checkpoint 3.1 #####'
         do l = 1, num_l
-           write(*,'(x,a,x,i2.2,100(x,a,g))')'level=', l, 'vlc', vlc(l), 'K  ', hyd_cond(l)
+           write(*,'(i2.2,100(x,a,g))')l, 'vlc', vlc(l), 'K  ', hyd_cond(l)
         enddo
      endif
   ! ---- remainder of mass fluxes and associated sensible heat fluxes --------
     flow=1
     flow(1)  = 0
     do l = 1, num_l
-      infilt(l) = soil%uptake_frac(l)*snow_lprec *delta_time
+      infilt(l) = soil_uptake_frac(l)*snow_lprec *delta_time
       flow(l+1) = max(0., soil%prog(l)%wl + flow(l) &
             + infilt(l) - soil_w_fc(l)*dz(l)*dens_h2o)
       dW_l(l) = flow(l) - flow(l+1) + infilt(l)
@@ -1268,7 +1281,7 @@ end subroutine soil_step_1
 
     if(is_watch_point()) then
        do l = 1, num_l
-          write(*,'(a,1x,i2.2,100(2x,g))')'div,vsc,psi,dz',l,div(l),vsc(l),psi(l),dz(l)
+          write(*,'(i2.2,100(2x,a,g))')l,'div=',div(l),'vsc=',vsc(l),'psi=',psi(l),'dz',dz(l)
        enddo
        write(*,*)'lrunf_bf',lrunf_bf
        write(*,*)'tau_gw',tau_gw
@@ -1305,11 +1318,11 @@ ELSE                                              ! BYPASS_RICHARDS_WHEN_STIFF
     if(is_watch_point()) then
        write(*,*) '##### soil_step_2 checkpoint 3.1 #####'
        do l = 1, num_l
-          write(*,'(x,a,x,i2.2,x,a,100(x,g))') 'level=', l, 'DThDP,hyd_cond,psi,DKDP', &
-               DThDP(l),&
-               hyd_cond(l),&
-               psi(l),&
-               DKDP(l)
+          write(*,'(i2.2,100(2x,a,g))')l, &
+               'DThDP=', DThDP(l),&
+               'hyd_cond=',hyd_cond(l),&
+               'psi=',psi(l),&
+               'DKDP=',DKDP(l)
        enddo
        do l = 1, num_l-1
           write(*,'(a,i2.2,1x,a,100(2x,g))') 'interface=', l, 'K,DKDPm,DKDPp,grad,del_z', &
@@ -1657,8 +1670,8 @@ ENDIF                                              ! BYPASS_RICHARDS_WHEN_STIFF
 
   if(is_watch_point()) then
      write(*,*) ' ***** soil_step_2 checkpoint 3.5 ***** '
+!     write(*,*) 'cap_flow', cap_flow
      write(*,*) 'hcap', hcap
-     write(*,*) 'cap_flow', cap_flow
      do l = 1, num_l
         write(*,*) 'level=', l, ' T', soil%prog(l)%T
      enddo

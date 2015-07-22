@@ -37,6 +37,7 @@ interface dpri
    module procedure debug_printout_i0d
    module procedure debug_printout_l0d
    module procedure debug_printout_r1d
+   module procedure debug_printout_i1d
    module procedure debug_printout_r2d
 end interface dpri
 
@@ -233,6 +234,19 @@ subroutine debug_printout_r1d(description,values)
      if(print_hex_debug) write(*,'(z17)',advance='NO')values(i)
   enddo
 end subroutine
+
+subroutine debug_printout_i1d(description,values)
+  character(*), intent(in) :: description
+  integer     , intent(in) :: values(:)
+  
+  integer :: i
+
+  if (trim_labels.or.len_trim(description)<label_len) then
+     write(*,fixed_format,advance='NO')trim(description),values
+  else
+     write(*,'(x,a,99g)',advance='NO')trim(description),values
+  endif
+end subroutine 
 
 subroutine debug_printout_r2d(description,values)
   character(*), intent(in) :: description

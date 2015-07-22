@@ -8,19 +8,22 @@ module vegn_dynamics_mod
 use fms_mod, only: write_version_number
 use time_manager_mod, only: time_type
 
+use constants_mod, only : tfreeze
 use land_constants_mod, only : seconds_per_year, mol_C
 use land_tile_diag_mod, only : &
      register_tiled_diag_field, send_tile_data, diag_buff_type
 use vegn_data_mod, only : spdata, &
      CMPT_VLEAF, CMPT_SAPWOOD, CMPT_ROOT, CMPT_WOOD, CMPT_LEAF, LEAF_ON, LEAF_OFF, &
      fsc_liv, fsc_wood, K1, K2, soil_carbon_depth_scale, C2B, agf_bs, &
-     l_fract
+     l_fract, mcv_min, mcv_lai
 use vegn_tile_mod, only: vegn_tile_type
-use soil_tile_mod, only: soil_tile_type, soil_ave_temp, soil_ave_theta
-use vegn_cohort_mod, only : vegn_cohort_type, height_from_biomass, lai_from_biomass, &
-     update_biomass_pools, update_bio_living_fraction, update_species
+use soil_tile_mod, only: soil_tile_type, soil_ave_temp, soil_ave_theta, clw, csw
+use vegn_cohort_mod, only : vegn_cohort_type, &
+     update_biomass_pools, update_bio_living_fraction, update_species, &
+     leaf_area_from_biomass
 
 use land_debug_mod, only : is_watch_point
+use land_numerics_mod, only : rank_descending
 
 implicit none
 private
@@ -33,6 +36,10 @@ public :: vegn_growth       ! slow time-scale redistributor of accumulated carbo
 public :: vegn_daily_npp    ! updates values of daily-average npp
 public :: vegn_phenology    !
 public :: vegn_biogeography !
+
+public :: vegn_reproduction_ppa ! reproduction for PPA case
+public :: relayer_cohorts
+public :: vegn_mergecohorts_ppa ! merge cohorts
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
@@ -118,16 +125,22 @@ subroutine vegn_carbon_int(vegn, soilt, theta, diag)
   type(diag_buff_type), intent(inout) :: diag
 
   type(vegn_cohort_type), pointer :: cc
-  real :: resp, resl, resr, resg ! respiration terms accumualted for all cohorts 
+  type(vegn_cohort_type), pointer :: c(:) ! for debug only
+  real :: resp, resl, resr, resg ! respiration terms accumulated for all cohorts 
   real :: cgain, closs ! carbon gain and loss accumulated for entire tile 
   real :: md_alive, md_wood;
   real :: gpp ! gross primary productivity per tile
   integer :: sp ! shorthand for current cohort specie
   integer :: i
 
+  c=>vegn%cohorts(1:vegn%n_cohorts)
   if(is_watch_point()) then
-     write(*,*)'#### vegn_carbon_int ####'
+     write(*,*)'#### vegn_carbon_int input ####'
      __DEBUG2__(soilt,theta)
+     __DEBUG1__(c%npp_previous_day)
+     __DEBUG1__(c%carbon_gain)
+     __DEBUG1__(c%carbon_loss)
+     __DEBUG1__(c%bwood_gain)
   endif
 
   !  update plant carbon
@@ -144,7 +157,7 @@ subroutine vegn_carbon_int(vegn, soilt, theta, diag)
      
      cc%carbon_gain = cc%carbon_gain + cc%npp*dt_fast_yr;
      
-     ! check if leaves/roots are present and need to be accounted in maintanence
+     ! check if leaves/roots are present and need to be accounted in maintenance
      if(cc%status == LEAF_ON) then
         md_alive = (cc%Pl * spdata(sp)%alpha(CMPT_LEAF) + &
                     cc%Pr * spdata(sp)%alpha(CMPT_ROOT))* &
@@ -162,42 +175,55 @@ subroutine vegn_carbon_int(vegn, soilt, theta, diag)
      cc%md = md_alive + cc%Psw_alphasw * cc%bliving * dt_fast_yr;
      cc%bwood_gain = cc%bwood_gain + cc%Psw_alphasw * cc%bliving * dt_fast_yr;
      cc%bwood_gain = cc%bwood_gain - md_wood;
-     if (cc%bwood_gain < 0.0) cc%bwood_gain=0.0; ! potential non-conservation ?
+!     if (cc%bwood_gain < 0.0) cc%bwood_gain=0.0; ! potential non-conservation ?
      cc%carbon_gain = cc%carbon_gain - cc%md;
      cc%carbon_loss = cc%carbon_loss + cc%md; ! used in diagnostics only
 
      ! add md from leaf and root pools to fast soil carbon
-     vegn%fast_soil_C = vegn%fast_soil_C +    fsc_liv *md_alive +    fsc_wood *md_wood;
-     vegn%slow_soil_C = vegn%slow_soil_C + (1-fsc_liv)*md_alive + (1-fsc_wood)*md_wood;
+     vegn%fast_soil_C = vegn%fast_soil_C + (   fsc_liv *md_alive +    fsc_wood *md_wood)*cc%nindivs;
+     vegn%slow_soil_C = vegn%slow_soil_C + ((1-fsc_liv)*md_alive + (1-fsc_wood)*md_wood)*cc%nindivs;
 
      ! for budget tracking
 !/*     cp->fsc_in+= data->fsc_liv*md_alive+data->fsc_wood*md_wood; */
 !/*     cp->ssc_in+= (1.- data->fsc_liv)*md_alive+(1-data->fsc_wood)*md_wood; */
-     vegn%fsc_in  = vegn%fsc_in + 1*md_alive+0*md_wood;
-     vegn%ssc_in  = vegn%ssc_in + (1.- 1)*md_alive+(1-0)*md_wood;
+     vegn%fsc_in  = vegn%fsc_in + (     1 *md_alive+   0 *md_wood)*cc%nindivs;
+     vegn%ssc_in  = vegn%ssc_in + ((1.- 1)*md_alive+(1-0)*md_wood)*cc%nindivs;
 
-     vegn%veg_in  = vegn%veg_in  + cc%npp*dt_fast_yr;
-     vegn%veg_out = vegn%veg_out + md_alive+md_wood;
+     vegn%veg_in  = vegn%veg_in  + cc%npp*cc%nindivs*dt_fast_yr;
+     vegn%veg_out = vegn%veg_out + (md_alive+md_wood)*cc%nindivs;
 
-     if(is_watch_point()) then
-        __DEBUG4__(cc%bl, cc%br, cc%bsw, cc%bwood)
-        __DEBUG3__(cc%An_op, cc%An_cl, cc%lai)
-        __DEBUG1__(cc%species)
-        __DEBUG2__(cc%npp, cc%gpp)
-        __DEBUG4__(cc%resp, cc%resl, cc%resr, cc%resg)
-        __DEBUG2__(cc%carbon_gain, cc%carbon_loss)
-        __DEBUG1__(cc%bwood_gain)
-     endif
      ! accumulate tile-level NPP and GPP
-     vegn%npp = vegn%npp + cc%npp
-     gpp = gpp + cc%gpp 
+     vegn%npp = vegn%npp + cc%npp*cc%nindivs
+     gpp = gpp + cc%gpp*cc%nindivs
      ! accumulate respiration terms for tile-level reporting
-     resp = resp + cc%resp ; resl = resl + cc%resl
-     resr = resr + cc%resr ; resg = resg + cc%resg
+     resp = resp + cc%resp*cc%nindivs ; resl = resl + cc%resl*cc%nindivs
+     resr = resr + cc%resr*cc%nindivs ; resg = resg + cc%resg*cc%nindivs
      ! accumulate gain/loss terms for tile-level reporting
-     cgain = cgain + cc%carbon_gain
-     closs = closs + cc%carbon_loss
+     cgain = cgain + cc%carbon_gain*cc%nindivs
+     closs = closs + cc%carbon_loss*cc%nindivs
+     ! update cohort age
+     cc%age = cc%age + dt_fast_yr
   enddo
+  if(is_watch_point()) then
+     write(*,*)'#### vegn_carbon_int output ####'
+     __DEBUG1__(c%species)
+     __DEBUG1__(c%bl)
+     __DEBUG1__(c%br)
+     __DEBUG1__(c%bsw)
+     __DEBUG1__(c%bwood)
+     __DEBUG1__(c%An_op)
+     __DEBUG1__(c%An_cl)
+     __DEBUG1__(c%lai)
+     __DEBUG1__(c%npp)
+     __DEBUG1__(c%gpp)
+     __DEBUG1__(c%resp)
+     __DEBUG1__(c%resl)
+     __DEBUG1__(c%resr)
+     __DEBUG1__(c%resg)
+     __DEBUG1__(c%carbon_gain)
+     __DEBUG1__(c%carbon_loss)
+     __DEBUG1__(c%bwood_gain)
+  endif
 
   ! update soil carbon
   call Dsdt(vegn, diag, soilt, theta)
@@ -248,10 +274,6 @@ subroutine vegn_growth (vegn)
      endif
      
      call update_biomass_pools(cc)
-     cc%root_density = (cc%br + &
-            (cc%bsw+cc%bwood+cc%blv)*(1-agf_bs))*C2B
-     cc%Wl_max = spdata(cc%species)%cmc_lai*cc%lai
-     cc%Ws_max = spdata(cc%species)%csc_lai*cc%lai
      
      ! reset carbon acculmulation terms
      cc%carbon_gain = 0
@@ -367,7 +389,7 @@ subroutine eddy_npp(cc, tsoil)
 
   call plant_respiration(cc,tsoil);
 
-  cc%gpp = (cc%An_op - cc%An_cl)*mol_C*cc%lai;
+  cc%gpp = (cc%An_op - cc%An_cl)*mol_C*cc%leafarea;
   cc%npp = cc%gpp - cc%resp;
 
 !  if(cc%npp_previous_day > -0.00001/2500.0) then
@@ -407,11 +429,11 @@ subroutine plant_respiration(cc, tsoil)
               (1.0+exp(0.4*(tsoil - 273.16-45.0)))&
               )
 
-  r_leaf = -mol_C*cc%An_cl*cc%lai;
+  r_leaf = -mol_C*cc%An_cl*cc%leafarea;
   r_vleaf = spdata(sp)%beta(CMPT_VLEAF)   * cc%blv*tf;
   r_stem  = spdata(sp)%beta(CMPT_SAPWOOD) * cc%bsw*tf;
   r_root  = spdata(sp)%beta(CMPT_ROOT)    * cc%br*tfs;
-  
+
   cc%resp = r_leaf + r_vleaf + r_stem + r_root;
   cc%resl = r_leaf;
   cc%resr = r_root;
@@ -475,8 +497,8 @@ subroutine vegn_phenology(vegn, wilt)
            cc%status = LEAF_OFF; ! set status to indicate leaf drop 
            cc%leaf_age = 0;
            
-           leaf_litter = (1.0-l_fract)*cc%bl;
-           root_litter = (1.0-l_fract)*cc%br;
+           leaf_litter = (1.0-l_fract)*cc%bl*cc%nindivs;
+           root_litter = (1.0-l_fract)*cc%br*cc%nindivs;
            
            ! add to patch litter flux terms
            vegn%litter = vegn%litter + leaf_litter + root_litter;
@@ -496,7 +518,6 @@ subroutine vegn_phenology(vegn, wilt)
            
            ! update state
            cc%bliving = cc%blv + cc%br + cc%bl + cc%bsw;
-           cc%b = cc%bliving + cc%bwood ;
            call update_bio_living_fraction(cc);   
         endif
      endif
@@ -549,5 +570,240 @@ subroutine update_soil_pools(vegn)
 end subroutine update_soil_pools
 
 
+! ============================================================================
+function cohort_can_reproduce(cc); logical cohort_can_reproduce
+  type(vegn_cohort_type), intent(in) :: cc
+  
+  cohort_can_reproduce = (cc%layer == 1 .and. cc%age > spdata(cc%species)%maturalage)
+end function 
+
+
+! ============================================================================
+! the reproduction of each canopy cohort, yearly time step
+! calculate the new cohorts added in this step and states:
+! tree density, DBH, woddy and living biomass
+subroutine vegn_reproduction_ppa (vegn)
+  type(vegn_tile_type), intent(inout) :: vegn
+
+! ---- local vars
+  type(vegn_cohort_type), pointer :: parent, cc ! parent and child cohort pointers
+  type(vegn_cohort_type), pointer :: ccold(:)   ! pointer to old cohort array
+  integer :: newcohorts ! number of new cohorts to be created
+  integer :: i, k ! cohort indices
+
+! Check if reproduction happens
+  newcohorts = 0
+  do i = 1, vegn%n_cohorts
+     if (cohort_can_reproduce(vegn%cohorts(i))) &
+        newcohorts=newcohorts + 1
+  enddo
+
+  if (newcohorts == 0) return ! do nothing if no cohorts are ready for reproduction
+
+  ccold => vegn%cohorts ! keep old cohort information
+  allocate(vegn%cohorts(vegn%n_cohorts+newcohorts))
+  vegn%cohorts(1:vegn%n_cohorts) = ccold(1:vegn%n_cohorts) ! copy old cohort information
+  deallocate (ccold)
+
+!   set up new cohorts
+  k = vegn%n_cohorts
+  do i = 1,vegn%n_cohorts
+    if (.not.cohort_can_reproduce(vegn%cohorts(i))) cycle ! nothing to do
+
+    k = k+1 ! new cohort index
+    
+    vegn%cohorts(k) = vegn%cohorts(i) ! copy all values into the new cohort then change some of them below
+    cc => vegn%cohorts(k) ; parent => vegn%cohorts(i)
+
+    ! update child cohort parameters
+    cc%nindivs = 1.0 * parent%nindivs  ! It should be dependent on the fecundity of species
+    cc%age     = 0.2 * parent%age      ! 0.
+    cc%bliving = 0.2 * parent%bliving  ! 0.02  ! these values need to be tested that if they are
+    cc%bwood   = 0.2 * parent%bwood    ! 0.01  ! OK to initialize plant growth
+
+    ! partition living pools
+    call update_biomass_pools(cc)
+
+    cc%gpp          = 0.
+    cc%npp          = 0.  
+    cc%npp2         = 0.
+    cc%miami_npp    = 0.
+    cc%resp         = 0.
+    cc%resl         = 0.
+    cc%resr         = 0.
+    cc%resg         = 0.
+    cc%md           = 0.    
+    cc%carbon_gain  = 0.
+    cc%carbon_loss  = 0.
+    cc%bwood_gain   = 0.
+    cc%npp_previous_day     = 0.
+    cc%npp_previous_day_tmp = 0.
+    cc%leaf_age = 0.0
+    ! we assume that the newborn cohort is dry; since nindivs of the parent
+    ! doesn't change we don't need to do anything with its Wl and Ws to 
+    ! conserve water (since Wl and Ws are per individual)
+    cc%prog%Wl = 0 ; cc%prog%Ws = 0
+    ! TODO: make sure that energy is conserved in reproduction
+    cc%prog%Tv = parent%prog%Tv
+
+    ! update C of parent cohort
+    parent%bliving = parent%bliving - cc%bliving * cc%nindivs/parent%nindivs
+    parent%bwood   = parent%bwood   - cc%bwood   * cc%nindivs/parent%nindivs
+    call update_biomass_pools(parent)
+  enddo
+  
+  vegn%n_cohorts = k
+  
+end subroutine vegn_reproduction_ppa
+
+
+function cohorts_can_be_merged(c1,c2); logical cohorts_can_be_merged
+   type(vegn_cohort_type), intent(in) :: c1,c2
+   cohorts_can_be_merged = (c1%layer == c2%layer) &
+                     .and. (c1%species == c2%species)
+end function 
+
+! ============================================================================
+subroutine merge_cohorts(c1,c2)
+  type(vegn_cohort_type), intent(in) :: c1
+  type(vegn_cohort_type), intent(inout) :: c2
+  
+  real :: x1, x2 ! normalized relative weights
+  real :: HEAT1, HEAT2 ! heat stored in respective canopies
+
+  x1 = c1%nindivs/(c1%nindivs+c2%nindivs)
+  x2 = 1-x1
+  ! update number of individuals in merged cohort
+  c2%nindivs = c1%nindivs+c2%nindivs
+#define __MERGE__(field) c2%field = x1*c1%field + x2*c2%field
+  HEAT1 = (clw*c1%prog%Wl + csw*c1%prog%Ws + c1%mcv_dry)*(c1%prog%Tv-tfreeze)
+  HEAT2 = (clw*c2%prog%Wl + csw*c2%prog%Ws + c2%mcv_dry)*(c2%prog%Tv-tfreeze)
+  __MERGE__(prog%Wl)
+  __MERGE__(prog%Ws)
+ 
+  __MERGE__(bl)      ! biomass of leaves, kg C/indiv
+  __MERGE__(blv)     ! biomass of virtual leaves (labile store), kg C/indiv
+  __MERGE__(br)      ! biomass of fine roots, kg C/indiv
+  __MERGE__(bsw)     ! biomass of sapwood, kg C/indiv
+  __MERGE__(bwood)   ! biomass of heartwood, kg C/indiv
+  __MERGE__(bliving) ! leaves, fine roots, and sapwood biomass, kgC/indiv
+  __MERGE__(age)     ! age of individual
+
+  __MERGE__(carbon_gain) ! carbon gain during a day, kg C/indiv
+  __MERGE__(carbon_loss) ! carbon loss during a day, kg C/indiv [diag only]
+  __MERGE__(bwood_gain)  ! heartwood gain during a day, kg C/indiv
+
+  call update_biomass_pools(c2)
+
+  ! calculate the resulting dry heat capacity
+  c2%leafarea = leaf_area_from_biomass(c2%bl, c2%species)
+  c2%mcv_dry = max(mcv_min,mcv_lai*c2%leafarea)
+  ! update canopy temperature -- just merge it based on area weights if the heat 
+  ! capacities are zero, or merge it based on the heat content if the heat contents
+  ! are non-zero
+  if(HEAT1==0.and.HEAT2==0) then
+     __MERGE__(prog%Tv)
+  else
+     c2%prog%Tv = (HEAT1*x1+HEAT2*x2) / &
+          (clw*c2%prog%Wl + csw*c2%prog%Ws + c2%mcv_dry) + tfreeze
+  endif
+#undef  __MERGE__
+  
+end subroutine merge_cohorts
+
+! ============================================================================
+! Merge similar cohorts in a tile
+subroutine vegn_mergecohorts_ppa(vegn)
+  type(vegn_tile_type), intent(inout) :: vegn
+
+! ---- local vars
+  type(vegn_cohort_type), pointer :: cc(:) ! array to hold new cohohrts
+  logical :: merged(vegn%n_cohorts)        ! mask to skip cohorts that were already merged
+  integer :: i,j,k
+
+  allocate(cc(vegn%n_cohorts))
+
+  merged(:)=.FALSE. ; k = 0
+  do i = 1, vegn%n_cohorts 
+     if(merged(i)) cycle ! skip cohorts that were alraedy merged
+     k = k+1
+     cc(k) = vegn%cohorts(i)
+     ! try merging therest of the cohorts into current one
+     do j = i+1, vegn%n_cohorts
+        if (merged(j)) cycle ! skip cohorts that are already merged
+        if (cohorts_can_be_merged(cc(k),vegn%cohorts(j))) then
+           call merge_cohorts(vegn%cohorts(j),cc(k))
+           merged(j) = .TRUE.
+        endif
+     enddo
+  enddo
+  ! at this point, k is the number of new cohorts
+  vegn%n_cohorts = k
+  deallocate(vegn%cohorts)
+  vegn%cohorts=>cc
+
+  ! note that the size of the vegn%cohorts may be larger than vegn%n_cohorts
+  
+end subroutine vegn_mergecohorts_ppa
+
+
+! =============================================================================
+! given an array of cohorts, create a new array with old cohorts re-arranged
+! in layers according to their height and crown areas.
+subroutine relayer_cohorts (vegn)
+  type(vegn_tile_type), intent(inout) :: vegn ! input cohorts
+
+  ! ---- local constants
+  real, parameter :: tolerance = 1e-6 
+  
+  ! ---- local vars
+  integer :: idx(vegn%n_cohorts) ! indices of cohorts in decreasing height order
+  integer :: i ! new cohort index
+  integer :: k ! old cohort index
+  integer :: L ! layer index (top-down)
+  integer :: N0,N1 ! initial and final number of cohorts 
+  real    :: frac ! fraction of the layer covered so far by the canopies
+  type(vegn_cohort_type), pointer :: cc(:),new(:)
+  real    :: nindivs
+  
+  ! rank cohorts in descending order by height. For now, assume that they are 
+  ! in order
+  N0 = vegn%n_cohorts; cc=>vegn%cohorts
+  call rank_descending(cc(1:N0)%height,idx)
+  
+  ! calculate max possible number of new cohorts : it is equal to the number of
+  ! old cohorts, plus the number of layers -- since the number of full layers is 
+  ! equal to the maximum number of times an input cohort can be split by a layer 
+  ! boundary.
+  N1 = vegn%n_cohorts + int(sum(cc(1:N0)%nindivs*cc(1:N0)%crownarea))
+  allocate(new(N1))
+
+  ! copy cohort information to the new cohorts, splitting the old cohorts that 
+  ! stride the layer boundaries
+  i = 1 ; k = 1 ; L = 1 ; frac = 0.0 ; nindivs = cc(idx(k))%nindivs
+  do 
+     new(i)         = cc(idx(k))
+     new(i)%nindivs = min(nindivs,(1-frac)/cc(idx(k))%crownarea)
+     new(i)%layer   = L
+     frac = frac+new(i)%nindivs*new(i)%crownarea
+     nindivs = nindivs - new(i)%nindivs
+     
+     if (abs(nindivs*cc(idx(k))%crownarea)<tolerance) then
+       new(i)%nindivs = new(i)%nindivs + nindivs ! allocate the remainder of individuals to the last cohort
+       if (k==N0) exit ! end of loop
+       k = k+1 ; nindivs = cc(idx(k))%nindivs  ! go to the next input cohort
+     endif
+     
+     if (abs(1-frac)<tolerance) then
+       L = L+1 ; frac = 0.0              ! start new layer
+     endif
+
+     i = i+1
+  enddo
+  
+  ! replace the array of cohorts
+  deallocate(vegn%cohorts)
+  vegn%cohorts => new ; vegn%n_cohorts = i
+end subroutine relayer_cohorts
 
 end module vegn_dynamics_mod

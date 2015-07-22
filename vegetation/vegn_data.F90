@@ -106,6 +106,12 @@ public :: &
     cold_month_threshold, scnd_biomass_bins, &
     phen_ev1, phen_ev2, cmc_eps
 
+! do_ppa is defined here, to be visible in every vegetation module, but set
+! (through the namelist) in the vegetation.F90. Motivation is to keep all 
+! "do_something" namelist parameters in vegn_nml.
+
+logical, public :: do_ppa = .FALSE.
+
 ! ---- public subroutine
 public :: read_vegn_data_namelist
 ! ==== end of public interfaces ==============================================
@@ -185,6 +191,15 @@ type spec_data_type
   real    :: dat_root_zeta
   real    :: dat_rs_min
   real    :: dat_snow_crit
+  !  for PPA, Weng, 7/25/2011
+  real    :: gammaDBH     ! power of DBH to height
+  real    :: alphaHT      ! scalar from DBH to height of a tree
+  real    :: alphaCA      ! scalar from DBH to crown area of a tree
+  real    :: alphaBM      ! scalar from DBH to biomass of a tree
+  real    :: maturalage   ! the age that can reproduce
+  real    :: mortrate_d_c ! daily mortality rate in canopy
+  real    :: mortrate_d_u ! daily mortality rate in understory
+
 end type
 
 ! ==== module data ===========================================================
@@ -389,6 +404,21 @@ real  :: scnd_biomass_bins(10) &
 real :: phen_ev1 = 0.5, phen_ev2 = 0.9 ! thresholds for evergreen/decidious 
       ! differentiation (see phenology_type in cohort.F90)
 
+! Weng, 7/25/2011
+real    :: gammaDBH(0:MSPECIES)     = & !  power of DBH to height 
+       (/    1.5,         1.5,          1.5,           1.5,         1.5,    1.5,   1.5,   1.5,   1.5,   1.5,   1.5,   1.5,   1.5,   1.5/)
+real    :: alphaHT(0:MSPECIES)      = &  ! scalar from DBH to height of a tree
+       (/    20.,         20.,          20.,           20.,         20.,    20.,   20.,   20.,   20.,   20.,   20.,   20.,   20.,   20./)
+real    :: alphaCA(0:MSPECIES)      = &  ! scalar from DBH to crown area of a tree
+       (/    30.,         30.,          30.,           30.,         30.,    30.,   30.,   30.,   30.,   30.,   30.,   30.,   30.,   30./) 
+real    :: alphaBM(0:MSPECIES)      = &  ! scalar from DBH to biomass of a tree
+       (/    500.,       500.,         500.,          500.,        500.,   500.,  500.,  500.,  500.,  500.,  500.,  500.,  500.,  500./)  
+real    :: maturalage(0:MSPECIES)      = &  ! the age that a plant can reproduce 
+       (/    0.,         0.,          1.,           1.,         5.,    5.,   5.,   5.,   5.,   5.,   5.,   5.,   5.,   5./)
+real    :: mortrate_d_c(0:MSPECIES) = & ! yearly mortality rate in canopy
+       (/    5.0E-2,  4.0E-2,        5.0E-2,        5.0E-2,      5.0E-2, 1.0E-2,1.0E-2,1.0E-2,1.0E-2,1.0E-2,1.0E-2,1.0E-2,1.0E-2, 1.0E-2/)
+real    :: mortrate_d_u(0:MSPECIES) = & ! yearly mortality rate in understory
+       (/    20.E-2,  20.E-2,        20.E-2,        20.E-2,      20.E-2, 20.E-2,20.E-2,20.E-2,20.E-2,20.E-2,20.E-2,20.E-2,20.E-2, 20.E-2/)
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
   mcv_min, mcv_lai, &
@@ -414,8 +444,9 @@ namelist /vegn_data_nml/ &
   fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
   l_fract, T_transp_min, &
   tc_crit, cnst_crit_phen, fact_crit_phen, cnst_crit_fire, fact_crit_fire, &
-  scnd_biomass_bins, phen_ev1, phen_ev2
-
+  scnd_biomass_bins, phen_ev1, phen_ev2, &
+  ! PPA-related namelist values
+  gammaDBH, alphaHT, alphaCA, alphaBM, maturalage, mortrate_d_c, mortrate_d_u
 
 contains ! ###################################################################
 
@@ -514,6 +545,16 @@ subroutine read_vegn_data_namelist()
      spdata(i)%ksi       = ksi(i)
      call init_derived_species_data(spdata(i))
   enddo
+
+  !  for PPA, Weng, 7/25/2011
+  spdata%gammaDBH     = gammaDBH ! power of DBH to height
+  spdata%alphaHT      = alphaHT  ! scalar from DBH to height of a tree
+  spdata%alphaCA      = alphaCA  ! scalar from DBH to crown area of a tree
+  spdata%alphaBM      = alphaBM  ! scalar from DBH to biomass of a tree
+  spdata%maturalage   = maturalage
+  spdata%mortrate_d_c = mortrate_d_c
+  spdata%mortrate_d_u = mortrate_d_u
+  ! end of Weng
 
   ! register selectors for land use type-specific diagnostics
   do i=1, N_LU_TYPES
