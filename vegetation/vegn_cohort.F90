@@ -243,20 +243,28 @@ end subroutine
 
 
 ! ============================================================================
+! given cohort and snow depth, calcualtes the cover (1-fraction of gaps), and
+! snow factor for radiation
+! TODO: we probably need to revise the snow correction, because currently it
+! does not take into account the height of the cohort, and therefore will
+! be the same for all cohorts (of the same species). snow_crit doesn't
+! depend on height, it's just prescribed (per species)
 subroutine vegn_data_cover ( cohort, snow_depth, vegn_cover, &
                                          vegn_cover_snow_factor )
   type(vegn_cohort_type), intent(inout)  :: cohort
   real, intent(in)  :: snow_depth
-  real, intent(out) :: vegn_cover
-  real, intent(out) :: vegn_cover_snow_factor
+  real, intent(out), optional :: vegn_cover
+  real, intent(out), optional :: vegn_cover_snow_factor
 
   cohort%cover = 1 - exp(-cohort%lai)
   if (use_mcm_masking) then
+     if (present(vegn_cover_snow_factor)) &
      vegn_cover_snow_factor =  &
            (1 - min(1., 0.5*sqrt(max(snow_depth,0.)/cohort%snow_crit)))
      cohort%cover = cohort%cover * &
            (1 - min(1., 0.5*sqrt(max(snow_depth,0.)/cohort%snow_crit)))
   else
+     if (present(vegn_cover_snow_factor)) &
      vegn_cover_snow_factor =  &
            cohort%snow_crit / &
           (max(snow_depth,0.0) + cohort%snow_crit)
@@ -264,7 +272,7 @@ subroutine vegn_data_cover ( cohort, snow_depth, vegn_cover, &
            cohort%snow_crit / &
           (max(snow_depth,0.0) + cohort%snow_crit)
   endif
-  vegn_cover = cohort%cover
+  if (present(vegn_cover)) vegn_cover = cohort%cover
 end subroutine vegn_data_cover
 
 

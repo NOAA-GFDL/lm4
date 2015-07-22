@@ -39,7 +39,6 @@ public :: read_cana_namelist
 public :: cana_init
 public :: cana_end
 public :: save_cana_restart
-public :: cana_radiation
 public :: cana_turbulence
 public :: cana_roughness
 public :: cana_state
@@ -223,95 +222,6 @@ end subroutine save_cana_restart
 
 
 ! ============================================================================
-! set up constants for linearization of radiative transfer, using information
-! provided by soil, snow and vegetation modules.
-subroutine cana_radiation (lm2, &
-     subs_refl_dir, subs_refl_dif, subs_refl_lw, & 
-     snow_refl_dir, snow_refl_dif, snow_refl_lw, & 
-     snow_area, &
-     vegn_refl_dir, vegn_refl_dif, vegn_tran_dir, vegn_tran_dif, &
-     vegn_tran_dir_dir, vegn_refl_lw, vegn_tran_lw,  &
-     vegn_cover, &
-     Sg_dir, Sg_dif, Sv_dir, Sv_dif, &
-     land_albedo_dir, land_albedo_dif )
-
-  logical, intent(in) :: lm2
-  real, intent(in) :: &
-       subs_refl_dir(NBANDS), subs_refl_dif(NBANDS), subs_refl_lw,  & ! sub-snow reflectances for direct, diffuse, and LW radiation respectively
-       snow_refl_dir(NBANDS), snow_refl_dif(NBANDS), snow_refl_lw,  & ! snow reflectances for direct, diffuse, and LW radiation respectively
-       snow_area, &
-       vegn_refl_dir(NBANDS), vegn_tran_dir(NBANDS), & ! vegn reflectance & transmittance for direct light
-       vegn_tran_dir_dir(NBANDS), & !
-       vegn_refl_dif(NBANDS), vegn_tran_dif(NBANDS), & ! vegn reflectance & transmittance for diffuse light 
-       vegn_refl_lw,  vegn_tran_lw,  & ! vegn reflectance & transmittance for thermal radiation 
-       vegn_cover
-
-  real, intent(out) :: &
-     Sg_dir(NBANDS), Sg_dif(NBANDS), & ! fraction of downward short-wave absorbed by ground and snow
-     Sv_dir(NBANDS), Sv_dif(NBANDS), & ! fraction of downward short-wave absorbed by vegetation
-     land_albedo_dir(NBANDS), land_albedo_dif(NBANDS)
-
-  ! ---- local vars
-  real :: &
-       grnd_refl_dir(NBANDS), & ! SW reflectances of ground surface (by spectral band)
-       grnd_refl_dif(NBANDS), & ! SW reflectances of ground surface (by spectral band)
-       grnd_refl_lw             ! LW reflectance of ground surface
-  real :: &
-       subs_up_from_dir(NBANDS), subs_up_from_dif(NBANDS), &
-       subs_dn_dir_from_dir(NBANDS),  subs_dn_dif_from_dif(NBANDS), subs_dn_dif_from_dir(NBANDS)
-
-  grnd_refl_dir = subs_refl_dir + (snow_refl_dir - subs_refl_dir) * snow_area
-  grnd_refl_dif = subs_refl_dif + (snow_refl_dif - subs_refl_dif) * snow_area
-  grnd_refl_lw  = subs_refl_lw  + (snow_refl_lw  - subs_refl_lw ) * snow_area
-
-  ! ---- shortwave -----------------------------------------------------------
-  ! allocation to canopy and ground, based on solution for single
-  ! vegetation layer of limited cover. both ground and vegetation are gray.
-  Sv_dir = 0; Sv_dif = 0
-  IF (LM2) THEN
-
-     subs_dn_dir_from_dir = vegn_tran_dir_dir
-     subs_dn_dif_from_dir = vegn_tran_dir
-     subs_dn_dif_from_dif = vegn_tran_dif
-     if (sfc_dir_albedo_bug) then
-        subs_up_from_dir = grnd_refl_dir &
-             * (subs_dn_dir_from_dir + subs_dn_dif_from_dir)
-     else
-        subs_up_from_dir = grnd_refl_dir*subs_dn_dir_from_dir + &
-                           grnd_refl_dif*subs_dn_dif_from_dir
-     endif
-     subs_up_from_dif = grnd_refl_dif*subs_dn_dif_from_dif
-     land_albedo_dir = subs_up_from_dir+vegn_refl_dir
-     land_albedo_dif = subs_up_from_dif+vegn_refl_dif
-
-  ELSE
-
-     subs_dn_dir_from_dir = vegn_tran_dir_dir
-     subs_dn_dif_from_dir = (vegn_tran_dir + vegn_refl_dif*grnd_refl_dir*vegn_tran_dir_dir)&
-                          / (1 - grnd_refl_dif*vegn_refl_dif)
-     subs_dn_dif_from_dif = vegn_tran_dif &
-                          / (1 - grnd_refl_dif*vegn_refl_dif)
-     if (sfc_dir_albedo_bug) then
-        subs_up_from_dir = grnd_refl_dir * (subs_dn_dir_from_dir + subs_dn_dif_from_dir)
-     else
-        subs_up_from_dir = grnd_refl_dir*subs_dn_dir_from_dir + &
-                           grnd_refl_dif*subs_dn_dif_from_dir
-     endif
-     subs_up_from_dif = grnd_refl_dif*subs_dn_dif_from_dif
-     land_albedo_dir  = subs_up_from_dir*vegn_tran_dif + vegn_refl_dir
-     land_albedo_dif  = subs_up_from_dif*vegn_tran_dif + vegn_refl_dif
-
-  ENDIF
-
-  Sg_dir = subs_dn_dir_from_dir + subs_dn_dif_from_dir - subs_up_from_dir
-  Sg_dif = subs_dn_dif_from_dif - subs_up_from_dif
-  Sv_dir = 1 - Sg_dir - land_albedo_dir
-  Sv_dif = 1 - Sg_dif - land_albedo_dif
-
-end subroutine cana_radiation
-
-
-! ============================================================================
 subroutine cana_turbulence (u_star,&
      vegn_cover, vegn_height, vegn_lai, vegn_sai, vegn_d_leaf, &
      land_d, land_z0m, land_z0s, grnd_z0s, &
@@ -319,50 +229,86 @@ subroutine cana_turbulence (u_star,&
   real, intent(in) :: &
        u_star, & ! friction velocity, m/s
        land_d, land_z0m, land_z0s, grnd_z0s, & 
-       vegn_cover, vegn_height, &
-       vegn_lai, vegn_sai, vegn_d_leaf
+       vegn_cover, vegn_height(:), &
+       vegn_lai(:), vegn_sai(:), vegn_d_leaf(:)
   real, intent(out) :: &
-       con_v_h, con_v_v, & ! one-sided foliage-cas conductance per unit of ground area
-       con_g_h, con_g_v    ! ground-CAS conductance per unit ground area
+       con_v_h(:), con_v_v(:), & ! one-sided foliage-CAS conductance per unit ground area
+       con_g_h   , con_g_v       ! ground-CAS conductance per unit ground area
 
   !---- local constants
   real, parameter :: a_max = 3
   real, parameter :: leaf_co = 0.01 ! meters per second^(1/2)
                                     ! leaf_co = g_b(z)/sqrt(wind(z)/d_leaf)
+  real, parameter :: min_thickness = 0.01 ! thickness for switching to thin-canopy approximation, m
+  real, parameter :: min_height = 0.1 ! min height of the canopy in TURB_LM3V case, m
   ! ---- local vars 
   real :: a        ! parameter of exponential wind profile within canopy:
                    ! u = u(ztop)*exp(-a*(1-z/ztop))
-  real :: height   ! effective height of vegetation
+  real :: height   ! height of the current vegetation cohort, m
+  real :: ztop     ! height of the tallest vegetation, m
   real :: wind     ! normalized wind on top of canopy, m/s
   real :: Kh_top   ! turbulent exchange coefficient on top of the canopy
-  real :: vegn_idx ! total vegetation index = LAI+SAI
+  real :: vegn_idx ! total vegetation index = LAI+SAI, sum over cohorts
   real :: rah_sca  ! ground-SCA resistance
   real :: rav_lit  ! additional resistance of litter to vapor transport
+  real :: h0       ! height of the shorter canopy layer, or zero for the shortest cohort, m
 
-  vegn_idx = vegn_lai+vegn_sai  ! total vegetation index
+  integer :: i
+
+  ! TODO: check array sizes
+
+  vegn_idx = sum(vegn_lai+vegn_sai)  ! total vegetation index
+  
   select case(turbulence_option)
   case(TURB_LM3W)
      if(vegn_cover > 0) then
-        wind  = u_star/VONKARM*log((vegn_height-land_d)/land_z0m) ! normalized wind on top of the canopy
+        ztop   = vegn_height(1)
+        
+        wind  = u_star/VONKARM*log((ztop-land_d)/land_z0m) ! normalized wind on top of the canopy
         a     = vegn_cover*a_max
-        con_v_h = (2*vegn_lai*leaf_co*(1-exp(-a/2))/a)*sqrt(wind/vegn_d_leaf)
-        con_g_h = u_star*a*VONKARM*(1-land_d/vegn_height) &
-             / (exp(a*(1-grnd_z0s/vegn_height)) - exp(a*(1-(land_z0s+land_d)/vegn_height)))
+        h0 = 0
+        do i = size(vegn_lai),1,-1
+           height = vegn_height(i) ! effective height of the vegetation
+           if(height-h0>min_thickness) then
+              con_v_h(i) = 2*vegn_lai(i)*leaf_co*sqrt(wind/vegn_d_leaf(i))*ztop/(height-h0)&
+                 *(exp(-a/2*(ztop-height)/ztop)-exp(-a/2)*(ztop-h0)/ztop)/a
+           else
+              ! thin cohort canopy limit
+              con_v_h(i) = vegn_lai(i)*leaf_co*sqrt(wind/vegn_d_leaf(i))&
+                 *exp(-a/2*(ztop-height)/ztop)
+           endif
+           h0 = height
+        enddo
+        con_g_h = u_star*a*VONKARM*(1-land_d/ztop) &
+             / (exp(a*(1-grnd_z0s/ztop)) - exp(a*(1-(land_z0s+land_d)/ztop)))
      else
         con_v_h = 0
         con_g_h = 0
      endif
   case(TURB_LM3V)
-     height = max(vegn_height,0.1) ! effective height of the vegetation
+     ztop = max(vegn_height(1),min_height)
+     
      a = a_max
-     wind=u_star/VONKARM*log((height-land_d)/land_z0m) ! normalized wind on top of the canopy
+     wind=u_star/VONKARM*log((ztop-land_d)/land_z0m) ! normalized wind on top of the canopy
   
-     con_v_h = (2*vegn_lai*leaf_co*(1-exp(-a/2))/a)*sqrt(wind/vegn_d_leaf)
+     h0 = 0
+     do i = size(vegn_lai),1,-1
+        height = max(vegn_height(i),min_height) ! effective height of the vegetation
+        if(height-h0>min_thickness) then
+           con_v_h(i) = 2*vegn_lai(i)*leaf_co*sqrt(wind/vegn_d_leaf(i))*ztop/(height-h0)&
+              *(exp(-a/2*(ztop-height)/ztop)-exp(-a/2)*(ztop-h0)/ztop)/a
+        else
+           ! thin cohort canopy limit
+           con_v_h(i) = vegn_lai(i)*leaf_co*sqrt(wind/vegn_d_leaf(i))&
+              *exp(-a/2*(ztop-height)/ztop)
+        endif
+        h0 = height
+     enddo
 
      if (land_d > 0.06 .and. vegn_idx > 0.25) then
-        Kh_top = VONKARM*u_star*(height-land_d)
-        rah_sca = height/a/Kh_top * &
-             (exp(a*(1-grnd_z0s/height)) - exp(a*(1-(land_z0m+land_d)/height)))
+        Kh_top = VONKARM*u_star*(ztop-land_d)
+        rah_sca = ztop/a/Kh_top * &
+             (exp(a*(1-grnd_z0s/ztop)) - exp(a*(1-(land_z0m+land_d)/ztop)))
         rah_sca = min(rah_sca,1250.0)
      else
         rah_sca=0.01
@@ -373,7 +319,7 @@ subroutine cana_turbulence (u_star,&
 ! ignores differing biomass and litter turnover rates.
   rav_lit = rav_lit_vi * vegn_idx
   con_g_v = con_g_h/(1.+rav_lit*con_g_h)
-  con_v_v = con_v_h
+  con_v_v = con_v_h  
 end subroutine
 
 ! ============================================================================

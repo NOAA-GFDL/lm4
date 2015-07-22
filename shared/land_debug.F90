@@ -37,6 +37,7 @@ interface dpri
    module procedure debug_printout_i0d
    module procedure debug_printout_l0d
    module procedure debug_printout_r1d
+   module procedure debug_printout_r2d
 end interface dpri
 
 ! ==== module constants ======================================================
@@ -183,10 +184,11 @@ subroutine debug_printout_r0d(description,value)
   real        , intent(in) :: value
   
   if (trim_labels.or.len_trim(description)<label_len) then
-     write(*,fixed_format,advance='NO')trim(description),value
+     write(*,fixed_format,advance='NO')trim(description)
   else
-     write(*,'(x,a,g)',advance='NO')trim(description),value
+     write(*,'(x,a)',advance='NO')trim(description)
   endif
+  write(*,'(g)',advance='NO')value
   if(print_hex_debug) write(*,'(z17)',advance='NO')value
 end subroutine
 
@@ -219,11 +221,29 @@ subroutine debug_printout_r1d(description,values)
   character(*), intent(in) :: description
   real        , intent(in) :: values(:)
   
+  integer :: i
+
+  if (trim_labels.or.len_trim(description)<label_len) then
+     write(*,fixed_format,advance='NO')trim(description)
+  else
+     write(*,'(x,a,99g)',advance='NO')trim(description)
+  endif
+  do i = 1,size(values)
+     write(*,'(g)',advance='NO')values(i)
+     if(print_hex_debug) write(*,'(z17)',advance='NO')values(i)
+  enddo
+end subroutine
+
+subroutine debug_printout_r2d(description,values)
+  character(*), intent(in) :: description
+  real        , intent(in) :: values(:,:)
+  
   if (trim_labels.or.len_trim(description)<label_len) then
      write(*,fixed_format,advance='NO')trim(description),values
   else
      write(*,'(x,a,99g)',advance='NO')trim(description),values
   endif
+  ! TODO: print values as a matrix
 end subroutine
 
 ! ============================================================================

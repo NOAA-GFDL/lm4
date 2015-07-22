@@ -125,20 +125,21 @@ type :: land_tile_type
 
    type(diag_buff_type), pointer :: diag => NULL() ! diagnostic data storage
    
-   ! data that are carried over from the previous time step
+   ! data that are carried from update_land_bc_fast to update_land_fast:
    real :: Sg_dir(NBANDS), Sg_dif(NBANDS) ! fractions of downward direct and 
        ! diffuse short-wave radiation absorbed by ground and snow
-   real :: Sv_dir(NBANDS), Sv_dif(NBANDS) ! fractions of downward direct and 
-       ! diffuse radiation absorbed by the vegetation.
+   ! fractions of downward direct and diffuse radiation absorbed by the 
+   ! vegetation; dimensions are (NCOHORTS,NBANDS).
+   real, pointer :: Sv_dir(:,:)=>NULL(), Sv_dif(:,:)=>NULL() 
    real :: land_refl_dir(NBANDS), land_refl_dif(NBANDS)
-   
    real :: land_d, land_z0m, land_z0s
    real :: surf_refl_lw ! long-wave reflectivity of the ground surface (possibly snow-covered)
-   real :: vegn_refl_lw ! black background long-wave reflectivity of the vegetation canopy
-   real :: vegn_tran_lw ! black background long-wave transmissivity of the vegetation canopy
+   ! black-background long-wave radiative properties of the vegetation cohorts
+   real, pointer :: vegn_refl_lw(:) => NULL() ! reflectance
+   real, pointer :: vegn_tran_lw(:) => NULL() ! transmittance
 
    real :: lwup     = 200.0  ! upward long-wave flux from the entire land (W/m2), the result of
-           ! the implicit time step -- used in update_bc_fast to return to the flux exchange.
+           ! the implicit time step -- used in update_land_bc_fast to return to the flux exchange.
    real :: e_res_1  = 0.0 ! energy residual in canopy air EB equation
    real :: e_res_2  = 0.0 ! energy residual in canopy EB equation
    real :: runon_l  = 0.0 ! water discharged by rivers into the tile, kg/(m2 s)
@@ -239,6 +240,29 @@ function land_tile_copy_ctor(t) result(tile)
   if (associated(t%vegn)) tile%vegn=>new_vegn_tile(t%vegn)
 
   if (associated(t%diag)) tile%diag=>new_diag_buff(t%diag)
+
+  ! copy arays of vegetation optical properties
+  tile%Sv_dir=>NULL(); 
+  if(associated(t%Sv_dir)) then
+    allocate(tile%Sv_dir(size(t%Sv_dir,1),size(t%Sv_dir,2)));
+    tile%Sv_dir=t%Sv_dir
+  endif
+  tile%Sv_dif=>NULL(); 
+  if(associated(t%Sv_dif)) then
+    allocate(tile%Sv_dif(size(t%Sv_dif,1),size(t%Sv_dif,2)));
+    tile%Sv_dif=t%Sv_dif
+  endif
+  tile%vegn_refl_lw=>NULL(); 
+  if(associated(t%vegn_refl_lw)) then
+    allocate(tile%vegn_refl_lw(size(t%vegn_refl_lw)));
+    tile%vegn_refl_lw=t%vegn_refl_lw
+  endif
+  tile%vegn_tran_lw=>NULL(); 
+  if(associated(t%vegn_tran_lw)) then
+    allocate(tile%vegn_tran_lw(size(t%vegn_tran_lw)));
+    tile%vegn_tran_lw=t%vegn_tran_lw
+  endif
+
 end function land_tile_copy_ctor
 
 
@@ -260,6 +284,14 @@ subroutine delete_land_tile(tile)
   ! deallocate diagnostic storage
   call delete_diag_buff(tile%diag)
 
+  ! deallocate optical properties
+#define __DEALLOC__(x) if(associated(x))deallocate(x)
+  __DEALLOC__(tile%Sv_dir)
+  __DEALLOC__(tile%Sv_dif)
+  __DEALLOC__(tile%vegn_refl_lw)
+  __DEALLOC__(tile%vegn_tran_lw)
+#undef __DEALLOC__
+  
   ! release the tile memory
   deallocate(tile)
   

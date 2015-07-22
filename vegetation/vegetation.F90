@@ -9,7 +9,7 @@ use fms_mod, only: open_namelist_file
 #endif
 
 use fms_mod, only: write_version_number, error_mesg, NOTE,FATAL, file_exist, &
-                   close_file, check_nml_error, stdlog 
+                   close_file, check_nml_error, stdlog, string 
 use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe
 use time_manager_mod, only: time_type, time_type_to_real, get_date, operator(-)
 use constants_mod,    only: tfreeze, rdgas, rvgas, hlv, hlf, cp_air, PI
@@ -69,7 +69,6 @@ public :: vegn_init
 public :: vegn_end
 public :: save_vegn_restart
 
-public :: vegn_get_cover
 public :: vegn_radiation
 public :: vegn_diffusion
 
@@ -738,35 +737,35 @@ end subroutine save_vegn_restart
 
 
 ! ============================================================================
-subroutine vegn_get_cover(vegn, snow_depth, vegn_cover)
-  type(vegn_tile_type), intent(inout)  :: vegn ! it is only inout because vegn%data%cover
-                                    ! changes cohort; can it be avoided?
-  real,                 intent(in)  :: snow_depth
-  real,                 intent(out) :: vegn_cover
-
-  real :: vegn_cover_snow_factor
-
-  call vegn_data_cover(vegn%cohorts(1), snow_depth, vegn_cover, vegn_cover_snow_factor)
+! given vegetation state and snow depth, calculate integral diffusion-related
+! 
+subroutine vegn_diffusion (vegn, snow_depth, vegn_cover, vegn_height, vegn_lai, vegn_sai)
+  type(vegn_tile_type), intent(inout) :: vegn
+  real, intent(in) :: snow_depth
+  real, intent(out) :: &
+       vegn_cover, vegn_height, vegn_lai, vegn_sai
   
-end subroutine vegn_get_cover
-
-
-! ============================================================================
-subroutine vegn_diffusion ( vegn, vegn_cover, vegn_height, vegn_lai, vegn_sai, vegn_d_leaf)
-  type(vegn_tile_type), intent(in) :: vegn
-  real,                intent(out) :: &
-       vegn_cover, vegn_height, vegn_lai, vegn_sai, vegn_d_leaf
+  real :: gaps ! fraction of gaps in the canopy, =1-cover
+  integer :: i
   
-  vegn_cover  = vegn%cohorts(1)%cover
-  vegn_lai    = vegn%cohorts(1)%lai
-  vegn_sai    = vegn%cohorts(1)%sai
-  vegn_height = vegn%cohorts(1)%height
-  vegn_d_leaf = vegn%cohorts(1)%leaf_size
+  ! calculate integral parameters in vegetation
+  gaps = 1.0; vegn_lai = 0; vegn_sai = 0
+  do i = 1,vegn%n_cohorts
+    call vegn_data_cover(vegn%cohorts(i), snow_depth)
+    gaps = gaps*(1-vegn%cohorts(i)%cover)
+    vegn_lai = vegn_lai + vegn%cohorts(i)%lai
+    vegn_sai = vegn_sai + vegn%cohorts(i)%sai
+  enddo
+  ! if there is no snow, gaps = exp(sum(LAI))
+  vegn_cover  = 1 - gaps
+  vegn_height = vegn%cohorts(1)%height ! return the height of the tallest (first) cohort
 
 end subroutine vegn_diffusion
 
 
 ! ============================================================================
+! This is a temporary glue code to avoid changeing update_land_model fast for now.
+
 subroutine vegn_step_1 ( vegn, diag, &
         p_surf, ustar, drag_q, &
         SWdn, RSv, precip_l, precip_s, &
@@ -775,12 +774,12 @@ subroutine vegn_step_1 ( vegn, diag, &
         cana_T, cana_q, cana_co2_mol, &
         ! output
         con_g_h, con_g_v, & ! aerodynamic conductance between canopy air and canopy, for heat and vapor flux
-        vegn_T,vegn_Wl,  vegn_Ws,           & ! temperature, water and snow mass of the canopy
-        vegn_ifrac,                         & ! intercepted fraction of liquid and frozen precipitation
-        vegn_lai,                           & ! leaf area index
-        drip_l, drip_s,                     & ! water and snow drip rate from precipitation, kg/(m2 s)
-        vegn_hcap,                          & ! vegetation heat capacity
-        Hv0,   DHvDTv,   DHvDTc,            & ! sens heat flux
+        vegn_T, vegn_Wl, vegn_Ws, & ! temperature, water and snow mass of the canopy
+        vegn_ifrac,               & ! intercepted fraction of liquid and frozen precipitation
+        vegn_lai,                 & ! leaf area index
+        drip_l, drip_s,           & ! water and snow drip rate from precipitation, kg/(m2 s)
+        vegn_hcap,                & ! vegetation heat capacity
+        Hv0,   DHvDTv,   DHvDTc,                      & ! sens heat flux
         Et0,   DEtDTv,   DEtDqc,   DEtDwl,   DEtDwf,  & ! transpiration
         Eli0,  DEliDTv,  DEliDqc,  DEliDwl,  DEliDwf, & ! evaporation of intercepted water
         Efi0,  DEfiDTv,  DEfiDqc,  DEfiDwl,  DEfiDwf  ) ! sublimation of intercepted snow
@@ -801,7 +800,7 @@ subroutine vegn_step_1 ( vegn, diag, &
        cana_q,    & ! specific humidity of canopy air, kg/kg
        cana_co2_mol ! co2 mixing ratio in the canopy air, mol CO2/mol dry air
   ! output -- coefficients of linearized expressions for fluxes
-  real, intent(out) ::   &
+  real, intent(out) :: &
        vegn_T,vegn_Wl,  vegn_Ws,& ! temperature, water and snow mass of the canopy
        vegn_ifrac, & ! intercepted fraction of liquid and frozen precipitation
        vegn_lai, & ! vegetation leaf area index
@@ -812,29 +811,153 @@ subroutine vegn_step_1 ( vegn, diag, &
        Et0,   DEtDTv,   DEtDqc,   DEtDwl,   DEtDwf,  & ! transpiration
        Eli0,  DEliDTv,  DEliDqc,  DEliDwl,  DEliDwf, & ! evaporation of intercepted water
        Efi0,  DEfiDTv,  DEfiDqc,  DEfiDwl,  DEfiDwf    ! sublimation of intercepted snow
+
+   ! ---- local vars
+   real :: swdn_(1,NBANDS),RSv_(1,NBANDS)
+   real, dimension(1) ::   &
+       vegn_T_, vegn_Wl_, vegn_Ws_,& ! temperature, water and snow mass of the canopy
+       vegn_ifrac_, & ! intercepted fraction of liquid and frozen precipitation
+       vegn_lai_, & ! vegetation leaf area index
+       drip_l_, drip_s_, & ! water and snow drip rate from precipitation, kg/(m2 s)
+       vegn_hcap_, & ! total vegetation heat capacity, including intercepted water and snow
+       Hv0_,   DHvDTv_,   DHvDTc_, & ! sens heat flux
+       Et0_,   DEtDTv_,   DEtDqc_,   DEtDwl_,   DEtDwf_,  & ! transpiration
+       Eli0_,  DEliDTv_,  DEliDqc_,  DEliDwl_,  DEliDwf_, & ! evaporation of intercepted water
+       Efi0_,  DEfiDTv_,  DEfiDqc_,  DEfiDwl_,  DEfiDwf_    ! sublimation of intercepted snow
+
+   ! assign input values
+   swdn_(1,:) = SWdn; RSv_(1,:) = RSv
+   
+   call vegn_step_1_multi(vegn, diag, &
+        p_surf, ustar, drag_q, &
+        SWdn_, RSv_, precip_l, precip_s, &
+        land_d, land_z0s, land_z0m, grnd_z0s, &
+        soil_beta, soil_water_supply, &
+        cana_T, cana_q, cana_co2_mol, &
+        ! output
+        con_g_h, con_g_v, & ! aerodynamic conductance between canopy air and canopy, for heat and vapor flux
+        vegn_T_, vegn_Wl_, vegn_Ws_, & ! temperature, water and snow mass of the canopy
+        vegn_ifrac_,               & ! intercepted fraction of liquid and frozen precipitation
+        vegn_lai_,                 & ! leaf area index
+        drip_l_, drip_s_,           & ! water and snow drip rate from precipitation, kg/(m2 s)
+        vegn_hcap_,                & ! vegetation heat capacity
+        Hv0_,   DHvDTv_,   DHvDTc_,                      & ! sens heat flux
+        Et0_,   DEtDTv_,   DEtDqc_,   DEtDwl_,   DEtDwf_,  & ! transpiration
+        Eli0_,  DEliDTv_,  DEliDqc_,  DEliDwl_,  DEliDwf_, & ! evaporation of intercepted water
+        Efi0_,  DEfiDTv_,  DEfiDqc_,  DEfiDwl_,  DEfiDwf_  ) ! sublimation of intercepted snow)
+
+    ! assign output values
+    vegn_T = vegn_T_(1)
+    vegn_Wl = vegn_Wl_(1)
+    vegn_Ws = vegn_Ws_(1)
+    
+    vegn_ifrac = vegn_ifrac_(1)
+    
+    vegn_lai = vegn_lai_(1)
+    
+    drip_l = drip_l_(1)
+    drip_s = drip_s_(1)
+    
+    vegn_hcap = vegn_hcap_(1)
+    
+    Hv0 = Hv0_(1)
+    DHvDTv = DHvDTv_(1)
+    DHvDTc = DHvDTc_(1)
+    
+    Et0 = Et0_(1)
+    DEtDTv = DEtDTv_(1)
+    DEtDqc = DEtDqc_(1)
+    DEtDwl = DEtDwl_(1)
+    DEtDwf = DEtDwf_(1)
+    
+    Eli0 = Eli0_(1)
+    DEliDTv = DEliDTv_(1)
+    DEliDqc = DEliDqc_(1)
+    DEliDwl = DEliDwl_(1)
+    DEliDwf = DEliDwf_(1)
+    
+    Efi0 = Efi0_(1)
+    DEfiDTv = DEfiDTv_(1)
+    DEfiDqc = DEfiDqc_(1)
+    DEfiDwl = DEfiDwl_(1)
+    DEfiDwf = DEfiDwf_(1)
+
+end subroutine vegn_step_1
+
+! ============================================================================
+subroutine vegn_step_1_multi ( vegn, diag, &
+        p_surf, ustar, drag_q, &
+        SWdn, RSv, precip_l, precip_s, &
+        land_d, land_z0s, land_z0m, grnd_z0s, &
+        soil_beta, soil_water_supply, &
+        cana_T, cana_q, cana_co2_mol, &
+        ! output
+        con_g_h, con_g_v, & ! aerodynamic conductance between canopy air and canopy, for heat and vapor flux
+        vegn_T, vegn_Wl, vegn_Ws, & ! temperature, water and snow mass of the canopy
+        vegn_ifrac,               & ! intercepted fraction of liquid and frozen precipitation
+        vegn_lai,                 & ! leaf area index
+        drip_l, drip_s,           & ! water and snow drip rate from precipitation, kg/(m2 s)
+        vegn_hcap,                & ! vegetation heat capacity
+        Hv0,   DHvDTv,   DHvDTc,                      & ! sens heat flux
+        Et0,   DEtDTv,   DEtDqc,   DEtDwl,   DEtDwf,  & ! transpiration
+        Eli0,  DEliDTv,  DEliDqc,  DEliDwl,  DEliDwf, & ! evaporation of intercepted water
+        Efi0,  DEfiDTv,  DEfiDqc,  DEfiDwl,  DEfiDwf  ) ! sublimation of intercepted snow
+  type(vegn_tile_type), intent(inout) :: vegn ! vegetation data
+  type(diag_buff_type), intent(inout) :: diag ! diagnostic buffer
+  real, intent(in) :: &
+       p_surf,    & ! surface pressure, N/m2
+       ustar,     & ! friction velocity, m/s
+       drag_q,    & ! bulk drag coefficient for specific humidity
+       SWdn(:,:), & ! downward SW radiation on top of each cohort, W/m2 (NCOHORTS,NBANDS)
+       RSv (:,:), & ! net SW radiation balance of the canopy, W/m2, (NCOHORTS,NBANDS)
+       precip_l, precip_s, & ! liquid and solid precipitation rates, kg/(m2 s)
+       land_d, land_z0s, land_z0m, & ! land displacement height and roughness, m
+       grnd_z0s, & ! roughness of ground surface (including snow effect)
+       soil_beta, & ! relative water availability
+       ! TODO: soil_water_supply must be by cohort
+       soil_water_supply, & ! max rate of water supply to the roots, kg/(m2 s)
+       cana_T,    & ! temperature of canopy air, deg K
+       cana_q,    & ! specific humidity of canopy air, kg/kg
+       cana_co2_mol ! co2 mixing ratio in the canopy air, mol CO2/mol dry air
+  ! output -- coefficients of linearized expressions for fluxes
+  real, intent(out), dimension(:) ::   &
+       vegn_T, vegn_Wl, vegn_Ws,& ! temperature, water and snow mass of the canopy
+       vegn_ifrac, & ! intercepted fraction of liquid and frozen precipitation
+       vegn_lai, & ! vegetation leaf area index
+       drip_l, drip_s, & ! water and snow drip rate from precipitation, kg/(m2 s)
+       vegn_hcap, & ! total vegetation heat capacity, including intercepted water and snow
+       Hv0,   DHvDTv,   DHvDTc, & ! sens heat flux
+       Et0,   DEtDTv,   DEtDqc,   DEtDwl,   DEtDwf,  & ! transpiration
+       Eli0,  DEliDTv,  DEliDqc,  DEliDwl,  DEliDwf, & ! evaporation of intercepted water
+       Efi0,  DEfiDTv,  DEfiDqc,  DEfiDwl,  DEfiDwf    ! sublimation of intercepted snow
+  real, intent(out) :: &
+       con_g_h, con_g_v  ! aerodynamic conductance between ground and canopy air
   
   ! ---- local vars 
   real :: &
-       ft,DftDwl,DftDwf, & ! fraction of canopy not covered by intercepted water/snow, and its' 
+       ft,DftDwl,DftDwf, & ! fraction of canopy not covered by intercepted water/snow, and its 
                     ! derivatives w.r.t. intercepted water masses 
-       fw,DfwDwl,DfwDwf, & ! fraction of canopy covered by intercepted water, and its' 
+       fw,DfwDwl,DfwDwf, & ! fraction of canopy covered by intercepted water, and its
                     ! derivatives w.r.t. intercepted water masses 
-       fs,DfsDwl,DfsDwf, & ! fraction of canopy covered by intercepted snow, and its' 
+       fs,DfsDwl,DfsDwf, & ! fraction of canopy covered by intercepted snow, and its 
                     ! derivatives w.r.t. intercepted water masses
        stomatal_cond, & ! integral stomatal conductance of canopy
-       con_v_h, con_v_v, & ! aerodyn. conductance between canopy and CAS, for heat and vapor
+       total_stomatal_cond, & ! sum of cohort stomatal conductance values, for diagnostics only
        total_cond, &! overall conductance from inside stomata to canopy air 
        qvsat,     & ! sat. specific humidity at the leaf T
        DqvsatDTv, & ! derivative of qvsat w.r.t. leaf T
        rho,       & ! density of canopy air
+       gaps,      & ! fraction of gaps in the canopy, used to calculate cover
        phot_co2,  & ! co2 mixing ratio for photosynthesis, mol CO2/mol dry air
        photosynt, & ! photosynthesis
        photoresp    ! photo-respiration
-  type(vegn_cohort_type), pointer :: cohort
-  
-  ! get the pointer to the first (and, currently, the only) cohort
-  cohort => vegn%cohorts(1)
+  real, dimension(size(RSv,1)) :: &
+       con_v_h, con_v_v ! aerodyn. conductance between canopy and CAS, for heat and vapor
+  type(vegn_cohort_type), pointer :: cohort(:)
+  integer :: i
 
+  cohort => vegn%cohorts
+  
   if(is_watch_point()) then
      write(*,*)'#### vegn_step_1 input ####'
      __DEBUG3__(p_surf, ustar, drag_q)
@@ -845,25 +968,40 @@ subroutine vegn_step_1 ( vegn, diag, &
      __DEBUG2__(soil_beta, soil_water_supply)
      __DEBUG3__(cana_T, cana_q, cana_co2_mol)
      write(*,*)'#### end of vegn_step_1 input ####'
-     __DEBUG3__(cohort%height, cohort%lai, cohort%sai)
-     __DEBUG2__(cohort%cover,cohort%leaf_size)
+     __DEBUG1__(cohort%height)
+     __DEBUG1__(cohort%lai)
+     __DEBUG1__(cohort%sai)
+     __DEBUG1__(cohort%cover)
+     __DEBUG1__(cohort%leaf_size)
      __DEBUG1__(cohort%prog%Tv)
   endif
+  ! TODO: check array sizes
 
   ! check the range of input temperature
-  call check_temp_range(cohort%prog%Tv,'vegn_step_1','cohort%prog%Tv',lnd%time) 
-
-  ! calculate the fractions of intercepted precipitation
-  vegn_ifrac = cohort%cover
-
-  ! get the lai
-  vegn_lai = cohort%lai
-
+  gaps = 1.0
+  do i = 1,vegn%n_cohorts
+     call check_temp_range(cohort(i)%prog%Tv, 'vegn_step_1',&
+         'cohort('//trim(string(i))//')%prog%Tv',lnd%time)
+     ! calculate the fractions of intercepted precipitation
+     vegn_ifrac(i) = cohort(i)%cover
+     ! get the lai
+     vegn_lai(i)   = cohort(i)%lai
+     ! calculate total cover
+     gaps = gaps*(1-cohort(i)%cover)
+  enddo
+  
   ! calculate the aerodynamic conductance coefficients
-  call cana_turbulence(ustar, &
-     cohort%cover, cohort%height, cohort%lai, cohort%sai, cohort%leaf_size, &
+  call cana_turbulence(ustar, 1-gaps, &
+     cohort(:)%height, cohort(:)%lai, cohort(:)%sai, cohort(:)%leaf_size, &
      land_d, land_z0m, land_z0s, grnd_z0s, &
+     ! output:
      con_v_h, con_v_v, con_g_h, con_g_v)
+  if(is_watch_point()) then
+     __DEBUG1__(con_v_h)
+     __DEBUG1__(con_v_v)
+     __DEBUG1__(con_g_h)
+     __DEBUG1__(con_g_v)
+  endif
 
   ! calculate the vegetation photosynthesis and associated stomatal conductance
   if (vegn_phot_co2_option == VEGN_PHOT_CO2_INTERACTIVE) then
@@ -871,123 +1009,130 @@ subroutine vegn_step_1 ( vegn, diag, &
   else 
      phot_co2 = co2_for_photosynthesis
   endif
-  call vegn_photosynthesis ( vegn, &
-     SWdn(BAND_VIS), RSv(BAND_VIS), cana_q, phot_co2, p_surf, drag_q, &
-     soil_beta, soil_water_supply, &
-     stomatal_cond, photosynt, photoresp )
-
-  call get_vegn_wet_frac ( cohort, fw, DfwDwl, DfwDwf, fs, DfsDwl, DfsDwf )
-  ! transpiring fraction and its derivatives
-  ft     = 1 - fw - fs
-  DftDwl = - DfwDwl - DfsDwl
-  DftDwf = - DfwDwf - DfsDwf
-  call qscomp(cohort%prog%Tv, p_surf, qvsat, DqvsatDTv)
-
-  rho = p_surf/(rdgas*cana_T *(1+d608*cana_q))
   
-  ! get the vegetation temperature
-  vegn_T  =  cohort%prog%Tv
-  ! get the amount of intercepted water and snow
-  vegn_Wl =  cohort%prog%Wl
-  vegn_Ws =  cohort%prog%Ws
-  ! calculate the drip rates
-  drip_l  = max(vegn_Wl,0.0)/tau_drip_l
-  drip_s  = max(vegn_Ws,0.0)/tau_drip_s
-  ! correct the drip rates so that the amount of water and snow accumulated over time step 
-  ! is no larger then the canopy water-holding capacity
-  drip_l = max((vegn_Wl+precip_l*delta_time*vegn_ifrac-cohort%Wl_max)/delta_time,drip_l)
-  drip_s = max((vegn_Ws+precip_s*delta_time*vegn_ifrac-cohort%Ws_max)/delta_time,drip_s)
+  total_stomatal_cond = 0
+  do i = 1, vegn%n_cohorts
+     call vegn_photosynthesis ( vegn, &
+        SWdn(i,BAND_VIS), RSv(i,BAND_VIS), cana_q, phot_co2, p_surf, drag_q, &
+        soil_beta, soil_water_supply, &
+        stomatal_cond, photosynt, photoresp )
 
-  ! calculate the total heat capacity
-  call vegn_data_heat_capacity (cohort, vegn_hcap)
-  vegn_hcap = vegn_hcap + clw*cohort%prog%Wl + csw*cohort%prog%Ws
-  ! calculate the coefficient of sensible heat flux linearization
-  Hv0     =  2*rho*cp_air*con_v_h*(cohort%prog%Tv - cana_T)
-  DHvDTv  =  2*rho*cp_air*con_v_h
-  DHvDTc  = -2*rho*cp_air*con_v_h
-  ! calculate the coefficients of the transpiration linearization
-  if(con_v_v==0.and.stomatal_cond==0) then
-     total_cond = 0.0
-  else
-     total_cond = stomatal_cond*con_v_v/(stomatal_cond+con_v_v)
-  endif
+     ! accumulate total value of stomatal cond for diagnostics
+     total_stomatal_cond = total_stomatal_cond+stomatal_cond
 
-  if(qvsat>cana_q)then
-     ! flux is directed from the surface: transpiration is possible, and the
-     ! evaporation of intercepted water depends on the fraction of wet/snow
-     ! covered canopy.
+     call get_vegn_wet_frac ( cohort(i), fw, DfwDwl, DfwDwf, fs, DfsDwl, DfsDwf )
+     ! transpiring fraction and its derivatives
+     ft     = 1 - fw - fs
+     DftDwl = - DfwDwl - DfsDwl
+     DftDwf = - DfwDwf - DfsDwf
+     call qscomp(cohort(i)%prog%Tv, p_surf, qvsat, DqvsatDTv)
 
-     ! prohibit transpiration if leaf temperature below some predefined minimum
-     ! typically (268K, but check namelist)
-     if(cohort%prog%Tv < T_transp_min) total_cond = 0 
-     ! calculate the transpiration linearization coefficients
-     Et0     =  rho*total_cond*ft*(qvsat - cana_q)
-     DEtDTv  =  rho*total_cond*ft*DqvsatDTv
-     DEtDqc  = -rho*total_cond*ft
-     DEtDwl  =  rho*total_cond*DftDwl*(qvsat - cana_q)
-     DEtDwf  =  rho*total_cond*DftDwf*(qvsat - cana_q)
-     ! calculate the coefficients of the intercepted liquid evaporation linearization
-     Eli0    =  rho*con_v_v*fw*(qvsat - cana_q)
-     DEliDTv =  rho*con_v_v*fw*DqvsatDTv
-     DEliDqc = -rho*con_v_v*fw
-     DEliDwl =  rho*con_v_v*DfwDwl*(qvsat-cana_q)
-     DEliDwf =  rho*con_v_v*DfwDwf*(qvsat-cana_q)
-     ! calculate the coefficients of the intercepted snow evaporation linearization
-     Efi0    =  rho*con_v_v*fs*(qvsat - cana_q)
-     DEfiDTv =  rho*con_v_v*fs*DqvsatDTv
-     DEfiDqc = -rho*con_v_v*fs
-     DEfiDwl =  rho*con_v_v*DfsDwl*(qvsat-cana_q)
-     DEfiDwf =  rho*con_v_v*DfsDwf*(qvsat-cana_q)
-  else
-     ! Flux is directed TOWARD the surface: no transpiration (assuming plants do not
-     ! take water through stomata), and condensation does not depend on the fraction
-     ! of wet canopy -- dew formation occurs on the entire surface
+     rho = p_surf/(rdgas*cana_T *(1+d608*cana_q))
+  
+     ! get the vegetation temperature
+     vegn_T(i)  =  cohort(i)%prog%Tv
+     ! get the amount of intercepted water and snow
+     vegn_Wl(i) =  cohort(i)%prog%Wl
+     vegn_Ws(i) =  cohort(i)%prog%Ws
+     ! calculate the drip rates
+     drip_l(i)  = max(vegn_Wl(i),0.0)/tau_drip_l
+     drip_s(i)  = max(vegn_Ws(i),0.0)/tau_drip_s
+     ! correct the drip rates so that the amount of water and snow accumulated over time step 
+     ! is no larger then the canopy water-holding capacity
+     ! TODO: take into account drip from the canopy layers above
+     drip_l(i) = max((vegn_Wl(i)+precip_l*delta_time*vegn_ifrac(i)-cohort(i)%Wl_max)/delta_time,drip_l(i))
+     drip_s(i) = max((vegn_Ws(i)+precip_s*delta_time*vegn_ifrac(i)-cohort(i)%Ws_max)/delta_time,drip_s(i))
 
-     ! prohibit transpiration:
-     Et0     = 0
-     DEtDTv  = 0; DEtDwl = 0; DEtDwf = 0;
-     DEtDqc  = 0
-     ! calculate dew or frost formation rates, depending on the temperature
-     Eli0    = 0; Efi0    = 0
-     DEliDTv = 0; DEfiDTv = 0
-     DEliDqc = 0; DEfiDqc = 0
-     DEliDwl = 0; DEfiDwl = 0
-     DEliDwf = 0; DEfiDwf = 0
-     ! calculate the coefficients of the intercepted liquid condensation linearization
-     if(vegn_T >= tfreeze) then
-        Eli0    =  rho*con_v_v*(qvsat - cana_q)
-        DEliDTv =  rho*con_v_v*DqvsatDTv
-        DEliDqc = -rho*con_v_v
+     ! calculate the total heat capacity
+     call vegn_data_heat_capacity (cohort(i), vegn_hcap(i))
+     vegn_hcap(i) = vegn_hcap(i) + clw*cohort(i)%prog%Wl + csw*cohort(i)%prog%Ws
+     ! calculate the coefficient of sensible heat flux linearization
+     Hv0    (i) =  2*rho*cp_air*con_v_h(i)*(cohort(i)%prog%Tv - cana_T)
+     DHvDTv (i) =  2*rho*cp_air*con_v_h(i)
+     DHvDTc (i) = -2*rho*cp_air*con_v_h(i)
+     ! calculate the coefficients of the transpiration linearization
+     if(con_v_v(i)==0.and.stomatal_cond==0) then
+        total_cond = 0.0
      else
-        ! calculate the coefficients of the intercepted snow condensation linearization
-        Efi0    =  rho*con_v_v*(qvsat - cana_q)
-        DEfiDTv =  rho*con_v_v*DqvsatDTv
-        DEfiDqc = -rho*con_v_v
+        total_cond = stomatal_cond*con_v_v(i)/(stomatal_cond+con_v_v(i))
      endif
-     ! prohibit switching from condensation to evaporation if the water content
-     ! is below certain threshold
-     if (vegn_Wl < min_Wl) then
-        Eli0 = 0 ; DEliDTv = 0 ; DEliDqc = 0 ; DEliDwl = 0 ; DEliDwf = 0
+
+     if(qvsat>cana_q)then
+        ! flux is directed from the surface: transpiration is possible, and the
+        ! evaporation of intercepted water depends on the fraction of wet/snow
+        ! covered canopy.
+   
+        ! prohibit transpiration if leaf temperature below some predefined minimum
+        ! typically (268K, but check namelist)
+        if(cohort(i)%prog%Tv < T_transp_min) total_cond = 0 
+        ! calculate the transpiration linearization coefficients
+        Et0    (i) =  rho*total_cond*ft*(qvsat - cana_q)
+        DEtDTv (i) =  rho*total_cond*ft*DqvsatDTv
+        DEtDqc (i) = -rho*total_cond*ft
+        DEtDwl (i) =  rho*total_cond*DftDwl*(qvsat - cana_q)
+        DEtDwf( i) =  rho*total_cond*DftDwf*(qvsat - cana_q)
+        ! calculate the coefficients of the intercepted liquid evaporation linearization
+        Eli0   (i) =  rho*con_v_v(i)*fw*(qvsat - cana_q)
+        DEliDTv(i) =  rho*con_v_v(i)*fw*DqvsatDTv
+        DEliDqc(i) = -rho*con_v_v(i)*fw
+        DEliDwl(i) =  rho*con_v_v(i)*DfwDwl*(qvsat-cana_q)
+        DEliDwf(i) =  rho*con_v_v(i)*DfwDwf*(qvsat-cana_q)
+        ! calculate the coefficients of the intercepted snow evaporation linearization
+        Efi0   (i) =  rho*con_v_v(i)*fs*(qvsat - cana_q)
+        DEfiDTv(i) =  rho*con_v_v(i)*fs*DqvsatDTv
+        DEfiDqc(i) = -rho*con_v_v(i)*fs
+        DEfiDwl(i) =  rho*con_v_v(i)*DfsDwl*(qvsat-cana_q)
+        DEfiDwf(i) =  rho*con_v_v(i)*DfsDwf*(qvsat-cana_q)
+     else
+        ! Flux is directed TOWARD the surface: no transpiration (assuming plants do not
+        ! take water through stomata), and condensation does not depend on the fraction
+        ! of wet canopy -- dew formation occurs on the entire surface
+   
+        ! prohibit transpiration:
+        Et0   (i)  = 0
+        DEtDTv(i)  = 0; DEtDwl(i) = 0; DEtDwf(i) = 0;
+        DEtDqc(i)  = 0
+        ! calculate dew or frost formation rates, depending on the temperature
+        Eli0   (i) = 0; Efi0   (i) = 0
+        DEliDTv(i) = 0; DEfiDTv(i) = 0
+        DEliDqc(i) = 0; DEfiDqc(i) = 0
+        DEliDwl(i) = 0; DEfiDwl(i) = 0
+        DEliDwf(i) = 0; DEfiDwf(i) = 0
+        ! calculate the coefficients of the intercepted liquid condensation linearization
+        if(vegn_T(i) >= tfreeze) then
+           Eli0   (i) =  rho*con_v_v(i)*(qvsat - cana_q)
+           DEliDTv(i) =  rho*con_v_v(i)*DqvsatDTv
+           DEliDqc(i) = -rho*con_v_v(i)
+        else
+           ! calculate the coefficients of the intercepted snow condensation linearization
+           Efi0   (i) =  rho*con_v_v(i)*(qvsat - cana_q)
+           DEfiDTv(i) =  rho*con_v_v(i)*DqvsatDTv
+           DEfiDqc(i) = -rho*con_v_v(i)
+        endif
+        ! prohibit switching from condensation to evaporation if the water content
+        ! is below certain threshold
+        if (vegn_Wl(i) < min_Wl) then
+           Eli0(i) = 0 ; DEliDTv(i) = 0 ; DEliDqc(i) = 0 ; DEliDwl(i) = 0 ; DEliDwf(i) = 0
+        endif
+        if (vegn_Ws(i) < min_Ws) then
+           Efi0(i) = 0 ; DEfiDTv(i) = 0 ; DEfiDqc(i) = 0 ; DEfiDwl(i) = 0 ; DEfiDwf(i) = 0
+        endif
+           
      endif
-     if (vegn_Ws < min_Ws) then
-        Efi0 = 0 ; DEfiDTv = 0 ; DEfiDqc = 0 ; DEfiDwl = 0 ; DEfiDwf = 0
-     endif
-        
-  endif
+  enddo ! loop by cohorts
+  
   ! ---- diagnostic section
-  call send_tile_data(id_stomatal, stomatal_cond, diag)
-  call send_tile_data(id_an_op, cohort%An_op, diag)
-  call send_tile_data(id_an_cl, cohort%An_cl, diag)
-  call send_tile_data(id_con_v_h, con_v_h, diag)
-  call send_tile_data(id_con_v_v, con_v_v, diag)
+  call send_tile_data(id_stomatal, total_stomatal_cond, diag)
+  call send_tile_data(id_an_op, sum(cohort(:)%An_op), diag)
+  call send_tile_data(id_an_cl, sum(cohort(:)%An_cl), diag)
+  call send_tile_data(id_con_v_h, sum(con_v_h(:)), diag)
+  call send_tile_data(id_con_v_v, sum(con_v_v(:)), diag)
   call send_tile_data(id_phot_co2, phot_co2, diag)
 
-end subroutine vegn_step_1
-
+end subroutine vegn_step_1_multi
 
 ! ============================================================================
-! Given the surface solution, substitute it back into the vegetation equations 
-! to determine new vegetation state.
+! temporary glue code 
 subroutine vegn_step_2 ( vegn, diag, &
      delta_Tv, delta_wl, delta_wf, &
      vegn_melt, &
@@ -1006,114 +1151,165 @@ subroutine vegn_step_2 ( vegn, diag, &
        vegn_ovfl_l,   vegn_ovfl_s,   & ! overflow of liquid and solid water from the canopy
        vegn_ovfl_Hl, vegn_ovfl_Hs      ! heat flux from canopy due to overflow
 
+  call vegn_step_2_multi ( vegn, diag, &
+     (/delta_Tv/), (/delta_wl/), (/delta_wf/), &
+     vegn_melt, &
+     vegn_ovfl_l,  vegn_ovfl_s,  & 
+     vegn_ovfl_Hl, vegn_ovfl_Hs  )
+
+end subroutine
+
+! ============================================================================
+! Given the surface solution, substitute it back into the vegetation equations 
+! to determine new vegetation state.
+subroutine vegn_step_2_multi ( vegn, diag, &
+     delta_Tv, delta_wl, delta_wf, &
+     total_vegn_melt, &
+     total_vegn_ovfl_l,  total_vegn_ovfl_s,  & ! overflow of liquid and solid water from the canopy, kg/(m2 s)
+     total_vegn_ovfl_Hl, total_vegn_ovfl_Hs  ) ! heat flux carried from canopy by overflow, W/(m2 s)
+
+  ! ---- arguments 
+  type(vegn_tile_type) , intent(inout) :: vegn
+  type(diag_buff_type) , intent(inout) :: diag
+  real, intent(in), dimension(:) :: & ! per cohort
+       delta_Tv, & ! change in vegetation temperature, degK
+       delta_wl, & ! change in intercepted liquid water mass, kg/m2
+       delta_wf    ! change in intercepted frozen water mass, kg/m2 
+  real, intent(out) :: &
+       total_vegn_melt, &
+       total_vegn_ovfl_l,   total_vegn_ovfl_s,   & ! overflow of liquid and solid water from the canopy
+       total_vegn_ovfl_Hl,  total_vegn_ovfl_Hs      ! heat flux from canopy due to overflow
+
   ! ---- local variables
   real :: &
      vegn_Wl_max, &  ! max. possible amount of liquid water in the canopy
      vegn_Ws_max, &  ! max. possible amount of solid water in the canopy
      mcv, &
      cap0, melt_per_deg, &
-     Wl, Ws  ! positively defined amounts of water and snow on canopy
+     Wl, Ws, & ! positively defined amounts of water and snow on canopy
+     vegn_melt, &
+     vegn_ovfl_l,  vegn_ovfl_s,  & ! overflow of liquid and solid water from the cohort canopy, kg/(m2 s)
+     vegn_ovfl_Hl, vegn_ovfl_Hs    ! heat flux carried from cohort canopy by overflow, W/(m2 s)
   type(vegn_cohort_type), pointer :: cohort
+  integer :: i
+  integer :: N ! shortcut for number of cohorts
   
-  ! get the pointer to the first (and, currently, the only) cohort
-  cohort => vegn%cohorts(1)
+  ! TODO: check array sizes
+  
+  total_vegn_melt = 0
+  total_vegn_ovfl_l  = 0;  total_vegn_ovfl_s  = 0
+  total_vegn_ovfl_Hl = 0;  total_vegn_ovfl_Hs = 0
+  do i = 1,vegn%n_cohorts
+     ! get the pointer to the current cohort
+     cohort => vegn%cohorts(i)
+   
+     if (is_watch_point()) then
+        write(*,*)'#### vegn_step_2 input ####'
+        write(*,*)'cohort',i
+        __DEBUG3__(delta_Tv(i), delta_wl(i), delta_wf(i))
+        __DEBUG1__(cohort%prog%Tv)
+     endif
+   
+     ! update vegetation state
+     cohort%prog%Tv = cohort%prog%Tv + delta_Tv(i)
+     cohort%prog%Wl = cohort%prog%Wl + delta_wl(i)
+     cohort%prog%Ws = cohort%prog%Ws + delta_wf(i) 
+   
+     call vegn_data_intrcptn_cap(cohort, vegn_Wl_max, vegn_Ws_max)
+     call vegn_data_heat_capacity(cohort, mcv)
 
-  if (is_watch_point()) then
-     write(*,*)'#### vegn_step_2 input ####'
-     __DEBUG3__(delta_Tv, delta_wl, delta_wf)
-     __DEBUG1__(cohort%prog%Tv)
-  endif
-
-  ! update vegetation state
-  cohort%prog%Tv = cohort%prog%Tv + delta_Tv
-  cohort%prog%Wl = cohort%prog%Wl + delta_wl
-  cohort%prog%Ws = cohort%prog%Ws + delta_wf 
-
-  call vegn_data_intrcptn_cap(cohort, vegn_Wl_max, vegn_Ws_max)
-  call vegn_data_heat_capacity(cohort, mcv)
-
-
-  ! ---- update for evaporation and interception -----------------------------
-  cap0 = mcv + clw*cohort%prog%Wl + csw*cohort%prog%Ws
-
-  if(is_watch_point()) then
-     write (*,*)'#### vegn_step_2 #### 1'
-     __DEBUG1__(cap0)
-     __DEBUG1__(cohort%prog%Tv)
-     __DEBUG2__(cohort%prog%Wl, cohort%prog%Ws)
-  endif
-  ! melt on the vegetation should probably be prohibited altogether, since
-  ! the amount of melt or freeze calculated this way is severely underestimated 
-  ! (depending on the overall vegetation heat capacity) which leads to extended 
-  ! periods when the canopy temperature is fixed at freezing point.
-  if (lm2) then 
-     vegn_melt = 0
-  else
-     ! ---- freeze/melt of intercepted water
-     ! heat capacity of leaf + intercepted water/snow _can_ go below zero if the 
-     ! total water content goes below zero as a result of implicit time step.
-     ! If it does, we just prohibit melt, setting it to zero.
-     if(cap0 > 0)then
-        melt_per_deg = cap0 / hlf
-        if (cohort%prog%Ws>0 .and. cohort%prog%Tv>tfreeze) then
-           vegn_melt =  min(cohort%prog%Ws, (cohort%prog%Tv-tfreeze)*melt_per_deg)
-        else if (cohort%prog%Wl>0 .and. cohort%prog%Tv<tfreeze) then
-           vegn_melt = -min(cohort%prog%Wl, (tfreeze-cohort%prog%Tv)*melt_per_deg)
+     ! ---- update for evaporation and interception -----------------------------
+     cap0 = mcv + clw*cohort%prog%Wl + csw*cohort%prog%Ws
+   
+     if(is_watch_point()) then
+        write (*,*)'#### vegn_step_2 #### 1'
+        __DEBUG1__(cap0)
+        __DEBUG1__(cohort%prog%Tv)
+        __DEBUG2__(cohort%prog%Wl, cohort%prog%Ws)
+     endif
+     ! melt on the vegetation should probably be prohibited altogether, since
+     ! the amount of melt or freeze calculated this way is severely underestimated 
+     ! (depending on the overall vegetation heat capacity) which leads to extended 
+     ! periods when the canopy temperature is fixed at freezing point.
+     if (lm2) then 
+        vegn_melt = 0
+     else
+        ! ---- freeze/melt of intercepted water
+        ! heat capacity of leaf + intercepted water/snow _can_ go below zero if the 
+        ! total water content goes below zero as a result of implicit time step.
+        ! If it does, we just prohibit melt, setting it to zero.
+        if(cap0 > 0)then
+           melt_per_deg = cap0 / hlf
+           if (cohort%prog%Ws>0 .and. cohort%prog%Tv>tfreeze) then
+              vegn_melt =  min(cohort%prog%Ws, (cohort%prog%Tv-tfreeze)*melt_per_deg)
+           else if (cohort%prog%Wl>0 .and. cohort%prog%Tv<tfreeze) then
+              vegn_melt = -min(cohort%prog%Wl, (tfreeze-cohort%prog%Tv)*melt_per_deg)
+           else
+              vegn_melt = 0
+           endif
+           cohort%prog%Ws = cohort%prog%Ws - vegn_melt
+           cohort%prog%Wl = cohort%prog%Wl + vegn_melt
+           if (vegn_melt/=0) &
+                cohort%prog%Tv = tfreeze + (cap0*(cohort%prog%Tv-tfreeze) - hlf*vegn_melt) &
+                / ( cap0 + (clw-csw)*vegn_melt )
+           vegn_melt = vegn_melt / delta_time
         else
            vegn_melt = 0
         endif
-        cohort%prog%Ws = cohort%prog%Ws - vegn_melt
-        cohort%prog%Wl = cohort%prog%Wl + vegn_melt
-        if (vegn_melt/=0) &
-             cohort%prog%Tv = tfreeze + (cap0*(cohort%prog%Tv-tfreeze) - hlf*vegn_melt) &
-             / ( cap0 + (clw-csw)*vegn_melt )
-        vegn_melt = vegn_melt / delta_time
-     else
-        vegn_melt = 0
      endif
-  endif
-
-  if(is_watch_point()) then
-     write (*,*)'#### vegn_step_2 #### 1'
-     __DEBUG1__(cap0)
-     __DEBUG1__(cohort%prog%Tv)
-     __DEBUG3__(vegn_melt, cohort%prog%Wl, cohort%prog%Ws)
-  endif
-
-  ! ---- update for overflow -------------------------------------------------
-  Wl = max(cohort%prog%Wl,0.0); Ws = max(cohort%prog%Ws,0.0)
-  vegn_ovfl_l = max (0.,Wl-vegn_Wl_max)/delta_time
-  vegn_ovfl_s = max (0.,Ws-vegn_Ws_max)/delta_time
-  vegn_ovfl_Hl = clw*vegn_ovfl_l*(cohort%prog%Tv-tfreeze)
-  vegn_ovfl_Hs = csw*vegn_ovfl_s*(cohort%prog%Tv-tfreeze)
-
-  cohort%prog%Wl = cohort%prog%Wl - vegn_ovfl_l*delta_time
-  cohort%prog%Ws = cohort%prog%Ws - vegn_ovfl_s*delta_time
-
-  if(is_watch_point()) then
-     write(*,*)'#### vegn_step_2 output #####'
-     __DEBUG3__(vegn_melt, vegn_ovfl_l, vegn_ovfl_s)
-     __DEBUG2__(vegn_ovfl_Hl,vegn_ovfl_Hs)
-  endif
-
+   
+     if(is_watch_point()) then
+        write (*,*)'#### vegn_step_2 #### 1'
+        __DEBUG1__(cap0)
+        __DEBUG1__(cohort%prog%Tv)
+        __DEBUG3__(vegn_melt, cohort%prog%Wl, cohort%prog%Ws)
+     endif
+   
+     ! ---- update for overflow -------------------------------------------------
+     Wl = max(cohort%prog%Wl,0.0); Ws = max(cohort%prog%Ws,0.0)
+     vegn_ovfl_l = max (0.,Wl-vegn_Wl_max)/delta_time
+     vegn_ovfl_s = max (0.,Ws-vegn_Ws_max)/delta_time
+     vegn_ovfl_Hl = clw*vegn_ovfl_l*(cohort%prog%Tv-tfreeze)
+     vegn_ovfl_Hs = csw*vegn_ovfl_s*(cohort%prog%Tv-tfreeze)
+   
+     cohort%prog%Wl = cohort%prog%Wl - vegn_ovfl_l*delta_time
+     cohort%prog%Ws = cohort%prog%Ws - vegn_ovfl_s*delta_time
+   
+     if(is_watch_point()) then
+        write(*,*)'#### vegn_step_2 output #####'
+        __DEBUG3__(vegn_melt, vegn_ovfl_l, vegn_ovfl_s)
+        __DEBUG2__(vegn_ovfl_Hl,vegn_ovfl_Hs)
+     endif
+     ! accumulate total values
+     total_vegn_melt    = total_vegn_melt + vegn_melt
+     total_vegn_ovfl_l  = total_vegn_ovfl_l + vegn_ovfl_l
+     total_vegn_ovfl_s  = total_vegn_ovfl_s + vegn_ovfl_s
+     total_vegn_ovfl_Hl = total_vegn_ovfl_Hl + vegn_ovfl_Hl
+     total_vegn_ovfl_Hs = total_vegn_ovfl_Hs + vegn_ovfl_Hs
+  enddo
   ! ---- diagnostic section
-  call send_tile_data(id_temp,   cohort%prog%Tv, diag)
-  call send_tile_data(id_wl,     cohort%prog%Wl, diag)
-  call send_tile_data(id_ws,     cohort%prog%Ws, diag)
+  ! TODO: invent a way to aggregate diagnostic fields
+  ! Tv,leaf_size,leaf rad. prop. should probably be averaged with LAI+SAI as weight
+  ! root_zeta -- perhaps averaged with root density as weight?
+  ! snow_crit???
+  N = vegn%n_cohorts
+!  call send_tile_data(id_temp,   cohort%prog%Tv, diag)
+  call send_tile_data(id_wl,     sum(vegn%cohorts(1:N)%prog%Wl), diag)
+  call send_tile_data(id_ws,     sum(vegn%cohorts(1:N)%prog%Ws), diag)
 
-  call send_tile_data(id_height, cohort%height, diag)
-  call send_tile_data(id_lai, cohort%lai, diag)
-  call send_tile_data(id_sai, cohort%sai, diag)
-  call send_tile_data(id_leaf_size, cohort%leaf_size, diag)
-  call send_tile_data(id_root_density, cohort%root_density, diag)
-  call send_tile_data(id_root_zeta, cohort%root_zeta, diag)
-  call send_tile_data(id_rs_min, cohort%rs_min, diag)
-  call send_tile_data(id_leaf_refl, cohort%leaf_refl, diag)
-  call send_tile_data(id_leaf_tran, cohort%leaf_tran, diag)
-  call send_tile_data(id_leaf_emis, cohort%leaf_emis, diag)
-  call send_tile_data(id_snow_crit, cohort%snow_crit, diag)
+  call send_tile_data(id_height, vegn%cohorts(1)%height, diag) ! tallest
+  call send_tile_data(id_lai, sum(vegn%cohorts(1:N)%lai), diag)
+  call send_tile_data(id_sai, sum(vegn%cohorts(1:N)%sai), diag)
+!  call send_tile_data(id_leaf_size, cohort%leaf_size, diag)
+  call send_tile_data(id_root_density, sum(vegn%cohorts(1:N)%root_density), diag)
+!  call send_tile_data(id_root_zeta, cohort%root_zeta, diag)
+!  call send_tile_data(id_rs_min, cohort%rs_min, diag)
+!  call send_tile_data(id_leaf_refl, cohort%leaf_refl, diag)
+!  call send_tile_data(id_leaf_tran, cohort%leaf_tran, diag)
+!  call send_tile_data(id_leaf_emis, cohort%leaf_emis, diag)
+!  call send_tile_data(id_snow_crit, cohort%snow_crit, diag)
   
-end subroutine vegn_step_2
+end subroutine vegn_step_2_multi
 
 
 ! ============================================================================
