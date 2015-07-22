@@ -269,7 +269,7 @@ subroutine vegn_nat_mortality_ppa (vegn, soil, deltat)
   real :: deathrate ! mortality rate, 1/year
   real :: deadtrees ! number of trees that died over the time step
   integer :: i, k
-  type(vegn_cohort_type), pointer :: cc(:) ! array to hold new cohorts
+!  type(vegn_cohort_type), pointer :: cc(:) ! array to hold new cohorts
   
   
   real, parameter :: min_nindivs = 1e-5 ! 1/m2. If nindivs is less that this number, 
@@ -282,7 +282,7 @@ subroutine vegn_nat_mortality_ppa (vegn, soil, deltat)
 
   do i = 1, vegn%n_cohorts   
      associate ( cc => vegn%cohorts(i)   , &
-                 sp => spdata(cc%species)  )
+                 sp => spdata(vegn%cohorts(i)%species)  )
      ! mortality rate can be a function of growth rate, age, and environmental
      ! conditions. Here, we only used two constants for canopy layer and under-
      ! story layer (mortrate_d_c and mortrate_d_u)

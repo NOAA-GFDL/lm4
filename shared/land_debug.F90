@@ -335,7 +335,7 @@ subroutine debug_printout_i1d(description,values)
   if (trim_labels.or.len_trim(description)<label_len) then
      write(*,fixed_format,advance='NO')trim(description),values
   else
-     write(*,'(x,a,99g)',advance='NO')trim(description),values
+     write(*,'(x,a,99g23.16)',advance='NO')trim(description),values
   endif
 end subroutine 
 
@@ -346,7 +346,7 @@ subroutine debug_printout_r2d(description,values)
   if (trim_labels.or.len_trim(description)<label_len) then
      write(*,fixed_format,advance='NO')trim(description),values
   else
-     write(*,'(x,a,99g)',advance='NO')trim(description),values
+     write(*,'(x,a,99g23.16)',advance='NO')trim(description),values
   endif
   ! TODO: print values as a matrix
 end subroutine
@@ -377,7 +377,7 @@ subroutine check_conservation(tag, substance, d1, d2, tolerance, time, severity)
 
   if (abs(d2-d1)<tolerance) then
      if (is_watch_point()) then
-     write(*,'(3(x,a,g))')&
+     write(*,'(3(x,a,g23.16))')&
           trim(tag)//': conservation of '//trim(substance)//'; before=', d1, 'after=', d2, 'diff=',d2-d1
      endif
   else

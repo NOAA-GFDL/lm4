@@ -1492,7 +1492,7 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
         __DEBUG1__(flwv0)
         write(*,*)'DflwvDTv:'
         do k = 1,N
-           write(*,'(i12.3,99(x,g))') k, DflwvDTv(k,:)
+           write(*,'(i12.3,99(x,g23.16))') k, DflwvDTv(k,:)
         enddo
         __DEBUG2__(flwg0, DflwgDTg)
         __DEBUG1__(DflwgDTv)

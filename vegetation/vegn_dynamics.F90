@@ -15,7 +15,7 @@ use land_tile_diag_mod, only : &
      register_cohort_diag_field, send_cohort_data
 use vegn_data_mod, only : spdata, &
      CMPT_NSC, CMPT_SAPWOOD, CMPT_LEAF, CMPT_ROOT, CMPT_VLEAF, CMPT_WOOD, &
-     LEAF_ON, LEAF_OFF, &
+     LEAF_ON, LEAF_OFF, FORM_WOODY, &
      fsc_liv, fsc_wood, K1, K2, soil_carbon_depth_scale, C2B, agf_bs, &
      l_fract, mcv_min, mcv_lai, do_ppa, b0_growth, tau_seed, &
      understory_lai_factor, bseed_distr, wood_fract_min, do_alt_allometry
@@ -204,7 +204,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
      
      ! compute branch and coarse wood losses for tree types
      md_wood =0;
-     if (sp > 1) then
+     if (spdata(sp)%form==FORM_WOODY) then
         md_wood = 0.6 *cc%bwood * spdata(sp)%alpha(CMPT_WOOD)*dt_fast_yr;
      endif
         
@@ -302,11 +302,12 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   real :: NSC_supply,LR_demand,LR_deficit
   real :: NSCtarget
   real :: R_days,fNSC,fLFR,fStem,fSeed
+  type(vegn_cohort_type), pointer :: c(:) ! for debug only
 
+  c=>vegn%cohorts(1:vegn%n_cohorts)
   if(is_watch_point()) then
      write(*,*)'#### vegn_carbon_int_ppa input ####'
      __DEBUG2__(tsoil,theta)
-     associate(c=>vegn%cohorts(1:vegn%n_cohorts))
      __DEBUG1__(c%species)
      __DEBUG1__(c%status)
      __DEBUG1__(c%bl)
@@ -321,18 +322,16 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      __DEBUG1__(c%br_max)
      __DEBUG1__(c%dbh)
      __DEBUG1__(c%height)
-    __DEBUG1__(c%leafarea)
-!     __DEBUG1__(c%carbon_gain)
+     __DEBUG1__(c%leafarea)
+     __DEBUG1__(c%carbon_gain)
      __DEBUG1__(c%carbon_loss)
-     end associate
      cmass0 = vegn_tile_carbon(vegn) 
   endif
   ! update plant carbon for all cohorts
   vegn%npp = 0
   resp = 0 ; resl = 0 ; resr = 0 ; resg = 0 ; gpp = 0
   do i = 1, vegn%n_cohorts
-     associate ( cc => vegn%cohorts(i), &
-                 sp => spdata(cc%species) )
+     associate ( cc => vegn%cohorts(i), sp => spdata(vegn%cohorts(i)%species))
 
      ! that was in eddy_npp_PPA
      call plant_respiration(cc,tsoil)
@@ -379,7 +378,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 
      ! compute branch and coarse wood losses for tree types
      md_wood = 0.0
-     if (cc%species > 1) then ! TODO: add input data selector for woody/grass species
+     if (spdata(cc%species)%form == FORM_WOODY) then 
         ! md_wood = 0.6 *cc%bwood * sp%alpha(CMPT_WOOD)*dt_fast_yr
         ! set turnoverable wood biomass as a linear funcion of bl_max (max.foliage
         ! biomass) (Wang, Chuankuan 2006)
@@ -407,11 +406,10 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   enddo 
 
   if(is_watch_point()) then
-     associate(c=>vegn%cohorts(1:vegn%n_cohorts))
      write(*,*)'#### vegn_carbon_int_ppa output ####'
-!     __DEBUG1__(c%resl)
-!     __DEBUG1__(c%resr)
-!     __DEBUG1__(c%resg)
+     __DEBUG1__(c%resl)
+     __DEBUG1__(c%resr)
+     __DEBUG1__(c%resg)
      __DEBUG1__(c%resp)
      __DEBUG1__(c%npp)
      __DEBUG1__(c%gpp)
@@ -422,7 +420,6 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      __DEBUG1__(c%bsw)
      __DEBUG1__(c%bwood)
      __DEBUG1__(c%nsc)
-     end associate
      cmass1 = vegn_tile_carbon(vegn)
      __DEBUG3__(cmass1-cmass0-(gpp-resp)*dt_fast_yr,cmass1,cmass0)
      write(*,*)'#### end of vegn_carbon_int_ppa output ####'
@@ -529,7 +526,7 @@ subroutine vegn_starvation_ppa (vegn, soil)
 
   do i = 1, vegn%n_cohorts
      associate ( cc => vegn%cohorts(i)   , &
-                 sp => spdata(cc%species)  )  ! F2003
+                 sp => spdata(vegn%cohorts(i)%species)  )  ! F2003
 
     ! Mortality due to starvation
     if (cc%bsw<0 .or. cc%nsc < 0.01*cc%bl_max) then
@@ -931,7 +928,7 @@ subroutine vegn_phenology_ppa(vegn, soil)
   vegn%litter = 0
   do i = 1,vegn%n_cohorts   
      associate ( cc => vegn%cohorts(i),   &
-                 sp => spdata(cc%species) )
+                 sp => spdata(vegn%cohorts(i)%species) )
 
      ! if drought-deciduous or cold-deciduous species
      ! temp=10 degrees C gives good growing season pattern        
@@ -1018,7 +1015,7 @@ end subroutine vegn_phenology_ppa
   leaf_fall_rate = 0.075 
   do i = 1,vegn%n_cohorts
      associate ( cc => vegn%cohorts(i),   &
-                 sp => spdata(cc%species) )
+                 sp => spdata(vegn%cohorts(i)%species) )
      if(cc%status == LEAF_OFF)then
         cc%nsc = cc%nsc + cc%carbon_gain
         leaf_fall = MIN(leaf_fall_rate * cc%bl_max, cc%bl)

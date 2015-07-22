@@ -8,7 +8,7 @@ use sphum_mod,          only : qscomp
 
 use land_constants_mod, only : Rugas, seconds_per_year, mol_h2o, mol_air
 use land_debug_mod,     only : is_watch_point
-use vegn_data_mod,      only : PT_C4, spdata
+use vegn_data_mod,      only : PT_C4, FORM_GRASS, spdata
 use vegn_cohort_mod,    only : vegn_cohort_type, get_vegn_wet_frac
 
 implicit none
@@ -100,7 +100,7 @@ subroutine vegn_photosynthesis ( cohort, &
       
         call get_vegn_wet_frac (cohort, fw=fw, fs=fs)
         call gs_Leuning(PAR_dn, PAR_net, cohort%Tv, cana_q, cohort%lai, &
-             cohort%leaf_age, p_surf, water_supply, cohort%species, cohort%pt, &
+             cohort%leaf_age, p_surf, water_supply, cohort%species, &
              cana_co2, cohort%extinct, fs+fw, cohort%layer, &
              ! output:
              stomatal_cond, psyn, resp )
@@ -128,7 +128,7 @@ end subroutine vegn_photosynthesis
 
 ! ============================================================================
 subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
-                   p_surf, ws, pft, pt, ca, kappa, leaf_wet, layer, &
+                   p_surf, ws, pft, ca, kappa, leaf_wet, layer, &
                    gs, apot, acl)
   real,    intent(in)    :: rad_top ! PAR dn on top of the canopy, w/m2
   real,    intent(in)    :: rad_net ! PAR net on top of the canopy, w/m2
@@ -139,7 +139,6 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   real,    intent(in)    :: p_surf ! surface pressure, Pa
   real,    intent(in)    :: ws   ! water supply, mol H2O/(m2 of leaf s)
   integer, intent(in)    :: pft  ! species
-  integer, intent(in)    :: pt   ! physiology type (C3 or C4)
   real,    intent(in)    :: ca   ! concentartion of CO2 in the canopy air space, mol CO2/mol dry air
   real,    intent(in)    :: kappa! canopy extinction coefficient (move inside f(pft))
   real,    intent(in)    :: leaf_wet ! fraction of leaf that's wet or snow-covered
@@ -201,13 +200,12 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
 !     __DEBUG1__(ca)
 !     __DEBUG1__(kappa)
 !     __DEBUG1__(leaf_wet)
-!     __DEBUG1__(pt)
 !     write(*,*) '####### end of ### gs_leuning input #######'
   endif
 
   b=0.01;
   do1=0.09 ; ! kg/kg
-  if (pft < 2) do1=0.15;
+  if (spdata(pft)%form == FORM_GRASS) do1=0.15;
 
 
   ! Convert Solar influx from W/(m^2s) to mol_of_quanta/(m^2s) PAR,
@@ -251,7 +249,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   ! find the LAI level at which gross photosynthesis rates are equal
   ! only if PAR is positive
   if ( light_top > light_crit ) then
-     if (pt==PT_C4) then ! C4 species
+     if (spdata(pft)%pt==PT_C4) then ! C4 species
         coef0=(1+ds/do1)/spdata(pft)%m_cond;
         ci=(ca+1.6*coef0*capgam)/(1+1.6*coef0);
         if (ci>capgam) then

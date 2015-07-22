@@ -9,7 +9,11 @@ use fms_mod, only: open_namelist_file
 use constants_mod, only : PI
 use fms_mod, only : &
      write_version_number, file_exist, check_nml_error, &
-     close_file, stdlog, stdout
+     close_file, stdlog, stdout, string, lowercase, error_mesg, NOTE, FATAL
+use field_manager_mod, only: MODEL_LAND, fm_field_name_len, fm_string_len, &
+     fm_path_name_len, fm_type_name_len, fm_dump_list, fm_get_length, &
+     fm_get_current_list, fm_loop_over_list, fm_change_list
+use fm_util_mod, only : fm_util_get_real, fm_util_get_logical, fm_util_get_string
 
 use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR
 use land_tile_selectors_mod, only : &
@@ -27,20 +31,22 @@ integer, public, parameter :: NG_SEL_TAG = 3 ! tag for natural grass selector
   ! by "natural" it means non-human-maintained, so secondary vegetation
   ! grassland will be included. 
 
-integer, public, parameter :: NSPECIES = 5, & ! number of species
+integer, public, parameter :: & ! life form of the plant
+ FORM_GRASS = 0, &
+ FORM_WOODY = 1
+ ! in furure, possibly add mosses...
+ 
+integer, public, parameter :: N_LM3_SPECIES = 5, & ! number of species
  SP_C4GRASS   = 0, & ! c4 grass
  SP_C3GRASS   = 1, & ! c3 grass
  SP_TEMPDEC   = 2, & ! temperate deciduous
  SP_TROPICAL  = 3, & ! non-grass tropical
  SP_EVERGR    = 4    ! non-grass evergreen
-character(len=12), parameter :: species_name(0:NSPECIES-1) = &
+character(len=12), parameter :: lm3_species_name(0:N_LM3_SPECIES-1) = &
     (/'c4grass  ',  'c3grass  ' ,  'tempdec  ', 'tropical ','evergreen'/)
-character(len=32), parameter :: species_longname(0:NSPECIES-1) = &
-    (/'c4 grass                 ', 'c3 grass                 ',  'temperate deciduous trees',&
-      'tropical trees           ', 'evergreen trees          '/)
 
 integer, public, parameter :: n_dim_vegn_types = 9
-integer, public, parameter :: MSPECIES = NSPECIES+n_dim_vegn_types-1
+integer, public, parameter :: MSPECIES = N_LM3_SPECIES+n_dim_vegn_types-1
  
 integer, public, parameter :: NCMPT = 6, & ! number of carbon compartments
  CMPT_NSC     = 1, & ! non-structural carbon compartment
@@ -55,7 +61,7 @@ integer, public, parameter :: & ! physiology types
  PT_C4        = 1
 
 integer, public, parameter :: & ! phenology type
- PHEN_DECIDIOUS = 0, &
+ PHEN_DECIDUOUS = 0, &
  PHEN_EVERGREEN = 1
 
 integer, public, parameter :: & ! status of leaves
@@ -92,6 +98,7 @@ real, public, parameter :: BSEED = 5e-5 ! seed density for supply/demand calcula
 public :: spec_data_type
 
 ! ---- public data
+integer, public :: nspecies ! total number of species
 public :: &
     vegn_to_use,  input_cover_types, &
     mcv_min, mcv_lai, &
@@ -127,109 +134,111 @@ real, parameter :: TWOTHIRDS  = 2.0/3.0
 
 ! ==== types ================================================================
 type spec_data_type
-  real    :: treefall_disturbance_rate;
-  logical :: mortality_kills_balive ! if true, then bl, blv, and br are affected by natural mortality
-  integer :: pt           ! photosynthetic physiology of species
+  character(fm_field_name_len) :: name     = '' ! name of the species
+  character(fm_string_len)     :: longname = '' ! longname of the species
+  real    :: treefall_disturbance_rate = 0.025;
+  logical :: mortality_kills_balive    = .false.! if true, then bl, blv, and br are affected by natural mortality
+  integer :: pt = PT_C3 ! photosynthetic physiology of species
+  integer :: phent = PHEN_DECIDUOUS ! type of phenology 
+  integer :: form = FORM_WOODY ! vegetation lifeform
 
-  real    :: c1 ! unitless, coefficient for living biomass allocation
-  real    :: c2 ! 1/m, coefficient for living biomass allocation
-  real    :: c3 ! unitless, coefficient for calculation of sapwood biomass 
+  real    :: c1 = 0.4807692 ! unitless, coefficient for living biomass allocation
+  real    :: c2 = 0.4004486 ! 1/m, coefficient for living biomass allocation
+  real    :: c3 = 0.4423077 ! unitless, coefficient for calculation of sapwood biomass 
                 ! fraction times sapwood retirement rate
 
-  real    :: alpha(NCMPT) ! decay rates of plant carbon pools, 1/yr
-  real    :: beta (NCMPT) ! respiration rates of plant carbon pools
+  real    :: alpha(NCMPT) = (/0.0,  0.0,  1.0,  1.0,  0.0,  1.2e-2/) ! decay rates of plant carbon pools, 1/yr
+  real    :: beta (NCMPT) = (/0.0,  0.0,  0.0,  1.25, 0.0,  0.0   /) ! respiration rates of plant carbon pools
   
-  real    :: dfr          ! fine root diameter ? or parameter relating diameter of fine roots to resistance
+  real    :: dfr         = 5.8   ! fine root diameter ? or parameter relating diameter of fine roots to resistance
   ! the following two parameters are used in the Darcy-law calculations of water supply
-  real    :: srl  ! specific root length, m/(kg C)
-  real    :: root_r       ! radius of the fine roots, m
-  real    :: root_perm    ! fine root membrane permeability per unit area, kg/(m3 s)
-!!$  real    :: ltrans       ! leaf translocation fraction
-!!$  real    :: rtrans       ! fine root translocation fraction
+  real    :: srl        = 24.4e3 ! specific root length, m/(kg C)
+  real    :: root_r     = 2.9e-4 ! radius of the fine roots, m
+  real    :: root_perm  = 5.0e-7 ! fine root membrane permeability per unit area, kg/(m3 s)
 
-  real    :: LMA          ! leaf mass per unit area, kg C/m2
-  real    :: leaf_size    ! characteristic leaf size
+  real    :: LMA        = 0.036  ! leaf mass per unit area, kg C/m2
+  real    :: leaf_size  = 0.04   ! characteristic leaf size
   
-  real    :: alpha_phot   ! photosynthesis efficiency
-  real    :: m_cond       ! factor of stomatal conductance
-  real    :: Vmax         ! max rubisco rate
-  real    :: gamma_resp
-  real    :: wet_leaf_dreg ! wet leaf photosynthesis down-regulation
-  real    :: leaf_age_onset, leaf_age_tau
+  real    :: alpha_phot = 0.06   ! photosynthesis efficiency
+  real    :: m_cond     = 9.0    ! factor of stomatal conductance
+  real    :: Vmax       = 2e-5   ! max rubisco rate
+  real    :: gamma_resp = 0.02   !
+  real    :: wet_leaf_dreg = 0.3 ! wet leaf photosynthesis down-regulation
+  real    :: leaf_age_onset = 100.0, leaf_age_tau = 150.0
 
   ! radiation parameters for 2 bands, VIS and NIR
-  real    :: leaf_refl (NBANDS) ! reflectance of leaf
-  real    :: leaf_tran (NBANDS) ! transmittance of leaf
-  real    :: leaf_emis          ! emissivity of leaf 
+  real    :: leaf_refl (NBANDS) = (/ 0.10, 0.50/) ! reflectance of leaf
+  real    :: leaf_tran (NBANDS) = (/ 0.05, 0.25/) ! transmittance of leaf
+  real    :: leaf_emis          = 1.00            ! emissivity of leaf 
 
   ! parameters of leaf angle distribution; see also Bonan, NCAR/TN-417+STR (LSM
   ! 1.0 technical description), p.18
-  real    :: ksi    ! departure of leaf angles from a random distribution
+  real    :: ksi    =  0.0 ! departure of leaf angles from a random distribution
   real    :: phi1   ! leaf distribution parameter
   real    :: phi2   ! leaf distribution parameter
   real    :: mu_bar ! average inverse diffuse optical depth per unit leaf are
 
   ! canopy intercepted water parameters
-  real    :: cmc_lai ! max amount of liquid water on vegetation, kg/(m2 of leaf)
-  real    :: cmc_pow ! power of wet fraction dependance on amount of canopy water
-  real    :: csc_lai ! max amount of snow on vegetation, kg/(m2 of leaf)
-  real    :: csc_pow ! power of snow-covered fraction dependance on amount of canopy snow
+  real    :: cmc_lai = 0.02 ! max amount of liquid water on vegetation, kg/(m2 of leaf)
+  real    :: cmc_pow = TWOTHIRDS ! power of wet fraction dependance on amount of canopy water
+  real    :: csc_lai = 0.2  ! max amount of snow on vegetation, kg/(m2 of leaf)
+  real    :: csc_pow = TWOTHIRDS ! power of snow-covered fraction dependance on amount of canopy snow
 
-  real    :: internal_gap_frac ! fraction of internal gaps in the canopy
+  real    :: internal_gap_frac = 0.1 ! fraction of internal gaps in the canopy
   ! "internal" gaps are the gaps that are created within the canopy by the
   ! branch fall processes.
 
-  real    :: fuel_intensity
+  real    :: fuel_intensity = 0.002
 
   
-  real    :: tc_crit    ! critical temperature for leaf drop, degK
-  real    :: gdd_crit
-  real    :: gdd_base_T ! base temperature for GDD calculations, degK
+  real    :: tc_crit   = 283.16 ! critical temperature for leaf drop, degK
+  real    :: gdd_crit  = 360.0
+  real    :: gdd_base_T =  273.16 ! base temperature for GDD calculations, degK
   ! critical soil-water-stress index, used in place of fact_crit_phen and 
   ! cnst_crit_phen. It is used if and only if it's value is greater than 0
-  real    :: psi_stress_crit_phen
-  real    :: fact_crit_phen, cnst_crit_phen ! wilting factor and offset to 
+  real    :: psi_stress_crit_phen = 0.0
+  real    :: fact_crit_phen = 0.0, cnst_crit_phen = 0.15 ! wilting factor and offset to 
     ! get critical value for leaf drop -- only one is non-zero at any time
-  real    :: fact_crit_fire, cnst_crit_fire ! wilting factor and offset to 
+  real    :: fact_crit_fire = 0.0, cnst_crit_fire = 0.15 ! wilting factor and offset to 
     ! get critical value for fire -- only one is non-zero at the time
 
-  real    :: smoke_fraction ! fraction of carbon lost as smoke during fires
+  real    :: smoke_fraction   = 0.6 ! fraction of carbon lost as smoke during fires
 
   ! data from LM3W, temporarily here
-  real    :: dat_height
-  real    :: dat_lai
-  real    :: dat_root_density
-  real    :: dat_root_zeta
-  real    :: dat_rs_min
-  real    :: dat_snow_crit
+  real    :: dat_height       = 6.6
+  real    :: dat_lai          = 0.0
+  real    :: dat_root_density = 4.2
+  real    :: dat_root_zeta    = 0.28909
+  real    :: dat_rs_min       = 131.0
+  real    :: dat_snow_crit    = 0.0333
   !  for PPA, Weng, 7/25/2011
-  real    :: alphaHT, thetaHT ! height = alphaHT * DBH ** thetaHT
-  real    :: alphaCA, thetaCA ! crown area = alphaCA * DBH ** thetaCA
-  real    :: alphaBM, thetaBM ! biomass = alphaBM * DBH ** thetaBM (used in reverse, 
-                              ! to compute DBH given biomass)
-  real    :: alphaCSASW, thetaCSASW ! 
-  real    :: maturalage       ! the age that can reproduce
-  real    :: fecundity        ! max C allocated to next generation per unit canopy area, kg C/m2
-  real    :: v_seed           ! fracton of G_SF to G_F
-  real    :: seedlingsize     ! size of the seedlings, kgC/indiv
-  real    :: prob_g,prob_e    ! germination and establishment probabilities
-  real    :: mortrate_d_c     ! daily mortality rate in canopy
-  real    :: mortrate_d_u     ! daily mortality rate in understory
-  real    :: rho_wood         ! woody density, kg C m-3 wood
-  real    :: taperfactor
-  real    :: LAImax           ! max. LAI
-  real    :: phiRL            ! ratio of fine root to leaf area
-  real    :: phiCSA           ! ratio of sapwood CSA to target leaf area
-  real    :: SRA              ! speific fine root area, m2/kg C
-  real    :: tauNSC           ! residence time of C in NSC (to define storage capacity)
+  real    :: alphaHT = 20.0, thetaHT = 0.5 ! height = alphaHT * DBH ** thetaHT
+  real    :: alphaCA = 30.0, thetaCA = 1.5 ! crown area = alphaCA * DBH ** thetaCA
+  real    :: alphaBM       , thetaBM = 2.5 ! biomass = alphaBM * DBH ** thetaBM (used in reverse, 
+                                           ! to compute DBH given biomass)
+  real    :: alphaCSASW    = 2.25e-2, thetaCSASW = 1.5 ! 
+  real    :: maturalage    = 1.0    ! the age that can reproduce
+  real    :: fecundity     = 0.0    ! max C allocated to next generation per unit canopy area, kg C/m2
+  real    :: v_seed        = 0.1    ! fracton of G_SF to G_F
+  real    :: seedlingsize  = 0.02   ! size of the seedlings, kgC/indiv
+  real    :: prob_g = 0.45, prob_e = 0.3 ! germination and establishment probabilities
+  real    :: mortrate_d_c  = 0.05   ! daily mortality rate in canopy
+  real    :: mortrate_d_u  = 0.2    ! daily mortality rate in understory
+  real    :: rho_wood      = 250.0  ! woody density, kg C m-3 wood
+  real    :: taperfactor   = 0.9
+  real    :: LAImax        = 3.0    ! max. LAI
+  real    :: phiRL         = 2.69   ! ratio of fine root to leaf area
+  real    :: phiCSA        = 2.5e-4 ! ratio of sapwood CSA to target leaf area
+  real    :: SRA           = 44.45982 ! speific fine root area, m2/kg C
+  real    :: tauNSC        = 0.8    ! residence time of C in NSC (to define storage capacity)
 
 end type
 
 ! ==== module data ===========================================================
-integer :: idata,jdata ! iterators used in data initialization statements
+integer :: idata ! iterators used in data initialization statements
 
 ! ---- namelist --------------------------------------------------------------
-type(spec_data_type), save :: spdata(0:MSPECIES)
+type(spec_data_type), allocatable :: spdata(:)
 
 logical :: use_bucket = .false.
 logical :: use_mcm_masking = .false.
@@ -249,164 +258,15 @@ real    :: critical_root_density = 0.125
 integer, dimension(1:MSPECIES) :: &
  input_cover_types=(/          -1,   -1,   -1,   -1, &
                           1,    2,    3,    4,    5,    6,    7,    8,    9/)
-!character(len=4), dimension(n_dim_vegn_types) :: &
-!  tile_names=      (/'be  ','bd  ','bn  ','ne  ','nd  ','g   ','d   ','t   ','a   ' /)
 
-!  BE -- broadleaf evergreen trees
-!  BD -- broadleaf deciduous trees
-!  BN -- broadleaf/needleleaf trees
-!  NE -- needleleaf evergreen trees
-!  ND -- needleleaf deciduous trees
-!  G  -- grassland
-!  D  -- desert
-!  T  -- tundra
-!  A  -- agriculture
-
-
-!       c4grass       c3grass    temp-decid      tropical     evergreen      BE     BD     BN     NE     ND      G      D      T      A
-real :: dat_height(0:MSPECIES)= &
-       (/  0.51,         0.51,          6.6,         19.5,          6.6,   19.5,   6.6,   8.8,   6.6,   5.9,  0.51,   1.0,  0.51,   2.9 /)
-real :: dat_lai(0:MSPECIES); data dat_lai(NSPECIES:MSPECIES) &
-                                                                        /   5.0,   5.0,   5.0,   5.0,   5.0,  5.0,   .001,   5.0,   5.0 /
-! dat_root_density and dat_root_zeta were extended to lm3v species by copying 
-! appropriate values from LaD table (e.g., grassland for both C3 and C4 grass)
-real :: dat_root_density(0:MSPECIES)= &
-!       c4grass       c3grass    temp-decid      tropical     evergreen      BE     BD     BN     NE     ND      G      D      T      A
-       (/   1.4,          1.4,          4.2,          4.9,          2.9,    4.9,   4.2,   4.3,   2.9,   2.9,   1.4,   1.0,   1.2,  0.15 /)
-real :: dat_root_zeta(0:MSPECIES)= &
-       (/  0.26,         0.26,         0.29,         0.26,         0.17,   0.26,  0.29,  0.35,  0.17,  0.17,  0.26,   0.1,  0.11,  0.25 /)
-real :: dat_rs_min(0:MSPECIES)= &
-       (/ 56.6,          56.6,        131.0,         43.6,         69.7,   43.6, 131.0,  87.1,  69.7, 218.0,  56.6, 100.0, 170.0,  56.6 /)
-real :: dat_snow_crit(0:MSPECIES)= &
-!       c4grass       c3grass    temp-decid      tropical     evergreen      BE     BD     BN     NE     ND      G      D      T      A
-    (/  0.0167,       0.0167,        0.0333,          0.2,       0.1333,    0.2, .0333, .0833, .1333, .1333, .0167, .0167, .0167, .0167 /)
-
-! ==== species data imported from LM3V ======================================
-
-!         c4 grass      c3 grass      c3 temperate  c3 tropical   c3 evergreed
-real :: treefall_disturbance_rate(0:MSPECIES); data treefall_disturbance_rate(0:NSPECIES-1) &
-        / 0.175,        0.185,        0.015,        0.025,        0.015 /
-logical :: mortality_kills_balive(0:MSPECIES); data mortality_kills_balive(0:NSPECIES-1) &
-        /.false.,      .false.,      .false.,      .false.,      .false./
-integer :: pt(0:MSPECIES)= &
-!       c4grass       c3grass    temp-decid      tropical     evergreen      BE     BD     BN     NE     ND      G      D      T      A
-       (/ PT_C4,        PT_C3,        PT_C3,        PT_C3,        PT_C3,  PT_C3, PT_C3, PT_C3, PT_C3, PT_C3, PT_C4, PT_C4, PT_C3, PT_C3 /)
-real :: alpha(0:MSPECIES,NCMPT) ; data ((alpha(idata,jdata), idata=0,MSPECIES),jdata=1,NCMPT) &
-        /   0.0,          0.0,          0.0,          0.0,          0.0,     0.,    0.,    0.,    0.,    0.,    0.,    0.,    0.,    0., & ! reproduction
-            0.0,          0.0,          0.0,          0.0,          0.0,     0.,    0.,    0.,    0.,    0.,    0.,    0.,    0.,    0., & ! sapwood
-            1.0,          1.0,          1.0,          0.8,         0.12,    0.8,   1.0,   1.0,  0.12,   1.0,   1.0,   1.0,   1.0,   1.0, & ! leaf
-            0.9,         0.55,          1.0,          0.8,          0.6,    0.8,   1.0,   1.0,   0.6,   1.0,  0.55,   0.9,  0.55,  0.55, & ! root
-            0.0,          0.0,          0.0,          0.0,          0.0,     0.,    0.,    0.,    0.,    0.,    0.,    0.,    0.,    0., & ! virtual leaf
-            0.0,          0.0,        0.006,        0.012,        0.006,  0.012, 0.006, 0.006, 0.006, 0.006,    0.,    0.,    0.,    0. /  ! structural
-
-! From Foley (Ibis model) 1996 gbc v10 pp. 603-628
-real :: beta(0:MSPECIES,NCMPT) ; data ((beta(idata,jdata), idata=0,NSPECIES-1),jdata=1,NCMPT) &
-        /   0.0,          0.0,          0.0,          0.0,          0.0,& ! nsc
-            0.0,          0.0,          0.0,          0.0,          0.0,& ! sapwood
-            0.0,          0.0,          0.0,          0.0,          0.0,& ! leaf
-           1.25,         1.25,         1.25,         1.25,         1.25,& ! root
-            0.0,          0.0,          0.0,          0.0,          0.0,& ! virtual leaf
-            0.0,          0.0,          0.0,          0.0,          0.0 / ! structural
-
-! root parameters
-real :: dfr(0:MSPECIES) ; data dfr &
-!       c4grass       c3grass    temp-decid      tropical     evergreen      BE      BD      BN      NE      ND       G       D       T      A
-        /   2.2,          2.2,          5.8,          5.8,          5.8,    5.8,    5.8,    5.8,    5.8,    5.8,    2.2,    2.2,    2.2,    2.2 /
-real :: srl(0:MSPECIES); data srl & ! specific root length, m/(kg C)
-        / 236e3,        236e3,       24.4e3,       24.4e3,       24.4e3, 24.4e3, 24.4e3, 24.4e3, 24.4e3, 24.4e3,  236e3,  236e3,   60e3,   60e3 /
-real :: root_r(0:MSPECIES); data root_r & ! radius of fine roots, m
-        /1.1e-4,       1.1e-4,       2.9e-4,       2.9e-4,       2.9e-4, 2.9e-4, 2.9e-4, 2.9e-4, 2.9e-4, 2.9e-4, 1.1e-4, 1.1e-4, 2.2e-4, 2.2e-4 /
-real :: root_perm(0:MSPECIES); data root_perm & ! fine root membrane permeability per unit membrane area, kg/(m3 s)
-        / 1e-5,          1e-5,         1e-5,         1e-5,         1e-5,   1e-5,   1e-5,   1e-5,   1e-5,   1e-5,   1e-5,   1e-5,   1e-5,   1e-5 /
-! Specific root length is from Jackson et al., 1997, PNAS  Vol.94, pp.7362--7366, 
-! converted to m/(kg C) from m/(g biomass). Biomass/C mass ratio was assumed 
-! to be 2. The fine root radius is from the same source.
-!
-! Root membrane permeability is "high" value from Siqueira et al., 2008, Water 
-! Resource Research Vol. 44, W01432, converted to mass units
-
-real :: c1(0:MSPECIES); data c1(0:NSPECIES-1) &
-        /   1.358025,     2.222222,     0.4807692,    0.3333333,    0.1948718 /
-real :: c2(0:MSPECIES); data c2(0:NSPECIES-1) &
-        /   0.4004486,    0.4004486,    0.4004486,    0.3613833,    0.1509976 /
-real :: c3(0:MSPECIES); data c3(0:NSPECIES-1) &
-        /   0.5555555,    0.5555555,    0.4423077,    1.230769,     0.5897437 /
-
-! leaf radiation parameters
-real :: leaf_refl(0:MSPECIES,NBANDS) ; data leaf_refl & ! leaf reflectance
-        /   0.11,        0.11,         0.10,         0.10,         0.07,  0.149, 0.130, 0.132, 0.126, 0.143, 0.182, 0.300, 0.139, 0.160, & ! VIS
-            0.45,        0.45,         0.45,         0.45,         0.35,  0.149, 0.130, 0.132, 0.126, 0.143, 0.182, 0.300, 0.139, 0.160  / ! NIR
-real :: leaf_tran(0:MSPECIES,NBANDS) ; data leaf_tran & ! leaf transmittance
-        /   0.07,        0.07,         0.05,         0.05,         0.05,     0.,    0.,    0.,    0.,    0.,    0.,    0.,    0.,    0., & ! VIS
-            0.25,        0.25,         0.25,         0.25,         0.10,     0.,    0.,    0.,    0.,    0.,    0.,    0.,    0.,    0.  / ! NIR
-real :: leaf_emis(0:MSPECIES)= & ! leaf emissivity
-       (/   1.00,        1.00,         1.00,         1.00,         1.00,   0.98,   0.96,  0.97,  0.98,  0.96, 0.96,   1.0,  0.96,  0.96  /)
-real :: ksi(0:MSPECIES)= & ! leaf inclination index
-       (/      0.,          0.,           0.,           0.,          0.,     0.,     0.,    0.,    0.,    0.,    0.,    0.,    0.,   0.  /)
 real :: min_cosz = 0.01 ! minimum allowed value of cosz for vegetation radiation
    ! properties calculations.
    ! It probably doesn't make sense to set it any less than the default value, because the angular 
    ! diameter of the sun is about 0.01 radian (0.5 degree), so the spread of the direct radiation 
    ! zenith angles is about this. Besides, the sub-grid variations of land surface slope are 
    ! probably even larger that that. 
-
-! canopy interception parameters
-real :: cmc_lai(0:MSPECIES)= & ! maximum canopy water conntent per unit LAI
-       (/    0.1,         0.1,          0.1,          0.1,          0.1,    0.1,    0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,  0.1  /)
-real :: cmc_pow(0:MSPECIES)= & ! power of the wet canopy fraction relation 
-  (/   TWOTHIRDS,   TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,     1.,     1.,    1.,    1.,    1.,    1.,    1.,    1.,   1.  /)
-real :: csc_lai(0:MSPECIES)= & ! maximum canopy snow conntent per unit LAI
-       (/    0.1,         0.1,          0.1,          0.1,          0.1,    0.1,    0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,  0.1  /)
-real :: csc_pow(0:MSPECIES)= & ! power of the snow-covered fraction relation 
-  (/   TWOTHIRDS,   TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,     1.,     1.,    1.,    1.,    1.,    1.,    1.,    1.,   1.  /)
-real :: cmc_eps = 0.01 ! value of w/w_max for transition to linear function; 
-                       ! the same value is used for liquid and snow
-real :: internal_gap_frac(0:MSPECIES)= & ! maximum canopy water conntent per unit LAI
-       (/      0.,         0.,          0.1,          0.1,          0.1,     0.,     0.,    0.,    0.,    0.,    0.,    0.,    0.,   0.  /)
-
-real :: fuel_intensity(0:MSPECIES) ; data fuel_intensity(0:NSPECIES-1) &
-        /    1.0,         1.0,        0.002,        0.002,        0.004 /
-real :: leaf_size(0:MSPECIES)= & ! characteristic leaf size
-       (/   0.04,        0.04,         0.04,          0.04,        0.04,    0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1  /)
-! photosynthesis parameters
-real :: Vmax(0:MSPECIES)= & ! max rubisco rate
-       (/  35e-6,       70e-6,        70e-6,         70e-6,       70e-6,  70e-6, 70e-6, 70e-6, 70e-6, 70e-6, 35e-6, 35e-6, 70e-6, 70e-6  /)
-real :: m_cond(0:MSPECIES)= & ! factor of stomatal conductance
-       (/    4.0,         9.0,          9.0,           9.0,         9.0,    9.0,   9.0,   9.0,   9.0,   9.0,   4.0,   4.0,   9.0,   9.0  /)
-real :: alpha_phot(0:MSPECIES)= & ! photosynthesis efficiency
-       (/   0.05,        0.06,         0.06,          0.06,        0.06,   0.06,  0.06,  0.06,  0.06,  0.06,  0.05,  0.05,  0.06,  0.06  /)
-real :: gamma_resp(0:MSPECIES)= &
-       (/   0.03,        0.02,         0.02,          0.02,        0.03,   0.02,  0.02,  0.02,  0.03,  0.03,  0.03,  0.03,  0.03,  0.02  /)
-!       c4grass       c3grass    temp-decid      tropical     evergreen      BE     BD     BN     NE     ND      G      D      T      A
-real :: tc_crit(0:MSPECIES)= &
-       (/ 283.16,      278.16,       283.16,        283.16,      263.16,      0.,    0.,    0.,    0.,    0.,    0.,    0.,    0.,    0. /)
-real :: psi_stress_crit_phen(0:MSPECIES)= & ! iff > 0, critical soil-water-stress index for leaf drop, overrides water content
-       (/    0.0,         0.0,          0.0,           0.0,         0.0,    0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0 /)       
-real :: cnst_crit_phen(0:MSPECIES)= & ! constant critical value for leaf drop
-       (/    0.1,         0.1,          0.1,           0.1,         0.1,    0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1  /)
-real :: fact_crit_phen(0:MSPECIES)= & ! factor for wilting to get critical value for leaf drop
-       (/    0.0,         0.0,          0.0,           0.0,         0.0,    0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0  /)
-real :: gdd_base_T(0:MSPECIES)= &
-       (/ 273.16,      273.16,       273.16,        273.16,      273.16, 273.16,273.16,273.16,273.16,273.16,273.16,273.16,273.16,273.16  /)
-real :: gdd_crit(0:MSPECIES)= &
-       (/  360.0,       360.0,        360.0,         360.0,       360.0,    0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0  /)
-real :: cnst_crit_fire(0:MSPECIES)= & ! constant critical value for leaf drop
-       (/    0.1,         0.1,          0.1,           0.1,         0.1,    0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1  /)  
-real :: fact_crit_fire(0:MSPECIES)= & ! factor for wilting to get critical value for fire
-       (/    0.0,         0.0,          0.0,           0.0,         0.0,    0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0  /)
-real :: wet_leaf_dreg(0:MSPECIES) = & ! wet leaf photosynthesis down-regulation: 0.3 means 
-        ! photosynthesis of completely wet leaf will be 30% less than that of dry one,
-        ! provided everything else is the same 
-       (/    0.3,         0.3,          0.3,           0.3,         0.3,    0.3,   0.3,   0.3,   0.3,   0.3,   0.3,   0.3,   0.3,   0.3  /)
-real :: leaf_age_onset(0:MSPECIES) = & ! onset of Vmax decrease due to leaf aging, days
-       (/  100.0,       100.0,        100.0,         100.0,       100.0,  100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0  /)
-real :: leaf_age_tau(0:MSPECIES) = &  ! e-folding time of Vmax decrease due to leaf aging, days (0 or less means no aging)
-       (/    0.0,         0.0,          0.0,           0.0,         0.0,    0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0  /)
-
 real :: soil_carbon_depth_scale = 0.2   ! depth of active soil for carbon decomposition
 real :: cold_month_threshold    = 283.0 ! monthly temperature threshold for calculations of number of cold months
-real :: smoke_fraction(0:MSPECIES) = & ! fration of carbon lost as smoke
-       (/    0.9,         0.9,          0.9,           0.9,         0.9,    0.9,   0.9,   0.9,   0.9,   0.9,   0.9,   0.9,   0.9,   0.9  /)
 real :: agf_bs         = 0.8 ! ratio of above ground stem to total stem
 real :: K1 = 10.0, K2 = 0.05 ! soil decomposition parameters
 real :: fsc_liv        = 0.8
@@ -444,60 +304,16 @@ real  :: scnd_biomass_bins(10) &
      = (/ 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 1000.0 /)
 real :: phen_ev1 = 0.5, phen_ev2 = 0.9 ! thresholds for evergreen/decidious 
       ! differentiation (see phenology_type in cohort.F90)
+real :: cmc_eps = 0.01 ! value of w/w_max for transition to linear function; 
+                       ! the same value is used for liquid and snow
 
 ! Weng, 7/25/2011
-real    :: alphaHT(0:MSPECIES)      = &  ! scalar from DBH to height of a tree
-       (/    20.,     20.,     20.,     20.,     20.,     20.,     20.,     20.,     20.,     20.,     20.,     20.,     20.,     20.    /)
-real    :: thetaHT(0:MSPECIES)      = &  ! exponents of DBH to height
-       (/    0.5,     0.5,     0.5,     0.5,     0.5,     0.5,     0.5,     0.5,     0.5,     0.5,     0.5,     0.5,     0.5,     0.5    /) 
-real    :: alphaCA(0:MSPECIES)      = &  ! scalar from DBH to crown area of a tree
-       (/    30.,     30.,     30.,     30.,     30.,     30.,     30.,     30.,     30.,     30.,     30.,     30.,     30.,     30.    /) 
-real    :: thetaCA(0:MSPECIES)      = &  ! exponents of DBH to crown area
-       (/    1.5,     1.5,     1.5,     1.5,     1.5,     1.5,     1.5,     1.5,     1.5,     1.5,     1.5,     1.5,     1.5,     1.5    /) 
-real    :: alphaBM(0:MSPECIES)      = &  ! scalar from DBH to biomass of a tree
-       (/    500.,    500.,    500.,    500.,    500.,    500.,    500.,    500.,    500.,    500.,    500.,    500.,    500.,    500.   /)  
-real    :: thetaBM(0:MSPECIES)      = &  ! exponents of DBH to tree biomass
-       (/    2.5,     2.5,     2.5,     2.5,     2.5,     2.5,     2.5,     2.5,     2.5,     2.5,     2.5,     2.5,     2.5,     2.5    /) 
-real    :: alphaCSASW(0:MSPECIES)      = &  ! scalar from DBH to cross section area of sapwood
-       (/    500.,    500.,    0.14,    0.14,    0.14,    500.,    500.,    500.,    500.,    500.,    500.,    500.,    500.,    500.   /) 
-real    :: thetaCSASW(0:MSPECIES)      = &  ! exponents of DBH to cross section ara of Sapwood
-       (/    1.5,     1.5,     1.5,     1.5,     1.5,     1.5,     1.5,     1.5,     1.5,     1.5,     1.5,     1.5,     1.5,     1.5    /) 
-real    :: maturalage(0:MSPECIES)      = &  ! the age that a plant can reproduce 
-       (/    0.,      0.,      1.,      1.,      5.,      5.,      5.,      5.,      5.,      5.,      5.,      5.,      5.,      5.     /)
-real    :: v_seed(0:MSPECIES)      = &  ! 
-       (/    0.,      0.,      0.1,     0.1,     0.1,     0.1,     0.1,     0.1,     0.1,     0.1,     0.1,     0.1,     0.1,     0.1    /)
-real    :: seedlingsize(0:MSPECIES)      = &  ! 
-       (/    0.,      0.,      0.02,    0.005,   0.005,   0.005,   0.005,   0.005,   0.005,   0.005,   0.005,   0.005,   0.005,   0.005  /)
-real    :: prob_g(0:MSPECIES)      = &  !
-       (/    1.0,     1.0,     0.45,    0.45,    0.45,    0.45,    0.45,    0.45,    0.45,    0.45,    0.45,    0.45,    0.45,    0.45   /)
-real    :: prob_e(0:MSPECIES)      = &  !
-       (/    1.0,     1.0,     0.3,     0.3,     0.3,     0.3,     0.3,     0.3,     0.3,     0.3,     0.3,     0.3,     0.3,     0.3    /)
-real    :: mortrate_d_c(0:MSPECIES) = & ! yearly mortality rate in canopy
-       (/    5.0E-2,  4.0E-2,  5.0E-2,  5.0E-2,  5.0E-2,  1.0E-2,  1.0E-2,  1.0E-2,  1.0E-2,  1.0E-2,  1.0E-2,  1.0E-2,  1.0E-2,  1.0E-2 /)
-real    :: mortrate_d_u(0:MSPECIES) = & ! yearly mortality rate in understory
-       (/    20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2 /)
 ! for understory mortality rate is calculated as:
 ! deathrate = mortrate_d_u * ( 1 + A * exp(B*(DBH_mort-DBH))/(1 + exp(B*(DBH_mort-DBH)))
 real :: DBH_mort   = 0.025 ! characteristic DBH for mortality
 real :: A_mort     = 4.0   ! A coefficient in understory mortality rate correction, 1/year
 real :: B_mort     = 30.0  ! B coefficient in understory mortality rate correction, 1/m
 real :: mortrate_s = 2.3   ! mortality rate of starving plants, 1/year, 2.3 = approx 0.9 plants die in a year
-
-real    :: LMA(0:MSPECIES) = & !  leaf mass per unit area, kg C/m2
-       (/    0.04,    0.04,    0.032,   0.032,   0.032,   0.036,   0.036,   0.036,   0.036,   0.036,   0.036,   0.036,   0.036,   0.036  /) 
-real    :: rho_wood(0:MSPECIES) = & ! wood density of stems, Kg C m-3
-       (/    250.,    250.,    250.,    250.,    250.,    250.,    250.,    250.,    250.,    250.,    250.,    250.,    250.,    250.   /)
-real    :: taperfactor(0:MSPECIES) = & ! taper factor, from a cylinder to a tree
-       (/    1.2,     1.2,     0.9,     0.9,     0.9,     0.9,     1.0,     1.0,     1.0,     1.0,     1.0,     1.0,     1.0,     1.0    /) 
-real    :: LAImax(0:MSPECIES) = & ! maximum LAI for a tree
-       (/    3.0,     3.0,     3.0,     3.0,     3.0,     3.0,     3.0,     3.0,     3.0,     3.0,     3.0,     3.0,     3.0,     3.0    /) 
-real    :: tauNSC(0:MSPECIES) = & ! NSC residence time,years
-       (/    0.1,     0.1,     0.8,     2.5,     2.5,     2.5,     2.5,     2.5,     2.5,     2.5,     2.5,     2.5,     2.5,     2.5    /)
-real    :: phiRL(0:MSPECIES) = & ! ratio of fine root area to leaf area
-       (/    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69   /) 
-
-real    :: phiCSA(0:MSPECIES) = & !
-       (/    2.5E-4,  2.5E-4,  2.5E-4,  2.5E-4,  2.5E-4,  2.5E-4,  2.5E-4,  2.5E-4,  2.5E-4,  2.5E-4,  2.5E-4,  2.5E-4,  2.5E-4,  2.5E-4 /)
 
 real :: bseed_distr(NCMPT) = & ! partitioning of of new seedling biomass among compartments 
        (/     0.8,     0.2,     0.0,     0.0,     0.0,    0.0  /)
@@ -508,44 +324,25 @@ namelist /vegn_data_nml/ &
   mcv_min, mcv_lai, &
   use_bucket, use_mcm_masking, vegn_index_constant, &
   critical_root_density, &
-
-  dat_height, dat_lai, dat_root_density, dat_root_zeta, dat_rs_min, dat_snow_crit, &
-  ! vegetation data, imported from LM3V
-  pt, Vmax, m_cond, alpha_phot, gamma_resp, wet_leaf_dreg, &
-  leaf_age_onset, leaf_age_tau, &
-  treefall_disturbance_rate, mortality_kills_balive, fuel_intensity, &
-  alpha, beta, c1,c2,c3, &
-  dfr, &
-  srl, root_r, root_perm, &
-  cmc_lai, cmc_pow, csc_lai, csc_pow, cmc_eps, &
-  internal_gap_frac, &
   min_cosz, &
-  leaf_refl, leaf_tran, leaf_emis, ksi, &
-  leaf_size, &
   soil_carbon_depth_scale, cold_month_threshold, &
 
-  smoke_fraction, agf_bs, K1,K2, fsc_liv, fsc_wood, &
+  agf_bs, K1,K2, fsc_liv, fsc_wood, &
   tau_drip_l, tau_drip_s, GR_factor, tg_c3_thresh, tg_c4_thresh, &
   fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
   l_fract, wood_fract_min, T_transp_min, &
-  tc_crit, psi_stress_crit_phen, gdd_base_T, gdd_crit, &
-  cnst_crit_phen, fact_crit_phen, &
-  cnst_crit_fire, fact_crit_fire, &
   phen_ev1, phen_ev2, &
   scnd_biomass_bins, &
   
   ! PPA-related namelist values
   do_ppa, &
-  alphaHT, thetaHT, alphaCA, thetaCA, alphaBM, thetaBM, alphaCSASW, thetaCSASW,&
-  maturalage, v_seed, seedlingsize, prob_g, prob_e, bseed_distr, &
-  mortrate_d_c, mortrate_d_u, mortrate_s, &
+  bseed_distr, &
+  mortrate_s, cmc_eps, &
   DBH_mort, A_mort, B_mort, &
-  LAImax, LMA, phiRL, phiCSA, rho_wood, taperfactor, &
-  tauNSC, b0_growth, tau_seed, understory_lai_factor, &
+  b0_growth, tau_seed, understory_lai_factor, &
   do_alt_allometry
 
 contains ! ###################################################################
-
 
 
 ! ============================================================================
@@ -554,10 +351,11 @@ subroutine read_vegn_data_namelist()
   integer :: unit         ! unit for namelist i/o
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
-  integer :: i
+  character(fm_field_name_len) :: name   ! name of the species
+  character(fm_type_name_len)  :: typ ! type of the species
+  integer :: i, n
+  logical, allocatable :: spdata_set(:)
   
-  type(table_printer_type) :: table
-
   call write_version_number(version, tagname)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=vegn_data_nml, iostat=io)
@@ -576,101 +374,70 @@ subroutine read_vegn_data_namelist()
 #endif
 
   unit=stdlog()
+  write (unit, nml=vegn_data_nml)
+  
+! TODO: possibly create a set of default species parameters, and set them through 
+!       the namelist
+  if(.not.fm_dump_list('/land_mod/species', recursive=.TRUE.)) &
+     call error_mesg(module_name,'Cannot dump fm list "/land-mod/species"',FATAL)
 
+  ! count species
+  nspecies = fm_get_length('/land_mod/species')
+  call error_mesg(module_name,'total number of species is '//string(nspecies),NOTE)
+  ! check that the number of species is consistent with the model settings
+  if((.not.do_ppa).and.nspecies<N_LM3_SPECIES) call error_mesg ( module_name,&
+     'Too few species to run in LM3 mode: must be at least '//string(N_LM3_SPECIES), FATAL)
+  ! allocate species data
+  allocate(spdata(0:nspecies-1), spdata_set(0:nspecies-1))
+  spdata_set(:) = .FALSE.
+
+  ! prefill the names of species in LM3 mode: to preserve species indices at they
+  ! were in original LM3, since some of the subroutines rely on these indices
+  if (.not.do_ppa) then
+     do i = 0, N_LM3_SPECIES-1
+        spdata(i)%name = lm3_species_name(i)
+     enddo
+  endif
+
+  do while (fm_loop_over_list('/land_mod/species', name, typ, n))
+     ! look for the species already in the table
+     do i = 0,nspecies-1
+        if (trim(spdata(i)%name)==trim(name)) exit ! found slot for species
+     enddo
+     ! if not found, look for an empty slot in the table
+     if (i>=nspecies) then
+        do i = 0, nspecies
+           if (trim(spdata(i)%name)=='') exit ! found an empty slot
+        enddo
+     endif
+     ! write(*,*)trim(name),' ',i,' ',trim(spdata(i)%name),' ',spdata_set(i)
+     if (i>=nspecies) call error_mesg(module_name,&
+          'could not place species "'//trim(name)//'" into species table, check if you are running in LM3 mode and misspelled species name', FATAL)
+     if (spdata_set(i)) call error_mesg(module_name,&
+          'data for species "'//trim(name)//'" are set more then once in the field table',FATAL)
+     call read_species_data(name,spdata(i))
+     call init_derived_species_data(spdata(i))
+     spdata_set(i) = .TRUE.
+  enddo
+
+  if (.not.all(spdata_set)) call error_mesg(module_name,'not all species data were set',FATAL)
+  deallocate(spdata_set)
+  
   ! reconcile values of fact_crit_phen and cnst_crit_phen
-  cnst_crit_phen = max(0.0,min(1.0,cnst_crit_phen))
-  fact_crit_phen = max(0.0,fact_crit_phen)
-  where (cnst_crit_phen/=0) fact_crit_phen=0.0
+  spdata(:)%cnst_crit_phen = max(0.0,min(1.0,spdata(:)%cnst_crit_phen))
+  spdata(:)%fact_crit_phen = max(0.0,spdata(:)%fact_crit_phen)
+  where (spdata(:)%cnst_crit_phen/=0) spdata(:)%fact_crit_phen=0.0
   write(unit,*)'reconciled fact_crit_phen and cnst_crit_phen'
 
   ! do the same for fire
-  cnst_crit_fire = max(0.0,min(1.0,cnst_crit_fire))
-  fact_crit_fire = max(0.0,fact_crit_fire)
-  where (cnst_crit_fire/=0) fact_crit_fire=0.0 
+  spdata(:)%cnst_crit_fire = max(0.0,min(1.0,spdata(:)%cnst_crit_fire))
+  spdata(:)%fact_crit_fire = max(0.0,spdata(:)%fact_crit_fire)
+  where (spdata(:)%cnst_crit_fire/=0) spdata(:)%fact_crit_fire=0.0 
   write(unit,*)'reconciled fact_crit_fire and cnst_crit_fire'
 
-  ! initialize vegetation data structure
-
-  spdata%dat_height = dat_height
-  spdata%dat_lai = dat_lai
-  spdata%dat_root_density = dat_root_density
-  spdata%dat_root_zeta = dat_root_zeta
-  spdata%dat_rs_min = dat_rs_min
-  spdata%dat_snow_crit = dat_snow_crit
-
-  spdata%treefall_disturbance_rate = treefall_disturbance_rate
-  spdata%mortality_kills_balive    = mortality_kills_balive
-  spdata%fuel_intensity            = fuel_intensity
- 
-  spdata%pt         = pt
-  spdata%Vmax       = Vmax
-  spdata%m_cond     = m_cond
-  spdata%alpha_phot = alpha_phot
-  spdata%gamma_resp = gamma_resp
-  spdata%wet_leaf_dreg = wet_leaf_dreg
-  spdata%leaf_age_onset = leaf_age_onset
-  spdata%leaf_age_tau = leaf_age_tau
-  spdata%dfr        = dfr
-
-  spdata%srl        = srl
-  spdata%root_r     = root_r
-  spdata%root_perm  = root_perm
+  call print_species_data(stdout())
+  call print_species_data(stdlog())
   
-  spdata%c1 = c1
-  spdata%c2 = c2
-  spdata%c3 = c3
-
-  spdata%cmc_lai = cmc_lai
-  spdata%cmc_pow = cmc_pow
-  spdata%csc_lai = csc_lai
-  spdata%csc_pow = csc_pow
-
-  spdata%internal_gap_frac = internal_gap_frac
-  
-  spdata%leaf_size = leaf_size
-
-  spdata%tc_crit   = tc_crit
-  spdata%gdd_crit  = gdd_crit
-  spdata%gdd_base_T = gdd_base_T
-  spdata%psi_stress_crit_phen = psi_stress_crit_phen
-  spdata%cnst_crit_phen = cnst_crit_phen
-  spdata%fact_crit_phen = fact_crit_phen
-  spdata%cnst_crit_fire = cnst_crit_fire
-  spdata%fact_crit_fire = fact_crit_fire
-
-  spdata%smoke_fraction = smoke_fraction
-  spdata%LMA            = LMA      ! leaf mass per unit area, kg C/m2
-
-  !  for PPA, Weng, 7/25/2011
-  spdata%alphaHT      = alphaHT    ;  spdata%thetaHT      = thetaHT 
-  spdata%alphaCA      = alphaCA    ;  spdata%thetaCA      = thetaCA 
-  spdata%alphaBM      = alphaBM    ;  spdata%thetaBM      = thetaBM 
-  spdata%alphaCSASW   = alphaCSASW ;  spdata%thetaCSASW   = thetaCSASW
-  spdata%maturalage   = maturalage
-  spdata%v_seed       = v_seed
-  spdata%seedlingsize = seedlingsize
-  spdata%prob_g       = prob_g
-  spdata%prob_e       = prob_e
-  spdata%mortrate_d_c = mortrate_d_c
-  spdata%mortrate_d_u = mortrate_d_u
-  spdata%rho_wood     = rho_wood
-  spdata%taperfactor  = taperfactor
-  spdata%LAImax       = LAImax
-  spdata%tauNSC       = tauNSC
-  spdata%phiRL        = phiRL
-  spdata%phiCSA       = phiCSA
-  ! end of Weng
-
-  do i = 0, MSPECIES
-     spdata(i)%alpha     = alpha(i,:)
-     spdata(i)%beta      = beta(i,:)
-     spdata(i)%leaf_refl = leaf_refl(i,:)
-     spdata(i)%leaf_tran = leaf_tran(i,:)
-     spdata(i)%leaf_emis = leaf_emis(i)
-     spdata(i)%ksi       = ksi(i)
-     call init_derived_species_data(spdata(i))
-  enddo
-
   ! register selectors for land use type-specific diagnostics
   do i=1, N_LU_TYPES
      call register_tile_selector(landuse_name(i), long_name=landuse_longname(i),&
@@ -678,8 +445,8 @@ subroutine read_vegn_data_namelist()
   enddo
   
   ! register selectors for species-specific diagnostics
-  do i=0,NSPECIES-1
-     call register_tile_selector(species_name(i), long_name=species_longname(i),&
+  do i=0,nspecies-1
+     call register_tile_selector(spdata(i)%name, long_name=spdata(i)%longname,&
           tag = SEL_VEGN, idata1 = SP_SEL_TAG, idata2 = i )
   enddo
 
@@ -687,13 +454,212 @@ subroutine read_vegn_data_namelist()
   call register_tile_selector('ntrlgrass', long_name='natural (non-human-maintained) grass',&
           tag = SEL_VEGN, idata1 = NG_SEL_TAG)
 
-  write (unit, nml=vegn_data_nml)
+end subroutine read_vegn_data_namelist
 
-  ! ---- print a table of species parameters
-  call init_with_headers(table, species_name)
+
+! ============================================================================
+subroutine read_species_data(name, sp)
+  character(*)        , intent(in)    :: name ! name of the species
+  type(spec_data_type), intent(inout) :: sp   ! data to be filled in
+
+  character(fm_field_name_len) :: str 
+  character(fm_path_name_len)  :: listname
+  character(fm_path_name_len)  :: current_list
+  integer        :: j
+
+  current_list = fm_get_current_list()
+  if (current_list .eq. ' ') &
+      call error_mesg(module_name,'Could not get the current list',FATAL)
+
+  listname = '/land_mod/species/'//trim(name)
+
+  if (.not.fm_change_list(listname)) then
+     call error_mesg(module_name,'Cannot change fm list to "'//trim(listname)//'"', FATAL)
+  endif
+
+  sp%name     = name
+  sp%longname = fm_util_get_string('long_name', caller = module_name, default_value = '', scalar = .true.)
+
+  sp%mortality_kills_balive = fm_util_get_logical("mortality_kills_balive", &
+        caller=module_name, default_value=sp%mortality_kills_balive, scalar=.true.)
+  do j = 1,NCMPT
+     sp%alpha(j) = fm_util_get_real("alpha", &
+              caller=module_name, default_value=sp%alpha(j), index=j)
+     sp%beta(j) = fm_util_get_real("beta", &
+              caller=module_name, default_value=sp%beta(j), index=j)
+  enddo
+  do j = 1, NBANDS
+     sp%leaf_refl(j) = fm_util_get_real("leaf_refl", &
+              caller=module_name, default_value=sp%leaf_refl(j), index=j)
+     sp%leaf_tran(j) = fm_util_get_real("leaf_tran", &
+              caller=module_name, default_value=sp%leaf_tran(j), index=j)
+  enddo
+  
+  str = fm_util_get_string('physiology_type', caller = module_name, default_value = 'C3', scalar = .true.)
+  select case (trim(lowercase(str)))
+  case('c3')
+     sp%pt = PT_C3
+  case('c4')
+     sp%pt = PT_C4
+  case default
+     call error_mesg(module_name,'Phisiology type "'//trim(str)//'" is invalid, use "C3" or "C4"', FATAL)
+  end select
+  
+  str = fm_util_get_string('phenology_type', caller = module_name, default_value = 'deciduous', scalar = .true.)
+  select case (trim(lowercase(str)))
+  case('deciduous')
+     sp%phent = PHEN_DECIDUOUS
+  case('evergreen')
+     sp%phent = PHEN_EVERGREEN
+  case default
+     call error_mesg(module_name,'Phenology type "'//trim(str)//'" is invalid, use "deciduous" or "evergreen"', FATAL)
+  end select
+
+  str = fm_util_get_string('lifeform', caller = module_name, default_value = 'tree', scalar = .true.)
+  select case (trim(lowercase(str)))
+  case('tree')
+     sp%form = FORM_WOODY
+  case('grass')
+     sp%form = FORM_GRASS
+  case default
+     call error_mesg(module_name,'Vegetation lifeform "'//trim(str)//'" is invalid, use "tree" or "grass"', FATAL)
+  end select
+  
+#define __PARSE__(v) sp%v = fm_util_get_real(#v, caller=module_name, default_value=sp%v, scalar=.true.)
+  __PARSE__(treefall_disturbance_rate)
+
+  __PARSE__(c1)
+  __PARSE__(c2)
+  __PARSE__(c3)
+  
+  __PARSE__(Vmax)
+  __PARSE__(m_cond)
+  __PARSE__(alpha_phot)
+  __PARSE__(gamma_resp)
+  __PARSE__(wet_leaf_dreg)
+  __PARSE__(leaf_age_onset)
+  __PARSE__(leaf_age_tau)
+  __PARSE__(dfr)
+
+  __PARSE__(srl)
+  __PARSE__(root_r)
+  __PARSE__(root_perm)
+
+  __PARSE__(cmc_lai)
+  __PARSE__(cmc_pow)
+  __PARSE__(csc_lai)
+  __PARSE__(csc_pow)
+
+  __PARSE__(internal_gap_frac)
+  __PARSE__(leaf_emis)
+  __PARSE__(ksi)
+  __PARSE__(leaf_size)
+
+  __PARSE__(fuel_intensity)
+
+  __PARSE__(tc_crit)
+  __PARSE__(gdd_crit)
+  __PARSE__(gdd_base_T)
+  __PARSE__(psi_stress_crit_phen)
+  __PARSE__(cnst_crit_phen)
+  __PARSE__(fact_crit_phen)
+  __PARSE__(cnst_crit_fire)
+  __PARSE__(fact_crit_fire)
+
+  __PARSE__(smoke_fraction)
+  __PARSE__(LMA)
+ 
+  __PARSE__(dat_height)
+  __PARSE__(dat_lai)
+  __PARSE__(dat_root_density)
+  __PARSE__(dat_root_zeta)
+  __PARSE__(dat_rs_min)
+  __PARSE__(dat_snow_crit)
+
+  !  for PPA, Weng, 7/25/2011
+  __PARSE__(alphaHT)
+  __PARSE__(alphaCA)
+  __PARSE__(alphaBM)
+  __PARSE__(alphaCSASW)
+  __PARSE__(thetaCSASW)
+  __PARSE__(maturalage)
+  __PARSE__(v_seed)
+  __PARSE__(seedlingsize)
+  __PARSE__(prob_g)
+  __PARSE__(prob_e)
+  __PARSE__(mortrate_d_c)
+  __PARSE__(mortrate_d_u)
+  __PARSE__(rho_wood)
+  __PARSE__(taperfactor)
+  __PARSE__(LAImax)
+  __PARSE__(tauNSC)
+  __PARSE__(phiRL)
+  __PARSE__(phiCSA)
+  ! end of Weng
+#undef __PARSE__
+
+  if (.not.fm_change_list(current_list)) then
+     call error_mesg(module_name,'Cannot change fm list back to "'//trim(current_list)//'"', FATAL)
+  endif
+
+end subroutine read_species_data
+
+! ============================================================================
+subroutine init_derived_species_data(sp)
+   type(spec_data_type), intent(inout) :: sp
+
+   integer :: j
+   real :: specific_leaf_area  ! m2/kgC
+   real :: leaf_life_span      ! months
+   
+   if (do_ppa) then
+      ! LMA (leaf mass per unit area) comes directly from namelist
+   else
+      ! calculate specific leaf area (cm2/g(biomass))
+      ! Global Raich et al 94 PNAS pp 13730-13734
+      leaf_life_span     = 12.0/sp%alpha(CMPT_LEAF) ! in months
+      specific_leaf_area = 10.0**(2.4 - 0.46*log10(leaf_life_span));       
+      ! convert to m2/kgC
+      specific_leaf_area = C2B*specific_leaf_area*1000.0/10000.0
+      sp%LMA = 1.0/specific_leaf_area
+      ! rho_wood is not used anywhere?
+      ! ! the relationship from Moorcroft, based on Reich
+      ! ! units kg C/m^3, hence the factor of 0.001 to convert from g/cm^3
+      ! sp%rho_wood = (0.5 + 0.2*(leaf_life_span-1))*0.001;
+      ! if (sp%rho_wood > 500.) sp%rho_wood = 0.5*0.001;
+   endif
+   sp%SRA = 2*PI*sp%root_r*sp%srl
+
+   sp%phi1=0.5-0.633*sp%ksi-0.33*sp%ksi**2;
+   sp%phi2=0.877*(1.0-2.0*sp%phi1);
+   if(sp%ksi /= 0) then
+      sp%mu_bar = &
+           (1-sp%phi1/sp%phi2*log(1+sp%phi2/sp%phi1))&
+           / sp%phi2
+   else
+      ! in degenerate case of spherical leaf angular distribution the above 
+      ! formula for mu_bar gives an undefined value, so we handle it separately 
+      sp%mu_bar = 1.0
+   endif
+   ! calculate alphaBM parameter of allometry
+   ! note that rho_wood was re-introduced for this calculation
+   sp%alphaBM    = sp%rho_wood * sp%taperfactor * PI/4. * sp%alphaHT
+   sp%alphaCSASW = sp%phiCSA*sp%LAImax*sp%alphaCA
+end subroutine init_derived_species_data
+
+! ============================================================================
+! prints a table of species parameters to specified unit
+subroutine print_species_data(unit)
+  integer, intent(in) :: unit ! unit number to print to
+  
+  type(table_printer_type) :: table
+
+  call init_with_headers(table, spdata(:)%name)
   call add_row(table, 'Treefall dist. rate', spdata(:)%treefall_disturbance_rate)
   call add_row(table, 'Mortality kills balive', spdata(:)%mortality_kills_balive)
   call add_row(table, 'Phisiology Type', spdata(:)%pt)
+  call add_row(table, 'Phenology Type',  spdata(:)%phent)
+  call add_row(table, 'Life Form',       spdata(:)%form)
   call add_row(table, 'C1',            spdata(:)%c1)
   call add_row(table, 'C2',            spdata(:)%c2)
   call add_row(table, 'C3',            spdata(:)%c3)
@@ -783,53 +749,14 @@ subroutine read_vegn_data_namelist()
 
   call add_row(table, 'smoke_fraction',spdata(:)%smoke_fraction)
 
-  call print(table,stdout())
+  call add_row(table, 'dat_height',       spdata(:)%dat_height)
+  call add_row(table, 'dat_lai',          spdata(:)%dat_lai)
+  call add_row(table, 'dat_root_density', spdata(:)%dat_root_density)
+  call add_row(table, 'dat_root_zeta',    spdata(:)%dat_root_zeta)
+  call add_row(table, 'dat_rs_min',       spdata(:)%dat_rs_min)
+  call add_row(table, 'dat_snow_crit',    spdata(:)%dat_snow_crit)
+
   call print(table,unit)
-
-end subroutine read_vegn_data_namelist
-
-
-! ============================================================================
-subroutine init_derived_species_data(sp)
-   type(spec_data_type), intent(inout) :: sp
-
-   integer :: j
-   real :: specific_leaf_area  ! m2/kgC
-   real :: leaf_life_span      ! months
-   
-   if (do_ppa) then
-      ! LMA (leaf mass per unit area) comes directly from namelist
-   else
-      ! calculate specific leaf area (cm2/g(biomass))
-      ! Global Raich et al 94 PNAS pp 13730-13734
-      leaf_life_span     = 12.0/sp%alpha(CMPT_LEAF) ! in months
-      specific_leaf_area = 10.0**(2.4 - 0.46*log10(leaf_life_span));       
-      ! convert to m2/kgC
-      specific_leaf_area = C2B*specific_leaf_area*1000.0/10000.0
-      sp%LMA = 1.0/specific_leaf_area
-      ! rho_wood is not used anywhere?
-      ! ! the relationship from Moorcroft, based on Reich
-      ! ! units kg C/m^3, hence the factor of 0.001 to convert from g/cm^3
-      ! sp%rho_wood = (0.5 + 0.2*(leaf_life_span-1))*0.001;
-      ! if (sp%rho_wood > 500.) sp%rho_wood = 0.5*0.001;
-   endif
-   sp%SRA = 2*PI*sp%root_r*sp%srl
-
-   sp%phi1=0.5-0.633*sp%ksi-0.33*sp%ksi**2;
-   sp%phi2=0.877*(1.0-2.0*sp%phi1);
-   if(sp%ksi /= 0) then
-      sp%mu_bar = &
-           (1-sp%phi1/sp%phi2*log(1+sp%phi2/sp%phi1))&
-           / sp%phi2
-   else
-      ! in degenerate case of spherical leaf angular distribution the above 
-      ! formula for mu_bar gives an undefined value, so we handle it separately 
-      sp%mu_bar = 1.0
-   endif
-   ! calculate alphaBM parameter of allometry
-   ! note that rho_wood was re-introduced for this calculation
-   sp%alphaBM    = sp%rho_wood * sp%taperfactor * PI/4. * sp%alphaHT
-   sp%alphaCSASW = sp%phiCSA*sp%LAImax*sp%alphaCA
-end subroutine init_derived_species_data
+end subroutine print_species_data
 
 end module

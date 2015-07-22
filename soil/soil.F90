@@ -1177,7 +1177,7 @@ end subroutine soil_step_1
      __DEBUG1__(vegn_uptk)
      __DEBUG2__(sum(vegn_uptk),sum(uptake))
      do l = 1,num_l
-        write(*,'(i2.2,100(2x,a,g))')l, &
+        write(*,'(i2.2,100(2x,a,g23.16))')l, &
              'uptake=',uptake(l),'dwl=',-uptake(l)*delta_time,&
              'wl=',soil%wl(l),'new wl=',soil%wl(l) - uptake(l)*delta_time
      enddo
@@ -1209,7 +1209,7 @@ end subroutine soil_step_1
   if(is_watch_point()) then
      write(*,*) ' ##### soil_step_2 checkpoint 3 #####'
      do l = 1, num_l
-        write(*,'(i2.2,100(2x,a,g))')l,&
+        write(*,'(i2.2,100(2x,a,g23.16))')l,&
              ' T =', soil%T(l),&
              ' Th=', (soil%ws(l)+soil%wl(l))/(dens_h2o*dz(l)),&
              ' wl=', soil%wl(l),&
@@ -1493,9 +1493,9 @@ end subroutine soil_step_1
           lrunf_ie = lprec_eff
           hlrunf_ie = hlprec_eff
           if (use_stiff_bug) then
-              psi=-zfull
+              psi=-zfull(1:num_l)
             else
-              psi=zfull
+              psi=zfull(1:num_l)
             endif
           dpsi=0.
         ELSE
@@ -1652,8 +1652,8 @@ subroutine soil_step_3(soil, diag)
   type(soil_tile_type), intent(in) :: soil
   type(diag_buff_type), intent(inout) :: diag
 
-  if(id_fast_soil_C>0) call send_tile_data(id_fast_soil_C, soil%fast_soil_C(:)/dz(:), diag)
-  if(id_slow_soil_C>0) call send_tile_data(id_slow_soil_C, soil%slow_soil_C(:)/dz(:), diag)
+  if(id_fast_soil_C>0) call send_tile_data(id_fast_soil_C, soil%fast_soil_C(:)/dz(1:num_l), diag)
+  if(id_slow_soil_C>0) call send_tile_data(id_slow_soil_C, soil%slow_soil_C(:)/dz(1:num_l), diag)
   if (id_fsc > 0)      call send_tile_data(id_fsc, sum(soil%fast_soil_C(:)), diag)
   if (id_ssc > 0)      call send_tile_data(id_ssc, sum(soil%slow_soil_C(:)), diag)
 end subroutine soil_step_3
@@ -2015,8 +2015,8 @@ IF (bbb+ccc*eee(l) .NE. 0.) THEN
 
           if(is_watch_point()) then
              write(*,*) '3.22 l=', l,&
-                  ' soil_prog%wl=',soil%wl(l),  &
-                  ' soil_prog%ws=',soil%ws(l) , &
+                  ' soil%wl=',soil%wl(l),  &
+                  ' soil%ws=',soil%ws(l) , &
                   ' soil%pars%vwc_sat=', soil%pars%vwc_sat, &
                   ' dz=', dz(l), &
                   ' adj=', adj
@@ -2074,7 +2074,7 @@ end subroutine richards
   
 ! Upstream weighting of advection. Preserving u_plus here for now.
   u_minus = 1.
-  where (flow.lt.0.) u_minus = 0.
+  where (flow(1:num_l).lt.0.) u_minus = 0.
   do l = 1, num_l-1
     u_plus(l) = 1. - u_minus(l+1)
     enddo
@@ -2122,7 +2122,7 @@ end subroutine richards
     soil%T(l+1) = soil%T(l+1) + del_t(l+1)
     enddo
 
-  ! (lumped=lm2 groundwater stored in l=1 prog variable, liquid only)
+  ! (lumped=lm2 groundwater stored in l=1 variable, liquid only)
   if (soil%groundwater(1).ne. 0.) soil%groundwater_T(1) =    &
        + ((aquifer_heat_cap+soil%groundwater(1)-d_GW)  &
 	                         *soil%groundwater_T(1) &

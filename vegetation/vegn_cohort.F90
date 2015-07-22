@@ -9,7 +9,7 @@ use vegn_data_mod, only : spdata, &
    phen_ev1, phen_ev2, cmc_eps
 use vegn_data_mod, only : PT_C3, PT_C4, CMPT_ROOT, CMPT_LEAF, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
-   LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDIOUS, &
+   LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDUOUS, &
    do_ppa
 use soil_tile_mod, only : max_lev
 
@@ -113,9 +113,6 @@ type :: vegn_cohort_type
   real    :: Ws_max  = 0.0 ! maximum solid water content of canopy, kg/individual
   real    :: mcv_dry = 0.0 ! heat capacity of dry canopy J/(K individual)
   real    :: cover
-
-  integer :: pt = 0  ! physiology type
-  integer :: phent = 0 ! phenology type
 
   real :: gpp  = 0.0 ! gross primary productivity kg C/timestep
   real :: npp  = 0.0 ! net primary productivity kg C/timestep
@@ -422,7 +419,7 @@ function phenology_type(c, cm)
   if(pe>phen_ev1 .and. pe<phen_ev2) then
      phenology_type = PHEN_EVERGREEN ! its evergreen
   else
-     phenology_type = PHEN_DECIDIOUS ! its deciduous
+     phenology_type = PHEN_DECIDUOUS ! its deciduous
   endif
 end function
 
@@ -439,15 +436,17 @@ subroutine update_species(c, t_ann, t_cold, p_ann, cm, landuse)
   integer,           intent(in) :: landuse ! land use type
 
   integer :: spp
+  integer :: pt    ! physiology type
+  integer :: phent ! type of phenology
 
-  c%pt    = c3c4(c,t_ann,p_ann)
-  c%phent = phenology_type(c, cm) 
+  pt    = c3c4(c,t_ann,p_ann)
+  phent = phenology_type(c, cm) 
   
-  if(landuse == LU_CROP) c%phent = 0  ! crops can't be evergreen
+  if(landuse == LU_CROP) phent = PHEN_DECIDUOUS ! crops can't be evergreen
   
-  if(c%pt==PT_C4) then
+  if(pt==PT_C4) then
      spp=SP_C4GRASS;  ! c4 grass
-  else if(c%phent==1) then
+  else if(phent==1) then
      spp=SP_EVERGR;   ! evergreen non-grass
   else if(btotal(c) < tg_c3_thresh) then
      spp=SP_C3GRASS;  ! c3 grass

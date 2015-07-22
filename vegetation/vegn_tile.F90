@@ -12,14 +12,14 @@ use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_VEGN
 
 use vegn_data_mod, only : &
-     MSPECIES, &
+     MSPECIES, spdata, &
      read_vegn_data_namelist, &
      vegn_to_use,  input_cover_types, &
      mcv_min, mcv_lai, &
      vegn_index_constant, &
      BSEED, LU_NTRL, LU_SCND, N_HARV_POOLS, &
      LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, &
-     SP_C3GRASS, SP_C4GRASS, &
+     FORM_GRASS, &
      scnd_biomass_bins
 
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools
@@ -424,6 +424,8 @@ function vegn_is_selected(vegn, sel)
   type(tile_selector_type),  intent(in) :: sel
   type(vegn_tile_type),      intent(in) :: vegn
 
+  integer :: sp ! shorthand for vegetation species
+  
   select case (sel%idata1)
   case (LU_SEL_TAG)
      vegn_is_selected = (sel%idata2 == vegn%landuse)
@@ -437,11 +439,10 @@ function vegn_is_selected(vegn, sel)
      if (.not.associated(vegn%cohorts)) then
         vegn_is_selected = .FALSE.
      else
+        sp = vegn%cohorts(1)%species
         vegn_is_selected = &
-             ((vegn%cohorts(1)%species==SP_C4GRASS) .or.&
-              (vegn%cohorts(1)%species==SP_C3GRASS)).and.&
-             ((vegn%landuse==LU_NTRL).or. &
-              (vegn%landuse==LU_SCND))
+             (spdata(sp)%form==FORM_GRASS).and.&
+             ((vegn%landuse==LU_NTRL).or.(vegn%landuse==LU_SCND))
      endif
   case default
      vegn_is_selected = .FALSE.
