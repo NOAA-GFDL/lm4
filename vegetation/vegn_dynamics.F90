@@ -24,8 +24,8 @@ use soil_tile_mod, only: soil_tile_type, soil_ave_temp, soil_theta, clw, csw
 use vegn_cohort_mod, only : vegn_cohort_type, &
      update_biomass_pools, update_bio_living_fraction, update_species, &
      leaf_area_from_biomass, init_cohort_allometry_ppa
-
-use land_debug_mod, only : is_watch_point
+use vegn_disturbance_mod, only : kill_plants_ppa
+use land_debug_mod, only : is_watch_point, check_var_range
 use land_numerics_mod, only : rank_descending
 
 implicit none
@@ -352,9 +352,10 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      NSC_supply= 0.0
 
      IF(cc%nsc > 0 .AND. cc%status == LEAF_ON)then
-         LR_deficit=cc%bl_max+cc%br_max-cc%bl-cc%br
+         LR_deficit=max(cc%bl_max+cc%br_max-cc%bl-cc%br, 0.0)
          LR_demand =min(LR_deficit*fLFR*365.*dt_fast_yr, fNSC*cc%nsc)
          NSC_supply=max((cc%nsc-0.5*NSCtarget)*fStem,0.0) ! Weng 2014-01-23 for smoothing deltaDBH
+         ! slm: signs are weird: LR_demand>0, NSC_supply<0
      endif
 
      cc%resg = GROWTH_RESP * (LR_demand + NSC_supply)/dt_fast_yr 
@@ -686,9 +687,12 @@ subroutine biomass_allocation_ppa(cc)
      cc%bwood   = cc%bwood + deltaBwood
      cc%bsw     = cc%bsw   - deltaBwood
      if(is_watch_point()) then
-        __DEBUG4__(cc%bl, cc%br, cc%bl_max, cc%br_max)
-        __DEBUG5__(cc%carbon_gain, G_LFR, deltaBL, deltaBR, deltaBSW)
+        __DEBUG2__(cc%bl_max, cc%br_max)
+        __DEBUG2__(cc%carbon_gain, G_LFR)
+        __DEBUG5__(deltaBL, deltaBR, deltaBSW, deltaSeed, deltaBwood)
+        __DEBUG5__(cc%bl, cc%br, cc%bsw, cc%bseed, cc%bwood)
      endif
+!     call check_var_range(cc%bseed,0.0,HUGE(1.0),'biomass_allocation_ppa','cc%bseed',WARNING)
   else  ! cc%status == LEAF_OFF
      cc%nsc = cc%nsc + cc%carbon_gain
   endif ! cc%status == LEAF_ON
@@ -1196,6 +1200,12 @@ subroutine vegn_reproduction_ppa (vegn,soil)
   enddo
   
   vegn%n_cohorts = k
+  if(is_watch_point()) then
+     write(*,*)'##### vegn_reproduction_ppa #####'
+     __DEBUG2__(newcohorts, vegn%n_cohorts)
+     __DEBUG1__(vegn%cohorts%nindivs)
+     __DEBUG1__(vegn%cohorts%Tv)
+  endif
   
 end subroutine vegn_reproduction_ppa
 
@@ -1226,8 +1236,16 @@ subroutine merge_cohorts(c1,c2)
   real :: x1, x2 ! normalized relative weights
   real :: HEAT1, HEAT2 ! heat stored in respective canopies
 
-  x1 = c1%nindivs/(c1%nindivs+c2%nindivs)
+!  call check_var_range(c1%nindivs,0.0,HUGE(1.0),'merge_cohorts','c1%nindivs',FATAL)
+!  call check_var_range(c2%nindivs,0.0,HUGE(1.0),'merge_cohorts','c2%nindivs',FATAL)
+
+  if (c1%nindivs+c2%nindivs == 0) then
+     x1 = 1.0
+  else
+     x1 = c1%nindivs/(c1%nindivs+c2%nindivs)
+  endif
   x2 = 1-x1
+  
   ! update number of individuals in merged cohort
   c2%nindivs = c1%nindivs+c2%nindivs
 #define __MERGE__(field) c2%field = x1*c1%field + x2*c2%field
@@ -1260,11 +1278,13 @@ subroutine merge_cohorts(c1,c2)
   ! update canopy temperature -- just merge it based on area weights if the heat 
   ! capacities are zero, or merge it based on the heat content if the heat contents
   ! are non-zero
-  if(HEAT1==0.and.HEAT2==0) then
-     __MERGE__(Tv)
-  else
+  if(HEAT1>epsilon(1.0).and.HEAT2>epsilon(1.0)) then
      c2%Tv = (HEAT1*x1+HEAT2*x2) / &
           (clw*c2%Wl + csw*c2%Ws + c2%mcv_dry) + tfreeze
+  else
+     __MERGE__(Tv)
+     ! TODO: keep track of the possible heat non-conservation, however small,
+     ! that will result from this if the heat capacities are not zero.
   endif
 #undef  __MERGE__
   
@@ -1284,6 +1304,16 @@ subroutine vegn_mergecohorts_ppa(vegn,soil)
   integer :: i,j,k
 
   allocate(cc(vegn%n_cohorts))
+
+  if (is_watch_point()) then
+     write(*,*) '##### vegn_mergecohorts_ppa input #####'
+     __DEBUG1__(vegn%n_cohorts)
+     __DEBUG1__(vegn%cohorts%nindivs)
+     __DEBUG1__(vegn%cohorts%Wl)
+     __DEBUG1__(vegn%cohorts%Ws)
+     __DEBUG1__(vegn%cohorts%mcv_dry)
+     __DEBUG1__(vegn%cohorts%Tv)
+  endif
 
   merged(:)=.FALSE. ; k = 0
   do i = 1, vegn%n_cohorts 
@@ -1325,19 +1355,7 @@ subroutine vegn_mergecohorts_ppa(vegn,soil)
            k=k+1
            cc(k) = vegn%cohorts(i)
         else
-           ! add dead C from leaf and root pools to fast soil carbon
-           loss_wood  = vegn%cohorts(i)%nindivs * vegn%cohorts(i)%bwood
-           loss_alive = vegn%cohorts(i)%nindivs * &
-                       (vegn%cohorts(i)%bl   + &
-                        vegn%cohorts(i)%br   + &
-                        vegn%cohorts(i)%bsw  + &
-                        vegn%cohorts(i)%blv  + &
-                        vegn%cohorts(i)%bseed+ &
-                        vegn%cohorts(i)%nsc)
-           soil%fast_soil_C(1) = soil%fast_soil_C(1) +    fsc_liv *loss_alive +   &
-                              fsc_wood*loss_wood
-           soil%slow_soil_C(1) = soil%slow_soil_C(1) + (1-fsc_liv)*loss_alive +   &
-                              (1-fsc_wood)*loss_wood
+           call kill_plants_ppa(vegn%cohorts(i), vegn, soil, vegn%cohorts(i)%nindivs, 0.0)
         endif
      enddo
 
@@ -1354,6 +1372,16 @@ subroutine vegn_mergecohorts_ppa(vegn,soil)
 
      deallocate (vegn%cohorts)
      vegn%cohorts=>cc
+  endif
+
+  if (is_watch_point()) then
+     write(*,*) '##### vegn_mergecohorts_ppa output #####'
+     __DEBUG1__(vegn%n_cohorts)
+     __DEBUG1__(vegn%cohorts%nindivs)
+     __DEBUG1__(vegn%cohorts%Wl)
+     __DEBUG1__(vegn%cohorts%Ws)
+     __DEBUG1__(vegn%cohorts%mcv_dry)
+     __DEBUG1__(vegn%cohorts%Tv)
   endif
 
 end subroutine vegn_mergecohorts_ppa

@@ -8,7 +8,7 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod, only: write_version_number, error_mesg, NOTE,FATAL, file_exist, &
+use fms_mod, only: write_version_number, error_mesg, NOTE, WARNING, FATAL, file_exist, &
                    close_file, check_nml_error, stdlog, string 
 use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe
 use time_manager_mod, only: time_type, time_type_to_real, get_date, operator(-)
@@ -54,7 +54,7 @@ use cohort_io_mod, only :  read_create_cohorts, create_cohort_dimension, &
      read_cohort_data_r0d_fptr,  read_cohort_data_i0d_fptr,&
      write_cohort_data_r0d_fptr, write_cohort_data_i0d_fptr
 use land_debug_mod, only : is_watch_point, set_current_point, check_temp_range, &
-     check_conservation, water_cons_tol, carbon_cons_tol
+     check_var_range, check_conservation, water_cons_tol, carbon_cons_tol
 use vegn_radiation_mod, only : vegn_radiation_init, vegn_radiation
 use vegn_photosynthesis_mod, only : vegn_photosynthesis_init, vegn_photosynthesis
 use static_vegn_mod, only : read_static_vegn_namelist, static_vegn_init, static_vegn_end, &
@@ -201,7 +201,7 @@ integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_nlayers, id_dbh, id_dbh_max, &
    id_crownarea, &
    id_soil_water_supply, id_gdd, id_tc_pheno, id_zstar_1, &
-   id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale
+   id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi
 ! ==== end of module variables ===============================================
 
 ! ==== NetCDF declarations ===================================================
@@ -653,6 +653,8 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
   id_w_scale  = register_cohort_diag_field ( module_name, 'w_scale',  &
        (/id_lon,id_lat/), time, 'reduction of stomatal conductance due to water stress', 'unitless', &
        missing_value=-1e20, opc='mean')
+  id_RHi  = register_cohort_diag_field ( module_name, 'RHi',  &
+       (/id_lon,id_lat/), time, 'relative humidity inside leaf', 'percent', missing_value=-1e20, opc='mean')
 
   id_bl = register_cohort_diag_field ( module_name, 'bl',  &
        (/id_lon,id_lat/), time, 'biomass of leaves', 'kg C/m2', missing_value=-1.0, opc='sum' )
@@ -1062,13 +1064,14 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   real, dimension(vegn%n_cohorts) :: &
        con_v_h, con_v_v, & ! aerodyn. conductance between canopy and CAS, for heat and vapor
        soil_beta, & ! relative water availability
-       soil_water_supply ! max rate of water supply to the roots, kg/(indiv s)
+       soil_water_supply, & ! max rate of water supply to the roots, kg/(indiv s)
+       RHi          ! relative humidity inside the leaf, at the point of vaporization
   type(vegn_cohort_type), pointer :: cc(:)
   integer :: i, current_layer, band, N
   real :: indiv2area ! conversion factor from X per indiv. to X per unit cohort area
   real :: area2indiv ! reciprocal of the indiv2area conversion factor
   real :: rav_lit    ! litter resistance to water vapor
-
+ 
   cc => vegn%cohorts(1:vegn%n_cohorts) ! note that the size of cc is always N
 
   if(is_watch_point()) then
@@ -1164,7 +1167,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   do i = 1, vegn%n_cohorts
      call vegn_photosynthesis (soil, vegn, cc(i), &
         SWdn(i,BAND_VIS), RSv(i,BAND_VIS), cana_T, cana_q, phot_co2, p_surf, drag_q, &
-        soil_beta(i), soil_water_supply(i), con_v_v(i), stomatal_cond )     
+        soil_beta(i), soil_water_supply(i), con_v_v(i), stomatal_cond, RHi(i) )     
 
      ! accumulate total value of stomatal conductance for diagnostics.
      ! stomatal_cond is per unit area of cohort (multiplied by LAI in the
@@ -1236,18 +1239,18 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
         total_cond = stomatal_cond*con_v_v(i)/(stomatal_cond+con_v_v(i))
      endif
 
-     if(qvsat>cana_q)then
+     if(qvsat>cana_q*RHi(i))then
         ! Flux is directed FROM the surface: transpiration is possible
    
         ! prohibit transpiration if leaf temperature below some predefined minimum
         ! typically (268K, but check namelist)
         if(cc(i)%Tv < T_transp_min) total_cond = 0 
         ! calculate the transpiration linearization coefficients
-        Et0    (i) =  rho*total_cond*ft*(qvsat - cana_q)
-        DEtDTv (i) =  rho*total_cond*ft*DqvsatDTv
+        Et0    (i) =  rho*total_cond*ft*(qvsat*RHi(i) - cana_q)
+        DEtDTv (i) =  rho*total_cond*ft*DqvsatDTv*RHi(i)
         DEtDqc (i) = -rho*total_cond*ft
-        DEtDwl (i) =  rho*total_cond*DftDwl*(qvsat - cana_q)
-        DEtDwf (i) =  rho*total_cond*DftDwf*(qvsat - cana_q)
+        DEtDwl (i) =  rho*total_cond*DftDwl*(qvsat*RHi(i) - cana_q)
+        DEtDwf (i) =  rho*total_cond*DftDwf*(qvsat*RHi(i) - cana_q)
      else
         ! Flux is directed TOWARD the surface: no transpiration (assuming plants do not
         ! take water through stomata)
@@ -1336,6 +1339,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   call send_cohort_data(id_psi_x , diag, cc(:), cc(:)%psi_x*1e-6, weight=cc(:)%nindivs)
   call send_cohort_data(id_psi_l , diag, cc(:), cc(:)%psi_l*1e-6, weight=cc(:)%nindivs)
   call send_cohort_data(id_w_scale,diag, cc(:), cc(:)%w_scale,    weight=cc(:)%nindivs)
+  call send_cohort_data(id_RHi,    diag, cc(:), RHi(:)*100,  weight=cc(:)%layerfrac*cc(:)%lai)
 
 end subroutine vegn_step_1
 
@@ -1740,7 +1744,7 @@ subroutine update_vegn_slow( )
   real    :: weight_ncm ! low-pass filter value for the number of cold months
   type(vegn_cohort_type), pointer :: cc(:) ! shorthand for cohort array
   real    :: zstar ! critical depth, for diag only
-  character(64) :: message
+  character(64) :: str
   
   ! variables for conservation checks
   real :: lmass0, fmass0, heat0, cmass0
@@ -1754,8 +1758,8 @@ subroutine update_vegn_slow( )
 
   if(month0 /= month1) then
      ! heartbeat
-     write(message,'("Current date is ",i4.4,"-",i2.2,"-",i2.2)'),year0,month0,day0
-     call error_mesg('update_vegn_slow',trim(message),NOTE)
+     write(str,'("Current date is ",i4.4,"-",i2.2,"-",i2.2)'),year0,month0,day0
+     call error_mesg('update_vegn_slow',trim(str),NOTE)
   endif
 
   ce = first_elmt(lnd%tile_map, lnd%is, lnd%js) ; te = tail_elmt(lnd%tile_map)
@@ -1888,6 +1892,21 @@ subroutine update_vegn_slow( )
         end where
      endif
 
+     ! + sanity checks
+     do ii = 1,tile%vegn%n_cohorts
+        associate(cc => tile%vegn%cohorts(ii))
+        str = 'cohort('//trim(string(ii))//')%'
+        call check_var_range(cc%nindivs, 0.0, HUGE(1.0), 'update_vegn_slow', trim(str)//'nindivs', WARNING)
+        call check_var_range(cc%bl,      0.0, HUGE(1.0), 'update_vegn_slow', trim(str)//'bl',      WARNING)
+        call check_var_range(cc%blv,     0.0, HUGE(1.0), 'update_vegn_slow', trim(str)//'blv',     WARNING)
+        call check_var_range(cc%br,      0.0, HUGE(1.0), 'update_vegn_slow', trim(str)//'br',      WARNING)
+        call check_var_range(cc%bsw,     0.0, HUGE(1.0), 'update_vegn_slow', trim(str)//'bsw',     WARNING)
+        call check_var_range(cc%bwood,   0.0, HUGE(1.0), 'update_vegn_slow', trim(str)//'bwood',   WARNING)
+        !call check_var_range(cc%nsc,     0.0, HUGE(1.0), 'update_vegn_slow', trim(str)//'nsc',     WARNING)
+        call check_var_range(cc%bseed,   0.0, HUGE(1.0), 'update_vegn_slow', trim(str)//'bseed',   WARNING)
+        end associate
+     enddo
+     ! - sanity checks
      
      ! + conservation check, part 2: calculate totals in final state, and compare 
      ! with previous totals
@@ -1937,6 +1956,14 @@ subroutine update_vegn_slow( )
      call send_cohort_data(id_bwood,  tile%diag, cc(1:N), cc(1:N)%bwood,  weight=cc(1:N)%nindivs)
      call send_cohort_data(id_bseed,  tile%diag, cc(1:N), cc(1:N)%bseed,  weight=cc(1:N)%nindivs)
      call send_cohort_data(id_nsc,    tile%diag, cc(1:N), cc(1:N)%nsc,    weight=cc(1:N)%nindivs)
+     call send_cohort_data(id_btot,   tile%diag, cc(1:N), cc(1:N)%bl    + &
+                                                          cc(1:N)%blv   + &
+                                                          cc(1:N)%br    + &
+                                                          cc(1:N)%bsw   + &
+                                                          cc(1:N)%bwood + &
+                                                          cc(1:N)%bseed + &
+                                                          cc(1:N)%nsc,    weight=cc(1:N)%nindivs)
+
      call send_cohort_data(id_bl_max, tile%diag, cc(1:N), cc(1:N)%bl_max, weight=cc(1:N)%nindivs)
      call send_cohort_data(id_br_max, tile%diag, cc(1:N), cc(1:N)%br_max, weight=cc(1:N)%nindivs)
 
@@ -2108,7 +2135,7 @@ subroutine read_remap_species(unit)
         sp = tile%vegn%cohorts(i)%species
         if (sp<0.or.sp>=nsp) &
              call error_mesg('vegn_init','species index is outside of the bounds', FATAL)
-        if (sptable(i)<0) &
+        if (sptable(sp)<0) &
              call error_mesg('vegn_init','species "'//trim(spnames(sp))// &
                             '" from restart are not found in the model species parameter list',&
                             FATAL)

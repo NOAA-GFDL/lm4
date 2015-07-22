@@ -29,7 +29,7 @@ private
 ! ==== public interfaces =====================================================
 public :: bisect    ! finds a position of point in array of bounds
 public :: lin_int   ! linear interpolation
-public :: ludcmp, lubksb ! LU decomposition and back substitution
+public :: ludcmp, lubksb, lubksb_and_improve ! LU decomposition and back substitution
 public :: tridiag   ! tri-diagonal system solver
 public :: nearest   ! nearest point search
 
@@ -408,6 +408,56 @@ subroutine lubksb(a,indx,b)
      b(i) = sum/a(i,i)
   enddo
 end subroutine lubksb
+
+
+! ============================================================================
+! Calculates and improves a solution vector x(1:n) of the linear set of equations 
+! A * X = B. 
+! The matrix a(1:n,1:n), and the vectors b(1:n) and x(1:n) are input. Also input 
+! is alud, the LU decomposition of a as returned by ludcmp, and the vector indx 
+! also returned by that routine. On output, only x(1:n) is modified, to the 
+! solution of the linear system, improved by iterative procedure if necessary.
+subroutine lubksb_and_improve(a,alud,indx,b,max_improv_steps,eps,x)
+  real, intent(in)    :: a(:,:)    ! original matrix
+  real, intent(in)    :: alud(:,:) ! LU-decomposition of original matrix
+  integer, intent(in) :: indx(:)   ! reshuffling indices
+  real, intent(in)    :: b(:)      ! right-hand side
+  integer, intent(in) :: max_improv_steps ! max. number of the improvement steps, 0 to turn improvement off
+  real, intent(in)    :: eps       ! absolute allowed error in the solution
+  real, intent(inout) :: x(:)      ! solution
+  
+  
+  integer :: i,j,n,step 
+  real    :: r(size(b)), residual
+  
+  ! TODO: check sizes
+  n = size(b)
+
+  ! calculate the initial solution of the system
+  do i = 1,n
+     x(i) = b(i)
+  enddo
+  call lubksb(alud,indx,x)
+  
+  ! improve the solution, if necessary
+  do step = 1,max_improv_steps
+    residual = 0.0
+    do i=1,n
+      r(i)=-b(i) 
+      do j=1,n
+        ! Calculate the right-hand side, accumulating the residual
+        r(i)=r(i)+a(i,j)*x(j) 
+      enddo
+      residual = max(residual,abs(r(i)))
+    enddo
+    if (residual < eps) exit    ! from loop, mission accomplished
+    call lubksb(alud,indx,r) ! solve the system for the residuals
+    ! correct the solution
+    do i=1,n
+      x(i)=x(i)-r(i) 
+    enddo
+  enddo
+end subroutine lubksb_and_improve
 
 
 ! ============================================================================

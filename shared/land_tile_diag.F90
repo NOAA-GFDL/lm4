@@ -84,7 +84,7 @@ character(32), parameter :: opstrings(4) = (/ & ! symbolica names of the aggrega
 ! species, selected species in the canopy, trees above certain age, etc...
 integer, parameter :: N_CHRT_FILTERS = 3 ! number of pssible distinct cohort filters,
 ! currently : all vegetation, upper canopy layer, and understory
-character(2),  parameter :: chrt_filter_suffix(N_CHRT_FILTERS) = (/'  ','_1','_N'/)
+character(2),  parameter :: chrt_filter_suffix(N_CHRT_FILTERS) = (/'  ','_1','_U'/)
 character(32), parameter :: chrt_filter_name(N_CHRT_FILTERS)   = (/&
     '                    ', &
     ' in top canopy layer', &

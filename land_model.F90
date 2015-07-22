@@ -59,7 +59,7 @@ use lake_tile_mod, only : lake_cover_cold_start, lake_tile_stock_pe, &
 use glac_tile_mod, only : glac_pars_type, glac_cover_cold_start, &
                           glac_tile_stock_pe, glac_tile_heat, glac_roughness
 use snow_tile_mod, only : snow_tile_stock_pe, snow_tile_heat, snow_roughness
-use land_numerics_mod, only : ludcmp, lubksb, nearest, &
+use land_numerics_mod, only : ludcmp, lubksb, lubksb_and_improve, nearest, &
      horiz_remap_type, horiz_remap_new, horiz_remap, horiz_remap_del, &
      horiz_remap_print
 use land_io_mod, only : read_land_io_namelist, input_buf_size
@@ -130,9 +130,10 @@ real    :: min_sum_lake_frac = 1.e-8
 real    :: min_frac = 0.0 ! minimum fraction of soil, lake, and glacier that is not discarded on cold start
 real    :: gfrac_tol         = 1.e-6
 real    :: discharge_tol = -1.e20
-integer :: max_improv_steps = 5    ! max number of solution improvement iterations, 
-                                   ! set to 0 to turn improvement off (LM3-like)
-real    :: solution_tol    = 1e-16 ! tolerance for solution improvement
+logical :: improve_solution = .FALSE. ! if true, the solution is improved to reduce 
+                                      ! numerical errors (important for PPA with meny cohorts)
+integer :: max_improv_steps = 5       ! max number of solution improvement steps 
+real    :: solution_tol     = 1e-10   ! tolerance for solution improvement
 real    :: con_fac_large = 1.e6
 real    :: con_fac_small = 1.e-6
 integer :: num_c = 0
@@ -154,7 +155,7 @@ namelist /land_model_nml/ use_old_conservation_equations, &
                           use_atmos_T_for_evap_T, &
                           cpw, clw, csw, min_sum_lake_frac, min_frac, &
                           gfrac_tol, discharge_tol, &
-                          solution_tol, max_improv_steps, &
+                          improve_solution, solution_tol, max_improv_steps, &
                           con_fac_large, con_fac_small, num_c, &
                           tau_snow_T_adj, prohibit_negative_canopy_water, &
                           nearest_point_search, print_remapping, &
@@ -1609,7 +1610,7 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
    ! configurations. The only way for this to happen is to set mcv_min=0 and drop
    ! leaves
      do k = 1,N 
-        if(vegn_hcap(k)==0.and.vegn_lai(k)==0) then
+        if(DHvDTv(k)==0.and.vegn_hcap(k)==0.and.vegn_lai(k)==0) then
           ! vegn_T + delta_Tv = cana_T + delta_Tc
           A(iTv+k-1,:)   = 0
           A(iTv+k-1,iTc) = -1
@@ -1632,11 +1633,21 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
      if(is_watch_point()) then
         write(*,*)'#### A ####'
         do ii = 1, size(A,1)
-           write(*,'(99g23.16)')(A(ii,jj),jj=1,size(A,2))
+!           write(*,'(99g23.16)')(A(ii,jj),jj=1,size(A,2))
+            do jj = 1,size(A,2)
+               if (A(ii,jj) == 0) then
+                  write(*,'(a3)',advance='no') '0'
+               else if (A(ii,jj) > 0) then
+                  write(*,'(a3)',advance='no') '+'
+               else if (A(ii,jj) < 0) then
+                  write(*,'(a3)',advance='no') '-'
+               endif
+            enddo
+            write(*,*)
         enddo
         write(*,*)'#### B0, B1, B2 ####'
         do ii = 1, size(A,1)
-           write(*,'(99g23.16)')B0(ii),B1(ii),B2(ii)
+           write(*,'(i3.3, 99g23.16)')ii, B0(ii),B1(ii),B2(ii)
         enddo
      endif
    
@@ -1646,9 +1657,16 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
      call ludcmp(ALUD,indx,ierr)
      if (ierr/=0)&
           write(*,*) 'Matrix is singular',ix,iy,itile
-     call lubksb_and_improve(A,ALUD,indx,B0,max_improv_steps,solution_tol,X0)
-     call lubksb_and_improve(A,ALUD,indx,B1,max_improv_steps,solution_tol,X1)
-     call lubksb_and_improve(A,ALUD,indx,B2,max_improv_steps,solution_tol,X2)
+     if (improve_solution) then
+        call lubksb_and_improve(A,ALUD,indx,B0,max_improv_steps,solution_tol,X0)
+        call lubksb_and_improve(A,ALUD,indx,B1,max_improv_steps,solution_tol,X1)
+        call lubksb_and_improve(A,ALUD,indx,B2,max_improv_steps,solution_tol,X2)
+     else
+        X0 = B0; X1=B1; X2=B2
+        call lubksb(ALUD,indx,X0)
+        call lubksb(ALUD,indx,X1)
+        call lubksb(ALUD,indx,X2)
+     endif
    
    !  if(is_watch_point()) then  
    !     write(*,*)'#### solution: X0, X1, X2 ####'  
@@ -1956,6 +1974,8 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
 
   ! TODO: go through the diagnostics and verify that they do the right thing in PPA case
   ! ---- diagnostic section ----------------------------------------------
+  call send_tile_data(id_total_C, cmass1,                             tile%diag)
+
   call send_tile_data(id_frac,    tile%frac,                          tile%diag)
   call send_tile_data(id_ntiles,  1.0,                                tile%diag)     
   call send_tile_data(id_precip,  precip_l+precip_s,                  tile%diag)
@@ -2061,57 +2081,6 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
 
 end subroutine update_land_model_fast_0d
 
-! ============================================================================
-! Calculates and improves a solution vector x(1:n) of the linear set of equations 
-! A * X = B. 
-! The matrix a(1:n,1:n), and the vectors b(1:n) and x(1:n) are input. Also input 
-! is alud, the LU decomposition of a as returned by ludcmp, and the vector indx 
-! also returned by that routine. On output, only x(1:n) is modified, to the 
-! solution of the linear system, improved by iterative procedure if necessary.
-subroutine lubksb_and_improve(a,alud,indx,b,max_improv_steps,eps,x)
-  real, intent(in)    :: a(:,:)    ! original matrix
-  real, intent(in)    :: alud(:,:) ! LU-decomposition of original matrix
-  integer, intent(in) :: indx(:)   ! reshuffling indices
-  real, intent(in)    :: b(:)      ! right-hand side
-  integer, intent(in) :: max_improv_steps ! max. number of the improvement steps, 0 to turn improvement off
-  real, intent(in)    :: eps       ! absolute allowed error in the solution
-  real, intent(inout) :: x(:)      ! solution
-  
-  
-  integer :: i,j,n,iter 
-  real    :: r(size(b)), residual
-  
-  ! TODO: check sizes
-  n = size(b)
-
-  ! calculate the initial solution of the system
-  do i = 1,n
-     x(i) = b(i)
-  enddo
-  call lubksb(alud,indx,x)
-  
-  ! improve the solution, if necessary
-  do iter = 1,max_improv_steps
-    residual = 0.0
-    do i=1,n
-      r(i)=-b(i) 
-      do j=1,n
-        ! Calculate the right-hand side, accumulating the residual
-        r(i)=r(i)+a(i,j)*x(j) 
-      enddo
-      residual = max(residual,abs(r(i)))
-    enddo
-    if (is_watch_point()) then
-       __DEBUG2__(iter,residual)
-    endif
-    if (residual < eps) exit    ! from loop, mission accomplished
-    call lubksb(alud,indx,r) ! solve the system for the residuals
-    ! correct the solution
-    do i=1,n
-      x(i)=x(i)-r(i) 
-    enddo
-  enddo
-end subroutine lubksb_and_improve
 
 ! ============================================================================
 subroutine update_land_model_slow ( cplr2land, land2cplr )

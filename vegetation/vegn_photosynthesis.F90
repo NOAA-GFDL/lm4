@@ -93,7 +93,7 @@ end subroutine vegn_photosynthesis_init
 subroutine vegn_photosynthesis ( soil, vegn, cohort, &
      PAR_dn, PAR_net, cana_T, cana_q, cana_co2, p_surf, drag_q, &
      soil_beta, soil_water_supply, con_v_v, &
-     stomatal_cond )
+     stomatal_cond, RHi)
   ! TODO: Add back evaporative demand calculations
   type(soil_tile_type),   intent(in)    :: soil
   type(vegn_tile_type),   intent(in)    :: vegn
@@ -110,18 +110,19 @@ subroutine vegn_photosynthesis ( soil, vegn, cohort, &
                                 ! active root biomass per second, kg/(indiv s)
   real, intent(in)  :: con_v_v  ! one-sided foliage-CAS conductance per unit ground area        
   real, intent(out) :: stomatal_cond ! stomatal conductance, m/s
+  real, intent(out) :: RHi      ! relative humidity inside leaf, at the point of vaporization
 
   select case (vegn_phot_option)
-
   case(VEGN_PHOT_SIMPLE)
      ! beta non-unity only for "beta" models
      stomatal_cond = soil_beta / (cohort%rs_min  + (1-soil_beta)/drag_q)
      cohort%An_op  = 0
      cohort%An_cl  = 0
+     RHi = 1.0
   case(VEGN_PHOT_LEUNING)
      call vegn_photosynthesis_Leuning (soil, vegn, cohort, &
             PAR_dn, PAR_net, cana_T, cana_q, cana_co2, p_surf, &
-            soil_water_supply, con_v_v, stomatal_cond )
+            soil_water_supply, con_v_v, stomatal_cond, RHi )
   case default
      call error_mesg('vegn_stomatal_cond', &
           'invalid vegetation photosynthesis option', FATAL)
@@ -133,7 +134,7 @@ end subroutine vegn_photosynthesis
 subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
      PAR_dn, PAR_net, cana_T, cana_q, cana_co2, p_surf, &
      soil_water_supply, con_v_v, &
-     stomatal_cond )
+     stomatal_cond, RHi )
   type(soil_tile_type),   intent(in)    :: soil
   type(vegn_tile_type),   intent(in)    :: vegn
   type(vegn_cohort_type), intent(inout) :: cohort
@@ -147,6 +148,7 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
                                 ! active root biomass per second, kg/(indiv s)
   real, intent(in)  :: con_v_v  ! one-sided foliage-CAS conductance per unit ground area        
   real, intent(out) :: stomatal_cond ! stomatal conductance, m/s
+  real, intent(out) :: RHi      ! relative humidity inside leaf, at the point of vaporization
 
   ! ---- local vars
   integer :: sp      ! shortcut for cohort%species
@@ -194,9 +196,9 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
      stomatal_cond = gs_lim
   endif
 
+  RHi = 1.0
   ! scale down stomatal conductance and photosynthesis due to water stress
   select case (water_stress_option)
-  
   case (WSTRESS_LM3)
      ! recalculate the water supply to mol H20 per m2 of leaf per second
      water_supply = soil_water_supply/(mol_h2o*cohort%leafarea)
@@ -212,8 +214,8 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
         w_scale = 1.0
      endif
   case (WSTRESS_HYDRAULICS)
-     call vegn_hydraulics(soil, vegn, cohort, p_surf, cana_T, cana_q, con_v_v, stomatal_cond, &
-          w_scale )
+     call vegn_hydraulics(soil, vegn, cohort, p_surf, cana_T, cana_q, con_v_v, stomatal_cond, 1-fw-fs, &
+          w_scale, RHi )
   case (WSTRESS_NONE)
      w_scale = 1.0
   case default
@@ -244,6 +246,8 @@ end subroutine vegn_photosynthesis_Leuning
 
 
 ! ============================================================================
+! calculates non-water-stressed photosynthesis and stomatal conductance,
+! vertically averaged over the cohort canopy
 subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
                    p_surf, pft, ca, kappa, layer, &
                    gs, apot, acl)
@@ -421,8 +425,8 @@ end subroutine gs_Leuning
 
 ! ==============================================================================
 ! calculate the stomatal conductance reduction due to water stress
-subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, con_v_v, stomatal_cond, &
-      w_scale )
+subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, con_v_v, stomatal_cond, fdry, &
+      w_scale, RHi )
   type(soil_tile_type),   intent(in)    :: soil
   type(vegn_tile_type),   intent(in)    :: vegn
   type(vegn_cohort_type), intent(inout) :: cc
@@ -432,7 +436,9 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, con_v_v, stom
   real, intent(in)  :: con_v_v  ! cohort-specific one-sided foliage-CAS 
                                 ! conductance per unit ground area, m/s
   real, intent(in)  :: stomatal_cond ! non-water-limited stomatal conductance, mol/(m2 of leaf)/s
+  real, intent(in)  :: fdry     ! fraction of canopy not covered by intercepted water/snow
   real, intent(out) :: w_scale  ! reduction of stomatal conductance due to water stress
+  real, intent(out) :: RHi      ! relative humidity inside leaf, at the point of vaporization
 
   ! ---- local constants ----
   real, parameter :: Vm = 18.0e-6 ! m3/mol partial molar volume of liquid water
@@ -448,7 +454,6 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, con_v_v, stom
   real :: ux0, DuxDpr, DuxDpx ! water flux in stem, kg/(s indiv), and its derivatives
   real :: ul0, DulDpx, DulDpl ! water flux in leaves, kg/(s indiv), and its derivatives
   real :: qsat, DqsatDT ! saturated spec. humidity and its derivative at the leaf temperature
-  real :: RHi ! relative humidity at the point of vaporization
   real :: gamma_r, ar, br, gamma_x, ax, bx, gamma_l ! variables for back substitution
   ! TODO: define CSAsw in LM3 case
   real :: CSAsw ! cross-section area of sapwood, m2
@@ -489,15 +494,7 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, con_v_v, stom
   ! aerodynamic conductance per individual
   gb = con_v_v * cc%crownarea ! foliage-CAS conductance per m2 => per individual
   
-  Et0 = rho * gs*gb/(gs+gb) * (qsat*RHi-cana_q)
-  if (Et0>0) then
-     DEtDpl = rho * gb/(gs+gb) * ( gs*qsat*Vm/(Rugas*cc%Tv)*RHi +      &
-                                  DgsDpl*gb/(gs+gb)*(qsat*Rhi-cana_q)  )
-     DEtDTl = rho * gs*gb/(gs+gb)*RHi*(DqsatDT - qsat*cc%psi_l*Vm/(Rugas*vegn_T**2))
-  else
-     ! negative transpiration is not allowed
-     Et0    = 0.0 ; DEtDpl = 0.0 ; DetDpl = 0.0
-  endif
+  Et0 = rho * fdry * gs*gb/(gs+gb) * (qsat*RHi-cana_q)
 
   if (is_watch_point()) then
      __DEBUG2__(RHi,cc%Tv)
@@ -511,80 +508,92 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, con_v_v, stom
 !     __DEBUG3__(cc%root_length, cc%K_r, cc%r_r)
   endif
 
-  ! TODO: generalize for linear water uptake
+  if (Et0<=0) then
+     ! negative transpiration is not allowed
+     Et0    = 0.0 ; DEtDpl = 0.0 ; DetDpl = 0.0
+     ! set all water potentials to water potential of roots (which is the max
+     ! of all water potentials)
+     cc%psi_x = cc%psi_r
+     cc%psi_l = cc%psi_r
+  else
+     DEtDpl = rho * fdry * gb/(gs+gb) * ( gs*qsat*Vm/(Rugas*cc%Tv)*RHi +      &
+                                  DgsDpl*gb/(gs+gb)*(qsat*Rhi-cana_q)  )
+     DEtDTl = rho * fdry * gs*gb/(gs+gb)*RHi*(DqsatDT - qsat*cc%psi_l*Vm/(Rugas*vegn_T**2))
 
-  ! calculate water uptake by roots and its derivative w.r.t. water potential at 
-  ! root-stem interface
-  psi_r = cc%psi_r
-  call darcy2d_uptake ( soil, psi_r/m2pa, vegn%root_distance, cc%root_length, &
-      cc%K_r, cc%r_r, ur0_, DurDpr_ )
-  ur0 = sum(ur0_); DurDpr = sum(DurDpr_)/m2pa ! converting derivative from head (m) to Pascal
-  if (ur0==0.and.DurDpr==0) then
-     ! this can happen if initial psi_r is higher than soil water potential, 
-     ! and uptake_one_way is true. Or there is no water in the soil. Or soil 
-     ! is frozen
+     ! TODO: generalize for linear water uptake
 
-     ! In this case, we solve for Darcy-flow uptake, find the root water potential 
-     ! to satisfy transpiration by the vegetation, use resulting psi as initial 
-     ! condition
-     call darcy2d_uptake_solver     (soil, max(Et0,small_Et0), vegn%root_distance, &
-             cc%root_length, cc%K_r, cc%r_r, &
-             ur0_, psi_r, n)
-     psi_r = psi_r*m2pa
-
-     ! shift initial condition for psi_r a bit below minimum soil psi, so that
-     ! we do have some suction
-!     psi_r = minval(soil%psi) - 1.0   ! in m of water
-!     psi_r = max(psi_r,psi_wilt)*m2pa ! but we don't want to go below psi_wilt
-
-     ! recalculate root water flow and its derivative, now that we believe the
-     ! derivative is non-zero
+     ! calculate water uptake by roots and its derivative w.r.t. water potential at 
+     ! root-stem interface
+     psi_r = cc%psi_r
      call darcy2d_uptake ( soil, psi_r/m2pa, vegn%root_distance, cc%root_length, &
          cc%K_r, cc%r_r, ur0_, DurDpr_ )
      ur0 = sum(ur0_); DurDpr = sum(DurDpr_)/m2pa ! converting derivative from head (m) to Pascal
-     if (is_watch_point()) then
-        write (*,*)'###### ur0 and DurDpr are 0; adjusting psi_r #####'
-        __DEBUG1__(psi_r)
+     if (ur0<epsilon(1.0).and.abs(DurDpr)<epsilon(1.0)) then
+        ! this can happen if initial psi_r is higher than soil water potential, 
+        ! and uptake_one_way is true. Or there is no water in the soil. Or soil 
+        ! is frozen
+
+        ! In this case, we solve for Darcy-flow uptake, find the root water potential 
+        ! to satisfy transpiration by the vegetation, use resulting psi as initial 
+        ! condition
+        call darcy2d_uptake_solver     (soil, max(Et0,small_Et0), vegn%root_distance, &
+                cc%root_length, cc%K_r, cc%r_r, &
+                ur0_, psi_r, n)
+        psi_r = psi_r*m2pa
+
+        ! shift initial condition for psi_r a bit below minimum soil psi, so that
+        ! we do have some suction
+   !     psi_r = minval(soil%psi) - 1.0   ! in m of water
+   !     psi_r = max(psi_r,psi_wilt)*m2pa ! but we don't want to go below psi_wilt
+
+        ! recalculate root water flow and its derivative, now that we believe the
+        ! derivative is non-zero
+        call darcy2d_uptake ( soil, psi_r/m2pa, vegn%root_distance, cc%root_length, &
+            cc%K_r, cc%r_r, ur0_, DurDpr_ )
+        ur0 = sum(ur0_); DurDpr = sum(DurDpr_)/m2pa ! converting derivative from head (m) to Pascal
+        if (is_watch_point()) then
+           write (*,*)'###### ur0 and DurDpr are 0; adjusting psi_r #####'
+           __DEBUG1__(psi_r)
+        endif
      endif
+
+     ! calculate stem flow and its derivatives
+     CSAsw  = sp%alphaCSASW * cc%DBH**sp%thetaCSASW ! cross-section area of sapwood
+     cc%Kxi    =  sp%Kxam / cc%height * CSAsw
+     ux0    = -cc%Kxi*sp%dx/sp%cx*gamma(1/sp%cx)*( &
+                     gammaU((   psi_r/sp%dx)**sp%cx, 1/sp%cx) - &
+                     gammaU((cc%psi_x/sp%dx)**sp%cx, 1/sp%cx))
+     DuxDpr =  cc%Kxi*exp(-(   psi_r/sp%dx)**sp%cx)
+     DuxDpx = -cc%Kxi*exp(-(cc%psi_x/sp%dx)**sp%cx)
+  
+   ! calculate leaf flow and its derivatives
+     cc%Kli = cc%Kla * cc%leafarea
+     ul0    = -cc%Kli*sp%dl/sp%cl*gamma(1/sp%cl)*(gammaU((cc%psi_x/sp%dl)**sp%cl, 1/sp%cl) &
+                                             - gammaU((cc%psi_l/sp%dl)**sp%cl, 1/sp%cl))
+     DulDpx =  cc%Kli*exp(-(cc%psi_x/sp%dl)**sp%cl)
+     DulDpl = -cc%Kli*exp(-(cc%psi_l/sp%dl)**sp%cl)
+  
+     ! do forward elimination
+     gamma_r = 1/(DuxDpr - DurDpr)
+     ar = (ur0-ux0)*gamma_r
+     br = -gamma_r*DuxDpx
+
+     gamma_x = 1/(DulDpx - DuxDpx - br*DuxDpr)
+     ax = (ux0-ul0+ar*DuxDpr)*gamma_x
+     bx = -gamma_x*DulDpl
+
+     gamma_l = 1/(DetDpl - DulDpl - bx*DulDpx)
+
+     ! calculate tendencies
+     delta_pl = gamma_l*(ul0 - Et0 + ax*DulDpx)
+     delta_px = ax+bx*delta_pl
+     delta_pr = ar+br*delta_px
+  
+     ! update water potentials
+     cc%psi_r = min(psi_r    + delta_pr,0.0)
+     cc%psi_x = min(cc%psi_x + delta_px,cc%psi_r)
+     cc%psi_l = min(cc%psi_l + delta_pl,cc%psi_x)
   endif
-
-  ! calculate stem flow and its derivatives
-  CSAsw  = sp%alphaCSASW * cc%DBH**sp%thetaCSASW ! cross-section area of sapwood
-  cc%Kxi    =  sp%Kxam / cc%height * CSAsw
-  ! TODO: what is going on with gamma(1/sp%cx)?
-  ux0    = -cc%Kxi*sp%dx/sp%cx*gamma(1/sp%cx)*( &
-                  gammaU((   psi_r/sp%dx)**sp%cx, 1/sp%cx) - &
-                  gammaU((cc%psi_x/sp%dx)**sp%cx, 1/sp%cx))
-  DuxDpr =  cc%Kxi*exp(-(   psi_r/sp%dx)**sp%cx)
-  DuxDpx = -cc%Kxi*exp(-(cc%psi_x/sp%dx)**sp%cx)
-  
-! calculate leaf flow and its derivatives
-  cc%Kli = cc%Kla * cc%leafarea
-  ul0    = -cc%Kli*sp%dl/sp%cl*gamma(1/sp%cl)*(gammaU((cc%psi_x/sp%dl)**sp%cl, 1/sp%cl) &
-                                          - gammaU((cc%psi_l/sp%dl)**sp%cl, 1/sp%cl))
-  DulDpx =  cc%Kli*exp(-(cc%psi_x/sp%dl)**sp%cl)
-  DulDpl = -cc%Kli*exp(-(cc%psi_l/sp%dl)**sp%cl)
-  
-  ! do forward elimination
-  gamma_r = 1/(DuxDpr - DurDpr)
-  ar = (ur0-ux0)*gamma_r
-  br = -gamma_r*DuxDpx
-
-  gamma_x = 1/(DulDpx - DuxDpx - br*DuxDpr)
-  ax = (ux0-ul0+ar*DuxDpr)*gamma_x
-  bx = -gamma_x*DulDpl
-
-  gamma_l = 1/(DetDpl - DulDpl - bx*DulDpx)
-
-  ! calculate tendencies
-  delta_pl = gamma_l*(ul0 - Et0 + ax*DulDpx)
-  delta_px = ax+bx*delta_pl
-  delta_pr = ar+br*delta_px
-  
-  ! update water potentials
-  cc%psi_r = min(psi_r    + delta_pr,0.0)
-  cc%psi_x = min(cc%psi_x + delta_px,cc%psi_r)
-  cc%psi_l = min(cc%psi_l + delta_pl,cc%psi_x)
 
   call check_var_range(cc%psi_l,-HUGE(1.0),0.0,'vegn_hydraulics','psi_l',WARNING)
   call check_var_range(cc%psi_x,-HUGE(1.0),0.0,'vegn_hydraulics','psi_x',WARNING)

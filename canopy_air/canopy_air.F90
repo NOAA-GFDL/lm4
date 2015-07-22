@@ -62,14 +62,14 @@ real :: init_T_cold      = 260.
 real :: init_q           = 0.
 real :: init_co2         = 350.0e-6 ! ppmv = mol co2/mol of dry air
 character(len=32) :: turbulence_to_use = 'lm3w' ! or lm3v
-! where direct albedo was mistakenly used for part of sub-canopy diffuse light
+logical :: use_SAI_for_heat_exchange = .FALSE. ! if true, con_v_h is calculated for LAI+SAI
+   ! traditional treatment (default) is to only use SAI
 namelist /cana_nml/ &
-  init_T, init_T_cold, init_q, init_co2, turbulence_to_use, &
+  init_T, init_T_cold, init_q, init_co2, turbulence_to_use, use_SAI_for_heat_exchange, &
   canopy_air_mass, canopy_air_mass_for_tracers, cpw
 !---- end of namelist --------------------------------------------------------
 
 logical            :: module_is_initialized =.FALSE.
-real               :: delta_time      ! fast time step
 integer :: turbulence_option ! selected option of turbulence parameters 
      ! calculations
 
@@ -124,9 +124,6 @@ subroutine cana_init ( id_lon, id_lat )
   logical :: restart_exists
 
   module_is_initialized = .TRUE.
-
-  ! ---- make module copy of time --------------------------------------------
-  delta_time = time_type_to_real(lnd%dt_fast)
 
   ! ---- initialize cana state -----------------------------------------------
   ! first, set the initial values
@@ -243,13 +240,12 @@ subroutine cana_turbulence (u_star,&
   real :: rah_sca  ! ground-SCA resistance
   real :: rav_lit  ! additional resistance of litter to vapor transport
   real :: h0       ! height of the canopy bottom, m
+  real :: gb       ! aerodynamic resistance per unit leaf (or stem) area
 
   integer :: i
 
   ! TODO: check array sizes
 
-  vegn_idx = sum((vegn_lai+vegn_sai)*vegn_layerfrac)  ! total vegetation index
-  
   select case(turbulence_option)
   case(TURB_LM3W)
      if(vegn_cover > 0) then
@@ -275,6 +271,7 @@ subroutine cana_turbulence (u_star,&
         con_v_h = 0
         con_g_h = 0
      endif
+     con_v_v = con_v_h
   case(TURB_LM3V)
      ztop = max(vegn_height(1),min_height)
      
@@ -285,15 +282,22 @@ subroutine cana_turbulence (u_star,&
         height = max(vegn_height(i),min_height) ! effective height of the vegetation
         h0     = vegn_bottom(i) ! height of the canopy bottom above ground
         if(height-h0>min_thickness) then
-           con_v_h(i) = 2*vegn_lai(i)*leaf_co*sqrt(wind/vegn_d_leaf(i))*ztop/(height-h0)&
+           gb = 2*leaf_co*sqrt(wind/vegn_d_leaf(i))*ztop/(height-h0)&
               *(exp(-a/2*(ztop-height)/ztop)-exp(-a/2*(ztop-h0)/ztop))/a
         else
            ! thin cohort canopy limit
-           con_v_h(i) = vegn_lai(i)*leaf_co*sqrt(wind/vegn_d_leaf(i))&
+           gb = leaf_co*sqrt(wind/vegn_d_leaf(i))&
               *exp(-a/2*(ztop-height)/ztop)
+        endif
+        con_v_v(i) = vegn_lai(i)*gb
+        if (use_SAI_for_heat_exchange) then
+           con_v_h(i) = (vegn_lai(i)+vegn_sai(i))*gb
+        else
+           con_v_h(i) = vegn_lai(i)*gb
         endif
      enddo
 
+     vegn_idx = sum((vegn_lai+vegn_sai)*vegn_layerfrac)  ! total vegetation index
      if (land_d > 0.06 .and. vegn_idx > 0.25) then
         Kh_top = VONKARM*u_star*(ztop-land_d)
         rah_sca = ztop/a/Kh_top * &
@@ -305,7 +309,6 @@ subroutine cana_turbulence (u_star,&
      con_g_h = 1.0/rah_sca
   end select
   con_g_v = con_g_h
-  con_v_v = con_v_h
 end subroutine cana_turbulence
 
 ! ============================================================================

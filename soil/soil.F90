@@ -772,14 +772,14 @@ subroutine soil_data_beta ( soil, vegn, soil_beta, soil_water_supply, &
              * max(0.0, min(1.0,(vlc(l)-soil%w_wilt(l))/&
                   (0.75*(soil%w_fc(l)-soil%w_wilt(l)))))
      enddo
-     soil_beta(k) = sum(cc%uptake_frac(:))
+     soil_beta(k) = sum(cc%uptake_frac(1:num_l))
      if (soil_beta(k) /= 0) then
-          cc%uptake_frac(:) = cc%uptake_frac(:) / soil_beta(k)
+          cc%uptake_frac(1:num_l) = cc%uptake_frac(1:num_l) / soil_beta(k)
      else
-          cc%uptake_frac(:) = uptake_frac_max(:)
+          cc%uptake_frac(1:num_l) = uptake_frac_max(:)
      endif
 
-     if (lm2) cc%uptake_frac(:) = uptake_frac_max(:)
+     if (lm2) cc%uptake_frac(1:num_l) = uptake_frac_max(:)
 
      ! calculate total water supply
      select case (uptake_option)
@@ -791,7 +791,7 @@ subroutine soil_data_beta ( soil, vegn, soil_beta, soil_water_supply, &
            z = z + dz(l)
         enddo
         soil_water_supply(k) = z * soil_water_supply(k)/delta_time
-        soil_uptake_T(k) = sum(cc%uptake_frac(:)*soil%T(:))
+        soil_uptake_T(k) = sum(cc%uptake_frac(1:num_l)*soil%T(1:num_l))
      case(UPTAKE_DARCY2D,UPTAKE_DARCY2D_LIN)
         call darcy2d_uptake ( soil, psi_wilt, vegn%root_distance, cc%root_length, &
              cc%K_r, cc%r_r, u, du )
