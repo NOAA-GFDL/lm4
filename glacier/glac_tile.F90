@@ -89,7 +89,6 @@ type :: glac_pars_type
   real emis_dry
   real emis_sat
   real z0_momentum
-  real tau_groundwater
   real rsa_exp         ! riparian source-area exponent
   real tfreeze
 end type glac_pars_type
@@ -97,19 +96,17 @@ end type glac_pars_type
 type :: glac_tile_type
    integer :: tag ! kind of the glacier
    type(glac_pars_type)               :: pars
-   real, pointer :: wl(:)
-   real, pointer :: ws(:)
-   real, pointer :: T(:)
-   real, pointer :: groundwater(:)
-   real, pointer :: groundwater_T(:)
-   real, pointer :: w_fc(:)
-   real, pointer :: w_wilt(:)
+   real, pointer :: wl(:) => NULL()
+   real, pointer :: ws(:) => NULL()
+   real, pointer :: T(:)  => NULL()
+   real, pointer :: w_fc(:) => NULL()
+   real, pointer :: w_wilt(:) => NULL()
    real :: Eg_part_ref
    real :: z0_scalar
    real :: geothermal_heat_flux
 
-   real, pointer :: heat_capacity_dry(:)
-   real, pointer :: e(:), f(:)
+   real, pointer :: heat_capacity_dry(:) => NULL()
+   real, pointer :: e(:) => NULL(), f(:) => NULL()
 end type glac_tile_type
 ! NOTE: When adding or modifying fields of this types, don't forget to change
 ! the operations on tile (e.g. copy) accordingly
@@ -153,8 +150,6 @@ logical :: use_single_geo        = .false.   ! .true. for global gw res time,
                                              ! e.g., to recover MCM
 integer :: glac_index_constant   = 1         ! index of global constant glacier,
                                              ! used when use_single_glacier
-real    :: gw_res_time           = 60.*86400 ! mean groundwater residence time,
-                                             ! used when use_single_geo
 real    :: rsa_exp_global        = 1.5
 real    :: geothermal_heat_flux_constant = 0.0  ! true continental average is ~0.065 W/m2
 real, dimension(n_dim_glac_types) :: &
@@ -194,7 +189,7 @@ namelist /glac_data_nml/ &
      use_lm2_awc,   use_lad1_glac, &
      use_single_glac,      use_mcm_albedo,            &
      use_single_geo,        glac_index_constant,         &
-     gw_res_time,      rsa_exp_global,  geothermal_heat_flux_constant, &
+     rsa_exp_global,        geothermal_heat_flux_constant, &
      dat_w_sat,             dat_awc_lm2,     &
      dat_k_sat_ref,         &
      dat_psi_sat_ref,               dat_chb,          &
@@ -277,8 +272,6 @@ function glac_tile_ctor(tag) result(ptr)
   allocate(ptr%wl     (num_l),  &
            ptr%ws     (num_l),  &
            ptr%T      (num_l),  &
-           ptr%groundwater (num_l),  &
-           ptr%groundwater_T (num_l),  &
            ptr%w_fc   (num_l),  &
            ptr%w_wilt (num_l),  &
            ptr%heat_capacity_dry (num_l),  &
@@ -301,8 +294,6 @@ function glac_tile_copy_ctor(glac) result(ptr)
   allocate(ptr%wl     (num_l),  &
            ptr%ws     (num_l),  &
            ptr%T      (num_l),  &
-           ptr%groundwater (num_l),  &
-           ptr%groundwater_T (num_l),  &
            ptr%w_fc   (num_l),  &
            ptr%w_wilt (num_l),  &
            ptr%heat_capacity_dry (num_l),  &
@@ -312,8 +303,6 @@ function glac_tile_copy_ctor(glac) result(ptr)
    ptr%wl(:)     = glac%wl(:)
    ptr%ws(:)     = glac%ws(:)
    ptr%T(:)      = glac%T(:)
-   ptr%groundwater(:) = glac%groundwater(:)
-   ptr%groundwater_T(:) = glac%groundwater_T(:)          
    ptr%w_fc(:)   = glac%w_fc(:)
    ptr%w_wilt(:) = glac%w_wilt(:)
    ptr%heat_capacity_dry(:) = glac%heat_capacity_dry(:) 
@@ -326,8 +315,9 @@ function glac_tile_copy_ctor(glac) result(ptr)
 subroutine delete_glac_tile(ptr)
   type(glac_tile_type), pointer :: ptr
 
-  deallocate(ptr%wl, ptr%ws, ptr%T, ptr%groundwater, ptr%groundwater_T,  &
-             ptr%w_fc, ptr%w_wilt, ptr%heat_capacity_dry, ptr%e, ptr%f )
+  deallocate(ptr%wl, ptr%ws, ptr%T, &
+        ptr%w_fc, ptr%w_wilt, ptr%heat_capacity_dry, &
+        ptr%e,  ptr%f)
   deallocate(ptr)
 end subroutine delete_glac_tile
 
@@ -356,7 +346,6 @@ subroutine glacier_data_init_0d(glac)
   glac%pars%z0_momentum       = dat_z0_momentum      (k)
   glac%pars%tfreeze           = tfreeze - dat_tf_depr(k)
 
-  glac%pars%tau_groundwater   = 86400*30 ! 30 days
   glac%pars%rsa_exp           = rsa_exp_global
 
   ! initialize derived data
@@ -400,7 +389,7 @@ function glac_tiles_can_be_merged(glac1,glac2) result(response)
   type(glac_tile_type), intent(in) :: glac1,glac2
 
   response = (glac1%tag==glac2%tag)
-end function
+end function glac_tiles_can_be_merged
 
 ! =============================================================================
 ! combine two glacier states with specified weights; the result goes into
@@ -414,7 +403,7 @@ subroutine merge_glac_tiles(g1,w1,g2,w2)
   
   ! ---- local vars
   real    :: x1, x2 ! normalized relative weights
-  real    :: gw, HEAT1, HEAT2 ! temporaries for groundwater and heat
+  real    :: HEAT1, HEAT2 ! temporaries for heat
   integer :: i
   real    :: C1(num_l), C2(num_l) ! heat capacities of dry glacier
   
@@ -442,20 +431,6 @@ subroutine merge_glac_tiles(g1,w1,g2,w2)
     ! heat capacity
     g2%T(i) = (HEAT1*x1+HEAT2*x2) / &
       (C2(i)*dz(i)+clw*g2%wl(i)+csw*g2%ws(i)) + tfreeze
-
-    ! calculate combined groundwater content
-    gw = g1%groundwater(i)*x1 + g2%groundwater(i)*x2
-    ! calculate combined groundwater temperature
-    if(gw/=0) then
-       g2%groundwater_T(i) = ( &
-            g1%groundwater(i)*x1*(g1%groundwater_T(i)-tfreeze) + &
-            g2%groundwater(i)*x2*(g2%groundwater_T(i)-tfreeze)   &
-            ) / gw + Tfreeze
-    else
-       g2%groundwater_T(i) = &
-            x1*g1%groundwater_T(i) + x2*g2%groundwater_T(i)
-    endif
-    g2%groundwater(i) = gw
   enddo
   
 end subroutine
@@ -677,9 +652,6 @@ subroutine glac_data_hydraulics (glac, vlc, vsc, &
 
   glac_w_fc = glac%w_fc
 
-  ! ---- groundwater ---------------------------------------------------------
-  tau_gw = glac%pars%tau_groundwater
-
 end subroutine glac_data_hydraulics
 
 ! ============================================================================
@@ -691,7 +663,7 @@ subroutine glac_tile_stock_pe (glac, twd_liq, twd_sol  )
   twd_liq = 0.
   twd_sol = 0.
   do n=1, size(glac%wl)
-    twd_liq = twd_liq + glac%wl(n) + glac%groundwater(n)
+    twd_liq = twd_liq + glac%wl(n)
     twd_sol = twd_sol + glac%ws(n)
     enddo
 
@@ -709,7 +681,6 @@ function glac_tile_heat (glac) result(heat) ; real heat
      heat = heat + &
           (glac%heat_capacity_dry(i)*dz(i) + clw*glac%wl(i) + csw*glac%ws(i))&
                            *(glac%T(i)-tfreeze) + &
-          clw*glac%groundwater(i)*(glac%groundwater_T(i)-tfreeze) - &
           hlf*glac%ws(i)
   enddo
 end function

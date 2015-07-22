@@ -421,6 +421,8 @@ subroutine uptake_solver_K (soil, vegn_uptk, R, VRL, K_r, r_r, uptake, psi_x0, &
   xl = psi_wilt
   xh = maxval(soil%psi(1:num_l)-zfull(1:num_l))
 
+  psi_x0 = xl 
+
   ! find the lower upper boundary of the interval that contains solution
   incr = 100.0 ! initial psi increment for the lower bracket search
   do i = 1,20

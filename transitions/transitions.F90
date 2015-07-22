@@ -63,6 +63,8 @@ public :: land_transitions_end
 public :: save_land_transitions_restart
 
 public :: land_transitions
+
+public :: do_landuse_change
 ! ==== end of public interface ==============================================
 
 ! ==== module constants =====================================================

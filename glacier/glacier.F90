@@ -62,9 +62,8 @@ logical :: conserve_glacier_mass = .true.
 character(len=16):: albedo_to_use = ''  ! or 'brdf-params'
 real    :: init_temp            = 260.       ! cold-start glac T
 real    :: init_w               = 150.       ! cold-start w(l)/dz(l)
-real    :: init_groundwater     =   0.       ! cold-start gw storage
 namelist /glac_nml/ lm2, conserve_glacier_mass,  albedo_to_use, &
-                    init_temp, init_w, init_groundwater, cpw, clw, csw
+                    init_temp, init_w, cpw, clw, csw
 !---- end of namelist --------------------------------------------------------
 
 logical         :: module_is_initialized =.FALSE.
@@ -156,8 +155,6 @@ subroutine glac_init ( id_lon, id_lat )
      call read_tile_data_r1d_fptr(unit, 'temp'         , glac_temp_ptr  )
      call read_tile_data_r1d_fptr(unit, 'wl'           , glac_wl_ptr )
      call read_tile_data_r1d_fptr(unit, 'ws'           , glac_ws_ptr )
-     call read_tile_data_r1d_fptr(unit, 'groundwater'  , glac_gw_ptr )
-     call read_tile_data_r1d_fptr(unit, 'groundwater_T', glac_gwT_ptr)
      __NF_ASRT__(nf_close(unit))     
   else
      call error_mesg('glac_init',&
@@ -179,8 +176,6 @@ subroutine glac_init ( id_lon, id_lat )
            tile%glac%ws(1:num_l) = init_w*dz(1:num_l)
         endif
         tile%glac%T             = init_temp
-        tile%glac%groundwater   = init_groundwater
-        tile%glac%groundwater_T = init_temp
      enddo
   endif
   
@@ -237,8 +232,6 @@ subroutine save_glac_restart (tile_dim_length, timestamp)
   call write_tile_data_r1d_fptr(unit,'temp'         ,glac_temp_ptr,'zfull','glacier temperature','degrees_K')
   call write_tile_data_r1d_fptr(unit,'wl'           ,glac_wl_ptr  ,'zfull','liquid water content','kg/m2')
   call write_tile_data_r1d_fptr(unit,'ws'           ,glac_ws_ptr  ,'zfull','solid water content','kg/m2')
-  call write_tile_data_r1d_fptr(unit,'groundwater'  ,glac_gw_ptr  ,'zfull')
-  call write_tile_data_r1d_fptr(unit,'groundwater_T',glac_gwT_ptr ,'zfull')
    
   ! close file
   __NF_ASRT__(nf_close(unit))
@@ -457,8 +450,7 @@ end subroutine glac_step_1
              ' T =', glac%T(l),&
              ' Th=', (glac%ws(l)+glac%wl(l))/(dens_h2o*dz(l)),&
              ' wl=', glac%wl(l),&
-             ' ws=', glac%ws(l),&
-             ' gw=', glac%groundwater(l)
+             ' ws=', glac%ws(l)
      enddo
      
   endif
@@ -745,10 +737,8 @@ ELSE   ! ****************************************************************
      write(*,*) 'delta_time,tau_gw,c0,c1,c2,x', delta_time,tau_gw,c0,&
           c1,c2,x
      write(*,*) 'level=', num_l+1, ' flow ',flow(num_l+1)
-     write(*,*) 'gw(1)',glac%groundwater(1)
   endif
 
-  ! ---- groundwater ---------------------------------------------------------
   ! THIS T AVERAGING IS WRONG, BECAUSE IT NEGLECTS THE MEDIUM  ***
   ! ALSO, FREEZE-THAW IS NEEDED!
   ! PROBABLY THIS SECTION WILL BE DELETED ANYWAY, WITH GW TREATED ABOVE.
@@ -810,8 +800,7 @@ ELSE   ! ****************************************************************
              ' T =', glac%T(l), &
              ' Th=', (glac%ws(l)+glac%wl(l))/(dens_h2o*dz(l)),&
              ' wl=', glac%wl(l),&
-             ' ws=', glac%ws(l),&
-             ' gw=', glac%groundwater(l)
+             ' ws=', glac%ws(l)
      enddo
   endif
 
@@ -901,12 +890,10 @@ end function glac_tile_exists
 subroutine glac_temp_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
-   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
       if(associated(tile%glac)) then
-        n = size(tile%glac%T)
-        ptr(1:n) => tile%glac%T(1:n)
+        ptr => tile%glac%T(:)
       endif
    endif
 end subroutine glac_temp_ptr
@@ -914,12 +901,10 @@ end subroutine glac_temp_ptr
 subroutine glac_wl_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
-   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
       if(associated(tile%glac)) then
-        n = size(tile%glac%wl)
-        ptr(1:n) => tile%glac%wl(1:n)
+        ptr => tile%glac%wl(:)
       endif
    endif
 end subroutine glac_wl_ptr
@@ -927,40 +912,12 @@ end subroutine glac_wl_ptr
 subroutine glac_ws_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
-   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
       if(associated(tile%glac)) then
-        n = size(tile%glac%ws)
-        ptr(1:n) => tile%glac%ws(1:n)
+        ptr => tile%glac%ws(:)
       endif
    endif
 end subroutine glac_ws_ptr
-
-subroutine glac_gw_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr(:)
-   integer :: n
-   ptr=>NULL()
-   if(associated(tile)) then
-      if(associated(tile%glac)) then
-        n = size(tile%glac%groundwater)
-        ptr(1:n) => tile%glac%groundwater(1:n)
-      endif
-   endif
-end subroutine glac_gw_ptr
-
-subroutine glac_gwT_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr(:)
-   integer :: n
-   ptr=>NULL()
-   if(associated(tile)) then
-      if(associated(tile%glac)) then
-        n = size(tile%glac%groundwater_T)
-        ptr(1:n) => tile%glac%groundwater_T(1:n)
-      endif
-   endif
-end subroutine glac_gwT_ptr
 
 end module glacier_mod

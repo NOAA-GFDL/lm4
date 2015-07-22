@@ -255,9 +255,16 @@ contains
                 ! non-terminal all-land cell (possible lake), or terminal coastal cell (possible lake)
                 if (lake_area.gt.0.) then
                      if (is_watch_cell()) then
-                          write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
-                          write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
-                          write(*,*) 'lake_T (1):', lake_T (i,j,1)
+                         write(*,*) 'lake_area:', lake_area
+                         write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
+                         write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
+                         write(*,*) 'lake_T (1):', lake_T (i,j,1)
+                         write(*,*) 'influx    :', influx
+                         write(*,*) 'influx_c(1):', influx_c(1)
+                         write(*,*) 'River%inflow  (i,j)', River%inflow  (i,j)
+                         write(*,*) 'River%infloc  (i,j)', River%infloc  (i,j)
+                         write(*,*) 'River%inflow_c(i,j,1)', River%inflow_c(i,j,1)
+                         write(*,*) 'River%infloc_c(i,j,1)', River%infloc_c(i,j,1)
                      endif
                      h = (clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1))*(lake_T(i,j,1)-tfreeze)
                      lake_wl(i,j,1) = lake_wl(i,j,1) + (influx-influx_c(1))/lake_area

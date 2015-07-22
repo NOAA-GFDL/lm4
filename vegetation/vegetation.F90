@@ -183,7 +183,7 @@ integer         :: vegn_phot_co2_option = -1 ! internal selector of co2 option
 ! diagnostic field ids
 integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_temp, id_wl, id_ws, &
-   id_lai, id_sai, id_leaf_size, &
+   id_lai, id_lai_var, id_lai_std, id_sai, id_leaf_size, &
    id_root_density, id_root_zeta, id_rs_min, id_leaf_refl, id_leaf_tran, &
    id_leaf_emis, id_snow_crit, id_stomatal, &
    id_an_op, id_an_cl,&
@@ -610,6 +610,12 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
        (/id_lon,id_lat/), time, 'height of first cohort', 'm', missing_value=-1.0 )
   id_lai    = register_cohort_diag_field ( module_name, 'lai',  &
        (/id_lon,id_lat/), time, 'leaf area index', 'm2/m2', missing_value=-1.0, opc='sum' )
+  id_lai_var = register_cohort_diag_field ( module_name, 'lai_var',  &
+       (/id_lon,id_lat/), time, 'variance of leaf area index across tiles in grid cell', 'm4/m4', &
+       missing_value=-1.0 , opt='variance', opc='sum')
+  id_lai_std = register_cohort_diag_field ( module_name, 'lai_std',  &
+       (/id_lon,id_lat/), time, 'standard deviation of leaf area index across tiles in grid cell', 'm2/m2', &
+       missing_value=-1.0, opt='stdev', opc='sum')
   id_sai    = register_cohort_diag_field ( module_name, 'sai',  &
        (/id_lon,id_lat/), time, 'stem area index', 'm2/m2', missing_value=-1.0, opc='sum' )
 
@@ -1499,7 +1505,9 @@ subroutine vegn_step_2 ( vegn, diag, &
   call send_tile_data(id_height, maxval(c(1:N)%height), diag) ! tallest
   ! in principle, the first cohort must be the tallest, but since cohorts are
   ! rearranged only once a year, that may not be true for part of the year
-  call send_cohort_data(id_lai, diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac)
+  call send_cohort_data(id_lai,     diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac)
+  call send_cohort_data(id_lai_var, diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac)
+  call send_cohort_data(id_lai_std, diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac)
   call send_cohort_data(id_sai, diag, c(1:N), c(1:N)%sai, weight=c(1:N)%layerfrac)
   end associate
   ! TODO: fix the diagnostics below

@@ -37,8 +37,9 @@ public :: vegn_tiles_can_be_merged, merge_vegn_tiles
 public :: vegn_is_selected
 public :: get_vegn_tile_tag
 public :: vegn_tile_stock_pe
-public :: vegn_tile_carbon ! returns total carbon per tile
-public :: vegn_tile_heat ! returns hate content of the vegetation
+public :: vegn_tile_carbon ! returns total carbon per tile [kgC/m2]
+public :: vegn_tile_bwood  ! returns total woody biomass of tile [kgC/m2]
+public :: vegn_tile_heat   ! returns heat content of the vegetation [J/m2]
 
 public :: read_vegn_data_namelist
 public :: vegn_cover_cold_start
@@ -189,8 +190,8 @@ function vegn_tiles_can_be_merged(vegn1,vegn2) result(response)
      response = .false. ! different land use types can't be merged
   else if (vegn1%landuse == LU_SCND) then ! secondary vegetation tiles
      ! get tile wood biomasses
-     b1 = get_vegn_tile_bwood(vegn1)
-     b2 = get_vegn_tile_bwood(vegn2)
+     b1 = vegn_tile_bwood(vegn1)
+     b2 = vegn_tile_bwood(vegn2)
      ! find biomass bins where each the tiles belongs to
      i1 = 0 ; i2 = 0
      do i = 1, size(scnd_biomass_bins(:))
@@ -395,7 +396,7 @@ function vegn_tran_priority(vegn, dst_kind, tau) result(pri)
   integer :: i
 
   if (vegn%landuse==LU_SCND.and.dst_kind==LU_SCND) then ! secondary biomass harvesting
-     vegn_bwood = get_vegn_tile_bwood(vegn)
+     vegn_bwood = vegn_tile_bwood(vegn)
      pri = max(min(tau+vegn_bwood,1.0),0.0)
   else
      pri = max(min(tau,1.0),0.0)
@@ -462,7 +463,7 @@ end function get_vegn_tile_tag
 
 ! ============================================================================
 ! returns total wood biomass per tile 
-function get_vegn_tile_bwood(vegn) result(bwood)
+function vegn_tile_bwood(vegn) result(bwood)
   real :: bwood
   type(vegn_tile_type), intent(in) :: vegn
 
@@ -473,7 +474,7 @@ function get_vegn_tile_bwood(vegn) result(bwood)
   do i = 1,vegn%n_cohorts
      bwood = bwood + vegn%cohorts(i)%bwood*vegn%cohorts(i)%nindivs
   enddo
-end function get_vegn_tile_bwood
+end function vegn_tile_bwood
 
 ! ============================================================================
 subroutine vegn_tile_stock_pe (vegn, twd_liq, twd_sol  )

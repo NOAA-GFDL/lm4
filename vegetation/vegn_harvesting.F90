@@ -33,6 +33,8 @@ public :: vegn_harvesting
 public :: vegn_graze_pasture
 public :: vegn_harvest_cropland
 public :: vegn_cut_forest
+
+public :: do_harvesting
 ! ==== end of public interface ===============================================
 
 ! ==== module constants =====================================================

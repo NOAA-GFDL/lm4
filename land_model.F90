@@ -36,7 +36,9 @@ use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_te
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
      lake_radiation, lake_step_1, lake_step_2, save_lake_restart
 use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
-     soil_radiation, soil_step_1, soil_step_2, soil_step_3, save_soil_restart
+     soil_radiation, soil_step_1, soil_step_2, soil_step_3, save_soil_restart, &
+     ! moved here to eliminate circular dependencies with hillslope mods:
+     soil_cover_cold_start, retrieve_soil_tags
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
      snow_radiation, snow_get_depth_area, snow_step_1, snow_step_2, &
      save_snow_restart
@@ -50,8 +52,7 @@ use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, cana_state,&
 use river_mod, only : river_init, river_end, update_river, river_stock_pe, &
      save_river_restart
 use topo_rough_mod, only : topo_rough_init, topo_rough_end, update_topo_rough
-use soil_tile_mod, only : soil_cover_cold_start, soil_tile_stock_pe, &
-                          soil_tile_heat, soil_roughness
+use soil_tile_mod, only : soil_tile_stock_pe, soil_tile_heat, soil_roughness
 use vegn_tile_mod, only : vegn_cover_cold_start, &
                           vegn_tile_stock_pe, vegn_tile_heat, vegn_tile_carbon
 use lake_tile_mod, only : lake_cover_cold_start, lake_tile_stock_pe, &
@@ -82,13 +83,19 @@ use land_tile_diag_mod, only : tile_diag_init, tile_diag_end, &
      register_tiled_diag_field, send_tile_data, dump_tile_diag_fields, &
      add_tiled_diag_field_alias, register_cohort_diag_field, send_cohort_data
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
-     is_watch_point, is_watch_time, get_watch_point, check_temp_range, current_face, &
-     get_current_point, check_conservation, water_cons_tol, carbon_cons_tol 
+     is_watch_point, is_watch_cell, is_watch_time, get_watch_point, get_current_point, &
+     check_temp_range, current_face, check_conservation, water_cons_tol, carbon_cons_tol 
 use static_vegn_mod, only : write_static_vegn
 use land_transitions_mod, only : &
      land_transitions_init, land_transitions_end, land_transitions, &
      save_land_transitions_restart
 use stock_constants_mod, only: ISTOCK_WATER, ISTOCK_HEAT, ISTOCK_SALT
+use hillslope_mod, only: retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
+                         read_hlsp_namelist, hlsp_init, hlsp_config_check
+use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
+#ifdef ZMSDEBUG
+use land_debug_mod, only : check_var_range
+#endif
 
 implicit none
 private
@@ -262,7 +269,7 @@ subroutine land_model_init &
   ! ---- local vars ----------------------------------------------------------
   integer :: ncid, varid
   integer :: unit, ierr, io
-  integer :: id_lon, id_lat, id_band     ! IDs of land diagnostic axes
+  integer :: id_lon, id_lat, id_band, id_zfull ! IDs of land diagnostic axes
   logical :: used                        ! return value of send_data diagnostics routine
   integer :: i,j,k
   integer :: n_cohorts  ! number of cohorts in the current tile (1 if no vegetation)
@@ -318,6 +325,7 @@ subroutine land_model_init &
   ! because they can affect the way cover and tiling is initialized on cold start.
   call read_land_io_namelist()
   call read_soil_namelist()
+  call read_hlsp_namelist() ! Must be called after read_soil_namelist
   call read_vegn_namelist()
   call read_lake_namelist()
   call read_glac_namelist()
@@ -375,7 +383,9 @@ subroutine land_model_init &
   num_species = num_phys + num_c
   if (do_age) num_species = num_species + 1
 
-  call soil_init ( id_lon, id_lat, id_band )
+  call hlsp_init ( id_lon, id_lat ) ! Must be called before soil_init
+  call soil_init ( id_lon, id_lat, id_band, id_zfull)
+  call hlsp_hydro_init (id_lon, id_lat, id_zfull) ! Must be called after soil_init
   call vegn_init ( id_lon, id_lat, id_band )
   call lake_init ( id_lon, id_lat )
   call glac_init ( id_lon, id_lat )
@@ -398,6 +408,7 @@ subroutine land_model_init &
   call land_transitions_init (id_lon, id_lat) 
   ! [8] initialize boundary data
   ! [8.1] allocate storage for the boundary data 
+  call hlsp_config_check () ! Needs to be done after land_transitions_init and vegn_init
   call realloc_land2cplr ( land2cplr )
   call realloc_cplr2land ( cplr2land )
   ! [8.2] set the land mask to FALSE everywhere -- update_land_bc_fast
@@ -476,6 +487,7 @@ subroutine land_model_end (cplr2land, land2cplr)
   call glac_end ()
   call lake_end ()
   call soil_end ()
+  call hlsp_end ()
   call snow_end ()
   call vegn_end ()
   call cana_end ()
@@ -560,6 +572,7 @@ subroutine land_model_restart(timestamp)
   call save_glac_restart(tile_dim_length,timestamp_)
   call save_lake_restart(tile_dim_length,timestamp_)
   call save_soil_restart(tile_dim_length,timestamp_)
+  call save_hlsp_restart(tile_dim_length,timestamp_)
   call save_snow_restart(tile_dim_length,timestamp_)
   call save_vegn_restart(tile_dim_length,timestamp_)
   call save_cana_restart(tile_dim_length,timestamp_)
@@ -574,6 +587,10 @@ subroutine land_cover_cold_start(lnd)
   ! ---- local vars
   real, dimension(:,:,:), pointer :: &
        glac, soil, lake, vegn ! arrays of fractions for respective sub-models
+  integer, pointer, dimension(:,:,:) :: soiltags ! array of soil type tags
+  integer, pointer, dimension(:,:,:) :: hlsp_pos ! hillslope position index
+  integer, pointer, dimension(:,:,:) :: hlsp_par ! hillslope parent index
+  real   , pointer, dimension(:,:,:) :: rbuffer ! real buffer for remap
   logical, dimension(lnd%ie-lnd%is+1,lnd%je-lnd%js+1) :: &
        land_mask, valid_data, invalid_data
   integer :: iwatch,jwatch,kwatch,face
@@ -589,6 +606,14 @@ subroutine land_cover_cold_start(lnd)
   lake=>lake_cover_cold_start(land_mask,lnd%lonb,lnd%latb,lnd%domain)
   soil=>soil_cover_cold_start(land_mask,lnd%lonb,lnd%latb)
   vegn=>vegn_cover_cold_start(land_mask,lnd%lonb,lnd%latb)
+
+  ! Because of hillslope model, soil tiles may not be returned in order of soil type.
+  allocate(soiltags(size(soil,1), size(soil,2), size(soil,3)))
+  call retrieve_soil_tags(soiltags)
+  ! Tiles will be constructed with hillslope data.
+  allocate(hlsp_pos(size(soil,1), size(soil,2), size(soil,3)))
+  allocate(hlsp_par(size(soil,1), size(soil,2), size(soil,3)))
+  call retrieve_hlsp_indices(hlsp_pos, hlsp_par)
 
   ! remove any input lake fraction in coastal cells
   where (frac.lt. 1.-gfrac_tol) lake(:,:,1) = 0.
@@ -640,6 +665,17 @@ subroutine land_cover_cold_start(lnd)
   call horiz_remap(map,lnd%domain,glac)
   call horiz_remap(map,lnd%domain,lake)
   call horiz_remap(map,lnd%domain,soil)
+  allocate(rbuffer(size(soil,1), size(soil,2), size(soil,3)))
+  ! ZMS This is awkward: perhaps horiz_remap should handle integers?
+  rbuffer(:,:,:) = real(soiltags(:,:,:))
+  call horiz_remap(map,lnd%domain,rbuffer)
+  soiltags(:,:,:) = nint(rbuffer(:,:,:))
+  rbuffer(:,:,:) = real(hlsp_pos(:,:,:))
+  call horiz_remap(map,lnd%domain,rbuffer)
+  hlsp_pos(:,:,:) = nint(rbuffer(:,:,:))
+  rbuffer(:,:,:) = real(hlsp_par(:,:,:))
+  call horiz_remap(map,lnd%domain,rbuffer)
+  hlsp_par(:,:,:) = nint(rbuffer(:,:,:))
   call horiz_remap_del(map)
 
 !-zero  ! remove any input lake fraction in coastal cells
@@ -679,7 +715,8 @@ subroutine land_cover_cold_start(lnd)
      if(.not.land_mask(i,j)) cycle ! skip ocean points
      call set_current_point(i+lnd%is-1,j+lnd%js-1,1)
      call land_cover_cold_start_0d &
-          (lnd%tile_map(i+lnd%is-1,j+lnd%js-1),glac(i,j,:),lake(i,j,:),soil(i,j,:),vegn(i,j,:))
+          (lnd%tile_map(i+lnd%is-1,j+lnd%js-1),glac(i,j,:),lake(i,j,:),soil(i,j,:),soiltags(i,j,:),&
+               hlsp_pos(i,j,:), hlsp_par(i,j,:), vegn(i,j,:))
      if(nitems(lnd%tile_map(i+lnd%is-1,j+lnd%js-1))==0) then
         call error_mesg('land_cover_cold_start',&
              'No tiles were created for a valid land point at i='&
@@ -688,15 +725,18 @@ subroutine land_cover_cold_start(lnd)
   enddo
   enddo
 
-  deallocate(glac,lake,soil,vegn)
+  deallocate(glac,lake,soil,soiltags,hlsp_pos,hlsp_par,vegn,rbuffer)
   
 end subroutine land_cover_cold_start
 
 ! ============================================================================
-subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,vegn0)
+subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,soiltags0,&
+                                     hlsp_pos0,hlsp_par0,vegn0)
   type(land_tile_list_type), intent(inout) :: set 
   real, dimension(:)       , intent(in) :: &
        glac0,lake0,soil0,vegn0 ! fractions of area
+  integer, dimension(:)    , intent(in) :: &
+       soiltags0, hlsp_pos0, hlsp_par0 ! soil and hillslope tags
 
   ! ---- local vars
   real :: glac(size(glac0(:))), lake(size(lake0(:))), &
@@ -706,6 +746,9 @@ subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,vegn0)
   real :: factor ! normalizing factor for the tile areas
   real :: frac
   type(land_tile_enum_type) :: first_non_vegn ! position of first non-vegetated tile in the list
+  type(land_tile_enum_type) :: ce, te
+  real :: athresh = 1.e-10 ! area threshold allowable for deviation from 1
+  real :: area ! area sum for gridcell
 
   glac = glac0; lake = lake0; soil = soil0; vegn = vegn0
   if (sum(glac)>1) &
@@ -785,14 +828,31 @@ subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,vegn0)
   do j = 1,size(vegn)
      frac = soil(i)*vegn(j)*factor
      if(frac>0) then
-        tile  => new_land_tile(frac=frac,soil=i,vegn=j)
+        tile  => new_land_tile(frac=frac,soil=soiltags0(i),vegn=j,&
+                               htag_j=hlsp_pos0(i),htag_k=hlsp_par0(i))
         call insert(tile,first_non_vegn)
         if(is_watch_point()) then
-           write(*,*)'created soil tile: frac=', frac, ' soil tag=',i, ' veg tag=',j
+           write(*,*)'created soil tile: frac=', frac, ' soil tag=',soiltags0(i), ' veg tag=',j
         endif
      endif
   enddo
   enddo
+
+  ! Check that fractions are set correctly.
+  ce = first_elmt(set)
+  te = tail_elmt(set)
+  area = 0.
+
+  do while (ce /= te)
+     tile => current_tile(ce)
+     area = area + tile%frac
+     ce = next_elmt(ce)
+  end do
+
+  if (abs(area - 1.) > athresh) then
+     call error_mesg(module_name, 'Area fractions do not add up to 1 for tile list in land_cover_cold_start_0d!', &
+                     FATAL)
+  end if
 
 end subroutine land_cover_cold_start_0d
 
@@ -893,10 +953,13 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
        runoff_heat,      & ! runoff heat accumulated over tiles in cell
        heat_frac_liq,    & ! fraction of runoff heat in liquid
        discharge_l,      & ! discharge of liquid water to ocean
-       discharge_sink      ! container to collect small/negative values for later accounting
+       discharge_sink,   & ! container to collect small/negative values for later accounting
+       ground_to_stream, & ! groundwater runoff directly to stream (mm/s)
+       ground_to_stream_heat ! groundwater runoff heat directly to stream (W/m^2)
   real, dimension(lnd%is:lnd%ie,lnd%js:lnd%je,num_species) :: &
        runoff_c,         & ! runoff of tracers accumulated over tiles in cell
-       discharge_c         ! discharge of tracers to ocean
+       discharge_c,      & ! discharge of tracers to ocean
+       ground_to_stream_tracers ! groundwater runoff tracers directly to stream (1/m/s)
   logical :: used          ! return value of send_data diagnostics routine
   real, allocatable :: runoff_1d(:),runoff_snow_1d(:),runoff_heat_1d(:)
   integer :: i,j,k     ! lon, lat, and tile indices
@@ -929,6 +992,11 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   
   ! clear the runoff values, for accumulation over the tiles
   runoff = 0 ; runoff_snow = 0 ; runoff_heat = 0  ; runoff_c = 0
+
+  ! Calculate groundwater and associated heat fluxes between tiles within each gridcell.
+  call hlsp_hydrology_1(ground_to_stream, ground_to_stream_heat, ground_to_stream_tracers, &
+                        num_species)
+  ! ZMS: Eventually pass these args into river or main tile loop.
 
   ! main tile loop
 !$OMP parallel do schedule(dynamic) default(shared) private(i1,i,j,k,ce,te,tile,fco2_0,Dfco2Dq,ISa_dn_dir,ISa_dn_dif)
@@ -1047,6 +1115,22 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
       land2cplr%discharge_snow_heat =               discharge_c(:,:,2) / (1-frac) &
                                      - land2cplr%discharge_heat
     endwhere
+
+#ifdef ZMSDEBUG
+   do j=lnd%js,lnd%je
+      do i=lnd%is,lnd%ie
+         call set_current_point(i, j, 1)
+         call check_var_range(land2cplr%discharge(i,j), -10., 10., 'gcell DISCHARGE CHECK', &
+                              'Liquid Discharge (mm/s)', lnd%time, WARNING)
+         call check_var_range(land2cplr%discharge_snow(i,j), -10., 10., 'gcell DISCHARGE CHECK', &
+                              'Snow Discharge (mm/s)', lnd%time, WARNING)
+         call check_var_range(land2cplr%discharge_heat(i,j), -1000., 1000., 'gcell DISCHARGE CHECK', &
+                              'Discharge Heat (W/m^2/s)', lnd%time, WARNING)
+         call check_var_range(land2cplr%discharge_snow_heat(i,j), -1000., 1000., 'gcell DISCHARGE CHECK', &
+                              'Discharge Snow Heat (W/m^2/s)', lnd%time, WARNING)
+      end do
+   end do
+#endif
 
   ce = first_elmt(lnd%tile_map,                  &
               is=lbound(cplr2land%t_flux,1), &
@@ -1253,7 +1337,7 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
        precip_T,pT,snow_fsw,snow_flw,snow_frunf,snow_hlrunf,&
        snow_hfrunf,subs_fsw,subs_flw,subs_sens,&
        subs_DT, subs_M_imp, subs_evap, snow_Tbot, snow_Cbot, snow_C, subs_levap,&
-       subs_fevap,subs_melt,subs_lrunf,subs_hlrunf,&
+       subs_fevap,subs_melt,subs_lrunf,subs_hlrunf, subs_frunf, subs_hfrunf, &
        subs_Ttop,subs_Ctop, subs_subl, new_T
   real :: snow_T, snow_rh, snow_liq, snow_ice, snow_subl
   integer :: k, k1 ! cohort indices
@@ -1858,6 +1942,8 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
           subs_DT, subs_M_imp, subs_evap, &
           subs_levap, subs_fevap, &
           subs_melt, subs_lrunf, subs_hlrunf, subs_Ttop, subs_Ctop )
+     subs_frunf = 0.
+     subs_hfrunf = 0.
   else if (associated(tile%lake)) then
      call lake_step_2 &
           ( tile%lake, tile%diag, subs_subl, snow_lprec, snow_hlprec, &
@@ -1866,6 +1952,8 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
           subs_melt, subs_Ttop, subs_Ctop )
      subs_lrunf = 0.
      subs_hlrunf = 0.
+     subs_frunf = 0.
+     subs_hfrunf = 0.
   else if (associated(tile%soil)) then
      call soil_step_2 &
           ( tile%soil, tile%vegn, tile%diag, subs_subl, snow_lprec, snow_hlprec, &
@@ -1873,7 +1961,8 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
           use_tfreeze_in_grnd_latent, &
           ! output:
           subs_levap, subs_fevap, &
-          subs_melt, subs_lrunf, subs_hlrunf, subs_Ttop, subs_Ctop )
+          subs_melt, subs_lrunf, subs_hlrunf, subs_Ttop, subs_Ctop, &
+          subs_frunf, subs_hfrunf)
   endif
   if (is_watch_point()) then
      __DEBUG2__(subs_levap, subs_fevap)
@@ -1939,7 +2028,7 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
 
   runoff      = runoff      + (snow_frunf  + subs_lrunf  + snow_lrunf )*tile%frac
   runoff_heat = runoff_heat + (snow_hfrunf + subs_hlrunf + snow_hlrunf)*tile%frac
-  runoff_snow = runoff_snow + snow_frunf*tile%frac
+  runoff_snow = runoff_snow + (snow_frunf + subs_frunf)*tile%frac
   hprec = (clw*precip_l+csw*precip_s)*(precip_T-tfreeze)
   hevap = cpw*land_evap*(evap_T-tfreeze)
 
@@ -2027,9 +2116,9 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   call send_tile_data(id_hlrunf,  snow_hlrunf+subs_hlrunf,            tile%diag)
   call send_tile_data(id_hlrunfs, snow_hlrunf,                        tile%diag)
   call send_tile_data(id_hlrunfg, subs_hlrunf,                        tile%diag)
-  call send_tile_data(id_frunf,   snow_frunf,                         tile%diag)
+  call send_tile_data(id_frunf,   snow_frunf + subs_frunf,            tile%diag)
   call send_tile_data(id_frunfs,  snow_frunf,                         tile%diag)
-  call send_tile_data(id_hfrunf,  snow_hfrunf,                        tile%diag)
+  call send_tile_data(id_hfrunf,  snow_hfrunf + subs_hfrunf,          tile%diag)
   call send_tile_data(id_hfrunfs, snow_hfrunf,                        tile%diag)
   call send_tile_data(id_melt,    vegn_melt+snow_melt+subs_melt,      tile%diag)
   call send_tile_data(id_meltv,   vegn_melt,                          tile%diag)

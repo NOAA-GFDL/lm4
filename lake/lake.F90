@@ -67,7 +67,6 @@ character(len=*), parameter, private   :: &
 !---- namelist ---------------------------------------------------------------
 real    :: init_temp            = 288.        ! cold-start lake T
 real    :: init_w               = 1000.      ! cold-start w(l)/dz(l)
-real    :: init_groundwater     =   0.        ! cold-start gw storage
 logical :: use_rh_feedback      = .true.
 logical :: make_all_lakes_wide  = .false.
 logical :: large_dyn_small_stat = .true.
@@ -87,7 +86,7 @@ real    :: lake_depth_min       = 1.99
 real    :: max_plain_slope      = -1.e10
 
 namelist /lake_nml/ init_temp, init_w,       &
-                    init_groundwater, use_rh_feedback, cpw, clw, csw, &
+                    use_rh_feedback, cpw, clw, csw, &
                     make_all_lakes_wide, large_dyn_small_stat, &
                     relayer_in_step_one, float_ice_to_top, &
                     min_rat, do_stratify, albedo_to_use, K_z_large, &
@@ -273,8 +272,6 @@ deallocate (buffer, bufferc, buffert)
         tile%lake%ws = init_w*tile%lake%dz
      endif
      tile%lake%T             = init_temp
-     tile%lake%groundwater   = init_groundwater
-     tile%lake%groundwater_T = init_temp
   enddo
 
   call get_input_restart_name('INPUT/lake.res.nc',restart_exists,restart_file_name)
@@ -288,8 +285,6 @@ deallocate (buffer, bufferc, buffert)
      call read_tile_data_r1d_fptr(unit, 'temp'         , lake_temp_ptr  )
      call read_tile_data_r1d_fptr(unit, 'wl'           , lake_wl_ptr )
      call read_tile_data_r1d_fptr(unit, 'ws'           , lake_ws_ptr )
-     call read_tile_data_r1d_fptr(unit, 'groundwater'  , lake_gw_ptr )
-     call read_tile_data_r1d_fptr(unit, 'groundwater_T', lake_gwT_ptr)
      __NF_ASRT__(nf_close(unit))     
   else
      call error_mesg('lake_init',&
@@ -339,8 +334,6 @@ subroutine save_lake_restart (tile_dim_length, timestamp)
   call write_tile_data_r1d_fptr(unit,'temp'         ,lake_temp_ptr,'zfull','lake temperature','degrees_K')
   call write_tile_data_r1d_fptr(unit,'wl'           ,lake_wl_ptr  ,'zfull','liquid water content','kg/m2')
   call write_tile_data_r1d_fptr(unit,'ws'           ,lake_ws_ptr  ,'zfull','solid water content','kg/m2')
-  call write_tile_data_r1d_fptr(unit,'groundwater'  ,lake_gw_ptr  ,'zfull')
-  call write_tile_data_r1d_fptr(unit,'groundwater_T',lake_gwT_ptr ,'zfull')
   
   ! close file
   __NF_ASRT__(nf_close(unit))
@@ -612,8 +605,7 @@ end subroutine lake_step_1
                  ' Th=', (lake%ws(l) &
                          +lake%wl(l))/(dens_h2o*lake%dz(l)),&
                  ' wl=', lake%wl(l),&
-                 ' ws=', lake%ws(l),&
-                 ' gw=', lake%groundwater(l)
+                 ' ws=', lake%ws(l)
       enddo
   endif
 
@@ -725,8 +717,7 @@ end subroutine lake_step_1
              ' T =', lake%T(l),&
              ' Th=', (lake%ws(l) +lake%wl(l))/(dens_h2o*lake%dz(l)),&
              ' wl=', lake%wl(l),&
-             ' ws=', lake%ws(l),&
-             ' gw=', lake%groundwater(l)
+             ' ws=', lake%ws(l)
      enddo
   endif
 
@@ -740,8 +731,7 @@ end subroutine lake_step_1
              ' T =', lake%T(l),&
              ' Th=', (lake%ws(l) +lake%wl(l))/(dens_h2o*lake%dz(l)),&
              ' wl=', lake%wl(l),&
-             ' ws=', lake%ws(l),&
-             ' gw=', lake%groundwater(l)
+             ' ws=', lake%ws(l)
      enddo
   endif
 
@@ -772,8 +762,7 @@ end subroutine lake_step_1
              ' T =', lake%T(l),&
              ' Th=', (lake%ws(l) +lake%wl(l))/(dens_h2o*lake%dz(l)),&
              ' wl=', lake%wl(l),&
-             ' ws=', lake%ws(l),&
-             ' gw=', lake%groundwater(l)
+             ' ws=', lake%ws(l)
      enddo
   endif
 
@@ -991,12 +980,10 @@ end function lake_tile_exists
 subroutine lake_dz_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
-   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
       if(associated(tile%lake)) then
-        n = size(tile%lake%dz)
-        ptr(1:n) => tile%lake%dz(1:n)
+        ptr => tile%lake%dz(:)
       endif
    endif
 end subroutine lake_dz_ptr
@@ -1004,12 +991,10 @@ end subroutine lake_dz_ptr
 subroutine lake_temp_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
-   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
       if(associated(tile%lake)) then
-        n = size(tile%lake%T)
-        ptr(1:n) => tile%lake%T(1:n)
+        ptr => tile%lake%T(:)
       endif
    endif
 end subroutine lake_temp_ptr
@@ -1017,12 +1002,10 @@ end subroutine lake_temp_ptr
 subroutine lake_wl_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
-   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
       if(associated(tile%lake)) then
-        n = size(tile%lake%wl)
-        ptr(1:n) => tile%lake%wl(1:n)
+        ptr => tile%lake%wl(:)
       endif
    endif
 end subroutine lake_wl_ptr
@@ -1030,41 +1013,13 @@ end subroutine lake_wl_ptr
 subroutine lake_ws_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile
    real                , pointer :: ptr(:)
-   integer :: n
    ptr=>NULL()
    if(associated(tile)) then
       if(associated(tile%lake)) then
-        n = size(tile%lake%ws)
-        ptr(1:n) => tile%lake%ws(1:n)
+        ptr => tile%lake%ws(:)
       endif
    endif
 end subroutine lake_ws_ptr
-
-subroutine lake_gw_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr(:)
-   integer :: n
-   ptr=>NULL()
-   if(associated(tile)) then
-      if(associated(tile%lake)) then
-        n = size(tile%lake%groundwater)
-        ptr(1:n) => tile%lake%groundwater(1:n)
-      endif
-   endif
-end subroutine lake_gw_ptr
-
-subroutine lake_gwT_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr(:)
-   integer :: n
-   ptr=>NULL()
-   if(associated(tile)) then
-      if(associated(tile%lake)) then
-        n = size(tile%lake%groundwater_T)
-        ptr(1:n) => tile%lake%groundwater_T(1:n)
-      endif
-   endif
-end subroutine lake_gwT_ptr
 
 subroutine lake_connected_to_next_ptr(tile, ptr)
    type(land_tile_type), pointer :: tile

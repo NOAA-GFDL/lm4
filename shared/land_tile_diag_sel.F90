@@ -9,7 +9,7 @@ private
 public :: tile_selector_type      !
 
 ! selector tags
-public :: SEL_SOIL, SEL_VEGN, SEL_LAKE, SEL_GLAC, SEL_SNOW, SEL_CANA
+public :: SEL_SOIL, SEL_VEGN, SEL_LAKE, SEL_GLAC, SEL_SNOW, SEL_CANA, SEL_HLSP
 
 public :: tile_selectors_init     ! initialize module
 public :: tile_selectors_end      ! clean up ufter ourselves
@@ -38,6 +38,7 @@ integer, parameter :: SEL_LAKE = 3
 integer, parameter :: SEL_GLAC = 4
 integer, parameter :: SEL_SNOW = 5
 integer, parameter :: SEL_CANA = 6
+integer, parameter :: SEL_HLSP = 7
 
 ! ==== derived types =========================================================
 type :: tile_selector_type

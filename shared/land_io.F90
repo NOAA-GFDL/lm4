@@ -35,6 +35,8 @@ public :: input_buf_size
 interface read_field
    module procedure read_field_N_2D, read_field_N_3D
    module procedure read_field_I_2D, read_field_I_3D
+   module procedure read_field_N_2D_int, read_field_N_3D_int
+   module procedure read_field_I_2D_int, read_field_I_3D_int
 end interface
 
 ! ==== NetCDF declarations ===================================================
@@ -327,30 +329,106 @@ subroutine do_read_fraction_field(ncid,varid,lonb,latb,input_cover_types,frac)
 
 end subroutine do_read_fraction_field
 
+! ============================================================================
+subroutine read_field_N_2D_int(filename, varname, lon, lat, data, interp, mask)
+  character(len=*), intent(in) :: filename
+  character(len=*), intent(in) :: varname
+  real, intent(in)  :: lon(:,:),lat(:,:)
+  integer, intent(out) :: data(:,:)
+  character(len=*), intent(in), optional :: interp
+  logical, intent(out), optional :: mask(:,:)
+
+  ! ---- local vars ----------------------------------------------------------
+  real    :: data3(size(data,1),size(data,2),1)
+  logical :: mask3(size(data,1),size(data,2),1)
+
+  call read_field_N_3D(filename, varname, lon, lat, data3, interp, mask3)
+  data = nint(data3(:,:,1))
+  if (present(mask)) &
+     mask = mask3(:,:,1)
+
+end subroutine read_field_N_2D_int
 
 ! ============================================================================
-subroutine read_field_N_2D(filename, varname, lon, lat, data, interp)
+subroutine read_field_N_3D_int(filename, varname, lon, lat, data, interp, mask)
+  character(len=*), intent(in) :: filename
+  character(len=*), intent(in) :: varname
+  real, intent(in)  :: lon(:,:),lat(:,:)
+  integer, intent(out) :: data(:,:,:)
+  character(len=*), intent(in), optional :: interp
+  logical, intent(out), optional :: mask(:,:,:)
+
+  ! ---- local vars ----------------------------------------------------------
+  real    :: data3(size(data,1),size(data,2),size(data,3))
+
+  call read_field_N_3D(filename, varname, lon, lat, data3, interp, mask)
+  data = nint(data3(:,:,:))
+
+end subroutine read_field_N_3D_int
+
+! ============================================================================
+subroutine read_field_I_2D_int(ncid, varname, lon, lat, data, interp, mask)
+  integer, intent(in) :: ncid
+  character(len=*), intent(in) :: varname
+  real, intent(in) :: lon(:,:),lat(:,:)
+  integer, intent(out) :: data(:,:)
+  character(len=*), intent(in), optional  :: interp
+  logical, intent(out), optional :: mask(:,:)
+  ! ---- local vars
+  real    :: data3(size(data,1),size(data,2),1)
+  logical :: mask3(size(data,1),size(data,2),1)
+
+  call read_field_I_3D(ncid, varname, lon, lat, data3, interp, mask3)
+  data = nint(data3(:,:,1))
+  if (present(mask)) &
+     mask = mask3(:,:,1)
+
+end subroutine read_field_I_2D_int
+
+! ============================================================================
+subroutine read_field_I_3D_int(ncid, varname, lon, lat, data, interp, mask)
+  integer, intent(in) :: ncid
+  character(len=*), intent(in) :: varname
+  real, intent(in) :: lon(:,:),lat(:,:)
+  integer, intent(out) :: data(:,:,:)
+  character(len=*), intent(in), optional  :: interp
+  logical, intent(out), optional :: mask(:,:,:)
+  ! ---- local vars
+  real    :: data3(size(data,1),size(data,2),size(data,3))
+
+  call read_field_I_3D(ncid, varname, lon, lat, data3, interp, mask)
+  data = nint(data3(:,:,:))
+
+end subroutine read_field_I_3D_int
+
+! ============================================================================
+subroutine read_field_N_2D(filename, varname, lon, lat, data, interp, mask)
   character(len=*), intent(in) :: filename
   character(len=*), intent(in) :: varname
   real, intent(in)  :: lon(:,:),lat(:,:)
   real, intent(out) :: data(:,:)
   character(len=*), intent(in), optional :: interp
+  logical, intent(out), optional :: mask(:,:)
 
   ! ---- local vars ----------------------------------------------------------
   real    :: data3(size(data,1),size(data,2),1)
+  logical :: mask3(size(data,1),size(data,2),1)
 
-  call read_field_N_3D(filename, varname, lon, lat, data3, interp)
+  call read_field_N_3D(filename, varname, lon, lat, data3, interp, mask3)
   data = data3(:,:,1)
+  if (present(mask)) &
+     mask = mask3(:,:,1)
 
 end subroutine read_field_N_2D
 
 ! ============================================================================
-subroutine read_field_N_3D(filename, varname, lon, lat, data, interp)
+subroutine read_field_N_3D(filename, varname, lon, lat, data, interp, mask)
   character(len=*), intent(in) :: filename
   character(len=*), intent(in) :: varname
   real, intent(in)  :: lon(:,:),lat(:,:)
   real, intent(out) :: data(:,:,:)
   character(len=*), intent(in), optional :: interp
+  logical, intent(out), optional :: mask(:,:,:)
 
   ! ---- local vars ----------------------------------------------------------
   integer :: ncid
@@ -360,33 +438,39 @@ subroutine read_field_N_3D(filename, varname, lon, lat, data, interp)
   if(iret/=NF_NOERR) then
      call error_mesg('read_field','Can''t open netcdf file "'//trim(filename)//'"',FATAL)
   endif
-  call read_field_I_3D(ncid, varname, lon, lat, data, interp)
+  call read_field_I_3D(ncid, varname, lon, lat, data, interp, mask)
   __NF_ASRT__( nf_close(ncid) )
 
 end subroutine read_field_N_3D
 
 ! ============================================================================
-subroutine read_field_I_2D(ncid, varname, lon, lat, data, interp)
+subroutine read_field_I_2D(ncid, varname, lon, lat, data, interp, mask)
   integer, intent(in) :: ncid
   character(len=*), intent(in) :: varname
   real, intent(in) :: lon(:,:),lat(:,:)
   real, intent(out) :: data(:,:)
   character(len=*), intent(in), optional  :: interp
+  logical, intent(out), optional :: mask(:,:)
+
   ! ---- local vars
   real    :: data3(size(data,1),size(data,2),1)
+  logical :: mask3(size(data,1),size(data,2),1)
 
-  call read_field_I_3D(ncid, varname, lon, lat, data3, interp)
+  call read_field_I_3D(ncid, varname, lon, lat, data3, interp, mask3)
   data = data3(:,:,1)
+  if (present(mask)) &
+       mask = mask3(:,:,1)
 
 end subroutine read_field_I_2D
 
 ! ============================================================================
-subroutine read_field_I_3D(ncid, varname, lon, lat, data, interp)
+subroutine read_field_I_3D(ncid, varname, lon, lat, data, interp, mask)
   integer, intent(in) :: ncid
   character(len=*), intent(in) :: varname
   real, intent(in) :: lon(:,:),lat(:,:)
   real, intent(out) :: data(:,:,:)
   character(len=*), intent(in), optional  :: interp
+  logical, intent(out), optional :: mask(:,:,:)
 
   ! ---- local vars ----------------------------------------------------------
   integer :: nlon, nlat, nlev ! size of input grid
@@ -395,11 +479,13 @@ subroutine read_field_I_3D(ncid, varname, lon, lat, data, interp)
   integer :: dimlens(NF_MAX_VAR_DIMS) ! sizes of respective dimensions
   real,    allocatable :: in_lonb(:), in_latb(:), in_lon(:), in_lat(:)
   real,    allocatable :: x(:,:,:) ! input buffer
-  logical, allocatable :: mask(:,:,:) ! mask of valid values
+  logical, allocatable :: imask(:,:,:) ! mask of valid input values
   real,    allocatable :: rmask(:,:,:) ! real mask for interpolator
+  real    :: omask(size(data,1),size(data,2),size(data,3)) ! mask of valid output data
   character(len=20) :: interpolation 
   integer :: i,j,k,imap,jmap !
   type(nfu_validtype) :: v
+  type(horiz_interp_type) :: hinterp
 
   interpolation = "bilinear"
   if(present(interp)) interpolation = interp
@@ -423,7 +509,7 @@ subroutine read_field_I_3D(ncid, varname, lon, lat, data, interp)
        in_lon  (nlon),   in_lat  (nlat),   &
        in_lonb (nlon+1), in_latb (nlat+1), &
        x       (nlon, nlat, nlev) ,&
-       mask    (nlon, nlat, nlev) , rmask(nlon, nlat, nlev) )
+       imask   (nlon, nlat, nlev) , rmask(nlon, nlat, nlev) )
 
   ! read boundaries of the grid cells in longitudinal direction
   __NF_ASRT__(nfu_get_dim(ncid, vardims(1), in_lon))
@@ -435,32 +521,35 @@ subroutine read_field_I_3D(ncid, varname, lon, lat, data, interp)
   __NF_ASRT__(nfu_get_valid_range(ncid,varname,v))
   ! read input data
   __NF_ASRT__( nfu_get_var(ncid,varname,x) ) ! assuming real is real*8
-  mask = nfu_is_valid(x,v)
+  imask = nfu_is_valid(x,v)
   rmask = 1.0
-  where(.not.mask) rmask = 0.0
+  where(.not.imask) rmask = 0.0
 
   select case(trim(interpolation))
-  case ("bilinear")
-     do k = 1,size(data,3)
-        call horiz_interp(x(:,:,k), in_lonb, in_latb, lon,lat, data(:,:,k), mask_in=rmask(:,:,k), &
-             interp_method='bilinear')
-     enddo
   case ("nearest")
      do k = 1,size(data,3)
      do j = 1,size(data,2)
      do i = 1,size(data,1)
-        call nearest (mask(:,:,k), in_lon, in_lat, lon(i,j), lat(i,j), imap, jmap)
+        call nearest (imask(:,:,k), in_lon, in_lat, lon(i,j), lat(i,j), imap, jmap)
         data(i,j,k) = x(imap,jmap,k)
      enddo
      enddo
      enddo
   case default
-     call error_mesg(module_name, interpolation//" is not a valid interpolation method",FATAL)
+     call horiz_interp_new(hinterp, in_lonb, in_latb, lon, lat, &
+                           interp_method=interpolation)
+     do k = 1,size(data,3)
+        call horiz_interp(hinterp,x(:,:,k),data(:,:,k),mask_in=rmask(:,:,k), mask_out=omask(:,:,k))
+     enddo
+     if (present(mask)) &
+         mask(:,:,:) = (omask(:,:,:)/=0.0)
+     call horiz_interp_del(hinterp)
   end select
 
-  deallocate(in_lonb, in_latb, in_lon, in_lat, x, mask, rmask)
+  deallocate(in_lonb, in_latb, in_lon, in_lat, x, imask, rmask)
 
 end subroutine read_field_I_3D
+
 
 ! ============================================================================
 subroutine print_netcdf_error(ierr, file, line)

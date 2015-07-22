@@ -56,7 +56,7 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
-     mod_name = 'lan_tile_diag_mod', &
+     mod_name = 'land_tile_diag_mod', &
      version  = '$Id$', &
      tagname  = '$Name$'
 
@@ -73,12 +73,16 @@ integer, parameter :: &
     OP_MEAN = 1, & ! weighted average of tile values
     OP_SUM  = 2, & ! sum of all tile values
     OP_MAX  = 3, & ! maximum of all  values
-    OP_MIN  = 4    ! minimum of all  values
-character(32), parameter :: opstrings(4) = (/ & ! symbolica names of the aggregation operations
-   'mean   ', &
-   'sum    ', &
-   'maximum', &
-   'minimum'  /)
+    OP_MIN  = 4, & ! minimum of all  values
+    OP_VAR  = 5, & ! variance of tile values
+    OP_STD  = 6    ! standard deviation of tile values
+character(32), parameter :: opstrings(6) = (/ & ! symbolica names of the aggregation operations
+   'mean   ' , &
+   'sum    ' , &
+   'maximum' , &
+   'minimum' , &
+   'variance', &
+   'stdev'     /)
 
 ! TODO: generalize treatment of cohort filters. Possible filters include: selected 
 ! species, selected species in the canopy, trees above certain age, etc...
@@ -138,7 +142,7 @@ subroutine tile_diag_init()
   call tile_selectors_init()
   call register_tile_selector('')
 
-  ! initailze global data
+  ! initialize global data
   allocate(fields(INIT_FIELDS_SIZE))
   n_fields       = 0
   current_offset = 1
@@ -332,7 +336,7 @@ subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time
       fields(ifld0)%alias = ifld1
     endif
   else
-    ! the "main" field has not been registered, so simply redister the alias
+    ! the "main" field has not been registered, so simply register the alias
     ! as a diag field
     id0 = reg_field(static, module_name, field_name, init_time, axes, long_name, &
           units, missing_value, range, op=op)
@@ -427,10 +431,10 @@ function reg_field(static, module_name, field_name, init_time, axes, &
      ! store the code of the requested tile aggregation operation
      if(present(op)) then
         fields(id)%opcode = string2opcode(op)
-        if (.not.(fields(id)%opcode==OP_MEAN.or.fields(id)%opcode==OP_SUM)) &
+        if (.not.(fields(id)%opcode > 0)) &
            call error_mesg(mod_name,&
               'tile aggregarion operation "'//trim(op)//'" for field "'&
-              //trim(module_name)//'/'//trim(field_name)//'"is incorrect, use "mean" or "sum"',&
+              //trim(module_name)//'/'//trim(field_name)//'"is incorrect, use "mean", "sum", "variance", or "stdev"',&
               FATAL)
      else
         fields(id)%opcode = OP_MEAN
@@ -688,7 +692,7 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
   integer :: i,j ! iterators
   integer :: is,ie,js,je,ks,ke ! array boundaries
   logical :: used ! value returned from send_data (ignored)
-  real, allocatable :: buffer(:,:,:), weight(:,:,:)
+  real, allocatable :: buffer(:,:,:), weight(:,:,:), var(:,:,:)
   type(land_tile_enum_type)     :: ce, te
   type(land_tile_type), pointer :: tile
   
@@ -713,9 +717,9 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
     if ( size(tile%diag%data) < ke )       cycle ! do nothing if there is no data in the buffer
     if ( .not.tile_is_selected(tile,sel) ) cycle ! do nothing if tile is not selected
     select case (field%opcode)
-    case (OP_MEAN)
+    case (OP_MEAN,OP_VAR,OP_STD)
        where(tile%diag%mask(ks:ke)) 
-          buffer(i,j,:) = buffer(i,j,:) + tile%diag%data(ks:ke)*tile%frac
+          buffer(i,j,:) = buffer(i,j,:) + tile%frac*tile%diag%data(ks:ke)
           weight(i,j,:) = weight(i,j,:) + tile%frac
        end where
     case (OP_SUM)
@@ -728,6 +732,43 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
 
   ! normalize accumulated data
   where (weight>0) buffer=buffer/weight
+  
+  if (field%opcode == OP_VAR.or.field%opcode == OP_STD) then
+     ! second loop to process the variance and standard deviation diagnostics.
+     ! it may be possible to calc. var and std in one pass with weighted incremental 
+     ! algorithm from http://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
+     ! code her is more straightforward. buffer(:,:,:) already contains the mean,
+     ! and weight(:,:,:) -- sum of  tile fractions
+     allocate(var(is:ie,js:je,ks:ke))
+     var(:,:,:) = 0.0
+     ! the loop is somewhat different from the first, for no particular reason: 
+     ! perhaps this way is better for performance?
+     do j = js,je
+     do i = is,ie
+        ce = first_elmt(tiles(i,j))
+        te = tail_elmt (tiles(i,j))
+        do while(ce /= te)
+           tile => current_tile(ce) ! get the pointer to current tile
+           ce = next_elmt(ce)       ! move to the next position
+    
+           if ( size(tile%diag%data) < ke )       cycle ! do nothing if there is no data in the buffer
+           if ( .not.tile_is_selected(tile,sel) ) cycle ! do nothing if tile is not selected
+           where(tile%diag%mask(ks:ke))
+              var(i,j,:) = var(i,j,:) + tile%frac*(tile%diag%data(ks:ke)-buffer(i,j,:))**2
+           end where 
+        enddo
+     enddo
+     enddo
+     ! renormalize the variance or standard deviation. note that weight is 
+     ! calculated in the first loop
+     select case (field%opcode)
+     case (OP_VAR)
+         where (weight>0) buffer = var/weight
+     case (OP_STD)
+         where (weight>0) buffer = sqrt(var/weight)
+     end select
+     deallocate(var)
+  endif
   
   ! send diag field
   used = send_data ( id, buffer, time, mask=weight>0 )   

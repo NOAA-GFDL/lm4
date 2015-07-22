@@ -254,7 +254,7 @@ subroutine check_temp_range(temp, tag, varname)
   character(*), intent(in) :: varname ! name of the variable for printout
 
   call check_var_range(temp,temp_lo,temp_hi,tag,varname)
-end subroutine
+end subroutine check_temp_range
 
 ! ============================================================================
 ! checks if the value is within specified range, and prints a message
