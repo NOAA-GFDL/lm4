@@ -2,8 +2,14 @@
 
 module snow_tile_mod
 
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
+
 use fms_mod, only : &
-     write_version_number, file_exist, open_namelist_file, check_nml_error, &
+     write_version_number, file_exist, check_nml_error, &
      close_file, stdlog
 use constants_mod,only: tfreeze, hlf
 use land_constants_mod, only : &
@@ -141,6 +147,10 @@ subroutine read_snow_data_namelist(snow_num_l, snow_dz, snow_mc_fict)
   integer :: ierr         ! error code, returned by i/o routines
 
   call write_version_number(version, tagname)
+#ifdef INTERNAL_FILE_NML
+  read (input_nml_file, nml=snow_data_nml, iostat=io)
+  ierr = check_nml_error(io, 'snow_data_nml')
+#else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
      ierr = 1;  
@@ -151,6 +161,7 @@ subroutine read_snow_data_namelist(snow_num_l, snow_dz, snow_mc_fict)
 10   continue
      call close_file (unit)
   endif
+#endif
   unit=stdlog()
   write(unit, nml=snow_data_nml)
 

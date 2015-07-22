@@ -5,7 +5,13 @@ module soil_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod, only: error_mesg, file_exist,  open_namelist_file, check_nml_error, &
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
+
+use fms_mod, only: error_mesg, file_exist, check_nml_error, &
      stdlog, write_version_number, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
 use mpp_io_mod,         only: mpp_open, MPP_RDONLY
 use time_manager_mod,   only: time_type, increment_time, time_type_to_real
@@ -30,7 +36,8 @@ use land_utils_mod, only : put_to_tiles_r0d_fptr, put_to_tiles_r1d_fptr
 use land_tile_diag_mod, only : diag_buff_type, &
      register_tiled_static_field, register_tiled_diag_field, &
      send_tile_data, send_tile_data_r0d_fptr, send_tile_data_r1d_fptr, &
-     send_tile_data_i0d_fptr
+     send_tile_data_i0d_fptr, &
+     add_tiled_diag_field_alias, add_tiled_static_field_alias
 use land_data_mod,      only : land_state_type, lnd
 use land_io_mod, only : read_field
 use land_tile_io_mod, only : create_tile_out_file, write_tile_data_r0d_fptr,& 
@@ -89,6 +96,7 @@ logical :: write_when_flagged   = .false.
 logical :: bypass_richards_when_stiff = .true.
 logical :: corrected_lm2_gw     = .true.
 real    :: active_layer_drainage_acceleration = 0.
+real    :: hlf_factor           = 1.
 
 namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     init_temp,      &
@@ -101,7 +109,7 @@ namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     baseflow_where_frozen, &
                     write_when_flagged, &
                     bypass_richards_when_stiff, corrected_lm2_gw, &
-                    active_layer_drainage_acceleration
+                    active_layer_drainage_acceleration, hlf_factor
 !---- end of namelist --------------------------------------------------------
 
 logical         :: module_is_initialized =.FALSE.
@@ -127,10 +135,7 @@ integer :: id_lwc, id_swc, id_psi, id_temp, &
     id_f_iso_dry, id_f_vol_dry, id_f_geo_dry, &
     id_f_iso_sat, id_f_vol_sat, id_f_geo_sat, &
     id_evap, id_uptk_n_iter, id_uptk, id_uptk_residual, id_excess, &
-    id_psi_bot, id_sat_frac, id_stor_frac, id_sat_depth, &
-    id_uptk_old, id_psi_bot_old, id_sat_frac_old, id_stor_frac_old, &
-    id_sat_depth_old, id_slope_Z_old, id_e_depth_old, &
-    id_vwc_wilt_old, id_vwc_fc_old, id_vwc_sat_old, id_K_sat_old
+    id_psi_bot, id_sat_frac, id_stor_frac, id_sat_depth
 
 ! ==== end of module variables ===============================================
 
@@ -151,6 +156,10 @@ subroutine read_soil_namelist()
   call read_soil_data_namelist(num_l,dz,use_single_geo,use_geohydrology)
 
   call write_version_number(version, tagname)
+#ifdef INTERNAL_FILE_NML
+  read (input_nml_file, nml=soil_nml, iostat=io)
+  ierr = check_nml_error(io, 'soil_nml')
+#else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
      ierr = 1;  
@@ -161,6 +170,7 @@ subroutine read_soil_namelist()
 10   continue
      call close_file (unit)
   endif
+#endif
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=soil_nml)
@@ -274,29 +284,24 @@ subroutine soil_init ( id_lon, id_lat, id_band )
       if (.not.use_geohydrology) then
           allocate(gw_param(lnd%is:lnd%ie,lnd%js:lnd%je))
           call read_field( 'INPUT/groundwater_residence.nc','tau', &
-               lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-               gw_param, interp='bilinear' )
+               lnd%lon, lnd%lat, gw_param, interp='bilinear' )
           call put_to_tiles_r0d_fptr( gw_param, lnd%tile_map, soil_tau_groundwater_ptr )
           deallocate(gw_param)
         else
           allocate(gw_param (lnd%is:lnd%ie,lnd%js:lnd%je))
           allocate(gw_param2(lnd%is:lnd%ie,lnd%js:lnd%je))
           call read_field( 'INPUT/geohydrology.nc','hillslope_length', &
-               lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-               gw_param, interp='bilinear' )
+               lnd%lon, lnd%lat, gw_param, interp='bilinear' )
           call put_to_tiles_r0d_fptr( gw_param*gw_scale_length, lnd%tile_map, soil_hillslope_length_ptr )
           call read_field( 'INPUT/geohydrology.nc','slope', &
-               lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-               gw_param2, interp='bilinear' )
+               lnd%lon, lnd%lat, gw_param2, interp='bilinear' )
           gw_param = gw_param*gw_param2
           call put_to_tiles_r0d_fptr( gw_param*gw_scale_relief, lnd%tile_map, soil_hillslope_relief_ptr )
           call read_field( 'INPUT/geohydrology.nc','hillslope_zeta_bar', &
-               lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-               gw_param, interp='bilinear' )
+               lnd%lon, lnd%lat, gw_param, interp='bilinear' )
           call put_to_tiles_r0d_fptr( gw_param, lnd%tile_map, soil_hillslope_zeta_bar_ptr )
           call read_field( 'INPUT/geohydrology.nc','soil_e_depth', &
-               lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-               gw_param, interp='bilinear' )
+               lnd%lon, lnd%lat, gw_param, interp='bilinear' )
           call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth, lnd%tile_map, soil_soil_e_depth_ptr )
           deallocate(gw_param, gw_param2)
           te = tail_elmt (lnd%tile_map)
@@ -337,11 +342,9 @@ subroutine soil_init ( id_lon, id_lat, id_band )
   if (trim(albedo_to_use)=='albedo-map') then
      allocate(albedo(lnd%is:lnd%ie,lnd%js:lnd%je,NBANDS))
      call read_field( 'INPUT/soil_albedo.nc','SOIL_ALBEDO_VIS',&
-          lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-          albedo(:,:,BAND_VIS),'bilinear')
+          lnd%lon, lnd%lat, albedo(:,:,BAND_VIS),'bilinear')
      call read_field( 'INPUT/soil_albedo.nc','SOIL_ALBEDO_NIR',&
-          lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-          albedo(:,:,BAND_NIR),'bilinear')
+          lnd%lon, lnd%lat, albedo(:,:,BAND_NIR),'bilinear')
      call put_to_tiles_r1d_fptr( albedo, lnd%tile_map, soil_refl_dry_dir_ptr )
      call put_to_tiles_r1d_fptr( albedo, lnd%tile_map, soil_refl_dry_dif_ptr )
      ! for now, put the same value into the saturated soil albedo, so that
@@ -360,23 +363,17 @@ subroutine soil_init ( id_lon, id_lat, id_band )
 ! copied it from the albedo-map option.
 ! *********************** ????????? *************
      call read_field( 'INPUT/soil_brdf.nc','f_iso_vis',&
-          lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-          f_iso(:,:,BAND_VIS),'bilinear')
+          lnd%lon, lnd%lat, f_iso(:,:,BAND_VIS),'bilinear')
      call read_field( 'INPUT/soil_brdf.nc','f_vol_vis',&
-          lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-          f_vol(:,:,BAND_VIS),'bilinear')
+          lnd%lon, lnd%lat, f_vol(:,:,BAND_VIS),'bilinear')
      call read_field( 'INPUT/soil_brdf.nc','f_geo_vis',&
-          lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-          f_geo(:,:,BAND_VIS),'bilinear')
+          lnd%lon, lnd%lat, f_geo(:,:,BAND_VIS),'bilinear')
      call read_field( 'INPUT/soil_brdf.nc','f_iso_nir',&
-          lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-          f_iso(:,:,BAND_NIR),'bilinear')
+          lnd%lon, lnd%lat, f_iso(:,:,BAND_NIR),'bilinear')
      call read_field( 'INPUT/soil_brdf.nc','f_vol_nir',&
-          lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-          f_vol(:,:,BAND_NIR),'bilinear')
+          lnd%lon, lnd%lat, f_vol(:,:,BAND_NIR),'bilinear')
      call read_field( 'INPUT/soil_brdf.nc','f_geo_nir',&
-          lnd%glon(lnd%is:lnd%ie,lnd%js:lnd%je), lnd%glat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-          f_geo(:,:,BAND_NIR),'bilinear')
+          lnd%lon, lnd%lat, f_geo(:,:,BAND_NIR),'bilinear')
      refl_dif = g_iso*f_iso + g_vol*f_vol + g_geo*f_geo
      call put_to_tiles_r1d_fptr( f_iso,    lnd%tile_map, soil_f_iso_dry_ptr )
      call put_to_tiles_r1d_fptr( f_vol,    lnd%tile_map, soil_f_vol_dry_ptr )
@@ -420,14 +417,6 @@ subroutine soil_init ( id_lon, id_lat, id_band )
   call send_tile_data_r1d_fptr(id_f_vol_sat, lnd%tile_map, soil_f_vol_sat_ptr)
   call send_tile_data_r1d_fptr(id_f_geo_sat, lnd%tile_map, soil_f_geo_sat_ptr)
   call send_tile_data_i0d_fptr(id_type,         lnd%tile_map, soil_tag_ptr)
-
-  call send_tile_data_r0d_fptr(id_slope_Z_old,      lnd%tile_map, soil_hillslope_relief_ptr)
-  call send_tile_data_r0d_fptr(id_e_depth_old,      lnd%tile_map, soil_soil_e_depth_ptr)
-  call send_tile_data_r0d_fptr(id_vwc_wilt_old,     lnd%tile_map, soil_vwc_wilt_ptr)
-  call send_tile_data_r0d_fptr(id_vwc_fc_old,       lnd%tile_map, soil_vwc_fc_ptr)
-  call send_tile_data_r0d_fptr(id_vwc_sat_old,      lnd%tile_map, soil_vwc_sat_ptr)
-  call send_tile_data_r0d_fptr(id_K_sat_old,        lnd%tile_map, soil_k_sat_ref_ptr)
-
 end subroutine soil_init
 
 
@@ -495,19 +484,19 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band )
        Time, 'depth below sfc to saturated soil', 'm',  missing_value=-100.0 )
 
   ! ---- the following fields are for compatibility with older diag tables
-  id_uptk_old = register_tiled_diag_field ( module_name, 'uptake', axes, &
+  call add_tiled_diag_field_alias ( id_uptk, module_name, 'uptake', axes, &
        Time, 'uptake of water by roots (obsolete, use "soil_uptk" instead)', &
        'kg/(m2 s)',  missing_value=-100.0 )
-  id_psi_bot_old = register_tiled_diag_field ( module_name, 'psi_bot', axes(1:2), &
+  call add_tiled_diag_field_alias ( id_psi_bot, module_name, 'psi_bot', axes(1:2), &
        Time, 'psi at bottom of soil column (obsolete, use "soil_psi_n" instead)', &
        'm',  missing_value=-100.0 )
-  id_sat_frac_old = register_tiled_diag_field ( module_name, 'sat_frac', axes(1:2), &
+  call add_tiled_diag_field_alias ( id_sat_frac, module_name, 'sat_frac', axes(1:2), &
        Time, 'fraction of soil area saturated at surface (obsolete, use "soil_fsat" instead)',&
        '-',  missing_value=-100.0 )
-  id_stor_frac_old = register_tiled_diag_field ( module_name, 'stor_frac', axes(1:2), &
+  call add_tiled_diag_field_alias ( id_stor_frac, module_name, 'stor_frac', axes(1:2), &
        Time, 'groundwater storage frac above base elev (obsolete, use "soil_fgw" instead)',&
        '-',  missing_value=-100.0 )
-  id_sat_depth_old = register_tiled_diag_field ( module_name, 'sat_depth', axes(1:2), &
+  call add_tiled_diag_field_alias ( id_sat_depth, module_name, 'sat_depth', axes(1:2), &
        Time, 'depth below sfc to saturated soil (obsolete, use "soil_wtdep" instead)', &
        'm',  missing_value=-100.0 )
   ! ---- end of compatibility section
@@ -571,22 +560,22 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band )
        missing_value=-1.0 )
 
   ! the following fields are for compatibility with older diag tables only
-  id_slope_Z_old = register_tiled_static_field ( module_name, 'slope_Z',  &
+  call add_tiled_static_field_alias ( id_slope_Z, module_name, 'slope_Z',  &
        axes(1:2), 'hillslope relief (obsolete, use "soil_rlief" instead)',&
        'm', missing_value=-100.0 )
-  id_e_depth_old = register_tiled_static_field ( module_name, 'e_depth',  &
+  call add_tiled_static_field_alias ( id_e_depth, module_name, 'e_depth',  &
        axes(1:2), 'soil e-folding depth (obsolete, use "soil_depth" instead)', &
        'm', missing_value=-100.0 )
-  id_vwc_wilt_old = register_tiled_static_field ( module_name, 'vwc_wilt',  &
+  call add_tiled_static_field_alias ( id_vwc_wilt, module_name, 'vwc_wilt',  &
        axes(1:2), 'wilting water content (obsolete, use "soil_wilt" instead)', &
        '-', missing_value=-100.0 )
-  id_vwc_fc_old = register_tiled_static_field ( module_name, 'vwc_fc',  &
+  call add_tiled_static_field_alias ( id_vwc_fc, module_name, 'vwc_fc',  &
        axes(1:2), 'field capacity (obsolete, use "soil_fc" instead)', &
        '-', missing_value=-100.0 )
-  id_vwc_sat_old = register_tiled_static_field ( module_name, 'vwc_sat',  &
+  call add_tiled_static_field_alias ( id_vwc_sat, module_name, 'vwc_sat',  &
        axes(1:2), 'soil porosity (obsolete, use "soil_sat")', &
        '-', missing_value=-100.0 )
-  id_K_sat_old = register_tiled_static_field ( module_name, 'K_sat',  &
+  call add_tiled_static_field_alias ( id_K_sat, module_name, 'K_sat',  &
        axes(1:2), 'soil sat. hydraulic conductivity (obsolte, use "soil_Ksat" instead)', &
        'kg /(m2 s)', missing_value=-100.0 )
 
@@ -612,7 +601,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   call error_mesg('soil_end','writing NetCDF restart',NOTE)
   ! create output file, including internal structure necessary for output
   call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'soil.res.nc', &
-          lnd%glon*180.0/PI, lnd%glat*180/PI, soil_tile_exists, tile_dim_length )
+          lnd%coord_glon, lnd%coord_glat, soil_tile_exists, tile_dim_length )
   ! in addition, define vertical coordinate
   if (mpp_pe()==lnd%io_pelist(1)) then
      __NF_ASRT__(nfu_def_dim(unit,'zfull',zfull(1:num_l),'full level','m'))
@@ -1069,7 +1058,6 @@ end subroutine soil_step_1
 
   call send_tile_data(id_uptk_n_iter, real(n_iter), diag)
   call send_tile_data(id_uptk, uptake, diag)
-  call send_tile_data(id_uptk_old, uptake, diag)
 
   ! update temperature and water content of soil due to root uptake processes 
   do l = 1, num_l
@@ -1157,7 +1145,7 @@ end subroutine soil_step_1
    lrunf_nu = (excess_liq+excess_ice) / delta_time
   hlrunf_nu = (  excess_liq*clw*(excess_T-tfreeze)  &
                + excess_ice*csw*(excess_T-tfreeze)  &
-               - hlf*excess_ice                   ) / delta_time
+               - hlf_factor*hlf*excess_ice          ) / delta_time
 
   if(is_watch_point()) then
      write(*,*) ' ##### soil_step_2 checkpoint 3.01 #####'
@@ -1264,13 +1252,9 @@ end subroutine soil_step_1
         if (z_sat.gt.0.) div = (dq / z_sat) * gw_flux
         where (div.eq.0.) div = div_active*active_layer_drainage_acceleration
         call send_tile_data(id_psi_bot, psi(num_l), diag)
-        call send_tile_data(id_psi_bot_old, psi(num_l), diag)
         call send_tile_data(id_sat_frac, sat_frac, diag)
-        call send_tile_data(id_sat_frac_old, sat_frac, diag)
         call send_tile_data(id_stor_frac, storage_frac, diag)
-        call send_tile_data(id_stor_frac_old, storage_frac, diag)
         if (depth_to_saturation .ge. -0.5) call send_tile_data(id_sat_depth, depth_to_saturation, diag)
-        if (depth_to_saturation .ge. -0.5) call send_tile_data(id_sat_depth_old, depth_to_saturation, diag)
       ENDIF
     lrunf_bf = lrunf_bf + sum(div)
     if (snow_lprec.ne.0.) then
@@ -1722,7 +1706,7 @@ ENDIF                                              ! BYPASS_RICHARDS_WHEN_STIFF
     ! ---- compute explicit melt/freeze --------------------------------------
     hcap = soil%heat_capacity_dry(l)*dz(l) &
              + clw*soil%prog(l)%wl + csw*soil%prog(l)%ws
-    melt_per_deg = hcap/hlf
+    melt_per_deg = hcap/(hlf_factor*hlf)
     if       (soil%prog(l)%ws>0 .and. soil%prog(l)%T>soil%pars%tfreeze) then
       melt =  min(soil%prog(l)%ws, (soil%prog(l)%T-soil%pars%tfreeze)*melt_per_deg)
     else if (soil%prog(l)%wl>0 .and. soil%prog(l)%T<soil%pars%tfreeze) then
@@ -1733,7 +1717,7 @@ ENDIF                                              ! BYPASS_RICHARDS_WHEN_STIFF
     soil%prog(l)%wl = soil%prog(l)%wl + melt
     soil%prog(l)%ws = soil%prog(l)%ws - melt
     soil%prog(l)%T = tfreeze &
-       + (hcap*(soil%prog(l)%T-tfreeze) - hlf*melt) &
+       + (hcap*(soil%prog(l)%T-tfreeze) - hlf_factor*hlf*melt) &
                             / ( hcap + (clw-csw)*melt )
     soil_melt = soil_melt + melt / delta_time
   enddo

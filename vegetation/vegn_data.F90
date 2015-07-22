@@ -1,7 +1,13 @@
 module vegn_data_mod
 
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
+
 use fms_mod, only : &
-     write_version_number, file_exist, open_namelist_file, check_nml_error, &
+     write_version_number, file_exist, check_nml_error, &
      close_file, stdlog
 
 use land_constants_mod, only : NBANDS
@@ -148,8 +154,6 @@ type spec_data_type
   real    :: leaf_refl (NBANDS) ! reflectance of leaf
   real    :: leaf_tran (NBANDS) ! transmittance of leaf
   real    :: leaf_emis          ! emissivity of leaf 
-  real    :: scatter   (NBANDS) ! scattering coefficient of leaf (calculated as leaf_tran+leaf_refl)
-  real    :: upscatter_dif (NBANDS)
 
   ! parameters of leaf angle distribution; see also Bonan, NCAR/TN-417+STR (LSM
   ! 1.0 technical description), p.18
@@ -426,6 +430,10 @@ subroutine read_vegn_data_namelist()
   integer :: i
 
   call write_version_number(version, tagname)
+#ifdef INTERNAL_FILE_NML
+  read (input_nml_file, nml=vegn_data_nml, iostat=io)
+  ierr = check_nml_error(io, 'vegn_data_nml')
+#else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
      ierr = 1;  
@@ -436,6 +444,7 @@ subroutine read_vegn_data_namelist()
 10   continue
      call close_file (unit)
   endif
+#endif
 
   unit=stdlog()
 
@@ -557,11 +566,6 @@ subroutine init_derived_species_data(sp)
       ! formula for mu_bar gives an undefined value, so we handle it separately 
       sp%mu_bar = 1.0
    endif
-   do j = 1,NBANDS
-      sp%scatter(j)       = sp%leaf_refl(j)+sp%leaf_tran(j);
-      sp%upscatter_dif(j) = 0.5*(sp%scatter(j) + & 
-           (sp%leaf_refl(j)-sp%leaf_tran(j))*(1+sp%ksi)**2/4);
-   enddo
 end subroutine
 
 

@@ -116,8 +116,8 @@ end subroutine
 subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, tile_dim_length, reserve)
   integer          , intent(out) :: ncid      ! resulting NetCDF id
   character(len=*) , intent(in)  :: name      ! name of the file to create
-  real             , intent(in)  :: glon(:,:) ! longitudes of the grid centers
-  real             , intent(in)  :: glat(:,:) ! latitudes of the grid centers
+  real             , intent(in)  :: glon(:)   ! longitudes of the grid centers
+  real             , intent(in)  :: glat(:)   ! latitudes of the grid centers
   integer          , intent(in)  :: tidx(:)   ! integer compressed index of tiles
   integer          , intent(in)  :: tile_dim_length ! length of tile axis
   integer, optional, intent(in)  :: reserve   ! amount of space to reserve for 
@@ -134,7 +134,9 @@ subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, tile_dim_lengt
   integer, allocatable :: ntiles(:) ! list of land tile numbers for each of PEs in io_domain
   integer, allocatable :: tidx2(:)  ! array of tile indices from all PEs in io_domain
   integer :: p ! io_domain PE iterator 
-  integer :: k ! current index in tidx2 array for recieve operation
+  integer :: k ! current index in tidx2 array for receive operation
+  integer :: i
+  integer :: iret
 
   ! form the full name of the file
   call get_mosaic_tile_file(name,full_name,.FALSE.,lnd%domain)
@@ -167,18 +169,19 @@ subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, tile_dim_lengt
 
      ! create netcdf file
 #ifdef use_netCDF3
-     __NF_ASRT__(nf__create(full_name,NF_CLOBBER,0,65536,ncid))
+     __NF_ASRT__(nf_create(full_name,NF_CLOBBER,ncid))
 #elif use_LARGEFILE
-     __NF_ASRT__(nf__create(full_name,IOR(NF_64BIT_OFFSET,NF_CLOBBER),0,65536,ncid))
+     __NF_ASRT__(nf_create(full_name,IOR(NF_64BIT_OFFSET,NF_CLOBBER),ncid))
 #else
-     __NF_ASRT__(nf__create(full_name,IOR(NF_NETCDF4,NF_CLASSIC_MODEL),0,65536,ncid))
+     __NF_ASRT__(nf_create(full_name,IOR(NF_NETCDF4,NF_CLASSIC_MODEL),ncid))
 #endif
 
      ! create lon, lat, dimensions and variables
-     __NF_ASRT__(nfu_def_dim(ncid,'lon' ,glon(:,1) ,'longitude','degrees_east'))
-     __NF_ASRT__(nfu_def_dim(ncid,'lat' ,glat(1,:) ,'latitude','degrees_north'))
+     __NF_ASRT__(nfu_def_dim(ncid,'lon' ,glon(:) ,'longitude','degrees_east'))
+     __NF_ASRT__(nfu_def_dim(ncid,'lat' ,glat(:) ,'latitude','degrees_north'))
 
-     __NF_ASRT__(nfu_def_dim(ncid,'tile',tile_dim_length))
+     iret=nfu_def_dim(ncid,'tile',(/(p,p=1,tile_dim_length)/),'tile number within grid cell')
+     __NF_ASRT__(iret)
      ! the size of tile dimension really does not matter for the output, but it does
      ! matter for uncompressing utility, since it uses it as a size of the array to
      ! unpack to
@@ -201,7 +204,7 @@ subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, tile_dim_lengt
      ! future expansion without library's having to rewrite the entire file. See 
      ! manual pages netcdf(3f) or netcdf(3) for more information.
   endif
-  ! make sure send-recieve operations and file creation have finished
+  ! make sure send-receive operations and file creation have finished
   call mpp_sync(lnd%io_pelist)
   ! open file on non-writing processors to have access to the tile index
   if (mpp_pe()/=lnd%io_pelist(1)) then
@@ -214,8 +217,8 @@ subroutine create_tile_out_file_fptr(ncid, name, glon, glat, tile_exists, &
      tile_dim_length, reserve, created)
   integer          , intent(out) :: ncid      ! resulting NetCDF id
   character(len=*) , intent(in)  :: name      ! name of the file to create
-  real             , intent(in)  :: glon(:,:) ! longitudes of the grid centers
-  real             , intent(in)  :: glat(:,:) ! latitudes of the grid centers
+  real             , intent(in)  :: glon(:)   ! longitudes of the grid centers
+  real             , intent(in)  :: glat(:)   ! latitudes of the grid centers
   integer          , intent(in)  :: tile_dim_length ! length of tile axis
   integer, optional, intent(in)  :: reserve   ! amount of space to reserve for
   logical, optional, intent(out) :: created   ! indicates wether the file was 
@@ -253,7 +256,7 @@ subroutine create_tile_out_file_fptr(ncid, name, glon, glat, tile_exists, &
      call get_elmt_indices(ce,i,j,k)
      
      if(tile_exists(current_tile(ce))) then
-        idx (n) = (k-1)*size(lnd%garea,1)*size(lnd%garea,2) + (j-1)*size(lnd%garea,1) + (i-1)
+        idx (n) = (k-1)*lnd%nlon*lnd%nlat + (j-1)*lnd%nlon + (i-1)
         n = n+1
      endif
      ce=next_elmt(ce)
@@ -307,6 +310,7 @@ subroutine get_tile_by_idx(idx,nlon,nlat,tiles,is,js,ptr)
    
 end subroutine
 
+
 ! ============================================================================
 ! given the netcdf file id, name of the variable, and accessor subroutine, this
 ! subroutine reads integer 2D data (a scalar value per grid cell, that's why 
@@ -352,12 +356,13 @@ subroutine read_tile_data_i0d_fptr(ncid,name,fptr)
    __NF_ASRT__(nf_get_var_int(ncid,varid,x1d))
    ! distribute the data over the tiles
    do i = 1, size(idx)
-      call get_tile_by_idx(idx(i),size(lnd%garea,1),size(lnd%garea,2),lnd%tile_map,&
+      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
                            lnd%is,lnd%js, tileptr)
       call fptr(tileptr, ptr)
       if(associated(ptr)) ptr = x1d(i)
    enddo   
-   
+   ! release allocated memory
+   deallocate(idx,x1d)
 end subroutine
 
 
@@ -402,11 +407,13 @@ subroutine read_tile_data_r0d_fptr(ncid,name,fptr)
    __NF_ASRT__(nf_get_var_double(ncid,varid,x1d))
    ! distribute the data over the tiles
    do i = 1, size(idx)
-      call get_tile_by_idx(idx(i),size(lnd%garea,1),size(lnd%garea,2),lnd%tile_map,&
+      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
                            lnd%is,lnd%js, tileptr)
       call fptr(tileptr, ptr)
       if(associated(ptr)) ptr = x1d(i)
    enddo   
+   ! release allocated memory
+   deallocate(idx,x1d)
 end subroutine
 
 ! ============================================================================
@@ -450,11 +457,13 @@ subroutine read_tile_data_r1d_fptr_all(ncid,name,fptr)
    __NF_ASRT__(nf_get_var_double(ncid,varid,x2d))
    ! distribute the data over the tiles
    do i = 1, size(idx)
-      call get_tile_by_idx(idx(i),size(lnd%garea,1),size(lnd%garea,2),lnd%tile_map,&
+      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
                            lnd%is,lnd%js, tileptr)
       call fptr(tileptr, ptr)
       if(associated(ptr)) ptr(:) = x2d(i,:)
    enddo
+   ! release allocated memory
+   deallocate(idx,x2d)
 end subroutine
 
 
@@ -500,11 +509,13 @@ subroutine read_tile_data_r1d_fptr_idx (ncid,name,fptr,index)
    __NF_ASRT__(nf_get_var_double(ncid,varid,x1d))
    ! distribute the data over the tiles
    do i = 1, size(idx)
-      call get_tile_by_idx(idx(i),size(lnd%garea,1),size(lnd%garea,2),lnd%tile_map,&
+      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
                            lnd%is,lnd%js, tileptr)
       call fptr(tileptr, ptr)
       if(associated(ptr)) ptr(index) = x1d(i)
    enddo   
+   ! release allocated memory
+   deallocate(idx,x1d)
 end subroutine
 
 
@@ -697,7 +708,7 @@ subroutine write_tile_data_i0d_fptr(ncid,name,fptr,long_name,units)
   ! fill the data with initial values. This is for the case when some of the
   ! compressed tile indices are invalid, so that corresponding indices of the
   ! array are skipped in the loop below. The invalid indices occur when a restart
-  ! is writtent for the doamin where no tiles exist, e.g. the ocean-covered 
+  ! is written for the domain where no tiles exist, e.g. the ocean-covered 
   ! region
   data = NF_FILL_INT
   mask = 0
@@ -709,7 +720,7 @@ subroutine write_tile_data_i0d_fptr(ncid,name,fptr,long_name,units)
   ! gather data into an array along the tile dimension. It is assumed that 
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),size(lnd%garea,1),size(lnd%garea,2),lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
                           lnd%is,lnd%js, tileptr)
      call fptr(tileptr, ptr)
      if(associated(ptr)) then
@@ -764,7 +775,7 @@ subroutine write_tile_data_r0d_fptr(ncid,name,fptr,long_name,units)
   ! gather data into an array along the tile dimension. It is assumed that 
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),size(lnd%garea,1),size(lnd%garea,2),lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
                           lnd%is,lnd%js, tileptr)
      call fptr(tileptr, ptr)
      if(associated(ptr)) then
@@ -822,7 +833,7 @@ subroutine write_tile_data_r1d_fptr_all(ncid,name,fptr,zdim,long_name,units)
   ! gather data into an array along the tile dimension. It is assumed that 
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),size(lnd%garea,1),size(lnd%garea,2),lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
                           lnd%is,lnd%js, tileptr)
      call fptr(tileptr, ptr)
      if(associated(ptr)) then
@@ -880,7 +891,7 @@ subroutine write_tile_data_r1d_fptr_idx(ncid,name,fptr,index,long_name,units)
   ! gather data into an array along the tile dimension. It is assumed that 
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),size(lnd%garea,1),size(lnd%garea,2),lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
                           lnd%is,lnd%js, tileptr)
      call fptr(tileptr, ptr)
      if(associated(ptr)) then
@@ -902,7 +913,7 @@ subroutine override_tile_data_r0d_fptr(fieldname,fptr,time,override)
   character(len=*), intent(in)   :: fieldname ! field to override
   type(time_type),  intent(in)   :: time      ! model time
   logical, optional, intent(out) :: override  ! true if the field has been 
-                                              ! overridden succesfully
+                                              ! overridden successfully
   ! subroutine returning the pointer to the data to be overridden
   interface ; subroutine fptr(tile, ptr)
      use land_tile_mod, only : land_tile_type
@@ -917,7 +928,7 @@ subroutine override_tile_data_r0d_fptr(fieldname,fptr,time,override)
   
   call data_override('LND',fieldname,data2D, time, override_ )
   if(present(override)) override=override_
-  if(.not.override_) return ! do nothing if the field was not overriden 
+  if(.not.override_) return ! do nothing if the field was not overridden 
 
   ! distribute the data over the tiles
   call put_to_tiles_r0d_fptr(data2d,lnd%tile_map,fptr)

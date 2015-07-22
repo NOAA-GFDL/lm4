@@ -5,8 +5,15 @@ use mpp_mod,            only : mpp_max, mpp_sum
 use time_manager_mod,   only : time_type, set_date, time_type_to_real, &
      get_calendar_type, valid_calendar_types, operator(-), get_date
 use get_cal_time_mod,   only : get_cal_time
+
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
+
 use fms_mod,            only : write_version_number, error_mesg, FATAL, NOTE, &
-     mpp_pe, file_exist, open_namelist_file, close_file, check_nml_error, stdlog, &
+     mpp_pe, file_exist, close_file, check_nml_error, stdlog, &
      mpp_root_pe, get_mosaic_tile_file
 use time_interp_mod,    only : time_interp
 use diag_manager_mod,   only : get_base_date
@@ -15,7 +22,8 @@ use nf_utils_mod,       only : nfu_inq_dim, nfu_get_dim, nfu_def_dim, &
      nfu_inq_compressed_var, nfu_get_compressed_rec, nfu_validtype, &
      nfu_get_valid_range, nfu_is_valid, nfu_put_rec, nfu_put_att
 use land_data_mod,      only : lnd
-use land_io_mod,        only : print_netcdf_error, nearest
+use land_io_mod,        only : print_netcdf_error
+use land_numerics_mod,  only : nearest
 use land_tile_io_mod,   only : create_tile_out_file,sync_nc_files
 use land_tile_mod,      only : land_tile_type, land_tile_enum_type, first_elmt, &
      tail_elmt, next_elmt, current_tile, operator(/=), nitems
@@ -87,6 +95,10 @@ subroutine read_static_vegn_namelist(static_veg_used)
 
   call write_version_number(version, tagname)
 
+#ifdef INTERNAL_FILE_NML
+  read (input_nml_file, nml=static_veg_nml, iostat=io)
+  ierr = check_nml_error(io, 'static_veg_nml')
+#else
   if (file_exist('input.nml')) then
      unit = open_namelist_file ( )
      ierr = 1;  
@@ -97,6 +109,7 @@ subroutine read_static_vegn_namelist(static_veg_used)
 10   continue
      call close_file (unit)
   endif
+#endif
   
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
@@ -239,7 +252,7 @@ subroutine static_vegn_init()
 
      if(input_is_multiface) then
         ! check that the sizes of input data and the model data are the same
-        if(dimlens(1)/=size(lnd%glon,1).or.dimlens(2)/=size(lnd%glon,2)) then
+        if(dimlens(1)/=lnd%nlon.or.dimlens(2)/=lnd%nlat) then
            call error_mesg('static_vegn_init','size of face-specific static vegetation '&
                 //'data isn''t the same as the size of the mosaic face', FATAL)
         endif
@@ -253,7 +266,7 @@ subroutine static_vegn_init()
         ! do the nearest-point remapping
         do j = lnd%js,lnd%je
         do i = lnd%is,lnd%ie
-           call nearest(mask,in_lon,in_lat,lnd%glon(i,j),lnd%glat(i,j),map_i(i,j),map_j(i,j))
+           call nearest(mask,in_lon,in_lat,lnd%lon(i,j),lnd%lat(i,j),map_i(i,j),map_j(i,j))
         enddo
         enddo
      endif
@@ -279,7 +292,7 @@ subroutine static_vegn_init()
      call mpp_max(tile_dim_length)
 
      call create_tile_out_file(ncid2,'static_veg_out.nc', &
-          lnd%glon*180.0/PI, lnd%glat*180/PI, vegn_tile_exists, tile_dim_length)
+          lnd%coord_glon, lnd%coord_glat, vegn_tile_exists, tile_dim_length)
      ! create compressed dimension for vegetation cohorts
      call create_cohort_dimension(ncid2)
      ! get the base date of the simulation
@@ -321,13 +334,18 @@ subroutine read_static_vegn (time)
   ! ---- local vars 
   integer :: index1, index2 ! result of time interpolation (only index1 is used)
   real    :: weight         ! another result of time interp, not used
+  character(len=256) :: err_msg
 
   if(.not.use_static_veg)return;
 
   !   time_interp to find out the index of the current time interval
   if (timeline == 'loop') then
+     err_msg = ''
      call time_interp(time, ts, te, time_line, weight, index1, index2, &
                       correct_leap_year_inconsistency=.true.)
+     if(err_msg /= '') then
+       call error_mesg('subroutine read_static_vegn',trim(err_msg), FATAL)
+     endif
   else if (timeline == 'normal') then
      call time_interp(time, time_line, weight, index1, index2)
   else

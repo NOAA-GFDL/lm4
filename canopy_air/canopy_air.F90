@@ -1,12 +1,18 @@
 ! ============================================================================
 ! canopy air
 ! ============================================================================
-#include "../shared/debug.inc"
-
 module canopy_air_mod
 
+#include "../shared/debug.inc"
+
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
+
 use fms_mod, only : write_version_number, error_mesg, FATAL, NOTE, file_exist, &
-     close_file, open_namelist_file, check_nml_error, &
+     close_file, check_nml_error, &
      mpp_pe, mpp_root_pe, stdlog
 use time_manager_mod, only : time_type, time_type_to_real
 use constants_mod, only : rdgas, rvgas, cp_air, PI, VONKARM
@@ -61,10 +67,12 @@ character(len=32) :: turbulence_to_use = 'lm3w' ! or lm3v
 logical :: save_qco2     = .TRUE.
 logical :: sfc_dir_albedo_bug = .FALSE. ! if true, reverts to buggy behavior
 ! where direct albedo was mistakenly used for part of sub-canopy diffuse light
+logical :: bare_ground_z0_bug = .FALSE. ! bug switch for bare z0m,d: if TRUE,
+! z0m can't be less then "height", and that has lower limit of 0.1 m
 namelist /cana_nml/ &
   init_T, init_T_cold, init_q, init_co2, turbulence_to_use, &
   canopy_air_mass, canopy_air_mass_for_tracers, cpw, rav_lit_vi, save_qco2, &
-  sfc_dir_albedo_bug
+  sfc_dir_albedo_bug, bare_ground_z0_bug
 !---- end of namelist --------------------------------------------------------
 
 logical            :: module_is_initialized =.FALSE.
@@ -89,6 +97,10 @@ subroutine read_cana_namelist()
   integer :: ierr         ! error code, returned by i/o routines
 
   call write_version_number(version, tagname)
+#ifdef INTERNAL_FILE_NML
+     read (input_nml_file, nml=cana_nml, iostat=io)
+     ierr = check_nml_error(io, 'cana_nml')
+#else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
      ierr = 1;  
@@ -99,6 +111,7 @@ subroutine read_cana_namelist()
 10   continue
      call close_file (unit)
   endif
+#endif
   if (mpp_pe() == mpp_root_pe()) then
      unit = stdlog()
      write (unit, nml=cana_nml)
@@ -196,7 +209,7 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
 
   call error_mesg('cana_end','writing NetCDF restart',NOTE)
   call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'cana.res.nc',&
-          lnd%glon*180.0/PI, lnd%glat*180/PI, cana_tile_exists, tile_dim_length)
+          lnd%coord_glon, lnd%coord_glat, cana_tile_exists, tile_dim_length)
 
      ! write fields
      call write_tile_data_r0d_fptr(unit,'temp' ,cana_T_ptr,'canopy air temperature','degrees_K')
@@ -448,9 +461,14 @@ subroutine cana_roughness(lm2, &
            land_z0m = grnd_z0m + 0.3*height*sqrt(0.07*vegn_idx)
         endif
      else 
-        ! bare soil or leaf off
-        land_z0m = 0.1 *height
-        land_d   = 0.66*height
+        if (bare_ground_z0_bug) then
+           ! bare soil or leaf off
+           land_z0m = 0.1 *height
+           land_d   = 0.66*height
+        else
+           land_d   = 0
+           land_z0m = grnd_z0m
+        endif
      endif
      land_z0s = land_z0m*exp(-2.0) 
 
@@ -489,7 +507,7 @@ subroutine cana_step_1 ( cana,&
   ! ---- local vars
   real :: rho, grnd_q, qsat, DqsatDTg
 
-  call check_temp_range(grnd_T,'cana_step_1','grnd_T')
+  call check_temp_range(grnd_T,'cana_step_1','grnd_T',lnd%time)
 
   call qscomp(grnd_T,p_surf,qsat,DqsatDTg)
   grnd_q = grnd_rh * qsat

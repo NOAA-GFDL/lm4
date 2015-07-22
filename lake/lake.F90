@@ -3,8 +3,13 @@
 ! ============================================================================
 module lake_mod
 
-use fms_mod, only : error_mesg, file_exist,  open_namelist_file, &
-     read_data, check_nml_error, &
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
+
+use fms_mod, only : error_mesg, file_exist, read_data, check_nml_error, &
      stdlog, write_version_number, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
 use time_manager_mod,   only: time_type, increment_time, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init, register_diag_field,           &
@@ -24,7 +29,7 @@ use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
 use land_tile_diag_mod, only : register_tiled_static_field, &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
-     send_tile_data_r0d_fptr
+     send_tile_data_r0d_fptr, add_tiled_static_field_alias
 use land_data_mod,      only : land_state_type, lnd
 use land_tile_io_mod, only : print_netcdf_error, create_tile_out_file, &
      read_tile_data_r1d_fptr, write_tile_data_r1d_fptr, sync_nc_files, &
@@ -97,7 +102,6 @@ real            :: max_rat
 ! ---- diagnostic field IDs
 integer :: id_lwc, id_swc, id_temp, id_ie, id_sn, id_bf, id_hie, id_hsn, id_hbf
 integer :: id_evap, id_dz, id_wl, id_ws, id_K_z, id_silld, id_sillw
-integer :: id_silld_old, id_sillw_old
 ! ==== end of module variables ===============================================
 
 ! ==== NetCDF declarations ===================================================
@@ -117,6 +121,10 @@ subroutine read_lake_namelist()
   call read_lake_data_namelist(num_l)
 
   call write_version_number(version, tagname)
+#ifdef INTERNAL_FILE_NML
+     read (input_nml_file, nml=lake_nml, iostat=io)
+     ierr = check_nml_error(io, 'lake_nml')
+#else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
      ierr = 1;  
@@ -127,6 +135,7 @@ subroutine read_lake_namelist()
 10   continue
      call close_file (unit)
   endif
+#endif
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=lake_nml)
@@ -284,7 +293,7 @@ subroutine save_lake_restart (tile_dim_length, timestamp)
 
   call error_mesg('lake_end','writing NetCDF restart',NOTE)
   call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'lake.res.nc', &
-          lnd%glon*180.0/PI, lnd%glat*180/PI, lake_tile_exists, tile_dim_length)
+          lnd%coord_glon, lnd%coord_glat, lake_tile_exists, tile_dim_length)
 
   ! in addition, define vertical coordinate
   if (mpp_pe()==lnd%io_pelist(1)) then
@@ -761,8 +770,6 @@ end subroutine lake_step_1
   call send_tile_data (id_swc,  lake%prog(1:num_l)%ws/lake%prog(1:num_l)%dz, diag )
   call send_tile_data (id_K_z,  lake%prog(1:num_l)%K_z,        diag )
   call send_tile_data (id_evap, lake_levap+lake_fevap, diag )
-  call send_tile_data (id_silld_old, lake%pars%depth_sill,diag)
-  call send_tile_data (id_sillw_old, lake%pars%width_sill,diag)
 
 end subroutine lake_step_2
 
@@ -931,11 +938,11 @@ subroutine lake_diag_init ( id_lon, id_lat )
   id_evap  = register_tiled_diag_field ( module_name, 'lake_evap',  axes(1:2),  &
        Time, 'lake evap',            'kg/(m2 s)',  missing_value=-100.0 )
        
-  id_silld_old = register_tiled_diag_field (module_name, 'sill_depth', &
-       axes(1:2), Time, 'obsolete, pls use lake_depth (static)','m', &
+  call add_tiled_static_field_alias (id_silld, module_name, 'sill_depth', &
+       axes(1:2), 'obsolete, pls use lake_depth (static)','m', &
        missing_value=-100.0 )
-  id_sillw_old = register_tiled_diag_field (module_name, 'sill_width', &
-       axes(1:2), Time, 'obsolete, pls use lake_width (static)','m', &
+  call add_tiled_static_field_alias (id_sillw, module_name, 'sill_width', &
+       axes(1:2), 'obsolete, pls use lake_width (static)','m', &
        missing_value=-100.0 )
 
 end subroutine lake_diag_init

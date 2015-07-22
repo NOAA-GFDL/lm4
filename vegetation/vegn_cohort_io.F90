@@ -87,7 +87,7 @@ subroutine read_create_cohorts(ncid)
   character(len=64) :: info ! for error message
 
   ! get the size of dimensions
-  nlon = size(lnd%garea,1) ; nlat = size(lnd%garea,2)
+  nlon = lnd%nlon ; nlat = lnd%nlat
   __NF_ASRT__(nfu_inq_dim(ncid,'tile',len=ntiles))
 
   ! read the cohort index
@@ -185,9 +185,9 @@ subroutine create_cohort_dimension(ncid)
         call get_elmt_indices(ce,i,j,k)
         do c = 1,tile%vegn%n_cohorts
            idx (n) = &
-                (c-1)*size(lnd%garea,1)*size(lnd%garea,2)*ntiles + &
-                (k-1)*size(lnd%garea,1)*size(lnd%garea,2) + &
-                (j-1)*size(lnd%garea,1) + &
+                (c-1)*lnd%nlon*lnd%nlat*ntiles + &
+                (k-1)*lnd%nlon*lnd%nlat + &
+                (j-1)*lnd%nlon + &
                 (i-1)        
            n = n+1
         enddo
@@ -217,7 +217,7 @@ subroutine create_cohort_dimension(ncid)
      enddo
      ! create cohort dimension in the output file
      iret = nf_redef(ncid)
-     __NF_ASRT__(nfu_def_dim(ncid,'cohort',max_cohorts))
+     __NF_ASRT__(nfu_def_dim(ncid,'cohort',(/(i,i=1,max_cohorts)/),'cohort number within tile'))
      ! create cohort index
      __NF_ASRT__(nfu_def_dim(ncid,cohort_index_name,idx2,'compressed vegetation cohort index'))
      __NF_ASRT__(nfu_put_att(ncid,cohort_index_name,'compress','cohort tile lat lon'))

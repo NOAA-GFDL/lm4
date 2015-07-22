@@ -59,84 +59,81 @@ type :: vegn_cohort_type
 ! but saved for reproducibility (to avoid recalculation). exceptions :
 ! npp_previous_day is left outside, since it's obviously auxiliary; height
 ! is left outside
-  integer :: species ! vegetation species
-  real    :: bl      ! biomass of leaves, kg C/m2
-  real    :: blv     ! biomass of virtual leaves (labile store), kg C/m2
-  real    :: br      ! biomass of fine roots, kg C/m2
-  real    :: bsw     ! biomass of sapwood, kg C/m2
-  real    :: bwood   ! biomass of heartwood, kg C/m2
+  integer :: species = 0   ! vegetation species
+  real    :: bl      = 0.0 ! biomass of leaves, kg C/m2
+  real    :: blv     = 0.0 ! biomass of virtual leaves (labile store), kg C/m2
+  real    :: br      = 0.0 ! biomass of fine roots, kg C/m2
+  real    :: bsw     = 0.0 ! biomass of sapwood, kg C/m2
+  real    :: bwood   = 0.0 ! biomass of heartwood, kg C/m2
 
-  real    :: bliving ! leaves, fine roots, and sapwood biomass
-  integer :: status  ! growth status of plant
-  real    :: leaf_age! age of leaf in days since budburst
+  real    :: bliving = 0.0 ! leaves, fine roots, and sapwood biomass
+  integer :: status  = 0   ! growth status of plant
+  real    :: leaf_age= 0.0 ! age of leaf in days since budburst
 
 ! ---- physical parameters
-  real    :: height     ! vegetation height, m
-  real    :: lai        ! leaf area index, m2/m2
-  real    :: sai        ! stem area index, m2/m2
-  real    :: leaf_size  ! leaf dimension, m
-  real root_density
-  real root_zeta
-  real rs_min
-  real    :: leaf_refl(NBANDS) ! reflectance of leaf, per band
-  real    :: leaf_tran(NBANDS) ! transmittance of leaf, per band
-  real    :: leaf_emis         ! emissivity of leaf
-  real snow_crit  ! later parameterize this as snow_mask_fac*height
+  real    :: height    = 0.0 ! vegetation height, m
+  real    :: lai       = 0.0 ! leaf area index, m2/m2
+  real    :: sai       = 0.0 ! stem area index, m2/m2
+  real    :: leaf_size = 0.0 ! leaf dimension, m
+  real    :: root_density = 0.0
+  real    :: root_zeta    = 0.0
+  real    :: rs_min       = 0.0
+  real    :: leaf_refl(NBANDS) = 0.0 ! reflectance of leaf, per band
+  real    :: leaf_tran(NBANDS) = 0.0 ! transmittance of leaf, per band
+  real    :: leaf_emis         = 0.0 ! emissivity of leaf
+  real    :: snow_crit         = 0.0 ! later parameterize this as snow_mask_fac*height
 
 ! ---- auxiliary variables 
 
-  real    :: Wl_max   ! maximum liquid water content of canopy, kg/(m2 of ground)
-  real    :: Ws_max   ! maximum soild water content of canopy, kg/(m2 of ground)
-  real    :: mcv_dry ! heat capacity of dry canopy
+  real    :: Wl_max  = 0.0 ! maximum liquid water content of canopy, kg/(m2 of ground)
+  real    :: Ws_max  = 0.0 ! maximum soild water content of canopy, kg/(m2 of ground)
+  real    :: mcv_dry = 0.0 ! heat capacity of dry canopy
   real    :: cover
 
-  integer :: pt      ! physiology type
-  integer :: phent
+  integer :: pt = 0  ! physiology type
+  integer :: phent = 0 ! phenology type
 
-  real :: b       ! total biomass
-  real :: babove  ! total above ground biomass
-  real :: bs      ! structural biomass: stem + structural roots
-  real :: bstem   ! stem biomass
+  real :: b    = 0.0 ! total biomass
 
   real :: gpp  = 0.0 ! gross primary productivity kg C/timestep
   real :: npp  = 0.0 ! net primary productivity kg C/timestep
   real :: npp2 = 0.0 ! temporarily stores eddy_npp
-  real :: miami_npp ! stores miami-model npp
+  real :: miami_npp = 0.0 ! stores miami-model npp
 
   real :: resp = 0.0 ! plant respiration
   real :: resl = 0.0 ! leaf respiration
   real :: resr = 0.0 ! root respiration
-  real :: resg    ! growth respiration
-  real :: md      ! plant tissue maintenance kg C/timestep
+  real :: resg = 0.0 ! growth respiration
+  real :: md   = 0.0 ! plant tissue maintenance kg C/timestep
 
-  real :: An_op ! mol C/(m2 of leaf per year)
-  real :: An_cl ! mol C/(m2 of leaf per year)
+  real :: An_op = 0.0 ! mol C/(m2 of leaf per year)
+  real :: An_cl = 0.0 ! mol C/(m2 of leaf per year)
   
   real :: carbon_gain = 0.0 ! carbon gain during the month
   real :: carbon_loss = 0.0 ! carbon loss during the month
   real :: bwood_gain  = 0.0 !
 
   ! used in fast time scale calculations
-  real :: npp_previous_day
+  real :: npp_previous_day     = 0.0
   real :: npp_previous_day_tmp = 0.0
 
   ! lena added this for storing previous size stomatal opening and lwnet 
   ! for computing canopy air T and q at the next step
   
-  real :: gs;
-  real :: gb;
+  real :: gs = 0.0
+  real :: gb = 0.0
 !moved to prog%Wl  real :: cmc;
 !moved to prog%Tv  real :: tleaf ! temperature of leaves, degK
 
-  real :: ds;
+  real :: ds = 0.0
 
   ! new allocation fractions, Jan2 03
-  real :: Pl          ! fraction of living biomass in leaves
-  real :: Pr          ! fraction of living biomass in fine roots
-  real :: Psw         ! fraction of living biomass in sapwood
-  real :: Psw_alphasw ! fraction of sapwood times 
-                      ! retirement rate of sapwood into wood
-  real :: extinct ! light extinction coefficient in the canopy for photosynthesis calculations
+  real :: Pl = 0.0          ! fraction of living biomass in leaves
+  real :: Pr = 0.0          ! fraction of living biomass in fine roots
+  real :: Psw= 0.0          ! fraction of living biomass in sapwood
+  real :: Psw_alphasw = 0.0 ! fraction of sapwood times 
+                            ! retirement rate of sapwood into wood
+  real :: extinct = 0.0     ! light extinction coefficient in the canopy for photosynthesis calculations
   
 ! in LM3V the cohort structure has a handy pointer to the tile it belongs to;
 ! so operations on cohort can update tile-level variables. In this code, it is
