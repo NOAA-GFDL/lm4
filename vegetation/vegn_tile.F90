@@ -229,10 +229,10 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   c2 => t2%cohorts(1)
   ! define macro for merging cohort values
 #define __MERGE__(field) c2%field = x1*c1%field + x2*c2%field
-  HEAT1 = (clw*c1%prog%Wl + csw*c1%prog%Ws + c1%mcv_dry)*(c1%prog%Tv-tfreeze)
-  HEAT2 = (clw*c2%prog%Wl + csw*c2%prog%Ws + c2%mcv_dry)*(c2%prog%Tv-tfreeze)
-  __MERGE__(prog%Wl)
-  __MERGE__(prog%Ws)
+  HEAT1 = (clw*c1%Wl + csw*c1%Ws + c1%mcv_dry)*(c1%Tv-tfreeze)
+  HEAT2 = (clw*c2%Wl + csw*c2%Ws + c2%mcv_dry)*(c2%Tv-tfreeze)
+  __MERGE__(Wl)
+  __MERGE__(Ws)
 
   __MERGE__(bl)      ! biomass of leaves, kg C/m2
   __MERGE__(blv)     ! biomass of virtual leaves (labile store), kg C/m2
@@ -257,10 +257,10 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   ! capacities are zero, or merge it based on the heat content if the heat contents
   ! are non-zero
   if(HEAT1==0.and.HEAT2==0) then
-     __MERGE__(prog%Tv)
+     __MERGE__(Tv)
   else
-     c2%prog%Tv = (HEAT1*x1+HEAT2*x2) / &
-          (clw*c2%prog%Wl + csw*c2%prog%Ws + c2%mcv_dry) + tfreeze
+     c2%Tv = (HEAT1*x1+HEAT2*x2) / &
+          (clw*c2%Wl + csw*c2%Ws + c2%mcv_dry) + tfreeze
   endif
 
 #undef  __MERGE__
@@ -482,8 +482,8 @@ subroutine vegn_tile_stock_pe (vegn, twd_liq, twd_sol  )
   
   twd_liq = vegn%drop_wl ; twd_sol = vegn%drop_ws
   do i=1, vegn%n_cohorts
-    twd_liq = twd_liq + vegn%cohorts(i)%prog%wl * vegn%cohorts(i)%nindivs
-    twd_sol = twd_sol + vegn%cohorts(i)%prog%ws * vegn%cohorts(i)%nindivs
+    twd_liq = twd_liq + vegn%cohorts(i)%wl * vegn%cohorts(i)%nindivs
+    twd_sol = twd_sol + vegn%cohorts(i)%ws * vegn%cohorts(i)%nindivs
   enddo
 end subroutine vegn_tile_stock_pe
 
@@ -520,10 +520,10 @@ function vegn_tile_heat (vegn) result(heat) ; real heat
   heat = vegn%drop_hl+vegn%drop_hs
   do i = 1, vegn%n_cohorts
      heat = heat + &
-            ( (clw*vegn%cohorts(i)%prog%Wl + &
-             csw*vegn%cohorts(i)%prog%Ws + &
-               vegn%cohorts(i)%mcv_dry)*(vegn%cohorts(i)%prog%Tv-tfreeze) &
-              - hlf*vegn%cohorts(i)%prog%Ws &
+            ( (clw*vegn%cohorts(i)%Wl + &
+               csw*vegn%cohorts(i)%Ws + &
+               vegn%cohorts(i)%mcv_dry)*(vegn%cohorts(i)%Tv-tfreeze) &
+              - hlf*vegn%cohorts(i)%Ws &
             )*vegn%cohorts(i)%nindivs
   enddo
 end function vegn_tile_heat

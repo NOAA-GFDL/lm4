@@ -44,7 +44,7 @@ use vegn_data_mod, only : &
      mcv_min, mcv_lai, agf_bs, &
      tau_drip_l, tau_drip_s, T_transp_min, cold_month_threshold, soil_carbon_depth_scale, &
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, do_ppa
-use vegn_cohort_mod, only : vegn_cohort_type, vegn_phys_prog_type, &
+use vegn_cohort_mod, only : vegn_cohort_type, &
      update_species, update_bio_living_fraction, &
      get_vegn_wet_frac, vegn_data_cover, init_cohort_allometry_ppa, &
      btotal, height_from_biomass, leaf_area_from_biomass
@@ -460,9 +460,9 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      allocate(tile%vegn%cohorts(tile%vegn%n_cohorts))
      do n = 1,tile%vegn%n_cohorts
         associate(cc => tile%vegn%cohorts(n))
-        cc%prog%Wl = init_Wl
-        cc%prog%Ws = init_Ws
-        cc%prog%Tv = init_Tv
+        cc%Wl = init_Wl
+        cc%Ws = init_Ws
+        cc%Tv = init_Tv
         
         cc%bl      = init_cohort_bl(n)
         cc%blv     = init_cohort_blv(n)
@@ -1033,8 +1033,8 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
      __DEBUG1__(cc%sai)
      __DEBUG1__(cc%cover)
      __DEBUG1__(cc%leaf_size)
-     __DEBUG1__(cc%prog%Tv)
-     __DEBUG1__(cc%prog%Wl)
+     __DEBUG1__(cc%Tv)
+     __DEBUG1__(cc%Wl)
      __DEBUG1__(cc%Wl_max)
   endif
   ! TODO: check array sizes
@@ -1044,8 +1044,8 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   gaps = 1.0 ; current_layer = cc(1)%layer ; layer_gaps = 1.0
   do i = 1,vegn%n_cohorts
      ! check the range of input temperature
-     call check_temp_range(cc(i)%prog%Tv, 'vegn_step_1',&
-         'cohort('//trim(string(i))//')%prog%Tv',lnd%time)
+     call check_temp_range(cc(i)%Tv, 'vegn_step_1',&
+         'cohort('//trim(string(i))//')%Tv',lnd%time)
      ! calculate the fractions of intercepted precipitation
      vegn_ifrac(i) = cc(i)%cover
      ! get the lai
@@ -1120,8 +1120,8 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
         indiv2area = 0.0
         area2indiv = 0.0
      endif
-     vegn_Wl(i) = cc(i)%prog%Wl*indiv2area
-     vegn_Ws(i) = cc(i)%prog%Ws*indiv2area
+     vegn_Wl(i) = cc(i)%Wl*indiv2area
+     vegn_Ws(i) = cc(i)%Ws*indiv2area
 
      call get_vegn_wet_frac ( cc(i), fw, DfwDwl, DfwDwf, fs, DfsDwl, DfsDwf )
      ! derivatives must be renormalized, because the units of canopy water and  
@@ -1133,12 +1133,12 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
      ft     = 1 - fw - fs
      DftDwl = - DfwDwl - DfsDwl
      DftDwf = - DfwDwf - DfsDwf
-     call qscomp(cc(i)%prog%Tv, p_surf, qvsat, DqvsatDTv)
+     call qscomp(cc(i)%Tv, p_surf, qvsat, DqvsatDTv)
 
      rho = p_surf/(rdgas*cana_T *(1+d608*cana_q))
   
      ! get the vegetation temperature
-     vegn_T(i)  =  cc(i)%prog%Tv
+     vegn_T(i)  =  cc(i)%Tv
 
      if(current_layer/=cc(i)%layer) then
         ! set the precipitation on top of current
@@ -1162,9 +1162,9 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
      drip_s(i) = max((vegn_Ws(i)+prec_s(i)*delta_time*vegn_ifrac(i)-cc(i)%Ws_max*indiv2area)/delta_time,drip_s(i))
      
      ! calculate the total heat capacity per unit area of cohort
-     vegn_hcap(i) = (cc(i)%mcv_dry + clw*cc(i)%prog%Wl + csw*cc(i)%prog%Ws)*indiv2area
+     vegn_hcap(i) = (cc(i)%mcv_dry + clw*cc(i)%Wl + csw*cc(i)%Ws)*indiv2area
      ! calculate the coefficient of sensible heat flux linearization
-     Hv0    (i) =  2*rho*cp_air*con_v_h(i)*(cc(i)%prog%Tv - cana_T)
+     Hv0    (i) =  2*rho*cp_air*con_v_h(i)*(cc(i)%Tv - cana_T)
      DHvDTv (i) =  2*rho*cp_air*con_v_h(i)
      DHvDTc (i) = -2*rho*cp_air*con_v_h(i)
      ! calculate the coefficients of the transpiration linearization
@@ -1181,7 +1181,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
    
         ! prohibit transpiration if leaf temperature below some predefined minimum
         ! typically (268K, but check namelist)
-        if(cc(i)%prog%Tv < T_transp_min) total_cond = 0 
+        if(cc(i)%Tv < T_transp_min) total_cond = 0 
         ! calculate the transpiration linearization coefficients
         Et0    (i) =  rho*total_cond*ft*(qvsat - cana_q)
         DEtDTv (i) =  rho*total_cond*ft*DqvsatDTv
@@ -1301,9 +1301,9 @@ subroutine vegn_step_2 ( vegn, diag, &
   ! TODO: check array sizes
   if (is_watch_point()) then
      write(*,*)'#### vegn_step_2 input ####'
-     __DEBUG1__(vegn%cohorts%prog%Tv)
-     __DEBUG1__(vegn%cohorts%prog%Wl)
-     __DEBUG1__(vegn%cohorts%prog%Ws)
+     __DEBUG1__(vegn%cohorts%Tv)
+     __DEBUG1__(vegn%cohorts%Wl)
+     __DEBUG1__(vegn%cohorts%Ws)
      __DEBUG1__(delta_Tv)
      __DEBUG1__(delta_wl)
      __DEBUG1__(delta_wf)
@@ -1325,12 +1325,12 @@ subroutine vegn_step_2 ( vegn, diag, &
         indiv2area = 0.0
         area2indiv = 0.0
      endif
-     cc%prog%Tv = cc%prog%Tv + delta_Tv(i)
-     cc%prog%Wl = cc%prog%Wl + delta_wl(i)*area2indiv
-     cc%prog%Ws = cc%prog%Ws + delta_wf(i)*area2indiv
+     cc%Tv = cc%Tv + delta_Tv(i)
+     cc%Wl = cc%Wl + delta_wl(i)*area2indiv
+     cc%Ws = cc%Ws + delta_wf(i)*area2indiv
 
   ! ---- update for evaporation and interception -----------------------------
-     cap0 = cc%mcv_dry + clw*cc%prog%Wl + csw*cc%prog%Ws ! J/(K individual)
+     cap0 = cc%mcv_dry + clw*cc%Wl + csw*cc%Ws ! J/(K individual)
 
      ! melt on the vegetation should probably be prohibited altogether, since
      ! the amount of melt or freeze calculated this way is severely underestimated 
@@ -1345,17 +1345,17 @@ subroutine vegn_step_2 ( vegn, diag, &
         ! If it does, we just prohibit melt, setting it to zero.
         if(cap0 > 0)then
            melt_per_deg = cap0 / hlf
-              if (cc%prog%Ws>0 .and. cc%prog%Tv>tfreeze) then
-                 vegn_melt =  min(cc%prog%Ws, (cc%prog%Tv-tfreeze)*melt_per_deg)
-              else if (cc%prog%Wl>0 .and. cc%prog%Tv<tfreeze) then
-                 vegn_melt = -min(cc%prog%Wl, (tfreeze-cc%prog%Tv)*melt_per_deg)
+              if (cc%Ws>0 .and. cc%Tv>tfreeze) then
+                 vegn_melt =  min(cc%Ws, (cc%Tv-tfreeze)*melt_per_deg)
+              else if (cc%Wl>0 .and. cc%Tv<tfreeze) then
+                 vegn_melt = -min(cc%Wl, (tfreeze-cc%Tv)*melt_per_deg)
            else
               vegn_melt = 0
            endif
-              cc%prog%Ws = cc%prog%Ws - vegn_melt
-              cc%prog%Wl = cc%prog%Wl + vegn_melt
+              cc%Ws = cc%Ws - vegn_melt
+              cc%Wl = cc%Wl + vegn_melt
            if (vegn_melt/=0) &
-                   cc%prog%Tv = tfreeze + (cap0*(cc%prog%Tv-tfreeze) - hlf*vegn_melt) &
+                   cc%Tv = tfreeze + (cap0*(cc%Tv-tfreeze) - hlf*vegn_melt) &
                 / ( cap0 + (clw-csw)*vegn_melt )
            vegn_melt = vegn_melt / delta_time
         else
@@ -1366,20 +1366,20 @@ subroutine vegn_step_2 ( vegn, diag, &
 
      if(is_watch_point()) then
         write (*,*)'#### vegn_step_2 #### 1'
-           __DEBUG4__(i,cc%prog%Tv, cc%prog%Wl, cc%prog%Ws)
+           __DEBUG4__(i,cc%Tv, cc%Wl, cc%Ws)
            __DEBUG4__(cc%nindivs, cc%crownarea, cc%layerfrac, indiv2area)
            __DEBUG1__(vegn_melt)
      endif
 
      ! ---- update for overflow -------------------------------------------------
-     Wl = max(cc%prog%Wl,0.0); Ws = max(cc%prog%Ws,0.0)
+     Wl = max(cc%Wl,0.0); Ws = max(cc%Ws,0.0)
      vegn_ovfl_l = max (0.,Wl-cc%Wl_max)/delta_time
      vegn_ovfl_s = max (0.,Ws-cc%Ws_max)/delta_time
-     vegn_ovfl_Hl = clw*vegn_ovfl_l*(cc%prog%Tv-tfreeze)
-     vegn_ovfl_Hs = csw*vegn_ovfl_s*(cc%prog%Tv-tfreeze)
+     vegn_ovfl_Hl = clw*vegn_ovfl_l*(cc%Tv-tfreeze)
+     vegn_ovfl_Hs = csw*vegn_ovfl_s*(cc%Tv-tfreeze)
 
-     cc%prog%Wl = cc%prog%Wl - vegn_ovfl_l*delta_time
-     cc%prog%Ws = cc%prog%Ws - vegn_ovfl_s*delta_time
+     cc%Wl = cc%Wl - vegn_ovfl_l*delta_time
+     cc%Ws = cc%Ws - vegn_ovfl_s*delta_time
 
      if(is_watch_point()) then
         write(*,*)'#### vegn_step_2 output #####'
@@ -1411,9 +1411,9 @@ subroutine vegn_step_2 ( vegn, diag, &
   associate(c=>vegn%cohorts)
   call send_cohort_data(id_height_ave, diag, c(1:N), c(1:N)%height, weight=c(1:N)%nindivs)
   ! TODO: calculate vegetation temperature as total sensible heat/total heat capacity
-  call send_cohort_data(id_temp, diag, c(1:N), c(1:N)%prog%Tv, weight=c(1:N)%nindivs)
-  call send_cohort_data(id_wl,   diag, c(1:N), c(1:N)%prog%Wl, weight=c(1:N)%nindivs)
-  call send_cohort_data(id_ws,   diag, c(1:N), c(1:N)%prog%Ws, weight=c(1:N)%nindivs)
+  call send_cohort_data(id_temp, diag, c(1:N), c(1:N)%Tv, weight=c(1:N)%nindivs)
+  call send_cohort_data(id_wl,   diag, c(1:N), c(1:N)%Wl, weight=c(1:N)%nindivs)
+  call send_cohort_data(id_ws,   diag, c(1:N), c(1:N)%Ws, weight=c(1:N)%nindivs)
 
   call send_tile_data(id_height1, c(1)%height, diag) ! tallest
   call send_tile_data(id_height, maxval(c(1:N)%height), diag) ! tallest
@@ -2023,6 +2023,10 @@ DEFINE_VEGN_ACCESSOR_0D(real,drop_hs)
 DEFINE_VEGN_ACCESSOR_1D(real,harv_pool)
 DEFINE_VEGN_ACCESSOR_1D(real,harv_rate)
 
+DEFINE_COHORT_ACCESSOR(real,Tv)
+DEFINE_COHORT_ACCESSOR(real,Wl)
+DEFINE_COHORT_ACCESSOR(real,Ws)
+
 DEFINE_COHORT_ACCESSOR(integer,species)
 DEFINE_COHORT_ACCESSOR(real,bl)
 DEFINE_COHORT_ACCESSOR(real,br)
@@ -2047,11 +2051,6 @@ DEFINE_COHORT_ACCESSOR(real,BM_ys)
 DEFINE_COHORT_ACCESSOR(real,DBH_ys)
 DEFINE_COHORT_ACCESSOR(real,topyear)
 DEFINE_COHORT_ACCESSOR(real,gdd)
-
-DEFINE_COHORT_COMPONENT_ACCESSOR(real,prog,tv)
-DEFINE_COHORT_COMPONENT_ACCESSOR(real,prog,wl)
-DEFINE_COHORT_COMPONENT_ACCESSOR(real,prog,ws)
-
 DEFINE_COHORT_ACCESSOR(real,height)
 
 end module vegetation_mod

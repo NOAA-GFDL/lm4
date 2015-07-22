@@ -1871,8 +1871,8 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
         new_T = (subs_Ctop*subs_Ttop +snow_Cbot*snow_Tbot) &
                         / (subs_Ctop+snow_Cbot)
         tile%snow%T(size(tile%snow%T)) = new_T
-        if(associated(tile%glac)) tile%glac%prog(1)%T = new_T
-        if(associated(tile%lake)) tile%lake%prog(1)%T = new_T
+        if(associated(tile%glac)) tile%glac%T(1) = new_T
+        if(associated(tile%lake)) tile%lake%T(1) = new_T
         if(associated(tile%soil)) tile%soil%prog(1)%T = new_T
         subs_G2 = subs_Ctop*(new_T-subs_Ttop)/delta_time
      else
@@ -1882,8 +1882,8 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
            tile%snow%T(:) = snow_avrg_T + delta_T_snow
 
            new_T = subs_Ttop-snow_C/subs_Ctop*delta_T_snow
-           if(associated(tile%glac)) tile%glac%prog(1)%T = new_T
-           if(associated(tile%lake)) tile%lake%prog(1)%T = new_T
+           if(associated(tile%glac)) tile%glac%T(1) = new_T
+           if(associated(tile%lake)) tile%lake%T(1) = new_T
            if(associated(tile%soil)) tile%soil%prog(1)%T = new_T
            subs_G2 = subs_Ctop*(new_T-subs_Ttop)/delta_time
         else
@@ -1895,7 +1895,7 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   vegn_fco2 = 0
   if (associated(tile%vegn)) then
      ! do the calculations that require updated land surface prognostic variables
-     call vegn_step_3 (tile%vegn, tile%soil, tile%cana%prog%T, precip_l+precip_s, &
+     call vegn_step_3 (tile%vegn, tile%soil, tile%cana%T, precip_l+precip_s, &
           vegn_fco2, tile%diag)
      ! if vegn is present, then soil must be too
      call soil_step_3(tile%soil, tile%diag)
@@ -1907,12 +1907,12 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   ! the concentration.
   if(update_cana_co2) then
      delta_co2 = (vegn_fco2 - fco2_0)/(canopy_air_mass_for_tracers/delta_time+Dfco2Dq)
-     tile%cana%prog%co2 = tile%cana%prog%co2 + delta_co2
+     tile%cana%co2 = tile%cana%co2 + delta_co2
   else
      delta_co2 = 0
   endif
   if(is_watch_point())then
-     __DEBUG1__(tile%cana%prog%co2)
+     __DEBUG1__(tile%cana%co2)
      __DEBUG3__(fco2_0,Dfco2Dq,vegn_fco2)
   endif
   
@@ -2042,9 +2042,9 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   call send_tile_data(id_grnd_flux, grnd_flux,                        tile%diag)
   if(grnd_E_max.lt.0.5*HUGE(grnd_E_Max)) &
       call send_tile_data(id_levapg_max, grnd_E_max,                  tile%diag)
-  call send_tile_data(id_qco2,    tile%cana%prog%co2,                 tile%diag)
+  call send_tile_data(id_qco2,    tile%cana%co2,                      tile%diag)
   call send_tile_data(id_qco2_dvmr,&
-       tile%cana%prog%co2*mol_air/mol_co2/(1-tile%cana%prog%q),       tile%diag)
+       tile%cana%co2*mol_air/mol_co2/(1-tile%cana%q),                 tile%diag)
   call send_tile_data(id_fco2,    vegn_fco2*mol_C/mol_co2,            tile%diag)
   call send_tile_data(id_swdn_dir, ISa_dn_dir,                        tile%diag)
   call send_tile_data(id_swdn_dif, ISa_dn_dif,                        tile%diag)
@@ -2932,8 +2932,8 @@ subroutine update_land_bc_fast (tile, N, i,j,k, land2cplr, is_init)
 
   call cana_state ( tile%cana, land2cplr%t_ca(i,j,k), &
                                land2cplr%tr(i,j,k,lnd%isphum), cana_co2)
-!  land2cplr%t_ca           (i,j,k) = tile%cana%prog%T
-!  land2cplr%tr             (i,j,k,lnd%isphum) = tile%cana%prog%q
+!  land2cplr%t_ca           (i,j,k) = tile%cana%T
+!  land2cplr%tr             (i,j,k,lnd%isphum) = tile%cana%q
   if(lnd%ico2/=NO_TRACER) then
      land2cplr%tr(i,j,k,lnd%ico2) = cana_co2
   endif

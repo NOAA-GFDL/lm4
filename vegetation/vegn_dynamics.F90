@@ -547,10 +547,10 @@ subroutine vegn_starvation_ppa (vegn, soil)
                           (1-fsc_wood)*loss_wood
 !      water from dead trees goes to intermediate buffers, to be added to the
 !      precipitation reaching ground
-       vegn%drop_wl = vegn%drop_wl + cc%prog%wl*deadtrees
-       vegn%drop_ws = vegn%drop_ws + cc%prog%ws*deadtrees
-       vegn%drop_hl = vegn%drop_hl + clw*cc%prog%wl*deadtrees*(cc%prog%Tv-tfreeze)
-       vegn%drop_hs = vegn%drop_hs + csw*cc%prog%ws*deadtrees*(cc%prog%Tv-tfreeze)
+       vegn%drop_wl = vegn%drop_wl + cc%wl*deadtrees
+       vegn%drop_ws = vegn%drop_ws + cc%ws*deadtrees
+       vegn%drop_hl = vegn%drop_hl + clw*cc%wl*deadtrees*(cc%Tv-tfreeze)
+       vegn%drop_hs = vegn%drop_hs + csw*cc%ws*deadtrees*(cc%Tv-tfreeze)
 
        ! for budget tracking - temporary
        soil%ssc_in(1) = soil%ssc_in(1) + fsc_liv*loss_alive + fsc_wood *loss_wood
@@ -819,7 +819,7 @@ subroutine plant_respiration(cc, tsoil)
   integer :: sp ! shorthand for cohort species
   sp = cc%species
 
-  tf  = thermal_inhibition(cc%prog%Tv)
+  tf  = thermal_inhibition(cc%Tv)
   tfs = thermal_inhibition(tsoil)
 
   r_leaf = -mol_C*cc%An_cl*cc%leafarea;
@@ -1182,9 +1182,9 @@ subroutine vegn_reproduction_ppa (vegn,soil)
     ! we assume that the newborn cohort is dry; since nindivs of the parent
     ! doesn't change we don't need to do anything with its Wl and Ws to 
     ! conserve water (since Wl and Ws are per individual)
-    cc%prog%Wl = 0 ; cc%prog%Ws = 0
+    cc%Wl = 0 ; cc%Ws = 0
     ! TODO: make sure that energy is conserved in reproduction
-    cc%prog%Tv = parent%prog%Tv
+    cc%Tv = parent%Tv
     
     end associate   ! F2003
   enddo
@@ -1225,10 +1225,10 @@ subroutine merge_cohorts(c1,c2)
   ! update number of individuals in merged cohort
   c2%nindivs = c1%nindivs+c2%nindivs
 #define __MERGE__(field) c2%field = x1*c1%field + x2*c2%field
-  HEAT1 = (clw*c1%prog%Wl + csw*c1%prog%Ws + c1%mcv_dry)*(c1%prog%Tv-tfreeze)
-  HEAT2 = (clw*c2%prog%Wl + csw*c2%prog%Ws + c2%mcv_dry)*(c2%prog%Tv-tfreeze)
-  __MERGE__(prog%Wl)
-  __MERGE__(prog%Ws)
+  HEAT1 = (clw*c1%Wl + csw*c1%Ws + c1%mcv_dry)*(c1%Tv-tfreeze)
+  HEAT2 = (clw*c2%Wl + csw*c2%Ws + c2%mcv_dry)*(c2%Tv-tfreeze)
+  __MERGE__(Wl)
+  __MERGE__(Ws)
  
   __MERGE__(bl)      ! biomass of leaves, kg C/indiv
   __MERGE__(blv)     ! biomass of virtual leaves (labile store), kg C/indiv
@@ -1255,10 +1255,10 @@ subroutine merge_cohorts(c1,c2)
   ! capacities are zero, or merge it based on the heat content if the heat contents
   ! are non-zero
   if(HEAT1==0.and.HEAT2==0) then
-     __MERGE__(prog%Tv)
+     __MERGE__(Tv)
   else
-     c2%prog%Tv = (HEAT1*x1+HEAT2*x2) / &
-          (clw*c2%prog%Wl + csw*c2%prog%Ws + c2%mcv_dry) + tfreeze
+     c2%Tv = (HEAT1*x1+HEAT2*x2) / &
+          (clw*c2%Wl + csw*c2%Ws + c2%mcv_dry) + tfreeze
   endif
 #undef  __MERGE__
   

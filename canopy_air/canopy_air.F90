@@ -20,7 +20,7 @@ use sphum_mod, only : qscomp
 
 use nf_utils_mod, only : nfu_inq_var
 use land_constants_mod, only : NBANDS,d608,mol_CO2,mol_air
-use cana_tile_mod, only : cana_tile_type, cana_prog_type, &
+use cana_tile_mod, only : cana_tile_type, &
      canopy_air_mass, canopy_air_mass_for_tracers, cpw
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
@@ -139,13 +139,13 @@ subroutine cana_init ( id_lon, id_lat )
      if (.not.associated(tile%cana)) cycle
      
      if (associated(tile%glac)) then
-        tile%cana%prog%T = init_T_cold
+        tile%cana%T = init_T_cold
      else
-        tile%cana%prog%T = init_T
+        tile%cana%T = init_T
      endif
-     tile%cana%prog%q = init_q
+     tile%cana%q = init_q
      ! convert to kg CO2/kg wet air
-     tile%cana%prog%co2 = init_co2*mol_CO2/mol_air*(1-tile%cana%prog%q) 
+     tile%cana%co2 = init_co2*mol_CO2/mol_air*(1-tile%cana%q) 
   enddo
 
   ! then read the restart if it exists
@@ -407,9 +407,9 @@ subroutine cana_state ( cana, cana_T, cana_q, cana_co2 )
   type(cana_tile_type), intent(in)  :: cana
   real, optional      , intent(out) :: cana_T, cana_q, cana_co2
 
-  if (present(cana_T))   cana_T   = cana%prog%T
-  if (present(cana_q))   cana_q   = cana%prog%q
-  if (present(cana_co2)) cana_co2 = cana%prog%co2
+  if (present(cana_T))   cana_T   = cana%T
+  if (present(cana_q))   cana_q   = cana%q
+  if (present(cana_co2)) cana_co2 = cana%co2
   
 end subroutine
 
@@ -438,11 +438,11 @@ subroutine cana_step_1 ( cana,&
   call qscomp(grnd_T,p_surf,qsat,DqsatDTg)
   grnd_q = grnd_rh * qsat
 
-  rho      =  p_surf/(rdgas*cana%prog%T*(1+d608*cana%prog%q))
-  Hge      =  rho*cp_air*con_g_h*(grnd_T - cana%prog%T)
+  rho      =  p_surf/(rdgas*cana%T*(1+d608*cana%q))
+  Hge      =  rho*cp_air*con_g_h*(grnd_T - cana%T)
   DHgDTg   =  rho*cp_air*con_g_h
   DHgDTc   = -rho*cp_air*con_g_h
-  Ege      =  rho*con_g_v*(grnd_q  - cana%prog%q)
+  Ege      =  rho*con_g_v*(grnd_q  - cana%q)
   DEgDTg   =  rho*con_g_v*DqsatDTg*grnd_rh
   DEgDqc   = -rho*con_g_v
   DEgDpsig =  rho*con_g_v*qsat*grnd_rh_psi
@@ -453,7 +453,7 @@ subroutine cana_step_1 ( cana,&
      __DEBUG2__(grnd_T,grnd_rh)
      write(*,*)'#### cana_step_1 internals ####'
      __DEBUG4__(rho, grnd_q, qsat, DqsatDTg)
-     __DEBUG2__(cana%prog%T,cana%prog%q)
+     __DEBUG2__(cana%T,cana%q)
      write(*,*)'#### cana_step_1 output ####'
      __DEBUG3__(Hge,  DHgDTg, DHgDTc)
      __DEBUG4__(Ege,  DEgDTg, DEgDqc, DEgDpsig)
@@ -468,8 +468,8 @@ subroutine cana_step_2 ( cana, delta_Tc, delta_qc )
      delta_Tc, & ! change in canopy air temperature
      delta_qc    ! change in canopy air humidity
 
-  cana%prog%T = cana%prog%T + delta_Tc
-  cana%prog%q = cana%prog%q + delta_qc
+  cana%T = cana%T + delta_Tc
+  cana%q = cana%q + delta_qc
 end subroutine cana_step_2
 
 ! ============================================================================
@@ -485,7 +485,7 @@ end function cana_tile_exists
 ! to the desired member of the land tile, of NULL if this member does not
 ! exist.
 #define DEFINE_CANA_ACCESSOR_0D(xtype,x) subroutine cana_ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%cana))p=>t%cana%prog%x;endif;end subroutine
+type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%cana))p=>t%cana%x;endif;end subroutine
 
 DEFINE_CANA_ACCESSOR_0D(real,T)
 DEFINE_CANA_ACCESSOR_0D(real,q)

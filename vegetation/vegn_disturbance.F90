@@ -306,10 +306,10 @@ subroutine vegn_nat_mortality_ppa (vegn, soil, deltat)
      cc%nindivs = cc%nindivs-deadtrees
      ! water from dead trees goes to intermediate buffers, to be added to the
      ! precipitation reaching ground
-     vegn%drop_wl = vegn%drop_wl + cc%prog%wl*deadtrees
-     vegn%drop_ws = vegn%drop_ws + cc%prog%ws*deadtrees
-     vegn%drop_hl = vegn%drop_hl + clw*cc%prog%wl*deadtrees*(cc%prog%Tv-tfreeze)
-     vegn%drop_hs = vegn%drop_hs + csw*cc%prog%ws*deadtrees*(cc%prog%Tv-tfreeze)
+     vegn%drop_wl = vegn%drop_wl + cc%wl*deadtrees
+     vegn%drop_ws = vegn%drop_ws + cc%ws*deadtrees
+     vegn%drop_hl = vegn%drop_hl + clw*cc%wl*deadtrees*(cc%Tv-tfreeze)
+     vegn%drop_hs = vegn%drop_hs + csw*cc%ws*deadtrees*(cc%Tv-tfreeze)
 
      ! add dead C from leaf and root pools to fast soil carbon
      loss_wood  = deadtrees * cc%bwood

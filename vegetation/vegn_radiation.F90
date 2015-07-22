@@ -181,7 +181,7 @@ subroutine vegn_rad_properties_bigleaf ( cohort, snow_refl, snow_emis, &
   real :: a_vs
 
   if ( cohort%Ws_max > 0 ) then
-     a_vs = cohort%prog%Ws / cohort%Ws_max
+     a_vs = cohort%Ws / cohort%Ws_max
      ! restrict snow-covered fraction to the interval [0,1]:
      a_vs = min(max(a_vs,0.0), 1.0)
   else
@@ -236,7 +236,7 @@ subroutine vegn_rad_properties_twostream( cohort, cosz, &
   end select
 
   ! get the snow radiative properties for current canopy temperature
-  call snow_radiation ( cohort%prog%Tv, cosz, snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis )
+  call snow_radiation ( cohort%Tv, cosz, snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis )
 
   sp = cohort%species
   do i = 1, NBANDS

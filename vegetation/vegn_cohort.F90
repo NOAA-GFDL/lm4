@@ -16,7 +16,6 @@ use soil_tile_mod, only : max_lev
 implicit none
 private
 ! ==== public interfaces =====================================================
-public :: vegn_phys_prog_type
 public :: vegn_cohort_type
 
 ! operations defined for cohorts
@@ -43,14 +42,13 @@ character(len=*), parameter :: &
 
 ! ==== types =================================================================
 type :: vegn_phys_prog_type
-  real :: Wl ! liquid water content of canopy, kg/individual
-  real :: Ws ! solid water (snow) content of canopy, kg/individual
-  real :: Tv ! canopy temperature, K
 end type vegn_phys_prog_type
 
 ! vegn_cohort_type describes the data that belong to a vegetation cohort
 type :: vegn_cohort_type
-  type(vegn_phys_prog_type) :: prog
+  real :: Wl ! liquid water content of canopy, kg/individual
+  real :: Ws ! solid water (snow) content of canopy, kg/individual
+  real :: Tv ! canopy temperature, K
 
 ! ---- biological prognostic variables
 ! Currently bio prognostic variable is defined as anything that's saved in
@@ -143,8 +141,6 @@ type :: vegn_cohort_type
   
   real :: gs = 0.0
   real :: gb = 0.0
-!moved to prog%Wl  real :: cmc;
-!moved to prog%Tv  real :: tleaf ! temperature of leaves, degK
 
   real :: ds = 0.0
 
@@ -220,7 +216,7 @@ subroutine get_vegn_wet_frac (cohort, &
 
   ! snow-covered fraction
   if(cohort%Ws_max > 0) then
-     call wet_frac(cohort%prog%Ws, cohort%Ws_max, spdata(sp)%csc_pow, cmc_eps, fsL,  DfsDwsL)
+     call wet_frac(cohort%Ws, cohort%Ws_max, spdata(sp)%csc_pow, cmc_eps, fsL,  DfsDwsL)
   else
      fsL = 0.0; DfsDwsL=0.0
   endif
@@ -228,7 +224,7 @@ subroutine get_vegn_wet_frac (cohort, &
      
   ! wet fraction
   if(cohort%Wl_max > 0) then
-     call wet_frac(cohort%prog%Wl, cohort%Wl_max, spdata(sp)%cmc_pow, cmc_eps, fw0, DfwDwlL)
+     call wet_frac(cohort%Wl, cohort%Wl_max, spdata(sp)%cmc_pow, cmc_eps, fw0, DfwDwlL)
   else
      fw0 = 0.0; DfwDwlL=0.0
   endif

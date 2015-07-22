@@ -10,7 +10,6 @@ implicit none
 private
 
 ! ==== public interfaces =====================================================
-public :: cana_prog_type
 public :: cana_tile_type
 
 public :: new_cana_tile, delete_cana_tile
@@ -44,14 +43,10 @@ character(len=*), parameter :: &
      tagname = '$Name$'
 
 ! ==== data types ======================================================
-type :: cana_prog_type
-  real T
-  real q
-  real :: co2 ! co2 concentration in canopy air, kg CO2/kg of wet air
-end type cana_prog_type
-
 type :: cana_tile_type
-   type(cana_prog_type) :: prog
+  real :: T   ! temperature, degK
+  real :: q   ! specific humidity, kg/kg
+  real :: co2 ! co2 concentration in canopy air, kg CO2/kg of wet air
 end type cana_tile_type
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -100,18 +95,18 @@ subroutine merge_cana_tiles(cana1,w1,cana2,w2)
   ! calculate normalized weights
   x1 = w1/(w1+w2)
   x2 = 1-x1
-  HEAT1 = canopy_air_mass*(cp_air+(cpw - cp_air)*cana1%prog%q)*cana1%prog%T
-  HEAT2 = canopy_air_mass*(cp_air+(cpw - cp_air)*cana2%prog%q)*cana2%prog%T
+  HEAT1 = canopy_air_mass*(cp_air+(cpw - cp_air)*cana1%q)*cana1%T
+  HEAT2 = canopy_air_mass*(cp_air+(cpw - cp_air)*cana2%q)*cana2%T
 
-  cana2%prog%q = cana1%prog%q*x1+cana2%prog%q*x2
+  cana2%q = cana1%q*x1+cana2%q*x2
   if (canopy_air_mass > 0) then
-     cana2%prog%T = (HEAT1*x1+HEAT2*x2)/&
-          (canopy_air_mass*(cp_air+(cpw - cp_air)*cana2%prog%q))
+     cana2%T = (HEAT1*x1+HEAT2*x2)/&
+          (canopy_air_mass*(cp_air+(cpw - cp_air)*cana2%q))
   else
-     cana2%prog%T = cana1%prog%T*x1+cana2%prog%T*x2
+     cana2%T = cana1%T*x1+cana2%T*x2
   endif
 
-  cana2%prog%co2 = cana1%prog%co2*x1+cana2%prog%co2*x2
+  cana2%co2 = cana1%co2*x1+cana2%co2*x2
 end subroutine
 
 ! =============================================================================
@@ -138,21 +133,21 @@ subroutine cana_tile_stock_pe (cana, twd_liq, twd_sol)
   type(cana_tile_type), intent(in) :: cana
   real, intent(out) :: twd_liq, twd_sol
 
-  twd_liq = canopy_air_mass*cana%prog%q; twd_sol = 0
+  twd_liq = canopy_air_mass*cana%q; twd_sol = 0
 end subroutine
 
 ! =============================================================================
 function cana_tile_heat (cana) result(heat) ; real heat
   type(cana_tile_type), intent(in) :: cana
   
-  heat = canopy_air_mass*(cp_air+(cpw - cp_air)*cana%prog%q)*(cana%prog%T-tfreeze)
+  heat = canopy_air_mass*(cp_air+(cpw - cp_air)*cana%q)*(cana%T-tfreeze)
 end function
 
 ! =============================================================================
 function cana_tile_carbon (cana) result(c) ; real c
   type(cana_tile_type), intent(in) :: cana
 
-  c = canopy_air_mass_for_tracers * cana%prog%co2 * mol_C/mol_CO2
+  c = canopy_air_mass_for_tracers * cana%co2 * mol_C/mol_CO2
 end function 
 
 end module cana_tile_mod

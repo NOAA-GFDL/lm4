@@ -21,7 +21,7 @@ use land_constants_mod, only : &
      NBANDS
 use land_io_mod, only : read_field
 use lake_tile_mod, only : &
-     lake_tile_type, lake_pars_type, lake_prog_type, read_lake_data_namelist, &
+     lake_tile_type, lake_pars_type, read_lake_data_namelist, &
      lake_data_radiation, &
      lake_data_thermodynamics, &
      max_lev, cpw,clw,csw, lake_width_inside_lake, large_lake_sill_width, &
@@ -267,17 +267,17 @@ deallocate (buffer, bufferc, buffert)
      
      if (.not.associated(tile%lake)) cycle
      
-     tile%lake%prog%dz = tile%lake%pars%depth_sill/num_l
+     tile%lake%dz = tile%lake%pars%depth_sill/num_l
      if (init_temp.ge.tfreeze) then
-        tile%lake%prog%wl = init_w*tile%lake%prog%dz
-        tile%lake%prog%ws = 0
+        tile%lake%wl = init_w*tile%lake%dz
+        tile%lake%ws = 0
      else
-        tile%lake%prog%wl = 0
-        tile%lake%prog%ws = init_w*tile%lake%prog%dz
+        tile%lake%wl = 0
+        tile%lake%ws = init_w*tile%lake%dz
      endif
-     tile%lake%prog%T             = init_temp
-     tile%lake%prog%groundwater   = init_groundwater
-     tile%lake%prog%groundwater_T = init_temp
+     tile%lake%T             = init_temp
+     tile%lake%groundwater   = init_groundwater
+     tile%lake%groundwater_T = init_temp
   enddo
 
   call get_input_restart_name('INPUT/lake.res.nc',restart_exists,restart_file_name)
@@ -356,7 +356,7 @@ subroutine lake_get_sfc_temp(lake, lake_T)
   type(lake_tile_type), intent(in) :: lake
   real, intent(out) :: lake_T
 
-  lake_T = lake%prog(1)%T
+  lake_T = lake%T(1)
 end subroutine lake_get_sfc_temp
 
 
@@ -416,21 +416,21 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
      write(*,*) 'DGDT    ', lake_DGDT
     do l = 1, num_l
       write(*,'(a,i2.2,100(2x,a,g23.16))') ' level=', l,&
-                 ' dz=', lake%prog(l)%dz,&
-                 ' T =', lake%prog(l)%T,&
-                 ' wl=', lake%prog(l)%wl,&
-                 ' ws=', lake%prog(l)%ws, &
-                 'K_z=', lake%prog(l)%K_z
+                 ' dz=', lake%dz(l),&
+                 ' T =', lake%T(l),&
+                 ' wl=', lake%wl(l),&
+                 ' ws=', lake%ws(l), &
+                 'K_z=', lake%K_z(l)
       enddo
   endif
 
 
   if (relayer_in_step_one) call lake_relayer ( lake )
 
-  lake%prog%K_z = 0.
-  lake_T = lake%prog(1)%T
+  lake%K_z = 0.
+  lake_T = lake%T(1)
   if (use_rh_feedback) then
-      lake_depth = (sum(lake%prog(:)%wl)+sum(lake%prog(:)%ws)) / DENS_H2O
+      lake_depth = (sum(lake%wl(:))+sum(lake%ws(:))) / DENS_H2O
     else
       lake_depth = lake%pars%depth_sill
     endif
@@ -439,7 +439,7 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
 ! Ignore air humidity in converting atmospheric friction velocity to lake value
   rho_a = p_surf/(rdgas*lake_T)
 ! No momentum transfer through ice cover
-  if (lake%prog(1)%ws.le.0. .or. wind_penetrates_ice) then
+  if (lake%ws(1).le.0. .or. wind_penetrates_ice) then
       u_star = u_star_a*sqrt(rho_a/dens_h2o)
       k_star = 2.79e-5*sqrt(sin(abs(latitude)))*u_star**(-1.84)
       k_star = k_star*(c_drag/1.2e-3)**1.84
@@ -451,18 +451,18 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
 !  k_star = 2.79e-5*sqrt(sin(abs(latitude)))*u_star**(-1.84)
   z_cum = 0.
   do l = 1, num_l
-    heat_capacity(l) = lake%heat_capacity_dry(l) * lake%prog(l)%dz &
-            + clw*lake%prog(l)%wl + csw*lake%prog(l)%ws
-    dz_alt(l) = (lake%prog(l)%wl + lake%prog(l)%ws)/dens_h2o
+    heat_capacity(l) = lake%heat_capacity_dry(l) * lake%dz(l) &
+            + clw*lake%wl(l) + csw*lake%ws(l)
+    dz_alt(l) = (lake%wl(l) + lake%ws(l))/dens_h2o
     z_alt(l) = z_cum + 0.5*dz_alt(l)
     z_cum = z_cum + dz_alt(l)
 ! rho_t from hostetler and bartlein (1990), citing Heggen (1983)
 ! is a call available in fms?
-    rho_t(l) = 1. - 1.9549e-5*abs(lake%prog(l)%T-277.)**1.68
+    rho_t(l) = 1. - 1.9549e-5*abs(lake%T(l)-277.)**1.68
     enddo
 
-  lake_liq  = max(lake%prog(1)%wl, 0.)
-  lake_ice  = max(lake%prog(1)%ws, 0.)
+  lake_liq  = max(lake%wl(1), 0.)
+  lake_ice  = max(lake%ws(1), 0.)
   if (lake_ice > 0) then
      lake_subl = 1
   else
@@ -472,7 +472,7 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
   if(num_l > 1) then
     if (do_stratify) then
         do l = 1, num_l-1
-          if (lake%prog(l)%ws.le.0..and.lake%prog(l+1)%ws.le.0.) then
+          if (lake%ws(l).le.0..and.lake%ws(l+1).le.0.) then
               dz_mid = z_alt(l+1)-z_alt(l)
               z_mid = 0.5 * (z_alt(l)+z_alt(l+1))
               rho_t_mid = 0.5*(rho_t(l)+rho_t(l+1))
@@ -486,20 +486,20 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
                   ! stability function from B. Henderson-Sellers (1985)
                   Ri = 0.05*(-1. + sqrt(1.+40.*N_sq*(vonkarm*z_mid/u_star)**2 &
                                                    *exp(2.*k_star*z_mid)))
-                  lake%prog(l)%K_z = k_neutral / (1. + 37.*Ri*Ri) + K_z_molec
+                  lake%K_z(l) = k_neutral / (1. + 37.*Ri*Ri) + K_z_molec
                 else if (k_neutral.eq.0.) then
-                  lake%prog(l)%K_z = K_z_molec
+                  lake%K_z(l) = K_z_molec
                 else  ! arbitrary constant for unstable mixing
-                  lake%prog(l)%K_z = K_z_large
+                  lake%K_z(l) = K_z_large
                 endif
 	      if (lake%pars%depth_sill.gt.2.01) &
-	          lake%prog(l)%K_z = K_z_factor &
-		   * max(lake%prog(l)%K_z + K_z_background, K_z_min)
-              aaa(l+1) = - lake%prog(l)%K_z * delta_time / (dz_alt(l+1)*dz_mid)
-              ccc(l)   = - lake%prog(l)%K_z * delta_time / (dz_alt(l  )*dz_mid)
+	          lake%K_z(l) = K_z_factor &
+		   * max(lake%K_z(l) + K_z_background, K_z_min)
+              aaa(l+1) = - lake%K_z(l) * delta_time / (dz_alt(l+1)*dz_mid)
+              ccc(l)   = - lake%K_z(l) * delta_time / (dz_alt(l  )*dz_mid)
             else
-              z_liq = 0.5*(lake%prog(l)%wl+lake%prog(l+1)%wl)/dens_h2o
-              z_ice = 0.5*(lake%prog(l)%ws+lake%prog(l+1)%ws)/dens_h2o
+              z_liq = 0.5*(lake%wl(l)+lake%wl(l+1))/dens_h2o
+              z_ice = 0.5*(lake%ws(l)+lake%ws(l+1))/dens_h2o
               tc_dz_eff = 1. / (z_liq/tc_molec + z_ice/tc_molec_ice)
               aaa(l+1) = - tc_dz_eff * delta_time / heat_capacity(l+1)
               ccc(l)   = - tc_dz_eff * delta_time / heat_capacity(l)
@@ -516,20 +516,20 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
 
      bbb = 1.0 - aaa(num_l)
      denom = bbb
-     dt_e = aaa(num_l)*(lake%prog(num_l)%T - lake%prog(num_l-1)%T) &
+     dt_e = aaa(num_l)*(lake%T(num_l) - lake%T(num_l-1)) &
                + lake%geothermal_heat_flux * delta_time / heat_capacity(num_l)
      lake%e(num_l-1) = -aaa(num_l)/denom
      lake%f(num_l-1) = dt_e/denom
      do l = num_l-1, 2, -1
         bbb = 1.0 - aaa(l) - ccc(l)
         denom = bbb + ccc(l)*lake%e(l)
-        dt_e = - ( ccc(l)*(lake%prog(l+1)%T - lake%prog(l)%T  ) &
-                  -aaa(l)*(lake%prog(l)%T   - lake%prog(l-1)%T) )
+        dt_e = - ( ccc(l)*(lake%T(l+1) - lake%T(l)  ) &
+                  -aaa(l)*(lake%T(l)   - lake%T(l-1)) )
         lake%e(l-1) = -aaa(l)/denom
         lake%f(l-1) = (dt_e - ccc(l)*lake%f(l))/denom
      end do
      denom = delta_time/(heat_capacity(1) )
-     lake_G0    = ccc(1)*(lake%prog(2)%T- lake%prog(1)%T &
+     lake_G0    = ccc(1)*(lake%T(2)- lake%T(1) &
           + lake%f(1)) / denom
      lake_DGDT  = (1 - ccc(1)*(1-lake%e(1))) / denom   
   else  ! one-level case
@@ -553,11 +553,11 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
      write(*,*) 'DGDT    ', lake_DGDT
     do l = 1, num_l
       write(*,'(a,i2.2,100(2x,a,g23.16))') ' level=', l,&
-                 ' dz=', lake%prog(l)%dz,&
-                 ' T =', lake%prog(l)%T,&
-                 ' wl=', lake%prog(l)%wl,&
-                 ' ws=', lake%prog(l)%ws, &
-                 'K_z=', lake%prog(l)%K_z
+                 ' dz=', lake%dz(l),&
+                 ' T =', lake%T(l),&
+                 ' wl=', lake%wl(l),&
+                 ' ws=', lake%ws(l), &
+                 'K_z=', lake%K_z(l)
       enddo
   endif
 
@@ -610,13 +610,13 @@ end subroutine lake_step_1
     write(*,*) 'theta_s ', lake%pars%w_sat
     do l = 1, num_l
       write(*,'(a,i2.2,100(2x,a,g23.16))') ' level=', l,&
-                 ' dz=', lake%prog(l)%dz,&
-                 ' T =', lake%prog(l)%T,&
-                 ' Th=', (lake%prog(l)%ws &
-                         +lake%prog(l)%wl)/(dens_h2o*lake%prog(l)%dz),&
-                 ' wl=', lake%prog(l)%wl,&
-                 ' ws=', lake%prog(l)%ws,&
-                 ' gw=', lake%prog(l)%groundwater
+                 ' dz=', lake%dz(l),&
+                 ' T =', lake%T(l),&
+                 ' Th=', (lake%ws(l) &
+                         +lake%wl(l))/(dens_h2o*lake%dz(l)),&
+                 ' wl=', lake%wl(l),&
+                 ' ws=', lake%ws(l),&
+                 ' gw=', lake%groundwater(l)
       enddo
   endif
 
@@ -627,42 +627,42 @@ end subroutine lake_step_1
 
   ! ---- load surface temp change and perform back substitution --------------
   del_t(1) = subs_DT
-  lake%prog(1)%T = lake%prog(1)%T + del_t(1)
+  lake%T(1) = lake%T(1) + del_t(1)
   if ( num_l > 1) then
     do l = 1, num_l-1
       del_t(l+1) = lake%e(l) * del_t(l) + lake%f(l)
-      lake%prog(l+1)%T = lake%prog(l+1)%T + del_t(l+1)
+      lake%T(l+1) = lake%T(l+1) + del_t(l+1)
     end do
   end if
 
   if(is_watch_point()) then
     write(*,*) ' ***** lake_step_2 checkpoint 2 ***** '
     do l = 1, num_l
-       write(*,*) 'level=', l, 'T', lake%prog(l)%T
+       write(*,*) 'level=', l, 'T', lake%T(l)
     enddo
   endif
 
   ! ---- extract evap from lake and do implicit melt --------------------
-  lake%prog(1)%wl = lake%prog(1)%wl - lake_levap*delta_time
-  lake%prog(1)%ws = lake%prog(1)%ws - lake_fevap*delta_time
-  hcap = lake%heat_capacity_dry(1)*lake%prog(1)%dz &
-                     + clw*lake%prog(1)%wl + csw*lake%prog(1)%ws
+  lake%wl(1) = lake%wl(1) - lake_levap*delta_time
+  lake%ws(1) = lake%ws(1) - lake_fevap*delta_time
+  hcap = lake%heat_capacity_dry(1)*lake%dz(1) &
+                     + clw*lake%wl(1) + csw*lake%ws(1)
   ! T adjustment for nonlinear terms (del_T)*(del_W)
   dheat = delta_time*(clw*lake_levap+csw*lake_fevap)*del_T(1)
   ! take out extra heat not claimed in advance for evaporation
   if (use_tfreeze_in_grnd_latent) dheat = dheat &
           - delta_time*((cpw-clw)*lake_levap+(cpw-csw)*lake_fevap) &
-                                 *(lake%prog(1)%T-del_T(1)-tfreeze)
-  lake%prog(1)%T  = lake%prog(1)%T  + dheat/hcap
-  lake%prog(1)%wl = lake%prog(1)%wl + subs_M_imp
-  lake%prog(1)%ws = lake%prog(1)%ws - subs_M_imp
-  lake%prog(1)%T  = tfreeze + (hcap*(lake%prog(1)%T-tfreeze) ) &
+                                 *(lake%T(1)-del_T(1)-tfreeze)
+  lake%T(1)  = lake%T(1)  + dheat/hcap
+  lake%wl(1) = lake%wl(1) + subs_M_imp
+  lake%ws(1) = lake%ws(1) - subs_M_imp
+  lake%T(1)  = tfreeze + (hcap*(lake%T(1)-tfreeze) ) &
                             / ( hcap + (clw-csw)*subs_M_imp )
 
   if(is_watch_point()) then
      write(*,*) ' ***** lake_step_2 checkpoint 2.1 ***** '
      do l = 1, num_l
-        write(*,*) 'level=', l, 'T', lake%prog(l)%T
+        write(*,*) 'level=', l, 'T', lake%T(l)
      enddo
   endif
 
@@ -676,21 +676,21 @@ end subroutine lake_step_1
     do l = 1, num_l
       flow(l+1) = 0
       dW_l(l) = flow(l) - flow(l+1)
-      lake%prog(l)%wl = lake%prog(l)%wl + dW_l(l)
+      lake%wl(l) = lake%wl(l) + dW_l(l)
     enddo
 
   if(is_watch_point()) then
      write(*,*) ' ***** lake_step_2 checkpoint 3.3 ***** '
      do l = 1, num_l
         write(*,'(a,i2.2,100(2x,a,g23.16))') ' level=', l,&
-             ' wl=', lake%prog(l)%wl,&
+             ' wl=', lake%wl(l),&
              'flow=', flow(l)
      enddo
   endif
   
-  hcap = lake%heat_capacity_dry(1)*lake%prog(1)%dz &
-                     + clw*(lake%prog(1)%wl-dW_l(1)) + csw*lake%prog(1)%ws
-  lake%prog(1)%T = tfreeze + (hcap*(lake%prog(1)%T-tfreeze) +  &
+  hcap = lake%heat_capacity_dry(1)*lake%dz(1) &
+                     + clw*(lake%wl(1)-dW_l(1)) + csw*lake%ws(1)
+  lake%T(1) = tfreeze + (hcap*(lake%T(1)-tfreeze) +  &
                                  snow_hlprec*delta_time) &
                             / ( hcap + clw*dW_l(1) )
 
@@ -702,20 +702,20 @@ end subroutine lake_step_1
 
   do l = 1, num_l
     ! ---- compute explicit melt/freeze --------------------------------------
-    hcap = lake%heat_capacity_dry(l)*lake%prog(l)%dz &
-             + clw*lake%prog(l)%wl + csw*lake%prog(l)%ws
+    hcap = lake%heat_capacity_dry(l)*lake%dz(l) &
+             + clw*lake%wl(l) + csw*lake%ws(l)
     melt_per_deg = hcap/hlf
-    if (lake%prog(l)%ws>0 .and. lake%prog(l)%T>tfreeze) then
-      melt =  min(lake%prog(l)%ws, (lake%prog(l)%T-tfreeze)*melt_per_deg)
-    else if (lake%prog(l)%wl>0 .and. lake%prog(l)%T<tfreeze) then
-      melt = -min(lake%prog(l)%wl, (tfreeze-lake%prog(l)%T)*melt_per_deg)
+    if (lake%ws(l)>0 .and. lake%T(l)>tfreeze) then
+      melt =  min(lake%ws(l), (lake%T(l)-tfreeze)*melt_per_deg)
+    else if (lake%wl(l)>0 .and. lake%T(l)<tfreeze) then
+      melt = -min(lake%wl(l), (tfreeze-lake%T(l))*melt_per_deg)
     else
       melt = 0
     endif
-    lake%prog(l)%wl = lake%prog(l)%wl + melt
-    lake%prog(l)%ws = lake%prog(l)%ws - melt
-    lake%prog(l)%T = tfreeze &
-       + (hcap*(lake%prog(l)%T-tfreeze) - hlf*melt) &
+    lake%wl(l) = lake%wl(l) + melt
+    lake%ws(l) = lake%ws(l) - melt
+    lake%T(l) = tfreeze &
+       + (hcap*(lake%T(l)-tfreeze) - hlf*melt) &
                             / ( hcap + (clw-csw)*melt )
     lake_melt = lake_melt + melt / delta_time
   enddo
@@ -724,12 +724,12 @@ end subroutine lake_step_1
      write(*,*) ' ***** lake_step_2 checkpoint 5 ***** '
      do l = 1, num_l
         write(*,'(a,i2.2,100(2x,a,g23.16))') ' level=', l,&
-             ' dz=', lake%prog(l)%dz,&
-             ' T =', lake%prog(l)%T,&
-             ' Th=', (lake%prog(l)%ws +lake%prog(l)%wl)/(dens_h2o*lake%prog(l)%dz),&
-             ' wl=', lake%prog(l)%wl,&
-             ' ws=', lake%prog(l)%ws,&
-             ' gw=', lake%prog(l)%groundwater
+             ' dz=', lake%dz(l),&
+             ' T =', lake%T(l),&
+             ' Th=', (lake%ws(l) +lake%wl(l))/(dens_h2o*lake%dz(l)),&
+             ' wl=', lake%wl(l),&
+             ' ws=', lake%ws(l),&
+             ' gw=', lake%groundwater(l)
      enddo
   endif
 
@@ -739,30 +739,30 @@ end subroutine lake_step_1
      write(*,*) ' ***** lake_step_2 checkpoint 6 ***** '
      do l = 1, num_l
         write(*,'(a,i2.2,100(2x,a,g23.16))') ' level=', l,&
-             ' dz=', lake%prog(l)%dz,&
-             ' T =', lake%prog(l)%T,&
-             ' Th=', (lake%prog(l)%ws +lake%prog(l)%wl)/(dens_h2o*lake%prog(l)%dz),&
-             ' wl=', lake%prog(l)%wl,&
-             ' ws=', lake%prog(l)%ws,&
-             ' gw=', lake%prog(l)%groundwater
+             ' dz=', lake%dz(l),&
+             ' T =', lake%T(l),&
+             ' Th=', (lake%ws(l) +lake%wl(l))/(dens_h2o*lake%dz(l)),&
+             ' wl=', lake%wl(l),&
+             ' ws=', lake%ws(l),&
+             ' gw=', lake%groundwater(l)
      enddo
   endif
 
   if (float_ice_to_top) then
       do l = num_l, 2, -1
-        if (lake%prog(l)%ws .gt. 0. .and. lake%prog(l-1)%wl .gt. 0.) then
-            ice_to_move = min(lake%prog(l)%ws, lake%prog(l-1)%wl)
-            h_upper = (clw*lake%prog(l-1)%wl+csw*lake%prog(l-1)%ws)*lake%prog(l-1)%T
-            h_lower = (clw*lake%prog(l  )%wl+csw*lake%prog(l  )%ws)*lake%prog(l  )%T
-            lake%prog(l-1)%wl = lake%prog(l-1)%wl - ice_to_move
-            lake%prog(l-1)%ws = lake%prog(l-1)%ws + ice_to_move
-            lake%prog(l  )%wl = lake%prog(l  )%wl + ice_to_move
-            lake%prog(l  )%ws = lake%prog(l  )%ws - ice_to_move
-            h_to_move_up = ice_to_move*(csw*lake%prog(l)%T-clw*lake%prog(l-1)%T)
+        if (lake%ws(l) .gt. 0. .and. lake%wl(l-1) .gt. 0.) then
+            ice_to_move = min(lake%ws(l), lake%wl(l-1))
+            h_upper = (clw*lake%wl(l-1)+csw*lake%ws(l-1))*lake%T(l-1)
+            h_lower = (clw*lake%wl(l  )+csw*lake%ws(l  ))*lake%T(l  )
+            lake%wl(l-1) = lake%wl(l-1) - ice_to_move
+            lake%ws(l-1) = lake%ws(l-1) + ice_to_move
+            lake%wl(l  ) = lake%wl(l  ) + ice_to_move
+            lake%ws(l  ) = lake%ws(l  ) - ice_to_move
+            h_to_move_up = ice_to_move*(csw*lake%T(l)-clw*lake%T(l-1))
             h_upper  = h_upper + h_to_move_up
             h_lower  = h_lower - h_to_move_up
-            lake%prog(l-1)%T = h_upper / (clw*lake%prog(l-1)%wl+csw*lake%prog(l-1)%ws)
-            lake%prog(l  )%T = h_lower / (clw*lake%prog(l  )%wl+csw*lake%prog(l  )%ws)
+            lake%T(l-1) = h_upper / (clw*lake%wl(l-1)+csw*lake%ws(l-1))
+            lake%T(l  ) = h_lower / (clw*lake%wl(l  )+csw*lake%ws(l  ))
           endif
         enddo
     endif
@@ -771,19 +771,19 @@ end subroutine lake_step_1
      write(*,*) ' ***** lake_step_2 checkpoint 7 ***** '
      do l = 1, num_l
         write(*,'(a,i2.2,100(2x,a,g23.16))') ' level=', l,&
-             ' dz=', lake%prog(l)%dz,&
-             ' T =', lake%prog(l)%T,&
-             ' Th=', (lake%prog(l)%ws +lake%prog(l)%wl)/(dens_h2o*lake%prog(l)%dz),&
-             ' wl=', lake%prog(l)%wl,&
-             ' ws=', lake%prog(l)%ws,&
-             ' gw=', lake%prog(l)%groundwater
+             ' dz=', lake%dz(l),&
+             ' T =', lake%T(l),&
+             ' Th=', (lake%ws(l) +lake%wl(l))/(dens_h2o*lake%dz(l)),&
+             ' wl=', lake%wl(l),&
+             ' ws=', lake%ws(l),&
+             ' gw=', lake%groundwater(l)
      enddo
   endif
 
 
-  lake_Ttop = lake%prog(1)%T
-  lake_Ctop = lake%heat_capacity_dry(1)*lake%prog(1)%dz &
-       + clw*lake%prog(1)%wl + csw*lake%prog(1)%ws
+  lake_Ttop = lake%T(1)
+  lake_Ctop = lake%heat_capacity_dry(1)*lake%dz(1) &
+       + clw*lake%wl(1) + csw*lake%ws(1)
 
 ! ----------------------------------------------------------------------------
 ! given solution for surface energy balance, write diagnostic output.
@@ -793,13 +793,13 @@ end subroutine lake_step_1
   time = increment_time(time, int(delta_time), 0)
 
   ! ---- diagnostic section
-  call send_tile_data (id_dz,   lake%prog%dz,     diag )
-  call send_tile_data (id_temp, lake%prog%T,     diag )
-  call send_tile_data (id_wl,  lake%prog(1:num_l)%wl, diag )
-  call send_tile_data (id_ws,  lake%prog(1:num_l)%ws, diag )
-  call send_tile_data (id_lwc,  lake%prog(1:num_l)%wl/lake%prog(1:num_l)%dz, diag )
-  call send_tile_data (id_swc,  lake%prog(1:num_l)%ws/lake%prog(1:num_l)%dz, diag )
-  call send_tile_data (id_K_z,  lake%prog(1:num_l)%K_z,        diag )
+  call send_tile_data (id_dz,   lake%dz,     diag )
+  call send_tile_data (id_temp, lake%T,     diag )
+  call send_tile_data (id_wl,  lake%wl(1:num_l), diag )
+  call send_tile_data (id_ws,  lake%ws(1:num_l), diag )
+  call send_tile_data (id_lwc,  lake%wl(1:num_l)/lake%dz(1:num_l), diag )
+  call send_tile_data (id_swc,  lake%ws(1:num_l)/lake%dz(1:num_l), diag )
+  call send_tile_data (id_K_z,  lake%K_z(1:num_l),        diag )
   call send_tile_data (id_evap, lake_levap+lake_fevap, diag )
 
 end subroutine lake_step_2
@@ -815,113 +815,113 @@ end subroutine lake_step_2
   real :: new_dz, new_ws, new_wl, new_h, new_T, liq_frac
 
 ! now check whether we need to re-layer the lake.
-  if ( (lake%prog(1)%wl+lake%prog(1)%ws) &
-      /(lake%prog(2)%wl+lake%prog(2)%ws) .gt. max_rat) then
+  if ( (lake%wl(1)+lake%ws(1)) &
+      /(lake%wl(2)+lake%ws(2)) .gt. max_rat) then
       ! top layer has grown too thick. join two lower layers, and split
       ! top layer into two layers. in special case, just join and
       ! re-split top two layers.
       l_lowest_thin_layer = num_l
       do l = 2, num_l-1
-        if (lake%prog(l)%dz.lt.0.99*lake%prog(num_l)%dz) l_lowest_thin_layer = l
+        if (lake%dz(l).lt.0.99*lake%dz(num_l)) l_lowest_thin_layer = l
         enddo
       if (l_lowest_thin_layer.gt.2) then
-          new_dz = lake%prog(l_lowest_thin_layer)%dz &
-                  + lake%prog(l_lowest_thin_layer-1)%dz
-          new_wl = lake%prog(l_lowest_thin_layer)%wl &
-                  + lake%prog(l_lowest_thin_layer-1)%wl
-          new_ws = lake%prog(l_lowest_thin_layer)%ws &
-                  + lake%prog(l_lowest_thin_layer-1)%ws
-          new_h  = ( clw*lake%prog(l_lowest_thin_layer)%wl &
-                   + csw*lake%prog(l_lowest_thin_layer)%ws) &
-                   *     lake%prog(l_lowest_thin_layer)%T &
-                 + ( clw*lake%prog(l_lowest_thin_layer-1)%wl &
-                   + csw*lake%prog(l_lowest_thin_layer-1)%ws) &
-                   *     lake%prog(l_lowest_thin_layer-1)%T
+          new_dz = lake%dz(l_lowest_thin_layer) &
+                  + lake%dz(l_lowest_thin_layer-1)
+          new_wl = lake%wl(l_lowest_thin_layer) &
+                  + lake%wl(l_lowest_thin_layer-1)
+          new_ws = lake%ws(l_lowest_thin_layer) &
+                  + lake%ws(l_lowest_thin_layer-1)
+          new_h  = ( clw*lake%wl(l_lowest_thin_layer) &
+                   + csw*lake%ws(l_lowest_thin_layer)) &
+                   *     lake%T(l_lowest_thin_layer) &
+                 + ( clw*lake%wl(l_lowest_thin_layer-1) &
+                   + csw*lake%ws(l_lowest_thin_layer-1)) &
+                   *     lake%T(l_lowest_thin_layer-1)
           new_T = new_h / (clw*new_wl+csw*new_ws)
-          lake%prog(l_lowest_thin_layer)%dz = new_dz
-          lake%prog(l_lowest_thin_layer)%wl = new_wl
-          lake%prog(l_lowest_thin_layer)%ws = new_ws
-          lake%prog(l_lowest_thin_layer)%T  = new_T
+          lake%dz(l_lowest_thin_layer) = new_dz
+          lake%wl(l_lowest_thin_layer) = new_wl
+          lake%ws(l_lowest_thin_layer) = new_ws
+          lake%T(l_lowest_thin_layer)  = new_T
           do l = l_lowest_thin_layer-1, 3, -1
-            lake%prog(l)%dz = lake%prog(l-1)%dz
-            lake%prog(l)%wl = lake%prog(l-1)%wl
-            lake%prog(l)%ws = lake%prog(l-1)%ws
-            lake%prog(l)%T  = lake%prog(l-1)%T
+            lake%dz(l) = lake%dz(l-1)
+            lake%wl(l) = lake%wl(l-1)
+            lake%ws(l) = lake%ws(l-1)
+            lake%T(l)  = lake%T(l-1)
             enddo
-          liq_frac = lake%prog(1)%wl / (lake%prog(1)%wl+lake%prog(1)%ws)
-          lake%prog(2)%wl =     liq_frac *DENS_H2O*lake%prog(2)%dz
-          lake%prog(2)%ws = (1.-liq_frac)*DENS_H2O*lake%prog(2)%dz
-          lake%prog(2)%T  = lake%prog(1)%T
-          lake%prog(1)%dz = lake%prog(2)%dz
-          lake%prog(1)%wl = lake%prog(1)%wl - lake%prog(2)%wl
-          lake%prog(1)%ws = lake%prog(1)%ws - lake%prog(2)%ws
+          liq_frac = lake%wl(1) / (lake%wl(1)+lake%ws(1))
+          lake%wl(2) =     liq_frac *DENS_H2O*lake%dz(2)
+          lake%ws(2) = (1.-liq_frac)*DENS_H2O*lake%dz(2)
+          lake%T(2)  = lake%T(1)
+          lake%dz(1) = lake%dz(2)
+          lake%wl(1) = lake%wl(1) - lake%wl(2)
+          lake%ws(1) = lake%ws(1) - lake%ws(2)
         else
-          new_wl = lake%prog(1)%wl + lake%prog(2)%wl
-          new_ws = lake%prog(1)%ws + lake%prog(2)%ws
-          new_h  = ( clw*lake%prog(1)%wl + csw*lake%prog(1)%ws)   &
-                                                 * lake%prog(1)%T &
-                 + ( clw*lake%prog(2)%wl + csw*lake%prog(2)%ws)    &
-                                                 * lake%prog(2)%T
+          new_wl = lake%wl(1) + lake%wl(2)
+          new_ws = lake%ws(1) + lake%ws(2)
+          new_h  = ( clw*lake%wl(1) + csw*lake%ws(1))   &
+                                                 * lake%T(1) &
+                 + ( clw*lake%wl(2) + csw*lake%ws(2))    &
+                                                 * lake%T(2)
           new_T  = new_h / (clw*new_wl+csw*new_ws)
           liq_frac = new_wl / (new_wl+new_ws)
-          lake%prog(2)%dz = lake%prog(3)%dz
-          lake%prog(2)%wl =     liq_frac *DENS_H2O*lake%prog(2)%dz
-          lake%prog(2)%ws = (1.-liq_frac)*DENS_H2O*lake%prog(2)%dz
-          lake%prog(2)%T  = new_T
-          lake%prog(1)%dz = lake%prog(2)%dz
-          lake%prog(1)%wl = new_wl - lake%prog(2)%wl
-          lake%prog(1)%ws = new_ws - lake%prog(2)%ws
-          lake%prog(1)%T  = new_T
+          lake%dz(2) = lake%dz(3)
+          lake%wl(2) =     liq_frac *DENS_H2O*lake%dz(2)
+          lake%ws(2) = (1.-liq_frac)*DENS_H2O*lake%dz(2)
+          lake%T(2)  = new_T
+          lake%dz(1) = lake%dz(2)
+          lake%wl(1) = new_wl - lake%wl(2)
+          lake%ws(1) = new_ws - lake%ws(2)
+          lake%T(1)  = new_T
         endif
-    else if(  (lake%prog(1)%wl+lake%prog(1)%ws) &
-             /(lake%prog(2)%wl+lake%prog(2)%ws) .lt. min_rat) then
+    else if(  (lake%wl(1)+lake%ws(1)) &
+             /(lake%wl(2)+lake%ws(2)) .lt. min_rat) then
       ! top layer has grown too thin. join with next layer down, and split
       ! a lower layer to maintain number of layers.  in special case, just
       ! join and re-split top two layers.
       l_highest_thick_layer = 2
       do l = num_l, 3, -1
-        if (lake%prog(l)%dz.gt.1.01*lake%prog(2)%dz) l_highest_thick_layer = l
+        if (lake%dz(l).gt.1.01*lake%dz(2)) l_highest_thick_layer = l
         enddo
-      new_wl = lake%prog(1)%wl + lake%prog(2)%wl
-      new_ws = lake%prog(1)%ws + lake%prog(2)%ws
-      new_h  = ( clw*lake%prog(1)%wl + csw*lake%prog(1)%ws)   &
-                                             * lake%prog(1)%T &
-             + ( clw*lake%prog(2)%wl + csw*lake%prog(2)%ws)    &
-                                             * lake%prog(2)%T
+      new_wl = lake%wl(1) + lake%wl(2)
+      new_ws = lake%ws(1) + lake%ws(2)
+      new_h  = ( clw*lake%wl(1) + csw*lake%ws(1))   &
+                                             * lake%T(1) &
+             + ( clw*lake%wl(2) + csw*lake%ws(2))    &
+                                             * lake%T(2)
       new_T  = new_h / (clw*new_wl+csw*new_ws)
       if (l_highest_thick_layer.gt.2) then
-          lake%prog(1)%dz = lake%prog(2)%dz
-          lake%prog(1)%wl = new_wl
-          lake%prog(1)%ws = new_ws
-          lake%prog(1)%T  = new_T
+          lake%dz(1) = lake%dz(2)
+          lake%wl(1) = new_wl
+          lake%ws(1) = new_ws
+          lake%T(1)  = new_T
           do l = 2, l_highest_thick_layer-2
-            lake%prog(l)%dz = lake%prog(l+1)%dz
-            lake%prog(l)%wl = lake%prog(l+1)%wl
-            lake%prog(l)%ws = lake%prog(l+1)%ws
-            lake%prog(l)%T  = lake%prog(l+1)%T
+            lake%dz(l) = lake%dz(l+1)
+            lake%wl(l) = lake%wl(l+1)
+            lake%ws(l) = lake%ws(l+1)
+            lake%T(l)  = lake%T(l+1)
             enddo
-          new_dz = lake%prog(l_highest_thick_layer)%dz / 2.
-          new_wl = lake%prog(l_highest_thick_layer)%wl / 2.
-          new_ws = lake%prog(l_highest_thick_layer)%ws / 2.
-          new_T  = lake%prog(l_highest_thick_layer)%T
-          lake%prog(l_highest_thick_layer-1)%dz = new_dz
-          lake%prog(l_highest_thick_layer-1)%wl = new_wl
-          lake%prog(l_highest_thick_layer-1)%ws = new_ws
-          lake%prog(l_highest_thick_layer-1)%T  = new_T
-          lake%prog(l_highest_thick_layer)%dz = new_dz
-          lake%prog(l_highest_thick_layer)%wl = new_wl
-          lake%prog(l_highest_thick_layer)%ws = new_ws
-          lake%prog(l_highest_thick_layer)%T  = new_T
+          new_dz = lake%dz(l_highest_thick_layer) / 2.
+          new_wl = lake%wl(l_highest_thick_layer) / 2.
+          new_ws = lake%ws(l_highest_thick_layer) / 2.
+          new_T  = lake%T(l_highest_thick_layer)
+          lake%dz(l_highest_thick_layer-1) = new_dz
+          lake%wl(l_highest_thick_layer-1) = new_wl
+          lake%ws(l_highest_thick_layer-1) = new_ws
+          lake%T(l_highest_thick_layer-1)  = new_T
+          lake%dz(l_highest_thick_layer) = new_dz
+          lake%wl(l_highest_thick_layer) = new_wl
+          lake%ws(l_highest_thick_layer) = new_ws
+          lake%T(l_highest_thick_layer)  = new_T
         else
           liq_frac = new_wl / (new_wl+new_ws)
-          lake%prog(2)%dz = lake%prog(3)%dz / 2.
-          lake%prog(2)%wl =     liq_frac *DENS_H2O*lake%prog(2)%dz
-          lake%prog(2)%ws = (1.-liq_frac)*DENS_H2O*lake%prog(2)%dz
-          lake%prog(2)%T  = new_T
-          lake%prog(1)%dz = lake%prog(2)%dz
-          lake%prog(1)%wl = new_wl - lake%prog(2)%wl
-          lake%prog(1)%ws = new_ws - lake%prog(2)%ws
-          lake%prog(1)%T  = new_T          
+          lake%dz(2) = lake%dz(3) / 2.
+          lake%wl(2) =     liq_frac *DENS_H2O*lake%dz(2)
+          lake%ws(2) = (1.-liq_frac)*DENS_H2O*lake%dz(2)
+          lake%T(2)  = new_T
+          lake%dz(1) = lake%dz(2)
+          lake%wl(1) = new_wl - lake%wl(2)
+          lake%ws(1) = new_ws - lake%ws(2)
+          lake%T(1)  = new_T          
         endif
     endif
   end subroutine lake_relayer
@@ -1001,8 +1001,8 @@ subroutine lake_dz_ptr(tile, ptr)
    ptr=>NULL()
    if(associated(tile)) then
       if(associated(tile%lake)) then
-        n = size(tile%lake%prog)
-        ptr(1:n) => tile%lake%prog(1:n)%dz
+        n = size(tile%lake%dz)
+        ptr(1:n) => tile%lake%dz(1:n)
       endif
    endif
 end subroutine lake_dz_ptr
@@ -1014,8 +1014,8 @@ subroutine lake_temp_ptr(tile, ptr)
    ptr=>NULL()
    if(associated(tile)) then
       if(associated(tile%lake)) then
-        n = size(tile%lake%prog)
-        ptr(1:n) => tile%lake%prog(1:n)%T
+        n = size(tile%lake%T)
+        ptr(1:n) => tile%lake%T(1:n)
       endif
    endif
 end subroutine lake_temp_ptr
@@ -1027,8 +1027,8 @@ subroutine lake_wl_ptr(tile, ptr)
    ptr=>NULL()
    if(associated(tile)) then
       if(associated(tile%lake)) then
-        n = size(tile%lake%prog)
-        ptr(1:n) => tile%lake%prog(1:n)%wl
+        n = size(tile%lake%wl)
+        ptr(1:n) => tile%lake%wl(1:n)
       endif
    endif
 end subroutine lake_wl_ptr
@@ -1040,8 +1040,8 @@ subroutine lake_ws_ptr(tile, ptr)
    ptr=>NULL()
    if(associated(tile)) then
       if(associated(tile%lake)) then
-        n = size(tile%lake%prog)
-        ptr(1:n) => tile%lake%prog(1:n)%ws
+        n = size(tile%lake%ws)
+        ptr(1:n) => tile%lake%ws(1:n)
       endif
    endif
 end subroutine lake_ws_ptr
@@ -1053,8 +1053,8 @@ subroutine lake_gw_ptr(tile, ptr)
    ptr=>NULL()
    if(associated(tile)) then
       if(associated(tile%lake)) then
-        n = size(tile%lake%prog)
-        ptr(1:n) => tile%lake%prog(1:n)%groundwater
+        n = size(tile%lake%groundwater)
+        ptr(1:n) => tile%lake%groundwater(1:n)
       endif
    endif
 end subroutine lake_gw_ptr
@@ -1066,8 +1066,8 @@ subroutine lake_gwT_ptr(tile, ptr)
    ptr=>NULL()
    if(associated(tile)) then
       if(associated(tile%lake)) then
-        n = size(tile%lake%prog)
-        ptr(1:n) => tile%lake%prog(1:n)%groundwater_T
+        n = size(tile%lake%groundwater_T)
+        ptr(1:n) => tile%lake%groundwater_T(1:n)
       endif
    endif
 end subroutine lake_gwT_ptr

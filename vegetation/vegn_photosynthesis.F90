@@ -99,7 +99,7 @@ subroutine vegn_photosynthesis ( cohort, &
         water_supply = soil_water_supply/(mol_h2o*cohort%leafarea)
       
         call get_vegn_wet_frac (cohort, fw=fw, fs=fs)
-        call gs_Leuning(PAR_dn, PAR_net, cohort%prog%Tv, cana_q, cohort%lai, &
+        call gs_Leuning(PAR_dn, PAR_net, cohort%Tv, cana_q, cohort%lai, &
              cohort%leaf_age, p_surf, water_supply, cohort%species, cohort%pt, &
              cana_co2, cohort%extinct, fs+fw, cohort%layer, &
              ! output:
