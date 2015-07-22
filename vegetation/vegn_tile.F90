@@ -126,7 +126,7 @@ type :: vegn_tile_type
    real :: p_ann_acm  = 0.0 ! accumulated annual precipitation for p_ann
    real :: ncm_acm    = 0.0 ! accumulated number of cold months
 
-   ! averaged quantites for PPA phenology
+   ! averaged quantities for PPA phenology
    real :: tc_daily = 0.0
    real :: gdd      = 0.0 ! growing degree-days
    real :: tc_pheno = 0.0 ! smoothed canopy air temperature for phenology
@@ -360,7 +360,7 @@ subroutine update_derived_vegn_data(vegn)
     endif
     call update_bio_living_fraction(cc) ! this should not have any effect in PPA,
     ! since it only updates Px fractions of bliving, but I am not sure if this is 
-    ! inlemented consistently right now.
+    ! implemented consistently right now.
     ! TODO: check that Pl, Pr, Psw, Psw_alphasw are not used in PPA, move the
     ! above call inside "if (.not.do_ppa)" statement
 
