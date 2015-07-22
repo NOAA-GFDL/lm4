@@ -105,19 +105,20 @@ type :: vegn_cohort_type
   real    :: DBH_ys
 
 ! Adam Wolf
-  real    :: psi_rs = 0.0 ! psi at root-soil interface (solution to to darcy2d_solver)
-  real    :: psi_r  = 0.0 ! psi of root (root-stem interface)
-  real    :: psi_x  = 0.0 ! psi of xylem (stem-leaf interface)
-  real    :: psi_l  = 0.0 ! psi of leaf (leaf-substomatal cavity interface)
-  real    :: Kra    = 0.0 ! root membrane permeability per unit area, kg/m2 of root /s /m head
-  real    :: Kxa    = 0.0 ! conductivity of stem kg/m2 swa /s /(m head/m m height)
-  real    :: Kla    = 0.0 ! conductivity of leaf kg/m2 leaf /s /m head
-  real    :: Kri    = 0.0 ! conductivity of root system kg/indiv /s /m head
-  real    :: Kxi    = 0.0 ! conductivity of stem kg/indiv /s /(m head/m m height)
-  real    :: Kli    = 0.0 ! conductivity of leaf kg/indiv /s /m head
+  real    :: psi_r  = 0.0 ! psi of root (root-stem interface), m of water
+  real    :: psi_x  = 0.0 ! psi of xylem (stem-leaf interface), Pa
+  real    :: psi_l  = 0.0 ! psi of leaf (leaf-substomatal cavity interface), Pa
+  real    :: Kxa    = 0.0 ! conductivity of stem kg/m2 swa /s /(Pa/m m height)
+  real    :: Kla    = 0.0 ! conductivity of leaf kg/m2 leaf /s /Pa
+  real    :: Kxi    = 0.0 ! conductivity of stem kg/indiv /s /(Pa/m Pa)
+  real    :: Kli    = 0.0 ! conductivity of leaf kg/indiv /s /Pa
+  
+  real    :: w_scale = 1.0 ! water stress reduction of stomatal conductance, unitless,
+                          ! for diagnostics only
 
 ! ---- uptake-related variables
   real    :: root_length(max_lev) = 0.0 ! individual's root length per unit depth, m of root/m
+  real    :: K_r = 0.0 ! root membrane permeability per unit area, kg/(m3 s)
   real    :: r_r = 0.0 ! radius of fine roots, m
   real    :: uptake_frac(max_lev) = 0.0 ! normalized vertical distribution of uptake
 
@@ -145,14 +146,6 @@ type :: vegn_cohort_type
   ! used in fast time scale calculations
   real :: npp_previous_day     = 0.0
   real :: npp_previous_day_tmp = 0.0
-
-  ! lena added this for storing previous size stomatal opening and lwnet 
-  ! for computing canopy air T and q at the next step
-  
-  real :: gs = 0.0
-  real :: gb = 0.0
-
-  real :: ds = 0.0
 
   ! new allocation fractions, Jan2 03
   real :: Pl = 0.0          ! fraction of living biomass in leaves
@@ -251,7 +244,7 @@ subroutine get_vegn_wet_frac (cohort, &
   if (present(DfsDwl)) DfsDwl = DfsDwlL
   if (present(DfsDws)) DfsDws = DfsDwsL
   
-end subroutine
+end subroutine get_vegn_wet_frac
 
 
 ! ============================================================================
@@ -316,12 +309,7 @@ subroutine cohort_root_properties(cohort, dz, vrl, K_r, r_r)
      z = z + dz(l)
   enddo
 
-  if (do_ppa) then
-     K_r = cohort%Kra
-  else
-     ! in lm3 case, root properties change if the species change
-     K_r = spdata(sp)%Kram
-  endif
+  K_r = spdata(sp)%root_perm
   r_r = spdata(sp)%root_r
 
 end subroutine cohort_root_properties
@@ -393,7 +381,7 @@ function btotal(c)
   type(vegn_cohort_type), intent(in) :: c
   
   btotal = c%bliving+c%bwood
-end function
+end function btotal
 
 
 ! ============================================================================
@@ -418,7 +406,7 @@ function c3c4(c, temp, precip) result (pt)
     pt=PT_C3
   endif
   
-end function
+end function c3c4
 
 
 ! ============================================================================
@@ -439,7 +427,7 @@ function phenology_type(c, cm)
   else
      phenology_type = PHEN_DECIDUOUS ! its deciduous
   endif
-end function
+end function phenology_type
 
 
 ! ============================================================================
@@ -478,7 +466,7 @@ subroutine update_species(c, t_ann, t_cold, p_ann, cm, landuse)
   if (spp/=c%species) c%leaf_age = 0.0
 
   c%species = spp
-end subroutine
+end subroutine update_species
 
 
 ! ============================================================================
@@ -493,7 +481,7 @@ function leaf_area_from_biomass(bl,species,layer,firstlayer) result (area)
   else
      area = bl/spdata(species)%LMA    
   endif
-end function
+end function leaf_area_from_biomass
 
 
 ! ============================================================================
@@ -502,7 +490,7 @@ function height_from_biomass(btotal) result (height)
     real, intent(in) :: btotal ! total biomass
     
     height = 24.19*(1.0-exp(-0.19*btotal))
-end function
+end function height_from_biomass
 
 
 ! ============================================================================
@@ -544,7 +532,7 @@ subroutine update_biomass_pools(c)
      c%bl  = c%Pl*c%bliving;
      c%br  = c%Pr*c%bliving;
   endif
-end subroutine
+end subroutine update_biomass_pools
 
 
 ! ============================================================================
@@ -572,7 +560,7 @@ subroutine init_cohort_allometry_ppa(cc)
      cc%bl_max = sp%LMA   * sp%LAImax        * cc%crownarea
      cc%br_max = sp%phiRL * sp%LAImax/sp%SRA * cc%crownarea 
   end associate
-end subroutine
+end subroutine init_cohort_allometry_ppa
 
 ! ==============================================================================
 ! adam wolf
@@ -592,15 +580,12 @@ subroutine init_cohort_hydraulics(cc, init_psi)
   rootarea = cc%br * sp%srl * 2*PI * sp%root_r  ! (kg/indiv)(m/kg)(m2/m)
   stemarea = sp%alphaCSASW * cc%DBH**sp%thetaCSASW
 	
-  cc%Kra = sp%Kram
   cc%Kxa = sp%Kxam
   cc%Kla = sp%Klam
 		
-  cc%Kri = cc%Kra * rootarea
   cc%Kxi = cc%Kxa * stemarea / cc%height
   cc%Kli = cc%Kla * cc%leafarea
 
-  cc%psi_rs = init_psi
   cc%psi_r  = init_psi
   cc%psi_x  = init_psi
   cc%psi_l  = init_psi

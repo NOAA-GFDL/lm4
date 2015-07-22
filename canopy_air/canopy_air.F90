@@ -26,7 +26,7 @@ use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
 use land_tile_diag_mod, only : &
      register_tiled_diag_field, send_tile_data, diag_buff_type
-use land_data_mod,      only : land_state_type, lnd
+use land_data_mod,      only : land_state_type, lnd, land_time
 use land_tile_io_mod, only : create_tile_out_file, read_tile_data_r0d_fptr, write_tile_data_r0d_fptr, &
      get_input_restart_name, print_netcdf_error
 use land_debug_mod, only : is_watch_point, check_temp_range
@@ -306,7 +306,7 @@ subroutine cana_turbulence (u_star,&
   end select
   con_g_v = con_g_h
   con_v_v = con_v_h
-end subroutine
+end subroutine cana_turbulence
 
 ! ============================================================================
 ! update effective surface roughness lengths for CAS-to-atmosphere fluxes
@@ -411,7 +411,7 @@ subroutine cana_state ( cana, cana_T, cana_q, cana_co2 )
   if (present(cana_q))   cana_q   = cana%q
   if (present(cana_co2)) cana_co2 = cana%co2
   
-end subroutine
+end subroutine cana_state
 
 ! ============================================================================
 subroutine cana_step_1 ( cana,&
@@ -433,7 +433,7 @@ subroutine cana_step_1 ( cana,&
   ! ---- local vars
   real :: rho, grnd_q, qsat, DqsatDTg
 
-  call check_temp_range(grnd_T,'cana_step_1','grnd_T', lnd%time)
+  call check_temp_range(grnd_T,'cana_step_1','grnd_T')
 
   call qscomp(grnd_T,p_surf,qsat,DqsatDTg)
   grnd_q = grnd_rh * qsat
@@ -458,7 +458,7 @@ subroutine cana_step_1 ( cana,&
      __DEBUG3__(Hge,  DHgDTg, DHgDTc)
      __DEBUG4__(Ege,  DEgDTg, DEgDqc, DEgDpsig)
   endif
-end subroutine 
+end subroutine cana_step_1
 
 
 ! ============================================================================

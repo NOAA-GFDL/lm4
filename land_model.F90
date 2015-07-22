@@ -69,7 +69,7 @@ use land_tile_mod, only : land_tile_type, land_tile_list_type, &
      get_elmt_indices, get_tile_tags, get_tile_water, land_tile_heat, &
      land_tile_carbon
 use land_data_mod, only : land_data_type, atmos_land_boundary_type, &
-     land_state_type, land_data_init, land_data_end, lnd, &
+     land_state_type, land_data_init, land_data_end, lnd, land_time, &
      dealloc_land2cplr, realloc_land2cplr, &
      dealloc_cplr2land, realloc_cplr2land, &
      land_data_type_chksum, atm_lnd_bnd_type_chksum
@@ -82,7 +82,7 @@ use land_tile_diag_mod, only : tile_diag_init, tile_diag_end, &
      register_tiled_diag_field, send_tile_data, dump_tile_diag_fields, &
      add_tiled_diag_field_alias, register_cohort_diag_field, send_cohort_data
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
-     is_watch_point, get_watch_point, check_temp_range, current_face, &
+     is_watch_point, is_watch_time, get_watch_point, check_temp_range, current_face, &
      get_current_point, check_conservation, water_cons_tol, carbon_cons_tol 
 use static_vegn_mod, only : write_static_vegn
 use land_transitions_mod, only : &
@@ -364,11 +364,11 @@ subroutine land_model_init &
   ! set the land diagnostic axes ids for the flux exchange
   land2cplr%axes = (/id_lon,id_lat/)
   ! send some static diagnostic fields to output
-  if ( id_cellarea > 0 ) used = send_data ( id_cellarea, lnd%cellarea, lnd%time )
-  if ( id_landarea > 0 ) used = send_data ( id_landarea, lnd%area, lnd%time )
-  if ( id_landfrac > 0 ) used = send_data ( id_landfrac, frac,     lnd%time )
-  if ( id_geolon_t > 0 ) used = send_data ( id_geolon_t, lnd%lon*180.0/PI, lnd%time )
-  if ( id_geolat_t > 0 ) used = send_data ( id_geolat_t, lnd%lat*180.0/PI, lnd%time )
+  if ( id_cellarea > 0 ) used = send_data ( id_cellarea, lnd%cellarea, land_time )
+  if ( id_landarea > 0 ) used = send_data ( id_landarea, lnd%area, land_time )
+  if ( id_landfrac > 0 ) used = send_data ( id_landfrac, frac,     land_time )
+  if ( id_geolon_t > 0 ) used = send_data ( id_geolon_t, lnd%lon*180.0/PI, land_time )
+  if ( id_geolat_t > 0 ) used = send_data ( id_geolat_t, lnd%lat*180.0/PI, land_time )
 
   ! [7] initialize individual sub-models
   num_species = num_phys + num_c
@@ -380,20 +380,20 @@ subroutine land_model_init &
   call glac_init ( id_lon, id_lat )
   call snow_init ( id_lon, id_lat )
   call cana_init ( id_lon, id_lat )
-  call topo_rough_init( lnd%time, lnd%lonb, lnd%latb, &
+  call topo_rough_init( land_time, lnd%lonb, lnd%latb, &
        lnd%domain, id_lon, id_lat)
   allocate (river_land_mask(lnd%is:lnd%ie,lnd%js:lnd%je))
   allocate ( missing_rivers(lnd%is:lnd%ie,lnd%js:lnd%je))
   allocate ( no_riv        (lnd%is:lnd%ie,lnd%js:lnd%je))
   call river_init( lnd%lon, lnd%lat,                  &
-                   lnd%time, lnd%dt_fast, lnd%domain, &
+                   land_time, lnd%dt_fast, lnd%domain, &
                    frac,                              &
                    id_lon, id_lat,                    &
                    river_land_mask                    )
   missing_rivers = frac.gt.0. .and. .not.river_land_mask
   no_riv = 0.
   where (missing_rivers) no_riv = 1.
-  if ( id_no_riv > 0 ) used = send_data( id_no_riv, no_riv, lnd%time )
+  if ( id_no_riv > 0 ) used = send_data( id_no_riv, no_riv, land_time )
   call land_transitions_init (id_lon, id_lat) 
   ! [8] initialize boundary data
   ! [8.1] allocate storage for the boundary data 
@@ -923,7 +923,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   is=lbound(cplr2land%t_flux,1) ; ie = is+size(cplr2land%t_flux,1)-1
   js=lbound(cplr2land%t_flux,2) ; je = js+size(cplr2land%t_flux,2)-1
   allocate(phot_co2_data(is:ie,js:je))
-  call data_override('LND','phot_co2',phot_co2_data,lnd%time, &
+  call data_override('LND','phot_co2',phot_co2_data,land_time, &
        override=phot_co2_overridden)
   
   ! clear the runoff values, for accumulation over the tiles
@@ -1115,15 +1115,15 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      enddo
 
   ! advance land model time
-  lnd%time = lnd%time + lnd%dt_fast
+  land_time = land_time + lnd%dt_fast
 
   ! send the accumulated diagnostics to the output
-  call dump_tile_diag_fields(lnd%tile_map, lnd%time)
+  call dump_tile_diag_fields(lnd%tile_map, land_time)
 
-  if (id_dis_liq > 0)  used = send_data (id_dis_liq,  discharge_l,        lnd%time) 
-  if (id_dis_ice > 0)  used = send_data (id_dis_ice,  discharge_c(:,:,1), lnd%time) 
-  if (id_dis_heat > 0) used = send_data (id_dis_heat, discharge_c(:,:,2), lnd%time) 
-  if (id_dis_sink > 0) used = send_data (id_dis_sink, discharge_sink,     lnd%time) 
+  if (id_dis_liq > 0)  used = send_data (id_dis_liq,  discharge_l,        land_time) 
+  if (id_dis_ice > 0)  used = send_data (id_dis_ice,  discharge_c(:,:,1), land_time) 
+  if (id_dis_heat > 0) used = send_data (id_dis_heat, discharge_c(:,:,2), land_time) 
+  if (id_dis_sink > 0) used = send_data (id_dis_sink, discharge_sink,     land_time) 
 
   ! deallocate override buffer
   deallocate(phot_co2_data)
@@ -1267,7 +1267,8 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   character(64) :: tag
 
   if(is_watch_point()) then
-     call print_date(lnd%time, '#### update_land_model_fast_0d begins:')
+     write(*,*)
+     call print_date(land_time, '#### update_land_model_fast_0d begins:')
   endif
 
   ! + conservation check, part 1: calculate the pre-transition totals
@@ -1930,14 +1931,14 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   call get_tile_water(tile,lmass1,fmass1)
   call check_conservation (tag,'water', &
       lmass0+fmass0+(precip_l+precip_s-land_evap-(snow_frunf+subs_lrunf+snow_lrunf))*delta_time, &
-      lmass1+fmass1, water_cons_tol, lnd%time)
+      lmass1+fmass1, water_cons_tol)
   v0=lmass0+fmass0+(precip_l+precip_s-land_evap-(snow_frunf+subs_lrunf+snow_lrunf))*delta_time
   call send_tile_data(id_water_cons, (lmass1+fmass1-v0)/delta_time, tile%diag)
 
   cmass1 = land_tile_carbon(tile)
   call check_conservation (tag,'carbon', &
      cmass0-(fco2_0+Dfco2Dq*delta_co2)*mol_C/mol_CO2*delta_time, &
-     cmass1, water_cons_tol, lnd%time)
+     cmass1, carbon_cons_tol)
   v0 = cmass0-(fco2_0+Dfco2Dq*delta_co2)*mol_C/mol_CO2*delta_time
   call send_tile_data(id_carbon_cons, (cmass1-v0)/delta_time, tile%diag)
 
@@ -1950,7 +1951,7 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
 !           +ILa_dn-tile%lwup &
 !           -(snow_hfrunf + subs_hlrunf + snow_hlrunf) &
 !           )*delta_time, &
-!      heat1, 1e-16, lnd%time)
+!      heat1, 1e-16, land_time)
   ! - end of conservation check, part 2
 
   ! TODO: go through the diagnostics and verify that they do the right thing in PPA case
@@ -2126,10 +2127,10 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   call mpp_clock_begin(landClock)
   call mpp_clock_begin(landSlowClock)
 
-  call land_transitions( lnd%time )
+  call land_transitions( land_time )
   call update_vegn_slow( )
   ! send the accumulated diagnostics to the output
-  call dump_tile_diag_fields(lnd%tile_map, lnd%time)
+  call dump_tile_diag_fields(lnd%tile_map, land_time)
 
   ! land_transitions may have changed the number of tiles per grid cell: reallocate 
   ! boundary conditions, if necessary
@@ -2754,14 +2755,14 @@ subroutine update_land_bc_fast (tile, N, i,j,k, land2cplr, is_init)
   do_update = .not.present(is_init)
 
   ! on initialization the albedos are calculated for the current time step ( that is, interval
-  ! lnd%time, lnd%time+lnd%dt_fast); in the course of the run this subroutine is called
+  ! land_time, land_time+lnd%dt_fast); in the course of the run this subroutine is called
   ! at the end of time step (but before time is advanced) to calculate the radiative properties 
   ! for the _next_ time step
   if (do_update) then
-     call diurnal_solar(lnd%lat(i,j), lnd%lon(i,j), lnd%time+lnd%dt_fast, &
+     call diurnal_solar(lnd%lat(i,j), lnd%lon(i,j), land_time+lnd%dt_fast, &
           cosz, fracday, rrsun, lnd%dt_fast)
   else
-     call diurnal_solar(lnd%lat(i,j), lnd%lon(i,j), lnd%time, &
+     call diurnal_solar(lnd%lat(i,j), lnd%lon(i,j), land_time, &
           cosz, fracday, rrsun, lnd%dt_fast)
   endif
   
@@ -2979,7 +2980,7 @@ subroutine update_land_bc_fast (tile, N, i,j,k, land2cplr, is_init)
   call send_tile_data(id_grnd_T,     grnd_T,     tile%diag)
 
   ! --- debug section
-  call check_temp_range(land2cplr%t_ca(i,j,k),'update_land_bc_fast','T_ca',lnd%time)
+  call check_temp_range(land2cplr%t_ca(i,j,k),'update_land_bc_fast','T_ca')
 
 end subroutine update_land_bc_fast
 
@@ -2998,7 +2999,8 @@ subroutine update_land_bc_slow (land2cplr)
   if ( lnd%face==face.and.             &
        lnd%is<=i.and.i<=lnd%ie.and.    &
        lnd%js<=j.and.j<=lnd%je.and.    &
-       k<=size(land2cplr%rough_scale,3)) then
+       k<=size(land2cplr%rough_scale,3).and.&
+       is_watch_time() ) then
      write(*,*)'#### update_land_bc_slow ### output ####'
      write(*,*)'land2cplr%rough_scale',land2cplr%rough_scale(i,j,k)
      write(*,*)'#### update_land_bc_slow ### end of output ####'

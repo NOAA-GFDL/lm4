@@ -13,7 +13,7 @@ use nf_utils_mod, only : nfu_inq_dim, nfu_inq_var, nfu_def_dim, nfu_def_var, &
 use land_io_mod, only : print_netcdf_error, read_field, input_buf_size
 use land_tile_mod, only : land_tile_type, land_tile_list_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
-     get_elmt_indices
+     get_elmt_indices, tile_exists_func, fptr_i0, fptr_r0, fptr_r1
 use land_data_mod, only  : lnd
 use land_utils_mod, only : put_to_tiles_r0d_fptr
 
@@ -103,7 +103,7 @@ subroutine get_input_restart_name(name, restart_exists, actual_name)
      inquire (file=trim(actual_name), exist=restart_exists)
   endif
 
-end subroutine
+end subroutine get_input_restart_name
 
 ! =============================================================================
 ! this subroutine creates netcdf file for output of tiled data using "compression
@@ -231,20 +231,13 @@ subroutine create_tile_out_file_fptr(ncid, name, glon, glat, tile_exists, &
   character(len=*) , intent(in)  :: name      ! name of the file to create
   real             , intent(in)  :: glon(:)   ! longitudes of the grid centers
   real             , intent(in)  :: glat(:)   ! latitudes of the grid centers
+  procedure(tile_exists_func)    :: tile_exists ! existence detector function:
+      ! returns true if specific tile exists (hence should be written to restart)
   integer          , intent(in)  :: tile_dim_length ! length of tile axis
   integer, optional, intent(in)  :: reserve   ! amount of space to reserve for
   logical, optional, intent(out) :: created   ! indicates wether the file was 
       ! created; it is set to false if no restart needs to be written, in case 
       ! the total number of qualifying tiles in this domain is equal to zero
-  ! the following interface describes the "detector function", which is passed 
-  ! through the argument list and must return true for any tile to be written 
-  ! to the specific restart, false otherwise
-  interface
-     logical function tile_exists(tile)
-        use land_tile_mod, only : land_tile_type
-        type(land_tile_type), pointer :: tile
-     end function tile_exists
-  end interface
 
   ! ---- local vars
   type(land_tile_enum_type) :: ce, te ! tile list elements
@@ -279,7 +272,7 @@ subroutine create_tile_out_file_fptr(ncid, name, glon, glat, tile_exists, &
 
   if (present(created)) created = .true.
   
-end subroutine
+end subroutine create_tile_out_file_fptr
 
 ! ============================================================================
 ! given compressed index, sizes of the global grid, 2D array of tile lists
@@ -320,7 +313,7 @@ subroutine get_tile_by_idx(idx,nlon,nlat,tiles,is,js,ptr)
    ! NULL
    ptr=>current_tile(ce)
    
-end subroutine
+end subroutine get_tile_by_idx
 
 
 ! ============================================================================
@@ -331,13 +324,8 @@ end subroutine
 subroutine read_tile_data_i0d_fptr(ncid,name,fptr)
    integer     , intent(in) :: ncid ! netcdf file id
    character(*), intent(in) :: name ! name of the variable to read
-   ! subroutine returning the pointer to the data to be written
-   interface ; subroutine fptr(tile, ptr)
-      use land_tile_mod, only : land_tile_type
-      type(land_tile_type), pointer :: tile ! input
-      integer             , pointer :: ptr  ! returned pointer to the data
-    end subroutine fptr 
-   end interface
+   procedure(fptr_i0)       :: fptr ! subroutine returning the pointer to the &
+                                    ! data to be written
    
    ! ---- local constants
    character(*), parameter :: module_name='read_tile_data_i0d_fptr'
@@ -380,21 +368,15 @@ subroutine read_tile_data_i0d_fptr(ncid,name,fptr)
    enddo
    ! release allocated memory
    deallocate(idx,x1d)
-end subroutine
+end subroutine read_tile_data_i0d_fptr
 
 
 ! ============================================================================
 subroutine read_tile_data_r0d_fptr(ncid,name,fptr)
    integer     , intent(in) :: ncid ! netcdf file id
    character(*), intent(in) :: name ! name of the variable to read
-   ! subroutine returning the pointer to the data to be written
-   interface ; subroutine fptr(tile, ptr)
-      use land_tile_mod, only : land_tile_type
-      type(land_tile_type), pointer :: tile ! input
-      real                , pointer :: ptr  ! returned pointer to the data
-   end subroutine fptr
-   end interface
-   
+   procedure(fptr_r0)       :: fptr ! subroutine returning the pointer to the 
+                                    ! data to be written   
    ! ---- local constants
    character(*), parameter :: module_name='read_tile_data_r0d_fptr'
    ! ---- local vars
@@ -436,19 +418,14 @@ subroutine read_tile_data_r0d_fptr(ncid,name,fptr)
    enddo
    ! release allocated memory
    deallocate(idx,x1d)
-end subroutine
+end subroutine read_tile_data_r0d_fptr
 
 ! ============================================================================
 subroutine read_tile_data_r1d_fptr_all(ncid,name,fptr)
    integer     , intent(in) :: ncid ! netcdf file id
    character(*), intent(in) :: name ! name of the variable to read
-   ! subroutine returning the pointer to the data to be written
-   interface ; subroutine fptr(tile, ptr)
-      use land_tile_mod, only : land_tile_type
-      type(land_tile_type), pointer :: tile ! input
-      real                , pointer :: ptr(:) ! returned pointer to the data
-   end subroutine fptr
-   end interface
+   procedure(fptr_r1)       :: fptr ! subroutine returning the pointer to the 
+                                    ! data to be written   
    
    ! ---- local constants
    character(*), parameter :: module_name='read_tile_data_r1d_fptr'
@@ -495,21 +472,16 @@ subroutine read_tile_data_r1d_fptr_all(ncid,name,fptr)
    enddo
    ! release allocated memory
    deallocate(idx,x1d)
-end subroutine
+end subroutine read_tile_data_r1d_fptr_all
 
 
 ! ============================================================================
 subroutine read_tile_data_r1d_fptr_idx (ncid,name,fptr,index)
    integer     , intent(in) :: ncid ! netcdf file id
    character(*), intent(in) :: name ! name of the variable to read
-   ! subroutine returning the pointer to the data to be written
-   interface ; subroutine fptr(tile, ptr)
-      use land_tile_mod, only : land_tile_type
-      type(land_tile_type), pointer :: tile ! input
-      real                , pointer :: ptr(:) ! returned pointer to the data
-   end subroutine fptr 
-   end interface
-   integer    , intent(in) :: index ! index where to read the data
+   procedure(fptr_r1)       :: fptr ! subroutine returning the pointer to the 
+                                    ! data to be written   
+   integer     , intent(in) :: index ! index where to read the data
    
    ! ---- local constants
    character(*), parameter :: module_name='read_tile_data_r0d_fptr'
@@ -552,7 +524,7 @@ subroutine read_tile_data_r1d_fptr_idx (ncid,name,fptr,index)
    enddo
    ! release allocated memory
    deallocate(idx,x1d)
-end subroutine
+end subroutine read_tile_data_r1d_fptr_idx
 
 
 ! ============================================================================
@@ -607,7 +579,7 @@ subroutine write_tile_data_i1d(ncid,name,data,mask,long_name,units)
   ! copy the data, and therefore on non-root io_domain PE there would be a chance
   ! that the data and mask are destroyed before they are actually sent.
   call mpp_sync()
-end subroutine
+end subroutine write_tile_data_i1d
 
 
 ! ============================================================================
@@ -654,7 +626,7 @@ subroutine write_tile_data_r1d(ncid,name,data,mask,long_name,units)
   ! copy the data, and therefore on non-root io_domain PE there would be a chance
   ! that the data and mask are destroyed before they are actually sent.
   call mpp_sync()
-end subroutine
+end subroutine write_tile_data_r1d
 
 
 ! ============================================================================
@@ -709,21 +681,16 @@ subroutine write_tile_data_r2d(ncid,name,data,mask,zdim,long_name,units)
   ! copy the data, and therefore on non-root io_domain PE there would be a chance
   ! that the data and mask are destroyed before they are actually sent.
   call mpp_sync()
-end subroutine
+end subroutine write_tile_data_r2d
 
 
 ! ============================================================================
 subroutine write_tile_data_i0d_fptr(ncid,name,fptr,long_name,units)
   integer         , intent(in) :: ncid ! netcdf id
   character(len=*), intent(in) :: name ! name of the variable to write
+  procedure(fptr_i0)           :: fptr ! subroutine returning the pointer to the 
+                                       ! data to be written
   character(len=*), intent(in), optional :: units, long_name
-  ! subroutine returning the pointer to the data to be written
-  interface ; subroutine fptr(tile, ptr)
-     use land_tile_mod, only : land_tile_type
-     type(land_tile_type), pointer :: tile ! input
-     integer             , pointer :: ptr  ! returned pointer to the data
-  end subroutine fptr
-  end interface
   
   ! ---- local vars
   integer, allocatable :: idx(:)    ! index dimension
@@ -769,21 +736,16 @@ subroutine write_tile_data_i0d_fptr(ncid,name,fptr,long_name,units)
   
   ! release allocated memory
   deallocate(data,idx,mask)
-end subroutine
+end subroutine write_tile_data_i0d_fptr
 
 
 ! ============================================================================
 subroutine write_tile_data_r0d_fptr(ncid,name,fptr,long_name,units)
   integer         , intent(in) :: ncid ! netcdf id
   character(len=*), intent(in) :: name ! name of the variable to write
+  procedure(fptr_r0)           :: fptr ! subroutine returning the pointer to the 
+                                       ! data to be written
   character(len=*), intent(in), optional :: units, long_name
-  ! subroutine returning the pointer to the data to be written
-  interface ; subroutine fptr(tile, ptr)
-     use land_tile_mod, only : land_tile_type
-     type(land_tile_type), pointer :: tile ! input
-     real                , pointer :: ptr  ! returned pointer to the data
-  end subroutine fptr
-  end interface
   
   ! ---- local vars
   integer, allocatable :: mask(:)   ! mask of valid data
@@ -824,22 +786,17 @@ subroutine write_tile_data_r0d_fptr(ncid,name,fptr,long_name,units)
 
   ! free allocated memory
   deallocate(data,idx,mask)
-end subroutine
+end subroutine write_tile_data_r0d_fptr
 
 
 ! ============================================================================
 subroutine write_tile_data_r1d_fptr_all(ncid,name,fptr,zdim,long_name,units)
   integer         , intent(in) :: ncid ! netcdf id
   character(len=*), intent(in) :: name ! name of the variable to write
+  procedure(fptr_r1)           :: fptr ! subroutine returning the pointer to the 
+                                       ! data to be written   
   character(len=*), intent(in) :: zdim ! name of the z-dimension
   character(len=*), intent(in), optional :: units, long_name
-  ! subroutine returning the pointer to the data to be written
-  interface ; subroutine fptr(tile, ptr)
-     use land_tile_mod, only : land_tile_type
-     type(land_tile_type), pointer :: tile ! input
-     real                , pointer :: ptr(:) ! returned pointer to the data
-  end subroutine fptr
-  end interface
   
   ! ---- local vars
   integer, allocatable :: idx(:)    ! index dimension
@@ -883,23 +840,18 @@ subroutine write_tile_data_r1d_fptr_all(ncid,name,fptr,zdim,long_name,units)
   ! free allocated memory
   deallocate(data,idx)
   
-end subroutine
+end subroutine write_tile_data_r1d_fptr_all
 
 
 ! ============================================================================
 subroutine write_tile_data_r1d_fptr_idx(ncid,name,fptr,index,long_name,units)
   integer         , intent(in) :: ncid  ! netcdf id
   character(len=*), intent(in) :: name  ! name of the variable to write
+  procedure(fptr_r1)           :: fptr  ! subroutine returning the pointer to the 
+                                        ! data to be written   
   integer         , intent(in) :: index ! index of the fptr array element to 
                                         ! write out
   character(len=*), intent(in), optional :: units, long_name
-  ! subroutine returning the pointer to the data to be written
-  interface ; subroutine fptr(tile, ptr)
-     use land_tile_mod, only : land_tile_type
-     type(land_tile_type), pointer :: tile ! input
-     real                , pointer :: ptr(:) ! returned pointer to the data
-  end subroutine fptr 
-  end interface
   
   ! ---- local vars
   integer, allocatable :: idx(:)    ! index dimension
@@ -940,23 +892,17 @@ subroutine write_tile_data_r1d_fptr_idx(ncid,name,fptr,index,long_name,units)
 
   ! free allocated memory
   deallocate(data,idx)
-end subroutine
+end subroutine write_tile_data_r1d_fptr_idx
 
 
 ! ============================================================================
 subroutine override_tile_data_r0d_fptr(fieldname,fptr,time,override)
   character(len=*), intent(in)   :: fieldname ! field to override
+  procedure(fptr_r0)             :: fptr ! subroutine returning the pointer to the 
+                                         ! data to be written   
   type(time_type),  intent(in)   :: time      ! model time
   logical, optional, intent(out) :: override  ! true if the field has been 
                                               ! overridden successfully
-  ! subroutine returning the pointer to the data to be overridden
-  interface ; subroutine fptr(tile, ptr)
-     use land_tile_mod, only : land_tile_type
-     type(land_tile_type), pointer :: tile ! input
-     real                , pointer :: ptr  ! returned pointer to the data
-  end subroutine fptr
-  end interface
-
   ! ---- local vars
   real    :: data2D(lnd%is:lnd%ie,lnd%js:lnd%je) ! storage for the input data
   logical :: override_
@@ -968,7 +914,7 @@ subroutine override_tile_data_r0d_fptr(fieldname,fptr,time,override)
   ! distribute the data over the tiles
   call put_to_tiles_r0d_fptr(data2d,lnd%tile_map,fptr)
   
-end subroutine
+end subroutine override_tile_data_r0d_fptr
 
 ! =============================================================================
 ! given netcdf ID, synchronizes the definitions between writing and reading 

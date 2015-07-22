@@ -14,7 +14,7 @@ use land_tile_selectors_mod, only : tile_selectors_init, tile_selectors_end, &
 use land_tile_mod,      only : land_tile_type, diag_buff_type, &
      land_tile_list_type, first_elmt, tail_elmt, next_elmt, get_elmt_indices, &
      land_tile_enum_type, operator(/=), current_tile, &
-     tile_is_selected
+     tile_is_selected, fptr_i0, fptr_r0, fptr_r1
 use vegn_cohort_mod,    only : vegn_cohort_type
 use land_data_mod,      only : lnd
 use tile_diag_buff_mod, only : diag_buff_type, realloc_diag_buff
@@ -204,7 +204,7 @@ function register_tiled_diag_field(module_name, field_name, axes, init_time, &
   id = reg_field(.false., module_name, field_name, init_time, axes, long_name, &
          units, missing_value, range, op=op)
 
-end function
+end function register_tiled_diag_field
 
 ! ============================================================================
 function register_tiled_static_field(module_name, field_name, axes, &
@@ -228,7 +228,7 @@ function register_tiled_static_field(module_name, field_name, axes, &
   id = reg_field(.true., module_name, field_name, init_time, axes, long_name, &
          units, missing_value, range, require, op)
 
-end function
+end function register_tiled_static_field
 
 
 ! ============================================================================
@@ -250,7 +250,7 @@ subroutine add_tiled_static_field_alias(id0, module_name, field_name, axes, &
 
   call reg_field_alias(id0, .true., module_name, field_name, axes, init_time, &
      long_name, units, missing_value, range, op)
-end subroutine
+end subroutine add_tiled_static_field_alias
 
 
 ! ============================================================================
@@ -270,7 +270,7 @@ subroutine add_tiled_diag_field_alias(id0, module_name, field_name, axes, init_t
 
   call reg_field_alias(id0, .false., module_name, field_name, axes, init_time, &
      long_name, units, missing_value, range, op)
-end subroutine
+end subroutine add_tiled_diag_field_alias
 
 ! ============================================================================
 subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time, &
@@ -337,7 +337,7 @@ subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time
     id0 = reg_field(static, module_name, field_name, init_time, axes, long_name, &
           units, missing_value, range, op=op)
   endif
-end subroutine
+end subroutine reg_field_alias
 
 ! ============================================================================
 ! provides unified interface for registering a diagnostic field with full set
@@ -495,7 +495,7 @@ function reg_field_set(static, sel, module_name, field_name, axes, init_time, &
           mask_variant=.true., do_not_log=.TRUE. )
   endif
 
-end function
+end function reg_field_set
 
 
 ! ============================================================================
@@ -571,14 +571,7 @@ end subroutine send_tile_data_1d
 subroutine send_tile_data_r0d_fptr(id, tile_map, fptr)
   integer, intent(in) :: id
   type(land_tile_list_type), intent(inout) :: tile_map(:,:)
-  ! subroutine returning the pointer to the tile data
-  interface
-     subroutine fptr(tile, ptr)
-       use land_tile_mod, only : land_tile_type
-       type(land_tile_type), pointer :: tile ! input
-       real                , pointer :: ptr  ! returned pointer to the data
-     end subroutine fptr 
-  end interface
+  procedure(fptr_r0)  :: fptr
 
   type(land_tile_enum_type)     :: te,ce   ! tail and current tile list elements
   type(land_tile_type), pointer :: tileptr ! pointer to tile   
@@ -600,14 +593,7 @@ end subroutine send_tile_data_r0d_fptr
 subroutine send_tile_data_r1d_fptr(id, tile_map, fptr)
   integer, intent(in) :: id
   type(land_tile_list_type), intent(inout) :: tile_map(:,:)
-  ! subroutine returning the pointer to the tile data
-  interface
-     subroutine fptr(tile, ptr)
-       use land_tile_mod, only : land_tile_type
-       type(land_tile_type), pointer :: tile ! input
-       real                , pointer :: ptr(:)  ! returned pointer to the data
-     end subroutine fptr 
-  end interface
+  procedure(fptr_r1)  :: fptr
 
   type(land_tile_enum_type)     :: te,ce   ! tail and current tile list elements
   type(land_tile_type), pointer :: tileptr ! pointer to tile   
@@ -629,14 +615,7 @@ end subroutine send_tile_data_r1d_fptr
 subroutine send_tile_data_i0d_fptr(id, tile_map, fptr)
   integer, intent(in) :: id
   type(land_tile_list_type), intent(inout) :: tile_map(:,:)
-  ! subroutine returning the pointer to the tile data
-  interface
-     subroutine fptr(tile, ptr)
-       use land_tile_mod, only : land_tile_type
-       type(land_tile_type), pointer :: tile ! input
-       integer             , pointer :: ptr  ! returned pointer to the data
-     end subroutine fptr 
-  end interface
+  procedure(fptr_i0)  :: fptr
 
   type(land_tile_enum_type)     :: te,ce   ! tail and current tile list elements
   type(land_tile_type), pointer :: tileptr ! pointer to tile   

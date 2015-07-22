@@ -46,7 +46,7 @@ use land_tile_mod, only : &
 use land_tile_io_mod, only : print_netcdf_error
 
 use land_data_mod, only : &
-     land_data_type, lnd
+     land_data_type, lnd, land_time
 use vegn_tile_mod, only : &
      vegn_tile_type, vegn_tran_priority
 use vegn_harvesting_mod, only : &
@@ -309,7 +309,7 @@ subroutine land_transitions_init(id_lon, id_lat)
      if(landuse_name(k2)=='')cycle
      ! construct a name of input field and register the field
      fieldname = trim(landuse_name(k1))//'2'//trim(landuse_name(k2))
-     diag_ids(k1,k2) = register_diag_field(diag_mod_name,fieldname,(/id_lon,id_lat/), lnd%time, &
+     diag_ids(k1,k2) = register_diag_field(diag_mod_name,fieldname,(/id_lon,id_lat/), land_time, &
           'rate of transition from '//trim(landuse_longname(k1))//' to '//trim(landuse_longname(k2)),& 
           units='1/year', missing_value=-1.0)
   enddo
@@ -317,7 +317,7 @@ subroutine land_transitions_init(id_lon, id_lat)
 
   module_is_initialized=.TRUE.
 
-end subroutine
+end subroutine land_transitions_init
 
 
 ! ============================================================================
@@ -568,7 +568,7 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
   call check_conservation ('soil heat content',       soil_heat0 , soil_heat1 , 1e-6)
   call check_conservation ('heat content', heat0 , heat1 , 1e-6)
 
-end subroutine 
+end subroutine land_transitions_0d
 
 
 ! ==============================================================================
@@ -738,7 +738,7 @@ function total_transition_area(list,src_kind,dst_kind,tau) result (total_area)
           total_area = total_area + tile%frac*vegn_tran_priority(tile%vegn,dst_kind,tau)
   enddo
   
-end function
+end function total_transition_area
 
 
 ! ============================================================================
@@ -869,7 +869,7 @@ subroutine integral_transition(t1, t2, id, frac, err_msg)
      endif
   enddo
   enddo
-end subroutine
+end subroutine integral_transition
 
 
 ! ==============================================================================
@@ -896,6 +896,6 @@ subroutine check_conservation(name, d1, d2, tolerance)
           'value before=', d1, 'after=', d2
      call error_mesg('land_transitions',message,severity)
   endif
-end subroutine 
+end subroutine check_conservation
 
 end module

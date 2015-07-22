@@ -17,6 +17,7 @@ use grid_mod          , only : get_grid_ntiles, get_grid_size, get_grid_cell_ver
      define_cube_mosaic
 use land_tile_mod     , only : land_tile_type, land_tile_list_type, &
      land_tile_list_init, land_tile_list_end, nitems
+use land_debug_mod    , only : land_time
 
 implicit none
 private
@@ -25,6 +26,7 @@ private
 public :: land_data_init
 public :: land_data_end
 public :: lnd            ! global data 
+public :: land_time      ! current time
 
 public :: atmos_land_boundary_type ! container for information passed from the 
                          ! atmosphere to land
@@ -149,7 +151,6 @@ type :: land_state_type
    integer        :: ico2        ! index of carbon dioxide in tracer table
    type(time_type):: dt_fast     ! fast (physical) time step
    type(time_type):: dt_slow     ! slow time step
-   type(time_type):: time        ! current time
 
    real, pointer  :: lon (:,:), lat (:,:) ! domain grid center coordinates, radian
    real, pointer  :: lonb(:,:), latb(:,:) ! domain grid vertices, radian
@@ -302,7 +303,7 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow)
   ! NB: co2 might be absent, in this case ico2 == NO_TRACER
 
   ! initialize model's time-related parameters
-  lnd%time    = time
+  land_time   = time
   lnd%dt_fast = dt_fast
   lnd%dt_slow = dt_slow
 

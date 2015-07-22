@@ -56,6 +56,14 @@ public :: soil_ave_theta0! calculate average soil moisture, pcm based on availab
 public :: soil_ave_theta1! calculate average soil moisture, ens based on all water
 public :: soil_theta     ! returns array of soil moisture, for all layers
 public :: soil_psi_stress ! return soil-water-stress index
+
+! public data
+public :: max_lev ! max number of soil layers (max dimension of arrays)
+public :: num_l ! actual number of soil layers
+public :: dz    ! layer thicknesses (m)
+public :: zhalf ! depths of layer boundaries (m)
+public :: zfull ! depths of layer centers (m)
+
 public :: g_iso, g_vol, g_geo, g_RT
 public :: num_storage_pts
 public :: gw_zeta_s, gw_flux_table, gw_area_table
@@ -64,7 +72,7 @@ public :: num_zeta_pts, num_tau_pts
 public :: log_tau, log_zeta_s, log_rho_table, gw_scale_perm, aspect
 public :: use_alpha, z_ref, k_macro_constant, use_tau_fix
 
-public :: max_lev, psi_wilt
+public :: psi_wilt ! wilting water potential, m
 ! =====end of public interfaces ==============================================
 interface new_soil_tile
    module procedure soil_tile_ctor
@@ -177,7 +185,6 @@ type :: soil_tile_type
    ! added to avoid recalculation of soil hydraulics in case of Darcy uptake
    real :: uptake_T  ! uptake temperature from previous time step
    real, pointer :: psi(:) => NULL() ! soil water potential
-   real :: psi_rootvessel ! psi inside the root system, at z=0
    real, pointer ::  gw_flux_norm(:) => NULL()
    real, pointer ::  gw_area_norm(:) => NULL()
 
@@ -411,10 +418,8 @@ real    :: zhalf (max_lev+1)
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
-subroutine read_soil_data_namelist(soil_num_l, soil_dz, soil_single_geo, &
+subroutine read_soil_data_namelist(soil_single_geo, &
                                    soil_gw_option )
-  integer, intent(out) :: soil_num_l
-  real,    intent(out) :: soil_dz(:)
   logical, intent(out) :: soil_single_geo
   integer, intent(out) :: soil_gw_option
   ! ---- local vars
@@ -523,8 +528,6 @@ subroutine read_soil_data_namelist(soil_num_l, soil_dz, soil_single_geo, &
 
 
   ! set up output arguments
-  soil_num_l      = num_l
-  soil_dz         = dz
   soil_single_geo = use_single_geo
   soil_gw_option  = gw_option
 
@@ -919,7 +922,7 @@ subroutine merge_soil_tiles(s1,w1,s2,w2)
   s2%asoil_in(:)    = s1%asoil_in(:)*x1 + s2%asoil_in(:)*x2
   s2%fsc_in(:)      = s1%fsc_in(:)*x1 + s2%fsc_in(:)*x2
   s2%ssc_in(:)      = s1%ssc_in(:)*x1 + s2%ssc_in(:)*x2
-end subroutine
+end subroutine merge_soil_tiles
 
 ! =============================================================================
 ! returns true if tile fits the specified selector

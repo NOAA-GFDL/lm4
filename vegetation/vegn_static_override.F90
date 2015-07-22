@@ -21,7 +21,7 @@ use diag_manager_mod,   only : get_base_date
 use nf_utils_mod,       only : nfu_inq_dim, nfu_get_dim, nfu_def_dim, &
      nfu_inq_compressed_var, nfu_get_compressed_rec, nfu_validtype, &
      nfu_get_valid_range, nfu_is_valid, nfu_put_rec, nfu_put_att
-use land_data_mod,      only : lnd
+use land_data_mod,      only : lnd, land_time
 use land_io_mod,        only : print_netcdf_error
 use land_numerics_mod,  only : nearest
 use land_tile_io_mod,   only : create_tile_out_file,sync_nc_files
@@ -395,8 +395,8 @@ subroutine write_static_vegn()
   if(.not.write_static_veg) return;
 
   ! get components of calendar dates for this and previous time step
-  call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
-  call get_date(lnd%time-lnd%dt_fast, year1,month1,day1,hour,minute,second)
+  call get_date(land_time,             year0,month0,day0,hour,minute,second)
+  call get_date(land_time-lnd%dt_fast, year1,month1,day1,hour,minute,second)
 
   if (     (trim(static_veg_freq)=='daily'  .and.  day1/=day0)   &
        .or.(trim(static_veg_freq)=='monthly'.and.month1/=month0) &
@@ -410,7 +410,7 @@ subroutine write_static_vegn()
      rec = rec+1
      ! create new record in the output file and store current value of time
      if(mpp_pe()==lnd%io_pelist(1)) then
-        t = (time_type_to_real(lnd%time)-time_type_to_real(base_time))/86400
+        t = (time_type_to_real(land_time)-time_type_to_real(base_time))/86400
         __NF_ASRT__(nfu_put_rec(ncid2,'time',rec,t))
      endif
      ! write static vegetation data

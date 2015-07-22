@@ -5,8 +5,17 @@ module uptake_mod
 
 #include "../shared/debug.inc"
 
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
+
+use fms_mod, only: error_mesg, file_exist, check_nml_error, &
+     stdlog, write_version_number, close_file, mpp_pe, mpp_root_pe, &
+     FATAL, WARNING, NOTE
 use constants_mod, only: PI
-use fms_mod, only : write_version_number
+
 use soil_tile_mod, only : &
      soil_tile_type, soil_pars_type, max_lev, psi_wilt
 use land_debug_mod, only : is_watch_point
@@ -15,12 +24,11 @@ implicit none
 private
 
 ! ==== public interfaces =====================================================
-public :: UPTAKE_LINEAR, UPTAKE_DARCY2D, UPTAKE_DARCY2D_LIN
+public :: uptake_option, UPTAKE_LINEAR, UPTAKE_DARCY2D, UPTAKE_DARCY2D_LIN
 
 public :: uptake_init
 
 public :: darcy2d_uptake, darcy2d_uptake_solver
-public :: darcy2d_uptake_lin, darcy2d_uptake_solver_lin
 ! =====end of public interfaces ==============================================
 
 
@@ -36,11 +44,38 @@ integer, parameter ::   &
      UPTAKE_DARCY2D        = 2, &
      UPTAKE_DARCY2D_LIN    = 3
 
+! ==== interfaces ============================================================
+abstract interface 
+   subroutine uptake_subr_interface ( soil, psi_x0, R, VRL, K_r, r_r, uptake, duptake)
+     use soil_tile_mod, only : soil_tile_type
+     type(soil_tile_type), intent(in) :: soil
+     real, intent(in) :: &
+          psi_x0, &   ! water potential inside roots (in xylem) at zero depth, m
+          R(:),   &   ! characteristic half-distance between roots, m
+          VRL(:), &   ! Volumetric Root Length (root length per unit volume), m/m3
+          K_r,    &   ! permeability of the root skin per unit area, kg/(m3 s)
+          r_r         ! radius of the roots, m
+     real, intent(out) :: &
+          uptake(:), & ! water uptake by roots
+          duptake(:)   ! derivative of water uptake w.r.t. psi_root
+   end subroutine uptake_subr_interface
+end interface
+
 ! ==== module variables ======================================================
+
+! ---- namelist --------------------------------------------------------------
+character(len=24) :: uptake_to_use = 'linear' ! or 'darcy2d', or 'darcy2d-linearized'
+logical :: uptake_oneway           = .false.  ! if true, roots can't loose water to soil
+logical :: uptake_from_sat         = .true.   ! if false, the uptake from saturated soil is prohibited
+namelist /uptake_nml/ uptake_to_use, uptake_oneway, uptake_from_sat
+!---- end of namelist --------------------------------------------------------
+
 logical :: module_is_initialized =.FALSE.
 integer :: num_l ! # of water layers
 real    :: dz    (max_lev)    ! thicknesses of layers
 real    :: zfull (max_lev)
+
+integer :: uptake_option = -1 
 
 contains
 
@@ -51,19 +86,55 @@ subroutine uptake_init(num_l_in, dz_in, zfull_in)
        dz_in(:), &  ! layer thickness
        zfull_in(:)  ! layer centers
 
+  integer :: unit, ierr, io
   call write_version_number(version, tagname)
-  module_is_initialized =.TRUE.
+#ifdef INTERNAL_FILE_NML
+  read (input_nml_file, nml=uptake_nml, iostat=io)
+  ierr = check_nml_error(io, 'uptake_nml')
+#else
+  if (file_exist('input.nml')) then
+     unit = open_namelist_file()
+     ierr = 1;  
+     do while (ierr /= 0)
+        read (unit, nml=uptake_nml, iostat=io, end=10)
+        ierr = check_nml_error (io, 'uptake_nml')
+     enddo
+10   continue
+     call close_file (unit)
+  endif
+#endif
+  if (mpp_pe() == mpp_root_pe()) then
+     unit=stdlog()
+     write(unit, nml=uptake_nml)
+  endif
 
   num_l = num_l_in
   dz    = dz_in
   zfull = zfull_in
+
+  ! ---- convert symbolic names of options into numeric IDs to speed up
+  ! the selection during run-time
+  if (trim(uptake_to_use)=='linear') then
+     uptake_option = UPTAKE_LINEAR
+  else if (trim(uptake_to_use)=='darcy2d') then
+     uptake_option = UPTAKE_DARCY2D
+  else if (trim(uptake_to_use)=='darcy2d-linearized') then
+     uptake_option = UPTAKE_DARCY2D_LIN
+  else 
+     call error_mesg('soil_init',&
+          'soil uptake option uptake_to_use="'//&
+          trim(uptake_to_use)//'" is invalid, use "linear", "darcy2d" or "darcy2d-linearized"',&
+          FATAL)
+  endif
+
+  module_is_initialized =.TRUE.
 end subroutine uptake_init
 
 
 ! ============================================================================
 ! given soil and root parameters, calculate the flux of water toward root
 ! per unit root length, and its derivative w.r.t. xylem water potential
-subroutine darcy2d_flow (psi_x, psi_soil, K_sat, psi_sat, b, K_r, r_r, R, eps, u, du, psi_root)
+subroutine darcy2d_flow_nonlin (psi_x, psi_soil, K_sat, psi_sat, b, K_r, r_r, R, eps, u, du, psi_root)
   real, intent(in) :: &
        psi_x,    & ! xylem water potential, m
        psi_soil, & ! soil water potential, m
@@ -150,7 +221,7 @@ subroutine darcy2d_flow (psi_x, psi_soil, K_sat, psi_sat, b, K_r, r_r, R, eps, u
   K_s = C_r*K_sat*(min(psi_root,psi_sat)/psi_sat)**(n-1)
   du = -K_root*K_s/(K_root+K_s)
 
-end subroutine darcy2d_flow
+end subroutine darcy2d_flow_nonlin
 
 
 ! ============================================================================
@@ -160,8 +231,9 @@ end subroutine darcy2d_flow
 ! uptake.
 ! NOTE that is we use one-way uptake option then U(psi_root) is continuous, but
 ! DUDpsi_root is not
-subroutine darcy2d_uptake ( soil, psi_x0, R, VRL, K_r, r_r, uptake_oneway, &
-     uptake_from_sat, uptake, duptake)
+! This is a generic subroutine that simply calls linearized or non-linear
+! variant depending on uptake_option argument
+subroutine darcy2d_uptake ( soil, psi_x0, R, VRL, K_r, r_r, uptake, duptake)
   type(soil_tile_type), intent(in) :: soil
   real, intent(in) :: &
        psi_x0, &   ! water potential inside roots (in xylem) at zero depth, m
@@ -169,10 +241,36 @@ subroutine darcy2d_uptake ( soil, psi_x0, R, VRL, K_r, r_r, uptake_oneway, &
        VRL(:), &   ! Volumetric Root Length (root length per unit volume), m/m3
        K_r,    &   ! permeability of the root skin per unit area, kg/(m3 s)
        r_r         ! radius of the roots, m
-  logical, intent(in) :: &
-       uptake_oneway, & ! if true, then the roots can only take up water, but 
-                   ! never loose it to the soil
-       uptake_from_sat   ! if false, uptake from saturated soil is prohibited
+  real, intent(out) :: &
+       uptake(:), & ! water uptake by roots
+       duptake(:)   ! derivative of water uptake w.r.t. psi_root
+
+  select case (uptake_option)
+  case (UPTAKE_DARCY2D)
+      call darcy2d_uptake_nonlin (soil, psi_x0, R, VRL, K_r, r_r, uptake, duptake)
+  case (UPTAKE_DARCY2D_LIN)
+      call darcy2d_uptake_lin    (soil, psi_x0, R, VRL, K_r, r_r, uptake, duptake)
+  case default
+      call error_mesg('darcy2d_uptake','incorrect uptake_option value',FATAL)
+  end select
+
+end subroutine darcy2d_uptake
+
+! ============================================================================
+! given water potential of roots and soil, and array of vegetation factors in
+! the uptake formula, calculate the total soil water uptake, its derivative
+! w.r.t. root water potential, and optionally the vertical distribution of the
+! uptake.
+! NOTE that is we use one-way uptake option then U(psi_root) is continuous, but
+! DUDpsi_root is not
+subroutine darcy2d_uptake_nonlin ( soil, psi_x0, R, VRL, K_r, r_r, uptake, duptake)
+  type(soil_tile_type), intent(in) :: soil
+  real, intent(in) :: &
+       psi_x0, &   ! water potential inside roots (in xylem) at zero depth, m
+       R(:),   &   ! characteristic half-distance between roots, m
+       VRL(:), &   ! Volumetric Root Length (root length per unit volume), m/m3
+       K_r,    &   ! permeability of the root skin per unit area, kg/(m3 s)
+       r_r         ! radius of the roots, m
   real, intent(out) :: &
        uptake(:), & ! water uptake by roots
        duptake(:)   ! derivative of water uptake w.r.t. psi_root
@@ -210,7 +308,7 @@ subroutine darcy2d_uptake ( soil, psi_x0, R, VRL, K_r, r_r, uptake_oneway, &
           cycle ! skip layers where the soil is saturated
 
      ! calculates soil term of uptake expression
-     call darcy2d_flow (psi_x, psi_soil, K_sat, psi_sat, soil%pars%chb, K_r, r_r, R(l), eps, u, du, psi_r)
+     call darcy2d_flow_nonlin (psi_x, psi_soil, K_sat, psi_sat, soil%pars%chb, K_r, r_r, R(l), eps, u, du, psi_r)
 
      ! scale by volumetric root length and thickness of layer to get total uptake 
      ! from the current soil layer
@@ -223,25 +321,55 @@ subroutine darcy2d_uptake ( soil, psi_x0, R, VRL, K_r, r_r, uptake_oneway, &
              'z=', zfull(l)
      endif
   enddo
-end subroutine darcy2d_uptake
+end subroutine darcy2d_uptake_nonlin
 
 
 ! =============================================================================
 ! for Darcy-flow uptake, find the root water potential such to satisfy actual 
-! uptake by the vegetation. 
-subroutine darcy2d_uptake_solver (soil, vegn_uptk, R, VRL, K_r, r_r, uptake_oneway, &
-     uptake_from_sat, uptake, psi_x0, n_iter)
-  type(soil_tile_type), intent(inout) :: soil
+! uptake by the vegetation.
+!
+! This is a generic subroutine that calls linear or non-linear solver, depending
+! on the uptake_option
+subroutine darcy2d_uptake_solver (soil, vegn_uptk, R, VRL, K_r, r_r, &
+                                  uptake, psi_x0, n_iter)
+  type(soil_tile_type), intent(in) :: soil
   real, intent(in)  :: &
        vegn_uptk, & ! uptake requested by vegetation, kg/(m2 s)
        R(:),      & ! characteristic half-distance between roots, m
        VRL(:),    & ! volumetric root length, m/m3
        K_r,       & ! root membrane permeability per unit area, kg/(m3 s)
        r_r          ! root radius, m
-  logical, intent(in) :: &
-       uptake_oneway, & ! if true, then the roots can only take up water, but 
-                    ! never loose it to the soil
-       uptake_from_sat ! if false, uptake from saturated soil is prohibited
+  real,    intent(out) :: &
+       uptake(:), & ! soil water uptake, by layer
+       psi_x0       ! water potential inside roots (in xylem) at zero depth, m
+  integer, intent(out) :: n_iter ! # of iterations made, for diagnostics only
+
+  select case (uptake_option)
+  case (UPTAKE_DARCY2D)
+      call darcy2d_uptake_solver_nonlin (soil, vegn_uptk, R, VRL, K_r, r_r, &
+             uptake, psi_x0, n_iter)
+  case (UPTAKE_DARCY2D_LIN)
+     call darcy2d_uptake_solver_lin     (soil, vegn_uptk, R, VRL, K_r, r_r, &
+             uptake, psi_x0, n_iter)
+  case default
+      call error_mesg('darcy2d_uptake_solver','incorrect uptake_option value',FATAL)
+  end select
+  
+end subroutine darcy2d_uptake_solver
+
+
+! =============================================================================
+! for Darcy-flow uptake, find the root water potential such to satisfy actual 
+! uptake by the vegetation. 
+subroutine darcy2d_uptake_solver_nonlin (soil, vegn_uptk, R, VRL, K_r, r_r, &
+                                  uptake, psi_x0, n_iter)
+  type(soil_tile_type), intent(in) :: soil
+  real, intent(in)  :: &
+       vegn_uptk, & ! uptake requested by vegetation, kg/(m2 s)
+       R(:),      & ! characteristic half-distance between roots, m
+       VRL(:),    & ! volumetric root length, m/m3
+       K_r,       & ! root membrane permeability per unit area, kg/(m3 s)
+       r_r          ! root radius, m
   real,    intent(out) :: &
        uptake(:), & ! soil water uptake, by layer
        psi_x0       ! water potential inside roots (in xylem) at zero depth, m
@@ -249,58 +377,34 @@ subroutine darcy2d_uptake_solver (soil, vegn_uptk, R, VRL, K_r, r_r, uptake_onew
 
   real :: uptake_tot
 
-  call uptake_solver_K(soil, vegn_uptk, R, VRL, K_r, r_r, uptake_oneway, &
-     uptake_from_sat, uptake, psi_x0, n_iter, darcy2d_uptake)
+  call uptake_solver_K(soil, vegn_uptk, R, VRL, K_r, r_r, uptake, psi_x0, n_iter, &
+                       darcy2d_uptake)
 
   ! since the numerical solution is not exact, adjust the vertical profile 
   ! of uptake to ensure that the sum is equal to transpiration exactly
   uptake_tot = sum(uptake(:))
   uptake(:) = uptake(:)+(vegn_uptk-uptake_tot)/sum(dz(:))*dz(:) 
   
-end subroutine darcy2d_uptake_solver
+end subroutine darcy2d_uptake_solver_nonlin
 
 ! =============================================================================
 ! kernel of the uptake solver: given the input and a subroutine that calculates 
 ! the uptake vertical profile for given water potential at the surface, returns
 ! a solution
-subroutine uptake_solver_K (soil, vegn_uptk, R, VRL, K_r, r_r, uptake_oneway, &
-     uptake_from_sat, uptake, psi_x0, n_iter, uptake_subr)
-  type(soil_tile_type), intent(inout) :: soil
+subroutine uptake_solver_K (soil, vegn_uptk, R, VRL, K_r, r_r, uptake, psi_x0, &
+                            n_iter, uptake_subr)
+  type(soil_tile_type), intent(in) :: soil
   real, intent(in)  :: &
        vegn_uptk, & ! uptake requested by vegetation, kg/(m2 s)
        R(:),      & ! characteristic half-distance between roots, m
        VRL(:),    & ! volumetric root length, m/m3
        K_r,       & ! root membrane permeability per unit area, kg/(m3 s)
        r_r          ! root radius, m
-  logical, intent(in) :: &
-       uptake_oneway, & ! if true, then the roots can only take up water, but 
-                    ! never loose it to the soil
-       uptake_from_sat ! if false, uptake from saturated soil is prohibited
   real,    intent(out) :: &
        uptake(:), & ! vertical distribution of soil uptake
        psi_x0       ! water potential inside roots (in xylem) at zero depth, m
   integer, intent(out) :: n_iter ! # of iterations made, for diagnostics only
-
-  interface 
-     subroutine uptake_subr ( soil, psi_x0, R, VRL, K_r, r_r, uptake_oneway, &
-          uptake_from_sat, uptake, duptake)
-     use soil_tile_mod, only : soil_tile_type
-       type(soil_tile_type), intent(in) :: soil
-       real, intent(in) :: &
-            psi_x0, &   ! water potential inside roots (in xylem) at zero depth, m
-            R(:),   &   ! characteristic half-distance between roots, m
-            VRL(:), &   ! Volumetric Root Length (root length per unit volume), m/m3
-            K_r,    &   ! permeability of the root skin per unit area, kg/(m3 s)
-            r_r         ! radius of the roots, m
-       logical, intent(in) :: &
-            uptake_oneway, & ! if true, then the roots can only take up water, but 
-            ! never loose it to the soil
-            uptake_from_sat   ! if false, uptake from saturated soil is prohibited
-       real, intent(out) :: &
-            uptake(:), & ! water uptake by roots
-            duptake(:)   ! derivative of water uptake w.r.t. psi_root
-     end subroutine uptake_subr
-  end interface
+  procedure(uptake_subr_interface) :: uptake_subr
 
   ! ---- local constants
   ! parameters of uptake equation solver:
@@ -320,8 +424,7 @@ subroutine uptake_solver_K (soil, vegn_uptk, R, VRL, K_r, r_r, uptake_oneway, &
   ! find the lower upper boundary of the interval that contains solution
   incr = 100.0 ! initial psi increment for the lower bracket search
   do i = 1,20
-     call uptake_subr ( soil, xl, R, VRL, K_r, r_r, uptake_oneway, uptake_from_sat, &
-          uptake, duptake )
+     call uptake_subr ( soil, xl, R, VRL, K_r, r_r, uptake, duptake )
      if (sum(uptake)>=vegn_uptk) exit
      xl = xl-incr; incr=incr*2
   enddo
@@ -338,8 +441,7 @@ subroutine uptake_solver_K (soil, vegn_uptk, R, VRL, K_r, r_r, uptake_oneway, &
   ! find upper boundary of the interval that contains solution
   incr = 1.0 ! initial psi increment for the upper bracket search
   do i = 1,20
-     call uptake_subr ( soil, xh, R, VRL, K_r, r_r, uptake_oneway, &
-          uptake_from_sat, uptake, duptake)
+     call uptake_subr ( soil, xh, R, VRL, K_r, r_r, uptake, duptake)
      if (sum(uptake)<=vegn_uptk) exit
      xh = xh+incr; incr = incr*2
   enddo
@@ -352,8 +454,7 @@ subroutine uptake_solver_K (soil, vegn_uptk, R, VRL, K_r, r_r, uptake_oneway, &
 
   ! the root is bracketed, find it
   x2 = (xl+xh)/2
-  call uptake_subr ( soil, x2, R, VRL, K_r, r_r, uptake_oneway, &
-       uptake_from_sat, uptake, duptake )
+  call uptake_subr ( soil, x2, R, VRL, K_r, r_r, uptake, duptake )
   f = sum(uptake) - vegn_uptk
   DfDx = sum(duptake)
   do n_iter = 1, max_iter
@@ -379,8 +480,7 @@ subroutine uptake_solver_K (soil, vegn_uptk, R, VRL, K_r, r_r, uptake_oneway, &
         if(is_watch_point()) write(*,*) 'did Newton-Raphson step'
      endif
            
-     call uptake_subr ( soil, x2, R, VRL, K_r, r_r, uptake_oneway, &
-          uptake_from_sat, uptake, duptake)
+     call uptake_subr ( soil, x2, R, VRL, K_r, r_r, uptake, duptake)
      f = sum(uptake) - vegn_uptk
      DfDx = sum(duptake)
      
@@ -389,12 +489,6 @@ subroutine uptake_solver_K (soil, vegn_uptk, R, VRL, K_r, r_r, uptake_oneway, &
      else
         xh = x2
      endif
-     
-     ! x2 is solution of psi on the inside of the root, given the rate of uptake,
-     ! the root skin permeability (K_r) and psi at the root-soil interface.
-     ! x2 is a single value for the entire root system and accounts for
-     ! all variations with depth. Here, for the purposes of plant 
-     soil%psi_rootvessel = x2
      
      if(is_watch_point()) then
         write(*,*)'#### After iteration',n_iter
@@ -415,7 +509,7 @@ subroutine darcy2d_flow_lin (psi_x, psi_soil, psi_root0, K_sat, psi_sat, b, K_r,
        psi_soil, & ! soil water potential, m
        psi_root0,& ! value of psi_root we linearize around, m
        K_sat,    & ! saturated soil hydraulic conductivity, kg/(m2 s)
-       psi_sat,  & ! saturates soil water potential, m
+       psi_sat,  & ! saturated soil water potential, m
        b,        & ! power of soil moisture characteristic function
        K_r,      & ! root membrane permeability per unit area, kg/(m3 s)
        r_r,      & ! radius of root, m
@@ -456,8 +550,7 @@ end subroutine darcy2d_flow_lin
 
 
 ! ============================================================================
-subroutine darcy2d_uptake_lin ( soil, psi_x0, R, VRL, K_r, r_r,uptake_oneway, &
-    uptake_from_sat, u, du )
+subroutine darcy2d_uptake_lin ( soil, psi_x0, R, VRL, K_r, r_r, u, du )
   type(soil_tile_type), intent(in) :: soil
   real, intent(in) :: &
        psi_x0,    & ! water potential inside roots (in xylem) at zero depth, m
@@ -465,10 +558,6 @@ subroutine darcy2d_uptake_lin ( soil, psi_x0, R, VRL, K_r, r_r,uptake_oneway, &
        VRL(:),    & ! Volumetric Root Length (root length per unit volume), m/m3
        K_r,       & ! permeability of the root membrane per unit area, kg/(m3 s)
        r_r          ! radius of fine roots, m
-  logical, intent(in) :: &
-       uptake_oneway, & ! if true, then the roots can only take up water, but 
-                   ! never loose it to the soil
-       uptake_from_sat   ! if false, uptake from saturated soil is prohibited
   real, intent(out) :: &
        u(:), &      ! layer-by-layer distribution of uptake, kg/(m2 s)
        du(:)        ! derivative of u w.r.t. root water potential, kg/(m3 s)
@@ -511,18 +600,14 @@ end subroutine
 
 ! ============================================================================
 subroutine darcy2d_uptake_solver_lin ( soil, vegn_uptk, R, VRL, K_r, r_r, &
-     uptake_oneway, uptake_from_sat, uptake, psi_x0, n_iter )
-  type(soil_tile_type), intent(inout) :: soil
+     uptake, psi_x0, n_iter )
+  type(soil_tile_type), intent(in) :: soil
   real, intent(in) :: &
        vegn_uptk, & ! uptake requested by vegetation, kg/(m2 s)
        R(:),      & ! characteristic half-distance between roots, m
        VRL(:),    & ! Volumetric Root Length (root length per unit volume), m/m3
        K_r,       & ! permeability of the root membrane per unit area, kg/(m3 s)
        r_r          ! radius of fine roots, m
-  logical, intent(in) :: &
-       uptake_oneway, & ! if true, then the roots can only take up water, but 
-                   ! never loose it to the soil
-       uptake_from_sat   ! if false, uptake from saturated soil is prohibited
   real, intent(out) :: &
        uptake(:), & ! layer-by-layer distribution of uptake, kg/(m2 s)
        psi_x0       ! water potential inside roots (in xylem) at zero depth, m
@@ -536,8 +621,8 @@ subroutine darcy2d_uptake_solver_lin ( soil, vegn_uptk, R, VRL, K_r, r_r, &
   real :: d_psi_x     ! change of the xylem potential, m
 
   if (uptake_oneway) then
-     call uptake_solver_K(soil, vegn_uptk, R, VRL, K_r, r_r, uptake_oneway, &
-          uptake_from_sat, uptake, psi_x0, n_iter, darcy2d_uptake_lin )
+     call uptake_solver_K(soil, vegn_uptk, R, VRL, K_r, r_r, &
+                          uptake, psi_x0, n_iter, darcy2d_uptake_lin )
      
      ! since the numerical solution is not exact, adjust the vertical profile 
      ! of uptake to ensure that the sum is equal to transpiration exactly
@@ -545,8 +630,7 @@ subroutine darcy2d_uptake_solver_lin ( soil, vegn_uptk, R, VRL, K_r, r_r, &
      uptake(:) = uptake(:)+(vegn_uptk-uptake_tot)/sum(dz(:))*dz(:) 
   else
      psi_x0 = 0.0
-     call darcy2d_uptake_lin ( soil, psi_x0, R, VRL, K_r, r_r, uptake_oneway, &
-          uptake_from_sat, uptake, du )
+     call darcy2d_uptake_lin ( soil, psi_x0, R, VRL, K_r, r_r, uptake, du )
      uptake_tot = sum(uptake)
      Duptake_tot = sum(du) 
      

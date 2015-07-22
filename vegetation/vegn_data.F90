@@ -12,7 +12,7 @@ use fms_mod, only : &
      close_file, stdlog, stdout, string, lowercase, error_mesg, NOTE, FATAL
 use field_manager_mod, only: MODEL_LAND, fm_field_name_len, fm_string_len, &
      fm_path_name_len, fm_type_name_len, fm_dump_list, fm_get_length, &
-     fm_get_current_list, fm_loop_over_list, fm_change_list
+     fm_get_current_list, fm_change_list, fm_list_iter_type, fm_init_loop, fm_loop_over_list
 use fm_util_mod, only : fm_util_get_real, fm_util_get_logical, fm_util_get_string
 
 use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, MPa_per_m
@@ -155,6 +155,7 @@ type spec_data_type
   ! the following two parameters are used in the Darcy-law calculations of water supply
   real    :: srl        = 24.4e3 ! specific root length, m/(kg C)
   real    :: root_r     = 2.9e-4 ! radius of the fine roots, m
+  real    :: root_perm  = 5.0e-7 ! fine root membrane permeability per unit area, kg/(m3 s)
 
   real    :: LMA        = 0.036  ! leaf mass per unit area, kg C/m2
   real    :: leaf_size  = 0.04   ! characteristic leaf size
@@ -233,10 +234,8 @@ type spec_data_type
   real    :: tauNSC        = 0.8    ! residence time of C in NSC (to define storage capacity)
 
   ! for hydraulics, wolf
-  real    :: Kram=5.0e-7/MPa_per_m ! Conductivity, max, per tissue area: units kg/m2 tissue/s/MPa
-                                   ! the default value is set to reproduce root_perm parameter of LM3
   real    :: Kxam=0.0, Klam=0.0 ! Conductivity, max, per tissue area: units kg/m2 tissue/s/MPa
-  real    :: dx=0.0, dl=0.0       ! Breakpoint of Weibull function, units MPa
+  real    :: dx=0.0, dl=0.0       ! Breakpoint of Weibull function, MPa
   real    :: cx=1.0, cl=1.0	  ! Exponent of Weibull function, unitless
   real    :: psi_tlp=0.0                  ! psi at turgor loss point
 end type
@@ -360,8 +359,10 @@ subroutine read_vegn_data_namelist()
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
   character(fm_field_name_len) :: name   ! name of the species
-  character(fm_type_name_len)  :: typ ! type of the species
+  character(fm_type_name_len)  :: ftype ! type of the field table entry
+  type(fm_list_iter_type) :: iter ! iterator over the list of species
   integer :: i, n
+  integer :: species_errors, total_errors
   logical, allocatable :: spdata_set(:)
   
   call write_version_number(version, tagname)
@@ -387,7 +388,7 @@ subroutine read_vegn_data_namelist()
 ! TODO: possibly create a set of default species parameters, and set them through 
 !       the namelist
   if(.not.fm_dump_list('/land_mod/species', recursive=.TRUE.)) &
-     call error_mesg(module_name,'Cannot dump fm list "/land-mod/species"',FATAL)
+     call error_mesg(module_name,'Cannot dump field list "/land_mod/species"',FATAL)
 
   ! count species
   nspecies = fm_get_length('/land_mod/species')
@@ -407,7 +408,9 @@ subroutine read_vegn_data_namelist()
      enddo
   endif
 
-  do while (fm_loop_over_list('/land_mod/species', name, typ, n))
+  call fm_init_loop('/land_mod/species',iter)
+  total_errors = 0
+  do while (fm_loop_over_list(iter, name, ftype, n))
      ! look for the species already in the table
      do i = 0,nspecies-1
         if (trim(spdata(i)%name)==trim(name)) exit ! found slot for species
@@ -419,14 +422,26 @@ subroutine read_vegn_data_namelist()
         enddo
      endif
      ! write(*,*)trim(name),' ',i,' ',trim(spdata(i)%name),' ',spdata_set(i)
-     if (i>=nspecies) call error_mesg(module_name,&
-          'could not place species "'//trim(name)//'" into species table, check if you are running in LM3 mode and misspelled species name', FATAL)
-     if (spdata_set(i)) call error_mesg(module_name,&
-          'data for species "'//trim(name)//'" are set more then once in the field table',FATAL)
-     call read_species_data(name,spdata(i))
-     call init_derived_species_data(spdata(i))
-     spdata_set(i) = .TRUE.
+     if (i>=nspecies) then
+        call error_mesg(module_name, &
+          'could not place species "'//trim(name)//'" into species table, check if you are running in LM3 mode and misspelled species name', NOTE)
+        total_errors = total_errors+1
+     endif
+     if (spdata_set(i)) then
+        call error_mesg(module_name, &
+          'data for species "'//trim(name)//'" are set more than once in the field table',NOTE)
+        total_errors = total_errors+1
+     endif
+
+     call read_species_data(name,spdata(i), species_errors)
+     if (species_errors==0) then
+        call init_derived_species_data(spdata(i))
+        spdata_set(i) = .TRUE.
+     endif
+     total_errors = total_errors + species_errors
   enddo
+  if (total_errors>0) &
+     call error_mesg(module_name, trim(string(total_errors))//' errors found in species parameters tables, see NOTES above', FATAL)
 
   if (.not.all(spdata_set)) call error_mesg(module_name,'not all species data were set',FATAL)
   deallocate(spdata_set)
@@ -466,43 +481,68 @@ end subroutine read_vegn_data_namelist
 
 
 ! ============================================================================
-subroutine read_species_data(name, sp)
+! given a name of the species, and a species data structures, fills the 
+! the species data with information from the field table
+subroutine read_species_data(name, sp, errors_found)
   character(*)        , intent(in)    :: name ! name of the species
   type(spec_data_type), intent(inout) :: sp   ! data to be filled in
+  integer             , intent(out)   :: errors_found ! number of errors found in the species parameter list
 
   character(fm_field_name_len) :: str 
-  character(fm_path_name_len)  :: listname
-  character(fm_path_name_len)  :: current_list
-  integer        :: j
+  character(fm_type_name_len)  :: ftype ! type of the field table entry
+  character(fm_path_name_len)  :: listname  ! name of the field manager list for the vegetation species
+  character(fm_path_name_len)  :: current_list ! storage for current location in the fiels manager tree
+  character(fm_field_name_len), allocatable :: known_names(:) ! names of all the parameters code attempts to read
+  integer :: n_names ! number of parameters code attempts to read
+  type(fm_list_iter_type) :: iter ! iterator over the list of species parameters
+  integer :: j,n
 
+  ! allocate the table of parameter names for error detection
+  ! this code records name every species parameter it tries to read to the table
+  ! of known names; then it goes through the list of all parameters in the 
+  ! input species table, and checks that every name there is in the table of
+  ! known names. This triggers an error if one or more of specified parameters
+  ! are not know, protecting from user typos.
+  n_names = 0
+  allocate(known_names(1))
+  
+  ! save current position in the field manager tree to restore it on exit
   current_list = fm_get_current_list()
   if (current_list .eq. ' ') &
       call error_mesg(module_name,'Could not get the current list',FATAL)
 
   listname = '/land_mod/species/'//trim(name)
-
+  
   if (.not.fm_change_list(listname)) then
      call error_mesg(module_name,'Cannot change fm list to "'//trim(listname)//'"', FATAL)
   endif
 
-  sp%name     = name
+  sp%name = name
+
+  call add_known_name('long_name')
   sp%longname = fm_util_get_string('long_name', caller = module_name, default_value = '', scalar = .true.)
 
-  sp%mortality_kills_balive = fm_util_get_logical("mortality_kills_balive", &
+  call add_known_name('mortality_kills_balive')
+  sp%mortality_kills_balive = fm_util_get_logical('mortality_kills_balive', &
         caller=module_name, default_value=sp%mortality_kills_balive, scalar=.true.)
+  call add_known_name('alpha')
+  call add_known_name('beta')
   do j = 1,NCMPT
-     sp%alpha(j) = fm_util_get_real("alpha", &
+     sp%alpha(j) = fm_util_get_real('alpha', &
               caller=module_name, default_value=sp%alpha(j), index=j)
-     sp%beta(j) = fm_util_get_real("beta", &
+     sp%beta(j) = fm_util_get_real('beta', &
               caller=module_name, default_value=sp%beta(j), index=j)
   enddo
+  call add_known_name('leaf_refl')
+  call add_known_name('leaf_tran')
   do j = 1, NBANDS
-     sp%leaf_refl(j) = fm_util_get_real("leaf_refl", &
+     sp%leaf_refl(j) = fm_util_get_real('leaf_refl', &
               caller=module_name, default_value=sp%leaf_refl(j), index=j)
-     sp%leaf_tran(j) = fm_util_get_real("leaf_tran", &
+     sp%leaf_tran(j) = fm_util_get_real('leaf_tran', &
               caller=module_name, default_value=sp%leaf_tran(j), index=j)
   enddo
   
+  call add_known_name('physiology_type')
   str = fm_util_get_string('physiology_type', caller = module_name, default_value = 'C3', scalar = .true.)
   select case (trim(lowercase(str)))
   case('c3')
@@ -513,6 +553,7 @@ subroutine read_species_data(name, sp)
      call error_mesg(module_name,'Physiology type "'//trim(str)//'" is invalid, use "C3" or "C4"', FATAL)
   end select
   
+  call add_known_name('phenology_type')
   str = fm_util_get_string('phenology_type', caller = module_name, default_value = 'deciduous', scalar = .true.)
   select case (trim(lowercase(str)))
   case('deciduous')
@@ -523,6 +564,7 @@ subroutine read_species_data(name, sp)
      call error_mesg(module_name,'Phenology type "'//trim(str)//'" is invalid, use "deciduous" or "evergreen"', FATAL)
   end select
 
+  call add_known_name('lifeform')
   str = fm_util_get_string('lifeform', caller = module_name, default_value = 'tree', scalar = .true.)
   select case (trim(lowercase(str)))
   case('tree')
@@ -533,90 +575,136 @@ subroutine read_species_data(name, sp)
      call error_mesg(module_name,'Vegetation lifeform "'//trim(str)//'" is invalid, use "tree" or "grass"', FATAL)
   end select
   
-#define __PARSE__(v) sp%v = fm_util_get_real(#v, caller=module_name, default_value=sp%v, scalar=.true.)
-  __PARSE__(treefall_disturbance_rate)
+#define __GET_SPDATA_REAL__(v) sp%v = get_spdata_real(#v, sp%v)
+  __GET_SPDATA_REAL__(treefall_disturbance_rate)
 
-  __PARSE__(c1)
-  __PARSE__(c2)
-  __PARSE__(c3)
+  __GET_SPDATA_REAL__(c1)
+  __GET_SPDATA_REAL__(c2)
+  __GET_SPDATA_REAL__(c3)
   
-  __PARSE__(Vmax)
-  __PARSE__(m_cond)
-  __PARSE__(alpha_phot)
-  __PARSE__(gamma_resp)
-  __PARSE__(wet_leaf_dreg)
-  __PARSE__(leaf_age_onset)
-  __PARSE__(leaf_age_tau)
-  __PARSE__(dfr)
+  __GET_SPDATA_REAL__(Vmax)
+  __GET_SPDATA_REAL__(m_cond)
+  __GET_SPDATA_REAL__(alpha_phot)
+  __GET_SPDATA_REAL__(gamma_resp)
+  __GET_SPDATA_REAL__(wet_leaf_dreg)
+  __GET_SPDATA_REAL__(leaf_age_onset)
+  __GET_SPDATA_REAL__(leaf_age_tau)
+  __GET_SPDATA_REAL__(dfr)
 
-  __PARSE__(srl)
-  __PARSE__(root_r)
+  __GET_SPDATA_REAL__(srl)
+  __GET_SPDATA_REAL__(root_r)
+  __GET_SPDATA_REAL__(root_perm)
 
-  __PARSE__(cmc_lai)
-  __PARSE__(cmc_pow)
-  __PARSE__(csc_lai)
-  __PARSE__(csc_pow)
+  __GET_SPDATA_REAL__(cmc_lai)
+  __GET_SPDATA_REAL__(cmc_pow)
+  __GET_SPDATA_REAL__(csc_lai)
+  __GET_SPDATA_REAL__(csc_pow)
 
-  __PARSE__(internal_gap_frac)
-  __PARSE__(leaf_emis)
-  __PARSE__(ksi)
-  __PARSE__(leaf_size)
+  __GET_SPDATA_REAL__(internal_gap_frac)
+  __GET_SPDATA_REAL__(leaf_emis)
+  __GET_SPDATA_REAL__(ksi)
+  __GET_SPDATA_REAL__(leaf_size)
 
-  __PARSE__(fuel_intensity)
+  __GET_SPDATA_REAL__(fuel_intensity)
 
-  __PARSE__(tc_crit)
-  __PARSE__(gdd_crit)
-  __PARSE__(gdd_base_T)
-  __PARSE__(psi_stress_crit_phen)
-  __PARSE__(cnst_crit_phen)
-  __PARSE__(fact_crit_phen)
-  __PARSE__(cnst_crit_fire)
-  __PARSE__(fact_crit_fire)
+  __GET_SPDATA_REAL__(tc_crit)
+  __GET_SPDATA_REAL__(gdd_crit)
+  __GET_SPDATA_REAL__(gdd_base_T)
+  __GET_SPDATA_REAL__(psi_stress_crit_phen)
+  __GET_SPDATA_REAL__(cnst_crit_phen)
+  __GET_SPDATA_REAL__(fact_crit_phen)
+  __GET_SPDATA_REAL__(cnst_crit_fire)
+  __GET_SPDATA_REAL__(fact_crit_fire)
 
-  __PARSE__(smoke_fraction)
-  __PARSE__(LMA)
+  __GET_SPDATA_REAL__(smoke_fraction)
+  __GET_SPDATA_REAL__(LMA)
  
-  __PARSE__(dat_height)
-  __PARSE__(dat_lai)
-  __PARSE__(dat_root_density)
-  __PARSE__(dat_root_zeta)
-  __PARSE__(dat_rs_min)
-  __PARSE__(dat_snow_crit)
+  __GET_SPDATA_REAL__(dat_height)
+  __GET_SPDATA_REAL__(dat_lai)
+  __GET_SPDATA_REAL__(dat_root_density)
+  __GET_SPDATA_REAL__(dat_root_zeta)
+  __GET_SPDATA_REAL__(dat_rs_min)
+  __GET_SPDATA_REAL__(dat_snow_crit)
 
   !  for PPA, Weng, 7/25/2011
-  __PARSE__(alphaHT)
-  __PARSE__(alphaCA)
-  __PARSE__(alphaBM)
-  __PARSE__(alphaCSASW)
-  __PARSE__(thetaCSASW)
-  __PARSE__(maturalage)
-  __PARSE__(v_seed)
-  __PARSE__(seedlingsize)
-  __PARSE__(prob_g)
-  __PARSE__(prob_e)
-  __PARSE__(mortrate_d_c)
-  __PARSE__(mortrate_d_u)
-  __PARSE__(rho_wood)
-  __PARSE__(taperfactor)
-  __PARSE__(LAImax)
-  __PARSE__(tauNSC)
-  __PARSE__(phiRL)
-  __PARSE__(phiCSA)
+  __GET_SPDATA_REAL__(alphaHT)
+  __GET_SPDATA_REAL__(alphaCA)
+  __GET_SPDATA_REAL__(alphaBM)
+  __GET_SPDATA_REAL__(alphaCSASW)
+  __GET_SPDATA_REAL__(thetaCSASW)
+  __GET_SPDATA_REAL__(maturalage)
+  __GET_SPDATA_REAL__(v_seed)
+  __GET_SPDATA_REAL__(seedlingsize)
+  __GET_SPDATA_REAL__(prob_g)
+  __GET_SPDATA_REAL__(prob_e)
+  __GET_SPDATA_REAL__(mortrate_d_c)
+  __GET_SPDATA_REAL__(mortrate_d_u)
+  __GET_SPDATA_REAL__(rho_wood)
+  __GET_SPDATA_REAL__(taperfactor)
+  __GET_SPDATA_REAL__(LAImax)
+  __GET_SPDATA_REAL__(tauNSC)
+  __GET_SPDATA_REAL__(phiRL)
+  __GET_SPDATA_REAL__(phiCSA)
   ! hydraulics-related parameters
-  __PARSE__(Kxam)
-  __PARSE__(dx)
-  __PARSE__(cx)
-  __PARSE__(Klam)
-  __PARSE__(dl)
-  __PARSE__(cl)
-  __PARSE__(Kram)
-  __PARSE__(psi_tlp)
+  __GET_SPDATA_REAL__(Kxam)
+  __GET_SPDATA_REAL__(dx)
+  __GET_SPDATA_REAL__(cx)
+  __GET_SPDATA_REAL__(Klam)
+  __GET_SPDATA_REAL__(dl)
+  __GET_SPDATA_REAL__(cl)
+  __GET_SPDATA_REAL__(psi_tlp)
   
-#undef __PARSE__
+#undef __GET_SPDATA_REAL__
+
+  ! check for typos in the namelist: detects parameters that are listed in the
+  ! field table, but their name is not one of the parameters model tries to read.
+  ! TODO: check types of the parameters
+  call fm_init_loop(listname,iter)
+  errors_found = 0
+  do while (fm_loop_over_list(iter, str, ftype, n))
+     ! look for the namelist parameter in the list of names
+     do j = 1,n_names
+        if (trim(known_names(j))==trim(str)) exit
+     enddo
+     ! if not found, give an error message
+     if (j>n_names) then
+        call error_mesg(module_name,'Input parameter "'//trim(str)//'" for "'//trim(name)//'" is not known',NOTE)
+        errors_found = errors_found + 1
+     endif
+  enddo
 
   if (.not.fm_change_list(current_list)) then
      call error_mesg(module_name,'Cannot change fm list back to "'//trim(current_list)//'"', FATAL)
   endif
+
+  deallocate(known_names)
+
+contains
+
+   subroutine add_known_name(name)
+     character(*), intent(in) :: name
+     integer :: i
+     character(fm_field_name_len), allocatable :: tmp(:)
+     
+     do i = 1,n_names
+        if (trim(name)==trim(known_names(i))) &
+            call error_mesg(module_name,'"'//trim(name)//'" is duplicated in species parameters',FATAL)
+     enddo
+     if (n_names+1>size(known_names)) then
+         allocate(tmp(2*size(known_names)))
+         tmp(1:n_names) = known_names(1:n_names)
+         call move_alloc(tmp,known_names)
+     endif
+     known_names(n_names+1) = name
+     n_names = n_names+1
+   end subroutine add_known_name
+   
+   function get_spdata_real(name,dflt) result (v) ; real :: v
+      character(*), intent(in) :: name ! name of the field
+      real        , intent(in) :: dflt ! default value
+      v = fm_util_get_real(name, default_value=dflt, scalar=.true.)
+      call add_known_name(name)
+   end function get_spdata_real
 
 end subroutine read_species_data
 
@@ -662,15 +750,12 @@ subroutine init_derived_species_data(sp)
    sp%alphaBM    = sp%rho_wood * sp%taperfactor * PI/4. * sp%alphaHT
    sp%alphaCSASW = sp%phiCSA*sp%LAImax*sp%alphaCA
 
-  ! Convert units: all pressure units stored in meters
-  sp%Kram = sp%Kram * MPa_per_m ! pressure in denominator
-  sp%Kxam = sp%Kxam * MPa_per_m
-  sp%Klam = sp%Klam * MPa_per_m
-  sp%dx   = sp%dx / MPa_per_m
-  sp%dl   = sp%dl / MPa_per_m
-  sp%cx   = sp%cx
-  sp%cl   = sp%cl
-  sp%psi_tlp = sp%psi_tlp / MPa_per_m  ! pressure in numerator
+  ! Convert units: from MPa to Pa
+  sp%Kxam = sp%Kxam * 1e-6
+  sp%Klam = sp%Klam * 1e-6
+  sp%dx   = sp%dx   * 1e6
+  sp%dl   = sp%dl   * 1e6
+  sp%psi_tlp = sp%psi_tlp * 1e6  ! pressure in numerator
   ! TLP need not be less than mortality threshold
   ! TODO: make mortality threshold a namelist (or species) parameter?
   sp%psi_tlp = max(sp%psi_tlp, sp%dx*(-log(0.1))**(1./sp%cx))  
@@ -712,6 +797,7 @@ subroutine print_species_data(unit)
 
   call add_row(table, 'srl',           spdata(:)%srl)
   call add_row(table, 'root_r',        spdata(:)%root_r)
+  call add_row(table, 'root_perm',     spdata(:)%root_perm)
 
   call add_row(table, 'leaf_size',     spdata(:)%leaf_size)
 
@@ -753,7 +839,6 @@ subroutine print_species_data(unit)
   call add_row(table, 'Kxam', spdata(:)%Kxam)
   call add_row(table, 'dx', spdata(:)%dx)
   call add_row(table, 'cx', spdata(:)%cx)
-  call add_row(table, 'Kram', spdata(:)%Kram)
   call add_row(table, 'psi_tlp', spdata(:)%psi_tlp)
 
   call add_row(table, 'leaf_refl_vis', spdata(:)%leaf_refl(BAND_VIS))

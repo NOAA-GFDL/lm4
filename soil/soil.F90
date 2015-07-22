@@ -13,26 +13,23 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only: error_mesg, file_exist, check_nml_error, &
      stdlog, write_version_number, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
-use time_manager_mod,   only: time_type, increment_time, time_type_to_real
+use time_manager_mod,   only: time_type, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o, PI
 
 use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR
-use soil_tile_mod, only : GW_LM2, GW_LINEAR, GW_HILL_AR5, GW_HILL, GW_TILED, &
-     soil_tile_type, soil_pars_type, read_soil_data_namelist, &
+use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
+     GW_LM2, GW_LINEAR, GW_HILL_AR5, GW_HILL, GW_TILED, &
+     soil_tile_type, read_soil_data_namelist, &
      soil_data_radiation, soil_data_thermodynamics, &
      soil_data_hydraulic_properties, soil_data_psi_for_rh, &
      soil_data_gw_hydraulics, soil_data_gw_hydraulics_ar5, &
      soil_data_vwc_for_init_only, &
      soil_data_init_derive_subsurf_pars, &
      soil_data_init_derive_subsurf_pars_ar5,&
-     max_lev, psi_wilt, cpw, clw, csw, g_iso, g_vol, g_geo, g_RT, aspect,&
-     num_storage_pts, gw_zeta_s, gw_flux_table, gw_area_table, &
+     psi_wilt, cpw, clw, csw, g_iso, g_vol, g_geo, g_RT, aspect,&
      gw_scale_length, gw_scale_relief, gw_scale_soil_depth, &
-     slope_exp, &
-     num_zeta_pts, num_tau_pts, &
-     log_rho_table, log_zeta_s, log_tau, gw_scale_perm, &
-     z_ref, k_macro_constant, use_tau_fix
+     gw_scale_perm, slope_exp, k_macro_constant
 
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, get_elmt_indices, &
@@ -43,7 +40,7 @@ use land_tile_diag_mod, only : diag_buff_type, &
      send_tile_data, send_tile_data_r0d_fptr, send_tile_data_r1d_fptr, &
      send_tile_data_i0d_fptr, &
      add_tiled_diag_field_alias, add_tiled_static_field_alias
-use land_data_mod, only : land_state_type, lnd
+use land_data_mod, only : land_state_type, lnd, land_time
 use land_io_mod, only : read_field
 use land_tile_io_mod, only : create_tile_out_file, write_tile_data_r0d_fptr,& 
      write_tile_data_r1d_fptr, read_tile_data_r0d_fptr, read_tile_data_r1d_fptr,&
@@ -54,10 +51,10 @@ use vegn_cohort_mod, only : vegn_cohort_type, &
 
 use vegn_tile_mod, only : vegn_tile_type
 use land_debug_mod, only : is_watch_point, get_current_point, check_var_range
-use uptake_mod, only : UPTAKE_LINEAR, UPTAKE_DARCY2D, UPTAKE_DARCY2D_LIN, &
-     uptake_init, &
-     darcy2d_uptake, darcy2d_uptake_solver, &
-     darcy2d_uptake_lin, darcy2d_uptake_solver_lin
+use uptake_mod, only : uptake_init, &
+     uptake_option, UPTAKE_LINEAR, UPTAKE_DARCY2D, UPTAKE_DARCY2D_LIN, &
+     darcy2d_uptake, darcy2d_uptake_solver
+
 implicit none
 private
 
@@ -97,9 +94,6 @@ real    :: init_groundwater     =   0.        ! cold-start gw storage
 real    :: lrunf_ie_min         = -1.0e-4     ! trigger for clip and runoff
 real    :: lrunf_ie_tol         =  1.e-12
 character(len=16) :: albedo_to_use = ''       ! or 'albedo-map' or 'brdf-maps'
-character(len=24) :: uptake_to_use = 'linear' ! or 'darcy2d', or 'darcy2d-linearized'
-logical :: uptake_oneway        = .false.     ! if true, roots can't loose water to soil
-logical :: uptake_from_sat      = .true.      ! if false, the uptake from saturated soil is prohibited
 logical :: allow_negative_rie   = .false.
 logical :: baseflow_where_frozen = .false.
 logical :: write_when_flagged   = .false.
@@ -128,7 +122,6 @@ namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     init_groundwater, lrunf_ie_min, lrunf_ie_tol, &
                     cpw, clw, csw, &
                     albedo_to_use, &
-                    uptake_to_use, uptake_oneway, uptake_from_sat, &
                     allow_negative_rie, &
                     baseflow_where_frozen, &
                     write_when_flagged, &
@@ -143,16 +136,10 @@ namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
 
 logical         :: module_is_initialized =.FALSE.
 logical         :: use_brdf = .false.
-type(time_type) :: time
 real            :: delta_time
 logical         :: use_single_geo
-integer         :: num_l              ! # of water layers
-real            :: dz    (max_lev)    ! thicknesses of layers
-real            :: zfull (max_lev)
-real            :: zhalf (max_lev+1)
 real            :: Eg_min
 
-integer         :: uptake_option = -1 
 integer         :: gw_option = -1 
 
 ! ---- diagnostic field IDs
@@ -189,7 +176,7 @@ subroutine read_soil_namelist()
   integer :: ierr         ! error code, returned by i/o routines
   integer :: l
 
-  call read_soil_data_namelist(num_l,dz,use_single_geo,gw_option)
+  call read_soil_data_namelist(use_single_geo,gw_option)
 
   call write_version_number(version, tagname)
 #ifdef INTERNAL_FILE_NML
@@ -210,28 +197,6 @@ subroutine read_soil_namelist()
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=soil_nml)
-  endif
-
-  ! ---- set up vertical discretization
-  zhalf(1) = 0
-  do l = 1, num_l;   
-     zhalf(l+1) = zhalf(l) + dz(l)
-     zfull(l) = 0.5*(zhalf(l+1) + zhalf(l))
-  enddo
-
-  ! ---- convert symbolic names of options into numeric IDs to speed up
-  ! the selection during run-time
-  if (trim(uptake_to_use)=='linear') then
-     uptake_option = UPTAKE_LINEAR
-  else if (trim(uptake_to_use)=='darcy2d') then
-     uptake_option = UPTAKE_DARCY2D
-  else if (trim(uptake_to_use)=='darcy2d-linearized') then
-     uptake_option = UPTAKE_DARCY2D_LIN
-  else 
-     call error_mesg('soil_init',&
-          'soil uptake option uptake_to_use="'//&
-          trim(uptake_to_use)//'" is invalid, use "linear", "darcy2d" or "darcy2d-linearized"',&
-          FATAL)
   endif
 
   if (use_E_min) then
@@ -263,7 +228,6 @@ subroutine soil_init ( id_lon, id_lat, id_band )
   logical :: restart_exists
 
   module_is_initialized = .TRUE.
-  time       = lnd%time
   delta_time = time_type_to_real(lnd%dt_fast)
 
   call uptake_init(num_l,dz,zfull)
@@ -419,8 +383,6 @@ subroutine soil_init ( id_lon, id_lat, id_band )
      call read_tile_data_r1d_fptr(unit, 'groundwater_T', soil_groundwater_T_ptr)
      if(nfu_inq_var(unit, 'uptake_T')==NF_NOERR) &
           call read_tile_data_r0d_fptr(unit, 'uptake_T', soil_uptake_T_ptr)
-     if(nfu_inq_var(unit, 'psi_rootvessel')==NF_NOERR) &
-          call read_tile_data_r0d_fptr(unit, 'psi_rootvessel', soil_psi_rootvessel_ptr)
      if(nfu_inq_var(unit, 'fsc')==NF_NOERR) then 
         call read_tile_data_r1d_fptr(unit,'fsc',soil_fast_soil_C_ptr)
         call read_tile_data_r1d_fptr(unit,'ssc',soil_slow_soil_C_ptr)
@@ -502,107 +464,107 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band )
 
   ! define diagnostic fields
   id_fast_soil_C = register_tiled_diag_field ( module_name, 'fast_soil_C', axes,  &
-       Time, 'fast soil carbon', 'kg C/m3', missing_value=-100.0 )
+       land_time, 'fast soil carbon', 'kg C/m3', missing_value=-100.0 )
   id_slow_soil_C = register_tiled_diag_field ( module_name, 'slow_soil_C', axes,  &
-       Time, 'slow soil carbon', 'kg C/m3', missing_value=-100.0 )
+       land_time, 'slow soil carbon', 'kg C/m3', missing_value=-100.0 )
   id_fsc = register_tiled_diag_field ( module_name, 'fsc', axes(1:2),  &
-       Time, 'total fast soil carbon', 'kg C/m2', missing_value=-100.0 )
+       land_time, 'total fast soil carbon', 'kg C/m2', missing_value=-100.0 )
   id_ssc = register_tiled_diag_field ( module_name, 'ssc', axes(1:2),  &
-       Time, 'total slow soil carbon', 'kg C/m2', missing_value=-100.0 )
+       land_time, 'total slow soil carbon', 'kg C/m2', missing_value=-100.0 )
   id_lwc = register_tiled_diag_field ( module_name, 'soil_liq', axes,  &
-       Time, 'bulk density of liquid water', 'kg/m3', missing_value=-100.0 )
+       land_time, 'bulk density of liquid water', 'kg/m3', missing_value=-100.0 )
   id_swc  = register_tiled_diag_field ( module_name, 'soil_ice',  axes,  &
-       Time, 'bulk density of solid water', 'kg/m3',  missing_value=-100.0 )
+       land_time, 'bulk density of solid water', 'kg/m3',  missing_value=-100.0 )
   id_psi = register_tiled_diag_field ( module_name, 'soil_psi', axes,  &
-       Time, 'soil-water matric head', 'm', missing_value=-100.0 )
+       land_time, 'soil-water matric head', 'm', missing_value=-100.0 )
   id_temp  = register_tiled_diag_field ( module_name, 'soil_T',  axes,       &
-       Time, 'temperature',            'degK',  missing_value=-100.0 )
+       land_time, 'temperature',            'degK',  missing_value=-100.0 )
   id_ie  = register_tiled_diag_field ( module_name, 'soil_rie',  axes(1:2),  &
-       Time, 'inf exc runf',            'kg/(m2 s)',  missing_value=-100.0 )
+       land_time, 'inf exc runf',            'kg/(m2 s)',  missing_value=-100.0 )
   id_sn  = register_tiled_diag_field ( module_name, 'soil_rsn',  axes(1:2),  &
-       Time, 'satn runf',            'kg/(m2 s)',  missing_value=-100.0 )
+       land_time, 'satn runf',            'kg/(m2 s)',  missing_value=-100.0 )
   id_bf  = register_tiled_diag_field ( module_name, 'soil_rbf',  axes(1:2),  &
-       Time, 'baseflow',            'kg/(m2 s)',  missing_value=-100.0 )
+       land_time, 'baseflow',            'kg/(m2 s)',  missing_value=-100.0 )
   id_if  = register_tiled_diag_field ( module_name, 'soil_rif',  axes(1:2),  &
-       Time, 'interflow',            'kg/(m2 s)',  missing_value=-100.0 )
+       land_time, 'interflow',            'kg/(m2 s)',  missing_value=-100.0 )
   id_al  = register_tiled_diag_field ( module_name, 'soil_ral',  axes(1:2),  &
-       Time, 'active layer flow',    'kg/(m2 s)',  missing_value=-100.0 )
+       land_time, 'active layer flow',    'kg/(m2 s)',  missing_value=-100.0 )
   id_nu  = register_tiled_diag_field ( module_name, 'soil_rnu',  axes(1:2),  &
-       Time, 'numerical runoff',    'kg/(m2 s)',  missing_value=-100.0 )
+       land_time, 'numerical runoff',    'kg/(m2 s)',  missing_value=-100.0 )
   id_sc  = register_tiled_diag_field ( module_name, 'soil_rsc',  axes(1:2),  &
-       Time, 'lm2 groundwater runoff',    'kg/(m2 s)',  missing_value=-100.0 )
+       land_time, 'lm2 groundwater runoff',    'kg/(m2 s)',  missing_value=-100.0 )
   id_hie  = register_tiled_diag_field ( module_name, 'soil_hie',  axes(1:2), &
-       Time, 'heat ie runf',            'W/m2',  missing_value=-100.0 )
+       land_time, 'heat ie runf',            'W/m2',  missing_value=-100.0 )
   id_hsn  = register_tiled_diag_field ( module_name, 'soil_hsn',  axes(1:2), &
-       Time, 'heat sn runf',            'W/m2',  missing_value=-100.0 )
+       land_time, 'heat sn runf',            'W/m2',  missing_value=-100.0 )
   id_hbf  = register_tiled_diag_field ( module_name, 'soil_hbf',  axes(1:2), &
-       Time, 'heat bf runf',            'W/m2',  missing_value=-100.0 )
+       land_time, 'heat bf runf',            'W/m2',  missing_value=-100.0 )
   id_hif  = register_tiled_diag_field ( module_name, 'soil_hif',  axes(1:2), &
-       Time, 'heat if runf',            'W/m2',  missing_value=-100.0 )
+       land_time, 'heat if runf',            'W/m2',  missing_value=-100.0 )
   id_hal  = register_tiled_diag_field ( module_name, 'soil_hal',  axes(1:2), &
-       Time, 'heat al runf',            'W/m2',  missing_value=-100.0 )
+       land_time, 'heat al runf',            'W/m2',  missing_value=-100.0 )
   id_hnu  = register_tiled_diag_field ( module_name, 'soil_hnu',  axes(1:2), &
-       Time, 'heat nu runoff',          'W/m2',  missing_value=-100.0 )
+       land_time, 'heat nu runoff',          'W/m2',  missing_value=-100.0 )
   id_hsc  = register_tiled_diag_field ( module_name, 'soil_hsc',  axes(1:2), &
-       Time, 'heat sc runoff',          'W/m2',  missing_value=-100.0 )
+       land_time, 'heat sc runoff',          'W/m2',  missing_value=-100.0 )
   id_evap  = register_tiled_diag_field ( module_name, 'soil_evap',  axes(1:2), &
-       Time, 'soil evap',            'kg/(m2 s)',  missing_value=-100.0 )
+       land_time, 'soil evap',            'kg/(m2 s)',  missing_value=-100.0 )
   id_excess  = register_tiled_diag_field ( module_name, 'sfc_excess',  axes(1:2),  &
-       Time, 'sfc excess pushed down',    'kg/(m2 s)',  missing_value=-100.0 )
+       land_time, 'sfc excess pushed down',    'kg/(m2 s)',  missing_value=-100.0 )
 
   id_uptk_n_iter  = register_tiled_diag_field ( module_name, 'uptake_n_iter',  axes(1:2), &
-       Time, 'number of iterations for soil uptake',  missing_value=-100.0 )
+       land_time, 'number of iterations for soil uptake',  missing_value=-100.0 )
   id_uptk = register_tiled_diag_field ( module_name, 'soil_uptk', axes, &
-       Time, 'uptake of water by roots', 'kg/(m2 s)',  missing_value=-100.0 )
+       land_time, 'uptake of water by roots', 'kg/(m2 s)',  missing_value=-100.0 )
   id_psi_x0 = register_tiled_diag_field ( module_name, 'soil_psix0', axes(1:2), &
-       Time, 'xylem potential at z=0', 'm',  missing_value=-100.0 )
+       land_time, 'xylem potential at z=0', 'm',  missing_value=-100.0 )
   id_deficit = register_tiled_diag_field ( module_name, 'soil_def', axes(1:2), &
-       Time, 'groundwater storage deficit', '-',  missing_value=-100.0 )
+       land_time, 'groundwater storage deficit', '-',  missing_value=-100.0 )
   id_deficit_2 = register_tiled_diag_field ( module_name, 'soil_def2', axes(1:2), &
-       Time, 'groundwater storage deficit2', '-',  missing_value=-100.0 )
+       land_time, 'groundwater storage deficit2', '-',  missing_value=-100.0 )
   id_deficit_3 = register_tiled_diag_field ( module_name, 'soil_def3', axes(1:2), &
-       Time, 'groundwater storage deficit3', '-',  missing_value=-100.0 )
+       land_time, 'groundwater storage deficit3', '-',  missing_value=-100.0 )
   id_psi_bot = register_tiled_diag_field ( module_name, 'soil_psi_n', axes(1:2), &
-       Time, 'psi at bottom of soil column', 'm',  missing_value=-100.0 )
+       land_time, 'psi at bottom of soil column', 'm',  missing_value=-100.0 )
   id_sat_frac = register_tiled_diag_field ( module_name, 'soil_fsat', axes(1:2), &
-       Time, 'fraction of soil area saturated at surface', '-',  missing_value=-100.0 )
+       land_time, 'fraction of soil area saturated at surface', '-',  missing_value=-100.0 )
   id_stor_frac = register_tiled_diag_field ( module_name, 'soil_fgw', axes(1:2), &
-       Time, 'groundwater storage frac above base elev', '-',  missing_value=-100.0 )
+       land_time, 'groundwater storage frac above base elev', '-',  missing_value=-100.0 )
   id_sat_depth = register_tiled_diag_field ( module_name, 'soil_wtdep', axes(1:2), &
-       Time, 'depth below sfc to saturated soil', 'm',  missing_value=-100.0 )
+       land_time, 'depth below sfc to saturated soil', 'm',  missing_value=-100.0 )
   id_sat_dept2 = register_tiled_diag_field ( module_name, 'soil_wtdp2', axes(1:2), &
-       Time, 'alt depth below sfc to saturated soil', 'm',  missing_value=-100.0 )
+       land_time, 'alt depth below sfc to saturated soil', 'm',  missing_value=-100.0 )
   id_z_cap = register_tiled_diag_field ( module_name, 'soil_zcap', axes(1:2), &
-       Time, 'depth below sfc to capillary fringe', 'm',  missing_value=-100.0 )
+       land_time, 'depth below sfc to capillary fringe', 'm',  missing_value=-100.0 )
 
   id_div_bf = register_tiled_diag_field ( module_name, 'soil_dvbf', axes, &
-       Time, 'baseflow by layer', 'kg/(m2 s)',  missing_value=-100.0 )
+       land_time, 'baseflow by layer', 'kg/(m2 s)',  missing_value=-100.0 )
   id_div_if = register_tiled_diag_field ( module_name, 'soil_dvif', axes, &
-       Time, 'interflow by layer', 'kg/(m2 s)',  missing_value=-100.0 )
+       land_time, 'interflow by layer', 'kg/(m2 s)',  missing_value=-100.0 )
   id_div_al = register_tiled_diag_field ( module_name, 'soil_dval', axes, &
-       Time, 'active-layer flow by layer', 'kg/(m2 s)',  missing_value=-100.0 )
+       land_time, 'active-layer flow by layer', 'kg/(m2 s)',  missing_value=-100.0 )
 
   id_cf_1 = register_tiled_diag_field ( module_name, 'soil_cf_1', axes(1:2), &
-       Time, 'soil_cf_1', 'm',  missing_value=-100.0 )
+       land_time, 'soil_cf_1', 'm',  missing_value=-100.0 )
   id_cf_3 = register_tiled_diag_field ( module_name, 'soil_cf_3', axes(1:2), &
-       Time, 'soil_cf_1', 'm',  missing_value=-100.0 )
+       land_time, 'soil_cf_1', 'm',  missing_value=-100.0 )
   id_wt_1 = register_tiled_diag_field ( module_name, 'soil_wt_1', axes(1:2), &
-       Time, 'soil_wt_1', 'm',  missing_value=-100.0 )
+       land_time, 'soil_wt_1', 'm',  missing_value=-100.0 )
   id_wt_2 = register_tiled_diag_field ( module_name, 'soil_wt_2', axes(1:2), &
-       Time, 'soil_wt_2', 'm',  missing_value=-100.0 )
+       land_time, 'soil_wt_2', 'm',  missing_value=-100.0 )
   id_wt_2a = register_tiled_diag_field ( module_name, 'soil_wt_2a', axes(1:2), &
-       Time, 'soil_wt_2a', 'm',  missing_value=-100.0 )
+       land_time, 'soil_wt_2a', 'm',  missing_value=-100.0 )
   id_wt_3 = register_tiled_diag_field ( module_name, 'soil_wt_3', axes(1:2), &
-       Time, 'soil_wt_3', 'm',  missing_value=-100.0 )
+       land_time, 'soil_wt_3', 'm',  missing_value=-100.0 )
   id_wt2_3 = register_tiled_diag_field ( module_name, 'soil_wt2_3', axes(1:2), &
-       Time, 'soil_wt2_3', 'm',  missing_value=-100.0 )
+       land_time, 'soil_wt2_3', 'm',  missing_value=-100.0 )
 
   id_active_layer = register_tiled_diag_field ( module_name, 'soil_alt', axes(1:2), &
-       Time, 'active-layer thickness', 'm',  missing_value=-100.0 )
+       land_time, 'active-layer thickness', 'm',  missing_value=-100.0 )
   id_heat_cap = register_tiled_diag_field ( module_name, 'soil_heat_cap',  &
-       axes, Time, 'heat capacity of dry soil','J/(m3 K)', missing_value=-100.0 )
+       axes, land_time, 'heat capacity of dry soil','J/(m3 K)', missing_value=-100.0 )
   id_thermal_cond =  register_tiled_diag_field ( module_name, 'soil_tcon', &
-       axes, Time, 'soil thermal conductivity', 'W/(m K)',  missing_value=-100.0 )
+       axes, land_time, 'soil thermal conductivity', 'W/(m K)',  missing_value=-100.0 )
   
   id_type = register_tiled_static_field ( module_name, 'soil_type',  &
        axes(1:2), 'soil type', missing_value=-1.0 )
@@ -720,7 +682,6 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   call write_tile_data_r1d_fptr(unit,'groundwater'  ,soil_groundwater_ptr  ,'zfull')
   call write_tile_data_r1d_fptr(unit,'groundwater_T',soil_groundwater_T_ptr ,'zfull')
   call write_tile_data_r0d_fptr(unit,'uptake_T',     soil_uptake_T_ptr, 'temperature of transpiring water', 'degrees_K')
-  call write_tile_data_r0d_fptr(unit,'psi_rootvessel', soil_psi_rootvessel_ptr, 'water potential inside roots', 'm')
   call write_tile_data_r1d_fptr(unit,'fsc',          soil_fast_soil_C_ptr,'zfull','fast soil carbon', 'kg C/m2')
   call write_tile_data_r1d_fptr(unit,'ssc',          soil_slow_soil_C_ptr,'zfull','slow soil carbon', 'kg C/m2')
   
@@ -766,10 +727,10 @@ subroutine soil_radiation ( soil, cosz, &
 
   call soil_data_radiation ( soil, cosz, use_brdf, soil_refl_dir, soil_refl_dif, soil_emis )
   soil_refl_lw = 1 - soil_emis
-  call check_var_range(soil_refl_dir(BAND_VIS), 0.0, 1.0, 'soil_radiation', 'soil_refl_dir(VIS)', lnd%time, FATAL)
-  call check_var_range(soil_refl_dir(BAND_NIR), 0.0, 1.0, 'soil_radiation', 'soil_refl_dir(NIR)', lnd%time, FATAL)
-  call check_var_range(soil_refl_dif(BAND_VIS), 0.0, 1.0, 'soil_radiation', 'soil_refl_dif(VIS)', lnd%time, FATAL)
-  call check_var_range(soil_refl_dif(BAND_NIR), 0.0, 1.0, 'soil_radiation', 'soil_refl_dif(NIR)', lnd%time, FATAL)
+  call check_var_range(soil_refl_dir(BAND_VIS), 0.0, 1.0, 'soil_radiation', 'soil_refl_dir(VIS)', FATAL)
+  call check_var_range(soil_refl_dir(BAND_NIR), 0.0, 1.0, 'soil_radiation', 'soil_refl_dir(NIR)', FATAL)
+  call check_var_range(soil_refl_dif(BAND_VIS), 0.0, 1.0, 'soil_radiation', 'soil_refl_dif(VIS)', FATAL)
+  call check_var_range(soil_refl_dif(BAND_NIR), 0.0, 1.0, 'soil_radiation', 'soil_refl_dif(NIR)', FATAL)
 end subroutine soil_radiation
 
 
@@ -779,7 +740,7 @@ end subroutine soil_radiation
 subroutine soil_data_beta ( soil, vegn, soil_beta, soil_water_supply, &
                             soil_uptake_T )
   type(soil_tile_type), intent(in)    :: soil
-  type(vegn_tile_type), intent(inout) :: vegn
+  type(vegn_tile_type), intent(inout) :: vegn ! inout because cc%uptake_frac is updated
   real, intent(out) :: soil_beta(:) ! relative water availability, used only in VEGN_PHOT_SIMPLE treatment
   real, intent(out) :: soil_water_supply(:) ! max rate of water supply to roots, kg/(indiv s)
   real, intent(out) :: soil_uptake_T(:) ! an estimate of temperature of the water 
@@ -793,7 +754,6 @@ subroutine soil_data_beta ( soil, vegn, soil_beta, soil_water_supply, &
        uptake_frac_max, & ! normalized root distribution
        vegn_uptake_term, &
        vlc, vsc, & ! volumetric fractions of water and ice in the layer
-       VRL, & ! vertical distribution of volumetric root length, m/m3
        u, du ! uptake and its derivative (the latter is not used)
   real :: z  !  soil depth
   type (vegn_cohort_type), pointer :: cc
@@ -802,21 +762,6 @@ subroutine soil_data_beta ( soil, vegn, soil_beta, soil_water_supply, &
     vlc(l) = max(0., soil%wl(l) / (dens_h2o*dz(l)))
     vsc(l) = max(0., soil%ws(l) / (dens_h2o*dz(l)))
   enddo
-
-  ! calculate volumetric root length for the entire tile
-  VRL(:) = 0.0
-  do k = 1, vegn%n_cohorts
-     cc=>vegn%cohorts(k)
-     call cohort_root_properties (cc, dz(1:num_l), cc%root_length(1:num_l), cc%Kra, cc%r_r)
-     VRL(:) = VRL(:)+cc%root_length(1:num_l)*cc%nindivs
-  enddo
-  
-  ! calculate characteristic half-distance between roots, m
-  where (VRL(:) > 0)
-     vegn%root_distance(1:num_l) = 1.0/sqrt(PI*VRL(:))
-  elsewhere
-     vegn%root_distance(1:num_l) = 1.0 ! the value doesn't matter since uptake is 0 anyway 
-  end where
 
   do k = 1, vegn%n_cohorts 
      cc=>vegn%cohorts(k)
@@ -847,14 +792,9 @@ subroutine soil_data_beta ( soil, vegn, soil_beta, soil_water_supply, &
         enddo
         soil_water_supply(k) = z * soil_water_supply(k)/delta_time
         soil_uptake_T(k) = sum(cc%uptake_frac(:)*soil%T(:))
-     case(UPTAKE_DARCY2D)
+     case(UPTAKE_DARCY2D,UPTAKE_DARCY2D_LIN)
         call darcy2d_uptake ( soil, psi_wilt, vegn%root_distance, cc%root_length, &
-             cc%Kra, cc%r_r, uptake_oneway, uptake_from_sat, u, du )
-        soil_water_supply(k) = max(0.0,sum(u))
-        soil_uptake_T(k) = soil%uptake_T
-     case(UPTAKE_DARCY2D_LIN)
-        call darcy2d_uptake_lin ( soil, psi_wilt, vegn%root_distance, cc%root_length, &
-             cc%Kra, cc%r_r, uptake_oneway, uptake_from_sat, u, du)
+             cc%K_r, cc%r_r, u, du )
         soil_water_supply(k) = max(0.0,sum(u))
         soil_uptake_T(k) = soil%uptake_T
      end select
@@ -1141,22 +1081,12 @@ end subroutine soil_step_1
      case ( UPTAKE_DARCY2D, UPTAKE_DARCY2D_LIN )     
         ! for Darcy-flow uptake, find the root water potential to satify actual
         ! transpiration by the vegetation
-        if ( uptake_option==UPTAKE_DARCY2D ) then
-           call darcy2d_uptake_solver     (soil, transp1, vegn%root_distance, &
-                cc%root_length, cc%Kra, cc%r_r, &
-                uptake_oneway, uptake_from_sat, uptake1, psi_x0, n_iter)
-        else
-           call darcy2d_uptake_solver_lin (soil, transp1, vegn%root_distance, &
-                cc%root_length, cc%Kra, cc%r_r, &
-                uptake_oneway, uptake_from_sat, uptake1, psi_x0, n_iter )
-        endif
+        call darcy2d_uptake_solver     (soil, transp1, vegn%root_distance, &
+                cc%root_length, cc%K_r, cc%r_r, &
+                uptake1, psi_x0, n_iter)
         ! Solution provides psi inside the skin, given uptake and K_r for each level
         ! This calculates effective psi outside the skin (root-soil interface) 
         ! across all levels using single Kri for use in cavitation calculations.
-
-        cc%psi_rs = soil%psi_rootvessel + sum(uptake1)/cc%Kri ! Wolf
-        if (sum(uptake1) <= 0) cc%psi_rs = soil%psi_rootvessel
-        if (cc%psi_rs >= soil%pars%psi_sat_ref) cc%psi_rs = soil%pars%psi_sat_ref
 
         soil%psi_x0 = psi_x0
      end select
@@ -1608,9 +1538,6 @@ end subroutine soil_step_1
 ! given solution for surface energy balance, write diagnostic output.
 !  
 
-  ! ---- increment time and do diagnostics -----------------------------------
-  time = increment_time(time, int(delta_time), 0)
-  
   ! ---- diagnostic section
    call send_tile_data(id_temp, soil%T, diag)
    if (id_lwc > 0) call send_tile_data(id_lwc,  soil%wl/dz(1:num_l), diag)
@@ -2170,7 +2097,6 @@ DEFINE_SOIL_ACCESSOR_1D(real,groundwater)
 DEFINE_SOIL_ACCESSOR_1D(real,groundwater_T)
 DEFINE_SOIL_ACCESSOR_1D(real,w_fc)
 DEFINE_SOIL_ACCESSOR_0D(real,uptake_T)
-DEFINE_SOIL_ACCESSOR_0D(real,psi_rootvessel)
 DEFINE_SOIL_ACCESSOR_0D(integer,tag)
 DEFINE_SOIL_ACCESSOR_1D(real,fast_soil_C)
 DEFINE_SOIL_ACCESSOR_1D(real,slow_soil_C)
