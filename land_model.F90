@@ -132,7 +132,7 @@ real    :: gfrac_tol         = 1.e-6
 real    :: discharge_tol = -1.e20
 integer :: max_improv_steps = 5    ! max number of solution improvement iterations, 
                                    ! set to 0 to turn improvement off (LM3-like)
-real    :: solution_tol    = 1e-16 ! tolerance for soltion improvement
+real    :: solution_tol    = 1e-16 ! tolerance for solution improvement
 logical :: prohibit_negative_leaf_water = .FALSE. ! if true, the solution of energy/water
                                    ! balance is iterated (at most twice) to ensure
                                    ! water and snow on leaves do not go negative

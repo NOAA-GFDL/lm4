@@ -97,6 +97,11 @@ type :: vegn_cohort_type
   ! TODO: see if we can make bl_max, br_max local variables
   real    :: bl_max       = 0.0 ! Max. leaf biomass, kg C/individual
   real    :: br_max       = 0.0 ! Max. fine root biomass, kg C/individual
+  
+  ! TODO: figure out how to do starvation mortality without hard-coded assumption
+  !       of the mortality call time step
+  real    :: BM_ys        = 0.0 ! bwood + bsw at the end the previous year, for starvation 
+                                ! mortality calculation.
 
 ! ---- uptake-related variables
   real    :: root_length(max_lev) = 0.0 ! individual's root length per unit depth, m of root/m
@@ -539,6 +544,13 @@ subroutine init_cohort_allometry_ppa(cc)
 !    cc%treeBM     = sp%alphaBM * cc%dbh ** sp%thetaBM
      cc%height     = sp%alphaHT * cc%dbh ** sp%thetaHT
      cc%crownarea  = sp%alphaCA * cc%dbh ** sp%thetaCA
+
+     ! calculations of bl_max and br_max are here only for the sake of the
+     ! diagnostics, because otherwise those fields are inherited from the 
+     ! parent cohort and produce spike in the output, even though these spurious
+     ! values are not used by the model
+     cc%bl_max = sp%LMA   * sp%LAImax        * cc%crownarea
+     cc%br_max = sp%phiRL * sp%LAImax/sp%SRA * cc%crownarea 
   end associate
 end subroutine 
 

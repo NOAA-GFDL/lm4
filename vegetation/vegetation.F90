@@ -105,7 +105,7 @@ real    :: init_Ws           = 0
 real    :: init_Tv           = 288.0
 integer :: init_n_cohorts    = 1
 integer :: init_cohort_species(MAX_INIT_COHORTS) = 2
-real    :: init_cohort_nindivs(MAX_INIT_COHORTS) = 1.0 ! initial inidividula density, individual/m2
+real    :: init_cohort_nindivs(MAX_INIT_COHORTS) = 1.0  ! initial individual density, individual/m2
 real    :: init_cohort_bl(MAX_INIT_COHORTS)      = 0.05 ! initial biomass of leaves, kg C/individual
 real    :: init_cohort_blv(MAX_INIT_COHORTS)     = 0.0  ! initial biomass of labile store, kg C/individual
 real    :: init_cohort_br(MAX_INIT_COHORTS)      = 0.05 ! initial biomass of fine roots, kg C/individual
@@ -159,7 +159,7 @@ real            :: dt_fast_yr      ! fast time step in years
 integer         :: vegn_phot_co2_option = -1 ! internal selector of co2 option 
                                    ! used for photosynthesis
 ! diagnostic field ids
-integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, id_lai, id_sai, id_leaf_size, &
+integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, id_height1, id_lai, id_sai, id_leaf_size, &
    id_root_density, id_root_zeta, id_rs_min, id_leaf_refl, id_leaf_tran,&
    id_leaf_emis, id_snow_crit, id_stomatal, id_an_op, id_an_cl, &
    id_bl, id_blv, id_br, id_bsw, id_bwood, id_bseed, id_nsc, id_species, id_status, &
@@ -321,6 +321,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
           call read_cohort_data_r0d_fptr(unit,'cohort_age',cohort_age_ptr)
           ! TODO: possibly initialize cohort age with tile age if the cohort_age is
           !       not present in the restart
+          call read_cohort_data_r0d_fptr(unit,'BM_ys',cohort_BM_ys_ptr)
           did_read_cohort_structure=.TRUE.
      else 
           did_read_cohort_structure=.FALSE.
@@ -533,6 +534,8 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
 
   id_height = register_tiled_diag_field ( module_name, 'height',  &
        (/id_lon,id_lat/), time, 'height of tallest vegetation', 'm', missing_value=-1.0 )
+  id_height1 = register_tiled_diag_field ( module_name, 'height1',  &
+       (/id_lon,id_lat/), time, 'height of first cohort', 'm', missing_value=-1.0 )
   id_lai    = register_tiled_diag_field ( module_name, 'lai',  &
        (/id_lon,id_lat/), time, 'leaf area index', 'm2/m2', missing_value=-1.0 )
   id_sai    = register_tiled_diag_field ( module_name, 'sai',  &
@@ -580,7 +583,7 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
   id_bl_max = register_tiled_diag_field ( module_name, 'bl_max',  &
        (/id_lon,id_lat/), time, 'max biomass of leaves', 'kg C/m2', missing_value=-1.0 )
   id_br_max = register_tiled_diag_field ( module_name, 'br_max',  &
-       (/id_lon,id_lat/), time, 'max biomass of leaves', 'kg C/m2', missing_value=-1.0 )
+       (/id_lon,id_lat/), time, 'max biomass of fine roots', 'kg C/m2', missing_value=-1.0 )
 
   id_fuel = register_tiled_diag_field ( module_name, 'fuel',  &
        (/id_lon,id_lat/), time, 'mass of fuel', 'kg C/m2', missing_value=-1.0 )
@@ -763,6 +766,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call write_cohort_data_r0d_fptr(unit,'bseed', cohort_bseed_ptr, 'biomass reserved for future progeny','kg C/individual')
   call write_cohort_data_r0d_fptr(unit,'dbh', cohort_dbh_ptr, 'diameter at breast height','m')
   call write_cohort_data_r0d_fptr(unit,'crownarea', cohort_crownarea_ptr, 'area of crown','m2/individual')
+  call write_cohort_data_r0d_fptr(unit,'BM_ys', cohort_BM_ys_ptr, 'bwood+bsw at the end of previous year','kg C/individual')
   
   call write_cohort_data_r0d_fptr(unit,'bliving', cohort_bliving_ptr, 'total living biomass','kg C/individual')
   call write_cohort_data_r0d_fptr(unit,'nindivs',cohort_nindivs_ptr, 'number of individuals', 'individuals/m2')
@@ -1300,12 +1304,15 @@ subroutine vegn_step_2 ( vegn, diag, &
   ! root_zeta -- perhaps averaged with root density as weight?
   ! snow_crit???
   N = vegn%n_cohorts
-  ! TODO: calculate vegetation temperature as total sensible heat/total heat cpacity
+  ! TODO: calculate vegetation temperature as total sensible heat/total heat capacity
   call send_tile_data(id_temp,   vegn%cohorts(1)%prog%Tv, diag)
   call send_tile_data(id_wl, sum(vegn%cohorts(1:N)%prog%Wl*vegn%cohorts(1:N)%nindivs), diag)
   call send_tile_data(id_ws, sum(vegn%cohorts(1:N)%prog%Ws*vegn%cohorts(1:N)%nindivs), diag)
 
-  call send_tile_data(id_height, vegn%cohorts(1)%height, diag) ! tallest
+  call send_tile_data(id_height1, vegn%cohorts(1)%height, diag) ! tallest
+  call send_tile_data(id_height, maxval(vegn%cohorts(1:N)%height), diag) ! tallest
+  ! in principle, the first cohort must be the tallest, but since cohorts are
+  ! rearranged only once a year, that may not be true for part of the year
   call send_tile_data(id_lai, sum(vegn%cohorts(1:N)%lai*vegn%cohorts(1:N)%layerfrac), diag)
   call send_tile_data(id_sai, sum(vegn%cohorts(1:N)%sai*vegn%cohorts(1:N)%layerfrac), diag)
   ! TODO: fix the diagnostics below
@@ -1322,7 +1329,7 @@ end subroutine vegn_step_2
 
 
 ! ============================================================================
-! do the vegetation calculations that require updated (end-of-timestep) values 
+! do the vegetation calculations that require updated (end-of-time-step) values 
 ! of prognostic land variables
 subroutine vegn_step_3(vegn, soil, cana_T, precip, vegn_fco2, diag)
   type(vegn_tile_type), intent(inout) :: vegn
@@ -1532,7 +1539,7 @@ subroutine update_vegn_slow( )
 
      
      ! + conservation check, part 2: calculate totals in final state, and compare 
-     ! with previus totals
+     ! with previous totals
      tag = 'update_vegn_slow'
      call get_tile_water(tile,lmass1,fmass1)
      heat1  = land_tile_heat  (tile)
@@ -1757,6 +1764,7 @@ DEFINE_COHORT_ACCESSOR(integer,status)
 DEFINE_COHORT_ACCESSOR(real,leaf_age)
 DEFINE_COHORT_ACCESSOR(real,age)
 DEFINE_COHORT_ACCESSOR(real,npp_previous_day)
+DEFINE_COHORT_ACCESSOR(real,BM_ys)
 
 DEFINE_COHORT_COMPONENT_ACCESSOR(real,prog,tv)
 DEFINE_COHORT_COMPONENT_ACCESSOR(real,prog,wl)

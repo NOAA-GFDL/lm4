@@ -24,9 +24,7 @@ use cana_tile_mod, only : cana_tile_type, cana_prog_type, &
      canopy_air_mass, canopy_air_mass_for_tracers, cpw
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
-use land_tile_diag_mod, only : &
-     register_tiled_diag_field, send_tile_data, diag_buff_type
-use land_data_mod,      only : land_state_type, lnd
+use land_data_mod, only : land_state_type, lnd
 use land_tile_io_mod, only : create_tile_out_file, read_tile_data_r0d_fptr, write_tile_data_r0d_fptr, &
      get_input_restart_name, print_netcdf_error
 use land_debug_mod, only : is_watch_point, check_temp_range

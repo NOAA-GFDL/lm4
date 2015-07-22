@@ -3,7 +3,11 @@
 ! ============================================================================
 module vegn_disturbance_mod
 
+#include "../shared/debug.inc"
+
+use fms_mod, only: error_mesg, WARNING
 use land_constants_mod, only : seconds_per_year
+use land_debug_mod, only : is_watch_point
 use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, agf_bs, do_ppa, LEAF_OFF, &
                             DBH_mort, A_mort, B_mort, mortrate_s
 use vegn_tile_mod,   only : vegn_tile_type
@@ -252,12 +256,18 @@ subroutine vegn_nat_mortality_ppa (vegn, deltat)
   real :: loss_alive,loss_wood
   real :: deathrate ! mortality rate, 1/year
   real :: deadtrees ! number of trees that died over the time step
-  integer :: i
+  integer :: i, k
+  type(vegn_cohort_type), pointer :: cc(:) ! array to hold new cohorts
+  
+  
+  real, parameter :: min_nindivs = 2e-15 ! 1/m. If nindivs is less that this number, 
+  ! then the entire cohort is killed; 2e-15 is approximately 1 individual per Earth 
+  ! surface area
 
   do i = 1, vegn%n_cohorts   
      associate ( cc => vegn%cohorts(i)   , &
                  sp => spdata(cc%species)  )
-     ! mortality rate can be a function of growht rate, age, and environmental
+     ! mortality rate can be a function of growth rate, age, and environmental
      ! conditions. Here, we only used two constants for canopy layer and under-
      ! story layer (mortrate_d_c and mortrate_d_u)
      if(cc%layer > 1) then
@@ -270,20 +280,27 @@ subroutine vegn_nat_mortality_ppa (vegn, deltat)
      endif
      ! Mortality due to starvation
      ! TODO: do something about comparison with previous year biomass
-!     if (cc%bwood+cc%bsw < cc%BM_ys-0.5*cc%bl_max .or. cc%nsc<0.01*cc%bl_max .or. cc%bsw<0) then
-     if (cc%nsc < 0.01*cc%bl_max .or. cc%bsw<0) then
+     if (cc%bwood+cc%bsw < cc%BM_ys-0.5*cc%bl_max .or. cc%nsc<0.01*cc%bl_max .or. cc%bsw<0) then
          deathrate = mortrate_s
      endif
-!     cc%BM_ys = cc%bwood+cc%bsw
+     cc%BM_ys = cc%bwood+cc%bsw
 
      deadtrees = cc%nindivs * (1.0-exp(-deathrate*deltat/seconds_per_year)) ! individuals / m2
+     ! kill the entire cohort if the the spacial density of individuals is too low
+     if (cc%nindivs-deadtrees < min_nindivs) deadtrees=cc%nindivs
      ! recalculate amount of water on canopy: assume that the dead tree are dry,
      ! so all water remains on the survivors
-     cc%prog%Wl = cc%prog%Wl*cc%nindivs/(cc%nindivs-deadtrees)
-     cc%prog%Ws = cc%prog%Ws*cc%nindivs/(cc%nindivs-deadtrees)
+     if (cc%nindivs-deadtrees > 0) then
+        cc%prog%Wl = cc%prog%Wl*cc%nindivs/(cc%nindivs-deadtrees)
+        cc%prog%Ws = cc%prog%Ws*cc%nindivs/(cc%nindivs-deadtrees)
+        ! this does not conserve water if we are killing the entire cohort; however
+        ! the total amount of water on cohort is so small in this case that it can
+        ! be ignored. It will be fixed anyway if we drop the water on dead trees
+        ! to the ground
+     endif
      ! it is probably more consistent to add this water on top of soil or snow; 
      ! but for that we need an intermediate buffer (must be included into total 
-     ! water calculations), aand I am reluctant to introduce it at the moment.
+     ! water calculations), and I am reluctant to introduce it at the moment.
      ! TODO: invent a better way to handle water on trees lost to mortality
      cc%nindivs = cc%nindivs-deadtrees
 
@@ -303,6 +320,36 @@ subroutine vegn_nat_mortality_ppa (vegn, deltat)
      ! maintenance and here?
      ! TODO: ask Enshend and Elena about possible double-counting of live biomass losses.
   enddo
+  
+  ! calculate the number of remaining cohorts
+  k = 0
+  do i = 1, vegn%n_cohorts
+     if (vegn%cohorts(i)%nindivs > min_nindivs) k=k+1
+  enddo
+
+  if (k==0) call error_mesg('vegn_nat_mortality_ppa','All cohorts died',WARNING)
+  if (is_watch_point()) then
+     write(*,*)'###### vegn_nat_mortality_ppa #######'
+     __DEBUG1__(vegn%cohorts%nindivs)
+     __DEBUG1__(k)
+  endif
+
+  ! exclude cohorts that have zero individuals
+  if (k < vegn%n_cohorts) then
+     allocate(cc(k))
+     k=0
+     do i = 1,vegn%n_cohorts
+        if (vegn%cohorts(i)%nindivs > min_nindivs) then
+           k=k+1
+           cc(k) = vegn%cohorts(i)
+        endif
+     enddo
+
+     vegn%n_cohorts = k
+     deallocate (vegn%cohorts)
+     vegn%cohorts=>cc
+  endif
+
 end subroutine vegn_nat_mortality_ppa
 
 
