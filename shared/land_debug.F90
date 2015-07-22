@@ -41,6 +41,11 @@ interface dpri
    module procedure debug_printout_r2d
 end interface dpri
 
+! conservation tolerances for use across the code. This module doesn't use
+! them, just serves as a convenient place to share them across all land code
+public :: water_cons_tol
+public :: carbon_cons_tol
+
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'land_debug',&
@@ -65,8 +70,11 @@ logical :: trim_labels = .FALSE. ! if TRUE, the length of text labels in debug
            ! printout is never allowed to exceed label_len, resulting in 
            ! trimming of the labels. Set it to TRUE to match earlier debug 
            ! printout
+real    :: water_cons_tol  = 1e-11 ! tolerance of water conservation checks 
+real    :: carbon_cons_tol = 1e-13 ! tolerance of carbon conservation checks  
 namelist/land_debug_nml/ watch_point, temp_lo, temp_hi, &
-   print_hex_debug, label_len, trim_labels
+   print_hex_debug, label_len, trim_labels, &
+   water_cons_tol, carbon_cons_tol
 
 
 contains

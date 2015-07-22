@@ -4,7 +4,8 @@
 module vegn_disturbance_mod
 
 use land_constants_mod, only : seconds_per_year
-use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, agf_bs, do_ppa, LEAF_OFF
+use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, agf_bs, do_ppa, LEAF_OFF, &
+                            DBH_mort, A_mort, B_mort, mortrate_s
 use vegn_tile_mod,   only : vegn_tile_type
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools
 
@@ -12,7 +13,8 @@ implicit none
 private
 
 ! ==== public interfaces =====================================================
-public :: vegn_nat_mortality
+public :: vegn_nat_mortality_lm3
+public :: vegn_nat_mortality_ppa
 public :: vegn_disturbance
 public :: update_fuel
 ! =====end of public interfaces ==============================================
@@ -29,7 +31,6 @@ subroutine vegn_disturbance(vegn, dt)
   type(vegn_tile_type), intent(inout) :: vegn
   real, intent(in) :: dt ! time since last disturbance calculations, s
   
-
   real, parameter :: BMIN = 1e-10; ! should be the same as in growth function
   ! ---- local vars
   type(vegn_cohort_type), pointer :: cc    ! current cohort
@@ -191,19 +192,6 @@ end subroutine update_fuel
 
 
 ! ============================================================================
-subroutine vegn_nat_mortality(vegn,deltat)
-  type(vegn_tile_type), intent(inout) :: vegn
-  real, intent(in) :: deltat ! time since last mortality calculations, s
-
-  if (do_ppa) then
-     call vegn_nat_mortality_ppa(vegn,deltat)
-  else
-     call vegn_nat_mortality_lm3(vegn,deltat)
-  endif
-end subroutine 
-
-
-! ============================================================================
 subroutine vegn_nat_mortality_lm3(vegn, deltat)
   type(vegn_tile_type), intent(inout) :: vegn
   real, intent(in) :: deltat ! time since last mortality calculations, s
@@ -261,28 +249,31 @@ subroutine vegn_nat_mortality_ppa (vegn, deltat)
   real, intent(in) :: deltat ! time since last mortality calculations, s
 
   ! ---- local vars
-  type(vegn_cohort_type), pointer :: cc
   real :: loss_alive,loss_wood
   real :: deathrate, deadtrees
-  integer :: sp ! shorthand for current cohort specie
   integer :: i
-  real, parameter :: Mdbh = 0.025 ! what is it? why not in the namelist?
 
   do i = 1, vegn%n_cohorts   
-     cc => vegn%cohorts(i)
-     sp = cc%species
+     associate ( cc => vegn%cohorts(i)   , &
+                 sp => spdata(cc%species)  )
      ! mortality rate can be a function of growht rate, age, and environmental
      ! conditions. Here, we only used two constants for canopy layer and under-
      ! story layer (mortrate_d_c and mortrate_d_u)
-     ! compute the mortality of trees
-     if(cc%layer > 1)then
-!        deathrate = spdata(sp)%mortrate_d_u
+     if(cc%layer > 1) then
         ! why everything here is hard-coded?
-        deathrate = spdata(sp)%mortrate_d_u + 10.0 * spdata(sp)%mortrate_d_u * &
-                    exp(30.0*(Mdbh - cc%dbh))/(1.0 + exp(30.0*(Mdbh - cc%dbh)))
+        deathrate = sp%mortrate_d_u * &
+                 (1 + A_mort*exp(B_mort*(DBH_mort-cc%dbh)) &
+                    /(1.0 + exp(B_mort*(DBH_mort-cc%dbh))) &
+                 )
      else
-        deathrate = spdata(sp)%mortrate_d_c
+        deathrate = sp%mortrate_d_c
      endif
+     ! Mortality due to starvation
+     ! if(cc%bstem_tend < 0 .or. cc%nsc < 0.005*cc%bl_max .or. cc%bwood < 0) then
+     if( cc%nsc < 0.005*cc%bl_max .or. cc%bwood < 0 ) then
+         deathrate = mortrate_s
+     endif
+
      deadtrees = cc%nindivs * (1.0-exp(-deathrate*deltat/seconds_per_year)) ! individuals / m2
      ! recalculate amount of water on canopy: assume that the dead tree are dry,
      ! so all water remains on the survivors
@@ -304,6 +295,7 @@ subroutine vegn_nat_mortality_ppa (vegn, deltat)
      vegn%ssc_in = vegn%ssc_in + fsc_liv*loss_alive + fsc_wood *loss_wood
      vegn%veg_out = vegn%veg_out + loss_alive + loss_wood
 
+     end associate
      ! note that in contrast to LM3 mortality calculation, living biomasses are
      ! included in loss; does it mean that we double-counting losses in 
      ! maintenance and here?

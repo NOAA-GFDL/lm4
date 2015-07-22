@@ -42,7 +42,7 @@ integer, public, parameter :: n_dim_vegn_types = 9
 integer, public, parameter :: MSPECIES = NSPECIES+n_dim_vegn_types-1
  
 integer, public, parameter :: NCMPT = 6, & ! number of carbon compartments
- CMPT_REPRO   = 1, & ! 
+ CMPT_NSC     = 1, & ! non-structural carbon compartment
  CMPT_SAPWOOD = 2, & ! sapwood compartment
  CMPT_LEAF    = 3, & ! leaf compartment
  CMPT_ROOT    = 4, & ! fine root compartment
@@ -105,11 +105,9 @@ public :: &
     fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
     l_fract, T_transp_min, soil_carbon_depth_scale, &
     cold_month_threshold, scnd_biomass_bins, &
-    phen_ev1, phen_ev2, cmc_eps
-
-! do_ppa is defined here, to be visible in every vegetation module, but set
-! (through the namelist) in the vegetation.F90. Motivation is to keep all 
-! "do_something" namelist parameters in vegn_nml.
+    phen_ev1, phen_ev2, cmc_eps, & 
+    tau_growth, b0_growth, tau_seed, understory_lai_factor, bseed_distr, &
+    DBH_mort, A_mort, B_mort, mortrate_s
 
 logical, public :: do_ppa = .FALSE.
 
@@ -179,6 +177,7 @@ type spec_data_type
   real    :: tc_crit
   real    :: fact_crit_phen, cnst_crit_phen ! wilting factor and offset to 
     ! get critical value for leaf drop -- only one is non-zero at any time
+  real    :: gdd_crit
   real    :: fact_crit_fire, cnst_crit_fire ! wilting factor and offset to 
     ! get critical value for fire -- only one is non-zero at the time
 
@@ -199,6 +198,7 @@ type spec_data_type
   real    :: alphaCSASW, thetaCSASW ! 
   real    :: maturalage       ! the age that can reproduce
   real    :: fecundity        ! max C allocated to next generation per unit canopy area, kg C/m2
+  real    :: seedlingsize     ! size of the seedlings, kgC/indiv
   real    :: mortrate_d_c     ! daily mortality rate in canopy
   real    :: mortrate_d_u     ! daily mortality rate in understory
   real    :: rho_wood         ! woody density, kg C m-3 wood
@@ -283,7 +283,7 @@ real :: alpha(0:MSPECIES,NCMPT) ; data ((alpha(idata,jdata), idata=0,MSPECIES),j
 
 ! From Foley (Ibis model) 1996 gbc v10 pp. 603-628
 real :: beta(0:MSPECIES,NCMPT) ; data ((beta(idata,jdata), idata=0,NSPECIES-1),jdata=1,NCMPT) &
-        /   0.0,          0.0,          0.0,          0.0,          0.0,& ! reproduction
+        /   0.0,          0.0,          0.0,          0.0,          0.0,& ! nsc
             0.0,          0.0,          0.0,          0.0,          0.0,& ! sapwood
             0.0,          0.0,          0.0,          0.0,          0.0,& ! leaf
            1.25,         1.25,         1.25,         1.25,         1.25,& ! root
@@ -364,6 +364,8 @@ real :: cnst_crit_phen(0:MSPECIES)= & ! constant critical value for leaf drop
        (/    0.1,         0.1,          0.1,           0.1,         0.1,    0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1  /)
 real :: fact_crit_phen(0:MSPECIES)= & ! factor for wilting to get critical value for leaf drop
        (/    0.0,         0.0,          0.0,           0.0,         0.0,    0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0  /)
+real    :: gdd_crit(0:MSPECIES)= &
+       (/  360.0,       360.0,        360.0,         360.0,       360.0,    0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0  /)
 real :: cnst_crit_fire(0:MSPECIES)= & ! constant critical value for leaf drop
        (/    0.1,         0.1,          0.1,           0.1,         0.1,    0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1  /)  
 real :: fact_crit_fire(0:MSPECIES)= & ! factor for wilting to get critical value for fire
@@ -403,6 +405,14 @@ real :: harvest_spending_time(N_HARV_POOLS) = &
 real :: l_fract      = 0.5 ! fraction of the leaves retained after leaf drop
 real :: T_transp_min = 0.0 ! lowest temperature at which transporation is enabled
                            ! 0 means no limit, lm3v value is 268.0
+! Ensheng's growth parameters:
+real :: tau_growth  = 0.2854 ! characteristic time of nsc scpending on growth, year
+real :: b0_growth   = 0.02   ! min biomass for growth formula, kgC/indiv
+real :: tau_seed    = 0.5708 ! characteristic time of nsc spending on seeds, year
+
+! reduction of bl_max and br_max for the understory vegetation, unitless
+real :: understory_lai_factor = 0.2
+
 ! boundaries of wood biomass bins for secondary veg. (kg C/m2); used to decide 
 ! whether secondary vegetation tiles can be merged or not. MUST BE IN ASCENDING 
 ! ORDER.
@@ -432,10 +442,19 @@ real    :: maturalage(0:MSPECIES)      = &  ! the age that a plant can reproduce
        (/    0.,      0.,      1.,      1.,      5.,      5.,      5.,      5.,      5.,      5.,      5.,      5.,      5.,      5.     /)
 real    :: fecundity(0:MSPECIES)      = &  ! 
        (/    0.,      0.,      0.02,    0.005,   0.005,   0.005,   0.005,   0.005,   0.005,   0.005,   0.005,   0.005,   0.005,   0.005  /)
+real    :: seedlingsize(0:MSPECIES)      = &  ! 
+       (/    0.,      0.,      0.02,    0.005,   0.005,   0.005,   0.005,   0.005,   0.005,   0.005,   0.005,   0.005,   0.005,   0.005  /)
 real    :: mortrate_d_c(0:MSPECIES) = & ! yearly mortality rate in canopy
        (/    5.0E-2,  4.0E-2,  5.0E-2,  5.0E-2,  5.0E-2,  1.0E-2,  1.0E-2,  1.0E-2,  1.0E-2,  1.0E-2,  1.0E-2,  1.0E-2,  1.0E-2,  1.0E-2 /)
 real    :: mortrate_d_u(0:MSPECIES) = & ! yearly mortality rate in understory
        (/    20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2,  20.E-2 /)
+! for understory mortality rate is calculated as:
+! deathrate = mortrate_d_u * ( 1 + A * exp(B*(DBH_mort-DBH))/(1 + exp(B*(DBH_mort-DBH)))
+real :: DBH_mort   = 0.025 ! characteristic DBH for mortality
+real :: A_mort     = 4.0   ! A coefficient in understory mortality rate correction, 1/year
+real :: B_mort     = 30.0  ! B coefficient in understory mortality rate correction, 1/m
+real :: mortrate_s = 1.0   ! mortality rate of starving plants, 1/year
+
 real    :: LMA(0:MSPECIES) = & !  leaf mass per unit area, kg C/m2
        (/    0.04,    0.04,    0.032,   0.032,   0.032,   0.036,   0.036,   0.036,   0.036,   0.036,   0.036,   0.036,   0.036,   0.036  /) 
 real    :: rho_wood(0:MSPECIES) = & ! wood density of stems, Kg C m-3
@@ -446,6 +465,10 @@ real    :: LAImax(0:MSPECIES) = & ! maximum LAI for a tree
        (/    3.0,     3.0,     3.0,     3.0,     3.0,     3.0,     3.0,     3.0,     3.0,     3.0,     3.0,     3.0,     3.0,     3.0    /) 
 real    :: phiRL(0:MSPECIES) = & ! ratio of fine root area to leaf area
        (/    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69,    2.69   /) 
+
+real :: bseed_distr(NCMPT) = & ! partitioning of of new seedling biomass among compartments 
+       (/    0.85,     0.1,     0.0,     0.0,     0.0,    0.05  /)
+        !     nsc, sapwood,    leaf,    root,   vleaf,    wood 
 
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
@@ -471,12 +494,16 @@ namelist /vegn_data_nml/ &
   tau_drip_l, tau_drip_s, GR_factor, tg_c3_thresh, tg_c4_thresh, &
   fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
   l_fract, T_transp_min, &
-  tc_crit, cnst_crit_phen, fact_crit_phen, cnst_crit_fire, fact_crit_fire, &
+  tc_crit, cnst_crit_phen, fact_crit_phen, gdd_crit, &
+  cnst_crit_fire, fact_crit_fire, &
   scnd_biomass_bins, phen_ev1, phen_ev2, &
   ! PPA-related namelist values
+  do_ppa, &
   alphaHT, thetaHT, alphaCA, thetaCA, alphaBM, thetaBM, alphaCSASW, thetaCSASW,&
-  maturalage, fecundity, mortrate_d_c, mortrate_d_u, &
-  LAImax, LMA, phiRL, rho_wood, taperfactor
+  maturalage, fecundity, bseed_distr, mortrate_d_c, mortrate_d_u, mortrate_s, &
+  DBH_mort, A_mort, B_mort, &
+  LAImax, LMA, phiRL, rho_wood, taperfactor, &
+  tau_growth, b0_growth, tau_seed, understory_lai_factor
 
 contains ! ###################################################################
 
@@ -561,6 +588,7 @@ subroutine read_vegn_data_namelist()
   spdata%tc_crit   = tc_crit
   spdata%cnst_crit_phen = cnst_crit_phen
   spdata%fact_crit_phen = fact_crit_phen
+  spdata%gdd_crit  = gdd_crit
   spdata%cnst_crit_fire = cnst_crit_fire
   spdata%fact_crit_fire = fact_crit_fire
 
@@ -573,7 +601,8 @@ subroutine read_vegn_data_namelist()
   spdata%alphaBM      = alphaBM    ;  spdata%thetaBM      = thetaBM 
   spdata%alphaCSASW   = alphaCSASW ;  spdata%thetaCSASW   = thetaCSASW
   spdata%maturalage   = maturalage
-  spdata%maturalage   = fecundity
+  spdata%fecundity    = fecundity
+  spdata%seedlingsize = seedlingsize
   spdata%mortrate_d_c = mortrate_d_c
   spdata%mortrate_d_u = mortrate_d_u
   spdata%rho_wood     = rho_wood

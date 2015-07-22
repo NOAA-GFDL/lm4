@@ -6,7 +6,7 @@ module land_model_mod
 #include "shared/debug.inc"
 
 use time_manager_mod, only : time_type, get_time, increment_time, time_type_to_real, &
-     operator(+)
+     print_date, operator(+)
 use mpp_domains_mod, only : domain2d, mpp_get_ntile_count
 
 #ifdef INTERNAL_FILE_NML
@@ -84,7 +84,7 @@ use land_tile_diag_mod, only : tile_diag_init, tile_diag_end, &
     OP_AVERAGE, OP_SUM
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, get_watch_point, check_temp_range, current_face, &
-     get_current_point, check_conservation
+     get_current_point, check_conservation, water_cons_tol, carbon_cons_tol 
 use static_vegn_mod, only : write_static_vegn
 use land_transitions_mod, only : &
      land_transitions_init, land_transitions_end, land_transitions, &
@@ -130,8 +130,6 @@ real    :: csw = 2106.  ! specific heat of water (ice)
 real    :: min_sum_lake_frac = 1.e-8
 real    :: gfrac_tol         = 1.e-6
 real    :: discharge_tol = -1.e20
-real    :: water_cons_tol  = 1e-11 ! tolerance of water conservation checks 
-real    :: carbon_cons_tol = 1e-13 ! tolerance of carbon conservation checks  
 integer :: max_improv_steps = 5    ! max number of solution improvement iterations, 
                                    ! set to 0 to turn improvement off (LM3-like)
 real    :: solution_tol    = 1e-16 ! tolerance for soltion improvement 
@@ -153,7 +151,6 @@ namelist /land_model_nml/ use_old_conservation_equations, &
                           use_atmos_T_for_evap_T, &
                           cpw, clw, csw, min_sum_lake_frac, &
                           gfrac_tol, discharge_tol, &
-                          water_cons_tol, carbon_cons_tol, &
                           solution_tol, max_improv_steps, &
                           con_fac_large, con_fac_small, num_c, &
                           tau_snow_T_adj, &
@@ -221,7 +218,8 @@ integer :: &
   id_vegn_refl_dir, id_vegn_refl_dif, id_vegn_refl_lw,                     &
   id_vegn_tran_dir, id_vegn_tran_dif, id_vegn_tran_lw,                     &
   id_vegn_sctr_dir,                                                        &
-  id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T
+  id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T,             &
+  id_water_cons,    id_carbon_cons
 
 ! ---- global clock IDs
 integer :: landClock, landFastClock, landSlowClock
@@ -1112,8 +1110,8 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   
   real, intent(in) :: &
        precip_l, precip_s, & ! liquid and solid precipitation, kg/(m2 s)
-       atmos_T, &        ! incoming precipitation temperature (despite its name), deg K
-       Ha0,   DHaDTc, &  ! sensible heat flux from the canopy air to the atmosphere 
+       atmos_T, &        ! temperature of incoming precipitation (despite its name), deg K
+       Ha0,   DHaDTc, &  ! sensible heat flux from canopy air to the atmosphere 
        Ea0,   DEaDqc, &  ! water vapor flux from canopy air to the atmosphere
        fco2_0,Dfco2Dq,&  ! co2 flux from canopy air to the atmosphere
        ISa_dn_dir(NBANDS), & ! downward direct sw radiation at the top of the canopy
@@ -1121,28 +1119,26 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
        ILa_dn,             & ! downward lw radiation at the top of the canopy
        ustar,              & ! friction velocity, m/s
        p_surf,             & ! surface pressure, Pa
-       drag_q,             & !
+       drag_q,             & ! product of atmos_wind*CD_q, m/s
        phot_co2_data         ! data input for the CO2 for photosynthesis
   logical, intent(in):: phot_co2_overridden
   real, intent(inout) :: &
         runoff, runoff_heat, runoff_snow
-
-  ! ---- local constants
-  ! indices of variables and equations for implicit time stepping solution :
-  integer :: iqc, iTc, iTv, iwl, iwf
 
   ! ---- local vars 
   real :: A(3*N+2,3*N+2),B0(3*N+2),B1(3*N+2),B2(3*N+2) ! implicit equation matrix and right-hand side vectors
   real :: ALUD(3*N+2,3*N+2) ! LU-decomposed A
   real :: X0(3*N+2),X1(3*N+2),X2(3*N+2) ! copy of the above, only for debugging
   integer :: indx(3*N+2) ! permutation vector
+  ! indices of variables and equations for implicit time stepping solution :
+  integer :: iqc, iTc, iTv, iwl, iwf
   ! linearization coefficients of various fluxes between components of land
   ! surface scheme
   real :: &
        G0,    DGDTg,  &  ! ground heat flux 
        Hg0,   DHgDTg,   DHgDTc, & ! linearization of the sensible heat flux from ground
        Eg0,   DEgDTg,   DEgDqc, DEgDpsig, & ! linearization of evaporation from ground
-       flwg0, DflwgDTg, DflwgDTv(N)  ! linearization of net LW radiation og the ground
+       flwg0, DflwgDTg, DflwgDTv(N)  ! linearization of net LW radiation on the ground
   real, dimension(N) :: & ! by cohort
        Hv0,   DHvDTv,   DHvDTc, & ! sens heat flux from vegetation
        Et0,   DEtDTv,   DEtDqc,   DEtDwl,   DEtDwf,  & ! transpiration
@@ -1199,7 +1195,7 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
        cana_co2_mol, & ! co2 dry mixing ratio in canopy air, mol CO2/mol dry air
        fswg, evapg, sensg, &
        subs_G, subs_G2, Mg_imp, snow_G_Z, snow_G_TZ, &
-       snow_avrg_T, delta_T_snow,  & ! vertically-average snow temperature and it's change due to s
+       snow_avrg_T, delta_T_snow,  & ! vertically-averaged snow temperature and it's change due to s?
        vegn_ovfl_l,  vegn_ovfl_s,  & ! overflow of liquid and solid water from the canopy
        vegn_ovfl_Hl, vegn_ovfl_Hs, & ! heat flux from canopy due to overflow
        delta_fprec, & ! correction of below-canopy solid precip in case it's average T > tfreeze 
@@ -1225,10 +1221,13 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   logical :: conserve_glacier_mass, snow_active
   real :: subs_z0m, subs_z0s, snow_z0m, snow_z0s, grnd_z0s
   ! variables for conservation checks
-  real :: lmass0, fmass0, heat0, cmass0
+  real :: lmass0, fmass0, heat0, cmass0, v0
   real :: lmass1, fmass1, heat1, cmass1
   character(64) :: tag
 
+  if(is_watch_point()) then
+     call print_date(lnd%time, '#### update_land_model_fast_0d begins:')
+  endif
 
   ! + conservation check, part 1: calculate the pre-transition totals
   call get_tile_water(tile,lmass0,fmass0)
@@ -1268,7 +1267,7 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
           ', face='//trim(string(ii))//')',FATAL)
   endif
 
-  ! + heat cknservation check, part 1; land_tile_heat has to be called after
+  ! + heat conservation check, part 1; land_tile_heat has to be called after
   !   soil_step_1, because soil dry heat capacity is initialized there
   heat0  = land_tile_heat(tile)
 
@@ -1397,7 +1396,8 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
      write(*,*)'#### input data for the matrix ####'
      __DEBUG1__(delta_time)
      __DEBUG1__(canopy_air_mass)
-     __DEBUG2__(vegn_T,vT)
+     __DEBUG1__(vegn_T)
+     __DEBUG1__(vT)
      __DEBUG1__(vegn_Wl)
      __DEBUG1__(vegn_Ws)
      __DEBUG2__(grnd_T,gT)
@@ -1425,10 +1425,24 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
      __DEBUG2__(G0, DGDTg)
      __DEBUG2__(Ha0, DHaDTc)
      __DEBUG2__(Ea0, DEaDqc)
-     __DEBUG3__(Hv0, DHvDTv, DHvDTc)
-     __DEBUG5__(Et0,  DEtDTv,  DEtDqc,  DEtDwl,  DEtDwf)
-     __DEBUG5__(Eli0, DEliDTv, DEliDqc, DEliDwl, DEliDwf)
-     __DEBUG5__(Esi0, DEsiDTv, DEsiDqc, DEsiDwl, DEsiDwf)
+     __DEBUG1__(Hv0)
+     __DEBUG1__(DHvDTv)
+     __DEBUG1__(DHvDTc)
+     __DEBUG1__(Et0)
+     __DEBUG1__(DEtDTv)
+     __DEBUG1__(DEtDqc)
+     __DEBUG1__(DEtDwl)
+     __DEBUG1__(DEtDwf)
+     __DEBUG1__(Eli0)
+     __DEBUG1__(DEliDTv)
+     __DEBUG1__(DEliDqc)
+     __DEBUG1__(DEliDwl)
+     __DEBUG1__(DEliDwf)
+     __DEBUG1__(Esi0)
+     __DEBUG1__(DEsiDTv)
+     __DEBUG1__(DEsiDqc)
+     __DEBUG1__(DEsiDwl)
+     __DEBUG1__(DEsiDwf)
      __DEBUG3__(Hg0, DHgDTg, DHgDTc)
      __DEBUG3__(Eg0, DEgDTg, DEgDqc)
      __DEBUG1__(flwv0)
@@ -1844,17 +1858,21 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   hevap = cpw*land_evap*(evap_T-tfreeze)
 
   ! + conservation check, part 2: calculate totals in final state, and compare 
-  ! with previus totals
+  ! with previous totals
   tag = 'update_land_model_fast_0d'
   call get_tile_water(tile,lmass1,fmass1)
   call check_conservation (tag,'water', &
       lmass0+fmass0+(precip_l+precip_s-land_evap-(snow_frunf+subs_lrunf+snow_lrunf))*delta_time, &
-      lmass1+fmass1, 1e-11, lnd%time)
+      lmass1+fmass1, water_cons_tol, lnd%time)
+  v0=lmass0+fmass0+(precip_l+precip_s-land_evap-(snow_frunf+subs_lrunf+snow_lrunf))*delta_time
+  call send_tile_data(id_water_cons, (lmass1+fmass1-v0)/delta_time, tile%diag)
 
-  cmass1 = land_tile_carbon(tile)  
+  cmass1 = land_tile_carbon(tile)
   call check_conservation (tag,'carbon', &
      cmass0-(fco2_0+Dfco2Dq*delta_co2)*mol_C/mol_CO2*delta_time, &
-     cmass1, 1e-13, lnd%time)
+     cmass1, water_cons_tol, lnd%time)
+  v0 = cmass0-(fco2_0+Dfco2Dq*delta_co2)*mol_C/mol_CO2*delta_time
+  call send_tile_data(id_carbon_cons, (cmass1-v0)/delta_time, tile%diag)
 
   heat1  = land_tile_heat(tile)
   ! latent heat is missing below, and it's not trivial to add, because there are
@@ -3437,6 +3455,11 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
        'substrate emissivity for long-wave radiation',missing_value=-1.0)
   id_grnd_T = register_tiled_diag_field ( module_name, 'Tgrnd', axes, time, &
        'ground surface temperature', 'degK', missing_value=-1.0 )
+
+  id_water_cons = register_tiled_diag_field ( module_name, 'water_cons', axes, time, &
+       'water non-conservation in update_land_model_fast_0d', 'kg/(m2 s)', missing_value=-1.0 )
+  id_carbon_cons = register_tiled_diag_field ( module_name, 'carbon_cons', axes, time, &
+       'carbon non-conservation in update_land_model_fast_0d', 'kgC/(m2 s)', missing_value=-1.0 )
 end subroutine land_diag_init
 
 ! the code below defines the accessor routines that are used to access fields of the 

@@ -13,14 +13,16 @@ use land_constants_mod, only : seconds_per_year, mol_C
 use land_tile_diag_mod, only : &
      register_tiled_diag_field, send_tile_data, diag_buff_type
 use vegn_data_mod, only : spdata, &
-     CMPT_VLEAF, CMPT_SAPWOOD, CMPT_ROOT, CMPT_WOOD, CMPT_LEAF, LEAF_ON, LEAF_OFF, &
+     CMPT_NSC, CMPT_SAPWOOD, CMPT_LEAF, CMPT_ROOT, CMPT_VLEAF, CMPT_WOOD, &
+     LEAF_ON, LEAF_OFF, &
      fsc_liv, fsc_wood, K1, K2, soil_carbon_depth_scale, C2B, agf_bs, &
-     l_fract, mcv_min, mcv_lai, do_ppa
+     l_fract, mcv_min, mcv_lai, do_ppa, tau_growth, b0_growth, tau_seed, &
+     understory_lai_factor, bseed_distr
 use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon
 use soil_tile_mod, only: soil_tile_type, soil_ave_temp, soil_ave_theta, clw, csw
 use vegn_cohort_mod, only : vegn_cohort_type, &
      update_biomass_pools, update_bio_living_fraction, update_species, &
-     leaf_area_from_biomass
+     leaf_area_from_biomass, init_cohort_allometry_ppa
 
 use land_debug_mod, only : is_watch_point
 use land_numerics_mod, only : rank_descending
@@ -33,10 +35,10 @@ public :: vegn_dynamics_init
 
 public :: vegn_carbon_int_lm3   ! fast time-scale integrator of carbon balance
 public :: vegn_carbon_int_ppa   ! fast time-scale integrator of carbon balance
-public :: vegn_growth       ! slow time-scale redistributor of accumulated carbon
-public :: vegn_daily_npp    ! updates values of daily-average npp
-public :: vegn_phenology    !
-public :: vegn_biogeography !
+public :: vegn_growth           ! slow time-scale redistributor of accumulated carbon
+public :: vegn_phenology_lm3 
+public :: vegn_phenology_ppa
+public :: vegn_biogeography
 
 public :: vegn_reproduction_ppa ! reproduction for PPA case
 public :: relayer_cohorts
@@ -116,6 +118,7 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
        (/id_lon,id_lat/), time, 'average soil wetness for carbon decomposition', 'm3/m3', &
        missing_value=-100.0 )
 end subroutine vegn_dynamics_init
+
 
 ! ============================================================================
 subroutine vegn_carbon_int_lm3(vegn, soilt, theta, diag)
@@ -258,28 +261,25 @@ end subroutine vegn_carbon_int_lm3
 
 
 ! ============================================================================
-! fast time step, Modified by Weng 2011-10-05
 subroutine vegn_carbon_int_ppa (vegn, tsoil, theta, diag)
   type(vegn_tile_type), intent(inout) :: vegn
   real, intent(in) :: tsoil ! average temperature of soil for soil carbon decomposition, deg K
   real, intent(in) :: theta ! average soil wetness, unitless
   type(diag_buff_type), intent(inout) :: diag
 
-  type(vegn_cohort_type), pointer :: cc
-  type(vegn_cohort_type), pointer :: c(:) ! for debug only
   real :: resp, resl, resr, resg ! respiration terms accumulated for each tree 
   real :: md_alive, md_wood;
   real :: gpp ! gross primary productivity per tile
   real :: cgrowth ! carbon spent during this time step for growth, kg C/individual
   real :: deltaBL, deltaBR ! leaf and fine root carbon tendencies
-  integer :: sp ! shorthand for current cohort specie
+  real :: b  ! temporary var for several calculations
   integer :: i
   real :: cmass0, cmass1 ! for debug only
 
-  c=>vegn%cohorts(1:vegn%n_cohorts)
   if(is_watch_point()) then
      write(*,*)'#### vegn_carbon_int_ppa input ####'
      __DEBUG2__(tsoil,theta)
+     associate(c=>vegn%cohorts(1:vegn%n_cohorts))
      __DEBUG1__(c%bl)
      __DEBUG1__(c%br)
      __DEBUG1__(c%bsw)
@@ -288,29 +288,47 @@ subroutine vegn_carbon_int_ppa (vegn, tsoil, theta, diag)
      __DEBUG1__(c%carbon_gain)
      __DEBUG1__(c%carbon_loss)
      __DEBUG1__(c%bwood_gain)
+     end associate
      cmass0 = vegn_tile_carbon(vegn) 
   endif
   ! update plant carbon for all cohorts
   vegn%npp = 0
   resp = 0 ; resl = 0 ; resr = 0 ; resg = 0 ; gpp = 0
-  do i = 1, vegn%n_cohorts   
-     cc => vegn%cohorts(i)
-     sp = cc%species
+  do i = 1, vegn%n_cohorts
+     associate ( cc => vegn%cohorts(i), &
+                 sp => spdata(cc%species) )
 
      ! that was in eddy_npp_PPA
      call plant_respiration(cc,tsoil)
      cc%gpp  = (cc%An_op - cc%An_cl)*mol_C*cc%leafarea
-     cc%resp = MIN(cc%nsc * 0.005/dt_fast_yr, cc%resp) ! TODO: convert to sane form
      ! calculate the amount of carbon that is spent on growth
      if (cc%nsc > 0 .AND. cc%status == LEAF_ON) then
-        cgrowth = 0.002 * cc%nsc/dt_fast_yr ! TODO: convert to sane form
+        cgrowth = cc%nsc**2/(cc%bl+cc%br+b0_growth)/tau_growth
      else
         cgrowth = 0.0
      endif
      cc%resg = GROWTH_RESP*cgrowth ! growth respiration
+
+     ! plant fecundity C accumulation
+     if(cc%layer == 1                          .AND. &
+        cc%age > sp%maturalage                 .AND. &
+        cc%bl > 0.75*cc%bl_max                 .AND. &
+        cc%bseed < sp%fecundity * cc%crownarea .AND. &
+        cc%nsc > 0.2*(cc%bl_max+cc%br_max)     ) then
+           b       = cc%nsc/tau_seed*dt_fast_yr
+           cc%bseed = cc%bseed + b 
+           cc%nsc   = cc%nsc   - b
+     endif
+
      cc%resp = cc%resp + cc%resg
      cc%npp  = cc%gpp - cc%resp;
      cc%nsc  = cc%nsc + (cc%npp - cgrowth)*dt_fast_yr
+     ! adjust NSC if it's very low
+     if(cc%nsc < 0.0001*cc%bsw)then
+         b      = cc%bsw+cc%nsc
+         cc%nsc = 0.0001*b
+         cc%bsw = b-cc%nsc
+     endif
 
      ! the C that will be added to living biomass of a tree, Weng 2011-10-05
      cc%carbon_gain = cc%carbon_gain + cgrowth*dt_fast_yr 
@@ -319,8 +337,8 @@ subroutine vegn_carbon_int_ppa (vegn, tsoil, theta, diag)
      ! update leaf and fine root biomass due to overturning, and calculate 
      ! maintenance demand
      if(cc%status == LEAF_ON) then
-        deltaBL = cc%bl * spdata(sp)%alpha(CMPT_LEAF) * dt_fast_yr
-        deltaBR = cc%br * spdata(sp)%alpha(CMPT_ROOT) * dt_fast_yr
+        deltaBL = cc%bl * sp%alpha(CMPT_LEAF) * dt_fast_yr
+        deltaBR = cc%br * sp%alpha(CMPT_ROOT) * dt_fast_yr
      else
         deltaBL = 0; deltaBR = 0
      endif
@@ -332,9 +350,15 @@ subroutine vegn_carbon_int_ppa (vegn, tsoil, theta, diag)
 
      ! compute branch and coarse wood losses for tree types
      md_wood = 0.0
-     if (sp > 1) then ! TODO: add input data selector for woody/grass species
-        md_wood = 0.6 *cc%bwood * spdata(sp)%alpha(CMPT_WOOD)*dt_fast_yr
+     if (cc%species > 1) then ! TODO: add input data selector for woody/grass species
+        ! md_wood = 0.6 *cc%bwood * sp%alpha(CMPT_WOOD)*dt_fast_yr
+        ! set turnoverable wood biomass as a linear funcion of bl_max (max.foliage
+        ! biomass) (Wang, Chuankuan 2006)
+        md_wood = cc%bl_max * sp%alpha(CMPT_LEAF)*dt_fast_yr
      endif
+     ! Why md_wood is set to 0?
+     md_wood = 0.0
+     
      cc%bwood_gain  = cc%bwood_gain - md_wood
 
 !    It's not necessary to calculate wood C gain here with the new allocation scheme
@@ -353,28 +377,24 @@ subroutine vegn_carbon_int_ppa (vegn, tsoil, theta, diag)
      ! accumulate respiration terms for tile-level reporting
      resp = resp + cc%resp*cc%nindivs ; resl = resl + cc%resl*cc%nindivs
      resr = resr + cc%resr*cc%nindivs ; resg = resg + cc%resg*cc%nindivs
+
+     ! increment tha cohort age
+     cc%age = cc%age + dt_fast_yr
+     end associate
   enddo 
 
   if(is_watch_point()) then
+     associate(c=>vegn%cohorts(1:vegn%n_cohorts))
      write(*,*)'#### vegn_carbon_int_ppa output ####'
      __DEBUG1__(c%species)
-     __DEBUG1__(c%bl)
-     __DEBUG1__(c%br)
-     __DEBUG1__(c%bsw)
-     __DEBUG1__(c%bwood)
-     __DEBUG1__(c%nsc)
-     __DEBUG1__(c%An_op)
-     __DEBUG1__(c%An_cl)
-     __DEBUG1__(c%lai)
-     __DEBUG1__(c%npp)
-     __DEBUG1__(c%gpp)
-     __DEBUG1__(c%resp)
-     __DEBUG1__(c%resg)
-     __DEBUG1__(c%carbon_gain)
-     __DEBUG1__(c%bwood_gain)
+     __DEBUG5__(c%bl, c%br, c%bsw, c%bwood, c%nsc)
+     __DEBUG2__(c%An_op, c%An_cl)
+     __DEBUG2__(c%npp, c%gpp)
+     __DEBUG2__(c%resp, c%resg)
+     __DEBUG2__(c%carbon_gain, c%bwood_gain)
+     end associate
      cmass1 = vegn_tile_carbon(vegn)
      __DEBUG3__(cmass1-cmass0-(gpp-resp)*dt_fast_yr,cmass1,cmass0)
-     
      write(*,*)'#### end of vegn_carbon_int_ppa output ####'
   endif
 
@@ -404,7 +424,6 @@ subroutine vegn_carbon_int_ppa (vegn, tsoil, theta, diag)
 end subroutine vegn_carbon_int_ppa
 
 
-
 ! ============================================================================
 ! updates cohort biomass pools, LAI, SAI, and height using accumulated 
 ! carbon_gain and bwood_gain
@@ -424,7 +443,7 @@ subroutine vegn_growth (vegn)
      cc => vegn%cohorts(i)
 
      if (do_ppa) then
-        call cohort_growth_ppa(cc)
+        call biomass_allocation_ppa(cc)
      else
         cc%bwood   = cc%bwood   + cc%bwood_gain
         cc%bliving = cc%bliving + cc%carbon_gain
@@ -462,89 +481,99 @@ subroutine vegn_growth (vegn)
 end subroutine vegn_growth
 
 
-subroutine cohort_growth_ppa(c)
-  type(vegn_cohort_type), intent(inout) :: c
+! ==============================================================================
+! updates cohort vegetation structure, biomass pools, LAI, SAI, and height  
+! using accumulated carbon_gain
+subroutine biomass_allocation_ppa(cc)
+  type(vegn_cohort_type), intent(inout) :: cc
   
   real :: CSAtot ! total cross section area, m2
   real :: CSAsw  ! Sapwood cross sectional area, m2
   real :: CSAwd  ! Heartwood cross sectional area, m2
   real :: DBHwd  ! diameter of heartwood at breast height, m
-  real :: deltaBL, deltaBR ! tendencies of the leaf and root biomass, kgC/individual
-  real :: deltaB ! sum of deltaBL and deltaBR
   real :: BSWmax ! max sapwood biomass, kg C/individual
+  real :: G_LFR  ! amount of carbon spent on leaf and root growth
+  real :: deltaBL, deltaBR ! tendencies of leaf and root biomass, kgC/individual
   real :: deltaBSW ! tendency of sapwood biomass, kgC/individual
   real :: deltaBwood ! tendency of wood biomass, kgC/individual
+  real :: deltaDBH ! tendency of breast height diameter, m
+  real :: deltaCA ! tendency of crown area, m2/individual
+  real :: deltaHeight ! tendency of vegetation height
   real :: b
-  integer :: sp ! species
 
-  sp = c%species
-  
+  associate (sp => spdata(cc%species)) ! F2003
+
   ! calculate max biomasses of canopy and fine roots
-  if(c%layer > 1)then
-      c%MLmax  = spdata(sp)%LMA   * spdata(sp)%LAImax                * c%crownarea/4
-      c%MFRmax = spdata(sp)%phiRL * spdata(sp)%LAImax/spdata(sp)%SRA * c%crownarea/4
-  else
-      c%MLmax  = spdata(sp)%LMA   * spdata(sp)%LAImax * c%crownarea
-      c%MFRmax = spdata(sp)%phiRL * spdata(sp)%LAImax/spdata(sp)%SRA*c%crownarea 
+  cc%bl_max = sp%LMA   * sp%LAImax        * cc%crownarea
+  cc%br_max = sp%phiRL * sp%LAImax/sp%SRA * cc%crownarea 
+  if(cc%layer > 1)then
+      cc%bl_max = cc%bl_max * understory_lai_factor
+      cc%br_max = cc%br_max * understory_lai_factor
   endif
 
-  ! from biomass_allocation_ppa
   ! TODO: what if carbon_gain is not 0, but leaves are OFF (marginal case? or
   ! typical in lm3?)
-  if (c%status == LEAF_ON) then
+  if (cc%status == LEAF_ON) then
      ! for the first day of growing season: leaves and fine roots recover from blv
-     if(c%blv > 0) then
-        b = (c%blv + c%bl + c%br)
-        c%bl  = c%MLmax/(c%MLmax+c%MFRmax)  * b
-        c%br  = c%MFRmax/(c%MLmax+c%MFRmax) * b
-        c%blv = 0
+     if(cc%blv > 0) then
+        b = (cc%blv + cc%bl + cc%br)
+        cc%bl  = cc%bl_max/(cc%bl_max+cc%br_max) * b
+        cc%br  = cc%br_max/(cc%bl_max+cc%br_max) * b
+        cc%blv = 0
      endif
      
-     ! for the following days in growing season: growth is driven by NPP
-     deltaBL = max(0.0, c%MLmax  - c%bl)
-     deltaBR = max(0.0, c%MFRmax - c%br)
-     deltaB = deltaBL+deltaBR
-     if (deltaB > c%carbon_gain) then
-        deltaBL = deltaBL*c%carbon_gain/deltaB
-        deltaBR = deltaBR*c%carbon_gain/deltaB
-     endif
-     deltaBSW = c%carbon_gain - deltaBL - deltaBR
+     ! calculate the carbon spent on growth of leaves and roots
+     G_LFR    = max(0.0, min(cc%bl_max+cc%br_max-cc%bl-cc%br, cc%carbon_gain))
+     ! and distribute it between roots and leaves
+     deltaBL  = min(G_LFR, max(0.0, &
+          (G_LFR*cc%bl_max + cc%bl_max*cc%br - cc%br_max*cc%bl)/(cc%bl_max + cc%br_max) &
+          ))
+     deltaBR  = G_LFR - deltaBL
+     ! calculate carbon spent on growth of sapwood growth
+     deltaBSW = cc%carbon_gain - G_LFR
 
-     c%bl    = c%bl  + deltaBL
-     c%br    = c%br  + deltaBR
-     c%bsw   = c%bsw + deltaBSW
+     ! update biomass pools due to growth
+     cc%bl     = cc%bl  + deltaBL
+     cc%br     = cc%br  + deltaBR
+     cc%bsw    = cc%bsw + deltaBSW
 
-     ! recalculate DBH for upadated biomasses
-     b = MAX(0.0001,(c%bwood+c%bsw) ) 
-     c%DBH    = (b / spdata(sp)%alphaBM) ** (1.0 / (spdata(sp)%thetaBM))
-  endif
-  ! calculate DBH, BLmax, BRmax, BSWmax, bwood_gain using allometric relationships
-  ! Weng 2012-01-31 update_bio_living_fraction
-  CSAsw    = spdata(sp)%alphaCSASW * c%DBH ** spdata(sp)%thetaCSASW
-  CSAtot   = PI *(c%DBH/2.0)**2
-  CSAwd    = MAX(0.0,CSAtot - CSAsw)
-  DBHwd    = 2*SQRT(CSAwd/PI)
-  BSWmax   = spdata(sp)%alphaBM * (c%DBH ** spdata(sp)%thetaBM - DBHwd ** spdata(sp)%thetaBM)
+     ! calculate tendency of breast height diameter given increase of bsw
+     deltaDBH     = deltaBSW / (sp%thetaBM * sp%alphaBM * cc%DBH**(sp%thetaBM-1))
+     deltaHeight  = sp%thetaHT * sp%alphaHT * cc%DBH**(sp%thetaHT-1) * deltaDBH
+     deltaCA      = sp%thetaCA * sp%alphaCA * cc%DBH**(sp%thetaCA-1) * deltaDBH
+     cc%DBH       = cc%DBH       + deltaDBH
+     cc%height    = cc%height    + deltaHeight
+     cc%crownarea = cc%crownarea + deltaCA
 
-  deltaBwood = max(c%bsw - BSWmax,0.0)
-
-  c%bwood   = c%bwood + deltaBwood + c%bwood_gain
-  c%bsw     = c%bsw   - deltaBwood
-
-  ! from Ensheng's vegn_growth_ppa
-  if(c%layer == 1 .AND.                  &
-     c%age > spdata(sp)%maturalage .AND. &
-     c%bl > 0.75*c%MLmax .AND.           &
-     c%bseed < spdata(sp)%fecundity * c%crownarea)then
-       c%bseed = c%bseed + 0.005 * c%bl ! convert it to sane form: use e-folding time to describe rate
-       c%bl = c%bl * (1. - 0.005)
-  endif
-  ! reset carbon acculmulation terms
-  c%carbon_gain = 0
-  c%carbon_loss = 0
-  c%bwood_gain  = 0
+     ! calculate DBH, BLmax, BRmax, BSWmax, bwood_gain using allometric relationships
+     ! Weng 2012-01-31 update_bio_living_fraction
+     CSAsw    = sp%alphaCSASW * cc%DBH**sp%thetaCSASW
+     CSAtot   = PI * (cc%DBH/2.0)**2
+     CSAwd    = max(0.0, CSAtot - CSAsw)
+     DBHwd    = 2*sqrt(CSAwd/PI)
+     BSWmax   = sp%alphaBM * (cc%DBH**sp%thetaBM - DBHwd**sp%thetaBM)
    
-end subroutine cohort_growth_ppa
+     deltaBwood = max(cc%bsw - BSWmax, 0.0)
+     cc%bwood   = cc%bwood + deltaBwood
+     cc%bsw     = cc%bsw   - deltaBwood
+  endif
+  ! The ncm smoothing is coded as a low-pass exponential filter. See, for 
+  ! example http://en.wikipedia.org/wiki/Low-pass_filter
+  ! weight = 1/(1+tau_smooth_bstem_tend)
+  ! cc%bstem_tend = weight*deltaBsw + (1-weight)*cc%bstem_tend
+  ! deltaBwood is not taken into account here because it describes the
+  ! redistribution between bsw and bwood, both being a part of stem
+  ! but deltaBsw > 0; so thiis is not goint to work for 
+
+  
+
+  ! reset carbon acculmulation terms
+  cc%carbon_gain = 0
+  cc%carbon_loss = 0
+  cc%bwood_gain  = 0
+  
+  end associate ! F2003
+end subroutine biomass_allocation_ppa
 
 ! ============================================================================
 subroutine Dsdt(vegn, diag, soilt, theta)
@@ -669,27 +698,8 @@ subroutine plant_respiration(cc, tsoil)
   cc%resr = r_root;
 end subroutine plant_respiration
 
-
-! ============================================================================
-! calculates prev. day average NPP from accumualted values
-subroutine vegn_daily_npp(vegn)
-  type(vegn_tile_type), intent(inout) :: vegn
-
-  integer :: n_fast_step;
-  integer :: i
-  type(vegn_cohort_type), pointer :: cc
-
-  n_fast_step = 1.0/365.0/dt_fast_yr;
-  do i = 1, vegn%n_cohorts   
-     cc => vegn%cohorts(i)
-     vegn%cohorts(i)%npp_previous_day=vegn%cohorts(i)%npp_previous_day_tmp/n_fast_step;
-     vegn%cohorts(i)%npp_previous_day_tmp=0.0
-  enddo
-end subroutine vegn_daily_npp
-
-
 ! =============================================================================
-subroutine vegn_phenology(vegn, wilt)
+subroutine vegn_phenology_lm3(vegn, wilt)
   type(vegn_tile_type), intent(inout) :: vegn
   real, intent(in) :: wilt ! ratio of wilting to saturated water content
 
@@ -705,7 +715,7 @@ subroutine vegn_phenology(vegn, wilt)
      cc => vegn%cohorts(i)
      
      if(is_watch_point())then
-        write(*,*)'####### vegn_phenology #######'
+        write(*,*)'####### vegn_phenology_lm3 #######'
         __DEBUG4__(vegn%theta_av, wilt, spdata(cc%species)%cnst_crit_phen, spdata(cc%species)%fact_crit_phen)
         __DEBUG1__(cc%species)
         __DEBUG2__(vegn%tc_av,spdata(cc%species)%tc_crit)
@@ -752,7 +762,56 @@ subroutine vegn_phenology(vegn, wilt)
         endif
      endif
   enddo
-end subroutine vegn_phenology
+end subroutine vegn_phenology_lm3
+
+
+! =============================================================================
+! Added by Weng 2012-02-29
+subroutine vegn_phenology_ppa(vegn)
+  type(vegn_tile_type), intent(inout) :: vegn
+
+  ! ---- local vars
+  integer :: i
+  real    :: leaf_litter
+  
+  vegn%litter = 0
+  do i = 1,vegn%n_cohorts   
+     associate ( cc => vegn%cohorts(i),   &
+                 sp => spdata(cc%species) )
+
+     ! if drought-deciduous or cold-deciduous species
+     ! temp=10 degrees C gives good growing season pattern        
+     ! spp=0 is c3 grass,1 c3 grass,2 deciduous, 3 evergreen
+     ! assumption is that no difference between drought and cold deciduous
+
+!    onset of phenology
+     if(cc%status == LEAF_OFF .and. &
+        vegn%gdd > sp%gdd_crit .and. &
+        vegn%tc_pheno > sp%tc_crit ) then
+             cc%status = LEAF_ON
+     endif
+
+     if ( cc%status == LEAF_ON .and. vegn%tc_pheno < sp%tc_crit ) then
+        ! add to patch litter flux terms
+        leaf_litter = cc%bl*cc%nindivs
+        vegn%litter = vegn%litter + leaf_litter;
+
+        vegn%fast_soil_C = vegn%fast_soil_C +        fsc_liv *leaf_litter;
+        vegn%slow_soil_C = vegn%slow_soil_C + (1.0 - fsc_liv)*leaf_litter;
+
+        vegn%fsc_in  = vegn%fsc_in  + leaf_litter;
+        vegn%veg_out = vegn%veg_out + leaf_litter;
+        
+        cc%status = LEAF_OFF
+        cc%bl  = 0.0 ; cc%lai = 0.0 ; cc%leaf_age = 0.0
+        ! TODO: fix the mistake below
+        vegn%gdd = 0.0 ! incorrect, must not be inside cohort loop
+        
+        cc%bliving = cc%blv + cc%br + cc%bl + cc%bsw;
+     endif
+     end associate
+  enddo
+end subroutine vegn_phenology_ppa
 
 
 ! =============================================================================
@@ -824,8 +883,7 @@ subroutine vegn_reproduction_ppa (vegn)
 ! Check if reproduction happens
   newcohorts = 0
   do i = 1, vegn%n_cohorts
-     if (cohort_can_reproduce(vegn%cohorts(i))) &
-        newcohorts=newcohorts + 1
+     if (cohort_can_reproduce(vegn%cohorts(i))) newcohorts=newcohorts + 1
   enddo
 
   if (newcohorts == 0) return ! do nothing if no cohorts are ready for reproduction
@@ -835,48 +893,60 @@ subroutine vegn_reproduction_ppa (vegn)
   vegn%cohorts(1:vegn%n_cohorts) = ccold(1:vegn%n_cohorts) ! copy old cohort information
   deallocate (ccold)
 
-!   set up new cohorts
+  ! set up new cohorts
   k = vegn%n_cohorts
   do i = 1,vegn%n_cohorts
     if (.not.cohort_can_reproduce(vegn%cohorts(i))) cycle ! nothing to do
 
-    k = k+1 ! new cohort index
+    k = k+1 ! increment new cohort index
     
-    vegn%cohorts(k) = vegn%cohorts(i) ! copy all values into the new cohort then change some of them below
-    cc => vegn%cohorts(k) ; parent => vegn%cohorts(i)
-
     ! update child cohort parameters
-    cc%nindivs = 1.0 * parent%nindivs  ! It should be dependent on the fecundity of species
-    cc%age     = 0.2 * parent%age      ! 0.
-    cc%bliving = 0.2 * parent%bliving  ! 0.02  ! these values need to be tested that if they are
-    cc%bwood   = 0.2 * parent%bwood    ! 0.01  ! OK to initialize plant growth
+    associate (cc     => vegn%cohorts(k), &  ! F2003
+               parent => vegn%cohorts(i), &
+               sp     => spdata(parent%species))
+    ! copy all parent values into the new cohort then change some of them below
+    cc         = parent
 
-    ! partition living pools
-    call update_biomass_pools(cc)
+    cc%status  = LEAF_OFF
+    cc%age     = 0.0
+    cc%bl      = sp%seedlingsize * bseed_distr(CMPT_LEAF)
+    cc%br      = sp%seedlingsize * bseed_distr(CMPT_ROOT)
+    cc%bsw     = sp%seedlingsize * bseed_distr(CMPT_SAPWOOD) ! sp%seedlingsize*0.1
+    cc%bwood   = sp%seedlingsize * bseed_distr(CMPT_WOOD)    ! sp%seedlingsize*0.05
+    cc%nsc     = sp%seedlingsize * bseed_distr(CMPT_NSC)     ! sp%seedlingsize*0.85
+    cc%blv     = sp%seedlingsize * bseed_distr(CMPT_VLEAF)
+    cc%bseed   = 0.0
 
-    cc%gpp          = 0.
-    cc%npp          = 0.  
-    cc%resp         = 0.
-    cc%resl         = 0.
-    cc%resr         = 0.
-    cc%resg         = 0.
-    cc%carbon_gain  = 0.
-    cc%carbon_loss  = 0.
-    cc%bwood_gain   = 0.
-    cc%npp_previous_day     = 0.
-    cc%npp_previous_day_tmp = 0.
-    cc%leaf_age = 0.0
+    cc%nindivs = parent%bseed*parent%nindivs/(sp%seedlingsize*sum(bseed_distr(:)))
+    parent%bseed = 0.0
+
+    call init_cohort_allometry_ppa(cc)
+    cc%carbon_gain = 0.0
+    cc%carbon_loss = 0.0
+    cc%bwood_gain  = 0.0
+!    call biomass_allocation_ppa(cc)
+    cc%bliving     = cc%br + cc%bl + cc%bsw + cc%blv
+!    cc%DBH_ys      = cc%DBH
+!    cc%HT_ys       = cc%height
+!    cc%BM_ys       = cc%treeBM
+    cc%gpp          = 0.0
+    cc%npp          = 0.0  
+    cc%resp         = 0.0
+    cc%resl         = 0.0
+    cc%resr         = 0.0
+    cc%resg         = 0.0
+    cc%npp_previous_day     = 0.0
+    cc%npp_previous_day_tmp = 0.0
+    cc%leaf_age     = 0.0
+    
     ! we assume that the newborn cohort is dry; since nindivs of the parent
     ! doesn't change we don't need to do anything with its Wl and Ws to 
     ! conserve water (since Wl and Ws are per individual)
     cc%prog%Wl = 0 ; cc%prog%Ws = 0
     ! TODO: make sure that energy is conserved in reproduction
     cc%prog%Tv = parent%prog%Tv
-
-    ! update C of parent cohort
-    parent%bliving = parent%bliving - cc%bliving * cc%nindivs/parent%nindivs
-    parent%bwood   = parent%bwood   - cc%bwood   * cc%nindivs/parent%nindivs
-    call update_biomass_pools(parent)
+    
+    end associate   ! F2003
   enddo
   
   vegn%n_cohorts = k
@@ -913,16 +983,17 @@ subroutine merge_cohorts(c1,c2)
   __MERGE__(br)      ! biomass of fine roots, kg C/indiv
   __MERGE__(bsw)     ! biomass of sapwood, kg C/indiv
   __MERGE__(bwood)   ! biomass of heartwood, kg C/indiv
-  __MERGE__(bliving) ! leaves, fine roots, and sapwood biomass, kgC/indiv
-  __MERGE__(nsc)     ! non-structural carbon, kgC/indiv
   __MERGE__(bseed)   ! future progeny, kgC/indiv
-  __MERGE__(age)     ! age of individual
+  __MERGE__(nsc)     ! non-structural carbon, kgC/indiv
+  __MERGE__(bliving) ! leaves, fine roots, and sapwood biomass, kgC/indiv
+  __MERGE__(dbh)     ! diameter at breast height
+  __MERGE__(height)  ! cohort height
+  __MERGE__(crownarea)   ! area of cohort crown
 
+  __MERGE__(age)     ! age of individual
   __MERGE__(carbon_gain) ! carbon gain during a day, kg C/indiv
   __MERGE__(carbon_loss) ! carbon loss during a day, kg C/indiv [diag only]
   __MERGE__(bwood_gain)  ! heartwood gain during a day, kg C/indiv
-
-  call update_biomass_pools(c2)
 
   ! calculate the resulting dry heat capacity
   c2%leafarea = leaf_area_from_biomass(c2%bl, c2%species)
@@ -946,7 +1017,7 @@ subroutine vegn_mergecohorts_ppa(vegn)
   type(vegn_tile_type), intent(inout) :: vegn
 
 ! ---- local vars
-  type(vegn_cohort_type), pointer :: cc(:) ! array to hold new cohohrts
+  type(vegn_cohort_type), pointer :: cc(:) ! array to hold new cohorts
   logical :: merged(vegn%n_cohorts)        ! mask to skip cohorts that were already merged
   integer :: i,j,k
 
@@ -954,10 +1025,10 @@ subroutine vegn_mergecohorts_ppa(vegn)
 
   merged(:)=.FALSE. ; k = 0
   do i = 1, vegn%n_cohorts 
-     if(merged(i)) cycle ! skip cohorts that were alraedy merged
+     if(merged(i)) cycle ! skip cohorts that were already merged
      k = k+1
      cc(k) = vegn%cohorts(i)
-     ! try merging therest of the cohorts into current one
+     ! try merging the rest of the cohorts into current one
      do j = i+1, vegn%n_cohorts
         if (merged(j)) cycle ! skip cohorts that are already merged
         if (cohorts_can_be_merged(cc(k),vegn%cohorts(j))) then

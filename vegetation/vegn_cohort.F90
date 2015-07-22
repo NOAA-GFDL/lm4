@@ -29,10 +29,11 @@ public :: btotal ! returns cohort total biomass
 public :: c3c4   ! returns physiology type for given biomasses and conditions
 public :: phenology_type ! returns type of phenology for given conditions
 public :: update_species ! updates cohort physiology, phenology type, and species
-public :: update_cohort_structure
-public :: leaf_area_from_biomass
+public :: leaf_area_from_biomass ! given leaf biomass, calculates leaf area
+public :: height_from_biomass    ! given total biomass, calculated tree height
 public :: update_bio_living_fraction
 public :: update_biomass_pools
+public :: init_cohort_allometry_ppa
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
@@ -92,10 +93,9 @@ type :: vegn_cohort_type
   real    :: nindivs      = 1.0 ! density of vegetation, individuals/m2
   integer :: layer        = 1   ! the layer of this cohort (numbered from top)
   real    :: layerfrac    = 0.0 ! fraction of layer area occupied by this cohort, m2 of cohort per m2 of ground
-  ! TODO: see if we can make MLmax, MFRmax, BSWmax local variables
-  real    :: MLmax        = 0.0 ! Max. leaf biomass, kg C/individual
-  real    :: MFRmax       = 0.0 ! Max. fine root biomass, kg C/individual
-  real    :: BSWmax       = 0.0 ! Max. sapwood biomass, kg C/individual
+  ! TODO: see if we can make bl_max, br_max local variables
+  real    :: bl_max       = 0.0 ! Max. leaf biomass, kg C/individual
+  real    :: br_max       = 0.0 ! Max. fine root biomass, kg C/individual
 
 ! ---- uptake-related variables
   real    :: root_length(max_lev) = 0.0 ! individual's root length per unit depth, m of root/m
@@ -471,6 +471,15 @@ end function
 
 
 ! ============================================================================
+function height_from_biomass(btotal) result (height)
+    real :: height ! return value
+    real, intent(in) :: btotal ! total biomass
+    
+    height = 24.19*(1.0-exp(-0.19*btotal))
+end function
+
+
+! ============================================================================
 ! calculates fractions of living biomass in different compartments
 subroutine update_bio_living_fraction(c)
   type(vegn_cohort_type), intent(inout) :: c
@@ -495,7 +504,9 @@ end subroutine update_bio_living_fraction
 subroutine update_biomass_pools(c)
   type(vegn_cohort_type), intent(inout) :: c
 
-  call update_cohort_structure(c) ! update height, DBH, crown area
+  if (do_ppa) return ! in PPA mode, do nothing at all
+
+  c%height = height_from_biomass(btotal(c))
   call update_bio_living_fraction(c);
   c%bsw = c%Psw*c%bliving;
   if(c%status == LEAF_OFF) then
@@ -511,32 +522,23 @@ end subroutine
 
 
 ! ============================================================================
-! for PPA, Weng 07/25/2011
-! ============================================================================
-! calculate tree height, DBH, height, and crown area by bwood and density 
+! calculate tree height, DBH, height, and crown area by bwood and denstiy 
 ! The allometry equations are from Ray Dybzinski et al. 2011 and Forrior et al. in review
 !         HT = alphaHT * DBH ** (gamma-1)   ! DBH --> Height
 !         CA = alphaCA * DBH ** gamma       ! DBH --> Crown Area
 !         BM = alphaBM * DBH ** (gamma + 1) ! DBH --> tree biomass
-subroutine update_cohort_structure(cc)
+subroutine init_cohort_allometry_ppa(cc)
   type(vegn_cohort_type), intent(inout) :: cc
 
-  integer :: sp ! species, for convenience, ! Weng, 09/14/2011
   real    :: btot ! total biomass per individual, kg C
 
-  sp     = cc%species 
-  if (do_ppa) then
-    btot = MAX(0.0001,cc%bwood+cc%bsw)
-    cc%DBH        = (btot / spdata(sp)%alphaBM) ** ( 1.0/spdata(sp)%thetaBM )
-!   cc%treeBM     = spdata(sp)%alphaBM * cc%dbh ** spdata(sp)%thetaBM
-    cc%height     = spdata(sp)%alphaHT * cc%dbh ** spdata(sp)%thetaHT
-    cc%crownarea  = spdata(sp)%alphaCA * cc%dbh ** spdata(sp)%thetaCA
-  else
-    ! GCH, Function from JPC 2/9/02
-    !  height = 24.19*(1.0-exp(-0.19*(c%bliving+c%bwood)))
-    cc%height = 24.19*(1.0-exp(-0.19*btotal(cc)))
-    ! do not change dbh and crownarea if we are not doing PPA
-  endif
+  btot = max(0.0001,cc%bwood+cc%bsw)
+  associate(sp=>spdata(cc%species))
+     cc%DBH        = (btot / sp%alphaBM) ** ( 1.0/sp%thetaBM )
+!    cc%treeBM     = sp%alphaBM * cc%dbh ** sp%thetaBM
+     cc%height     = sp%alphaHT * cc%dbh ** sp%thetaHT
+     cc%crownarea  = sp%alphaCA * cc%dbh ** sp%thetaCA
+  end associate
 end subroutine 
 
 end module vegn_cohort_mod

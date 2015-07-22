@@ -41,7 +41,7 @@ use vegn_data_mod, only : SP_C4GRASS, LEAF_ON, LU_NTRL, read_vegn_data_namelist,
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, do_ppa, &
      N_HARV_POOLS, HARV_POOL_NAMES
 use vegn_cohort_mod, only : vegn_cohort_type, vegn_phys_prog_type, &
-     update_species, get_vegn_wet_frac, vegn_data_cover
+     update_species, get_vegn_wet_frac, vegn_data_cover, init_cohort_allometry_ppa
 use canopy_air_mod, only : cana_turbulence
 use soil_mod, only : soil_data_beta
      
@@ -49,15 +49,18 @@ use cohort_io_mod, only :  read_create_cohorts, create_cohort_dimension, &
      read_cohort_data_r0d_fptr,  read_cohort_data_i0d_fptr,&
      write_cohort_data_r0d_fptr, write_cohort_data_i0d_fptr
 use land_debug_mod, only : is_watch_point, set_current_point, check_temp_range, &
-     check_conservation
+     check_conservation, water_cons_tol, carbon_cons_tol
 use vegn_radiation_mod, only : vegn_radiation_init, vegn_radiation
 use vegn_photosynthesis_mod, only : vegn_photosynthesis_init, vegn_photosynthesis
 use static_vegn_mod, only : read_static_vegn_namelist, static_vegn_init, static_vegn_end, &
      read_static_vegn
-use vegn_dynamics_mod, only : vegn_dynamics_init, vegn_carbon_int_ppa, vegn_carbon_int_lm3,&
-     vegn_growth, vegn_daily_npp, vegn_phenology, vegn_biogeography, vegn_reproduction_ppa, &
-     relayer_cohorts, vegn_mergecohorts_ppa
-use vegn_disturbance_mod, only : vegn_nat_mortality, vegn_disturbance, update_fuel
+use vegn_dynamics_mod, only : vegn_dynamics_init, &
+     vegn_carbon_int_lm3, vegn_carbon_int_ppa,    &
+     vegn_phenology_lm3,  vegn_phenology_ppa,     &
+     vegn_growth, vegn_biogeography, &
+     vegn_reproduction_ppa, relayer_cohorts, vegn_mergecohorts_ppa
+use vegn_disturbance_mod, only : vegn_nat_mortality_lm3, vegn_nat_mortality_ppa, &
+     vegn_disturbance, update_fuel
 use vegn_harvesting_mod, only : &
      vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting
 
@@ -88,6 +91,8 @@ character(len=*), private, parameter :: &
 ! values for internal selector of CO2 option used for photosynthesis
 integer, parameter :: VEGN_PHOT_CO2_PRESCRIBED  = 1
 integer, parameter :: VEGN_PHOT_CO2_INTERACTIVE = 2
+! size of cohort initial condition array
+integer, parameter :: MAX_INIT_COHORTS = 5
 
 
 ! ==== module variables ======================================================
@@ -96,13 +101,19 @@ integer, parameter :: VEGN_PHOT_CO2_INTERACTIVE = 2
 logical :: lm2               = .false.
 real    :: init_Wl           = 0
 real    :: init_Ws           = 0
-real    :: init_Tv           = 288.
-real    :: init_cohort_bl    = 0.05 ! initial biomass of leaves, kg C/m2
-real    :: init_cohort_blv   = 0.0  ! initial biomass of labile store, kg C/m2
-real    :: init_cohort_br    = 0.05 ! initial biomass of fine roots, kg C/m2
-real    :: init_cohort_bsw   = 0.05 ! initial biomass of sapwood, kg C/m2
-real    :: init_cohort_bwood = 0.05 ! initial biomass of heartwood, kg C/m2
-real    :: init_cohort_cmc   = 0.0  ! initial intercepted water
+real    :: init_Tv           = 288.0
+integer :: init_n_cohorts    = 1
+integer :: init_cohort_species(MAX_INIT_COHORTS) = 2
+real    :: init_cohort_nindivs(MAX_INIT_COHORTS) = 1.0 ! initial inidividula density, individual/m2
+real    :: init_cohort_bl(MAX_INIT_COHORTS)      = 0.05 ! initial biomass of leaves, kg C/individual
+real    :: init_cohort_blv(MAX_INIT_COHORTS)     = 0.0  ! initial biomass of labile store, kg C/individual
+real    :: init_cohort_br(MAX_INIT_COHORTS)      = 0.05 ! initial biomass of fine roots, kg C/individual
+real    :: init_cohort_bsw(MAX_INIT_COHORTS)     = 0.05 ! initial biomass of sapwood, kg C/individual
+real    :: init_cohort_bwood(MAX_INIT_COHORTS)   = 0.05 ! initial biomass of heartwood, kg C/individual
+real    :: init_cohort_bseed(MAX_INIT_COHORTS)   = 0.05 ! initial biomass of seeds, kg C/individual
+real    :: init_cohort_nsc(MAX_INIT_COHORTS)     = 0.0  ! initial non-structural biomass, kg C/individual
+real    :: init_cohort_cmc(MAX_INIT_COHORTS)     = 0.0  ! initial intercepted water
+real    :: init_cohort_age(MAX_INIT_COHORTS)     = 0.0  ! initial cohort age, year
 character(32) :: rad_to_use = 'big-leaf' ! or 'two-stream'
 character(32) :: snow_rad_to_use = 'ignore' ! or 'paint-leaves'
 character(32) :: photosynthesis_to_use = 'simple' ! or 'leuning'
@@ -128,13 +139,14 @@ real    :: tau_smooth_ncm      = 0.0 ! Time scale for ncm smoothing (low-pass
    ! filtering), years. 0.0 retrieves previous behavior (no smoothing) 
 namelist /vegn_nml/ &
     lm2, init_Wl, init_Ws, init_Tv, cpw, clw, csw, &
+    init_n_cohorts, init_cohort_species, init_cohort_nindivs, &
     init_cohort_bl, init_cohort_blv, init_cohort_br, init_cohort_bsw, &
-    init_cohort_bwood, init_cohort_cmc, &
+    init_cohort_bwood, init_cohort_bseed, init_cohort_nsc, init_cohort_cmc, &
     rad_to_use, snow_rad_to_use, photosynthesis_to_use, &
     co2_to_use_for_photosynthesis, co2_for_photosynthesis, &
     write_soil_carbon_restart, &
     do_cohort_dynamics, do_patch_disturbance, do_phenology, &
-    do_biogeography, do_seed_transport, do_ppa, &
+    do_biogeography, do_seed_transport, &
     min_Wl, min_Ws, tau_smooth_ncm
     
 !---- end of namelist --------------------------------------------------------
@@ -149,7 +161,7 @@ integer         :: vegn_phot_co2_option = -1 ! internal selector of co2 option
 integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, id_lai, id_sai, id_leaf_size, &
    id_root_density, id_root_zeta, id_rs_min, id_leaf_refl, id_leaf_tran,&
    id_leaf_emis, id_snow_crit, id_stomatal, id_an_op, id_an_cl, &
-   id_bl, id_blv, id_br, id_bsw, id_bwood, id_species, id_status, &
+   id_bl, id_blv, id_br, id_bsw, id_bwood, id_bseed, id_nsc, id_species, id_status, &
    id_con_v_h, id_con_v_v, id_fuel, id_harv_pool(N_HARV_POOLS), &
    id_harv_rate(N_HARV_POOLS), id_t_harv_pool, id_t_harv_rate, &
    id_csmoke_pool, id_csmoke_rate, id_fsc_in, id_fsc_out, id_ssc_in, &
@@ -157,7 +169,7 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, id_lai, id_sai, id_le
    id_ssc_pool, id_ssc_rate, id_t_ann, id_t_cold, id_p_ann, id_ncm, &
    id_lambda, id_afire, id_atfall, id_closs, id_cgain, id_wdgain, id_leaf_age, &
    id_phot_co2, id_ncohorts, id_nindivs, id_nlayers, id_dbh, id_crownarea, &
-   id_soil_water_supply
+   id_soil_water_supply, id_gdd, id_tc_pheno
 ! ==== end of module variables ===============================================
 
 ! ==== NetCDF declarations ===================================================
@@ -245,14 +257,14 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
   integer :: unit         ! unit for various i/o
   type(land_tile_enum_type)     :: te,ce ! current and tail tile list elements
   type(land_tile_type), pointer :: tile  ! pointer to current tile
-  type(vegn_cohort_type), pointer :: cohort! pointer to initial cohort for cold-start
   integer :: n_accum
   integer :: nmn_acm
   character(len=256) :: restart_file_name_1, restart_file_name_2
   logical :: restart_1_exists, restart_2_exists
   real, allocatable :: t_ann(:,:),t_cold(:,:),p_ann(:,:),ncm(:,:) ! buffers for biodata reading 
   logical :: did_read_biodata = .FALSE.
-  integer :: i,j ! indices of current tile
+  logical :: did_read_cohort_structure = .FALSE.
+  integer :: i,j,n ! indices of current tile
 
   module_is_initialized = .TRUE.
 
@@ -288,6 +300,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      __NF_ASRT__(nfu_get_var(unit,'n_accum',n_accum))
      __NF_ASRT__(nfu_get_var(unit,'nmn_acm',nmn_acm))
 
+     ! read cohort data
      call read_cohort_data_i0d_fptr(unit, 'species', cohort_species_ptr )
      call read_cohort_data_r0d_fptr(unit, 'hite', cohort_height_ptr )
      call read_cohort_data_r0d_fptr(unit, 'bl', cohort_bl_ptr )
@@ -299,6 +312,13 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
           call read_cohort_data_r0d_fptr(unit,'nsc',cohort_nsc_ptr)
      if(nfu_inq_var(unit,'bseed')==NF_NOERR) &
           call read_cohort_data_r0d_fptr(unit,'bseed',cohort_bseed_ptr)
+     if(nfu_inq_var(unit,'dbh')==NF_NOERR) then
+          call read_cohort_data_r0d_fptr(unit,'dbh',cohort_dbh_ptr)
+          call read_cohort_data_r0d_fptr(unit,'crownarea',cohort_crownarea_ptr)
+          did_read_cohort_structure=.TRUE.
+     else 
+          did_read_cohort_structure=.FALSE.
+     endif     
      call read_cohort_data_r0d_fptr(unit, 'bliving', cohort_bliving_ptr )
      if(nfu_inq_var(unit,'nindivs')==NF_NOERR) &
           call read_cohort_data_r0d_fptr(unit,'nindivs',cohort_nindivs_ptr)
@@ -339,6 +359,11 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      call read_tile_data_r0d_fptr(unit,'t_cold_acm', vegn_t_cold_acm_ptr)
      call read_tile_data_r0d_fptr(unit,'p_ann_acm', vegn_p_ann_acm_ptr)
      call read_tile_data_r0d_fptr(unit,'ncm_acm', vegn_ncm_acm_ptr)
+
+     if (nfu_inq_var(unit,'gdd')==NF_NOERR) &
+         call read_tile_data_r0d_fptr(unit,'gdd', vegn_gdd_ptr)
+     if (nfu_inq_var(unit,'tc_pheno')==NF_NOERR) &
+         call read_tile_data_r0d_fptr(unit,'tc_pheno', vegn_tc_pheno_ptr)
      ! burned carbon pool and rate
      if(nfu_inq_var(unit,'csmoke_pool')==NF_NOERR) &
           call read_tile_data_r0d_fptr(unit,'csmoke_pool',vegn_csmoke_pool_ptr)
@@ -354,9 +379,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
 
      __NF_ASRT__(nf_close(unit))
   else
-     call error_mesg('vegn_init',&
-          'cold-starting vegetation',&
-          NOTE)
+     call error_mesg('vegn_init', 'cold-starting vegetation', NOTE)
   endif
   ! read climatological fields for initialization of species distribution
   if (file_exist('INPUT/biodata.nc'))then
@@ -392,29 +415,51 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      if (tile%vegn%n_cohorts>0) cycle ! skip initialized tiles
      
      ! create and initialize cohorts for this vegetation tile
-     ! for now, just create a new cohort with default values of biomasses
-     tile%vegn%n_cohorts = 1
+     tile%vegn%n_cohorts = init_n_cohorts
+     tile%vegn%tc_pheno  = init_Tv  ! initial temperature for phenology
      allocate(tile%vegn%cohorts(tile%vegn%n_cohorts))
-     cohort => tile%vegn%cohorts(1)
-     cohort%prog%Wl = init_Wl
-     cohort%prog%Ws = init_Ws
-     cohort%prog%Tv = init_Tv
-     
-     cohort%bl      = init_cohort_bl
-     cohort%blv     = init_cohort_blv
-     cohort%br      = init_cohort_br
-     cohort%bsw     = init_cohort_bsw
-     cohort%bwood   = init_cohort_bwood
-     cohort%bliving = cohort%bl+cohort%br+cohort%blv+cohort%bsw
-     cohort%npp_previous_day = 0.0
-     cohort%status  = LEAF_ON
-     cohort%leaf_age = 0.0
-     if(did_read_biodata.and.do_biogeography) then
-        call update_species(cohort,t_ann(i,j),t_cold(i,j),p_ann(i,j),ncm(i,j),LU_NTRL)
-     else
-        cohort%species = tile%vegn%tag
-     endif
+     do n = 1,tile%vegn%n_cohorts
+        associate(cc => tile%vegn%cohorts(n))
+        cc%prog%Wl = init_Wl
+        cc%prog%Ws = init_Ws
+        cc%prog%Tv = init_Tv
+        
+        cc%bl      = init_cohort_bl(n)
+        cc%blv     = init_cohort_blv(n)
+        cc%br      = init_cohort_br(n)
+        cc%bsw     = init_cohort_bsw(n)
+        cc%bwood   = init_cohort_bwood(n)
+        cc%bseed   = init_cohort_bseed(n)
+        cc%nsc     = init_cohort_nsc(n)
+        cc%nindivs = init_cohort_nindivs(n)
+        cc%age     = init_cohort_age(n)
+        cc%bliving = cc%bl+cc%br+cc%blv+cc%bsw
+        cc%npp_previous_day = 0.0
+        cc%status  = LEAF_ON
+        cc%leaf_age = 0.0
+        if (do_ppa) then
+           cc%species = init_cohort_species(n)
+        else if(did_read_biodata.and.do_biogeography) then
+           call update_species(cc,t_ann(i,j),t_cold(i,j),p_ann(i,j),ncm(i,j),LU_NTRL)
+        else
+           cc%species = tile%vegn%tag
+        endif
+        end associate
+     enddo
   enddo
+  ! Initialize cohort structure if it wasn't in the restart
+  if (do_ppa.and..not.did_read_cohort_structure) then
+     te = tail_elmt(lnd%tile_map) ; ce = first_elmt(lnd%tile_map, is=lnd%is, js=lnd%js)
+     do while(ce /= te)
+        tile=>current_tile(ce)  ! get pointer to current tile
+        ce=next_elmt(ce)        ! advance position to the next tile
+        if (.not.associated(tile%vegn)) cycle
+        do n = 1, tile%vegn%n_cohorts
+           call init_cohort_allometry_ppa(tile%vegn%cohorts(n))
+        enddo
+        call relayer_cohorts(tile%vegn) ! this can change number of cohorts
+     enddo   
+  endif
   
   call get_input_restart_name('INPUT/soil_carbon.res.nc',restart_1_exists,restart_file_name_1)
   if (restart_1_exists) then
@@ -529,6 +574,11 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
        (/id_lon,id_lat/), time, 'biomass of sapwood', 'kg C/m2', missing_value=-1.0 )
   id_bwood = register_tiled_diag_field ( module_name, 'bwood',  &
        (/id_lon,id_lat/), time, 'biomass of heartwood', 'kg C/m2', missing_value=-1.0 )
+  id_bseed = register_tiled_diag_field ( module_name, 'bseed',  &
+       (/id_lon,id_lat/), time, 'biomass of seed', 'kg C/m2', missing_value=-1.0 )
+  id_nsc = register_tiled_diag_field ( module_name, 'nsc',  &
+       (/id_lon,id_lat/), time, 'biomass in non-structural pool', 'kg C/m2', missing_value=-1.0 )
+
   id_fuel = register_tiled_diag_field ( module_name, 'fuel',  &
        (/id_lon,id_lat/), time, 'mass of fuel', 'kg C/m2', missing_value=-1.0 )
   id_lambda = register_tiled_diag_field (module_name, 'lambda',(/id_lon,id_lat/), &
@@ -617,6 +667,11 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
   id_atfall = register_tiled_diag_field (module_name, 'atfall',(/id_lon,id_lat/), &
        time, 'area been disturbed', missing_value=-100.0)
 
+  id_gdd = register_tiled_diag_field (module_name, 'gdd', (/id_lon,id_lat/), &
+       time, 'growing degree days','degK day', missing_value=-999.0)
+  id_tc_pheno = register_tiled_diag_field (module_name, 'tc_pheno', (/id_lon,id_lat/), &
+       time, 'smoothed canopy air temperature for phenology','degK', missing_value=-999.0)
+
   id_phot_co2 = register_tiled_diag_field (module_name, 'qco2_phot',(/id_lon,id_lat/), &
        time, 'CO2 mixing ratio for photosynthesis calculations', 'mol CO2/mol dry air', &
        missing_value=-1.0)
@@ -703,6 +758,8 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call write_cohort_data_r0d_fptr(unit,'bwood', cohort_bwood_ptr, 'biomass of heartwood','kg C/individual')
   call write_cohort_data_r0d_fptr(unit,'nsc', cohort_nsc_ptr, 'non-structural biomass','kg C/individual')
   call write_cohort_data_r0d_fptr(unit,'bseed', cohort_bseed_ptr, 'biomass reserved for future progeny','kg C/individual')
+  call write_cohort_data_r0d_fptr(unit,'dbh', cohort_dbh_ptr, 'diameter at breast height','m')
+  call write_cohort_data_r0d_fptr(unit,'crownarea', cohort_crownarea_ptr, 'area of crown','m2/individual')
   
   call write_cohort_data_r0d_fptr(unit,'bliving', cohort_bliving_ptr, 'total living biomass','kg C/individual')
   call write_cohort_data_r0d_fptr(unit,'nindivs',cohort_nindivs_ptr, 'number of individuals', 'individuals/m2')
@@ -738,7 +795,9 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call write_tile_data_r0d_fptr(unit,'t_cold_acm', vegn_t_cold_acm_ptr,'accumulated temperature of coldest month','degK')
   call write_tile_data_r0d_fptr(unit,'p_ann_acm', vegn_p_ann_acm_ptr,'accumulated precipitation','kg/(m2 s)')
   call write_tile_data_r0d_fptr(unit,'ncm_acm', vegn_ncm_acm_ptr,'accumulated number of cold months')
-
+  ! accumulated and averaged values for PPA phenology
+  call write_tile_data_r0d_fptr(unit,'gdd', vegn_gdd_ptr,'growing degree days','day*degK')
+  call write_tile_data_r0d_fptr(unit,'tc_pheno', vegn_tc_pheno_ptr,'smoothed temperature for phenology','degK')
   ! burned carbon pool and rate
   call write_tile_data_r0d_fptr(unit,'csmoke_pool',vegn_csmoke_pool_ptr,'carbon lost through fires', 'kg C/m2')
   call write_tile_data_r0d_fptr(unit,'csmoke_rate',vegn_csmoke_rate_ptr,'rate of release of carbon lost through fires to the atmosphere', 'kg C/(m2 yr)')
@@ -893,6 +952,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
      __DEBUG3__(cana_T, cana_q, cana_co2_mol)
      write(*,*)'#### end of vegn_step_1 input ####'
      __DEBUG1__(cc%layer)
+     __DEBUG1__(cc%species)
      __DEBUG1__(cc%nindivs)
      __DEBUG1__(cc%crownarea)
      __DEBUG1__(cc%layerfrac)
@@ -1028,7 +1088,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
         DEtDTv (i) =  rho*total_cond*ft*DqvsatDTv
         DEtDqc (i) = -rho*total_cond*ft
         DEtDwl (i) =  rho*total_cond*DftDwl*(qvsat - cana_q)
-        DEtDwf( i) =  rho*total_cond*DftDwf*(qvsat - cana_q)
+        DEtDwf (i) =  rho*total_cond*DftDwf*(qvsat - cana_q)
         ! calculate the coefficients of the intercepted liquid evaporation linearization
         Eli0   (i) =  rho*con_v_v(i)*fw*(qvsat - cana_q)
         DEliDTv(i) =  rho*con_v_v(i)*fw*DqvsatDTv
@@ -1056,8 +1116,8 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
         DEliDqc(i) = 0; DEfiDqc(i) = 0
         DEliDwl(i) = 0; DEfiDwl(i) = 0
         DEliDwf(i) = 0; DEfiDwf(i) = 0
-        ! calculate the coefficients of the intercepted liquid condensation linearization
         if(vegn_T(i) >= tfreeze) then
+           ! calculate the coefficients of the intercepted liquid condensation linearization
            Eli0   (i) =  rho*con_v_v(i)*(qvsat - cana_q)
            DEliDTv(i) =  rho*con_v_v(i)*DqvsatDTv
            DEliDqc(i) = -rho*con_v_v(i)
@@ -1112,12 +1172,12 @@ subroutine vegn_step_2 ( vegn, diag, &
   type(diag_buff_type) , intent(inout) :: diag
   real, intent(in), dimension(:) :: & ! per cohort
        delta_Tv, & ! change in vegetation temperature, degK
-       delta_wl, & ! change in intercepted liquid water mass, kg/m2
-       delta_wf    ! change in intercepted frozen water mass, kg/m2 
+       delta_wl, & ! change in intercepted liquid water mass, kg/m2 of (stretched) cohort
+       delta_wf    ! change in intercepted frozen water mass, kg/m2 of (stretched) cohort
   real, intent(out) :: &
        total_vegn_melt, &
-       total_vegn_ovfl_l,   total_vegn_ovfl_s,   & ! overflow of liquid and solid water from the canopy
-       total_vegn_ovfl_Hl,  total_vegn_ovfl_Hs      ! heat flux from canopy due to overflow
+       total_vegn_ovfl_l,   total_vegn_ovfl_s,   & ! overflow of liquid and solid water from the canopy, kg/(m2 s) (per tike area)
+       total_vegn_ovfl_Hl,  total_vegn_ovfl_Hs     ! heat flux from canopy due to overflow, W/m2 of tile
 
   ! ---- local variables
   real :: &
@@ -1129,8 +1189,8 @@ subroutine vegn_step_2 ( vegn, diag, &
   type(vegn_cohort_type), pointer :: cc
   integer :: i
   integer :: N ! shortcut for number of cohorts
-  real :: indiv2area ! conversion factor from vales per indiv. to values per unit cohort area
-  
+  real :: indiv2area ! conversion factor from values per indiv. to values per unit cohort area
+
   ! TODO: check array sizes
   if (is_watch_point()) then
      write(*,*)'#### vegn_step_2 input ####'
@@ -1141,7 +1201,7 @@ subroutine vegn_step_2 ( vegn, diag, &
      __DEBUG1__(delta_wl)
      __DEBUG1__(delta_wf)
   endif
-  
+
   total_vegn_melt = 0
   total_vegn_ovfl_l  = 0;  total_vegn_ovfl_s  = 0
   total_vegn_ovfl_Hl = 0;  total_vegn_ovfl_Hs = 0
@@ -1194,6 +1254,7 @@ subroutine vegn_step_2 ( vegn, diag, &
      if(is_watch_point()) then
         write (*,*)'#### vegn_step_2 #### 1'
         __DEBUG4__(i,cc%prog%Tv, cc%prog%Wl, cc%prog%Ws)
+        __DEBUG4__(cc%nindivs, cc%crownarea, cc%layerfrac, indiv2area)
         __DEBUG1__(vegn_melt)
      endif
    
@@ -1213,11 +1274,11 @@ subroutine vegn_step_2 ( vegn, diag, &
         __DEBUG2__(vegn_ovfl_Hl,vegn_ovfl_Hs)
      endif
      ! accumulate total values, recalculated per unit area of cc
-     total_vegn_melt    = total_vegn_melt    + vegn_melt*indiv2area
-     total_vegn_ovfl_l  = total_vegn_ovfl_l  + vegn_ovfl_l*indiv2area
-     total_vegn_ovfl_s  = total_vegn_ovfl_s  + vegn_ovfl_s*indiv2area
-     total_vegn_ovfl_Hl = total_vegn_ovfl_Hl + vegn_ovfl_Hl*indiv2area
-     total_vegn_ovfl_Hs = total_vegn_ovfl_Hs + vegn_ovfl_Hs*indiv2area
+     total_vegn_melt    = total_vegn_melt    + vegn_melt*cc%nindivs
+     total_vegn_ovfl_l  = total_vegn_ovfl_l  + vegn_ovfl_l*cc%nindivs
+     total_vegn_ovfl_s  = total_vegn_ovfl_s  + vegn_ovfl_s*cc%nindivs
+     total_vegn_ovfl_Hl = total_vegn_ovfl_Hl + vegn_ovfl_Hl*cc%nindivs
+     total_vegn_ovfl_Hs = total_vegn_ovfl_Hs + vegn_ovfl_Hs*cc%nindivs
   enddo
   ! ---- diagnostic section
   ! TODO: invent a way to aggregate diagnostic fields
@@ -1308,6 +1369,9 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, vegn_fco2, diag)
 
   vegn%n_accum   = vegn%n_accum+1
 
+  ! --- accumulate values for daily averaging
+  vegn%tc_daily    = vegn%tc_daily + cana_T
+
 end subroutine vegn_step_3
 
 
@@ -1320,8 +1384,9 @@ subroutine update_vegn_slow( )
   type(land_tile_enum_type) :: ce, te
   type(land_tile_type), pointer :: tile
   integer :: i,j,k ! current point indices
-  integer :: ii ! pool iterator
+  integer :: ii ! pool and cohort iterator
   integer :: N ! number of cohorts
+  integer :: steps_per_day ! number of fast time steps per day
   real    :: weight_ncm ! low-pass filter value for the number of cold months
   type(vegn_cohort_type), pointer :: cc(:) ! shorthand for cohort array
   real    :: total_nindivs ! total number of indiv. per m2 in tile, for averaging in diag output
@@ -1348,7 +1413,18 @@ subroutine update_vegn_slow( )
      ! - end of conservation check, part 1
 
      if (day1 /= day0) then
-        call vegn_daily_npp(tile%vegn)
+        steps_per_day = 86400.0/delta_time;
+        do ii = 1, tile%vegn%n_cohorts   
+           associate (cc => tile%vegn%cohorts(ii))
+           cc%npp_previous_day     = cc%npp_previous_day_tmp/steps_per_day
+           cc%npp_previous_day_tmp = 0.0
+           end associate
+        enddo
+        tile%vegn%tc_daily = tile%vegn%tc_daily/steps_per_day
+        tile%vegn%gdd      = tile%vegn%gdd + max(0.0, tile%vegn%tc_daily - tfreeze)
+        tile%vegn%tc_pheno = tile%vegn%tc_pheno * 0.95 + tile%vegn%tc_daily * 0.05
+        ! reset the accumulated value
+        tile%vegn%tc_daily = 0.0
      endif
 
      ! monthly averaging
@@ -1403,12 +1479,16 @@ subroutine update_vegn_slow( )
         call send_tile_data(id_closs,sum(cc(1:N)%carbon_loss*cc(1:N)%nindivs),tile%diag)
         call send_tile_data(id_wdgain,sum(cc(1:N)%bwood_gain*cc(1:N)%nindivs),tile%diag)
 
-        call vegn_growth(tile%vegn)
-        call vegn_nat_mortality(tile%vegn,86400.0)
+        call vegn_growth(tile%vegn) ! selects lm3 or ppa inside
+        if (do_ppa) &
+              call vegn_phenology_ppa (tile%vegn)
+        if (.not.do_ppa) &
+              call vegn_nat_mortality_lm3(tile%vegn,86400.0)
      endif
 
      if  (month1 /= month0 .and. do_phenology) then
-        call vegn_phenology (tile%vegn,tile%soil%w_wilt(1)/tile%soil%pars%vwc_sat)
+        if (.not.do_ppa) &
+            call vegn_phenology_lm3 (tile%vegn,tile%soil%w_wilt(1)/tile%soil%pars%vwc_sat)
         ! assume that all layers are the same soil type and wilting is vertically homogeneous
      endif
 
@@ -1417,6 +1497,7 @@ subroutine update_vegn_slow( )
      endif
 
      if (do_ppa.and.year1 /= year0) then
+        call vegn_nat_mortality_ppa(tile%vegn, seconds_per_year)
         call vegn_reproduction_ppa(tile%vegn)
         call relayer_cohorts(tile%vegn)
         call vegn_mergecohorts_ppa(tile%vegn)
@@ -1441,9 +1522,9 @@ subroutine update_vegn_slow( )
      call get_tile_water(tile,lmass1,fmass1)
      heat1  = land_tile_heat  (tile)
      cmass1 = land_tile_carbon(tile)     
-     call check_conservation (tag,'liquid water', lmass0, lmass1, 1e-16, lnd%time)
-     call check_conservation (tag,'frozen water', fmass0, fmass1, 1e-16, lnd%time)
-     call check_conservation (tag,'carbon'      , cmass0, cmass1, 1e-14, lnd%time)
+     call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol, lnd%time)
+     call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol, lnd%time)
+     call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol, lnd%time)
 !     call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16, lnd%time)
      ! - end of conservation check, part 2
 
@@ -1455,6 +1536,9 @@ subroutine update_vegn_slow( )
      call send_tile_data(id_ncm,     real(tile%vegn%ncm), tile%diag)
      call send_tile_data(id_afire,   tile%vegn%disturbance_rate(1), tile%diag)
      call send_tile_data(id_atfall,  tile%vegn%disturbance_rate(0), tile%diag)
+
+     call send_tile_data(id_gdd,     tile%vegn%gdd,     tile%diag)
+     call send_tile_data(id_tc_pheno,tile%vegn%tc_pheno,tile%diag)
 
      do ii = 1,N_HARV_POOLS
         call send_tile_data(id_harv_pool(ii),tile%vegn%harv_pool(ii),tile%diag)
@@ -1479,6 +1563,8 @@ subroutine update_vegn_slow( )
      call send_tile_data(id_br,      sum(cc(1:N)%br     *cc(1:N)%nindivs), tile%diag)
      call send_tile_data(id_bsw,     sum(cc(1:N)%bsw    *cc(1:N)%nindivs), tile%diag)
      call send_tile_data(id_bwood,   sum(cc(1:N)%bwood  *cc(1:N)%nindivs), tile%diag)
+     call send_tile_data(id_bseed,   sum(cc(1:N)%bseed  *cc(1:N)%nindivs), tile%diag)
+     call send_tile_data(id_nsc,     sum(cc(1:N)%nsc    *cc(1:N)%nindivs), tile%diag)
      total_nindivs = sum(cc(1:N)%nindivs)
      if (total_nindivs > 0 ) then
         call send_tile_data(id_dbh,       sum(cc(1:N)%dbh       *cc(1:N)%nindivs)/total_nindivs, tile%diag)
@@ -1628,6 +1714,8 @@ DEFINE_VEGN_ACCESSOR_0D(real,t_ann_acm)
 DEFINE_VEGN_ACCESSOR_0D(real,p_ann_acm)
 DEFINE_VEGN_ACCESSOR_0D(real,t_cold_acm)
 DEFINE_VEGN_ACCESSOR_0D(real,ncm_acm)
+DEFINE_VEGN_ACCESSOR_0D(real,gdd)
+DEFINE_VEGN_ACCESSOR_0D(real,tc_pheno)
 DEFINE_VEGN_ACCESSOR_0D(real,csmoke_pool)
 DEFINE_VEGN_ACCESSOR_0D(real,csmoke_rate)
 
@@ -1642,6 +1730,8 @@ DEFINE_COHORT_ACCESSOR(real,bsw)
 DEFINE_COHORT_ACCESSOR(real,bwood)
 DEFINE_COHORT_ACCESSOR(real,nsc)
 DEFINE_COHORT_ACCESSOR(real,bseed)
+DEFINE_COHORT_ACCESSOR(real,dbh)
+DEFINE_COHORT_ACCESSOR(real,crownarea)
 DEFINE_COHORT_ACCESSOR(real,bliving)
 DEFINE_COHORT_ACCESSOR(real,nindivs)
 DEFINE_COHORT_ACCESSOR(integer,layer)

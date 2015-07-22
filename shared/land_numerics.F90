@@ -954,24 +954,6 @@ recursive subroutine mergerank(x,a,n,t)
 end subroutine mergerank
 
 ! ==============================================================================
-! checks conservation and aborts with fatal error if tolerance is exceeded
-subroutine check_conservation(name, d1, d2, tolerance)
-  character(*), intent(in) :: name ! name of the component
-  real, intent(in) :: d1,d2 ! values to check
-  real, intent(in) :: tolerance ! tolerance of the test
-
-  if (abs(d1-d2)>tolerance) then
-     write(*,'(a,3(x,a,g))')&
-          'Conservation check of "'//trim(name)//'" FAILED.', &
-          'Value before=', d1, 'after=', d2, 'difference=',abs(d1-d2)
-  else
-     write(*,'(a,3(x,a,g))')&
-          'Conservation check of "'//trim(name)//'" passed.', &
-          'Value before=', d1, 'after=', d2, 'difference=',abs(d1-d2)
-  endif
-end subroutine 
-
-! ==============================================================================
 ! Reports error, including file name and line.
 subroutine my_error(mod_name, message, mode, file, line)
 

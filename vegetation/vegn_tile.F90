@@ -20,11 +20,11 @@ use vegn_data_mod, only : &
      agf_bs, BSEED, LU_NTRL, LU_SCND, N_HARV_POOLS, &
      LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, &
      SP_C3GRASS, SP_C4GRASS, &
-     scnd_biomass_bins
+     scnd_biomass_bins, do_ppa
 
 use vegn_cohort_mod, only : vegn_cohort_type, vegn_phys_prog_type, &
-     leaf_area_from_biomass, update_bio_living_fraction, update_cohort_structure, &
-     cohort_uptake_profile, cohort_root_properties, update_biomass_pools
+     leaf_area_from_biomass, height_from_biomass, update_bio_living_fraction, &
+     cohort_uptake_profile, cohort_root_properties, update_biomass_pools, btotal
 
 use soil_tile_mod, only : max_lev
 
@@ -126,6 +126,10 @@ type :: vegn_tile_type
    real :: p_ann_acm  = 0.0 ! accumulated annual precipitation for p_ann
    real :: ncm_acm    = 0.0 ! accumulated number of cold months
 
+   ! averaged quantites for PPA phenology
+   real :: tc_daily = 0.0
+   real :: gdd      = 0.0 ! growing degree-days
+   real :: tc_pheno = 0.0 ! smoothed canopy air temperature for phenology
 
    ! it's probably possible to get rid of the fields below
    real :: npp=0 ! net primary productivity
@@ -325,7 +329,6 @@ subroutine update_derived_vegn_data(vegn)
   type(vegn_cohort_type), pointer :: cc ! pointer to the current cohort
   integer :: k  ! cohort index
   integer :: sp ! shorthand for the vegetation species
-  real    :: bs ! structural biomass: stem + structural roots
   integer :: n_layers ! number of layers in cohort
   real, allocatable :: layer_area(:) ! total area of crowns in the layer
   integer :: current_layer
@@ -340,7 +343,6 @@ subroutine update_derived_vegn_data(vegn)
   layer_area(:) = 0
   do k = 1, vegn%n_cohorts
      cc=>vegn%cohorts(k)
-     call update_cohort_structure(cc) ! updates height, DBH, crown area
      layer_area(cc%layer) = layer_area(cc%layer) + cc%crownarea*cc%nindivs
   enddo
   
@@ -351,10 +353,16 @@ subroutine update_derived_vegn_data(vegn)
     
     sp = cc%species
     ! set the physiology type according to species
-    cc%pt     = spdata(sp)%pt
+    cc%pt = spdata(sp)%pt
     ! update fractions of the living biomass
-    call update_bio_living_fraction(cc)
-    bs     = cc%bsw + cc%bwood;   
+    if (.not.do_ppa) then
+       cc%height = height_from_biomass(btotal(cc))
+    endif
+    call update_bio_living_fraction(cc) ! this should not have any effect in PPA,
+    ! since it only updates Px fractions of bliving, but I am not sure if this is 
+    ! inlemented consistently right now.
+    ! TODO: check that Pl, Pr, Psw, Psw_alphasw are not used in PPA, move the
+    ! above call inside "if (.not.do_ppa)" statement
 
     if(sp<NSPECIES) then ! LM3V species
        ! calculate area fraction that the cohort occupies in its layer
