@@ -507,6 +507,7 @@ subroutine dealloc_cplr2land( bnd )
   __DEALLOC__( bnd%sw_flux )
   __DEALLOC__( bnd%lprec )
   __DEALLOC__( bnd%fprec )
+  __DEALLOC__( bnd%tprec )
   __DEALLOC__( bnd%dhdt )
   __DEALLOC__( bnd%dhdq )
   __DEALLOC__( bnd%drdt )
@@ -525,6 +526,7 @@ subroutine dealloc_cplr2land( bnd )
   __DEALLOC__( bnd%z_bot )
   __DEALLOC__( bnd%tr_flux )
   __DEALLOC__( bnd%dfdtr )
+  __DEALLOC__( bnd%drag_q )
 
 end subroutine dealloc_cplr2land
 
