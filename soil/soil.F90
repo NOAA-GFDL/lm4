@@ -13,7 +13,7 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only: error_mesg, file_exist, check_nml_error, &
      stdlog, write_version_number, close_file, mpp_pe, mpp_root_pe, &
-     string, FATAL, WARNING, NOTE
+     FATAL, WARNING, NOTE
 use time_manager_mod,   only: time_type, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o
@@ -2374,14 +2374,13 @@ end subroutine soil_step_1
   ! Check for negative wl
   severity = FATAL
   if (allow_neg_wl) severity = WARNING
+  call check_var_range(soil%wl(:)/(dens_h2o*dz(:)*soil%pars%vwc_sat), thetathresh, HUGE(1.0), &
+        'soil_step_2', 'theta', severity)
   do l = 1, num_l
-     call check_var_range(soil%wl(l)/(dens_h2o*dz(l)*soil%pars%vwc_sat), thetathresh, HUGE(1.0), &
-        'soil_step_2', 'theta('//trim(string(l))//')', severity)
-     ! Make sure bulk heat capacity stays above zero
      hcap = soil%heat_capacity_dry(l)*dz(l) + clw*soil%wl(l) + csw*soil%ws(l)
-     call check_var_range(hcap, 0.0, HUGE(1.0), &
-        'soil_step_2', 'soil heat capacity('//trim(string(l))//')', FATAL)
   end do
+  ! Make sure bulk heat capacity stays above zero
+  call check_var_range(hcap, 0.0, HUGE(1.0), 'soil_step_2', 'soil heat capacity', FATAL)
 
   ! Check total
   call check_var_range(lrunf_nu, negrnuthresh, HUGE(1.0), &
