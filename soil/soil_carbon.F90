@@ -117,7 +117,11 @@ type soil_carbon_pool
     type(litterCohort),allocatable::litterCohorts(:)
     real::dissolved_carbon(N_C_TYPES) = 0.0
 
-    real :: carbon_in(N_C_TYPES) = 0.0 ! accumulated carbon input for soil carbon acceleration
+    ! bookkeeping variables for soil carbon acceleration
+    real :: carbon_in          (N_C_TYPES) = 0.0 ! accumulated carbon input 
+    real :: protected_in       (N_C_TYPES) = 0.0 ! accumulated protected carbon input
+    real :: turnover           (N_C_TYPES) = 0.0 ! accumulated turnover of carbon
+    real :: protected_turnover (N_C_TYPES) = 0.0 ! accumulated turnover of protected carbon
 end type soil_carbon_pool
 
 !==== module variables =======================================================
@@ -252,12 +256,11 @@ end subroutine
 
 
 subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_water,dt,layerThickness,&
-            fast_C_loss_rate,slow_C_loss_rate,deadmic_C_loss_rate,CO2prod,protected_produced,protected_turnover_rate,&
+            fast_C_loss_rate,slow_C_loss_rate,deadmic_C_loss_rate,CO2prod,&
             C_dissolved,deposited_C,badCohort)
     type(soil_carbon_pool),intent(inout)::pool
     real,intent(in)::T,theta,dt,air_filled_porosity,liquid_water,frozen_water,layerThickness
-    real,intent(out)::fast_C_loss_rate,slow_C_loss_rate,deadmic_C_loss_rate,CO2prod,&
-            protected_produced(n_c_types),protected_turnover_rate(n_c_types)
+    real,intent(out)::fast_C_loss_rate,slow_C_loss_rate,deadmic_C_loss_rate,CO2prod
     real,intent(out)::C_dissolved(n_c_types),deposited_C(n_c_types)
     integer,intent(out),optional::badCohort
     ! dt is in years!
@@ -271,6 +274,11 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
     real::cohortVolume(pool%max_cohorts),activeVolume,inactiveVolume
     real::protected_solubility
     real :: deadmic_produced
+    real :: protected_turnover_rate(N_C_TYPES)
+    real :: protected_produced(N_C_TYPES)
+
+
+    type(litterCohort) :: total ! for total carbon accumulation
     
 !   if (is_watch_point()) then
 !      write(*,*)'##### update_pool input ####'
@@ -406,6 +414,14 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
     ! account for dissolved carbon in the accumulated pools    
     pool%carbon_in(:) = pool%carbon_in(:) - C_dissolved(:)
     pool%carbon_in(C_MIC) = pool%carbon_in(C_MIC) + deadmic_produced
+    pool%protected_in(:) = pool%protected_in(:) + protected_produced(:)
+    
+    ! update turnover rates
+    total = totalCarbonCohort(pool)
+    where (total%litterC(:)>0) &
+        pool%turnover(:) = pool%turnover(:)+resp(:)/total%litterC(:)
+    where (total%protectedC(:)>0) &
+        pool%protected_turnover(:) = pool%protected_turnover(:)+protected_turnover_rate(:)/total%protectedC(:)
 end subroutine update_pool
 
 
@@ -982,6 +998,9 @@ subroutine combine_pools(pool1,pool2,w1,w2)
     pool2%dissolved_carbon=pool2%dissolved_carbon*x2 + pool1%dissolved_carbon*x1
     
     pool2%carbon_in(:) = pool2%carbon_in(:)*x2 + pool1%carbon_in(:)*x1
+    pool2%turnover(:)  = pool2%turnover(:)*x2  + pool1%turnover(:)*x1
+    pool2%protected_in(:) = pool2%protected_in(:)*x2  + pool1%protected_in(:)*x1
+    pool2%protected_turnover(:)  = pool2%protected_turnover(:)*x2  + pool1%protected_turnover(:)*x1
 end subroutine combine_pools
 
 

@@ -252,28 +252,7 @@ type :: soil_tile_type
    real, allocatable :: &
        asoil_in(:), &
        fsc_in(:), &
-       ssc_in(:), &
-       deadmic_in(:), &
-       fast_protected_in(:), &
-       slow_protected_in(:), &
-       deadmic_protected_in(:), &
-       fast_protected_turnover_accumulated(:), &
-       slow_protected_turnover_accumulated(:), &
-       deadmic_protected_turnover_accumulated(:), &
-       fast_turnover_accumulated(:), &
-       slow_turnover_accumulated(:), &
-       deadmic_turnover_accumulated(:)
-   real          :: leaflitter_fast_turnover_accumulated
-   real          :: leaflitter_slow_turnover_accumulated
-   real          :: leaflitter_deadmic_turnover_accumulated
-   
-   real          :: finewoodlitter_fast_turnover_accumulated
-   real          :: finewoodlitter_slow_turnover_accumulated
-   real          :: finewoodlitter_deadmic_turnover_accumulated
-   
-   real          :: coarsewoodlitter_fast_turnover_accumulated
-   real          :: coarsewoodlitter_slow_turnover_accumulated
-   real          :: coarsewoodlitter_deadmic_turnover_accumulated
+       ssc_in(:)
 
    ! For storing DOC fluxes in tiled model
    real, allocatable :: div_hlsp_DOC(:,:) ! dimension (n_c_types, num_l) [kg C/m^2/s] net flux of carbon pools
@@ -697,16 +676,6 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
             ptr%ssc_in            (num_l),  & 
             ptr%asoil_in          (num_l),  &
             ptr%is_peat           (num_l),  &
-            ptr%fast_protected_in        (num_l),  &
-            ptr%slow_protected_in        (num_l),  &
-            ptr%deadmic_protected_in        (num_l),  &
-            ptr%deadmic_in        (num_l),  &
-            ptr%fast_turnover_accumulated(num_l), &
-            ptr%slow_turnover_accumulated(num_l), &
-            ptr%deadmic_turnover_accumulated(num_l), &
-            ptr%fast_protected_turnover_accumulated(num_l), &
-            ptr%slow_protected_turnover_accumulated(num_l), &
-            ptr%deadmic_protected_turnover_accumulated(num_l), &
             ptr%soil_C            (num_l),  &
             ptr%div_hlsp_DOC      (n_c_types, num_l)   )
 
@@ -800,27 +769,6 @@ subroutine soil_data_init_0d(soil)
   soil%is_peat(:)             = 0
   soil%fsc_in(:)              = 0.0
   soil%ssc_in(:)              = 0.0
-  soil%deadmic_in(:)          = 0.0
-  soil%fast_protected_in(:)        = 0.0
-  soil%slow_protected_in(:)        = 0.0
-  soil%deadmic_protected_in(:)        = 0.0
-  soil%fast_turnover_accumulated(:) = 0.0
-  soil%slow_turnover_accumulated(:)  = 0.0
-  soil%deadmic_turnover_accumulated(:) = 0.0
-  soil%fast_protected_turnover_accumulated(:) = 0.0
-  soil%slow_protected_turnover_accumulated(:)  = 0.0
-  soil%deadmic_protected_turnover_accumulated(:) = 0.0
-  soil%leaflitter_fast_turnover_accumulated = 0.0
-  soil%leaflitter_slow_turnover_accumulated = 0.0
-  soil%leaflitter_deadmic_turnover_accumulated = 0.0
-  
-  soil%finewoodlitter_fast_turnover_accumulated = 0.0
-  soil%finewoodlitter_slow_turnover_accumulated = 0.0
-  soil%finewoodlitter_deadmic_turnover_accumulated = 0.0
-  
-  soil%coarsewoodlitter_fast_turnover_accumulated = 0.0
-  soil%coarsewoodlitter_slow_turnover_accumulated = 0.0
-  soil%coarsewoodlitter_deadmic_turnover_accumulated = 0.0
 
   soil%fast_DOC_leached=0.0
   soil%slow_DOC_leached=0.0
@@ -1223,27 +1171,6 @@ subroutine merge_soil_tiles(s1,w1,s2,w2)
   s2%asoil_in(:)    = s1%asoil_in(:)*x1 + s2%asoil_in(:)*x2
   s2%fsc_in(:)      = s1%fsc_in(:)*x1 + s2%fsc_in(:)*x2
   s2%ssc_in(:)      = s1%ssc_in(:)*x1 + s2%ssc_in(:)*x2
-  s2%fast_protected_in(:) = s1%fast_protected_in(:)*x1 + s2%fast_protected_in(:)*x2
-  s2%slow_protected_in(:) = s1%slow_protected_in(:)*x1 + s2%slow_protected_in(:)*x2
-  s2%deadmic_protected_in(:) = s1%deadmic_protected_in(:)*x1 + s2%deadmic_protected_in(:)*x2
-  s2%deadmic_in(:) = s1%deadmic_in(:)*x1 + s2%deadmic_in(:)*x2
-  s2%fast_turnover_accumulated(:) = s1%fast_turnover_accumulated(:)*x1 + s2%fast_turnover_accumulated(:)*x2
-  s2%slow_turnover_accumulated(:) = s1%slow_turnover_accumulated(:)*x1 + s2%slow_turnover_accumulated(:)*x2
-  s2%deadmic_turnover_accumulated(:) = s1%deadmic_turnover_accumulated(:)*x1 + s2%deadmic_turnover_accumulated(:)*x2
-  s2%fast_protected_turnover_accumulated(:) = s1%fast_protected_turnover_accumulated(:)*x1 + s2%fast_protected_turnover_accumulated(:)*x2
-  s2%slow_protected_turnover_accumulated(:) = s1%slow_protected_turnover_accumulated(:)*x1 + s2%slow_protected_turnover_accumulated(:)*x2
-  s2%deadmic_protected_turnover_accumulated(:) = s1%deadmic_protected_turnover_accumulated(:)*x1 + s2%deadmic_protected_turnover_accumulated(:)*x2
-  s2%leaflitter_fast_turnover_accumulated = s1%leaflitter_fast_turnover_accumulated*x1 + s2%leaflitter_fast_turnover_accumulated*x2
-  s2%leaflitter_slow_turnover_accumulated = s1%leaflitter_slow_turnover_accumulated*x1 + s2%leaflitter_slow_turnover_accumulated*x2
-  s2%leaflitter_deadmic_turnover_accumulated = s1%leaflitter_deadmic_turnover_accumulated*x1 + s2%leaflitter_deadmic_turnover_accumulated*x2
-  
-  s2%finewoodlitter_fast_turnover_accumulated = s1%finewoodlitter_fast_turnover_accumulated*x1 + s2%finewoodlitter_fast_turnover_accumulated*x2
-  s2%finewoodlitter_slow_turnover_accumulated = s1%finewoodlitter_slow_turnover_accumulated*x1 + s2%finewoodlitter_slow_turnover_accumulated*x2
-  s2%finewoodlitter_deadmic_turnover_accumulated = s1%finewoodlitter_deadmic_turnover_accumulated*x1 + s2%finewoodlitter_deadmic_turnover_accumulated*x2
-  
-  s2%coarsewoodlitter_fast_turnover_accumulated = s1%coarsewoodlitter_fast_turnover_accumulated*x1 + s2%coarsewoodlitter_fast_turnover_accumulated*x2
-  s2%coarsewoodlitter_slow_turnover_accumulated = s1%coarsewoodlitter_slow_turnover_accumulated*x1 + s2%coarsewoodlitter_slow_turnover_accumulated*x2
-  s2%coarsewoodlitter_deadmic_turnover_accumulated = s1%coarsewoodlitter_deadmic_turnover_accumulated*x1 + s2%coarsewoodlitter_deadmic_turnover_accumulated*x2
   
   s2%fast_DOC_leached=s1%fast_DOC_leached*x1 + s2%fast_DOC_leached*x2
   s2%slow_DOC_leached=s1%slow_DOC_leached*x1 + s2%slow_DOC_leached*x2
