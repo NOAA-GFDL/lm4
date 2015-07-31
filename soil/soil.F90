@@ -106,6 +106,7 @@ public :: soil_data_beta
 
 public :: Dsdt
 public :: get_soil_litter_C
+public :: add_soil_carbon
 public :: add_root_litter
 public :: add_root_exudates
 public :: redistribute_peat_carbon
@@ -3811,6 +3812,53 @@ subroutine add_root_exudates_1(soil,cohort,exudateC)
       call add_carbon_to_cohorts(soil%soil_C(n),litterC=(/exudateC*profile(n),0.0,0.0/))
   enddo
 end subroutine add_root_exudates_1
+
+
+! ============================================================================
+subroutine add_soil_carbon(soil,leaf_litter,wood_litter,root_litter)
+  type(soil_tile_type)   , intent(inout) :: soil
+  real, intent(in) :: leaf_litter(N_C_TYPES)
+  real, intent(in) :: wood_litter(N_C_TYPES)
+  real, intent(in) :: root_litter(num_l,N_C_TYPES)
+  
+  integer :: l
+  real :: fsc, ssc
+
+  ! CEL=cellulose (fast); LIG=lignin (slow); this function reasonably assumes 
+  ! that there are no microbes in litter
+
+  select case (soil_carbon_option)
+  case (SOILC_CENTURY)
+     fsc = leaf_litter(C_CEL) + wood_litter(C_CEL) + sum(root_litter(:,C_CEL))
+     ssc = leaf_litter(C_LIG) + wood_litter(C_LIG) + sum(root_litter(:,C_LIG))
+     soil%fast_soil_C(1) = soil%fast_soil_C(1) + fsc
+     soil%slow_soil_C(1) = soil%slow_soil_C(1) + ssc
+     ! for budget tracking
+     soil%fsc_in(1) = soil%fsc_in(1) + fsc
+     soil%ssc_in(1) = soil%ssc_in(1) + ssc
+  case (SOILC_CENTURY_BY_LAYER)
+     fsc = leaf_litter(C_CEL) + wood_litter(C_CEL)
+     ssc = leaf_litter(C_LIG) + wood_litter(C_LIG)
+     soil%fast_soil_C(1) = soil%fast_soil_C(1) + fsc
+     soil%slow_soil_C(1) = soil%slow_soil_C(1) + ssc
+     ! for budget tracking
+     soil%fsc_in(1) = soil%fsc_in(1) + fsc
+     soil%ssc_in(1) = soil%ssc_in(1) + ssc
+     do l = 1,num_l
+        soil%fast_soil_C(l) = soil%fast_soil_C(l) + root_litter(l,C_CEL)
+        soil%slow_soil_C(l) = soil%slow_soil_C(l) + root_litter(l,C_LIG)
+        ! for budget tracking
+        soil%fsc_in(l) = soil%fsc_in(l) + root_litter(l,C_CEL)
+        soil%ssc_in(l) = soil%ssc_in(l) + root_litter(l,C_LIG)
+     enddo
+  case (SOILC_CORPSE)
+     call add_litter(soil%leafLitter,       leaf_litter)
+     call add_litter(soil%coarseWoodLitter, wood_litter)
+     do l = 1,num_l
+        call add_litter(soil%soil_C(l), root_litter(l,:))
+     enddo
+  end select
+end subroutine add_soil_carbon
 
 
 ! ============================================================================

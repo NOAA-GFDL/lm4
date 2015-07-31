@@ -28,10 +28,10 @@ use vegn_cohort_mod, only : vegn_cohort_type, &
      leaf_area_from_biomass, init_cohort_allometry_ppa, &
      cohort_root_litter_profile, cohort_root_exudate_profile
 use vegn_disturbance_mod, only : kill_plants_ppa
-use soil_carbon_mod, only: n_c_types, soil_carbon_option, &
+use soil_carbon_mod, only: N_C_TYPES, soil_carbon_option, &
     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, &
     add_litter, poolTotalCarbon, debug_pool
-use soil_mod, only: add_root_litter, add_root_exudates, Dsdt
+use soil_mod, only: add_soil_carbon, add_root_litter, add_root_exudates, Dsdt
 
 implicit none
 private
@@ -324,15 +324,20 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   type(diag_buff_type), intent(inout) :: diag
 
   real :: resp, resl, resr, resg ! respiration terms accumulated for each tree 
-  real :: md_alive, md_wood;
+  real :: md_wood;
   real :: gpp ! gross primary productivity per tile
   real :: deltaBL, deltaBR ! leaf and fine root carbon tendencies
-  integer :: i, N
+  integer :: i, l, N
   real :: cmass0, cmass1, norm ! for debug only
   real :: NSC_supply,LR_demand,LR_deficit
   real :: NSCtarget
   real :: R_days,fNSC,fLFR,fStem,fSeed
   type(vegn_cohort_type), pointer :: c(:) ! for debug only
+  ! accumulators of total input to root litter and soil carbon
+  real :: leaf_litt(N_C_TYPES) ! fine surface litter per tile, kgC/m2
+  real :: wood_litt(N_C_TYPES) ! coarse surface litter per tile, kgC/m2
+  real :: root_litt(num_l, N_C_TYPES) ! root litter per soil layer, kgC/m2
+  real :: profile(num_l) ! storage for vertical profile of exudates and root litter
 
   c=>vegn%cohorts(1:vegn%n_cohorts)
   if(is_watch_point()) then
@@ -360,6 +365,10 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   ! update plant carbon for all cohorts
   vegn%npp = 0
   resp = 0 ; resl = 0 ; resr = 0 ; resg = 0 ; gpp = 0
+  leaf_litt = 0 ; wood_litt = 0; root_litt = 0 ! ; total_root_exudate_C = 0
+  ! TODO: add root exudates to the balance. in LM3 it's a fraction of npp; 
+  !       in PPA perhaps it might be proportional to NSC, with some decay
+  !       time?
   do i = 1, vegn%n_cohorts
      associate ( cc => vegn%cohorts(i), sp => spdata(vegn%cohorts(i)%species))
 
@@ -401,11 +410,10 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      ! Turnover regardless of STATUS
      deltaBL = cc%bl * sp%alpha(CMPT_LEAF) * dt_fast_yr
      deltaBR = cc%br * sp%alpha(CMPT_ROOT) * dt_fast_yr
-     md_alive = deltaBL + deltaBR
      cc%bl = cc%bl - deltaBL
      cc%br = cc%br - deltaBR
 
-     cc%carbon_loss = cc%carbon_loss + md_alive  ! used in diagnostics only
+     cc%carbon_loss = cc%carbon_loss + deltaBL + deltaBR  ! used in diagnostics only
 
      ! compute branch and coarse wood losses for tree types
      md_wood = 0.0
@@ -418,10 +426,17 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      ! Why md_wood is set to 0?
      md_wood = 0.0
 
-     ! add maintenance demand from leaf and root pools to fast soil carbon
-     soil%fast_soil_C(1) = soil%fast_soil_C(1) + (   fsc_liv *md_alive +    fsc_wood *md_wood)*cc%nindivs;
-     soil%slow_soil_C(1) = soil%slow_soil_C(1) + ((1-fsc_liv)*md_alive + (1-fsc_wood)*md_wood)*cc%nindivs;
-
+     ! accumulate liter and soil carbon inputs across all cohorts
+     leaf_litt(:) = leaf_litt(:) + (/fsc_liv,  1-fsc_liv,  0.0/)*deltaBL*cc%nindivs
+     wood_litt(:) = wood_litt(:) + (/fsc_wood, 1-fsc_wood, 0.0/)*md_wood*agf_bs*cc%nindivs
+     call cohort_root_litter_profile(cc, dz, profile)
+     do l = 1, num_l
+        root_litt(l,:) = root_litt(l,:) + profile(l)*cc%nindivs*(/ &
+             fsc_froot    *deltaBR + fsc_wood    *md_wood*(1-agf_bs), & ! fast
+             (1-fsc_froot)*deltaBR + (1-fsc_wood)*md_wood*(1-agf_bs), & ! slow
+             0.0/) ! microbes
+     enddo
+     
      ! accumulate tile-level NPP and GPP
      vegn%npp = vegn%npp + cc%npp * cc%nindivs
      gpp      = gpp      + cc%gpp * cc%nindivs
@@ -456,6 +471,8 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      write(*,*)'#### end of vegn_carbon_int_ppa output ####'
   endif
 
+  ! add litter accumulated over the cohorts
+  call add_soil_carbon(soil, leaf_litt, wood_litt, root_litt)
   ! update soil carbon
   call Dsdt(vegn, soil, diag, tsoil, theta)
 
