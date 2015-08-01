@@ -232,7 +232,6 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   call add_root_exudates(soil,total_root_exudate_C)
 
   ! add litter accumulated over the cohorts
-  ! add litter accumulated over the cohorts
   call add_soil_carbon(soil, leaf_litt, wood_litt, root_litt)
 
   if(is_watch_point()) then
@@ -868,26 +867,16 @@ subroutine vegn_phenology_lm3(vegn, soil)
            
            leaf_litter = (1.0-l_fract)*cc%bl*cc%nindivs;
            root_litter = (1.0-l_fract)*cc%br*cc%nindivs;
-           
-           ! add to patch litter flux terms
-           vegn%litter = vegn%litter + leaf_litter + root_litter;
-           select case (soil_carbon_option)
-           case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-              soil%fast_soil_C(1) = soil%fast_soil_C(1) +    fsc_liv *(leaf_litter+root_litter)
-              soil%slow_soil_C(1) = soil%slow_soil_C(1) + (1-fsc_liv)*(leaf_litter+root_litter)
-              soil%fsc_in(1)  = soil%fsc_in(1)  + leaf_litter+root_litter
-           case(SOILC_CORPSE)
-              leaf_litt(:) = leaf_litt(:)+(/fsc_liv*leaf_litter,(1-fsc_liv)*leaf_litter,0.0/)
-              call cohort_root_litter_profile(cc, dz, profile)
-              do l = 1, num_l
-                 root_litt(l,:) = root_litt(l,:) + profile(l)*(/ &
-                      fsc_froot*root_litter, &
-                      (1-fsc_froot)*root_litter, &
-                      0.0/)
-              enddo
-           case default
-              call error_mesg('vegn_phenology','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
-           end select
+           leaf_litt(:) = leaf_litt(:)+(/fsc_liv*leaf_litter,(1-fsc_liv)*leaf_litter,0.0/)
+           call cohort_root_litter_profile(cc, dz, profile)
+           do l = 1, num_l
+              root_litt(l,:) = root_litt(l,:) + profile(l)*(/ &
+                   fsc_froot*root_litter, &
+                   (1-fsc_froot)*root_litter, &
+                   0.0/)
+           enddo
+
+           vegn%litter = vegn%litter + leaf_litter + root_litter
            vegn%veg_out = vegn%veg_out + leaf_litter+root_litter;
            
            cc%blv = cc%blv + l_fract*(cc%bl+cc%br);
@@ -903,12 +892,9 @@ subroutine vegn_phenology_lm3(vegn, soil)
      end associate
   enddo
 
-  if (soil_carbon_option == SOILC_CORPSE) then
-     ! add accumulated litter 
-     call add_litter(soil%leafLitter,leaf_litt)
-     ! ssc_in and fsc_in updated in add_root_litter
-     call add_root_litter(soil, root_litt)
-  endif
+  ! add litter accumulated over the cohorts
+  call add_soil_carbon(soil, leaf_litt, wood_litt, root_litt)
+
 end subroutine vegn_phenology_lm3
 
 
