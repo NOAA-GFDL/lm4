@@ -65,7 +65,7 @@ real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 da
 
 ! diagnostic field IDs
 integer :: id_npp, id_nep, id_gpp
-integer :: id_fast_soil_C, id_slow_soil_C, id_rsoil, id_rsoil_fast, id_rsoil_slow
+integer :: id_rsoil, id_rsoil_fast, id_rsoil_slow
 integer :: id_resp, id_resl, id_resr, id_resg, id_asoil
 integer :: id_soilt, id_theta, id_litter, id_age
 
@@ -130,7 +130,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   type(vegn_cohort_type), pointer :: cc
   type(vegn_cohort_type), pointer :: c(:) ! for debug only
   real :: resp, resl, resr, resg ! respiration terms accumulated for all cohorts 
-  real :: md_alive, md_leaf, md_wood, md_froot ! component of maintenance demand
+  real :: md_leaf, md_wood, md_froot ! component of maintenance demand
   real :: md ! plant tissue maintenance, kg C/timestep
   real :: gpp ! gross primary productivity per tile
   real :: root_exudate_C       ! root exudate, kgC/(year indiv)
@@ -182,36 +182,21 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
           
      ! check if leaves/roots are present and need to be accounted in maintenance
      if(cc%status == LEAF_ON) then
-        md_alive = (cc%Pl * spdata(sp)%alpha(CMPT_LEAF) + &
-                    cc%Pr * spdata(sp)%alpha(CMPT_ROOT))* &
-              cc%bliving*dt_fast_yr
         md_leaf = cc%Pl * spdata(sp)%alpha(CMPT_LEAF)*cc%bliving*dt_fast_yr
         md_froot= cc%Pr * spdata(sp)%alpha(CMPT_ROOT)*cc%bliving*dt_fast_yr
-        ! NOTE that mathematically. md_alive = md_leaf + md_froot. Unfortunately,
-        ! order of operation matters for the bit-wise reproducibility, so all 
-        ! three need to be calculated separately
      else
-        md_alive = 0
         md_leaf  = 0
         md_froot = 0
      endif
      
      ! compute branch and coarse wood losses for tree types
-     md_wood =0;
      if (spdata(sp)%form==FORM_WOODY) then
-        md_wood = 0.6 *cc%bwood * spdata(sp)%alpha(CMPT_WOOD)*dt_fast_yr;
+        md_wood = 0.6 * cc%bwood * spdata(sp)%alpha(CMPT_WOOD)*dt_fast_yr
+     else
+        md_wood = 0
      endif
         
-     ! this silliness with the mathematically equivalent formulas is
-     ! solely to bit-reproduce old results in both CENTURY and CORPSE
-     ! modes: the results are extremely sensitive to the order of operations, 
-     ! and diverge with time, even in stand-alone land model runs.
-     select case (soil_carbon_option)
-     case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-        md = md_alive + cc%Psw_alphasw * cc%bliving * dt_fast_yr
-     case (SOILC_CORPSE)
-        md = md_leaf + md_froot + cc%Psw_alphasw * cc%bliving * dt_fast_yr
-     end select
+     md = md_leaf + md_froot + cc%Psw_alphasw * cc%bliving * dt_fast_yr
       
      cc%bwood_gain = cc%bwood_gain + cc%Psw_alphasw * cc%bliving * dt_fast_yr;
      cc%bwood_gain = cc%bwood_gain - md_wood;
@@ -220,30 +205,18 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
      cc%carbon_loss = cc%carbon_loss + md; ! used in diagnostics only
 
      ! add maintenance demand from leaf and root pools to fast soil carbon
-     select case (soil_carbon_option)
-     case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-        soil%fast_soil_C(1) = soil%fast_soil_C(1) + (   fsc_liv *md_alive +    fsc_wood *md_wood)*cc%nindivs;
-        soil%slow_soil_C(1) = soil%slow_soil_C(1) + ((1-fsc_liv)*md_alive + (1-fsc_wood)*md_wood)*cc%nindivs;
-
-        ! for budget tracking
-        soil%fsc_in(1)  = soil%fsc_in(1) + (     1 *md_alive+   0 *md_wood)*cc%nindivs;
-        soil%ssc_in(1)  = soil%ssc_in(1) + ((1.- 1)*md_alive+(1-0)*md_wood)*cc%nindivs;
-     case (SOILC_CORPSE)
-        leaf_litt(:) = leaf_litt(:) + (/fsc_liv,  1-fsc_liv,  0.0/)*md_leaf*cc%nindivs
-        wood_litt(:) = wood_litt(:) + (/fsc_wood, 1-fsc_wood, 0.0/)*md_wood*agf_bs*cc%nindivs
-        call cohort_root_litter_profile(cc, dz, profile)
-        do l = 1, num_l
-           root_litt(l,:) = root_litt(l,:) + profile(l)*cc%nindivs*(/ &
-                fsc_froot    *md_froot + fsc_wood    *md_wood*(1-agf_bs), &
-                (1-fsc_froot)*md_froot + (1-fsc_wood)*md_wood*(1-agf_bs), &
-                0.0/)
-        enddo
-     case default
-        call error_mesg('vegn_carbon_int','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
-     end select
+     leaf_litt(:) = leaf_litt(:) + (/fsc_liv,  1-fsc_liv,  0.0/)*md_leaf*cc%nindivs
+     wood_litt(:) = wood_litt(:) + (/fsc_wood, 1-fsc_wood, 0.0/)*md_wood*agf_bs*cc%nindivs
+     call cohort_root_litter_profile(cc, dz, profile)
+     do l = 1, num_l
+        root_litt(l,:) = root_litt(l,:) + profile(l)*cc%nindivs*(/ &
+             fsc_froot    *md_froot + fsc_wood    *md_wood*(1-agf_bs), &
+             (1-fsc_froot)*md_froot + (1-fsc_wood)*md_wood*(1-agf_bs), &
+             0.0/)
+     enddo
 
      vegn%veg_in  = vegn%veg_in  + cc%npp*cc%nindivs*dt_fast_yr;
-     vegn%veg_out = vegn%veg_out + (md_alive+md_wood)*cc%nindivs;
+     vegn%veg_out = vegn%veg_out + (md_leaf+md_froot+md_wood)*cc%nindivs;
 
      ! accumulate tile-level NPP and GPP
      vegn%npp = vegn%npp + cc%npp*cc%nindivs
@@ -259,13 +232,8 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   call add_root_exudates(soil,total_root_exudate_C)
 
   ! add litter accumulated over the cohorts
-  if (soil_carbon_option == SOILC_CORPSE) then
-     call add_litter(soil%leafLitter,       leaf_litt)
-     call add_litter(soil%coarseWoodLitter, wood_litt)
-     ! ssc_in and fsc_in updated in add_root_litter
-     call add_root_litter(soil,root_litt)
-  endif
-
+  ! add litter accumulated over the cohorts
+  call add_soil_carbon(soil, leaf_litt, wood_litt, root_litt)
 
   if(is_watch_point()) then
      write(*,*)'#### vegn_carbon_int_lm3 output ####'
