@@ -17,7 +17,7 @@ use land_tile_diag_mod, only : &
      register_cohort_diag_field, send_cohort_data
 use vegn_data_mod, only : spdata, &
      CMPT_NSC, CMPT_SAPWOOD, CMPT_LEAF, CMPT_ROOT, CMPT_VLEAF, CMPT_WOOD, &
-     LEAF_ON, LEAF_OFF, FORM_WOODY, &
+     PHEN_DECIDUOUS, LEAF_ON, LEAF_OFF, FORM_WOODY, &
      fsc_liv, fsc_wood, fsc_froot, K1, K2, soil_carbon_depth_scale, C2B, agf_bs, &
      l_fract, mcv_min, mcv_lai, do_ppa, b0_growth, tau_seed, &
      understory_lai_factor, bseed_distr, wood_fract_min, do_alt_allometry
@@ -837,14 +837,15 @@ subroutine vegn_phenology_lm3(vegn, soil)
 
   leaf_litt = 0 ; wood_litt = 0; root_litt = 0
   do i = 1,vegn%n_cohorts   
-     cc => vegn%cohorts(i)
+     associate ( cc => vegn%cohorts(i),   &
+                 sp => spdata(vegn%cohorts(i)%species) )
      
      if(is_watch_point())then
         write(*,*)'####### vegn_phenology #######'
-        __DEBUG4__(vegn%theta_av_phen, wilt, spdata(cc%species)%cnst_crit_phen, spdata(cc%species)%fact_crit_phen)
-        __DEBUG2__(vegn%psist_av, spdata(cc%species)%psi_stress_crit_phen)
+        __DEBUG4__(vegn%theta_av_phen, wilt, sp%cnst_crit_phen, sp%fact_crit_phen)
+        __DEBUG2__(vegn%psist_av, sp%psi_stress_crit_phen)
         __DEBUG1__(cc%species)
-        __DEBUG2__(vegn%tc_av,spdata(cc%species)%tc_crit)
+        __DEBUG2__(vegn%tc_av,sp%tc_crit)
      endif
      ! if drought-deciduous or cold-deciduous species
      ! temp=10 degrees C gives good growing season pattern        
@@ -852,16 +853,16 @@ subroutine vegn_phenology_lm3(vegn, soil)
      ! assumption is that no difference between drought and cold deciduous
      cc%status = LEAF_ON; ! set status to indicate no leaf drop
       
-     if(cc%species < 4 )then! deciduous species
+     if(sp%phent == PHEN_DECIDUOUS) then ! deciduous species
         ! actually either fact_crit_phen or cnst_crit_phen is zero, enforced
         ! by logic in the vegn_data.F90
-        theta_crit = spdata(cc%species)%cnst_crit_phen &
-              + wilt*spdata(cc%species)%fact_crit_phen
+        theta_crit = sp%cnst_crit_phen &
+              + wilt*sp%fact_crit_phen
         theta_crit = max(0.0,min(1.0, theta_crit))
-        psi_stress_crit = spdata(cc%species)%psi_stress_crit_phen
+        psi_stress_crit = sp%psi_stress_crit_phen
         if (      (psi_stress_crit <= 0. .and. vegn%theta_av_phen < theta_crit) &
              .or. (psi_stress_crit  > 0. .and. vegn%psist_av > psi_stress_crit) &
-             .or. (vegn%tc_av < spdata(cc%species)%tc_crit) ) then
+             .or. (vegn%tc_av < sp%tc_crit) ) then
            cc%status = LEAF_OFF; ! set status to indicate leaf drop 
            cc%leaf_age = 0;
            
@@ -898,7 +899,8 @@ subroutine vegn_phenology_lm3(vegn, soil)
            cc%bliving = cc%blv + cc%br + cc%bl + cc%bsw;
            call update_bio_living_fraction(cc);   
         endif
-     endif
+     endif ! phenology type
+     end associate
   enddo
 
   if (soil_carbon_option == SOILC_CORPSE) then
