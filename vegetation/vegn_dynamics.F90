@@ -18,11 +18,11 @@ use land_tile_diag_mod, only : &
 use vegn_data_mod, only : spdata, &
      CMPT_NSC, CMPT_SAPWOOD, CMPT_LEAF, CMPT_ROOT, CMPT_VLEAF, CMPT_WOOD, &
      PHEN_DECIDUOUS, LEAF_ON, LEAF_OFF, FORM_WOODY, &
-     fsc_liv, fsc_wood, fsc_froot, K1, K2, soil_carbon_depth_scale, C2B, agf_bs, &
-     l_fract, mcv_min, mcv_lai, do_ppa, b0_growth, tau_seed, &
+     fsc_liv, fsc_wood, fsc_froot, agf_bs, &
+     l_fract, mcv_min, mcv_lai, do_ppa, tau_seed, &
      understory_lai_factor, bseed_distr, wood_fract_min, do_alt_allometry
 use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon
-use soil_tile_mod, only: num_l, dz, soil_tile_type, soil_ave_temp, soil_theta, clw, csw
+use soil_tile_mod, only: num_l, dz, soil_tile_type, clw, csw
 use vegn_cohort_mod, only : vegn_cohort_type, &
      update_biomass_pools, update_bio_living_fraction, update_species, &
      leaf_area_from_biomass, init_cohort_allometry_ppa, &
@@ -30,7 +30,7 @@ use vegn_cohort_mod, only : vegn_cohort_type, &
 use vegn_disturbance_mod, only : kill_plants_ppa
 use soil_carbon_mod, only: N_C_TYPES, soil_carbon_option, &
     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, &
-    add_litter, poolTotalCarbon, debug_pool
+    add_litter
 use soil_mod, only: add_soil_carbon, add_root_litter, add_root_exudates, Dsdt
 
 implicit none
@@ -1339,6 +1339,10 @@ subroutine vegn_mergecohorts_ppa(vegn,soil)
   logical :: merged(vegn%n_cohorts)        ! mask to skip cohorts that were already merged
   real, parameter :: mindensity = 1.0E-6
   integer :: i,j,k
+  real :: leaf_litt(N_C_TYPES) ! fine surface litter per tile, kgC/m2
+  real :: wood_litt(N_C_TYPES) ! coarse surface litter per tile, kgC/m2
+  real :: root_litt(num_l, N_C_TYPES) ! root litter per soil layer, kgC/m2
+  real :: profile(num_l) ! storage for vertical profile of exudates and root litter
 
   allocate(cc(vegn%n_cohorts))
 
@@ -1384,6 +1388,7 @@ subroutine vegn_mergecohorts_ppa(vegn,soil)
   ! if (k==0) call error_mesg('vegn_mergecohorts_ppa','All cohorts died',WARNING)
 
   ! exclude cohorts that have zero individuals
+  leaf_litt = 0 ; wood_litt = 0; root_litt = 0
   if (k < vegn%n_cohorts) then
      allocate(cc(max(k,1)))
      k=0
@@ -1392,7 +1397,8 @@ subroutine vegn_mergecohorts_ppa(vegn,soil)
            k=k+1
            cc(k) = vegn%cohorts(i)
         else
-           call kill_plants_ppa(vegn%cohorts(i), vegn, soil, vegn%cohorts(i)%nindivs, 0.0)
+           call kill_plants_ppa(vegn%cohorts(i), vegn, soil, vegn%cohorts(i)%nindivs, 0.0, &
+                                leaf_litt, wood_litt, root_litt)
         endif
      enddo
 
@@ -1410,6 +1416,8 @@ subroutine vegn_mergecohorts_ppa(vegn,soil)
      deallocate (vegn%cohorts)
      vegn%cohorts=>cc
   endif
+  ! add litter accumulated over the cohorts
+  call add_soil_carbon(soil, leaf_litt, wood_litt, root_litt)
 
   if (is_watch_point()) then
      write(*,*) '##### vegn_mergecohorts_ppa output #####'
