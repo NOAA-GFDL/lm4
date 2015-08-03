@@ -553,19 +553,8 @@ subroutine vegn_starvation_ppa (vegn, soil)
        deathrate = 1.0
 
        deadtrees = min(cc%nindivs*deathrate,cc%nindivs) ! individuals / m2
-       cc%nindivs = cc%nindivs-deadtrees
-
-       ! add dead C from leaf and root pools to soil carbon
-       ! TODO: perhaps switch to kill_plants here?
-       leaf_litt(:) = leaf_litt(:) + (/fsc_liv,  1-fsc_liv,  0.0/)*deadtrees*cc%bl
-       wood_litt(:) = wood_litt(:) + (/fsc_wood, 1-fsc_wood, 0.0/)*deadtrees*(cc%bsw+cc%bwood)*agf_bs
-       call cohort_root_litter_profile(cc, dz, profile)
-       do k = 1, num_l
-          root_litt(k,:) = root_litt(k,:) + profile(k)*deadtrees*(/ &
-               fsc_froot    *cc%br + fsc_wood    *(cc%bsw+cc%bwood)*(1-agf_bs), & ! fast
-               (1-fsc_froot)*cc%br + (1-fsc_wood)*(cc%bsw+cc%bwood)*(1-agf_bs), & ! slow
-               0.0/) ! microbes
-       enddo
+       ! kill starved plants and add dead C from leaf and root pools to soil carbon
+       call kill_plants_ppa(cc, vegn, soil, deadtrees, 0.0, leaf_litt, wood_litt, root_litt)
 
        ! water from dead trees goes to intermediate buffers, to be added to the
        ! precipitation reaching ground
