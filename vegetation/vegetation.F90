@@ -306,7 +306,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
   character(len=256) :: restart_file_name_1, restart_file_name_2
   logical :: restart_1_exists, restart_2_exists
   real, allocatable :: t_ann(:,:),t_cold(:,:),p_ann(:,:),ncm(:,:) ! buffers for biodata reading 
-  logical :: did_read_biodata = .FALSE.
+  logical :: did_read_biodata
   logical :: did_read_cohort_structure = .FALSE.
   integer :: i,j,n ! indices of current tile
   integer :: init_cohort_spp(MAX_INIT_COHORTS)
@@ -469,15 +469,15 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
           t_cold(lnd%is:lnd%ie,lnd%js:lnd%je),&
           p_ann (lnd%is:lnd%ie,lnd%js:lnd%je),&
           ncm   (lnd%is:lnd%ie,lnd%js:lnd%je) )
-     call read_field( 'INPUT/biodata.nc','T_ANN', &
-          lnd%lon, lnd%lat, t_ann, interp='nearest')
-     call read_field( 'INPUT/biodata.nc','T_COLD', &
-          lnd%lon, lnd%lat, t_cold, interp='nearest')
-     call read_field( 'INPUT/biodata.nc','P_ANN', &
-          lnd%lon, lnd%lat, p_ann, interp='nearest')
-     call read_field( 'INPUT/biodata.nc','NCM', &
-          lnd%lon, lnd%lat, ncm, interp='nearest')
+     call read_field( 'INPUT/biodata.nc','T_ANN',  lnd%lon, lnd%lat, t_ann,  interp='nearest')
+     call read_field( 'INPUT/biodata.nc','T_COLD', lnd%lon, lnd%lat, t_cold, interp='nearest')
+     call read_field( 'INPUT/biodata.nc','P_ANN',  lnd%lon, lnd%lat, p_ann,  interp='nearest')
+     call read_field( 'INPUT/biodata.nc','NCM',    lnd%lon, lnd%lat, ncm,    interp='nearest')
      did_read_biodata = .TRUE.
+     call error_mesg('vegn_init','did read INPUT/biodata.nc',NOTE)     
+  else
+     did_read_biodata = .FALSE.
+     call error_mesg('vegn_init','did NOT read INPUT/biodata.nc',NOTE)
   endif
 
   ! create a list of species indices for initialization
@@ -534,6 +534,10 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
                    '" needed for initialization, but not found in the list of species parameters', FATAL)
         else if(did_read_biodata.and.do_biogeography) then
            call update_species(cc,t_ann(i,j),t_cold(i,j),p_ann(i,j),ncm(i,j),LU_NTRL)
+           tile%vegn%t_ann  = t_ann (i,j)
+           tile%vegn%t_cold = t_cold(i,j)
+           tile%vegn%p_ann  = p_ann (i,j)
+           tile%vegn%ncm    = ncm   (i,j)
         else
            cc%species = tile%vegn%tag
         endif
