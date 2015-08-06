@@ -39,10 +39,10 @@ use nfu_mod, only : nfu_validtype, nfu_inq_var, nfu_get_dim_bounds, nfu_get_rec,
 use vegn_data_mod, only : &
      N_LU_TYPES, LU_NTRL, LU_SCND, landuse_name, landuse_longname
 
-use cana_tile_mod, only : cana_tile_heat
+use cana_tile_mod, only : cana_tile_heat, cana_tile_carbon
 use snow_tile_mod, only : snow_tile_heat
-use vegn_tile_mod, only : vegn_tile_heat
-use soil_tile_mod, only : soil_tile_heat
+use vegn_tile_mod, only : vegn_tile_heat, vegn_tile_carbon
+use soil_tile_mod, only : soil_tile_heat, soil_tile_carbon
 
 use land_tile_mod, only : &
      land_tile_type, land_tile_list_type, land_tile_enum_type, new_land_tile, delete_land_tile, &
@@ -685,15 +685,16 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
   real :: atot ! total fraction of tiles that can be involved in transitions
   ! variable used for conservation check:
   real :: lmass0, fmass0, cmass0, heat0, &
-       soil_heat0, vegn_heat0, cana_heat0, snow_heat0 ! pre-transition values 
+       soil_heat0, vegn_heat0, cana_heat0, snow_heat0, soil_carbon0, vegn_carbon0, cana_carbon0 ! pre-transition values 
   real :: lmass1, fmass1, cmass1, heat1, &
-       soil_heat1, vegn_heat1, cana_heat1, snow_heat1 ! post-transition values
+       soil_heat1, vegn_heat1, cana_heat1, snow_heat1, soil_carbon1, vegn_carbon1, cana_carbon1 ! post-transition values
   real :: lm, fm ! buffers for transition calulations
 
   ! conservation check code, part 1: calculate the pre-transition grid
   ! cell totals
-  lmass0 = 0 ; fmass0 = 0 ; cmass0 = 0 ; heat0 = 0
+  lmass0 = 0 ; fmass0 = 0 ; cmass0 = 0 ; heat0 = 0; soil_carbon0 = 0
   soil_heat0 = 0 ;  vegn_heat0 = 0 ; cana_heat0 = 0 ; snow_heat0 = 0
+  cana_carbon0 = 0 ; vegn_carbon0 = 0
   ts = first_elmt(d_list) ; te=tail_elmt(d_list)
   do while (ts /= te)
      ptr=>current_tile(ts); ts=next_elmt(ts)
@@ -703,7 +704,10 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      heat0  = heat0  + land_tile_heat  (ptr)*ptr%frac
      cmass0 = cmass0 + land_tile_carbon(ptr)*ptr%frac
      
+     if(associated(ptr%cana)) cana_carbon0 = cana_carbon0 + cana_tile_carbon(ptr%cana)*ptr%frac
+     if(associated(ptr%vegn)) vegn_carbon0 = vegn_carbon0 + vegn_tile_carbon(ptr%vegn)*ptr%frac
      if(associated(ptr%soil)) soil_heat0 = soil_heat0 + soil_tile_heat(ptr%soil)*ptr%frac
+     if(associated(ptr%soil)) soil_carbon0 = soil_carbon0 + soil_tile_carbon(ptr%soil)*ptr%frac
      if(associated(ptr%vegn)) vegn_heat0 = vegn_heat0 + vegn_tile_heat(ptr%vegn)*ptr%frac
      if(associated(ptr%cana)) cana_heat0 = cana_heat0 + cana_tile_heat(ptr%cana)*ptr%frac
      if(associated(ptr%snow)) snow_heat0 = snow_heat0 + snow_tile_heat(ptr%snow)*ptr%frac
@@ -809,8 +813,9 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
 
   ! conservation check part 2: calculate grid cell totals in final state, and 
   ! compare them with pre-transition totals
-  lmass1 = 0 ; fmass1 = 0 ; cmass1 = 0 ; heat1 = 0
+  lmass1 = 0 ; fmass1 = 0 ; cmass1 = 0 ; heat1 = 0 ; soil_carbon1 = 0
   soil_heat1 = 0 ;  vegn_heat1 = 0 ; cana_heat1 = 0 ; snow_heat1 = 0
+  vegn_carbon1 = 0; cana_carbon1 = 0
   ts = first_elmt(d_list) ; te=tail_elmt(d_list)
   do while (ts /= te)
      ptr=>current_tile(ts); ts=next_elmt(ts)
@@ -820,7 +825,10 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      heat1  = heat1  + land_tile_heat  (ptr)*ptr%frac
      cmass1 = cmass1 + land_tile_carbon(ptr)*ptr%frac
 
+     if(associated(ptr%cana)) cana_carbon1 = cana_carbon1 + cana_tile_carbon(ptr%cana)*ptr%frac
+     if(associated(ptr%vegn)) vegn_carbon1 = vegn_carbon1 + vegn_tile_carbon(ptr%vegn)*ptr%frac
      if(associated(ptr%soil)) soil_heat1 = soil_heat1 + soil_tile_heat(ptr%soil)*ptr%frac
+     if(associated(ptr%soil)) soil_carbon1 = soil_carbon1 + soil_tile_carbon(ptr%soil)*ptr%frac
      if(associated(ptr%vegn)) vegn_heat1 = vegn_heat1 + vegn_tile_heat(ptr%vegn)*ptr%frac
      if(associated(ptr%cana)) cana_heat1 = cana_heat1 + cana_tile_heat(ptr%cana)*ptr%frac
      if(associated(ptr%snow)) snow_heat1 = snow_heat1 + snow_tile_heat(ptr%snow)*ptr%frac
@@ -832,7 +840,10 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
   call check_conservation ('vegetation heat content', vegn_heat0 , vegn_heat1 , 1e-6)
   call check_conservation ('snow heat content',       snow_heat0 , snow_heat1 , 1e-6)
   call check_conservation ('soil heat content',       soil_heat0 , soil_heat1 , 1e-6)
+  call check_conservation ('soil carbon content',     soil_carbon0, soil_carbon1, 1e-6)
   call check_conservation ('heat content', heat0 , heat1 , 1e-6)
+  call check_conservation ('vegetation carbon', vegn_carbon0, vegn_carbon1, 1e-6)
+  call check_conservation ('canopy carbon', cana_carbon0, cana_carbon1, 1e-6)
 
 end subroutine land_transitions_0d 
 

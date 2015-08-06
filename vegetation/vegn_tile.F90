@@ -84,9 +84,18 @@ type :: vegn_tile_type
    real :: ssc_pool_ag=0.0, ssc_rate_ag=0.0 ! for slow soil carbon above ground
    real :: fsc_pool_bg=0.0, fsc_rate_bg=0.0 ! for fast soil carbon below ground
    real :: ssc_pool_bg=0.0, ssc_rate_bg=0.0 ! for slow soil carbon below ground
-   
-   real :: leaflitter_buffer_ag=0.0, coarsewoodlitter_buffer_ag=0.0
-   real :: leaflitter_buffer_rate_ag=0.0, coarsewoodlitter_buffer_rate_ag=0.0
+
+   real :: fsn_pool_bg=0.0, fsn_rate_bg=0.0 ! for fast soil nitrogen below ground
+   real :: ssn_pool_bg=0.0, ssn_rate_bg=0.0 ! for slow soil nitrogen below ground
+
+   real :: leaflitter_buffer_fast=0.0, leaflitter_buffer_slow=0.0
+   real :: coarsewoodlitter_buffer_fast=0.0, coarsewoodlitter_buffer_slow=0.0
+   real :: leaflitter_buffer_rate_fast=0.0, leaflitter_buffer_rate_slow=0.0
+   real :: coarsewoodlitter_buffer_rate_fast=0.0, coarsewoodlitter_buffer_rate_slow=0.0
+   real :: leaflitter_buffer_fast_N=0.0, leaflitter_buffer_slow_N=0.0
+   real :: coarsewoodlitter_buffer_fast_N=0.0, coarsewoodlitter_buffer_slow_N=0.0
+   real :: leaflitter_buffer_rate_fast_N=0.0, leaflitter_buffer_rate_slow_N=0.0
+   real :: coarsewoodlitter_buffer_rate_fast_N=0.0, coarsewoodlitter_buffer_rate_slow_N=0.0
 
    real :: csmoke_pool=0.0 ! carbon lost through fires, kg C/m2
    real :: csmoke_rate=0.0 ! rate of release of the above to atmosphere, kg C/(m2 yr)
@@ -269,9 +278,20 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   __MERGE__(ssc_pool_ag); __MERGE__(ssc_rate_ag)
   __MERGE__(fsc_pool_bg); __MERGE__(fsc_rate_bg)
   __MERGE__(ssc_pool_bg); __MERGE__(ssc_rate_bg)
-  
-  __MERGE__(leaflitter_buffer_ag); __MERGE__(leaflitter_buffer_rate_ag)
-  __MERGE__(coarsewoodlitter_buffer_ag); __MERGE__(coarsewoodlitter_buffer_rate_ag)
+
+  __MERGE__(fsn_pool_bg); __MERGE__(fsn_rate_bg)
+  __MERGE__(ssn_pool_bg); __MERGE__(ssn_rate_bg)
+
+
+  __MERGE__(leaflitter_buffer_fast); __MERGE__(leaflitter_buffer_rate_fast)
+  __MERGE__(coarsewoodlitter_buffer_fast); __MERGE__(coarsewoodlitter_buffer_rate_fast)
+  __MERGE__(leaflitter_buffer_slow); __MERGE__(leaflitter_buffer_rate_slow)
+  __MERGE__(coarsewoodlitter_buffer_slow); __MERGE__(coarsewoodlitter_buffer_rate_slow)
+
+  __MERGE__(leaflitter_buffer_fast_N); __MERGE__(leaflitter_buffer_rate_fast_N)
+  __MERGE__(coarsewoodlitter_buffer_fast_N); __MERGE__(coarsewoodlitter_buffer_rate_fast_N)
+  __MERGE__(leaflitter_buffer_slow_N); __MERGE__(leaflitter_buffer_rate_slow_N)
+  __MERGE__(coarsewoodlitter_buffer_slow_N); __MERGE__(coarsewoodlitter_buffer_rate_slow_N)
 
   __MERGE__(csmoke_pool)
   __MERGE__(csmoke_rate)
@@ -639,6 +659,11 @@ function vegn_tile_carbon(vegn) result(carbon) ; real carbon
   carbon = carbon + sum(vegn%harv_pool) + &
            vegn%fsc_pool_ag + vegn%ssc_pool_ag + &
            vegn%fsc_pool_bg + vegn%ssc_pool_bg + vegn%csmoke_pool
+
+  ! Pools associated with aboveground litter CORPSE pools
+  carbon = carbon + vegn%leaflitter_buffer_fast + vegn%leaflitter_buffer_slow + &
+                    vegn%coarsewoodlitter_buffer_fast + vegn%coarsewoodlitter_buffer_slow
+  ! finewoodlitter buffers not currently implemented
 end function vegn_tile_carbon
 
 

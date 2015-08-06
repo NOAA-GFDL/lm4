@@ -24,7 +24,7 @@ integer, public, parameter :: LU_SEL_TAG = 1 ! tag for the land use selectors
 integer, public, parameter :: SP_SEL_TAG = 2 ! tag for the species selectors
 integer, public, parameter :: NG_SEL_TAG = 3 ! tag for natural grass selector
   ! by "natural" it means non-human-maintained, so secondary vegetation
-  ! grassland will be included. 
+  ! grassland will be included.
 
 integer, public, parameter :: NSPECIES = 5, & ! number of species
  SP_C4GRASS   = 0, & ! c4 grass
@@ -40,9 +40,9 @@ character(len=32), parameter :: species_longname(0:NSPECIES-1) = &
 
 integer, public, parameter :: n_dim_vegn_types = 9
 integer, public, parameter :: MSPECIES = NSPECIES+n_dim_vegn_types-1
- 
+
 integer, public, parameter :: NCMPT = 6, & ! number of carbon compartments
- CMPT_REPRO   = 1, & ! 
+ CMPT_REPRO   = 1, & !
  CMPT_SAPWOOD = 2, & ! sapwood compartment
  CMPT_LEAF    = 3, & ! leaf compartment
  CMPT_ROOT    = 4, & ! fine root compartment
@@ -74,7 +74,7 @@ character(len=32), public, parameter :: &
 
 integer, public, parameter :: & ! harvesing pools paraneters
  N_HARV_POOLS        = 6, & ! number of harvesting pools
- HARV_POOL_PAST      = 1, & 
+ HARV_POOL_PAST      = 1, &
  HARV_POOL_CROP      = 2, &
  HARV_POOL_CLEARED   = 3, &
  HARV_POOL_WOOD_FAST = 4, &
@@ -86,7 +86,7 @@ data HARV_POOL_NAMES &
 
 real, public, parameter :: C2B = 2.0  ! carbon to biomass conversion factor
 
-real, public, parameter :: BSEED = 5e-5 ! seed density for supply/demand calculations, kg C/m2 
+real, public, parameter :: BSEED = 5e-5 ! seed density for supply/demand calculations, kg C/m2
 ! ---- public types
 public :: spec_data_type
 
@@ -105,7 +105,10 @@ public :: &
     fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
     l_fract, T_transp_min, soil_carbon_depth_scale, &
     cold_month_threshold, scnd_biomass_bins, &
-    phen_ev1, phen_ev2, cmc_eps
+    phen_ev1, phen_ev2, cmc_eps, &
+    leaf_fast_c2n,leaf_slow_c2n,froot_fast_c2n,froot_slow_c2n,wood_fast_c2n,wood_slow_c2n, root_exudate_N_frac !x2z - ens: lets get rid of c2n?
+
+
 
 ! ---- public subroutine
 public :: read_vegn_data_namelist
@@ -127,12 +130,12 @@ type spec_data_type
 
   real    :: c1 ! unitless, coefficient for living biomass allocation
   real    :: c2 ! 1/m, coefficient for living biomass allocation
-  real    :: c3 ! unitless, coefficient for calculation of sapwood biomass 
+  real    :: c3 ! unitless, coefficient for calculation of sapwood biomass
                 ! fraction times sapwood retirement rate
 
   real    :: alpha(NCMPT) ! decay rates of plant carbon pools, 1/yr
   real    :: beta (NCMPT) ! respiration rates of plant carbon pools
-  
+
   real    :: dfr          ! fine root diameter ? or parameter relating diameter of fine roots to resistance
   ! the following two parameters are used in the Darcy-law calculations of water supply
   real    :: srl  ! specific root length, m/(kg C)
@@ -143,7 +146,7 @@ type spec_data_type
   real    :: specific_leaf_area ! cm2/(g biomass)
   real    :: leaf_size    ! characteristic leaf size
   real    :: leaf_life_span ! months
-  
+
   real    :: alpha_phot   ! photosynthesis efficiency
   real    :: m_cond       ! factor of stomatal conductance
   real    :: Vmax         ! max rubisco rate
@@ -154,7 +157,7 @@ type spec_data_type
   ! radiation parameters for 2 bands, VIS and NIR
   real    :: leaf_refl (NBANDS) ! reflectance of leaf
   real    :: leaf_tran (NBANDS) ! transmittance of leaf
-  real    :: leaf_emis          ! emissivity of leaf 
+  real    :: leaf_emis          ! emissivity of leaf
   real    :: scatter   (NBANDS) ! scattering coefficient of leaf (calculated as leaf_tran+leaf_refl)
   real    :: upscatter_dif (NBANDS)
 
@@ -174,12 +177,12 @@ type spec_data_type
 
   ! critical temperature for leaf drop, was internal to phenology
   real    :: tc_crit
-  ! critical soil-water-stress index, used in place of fact_crit_phen and 
+  ! critical soil-water-stress index, used in place of fact_crit_phen and
   ! cnst_crit_phen. It is used if and only if it's value is greater than 0
   real    :: psi_stress_crit_phen
-  real    :: fact_crit_phen, cnst_crit_phen ! wilting factor and offset to 
+  real    :: fact_crit_phen, cnst_crit_phen ! wilting factor and offset to
     ! get critical value for leaf drop -- only one is non-zero at any time
-  real    :: fact_crit_fire, cnst_crit_fire ! wilting factor and offset to 
+  real    :: fact_crit_fire, cnst_crit_fire ! wilting factor and offset to
     ! get critical value for fire -- only one is non-zero at the time
 
   real    :: smoke_fraction ! fraction of carbon lost as smoke during fires
@@ -241,7 +244,7 @@ real :: dat_height(0:MSPECIES)= &
        (/  0.51,         0.51,          6.6,         19.5,          6.6,   19.5,   6.6,   8.8,   6.6,   5.9,  0.51,   1.0,  0.51,   2.9 /)
 real :: dat_lai(0:MSPECIES); data dat_lai(NSPECIES:MSPECIES) &
                                                                         /   5.0,   5.0,   5.0,   5.0,   5.0,  5.0,   .001,   5.0,   5.0 /
-! dat_root_density and dat_root_zeta were extended to lm3v species by copying 
+! dat_root_density and dat_root_zeta were extended to lm3v species by copying
 ! appropriate values from LaD table (e.g., grassland for both C3 and C4 grass)
 real :: dat_root_density(0:MSPECIES)= &
 !       c4grass       c3grass    temp-decid      tropical     evergreen      BE     BD     BN     NE     ND      G      D      T      A
@@ -291,11 +294,11 @@ real :: root_r(0:MSPECIES); data root_r & ! radius of fine roots, m
         /1.1e-4,       1.1e-4,       2.9e-4,       2.9e-4,       2.9e-4, 2.9e-4, 2.9e-4, 2.9e-4, 2.9e-4, 2.9e-4, 1.1e-4, 1.1e-4, 2.2e-4, 2.2e-4 /
 real :: root_perm(0:MSPECIES); data root_perm & ! fine root membrane permeability per unit membrane area, kg/(m3 s)
         / 1e-5,          1e-5,         1e-5,         1e-5,         1e-5,   1e-5,   1e-5,   1e-5,   1e-5,   1e-5,   1e-5,   1e-5,   1e-5,   1e-5 /
-! Specific root length is from Jackson et al., 1997, PNAS  Vol.94, pp.7362--7366, 
-! converted to m/(kg C) from m/(g biomass). Biomass/C mass ratio was assumed 
+! Specific root length is from Jackson et al., 1997, PNAS  Vol.94, pp.7362--7366,
+! converted to m/(kg C) from m/(g biomass). Biomass/C mass ratio was assumed
 ! to be 2. The fine root radius is from the same source.
 !
-! Root membrane permeability is "high" value from Siqueira et al., 2008, Water 
+! Root membrane permeability is "high" value from Siqueira et al., 2008, Water
 ! Resource Research Vol. 44, W01432, converted to mass units
 
 ! xylem resistance, s/m
@@ -321,21 +324,21 @@ real :: ksi(0:MSPECIES)= & ! leaf inclination index
        (/      0.,          0.,           0.,           0.,          0.,     0.,     0.,    0.,    0.,    0.,    0.,    0.,    0.,   0.  /)
 real :: min_cosz = 0.01 ! minimum allowed value of cosz for vegetation radiation
    ! properties calculations.
-   ! It probably doesn't make sense to set it any less than the default value, because the angular 
-   ! diameter of the sun is about 0.01 radian (0.5 degree), so the spread of the direct radiation 
-   ! zenith angles is about this. Besides, the sub-grid variations of land surface slope are 
-   ! probably even larger that that. 
+   ! It probably doesn't make sense to set it any less than the default value, because the angular
+   ! diameter of the sun is about 0.01 radian (0.5 degree), so the spread of the direct radiation
+   ! zenith angles is about this. Besides, the sub-grid variations of land surface slope are
+   ! probably even larger that that.
 
 ! canopy interception parameters
 real :: cmc_lai(0:MSPECIES)= & ! maximum canopy water conntent per unit LAI
        (/    0.1,         0.1,          0.1,          0.1,          0.1,    0.1,    0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,  0.1  /)
-real :: cmc_pow(0:MSPECIES)= & ! power of the wet canopy fraction relation 
+real :: cmc_pow(0:MSPECIES)= & ! power of the wet canopy fraction relation
   (/   TWOTHIRDS,   TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,     1.,     1.,    1.,    1.,    1.,    1.,    1.,    1.,   1.  /)
 real :: csc_lai(0:MSPECIES)= & ! maximum canopy snow conntent per unit LAI
        (/    0.1,         0.1,          0.1,          0.1,          0.1,    0.1,    0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,  0.1  /)
-real :: csc_pow(0:MSPECIES)= & ! power of the snow-covered fraction relation 
+real :: csc_pow(0:MSPECIES)= & ! power of the snow-covered fraction relation
   (/   TWOTHIRDS,   TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,     1.,     1.,    1.,    1.,    1.,    1.,    1.,    1.,   1.  /)
-real :: cmc_eps = 0.01 ! value of w/w_max for transition to linear function; 
+real :: cmc_eps = 0.01 ! value of w/w_max for transition to linear function;
                        ! the same value is used for liquid and snow
 
 real :: fuel_intensity(0:MSPECIES) ; data fuel_intensity(0:NSPECIES-1) &
@@ -355,18 +358,18 @@ real :: gamma_resp(0:MSPECIES)= &
 real :: tc_crit(0:MSPECIES)= &
        (/ 283.16,      278.16,       283.16,        283.16,      263.16,      0.,    0.,    0.,    0.,    0.,    0.,    0.,    0.,    0. /)
 real :: psi_stress_crit_phen(0:MSPECIES)= & ! iff > 0, critical soil-water-stress index for leaf drop, overrides water content
-       (/    0.0,         0.0,          0.0,           0.0,         0.0,    0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0 /)       
+       (/    0.0,         0.0,          0.0,           0.0,         0.0,    0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0 /)
 real :: cnst_crit_phen(0:MSPECIES)= & ! constant critical value for leaf drop
        (/    0.1,         0.1,          0.1,           0.1,         0.1,    0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1  /)
 real :: fact_crit_phen(0:MSPECIES)= & ! factor for wilting to get critical value for leaf drop
        (/    0.0,         0.0,          0.0,           0.0,         0.0,    0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0  /)
 real :: cnst_crit_fire(0:MSPECIES)= & ! constant critical value for leaf drop
-       (/    0.1,         0.1,          0.1,           0.1,         0.1,    0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1  /)  
+       (/    0.1,         0.1,          0.1,           0.1,         0.1,    0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1  /)
 real :: fact_crit_fire(0:MSPECIES)= & ! factor for wilting to get critical value for fire
        (/    0.0,         0.0,          0.0,           0.0,         0.0,    0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0  /)
-real :: wet_leaf_dreg(0:MSPECIES) = & ! wet leaf photosynthesis down-regulation: 0.3 means 
+real :: wet_leaf_dreg(0:MSPECIES) = & ! wet leaf photosynthesis down-regulation: 0.3 means
         ! photosynthesis of completely wet leaf will be 30% less than that of dry one,
-        ! provided everything else is the same 
+        ! provided everything else is the same
        (/    0.3,         0.3,          0.3,           0.3,         0.3,    0.3,   0.3,   0.3,   0.3,   0.3,   0.3,   0.3,   0.3,   0.3  /)
 real :: leaf_age_onset(0:MSPECIES) = & ! onset of Vmax decrease due to leaf aging, days
        (/  100.0,       100.0,        100.0,         100.0,       100.0,  100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0  /)
@@ -380,7 +383,7 @@ real :: soil_carbon_depth_scale = 0.2   ! depth of active soil for carbon decomp
 real :: cold_month_threshold    = 283.0 ! monthly temperature threshold for calculations of number of cold months
 real :: smoke_fraction(0:MSPECIES) = & ! fration of carbon lost as smoke
        (/    0.9,         0.9,          0.9,           0.9,         0.9,    0.9,   0.9,   0.9,   0.9,   0.9,   0.9,   0.9,   0.9,   0.9  /)
-real :: tracer_cuticular_cond(0:MSPECIES)= & ! cuticular conductance for tracer dry deposition, m/s 
+real :: tracer_cuticular_cond(0:MSPECIES)= & ! cuticular conductance for tracer dry deposition, m/s
        (/   5e-4,        5e-4,         5e-4,          5e-4,        5e-4,   5e-4,  5e-4,  5e-4,  5e-4,  5e-4,  5e-4,  5e-4,  5e-4,  5e-4  /)
 real :: agf_bs         = 0.8 ! ratio of above ground stem to total stem
 real :: K1 = 10.0, K2 = 0.05 ! soil decomposition parameters
@@ -389,29 +392,40 @@ real :: fsc_wood       = 0.2
 real :: fsc_froot      = 0.3
 real :: tau_drip_l     = 21600.0 ! canopy water residence time, for drip calculations
 real :: tau_drip_s     = 86400.0 ! canopy snow residence time, for drip calculations
-real :: GR_factor = 0.33 ! growth respiration factor     
+real :: GR_factor = 0.33 ! growth respiration factor
 
 real :: tg_c3_thresh = 1.5 ! threshold biomass between tree and grass for C3 plants
 real :: tg_c4_thresh = 2.0 ! threshold biomass between tree and grass for C4 plants
-real :: fsc_pool_spending_time = 1.0 ! time (yrs) during which intermediate pool of 
+real :: fsc_pool_spending_time = 1.0 ! time (yrs) during which intermediate pool of
                   ! fast soil carbon is entirely converted to the fast soil carbon
 real :: ssc_pool_spending_time = 1.0 ! time (yrs) during which intermediate pool of
                   ! slow soil carbon is entirely converted to the slow soil carbon
 real :: harvest_spending_time(N_HARV_POOLS) = &
      (/1.0, 1.0, 1.0, 1.0, 10.0, 100.0/)
      ! time (yrs) during which intermediate pool of harvested carbon is completely
-     ! released to the atmosphere. 
+     ! released to the atmosphere.
      ! NOTE: a year in the above *_spending_time definitions is exactly 365*86400 seconds
 real :: l_fract      = 0.5 ! fraction of the leaves retained after leaf drop
 real :: T_transp_min = 0.0 ! lowest temperature at which transporation is enabled
                            ! 0 means no limit, lm3v value is 268.0
-! boundaries of wood biomass bins for secondary veg. (kg C/m2); used to decide 
-! whether secondary vegetation tiles can be merged or not. MUST BE IN ASCENDING 
+! boundaries of wood biomass bins for secondary veg. (kg C/m2); used to decide
+! whether secondary vegetation tiles can be merged or not. MUST BE IN ASCENDING
 ! ORDER.
-real  :: scnd_biomass_bins(10) &  
+real  :: scnd_biomass_bins(10) &
      = (/ 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 1000.0 /)
-real :: phen_ev1 = 0.5, phen_ev2 = 0.9 ! thresholds for evergreen/decidious 
+real :: phen_ev1 = 0.5, phen_ev2 = 0.9 ! thresholds for evergreen/decidious
       ! differentiation (see phenology_type in cohort.F90)
+
+!!!x2z Need to assign more realistic value, I currently use the value in CH's params.nml in CORPSE Example
+! BNS: I am changing these values to be C/N to match the variable name (they currently look like N/C)
+! Really, these shold vary by plant species, but I think they may end up being temporary anyway
+real :: leaf_fast_c2n=	66	!x2z parameters change the amount of carbon in leaves to nitrogen for the fast soil carbon pool !!!CHECK!!!
+real :: leaf_slow_c2n=	50	!x2z
+real :: froot_fast_c2n=	50	!x2z
+real :: froot_slow_c2n=	50	!x2z
+real :: wood_fast_c2n=	200	!x2z Wiki  http://en.wikipedia.org/wiki/Carbon-to-nitrogen_ratio
+real :: wood_slow_c2n= 	200	!x2z Wiki  http://en.wikipedia.org/wiki/Carbon-to-nitrogen_ratio
+real :: root_exudate_N_frac = 0.0 ! N fraction of root exudates. See e.g. Drake et al 2013 
 
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
@@ -439,7 +453,8 @@ namelist /vegn_data_nml/ &
   l_fract, T_transp_min,  tc_crit, psi_stress_crit_phen, &
   cnst_crit_phen, fact_crit_phen, cnst_crit_fire, fact_crit_fire, &
   scnd_biomass_bins, phen_ev1, phen_ev2, &
-  root_exudate_frac, tracer_cuticular_cond
+  root_exudate_frac, tracer_cuticular_cond,&
+  leaf_fast_c2n, leaf_slow_c2n, froot_fast_c2n, froot_slow_c2n, wood_fast_c2n, wood_slow_c2n, root_exudate_N_frac
 
 
 contains ! ###################################################################
@@ -453,7 +468,7 @@ subroutine read_vegn_data_namelist()
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
   integer :: i
-  
+
   type(table_printer_type) :: table
 
   call write_version_number(version, tagname)
@@ -463,7 +478,7 @@ subroutine read_vegn_data_namelist()
 #else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
-     ierr = 1;  
+     ierr = 1;
      do while (ierr /= 0)
         read (unit, nml=vegn_data_nml, iostat=io, end=10)
         ierr = check_nml_error (io, 'vegn_data_nml')
@@ -484,7 +499,7 @@ subroutine read_vegn_data_namelist()
   ! do the same for fire
   cnst_crit_fire = max(0.0,min(1.0,cnst_crit_fire))
   fact_crit_fire = max(0.0,fact_crit_fire)
-  where (cnst_crit_fire/=0) fact_crit_fire=0.0 
+  where (cnst_crit_fire/=0) fact_crit_fire=0.0
   write(unit,*)'reconciled fact_crit_fire and cnst_crit_fire'
 
   ! initialize vegetation data structure
@@ -499,7 +514,7 @@ subroutine read_vegn_data_namelist()
   spdata%treefall_disturbance_rate = treefall_disturbance_rate
   spdata%mortality_kills_balive    = mortality_kills_balive
   spdata%fuel_intensity            = fuel_intensity
- 
+
   spdata%pt         = pt
   spdata%Vmax       = Vmax
   spdata%m_cond     = m_cond
@@ -514,7 +529,7 @@ subroutine read_vegn_data_namelist()
   spdata%root_r     = root_r
   spdata%root_perm  = root_perm
   spdata%xylem_res  = xylem_res
-  
+
   spdata%c1 = c1
   spdata%c2 = c2
   spdata%c3 = c3
@@ -523,7 +538,7 @@ subroutine read_vegn_data_namelist()
   spdata%cmc_pow = cmc_pow
   spdata%csc_lai = csc_lai
   spdata%csc_pow = csc_pow
-  
+
   spdata%leaf_size = leaf_size
 
   spdata%tc_crit   = tc_crit
@@ -554,7 +569,7 @@ subroutine read_vegn_data_namelist()
      call register_tile_selector(landuse_name(i), long_name=landuse_longname(i),&
           tag = SEL_VEGN, idata1 = LU_SEL_TAG, idata2 = i )
   enddo
-  
+
   ! register selectors for species-specific diagnostics
   do i=0,NSPECIES-1
      call register_tile_selector(species_name(i), long_name=species_longname(i),&
@@ -638,8 +653,8 @@ subroutine read_vegn_data_namelist()
 
   call print(table,stdout())
   call print(table,unit)
-  
-end subroutine 
+
+end subroutine
 
 
 ! ============================================================================
@@ -647,11 +662,11 @@ subroutine init_derived_species_data(sp)
    type(spec_data_type), intent(inout) :: sp
 
    integer :: j
-   
+
    sp%leaf_life_span     = 12.0/sp%alpha(CMPT_LEAF) ! in months
    ! calculate specific leaf area (cm2/g(biomass))
    ! Global Raich et al 94 PNAS pp 13730-13734
-   sp%specific_leaf_area = 10.0**(2.4 - 0.46*log10(sp%leaf_life_span));       
+   sp%specific_leaf_area = 10.0**(2.4 - 0.46*log10(sp%leaf_life_span));
    ! convert to (m2/kg(carbon)
    sp%specific_leaf_area = C2B*sp%specific_leaf_area*1000.0/10000.0
 
@@ -668,13 +683,13 @@ subroutine init_derived_species_data(sp)
            (1-sp%phi1/sp%phi2*log(1+sp%phi2/sp%phi1))&
            / sp%phi2
    else
-      ! in degenerate case of spherical leaf angular distribution the above 
-      ! formula for mu_bar gives an undefined value, so we handle it separately 
+      ! in degenerate case of spherical leaf angular distribution the above
+      ! formula for mu_bar gives an undefined value, so we handle it separately
       sp%mu_bar = 1.0
    endif
    do j = 1,NBANDS
       sp%scatter(j)       = sp%leaf_refl(j)+sp%leaf_tran(j);
-      sp%upscatter_dif(j) = 0.5*(sp%scatter(j) + & 
+      sp%upscatter_dif(j) = 0.5*(sp%scatter(j) + &
            (sp%leaf_refl(j)-sp%leaf_tran(j))*(1+sp%ksi)**2/4);
    enddo
 end subroutine
