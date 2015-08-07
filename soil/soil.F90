@@ -366,7 +366,7 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
   integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
   integer, intent(in)  :: id_band ! ID of spectral band axis
   integer, intent(out) :: id_zfull ! ID of vertical soil axis
-  logical, intent(out) :: new_land_io
+  logical, intent(in) :: new_land_io
 
   ! ---- local vars
   integer :: unit, unit1  ! unit numbers for various i/o
