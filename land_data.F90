@@ -58,7 +58,8 @@ character(len=*), parameter :: &
 ! It is supposed to be double-precision signaling NaN, to trigger a trap when
 ! the program is compiled with trapping non-initialized values.  
 ! See http://ftp.uniovi.es/~antonio/uned/ieee754/IEEE-754references.html
-real, parameter :: init_value = Z'FFF0000000000001'
+! real, parameter :: init_value = Z'FFF0000000000001'
+real, parameter :: init_value = 0.0
 
 ! ---- types -----------------------------------------------------------------
 type :: atmos_land_boundary_type
