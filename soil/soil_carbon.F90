@@ -371,7 +371,7 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
     real::C_dissolution_rate,liquid_frac,N_dissolution_rate!xz
     real::protectedC_dissolved(n_c_types),livemicrobeC_dissolved!xz
     real::protectedN_dissolved(n_c_types),livemicrobeN_dissolved!xz
-    real::cohortVolume(pool%n_cohorts),activeVolume,inactiveVolume!xz
+    real::activeVolume,inactiveVolume,cohortVolume!xz
     real::C_protected_solubility!xz
     real::N_protected_solubility,nitrif,Denitrif!xz
 
@@ -526,24 +526,15 @@ if (soil_carbon_option == SOILC_CORPSE_N) then
 !    if (is_watch_point()) then
 !       write(*,*) '##### update_pool outpt #####'
 !    endif
-    do n=1, pool%n_cohorts
-!        if (is_watch_point()) then
-!           write(*,*) 'cohort ',n
-!           __DEBUG1__(pool%litterCohorts(n)%litterC)
-!           __DEBUG1__(pool%litterCohorts(n)%protectedC)
-!           __DEBUG2__(pool%litterCohorts(n)%livingMicrobeC,pool%litterCohorts(n)%originalLitterC)
-!           __DEBUG1__(pool%litterCohorts(n)%CO2)
-!        endif
-        activeVolume=cohortCsum(pool%litterCohorts(n),.TRUE.)/litterDensity
-        inactiveVolume=min(pool%litterCohorts(n)%originalLitterC/litterDensity,layerThickness)-activeVolume
-        cohortVolume(n)=activeVolume+max(0.0,inactiveVolume)
-    enddo
 
 
     DO n=1,pool%n_cohorts
         prevC=pool%litterCohorts(n)%litterC
         prevN=pool%litterCohorts(n)%litterN
-        call update_cohort(cohort=pool%litterCohorts(n),nitrate=pool%nitrate,ammonium=pool%ammonium,cohortVolume=cohortVolume(n),T=T,theta=max(theta,0.0),&
+        activeVolume=cohortCsum(pool%litterCohorts(n),.TRUE.)/litterDensity
+        inactiveVolume=min(pool%litterCohorts(n)%originalLitterC/litterDensity,layerThickness)-activeVolume
+        cohortVolume=activeVolume+max(0.0,inactiveVolume)
+        call update_cohort(cohort=pool%litterCohorts(n),nitrate=pool%nitrate,ammonium=pool%ammonium,cohortVolume=cohortVolume,T=T,theta=max(theta,0.0),&
                         air_filled_porosity=max(air_filled_porosity,0.0),&
                         protection_rate=Prate_limited,protection_rate_N=Prate_limited_N,&
                         dt=dt,&
@@ -584,9 +575,10 @@ if (soil_carbon_option == SOILC_CORPSE_N) then
         soil_IMM_N=soil_IMM_N+tempIMM_N !xz kg/m2
 
 !        if (is_watch_point()) then
-!           __DEBUG4__(cohortVolume(n),T,theta,air_filled_porosity)
+!           __DEBUG4__(cohortVolume,T,theta,air_filled_porosity)
 !           __DEBUG3__(Prate_limited,tempCO2,CO2prod)
 !        endif
+
     ENDDO
 
 
