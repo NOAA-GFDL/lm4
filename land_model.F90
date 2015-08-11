@@ -234,7 +234,7 @@ integer :: &
   id_grnd_flux,                                                            &
   id_soil_water_supply,     id_levapg_max,                                 &
   id_water,    id_snow,                                                    &
-  id_Trad,     id_Tca,      id_qca,      id_qco2,     id_qco2_dvmr,        &
+  id_Trad,     id_Tca,      id_qca,      id_qco2_dvmr,                     &
   id_swdn_dir, id_swdn_dif, id_swup_dir, id_swup_dif, id_lwdn,             &
   id_fco2,                                                                 &
   id_vegn_cover,    id_cosz,                                               &
@@ -3230,8 +3230,6 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
      id_cana_tr(i) = register_tiled_diag_field ( module_name, 'cana_'//trim(name), axes, time, &
              'canopy air '//trim(name)//' moist mass mixing ratio', 'kg/kg', missing_value=-1.0 )
   enddo
-  id_qco2    = register_tiled_diag_field ( module_name, 'qco2', axes, time, &
-             'canopy-air CO2 moist mass mixing ratio', 'kg/kg', missing_value=-1.0 )
   id_qco2_dvmr = register_tiled_diag_field ( module_name, 'qco2_dvmr', axes, time, &
              'canopy-air CO2 dry volumetric mixing ratio', 'mol CO2/mol air', missing_value=-1.0 )
   id_fco2    = register_tiled_diag_field ( module_name, 'fco2', axes, time, &
