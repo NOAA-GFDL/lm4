@@ -106,10 +106,9 @@ subroutine vegn_photosynthesis ( soil, vegn, cohort, &
   real, intent(in)  :: p_surf   ! surface pressure
   real, intent(in)  :: drag_q   ! drag coefficient for specific humidity
   real, intent(in)  :: soil_beta
-  real, intent(in)  :: soil_water_supply ! max supply of water to roots per unit
-                                ! active root biomass per second, kg/(indiv s)
+  real, intent(in)  :: soil_water_supply ! max supply of water to roots, kg/(indiv s)
   real, intent(in)  :: con_v_v  ! one-sided foliage-CAS conductance per unit ground area        
-  real, intent(out) :: evap_demand   ! evaporative water demand, kg/(indiv s)
+  real, intent(out) :: evap_demand   ! transpiration water demand, kg/(indiv s)
   real, intent(out) :: stomatal_cond ! stomatal conductance, m/s
   real, intent(out) :: RHi      ! relative humidity inside leaf, at the point of vaporization
 
@@ -149,13 +148,12 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   real, intent(in)  :: soil_water_supply ! max supply of water to roots per unit
                                 ! active root biomass per second, kg/(indiv s)
   real, intent(in)  :: con_v_v  ! one-sided foliage-CAS conductance per unit ground area        
-  real, intent(out) :: evap_demand ! evaporative water demand, kg/(indiv s)
+  real, intent(out) :: evap_demand ! transpiration water demand, kg/(indiv s)
   real, intent(out) :: stomatal_cond ! stomatal conductance, m/s
   real, intent(out) :: RHi      ! relative humidity inside leaf, at the point of vaporization
 
   ! ---- local vars
   integer :: sp      ! shortcut for cohort%species
-  real    :: water_supply ! water supply per m2 of leaves, mol H2O/(m2 of leaf s)
   real    :: fw, fs  ! wet and snow-covered fraction of leaves, dimensionless
   real    :: psyn    ! net photosynthesis, mol C/(m2 of leaves s)
   real    :: resp    ! leaf respiration, mol C/(m2 of leaves s)
@@ -163,7 +161,11 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   real    :: leaf_q  ! saturated specific humidity at leaf temperature, kg/kg
   real    :: ds      ! water vapor deficit, kg/kg
   real    :: w_scale ! water stress scaling factor, dimensionless
-  real    :: Ed      ! evaporative demand, mol H2O per m2 of leaf per s
+
+  real    :: rho     ! density of canopy air, kg/m3
+  real    :: gs      ! max stomatal conductance per individual, m/s
+  real    :: gb      ! aerodynamic conductance of canopy air per individual, m/s 
+  real    :: fdry    ! fraction of canopy not covered by intercepted water/snow
 
   if(cohort%lai <= 0) then
      ! no leaves means no photosynthesis and zero stomatal conductance, of course
@@ -200,34 +202,33 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
      stomatal_cond = gs_lim
   endif
 
-  RHi = 1.0
-  ! calculate evaporative demand, mol H2O per m2 of leaf per s:
-  ! the factor mol_air/mol_h2o makes units of stomatal cond and humidity 
-  ! deficit ds compatible: ds*mol_air/mol_h2o is the humidity deficit 
-  ! in [mol_h2o/mol_air]
-  
-  ! NOTE that we do not take aerodynamic conductance in calculations of demand,
-  ! although we could, since that we have con_v_v here
-  Ed=stomatal_cond*ds*mol_air/mol_h2o ! mol/m2/s
+  ! calculate transpiration water demand
+  RHi = 1.0 ! max relative humidity of in-canopy air  
+  ! convert units of stomatal conductance from mol/(m2 s) to m/(s indiv) by
+  ! multiplying it by a volume of a mole of gas and by leaf area of individual
+  gs = stomatal_cond * Rugas * cohort%Tv / p_surf * cohort%leafarea
+  ! aerodynamic conductance per individual
+  gb = con_v_v * cohort%crownarea ! foliage-CAS conductance per m2 => per individual
+  rho = p_surf/(rdgas*cana_T*(1+d608*cana_q)) ! canopy air density
+  fdry = 1-fw-fs ! fraction of canopy that is dry
+  ! transpiration demand, kg/(indiv s) 
+  evap_demand = rho * fdry * gs*gb/(gs+gb) * (leaf_q*RHi-cana_q)
+
   ! scale down stomatal conductance and photosynthesis due to water stress
   select case (water_stress_option)
   case (WSTRESS_LM3)
-     ! recalculate the water supply to mol H2O per m2 of leaf per second
-     water_supply = soil_water_supply/(mol_h2o*cohort%leafarea)
-
-     if (Ed>water_supply) then
-        w_scale = water_supply/Ed
+     if (evap_demand>soil_water_supply) then
+        w_scale = soil_water_supply/evap_demand
      else
         w_scale = 1.0
      endif
   case (WSTRESS_HYDRAULICS)
-     call vegn_hydraulics(soil, vegn, cohort, p_surf, cana_T, cana_q, con_v_v, stomatal_cond, 1-fw-fs, &
+     call vegn_hydraulics(soil, vegn, cohort, p_surf, cana_T, cana_q, gb, gs, fdry, &
           w_scale, RHi )
   case (WSTRESS_NONE)
      w_scale = 1.0
   case default
-     call error_mesg('vegn_stomatal_cond', &
-          'invalid vegetation water stress option', FATAL)
+     call error_mesg('vegn_stomatal_cond', 'invalid vegetation water stress option', FATAL)
   end select
 
   stomatal_cond=w_scale*stomatal_cond
@@ -246,8 +247,6 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   ! convert stomatal conductance from units per unit area of leaf to the 
   ! units per unit area of cohort
   stomatal_cond = stomatal_cond*cohort%lai
-  ! change units of evap_demand to kg/(indiv s) for diagnostics
-  evap_demand = Ed*mol_h2o*cohort%leafarea
   ! store w_scale for diagnostics
   cohort%w_scale = w_scale
 
@@ -265,7 +264,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   real,    intent(in)    :: tl   ! leaf temperature, degK
   real,    intent(in)    :: ds   ! humidity deficit, kg/kg
   real,    intent(in)    :: lai  ! leaf area index
-  real,    intent(in)    :: leaf_age ! age of leaf since budburst (deciduous), days
+  real,    intent(in)    :: leaf_age ! age of leaf since bud burst (deciduous), days
   real,    intent(in)    :: p_surf ! surface pressure, Pa
   integer, intent(in)    :: pft  ! species
   real,    intent(in)    :: ca   ! concentration of CO2 in the canopy air space, mol CO2/mol dry air
@@ -434,7 +433,7 @@ end subroutine gs_Leuning
 
 ! ==============================================================================
 ! calculate the stomatal conductance reduction due to water stress
-subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, con_v_v, stomatal_cond, fdry, &
+subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry, &
       w_scale, RHi )
   type(soil_tile_type),   intent(in)    :: soil
   type(vegn_tile_type),   intent(in)    :: vegn
@@ -442,9 +441,8 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, con_v_v, stom
   real, intent(in)  :: cana_T   ! canopy air temperature, degK
   real, intent(in)  :: cana_q   ! canopy air specific humidity, kg/kg
   real, intent(in)  :: p_surf   ! surface pressure, N/m2 = kg/m/s2 = Pa
-  real, intent(in)  :: con_v_v  ! cohort-specific one-sided foliage-CAS 
-                                ! conductance per unit ground area, m/s
-  real, intent(in)  :: stomatal_cond ! non-water-limited stomatal conductance, mol/(m2 of leaf)/s
+  real, intent(in)  :: gb       ! aerodynamic conductance of canopy air per individual, m/s 
+  real, intent(in)  :: gs0      ! non-water-limited stomatal conductance per individual, m/s
   real, intent(in)  :: fdry     ! fraction of canopy not covered by intercepted water/snow
   real, intent(out) :: w_scale  ! reduction of stomatal conductance due to water stress
   real, intent(out) :: RHi      ! relative humidity inside leaf, at the point of vaporization
@@ -454,9 +452,7 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, con_v_v, stom
   
   ! ---- local vars ----
   real :: rho ! density of canopy air, kg/m3
-  real :: gs0 ! max stomatal conductance per individual, m/s
   real :: gs, DgsDpl, DgsDTl  ! stomatal conductance per individual, m/s, and its derivatives 
-  real :: gb  ! aerodynamic conductance of canopy air per individual, m/s 
   real :: Et0, DetDpl, DetDTl ! transpiration, kg/(s indiv), and its derivatives
   real :: ur0_(size(soil%wl)), DurDpr_(size(soil%wl)) ! water flux from roots, kg/(s indiv), and its derivatives
   real :: ur0, DurDpr ! water flux from roots, kg/(s indiv), and its derivatives
@@ -478,16 +474,12 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, con_v_v, stom
   if (is_watch_point()) then
      write(*,*)'######### vegn_hydraulics input ###########'
      __DEBUG3__(cana_T, cana_q, p_surf)
-     __DEBUG2__(con_v_v,stomatal_cond)
+     __DEBUG2__(gb,gs0)
      __DEBUG3__(cc%psi_l, cc%psi_x, cc%psi_r)
      __DEBUG2__(sp%cl, sp%dl)
      __DEBUG2__(sp%cx, sp%dx)
      write(*,*)'######### end of vegn_hydraulics input ###########'
   endif
-    
-  ! convert units of stomatal conductance from mol/(m2 s) to m/(s indiv) by
-  ! multiplying it by a volume of a mole of gas and by leaf area of individual
-  gs0 = stomatal_cond * Rugas * vegn_T / p_surf * cc%leafarea
 
   ! calculate explicit estimate of the transpiration (per individual),
   ! and its derivatives w.r.t. leaf water potential and leaf temperature
@@ -499,9 +491,6 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, con_v_v, stom
   gs = gs0 * exp(-(cc%psi_l/sp%dl)**sp%cl)
   DgsDpl = - gs0 * exp(-(cc%psi_l/sp%dl)**sp%cl)*sp%cl/sp%dl*(cc%psi_l/sp%dl)**(sp%cl-1)
   DgsDTl = 0.0
-
-  ! aerodynamic conductance per individual
-  gb = con_v_v * cc%crownarea ! foliage-CAS conductance per m2 => per individual
   
   Et0 = rho * fdry * gs*gb/(gs+gb) * (qsat*RHi-cana_q)
 
