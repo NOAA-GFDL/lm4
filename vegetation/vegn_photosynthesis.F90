@@ -93,8 +93,8 @@ end subroutine vegn_photosynthesis_init
 subroutine vegn_photosynthesis ( soil, vegn, cohort, &
      PAR_dn, PAR_net, cana_T, cana_q, cana_co2, p_surf, drag_q, &
      soil_beta, soil_water_supply, con_v_v, &
-     stomatal_cond, RHi)
-  ! TODO: Add back evaporative demand calculations
+! output:
+     evap_demand, stomatal_cond, RHi)
   type(soil_tile_type),   intent(in)    :: soil
   type(vegn_tile_type),   intent(in)    :: vegn
   type(vegn_cohort_type), intent(inout) :: cohort
@@ -109,6 +109,7 @@ subroutine vegn_photosynthesis ( soil, vegn, cohort, &
   real, intent(in)  :: soil_water_supply ! max supply of water to roots per unit
                                 ! active root biomass per second, kg/(indiv s)
   real, intent(in)  :: con_v_v  ! one-sided foliage-CAS conductance per unit ground area        
+  real, intent(out) :: evap_demand   ! evaporative water demand, kg/(indiv s)
   real, intent(out) :: stomatal_cond ! stomatal conductance, m/s
   real, intent(out) :: RHi      ! relative humidity inside leaf, at the point of vaporization
 
@@ -119,10 +120,11 @@ subroutine vegn_photosynthesis ( soil, vegn, cohort, &
      cohort%An_op  = 0
      cohort%An_cl  = 0
      RHi = 1.0
+     evap_demand   = 0
   case(VEGN_PHOT_LEUNING)
      call vegn_photosynthesis_Leuning (soil, vegn, cohort, &
             PAR_dn, PAR_net, cana_T, cana_q, cana_co2, p_surf, &
-            soil_water_supply, con_v_v, stomatal_cond, RHi )
+            soil_water_supply, con_v_v, evap_demand, stomatal_cond, RHi )
   case default
      call error_mesg('vegn_stomatal_cond', &
           'invalid vegetation photosynthesis option', FATAL)
@@ -134,7 +136,7 @@ end subroutine vegn_photosynthesis
 subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
      PAR_dn, PAR_net, cana_T, cana_q, cana_co2, p_surf, &
      soil_water_supply, con_v_v, &
-     stomatal_cond, RHi )
+     evap_demand, stomatal_cond, RHi )
   type(soil_tile_type),   intent(in)    :: soil
   type(vegn_tile_type),   intent(in)    :: vegn
   type(vegn_cohort_type), intent(inout) :: cohort
@@ -147,6 +149,7 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   real, intent(in)  :: soil_water_supply ! max supply of water to roots per unit
                                 ! active root biomass per second, kg/(indiv s)
   real, intent(in)  :: con_v_v  ! one-sided foliage-CAS conductance per unit ground area        
+  real, intent(out) :: evap_demand ! evaporative water demand, kg/(indiv s)
   real, intent(out) :: stomatal_cond ! stomatal conductance, m/s
   real, intent(out) :: RHi      ! relative humidity inside leaf, at the point of vaporization
 
@@ -160,13 +163,14 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   real    :: leaf_q  ! saturated specific humidity at leaf temperature, kg/kg
   real    :: ds      ! water vapor deficit, kg/kg
   real    :: w_scale ! water stress scaling factor, dimensionless
-  real    :: Ed      ! evaporative demand, kg per m2 of leaf per s
+  real    :: Ed      ! evaporative demand, mol H2O per m2 of leaf per s
 
   if(cohort%lai <= 0) then
      ! no leaves means no photosynthesis and zero stomatal conductance, of course
      cohort%An_op  = 0
      cohort%An_cl  = 0
      stomatal_cond = 0 
+     evap_demand   = 0
      ! TODO: call vegn_hydraulics?
      return
   endif
@@ -197,16 +201,19 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   endif
 
   RHi = 1.0
+  ! calculate evaporative demand, mol H2O per m2 of leaf per s:
+  ! the factor mol_air/mol_h2o makes units of stomatal cond and humidity 
+  ! deficit ds compatible: ds*mol_air/mol_h2o is the humidity deficit 
+  ! in [mol_h2o/mol_air]
+  
+  ! NOTE that we do not take aerodynamic conductance in calculations of demand,
+  ! although we could, since that we have con_v_v here
+  Ed=stomatal_cond*ds*mol_air/mol_h2o ! mol/m2/s
   ! scale down stomatal conductance and photosynthesis due to water stress
   select case (water_stress_option)
   case (WSTRESS_LM3)
-     ! recalculate the water supply to mol H20 per m2 of leaf per second
+     ! recalculate the water supply to mol H2O per m2 of leaf per second
      water_supply = soil_water_supply/(mol_h2o*cohort%leafarea)
-
-     ! the factor mol_air/mol_h2o makes units of stomatal cond and humidity 
-     ! deficit ds compatible: ds*mol_air/mol_h2o is the humidity deficit 
-     ! in [mol_h2o/mol_air]
-     Ed=stomatal_cond*ds*mol_air/mol_h2o ! mol/m2/s
 
      if (Ed>water_supply) then
         w_scale = water_supply/Ed
@@ -239,6 +246,8 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   ! convert stomatal conductance from units per unit area of leaf to the 
   ! units per unit area of cohort
   stomatal_cond = stomatal_cond*cohort%lai
+  ! change units of evap_demand to kg/(indiv s) for diagnostics
+  evap_demand = Ed*mol_h2o*cohort%leafarea
   ! store w_scale for diagnostics
   cohort%w_scale = w_scale
 

@@ -1133,6 +1133,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
        con_v_h, con_v_v, & ! aerodyn. conductance between canopy and CAS, for heat and vapor
        soil_beta, & ! relative water availability
        soil_water_supply, & ! max rate of water supply to the roots, kg/(indiv s)
+       evap_demand, & ! plant evaporative demand, kg/(indiv s)
        RHi          ! relative humidity inside the leaf, at the point of vaporization
   type(vegn_cohort_type), pointer :: cc(:)
   integer :: i, current_layer, band, N
@@ -1238,7 +1239,9 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   do i = 1, vegn%n_cohorts
      call vegn_photosynthesis (soil, vegn, cc(i), &
         SWdn(i,BAND_VIS), RSv(i,BAND_VIS), cana_T, cana_q, phot_co2, p_surf, drag_q, &
-        soil_beta(i), soil_water_supply(i), con_v_v(i), stomatal_cond, RHi(i) )     
+        soil_beta(i), soil_water_supply(i), con_v_v(i), &
+        ! output
+        evap_demand(i), stomatal_cond, RHi(i) )     
 
      ! accumulate total value of stomatal conductance for diagnostics.
      ! stomatal_cond is per unit area of cohort (multiplied by LAI in the
@@ -1401,6 +1404,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   call send_tile_data(id_con_v_v, sum(con_v_v(:)*cc(:)%layerfrac), diag)
   call send_tile_data(id_phot_co2, phot_co2, diag)
   call send_tile_data(id_soil_water_supply, sum(soil_water_supply(:)*cc(:)%nindivs), diag)
+  call send_tile_data(id_evap_demand, sum(evap_demand(:)*cc(:)%nindivs), diag)
   ! plant hydraulics diagnostics
   call send_cohort_data(id_Kxi   , diag, cc(:), cc(:)%Kxi, weight=cc(:)%nindivs)
   call send_cohort_data(id_Kli   , diag, cc(:), cc(:)%Kli, weight=cc(:)%nindivs)
