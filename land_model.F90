@@ -218,7 +218,7 @@ integer :: &
   id_geolon_t, id_geolat_t,                                                &
   id_frac,     id_area,     id_ntiles,                                     &
   id_dis_liq,  id_dis_ice,  id_dis_heat, id_dis_sink,                      &
-  id_z0m,      id_z0s,      id_con_g_h,                                    &
+  id_z0m,      id_z0s,      id_con_g_h,  id_con_g_v,                       &
   id_transp,                id_wroff,    id_sroff,                         &
   id_htransp,  id_huptake,  id_hroff,    id_gsnow,    id_gequil,           &
   id_grnd_flux,                                                            &
@@ -2165,7 +2165,8 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   call send_tile_data(id_e_res_1, tile%e_res_1,                       tile%diag)
   call send_tile_data(id_e_res_2, tile%e_res_2,                       tile%diag)
   call send_tile_data(id_con_g_h, con_g_h,                            tile%diag)
-  call send_tile_data(id_transp,  sum(f(:)*vegn_uptk),                   tile%diag)
+  call send_tile_data(id_con_g_v, con_g_v,                            tile%diag)
+  call send_tile_data(id_transp,  sum(f(:)*vegn_uptk),                tile%diag)
   call send_tile_data(id_wroff,   snow_lrunf+subs_lrunf,              tile%diag)
   call send_tile_data(id_sroff,   snow_frunf,                         tile%diag)
   call send_tile_data(id_htransp, sum(f(:)*cpw*vegn_uptk*(vegn_T-tfreeze)), tile%diag)
@@ -3517,6 +3518,9 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
              'scalar roughness of land', 'm', missing_value=-1.0e+20 )
   id_con_g_h = register_tiled_diag_field ( module_name, 'con_g_h', axes, time, &
        'conductance for sensible heat between ground surface and canopy air', &
+       'm/s', missing_value=-1.0 )
+  id_con_g_v = register_tiled_diag_field ( module_name, 'con_g_v', axes, time, &
+       'conductance for water vapor between ground surface and canopy air', &
        'm/s', missing_value=-1.0 )
   id_transp  = register_tiled_diag_field ( module_name, 'transp', axes, time, &
              'transpiration; = uptake by roots', 'kg/(m2 s)', missing_value=-1.0e+20 )
