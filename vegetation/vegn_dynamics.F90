@@ -97,15 +97,15 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
   id_litter = register_tiled_diag_field (module_name, 'litter', (/id_lon,id_lat/), &
        time, 'litter productivity', 'kg C/(m2 year)', missing_value=-100.0)
   id_resp = register_cohort_diag_field ( module_name, 'resp', (/id_lon,id_lat/), &
-       time, 'respiration', 'kg C/(m2 year)', missing_value=-100.0, opc='sum' )
-  id_resl = register_tiled_diag_field ( module_name, 'resl', (/id_lon,id_lat/), &
-       time, 'leaf respiration', 'kg C/(m2 year)', missing_value=-100.0 )
-  id_resr = register_tiled_diag_field ( module_name, 'resr', (/id_lon,id_lat/), &
-       time, 'root respiration', 'kg C/(m2 year)', missing_value=-100.0 )
-  id_ress = register_tiled_diag_field ( module_name, 'ress', (/id_lon,id_lat/), &
-       time, 'stem respiration', 'kg C/(m2 year)', missing_value=-100.0 )
-  id_resg = register_tiled_diag_field ( module_name, 'resg', (/id_lon,id_lat/), &
-       time, 'growth respiration', 'kg C/(m2 year)', missing_value=-100.0 )
+       time, 'respiration', 'kg C/(m2 year)', missing_value=-100.0, opc='sum')
+  id_resl = register_cohort_diag_field ( module_name, 'resl', (/id_lon,id_lat/), &
+       time, 'leaf respiration', 'kg C/(m2 year)', missing_value=-100.0, opc='sum')
+  id_resr = register_cohort_diag_field ( module_name, 'resr', (/id_lon,id_lat/), &
+       time, 'root respiration', 'kg C/(m2 year)', missing_value=-100.0, opc='sum')
+  id_ress = register_cohort_diag_field ( module_name, 'ress', (/id_lon,id_lat/), &
+       time, 'stem respiration', 'kg C/(m2 year)', missing_value=-100.0, opc='sum')
+  id_resg = register_cohort_diag_field ( module_name, 'resg', (/id_lon,id_lat/), &
+       time, 'growth respiration', 'kg C/(m2 year)', missing_value=-100.0, opc='sum')
   id_soilt = register_tiled_diag_field ( module_name, 'tsoil_av',  &
        (/id_lon,id_lat/), time, 'average soil temperature for carbon decomposition', 'degK', &
        missing_value=-100.0 )
@@ -125,16 +125,14 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   real, intent(in) :: soilt ! average temperature of soil for soil carbon decomposition, deg K
   real, intent(in) :: theta ! average soil wetness, unitless
   type(diag_buff_type), intent(inout) :: diag
-  
+
   ! TODO: possibly move soil-related calculations from calling procedure here,
   !       now that we have soil passed as an argument
 
   type(vegn_cohort_type), pointer :: cc
   type(vegn_cohort_type), pointer :: c(:) ! for debug only
-  real :: resp, resl, resr, ress, resg ! respiration terms accumulated for all cohorts 
   real :: md_leaf, md_wood, md_froot ! component of maintenance demand
   real :: md ! plant tissue maintenance, kg C/timestep
-  real :: gpp ! gross primary productivity per tile
   real :: root_exudate_C       ! root exudate, kgC/(year indiv)
   real :: total_root_exudate_C(num_l) ! total root exudate per tile, kgC/m2
   real :: leaf_litt(n_c_types) ! fine surface litter per tile, kgC/m2
@@ -156,7 +154,6 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
 
   !  update plant carbon
   vegn%npp = 0
-  resp = 0 ; resl = 0 ; resr = 0 ; ress = 0 ; resg = 0 ; gpp = 0
   leaf_litt = 0 ; wood_litt = 0; root_litt = 0 ; total_root_exudate_C = 0
   do i = 1, vegn%n_cohorts   
      cc => vegn%cohorts(i)
@@ -222,11 +219,6 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
 
      ! accumulate tile-level NPP and GPP
      vegn%npp = vegn%npp + cc%npp*cc%nindivs
-     gpp = gpp + cc%gpp*cc%nindivs
-     ! accumulate respiration terms for tile-level reporting
-     resp = resp + cc%resp*cc%nindivs ; resl = resl + cc%resl*cc%nindivs
-     resr = resr + cc%resr*cc%nindivs ; resg = resg + cc%resg*cc%nindivs
-     ress = ress + cc%ress*cc%nindivs
      ! update cohort age
      cc%age = cc%age + dt_fast_yr
   enddo
@@ -275,10 +267,10 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   call send_tile_data(id_nep,vegn%nep,diag)
   call send_tile_data(id_litter,vegn%litter,diag)
   call send_cohort_data(id_resp, diag, c(1:N), c(1:N)%resp, weight=c(1:N)%nindivs)
-  call send_tile_data(id_resl, resl, diag)
-  call send_tile_data(id_resr, resr, diag)
-  call send_tile_data(id_ress, ress, diag)
-  call send_tile_data(id_resg, resg, diag)
+  call send_cohort_data(id_resl, diag, c(1:N), c(1:N)%resl, weight=c(1:N)%nindivs)
+  call send_cohort_data(id_resr, diag, c(1:N), c(1:N)%resr, weight=c(1:N)%nindivs)
+  call send_cohort_data(id_ress, diag, c(1:N), c(1:N)%ress, weight=c(1:N)%nindivs)
+  call send_cohort_data(id_resg, diag, c(1:N), c(1:N)%resg, weight=c(1:N)%nindivs)
   call send_tile_data(id_soilt,soilt,diag)
   call send_tile_data(id_theta,theta,diag)
   
@@ -294,12 +286,9 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   real, intent(in) :: theta ! average soil wetness, unitless
   type(diag_buff_type), intent(inout) :: diag
 
-  real :: resp, resl, resr, ress, resg ! respiration terms accumulated for each tree 
   real :: md_wood;
-  real :: gpp ! gross primary productivity per tile
   real :: deltaBL, deltaBR ! leaf and fine root carbon tendencies
   integer :: i, l, N
-  real :: cmass0, cmass1, norm ! for debug only
   real :: NSC_supply,LR_demand,LR_deficit
   real :: NSCtarget
   real :: R_days,fNSC,fLFR,fStem,fSeed
@@ -331,11 +320,9 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      __DEBUG1__(c%leafarea)
      __DEBUG1__(c%carbon_gain)
      __DEBUG1__(c%carbon_loss)
-     cmass0 = vegn_tile_carbon(vegn) 
   endif
   ! update plant carbon for all cohorts
   vegn%npp = 0
-  resp = 0 ; resl = 0 ; resr = 0 ; ress = 0 ; resg = 0 ; gpp = 0
   leaf_litt = 0 ; wood_litt = 0; root_litt = 0 ! ; total_root_exudate_C = 0
   ! TODO: add root exudates to the balance. in LM3 it's a fraction of npp; 
   !       in PPA perhaps it might be proportional to NSC, with some decay
@@ -410,12 +397,6 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      
      ! accumulate tile-level NPP and GPP
      vegn%npp = vegn%npp + cc%npp * cc%nindivs
-     gpp      = gpp      + cc%gpp * cc%nindivs
-
-     ! accumulate respiration terms for tile-level reporting
-     resp = resp + cc%resp*cc%nindivs ; resl = resl + cc%resl*cc%nindivs
-     resr = resr + cc%resr*cc%nindivs ; resg = resg + cc%resg*cc%nindivs
-     ress = ress + cc%ress*cc%nindivs
 
      ! increment cohort age
      cc%age = cc%age + dt_fast_yr
@@ -438,8 +419,6 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      __DEBUG1__(c%bsw)
      __DEBUG1__(c%bwood)
      __DEBUG1__(c%nsc)
-     cmass1 = vegn_tile_carbon(vegn)
-     __DEBUG3__(cmass1-cmass0-(gpp-resp)*dt_fast_yr,cmass1,cmass0)
      write(*,*)'#### end of vegn_carbon_int_ppa output ####'
   endif
 
@@ -462,10 +441,10 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   call send_tile_data(id_nep,vegn%nep,diag)
   call send_tile_data(id_litter,vegn%litter,diag)
   call send_cohort_data(id_resp, diag, c(1:N), c(1:N)%resp, weight=c(1:N)%nindivs)
-  call send_tile_data(id_resl, resl, diag)
-  call send_tile_data(id_resr, resr, diag)
-  call send_tile_data(id_resg, resg, diag)
-  call send_tile_data(id_ress, ress, diag)
+  call send_cohort_data(id_resl, diag, c(1:N), c(1:N)%resl, weight=c(1:N)%nindivs)
+  call send_cohort_data(id_resr, diag, c(1:N), c(1:N)%resr, weight=c(1:N)%nindivs)
+  call send_cohort_data(id_ress, diag, c(1:N), c(1:N)%ress, weight=c(1:N)%nindivs)
+  call send_cohort_data(id_resg, diag, c(1:N), c(1:N)%resg, weight=c(1:N)%nindivs)
   call send_tile_data(id_soilt,tsoil,diag)
   call send_tile_data(id_theta,theta,diag)
   call send_cohort_data(id_age, diag, c(1:N), c(1:N)%age, weight=c(1:N)%nindivs)
