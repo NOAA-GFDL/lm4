@@ -130,12 +130,6 @@ type :: vegn_cohort_type
   real :: gpp  = 0.0 ! gross primary productivity kg C/timestep
   real :: npp  = 0.0 ! net primary productivity kg C/timestep
 
-  real :: resp = 0.0 ! plant respiration
-  real :: resl = 0.0 ! leaf respiration
-  real :: resr = 0.0 ! root respiration
-  real :: ress = 0.0 ! stem respiration
-  real :: resg = 0.0 ! growth respiration
-
   real :: An_op = 0.0 ! mol C/(m2 of leaf per year)
   real :: An_cl = 0.0 ! mol C/(m2 of leaf per year)
   

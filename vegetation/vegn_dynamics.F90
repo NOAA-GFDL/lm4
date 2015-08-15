@@ -139,6 +139,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   real :: wood_litt(n_c_types) ! coarse surface litter per tile, kgC/m2
   real :: root_litt(num_l, n_c_types) ! root litter per soil layer, kgC/m2
   real :: profile(num_l) ! storage for vertical profile of exudates and root litter
+  real, dimension(vegn%n_cohorts) :: resp, resl, resr, ress, resg
   integer :: sp ! shorthand for current cohort specie
   integer :: i, l, N
 
@@ -159,17 +160,17 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
      cc => vegn%cohorts(i)
      sp = cc%species
 
-     call plant_respiration(cc,soilt);
+     call plant_respiration(cc,soilt, resp(i), resl(i), resr(i), ress(i))
    
      cc%gpp = (cc%An_op - cc%An_cl)*mol_C*cc%leafarea;
-     cc%npp = cc%gpp - cc%resp;
+     cc%npp = cc%gpp - resp(i)
    
      if(cc%npp_previous_day > 0) then
-        cc%resg = GROWTH_RESP*cc%npp_previous_day;
-        cc%npp  = cc%npp  - GROWTH_RESP*cc%npp_previous_day;
-        cc%resp = cc%resp + GROWTH_RESP*cc%npp_previous_day;
+        resg(i) = GROWTH_RESP*cc%npp_previous_day
+        cc%npp  = cc%npp  - GROWTH_RESP*cc%npp_previous_day
+        resp(i) = resp(i) + GROWTH_RESP*cc%npp_previous_day
      else
-        cc%resg = 0;
+        resg(i) = 0
      endif
      ! accumulate npp for the current day
      cc%npp_previous_day_tmp = cc%npp_previous_day_tmp + cc%npp; 
@@ -241,10 +242,10 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
      __DEBUG1__(c%lai)
      __DEBUG1__(c%npp)
      __DEBUG1__(c%gpp)
-     __DEBUG1__(c%resp)
-     __DEBUG1__(c%resl)
-     __DEBUG1__(c%resr)
-     __DEBUG1__(c%resg)
+     __DEBUG1__(resp)
+     __DEBUG1__(resl)
+     __DEBUG1__(resr)
+     __DEBUG1__(resg)
      __DEBUG1__(c%carbon_gain)
      __DEBUG1__(c%carbon_loss)
      __DEBUG1__(c%bwood_gain)
@@ -266,11 +267,11 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   call send_cohort_data(id_npp, diag, c(1:N), c(1:N)%npp, weight=c(1:N)%nindivs)
   call send_tile_data(id_nep,vegn%nep,diag)
   call send_tile_data(id_litter,vegn%litter,diag)
-  call send_cohort_data(id_resp, diag, c(1:N), c(1:N)%resp, weight=c(1:N)%nindivs)
-  call send_cohort_data(id_resl, diag, c(1:N), c(1:N)%resl, weight=c(1:N)%nindivs)
-  call send_cohort_data(id_resr, diag, c(1:N), c(1:N)%resr, weight=c(1:N)%nindivs)
-  call send_cohort_data(id_ress, diag, c(1:N), c(1:N)%ress, weight=c(1:N)%nindivs)
-  call send_cohort_data(id_resg, diag, c(1:N), c(1:N)%resg, weight=c(1:N)%nindivs)
+  call send_cohort_data(id_resp, diag, c(1:N), resp(1:N), weight=c(1:N)%nindivs)
+  call send_cohort_data(id_resl, diag, c(1:N), resl(1:N), weight=c(1:N)%nindivs)
+  call send_cohort_data(id_resr, diag, c(1:N), resr(1:N), weight=c(1:N)%nindivs)
+  call send_cohort_data(id_ress, diag, c(1:N), ress(1:N), weight=c(1:N)%nindivs)
+  call send_cohort_data(id_resg, diag, c(1:N), resg(1:N), weight=c(1:N)%nindivs)
   call send_tile_data(id_soilt,soilt,diag)
   call send_tile_data(id_theta,theta,diag)
   
@@ -298,6 +299,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   real :: wood_litt(N_C_TYPES) ! coarse surface litter per tile, kgC/m2
   real :: root_litt(num_l, N_C_TYPES) ! root litter per soil layer, kgC/m2
   real :: profile(num_l) ! storage for vertical profile of exudates and root litter
+  real, dimension(vegn%n_cohorts) :: resp, resl, resr, ress, resg
 
   c=>vegn%cohorts(1:vegn%n_cohorts)
   if(is_watch_point()) then
@@ -331,7 +333,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      associate ( cc => vegn%cohorts(i), sp => spdata(vegn%cohorts(i)%species))
 
      ! that was in eddy_npp_PPA
-     call plant_respiration(cc,tsoil)
+     call plant_respiration(cc,tsoil,resp(i),resl(i),resr(i),ress(i))
      cc%gpp  = (cc%An_op - cc%An_cl)*mol_C*cc%leafarea
 
 !    A new scheme for plant growth, modified 9/3/2013 based on Steve's
@@ -355,14 +357,14 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
          ! slm: signs are weird: LR_demand>0, NSC_supply<0
      endif
 
-     cc%resg = GROWTH_RESP * (LR_demand + NSC_supply)/dt_fast_yr 
+     resg(i) = GROWTH_RESP * (LR_demand + NSC_supply)/dt_fast_yr 
      cc%carbon_gain = cc%carbon_gain + (LR_demand + NSC_supply) 
 
-     cc%resp = cc%resp + cc%resg
-     cc%npp  = cc%gpp - cc%resp
+     resp(i) = resp(i) + resg(i)
+     cc%npp  = cc%gpp - resp(i)
      cc%nsc  = cc%nsc + cc%gpp*dt_fast_yr             &
                       - (LR_demand + NSC_supply)  &
-                      - cc%resp*dt_fast_yr
+                      - resp(i)*dt_fast_yr
 
      ! Weng, 2013-01-28
      ! Turnover regardless of STATUS
@@ -400,16 +402,16 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 
      ! increment cohort age
      cc%age = cc%age + dt_fast_yr
-     ! cc%resg = 0 ! slm: that doesn't make much sense to me... why?
+     ! resg(i) = 0 ! slm: that doesn't make much sense to me... why?
      end associate
   enddo 
 
   if(is_watch_point()) then
      write(*,*)'#### vegn_carbon_int_ppa output ####'
-     __DEBUG1__(c%resl)
-     __DEBUG1__(c%resr)
-     __DEBUG1__(c%resg)
-     __DEBUG1__(c%resp)
+     __DEBUG1__(resl)
+     __DEBUG1__(resr)
+     __DEBUG1__(resg)
+     __DEBUG1__(resp)
      __DEBUG1__(c%npp)
      __DEBUG1__(c%gpp)
      __DEBUG1__(c%carbon_gain)
@@ -440,11 +442,11 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   call send_cohort_data(id_npp, diag, c(1:N), c(1:N)%npp, weight=c(1:N)%nindivs)
   call send_tile_data(id_nep,vegn%nep,diag)
   call send_tile_data(id_litter,vegn%litter,diag)
-  call send_cohort_data(id_resp, diag, c(1:N), c(1:N)%resp, weight=c(1:N)%nindivs)
-  call send_cohort_data(id_resl, diag, c(1:N), c(1:N)%resl, weight=c(1:N)%nindivs)
-  call send_cohort_data(id_resr, diag, c(1:N), c(1:N)%resr, weight=c(1:N)%nindivs)
-  call send_cohort_data(id_ress, diag, c(1:N), c(1:N)%ress, weight=c(1:N)%nindivs)
-  call send_cohort_data(id_resg, diag, c(1:N), c(1:N)%resg, weight=c(1:N)%nindivs)
+  call send_cohort_data(id_resp, diag, c(1:N), resp(1:N), weight=c(1:N)%nindivs)
+  call send_cohort_data(id_resl, diag, c(1:N), resl(1:N), weight=c(1:N)%nindivs)
+  call send_cohort_data(id_resr, diag, c(1:N), resr(1:N), weight=c(1:N)%nindivs)
+  call send_cohort_data(id_ress, diag, c(1:N), ress(1:N), weight=c(1:N)%nindivs)
+  call send_cohort_data(id_resg, diag, c(1:N), resg(1:N), weight=c(1:N)%nindivs)
   call send_tile_data(id_soilt,tsoil,diag)
   call send_tile_data(id_theta,theta,diag)
   call send_cohort_data(id_age, diag, c(1:N), c(1:N)%age, weight=c(1:N)%nindivs)
@@ -769,12 +771,16 @@ end function
 
 
 ! ============================================================================
-subroutine plant_respiration(cc, tsoil)
-  type(vegn_cohort_type), intent(inout) :: cc
+subroutine plant_respiration(cc, tsoil, resp, r_leaf, r_root, r_stem)
+  type(vegn_cohort_type), intent(in) :: cc
   real, intent(in) :: tsoil
+  real, intent(out) :: resp ! total respiration
+  real, intent(out) :: r_leaf ! leaf respiration
+  real, intent(out) :: r_root ! fine root respiration
+  real, intent(out) :: r_stem ! stem respiration
   
   real :: tf,tfs ! thermal inhibition factors for above- and below-ground biomass
-  real :: r_leaf, r_vleaf, r_stem, r_root
+  real :: r_vleaf ! virtual leaf respiration (perhaps need to be reported, too?)
   real :: Acambium  ! cambium area, m2
   
   integer :: sp ! shorthand for cohort species
@@ -794,10 +800,7 @@ subroutine plant_respiration(cc, tsoil)
   endif
   r_root  = spdata(sp)%beta(CMPT_ROOT) * cc%br*tfs;
 
-  cc%resp = r_leaf + r_vleaf + r_stem + r_root
-  cc%resl = r_leaf
-  cc%resr = r_root
-  cc%ress = r_stem
+  resp = r_leaf + r_vleaf + r_stem + r_root
 end subroutine plant_respiration
 
 
@@ -1193,11 +1196,6 @@ subroutine vegn_reproduction_ppa (vegn,soil)
     cc%BM_ys       = cc%bsw + cc%bwood
     cc%gpp          = 0.0
     cc%npp          = 0.0  
-    cc%resp         = 0.0
-    cc%resl         = 0.0
-    cc%resr         = 0.0
-    cc%ress         = 0.0
-    cc%resg         = 0.0
     cc%npp_previous_day     = 0.0
     cc%npp_previous_day_tmp = 0.0
     cc%leaf_age     = 0.0
