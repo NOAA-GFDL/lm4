@@ -127,9 +127,6 @@ type :: vegn_cohort_type
   real    :: mcv_dry = 0.0 ! heat capacity of dry canopy J/(K individual)
   real    :: cover
 
-  real :: gpp  = 0.0 ! gross primary productivity kg C/timestep
-  real :: npp  = 0.0 ! net primary productivity kg C/timestep
-
   real :: An_op = 0.0 ! mol C/(m2 of leaf per year)
   real :: An_cl = 0.0 ! mol C/(m2 of leaf per year)
   

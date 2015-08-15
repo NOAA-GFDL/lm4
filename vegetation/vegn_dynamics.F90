@@ -139,7 +139,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   real :: wood_litt(n_c_types) ! coarse surface litter per tile, kgC/m2
   real :: root_litt(num_l, n_c_types) ! root litter per soil layer, kgC/m2
   real :: profile(num_l) ! storage for vertical profile of exudates and root litter
-  real, dimension(vegn%n_cohorts) :: resp, resl, resr, ress, resg
+  real, dimension(vegn%n_cohorts) :: resp, resl, resr, ress, resg, gpp, npp
   integer :: sp ! shorthand for current cohort specie
   integer :: i, l, N
 
@@ -162,23 +162,23 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
 
      call plant_respiration(cc,soilt, resp(i), resl(i), resr(i), ress(i))
    
-     cc%gpp = (cc%An_op - cc%An_cl)*mol_C*cc%leafarea;
-     cc%npp = cc%gpp - resp(i)
+     gpp(i) = (cc%An_op - cc%An_cl)*mol_C*cc%leafarea;
+     npp(i) = gpp(i) - resp(i)
    
      if(cc%npp_previous_day > 0) then
         resg(i) = GROWTH_RESP*cc%npp_previous_day
-        cc%npp  = cc%npp  - GROWTH_RESP*cc%npp_previous_day
+        npp(i)  = npp(i)  - GROWTH_RESP*cc%npp_previous_day
         resp(i) = resp(i) + GROWTH_RESP*cc%npp_previous_day
      else
         resg(i) = 0
      endif
      ! accumulate npp for the current day
-     cc%npp_previous_day_tmp = cc%npp_previous_day_tmp + cc%npp; 
+     cc%npp_previous_day_tmp = cc%npp_previous_day_tmp + npp(i); 
      
-     root_exudate_C = max(cc%npp,0.0)*spdata(sp)%root_exudate_frac
+     root_exudate_C = max(npp(i),0.0)*spdata(sp)%root_exudate_frac
      call cohort_root_exudate_profile(cc,dz,profile)
      total_root_exudate_C = total_root_exudate_C + profile*root_exudate_C*cc%nindivs*dt_fast_yr
-     cc%carbon_gain = cc%carbon_gain + (cc%npp-root_exudate_C)*dt_fast_yr
+     cc%carbon_gain = cc%carbon_gain + (npp(i)-root_exudate_C)*dt_fast_yr
           
      ! check if leaves/roots are present and need to be accounted in maintenance
      if(cc%status == LEAF_ON) then
@@ -215,11 +215,11 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
              0.0/)
      enddo
 
-     vegn%veg_in  = vegn%veg_in  + cc%npp*cc%nindivs*dt_fast_yr;
+     vegn%veg_in  = vegn%veg_in  + npp(i)*cc%nindivs*dt_fast_yr;
      vegn%veg_out = vegn%veg_out + (md_leaf+md_froot+md_wood)*cc%nindivs;
 
      ! accumulate tile-level NPP and GPP
-     vegn%npp = vegn%npp + cc%npp*cc%nindivs
+     vegn%npp = vegn%npp + npp(i)*cc%nindivs
      ! update cohort age
      cc%age = cc%age + dt_fast_yr
   enddo
@@ -240,8 +240,8 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
      __DEBUG1__(c%An_op)
      __DEBUG1__(c%An_cl)
      __DEBUG1__(c%lai)
-     __DEBUG1__(c%npp)
-     __DEBUG1__(c%gpp)
+     __DEBUG1__(npp)
+     __DEBUG1__(gpp)
      __DEBUG1__(resp)
      __DEBUG1__(resl)
      __DEBUG1__(resr)
@@ -263,8 +263,8 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
 
   ! ---- diagnostic section
   N = vegn%n_cohorts
-  call send_cohort_data(id_gpp, diag, c(1:N), c(1:N)%gpp, weight=c(1:N)%nindivs)
-  call send_cohort_data(id_npp, diag, c(1:N), c(1:N)%npp, weight=c(1:N)%nindivs)
+  call send_cohort_data(id_gpp, diag, c(1:N), gpp(1:N), weight=c(1:N)%nindivs)
+  call send_cohort_data(id_npp, diag, c(1:N), npp(1:N), weight=c(1:N)%nindivs)
   call send_tile_data(id_nep,vegn%nep,diag)
   call send_tile_data(id_litter,vegn%litter,diag)
   call send_cohort_data(id_resp, diag, c(1:N), resp(1:N), weight=c(1:N)%nindivs)
@@ -299,7 +299,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   real :: wood_litt(N_C_TYPES) ! coarse surface litter per tile, kgC/m2
   real :: root_litt(num_l, N_C_TYPES) ! root litter per soil layer, kgC/m2
   real :: profile(num_l) ! storage for vertical profile of exudates and root litter
-  real, dimension(vegn%n_cohorts) :: resp, resl, resr, ress, resg
+  real, dimension(vegn%n_cohorts) :: resp, resl, resr, ress, resg, gpp, npp
 
   c=>vegn%cohorts(1:vegn%n_cohorts)
   if(is_watch_point()) then
@@ -334,7 +334,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 
      ! that was in eddy_npp_PPA
      call plant_respiration(cc,tsoil,resp(i),resl(i),resr(i),ress(i))
-     cc%gpp  = (cc%An_op - cc%An_cl)*mol_C*cc%leafarea
+     gpp(i)  = (cc%An_op - cc%An_cl)*mol_C*cc%leafarea
 
 !    A new scheme for plant growth, modified 9/3/2013 based on Steve's
 !    suggestions
@@ -361,8 +361,8 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      cc%carbon_gain = cc%carbon_gain + (LR_demand + NSC_supply) 
 
      resp(i) = resp(i) + resg(i)
-     cc%npp  = cc%gpp - resp(i)
-     cc%nsc  = cc%nsc + cc%gpp*dt_fast_yr             &
+     npp(i)  = gpp(i) - resp(i)
+     cc%nsc  = cc%nsc + gpp(i)*dt_fast_yr             &
                       - (LR_demand + NSC_supply)  &
                       - resp(i)*dt_fast_yr
 
@@ -398,7 +398,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      enddo
      
      ! accumulate tile-level NPP and GPP
-     vegn%npp = vegn%npp + cc%npp * cc%nindivs
+     vegn%npp = vegn%npp + npp(i) * cc%nindivs
 
      ! increment cohort age
      cc%age = cc%age + dt_fast_yr
@@ -412,8 +412,8 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      __DEBUG1__(resr)
      __DEBUG1__(resg)
      __DEBUG1__(resp)
-     __DEBUG1__(c%npp)
-     __DEBUG1__(c%gpp)
+     __DEBUG1__(npp)
+     __DEBUG1__(gpp)
      __DEBUG1__(c%carbon_gain)
      __DEBUG1__(c%bl)
      __DEBUG1__(c%blv)
@@ -438,8 +438,8 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 ! ------ diagnostic section
   associate(c=>vegn%cohorts)
   N = vegn%n_cohorts
-  call send_cohort_data(id_gpp, diag, c(1:N), c(1:N)%gpp, weight=c(1:N)%nindivs)
-  call send_cohort_data(id_npp, diag, c(1:N), c(1:N)%npp, weight=c(1:N)%nindivs)
+  call send_cohort_data(id_gpp, diag, c(1:N), gpp(1:N), weight=c(1:N)%nindivs)
+  call send_cohort_data(id_npp, diag, c(1:N), npp(1:N), weight=c(1:N)%nindivs)
   call send_tile_data(id_nep,vegn%nep,diag)
   call send_tile_data(id_litter,vegn%litter,diag)
   call send_cohort_data(id_resp, diag, c(1:N), resp(1:N), weight=c(1:N)%nindivs)
@@ -1194,8 +1194,6 @@ subroutine vegn_reproduction_ppa (vegn,soil)
     cc%bliving     = cc%br + cc%bl + cc%bsw + cc%blv
     cc%DBH_ys      = cc%DBH
     cc%BM_ys       = cc%bsw + cc%bwood
-    cc%gpp          = 0.0
-    cc%npp          = 0.0  
     cc%npp_previous_day     = 0.0
     cc%npp_previous_day_tmp = 0.0
     cc%leaf_age     = 0.0
