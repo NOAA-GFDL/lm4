@@ -142,7 +142,6 @@ type :: vegn_tile_type
    real :: daily_t_min =  HUGE(1.0) ! accumulator for daily min, used in GDD calculations
 
    ! it's probably possible to get rid of the fields below
-   real :: npp=0.0 ! net primary productivity
    real :: nep=0.0 ! net ecosystem productivity
    real :: rh =0.0 ! soil carbon lost to the atmosphere
 end type vegn_tile_type

@@ -144,6 +144,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   integer :: i, l, N
 
   c=>vegn%cohorts(1:vegn%n_cohorts)
+  N = vegn%n_cohorts
   if(is_watch_point()) then
      write(*,*)'#### vegn_carbon_int_lm3 input ####'
      __DEBUG2__(soilt,theta)
@@ -154,7 +155,6 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   endif
 
   !  update plant carbon
-  vegn%npp = 0
   leaf_litt = 0 ; wood_litt = 0; root_litt = 0 ; total_root_exudate_C = 0
   do i = 1, vegn%n_cohorts   
      cc => vegn%cohorts(i)
@@ -218,8 +218,6 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
      vegn%veg_in  = vegn%veg_in  + npp(i)*cc%nindivs*dt_fast_yr;
      vegn%veg_out = vegn%veg_out + (md_leaf+md_froot+md_wood)*cc%nindivs;
 
-     ! accumulate tile-level NPP and GPP
-     vegn%npp = vegn%npp + npp(i)*cc%nindivs
      ! update cohort age
      cc%age = cc%age + dt_fast_yr
   enddo
@@ -255,14 +253,13 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   call Dsdt(vegn, soil, diag, soilt, theta)
 
   ! NEP is equal to NNP minus soil respiration
-  vegn%nep = vegn%npp - vegn%rh
+  vegn%nep = sum(npp(1:N)*c(1:N)%nindivs) - vegn%rh
 
   call update_soil_pools(vegn, soil)
   vegn%age = vegn%age + dt_fast_yr;
 
 
   ! ---- diagnostic section
-  N = vegn%n_cohorts
   call send_cohort_data(id_gpp, diag, c(1:N), gpp(1:N), weight=c(1:N)%nindivs)
   call send_cohort_data(id_npp, diag, c(1:N), npp(1:N), weight=c(1:N)%nindivs)
   call send_tile_data(id_nep,vegn%nep,diag)
@@ -302,6 +299,8 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   real, dimension(vegn%n_cohorts) :: resp, resl, resr, ress, resg, gpp, npp
 
   c=>vegn%cohorts(1:vegn%n_cohorts)
+  N = vegn%n_cohorts
+
   if(is_watch_point()) then
      write(*,*)'#### vegn_carbon_int_ppa input ####'
      __DEBUG2__(tsoil,theta)
@@ -324,7 +323,6 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      __DEBUG1__(c%carbon_loss)
   endif
   ! update plant carbon for all cohorts
-  vegn%npp = 0
   leaf_litt = 0 ; wood_litt = 0; root_litt = 0 ! ; total_root_exudate_C = 0
   ! TODO: add root exudates to the balance. in LM3 it's a fraction of npp; 
   !       in PPA perhaps it might be proportional to NSC, with some decay
@@ -396,9 +394,6 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
              (1-fsc_froot)*deltaBR + (1-fsc_wood)*md_wood*(1-agf_bs), & ! slow
              0.0/) ! microbes
      enddo
-     
-     ! accumulate tile-level NPP and GPP
-     vegn%npp = vegn%npp + npp(i) * cc%nindivs
 
      ! increment cohort age
      cc%age = cc%age + dt_fast_yr
@@ -430,14 +425,12 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   call Dsdt(vegn, soil, diag, tsoil, theta)
 
   ! NEP is equal to NPP minus soil respiration
-  vegn%nep = vegn%npp - vegn%rh
+  vegn%nep = sum(npp(1:N)*c(1:N)%nindivs) - vegn%rh
 
   call update_soil_pools(vegn, soil)
   vegn%age = vegn%age + dt_fast_yr;
 
 ! ------ diagnostic section
-  associate(c=>vegn%cohorts)
-  N = vegn%n_cohorts
   call send_cohort_data(id_gpp, diag, c(1:N), gpp(1:N), weight=c(1:N)%nindivs)
   call send_cohort_data(id_npp, diag, c(1:N), npp(1:N), weight=c(1:N)%nindivs)
   call send_tile_data(id_nep,vegn%nep,diag)
@@ -450,10 +443,6 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   call send_tile_data(id_soilt,tsoil,diag)
   call send_tile_data(id_theta,theta,diag)
   call send_cohort_data(id_age, diag, c(1:N), c(1:N)%age, weight=c(1:N)%nindivs)
-  end associate
-!  cc => vegn%cohorts(1)
-!  call send_tile_data(id_nsc_c1,cc%nsc,diag)
-  
 end subroutine vegn_carbon_int_ppa
 
 
