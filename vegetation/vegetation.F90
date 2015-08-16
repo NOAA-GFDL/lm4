@@ -28,7 +28,7 @@ use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, mol_air, 
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
      get_elmt_indices, land_tile_heat, land_tile_carbon, get_tile_water
-use land_tile_diag_mod, only : &
+use land_tile_diag_mod, only : OP_SUM, OP_MEAN, OP_MAX, &
      register_tiled_static_field, register_tiled_diag_field, &
      send_tile_data, diag_buff_type, register_cohort_diag_field, send_cohort_data
 use land_data_mod,      only : land_state_type, lnd, land_time
@@ -611,43 +611,43 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
        (/id_lon,id_lat/), 'vegetation type', missing_value=-1.0 )
 
   id_ncohorts = register_cohort_diag_field( module_name, 'ncohorts', &
-       (/id_lon,id_lat/), time, 'number of cohorts', 'unitless', missing_value=-1.0, opc='sum' )
+       (/id_lon,id_lat/), time, 'number of cohorts', 'unitless', missing_value=-1.0)
   id_nindivs = register_cohort_diag_field( module_name, 'nindivs', &
-       (/id_lon,id_lat/), time, 'density of individuals', 'individuals/m2', missing_value=-1.0, opc='sum' )
+       (/id_lon,id_lat/), time, 'density of individuals', 'individuals/m2', missing_value=-1.0)
   id_nlayers = register_tiled_diag_field( module_name, 'nlayers', &
        (/id_lon,id_lat/), time, 'number of canopy layers', 'unitless', missing_value=-1.0 )
   id_dbh = register_cohort_diag_field( module_name, 'dbh', &
-       (/id_lon,id_lat/), time, 'diameter at breast height', 'm', missing_value=-1.0, opc='mean' )
+       (/id_lon,id_lat/), time, 'diameter at breast height', 'm', missing_value=-1.0)
   id_dbh_max = register_cohort_diag_field( module_name, 'dbh_max', &
-       (/id_lon,id_lat/), time, 'maximum diameter at breast height', 'm', missing_value=-1.0, opc='maximum' )
+       (/id_lon,id_lat/), time, 'maximum diameter at breast height', 'm', missing_value=-1.0)
   id_crownarea = register_cohort_diag_field( module_name, 'crownarea', &
-       (/id_lon,id_lat/), time, 'mean area of individuals crown', 'm2', missing_value=-1.0, opc='mean' )
+       (/id_lon,id_lat/), time, 'mean area of individuals crown', 'm2', missing_value=-1.0)
 
   id_temp = register_cohort_diag_field ( module_name, 'temp',  &
-       (/id_lon,id_lat/), time, 'canopy temperature', 'degK', missing_value=-1.0, opc='mean' )
+       (/id_lon,id_lat/), time, 'canopy temperature', 'degK', missing_value=-1.0)
   id_wl = register_cohort_diag_field ( module_name, 'wl',  &
-       (/id_lon,id_lat/), time, 'canopy liquid water content', 'kg/m2', missing_value=-1.0, opc='sum' )
+       (/id_lon,id_lat/), time, 'canopy liquid water content', 'kg/m2', missing_value=-1.0)
   id_ws = register_cohort_diag_field ( module_name, 'ws',  &
-       (/id_lon,id_lat/), time, 'canopy solid water content', 'kg/m2', missing_value=-1.0, opc='sum' )
+       (/id_lon,id_lat/), time, 'canopy solid water content', 'kg/m2', missing_value=-1.0)
 
 
   id_height = register_tiled_diag_field ( module_name, 'height',  &
-       (/id_lon,id_lat/), time, 'height of tallest vegetation', 'm', missing_value=-1.0 )
+       (/id_lon,id_lat/), time, 'height of tallest vegetation', 'm', missing_value=-1.0)
   id_height_ave = register_cohort_diag_field ( module_name, 'height_ave',  &
-       (/id_lon,id_lat/), time, 'average height of the trees', 'm', missing_value=-1.0, opc='mean' )
+       (/id_lon,id_lat/), time, 'average height of the trees', 'm', missing_value=-1.0)
 
   id_height1 = register_tiled_diag_field ( module_name, 'height1',  &
        (/id_lon,id_lat/), time, 'height of first cohort', 'm', missing_value=-1.0 )
   id_lai    = register_cohort_diag_field ( module_name, 'lai',  &
-       (/id_lon,id_lat/), time, 'leaf area index', 'm2/m2', missing_value=-1.0, opc='sum' )
+       (/id_lon,id_lat/), time, 'leaf area index', 'm2/m2', missing_value=-1.0)
   id_lai_var = register_cohort_diag_field ( module_name, 'lai_var',  &
        (/id_lon,id_lat/), time, 'variance of leaf area index across tiles in grid cell', 'm4/m4', &
-       missing_value=-1.0 , opt='variance', opc='sum')
+       missing_value=-1.0 , opt='variance')
   id_lai_std = register_cohort_diag_field ( module_name, 'lai_std',  &
        (/id_lon,id_lat/), time, 'standard deviation of leaf area index across tiles in grid cell', 'm2/m2', &
-       missing_value=-1.0, opt='stdev', opc='sum')
+       missing_value=-1.0, opt='stdev')
   id_sai    = register_cohort_diag_field ( module_name, 'sai',  &
-       (/id_lon,id_lat/), time, 'stem area index', 'm2/m2', missing_value=-1.0, opc='sum' )
+       (/id_lon,id_lat/), time, 'stem area index', 'm2/m2', missing_value=-1.0)
 
   id_leaf_size = register_tiled_diag_field ( module_name, 'leaf_size',  &
        (/id_lon,id_lat/), time, missing_value=-1.0 )
@@ -672,47 +672,47 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
        'kg/(m2 s)', missing_value=-1e20 )
   id_an_op = register_cohort_diag_field ( module_name, 'an_op',  &
        (/id_lon,id_lat/), time, 'net photosynthesis with open stomata', &
-       '(mol CO2)(m2 of leaf)^-1 year^-1', missing_value=-1e20 , opc='mean')
+       '(mol CO2)(m2 of leaf)^-1 year^-1', missing_value=-1e20)
   id_an_cl = register_cohort_diag_field ( module_name, 'an_cl',  &
        (/id_lon,id_lat/), time, 'net photosynthesis with closed stomata', &
-       '(mol CO2)(m2 of leaf)^-1 year^-1', missing_value=-1e20, opc='mean' )
+       '(mol CO2)(m2 of leaf)^-1 year^-1', missing_value=-1e20)
   id_psi_r  = register_cohort_diag_field ( module_name, 'psi_r',  &
-       (/id_lon,id_lat/), time, 'root water potential', 'MPa', missing_value=-1e20, opc='mean')
+       (/id_lon,id_lat/), time, 'root water potential', 'MPa', missing_value=-1e20)
   id_psi_x  = register_cohort_diag_field ( module_name, 'psi_x',  &
-       (/id_lon,id_lat/), time, 'stem water potential', 'MPa', missing_value=-1e20, opc='mean')
+       (/id_lon,id_lat/), time, 'stem water potential', 'MPa', missing_value=-1e20)
   id_psi_l  = register_cohort_diag_field ( module_name, 'psi_l', &
-       (/id_lon,id_lat/), time, 'leaf water potential', 'MPa', missing_value=-1e20, opc='mean')
+       (/id_lon,id_lat/), time, 'leaf water potential', 'MPa', missing_value=-1e20)
   id_Kxi  = register_cohort_diag_field ( module_name, 'Kxi',  &
-       (/id_lon,id_lat/), time, 'stem conductance', 'kg/(indiv s MPa)', missing_value=-1e20, opc='mean')
+       (/id_lon,id_lat/), time, 'stem conductance', 'kg/(indiv s MPa)', missing_value=-1e20)
   id_Kli  = register_cohort_diag_field ( module_name, 'Kli',  &
-       (/id_lon,id_lat/), time, 'leaf conductance', 'kg/(indiv s MPa)', missing_value=-1e20, opc='mean')
+       (/id_lon,id_lat/), time, 'leaf conductance', 'kg/(indiv s MPa)', missing_value=-1e20)
   id_w_scale  = register_cohort_diag_field ( module_name, 'w_scale',  &
        (/id_lon,id_lat/), time, 'reduction of stomatal conductance due to water stress', 'unitless', &
-       missing_value=-1e20, opc='mean')
+       missing_value=-1e20)
   id_RHi  = register_cohort_diag_field ( module_name, 'RHi',  &
-       (/id_lon,id_lat/), time, 'relative humidity inside leaf', 'percent', missing_value=-1e20, opc='mean')
+       (/id_lon,id_lat/), time, 'relative humidity inside leaf', 'percent', missing_value=-1e20)
 
   id_bl = register_cohort_diag_field ( module_name, 'bl',  &
-       (/id_lon,id_lat/), time, 'biomass of leaves', 'kg C/m2', missing_value=-1.0, opc='sum' )
+       (/id_lon,id_lat/), time, 'biomass of leaves', 'kg C/m2', missing_value=-1.0)
   id_blv = register_cohort_diag_field ( module_name, 'blv',  &
-       (/id_lon,id_lat/), time, 'biomass in labile store', 'kg C/m2', missing_value=-1.0, opc='sum' )
+       (/id_lon,id_lat/), time, 'biomass in labile store', 'kg C/m2', missing_value=-1.0)
   id_br = register_cohort_diag_field ( module_name, 'br',  &
-       (/id_lon,id_lat/), time, 'biomass of fine roots', 'kg C/m2', missing_value=-1.0, opc='sum' )
+       (/id_lon,id_lat/), time, 'biomass of fine roots', 'kg C/m2', missing_value=-1.0)
   id_bsw = register_cohort_diag_field ( module_name, 'bsw',  &
-       (/id_lon,id_lat/), time, 'biomass of sapwood', 'kg C/m2', missing_value=-1.0, opc='sum' )
+       (/id_lon,id_lat/), time, 'biomass of sapwood', 'kg C/m2', missing_value=-1.0)
   id_bwood = register_cohort_diag_field ( module_name, 'bwood',  &
-       (/id_lon,id_lat/), time, 'biomass of heartwood', 'kg C/m2', missing_value=-1.0, opc='sum' )
+       (/id_lon,id_lat/), time, 'biomass of heartwood', 'kg C/m2', missing_value=-1.0)
   id_btot = register_cohort_diag_field ( module_name, 'btot',  &
-       (/id_lon,id_lat/), time, 'total biomass', 'kg C/m2', missing_value=-1.0, opc='sum' )
+       (/id_lon,id_lat/), time, 'total biomass', 'kg C/m2', missing_value=-1.0)
   id_bseed = register_cohort_diag_field ( module_name, 'bseed',  &
-       (/id_lon,id_lat/), time, 'biomass of seed', 'kg C/m2', missing_value=-1.0, opc='sum' )
+       (/id_lon,id_lat/), time, 'biomass of seed', 'kg C/m2', missing_value=-1.0)
   id_nsc = register_cohort_diag_field ( module_name, 'nsc',  &
-       (/id_lon,id_lat/), time, 'biomass in non-structural pool', 'kg C/m2', missing_value=-1.0, opc='sum' )
+       (/id_lon,id_lat/), time, 'biomass in non-structural pool', 'kg C/m2', missing_value=-1.0)
 
   id_bl_max = register_cohort_diag_field ( module_name, 'bl_max',  &
-       (/id_lon,id_lat/), time, 'max biomass of leaves', 'kg C/m2', missing_value=-1.0, opc='sum' )
+       (/id_lon,id_lat/), time, 'max biomass of leaves', 'kg C/m2', missing_value=-1.0)
   id_br_max = register_cohort_diag_field ( module_name, 'br_max',  &
-       (/id_lon,id_lat/), time, 'max biomass of fine roots', 'kg C/m2', missing_value=-1.0, opc='sum' )
+       (/id_lon,id_lat/), time, 'max biomass of fine roots', 'kg C/m2', missing_value=-1.0)
 
 
   id_fuel = register_tiled_diag_field ( module_name, 'fuel',  &
@@ -1397,8 +1397,8 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   call send_tile_data(id_stomatal, total_stomatal_cond, diag)
   ! An_op and An_cl is per unit area of leaf, so we average over the leaf area
   N = vegn%n_cohorts
-  call send_cohort_data(id_an_op, diag, cc(:), cc(:)%An_op, weight=cc(:)%layerfrac*cc(:)%lai)
-  call send_cohort_data(id_an_cl, diag, cc(:), cc(:)%An_cl, weight=cc(:)%layerfrac*cc(:)%lai)
+  call send_cohort_data(id_an_op, diag, cc(:), cc(:)%An_op, weight=cc(:)%layerfrac*cc(:)%lai, op=OP_MEAN)
+  call send_cohort_data(id_an_cl, diag, cc(:), cc(:)%An_cl, weight=cc(:)%layerfrac*cc(:)%lai, op=OP_MEAN)
   ! con_v_h and con_v_v are per unit area of cohort -- output is per unit tile area
   call send_tile_data(id_con_v_h, sum(con_v_h(:)*cc(:)%layerfrac), diag)
   call send_tile_data(id_con_v_v, sum(con_v_v(:)*cc(:)%layerfrac), diag)
@@ -1406,15 +1406,15 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   call send_tile_data(id_soil_water_supply, sum(soil_water_supply(:)*cc(:)%nindivs), diag)
   call send_tile_data(id_evap_demand, sum(evap_demand(:)*cc(:)%nindivs), diag)
   ! plant hydraulics diagnostics
-  call send_cohort_data(id_Kxi   , diag, cc(:), cc(:)%Kxi, weight=cc(:)%nindivs)
-  call send_cohort_data(id_Kli   , diag, cc(:), cc(:)%Kli, weight=cc(:)%nindivs)
+  call send_cohort_data(id_Kxi   , diag, cc(:), cc(:)%Kxi, weight=cc(:)%nindivs, op=OP_MEAN)
+  call send_cohort_data(id_Kli   , diag, cc(:), cc(:)%Kli, weight=cc(:)%nindivs, op=OP_MEAN)
   ! TODO: perhaps use something else for averaging weight
   ! factor 1e-6 converts Pa to MPa
-  call send_cohort_data(id_psi_r , diag, cc(:), cc(:)%psi_r*1e-6, weight=cc(:)%nindivs)
-  call send_cohort_data(id_psi_x , diag, cc(:), cc(:)%psi_x*1e-6, weight=cc(:)%nindivs)
-  call send_cohort_data(id_psi_l , diag, cc(:), cc(:)%psi_l*1e-6, weight=cc(:)%nindivs)
-  call send_cohort_data(id_w_scale,diag, cc(:), cc(:)%w_scale,    weight=cc(:)%nindivs)
-  call send_cohort_data(id_RHi,    diag, cc(:), RHi(:)*100,  weight=cc(:)%layerfrac*cc(:)%lai)
+  call send_cohort_data(id_psi_r , diag, cc(:), cc(:)%psi_r*1e-6, weight=cc(:)%nindivs, op=OP_MEAN)
+  call send_cohort_data(id_psi_x , diag, cc(:), cc(:)%psi_x*1e-6, weight=cc(:)%nindivs, op=OP_MEAN)
+  call send_cohort_data(id_psi_l , diag, cc(:), cc(:)%psi_l*1e-6, weight=cc(:)%nindivs, op=OP_MEAN)
+  call send_cohort_data(id_w_scale,diag, cc(:), cc(:)%w_scale,    weight=cc(:)%nindivs, op=OP_MEAN)
+  call send_cohort_data(id_RHi,    diag, cc(:), RHi(:)*100,  weight=cc(:)%layerfrac*cc(:)%lai, op=OP_MEAN)
 
 end subroutine vegn_step_1
 
@@ -1563,20 +1563,20 @@ subroutine vegn_step_2 ( vegn, diag, &
   ! snow_crit???
   N = vegn%n_cohorts
   associate(c=>vegn%cohorts)
-  call send_cohort_data(id_height_ave, diag, c(1:N), c(1:N)%height, weight=c(1:N)%nindivs)
+  call send_cohort_data(id_height_ave, diag, c(1:N), c(1:N)%height, weight=c(1:N)%nindivs, op=OP_MEAN)
   ! TODO: calculate vegetation temperature as total sensible heat/total heat capacity
-  call send_cohort_data(id_temp, diag, c(1:N), c(1:N)%Tv, weight=c(1:N)%nindivs)
-  call send_cohort_data(id_wl,   diag, c(1:N), c(1:N)%Wl, weight=c(1:N)%nindivs)
-  call send_cohort_data(id_ws,   diag, c(1:N), c(1:N)%Ws, weight=c(1:N)%nindivs)
+  call send_cohort_data(id_temp, diag, c(1:N), c(1:N)%Tv, weight=c(1:N)%nindivs, op=OP_MEAN)
+  call send_cohort_data(id_wl,   diag, c(1:N), c(1:N)%Wl, weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_ws,   diag, c(1:N), c(1:N)%Ws, weight=c(1:N)%nindivs, op=OP_SUM)
 
   call send_tile_data(id_height1, c(1)%height, diag) ! tallest
   call send_tile_data(id_height, maxval(c(1:N)%height), diag) ! tallest
   ! in principle, the first cohort must be the tallest, but since cohorts are
   ! rearranged only once a year, that may not be true for part of the year
-  call send_cohort_data(id_lai,     diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac)
-  call send_cohort_data(id_lai_var, diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac)
-  call send_cohort_data(id_lai_std, diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac)
-  call send_cohort_data(id_sai, diag, c(1:N), c(1:N)%sai, weight=c(1:N)%layerfrac)
+  call send_cohort_data(id_lai,     diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac, op=OP_SUM)
+  call send_cohort_data(id_lai_var, diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac, op=OP_SUM)
+  call send_cohort_data(id_lai_std, diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac, op=OP_SUM)
+  call send_cohort_data(id_sai, diag, c(1:N), c(1:N)%sai, weight=c(1:N)%layerfrac, op=OP_SUM)
   end associate
   ! TODO: fix the diagnostics below
 !  call send_tile_data(id_leaf_size, cc%leaf_size, diag)
@@ -2030,31 +2030,31 @@ subroutine update_vegn_slow( )
      call send_tile_data(id_csmoke_rate,tile%vegn%csmoke_rate,tile%diag)
 
      N=tile%vegn%n_cohorts ; cc=>tile%vegn%cohorts
-     call send_cohort_data(id_ncohorts, tile%diag, cc(1:N), (/(1.0,i=1,N)/))
-     call send_cohort_data(id_nindivs,  tile%diag, cc(1:N), cc(1:N)%nindivs)
+     call send_cohort_data(id_ncohorts, tile%diag, cc(1:N), (/(1.0,i=1,N)/), op=OP_SUM)
+     call send_cohort_data(id_nindivs,  tile%diag, cc(1:N), cc(1:N)%nindivs, op=OP_SUM)
      call send_tile_data(id_nlayers,  real(cc(N)%layer),    tile%diag)
      
-     call send_cohort_data(id_bl,     tile%diag, cc(1:N), cc(1:N)%bl,     weight=cc(1:N)%nindivs)
-     call send_cohort_data(id_blv,    tile%diag, cc(1:N), cc(1:N)%blv,    weight=cc(1:N)%nindivs)
-     call send_cohort_data(id_br,     tile%diag, cc(1:N), cc(1:N)%br,     weight=cc(1:N)%nindivs)
-     call send_cohort_data(id_bsw,    tile%diag, cc(1:N), cc(1:N)%bsw,    weight=cc(1:N)%nindivs)
-     call send_cohort_data(id_bwood,  tile%diag, cc(1:N), cc(1:N)%bwood,  weight=cc(1:N)%nindivs)
-     call send_cohort_data(id_bseed,  tile%diag, cc(1:N), cc(1:N)%bseed,  weight=cc(1:N)%nindivs)
-     call send_cohort_data(id_nsc,    tile%diag, cc(1:N), cc(1:N)%nsc,    weight=cc(1:N)%nindivs)
+     call send_cohort_data(id_bl,     tile%diag, cc(1:N), cc(1:N)%bl,     weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_blv,    tile%diag, cc(1:N), cc(1:N)%blv,    weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_br,     tile%diag, cc(1:N), cc(1:N)%br,     weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_bsw,    tile%diag, cc(1:N), cc(1:N)%bsw,    weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_bwood,  tile%diag, cc(1:N), cc(1:N)%bwood,  weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_bseed,  tile%diag, cc(1:N), cc(1:N)%bseed,  weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_nsc,    tile%diag, cc(1:N), cc(1:N)%nsc,    weight=cc(1:N)%nindivs, op=OP_SUM)
      call send_cohort_data(id_btot,   tile%diag, cc(1:N), cc(1:N)%bl    + &
                                                           cc(1:N)%blv   + &
                                                           cc(1:N)%br    + &
                                                           cc(1:N)%bsw   + &
                                                           cc(1:N)%bwood + &
                                                           cc(1:N)%bseed + &
-                                                          cc(1:N)%nsc,    weight=cc(1:N)%nindivs)
+                                                          cc(1:N)%nsc,    weight=cc(1:N)%nindivs, op=OP_SUM)
 
-     call send_cohort_data(id_bl_max, tile%diag, cc(1:N), cc(1:N)%bl_max, weight=cc(1:N)%nindivs)
-     call send_cohort_data(id_br_max, tile%diag, cc(1:N), cc(1:N)%br_max, weight=cc(1:N)%nindivs)
+     call send_cohort_data(id_bl_max, tile%diag, cc(1:N), cc(1:N)%bl_max, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_br_max, tile%diag, cc(1:N), cc(1:N)%br_max, weight=cc(1:N)%nindivs, op=OP_SUM)
 
-     call send_cohort_data(id_dbh,       tile%diag, cc(1:N), cc(1:N)%dbh,        weight=cc(1:N)%nindivs)
-     call send_cohort_data(id_crownarea, tile%diag, cc(1:N), cc(1:N)%crownarea,  weight=cc(1:N)%nindivs)
-     call send_cohort_data(id_dbh_max,   tile%diag, cc(1:N), cc(1:N)%dbh)
+     call send_cohort_data(id_dbh,       tile%diag, cc(1:N), cc(1:N)%dbh,        weight=cc(1:N)%nindivs, op=OP_MEAN)
+     call send_cohort_data(id_crownarea, tile%diag, cc(1:N), cc(1:N)%crownarea,  weight=cc(1:N)%nindivs, op=OP_MEAN)
+     call send_cohort_data(id_dbh_max,   tile%diag, cc(1:N), cc(1:N)%dbh, op=OP_MAX)
 
      call send_tile_data(id_fsc_pool_ag,tile%vegn%fsc_pool_ag,tile%diag)
      call send_tile_data(id_fsc_rate_ag,tile%vegn%fsc_rate_ag,tile%diag)

@@ -81,7 +81,7 @@ use land_utils_mod, only : put_to_tiles_r0d_fptr
 use land_tile_io_mod, only : print_netcdf_error, create_tile_out_file, &
      read_tile_data_r0d_fptr, write_tile_data_r0d_fptr, &
      write_tile_data_i0d_fptr, get_input_restart_name
-use land_tile_diag_mod, only : tile_diag_init, tile_diag_end, &
+use land_tile_diag_mod, only : OP_SUM, tile_diag_init, tile_diag_end, &
      register_tiled_diag_field, send_tile_data, dump_tile_diag_fields, &
      add_tiled_diag_field_alias, register_cohort_diag_field, send_cohort_data
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
@@ -2192,7 +2192,7 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
 
   if(associated(tile%vegn)) then
      associate(c=>tile%vegn%cohorts)
-     call send_cohort_data(id_parnet, tile%diag, c(1:N), swnet(:,BAND_VIS), weight=c(1:N)%layerfrac)
+     call send_cohort_data(id_parnet, tile%diag, c(1:N), swnet(:,BAND_VIS), weight=c(1:N)%layerfrac, op=OP_SUM)
      end associate
   endif
 
@@ -3623,7 +3623,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
        'carbon non-conservation in update_land_model_fast_0d', 'kgC/(m2 s)', missing_value=-1.0 )
 
   id_parnet = register_cohort_diag_field ( module_name, 'parnet', axes, time, &
-             'net PAR to the vegetation', 'W/m2', missing_value=-1.0e+20, opc='sum' )
+             'net PAR to the vegetation', 'W/m2', missing_value=-1.0e+20)
 end subroutine land_diag_init
 
 ! the code below defines the accessor routines that are used to access fields of the 

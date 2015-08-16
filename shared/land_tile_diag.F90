@@ -69,7 +69,7 @@ integer, parameter :: BASE_COHORT_FIELD_ID  = 65536*2 ! base value for cohort fi
 
 integer, parameter :: MIN_DIAG_BUFFER_SIZE = 1     ! min size of the per-tile diagnostic buffer
 ! operations used for tile data aggregation
-integer, parameter :: &
+integer, parameter, public :: &
     OP_MEAN = 1, & ! weighted average of tile values
     OP_SUM  = 2, & ! sum of all tile values
     OP_MAX  = 3, & ! maximum of all  values
@@ -109,7 +109,6 @@ end type tiled_diag_field_type
 
 type :: cohort_diag_field_type
    integer :: ids(N_CHRT_FILTERS) = -1 ! IDs of tiled diag fields for each of cohort filters
-   integer :: opcode = OP_MEAN  ! cohort aggregation operation
 end type cohort_diag_field_type
 
 
@@ -780,7 +779,7 @@ end subroutine dump_diag_field_with_sel
 
 ! ============================================================================
 function register_cohort_diag_field(module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, opt, opc) result (id)
+     long_name, units, missing_value, range, opt) result (id)
 
   integer :: id
 
@@ -793,7 +792,6 @@ function register_cohort_diag_field(module_name, field_name, axes, init_time, &
   real,             intent(in), optional :: missing_value
   real,             intent(in), optional :: range(2)
   character(*),     intent(in), optional :: opt ! tile aggregation operation
-  character(*),     intent(in), optional :: opc ! cohort aggregation operation
 
   integer :: i
   integer :: diag_ids(N_CHRT_FILTERS)
@@ -827,34 +825,32 @@ function register_cohort_diag_field(module_name, field_name, axes, init_time, &
      n_cfields = n_cfields+1
      id       = n_cfields     
      cfields(id)%ids = diag_ids
-     if (present(opc)) cfields(id)%opcode  = string2opcode(opc)
-     if (cfields(id)%opcode < 0) call error_mesg(mod_name, &
-        'aggregation operation name "'//trim(opc)//'" is incorrect', FATAL)
-     ! write (*,'(99(g,x))')'register_cohort_diag_field:', module_name, field_name, opc, cfields(id)%opcode
      id       = id+BASE_COHORT_FIELD_ID
   endif
 end function register_cohort_diag_field
 
 
 ! ============================================================================
-subroutine send_cohort_data_without_weight (id, buffer, cc, data)
+subroutine send_cohort_data_without_weight (id, buffer, cc, data, op)
   integer,                intent(in)    :: id        ! diag field ID
   type(diag_buff_type),   intent(inout) :: buffer    ! data buffer
   type(vegn_cohort_type), intent(in)    :: cc(:)     ! cohort array: used for filtering
   real,                   intent(in)    :: data(:)   ! data
+  integer,                intent(in)    :: op        ! cohort aggregation operation
 
   real :: weight(size(data))
   weight(:) = 1.0
-  call send_cohort_data_with_weight (id, buffer, cc, data, weight)
+  call send_cohort_data_with_weight (id, buffer, cc, data, weight, op)
 end subroutine send_cohort_data_without_weight
 
 ! ============================================================================
-subroutine send_cohort_data_with_weight (id, buffer, cc, data, weight)
+subroutine send_cohort_data_with_weight (id, buffer, cc, data, weight, op)
   integer,                intent(in)    :: id        ! diag field ID
   type(diag_buff_type),   intent(inout) :: buffer    ! data buffer
   type(vegn_cohort_type), intent(in)    :: cc(:)     ! cohort array: used for filtering
   real,                   intent(in)    :: data(:)      ! data
   real,                   intent(in)    :: weight(:) ! averaging weight
+  integer,                intent(in)    :: op        ! cohort aggregation operation
   
   integer :: i
   real    :: value
@@ -877,17 +873,17 @@ subroutine send_cohort_data_with_weight (id, buffer, cc, data, weight)
   ! TODO: generalize cohort subsampling
   if (cfields(i)%ids(1) > 0) then
      ! all cohorts
-     value = aggregate(data,weight,cfields(i)%opcode,mask=cc(:)%layer>0)
+     value = aggregate(data,weight,op,mask=cc(:)%layer>0)
      call send_tile_data(cfields(i)%ids(1), value, buffer)
   endif
   if (cfields(i)%ids(2) > 0) then
      ! canopy cohorts
-     value = aggregate(data,weight,cfields(i)%opcode,mask=cc(:)%layer==1)
+     value = aggregate(data,weight,op,mask=cc(:)%layer==1)
      call send_tile_data(cfields(i)%ids(2), value, buffer)
   endif
   if (cfields(i)%ids(3) > 0) then
      ! understory cohorts
-     value = aggregate(data,weight,cfields(i)%opcode,mask=cc(:)%layer>1)
+     value = aggregate(data,weight,op,mask=cc(:)%layer>1)
      call send_tile_data(cfields(i)%ids(3), value, buffer)
   endif
 end subroutine send_cohort_data_with_weight
