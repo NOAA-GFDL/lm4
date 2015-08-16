@@ -37,6 +37,7 @@ public :: check_temp_range
 public :: check_var_range
 public :: check_conservation
 
+public :: land_error_message
 public :: dpri
 
 interface dpri
@@ -463,6 +464,30 @@ subroutine check_conservation(tag, substance, d1, d2, tolerance, severity)
           'time=',y,mo,d,h,m,s
      call error_mesg(tag,message,severity_)
   endif
-end subroutine 
+end subroutine check_conservation
+
+! ============================================================================
+! print a message with current coordinates and time
+subroutine land_error_message(text,severity)
+  character(*), intent(in) :: text
+  integer, intent(in), optional :: severity
+  
+  integer :: y,mo,d,h,m,s ! components of date
+  integer :: thread
+  character(512) :: message
+  integer :: severity_
+
+  severity_=WARNING
+  if (present(severity))severity_=severity
+
+  thread = 1
+!$   thread = OMP_GET_THREAD_NUM()+1
+  call get_date(land_time,y,mo,d,h,m,s)
+  write(message,'(4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))') &
+       'at i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
+       'time=',y,mo,d,h,m,s
+  call error_mesg(text,message,severity_)
+  
+end subroutine land_error_message
 
 end module land_debug_mod
