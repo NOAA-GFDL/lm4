@@ -532,13 +532,6 @@ subroutine vegn_starvation_ppa (vegn, soil)
        ! kill starved plants and add dead C from leaf and root pools to soil carbon
        call kill_plants_ppa(cc, vegn, soil, deadtrees, 0.0, leaf_litt, wood_litt, root_litt)
 
-       ! water from dead trees goes to intermediate buffers, to be added to the
-       ! precipitation reaching ground
-       vegn%drop_wl = vegn%drop_wl + cc%wl*deadtrees
-       vegn%drop_ws = vegn%drop_ws + cc%ws*deadtrees
-       vegn%drop_hl = vegn%drop_hl + clw*cc%wl*deadtrees*(cc%Tv-tfreeze)
-       vegn%drop_hs = vegn%drop_hs + csw*cc%ws*deadtrees*(cc%Tv-tfreeze)
-
        ! for budget tracking - temporary
        vegn%veg_out = deadtrees * (cc%bl+cc%br+cc%bsw+cc%blv+cc%bseed+cc%nsc+cc%bwood)
      endif
