@@ -573,7 +573,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
           call read_tile_data_r0d_fptr(unit,'ssc_rate_ag',vegn_ssc_rate_ag_ptr)
           call read_tile_data_r0d_fptr(unit,'ssc_pool_bg',vegn_ssc_pool_bg_ptr)
           call read_tile_data_r0d_fptr(unit,'ssc_rate_bg',vegn_ssc_rate_bg_ptr)
-         if(nfu_inq_var(unit,'leaflitter_buffer_fast')==NF_NOERR) then  ! These pools weren't properly implemented before, so I'm skipping the old ones for now --BNS 
+         if(nfu_inq_var(unit,'leaflitter_buffer_fast')==NF_NOERR) then  ! These pools weren't properly implemented before, so I'm skipping the old ones for now --BNS
             call read_tile_data_r0d_fptr(unit,'leaflitter_buffer_fast',vegn_leaflitter_buffer_fast_ptr)
             call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_buffer_fast',vegn_coarsewoodlitter_buffer_fast_ptr)
             call read_tile_data_r0d_fptr(unit,'leaflitter_buffer_rate_fast',vegn_leaflitter_buffer_rate_fast_ptr)             ! wrong pointer function is being used here. I have corrected it in the new_land_io section (pjp)
@@ -2236,7 +2236,8 @@ subroutine update_vegn_slow( )
         call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol)
         call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
         call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
-        call check_conservation (tag,'nitrogen'      , nmass0, nmass1, carbon_cons_tol)
+        ! Need to include source/sink terms including vegetation inputs for N conservation to add up
+        !call check_conservation (tag,'nitrogen'      , nmass0, nmass1, carbon_cons_tol)
         ! call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16)
         ! - end of conservation check, part 2
      endif
