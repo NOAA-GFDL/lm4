@@ -75,7 +75,8 @@ integer, parameter, public :: &
     OP_MAX  = 3, & ! maximum of all  values
     OP_MIN  = 4, & ! minimum of all  values
     OP_VAR  = 5, & ! variance of tile values
-    OP_STD  = 6    ! standard deviation of tile values
+    OP_STD  = 6, & ! standard deviation of tile values
+    OP_DOMINANT = 7 ! dominant value (only for cohorts now)
 character(32), parameter :: opstrings(6) = (/ & ! symbolica names of the aggregation operations
    'mean   ' , &
    'sum    ' , &
@@ -897,6 +898,7 @@ function aggregate(data,weight,opcode,mask) result(ret)
   logical, intent(in) :: mask(:)
 
   real :: w
+  integer :: i
   
   select case(opcode)
   case(OP_SUM)
@@ -911,6 +913,14 @@ function aggregate(data,weight,opcode,mask) result(ret)
   case(OP_MIN)
      ret = 0.0
      if (any(mask)) ret = minval(data,mask)
+  case(OP_DOMINANT)
+     ret = 0.0
+     w=-HUGE(1.0)
+     do i = 1,size(weight)
+        if (mask(i).and.weight(i)>w) then 
+           ret = data(i); w = weight(i)
+        endif
+     enddo
   case default
      call error_mesg(mod_name, 'unrecognized cohort data aggregation opcode', FATAL)
   end select

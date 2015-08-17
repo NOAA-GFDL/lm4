@@ -28,7 +28,7 @@ use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, mol_air, 
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
      get_elmt_indices, land_tile_heat, land_tile_carbon, get_tile_water
-use land_tile_diag_mod, only : OP_SUM, OP_MEAN, OP_MAX, &
+use land_tile_diag_mod, only : OP_SUM, OP_MEAN, OP_MAX, OP_DOMINANT, &
      register_tiled_static_field, register_tiled_diag_field, &
      send_tile_data, diag_buff_type, register_cohort_diag_field, send_cohort_data
 use land_data_mod,      only : land_state_type, lnd, land_time
@@ -190,12 +190,12 @@ integer         :: vegn_phot_co2_option = -1 ! internal selector of co2 option
 ! diagnostic field ids
 integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_temp, id_wl, id_ws, &
-   id_lai, id_lai_var, id_lai_std, id_sai, id_leaf_size, &
+   id_lai, id_lai_var, id_lai_std, id_laii, id_sai, id_leafarea, id_leaf_size, &
    id_root_density, id_root_zeta, id_rs_min, id_leaf_refl, id_leaf_tran, &
    id_leaf_emis, id_snow_crit, id_stomatal, &
    id_an_op, id_an_cl,&
    id_bl, id_blv, id_br, id_bsw, id_bwood, id_bseed, id_btot, id_nsc, id_bl_max, id_br_max, &
-   id_species, id_status, &
+   id_species, id_dominant_by_n, id_dominant_by_b, id_status, &
    id_con_v_h, id_con_v_v, id_fuel, id_harv_pool(N_HARV_POOLS), &
    id_harv_rate(N_HARV_POOLS), id_t_harv_pool, id_t_harv_rate, &
    id_csmoke_pool, id_csmoke_rate, id_fsc_in, id_fsc_out, id_ssc_in, &
@@ -648,6 +648,10 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
        missing_value=-1.0, opt='stdev')
   id_sai    = register_cohort_diag_field ( module_name, 'sai',  &
        (/id_lon,id_lat/), time, 'stem area index', 'm2/m2', missing_value=-1.0)
+  id_leafarea = register_cohort_diag_field ( module_name, 'leafarea',  &
+       (/id_lon,id_lat/), time, 'leaf area per individual', 'm2', missing_value=-1.0)
+  id_laii   = register_cohort_diag_field ( module_name, 'laii',  &
+       (/id_lon,id_lat/), time, 'leaf area index per individual', 'm2/m2', missing_value=-1.0)
 
   id_leaf_size = register_tiled_diag_field ( module_name, 'leaf_size',  &
        (/id_lon,id_lat/), time, missing_value=-1.0 )
@@ -722,6 +726,10 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
 
   id_species = register_tiled_diag_field ( module_name, 'species',  &
        (/id_lon,id_lat/), time, 'vegetation species number', missing_value=-1.0 )
+  id_dominant_by_n = register_cohort_diag_field ( module_name, 'dominant_by_n',  &
+       (/id_lon,id_lat/), time, 'dominant vegetation species by number of individuals', missing_value=-1.0 )
+  id_dominant_by_b = register_cohort_diag_field ( module_name, 'dominant_by_b',  &
+       (/id_lon,id_lat/), time, 'dominant vegetation species by biomass', missing_value=-1.0 )
   id_status = register_tiled_diag_field ( module_name, 'status',  &
        (/id_lon,id_lat/), time, 'status of leaves', missing_value=-1.0 )
   id_theph = register_tiled_diag_field ( module_name, 'theph',  &
@@ -1574,9 +1582,13 @@ subroutine vegn_step_2 ( vegn, diag, &
   ! in principle, the first cohort must be the tallest, but since cohorts are
   ! rearranged only once a year, that may not be true for part of the year
   call send_cohort_data(id_lai,     diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac, op=OP_SUM)
+  call send_cohort_data(id_laii,    diag, c(1:N), c(1:N)%lai, weight=c(1:N)%nindivs,   op=OP_MEAN)
   call send_cohort_data(id_lai_var, diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac, op=OP_SUM)
   call send_cohort_data(id_lai_std, diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac, op=OP_SUM)
-  call send_cohort_data(id_sai, diag, c(1:N), c(1:N)%sai, weight=c(1:N)%layerfrac, op=OP_SUM)
+  call send_cohort_data(id_sai,     diag, c(1:N), c(1:N)%sai, weight=c(1:N)%layerfrac, op=OP_SUM)
+!  call send_cohort_data(id_leafarea,  diag, c(1:N), c(1:N)%leafarea, weight=c(1:N)%nindivs, op=OP_SUM) -- same as LAI (checked)
+  call send_cohort_data(id_leafarea, diag, c(1:N), c(1:N)%leafarea, weight=c(1:N)%nindivs, op=OP_MEAN)
+  
   end associate
   ! TODO: fix the diagnostics below
 !  call send_tile_data(id_leaf_size, cc%leaf_size, diag)
@@ -1821,6 +1833,7 @@ subroutine update_vegn_slow( )
   type(vegn_cohort_type), pointer :: cc(:) ! shorthand for cohort array
   real    :: zstar ! critical depth, for diag only
   character(64) :: str
+  real, allocatable :: btot(:) ! storage for total biomass
   
   ! variables for conservation checks
   real :: lmass0, fmass0, heat0, cmass0
@@ -2041,13 +2054,19 @@ subroutine update_vegn_slow( )
      call send_cohort_data(id_bwood,  tile%diag, cc(1:N), cc(1:N)%bwood,  weight=cc(1:N)%nindivs, op=OP_SUM)
      call send_cohort_data(id_bseed,  tile%diag, cc(1:N), cc(1:N)%bseed,  weight=cc(1:N)%nindivs, op=OP_SUM)
      call send_cohort_data(id_nsc,    tile%diag, cc(1:N), cc(1:N)%nsc,    weight=cc(1:N)%nindivs, op=OP_SUM)
-     call send_cohort_data(id_btot,   tile%diag, cc(1:N), cc(1:N)%bl    + &
-                                                          cc(1:N)%blv   + &
-                                                          cc(1:N)%br    + &
-                                                          cc(1:N)%bsw   + &
-                                                          cc(1:N)%bwood + &
-                                                          cc(1:N)%bseed + &
-                                                          cc(1:N)%nsc,    weight=cc(1:N)%nindivs, op=OP_SUM)
+
+     allocate(btot(N)) ! has to be allocated since N cohorts changes inside this subroutine
+     btot(1:N) = cc(1:N)%bl    + &
+                 cc(1:N)%blv   + &
+                 cc(1:N)%br    + &
+                 cc(1:N)%bsw   + &
+                 cc(1:N)%bwood + &
+                 cc(1:N)%bseed + &
+                 cc(1:N)%nsc
+     call send_cohort_data(id_btot,   tile%diag, cc(1:N),  btot, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_dominant_by_n, tile%diag, cc(1:N), real(cc(1:N)%species), weight=cc(1:N)%nindivs, op=OP_DOMINANT)
+     call send_cohort_data(id_dominant_by_b, tile%diag, cc(1:N), real(cc(1:N)%species), weight=cc(1:N)%nindivs*btot, op=OP_DOMINANT)
+     deallocate(btot)
 
      call send_cohort_data(id_bl_max, tile%diag, cc(1:N), cc(1:N)%bl_max, weight=cc(1:N)%nindivs, op=OP_SUM)
      call send_cohort_data(id_br_max, tile%diag, cc(1:N), cc(1:N)%br_max, weight=cc(1:N)%nindivs, op=OP_SUM)

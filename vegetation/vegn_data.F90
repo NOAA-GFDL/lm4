@@ -772,8 +772,11 @@ subroutine print_species_data(unit)
   integer, intent(in) :: unit ! unit number to print to
   
   type(table_printer_type) :: table
+  integer :: i
 
   call init_with_headers(table, spdata(:)%name)
+  call add_row(table, 'index', [(i,i=0,size(spdata)-1)])
+  
   call add_row(table, 'Treefall dist. rate', spdata(:)%treefall_disturbance_rate)
   call add_row(table, 'Mortality kills balive', spdata(:)%mortality_kills_balive)
   call add_row(table, 'Physiology Type', spdata(:)%pt)
