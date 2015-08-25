@@ -163,7 +163,6 @@ logical :: allow_neg_wl         = .false.   ! Warn rather than abort if wl < 0, 
 logical :: prohibit_negative_water_div = .false. ! if TRUE, div_bf abd dif_if are 
   ! set to zero in case water content of *any* layer is negative
 real    :: zeta_bar_override    = -1.
-real    :: soil_root_separation_coef = 0.    ! loss of contact with drying
 real    :: cold_depth           = 0.
 real    :: Wl_min               = -1.e20
 real    :: bwood_macinf         = -1.
@@ -202,7 +201,6 @@ namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     horiz_init_wt, use_coldstart_wtt_data, coldstart_datafile, &
                     allow_neg_rnu, allow_neg_wl, prohibit_negative_water_div, &
                     zeta_bar_override, &
-                    soil_root_separation_coef, &
                     cold_depth, Wl_min, &
                     bwood_macinf, &
                     max_iter_trans, layer_for_gw_switch, eps_trans, &
@@ -2365,8 +2363,7 @@ subroutine soil_data_beta ( soil, vegn, diag, soil_beta, soil_water_supply, &
        vegn_uptake_term, &
        vlc, vsc, & ! volumetric fractions of water and ice in the layer
        VRL, & ! vertical distribution of volumetric root length, m/m3
-       u, du, & ! uptake and its derivative (the latter is not used)
-       length_factor  ! reduction factor for effective root length
+       u, du  ! uptake and its derivative (the latter is not used)
   real :: psi_for_rh
   real :: K_r, r_r ! root properties
   real :: psi_crown_min, grav_head, plant_height, xylem_resist, xylem_area_frac, sws, dum4
@@ -2420,10 +2417,6 @@ subroutine soil_data_beta ( soil, vegn, diag, soil_beta, soil_water_supply, &
                                      VRL, K_r, r_r, &
                                      plant_height, xylem_area_frac, xylem_resist, &
                                      dum4 )
-     length_factor = 1 - soil_root_separation_coef * &
-          (soil%pars%vwc_sat-soil%wl/(dz*dens_h2o)) &
-          / (soil%pars%vwc_sat-soil%w_wilt)
-     where (length_factor.lt.0.) length_factor=0.
      grav_head = 0
      iter = 0
      psi_mid = 0
@@ -2431,11 +2424,11 @@ subroutine soil_data_beta ( soil, vegn, diag, soil_beta, soil_water_supply, &
      if (xylem_area_frac.gt.0. .and. xylem_resist.gt.0. .and. plant_height.gt.0. ) then
         DsapDpsi = DENS_H2O*xylem_area_frac/(plant_height*xylem_resist)
         psi_left = psi_wilt + grav_head
-        call darcy2d_uptake ( soil, psi_left, length_factor*VRL, &
+        call darcy2d_uptake ( soil, psi_left, VRL, &
                K_r, r_r, uptake_option, uptake_oneway, uptake_from_sat, u, du )
         f_left = max(0.0,sum(u)) - (psi_left-psi_wilt-grav_head)*DsapDpsi
         psi_right = 0.
-        call darcy2d_uptake ( soil, psi_right, length_factor*VRL, &
+        call darcy2d_uptake ( soil, psi_right, VRL, &
                K_r, r_r, uptake_option, uptake_oneway, uptake_from_sat, u, du )
         f_right = max(0.0,sum(u)) - (psi_right-psi_wilt-grav_head)*DsapDpsi
         f_last = f_left
@@ -2445,7 +2438,7 @@ subroutine soil_data_beta ( soil, vegn, diag, soil_beta, soil_water_supply, &
                __DEBUG5__(psi_left,f_left,psi_right,f_right,f_last)
            endif
            psi_mid = 0.5*(psi_left+psi_right)
-           call darcy2d_uptake ( soil, psi_mid, length_factor*VRL, &
+           call darcy2d_uptake ( soil, psi_mid, VRL, &
                   K_r, r_r, uptake_option, uptake_oneway, uptake_from_sat, u, du )
            f_mid = max(0.0,sum(u)) - (psi_mid-psi_wilt-grav_head)*DsapDpsi
            if (abs(f_mid-f_last).lt.eps_trans) exit
@@ -2459,7 +2452,7 @@ subroutine soil_data_beta ( soil, vegn, diag, soil_beta, soil_water_supply, &
            endif
         enddo
      else
-        call darcy2d_uptake ( soil, psi_wilt+grav_head, length_factor*VRL, &
+        call darcy2d_uptake ( soil, psi_wilt+grav_head, VRL, &
               K_r, r_r, uptake_option, uptake_oneway, uptake_from_sat, u, du )
      endif
      soil_water_supply = max(0.0,sum(u))
@@ -2659,7 +2652,7 @@ end subroutine soil_step_1
        hlprec_eff, & !  associated heat [W/m^2]
        tflow, & ! assumed temperature of liquid flow entering top layer [K]
        hcap, & ! heat capacity [J/m^2.K]
-       cap_flow, dheat, &
+       dheat, &
        melt_per_deg, melt, macro_inf, &
        extra_cum, ddW, sum_air, denom, h1, h2, &
        flow_macro, & ! infiltration-excess runoff penetrating the soil due to macroporosity [mm/s]
@@ -2673,19 +2666,18 @@ end subroutine soil_step_1
        hlrunf_sn,hlrunf_ie,hlrunf_bf,hlrunf_if,hlrunf_al,hlrunf_nu,hlrunf_sc, & ! runoff heat fluxes [W/m^2]
        c0, c1, c2, Dpsi_min, Dpsi_max, &
        sat_area_frac, sat_thick, sum_trans, &
-       gw_flux, depth_to_wt2_3, depth_to_wt_apparent, &
-       depth_to_gw_flow, depth_to_gw_flow_3, z_bot, &
-       active_layer_thickness, depth_to_cf, d_psi, d_psi_s, psi_star, &
+       gw_flux, depth_to_wt2_3, &
+       depth_to_gw_flow, depth_to_gw_flow_3, &
+       active_layer_thickness, d_psi, d_psi_s, psi_star, &
        depth_to_cf_1, depth_to_cf_3, &
        depth_to_wt_1, depth_to_wt_2, depth_to_wt_2a, depth_to_wt_2b, depth_to_wt_3, depth_to_wt_4, &
        storage_2, deficit_2, deficit_3, deficit_4, deficit, dum1, dum2, dum3
   logical :: stiff
   logical :: hlsp_stiff ! were all the horizontal conductivities zero at the call to hlsp_hydrology_1?
   real :: zimh, ziph, dTr_g(num_l), dTr_s(num_l)
-  integer :: n_iter, l, l_max_active_layer, istep, nstep
+  integer :: n_iter, l, l_max_active_layer
   real :: &
        VRL(num_l), & ! volumetric root length, m/m3
-       length_factor(num_l), & ! reduction factor for effective root length
        K_r, & ! root membrame permeability, kg/(m3 s)
        r_r, & ! root radius, m
        bwood, & ! heartwood biomass kg C/m2
@@ -2719,11 +2711,6 @@ end subroutine soil_step_1
   real :: sliq, sice     ! for call to soil_tile_stock_pe
   character(len=512) :: mesg ! for error message
   integer :: ipt, jpt, kpt, fpt ! for debug
-  real :: neg_wl ! [mm] negative wl for zeroing
-  real :: wl_ssat ! [mm] excess wl to push up for supersupersat
-  real :: psimax ! [m] maximum feasible physical psi, above which push up excess to smooth numerics
-  real :: Xmax   ! [-] theta associated with psimax
-  real :: wl_max ! [mm] water associated with Xmax
   real :: surf_DOC_loss(n_c_types)! [kg C/m^2] DOC loss from top soil layer to surface runoff due
                                   ! to efflux
   real :: total_C_leaching(num_l) ! [kg C/m^2/s] net total vertical DOC leaching by layer
@@ -2826,11 +2813,7 @@ end subroutine soil_step_1
      call vegn_hydraulic_properties (vegn, dz(1:num_l), always_use_bsw, &
                                VRL, K_r, r_r, dum1, dum2, dum3, bwood)
 
-     length_factor = 1 - soil_root_separation_coef * &
-          (soil%pars%vwc_sat-soil%wl/(dz*dens_h2o)) &
-          / (soil%pars%vwc_sat-soil%w_wilt)
-     where (length_factor.lt.0.) length_factor=0.
-     call darcy2d_uptake_solver (soil, vegn_uptk, length_factor*VRL, K_r, r_r, &
+     call darcy2d_uptake_solver (soil, vegn_uptk, VRL, K_r, r_r, &
              uptake_option, uptake_oneway, uptake_from_sat, uptake, psi_x0, n_iter)
      soil%psi_x0 = psi_x0
 
