@@ -670,7 +670,7 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
   id_snow_crit = register_tiled_diag_field ( module_name, 'snow_crit',  &
        (/id_lon,id_lat/), time, missing_value=-1.0 )
   id_stomatal = register_tiled_diag_field ( module_name, 'stomatal_cond',  &
-       (/id_lon,id_lat/), time, 'vegetation stomatal conductance', missing_value=-1.0 )
+       (/id_lon,id_lat/), time, 'vegetation stomatal conductance', 'm/s', missing_value=-1.0 )
   id_evap_demand = register_tiled_diag_field ( module_name, 'evap_demand',  &
        (/id_lon,id_lat/), time, 'plant evaporative water demand',&
        'kg/(m2 s)', missing_value=-1e20 )

@@ -167,7 +167,7 @@ type :: soil_pars_type
   real zeta                ! soil depth normalized by hillslope elevation
   real tau                 ! effective residence time (1/s)
   integer storage_index
-  real rsa_exp         ! riparian source-area exponent
+  real rsa_exp          ! riparian source-area exponent
   ! Used with full tiled Hillslope Model Hydrology:
   real k_sat_gw         ! saturated hydraulic conductivity at infinite depth, for bedrock (mm/s)
   real k_sat_sfc        ! saturated hydraulic conductivity at surface (mm/s)
@@ -198,7 +198,7 @@ type :: soil_tile_type
        ! (Note multiple instances of each of these can exist, via, e.g. land use
        ! disturbance. So these indices function similarly to "tag".)
 
-   type(soil_pars_type)               :: pars
+   type(soil_pars_type) :: pars
 
    real, allocatable ::  &
        wl(:)           , & ! liquid water, kg/m2
@@ -213,9 +213,9 @@ type :: soil_tile_type
        k_macro_z(:)    , & ! Vertical macroporosity [mm/s]
        k_macro_x(:)    , & ! Horizontal macroporosity [mm/s]
        vwc_max(:)
-   real          :: Eg_part_ref
-   real          :: z0_scalar
-   real          :: geothermal_heat_flux
+   real :: Eg_part_ref
+   real :: z0_scalar
+   real :: geothermal_heat_flux
    ! data that were local to soil.f90
    real, allocatable ::  &
        uptake_frac(:),   &
@@ -242,12 +242,12 @@ type :: soil_tile_type
    ! values for CORPSE
    type(soil_carbon_pool), allocatable :: soil_C(:) ! Soil carbon in soil layers, using soil_carbon_mod soil carbon pool type
    integer, allocatable   :: is_peat(:)             ! Keeps track of whether soil layer is peat, for redistribution
-   type(soil_carbon_pool)            :: leafLitter              ! Surface litter pools, just one layer 
-   type(soil_carbon_pool)            :: fineWoodLitter         ! Separating makes fire modeling easier
-   type(soil_carbon_pool)            :: coarseWoodLitter
-   real                              :: fast_DOC_leached !Carbon that has been leached out of the column
-   real                              :: slow_DOC_leached !Carbon that has been leached out of the column
-   real                              :: deadmic_DOC_leached !Carbon that has been leached out of the column
+   type(soil_carbon_pool) :: leafLitter             ! Surface litter pools, just one layer 
+   type(soil_carbon_pool) :: fineWoodLitter         ! Separating makes fire modeling easier
+   type(soil_carbon_pool) :: coarseWoodLitter
+   real                   :: fast_DOC_leached !Carbon that has been leached out of the column
+   real                   :: slow_DOC_leached !Carbon that has been leached out of the column
+   real                   :: deadmic_DOC_leached !Carbon that has been leached out of the column
    ! values for the diagnostic of carbon budget and soil carbon acceleration
    real, allocatable :: &
        asoil_in(:), &
@@ -273,6 +273,7 @@ real    :: psi_wilt              = -150.0  ! matric head at wilting
 real, public :: comp             = 0.001  ! m^-1, dThdPsi at saturation
 real    :: K_min                 = 0.     ! absolute lower limit on hydraulic cond
                                           ! used only when use_alt[2]_soil_hydraulics
+real    :: K_max_matrix          = 1.e10
 real    :: DThDP_max             = 1.e10  
 real    :: psi_min               = -1.e5  ! value beyond which psi(theta) is
                                           ! linearly extrapolated
@@ -430,7 +431,7 @@ logical :: repro_zms = .FALSE. ! if true, changes calculations of zfull to repro
                                ! in the lowest bits of answer.
 namelist /soil_data_nml/ psi_wilt, &
      soil_to_use, soil_type_file, tile_names, input_cover_types, &
-     comp, K_min, DThDP_max, psi_min, k_over_B, &
+     comp, K_min, K_max_matrix, DThDP_max, psi_min, k_over_B, &
      rate_fc, sfc_heat_factor, z_sfc_layer, &
      sub_layer_tc_fac, z_sub_layer_min, z_sub_layer_max, freeze_factor, &
      aspect, zeta_mult, num_l,  dz,                      &
@@ -620,11 +621,11 @@ subroutine read_soil_data_namelist(soil_single_geo, soil_gw_option )
      call read_data('INPUT/geohydrology_table_2a2n.nc', 'log_rho_a1n2', &
              log_rho_table(:,:,:,2,2), no_domain=.true.)
      call read_data('INPUT/geohydrology_table_2a2n.nc', 'log_deficit', &
-                 log_deficit_list, no_domain=.true.)
+             log_deficit_list, no_domain=.true.)
      call read_data('INPUT/geohydrology_table_2a2n.nc', 'log_tau', &
-                 log_tau, no_domain=.true.)
+             log_tau, no_domain=.true.)
      call read_data('INPUT/geohydrology_table_2a2n.nc', 'log_zeta_s', &
-                 log_zeta_s, no_domain=.true.)
+             log_zeta_s, no_domain=.true.)
   endif
 
 
@@ -688,7 +689,7 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
 
   call soil_data_init_0d(ptr)
   do i=1,num_l
-	call init_soil_carbon(ptr%soil_C(i),Qmax=ptr%pars%Qmax)
+     call init_soil_carbon(ptr%soil_C(i),Qmax=ptr%pars%Qmax)
   enddo
   call init_soil_carbon(ptr%leafLitter,protectionRate=0.0,Qmax=0.0,max_cohorts=1)
   call init_soil_carbon(ptr%fineWoodLitter,protectionRate=0.0,Qmax=0.0,max_cohorts=1)
@@ -700,8 +701,6 @@ end function soil_tile_ctor
 function soil_tile_copy_ctor(soil) result(ptr)
   type(soil_tile_type), pointer :: ptr ! return value
   type(soil_tile_type), intent(in) :: soil ! tile to copy
-
-  integer :: i
 
   allocate(ptr)
   ptr = soil ! copy all non-pointer members
@@ -728,7 +727,7 @@ subroutine soil_data_init_0d(soil)
 !  real rsa_exp         ! riparian source-area exponent
   integer :: k, i, l, code, m_zeta, m_tau
   real    :: alpha_inf_sq, alpha_sfc_sq, comp_local
-  real :: single_log_zeta_s, single_log_tau, frac_zeta, frac_tau
+  real    :: single_log_zeta_s, single_log_tau, frac_zeta, frac_tau
   real    :: z ! depth at top of current layer
   
   k = soil%tag
@@ -871,11 +870,11 @@ subroutine soil_data_init_derive_subsurf_pars ( soil )
       do l = 1, num_l
         soil%alpha(l) = sqrt(alpha_inf_sq+(alpha_sfc_sq-alpha_inf_sq) &
                     *exp(-zfull(l)/soil%pars%soil_e_depth))
-        enddo
-    else
+      enddo
+  else
       soil%pars%k_sat_sfc = soil%pars%k_sat_ref
       soil%alpha = 1.0
-    endif
+  endif
 
   soil%pars%tau =    &
     (soil%pars%k_sat_gw*aspect*soil%pars%hillslope_length) &
@@ -883,9 +882,9 @@ subroutine soil_data_init_derive_subsurf_pars ( soil )
 
   soil%d_trans(1) = 1.
   do l = 1, num_l-1
-    soil%d_trans(l+1) = exp(-zhalf(l+1)/soil%pars%soil_e_depth)
-    soil%d_trans(l)   = soil%d_trans(l) - soil%d_trans(l+1)
-    enddo
+     soil%d_trans(l+1) = exp(-zhalf(l+1)/soil%pars%soil_e_depth)
+     soil%d_trans(l)   = soil%d_trans(l) - soil%d_trans(l+1)
+  enddo
   soil%d_trans = soil%d_trans &
        * (soil%pars%k_sat_sfc + k_macro_x_local ) &
        * soil%pars%soil_e_depth
@@ -901,14 +900,14 @@ subroutine soil_data_init_derive_subsurf_pars ( soil )
   m_zeta = num_zeta_pts / 2
   code = 0
   do while (code.eq.0)
-    if (single_log_zeta_s .lt. log_zeta_s(m_zeta)) then
+     if (single_log_zeta_s .lt. log_zeta_s(m_zeta)) then
         m_zeta = m_zeta - 1
-      else if (single_log_zeta_s .gt. log_zeta_s(m_zeta+1)) then
+     else if (single_log_zeta_s .gt. log_zeta_s(m_zeta+1)) then
         m_zeta = m_zeta + 1
-      else
+     else
         code = 1
-      endif
-    enddo
+     endif
+  enddo
   frac_zeta = (single_log_zeta_s - log_zeta_s(m_zeta)) &
      / (log_zeta_s(m_zeta+1) - log_zeta_s(m_zeta))
   single_log_tau = log10( soil%pars%tau )
@@ -917,14 +916,14 @@ subroutine soil_data_init_derive_subsurf_pars ( soil )
   m_tau = num_tau_pts / 2
   code = 0
   do while (code.eq.0)
-    if (single_log_tau .lt. log_tau(m_tau)) then
+     if (single_log_tau .lt. log_tau(m_tau)) then
         m_tau = m_tau - 1
-      else if (single_log_tau .gt. log_tau(m_tau+1)) then
+     else if (single_log_tau .gt. log_tau(m_tau+1)) then
         m_tau = m_tau + 1
-      else
+     else
         code = 1
-      endif
-    enddo
+     endif
+  enddo
   frac_tau = (single_log_tau - log_tau(m_tau)) &
      / (log_tau(m_tau+1) - log_tau(m_tau))
   m_a = 1+int(soil%pars%hillslope_a+0.1)
@@ -943,7 +942,7 @@ subroutine soil_data_init_derive_subsurf_pars ( soil )
      + (   frac_zeta)*(1.-frac_tau)*log_rho_table(i , m_tau  , m_zeta+1, m_a, m_n) &
      + (1.-frac_zeta)*(   frac_tau)*log_rho_table(i , m_tau+1, m_zeta  , m_a, m_n) &
      + (   frac_zeta)*(   frac_tau)*log_rho_table(i , m_tau+1, m_zeta+1, m_a, m_n) )
-    enddo
+  enddo
 
 end subroutine soil_data_init_derive_subsurf_pars
 
@@ -1075,22 +1074,22 @@ subroutine soil_data_init_derive_subsurf_pars_ar5 ( soil )
   m_zeta = 31 / 2
   code = 0
   do while (code.eq.0)
-    if (soil%pars%zeta .lt. gw_zeta_s(m_zeta)) then
+     if (soil%pars%zeta .lt. gw_zeta_s(m_zeta)) then
         m_zeta = m_zeta - 1
-      else if (soil%pars%zeta .gt. gw_zeta_s(m_zeta+1)) then
+     else if (soil%pars%zeta .gt. gw_zeta_s(m_zeta+1)) then
         m_zeta = m_zeta + 1
-      else
+     else
         code = 1
-      endif
-    enddo
+     endif
+  enddo
   frac_zeta = (soil%pars%zeta - gw_zeta_s(m_zeta)) &
                 / (gw_zeta_s(m_zeta+1) - gw_zeta_s(m_zeta))
   do i = 1, num_storage_pts
-    soil%gw_flux_norm(i) = gw_flux_table(i,m_zeta) &
-         + frac_zeta*(gw_flux_table(i,m_zeta+1)-gw_flux_table(i,m_zeta))
-    soil%gw_area_norm(i) = gw_area_table(i,m_zeta) &
-         + frac_zeta*(gw_area_table(i,m_zeta+1)-gw_area_table(i,m_zeta))
-    enddo
+     soil%gw_flux_norm(i) = gw_flux_table(i,m_zeta) &
+          + frac_zeta*(gw_flux_table(i,m_zeta+1)-gw_flux_table(i,m_zeta))
+     soil%gw_area_norm(i) = gw_area_table(i,m_zeta) &
+          + frac_zeta*(gw_area_table(i,m_zeta+1)-gw_area_table(i,m_zeta))
+   enddo
 end subroutine soil_data_init_derive_subsurf_pars_ar5
 
 
@@ -1262,6 +1261,7 @@ function soil_ave_theta1(soil, depth) result (A) ; real :: A
   A = A/N
 end function soil_ave_theta1
 
+
 ! ============================================================================
 ! returns soil surface "wetness" -- fraction of the pores filled with water 
 subroutine soil_ave_wetness(soil, depth, SW, SI)
@@ -1349,7 +1349,7 @@ function soil_psi_stress(soil, zeta) result (A) ; real :: A
      w = exp(-zhalf(k)/zeta2)-exp(-zhalf(k+1)/zeta2)
      A = A + w * soil%psi(k)/psi_wilt
      N = N + w
-     enddo
+  enddo
   A = A/N
 
 end function soil_psi_stress
@@ -1369,19 +1369,19 @@ subroutine soil_data_radiation ( soil, cosz, use_brdf, soil_alb_dir, soil_alb_di
   soil_sfc_vlc  = soil%wl(1)/(dens_h2o*dz(1))
   blend         = max(0., min(1., soil_sfc_vlc/soil%pars%vwc_sat))
   if (use_brdf) then
-      zenith_angle = acos(cosz)
-      zsq = zenith_angle*zenith_angle
-      zcu = zenith_angle*zsq
-      dry_value =  soil%pars%f_iso_dry*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
-                 + soil%pars%f_vol_dry*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
-                 + soil%pars%f_geo_dry*(g0_geo+g1_geo*zsq+g2_geo*zcu)
-      sat_value =  soil%pars%f_iso_sat*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
-                 + soil%pars%f_vol_sat*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
-                 + soil%pars%f_geo_sat*(g0_geo+g1_geo*zsq+g2_geo*zcu)
-    else
-      dry_value = soil%pars%refl_dry_dir
-      sat_value = soil%pars%refl_sat_dir
-    endif
+     zenith_angle = acos(cosz)
+     zsq = zenith_angle*zenith_angle
+     zcu = zenith_angle*zsq
+     dry_value =  soil%pars%f_iso_dry*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
+                + soil%pars%f_vol_dry*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
+                + soil%pars%f_geo_dry*(g0_geo+g1_geo*zsq+g2_geo*zcu)
+     sat_value =  soil%pars%f_iso_sat*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
+                + soil%pars%f_vol_sat*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
+                + soil%pars%f_geo_sat*(g0_geo+g1_geo*zsq+g2_geo*zcu)
+  else
+     dry_value = soil%pars%refl_dry_dir
+     sat_value = soil%pars%refl_sat_dir
+  endif
   soil_alb_dir  = dry_value              + blend*(sat_value             -dry_value)
   soil_alb_dif  = soil%pars%refl_dry_dif + blend*(soil%pars%refl_sat_dif-soil%pars%refl_dry_dif)
   soil_emis     = soil%pars%emis_dry     + blend*(soil%pars%emis_sat    -soil%pars%emis_dry    )
@@ -1450,8 +1450,8 @@ subroutine soil_data_thermodynamics ( soil, vlc, vsc, &
   ! high latitudes. presumably other locations are insensitive to this
   ! global parameter, since they don't have freeze/thaw. this really is just a fudge.
   do l = sub_layer_min, sub_layer_max
-    thermal_cond(l) = sub_layer_tc_fac * thermal_cond(l)
-    enddo
+     thermal_cond(l) = sub_layer_tc_fac * thermal_cond(l)
+  enddo
   
 end subroutine soil_data_thermodynamics
 
@@ -1475,7 +1475,7 @@ subroutine soil_data_hydraulic_properties (soil, vlc, vsc, &
                     psi, DThDP, K_z, K_x, DKDP, DPsi_min, DPsi_max, &
                     psi_for_rh  )
   else
-  call soil_data_hydraulics (soil, vlc, vsc, &
+      call soil_data_hydraulics (soil, vlc, vsc, &
                     psi, DThDP, K_z, DKDP, DPsi_min, DPsi_max, &
                     psi_for_rh  )
       K_x = K_z
@@ -1508,7 +1508,7 @@ subroutine soil_data_psi_for_rh (soil, vlc, vsc, psi, psi_for_rh  )
                     psi, DThDP, K_z, K_x, DKDP, DPsi_min, DPsi_max, &
                     psi_for_rh  )
   else
-  call soil_data_hydraulics (soil, vlc, vsc, &
+      call soil_data_hydraulics (soil, vlc, vsc, &
                     psi, DThDP, K_z, DKDP, DPsi_min, DPsi_max, &
                     psi_for_rh  )
   endif
@@ -1544,70 +1544,70 @@ subroutine soil_data_hydraulics (soil, vlc, vsc, &
   DKDP=0
   flag = .false.
   do l = 1, size(vlc)
-    alpha_sq = soil%alpha(l)**2
-    hyd_cond(l) = (soil%pars%k_sat_ref*alpha_sq)*  &
-               (vlc(l)/soil%pars%vwc_sat)**(3+2*soil%pars%chb)
-    if (hyd_cond(l).lt.1.e-12*soil%pars%k_sat_ref*alpha_sq) then
+     alpha_sq = soil%alpha(l)**2
+     hyd_cond(l) = (soil%pars%k_sat_ref*alpha_sq)*  &
+                (vlc(l)/soil%pars%vwc_sat)**(3+2*soil%pars%chb)
+     if (hyd_cond(l).lt.1.e-12*soil%pars%k_sat_ref*alpha_sq) then
         vlc_loc     = soil%pars%vwc_sat*(1.e-12)**(1./(3+2*soil%pars%chb))
         hyd_cond(l) = 1.e-12*soil%pars%k_sat_ref*alpha_sq
         if (l.eq.1) flag = .true.
         if (vsc(l).eq.0.) then
-            DThDP   (l) = -vlc_loc     &
-                      *(vlc_loc/soil%pars%vwc_sat)**soil%pars%chb &
-                      /(soil%pars%psi_sat_ref*soil%pars%chb/soil%alpha(l))
-            psi     (l) = (soil%pars%psi_sat_ref/soil%alpha(l)) &
-                      *(soil%pars%vwc_sat/vlc_loc)**soil%pars%chb &
-                      + (vlc(l)-vlc_loc)/DThDP   (l)
-            if (l.eq.1.and.vlc(1).gt.0.) then
-                alt_psi_for_rh = &
-                     (soil%pars%psi_sat_ref/soil%alpha(l)) &
-                     *(soil%pars%vwc_sat/vlc(1)   )**soil%pars%chb
-              else if (l.eq.1.and.vlc(1).le.0.) then
-                alt_psi_for_rh = -1.e10
-              endif
-          else
-            psi     (l) = ((soil%pars%psi_sat_ref/soil%alpha(l)) / 2.2) &
-                    *(soil%pars%vwc_sat/vlc_loc   )**soil%pars%chb
-            DThDP   (l) = 0.
-            if (l.eq.1) alt_psi_for_rh = -1.e10
-          endif
-      else
-          if (vsc(l).eq.0.) then
-              if (vlc(l).le.soil%pars%vwc_sat) then
-                  psi     (l) = (soil%pars%psi_sat_ref/soil%alpha(l)) &
-                          *(soil%pars%vwc_sat/vlc(l))**soil%pars%chb
-                  DKDP    (l) = -(2+3/soil%pars%chb)*hyd_cond(l) &
-                                                 /psi(l)
-                  DThDP   (l) = -vlc(l)/(psi(l)*soil%pars%chb)
-                else
-                  psi(l) = soil%pars%psi_sat_ref/soil%alpha(l) &
-                         + (vlc(l)-soil%pars%vwc_sat)/comp
-	          f_psi = min(max(1.-psi(l)/soil%pars%psi_sat_ref/soil%alpha(l),0.),1.)
-                  DThDP(l) = comp
-                  hyd_cond(l) = soil%pars%k_sat_ref*alpha_sq &
+           DThDP   (l) = -vlc_loc     &
+                     *(vlc_loc/soil%pars%vwc_sat)**soil%pars%chb &
+                     /(soil%pars%psi_sat_ref*soil%pars%chb/soil%alpha(l))
+           psi     (l) = (soil%pars%psi_sat_ref/soil%alpha(l)) &
+                     *(soil%pars%vwc_sat/vlc_loc)**soil%pars%chb &
+                     + (vlc(l)-vlc_loc)/DThDP   (l)
+           if (l.eq.1.and.vlc(1).gt.0.) then
+              alt_psi_for_rh = &
+                    (soil%pars%psi_sat_ref/soil%alpha(l)) &
+                    *(soil%pars%vwc_sat/vlc(1)   )**soil%pars%chb
+           else if (l.eq.1.and.vlc(1).le.0.) then
+              alt_psi_for_rh = -1.e10
+           endif
+        else
+           psi     (l) = ((soil%pars%psi_sat_ref/soil%alpha(l)) / 2.2) &
+                   *(soil%pars%vwc_sat/vlc_loc   )**soil%pars%chb
+           DThDP   (l) = 0.
+           if (l.eq.1) alt_psi_for_rh = -1.e10
+        endif
+     else
+        if (vsc(l).eq.0.) then
+           if (vlc(l).le.soil%pars%vwc_sat) then
+              psi     (l) = (soil%pars%psi_sat_ref/soil%alpha(l)) &
+                      *(soil%pars%vwc_sat/vlc(l))**soil%pars%chb
+              DKDP    (l) = -(2+3/soil%pars%chb)*hyd_cond(l) &
+                                             /psi(l)
+              DThDP   (l) = -vlc(l)/(psi(l)*soil%pars%chb)
+           else
+              psi(l) = soil%pars%psi_sat_ref/soil%alpha(l) &
+                     + (vlc(l)-soil%pars%vwc_sat)/comp
+              f_psi = min(max(1.-psi(l)/soil%pars%psi_sat_ref/soil%alpha(l),0.),1.)
+              DThDP(l) = comp
+              hyd_cond(l) = soil%pars%k_sat_ref*alpha_sq &
                                + f_psi * soil%k_macro_z(l)
-                endif
-            else
-              psi     (l) = ((soil%pars%psi_sat_ref/soil%alpha(l)) / 2.2) &
-                        *(soil%pars%vwc_sat/vlc(l))**soil%pars%chb
-              DThDP   (l) = 0.
-            endif
-      endif
-    enddo
+           endif
+        else
+           psi     (l) = ((soil%pars%psi_sat_ref/soil%alpha(l)) / 2.2) &
+                     *(soil%pars%vwc_sat/vlc(l))**soil%pars%chb
+           DThDP   (l) = 0.
+        endif
+     endif
+  enddo
 
   if (use_alt_psi_for_rh .and. flag) then
-      psi_for_rh = alt_psi_for_rh
-    else
-      psi_for_rh = psi(1)
-    endif
+     psi_for_rh = alt_psi_for_rh
+  else
+     psi_for_rh = psi(1)
+  endif
 
   if (DThDP(1).ne.0.) then
-      DPsi_min =            -vlc(1) /DThDP(1)
-      DPsi_max = (soil%pars%vwc_sat-vlc(1))/DThDP(1)
-    else
-      Dpsi_min = Dpsi_min_const
-      DPsi_max = -psi(1)
-    endif
+     DPsi_min =            -vlc(1) /DThDP(1)
+     DPsi_max = (soil%pars%vwc_sat-vlc(1))/DThDP(1)
+  else
+     Dpsi_min = Dpsi_min_const
+     DPsi_max = -psi(1)
+  endif
 
 end subroutine soil_data_hydraulics
 
@@ -1629,7 +1629,6 @@ subroutine soil_data_hydraulics_alt3 (soil, vlc, vsc, &
                  ! excessive pressures and smooth numerics
   real :: Xmax   ! [-] theta associated with psimax
   real, parameter :: supercomp = 0.01 ! [1/m] comp to use above psimax
-  real, parameter :: minXl = 0.001 ! [-]
   
   K_z=1;K_x=1;DThDP=1;psi=1
   DKDP=0
@@ -1642,57 +1641,43 @@ subroutine soil_data_hydraulics_alt3 (soil, vlc, vsc, &
     Psat = soil%pars%psi_sat_ref  / soil%alpha(l)
     if (Xs.gt.0.) Psat = Psat / 2.2
     Xsat = soil%pars%vwc_sat
-    B     = soil%pars%chb
-    if (Xl_eff.le.Xsat) then
-        if ((Xs.le.0. .or. use_fluid_ice).AND.Xl_eff.gt.minXl) then
-            psi(l) = Psat*(Xsat/Xl_eff)**B
-            DThDP(l) = -Xl_eff/(psi(l)*B)
-            if (limit_DThDP) DThDP(l) = min(DThDP(l), DThDP_max)
-        else
-            DThDP(l) = 0.
-        endif
-
-        if (Xl_eff.gt.minXl) then
-            psi(l) = Psat*(Xsat/Xl_eff)**B
-            if (psi(l).lt.psi_min) then
-                X_min = Xsat/(psi_min/Psat)**(1/B)
-                DThDP(l) = -X_min/(psi_min*B)
-                if (limit_DThDP) DThDP(l) = min(DThDP(l), DThDP_max)
-                psi(l) = psi_min + (Xl_eff-X_min)/DThDP(l)
-                if (Xs.gt.0. .and. .not.use_fluid_ice) DThDP(l) = 0.
-            endif
-        else
-            X_min = Xsat/(psi_min/Psat)**(1/B)
-            DThDP(l) = -X_min/(psi_min*B)
-            if (limit_DThDP) DThDP(l) = min(DThDP(l), DThDP_max)
-            psi(l) = psi_min + (Xl_eff-X_min)/DThDP(l)
-            if (Xs.gt.0. .and. .not.use_fluid_ice) DThDP(l) = 0.
-        endif
+    B    = soil%pars%chb
+    X_min = Xsat/(psi_min/Psat)**(1/B)
+    if (Xl_eff.lt.X_min) then
+        DThDP(l) = -X_min/(psi_min*B)
+        if (limit_DThDP) DThDP(l) = min(DThDP(l), DThDP_max)
+        psi(l) = psi_min + (Xl_eff-X_min)/DThDP(l)
+        if (Xs.gt.0. .and. .not.use_fluid_ice) DThDP(l) = 0.
+    else if (Xl_eff.le.Xsat) then
+        psi(l) = Psat*(Xsat/Xl_eff)**B
+        DThDP(l) = -Xl_eff/(psi(l)*B)
+        if (limit_DThDP) DThDP(l) = min(DThDP(l), DThDP_max)
+        if (Xs.gt.0. .and. .not.use_fluid_ice) DThDP(l) = 0.
     else
-        if (comp.gt.0.) then
-            psi(l) = Psat + (Xl_eff-Xsat)/comp
-            if (Xs.le.0. .or. use_fluid_ice) then
-          DThDP(l) = comp
-            else
+       if (comp.gt.0.) then
+          psi(l) = Psat + (Xl_eff-Xsat)/comp
+          if (Xs.le.0. .or. use_fluid_ice) then
+              DThDP(l) = comp
+          else
+              DThDP(l) = 0.
+          endif
+          ! ZMS Adding code for stabilization of numerics
+          psimax = soil%pars%hillslope_relief + zhalf(l+1)
+          if (gw_option == GW_TILED) psimax = psimax - soil%pars%tile_hlsp_elev
+          if (limit_hi_psi .and. psi(l) > psimax) then
+             Xmax = comp*(psimax - Psat) + Xsat
+             psi(l) = psimax + (Xsat - Xmax)/supercomp
+             if (Xs.le.0. .or. use_fluid_ice) then
+                DThDP(l) = supercomp
+             else
                 DThDP(l) = 0.
-        endif
-           ! ZMS Adding code for stabilization of numerics
-           psimax = soil%pars%hillslope_relief + zhalf(l+1)
-           if (gw_option == GW_TILED) psimax = psimax - soil%pars%tile_hlsp_elev
-           if (limit_hi_psi .and. psi(l) > psimax) then
-              Xmax = comp*(psimax - Psat) + Xsat
-              psi(l) = psimax + (Xsat - Xmax)/supercomp
-              if (Xs.le.0. .or. use_fluid_ice) then
-                 DThDP(l) = supercomp
-              else
-                 DThDP(l) = 0.
-              end if
-           end if
-           ! end of ZMS addition 
-        else
-            psi(l) = Psat
-            DThDP(l) = -Xsat/(Psat*B)
-        endif
+             end if
+          endif
+          ! end of ZMS addition 
+       else
+           psi(l) = Psat
+           DThDP(l) = -Xsat/(Psat*B)
+       endif
     endif
     if (use_fluid_ice) then
         K_z(l) = Ksat*((Xl+Xs)/Xsat)**(3+2*B)
@@ -1700,19 +1685,23 @@ subroutine soil_data_hydraulics_alt3 (soil, vlc, vsc, &
         K_z(l) = Ksat*((  Xl )/Xsat)**(3+2*B)
     endif
     K_z(l) = min(max(K_min, K_z(l)), Ksat)
+    K_z(l) = min(K_z(l), K_max_matrix)
     K_x(l) = K_z(l)
     f_psi = min(max(1.-psi(l)/Psat,0.),1.)
     K_z(l) = K_z(l) + f_psi * soil%k_macro_z(l)
     K_x(l) = K_x(l) + f_psi * soil%k_macro_x(l)
-      enddo
+  enddo
 
-    psi_for_rh = psi(1)
+  psi_for_rh = psi(1)
 
   if (DThDP(1).ne.0.) then
       Xl_eff = vlc(1)
       if (use_fluid_ice) Xl_eff = vlc(1) + vsc(1)
       DPsi_min =      -Xl_eff /DThDP(1)
       DPsi_max = (Xsat-Xl_eff)/DThDP(1)
+      ! NOTE THAT TOTAL WATER CONTENT SHOULD BE SUBTRACTED TO GET
+      ! DPSI_MAX, BUT IF VSC>0, THEN DThDp IS ZERO, AND WE WOULD
+      ! BE IN THE OTHER BRANCH (BELOW).     
   else
       Dpsi_min = Dpsi_min_const
       DPsi_max = -psi(1)
@@ -1736,20 +1725,20 @@ subroutine soil_data_gw_hydraulics_ar5(soil, storage_normalized, &
   code = 0
   m = soil%pars%storage_index
   do while (code.eq.0)
-    if (storage_normalized .lt. gw_storage_norm(m)) then
+     if (storage_normalized .lt. gw_storage_norm(m)) then
         m = m - 1
-      else if (storage_normalized .gt. gw_storage_norm(m+1)) then
+     else if (storage_normalized .gt. gw_storage_norm(m+1)) then
         m = m + 1
-      else
+     else
         code = 1
-      endif
-    enddo
+     endif
+  enddo
   if (m.lt.1.or.m.gt.num_storage_pts-1) then
-      write(*,*) '!!! *** m=',m, ' is outside the table in soil_data_gw_hydraulics_ar5 *** !!!'
-      write(*,*) 'num_storage_pts=',num_storage_pts
-      write(*,*) 'storage_normalized=',storage_normalized
-      write(*,*) 'interval bounds:',gw_storage_norm(m),gw_storage_norm(m+1)
-    endif
+     write(*,*) '!!! *** m=',m, ' is outside the table in soil_data_gw_hydraulics_ar5 *** !!!'
+     write(*,*) 'num_storage_pts=',num_storage_pts
+     write(*,*) 'storage_normalized=',storage_normalized
+     write(*,*) 'interval bounds:',gw_storage_norm(m),gw_storage_norm(m+1)
+  endif
   frac = (storage_normalized-gw_storage_norm(m)) &
            /(gw_storage_norm(m+1)-gw_storage_norm(m))
   sat_frac = soil%gw_area_norm(m) &
@@ -1785,64 +1774,64 @@ subroutine soil_data_gw_hydraulics(soil, deficit_normalized, &
   end if
 
   IF (deficit_normalized .LE. 0.) THEN
-    m = 0
+     m = 0
   ELSE IF (deficit_normalized .GE. 1.) THEN
-    m = num_storage_pts
+     m = num_storage_pts
   ELSE 
-    log_deficit_normalized = log10(deficit_normalized)
-    code = 0
-    m = soil%pars%storage_index
-    do while (code.eq.0.and.m.gt.0.and.m.lt.num_storage_pts)
-      if (log_deficit_normalized .lt. log_deficit_list(m)) then
-          m = m - 1
+     log_deficit_normalized = log10(deficit_normalized)
+     code = 0
+     m = soil%pars%storage_index
+     do while (code.eq.0.and.m.gt.0.and.m.lt.num_storage_pts)
+        if (log_deficit_normalized .lt. log_deficit_list(m)) then
+           m = m - 1
         else if (log_deficit_normalized .gt. log_deficit_list(m+1)) then
-          m = m + 1
+           m = m + 1
         else
-          code = 1
+           code = 1
         endif
-      enddo
+     enddo
   ENDIF
 
   IF (m.eq.0) THEN
-      recharge_normalized = 10.**soil%gw_flux_norm(1)
-    ELSE IF (m.lt.num_storage_pts) then
-      frac = (log_deficit_normalized-log_deficit_list(m)) &
-               /(log_deficit_list(m+1)-log_deficit_list(m))
-      recharge_normalized = 10.**(soil%gw_flux_norm(m) &
-                   + frac*(soil%gw_flux_norm(m+1)-soil%gw_flux_norm(m)))
-    ELSE
-      recharge_normalized = 0.
-    ENDIF
+     recharge_normalized = 10.**soil%gw_flux_norm(1)
+  ELSE IF (m.lt.num_storage_pts) then
+     frac = (log_deficit_normalized-log_deficit_list(m)) &
+              /(log_deficit_list(m+1)-log_deficit_list(m))
+     recharge_normalized = 10.**(soil%gw_flux_norm(m) &
+                  + frac*(soil%gw_flux_norm(m+1)-soil%gw_flux_norm(m)))
+  ELSE
+     recharge_normalized = 0.
+  ENDIF
 
   if (use_tau_fix) then
-      gw_flux = recharge_normalized * &
+     gw_flux = recharge_normalized * &
         ((soil%pars%k_sat_sfc+k_macro_x_local) * soil%pars%soil_e_depth + &
-	           soil%pars%k_sat_gw*aspect*soil%pars%hillslope_length) &
-         * soil%pars%hillslope_relief &
-         / (soil%pars%hillslope_length * soil%pars%hillslope_length)
-    else
-      gw_flux = recharge_normalized * &
+                  soil%pars%k_sat_gw*aspect*soil%pars%hillslope_length) &
+        * soil%pars%hillslope_relief &
+        / (soil%pars%hillslope_length * soil%pars%hillslope_length)
+  else
+     gw_flux = recharge_normalized * &
         ((soil%pars%k_sat_sfc+k_macro_x_local) * soil%pars%soil_e_depth) &
-         * soil%pars%hillslope_relief &
-         / (soil%pars%hillslope_length * soil%pars%hillslope_length)
-    endif
+        * soil%pars%hillslope_relief &
+        / (soil%pars%hillslope_length * soil%pars%hillslope_length)
+  endif
 
   a_integer = int(soil%pars%hillslope_a + 0.1)
   n_integer = int(soil%pars%hillslope_n + 0.1)
 
   if (a_integer.eq.0.and.n_integer.eq.1) then
-  if (recharge_normalized.gt.1.) then
-      sat_frac = 1. - 1./recharge_normalized
-    else
-      sat_frac = 0.
-    endif
-  if (use_sat_fix) then
-      if (recharge_normalized.gt.1.+soil%pars%tau) then
-          sat_frac = 1. - (1.+soil%pars%tau)/recharge_normalized
-        else
-          sat_frac = 0.
-        endif
-    endif
+     if (recharge_normalized.gt.1.) then
+         sat_frac = 1. - 1./recharge_normalized
+     else
+         sat_frac = 0.
+     endif
+     if (use_sat_fix) then
+         if (recharge_normalized.gt.1.+soil%pars%tau) then
+             sat_frac = 1. - (1.+soil%pars%tau)/recharge_normalized
+         else
+             sat_frac = 0.
+         endif
+     endif
   endif
 
   if (a_integer.eq.1.and.n_integer.eq.1) then
@@ -1867,7 +1856,7 @@ subroutine soil_data_gw_hydraulics(soil, deficit_normalized, &
   endif
 
   soil%pars%storage_index = min(max(1,m),num_storage_pts-1)
-  
+
 end subroutine soil_data_gw_hydraulics
 
 ! ============================================================================
@@ -1880,7 +1869,7 @@ subroutine soil_data_vwc_for_init_only (soil, psi, vwc)
      ** (1./ soil%pars%chb)
   if (use_comp_for_ic) then
       vwc = vwc + comp*max(psi-soil%pars%psi_sat_ref/soil%alpha,0.)
-    endif
+  endif
 end subroutine soil_data_vwc_for_init_only
 
 ! ============================================================================
@@ -1926,8 +1915,8 @@ function soil_tile_carbon (soil); real soil_tile_carbon
 
   soil_tile_carbon = sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:))
   do i=1,num_l
-	call poolTotalCarbon(soil%soil_C(i),totalCarbon=temp)
-  	soil_tile_carbon=soil_tile_carbon+temp
+     call poolTotalCarbon(soil%soil_C(i),totalCarbon=temp)
+     soil_tile_carbon=soil_tile_carbon+temp
   enddo
   call poolTotalCarbon(soil%leafLitter,totalCarbon=temp)
   soil_tile_carbon=soil_tile_carbon+temp
