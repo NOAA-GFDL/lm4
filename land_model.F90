@@ -30,7 +30,7 @@ use astronomy_mod, only : diurnal_solar
 use sphum_mod, only : qscomp
 use tracer_manager_mod, only : NO_TRACER
 
-use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, mol_air, mol_C, mol_co2
+use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, mol_air, mol_C, mol_co2, d608
 use land_tracers_mod, only : land_tracers_init, land_tracers_end, ntcana, isphum, ico2
 use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_temp, &
      glac_radiation, glac_step_1, glac_step_2, save_glac_restart
@@ -49,7 +49,7 @@ use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
      update_derived_vegn_data, update_vegn_slow, save_vegn_restart
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, cana_state,&
-     cana_step_1, cana_step_2, cana_roughness, &
+     cana_roughness, &
      save_cana_restart
 use river_mod, only : river_init, river_end, update_river, river_stock_pe, &
      save_river_restart, river_tracers_init, num_river_tracers, river_tracer_index
@@ -190,6 +190,7 @@ integer :: &
   id_LWS,      id_LWSv,     id_LWSs,     id_LWSg,                          &
   id_FWS,      id_FWSv,     id_FWSs,     id_FWSg,                          &
   id_HS,       id_HSv,      id_HSs,      id_HSg,        id_HSc,            &
+!
   id_precip,                                                               &
   id_hprec,                                                                &
   id_lprec,    id_lprecv,   id_lprecs,   id_lprecg,                        &
@@ -234,7 +235,7 @@ integer :: &
   id_vegn_sctr_dir,                                                        &
   id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T, id_total_C, &
   id_water_cons,    id_carbon_cons,   id_DOCrunf, id_dis_DOC,              &
-  id_parnet
+  id_parnet, id_grnd_rh, id_cana_rh
 
 ! ---- global clock IDs
 integer :: landClock, landFastClock, landSlowClock
@@ -1145,11 +1146,11 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
          call cana_state( tile%cana, cana_q=cana_q )
          cana_VMASS = canopy_air_mass*cana_q
          cana_HEAT  = cana_tile_heat(tile%cana)
-       endif
+     endif
      if (associated(tile%vegn)) then
          call vegn_tile_stock_pe(tile%vegn, vegn_LMASS, vegn_FMASS)
          vegn_HEAT = vegn_tile_heat(tile%vegn)
-       endif
+     endif
      if(associated(tile%snow)) then
          call snow_tile_stock_pe(tile%snow, snow_LMASS, snow_FMASS)
          snow_HEAT = snow_tile_heat(tile%snow)
@@ -1160,19 +1161,19 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
          glac_LMASS = subs_LMASS
          glac_FMASS = subs_FMASS
          glac_HEAT  = subs_HEAT
-       else if (associated(tile%lake)) then
+     else if (associated(tile%lake)) then
          call lake_tile_stock_pe(tile%lake, subs_LMASS, subs_FMASS)
          subs_HEAT  = lake_tile_heat(tile%lake)
          lake_LMASS = subs_LMASS
          lake_FMASS = subs_FMASS
          lake_HEAT  = subs_HEAT
-       else if (associated(tile%soil)) then
+     else if (associated(tile%soil)) then
          call soil_tile_stock_pe(tile%soil, subs_LMASS, subs_FMASS)
          subs_HEAT  = soil_tile_heat(tile%soil)
          soil_LMASS = subs_LMASS
          soil_FMASS = subs_FMASS
          soil_HEAT  = subs_HEAT
-       endif
+     endif
 
      call send_tile_data(id_VWS,  cana_VMASS, tile%diag)
      call send_tile_data(id_VWSc, cana_VMASS, tile%diag)
@@ -1260,7 +1261,8 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
        G0,    DGDTg,  &  ! ground heat flux 
        Hg0,   DHgDTg,   DHgDTc, & ! linearization of the sensible heat flux from ground
        Eg0,   DEgDTg,   DEgDqc, DEgDpsig, & ! linearization of evaporation from ground
-       flwg0, DflwgDTg, DflwgDTv(N)  ! linearization of net LW radiation on the ground
+       flwg0, DflwgDTg, DflwgDTv(N), &  ! linearization of net LW radiation on the ground
+       DqsatDTg   ! derivative of sat spec. humidity w.r.t. ground T, kg/kg/K
   real, dimension(N) :: & ! by cohort
        Hv0,   DHvDTv,   DHvDTc, & ! sens heat flux from vegetation
        Et0,   DEtDTv,   DEtDqc,   DEtDwl,   DEtDwf,  & ! transpiration
@@ -1287,7 +1289,6 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   integer :: vegn_layer(N) ! layer number of each cohort
   real :: &
        f(N), & ! fraction of each cohort canopy in its layer
-       grnd_T, gT, & ! ground temperature and its value used for sensible heat advection
        vegn_T(N), vT(N), & ! vegetation (canopy) temperature
        cana_T, cT, & ! canopy air temperature
        evap_T, eT, & ! temperature assigned to vapor going between land and atmosphere
@@ -1298,10 +1299,13 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
        vegn_fco2, & ! co2 flux from the vegetation, kg CO2/(m2 s)
        hlv_Tv(N), hlv_Tu(N), & ! latent heat of vaporization at vegn and uptake temperatures, respectively 
        hls_Tv(N), &         ! latent heat of sublimation at vegn temperature
+       grnd_T, gT, & ! ground temperature and its value used for sensible heat advection
+       grnd_q,         & ! specific humidity at ground surface
        grnd_rh,        & ! explicit relative humidity at ground surface
        grnd_rh_psi,    & ! psi derivative of relative humidity at ground surface
        grnd_liq, grnd_ice, grnd_subl, &
        grnd_tf, &  ! temperature of freezing on the ground
+       grnd_qsat, & ! saturated water vapor on the ground
        grnd_latent, &
        grnd_flux, &
        grnd_E_min, &
@@ -1312,7 +1316,9 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
        swnet(N,NBANDS), & ! net short-wave radiation balance of each cohort canopy, W/m2
        con_g_h, con_g_v, & ! turbulent cond. between ground and canopy air, for heat and vapor respectively
        snow_area, &
-       cana_q, & ! specific humidity of canopy air
+       cana_dens, & ! density of canopy air, kg/m3
+       cana_q, & ! specific humidity of canopy air, kg/kg
+       cana_qsat, & ! saturated specific humidity of canopy air, kg/kg
        cana_co2, & ! co2 moist mixing ratio in canopy air, kg CO2/kg wet air
        cana_co2_mol, & ! co2 dry mixing ratio in canopy air, mol CO2/mol dry air
        fswg, evapg, sensg, &
@@ -1456,7 +1462,7 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
      ! assign cohort layer area fractions (calculated in update_derived_vegn_properties)
      f(:) = tile%vegn%cohorts(1:N)%layerfrac
      vegn_layer(:) = tile%vegn%cohorts(1:N)%layer
-  else
+  else ! i.e., no vegetation
      swnet    = 0
      con_g_h = con_fac_large ; con_g_v = con_fac_large
      if(associated(tile%glac).and.conserve_glacier_mass.and..not.snow_active) &
@@ -1472,16 +1478,27 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
      Esi0=0;  DEsiDTv=0;  DEsiDqc=0;  DEsiDwl=0;  DEsiDwf=0
      f(:)=1;  vegn_layer(:) = 1
   endif
+
+  ! calculate fluxes between canopy and ground surface, and their derivatives
+  ! this used to be in cana_step_1
+  call check_temp_range(grnd_T,'updata_land_model_fast_0d','grnd_T')
+  call qscomp(grnd_T,p_surf,grnd_qsat,DqsatDTg)
+  grnd_q    =  grnd_rh * grnd_qsat
+  cana_dens =  p_surf/(rdgas*cana_T*(1+d608*cana_q))
+  Hg0       =  cana_dens*cp_air*con_g_h*(grnd_T - cana_T)
+  DHgDTg    =  cana_dens*cp_air*con_g_h
+  DHgDTc    = -cana_dens*cp_air*con_g_h
+  Eg0       =  cana_dens*con_g_v*(grnd_q - cana_q)
+  DEgDTg    =  cana_dens*con_g_v*DqsatDTg*grnd_rh
+  DEgDqc    = -cana_dens*con_g_v
+  DEgDpsig  =  cana_dens*con_g_v*grnd_qsat*grnd_rh_psi
+
   ! calculate net shortwave for ground and canopy
   fswg     = SUM(tile%Sg_dir*ISa_dn_dir + tile%Sg_dif*ISa_dn_dif)
   vegn_fsw = 0
   do k = 1,N
      vegn_fsw = vegn_fsw+f(k)*SUM(swnet(k,:))
   enddo
-  
-  call cana_step_1 (tile%cana, p_surf, con_g_h, con_g_v,   &
-       grnd_t, grnd_rh, grnd_rh_psi, &
-       Hg0,  DHgDTg, DHgDTc, Eg0, DEgDTg, DEgDqc, DEgDpsig)
 
 ! [X.X] using long-wave optical properties, calculate the explicit long-wave 
 !       radiative balances and their derivatives w.r.t. temperatures
@@ -1876,7 +1893,10 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
      if (.not.redo_leaf_water) exit ! from loop
   enddo ! canopy_water_step
   
-  call cana_step_2 ( tile%cana, delta_Tc, delta_qc )
+  ! [*] start of step_2 updates
+  ! update canopy air temperature and specific humidity
+  tile%cana%T = tile%cana%T + delta_Tc
+  tile%cana%tr(isphum) = tile%cana%tr(isphum) + delta_qc
 
   if(associated(tile%vegn)) then
      call vegn_step_2 ( tile%vegn, tile%diag, &
@@ -2019,7 +2039,7 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   ! update co2 concentration in the canopy air. It would be more consistent to do that
   ! in the same place and fashion as the rest of prognostic variables: that is, have the
   ! vegn_step_1 (and perhaps other *_step_1 procedures) calculate fluxes and their
-  ! derivatives, then solve the linear equation(s), and finally have cana_step_2 update
+  ! derivatives, then solve the linear equation(s), and finally update
   ! the concentration.
   if(update_cana_co2) then
      delta_co2 = (vegn_fco2 - fco2_0)/(canopy_air_mass_for_tracers/delta_time+Dfco2Dq)
@@ -2177,8 +2197,9 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   call send_tile_data(id_gsnow,   subs_G,                             tile%diag)
   call send_tile_data(id_gequil,  subs_G2,                            tile%diag)
   call send_tile_data(id_grnd_flux, grnd_flux,                        tile%diag)
-  if(grnd_E_max.lt.0.5*HUGE(grnd_E_Max)) &
-      call send_tile_data(id_levapg_max, grnd_E_max,                  tile%diag)
+  ! an arbitrary constant 1000.0 is used to avoid numbers that cannot be represented 
+  ! in floating point history output
+  call send_tile_data(id_levapg_max, min(grnd_E_max,1000.0),          tile%diag)
   call send_tile_data(id_qco2,    tile%cana%tr(ico2),                 tile%diag)
   call send_tile_data(id_qco2_dvmr,&
        tile%cana%tr(ico2)*mol_air/mol_co2/(1-tile%cana%tr(isphum)),   tile%diag)
@@ -2189,6 +2210,12 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   call send_tile_data(id_swup_dif, ISa_dn_dif*tile%land_refl_dif,     tile%diag)
   call send_tile_data(id_lwdn,     ILa_dn,                            tile%diag)
   call send_tile_data(id_subs_emis,1-tile%surf_refl_lw,               tile%diag)
+
+  call send_tile_data(id_grnd_rh, grnd_rh, tile%diag)
+  if (id_cana_rh > 0) then
+     call qscomp(tile%cana%T, p_surf, cana_qsat)
+     call send_tile_data(id_cana_rh, tile%cana%tr(isphum)/cana_qsat, tile%diag)
+  endif
 
   if(associated(tile%vegn)) then
      associate(c=>tile%vegn%cohorts)
@@ -3153,19 +3180,19 @@ case(ISTOCK_WATER)
       twd_liq_snow = 0.0 ; twd_sol_snow = 0.0
       twd_liq_vegn = 0.0 ; twd_sol_vegn = 0.0
       if(associated(tile%cana)) then
-        call cana_state ( tile%cana, cana_q=cana_q )
-        twd_gas_cana = canopy_air_mass*cana_q
-        endif
+         call cana_state ( tile%cana, cana_q=cana_q )
+         twd_gas_cana = canopy_air_mass*cana_q
+      endif
       if(associated(tile%glac)) &
-        call glac_tile_stock_pe(tile%glac, twd_liq_glac, twd_sol_glac)
+         call glac_tile_stock_pe(tile%glac, twd_liq_glac, twd_sol_glac)
       if(associated(tile%lake)) &
-        call lake_tile_stock_pe(tile%lake, twd_liq_lake, twd_sol_lake)
+         call lake_tile_stock_pe(tile%lake, twd_liq_lake, twd_sol_lake)
       if(associated(tile%soil)) &
-        call soil_tile_stock_pe(tile%soil, twd_liq_soil, twd_sol_soil)
+         call soil_tile_stock_pe(tile%soil, twd_liq_soil, twd_sol_soil)
       if(associated(tile%snow)) &
-        call snow_tile_stock_pe(tile%snow, twd_liq_snow, twd_sol_snow)
+         call snow_tile_stock_pe(tile%snow, twd_liq_snow, twd_sol_snow)
       if(associated(tile%vegn)) &
-        call vegn_tile_stock_pe(tile%vegn, twd_liq_vegn, twd_sol_vegn)
+         call vegn_tile_stock_pe(tile%vegn, twd_liq_vegn, twd_sol_vegn)
       gcwd_cana = gcwd_cana +  twd_gas_cana                 * tile%frac
       gcwd_glac = gcwd_glac + (twd_liq_glac + twd_sol_glac) * tile%frac
       gcwd_lake = gcwd_lake + (twd_liq_lake + twd_sol_lake) * tile%frac
@@ -3554,6 +3581,8 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
              'canopy-air temperature', 'degK', missing_value=-1.0e+20 )
   id_qca     = register_tiled_diag_field ( module_name, 'qca', axes, time, &
              'canopy-air specific humidity', 'kg/kg', missing_value=-1.0 )
+  id_cana_rh = register_tiled_diag_field ( module_name, 'rhca', axes, time, &
+             'canopy-air relative humidity', 'kg/kg', missing_value=-1.0 )
   id_qco2    = register_tiled_diag_field ( module_name, 'qco2', axes, time, &
              'canopy-air CO2 moist mass mixing ratio', 'kg/kg', missing_value=-1.0 )
   id_qco2_dvmr = register_tiled_diag_field ( module_name, 'qco2_dvmr', axes, time, &
@@ -3614,8 +3643,11 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
        'substrate emissivity for long-wave radiation',missing_value=-1.0)
   id_grnd_T = register_tiled_diag_field ( module_name, 'Tgrnd', axes, time, &
        'ground surface temperature', 'degK', missing_value=-1.0 )
+  id_grnd_rh = register_tiled_diag_field ( module_name, 'rh_grnd', axes, time, &
+       'explicit ground relative humidity', missing_value=-1.0 )
   id_total_C = register_tiled_diag_field ( module_name, 'Ctot', axes, time, &
        'total land carbon', 'kg C/m2', missing_value=-1.0 )
+
 
   id_water_cons = register_tiled_diag_field ( module_name, 'water_cons', axes, time, &
        'water non-conservation in update_land_model_fast_0d', 'kg/(m2 s)', missing_value=-1.0 )
