@@ -133,7 +133,6 @@ logical :: uptake_from_sat      = .true.      ! if false, the uptake from satura
 logical :: allow_negative_rie   = .false.
 logical :: baseflow_where_frozen = .false.
 logical :: write_when_flagged   = .false.
-logical :: bypass_richards_when_stiff = .true.
 logical :: corrected_lm2_gw     = .true.
 logical :: use_fringe           = .false.
 logical :: push_down_sfc_excess = .true.
@@ -143,8 +142,12 @@ logical :: cold_infilt          = .false.
 logical :: bottom_up_cold_infilt= .false.
 logical :: use_depth_to_wt_4    = .false.
 logical :: always_use_bsw       = .false.
-logical :: split_delta_t        = .false.
 logical :: harmonic_mean_K      = .false.
+logical :: verbose              = .false.
+logical :: no_min_Dpsi          = .false.
+logical :: div_bug_fix          = .false.
+logical :: require_pos_hcap     = .false.
+logical :: use_richards_clean   = .false.
 real    :: active_layer_drainage_acceleration = 0.
 real    :: hlf_factor           = 1.
 real    :: gw_flux_max          = 1.e10
@@ -156,13 +159,12 @@ logical :: write_soil_carbon_restart = .FALSE. ! indicates whether to write
 logical :: horiz_init_wt        = .false.   ! initialize horizontal water table, if gw_option == GW_TILED
 logical :: use_coldstart_wtt_data = .false. ! read additional data for soil initialization
 character(len=256)  :: coldstart_datafile = 'INPUT/soil_wtt.nc'
-logical :: allow_neg_wl         = .true.   ! Warn rather than abort if wl < 0
-logical :: prohibit_negative_water_div = .false. ! if TRUE, div_bf abd dif_if are
+logical :: allow_neg_rnu        = .false.   ! Refill from stream if wl < 0 with warning, i.e. during spinup.
+logical :: allow_neg_wl         = .false.   ! Warn rather than abort if wl < 0, even if .not. allow_neg_rnu
+logical :: prohibit_negative_water_div = .false. ! if TRUE, div_bf abd dif_if are 
   ! set to zero in case water content of *any* layer is negative
 real    :: zeta_bar_override    = -1.
-real    :: soil_root_separation_coef = 0.    ! loss of contact with drying
 real    :: cold_depth           = 0.
-real    :: dW_W_max             = 1.
 real    :: Wl_min               = -1.e20
 real    :: bwood_macinf         = -1.
 integer :: max_iter_trans = 100 ! max number of iterations for psi_crown_min
@@ -170,6 +172,10 @@ integer :: layer_for_gw_switch = 1000000 ! to accelerate permafrost gw shutoff
 real    :: eps_trans     = 1.e-7 ! convergence crit for psi_crown_min
 logical :: supercooled_rnu = .true. ! Excess ice converted to supercooled water for runoff.
 real    :: wet_depth = 0.6 ! [m] water table depth threshold for diagnosing wetland fraction
+real    :: thetathresh = -0.01 ! [-] threshold for negative soil liquid water volume
+  ! before warning or abort
+real    :: negrnuthresh = -0.1 ! [mm/s] threshold for negative lrunf_nu
+  ! before warning or abort
 
 real :: max_soil_C_density = 50.0   !(kgC/m3) -- for redistribution of peat
 real :: max_litter_thickness = 0.05 ! m of litter layer thickness before it gets redistributed
@@ -185,22 +191,22 @@ namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     allow_negative_rie, &
                     baseflow_where_frozen, &
                     write_when_flagged, &
-                    bypass_richards_when_stiff, corrected_lm2_gw, &
+                    corrected_lm2_gw, &
                     use_fringe, &
                     use_tall_plants, cold_infilt, bottom_up_cold_infilt, &
-                    use_depth_to_wt_4, always_use_bsw, split_delta_t, &
-                    harmonic_mean_K, &
+                    use_depth_to_wt_4, always_use_bsw, &
+                    harmonic_mean_K, verbose, no_min_Dpsi, div_bug_fix, &
+                    require_pos_hcap, use_richards_clean, &
                     push_down_sfc_excess, lrunf_from_div, &
                     active_layer_drainage_acceleration, hlf_factor, &
                     gw_flux_max, aquifer_heat_cap, use_tridiag_foradvec, &
                     horiz_init_wt, use_coldstart_wtt_data, coldstart_datafile, &
-                    allow_neg_wl, prohibit_negative_water_div, &
+                    allow_neg_rnu, allow_neg_wl, prohibit_negative_water_div, &
                     zeta_bar_override, &
-                    soil_root_separation_coef, &
-                    cold_depth, dW_W_max, Wl_min, &
+                    cold_depth, Wl_min, &
                     bwood_macinf, &
                     max_iter_trans, layer_for_gw_switch, eps_trans, &
-                    supercooled_rnu, wet_depth, &
+                    supercooled_rnu, wet_depth, thetathresh, negrnuthresh, &
                     write_soil_carbon_restart, &
                     max_soil_C_density, max_litter_thickness, r_rhiz
 !---- end of namelist --------------------------------------------------------
@@ -405,12 +411,6 @@ subroutine read_soil_namelist()
      use_tridiag_foradvec = .true.
   end if
 
-  if (use_tridiag_foradvec .and. split_delta_t) then
-     call error_mesg(module_name, 'read_soil_namelist: "split_delta_t" is currently not tested with '// &
-                     'the "advection" subroutine adapted for the tiled groundwater model and may not be '// &
-                     'compatible. Model is aborting.', FATAL)
-  end if
-
 end subroutine read_soil_namelist
 
 
@@ -421,7 +421,7 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
   integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
   integer, intent(in)  :: id_band ! ID of spectral band axis
   integer, intent(out) :: id_zfull ! ID of vertical soil axis
-  logical, intent(out) :: new_land_io
+  logical, intent(in) :: new_land_io
 
   ! ---- local vars
   integer :: unit, unit1  ! unit numbers for various i/o
@@ -3739,8 +3739,7 @@ subroutine soil_data_beta ( soil, vegn, diag, soil_beta, soil_water_supply, &
        vegn_uptake_term, &
        vlc, vsc, & ! volumetric fractions of water and ice in the layer
        VRL, & ! vertical distribution of volumetric root length, m/m3
-       u, du, & ! uptake and its derivative (the latter is not used)
-       length_factor  ! reduction factor for effective root length
+       u, du  ! uptake and its derivative (the latter is not used)
   real :: psi_for_rh
   real :: K_r, r_r ! root properties
   real :: psi_crown_min, grav_head, plant_height, xylem_resist, xylem_area_frac, sws, dum4
@@ -3794,10 +3793,6 @@ subroutine soil_data_beta ( soil, vegn, diag, soil_beta, soil_water_supply, &
                                      VRL, K_r, r_r, &
                                      plant_height, xylem_area_frac, xylem_resist, &
                                      dum4 )
-     length_factor = 1 - soil_root_separation_coef * &
-          (soil%pars%vwc_sat-soil%wl/(dz*dens_h2o)) &
-          / (soil%pars%vwc_sat-soil%w_wilt)
-     where (length_factor.lt.0.) length_factor=0.
      grav_head = 0
      iter = 0
      psi_mid = 0
@@ -3805,11 +3800,11 @@ subroutine soil_data_beta ( soil, vegn, diag, soil_beta, soil_water_supply, &
      if (xylem_area_frac.gt.0. .and. xylem_resist.gt.0. .and. plant_height.gt.0. ) then
         DsapDpsi = DENS_H2O*xylem_area_frac/(plant_height*xylem_resist)
         psi_left = psi_wilt + grav_head
-        call darcy2d_uptake ( soil, psi_left, length_factor*VRL, &
+        call darcy2d_uptake ( soil, psi_left, VRL, &
                K_r, r_r, uptake_option, uptake_oneway, uptake_from_sat, u, du )
         f_left = max(0.0,sum(u)) - (psi_left-psi_wilt-grav_head)*DsapDpsi
         psi_right = 0.
-        call darcy2d_uptake ( soil, psi_right, length_factor*VRL, &
+        call darcy2d_uptake ( soil, psi_right, VRL, &
                K_r, r_r, uptake_option, uptake_oneway, uptake_from_sat, u, du )
         f_right = max(0.0,sum(u)) - (psi_right-psi_wilt-grav_head)*DsapDpsi
         f_last = f_left
@@ -3819,7 +3814,7 @@ subroutine soil_data_beta ( soil, vegn, diag, soil_beta, soil_water_supply, &
                __DEBUG5__(psi_left,f_left,psi_right,f_right,f_last)
            endif
            psi_mid = 0.5*(psi_left+psi_right)
-           call darcy2d_uptake ( soil, psi_mid, length_factor*VRL, &
+           call darcy2d_uptake ( soil, psi_mid, VRL, &
                   K_r, r_r, uptake_option, uptake_oneway, uptake_from_sat, u, du )
            f_mid = max(0.0,sum(u)) - (psi_mid-psi_wilt-grav_head)*DsapDpsi
            if (abs(f_mid-f_last).lt.eps_trans) exit
@@ -3833,7 +3828,7 @@ subroutine soil_data_beta ( soil, vegn, diag, soil_beta, soil_water_supply, &
            endif
         enddo
      else
-        call darcy2d_uptake ( soil, psi_wilt+grav_head, length_factor*VRL, &
+        call darcy2d_uptake ( soil, psi_wilt+grav_head, VRL, &
               K_r, r_r, uptake_option, uptake_oneway, uptake_from_sat, u, du )
      endif
      soil_water_supply = max(0.0,sum(u))
@@ -4016,9 +4011,9 @@ end subroutine soil_step_1
        vlc, & ! volumetric liquid water content [-]
        vsc, & ! volumetric solid water content [-]
        dW_l, & ! tendency of soil water mass [mm]
-       DPsi, dW_l_accum
+       DPsi
   real, dimension(num_l+1) :: flow, & ! downwards flow at layer interface above [mm/timestep]
-       infilt, flow_accum
+       infilt
   real, dimension(num_l  ) :: div, & ! total divergence of soil water [mm/s]
        div_it    ! divergence of water due to inter-tile flow (incl. to stream)
   ! set in hlsp_hydrology_1 [mm/s]
@@ -4034,7 +4029,7 @@ end subroutine soil_step_1
        hlprec_eff, & !  associated heat [W/m^2]
        tflow, & ! assumed temperature of liquid flow entering top layer [K]
        hcap, & ! heat capacity [J/m^2.K]
-       cap_flow, dheat, &
+       dheat, &
        melt_per_deg, melt, macro_inf, &
        extra_cum, ddW, sum_air, denom, h1, h2, &
        flow_macro, & ! infiltration-excess runoff penetrating the soil due to macroporosity [mm/s]
@@ -4046,21 +4041,20 @@ end subroutine soil_step_1
        hfrunf, & ! heat from frozen runoff (due to sat excess) [W/m^2]
        d_GW, &
        hlrunf_sn,hlrunf_ie,hlrunf_bf,hlrunf_if,hlrunf_al,hlrunf_nu,hlrunf_sc, & ! runoff heat fluxes [W/m^2]
-       c0, c1, c2, Dpsi_min, Dpsi_max, dW_W, dt_richards, lrunf_ie_accum, &
+       c0, c1, c2, Dpsi_min, Dpsi_max, &
        sat_area_frac, sat_thick, sum_trans, &
-       gw_flux, depth_to_wt2_3, depth_to_wt_apparent, &
-       depth_to_gw_flow, depth_to_gw_flow_3, z_bot, &
-       active_layer_thickness, depth_to_cf, d_psi, d_psi_s, psi_star, &
+       gw_flux, depth_to_wt2_3, &
+       depth_to_gw_flow, depth_to_gw_flow_3, &
+       active_layer_thickness, d_psi, d_psi_s, psi_star, &
        depth_to_cf_1, depth_to_cf_3, &
        depth_to_wt_1, depth_to_wt_2, depth_to_wt_2a, depth_to_wt_2b, depth_to_wt_3, depth_to_wt_4, &
        storage_2, deficit_2, deficit_3, deficit_4, deficit, dum1, dum2, dum3
   logical :: stiff
   logical :: hlsp_stiff ! were all the horizontal conductivities zero at the call to hlsp_hydrology_1?
   real :: zimh, ziph, dTr_g(num_l), dTr_s(num_l)
-  integer :: n_iter, l, l_max_active_layer, istep, nstep
+  integer :: n_iter, l, l_max_active_layer
   real :: &
        VRL(num_l), & ! volumetric root length, m/m3
-       length_factor(num_l), & ! reduction factor for effective root length
        K_r, & ! root membrame permeability, kg/(m3 s)
        r_r, & ! root radius, m
        bwood, & ! heartwood biomass kg C/m2
@@ -4098,17 +4092,8 @@ real :: NH4_leached(num_l), div_NH4_loss(num_l),  &     ! NH4 leaching
   real, parameter :: wthresh = 1.e-9   ! [mm] tolerance for roundoff error for water balance
   real :: wsum1, wsum2   ! total water stocks for balance check [mm, or kg/m^2]
   real :: sliq, sice     ! for call to soil_tile_stock_pe
-  real, parameter :: thetathresh = -0.01 ! [-] threshold for negative soil liquid water volume
-  ! before warning or abort
-  real, parameter :: negrnuthresh = -0.1 ! [mm/s] threshold for negative lrunf_nu
-  ! before warning or abort
   character(len=512) :: mesg ! for error message
   integer :: ipt, jpt, kpt, fpt ! for debug
-  real :: neg_wl ! [mm] negative wl for zeroing
-  real :: wl_ssat ! [mm] excess wl to push up for supersupersat
-  real :: psimax ! [m] maximum feasible physical psi, above which push up excess to smooth numerics
-  real :: Xmax   ! [-] theta associated with psimax
-  real :: wl_max ! [mm] water associated with Xmax
   real :: surf_DOC_loss(n_c_types)! [kg C/m^2] DOC loss from top soil layer to surface runoff due
                                   ! to efflux
   real :: surf_DON_loss(n_c_types)! [kg N/m^2] DON loss from top soil layer to surface runoff due
@@ -4221,11 +4206,7 @@ real :: NH4_leached(num_l), div_NH4_loss(num_l),  &     ! NH4 leaching
      call vegn_hydraulic_properties (vegn, dz(1:num_l), always_use_bsw, &
                                VRL, K_r, r_r, dum1, dum2, dum3, bwood)
 
-     length_factor = 1 - soil_root_separation_coef * &
-          (soil%pars%vwc_sat-soil%wl/(dz*dens_h2o)) &
-          / (soil%pars%vwc_sat-soil%w_wilt)
-     where (length_factor.lt.0.) length_factor=0.
-     call darcy2d_uptake_solver (soil, vegn_uptk, length_factor*VRL, K_r, r_r, &
+     call darcy2d_uptake_solver (soil, vegn_uptk, VRL, K_r, r_r, &
              uptake_option, uptake_oneway, uptake_from_sat, uptake, psi_x0, n_iter)
      soil%psi_x0 = psi_x0
 
@@ -4642,7 +4623,7 @@ real :: NH4_leached(num_l), div_NH4_loss(num_l),  &     ! NH4 leaching
      lrunf_sc = 0
      d_GW = 0
      stiff = all(DThDP.eq.0)
-     IF(stiff .AND. BYPASS_RICHARDS_WHEN_STIFF) THEN
+     IF(stiff) THEN
         ! Note: in order to maintain energy and water conservation with between tile-flows
         ! in case of the tiled groundwater / full hillslope model, we require stiff ==>
         ! soil%T(l) < tfreeze for all l.
@@ -4670,66 +4651,18 @@ real :: NH4_leached(num_l), div_NH4_loss(num_l),  &     ! NH4 leaching
         psi=zfull(1:num_l)
         dpsi=0.
      ELSE
-
-        CALL RICHARDS(soil, psi, DThDP, K_z, DKDP, div, &
-               lprec_eff, Dpsi_min, Dpsi_max, delta_time, stiff, &
-                dPsi, dW_l, flow, lrunf_ie)
-
-        IF (SPLIT_DELTA_T) THEN
-           dW_W = 0.
-           do l = 1, num_l
-             if (soil%wl(l)/dz(l).gt.Wl_min) &
-                       dW_W = max(dW_W, -dW_l(l)/soil%wl(l))
-           enddo
-           IF (dW_W.gt.dW_W_max) THEN
-              write(*,*) 'splitting time step'
-              call get_current_point(ipt,jpt,kpt,fpt)
-              __DEBUG4__(ipt,jpt,kpt,fpt)
-              __DEBUG1__(dW_W)
-              do l=1,num_l
-                 __DEBUG2__(soil%wl(l),dW_l(l))
-              enddo
-              nstep = 1+int(dW_W/dW_W_max)
-              dt_richards = delta_time / nstep
-              lrunf_ie_accum = 0.
-              flow_accum = 0.
-              do istep = 1, nstep
-                 do l = 1, num_l
-                    vlc(l) = max(0., soil%wl(l) / (dens_h2o*dz(l)))
-                    vsc(l) = max(0., soil%ws(l) / (dens_h2o*dz(l)))
-                 enddo
-                 call soil_data_hydraulic_properties (soil, vlc, vsc, &
-                         psi, DThDP, K_z, K_x, DKDP, Dpsi_min, Dpsi_max )
-                 CALL RICHARDS(soil, psi, DThDP, K_z, DKDP, div, &
-                         lprec_eff, Dpsi_min, Dpsi_max, dt_richards, stiff, &
-                         dPsi, dW_l, flow, lrunf_ie)
-                 dW_W = 0.
-                 do l = 1, num_l
-                    if (soil%wl(l)/dz(l).gt.Wl_min) &
-                            dW_W = max(dW_W, -dW_l(l)/soil%wl(l))
-                 enddo
-                 if (dW_W.gt.dW_W_max) &
-                     call error_mesg('RICHARDS EQUATION SOLVER', &
-                       'EXCESSIVE DEWATERING DURING SPLIT TIME STEP', FATAL)
-                 do l = 1, num_l
-                    soil%wl(l) = soil%wl(l) + dW_l(l)
-                 enddo
-                 lrunf_ie_accum = lrunf_ie_accum + lrunf_ie
-                 flow_accum = flow_accum + flow
-              enddo
-              flow = flow_accum
-              lrunf_ie = lrunf_ie_accum / float(nstep)
-           ELSE
-              do l = 1, num_l
-                 soil%wl(l) = soil%wl(l) + dW_l(l)
-              enddo
-           ENDIF
-        ELSE
-           ! do not split delta_t
-           do l = 1, num_l
-              soil%wl(l) = soil%wl(l) + dW_l(l)
-           enddo
-        ENDIF
+        if (USE_RICHARDS_CLEAN) then
+           call RICHARDS_clean(soil, psi, DThDP, K_z, DKDP, div, &
+                  lprec_eff, Dpsi_min, Dpsi_max, delta_time, &
+                  dPsi, dW_l, flow, lrunf_ie)
+        else
+           call RICHARDS(soil, psi, DThDP, K_z, DKDP, div, &
+                  lprec_eff, Dpsi_min, Dpsi_max, delta_time, &
+                  dPsi, dW_l, flow, lrunf_ie)
+        endif
+        do l = 1, num_l
+           soil%wl(l) = soil%wl(l) + dW_l(l)
+        enddo
 #ifdef ZMSDEBUG
         do l = 1, num_l
            w1 = wl_before(l)
@@ -4754,27 +4687,35 @@ real :: NH4_leached(num_l), div_NH4_loss(num_l),  &     ! NH4 leaching
      if (soil%wl(l) < 0.) then
         if (soil%wl(l) / (dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
            call get_current_point(ipt, jpt, kpt, fpt)
-           write(mesg,*) 'soil%wl(l) < 0! l,i,j,k,face:', l, ipt, jpt, kpt, fpt, '. theta = ', &
+           write(mesg,*) 'soil%wl(l) < 0! l,i,j,k,face:', l, ipt, jpt, kpt, fpt, '. degree of saturation = ', &
                 soil%wl(l) / (dens_h2o*dz(l)*soil%pars%vwc_sat), '. If ".not. allow_neg_wl", '// &
                 'model will abort.'
            if (.not. allow_neg_wl) then
               call error_mesg(module_name, mesg, FATAL)
            else
-              ! Make sure bulk heat capacity stays above zero
-              hcap = soil%heat_capacity_dry(l)*dz(l) &
-                     + clw*soil%wl(l) + csw*soil%ws(l)
-              if (hcap > 0.) then
-                 call error_mesg(module_name, mesg, WARNING)
-              else
-                 write(mesg,*) 'soil%wl(l) < 0! l,i,j,k,face:', l, ipt, jpt, kpt, fpt, '. theta = ', &
-                        soil%wl(l) / (dens_h2o*dz(l)*soil%pars%vwc_sat), '. This makes hcap = ', hcap, &
-                        ', which is < 0! Model Aborting!'
-                 call error_mesg(module_name, mesg, FATAL)
-              end if
+              if (verbose) call error_mesg(module_name, mesg, WARNING)
            end if
         end if
      end if
   end do
+
+  ! Check for negative hcap
+  if (require_pos_hcap) then
+     do l = 1, num_l
+        if (soil%wl(l) < 0.) then
+            ! Make sure bulk heat capacity stays above zero
+            hcap = soil%heat_capacity_dry(l)*dz(l) &
+                   + clw*soil%wl(l) + csw*soil%ws(l)
+            if (hcap .le. 0.) then
+               call get_current_point(ipt, jpt, kpt, fpt)
+               write(mesg,*) 'soil%wl(l) < 0! l,i,j,k,face:', l, ipt, jpt, kpt, fpt, '. degree of saturation = ', &
+                      soil%wl(l) / (dens_h2o*dz(l)*soil%pars%vwc_sat), '. This makes hcap = ', hcap, &
+                      ', which is < 0! Model Aborting!'
+               call error_mesg(module_name, mesg, FATAL)
+            end if         
+        end if
+     end do
+  endif
   ! Check total
   if (lrunf_nu < negrnuthresh) then
      call get_current_point(ipt, jpt, kpt, fpt)
@@ -6093,8 +6034,8 @@ subroutine soil_push_down_excess ( soil, diag, lrunf_nu, hlrunf_nu, frunf, hfrun
 end subroutine soil_push_down_excess
 
 ! ============================================================================
-  subroutine RICHARDS(soil, psi, DThDP, hyd_cond, DKDP, div, &
-                lprec_eff, Dpsi_min, Dpsi_max, dt_richards, stiff, &
+  subroutine RICHARDS_clean(soil, psi, DThDP, hyd_cond, DKDP, div, &
+                lprec_eff, Dpsi_min, Dpsi_max, dt_richards, &
                  dPsi, dW_l, flow, lrunf_ie)
 ! ZMS How to set prevent lrunf_ie when surface soil water < pond?
 
@@ -6102,7 +6043,6 @@ end subroutine soil_push_down_excess
   real, intent(in),  dimension(num_l)   :: psi, DThDP, hyd_cond, DKDP, div
   real, intent(in)                      :: lprec_eff, Dpsi_min, Dpsi_max
   real, intent(in)                      :: dt_richards
-  logical, intent(in)                   :: stiff
   real, intent(out), dimension(num_l)   :: dPsi, dW_l
   real, intent(out), dimension(num_l+1) :: flow
   real, intent(out)                     :: lrunf_ie
@@ -6151,25 +6091,245 @@ end subroutine soil_push_down_excess
   l = num_l
   xxx = dens_h2o*dz(l)*DThDP(l)/dt_richards
   aaa =     - ( K(l-1)/del_z(l-1) - DKDPm(l-1)*grad(l-1))
-!      where (stiff)
   bbb = xxx - (-K(l-1)/del_z(l-1) - DKDPp(l-1)*grad(l-1) )
   ddd = - K(l-1) *grad(l-1) - div(l)
-!        elsewhere
-!          Qout = hyd_cond(l) ! gravity drainage
-!          DQoutDP = DKDP(l)  ! gravity drainage
-!          Qout = 0.                ! no drainage
-!          DQoutDP = 0.             ! no drainage
-!          where (psi(l).gt.0.) ! linear baseflow from gw
-!              Qout = 0.15*psi(l)/soil%pars%tau_groundwater
-!              DQoutDP = 0.15/soil%pars%tau_groundwater
-!            elsewhere
-!              Qout = 0.
-!              DQoutDP = 0.
-!            endwhere
-!          bbb = xxx - (-K(l-1)/del_z(l-1) - DKDPp(l-1)*grad(l-1)&
-!                      -DQoutDP )
-!          ddd = -Qout - K(l-1) *grad(l-1)
-!        endwhere
+  eee(l-1) = -aaa/bbb
+  fff(l-1) =  ddd/bbb
+
+  if(is_watch_point()) then
+       write(*,'(a,i2.2,100(2x,g23.16))') 'l,a,b, ,d', l,aaa, bbb,ddd
+  endif
+
+  do l = num_l-1, 2, -1
+    xxx = dens_h2o*dz(l)*DThDP(l)/dt_richards
+    aaa = - ( K(l-1)/del_z(l-1) - DKDPm(l-1)*grad(l-1))
+    bbb = xxx-( -K(l-1)/del_z(l-1) - DKDPp(l-1)*grad(l-1)&
+                -K(l  )/del_z(l  ) + DKDPm(l  )*grad(l  ))
+    ccc =   - (  K(l  )/del_z(l  ) + DKDPp(l  )*grad(l  ))
+    ddd =       K(l)*grad(l) - K(l-1)*grad(l-1) &
+                          - div(l)
+    eee(l-1) =                    -aaa/(bbb+ccc*eee(l))
+    fff(l-1) =  (ddd-ccc*fff(l))/(bbb+ccc*eee(l))
+    if(is_watch_point()) then
+       write(*,'(a,i2.2,100(2x,g23.16))') 'l,a,b,c,d', l,aaa, bbb,ccc,ddd
+    endif
+  enddo
+  
+  l = 1
+  xxx = dens_h2o*dz(l)*DThDP(l)/dt_richards
+  bbb = xxx - ( -K(l  )/del_z(l  ) + DKDPm(l  )*grad(l  ))
+  ccc =     - (  K(l  )/del_z(l  ) + DKDPp(l  )*grad(l  ))
+  ddd =          flow(1)/dt_richards +    K(l)     *grad(l) &
+                          - div(l)
+
+  if (Dpsi_min.ge.Dpsi_max) call error_mesg(module_name, '=== Dpsi_min.ge.Dpsi_max', FATAL)
+
+  IF (bbb+ccc*eee(l) .EQ. 0.) THEN
+      call get_current_point(ipt,jpt,kpt,fpt)
+      write(*,*) '===richards b+ce=0 ===','at point ',ipt,jpt,kpt,fpt
+        write(*,*) 'bbb+ccc*eee(l) .EQ. 0.'
+        write(*,*) 'bbb', bbb
+        write(*,*) 'ccc', ccc
+        write(*,*) 'ddd', ddd
+        write(*,*) 'eee(l)', eee(l)
+        write(*,*) 'fff(l)', fff(l)
+        write(*,*) 'dPsi(l)', dPsi(l)
+        write(*,*) 'dPsi(l)', dPsi(l)
+        write(*,*) 'Dpsi_min', Dpsi_min
+        write(*,*) 'Dpsi_max', Dpsi_max
+    call error_mesg(module_name, 'b+ce=0 in soil-water equations', FATAL)
+  ENDIF
+
+     dPsi(l) = (ddd-ccc*fff(l))/(bbb+ccc*eee(l))
+     if(is_watch_point()) then
+        write(*,*) 'bbb+ccc*eee(l) .NE. 0.'
+        write(*,*) 'bbb', bbb
+        write(*,*) 'ccc', ccc
+        write(*,*) 'ddd', ddd
+        write(*,*) 'eee(l)', eee(l)
+        write(*,*) 'fff(l)', fff(l)
+        write(*,*) 'dPsi(l)', dPsi(l)
+        write(*,*) 'dPsi(l)', dPsi(l)
+        write(*,*) 'Dpsi_min', Dpsi_min
+        write(*,*) 'Dpsi_max', Dpsi_max
+     endif
+     if (dPsi(l).lt.Dpsi_max) then
+        lrunf_ie = 0.
+     else
+        dPsi(l) = Dpsi_max
+        if (div_bug_fix) then
+            flow(l) = (dPsi(l)*(bbb+ccc*eee(l))+ccc*fff(l)+div(l) &
+                     - K(l)*grad(l))*dt_richards
+        else
+            flow(l) = (dPsi(l)*(bbb+ccc*eee(l))+ccc*fff(l) &
+                     - K(l)*grad(l))*dt_richards
+        endif
+        lrunf_ie = lprec_eff - flow(l)/dt_richards
+     endif
+      
+  if(is_watch_point().or.(flag.and.write_when_flagged)) then
+     write(*,'(a,i2.2,100(2x,g23.16))') 'l,  b,c,d', l, bbb,ccc,ddd
+     write(*,*) ' ##### soil_step_2 checkpoint 3.2 #####'
+     write(*,*) 'ie:', lrunf_ie
+     do l = 1, num_l-1
+        write(*,'(a,i2.2,100(2x,g23.16))') 'l,eee(l),fff(l)',l,eee(l),fff(l)
+     enddo
+     write(*,*) 'DThDP(1)', DThDP(1)
+     write(*,*) 'K(1)', K(1)
+     write(*,*) 'grad(1)', grad(1)
+     write(*,*) 'ddd(1)', ddd
+     write(*,*) 'ccc(1)', ccc
+     write(*,*) 'bbb(1)', bbb
+     write(*,*) 'dPsi(1)', dPsi(1)
+     write(*,*) 'Psi(1)', Psi(1)
+     write(*,*) 'div(1)', div(1)
+  endif
+
+  do l = 1, num_l-1
+     dPsi(l+1) = eee(l)*dPsi(l) + fff(l)
+     flow(l+1) = dt_richards*( &
+         -K(l)*(grad(l)&
+         +(DPsi(l+1)-DPsi(l))/ del_z(l)) &
+         -grad(l)*(DKDPp(l)*Dpsi(l+1)+ &
+                         DKDPm(l)*Dpsi(l) )  )
+     dW_l(l) = flow(l) - flow(l+1) - div(l)*dt_richards
+  enddo
+  flow(num_l+1) = 0.
+  dW_l(num_l) = flow(num_l) - flow(num_l+1) &
+                          - div(num_l)*dt_richards
+
+  if(is_watch_point().or.(flag.and.write_when_flagged)) then
+     write(*,*) ' ##### soil_step_2 checkpoint 3.21 #####'
+     do l = 1, num_l
+        write(*,'(i2.2,100(2x,a,g23.16))') l,&
+             ' dW_l=', dW_l(l),&
+             ' flow=', flow(l),&
+             ' div=', div(l)
+     enddo
+  endif
+
+  if (dPsi(1).lt.Dpsi_min) then
+     if (verbose) then
+         call get_current_point(ipt,jpt,kpt,fpt)
+         write(*,*) '=== warning: dPsi=',dPsi(1),'<min=',dPsi_min,'at',ipt,jpt,kpt,fpt
+       endif
+     l_internal = 1
+     dW_l_internal = -1.e20
+     do l = 2, num_l
+        if (dW_l(l).gt.dW_l_internal) then
+           l_internal = l
+           dW_l_internal = dW_l(l)
+        endif
+     enddo
+     w_to_move_up = min(dW_l_internal, -(soil%wl(1)+dW_l(1)))
+     w_to_move_up = max(w_to_move_up, 0.)
+     write(*,*) 'l_internal=',l_internal
+     write(*,*) 'dW_l(l_internal)=',dW_l(l_internal)
+     write(*,*) 'soil%wl(1)+dW_l(1)',soil%wl(1)+dW_l(1)
+     write(*,*) 'w_to_move_up=',w_to_move_up
+     if (l_internal.gt.1) then
+        dW_l(1) = dW_l(1) + w_to_move_up
+        dW_l(l_internal) = dW_l(l_internal) - w_to_move_up
+        do l = 2, l_internal
+           flow(l) = flow(l) - w_to_move_up
+        enddo
+     endif
+  endif
+
+  if(is_watch_point().or.(flag.and.write_when_flagged)) then
+     write(*,*) ' ##### soil_step_2 checkpoint 3.22 #####'
+     do l = 1, num_l
+        write(*,'(i2.2,100(2x,a,g23.16))') l,&
+             ' dW_l=', dW_l(l),&
+             ' flow=', flow(l),&
+             ' div=', div(l)
+     enddo
+  endif
+
+! Check for negative runoff:
+  IF (lrunf_ie < lrunf_ie_min) THEN
+     call get_current_point(ipt,jpt,kpt,fpt)
+     write(*,*) 'note: at point ',ipt,jpt,kpt,fpt,'lrunf_ie=',lrunf_ie,' < lrunf_ie_min=',lrunf_ie_min
+     call error_mesg(module_name, 'lrunf_ie < lrunf_ie_min', FATAL)
+  ENDIF
+       
+  if(is_watch_point().or.(flag.and.write_when_flagged)) then
+     write(*,*) ' ***** soil_step_2 checkpoint 3.3 ***** '
+     write(*,*) 'psi_sat',soil%pars%psi_sat_ref
+     write(*,*) 'Dpsi_max',Dpsi_max
+     do l = 1, num_l
+        write(*,'(i2.2,100(2x,a,g23.16))') l, &
+             'Th=', (soil%ws(l) +soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)), &
+             'wl=', soil%wl(l)+dW_l(l), &
+             'ws=', soil%ws(l), &
+             'dW_l=', dW_l(l), &
+             'dPsi=', dPsi(l), &
+             'flow=', flow(l)
+     enddo
+  endif
+
+end subroutine richards_clean
+
+! ============================================================================
+  subroutine RICHARDS(soil, psi, DThDP, hyd_cond, DKDP, div, &
+                lprec_eff, Dpsi_min, Dpsi_max, dt_richards, &
+                 dPsi, dW_l, flow, lrunf_ie)
+! ZMS How to set prevent lrunf_ie when surface soil water < pond?
+
+  type(soil_tile_type), intent(inout)   :: soil
+  real, intent(in),  dimension(num_l)   :: psi, DThDP, hyd_cond, DKDP, div
+  real, intent(in)                      :: lprec_eff, Dpsi_min, Dpsi_max
+  real, intent(in)                      :: dt_richards
+  real, intent(out), dimension(num_l)   :: dPsi, dW_l
+  real, intent(out), dimension(num_l+1) :: flow
+  real, intent(out)                     :: lrunf_ie
+  ! ---- local vars ----------------------------------------------------------
+  integer l, ipt, jpt, kpt, fpt, l_internal
+  real, dimension(num_l-1) :: del_z, K, DKDPm, DKDPp, grad, eee, fff
+  real aaa, bbb, ccc, ddd, xxx, dpsi_alt, dW_l_internal, w_to_move_up, adj
+  logical flag
+
+  flag = .false.
+  flow(1) = dt_richards*lprec_eff
+  do l = 1, num_l-1
+     del_z(l) = zfull(l+1)-zfull(l)
+     if (harmonic_mean_K) then
+         K(l) = (dz(l)+dz(l+1))/(dz(l)/hyd_cond(l)+dz(l+1)/hyd_cond(l+1))
+     else
+         K(l) = 0.5*(hyd_cond(l)+hyd_cond(l+1))
+     endif
+     DKDPm(l) = 0. ! 0.5*DKDP(l)
+     DKDPp(l) = 0. ! 0.5*DKDP(l+1)
+!        K(l) = hyd_cond(l)
+!        DKDPm(l) = DKDP(l)
+!        DKDPp(l) = 0
+      grad(l)  = (psi(l+1)-psi(l))/del_z(l) - 1
+  enddo
+
+  if (is_watch_point()) then
+     write(*,*) '##### soil_step_2 checkpoint 3.1 #####'
+     do l = 1, num_l
+        write(*,'(x,a,x,i2.2,x,a,100(x,g23.16))') 'level=', l, 'DThDP,hyd_cond,psi,DKDP', &
+             DThDP(l),&
+             hyd_cond(l),&
+             psi(l),&
+             DKDP(l)
+     enddo
+     do l = 1, num_l-1
+        write(*,'(a,i2.2,1x,a,100(2x,g23.16))') 'interface=', l, 'K,DKDPm,DKDPp,grad,del_z', &
+             K(l),&
+             DKDPm(l),&
+             DKDPp(l),&
+             grad(l)
+     enddo
+  endif
+
+
+  l = num_l
+  xxx = dens_h2o*dz(l)*DThDP(l)/dt_richards
+  aaa =     - ( K(l-1)/del_z(l-1) - DKDPm(l-1)*grad(l-1))
+  bbb = xxx - (-K(l-1)/del_z(l-1) - DKDPp(l-1)*grad(l-1) )
+  ddd = - K(l-1) *grad(l-1) - div(l)
   eee(l-1) = -aaa/bbb
   fff(l-1) =  ddd/bbb
 
@@ -6199,6 +6359,8 @@ end subroutine soil_push_down_excess
   ddd =          flow(1)/dt_richards +    K(l)     *grad(l) &
                           - div(l)
 
+  if (Dpsi_min.ge.Dpsi_max) call error_mesg(module_name, '=== Dpsi_min.ge.Dpsi_max', FATAL)
+
   IF (bbb+ccc*eee(l) .NE. 0.) THEN
      dPsi(l) = (ddd-ccc*fff(l))/(bbb+ccc*eee(l))
      if(is_watch_point()) then
@@ -6209,43 +6371,51 @@ end subroutine soil_push_down_excess
         write(*,*) 'eee(l)', eee(l)
         write(*,*) 'fff(l)', fff(l)
         write(*,*) 'dPsi(l)', dPsi(l)
-        write(*,*) 'stiff', stiff
         write(*,*) 'dPsi(l)', dPsi(l)
         write(*,*) 'Dpsi_min', Dpsi_min
         write(*,*) 'Dpsi_max', Dpsi_max
      endif
-     if (.not.stiff .and. dPsi(l).gt.Dpsi_min .and. dPsi(l).lt.Dpsi_max) then
+     if (verbose.and.dPsi(l).lt.Dpsi_min) then
+         call get_current_point(ipt,jpt,kpt,fpt)
+         write(*,*) '=== warning: dPsi=',dPsi(l),'<min=',dPsi_min,'at',ipt,jpt,kpt,fpt
+     endif
+     if ((dPsi(l).gt.Dpsi_min.or.no_min_Dpsi) .and. dPsi(l).lt.Dpsi_max) then
         lrunf_ie = 0.
      else
-        if (stiff) then
-           dPsi(l) = - psi(l)
-        else
-           if (dPsi(l).lt.Dpsi_min) then
-              flag = .true.
-              call get_current_point(ipt,jpt,kpt,fpt)
-              write(*,*) 'note 1: at point ',ipt,jpt,kpt,fpt,'computed dPsi(1) too negative'
-              write(*,*) 'note 1: at point ',ipt,jpt,kpt,fpt,'dPsi(1)=',dPsi(l)
-              write(*,*) 'note 1: at point ',ipt,jpt,kpt,fpt,'dPsi_min =',dPsi_min
-           endif
-           dPsi(l) = min (dPsi(l), Dpsi_max)
-           dPsi(l) = max (dPsi(l), Dpsi_min)
+        dPsi(l) = min (dPsi(l), Dpsi_max)
+        if (dPsi(l).lt.Dpsi_min.and.(.not.no_min_Dpsi)) then
+           flag = .true.
+           dPsi(l) = Dpsi_min
         endif
-        flow(l) = (dPsi(l)*(bbb+ccc*eee(l))+ccc*fff(l) &
-                      - K(l)*grad(l))*dt_richards
+        if (div_bug_fix) then
+           flow(l) = (dPsi(l)*(bbb+ccc*eee(l))+ccc*fff(l)+div(l) &
+                   - K(l)*grad(l))*dt_richards
+        else
+           flow(l) = (dPsi(l)*(bbb+ccc*eee(l))+ccc*fff(l) &
+                   - K(l)*grad(l))*dt_richards
+        endif
         lrunf_ie = lprec_eff - flow(l)/dt_richards
-        if (.not.allow_negative_rie.and.lrunf_ie.lt.-lrunf_ie_tol) then
-            flag = .true.
-            call get_current_point(ipt,jpt,kpt,fpt)
-            dpsi_alt = (ddd-ccc*fff(l))/(bbb+ccc*eee(l))
-            write(*,*) 'note 1: at point ',ipt,jpt,kpt,fpt,'rie= ',lrunf_ie,' reset to 0'
-            write(*,*) 'note 1: at point ',ipt,jpt,kpt,fpt,'dPsi=',dPsi(l), ' reset to ',dpsi_alt
-            write(*,*) 'note 1: at point ',ipt,jpt,kpt,fpt,'dPsi_min/max=',dPsi_min,dPsi_max
-            dPsi(l) = dpsi_alt
-            lrunf_ie = 0.
-            flow(l) = lprec_eff*dt_richards
+        if (lrunf_ie.lt.-lrunf_ie_tol) then
+           if (verbose) then
+              call get_current_point(ipt,jpt,kpt,fpt)
+              write(*,*) '=== warning: rie= ',lrunf_ie,'<0 at',ipt,jpt,kpt,fpt
+           endif
+           if (.not.allow_negative_rie) then
+              flag = .true.
+              dpsi_alt = (ddd-ccc*fff(l))/(bbb+ccc*eee(l))
+              if (verbose) write(*,*) '=== rie= ',lrunf_ie,'<0 reset to 0 and dPsi=',dPsi(l),' reset to ',dpsi_alt,'at ',ipt,jpt,kpt,fpt
+              dPsi(l) = dpsi_alt
+              lrunf_ie = 0.
+              flow(l) = lprec_eff*dt_richards
+           endif
         endif
      endif
   ELSE
+     call error_mesg(module_name, 'b+ce=0 in soil-water equations', FATAL)
+     if (verbose) then
+       call get_current_point(ipt,jpt,kpt,fpt)
+       write(*,*) '===richards b+ce=0 ===','at point ',ipt,jpt,kpt,fpt
+       endif
      if(is_watch_point()) then
         write(*,*) 'bbb+ccc*eee(l) .EQ. 0.'
         write(*,*) 'bbb', bbb
@@ -6254,32 +6424,32 @@ end subroutine soil_push_down_excess
         write(*,*) 'eee(l)', eee(l)
         write(*,*) 'fff(l)', fff(l)
         write(*,*) 'dPsi(l)', dPsi(l)
-        write(*,*) 'stiff', stiff
         write(*,*) 'dPsi(l)', dPsi(l)
         write(*,*) 'Dpsi_min', Dpsi_min
         write(*,*) 'Dpsi_max', Dpsi_max
      endif
-     if (stiff) then
-        dPsi(l) = - psi(l)
-     else
-        dPsi(l) = Dpsi_max
-     endif
+     dPsi(l) = Dpsi_max
      flow(l) = (dPsi(l)*(bbb+ccc*eee(l))+ccc*fff(l) &
                    - K(l)*grad(l))*dt_richards
      lrunf_ie = lprec_eff - flow(l)/dt_richards
-     if (.not.allow_negative_rie.and.lrunf_ie.lt.-lrunf_ie_tol) then
-        flag = .true.
-        call get_current_point(ipt,jpt,kpt,fpt)
-        ! next change will not change answers in previous runs, since old version would crash
-        ! the only time this point was reached was when DThDP was zero everywhere.
-        !     dpsi_alt = (ddd-ccc*fff(l))/(bbb+ccc*eee(l))
-        dpsi_alt = 0.
-        write(*,*) 'note 2: at point ',ipt,jpt,kpt,fpt,'rie=',lrunf_ie,' reset to 0'
-        write(*,*) 'note 2: at point ',ipt,jpt,kpt,fpt,'dPsi=',dPsi(l),' reset to',dpsi_alt
-        write(*,*) 'note 2: at point ',ipt,jpt,kpt,fpt,'dPsi_min/max=',dPsi_min,dPsi_max
-        dPsi(l) = dpsi_alt
-        lrunf_ie = 0.
-        flow(l) = lprec_eff*dt_richards
+     if (lrunf_ie.lt.-lrunf_ie_tol) then
+        if (verbose) then
+           call get_current_point(ipt,jpt,kpt,fpt)
+           write(*,*) '===richards b+ce=0 AND lrunf_ie.lt.-lrunf_ie_tol at point ',ipt,jpt,kpt,fpt
+           write(*,*) '===richards b+ce=0 AND lrunf_ie.lt.-lrunf_ie_tol at point ',ipt,jpt,kpt,fpt,'rie=',lrunf_ie
+        endif
+        if(.not.allow_negative_rie) then
+           flag = .true.
+           dpsi_alt = 0.
+           if (verbose) then
+             write(*,*) '===richards b+ce=0 AND lrunf_ie.lt.-lrunf_ie_tol at point ',ipt,jpt,kpt,fpt,'rie=',lrunf_ie,' reset to 0'
+             write(*,*) '===richards b+ce=0 AND lrunf_ie.lt.-lrunf_ie_tol at point ',ipt,jpt,kpt,fpt,'dPsi=',dPsi(l),' reset to',dpsi_alt
+             write(*,*) '===richards b+ce=0 AND lrunf_ie.lt.-lrunf_ie_tol at point ',ipt,jpt,kpt,fpt,'dPsi_min/max=',dPsi_min,dPsi_max
+           endif
+           dPsi(l) = dpsi_alt
+           lrunf_ie = 0.
+           flow(l) = lprec_eff*dt_richards
+        endif
      endif
   ENDIF
 
@@ -6301,31 +6471,18 @@ end subroutine soil_push_down_excess
      write(*,*) 'div(1)', div(1)
   endif
 
-  do l = 2, num_l
-     dPsi(l) = eee(l-1)*dPsi(l-1) + fff(l-1)
-  enddo
-
-  l_internal = 1
-  dW_l_internal = -1.e20
   do l = 1, num_l-1
+     dPsi(l+1) = eee(l)*dPsi(l) + fff(l)
      flow(l+1) = dt_richards*( &
          -K(l)*(grad(l)&
          +(DPsi(l+1)-DPsi(l))/ del_z(l)) &
          -grad(l)*(DKDPp(l)*Dpsi(l+1)+ &
                          DKDPm(l)*Dpsi(l) )  )
      dW_l(l) = flow(l) - flow(l+1) - div(l)*dt_richards
-     if (flag .and. l.gt.1. .and. dW_l(l).gt.dW_l_internal) then
-        l_internal = l
-        dW_l_internal = dW_l(l)
-     endif
   enddo
   flow(num_l+1) = 0.
   dW_l(num_l) = flow(num_l) - flow(num_l+1) &
                           - div(num_l)*dt_richards
-  if (flag .and. dW_l(num_l).gt.dW_l_internal) then
-     l_internal = num_l
-     dW_l_internal = dW_l(num_l)
-  endif
 
   if(is_watch_point().or.(flag.and.write_when_flagged)) then
      write(*,*) ' ##### soil_step_2 checkpoint 3.21 #####'
@@ -6338,6 +6495,14 @@ end subroutine soil_push_down_excess
   endif
 
   if (flag) then
+     l_internal = 1
+     dW_l_internal = -1.e20
+     do l = 2, num_l
+        if (dW_l(l).gt.dW_l_internal) then
+           l_internal = l
+           dW_l_internal = dW_l(l)
+        endif
+     enddo
      w_to_move_up = min(dW_l_internal, -(soil%wl(1)+dW_l(1)))
      w_to_move_up = max(w_to_move_up, 0.)
      write(*,*) 'l_internal=',l_internal
@@ -6368,6 +6533,7 @@ end subroutine soil_push_down_excess
   IF (lrunf_ie < lrunf_ie_min) THEN
      call get_current_point(ipt,jpt,kpt,fpt)
      write(*,*) 'note: at point ',ipt,jpt,kpt,fpt,' clip triggered by lrunf_ie=',lrunf_ie
+     call error_mesg(module_name, 'lrunf_ie < lrunf_ie_min', FATAL)
      do l = num_l, 1, -1
         adj = max(dW_l(l)+soil%ws(l)+soil%wl(l) &
              - soil%pars%vwc_sat*dz(l)*dens_h2o, 0. )

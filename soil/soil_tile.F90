@@ -336,7 +336,8 @@ real    :: psi_wilt              = -150.0  ! matric head at wilting
 real, public :: comp             = 0.001  ! m^-1, dThdPsi at saturation
 real    :: K_min                 = 0.     ! absolute lower limit on hydraulic cond
                                           ! used only when use_alt[2]_soil_hydraulics
-real    :: DThDP_max             = 1.e10
+real    :: K_max_matrix          = 1.e10
+real    :: DThDP_max             = 1.e10  
 real    :: psi_min               = -1.e5  ! value beyond which psi(theta) is
                                           ! linearly extrapolated
 real    :: k_over_B              = 2         ! reset to 0 for MCM
@@ -494,7 +495,7 @@ logical :: repro_zms = .FALSE. ! if true, changes calculations of zfull to repro
                                ! in the lowest bits of answer.
 namelist /soil_data_nml/ psi_wilt, &
      soil_to_use, soil_type_file, tile_names, input_cover_types, &
-     comp, K_min, DThDP_max, psi_min, k_over_B, &
+     comp, K_min, K_max_matrix, DThDP_max, psi_min, k_over_B, &
      rate_fc, sfc_heat_factor, z_sfc_layer, &
      sub_layer_tc_fac, z_sub_layer_min, z_sub_layer_max, freeze_factor, &
      aspect, zeta_mult, num_l,  dz,                      &
@@ -1935,6 +1936,7 @@ subroutine soil_data_hydraulics_alt3 (soil, vlc, vsc, &
         K_z(l) = Ksat*((  Xl )/Xsat)**(3+2*B)
     endif
     K_z(l) = min(max(K_min, K_z(l)), Ksat)
+    K_z(l) = min(K_z(l), K_max_matrix)
     K_x(l) = K_z(l)
     f_psi = min(max(1.-psi(l)/Psat,0.),1.)
     K_z(l) = K_z(l) + f_psi * soil%k_macro_z(l)
@@ -1948,6 +1950,9 @@ subroutine soil_data_hydraulics_alt3 (soil, vlc, vsc, &
       if (use_fluid_ice) Xl_eff = vlc(1) + vsc(1)
       DPsi_min =      -Xl_eff /DThDP(1)
       DPsi_max = (Xsat-Xl_eff)/DThDP(1)
+      ! NOTE THAT TOTAL WATER CONTENT SHOULD BE SUBTRACTED TO GET
+      ! DPSI_MAX, BUT IF VSC>0, THEN DThDp IS ZERO, AND WE WOULD
+      ! BE IN THE OTHER BRANCH (BELOW).     
   else
       Dpsi_min = Dpsi_min_const
       DPsi_max = -psi(1)
