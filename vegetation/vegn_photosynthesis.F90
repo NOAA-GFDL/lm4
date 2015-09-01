@@ -323,7 +323,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   endif
 
   do1=0.09 ; ! kg/kg
-  if (spdata(pft)%form == FORM_GRASS) do1=0.15;
+  if (spdata(pft)%lifeform == FORM_GRASS) do1=0.15;
 
 
   ! Convert Solar influx from W/(m^2s) to mol_of_quanta/(m^2s) PAR,

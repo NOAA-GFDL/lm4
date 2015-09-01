@@ -457,7 +457,7 @@ function vegn_is_selected(vegn, sel)
      else
         sp = vegn%cohorts(1)%species
         vegn_is_selected = &
-             (spdata(sp)%form==FORM_GRASS).and.&
+             (spdata(sp)%lifeform==FORM_GRASS).and.&
              ((vegn%landuse==LU_NTRL).or.(vegn%landuse==LU_SCND))
      endif
   case default

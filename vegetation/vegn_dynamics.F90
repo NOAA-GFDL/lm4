@@ -17,7 +17,7 @@ use land_tile_diag_mod, only : OP_SUM, OP_MEAN, &
      register_cohort_diag_field, send_cohort_data
 use vegn_data_mod, only : spdata, &
      CMPT_NSC, CMPT_SAPWOOD, CMPT_LEAF, CMPT_ROOT, CMPT_VLEAF, CMPT_WOOD, &
-     PHEN_DECIDUOUS, LEAF_ON, LEAF_OFF, FORM_WOODY, &
+     PHEN_DECIDUOUS, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
      fsc_liv, fsc_wood, fsc_froot, agf_bs, &
      l_fract, mcv_min, mcv_lai, do_ppa, tau_seed, &
      understory_lai_factor, bseed_distr, wood_fract_min, do_alt_allometry
@@ -190,7 +190,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
      endif
      
      ! compute branch and coarse wood losses for tree types
-     if (spdata(sp)%form==FORM_WOODY) then
+     if (spdata(sp)%lifeform==FORM_WOODY) then
         md_wood = 0.6 * cc%bwood * spdata(sp)%alpha(CMPT_WOOD)*dt_fast_yr
      else
         md_wood = 0
@@ -375,7 +375,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 
      ! compute branch and coarse wood losses for tree types
      md_wood = 0.0
-     if (spdata(cc%species)%form == FORM_WOODY) then 
+     if (spdata(cc%species)%lifeform == FORM_WOODY) then 
         ! md_wood = 0.6 *cc%bwood * sp%alpha(CMPT_WOOD)*dt_fast_yr
         ! set turnoverable wood biomass as a linear function of bl_max (max.foliage
         ! biomass) (Wang, Chuankuan 2006)
@@ -605,6 +605,7 @@ subroutine biomass_allocation_ppa(cc)
   real :: deltaCA ! tendency of crown area, m2/individual
   real :: deltaHeight ! tendency of vegetation height
   real :: deltaCSAsw ! tendency of sapwood area
+  real :: BL_c, BL_u ! canopy and understory target leaf biomasses, kgC/individual
 
   real, parameter :: DBHtp = 0.8 ! m
   logical :: hydraulics_repair = .FALSE.
@@ -660,23 +661,44 @@ subroutine biomass_allocation_ppa(cc)
      DBHwd    = 2*sqrt(CSAwd/PI)
      BSWmax   = sp%alphaBM * (cc%DBH**sp%thetaBM - DBHwd**sp%thetaBM)
    
-    ! Update Kxa, stem conductance if we are tracking past damage
-    ! TODO: make hydraulics_repair a namelist parameter?
-    if (.not.hydraulics_repair) then
-       deltaCSAsw = CSAsw - (sp%alphaCSASW * (cc%DBH - deltaDBH)**sp%thetaCSASW)
-       cc%Kxa = (cc%Kxa*CSAsw + sp%Kxam*deltaCSAsw)/(CSAsw + deltaCSAsw)
-    endif
+     ! Update Kxa, stem conductance if we are tracking past damage
+     ! TODO: make hydraulics_repair a namelist parameter?
+     if (.not.hydraulics_repair) then
+        deltaCSAsw = CSAsw - (sp%alphaCSASW * (cc%DBH - deltaDBH)**sp%thetaCSASW)
+        cc%Kxa = (cc%Kxa*CSAsw + sp%Kxam*deltaCSAsw)/(CSAsw + deltaCSAsw)
+     endif
 
      deltaBwood = max(cc%bsw - BSWmax, 0.0)
      cc%bwood   = cc%bwood + deltaBwood
      cc%bsw     = cc%bsw   - deltaBwood
+
+     ! update bl_max and br_max daily
+     ! slm: why are we updating topyear only when the leaves are displayed? The paper
+     !      never mentions this fact (see eq. A6).
+     BL_u = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac) * understory_lai_factor
+     BL_c = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
+     if (cc%layer > 1 .and. cc%firstlayer == 0) then ! changed back, Weng 2014-01-23
+        cc%topyear = 0.0
+        cc%bl_max = BL_u
+        cc%br_max = 0.8*cc%bl_max/(sp%LMA*sp%SRA)
+     else
+        if(cc%layer == 1)cc%topyear = cc%topyear + 1.0/365.0  ! daily step
+        if(cc%layer>1)cc%firstlayer = 0 ! Just for the first year, those who were
+                  ! pushed to understory have the characteristics of canopy trees
+        if(sp%lifeform == FORM_GRASS) then
+           cc%bl_max = BL_c
+        else
+           cc%bl_max = BL_u + min(cc%topyear/5.0,1.0)*(BL_c - BL_u)
+        endif
+        cc%br_max = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
+     endif
+
      if(is_watch_point()) then
         __DEBUG2__(cc%bl_max, cc%br_max)
         __DEBUG2__(cc%carbon_gain, G_LFR)
         __DEBUG5__(deltaBL, deltaBR, deltaBSW, deltaSeed, deltaBwood)
         __DEBUG5__(cc%bl, cc%br, cc%bsw, cc%bseed, cc%bwood)
      endif
-!     call check_var_range(cc%bseed,0.0,HUGE(1.0),'biomass_allocation_ppa','cc%bseed',WARNING)
   else  ! cc%status == LEAF_OFF
      cc%nsc = cc%nsc + cc%carbon_gain
   endif ! cc%status == LEAF_ON
@@ -896,48 +918,15 @@ subroutine vegn_phenology_ppa(vegn, soil)
      ! assumption is that no difference between drought and cold deciduous
 
 !    onset of phenology
-     if(cc%status == LEAF_OFF .and. &
-        cc%gdd > sp%gdd_crit .and. &
-        vegn%tc_pheno > sp%tc_crit ) then
-             cc%status = LEAF_ON
-!       count the time of a tree staying in canopy layer and 
-!       calculate targe amounts of leaves and fine roots of this growing season
-        BL_u = sp%LMA * sp%LAImax * cc%crownarea * &
-              (1.0-sp%internal_gap_frac) * understory_lai_factor
-        BL_c = sp%LMA * sp%LAImax * cc%crownarea * &
-              (1.0-sp%internal_gap_frac)
-        if (cc%layer > 1 .and. cc%firstlayer == 0) then ! changed back, Weng 2014-01-23
-!       if (cc%layer > 1 ) then   ! added by Weng 2013-10-22, turned off
-!       01-23-14
-!           update the years this cohort is in the canopy layer, Weng 2014-01-06
-            cc%topyear = 0.0 
-!           The factor (1-spdata(sp)%internal_gap_frac) is added by Weng 2013-12-19
-!           to counteract LAI calculation
-!           So, the design of internal_gap actually reduce effective crown area
-            cc%bl_max = BL_u
-!            cc%br_max = sp%phiRL * sp%LAImax/sp%SRA * cc%crownarea * understory_lai_factor ! Weng 2013-09-04
-!           Keep understory tree's root low and constant
-            cc%br_max = 0.8*cc%bl_max/(sp%LMA*sp%SRA)
-        else
-!           update the years this cohort is in the canopy layer, Weng 2014-01-06
-            if (cc%layer == 1) cc%topyear = cc%topyear + 1.0 
-            cc%bl_max = BL_u + min(cc%topyear/5.0,1.0)*(BL_c - BL_u)
-            cc%br_max = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
-            if(cc%layer>1)cc%firstlayer = 0 ! Just for the first year, those
-                          ! pushed to understory have the characteristics of canopy trees
-!            cc%bl_max = sp%LMA   * sp%LAImax        * cc%crownarea * (1.0-sp%internal_gap_frac)
-!            cc%br_max = sp%phiRL * sp%LAImax/sp%SRA * cc%crownarea * (1.0-sp%internal_gap_frac)
-        endif
-
+     if(cc%status==LEAF_OFF .and. cc%gdd>sp%gdd_crit .and. vegn%tc_pheno>sp%tc_crit ) then
+        cc%status = LEAF_ON
      else if ( cc%status == LEAF_ON .and. vegn%tc_pheno < sp%tc_crit ) then
-        ! add to patch litter flux terms
         cc%status = LEAF_OFF
         cc%gdd = 0.0
      endif
 
 !    leaf falling at the end of a growing season
      if(cc%status == LEAF_OFF .AND. cc%bl > 0.)then
-!         cc%nsc = cc%nsc + cc%carbon_gain
          leaf_fall = min(leaf_fall_rate * cc%bl_max, cc%bl)
          root_mortality = min( root_mort_rate* cc%br_max, cc%br)
          cc%nsc = cc%nsc + l_fract * (leaf_fall+ root_mortality)

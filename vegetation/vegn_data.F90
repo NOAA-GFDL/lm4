@@ -141,7 +141,7 @@ type spec_data_type
   logical :: mortality_kills_balive    = .false.! if true, then bl, blv, and br are affected by natural mortality
   integer :: pt = PT_C3 ! photosynthetic physiology of species
   integer :: phent = PHEN_DECIDUOUS ! type of phenology 
-  integer :: form = FORM_WOODY ! vegetation lifeform
+  integer :: lifeform = FORM_WOODY ! vegetation lifeform
 
   real    :: c1 = 0.4807692 ! unitless, coefficient for living biomass allocation
   real    :: c2 = 0.4004486 ! 1/m, coefficient for living biomass allocation
@@ -571,9 +571,9 @@ subroutine read_species_data(name, sp, errors_found)
   str = fm_util_get_string('lifeform', caller = module_name, default_value = 'tree', scalar = .true.)
   select case (trim(lowercase(str)))
   case('tree')
-     sp%form = FORM_WOODY
+     sp%lifeform = FORM_WOODY
   case('grass')
-     sp%form = FORM_GRASS
+     sp%lifeform = FORM_GRASS
   case default
      call error_mesg(module_name,'Vegetation lifeform "'//trim(str)//'" is invalid, use "tree" or "grass"', FATAL)
   end select
@@ -781,7 +781,7 @@ subroutine print_species_data(unit)
   call add_row(table, 'Mortality kills balive', spdata(:)%mortality_kills_balive)
   call add_row(table, 'Physiology Type', spdata(:)%pt)
   call add_row(table, 'Phenology Type',  spdata(:)%phent)
-  call add_row(table, 'Life Form',       spdata(:)%form)
+  call add_row(table, 'Life Form',       spdata(:)%lifeform)
   call add_row(table, 'C1',            spdata(:)%c1)
   call add_row(table, 'C2',            spdata(:)%c2)
   call add_row(table, 'C3',            spdata(:)%c3)
