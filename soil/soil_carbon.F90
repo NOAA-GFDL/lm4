@@ -2474,7 +2474,7 @@ ENDIF
 		if(present(del_leaflitter_DON)) del_leaflitter_DON(ii)=0.0
 		if(present(del_woodlitter_DON)) del_woodlitter_DON(ii)=0.0
 
-		if(present(div_DON_loss)) div_DON_loss(ii,2:size(soil)+1)=0.0
+		if(present(div_DON_loss)) div_DON_loss(ii,:)=0.0
     ENDIF
 
 !!!!xz Nitrogen [end]
