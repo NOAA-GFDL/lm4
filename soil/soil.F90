@@ -161,7 +161,7 @@ logical :: use_coldstart_wtt_data = .false. ! read additional data for soil init
 character(len=256)  :: coldstart_datafile = 'INPUT/soil_wtt.nc'
 logical :: allow_neg_rnu        = .false.   ! Refill from stream if wl < 0 with warning, i.e. during spinup.
 logical :: allow_neg_wl         = .false.   ! Warn rather than abort if wl < 0, even if .not. allow_neg_rnu
-logical :: prohibit_negative_water_div = .false. ! if TRUE, div_bf abd dif_if are 
+logical :: prohibit_negative_water_div = .false. ! if TRUE, div_bf abd dif_if are
   ! set to zero in case water content of *any* layer is negative
 real    :: zeta_bar_override    = -1.
 real    :: cold_depth           = 0.
@@ -1141,38 +1141,38 @@ if (soil_carbon_option == SOILC_CORPSE_N) then
            call read_tile_data_r1d_fptr(unit, 'fineWood_litter_slowProtectedN',soilc_fineWoodLitter_slow_protected_N_ptr)
            call read_tile_data_r1d_fptr(unit, 'fineWood_litter_deadMicrobeProtectedN',soilc_fineWoodLitter_deadMicrobe_protected_N_ptr)
 
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_DON_fast',soilc_fineWoodLitter_fast_DON_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_DON_slow',soilc_fineWoodLitter_slow_DON_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_DON_deadmic',soilc_fineWoodLitter_deadmicrobe_DON_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_NO3',soilc_fineWoodLitter_nitrate_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_NH4',soilc_fineWoodLitter_ammonium_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_nitrif',soilc_fineWoodLitter_nitrif_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_denitrif',soilc_fineWoodLitter_denitrif_ptr)
+           call read_tile_data_r0d_fptr(unit, 'fineWood_litter_DON_fast',soilc_fineWoodLitter_fast_DON_ptr)
+           call read_tile_data_r0d_fptr(unit, 'fineWood_litter_DON_slow',soilc_fineWoodLitter_slow_DON_ptr)
+           call read_tile_data_r0d_fptr(unit, 'fineWood_litter_DON_deadmic',soilc_fineWoodLitter_deadmicrobe_DON_ptr)
+           call read_tile_data_r0d_fptr(unit, 'fineWood_litter_NO3',soilc_fineWoodLitter_nitrate_ptr)
+           call read_tile_data_r0d_fptr(unit, 'fineWood_litter_NH4',soilc_fineWoodLitter_ammonium_ptr)
+           call read_tile_data_r0d_fptr(unit, 'fineWood_litter_nitrif',soilc_fineWoodLitter_nitrif_ptr)
+           call read_tile_data_r0d_fptr(unit, 'fineWood_litter_denitrif',soilc_fineWoodLitter_denitrif_ptr)
 
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_DON_fast',soilc_leafLitter_fast_DON_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_DON_slow',soilc_leafLitter_slow_DON_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_DON_deadmic',soilc_leafLitter_deadmicrobe_DON_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_NO3',soilc_leafLitter_nitrate_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_NH4',soilc_leafLitter_ammonium_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_nitrif',soilc_leafLitter_nitrif_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_denitrif',soilc_leafLitter_denitrif_ptr)
+           call read_tile_data_r0d_fptr(unit, 'leaf_litter_DON_fast',soilc_leafLitter_fast_DON_ptr)
+           call read_tile_data_r0d_fptr(unit, 'leaf_litter_DON_slow',soilc_leafLitter_slow_DON_ptr)
+           call read_tile_data_r0d_fptr(unit, 'leaf_litter_DON_deadmic',soilc_leafLitter_deadmicrobe_DON_ptr)
+           call read_tile_data_r0d_fptr(unit, 'leaf_litter_NO3',soilc_leafLitter_nitrate_ptr)
+           call read_tile_data_r0d_fptr(unit, 'leaf_litter_NH4',soilc_leafLitter_ammonium_ptr)
+           call read_tile_data_r0d_fptr(unit, 'leaf_litter_nitrif',soilc_leafLitter_nitrif_ptr)
+           call read_tile_data_r0d_fptr(unit, 'leaf_litter_denitrif',soilc_leafLitter_denitrif_ptr)
 
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_Litter_fast_N'    , soilc_coarseWoodLitter_fast_soil_N_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_Litter_slow_N'    , soilc_coarseWoodLitter_slow_soil_N_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_Litter_deadMic_N'    , soilc_coarseWoodLitter_deadMicrobeN_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_Litter_liveMic_N'    , soilc_coarseWoodLitter_livingMicrobeN_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_Litter_originalCohortN',soilc_coarseWoodLitter_originalLitterN_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_Litter_fastProtectedN',soilc_coarseWoodLitter_fast_protected_N_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_Litter_slowProtectedN',soilc_coarseWoodLitter_slow_protected_N_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_Litter_deadMicrobeProtectedN',soilc_coarseWoodLitter_deadMicrobe_protected_N_ptr)
+           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_fast_N'    , soilc_coarseWoodLitter_fast_soil_N_ptr)
+           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_slow_N'    , soilc_coarseWoodLitter_slow_soil_N_ptr)
+           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_deadMic_N'    , soilc_coarseWoodLitter_deadMicrobeN_ptr)
+           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_liveMic_N'    , soilc_coarseWoodLitter_livingMicrobeN_ptr)
+           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_originalCohortN',soilc_coarseWoodLitter_originalLitterN_ptr)
+           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_fastProtectedN',soilc_coarseWoodLitter_fast_protected_N_ptr)
+           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_slowProtectedN',soilc_coarseWoodLitter_slow_protected_N_ptr)
+           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_deadMicrobeProtectedN',soilc_coarseWoodLitter_deadMicrobe_protected_N_ptr)
 
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_Litter_DON_fast',soilc_coarseWoodLitter_fast_DON_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_Litter_DON_slow',soilc_coarseWoodLitter_slow_DON_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_Litter_DON_deadmic',soilc_coarseWoodLitter_deadmicrobe_DON_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_Litter_NO3',soilc_coarseWoodLitter_nitrate_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_Litter_NH4',soilc_coarseWoodLitter_ammonium_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_Litter_nitrif',soilc_coarseWoodLitter_nitrif_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_Litter_denitrif',soilc_coarseWoodLitter_denitrif_ptr)
+           call read_tile_data_r0d_fptr(unit, 'coarseWood_litter_DON_fast',soilc_coarseWoodLitter_fast_DON_ptr)
+           call read_tile_data_r0d_fptr(unit, 'coarseWood_litter_DON_slow',soilc_coarseWoodLitter_slow_DON_ptr)
+           call read_tile_data_r0d_fptr(unit, 'coarseWood_litter_DON_deadmic',soilc_coarseWoodLitter_deadmicrobe_DON_ptr)
+           call read_tile_data_r0d_fptr(unit, 'coarseWood_litter_NO3',soilc_coarseWoodLitter_nitrate_ptr)
+           call read_tile_data_r0d_fptr(unit, 'coarseWood_litter_NH4',soilc_coarseWoodLitter_ammonium_ptr)
+           call read_tile_data_r0d_fptr(unit, 'coarseWood_litter_nitrif',soilc_coarseWoodLitter_nitrif_ptr)
+           call read_tile_data_r0d_fptr(unit, 'coarseWood_litter_denitrif',soilc_coarseWoodLitter_denitrif_ptr)
 
 
        endif
@@ -2386,13 +2386,13 @@ if (soil_carbon_option == SOILC_CORPSE_N) then
      call write_tile_data_r1d_fptr(unit,'leaf_litter_slowProtectedN',soilc_leafLitter_slow_protected_N_ptr,'soilCCohort','Leaf litter slow protected N','kg/m2')
      call write_tile_data_r1d_fptr(unit,'leaf_litter_deadMicrobeProtectedN',soilc_leafLitter_deadMicrobe_protected_N_ptr,'soilCCohort','Leaf litter dead microbe protected N','kg/m2')
 
-     call write_tile_data_r1d_fptr(unit,'leaf_litter_DON_fast',soilc_leafLitter_fast_DON_ptr,'zfull','Leaf litter dissolved fast nitrogen','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'leaf_litter_DON_slow',soilc_leafLitter_slow_DON_ptr,'zfull','Leaf litter dissolved slow nitrogen','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'leaf_litter_DON_deadmic',soilc_leafLitter_deadmicrobe_DON_ptr,'zfull','Leaf litter dissolved dead microbe nitrogen','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'leaf_litter_NO3',soilc_leafLitter_nitrate_ptr,'zfull','Leaf litter nitrate content','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'leaf_litter_NH4',soilc_leafLitter_ammonium_ptr,'zfull','Leaf litter ammonium content','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'leaf_litter_nitrif',soilc_leafLitter_nitrif_ptr,'zfull','Leaf litter cumulative nitrification','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'leaf_litter_denitrif',soilc_leafLitter_denitrif_ptr,'zfull','Leaf litter cumulative denitrification','kg/m2')
+     call write_tile_data_r0d_fptr(unit,'leaf_litter_DON_fast',soilc_leafLitter_fast_DON_ptr,'Leaf litter dissolved fast nitrogen','kg/m2')
+     call write_tile_data_r0d_fptr(unit,'leaf_litter_DON_slow',soilc_leafLitter_slow_DON_ptr,'Leaf litter dissolved slow nitrogen','kg/m2')
+     call write_tile_data_r0d_fptr(unit,'leaf_litter_DON_deadmic',soilc_leafLitter_deadmicrobe_DON_ptr,'Leaf litter dissolved dead microbe nitrogen','kg/m2')
+     call write_tile_data_r0d_fptr(unit,'leaf_litter_NO3',soilc_leafLitter_nitrate_ptr,'Leaf litter nitrate content','kg/m2')
+     call write_tile_data_r0d_fptr(unit,'leaf_litter_NH4',soilc_leafLitter_ammonium_ptr,'Leaf litter ammonium content','kg/m2')
+     call write_tile_data_r0d_fptr(unit,'leaf_litter_nitrif',soilc_leafLitter_nitrif_ptr,'Leaf litter cumulative nitrification','kg/m2')
+     call write_tile_data_r0d_fptr(unit,'leaf_litter_denitrif',soilc_leafLitter_denitrif_ptr,'Leaf litter cumulative denitrification','kg/m2')
 
      call write_tile_data_r1d_fptr(unit,'fineWood_litter_fast_N',soilc_fineWoodLitter_fast_soil_N_ptr,'soilCCohort','fineWood litter fast N','kg/m2')
      call write_tile_data_r1d_fptr(unit,'fineWood_litter_slow_N',soilc_fineWoodLitter_slow_soil_N_ptr,'soilCCohort','fineWood litter slow N','kg/m2')
@@ -2403,13 +2403,13 @@ if (soil_carbon_option == SOILC_CORPSE_N) then
      call write_tile_data_r1d_fptr(unit,'fineWood_litter_slowProtectedN',soilc_fineWoodLitter_slow_protected_N_ptr,'soilCCohort','fineWood litter slow protected N','kg/m2')
      call write_tile_data_r1d_fptr(unit,'fineWood_litter_deadMicrobeProtectedN',soilc_fineWoodLitter_deadMicrobe_protected_N_ptr,'soilCCohort','fineWood litter dead microbe protected N','kg/m2')
 
-     call write_tile_data_r1d_fptr(unit,'fineWood_litter_DON_fast',soilc_fineWoodLitter_fast_DON_ptr,'zfull','Fine wood litter dissolved fast nitrogen','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'fineWood_litter_DON_slow',soilc_fineWoodLitter_slow_DON_ptr,'zfull','Fine wood litter dissolved slow nitrogen','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'fineWood_litter_DON_deadmic',soilc_fineWoodLitter_deadmicrobe_DON_ptr,'zfull','Fine wood litter dissolved dead microbe nitrogen','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'fineWood_litter_NO3',soilc_fineWoodLitter_nitrate_ptr,'zfull','Fine wood litter nitrate content','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'fineWood_litter_NH4',soilc_fineWoodLitter_ammonium_ptr,'zfull','Fine wood litter ammonium content','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'fineWood_litter_nitrif',soilc_fineWoodLitter_nitrif_ptr,'zfull','Fine wood litter cumulative nitrification','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'fineWood_litter_denitrif',soilc_fineWoodLitter_denitrif_ptr,'zfull','Fine wood litter cumulative denitrification','kg/m2')
+     call write_tile_data_r0d_fptr(unit,'fineWood_litter_DON_fast',soilc_fineWoodLitter_fast_DON_ptr,'Fine wood litter dissolved fast nitrogen','kg/m2')
+     call write_tile_data_r0d_fptr(unit,'fineWood_litter_DON_slow',soilc_fineWoodLitter_slow_DON_ptr,'Fine wood litter dissolved slow nitrogen','kg/m2')
+     call write_tile_data_r0d_fptr(unit,'fineWood_litter_DON_deadmic',soilc_fineWoodLitter_deadmicrobe_DON_ptr,'Fine wood litter dissolved dead microbe nitrogen','kg/m2')
+     call write_tile_data_r0d_fptr(unit,'fineWood_litter_NO3',soilc_fineWoodLitter_nitrate_ptr,'Fine wood litter nitrate content','kg/m2')
+     call write_tile_data_r0d_fptr(unit,'fineWood_litter_NH4',soilc_fineWoodLitter_ammonium_ptr,'Fine wood litter ammonium content','kg/m2')
+     call write_tile_data_r0d_fptr(unit,'fineWood_litter_nitrif',soilc_fineWoodLitter_nitrif_ptr,'Fine wood litter cumulative nitrification','kg/m2')
+     call write_tile_data_r0d_fptr(unit,'fineWood_litter_denitrif',soilc_fineWoodLitter_denitrif_ptr,'Fine wood litter cumulative denitrification','kg/m2')
 
      call write_tile_data_r1d_fptr(unit,'coarseWood_litter_fast_N',soilc_coarseWoodLitter_fast_soil_N_ptr,'soilCCohort','coarseWood litter fast N','kg/m2')
      call write_tile_data_r1d_fptr(unit,'coarseWood_litter_slow_N',soilc_coarseWoodLitter_slow_soil_N_ptr,'soilCCohort','coarseWood litter slow N','kg/m2')
@@ -2421,13 +2421,13 @@ if (soil_carbon_option == SOILC_CORPSE_N) then
      call write_tile_data_r1d_fptr(unit,'coarseWood_litter_deadMicrobeProtectedN',soilc_coarseWoodLitter_deadMicrobe_protected_N_ptr,'soilCCohort','coarseWood litter dead microbe protected N','kg/m2')
 
 
-     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_DON_fast',soilc_coarseWoodLitter_fast_DON_ptr,'zfull','Coarse wood litter dissolved fast nitrogen','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_DON_slow',soilc_coarseWoodLitter_slow_DON_ptr,'zfull','Coarse wood litter dissolved slow nitrogen','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_DON_deadmic',soilc_coarseWoodLitter_deadmicrobe_DON_ptr,'zfull','Coarse wood litter dissolved dead microbe nitrogen','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_NO3',soilc_coarseWoodLitter_nitrate_ptr,'zfull','Coarse wood litter nitrate content','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_NH4',soilc_coarseWoodLitter_ammonium_ptr,'zfull','Coarse wood litter ammonium content','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_nitrif',soilc_coarseWoodLitter_nitrif_ptr,'zfull','Coarse wood litter cumulative nitrification','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_denitrif',soilc_coarseWoodLitter_denitrif_ptr,'zfull','Coarse wood litter cumulative denitrification','kg/m2')
+     call write_tile_data_r0d_fptr(unit,'coarseWood_litter_DON_fast',soilc_coarseWoodLitter_fast_DON_ptr,'Coarse wood litter dissolved fast nitrogen','kg/m2')
+     call write_tile_data_r0d_fptr(unit,'coarseWood_litter_DON_slow',soilc_coarseWoodLitter_slow_DON_ptr,'Coarse wood litter dissolved slow nitrogen','kg/m2')
+     call write_tile_data_r0d_fptr(unit,'coarseWood_litter_DON_deadmic',soilc_coarseWoodLitter_deadmicrobe_DON_ptr,'Coarse wood litter dissolved dead microbe nitrogen','kg/m2')
+     call write_tile_data_r0d_fptr(unit,'coarseWood_litter_NO3',soilc_coarseWoodLitter_nitrate_ptr,'Coarse wood litter nitrate content','kg/m2')
+     call write_tile_data_r0d_fptr(unit,'coarseWood_litter_NH4',soilc_coarseWoodLitter_ammonium_ptr,'Coarse wood litter ammonium content','kg/m2')
+     call write_tile_data_r0d_fptr(unit,'coarseWood_litter_nitrif',soilc_coarseWoodLitter_nitrif_ptr,'Coarse wood litter cumulative nitrification','kg/m2')
+     call write_tile_data_r0d_fptr(unit,'coarseWood_litter_denitrif',soilc_coarseWoodLitter_denitrif_ptr,'Coarse wood litter cumulative denitrification','kg/m2')
 
 endif
 
@@ -4712,7 +4712,7 @@ real :: NH4_leached(num_l), div_NH4_loss(num_l),  &     ! NH4 leaching
                       soil%wl(l) / (dens_h2o*dz(l)*soil%pars%vwc_sat), '. This makes hcap = ', hcap, &
                       ', which is < 0! Model Aborting!'
                call error_mesg(module_name, mesg, FATAL)
-            end if         
+            end if
         end if
      end do
   endif
@@ -5806,27 +5806,27 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   if (id_N_mineralization_rate>0) call send_tile_data(id_N_mineralization_rate, soil_N_mineralization/dt_fast_yr/dz,diag)
   if (id_N_immobilization_rate>0) call send_tile_data(id_N_immobilization_rate, soil_N_immobilization/dt_fast_yr/dz,diag)
 
-  if (id_leaflitter_nitrification_rate>0) call send_tile_data(id_leaflitter_nitrification_rate, leaflitter_nitrif/dt_fast_yr/dz, diag)
-  if (id_leaflitter_denitrification_rate>0) call send_tile_data(id_leaflitter_denitrification_rate, leaflitter_denitrif/dt_fast_yr/dz, diag)
-  if (id_leaflitter_N_mineralization_rate>0) call send_tile_data(id_leaflitter_N_mineralization_rate, leaflitter_N_mineralization/dt_fast_yr/dz,diag)
-  if (id_leaflitter_N_immobilization_rate>0) call send_tile_data(id_leaflitter_N_immobilization_rate, leaflitter_N_immobilization/dt_fast_yr/dz,diag)
-  if (id_finewoodlitter_nitrification_rate>0) call send_tile_data(id_finewoodlitter_nitrification_rate, finewoodlitter_nitrif/dt_fast_yr/dz, diag)
-  if (id_finewoodlitter_denitrification_rate>0) call send_tile_data(id_finewoodlitter_denitrification_rate, finewoodlitter_denitrif/dt_fast_yr/dz, diag)
-  if (id_finewoodlitter_N_mineralization_rate>0) call send_tile_data(id_finewoodlitter_N_mineralization_rate, finewoodlitter_N_mineralization/dt_fast_yr/dz,diag)
-  if (id_finewoodlitter_N_immobilization_rate>0) call send_tile_data(id_finewoodlitter_N_immobilization_rate, finewoodlitter_N_immobilization/dt_fast_yr/dz,diag)
-  if (id_coarsewoodlitter_nitrification_rate>0) call send_tile_data(id_coarsewoodlitter_nitrification_rate, coarsewoodlitter_nitrif/dt_fast_yr/dz, diag)
-  if (id_coarsewoodlitter_denitrification_rate>0) call send_tile_data(id_coarsewoodlitter_denitrification_rate, coarsewoodlitter_denitrif/dt_fast_yr/dz, diag)
-  if (id_coarsewoodlitter_N_mineralization_rate>0) call send_tile_data(id_coarsewoodlitter_N_mineralization_rate, coarsewoodlitter_N_mineralization/dt_fast_yr/dz,diag)
-  if (id_coarsewoodlitter_N_immobilization_rate>0) call send_tile_data(id_coarsewoodlitter_N_immobilization_rate, coarsewoodlitter_N_immobilization/dt_fast_yr/dz,diag)
+  if (id_leaflitter_nitrification_rate>0) call send_tile_data(id_leaflitter_nitrification_rate, leaflitter_nitrif/dt_fast_yr, diag)
+  if (id_leaflitter_denitrification_rate>0) call send_tile_data(id_leaflitter_denitrification_rate, leaflitter_denitrif/dt_fast_yr, diag)
+  if (id_leaflitter_N_mineralization_rate>0) call send_tile_data(id_leaflitter_N_mineralization_rate, leaflitter_N_mineralization/dt_fast_yr,diag)
+  if (id_leaflitter_N_immobilization_rate>0) call send_tile_data(id_leaflitter_N_immobilization_rate, leaflitter_N_immobilization/dt_fast_yr,diag)
+  if (id_finewoodlitter_nitrification_rate>0) call send_tile_data(id_finewoodlitter_nitrification_rate, finewoodlitter_nitrif/dt_fast_yr, diag)
+  if (id_finewoodlitter_denitrification_rate>0) call send_tile_data(id_finewoodlitter_denitrification_rate, finewoodlitter_denitrif/dt_fast_yr, diag)
+  if (id_finewoodlitter_N_mineralization_rate>0) call send_tile_data(id_finewoodlitter_N_mineralization_rate, finewoodlitter_N_mineralization/dt_fast_yr,diag)
+  if (id_finewoodlitter_N_immobilization_rate>0) call send_tile_data(id_finewoodlitter_N_immobilization_rate, finewoodlitter_N_immobilization/dt_fast_yr,diag)
+  if (id_coarsewoodlitter_nitrification_rate>0) call send_tile_data(id_coarsewoodlitter_nitrification_rate, coarsewoodlitter_nitrif/dt_fast_yr, diag)
+  if (id_coarsewoodlitter_denitrification_rate>0) call send_tile_data(id_coarsewoodlitter_denitrification_rate, coarsewoodlitter_denitrif/dt_fast_yr, diag)
+  if (id_coarsewoodlitter_N_mineralization_rate>0) call send_tile_data(id_coarsewoodlitter_N_mineralization_rate, coarsewoodlitter_N_mineralization/dt_fast_yr,diag)
+  if (id_coarsewoodlitter_N_immobilization_rate>0) call send_tile_data(id_coarsewoodlitter_N_immobilization_rate, coarsewoodlitter_N_immobilization/dt_fast_yr,diag)
 
   if (id_total_nitrification_rate>0) call send_tile_data(id_total_nitrification_rate, &
-                (sum(soil_nitrif)+leaflitter_nitrif+finewoodlitter_nitrif+coarsewoodlitter_nitrif)/dt_fast_yr/dz,diag)
+                (sum(soil_nitrif)+leaflitter_nitrif+finewoodlitter_nitrif+coarsewoodlitter_nitrif)/dt_fast_yr,diag)
   if (id_total_denitrification_rate>0) call send_tile_data(id_total_denitrification_rate, &
-               (sum(soil_denitrif)+leaflitter_denitrif+finewoodlitter_denitrif+coarsewoodlitter_denitrif)/dt_fast_yr/dz,diag)
+               (sum(soil_denitrif)+leaflitter_denitrif+finewoodlitter_denitrif+coarsewoodlitter_denitrif)/dt_fast_yr,diag)
   if (id_total_N_immobilization_rate>0) call send_tile_data(id_total_N_immobilization_rate, &
-               (sum(soil_N_immobilization)+leaflitter_N_immobilization+finewoodlitter_N_immobilization+coarsewoodlitter_N_immobilization)/dt_fast_yr/dz,diag)
+               (sum(soil_N_immobilization)+leaflitter_N_immobilization+finewoodlitter_N_immobilization+coarsewoodlitter_N_immobilization)/dt_fast_yr,diag)
   if (id_total_N_mineralization_rate>0) call send_tile_data(id_total_N_mineralization_rate, &
-               (sum(soil_N_mineralization)+leaflitter_N_mineralization+finewoodlitter_N_mineralization+coarsewoodlitter_N_mineralization)/dt_fast_yr/dz,diag)
+               (sum(soil_N_mineralization)+leaflitter_N_mineralization+finewoodlitter_N_mineralization+coarsewoodlitter_N_mineralization)/dt_fast_yr,diag)
 
 
   if (id_leaflitter_C_dissolve_rate_fast>0) call send_tile_data(id_leaflitter_C_dissolve_rate_fast,leaflitter_C_dissolved(1)/dt_fast_yr,diag)
@@ -6114,7 +6114,7 @@ end subroutine soil_push_down_excess
        write(*,'(a,i2.2,100(2x,g23.16))') 'l,a,b,c,d', l,aaa, bbb,ccc,ddd
     endif
   enddo
-  
+
   l = 1
   xxx = dens_h2o*dz(l)*DThDP(l)/dt_richards
   bbb = xxx - ( -K(l  )/del_z(l  ) + DKDPm(l  )*grad(l  ))
@@ -6166,7 +6166,7 @@ end subroutine soil_push_down_excess
         endif
         lrunf_ie = lprec_eff - flow(l)/dt_richards
      endif
-      
+
   if(is_watch_point().or.(flag.and.write_when_flagged)) then
      write(*,'(a,i2.2,100(2x,g23.16))') 'l,  b,c,d', l, bbb,ccc,ddd
      write(*,*) ' ##### soil_step_2 checkpoint 3.2 #####'
@@ -6252,7 +6252,7 @@ end subroutine soil_push_down_excess
      write(*,*) 'note: at point ',ipt,jpt,kpt,fpt,'lrunf_ie=',lrunf_ie,' < lrunf_ie_min=',lrunf_ie_min
      call error_mesg(module_name, 'lrunf_ie < lrunf_ie_min', FATAL)
   ENDIF
-       
+
   if(is_watch_point().or.(flag.and.write_when_flagged)) then
      write(*,*) ' ***** soil_step_2 checkpoint 3.3 ***** '
      write(*,*) 'psi_sat',soil%pars%psi_sat_ref
