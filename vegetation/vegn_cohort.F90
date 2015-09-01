@@ -132,6 +132,10 @@ type :: vegn_cohort_type
                             ! retirement rate of sapwood into wood
   real :: extinct = 0.0     ! light extinction coefficient in the canopy for photosynthesis calculations
 
+  ! BNS: Maximum leaf biomass, to be used in the context of nitrogen limitation as suggested by Elena
+  ! This will be either fixed or calculated as a function of nitrogen uptake or availability
+  real :: max_leaf_biomass = 0.0
+
 ! in LM3V the cohort structure has a handy pointer to the tile it belongs to;
 ! so operations on cohort can update tile-level variables. In this code, it is
 ! probably impossible to have this pointer here: it needs to be of type
@@ -518,6 +522,8 @@ end subroutine update_bio_living_fraction
 subroutine update_biomass_pools(c)
   type(vegn_cohort_type), intent(inout) :: c
 
+  real :: extra_leaf_biomass  ! Leaf biomass in excess of max (used in N limitation system) -- BNS
+
   c%b      = c%bliving + c%bwood;
   c%height = height_from_biomass(c%b);
   call update_bio_living_fraction(c);
@@ -531,6 +537,13 @@ subroutine update_biomass_pools(c)
      c%bl  = c%Pl*c%bliving;
      c%br  = c%Pr*c%bliving;
   endif
+  extra_leaf_biomass=max(0.0,c%bl-c%max_leaf_biomass)
+  ! What to do with extra biomass?  Roots or wood?
+  ! Probably needs some sort of optimization
+  c%bl=c%bl-extra_leaf_biomass
+  ! Putting extra biomass in roots for now
+  c%br=c%br+extra_leaf_biomass
+
   c%lai = lai_from_biomass(c%bl,c%species)
   c%sai = 0.035*c%height ! Federer and Lash,1978
 end subroutine
