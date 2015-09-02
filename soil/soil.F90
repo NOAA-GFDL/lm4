@@ -4108,6 +4108,7 @@ real :: NH4_leached(num_l), div_NH4_loss(num_l),  &     ! NH4 leaching
   real :: total_NH4_leaching(num_l) ! [kg N/m^2/s] net total vertical NH4 leaching by layer
   real :: total_NH4_div           ! [kg N/m^2/s] net total NH4 divergence loss rate
   real :: rhizosphere_frac(num_l)
+  real, dimension(num_l) :: passive_ammonium_uptake, passive_nitrate_uptake ! Uptake of dissolved mineral N by roots through water uptake
   ! --------------------------------------------------------------------------
   div_active(:) = 0.0
 
@@ -4973,6 +4974,28 @@ real :: NH4_leached(num_l), div_NH4_loss(num_l),  &     ! NH4 leaching
           __DEBUG1__(soil%div_hlsp_NH4(l))
       enddo
    endif
+
+
+! Do plant nitrogen uptake
+! Passive uptake by roots, equal to N concentration times root water uptake
+! units of uptake: kg/m2/s
+! units of wl_before: mm = kg/m2
+! units of N: kg/m2
+! N/wl_before -> unitless concentration
+where(wl_before>1.0e-4) 
+  passive_ammonium_uptake = min(soil%soil_organic_matter(:)%ammonium,uptake*soil%soil_organic_matter(:)%ammonium/wl_before)
+  passive_nitrate_uptake = min(soil%soil_organic_matter(:)%nitrate,uptake*soil%soil_organic_matter(:)%nitrate/wl_before)
+elsewhere
+  passive_ammonium_uptake=0.0
+  passive_nitrate_uptake=0.0
+endwhere
+
+  soil%soil_organic_matter(:)%ammonium=soil%soil_organic_matter(:)%ammonium-passive_ammonium_uptake
+  soil%soil_organic_matter(:)%nitrate=soil%soil_organic_matter(:)%nitrate-passive_nitrate_uptake
+
+
+
+soil%passive_N_uptake=sum(passive_ammonium_uptake+passive_nitrate_uptake)
 
 !New version that combines the two leaching steps and should do a better job of moving DOC from litter layer
 !Note: fine wood litter currently not included, just because we haven't implemented anything with it anywhere

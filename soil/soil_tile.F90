@@ -244,6 +244,7 @@ type :: soil_tile_type
    real                   :: slow_DON_leached !Nitrogen that has been leached out of the column
    real                   :: deadmic_DON_leached !Nitrogen that has been leached out of the column
    real                   :: NO3_leached, NH4_leached ! Mineral nitrogen that has been leached out of the column
+   real                   :: passive_N_uptake = 0.0 ! N uptake by water flux into roots
 ! values for the diagnostic of carbon budget and soil carbon acceleration
    real, allocatable :: &
        asoil_in(:), &
@@ -337,7 +338,7 @@ real, public :: comp             = 0.001  ! m^-1, dThdPsi at saturation
 real    :: K_min                 = 0.     ! absolute lower limit on hydraulic cond
                                           ! used only when use_alt[2]_soil_hydraulics
 real    :: K_max_matrix          = 1.e10
-real    :: DThDP_max             = 1.e10  
+real    :: DThDP_max             = 1.e10
 real    :: psi_min               = -1.e5  ! value beyond which psi(theta) is
                                           ! linearly extrapolated
 real    :: k_over_B              = 2         ! reset to 0 for MCM
@@ -954,6 +955,7 @@ subroutine soil_data_init_0d(soil)
 
   soil%NO3_leached=0.0
   soil%NH4_leached=0.0
+  soil%passive_N_uptake=0.0
 
   comp_local = 0.0
   if (use_comp_for_push) comp_local = comp
@@ -1952,7 +1954,7 @@ subroutine soil_data_hydraulics_alt3 (soil, vlc, vsc, &
       DPsi_max = (Xsat-Xl_eff)/DThDP(1)
       ! NOTE THAT TOTAL WATER CONTENT SHOULD BE SUBTRACTED TO GET
       ! DPSI_MAX, BUT IF VSC>0, THEN DThDp IS ZERO, AND WE WOULD
-      ! BE IN THE OTHER BRANCH (BELOW).     
+      ! BE IN THE OTHER BRANCH (BELOW).
   else
       Dpsi_min = Dpsi_min_const
       DPsi_max = -psi(1)
