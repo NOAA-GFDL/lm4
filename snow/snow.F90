@@ -937,41 +937,38 @@ end function snow_tile_exists
 ! accessor functions: given a pointer to a land tile, they return pointer
 ! to the desired member of the land tile, of NULL if this member does not
 ! exist.
-subroutine snow_temp_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr(:)
-   integer :: n
+subroutine snow_temp_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
       if(associated(tile%snow)) then
-        n = size(tile%snow%T)
-        ptr(1:n) => tile%snow%T(1:n)
+        ptr => tile%snow%T(i)
       endif
    endif
 end subroutine snow_temp_ptr
 
-subroutine snow_wl_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr(:)
-   integer :: n
+subroutine snow_wl_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
       if(associated(tile%snow)) then
-        n = size(tile%snow%wl)
-        ptr(1:n) => tile%snow%wl(1:n)
+        ptr => tile%snow%wl(i)
       endif
    endif
 end subroutine snow_wl_ptr
 
-subroutine snow_ws_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr(:)
-   integer :: n
+subroutine snow_ws_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
       if(associated(tile%snow)) then
-        n = size(tile%snow%ws)
-        ptr(1:n) => tile%snow%ws(1:n)
+        ptr => tile%snow%ws(i)
       endif
    endif
 end subroutine snow_ws_ptr

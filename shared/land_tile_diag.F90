@@ -14,7 +14,7 @@ use land_tile_selectors_mod, only : tile_selectors_init, tile_selectors_end, &
 use land_tile_mod,      only : land_tile_type, diag_buff_type, &
      land_tile_list_type, first_elmt, tail_elmt, next_elmt, get_elmt_indices, &
      land_tile_enum_type, operator(/=), current_tile, &
-     tile_is_selected, fptr_i0, fptr_r0, fptr_r1
+     tile_is_selected, fptr_i0, fptr_r0, fptr_r0i
 use vegn_cohort_mod,    only : vegn_cohort_type
 use land_data_mod,      only : lnd
 use tile_diag_buff_mod, only : diag_buff_type, realloc_diag_buff
@@ -597,21 +597,33 @@ end subroutine send_tile_data_r0d_fptr
 subroutine send_tile_data_r1d_fptr(id, tile_map, fptr)
   integer, intent(in) :: id
   type(land_tile_list_type), intent(inout) :: tile_map(:,:)
-  procedure(fptr_r1)  :: fptr
+  procedure(fptr_r0i) :: fptr
 
   type(land_tile_enum_type)     :: te,ce   ! tail and current tile list elements
   type(land_tile_type), pointer :: tileptr ! pointer to tile   
-  real                , pointer :: ptr(:)     ! pointer to the data element within a tile
+  real                , pointer :: ptr     ! pointer to the data element within a tile
+  real,             allocatable :: buffer(:) ! buffer for accumulating data
+  integer :: i, k
 
   if(id <= 0) return
+  if (id < BASE_TILED_FIELD_ID.or. id >= BASE_COHORT_FIELD_ID ) call error_mesg (mod_name, &
+         'tile diag field ID is out of range. Perhaps the field was not registred with some other call then register_tile_diag_field?', &
+         FATAL)
+  i = id - BASE_TILED_FIELD_ID ! index in the array of fields
+
+  allocate(buffer(fields(i)%size))
   ce = first_elmt( tile_map )
   te = tail_elmt ( tile_map )
   do while(ce /= te)
      tileptr => current_tile(ce)
-     call fptr(tileptr,ptr)
-     if(associated(ptr)) call send_tile_data(id,ptr,tileptr%diag)
+     do k = 1,fields(i)%size
+        call fptr(tileptr,k,ptr)
+        if(associated(ptr)) buffer(k) = ptr
+     enddo
+     call send_tile_data(id,buffer,tileptr%diag)
      ce=next_elmt(ce)
   enddo
+  deallocate(buffer)
 end subroutine send_tile_data_r1d_fptr
 
 

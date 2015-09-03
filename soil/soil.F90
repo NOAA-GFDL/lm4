@@ -58,8 +58,7 @@ use land_io_mod, only : read_field
 use land_tile_io_mod, only : create_tile_out_file, write_tile_data_r0d_fptr,& 
      write_tile_data_r1d_fptr, write_tile_data_r2d_fptr, write_tile_data_r2d_fptr,&
      read_tile_data_r0d_fptr, read_tile_data_r1d_fptr, read_tile_data_r2d_fptr, &
-     read_tile_data_r1d_fptr_idx, write_tile_data_r1d_fptr_idx, &
-     write_tile_data_i1d_fptr_all,read_tile_data_i1d_fptr_all,&
+     write_tile_data_i1d_fptr,read_tile_data_i1d_fptr,&
      print_netcdf_error, get_input_restart_name, sync_nc_files
 use nf_utils_mod, only : nfu_def_dim, nfu_put_att, nfu_inq_var
 
@@ -677,18 +676,18 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull )
         do i = 1, N_C_TYPES
            call read_tile_data_r2d_fptr(unit,trim(c_shortname(i))//'_soil_C',sc_soil_C_ptr,i)
            call read_tile_data_r2d_fptr(unit,trim(c_shortname(i))//'ProtectedC',sc_protected_C_ptr,i)
-           call read_tile_data_r1d_fptr_idx(unit,'soil_DOC_'//trim(c_shortname(i)),sc_DOC_ptr,i)
+           call read_tile_data_r1d_fptr(unit,'soil_DOC_'//trim(c_shortname(i)),sc_DOC_ptr,i)
 
-           call read_tile_data_r1d_fptr_idx(unit,'leaf_litter_'//trim(c_shortname(i))//'_C',sc_leafLitter_litterC_ptr,i)
-           call read_tile_data_r1d_fptr_idx(unit,'leaf_litter_'//trim(c_shortname(i))//'ProtectedC',sc_leafLitter_protectedC_ptr,i)
+           call read_tile_data_r1d_fptr(unit,'leaf_litter_'//trim(c_shortname(i))//'_C',sc_leafLitter_litterC_ptr,i)
+           call read_tile_data_r1d_fptr(unit,'leaf_litter_'//trim(c_shortname(i))//'ProtectedC',sc_leafLitter_protectedC_ptr,i)
            call read_tile_data_r0d_fptr(unit,'leaf_litter_DOC_'//trim(c_shortname(i)),sc_leafLitter_dissolved_carbon_ptr,i)
 
-           call read_tile_data_r1d_fptr_idx(unit,'fineWood_litter_'//trim(c_shortname(i))//'_C',sc_fineWoodLitter_litterC_ptr,i)
-           call read_tile_data_r1d_fptr_idx(unit,'fineWood_litter_'//trim(c_shortname(i))//'ProtectedC',sc_fineWoodLitter_protectedC_ptr,i)
+           call read_tile_data_r1d_fptr(unit,'fineWood_litter_'//trim(c_shortname(i))//'_C',sc_fineWoodLitter_litterC_ptr,i)
+           call read_tile_data_r1d_fptr(unit,'fineWood_litter_'//trim(c_shortname(i))//'ProtectedC',sc_fineWoodLitter_protectedC_ptr,i)
            call read_tile_data_r0d_fptr(unit,'fineWood_litter_DOC_'//trim(c_shortname(i)),sc_fineWoodLitter_dissolved_carbon_ptr,i)
 
-           call read_tile_data_r1d_fptr_idx(unit,'coarseWood_litter_'//trim(c_shortname(i))//'ProtectedC',sc_fineWoodLitter_protectedC_ptr,i)
-           call read_tile_data_r1d_fptr_idx(unit,'coarseWood_litter_'//trim(c_shortname(i))//'_C',sc_coarseWoodLitter_litterC_ptr,i)
+           call read_tile_data_r1d_fptr(unit,'coarseWood_litter_'//trim(c_shortname(i))//'ProtectedC',sc_fineWoodLitter_protectedC_ptr,i)
+           call read_tile_data_r1d_fptr(unit,'coarseWood_litter_'//trim(c_shortname(i))//'_C',sc_coarseWoodLitter_litterC_ptr,i)
            call read_tile_data_r0d_fptr(unit,'coarseWood_litter_DOC_'//trim(c_shortname(i)),sc_coarseWoodLitter_dissolved_carbon_ptr,i)
         enddo
         call read_tile_data_r2d_fptr(unit,'liveMic',sc_livingMicrobeC_ptr)
@@ -696,20 +695,20 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull )
         call read_tile_data_r2d_fptr(unit,'Rtot',sc_Rtot_ptr)
         call read_tile_data_r2d_fptr(unit,'originalCohortC',sc_originalLitterC_ptr)
           
-        call read_tile_data_r1d_fptr_idx(unit,'leaf_litter_liveMic_C',sc_leafLitter_livingMicrobeC_ptr)
-        call read_tile_data_r1d_fptr_idx(unit,'leaf_litter_CO2',sc_leafLitter_CO2_ptr)
-        call read_tile_data_r1d_fptr_idx(unit,'leaf_litter_Rtot',sc_leafLitter_Rtot_ptr)
-        call read_tile_data_r1d_fptr_idx(unit,'leaf_litter_originalCohortC',sc_leafLitter_originalLitterC_ptr)
+        call read_tile_data_r1d_fptr(unit,'leaf_litter_liveMic_C',sc_leafLitter_livingMicrobeC_ptr)
+        call read_tile_data_r1d_fptr(unit,'leaf_litter_CO2',sc_leafLitter_CO2_ptr)
+        call read_tile_data_r1d_fptr(unit,'leaf_litter_Rtot',sc_leafLitter_Rtot_ptr)
+        call read_tile_data_r1d_fptr(unit,'leaf_litter_originalCohortC',sc_leafLitter_originalLitterC_ptr)
 
-        call read_tile_data_r1d_fptr_idx(unit,'fineWood_litter_liveMic_C',sc_fineWoodLitter_livingMicrobeC_ptr)
-        call read_tile_data_r1d_fptr_idx(unit,'fineWood_litter_CO2',sc_fineWoodLitter_CO2_ptr)
-        call read_tile_data_r1d_fptr_idx(unit,'fineWood_litter_Rtot',sc_fineWoodLitter_Rtot_ptr)
-        call read_tile_data_r1d_fptr_idx(unit,'fineWood_litter_originalCohortC',sc_fineWoodLitter_originalLitterC_ptr)
+        call read_tile_data_r1d_fptr(unit,'fineWood_litter_liveMic_C',sc_fineWoodLitter_livingMicrobeC_ptr)
+        call read_tile_data_r1d_fptr(unit,'fineWood_litter_CO2',sc_fineWoodLitter_CO2_ptr)
+        call read_tile_data_r1d_fptr(unit,'fineWood_litter_Rtot',sc_fineWoodLitter_Rtot_ptr)
+        call read_tile_data_r1d_fptr(unit,'fineWood_litter_originalCohortC',sc_fineWoodLitter_originalLitterC_ptr)
 
-        call read_tile_data_r1d_fptr_idx(unit,'coarseWood_litter_liveMic_C',sc_coarseWoodLitter_livingMicrobeC_ptr)
-        call read_tile_data_r1d_fptr_idx(unit,'coarseWood_litter_CO2',sc_coarseWoodLitter_CO2_ptr)
-        call read_tile_data_r1d_fptr_idx(unit,'coarseWood_litter_Rtot',sc_coarseWoodLitter_Rtot_ptr)
-        call read_tile_data_r1d_fptr_idx(unit,'coarseWood_litter_originalCohortC',sc_coarseWoodLitter_originalLitterC_ptr)
+        call read_tile_data_r1d_fptr(unit,'coarseWood_litter_liveMic_C',sc_coarseWoodLitter_livingMicrobeC_ptr)
+        call read_tile_data_r1d_fptr(unit,'coarseWood_litter_CO2',sc_coarseWoodLitter_CO2_ptr)
+        call read_tile_data_r1d_fptr(unit,'coarseWood_litter_Rtot',sc_coarseWoodLitter_Rtot_ptr)
+        call read_tile_data_r1d_fptr(unit,'coarseWood_litter_originalCohortC',sc_coarseWoodLitter_originalLitterC_ptr)
          
         if(nfu_inq_var(unit, 'fast_DOC_leached')==NF_NOERR) then
            call read_tile_data_r0d_fptr(unit,'fast_DOC_leached',     soil_fast_DOC_leached_ptr)
@@ -718,7 +717,7 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull )
         endif
      
         if(nfu_inq_var(unit, 'is_peat')==NF_NOERR) then
-           call read_tile_data_i1d_fptr_all(unit, 'is_peat',soil_is_peat_ptr)
+           call read_tile_data_i1d_fptr(unit, 'is_peat',soil_is_peat_ptr)
         endif
      endif               
      __NF_ASRT__(nf_close(unit))     
@@ -738,18 +737,18 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull )
      case (SOILC_CORPSE)
         call read_tile_data_r1d_fptr(unit,'asoil_in',soil_asoil_in_ptr)
         do i = 1,N_C_TYPES
-           call read_tile_data_r1d_fptr_idx(unit,trim(c_shortname(i))//'_protected_in',sc_protected_in_ptr, i)
-           call read_tile_data_r1d_fptr_idx(unit,trim(c_shortname(i))//'_carbon_in',sc_carbon_in_ptr, i)
+           call read_tile_data_r1d_fptr(unit,trim(c_shortname(i))//'_protected_in',sc_protected_in_ptr, i)
+           call read_tile_data_r1d_fptr(unit,trim(c_shortname(i))//'_carbon_in',sc_carbon_in_ptr, i)
            call read_tile_data_r0d_fptr(unit,'leaflitter_'//trim(c_shortname(i))//'_in',sc_leaflitter_in_ptr,i)
            call read_tile_data_r0d_fptr(unit,'finewoodlitter_'//trim(c_shortname(i))//'_in',sc_finewoodlitter_in_ptr,i)
            call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_'//trim(c_shortname(i))//'_in',sc_coarsewoodlitter_in_ptr,i)
 
-           call read_tile_data_r1d_fptr_idx(unit,trim(c_shortname(i))//'_turnover_accumulated',sc_turnover_ptr, i)
+           call read_tile_data_r1d_fptr(unit,trim(c_shortname(i))//'_turnover_accumulated',sc_turnover_ptr, i)
            call read_tile_data_r0d_fptr(unit,'leaflitter_'//trim(c_shortname(i))//'_turnover_accumulated', sc_leaflitter_turnover_ptr, i)
            call read_tile_data_r0d_fptr(unit,'finewoodlitter_'//trim(c_shortname(i))//'_turnover_accumulated', sc_finewoodlitter_turnover_ptr, i)
            call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_'//trim(c_shortname(i))//'_turnover_accumulated', sc_coarsewoodlitter_turnover_ptr, i)
 
-           call read_tile_data_r1d_fptr_idx(unit,trim(c_shortname(i))//'_protected_turnover_accumulated',sc_protected_turnover_ptr, i)
+           call read_tile_data_r1d_fptr(unit,trim(c_shortname(i))//'_protected_turnover_accumulated',sc_protected_turnover_ptr, i)
         enddo
      case default
         call error_mesg('save_soil_restart', 'unrecognized soil carbon option -- this should never happen', FATAL)
@@ -1281,18 +1280,18 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
      do i = 1, N_C_TYPES
         call write_tile_data_r2d_fptr(unit,trim(c_shortname(i))//'_soil_C',sc_soil_C_ptr,i,'zfull','soilCCohort',trim(c_longname(i))//' soil carbon','kg/m2')
         call write_tile_data_r2d_fptr(unit,trim(c_shortname(i))//'ProtectedC',sc_protected_C_ptr,i,'zfull','soilCCohort','Protected '//trim(c_longname(i))//' carbon','kg/m2')
-        call write_tile_data_r1d_fptr_idx(unit,'soil_DOC_'//trim(c_shortname(i)),sc_DOC_ptr,i,'zfull','Dissolved '//trim(c_longname(i))//' carbon','kg/m2')
+        call write_tile_data_r1d_fptr(unit,'soil_DOC_'//trim(c_shortname(i)),sc_DOC_ptr,i,'zfull','Dissolved '//trim(c_longname(i))//' carbon','kg/m2')
 
-        call write_tile_data_r1d_fptr_idx(unit,'leaf_litter_'//trim(c_shortname(i))//'_C',sc_leafLitter_litterC_ptr,i,'soilCCohort','leaf litter '//trim(c_longname(i))//' C','kg/m2')
-        call write_tile_data_r1d_fptr_idx(unit,'leaf_litter_'//trim(c_shortname(i))//'ProtectedC',sc_leafLitter_protectedC_ptr,i,'soilCCohort','Leaf litter '//trim(c_longname(i))//' protected C','kg/m2')
+        call write_tile_data_r1d_fptr(unit,'leaf_litter_'//trim(c_shortname(i))//'_C',sc_leafLitter_litterC_ptr,i,'soilCCohort','leaf litter '//trim(c_longname(i))//' C','kg/m2')
+        call write_tile_data_r1d_fptr(unit,'leaf_litter_'//trim(c_shortname(i))//'ProtectedC',sc_leafLitter_protectedC_ptr,i,'soilCCohort','Leaf litter '//trim(c_longname(i))//' protected C','kg/m2')
         call write_tile_data_r0d_fptr(unit,'leaf_litter_DOC_'//trim(c_shortname(i)),sc_leafLitter_dissolved_carbon_ptr,i,'Dissolved leaf litter '//trim(c_longname(i))//' carbon','kg/m2')
 
-        call write_tile_data_r1d_fptr_idx(unit,'fineWood_litter_'//trim(c_shortname(i))//'_C',sc_fineWoodLitter_litterC_ptr,i,'soilCCohort','Fine wood litter '//trim(c_longname(i))//' C','kg/m2')
-        call write_tile_data_r1d_fptr_idx(unit,'fineWood_litter_'//trim(c_shortname(i))//'ProtectedC',sc_fineWoodLitter_protectedC_ptr,i,'soilCCohort','Fine wood litter '//trim(c_longname(i))//' protected C','kg/m2')
+        call write_tile_data_r1d_fptr(unit,'fineWood_litter_'//trim(c_shortname(i))//'_C',sc_fineWoodLitter_litterC_ptr,i,'soilCCohort','Fine wood litter '//trim(c_longname(i))//' C','kg/m2')
+        call write_tile_data_r1d_fptr(unit,'fineWood_litter_'//trim(c_shortname(i))//'ProtectedC',sc_fineWoodLitter_protectedC_ptr,i,'soilCCohort','Fine wood litter '//trim(c_longname(i))//' protected C','kg/m2')
         call write_tile_data_r0d_fptr(unit,'fineWood_litter_DOC_'//trim(c_shortname(i)),sc_fineWoodLitter_dissolved_carbon_ptr,i,'Dissolved fine wood litter '//trim(c_longname(i))//' carbon','kg/m2')
 
-        call write_tile_data_r1d_fptr_idx(unit,'coarseWood_litter_'//trim(c_shortname(i))//'ProtectedC',sc_fineWoodLitter_protectedC_ptr,i,'soilCCohort','Coarse wood litter '//trim(c_longname(i))//' protected C','kg/m2')
-        call write_tile_data_r1d_fptr_idx(unit,'coarseWood_litter_'//trim(c_shortname(i))//'_C',sc_coarseWoodLitter_litterC_ptr,i,'soilCCohort','Coarse wood litter '//trim(c_longname(i))//' C','kg/m2')
+        call write_tile_data_r1d_fptr(unit,'coarseWood_litter_'//trim(c_shortname(i))//'ProtectedC',sc_fineWoodLitter_protectedC_ptr,i,'soilCCohort','Coarse wood litter '//trim(c_longname(i))//' protected C','kg/m2')
+        call write_tile_data_r1d_fptr(unit,'coarseWood_litter_'//trim(c_shortname(i))//'_C',sc_coarseWoodLitter_litterC_ptr,i,'soilCCohort','Coarse wood litter '//trim(c_longname(i))//' C','kg/m2')
         call write_tile_data_r0d_fptr(unit,'coarseWood_litter_DOC_'//trim(c_shortname(i)),sc_coarseWoodLitter_dissolved_carbon_ptr,i,'Dissolved coarse wood litter '//trim(c_longname(i))//' carbon','kg/m2')
      enddo
      call write_tile_data_r2d_fptr(unit,'liveMic',sc_livingMicrobeC_ptr ,'zfull','soilCCohort','Living microbial carbon','kg/m2')
@@ -1300,22 +1299,22 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
      call write_tile_data_r2d_fptr(unit,'Rtot',sc_Rtot_ptr ,'zfull','soilCCohort','Total degradation','kg/m2')
      call write_tile_data_r2d_fptr(unit,'originalCohortC',sc_originalLitterC_ptr ,'zfull','soilCCohort','Cohort original carbon','g/m2')
           
-     call write_tile_data_r1d_fptr_idx(unit,'leaf_litter_liveMic_C',sc_leafLitter_livingMicrobeC_ptr,'soilCCohort','leaf litter live microbe C','kg/m2')
-     call write_tile_data_r1d_fptr_idx(unit,'leaf_litter_CO2',sc_leafLitter_CO2_ptr,'soilCCohort','Leaf litter CO2 generated','kg/m2')
-     call write_tile_data_r1d_fptr_idx(unit,'leaf_litter_Rtot',sc_leafLitter_Rtot_ptr,'soilCCohort','Leaf litter total degradation','kg/m2')
-     call write_tile_data_r1d_fptr_idx(unit,'leaf_litter_originalCohortC',sc_leafLitter_originalLitterC_ptr,'soilCCohort','Leaf litter cohort original carbon','kg/m2')
+     call write_tile_data_r1d_fptr(unit,'leaf_litter_liveMic_C',sc_leafLitter_livingMicrobeC_ptr,'soilCCohort','leaf litter live microbe C','kg/m2')
+     call write_tile_data_r1d_fptr(unit,'leaf_litter_CO2',sc_leafLitter_CO2_ptr,'soilCCohort','Leaf litter CO2 generated','kg/m2')
+     call write_tile_data_r1d_fptr(unit,'leaf_litter_Rtot',sc_leafLitter_Rtot_ptr,'soilCCohort','Leaf litter total degradation','kg/m2')
+     call write_tile_data_r1d_fptr(unit,'leaf_litter_originalCohortC',sc_leafLitter_originalLitterC_ptr,'soilCCohort','Leaf litter cohort original carbon','kg/m2')
 
-     call write_tile_data_r1d_fptr_idx(unit,'fineWood_litter_liveMic_C',sc_fineWoodLitter_livingMicrobeC_ptr,'soilCCohort','Fine wood litter live microbe C','kg/m2')
-     call write_tile_data_r1d_fptr_idx(unit,'fineWood_litter_CO2',sc_fineWoodLitter_CO2_ptr,'soilCCohort','Fine wood litter CO2 generated','kg/m2')
-     call write_tile_data_r1d_fptr_idx(unit,'fineWood_litter_Rtot',sc_fineWoodLitter_Rtot_ptr,'soilCCohort','Fine wood litter total degradation','kg/m2')
-     call write_tile_data_r1d_fptr_idx(unit,'fineWood_litter_originalCohortC',sc_fineWoodLitter_originalLitterC_ptr,'soilCCohort','Fine wood litter cohort original carbon','kg/m2')
+     call write_tile_data_r1d_fptr(unit,'fineWood_litter_liveMic_C',sc_fineWoodLitter_livingMicrobeC_ptr,'soilCCohort','Fine wood litter live microbe C','kg/m2')
+     call write_tile_data_r1d_fptr(unit,'fineWood_litter_CO2',sc_fineWoodLitter_CO2_ptr,'soilCCohort','Fine wood litter CO2 generated','kg/m2')
+     call write_tile_data_r1d_fptr(unit,'fineWood_litter_Rtot',sc_fineWoodLitter_Rtot_ptr,'soilCCohort','Fine wood litter total degradation','kg/m2')
+     call write_tile_data_r1d_fptr(unit,'fineWood_litter_originalCohortC',sc_fineWoodLitter_originalLitterC_ptr,'soilCCohort','Fine wood litter cohort original carbon','kg/m2')
 
-     call write_tile_data_r1d_fptr_idx(unit,'coarseWood_litter_liveMic_C',sc_coarseWoodLitter_livingMicrobeC_ptr,'soilCCohort','Coarse wood litter live microbe C','kg/m2')
-     call write_tile_data_r1d_fptr_idx(unit,'coarseWood_litter_CO2',sc_coarseWoodLitter_CO2_ptr,'soilCCohort','Coarse wood litter CO2 generated','kg/m2')
-     call write_tile_data_r1d_fptr_idx(unit,'coarseWood_litter_Rtot',sc_coarseWoodLitter_Rtot_ptr,'soilCCohort','Coarse wood litter total degradation','kg/m2')
-     call write_tile_data_r1d_fptr_idx(unit,'coarseWood_litter_originalCohortC',sc_coarseWoodLitter_originalLitterC_ptr,'soilCCohort','Coarse wood litter cohort original carbon','kg/m2')
+     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_liveMic_C',sc_coarseWoodLitter_livingMicrobeC_ptr,'soilCCohort','Coarse wood litter live microbe C','kg/m2')
+     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_CO2',sc_coarseWoodLitter_CO2_ptr,'soilCCohort','Coarse wood litter CO2 generated','kg/m2')
+     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_Rtot',sc_coarseWoodLitter_Rtot_ptr,'soilCCohort','Coarse wood litter total degradation','kg/m2')
+     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_originalCohortC',sc_coarseWoodLitter_originalLitterC_ptr,'soilCCohort','Coarse wood litter cohort original carbon','kg/m2')
     
-     call write_tile_data_i1d_fptr_all(unit,'is_peat',soil_is_peat_ptr,'zfull','Is layer peat?','Boolean')
+     call write_tile_data_i1d_fptr(unit,'is_peat',soil_is_peat_ptr,'zfull','Is layer peat?','Boolean')
 
      call write_tile_data_r0d_fptr(unit,'fast_DOC_leached',     soil_fast_DOC_leached_ptr, 'Cumulative fast DOC leached out of the column', 'kg/m2')
      call write_tile_data_r0d_fptr(unit,'slow_DOC_leached',     soil_slow_DOC_leached_ptr, 'Cumulative slow DOC leached out of the column', 'kg/m2')
@@ -1347,18 +1346,18 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
         call write_tile_data_r1d_fptr(unit,'asoil_in',soil_asoil_in_ptr,'zfull','aerobic activity modifier', 'unitless')
 
         do i = 1,N_C_TYPES
-           call write_tile_data_r1d_fptr_idx(unit,trim(c_shortname(i))//'_protected_in',sc_protected_in_ptr, i, 'zfull','protected '//trim(c_longname(i))//' soil carbon input', 'kg C/m2')
-           call write_tile_data_r1d_fptr_idx(unit,trim(c_shortname(i))//'_carbon_in',sc_carbon_in_ptr, i, 'zfull', trim(c_longname(i))//' soil carbon input', 'kg C/m2')
+           call write_tile_data_r1d_fptr(unit,trim(c_shortname(i))//'_protected_in',sc_protected_in_ptr, i, 'zfull','protected '//trim(c_longname(i))//' soil carbon input', 'kg C/m2')
+           call write_tile_data_r1d_fptr(unit,trim(c_shortname(i))//'_carbon_in',sc_carbon_in_ptr, i, 'zfull', trim(c_longname(i))//' soil carbon input', 'kg C/m2')
            call write_tile_data_r0d_fptr(unit,'leaflitter_'//trim(c_shortname(i))//'_in', sc_leaflitter_in_ptr, i, trim(c_longname(i))//' leaf litter carbon input','kg C/m2')
            call write_tile_data_r0d_fptr(unit,'finewoodlitter_'//trim(c_shortname(i))//'_in',  sc_finewoodlitter_in_ptr, i, trim(c_longname(i))//' fine wood litter carbon input','kg C/m2')
            call write_tile_data_r0d_fptr(unit,'coarsewoodlitter_'//trim(c_shortname(i))//'_in',sc_coarsewoodlitter_in_ptr, i, trim(c_longname(i))//' coarse wood litter carbon input','kg C/m2')
 
-           call write_tile_data_r1d_fptr_idx(unit,trim(c_shortname(i))//'_turnover_accumulated',sc_turnover_ptr, i, 'zfull', trim(c_longname(i))//' soil carbon turnover','year-1')
+           call write_tile_data_r1d_fptr(unit,trim(c_shortname(i))//'_turnover_accumulated',sc_turnover_ptr, i, 'zfull', trim(c_longname(i))//' soil carbon turnover','year-1')
            call write_tile_data_r0d_fptr(unit,'leaflitter_'//trim(c_shortname(i))//'_turnover_accumulated', sc_leaflitter_turnover_ptr, i, trim(c_longname(i))//' leaf litter carbon turnover', 'year-1')
            call write_tile_data_r0d_fptr(unit,'finewoodlitter_'//trim(c_shortname(i))//'_turnover_accumulated', sc_finewoodlitter_turnover_ptr, i, trim(c_longname(i))//' fine wood litter carbon turnover', 'year-1')
            call write_tile_data_r0d_fptr(unit,'coarsewoodlitter_'//trim(c_shortname(i))//'_turnover_accumulated', sc_coarsewoodlitter_turnover_ptr, i, trim(c_longname(i))//' coarse wood litter carbon turnover', 'year-1')
 
-           call write_tile_data_r1d_fptr_idx(unit,trim(c_shortname(i))//'_protected_turnover_accumulated',sc_protected_turnover_ptr, i, 'zfull',trim(c_longname(i))//' protected soil carbon turnover', 'year-1')
+           call write_tile_data_r1d_fptr(unit,trim(c_shortname(i))//'_protected_turnover_accumulated',sc_protected_turnover_ptr, i, 'zfull',trim(c_longname(i))//' protected soil carbon turnover', 'year-1')
         enddo
      case default
         call error_mesg('save_soil_restart', 'unrecpgnized soil carbon option -- this should never happen', FATAL)
@@ -3963,14 +3962,14 @@ end subroutine init_soil_twc
 #define DEFINE_SOIL_ACCESSOR_0D(xtype,x) subroutine soil_ ## x ## _ptr(t,p);\
 type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%x;endif;\
 end subroutine
-#define DEFINE_SOIL_ACCESSOR_1D(xtype,x) subroutine soil_ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p(:);p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%x;endif;\
+#define DEFINE_SOIL_ACCESSOR_1D(xtype,x) subroutine soil_ ## x ## _ptr(t,i,p);\
+type(land_tile_type),pointer::t;integer,intent(in)::i;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%x(i);endif;\
 end subroutine
 #define DEFINE_SOIL_COMPONENT_ACCESSOR_0D(xtype,component,x) subroutine soil_ ## x ## _ptr(t,p);\
 type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%component%x;endif;\
 end subroutine
-#define DEFINE_SOIL_COMPONENT_ACCESSOR_1D(xtype,component,x) subroutine soil_ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p(:);p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%component%x;endif;\
+#define DEFINE_SOIL_COMPONENT_ACCESSOR_1D(xtype,component,x) subroutine soil_ ## x ## _ptr(t,i,p);\
+type(land_tile_type),pointer::t;integer,intent(in)::i;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%component%x(i);endif;\
 end subroutine
 
 DEFINE_SOIL_ACCESSOR_1D(real,T)
@@ -4020,22 +4019,22 @@ DEFINE_SOIL_ACCESSOR_0D(real,fast_DOC_leached)
 DEFINE_SOIL_ACCESSOR_0D(real,slow_DOC_leached)
 DEFINE_SOIL_ACCESSOR_0D(real,deadmic_DOC_leached)
 
-subroutine sc_leaflitter_in_ptr(t,p)
-  type(land_tile_type),pointer::t; real,pointer::p(:); p=>NULL();
+subroutine sc_leaflitter_in_ptr(t,i,p)
+  type(land_tile_type),pointer::t; integer,intent(in)::i; real,pointer::p; p=>NULL();
   if(associated(t))then
-     if(associated(t%soil))p=>t%soil%leaflitter%carbon_in
+     if(associated(t%soil))p=>t%soil%leaflitter%carbon_in(i)
   endif
 end subroutine
-subroutine sc_finewoodlitter_in_ptr(t,p)
-  type(land_tile_type),pointer::t; real,pointer::p(:); p=>NULL();
+subroutine sc_finewoodlitter_in_ptr(t,i,p)
+  type(land_tile_type),pointer::t; integer,intent(in)::i; real,pointer::p; p=>NULL();
   if(associated(t))then
-     if(associated(t%soil))p=>t%soil%finewoodlitter%carbon_in
+     if(associated(t%soil))p=>t%soil%finewoodlitter%carbon_in(i)
   endif
 end subroutine
-subroutine sc_coarsewoodlitter_in_ptr(t,p)
-  type(land_tile_type),pointer::t; real,pointer::p(:); p=>NULL();
+subroutine sc_coarsewoodlitter_in_ptr(t,i,p)
+  type(land_tile_type),pointer::t; integer,intent(in)::i; real,pointer::p; p=>NULL();
   if(associated(t))then
-     if(associated(t%soil))p=>t%soil%coarsewoodlitter%carbon_in
+     if(associated(t%soil))p=>t%soil%coarsewoodlitter%carbon_in(i)
   endif
 end subroutine
 
@@ -4104,8 +4103,8 @@ subroutine sc_protected_turnover_ptr(t,i,j,p)
   endif
 end subroutine
 
-#define DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR1(xtype,pool,x) subroutine sc_ ## pool ## _ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p(:);p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%pool%x;endif;\
+#define DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR1(xtype,pool,x) subroutine sc_ ## pool ## _ ## x ## _ptr(t,i,p);\
+type(land_tile_type),pointer::t;integer,intent(in)::i;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%pool%x(i);endif;\
 end subroutine
 DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR1(real,leafLitter,dissolved_carbon) 
 DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR1(real,fineWoodLitter,dissolved_carbon) 

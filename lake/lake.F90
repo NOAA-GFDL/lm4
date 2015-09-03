@@ -977,46 +977,50 @@ end function lake_tile_exists
 ! accessor functions: given a pointer to a land tile, they return pointer
 ! to the desired member of the land tile, of NULL if this member does not
 ! exist.
-subroutine lake_dz_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr(:)
+subroutine lake_dz_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
       if(associated(tile%lake)) then
-        ptr => tile%lake%dz(:)
+        ptr => tile%lake%dz(i)
       endif
    endif
 end subroutine lake_dz_ptr
 
-subroutine lake_temp_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr(:)
+subroutine lake_temp_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
       if(associated(tile%lake)) then
-        ptr => tile%lake%T(:)
+        ptr => tile%lake%T(i)
       endif
    endif
 end subroutine lake_temp_ptr
 
-subroutine lake_wl_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr(:)
+subroutine lake_wl_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
       if(associated(tile%lake)) then
-        ptr => tile%lake%wl(:)
+        ptr => tile%lake%wl(i)
       endif
    endif
 end subroutine lake_wl_ptr
 
-subroutine lake_ws_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr(:)
+subroutine lake_ws_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
       if(associated(tile%lake)) then
-        ptr => tile%lake%ws(:)
+        ptr => tile%lake%ws(i)
       endif
    endif
 end subroutine lake_ws_ptr
