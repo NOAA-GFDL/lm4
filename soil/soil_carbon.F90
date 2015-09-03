@@ -1486,7 +1486,7 @@ subroutine carbon_leaching_with_litter(soil,leaflitter,woodlitter,flow,litterflo
        if(present(del_leaflitter_DOC)) del_leaflitter_DOC(ii)=d_DOC(ii,1)*leaf_DOC_frac
        if(present(del_woodlitter_DOC)) del_woodlitter_DOC(ii)=d_DOC(ii,1)*(1.0-leaf_DOC_frac)
        
-       if(present(div_DOC_loss)) div_DOC_loss(ii,:)=div_loss(ii,:)
+       if(present(div_DOC_loss)) div_DOC_loss(ii,:)=div_loss(ii,1:size(div_DOC_loss,2))
        if(present(surf_DOC_loss)) surf_DOC_loss(ii) = surf_DOC_loss_loc(ii)
     enddo
     

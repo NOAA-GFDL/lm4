@@ -629,7 +629,7 @@ subroutine darcy2d_uptake_solver_lin ( soil, vegn_uptk, R, VRL, K_r, r_r, &
      ! since the numerical solution is not exact, adjust the vertical profile 
      ! of uptake to ensure that the sum is equal to transpiration exactly
      uptake_tot = sum(uptake(:))
-     uptake(:) = uptake(:)+(vegn_uptk-uptake_tot)/sum(dz(:))*dz(:) 
+     uptake(:) = uptake(:)+(vegn_uptk-uptake_tot)/sum(dz(1:num_l))*dz(1:num_l) 
   else
      psi_x0 = 0.0
      call darcy2d_uptake_lin ( soil, psi_x0, R, VRL, K_r, r_r, uptake, du )

@@ -3026,11 +3026,11 @@ subroutine Dsdt_CENTURY(vegn, soil, diag, soilt, theta)
   soil%asoil_in(:) = soil%asoil_in(:) + A(:)
 
   ! ---- diagnostic section
-  if (id_rsoil_fast>0)  call send_tile_data(id_rsoil_fast, fast_C_loss(:)/(dz(:)*dt_fast_yr), diag)
-  if (id_rsoil_slow>0)  call send_tile_data(id_rsoil_slow, slow_C_loss(:)/(dz(:)*dt_fast_yr), diag)
+  if (id_rsoil_fast>0)  call send_tile_data(id_rsoil_fast, fast_C_loss(:)/(dz(1:num_l)*dt_fast_yr), diag)
+  if (id_rsoil_slow>0)  call send_tile_data(id_rsoil_slow, slow_C_loss(:)/(dz(1:num_l)*dt_fast_yr), diag)
   call send_tile_data(id_rsoil, vegn%rh, diag)
 
-  ! TODO: arithmetic averaging of A doesn't seem correct; we need to invent something better,
+  ! TODO: arithmetic averaging of A does not seem correct; we need to invent something better,
   !       e.g. weight it with the carbon loss, or something like that
   if (id_asoil>0) call send_tile_data(id_asoil, sum(A(:))/size(A(:)), diag)
 
