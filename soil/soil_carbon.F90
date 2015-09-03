@@ -1,6 +1,6 @@
 module soil_carbon_mod
 
-!Don't use external model stuff if compiling standalone version
+! Do not use external model stuff if compiling standalone version
 #ifndef STANDALONE_SOIL_CARBON
 
 #include "../shared/debug.inc"
@@ -72,8 +72,8 @@ integer, parameter :: & ! indices of carbon chemical species
     C_MIC = 3    ! microbial producs
 
 ! names of the carbon types, for i/o
-character(len=12), parameter :: c_shortname(N_C_TYPES) = (/'fast','slow','deadmic'/)
-character(len=12), parameter :: c_longname(N_C_TYPES)  = (/'fast','slow','dead microbe'/)
+character(len=12), parameter :: c_shortname(N_C_TYPES) = (/'fast        ','slow        ','deadmic     '/)
+character(len=12), parameter :: c_longname(N_C_TYPES)  = (/'fast        ','slow        ','dead microbe'/)
 
 ! soil carbon options
 integer, parameter :: &
@@ -365,7 +365,7 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
     !Need to convert originalLitterC into a meaningful volume, since it will keep increasing as cohorts are combined
     !How about this: non-mineralized C keeps volume based on estimated density
     !Volume of mineralized C is just capped at remaining layer volume, with the assumption that the mineralized portion
-    !of volume for all cohorts just gets intermingled and doesn't need to sum to layer volume
+    !of volume for all cohorts just gets intermingled and does not need to sum to layer volume
 !    if (is_watch_point()) then
 !       write(*,*) '##### update_pool outpt #####'
 !    endif
@@ -931,7 +931,7 @@ subroutine remove_cohort(pool,num)
        pool%litterCohorts(i) = pool%litterCohorts(i+1)
     enddo
     pool%n_cohorts = pool%n_cohorts - 1
-    ! note that the cohort array does not shrink, because it is likely it'll
+    ! note that the cohort array does not shrink, because it is likely it will
     ! need to be expanded in the future
 end subroutine remove_cohort
 

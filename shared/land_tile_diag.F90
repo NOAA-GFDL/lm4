@@ -78,12 +78,12 @@ integer, parameter, public :: &
     OP_STD  = 6, & ! standard deviation of tile values
     OP_DOMINANT = 7 ! dominant value (only for cohorts now)
 character(32), parameter :: opstrings(6) = (/ & ! symbolica names of the aggregation operations
-   'mean   ' , &
-   'sum    ' , &
-   'maximum' , &
-   'minimum' , &
-   'variance', &
-   'stdev'     /)
+   'mean                            ' , &
+   'sum                             ' , &
+   'maximum                         ' , &
+   'minimum                         ' , &
+   'variance                        ' , &
+   'stdev                           '   /)
 
 ! TODO: generalize treatment of cohort filters. Possible filters include: selected 
 ! species, selected species in the canopy, trees above certain age, etc...
@@ -91,9 +91,9 @@ integer, parameter :: N_CHRT_FILTERS = 3 ! number of pssible distinct cohort fil
 ! currently : all vegetation, upper canopy layer, and understory
 character(2),  parameter :: chrt_filter_suffix(N_CHRT_FILTERS) = (/'  ','_1','_U'/)
 character(32), parameter :: chrt_filter_name(N_CHRT_FILTERS)   = (/&
-    '                    ', &
-    ' in top canopy layer', &
-    ' in understory      '  /)
+    '                                ', &
+    ' in top canopy layer            ', &
+    ' in understory                  '  /)
 
 
 ! ==== derived types =========================================================

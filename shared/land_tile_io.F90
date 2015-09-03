@@ -21,13 +21,13 @@ implicit none
 private
 
 ! ==== public interfaces =====================================================
-! restart i/o subroutines: those use CF "compression by gathering" technique
+! restart i/o subroutines: those use CF compression by gathering technique
 ! to pack tile data.
 public :: create_tile_out_file
 public :: read_tile_data_r0d_fptr,  read_tile_data_r1d_fptr, read_tile_data_r2d_fptr
-public :: read_tile_data_i0d_fptr
+public :: read_tile_data_i0d_fptr, read_tile_data_r1d_fptr_idx
 public :: write_tile_data_r0d_fptr, write_tile_data_r1d_fptr, write_tile_data_r2d_fptr
-public :: write_tile_data_i0d_fptr
+public :: write_tile_data_i0d_fptr, write_tile_data_r1d_fptr_idx
 
 public :: write_tile_data_i1d_fptr_all
 public :: read_tile_data_i1d_fptr_all
@@ -64,6 +64,8 @@ end interface
 
 interface read_tile_data_r1d_fptr
    module procedure read_tile_data_r1d_fptr_r1
+end interface
+interface read_tile_data_r1d_fptr_idx
    module procedure read_tile_data_r1d_fptr_r0i
    module procedure read_tile_data_r1d_fptr_r0ij
 end interface
@@ -80,6 +82,9 @@ end interface
 
 interface write_tile_data_r1d_fptr
    module procedure write_tile_data_r1d_fptr_r1
+end interface
+
+interface write_tile_data_r1d_fptr_idx
    module procedure write_tile_data_r1d_fptr_r0i
    module procedure write_tile_data_r1d_fptr_r0ij
 end interface
@@ -124,7 +129,7 @@ subroutine get_input_restart_name(name, restart_exists, actual_name)
   ! Build the restart file name.
   call get_instance_filename(trim(name), actual_name)
   call get_mosaic_tile_file(trim(actual_name),actual_name,.false.,lnd%domain)
-  ! we can't use fms file_exist function here, because it lies: it checks not
+  ! we cannot use fms file_exist function here, because it lies: it checks not
   ! just the original name, but the name with PE suffix, and returns true if
   ! either of those exist
   inquire (file=trim(actual_name), exist=restart_exists)
@@ -138,8 +143,8 @@ subroutine get_input_restart_name(name, restart_exists, actual_name)
 end subroutine get_input_restart_name
 
 ! =============================================================================
-! this subroutine creates netcdf file for output of tiled data using "compression
-! by gathering," as described in CF conventions, and creates coordinate system
+! this subroutine creates netcdf file for output of tiled data using compression
+! by gathering, as described in CF conventions, and creates coordinate system
 ! necessary for write_tile_data subroutines.
 ! In particular:
 !  "compressed" dimension and integer variable with appropriate attributes, with 
@@ -191,7 +196,7 @@ subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, tile_dim_lengt
     call error_mesg('create_tile_out_file','tile axis length must be positive', FATAL)
 
   if (mpp_pe()/=lnd%io_pelist(1)) then
-     ! if current PE doesn't do io, we just send the data to the processor that
+     ! if current PE does not do io, we just send the data to the processor that
      ! does
      call mpp_send(size(tidx), plen=1,          to_pe=lnd%io_pelist(1), tag=COMM_TAG_1)
      call mpp_send(tidx(1),    plen=size(tidx), to_pe=lnd%io_pelist(1), tag=COMM_TAG_2)
@@ -350,7 +355,7 @@ end subroutine get_tile_by_idx
 
 ! ============================================================================
 ! given the netcdf file id, name of the variable, and accessor subroutine, this
-! subroutine reads integer 2D data (a scalar value per grid cell, that's why 
+! subroutine reads integer 2D data (a scalar value per grid cell, that is why 
 ! there is 0d in the name of this subroutine) and assigns the input values to 
 ! each tile in respective grid cell.  
 subroutine read_tile_data_i0d_fptr(ncid,name,fptr)
@@ -790,8 +795,8 @@ end subroutine read_tile_data_r2d_fptr_r0ijk
 
 ! ============================================================================
 ! The subroutines write_tile_data_* below write tiled data (that is, data provided
-! in arrays congruous with current tiling) to NetCDF files using "compression
-! by gathering" (see CF conventions). They assume that the compressed dimension
+! in arrays congruous with current tiling) to NetCDF files using compression
+! by gathering (see CF conventions). They assume that the compressed dimension
 ! is already created, has certain name (see parameter "tile_index_name" at the beginning
 ! of this file), and has length equal to the number of actually used tiles in the 
 ! current domain.
@@ -812,7 +817,7 @@ subroutine write_tile_data_i1d(ncid,name,data,mask,long_name,units)
   integer :: varid,iret,p
   integer, allocatable :: buffer(:) ! data buffers
 
-  ! if our PE doesn't do io (that is, it isn't the root io_domain processor),  
+  ! if our PE does not do io (that is, it is not the root io_domain processor),  
   ! simply send the data and mask of valid data to the root IO processor
   if (mpp_pe()/=lnd%io_pelist(1)) then
      call mpp_send(data(1), plen=size(data), to_pe=lnd%io_pelist(1), tag=COMM_TAG_3)
@@ -836,7 +841,7 @@ subroutine write_tile_data_i1d(ncid,name,data,mask,long_name,units)
      iret = nf_enddef(ncid) ! ignore errors (file may be in data mode already)
      __NF_ASRT__(nf_put_var_int(ncid,varid,data))
   endif
-  ! wait for all PEs to finish: necessary because mpp_send doesn't seem to 
+  ! wait for all PEs to finish: necessary because mpp_send does not seem to 
   ! copy the data, and therefore on non-root io_domain PE there would be a chance
   ! that the data and mask are destroyed before they are actually sent.
   call mpp_sync()
@@ -859,7 +864,7 @@ subroutine write_tile_data_r1d(ncid,name,data,mask,long_name,units)
   integer :: varid,iret,p
   real,    allocatable :: buffer(:) ! data buffer
 
-  ! if our PE doesn't do io (that is, it isn't the root io_domain processor),  
+  ! if our PE does not do io (that is, it is not the root io_domain processor),  
   ! simply send the data and mask of valid data to the root IO processor
   if (mpp_pe()/=lnd%io_pelist(1)) then
      call mpp_send(data(1), plen=size(data), to_pe=lnd%io_pelist(1), tag=COMM_TAG_5)
@@ -883,7 +888,7 @@ subroutine write_tile_data_r1d(ncid,name,data,mask,long_name,units)
      iret = nf_enddef(ncid) ! ignore errors (file may be in data mode already)
      __NF_ASRT__(nf_put_var_double(ncid,varid,data))
   endif
-  ! wait for all PEs to finish: necessary because mpp_send doesn't seem to 
+  ! wait for all PEs to finish: necessary because mpp_send does not seem to 
   ! copy the data, and therefore on non-root io_domain PE there would be a chance
   ! that the data and mask are destroyed before they are actually sent.
   call mpp_sync()
@@ -910,7 +915,7 @@ subroutine write_tile_data_r2d(ncid,name,data,mask,zdim,long_name,units)
   character(NF_MAX_NAME)::dimnames(2)
   real, allocatable :: buffer(:,:) ! send/receive buffer
 
-  ! if our PE doesn't do io (that is, it isn't the root io_domain processor),  
+  ! if our PE does not do io (that is, it is not the root io_domain processor),  
   ! simply send the data and mask of valid data to the root IO processor
   if (mpp_pe()/=lnd%io_pelist(1)) then
      call mpp_send(data(1,1), plen=size(data),   to_pe=lnd%io_pelist(1), tag=COMM_TAG_7)
@@ -938,7 +943,7 @@ subroutine write_tile_data_r2d(ncid,name,data,mask,zdim,long_name,units)
      iret = nf_enddef(ncid) ! ignore errors: its OK if file is in data mode already
      __NF_ASRT__(nf_put_var_double(ncid,varid,data))
   endif
-  ! wait for all PEs to finish: necessary because mpp_send doesn't seem to 
+  ! wait for all PEs to finish: necessary because mpp_send does not seem to 
   ! copy the data, and therefore on non-root io_domain PE there would be a chance
   ! that the data and mask are destroyed before they are actually sent.
   call mpp_sync()
@@ -966,7 +971,7 @@ subroutine write_tile_data_r3d(ncid,name,data,mask,zdim,cohortdim,long_name,unit
   character(NF_MAX_NAME)::dimnames(3)
   real, allocatable :: buffer(:,:,:) ! send/receive buffer
 
-  ! if our PE doesn't do io (that is, it isn't the root io_domain processor),  
+  ! if our PE does not do io (that is, it is not the root io_domain processor),  
   ! simply send the data and mask of valid data to the root IO processor
   if (mpp_pe()/=lnd%io_pelist(1)) then
      call mpp_send(data(1,1,1), plen=size(data),   to_pe=lnd%io_pelist(1))
@@ -995,7 +1000,7 @@ subroutine write_tile_data_r3d(ncid,name,data,mask,zdim,cohortdim,long_name,unit
      iret = nf_enddef(ncid) ! ignore errors: its OK if file is in data mode already
      __NF_ASRT__(nf_put_var_double(ncid,varid,data))
   endif
-  ! wait for all PEs to finish: necessary because mpp_send doesn't seem to 
+  ! wait for all PEs to finish: necessary because mpp_send does not seem to 
   ! copy the data, and therefore on non-root io_domain PE there would be a chance
   ! that the data and mask are destroyed before they are actually sent.
   call mpp_sync()
@@ -1019,7 +1024,7 @@ subroutine write_tile_data_i0d_fptr(ncid,name,fptr,long_name,units)
   integer :: i
 
   ! get the size of the output array. Note that at this point the variable
-  ! might not yet exist, so we can't use nfu_inq_var
+  ! might not yet exist, so we cannot use nfu_inq_var
   __NF_ASRT__(nfu_inq_dim(ncid,tile_index_name,len=ntiles))
 
   ! allocate data
@@ -1074,7 +1079,7 @@ subroutine write_tile_data_r0d_fptr_r0(ncid,name,fptr,long_name,units)
   integer :: i
   
   ! get the size of the output array. Note that at this point the variable
-  ! might not yet exist, so we can't use nfu_inq_var
+  ! might not yet exist, so we cannot use nfu_inq_var
   __NF_ASRT__(nfu_inq_dim(ncid,tile_index_name,len=ntiles))
 
   ! allocate data
@@ -1125,7 +1130,7 @@ subroutine write_tile_data_r0d_fptr_r1(ncid,name,fptr,index,long_name,units)
   integer :: i
 
   ! get the size of the output array. Note that at this point the variable
-  ! might not yet exist, so we can't use nfu_inq_var
+  ! might not yet exist, so we cannot use nfu_inq_var
   __NF_ASRT__(nfu_inq_dim(ncid,tile_index_name,len=ntiles))
 
   ! allocate data
@@ -1176,7 +1181,7 @@ subroutine write_tile_data_r1d_fptr_r1(ncid,name,fptr,zdim,long_name,units)
   integer :: nlev ! number of levels of the output variable
   
   ! get the size of the output array. Note that at this point the variable
-  ! might not yet exist, so we can't use nfu_inq_var
+  ! might not yet exist, so we cannot use nfu_inq_var
   __NF_ASRT__(nfu_inq_dim(ncid,tile_index_name,len=ntiles))
   __NF_ASRT__(nfu_inq_dim(ncid,zdim,len=nlev))
 
@@ -1229,7 +1234,7 @@ subroutine write_tile_data_r1d_fptr_r0i(ncid,name,fptr,zdim,long_name,units)
   integer :: nlev ! number of levels of the output variable
   
   ! get the size of the output array. Note that at this point the variable
-  ! might not yet exist, so we can't use nfu_inq_var
+  ! might not yet exist, so we cannot use nfu_inq_var
   __NF_ASRT__(nfu_inq_dim(ncid,tile_index_name,len=ntiles))
   __NF_ASRT__(nfu_inq_dim(ncid,zdim,len=nlev))
 
@@ -1285,7 +1290,7 @@ subroutine write_tile_data_r1d_fptr_r0ij(ncid,name,fptr,index,zdim,long_name,uni
   integer :: nlev ! number of levels of the output variable
   
   ! get the size of the output array. Note that at this point the variable
-  ! might not yet exist, so we can't use nfu_inq_var
+  ! might not yet exist, so we cannot use nfu_inq_var
   __NF_ASRT__(nfu_inq_dim(ncid,tile_index_name,len=ntiles))
   __NF_ASRT__(nfu_inq_dim(ncid,zdim,len=nlev))
 
@@ -1342,7 +1347,7 @@ subroutine write_tile_data_r2d_fptr_r0ij(ncid,name,fptr,dim1,dim2,long_name,unit
   integer :: i,n,m
   
   ! get the size of the output array. Note that at this point the variable
-  ! might not yet exist, so we can't use nfu_inq_var
+  ! might not yet exist, so we cannot use nfu_inq_var
   __NF_ASRT__(nfu_inq_dim(ncid,tile_index_name,len=ntiles))
   __NF_ASRT__(nfu_inq_dim(ncid,dim1,len=n1))
   __NF_ASRT__(nfu_inq_dim(ncid,dim2,len=n2))
@@ -1403,7 +1408,7 @@ subroutine write_tile_data_r2d_fptr_r0ijk(ncid,name,fptr,index,dim1,dim2,long_na
   integer :: i,n,m
   
   ! get the size of the output array. Note that at this point the variable
-  ! might not yet exist, so we can't use nfu_inq_var
+  ! might not yet exist, so we cannot use nfu_inq_var
   __NF_ASRT__(nfu_inq_dim(ncid,tile_index_name,len=ntiles))
   __NF_ASRT__(nfu_inq_dim(ncid,dim1,len=n1))
   __NF_ASRT__(nfu_inq_dim(ncid,dim2,len=n2))
@@ -1462,7 +1467,7 @@ subroutine write_tile_data_i1d_fptr_all(ncid,name,fptr,zdim,long_name,units)
   integer :: nlev ! number of levels of the output variable
   
   ! get the size of the output array. Note that at this point the variable
-  ! might not yet exist, so we can't use nfu_inq_var
+  ! might not yet exist, so we cannot use nfu_inq_var
   __NF_ASRT__(nfu_inq_dim(ncid,tile_index_name,len=ntiles))
   __NF_ASRT__(nfu_inq_dim(ncid,zdim,len=nlev))
 
@@ -1511,7 +1516,7 @@ subroutine write_tile_data_i2d(ncid,name,data,mask,zdim,long_name,units)
   character(NF_MAX_NAME)::dimnames(2)
   integer, allocatable :: buffer(:,:) ! send/receive buffer
 
-  ! if our PE doesn't do io (that is, it isn't the root io_domain processor),  
+  ! if our PE does not do io (that is, it is not the root io_domain processor),  
   ! simply send the data and mask of valid data to the root IO processor
   if (mpp_pe()/=lnd%io_pelist(1)) then
      call mpp_send(data(1,1), plen=size(data),   to_pe=lnd%io_pelist(1), tag=COMM_TAG_7)
@@ -1539,7 +1544,7 @@ subroutine write_tile_data_i2d(ncid,name,data,mask,zdim,long_name,units)
      iret = nf_enddef(ncid) ! ignore errors: its OK if file is in data mode already
      __NF_ASRT__(nf_put_var_int(ncid,varid,data))
   endif
-  ! wait for all PEs to finish: necessary because mpp_send doesn't seem to 
+  ! wait for all PEs to finish: necessary because mpp_send does not seem to 
   ! copy the data, and therefore on non-root io_domain PE there would be a chance
   ! that the data and mask are destroyed before they are actually sent.
   call mpp_sync()
