@@ -592,9 +592,9 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
         ! harvesting pools and rates
         do i = 1, N_HARV_POOLS
            if (nfu_inq_var(unit,trim(HARV_POOL_NAMES(i))//'_harv_pool')==NF_NOERR) &
-                call read_tile_data_r1d_fptr(unit,trim(HARV_POOL_NAMES(i))//'_harv_pool',vegn_harv_pool_ptr,i)
+                call read_tile_data_r0d_fptr(unit,trim(HARV_POOL_NAMES(i))//'_harv_pool',vegn_harv_pool_ptr,i)
            if (nfu_inq_var(unit,trim(HARV_POOL_NAMES(i))//'_harv_rate')==NF_NOERR) &
-                call read_tile_data_r1d_fptr(unit,trim(HARV_POOL_NAMES(i))//'_harv_rate',vegn_harv_rate_ptr,i)
+                call read_tile_data_r0d_fptr(unit,trim(HARV_POOL_NAMES(i))//'_harv_rate',vegn_harv_rate_ptr,i)
         enddo
 
         __NF_ASRT__(nf_close(unit))
@@ -1031,9 +1031,9 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
 
   ! harvesting pools and rates
   do i = 1, N_HARV_POOLS
-     call write_tile_data_r1d_fptr(unit, trim(HARV_POOL_NAMES(i))//'_harv_pool', &
+     call write_tile_data_r0d_fptr(unit, trim(HARV_POOL_NAMES(i))//'_harv_pool', &
           vegn_harv_pool_ptr, i, 'harvested carbon','kg C/m2')
-     call write_tile_data_r1d_fptr(unit, trim(HARV_POOL_NAMES(i))//'_harv_rate', &
+     call write_tile_data_r0d_fptr(unit, trim(HARV_POOL_NAMES(i))//'_harv_rate', &
           vegn_harv_rate_ptr, i, 'rate of release of harvested carbon to the atmosphere','kg C/(m2 yr)')
   enddo
      
@@ -2229,8 +2229,8 @@ end function vegn_tile_exists
 #define DEFINE_VEGN_ACCESSOR_0D(xtype,x) subroutine vegn_ ## x ## _ptr(t,p);\
 type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%vegn))p=>t%vegn%x;endif;end subroutine
 
-#define DEFINE_VEGN_ACCESSOR_1D(xtype,x) subroutine vegn_ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p(:);p=>NULL();if(associated(t))then;if(associated(t%vegn))p=>t%vegn%x;endif;end subroutine
+#define DEFINE_VEGN_ACCESSOR_1D(xtype,x) subroutine vegn_ ## x ## _ptr(t,i,p);\
+type(land_tile_type),pointer::t;integer,intent(in)::i;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%vegn))p=>t%vegn%x(i);endif;end subroutine
 
 #define DEFINE_COHORT_ACCESSOR(xtype,x) subroutine cohort_ ## x ## _ptr(c,p);\
 type(vegn_cohort_type),pointer::c;xtype,pointer::p;p=>NULL();if(associated(c))p=>c%x;end subroutine

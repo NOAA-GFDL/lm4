@@ -994,30 +994,33 @@ end function glac_tile_exists
 ! accessor functions: given a pointer to a land tile, they return pointer
 ! to the desired member of the land tile, of NULL if this member does not
 ! exist.
-subroutine glac_temp_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr(:)
+subroutine glac_temp_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%glac)) ptr => tile%glac%T(:)
+      if(associated(tile%glac)) ptr => tile%glac%T(i)
    endif
 end subroutine glac_temp_ptr
 
-subroutine glac_wl_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr(:)
+subroutine glac_wl_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%glac)) ptr => tile%glac%wl(:)
+      if(associated(tile%glac)) ptr => tile%glac%wl(i)
    endif
 end subroutine glac_wl_ptr
 
-subroutine glac_ws_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr(:)
+subroutine glac_ws_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%glac)) ptr => tile%glac%ws(:)
+      if(associated(tile%glac)) ptr => tile%glac%ws(i)
    endif
 end subroutine glac_ws_ptr
 

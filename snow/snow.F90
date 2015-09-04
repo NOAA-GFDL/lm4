@@ -14,7 +14,7 @@ use fms_mod, only : error_mesg, file_exist, check_nml_error, &
 use fms_io_mod, only : read_compressed, restart_file_type, free_restart_type, &
      field_exist, get_field_size, save_restart, register_restart_axis, &
      register_restart_field, set_domain, nullify_domain
-use time_manager_mod,   only: time_type, increment_time, time_type_to_real
+use time_manager_mod,   only: time_type_to_real
 use constants_mod,      only: tfreeze, hlv, hlf, PI
 
 use land_constants_mod, only : NBANDS
@@ -1092,30 +1092,33 @@ end function snow_tile_exists
 ! accessor functions: given a pointer to a land tile, they return pointer
 ! to the desired member of the land tile, of NULL if this member does not
 ! exist.
-subroutine snow_temp_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr(:)
+subroutine snow_temp_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%snow)) ptr => tile%snow%T(:)
+      if(associated(tile%snow)) ptr => tile%snow%T(i)
    endif
 end subroutine snow_temp_ptr
 
-subroutine snow_wl_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr(:)
+subroutine snow_wl_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%snow)) ptr => tile%snow%wl(:)
+      if(associated(tile%snow)) ptr => tile%snow%wl(i)
    endif
 end subroutine snow_wl_ptr
 
-subroutine snow_ws_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr(:)
+subroutine snow_ws_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%snow)) ptr => tile%snow%ws(:)
+      if(associated(tile%snow)) ptr => tile%snow%ws(i)
    endif
 end subroutine snow_ws_ptr
 

@@ -48,7 +48,7 @@ public :: cull_cohorts
 public :: transfer_pool_fraction
 public :: retrieve_DOC ! report DOC concentration to hlsp_hydrology
 #ifndef STANDALONE_SOIL_CARBON
-public :: get_pool_data_accessors
+public :: adjust_pool_ncohorts
 public :: A_function
 #endif
 public :: debug_pool
@@ -58,11 +58,17 @@ public :: soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPS
 
 
 ! ==== module constants ======================================================
-integer,parameter,public::n_c_types=3  !Carbon chemical species (Cellulose, lignin, microbial products)
+integer, parameter, public :: N_C_TYPES=3  !Carbon chemical species (Cellulose, lignin, microbial products)
+integer, parameter, public :: & ! indices of carbon chemical species
+    C_CEL = 1, & ! cellulose (fast)
+    C_LIG = 2, & ! lignin (slow)
+    C_MIC = 3    ! microbial producs
+
 character(len=*), parameter   :: &
      version     = '$Id$', &
      tagname     = '$Name$', &
      module_name = 'soil_carbon_mod'
+
 integer, parameter :: SOILC_CENTURY          = 1
 integer, parameter :: SOILC_CENTURY_BY_LAYER = 2
 integer, parameter :: SOILC_CORPSE           = 3
@@ -1440,43 +1446,17 @@ end subroutine
 
 
 #ifndef STANDALONE_SOIL_CARBON
-subroutine get_pool_data_accessors(pool,fast_soil_C,slow_soil_C,deadMicrobeC,livingMicrobeC,Rtot,CO2,originalLitterC, &
-           fast_protected_C,slow_protected_C,deadMicrobe_protected_C,&
-           fast_DOC,slow_DOC,deadMicrobe_DOC)
-    type(soil_carbon_pool),intent(inout),target::pool
-    real,pointer,dimension(:),optional::fast_soil_C,slow_soil_C,deadMicrobeC,livingMicrobeC,Rtot,CO2,originalLitterC,&
-                                        fast_protected_C,slow_protected_C,deadMicrobe_protected_C
-    real,pointer,optional :: fast_DOC,slow_DOC,deadMicrobe_DOC
-    
-    
-    integer :: n ! shorthand for pool%n_cohorts
-    
-    !First make sure the length of the litterCohorts array is right
+subroutine adjust_pool_ncohorts(pool)
+    type(soil_carbon_pool),intent(inout) :: pool
+
     !Remove cohorts if size is too large
-    IF (pool%n_cohorts.gt.soilMaxCohorts) call cull_cohorts(pool)
+    if (pool%n_cohorts.gt.soilMaxCohorts) call cull_cohorts(pool)
     
     !Add empty cohorts until size is correct
-    DO WHILE (pool%n_cohorts.lt.soilMaxCohorts)
-        call add_litter(pool,(/0.0,0.0,0.0/))
-    ENDDO
-    
-    n = pool%n_cohorts
-    IF(present(livingMicrobeC)) livingMicrobeC=>pool%litterCohorts(1:n)%livingMicrobeC
-    IF(present(Rtot))Rtot=>pool%litterCohorts(1:n)%Rtot
-    IF(present(CO2))CO2=>pool%litterCohorts(1:n)%CO2
-    IF(present(originalLitterC))originalLitterC=>pool%litterCohorts(1:n)%originalLitterC
-    IF(present(fast_soil_C))fast_soil_C=>pool%litterCohorts(1:n)%litterC(1)
-    IF(present(slow_soil_C))slow_soil_C=>pool%litterCohorts(1:n)%litterC(2)
-    IF(present(deadMicrobeC))deadMicrobeC=>pool%litterCohorts(1:n)%litterC(3)
-    IF(present(fast_protected_C))fast_protected_C=>pool%litterCohorts(1:n)%protectedC(1)
-    IF(present(slow_protected_C))slow_protected_C=>pool%litterCohorts(1:n)%protectedC(2)
-    IF(present(deadMicrobe_protected_C))deadMicrobe_protected_C=>pool%litterCohorts(1:n)%protectedC(3)
-    IF(present(fast_DOC)) fast_DOC=>pool%dissolved_carbon(1)
-    IF(present(slow_DOC)) slow_DOC=>pool%dissolved_carbon(2)
-    IF(present(deadMicrobe_DOC)) deadMicrobe_DOC=>pool%dissolved_carbon(3)
-    
-end subroutine get_pool_data_accessors
-
+    do while (pool%n_cohorts.lt.soilMaxCohorts)
+       call add_litter(pool,(/0.0,0.0,0.0/))
+    enddo
+end subroutine
 
 #else
 

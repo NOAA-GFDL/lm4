@@ -71,8 +71,7 @@ public :: print_land_tile_info
 public :: print_land_tile_statistics
 
 ! abstract interfaces for accessor functions
-public :: tile_exists_func, fptr_i0, fptr_i1, fptr_r0, fptr_r1, fptr_r0i, &
-          fptr_r0ij, fptr_r0ijk
+public :: tile_exists_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk
 
 ! ==== end of public interfaces ==============================================
 interface new_land_tile
@@ -194,22 +193,22 @@ abstract interface
   ! data im massive operations on tiles, such as i/o or (sometimes) diagnostics
   
   ! given land tile, returns pointer to some scalar real data 
-  ! within this tile, or an NULL pointer if there is no data
+  ! within this tile, or an unassociated pointer if there is no data
   subroutine fptr_r0(tile, ptr)
      import land_tile_type
      type(land_tile_type), pointer :: tile ! input
      real                , pointer :: ptr  ! returned pointer to the data
   end subroutine fptr_r0
   ! given land tile and an index, returns pointer to some scalar real data
-  ! within this tile, or an NULL pointer if there is no data
+  ! within this tile, or an unassociated pointer if there is no data
   subroutine fptr_r0i(tile, i, ptr)
      import land_tile_type
      type(land_tile_type), pointer :: tile ! input
-     integer             , intent(in) :: i ! indices in the array
+     integer             , intent(in) :: i ! index in the array
      real                , pointer :: ptr  ! returned pointer to the data
   end subroutine fptr_r0i
   ! given land tile and an 2 indices, returns pointer to some scalar real data
-  ! within this tile, or an NULL pointer if there is no data
+  ! within this tile, or an unassociated pointer if there is no data
   subroutine fptr_r0ij(tile, i,j, ptr)
      import land_tile_type
      type(land_tile_type), pointer :: tile ! input
@@ -217,35 +216,29 @@ abstract interface
      real                , pointer :: ptr  ! returned pointer to the data
   end subroutine fptr_r0ij
   ! given land tile and an 3 indices, returns pointer to some scalar real data
-  ! within this tile, or an NULL pointer if there is no data
+  ! within this tile, or an unassociated pointer if there is no data
   subroutine fptr_r0ijk(tile, i,j,k, ptr)
      import land_tile_type
      type(land_tile_type), pointer :: tile ! input
      integer             , intent(in) :: i,j,k ! indices in the array
      real                , pointer :: ptr  ! returned pointer to the data
   end subroutine fptr_r0ijk
-  ! given land tile, returns pointer to some real 1D array 
-  ! within this tile, or an NULL pointer if there is no data
-  subroutine fptr_r1(tile, ptr)
-     import land_tile_type
-     type(land_tile_type), pointer :: tile ! input
-     real                , pointer :: ptr(:) ! returned pointer to the data
-  end subroutine fptr_r1
 
   ! given land tile, returns pointer to some scalar integer data 
-  ! within this tile, or an NULL pointer if there is no data
+  ! within this tile, or an unassociated pointer if there is no data
   subroutine fptr_i0(tile, ptr)
      import land_tile_type
      type(land_tile_type), pointer :: tile ! input
      integer             , pointer :: ptr  ! returned pointer to the data
   end subroutine fptr_i0
-  ! given land tile, returns pointer to some integer 1D array 
-  ! within this tile, or an NULL pointer if there is no data
-  subroutine fptr_i1(tile, ptr)
+  ! given land tile and an index, returns pointer to some scalar integer data
+  ! within this tile, or an unassociated pointer if there is no data
+  subroutine fptr_i0i(tile, i, ptr)
      import land_tile_type
      type(land_tile_type), pointer :: tile ! input
-     integer             , pointer :: ptr(:) ! returned pointer to the data
-  end subroutine fptr_i1
+     integer             , intent(in) :: i ! index in the array
+     integer             , pointer :: ptr  ! returned pointer to the data
+  end subroutine fptr_i0i
   ! NOTE: import statements are needed because in FORTRAN interface blocks
   ! do not have access to their environment by host association, so without
   ! "import" they don't know the definition of land_tile_type, and compilation

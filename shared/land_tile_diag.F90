@@ -14,7 +14,7 @@ use land_tile_selectors_mod, only : tile_selectors_init, tile_selectors_end, &
 use land_tile_mod,      only : land_tile_type, diag_buff_type, &
      land_tile_list_type, first_elmt, tail_elmt, next_elmt, get_elmt_indices, &
      land_tile_enum_type, operator(/=), current_tile, &
-     tile_is_selected
+     tile_is_selected, fptr_i0, fptr_r0, fptr_r0i
 use land_data_mod,      only : lnd
 use tile_diag_buff_mod, only : diag_buff_type, realloc_diag_buff
 
@@ -613,7 +613,7 @@ subroutine send_tile_data_0d(id, x, buffer)
     i=fields(i)%alias
     fields(i)%n_sends = fields(i)%n_sends + 1
   enddo
-end subroutine
+end subroutine send_tile_data_0d
 
 ! ============================================================================
 subroutine send_tile_data_1d(id, x, buffer)
@@ -643,7 +643,7 @@ subroutine send_tile_data_1d(id, x, buffer)
     i=fields(i)%alias
     fields(i)%n_sends = fields(i)%n_sends + 1
   enddo
-end subroutine
+end subroutine send_tile_data_1d
 
 ! NOTE: 2-d fields can be handled similarly to 1-d with reshape
 
@@ -651,14 +651,7 @@ end subroutine
 subroutine send_tile_data_r0d_fptr(id, tile_map, fptr)
   integer, intent(in) :: id
   type(land_tile_list_type), intent(inout) :: tile_map(:,:)
-  ! subroutine returning the pointer to the tile data
-  interface
-     subroutine fptr(tile, ptr)
-       use land_tile_mod, only : land_tile_type
-       type(land_tile_type), pointer :: tile ! input
-       real                , pointer :: ptr  ! returned pointer to the data
-     end subroutine fptr 
-  end interface
+  procedure(fptr_r0)  :: fptr
 
   type(land_tile_enum_type)     :: te,ce   ! tail and current tile list elements
   type(land_tile_type), pointer :: tileptr ! pointer to tile   
@@ -673,50 +666,45 @@ subroutine send_tile_data_r0d_fptr(id, tile_map, fptr)
      if(associated(ptr)) call send_tile_data(id,ptr,tileptr%diag)
      ce=next_elmt(ce)
   enddo
-end subroutine
+end subroutine send_tile_data_r0d_fptr
 
 
 ! ============================================================================
 subroutine send_tile_data_r1d_fptr(id, tile_map, fptr)
   integer, intent(in) :: id
   type(land_tile_list_type), intent(inout) :: tile_map(:,:)
-  ! subroutine returning the pointer to the tile data
-  interface
-     subroutine fptr(tile, ptr)
-       use land_tile_mod, only : land_tile_type
-       type(land_tile_type), pointer :: tile ! input
-       real                , pointer :: ptr(:)  ! returned pointer to the data
-     end subroutine fptr 
-  end interface
+  procedure(fptr_r0i) :: fptr
 
   type(land_tile_enum_type)     :: te,ce   ! tail and current tile list elements
   type(land_tile_type), pointer :: tileptr ! pointer to tile   
-  real                , pointer :: ptr(:)     ! pointer to the data element within a tile
+  real                , pointer :: ptr     ! pointer to the data element within a tile
+  real,             allocatable :: buffer(:) ! buffer for accumulating data
+  integer :: i, k
 
   if(id <= 0) return
+  i = id - BASE_TILED_FIELD_ID ! index in the array of fields
+
+  allocate(buffer(fields(i)%size))
   ce = first_elmt( tile_map )
   te = tail_elmt ( tile_map )
   do while(ce /= te)
      tileptr => current_tile(ce)
-     call fptr(tileptr,ptr)
-     if(associated(ptr)) call send_tile_data(id,ptr,tileptr%diag)
+     do k = 1,fields(i)%size
+        call fptr(tileptr,k,ptr)
+        if(associated(ptr)) buffer(k) = ptr
+     enddo
+     call send_tile_data(id,buffer,tileptr%diag)
      ce=next_elmt(ce)
   enddo
-end subroutine
+  deallocate(buffer)
+end subroutine send_tile_data_r1d_fptr
 
 
 ! ============================================================================
 subroutine send_tile_data_i0d_fptr(id, tile_map, fptr)
   integer, intent(in) :: id
   type(land_tile_list_type), intent(inout) :: tile_map(:,:)
-  ! subroutine returning the pointer to the tile data
-  interface
-     subroutine fptr(tile, ptr)
-       use land_tile_mod, only : land_tile_type
-       type(land_tile_type), pointer :: tile ! input
-       integer             , pointer :: ptr  ! returned pointer to the data
-     end subroutine fptr 
-  end interface
+  procedure(fptr_i0)  :: fptr
 
   type(land_tile_enum_type)     :: te,ce   ! tail and current tile list elements
   type(land_tile_type), pointer :: tileptr ! pointer to tile   
@@ -731,7 +719,7 @@ subroutine send_tile_data_i0d_fptr(id, tile_map, fptr)
      if(associated(ptr)) call send_tile_data(id,real(ptr),tileptr%diag)
      ce=next_elmt(ce)
   enddo
-end subroutine
+end subroutine send_tile_data_i0d_fptr
 
 
 ! ============================================================================
@@ -775,7 +763,7 @@ subroutine dump_tile_diag_fields(tiles, time)
   ! reset the first_dump flag
   first_dump = .FALSE.
 
-end subroutine
+end subroutine dump_tile_diag_fields
 
 ! ============================================================================
 subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)

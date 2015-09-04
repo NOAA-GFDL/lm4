@@ -224,7 +224,7 @@ subroutine cana_init ( id_lon, id_lat, new_land_io )
            call get_tracer_names(MODEL_LAND, tr, name=name)
            if(nfu_inq_var(unit,trim(name))==NF_NOERR) then
               call error_mesg('cana_init','reading tracer "'//trim(name)//'"',NOTE)
-              call read_tile_data_r1d_fptr(unit,name,cana_tr_ptr,tr)
+              call read_tile_data_r0d_fptr(unit,name,cana_tr_ptr,tr)
            else
               call error_mesg('cana_init', 'tracer "'//trim(name)// &
                    '" was set to initial value '//string(init_tr(tr)), NOTE)
@@ -282,7 +282,7 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
      do tr = 1,ntcana
         call get_tracer_names(MODEL_LAND, tr, name, longname, units)
         if (tr==ico2.and..not.save_qco2) cycle
-        call write_tile_data_r1d_fptr(unit,name,cana_tr_ptr,tr,'canopy air '//trim(longname),trim(units))
+        call write_tile_data_r0d_fptr(unit,name,cana_tr_ptr,tr,'canopy air '//trim(longname),trim(units))
      enddo
      ! close output file
      __NF_ASRT__(nf_close(unit))
@@ -666,16 +666,25 @@ logical function cana_tile_exists(tile)
    cana_tile_exists = associated(tile%cana)
 end function cana_tile_exists
 
-! ============================================================================
-! accessor functions: given a pointer to a land tile, they return pointer
-! to the desired member of the land tile, of NULL if this member does not
-! exist.
-#define DEFINE_CANA_ACCESSOR_0D(xtype,x) subroutine cana_ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%cana))p=>t%cana%x;endif;end subroutine
-#define DEFINE_CANA_ACCESSOR_1D(xtype,x) subroutine cana_ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p(:);p=>NULL();if(associated(t))then;if(associated(t%cana))p=>t%cana%x;endif;end subroutine
+subroutine cana_T_ptr(t,p)
+  type(land_tile_type), pointer :: t
+  real,                 pointer :: p
 
-DEFINE_CANA_ACCESSOR_0D(real,T)
-DEFINE_CANA_ACCESSOR_1D(real,tr)
+  p=>NULL()
+  if(associated(t))then
+     if(associated(t%cana))p=>t%cana%T
+  endif
+end subroutine
+
+subroutine cana_tr_ptr(t,i,p)
+  type(land_tile_type), pointer    :: t
+  integer,              intent(in) :: i
+  real,                 pointer    :: p 
+  
+  p=>NULL()
+  if(associated(t))then
+     if(associated(t%cana))p=>t%cana%tr(i)
+  endif
+end subroutine
 
 end module canopy_air_mod

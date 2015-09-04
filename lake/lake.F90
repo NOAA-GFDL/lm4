@@ -21,12 +21,11 @@ use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o, PI, grav, vonkarm, &
                               rdgas
 
 use land_constants_mod, only : NBANDS
-use land_io_mod, only : read_field
 use lake_tile_mod, only : &
-     lake_tile_type, lake_pars_type, read_lake_data_namelist, &
+     lake_tile_type, read_lake_data_namelist, &
      lake_data_radiation, lake_data_diffusion, &
      lake_data_thermodynamics, &
-     max_lev, cpw,clw,csw, lake_width_inside_lake, large_lake_sill_width, &
+     cpw,clw,csw, lake_width_inside_lake, large_lake_sill_width, &
      lake_specific_width, n_outlet, outlet_face, outlet_i, outlet_j, outlet_width
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
@@ -1094,39 +1093,43 @@ end function lake_tile_exists
 ! accessor functions: given a pointer to a land tile, they return pointer
 ! to the desired member of the land tile, of NULL if this member does not
 ! exist.
-subroutine lake_dz_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr(:)
+subroutine lake_dz_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%lake)) ptr => tile%lake%dz(:)
+      if(associated(tile%lake)) ptr => tile%lake%dz(i)
    endif
 end subroutine lake_dz_ptr
 
-subroutine lake_temp_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr(:)
+subroutine lake_temp_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%lake)) ptr => tile%lake%T(:)
+      if(associated(tile%lake)) ptr => tile%lake%T(i)
    endif
 end subroutine lake_temp_ptr
 
-subroutine lake_wl_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr(:)
+subroutine lake_wl_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%lake)) ptr => tile%lake%wl(:)
+      if(associated(tile%lake)) ptr => tile%lake%wl(i)
    endif
 end subroutine lake_wl_ptr
 
-subroutine lake_ws_ptr(tile, ptr)
-   type(land_tile_type), pointer :: tile
-   real                , pointer :: ptr(:)
+subroutine lake_ws_ptr(tile, i, ptr)
+   type(land_tile_type), pointer :: tile ! input
+   integer             , intent(in) :: i ! index in the array
+   real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%lake)) ptr => tile%lake%ws(:)
+      if(associated(tile%lake)) ptr => tile%lake%ws(i)
    endif
 end subroutine lake_ws_ptr
 
