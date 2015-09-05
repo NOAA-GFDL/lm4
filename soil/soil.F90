@@ -887,8 +887,8 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
                  __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit1))
                  ! read old (scalar) fsc and ssc into the first element of the fast_soil_C
                  ! and slow_soil_C arrays
-                 call read_tile_data_r1d_fptr(unit1,'fsc',soil_fast_soil_C_ptr)
-                 call read_tile_data_r1d_fptr(unit1,'ssc',soil_slow_soil_C_ptr)
+                 call read_tile_data_r0d_fptr(unit1,'fsc',soil_fast_soil_C_ptr, 1)
+                 call read_tile_data_r0d_fptr(unit1,'ssc',soil_slow_soil_C_ptr, 1)
               endif
            endif
         endif
