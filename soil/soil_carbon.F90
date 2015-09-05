@@ -575,7 +575,7 @@ function Resp(Ctotal,Chet,T,theta,air_filled_porosity)
         return
     ENDIF
 
-    Resp=Vmax(T)*theta**3*(Cavail)*enz/(Cavail*kC+enz)*max((air_filled_porosity)**gas_diffusion_exp,min_anaerobic_resp_factor*aerobic_max)
+    Resp=Vmax(T)*theta**3*(Cavail)*enz/(sum(Cavail)*kC+enz)*max((air_filled_porosity)**gas_diffusion_exp,min_anaerobic_resp_factor*aerobic_max)
     
     !ox_avail=oxygen_concentration(Ox,sum(tempresp)/sum(Cavail)*theta*oxPerC)
     !print *,sum(tempresp)/sum(Cavail)
@@ -1321,8 +1321,10 @@ subroutine carbon_leaching_with_litter(soil,leaflitter,woodlitter,flow,litterflo
     flow_with_litter(1)=0.0
     !flow_with_litter(2)=litterflow
     flow_with_litter(2:size(flow_with_litter))=flow(1:size(flow_with_litter)-1)
+    flow_with_litter=flow_with_litter/1000 !xz change the div unit from mm to m
     div_with_litter(1)=0.0
     div_with_litter(2:size(flow_with_litter))=div(:)*dt ! div is in mm/s
+    div_with_litter=div_with_litter/1000 !xz change the div unit from mm to m
     dz_with_litter(1)=litterThickness
     dz_with_litter(2:size(dz_with_litter)) = dz(:)
     
