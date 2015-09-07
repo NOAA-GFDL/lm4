@@ -38,8 +38,7 @@ use land_tracers_mod, only : land_tracers_init, land_tracers_end, ntcana, isphum
 use land_tracer_driver_mod, only: land_tracer_driver_init, land_tracer_driver_end, &
      update_cana_tracers
 use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_temp, &
-     glac_radiation, glac_diffusion, glac_step_1, glac_step_2, save_glac_restart, &
-     save_glac_restart_new
+     glac_radiation, glac_diffusion, glac_step_1, glac_step_2, save_glac_restart
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
      lake_radiation, lake_diffusion, lake_step_1, lake_step_2, save_lake_restart, save_lake_restart_new
 use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
@@ -445,7 +444,7 @@ subroutine land_model_init &
   call hlsp_hydro_init (id_lon, id_lat, id_zfull) ! Must be called after soil_init
   call vegn_init ( id_lon, id_lat, id_band, new_land_io )
   call lake_init ( id_lon, id_lat, new_land_io )
-  call glac_init ( id_lon, id_lat, new_land_io )
+  call glac_init ( id_lon, id_lat )
   call snow_init ( id_lon, id_lat, new_land_io )
   call cana_init ( id_lon, id_lat, new_land_io )
   call topo_rough_init( land_time, lnd%lonb, lnd%latb, &
@@ -776,7 +775,7 @@ subroutine land_model_restart_new(timestamp)
 
   ! [6] save component models' restarts
   call save_land_transitions_restart(timestamp_)
-  call save_glac_restart_new(tile_dim_length,timestamp_)
+  call save_glac_restart(tile_dim_length,timestamp_)
   call save_lake_restart_new(tile_dim_length,timestamp_)
   call save_soil_restart_new(tile_dim_length,timestamp_)
   call save_hlsp_restart_new(tile_dim_length,timestamp_)
@@ -3302,7 +3301,8 @@ end subroutine land_diag_init
 ! enumerate all the tiles within the domain, call accessor routine for each of them, and
 ! get or set the value pointed to by the accessor routine.
 #define DEFINE_LAND_ACCESSOR_0D(xtype,x) subroutine land_ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))p=>t%x;end subroutine
+type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))p=>t%x;\
+end subroutine
 
 DEFINE_LAND_ACCESSOR_0D(real,frac)
 DEFINE_LAND_ACCESSOR_0D(real,lwup)
@@ -3319,7 +3319,8 @@ end function land_tile_exists
 
 #define DEFINE_TAG_ACCESSOR(x) subroutine  x ## _tag_ptr(t,p);\
 type(land_tile_type),pointer::t;integer,pointer::p;p=>NULL();if(associated(t))\
-then;if (associated(t%x)) p=>t%x%tag;endif;end subroutine
+then;if (associated(t%x)) p=>t%x%tag;endif;\
+end subroutine
 
 DEFINE_TAG_ACCESSOR(glac)
 DEFINE_TAG_ACCESSOR(lake)

@@ -12,9 +12,7 @@ use fms_mod, only: open_namelist_file
 use fms_mod,            only: error_mesg, file_exist,     &
                               check_nml_error, stdlog, write_version_number, &
                               close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
-use fms_io_mod, only : read_compressed, restart_file_type, free_restart_type
-use fms_io_mod, only : get_field_size, save_restart
-use fms_io_mod, only : register_restart_axis, register_restart_field, set_domain, nullify_domain
+use fms_io_mod, only : set_domain, nullify_domain
 
 use time_manager_mod,   only: time_type, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
@@ -24,20 +22,18 @@ use glac_tile_mod,      only: glac_tile_type, &
      read_glac_data_namelist, glac_data_thermodynamics, glac_data_hydraulics, &
      glac_data_radiation, glac_data_diffusion, max_lev, cpw, clw, csw
 
-use land_constants_mod, only : &
-     NBANDS
+use land_constants_mod, only : NBANDS
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
 use land_tile_diag_mod, only : &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
      set_default_diag_filter
 use land_data_mod,      only : land_state_type, lnd, land_time
-use land_io_mod, only : print_netcdf_error
-use land_tile_io_mod, only: create_tile_out_file, read_tile_data_r1d_fptr, &
-     write_tile_data_r1d_fptr, get_input_restart_name, sync_nc_files, &
-     gather_tile_data, assemble_tiles
-use nf_utils_mod, only : nfu_def_dim, nfu_put_att
+use land_tile_io_mod1, only: land_restart_type, &
+     init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
+     get_input_restart_name, add_restart_axis, put_tile_data, get_tile_data
 use land_debug_mod, only : is_watch_point
+
 implicit none
 private
 
@@ -46,14 +42,12 @@ public :: read_glac_namelist
 public :: glac_init
 public :: glac_end
 public :: save_glac_restart
-public :: save_glac_restart_new
 public :: glac_get_sfc_temp
 public :: glac_radiation
 public :: glac_diffusion
 public :: glac_step_1
 public :: glac_step_2
 ! =====end of public interfaces ==============================================
-
 
 
 ! ==== module constants ======================================================
@@ -89,10 +83,6 @@ integer :: id_zhalf, id_zfull
 integer :: id_lwc, id_swc, id_temp, id_ie, id_sn, id_bf, id_hie, id_hsn, id_hbf
 
 ! ==== end of module variables ===============================================
-
-! ==== NetCDF declarations ===================================================
-include 'netcdf.inc'
-#define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
 
 contains
 
@@ -139,23 +129,17 @@ end subroutine read_glac_namelist
 
 ! ============================================================================
 ! initialize glacier model
-subroutine glac_init ( id_lon, id_lat, new_land_io )
+subroutine glac_init ( id_lon, id_lat )
   integer, intent(in)  :: id_lon  ! ID of land longitude (X) axis  
   integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
-  logical, intent(in)  :: new_land_io  ! This is a transition var and will be removed
 
   ! ---- local vars
-  integer :: unit         ! unit for various i/o
-  integer :: isize,nz     ! Len of io domain vector and number of levels
   type(land_tile_enum_type)     :: te,ce ! last and current tile list elements
   type(land_tile_type), pointer :: tile  ! pointer to current tile
   character(len=256) :: restart_file_name
   character(len=17) :: restart_base_name='INPUT/glac.res.nc'
-  integer :: siz(4)
-  integer, allocatable :: idx(:)         ! I/O domain vector of compressed indices
-  real,    allocatable :: r1d(:,:)       ! I/O domain level dependent vector of real data
-  logical :: found,restart_exists
-
+  type(land_restart_type) :: restart
+  logical :: restart_exists
 
   module_is_initialized = .TRUE.
   delta_time = time_type_to_real(lnd%dt_fast)
@@ -166,38 +150,11 @@ subroutine glac_init ( id_lon, id_lat, new_land_io )
      call error_mesg('glac_init',&
           'reading NetCDF restart "'//trim(restart_file_name)//'"',&
           NOTE)
-     if(new_land_io)then
-        call error_mesg('glac_init', 'Using new glacier restart read', NOTE)
-
-        call get_field_size(restart_base_name,'tile_index',siz, field_found=found, domain=lnd%domain)
-        if ( .not. found ) call error_mesg(trim(module_name), &
-                       'tile_index axis not found in '//trim(restart_file_name), FATAL)
-        isize = siz(1)
-        call get_field_size(restart_base_name,'zfull',siz, field_found=found, domain=lnd%domain)
-        if ( .not. found ) call error_mesg(trim(module_name), &
-                       'Z axis not found in '//trim(restart_file_name), FATAL)
-        nz = siz(1)
-        allocate(idx(isize),r1d(isize,nz))
-
-        call read_compressed(restart_base_name,'tile_index',idx, domain=lnd%domain, timelevel=1)
-
-        call read_compressed(restart_base_name,'temp',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(glac_temp_ptr,idx,r1d)
-
-        call read_compressed(restart_base_name,'wl',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(glac_wl_ptr,idx,r1d)
-
-        call read_compressed(restart_base_name,'ws',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(glac_ws_ptr,idx,r1d)
-
-        deallocate(idx,r1d)
-     else
-     __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
-     call read_tile_data_r1d_fptr(unit, 'temp'         , glac_temp_ptr  )
-     call read_tile_data_r1d_fptr(unit, 'wl'           , glac_wl_ptr )
-     call read_tile_data_r1d_fptr(unit, 'ws'           , glac_ws_ptr )
-     __NF_ASRT__(nf_close(unit))     
-     endif
+     call open_land_restart(restart,restart_base_name)
+     call get_tile_data(restart, 'temp', 'zfull', glac_temp_ptr)
+     call get_tile_data(restart, 'wl',   'zfull', glac_temp_ptr)
+     call get_tile_data(restart, 'ws',   'zfull', glac_temp_ptr)
+     call free_land_restart(restart)
   else
      call error_mesg('glac_init',&
           'cold-starting glacier',&
@@ -250,86 +207,33 @@ subroutine glac_end ()
 
 end subroutine glac_end
 
-
 ! ============================================================================
 subroutine save_glac_restart (tile_dim_length, timestamp)
   integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
   character(*), intent(in) :: timestamp ! timestamp to add to the file name
 
-  integer :: unit ! restart file i/o unit
+  ! ---- local vars ----------------------------------------------------------
+  character(267) :: filename
+  type(land_restart_type) :: restart ! restart file i/o object
 
   call error_mesg('glac_end','writing NetCDF restart',NOTE)
-  call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'glac.res.nc', &
-          lnd%coord_glon, lnd%coord_glat, glac_tile_exists, tile_dim_length)
-
-  ! in addition, define vertical coordinate
-  if (mpp_pe()==lnd%io_pelist(1)) then
-     __NF_ASRT__(nfu_def_dim(unit,'zfull',zfull(1:num_l),'full level','m'))
-     __NF_ASRT__(nfu_put_att(unit,'zfull','positive','down'))
-  endif
-  ! synchronize the output between writers and readers
-  call sync_nc_files(unit)
-        
-  ! write out fields
-  call write_tile_data_r1d_fptr(unit,'temp'         ,glac_temp_ptr,'zfull','glacier temperature','degrees_K')
-  call write_tile_data_r1d_fptr(unit,'wl'           ,glac_wl_ptr  ,'zfull','liquid water content','kg/m2')
-  call write_tile_data_r1d_fptr(unit,'ws'           ,glac_ws_ptr  ,'zfull','solid water content','kg/m2')
-   
-  ! close file
-  __NF_ASRT__(nf_close(unit))
-
-end subroutine save_glac_restart
-
-! ============================================================================
-subroutine save_glac_restart_new (tile_dim_length, timestamp)
-  integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
-  character(*), intent(in) :: timestamp ! timestamp to add to the file name
-
-  ! ---- local vars ----------------------------------------------------------
-  character(267) :: fname
-  type(restart_file_type) :: glac_restart ! restart file i/o object
-  integer, allocatable :: idx(:)
-  real, allocatable :: temp(:,:)
-  real, allocatable :: wl(:,:)
-  real, allocatable :: ws(:,:)
-  real, allocatable :: gw(:,:)
-  real, allocatable :: gwT(:,:)
-  integer :: id_restart, isize
-
-  call error_mesg('glac_end','writing new format NetCDF restart',NOTE)
 ! must set domain so that io_domain is available
   call set_domain(lnd%domain)
-! Note that fname is updated for tile & rank numbers during file creation
-  fname = trim(timestamp)//'glac.res.nc'
-  call create_tile_out_file(glac_restart,idx,fname,glac_tile_exists,tile_dim_length,zfull(1:num_l))
-  isize = size(idx)
-  allocate(temp(isize,num_l), &
-              wl(isize,num_l), &
-              ws(isize,num_l), &
-              gw(isize,num_l), &
-              gwT(isize,num_l))
+! Note that filename is updated for tile & rank numbers during file creation
+  filename = trim(timestamp)//'glac.res.nc'
+  call init_land_restart(restart, filename, glac_tile_exists, tile_dim_length)
+  call add_restart_axis(restart,'zfull',zfull(1:num_l),'Z','m','full level',sense=-1)
 
   ! Output data provides signature
-  call gather_tile_data(glac_temp_ptr,idx,temp)
-  id_restart = register_restart_field(glac_restart,fname,'temp',temp,compressed=.true., &
-                                      longname='glacier temperature',units='degrees_K')
-
-  call gather_tile_data(glac_wl_ptr,idx,wl)
-  id_restart = register_restart_field(glac_restart,fname,'wl',wl,compressed=.true., &
-                                      longname='liquid water content',units='kg/m2')
-
-  call gather_tile_data(glac_ws_ptr,idx,ws)
-  id_restart = register_restart_field(glac_restart,fname,'ws',ws,compressed=.true., &
-                                      longname='solid water content',units='kg/m2')
+  call put_tile_data(restart,'temp', 'zfull', glac_temp_ptr, longname='glacier temperature',  units='degrees_K')
+  call put_tile_data(restart,'wl',   'zfull', glac_wl_ptr,   longname='liquid water content', units='kg/m2')
+  call put_tile_data(restart,'ws',   'zfull', glac_ws_ptr,   longname='solid water content',  units='kg/m2')
 
   ! save performs io domain aggregation through mpp_io as with regular domain data
-  call save_restart(glac_restart)
-
-  deallocate(idx,temp,wl,ws,gw,gwT)
-
-  call free_restart_type(glac_restart)
+  call save_land_restart(restart)
+  call free_land_restart(restart)
   call nullify_domain()
-end subroutine save_glac_restart_new
+end subroutine save_glac_restart
 
 
 ! ============================================================================
