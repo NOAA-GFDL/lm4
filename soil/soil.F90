@@ -2348,19 +2348,19 @@ subroutine save_soil_restart_new (tile_dim_length, timestamp)
        call gather_tile_data(soil_coarsewoodlitter_deadmic_in_ptr ,idx,coarsewoodlitter_deadmic_in)
        id_restart = register_restart_field(soil_carbon_restart,fname,'coarsewoodlitter_deadmic_in',coarsewoodlitter_deadmic_in, longname='dead microbe coarse wood litter carbon input',units='kg C/m2')
     endif
-  endif
-  call save_restart(soil_carbon_restart)
-  call free_restart_type(soil_carbon_restart)
-  deallocate(idx, asoil_in, fsc_in, ssc_in)
-  if (soil_carbon_option == SOILC_CORPSE) then
-    deallocate(deadmic_in,fast_protected_in,slow_protected_in,deadmic_protected_in,fast_turnover_accumulated,                   &
-       slow_turnover_accumulated,deadmic_turnover_accumulated,fast_protected_turnover_accumulated,                              &
-       slow_protected_turnover_accumulated,deadmic_protected_turnover_accumulated,leaflitter_fast_turnover_accumulated,         &
-       leaflitter_slow_turnover_accumulated,leaflitter_deadmic_turnover_accumulated,leaflitter_fsc_in,leaflitter_ssc_in,        &
-       leaflitter_deadmic_in,finewoodlitter_fast_turnover_accumulated,finewoodlitter_slow_turnover_accumulated,                 &
-       finewoodlitter_deadmic_turnover_accumulated,finewoodlitter_fsc_in,finewoodlitter_ssc_in,finewoodlitter_deadmic_in,       &
-       coarsewoodlitter_fast_turnover_accumulated,coarsewoodlitter_slow_turnover_accumulated,                                   &
-       coarsewoodlitter_deadmic_turnover_accumulated,coarsewoodlitter_fsc_in,coarsewoodlitter_ssc_in,coarsewoodlitter_deadmic_in)
+    call save_restart(soil_carbon_restart)
+    call free_restart_type(soil_carbon_restart)
+    deallocate(idx, asoil_in, fsc_in, ssc_in)
+    if (soil_carbon_option == SOILC_CORPSE) then
+      deallocate(deadmic_in,fast_protected_in,slow_protected_in,deadmic_protected_in,fast_turnover_accumulated,                   &
+         slow_turnover_accumulated,deadmic_turnover_accumulated,fast_protected_turnover_accumulated,                              &
+         slow_protected_turnover_accumulated,deadmic_protected_turnover_accumulated,leaflitter_fast_turnover_accumulated,         &
+         leaflitter_slow_turnover_accumulated,leaflitter_deadmic_turnover_accumulated,leaflitter_fsc_in,leaflitter_ssc_in,        &
+         leaflitter_deadmic_in,finewoodlitter_fast_turnover_accumulated,finewoodlitter_slow_turnover_accumulated,                 &
+         finewoodlitter_deadmic_turnover_accumulated,finewoodlitter_fsc_in,finewoodlitter_ssc_in,finewoodlitter_deadmic_in,       &
+         coarsewoodlitter_fast_turnover_accumulated,coarsewoodlitter_slow_turnover_accumulated,                                   &
+         coarsewoodlitter_deadmic_turnover_accumulated,coarsewoodlitter_fsc_in,coarsewoodlitter_ssc_in,coarsewoodlitter_deadmic_in)
+    endif
   endif
 
 end subroutine save_soil_restart_new
