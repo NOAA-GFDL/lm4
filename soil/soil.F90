@@ -3652,7 +3652,7 @@ if(soil_carbon_option == SOILC_CORPSE_N) then
 endif
 
     endif
-  endif
+
   call save_restart(soil_carbon_restart)
   call free_restart_type(soil_carbon_restart)
   deallocate(idx, asoil_in, fsc_in, ssc_in)
@@ -3674,6 +3674,7 @@ endif
           finewoodlitter_deadmic_N_turnover_accumulated,finewoodlitter_fsn_in,finewoodlitter_ssn_in,finewoodlitter_deadmic_N_in,       &
           coarsewoodlitter_fast_N_turnover_accumulated,coarsewoodlitter_slow_N_turnover_accumulated,                                   &
           coarsewoodlitter_deadmic_N_turnover_accumulated,coarsewoodlitter_fsn_in,coarsewoodlitter_ssn_in,coarsewoodlitter_deadmic_N_in)
+  endif
   endif
 
 end subroutine save_soil_restart_new
@@ -4982,7 +4983,7 @@ real :: NH4_leached(num_l), div_NH4_loss(num_l),  &     ! NH4 leaching
 ! units of wl_before: mm = kg/m2
 ! units of N: kg/m2
 ! N/wl_before -> unitless concentration
-where(wl_before>1.0e-4) 
+where(wl_before>1.0e-4)
   passive_ammonium_uptake = min(soil%soil_organic_matter(:)%ammonium,uptake*soil%soil_organic_matter(:)%ammonium/wl_before)
   passive_nitrate_uptake = min(soil%soil_organic_matter(:)%nitrate,uptake*soil%soil_organic_matter(:)%nitrate/wl_before)
 elsewhere
