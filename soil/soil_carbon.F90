@@ -1127,7 +1127,7 @@ function Resp(Ctotal,Chet,T,theta,air_filled_porosity)
         return
     ENDIF
 
-    Resp=Vmax(T)*theta**3*(Cavail)*enz/(Cavail*kC+enz)*max((air_filled_porosity)**gas_diffusion_exp,min_anaerobic_resp_factor*aerobic_max)
+    Resp=Vmax(T)*theta**3*(Cavail)*enz/(sum(Cavail)*kC+enz)*max((air_filled_porosity)**gas_diffusion_exp,min_anaerobic_resp_factor*aerobic_max)
 
     !ox_avail=oxygen_concentration(Ox,sum(tempresp)/sum(Cavail)*theta*oxPerC)
     !print *,sum(tempresp)/sum(Cavail)
