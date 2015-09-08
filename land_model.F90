@@ -54,7 +54,7 @@ use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, vegn_get_cov
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, cana_state,&
      cana_step_1, cana_step_2, cana_radiation, cana_roughness, &
-     save_cana_restart, save_cana_restart_new
+     save_cana_restart
 use river_mod, only : river_init, river_end, update_river, river_stock_pe, &
      save_river_restart, river_tracers_init, num_river_tracers, river_tracer_index
 use topo_rough_mod, only : topo_rough_init, topo_rough_end, update_topo_rough
@@ -781,7 +781,7 @@ subroutine land_model_restart_new(timestamp)
   call save_hlsp_restart_new(tile_dim_length,timestamp_)
   call save_snow_restart_new(tile_dim_length,timestamp_)
   call save_vegn_restart_new(tile_dim_length,timestamp_)
-  call save_cana_restart_new(tile_dim_length,timestamp_)
+  call save_cana_restart(tile_dim_length,timestamp_)
   call save_river_restart(timestamp_)
 end subroutine land_model_restart_new
 
