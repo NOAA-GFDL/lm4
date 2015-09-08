@@ -315,7 +315,7 @@ subroutine add_tile_data_r0d_fptr_r0(restart,varname,fptr,longname,units)
      allocate(data(size(restart%tidx)))
      call gather_tile_data_r0d(fptr,restart%tidx,data)
      id_restart = register_restart_field(restart%rhandle, restart%filename, varname, data, &
-          longname=longname, restart_owns_data=.true.)
+          longname=longname, units=units, restart_owns_data=.true.)
   else ! old land io
      call write_tile_data_r0d_fptr_r0(restart%ncid,varname,fptr,longname,units)
   endif
@@ -338,7 +338,7 @@ subroutine add_tile_data_r0d_fptr_r0i(restart,varname,fptr,index,longname,units)
      allocate(data(size(restart%tidx)))
      call gather_tile_data_r0d_idx(fptr,index,restart%tidx,data)
      id_restart = register_restart_field(restart%rhandle, restart%filename, varname, data, &
-          longname=longname, restart_owns_data=.true.)
+          longname=longname, units=units, restart_owns_data=.true.)
   else ! old land io
      call write_tile_data_r0d_fptr_r0i(restart%ncid,varname,fptr,index,longname,units)
   endif
