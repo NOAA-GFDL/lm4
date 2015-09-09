@@ -440,7 +440,7 @@ subroutine land_model_init &
 
   ! [7] initialize individual sub-models
   call hlsp_init ( id_lon, id_lat, new_land_io ) ! Must be called before soil_init
-  call soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
+  call soil_init ( id_lon, id_lat, id_band, id_zfull )
   call hlsp_hydro_init (id_lon, id_lat, id_zfull) ! Must be called after soil_init
   call vegn_init ( id_lon, id_lat, id_band, new_land_io )
   call lake_init ( id_lon, id_lat )

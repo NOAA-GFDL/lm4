@@ -54,15 +54,10 @@ use land_tile_diag_mod, only : diag_buff_type, &
      set_default_diag_filter
 use land_data_mod, only : land_state_type, lnd, land_time
 use land_io_mod, only : read_field
-use land_tile_io_mod, only : create_tile_out_file, write_tile_data_r0d_fptr,& 
-     write_tile_data_r1d_fptr, read_tile_data_r0d_fptr, read_tile_data_r1d_fptr,&
-     read_tile_data_i1d_fptr,  read_tile_data_r2d_fptr, &
-     write_tile_data_i1d_fptr, write_tile_data_r2d_fptr, &
-     print_netcdf_error, sync_nc_files, gather_tile_data, assemble_tiles
 use land_tile_io_mod1, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
-     get_input_restart_name, add_restart_axis, add_tile_data, get_tile_data
-use nf_utils_mod, only : nfu_def_dim, nfu_put_att, nfu_inq_var
+     get_input_restart_name, add_restart_axis, add_tile_data, get_tile_data, &
+     field_exists
 use vegn_data_mod, only: K1, K2
 use vegn_tile_mod, only : vegn_tile_type, vegn_uptake_profile, vegn_hydraulic_properties
 use land_debug_mod, only : is_watch_point, get_current_point, set_current_point, &
@@ -228,8 +223,6 @@ integer         :: gw_option = -1
 integer :: n_river_tracers = 0
 integer :: i_river_DOC     = NO_TRACER
 
-real, allocatable :: soilCCohort_data(:)
-
 ! ---- diagnostic field IDs
 integer :: id_fast_soil_C, id_slow_soil_C, id_protected_C, id_fsc, id_ssc,&
     id_leaflitter_deadmic, id_leaflitter_livemic, id_leaflitter_fast_C, id_leaflitter_slow_C, id_nleaflittercohorts, &
@@ -284,10 +277,6 @@ integer :: id_st_diff
 integer, allocatable, dimension(:,:,:), private :: soil_tags ! module copy of soil tags for cold start
 
 ! ==== end of module variables ===============================================
-
-! ==== NetCDF declarations ===================================================
-include 'netcdf.inc'
-#define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
 
 contains
 
@@ -363,15 +352,14 @@ end subroutine read_soil_namelist
 
 ! ============================================================================
 ! initialize soil model
-subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
+subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
   integer, intent(in)  :: id_lon  ! ID of land longitude (X) axis  
   integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
   integer, intent(in)  :: id_band ! ID of spectral band axis
   integer, intent(out) :: id_zfull ! ID of vertical soil axis
-  logical, intent(in) :: new_land_io
 
   ! ---- local vars
-  integer :: unit, unit1  ! unit numbers for various i/o
+  type(land_restart_type) :: restart, restart1
   type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
   type(land_tile_type), pointer :: tile   ! pointer to current tile
   ! input data buffers for respective variables:
@@ -388,18 +376,11 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
   real :: psi(num_l), mwc(num_l)
   character(len=256) :: restart_file_name
   character(len=17)  :: restart_base_name='INPUT/soil.res.nc'
-  integer :: siz(4), isize,  nz, ncc, nccoh
-  integer, allocatable :: idx(:)  ! I/O domain vector of compressed indices
-  real,    allocatable :: r2d(:,:,:), r1d(:,:), r1dc(:,:), r0d(:) ! I/O domain level dependent vector of real data
-  integer, allocatable :: i1d(:,:)  ! I/O domain level dependent vector of integer data
-  logical :: restart_exists, found
+  logical :: restart_exists
 
   module_is_initialized = .TRUE.
   delta_time = time_type_to_real(lnd%dt_fast)
   dt_fast_yr = delta_time/seconds_per_year
-
-  allocate(soilCCohort_data(soilMaxCohorts))
-  soilCCohort_data = (/(nccoh,nccoh=1,soilMaxCohorts)/)
 
   call uptake_init(num_l,dz,zfull)
   call hlsp_hydro_lev_init(num_l,dz,zfull)
@@ -663,326 +644,124 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
      deallocate(ref_soil_t, wetmask)
   end if
 
-  call get_input_restart_name(restart_base_name,restart_exists,restart_file_name,new_land_io)
+  call get_input_restart_name(restart_base_name,restart_exists,restart_file_name)
   if (restart_exists) then
-     if(new_land_io) then
-        restart_file_name = restart_base_name
+     call error_mesg('soil_init', 'reading NetCDF restart "'//trim(restart_file_name)//'"', NOTE)
+     call open_land_restart(restart,restart_base_name)
+     call get_tile_data(restart, 'temp', 'zfull', soil_T_ptr  )
+     call get_tile_data(restart, 'wl', 'zfull', soil_wl_ptr )
+     call get_tile_data(restart, 'ws', 'zfull', soil_ws_ptr )
+     call get_tile_data(restart, 'groundwater', 'zfull', soil_groundwater_ptr )
+     call get_tile_data(restart, 'groundwater_T', 'zfull', soil_groundwater_T_ptr)
+     if(field_exists(restart, 'uptake_T')) &
+          call get_tile_data(restart, 'uptake_T', soil_uptake_T_ptr)
 
-        call error_mesg('soil_init', 'Using new soil restart read', NOTE)
-        call get_field_size(restart_file_name, 'tile_index', siz, field_found=found, domain=lnd%domain)
-        if ( .not.found ) call error_mesg(trim(module_name), &
-             'tile_index axis not found in '//trim(restart_file_name), FATAL)
-        isize = siz(1)
-
-        call get_field_size(restart_file_name, 'zfull', siz, field_found=found, domain=lnd%domain)
-        if ( .not.found ) call error_mesg(trim(module_name), 'Z axis not found in '//trim(restart_file_name), FATAL)
-        nz = siz(1)
-
-        allocate(idx(isize),r1d(isize,nz),r0d(isize),i1d(isize,nz))
-        call read_compressed(restart_file_name,'tile_index',idx, domain=lnd%domain, timelevel=1)
-
-        call read_compressed(restart_file_name,'temp',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_T_ptr,idx,r1d)
- 
-        call read_compressed(restart_file_name,'wl',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_wl_ptr,idx,r1d)
- 
-        call read_compressed(restart_file_name,'ws',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_ws_ptr,idx,r1d)
- 
-        call read_compressed(restart_file_name,'groundwater',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_groundwater_ptr,idx,r1d)
- 
-        call read_compressed(restart_file_name,'groundwater_T',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_groundwater_T_ptr,idx,r1d)
-
-        if ( field_exist(restart_file_name,'uptake_T', domain=lnd%domain) ) then
-           call read_compressed(restart_file_name,'uptake_T',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_uptake_T_ptr,idx,r0d)
-        endif
-
-        if (soil_carbon_option==SOILC_CENTURY.or.soil_carbon_option==SOILC_CENTURY_BY_LAYER) then
-           if ( field_exist(restart_file_name,'fsc', domain=lnd%domain) ) then
-              call read_compressed(restart_file_name,'fsc',r1d, domain=lnd%domain, timelevel=1)
-              call assemble_tiles(soil_fast_soil_C_ptr,idx,r1d)
-              call read_compressed(restart_file_name,'ssc',r1d, domain=lnd%domain, timelevel=1)
-              call assemble_tiles(soil_slow_soil_C_ptr,idx,r1d)
-           else
-              ! try to read fsc and ssc from vegetation restart
-              call get_input_restart_name('INPUT/vegn2.res.nc',restart_exists,restart_file_name,new_land_io)
-              if (restart_exists) then
-                restart_file_name = 'INPUT/vegn2.res.nc'
-                call read_compressed(restart_file_name,'fsc',r0d, domain=lnd%domain, timelevel=1)
-                call assemble_tiles(soil_fast_soil_C_ptr,idx,r0d,1)
-                call read_compressed(restart_file_name,'ssc',r0d, domain=lnd%domain, timelevel=1)
-                call assemble_tiles(soil_slow_soil_C_ptr,idx,r0d,1)
-              endif
+     if (soil_carbon_option==SOILC_CENTURY.or.soil_carbon_option==SOILC_CENTURY_BY_LAYER) then
+        if(field_exists(restart, 'fsc')) then 
+           call get_tile_data(restart,'fsc','zfull',soil_fast_soil_C_ptr)
+           call get_tile_data(restart,'ssc','zfull',soil_slow_soil_C_ptr)
+        else
+           ! try to read fsc and ssc from vegetation restart
+           call get_input_restart_name('INPUT/vegn2.res.nc',restart_exists,restart_file_name)
+           if (restart_exists) then
+              call open_land_restart(restart1,'INPUT/vegn2.res.nc')
+              ! read old (scalar) fsc and ssc into the first element of the fast_soil_C
+              ! and slow_soil_C arrays
+              call get_tile_data(restart1,'fsc',soil_fast_soil_C_ptr,1)
+              call get_tile_data(restart1,'ssc',soil_slow_soil_C_ptr,1)
+              call free_land_restart(restart1)
            endif
         endif
-
-        if ( field_exist(restart_file_name,'fast_soil_C', domain=lnd%domain) ) then
-           te = tail_elmt (lnd%tile_map)
-           ce = first_elmt(lnd%tile_map)
-           do while(ce /= te)
-               tile=>current_tile(ce)  ! get pointer to current tile
-               ce=next_elmt(ce)        ! advance position to the next tile
-               if (.not.associated(tile%soil)) cycle
-               call adjust_pool_ncohorts(tile%soil%leafLitter)
-               call adjust_pool_ncohorts(tile%soil%fineWoodLitter)
-               call adjust_pool_ncohorts(tile%soil%coarseWoodLitter)
-               do i = 1,num_l
-                  call adjust_pool_ncohorts(tile%soil%soil_C(i))
-               enddo
-           end do
-
-           call get_field_size(restart_file_name, 'soilCCohort', siz, field_found=found, domain=lnd%domain)
-           if ( .not.found ) call error_mesg(trim(module_name), &
-                'soil carbon cohort axis not found in '//trim(restart_file_name), FATAL)
-           ncc = siz(1)
-           allocate(r2d(isize,nz,ncc),r1dc(isize,ncc))
-           call read_compressed(restart_file_name,'fast_soil_C',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(sc_soil_C_ptr,C_CEL,idx,r2d)
-           call read_compressed(restart_file_name,'slow_soil_C',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(sc_soil_C_ptr,C_LIG,idx,r2d)
-           call read_compressed(restart_file_name,'deadMic',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(sc_soil_C_ptr,C_MIC,idx,r2d)
-           call read_compressed(restart_file_name,'fastProtectedC',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(sc_protected_C_ptr,C_CEL,idx,r2d)
-           call read_compressed(restart_file_name,'slowProtectedC',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(sc_protected_C_ptr,C_LIG,idx,r2d)
-           call read_compressed(restart_file_name,'deadMicrobeProtectedC',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(sc_protected_C_ptr,C_MIC,idx,r2d)
-           call read_compressed(restart_file_name,'liveMic',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_livingMicrobeC_ptr,idx,r2d)
-           call read_compressed(restart_file_name,'CO2',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_CO2_ptr,idx,r2d)
-           call read_compressed(restart_file_name,'Rtot',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_Rtot_ptr,idx,r2d)
-           call read_compressed(restart_file_name,'originalCohortC',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_originalLitterC_ptr,idx,r2d)
-     
-           call read_compressed(restart_file_name,'soil_DOC_fast',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_fast_DOC_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'soil_DOC_slow',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_slow_DOC_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'soil_DOC_deadmic',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_deadmicrobe_DOC_ptr,idx,r1d)
-     
-           if(field_exist(restart_file_name,'fast_DOC_leached',domain=lnd%domain)) then
-              call read_compressed(restart_file_name,'fast_DOC_leached',r0d, domain=lnd%domain, timelevel=1)
-              call assemble_tiles(soil_fast_DOC_leached_ptr,idx,r0d)
-              call read_compressed(restart_file_name,'slow_DOC_leached',r0d, domain=lnd%domain, timelevel=1)
-              call assemble_tiles(soil_slow_DOC_leached_ptr,idx,r0d)
-              call read_compressed(restart_file_name,'deadmic_DOC_leached',r0d, domain=lnd%domain, timelevel=1)
-              call assemble_tiles(soil_deadmic_DOC_leached_ptr,idx,r0d)
-           endif
-     
-           call read_compressed(restart_file_name,'leaf_litter_fast_C',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_litterC_ptr,C_CEL,idx,r1dc)
-           call read_compressed(restart_file_name,'leaf_litter_slow_C',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_litterC_ptr,C_LIG,idx,r1dc)
-           call read_compressed(restart_file_name,'leaf_litter_deadMic_C',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_litterC_ptr,C_MIC,idx,r1dc)
-           call read_compressed(restart_file_name,'leaf_litter_liveMic_C',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_livingMicrobeC_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'leaf_litter_CO2',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_CO2_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'leaf_litter_Rtot',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_Rtot_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'leaf_litter_originalCohortC',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_originalLitterC_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'leaf_litter_fastProtectedC',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_protectedC_ptr,C_CEL,idx,r1dc)
-           call read_compressed(restart_file_name,'leaf_litter_slowProtectedC',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_protectedC_ptr,C_LIG,idx,r1dc)
-           call read_compressed(restart_file_name,'leaf_litter_deadMicrobeProtectedC',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_protectedC_ptr,C_MIC,idx,r1dc)
-     
-           call read_compressed(restart_file_name,'leaf_litter_DOC_fast',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leaflitter_DOC_ptr,C_CEL,idx,r0d)
-           call read_compressed(restart_file_name,'leaf_litter_DOC_slow',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leaflitter_DOC_ptr,C_LIG,idx,r0d)
-           call read_compressed(restart_file_name,'leaf_litter_DOC_deadmic',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leaflitter_DOC_ptr,C_MIC,idx,r0d)
-     
-           call read_compressed(restart_file_name,'fineWood_litter_fast_C',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_litterC_ptr,C_CEL,idx,r1dc)
-           call read_compressed(restart_file_name,'fineWood_litter_slow_C',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_litterC_ptr,C_LIG,idx,r1dc)
-           call read_compressed(restart_file_name,'fineWood_litter_deadMic_C',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_litterC_ptr,C_MIC,idx,r1dc)
-           call read_compressed(restart_file_name,'fineWood_litter_liveMic_C',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_livingMicrobeC_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'fineWood_litter_CO2',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_CO2_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'fineWood_litter_Rtot',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_Rtot_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'fineWood_litter_originalCohortC',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_originalLitterC_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'fineWood_litter_fastProtectedC',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_protectedC_ptr,C_CEL,idx,r1dc)
-           call read_compressed(restart_file_name,'fineWood_litter_slowProtectedC',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_protectedC_ptr,C_LIG,idx,r1dc)
-           call read_compressed(restart_file_name,'fineWood_litter_deadMicrobeProtectedC',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_protectedC_ptr,C_MIC,idx,r1dc)
-     
-           call read_compressed(restart_file_name,'fineWood_litter_DOC_fast',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodlitter_DOC_ptr,C_CEL,idx,r0d)
-           call read_compressed(restart_file_name,'fineWood_litter_DOC_slow',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodlitter_DOC_ptr,C_LIG,idx,r0d)
-           call read_compressed(restart_file_name,'fineWood_litter_DOC_deadmic',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodlitter_DOC_ptr,C_MIC,idx,r0d)
-     
-           call read_compressed(restart_file_name,'coarseWood_litter_fast_C',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_litterC_ptr,C_CEL,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_slow_C',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_litterC_ptr,C_LIG,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_deadMic_C',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_litterC_ptr,C_MIC,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_liveMic_C',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_livingMicrobeC_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_CO2',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_CO2_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_Rtot',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_Rtot_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_originalCohortC',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_originalLitterC_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_fastProtectedC',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_protectedC_ptr,C_CEL,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_slowProtectedC',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_protectedC_ptr,C_LIG,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_deadMicrobeProtectedC',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_protectedC_ptr,C_MIC,idx,r1dc)
-     
-           call read_compressed(restart_file_name,'coarseWood_litter_DOC_fast',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodlitter_DOC_ptr,C_CEL,idx,r0d)
-           call read_compressed(restart_file_name,'coarseWood_litter_DOC_slow',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodlitter_DOC_ptr,C_LIG,idx,r0d)
-           call read_compressed(restart_file_name,'coarseWood_litter_DOC_deadmic',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodlitter_DOC_ptr,C_MIC,idx,r0d)
-     
-           if(field_exist(restart_file_name,'is_peat',domain=lnd%domain)) then
-              call read_compressed(restart_file_name,'is_peat',i1d, domain=lnd%domain, timelevel=1)
-              call assemble_tiles(soil_is_peat_ptr,idx,i1d)
-           endif
-           deallocate(r2d, r1dc)
-        endif
-        deallocate(idx,r1d,r0d,i1d)
-     else
-        call error_mesg('soil_init', 'reading NetCDF restart "'//trim(restart_file_name)//'"', NOTE)
-        __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
-        call read_tile_data_r1d_fptr(unit, 'temp'         , soil_T_ptr  )
-        call read_tile_data_r1d_fptr(unit, 'wl'           , soil_wl_ptr )
-        call read_tile_data_r1d_fptr(unit, 'ws'           , soil_ws_ptr )
-        call read_tile_data_r1d_fptr(unit, 'groundwater'  , soil_groundwater_ptr )
-        call read_tile_data_r1d_fptr(unit, 'groundwater_T', soil_groundwater_T_ptr)
-        if(nfu_inq_var(unit, 'uptake_T')==NF_NOERR) call read_tile_data_r0d_fptr(unit, 'uptake_T', soil_uptake_T_ptr)
-
-        if (soil_carbon_option==SOILC_CENTURY.or.soil_carbon_option==SOILC_CENTURY_BY_LAYER) then
-           if(nfu_inq_var(unit, 'fsc')==NF_NOERR) then 
-              call read_tile_data_r1d_fptr(unit,'fsc',soil_fast_soil_C_ptr)
-              call read_tile_data_r1d_fptr(unit,'ssc',soil_slow_soil_C_ptr)
-           else
-              ! try to read fsc and ssc from vegetation restart
-              call get_input_restart_name('INPUT/vegn2.res.nc',restart_exists,restart_file_name)
-              if (restart_exists) then
-                 __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit1))
-                 ! read old (scalar) fsc and ssc into the first element of the fast_soil_C
-                 ! and slow_soil_C arrays
-                 call read_tile_data_r0d_fptr(unit1,'fsc',soil_fast_soil_C_ptr, 1)
-                 call read_tile_data_r0d_fptr(unit1,'ssc',soil_slow_soil_C_ptr, 1)
-              endif
-           endif
-        endif
-
-        if (nfu_inq_var(unit,'fast_soil_C')==NF_NOERR) then
-           te = tail_elmt (lnd%tile_map)
-           ce = first_elmt(lnd%tile_map)
-           do while(ce /= te)
-               tile=>current_tile(ce)  ! get pointer to current tile
-               ce=next_elmt(ce)        ! advance position to the next tile
-               if (.not.associated(tile%soil)) cycle
-               call adjust_pool_ncohorts(tile%soil%leafLitter)
-               call adjust_pool_ncohorts(tile%soil%fineWoodLitter)
-               call adjust_pool_ncohorts(tile%soil%coarseWoodLitter)
-               do i = 1,num_l
-                  call adjust_pool_ncohorts(tile%soil%soil_C(i))
-               enddo
-           end do
-        
-           call read_tile_data_r2d_fptr(unit, 'fast_soil_C', sc_soil_C_ptr, C_CEL)
-           call read_tile_data_r2d_fptr(unit, 'slow_soil_C', sc_soil_C_ptr, C_LIG)
-           call read_tile_data_r2d_fptr(unit, 'deadMic',     sc_soil_C_ptr, C_MIC)
-           call read_tile_data_r2d_fptr(unit, 'fastProtectedC', sc_protected_C_ptr, C_CEL)
-           call read_tile_data_r2d_fptr(unit, 'slowProtectedC', sc_protected_C_ptr, C_LIG)
-           call read_tile_data_r2d_fptr(unit, 'deadMicrobeProtectedC', sc_protected_C_ptr, C_MIC)
-
-           call read_tile_data_r2d_fptr(unit,'liveMic',soilc_livingMicrobeC_ptr)
-           call read_tile_data_r2d_fptr(unit,'CO2',soilc_CO2_ptr)
-           call read_tile_data_r2d_fptr(unit,'Rtot',soilc_Rtot_ptr)
-           call read_tile_data_r2d_fptr(unit,'originalCohortC',soilc_originalLitterC_ptr)
-     
-           call read_tile_data_r1d_fptr(unit, 'soil_DOC_fast',soil_fast_DOC_ptr)
-           call read_tile_data_r1d_fptr(unit, 'soil_DOC_slow',soil_slow_DOC_ptr)
-           call read_tile_data_r1d_fptr(unit, 'soil_DOC_deadmic',soil_deadmicrobe_DOC_ptr)
-     
-           if(nfu_inq_var(unit, 'fast_DOC_leached')==NF_NOERR) then
-              call read_tile_data_r0d_fptr(unit,'fast_DOC_leached',     soil_fast_DOC_leached_ptr)
-              call read_tile_data_r0d_fptr(unit,'slow_DOC_leached',     soil_slow_DOC_leached_ptr)
-              call read_tile_data_r0d_fptr(unit,'deadmic_DOC_leached',     soil_deadmic_DOC_leached_ptr)
-           endif
-     
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_fast_C'    , soilc_leafLitter_litterC_ptr, C_CEL)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_slow_C'    , soilc_leafLitter_litterC_ptr, C_LIG)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_deadMic_C' , soilc_leafLitter_litterC_ptr, C_MIC)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_liveMic_C' , soilc_leafLitter_livingMicrobeC_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_CO2'        , soilc_leafLitter_CO2_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_Rtot'       , soilc_leafLitter_Rtot_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_originalCohortC',soilc_leafLitter_originalLitterC_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_fastProtectedC',soilc_leafLitter_protectedC_ptr, C_CEL)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_slowProtectedC',soilc_leafLitter_protectedC_ptr, C_LIG)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_deadMicrobeProtectedC',soilc_leafLitter_protectedC_ptr, C_MIC)
-     
-           call read_tile_data_r0d_fptr(unit, 'leaf_litter_DOC_fast',soilc_leaflitter_DOC_ptr, C_CEL)
-           call read_tile_data_r0d_fptr(unit, 'leaf_litter_DOC_slow',soilc_leaflitter_DOC_ptr, C_LIG)
-           call read_tile_data_r0d_fptr(unit, 'leaf_litter_DOC_deadmic',soilc_leaflitter_DOC_ptr, C_MIC)
-     
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_fast_C'    , soilc_fineWoodLitter_litterC_ptr, C_CEL)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_slow_C'    , soilc_fineWoodLitter_litterC_ptr, C_LIG)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_deadMic_C' , soilc_fineWoodLitter_litterC_ptr, C_MIC)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_liveMic_C' , soilc_fineWoodLitter_livingMicrobeC_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_CO2'       , soilc_fineWoodLitter_CO2_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_Rtot'       , soilc_fineWoodLitter_Rtot_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_originalCohortC',soilc_fineWoodLitter_originalLitterC_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_fastProtectedC',soilc_fineWoodLitter_protectedC_ptr, C_CEL)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_slowProtectedC',soilc_fineWoodLitter_protectedC_ptr, C_LIG)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_deadMicrobeProtectedC',soilc_fineWoodLitter_protectedC_ptr, C_MIC)
-     
-           call read_tile_data_r0d_fptr(unit, 'fineWood_litter_DOC_fast',soilc_fineWoodlitter_DOC_ptr, C_CEL)
-           call read_tile_data_r0d_fptr(unit, 'fineWood_litter_DOC_slow',soilc_fineWoodlitter_DOC_ptr, C_LIG)
-           call read_tile_data_r0d_fptr(unit, 'fineWood_litter_DOC_deadmic',soilc_fineWoodlitter_DOC_ptr, C_MIC)
-     
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_fast_C'    , soilc_coarseWoodLitter_litterC_ptr, C_CEL)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_slow_C'    , soilc_coarseWoodLitter_litterC_ptr, C_LIG)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_deadMic_C' , soilc_coarseWoodLitter_litterC_ptr, C_MIC)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_liveMic_C' , soilc_coarseWoodLitter_livingMicrobeC_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_CO2'       , soilc_coarseWoodLitter_CO2_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_Rtot'      , soilc_coarseWoodLitter_Rtot_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_originalCohortC',soilc_coarseWoodLitter_originalLitterC_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_fastProtectedC',soilc_coarseWoodLitter_protectedC_ptr, C_CEL)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_slowProtectedC',soilc_coarseWoodLitter_protectedC_ptr, C_LIG)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_deadMicrobeProtectedC',soilc_coarseWoodLitter_protectedC_ptr, C_MIC)
-     
-           call read_tile_data_r0d_fptr(unit, 'coarseWood_litter_DOC_fast',soilc_coarseWoodlitter_DOC_ptr, C_CEL)
-           call read_tile_data_r0d_fptr(unit, 'coarseWood_litter_DOC_slow',soilc_coarseWoodlitter_DOC_ptr, C_LIG)
-           call read_tile_data_r0d_fptr(unit, 'coarseWood_litter_DOC_deadmic',soilc_coarseWoodlitter_DOC_ptr, C_MIC)
-     
-           if(nfu_inq_var(unit, 'is_peat')==NF_NOERR) then
-              call read_tile_data_i1d_fptr(unit, 'is_peat',soil_is_peat_ptr)
-           endif
-        endif               
-        __NF_ASRT__(nf_close(unit))     
      endif
+
+     if (field_exists(restart,'fast_soil_C')) then
+        ! we are dealing with CORPSE restart
+        te = tail_elmt (lnd%tile_map)
+        ce = first_elmt(lnd%tile_map)
+        do while(ce /= te)
+            tile=>current_tile(ce)  ! get pointer to current tile
+            ce=next_elmt(ce)        ! advance position to the next tile
+            if (.not.associated(tile%soil)) cycle
+            call adjust_pool_ncohorts(tile%soil%leafLitter)
+            call adjust_pool_ncohorts(tile%soil%fineWoodLitter)
+            call adjust_pool_ncohorts(tile%soil%coarseWoodLitter)
+            do i = 1,num_l
+               call adjust_pool_ncohorts(tile%soil%soil_C(i))
+            enddo
+        end do
+     
+        call get_tile_data(restart, 'fast_soil_C', 'zfull','soilCCohort', sc_soil_C_ptr, C_CEL)
+        call get_tile_data(restart, 'slow_soil_C', 'zfull','soilCCohort', sc_soil_C_ptr, C_LIG)
+        call get_tile_data(restart, 'deadMic',     'zfull','soilCCohort', sc_soil_C_ptr, C_MIC)
+        call get_tile_data(restart, 'fastProtectedC', 'zfull','soilCCohort', sc_protected_C_ptr, C_CEL)
+        call get_tile_data(restart, 'slowProtectedC', 'zfull','soilCCohort', sc_protected_C_ptr, C_LIG)
+        call get_tile_data(restart, 'deadMicrobeProtectedC', 'zfull','soilCCohort', sc_protected_C_ptr, C_MIC)
+
+        call get_tile_data(restart,'liveMic', 'zfull','soilCCohort',soilc_livingMicrobeC_ptr)
+        call get_tile_data(restart,'CO2', 'zfull','soilCCohort',soilc_CO2_ptr)
+        call get_tile_data(restart,'Rtot', 'zfull','soilCCohort',soilc_Rtot_ptr)
+        call get_tile_data(restart,'originalCohortC', 'zfull','soilCCohort', soilc_originalLitterC_ptr)
+  
+        call get_tile_data(restart, 'soil_DOC_fast', 'zfull',soil_fast_DOC_ptr)
+        call get_tile_data(restart, 'soil_DOC_slow', 'zfull',soil_slow_DOC_ptr)
+        call get_tile_data(restart, 'soil_DOC_deadmic', 'zfull',soil_deadmicrobe_DOC_ptr)
+  
+        if(field_exists(restart, 'fast_DOC_leached')) then
+           call get_tile_data(restart,'fast_DOC_leached', soil_fast_DOC_leached_ptr)
+           call get_tile_data(restart,'slow_DOC_leached', soil_slow_DOC_leached_ptr)
+           call get_tile_data(restart,'deadmic_DOC_leached', soil_deadmic_DOC_leached_ptr)
+        endif
+  
+        call get_tile_data(restart, 'leaf_litter_fast_C', 'soilCCohort', soilc_leafLitter_litterC_ptr, C_CEL)
+        call get_tile_data(restart, 'leaf_litter_slow_C', 'soilCCohort', soilc_leafLitter_litterC_ptr, C_LIG)
+        call get_tile_data(restart, 'leaf_litter_deadMic_C', 'soilCCohort', soilc_leafLitter_litterC_ptr, C_MIC)
+        call get_tile_data(restart, 'leaf_litter_liveMic_C', 'soilCCohort', soilc_leafLitter_livingMicrobeC_ptr)
+        call get_tile_data(restart, 'leaf_litter_CO2', 'soilCCohort', soilc_leafLitter_CO2_ptr)
+        call get_tile_data(restart, 'leaf_litter_Rtot', 'soilCCohort', soilc_leafLitter_Rtot_ptr)
+        call get_tile_data(restart, 'leaf_litter_originalCohortC', 'soilCCohort',soilc_leafLitter_originalLitterC_ptr)
+        call get_tile_data(restart, 'leaf_litter_fastProtectedC', 'soilCCohort',soilc_leafLitter_protectedC_ptr, C_CEL)
+        call get_tile_data(restart, 'leaf_litter_slowProtectedC', 'soilCCohort',soilc_leafLitter_protectedC_ptr, C_LIG)
+        call get_tile_data(restart, 'leaf_litter_deadMicrobeProtectedC', 'soilCCohort', soilc_leafLitter_protectedC_ptr, C_MIC)
+  
+        call get_tile_data(restart, 'leaf_litter_DOC_fast',soilc_leaflitter_DOC_ptr, C_CEL)
+        call get_tile_data(restart, 'leaf_litter_DOC_slow',soilc_leaflitter_DOC_ptr, C_LIG)
+        call get_tile_data(restart, 'leaf_litter_DOC_deadmic',soilc_leaflitter_DOC_ptr, C_MIC)
+  
+        call get_tile_data(restart, 'fineWood_litter_fast_C', 'soilCCohort', soilc_fineWoodLitter_litterC_ptr, C_CEL)
+        call get_tile_data(restart, 'fineWood_litter_slow_C', 'soilCCohort', soilc_fineWoodLitter_litterC_ptr, C_LIG)
+        call get_tile_data(restart, 'fineWood_litter_deadMic_C', 'soilCCohort' , soilc_fineWoodLitter_litterC_ptr, C_MIC)
+        call get_tile_data(restart, 'fineWood_litter_liveMic_C', 'soilCCohort' , soilc_fineWoodLitter_livingMicrobeC_ptr)
+        call get_tile_data(restart, 'fineWood_litter_CO2', 'soilCCohort', soilc_fineWoodLitter_CO2_ptr)
+        call get_tile_data(restart, 'fineWood_litter_Rtot', 'soilCCohort', soilc_fineWoodLitter_Rtot_ptr)
+        call get_tile_data(restart, 'fineWood_litter_originalCohortC', 'soilCCohort',soilc_fineWoodLitter_originalLitterC_ptr)
+        call get_tile_data(restart, 'fineWood_litter_fastProtectedC', 'soilCCohort',soilc_fineWoodLitter_protectedC_ptr, C_CEL)
+        call get_tile_data(restart, 'fineWood_litter_slowProtectedC', 'soilCCohort',soilc_fineWoodLitter_protectedC_ptr, C_LIG)
+        call get_tile_data(restart, 'fineWood_litter_deadMicrobeProtectedC', 'soilCCohort',soilc_fineWoodLitter_protectedC_ptr, C_MIC)
+  
+        call get_tile_data(restart, 'fineWood_litter_DOC_fast',soilc_fineWoodlitter_DOC_ptr, C_CEL)
+        call get_tile_data(restart, 'fineWood_litter_DOC_slow',soilc_fineWoodlitter_DOC_ptr, C_LIG)
+        call get_tile_data(restart, 'fineWood_litter_DOC_deadmic',soilc_fineWoodlitter_DOC_ptr, C_MIC)
+  
+        call get_tile_data(restart, 'coarseWood_litter_fast_C', 'soilCCohort', soilc_coarseWoodLitter_litterC_ptr, C_CEL)
+        call get_tile_data(restart, 'coarseWood_litter_slow_C', 'soilCCohort', soilc_coarseWoodLitter_litterC_ptr, C_LIG)
+        call get_tile_data(restart, 'coarseWood_litter_deadMic_C', 'soilCCohort', soilc_coarseWoodLitter_litterC_ptr, C_MIC)
+        call get_tile_data(restart, 'coarseWood_litter_liveMic_C', 'soilCCohort', soilc_coarseWoodLitter_livingMicrobeC_ptr)
+        call get_tile_data(restart, 'coarseWood_litter_CO2', 'soilCCohort', soilc_coarseWoodLitter_CO2_ptr)
+        call get_tile_data(restart, 'coarseWood_litter_Rtot', 'soilCCohort', soilc_coarseWoodLitter_Rtot_ptr)
+        call get_tile_data(restart, 'coarseWood_litter_originalCohortC', 'soilCCohort', soilc_coarseWoodLitter_originalLitterC_ptr)
+        call get_tile_data(restart, 'coarseWood_litter_fastProtectedC', 'soilCCohort', soilc_coarseWoodLitter_protectedC_ptr, C_CEL)
+        call get_tile_data(restart, 'coarseWood_litter_slowProtectedC', 'soilCCohort', soilc_coarseWoodLitter_protectedC_ptr, C_LIG)
+        call get_tile_data(restart, 'coarseWood_litter_deadMicrobeProtectedC', 'soilCCohort', soilc_coarseWoodLitter_protectedC_ptr, C_MIC)
+  
+        call get_tile_data(restart, 'coarseWood_litter_DOC_fast',soilc_coarseWoodlitter_DOC_ptr, C_CEL)
+        call get_tile_data(restart, 'coarseWood_litter_DOC_slow',soilc_coarseWoodlitter_DOC_ptr, C_LIG)
+        call get_tile_data(restart, 'coarseWood_litter_DOC_deadmic',soilc_coarseWoodlitter_DOC_ptr, C_MIC)
+  
+        if(field_exists(restart, 'is_peat')) then
+           call get_tile_data(restart, 'is_peat','zfull', soil_is_peat_ptr)
+        endif
+     endif               
+     call free_land_restart(restart)
   else
      call error_mesg('soil_init', 'cold-starting soil', NOTE)
   endif
@@ -990,128 +769,42 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
   ! read soil carbon restart, if present
   call get_input_restart_name('INPUT/soil_carbon.res.nc',restart_exists,restart_file_name)
   if (restart_exists) then
+     call open_land_restart(restart,'INPUT/soil_carbon.res.nc')
      call error_mesg('veg_data_init','reading soil_carbon restart',NOTE)
-     if(new_land_io) then
-        restart_file_name = 'INPUT/soil_carbon.res.nc'
-        call get_field_size(restart_file_name, 'tile_index', siz, field_found=found, domain=lnd%domain)
-        if ( .not.found ) call error_mesg(trim(module_name), &
-             'tile_index axis not found in '//trim(restart_file_name), FATAL)
-        isize = siz(1)
-
-        call get_field_size(restart_file_name, 'zfull', siz, field_found=found, domain=lnd%domain)
-        if ( .not.found ) call error_mesg(trim(module_name), &
-             'Z axis not found in '//trim(restart_file_name), FATAL)
-        nz = siz(1)
-
-        allocate(idx(isize),r0d(isize),r1d(isize,nz))
-        call read_compressed(restart_file_name,'tile_index',idx, domain=lnd%domain, timelevel=1)
-
-        call read_compressed(restart_file_name,'asoil_in',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_asoil_in_ptr,idx,r1d)
-
-        call read_compressed(restart_file_name,'fsc_in',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_fsc_in_ptr,idx,r1d)
-
-        call read_compressed(restart_file_name,'ssc_in',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_ssc_in_ptr,idx,r1d)
-
-        if (soil_carbon_option==SOILC_CORPSE .and. field_exist(restart_file_name,'deadmic_in', domain=lnd%domain)) then
-           call read_compressed(restart_file_name,'deadmic_in',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_deadmic_in_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'fast_protected_in',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_fast_protected_in_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'slow_protected_in',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_slow_protected_in_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'deadmic_protected_in',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_deadmic_protected_in_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'leaflitter_fsc_in',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_leaflitter_fsc_in_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'leaflitter_ssc_in',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_leaflitter_ssc_in_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'leaflitter_deadmic_in',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_leaflitter_deadmic_in_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'finewoodlitter_fsc_in',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_finewoodlitter_fsc_in_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'finewoodlitter_ssc_in',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_finewoodlitter_ssc_in_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'finewoodlitter_deadmic_in',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_finewoodlitter_deadmic_in_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'coarsewoodlitter_fsc_in',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_coarsewoodlitter_fsc_in_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'coarsewoodlitter_ssc_in',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_coarsewoodlitter_ssc_in_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'coarsewoodlitter_deadmic_in',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_coarsewoodlitter_deadmic_in_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'fast_turnover_accumulated',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_fast_turnover_accumulated_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'slow_turnover_accumulated',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_slow_turnover_accumulated_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'deadmic_turnover_accumulated',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_deadmic_turnover_accumulated_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'fast_protected_turnover_accumulated',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_fast_protected_turnover_accumulated_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'slow_protected_turnover_accumulated',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_slow_protected_turnover_accumulated_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'deadmic_protected_turnover_accumulated',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_deadmic_protected_turnover_accumulated_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'leaflitter_fast_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_leaflitter_fast_turnover_accumulated_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'leaflitter_slow_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_leaflitter_slow_turnover_accumulated_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'leaflitter_deadmic_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_leaflitter_deadmic_turnover_accumulated_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'finewoodlitter_fast_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_finewoodlitter_fast_turnover_accumulated_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'finewoodlitter_slow_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_finewoodlitter_slow_turnover_accumulated_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'finewoodlitter_deadmic_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_finewoodlitter_deadmic_turnover_accumulated_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'coarsewoodlitter_fast_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_coarsewoodlitter_fast_turnover_accumulated_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'coarsewoodlitter_slow_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_coarsewoodlitter_slow_turnover_accumulated_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'coarsewoodlitter_deadmic_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_coarsewoodlitter_deadmic_turnover_accumulated_ptr,idx,r0d)
-        endif
-        deallocate(idx,r0d,r1d)
-     else
-        __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
-        call error_mesg('veg_data_init','reading soil_carbon restart',NOTE)
-        call read_tile_data_r1d_fptr(unit,'asoil_in',soil_asoil_in_ptr)
-        call read_tile_data_r1d_fptr(unit,'fsc_in',soil_fsc_in_ptr)
-        call read_tile_data_r1d_fptr(unit,'ssc_in',soil_ssc_in_ptr)
-        if (soil_carbon_option==SOILC_CORPSE .and. nfu_inq_var(unit, 'deadmic_in')==NF_NOERR) then
-           call read_tile_data_r1d_fptr(unit,'deadmic_in',soil_deadmic_in_ptr)
-           call read_tile_data_r1d_fptr(unit,'fast_protected_in',soil_fast_protected_in_ptr)
-           call read_tile_data_r1d_fptr(unit,'slow_protected_in', soil_slow_protected_in_ptr)
-           call read_tile_data_r1d_fptr(unit,'deadmic_protected_in', soil_deadmic_protected_in_ptr)
-           call read_tile_data_r0d_fptr(unit,'leaflitter_fsc_in', soil_leaflitter_fsc_in_ptr)
-           call read_tile_data_r0d_fptr(unit,'leaflitter_ssc_in', soil_leaflitter_ssc_in_ptr)
-           call read_tile_data_r0d_fptr(unit,'leaflitter_deadmic_in', soil_leaflitter_deadmic_in_ptr)
-           call read_tile_data_r0d_fptr(unit,'finewoodlitter_fsc_in', soil_finewoodlitter_fsc_in_ptr)
-           call read_tile_data_r0d_fptr(unit,'finewoodlitter_ssc_in', soil_finewoodlitter_ssc_in_ptr)
-           call read_tile_data_r0d_fptr(unit,'finewoodlitter_deadmic_in', soil_finewoodlitter_deadmic_in_ptr)
-           call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_fsc_in', soil_coarsewoodlitter_fsc_in_ptr)
-           call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_ssc_in', soil_coarsewoodlitter_ssc_in_ptr)
-           call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_deadmic_in', soil_coarsewoodlitter_deadmic_in_ptr)
-           call read_tile_data_r1d_fptr(unit,'fast_turnover_accumulated', soil_fast_turnover_accumulated_ptr)
-           call read_tile_data_r1d_fptr(unit,'slow_turnover_accumulated', soil_slow_turnover_accumulated_ptr)
-           call read_tile_data_r1d_fptr(unit,'deadmic_turnover_accumulated', soil_deadmic_turnover_accumulated_ptr)
-           call read_tile_data_r1d_fptr(unit,'fast_protected_turnover_accumulated', soil_fast_protected_turnover_accumulated_ptr)
-           call read_tile_data_r1d_fptr(unit,'slow_protected_turnover_accumulated', soil_slow_protected_turnover_accumulated_ptr)
-           call read_tile_data_r1d_fptr(unit,'deadmic_protected_turnover_accumulated', soil_deadmic_protected_turnover_accumulated_ptr)
-           call read_tile_data_r0d_fptr(unit,'leaflitter_fast_turnover_accumulated', soil_leaflitter_fast_turnover_accumulated_ptr)
-           call read_tile_data_r0d_fptr(unit,'leaflitter_slow_turnover_accumulated', soil_leaflitter_slow_turnover_accumulated_ptr)
-           call read_tile_data_r0d_fptr(unit,'leaflitter_deadmic_turnover_accumulated', soil_leaflitter_deadmic_turnover_accumulated_ptr)
-           call read_tile_data_r0d_fptr(unit,'finewoodlitter_fast_turnover_accumulated', soil_finewoodlitter_fast_turnover_accumulated_ptr)
-           call read_tile_data_r0d_fptr(unit,'finewoodlitter_slow_turnover_accumulated', soil_finewoodlitter_slow_turnover_accumulated_ptr)
-           call read_tile_data_r0d_fptr(unit,'finewoodlitter_deadmic_turnover_accumulated', soil_finewoodlitter_deadmic_turnover_accumulated_ptr)
-           call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_fast_turnover_accumulated', soil_coarsewoodlitter_fast_turnover_accumulated_ptr)
-           call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_slow_turnover_accumulated', soil_coarsewoodlitter_slow_turnover_accumulated_ptr)
-           call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_deadmic_turnover_accumulated', soil_coarsewoodlitter_deadmic_turnover_accumulated_ptr)
-        endif
-        __NF_ASRT__(nf_close(unit))     
+     call get_tile_data(restart,'asoil_in','zfull',soil_asoil_in_ptr)
+     call get_tile_data(restart,'fsc_in','zfull',soil_fsc_in_ptr)
+     call get_tile_data(restart,'ssc_in','zfull',soil_ssc_in_ptr)
+     if (soil_carbon_option==SOILC_CORPSE .and. field_exists(restart, 'deadmic_in')) then
+        call get_tile_data(restart,'deadmic_in','zfull',soil_deadmic_in_ptr)
+        call get_tile_data(restart,'fast_protected_in','zfull',soil_fast_protected_in_ptr)
+        call get_tile_data(restart,'slow_protected_in','zfull', soil_slow_protected_in_ptr)
+        call get_tile_data(restart,'deadmic_protected_in','zfull', soil_deadmic_protected_in_ptr)
+        call get_tile_data(restart,'leaflitter_fsc_in', soil_leaflitter_fsc_in_ptr)
+        call get_tile_data(restart,'leaflitter_ssc_in', soil_leaflitter_ssc_in_ptr)
+        call get_tile_data(restart,'leaflitter_deadmic_in', soil_leaflitter_deadmic_in_ptr)
+        call get_tile_data(restart,'finewoodlitter_fsc_in', soil_finewoodlitter_fsc_in_ptr)
+        call get_tile_data(restart,'finewoodlitter_ssc_in', soil_finewoodlitter_ssc_in_ptr)
+        call get_tile_data(restart,'finewoodlitter_deadmic_in', soil_finewoodlitter_deadmic_in_ptr)
+        call get_tile_data(restart,'coarsewoodlitter_fsc_in', soil_coarsewoodlitter_fsc_in_ptr)
+        call get_tile_data(restart,'coarsewoodlitter_ssc_in', soil_coarsewoodlitter_ssc_in_ptr)
+        call get_tile_data(restart,'coarsewoodlitter_deadmic_in', soil_coarsewoodlitter_deadmic_in_ptr)
+        call get_tile_data(restart,'fast_turnover_accumulated','zfull', soil_fast_turnover_accumulated_ptr)
+        call get_tile_data(restart,'slow_turnover_accumulated','zfull', soil_slow_turnover_accumulated_ptr)
+        call get_tile_data(restart,'deadmic_turnover_accumulated','zfull', soil_deadmic_turnover_accumulated_ptr)
+        call get_tile_data(restart,'fast_protected_turnover_accumulated','zfull', soil_fast_protected_turnover_accumulated_ptr)
+        call get_tile_data(restart,'slow_protected_turnover_accumulated','zfull', soil_slow_protected_turnover_accumulated_ptr)
+        call get_tile_data(restart,'deadmic_protected_turnover_accumulated','zfull', soil_deadmic_protected_turnover_accumulated_ptr)
+        call get_tile_data(restart,'leaflitter_fast_turnover_accumulated', soil_leaflitter_fast_turnover_accumulated_ptr)
+        call get_tile_data(restart,'leaflitter_slow_turnover_accumulated', soil_leaflitter_slow_turnover_accumulated_ptr)
+        call get_tile_data(restart,'leaflitter_deadmic_turnover_accumulated', soil_leaflitter_deadmic_turnover_accumulated_ptr)
+        call get_tile_data(restart,'finewoodlitter_fast_turnover_accumulated', soil_finewoodlitter_fast_turnover_accumulated_ptr)
+        call get_tile_data(restart,'finewoodlitter_slow_turnover_accumulated', soil_finewoodlitter_slow_turnover_accumulated_ptr)
+        call get_tile_data(restart,'finewoodlitter_deadmic_turnover_accumulated', soil_finewoodlitter_deadmic_turnover_accumulated_ptr)
+        call get_tile_data(restart,'coarsewoodlitter_fast_turnover_accumulated', soil_coarsewoodlitter_fast_turnover_accumulated_ptr)
+        call get_tile_data(restart,'coarsewoodlitter_slow_turnover_accumulated', soil_coarsewoodlitter_slow_turnover_accumulated_ptr)
+        call get_tile_data(restart,'coarsewoodlitter_deadmic_turnover_accumulated', soil_coarsewoodlitter_deadmic_turnover_accumulated_ptr)
      endif
+     call free_land_restart(restart)
   endif
   
   ! ---- static diagnostic section

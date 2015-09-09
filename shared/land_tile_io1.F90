@@ -141,6 +141,9 @@ interface get_tile_data
    module procedure get_tile_data_r0d_fptr_r0
    module procedure get_tile_data_r0d_fptr_r0i
    module procedure get_tile_data_r1d_fptr_r0i
+   module procedure get_tile_data_r1d_fptr_r0ij
+   module procedure get_tile_data_r2d_fptr_r0ij
+   module procedure get_tile_data_r2d_fptr_r0ijk
 end interface
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
@@ -493,6 +496,27 @@ subroutine add_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index,lon
 end subroutine add_tile_data_r2d_fptr_r0ijk
 
 ! =============================================================================
+subroutine get_tile_data_r0d_fptr_r0(restart,varname,fptr)
+  type(land_restart_type), intent(inout) :: restart
+  character(len=*), intent(in) :: varname ! name of the variable to write
+  procedure(fptr_r0)           :: fptr    ! subroutine returning pointer to the data
+
+  ! ---- local vars
+  integer :: len(4) ! size of the input field
+  real, allocatable :: r(:) ! input data buffer
+  logical :: found
+
+  if (new_land_io) then
+     allocate(r(size(restart%tidx)))
+     call read_compressed(restart%filename,varname,r,domain=lnd%domain,timelevel=1)
+     call assemble_tiles(fptr,restart%tidx,r)
+     deallocate(r)
+  else ! old land io
+     call read_tile_data_r0d_fptr_r0(restart%ncid,varname,fptr)
+  endif
+end subroutine get_tile_data_r0d_fptr_r0
+
+! =============================================================================
 subroutine get_tile_data_r0d_fptr_r0i(restart,varname,fptr,index)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
@@ -513,27 +537,6 @@ subroutine get_tile_data_r0d_fptr_r0i(restart,varname,fptr,index)
      call read_tile_data_r0d_fptr_r0i(restart%ncid,varname,fptr,index)
   endif
 end subroutine get_tile_data_r0d_fptr_r0i
-
-! =============================================================================
-subroutine get_tile_data_r0d_fptr_r0(restart,varname,fptr)
-  type(land_restart_type), intent(inout) :: restart
-  character(len=*), intent(in) :: varname ! name of the variable to write
-  procedure(fptr_r0)           :: fptr    ! subroutine returning pointer to the data
-
-  ! ---- local vars
-  integer :: len(4) ! size of the input field
-  real, allocatable :: r(:) ! input data buffer
-  logical :: found
-
-  if (new_land_io) then
-     allocate(r(size(restart%tidx)))
-     call read_compressed(restart%filename,varname,r,domain=lnd%domain,timelevel=1)
-     call assemble_tiles(fptr,restart%tidx,r)
-     deallocate(r)
-  else ! old land io
-     call read_tile_data_r0d_fptr_r0(restart%ncid,varname,fptr)
-  endif
-end subroutine get_tile_data_r0d_fptr_r0
 
 ! =============================================================================
 subroutine get_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr)
@@ -563,6 +566,106 @@ subroutine get_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr)
      call read_tile_data_r1d_fptr_r0i(restart%ncid,varname,fptr)
   endif
 end subroutine get_tile_data_r1d_fptr_r0i
+
+! =============================================================================
+subroutine get_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index)
+  type(land_restart_type), intent(inout) :: restart
+  character(len=*), intent(in) :: varname ! name of the variable to write
+  character(len=*), intent(in) :: zdim ! name of the z-dimension
+  procedure(fptr_r0ij)         :: fptr    ! subroutine returning pointer to the data
+  integer ,         intent(in) :: index
+
+  ! ---- local vars
+  integer :: len(4) ! size of the input field
+  real, allocatable :: r(:,:) ! input data buffer
+  logical :: found
+
+  if (new_land_io) then
+     ! get the size of zdim
+     call get_field_size(restart%filename,zdim,len,field_found=found,domain=lnd%domain)
+     if (.not.found) call error_mesg('get_tile_data_r1d_fptr_r0ij', &
+        'axis "'//trim(zdim)//'" was not found in file "'//trim(restart%filename)//'"', &
+        FATAL)
+
+     ! read the data
+     allocate(r(size(restart%tidx),len(1)))
+     call read_compressed(restart%filename,varname,r,domain=lnd%domain,timelevel=1)
+     call assemble_tiles(fptr,index,restart%tidx,r)
+     deallocate(r)
+  else ! old land io
+     call read_tile_data_r1d_fptr_r0ij(restart%ncid,varname,fptr,index)
+  endif
+end subroutine get_tile_data_r1d_fptr_r0ij
+
+! =============================================================================
+subroutine get_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr)
+  type(land_restart_type), intent(inout) :: restart
+  character(len=*), intent(in) :: varname ! name of the variable to write
+  character(len=*), intent(in) :: dim1,dim2 ! names of the dimensions
+  procedure(fptr_r0ij)         :: fptr    ! subroutine returning pointer to the data
+
+  ! ---- local vars
+  integer :: len(4),n,m ! size of the input field
+  real, allocatable :: r(:,:,:) ! input data buffer
+  logical :: found
+
+  if (new_land_io) then
+     ! get the size of dimensions
+     call get_field_size(restart%filename,dim1,len,field_found=found,domain=lnd%domain)
+     if (.not.found) call error_mesg('get_tile_data_r0d_fptr_r0i', &
+        'axis "'//trim(dim1)//'" was not found in file "'//trim(restart%filename)//'"', &
+        FATAL)
+     n=len(1)
+     call get_field_size(restart%filename,dim2,len,field_found=found,domain=lnd%domain)
+     if (.not.found) call error_mesg('get_tile_data_r0d_fptr_r0i', &
+        'axis "'//trim(dim2)//'" was not found in file "'//trim(restart%filename)//'"', &
+        FATAL)
+     m=len(1)
+     
+     ! read the data
+     allocate(r(size(restart%tidx),n,m))
+     call read_compressed(restart%filename,varname,r,domain=lnd%domain,timelevel=1)
+     call assemble_tiles(fptr,restart%tidx,r)
+     deallocate(r)
+  else ! old land io
+     call read_tile_data_r2d_fptr_r0ij(restart%ncid,varname,fptr)
+  endif
+end subroutine get_tile_data_r2d_fptr_r0ij
+
+! =============================================================================
+subroutine get_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index)
+  type(land_restart_type), intent(inout) :: restart
+  character(len=*), intent(in) :: varname ! name of the variable to write
+  character(len=*), intent(in) :: dim1,dim2 ! names of the extra dimensions
+  procedure(fptr_r0ijk)        :: fptr    ! subroutine returning pointer to the data
+  integer,          intent(in) :: index   ! index where to read the data
+
+  ! ---- local vars
+  integer :: len(4), m, n ! size of the input field
+  real, allocatable :: r(:,:,:) ! input data buffer
+  logical :: found
+
+  if (new_land_io) then
+     ! get the size of zdim
+     call get_field_size(restart%filename,dim1,len,field_found=found,domain=lnd%domain)
+     if (.not.found) call error_mesg('get_tile_data_r0d_fptr_r0i', &
+        'axis "'//trim(dim1)//'" was not found in file "'//trim(restart%filename)//'"', &
+        FATAL)
+     n = len(1)
+     call get_field_size(restart%filename,dim2,len,field_found=found,domain=lnd%domain)
+     if (.not.found) call error_mesg('get_tile_data_r0d_fptr_r0i', &
+        'axis "'//trim(dim1)//'" was not found in file "'//trim(restart%filename)//'"', &
+        FATAL)
+     m = len(1)
+     ! read the data
+     allocate(r(size(restart%tidx),n,m))
+     call read_compressed(restart%filename,varname,r,domain=lnd%domain,timelevel=1)
+     call assemble_tiles(fptr,index,restart%tidx,r)
+     deallocate(r)
+  else ! old land io
+     call read_tile_data_r2d_fptr_r0ijk(restart%ncid,varname,fptr,index)
+  endif
+end subroutine get_tile_data_r2d_fptr_r0ijk
 
 ! =============================================================================
 ! given a generic name of the restart file, checks if a file with one of the 
