@@ -388,13 +388,6 @@ subroutine get_tile_data_r0d_fptr_r0i(restart,varname,fptr,index)
   logical :: found
 
   if (new_land_io) then
-     call get_field_size(restart%filename,varname,len,field_found=found,domain=lnd%domain)
-     if (.not.found) call error_mesg('get_tile_data_r0d_fptr_r0i', &
-        'variable "'//trim(varname)//'" was not found in file "'//trim(restart%filename)//'"', &
-        FATAL)
-     ! TODO: possibly check that the number of var dimensions is correct (tile index, time)
-  
-     ! read the data
      allocate(r(size(restart%tidx)))
      call read_compressed(restart%filename,varname,r,domain=lnd%domain,timelevel=1)
      call assemble_tiles(fptr,index,restart%tidx,r)
@@ -416,13 +409,6 @@ subroutine get_tile_data_r0d_fptr_r0(restart,varname,fptr)
   logical :: found
 
   if (new_land_io) then
-     call get_field_size(restart%filename,varname,len,field_found=found,domain=lnd%domain)
-     if (.not.found) call error_mesg('get_tile_data_r0d_fptr_r0i', &
-        'variable "'//trim(varname)//'" was not found in file "'//trim(restart%filename)//'"', &
-        FATAL)
-     ! TODO: possibly check that the number of var dimensions is correct (tile index, time)
-  
-     ! read the data
      allocate(r(size(restart%tidx)))
      call read_compressed(restart%filename,varname,r,domain=lnd%domain,timelevel=1)
      call assemble_tiles(fptr,restart%tidx,r)
@@ -445,12 +431,7 @@ subroutine get_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr)
   logical :: found
 
   if (new_land_io) then
-     call get_field_size(restart%filename,varname,len,field_found=found,domain=lnd%domain)
-     if (.not.found) call error_mesg('get_tile_data_r1d_fptr_r0i', &
-        'variable "'//trim(varname)//'" was not found in file "'//trim(restart%filename)//'"', &
-        FATAL)
-     ! TODO: possibly check that the number of var dimensions is correct (tile index, zdim, time)
-  
+     ! get the size of zdim
      call get_field_size(restart%filename,zdim,len,field_found=found,domain=lnd%domain)
      if (.not.found) call error_mesg('get_tile_data_r0d_fptr_r0i', &
         'axis "'//trim(zdim)//'" was not found in file "'//trim(restart%filename)//'"', &
