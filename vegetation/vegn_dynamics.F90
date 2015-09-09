@@ -27,7 +27,7 @@ use soil_carbon_mod, only: soil_carbon_option, &
     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
     add_litter, poolTotals, debug_pool,soil_NO3_deposition,soil_NH4_deposition
 
-use soil_mod, only: add_root_litter, add_root_exudates, Dsdt
+use soil_mod, only: add_root_litter, add_root_exudates, Dsdt, myc_scavenger_N_uptake
 
 use land_debug_mod, only : is_watch_point
 
@@ -120,6 +120,7 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, diag)
   real :: md_alive, md_leaf, md_wood, md_froot ! component of maintenance demand
   real :: gpp ! gross primary productivity per tile
   real :: root_exudate_C, total_root_exudate_C
+  real :: myc_N_uptake
   integer :: sp ! shorthand for current cohort specie
   integer :: i
 
@@ -133,6 +134,7 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, diag)
   resp = 0 ; resl = 0 ; resr = 0 ; resg = 0 ; gpp = 0
   cgain = 0 ; closs = 0
   total_root_exudate_C = 0
+  soil%myc_min_N_uptake = 0
   do i = 1, vegn%n_cohorts
      cc => vegn%cohorts(i)
      sp = cc%species
@@ -265,13 +267,22 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, diag)
      ! accumulate gain/loss terms for tile-level reporting
      cgain = cgain + cc%carbon_gain
      closs = closs + cc%carbon_loss
-  enddo
+
+     ! Mycorrhizal N uptake
+     if(soil_carbon_option == SOILC_CORPSE_N) then
+       call myc_scavenger_N_uptake(soil,vegn,cc%myc_scavenger_biomass,myc_N_uptake,dt_fast_yr)
+       soil%myc_min_N_uptake=soil%myc_min_N_uptake+myc_N_uptake
+     end if
+
+   enddo
 
   ! fsc_in and ssc_in updated in add_root_exudates
   call add_root_exudates(soil,vegn,total_root_exudate_C,total_root_exudate_C*root_exudate_N_frac)
 
   ! update soil carbon
   call Dsdt(vegn, soil, diag, soilt, theta)
+
+
 
   ! NEP is equal to NNP minus soil respiration
   vegn%nep = vegn%npp - vegn%rh

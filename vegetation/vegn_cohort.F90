@@ -136,6 +136,9 @@ type :: vegn_cohort_type
   ! This will be either fixed or calculated as a function of nitrogen uptake or availability
   real :: max_leaf_biomass = 0.0
 
+  ! Biomass of "scavenger" type mycorrhizae (corresponding to Arbuscular mycorrhizae)
+  real :: myc_scavenger_biomass = 0.0
+
 ! in LM3V the cohort structure has a handy pointer to the tile it belongs to;
 ! so operations on cohort can update tile-level variables. In this code, it is
 ! probably impossible to have this pointer here: it needs to be of type
@@ -540,6 +543,7 @@ subroutine update_biomass_pools(c)
   extra_leaf_biomass=max(0.0,c%bl-c%max_leaf_biomass)
   ! What to do with extra biomass?  Roots or wood?
   ! Probably needs some sort of optimization
+  ! Could decide all allocation here: between mycorrhizae vs additional root growth
   c%bl=c%bl-extra_leaf_biomass
   ! Putting extra biomass in roots for now
   c%br=c%br+extra_leaf_biomass

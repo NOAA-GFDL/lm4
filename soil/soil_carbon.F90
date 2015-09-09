@@ -49,6 +49,7 @@ public :: transfer_pool_fraction
 public :: retrieve_DOC ! report DOC concentration to hlsp_hydrology
 public :: retrieve_DON
 public :: retrieve_dissolved_mineral_N
+public :: mycorrhizal_mineral_N_uptake_rate
 
 #ifndef STANDALONE_SOIL_CARBON
 public :: get_pool_data_accessors
@@ -150,9 +151,11 @@ real*8					   :: Ea_NH4=37e3	                 !Activation energy for immobilizat
 real*8					   :: Ea_NO3=37e3	                 !Activation energy for immobilization of nitrate (kJ/mol)
 real*8					   :: Ea_nitrif=37e3                 !Activation energy for nitrification of ammonium  (kJ/mol)
 real*8					   :: Ea_denitr=37e3				 !Activation energy for uptake of inorganic nitrogen  (kJ/mol)
+real*8             :: Vmax_myc_min_N_uptk    ! Vmax of mycorrhizal uptake of mineral N (kgN/m2/year)
+real*8             :: k_myc_min_N_uptk       ! half-saturation constant for mycorrhizal uptake of mineral N (kgC/m3 of mycorrhizal biomass)
 real,dimension(n_c_types) :: vmaxref=(/4e1,1e1,.5e1/)       !Vmax at reference temperature (yr-1)
 real,dimension(n_c_types) :: kC=(/.5,.1,0.05/)              !Michaelis-Menton C parameter (dimensionless)
-real                      :: Tmic=0.2                       !Microbial turnover rate (yr-1)
+real                      :: Tmic=0.2                       !Microbial mean lifetime (yr)
 real                      :: et=0.5                         !Fraction of microbial turnover not converted to CO2
 real*8                     :: V_NH4_ref=0.03                 !Ref. Microbes Efficiency of Ammonium immobilizatiion (yr-1 (kg-microbial-C-biomass/m2)-1) uptake rate per unit microbe C-biomass
 real*8                     :: V_NO3_ref=0.01                 !Ref. Microbes Efficiency of Nitrate immobilizatiion
@@ -1107,7 +1110,7 @@ subroutine initializeCohort(cohort,litterInputC,litterInputN,initialMicrobeC,ini
 end subroutine initializeCohort
 
 
-function Resp(Ctotal,Chet,T,theta,air_filled_porosity)
+pure function Resp(Ctotal,Chet,T,theta,air_filled_porosity)
     real,intent(in)::Chet                       !heterotrophic (microbial) C
     real,intent(in)::T,theta                    !temperature (k), theta (fraction of 1.0)
     real,intent(in)::air_filled_porosity        !Fraction of 1.0.  Different from theta since it includes ice
@@ -1139,7 +1142,7 @@ function Resp(Ctotal,Chet,T,theta,air_filled_porosity)
 end function Resp
 
 
-function Vmax(T)
+pure function Vmax(T)
     real,intent(in)::T
     real,parameter::Tref=293.15
     real,dimension(n_c_types)::alpha,Vmax
@@ -1148,12 +1151,24 @@ function Vmax(T)
     Vmax=alpha*exp(-Ea/(Rugas*T))
 end function Vmax
 
-!Not used
-real function oxygen_concentration(Oxw,tw,kO,demand)
-    real,intent(in)::Oxw,demand,tw,kO !Oxygen content of water, oxygen demand
 
-    oxygen_concentration=0.5*(Oxw-tw*demand-kO + sqrt((tw*demand+kO-Oxw)**2 + 4*Oxw*kO))
-end function oxygen_concentration
+! Calculates the rate of [Arbuscular] mycorrhizal uptake of mineral N in the pool.
+! This is a function of mycorrhizal biomass concentration and mineral N in the layer
+pure subroutine mycorrhizal_mineral_N_uptake_rate(pool,myc_biomass,layer_thickness,nitrate_uptake,ammonium_uptake)
+  type(soil_pool),intent(in)::pool
+  real,intent(in)::myc_biomass             ! (kgC/m2)
+  real,intent(in)::layer_thickness         ! (m)
+  real,intent(out)::nitrate_uptake         ! (kgN/m2/year)
+  real,intent(out)::ammonium_uptake        ! (kgN/m2/year)
+
+
+  ! This is a Michaelis-Menton function of mycorrhizal biomass concentration and total mineral N
+  nitrate_uptake = pool%nitrate*Vmax_myc_min_N_uptk*&
+          (myc_biomass/layer_thickness)/(k_myc_min_N_uptk+myc_biomass/layer_thickness)
+  ammonium_uptake = pool%nitrate*Vmax_myc_min_N_uptk*&
+          (myc_biomass/layer_thickness)/(k_myc_min_N_uptk+myc_biomass/layer_thickness)
+
+end subroutine mycorrhizal_mineral_N_uptake_rate
 
 ! =============================================================================
 ! prints on-line state of the carbon cohort
@@ -1215,14 +1230,14 @@ end subroutine
 
 
 !Check for carbon balance and invalid values
-logical function check_cohort(cohort) result(cohortGood)
+pure logical function check_cohort(cohort) result(cohortGood)
     type(litterCohort),intent(in)::cohort
     integer::n
     logical:: tempGood
     real :: cohortC
     real :: cohortN
     ! ZMS
-    real :: tol_roundoff = 1.e-11    ![kg C/m^2] tolerance for roundoff error in soil carbon numerics
+    real,parameter :: tol_roundoff = 1.e-11    ![kg C/m^2] tolerance for roundoff error in soil carbon numerics
 
     cohortGood=.NOT. ( &
      (min(cohort%originalLitterC,cohort%livingMicrobeC,cohort%CO2).lt.-tol_roundoff) .OR. &
@@ -1266,7 +1281,7 @@ end function check_cohort
 
 
 
-function cohortCSum(cohort,only_active)
+pure function cohortCSum(cohort,only_active)
     type(litterCohort),intent(in)::cohort
     logical,intent(in),optional::only_active
     real::tempSum
@@ -1289,7 +1304,7 @@ function cohortCSum(cohort,only_active)
     cohortCSum=tempSum
 END FUNCTION
 
-function cohortNSum(cohort,only_active)
+pure function cohortNSum(cohort,only_active)
     type(litterCohort),intent(in)::cohort
     logical,intent(in),optional::only_active
     real*8::tempSum

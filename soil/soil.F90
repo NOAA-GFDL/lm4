@@ -40,7 +40,7 @@ use soil_carbon_mod, only: poolTotals, get_pool_data_accessors, soilMaxCohorts, 
      update_pool, add_litter,add_C_N_to_rhizosphere, &
      tracer_leaching_with_litter,transfer_pool_fraction, n_c_types, &
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
-     A_function, debug_pool
+     A_function, debug_pool, mycorrhizal_mineral_N_uptake_rate
 
 
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
@@ -102,6 +102,7 @@ public :: soil_step_3
 public :: Dsdt
 public :: add_root_litter
 public :: add_root_exudates
+public :: myc_scavenger_N_uptake
 public :: redistribute_peat_carbon
 ! =====end of public interfaces ==============================================
 
@@ -6930,6 +6931,35 @@ subroutine add_root_exudates(soil,vegn,exudateC,exudateN)
 
 end subroutine add_root_exudates
 
+! Uptake of mineral N by mycorrhizal "scavengers" -- Should correspond to Arbuscular mycorrhizae
+subroutine myc_scavenger_N_uptake(soil,vegn,myc_biomass,total_N_uptake,dt)
+  real,intent(in)::myc_biomass,dt  ! dt in years, myc_biomass in kgC/m2
+  real,intent(out)::total_N_uptake
+  type(vegn_tile_type),intent(in)::vegn
+  type(soil_tile_type),intent(inout)::soil
+
+  real,dimension(num_l) :: uptake_frac_max, vegn_uptake_term
+  real::nitrate_uptake,ammonium_uptake
+  integer::nn
+
+  call vegn_uptake_profile (vegn, dz(1:num_l), uptake_frac_max, vegn_uptake_term )
+
+  total_N_uptake=0.0
+  do nn=1,num_l
+    call mycorrhizal_mineral_N_uptake_rate(soil%soil_organic_matter(nn),myc_biomass*uptake_frac_max(nn),dz(nn),nitrate_uptake,ammonium_uptake)
+    total_N_uptake=total_N_uptake+(ammonium_uptake+nitrate_uptake)*dt
+    soil%soil_organic_matter(nn)%ammonium=soil%soil_organic_matter(nn)%ammonium-ammonium_uptake*dt
+    soil%soil_organic_matter(nn)%nitrate=soil%soil_organic_matter(nn)%nitrate-nitrate_uptake*dt
+  enddo
+
+  ! Mycorrhizae should have access to litter layer too
+  ! Might want to update this so it calculates actual layer thickness?
+  call mycorrhizal_mineral_N_uptake_rate(soil%leafLitter,myc_biomass*uptake_frac_max(1),dz(1),nitrate_uptake,ammonium_uptake)
+  total_N_uptake=total_N_uptake+(nitrate_uptake+ammonium_uptake)*dt
+  soil%leafLitter%ammonium=soil%leafLitter%ammonium-ammonium_uptake*dt
+  soil%leafLitter%nitrate=soil%leafLitter%nitrate-nitrate_uptake*dt
+
+end subroutine myc_scavenger_N_uptake
 
 ! ============================================================================
 subroutine redistribute_peat_carbon(soil)
