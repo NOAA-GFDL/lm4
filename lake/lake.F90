@@ -11,10 +11,8 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only : error_mesg, file_exist, read_data, check_nml_error, &
      stdlog, write_version_number, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
-use fms_io_mod, only : read_compressed, restart_file_type, free_restart_type, &
-     field_exist, get_field_size, save_restart, register_restart_axis, &
-     register_restart_field, set_domain, nullify_domain
-use time_manager_mod,   only: time_type, increment_time, time_type_to_real
+use fms_io_mod, only : set_domain, nullify_domain
+use time_manager_mod,   only: time_type_to_real
 use diag_manager_mod,   only: diag_axis_init, register_diag_field,           &
                               register_static_field, send_data
 use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o, PI, grav, vonkarm, &
@@ -34,10 +32,10 @@ use land_tile_diag_mod, only : register_tiled_static_field, &
      send_tile_data_r0d_fptr, add_tiled_static_field_alias, &
      set_default_diag_filter
 use land_data_mod,      only : land_state_type, lnd, land_time
-use land_tile_io_mod, only : print_netcdf_error, create_tile_out_file, &
-     read_tile_data_r1d_fptr, write_tile_data_r1d_fptr, sync_nc_files, &
-     get_input_restart_name, gather_tile_data, assemble_tiles
-use nf_utils_mod, only : nfu_inq_var, nfu_def_dim, nfu_put_att
+use land_tile_io_mod1, only: land_restart_type, &
+     init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
+     get_input_restart_name, add_restart_axis, add_tile_data, get_tile_data, &
+     field_exists
 use land_debug_mod, only: is_watch_point
 use land_utils_mod, only : put_to_tiles_r0d_fptr
 
@@ -49,7 +47,6 @@ public :: read_lake_namelist
 public :: lake_init
 public :: lake_end
 public :: save_lake_restart
-public :: save_lake_restart_new
 public :: lake_get_sfc_temp
 public :: lake_radiation
 public :: lake_diffusion
@@ -116,10 +113,6 @@ integer :: id_evap, id_dz, id_wl, id_ws, id_K_z, id_silld, id_sillw, id_backw
 integer :: id_back1
 ! ==== end of module variables ===============================================
 
-! ==== NetCDF declarations ===================================================
-include 'netcdf.inc'
-#define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
-
 contains
 
 ! ============================================================================
@@ -178,24 +171,19 @@ end subroutine read_lake_namelist
 
 ! ============================================================================
 ! initialize lake model
-subroutine lake_init ( id_lon, id_lat, new_land_io )
+subroutine lake_init ( id_lon, id_lat )
   integer, intent(in) :: id_lon  ! ID of land longitude (X) axis  
   integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
-  logical, intent(in)  :: new_land_io  ! This is a transition var and will be removed
 
   ! ---- local vars 
-  integer :: unit         ! unit for various i/o
-  integer :: isize,nz     ! Len of io domain vector and number of levels
   type(land_tile_enum_type)     :: te,ce ! last and current tile list elements
   type(land_tile_type), pointer :: tile  ! pointer to current tile
   character(len=256) :: restart_file_name
   character(len=17) :: restart_base_name='INPUT/lake.res.nc'
-  integer :: siz(4)
-  integer, allocatable :: idx(:)         ! I/O domain vector of compressed indices
-  real,    allocatable :: r1d(:,:)       ! I/O domain level dependent vector of real data
-  logical :: restart_exists, found
+  type(land_restart_type) :: restart
+  logical :: restart_exists
   real, allocatable :: buffer(:,:),bufferc(:,:),buffert(:,:)
-  integer i
+  integer :: i
   logical :: river_data_exist
 
   module_is_initialized = .TRUE.
@@ -299,48 +287,13 @@ subroutine lake_init ( id_lon, id_lat, new_land_io )
   call get_input_restart_name(restart_base_name,restart_exists,restart_file_name)
   if (restart_exists) then
      call error_mesg('lake_init', 'reading NetCDF restart "'//trim(restart_file_name)//'"', NOTE)
-     if(new_land_io)then
-         call error_mesg('lake_init', 'Using new lake restart read', NOTE)
- 
-         restart_file_name = restart_base_name
-
-         call get_field_size(restart_file_name, 'tile_index', siz, field_found=found, domain=lnd%domain)
-         if ( .not.found ) call error_mesg(trim(module_name), &
-              'tile_index axis not found in '//trim(restart_file_name), FATAL)
-         isize = siz(1)
-
-         call get_field_size(restart_file_name, 'zfull', siz, field_found=found, domain=lnd%domain)
-         if ( .not.found ) call error_mesg(trim(module_name), &
-              'Z axis not found in '//trim(restart_file_name), FATAL)
-         nz = siz(1)
-
-         allocate(idx(isize),r1d(isize,nz))
-
-         call read_compressed(restart_file_name,'tile_index',idx, domain=lnd%domain, timelevel=1)
-         
-         if (field_exist(restart_file_name, 'dz', domain=lnd%domain)) then
-            call read_compressed(restart_file_name,'dz',r1d,domain=lnd%domain, timelevel=1)
-            call assemble_tiles(lake_dz_ptr,idx,r1d)
-         endif
-
-         call read_compressed(restart_file_name,'temp',r1d, domain=lnd%domain, timelevel=1)
-         call assemble_tiles(lake_temp_ptr,idx,r1d)
- 
-         call read_compressed(restart_file_name,'wl',r1d, domain=lnd%domain, timelevel=1)
-         call assemble_tiles(lake_wl_ptr,idx,r1d)
- 
-         call read_compressed(restart_file_name,'ws',r1d, domain=lnd%domain, timelevel=1)
-         call assemble_tiles(lake_ws_ptr,idx,r1d)
- 
-         deallocate(idx,r1d)
-     else
-         __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
-         if(nfu_inq_var(unit, 'dz')==NF_NOERR) call read_tile_data_r1d_fptr(unit, 'dz', lake_dz_ptr )
-         call read_tile_data_r1d_fptr(unit, 'temp'         , lake_temp_ptr )
-         call read_tile_data_r1d_fptr(unit, 'wl'           , lake_wl_ptr )
-         call read_tile_data_r1d_fptr(unit, 'ws'           , lake_ws_ptr )
-         __NF_ASRT__(nf_close(unit))     
-     endif
+     call open_land_restart(restart,restart_base_name)
+     if (field_exists(restart,'dz')) &
+        call get_tile_data(restart, 'dz', 'zfull', lake_dz_ptr)
+     call get_tile_data(restart, 'temp', 'zfull', lake_temp_ptr)
+     call get_tile_data(restart, 'wl',   'zfull', lake_wl_ptr)
+     call get_tile_data(restart, 'ws',   'zfull', lake_ws_ptr)
+     call free_land_restart(restart)
   else
      call error_mesg('lake_init', 'cold-starting lake', NOTE)
   endif
@@ -368,82 +321,30 @@ subroutine save_lake_restart (tile_dim_length, timestamp)
   integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
   character(*), intent(in) :: timestamp ! timestamp to add to the file name
 
-  ! ---- local vars ----------------------------------------------------------
-  integer :: unit            ! restart file i/o unit
+  ! ---- local vars
+  character(267) :: filename
+  type(land_restart_type) :: restart ! restart file i/o object
 
   call error_mesg('lake_end','writing NetCDF restart',NOTE)
-  call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'lake.res.nc', &
-          lnd%coord_glon, lnd%coord_glat, lake_tile_exists, tile_dim_length)
-
-  ! in addition, define vertical coordinate
-  if (mpp_pe()==lnd%io_pelist(1)) then
-     __NF_ASRT__(nfu_def_dim(unit,'zfull',zfull(1:num_l),'full level','m'))
-     __NF_ASRT__(nfu_put_att(unit,'zfull','positive','down'))
-  endif
-  call sync_nc_files(unit)
-  
-  ! write out fields
-  call write_tile_data_r1d_fptr(unit,'dz'           ,lake_dz_ptr,  'zfull','layer thickness','m')
-  call write_tile_data_r1d_fptr(unit,'temp'         ,lake_temp_ptr,'zfull','lake temperature','degrees_K')
-  call write_tile_data_r1d_fptr(unit,'wl'           ,lake_wl_ptr  ,'zfull','liquid water content','kg/m2')
-  call write_tile_data_r1d_fptr(unit,'ws'           ,lake_ws_ptr  ,'zfull','solid water content','kg/m2')
-  
-  ! close file
-  __NF_ASRT__(nf_close(unit))
-
-end subroutine save_lake_restart
-
-! ============================================================================
-subroutine save_lake_restart_new (tile_dim_length, timestamp)
-  integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
-  character(*), intent(in) :: timestamp ! timestamp to add to the file name
-
-  ! ---- local vars ----------------------------------------------------------
-  character(267) :: fname
-  type(restart_file_type) :: lake_restart ! restart file i/o object
-  integer, allocatable :: idx(:)
-  real, allocatable :: dz(:,:)
-  real, allocatable :: temp(:,:)
-  real, allocatable :: wl(:,:)
-  real, allocatable :: ws(:,:)
-  real, allocatable :: gw(:,:)
-  real, allocatable :: gwT(:,:)
-  integer :: id_restart, isize
-
-  call error_mesg('lake_end','writing new format NetCDF restart',NOTE)
 ! must set domain so that io_domain is available
   call set_domain(lnd%domain)
-! Note that fname is updated for tile & rank numbers during file creation
-  fname = trim(timestamp)//'lake.res.nc'
-  call create_tile_out_file(lake_restart,idx,fname,lake_tile_exists,tile_dim_length,zfull(1:num_l))
-  isize = size(idx)
-  allocate(dz(isize,num_l), temp(isize,num_l), wl(isize,num_l), ws(isize,num_l), gw(isize,num_l), gwT(isize,num_l))
-
-  ! Output data provides signature
-  call gather_tile_data(lake_dz_ptr,idx,dz)
-  id_restart = register_restart_field(lake_restart,fname,'dz',dz,compressed=.true., &
-                                      longname='layer thickness',units='m')
-
-  call gather_tile_data(lake_temp_ptr,idx,temp)
-  id_restart = register_restart_field(lake_restart,fname,'temp',temp,compressed=.true., &
-                                      longname='lake temperature',units='degrees_K')
-
-  call gather_tile_data(lake_wl_ptr,idx,wl)
-  id_restart = register_restart_field(lake_restart,fname,'wl',wl,compressed=.true., &
-                                      longname='liquid water content',units='kg/m2')
-
-  call gather_tile_data(lake_ws_ptr,idx,ws)
-  id_restart = register_restart_field(lake_restart,fname,'ws',ws,compressed=.true., &
-                                      longname='solid water content',units='kg/m2')
-
+! Note that filename is updated for tile & rank numbers during file creation
+  filename = trim(timestamp)//'lake.res.nc'
+  call init_land_restart(restart, filename, lake_tile_exists, tile_dim_length)
+  call add_restart_axis(restart,'zfull',zfull(1:num_l),'Z','m','full level',sense=-1)
+  
+  ! write out fields
+  call add_tile_data(restart,'dz',   'zfull', lake_dz_ptr,   'layer thickness','m')
+  call add_tile_data(restart,'temp', 'zfull', lake_temp_ptr, 'lake temperature','degrees_K')
+  call add_tile_data(restart,'wl',   'zfull', lake_wl_ptr,   'liquid water content','kg/m2')
+  call add_tile_data(restart,'ws',   'zfull', lake_ws_ptr,   'solid water content','kg/m2')
+  
   ! save performs io domain aggregation through mpp_io as with regular domain data
-  call save_restart(lake_restart)
-
-  deallocate(idx,dz,temp,wl,ws,gw,gwT)
-
-  call free_restart_type(lake_restart)
+  call save_land_restart(restart)
+  call free_land_restart(restart)
   call nullify_domain()
-end subroutine save_lake_restart_new
+end subroutine save_lake_restart
+
 
 ! ============================================================================
 subroutine lake_get_sfc_temp(lake, lake_T)

@@ -40,7 +40,7 @@ use land_tracer_driver_mod, only: land_tracer_driver_init, land_tracer_driver_en
 use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_temp, &
      glac_radiation, glac_diffusion, glac_step_1, glac_step_2, save_glac_restart
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
-     lake_radiation, lake_diffusion, lake_step_1, lake_step_2, save_lake_restart, save_lake_restart_new
+     lake_radiation, lake_diffusion, lake_step_1, lake_step_2, save_lake_restart
 use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
      soil_radiation, soil_diffusion, soil_step_1, soil_step_2, soil_step_3, &
      save_soil_restart, save_soil_restart_new
@@ -443,10 +443,10 @@ subroutine land_model_init &
   call soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
   call hlsp_hydro_init (id_lon, id_lat, id_zfull) ! Must be called after soil_init
   call vegn_init ( id_lon, id_lat, id_band, new_land_io )
-  call lake_init ( id_lon, id_lat, new_land_io )
+  call lake_init ( id_lon, id_lat )
   call glac_init ( id_lon, id_lat )
   call snow_init ( id_lon, id_lat )
-  call cana_init ( id_lon, id_lat, new_land_io )
+  call cana_init ( id_lon, id_lat )
   call topo_rough_init( land_time, lnd%lonb, lnd%latb, &
        lnd%domain, id_lon, id_lat)
   allocate (river_land_mask(lnd%is:lnd%ie,lnd%js:lnd%je))
@@ -776,7 +776,7 @@ subroutine land_model_restart_new(timestamp)
   ! [6] save component models' restarts
   call save_land_transitions_restart(timestamp_)
   call save_glac_restart(tile_dim_length,timestamp_)
-  call save_lake_restart_new(tile_dim_length,timestamp_)
+  call save_lake_restart(tile_dim_length,timestamp_)
   call save_soil_restart_new(tile_dim_length,timestamp_)
   call save_hlsp_restart_new(tile_dim_length,timestamp_)
   call save_snow_restart(tile_dim_length,timestamp_)
