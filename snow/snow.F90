@@ -11,9 +11,7 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only : error_mesg, file_exist, check_nml_error, &
      stdlog, write_version_number, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
-use fms_io_mod, only : read_compressed, restart_file_type, free_restart_type, &
-     field_exist, get_field_size, save_restart, register_restart_axis, &
-     register_restart_field, set_domain, nullify_domain
+use fms_io_mod, only : set_domain, nullify_domain
 use time_manager_mod,   only: time_type_to_real
 use constants_mod,      only: tfreeze, hlv, hlf, PI
 
@@ -26,10 +24,9 @@ use snow_tile_mod, only : &
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
 use land_data_mod,      only : land_state_type, lnd, land_time
-use land_tile_io_mod, only : create_tile_out_file, read_tile_data_r1d_fptr, &
-     write_tile_data_r1d_fptr, print_netcdf_error, get_input_restart_name, &
-     sync_nc_files, gather_tile_data, assemble_tiles
-use nf_utils_mod, only : nfu_def_dim, nfu_put_att
+use land_tile_io_mod1, only: land_restart_type, &
+     init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
+     get_input_restart_name, add_restart_axis, put_tile_data, get_tile_data
 use land_debug_mod, only : is_watch_point
 
 implicit none
@@ -40,7 +37,6 @@ public :: read_snow_namelist
 public :: snow_init
 public :: snow_end
 public :: save_snow_restart
-public :: save_snow_restart_new
 public :: snow_get_sfc_temp
 public :: snow_get_depth_area
 public :: snow_radiation
@@ -90,10 +86,6 @@ real            :: mc_fict
 
 ! ==== end of module variables ===============================================
 
-! ==== NetCDF declarations ===================================================
-include 'netcdf.inc'
-#define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
-
 contains
 
 ! ============================================================================
@@ -139,22 +131,18 @@ end subroutine read_snow_namelist
 
 ! ============================================================================
 ! initialize snow model
-subroutine snow_init ( id_lon, id_lat, new_land_io )
+subroutine snow_init (id_lon, id_lat)
   integer, intent(in)               :: id_lon  ! ID of land longitude (X) axis  
   integer, intent(in)               :: id_lat  ! ID of land latitude (Y) axis
-  logical, intent(in)               :: new_land_io ! This is a transition var and will be removed
 
   ! ---- local vars ----------------------------------------------------------
-  integer :: unit,k       ! unit for various i/o
-  integer :: isize,nz     ! Len of io domain vector and number of levels
+  integer :: k
   type(land_tile_enum_type)     :: te,ce ! tail and current tile list elements
   type(land_tile_type), pointer :: tile  ! pointer to current tile
   character(len=256) :: restart_file_name
   character(len=17)  :: restart_base_name='INPUT/snow.res.nc'
-  integer :: siz(4)
-  integer, allocatable :: idx(:)         ! I/O domain vector of compressed indices
-  real,    allocatable :: r1d(:,:)       ! I/O domain level dependent vector of real data
-  logical :: found,restart_exists
+  type(land_restart_type) :: restart
+  logical :: restart_exists
 
   module_is_initialized = .TRUE.
   delta_time = time_type_to_real(lnd%dt_fast)
@@ -162,41 +150,12 @@ subroutine snow_init ( id_lon, id_lat, new_land_io )
   ! -------- initialize snow state --------
   call get_input_restart_name(restart_base_name,restart_exists,restart_file_name)
   if (restart_exists) then
-    if(new_land_io)then
-        call error_mesg('snow_init', 'Using new snow restart read', NOTE)
-
-        restart_file_name = restart_base_name
-
-        call get_field_size(restart_file_name, 'tile_index', siz, field_found=found, domain=lnd%domain)
-        if ( .not.found ) call error_mesg(trim(module_name), &
-             'tile_index axis not found in '//trim(restart_file_name), FATAL)
-        isize = siz(1)
-
-        call get_field_size(restart_file_name, 'zfull', siz, field_found=found, domain=lnd%domain)
-        if ( .not.found ) call error_mesg(trim(module_name), &
-             'Z axis not found in '//trim(restart_file_name), FATAL)
-        nz = siz(1)
-
-        allocate(idx(isize),r1d(isize,nz))
-
-        call read_compressed(restart_file_name,'tile_index',idx, domain=lnd%domain, timelevel=1)
-
-        call read_compressed(restart_file_name,'temp',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(snow_temp_ptr,idx,r1d)
-
-        call read_compressed(restart_file_name,'wl',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(snow_wl_ptr,idx,r1d)
-
-        call read_compressed(restart_file_name,'ws',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(snow_ws_ptr,idx,r1d)
-    else
-        call error_mesg('snow_init', 'reading NetCDF restart "'//trim(restart_file_name)//'"', NOTE)
-        __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
-        call read_tile_data_r1d_fptr(unit, 'temp', snow_temp_ptr  )
-        call read_tile_data_r1d_fptr(unit, 'wl'  , snow_wl_ptr )
-        call read_tile_data_r1d_fptr(unit, 'ws'  , snow_ws_ptr )
-        __NF_ASRT__(nf_close(unit))     
-    endif
+     call error_mesg('snow_init', 'reading NetCDF restart "'//trim(restart_file_name)//'"', NOTE)
+     call open_land_restart(restart,restart_base_name)
+     call get_tile_data(restart, 'temp', 'zfull', snow_temp_ptr)
+     call get_tile_data(restart, 'wl'  , 'zfull', snow_wl_ptr)
+     call get_tile_data(restart, 'ws'  , 'zfull', snow_ws_ptr)
+     call free_land_restart(restart)
   else
      call error_mesg('snow_init', 'cold-starting snow', NOTE)
      te = tail_elmt (lnd%tile_map)
@@ -241,76 +200,26 @@ subroutine save_snow_restart (tile_dim_length, timestamp)
   integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
   character(*), intent(in) :: timestamp ! timestamp to add to the file name
 
-  ! ---- local vars ----------------------------------------------------------
-  integer :: unit            ! restart file i/o unit
+  ! ---- local vars
+  character(267) :: filename
+  type(land_restart_type) :: restart ! restart file i/o object
 
   call error_mesg('snow_end','writing NetCDF restart',NOTE)
-  ! create output file, including internal structure necessary for tile output
-  call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'snow.res.nc', &
-          lnd%coord_glon, lnd%coord_glat, snow_tile_exists, tile_dim_length )
-
-  ! additionally, define vertical coordinate
-  if (mpp_pe()==lnd%io_pelist(1)) then
-     __NF_ASRT__(nfu_def_dim(unit,'zfull',zz(1:num_l),'depth of level centers'))
-     __NF_ASRT__(nfu_put_att(unit,'zfull','positive','down'))
-  endif
-  call sync_nc_files(unit)
-
-  ! write fields
-  call write_tile_data_r1d_fptr(unit,'temp',snow_temp_ptr,'zfull','snow temperature','degrees_K')
-  call write_tile_data_r1d_fptr(unit,'wl'  ,snow_wl_ptr,  'zfull','snow liquid water content','kg/m2')
-  call write_tile_data_r1d_fptr(unit,'ws'  ,snow_ws_ptr,  'zfull','snow solid water content','kg/m2')
-  ! close output file on all ranks (writers and readers)
-       __NF_ASRT__(nf_close(unit))
-
-end subroutine save_snow_restart
-
-! ============================================================================
-subroutine save_snow_restart_new (tile_dim_length, timestamp)
-  integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
-  character(*), intent(in) :: timestamp ! timestamp to add to the file name
-
-  ! ---- local vars ----------------------------------------------------------
-  character(267) :: fname
-  type(restart_file_type) :: snow_restart ! restart file i/o object
-  integer, allocatable :: idx(:)
-  real, allocatable :: temp(:,:)
-  real, allocatable :: wl(:,:)
-  real, allocatable :: ws(:,:)
-  integer :: id_restart, isize
-
-  call error_mesg('snow_end','writing new format NetCDF restart',NOTE)
-! must set domain so that io_domain is available
   call set_domain(lnd%domain)
-! Note that fname is updated for tile & rank numbers during file creation
-  fname = trim(timestamp)//'snow.res.nc'
-  call create_tile_out_file(snow_restart,idx,fname,snow_tile_exists,tile_dim_length,zz(1:num_l))
-  isize = size(idx)
-  allocate(temp(isize,num_l), wl(isize,num_l), ws(isize,num_l))
+! Note that filename is updated for tile & rank numbers during file creation
+  filename = trim(timestamp)//'snow.res.nc'
+  call init_land_restart(restart, filename, snow_tile_exists, tile_dim_length)
+  call add_restart_axis(restart,'zfull',zz(1:num_l),'Z',longname='depth of level centers',sense=-1)
 
-  ! Output data provides signature
-  call gather_tile_data(snow_temp_ptr,idx,temp)
-  id_restart = register_restart_field(snow_restart,fname,'temp',temp,compressed=.true., &
-                                      longname='snow temperature',units='degrees_K')
+  call put_tile_data(restart,'temp','zfull',snow_temp_ptr, 'snow temperature','degrees_K')
+  call put_tile_data(restart,'wl'  ,'zfull',snow_wl_ptr,   'snow liquid water content','kg/m2')
+  call put_tile_data(restart,'ws'  ,'zfull',snow_ws_ptr,   'snow solid water content','kg/m2')
 
-  call gather_tile_data(snow_wl_ptr,idx,wl)
-  id_restart = register_restart_field(snow_restart,fname,'wl',wl,compressed=.true., &
-                                      longname='liquid water content',units='kg/m2')
-
-  call gather_tile_data(snow_ws_ptr,idx,ws)
-  id_restart = register_restart_field(snow_restart,fname,'ws',ws,compressed=.true., &
-                                      longname='solid water content',units='kg/m2')
-
-  ! save performs io domain aggregation through mpp_io as with regular domain data
-  call save_restart(snow_restart)
-
-  deallocate(idx,temp,wl,ws)
-
-  call free_restart_type(snow_restart)
+  call save_land_restart(restart)
+  call free_land_restart(restart)
   call nullify_domain()
 
-end subroutine save_snow_restart_new
-
+end subroutine save_snow_restart
 
 ! ============================================================================
 subroutine snow_get_sfc_temp(snow, snow_T)
@@ -348,7 +257,7 @@ subroutine snow_radiation ( snow_T, cosz, &
   call snow_data_radiation (snow_T, snow_refl_dir, snow_refl_dif, &
                                 snow_emis, cosz, use_brdf )
   snow_refl_lw = 1 - snow_emis
-end subroutine 
+end subroutine snow_radiation
 
 
 ! ============================================================================

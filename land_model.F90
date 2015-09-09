@@ -47,7 +47,7 @@ use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp,
 use soil_carbon_mod, only : read_soil_carbon_namelist, n_c_types
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
      snow_radiation, snow_diffusion, snow_get_depth_area, snow_step_1, snow_step_2, &
-     save_snow_restart, save_snow_restart_new
+     save_snow_restart
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, vegn_get_cover, &
      vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
      update_vegn_slow, save_vegn_restart, save_vegn_restart_new
@@ -445,7 +445,7 @@ subroutine land_model_init &
   call vegn_init ( id_lon, id_lat, id_band, new_land_io )
   call lake_init ( id_lon, id_lat, new_land_io )
   call glac_init ( id_lon, id_lat )
-  call snow_init ( id_lon, id_lat, new_land_io )
+  call snow_init ( id_lon, id_lat )
   call cana_init ( id_lon, id_lat, new_land_io )
   call topo_rough_init( land_time, lnd%lonb, lnd%latb, &
        lnd%domain, id_lon, id_lat)
@@ -779,7 +779,7 @@ subroutine land_model_restart_new(timestamp)
   call save_lake_restart_new(tile_dim_length,timestamp_)
   call save_soil_restart_new(tile_dim_length,timestamp_)
   call save_hlsp_restart_new(tile_dim_length,timestamp_)
-  call save_snow_restart_new(tile_dim_length,timestamp_)
+  call save_snow_restart(tile_dim_length,timestamp_)
   call save_vegn_restart_new(tile_dim_length,timestamp_)
   call save_cana_restart(tile_dim_length,timestamp_)
   call save_river_restart(timestamp_)
