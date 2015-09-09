@@ -64,8 +64,8 @@ public :: save_land_restart
 public :: free_land_restart
 public :: add_restart_axis
 public :: field_exists
-public :: add_tile_data
-public :: get_tile_data
+public :: add_tile_data, add_tile_data_i
+public :: get_tile_data, get_tile_data_i
 ! ==== end of public interfaces ==============================================
 interface create_tile_out_file
    module procedure create_tile_out_file_idx
@@ -137,6 +137,10 @@ interface add_tile_data
    module procedure add_tile_data_r2d_fptr_r0ijk
 end interface
 
+interface add_tile_data_i
+   module procedure add_tile_data_i0d_fptr_i0
+end interface
+
 interface get_tile_data
    module procedure get_tile_data_r0d_fptr_r0
    module procedure get_tile_data_r0d_fptr_r0i
@@ -145,6 +149,11 @@ interface get_tile_data
    module procedure get_tile_data_r2d_fptr_r0ij
    module procedure get_tile_data_r2d_fptr_r0ijk
 end interface
+
+interface get_tile_data_i
+   module procedure get_tile_data_i0d_fptr_i0
+end interface
+
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      module_name = 'land_tile_io_mod', &
@@ -304,6 +313,28 @@ logical function field_exists(restart,name)
      field_exists = (nfu_inq_var(restart%ncid,trim(name))==NF_NOERR)
   endif
 end function field_exists
+
+! ==============================================================================
+subroutine add_tile_data_i0d_fptr_i0(restart,varname,fptr,longname,units)
+  type(land_restart_type), intent(inout) :: restart
+  character(len=*), intent(in) :: varname ! name of the variable to write
+  procedure(fptr_i0)           :: fptr ! subroutine returning pointer to the data
+  character(len=*), intent(in), optional :: units, longname
+
+  integer :: id_restart
+  integer, pointer :: data(:)
+
+  if (new_land_io) then
+     if (.not.allocated(restart%tidx)) call error_mesg('add_tile_data_r0d_fptr_r0', &
+           'tidx not allocated: looks like land restart was not initialized',FATAL)
+     allocate(data(size(restart%tidx)))
+     call gather_tile_data_i0d(fptr,restart%tidx,data)
+     id_restart = register_restart_field(restart%rhandle, restart%filename, varname, data, &
+          longname=longname, units=units, restart_owns_data=.true.)
+  else ! old land io
+     call write_tile_data_i0d_fptr(restart%ncid,varname,fptr,longname,units)
+  endif
+end subroutine add_tile_data_i0d_fptr_i0
 
 ! ==============================================================================
 subroutine add_tile_data_r0d_fptr_r0(restart,varname,fptr,longname,units)
@@ -494,6 +525,27 @@ subroutine add_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index,lon
      call write_tile_data_r2d_fptr_r0ijk(restart%ncid,varname,fptr,index,dim1,dim2,longname,units)
   endif
 end subroutine add_tile_data_r2d_fptr_r0ijk
+
+! =============================================================================
+subroutine get_tile_data_i0d_fptr_i0(restart,varname,fptr)
+  type(land_restart_type), intent(inout) :: restart
+  character(len=*), intent(in) :: varname ! name of the variable to write
+  procedure(fptr_i0)           :: fptr    ! subroutine returning pointer to the data
+
+  ! ---- local vars
+  integer :: len(4) ! size of the input field
+  integer, allocatable :: r(:) ! input data buffer
+  logical :: found
+
+  if (new_land_io) then
+     allocate(r(size(restart%tidx)))
+     call read_compressed(restart%filename,varname,r,domain=lnd%domain,timelevel=1)
+     call assemble_tiles(fptr,restart%tidx,r)
+     deallocate(r)
+  else ! old land io
+     call read_tile_data_i0d_fptr(restart%ncid,varname,fptr)
+  endif
+end subroutine get_tile_data_i0d_fptr_i0
 
 ! =============================================================================
 subroutine get_tile_data_r0d_fptr_r0(restart,varname,fptr)

@@ -107,7 +107,6 @@ use land_transitions_mod, only : &
 use stock_constants_mod, only: ISTOCK_WATER, ISTOCK_HEAT, ISTOCK_SALT
 use hillslope_mod, only: retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
                          read_hlsp_namelist, hlsp_init, hlsp_config_check
-use hillslope_mod, only: save_hlsp_restart_new
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
 #ifdef ZMSDEBUG
 use land_debug_mod, only : check_var_range
@@ -778,7 +777,7 @@ subroutine land_model_restart_new(timestamp)
   call save_glac_restart(tile_dim_length,timestamp_)
   call save_lake_restart(tile_dim_length,timestamp_)
   call save_soil_restart(tile_dim_length,timestamp_)
-  call save_hlsp_restart_new(tile_dim_length,timestamp_)
+  call save_hlsp_restart(tile_dim_length,timestamp_)
   call save_snow_restart(tile_dim_length,timestamp_)
   call save_vegn_restart_new(tile_dim_length,timestamp_)
   call save_cana_restart(tile_dim_length,timestamp_)
