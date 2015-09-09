@@ -118,10 +118,9 @@ end subroutine read_cana_namelist
 
 ! ============================================================================
 ! initialize canopy air
-subroutine cana_init ( id_lon, id_lat, new_land_io )
+subroutine cana_init ( id_lon, id_lat )
   integer, intent(in)          :: id_lon  ! ID of land longitude (X) axis  
   integer, intent(in)          :: id_lat  ! ID of land latitude (Y) axis
-  logical, intent(in)          :: new_land_io  ! This is a transition var and will be removed
 
   ! ---- local vars ----------------------------------------------------------
   type(land_tile_enum_type)     :: te,ce ! last and current tile
