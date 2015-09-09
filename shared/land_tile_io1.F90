@@ -451,9 +451,9 @@ subroutine get_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr)
         FATAL)
      ! TODO: possibly check that the number of var dimensions is correct (tile index, zdim, time)
   
-     call get_field_size(restart%filename,varname,len,field_found=found,domain=lnd%domain)
+     call get_field_size(restart%filename,zdim,len,field_found=found,domain=lnd%domain)
      if (.not.found) call error_mesg('get_tile_data_r0d_fptr_r0i', &
-        'axis "'//trim(varname)//'" was not found in file "'//trim(restart%filename)//'"', &
+        'axis "'//trim(zdim)//'" was not found in file "'//trim(restart%filename)//'"', &
         FATAL)
 
      ! read the data
