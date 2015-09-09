@@ -43,7 +43,7 @@ use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp,
      lake_radiation, lake_diffusion, lake_step_1, lake_step_2, save_lake_restart
 use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
      soil_radiation, soil_diffusion, soil_step_1, soil_step_2, soil_step_3, &
-     save_soil_restart, save_soil_restart_new
+     save_soil_restart
 use soil_carbon_mod, only : read_soil_carbon_namelist, n_c_types
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
      snow_radiation, snow_diffusion, snow_get_depth_area, snow_step_1, snow_step_2, &
@@ -777,7 +777,7 @@ subroutine land_model_restart_new(timestamp)
   call save_land_transitions_restart(timestamp_)
   call save_glac_restart(tile_dim_length,timestamp_)
   call save_lake_restart(tile_dim_length,timestamp_)
-  call save_soil_restart_new(tile_dim_length,timestamp_)
+  call save_soil_restart(tile_dim_length,timestamp_)
   call save_hlsp_restart_new(tile_dim_length,timestamp_)
   call save_snow_restart(tile_dim_length,timestamp_)
   call save_vegn_restart_new(tile_dim_length,timestamp_)
