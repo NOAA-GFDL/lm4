@@ -33,7 +33,7 @@ use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
 use land_data_mod,      only : land_state_type, lnd
 use land_tile_io_mod1, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
-     get_input_restart_name, add_restart_axis, put_tile_data, get_tile_data, &
+     get_input_restart_name, add_restart_axis, add_tile_data, get_tile_data, &
      field_exists
 use land_debug_mod, only : is_watch_point, check_temp_range
 
@@ -246,11 +246,11 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
   call init_land_restart(restart, filename, cana_tile_exists, tile_dim_length)
 
   ! write temperature
-  call put_tile_data(restart,'temp',cana_T_ptr,'canopy air temperature','degrees_K')
+  call add_tile_data(restart,'temp',cana_T_ptr,'canopy air temperature','degrees_K')
   do tr = 1,ntcana
      call get_tracer_names(MODEL_LAND, tr, name, longname, units)
      if (tr==ico2.and..not.save_qco2) cycle
-     call put_tile_data(restart,name,cana_tr_ptr,tr,'canopy air '//trim(longname),trim(units))
+     call add_tile_data(restart,name,cana_tr_ptr,tr,'canopy air '//trim(longname),trim(units))
   enddo
   call save_land_restart(restart)
   call free_land_restart(restart)

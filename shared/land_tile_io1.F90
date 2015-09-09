@@ -64,7 +64,7 @@ public :: save_land_restart
 public :: free_land_restart
 public :: add_restart_axis
 public :: field_exists
-public :: put_tile_data
+public :: add_tile_data
 public :: get_tile_data
 ! ==== end of public interfaces ==============================================
 interface create_tile_out_file
@@ -128,7 +128,7 @@ interface gather_tile_data
    module procedure gather_tile_data_r2d_idx
 end interface
 
-interface put_tile_data
+interface add_tile_data
    module procedure add_tile_data_r0d_fptr_r0
    module procedure add_tile_data_r0d_fptr_r0i
    module procedure add_tile_data_r1d_fptr_r0i

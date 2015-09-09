@@ -31,7 +31,7 @@ use land_tile_diag_mod, only : &
 use land_data_mod,      only : land_state_type, lnd, land_time
 use land_tile_io_mod1, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
-     get_input_restart_name, add_restart_axis, put_tile_data, get_tile_data
+     get_input_restart_name, add_restart_axis, add_tile_data, get_tile_data
 use land_debug_mod, only : is_watch_point
 
 implicit none
@@ -212,7 +212,7 @@ subroutine save_glac_restart (tile_dim_length, timestamp)
   integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
   character(*), intent(in) :: timestamp ! timestamp to add to the file name
 
-  ! ---- local vars ----------------------------------------------------------
+  ! ---- local vars
   character(267) :: filename
   type(land_restart_type) :: restart ! restart file i/o object
 
@@ -225,9 +225,9 @@ subroutine save_glac_restart (tile_dim_length, timestamp)
   call add_restart_axis(restart,'zfull',zfull(1:num_l),'Z','m','full level',sense=-1)
 
   ! Output data provides signature
-  call put_tile_data(restart,'temp', 'zfull', glac_temp_ptr, longname='glacier temperature',  units='degrees_K')
-  call put_tile_data(restart,'wl',   'zfull', glac_wl_ptr,   longname='liquid water content', units='kg/m2')
-  call put_tile_data(restart,'ws',   'zfull', glac_ws_ptr,   longname='solid water content',  units='kg/m2')
+  call add_tile_data(restart,'temp', 'zfull', glac_temp_ptr, longname='glacier temperature',  units='degrees_K')
+  call add_tile_data(restart,'wl',   'zfull', glac_wl_ptr,   longname='liquid water content', units='kg/m2')
+  call add_tile_data(restart,'ws',   'zfull', glac_ws_ptr,   longname='solid water content',  units='kg/m2')
 
   ! save performs io domain aggregation through mpp_io as with regular domain data
   call save_land_restart(restart)
