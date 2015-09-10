@@ -63,18 +63,6 @@ interface create_tile_out_file
    module procedure create_tile_out_file_fptr_new
 end interface
 
-interface assemble_tiles
-   module procedure assemble_tiles_r0d
-   module procedure assemble_tiles_r0d_idx
-   module procedure assemble_tiles_r1d
-   module procedure assemble_tiles_i0d
-   module procedure assemble_tiles_i1d
-   module procedure assemble_tiles_r1d_idx1
-   module procedure assemble_tiles_r1d_idx ! is this needed?
-   module procedure assemble_tiles_r2d
-   module procedure assemble_tiles_r2d_idx
-end interface
-
 interface add_tile_data
    module procedure add_tile_data_r0d_fptr_r0
    module procedure add_tile_data_r0d_fptr_r0i
@@ -287,20 +275,6 @@ subroutine add_scalar_data(restart,varname,datum,longname,units)
   endif  
 end subroutine add_scalar_data
 
-! ==============================================================================
-subroutine get_scalar_data(restart,varname,datum)
-  type(land_restart_type), intent(inout) :: restart
-  character(len=*), intent(in) :: varname ! name of the variable to write
-  integer,          intent(out) :: datum
-
-  if (new_land_io) then
-     call read_data(restart%filename,varname,datum,domain=lnd%domain)
-  else
-     __NF_ASRT__(nfu_get_var(restart%ncid,varname,datum))
-  endif
-end subroutine get_scalar_data
-
-! ==============================================================================
 subroutine add_tile_data_i0d_fptr_i0(restart,varname,fptr,longname,units)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
@@ -322,7 +296,6 @@ subroutine add_tile_data_i0d_fptr_i0(restart,varname,fptr,longname,units)
   endif
 end subroutine add_tile_data_i0d_fptr_i0
 
-! ==============================================================================
 subroutine add_tile_data_r0d_fptr_r0(restart,varname,fptr,longname,units)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
@@ -344,7 +317,6 @@ subroutine add_tile_data_r0d_fptr_r0(restart,varname,fptr,longname,units)
   endif
 end subroutine add_tile_data_r0d_fptr_r0
 
-! ==============================================================================
 subroutine add_tile_data_r0d_fptr_r0i(restart,varname,fptr,index,longname,units)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
@@ -367,7 +339,6 @@ subroutine add_tile_data_r0d_fptr_r0i(restart,varname,fptr,index,longname,units)
   endif
 end subroutine add_tile_data_r0d_fptr_r0i
 
-! ==============================================================================
 subroutine add_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr,longname,units)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
@@ -398,7 +369,6 @@ subroutine add_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr,longname,units)
   endif
 end subroutine add_tile_data_r1d_fptr_r0i
 
-! ==============================================================================
 subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index,longname,units)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
@@ -445,7 +415,6 @@ subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index,longname,
   endif
 end subroutine add_tile_data_r1d_fptr_r0ij
 
-! =============================================================================
 subroutine add_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr,longname,units)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
@@ -478,7 +447,6 @@ subroutine add_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr,longname,u
   endif
 end subroutine add_tile_data_r2d_fptr_r0ij
 
-! =============================================================================
 subroutine add_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index,longname,units)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
@@ -513,6 +481,18 @@ subroutine add_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index,lon
 end subroutine add_tile_data_r2d_fptr_r0ijk
 
 ! =============================================================================
+subroutine get_scalar_data(restart,varname,datum)
+  type(land_restart_type), intent(inout) :: restart
+  character(len=*), intent(in) :: varname ! name of the variable to write
+  integer,          intent(out) :: datum
+
+  if (new_land_io) then
+     call read_data(restart%filename,varname,datum,domain=lnd%domain)
+  else
+     __NF_ASRT__(nfu_get_var(restart%ncid,varname,datum))
+  endif
+end subroutine get_scalar_data
+
 subroutine get_tile_data_i0d_fptr_i0(restart,varname,fptr)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
@@ -526,14 +506,13 @@ subroutine get_tile_data_i0d_fptr_i0(restart,varname,fptr)
   if (new_land_io) then
      allocate(r(size(restart%tidx)))
      call read_compressed(restart%filename,varname,r,domain=lnd%domain,timelevel=1)
-     call assemble_tiles(fptr,restart%tidx,r)
+     call assemble_tiles_i0d(fptr,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_i0d_fptr(restart%ncid,varname,fptr)
   endif
 end subroutine get_tile_data_i0d_fptr_i0
 
-! =============================================================================
 subroutine get_tile_data_r0d_fptr_r0(restart,varname,fptr)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
@@ -547,14 +526,13 @@ subroutine get_tile_data_r0d_fptr_r0(restart,varname,fptr)
   if (new_land_io) then
      allocate(r(size(restart%tidx)))
      call read_compressed(restart%filename,varname,r,domain=lnd%domain,timelevel=1)
-     call assemble_tiles(fptr,restart%tidx,r)
+     call assemble_tiles_r0d(fptr,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_r0d_fptr_r0(restart%ncid,varname,fptr)
   endif
 end subroutine get_tile_data_r0d_fptr_r0
 
-! =============================================================================
 subroutine get_tile_data_r0d_fptr_r0i(restart,varname,fptr,index)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
@@ -569,14 +547,13 @@ subroutine get_tile_data_r0d_fptr_r0i(restart,varname,fptr,index)
   if (new_land_io) then
      allocate(r(size(restart%tidx)))
      call read_compressed(restart%filename,varname,r,domain=lnd%domain,timelevel=1)
-     call assemble_tiles(fptr,index,restart%tidx,r)
+     call assemble_tiles_r0d_idx(fptr,index,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_r0d_fptr_r0i(restart%ncid,varname,fptr,index)
   endif
 end subroutine get_tile_data_r0d_fptr_r0i
 
-! =============================================================================
 subroutine get_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
@@ -598,14 +575,13 @@ subroutine get_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr)
      ! read the data
      allocate(r(size(restart%tidx),len(1)))
      call read_compressed(restart%filename,varname,r,domain=lnd%domain,timelevel=1)
-     call assemble_tiles(fptr,restart%tidx,r)
+     call assemble_tiles_r1d(fptr,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_r1d_fptr_r0i(restart%ncid,varname,fptr)
   endif
 end subroutine get_tile_data_r1d_fptr_r0i
 
-! =============================================================================
 subroutine get_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
@@ -628,14 +604,13 @@ subroutine get_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index)
      ! read the data
      allocate(r(size(restart%tidx),len(1)))
      call read_compressed(restart%filename,varname,r,domain=lnd%domain,timelevel=1)
-     call assemble_tiles(fptr,index,restart%tidx,r)
+     call assemble_tiles_r1d_idx(fptr,index,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_r1d_fptr_r0ij(restart%ncid,varname,fptr,index)
   endif
 end subroutine get_tile_data_r1d_fptr_r0ij
 
-! =============================================================================
 subroutine get_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
@@ -663,14 +638,13 @@ subroutine get_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr)
      ! read the data
      allocate(r(size(restart%tidx),n,m))
      call read_compressed(restart%filename,varname,r,domain=lnd%domain,timelevel=1)
-     call assemble_tiles(fptr,restart%tidx,r)
+     call assemble_tiles_r2d(fptr,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_r2d_fptr_r0ij(restart%ncid,varname,fptr)
   endif
 end subroutine get_tile_data_r2d_fptr_r0ij
 
-! =============================================================================
 subroutine get_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
@@ -698,7 +672,7 @@ subroutine get_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index)
      ! read the data
      allocate(r(size(restart%tidx),n,m))
      call read_compressed(restart%filename,varname,r,domain=lnd%domain,timelevel=1)
-     call assemble_tiles(fptr,index,restart%tidx,r)
+     call assemble_tiles_r2d_idx(fptr,index,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_r2d_fptr_r0ijk(restart%ncid,varname,fptr,index)
@@ -1089,7 +1063,6 @@ subroutine read_tile_data_i0d_fptr(ncid,name,fptr)
    deallocate(idx,x1d)
 end subroutine read_tile_data_i0d_fptr
 
-! ============================================================================
 subroutine read_tile_data_r0d_fptr_r0(ncid,name,fptr)
    integer     , intent(in) :: ncid ! netcdf file id
    character(*), intent(in) :: name ! name of the variable to read
@@ -1138,7 +1111,6 @@ subroutine read_tile_data_r0d_fptr_r0(ncid,name,fptr)
    deallocate(idx,x1d)
 end subroutine read_tile_data_r0d_fptr_r0
 
-! ============================================================================
 subroutine read_tile_data_r0d_fptr_r0i (ncid,name,fptr,index)
    integer     , intent(in) :: ncid ! netcdf file id
    character(*), intent(in) :: name ! name of the variable to read
@@ -1189,7 +1161,6 @@ subroutine read_tile_data_r0d_fptr_r0i (ncid,name,fptr,index)
    deallocate(idx,x1d)
 end subroutine read_tile_data_r0d_fptr_r0i
 
-! ============================================================================
 subroutine read_tile_data_r1d_fptr_r0i(ncid,name,fptr)
    integer     , intent(in) :: ncid ! netcdf file id
    character(*), intent(in) :: name ! name of the variable to read
@@ -1244,8 +1215,6 @@ subroutine read_tile_data_r1d_fptr_r0i(ncid,name,fptr)
    deallocate(idx,x1d)
 end subroutine read_tile_data_r1d_fptr_r0i
 
-
-! ============================================================================
 subroutine read_tile_data_r1d_fptr_r0ij(ncid,name,fptr,index)
    integer     , intent(in) :: ncid ! netcdf file id
    character(*), intent(in) :: name ! name of the variable to read
@@ -1301,8 +1270,6 @@ subroutine read_tile_data_r1d_fptr_r0ij(ncid,name,fptr,index)
    deallocate(idx,x1d)
 end subroutine read_tile_data_r1d_fptr_r0ij
 
-
-! ============================================================================
 subroutine read_tile_data_r2d_fptr_r0ij (ncid,name,fptr)
    integer     , intent(in) :: ncid ! netcdf file id
    character(*), intent(in) :: name ! name of the variable to read
@@ -1360,7 +1327,6 @@ subroutine read_tile_data_r2d_fptr_r0ij (ncid,name,fptr)
    deallocate(idx,x1d)
 end subroutine read_tile_data_r2d_fptr_r0ij
 
-! ============================================================================
 subroutine read_tile_data_r2d_fptr_r0ijk (ncid,name,fptr,index)
    integer     , intent(in) :: ncid ! netcdf file id
    character(*), intent(in) :: name ! name of the variable to read
@@ -1474,57 +1440,6 @@ subroutine write_tile_data_i1d(ncid,name,data,mask,long_name,units)
   call mpp_sync()
 end subroutine write_tile_data_i1d
 
-! writes out 2-d integer tiled data using "compression by gathering"
-subroutine write_tile_data_i2d(ncid,name,data,mask,zdim,long_name,units)
-  integer         , intent(in) :: ncid ! netcdf id
-  character(len=*), intent(in) :: name ! name of the variable to write
-  character(len=*), intent(in) :: zdim ! name of the z-dimension
-  integer            , intent(inout) :: data(:,:) ! (tile,z)
-  integer         , intent(inout) :: mask(:) ! mask of valid data
-  character(len=*), intent(in), optional :: units, long_name
-  ! data and mask are "inout" to save the memory on send-receive buffers. On the
-  ! root io_domain PE mask is destroyed and data is filled with the information 
-  ! from other PEs in our io_domain. On other PEs these arrays reman intact.
-
-  ! local vars
-  integer :: varid,iret,p,i
-  character(NF_MAX_NAME)::dimnames(2)
-  integer, allocatable :: buffer(:,:) ! send/receive buffer
-
-  ! if our PE does not do io (that is, it is not the root io_domain processor),  
-  ! simply send the data and mask of valid data to the root IO processor
-  if (mpp_pe()/=lnd%io_pelist(1)) then
-     call mpp_send(data(1,1), plen=size(data),   to_pe=lnd%io_pelist(1), tag=COMM_TAG_7)
-     call mpp_send(mask(1),   plen=size(data,1), to_pe=lnd%io_pelist(1), tag=COMM_TAG_8)
-  else
-     allocate(buffer(size(data,1),size(data,2)))
-     ! gather data and masks from the processors in our io_domain
-     do p = 2,size(lnd%io_pelist)
-        call mpp_recv(buffer(1,1), glen=size(data),   from_pe=lnd%io_pelist(p), tag=COMM_TAG_7)
-        call mpp_recv(mask(1),     glen=size(data,1), from_pe=lnd%io_pelist(p), tag=COMM_TAG_8)
-        do i=1,size(data,1)
-           if(mask(i)>0) data(i,:) = buffer(i,:)
-        enddo
-     enddo
-     ! clean up allocated memory
-     deallocate(buffer)
-   
-     ! create variable, if it does not exist
-     if(nf_inq_varid(ncid,name,varid)/=NF_NOERR) then
-        dimnames(1) = tile_index_name
-        dimnames(2) = zdim
-        __NF_ASRT__(nfu_def_var(ncid,name,NF_INT,dimnames,long_name,units,varid))
-     endif
-     ! write data
-     iret = nf_enddef(ncid) ! ignore errors: its OK if file is in data mode already
-     __NF_ASRT__(nf_put_var_int(ncid,varid,data))
-  endif
-  ! wait for all PEs to finish: necessary because mpp_send does not seem to 
-  ! copy the data, and therefore on non-root io_domain PE there would be a chance
-  ! that the data and mask are destroyed before they are actually sent.
-  call mpp_sync()
-end subroutine write_tile_data_i2d
-
 ! ============================================================================
 ! writes out 1-d real tiled data using "compression by gathering"
 subroutine write_tile_data_r1d(ncid,name,data,mask,long_name,units)
@@ -1570,7 +1485,6 @@ subroutine write_tile_data_r1d(ncid,name,data,mask,long_name,units)
   ! that the data and mask are destroyed before they are actually sent.
   call mpp_sync()
 end subroutine write_tile_data_r1d
-
 
 ! ============================================================================
 ! writes out 2-d real tiled data using "compression by gathering". The dimension
@@ -1735,8 +1649,6 @@ subroutine write_tile_data_i0d_fptr(ncid,name,fptr,long_name,units)
   deallocate(data,idx,mask)
 end subroutine write_tile_data_i0d_fptr
 
-
-! ============================================================================
 subroutine write_tile_data_r0d_fptr_r0(ncid,name,fptr,long_name,units)
   integer         , intent(in) :: ncid ! netcdf id
   character(len=*), intent(in) :: name ! name of the variable to write
@@ -1784,7 +1696,6 @@ subroutine write_tile_data_r0d_fptr_r0(ncid,name,fptr,long_name,units)
   deallocate(data,idx,mask)
 end subroutine write_tile_data_r0d_fptr_r0
 
-! ============================================================================
 subroutine write_tile_data_r0d_fptr_r0i(ncid,name,fptr,index,long_name,units)
   integer         , intent(in) :: ncid  ! netcdf id
   character(len=*), intent(in) :: name  ! name of the variable to write
@@ -1835,7 +1746,6 @@ subroutine write_tile_data_r0d_fptr_r0i(ncid,name,fptr,index,long_name,units)
   deallocate(data,idx)
 end subroutine write_tile_data_r0d_fptr_r0i
 
-! ============================================================================
 subroutine write_tile_data_r1d_fptr_r0i(ncid,name,fptr,zdim,long_name,units)
   integer         , intent(in) :: ncid ! netcdf id
   character(len=*), intent(in) :: name ! name of the variable to write
@@ -1890,7 +1800,6 @@ subroutine write_tile_data_r1d_fptr_r0i(ncid,name,fptr,zdim,long_name,units)
   
 end subroutine write_tile_data_r1d_fptr_r0i
 
-! ============================================================================
 subroutine write_tile_data_r1d_fptr_r0ij(ncid,name,fptr,index,zdim,long_name,units)
   integer         , intent(in) :: ncid ! netcdf id
   character(len=*), intent(in) :: name ! name of the variable to write
@@ -1945,8 +1854,6 @@ subroutine write_tile_data_r1d_fptr_r0ij(ncid,name,fptr,index,zdim,long_name,uni
   
 end subroutine write_tile_data_r1d_fptr_r0ij
 
-
-! ============================================================================
 subroutine write_tile_data_r2d_fptr_r0ij(ncid,name,fptr,dim1,dim2,long_name,units)
   integer         , intent(in) :: ncid ! netcdf id
   character(len=*), intent(in) :: name ! name of the variable to write
@@ -2005,7 +1912,6 @@ subroutine write_tile_data_r2d_fptr_r0ij(ncid,name,fptr,dim1,dim2,long_name,unit
   
 end subroutine write_tile_data_r2d_fptr_r0ij
 
-! ============================================================================
 subroutine write_tile_data_r2d_fptr_r0ijk(ncid,name,fptr,index,dim1,dim2,long_name,units)
   integer         , intent(in) :: ncid ! netcdf id
   character(len=*), intent(in) :: name ! name of the variable to write
@@ -2062,9 +1968,9 @@ subroutine write_tile_data_r2d_fptr_r0ijk(ncid,name,fptr,index,dim1,dim2,long_na
   
   ! free allocated memory
   deallocate(data,idx,mask)
-  
 end subroutine write_tile_data_r2d_fptr_r0ijk
 
+! ============================================================================
 subroutine gather_tile_data_i0d(fptr,idx,data)
   procedure(fptr_i0)  :: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: idx(:)  ! local vector of tile indices
@@ -2156,55 +2062,6 @@ subroutine gather_tile_data_r1d(fptr,idx,data)
   enddo
 end subroutine gather_tile_data_r1d
 
-subroutine gather_tile_data_r1d_idx1(fptr,n,idx,data)
-  procedure(fptr_r0ij) :: fptr ! subroutine returning pointer to the data
-  integer, intent(in) :: n ! additional index argument for fptr
-  integer, intent(in) :: idx(:)  ! local vector of tile indices
-  real, intent(out) :: data(:,:) ! local tile data
-
-  ! ---- local vars
-  type(land_tile_type), pointer :: tileptr ! pointer to tiles
-  real   , pointer :: ptr ! pointer to the tile data
-  integer :: i,j
-
-  data = NF_FILL_DOUBLE
-
-! gather data into an array along the tile dimension. It is assumed that 
-! the tile dimension spans all the tiles that need to be written.
-  do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
-                          lnd%is,lnd%js, tileptr)
-     do j = 1,size(data,2)
-        call fptr(tileptr, j, n, ptr)
-        if(associated(ptr)) data(i,j)=ptr
-     enddo
-  enddo
-end subroutine gather_tile_data_r1d_idx1
-
-subroutine gather_tile_data_i1d(fptr,idx,data)
-  procedure(fptr_i0i) :: fptr ! subroutine returning pointer to the data
-  integer, intent(in) :: idx(:)  ! local vector of tile indices
-  integer, intent(out) :: data(:,:) ! local tile data
-
-  ! ---- local vars
-  type(land_tile_type), pointer :: tileptr ! pointer to tiles
-  integer, pointer :: ptr ! pointer to the tile data
-  integer :: i,j
-
-  data = NF_FILL_INT
-
-! gather data into an array along the tile dimension. It is assumed that 
-! the tile dimension spans all the tiles that need to be written.
-  do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
-                          lnd%is,lnd%js, tileptr)
-     do j = 1,size(data,2)
-        call fptr(tileptr, j, ptr)
-        if(associated(ptr)) data(i,j)=ptr
-     enddo
-  enddo
-end subroutine gather_tile_data_i1d
-
 subroutine gather_tile_data_r2d(fptr,idx,data)
   procedure(fptr_r0ij):: fptr ! subroutine returning the pointer to the data to be written 
   integer, intent(in) :: idx(:)  ! local vector of tile indices
@@ -2257,31 +2114,6 @@ subroutine gather_tile_data_r2d_idx(fptr,n,idx,data)
      enddo
   enddo
 end subroutine gather_tile_data_r2d_idx
-
-subroutine gather_tile_data_r1d_idx(fptr,idx,nidx,data)
-  procedure(fptr_r0i) :: fptr ! subroutine returning pointer to the data
-  integer, intent(in) :: idx(:) ! local vector of tile indices
-  integer, intent(in) :: nidx ! index of the fptr array element to write out
-  real, intent(out) :: data(:) ! local tile data
-
-  ! ---- local vars
-  type(land_tile_type), pointer :: tileptr ! pointer to tiles
-  real, pointer :: ptr ! pointer to the tile data
-  integer :: i
-
-  data = NF_FILL_DOUBLE
-
-  ! gather data into an array along the tile dimension. It is assumed that 
-  ! the tile dimension spans all the tiles that need to be written.
-  do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
-                          lnd%is,lnd%js, tileptr)
-     call fptr(tileptr, nidx, ptr)
-     if(associated(ptr)) then
-        data(i) = ptr
-     endif
-  enddo
-end subroutine gather_tile_data_r1d_idx
 
 subroutine assemble_tiles_i0d(fptr,idx,data)
   procedure(fptr_i0) :: fptr ! subroutine returning pointer to the data
@@ -2362,7 +2194,7 @@ subroutine assemble_tiles_r1d(fptr,idx,data)
   enddo
 end subroutine assemble_tiles_r1d
 
-subroutine assemble_tiles_r1d_idx1(fptr,n,idx,data)
+subroutine assemble_tiles_r1d_idx(fptr,n,idx,data)
   procedure(fptr_r0ij) :: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: n ! additional index argument for fptr
   integer, intent(in) :: idx(:)  ! local vector of tile indices
@@ -2382,28 +2214,7 @@ subroutine assemble_tiles_r1d_idx1(fptr,n,idx,data)
         if(associated(ptr)) ptr=data(i,j)
      enddo
   enddo
-end subroutine assemble_tiles_r1d_idx1
-
-subroutine assemble_tiles_i1d(fptr,idx,data)
-  procedure(fptr_i0i) :: fptr ! subroutine returning pointer to the data
-  integer, intent(in) :: idx(:)  ! local vector of tile indices
-  integer, intent(in) :: data(:,:) ! local tile data
-
-  ! ---- local vars
-  type(land_tile_type), pointer :: tileptr ! pointer to tiles
-  integer, pointer :: ptr ! pointer to the tile data
-  integer :: i,j
-
-! distribute the data over the tiles
-  do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
-                          lnd%is,lnd%js, tileptr)
-     do j = 1,size(data,2)
-        call fptr(tileptr, j, ptr)
-        if(associated(ptr)) ptr=data(i,j)
-     enddo
-  enddo
-end subroutine assemble_tiles_i1d
+end subroutine assemble_tiles_r1d_idx
 
 subroutine assemble_tiles_r2d(fptr,idx,data)
   procedure(fptr_r0ij):: fptr ! subroutine returning the pointer to the data to be written 
@@ -2451,27 +2262,6 @@ subroutine assemble_tiles_r2d_idx(fptr,n,idx,data)
      enddo
   enddo
 end subroutine assemble_tiles_r2d_idx
-
-! ============================================================================
-subroutine assemble_tiles_r1d_idx(fptr,idx,data,index)
-  procedure(fptr_r0i) :: fptr ! subroutine returning pointer to the data
-  integer, intent(in) :: idx(:)  ! local vector of tile indices
-  real,    intent(in) :: data(:) ! local tile data
-  integer, intent(in) :: index
-
-  ! ---- local vars
-  type(land_tile_type), pointer :: tileptr ! pointer to tiles
-  real   , pointer :: ptr ! pointer to the tile data
-  integer :: i
-
-! distribute the data over the tiles
-  do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
-                          lnd%is,lnd%js, tileptr)
-     call fptr(tileptr, index, ptr)
-     if(associated(ptr)) ptr=data(i)
-  enddo
-end subroutine assemble_tiles_r1d_idx
 
 ! ============================================================================
 subroutine override_tile_data_r0d_fptr(fieldname,fptr,time,override)
