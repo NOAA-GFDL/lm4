@@ -34,7 +34,7 @@ use land_tile_io_mod,   only : create_tile_out_file,sync_nc_files
 use land_tile_mod,      only : land_tile_type, land_tile_enum_type, first_elmt, &
      tail_elmt, next_elmt, current_tile, operator(/=), nitems
 use vegn_cohort_mod,    only : vegn_cohort_type
-use cohort_io_mod,      only : create_cohort_dimension, gather_cohort_data, &
+use cohort_io_mod,      only : create_cohort_dimension_new, create_cohort_dimension_orig, gather_cohort_data, &
      write_cohort_data_i0d_fptr, write_cohort_data_r0d_fptr
 
 
@@ -459,7 +459,7 @@ subroutine static_vegn_init(new_land_io)
      if(new_land_io) then
         call set_domain(lnd%domain)
         call create_tile_out_file(static_veg_file, tidx, 'static_veg_out.nc', vegn_tile_exists, tile_dim_length)
-        call create_cohort_dimension(static_veg_file, cidx, 'static_veg_out.nc', tile_dim_length)
+        call create_cohort_dimension_new(static_veg_file, cidx, 'static_veg_out.nc', tile_dim_length)
         call get_base_date(year,month,day,hour,minute,sec)
         base_time = set_date(year, month, day, hour, minute, sec)
         units = ' '
@@ -489,7 +489,7 @@ subroutine static_vegn_init(new_land_io)
         call create_tile_out_file(ncid2,'static_veg_out.nc', &
              lnd%coord_glon, lnd%coord_glat, vegn_tile_exists, tile_dim_length)
         ! create compressed dimension for vegetation cohorts
-        call create_cohort_dimension(ncid2)
+        call create_cohort_dimension_orig(ncid2)
         ! get the base date of the simulation
         call get_base_date(year,month,day,hour,minute,sec)
         base_time = set_date(year, month, day, hour, minute, sec)

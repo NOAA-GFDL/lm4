@@ -50,7 +50,7 @@ use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp,
      save_snow_restart
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, vegn_get_cover, &
      vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
-     update_vegn_slow, save_vegn_restart, save_vegn_restart_new
+     update_vegn_slow, save_vegn_restart
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, cana_state,&
      cana_step_1, cana_step_2, cana_radiation, cana_roughness, &
@@ -779,7 +779,7 @@ subroutine land_model_restart_new(timestamp)
   call save_soil_restart(tile_dim_length,timestamp_)
   call save_hlsp_restart(tile_dim_length,timestamp_)
   call save_snow_restart(tile_dim_length,timestamp_)
-  call save_vegn_restart_new(tile_dim_length,timestamp_)
+  call save_vegn_restart(tile_dim_length,timestamp_)
   call save_cana_restart(tile_dim_length,timestamp_)
   call save_river_restart(timestamp_)
 end subroutine land_model_restart_new

@@ -1,17 +1,22 @@
 module cohort_io_mod
 
 use fms_mod,          only : error_mesg, FATAL, WARNING, get_mosaic_tile_file
-use fms_io_mod,       only : register_restart_axis, restart_file_type, get_instance_filename
+use fms_io_mod,       only : register_restart_axis, restart_file_type, get_instance_filename, &
+   register_restart_field
 use mpp_mod,          only : mpp_pe, mpp_max, mpp_send, mpp_recv, mpp_sync, &
                              COMM_TAG_1, COMM_TAG_2
 use nf_utils_mod,     only : nfu_inq_dim, nfu_get_var, nfu_put_var, &
      nfu_get_rec, nfu_put_rec, nfu_def_dim, nfu_def_var, nfu_put_att, &
      nfu_inq_var
-use land_io_mod,      only : print_netcdf_error, input_buf_size
+use land_io_mod,      only : print_netcdf_error, input_buf_size, new_land_io
 use land_tile_mod,    only : land_tile_type, land_tile_list_type, &
      land_tile_enum_type, first_elmt, tail_elmt, next_elmt, get_elmt_indices, &
      current_tile, operator(/=)
 use land_tile_io_mod, only : get_tile_by_idx, sync_nc_files
+
+use land_tile_io_mod1, only: land_restart_type, &
+     init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
+     get_input_restart_name, add_restart_axis, add_tile_data, get_tile_data
 
 use vegn_cohort_mod, only: vegn_cohort_type
 use land_data_mod, only : lnd, land_state_type
@@ -26,16 +31,14 @@ public :: read_cohort_data_r0d_fptr
 public :: read_cohort_data_i0d_fptr
 ! output
 public :: create_cohort_dimension
+public :: add_cohort_data, add_cohort_data_i
+! remove when cleaning up:
 public :: write_cohort_data_r0d_fptr
 public :: write_cohort_data_i0d_fptr
 public :: gather_cohort_data
 public :: assemble_cohorts
+public :: create_cohort_dimension_new, create_cohort_dimension_orig
 ! ==== end of public interfaces ==============================================
-
-interface create_cohort_dimension
-   module procedure create_cohort_dimension_orig
-   module procedure create_cohort_dimension_new
-end interface create_cohort_dimension
 
 interface gather_cohort_data
    module procedure gather_cohort_data_r0d
@@ -62,9 +65,26 @@ character(len=*), parameter :: &
 ! gathering, as described in CF conventions.
 character(len=*),   parameter :: cohort_index_name   = 'cohort_index'
 
+abstract interface
+  ! given land cohort, returns pointer to some scalar real data 
+  ! within this cohort, or an unassociated pointer if there is no data
+  subroutine cptr_r0(tile, ptr)
+     import vegn_cohort_type
+     type(vegn_cohort_type), pointer :: tile ! input
+     real                , pointer :: ptr  ! returned pointer to the data
+  end subroutine cptr_r0
+  ! given land cohort, returns pointer to some scalar real data 
+  ! within this cohort, or an unassociated pointer if there is no data
+  subroutine cptr_i0(tile, ptr)
+     import vegn_cohort_type
+     type(vegn_cohort_type), pointer :: tile ! input
+     integer               , pointer :: ptr  ! returned pointer to the data
+  end subroutine cptr_i0
+end interface
 ! ==== NetCDF declarations ===================================================
 include 'netcdf.inc'
 #define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
+
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -216,6 +236,17 @@ subroutine read_create_cohorts_new(idx,ntiles)
      allocate(tile%vegn%cohorts(tile%vegn%n_cohorts))
   enddo
 end subroutine read_create_cohorts_new
+
+! ============================================================================
+subroutine create_cohort_dimension(restart)
+  type(land_restart_type), intent(inout) :: restart
+  
+  if (new_land_io) then
+     call create_cohort_dimension_new(restart%rhandle,restart%cidx,restart%filename,restart%tile_dim_length)
+  else
+     call create_cohort_dimension_orig(restart%ncid)
+  endif 
+end subroutine create_cohort_dimension
 
 ! ============================================================================
 ! creates cohort dimension, if necessary, in the output restart file. NOTE 
@@ -390,14 +421,7 @@ subroutine assemble_cohorts_i0d(fptr,idx,ntiles,data)
   integer, intent(in) :: idx(:) ! local vector of cohort indices
   integer, intent(in) :: ntiles ! size of the tile dimension
   integer, intent(in) :: data(:) ! local cohort data
-  ! subroutine returning the pointer to the data to be written
-  interface 
-     subroutine fptr(cohort, ptr)
-       use vegn_cohort_mod, only : vegn_cohort_type
-       type(vegn_cohort_type), pointer :: cohort ! input
-       integer               , pointer :: ptr  ! returned pointer to the data
-     end subroutine fptr
-  end interface
+  procedure(cptr_i0) :: fptr ! subroutine returning pointer to the data
 
   ! ---- local vars
   type(vegn_cohort_type), pointer :: cohort
@@ -420,14 +444,7 @@ subroutine assemble_cohorts_r0d(fptr,idx,ntiles,data)
   integer, intent(in) :: idx(:) ! local vector of cohort indices
   integer, intent(in) :: ntiles ! size of the tile dimension
   real, intent(in) :: data(:) ! local cohort data
-  ! subroutine returning the pointer to the data to be written
-  interface 
-     subroutine fptr(cohort, ptr)
-       use vegn_cohort_mod, only : vegn_cohort_type
-       type(vegn_cohort_type), pointer :: cohort ! input
-       real                  , pointer :: ptr  ! returned pointer to the data
-     end subroutine fptr
-  end interface
+  procedure(cptr_r0) :: fptr ! subroutine returning pointer to the data
 
   ! ---- local vars
   type(vegn_cohort_type), pointer :: cohort
@@ -450,14 +467,7 @@ subroutine gather_cohort_data_i0d(fptr,idx,ntiles,data)
   integer, intent(in) :: idx(:) ! local vector of cohort indices
   integer, intent(in) :: ntiles ! size of the tile dimension
   integer, intent(out) :: data(:) ! local cohort data
-  ! subroutine returning the pointer to the data to be written
-  interface 
-     subroutine fptr(cohort, ptr)
-       use vegn_cohort_mod, only : vegn_cohort_type
-       type(vegn_cohort_type), pointer :: cohort ! input
-       integer               , pointer :: ptr  ! returned pointer to the data
-     end subroutine fptr
-  end interface
+  procedure(cptr_i0) :: fptr ! subroutine returning pointer to the data
 
   ! ---- local vars
   type(vegn_cohort_type), pointer :: cohort
@@ -486,14 +496,7 @@ subroutine gather_cohort_data_r0d(fptr,idx,ntiles,data)
   integer, intent(in) :: idx(:) ! local vector of cohort indices
   integer, intent(in) :: ntiles ! size of the tile dimension
   real, intent(out) :: data(:) ! local cohort data
-  ! subroutine returning the pointer to the data to be written
-  interface 
-     subroutine fptr(cohort, ptr)
-       use vegn_cohort_mod, only : vegn_cohort_type
-       type(vegn_cohort_type), pointer :: cohort ! input
-       real                  , pointer :: ptr  ! returned pointer to the data
-     end subroutine fptr
-  end interface
+  procedure(cptr_r0) :: fptr ! subroutine returning pointer to the data
 
   ! ---- local vars
   type(vegn_cohort_type), pointer :: cohort
@@ -517,6 +520,46 @@ subroutine gather_cohort_data_r0d(fptr,idx,ntiles,data)
      endif
   enddo
 end subroutine gather_cohort_data_r0d
+
+! ============================================================================
+subroutine add_cohort_data(restart,varname,fptr,longname,units)
+  type(land_restart_type), intent(inout) :: restart
+  character(len=*), intent(in) :: varname ! name of the variable to write
+  procedure(cptr_r0)           :: fptr ! subroutine returning pointer to the data
+  character(len=*), intent(in), optional :: units, longname
+
+  real, pointer :: r(:)
+  integer :: id_restart
+  
+  if (new_land_io) then
+     allocate(r(size(restart%cidx)))
+     call gather_cohort_data(fptr,restart%cidx,restart%tile_dim_length,r)
+     id_restart = register_restart_field(restart%rhandle,restart%filename,varname,r, &
+          longname=longname, units=units, compressed_axis='H', restart_owns_data=.true.)
+  else
+     call write_cohort_data_r0d_fptr(restart%ncid,varname,fptr,longname,units)
+  endif
+end subroutine add_cohort_data
+
+! ============================================================================
+subroutine add_cohort_data_i(restart,varname,fptr,longname,units)
+  type(land_restart_type), intent(inout) :: restart
+  character(len=*), intent(in) :: varname ! name of the variable to write
+  procedure(cptr_i0)           :: fptr ! subroutine returning pointer to the data
+  character(len=*), intent(in), optional :: units, longname
+
+  integer, pointer :: r(:)
+  integer :: id_restart
+  
+  if (new_land_io) then
+     allocate(r(size(restart%cidx)))
+     call gather_cohort_data(fptr,restart%cidx,restart%tile_dim_length,r)
+     id_restart = register_restart_field(restart%rhandle,restart%filename,varname,r, &
+          longname=longname, units=units, compressed_axis='H', restart_owns_data=.true.)
+  else
+     call write_cohort_data_i0d_fptr(restart%ncid,varname,fptr,longname,units)
+  endif
+end subroutine add_cohort_data_i
 
 #define F90_TYPE real
 #define NF_TYPE NF_DOUBLE

@@ -20,7 +20,7 @@ use time_manager_mod, only : time_type
 use data_override_mod, only : data_override
 
 use nf_utils_mod, only : nfu_inq_dim, nfu_inq_var, nfu_def_dim, nfu_def_var, &
-     nfu_get_var, nfu_put_att
+     nfu_get_var, nfu_put_var, nfu_put_att
 use land_io_mod, only : print_netcdf_error, read_field, input_buf_size, new_land_io
 use land_tile_mod, only : land_tile_type, land_tile_list_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, get_elmt_indices, operator(/=), &
@@ -64,7 +64,7 @@ public :: save_land_restart
 public :: free_land_restart
 public :: add_restart_axis
 public :: field_exists
-public :: add_tile_data, add_tile_data_i
+public :: add_tile_data, add_tile_data_i, add_scalar_data
 public :: get_tile_data, get_tile_data_i
 ! ==== end of public interfaces ==============================================
 interface create_tile_out_file
@@ -313,6 +313,28 @@ logical function field_exists(restart,name)
      field_exists = (nfu_inq_var(restart%ncid,trim(name))==NF_NOERR)
   endif
 end function field_exists
+
+! ==============================================================================
+subroutine add_scalar_data(restart,varname,datum,longname,units)
+  type(land_restart_type), intent(inout) :: restart
+  character(len=*), intent(in) :: varname ! name of the variable to write
+  integer,          intent(in) :: datum
+  character(len=*), intent(in), optional :: units, longname
+
+  integer :: id_restart, ierr
+
+  if (new_land_io) then
+     id_restart = register_restart_field(restart%rhandle,restart%filename,varname,datum,&
+          longname=longname,units=units)
+  else
+     if(mpp_pe()==lnd%io_pelist(1)) then
+        ierr = nf_redef(restart%ncid)
+        __NF_ASRT__(nfu_def_var(restart%ncid,varname,NF_INT,long_name=longname,units=units))
+        ierr = nf_enddef(restart%ncid)
+        __NF_ASRT__(nfu_put_var(restart%ncid,varname,datum))
+     end if
+  endif  
+end subroutine add_scalar_data
 
 ! ==============================================================================
 subroutine add_tile_data_i0d_fptr_i0(restart,varname,fptr,longname,units)
