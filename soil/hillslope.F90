@@ -29,7 +29,7 @@ use land_data_mod,      only : lnd
 use land_io_mod, only : read_field
 use land_tile_io_mod1, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
-     get_input_restart_name, add_restart_axis, add_tile_data_i, get_tile_data_i, &
+     get_input_restart_name, add_restart_axis, add_int_tile_data, get_int_tile_data, &
      print_netcdf_error
 use nf_utils_mod,  only : nfu_inq_dim
 use land_debug_mod, only : is_watch_point, is_watch_cell, set_current_point
@@ -636,8 +636,8 @@ subroutine hlsp_init ( id_lon, id_lat, new_land_io )
         call error_mesg(module_name, 'hlsp_init: coldfracs subroutine called even though restart file '// &
                              'exists! Inconsistency of "cold_start" in hillslope_mod.', FATAL)
      call open_land_restart(restart,hlsp_rst_ifname)
-     call get_tile_data_i(restart, 'HIDX_J', soil_hidx_j_ptr)
-     call get_tile_data_i(restart, 'HIDX_K', soil_hidx_k_ptr)
+     call get_int_tile_data(restart, 'HIDX_J', soil_hidx_j_ptr)
+     call get_int_tile_data(restart, 'HIDX_K', soil_hidx_k_ptr)
      call free_land_restart(restart)
   else
      call error_mesg(module_name, 'hlsp_init: '// &
@@ -860,8 +860,8 @@ subroutine save_hlsp_restart (tile_dim_length, timestamp)
   filename = trim(timestamp)//hlsp_rst_ofname
   call init_land_restart(restart, filename, soil_tile_exists, tile_dim_length)
 
-  call add_tile_data_i(restart,'HIDX_J',soil_hidx_j_ptr,'hillslope position index','-')
-  call add_tile_data_i(restart,'HIDX_K',soil_hidx_k_ptr,'hillslope parent index','-')
+  call add_int_tile_data(restart,'HIDX_J',soil_hidx_j_ptr,'hillslope position index','-')
+  call add_int_tile_data(restart,'HIDX_K',soil_hidx_k_ptr,'hillslope parent index','-')
   ! save performs io domain aggregation through mpp_io as with regular domain data
   call save_land_restart(restart)
   call free_land_restart(restart)

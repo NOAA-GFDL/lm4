@@ -12,11 +12,11 @@ use land_io_mod,      only : print_netcdf_error, input_buf_size, new_land_io
 use land_tile_mod,    only : land_tile_type, land_tile_list_type, &
      land_tile_enum_type, first_elmt, tail_elmt, next_elmt, get_elmt_indices, &
      current_tile, operator(/=)
-use land_tile_io_mod, only : get_tile_by_idx, sync_nc_files
 
 use land_tile_io_mod1, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
-     get_input_restart_name, add_restart_axis, add_tile_data, get_tile_data
+     get_input_restart_name, add_restart_axis, add_tile_data, get_tile_data, &
+     get_tile_by_idx, sync_nc_files
 
 use vegn_cohort_mod, only: vegn_cohort_type
 use land_data_mod, only : lnd, land_state_type
@@ -25,19 +25,14 @@ implicit none
 private
 
 ! ==== public interfaces =====================================================
-! input
 public :: read_create_cohorts
-public :: read_cohort_data_r0d_fptr
-public :: read_cohort_data_i0d_fptr
-! output
 public :: create_cohort_dimension
-public :: add_cohort_data, add_cohort_data_i
+public :: add_cohort_data, add_int_cohort_data
 public :: get_cohort_data, get_int_cohort_data
 ! remove when cleaning up:
 public :: write_cohort_data_r0d_fptr
 public :: write_cohort_data_i0d_fptr
 public :: gather_cohort_data
-public :: assemble_cohorts
 public :: create_cohort_dimension_new, create_cohort_dimension_orig
 ! ==== end of public interfaces ==============================================
 
@@ -552,7 +547,7 @@ subroutine add_cohort_data(restart,varname,fptr,longname,units)
 end subroutine add_cohort_data
 
 ! ============================================================================
-subroutine add_cohort_data_i(restart,varname,fptr,longname,units)
+subroutine add_int_cohort_data(restart,varname,fptr,longname,units)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
   procedure(cptr_i0)           :: fptr ! subroutine returning pointer to the data
@@ -569,7 +564,7 @@ subroutine add_cohort_data_i(restart,varname,fptr,longname,units)
   else
      call write_cohort_data_i0d_fptr(restart%ncid,varname,fptr,longname,units)
   endif
-end subroutine add_cohort_data_i
+end subroutine add_int_cohort_data
 
 ! ============================================================================
 subroutine get_cohort_data(restart,varname,fptr)

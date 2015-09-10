@@ -34,8 +34,8 @@ use land_io_mod, only : read_field
 
 use land_tile_io_mod1, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
-     get_input_restart_name, add_restart_axis, add_tile_data, add_tile_data_i, &
-     add_scalar_data, get_scalar_data, get_tile_data, get_tile_data_i, field_exists
+     get_input_restart_name, add_restart_axis, add_tile_data, add_int_tile_data, &
+     add_scalar_data, get_scalar_data, get_tile_data, get_int_tile_data, field_exists
 
 use vegn_data_mod, only : SP_C4GRASS, LEAF_ON, LU_NTRL, read_vegn_data_namelist, &
      tau_drip_l, tau_drip_s, T_transp_min, cold_month_threshold, soil_carbon_depth_scale, &
@@ -48,7 +48,7 @@ use vegn_cohort_mod, only : vegn_cohort_type, &
 use canopy_air_mod, only : cana_turbulence
      
 use cohort_io_mod, only :  read_create_cohorts, create_cohort_dimension, &
-     assemble_cohorts, add_cohort_data, add_cohort_data_i, get_cohort_data, get_int_cohort_data
+     add_cohort_data, add_int_cohort_data, get_cohort_data, get_int_cohort_data
 use land_debug_mod, only : is_watch_point, set_current_point, check_temp_range, &
      carbon_cons_tol, water_cons_tol, check_conservation, do_check_conservation
 use vegn_radiation_mod, only : vegn_radiation_init, vegn_radiation
@@ -319,7 +319,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
      call get_cohort_data(restart2, 'npp_prev_day', cohort_npp_previous_day_ptr)
 
      if(field_exists(restart2,'landuse')) &
-          call get_tile_data_i(restart2,'landuse',vegn_landuse_ptr)
+          call get_int_tile_data(restart2,'landuse',vegn_landuse_ptr)
      call get_tile_data(restart2,'age',vegn_age_ptr)
      if(field_exists(restart2,'fsc_pool_ag')) then
        call get_tile_data(restart2,'fsc_pool_ag',vegn_fsc_pool_ag_ptr)
@@ -739,7 +739,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_scalar_data(restart2,'n_accum',n_accum,'number of accumulated steps')
 
   call add_scalar_data(restart2,'nmn_acm',nmn_acm,'number of accumulated months')
-  call add_cohort_data_i(restart2,'species', cohort_species_ptr, 'vegetation species')
+  call add_int_cohort_data(restart2,'species', cohort_species_ptr, 'vegetation species')
   call add_cohort_data(restart2,'hite', cohort_height_ptr, 'vegetation height','m')
   call add_cohort_data(restart2,'bl', cohort_bl_ptr, 'biomass of leaves per individual','kg C/m2')
   call add_cohort_data(restart2,'blv', cohort_blv_ptr, 'biomass of virtual leaves (labile store) per individual','kg C/m2')
@@ -747,12 +747,12 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'bsw', cohort_bsw_ptr, 'biomass of sapwood per individual','kg C/m2')
   call add_cohort_data(restart2,'bwood', cohort_bwood_ptr, 'biomass of heartwood per individual','kg C/m2')
   call add_cohort_data(restart2,'bliving', cohort_bliving_ptr, 'total living biomass per individual','kg C/m2')
-  call add_cohort_data_i(restart2,'status', cohort_status_ptr, 'leaf status')
+  call add_int_cohort_data(restart2,'status', cohort_status_ptr, 'leaf status')
   call add_cohort_data(restart2,'leaf_age',cohort_leaf_age_ptr, 'age of leaves since bud burst', 'days')
 
   call add_cohort_data(restart2,'npp_prev_day', cohort_npp_previous_day_ptr, 'previous day NPP','kg C/(m2 year)')
 
-  call add_tile_data_i(restart2,'landuse',vegn_landuse_ptr,'vegetation land use type')
+  call add_int_tile_data(restart2,'landuse',vegn_landuse_ptr,'vegetation land use type')
   call add_tile_data(restart2,'age',vegn_age_ptr,'vegetation age', 'yr')
   call add_tile_data(restart2,'fsc_pool_ag',vegn_fsc_pool_ag_ptr, &
        'intermediate pool for AG fast soil carbon input', 'kg C/m2')
