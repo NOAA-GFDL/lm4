@@ -2,7 +2,7 @@ module cohort_io_mod
 
 use fms_mod,          only : error_mesg, FATAL, WARNING, get_mosaic_tile_file
 use fms_io_mod,       only : register_restart_axis, restart_file_type, get_instance_filename, &
-   register_restart_field
+   get_field_size, register_restart_field, read_compressed
 use mpp_mod,          only : mpp_pe, mpp_max, mpp_send, mpp_recv, mpp_sync, &
                              COMM_TAG_1, COMM_TAG_2
 use nf_utils_mod,     only : nfu_inq_dim, nfu_get_var, nfu_put_var, &
@@ -32,6 +32,7 @@ public :: read_cohort_data_i0d_fptr
 ! output
 public :: create_cohort_dimension
 public :: add_cohort_data, add_cohort_data_i
+public :: get_cohort_data, get_int_cohort_data
 ! remove when cleaning up:
 public :: write_cohort_data_r0d_fptr
 public :: write_cohort_data_i0d_fptr
@@ -49,11 +50,6 @@ interface assemble_cohorts
    module procedure assemble_cohorts_r0d
    module procedure assemble_cohorts_i0d
 end interface assemble_cohorts
-
-interface read_create_cohorts
-   module procedure read_create_cohorts_new
-   module procedure read_create_cohorts_orig
-end interface read_create_cohorts
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
@@ -115,6 +111,19 @@ subroutine get_cohort_by_idx(idx,nlon,nlat,ntiles,tiles,is,js,ptr)
       endif
    endif
 
+end subroutine
+
+! ============================================================================
+subroutine read_create_cohorts(restart)
+  type(land_restart_type), intent(inout) :: restart
+  
+  if (new_land_io) then
+     if (.not.allocated(restart%cidx)) call error_mesg('read_create_cohorts', &
+        'cohort index not found in file "'//restart%filename//'"',FATAL)
+     call read_create_cohorts_new(restart%cidx,restart%tile_dim_length)
+  else
+     call read_create_cohorts_orig(restart%ncid)
+  endif
 end subroutine
 
 ! ============================================================================
@@ -184,6 +193,7 @@ subroutine read_create_cohorts_orig(ncid)
   deallocate(idx)
 end subroutine read_create_cohorts_orig
 
+! ============================================================================
 subroutine read_create_cohorts_new(idx,ntiles)
   integer, intent(in) :: idx(:)
   integer, intent(in) :: ntiles
@@ -560,6 +570,44 @@ subroutine add_cohort_data_i(restart,varname,fptr,longname,units)
      call write_cohort_data_i0d_fptr(restart%ncid,varname,fptr,longname,units)
   endif
 end subroutine add_cohort_data_i
+
+! ============================================================================
+subroutine get_cohort_data(restart,varname,fptr)
+  type(land_restart_type), intent(in) :: restart
+  character(len=*), intent(in) :: varname ! name of the variable to write
+  procedure(cptr_r0)           :: fptr ! subroutine returning pointer to the data
+
+  real, allocatable :: r(:)
+  if (new_land_io) then
+     if (.not.allocated(restart%cidx)) call error_mesg('read_create_cohorts', &
+        'cohort index not found in file "'//restart%filename//'"',FATAL)
+     allocate(r(size(restart%cidx)))
+     call read_compressed(restart%filename, varname, r, domain=lnd%domain, timelevel=1)
+     call assemble_cohorts(fptr,restart%cidx,restart%tile_dim_length,r)
+     deallocate(r)
+  else
+     call read_cohort_data_r0d_fptr(restart%ncid,varname,fptr)
+  endif     
+end subroutine get_cohort_data
+
+! ============================================================================
+subroutine get_int_cohort_data(restart,varname,fptr)
+  type(land_restart_type), intent(in) :: restart
+  character(len=*), intent(in) :: varname ! name of the variable to write
+  procedure(cptr_i0)           :: fptr ! subroutine returning pointer to the data
+
+  integer, allocatable :: r(:)
+  if (new_land_io) then
+     if (.not.allocated(restart%cidx)) call error_mesg('read_create_cohorts', &
+        'cohort index not found in file "'//restart%filename//'"',FATAL)
+     allocate(r(size(restart%cidx)))
+     call read_compressed(restart%filename, varname, r, domain=lnd%domain, timelevel=1)
+     call assemble_cohorts(fptr,restart%cidx,restart%tile_dim_length,r)
+     deallocate(r)
+  else
+     call read_cohort_data_i0d_fptr(restart%ncid,varname,fptr)
+  endif     
+end subroutine get_int_cohort_data
 
 #define F90_TYPE real
 #define NF_TYPE NF_DOUBLE

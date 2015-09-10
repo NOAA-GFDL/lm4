@@ -12,7 +12,7 @@ use mpp_mod, only : COMM_TAG_5,  COMM_TAG_6,  COMM_TAG_7,  COMM_TAG_8
 use fms_mod, only : error_mesg, FATAL, NOTE, mpp_pe, get_mosaic_tile_file
 use fms_io_mod, only : restart_file_type, free_restart_type, save_restart, &
      register_restart_axis, register_restart_field, get_instance_filename, &
-     field_exist, get_field_size, read_compressed
+     field_exist, get_field_size, read_compressed, read_data
 use fms_mod, only : error_mesg, file_exist,     &
      check_nml_error, stdlog, write_version_number, &
      close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
@@ -65,7 +65,7 @@ public :: free_land_restart
 public :: add_restart_axis
 public :: field_exists
 public :: add_tile_data, add_tile_data_i, add_scalar_data
-public :: get_tile_data, get_tile_data_i
+public :: get_tile_data, get_tile_data_i, get_scalar_data
 ! ==== end of public interfaces ==============================================
 interface create_tile_out_file
    module procedure create_tile_out_file_idx
@@ -230,15 +230,19 @@ subroutine open_land_restart(restart,filename)
   restart%filename = filename
 
   if (new_land_io) then
+     ! read tile index
      call get_field_size(filename,'tile_index',len,field_found=found,domain=lnd%domain)
      if ( .not.found ) call error_mesg('open_land_restart', &
            '"tile_index" not found in file "'//trim(filename)//'"', FATAL)
-     ! allocate data for tile index
      allocate(restart%tidx(len(1)))
-     ! read the index
      call read_compressed(filename,'tile_index',restart%tidx,domain=lnd%domain,timelevel=1)
-     ! TODO: read cohort index if found in the file
-     ! TODO: make tile index and cohort index names parameters in this module
+     ! read cohort index
+     call get_field_size(restart%filename, 'cohort_index', len, field_found=found, domain=lnd%domain)
+     if (found) then
+        allocate(restart%cidx(len(1)))
+        call read_compressed(restart%filename, 'cohort_index', restart%cidx, domain=lnd%domain, timelevel=1)
+     endif
+     ! TODO: possibly make tile index and cohort index names parameters in this module
      !       just constants, no sense to make them namelists vars
   else ! old i/o
       __NF_ASRT__(nf_open(restart%filename,NF_NOWRITE,restart%ncid))
@@ -335,6 +339,19 @@ subroutine add_scalar_data(restart,varname,datum,longname,units)
      end if
   endif  
 end subroutine add_scalar_data
+
+! ==============================================================================
+subroutine get_scalar_data(restart,varname,datum)
+  type(land_restart_type), intent(inout) :: restart
+  character(len=*), intent(in) :: varname ! name of the variable to write
+  integer,          intent(out) :: datum
+
+  if (new_land_io) then
+     call read_data(restart%filename,varname,datum,domain=lnd%domain)
+  else
+     __NF_ASRT__(nfu_get_var(restart%ncid,varname,datum))
+  endif
+end subroutine get_scalar_data
 
 ! ==============================================================================
 subroutine add_tile_data_i0d_fptr_i0(restart,varname,fptr,longname,units)
