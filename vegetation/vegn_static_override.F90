@@ -28,7 +28,7 @@ use nf_utils_mod,       only : nfu_inq_dim, nfu_get_dim, nfu_def_dim, &
      nfu_inq_compressed_var, nfu_get_compressed_rec, nfu_validtype, &
      nfu_get_valid_range, nfu_is_valid, nfu_put_rec, nfu_put_att
 use land_data_mod,      only : lnd, land_time
-use land_io_mod,        only : print_netcdf_error
+use land_io_mod,        only : print_netcdf_error, new_land_io
 use land_numerics_mod,  only : nearest
 use land_tile_io_mod,   only : create_tile_out_file,sync_nc_files
 use land_tile_mod,      only : land_tile_type, land_tile_enum_type, first_elmt, &
@@ -73,7 +73,6 @@ integer, allocatable :: map_i(:,:), map_j(:,:)! remapping arrays: for each of th
 type(time_type) :: base_time ! model base time for static vegetation output
 type(fieldtype), allocatable :: Fields(:)
 integer :: input_unit, ispecies, ibl, iblv, ibr, ibsw, ibwood, ibliving, istatus
-logical :: new_land_io_for_static_vegn = .FALSE.
 
 ! ---- namelist variables ---------------------------------------------------
 logical :: use_static_veg = .FALSE.
@@ -146,8 +145,7 @@ end subroutine read_static_vegn_namelist
 
 
 ! ===========================================================================
-subroutine static_vegn_init(new_land_io)
-  logical, intent(in) :: new_land_io
+subroutine static_vegn_init( )
 
   ! ---- local vars
   integer :: unlimdim, timelen, timeid
@@ -176,7 +174,6 @@ subroutine static_vegn_init(new_land_io)
 
   if(module_is_initialized) return
 
-  new_land_io_for_static_vegn = new_land_io
   if(use_static_veg) then
 
      ! SET UP LOOP BOUNDARIES
@@ -514,7 +511,7 @@ end subroutine static_vegn_init
 ! ===========================================================================
 subroutine static_vegn_end()
 
-  if(new_land_io_for_static_vegn) return
+  if(new_land_io) return
 
   if(use_static_veg) then
      __NF_ASRT__(nf_close(ncid))
@@ -557,7 +554,7 @@ subroutine read_static_vegn (time, err_msg)
   endif
 
   ! read the data into cohort variables
-  if(new_land_io_for_static_vegn) then
+  if(new_land_io) then
      call get_field_size(trim(input_file),'cohort_index',siz, domain=lnd%domain)
      allocate(cidx(siz(1)), idata(siz(1)), rdata(siz(1)))
      call read_compressed(trim(input_file),'cohort_index',cidx, domain=lnd%domain, timelevel=index1)
@@ -613,7 +610,7 @@ subroutine write_static_vegn()
        .or.(trim(static_veg_freq)=='annual' .and. year1/=year0) )&
        then
   t = (time_type_to_real(land_time)-time_type_to_real(base_time))/86400
-  if(new_land_io_for_static_vegn) then
+  if(new_land_io) then
      call gather_cohort_data(cohort_species_ptr,cidx,tile_dim_length,species)
      call gather_cohort_data(cohort_bl_ptr,cidx,tile_dim_length,bl)
      call gather_cohort_data(cohort_blv_ptr,cidx,tile_dim_length,blv)

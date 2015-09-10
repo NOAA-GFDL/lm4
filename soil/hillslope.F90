@@ -558,10 +558,9 @@ end subroutine retrieve_hlsp_indices
 
 ! ============================================================================
 ! initialize hillslope model
-subroutine hlsp_init ( id_lon, id_lat, new_land_io )
+subroutine hlsp_init ( id_lon, id_lat )
   integer, intent(in)  :: id_lon  ! ID of land longitude (X) axis  
   integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
-  logical, intent(in) :: new_land_io !< This is a transition var and will be removed
 
   ! ---- local vars
   integer :: unit         ! unit for various i/o

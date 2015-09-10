@@ -252,11 +252,10 @@ end subroutine read_vegn_namelist
 
 ! ============================================================================
 ! initialize vegetation
-subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
+subroutine vegn_init ( id_lon, id_lat, id_band )
   integer, intent(in) :: id_lon  ! ID of land longitude (X) axis  
   integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
   integer, intent(in) :: id_band ! ID of spectral band axis
-  logical, intent(in) :: new_land_io !< This is a transition var and will be removed
 
   ! ---- local vars
   integer :: unit         ! unit for various i/o
@@ -451,8 +450,8 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
   call vegn_dynamics_init ( id_lon, id_lat, land_time, delta_time )
 
   ! initialize static vegetation
-  call static_vegn_init (new_land_io)
-  call read_static_vegn ( land_time )
+  call static_vegn_init ()
+  call read_static_vegn (land_time)
 
   ! initialize harvesting options
   call vegn_harvesting_init()
