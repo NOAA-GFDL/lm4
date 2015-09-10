@@ -54,7 +54,7 @@ use land_tile_diag_mod, only : diag_buff_type, &
      set_default_diag_filter
 use land_data_mod, only : land_state_type, lnd, land_time
 use land_io_mod, only : read_field
-use land_tile_io_mod1, only: land_restart_type, &
+use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      get_input_restart_name, add_restart_axis, add_tile_data, get_tile_data, &
      field_exists

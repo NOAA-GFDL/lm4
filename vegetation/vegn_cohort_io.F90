@@ -13,7 +13,7 @@ use land_tile_mod,    only : land_tile_type, land_tile_list_type, &
      land_tile_enum_type, first_elmt, tail_elmt, next_elmt, get_elmt_indices, &
      current_tile, operator(/=)
 
-use land_tile_io_mod1, only: land_restart_type, &
+use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      get_input_restart_name, add_restart_axis, add_tile_data, get_tile_data, &
      get_tile_by_idx, sync_nc_files

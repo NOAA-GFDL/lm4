@@ -32,7 +32,7 @@ use land_tile_diag_mod, only : register_tiled_static_field, &
      send_tile_data_r0d_fptr, add_tiled_static_field_alias, &
      set_default_diag_filter
 use land_data_mod,      only : land_state_type, lnd, land_time
-use land_tile_io_mod1, only: land_restart_type, &
+use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      get_input_restart_name, add_restart_axis, add_tile_data, get_tile_data, &
      field_exists

@@ -24,7 +24,7 @@ use snow_tile_mod, only : &
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
 use land_data_mod,      only : land_state_type, lnd, land_time
-use land_tile_io_mod1, only: land_restart_type, &
+use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      get_input_restart_name, add_restart_axis, add_tile_data, get_tile_data
 use land_debug_mod, only : is_watch_point

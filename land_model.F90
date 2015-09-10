@@ -85,7 +85,7 @@ use land_data_mod, only : land_data_type, atmos_land_boundary_type, &
      land_data_type_chksum, atm_lnd_bnd_type_chksum
 use nf_utils_mod,  only : nfu_inq_var, nfu_inq_dim, nfu_get_var
 use land_utils_mod, only : put_to_tiles_r0d_fptr
-use land_tile_io_mod1, only: land_restart_type, &
+use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      get_input_restart_name, add_tile_data, add_int_tile_data, get_tile_data, &
      field_exists, print_netcdf_error
