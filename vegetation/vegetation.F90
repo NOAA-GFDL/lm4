@@ -186,7 +186,7 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
    id_leaflitter_buffer_slow_N, id_woodlitter_buffer_slow_N,id_leaflitter_buffer_rate_slow_N, id_woodlitter_buffer_rate_slow_N,& ! id_coarsewoodlitter_buffer_rate_ag is 34 characters long (pjp)
    id_t_ann, id_t_cold, id_p_ann, id_ncm, &
    id_lambda, id_afire, id_atfall, id_closs, id_cgain, id_wdgain, id_leaf_age, &
-   id_phot_co2, id_theph, id_psiph, id_evap_demand, id_N_uptake_smoothed
+   id_phot_co2, id_theph, id_psiph, id_evap_demand, id_N_uptake_smoothed,id_passive_N_uptake,id_myc_scavenger_N_uptake
 ! ==== end of module variables ===============================================
 
 ! ==== NetCDF declarations ===================================================
@@ -693,6 +693,8 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
      tile%vegn%n_accum = n_accum
      tile%vegn%nmn_acm = nmn_acm
 
+     tile%vegn%low_pass_N_uptake = init_cohort_max_leaf_biomass
+
      if (tile%vegn%n_cohorts>0) cycle ! skip initialized tiles
 
      ! create and initialize cohorts for this vegetation tile
@@ -834,7 +836,11 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
    id_myc_scavenger_biomass_N = register_tiled_diag_field ( module_name, 'myc_scavenger_biomass_N',  &
         (/id_lon,id_lat/), time, 'scavenger mycorrhizal biomass_N', 'kg N/m2', missing_value=-1.0 )
     id_N_uptake_smoothed = register_tiled_diag_field ( module_name, 'N_uptake_smoothed',  &
-         (/id_lon,id_lat/), time, 'Smoothed N uptake', 'kg N/m2', missing_value=-1.0 )
+         (/id_lon,id_lat/), time, 'Smoothed N uptake', 'kg N/m2/year', missing_value=-1.0 )
+   id_passive_N_uptake = register_tiled_diag_field ( module_name, 'passive_N_uptake',  &
+        (/id_lon,id_lat/), time, 'Plant N uptake by root water flow', 'kg N/m2/year', missing_value=-1.0 )
+  id_myc_scavenger_N_uptake = register_tiled_diag_field ( module_name, 'myc_scavenger_N_uptake',  &
+       (/id_lon,id_lat/), time, 'N uptake by scavenger mycorrhizae', 'kg N/m2/year', missing_value=-1.0 )
   id_btot = register_tiled_diag_field ( module_name, 'btot',  &
        (/id_lon,id_lat/), time, 'total biomass', 'kg C/m2', missing_value=-1.0 )
   id_fuel = register_tiled_diag_field ( module_name, 'fuel',  &
@@ -2130,13 +2136,17 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, vegn_fco2, diag)
   vegn%n_accum   = vegn%n_accum+1
 
   ! Do low pass filter on N uptake
+  ! print *,'vegn_step_3',soil%passive_N_uptake,soil%myc_min_N_uptake,vegn%low_pass_N_uptake
   N_filter_weight=1.0/(1.0+N_uptake_smoothing_timescale/dt_fast_yr)
-  vegn%low_pass_N_uptake = vegn%low_pass_N_uptake*(1.0-N_filter_weight) + (soil%passive_N_uptake)*N_filter_weight
-  vegn%low_pass_N_uptake = vegn%low_pass_N_uptake*(1.0-N_filter_weight) + (soil%myc_min_N_uptake)*N_filter_weight
+  vegn%low_pass_N_uptake = vegn%low_pass_N_uptake*(1.0-N_filter_weight) + (soil%passive_N_uptake/dt_fast_yr)*N_filter_weight
+  vegn%low_pass_N_uptake = vegn%low_pass_N_uptake*(1.0-N_filter_weight) + (soil%myc_min_N_uptake/dt_fast_yr)*N_filter_weight
+
 
   call send_tile_data(id_theph, theta, diag)
   call send_tile_data(id_psiph, psist, diag)
   call send_tile_data(id_N_uptake_smoothed,vegn%low_pass_N_uptake,diag)
+  call send_tile_data(id_passive_N_uptake,soil%passive_N_uptake/dt_fast_yr,diag)
+  call send_tile_data(id_myc_scavenger_N_uptake,soil%myc_min_N_uptake/dt_fast_yr,diag)
 
 end subroutine vegn_step_3
 

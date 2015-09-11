@@ -4985,8 +4985,8 @@ real :: NH4_leached(num_l), div_NH4_loss(num_l),  &     ! NH4 leaching
 ! units of N: kg/m2
 ! N/wl_before -> unitless concentration
 where(wl_before>1.0e-4)
-  passive_ammonium_uptake = min(soil%soil_organic_matter(:)%ammonium,uptake*soil%soil_organic_matter(:)%ammonium/wl_before)
-  passive_nitrate_uptake = min(soil%soil_organic_matter(:)%nitrate,uptake*soil%soil_organic_matter(:)%nitrate/wl_before)
+  passive_ammonium_uptake = min(soil%soil_organic_matter(:)%ammonium,max(0.0,uptake*soil%soil_organic_matter(:)%ammonium/wl_before))
+  passive_nitrate_uptake = min(soil%soil_organic_matter(:)%nitrate,max(0.0,uptake*soil%soil_organic_matter(:)%nitrate/wl_before))
 elsewhere
   passive_ammonium_uptake=0.0
   passive_nitrate_uptake=0.0

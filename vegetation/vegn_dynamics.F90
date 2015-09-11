@@ -295,17 +295,19 @@ total_myc_immob = 0.0
      if(soil_carbon_option==SOILC_CORPSE_N) then
          myc_exudate_frac=0.5  ! This will eventually be dynamic based on N acquisition cost function
            ! Watch out that mycorrhizae aren't too N limited (for instance if starting from zero biomass)
-         scavenger_myc_C_allocated=min(root_exudate_C*myc_exudate_frac,&
-                  (myc_N_uptake+root_exudate_C*myc_exudate_frac*root_exudate_N_frac)*c2n_mycorrhizae)*dt_fast_yr
+         scavenger_myc_C_allocated=root_exudate_C*myc_exudate_frac*dt_fast_yr
+
+         mycorrhizal_N_immob = max(0.0,scavenger_myc_C_allocated/c2n_mycorrhizae-scavenger_myc_C_allocated*root_exudate_N_frac)
+         mycorrhizal_N_immob = min(mycorrhizal_N_immob,myc_N_uptake)
      else
          scavenger_myc_C_allocated=0.0
+         mycorrhizal_N_immob = 0.0
      endif
 
-     ! Mycorrhizal N uptake reduced by amount mycorrhizae use for own biomass
-                                    ! N demand                                  ! N provided by plant
-     mycorrhizal_N_immob = max(0.0,scavenger_myc_C_allocated/c2n_mycorrhizae-scavenger_myc_C_allocated*root_exudate_N_frac)
+
      soil%myc_min_N_uptake=soil%myc_min_N_uptake+myc_N_uptake-mycorrhizal_N_immob
 
+     if(cc%myc_scavenger_biomass_C<0) call error_mesg('vegn_carbon_int','Mycorrhizal biomass < 0',FATAL)
 
      ! First add mycorrhizal turnover to soil C pools
      call add_root_litter(soil,vegn,(/0.0,0.0,cc%myc_scavenger_biomass_C/mycorrhizal_turnover_time/)*dt_fast_yr,(/0.0,0.0,cc%myc_scavenger_biomass_N/mycorrhizal_turnover_time/)*dt_fast_yr)
@@ -320,7 +322,7 @@ total_myc_immob = 0.0
    enddo
 
    ! fsc_in and ssc_in updated in add_root_exudates
-   call add_root_exudates(soil,vegn,total_root_exudate_C*(1-myc_exudate_frac),total_root_exudate_C*root_exudate_N_frac*(1-myc_exudate_frac))
+   call add_root_exudates(soil,vegn,total_root_exudate_C,total_root_exudate_C*root_exudate_N_frac)
 
 
   ! update soil carbon
