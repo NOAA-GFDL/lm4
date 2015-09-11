@@ -56,7 +56,8 @@ use land_data_mod, only : land_state_type, lnd, land_time
 use land_io_mod, only : read_field
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
-     add_restart_axis, add_tile_data, get_tile_data, field_exists
+     add_tile_data, add_int_tile_data, get_tile_data, get_int_tile_data, &
+     add_restart_axis, field_exists
 use vegn_data_mod, only: K1, K2
 use vegn_tile_mod, only : vegn_tile_type, vegn_uptake_profile, vegn_hydraulic_properties
 use land_debug_mod, only : is_watch_point, get_current_point, set_current_point, &
@@ -755,7 +756,7 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
         call get_tile_data(restart, 'coarseWood_litter_DOC_deadmic',soilc_coarseWoodlitter_DOC_ptr, C_MIC)
   
         if(field_exists(restart, 'is_peat')) then
-           call get_tile_data(restart, 'is_peat','zfull', soil_is_peat_ptr)
+           call get_int_tile_data(restart, 'is_peat','zfull', soil_is_peat_ptr)
         endif
      endif               
   else
@@ -1443,7 +1444,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
      call add_tile_data(restart,'coarseWood_litter_DOC_slow',soilc_coarseWoodLitter_DOC_ptr,C_LIG,'Dissolved coarse wood litter slow carbon','kg/m2')
      call add_tile_data(restart,'coarseWood_litter_DOC_deadmic',soilc_coarseWoodLitter_DOC_ptr,C_MIC,'Dissolved coarse wood litter dead microbe carbon','kg/m2')
   
-     call add_tile_data(restart,'is_peat', 'zfull', soil_is_peat_ptr ,'Is layer peat?','Boolean')
+     call add_int_tile_data(restart,'is_peat', 'zfull', soil_is_peat_ptr ,'Is layer peat?','Boolean')
   case default
      call error_mesg('save_soil_restart','soil_carbon_option is invalid. This should never happen. Contact developer', FATAL)
   end select  

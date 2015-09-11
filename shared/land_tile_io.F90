@@ -73,6 +73,7 @@ end interface
 
 interface add_int_tile_data
    module procedure add_tile_data_i0d_fptr_i0
+   module procedure add_tile_data_i1d_fptr_i0i
 end interface
 
 interface get_tile_data
@@ -86,6 +87,7 @@ end interface
 
 interface get_int_tile_data
    module procedure get_tile_data_i0d_fptr_i0
+   module procedure get_tile_data_i1d_fptr_i0i
 end interface
 
 ! ==== module constants ======================================================
@@ -349,6 +351,36 @@ subroutine add_tile_data_r0d_fptr_r0i(restart,varname,fptr,index,longname,units)
   endif
 end subroutine add_tile_data_r0d_fptr_r0i
 
+subroutine add_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr,longname,units)
+  type(land_restart_type), intent(inout) :: restart
+  character(len=*), intent(in) :: varname ! name of the variable to write
+  character(len=*), intent(in) :: zdim ! name of the z-dimension
+  procedure(fptr_i0i)          :: fptr    ! subroutine returning pointer to the data
+  character(len=*), intent(in), optional :: units, longname
+
+  integer :: id_restart
+  integer, pointer :: data(:,:) ! needs to be pointer; we are passing ownership to restart object
+  integer :: i,n
+
+  if (new_land_io) then
+     if (.not.allocated(restart%tidx)) call error_mesg('add_tile_data_i1d_fptr_i0i', &
+           'tidx not allocated: looks like land restart was not initialized',FATAL)
+
+     n = -1
+     do i = 1,restart%nax
+        if (restart%ax(i)%name == zdim) n=restart%ax(i)%len
+     enddo
+     if (n<1) call error_mesg('add_tile_data_r0d_fptr_r0i', 'axis "'//trim(zdim)//'" not found', FATAL)
+  
+     allocate(data(size(restart%tidx),n))
+     call gather_tile_data_i1d(fptr,restart%tidx,data)
+     id_restart = register_restart_field(restart%rhandle, restart%basename, varname, data, &
+          compressed=.true., longname=longname, units=units, restart_owns_data=.true.)
+  else ! old land io
+     call write_tile_data_i1d_fptr_i0i(restart%ncid,varname,fptr,zdim,longname,units)
+  endif
+end subroutine add_tile_data_i1d_fptr_i0i
+
 subroutine add_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr,longname,units)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
@@ -591,6 +623,34 @@ subroutine get_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr)
      call read_tile_data_r1d_fptr_r0i(restart%ncid,varname,fptr)
   endif
 end subroutine get_tile_data_r1d_fptr_r0i
+
+subroutine get_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr)
+  type(land_restart_type), intent(inout) :: restart
+  character(len=*), intent(in) :: varname ! name of the variable to write
+  character(len=*), intent(in) :: zdim ! name of the z-dimension
+  procedure(fptr_i0i)          :: fptr    ! subroutine returning pointer to the data
+
+  ! ---- local vars
+  integer :: len(4) ! size of the input field
+  integer, allocatable :: r(:,:) ! input data buffer
+  logical :: found
+
+  if (new_land_io) then
+     ! get the size of zdim
+     call get_field_size(restart%basename,zdim,len,field_found=found,domain=lnd%domain)
+     if (.not.found) call error_mesg('get_tile_data_i1d_fptr_i0i', &
+        'axis "'//trim(zdim)//'" was not found in file "'//trim(restart%basename)//'"', &
+        FATAL)
+
+     ! read the data
+     allocate(r(size(restart%tidx),len(1)))
+     call read_compressed(restart%basename,varname,r,domain=lnd%domain,timelevel=1)
+     call assemble_tiles_i1d(fptr,restart%tidx,r)
+     deallocate(r)
+  else ! old land io
+     call read_tile_data_i1d_fptr_i0i(restart%ncid,varname,fptr)
+  endif
+end subroutine get_tile_data_i1d_fptr_i0i
 
 subroutine get_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index)
   type(land_restart_type), intent(inout) :: restart
@@ -1171,6 +1231,60 @@ subroutine read_tile_data_r0d_fptr_r0i (ncid,name,fptr,index)
    deallocate(idx,x1d)
 end subroutine read_tile_data_r0d_fptr_r0i
 
+subroutine read_tile_data_i1d_fptr_i0i(ncid,name,fptr)
+   integer     , intent(in) :: ncid ! netcdf file id
+   character(*), intent(in) :: name ! name of the variable to read
+   procedure(fptr_i0i)      :: fptr ! subroutine returning the pointer to the data
+   
+   ! ---- local constants
+   character(*), parameter :: module_name='read_tile_data_i1d_fptr_i0i'
+   ! ---- local vars
+   integer :: ndims     ! number of the variable dimensions
+   integer :: dimids(2) ! IDs of the variable dimensions
+   integer :: dimlen(2) ! size of the variable dimensions
+   character(NF_MAX_NAME) :: idxname ! name of the index variable
+   integer, allocatable :: idx(:)   ! storage for compressed index 
+   integer, allocatable :: x1d(:)   ! storage for the data
+   integer :: i, j, n, bufsize
+   integer :: varid,idxid
+   integer :: start(2), count(2) ! input slab parameters
+   type(land_tile_type), pointer :: tileptr ! pointer to tile   
+   integer, pointer :: ptr
+   
+   ! get the number of variable dimensions, and their lengths
+   __NF_ASRT__(nfu_inq_var(ncid,name,id=varid,ndims=ndims,dimids=dimids,dimlens=dimlen))
+   if(ndims/=2) then
+      call error_mesg(module_name,'variable "'//trim(name)//'" has incorrect number of dimensions -- must be 2-dimensional', FATAL)
+   endif
+   ! get the name of compressed dimension and ID of corresponding variable
+   __NF_ASRT__(nfu_inq_dim(ncid,dimids(1),idxname))
+   __NF_ASRT__(nfu_inq_var(ncid,idxname,id=idxid))
+   ! allocate input buffers for compression index and the variable
+   bufsize=min(input_buf_size,dimlen(1))
+   allocate(idx(bufsize),x1d(bufsize*dimlen(2)))
+   ! read the input buffer-by-buffer
+   do j = 1,dimlen(1),bufsize
+      ! set up slab parameters
+      start(1) = j ; count(1) = min(bufsize,dimlen(1)-j+1)
+      start(2) = 1 ; count(2) = dimlen(2)
+      ! read the index variable
+      __NF_ASRT__(nf_get_vara_int(ncid,idxid,start(1),count(1),idx))
+      ! read the data
+      __NF_ASRT__(nf_get_vara_int(ncid,varid,start,count,x1d))
+      ! distribute the data over the tiles
+      do i = 1, min(bufsize,dimlen(1)-j+1)
+         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+                              lnd%is,lnd%js, tileptr)
+         do n = 1,count(2) 
+            call fptr(tileptr, n, ptr)
+            if(associated(ptr)) ptr = x1d(i+count(1)*(n-1))
+         enddo
+      enddo
+   enddo
+   ! release allocated memory
+   deallocate(idx,x1d)
+end subroutine read_tile_data_i1d_fptr_i0i
+
 subroutine read_tile_data_r1d_fptr_r0i(ncid,name,fptr)
    integer     , intent(in) :: ncid ! netcdf file id
    character(*), intent(in) :: name ! name of the variable to read
@@ -1497,6 +1611,60 @@ subroutine write_tile_data_r1d(ncid,name,data,mask,long_name,units)
 end subroutine write_tile_data_r1d
 
 ! ============================================================================
+! writes out 2-d integer tiled data using "compression by gathering". The dimension
+! of the data is (tile,z), and both tile and z dimensions are assumed to be 
+! already created
+subroutine write_tile_data_i2d(ncid,name,data,mask,zdim,long_name,units)
+  integer         , intent(in) :: ncid ! netcdf id
+  character(len=*), intent(in) :: name ! name of the variable to write
+  character(len=*), intent(in) :: zdim ! name of the z-dimension
+  integer         , intent(inout) :: data(:,:) ! (tile,z)
+  integer         , intent(inout) :: mask(:) ! mask of valid data
+  character(len=*), intent(in), optional :: units, long_name
+  ! data and mask are "inout" to save the memory on send-receive buffers. On the
+  ! root io_domain PE mask is destroyed and data is filled with the information 
+  ! from other PEs in our io_domain. On other PEs these arrays reman intact.
+
+  ! local vars
+  integer :: varid,iret,p,i
+  character(NF_MAX_NAME)::dimnames(2)
+  integer, allocatable :: buffer(:,:) ! send/receive buffer
+
+  ! if our PE doesn't do io (that is, it isn't the root io_domain processor),  
+  ! simply send the data and mask of valid data to the root IO processor
+  if (mpp_pe()/=lnd%io_pelist(1)) then
+     call mpp_send(data(1,1), plen=size(data),   to_pe=lnd%io_pelist(1), tag=COMM_TAG_7)
+     call mpp_send(mask(1),   plen=size(data,1), to_pe=lnd%io_pelist(1), tag=COMM_TAG_8)
+  else
+     allocate(buffer(size(data,1),size(data,2)))
+     ! gather data and masks from the processors in our io_domain
+     do p = 2,size(lnd%io_pelist)
+        call mpp_recv(buffer(1,1), glen=size(data),   from_pe=lnd%io_pelist(p), tag=COMM_TAG_7)
+        call mpp_recv(mask(1),     glen=size(data,1), from_pe=lnd%io_pelist(p), tag=COMM_TAG_8)
+        do i=1,size(data,1)
+           if(mask(i)>0) data(i,:) = buffer(i,:)
+        enddo
+     enddo
+     ! clean up allocated memory
+     deallocate(buffer)
+   
+     ! create variable, if it does not exist
+     if(nf_inq_varid(ncid,name,varid)/=NF_NOERR) then
+        dimnames(1) = tile_index_name
+        dimnames(2) = zdim
+        __NF_ASRT__(nfu_def_var(ncid,name,NF_INT,dimnames,long_name,units,varid))
+     endif
+     ! write data
+     iret = nf_enddef(ncid) ! ignore errors: its OK if file is in data mode already
+     __NF_ASRT__(nf_put_var_int(ncid,varid,data))
+  endif
+  ! wait for all PEs to finish: necessary because mpp_send doesn't seem to 
+  ! copy the data, and therefore on non-root io_domain PE there would be a chance
+  ! that the data and mask are destroyed before they are actually sent.
+  call mpp_sync()
+end subroutine write_tile_data_i2d
+
+! ============================================================================
 ! writes out 2-d real tiled data using "compression by gathering". The dimension
 ! of the data is (tile,z), and both tile and z dimensions are assumed to be 
 ! already created
@@ -1755,6 +1923,60 @@ subroutine write_tile_data_r0d_fptr_r0i(ncid,name,fptr,index,long_name,units)
   ! free allocated memory
   deallocate(data,idx)
 end subroutine write_tile_data_r0d_fptr_r0i
+
+subroutine write_tile_data_i1d_fptr_i0i(ncid,name,fptr,zdim,long_name,units)
+  integer         , intent(in) :: ncid ! netcdf id
+  character(len=*), intent(in) :: name ! name of the variable to write
+  procedure(fptr_i0i)          :: fptr ! subroutine returning the pointer to the 
+                                       ! data to be written   
+  character(len=*), intent(in) :: zdim ! name of the z-dimension
+  character(len=*), intent(in), optional :: units, long_name
+  
+  ! ---- local vars
+  integer, allocatable :: idx(:)    ! index dimension
+  integer, allocatable :: data(:,:) ! data to be written
+  integer, allocatable :: mask(:)   ! mask of valid data
+  type(land_tile_type), pointer :: tileptr ! pointer to tiles
+  integer, pointer :: ptr ! pointer to the tile data
+  integer :: ntiles  ! total number of tiles (length of compressed dimension)
+  integer :: i,j
+  integer :: nlev ! number of levels of the output variable
+  
+  ! get the size of the output array. Note that at this point the variable
+  ! might not yet exist, so we cannot use nfu_inq_var
+  __NF_ASRT__(nfu_inq_dim(ncid,tile_index_name,len=ntiles))
+  __NF_ASRT__(nfu_inq_dim(ncid,zdim,len=nlev))
+
+  ! allocate data
+  allocate(data(ntiles,nlev),idx(ntiles),mask(ntiles))
+  data = NF_FILL_INT
+  mask = 0
+
+  ! read tile index
+  i = nf_enddef(ncid) ! ignore errors (file may be in data mode already)
+  __NF_ASRT__(nfu_get_var(ncid,tile_index_name,idx))
+
+  ! gather data into an array along the tile dimension. It is assumed that 
+  ! the tile dimension spans all the tiles that need to be written.
+  do i = 1, size(idx)
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+                          lnd%is,lnd%js, tileptr)
+     do j = 1,nlev
+     call fptr(tileptr, j, ptr)
+        if(associated(ptr)) then
+           data(i,j) = ptr
+           mask(i) = 1
+        endif
+     enddo
+  enddo
+
+  ! write data
+  call write_tile_data_i2d(ncid,name,data,mask,zdim,long_name,units)
+  
+  ! free allocated memory
+  deallocate(data,idx)
+  
+end subroutine write_tile_data_i1d_fptr_i0i
 
 subroutine write_tile_data_r1d_fptr_r0i(ncid,name,fptr,zdim,long_name,units)
   integer         , intent(in) :: ncid ! netcdf id
@@ -2072,6 +2294,30 @@ subroutine gather_tile_data_r1d(fptr,idx,data)
   enddo
 end subroutine gather_tile_data_r1d
 
+subroutine gather_tile_data_i1d(fptr,idx,data)
+  procedure(fptr_i0i) :: fptr ! subroutine returning pointer to the data
+  integer, intent(in) :: idx(:)  ! local vector of tile indices
+  integer, intent(out) :: data(:,:) ! local tile data
+
+  ! ---- local vars
+  type(land_tile_type), pointer :: tileptr ! pointer to tiles
+  integer, pointer :: ptr ! pointer to the tile data
+  integer :: i,j
+
+  data = NF_FILL_INT
+
+! gather data into an array along the tile dimension. It is assumed that 
+! the tile dimension spans all the tiles that need to be written.
+  do i = 1, size(idx)
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+                          lnd%is,lnd%js, tileptr)
+     do j = 1,size(data,2)
+        call fptr(tileptr, j, ptr)
+        if(associated(ptr)) data(i,j)=ptr
+     enddo
+  enddo
+end subroutine gather_tile_data_i1d
+
 subroutine gather_tile_data_r2d(fptr,idx,data)
   procedure(fptr_r0ij):: fptr ! subroutine returning the pointer to the data to be written 
   integer, intent(in) :: idx(:)  ! local vector of tile indices
@@ -2182,6 +2428,27 @@ subroutine assemble_tiles_r0d_idx(fptr,n,idx,data)
      if(associated(ptr)) ptr=data(i)
   enddo
 end subroutine assemble_tiles_r0d_idx
+
+subroutine assemble_tiles_i1d(fptr,idx,data)
+  procedure(fptr_i0i) :: fptr ! subroutine returning pointer to the data
+  integer, intent(in) :: idx(:)  ! local vector of tile indices
+  integer, intent(in) :: data(:,:) ! local tile data
+
+  ! ---- local vars
+  type(land_tile_type), pointer :: tileptr ! pointer to tiles
+  integer, pointer :: ptr ! pointer to the tile data
+  integer :: i,j
+
+! distribute the data over the tiles
+  do i = 1, size(idx)
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+                          lnd%is,lnd%js, tileptr)
+     do j = 1,size(data,2)
+        call fptr(tileptr, j, ptr)
+        if(associated(ptr)) ptr=data(i,j)
+     enddo
+  enddo
+end subroutine assemble_tiles_i1d
 
 subroutine assemble_tiles_r1d(fptr,idx,data)
   procedure(fptr_r0i) :: fptr ! subroutine returning pointer to the data
