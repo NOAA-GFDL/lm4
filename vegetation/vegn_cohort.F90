@@ -137,7 +137,8 @@ type :: vegn_cohort_type
   real :: max_leaf_biomass = 0.0
 
   ! Biomass of "scavenger" type mycorrhizae (corresponding to Arbuscular mycorrhizae)
-  real :: myc_scavenger_biomass = 0.0
+  real :: myc_scavenger_biomass_C = 0.0
+  real :: myc_scavenger_biomass_N = 0.0
 
 ! in LM3V the cohort structure has a handy pointer to the tile it belongs to;
 ! so operations on cohort can update tile-level variables. In this code, it is

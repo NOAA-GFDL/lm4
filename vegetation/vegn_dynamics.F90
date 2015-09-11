@@ -15,9 +15,9 @@ use vegn_data_mod, only : spdata, &
      CMPT_VLEAF, CMPT_SAPWOOD, CMPT_ROOT, CMPT_WOOD, CMPT_LEAF, LEAF_ON, LEAF_OFF, &
      fsc_liv, fsc_wood, fsc_froot, soil_carbon_depth_scale, C2B, agf_bs, &
      l_fract, &
-     leaf_fast_c2n,leaf_slow_c2n,froot_fast_c2n,froot_slow_c2n,wood_fast_c2n,wood_slow_c2n, root_exudate_N_frac !x2z - ens: lets get rid of c2n?
+     leaf_fast_c2n,leaf_slow_c2n,froot_fast_c2n,froot_slow_c2n,wood_fast_c2n,wood_slow_c2n, root_exudate_N_frac,& !x2z - ens: lets get rid of c2n?
      ! BNS: C2N ratios should be temporary fix, which we can get rid of once N is integrated into vegetation code
-
+     root_exudate_frac_max, dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time
 
 use vegn_tile_mod, only: vegn_tile_type
 use soil_tile_mod, only: soil_tile_type
@@ -57,7 +57,8 @@ real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 da
 
 ! diagnostic field IDs
 integer :: id_npp, id_nep, id_gpp, id_resp, id_resl, id_resr, id_resg, &
-    id_soilt, id_theta, id_litter
+    id_soilt, id_theta, id_litter, &
+    id_mycorrhizal_allocation, id_mycorrhizal_immobilization
 
 
 contains
@@ -100,6 +101,12 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
   id_theta = register_tiled_diag_field ( module_name, 'theta',  &
        (/id_lon,id_lat/), time, 'average soil wetness for carbon decomposition', 'm3/m3', &
        missing_value=-100.0 )
+  id_mycorrhizal_allocation = register_tiled_diag_field ( module_name, 'mycorrhizal_allocation',  &
+       (/id_lon,id_lat/), time, 'C allocation to mycorrhizae', 'kg C/(m2 year)', &
+       missing_value=-100.0 )
+   id_mycorrhizal_immobilization = register_tiled_diag_field ( module_name, 'mycorrhizal_immobilization',  &
+        (/id_lon,id_lat/), time, 'N immobilization by mycorrhizae', 'kg N/(m2 year)', &
+        missing_value=-100.0 )
 end subroutine vegn_dynamics_init
 
 
@@ -119,8 +126,8 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, diag)
   real :: cgain, closs ! carbon gain and loss accumulated for entire tile
   real :: md_alive, md_leaf, md_wood, md_froot ! component of maintenance demand
   real :: gpp ! gross primary productivity per tile
-  real :: root_exudate_C, total_root_exudate_C
-  real :: myc_N_uptake
+  real :: root_exudate_C, total_root_exudate_C, root_exudate_frac, myc_exudate_frac, mycorrhizal_N_immob
+  real :: myc_N_uptake,total_scavenger_myc_C_allocated,scavenger_myc_C_allocated,total_myc_immob
   integer :: sp ! shorthand for current cohort specie
   integer :: i
 
@@ -128,6 +135,9 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, diag)
      write(*,*)'#### vegn_carbon_int ####'
      __DEBUG2__(soilt,theta)
   endif
+
+total_scavenger_myc_C_allocated = 0.0
+total_myc_immob = 0.0
 
   !  update plant carbon
   vegn%npp = 0
@@ -143,9 +153,16 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, diag)
      ! npp2 is for diagnostics and comparison
      cc%npp2 = cc%miami_npp;  ! treat miami npp as above+below npp
 
-     root_exudate_C = max(cc%npp,0.0)*spdata(sp)%root_exudate_frac
+     if(dynamic_root_exudation .AND. soil_carbon_option==SOILC_CORPSE_N) then
+       ! Initial allocation scheme: root exudation/mycorrhizal allocation depends on ratio of leaf biomass to max (as determined by N uptake)
+       ! Root exudation fraction of NPP limited by some maximum value
+       root_exudate_frac = root_exudate_frac_max*cc%bl/cc%max_leaf_biomass
+     else
+       root_exudate_frac = spdata(sp)%root_exudate_frac
+     endif
+     root_exudate_C = max(cc%npp,0.0)*root_exudate_frac
      cc%carbon_gain = cc%carbon_gain + (cc%npp-root_exudate_C)*dt_fast_yr
-     total_root_exudate_C = total_root_exudate_C + root_exudate_C*dt_fast_yr
+
 
      ! check if leaves/roots are present and need to be accounted in maintenance
      if(cc%status == LEAF_ON) then
@@ -270,14 +287,41 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, diag)
 
      ! Mycorrhizal N uptake
      if(soil_carbon_option == SOILC_CORPSE_N) then
-       call myc_scavenger_N_uptake(soil,vegn,cc%myc_scavenger_biomass,myc_N_uptake,dt_fast_yr)
-       soil%myc_min_N_uptake=soil%myc_min_N_uptake+myc_N_uptake
+       call myc_scavenger_N_uptake(soil,vegn,cc%myc_scavenger_biomass_C,myc_N_uptake,dt_fast_yr)
+     else
+       myc_N_uptake=0.0
      end if
+
+     if(soil_carbon_option==SOILC_CORPSE_N) then
+         myc_exudate_frac=0.5  ! This will eventually be dynamic based on N acquisition cost function
+           ! Watch out that mycorrhizae aren't too N limited (for instance if starting from zero biomass)
+         scavenger_myc_C_allocated=min(root_exudate_C*myc_exudate_frac,&
+                  (myc_N_uptake+root_exudate_C*myc_exudate_frac*root_exudate_N_frac)*c2n_mycorrhizae)*dt_fast_yr
+     else
+         scavenger_myc_C_allocated=0.0
+     endif
+
+     ! Mycorrhizal N uptake reduced by amount mycorrhizae use for own biomass
+                                    ! N demand                                  ! N provided by plant
+     mycorrhizal_N_immob = max(0.0,scavenger_myc_C_allocated/c2n_mycorrhizae-scavenger_myc_C_allocated*root_exudate_N_frac)
+     soil%myc_min_N_uptake=soil%myc_min_N_uptake+myc_N_uptake-mycorrhizal_N_immob
+
+
+     ! First add mycorrhizal turnover to soil C pools
+     call add_root_litter(soil,vegn,(/0.0,0.0,cc%myc_scavenger_biomass_C/mycorrhizal_turnover_time/)*dt_fast_yr,(/0.0,0.0,cc%myc_scavenger_biomass_N/mycorrhizal_turnover_time/)*dt_fast_yr)
+     ! Then update biomass of scavenger mycorrhizae
+     cc%myc_scavenger_biomass_C = cc%myc_scavenger_biomass_C + scavenger_myc_C_allocated - cc%myc_scavenger_biomass_C/mycorrhizal_turnover_time*dt_fast_yr
+     cc%myc_scavenger_biomass_N = cc%myc_scavenger_biomass_N + scavenger_myc_C_allocated/c2n_mycorrhizae - cc%myc_scavenger_biomass_N/mycorrhizal_turnover_time*dt_fast_yr
+
+     total_root_exudate_C = total_root_exudate_C + root_exudate_C*dt_fast_yr-scavenger_myc_C_allocated
+     total_scavenger_myc_C_allocated = total_scavenger_myc_C_allocated + scavenger_myc_C_allocated
+     total_myc_immob = total_myc_immob + mycorrhizal_N_immob
 
    enddo
 
-  ! fsc_in and ssc_in updated in add_root_exudates
-  call add_root_exudates(soil,vegn,total_root_exudate_C,total_root_exudate_C*root_exudate_N_frac)
+   ! fsc_in and ssc_in updated in add_root_exudates
+   call add_root_exudates(soil,vegn,total_root_exudate_C*(1-myc_exudate_frac),total_root_exudate_C*root_exudate_N_frac*(1-myc_exudate_frac))
+
 
   ! update soil carbon
   call Dsdt(vegn, soil, diag, soilt, theta)
@@ -305,6 +349,8 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, diag)
   call send_tile_data(id_resg, resg, diag)
   call send_tile_data(id_soilt,soilt,diag)
   call send_tile_data(id_theta,theta,diag)
+  call send_tile_data(id_mycorrhizal_allocation,total_scavenger_myc_C_allocated/dt_fast_yr,diag)
+  call send_tile_data(id_mycorrhizal_immobilization,total_myc_immob/dt_fast_yr,diag)
 
 end subroutine vegn_carbon_int
 

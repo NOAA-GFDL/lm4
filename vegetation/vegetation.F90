@@ -41,7 +41,7 @@ use land_tile_io_mod, only : &
 use vegn_data_mod, only : SP_C4GRASS, LEAF_ON, LU_NTRL, read_vegn_data_namelist, &
      tau_drip_l, tau_drip_s, T_transp_min, cold_month_threshold, soil_carbon_depth_scale, &
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
-     N_HARV_POOLS, HARV_POOL_NAMES, leaf_fast_c2n,leaf_slow_c2n,fsc_liv
+     N_HARV_POOLS, HARV_POOL_NAMES, leaf_fast_c2n,leaf_slow_c2n,fsc_liv, c2n_mycorrhizae
 use vegn_cohort_mod, only : vegn_cohort_type, &
      update_species,&
      vegn_data_heat_capacity, vegn_data_intrcptn_cap, &
@@ -112,6 +112,7 @@ real    :: init_cohort_br    = 0.05 ! initial biomass of fine roots, kg C/m2
 real    :: init_cohort_bsw   = 0.05 ! initial biomass of sapwood, kg C/m2
 real    :: init_cohort_bwood = 0.05 ! initial biomass of heartwood, kg C/m2
 real    :: init_cohort_cmc   = 0.0  ! initial intercepted water
+real    :: init_cohort_scavenger_myc_biomass = 0.0 ! initial scavenger mycorrhizal biomass
 character(32) :: rad_to_use = 'big-leaf' ! or 'two-stream'
 character(32) :: snow_rad_to_use = 'ignore' ! or 'paint-leaves'
 character(32) :: photosynthesis_to_use = 'simple' ! or 'leuning'
@@ -172,7 +173,7 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
    id_lai, id_sai, id_lai_var, id_lai_std, id_leaf_size, &
    id_root_density, id_root_zeta, id_rs_min, id_leaf_refl, id_leaf_tran,&
    id_leaf_emis, id_snow_crit, id_stomatal, id_an_op, id_an_cl, &
-   id_bl, id_blv, id_br, id_bsw, id_bwood, id_btot, id_species, id_status, id_max_leaf_biomass,id_myc_scavenger_biomass,&
+   id_bl, id_blv, id_br, id_bsw, id_bwood, id_btot, id_species, id_status, id_max_leaf_biomass,id_myc_scavenger_biomass_C,id_myc_scavenger_biomass_N,&
    id_con_v_h, id_con_v_v, id_fuel, id_harv_pool(N_HARV_POOLS), &
    id_harv_rate(N_HARV_POOLS), id_t_harv_pool, id_t_harv_rate, &
    id_csmoke_pool, id_csmoke_rate, id_fsc_in, id_fsc_out, id_ssc_in, &
@@ -362,8 +363,11 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
         call read_compressed(restart_file_name_2, 'max_leaf_biomass', r0d, domain=lnd%domain, timelevel=1)
         call assemble_cohorts(cohort_max_leaf_biomass_ptr,idx,tdimlen,r0d)
 
-        call read_compressed(restart_file_name_2, 'myc_scavenger_biomass', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_myc_scavenger_biomass_ptr,idx,tdimlen,r0d)
+        call read_compressed(restart_file_name_2, 'myc_scavenger_biomass_C', r0d, domain=lnd%domain, timelevel=1)
+        call assemble_cohorts(cohort_myc_scavenger_biomass_C_ptr,idx,tdimlen,r0d)
+
+        call read_compressed(restart_file_name_2, 'myc_scavenger_biomass_N', r0d, domain=lnd%domain, timelevel=1)
+        call assemble_cohorts(cohort_myc_scavenger_biomass_N_ptr,idx,tdimlen,r0d)
 
         call read_compressed(restart_file_name_2, 'bliving', r0d, domain=lnd%domain, timelevel=1)
         call assemble_cohorts(cohort_bliving_ptr,idx,tdimlen,r0d)
@@ -570,7 +574,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
         call read_cohort_data_r0d_fptr(unit, 'bwood', cohort_bwood_ptr )
         call read_cohort_data_r0d_fptr(unit, 'bliving', cohort_bliving_ptr )
         call read_cohort_data_r0d_fptr(unit, 'max_leaf_biomass', cohort_max_leaf_biomass_ptr )
-        call read_cohort_data_r0d_fptr(unit, 'myc_scavenger_biomass', cohort_myc_scavenger_biomass_ptr )
+        call read_cohort_data_r0d_fptr(unit, 'myc_scavenger_biomass_C', cohort_myc_scavenger_biomass_C_ptr )
         call read_cohort_data_i0d_fptr(unit, 'status', cohort_status_ptr )
         if(nfu_inq_var(unit,'leaf_age')==NF_NOERR) &
              call read_cohort_data_r0d_fptr(unit,'leaf_age',cohort_leaf_age_ptr)
@@ -710,7 +714,8 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
      cohort%status  = LEAF_ON
      cohort%leaf_age = 0.0
      cohort%max_leaf_biomass = init_cohort_max_leaf_biomass
-     cohort%myc_scavenger_biomass = 0.0
+     cohort%myc_scavenger_biomass_C = init_cohort_scavenger_myc_biomass
+     cohort%myc_scavenger_biomass_N = init_cohort_scavenger_myc_biomass/c2n_mycorrhizae
      if(did_read_biodata.and.do_biogeography) then
         call update_species(cohort,t_ann(i,j),t_cold(i,j),p_ann(i,j),ncm(i,j),LU_NTRL)
      else
@@ -824,8 +829,10 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
        (/id_lon,id_lat/), time, 'biomass of heartwood', 'kg C/m2', missing_value=-1.0 )
    id_max_leaf_biomass = register_tiled_diag_field ( module_name, 'max_leaf_biomass',  &
         (/id_lon,id_lat/), time, 'maximum leaf biomass limit', 'kg C/m2', missing_value=-1.0 )
-  id_myc_scavenger_biomass = register_tiled_diag_field ( module_name, 'myc_scavenger_biomass',  &
-       (/id_lon,id_lat/), time, 'scavenger mycorrhizal biomass', 'kg C/m2', missing_value=-1.0 )
+  id_myc_scavenger_biomass_C = register_tiled_diag_field ( module_name, 'myc_scavenger_biomass_C',  &
+       (/id_lon,id_lat/), time, 'scavenger mycorrhizal biomass_C', 'kg C/m2', missing_value=-1.0 )
+   id_myc_scavenger_biomass_N = register_tiled_diag_field ( module_name, 'myc_scavenger_biomass_N',  &
+        (/id_lon,id_lat/), time, 'scavenger mycorrhizal biomass_N', 'kg N/m2', missing_value=-1.0 )
     id_N_uptake_smoothed = register_tiled_diag_field ( module_name, 'N_uptake_smoothed',  &
          (/id_lon,id_lat/), time, 'Smoothed N uptake', 'kg N/m2', missing_value=-1.0 )
   id_btot = register_tiled_diag_field ( module_name, 'btot',  &
@@ -1060,7 +1067,8 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call write_cohort_data_i0d_fptr(unit,'status', cohort_status_ptr, 'leaf status')
   call write_cohort_data_r0d_fptr(unit,'leaf_age',cohort_leaf_age_ptr, 'age of leaves since bud burst', 'days')
   call write_cohort_data_r0d_fptr(unit,'max_leaf_biomass', cohort_max_leaf_biomass_ptr, 'max leaf biomass for individual','kg C/m2')
-  call write_cohort_data_r0d_fptr(unit,'myc_scavenger_biomass', cohort_myc_scavenger_biomass_ptr, 'scavenger mycorrhizal biomass associated with individual','kg C/m2')
+  call write_cohort_data_r0d_fptr(unit,'myc_scavenger_biomass_C', cohort_myc_scavenger_biomass_C_ptr, 'scavenger mycorrhizal biomass C associated with individual','kg C/m2')
+  call write_cohort_data_r0d_fptr(unit,'myc_scavenger_biomass_N', cohort_myc_scavenger_biomass_N_ptr, 'scavenger mycorrhizal biomass N associated with individual','kg N/m2')
 
 !     call write_cohort_data_r0d_fptr(unit,'intercept_l', cohort_cmc_ptr, 'intercepted water per cohort','kg/m2')
   call write_cohort_data_r0d_fptr(unit,'npp_prev_day', cohort_npp_previous_day_ptr, 'previous day NPP','kg C/(m2 year)')
@@ -1193,7 +1201,8 @@ subroutine save_vegn_restart_new(tile_dim_length, timestamp)
   real, allocatable :: leaf_age(:)
   real, allocatable :: npp_prev_day(:)
   real, allocatable :: max_leaf_biomass(:)
-  real, allocatable :: myc_scavenger_biomass(:)
+  real, allocatable :: myc_scavenger_biomass_C(:)
+  real, allocatable :: myc_scavenger_biomass_N(:)
   ! ** tile
   integer, allocatable :: landuse(:)
   real, allocatable :: age(:)
@@ -1304,7 +1313,8 @@ subroutine save_vegn_restart_new(tile_dim_length, timestamp)
             status(csize),  &
             leaf_age(csize),&
             max_leaf_biomass(csize),&
-            myc_scavenger_biomass(csize),&
+            myc_scavenger_biomass_C(csize),&
+            myc_scavenger_biomass_N(csize),&
             npp_prev_day(csize))
   ! ** cohorts
   call gather_cohort_data(cohort_species_ptr,cidx,tile_dim_length,species)
@@ -1343,9 +1353,12 @@ subroutine save_vegn_restart_new(tile_dim_length, timestamp)
  call gather_cohort_data(cohort_max_leaf_biomass_ptr,cidx,tile_dim_length,max_leaf_biomass)
  id_restart = register_restart_field(vegn2_restart,fname,'max_leaf_biomass',max_leaf_biomass,&
       longname='maximum leaf biomass limit for individual',units='kg C/m2', compressed_axis='H')
-      call gather_cohort_data(cohort_myc_scavenger_biomass_ptr,cidx,tile_dim_length,myc_scavenger_biomass)
-      id_restart = register_restart_field(vegn2_restart,fname,'myc_scavenger_biomass',myc_scavenger_biomass,&
-           longname='scavenger mycorrhizal biomass associated with individual',units='kg C/m2', compressed_axis='H')
+  call gather_cohort_data(cohort_myc_scavenger_biomass_C_ptr,cidx,tile_dim_length,myc_scavenger_biomass_C)
+  id_restart = register_restart_field(vegn2_restart,fname,'myc_scavenger_biomass_C',myc_scavenger_biomass_C,&
+       longname='scavenger mycorrhizal biomass C associated with individual',units='kg C/m2', compressed_axis='H')
+   call gather_cohort_data(cohort_myc_scavenger_biomass_N_ptr,cidx,tile_dim_length,myc_scavenger_biomass_N)
+   id_restart = register_restart_field(vegn2_restart,fname,'myc_scavenger_biomass_N',myc_scavenger_biomass_N,&
+        longname='scavenger mycorrhizal biomass C associated with individual',units='kg N/m2', compressed_axis='H')
 
   ! ** tile
   allocate(landuse(tsize),               &
@@ -1585,7 +1598,8 @@ subroutine save_vegn_restart_new(tile_dim_length, timestamp)
               bliving,     &
               status,      &
               max_leaf_biomass,&
-              myc_scavenger_biomass,&
+              myc_scavenger_biomass_C,&
+              myc_scavenger_biomass_N,&
               leaf_age,    &
               npp_prev_day,&
               landuse,      &
@@ -2352,7 +2366,8 @@ subroutine update_vegn_slow( )
      call send_tile_data(id_status,  real(tile%vegn%cohorts(1)%status),  tile%diag)
      call send_tile_data(id_leaf_age,real(tile%vegn%cohorts(1)%leaf_age),  tile%diag)!ens
      call send_tile_data(id_max_leaf_biomass,   sum(tile%vegn%cohorts(1:n)%max_leaf_biomass),  tile%diag)
-     call send_tile_data(id_myc_scavenger_biomass,   sum(tile%vegn%cohorts(1:n)%myc_scavenger_biomass),  tile%diag)
+     call send_tile_data(id_myc_scavenger_biomass_C,   sum(tile%vegn%cohorts(1:n)%myc_scavenger_biomass_C),  tile%diag)
+     call send_tile_data(id_myc_scavenger_biomass_N,   sum(tile%vegn%cohorts(1:n)%myc_scavenger_biomass_N),  tile%diag)
 
      ! carbon budget tracking
      call send_tile_data(id_fsc_in,  sum(tile%soil%fsc_in(:)),  tile%diag)
@@ -2535,7 +2550,8 @@ DEFINE_COHORT_ACCESSOR(real,bsw)
 DEFINE_COHORT_ACCESSOR(real,bwood)
 DEFINE_COHORT_ACCESSOR(real,bliving)
 DEFINE_COHORT_ACCESSOR(real,max_leaf_biomass)
-DEFINE_COHORT_ACCESSOR(real,myc_scavenger_biomass)
+DEFINE_COHORT_ACCESSOR(real,myc_scavenger_biomass_C)
+DEFINE_COHORT_ACCESSOR(real,myc_scavenger_biomass_N)
 DEFINE_COHORT_ACCESSOR(integer,status)
 DEFINE_COHORT_ACCESSOR(real,leaf_age)
 DEFINE_COHORT_ACCESSOR(real,npp_previous_day)
