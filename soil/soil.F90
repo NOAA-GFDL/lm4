@@ -56,8 +56,7 @@ use land_data_mod, only : land_state_type, lnd, land_time
 use land_io_mod, only : read_field
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
-     get_input_restart_name, add_restart_axis, add_tile_data, get_tile_data, &
-     field_exists
+     add_restart_axis, add_tile_data, get_tile_data, field_exists
 use vegn_data_mod, only: K1, K2
 use vegn_tile_mod, only : vegn_tile_type, vegn_uptake_profile, vegn_hydraulic_properties
 use land_debug_mod, only : is_watch_point, get_current_point, set_current_point, &
@@ -359,7 +358,6 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
   integer, intent(out) :: id_zfull ! ID of vertical soil axis
 
   ! ---- local vars
-  type(land_restart_type) :: restart, restart1
   type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
   type(land_tile_type), pointer :: tile   ! pointer to current tile
   ! input data buffers for respective variables:
@@ -374,9 +372,10 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
 
   integer :: i, li, lj, k ! indices
   real :: psi(num_l), mwc(num_l)
-  character(len=256) :: restart_file_name
-  character(len=17)  :: restart_base_name='INPUT/soil.res.nc'
+
+  type(land_restart_type) :: restart, restart1
   logical :: restart_exists
+  character(*), parameter :: restart_file_name = 'INPUT/soil.res.nc'
 
   module_is_initialized = .TRUE.
   delta_time = time_type_to_real(lnd%dt_fast)
@@ -644,10 +643,9 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
      deallocate(ref_soil_t, wetmask)
   end if
 
-  call get_input_restart_name(restart_base_name,restart_exists,restart_file_name)
+  call open_land_restart(restart,restart_file_name,restart_exists)
   if (restart_exists) then
      call error_mesg('soil_init', 'reading NetCDF restart "'//trim(restart_file_name)//'"', NOTE)
-     call open_land_restart(restart,restart_base_name)
      call get_tile_data(restart, 'temp', 'zfull', soil_T_ptr  )
      call get_tile_data(restart, 'wl', 'zfull', soil_wl_ptr )
      call get_tile_data(restart, 'ws', 'zfull', soil_ws_ptr )
@@ -662,15 +660,14 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
            call get_tile_data(restart,'ssc','zfull',soil_slow_soil_C_ptr)
         else
            ! try to read fsc and ssc from vegetation restart
-           call get_input_restart_name('INPUT/vegn2.res.nc',restart_exists,restart_file_name)
+           call open_land_restart(restart1,'INPUT/vegn2.res.nc',restart_exists)
            if (restart_exists) then
-              call open_land_restart(restart1,'INPUT/vegn2.res.nc')
               ! read old (scalar) fsc and ssc into the first element of the fast_soil_C
               ! and slow_soil_C arrays
               call get_tile_data(restart1,'fsc',soil_fast_soil_C_ptr,1)
               call get_tile_data(restart1,'ssc',soil_slow_soil_C_ptr,1)
-              call free_land_restart(restart1)
            endif
+           call free_land_restart(restart1)
         endif
      endif
 
@@ -761,15 +758,14 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
            call get_tile_data(restart, 'is_peat','zfull', soil_is_peat_ptr)
         endif
      endif               
-     call free_land_restart(restart)
   else
      call error_mesg('soil_init', 'cold-starting soil', NOTE)
   endif
+  call free_land_restart(restart)
 
   ! read soil carbon restart, if present
-  call get_input_restart_name('INPUT/soil_carbon.res.nc',restart_exists,restart_file_name)
+  call open_land_restart(restart,'INPUT/soil_carbon.res.nc',restart_exists)
   if (restart_exists) then
-     call open_land_restart(restart,'INPUT/soil_carbon.res.nc')
      call error_mesg('veg_data_init','reading soil_carbon restart',NOTE)
      call get_tile_data(restart,'asoil_in','zfull',soil_asoil_in_ptr)
      call get_tile_data(restart,'fsc_in','zfull',soil_fsc_in_ptr)
@@ -804,8 +800,8 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
         call get_tile_data(restart,'coarsewoodlitter_slow_turnover_accumulated', soil_coarsewoodlitter_slow_turnover_accumulated_ptr)
         call get_tile_data(restart,'coarsewoodlitter_deadmic_turnover_accumulated', soil_coarsewoodlitter_deadmic_turnover_accumulated_ptr)
      endif
-     call free_land_restart(restart)
   endif
+  call free_land_restart(restart)
   
   ! ---- static diagnostic section
   call send_tile_data_r0d_fptr(id_tau_gw,       lnd%tile_map, soil_tau_groundwater_ptr)

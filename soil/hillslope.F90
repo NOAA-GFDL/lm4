@@ -29,7 +29,7 @@ use land_data_mod,      only : lnd
 use land_io_mod, only : read_field
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
-     get_input_restart_name, add_restart_axis, add_int_tile_data, get_int_tile_data, &
+     add_restart_axis, add_int_tile_data, get_int_tile_data, &
      print_netcdf_error
 use nf_utils_mod,  only : nfu_inq_dim
 use land_debug_mod, only : is_watch_point, is_watch_cell, set_current_point
@@ -131,8 +131,8 @@ logical, public     :: tiled_DOC_flux = .false. ! True ==> Calculate DOC fluxes 
 
 character(len=256)  :: hillslope_surfdata = 'INPUT/hillslope.nc'
 character(len=24)   :: hlsp_interpmethod = 'nearest'
-character(len=24), parameter  :: hlsp_rst_ifname = 'INPUT/hlsp.res.nc'
-character(len=24), parameter  :: hlsp_rst_ofname = 'hlsp.res.nc'
+character(*), parameter  :: hlsp_rst_ifname = 'INPUT/hlsp.res.nc'
+character(*), parameter  :: hlsp_rst_ofname = 'hlsp.res.nc'
 
 ! Removed do_hillslope_model from namelist.  Tie to gw_option in soil_tile.
 namelist /hlsp_nml/ num_vertclusters, max_num_topo_hlsps, hillslope_horz_subdiv, &
@@ -576,7 +576,7 @@ subroutine hlsp_init ( id_lon, id_lat )
   integer :: hj, hk ! hillslope pos, par indices
   real    :: rhj, NN ! real hj, num_vertclusters
   real    :: c, a ! convergence, hlsp_slope
-  character(len=256) :: restart_file_name, mesg
+  character(len=256) :: mesg
   logical :: restart_exists
   real :: tfreeze_diff
   real :: hpos ! local horizontal position (-)
@@ -626,18 +626,16 @@ subroutine hlsp_init ( id_lon, id_lat )
                                 soil_e_depth, microtopo, hlsp_length, hlsp_slope, hlsp_slope_exp, &
                                 hlsp_top_width, k_sat_gw)
 
-  call get_input_restart_name(hlsp_rst_ifname,restart_exists,restart_file_name)
+  call open_land_restart(restart,hlsp_rst_ifname,restart_exists)
   if (restart_exists) then
      call error_mesg(module_name, 'hlsp_init, '// &
-          'reading NetCDF restart "'//trim(restart_file_name)//'"', &
+          'reading NetCDF restart "'//trim(hlsp_rst_ifname)//'"', &
           NOTE)
      if (cold_start) &
         call error_mesg(module_name, 'hlsp_init: coldfracs subroutine called even though restart file '// &
                              'exists! Inconsistency of "cold_start" in hillslope_mod.', FATAL)
-     call open_land_restart(restart,hlsp_rst_ifname)
      call get_int_tile_data(restart, 'HIDX_J', soil_hidx_j_ptr)
      call get_int_tile_data(restart, 'HIDX_K', soil_hidx_k_ptr)
-     call free_land_restart(restart)
   else
      call error_mesg(module_name, 'hlsp_init: '// &
           'cold-starting hillslope model',&
@@ -648,6 +646,7 @@ subroutine hlsp_init ( id_lon, id_lat )
                              'does not exist! Inconsistency of "cold_start" in hillslope_mod.', FATAL)
         
   endif
+  call free_land_restart(restart)
 
   tfreeze_diff = 0. ! Initialize before tile loop.
 
@@ -1075,9 +1074,11 @@ end function meanelev
 ! cohort accessor functions: given a pointer to cohort, return a pointer to a
 ! specific member of the cohort structure
 #define DEFINE_SOIL_ACCESSOR_0D(xtype,x) subroutine soil_ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%x;endif;end subroutine
+type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%x;endif;\
+end subroutine
 #define DEFINE_SOIL_COMPONENT_ACCESSOR_0D(xtype,component,x) subroutine soil_ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%component%x;endif;end subroutine
+type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%component%x;endif;\
+end subroutine
 
 DEFINE_SOIL_ACCESSOR_0D(integer,hidx_j)
 DEFINE_SOIL_ACCESSOR_0D(integer,hidx_k)

@@ -15,7 +15,7 @@ use land_tile_mod,    only : land_tile_type, land_tile_list_type, &
 
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
-     get_input_restart_name, add_restart_axis, add_tile_data, get_tile_data, &
+     add_restart_axis, add_tile_data, get_tile_data, &
      get_tile_by_idx, sync_nc_files
 
 use vegn_cohort_mod, only: vegn_cohort_type
@@ -247,7 +247,7 @@ subroutine create_cohort_dimension(restart)
   type(land_restart_type), intent(inout) :: restart
   
   if (new_land_io) then
-     call create_cohort_dimension_new(restart%rhandle,restart%cidx,restart%filename,restart%tile_dim_length)
+     call create_cohort_dimension_new(restart%rhandle,restart%cidx,restart%basename,restart%tile_dim_length)
   else
      call create_cohort_dimension_orig(restart%ncid)
   endif 
@@ -539,7 +539,7 @@ subroutine add_cohort_data(restart,varname,fptr,longname,units)
   if (new_land_io) then
      allocate(r(size(restart%cidx)))
      call gather_cohort_data(fptr,restart%cidx,restart%tile_dim_length,r)
-     id_restart = register_restart_field(restart%rhandle,restart%filename,varname,r, &
+     id_restart = register_restart_field(restart%rhandle,restart%basename,varname,r, &
           longname=longname, units=units, compressed_axis='H', restart_owns_data=.true.)
   else
      call write_cohort_data_r0d_fptr(restart%ncid,varname,fptr,longname,units)
@@ -559,7 +559,7 @@ subroutine add_int_cohort_data(restart,varname,fptr,longname,units)
   if (new_land_io) then
      allocate(r(size(restart%cidx)))
      call gather_cohort_data(fptr,restart%cidx,restart%tile_dim_length,r)
-     id_restart = register_restart_field(restart%rhandle,restart%filename,varname,r, &
+     id_restart = register_restart_field(restart%rhandle,restart%basename,varname,r, &
           longname=longname, units=units, compressed_axis='H', restart_owns_data=.true.)
   else
      call write_cohort_data_i0d_fptr(restart%ncid,varname,fptr,longname,units)
@@ -577,7 +577,7 @@ subroutine get_cohort_data(restart,varname,fptr)
      if (.not.allocated(restart%cidx)) call error_mesg('read_create_cohorts', &
         'cohort index not found in file "'//restart%filename//'"',FATAL)
      allocate(r(size(restart%cidx)))
-     call read_compressed(restart%filename, varname, r, domain=lnd%domain, timelevel=1)
+     call read_compressed(restart%basename, varname, r, domain=lnd%domain, timelevel=1)
      call assemble_cohorts(fptr,restart%cidx,restart%tile_dim_length,r)
      deallocate(r)
   else
@@ -596,7 +596,7 @@ subroutine get_int_cohort_data(restart,varname,fptr)
      if (.not.allocated(restart%cidx)) call error_mesg('read_create_cohorts', &
         'cohort index not found in file "'//restart%filename//'"',FATAL)
      allocate(r(size(restart%cidx)))
-     call read_compressed(restart%filename, varname, r, domain=lnd%domain, timelevel=1)
+     call read_compressed(restart%basename, varname, r, domain=lnd%domain, timelevel=1)
      call assemble_cohorts(fptr,restart%cidx,restart%tile_dim_length,r)
      deallocate(r)
   else

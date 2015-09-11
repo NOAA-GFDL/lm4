@@ -36,7 +36,6 @@ private
 ! restart i/o subroutines: those use CF "compression by gathering" technique
 ! to pack tile data.
 public :: land_restart_type
-public :: get_input_restart_name
 public :: init_land_restart, open_land_restart, save_land_restart, free_land_restart
 public :: add_restart_axis
 public :: add_tile_data, add_int_tile_data, add_scalar_data
@@ -111,7 +110,8 @@ type land_restart_type
    type(restart_file_type) :: rhandle ! fms_io restart file data type
    logical :: should_free_rhandle = .FALSE.
    
-   character(267) :: filename ='' ! name of the restart file
+   character(267) :: basename ='' ! name of the restart file
+   character(267) :: filename ='' ! name of the restart file after adding PE number and such
    integer :: ncid = -1 ! netcdf id, used only for old land io
    integer, allocatable :: tidx(:) ! tile index
    integer, allocatable :: cidx(:) ! vegetation cohort index
@@ -139,32 +139,40 @@ subroutine init_land_restart(restart,filename,tile_exists,tile_dim_length)
   integer,                 intent(in)  :: tile_dim_length ! length of the tile dimension 
       ! in the output file
 
-  restart%filename=filename
+  restart%basename=filename
   ! TODO: determine tile_dim_length inside this subroutine. It is equal to the
   ! max number of tiles per grid cell
   restart%tile_dim_length = tile_dim_length
   if (new_land_io) then
-     call create_tile_out_file_fptr_new(restart%rhandle,restart%tidx,restart%filename,&
+     call create_tile_out_file_fptr_new(restart%rhandle,restart%tidx,restart%basename,&
           tile_exists,restart%tile_dim_length)
      restart%should_free_rhandle = .TRUE.
   else
-     call create_tile_out_file(restart%ncid,'RESTART/'//trim(restart%filename), &
+     call create_tile_out_file(restart%ncid,'RESTART/'//trim(restart%basename), &
           lnd%coord_glon, lnd%coord_glat, tile_exists, tile_dim_length)
   endif
 end subroutine init_land_restart
 
 ! ==============================================================================
-subroutine open_land_restart(restart,filename)
+subroutine open_land_restart(restart,filename,restart_exists)
   type(land_restart_type), intent(out) :: restart
   character(*),            intent(in)  :: filename
+  logical,                 intent(out) :: restart_exists
 
   ! ---- local vars
   integer :: len(4) ! length of the index
   logical :: found   ! true if field exists
   
-  restart%filename = filename
+  restart%basename = filename
+  call get_input_restart_name(restart%basename,restart_exists,restart%filename)
+  if (.not.restart_exists) return
 
   if (new_land_io) then
+     ! get the size of the tile dimension
+     call get_field_size(filename,'tile',len,field_found=found,domain=lnd%domain)
+     if ( .not.found ) call error_mesg('open_land_restart', &
+           'dimension "tile" not found in file "'//trim(filename)//'"', FATAL)
+     restart%tile_dim_length = len(1)
      ! read tile index
      call get_field_size(filename,'tile_index',len,field_found=found,domain=lnd%domain)
      if ( .not.found ) call error_mesg('open_land_restart', &
@@ -172,15 +180,16 @@ subroutine open_land_restart(restart,filename)
      allocate(restart%tidx(len(1)))
      call read_compressed(filename,'tile_index',restart%tidx,domain=lnd%domain,timelevel=1)
      ! read cohort index
-     call get_field_size(restart%filename, 'cohort_index', len, field_found=found, domain=lnd%domain)
+     call get_field_size(restart%basename, 'cohort_index', len, field_found=found, domain=lnd%domain)
      if (found) then
         allocate(restart%cidx(len(1)))
-        call read_compressed(restart%filename, 'cohort_index', restart%cidx, domain=lnd%domain, timelevel=1)
+        call read_compressed(restart%basename, 'cohort_index', restart%cidx, domain=lnd%domain, timelevel=1)
      endif
      ! TODO: possibly make tile index and cohort index names parameters in this module
      !       just constants, no sense to make them namelists vars
   else ! old i/o
       __NF_ASRT__(nf_open(restart%filename,NF_NOWRITE,restart%ncid))
+      __NF_ASRT__(nfu_inq_dim(restart%ncid,'tile',len=restart%tile_dim_length))
   endif
 end subroutine open_land_restart
 
@@ -202,6 +211,7 @@ subroutine free_land_restart(restart)
      __NF_ASRT__(nf_close(restart%ncid))
      restart%ncid = -1
   endif
+  restart%basename = ''
   restart%filename = ''
   if (allocated(restart%tidx)) deallocate(restart%tidx)
   if (allocated(restart%cidx)) deallocate(restart%cidx)
@@ -224,7 +234,7 @@ subroutine add_restart_axis(restart,name,data,cartesian,units,longname,sense)
   if (new_land_io) then
      allocate(data_(size(data)))
      data_(:) = data(:)
-     call register_restart_axis(restart%rhandle,restart%filename,name,data_,cartesian,units,longname,sense)
+     call register_restart_axis(restart%rhandle,restart%basename,name,data_,cartesian,units,longname,sense)
   else
      if (mpp_pe()==lnd%io_pelist(1)) then
         __NF_ASRT__(nfu_def_dim(restart%ncid,name,data(:),longname,units))
@@ -247,7 +257,7 @@ logical function field_exists(restart,name)
   character(len=*),        intent(in) :: name
 
   if (new_land_io) then
-     field_exists = field_exist(restart%filename,name,domain=lnd%domain)
+     field_exists = field_exist(restart%basename,name,domain=lnd%domain)
   else
      field_exists = (nfu_inq_var(restart%ncid,trim(name))==NF_NOERR)
   endif
@@ -263,7 +273,7 @@ subroutine add_scalar_data(restart,varname,datum,longname,units)
   integer :: id_restart, ierr
 
   if (new_land_io) then
-     id_restart = register_restart_field(restart%rhandle,restart%filename,varname,datum,&
+     id_restart = register_restart_field(restart%rhandle,restart%basename,varname,datum,&
           longname=longname,units=units)
   else
      if(mpp_pe()==lnd%io_pelist(1)) then
@@ -289,7 +299,7 @@ subroutine add_tile_data_i0d_fptr_i0(restart,varname,fptr,longname,units)
            'tidx not allocated: looks like land restart was not initialized',FATAL)
      allocate(data(size(restart%tidx)))
      call gather_tile_data_i0d(fptr,restart%tidx,data)
-     id_restart = register_restart_field(restart%rhandle, restart%filename, varname, data, &
+     id_restart = register_restart_field(restart%rhandle, restart%basename, varname, data, &
           longname=longname, units=units, restart_owns_data=.true.)
   else ! old land io
      call write_tile_data_i0d_fptr(restart%ncid,varname,fptr,longname,units)
@@ -310,7 +320,7 @@ subroutine add_tile_data_r0d_fptr_r0(restart,varname,fptr,longname,units)
            'tidx not allocated: looks like land restart was not initialized',FATAL)
      allocate(data(size(restart%tidx)))
      call gather_tile_data_r0d(fptr,restart%tidx,data)
-     id_restart = register_restart_field(restart%rhandle, restart%filename, varname, data, &
+     id_restart = register_restart_field(restart%rhandle, restart%basename, varname, data, &
           longname=longname, units=units, restart_owns_data=.true.)
   else ! old land io
      call write_tile_data_r0d_fptr_r0(restart%ncid,varname,fptr,longname,units)
@@ -332,7 +342,7 @@ subroutine add_tile_data_r0d_fptr_r0i(restart,varname,fptr,index,longname,units)
            'tidx not allocated: looks like land restart was not initialized',FATAL)
      allocate(data(size(restart%tidx)))
      call gather_tile_data_r0d_idx(fptr,index,restart%tidx,data)
-     id_restart = register_restart_field(restart%rhandle, restart%filename, varname, data, &
+     id_restart = register_restart_field(restart%rhandle, restart%basename, varname, data, &
           longname=longname, units=units, restart_owns_data=.true.)
   else ! old land io
      call write_tile_data_r0d_fptr_r0i(restart%ncid,varname,fptr,index,longname,units)
@@ -362,7 +372,7 @@ subroutine add_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr,longname,units)
   
      allocate(data(size(restart%tidx),n))
      call gather_tile_data_r1d(fptr,restart%tidx,data)
-     id_restart = register_restart_field(restart%rhandle, restart%filename, varname, data, &
+     id_restart = register_restart_field(restart%rhandle, restart%basename, varname, data, &
           compressed=.true., longname=longname, units=units, restart_owns_data=.true.)
   else ! old land io
      call write_tile_data_r1d_fptr_r0i(restart%ncid,varname,fptr,zdim,longname,units)
@@ -408,7 +418,7 @@ subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index,longname,
            endif
         enddo
      enddo
-     id_restart = register_restart_field(restart%rhandle, restart%filename, varname, data, &
+     id_restart = register_restart_field(restart%rhandle, restart%basename, varname, data, &
           compressed=.true., longname=longname, units=units, restart_owns_data=.true.)
   else ! old land io
      call write_tile_data_r1d_fptr_r0ij(restart%ncid,varname,fptr,index,zdim,longname,units)
@@ -440,7 +450,7 @@ subroutine add_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr,longname,u
   
      allocate(data(size(restart%tidx),n,m))
      call gather_tile_data_r2d(fptr,restart%tidx,data)
-     id_restart = register_restart_field(restart%rhandle, restart%filename, varname, data, &
+     id_restart = register_restart_field(restart%rhandle, restart%basename, varname, data, &
           compressed=.true., longname=longname, units=units, restart_owns_data=.true.)
   else ! old land io
      call write_tile_data_r2d_fptr_r0ij(restart%ncid,varname,fptr,dim1,dim2,longname,units)
@@ -473,7 +483,7 @@ subroutine add_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index,lon
   
      allocate(data(size(restart%tidx),n,m))
      call gather_tile_data_r2d_idx(fptr,index,restart%tidx,data)
-     id_restart = register_restart_field(restart%rhandle, restart%filename, varname, data, &
+     id_restart = register_restart_field(restart%rhandle, restart%basename, varname, data, &
           compressed=.true., longname=longname, units=units, restart_owns_data=.true.)
   else ! old land io
      call write_tile_data_r2d_fptr_r0ijk(restart%ncid,varname,fptr,index,dim1,dim2,longname,units)
@@ -487,7 +497,7 @@ subroutine get_scalar_data(restart,varname,datum)
   integer,          intent(out) :: datum
 
   if (new_land_io) then
-     call read_data(restart%filename,varname,datum,domain=lnd%domain)
+     call read_data(restart%basename,varname,datum,domain=lnd%domain)
   else
      __NF_ASRT__(nfu_get_var(restart%ncid,varname,datum))
   endif
@@ -505,7 +515,7 @@ subroutine get_tile_data_i0d_fptr_i0(restart,varname,fptr)
 
   if (new_land_io) then
      allocate(r(size(restart%tidx)))
-     call read_compressed(restart%filename,varname,r,domain=lnd%domain,timelevel=1)
+     call read_compressed(restart%basename,varname,r,domain=lnd%domain,timelevel=1)
      call assemble_tiles_i0d(fptr,restart%tidx,r)
      deallocate(r)
   else ! old land io
@@ -525,7 +535,7 @@ subroutine get_tile_data_r0d_fptr_r0(restart,varname,fptr)
 
   if (new_land_io) then
      allocate(r(size(restart%tidx)))
-     call read_compressed(restart%filename,varname,r,domain=lnd%domain,timelevel=1)
+     call read_compressed(restart%basename,varname,r,domain=lnd%domain,timelevel=1)
      call assemble_tiles_r0d(fptr,restart%tidx,r)
      deallocate(r)
   else ! old land io
@@ -546,7 +556,7 @@ subroutine get_tile_data_r0d_fptr_r0i(restart,varname,fptr,index)
 
   if (new_land_io) then
      allocate(r(size(restart%tidx)))
-     call read_compressed(restart%filename,varname,r,domain=lnd%domain,timelevel=1)
+     call read_compressed(restart%basename,varname,r,domain=lnd%domain,timelevel=1)
      call assemble_tiles_r0d_idx(fptr,index,restart%tidx,r)
      deallocate(r)
   else ! old land io
@@ -567,14 +577,14 @@ subroutine get_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr)
 
   if (new_land_io) then
      ! get the size of zdim
-     call get_field_size(restart%filename,zdim,len,field_found=found,domain=lnd%domain)
+     call get_field_size(restart%basename,zdim,len,field_found=found,domain=lnd%domain)
      if (.not.found) call error_mesg('get_tile_data_r0d_fptr_r0i', &
-        'axis "'//trim(zdim)//'" was not found in file "'//trim(restart%filename)//'"', &
+        'axis "'//trim(zdim)//'" was not found in file "'//trim(restart%basename)//'"', &
         FATAL)
 
      ! read the data
      allocate(r(size(restart%tidx),len(1)))
-     call read_compressed(restart%filename,varname,r,domain=lnd%domain,timelevel=1)
+     call read_compressed(restart%basename,varname,r,domain=lnd%domain,timelevel=1)
      call assemble_tiles_r1d(fptr,restart%tidx,r)
      deallocate(r)
   else ! old land io
@@ -596,14 +606,14 @@ subroutine get_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index)
 
   if (new_land_io) then
      ! get the size of zdim
-     call get_field_size(restart%filename,zdim,len,field_found=found,domain=lnd%domain)
+     call get_field_size(restart%basename,zdim,len,field_found=found,domain=lnd%domain)
      if (.not.found) call error_mesg('get_tile_data_r1d_fptr_r0ij', &
-        'axis "'//trim(zdim)//'" was not found in file "'//trim(restart%filename)//'"', &
+        'axis "'//trim(zdim)//'" was not found in file "'//trim(restart%basename)//'"', &
         FATAL)
 
      ! read the data
      allocate(r(size(restart%tidx),len(1)))
-     call read_compressed(restart%filename,varname,r,domain=lnd%domain,timelevel=1)
+     call read_compressed(restart%basename,varname,r,domain=lnd%domain,timelevel=1)
      call assemble_tiles_r1d_idx(fptr,index,restart%tidx,r)
      deallocate(r)
   else ! old land io
@@ -624,20 +634,20 @@ subroutine get_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr)
 
   if (new_land_io) then
      ! get the size of dimensions
-     call get_field_size(restart%filename,dim1,len,field_found=found,domain=lnd%domain)
+     call get_field_size(restart%basename,dim1,len,field_found=found,domain=lnd%domain)
      if (.not.found) call error_mesg('get_tile_data_r0d_fptr_r0i', &
-        'axis "'//trim(dim1)//'" was not found in file "'//trim(restart%filename)//'"', &
+        'axis "'//trim(dim1)//'" was not found in file "'//trim(restart%basename)//'"', &
         FATAL)
      n=len(1)
-     call get_field_size(restart%filename,dim2,len,field_found=found,domain=lnd%domain)
+     call get_field_size(restart%basename,dim2,len,field_found=found,domain=lnd%domain)
      if (.not.found) call error_mesg('get_tile_data_r0d_fptr_r0i', &
-        'axis "'//trim(dim2)//'" was not found in file "'//trim(restart%filename)//'"', &
+        'axis "'//trim(dim2)//'" was not found in file "'//trim(restart%basename)//'"', &
         FATAL)
      m=len(1)
      
      ! read the data
      allocate(r(size(restart%tidx),n,m))
-     call read_compressed(restart%filename,varname,r,domain=lnd%domain,timelevel=1)
+     call read_compressed(restart%basename,varname,r,domain=lnd%domain,timelevel=1)
      call assemble_tiles_r2d(fptr,restart%tidx,r)
      deallocate(r)
   else ! old land io
@@ -659,19 +669,19 @@ subroutine get_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index)
 
   if (new_land_io) then
      ! get the size of zdim
-     call get_field_size(restart%filename,dim1,len,field_found=found,domain=lnd%domain)
+     call get_field_size(restart%basename,dim1,len,field_found=found,domain=lnd%domain)
      if (.not.found) call error_mesg('get_tile_data_r0d_fptr_r0i', &
-        'axis "'//trim(dim1)//'" was not found in file "'//trim(restart%filename)//'"', &
+        'axis "'//trim(dim1)//'" was not found in file "'//trim(restart%basename)//'"', &
         FATAL)
      n = len(1)
-     call get_field_size(restart%filename,dim2,len,field_found=found,domain=lnd%domain)
+     call get_field_size(restart%basename,dim2,len,field_found=found,domain=lnd%domain)
      if (.not.found) call error_mesg('get_tile_data_r0d_fptr_r0i', &
-        'axis "'//trim(dim1)//'" was not found in file "'//trim(restart%filename)//'"', &
+        'axis "'//trim(dim1)//'" was not found in file "'//trim(restart%basename)//'"', &
         FATAL)
      m = len(1)
      ! read the data
      allocate(r(size(restart%tidx),n,m))
-     call read_compressed(restart%filename,varname,r,domain=lnd%domain,timelevel=1)
+     call read_compressed(restart%basename,varname,r,domain=lnd%domain,timelevel=1)
      call assemble_tiles_r2d_idx(fptr,index,restart%tidx,r)
      deallocate(r)
   else ! old land io

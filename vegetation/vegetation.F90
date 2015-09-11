@@ -34,8 +34,8 @@ use land_io_mod, only : read_field
 
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
-     get_input_restart_name, add_restart_axis, add_tile_data, add_int_tile_data, &
-     add_scalar_data, get_scalar_data, get_tile_data, get_int_tile_data, field_exists
+     add_restart_axis, add_tile_data, add_int_tile_data, add_scalar_data, &
+     get_scalar_data, get_tile_data, get_int_tile_data, field_exists
 
 use vegn_data_mod, only : SP_C4GRASS, LEAF_ON, LU_NTRL, read_vegn_data_namelist, &
      tau_drip_l, tau_drip_s, T_transp_min, cold_month_threshold, soil_carbon_depth_scale, &
@@ -265,7 +265,6 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
   integer :: n_accum
   integer :: nmn_acm
   type(land_restart_type) :: restart1, restart2
-  character(len=256) :: restart_file_name_1, restart_file_name_2
   logical :: restart_1_exists, restart_2_exists
   real, allocatable :: t_ann(:,:),t_cold(:,:),p_ann(:,:),ncm(:,:) ! buffers for biodata reading 
   logical :: did_read_biodata
@@ -281,25 +280,20 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
   ! ---- initialize vegn state ---------------------------------------------
   n_accum = 0
   nmn_acm = 0
-  call get_input_restart_name('INPUT/vegn1.res.nc',restart_1_exists, restart_file_name_1)
-  call get_input_restart_name('INPUT/vegn2.res.nc',restart_2_exists, restart_file_name_2)
-  
+  call open_land_restart(restart1,'INPUT/vegn1.res.nc',restart_1_exists)
+  call open_land_restart(restart2,'INPUT/vegn2.res.nc',restart_2_exists)
   if (restart_1_exists) then
      call error_mesg('vegn_init',&
-          'reading NetCDF restarts "'//trim(restart_file_name_1)//&
-          '" and "'//trim(restart_file_name_2)//'"',&
+          'reading NetCDF restarts "INPUT/vegn1.res.nc" and "INPUT/vegn2.res.nc"',&
           NOTE)
 
-     call open_land_restart(restart1,'INPUT/vegn1.res.nc')
      ! read the cohort index and generate appropriate number of cohorts
      ! for each vegetation tile
      call read_create_cohorts(restart1)
      call get_cohort_data(restart1, 'tv', cohort_tv_ptr)
      call get_cohort_data(restart1, 'wl', cohort_wl_ptr)
      call get_cohort_data(restart1, 'ws', cohort_ws_ptr)
-     call free_land_restart(restart1)
 
-     call open_land_restart(restart2,'INPUT/vegn2.res.nc')
      ! read global variables
      call get_scalar_data(restart2,'n_accum',n_accum)
      call get_scalar_data(restart2,'nmn_acm',nmn_acm)
@@ -376,12 +370,14 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
         if (field_exists(restart2,trim(HARV_POOL_NAMES(i))//'_harv_rate')) &
              call get_tile_data(restart2,trim(HARV_POOL_NAMES(i))//'_harv_rate',vegn_harv_rate_ptr,i)
      enddo
-     call free_land_restart(restart2)
   else
      call error_mesg('vegn_init',&
           'cold-starting vegetation',&
           NOTE)
   endif
+  call free_land_restart(restart1)
+  call free_land_restart(restart2)
+
   ! read climatological fields for initialization of species distribution
   if (file_exist('INPUT/biodata.nc'))then
      allocate(&

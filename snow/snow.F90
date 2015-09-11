@@ -26,7 +26,7 @@ use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
 use land_data_mod,      only : land_state_type, lnd, land_time
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
-     get_input_restart_name, add_restart_axis, add_tile_data, get_tile_data
+     add_restart_axis, add_tile_data, get_tile_data
 use land_debug_mod, only : is_watch_point
 
 implicit none
@@ -139,8 +139,7 @@ subroutine snow_init (id_lon, id_lat)
   integer :: k
   type(land_tile_enum_type)     :: te,ce ! tail and current tile list elements
   type(land_tile_type), pointer :: tile  ! pointer to current tile
-  character(len=256) :: restart_file_name
-  character(len=17)  :: restart_base_name='INPUT/snow.res.nc'
+  character(*), parameter :: restart_file_name='INPUT/snow.res.nc'
   type(land_restart_type) :: restart
   logical :: restart_exists
 
@@ -148,14 +147,12 @@ subroutine snow_init (id_lon, id_lat)
   delta_time = time_type_to_real(lnd%dt_fast)
 
   ! -------- initialize snow state --------
-  call get_input_restart_name(restart_base_name,restart_exists,restart_file_name)
+  call open_land_restart(restart,restart_file_name,restart_exists)
   if (restart_exists) then
      call error_mesg('snow_init', 'reading NetCDF restart "'//trim(restart_file_name)//'"', NOTE)
-     call open_land_restart(restart,restart_base_name)
      call get_tile_data(restart, 'temp', 'zfull', snow_temp_ptr)
      call get_tile_data(restart, 'wl'  , 'zfull', snow_wl_ptr)
      call get_tile_data(restart, 'ws'  , 'zfull', snow_ws_ptr)
-     call free_land_restart(restart)
   else
      call error_mesg('snow_init', 'cold-starting snow', NOTE)
      te = tail_elmt (lnd%tile_map)
@@ -172,6 +169,7 @@ subroutine snow_init (id_lon, id_lat)
         enddo 
      enddo
   endif
+  call free_land_restart(restart)
 
   if (trim(albedo_to_use)=='') then
      use_brdf = .false.

@@ -34,8 +34,7 @@ use land_tile_diag_mod, only : register_tiled_static_field, &
 use land_data_mod,      only : land_state_type, lnd, land_time
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
-     get_input_restart_name, add_restart_axis, add_tile_data, get_tile_data, &
-     field_exists
+     add_restart_axis, add_tile_data, get_tile_data, field_exists
 use land_debug_mod, only: is_watch_point
 use land_utils_mod, only : put_to_tiles_r0d_fptr
 
@@ -178,13 +177,12 @@ subroutine lake_init ( id_lon, id_lat )
   ! ---- local vars 
   type(land_tile_enum_type)     :: te,ce ! last and current tile list elements
   type(land_tile_type), pointer :: tile  ! pointer to current tile
-  character(len=256) :: restart_file_name
-  character(len=17) :: restart_base_name='INPUT/lake.res.nc'
   type(land_restart_type) :: restart
   logical :: restart_exists
   real, allocatable :: buffer(:,:),bufferc(:,:),buffert(:,:)
   integer :: i
   logical :: river_data_exist
+  character(*), parameter :: restart_file_name = 'INPUT/lake.res.nc'
 
   module_is_initialized = .TRUE.
   delta_time = time_type_to_real(lnd%dt_fast)
@@ -284,19 +282,18 @@ subroutine lake_init ( id_lon, id_lat )
      tile%lake%T             = init_temp
   enddo
 
-  call get_input_restart_name(restart_base_name,restart_exists,restart_file_name)
+  call open_land_restart(restart,restart_file_name,restart_exists)
   if (restart_exists) then
      call error_mesg('lake_init', 'reading NetCDF restart "'//trim(restart_file_name)//'"', NOTE)
-     call open_land_restart(restart,restart_base_name)
      if (field_exists(restart,'dz')) &
         call get_tile_data(restart, 'dz', 'zfull', lake_dz_ptr)
      call get_tile_data(restart, 'temp', 'zfull', lake_temp_ptr)
      call get_tile_data(restart, 'wl',   'zfull', lake_wl_ptr)
      call get_tile_data(restart, 'ws',   'zfull', lake_ws_ptr)
-     call free_land_restart(restart)
   else
      call error_mesg('lake_init', 'cold-starting lake', NOTE)
   endif
+  call free_land_restart(restart)
 
   call lake_diag_init ( id_lon, id_lat )
   ! ---- static diagnostic section

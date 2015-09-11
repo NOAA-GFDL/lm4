@@ -33,8 +33,7 @@ use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
 use land_data_mod,      only : land_state_type, lnd
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
-     get_input_restart_name, add_restart_axis, add_tile_data, get_tile_data, &
-     field_exists
+     add_restart_axis, add_tile_data, get_tile_data, field_exists
 use land_debug_mod, only : is_watch_point, check_temp_range
 
 implicit none
@@ -125,8 +124,7 @@ subroutine cana_init ( id_lon, id_lat )
   ! ---- local vars ----------------------------------------------------------
   type(land_tile_enum_type)     :: te,ce ! last and current tile
   type(land_tile_type), pointer :: tile   ! pointer to current tile
-  character(len=256) :: restart_file_name
-  character(len=17) :: restart_base_name='INPUT/cana.res.nc'
+  character(*), parameter :: restart_file_name='INPUT/cana.res.nc'
   type(land_restart_type) :: restart
   logical :: restart_exists
 
@@ -180,12 +178,11 @@ subroutine cana_init ( id_lon, id_lat )
   enddo
 
   ! then read the restart if it exists
-  call get_input_restart_name(restart_base_name,restart_exists,restart_file_name)
+  call open_land_restart(restart,restart_file_name,restart_exists)
   if (restart_exists) then
      call error_mesg('cana_init',&
           'reading NetCDF restart "'//trim(restart_file_name)//'"',&
           NOTE)
-     call open_land_restart(restart,restart_base_name)
      call get_tile_data(restart, 'temp', cana_T_ptr)
      do tr = 1, ntcana
         call get_tracer_names(MODEL_LAND, tr, name=name)
@@ -197,12 +194,12 @@ subroutine cana_init ( id_lon, id_lat )
                 '" was set to initial value '//string(init_tr(tr)), NOTE)
         endif
      enddo
-     call free_land_restart(restart)
   else
      call error_mesg('cana_init',&
           'cold-starting canopy air',&
           NOTE)
   endif
+  call free_land_restart(restart)
 
   ! initialize options, to avoid expensive character comparisons during 
   ! run-time

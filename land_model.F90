@@ -87,7 +87,7 @@ use nf_utils_mod,  only : nfu_inq_var, nfu_inq_dim, nfu_get_var
 use land_utils_mod, only : put_to_tiles_r0d_fptr
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
-     get_input_restart_name, add_tile_data, add_int_tile_data, get_tile_data, &
+     add_tile_data, add_int_tile_data, get_tile_data, &
      field_exists, print_netcdf_error
 use land_tile_diag_mod, only : tile_diag_init, tile_diag_end, &
     set_default_diag_filter, get_area_id, &
@@ -286,11 +286,11 @@ subroutine land_model_init &
   integer :: i,j,k
   type(land_tile_type), pointer :: tile
   type(land_tile_enum_type) :: ce, te
-  character(len=256) :: restart_file_name
-  character(len=17) :: restart_base_name='INPUT/land.res.nc'
-  logical :: restart_exists
   integer :: ico2_atm ! index of CO2 tracer in the atmos, or NO_TRACER
+
   type(land_restart_type) :: restart  
+  character(*), parameter :: restart_file_name='INPUT/land.res.nc'
+  logical :: restart_exists
 
   ! IDs of local clocks
   integer :: landInitClock
@@ -361,16 +361,14 @@ subroutine land_model_init &
   frac = lnd%area/lnd%cellarea
 
   ! [5] initialize tiling
-  call get_input_restart_name(restart_base_name,restart_exists,restart_file_name)
+  call open_land_restart(restart,restart_file_name,restart_exists)
   if(restart_exists) then
      ! read map of tiles -- retrieve information from 
-     call land_cover_warm_start(restart_file_name)
+     call land_cover_warm_start(restart)
      ! initialize land model data
-     call open_land_restart(restart,restart_file_name)
      if (field_exists(restart, 'lwup'   )) call get_tile_data(restart,'lwup',   land_lwup_ptr)
      if (field_exists(restart, 'e_res_1')) call get_tile_data(restart,'e_res_1',land_e_res_1_ptr)
      if (field_exists(restart, 'e_res_2')) call get_tile_data(restart,'e_res_2',land_e_res_2_ptr)
-     call free_land_restart(restart)
   else
      ! initialize map of tiles -- construct it by combining tiles
      ! from component models
@@ -379,6 +377,7 @@ subroutine land_model_init &
           NOTE)
      call land_cover_cold_start(lnd)
   endif
+  call free_land_restart(restart)
 
   ! [6] initialize land model diagnostics -- must be before *_data_init so that
   ! *_data_init can write static fields if necessary
@@ -889,51 +888,39 @@ subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,soiltags0,&
 end subroutine land_cover_cold_start_0d
 
 ! ============================================================================
-subroutine land_cover_warm_start(restart_file_name)
-  character(len=*), intent(in) :: restart_file_name
+subroutine land_cover_warm_start(restart)
+  type(land_restart_type), intent(in) :: restart
   if (new_land_io) then
-     call land_cover_warm_start_new(restart_file_name)
+     call land_cover_warm_start_new(restart)
   else
-     call land_cover_warm_start_orig(restart_file_name)
+     call land_cover_warm_start_orig(restart)
   endif
 end subroutine land_cover_warm_start
 
 ! ============================================================================
 ! reads the land restart file and restores the tiling structure from this file
-subroutine land_cover_warm_start_new (restart_file_name)
-  character(len=*), intent(in) :: restart_file_name
+subroutine land_cover_warm_start_new (restart)
+  type(land_restart_type), intent(in) :: restart
   
   ! ---- local vars
-  integer, allocatable :: idx(:) ! compressed tile index
   integer, allocatable :: glac(:), lake(:), soil(:), vegn(:) ! tile tags
   real,    allocatable :: frac(:) ! fraction of land covered by tile
   integer :: ntiles    ! total number of land tiles in the input file
-  integer :: bufsize   ! size of the input buffer
-  integer :: dimids(1) ! id of tile dimension
-  character(NF_MAX_NAME) :: tile_dim_name ! name of the tile dimension and respective variable
   integer :: i,j,k,it
-  type(land_tile_type), pointer :: tile;
-  integer :: start, count ! slab for reading
-  integer :: siz(4)
-  logical :: found
+  type(land_tile_type), pointer :: tile
   
-  call get_field_size(restart_file_name, 'tile_index', siz, field_found=found, domain=lnd%domain)
-  if (.not.found) call error_mesg(trim(module_name), &
-                 'tile_index axis not found in '//trim(restart_file_name), FATAL)
-  allocate(idx(siz(1)))
+  ntiles = size(restart%tidx)
+  allocate(glac(ntiles), lake(ntiles), soil(ntiles), vegn(ntiles), frac(ntiles))
 
-  ntiles = size(idx)
-  allocate(glac(ntiles), lake(ntiles), soil(ntiles), vegn(ntiles), frac(ntiles)  )
-
-  call read_compressed(restart_file_name,'frac',frac,domain=lnd%domain, timelevel=1)
-  call read_compressed(restart_file_name,'glac',glac,domain=lnd%domain, timelevel=1)
-  call read_compressed(restart_file_name,'lake',lake,domain=lnd%domain, timelevel=1)
-  call read_compressed(restart_file_name,'soil',soil,domain=lnd%domain, timelevel=1)
-  call read_compressed(restart_file_name,'vegn',vegn,domain=lnd%domain, timelevel=1)
+  call read_compressed(restart%basename,'frac',frac,domain=lnd%domain, timelevel=1)
+  call read_compressed(restart%basename,'glac',glac,domain=lnd%domain, timelevel=1)
+  call read_compressed(restart%basename,'lake',lake,domain=lnd%domain, timelevel=1)
+  call read_compressed(restart%basename,'soil',soil,domain=lnd%domain, timelevel=1)
+  call read_compressed(restart%basename,'vegn',vegn,domain=lnd%domain, timelevel=1)
   
   ! create tiles
   do it = 1,ntiles
-     k = idx(it)
+     k = restart%tidx(it)
      if (k<0) cycle ! skip negative indices
      i = modulo(k,lnd%nlon)+1; k = k/lnd%nlon
      j = modulo(k,lnd%nlat)+1; k = k/lnd%nlat
@@ -945,14 +932,14 @@ subroutine land_cover_warm_start_new (restart_file_name)
               glac=glac(it),lake=lake(it),soil=soil(it),vegn=vegn(it))
      call insert(tile,lnd%tile_map(i,j))
   enddo
-  deallocate(glac, lake, soil, vegn, frac, idx)
+  deallocate(glac, lake, soil, vegn, frac)
 end subroutine land_cover_warm_start_new
 
 
 ! ============================================================================
 ! reads the land restart file and restores the tiling structure from this file
-subroutine land_cover_warm_start_orig (restart_file_name)
-  character(len=*), intent(in) :: restart_file_name
+subroutine land_cover_warm_start_orig (restart)
+  type(land_restart_type), intent(in) :: restart
     
   ! ---- local vars
   integer, allocatable :: idx(:) ! compressed tile index
@@ -969,7 +956,7 @@ subroutine land_cover_warm_start_orig (restart_file_name)
   ! netcdf variable IDs
   integer :: id_idx, id_frac, id_glac, id_lake, id_soil, id_vegn
   
-  __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,ncid))
+  __NF_ASRT__(nf_open(restart%filename,NF_NOWRITE,ncid))
   ! allocate the input data
   __NF_ASRT__(nfu_inq_var(ncid,'frac',id=id_frac,varsize=ntiles,dimids=dimids))
    ! allocate input buffers for compression index and the variable
