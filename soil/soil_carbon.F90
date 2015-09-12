@@ -151,7 +151,7 @@ real*8					   :: Ea_NH4=37e3	                 !Activation energy for immobilizat
 real*8					   :: Ea_NO3=37e3	                 !Activation energy for immobilization of nitrate (kJ/mol)
 real*8					   :: Ea_nitrif=37e3                 !Activation energy for nitrification of ammonium  (kJ/mol)
 real*8					   :: Ea_denitr=37e3				 !Activation energy for uptake of inorganic nitrogen  (kJ/mol)
-real*8             :: Vmax_myc_min_N_uptk=1.0    ! Vmax of mycorrhizal uptake of mineral N (kgN/m2/year)
+real*8             :: Vmax_myc_min_N_uptk=365.0    ! Vmax of mycorrhizal uptake of mineral N (year-1)
 real*8             :: k_myc_min_N_uptk=0.01       ! half-saturation constant for mycorrhizal uptake of mineral N (kgC/m3 of mycorrhizal biomass)
 real,dimension(n_c_types) :: vmaxref=(/4e1,1e1,.5e1/)       !Vmax at reference temperature (yr-1)
 real,dimension(n_c_types) :: kC=(/.5,.1,0.05/)              !Michaelis-Menton C parameter (dimensionless)
@@ -219,7 +219,8 @@ namelist /soil_carbon_nml/ &
             N_flavor_relative_solubility,&
             N_protected_relative_solubility,&
             DON_deposition_rate,&
-            N_limit_scheme
+            N_limit_scheme,&
+            Vmax_myc_min_N_uptk,k_myc_min_N_uptk
 
 
 !---- end-of-namelist --------------------------------------------------------
@@ -1165,7 +1166,7 @@ pure subroutine mycorrhizal_mineral_N_uptake_rate(pool,myc_biomass,layer_thickne
   ! This is a Michaelis-Menton function of mycorrhizal biomass concentration and total mineral N
   nitrate_uptake = pool%nitrate*Vmax_myc_min_N_uptk*&
           (myc_biomass/layer_thickness)/(k_myc_min_N_uptk+myc_biomass/layer_thickness)
-  ammonium_uptake = pool%nitrate*Vmax_myc_min_N_uptk*&
+  ammonium_uptake = pool%ammonium*Vmax_myc_min_N_uptk*&
           (myc_biomass/layer_thickness)/(k_myc_min_N_uptk+myc_biomass/layer_thickness)
 
 end subroutine mycorrhizal_mineral_N_uptake_rate

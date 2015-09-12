@@ -252,6 +252,8 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   __MERGE__(bwood)   ! biomass of heartwood, kg C/m2
   __MERGE__(bliving) ! leaves, fine roots, and sapwood biomass
   __MERGE__(max_leaf_biomass) ! Maximum leaf biomass
+  __MERGE__(myc_scavenger_biomass_C) ! Scavenger mycorrhizal biomass C
+  __MERGE__(myc_scavenger_biomass_N) ! Scavenger mycorrhizal biomass N
 
   __MERGE__(carbon_gain) ! carbon gain during a day, kg C/m2
   __MERGE__(carbon_loss) ! carbon loss during a day, kg C/m2 [diag only]
@@ -277,6 +279,8 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
 #define __MERGE__(field) t2%field = x1*t1%field + x2*t2%field
 
   __MERGE__(age);
+
+  __MERGE__(low_pass_N_uptake) ! Smooth N uptake
 
   __MERGE__(fsc_pool_ag); __MERGE__(fsc_rate_ag)
   __MERGE__(ssc_pool_ag); __MERGE__(ssc_rate_ag)
@@ -658,7 +662,8 @@ function vegn_tile_carbon(vegn) result(carbon) ; real carbon
           vegn%cohorts(i)%bl + vegn%cohorts(i)%blv + &
           vegn%cohorts(i)%br + vegn%cohorts(i)%bwood + &
           vegn%cohorts(i)%bsw + &
-          vegn%cohorts(i)%carbon_gain + vegn%cohorts(i)%bwood_gain
+          vegn%cohorts(i)%carbon_gain + vegn%cohorts(i)%bwood_gain + &
+          vegn%cohorts(i)%myc_scavenger_biomass_C   ! Mycorrhizal biomass added by B. Sulman
   enddo
   carbon = carbon + sum(vegn%harv_pool) + &
            vegn%fsc_pool_ag + vegn%ssc_pool_ag + &
@@ -668,6 +673,7 @@ function vegn_tile_carbon(vegn) result(carbon) ; real carbon
   carbon = carbon + vegn%leaflitter_buffer_fast + vegn%leaflitter_buffer_slow + &
                     vegn%coarsewoodlitter_buffer_fast + vegn%coarsewoodlitter_buffer_slow
   ! finewoodlitter buffers not currently implemented
+
 end function vegn_tile_carbon
 
 

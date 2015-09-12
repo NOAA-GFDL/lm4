@@ -155,7 +155,7 @@ total_myc_immob = 0.0
 
      if(dynamic_root_exudation .AND. soil_carbon_option==SOILC_CORPSE_N) then
        ! Initial allocation scheme: root exudation/mycorrhizal allocation depends on ratio of leaf biomass to max (as determined by N uptake)
-       ! Root exudation fraction of NPP limited by some maximum value
+       ! Root exudation fraction of NPP limited by some maximum value. Note that bl shouldn't exceed max_leaf_biomass
        root_exudate_frac = root_exudate_frac_max*cc%bl/cc%max_leaf_biomass
      else
        root_exudate_frac = spdata(sp)%root_exudate_frac

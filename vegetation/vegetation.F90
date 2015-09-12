@@ -583,6 +583,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
         if(nfu_inq_var(unit,'landuse')==NF_NOERR) &
              call read_tile_data_i0d_fptr(unit,'landuse',vegn_landuse_ptr)
         call read_tile_data_r0d_fptr(unit,'age',vegn_age_ptr)
+        call read_tile_data_r0d_fptr(unit,'low_pass_N_uptake',vegn_low_pass_N_uptake_ptr)
         if(nfu_inq_var(unit,'fsc_pool_ag')==NF_NOERR) then
           call read_tile_data_r0d_fptr(unit,'fsc_pool_ag',vegn_fsc_pool_ag_ptr)
           call read_tile_data_r0d_fptr(unit,'fsc_rate_ag',vegn_fsc_rate_ag_ptr)
@@ -693,9 +694,11 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
      tile%vegn%n_accum = n_accum
      tile%vegn%nmn_acm = nmn_acm
 
-     tile%vegn%low_pass_N_uptake = init_cohort_max_leaf_biomass
+
 
      if (tile%vegn%n_cohorts>0) cycle ! skip initialized tiles
+
+     tile%vegn%low_pass_N_uptake = init_cohort_max_leaf_biomass/leaf_fast_c2n
 
      ! create and initialize cohorts for this vegetation tile
      ! for now, just create a new cohort with default values of biomasses
@@ -1081,6 +1084,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
 
   call write_tile_data_i0d_fptr(unit,'landuse',vegn_landuse_ptr,'vegetation land use type')
   call write_tile_data_r0d_fptr(unit,'age',vegn_age_ptr,'vegetation age', 'yr')
+  call write_tile_data_r0d_fptr(unit,'low_pass_N_uptake',vegn_low_pass_N_uptake_ptr,'smoothed N uptake', 'kgN/m2/year')
   call write_tile_data_r0d_fptr(unit,'fsc_pool_ag',vegn_fsc_pool_ag_ptr, &
        'intermediate pool for AG fast soil carbon input', 'kg C/m2')
   call write_tile_data_r0d_fptr(unit,'fsc_rate_ag',vegn_fsc_rate_ag_ptr, &
@@ -1212,6 +1216,7 @@ subroutine save_vegn_restart_new(tile_dim_length, timestamp)
   ! ** tile
   integer, allocatable :: landuse(:)
   real, allocatable :: age(:)
+  real, allocatable :: low_pass_N_uptake(:)
   real, allocatable :: fsc_pool_ag(:)
   real, allocatable :: fsc_rate_ag(:)
   real, allocatable :: ssc_pool_ag(:)
@@ -1369,6 +1374,7 @@ subroutine save_vegn_restart_new(tile_dim_length, timestamp)
   ! ** tile
   allocate(landuse(tsize),               &
            age(tsize),                   &
+           low_pass_N_uptake(tsize),     &
            fsc_pool_ag(tsize),           &
            fsc_rate_ag(tsize),           &
            ssc_pool_ag(tsize),           &
@@ -1422,6 +1428,10 @@ subroutine save_vegn_restart_new(tile_dim_length, timestamp)
   call gather_tile_data(vegn_age_ptr,tidx,age)
   id_restart = register_restart_field(vegn2_restart,fname,'age',age,&
        longname='vegetation age',units='yr', compressed_axis='C')
+
+   call gather_tile_data(vegn_low_pass_N_uptake_ptr,tidx,low_pass_N_uptake)
+   id_restart = register_restart_field(vegn2_restart,fname,'low_pass_N_uptake',low_pass_N_uptake,&
+        longname='Smoothed N uptake',units='kgN/m2/year', compressed_axis='C')
 
   call gather_tile_data(vegn_fsc_pool_ag_ptr,tidx,fsc_pool_ag)
   id_restart = register_restart_field(vegn2_restart,fname,'fsc_pool_ag',fsc_pool_ag,&

@@ -427,7 +427,7 @@ real :: wood_fast_c2n=	200	!x2z Wiki  http://en.wikipedia.org/wiki/Carbon-to-nit
 real :: wood_slow_c2n= 	200	!x2z Wiki  http://en.wikipedia.org/wiki/Carbon-to-nitrogen_ratio
 real :: root_exudate_N_frac = 0.0 ! N fraction of root exudates. See e.g. Drake et al 2013
 
-real :: root_exudate_frac_max     = 0.2     ! Maximum fraction of NPP that can be allocated to mycorrhizae and root exudation
+real :: root_exudate_frac_max     = 0.5     ! Maximum fraction of NPP that can be allocated to mycorrhizae and root exudation
 logical :: dynamic_root_exudation    = .FALSE. ! Whether to dynamically determine root exudation rate from plant N limitation
 real :: c2n_mycorrhizae           = 10      ! C:N ratio of mycorrhizal biomass
 real :: mycorrhizal_turnover_time = 0.1     ! Mean residence time of live mycorrhizal biomass (yr)
