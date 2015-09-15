@@ -107,7 +107,8 @@ public :: &
     cold_month_threshold, scnd_biomass_bins, &
     phen_ev1, phen_ev2, cmc_eps, &
     leaf_fast_c2n,leaf_slow_c2n,froot_fast_c2n,froot_slow_c2n,wood_fast_c2n,wood_slow_c2n, root_exudate_N_frac,& !x2z - ens: lets get rid of c2n?
-    root_exudate_frac_max, dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time
+    root_exudate_frac_max, dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_C_efficiency,&
+    N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer
 
 
 ! ---- public subroutine
@@ -431,6 +432,11 @@ real :: root_exudate_frac_max     = 0.5     ! Maximum fraction of NPP that can b
 logical :: dynamic_root_exudation    = .FALSE. ! Whether to dynamically determine root exudation rate from plant N limitation
 real :: c2n_mycorrhizae           = 10      ! C:N ratio of mycorrhizal biomass
 real :: mycorrhizal_turnover_time = 0.1     ! Mean residence time of live mycorrhizal biomass (yr)
+real :: myc_C_efficiency      = 0.8      ! Efficiency of C allocation to mycorrhizae (remainder goes to CO2)
+real :: c2n_N_fixer           = 10      ! C:N ratio of N-fixing microbe biomass
+real :: N_fixer_turnover_time = 0.1     ! Mean residence time of live N fixer biomass (yr)
+real :: N_fixer_C_efficiency  = 0.5      ! Efficiency of C allocation to N fixers (remainder goes to CO2)
+real :: N_fixation_rate       = 0.1     ! N fixation rate per unit fixer biomass (kgN/kg fixer C/year)
 
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
@@ -460,7 +466,8 @@ namelist /vegn_data_nml/ &
   scnd_biomass_bins, phen_ev1, phen_ev2, &
   root_exudate_frac, tracer_cuticular_cond,&
   leaf_fast_c2n, leaf_slow_c2n, froot_fast_c2n, froot_slow_c2n, wood_fast_c2n, wood_slow_c2n, root_exudate_N_frac,&
-  root_exudate_frac_max, dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time
+  root_exudate_frac_max, dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_C_efficiency,&
+  N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer
 
 
 contains ! ###################################################################

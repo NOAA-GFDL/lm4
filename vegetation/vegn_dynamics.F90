@@ -17,7 +17,8 @@ use vegn_data_mod, only : spdata, &
      l_fract, &
      leaf_fast_c2n,leaf_slow_c2n,froot_fast_c2n,froot_slow_c2n,wood_fast_c2n,wood_slow_c2n, root_exudate_N_frac,& !x2z - ens: lets get rid of c2n?
      ! BNS: C2N ratios should be temporary fix, which we can get rid of once N is integrated into vegetation code
-     root_exudate_frac_max, dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time
+     root_exudate_frac_max, dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_C_efficiency,&
+     N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer
 
 use vegn_tile_mod, only: vegn_tile_type
 use soil_tile_mod, only: soil_tile_type
@@ -58,7 +59,7 @@ real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 da
 ! diagnostic field IDs
 integer :: id_npp, id_nep, id_gpp, id_resp, id_resl, id_resr, id_resg, &
     id_soilt, id_theta, id_litter, &
-    id_mycorrhizal_allocation, id_mycorrhizal_immobilization
+    id_mycorrhizal_allocation, id_mycorrhizal_immobilization, id_N_fixer_allocation
 
 
 contains
@@ -107,6 +108,9 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
    id_mycorrhizal_immobilization = register_tiled_diag_field ( module_name, 'mycorrhizal_immobilization',  &
         (/id_lon,id_lat/), time, 'N immobilization by mycorrhizae', 'kg N/(m2 year)', &
         missing_value=-100.0 )
+    id_N_fixer_allocation = register_tiled_diag_field ( module_name, 'N_fixer_allocation',  &
+         (/id_lon,id_lat/), time, 'C allocation to N fixers', 'kg C/(m2 year)', &
+         missing_value=-100.0 )
 end subroutine vegn_dynamics_init
 
 
@@ -128,6 +132,7 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, diag)
   real :: gpp ! gross primary productivity per tile
   real :: root_exudate_C, total_root_exudate_C, root_exudate_frac, myc_exudate_frac, mycorrhizal_N_immob
   real :: myc_N_uptake,total_scavenger_myc_C_allocated,scavenger_myc_C_allocated,total_myc_immob
+  real :: N_fixation, total_N_fixation, total_N_fixer_C_allocated, N_fixer_C_allocated, N_fixer_exudate_frac
   integer :: sp ! shorthand for current cohort specie
   integer :: i
 
@@ -138,6 +143,8 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, diag)
 
 total_scavenger_myc_C_allocated = 0.0
 total_myc_immob = 0.0
+total_N_fixation = 0.0
+total_N_fixer_C_allocated = 0.0
 
   !  update plant carbon
   vegn%npp = 0
@@ -145,6 +152,7 @@ total_myc_immob = 0.0
   cgain = 0 ; closs = 0
   total_root_exudate_C = 0
   soil%myc_min_N_uptake = 0
+  soil%symbiotic_N_fixation = 0
   do i = 1, vegn%n_cohorts
      cc => vegn%cohorts(i)
      sp = cc%species
@@ -299,25 +307,39 @@ total_myc_immob = 0.0
 
          mycorrhizal_N_immob = max(0.0,scavenger_myc_C_allocated/c2n_mycorrhizae-scavenger_myc_C_allocated*root_exudate_N_frac)
          mycorrhizal_N_immob = min(mycorrhizal_N_immob,myc_N_uptake)
+
+         N_fixer_exudate_frac = 0.2 ! This will eventually be dynamic based on N acquisition cost function
+         N_fixer_C_allocated = root_exudate_C*N_fixer_exudate_frac*dt_fast_yr
      else
          scavenger_myc_C_allocated=0.0
          mycorrhizal_N_immob = 0.0
+         N_fixer_C_allocated = 0.0
      endif
 
 
      soil%myc_min_N_uptake=soil%myc_min_N_uptake+myc_N_uptake-mycorrhizal_N_immob
 
+     N_fixation = cc%N_fixer_biomass_C*N_fixation_rate
+     soil%symbiotic_N_fixation=soil%symbiotic_N_fixation+N_fixation
+
      if(cc%myc_scavenger_biomass_C<0) call error_mesg('vegn_carbon_int','Mycorrhizal biomass < 0',FATAL)
+     if(cc%N_fixer_biomass_C<0) call error_mesg('vegn_carbon_int','N fixer biomass < 0',FATAL)
 
-     ! First add mycorrhizal turnover to soil C pools
+     ! First add mycorrhizal and N fixer turnover to soil C pools
      call add_root_litter(soil,vegn,(/0.0,0.0,cc%myc_scavenger_biomass_C/mycorrhizal_turnover_time/)*dt_fast_yr,(/0.0,0.0,cc%myc_scavenger_biomass_N/mycorrhizal_turnover_time/)*dt_fast_yr)
-     ! Then update biomass of scavenger mycorrhizae
-     cc%myc_scavenger_biomass_C = cc%myc_scavenger_biomass_C + scavenger_myc_C_allocated - cc%myc_scavenger_biomass_C/mycorrhizal_turnover_time*dt_fast_yr
-     cc%myc_scavenger_biomass_N = cc%myc_scavenger_biomass_N + scavenger_myc_C_allocated/c2n_mycorrhizae - cc%myc_scavenger_biomass_N/mycorrhizal_turnover_time*dt_fast_yr
+     call add_root_litter(soil,vegn,(/0.0,0.0,cc%N_fixer_biomass_C/N_fixer_turnover_time/)*dt_fast_yr,(/0.0,0.0,cc%N_fixer_biomass_N/N_fixer_turnover_time/)*dt_fast_yr)
+     ! Then update biomass of scavenger mycorrhizae and N fixers
+     cc%myc_scavenger_biomass_C = cc%myc_scavenger_biomass_C + scavenger_myc_C_allocated*myc_C_efficiency - cc%myc_scavenger_biomass_C/mycorrhizal_turnover_time*dt_fast_yr
+     cc%myc_scavenger_biomass_N = cc%myc_scavenger_biomass_N + scavenger_myc_C_allocated*myc_C_efficiency/c2n_mycorrhizae - cc%myc_scavenger_biomass_N/mycorrhizal_turnover_time*dt_fast_yr
+     cc%N_fixer_biomass_C = cc%N_fixer_biomass_C + N_fixer_C_allocated*N_fixer_C_efficiency - cc%N_fixer_biomass_C/N_fixer_turnover_time*dt_fast_yr
+     cc%N_fixer_biomass_N = cc%N_fixer_biomass_N + N_fixer_C_allocated*N_fixer_C_efficiency/c2n_N_fixer - cc%N_fixer_biomass_N/N_fixer_turnover_time*dt_fast_yr
 
-     total_root_exudate_C = total_root_exudate_C + root_exudate_C*dt_fast_yr-scavenger_myc_C_allocated
+     total_root_exudate_C = total_root_exudate_C + root_exudate_C*dt_fast_yr - scavenger_myc_C_allocated - N_fixer_C_allocated
      total_scavenger_myc_C_allocated = total_scavenger_myc_C_allocated + scavenger_myc_C_allocated
      total_myc_immob = total_myc_immob + mycorrhizal_N_immob
+
+     total_N_fixation = total_N_fixation + N_fixation
+     total_N_fixer_C_allocated = total_N_fixer_C_allocated + N_fixer_C_allocated
 
    enddo
 
@@ -328,9 +350,10 @@ total_myc_immob = 0.0
   ! update soil carbon
   call Dsdt(vegn, soil, diag, soilt, theta)
 
+  ! Add respiration/C waste from mycorrhizae and N fixers
+  vegn%rh = vegn%rh + (total_scavenger_myc_C_allocated*(1-myc_C_efficiency) + total_N_fixer_C_allocated*(1-N_fixer_C_efficiency))/dt_fast_yr
 
-
-  ! NEP is equal to NNP minus soil respiration
+  ! NEP is equal to NPP minus soil respiration
   vegn%nep = vegn%npp - vegn%rh
   if(is_watch_point()) then
      __DEBUG3__(vegn%npp,vegn%rh,vegn%nep)
@@ -353,6 +376,7 @@ total_myc_immob = 0.0
   call send_tile_data(id_theta,theta,diag)
   call send_tile_data(id_mycorrhizal_allocation,total_scavenger_myc_C_allocated/dt_fast_yr,diag)
   call send_tile_data(id_mycorrhizal_immobilization,total_myc_immob/dt_fast_yr,diag)
+  call send_tile_data(id_N_fixer_allocation,total_N_fixer_C_allocated/dt_fast_yr,diag)
 
 end subroutine vegn_carbon_int
 

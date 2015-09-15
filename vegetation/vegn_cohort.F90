@@ -140,6 +140,10 @@ type :: vegn_cohort_type
   real :: myc_scavenger_biomass_C = 0.0
   real :: myc_scavenger_biomass_N = 0.0
 
+  ! Biomass of symbiotic N fixing microbes
+  real :: N_fixer_biomass_C = 0.0
+  real :: N_fixer_biomass_N = 0.0
+
 ! in LM3V the cohort structure has a handy pointer to the tile it belongs to;
 ! so operations on cohort can update tile-level variables. In this code, it is
 ! probably impossible to have this pointer here: it needs to be of type
