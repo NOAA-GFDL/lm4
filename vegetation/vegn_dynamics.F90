@@ -319,7 +319,7 @@ total_N_fixer_C_allocated = 0.0
 
      soil%myc_min_N_uptake=soil%myc_min_N_uptake+myc_N_uptake-mycorrhizal_N_immob
 
-     N_fixation = cc%N_fixer_biomass_C*N_fixation_rate
+     N_fixation = cc%N_fixer_biomass_C*N_fixation_rate*dt_fast_yr
      soil%symbiotic_N_fixation=soil%symbiotic_N_fixation+N_fixation
 
      if(cc%myc_scavenger_biomass_C<0) call error_mesg('vegn_carbon_int','Mycorrhizal biomass < 0',FATAL)
