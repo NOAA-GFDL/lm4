@@ -397,7 +397,7 @@ subroutine create_cohort_dimension_new(rhandle,cidx,name,tile_dim_length)
      ce=next_elmt(ce)
   end do
 
-  call create_cohort_out_file_idx(rhandle,name,cidx,max_cohorts)
+  call create_cohort_out_file_idx(rhandle,name,cidx,max(max_cohorts,1))
 end subroutine create_cohort_dimension_new
 
 subroutine create_cohort_out_file_idx(rhandle,name,cidx,cohorts_dim_length)
