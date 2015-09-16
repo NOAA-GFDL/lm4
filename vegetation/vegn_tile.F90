@@ -251,7 +251,7 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   __MERGE__(bsw)     ! biomass of sapwood, kg C/m2
   __MERGE__(bwood)   ! biomass of heartwood, kg C/m2
   __MERGE__(bliving) ! leaves, fine roots, and sapwood biomass
-  __MERGE__(max_leaf_biomass) ! Maximum leaf biomass
+  __MERGE__(max_live_biomass) ! Maximum leaf biomass
   __MERGE__(myc_scavenger_biomass_C) ! Scavenger mycorrhizal biomass C
   __MERGE__(myc_scavenger_biomass_N) ! Scavenger mycorrhizal biomass N
   __MERGE__(N_fixer_biomass_C) ! Scavenger mycorrhizal biomass C

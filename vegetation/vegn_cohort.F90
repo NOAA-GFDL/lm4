@@ -134,7 +134,7 @@ type :: vegn_cohort_type
 
   ! BNS: Maximum leaf biomass, to be used in the context of nitrogen limitation as suggested by Elena
   ! This will be either fixed or calculated as a function of nitrogen uptake or availability
-  real :: max_leaf_biomass = 0.0
+  real :: max_live_biomass = 0.0
 
   ! Biomass of "scavenger" type mycorrhizae (corresponding to Arbuscular mycorrhizae)
   real :: myc_scavenger_biomass_C = 0.0
@@ -530,7 +530,7 @@ end subroutine update_bio_living_fraction
 subroutine update_biomass_pools(c)
   type(vegn_cohort_type), intent(inout) :: c
 
-  real :: extra_leaf_biomass  ! Leaf biomass in excess of max (used in N limitation system) -- BNS
+  real :: extra_live_biomass  ! Live biomass in excess of max (used in N limitation system) -- BNS
 
   c%b      = c%bliving + c%bwood;
   c%height = height_from_biomass(c%b);
@@ -544,14 +544,25 @@ subroutine update_biomass_pools(c)
      c%blv = 0;
      c%bl  = c%Pl*c%bliving;
      c%br  = c%Pr*c%bliving;
+
+     ! When maximum live biomass is limited by N uptake
+     if(c%bl+c%br > c%max_live_biomass) then
+       extra_live_biomass=max(0.0,c%bl+c%br-c%max_live_biomass)
+       ! What to do with extra biomass?  Roots or wood?
+       ! Probably needs some sort of optimization
+       c%bl=c%bl-extra_live_biomass*c%Pl/(c%Pl+c%Pr)
+       c%br=c%br-extra_live_biomass*c%Pr/(c%Pl+c%Pr)
+       ! Putting extra biomass in wood for now
+       ! c%br=c%br+extra_leaf_biomass
+       c%bwood = c%bwood + extra_live_biomass
+       ! Make sure biomass properties are still correct
+       c%bliving = c%bliving - extra_live_biomass
+       c%Pl=c%bl/c%bliving
+       c%Pr=c%br/c%bliving
+       c%Psw  = 1 - c%Pl - c%Pr
+     endif
   endif
-  extra_leaf_biomass=max(0.0,c%bl-c%max_leaf_biomass)
-  ! What to do with extra biomass?  Roots or wood?
-  ! Probably needs some sort of optimization
-  ! Could decide all allocation here: between mycorrhizae vs additional root growth
-  c%bl=c%bl-extra_leaf_biomass
-  ! Putting extra biomass in roots for now
-  c%br=c%br+extra_leaf_biomass
+
 
   c%lai = lai_from_biomass(c%bl,c%species)
   c%sai = 0.035*c%height ! Federer and Lash,1978

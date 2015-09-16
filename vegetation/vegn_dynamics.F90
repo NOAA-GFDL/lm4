@@ -171,8 +171,8 @@ total_N_fixer_C_allocated = 0.0
 
      if(dynamic_root_exudation .AND. soil_carbon_option==SOILC_CORPSE_N) then
        ! Initial allocation scheme: root exudation/mycorrhizal allocation depends on ratio of leaf biomass to max (as determined by N uptake)
-       ! Root exudation fraction of NPP limited by some maximum value. Note that bl shouldn't exceed max_leaf_biomass
-       root_exudate_frac = root_exudate_frac_max*cc%bl/cc%max_leaf_biomass
+       ! Root exudation fraction of NPP limited by some maximum value. Note that bl+br shouldn't exceed max_live_biomass
+       root_exudate_frac = root_exudate_frac_max*(cc%bl+cc%br)/cc%max_live_biomass
      else
        root_exudate_frac = spdata(sp)%root_exudate_frac
      endif
