@@ -335,7 +335,7 @@ end subroutine
 ! ============================================================================
 ! calculates vertical distribution of active roots: given layer thicknesses,
 ! returns fraction of active roots per level
-subroutine cohort_uptake_profile(cohort, dz, uptake_frac_max, vegn_uptake_term)
+pure subroutine cohort_uptake_profile(cohort, dz, uptake_frac_max, vegn_uptake_term)
   type(vegn_cohort_type), intent(in)  :: cohort
   real, intent(in)  :: dz(:)
   real, intent(out) :: uptake_frac_max(:)

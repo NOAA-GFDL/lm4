@@ -409,7 +409,7 @@ end subroutine update_derived_vegn_data
 
 ! ============================================================================
 ! returns the profiles of uptake used in the 'LINEAR' uptake option
-subroutine vegn_uptake_profile(vegn, dz, uptake_frac_max, vegn_uptake_term)
+pure subroutine vegn_uptake_profile(vegn, dz, uptake_frac_max, vegn_uptake_term)
   type(vegn_tile_type), intent(in)  :: vegn
   real,                 intent(in)  :: dz(:)
   real,                 intent(out) :: uptake_frac_max(:)

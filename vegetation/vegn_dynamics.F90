@@ -28,7 +28,7 @@ use soil_carbon_mod, only: soil_carbon_option, &
     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
     add_litter, poolTotals, debug_pool,soil_NO3_deposition,soil_NH4_deposition
 
-use soil_mod, only: add_root_litter, add_root_exudates, Dsdt, myc_scavenger_N_uptake
+use soil_mod, only: add_root_litter, add_root_exudates, Dsdt, myc_scavenger_N_uptake, hypothetical_myc_scavenger_N_uptake
 
 use land_debug_mod, only : is_watch_point
 
@@ -59,7 +59,7 @@ real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 da
 ! diagnostic field IDs
 integer :: id_npp, id_nep, id_gpp, id_resp, id_resl, id_resr, id_resg, &
     id_soilt, id_theta, id_litter, &
-    id_mycorrhizal_allocation, id_mycorrhizal_immobilization, id_N_fixer_allocation
+    id_mycorrhizal_allocation, id_mycorrhizal_immobilization, id_N_fixer_allocation, id_N_fix_marginal_gain, id_myc_marginal_gain
 
 
 contains
@@ -111,6 +111,12 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
     id_N_fixer_allocation = register_tiled_diag_field ( module_name, 'N_fixer_allocation',  &
          (/id_lon,id_lat/), time, 'C allocation to N fixers', 'kg C/(m2 year)', &
          missing_value=-100.0 )
+     id_N_fix_marginal_gain = register_tiled_diag_field ( module_name, 'N_fix_marginal_gain',  &
+          (/id_lon,id_lat/), time, 'Extra N fixation per unit C allocation', 'kg N/(m2 year)', &
+          missing_value=-100.0 )
+    id_myc_marginal_gain = register_tiled_diag_field ( module_name, 'myc_marginal_gain',  &
+         (/id_lon,id_lat/), time, 'Extra N acquisition per unit C allocation to mycorrhizae', 'kg N/(m2 year)', &
+         missing_value=-100.0 )
 end subroutine vegn_dynamics_init
 
 
@@ -133,6 +139,8 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, diag)
   real :: root_exudate_C, total_root_exudate_C, root_exudate_frac, myc_exudate_frac, mycorrhizal_N_immob
   real :: myc_N_uptake,total_scavenger_myc_C_allocated,scavenger_myc_C_allocated,total_myc_immob
   real :: N_fixation, total_N_fixation, total_N_fixer_C_allocated, N_fixer_C_allocated, N_fixer_exudate_frac
+  real :: myc_marginal_gain, N_fix_marginal_gain,rhiz_exud_frac
+  real :: N_fixation_2, myc_N_uptake_2
   integer :: sp ! shorthand for current cohort specie
   integer :: i
 
@@ -295,23 +303,53 @@ total_N_fixer_C_allocated = 0.0
 
      ! Mycorrhizal N uptake
      if(soil_carbon_option == SOILC_CORPSE_N) then
-       call myc_scavenger_N_uptake(soil,vegn,cc%myc_scavenger_biomass_C,myc_N_uptake,dt_fast_yr)
-     else
-       myc_N_uptake=0.0
-     end if
 
-     if(soil_carbon_option==SOILC_CORPSE_N) then
-         myc_exudate_frac=0.5  ! This will eventually be dynamic based on N acquisition cost function
+
+         ! Calculate return on investment for each N acquisition strategy
+         ! Determined by calculating marginal change in N uptake if C allocation to each strategy increased by 10%
+         ! Mycorrhizal:
+         call hypothetical_myc_scavenger_N_uptake(soil,vegn,cc%myc_scavenger_biomass_C,myc_N_uptake,dt_fast_yr)
+         call hypothetical_myc_scavenger_N_uptake(soil,vegn,cc%myc_scavenger_biomass_C+root_exudate_C*0.1*dt_fast_yr*myc_C_efficiency,myc_N_uptake_2,dt_fast_yr)
+         myc_marginal_gain = (myc_N_uptake_2-myc_N_uptake)/0.1
+
+         ! N fixer
+         N_fixation = cc%N_fixer_biomass_C*N_fixation_rate*dt_fast_yr
+         N_fixation_2 = (cc%N_fixer_biomass_C+root_exudate_C*0.1*dt_fast_yr*N_fixer_C_efficiency)*N_fixation_rate*dt_fast_yr
+         N_fix_marginal_gain = (N_fixation_2-N_fixation)/0.1
+
+         ! Just exudation
+         ! Need to think about a strategy for calculating this.  Leaving at fixed value for now
+
+         ! Calculate relative fractions
+         rhiz_exud_frac = 0.3  ! Using fixed value for now
+
+         if (myc_marginal_gain+N_fix_marginal_gain>0) then
+           myc_exudate_frac = (1.0-rhiz_exud_frac)*myc_marginal_gain/(myc_marginal_gain+N_fix_marginal_gain)
+           N_fixer_exudate_frac = (1.0-rhiz_exud_frac)*N_fix_marginal_gain/(myc_marginal_gain+N_fix_marginal_gain)
+         else
+           ! Divide evenly if there is no marginal gain.  But this probably only happens if root_exudate_C is zero
+           myc_exudate_frac = (1.0-rhiz_exud_frac)*0.5
+           N_fixer_exudate_frac = (1.0-rhiz_exud_frac)*0.5
+         endif
+
+         ! Do actual mycorrhizal mineral N uptake now
+         call myc_scavenger_N_uptake(soil,vegn,cc%myc_scavenger_biomass_C,myc_N_uptake,dt_fast_yr)
+
+        !  myc_exudate_frac=0.5  ! This will eventually be dynamic based on N acquisition cost function
            ! Watch out that mycorrhizae aren't too N limited (for instance if starting from zero biomass)
          scavenger_myc_C_allocated=root_exudate_C*myc_exudate_frac*dt_fast_yr
 
          mycorrhizal_N_immob = max(0.0,scavenger_myc_C_allocated/c2n_mycorrhizae-scavenger_myc_C_allocated*root_exudate_N_frac)
          mycorrhizal_N_immob = min(mycorrhizal_N_immob,myc_N_uptake)
 
-         N_fixer_exudate_frac = 0.2 ! This will eventually be dynamic based on N acquisition cost function
+        !  N_fixer_exudate_frac = 0.2 ! This will eventually be dynamic based on N acquisition cost function
          N_fixer_C_allocated = root_exudate_C*N_fixer_exudate_frac*dt_fast_yr
+
+
+
      else
          scavenger_myc_C_allocated=0.0
+         myc_N_uptake=0.0
          mycorrhizal_N_immob = 0.0
          N_fixer_C_allocated = 0.0
      endif
@@ -377,6 +415,8 @@ total_N_fixer_C_allocated = 0.0
   call send_tile_data(id_mycorrhizal_allocation,total_scavenger_myc_C_allocated/dt_fast_yr,diag)
   call send_tile_data(id_mycorrhizal_immobilization,total_myc_immob/dt_fast_yr,diag)
   call send_tile_data(id_N_fixer_allocation,total_N_fixer_C_allocated/dt_fast_yr,diag)
+  call send_tile_data(id_myc_marginal_gain,myc_marginal_gain,diag)
+  call send_tile_data(id_N_fix_marginal_gain,N_fix_marginal_gain,diag)
 
 end subroutine vegn_carbon_int
 
