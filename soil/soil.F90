@@ -326,7 +326,7 @@ integer :: id_fast_soil_C, id_slow_soil_C, id_protected_C, id_fsc, id_ssc,&
     id_surf_DON_loss, id_total_ON_leaching, id_total_DON_div_loss, &
     id_surf_NO3_loss, id_surf_NH4_loss, id_total_NO3_leaching, id_total_NH4_leaching, id_total_NO3_div_loss, id_total_NH4_div_loss,&
     id_rhizosphere_frac, id_soil_nitrate, id_soil_ammonium, id_leaflitter_nitrate, id_leaflitter_ammonium, id_finewoodlitter_nitrate, id_finewoodlitter_ammonium,&
-    id_coarsewoodlitter_nitrate,id_coarsewoodlitter_ammonium
+    id_coarsewoodlitter_nitrate,id_coarsewoodlitter_ammonium, id_root_profile
 
     integer :: id_leaflitter_CUE_CO2,id_leaflitter_NUE_MINERAL,id_leaflitter_CUE_mic,id_leaflitter_NUE_mic,&
     			id_finewoodlitter_CUE_CO2,id_finewoodlitter_NUE_MINERAL,id_finewoodlitter_CUE_mic,id_finewoodlitter_NUE_mic,&
@@ -2055,6 +2055,10 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
                 land_time, 'Coarse wood litter NH4 leaching','kg/(m2 s)', missing_value=-100.0)
             id_leaflitter_NH4_leaching = register_tiled_diag_field ( module_name, 'leaflitter_NH4_leaching', axes(1:2), &
                   land_time, 'Leaf litter NH4 leaching','kg/(m2 s)', missing_value=-100.0)
+
+
+        id_root_profile = register_tiled_diag_field ( module_name, 'root_profile', axes, &
+              land_time, 'Vertical root profile in soil','Fraction', missing_value=-100.0)
 
   ! ZMS
   id_total_soil_carbon = register_tiled_diag_field ( module_name, 'total_lit_SOM_C', axes(1:2), &
@@ -5478,6 +5482,7 @@ subroutine soil_step_3(soil, diag)
   if (id_total_soil_ammonium > 0) call send_tile_data(id_total_soil_ammonium, total_ammonium, diag)
   if (id_total_soil_nitrate > 0) call send_tile_data(id_total_soil_nitrate, total_nitrate, diag)
 
+
 end subroutine soil_step_3
 
 
@@ -5548,6 +5553,7 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   real :: temp_protected_fast_N, temp_protected_slow_N, temp_protected_deadmic_N
   real :: leaflitter_N_mineralization, leaflitter_N_immobilization, finewoodlitter_N_mineralization, finewoodlitter_N_immobilization
   real :: coarsewoodlitter_N_mineralization, coarsewoodlitter_N_immobilization, soil_N_mineralization(size(soil%soil_organic_matter)), soil_N_immobilization(size(soil%soil_organic_matter))
+  real,dimension(num_l) :: uptake_frac_max, vegn_uptake_term
   integer :: point_i,point_j,point_k,point_face
 
   A(:) = A_function(soil%T(:), soil_theta(soil))
@@ -5909,6 +5915,11 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   if (id_N_deposition_fast>0) call send_tile_data(id_N_deposition_fast,N_deposited(1,:)/dt_fast_yr/dz,diag)
   if (id_N_deposition_slow>0) call send_tile_data(id_N_deposition_slow,N_deposited(2,:)/dt_fast_yr/dz,diag)
   if (id_N_deposition_deadmic>0) call send_tile_data(id_N_deposition_deadmic,N_deposited(3,:)/dt_fast_yr/dz,diag)
+
+  if (id_root_profile > 0) then
+    call vegn_uptake_profile (vegn, dz(1:num_l), uptake_frac_max, vegn_uptake_term )
+    call send_tile_data(id_root_profile, uptake_frac_max, diag)
+  endif
 end subroutine Dsdt_CORPSE
 
 

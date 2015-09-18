@@ -59,7 +59,7 @@ real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 da
 ! diagnostic field IDs
 integer :: id_npp, id_nep, id_gpp, id_resp, id_resl, id_resr, id_resg, &
     id_soilt, id_theta, id_litter, &
-    id_mycorrhizal_allocation, id_mycorrhizal_immobilization, id_N_fixer_allocation, id_N_fix_marginal_gain, id_myc_marginal_gain
+    id_mycorrhizal_allocation, id_mycorrhizal_immobilization, id_N_fixer_allocation, id_N_fix_marginal_gain, id_myc_marginal_gain, id_rhiz_exudation
 
 
 contains
@@ -117,6 +117,9 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
     id_myc_marginal_gain = register_tiled_diag_field ( module_name, 'myc_marginal_gain',  &
          (/id_lon,id_lat/), time, 'Extra N acquisition per unit C allocation to mycorrhizae', 'kg N/(m2 year)', &
          missing_value=-100.0 )
+     id_rhiz_exudation = register_tiled_diag_field ( module_name, 'rhiz_exudation',  &
+          (/id_lon,id_lat/), time, 'C allocation to rhizosphere exudation', 'kg C/(m2 year)', &
+          missing_value=-100.0 )
 end subroutine vegn_dynamics_init
 
 
@@ -417,6 +420,7 @@ total_N_fixer_C_allocated = 0.0
   call send_tile_data(id_N_fixer_allocation,total_N_fixer_C_allocated/dt_fast_yr,diag)
   call send_tile_data(id_myc_marginal_gain,myc_marginal_gain,diag)
   call send_tile_data(id_N_fix_marginal_gain,N_fix_marginal_gain,diag)
+  call send_tile_data(id_rhiz_exudation,total_root_exudate_C/dt_fast_yr,diag)
 
 end subroutine vegn_carbon_int
 
