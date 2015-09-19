@@ -7,7 +7,7 @@ use land_constants_mod, only: NBANDS, &
 use vegn_data_mod, only : spdata, &
    use_mcm_masking, use_bucket, critical_root_density, &
    tg_c4_thresh, tg_c3_thresh, l_fract, fsc_liv, &
-   phen_ev1, phen_ev2, cmc_eps
+   phen_ev1, phen_ev2, cmc_eps, N_limits_live_biomass
 use vegn_data_mod, only : PT_C3, PT_C4, CMPT_ROOT, CMPT_LEAF, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
    LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDIOUS
@@ -135,6 +135,8 @@ type :: vegn_cohort_type
   ! BNS: Maximum leaf biomass, to be used in the context of nitrogen limitation as suggested by Elena
   ! This will be either fixed or calculated as a function of nitrogen uptake or availability
   real :: max_live_biomass = 0.0
+  real :: nitrogen_stress = 0.0
+  real :: cumulative_extra_live_biomass = 0.0
 
   ! Biomass of "scavenger" type mycorrhizae (corresponding to Arbuscular mycorrhizae)
   real :: myc_scavenger_biomass_C = 0.0
@@ -540,14 +542,20 @@ subroutine update_biomass_pools(c)
      c%blv = c%Pl*c%bliving + c%Pr*c%bliving;
      c%bl  = 0;
      c%br  = 0;
+    !  c%nitrogen_stress = 0
   else
      c%blv = 0;
      c%bl  = c%Pl*c%bliving;
      c%br  = c%Pr*c%bliving;
 
+     ! This might cause problems in situations where the cumulative extra biomass doesn't get reset for a long time
+     c%nitrogen_stress = (c%bl+c%br+c%cumulative_extra_live_biomass)/c%max_live_biomass
+
      ! When maximum live biomass is limited by N uptake
-     if(c%bl+c%br > c%max_live_biomass) then
+     if(c%bl+c%br > c%max_live_biomass .AND. N_limits_live_biomass) then
        extra_live_biomass=max(0.0,c%bl+c%br-c%max_live_biomass)
+       ! Maybe add some exponential relaxation to the cumulative live biomass?
+       c%cumulative_extra_live_biomass = c%cumulative_extra_live_biomass + extra_live_biomass
        ! What to do with extra biomass?  Roots or wood?
        ! Probably needs some sort of optimization
        c%bl=c%bl-extra_live_biomass*c%Pl/(c%Pl+c%Pr)
@@ -560,6 +568,8 @@ subroutine update_biomass_pools(c)
        c%Pl=c%bl/c%bliving
        c%Pr=c%br/c%bliving
        c%Psw  = 1 - c%Pl - c%Pr
+     else
+       c%cumulative_extra_live_biomass = 0.0
      endif
   endif
 

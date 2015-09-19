@@ -59,7 +59,8 @@ real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 da
 ! diagnostic field IDs
 integer :: id_npp, id_nep, id_gpp, id_resp, id_resl, id_resr, id_resg, &
     id_soilt, id_theta, id_litter, &
-    id_mycorrhizal_allocation, id_mycorrhizal_immobilization, id_N_fixer_allocation, id_N_fix_marginal_gain, id_myc_marginal_gain, id_rhiz_exudation
+    id_mycorrhizal_allocation, id_mycorrhizal_immobilization, id_N_fixer_allocation, &
+    id_N_fix_marginal_gain, id_myc_marginal_gain, id_rhiz_exudation, id_nitrogen_stress
 
 
 contains
@@ -120,6 +121,9 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
      id_rhiz_exudation = register_tiled_diag_field ( module_name, 'rhiz_exudation',  &
           (/id_lon,id_lat/), time, 'C allocation to rhizosphere exudation', 'kg C/(m2 year)', &
           missing_value=-100.0 )
+      id_nitrogen_stress = register_tiled_diag_field ( module_name, 'nitrogen_stress',  &
+           (/id_lon,id_lat/), time, 'Nitrogen stress index', 'Dimensionless', &
+           missing_value=-100.0 )
 end subroutine vegn_dynamics_init
 
 
@@ -174,8 +178,8 @@ total_N_fixer_C_allocated = 0.0
 
      if(dynamic_root_exudation .AND. soil_carbon_option==SOILC_CORPSE_N) then
        ! Initial allocation scheme: root exudation/mycorrhizal allocation depends on ratio of leaf biomass to max (as determined by N uptake)
-       ! Root exudation fraction of NPP limited by some maximum value. Note that bl+br shouldn't exceed max_live_biomass
-       root_exudate_frac = root_exudate_frac_max*(cc%bl+cc%br)/cc%max_live_biomass
+       ! Root exudation fraction of NPP limited by some maximum value.  Probably need to rename these parameters and not use a hard-coded value
+       root_exudate_frac = min(0.9,root_exudate_frac_max*cc%nitrogen_stress)
      else
        root_exudate_frac = spdata(sp)%root_exudate_frac
      endif
@@ -421,6 +425,7 @@ total_N_fixer_C_allocated = 0.0
   call send_tile_data(id_myc_marginal_gain,myc_marginal_gain,diag)
   call send_tile_data(id_N_fix_marginal_gain,N_fix_marginal_gain,diag)
   call send_tile_data(id_rhiz_exudation,total_root_exudate_C/dt_fast_yr,diag)
+  call send_tile_data(id_nitrogen_stress,vegn%cohorts(1)%nitrogen_stress,diag)
 
 end subroutine vegn_carbon_int
 

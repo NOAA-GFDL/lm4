@@ -41,7 +41,7 @@ use land_tile_io_mod, only : &
 use vegn_data_mod, only : SP_C4GRASS, LEAF_ON, LU_NTRL, read_vegn_data_namelist, &
      tau_drip_l, tau_drip_s, T_transp_min, cold_month_threshold, soil_carbon_depth_scale, &
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
-     N_HARV_POOLS, HARV_POOL_NAMES, leaf_fast_c2n,leaf_slow_c2n,fsc_liv,froot_fast_c2n,froot_slow_c2n,fsc_froot, c2n_mycorrhizae, c2n_N_fixer
+     N_HARV_POOLS, HARV_POOL_NAMES, leaf_fast_c2n,leaf_slow_c2n,fsc_liv,froot_fast_c2n,froot_slow_c2n,fsc_froot, c2n_mycorrhizae, c2n_N_fixer, N_limits_live_biomass
 use vegn_cohort_mod, only : vegn_cohort_type, &
      update_species,&
      vegn_data_heat_capacity, vegn_data_intrcptn_cap, &
@@ -130,7 +130,6 @@ logical :: do_phenology         = .TRUE.
 logical :: xwilt_available      = .TRUE.
 logical :: do_biogeography      = .TRUE.
 logical :: do_seed_transport    = .TRUE.
-logical :: N_limits_leaf_biomass = .FALSE.  ! Option to have N uptake limit max biomass.  Only relevant with CORPSE_N
 real    :: min_Wl=-1.0, min_Ws=-1.0 ! threshold values for condensation numerics, kg/m2:
    ! if water or snow on canopy fall below these values, the derivatives of
    ! condensation are set to zero, thereby prohibiting switching from condensation to
@@ -159,7 +158,7 @@ namelist /vegn_nml/ &
     do_biogeography, do_seed_transport, &
     min_Wl, min_Ws, tau_smooth_ncm, &
     rav_lit_0, rav_lit_vi, rav_lit_fsc, rav_lit_ssc, rav_lit_deadmic, rav_lit_bwood,&
-    do_peat_redistribution, init_cohort_max_live_biomass,N_uptake_smoothing_timescale,N_limits_leaf_biomass
+    do_peat_redistribution, init_cohort_max_live_biomass,N_uptake_smoothing_timescale
 
 !---- end of namelist --------------------------------------------------------
 
@@ -364,6 +363,9 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
 
         call read_compressed(restart_file_name_2, 'max_live_biomass', r0d, domain=lnd%domain, timelevel=1)
         call assemble_cohorts(cohort_max_live_biomass_ptr,idx,tdimlen,r0d)
+
+        call read_compressed(restart_file_name_2, 'cumulative_extra_live_biomass', r0d, domain=lnd%domain, timelevel=1)
+        call assemble_cohorts(cohort_cumulative_extra_live_biomass_ptr,idx,tdimlen,r0d)
 
         call read_compressed(restart_file_name_2, 'myc_scavenger_biomass_C', r0d, domain=lnd%domain, timelevel=1)
         call assemble_cohorts(cohort_myc_scavenger_biomass_C_ptr,idx,tdimlen,r0d)
@@ -582,6 +584,8 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
         call read_cohort_data_r0d_fptr(unit, 'bwood', cohort_bwood_ptr )
         call read_cohort_data_r0d_fptr(unit, 'bliving', cohort_bliving_ptr )
         call read_cohort_data_r0d_fptr(unit, 'max_live_biomass', cohort_max_live_biomass_ptr )
+        if(nfu_inq_var(unit,'cumulative_extra_live_biomass')==NF_NOERR) &
+          call read_cohort_data_r0d_fptr(unit, 'cumulative_extra_live_biomass', cohort_cumulative_extra_live_biomass_ptr )
         call read_cohort_data_r0d_fptr(unit, 'myc_scavenger_biomass_C', cohort_myc_scavenger_biomass_C_ptr )
         call read_cohort_data_r0d_fptr(unit, 'myc_scavenger_biomass_N', cohort_myc_scavenger_biomass_N_ptr )
         call read_cohort_data_r0d_fptr(unit, 'N_fixer_biomass_C', cohort_N_fixer_biomass_C_ptr )
@@ -730,6 +734,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
      cohort%status  = LEAF_ON
      cohort%leaf_age = 0.0
      cohort%max_live_biomass = init_cohort_max_live_biomass
+     cohort%cumulative_extra_live_biomass = 0.0
      cohort%myc_scavenger_biomass_C = init_cohort_scavenger_myc_biomass
      cohort%myc_scavenger_biomass_N = init_cohort_scavenger_myc_biomass/c2n_mycorrhizae
      cohort%N_fixer_biomass_C = init_N_fixer_biomass
@@ -1095,6 +1100,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call write_cohort_data_i0d_fptr(unit,'status', cohort_status_ptr, 'leaf status')
   call write_cohort_data_r0d_fptr(unit,'leaf_age',cohort_leaf_age_ptr, 'age of leaves since bud burst', 'days')
   call write_cohort_data_r0d_fptr(unit,'max_live_biomass', cohort_max_live_biomass_ptr, 'max leaf biomass for individual','kg C/m2')
+  call write_cohort_data_r0d_fptr(unit,'cumulative_extra_live_biomass', cohort_cumulative_extra_live_biomass_ptr, 'cumulative live biomass over N limit for individual','kg C/m2')
   call write_cohort_data_r0d_fptr(unit,'myc_scavenger_biomass_C', cohort_myc_scavenger_biomass_C_ptr, 'scavenger mycorrhizal biomass C associated with individual','kg C/m2')
   call write_cohort_data_r0d_fptr(unit,'myc_scavenger_biomass_N', cohort_myc_scavenger_biomass_N_ptr, 'scavenger mycorrhizal biomass N associated with individual','kg N/m2')
   call write_cohort_data_r0d_fptr(unit,'N_fixer_biomass_C', cohort_N_fixer_biomass_C_ptr, 'symbiotic N fixer biomass C associated with individual','kg C/m2')
@@ -1232,6 +1238,7 @@ subroutine save_vegn_restart_new(tile_dim_length, timestamp)
   real, allocatable :: leaf_age(:)
   real, allocatable :: npp_prev_day(:)
   real, allocatable :: max_live_biomass(:)
+  real, allocatable :: cumulative_extra_live_biomass(:)
   real, allocatable :: myc_scavenger_biomass_C(:)
   real, allocatable :: myc_scavenger_biomass_N(:)
   real, allocatable :: N_fixer_biomass_C(:)
@@ -1347,6 +1354,7 @@ subroutine save_vegn_restart_new(tile_dim_length, timestamp)
             status(csize),  &
             leaf_age(csize),&
             max_live_biomass(csize),&
+            cumulative_extra_live_biomass(csize),&
             myc_scavenger_biomass_C(csize),&
             myc_scavenger_biomass_N(csize),&
             N_fixer_biomass_C(csize),&
@@ -1388,7 +1396,10 @@ subroutine save_vegn_restart_new(tile_dim_length, timestamp)
        longname='previous day NPP',units='kg C/(m2 year)', compressed_axis='H')
  call gather_cohort_data(cohort_max_live_biomass_ptr,cidx,tile_dim_length,max_live_biomass)
  id_restart = register_restart_field(vegn2_restart,fname,'max_live_biomass',max_live_biomass,&
-      longname='maximum leaf biomass limit for individual',units='kg C/m2', compressed_axis='H')
+      longname='maximum live biomass limit for individual',units='kg C/m2', compressed_axis='H')
+      call gather_cohort_data(cohort_cumulative_extra_live_biomass_ptr,cidx,tile_dim_length,cumulative_extra_live_biomass)
+      id_restart = register_restart_field(vegn2_restart,fname,'cumulative_extra_live_biomass',cumulative_extra_live_biomass,&
+           longname='cumulative live biomass over the limit for individual',units='kg C/m2', compressed_axis='H')
   call gather_cohort_data(cohort_myc_scavenger_biomass_C_ptr,cidx,tile_dim_length,myc_scavenger_biomass_C)
   id_restart = register_restart_field(vegn2_restart,fname,'myc_scavenger_biomass_C',myc_scavenger_biomass_C,&
        longname='scavenger mycorrhizal biomass C associated with individual',units='kg C/m2', compressed_axis='H')
@@ -1645,6 +1656,7 @@ subroutine save_vegn_restart_new(tile_dim_length, timestamp)
               bliving,     &
               status,      &
               max_live_biomass,&
+              cumulative_extra_live_biomass,&
               myc_scavenger_biomass_C,&
               myc_scavenger_biomass_N,&
               N_fixer_biomass_C,&
@@ -2303,7 +2315,7 @@ subroutine update_vegn_slow( )
         call send_tile_data(id_cgain,sum(tile%vegn%cohorts(1:n)%carbon_gain),tile%diag)
         call send_tile_data(id_closs,sum(tile%vegn%cohorts(1:n)%carbon_loss),tile%diag)
         call send_tile_data(id_wdgain,sum(tile%vegn%cohorts(1:n)%bwood_gain),tile%diag)
-        if(soil_carbon_option == SOILC_CORPSE_N .and. N_limits_leaf_biomass) then
+        if(soil_carbon_option == SOILC_CORPSE_N) then
           leaf_N_content=1/leaf_fast_c2n*fsc_liv + 1/leaf_slow_c2n*(1-fsc_liv)  ! N fraction, kgN/kgC
           root_N_content=1/froot_fast_c2n*fsc_froot + 1/froot_slow_c2n*(1-fsc_froot)
           tile%vegn%cohorts(1:n)%max_live_biomass=tile%vegn%low_pass_N_uptake/(leaf_N_content+root_N_content)
@@ -2607,6 +2619,7 @@ DEFINE_COHORT_ACCESSOR(real,bsw)
 DEFINE_COHORT_ACCESSOR(real,bwood)
 DEFINE_COHORT_ACCESSOR(real,bliving)
 DEFINE_COHORT_ACCESSOR(real,max_live_biomass)
+DEFINE_COHORT_ACCESSOR(real,cumulative_extra_live_biomass)
 DEFINE_COHORT_ACCESSOR(real,myc_scavenger_biomass_C)
 DEFINE_COHORT_ACCESSOR(real,myc_scavenger_biomass_N)
 DEFINE_COHORT_ACCESSOR(real,N_fixer_biomass_C)
