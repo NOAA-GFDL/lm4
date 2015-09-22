@@ -28,7 +28,7 @@ use soil_carbon_mod, only: soil_carbon_option, &
     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
     add_litter, poolTotals, debug_pool,soil_NO3_deposition,soil_NH4_deposition
 
-use soil_mod, only: add_root_litter, add_root_exudates, Dsdt, myc_scavenger_N_uptake, hypothetical_myc_scavenger_N_uptake
+use soil_mod, only: add_root_litter, add_root_exudates, Dsdt, myc_scavenger_N_uptake, hypothetical_myc_scavenger_N_uptake, root_N_uptake
 
 use land_debug_mod, only : is_watch_point
 
@@ -147,6 +147,7 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, diag)
   real :: myc_N_uptake,total_scavenger_myc_C_allocated,scavenger_myc_C_allocated,total_myc_immob
   real :: N_fixation, total_N_fixation, total_N_fixer_C_allocated, N_fixer_C_allocated, N_fixer_exudate_frac
   real :: myc_marginal_gain, N_fix_marginal_gain,rhiz_exud_frac
+  real :: root_active_N_uptake
   real :: N_fixation_2, myc_N_uptake_2
   integer :: sp ! shorthand for current cohort specie
   integer :: i
@@ -168,6 +169,7 @@ total_N_fixer_C_allocated = 0.0
   total_root_exudate_C = 0
   soil%myc_min_N_uptake = 0
   soil%symbiotic_N_fixation = 0
+  soil%active_root_N_uptake = 0
   do i = 1, vegn%n_cohorts
      cc => vegn%cohorts(i)
      sp = cc%species
@@ -352,13 +354,15 @@ total_N_fixer_C_allocated = 0.0
         !  N_fixer_exudate_frac = 0.2 ! This will eventually be dynamic based on N acquisition cost function
          N_fixer_C_allocated = root_exudate_C*N_fixer_exudate_frac*dt_fast_yr
 
-
+         ! Root uptake of nitrogen
+         call root_N_uptake(soil,vegn,root_active_N_uptake,dt_fast_yr)
 
      else
          scavenger_myc_C_allocated=0.0
          myc_N_uptake=0.0
          mycorrhizal_N_immob = 0.0
          N_fixer_C_allocated = 0.0
+         root_active_N_uptake = 0.0
      endif
 
 
@@ -366,6 +370,7 @@ total_N_fixer_C_allocated = 0.0
 
      N_fixation = cc%N_fixer_biomass_C*N_fixation_rate*dt_fast_yr
      soil%symbiotic_N_fixation=soil%symbiotic_N_fixation+N_fixation
+     soil%active_root_N_uptake=soil%active_root_N_uptake+root_active_N_uptake
 
      if(cc%myc_scavenger_biomass_C<0) call error_mesg('vegn_carbon_int','Mycorrhizal biomass < 0',FATAL)
      if(cc%N_fixer_biomass_C<0) call error_mesg('vegn_carbon_int','N fixer biomass < 0',FATAL)

@@ -61,7 +61,7 @@ use land_tile_io_mod, only : create_tile_out_file, write_tile_data_r0d_fptr,&
      write_tile_data_i1d_fptr_all,read_tile_data_i1d_fptr_all,&
      print_netcdf_error, get_input_restart_name, sync_nc_files, gather_tile_data, assemble_tiles
 use nf_utils_mod, only : nfu_def_dim, nfu_put_att, nfu_inq_var
-use vegn_data_mod, only: K1, K2
+use vegn_data_mod, only: K1, K2, root_NH4_uptake_rate, root_NO3_uptake_rate
 use vegn_tile_mod, only : vegn_tile_type, vegn_uptake_profile, vegn_hydraulic_properties
 use land_debug_mod, only : is_watch_point, get_current_point, set_current_point, &
     check_var_range, check_conservation, is_watch_cell
@@ -104,6 +104,7 @@ public :: add_root_litter
 public :: add_root_exudates
 public :: myc_scavenger_N_uptake
 public :: hypothetical_myc_scavenger_N_uptake
+public :: root_N_uptake
 public :: redistribute_peat_carbon
 ! =====end of public interfaces ==============================================
 
@@ -4988,7 +4989,7 @@ real :: NH4_leached(num_l), div_NH4_loss(num_l),  &     ! NH4 leaching
 ! units of uptake: kg/m2/s
 ! units of wl_before: mm = kg/m2
 ! units of N: kg/m2
-! N/wl_before -> unitless concentration
+! N/wl_before -> kg N/kg H2O
 where(wl_before>1.0e-4)
   passive_ammonium_uptake = min(soil%soil_organic_matter(:)%ammonium,max(0.0,uptake*soil%soil_organic_matter(:)%ammonium/wl_before))
   passive_nitrate_uptake = min(soil%soil_organic_matter(:)%nitrate,max(0.0,uptake*soil%soil_organic_matter(:)%nitrate/wl_before))
@@ -6905,6 +6906,7 @@ subroutine add_root_litter(soil,vegn,newlitterC,newlitterN)
 end subroutine add_root_litter
 
 
+
 ! ============================================================================
 ! Spread root exudate C through profile, using vertical root profile from vegn_uptake_profile
 ! Differs from add_root_litter -- C is distributed through existing cohorts, not deposited as new cohort
@@ -6942,6 +6944,41 @@ subroutine add_root_exudates(soil,vegn,exudateC,exudateN)
 
 
 end subroutine add_root_exudates
+
+
+! Nitrogen uptake from the rhizosphere by roots (active transport across root-soil interface)
+! Mineral nitrogen is taken up from the rhizosphere only
+subroutine root_N_uptake(soil,vegn,total_N_uptake,dt)
+  real,intent(out)::total_N_uptake
+  type(vegn_tile_type),intent(in)::vegn
+  type(soil_tile_type),intent(inout)::soil
+  real,intent(in)::dt
+
+  real,dimension(num_l) :: uptake_frac_max, vegn_uptake_term, vrl
+  real::nitrate_uptake,ammonium_uptake
+  integer::nn
+
+  real :: K_r,r_r
+  real :: plant_height, xylem_area_frac,xylem_resist,dum4
+  real :: rhizosphere_frac
+
+  call vegn_uptake_profile (vegn, dz(1:num_l), uptake_frac_max, vegn_uptake_term )
+  ! r_r and vpl are to set rhizosphere size
+  call vegn_hydraulic_properties(vegn, dz(1:num_l),always_use_bsw, vrl, K_r, r_r, plant_height, xylem_area_frac,xylem_resist,dum4)
+
+  total_N_uptake=0.0
+  do nn=1,num_l
+    rhizosphere_frac=min(3.141592*((r_rhiz+r_r)**2-r_r**2)*vrl(nn),1.0)
+    ammonium_uptake = soil%soil_organic_matter(nn)%ammonium*rhizosphere_frac*root_NH4_uptake_rate*dt
+    nitrate_uptake = soil%soil_organic_matter(nn)%nitrate*rhizosphere_frac*root_NO3_uptake_rate*dt
+    soil%soil_organic_matter(nn)%ammonium=soil%soil_organic_matter(nn)%ammonium-ammonium_uptake
+    soil%soil_organic_matter(nn)%nitrate=soil%soil_organic_matter(nn)%nitrate-nitrate_uptake
+    total_N_uptake = total_N_uptake + ammonium_uptake + nitrate_uptake
+  enddo
+
+
+end subroutine root_N_uptake
+
 
 ! Uptake of mineral N by mycorrhizal "scavengers" -- Should correspond to Arbuscular mycorrhizae
 subroutine myc_scavenger_N_uptake(soil,vegn,myc_biomass,total_N_uptake,dt)

@@ -187,7 +187,8 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
    id_leaflitter_buffer_slow_N, id_woodlitter_buffer_slow_N,id_leaflitter_buffer_rate_slow_N, id_woodlitter_buffer_rate_slow_N,& ! id_coarsewoodlitter_buffer_rate_ag is 34 characters long (pjp)
    id_t_ann, id_t_cold, id_p_ann, id_ncm, &
    id_lambda, id_afire, id_atfall, id_closs, id_cgain, id_wdgain, id_leaf_age, &
-   id_phot_co2, id_theph, id_psiph, id_evap_demand, id_N_uptake_smoothed,id_passive_N_uptake,id_myc_scavenger_N_uptake,id_symbiotic_N_fixation
+   id_phot_co2, id_theph, id_psiph, id_evap_demand, id_N_uptake_smoothed,id_passive_N_uptake,&
+   id_myc_scavenger_N_uptake,id_symbiotic_N_fixation,id_active_root_N_uptake
 ! ==== end of module variables ===============================================
 
 ! ==== NetCDF declarations ===================================================
@@ -866,8 +867,10 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
         (/id_lon,id_lat/), time, 'Plant N uptake by root water flow', 'kg N/m2/year', missing_value=-1.0 )
   id_myc_scavenger_N_uptake = register_tiled_diag_field ( module_name, 'myc_scavenger_N_uptake',  &
        (/id_lon,id_lat/), time, 'N uptake by scavenger mycorrhizae', 'kg N/m2/year', missing_value=-1.0 )
-       id_symbiotic_N_fixation = register_tiled_diag_field ( module_name, 'symbiotic_N_fixation',  &
-            (/id_lon,id_lat/), time, 'Symbiotic N fixation', 'kg N/m2/year', missing_value=-1.0 )
+   id_symbiotic_N_fixation = register_tiled_diag_field ( module_name, 'symbiotic_N_fixation',  &
+        (/id_lon,id_lat/), time, 'Symbiotic N fixation', 'kg N/m2/year', missing_value=-1.0 )
+    id_active_root_N_uptake = register_tiled_diag_field ( module_name, 'active_root_N_uptake',  &
+         (/id_lon,id_lat/), time, 'N uptake by root active transport', 'kg N/m2/year', missing_value=-1.0 )
   id_btot = register_tiled_diag_field ( module_name, 'btot',  &
        (/id_lon,id_lat/), time, 'total biomass', 'kg C/m2', missing_value=-1.0 )
   id_fuel = register_tiled_diag_field ( module_name, 'fuel',  &
@@ -2194,7 +2197,7 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, vegn_fco2, diag)
   ! print *,'vegn_step_3',soil%passive_N_uptake,soil%myc_min_N_uptake,vegn%low_pass_N_uptake
   N_filter_weight=1.0/(1.0+N_uptake_smoothing_timescale/dt_fast_yr)
   vegn%low_pass_N_uptake = vegn%low_pass_N_uptake*(1.0-N_filter_weight) + &
-    (soil%passive_N_uptake+soil%myc_min_N_uptake+soil%symbiotic_N_fixation)/dt_fast_yr*N_filter_weight
+    (soil%passive_N_uptake+soil%myc_min_N_uptake+soil%symbiotic_N_fixation+soil%active_root_N_uptake)/dt_fast_yr*N_filter_weight
 
 
   call send_tile_data(id_theph, theta, diag)
@@ -2203,6 +2206,7 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, vegn_fco2, diag)
   call send_tile_data(id_passive_N_uptake,soil%passive_N_uptake/dt_fast_yr,diag)
   call send_tile_data(id_myc_scavenger_N_uptake,soil%myc_min_N_uptake/dt_fast_yr,diag)
   call send_tile_data(id_symbiotic_N_fixation,soil%symbiotic_N_fixation/dt_fast_yr,diag)
+  call send_tile_data(id_active_root_N_uptake, soil%active_root_N_uptake/dt_fast_yr,diag)
 
 end subroutine vegn_step_3
 

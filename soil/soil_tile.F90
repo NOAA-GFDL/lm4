@@ -247,6 +247,7 @@ type :: soil_tile_type
    real                   :: passive_N_uptake = 0.0 ! N uptake by water flux into roots
    real                   :: myc_min_N_uptake = 0.0 ! N uptake by "scavenger" mycorrhizae (mostly corresponding to Arbuscular mycorrhizae)
    real                   :: symbiotic_N_fixation = 0.0 ! N fixation by symbiotic microbes
+   real                   :: active_root_N_uptake = 0.0 ! Mineral N uptake from rhizosphere by active transport across root membrane
 ! values for the diagnostic of carbon budget and soil carbon acceleration
    real, allocatable :: &
        asoil_in(:), &
@@ -960,6 +961,7 @@ subroutine soil_data_init_0d(soil)
   soil%passive_N_uptake=0.0
   soil%myc_min_N_uptake=0.0
   soil%symbiotic_N_fixation=0.0
+  soil%active_root_N_uptake=0.0
 
   comp_local = 0.0
   if (use_comp_for_push) comp_local = comp
