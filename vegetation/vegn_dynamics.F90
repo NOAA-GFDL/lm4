@@ -724,18 +724,18 @@ if(TOT_annual_NH4_dep.gt.dfloat(0))then
      ! are not used in the calculations of the total carbon.
      ! -- BNS -- Good catch, I have tried to fix it.
      vegn%leaflitter_buffer_rate_fast = MAX(0.0, MIN(vegn%leaflitter_buffer_rate_fast, vegn%leaflitter_buffer_fast/dt_fast_yr))
-     vegn%leaflitter_buffer_rate_fast_N = MAX(0.0, MIN(vegn%leaflitter_buffer_rate_fast_N, vegn%leaflitter_buffer_fast_N/dt_fast_yr))
+     vegn%leaflitter_buffer_rate_slow = MAX(0.0, MIN(vegn%leaflitter_buffer_rate_slow, vegn%leaflitter_buffer_slow/dt_fast_yr))
 
      deltafast = vegn%leaflitter_buffer_rate_fast*dt_fast_yr
      deltaslow = vegn%leaflitter_buffer_rate_slow*dt_fast_yr
 
      if(soil_carbon_option == SOILC_CORPSE_N) then
-         vegn%leaflitter_buffer_rate_slow = MAX(0.0, MIN(vegn%leaflitter_buffer_rate_slow, vegn%leaflitter_buffer_slow/dt_fast_yr))
+         vegn%leaflitter_buffer_rate_fast_N = MAX(0.0, MIN(vegn%leaflitter_buffer_rate_fast_N, vegn%leaflitter_buffer_fast_N/dt_fast_yr))
          vegn%leaflitter_buffer_rate_slow_N = MAX(0.0, MIN(vegn%leaflitter_buffer_rate_slow_N, vegn%leaflitter_buffer_slow_N/dt_fast_yr))
          deltafast_N = vegn%leaflitter_buffer_rate_fast_N*dt_fast_yr
          deltaslow_N = vegn%leaflitter_buffer_rate_slow_N*dt_fast_yr
      else
-         vegn%leaflitter_buffer_rate_slow =0.0
+         vegn%leaflitter_buffer_rate_fast_N=0.0
          vegn%leaflitter_buffer_rate_slow_N=0.0
          deltafast_N=0.0
          deltaslow_N=0.0
@@ -764,7 +764,7 @@ if(TOT_annual_NH4_dep.gt.dfloat(0))then
          deltafast_N = vegn%coarsewoodlitter_buffer_rate_fast_N*dt_fast_yr
          deltaslow_N = vegn%coarsewoodlitter_buffer_rate_slow_N*dt_fast_yr
     else
-        vegn%coarsewoodlitter_buffer_rate_slow = 0.0
+        vegn%coarsewoodlitter_buffer_rate_fast_N= 0.0
         vegn%coarsewoodlitter_buffer_rate_slow_N=0.0
         deltafast_N=0.0
         deltaslow_N=0.0
