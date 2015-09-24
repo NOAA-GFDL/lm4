@@ -116,7 +116,7 @@ end type glac_tile_type
 real    :: k_over_B              = 2         ! reset to 0 for MCM
 real    :: rate_fc               = 0.1/86400 ! 0.1 mm/d drainage rate at FC
 real    :: sfc_heat_factor       = 1
-integer :: z_sfc_layer           = 0
+real    :: z_sfc_layer           = 0
 integer :: num_l                 = 18        ! number of glacier levels
 real    :: dz(max_lev)           = (/ &
     0.02, 0.04, 0.04, 0.05, 0.05, 0.1, 0.1, 0.2, 0.2, &
@@ -125,7 +125,6 @@ real    :: dz(max_lev)           = (/ &
                                              ! thickness (m) of model layers,
                                              ! from top down
 logical :: use_lm2_awc           = .false.
-logical :: use_lad1_glac         = .false.
 real    :: t_range               = 10.0
 
 ! from analysis of modis data (ignoring temperature dependence):
@@ -143,11 +142,6 @@ character(len=16):: glac_to_use  = 'single-tile'
        ! 'single-tile' for geographically varying glacier with single type per
        !     model grid cell
        ! 'uniform' for global constant soil, e.g., to reproduce MCM
-logical :: use_single_glac       = .false.   ! true for single global glacier,
-                                             ! e.g., to recover MCM
-logical :: use_mcm_albedo        = .false.   ! .true. for CLIMAP albedo inputs
-logical :: use_single_geo        = .false.   ! .true. for global gw res time,
-                                             ! e.g., to recover MCM
 integer :: glac_index_constant   = 1         ! index of global constant glacier,
                                              ! used when use_single_glacier
 real    :: rsa_exp_global        = 1.5
@@ -186,21 +180,17 @@ real :: min_glac_frac = 0.0 ! glacier fraction below this threshold is set to 0
 namelist /glac_data_nml/ &
      glac_to_use, tile_names, input_cover_types, input_glac_file, min_glac_frac, &
      k_over_B,  &
-     rate_fc, sfc_heat_factor, z_sfc_layer,          &
-     num_l, dz,             &
-     use_lm2_awc,   use_lad1_glac, &
-     use_single_glac,      use_mcm_albedo,            &
-     use_single_geo,        glac_index_constant,         &
+     rate_fc, sfc_heat_factor, z_sfc_layer,                &
+     num_l, dz, use_lm2_awc, glac_index_constant,          &
      rsa_exp_global,        geothermal_heat_flux_constant, &
-     dat_w_sat,             dat_awc_lm2,     &
+     dat_w_sat,             dat_awc_lm2,                   &
      dat_k_sat_ref,         &
-     dat_psi_sat_ref,               dat_chb,          &
-     dat_heat_capacity_ref,         dat_thermal_cond_ref,   &
+     dat_psi_sat_ref,               dat_chb,               &
+     dat_heat_capacity_ref,         dat_thermal_cond_ref,  &
      dat_refl_max_dir,  dat_refl_max_dif,  &
      dat_refl_min_dir,  dat_refl_min_dif,  &
-     dat_emis_dry,              dat_emis_sat,                &
+     dat_emis_dry,              dat_emis_sat,              &
      dat_z0_momentum,           dat_tf_depr, &
-     tile_names, input_cover_types, &
      f_iso_cold, f_vol_cold, f_geo_cold, f_iso_warm, f_vol_warm, f_geo_warm 
 
 ! ---- end of namelist
