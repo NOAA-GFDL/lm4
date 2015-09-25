@@ -627,6 +627,7 @@ subroutine glac_data_hydraulics (glac, vlc, vsc, &
   endif
 
   glac_w_fc = glac%w_fc
+  tau_gw    = 86400*30 ! 30 days, was hardcoded in tikal the same way
 
 end subroutine glac_data_hydraulics
 
