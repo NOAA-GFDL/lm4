@@ -50,6 +50,8 @@ public :: retrieve_DOC ! report DOC concentration to hlsp_hydrology
 public :: retrieve_DON
 public :: retrieve_dissolved_mineral_N
 public :: mycorrhizal_mineral_N_uptake_rate
+public :: mycorrhizal_decomposition
+public :: hypothetical_mycorrhizal_decomposition
 
 #ifndef STANDALONE_SOIL_CARBON
 public :: get_pool_data_accessors
@@ -163,7 +165,8 @@ real*8					   :: Knitr_ref=0.01				 !Nitirification constant at reference temper
 real*8					   :: Kdenitr_ref=0.01				 !Denitirification constant at reference temperature  (yr-1)
 real*8                     :: CN_microb=8                    !Fixed microbial C:N ratio
 
-real,dimension(n_c_types) :: eup=(/0.6,0.2,0.1/)            !Fraction of respired C that goes into microbial biomass
+real,dimension(n_c_types) :: eup=(/0.6,0.2,0.1/)            !Fraction of degraded C that goes into microbial biomass
+real,dimension(n_c_types) :: eup_myc=(/0.6,0.2,0.1/)            !Fraction of degraded C that goes into mycorrhizal biomass
 real*8,dimension(n_c_types) :: mup(n_c_types)=(/0.9,0.9,0.9/)  !Fraction of decomposed N that goes into microbial biomass
 
 real                      :: minMicrobeC=1e-5               !Minimum microbial biomass (prevents complete collapse if > 0.0)
@@ -220,7 +223,7 @@ namelist /soil_carbon_nml/ &
             N_protected_relative_solubility,&
             DON_deposition_rate,&
             N_limit_scheme,&
-            Vmax_myc_min_N_uptk,k_myc_min_N_uptk
+            Vmax_myc_min_N_uptk,k_myc_min_N_uptk,eup_myc
 
 
 !---- end-of-namelist --------------------------------------------------------
@@ -1059,7 +1062,7 @@ elemental function A_function(soilt, theta) result(A)
 end function A_function
 
 
-subroutine initializeCohort(cohort,litterInputC,litterInputN,initialMicrobeC,initialMicrobeN,initialProtectedC,initialProtectedN,multiplier,CO2)
+pure subroutine initializeCohort(cohort,litterInputC,litterInputN,initialMicrobeC,initialMicrobeN,initialProtectedC,initialProtectedN,multiplier,CO2)
     type(litterCohort),intent(out)::cohort
     real,intent(in),optional::litterInputC(n_c_types),litterInputN(n_c_types),CO2
     real,intent(in),optional::multiplier
@@ -1170,6 +1173,109 @@ pure subroutine mycorrhizal_mineral_N_uptake_rate(pool,myc_biomass,layer_thickne
           (myc_biomass/layer_thickness)/(k_myc_min_N_uptk+myc_biomass/layer_thickness)
 
 end subroutine mycorrhizal_mineral_N_uptake_rate
+
+! Calculates rate of N mineralization from miner (ecto) mycorrhizae, WITHOUT changing any pools
+pure subroutine hypothetical_mycorrhizal_decomposition(pool,myc_biomass,T,theta,air_filled_porosity,N_uptake,C_uptake,CO2prod,dt)
+  type(soil_pool),intent(in)::pool
+  real,intent(in)::myc_biomass,dt,T,theta,air_filled_porosity
+  real,intent(out)::N_uptake,C_uptake,CO2prod
+
+  integer::nn
+  real :: cohort_myc_biomass  ! Distribute among cohorts
+  real :: totalCarbon, weight, potential_tempResp(n_c_types), pot_tempN_decomposed(n_c_types)
+
+  N_uptake = 0.0
+  C_uptake = 0.0
+  CO2prod = 0.0
+
+  call poolTotals(pool,totalCarbon=totalCarbon)
+
+  do nn=1,pool%n_cohorts
+
+    ! Weight myc biomass by cohort size
+    IF(totalCarbon.gt.0) THEN
+       weight=cohortCsum(pool%litterCohorts(nn),only_active=.TRUE.)/totalCarbon
+    ELSE
+       weight=1.0
+    ENDIF
+
+    cohort_myc_biomass = myc_biomass*weight
+
+    potential_tempResp=Resp(pool%litterCohorts(nn)%litterC,cohort_myc_biomass,T,theta,air_filled_porosity)
+
+    !Make sure it does not exceed available C
+    where(dt*potential_tempResp > pool%litterCohorts(nn)%litterC)
+        potential_tempResp=pool%litterCohorts(nn)%litterC/dt
+    end where
+
+    where(pool%litterCohorts(nn)%litterC>0)
+        pot_tempN_decomposed=potential_tempResp*pool%litterCohorts(nn)%litterN/pool%litterCohorts(nn)%litterC !kgC/m2/yr
+    elsewhere
+        pot_tempN_decomposed=0.0
+    end where
+
+    C_uptake = C_uptake + sum(potential_tempResp*eup)*dt
+    N_uptake = N_uptake + sum(pot_tempN_decomposed)*dt
+    CO2prod = CO2prod + sum(potential_tempResp*(1-eup))*dt
+
+  enddo
+
+end subroutine hypothetical_mycorrhizal_decomposition
+
+
+! Calculates rate of N mineralization from miner (ecto) mycorrhizae, WITH changing pools
+subroutine mycorrhizal_decomposition(pool,myc_biomass,T,theta,air_filled_porosity,N_uptake,C_uptake,CO2prod,dt)
+  type(soil_pool),intent(inout)::pool
+  real,intent(in)::myc_biomass,dt,T,theta,air_filled_porosity
+  real,intent(out)::N_uptake,C_uptake,CO2prod
+
+  integer::nn
+  real :: cohort_myc_biomass  ! Distribute among cohorts
+  real :: totalCarbon, weight, potential_tempResp(n_c_types), pot_tempN_decomposed(n_c_types)
+
+  N_uptake = 0.0
+  C_uptake = 0.0
+  CO2prod = 0.0
+
+  call poolTotals(pool,totalCarbon=totalCarbon)
+
+  do nn=1,pool%n_cohorts
+
+    ! Weight myc biomass by cohort size
+    IF(totalCarbon.gt.0) THEN
+       weight=cohortCsum(pool%litterCohorts(nn),only_active=.TRUE.)/totalCarbon
+    ELSE
+       weight=1.0
+    ENDIF
+
+    cohort_myc_biomass = myc_biomass*weight
+
+    potential_tempResp=Resp(pool%litterCohorts(nn)%litterC,cohort_myc_biomass,T,theta,air_filled_porosity)
+
+    !Make sure it does not exceed available C
+    where(dt*potential_tempResp > pool%litterCohorts(nn)%litterC)
+        potential_tempResp=pool%litterCohorts(nn)%litterC/dt
+    end where
+
+    where(pool%litterCohorts(nn)%litterC>0)
+        pot_tempN_decomposed=potential_tempResp*pool%litterCohorts(nn)%litterN/pool%litterCohorts(nn)%litterC !kgC/m2/yr
+    elsewhere
+        pot_tempN_decomposed=0.0
+    end where
+
+    C_uptake = C_uptake + sum(potential_tempResp*eup_myc)*dt
+    N_uptake = N_uptake + sum(pot_tempN_decomposed)*dt
+    CO2prod = CO2prod + sum(potential_tempResp*(1-eup_myc))*dt
+
+    pool%litterCohorts(nn)%litterC = pool%litterCohorts(nn)%litterC - potential_tempResp*dt
+    pool%litterCohorts(nn)%litterN = pool%litterCohorts(nn)%litterN - pot_tempN_decomposed*dt
+    pool%litterCohorts(nn)%originalLitterC = pool%litterCohorts(nn)%originalLitterC - sum(potential_tempResp*eup_myc)*dt
+    pool%litterCohorts(nn)%originalLitterN = pool%litterCohorts(nn)%originalLitterN - sum(pot_tempN_decomposed)*dt
+    pool%litterCohorts(nn)%CO2 = pool%litterCohorts(nn)%CO2 + sum(potential_tempResp*(1-eup_myc))*dt
+
+  enddo
+
+end subroutine mycorrhizal_decomposition
 
 ! =============================================================================
 ! prints on-line state of the carbon cohort
@@ -1609,7 +1715,7 @@ end subroutine remove_cohort
 
 
 
-subroutine combine_cohorts(cohort1,cohort2,result)
+pure subroutine combine_cohorts(cohort1,cohort2,result)
     type(litterCohort),intent(in)::cohort1,cohort2
     type(litterCohort),intent(out)::result
 
@@ -1730,7 +1836,7 @@ subroutine transfer_pool_fraction(source, destination, fraction)
 end subroutine
 
 !Sums all cohorts in layer into a single cohort
-type(litterCohort) function totalPoolCohort(pool)
+pure type(litterCohort) function totalPoolCohort(pool)
     type(litterCohort)::tempCohort
     type(soil_pool),intent(in)::pool
     integer::ii
@@ -1746,7 +1852,7 @@ end function
 
 
 
-subroutine poolTotals(pool,fastC,fastN,slowC,slowN,deadMicrobeC,deadMicrobeN,liveMicrobeC,liveMicrobeN,protectedC,protectedN,&
+pure subroutine poolTotals(pool,fastC,fastN,slowC,slowN,deadMicrobeC,deadMicrobeN,liveMicrobeC,liveMicrobeN,protectedC,protectedN,&
         fast_dissolvedC,slow_dissolvedC,deadmic_dissolvedC,fast_dissolvedN,slow_dissolvedN,deadmic_dissolvedN,ncohorts,totalCarbon,totalNitrogen,&
         fast_protectedC,slow_protectedC,deadmic_protectedC,fast_protectedN,slow_protectedN,deadmic_protectedN)
     real, intent(out),optional::fastC,fastN,slowC,slowN,deadMicrobeC,deadMicrobeN,&

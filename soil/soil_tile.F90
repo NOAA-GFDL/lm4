@@ -245,7 +245,8 @@ type :: soil_tile_type
    real                   :: deadmic_DON_leached !Nitrogen that has been leached out of the column
    real                   :: NO3_leached, NH4_leached ! Mineral nitrogen that has been leached out of the column
    real                   :: passive_N_uptake = 0.0 ! N uptake by water flux into roots
-   real                   :: myc_min_N_uptake = 0.0 ! N uptake by "scavenger" mycorrhizae (mostly corresponding to Arbuscular mycorrhizae)
+   real                   :: myc_scav_N_uptake = 0.0 ! N uptake by "scavenger" mycorrhizae (mostly corresponding to Arbuscular mycorrhizae)
+   real                   :: myc_mine_N_uptake = 0.0 ! N uptake by "miner" mycorrhizae (corresponding to Ectomycorrhizae)
    real                   :: symbiotic_N_fixation = 0.0 ! N fixation by symbiotic microbes
    real                   :: active_root_N_uptake = 0.0 ! Mineral N uptake from rhizosphere by active transport across root membrane
 ! values for the diagnostic of carbon budget and soil carbon acceleration
@@ -959,7 +960,8 @@ subroutine soil_data_init_0d(soil)
   soil%NO3_leached=0.0
   soil%NH4_leached=0.0
   soil%passive_N_uptake=0.0
-  soil%myc_min_N_uptake=0.0
+  soil%myc_scav_N_uptake=0.0
+  soil%myc_mine_N_uptake=0.0
   soil%symbiotic_N_fixation=0.0
   soil%active_root_N_uptake=0.0
 
@@ -1547,7 +1549,7 @@ end subroutine soil_ave_wetness
 
 ! ============================================================================
 ! returns array of soil moisture
-function soil_theta(soil) result (theta1)
+pure function soil_theta(soil) result (theta1)
   type(soil_tile_type), intent(in) :: soil
   real :: theta1(num_l)
 
@@ -1557,7 +1559,7 @@ end function soil_theta
 
 ! ============================================================================
 ! Like soil_theta1 but for ice-filled porosity.
-function soil_ice_porosity(soil) result(ice_porosity)
+pure function soil_ice_porosity(soil) result(ice_porosity)
     type(soil_tile_type), intent(in) :: soil
     real :: ice_porosity(num_l)
 

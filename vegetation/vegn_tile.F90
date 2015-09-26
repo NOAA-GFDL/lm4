@@ -254,8 +254,10 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   __MERGE__(max_live_biomass) ! Maximum leaf biomass
   __MERGE__(myc_scavenger_biomass_C) ! Scavenger mycorrhizal biomass C
   __MERGE__(myc_scavenger_biomass_N) ! Scavenger mycorrhizal biomass N
-  __MERGE__(N_fixer_biomass_C) ! Scavenger mycorrhizal biomass C
-  __MERGE__(N_fixer_biomass_N) ! Scavenger mycorrhizal biomass N
+  __MERGE__(myc_miner_biomass_C) ! Miner mycorrhizal biomass C
+  __MERGE__(myc_miner_biomass_N) ! Miner mycorrhizal biomass N
+  __MERGE__(N_fixer_biomass_C) ! N Fixer biomass C
+  __MERGE__(N_fixer_biomass_N) ! N Fixer biomass N
 
   __MERGE__(carbon_gain) ! carbon gain during a day, kg C/m2
   __MERGE__(carbon_loss) ! carbon loss during a day, kg C/m2 [diag only]
@@ -665,7 +667,7 @@ function vegn_tile_carbon(vegn) result(carbon) ; real carbon
           vegn%cohorts(i)%br + vegn%cohorts(i)%bwood + &
           vegn%cohorts(i)%bsw + &
           vegn%cohorts(i)%carbon_gain + vegn%cohorts(i)%bwood_gain + &
-          vegn%cohorts(i)%myc_scavenger_biomass_C + vegn%cohorts(i)%N_fixer_biomass_C  ! Mycorrhizal and N fixer biomass added by B. Sulman
+          vegn%cohorts(i)%myc_scavenger_biomass_C + vegn%cohorts(i)%myc_miner_biomass_C + vegn%cohorts(i)%N_fixer_biomass_C  ! Mycorrhizal and N fixer biomass added by B. Sulman
   enddo
   carbon = carbon + sum(vegn%harv_pool) + &
            vegn%fsc_pool_ag + vegn%ssc_pool_ag + &

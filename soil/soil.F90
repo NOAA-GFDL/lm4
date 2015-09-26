@@ -40,7 +40,7 @@ use soil_carbon_mod, only: poolTotals, get_pool_data_accessors, soilMaxCohorts, 
      update_pool, add_litter,add_C_N_to_rhizosphere, &
      tracer_leaching_with_litter,transfer_pool_fraction, n_c_types, &
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
-     A_function, debug_pool, mycorrhizal_mineral_N_uptake_rate
+     A_function, debug_pool, mycorrhizal_mineral_N_uptake_rate, mycorrhizal_decomposition, hypothetical_mycorrhizal_decomposition
 
 
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
@@ -104,6 +104,8 @@ public :: add_root_litter
 public :: add_root_exudates
 public :: myc_scavenger_N_uptake
 public :: hypothetical_myc_scavenger_N_uptake
+public :: myc_miner_N_uptake
+public :: hypothetical_myc_miner_N_uptake
 public :: root_N_uptake
 public :: redistribute_peat_carbon
 ! =====end of public interfaces ==============================================
@@ -7040,6 +7042,81 @@ pure subroutine hypothetical_myc_scavenger_N_uptake(soil,vegn,myc_biomass,total_
   !soil%leafLitter%nitrate=soil%leafLitter%nitrate-nitrate_uptake*dt
 
 end subroutine hypothetical_myc_scavenger_N_uptake
+
+
+! Uptake of mineral N by mycorrhizal "miners" -- Should correspond to Ecto mycorrhizae
+subroutine myc_miner_N_uptake(soil,vegn,myc_biomass,total_N_uptake,total_C_uptake,total_CO2prod,dt)
+  real,intent(in)::myc_biomass,dt  ! dt in years, myc_biomass in kgC/m2
+  real,intent(out)::total_N_uptake,total_C_uptake,total_CO2prod
+  type(vegn_tile_type),intent(in)::vegn
+  type(soil_tile_type),intent(inout)::soil
+
+  real,dimension(num_l) :: uptake_frac_max, vegn_uptake_term
+  real::N_uptake,C_uptake,CO2prod
+  real,dimension(num_l)::T,theta,air_filled_porosity
+  integer::nn
+
+  call vegn_uptake_profile (vegn, dz(1:num_l), uptake_frac_max, vegn_uptake_term )
+  T = soil%T(:)
+  theta = max(min(soil_theta(soil),1.0),0.0)
+  air_filled_porosity=max(min(1.0-theta-soil_ice_porosity(soil),1.0),0.0)
+
+  total_N_uptake=0.0
+  total_C_uptake=0.0
+  total_CO2prod=0.0
+  do nn=1,num_l
+    call mycorrhizal_decomposition(soil%soil_organic_matter(nn),myc_biomass*uptake_frac_max(nn),T(nn),theta(nn),air_filled_porosity(nn),N_uptake,C_uptake,CO2prod,dt)
+    total_N_uptake=total_N_uptake+N_uptake
+    total_C_uptake = total_C_uptake+C_uptake
+    total_CO2prod=total_CO2prod+CO2prod
+  enddo
+
+  ! Mycorrhizae should have access to litter layer too
+  ! Might want to update this so it calculates actual layer thickness?
+  call mycorrhizal_decomposition(soil%leafLitter,myc_biomass*uptake_frac_max(1),T(1),theta(1),air_filled_porosity(1),N_uptake,C_uptake,CO2prod,dt)
+  total_N_uptake=total_N_uptake+N_uptake
+  total_C_uptake = total_C_uptake+C_uptake
+  total_CO2prod = total_CO2prod + CO2prod
+
+end subroutine myc_miner_N_uptake
+
+
+! Uptake of mineral N by mycorrhizal "miners" -- Should correspond to Ecto mycorrhizae
+! Pure version, for use in marginal gain calculations
+pure subroutine hypothetical_myc_miner_N_uptake(soil,vegn,myc_biomass,total_N_uptake,total_C_uptake,total_CO2prod,dt)
+  real,intent(in)::myc_biomass,dt  ! dt in years, myc_biomass in kgC/m2
+  real,intent(out)::total_N_uptake,total_C_uptake,total_CO2prod
+  type(vegn_tile_type),intent(in)::vegn
+  type(soil_tile_type),intent(inout)::soil
+
+  real,dimension(num_l) :: uptake_frac_max, vegn_uptake_term,T,theta,air_filled_porosity
+  real::N_uptake,C_uptake,CO2prod
+  integer::nn
+
+  call vegn_uptake_profile (vegn, dz(1:num_l), uptake_frac_max, vegn_uptake_term )
+  T = soil%T(:)
+  theta = max(min(soil_theta(soil),1.0),0.0)
+  air_filled_porosity=max(min(1.0-theta-soil_ice_porosity(soil),1.0),0.0)
+
+  total_CO2prod=0.0
+  total_N_uptake=0.0
+  total_C_uptake=0.0
+  do nn=1,num_l
+    call hypothetical_mycorrhizal_decomposition(soil%soil_organic_matter(nn),myc_biomass*uptake_frac_max(nn),T(nn),theta(nn),air_filled_porosity(nn),N_uptake,C_uptake,CO2prod,dt)
+    total_N_uptake=total_N_uptake+N_uptake
+    total_C_uptake = total_C_uptake+C_uptake
+    total_CO2prod=total_CO2prod+CO2prod
+  enddo
+
+  ! Mycorrhizae should have access to litter layer too
+  ! Might want to update this so it calculates actual layer thickness?
+  call hypothetical_mycorrhizal_decomposition(soil%leafLitter,myc_biomass*uptake_frac_max(1),T(1),theta(1),air_filled_porosity(1),N_uptake,C_uptake,CO2prod,dt)
+  total_N_uptake=total_N_uptake+N_uptake
+  total_C_uptake = total_C_uptake+C_uptake
+  total_CO2prod=total_CO2prod+CO2prod
+
+end subroutine hypothetical_myc_miner_N_uptake
+
 
 ! ============================================================================
 subroutine redistribute_peat_carbon(soil)

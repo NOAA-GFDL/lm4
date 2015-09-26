@@ -141,6 +141,8 @@ type :: vegn_cohort_type
   ! Biomass of "scavenger" type mycorrhizae (corresponding to Arbuscular mycorrhizae)
   real :: myc_scavenger_biomass_C = 0.0
   real :: myc_scavenger_biomass_N = 0.0
+  real :: myc_miner_biomass_C = 0.0
+  real :: myc_miner_biomass_N = 0.0
 
   ! Biomass of symbiotic N fixing microbes
   real :: N_fixer_biomass_C = 0.0

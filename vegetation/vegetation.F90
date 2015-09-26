@@ -113,6 +113,7 @@ real    :: init_cohort_bsw   = 0.05 ! initial biomass of sapwood, kg C/m2
 real    :: init_cohort_bwood = 0.05 ! initial biomass of heartwood, kg C/m2
 real    :: init_cohort_cmc   = 0.0  ! initial intercepted water
 real    :: init_cohort_scavenger_myc_biomass = 0.0 ! initial scavenger mycorrhizal biomass, kgC/m2
+real    :: init_cohort_miner_myc_biomass = 0.0 ! initial miner mycorrhizal biomass, kgC/m2
 real    :: init_N_fixer_biomass = 0.0 ! initial N fixer microbe biomass, kgC/m2
 character(32) :: rad_to_use = 'big-leaf' ! or 'two-stream'
 character(32) :: snow_rad_to_use = 'ignore' ! or 'paint-leaves'
@@ -175,6 +176,7 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
    id_leaf_emis, id_snow_crit, id_stomatal, id_an_op, id_an_cl, &
    id_bl, id_blv, id_br, id_bsw, id_bwood, id_btot, id_species, id_status, id_max_live_biomass,&
    id_myc_scavenger_biomass_C,id_myc_scavenger_biomass_N,id_N_fixer_biomass_C,id_N_fixer_biomass_N,&
+   id_myc_miner_biomass_C,id_myc_miner_biomass_N,&
    id_con_v_h, id_con_v_v, id_fuel, id_harv_pool(N_HARV_POOLS), &
    id_harv_rate(N_HARV_POOLS), id_t_harv_pool, id_t_harv_rate, &
    id_csmoke_pool, id_csmoke_rate, id_fsc_in, id_fsc_out, id_ssc_in, &
@@ -188,7 +190,7 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
    id_t_ann, id_t_cold, id_p_ann, id_ncm, &
    id_lambda, id_afire, id_atfall, id_closs, id_cgain, id_wdgain, id_leaf_age, &
    id_phot_co2, id_theph, id_psiph, id_evap_demand, id_N_uptake_smoothed,id_passive_N_uptake,&
-   id_myc_scavenger_N_uptake,id_symbiotic_N_fixation,id_active_root_N_uptake
+   id_myc_scavenger_N_uptake,id_myc_miner_N_uptake,id_symbiotic_N_fixation,id_active_root_N_uptake
 ! ==== end of module variables ===============================================
 
 ! ==== NetCDF declarations ===================================================
@@ -373,6 +375,12 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
 
         call read_compressed(restart_file_name_2, 'myc_scavenger_biomass_N', r0d, domain=lnd%domain, timelevel=1)
         call assemble_cohorts(cohort_myc_scavenger_biomass_N_ptr,idx,tdimlen,r0d)
+
+        call read_compressed(restart_file_name_2, 'myc_miner_biomass_C', r0d, domain=lnd%domain, timelevel=1)
+        call assemble_cohorts(cohort_myc_miner_biomass_C_ptr,idx,tdimlen,r0d)
+
+        call read_compressed(restart_file_name_2, 'myc_miner_biomass_N', r0d, domain=lnd%domain, timelevel=1)
+        call assemble_cohorts(cohort_myc_miner_biomass_N_ptr,idx,tdimlen,r0d)
 
         call read_compressed(restart_file_name_2, 'N_fixer_biomass_C', r0d, domain=lnd%domain, timelevel=1)
         call assemble_cohorts(cohort_N_fixer_biomass_C_ptr,idx,tdimlen,r0d)
@@ -589,6 +597,8 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
           call read_cohort_data_r0d_fptr(unit, 'cumulative_extra_live_biomass', cohort_cumulative_extra_live_biomass_ptr )
         call read_cohort_data_r0d_fptr(unit, 'myc_scavenger_biomass_C', cohort_myc_scavenger_biomass_C_ptr )
         call read_cohort_data_r0d_fptr(unit, 'myc_scavenger_biomass_N', cohort_myc_scavenger_biomass_N_ptr )
+        call read_cohort_data_r0d_fptr(unit, 'myc_miner_biomass_C', cohort_myc_miner_biomass_C_ptr )
+        call read_cohort_data_r0d_fptr(unit, 'myc_miner_biomass_N', cohort_myc_miner_biomass_N_ptr )
         call read_cohort_data_r0d_fptr(unit, 'N_fixer_biomass_C', cohort_N_fixer_biomass_C_ptr )
         call read_cohort_data_r0d_fptr(unit, 'N_fixer_biomass_C', cohort_N_fixer_biomass_C_ptr )
         call read_cohort_data_i0d_fptr(unit, 'status', cohort_status_ptr )
@@ -738,6 +748,8 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
      cohort%cumulative_extra_live_biomass = 0.0
      cohort%myc_scavenger_biomass_C = init_cohort_scavenger_myc_biomass
      cohort%myc_scavenger_biomass_N = init_cohort_scavenger_myc_biomass/c2n_mycorrhizae
+     cohort%myc_miner_biomass_C = init_cohort_miner_myc_biomass
+     cohort%myc_miner_biomass_N = init_cohort_miner_myc_biomass/c2n_mycorrhizae
      cohort%N_fixer_biomass_C = init_N_fixer_biomass
      cohort%N_fixer_biomass_N = init_N_fixer_biomass/c2n_N_fixer
      if(did_read_biodata.and.do_biogeography) then
@@ -857,6 +869,10 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
        (/id_lon,id_lat/), time, 'scavenger mycorrhizal biomass_C', 'kg C/m2', missing_value=-1.0 )
    id_myc_scavenger_biomass_N = register_tiled_diag_field ( module_name, 'myc_scavenger_biomass_N',  &
         (/id_lon,id_lat/), time, 'scavenger mycorrhizal biomass_N', 'kg N/m2', missing_value=-1.0 )
+        id_myc_miner_biomass_C = register_tiled_diag_field ( module_name, 'myc_miner_biomass_C',  &
+             (/id_lon,id_lat/), time, 'miner mycorrhizal biomass_C', 'kg C/m2', missing_value=-1.0 )
+         id_myc_miner_biomass_N = register_tiled_diag_field ( module_name, 'myc_miner_biomass_N',  &
+              (/id_lon,id_lat/), time, 'miner mycorrhizal biomass_N', 'kg N/m2', missing_value=-1.0 )
     id_N_fixer_biomass_C = register_tiled_diag_field ( module_name, 'N_fixer_biomass_C',  &
          (/id_lon,id_lat/), time, 'symbiotic N fixer biomass_C', 'kg C/m2', missing_value=-1.0 )
      id_N_fixer_biomass_N = register_tiled_diag_field ( module_name, 'N_fixer_biomass_N',  &
@@ -867,6 +883,8 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
         (/id_lon,id_lat/), time, 'Plant N uptake by root water flow', 'kg N/m2/year', missing_value=-1.0 )
   id_myc_scavenger_N_uptake = register_tiled_diag_field ( module_name, 'myc_scavenger_N_uptake',  &
        (/id_lon,id_lat/), time, 'N uptake by scavenger mycorrhizae', 'kg N/m2/year', missing_value=-1.0 )
+   id_myc_miner_N_uptake = register_tiled_diag_field ( module_name, 'myc_miner_N_uptake',  &
+        (/id_lon,id_lat/), time, 'N uptake by miner mycorrhizae', 'kg N/m2/year', missing_value=-1.0 )
    id_symbiotic_N_fixation = register_tiled_diag_field ( module_name, 'symbiotic_N_fixation',  &
         (/id_lon,id_lat/), time, 'Symbiotic N fixation', 'kg N/m2/year', missing_value=-1.0 )
     id_active_root_N_uptake = register_tiled_diag_field ( module_name, 'active_root_N_uptake',  &
@@ -1108,6 +1126,8 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call write_cohort_data_r0d_fptr(unit,'myc_scavenger_biomass_N', cohort_myc_scavenger_biomass_N_ptr, 'scavenger mycorrhizal biomass N associated with individual','kg N/m2')
   call write_cohort_data_r0d_fptr(unit,'N_fixer_biomass_C', cohort_N_fixer_biomass_C_ptr, 'symbiotic N fixer biomass C associated with individual','kg C/m2')
   call write_cohort_data_r0d_fptr(unit,'N_fixer_biomass_N', cohort_N_fixer_biomass_N_ptr, 'symbiotic N fixer biomass N associated with individual','kg N/m2')
+  call write_cohort_data_r0d_fptr(unit,'myc_miner_biomass_C', cohort_myc_miner_biomass_C_ptr, 'miner mycorrhizal biomass C associated with individual','kg C/m2')
+  call write_cohort_data_r0d_fptr(unit,'myc_miner_biomass_N', cohort_myc_miner_biomass_N_ptr, 'miner mycorrhizal biomass N associated with individual','kg N/m2')
 
 !     call write_cohort_data_r0d_fptr(unit,'intercept_l', cohort_cmc_ptr, 'intercepted water per cohort','kg/m2')
   call write_cohort_data_r0d_fptr(unit,'npp_prev_day', cohort_npp_previous_day_ptr, 'previous day NPP','kg C/(m2 year)')
@@ -1244,6 +1264,8 @@ subroutine save_vegn_restart_new(tile_dim_length, timestamp)
   real, allocatable :: cumulative_extra_live_biomass(:)
   real, allocatable :: myc_scavenger_biomass_C(:)
   real, allocatable :: myc_scavenger_biomass_N(:)
+  real, allocatable :: myc_miner_biomass_C(:)
+  real, allocatable :: myc_miner_biomass_N(:)
   real, allocatable :: N_fixer_biomass_C(:)
   real, allocatable :: N_fixer_biomass_N(:)
   ! ** tile
@@ -1360,6 +1382,8 @@ subroutine save_vegn_restart_new(tile_dim_length, timestamp)
             cumulative_extra_live_biomass(csize),&
             myc_scavenger_biomass_C(csize),&
             myc_scavenger_biomass_N(csize),&
+            myc_miner_biomass_C(csize),&
+            myc_miner_biomass_N(csize),&
             N_fixer_biomass_C(csize),&
             N_fixer_biomass_N(csize),&
             npp_prev_day(csize))
@@ -1409,6 +1433,12 @@ subroutine save_vegn_restart_new(tile_dim_length, timestamp)
    call gather_cohort_data(cohort_myc_scavenger_biomass_N_ptr,cidx,tile_dim_length,myc_scavenger_biomass_N)
    id_restart = register_restart_field(vegn2_restart,fname,'myc_scavenger_biomass_N',myc_scavenger_biomass_N,&
         longname='scavenger mycorrhizal biomass N associated with individual',units='kg N/m2', compressed_axis='H')
+        call gather_cohort_data(cohort_myc_miner_biomass_C_ptr,cidx,tile_dim_length,myc_miner_biomass_C)
+        id_restart = register_restart_field(vegn2_restart,fname,'myc_miner_biomass_C',myc_miner_biomass_C,&
+             longname='miner mycorrhizal biomass C associated with individual',units='kg C/m2', compressed_axis='H')
+         call gather_cohort_data(cohort_myc_miner_biomass_N_ptr,cidx,tile_dim_length,myc_miner_biomass_N)
+         id_restart = register_restart_field(vegn2_restart,fname,'myc_miner_biomass_N',myc_miner_biomass_N,&
+              longname='miner mycorrhizal biomass N associated with individual',units='kg N/m2', compressed_axis='H')
         call gather_cohort_data(cohort_N_fixer_biomass_C_ptr,cidx,tile_dim_length,N_fixer_biomass_C)
         id_restart = register_restart_field(vegn2_restart,fname,'N_fixer_biomass_C',N_fixer_biomass_C,&
              longname='Symbiotic N fixer biomass C associated with individual',units='kg C/m2', compressed_axis='H')
@@ -1662,6 +1692,8 @@ subroutine save_vegn_restart_new(tile_dim_length, timestamp)
               cumulative_extra_live_biomass,&
               myc_scavenger_biomass_C,&
               myc_scavenger_biomass_N,&
+              myc_miner_biomass_C,&
+              myc_miner_biomass_N,&
               N_fixer_biomass_C,&
               N_fixer_biomass_N,&
               leaf_age,    &
@@ -2194,17 +2226,18 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, vegn_fco2, diag)
   vegn%n_accum   = vegn%n_accum+1
 
   ! Do low pass filter on N uptake
-  ! print *,'vegn_step_3',soil%passive_N_uptake,soil%myc_min_N_uptake,vegn%low_pass_N_uptake
+  ! print *,'vegn_step_3',soil%passive_N_uptake,soil%myc_scav_N_uptake,vegn%low_pass_N_uptake
   N_filter_weight=1.0/(1.0+N_uptake_smoothing_timescale/dt_fast_yr)
   vegn%low_pass_N_uptake = vegn%low_pass_N_uptake*(1.0-N_filter_weight) + &
-    (soil%passive_N_uptake+soil%myc_min_N_uptake+soil%symbiotic_N_fixation+soil%active_root_N_uptake)/dt_fast_yr*N_filter_weight
+    (soil%passive_N_uptake+soil%myc_scav_N_uptake+soil%myc_mine_N_uptake+soil%symbiotic_N_fixation+soil%active_root_N_uptake)/dt_fast_yr*N_filter_weight
 
 
   call send_tile_data(id_theph, theta, diag)
   call send_tile_data(id_psiph, psist, diag)
   call send_tile_data(id_N_uptake_smoothed,vegn%low_pass_N_uptake,diag)
   call send_tile_data(id_passive_N_uptake,soil%passive_N_uptake/dt_fast_yr,diag)
-  call send_tile_data(id_myc_scavenger_N_uptake,soil%myc_min_N_uptake/dt_fast_yr,diag)
+  call send_tile_data(id_myc_scavenger_N_uptake,soil%myc_scav_N_uptake/dt_fast_yr,diag)
+  call send_tile_data(id_myc_miner_N_uptake,soil%myc_mine_N_uptake/dt_fast_yr,diag)
   call send_tile_data(id_symbiotic_N_fixation,soil%symbiotic_N_fixation/dt_fast_yr,diag)
   call send_tile_data(id_active_root_N_uptake, soil%active_root_N_uptake/dt_fast_yr,diag)
 
@@ -2439,6 +2472,8 @@ subroutine update_vegn_slow( )
      call send_tile_data(id_max_live_biomass,   sum(tile%vegn%cohorts(1:n)%max_live_biomass),  tile%diag)
      call send_tile_data(id_myc_scavenger_biomass_C,   sum(tile%vegn%cohorts(1:n)%myc_scavenger_biomass_C),  tile%diag)
      call send_tile_data(id_myc_scavenger_biomass_N,   sum(tile%vegn%cohorts(1:n)%myc_scavenger_biomass_N),  tile%diag)
+     call send_tile_data(id_myc_miner_biomass_C,   sum(tile%vegn%cohorts(1:n)%myc_miner_biomass_C),  tile%diag)
+     call send_tile_data(id_myc_miner_biomass_N,   sum(tile%vegn%cohorts(1:n)%myc_miner_biomass_N),  tile%diag)
      call send_tile_data(id_N_fixer_biomass_C,   sum(tile%vegn%cohorts(1:n)%N_fixer_biomass_C),  tile%diag)
      call send_tile_data(id_N_fixer_biomass_N,   sum(tile%vegn%cohorts(1:n)%N_fixer_biomass_N),  tile%diag)
 
@@ -2626,6 +2661,8 @@ DEFINE_COHORT_ACCESSOR(real,max_live_biomass)
 DEFINE_COHORT_ACCESSOR(real,cumulative_extra_live_biomass)
 DEFINE_COHORT_ACCESSOR(real,myc_scavenger_biomass_C)
 DEFINE_COHORT_ACCESSOR(real,myc_scavenger_biomass_N)
+DEFINE_COHORT_ACCESSOR(real,myc_miner_biomass_C)
+DEFINE_COHORT_ACCESSOR(real,myc_miner_biomass_N)
 DEFINE_COHORT_ACCESSOR(real,N_fixer_biomass_C)
 DEFINE_COHORT_ACCESSOR(real,N_fixer_biomass_N)
 DEFINE_COHORT_ACCESSOR(integer,status)
