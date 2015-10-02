@@ -10,13 +10,13 @@ use mpp_mod,            only : mpp_chksum
 use fms_mod           , only : write_version_number, mpp_npes, &
                                error_mesg, FATAL, stdout
 use time_manager_mod  , only : time_type
-use tracer_manager_mod, only : register_tracers, get_tracer_index, NO_TRACER
-use field_manager_mod , only : MODEL_LAND
 use grid_mod          , only : get_grid_ntiles, get_grid_size, get_grid_cell_vertices, &
      get_grid_cell_centers, get_grid_cell_area, get_grid_comp_area, &
      define_cube_mosaic
+use land_tracers_mod  , only : ntcana
 use land_tile_mod     , only : land_tile_type, land_tile_list_type, &
      land_tile_list_init, land_tile_list_end, nitems
+use land_debug_mod    , only : land_time
 
 implicit none
 private
@@ -25,6 +25,7 @@ private
 public :: land_data_init
 public :: land_data_end
 public :: lnd            ! global data 
+public :: land_time      ! current time
 
 public :: atmos_land_boundary_type ! container for information passed from the 
                          ! atmosphere to land
@@ -50,8 +51,8 @@ public :: land_state_type
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: &
      module_name = 'land_data_mod', &
-     version     = '$Id: land_data.F90,v 21.0 2014/12/15 21:50:27 fms Exp $', &
-     tagname     = '$Name: ulm $'
+     version     = '$Id: land_data.F90,v 21.0.2.1.2.1 2015/03/24 22:26:02 Sergey.Malyshev Exp $', &
+     tagname     = '$Name: ulm_lad2_slm $'
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
 ! It is supposed to be double-precision signaling NaN, to trigger a trap when
@@ -143,12 +144,8 @@ end type land_data_type
 type :: land_state_type
    integer        :: is,ie,js,je ! compute domain boundaries
    integer        :: nlon,nlat   ! size of global grid
-   integer        :: ntprog      ! number of prognostic tracers
-   integer        :: isphum      ! index of specific humidity in tracer table
-   integer        :: ico2        ! index of carbon dioxide in tracer table
    type(time_type):: dt_fast     ! fast (physical) time step
    type(time_type):: dt_slow     ! slow time step
-   type(time_type):: time        ! current time
 
    real, pointer  :: lon (:,:), lat (:,:) ! domain grid center coordinates, radian
    real, pointer  :: lonb(:,:), latb(:,:) ! domain grid vertices, radian
@@ -290,18 +287,8 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow)
   enddo
   enddo
 
-  ! initialize land model tracers, if necessary
-  ! register land model tracers and find specific humidity
-  call register_tracers ( MODEL_LAND, ntracers, lnd%ntprog, ndiag )
-  lnd%isphum = get_tracer_index ( MODEL_LAND, 'sphum' )
-  if (lnd%isphum==NO_TRACER) then
-     call error_mesg('land_model_init','no required "sphum" tracer',FATAL)
-  endif
-  lnd%ico2 = get_tracer_index ( MODEL_LAND, 'co2' )
-  ! NB: co2 might be absent, in this case ico2 == NO_TRACER
-
   ! initialize model's time-related parameters
-  lnd%time    = time
+  land_time   = time
   lnd%dt_fast = dt_fast
   lnd%dt_slow = dt_slow
 
@@ -356,7 +343,7 @@ subroutine realloc_land2cplr ( bnd )
   allocate( bnd%tile_size(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
   allocate( bnd%t_surf(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
   allocate( bnd%t_ca(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
-  allocate( bnd%tr(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles,lnd%ntprog) )
+  allocate( bnd%tr(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles,ntcana) )
   allocate( bnd%albedo(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
   allocate( bnd%albedo_vis_dir(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
   allocate( bnd%albedo_nir_dir(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
@@ -462,8 +449,8 @@ subroutine realloc_cplr2land( bnd )
   allocate( bnd%dhdq(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
   allocate( bnd%drdt(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
   allocate( bnd%p_surf(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-  allocate( bnd%tr_flux(lnd%is:lnd%ie,lnd%js:lnd%je,kd,lnd%ntprog) )
-  allocate( bnd%dfdtr(lnd%is:lnd%ie,lnd%js:lnd%je,kd,lnd%ntprog) )
+  allocate( bnd%tr_flux(lnd%is:lnd%ie,lnd%js:lnd%je,kd,ntcana) )
+  allocate( bnd%dfdtr(lnd%is:lnd%ie,lnd%js:lnd%je,kd,ntcana) )
 
   allocate( bnd%lwdn_flux(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
   allocate( bnd%swdn_flux(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
@@ -554,7 +541,7 @@ function max_n_tiles() result(n)
   enddo
   enddo
 
-end function 
+end function max_n_tiles
 
 
 ! ===========================================================================
