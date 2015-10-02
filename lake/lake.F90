@@ -34,7 +34,7 @@ use land_tile_diag_mod, only : register_tiled_static_field, &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
      send_tile_data_r0d_fptr, add_tiled_static_field_alias, &
      set_default_diag_filter
-use land_data_mod,      only : land_state_type, lnd
+use land_data_mod,      only : land_state_type, lnd, land_time
 use land_tile_io_mod, only : print_netcdf_error, create_tile_out_file, &
      read_tile_data_r1d_fptr, write_tile_data_r1d_fptr, sync_nc_files, &
      get_input_restart_name, gather_tile_data, assemble_tiles
@@ -104,7 +104,6 @@ real    :: tc_molec_ice         = 2.5
 
 logical         :: module_is_initialized =.FALSE.
 logical         :: use_brdf
-type(time_type) :: time
 real            :: delta_time
 
 integer         :: num_l              ! # of water layers
@@ -201,7 +200,6 @@ subroutine lake_init ( id_lon, id_lat, new_land_io )
   logical :: river_data_exist
 
   module_is_initialized = .TRUE.
-  time       = lnd%time
   delta_time = time_type_to_real(lnd%dt_fast)
 
   allocate(buffer (lnd%is:lnd%ie,lnd%js:lnd%je))
@@ -416,7 +414,7 @@ subroutine save_lake_restart_new (tile_dim_length, timestamp)
   call set_domain(lnd%domain)
 ! Note that fname is updated for tile & rank numbers during file creation
   fname = trim(timestamp)//'lake.res.nc'
-  call create_tile_out_file(lake_restart,idx,fname,lnd,lake_tile_exists,tile_dim_length,zfull(1:num_l))
+  call create_tile_out_file(lake_restart,idx,fname,lake_tile_exists,tile_dim_length,zfull(1:num_l))
   isize = size(idx)
   allocate(dz(isize,num_l), temp(isize,num_l), wl(isize,num_l), ws(isize,num_l), gw(isize,num_l), gwT(isize,num_l))
 
@@ -889,9 +887,6 @@ end subroutine lake_step_1
 ! given solution for surface energy balance, write diagnostic output.
 !  
 
-  ! ---- increment time
-  time = increment_time(time, int(delta_time), 0)
-
   ! ---- diagnostic section
   call send_tile_data (id_dz,   lake%dz,     diag )
   call send_tile_data (id_temp, lake%T,     diag )
@@ -1059,21 +1054,21 @@ subroutine lake_diag_init ( id_lon, id_lat )
        axes(1:2), 'backwater1 flag', '-', missing_value=-100.0 )
   ! define dynamic diagnostic fields
   id_dz  = register_tiled_diag_field ( module_name, 'lake_dz', axes,         &
-       Time, 'nominal layer thickness', 'm', missing_value=-100.0 )
+       land_time, 'nominal layer thickness', 'm', missing_value=-100.0 )
   id_wl  = register_tiled_diag_field ( module_name, 'lake_wl', axes,         &
-       Time, 'liquid water mass', 'kg/m2', missing_value=-100.0 )
+       land_time, 'liquid water mass', 'kg/m2', missing_value=-100.0 )
   id_ws  = register_tiled_diag_field ( module_name, 'lake_ws', axes,         &
-       Time, 'solid water mass', 'kg/m2', missing_value=-100.0 )
+       land_time, 'solid water mass', 'kg/m2', missing_value=-100.0 )
   id_lwc  = register_tiled_diag_field ( module_name, 'lake_liq',  axes,       &
-       Time, 'bulk density of liquid water', 'kg/m3',  missing_value=-100.0 )
+       land_time, 'bulk density of liquid water', 'kg/m3',  missing_value=-100.0 )
   id_swc  = register_tiled_diag_field ( module_name, 'lake_ice',  axes,       &
-       Time, 'bulk density of solid water', 'kg/m3',  missing_value=-100.0 )
+       land_time, 'bulk density of solid water', 'kg/m3',  missing_value=-100.0 )
   id_temp  = register_tiled_diag_field ( module_name, 'lake_T',  axes,        &
-       Time, 'temperature',            'degK',  missing_value=-100.0 )
+       land_time, 'temperature',            'degK',  missing_value=-100.0 )
   id_K_z  = register_tiled_diag_field ( module_name, 'lake_K_z', axes,         &
-       Time, 'vertical diffusivity', 'm2/s', missing_value=-100.0 )
+       land_time, 'vertical diffusivity', 'm2/s', missing_value=-100.0 )
   id_evap  = register_tiled_diag_field ( module_name, 'lake_evap',  axes(1:2),  &
-       Time, 'lake evap',            'kg/(m2 s)',  missing_value=-100.0 )
+       land_time, 'lake evap',            'kg/(m2 s)',  missing_value=-100.0 )
        
   call add_tiled_static_field_alias (id_silld, module_name, 'sill_depth', &
        axes(1:2), 'obsolete, pls use lake_depth (static)','m', &

@@ -34,6 +34,7 @@ module river_physics_mod
   use fms_mod,         only : stdlog, write_version_number
   use fms_mod,         only : close_file, check_nml_error, file_exist
   use diag_manager_mod,only : register_diag_field, send_data
+  use tracer_manager_mod, only : NO_TRACER
   use river_type_mod,  only : river_type, Leo_Mad_trios, NO_RIVER_FLAG
   use lake_mod,        only : large_dyn_small_stat
   use lake_tile_mod,   only : num_l
@@ -243,6 +244,18 @@ contains
             lake_area = lake_sfc_A(i,j)
             influx   =(River%inflow  (i,j)  +River%infloc  (i,j))  *DENS_H2O*River%dt_slow
             influx_c =(River%inflow_c(i,j,:)+River%infloc_c(i,j,:))*DENS_H2O*River%dt_slow
+
+!            ! ZMS Simple update for storage_c. Skip over lakes.
+            if (River%num_c > 0) then
+!               River%storage_c(i,j,River%num_phys+1:River%num_species) = &
+!                     River%storage_c(i,j,River%num_phys+1:River%num_species) + influx_c(River%num_phys+1:River%num_species)        
+
+               if (is_watch_cell()) then
+                  write(*,*)'infloc_c(num_phys+1:num_species), inflow_c(numphys+1:num_species) for watch_cell:', &
+                             River%infloc_c(i,j,River%num_phys+1:num_species), River%inflow_c(i,j,River%num_phys+1:num_species)
+               end if
+            end if
+
             if (River%tocell(i,j).eq.0 .and. River%landfrac(i,j).ge.1.) then
                 ! terminal, all-land cell (must have lake)
                 h = (clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1))*(lake_T(i,j,1)-tfreeze)
@@ -255,9 +268,16 @@ contains
                 ! non-terminal all-land cell (possible lake), or terminal coastal cell (possible lake)
                 if (lake_area.gt.0.) then
                      if (is_watch_cell()) then
+                          write(*,*) 'lake_area:', lake_area
                           write(*,*) 'lake_wl(1):', lake_wl(i,j,1)
                           write(*,*) 'lake_ws(1):', lake_ws(i,j,1)
                           write(*,*) 'lake_T (1):', lake_T (i,j,1)
+			  write(*,*) 'influx    :', influx
+			  write(*,*) 'influx_c(1):', influx_c(1)
+			  write(*,*) 'River%inflow  (i,j)', River%inflow  (i,j)
+			  write(*,*) 'River%infloc  (i,j)', River%infloc  (i,j)
+			  write(*,*) 'River%inflow_c(i,j,1)', River%inflow_c(i,j,1)
+			  write(*,*) 'River%infloc_c(i,j,1)', River%infloc_c(i,j,1)
                      endif
                      h = (clw*lake_wl(i,j,1)+csw*lake_ws(i,j,1))*(lake_T(i,j,1)-tfreeze)
                      lake_wl(i,j,1) = lake_wl(i,j,1) + (influx-influx_c(1))/lake_area
@@ -318,9 +338,9 @@ contains
                               write(*,*) 'ql/A,qs/A,A',ql/lake_area,qs/lake_area,lake_area
                          do lev = 1, num_lake_lev
                            if (is_watch_cell() .and. lev.le.10) &
-                                write(*,'(a,i3,99(x,a,g23.16))')'l=',lev,&
-                                    'wl(1)=',lake_wl(i,j,1),'ws(1)=',lake_ws(i,j,1), &
-                                    'wl(l)=',lake_wl(i,j,lev),'ws(l)=',lake_ws(i,j,lev)
+                               write(*,'(a,i3,99(x,a,g23.16))')'l=',lev,&
+                                   'wl(1)=',lake_wl(i,j,1),'ws(1)=',lake_ws(i,j,1), &
+                                   'wl(l)=',lake_wl(i,j,lev),'ws(l)=',lake_ws(i,j,lev)
                            liq_this_lev = max(0.,min(liq_to_flow, lake_area*lake_wl(i,j,lev)))
                            ice_this_lev = max(0.,min(ice_to_flow, lake_area*lake_ws(i,j,lev)))
                            lake_wl(i,j,lev) = lake_wl(i,j,lev) - liq_this_lev/lake_area
@@ -340,9 +360,9 @@ contains
                                             /(clw*lake_wl(i,j,lev)+csw*lake_ws(i,j,lev))
                            endif
                            if (is_watch_cell() .and. lev.le.10) &
-                                write(*,'(a,i3,99(x,a,g23.16))')'l=',lev,&
-                                    'wl(1)=',lake_wl(i,j,1),'ws(1)=',lake_ws(i,j,1), &
-                                    'wl(l)=',lake_wl(i,j,lev),'ws(l)=',lake_ws(i,j,lev)
+                               write(*,'(a,i3,99(x,a,g23.16))')'l=',lev,&
+                                   'wl(1)=',lake_wl(i,j,1),'ws(1)=',lake_ws(i,j,1), &
+                                   'wl(l)=',lake_wl(i,j,lev),'ws(l)=',lake_ws(i,j,lev)
                            if (liq_to_flow.eq.0..and.ice_to_flow.eq.0.) exit
                            enddo
                          River%lake_outflow  (i,j)   = qt
@@ -360,6 +380,12 @@ contains
                      River%lake_outflow_c(i,j,2) = influx_c(2)
                    endif
               endif
+
+            ! ZMS Bypass rivers for tracers.
+            if (River%num_c > 0) then
+               River%lake_outflow_c(i,j,River%num_phys+1:River%num_species) = &
+                     influx_c(River%num_phys+1:River%num_species)
+            end if
 
             ! NEXT COMPUTE RIVER-REACH MASS BALANCE (FROM LAKE_OUTFLOW TO OUTFLOW)
           
@@ -379,16 +405,16 @@ contains
                             River%storage(i,j) = River%storage(i,j) + River%dt_slow *   &
                              (River%lake_outflow(i,j)/(DENS_H2O*River%dt_slow)-Q0) &
                              /(1.+River%dt_slow*dQ_dV)
-                        else
+                          else
                             if (River%storage(i,j) .le. 0.) then
                                 dh_dQ = 0.
-                            else
+                              else
                                 dh_dQ = River%d_coef(i,j)*River%d_exp*Q0**(River%d_exp-1)
-                            endif
+                              endif
                             River%storage(i,j) = River%storage(i,j) + River%dt_slow *   &
                              (River%lake_outflow(i,j)/(DENS_H2O*River%dt_slow)-Q0) &
                              /(1.+dQ_dV*(River%dt_slow+lake_whole_area(i,j)*dh_dQ))
-                        endif
+                          endif
                       else if (algor.eq.'nonlin') then   ! assume all inflow at start of step 
                         if (avail .gt. 0.) then
                             River%storage(i,j) = (avail**(1.-River%o_exp) &
@@ -417,8 +443,14 @@ contains
                 ! given water outflow and storage, split other tracked stuff same way
                 out_frac = 0.
                 if (avail .gt. 0.) out_frac = River%outflow(i,j)/avail
+                ! ZMS:
+                out_frac = min(out_frac, 1.)
                 River%outflow_c(i,j,:) = out_frac * (River%storage_c(i,j,:) &
                                          +River%lake_outflow_c(i,j,:)/DENS_H2O)
+                if (is_watch_cell()) then
+                   write(*,*)'outflow_c(:):', River%outflow_c(i,j,:)
+                end if
+
                 ! 2011/05/13 PCM: fix ice outflow temperature bug
                 if (prohibit_cold_ice_outflow) then
                   River%outflow_c(i,j,:) = max(River%outflow_c(i,j,:), 0.)
@@ -466,11 +498,11 @@ contains
                 ice(i,j)=conc(1)
                 temperature(i,j)=conc(2)
 
-                if (River%do_age) then
-                    River%removal_c(i,j,River%num_phys+1) = -River%storage(i,j)/sec_in_day
-                    River%storage_c(i,j,River%num_phys+1) = River%storage_c(i,j,River%num_phys+1) &
-                       - River%removal_c(i,j,River%num_phys+1)*River%dt_slow
-                  endif
+                if (River%i_age/=NO_TRACER) then
+                    River%removal_c(i,j,River%i_age) = -River%storage(i,j)/sec_in_day
+                    River%storage_c(i,j,River%i_age) = River%storage_c(i,j,River%i_age) &
+                       - River%removal_c(i,j,River%i_age)*River%dt_slow
+                endif
 
                 if (River%storage(i,j) .gt. 0.) then
                     conc(River%num_phys+1:River%num_species) = &
@@ -497,8 +529,13 @@ contains
                     River%storage_c(i,j,River%num_species-River%num_c+1:River%num_species) = &
                        River%storage_c(i,j,River%num_species-River%num_c+1:River%num_species) &
                        - River%removal_c(i,j,River%num_species-River%num_c+1:River%num_species)* River%dt_slow
-                  endif
-              endif
+
+                  if (is_watch_cell()) then
+                     write(*,*)'removal_c(num_phys+1:num_species):', &
+                           River%removal_c(i,j,River%num_species-River%num_c+1:River%num_species)
+                  end if
+              end if
+            endif
 
             ! FINALLY, REDEFINE OUTFLOW AS DISCHARGE IF WE HAVE OCEAN HERE
           

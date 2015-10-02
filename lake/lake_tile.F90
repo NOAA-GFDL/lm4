@@ -110,20 +110,20 @@ type :: lake_tile_type
    integer :: tag ! kind of the lake
    type(lake_pars_type)          :: pars
 
-   real, pointer :: dz(:)  => NULL()
-   real, pointer :: wl(:)  => NULL()
-   real, pointer :: ws(:)  => NULL()
-   real, pointer :: T(:)   => NULL()
-   real, pointer :: K_z(:) => NULL()
+   real, allocatable :: dz(:)
+   real, allocatable :: wl(:)
+   real, allocatable :: ws(:)
+   real, allocatable :: T(:)
+   real, allocatable :: K_z(:)
 
-   real, pointer :: w_fc(:) => NULL()
-   real, pointer :: w_wilt(:) => NULL()
+   real, allocatable :: w_fc(:)
+   real, allocatable :: w_wilt(:)
    real :: Eg_part_ref
    real :: z0_scalar
    real :: z0_scalar_ice
    real :: geothermal_heat_flux
-   real, pointer :: e(:) => NULL(),f(:) => NULL()
-   real, pointer :: heat_capacity_dry(:) => NULL()
+   real, allocatable :: e(:),f(:)
+   real, allocatable :: heat_capacity_dry(:)
 end type lake_tile_type
 
 ! ==== module data ===========================================================
@@ -281,7 +281,7 @@ subroutine read_lake_data_namelist(lake_n_lev)
 
   ! set up output arguments
   lake_n_lev = num_l
-end subroutine 
+end subroutine read_lake_data_namelist
 
 
 ! ============================================================================
@@ -314,28 +314,8 @@ function lake_tile_copy_ctor(lake) result(ptr)
   
   allocate(ptr)
   ptr=lake ! copy all non-pointer data
-  ! allocate storage for tile data
-  allocate(ptr%dz     (num_l), &
-           ptr%wl     (num_l), &
-           ptr%ws     (num_l), &
-           ptr%T      (num_l), &
-           ptr%K_z    (num_l), &
-           ptr%w_fc   (num_l),  &
-           ptr%w_wilt (num_l),  &
-           ptr%heat_capacity_dry(num_l),  &
-           ptr%e      (num_l),  &
-           ptr%f      (num_l)   )
-  ! copy all allocatable data
-  ptr%dz(:)     = lake%dz(:)
-  ptr%wl(:)     = lake%wl(:)
-  ptr%ws(:)     = lake%ws(:)
-  ptr%T(:)      = lake%T(:)
-  ptr%K_z(:)    = lake%K_z(:)
-  ptr%w_fc(:)   = lake%w_fc(:)
-  ptr%w_wilt(:) = lake%w_wilt(:)
-  ptr%e(:)      = lake%e(:)
-  ptr%f(:)      = lake%f(:)
-  ptr%heat_capacity_dry(:) = lake%heat_capacity_dry(:)
+  ! no need to allocate storage for allocatable components of the tile, because 
+  ! F2003 takes care of that, and also takes care of copying data
 end function lake_tile_copy_ctor
 
 
@@ -343,9 +323,8 @@ end function lake_tile_copy_ctor
 subroutine delete_lake_tile(ptr)
   type(lake_tile_type), pointer :: ptr
 
-  deallocate(ptr%dz, ptr%wl, ptr%ws, ptr%T, ptr%K_z, &
-             ptr%w_fc, ptr%w_wilt,ptr%heat_capacity_dry, ptr%e, ptr%f)
-
+  ! no need to deallocate components of the tile, because F2003 takes care of
+  ! allocatable components deallocation when tile is deallocated
   deallocate(ptr)
 end subroutine delete_lake_tile
 
@@ -400,7 +379,7 @@ subroutine init_lake_data_0d(lake)
   lake%z0_scalar_ice = lake%pars%z0_momentum_ice * exp(-k_over_B_ice)
   lake%geothermal_heat_flux = geothermal_heat_flux_constant
 
-end subroutine 
+end subroutine init_lake_data_0d
 
 
 ! ============================================================================
@@ -433,7 +412,7 @@ function lake_cover_cold_start(land_mask, lonb, latb, domain) result (lake_frac)
       where (lake_frac.gt.0. .and. lake_frac.lt.min_lake_frac) lake_frac = min_lake_frac
     endif
   
-end function 
+end function lake_cover_cold_start
 
 ! =============================================================================
 function lake_tiles_can_be_merged(lake1,lake2) result(response)
@@ -441,7 +420,7 @@ function lake_tiles_can_be_merged(lake1,lake2) result(response)
   type(lake_tile_type), intent(in) :: lake1,lake2
 
   response = (lake1%tag==lake2%tag)
-end function
+end function lake_tiles_can_be_merged
 
 ! =============================================================================
 ! combine two lake tiles with specified weights; the results goes into the 
@@ -490,7 +469,7 @@ WRITE (*,*) 'SORRY, BUT merge_lake_tiles NEEDS TO BE REVISED TO ALLOW FOR ', &
     t2%T(i) = 0.
   enddo
 
-end subroutine
+end subroutine merge_lake_tiles
 
 ! =============================================================================
 ! returns true if tile fits the specified selector
@@ -500,7 +479,7 @@ function lake_is_selected(lake, sel)
   type(lake_tile_type),      intent(in) :: lake
 
   lake_is_selected = (sel%idata1 == lake%tag)
-end function
+end function lake_is_selected
 
 
 ! ============================================================================
@@ -510,7 +489,7 @@ function get_lake_tile_tag(lake) result(tag)
   type(lake_tile_type), intent(in) :: lake
   
   tag = lake%tag
-end function
+end function get_lake_tile_tag
 
 
 ! ============================================================================
@@ -552,7 +531,7 @@ subroutine lake_data_radiation ( lake, cosz, use_brdf, &
   lake_alb_dir = ice_value_dir + blend*(liq_value_dir-ice_value_dir)
   lake_alb_dif = ice_value_dif + blend*(liq_value_dif-ice_value_dif)
   lake_emis = lake%pars%emis_dry   + blend*(lake%pars%emis_sat-lake%pars%emis_dry  )
-end subroutine
+end subroutine lake_data_radiation
 
 ! ============================================================================
 ! compute bare-lake roughness
@@ -568,7 +547,7 @@ subroutine lake_data_diffusion ( lake,lake_z0s, lake_z0m )
       lake_z0s = lake%z0_scalar_ice
       lake_z0m = lake%pars%z0_momentum_ice
     endif
-end subroutine
+end subroutine lake_data_diffusion
 
 ! ============================================================================
 ! compute lake thermodynamic properties.
@@ -599,7 +578,7 @@ subroutine lake_data_thermodynamics ( lake_pars, lake_depth, &
      thermal_cond(l)  = lake_pars%thermal_cond_ref
   enddo
 
-end subroutine
+end subroutine lake_data_thermodynamics
 
 ! ============================================================================
 subroutine lake_tile_stock_pe (lake, twd_liq, twd_sol  )
@@ -631,6 +610,6 @@ function lake_tile_heat (lake) result(heat) ; real heat
 	     + csw*lake%ws(i))*(lake%T(i)-tfreeze) + &
           hlf*lake%ws(i)
   enddo
-end function
+end function lake_tile_heat
 
 end module lake_tile_mod
