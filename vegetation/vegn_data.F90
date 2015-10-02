@@ -99,7 +99,7 @@ public :: &
     ! vegetation data, imported from LM3V
     spdata, &
     min_cosz, &
-    agf_bs, K1,K2, fsc_liv, fsc_wood, &
+    agf_bs, K1,K2, fsc_liv, fsc_wood, fsc_froot, &
     tau_drip_l, tau_drip_s, & ! canopy water and snow residence times, for drip calculations
     GR_factor, tg_c3_thresh, tg_c4_thresh, &
     fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
@@ -184,6 +184,7 @@ type spec_data_type
 
   real    :: smoke_fraction ! fraction of carbon lost as smoke during fires
 
+  real    :: tracer_cuticular_cond ! cuticular conductance for all tracers, m/s
   ! data from LM3W, temporarily here
   real    :: dat_height
   real    :: dat_lai
@@ -191,6 +192,10 @@ type spec_data_type
   real    :: dat_root_zeta
   real    :: dat_rs_min
   real    :: dat_snow_crit
+
+  ! Root exudate fraction of npp
+  real    :: root_exudate_frac
+
 end type
 
 ! ==== module data ===========================================================
@@ -368,14 +373,20 @@ real :: leaf_age_onset(0:MSPECIES) = & ! onset of Vmax decrease due to leaf agin
 real :: leaf_age_tau(0:MSPECIES) = &  ! e-folding time of Vmax decrease due to leaf aging, days (0 or less means no aging)
        (/    0.0,         0.0,          0.0,           0.0,         0.0,    0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0  /)
 
+real :: root_exudate_frac(0:MSPECIES) = & ! Fraction of NPP that goes into root exudates
+        (/   0.0,         0.0,          0.0,           0.0,         0.0,    0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0  /)
+
 real :: soil_carbon_depth_scale = 0.2   ! depth of active soil for carbon decomposition
 real :: cold_month_threshold    = 283.0 ! monthly temperature threshold for calculations of number of cold months
 real :: smoke_fraction(0:MSPECIES) = & ! fration of carbon lost as smoke
        (/    0.9,         0.9,          0.9,           0.9,         0.9,    0.9,   0.9,   0.9,   0.9,   0.9,   0.9,   0.9,   0.9,   0.9  /)
+real :: tracer_cuticular_cond(0:MSPECIES)= & ! cuticular conductance for tracer dry deposition, m/s 
+       (/   5e-4,        5e-4,         5e-4,          5e-4,        5e-4,   5e-4,  5e-4,  5e-4,  5e-4,  5e-4,  5e-4,  5e-4,  5e-4,  5e-4  /)
 real :: agf_bs         = 0.8 ! ratio of above ground stem to total stem
 real :: K1 = 10.0, K2 = 0.05 ! soil decomposition parameters
 real :: fsc_liv        = 0.8
 real :: fsc_wood       = 0.2
+real :: fsc_froot      = 0.3
 real :: tau_drip_l     = 21600.0 ! canopy water residence time, for drip calculations
 real :: tau_drip_s     = 86400.0 ! canopy snow residence time, for drip calculations
 real :: GR_factor = 0.33 ! growth respiration factor     
@@ -422,12 +433,13 @@ namelist /vegn_data_nml/ &
   leaf_size, &
   soil_carbon_depth_scale, cold_month_threshold, &
 
-  smoke_fraction, agf_bs, K1,K2, fsc_liv, fsc_wood, &
+  smoke_fraction, agf_bs, K1,K2, fsc_liv, fsc_wood, fsc_froot, &
   tau_drip_l, tau_drip_s, GR_factor, tg_c3_thresh, tg_c4_thresh, &
   fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
   l_fract, T_transp_min,  tc_crit, psi_stress_crit_phen, &
   cnst_crit_phen, fact_crit_phen, cnst_crit_fire, fact_crit_fire, &
-  scnd_biomass_bins, phen_ev1, phen_ev2
+  scnd_biomass_bins, phen_ev1, phen_ev2, &
+  root_exudate_frac, tracer_cuticular_cond
 
 
 contains ! ###################################################################
@@ -523,6 +535,10 @@ subroutine read_vegn_data_namelist()
 
   spdata%smoke_fraction = smoke_fraction
 
+  spdata%root_exudate_frac = root_exudate_frac
+
+  spdata%tracer_cuticular_cond = tracer_cuticular_cond
+
   do i = 0, MSPECIES
      spdata(i)%alpha     = alpha(i,:)
      spdata(i)%beta      = beta(i,:)
@@ -616,6 +632,9 @@ subroutine read_vegn_data_namelist()
   call add_row(table,'cnst_crit_fire',spdata(:)%cnst_crit_fire)
 
   call add_row(table,'smoke_fraction',spdata(:)%smoke_fraction)
+  call add_row(table,'root_exudate_frac',spdata(:)%root_exudate_frac)
+
+  call add_row(table,'tracer_cuticular_cond',spdata(:)%tracer_cuticular_cond)
 
   call print(table,stdout())
   call print(table,unit)

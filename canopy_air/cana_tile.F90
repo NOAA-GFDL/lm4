@@ -1,5 +1,6 @@
 module cana_tile_mod
 
+use land_tracers_mod, only : ntcana, isphum, ico2
 use land_tile_selectors_mod, only : &
      tile_selector_type
 use constants_mod, only : &
@@ -44,9 +45,8 @@ character(len=*), parameter :: &
 
 ! ==== data types ======================================================
 type :: cana_tile_type
-  real T
-  real q
-  real :: co2 ! co2 concentration in canopy air, kg CO2/kg of wet air
+  real T                 ! temperature of canopy air, deg K
+  real, allocatable :: tr(:) ! concentrations of tracers in canopy air
 end type cana_tile_type
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -56,6 +56,8 @@ function cana_tile_ctor() result(ptr)
   type(cana_tile_type), pointer :: ptr ! return value
 
   allocate(ptr)
+  allocate(ptr%tr(ntcana))
+
 end function cana_tile_ctor
 
 ! =============================================================================
@@ -64,7 +66,7 @@ function cana_tile_copy_ctor(cana) result(ptr)
   type(cana_tile_type), intent(in) :: cana ! return value
 
   allocate(ptr)
-  ptr = cana
+  ptr = cana ! copy all non-pointer components
 end function cana_tile_copy_ctor
 
 ! =============================================================================
@@ -95,19 +97,17 @@ subroutine merge_cana_tiles(cana1,w1,cana2,w2)
   ! calculate normalized weights
   x1 = w1/(w1+w2)
   x2 = 1-x1
-  HEAT1 = canopy_air_mass*(cp_air+(cpw - cp_air)*cana1%q)*cana1%T
-  HEAT2 = canopy_air_mass*(cp_air+(cpw - cp_air)*cana2%q)*cana2%T
+  HEAT1 = canopy_air_mass*(cp_air+(cpw-cp_air)*cana1%tr(isphum))*cana1%T
+  HEAT2 = canopy_air_mass*(cp_air+(cpw-cp_air)*cana2%tr(isphum))*cana2%T
 
-  cana2%q = cana1%q*x1+cana2%q*x2
+  cana2%tr = cana1%tr*x1+cana2%tr*x2
   if (canopy_air_mass > 0) then
      cana2%T = (HEAT1*x1+HEAT2*x2)/&
-          (canopy_air_mass*(cp_air+(cpw - cp_air)*cana2%q))
+          (canopy_air_mass*(cp_air+(cpw - cp_air)*cana2%tr(isphum)))
   else
      cana2%T = cana1%T*x1+cana2%T*x2
   endif
-
-  cana2%co2 = cana1%co2*x1+cana2%co2*x2
-end subroutine
+end subroutine merge_cana_tiles
 
 ! =============================================================================
 ! returns tag of the tile
@@ -133,21 +133,21 @@ subroutine cana_tile_stock_pe (cana, twd_liq, twd_sol)
   type(cana_tile_type), intent(in) :: cana
   real, intent(out) :: twd_liq, twd_sol
 
-  twd_liq = canopy_air_mass*cana%q; twd_sol = 0
+  twd_liq = canopy_air_mass*cana%tr(isphum); twd_sol = 0
 end subroutine
 
 ! =============================================================================
 function cana_tile_heat (cana) result(heat) ; real heat
   type(cana_tile_type), intent(in) :: cana
   
-  heat = canopy_air_mass*(cp_air+(cpw - cp_air)*cana%q)*(cana%T-tfreeze)
+  heat = canopy_air_mass*(cp_air+(cpw-cp_air)*cana%tr(isphum))*(cana%T-tfreeze)
 end function
 
 ! =============================================================================
 function cana_tile_carbon (cana) result(c) ; real c
   type(cana_tile_type), intent(in) :: cana
 
-  c = canopy_air_mass_for_tracers * cana%co2 * mol_C/mol_CO2
+  c = canopy_air_mass_for_tracers * cana%tr(ico2)*mol_C/mol_CO2
 end function 
 
 end module cana_tile_mod

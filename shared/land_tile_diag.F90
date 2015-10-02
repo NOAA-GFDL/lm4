@@ -203,6 +203,9 @@ subroutine register_tiled_area_fields(module_name, axes, init_time, &
   ! register areas for all tiles
   id_area = reg_field(FLD_LIKE_AREA, module_name, 'area', init_time, axes, &
          'area in the grid cell', 'm2', missing_value=-1.0, op=OP_SUM)
+  if (id_area>0) then
+     call add_cell_methods(id_area,'area: sum')
+  endif
   ! store the ids of area for each of the selectors
   if (id_area > 0) then
      i_area = id_area - BASE_TILED_FIELD_ID

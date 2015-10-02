@@ -73,8 +73,6 @@ module river_type_mod
      real, dimension(:,:),      pointer :: o_coef        => NULL()
      real, dimension(:,:),      pointer :: d_coef        => NULL()
      real, dimension(:,:),      pointer :: w_coef        => NULL()
-     real, dimension(:,:,:),    pointer :: source_conc   => NULL()
-     real, dimension(:,:,:),    pointer :: source_flux   => NULL()
      real, dimension(:,:),      pointer :: So            => NULL()
      real, dimension(:,:),      pointer :: depth         => NULL()
      real, dimension(:,:),      pointer :: width         => NULL()
@@ -91,7 +89,7 @@ module river_type_mod
      integer                            :: dt_fast, dt_slow
      integer                            :: nlon, nlat, num_species, num_c
      integer                            :: num_phys
-     logical                            :: do_age
+     integer                            :: i_age ! index of the age tracer (or NO_TRACER)
   end type river_type
 
   type Leo_Mad_trios
