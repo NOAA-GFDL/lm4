@@ -76,8 +76,8 @@ public :: land_transitions
 
 ! ==== module constants =====================================================
 character(len=*), parameter   :: &
-     version = '$Id: transitions.F90,v 21.0 2014/12/15 21:51:23 fms Exp $', &
-     tagname = '$Name: ulm $', &
+     version = '$Id$', &
+     tagname = '$Name$', &
      module_name = 'land_transitions_mod', &
      diag_mod_name = 'landuse'
 ! selectors for overshoot handling options, for efficiency

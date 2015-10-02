@@ -54,8 +54,8 @@ public :: do_check_conservation
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'land_debug',&
-    version     = '$Id: land_debug.F90,v 21.0 2014/12/15 21:50:50 fms Exp $',&
-    tagname     = '$Name: ulm $'
+    version     = '$Id$',&
+    tagname     = '$Name$'
 
 ! ==== module variables ======================================================
 integer, allocatable :: current_debug_level(:)

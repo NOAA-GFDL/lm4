@@ -26,8 +26,8 @@ public :: darcy2d_uptake, darcy2d_uptake_solver
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'uptake',&
-    version     = '$Id: uptake.F90,v 21.0 2014/12/15 21:51:20 fms Exp $',&
-    tagname     = '$Name: ulm $'
+    version     = '$Id$',&
+    tagname     = '$Name$'
 
 ! values for internal soil uptake option selector
 integer, parameter ::   &

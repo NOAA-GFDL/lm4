@@ -12,8 +12,8 @@ public :: put_to_tiles_r1d_fptr
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
-     version = '$Id: land_utils.F90,v 17.0 2009/07/21 03:02:46 fms Exp $', &
-     tagname = '$Name: ulm $'
+     version = '$Id$', &
+     tagname = '$Name$'
 
 contains
 

@@ -19,8 +19,8 @@ public :: hlsp_is_selected
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'hillslope_tile',&
-    version     = '$Id: hillslope_tile.F90,v 21.0 2014/12/15 21:51:14 fms Exp $',&
-    tagname     = '$Name: ulm $'
+    version     = '$Id$',&
+    tagname     = '$Name$'
 
 ! ==== module variables ======================================================
 

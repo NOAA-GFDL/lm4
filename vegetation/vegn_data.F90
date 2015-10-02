@@ -113,8 +113,8 @@ public :: read_vegn_data_namelist
 
 ! ==== constants =============================================================
 character(len=*), parameter   :: &
-     version     = '$Id: vegn_data.F90,v 21.0 2014/12/15 21:51:34 fms Exp $', &
-     tagname     = '$Name: ulm $', &
+     version     = '$Id$', &
+     tagname     = '$Name$', &
      module_name = 'vegn_data_mod'
 real, parameter :: TWOTHIRDS  = 2.0/3.0
 

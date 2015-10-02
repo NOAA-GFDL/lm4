@@ -1,5 +1,5 @@
 ! -*-f90-*-
-! $Id: getput_compressed.inc,v 17.0 2009/07/21 03:02:47 fms Exp $
+! $Id$
 
 ! some sanity checks
 #ifndef F90_TYPE

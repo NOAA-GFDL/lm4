@@ -40,8 +40,8 @@ public :: stiff_explicit_gwupdate
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'hillslope_hydrology',&
-    version     = '$Id: hillslope_hydrology.F90,v 21.0 2014/12/15 21:51:13 fms Exp $',&
-    tagname     = '$Name: ulm $'
+    version     = '$Id$',&
+    tagname     = '$Name$'
 
 ! ---- diagnostic field IDs
 !integer :: id_gtos_hlsp, & ! ground to stream runoff for hillslope area

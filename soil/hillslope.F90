@@ -70,8 +70,8 @@ private :: meanelev ! used by calculate_wt_init
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'hillslope',&
-    version     = '$Id: hillslope.F90,v 21.0 2014/12/15 21:51:12 fms Exp $',&
-    tagname     = '$Name: ulm $'
+    version     = '$Id$',&
+    tagname     = '$Name$'
 
 integer, parameter :: max_vc = 30 ! Max num_vertclusters that can be input from namelist for 
                                   ! tile horizontal grid.

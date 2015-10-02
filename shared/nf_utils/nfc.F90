@@ -33,8 +33,8 @@ end interface
 #undef __INTERFACE_SECTION__
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: &
-     version = '$Id: nfc.F90,v 20.0 2013/12/13 23:30:40 fms Exp $', &
-     tagname = '$Name: ulm $'
+     version = '$Id$', &
+     tagname = '$Name$'
 
 ! ---- private type - used to hold dimension/packing information during unpacking
 ! (see get_compressed_var_i_r8)
