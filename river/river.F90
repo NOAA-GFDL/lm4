@@ -81,8 +81,8 @@ module river_mod
   private
 
 !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id: river.F90,v 21.0.2.6 2015/04/09 19:27:36 pjp Exp $'
-  character(len=128) :: tagname = '$Name: ulm_pjp $'
+  character(len=128) :: version = '$Id$'
+  character(len=128) :: tagname = '$Name$'
 
 !--- public interface ------------------------------------------------
   public :: river_init, river_end, river_type, update_river, river_stock_pe

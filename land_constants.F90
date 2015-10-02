@@ -27,7 +27,7 @@ real, public, parameter :: mol_h2o = 18.0e-3 ! molar mass of water, kg
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
-     version = '$Id: land_constants.F90,v 17.0.38.1 2015/03/23 15:47:39 Sergey.Malyshev Exp $', &
-     tagname = '$Name: ulm_lad2_slm $'
+     version = '$Id$', &
+     tagname = '$Name$'
 
 end module

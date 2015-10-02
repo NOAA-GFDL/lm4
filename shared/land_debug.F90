@@ -64,8 +64,8 @@ public :: land_time
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'land_debug',&
-    version     = '$Id: land_debug.F90,v 21.0.6.1 2015/03/24 22:26:03 Sergey.Malyshev Exp $',&
-    tagname     = '$Name: ulm_lad2_slm $'
+    version     = '$Id$',&
+    tagname     = '$Name$'
 
 ! ==== module variables ======================================================
 ! land time is kept here because debug stuff uses it, and importing it

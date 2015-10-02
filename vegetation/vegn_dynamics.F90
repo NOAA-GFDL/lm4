@@ -41,8 +41,8 @@ public :: vegn_biogeography !
 
 ! ==== module constants ======================================================
 character(len=*), private, parameter :: &
-   version = '$Id: vegn_dynamics.F90,v 20.0.2.1.2.5 2014/09/01 17:18:10 Sergey.Malyshev Exp $', &
-   tagname = '$Name: tikal_lad2_20141008_slm $' ,&
+   version = '$Id$', &
+   tagname = '$Name$' ,&
    module_name = 'vegn'
 
 real, parameter :: GROWTH_RESP=0.333  ! fraction of npp lost as growth respiration
