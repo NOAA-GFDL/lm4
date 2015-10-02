@@ -70,8 +70,8 @@ private :: meanelev ! used by calculate_wt_init
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'hillslope',&
-    version     = '$Id: hillslope.F90,v 1.1.2.5.2.1.2.1 2014/10/24 19:45:31 Peter.Phillipps Exp $',&
-    tagname     = '$Name: ulm_201505 $'
+    version     = '$Id: hillslope.F90,v 21.0.2.2 2015/02/25 19:19:58 pjp Exp $',&
+    tagname     = '$Name: ulm_pjp $'
 
 integer, parameter :: max_vc = 30 ! Max num_vertclusters that can be input from namelist for 
                                   ! tile horizontal grid.
@@ -125,6 +125,7 @@ real, public        :: surf_flow_velocity = 1.  ! [m/s] Assumed nominal surface 
 logical, public     :: limit_intertile_flow = .false. ! True ==> Limit explicit inter-tile flows
                        ! to improve numerical stability
 real, public        :: flow_ratio_limit = 1.    ! max delta psi to length ratio allowed, if limit_intertile_flow
+logical, public     :: tiled_DOC_flux = .false. ! True ==> Calculate DOC fluxes for soil carbon model
 
 
 character(len=256)  :: hillslope_surfdata = 'INPUT/hillslope.nc'
@@ -138,7 +139,7 @@ namelist /hlsp_nml/ num_vertclusters, max_num_topo_hlsps, hillslope_horz_subdiv,
                     strm_depth_penetration, use_hlsp_aspect_in_gwflow, use_geohydrodata, &
                     diagnostics_by_cluster, init_wt_strmelev, dammed_strm_bc, &
                     simple_inundation, surf_flow_velocity, dl, equal_length_tiles, &
-                    limit_intertile_flow, flow_ratio_limit, exp_inundation
+                    limit_intertile_flow, flow_ratio_limit, exp_inundation, tiled_DOC_flux
 ! hardwired: fixed_num_vertclusters, hillslope_topo_subdiv, stiff_do_explicit
 !---- end of namelist --------------------------------------------------------
 
@@ -899,7 +900,7 @@ subroutine save_hlsp_restart_new (tile_dim_length, timestamp)
   call error_mesg('save_hlsp_restart_new','writing new hillslope restart',NOTE)
   call set_domain(lnd%domain)
   fname = trim(timestamp)//trim(hlsp_rst_ofname)
-  call create_tile_out_file(hlsp_restart,idx,fname,lnd,soil_tile_exists,tile_dim_length)
+  call create_tile_out_file(hlsp_restart,idx,fname,soil_tile_exists,tile_dim_length)
   tsize = size(idx)
   allocate(hidx_j(tsize), hidx_k(tsize))
   call gather_tile_data(soil_hidx_j_ptr,idx,hidx_j)

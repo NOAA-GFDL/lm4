@@ -58,8 +58,8 @@ public :: get_area_id
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
      mod_name = 'lan_tile_diag_mod', &
-     version  = '$Id: land_tile_diag.F90,v 20.0.10.7.2.1 2014/10/30 17:27:12 pjp Exp $', &
-     tagname  = '$Name: ulm_201505 $'
+     version  = '$Id: land_tile_diag.F90,v 21.0.6.1 2015/04/20 21:59:52 Sergey.Malyshev Exp $', &
+     tagname  = '$Name: ulm_lad2_slm $'
 
 integer, parameter :: INIT_FIELDS_SIZE     = 1     ! initial size of the fields array
 integer, parameter :: BASE_TILED_FIELD_ID  = 65536 ! base value for tiled field 
@@ -203,6 +203,9 @@ subroutine register_tiled_area_fields(module_name, axes, init_time, &
   ! register areas for all tiles
   id_area = reg_field(FLD_LIKE_AREA, module_name, 'area', init_time, axes, &
          'area in the grid cell', 'm2', missing_value=-1.0, op=OP_SUM)
+  if (id_area>0) then
+     call add_cell_methods(id_area,'area: sum')
+  endif
   ! store the ids of area for each of the selectors
   if (id_area > 0) then
      i_area = id_area - BASE_TILED_FIELD_ID

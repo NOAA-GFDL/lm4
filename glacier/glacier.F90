@@ -16,11 +16,11 @@ use fms_io_mod, only : read_compressed, restart_file_type, free_restart_type
 use fms_io_mod, only : get_field_size, save_restart
 use fms_io_mod, only : register_restart_axis, register_restart_field, set_domain, nullify_domain
 
-use time_manager_mod,   only: time_type, increment_time, time_type_to_real
+use time_manager_mod,   only: time_type, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o, PI
 
-use glac_tile_mod,      only: glac_tile_type, glac_pars_type, &
+use glac_tile_mod,      only: glac_tile_type, &
      read_glac_data_namelist, glac_data_thermodynamics, glac_data_hydraulics, &
      glac_data_radiation, glac_data_diffusion, max_lev, cpw, clw, csw
 
@@ -31,7 +31,7 @@ use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
 use land_tile_diag_mod, only : &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
      set_default_diag_filter
-use land_data_mod,      only : land_state_type, lnd
+use land_data_mod,      only : land_state_type, lnd, land_time
 use land_io_mod, only : print_netcdf_error
 use land_tile_io_mod, only: create_tile_out_file, read_tile_data_r1d_fptr, &
      write_tile_data_r1d_fptr, get_input_restart_name, sync_nc_files, &
@@ -59,8 +59,8 @@ public :: glac_step_2
 ! ==== module constants ======================================================
 character(len=*), parameter :: &
        module_name = 'glacier',&
-       version     = '$Id: glacier.F90,v 20.0.2.1.6.1.4.2.4.3 2014/10/30 18:42:20 pjp Exp $',&
-       tagname     = '$Name: ulm_201505 $'
+       version     = '$Id: glacier.F90,v 21.0.2.1.2.1 2015/03/24 22:26:02 Sergey.Malyshev Exp $',&
+       tagname     = '$Name: ulm_lad2_slm $'
  
 ! ==== module variables ======================================================
 
@@ -76,7 +76,6 @@ namelist /glac_nml/ lm2, conserve_glacier_mass,  albedo_to_use, &
 
 logical         :: module_is_initialized =.FALSE.
 logical         :: use_brdf
-type(time_type) :: time
 real            :: delta_time       ! fast time step
 
 integer         :: num_l            ! # of water layers
@@ -159,7 +158,6 @@ subroutine glac_init ( id_lon, id_lat, new_land_io )
 
 
   module_is_initialized = .TRUE.
-  time       = lnd%time
   delta_time = time_type_to_real(lnd%dt_fast)
 
   ! -------- initialize glac state --------
@@ -303,7 +301,7 @@ subroutine save_glac_restart_new (tile_dim_length, timestamp)
   call set_domain(lnd%domain)
 ! Note that fname is updated for tile & rank numbers during file creation
   fname = trim(timestamp)//'glac.res.nc'
-  call create_tile_out_file(glac_restart,idx,fname,lnd,glac_tile_exists,tile_dim_length,zfull(1:num_l))
+  call create_tile_out_file(glac_restart,idx,fname,glac_tile_exists,tile_dim_length,zfull(1:num_l))
   isize = size(idx)
   allocate(temp(isize,num_l), &
               wl(isize,num_l), &
@@ -919,9 +917,6 @@ ENDIF  !************************************************************************
 ! ----------------------------------------------------------------------------
 ! given solution for surface energy balance, write diagnostic output.
 !  
-
-  ! ---- increment time
-  time = increment_time(time, int(delta_time), 0)
   
   ! ---- diagnostic section
   call send_tile_data (id_temp, glac%T,     diag )
@@ -963,24 +958,24 @@ subroutine glac_diag_init ( id_lon, id_lat, zfull, zhalf )
 
   ! define diagnostic fields
   id_lwc = register_tiled_diag_field ( module_name, 'glac_liq', axes,        &
-       Time, 'bulk density of liquid water', 'kg/m3', missing_value=-100.0 )
+       land_time, 'bulk density of liquid water', 'kg/m3', missing_value=-100.0 )
   id_swc  = register_tiled_diag_field ( module_name, 'glac_ice',  axes,      &
-       Time, 'bulk density of solid water', 'kg/m3',  missing_value=-100.0 )
+       land_time, 'bulk density of solid water', 'kg/m3',  missing_value=-100.0 )
   id_temp  = register_tiled_diag_field ( module_name, 'glac_T',  axes,       &
-       Time, 'temperature',            'degK',  missing_value=-100.0 )
+       land_time, 'temperature',            'degK',  missing_value=-100.0 )
 if (.not.lm2) then
   id_ie  = register_tiled_diag_field ( module_name, 'glac_rie',  axes(1:2),  &
-       Time, 'inf exc runf',            'kg/(m2 s)',  missing_value=-100.0 )
+       land_time, 'inf exc runf',            'kg/(m2 s)',  missing_value=-100.0 )
   id_sn  = register_tiled_diag_field ( module_name, 'glac_rsn',  axes(1:2),  &
-       Time, 'satn runf',            'kg/(m2 s)',  missing_value=-100.0 )
+       land_time, 'satn runf',            'kg/(m2 s)',  missing_value=-100.0 )
   id_bf  = register_tiled_diag_field ( module_name, 'glac_rbf',  axes(1:2),  &
-       Time, 'baseflow',            'kg/(m2 s)',  missing_value=-100.0 )
+       land_time, 'baseflow',            'kg/(m2 s)',  missing_value=-100.0 )
   id_hie  = register_tiled_diag_field ( module_name, 'glac_hie',  axes(1:2), &
-       Time, 'heat ie runf',            'W/m2',  missing_value=-100.0 )
+       land_time, 'heat ie runf',            'W/m2',  missing_value=-100.0 )
   id_hsn  = register_tiled_diag_field ( module_name, 'glac_hsn',  axes(1:2), &
-       Time, 'heat sn runf',            'W/m2',  missing_value=-100.0 )
+       land_time, 'heat sn runf',            'W/m2',  missing_value=-100.0 )
   id_hbf  = register_tiled_diag_field ( module_name, 'glac_hbf',  axes(1:2), &
-       Time, 'heat bf runf',            'W/m2',  missing_value=-100.0 )
+       land_time, 'heat bf runf',            'W/m2',  missing_value=-100.0 )
 endif
 
   
