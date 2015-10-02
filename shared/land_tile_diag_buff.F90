@@ -21,8 +21,8 @@ end type diag_buff_type
 ! ==== module constants =====================================================
 integer, parameter :: MIN_DIAG_BUFF_SIZE = 1
 character(len=*), parameter :: &
-     version = '$Id: land_tile_diag_buff.F90,v 17.0 2009/07/21 03:02:39 fms Exp $', &
-     tagname = '$Name: ulm_201505 $'
+     version = '$Id$', &
+     tagname = '$Name$'
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 

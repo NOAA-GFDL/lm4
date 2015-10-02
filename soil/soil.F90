@@ -97,8 +97,8 @@ public :: soil_step_3
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'soil',&
-    version     = '$Id: soil.F90,v 21.0.4.1 2015/02/23 20:09:02 Zhi.Liang Exp $',&
-    tagname     = '$Name: ulm_201505 $'
+    version     = '$Id$',&
+    tagname     = '$Name$'
 
 ! ==== module variables ======================================================
 

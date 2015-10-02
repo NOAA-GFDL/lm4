@@ -1,5 +1,5 @@
 ! -*-f90-*-
-! $Id: read_remap_cohort_data.inc,v 17.0 2009/07/21 03:03:09 fms Exp $
+! $Id$
 
 ! some sanity checks
 #ifndef F90_TYPE
