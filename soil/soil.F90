@@ -3295,7 +3295,7 @@ end subroutine soil_push_down_excess
   if(is_watch_point().or.(flag.and.write_when_flagged)) then
      write(*,*) ' ##### soil_step_2 checkpoint 3.21 #####'
      do l = 1, num_l
-        write(*,'(i2.3)', advance='NO') l
+        write(*,'(i2.2)', advance='NO') l
         call dpri('dW_l=',dW_l(l))
         call dpri('flow=',flow(l))
         call dpri('div=', div(l))
@@ -3334,7 +3334,7 @@ end subroutine soil_push_down_excess
   if(is_watch_point().or.(flag.and.write_when_flagged)) then
      write(*,*) ' ##### soil_step_2 checkpoint 3.22 #####'
      do l = 1, num_l
-        write(*,'(i2.3)', advance='NO') l
+        write(*,'(i2.2)', advance='NO') l
         call dpri('dW_l=',dW_l(l))
         call dpri('flow=',flow(l))
         call dpri('div=', div(l))
@@ -3354,7 +3354,7 @@ end subroutine soil_push_down_excess
      write(*,*) 'psi_sat',soil%pars%psi_sat_ref
      write(*,*) 'Dpsi_max',Dpsi_max
      do l = 1, num_l
-        write(*,'(i2.3)', advance='NO') l
+        write(*,'(i2.2)', advance='NO') l
         call dpri('Th=', (soil%ws(l)+soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)))
         call dpri('wl=', soil%wl(l)+dW_l(l))
         call dpri('ws=', soil%ws(l))
