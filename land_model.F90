@@ -87,7 +87,7 @@ use land_tile_diag_mod, only : OP_SUM, tile_diag_init, tile_diag_end, &
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, is_watch_cell, is_watch_time, get_watch_point, get_current_point, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, &
-     check_temp_range, current_face
+     check_var_range, check_temp_range, current_face
 use static_vegn_mod, only : write_static_vegn
 use land_transitions_mod, only : &
      land_transitions_init, land_transitions_end, land_transitions, &
@@ -96,9 +96,6 @@ use stock_constants_mod, only: ISTOCK_WATER, ISTOCK_HEAT, ISTOCK_SALT
 use hillslope_mod, only: retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
                          read_hlsp_namelist, hlsp_init, hlsp_config_check
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
-#ifdef ZMSDEBUG
-use land_debug_mod, only : check_var_range
-#endif
 
 implicit none
 private
@@ -1365,6 +1362,19 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
      call print_date(land_time, '#### update_land_model_fast_0d begins:')
   endif
 
+  ! sanity checks of some input values
+  call check_var_range(precip_l,  0.0, 1.0,        'land model input', 'precip_l',    WARNING)
+  call check_var_range(precip_s,  0.0, 1.0,        'land model input', 'precip_s',    WARNING)
+  call check_temp_range(atmos_T,                   'land model input', 'atmos_T')
+  call check_var_range(ISa_dn_dir, 0.0, 1360.0,    'land model input', 'sw.down.dir', WARNING)
+  call check_var_range(ISa_dn_dif, 0.0, 1360.0,    'land model input', 'sw.down.dif', WARNING)
+  call check_var_range(ISa_dn_dir, 0.0, 1360.0,    'land model input', 'lw.down',     WARNING)
+  call check_var_range(ustar,      0.0, HUGE(1.0), 'land model input', 'ustar',       WARNING)
+  call check_var_range(drag_q,     0.0, HUGE(1.0), 'land model input', 'drag_q',      WARNING)
+  call check_var_range(p_surf,     0.0, HUGE(1.0), 'land model input', 'p_surf',      WARNING)
+  ! not checking fluxes and their derivatives, since they can be either positive
+  ! or negative, and it is hard to determine valid ranges for them.
+  
   Ea0    = tr_flux(isphum) ; DEaDqc  = dfdtr(isphum)
   fco2_0 = tr_flux(ico2)   ; Dfco2Dq = dfdtr(ico2)
 
