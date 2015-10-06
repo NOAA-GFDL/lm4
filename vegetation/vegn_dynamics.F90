@@ -547,7 +547,7 @@ subroutine vegn_starvation_ppa (vegn, soil)
 
 !  if (k==0) call error_mesg('vegn_nat_mortality_ppa','All cohorts died',WARNING)
   if (is_watch_point()) then
-     write(*,*)'###### vegn_nat_mortality_ppa #######'
+     write(*,*)'###### vegn_starvation_ppa #######'
      __DEBUG1__(vegn%cohorts%nindivs)
      __DEBUG1__(k)
   endif
@@ -1100,7 +1100,6 @@ subroutine vegn_reproduction_ppa (vegn,soil)
   type(soil_tile_type), intent(inout) :: soil
 
 ! ---- local vars
-  type(vegn_cohort_type), pointer :: parent, cc ! parent and child cohort pointers
   type(vegn_cohort_type), pointer :: ccold(:)   ! pointer to old cohort array
   real :: failed_seeds !, prob_g, prob_e
   logical :: invasion = .FALSE.
@@ -1132,7 +1131,7 @@ subroutine vegn_reproduction_ppa (vegn,soil)
     ! update child cohort parameters
     associate (cc     => vegn%cohorts(k), &  ! F2003
                parent => vegn%cohorts(i), &
-               sp     => spdata(parent%species))
+               sp     => spdata(vegn%cohorts(i)%species) )
     ! copy all parent values into the new cohort then change some of them below
     cc         = parent
 
