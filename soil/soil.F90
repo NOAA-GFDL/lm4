@@ -77,7 +77,6 @@ use soil_tile_mod, only : n_dim_soil_types, soil_to_use, &
      soil_index_constant, input_cover_types
 use hillslope_hydrology_mod, only: hlsp_hydro_lev_init, hlsp_hydrology_2, &
      stiff_explicit_gwupdate
-use river_mod, only : river_tracer_index
 
 ! Test tridiagonal solution for advection
 use land_numerics_mod, only : tridiag
@@ -230,11 +229,6 @@ real            :: Eg_min
 integer         :: uptake_option = -1
 integer         :: gw_option = -1
 
-integer :: n_river_tracers = 0
-integer :: i_river_DOC     = NO_TRACER
-integer :: i_river_DON     = NO_TRACER
-integer :: i_river_NO3     = NO_TRACER
-integer :: i_river_NH4     = NO_TRACER
 
 real, allocatable :: soilCCohort_data(:)
 
@@ -462,11 +456,6 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
   call uptake_init(num_l,dz,zfull)
   call hlsp_hydro_lev_init(num_l,dz,zfull)
 
-  ! initialize river tracer indices -- do these actually work with river?
-  i_river_DOC  = river_tracer_index('doc')
-  i_river_DON  = river_tracer_index('don')
-  i_river_NO3  = river_tracer_index('NO3')
-  i_river_NH4  = river_tracer_index('NH4')
 
 
   ! -------- initialize soil model diagnostic fields
@@ -3985,7 +3974,7 @@ end subroutine soil_step_1
                            use_tfreeze_in_grnd_latent, &
                            soil_levap, soil_fevap, soil_melt, &
                            soil_lrunf, soil_hlrunf, soil_Ttop, soil_Ctop, &
-                           soil_frunf, soil_hfrunf, soil_tr_runf)
+                           soil_frunf, soil_hfrunf, soil_doc_runf, soil_don_runf, soil_NO3_runf, soil_NH4_runf)
   type(soil_tile_type), intent(inout) :: soil
   type(vegn_tile_type), intent(in)    :: vegn
   type(diag_buff_type), intent(inout) :: diag
@@ -4009,7 +3998,9 @@ end subroutine soil_step_1
        soil_Ctop, & ! ?? soil surface layer heat capacity [J/m^2.K]
        soil_frunf, & ! ?? frozen runoff from soil [mm/s]
        soil_hfrunf, & ! ?? heat associated with frozen runoff from soil [W/m^2]
-       soil_tr_runf(:) ! dissolved tracer runoff from soil [kgC/m^2/s or kgN/m^2/s]  -- Check if this is set up right
+       soil_doc_runf, & ! dissolved carbon tracer runoff from soil [kgC/m^2/s]
+       soil_don_runf, & ! dissolved organic N runoff from soil [kgN/m2/s]
+       soil_NO3_runf, soil_NH4_runf ! dissolved nitrate and ammonium runoff from soil [kgN/m2/s]
 
 
   ! ---- local vars ----------------------------------------------------------
@@ -5084,14 +5075,10 @@ soil%passive_N_uptake=sum(passive_ammonium_uptake+passive_nitrate_uptake)
    total_DON_div = total_DON_div/delta_time
    total_NO3_div = total_NO3_div/delta_time
    total_NH4_div = total_NH4_div/delta_time
-   if (i_river_DOC/=NO_TRACER) &
-       soil_tr_runf(i_river_DOC) = total_DOC_div
-   if (i_river_DON/=NO_TRACER) &
-       soil_tr_runf(i_river_DON) = total_DON_div
-   if (i_river_NO3/=NO_TRACER) &
-       soil_tr_runf(i_river_NO3) = total_NO3_div
-   if (i_river_NH4/=NO_TRACER) &
-       soil_tr_runf(i_river_NH4) = total_NH4_div
+   soil_doc_runf = total_DOC_div
+   soil_don_runf = total_DON_div
+   soil_NO3_runf = total_NO3_div
+   soil_NH4_runf = total_NH4_div
 
    if (is_watch_point()) then
       write(*,*)'##### soil_step_2 checkpoint 7 #####'
