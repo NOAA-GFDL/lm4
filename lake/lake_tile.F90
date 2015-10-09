@@ -394,8 +394,10 @@ function lake_cover_cold_start(land_mask, lonb, latb, domain) result (lake_frac)
 
   if (trim(lake_to_use)=='from-rivers') then
      lake_frac = 0.0
-     call read_data('INPUT/river_data.nc', 'lake_frac', lake_frac(:,:,1), &
+     if(file_exist('INPUT/river_data.nc', domain) ) then
+       call read_data('INPUT/river_data.nc', 'lake_frac', lake_frac(:,:,1), &
           domain=domain)
+     endif
      ! make sure 'missing values' don't get into the result
      where (lake_frac < 0) lake_frac = 0
      where (lake_frac > 1) lake_frac = 1

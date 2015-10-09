@@ -197,71 +197,81 @@ subroutine lake_init ( id_lon, id_lat, new_land_io )
   logical :: restart_exists, found
   real, allocatable :: buffer(:,:),bufferc(:,:),buffert(:,:)
   integer i
+  logical :: river_data_exist
 
   module_is_initialized = .TRUE.
   delta_time = time_type_to_real(lnd%dt_fast)
 
-allocate(buffer (lnd%is:lnd%ie,lnd%js:lnd%je))
-allocate(bufferc(lnd%is:lnd%ie,lnd%js:lnd%je))
-allocate(buffert(lnd%is:lnd%ie,lnd%js:lnd%je))
+  allocate(buffer (lnd%is:lnd%ie,lnd%js:lnd%je))
+  allocate(bufferc(lnd%is:lnd%ie,lnd%js:lnd%je))
+  allocate(buffert(lnd%is:lnd%ie,lnd%js:lnd%je))
+  buffer (:,:) = 0
+  bufferc(:,:) = 0
+  buffert(:,:) = 0
+  river_data_exist = file_exist('INPUT/river_data.nc', lnd%domain)
+  if (river_data_exist) then
+     call error_mesg('lake_init', 'reading lake information from river data file', NOTE)
+  else
+     call error_mesg('lake_init', 'river data file not present: lake fraction is set to zero', NOTE)
+  endif
 
-IF (LARGE_DYN_SMALL_STAT) THEN
+  IF (LARGE_DYN_SMALL_STAT) THEN
 
-call read_data('INPUT/river_data.nc', 'connected_to_next', bufferc(:,:), lnd%domain)
-call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_connected_to_next_ptr)
+     if(river_data_exist) call read_data('INPUT/river_data.nc', 'connected_to_next', bufferc(:,:), lnd%domain)
+     call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_connected_to_next_ptr)
 
-call read_data('INPUT/river_data.nc', 'whole_lake_area', buffer(:,:), lnd%domain)
-call put_to_tiles_r0d_fptr(buffer, lnd%tile_map, lake_whole_area_ptr)
+     if(river_data_exist) call read_data('INPUT/river_data.nc', 'whole_lake_area', buffer(:,:), lnd%domain)
+     call put_to_tiles_r0d_fptr(buffer, lnd%tile_map, lake_whole_area_ptr)
 
-call read_data('INPUT/river_data.nc', 'lake_depth_sill', buffer(:,:),  lnd%domain)
-buffer = min(buffer, lake_depth_max)
-buffer = max(buffer, lake_depth_min)
-call put_to_tiles_r0d_fptr(buffer,  lnd%tile_map, lake_depth_sill_ptr)
+     if(river_data_exist) call read_data('INPUT/river_data.nc', 'lake_depth_sill', buffer(:,:),  lnd%domain)
+     buffer = min(buffer, lake_depth_max)
+     buffer = max(buffer, lake_depth_min)
+     call put_to_tiles_r0d_fptr(buffer,  lnd%tile_map, lake_depth_sill_ptr)
 
-! lake_tau is just used here as a flag for 'large lakes'
-! sill width of -1 is a flag saying not to allow transient storage
-call read_data('INPUT/river_data.nc', 'lake_tau', buffert(:,:),  lnd%domain)
-buffer = -1.
-!where (bufferc.gt.0.5) buffer = lake_width_inside_lake
-where (bufferc.lt.0.5 .and. buffert.gt.1.) buffer = large_lake_sill_width
-if (lake_specific_width) then
-    do i = 1, n_outlet
-      if(lnd%face.eq.outlet_face(i).and.lnd%is.le.outlet_i(i).and.lnd%ie.ge.outlet_i(i) &
-                                 .and.lnd%js.le.outlet_j(i).and.lnd%je.ge.outlet_j(i)) &
-        buffer(outlet_i(i),outlet_j(i)) = outlet_width(i)
-      enddo
-endif
-call put_to_tiles_r0d_fptr(buffer, lnd%tile_map, lake_width_sill_ptr)
+     ! lake_tau is just used here as a flag for 'large lakes'
+     ! sill width of -1 is a flag saying not to allow transient storage
+     if(river_data_exist) call read_data('INPUT/river_data.nc', 'lake_tau', buffert(:,:),  lnd%domain)
+     buffer = -1.
+     !where (bufferc.gt.0.5) buffer = lake_width_inside_lake
+     where (bufferc.lt.0.5 .and. buffert.gt.1.) buffer = large_lake_sill_width
+     if (lake_specific_width) then
+        do i = 1, n_outlet
+           if(lnd%face.eq.outlet_face(i).and.lnd%is.le.outlet_i(i).and.lnd%ie.ge.outlet_i(i) &
+                .and.lnd%js.le.outlet_j(i).and.lnd%je.ge.outlet_j(i)) &
+                buffer(outlet_i(i),outlet_j(i)) = outlet_width(i)
+        enddo
+     endif
+     call put_to_tiles_r0d_fptr(buffer, lnd%tile_map, lake_width_sill_ptr)
 
-buffer = 1.e8
-if (max_plain_slope.gt.0.) &
-   call read_data('INPUT/river_data.nc', 'max_slope_to_next', buffer(:,:), lnd%domain)
-call read_data('INPUT/river_data.nc', 'travel', buffert(:,:), lnd%domain)
-bufferc = 0.
-where (buffer.lt.max_plain_slope .and. buffert.gt.1.5) bufferc = 1.
-call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_backwater_ptr)
-bufferc = 0
-where (buffer.lt.max_plain_slope .and. buffert.lt.1.5) bufferc = 1.
-call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_backwater_1_ptr)
+     buffer = 1.e8
+     if (max_plain_slope.gt.0. .and. river_data_exist) &
+          call read_data('INPUT/river_data.nc', 'max_slope_to_next', buffer(:,:), lnd%domain)
+     if(river_data_exist) call read_data('INPUT/river_data.nc', 'travel', buffert(:,:), lnd%domain)
+     bufferc = 0.
+     where (buffer.lt.max_plain_slope .and. buffert.gt.1.5) bufferc = 1.
+     call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_backwater_ptr)
+     bufferc = 0
+     where (buffer.lt.max_plain_slope .and. buffert.lt.1.5) bufferc = 1.
+     call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_backwater_1_ptr)
 
-ELSE
-call read_data('INPUT/river_data.nc', 'whole_lake_area', bufferc(:,:), lnd%domain)
+  ELSE
+     if(river_data_exist) call read_data('INPUT/river_data.nc', 'whole_lake_area', bufferc(:,:), lnd%domain)
 
-call read_data('INPUT/river_data.nc', 'lake_depth_sill', buffer(:,:), lnd%domain)
-where (bufferc.eq.0.)                      buffer = 0.
-where (bufferc.gt.0..and.bufferc.lt.2.e10) buffer = max(2., 2.5e-4*sqrt(bufferc))
-call put_to_tiles_r0d_fptr(buffer,  lnd%tile_map, lake_depth_sill_ptr)
-call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_whole_area_ptr)
+     if(river_data_exist) call read_data('INPUT/river_data.nc', 'lake_depth_sill', buffer(:,:), lnd%domain)
+     where (bufferc.eq.0.)                      buffer = 0.
+     where (bufferc.gt.0..and.bufferc.lt.2.e10) buffer = max(2., 2.5e-4*sqrt(bufferc))
+     call put_to_tiles_r0d_fptr(buffer,  lnd%tile_map, lake_depth_sill_ptr)
+     call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_whole_area_ptr)
 
-buffer = 4. * buffer
-where (bufferc.gt.2.e10) buffer = min(buffer, 60.)
-call read_data('INPUT/river_data.nc', 'connected_to_next', bufferc(:,:), lnd%domain)
-call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_connected_to_next_ptr)
+     buffer = 4. * buffer
+     where (bufferc.gt.2.e10) buffer = min(buffer, 60.)
+     if(river_data_exist) call read_data('INPUT/river_data.nc', 'connected_to_next', bufferc(:,:), lnd%domain)
+     call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_connected_to_next_ptr)
 
-where (bufferc.gt.0.5) buffer=lake_width_inside_lake
-if (make_all_lakes_wide) buffer = lake_width_inside_lake
-call put_to_tiles_r0d_fptr(buffer, lnd%tile_map, lake_width_sill_ptr)
-ENDIF
+     where (bufferc.gt.0.5) buffer=lake_width_inside_lake
+     if (make_all_lakes_wide) buffer = lake_width_inside_lake
+     call put_to_tiles_r0d_fptr(buffer, lnd%tile_map, lake_width_sill_ptr)
+  ENDIF
 
 deallocate (buffer, bufferc, buffert)
 
