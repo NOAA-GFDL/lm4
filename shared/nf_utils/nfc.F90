@@ -1,6 +1,7 @@
 module nfc_mod
 
   use nfu_mod
+  use fms_mod, only: error_mesg, FATAL
 
 implicit none
 private
@@ -33,8 +34,8 @@ end interface
 #undef __INTERFACE_SECTION__
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: &
-     version = '$Id$', &
-     tagname = '$Name$'
+     version = '$Id:$', &
+     tagname = '$Name:$'
 
 ! ---- private type - used to hold dimension/packing information during unpacking
 ! (see get_compressed_var_i_r8)
