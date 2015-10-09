@@ -155,6 +155,8 @@ real*8					   :: Ea_nitrif=37e3                 !Activation energy for nitrifica
 real*8					   :: Ea_denitr=37e3				 !Activation energy for uptake of inorganic nitrogen  (kJ/mol)
 real*8             :: Vmax_myc_min_N_uptk=365.0    ! Vmax of mycorrhizal uptake of mineral N (year-1)
 real*8             :: k_myc_min_N_uptk=0.01       ! half-saturation constant for mycorrhizal uptake of mineral N (kgC/m3 of mycorrhizal biomass)
+real*8             :: k_myc_decomp=0.01           ! half-saturation constant for mycorrhizal decomposition
+real,dimension(n_c_types) :: vmaxref_myc_decomp=(/4500e0,25e0,600e0/)
 real,dimension(n_c_types) :: vmaxref=(/4e1,1e1,.5e1/)       !Vmax at reference temperature (yr-1)
 real,dimension(n_c_types) :: kC=(/.5,.1,0.05/)              !Michaelis-Menton C parameter (dimensionless)
 real                      :: Tmic=0.2                       !Microbial mean lifetime (yr)
@@ -223,7 +225,7 @@ namelist /soil_carbon_nml/ &
             N_protected_relative_solubility,&
             DON_deposition_rate,&
             N_limit_scheme,&
-            Vmax_myc_min_N_uptk,k_myc_min_N_uptk,eup_myc
+            Vmax_myc_min_N_uptk,k_myc_min_N_uptk,eup_myc,vmaxref_myc_decomp,k_myc_decomp
 
 
 !---- end-of-namelist --------------------------------------------------------
@@ -1145,6 +1147,37 @@ pure function Resp(Ctotal,Chet,T,theta,air_filled_porosity)
     !Resp=tempresp*(1.0-theta)+theta*tempresp*ox_avail/(kO+ox_avail)
 end function Resp
 
+pure function Resp_myc(Ctotal,Chet,T,theta,air_filled_porosity)
+    real,intent(in)::Chet                       !heterotrophic (microbial) C
+    real,intent(in)::T,theta                    !temperature (k), theta (fraction of 1.0)
+    real,intent(in)::air_filled_porosity        !Fraction of 1.0.  Different from theta since it includes ice
+    real,intent(in),dimension(n_c_types)::Ctotal !Substrate C
+    real,dimension(n_c_types)::Resp_myc,tempresp
+    real::enz,Cavail(n_c_types)
+    real, parameter :: aerobic_max = 0.022 ! Maximum soil-moisture factor under ideal conditions
+
+
+
+    enz=Chet*enzfrac
+
+    !Good place to implement DAMM functionality: Available carbon is the amount that diffuses to enzyme site
+    Cavail=Ctotal
+    IF(sum(Cavail).eq.0.0 .OR. theta.eq.0.0 .OR. enz.eq.0.0) THEN
+        Resp_myc=0.0
+        return
+    ENDIF
+
+    Resp_myc=Vmax_myc(T)*theta**3*(Cavail)*enz/(sum(Cavail)*k_myc_decomp+enz)*max((air_filled_porosity)**gas_diffusion_exp,min_anaerobic_resp_factor*aerobic_max)
+
+    !ox_avail=oxygen_concentration(Ox,sum(tempresp)/sum(Cavail)*theta*oxPerC)
+    !print *,sum(tempresp)/sum(Cavail)
+    !print *,ox_avail/(kO+ox_avail)
+    !print *,tempresp*(1.0-theta)+theta*tempresp*ox_avail/(kO+ox_avail)
+
+    !Assumes pores are either saturated or not oxygen limited, divided according to theta
+    !Resp=tempresp*(1.0-theta)+theta*tempresp*ox_avail/(kO+ox_avail)
+end function Resp_myc
+
 
 pure function Vmax(T)
     real,intent(in)::T
@@ -1154,6 +1187,15 @@ pure function Vmax(T)
     alpha=vmaxref/exp(-Ea/(Rugas*Tref))
     Vmax=alpha*exp(-Ea/(Rugas*T))
 end function Vmax
+
+pure function Vmax_myc(T)
+    real,intent(in)::T
+    real,parameter::Tref=293.15
+    real,dimension(n_c_types)::alpha,Vmax_myc
+
+    alpha=vmaxref_myc_decomp/exp(-Ea/(Rugas*Tref))
+    Vmax_myc=alpha*exp(-Ea/(Rugas*T))
+end function Vmax_myc
 
 
 ! Calculates the rate of [Arbuscular] mycorrhizal uptake of mineral N in the pool.
@@ -1201,7 +1243,7 @@ pure subroutine hypothetical_mycorrhizal_decomposition(pool,myc_biomass,T,theta,
 
     cohort_myc_biomass = myc_biomass*weight
 
-    potential_tempResp=Resp(pool%litterCohorts(nn)%litterC,cohort_myc_biomass,T,theta,air_filled_porosity)
+    potential_tempResp=Resp_myc(pool%litterCohorts(nn)%litterC,cohort_myc_biomass,T,theta,air_filled_porosity)
 
     !Make sure it does not exceed available C
     where(dt*potential_tempResp > pool%litterCohorts(nn)%litterC)
@@ -1250,7 +1292,7 @@ subroutine mycorrhizal_decomposition(pool,myc_biomass,T,theta,air_filled_porosit
 
     cohort_myc_biomass = myc_biomass*weight
 
-    potential_tempResp=Resp(pool%litterCohorts(nn)%litterC,cohort_myc_biomass,T,theta,air_filled_porosity)
+    potential_tempResp=Resp_myc(pool%litterCohorts(nn)%litterC,cohort_myc_biomass,T,theta,air_filled_porosity)
 
     !Make sure it does not exceed available C
     where(dt*potential_tempResp > pool%litterCohorts(nn)%litterC)
