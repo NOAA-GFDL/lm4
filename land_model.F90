@@ -26,7 +26,7 @@ use diag_manager_mod, only : diag_axis_init, register_static_field, &
      register_diag_field, send_data
 use constants_mod, only : radius, hlf, hlv, hls, tfreeze, pi, rdgas, rvgas, cp_air, &
      stefan
-use astronomy_mod, only : diurnal_solar
+use astronomy_mod, only : astronomy_init, diurnal_solar
 use sphum_mod, only : qscomp
 use tracer_manager_mod, only : NO_TRACER
 
@@ -293,6 +293,8 @@ subroutine land_model_init &
   landInitClock  = mpp_clock_id('Land init'          ,CLOCK_FLAG_DEFAULT,CLOCK_ROUTINE)
 
   call mpp_clock_begin(landInitClock)
+
+  call astronomy_init ! in case it is not initialized, e.g. when using atmos_null
 
   ! [ ] initialize land debug output
   call land_debug_init()
