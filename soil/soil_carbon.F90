@@ -1819,15 +1819,19 @@ subroutine combine_pools(pool1,pool2,w1,w2)
     x2 = 1.0 - x1
 
     !First multiply existing cohorts by weighting
-    DO cc=1,pool2%n_cohorts
-        pool2%litterCohorts(cc)=multiply_cohort(pool2%litterCohorts(cc),x2)
-    ENDDO
+    IF(pool2%n_cohorts>0) THEN
+      DO cc=1,pool2%n_cohorts
+          pool2%litterCohorts(cc)=multiply_cohort(pool2%litterCohorts(cc),x2)
+      ENDDO
+    ENDIF
 
     !Then just add the cohorts in pool1 to pool2, with weights
     ! Note: Should this do something different if using rhizosphere and bulk soil structure?
-    DO cc=1,pool1%n_cohorts
-        call add_cohort(pool2,multiply_cohort(pool1%litterCohorts(cc),x1))
-    ENDDO
+    IF (pool1%n_cohorts>0) THEN
+      DO cc=1,pool1%n_cohorts
+          call add_cohort(pool2,multiply_cohort(pool1%litterCohorts(cc),x1))
+      ENDDO
+    ENDIF
 
     call cull_cohorts(pool2)
     pool2%dissolved_carbon=pool2%dissolved_carbon*x2 + pool1%dissolved_carbon*x1
