@@ -121,13 +121,13 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
          (/id_lon,id_lat/), time, 'C allocation to N fixers', 'kg C/(m2 year)', &
          missing_value=-100.0 )
      id_N_fix_marginal_gain = register_tiled_diag_field ( module_name, 'N_fix_marginal_gain',  &
-          (/id_lon,id_lat/), time, 'Extra N fixation per unit C allocation', 'kg N/(m2 year)', &
+          (/id_lon,id_lat/), time, 'Extra N fixation per unit C allocation', 'kg N/(m2 year)/kgC', &
           missing_value=-100.0 )
     id_myc_scav_marginal_gain = register_tiled_diag_field ( module_name, 'myc_scav_marginal_gain',  &
-         (/id_lon,id_lat/), time, 'Extra N acquisition per unit C allocation to scavenger mycorrhizae', 'kg N/(m2 year)', &
+         (/id_lon,id_lat/), time, 'Extra N acquisition per unit C allocation to scavenger mycorrhizae', 'kg N/(m2 year)/kgC', &
          missing_value=-100.0 )
          id_myc_mine_marginal_gain = register_tiled_diag_field ( module_name, 'myc_mine_marginal_gain',  &
-              (/id_lon,id_lat/), time, 'Extra N acquisition per unit C allocation to miner mycorrhizae', 'kg N/(m2 year)', &
+              (/id_lon,id_lat/), time, 'Extra N acquisition per unit C allocation to miner mycorrhizae', 'kg N/(m2 year)/kg C', &
               missing_value=-100.0 )
      id_rhiz_exudation = register_tiled_diag_field ( module_name, 'rhiz_exudation',  &
           (/id_lon,id_lat/), time, 'C allocation to rhizosphere exudation', 'kg C/(m2 year)', &
@@ -336,19 +336,29 @@ total_myc_mine_C_uptake = 0.0
          ! Determined by calculating marginal change in N uptake if C allocation to each strategy increased by 10%
          ! Mycorrhizal:
          call hypothetical_myc_scavenger_N_uptake(soil,vegn,cc%myc_scavenger_biomass_C,myc_N_uptake,dt_fast_yr)
-         call hypothetical_myc_scavenger_N_uptake(soil,vegn,cc%myc_scavenger_biomass_C+root_exudate_C*0.1*dt_fast_yr*myc_scav_C_efficiency,myc_N_uptake_2,dt_fast_yr)
-         myc_scav_marginal_gain = (myc_N_uptake_2-myc_N_uptake)/0.1
+         call hypothetical_myc_scavenger_N_uptake(soil,vegn,cc%myc_scavenger_biomass_C+root_exudate_C*0.05*dt_fast_yr*myc_scav_C_efficiency,myc_N_uptake_2,dt_fast_yr)
+         if(root_exudate_C>0) then
+           myc_scav_marginal_gain = (myc_N_uptake_2-myc_N_uptake)/dt_fast_yr/(0.05*root_exudate_C*dt_fast_yr) ! (kgN/m2/year)/(kgC)
+         else
+           myc_scav_marginal_gain = 0.0
+         endif
 
          call hypothetical_myc_miner_N_uptake(soil,vegn,cc%myc_miner_biomass_C,myc_N_uptake,myc_C_uptake,mining_CO2prod,dt_fast_yr)
-         call hypothetical_myc_miner_N_uptake(soil,vegn,cc%myc_miner_biomass_C+root_exudate_C*0.1*dt_fast_yr*myc_mine_C_efficiency,myc_N_uptake_2,myc_C_uptake_2,mining_CO2prod,dt_fast_yr)
-         myc_mine_marginal_gain = (myc_N_uptake_2-myc_N_uptake)/0.1
-
+         call hypothetical_myc_miner_N_uptake(soil,vegn,cc%myc_miner_biomass_C+root_exudate_C*0.05*dt_fast_yr*myc_mine_C_efficiency,myc_N_uptake_2,myc_C_uptake_2,mining_CO2prod,dt_fast_yr)
+         if(root_exudate_C>0) then
+           myc_mine_marginal_gain = (myc_N_uptake_2-myc_N_uptake)/dt_fast_yr/(0.05*root_exudate_C*dt_fast_yr)
+         else
+           myc_mine_marginal_gain = 0.0
+         endif
 
          ! N fixer
          N_fixation = cc%N_fixer_biomass_C*N_fixation_rate*dt_fast_yr
-         N_fixation_2 = (cc%N_fixer_biomass_C+root_exudate_C*0.1*dt_fast_yr*N_fixer_C_efficiency)*N_fixation_rate*dt_fast_yr
-         N_fix_marginal_gain = (N_fixation_2-N_fixation)/0.1
-
+         N_fixation_2 = (cc%N_fixer_biomass_C+root_exudate_C*0.05*dt_fast_yr*N_fixer_C_efficiency)*N_fixation_rate*dt_fast_yr
+         if(root_exudate_C>0) then
+           N_fix_marginal_gain = (N_fixation_2-N_fixation)/dt_fast_yr/(0.05*root_exudate_C*dt_fast_yr)
+         else
+           N_fix_marginal_gain = 0.0
+         endif
          ! Just exudation
          ! Need to think about a strategy for calculating this.  Leaving at fixed value for now
 
