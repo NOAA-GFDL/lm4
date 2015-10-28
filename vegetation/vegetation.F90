@@ -18,7 +18,7 @@ use sphum_mod, only: qscomp
 use nf_utils_mod, only: nfu_def_var, nfu_get_var, nfu_put_var, nfu_inq_var
 
 use vegn_tile_mod, only: vegn_tile_type, &
-     vegn_seed_demand, vegn_seed_supply, vegn_add_bliving, &
+     vegn_seed_demand, vegn_seed_supply, vegn_add_bliving, relayer_cohorts, &
      vegn_tile_LAI, vegn_tile_SAI, &
      cpw, clw, csw
 use soil_tile_mod, only: soil_tile_type, num_l, dz, zhalf, zfull, &

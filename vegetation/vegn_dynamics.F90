@@ -11,7 +11,6 @@ use time_manager_mod, only: time_type
 use constants_mod, only : PI,tfreeze
 use land_constants_mod, only : seconds_per_year, mol_C
 use land_debug_mod, only : is_watch_point, check_var_range
-use land_numerics_mod, only : rank_descending
 use land_tile_diag_mod, only : OP_SUM, OP_MEAN, &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
      register_cohort_diag_field, send_cohort_data
@@ -48,7 +47,6 @@ public :: vegn_biogeography
 
 public :: vegn_starvation_ppa   !
 public :: vegn_reproduction_ppa ! reproduction for PPA case
-public :: relayer_cohorts
 public :: vegn_mergecohorts_ppa ! merge cohorts
 ! ==== end of public interfaces ==============================================
 
@@ -1372,67 +1370,5 @@ subroutine vegn_mergecohorts_ppa(vegn,soil)
   endif
 
 end subroutine vegn_mergecohorts_ppa
-
-
-! =============================================================================
-! given an array of cohorts, create a new array with old cohorts re-arranged
-! in layers according to their height and crown areas.
-subroutine relayer_cohorts (vegn)
-  type(vegn_tile_type), intent(inout) :: vegn ! input cohorts
-
-  ! ---- local constants
-  real, parameter :: tolerance = 1e-6 
-  real, parameter :: layer_vegn_cover = 1.0   
-  
-  ! ---- local vars
-  integer :: idx(vegn%n_cohorts) ! indices of cohorts in decreasing height order
-  integer :: i ! new cohort index
-  integer :: k ! old cohort index
-  integer :: L ! layer index (top-down)
-  integer :: N0,N1 ! initial and final number of cohorts 
-  real    :: frac ! fraction of the layer covered so far by the canopies
-  type(vegn_cohort_type), pointer :: cc(:),new(:)
-  real    :: nindivs
-  
-  ! rank cohorts in descending order by height. For now, assume that they are 
-  ! in order
-  N0 = vegn%n_cohorts; cc=>vegn%cohorts
-  call rank_descending(cc(1:N0)%height,idx)
-  
-  ! calculate max possible number of new cohorts : it is equal to the number of
-  ! old cohorts, plus the number of layers -- since the number of full layers is 
-  ! equal to the maximum number of times an input cohort can be split by a layer 
-  ! boundary.
-  N1 = vegn%n_cohorts + int(sum(cc(1:N0)%nindivs*cc(1:N0)%crownarea))
-  allocate(new(N1))
-
-  ! copy cohort information to the new cohorts, splitting the old cohorts that 
-  ! stride the layer boundaries
-  i = 1 ; k = 1 ; L = 1 ; frac = 0.0 ; nindivs = cc(idx(k))%nindivs
-  do 
-     new(i)         = cc(idx(k))
-     new(i)%nindivs = min(nindivs,(1-frac)/cc(idx(k))%crownarea)
-     new(i)%layer   = L
-     if (L==1) new(i)%firstlayer = 1
-     frac = frac+new(i)%nindivs*new(i)%crownarea
-     nindivs = nindivs - new(i)%nindivs
-     
-     if (abs(nindivs*cc(idx(k))%crownarea)<tolerance) then
-       new(i)%nindivs = new(i)%nindivs + nindivs ! allocate the remainder of individuals to the last cohort
-       if (k==N0) exit ! end of loop
-       k = k+1 ; nindivs = cc(idx(k))%nindivs  ! go to the next input cohort
-     endif
-     
-     if (abs(1-frac)<tolerance) then
-       L = L+1 ; frac = 0.0              ! start new layer
-     endif
-
-     i = i+1
-  enddo
-  
-  ! replace the array of cohorts
-  deallocate(vegn%cohorts)
-  vegn%cohorts => new ; vegn%n_cohorts = i
-end subroutine relayer_cohorts
 
 end module vegn_dynamics_mod
