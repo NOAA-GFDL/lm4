@@ -6,13 +6,19 @@ module vegn_disturbance_mod
 #include "../shared/debug.inc"
 
 use fms_mod,         only : error_mesg, WARNING, FATAL
+use time_manager_mod,only : time_type, get_date, operator(-)
 use constants_mod,   only : tfreeze
 use land_constants_mod, only : seconds_per_year
-use land_debug_mod,  only : is_watch_point, check_var_range
+use land_debug_mod,  only : is_watch_point, check_var_range, set_current_point
 use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, fsc_froot, agf_bs, &
-       do_ppa, LEAF_OFF, DBH_mort, A_mort, B_mort, mortrate_s
-use vegn_tile_mod,   only : vegn_tile_type
+       do_ppa, LEAF_OFF, DBH_mort, A_mort, B_mort, mortrate_s, nat_mortality_splits_tiles
+use vegn_tile_mod,   only : vegn_tile_type, relayer_cohorts
 use soil_tile_mod,   only : soil_tile_type, num_l, dz
+use land_tile_mod,   only : land_tile_type, land_tile_enum_type, &
+     land_tile_list_type, land_tile_list_init, land_tile_list_end, &
+     empty, first_elmt, tail_elmt, next_elmt, merge_land_tile_into_list, &
+     current_tile, operator(==), operator(/=), remove, insert, new_land_tile
+use land_data_mod,   only : lnd, land_time
 use soil_mod,        only : add_soil_carbon
 use soil_carbon_mod, only : add_litter, soil_carbon_option, &
      SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, N_C_TYPES, C_CEL
@@ -285,62 +291,183 @@ end subroutine vegn_nat_mortality_lm3
 
 
 ! ============================================================================
-! TODO: spread the mortality input to fsc and ssc over a year, to avoid spikes 
-! in carbon fluxes
-subroutine vegn_nat_mortality_ppa (vegn, soil, deltat)
-  type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(inout) :: soil
-  real, intent(in) :: deltat ! time since last mortality calculations, s
+! goes through all tiles in the domain, and applies natural mortality to
+! each of them, possibly creating new tiles within affected grid cells.
+subroutine vegn_nat_mortality_ppa ( )
 
-  ! ---- local vars
+  integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
+  type(land_tile_type), pointer :: t0,t1
+  type(land_tile_enum_type) :: ts, te
+  type(land_tile_list_type) :: disturbed_tiles
+  integer :: i,j,k
+  real, allocatable :: ndead(:)
+
+  ! get components of calendar dates for this and previous time step
+  call get_date(land_time,             year0,month0,day0,hour,minute,second)
+  call get_date(land_time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
+
+  if (.not.(do_ppa.and.year1 /= year0)) return  ! do nothing 
+
+  call land_tile_list_init(disturbed_tiles)
+
+  do j = lnd%js,lnd%je
+  do i = lnd%is,lnd%ie
+     if(empty(lnd%tile_map(i,j))) cycle ! skip cells where there is no land
+     ! set current point for debugging
+     call set_current_point(i,j,1)
+     ts = first_elmt(lnd%tile_map(i,j)) ; te=tail_elmt(lnd%tile_map(i,j))
+     do while (ts /= te)
+        t0=>current_tile(ts); ts=next_elmt(ts)
+        if (.not.associated(t0%vegn)) cycle ! do nothing for non-vegetated cycles
+        ! calculate death rate for each of the cohorts
+        allocate(ndead(t0%vegn%n_cohorts))
+        do k = 1,t0%vegn%n_cohorts
+           call cohort_nat_mortality_ppa(t0%vegn%cohorts(k), seconds_per_year, ndead(k))
+        enddo
+        ! given death numbers for each cohort, update tile
+        call tile_nat_mortality_ppa(t0,ndead,t1)
+        deallocate(ndead)
+        if (associated(t1)) call insert(t1,disturbed_tiles)
+     enddo
+     ! merge disturbed tiles back into the original list
+     te = tail_elmt(disturbed_tiles)
+     do 
+        ts = first_elmt(disturbed_tiles)
+        if (ts == te) exit ! reached the end of the list
+        t0=>current_tile(ts)
+        call remove(ts) ; call merge_land_tile_into_list(t0,lnd%tile_map(i,j))
+     enddo
+     ! at this point the list of disturbed tiles must be empty 
+     if (.not.empty(disturbed_tiles)) call error_mesg('vegn_nat_mortality_ppa', &
+        'list of disturbed tiles is not empty at the end of the processing', FATAL)
+  enddo
+  enddo
+
+  call land_tile_list_end(disturbed_tiles)
+
+end subroutine vegn_nat_mortality_ppa
+
+
+! ============================================================================
+! for a given cohort and time interval, calculates how many individuals die 
+! naturally during this interval
+subroutine cohort_nat_mortality_ppa(cc, deltat, ndead)
+  type(vegn_cohort_type), intent(in)  :: cc     ! cohort
+  real,                   intent(in)  :: deltat ! time interval, s
+  real,                   intent(out) :: ndead  ! number of individuals to die, indiv/m2
+
   real :: deathrate ! mortality rate, 1/year
-  real :: ndead ! number of plants that died over the time step
-  integer :: i, k
-  
-  real, parameter :: min_nindivs = 1e-5 ! 1/m2. If nindivs is less that this number, 
-  ! then the entire cohort is killed; 2e-15 is approximately 1 individual per Earth 
-  ! surface area
   logical :: do_U_shaped_mortality = .FALSE.
   real :: DBHtp ! for U-shaped mortality
-  ! accumulators of total input to root litter and soil carbon
-  real :: leaf_litt(N_C_TYPES) ! fine surface litter per tile, kgC/m2
-  real :: wood_litt(N_C_TYPES) ! coarse surface litter per tile, kgC/m2
-  real :: root_litt(num_l, N_C_TYPES) ! root litter per soil layer, kgC/m2
-  real :: profile(num_l) ! storage for vertical profile of exudates and root litter
 
-  DBHtp = 1.0  ! for U-shaped mortality
-
-  leaf_litt = 0 ; wood_litt = 0; root_litt = 0
-  do i = 1, vegn%n_cohorts   
-     associate ( cc => vegn%cohorts(i)   , &
-                 sp => spdata(vegn%cohorts(i)%species)  )
-     ! mortality rate can be a function of growth rate, age, and environmental
-     ! conditions. Here, we only used two constants for canopy layer and under-
-     ! story layer (mortrate_d_c and mortrate_d_u)
-     if(cc%layer > 1) then
-        deathrate = sp%mortrate_d_u * &
-                 (1 + A_mort*exp(B_mort*(DBH_mort-cc%dbh)) &
-                    /(1.0 + exp(B_mort*(DBH_mort-cc%dbh))) &
-                 )
+  associate ( sp => spdata(cc%species) )
+  ! mortality rate can be a function of growth rate, age, and environmental
+  ! conditions. Here, we only used two constants for canopy layer and under-
+  ! story layer (mortrate_d_c and mortrate_d_u)
+  if(cc%layer > 1) then
+     deathrate = sp%mortrate_d_u * &
+              (1 + A_mort*exp(B_mort*(DBH_mort-cc%dbh)) &
+                 /(1.0 + exp(B_mort*(DBH_mort-cc%dbh))) &
+              )
+  else
+     if(do_U_shaped_mortality)then
+         deathrate = sp%mortrate_d_c *                    &
+                    (1.0 + 12.*exp(8.*(cc%dbh-DBHtp))     &
+                          /(1.0 + exp(8.*(cc%dbh-DBHtp))) &
+                    )
      else
-        if(do_U_shaped_mortality)then
-            deathrate = sp%mortrate_d_c *                    &
-                       (1.0 + 12.*exp(8.*(cc%dbh-DBHtp))     &
-                             /(1.0 + exp(8.*(cc%dbh-DBHtp))) &
-                       )
-        else
-            deathrate = sp%mortrate_d_c
-        endif
+         deathrate = sp%mortrate_d_c
      endif
+  endif
 
-     ndead = cc%nindivs * (1.0-exp(-deathrate*deltat/seconds_per_year)) ! individuals / m2
-     call kill_plants_ppa(cc, vegn, soil, ndead, 0.0, leaf_litt, wood_litt, root_litt)
+  ndead = cc%nindivs * (1.0-exp(-deathrate*deltat/seconds_per_year)) ! individuals / m2
+  end associate
+end subroutine cohort_nat_mortality_ppa
 
-     end associate
+
+! ============================================================================
+subroutine tile_nat_mortality_ppa(t0,ndead,t1)
+  type(land_tile_type), intent(inout) :: t0 ! original tile
+  real,                 intent(in)    :: ndead(:) ! number of dying individuals, indiv/(m2 of t0)
+  type(land_tile_type), pointer       :: t1 ! optionally created disturbed tile
+
+  integer :: n_layers ! number of canopy layers in the tile
+  real :: dying_crownwarea ! area of the crowns to die, m2/m2
+  real :: f0 ! fraction of original tile in the grid cell
+  real, dimension(N_C_TYPES) :: &
+     leaf_litt0(N_C_TYPES),  leaf_litt1(N_C_TYPES), & ! accumulated leaf litter, kg C/m2
+     wood_litt0(N_C_TYPES),  wood_litt1(N_C_TYPES)    ! accumulated wood litter, kg C/m2
+  real :: root_litt0(num_l, N_C_TYPES) ! accumulated root litter per soil layer, kgC/m2
+  real :: root_litt1(num_l, N_C_TYPES) ! accumulated root litter per soil layer, kgC/m2
+  integer :: i
+  real, parameter :: fsmoke = 0.0 ! we don't burn anything here
+  
+  t1=>NULL()
+  if(.not.associated(t0%vegn)) &
+      call error_mesg('tile_nat_mortality_ppa','attempt to kill plants in non-vegetated tile', FATAL)
+  if(size(ndead)/=t0%vegn%n_cohorts) &
+      call error_mesg('tile_nat_mortality_ppa','size of input argument does not match n_cohorts', FATAL)
+
+  ! zero out litter terms, for accumulation across cohorts
+  leaf_litt0 = 0.0; wood_litt0 = 0.0; root_litt0 = 0.0
+  leaf_litt1 = 0.0; wood_litt1 = 0.0; root_litt1 = 0.0
+
+  ! count layers and determine if any vegetation in the canopy layer dies
+  associate(vegn=>t0%vegn,cc=>t0%vegn%cohorts)
+
+  n_layers         = 0
+  dying_crownwarea = 0
+  do i = 1,vegn%n_cohorts
+     n_layers = max(n_layers,cc(i)%layer)
+     if (cc(i)%layer==1) then
+        dying_crownwarea = dying_crownwarea + ndead(i)*cc(i)%crownarea
+     endif
   enddo
-  ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, leaf_litt, wood_litt, root_litt)
-end subroutine vegn_nat_mortality_ppa
+  
+  if (n_layers>1.and.dying_crownwarea>0.and.nat_mortality_splits_tiles) then
+     ! split the disturbed fraction of vegetation as a new tile. The new tile
+     ! will contain all crown area trees that are dying, while the
+     ! original tile has all the crown trees that survive.
+     ! Note that in both ne and original tiles nindivs of crown trees are different
+     ! than in the original tile before the 
+     t1 => new_land_tile(t0)
+     t1%frac = t0%frac*dying_crownwarea
+     f0 = t0%frac ! save original fraction for future use
+     t0%frac = t0%frac - t1%frac ! and update it to conserve area
+     
+     do i = 1,t0%vegn%n_cohorts
+        associate(cc0=>t0%vegn%cohorts(i), cc1=>t1%vegn%cohorts(i))
+        if (cc0%layer==1) then
+           cc1%nindivs = ndead(i)*f0/t1%frac
+           cc0%nindivs = (cc0%nindivs-ndead(i))*f0/t0%frac
+           ! kill all canopy plants in disturbed cohort
+           call kill_plants_ppa(cc1,t1%vegn,t1%soil,cc1%nindivs,fsmoke,leaf_litt1,wood_litt1,root_litt1)
+        else
+           ! kill understory plants in both tiles
+           call kill_plants_ppa(cc1,t1%vegn,t1%soil,ndead(i),fsmoke,leaf_litt1,wood_litt1,root_litt1)
+           call kill_plants_ppa(cc0,t0%vegn,t0%soil,ndead(i),fsmoke,leaf_litt0,wood_litt0,root_litt0)
+        endif
+        end associate
+     enddo
+  else
+     ! just kill the trees in t0
+     do i = 1,t0%vegn%n_cohorts
+        associate(cc0=>t0%vegn%cohorts(i))
+        call kill_plants_ppa(cc0,t0%vegn,t0%soil,ndead(i),fsmoke,leaf_litt0,wood_litt0,root_litt0)
+        end associate
+     enddo
+  endif
+  end associate
+
+  call add_soil_carbon(t0%soil, leaf_litt0, wood_litt0, root_litt0)
+  if (associated(t1)) &
+     call add_soil_carbon(t1%soil, leaf_litt1, wood_litt1, root_litt1)
+
+  call relayer_cohorts(t0%vegn)
+  if (associated(t1)) call relayer_cohorts(t1%vegn)
+
+end subroutine tile_nat_mortality_ppa
+
 
 ! ==============================================================================
 ! given a cohort, number of individuals to kill, and fraction of smoke, kills

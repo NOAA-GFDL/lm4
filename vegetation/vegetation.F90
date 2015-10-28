@@ -65,8 +65,8 @@ use vegn_dynamics_mod, only : vegn_dynamics_init, &
      vegn_carbon_int_lm3, vegn_carbon_int_ppa,    &
      vegn_phenology_lm3,  vegn_phenology_ppa,     &
      vegn_growth, vegn_starvation_ppa, vegn_biogeography, &
-     vegn_reproduction_ppa, relayer_cohorts, vegn_mergecohorts_ppa
-use vegn_disturbance_mod, only : vegn_nat_mortality_lm3, vegn_nat_mortality_ppa, &
+     vegn_reproduction_ppa, vegn_mergecohorts_ppa
+use vegn_disturbance_mod, only : vegn_nat_mortality_lm3, &
      vegn_disturbance, update_fuel
 use vegn_harvesting_mod, only : &
      vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting
@@ -1963,7 +1963,6 @@ subroutine update_vegn_slow( )
      endif
 
      if (do_ppa.and.year1 /= year0) then
-        call vegn_nat_mortality_ppa(tile%vegn, tile%soil, seconds_per_year)
         call vegn_reproduction_ppa(tile%vegn, tile%soil)
         call relayer_cohorts(tile%vegn)
         call vegn_mergecohorts_ppa(tile%vegn, tile%soil)

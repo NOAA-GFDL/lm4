@@ -120,6 +120,8 @@ public :: &
 
 logical, public :: do_ppa = .FALSE.
 logical, public :: do_alt_allometry = .FALSE.
+logical, public :: nat_mortality_splits_tiles = .FALSE. ! if true, natural mortality
+    ! creates disturbed tiles
 
 ! ---- public subroutine
 public :: read_vegn_data_namelist
@@ -350,7 +352,7 @@ namelist /vegn_data_nml/ &
   mortrate_s, cmc_eps, &
   DBH_mort, A_mort, B_mort, &
   b0_growth, tau_seed, understory_lai_factor, &
-  do_alt_allometry
+  do_alt_allometry, nat_mortality_splits_tiles
 
 contains ! ###################################################################
 

@@ -47,6 +47,7 @@ use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp,
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
      vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
      update_derived_vegn_data, update_vegn_slow, save_vegn_restart
+use vegn_disturbance_mod, only : vegn_nat_mortality_ppa
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, cana_state,&
      cana_roughness, &
@@ -2252,7 +2253,9 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   call mpp_clock_begin(landClock)
   call mpp_clock_begin(landSlowClock)
 
-  call land_transitions( land_time )
+  ! invoke any processes that potentially change tiling
+  call land_disturbances( )
+
   call update_vegn_slow( )
   ! send the accumulated diagnostics to the output
   call dump_tile_diag_fields(lnd%tile_map, land_time)
@@ -2292,6 +2295,12 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   call mpp_clock_end(landSlowClock)
 end subroutine update_land_model_slow
 
+! ============================================================================
+! invokes any processes that can change the tiling of the land model
+subroutine land_disturbances( )
+  call vegn_nat_mortality_ppa( )
+  call land_transitions( land_time )
+end subroutine land_disturbances
 
 ! ============================================================================
 ! solve for surface temperature. ensure that melt does not exceed available
