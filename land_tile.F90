@@ -43,7 +43,7 @@ public :: diag_buff_type
 
 ! operations with tile
 public :: new_land_tile, delete_land_tile
-public :: land_tiles_can_be_merged, merge_land_tiles
+public :: land_tiles_can_be_merged, merge_land_tiles, merge_land_tile_into_list
 
 public :: get_tile_tags ! returns the tags of the sub-model tiles
 public :: get_tile_water ! returns liquid and frozen water masses
@@ -528,6 +528,33 @@ subroutine merge_land_tiles(tile1,tile2)
 
   tile2%frac = tile1%frac + tile2%frac
 end subroutine merge_land_tiles
+
+! ==============================================================================
+! given a pointer to a tile and a tile list, insert the tile into the list so that
+! if tile can be merged with any one already present, it is merged; otherwise 
+! the tile is added to the list
+subroutine merge_land_tile_into_list(tile, list)
+  type(land_tile_type), pointer :: tile
+  type(land_tile_list_type), intent(inout) :: list
+
+  ! ---- local vars
+  type(land_tile_type), pointer :: ptr
+  type(land_tile_enum_type) :: ct,et
+  
+  ! try to find a tile that we can merge to
+  ct = first_elmt(list) ; et = tail_elmt(list)
+  do while(ct/=et)
+     ptr=>current_tile(ct) ; ct = next_elmt(ct)
+     if (land_tiles_can_be_merged(tile,ptr)) then
+        call merge_land_tiles(tile,ptr)
+        call delete_land_tile(tile)
+        return ! break out of the subroutine
+     endif
+  enddo
+  ! we reach here only if no suitable files was found in the list
+  ! if no suitable tile was found, just insert given tile into the list
+  call insert(tile,list)
+end subroutine merge_land_tile_into_list
 
 ! #### tile container ########################################################
 

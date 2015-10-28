@@ -40,7 +40,7 @@ use soil_tile_mod, only : soil_tile_heat
 use land_tile_mod, only : &
      land_tile_type, land_tile_list_type, land_tile_enum_type, new_land_tile, delete_land_tile, &
      first_elmt, tail_elmt, next_elmt, operator(/=), operator(==), current_tile, &
-     land_tile_list_init, land_tile_list_end, &
+     land_tile_list_init, land_tile_list_end, merge_land_tile_into_list, &
      empty, erase, remove, insert, land_tiles_can_be_merged, merge_land_tiles, &
      get_tile_water, land_tile_carbon, land_tile_heat
 use land_tile_io_mod, only : print_netcdf_error
@@ -528,7 +528,7 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      if(ts==te) exit ! break out of loop
      ptr=>current_tile(ts)
      call remove(ts)
-     call land_tile_merge(ptr,d_list)
+     call merge_land_tile_into_list(ptr,d_list)
   enddo
   ! a_list is empty at this point
   call land_tile_list_end(a_list)
@@ -576,34 +576,6 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
   endif
 
 end subroutine land_transitions_0d
-
-
-! ==============================================================================
-! given a pointer to a tile and a tile list, insert the tile into the list so that
-! if tile can be merged with any one already present, it is merged; otherwise 
-! the tile is inserted into the list
-subroutine land_tile_merge(tile, list)
-  type(land_tile_type), pointer :: tile
-  type(land_tile_list_type), intent(inout) :: list
-
-  ! ---- local vars
-  type(land_tile_type), pointer :: ptr
-  type(land_tile_enum_type) :: ct,et
-  
-  ! try to find a tile that we can merge to
-  ct = first_elmt(list) ; et = tail_elmt(list)
-  do while(ct/=et)
-     ptr=>current_tile(ct) ; ct = next_elmt(ct)
-     if (land_tiles_can_be_merged(tile,ptr)) then
-        call merge_land_tiles(tile,ptr)
-        call delete_land_tile(tile)
-        return ! break out of the subroutine
-     endif
-  enddo
-  ! we reach here only if no suitable files was found in the list
-  ! if no suitable tile was found, just insert given tile into the list
-  call insert(tile,list)
-end subroutine land_tile_merge
 
 
 ! =============================================================================
