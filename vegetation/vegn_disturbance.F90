@@ -9,7 +9,8 @@ use fms_mod,         only : error_mesg, WARNING, FATAL
 use time_manager_mod,only : time_type, get_date, operator(-)
 use constants_mod,   only : tfreeze
 use land_constants_mod, only : seconds_per_year
-use land_debug_mod,  only : is_watch_point, check_var_range, set_current_point
+use land_debug_mod,  only : is_watch_point, check_var_range, set_current_point, &
+     check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol
 use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, fsc_froot, agf_bs, &
        do_ppa, LEAF_OFF, DBH_mort, A_mort, B_mort, mortrate_s, nat_mortality_splits_tiles
 use vegn_tile_mod,   only : vegn_tile_type, relayer_cohorts
@@ -17,7 +18,8 @@ use soil_tile_mod,   only : soil_tile_type, num_l, dz
 use land_tile_mod,   only : land_tile_type, land_tile_enum_type, &
      land_tile_list_type, land_tile_list_init, land_tile_list_end, &
      empty, first_elmt, tail_elmt, next_elmt, merge_land_tile_into_list, &
-     current_tile, operator(==), operator(/=), remove, insert, new_land_tile
+     current_tile, operator(==), operator(/=), remove, insert, new_land_tile, &
+     land_tile_heat, land_tile_carbon, get_tile_water
 use land_data_mod,   only : lnd, land_time
 use soil_mod,        only : add_soil_carbon
 use soil_carbon_mod, only : add_litter, soil_carbon_option, &
@@ -358,7 +360,7 @@ subroutine cohort_nat_mortality_ppa(cc, deltat, ndead)
 
   real :: deathrate ! mortality rate, 1/year
   logical :: do_U_shaped_mortality = .FALSE.
-  real :: DBHtp ! for U-shaped mortality
+  real, parameter :: DBHtp = 1.0 ! for U-shaped mortality
 
   associate ( sp => spdata(cc%species) )
   ! mortality rate can be a function of growth rate, age, and environmental
@@ -400,31 +402,44 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
   real :: root_litt0(num_l, N_C_TYPES) ! accumulated root litter per soil layer, kgC/m2
   real :: root_litt1(num_l, N_C_TYPES) ! accumulated root litter per soil layer, kgC/m2
   integer :: i
-  real, parameter :: fsmoke = 0.0 ! we don't burn anything here
-  
+  ! variables for conservation checks:
+  real :: lmass0, fmass0, heat0, cmass0
+  real :: lmass1, fmass1, heat1, cmass1
+  real :: lmass2, fmass2
+  character(64) :: tag
+
   t1=>NULL()
   if(.not.associated(t0%vegn)) &
       call error_mesg('tile_nat_mortality_ppa','attempt to kill plants in non-vegetated tile', FATAL)
   if(size(ndead)/=t0%vegn%n_cohorts) &
       call error_mesg('tile_nat_mortality_ppa','size of input argument does not match n_cohorts', FATAL)
 
+  f0 = t0%frac ! save original tile fraction for future use
+
+  if (do_check_conservation) then
+     ! + conservation check, part 1: calculate the pre-transition totals
+     call get_tile_water(t0,lmass0,fmass0)
+     heat0  = land_tile_heat  (t0)
+     cmass0 = land_tile_carbon(t0)
+     ! - end of conservation check, part 1
+  endif
+
+  ! count layers and determine if any vegetation in the canopy layer dies
+  n_layers         = 0
+  dying_crownwarea = 0
+  do i = 1,t0%vegn%n_cohorts
+     n_layers = max(n_layers,t0%vegn%cohorts(i)%layer)
+     if (t0%vegn%cohorts(i)%layer==1) then
+        dying_crownwarea = dying_crownwarea + ndead(i)*t0%vegn%cohorts(i)%crownarea
+     endif
+  enddo
+  
   ! zero out litter terms, for accumulation across cohorts
   leaf_litt0 = 0.0; wood_litt0 = 0.0; root_litt0 = 0.0
   leaf_litt1 = 0.0; wood_litt1 = 0.0; root_litt1 = 0.0
 
-  ! count layers and determine if any vegetation in the canopy layer dies
-  associate(vegn=>t0%vegn,cc=>t0%vegn%cohorts)
-
-  n_layers         = 0
-  dying_crownwarea = 0
-  do i = 1,vegn%n_cohorts
-     n_layers = max(n_layers,cc(i)%layer)
-     if (cc(i)%layer==1) then
-        dying_crownwarea = dying_crownwarea + ndead(i)*cc(i)%crownarea
-     endif
-  enddo
-  
   if (n_layers>1.and.dying_crownwarea>0.and.nat_mortality_splits_tiles) then
+     ! write(*,*) 'splitting tiles'
      ! split the disturbed fraction of vegetation as a new tile. The new tile
      ! will contain all crown area trees that are dying, while the
      ! original tile has all the crown trees that survive.
@@ -432,7 +447,6 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
      ! than in the original tile before the 
      t1 => new_land_tile(t0)
      t1%frac = t0%frac*dying_crownwarea
-     f0 = t0%frac ! save original fraction for future use
      t0%frac = t0%frac - t1%frac ! and update it to conserve area
      
      do i = 1,t0%vegn%n_cohorts
@@ -441,27 +455,46 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
            cc1%nindivs = ndead(i)*f0/t1%frac
            cc0%nindivs = (cc0%nindivs-ndead(i))*f0/t0%frac
            ! kill all canopy plants in disturbed cohort
-           call kill_plants_ppa(cc1,t1%vegn,t1%soil,cc1%nindivs,fsmoke,leaf_litt1,wood_litt1,root_litt1)
+           call kill_plants_ppa(cc1,t1%vegn,t1%soil,cc1%nindivs,0.0,leaf_litt1,wood_litt1,root_litt1)
         else
            ! kill understory plants in both tiles
-           call kill_plants_ppa(cc1,t1%vegn,t1%soil,ndead(i),fsmoke,leaf_litt1,wood_litt1,root_litt1)
-           call kill_plants_ppa(cc0,t0%vegn,t0%soil,ndead(i),fsmoke,leaf_litt0,wood_litt0,root_litt0)
+           call kill_plants_ppa(cc1,t1%vegn,t1%soil,ndead(i),0.0,leaf_litt1,wood_litt1,root_litt1)
+           call kill_plants_ppa(cc0,t0%vegn,t0%soil,ndead(i),0.0,leaf_litt0,wood_litt0,root_litt0)
         endif
         end associate
      enddo
   else
      ! just kill the trees in t0
      do i = 1,t0%vegn%n_cohorts
-        associate(cc0=>t0%vegn%cohorts(i))
-        call kill_plants_ppa(cc0,t0%vegn,t0%soil,ndead(i),fsmoke,leaf_litt0,wood_litt0,root_litt0)
-        end associate
+        ! write(*,*) 'not splitting tiles',i,t0%vegn%cohorts(i)%nindivs,ndead(i),t0%vegn%cohorts(i)%carbon_gain,t0%vegn%cohorts(i)%bwood_gain
+        call kill_plants_ppa(t0%vegn%cohorts(i),t0%vegn,t0%soil,ndead(i),0.0,&
+                             leaf_litt0,wood_litt0,root_litt0)
      enddo
   endif
-  end associate
 
   call add_soil_carbon(t0%soil, leaf_litt0, wood_litt0, root_litt0)
   if (associated(t1)) &
      call add_soil_carbon(t1%soil, leaf_litt1, wood_litt1, root_litt1)
+
+  if (do_check_conservation) then
+     ! + conservation check, part 2: calculate totals in final state, and compare 
+     ! with previous totals
+     tag = 'tile_nat_mortality_ppa'
+     call get_tile_water(t0,lmass1,fmass1); lmass1 = lmass1*t0%frac; fmass1 = fmass1*t0%frac
+     heat1  = land_tile_heat  (t0)*t0%frac
+     cmass1 = land_tile_carbon(t0)*t0%frac
+     if (associated(t1)) then
+        call get_tile_water(t1,lmass2,fmass2); 
+        lmass1 = lmass1+lmass2*t1%frac; fmass1 = fmass1+fmass2*t1%frac
+        heat1  = heat1+land_tile_heat(t1)*t1%frac
+        cmass1 = cmass1+land_tile_carbon(t1)*t1%frac
+     endif
+     call check_conservation (tag,'liquid water', lmass0, lmass1/f0, water_cons_tol)
+     call check_conservation (tag,'frozen water', fmass0, fmass1/f0, water_cons_tol)
+     call check_conservation (tag,'carbon'      , cmass0, cmass1/f0, carbon_cons_tol)
+!     call check_conservation (tag,'heat content', heat0 , heat1/f0 , 1e-16)
+     ! - end of conservation check, part 2
+  endif
 
   call relayer_cohorts(t0%vegn)
   if (associated(t1)) call relayer_cohorts(t1%vegn)
