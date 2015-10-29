@@ -198,7 +198,10 @@ function vegn_tiles_can_be_merged(vegn1,vegn2) result(response)
 
   if (vegn1%landuse /= vegn2%landuse) then
      response = .false. ! different land use types can't be merged
-  else if (vegn1%landuse == LU_SCND) then ! secondary vegetation tiles
+  else if (vegn1%landuse == LU_SCND.or.vegn1%landuse == LU_NTRL) then
+     ! merging unmanaged (natural or secondary) vegetation tiles is allowed if
+     ! the wood biomasses are close enough
+     
      ! get tile wood biomasses
      b1 = vegn_tile_bwood(vegn1)
      b2 = vegn_tile_bwood(vegn2)
