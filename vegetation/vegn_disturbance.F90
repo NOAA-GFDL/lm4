@@ -13,13 +13,13 @@ use land_debug_mod,  only : is_watch_point, check_var_range, set_current_point, 
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol
 use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, fsc_froot, agf_bs, &
        do_ppa, LEAF_OFF, DBH_mort, A_mort, B_mort, mortrate_s, nat_mortality_splits_tiles
-use vegn_tile_mod,   only : vegn_tile_type, relayer_cohorts
+use vegn_tile_mod,   only : vegn_tile_type, relayer_cohorts, vegn_tile_bwood
 use soil_tile_mod,   only : soil_tile_type, num_l, dz
 use land_tile_mod,   only : land_tile_type, land_tile_enum_type, &
      land_tile_list_type, land_tile_list_init, land_tile_list_end, &
      empty, first_elmt, tail_elmt, next_elmt, merge_land_tile_into_list, &
      current_tile, operator(==), operator(/=), remove, insert, new_land_tile, &
-     land_tile_heat, land_tile_carbon, get_tile_water
+     land_tile_heat, land_tile_carbon, get_tile_water, nitems
 use land_data_mod,   only : lnd, land_time
 use soil_mod,        only : add_soil_carbon
 use soil_carbon_mod, only : add_litter, soil_carbon_option, &
@@ -303,6 +303,12 @@ subroutine vegn_nat_mortality_ppa ( )
   type(land_tile_list_type) :: disturbed_tiles
   integer :: i,j,k
   real, allocatable :: ndead(:)
+  ! variable used for conservation check:
+  type(land_tile_type), pointer :: ptr
+  real :: lmass0, fmass0, cmass0, heat0 ! pre-transition values 
+  real :: lmass1, fmass1, cmass1, heat1 ! post-transition values
+  real :: lm, fm
+  character(*),parameter :: tag = 'vegn_nat_mortality_ppa'
 
   ! get components of calendar dates for this and previous time step
   call get_date(land_time,             year0,month0,day0,hour,minute,second)
@@ -317,6 +323,21 @@ subroutine vegn_nat_mortality_ppa ( )
      if(empty(lnd%tile_map(i,j))) cycle ! skip cells where there is no land
      ! set current point for debugging
      call set_current_point(i,j,1)
+
+     if (do_check_conservation) then
+        ! conservation check code, part 1: calculate the pre-transition grid
+        ! cell totals
+        lmass0 = 0 ; fmass0 = 0 ; cmass0 = 0 ; heat0 = 0
+        ts = first_elmt(lnd%tile_map(i,j)) ; te=tail_elmt(lnd%tile_map(i,j))
+        do while (ts /= te)
+           ptr=>current_tile(ts); ts=next_elmt(ts)
+           call get_tile_water(ptr,lm,fm)
+           lmass0 = lmass0 + lm*ptr%frac ; fmass0 = fmass0 + fm*ptr%frac
+           heat0  = heat0  + land_tile_heat  (ptr)*ptr%frac
+           cmass0 = cmass0 + land_tile_carbon(ptr)*ptr%frac
+        enddo
+     endif
+
      ts = first_elmt(lnd%tile_map(i,j)) ; te=tail_elmt(lnd%tile_map(i,j))
      do while (ts /= te)
         t0=>current_tile(ts); ts=next_elmt(ts)
@@ -331,6 +352,8 @@ subroutine vegn_nat_mortality_ppa ( )
         deallocate(ndead)
         if (associated(t1)) call insert(t1,disturbed_tiles)
      enddo
+     write(*,*) 'N of tiles before merge = ', nitems(lnd%tile_map(i,j))
+     write(*,*) 'N of disturbed tiles = ', nitems(disturbed_tiles)
      ! merge disturbed tiles back into the original list
      te = tail_elmt(disturbed_tiles)
      do 
@@ -339,9 +362,28 @@ subroutine vegn_nat_mortality_ppa ( )
         t0=>current_tile(ts)
         call remove(ts) ; call merge_land_tile_into_list(t0,lnd%tile_map(i,j))
      enddo
+     write(*,*) 'N of tiles after merge = ', nitems(lnd%tile_map(i,j))
      ! at this point the list of disturbed tiles must be empty 
      if (.not.empty(disturbed_tiles)) call error_mesg('vegn_nat_mortality_ppa', &
         'list of disturbed tiles is not empty at the end of the processing', FATAL)
+
+     if (do_check_conservation) then
+        ! conservation check part 2: calculate grid cell totals in final state, and 
+        ! compare them with pre-transition totals
+        lmass1 = 0 ; fmass1 = 0 ; cmass1 = 0 ; heat1 = 0
+        ts = first_elmt(lnd%tile_map(i,j)) ; te=tail_elmt(lnd%tile_map(i,j))
+        do while (ts /= te)
+           ptr=>current_tile(ts); ts=next_elmt(ts)
+           call get_tile_water(ptr,lm,fm)
+           lmass1 = lmass1 + lm*ptr%frac ; fmass1 = fmass1 + fm*ptr%frac
+           heat1  = heat1  + land_tile_heat  (ptr)*ptr%frac
+           cmass1 = cmass1 + land_tile_carbon(ptr)*ptr%frac
+        enddo
+        call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol)
+        call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
+        call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
+!        call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16)
+     endif
   enddo
   enddo
 
@@ -406,7 +448,7 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
   real :: lmass0, fmass0, heat0, cmass0
   real :: lmass1, fmass1, heat1, cmass1
   real :: lmass2, fmass2
-  character(64) :: tag
+  character(*),parameter :: tag = 'tile_nat_mortality_ppa'
 
   t1=>NULL()
   if(.not.associated(t0%vegn)) &
@@ -439,7 +481,6 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
   leaf_litt1 = 0.0; wood_litt1 = 0.0; root_litt1 = 0.0
 
   if (n_layers>1.and.dying_crownwarea>0.and.nat_mortality_splits_tiles) then
-     ! write(*,*) 'splitting tiles'
      ! split the disturbed fraction of vegetation as a new tile. The new tile
      ! will contain all crown area trees that are dying, while the
      ! original tile has all the crown trees that survive.
@@ -448,6 +489,7 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
      t1 => new_land_tile(t0)
      t1%frac = t0%frac*dying_crownwarea
      t0%frac = t0%frac - t1%frac ! and update it to conserve area
+     write(*,*) 'splitting tiles: f0=',f0,' t0%frac=', t0%frac, ' t1%frac=', t1%frac
      
      do i = 1,t0%vegn%n_cohorts
         associate(cc0=>t0%vegn%cohorts(i), cc1=>t1%vegn%cohorts(i))
@@ -463,6 +505,7 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
         endif
         end associate
      enddo
+     write(*,*)'bwood0=',vegn_tile_bwood(t0%vegn),'bwood1=',vegn_tile_bwood(t1%vegn)
   else
      ! just kill the trees in t0
      do i = 1,t0%vegn%n_cohorts
@@ -479,7 +522,6 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
   if (do_check_conservation) then
      ! + conservation check, part 2: calculate totals in final state, and compare 
      ! with previous totals
-     tag = 'tile_nat_mortality_ppa'
      call get_tile_water(t0,lmass1,fmass1); lmass1 = lmass1*t0%frac; fmass1 = fmass1*t0%frac
      heat1  = land_tile_heat  (t0)*t0%frac
      cmass1 = land_tile_carbon(t0)*t0%frac
