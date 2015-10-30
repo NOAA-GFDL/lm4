@@ -241,23 +241,22 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   x1 = w1/(w1+w2)
   x2 = 1.0 - x1
 
-  ! TODO: reformulate merging cohorts when merging tiles in PPA mode
-  !       probably combine all cohorts from two tiles + relayer + merge cohorts
-
   if (do_ppa) then
      ccold => t2%cohorts ! keep old cohort information
      allocate(t2%cohorts(t1%n_cohorts+t2%n_cohorts))
      do i = 1,t2%n_cohorts
+        ! write(*,*) 'merge i=',i
         t2%cohorts(i) = ccold(i)
         t2%cohorts(i)%nindivs = t2%cohorts(i)%nindivs*x2
      enddo
+     deallocate (ccold)
      do i = 1,t1%n_cohorts
-        j = t2%n_cohorts+1
+        j = t2%n_cohorts+i
+        ! write(*,*) 'merge i=',i,' j=',j
         t2%cohorts(j) = t1%cohorts(i)
-        t2%cohorts(j)%nindivs = t1%cohorts(j)%nindivs*x1
+        t2%cohorts(j)%nindivs = t1%cohorts(i)%nindivs*x1
      enddo
      t2%n_cohorts=t1%n_cohorts+t2%n_cohorts
-     deallocate (ccold)
      call relayer_cohorts(t2)
      call vegn_mergecohorts_ppa(t2)
   else
