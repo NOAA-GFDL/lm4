@@ -18,7 +18,8 @@ use sphum_mod, only: qscomp
 use nf_utils_mod, only: nfu_def_var, nfu_get_var, nfu_put_var, nfu_inq_var
 
 use vegn_tile_mod, only: vegn_tile_type, &
-     vegn_seed_demand, vegn_seed_supply, vegn_add_bliving, relayer_cohorts, &
+     vegn_seed_demand, vegn_seed_supply, vegn_add_bliving, &
+     relayer_cohorts, vegn_mergecohorts_ppa, &
      vegn_tile_LAI, vegn_tile_SAI, &
      cpw, clw, csw
 use soil_tile_mod, only: soil_tile_type, num_l, dz, zhalf, zfull, &
@@ -65,7 +66,7 @@ use vegn_dynamics_mod, only : vegn_dynamics_init, &
      vegn_carbon_int_lm3, vegn_carbon_int_ppa,    &
      vegn_phenology_lm3,  vegn_phenology_ppa,     &
      vegn_growth, vegn_starvation_ppa, vegn_biogeography, &
-     vegn_reproduction_ppa, vegn_mergecohorts_ppa
+     vegn_reproduction_ppa, kill_small_cohorts_ppa
 use vegn_disturbance_mod, only : vegn_nat_mortality_lm3, &
      vegn_disturbance, update_fuel
 use vegn_harvesting_mod, only : &
@@ -1965,7 +1966,9 @@ subroutine update_vegn_slow( )
      if (do_ppa.and.year1 /= year0) then
         call vegn_reproduction_ppa(tile%vegn, tile%soil)
         call relayer_cohorts(tile%vegn)
-        call vegn_mergecohorts_ppa(tile%vegn, tile%soil)
+        call vegn_mergecohorts_ppa(tile%vegn)
+        call kill_small_cohorts_ppa(tile%vegn,tile%soil)
+        
         ! update DBH_ys
         do ii = 1, tile%vegn%n_cohorts 
            tile%vegn%cohorts(ii)%DBH_ys = tile%vegn%cohorts(ii)%dbh

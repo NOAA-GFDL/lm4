@@ -36,6 +36,7 @@ public :: update_bio_living_fraction
 public :: update_biomass_pools
 public :: init_cohort_allometry_ppa
 public :: init_cohort_hydraulics
+public :: cohorts_can_be_merged
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
@@ -611,5 +612,23 @@ subroutine init_cohort_hydraulics(cc, init_psi)
 
   end associate
 end subroutine init_cohort_hydraulics
+
+! ============================================================================
+function cohorts_can_be_merged(c1,c2); logical cohorts_can_be_merged
+   type(vegn_cohort_type), intent(in) :: c1,c2
+
+   real, parameter :: mindensity = 1.0E-4
+   logical :: sameSpecies, sameLayer, sameSize, lowDensity
+
+   sameSpecies = c1%species == c2%species
+   sameLayer   = (c1%layer == c2%layer) .and. (c1%firstlayer == c2%firstlayer)
+   sameSize    = (abs(c1%DBH - c2%DBH)/c2%DBH < 0.15 ) .or.  &
+                 (abs(c1%DBH - c2%DBH)        < 0.003)
+   lowDensity  = .FALSE. ! c1%nindivs < mindensity 
+                         ! Weng, 2014-01-27, turned off
+
+   cohorts_can_be_merged = &
+        sameSpecies .and. sameLayer .and. (sameSize .or.lowDensity)
+end function cohorts_can_be_merged
 
 end module vegn_cohort_mod

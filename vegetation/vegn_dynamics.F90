@@ -47,7 +47,7 @@ public :: vegn_biogeography
 
 public :: vegn_starvation_ppa   !
 public :: vegn_reproduction_ppa ! reproduction for PPA case
-public :: vegn_mergecohorts_ppa ! merge cohorts
+public :: kill_small_cohorts_ppa
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
@@ -1189,134 +1189,19 @@ end subroutine vegn_reproduction_ppa
 
 
 ! ============================================================================
-function cohorts_can_be_merged(c1,c2); logical cohorts_can_be_merged
-   type(vegn_cohort_type), intent(in) :: c1,c2
-
-   real, parameter :: mindensity = 1.0E-4
-   logical :: sameSpecies, sameLayer, sameSize, lowDensity
-
-   sameSpecies = c1%species == c2%species
-   sameLayer   = (c1%layer == c2%layer) .and. (c1%firstlayer == c2%firstlayer)
-   sameSize    = (abs(c1%DBH - c2%DBH)/c2%DBH < 0.15 ) .or.  &
-                 (abs(c1%DBH - c2%DBH)        < 0.003)
-   lowDensity  = .FALSE. ! c1%nindivs < mindensity 
-                         ! Weng, 2014-01-27, turned off
-
-   cohorts_can_be_merged = &
-        sameSpecies .and. sameLayer .and. (sameSize .or.lowDensity)
-end function cohorts_can_be_merged
-
-! ============================================================================
-subroutine merge_cohorts(c1,c2)
-  type(vegn_cohort_type), intent(in) :: c1
-  type(vegn_cohort_type), intent(inout) :: c2
-  
-  real :: x1, x2 ! normalized relative weights
-  real :: HEAT1, HEAT2 ! heat stored in respective canopies
-
-!  call check_var_range(c1%nindivs,0.0,HUGE(1.0),'merge_cohorts','c1%nindivs',FATAL)
-!  call check_var_range(c2%nindivs,0.0,HUGE(1.0),'merge_cohorts','c2%nindivs',FATAL)
-
-  if (c1%nindivs+c2%nindivs == 0) then
-     x1 = 1.0
-  else
-     x1 = c1%nindivs/(c1%nindivs+c2%nindivs)
-  endif
-  x2 = 1-x1
-  
-  ! update number of individuals in merged cohort
-  c2%nindivs = c1%nindivs+c2%nindivs
-#define __MERGE__(field) c2%field = x1*c1%field + x2*c2%field
-  HEAT1 = (clw*c1%Wl + csw*c1%Ws + c1%mcv_dry)*(c1%Tv-tfreeze)
-  HEAT2 = (clw*c2%Wl + csw*c2%Ws + c2%mcv_dry)*(c2%Tv-tfreeze)
-  __MERGE__(Wl)
-  __MERGE__(Ws)
- 
-  __MERGE__(bl)      ! biomass of leaves, kg C/indiv
-  __MERGE__(blv)     ! biomass of virtual leaves (labile store), kg C/indiv
-  __MERGE__(br)      ! biomass of fine roots, kg C/indiv
-  __MERGE__(bsw)     ! biomass of sapwood, kg C/indiv
-  __MERGE__(bwood)   ! biomass of heartwood, kg C/indiv
-  __MERGE__(bseed)   ! future progeny, kgC/indiv
-  __MERGE__(nsc)     ! non-structural carbon, kgC/indiv
-  __MERGE__(bliving) ! leaves, fine roots, and sapwood biomass, kgC/indiv
-  __MERGE__(dbh)     ! diameter at breast height
-  __MERGE__(height)  ! cohort height
-  __MERGE__(crownarea)   ! area of cohort crown
-
-  __MERGE__(age)     ! age of individual
-  __MERGE__(carbon_gain) ! carbon gain during a day, kg C/indiv
-  __MERGE__(carbon_loss) ! carbon loss during a day, kg C/indiv [diag only]
-  __MERGE__(bwood_gain)  ! heartwood gain during a day, kg C/indiv
-  __MERGE__(topyear)     ! the years that a cohort in canopy layer
-
-  ! calculate the resulting dry heat capacity
-  c2%leafarea = leaf_area_from_biomass(c2%bl, c2%species, c2%layer, c2%firstlayer)
-  c2%mcv_dry = max(mcv_min,mcv_lai*c2%leafarea)
-  ! update canopy temperature -- just merge it based on area weights if the heat 
-  ! capacities are zero, or merge it based on the heat content if the heat contents
-  ! are non-zero
-  if(HEAT1>epsilon(1.0).and.HEAT2>epsilon(1.0)) then
-     c2%Tv = (HEAT1*x1+HEAT2*x2) / &
-          (clw*c2%Wl + csw*c2%Ws + c2%mcv_dry) + tfreeze
-  else
-     __MERGE__(Tv)
-     ! TODO: keep track of the possible heat non-conservation, however small,
-     ! that will result from this if the heat capacities are not zero.
-  endif
-#undef  __MERGE__
-  
-end subroutine merge_cohorts
-
-! ============================================================================
-! Merge similar cohorts in a tile
-subroutine vegn_mergecohorts_ppa(vegn,soil)
+subroutine kill_small_cohorts_ppa(vegn,soil)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
 
-! ---- local vars
-  type(vegn_cohort_type), pointer :: cc(:) ! array to hold new cohorts
-  logical :: merged(vegn%n_cohorts)        ! mask to skip cohorts that were already merged
+  ! ---- local vars
   real, parameter :: mindensity = 1.0E-6
-  integer :: i,j,k
+
+  type(vegn_cohort_type), pointer :: cc(:) ! array to hold new cohorts
   real :: leaf_litt(N_C_TYPES) ! fine surface litter per tile, kgC/m2
   real :: wood_litt(N_C_TYPES) ! coarse surface litter per tile, kgC/m2
   real :: root_litt(num_l, N_C_TYPES) ! root litter per soil layer, kgC/m2
   real :: profile(num_l) ! storage for vertical profile of exudates and root litter
-
-  allocate(cc(vegn%n_cohorts))
-
-  if (is_watch_point()) then
-     write(*,*) '##### vegn_mergecohorts_ppa input #####'
-     __DEBUG1__(vegn%n_cohorts)
-     __DEBUG1__(vegn%cohorts%nindivs)
-     __DEBUG1__(vegn%cohorts%Wl)
-     __DEBUG1__(vegn%cohorts%Ws)
-     __DEBUG1__(vegn%cohorts%mcv_dry)
-     __DEBUG1__(vegn%cohorts%Tv)
-  endif
-
-  merged(:)=.FALSE. ; k = 0
-  do i = 1, vegn%n_cohorts 
-     if(merged(i)) cycle ! skip cohorts that were already merged
-     k = k+1
-     cc(k) = vegn%cohorts(i)
-     ! try merging the rest of the cohorts into current one
-     do j = i+1, vegn%n_cohorts
-        if (merged(j)) cycle ! skip cohorts that are already merged
-        if (cohorts_can_be_merged(vegn%cohorts(j),cc(k))) then
-           call merge_cohorts(vegn%cohorts(j),cc(k))
-           merged(j) = .TRUE.
-        endif
-     enddo
-  enddo
-  ! at this point, k is the number of new cohorts
-  vegn%n_cohorts = k
-  deallocate(vegn%cohorts)
-  vegn%cohorts=>cc
-
-  ! note that the size of the vegn%cohorts may be larger than vegn%n_cohorts
-
+  integer :: i,k
 
  ! Weng, 2013-09-07
  ! calculate the number of remaining cohorts
@@ -1369,6 +1254,6 @@ subroutine vegn_mergecohorts_ppa(vegn,soil)
      __DEBUG1__(vegn%cohorts%Tv)
   endif
 
-end subroutine vegn_mergecohorts_ppa
+end subroutine kill_small_cohorts_ppa
 
 end module vegn_dynamics_mod
