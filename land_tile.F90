@@ -22,7 +22,7 @@ use cana_tile_mod, only : &
      cana_tile_stock_pe, cana_tile_carbon, cana_tile_heat
 use vegn_tile_mod, only : &
      vegn_tile_type, new_vegn_tile, delete_vegn_tile, vegn_is_selected, &
-     vegn_tiles_can_be_merged, merge_vegn_tiles, get_vegn_tile_tag, &
+     vegn_tiles_can_be_merged, merge_vegn_tiles, vegn_tile_tag, &
      vegn_tile_stock_pe, vegn_tile_carbon, vegn_tile_heat
 use snow_tile_mod, only : &
      snow_tile_type, new_snow_tile, delete_snow_tile, snow_is_selected, &
@@ -376,7 +376,7 @@ subroutine get_tile_tags(tile,land,glac,lake,soil,snow,cana,vegn)
    endif
    if(present(vegn)) then
       vegn=-HUGE(vegn)
-      if (associated(tile%vegn)) vegn=get_vegn_tile_tag(tile%vegn)
+      if (associated(tile%vegn)) vegn=vegn_tile_tag(tile%vegn)
    endif
 end subroutine get_tile_tags
 

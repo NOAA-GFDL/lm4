@@ -2,32 +2,26 @@ module vegn_tile_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod, only : &
-     write_version_number, stdlog, error_mesg, FATAL
-use constants_mod, only : &
-     tfreeze, hlf
+use fms_mod,            only : error_mesg, FATAL
+use constants_mod,      only : tfreeze, hlf
 
 use land_constants_mod, only : NBANDS
-use land_debug_mod, only : is_watch_point
-use land_numerics_mod, only : rank_descending
-use land_io_mod, only : &
-     init_cover_field
-use land_tile_selectors_mod, only : &
-     tile_selector_type, SEL_VEGN
+use land_debug_mod,     only : is_watch_point
+use land_numerics_mod,  only : rank_descending
+use land_io_mod,        only : init_cover_field
+use land_tile_selectors_mod, only : tile_selector_type
 
 use vegn_data_mod, only : &
      MSPECIES, spdata, &
-     read_vegn_data_namelist, &
-     vegn_to_use,  input_cover_types, &
+     vegn_to_use,  input_cover_types, vegn_index_constant, &
      mcv_min, mcv_lai, &
-     vegn_index_constant, &
      BSEED, LU_NTRL, LU_SCND, N_HARV_POOLS, &
      LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, &
      FORM_GRASS, &
      scnd_biomass_bins, do_ppa
 
-use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, cohorts_can_be_merged, &
-     leaf_area_from_biomass
+use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
+     cohorts_can_be_merged, leaf_area_from_biomass
 
 use soil_tile_mod, only : max_lev
 
@@ -38,9 +32,8 @@ private
 public :: vegn_tile_type
 
 public :: new_vegn_tile, delete_vegn_tile
-public :: vegn_tiles_can_be_merged, merge_vegn_tiles, vegn_mergecohorts_ppa
 public :: vegn_is_selected
-public :: get_vegn_tile_tag
+public :: vegn_tile_tag    ! returns tag of the vegetation tile
 public :: vegn_tile_stock_pe
 public :: vegn_tile_carbon ! returns total carbon per tile [kgC/m2]
 public :: vegn_tile_bwood  ! returns total woody biomass of tile [kgC/m2]
@@ -48,7 +41,11 @@ public :: vegn_tile_heat   ! returns heat content of the vegetation [J/m2]
 public :: vegn_tile_LAI    ! returns total LAI of vegetation [m2/m2]
 public :: vegn_tile_SAI    ! returns total SAI of vegetation [m2/m2]
 
-public :: read_vegn_data_namelist
+public :: vegn_tiles_can_be_merged, merge_vegn_tiles
+public :: vegn_mergecohorts_ppa ! reduce number of cohorts in given vegetation tile
+                           ! by merging as many as possible
+public :: vegn_relayer_cohorts_ppa ! recalculate the cohort layers
+
 public :: vegn_cover_cold_start
 
 public :: vegn_seed_supply
@@ -57,8 +54,6 @@ public :: vegn_seed_demand
 public :: vegn_tran_priority ! returns transition priority for land use 
 
 public :: vegn_add_bliving
-
-public :: relayer_cohorts ! recalculate the cohort layers
 ! =====end of public interfaces ==============================================
 
 interface new_vegn_tile
@@ -134,7 +129,7 @@ type :: vegn_tile_type
    ! annual-mean values
    real :: t_ann  = 0.0 ! annual mean T, degK
    real :: t_cold = 0.0 ! average temperature of the coldest month, degK
-   real :: p_ann  = 0.0 ! annual mean precip
+   real :: p_ann  = 0.0 ! annual mean precipitation
    real :: ncm    = 0.0 ! number of cold months
    ! annual accumulated values
    real :: t_ann_acm  = 0.0 ! accumulated annual temperature for t_ann
@@ -224,7 +219,7 @@ end function vegn_tiles_can_be_merged
 
 
 ! ============================================================================
-! TODO: update merge_vegn_tiles for PPA
+! merges two vegetation tiles into one with given weights
 subroutine merge_vegn_tiles(t1,w1,t2,w2)
   type(vegn_tile_type), intent(in) :: t1
   type(vegn_tile_type), intent(inout) :: t2
@@ -257,7 +252,7 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
         t2%cohorts(j)%nindivs = t1%cohorts(i)%nindivs*x1
      enddo
      t2%n_cohorts=t1%n_cohorts+t2%n_cohorts
-     call relayer_cohorts(t2)
+     call vegn_relayer_cohorts_ppa(t2)
      call vegn_mergecohorts_ppa(t2)
   else
      ! the following assumes that there is one, and only one, cohort per tile 
@@ -348,7 +343,7 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   ! annual-mean values
   __MERGE__(t_ann)      ! annual mean T, degK
   __MERGE__(t_cold)     ! average temperature of the coldest month, degK
-  __MERGE__(p_ann)      ! annual mean precip
+  __MERGE__(p_ann)      ! annual mean precipitation
   __MERGE__(ncm)        ! number of cold months
 
   ! annual accumulated values
@@ -374,16 +369,6 @@ subroutine vegn_mergecohorts_ppa(vegn)
 
   allocate(cc(vegn%n_cohorts))
 
-  if (is_watch_point()) then
-     write(*,*) '##### vegn_mergecohorts_ppa input #####'
-     __DEBUG1__(vegn%n_cohorts)
-     __DEBUG1__(vegn%cohorts%nindivs)
-     __DEBUG1__(vegn%cohorts%Wl)
-     __DEBUG1__(vegn%cohorts%Ws)
-     __DEBUG1__(vegn%cohorts%mcv_dry)
-     __DEBUG1__(vegn%cohorts%Tv)
-  endif
-
   merged(:)=.FALSE. ; k = 0
   do i = 1, vegn%n_cohorts 
      if(merged(i)) cycle ! skip cohorts that were already merged
@@ -406,8 +391,8 @@ subroutine vegn_mergecohorts_ppa(vegn)
   ! note that the size of the vegn%cohorts may be larger than vegn%n_cohorts
 end subroutine vegn_mergecohorts_ppa
 
-
 ! ============================================================================
+! merge two cohorts into one
 subroutine merge_cohorts(c1,c2)
   type(vegn_cohort_type), intent(in) :: c1
   type(vegn_cohort_type), intent(inout) :: c2
@@ -468,6 +453,66 @@ subroutine merge_cohorts(c1,c2)
 #undef  __MERGE__
 end subroutine merge_cohorts
 
+! =============================================================================
+! given an array of cohorts, create a new array with old cohorts re-arranged
+! in layers according to their height and crown areas.
+subroutine vegn_relayer_cohorts_ppa (vegn)
+  type(vegn_tile_type), intent(inout) :: vegn ! input cohorts
+
+  ! ---- local constants
+  real, parameter :: tolerance = 1e-6 
+  real, parameter :: layer_vegn_cover = 1.0   
+  
+  ! ---- local vars
+  integer :: idx(vegn%n_cohorts) ! indices of cohorts in decreasing height order
+  integer :: i ! new cohort index
+  integer :: k ! old cohort index
+  integer :: L ! layer index (top-down)
+  integer :: N0,N1 ! initial and final number of cohorts 
+  real    :: frac ! fraction of the layer covered so far by the canopies
+  type(vegn_cohort_type), pointer :: cc(:),new(:)
+  real    :: nindivs
+  
+  ! rank cohorts in descending order by height. For now, assume that they are 
+  ! in order
+  N0 = vegn%n_cohorts; cc=>vegn%cohorts
+  call rank_descending(cc(1:N0)%height,idx)
+  
+  ! calculate max possible number of new cohorts : it is equal to the number of
+  ! old cohorts, plus the number of layers -- since the number of full layers is 
+  ! equal to the maximum number of times an input cohort can be split by a layer 
+  ! boundary.
+  N1 = vegn%n_cohorts + int(sum(cc(1:N0)%nindivs*cc(1:N0)%crownarea))
+  allocate(new(N1))
+
+  ! copy cohort information to the new cohorts, splitting the old cohorts that 
+  ! stride the layer boundaries
+  i = 1 ; k = 1 ; L = 1 ; frac = 0.0 ; nindivs = cc(idx(k))%nindivs
+  do 
+     new(i)         = cc(idx(k))
+     new(i)%nindivs = min(nindivs,(1-frac)/cc(idx(k))%crownarea)
+     new(i)%layer   = L
+     if (L==1) new(i)%firstlayer = 1
+     frac = frac+new(i)%nindivs*new(i)%crownarea
+     nindivs = nindivs - new(i)%nindivs
+     
+     if (abs(nindivs*cc(idx(k))%crownarea)<tolerance) then
+       new(i)%nindivs = new(i)%nindivs + nindivs ! allocate the remainder of individuals to the last cohort
+       if (k==N0) exit ! end of loop
+       k = k+1 ; nindivs = cc(idx(k))%nindivs  ! go to the next input cohort
+     endif
+     
+     if (abs(1-frac)<tolerance) then
+       L = L+1 ; frac = 0.0              ! start new layer
+     endif
+
+     i = i+1
+  enddo
+  
+  ! replace the array of cohorts
+  deallocate(vegn%cohorts)
+  vegn%cohorts => new ; vegn%n_cohorts = i
+end subroutine vegn_relayer_cohorts_ppa
 
 ! ============================================================================
 function vegn_seed_supply ( vegn )
@@ -601,77 +646,6 @@ function vegn_is_selected(vegn, sel)
      
 end function vegn_is_selected
 
-
-! ============================================================================
-! returns tag of the tile
-function get_vegn_tile_tag(vegn) result(tag)
-  integer :: tag
-  type(vegn_tile_type), intent(in) :: vegn
-  
-  tag = vegn%tag
-end function get_vegn_tile_tag
-
-! =============================================================================
-! given an array of cohorts, create a new array with old cohorts re-arranged
-! in layers according to their height and crown areas.
-subroutine relayer_cohorts (vegn)
-  type(vegn_tile_type), intent(inout) :: vegn ! input cohorts
-
-  ! ---- local constants
-  real, parameter :: tolerance = 1e-6 
-  real, parameter :: layer_vegn_cover = 1.0   
-  
-  ! ---- local vars
-  integer :: idx(vegn%n_cohorts) ! indices of cohorts in decreasing height order
-  integer :: i ! new cohort index
-  integer :: k ! old cohort index
-  integer :: L ! layer index (top-down)
-  integer :: N0,N1 ! initial and final number of cohorts 
-  real    :: frac ! fraction of the layer covered so far by the canopies
-  type(vegn_cohort_type), pointer :: cc(:),new(:)
-  real    :: nindivs
-  
-  ! rank cohorts in descending order by height. For now, assume that they are 
-  ! in order
-  N0 = vegn%n_cohorts; cc=>vegn%cohorts
-  call rank_descending(cc(1:N0)%height,idx)
-  
-  ! calculate max possible number of new cohorts : it is equal to the number of
-  ! old cohorts, plus the number of layers -- since the number of full layers is 
-  ! equal to the maximum number of times an input cohort can be split by a layer 
-  ! boundary.
-  N1 = vegn%n_cohorts + int(sum(cc(1:N0)%nindivs*cc(1:N0)%crownarea))
-  allocate(new(N1))
-
-  ! copy cohort information to the new cohorts, splitting the old cohorts that 
-  ! stride the layer boundaries
-  i = 1 ; k = 1 ; L = 1 ; frac = 0.0 ; nindivs = cc(idx(k))%nindivs
-  do 
-     new(i)         = cc(idx(k))
-     new(i)%nindivs = min(nindivs,(1-frac)/cc(idx(k))%crownarea)
-     new(i)%layer   = L
-     if (L==1) new(i)%firstlayer = 1
-     frac = frac+new(i)%nindivs*new(i)%crownarea
-     nindivs = nindivs - new(i)%nindivs
-     
-     if (abs(nindivs*cc(idx(k))%crownarea)<tolerance) then
-       new(i)%nindivs = new(i)%nindivs + nindivs ! allocate the remainder of individuals to the last cohort
-       if (k==N0) exit ! end of loop
-       k = k+1 ; nindivs = cc(idx(k))%nindivs  ! go to the next input cohort
-     endif
-     
-     if (abs(1-frac)<tolerance) then
-       L = L+1 ; frac = 0.0              ! start new layer
-     endif
-
-     i = i+1
-  enddo
-  
-  ! replace the array of cohorts
-  deallocate(vegn%cohorts)
-  vegn%cohorts => new ; vegn%n_cohorts = i
-end subroutine relayer_cohorts
-
 ! ============================================================================
 ! returns total wood biomass per tile 
 function vegn_tile_bwood(vegn) result(bwood)
@@ -767,5 +741,15 @@ function vegn_tile_heat (vegn) result(heat) ; real heat
             )*vegn%cohorts(i)%nindivs
   enddo
 end function vegn_tile_heat
+
+
+! ============================================================================
+! returns tag of the tile
+function vegn_tile_tag(vegn) result(tag)
+  integer :: tag
+  type(vegn_tile_type), intent(in) :: vegn
+  
+  tag = vegn%tag
+end function vegn_tile_tag
 
 end module vegn_tile_mod

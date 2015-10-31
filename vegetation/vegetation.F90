@@ -19,7 +19,7 @@ use nf_utils_mod, only: nfu_def_var, nfu_get_var, nfu_put_var, nfu_inq_var
 
 use vegn_tile_mod, only: vegn_tile_type, &
      vegn_seed_demand, vegn_seed_supply, vegn_add_bliving, &
-     relayer_cohorts, vegn_mergecohorts_ppa, &
+     vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa, &
      vegn_tile_LAI, vegn_tile_SAI, &
      cpw, clw, csw
 use soil_tile_mod, only: soil_tile_type, num_l, dz, zhalf, zfull, &
@@ -562,7 +562,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
            tile%vegn%cohorts(n)%BM_ys  = tile%vegn%cohorts(n)%bsw + &
                                          tile%vegn%cohorts(n)%bwood
         enddo
-        call relayer_cohorts(tile%vegn) ! this can change the number of cohorts
+        call vegn_relayer_cohorts_ppa(tile%vegn) ! this can change the number of cohorts
      enddo
   endif
     
@@ -1965,7 +1965,7 @@ subroutine update_vegn_slow( )
 
      if (do_ppa.and.year1 /= year0) then
         call vegn_reproduction_ppa(tile%vegn, tile%soil)
-        call relayer_cohorts(tile%vegn)
+        call vegn_relayer_cohorts_ppa(tile%vegn)
         call vegn_mergecohorts_ppa(tile%vegn)
         call kill_small_cohorts_ppa(tile%vegn,tile%soil)
         

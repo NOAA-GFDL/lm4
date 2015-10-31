@@ -13,7 +13,7 @@ use land_debug_mod,  only : is_watch_point, check_var_range, set_current_point, 
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol
 use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, fsc_froot, agf_bs, &
        do_ppa, LEAF_OFF, DBH_mort, A_mort, B_mort, mortrate_s, nat_mortality_splits_tiles
-use vegn_tile_mod,   only : vegn_tile_type, relayer_cohorts, vegn_tile_bwood
+use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_bwood
 use soil_tile_mod,   only : soil_tile_type, num_l, dz
 use land_tile_mod,   only : land_tile_type, land_tile_enum_type, &
      land_tile_list_type, land_tile_list_init, land_tile_list_end, &
@@ -538,8 +538,8 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
      ! - end of conservation check, part 2
   endif
 
-  call relayer_cohorts(t0%vegn)
-  if (associated(t1)) call relayer_cohorts(t1%vegn)
+  call vegn_relayer_cohorts_ppa(t0%vegn)
+  if (associated(t1)) call vegn_relayer_cohorts_ppa(t1%vegn)
 
 end subroutine tile_nat_mortality_ppa
 
