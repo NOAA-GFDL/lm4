@@ -9,8 +9,9 @@ use fms_mod,         only : error_mesg, WARNING, FATAL
 use time_manager_mod,only : time_type, get_date, operator(-)
 use constants_mod,   only : tfreeze
 use land_constants_mod, only : seconds_per_year
-use land_debug_mod,  only : is_watch_point, check_var_range, set_current_point, &
-     check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol
+use land_debug_mod,  only : is_watch_point, is_watch_cell, set_current_point, &
+     check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, &
+     check_var_range
 use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, fsc_froot, agf_bs, &
        do_ppa, LEAF_OFF, DBH_mort, A_mort, B_mort, mortrate_s, nat_mortality_splits_tiles
 use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_bwood
@@ -352,8 +353,11 @@ subroutine vegn_nat_mortality_ppa ( )
         deallocate(ndead)
         if (associated(t1)) call insert(t1,disturbed_tiles)
      enddo
-     write(*,*) 'N of tiles before merge = ', nitems(lnd%tile_map(i,j))
-     write(*,*) 'N of disturbed tiles = ', nitems(disturbed_tiles)
+     if (is_watch_cell()) then
+        write(*,*) '#### vegn_nat_mortality_ppa ####'
+        write(*,*) 'N tiles before merge = ', nitems(lnd%tile_map(i,j))
+        write(*,*) 'N of disturbed tiles = ',    nitems(disturbed_tiles)
+     endif 
      ! merge disturbed tiles back into the original list
      te = tail_elmt(disturbed_tiles)
      do 
@@ -362,7 +366,9 @@ subroutine vegn_nat_mortality_ppa ( )
         t0=>current_tile(ts)
         call remove(ts) ; call merge_land_tile_into_list(t0,lnd%tile_map(i,j))
      enddo
-     write(*,*) 'N of tiles after merge = ', nitems(lnd%tile_map(i,j))
+     if (is_watch_cell()) then
+        write(*,*) 'N tiles after merge = ', nitems(lnd%tile_map(i,j))
+     endif
      ! at this point the list of disturbed tiles must be empty 
      if (.not.empty(disturbed_tiles)) call error_mesg('vegn_nat_mortality_ppa', &
         'list of disturbed tiles is not empty at the end of the processing', FATAL)
@@ -456,6 +462,18 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
   if(size(ndead)/=t0%vegn%n_cohorts) &
       call error_mesg('tile_nat_mortality_ppa','size of input argument does not match n_cohorts', FATAL)
 
+  if (is_watch_point()) then
+     write(*,*) '#### tile_mortality_ppa input ####'
+     do i = 1,t0%vegn%n_cohorts
+        write(*,'(i2.2)', advance='NO') i
+        call dpri('Nindivs=',t0%vegn%cohorts(i)%nindivs*t0%frac)
+        call dpri('Ndead=',ndead(i)*t0%frac)
+        call dpri('layer=',t0%vegn%cohorts(i)%layer)
+        write(*,*)
+     enddo
+     write(*,*) '#### end of tile_mortality_ppa input ####'
+  endif
+
   f0 = t0%frac ! save original tile fraction for future use
 
   if (do_check_conservation) then
@@ -489,14 +507,35 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
      t1 => new_land_tile(t0)
      t1%frac = t0%frac*dying_crownwarea
      t0%frac = t0%frac - t1%frac ! and update it to conserve area
-     write(*,*) 'splitting tiles: f0=',f0,' t0%frac=', t0%frac, ' t1%frac=', t1%frac
+     if (is_watch_point()) then
+        write(*,*) 'Splitting a disturbed tile'
+        __DEBUG3__(f0,t0%frac,t1%frac)
+     endif
      
+     ! change the density of individuals in the cohorts that we split 
      do i = 1,t0%vegn%n_cohorts
         associate(cc0=>t0%vegn%cohorts(i), cc1=>t1%vegn%cohorts(i))
         if (cc0%layer==1) then
            cc1%nindivs = ndead(i)*f0/t1%frac
            cc0%nindivs = (cc0%nindivs-ndead(i))*f0/t0%frac
-           ! kill all canopy plants in disturbed cohort
+        endif
+        end associate
+     enddo
+     if (is_watch_point()) then
+        write(*,*) '#### tile_mortality_ppa: before killing plants ####'
+        do i = 1,t0%vegn%n_cohorts
+           write(*,'(i2.2)', advance='NO') i
+           call dpri('tot.Nindivs=',t0%vegn%cohorts(i)%nindivs*t0%frac+t1%vegn%cohorts(i)%nindivs*t1%frac)
+           call dpri('Nindivs1=',t1%vegn%cohorts(i)%nindivs*t1%frac)
+           call dpri('Nindivs0=',t0%vegn%cohorts(i)%nindivs*t0%frac)
+           write(*,*)
+        enddo
+     endif
+     ! kill the individulas affected by natural mortali
+     do i = 1,t0%vegn%n_cohorts
+        associate(cc0=>t0%vegn%cohorts(i), cc1=>t1%vegn%cohorts(i))
+        if (cc0%layer==1) then
+           ! kill all canopy plants in disturbed cohort, but do not touch undisturbed one
            call kill_plants_ppa(cc1,t1%vegn,t1%soil,cc1%nindivs,0.0,leaf_litt1,wood_litt1,root_litt1)
         else
            ! kill understory plants in both tiles
@@ -505,11 +544,13 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
         endif
         end associate
      enddo
-     write(*,*)'bwood0=',vegn_tile_bwood(t0%vegn),'bwood1=',vegn_tile_bwood(t1%vegn)
+     ! write(*,*)'bwood0=',vegn_tile_bwood(t0%vegn),'bwood1=',vegn_tile_bwood(t1%vegn)
   else
      ! just kill the trees in t0
+     if (is_watch_point()) then
+        write(*,*) 'NOT splitting a disturbed tile'
+     endif
      do i = 1,t0%vegn%n_cohorts
-        ! write(*,*) 'not splitting tiles',i,t0%vegn%cohorts(i)%nindivs,ndead(i),t0%vegn%cohorts(i)%carbon_gain,t0%vegn%cohorts(i)%bwood_gain
         call kill_plants_ppa(t0%vegn%cohorts(i),t0%vegn,t0%soil,ndead(i),0.0,&
                              leaf_litt0,wood_litt0,root_litt0)
      enddo
@@ -536,6 +577,21 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
      call check_conservation (tag,'carbon'      , cmass0, cmass1/f0, carbon_cons_tol)
 !     call check_conservation (tag,'heat content', heat0 , heat1/f0 , 1e-16)
      ! - end of conservation check, part 2
+  endif
+
+  if (is_watch_point()) then
+     write(*,*) '#### tile_mortality_ppa output (before relayering cohorts) ####'
+     do i = 1,t0%vegn%n_cohorts
+        write(*,'(i2.2)', advance='NO') i
+        call dpri('Nindivs0=',t0%vegn%cohorts(i)%nindivs*t0%frac)
+        call dpri('layer=',t0%vegn%cohorts(i)%layer)
+        if(associated(t1)) then
+           call dpri('Nindivs1=',t1%vegn%cohorts(i)%nindivs)
+           call dpri('layer=',t1%vegn%cohorts(i)%layer)
+        endif
+        write(*,*)
+     enddo
+     write(*,*) '#### end of tile_mortality_ppa output ####'
   endif
 
   call vegn_relayer_cohorts_ppa(t0%vegn)
