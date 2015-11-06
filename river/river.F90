@@ -241,6 +241,7 @@ contains
     unit=stdlog()
     write(unit, river_nml)  
 
+    river_land_mask = .false.
     if(.not.do_rivers) return ! do nothing further if the rivers are turned off
 
 !--- check name list variables 

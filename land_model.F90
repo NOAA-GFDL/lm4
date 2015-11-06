@@ -15,7 +15,7 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use mpp_mod, only : mpp_max, mpp_sum
+use mpp_mod, only : mpp_max, mpp_sum , MPP_FILL_INT, MPP_FILL_DOUBLE
 use fms_io_mod, only : read_compressed, restart_file_type, free_restart_type
 use fms_io_mod, only : field_exist, get_field_size, save_restart
 use fms_io_mod, only : register_restart_axis, register_restart_field, set_domain, nullify_domain
@@ -164,6 +164,36 @@ logical :: print_remapping = .FALSE. ! if true, full land cover remapping
 logical :: new_land_io=.true.
 integer :: layout(2) = (/0,0/)
 integer :: io_layout(2) = (/0,0/)
+  ! mask_table contains information for masking domain ( n_mask, layout and mask_list).
+  !   A text file to specify n_mask, layout and mask_list to reduce number of processor
+  !   usage by masking out some domain regions which contain all ocean points. 
+  !   The default file name of mask_table is "INPUT/land_mask_table". Please note that 
+  !   the file name must begin with "INPUT/". The first 
+  !   line of mask_table will be number of region to be masked out. The second line 
+  !   of the mask_table will be the layout of the model. User need to set land_model_nml
+  !   variable layout to be the same as the second line of the mask table.
+  !   The following n_mask line will be the position of the processor and face number 
+  !   to be masked out (First entry is i-direction postion, second entry is 
+  !   j-direction position, third entry is face number ).
+  !   The mask_table could be created by tools check_mask. 
+  !   For example the mask_table will be as following if n_mask=4, layout=4,6 and 
+  !   the processor (1,2) and (3,6) will be masked out. 
+  !     2
+  !     4,6
+  !     1,2,1
+  !     3,6,2
+  !     4,5,5
+  !     2,4,6
+
+  character(len=128) :: mask_table = "INPUT/land_mask_table"
+
+logical :: use_coast_rough  = .false. ! if true, override roughness on coasts with prescribed value
+real    :: coast_rough_mom  = 1.0e-4  ! prescribed coastal roughness for momentum
+real    :: coast_rough_heat = 1.35e-5 ! prescribed coastal roughness for heat and tracers
+real    :: max_coast_frac   = 1.0     ! threshold defining which point is coastal
+logical :: use_coast_topo_rough = .true. ! if false, the topographic roughness scaling 
+                                      ! is not used over coastal points
+
 namelist /land_model_nml/ use_old_conservation_equations, &
                           lm2, give_stock_details, &
                           use_tfreeze_in_grnd_latent, &
@@ -174,7 +204,9 @@ namelist /land_model_nml/ use_old_conservation_equations, &
                           con_fac_large, con_fac_small, &
                           tau_snow_T_adj, prohibit_negative_canopy_water, &
                           nearest_point_search, print_remapping, &
-                          layout, io_layout, new_land_io
+                          use_coast_rough, coast_rough_mom, coast_rough_heat, &
+                          max_coast_frac, use_coast_topo_rough, &
+                          layout, io_layout, new_land_io, mask_table
 ! ---- end of namelist -------------------------------------------------------
 
 logical  :: module_is_initialized = .FALSE.
@@ -356,7 +388,7 @@ subroutine land_model_init &
   call read_cana_namelist()
 
   ! [ ] initialize land state data, including grid geometry and processor decomposition
-  call land_data_init(layout, io_layout, time, dt_fast, dt_slow)
+  call land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table)
   delta_time  = time_type_to_real(lnd%dt_fast) ! store in a module variable for convenience
 
   ! calculate land fraction
@@ -732,31 +764,33 @@ subroutine land_model_restart_new(timestamp)
   ! Output data provides signature
   call gather_tile_data(land_frac_ptr,idx,frac_data)
   id_restart = register_restart_field(lnd_restart,fname,'frac',frac_data, &
-                                       longname='fractional area of tile')
+       longname='fractional area of tile')
   call gather_tile_data(glac_tag_ptr,idx,glac_data)
   id_restart = register_restart_field(lnd_restart,fname,'glac',glac_data, &
-                                       longname='tag of glacier tiles')
+       longname='tag of glacier tiles', data_default=MPP_FILL_INT)
   call gather_tile_data(lake_tag_ptr,idx,lake_data)
   id_restart = register_restart_field(lnd_restart,fname,'lake',lake_data, &
-                                       longname='tag of lake tiles')
+       longname='tag of lake tiles', data_default=MPP_FILL_INT )
   call gather_tile_data(soil_tag_ptr,idx,soil_data)
   id_restart = register_restart_field(lnd_restart,fname,'soil',soil_data, &
-                                       longname='tag of soil tiles')
+       longname='tag of soil tiles', data_default=MPP_FILL_INT)
   call gather_tile_data(vegn_tag_ptr,idx,vegn_data)
   id_restart = register_restart_field(lnd_restart,fname,'vegn',vegn_data, &
-                                       longname='tag of vegetation tiles')
+       longname='tag of vegetation tiles', data_default=MPP_FILL_INT)
 
   ! write the upward long-wave flux 
   call gather_tile_data(land_lwup_ptr,idx,lwup_data)
   id_restart = register_restart_field(lnd_restart,fname,'lwup',lwup_data, &
-                                       longname='upward long-wave flux')
+                longname='upward long-wave flux', data_default=MPP_FILL_DOUBLE )
   ! write energy residuals
   call gather_tile_data(land_e_res_1_ptr,idx,e_res_1_data)
   id_restart = register_restart_field(lnd_restart,fname,'e_res_1',e_res_1_data, &
-       longname='energy residual in canopy air energy balance equation', units='W/m2')
+       longname='energy residual in canopy air energy balance equation', units='W/m2', &
+       data_default=MPP_FILL_DOUBLE)
   call gather_tile_data(land_e_res_2_ptr,idx,e_res_2_data)
   id_restart = register_restart_field(lnd_restart,fname,'e_res_2',e_res_2_data, &
-       longname='energy residual in canopy energy balance equation', units='W/m2')
+       longname='energy residual in canopy energy balance equation', units='W/m2', &
+       data_default=MPP_FILL_DOUBLE)
 
   ! save performs io domain aggregation through mpp_io as with regular domain data
   call save_restart(lnd_restart)
@@ -1293,8 +1327,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
   discharge_l = discharge_l/lnd%cellarea
   do i_species = 1, n_river_tracers
-    discharge_c(:,:,i_species) =  discharge_c(:,:,i_species)/lnd%cellarea
-    enddo
+     discharge_c(:,:,i_species) =  discharge_c(:,:,i_species)/lnd%cellarea
+  enddo
 
   ! pass through to ocean the runoff that was not seen by river module because of land_frac diffs.
   ! need to multiply by gfrac to spread over whole cell
@@ -2710,6 +2744,11 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
   land2cplr%rough_mom      (i,j,k) = tile%land_z0m
   land2cplr%rough_heat     (i,j,k) = tile%land_z0s
 
+  if (use_coast_rough .and. frac(i,j)<max_coast_frac) then
+     land2cplr%rough_mom   (i,j,k) = coast_rough_mom
+     land2cplr%rough_heat  (i,j,k) = coast_rough_heat
+  endif
+  
   if(is_watch_point()) then
      write(*,*)'#### update_land_bc_fast ### output ####'
      write(*,*)'land2cplr%mask',land2cplr%mask(i,j,k)
@@ -2755,6 +2794,12 @@ subroutine update_land_bc_slow (land2cplr)
   call update_topo_rough(land2cplr%rough_scale)
   where (land2cplr%mask) &
        land2cplr%rough_scale = max(land2cplr%rough_mom,land2cplr%rough_scale)
+  if (.not.use_coast_topo_rough) then
+     do k = 1, size(land2cplr%rough_mom,3)
+        where(frac<max_coast_frac) &
+            land2cplr%rough_scale(:,:,k) = land2cplr%rough_mom(:,:,k)
+     enddo
+  endif
   call get_watch_point(i,j,k,face)
   if ( lnd%face==face.and.             &
        lnd%is<=i.and.i<=lnd%ie.and.    &
