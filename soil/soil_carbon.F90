@@ -601,6 +601,7 @@ IF (soil_carbon_option == SOILC_CORPSE_N) THEN
 
             pool%ammonium=pool%ammonium-nitrif!xz
             pool%nitrate=pool%nitrate+gamma_nitr*nitrif!xz   gamma_nitr is set to 1 now.
+            ! Gaseous N losses are going to break N conservation unless we keep track of them
     !!!!!!!!!!!!!!xz Check [end]
 
     !!!!!!!!!!!!!xz Denitrification; check with LM3 code; Currently the code only calculate the denitrification rate with Temperature, we might improve it by adding siol water content

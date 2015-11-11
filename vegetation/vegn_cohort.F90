@@ -566,9 +566,11 @@ subroutine update_biomass_pools(c)
        c%br=c%br-extra_live_biomass*c%Pr/(c%Pl+c%Pr)
        ! Putting extra biomass in wood for now
        ! c%br=c%br+extra_leaf_biomass
-       c%bwood = c%bwood + extra_live_biomass
-       ! Make sure biomass properties are still correct
-       c%bliving = c%bliving - extra_live_biomass
+       ! Note: adding to sapwood would work better with plant growth model (hardwood is produced gradually from sap wood)
+      !  c%bwood = c%bwood + extra_live_biomass
+      c%bsw = c%bsw+extra_live_biomass
+      ! Make sure biomass properties are still correct
+      !  c%bliving = c%bliving - extra_live_biomass
        c%Pl=c%bl/c%bliving
        c%Pr=c%br/c%bliving
        c%Psw  = 1 - c%Pl - c%Pr
