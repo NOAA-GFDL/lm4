@@ -661,9 +661,9 @@ logical function check_cohort(cohort) result(cohortGood)
     cohortGood=.NOT. ( &
     ! (min(cohort%originalLitterC,cohort%livingMicrobeC,cohort%CO2).lt.0) .OR. &
      (min(cohort%originalLitterC,cohort%livingMicrobeC,cohort%CO2).lt.-tol_roundoff) .OR. &
-    isNAN(cohort%originalLitterC) .OR. &
-    isNAN(cohort%livingMicrobeC) .OR. &
-    isNAN(cohort%CO2)  &
+    is_nan(cohort%originalLitterC) .OR. &
+    is_nan(cohort%livingMicrobeC) .OR. &
+    is_nan(cohort%CO2)  &
     )
 
    cohortC=cohortCSum(cohort)
@@ -675,8 +675,8 @@ logical function check_cohort(cohort) result(cohortGood)
     DO n=1,n_c_types
         tempGood = .NOT. ( &
         (cohort%litterC(n).lt.0) .OR. &
-        (isNAN(cohort%litterC(n))) .OR. &
-        (isNAN(cohort%protectedC(n)))  &
+        (is_nan(cohort%litterC(n))) .OR. &
+        (is_nan(cohort%protectedC(n)))  &
         )
         cohortGood=cohortGood .AND. tempGood
     ENDDO
@@ -1510,5 +1510,15 @@ end subroutine tridiag
 
 
 #endif
+
+! pgi: does not have bult-in isNaN function
+! gfortran: versions <5 do not appear to support ieee_arithmetic module
+
+! note that there is a danger that the compilr optimizes the comparison away
+! but I don't see how
+logical elemental function is_nan(x)
+   real, intent(in) :: x
+   is_nan = (x/=x)
+end function is_nan
 
 end module soil_carbon_mod
