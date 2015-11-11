@@ -278,6 +278,9 @@ subroutine do_read_cover_field(input_unit, field, lonb, latb, input_cover_types,
   if (in_j_start<1) &
      call error_mesg('do_read_cover_field','input latitude start index ('&
                      //string(in_j_start)//') is out of bounds', FATAL)
+  if (in_j_count<1) &
+     call error_mesg('do_read_cover_field','computed input latitude count for domain'&
+                     //' is not positive, perhaps input data do not cover entire globe', FATAL)
   if (in_j_start+in_j_count-1>nlat) &
      call error_mesg('do_read_cover_field','input latitude count ('&
                      //string(in_j_count)//') is too large (start index='&
