@@ -2142,13 +2142,15 @@ subroutine update_vegn_slow( )
         tile%vegn%fuel       = 0
      endif
 
-     !Knock soil carbon cohorts down to their maximum number
-     call cull_cohorts(tile%soil%leafLitter)
-     call cull_cohorts(tile%soil%fineWoodLitter)
-     call cull_cohorts(tile%soil%coarseWoodLitter)
-     do ii=1,size(tile%soil%soil_C)
-           call cull_cohorts(tile%soil%soil_C(ii))
-     enddo
+     if(soil_carbon_option==SOILC_CORPSE) then
+        !Knock soil carbon cohorts down to their maximum number
+        call cull_cohorts(tile%soil%leafLitter)
+        call cull_cohorts(tile%soil%fineWoodLitter)
+        call cull_cohorts(tile%soil%coarseWoodLitter)
+        do ii=1,size(tile%soil%soil_C)
+              call cull_cohorts(tile%soil%soil_C(ii))
+        enddo
+     endif
   enddo
 
   ! seed transport

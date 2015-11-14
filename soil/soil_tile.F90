@@ -22,7 +22,7 @@ use land_constants_mod, only : &
      NBANDS
 use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_SOIL, register_tile_selector
-use soil_carbon_mod, only : &
+use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, &
     soil_carbon_pool, combine_pools, init_soil_carbon, poolTotalCarbon, n_c_types
 
 implicit none
@@ -1249,14 +1249,16 @@ subroutine merge_soil_tiles(s1,w1,s2,w2)
   ! merge soil carbon
   s2%fast_soil_C(:) = s1%fast_soil_C(:)*x1 + s2%fast_soil_C(:)*x2
   s2%slow_soil_C(:) = s1%slow_soil_C(:)*x1 + s2%slow_soil_C(:)*x2
-  do i=1,num_l
-    call combine_pools(s1%soil_C(i),s2%soil_C(i),w1,w2)
-  enddo
   !is_peat is 1 or 0, so multiplying is like an AND operation
   s2%is_peat(:) = s1%is_peat(:) * s2%is_peat(:)
-  call combine_pools(s1%leafLitter,s2%leafLitter,w1,w2)
-  call combine_pools(s1%fineWoodLitter,s2%fineWoodLitter,w1,w2)
-  call combine_pools(s1%coarseWoodLitter,s2%coarseWoodLitter,w1,w2)
+  if(soil_carbon_option==SOILC_CORPSE) then
+     do i=1,num_l
+       call combine_pools(s1%soil_C(i),s2%soil_C(i),w1,w2)
+     enddo
+     call combine_pools(s1%leafLitter,s2%leafLitter,w1,w2)
+     call combine_pools(s1%fineWoodLitter,s2%fineWoodLitter,w1,w2)
+     call combine_pools(s1%coarseWoodLitter,s2%coarseWoodLitter,w1,w2)
+  endif
   s2%asoil_in(:)    = s1%asoil_in(:)*x1 + s2%asoil_in(:)*x2
   s2%fsc_in(:)      = s1%fsc_in(:)*x1 + s2%fsc_in(:)*x2
   s2%ssc_in(:)      = s1%ssc_in(:)*x1 + s2%ssc_in(:)*x2
