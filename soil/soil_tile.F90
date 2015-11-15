@@ -2034,17 +2034,22 @@ function soil_tile_carbon (soil); real soil_tile_carbon
   real    :: temp
   integer :: i
 
-  soil_tile_carbon = sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:))
-  do i=1,num_l
-     call poolTotalCarbon(soil%soil_C(i),totalCarbon=temp)
+  select case (soil_carbon_option)
+  case (SOILC_CORPSE)
+     soil_tile_carbon = 0.0
+     do i=1,num_l
+        call poolTotalCarbon(soil%soil_C(i),totalCarbon=temp)
+        soil_tile_carbon=soil_tile_carbon+temp
+     enddo
+     call poolTotalCarbon(soil%leafLitter,totalCarbon=temp)
      soil_tile_carbon=soil_tile_carbon+temp
-  enddo
-  call poolTotalCarbon(soil%leafLitter,totalCarbon=temp)
-  soil_tile_carbon=soil_tile_carbon+temp
-  call poolTotalCarbon(soil%fineWoodLitter,totalCarbon=temp)
-  soil_tile_carbon=soil_tile_carbon+temp
-  call poolTotalCarbon(soil%coarseWoodLitter,totalCarbon=temp)
-  soil_tile_carbon=soil_tile_carbon+temp
+     call poolTotalCarbon(soil%fineWoodLitter,totalCarbon=temp)
+     soil_tile_carbon=soil_tile_carbon+temp
+     call poolTotalCarbon(soil%coarseWoodLitter,totalCarbon=temp)
+     soil_tile_carbon=soil_tile_carbon+temp
+  case default
+     soil_tile_carbon = sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:))
+  end select
 end function
 
 end module soil_tile_mod
