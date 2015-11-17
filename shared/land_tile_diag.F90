@@ -214,7 +214,8 @@ subroutine register_tiled_area_fields(module_name, axes, init_time, &
      enddo
   endif
   id_frac = reg_field(FLD_LIKE_AREA, module_name, 'frac', init_time, axes, &
-         'fraction of land area', 'unitless', missing_value=-1.0, op=OP_SUM)
+         'fraction of land area', 'unitless', missing_value=-1.0, op=OP_SUM, &
+         standard_name='area_fraction')
   if (id_frac > 0) then
      call add_cell_measures(id_frac, get_area_id('land'))
      call add_cell_methods(id_frac,'area: mean')
@@ -284,7 +285,7 @@ end subroutine add_cell_methods
 
 ! ============================================================================
 function register_tiled_diag_field(module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, op) result (id)
+     long_name, units, missing_value, range, op, standard_name) result (id)
 
   integer :: id
 
@@ -297,16 +298,17 @@ function register_tiled_diag_field(module_name, field_name, axes, init_time, &
   real,             intent(in), optional :: missing_value
   real,             intent(in), optional :: range(2)
   integer,          intent(in), optional :: op ! aggregation operation code
+  character(len=*), intent(in), optional :: standard_name
   
   id = reg_field(FLD_DYNAMIC, module_name, field_name, init_time, axes, long_name, &
-         units, missing_value, range, op=op)
+         units, missing_value, range, op=op, standard_name=standard_name)
   call add_cell_measures(id)
   call add_cell_methods(id)
 end function
 
 ! ============================================================================
 function register_tiled_static_field(module_name, field_name, axes, &
-     long_name, units, missing_value, range, require, op) result (id)
+     long_name, units, missing_value, range, require, op, standard_name) result (id)
 
   integer :: id
 
@@ -319,12 +321,13 @@ function register_tiled_static_field(module_name, field_name, axes, &
   real,             intent(in), optional :: range(2)
   logical,          intent(in), optional :: require
   integer,          intent(in), optional :: op ! aggregation operation code
+  character(len=*), intent(in), optional :: standard_name
   
   ! --- local vars
   type(time_type) :: init_time
 
   id = reg_field(FLD_STATIC, module_name, field_name, init_time, axes, long_name, &
-         units, missing_value, range, require, op)
+         units, missing_value, range, require, op, standard_name=standard_name)
   call add_cell_measures(id)
   call add_cell_methods(id)
 end function
@@ -332,7 +335,7 @@ end function
 
 ! ============================================================================
 subroutine add_tiled_static_field_alias(id0, module_name, field_name, axes, &
-     long_name, units, missing_value, range, op)
+     long_name, units, missing_value, range, op, standard_name)
   integer,          intent(inout) :: id0 ! id of the original diag field on input;
    ! if negative then it may be replaced with the alias id on output
   character(len=*), intent(in) :: module_name
@@ -343,18 +346,19 @@ subroutine add_tiled_static_field_alias(id0, module_name, field_name, axes, &
   real,             intent(in), optional :: missing_value
   real,             intent(in), optional :: range(2)
   integer,          intent(in), optional :: op ! aggregation operation code
+  character(len=*), intent(in), optional :: standard_name
 
   ! --- local vars
   type(time_type) :: init_time
 
   call reg_field_alias(id0, FLD_STATIC, module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, op)
+     long_name, units, missing_value, range, op, standard_name=standard_name)
 end subroutine
 
 
 ! ============================================================================
 subroutine add_tiled_diag_field_alias(id0, module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, op)
+     long_name, units, missing_value, range, op, standard_name)
   integer,          intent(inout) :: id0 ! id of the original diag field on input;
    ! if negative then it may be replaced with the alias id on output
   character(len=*), intent(in) :: module_name
@@ -366,14 +370,15 @@ subroutine add_tiled_diag_field_alias(id0, module_name, field_name, axes, init_t
   real,             intent(in), optional :: missing_value
   real,             intent(in), optional :: range(2)
   integer,          intent(in), optional :: op ! aggregation operation code
+  character(len=*), intent(in), optional :: standard_name
 
   call reg_field_alias(id0, FLD_DYNAMIC, module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, op)
+     long_name, units, missing_value, range, op, standard_name=standard_name)
 end subroutine
 
 ! ============================================================================
 subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, op)
+     long_name, units, missing_value, range, op, standard_name)
 
 
   integer,          intent(inout) :: id0 ! id of the original diag field on input;
@@ -388,6 +393,7 @@ subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time
   real,             intent(in), optional :: missing_value
   real,             intent(in), optional :: range(2)
   integer,          intent(in), optional :: op ! aggregation operation code
+  character(len=*), intent(in), optional :: standard_name
   
   ! local vars
   integer :: id1
@@ -425,7 +431,7 @@ subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time
     ! the "main" field has not been registered, so simply register the alias
     ! as a diag field
     id0 = reg_field(static, module_name, field_name, init_time, axes, long_name, &
-          units, missing_value, range, op=op)
+          units, missing_value, range, op=op, standard_name=standard_name)
   endif
 end subroutine reg_field_alias
 
@@ -434,7 +440,7 @@ end subroutine reg_field_alias
 ! of selectors
 function reg_field(static, module_name, field_name, init_time, axes, &
      long_name, units, missing_value, range, require, op, offset, &
-     area, cell_methods) result(id)
+     area, cell_methods, standard_name) result(id)
  
   integer :: id
 
@@ -452,6 +458,7 @@ function reg_field(static, module_name, field_name, init_time, axes, &
   integer,          intent(in), optional :: offset
   character(len=*), intent(in), optional :: area ! name of the area associated with this field, if not default
   character(len=*), intent(in), optional :: cell_methods ! cell_methods associated with this field, if not default
+  character(len=*), intent(in), optional :: standard_name 
 
   ! ---- local vars
   integer, pointer :: diag_ids(:) ! ids returned by FMS diag manager for each selector
@@ -474,7 +481,8 @@ function reg_field(static, module_name, field_name, init_time, axes, &
   do i = 1, n_selectors
      diag_ids(i) = reg_field_set(static, selectors(i), &
           module_name, field_name, axes, &
-          init_time, long_name, units, missing_value, range, require)
+          init_time, long_name, units, missing_value, range, require, &
+          standard_name=standard_name)
   enddo
   
   if(any(diag_ids>0)) then
@@ -539,7 +547,7 @@ end function reg_field
 ! provides unified interface for registering a diagnostic field with a given
 ! selector, whether static or time-dependent
 function reg_field_set(static, sel, module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, require, area) result (id)
+     long_name, units, missing_value, range, require, area, standard_name) result (id)
 
   integer :: id 
 
@@ -555,6 +563,7 @@ function reg_field_set(static, sel, module_name, field_name, axes, init_time, &
   real,             intent(in), optional :: range(2)
   logical,          intent(in), optional :: require
   integer,          intent(in), optional :: area
+  character(len=*), intent(in), optional :: standard_name
 
   character(len=128) :: fname
   logical :: static_
@@ -574,11 +583,12 @@ function reg_field_set(static, sel, module_name, field_name, axes, init_time, &
   if (static_) then
      id = register_static_field ( module_name, fname,   &
           axes, long_name, units, missing_value, range, require, &
-          do_not_log=.TRUE., area=area)
+          do_not_log=.TRUE., area=area, standard_name=standard_name )
   else
      id = register_diag_field ( module_name,  fname,   &
           axes, init_time, long_name, units, missing_value, range, &
-          mask_variant=.true., do_not_log=.TRUE., area=area )
+          mask_variant=.true., do_not_log=.TRUE., area=area, &
+          standard_name=standard_name )
   endif
 
 end function reg_field_set
