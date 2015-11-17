@@ -29,9 +29,6 @@ public :: read_tile_data_i0d_fptr,  read_tile_data_i1d_fptr
 public :: write_tile_data_r0d_fptr, write_tile_data_r1d_fptr, write_tile_data_r2d_fptr
 public :: write_tile_data_i0d_fptr, write_tile_data_i1d_fptr
 
-! data override subroutines
-public :: override_tile_data_r0d_fptr
-
 ! auxiliary subroutines
 public :: get_tile_by_idx
 public :: print_netcdf_error
@@ -1491,28 +1488,6 @@ subroutine write_tile_data_i1d_fptr(ncid,name,fptr,zdim,long_name,units)
   deallocate(data,idx)
   
 end subroutine
-
-
-! ============================================================================
-subroutine override_tile_data_r0d_fptr(fieldname,fptr,time,override)
-  character(len=*), intent(in)   :: fieldname ! field to override
-  procedure(fptr_r0)             :: fptr ! subroutine returning the pointer to the 
-                                         ! data to be written   
-  type(time_type),  intent(in)   :: time      ! model time
-  logical, optional, intent(out) :: override  ! true if the field has been 
-                                              ! overridden successfully
-  ! ---- local vars
-  real    :: data2D(lnd%is:lnd%ie,lnd%js:lnd%je) ! storage for the input data
-  logical :: override_
-  
-  call data_override('LND',fieldname,data2D, time, override_ )
-  if(present(override)) override=override_
-  if(.not.override_) return ! do nothing if the field was not overridden 
-
-  ! distribute the data over the tiles
-  call put_to_tiles_r0d_fptr(data2d,lnd%tile_map,fptr)
-  
-end subroutine override_tile_data_r0d_fptr
 
 ! =============================================================================
 ! given netcdf ID, synchronizes the definitions between writing and reading 

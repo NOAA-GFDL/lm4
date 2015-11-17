@@ -1,6 +1,7 @@
 module nfc_mod
 
   use nfu_mod
+  use fms_mod, only: error_mesg, FATAL
 
 implicit none
 private

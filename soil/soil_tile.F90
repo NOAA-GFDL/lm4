@@ -18,7 +18,7 @@ use land_constants_mod, only : &
 use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_SOIL, register_tile_selector
 use land_io_mod, only : print_netcdf_error
-use soil_carbon_mod, only : &
+use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, &
     soil_carbon_pool, combine_pools, init_soil_carbon, poolTotalCarbon, n_c_types
 
 implicit none
@@ -1903,7 +1903,7 @@ function soil_tile_heat (soil) result(heat) ; real heat
           clw*soil%groundwater(i)*(soil%groundwater_T(i)-tfreeze) - &
           hlf*soil%ws(i)
   enddo
-end function
+end function soil_tile_heat
 
 ! ============================================================================
 ! returns soil tile carbon content, kg C/m2
@@ -1913,17 +1913,22 @@ function soil_tile_carbon (soil); real soil_tile_carbon
   real    :: temp
   integer :: i
 
-  soil_tile_carbon = sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:))
-  do i=1,num_l
-     call poolTotalCarbon(soil%soil_C(i),totalCarbon=temp)
+  select case (soil_carbon_option)
+  case (SOILC_CORPSE)
+     soil_tile_carbon = 0.0
+     do i=1,num_l
+        call poolTotalCarbon(soil%soil_C(i),totalCarbon=temp)
+        soil_tile_carbon=soil_tile_carbon+temp
+     enddo
+     call poolTotalCarbon(soil%leafLitter,totalCarbon=temp)
      soil_tile_carbon=soil_tile_carbon+temp
-  enddo
-  call poolTotalCarbon(soil%leafLitter,totalCarbon=temp)
-  soil_tile_carbon=soil_tile_carbon+temp
-  call poolTotalCarbon(soil%fineWoodLitter,totalCarbon=temp)
-  soil_tile_carbon=soil_tile_carbon+temp
-  call poolTotalCarbon(soil%coarseWoodLitter,totalCarbon=temp)
-  soil_tile_carbon=soil_tile_carbon+temp
-end function
+     call poolTotalCarbon(soil%fineWoodLitter,totalCarbon=temp)
+     soil_tile_carbon=soil_tile_carbon+temp
+     call poolTotalCarbon(soil%coarseWoodLitter,totalCarbon=temp)
+     soil_tile_carbon=soil_tile_carbon+temp
+  case default
+     soil_tile_carbon = sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:))
+  end select
+end function soil_tile_carbon
 
 end module soil_tile_mod

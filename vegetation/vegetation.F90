@@ -71,7 +71,8 @@ use vegn_disturbance_mod, only : vegn_nat_mortality_lm3, &
      vegn_disturbance, update_fuel
 use vegn_harvesting_mod, only : &
      vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting
-use soil_carbon_mod, only : add_litter, poolTotalCarbon, cull_cohorts
+use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, &
+     add_litter, poolTotalCarbon, cull_cohorts
 use soil_mod, only : redistribute_peat_carbon
 
 implicit none
@@ -2137,13 +2138,15 @@ subroutine update_vegn_slow( )
      endif
      call send_tile_data(id_zstar_1, zstar, tile%diag) 
 
-     ! Knock soil carbon cohorts down to their maximum number
-     call cull_cohorts(tile%soil%leafLitter)
-     call cull_cohorts(tile%soil%fineWoodLitter)
-     call cull_cohorts(tile%soil%coarseWoodLitter)
-     do ii=1,size(tile%soil%soil_C)
-           call cull_cohorts(tile%soil%soil_C(ii))
-     enddo
+     if(soil_carbon_option==SOILC_CORPSE) then
+        !Knock soil carbon cohorts down to their maximum number
+        call cull_cohorts(tile%soil%leafLitter)
+        call cull_cohorts(tile%soil%fineWoodLitter)
+        call cull_cohorts(tile%soil%coarseWoodLitter)
+        do ii=1,size(tile%soil%soil_C)
+              call cull_cohorts(tile%soil%soil_C(ii))
+        enddo
+     endif
   enddo
 
   ! seed transport
