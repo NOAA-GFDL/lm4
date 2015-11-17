@@ -276,6 +276,10 @@ integer :: id_fast_soil_C, id_slow_soil_C, id_protected_C, id_fsc, id_ssc,&
     id_fast_DOC_div_loss,id_slow_DOC_div_loss,id_deadmic_DOC_div_loss, &
     id_slomtot, id_wet_frac, id_macro_infilt, &
     id_surf_DOC_loss, id_total_C_leaching, id_total_DOC_div_loss
+
+! diag IDs of CMOR variables
+integer :: id_mrlsl, id_mrso, id_mrlso
+
 ! test tridiagonal solver for advection
 integer :: id_st_diff
 
@@ -1599,6 +1603,16 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
   id_asoil = register_tiled_diag_field ( module_name, 'asoil', &
        (/id_lon,id_lat/), land_time, 'aerobic activity modifier', &
        missing_value=-100.0 )
+
+  id_mrlsl = register_tiled_diag_field ( module_name, 'mrlsl', axes,  &
+       land_time, 'Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
+       standard_name='moisture_content_of_soil_layer')
+  id_mrso  = register_tiled_diag_field ( module_name, 'mrso', (/id_lon,id_lat/),  &
+       land_time, 'Total Soil Moisture Content', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_moisture_content')
+  id_mrlso  = register_tiled_diag_field ( module_name, 'mrlso', (/id_lon,id_lat/),  &
+       land_time, 'Soil Frozen Water Content', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_frozen_water_content')
 
   ! the following fields are for compatibility with older diag tables only
   call add_tiled_static_field_alias ( id_slope_Z, module_name, 'slope_Z',  &
@@ -3684,6 +3698,12 @@ end subroutine soil_step_1
   if (id_lwc > 0) call send_tile_data(id_lwc,  soil%wl/dz(1:num_l), diag)
   if (id_swc > 0) call send_tile_data(id_swc,  soil%ws/dz(1:num_l), diag)
   if (id_psi > 0) call send_tile_data(id_psi,  psi+dPsi, diag)
+
+  ! CMOR variables
+  if (id_mrlsl > 0) call send_tile_data(id_mrlsl, soil%wl+soil%ws, diag)
+  if (id_mrso > 0)  call send_tile_data(id_mrso,  sum(soil%wl+soil%ws), diag)
+  if (id_mrlso > 0) call send_tile_data(id_mrlso, sum(soil%ws), diag)
+
   ! ZMS uncomment for back-compatibility with diag tables
   if (gw_option == GW_TILED) then
      call send_tile_data(id_deficit, deficit, diag)
