@@ -278,7 +278,7 @@ integer :: id_fast_soil_C, id_slow_soil_C, id_protected_C, id_fsc, id_ssc,&
     id_surf_DOC_loss, id_total_C_leaching, id_total_DOC_div_loss
 
 ! diag IDs of CMOR variables
-integer :: id_mrlsl, id_mrso, id_mrlso
+integer :: id_mrlsl, id_mrso, id_mrlso, id_mrro, id_mrros
 
 ! test tridiagonal solver for advection
 integer :: id_st_diff
@@ -1607,12 +1607,18 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
   id_mrlsl = register_tiled_diag_field ( module_name, 'mrlsl', axes,  &
        land_time, 'Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
        standard_name='moisture_content_of_soil_layer')
-  id_mrso  = register_tiled_diag_field ( module_name, 'mrso', (/id_lon,id_lat/),  &
+  id_mrso  = register_tiled_diag_field ( module_name, 'mrso', axes(1:2),  &
        land_time, 'Total Soil Moisture Content', 'kg m-2', missing_value=-100.0, &
        standard_name='soil_moisture_content')
-  id_mrlso  = register_tiled_diag_field ( module_name, 'mrlso', (/id_lon,id_lat/),  &
+  id_mrlso = register_tiled_diag_field ( module_name, 'mrlso', axes(1:2),  &
        land_time, 'Soil Frozen Water Content', 'kg m-2', missing_value=-100.0, &
        standard_name='soil_frozen_water_content')
+  id_mrros = register_tiled_diag_field ( module_name, 'mrros',  axes(1:2),  &
+       land_time, 'Surface Runoff', 'kg m-2 s-1',  missing_value=-100.0, &
+       standard_name='surface_runoff_flux')
+  id_mrro = register_tiled_diag_field ( module_name, 'mrro',  axes(1:2),  &
+       land_time, 'Total Runoff', 'kg m-2 s-1',  missing_value=-100.0, &
+       standard_name='runoff_flux')
 
   ! the following fields are for compatibility with older diag tables only
   call add_tiled_static_field_alias ( id_slope_Z, module_name, 'slope_Z',  &
@@ -3703,6 +3709,8 @@ end subroutine soil_step_1
   if (id_mrlsl > 0) call send_tile_data(id_mrlsl, soil%wl+soil%ws, diag)
   if (id_mrso > 0)  call send_tile_data(id_mrso,  sum(soil%wl+soil%ws), diag)
   if (id_mrlso > 0) call send_tile_data(id_mrlso, sum(soil%ws), diag)
+  call send_tile_data(id_mrros, lrunf_ie+lrunf_sn, diag)
+  call send_tile_data(id_mrro,  lrunf_ie+lrunf_sn+lrunf_bf+lrunf_nu, diag)
 
   ! ZMS uncomment for back-compatibility with diag tables
   if (gw_option == GW_TILED) then
