@@ -275,6 +275,8 @@ integer :: &
   id_water_cons,    id_carbon_cons, id_DOCrunf, id_dis_DOC
 ! diagnostic ids for canopy air tracers (moist mass ratio)
 integer, allocatable :: id_cana_tr(:)
+! diag IDs of CMOR variables
+integer :: id_evspsblveg, id_evspsblsoi
 
 
 ! ---- global clock IDs
@@ -2356,6 +2358,18 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
 
   if (id_total_C > 0) &
       call send_tile_data(id_total_C, land_tile_carbon(tile),         tile%diag)
+
+  ! CMOR variables
+  ! evspsblsoi is evaporation from *soil*, so we send zero from glaciers and lakes;
+  ! the result is averaged over the entire land surface, as required by CMIP. evspsblveg 
+  ! doesn't need this distinction because it is already zero over glaciers and lakes.
+  if (associated(tile%soil)) then
+     call send_tile_data(id_evspsblsoi, subs_levap+subs_fevap,        tile%diag)
+  else
+     call send_tile_data(id_evspsblsoi, 0.0,                          tile%diag)
+  endif
+  call send_tile_data(id_evspsblveg,  vegn_levap+vegn_fevap,          tile%diag)
+  
 end subroutine update_land_model_fast_0d
 
 
@@ -3348,6 +3362,14 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
        'water non-conservation in update_land_model_fast_0d', 'kg/(m2 s)', missing_value=-1.0 )
   id_carbon_cons = register_tiled_diag_field ( module_name, 'carbon_cons', axes, time, &
        'carbon non-conservation in update_land_model_fast_0d', 'kgC/(m2 s)', missing_value=-1.0 )
+
+  ! CMOR variables
+  id_evspsblveg = register_tiled_diag_field ( module_name, 'evspsblveg', axes, time, &
+             'Evaporation from Canopy', 'kg m-2 s-1', missing_value=-1.0e+20, &
+             standard_name='water_evaporation_flux_from_canopy')
+  id_evspsblsoi = register_tiled_diag_field ( module_name, 'evspsblsoi', axes, time, &
+             'Water Evaporation from Soil', 'kg m-2 s-1', missing_value=-1.0e+20, &
+             standard_name='water_evaporation_flux_from_soil')
 
 end subroutine land_diag_init
 
