@@ -21,7 +21,8 @@ use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o
 use tracer_manager_mod, only: NO_TRACER
 
-use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, seconds_per_year
+use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, seconds_per_year, &
+     cmor_name
 use soil_tile_mod, only : GW_LM2, GW_LINEAR, GW_HILL_AR5, GW_HILL, GW_TILED, &
      soil_tile_type, soil_pars_type, read_soil_data_namelist, &
      soil_data_radiation, soil_data_diffusion, soil_data_thermodynamics, &
@@ -1604,19 +1605,19 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
        (/id_lon,id_lat/), land_time, 'aerobic activity modifier', &
        missing_value=-100.0 )
 
-  id_mrlsl = register_tiled_diag_field ( module_name, 'mrlsl', axes,  &
+  id_mrlsl = register_tiled_diag_field ( cmor_name, 'mrlsl', axes,  &
        land_time, 'Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
        standard_name='moisture_content_of_soil_layer')
-  id_mrso  = register_tiled_diag_field ( module_name, 'mrso', axes(1:2),  &
+  id_mrso  = register_tiled_diag_field ( cmor_name, 'mrso', axes(1:2),  &
        land_time, 'Total Soil Moisture Content', 'kg m-2', missing_value=-100.0, &
        standard_name='soil_moisture_content')
-  id_mrlso = register_tiled_diag_field ( module_name, 'mrlso', axes(1:2),  &
+  id_mrlso = register_tiled_diag_field ( cmor_name, 'mrlso', axes(1:2),  &
        land_time, 'Soil Frozen Water Content', 'kg m-2', missing_value=-100.0, &
        standard_name='soil_frozen_water_content')
-  id_mrros = register_tiled_diag_field ( module_name, 'mrros',  axes(1:2),  &
+  id_mrros = register_tiled_diag_field ( cmor_name, 'mrros',  axes(1:2),  &
        land_time, 'Surface Runoff', 'kg m-2 s-1',  missing_value=-100.0, &
        standard_name='surface_runoff_flux')
-  id_mrro = register_tiled_diag_field ( module_name, 'mrro',  axes(1:2),  &
+  id_mrro = register_tiled_diag_field ( cmor_name, 'mrro',  axes(1:2),  &
        land_time, 'Total Runoff', 'kg m-2 s-1',  missing_value=-100.0, &
        standard_name='runoff_flux')
 

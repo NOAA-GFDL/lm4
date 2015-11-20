@@ -33,7 +33,8 @@ use astronomy_mod, only : astronomy_init, diurnal_solar
 use sphum_mod, only : qscomp
 use tracer_manager_mod, only : NO_TRACER, get_tracer_index, get_tracer_names
 
-use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, mol_air, mol_C, mol_co2
+use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, mol_air, mol_C, mol_co2, &
+     cmor_name
 use land_tracers_mod, only : land_tracers_init, land_tracers_end, ntcana, isphum, ico2
 use land_tracer_driver_mod, only: land_tracer_driver_init, land_tracer_driver_end, &
      update_cana_tracers
@@ -3364,10 +3365,10 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
        'carbon non-conservation in update_land_model_fast_0d', 'kgC/(m2 s)', missing_value=-1.0 )
 
   ! CMOR variables
-  id_evspsblveg = register_tiled_diag_field ( module_name, 'evspsblveg', axes, time, &
+  id_evspsblveg = register_tiled_diag_field ( cmor_name, 'evspsblveg', axes, time, &
              'Evaporation from Canopy', 'kg m-2 s-1', missing_value=-1.0e+20, &
              standard_name='water_evaporation_flux_from_canopy')
-  id_evspsblsoi = register_tiled_diag_field ( module_name, 'evspsblsoi', axes, time, &
+  id_evspsblsoi = register_tiled_diag_field ( cmor_name, 'evspsblsoi', axes, time, &
              'Water Evaporation from Soil', 'kg m-2 s-1', missing_value=-1.0e+20, &
              standard_name='water_evaporation_flux_from_soil')
 
