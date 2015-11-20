@@ -9,8 +9,9 @@ use fms_mod, only: write_version_number, error_mesg, FATAL
 use time_manager_mod, only: time_type
 
 use land_constants_mod, only : seconds_per_year, mol_C
-use land_tile_diag_mod, only : &
-     register_tiled_diag_field, send_tile_data, diag_buff_type
+use land_tile_diag_mod, only : register_tiled_diag_field, send_tile_data, &
+     set_default_diag_filter, diag_buff_type
+
 use vegn_data_mod, only : spdata, &
      CMPT_VLEAF, CMPT_SAPWOOD, CMPT_ROOT, CMPT_WOOD, CMPT_LEAF, LEAF_ON, LEAF_OFF, &
      fsc_liv, fsc_wood, fsc_froot, soil_carbon_depth_scale, C2B, agf_bs, &
@@ -68,6 +69,9 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
 
   ! set up global variables
   dt_fast_yr = delta_time/seconds_per_year
+
+  ! set the default sub-sampling filter for the fields below
+  call set_default_diag_filter('soil')
 
   ! register diagnostic fields
   id_gpp = register_tiled_diag_field ( module_name, 'gpp',  &
