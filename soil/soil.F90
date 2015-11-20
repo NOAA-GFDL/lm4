@@ -1605,22 +1605,6 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
        (/id_lon,id_lat/), land_time, 'aerobic activity modifier', &
        missing_value=-100.0 )
 
-  id_mrlsl = register_tiled_diag_field ( cmor_name, 'mrlsl', axes,  &
-       land_time, 'Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
-       standard_name='moisture_content_of_soil_layer')
-  id_mrso  = register_tiled_diag_field ( cmor_name, 'mrso', axes(1:2),  &
-       land_time, 'Total Soil Moisture Content', 'kg m-2', missing_value=-100.0, &
-       standard_name='soil_moisture_content')
-  id_mrlso = register_tiled_diag_field ( cmor_name, 'mrlso', axes(1:2),  &
-       land_time, 'Soil Frozen Water Content', 'kg m-2', missing_value=-100.0, &
-       standard_name='soil_frozen_water_content')
-  id_mrros = register_tiled_diag_field ( cmor_name, 'mrros',  axes(1:2),  &
-       land_time, 'Surface Runoff', 'kg m-2 s-1',  missing_value=-100.0, &
-       standard_name='surface_runoff_flux')
-  id_mrro = register_tiled_diag_field ( cmor_name, 'mrro',  axes(1:2),  &
-       land_time, 'Total Runoff', 'kg m-2 s-1',  missing_value=-100.0, &
-       standard_name='runoff_flux')
-
   ! the following fields are for compatibility with older diag tables only
   call add_tiled_static_field_alias ( id_slope_Z, module_name, 'slope_Z',  &
        axes(1:2), 'hillslope relief (obsolete, use "soil_rlief" instead)',&
@@ -1647,6 +1631,25 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
       land_time, 'soil Temperature difference after advection with tridiagonal solution', &
       'K', missing_value=-100.0 )
 #endif
+
+  ! CMOR variables
+  ! set the default sub-sampling filter for the fields below
+  call set_default_diag_filter('land')
+  id_mrlsl = register_tiled_diag_field ( cmor_name, 'mrlsl', axes,  &
+       land_time, 'Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
+       standard_name='moisture_content_of_soil_layer')
+  id_mrso  = register_tiled_diag_field ( cmor_name, 'mrso', axes(1:2),  &
+       land_time, 'Total Soil Moisture Content', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_moisture_content')
+  id_mrlso = register_tiled_diag_field ( cmor_name, 'mrlso', axes(1:2),  &
+       land_time, 'Soil Frozen Water Content', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_frozen_water_content')
+  id_mrros = register_tiled_diag_field ( cmor_name, 'mrros',  axes(1:2),  &
+       land_time, 'Surface Runoff', 'kg m-2 s-1',  missing_value=-100.0, &
+       standard_name='surface_runoff_flux')
+  id_mrro = register_tiled_diag_field ( cmor_name, 'mrro',  axes(1:2),  &
+       land_time, 'Total Runoff', 'kg m-2 s-1',  missing_value=-100.0, &
+       standard_name='runoff_flux')
 
 end subroutine soil_diag_init
 
