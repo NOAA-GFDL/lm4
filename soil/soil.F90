@@ -279,7 +279,7 @@ integer :: id_fast_soil_C, id_slow_soil_C, id_protected_C, id_fsc, id_ssc,&
     id_surf_DOC_loss, id_total_C_leaching, id_total_DOC_div_loss
 
 ! diag IDs of CMOR variables
-integer :: id_mrlsl, id_mrso, id_mrlso, id_mrro, id_mrros
+integer :: id_mrlsl, id_mrso, id_mrlso, id_mrro, id_mrros, id_csoil
 
 ! test tridiagonal solver for advection
 integer :: id_st_diff
@@ -1650,6 +1650,9 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
   id_mrro = register_tiled_diag_field ( cmor_name, 'mrro',  axes(1:2),  &
        land_time, 'Total Runoff', 'kg m-2 s-1',  missing_value=-100.0, &
        standard_name='runoff_flux')
+  id_csoil = register_tiled_diag_field ( cmor_name, 'cSoil', axes(1:2),  &
+       land_time, 'Carbon in Soil Pool', 'kg C m-2', missing_value=-100.0, &
+       standard_name='soil_carbon_content')
 
 end subroutine soil_diag_init
 
@@ -3821,6 +3824,7 @@ subroutine soil_step_3(soil, diag)
   case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
      if (id_fsc>0) call send_tile_data(id_fsc, sum(soil%fast_soil_C(:)), diag)
      if (id_ssc>0) call send_tile_data(id_ssc, sum(soil%slow_soil_C(:)), diag)
+     if (id_csoil>0) call send_tile_data(id_csoil, sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:)), diag)
      call send_tile_data(id_fast_soil_C, soil%fast_soil_C(:)/dz(1:num_l), diag)
      call send_tile_data(id_slow_soil_C, soil%slow_soil_C(:)/dz(1:num_l), diag)
   case (SOILC_CORPSE)
@@ -3925,6 +3929,7 @@ subroutine soil_step_3(soil, diag)
      total_carbon=total_fast+total_slow+total_deadmic+total_livemic+total_dissolved+total_protected
      if (id_fsc > 0) call send_tile_data(id_fsc, sum_fsc, diag)
      if (id_ssc > 0) call send_tile_data(id_ssc, sum_ssc, diag)
+     if (id_csoil > 0) call send_tile_data(id_csoil, sum_ssc+sum_fsc, diag)
      if (id_deadmic_total > 0) call send_tile_data(id_deadmic_total, sum_deadmic, diag)
      if (id_livemic_total > 0) call send_tile_data(id_livemic_total, sum_livemic, diag)
      if (id_slomtot > 0) then
