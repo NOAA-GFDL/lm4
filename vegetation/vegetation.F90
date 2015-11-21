@@ -14,7 +14,7 @@ use fms_io_mod, only: register_restart_field, restart_file_type, set_domain, sav
                       free_restart_type, field_exist, read_data, read_compressed, get_field_size
 use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe
 use time_manager_mod, only: time_type, time_type_to_real, get_date, operator(-)
-use constants_mod,    only: tfreeze, rdgas, rvgas, hlv, hlf, cp_air, PI
+use constants_mod,    only: tfreeze, rdgas, rvgas, hlv, hlf, cp_air, PI, cmor_name
 use sphum_mod, only: qscomp
 use nf_utils_mod, only: nfu_def_var, nfu_get_var, nfu_put_var, nfu_inq_var
 
@@ -24,7 +24,7 @@ use vegn_tile_mod, only: vegn_tile_type, &
 use soil_tile_mod, only: soil_tile_type, soil_ave_temp, &
                          soil_ave_theta0, soil_ave_theta1, soil_psi_stress
 use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, mol_air, &
-     seconds_per_year
+     seconds_per_year, cmor_name
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
      get_elmt_indices, land_tile_heat, land_tile_carbon, get_tile_water
@@ -41,7 +41,8 @@ use land_tile_io_mod, only : &
 use vegn_data_mod, only : SP_C4GRASS, LEAF_ON, LU_NTRL, read_vegn_data_namelist, &
      tau_drip_l, tau_drip_s, T_transp_min, cold_month_threshold, soil_carbon_depth_scale, &
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
-     N_HARV_POOLS, HARV_POOL_NAMES
+     N_HARV_POOLS, HARV_POOL_NAMES, HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, &
+     HARV_POOL_WOOD_FAST, HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW
 use vegn_cohort_mod, only : vegn_cohort_type, &
      update_species,&
      vegn_data_heat_capacity, vegn_data_intrcptn_cap, &
@@ -182,6 +183,9 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
    id_t_ann, id_t_cold, id_p_ann, id_ncm, &
    id_lambda, id_afire, id_atfall, id_closs, id_cgain, id_wdgain, id_leaf_age, &
    id_phot_co2, id_theph, id_psiph, id_evap_demand
+! CMOR variables
+integer :: id_lai_cmor, id_btot_cmor, id_cproduct, &
+   id_fFire, id_fGrazing, id_fHarvest, id_fLuc
 ! ==== end of module variables ===============================================
 
 ! ==== NetCDF declarations ===================================================
@@ -888,6 +892,32 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
   id_phot_co2 = register_tiled_diag_field (module_name, 'qco2_phot',(/id_lon,id_lat/), &
        time, 'CO2 mixing ratio for photosynthesis calculations', 'mol CO2/mol dry air', &
        missing_value=-1.0)
+
+  ! CMOR variables
+  ! set the default sub-sampling filter for the fields below
+  call set_default_diag_filter('land')
+  id_lai_cmor = register_tiled_diag_field ( cmor_name, 'lai',  (/id_lon,id_lat/), &
+       time, 'Leaf Area Fraction', '%', missing_value=-1.0, &
+       standard_name='leaf_area_index')
+  id_btot_cmor = register_tiled_diag_field ( cmor_name, 'cVeg', (/id_lon,id_lat/), &
+       time, 'Carbon in Vegetation', 'kg C m-2', missing_value=-1.0, &
+       standard_name='vegetation_carbon_content')
+  id_cproduct = register_tiled_diag_field( cmor_name, 'cProduct', (/id_lon,id_lat/), &
+       time, 'Carbon in Products of Land Use Change', 'kg C m-2', missing_value=-999.0, &
+       standard_name='carbon_in_producs_of_luc')
+  id_fFire = register_tiled_diag_field ( cmor_name, 'fFire', (/id_lon, id_lat/), &
+       time, 'CO2 Emission from Fire', 'kg C m-2 s-1', missing_value=-1.0, &
+       standard_name='co2_emission_from_fire')
+  id_fGrazing = register_tiled_diag_field( cmor_name, 'fGrazing', (/id_lon,id_lat/), &
+       time, 'CO2 flux to Atmosphere from Grazing', 'kg C m-2 s-1', missing_value=-1.0, &
+       standard_name='co2_flux_to_atmosphere_from_grazing')
+  id_fHarvest = register_tiled_diag_field( cmor_name, 'fHarvest', (/id_lon,id_lat/), &
+       time, 'CO2 flux to Atmosphere from Crop Harvesting', 'kg C m-2 s-1', missing_value=-1.0, &
+       standard_name='co2_flux_to_atmosphere_from_crop_harvesting')
+  id_fLuc = register_tiled_diag_field( cmor_name, 'fLuc', (/id_lon,id_lat/), &
+       time, 'CO2 flux to Atmosphere from Land Use Change', 'kg C m-2 s-1', missing_value=-1.0, &
+       standard_name='co2_flux_to_atmosphere_from_land_use_change')
+
 end subroutine
 
 
@@ -1841,7 +1871,8 @@ subroutine vegn_step_2 ( vegn, diag, &
   call send_tile_data(id_leaf_tran, cohort%leaf_tran, diag)
   call send_tile_data(id_leaf_emis, cohort%leaf_emis, diag)
   call send_tile_data(id_snow_crit, cohort%snow_crit, diag)
-  
+  ! CMOR variables
+  call send_tile_data(id_lai_cmor, cohort%lai*100.0, diag)
 end subroutine vegn_step_2
 
 
@@ -2080,8 +2111,8 @@ subroutine update_vegn_slow( )
         call send_tile_data(id_harv_pool(ii),tile%vegn%harv_pool(ii),tile%diag)
         call send_tile_data(id_harv_rate(ii),tile%vegn%harv_rate(ii),tile%diag)
      enddo
-     call send_tile_data(id_t_harv_pool,sum(tile%vegn%harv_pool(:)),tile%diag)
-     call send_tile_data(id_t_harv_rate,sum(tile%vegn%harv_rate(:)),tile%diag)
+     if (id_t_harv_pool>0) call send_tile_data(id_t_harv_pool,sum(tile%vegn%harv_pool(:)),tile%diag)
+     if (id_t_harv_rate>0) call send_tile_data(id_t_harv_rate,sum(tile%vegn%harv_rate(:)),tile%diag)
      call send_tile_data(id_csmoke_pool,tile%vegn%csmoke_pool,tile%diag)
      call send_tile_data(id_csmoke_rate,tile%vegn%csmoke_rate,tile%diag)
 
@@ -2110,6 +2141,7 @@ subroutine update_vegn_slow( )
                                         +tile%vegn%cohorts(1:n)%br    &
                                         +tile%vegn%cohorts(1:n)%bsw   &
                                         +tile%vegn%cohorts(1:n)%bwood ), tile%diag)
+
      call send_tile_data(id_fuel,    tile%vegn%fuel, tile%diag)
      call send_tile_data(id_species, real(tile%vegn%cohorts(1)%species), tile%diag)
      call send_tile_data(id_status,  real(tile%vegn%cohorts(1)%status),  tile%diag)
@@ -2123,6 +2155,26 @@ subroutine update_vegn_slow( )
      call send_tile_data(id_deadmic_out, tile%vegn%deadmic_out, tile%diag)
      call send_tile_data(id_veg_in,  tile%vegn%veg_in,  tile%diag)
      call send_tile_data(id_veg_out, tile%vegn%veg_out, tile%diag)
+
+     ! CMOR variables
+     if(id_btot_cmor>0) call send_tile_data(id_btot_cmor, &
+                   sum(tile%vegn%cohorts(1:n)%bl    &
+                      +tile%vegn%cohorts(1:n)%blv   &
+                      +tile%vegn%cohorts(1:n)%br    &
+                      +tile%vegn%cohorts(1:n)%bsw   &
+                      +tile%vegn%cohorts(1:n)%bwood ), tile%diag)     
+     if (id_cproduct>0) call send_tile_data(id_cproduct,&
+                   sum(tile%vegn%harv_pool(:)), tile%diag)
+     call send_tile_data(id_fFire, tile%vegn%csmoke_rate/seconds_per_year, tile%diag)
+     call send_tile_data(id_fGrazing, tile%vegn%harv_rate(HARV_POOL_PAST)/seconds_per_year, tile%diag)
+     call send_tile_data(id_fHarvest, tile%vegn%harv_rate(HARV_POOL_CROP)/seconds_per_year, tile%diag)
+     call send_tile_data(id_fHarvest, &
+         (tile%vegn%harv_rate(HARV_POOL_CLEARED) &
+         +tile%vegn%harv_rate(HARV_POOL_WOOD_FAST) &
+         +tile%vegn%harv_rate(HARV_POOL_WOOD_MED) &
+         +tile%vegn%harv_rate(HARV_POOL_WOOD_SLOW) &
+         )/seconds_per_year, tile%diag)
+
      ! ---- end of diagnostic section
 
      ! reset averages and number of steps to 0 before the start of new month
