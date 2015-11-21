@@ -52,6 +52,9 @@ interface send_tile_data
 end interface
 
 public :: get_area_id
+
+! name of the table used for CMOR-compatible variables
+character(*), public, parameter :: cmor_name='cmor'
 ! ==== end of public interface ===============================================
 
 

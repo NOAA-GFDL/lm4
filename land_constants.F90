@@ -23,9 +23,6 @@ real, public, parameter :: mol_C = 12.0e-3 ! molar mass of carbon, kg
 real, public, parameter :: mol_air = wtmair/1000.0 ! molar mass of air, kg
 real, public, parameter :: mol_CO2 = 44.00995e-3 ! molar mass of CO2,kg
 real, public, parameter :: mol_h2o = 18.0e-3 ! molar mass of water, kg
-
-! name of the table used for CMOR-compatible variables
-character(*), public, parameter :: cmor_name='cmor'
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================

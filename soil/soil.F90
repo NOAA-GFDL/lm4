@@ -21,8 +21,7 @@ use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o
 use tracer_manager_mod, only: NO_TRACER
 
-use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, seconds_per_year, &
-     cmor_name
+use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, seconds_per_year
 use soil_tile_mod, only : GW_LM2, GW_LINEAR, GW_HILL_AR5, GW_HILL, GW_TILED, &
      soil_tile_type, soil_pars_type, read_soil_data_namelist, &
      soil_data_radiation, soil_data_diffusion, soil_data_thermodynamics, &
@@ -52,7 +51,7 @@ use land_tile_diag_mod, only : diag_buff_type, &
      send_tile_data, send_tile_data_r0d_fptr, send_tile_data_r1d_fptr, &
      send_tile_data_i0d_fptr, &
      add_tiled_diag_field_alias, add_tiled_static_field_alias, &
-     set_default_diag_filter
+     set_default_diag_filter, cmor_name
 use land_data_mod, only : land_state_type, lnd, land_time
 use land_io_mod, only : read_field
 use land_tile_io_mod, only : create_tile_out_file, write_tile_data_r0d_fptr,& 

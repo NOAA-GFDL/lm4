@@ -33,8 +33,7 @@ use astronomy_mod, only : astronomy_init, diurnal_solar
 use sphum_mod, only : qscomp
 use tracer_manager_mod, only : NO_TRACER, get_tracer_index, get_tracer_names
 
-use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, mol_air, mol_C, mol_co2, &
-     cmor_name
+use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, mol_air, mol_C, mol_co2
 use land_tracers_mod, only : land_tracers_init, land_tracers_end, ntcana, isphum, ico2
 use land_tracer_driver_mod, only: land_tracer_driver_init, land_tracer_driver_end, &
      update_cana_tracers
@@ -96,7 +95,7 @@ use land_tile_diag_mod, only : tile_diag_init, tile_diag_end, &
     register_tiled_diag_field, register_tiled_area_fields, &
     add_tiled_diag_field_alias, &
     send_tile_data, dump_tile_diag_fields, &
-    OP_AVERAGE, OP_SUM
+    OP_AVERAGE, OP_SUM, cmor_name
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, get_watch_point, check_temp_range, current_face, &
      get_current_point, check_conservation, water_cons_tol, carbon_cons_tol, &

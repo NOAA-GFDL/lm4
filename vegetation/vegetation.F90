@@ -14,7 +14,7 @@ use fms_io_mod, only: register_restart_field, restart_file_type, set_domain, sav
                       free_restart_type, field_exist, read_data, read_compressed, get_field_size
 use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe
 use time_manager_mod, only: time_type, time_type_to_real, get_date, operator(-)
-use constants_mod,    only: tfreeze, rdgas, rvgas, hlv, hlf, cp_air, PI, cmor_name
+use constants_mod,    only: tfreeze, rdgas, rvgas, hlv, hlf, cp_air, PI
 use sphum_mod, only: qscomp
 use nf_utils_mod, only: nfu_def_var, nfu_get_var, nfu_put_var, nfu_inq_var
 
@@ -24,13 +24,13 @@ use vegn_tile_mod, only: vegn_tile_type, &
 use soil_tile_mod, only: soil_tile_type, soil_ave_temp, &
                          soil_ave_theta0, soil_ave_theta1, soil_psi_stress
 use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, mol_air, &
-     seconds_per_year, cmor_name
+     seconds_per_year
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
      get_elmt_indices, land_tile_heat, land_tile_carbon, get_tile_water
-use land_tile_diag_mod, only : &
-     register_tiled_static_field, register_tiled_diag_field, &
-     send_tile_data, diag_buff_type, OP_STD, OP_VAR, set_default_diag_filter
+use land_tile_diag_mod, only : register_tiled_static_field, register_tiled_diag_field, &
+     send_tile_data, diag_buff_type, OP_STD, OP_VAR, set_default_diag_filter, &
+     cmor_name
 use land_data_mod,      only : land_state_type, lnd, land_time
 use land_io_mod, only : read_field
 use land_tile_io_mod, only : &
