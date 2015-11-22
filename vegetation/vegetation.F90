@@ -42,7 +42,7 @@ use vegn_data_mod, only : SP_C4GRASS, LEAF_ON, LU_NTRL, read_vegn_data_namelist,
      tau_drip_l, tau_drip_s, T_transp_min, cold_month_threshold, soil_carbon_depth_scale, &
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
      N_HARV_POOLS, HARV_POOL_NAMES, HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, &
-     HARV_POOL_WOOD_FAST, HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW
+     HARV_POOL_WOOD_FAST, HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, agf_bs
 use vegn_cohort_mod, only : vegn_cohort_type, &
      update_species,&
      vegn_data_heat_capacity, vegn_data_intrcptn_cap, &
@@ -185,7 +185,8 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
    id_phot_co2, id_theph, id_psiph, id_evap_demand
 ! CMOR variables
 integer :: id_lai_cmor, id_btot_cmor, id_cproduct, &
-   id_fFire, id_fGrazing, id_fHarvest, id_fLuc
+   id_fFire, id_fGrazing, id_fHarvest, id_fLuc, &
+   id_cLeaf, id_cWood, id_cRoot, id_cMisc
 ! ==== end of module variables ===============================================
 
 ! ==== NetCDF declarations ===================================================
@@ -917,6 +918,18 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
   id_fLuc = register_tiled_diag_field( cmor_name, 'fLuc', (/id_lon,id_lat/), &
        time, 'CO2 flux to Atmosphere from Land Use Change', 'kg C m-2 s-1', missing_value=-1.0, &
        standard_name='co2_flux_to_atmosphere_from_land_use_change')
+  id_cLeaf = register_tiled_diag_field ( cmor_name, 'cLeaf',  (/id_lon,id_lat/), &
+       time, 'Carbon in Leaves', 'kg C m-2', missing_value=-1.0, &
+       standard_name='carbon_in_leaves')
+  id_cWood = register_tiled_diag_field ( cmor_name, 'cWood',  (/id_lon,id_lat/), &
+       time, 'Carbon in Wood', 'kg C m-2', missing_value=-1.0, &
+       standard_name='carbon_in_wood')
+  id_cRoot = register_tiled_diag_field ( cmor_name, 'cRoot',  (/id_lon,id_lat/), &
+       time, 'Carbon in Roots', 'kg C m-2', missing_value=-1.0, &
+       standard_name='carbon_in_roots')
+  id_cMisc = register_tiled_diag_field ( cmor_name, 'cMisc',  (/id_lon,id_lat/), &
+       time, 'Carbon in Other Living Compartments', 'kg C m-2', missing_value=-1.0, &
+       standard_name='carbon_in_other_living_compartments')
 
 end subroutine
 
@@ -2174,6 +2187,14 @@ subroutine update_vegn_slow( )
          +tile%vegn%harv_rate(HARV_POOL_WOOD_MED) &
          +tile%vegn%harv_rate(HARV_POOL_WOOD_SLOW) &
          )/seconds_per_year, tile%diag)
+     if (id_cLeaf>0) call send_tile_data(id_cLeaf, sum(tile%vegn%cohorts(1:n)%bl), tile%diag)
+     if (id_cWood>0) call send_tile_data(id_cWood, &
+         (sum(tile%vegn%cohorts(1:n)%bwood)+sum(tile%vegn%cohorts(1:n)%bsw))*agf_bs, tile%diag)
+     if (id_cRoot>0) call send_tile_data(id_cRoot, &
+         (sum(tile%vegn%cohorts(1:n)%bwood)+sum(tile%vegn%cohorts(1:n)%bsw))*(1-agf_bs) &
+            +sum(tile%vegn%cohorts(1:n)%br), &
+         tile%diag)
+     if (id_cMisc>0) call send_tile_data(id_cMisc, sum(tile%vegn%cohorts(1:n)%blv), tile%diag)
 
      ! ---- end of diagnostic section
 
