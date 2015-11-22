@@ -10,7 +10,7 @@ use time_manager_mod, only: time_type
 
 use land_constants_mod, only : seconds_per_year, mol_C
 use land_tile_diag_mod, only : register_tiled_diag_field, send_tile_data, &
-     set_default_diag_filter, diag_buff_type
+     set_default_diag_filter, diag_buff_type, cmor_name
 
 use vegn_data_mod, only : spdata, &
      CMPT_VLEAF, CMPT_SAPWOOD, CMPT_ROOT, CMPT_WOOD, CMPT_LEAF, LEAF_ON, LEAF_OFF, &
@@ -54,7 +54,8 @@ real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 da
 ! diagnostic field IDs
 integer :: id_npp, id_nep, id_gpp, id_resp, id_resl, id_resr, id_resg, &
     id_soilt, id_theta, id_litter
-
+! CMOR diagnostic field IDs
+integer :: id_gpp_cmor, id_npp_cmor, id_ra
 
 contains
 
@@ -99,6 +100,19 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
   id_theta = register_tiled_diag_field ( module_name, 'theta',  &
        (/id_lon,id_lat/), time, 'average soil wetness for carbon decomposition', 'm3/m3', &
        missing_value=-100.0 )
+
+  ! set the default sub-sampling filter for CMOR variables
+  call set_default_diag_filter('land')
+  id_gpp_cmor = register_tiled_diag_field ( cmor_name, 'gpp', (/id_lon,id_lat/), & 
+       time, 'Gross Primary Production', 'kg C m-2 s-1', missing_value=-1.0, &
+       standard_name='gross_primary_production')
+  id_npp_cmor = register_tiled_diag_field ( cmor_name, 'npp', (/id_lon,id_lat/), & 
+       time, 'Net Primary Production', 'kg C m-2 s-1', missing_value=-1.0, &
+       standard_name='net_primary_production')
+  id_ra = register_tiled_diag_field ( cmor_name, 'ra', (/id_lon,id_lat/), & 
+       time, 'Autotrophic (Plant) Respiration', 'kg C m-2 s-1', missing_value=-1.0, &
+       standard_name='autotrophic_plant_respiration')
+  
 end subroutine vegn_dynamics_init
 
 
@@ -266,6 +280,10 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, diag)
   call send_tile_data(id_resg, resg, diag)
   call send_tile_data(id_soilt,soilt,diag)
   call send_tile_data(id_theta,theta,diag)
+  ! ---- CMOR diagnostics  
+  call send_tile_data(id_gpp_cmor, gpp/seconds_per_year, diag)
+  call send_tile_data(id_npp_cmor, vegn%npp/seconds_per_year, diag)
+  call send_tile_data(id_ra, (resp-resg)/seconds_per_year, diag)
   
 end subroutine vegn_carbon_int
 

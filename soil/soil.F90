@@ -278,7 +278,7 @@ integer :: id_fast_soil_C, id_slow_soil_C, id_protected_C, id_fsc, id_ssc,&
     id_surf_DOC_loss, id_total_C_leaching, id_total_DOC_div_loss
 
 ! diag IDs of CMOR variables
-integer :: id_mrlsl, id_mrso, id_mrlso, id_mrro, id_mrros, id_csoil
+integer :: id_mrlsl, id_mrso, id_mrlso, id_mrro, id_mrros, id_csoil, id_rh
 
 ! test tridiagonal solver for advection
 integer :: id_st_diff
@@ -1652,6 +1652,9 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
   id_csoil = register_tiled_diag_field ( cmor_name, 'cSoil', axes(1:2),  &
        land_time, 'Carbon in Soil Pool', 'kg C m-2', missing_value=-100.0, &
        standard_name='soil_carbon_content')
+  id_rh = register_tiled_diag_field ( cmor_name, 'rh', (/id_lon,id_lat/), & 
+       land_time, 'Heterotrophic Respiration', 'kg C m-2 s-1', missing_value=-1.0, &
+       standard_name='heterotrophic_respiration')
 
 end subroutine soil_diag_init
 
@@ -4156,6 +4159,7 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   if (id_rsoil_coarsewoodlitter_slow>0) call send_tile_data(id_rsoil_coarsewoodlitter_slow, coarsewoodlitter_slow_C_loss_rate, diag)
   if (id_rsoil_coarsewoodlitter_deadmic>0) call send_tile_data(id_rsoil_coarsewoodlitter_deadmic, coarsewoodlitter_deadmic_C_loss_rate, diag)
   call send_tile_data(id_rsoil, vegn%rh, diag)
+  call send_tile_data(id_rh, vegn%rh/seconds_per_year, diag)
   ! TODO: arithmetic averaging of A doesn't seem correct; we need to invent something better,
   !       e.g. weight it with the carbon loss, or something like that
   if (id_asoil>0) call send_tile_data(id_asoil, sum(A(:))/size(A(:)), diag)
@@ -4231,6 +4235,7 @@ subroutine Dsdt_CENTURY(vegn, soil, diag, soilt, theta)
   if (id_rsoil_fast>0)  call send_tile_data(id_rsoil_fast, fast_C_loss(:)/(dz(1:num_l)*dt_fast_yr), diag)
   if (id_rsoil_slow>0)  call send_tile_data(id_rsoil_slow, slow_C_loss(:)/(dz(1:num_l)*dt_fast_yr), diag)
   call send_tile_data(id_rsoil, vegn%rh, diag)
+  call send_tile_data(id_rh, vegn%rh/seconds_per_year, diag)
   ! TODO: arithmetic averaging of A doesn't seem correct; we need to invent something better,
   !       e.g. weight it with the carbon loss, or something like that
   if (id_asoil>0) call send_tile_data(id_asoil, sum(A(:))/size(A(:)), diag)
