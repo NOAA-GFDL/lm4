@@ -261,28 +261,35 @@ subroutine add_cell_methods(id,cell_methods)
   integer, intent(in) :: id ! id of the tiled diagnostic field
   character(*), intent(in), optional :: cell_methods ! value cell_method attribute
 
-   integer :: i,k
-   character(64) :: cell_methods_
-   
-   if (id<=0) return ! do nothing if the field is not registered
+  integer :: i,k
+  character(64) :: cell_methods_
+  
+  if (id<=0) return ! do nothing if the field is not registered
 
-   i = id - BASE_TILED_FIELD_ID
-   if (present(cell_methods)) then
-      cell_methods_ = cell_methods
-   else
-      select case (fields(i)%op)
-      case (OP_AVERAGE)
-         cell_methods_ = 'area: mean'
-      case (OP_SUM)
-         cell_methods_ = 'area: sum'
-      end select
-   endif
+  i = id - BASE_TILED_FIELD_ID
+  if (present(cell_methods)) then
+     cell_methods_ = cell_methods
+  else
+     select case (fields(i)%op)
+     case (OP_AVERAGE)
+        cell_methods_ = 'area: mean'
+     case (OP_SUM)
+        cell_methods_ = 'area: sum'
+     case (OP_VAR)
+        cell_methods_ = 'area: variance (of sub-grid tile values)'
+     case (OP_STD)
+        cell_methods_ = 'area: standard_deviation (of sub-grid tile values)'
+     case default
+        call error_mesg('add_cell_methods', 'unknown aggregation operation for field "'//&
+               trim(fields(i)%module)//'/'//trim(fields(i)%name)//'"',FATAL)
+     end select
+  endif
 
-   do k = 1, n_selectors
-      if (fields(i)%ids(k)>0) then
-         call diag_field_add_attribute(fields(i)%ids(k),'cell_methods',trim(cell_methods_))
-      endif
-   enddo
+  do k = 1, n_selectors
+     if (fields(i)%ids(k)>0) then
+        call diag_field_add_attribute(fields(i)%ids(k),'cell_methods',trim(cell_methods_))
+     endif
+  enddo
 end subroutine add_cell_methods
 
 
