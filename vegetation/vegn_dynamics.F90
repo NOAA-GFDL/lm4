@@ -55,7 +55,7 @@ real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 da
 integer :: id_npp, id_nep, id_gpp, id_resp, id_resl, id_resr, id_resg, &
     id_soilt, id_theta, id_litter
 ! CMOR diagnostic field IDs
-integer :: id_gpp_cmor, id_npp_cmor, id_ra
+integer :: id_gpp_cmor, id_npp_cmor, id_ra, id_rgrowth
 
 contains
 
@@ -112,6 +112,9 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
   id_ra = register_tiled_diag_field ( cmor_name, 'ra', (/id_lon,id_lat/), & 
        time, 'Autotrophic (Plant) Respiration', 'kg C m-2 s-1', missing_value=-1.0, &
        standard_name='autotrophic_plant_respiration')
+  id_rgrowth = register_tiled_diag_field ( cmor_name, 'rGrowth', (/id_lon,id_lat/), & 
+       time, 'Growth Autotrophic Respiration', 'kg C m-2 s-1', missing_value=-1.0, &
+       standard_name='growth_autotrophic_respiration')
   
 end subroutine vegn_dynamics_init
 
@@ -284,6 +287,7 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, diag)
   call send_tile_data(id_gpp_cmor, gpp/seconds_per_year, diag)
   call send_tile_data(id_npp_cmor, vegn%npp/seconds_per_year, diag)
   call send_tile_data(id_ra, (resp-resg)/seconds_per_year, diag)
+  call send_tile_data(id_rgrowth, resg/seconds_per_year, diag)
   
 end subroutine vegn_carbon_int
 
