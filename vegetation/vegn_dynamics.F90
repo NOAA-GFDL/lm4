@@ -13,7 +13,7 @@ use land_constants_mod, only : seconds_per_year, mol_C
 use land_debug_mod, only : is_watch_point, check_var_range
 use land_tile_diag_mod, only : OP_SUM, OP_MEAN, &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
-     register_cohort_diag_field, send_cohort_data
+     register_cohort_diag_field, send_cohort_data, set_default_diag_filter
 use vegn_data_mod, only : spdata, &
      CMPT_NSC, CMPT_SAPWOOD, CMPT_LEAF, CMPT_ROOT, CMPT_VLEAF, CMPT_WOOD, &
      PHEN_DECIDUOUS, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
@@ -81,6 +81,9 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
 
   ! set up global variables
   dt_fast_yr = delta_time/seconds_per_year
+
+  ! set the default sub-sampling filter for the fields below
+  call set_default_diag_filter('soil')
 
   ! register diagnostic fields
   id_gpp = register_cohort_diag_field ( module_name, 'gpp',  &

@@ -276,7 +276,7 @@ subroutine read_lake_data_namelist(lake_n_lev)
   ! register selectors for tile-specific diagnostics
   do i=1, n_dim_lake_types
      call register_tile_selector(tile_names(i), long_name='',&
-          tag = SEL_LAKE, idata1 = i )
+          tag = SEL_LAKE, idata1 = i, area_depends_on_time=.FALSE. )
   enddo
 
   ! set up output arguments

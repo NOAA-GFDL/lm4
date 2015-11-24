@@ -31,7 +31,8 @@ use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      get_elmt_indices, land_tile_heat, land_tile_carbon, get_tile_water
 use land_tile_diag_mod, only : OP_SUM, OP_MEAN, OP_MAX, OP_DOMINANT, &
      register_tiled_static_field, register_tiled_diag_field, &
-     send_tile_data, diag_buff_type, register_cohort_diag_field, send_cohort_data
+     send_tile_data, diag_buff_type, register_cohort_diag_field, send_cohort_data, &
+     set_default_diag_filter
 use land_data_mod,      only : land_state_type, lnd, land_time
 use land_io_mod, only : read_field
 use land_tile_io_mod, only : create_tile_out_file, &
@@ -608,6 +609,9 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
   
   ! ---- local vars
   integer :: i
+
+  ! set the default sub-sampling filter for the fields below
+  call set_default_diag_filter('soil')
 
   id_vegn_type = register_tiled_static_field ( module_name, 'vegn_type',  &
        (/id_lon,id_lat/), 'vegetation type', missing_value=-1.0 )

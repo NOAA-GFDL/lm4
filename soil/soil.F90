@@ -48,7 +48,7 @@ use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, prev_elmt, current_tile, get_elmt_indices, &
      operator(/=)
 use land_utils_mod, only : put_to_tiles_r0d_fptr, put_to_tiles_r1d_fptr
-use land_tile_diag_mod, only : diag_buff_type, &
+use land_tile_diag_mod, only : diag_buff_type, set_default_diag_filter, &
      register_tiled_static_field, register_tiled_diag_field, &
      send_tile_data, send_tile_data_r0d_fptr, send_tile_data_r1d_fptr, &
      send_tile_data_i0d_fptr, &
@@ -806,6 +806,9 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
 
   ! define array of axis indices
   axes = (/ id_lon, id_lat, id_zfull /)
+
+  ! set the default sub-sampling filter for the fields below
+  call set_default_diag_filter('soil')
 
   ! define diagnostic fields
   id_fast_soil_C = register_tiled_diag_field ( module_name, 'fast_soil_C', axes,  &

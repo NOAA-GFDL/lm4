@@ -542,11 +542,11 @@ subroutine read_soil_data_namelist(soil_single_geo, soil_gw_option )
   
   ! register selector for all soil tiles
   call register_tile_selector('soil', long_name='soil',&
-       tag = SEL_SOIL, idata1 = 0 )
+       tag = SEL_SOIL, idata1 = 0, area_depends_on_time=.FALSE. )
   ! register selectors for tile-specific diagnostics
   do i=1, n_dim_soil_types
      call register_tile_selector(tile_names(i), long_name='',&
-          tag = SEL_SOIL, idata1 = i )
+          tag = SEL_SOIL, idata1 = i, area_depends_on_time=.FALSE. )
   enddo
   num_sfc_layers = 0
   sub_layer_min = 0

@@ -24,7 +24,7 @@ use land_constants_mod, only : &
      NBANDS
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
-use land_tile_diag_mod, only : &
+use land_tile_diag_mod, only : set_default_diag_filter, &
      register_tiled_diag_field, send_tile_data, diag_buff_type
 use land_data_mod,      only : land_state_type, lnd, land_time
 use land_io_mod, only : print_netcdf_error
@@ -848,6 +848,9 @@ subroutine glac_diag_init ( id_lon, id_lat, zfull, zhalf )
 
   ! define array of axis indices
   axes = (/ id_lon, id_lat, id_zfull /)
+
+  ! set the default sub-sampling filter for the fields below
+  call set_default_diag_filter('glac')
 
   ! define diagnostic fields
   id_lwc = register_tiled_diag_field ( module_name, 'glac_liq', axes,        &

@@ -236,7 +236,7 @@ subroutine read_glac_data_namelist(glac_n_lev, glac_dz)
   ! register selectors for tile-specific diagnostics
   do i=1, n_dim_glac_types
      call register_tile_selector(tile_names(i), long_name='',&
-          tag = SEL_GLAC, idata1 = i )
+          tag = SEL_GLAC, idata1 = i, area_depends_on_time = .FALSE. )
   enddo
 
   ! initialize num_sfc_layers

@@ -29,7 +29,7 @@ use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
 use land_tile_diag_mod, only : register_tiled_static_field, &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
-     send_tile_data_r0d_fptr, add_tiled_static_field_alias
+     send_tile_data_r0d_fptr, add_tiled_static_field_alias, set_default_diag_filter
 use land_data_mod,      only : land_state_type, lnd, land_time
 use land_tile_io_mod, only : print_netcdf_error, create_tile_out_file, &
      read_tile_data_r1d_fptr, write_tile_data_r1d_fptr, sync_nc_files, &
@@ -927,6 +927,9 @@ subroutine lake_diag_init ( id_lon, id_lat )
 
   ! define array of axis indices
   axes = (/ id_lon, id_lat, id_zfull /)
+
+  ! set the default sub-sampling filter for the fields below
+  call set_default_diag_filter('lake')
 
   ! define static diagnostic fields
   id_sillw = register_tiled_static_field ( module_name, 'lake_width', &

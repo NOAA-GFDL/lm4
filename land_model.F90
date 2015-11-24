@@ -23,7 +23,7 @@ use fms_mod, only : write_version_number, error_mesg, FATAL, WARNING, NOTE, mpp_
 use field_manager_mod, only : MODEL_LAND
 use data_override_mod, only : data_override
 use diag_manager_mod, only : diag_axis_init, register_static_field, &
-     register_diag_field, send_data
+     register_diag_field, send_data, diag_field_add_attribute
 use constants_mod, only : radius, hlf, hlv, hls, tfreeze, pi, rdgas, rvgas, cp_air, &
      stefan
 use astronomy_mod, only : astronomy_init, diurnal_solar
@@ -84,7 +84,8 @@ use land_tile_io_mod, only : print_netcdf_error, create_tile_out_file, &
      write_tile_data_i0d_fptr, get_input_restart_name
 use land_tile_diag_mod, only : OP_SUM, tile_diag_init, tile_diag_end, &
      register_tiled_diag_field, send_tile_data, dump_tile_diag_fields, &
-     add_tiled_diag_field_alias, register_cohort_diag_field, send_cohort_data
+     add_tiled_diag_field_alias, register_cohort_diag_field, send_cohort_data, &
+     set_default_diag_filter, register_tiled_area_fields
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, is_watch_cell, is_watch_time, get_watch_point, get_current_point, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, &
@@ -3369,12 +3370,17 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
 
   id_cellarea = register_static_field ( module_name, 'cell_area', axes, &
        'total area in grid cell', 'm2', missing_value=-1.0 )
-  id_landarea = register_static_field ( module_name, 'land_area', axes, &
-       'land area in grid cell', 'm2', missing_value=-1.0 )
   id_landfrac = register_static_field ( module_name, 'land_frac', axes, &
-       'fraction of land in grid cell','unitless', missing_value=-1.0 ) 
+       'fraction of land in grid cell','unitless', missing_value=-1.0, area=id_cellarea)
   id_no_riv = register_static_field ( module_name, 'no_riv', axes, &
        'indicator of land without rivers','unitless', missing_value=-1.0 ) 
+
+  ! register areas and fractions for the rest of the diagnostic fields
+  call register_tiled_area_fields(module_name, axes, time, id_area, id_frac)
+
+  ! set the deafult filter (for area and subsampling) for consequent calls to 
+  ! register_tiled_diag_field
+  call set_default_diag_filter('land')
 
   ! register regular (dynamic) diagnostic fields
 
@@ -3410,15 +3416,20 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
              'canopy-air heat storage', 'J/m2', missing_value=-1.0e+20 )
 
   id_dis_liq   = register_diag_field ( module_name, 'dis_liq', axes, &
-       time, 'liquid discharge to ocean', 'kg/(m2 s)', missing_value=-1.0e+20 )
+       time, 'liquid discharge to ocean', 'kg/(m2 s)', missing_value=-1.0e+20, area=id_cellarea )
+  call diag_field_add_attribute(id_dis_liq,'cell_methods', 'area: mean')
   id_dis_ice   = register_diag_field ( module_name, 'dis_ice', axes, &
-       time, 'ice discharge to ocean', 'kg/(m2 s)', missing_value=-1.0e+20 )
+       time, 'ice discharge to ocean', 'kg/(m2 s)', missing_value=-1.0e+20, area=id_cellarea )
+  call diag_field_add_attribute(id_dis_ice,'cell_methods', 'area: mean')
   id_dis_heat   = register_diag_field ( module_name, 'dis_heat', axes, &
-       time, 'heat of mass discharge to ocean', 'W/m2', missing_value=-1.0e+20 )
+       time, 'heat of mass discharge to ocean', 'W/m2', missing_value=-1.0e+20, area=id_cellarea )
+  call diag_field_add_attribute(id_dis_heat,'cell_methods', 'area: mean')
   id_dis_sink   = register_diag_field ( module_name, 'dis_sink', axes, &
-       time, 'burial rate of small/negative discharge', 'kg/(m2 s)', missing_value=-1.0e+20 )
+       time, 'burial rate of small/negative discharge', 'kg/(m2 s)', missing_value=-1.0e+20, area=id_cellarea )
+  call diag_field_add_attribute(id_dis_sink,'cell_methods', 'area: mean')
   id_dis_DOC    = register_diag_field ( module_name, 'dis_DOC', axes, &
        time, 'DOC discharge to ocean', 'kgC/m^2/s', missing_value=-1.0e+20 )
+  call diag_field_add_attribute(id_dis_sink,'cell_methods', 'area: mean')
 
   id_precip = register_tiled_diag_field ( module_name, 'precip', axes, time, &
              'precipitation rate', 'kg/(m2 s)', missing_value=-1.0e+20 )
@@ -3554,10 +3565,6 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
        'canopy air energy residual due to nonlinearities', 'W/m2', missing_value=-1e20)
   id_e_res_2 = register_tiled_diag_field ( module_name, 'e_res_2', axes, time, &
        'canopy energy residual due to nonlinearities', 'W/m2', missing_value=-1e20)
-  id_frac = register_tiled_diag_field(module_name,'frac', axes,&
-       time, 'fraction of land area', 'unitless', missing_value=-1.0, op='sum' )
-  id_area = register_tiled_diag_field(module_name,'area', axes,&
-       time, 'area in the grid cell', 'm2', missing_value=-1.0, op='sum' )
   id_ntiles = register_tiled_diag_field(module_name,'ntiles',axes,  &
        time, 'number of tiles', 'unitless', missing_value=-1.0, op='sum')
   id_z0m     = register_tiled_diag_field ( module_name, 'z0m', axes, time, &
