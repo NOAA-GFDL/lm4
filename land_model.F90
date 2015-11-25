@@ -3117,6 +3117,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
   call diag_field_add_attribute(id_dis_heat,'cell_methods', 'area: mean')
   id_dis_sink   = register_diag_field ( module_name, 'dis_sink', axes, &
        time, 'burial rate of small/negative discharge', 'kg/(m2 s)', missing_value=-1.0e+20, area=id_cellarea )
+  call diag_field_add_attribute(id_dis_sink,'cell_methods', 'area: mean')
   id_dis_DOC    = register_diag_field ( module_name, 'dis_DOC', axes, &
        time, 'DOC discharge to ocean', 'kgC/m^2/s', missing_value=-1.0e+20 )
   call diag_field_add_attribute(id_dis_sink,'cell_methods', 'area: mean')
