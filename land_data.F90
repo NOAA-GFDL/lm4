@@ -16,7 +16,7 @@ use grid_mod          , only : get_grid_ntiles, get_grid_size, get_grid_cell_ver
 use land_tracers_mod  , only : ntcana
 use land_tile_mod     , only : land_tile_type, land_tile_list_type, &
      land_tile_list_init, land_tile_list_end, nitems
-use land_debug_mod    , only : land_time
+use land_debug_mod    , only : land_time, set_coordinates
 
 implicit none
 private
@@ -297,6 +297,7 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow)
   allocate(lnd%pelist(0:mpp_npes()-1))
   call mpp_get_current_pelist(lnd%pelist)
 
+  call set_coordinates(lnd%lon, lnd%lat)
 end subroutine land_data_init
 
 ! ============================================================================
