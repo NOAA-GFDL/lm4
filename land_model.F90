@@ -80,7 +80,7 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
      get_elmt_indices, get_tile_tags, land_tile_carbon, land_tile_heat, &
      get_tile_water, init_tile_map, free_tile_map, max_n_tiles
 use land_data_mod, only : land_data_type, atmos_land_boundary_type, &
-     land_state_type, land_data_init, land_data_end, lnd, land_time
+     land_state_type, land_data_init, land_data_end, lnd
 use nf_utils_mod,  only : nfu_inq_var, nfu_inq_dim, nfu_get_var
 use land_utils_mod, only : put_to_tiles_r0d_fptr
 use land_tile_io_mod, only : print_netcdf_error, create_tile_out_file, &
@@ -434,11 +434,11 @@ subroutine land_model_init &
   ! set the land diagnostic axes ids for the flux exchange
   land2cplr%axes = (/id_lon,id_lat/)
   ! send some static diagnostic fields to output
-  if ( id_cellarea > 0 ) used = send_data ( id_cellarea, lnd%cellarea, land_time )
-  if ( id_landarea > 0 ) used = send_data ( id_landarea, lnd%area, land_time )
-  if ( id_landfrac > 0 ) used = send_data ( id_landfrac, frac,     land_time )
-  if ( id_geolon_t > 0 ) used = send_data ( id_geolon_t, lnd%lon*180.0/PI, land_time )
-  if ( id_geolat_t > 0 ) used = send_data ( id_geolat_t, lnd%lat*180.0/PI, land_time )
+  if ( id_cellarea > 0 ) used = send_data ( id_cellarea, lnd%cellarea, lnd%time )
+  if ( id_landarea > 0 ) used = send_data ( id_landarea, lnd%area, lnd%time )
+  if ( id_landfrac > 0 ) used = send_data ( id_landfrac, frac,     lnd%time )
+  if ( id_geolon_t > 0 ) used = send_data ( id_geolon_t, lnd%lon*180.0/PI, lnd%time )
+  if ( id_geolat_t > 0 ) used = send_data ( id_geolat_t, lnd%lat*180.0/PI, lnd%time )
 
   ! [7] initialize individual sub-models
   call hlsp_init ( id_lon, id_lat, new_land_io ) ! Must be called before soil_init
@@ -449,13 +449,13 @@ subroutine land_model_init &
   call glac_init ( id_lon, id_lat, new_land_io )
   call snow_init ( id_lon, id_lat, new_land_io )
   call cana_init ( id_lon, id_lat, new_land_io )
-  call topo_rough_init( land_time, lnd%lonb, lnd%latb, &
+  call topo_rough_init( lnd%time, lnd%lonb, lnd%latb, &
        lnd%domain, id_lon, id_lat)
   allocate (river_land_mask(lnd%is:lnd%ie,lnd%js:lnd%je))
   allocate ( missing_rivers(lnd%is:lnd%ie,lnd%js:lnd%je))
   allocate ( no_riv        (lnd%is:lnd%ie,lnd%js:lnd%je))
   call river_init( lnd%lon, lnd%lat, &
-                   land_time, lnd%dt_fast, lnd%domain,     &
+                   lnd%time, lnd%dt_fast, lnd%domain,     &
                    frac, &
                    id_lon, id_lat, get_area_id('land'),   &
                    new_land_io,                           &
@@ -463,7 +463,7 @@ subroutine land_model_init &
   missing_rivers = frac.gt.0. .and. .not.river_land_mask
   no_riv = 0.
   where (missing_rivers) no_riv = 1.
-  if ( id_no_riv > 0 ) used = send_data( id_no_riv, no_riv, land_time )
+  if ( id_no_riv > 0 ) used = send_data( id_no_riv, no_riv, lnd%time )
   ! initialize river tracer indices
   n_river_tracers = num_river_tracers()
   i_river_ice  = river_tracer_index('ice')
@@ -1234,7 +1234,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   is=lbound(cplr2land%t_flux,1) ; ie = is+size(cplr2land%t_flux,1)-1
   js=lbound(cplr2land%t_flux,2) ; je = js+size(cplr2land%t_flux,2)-1
   allocate(phot_co2_data(is:ie,js:je))
-  call data_override('LND','phot_co2',phot_co2_data,land_time, &
+  call data_override('LND','phot_co2',phot_co2_data,lnd%time, &
        override=phot_co2_overridden)
   
   ! clear the runoff values, for accumulation over the tiles
@@ -1420,16 +1420,16 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      enddo
 
   ! advance land model time
-  land_time = land_time + lnd%dt_fast
+  lnd%time = lnd%time + lnd%dt_fast
 
   ! send the accumulated diagnostics to the output
-  call dump_tile_diag_fields(land_tile_map, land_time)
+  call dump_tile_diag_fields(land_tile_map, lnd%time)
 
-  if (id_dis_liq > 0)  used = send_data (id_dis_liq,  discharge_l,        land_time) 
-  if (id_dis_ice > 0)  used = send_data (id_dis_ice,  discharge_c(:,:,i_river_ice), land_time) 
-  if (id_dis_heat > 0) used = send_data (id_dis_heat, discharge_c(:,:,i_river_heat), land_time) 
-  if (id_dis_sink > 0) used = send_data (id_dis_sink, discharge_sink,     land_time) 
-  if (id_dis_DOC > 0)  used = send_data (id_dis_DOC,  discharge_c(:,:,i_river_DOC), land_time)
+  if (id_dis_liq > 0)  used = send_data (id_dis_liq,  discharge_l,        lnd%time) 
+  if (id_dis_ice > 0)  used = send_data (id_dis_ice,  discharge_c(:,:,i_river_ice), lnd%time) 
+  if (id_dis_heat > 0) used = send_data (id_dis_heat, discharge_c(:,:,i_river_heat), lnd%time) 
+  if (id_dis_sink > 0) used = send_data (id_dis_sink, discharge_sink,     lnd%time) 
+  if (id_dis_DOC > 0)  used = send_data (id_dis_DOC,  discharge_c(:,:,i_river_DOC), lnd%time)
 
   ! deallocate override buffer
   deallocate(phot_co2_data)
@@ -2342,13 +2342,13 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   call mpp_clock_begin(landSlowClock)
 
   if(new_land_io) then
-    call land_transitions_new( land_time )
+    call land_transitions_new( lnd%time )
   else
-    call land_transitions( land_time )
+    call land_transitions( lnd%time )
   endif
   call update_vegn_slow( )
   ! send the accumulated diagnostics to the output
-  call dump_tile_diag_fields(land_tile_map, land_time)
+  call dump_tile_diag_fields(land_tile_map, lnd%time)
 
   ! land_transitions may have changed the number of tiles per grid cell: reallocate 
   ! boundary conditions, if necessary
@@ -2555,14 +2555,14 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
   do_update = .not.present(is_init)
 
   ! on initialization the albedos are calculated for the current time step ( that is, interval
-  ! land_time, land_time+lnd%dt_fast); in the course of the run this subroutine is called
+  ! lnd%time, lnd%time+lnd%dt_fast); in the course of the run this subroutine is called
   ! at the end of time step (but before time is advanced) to calculate the radiative properties 
   ! for the _next_ time step
   if (do_update) then
-     call diurnal_solar(lnd%lat(i,j), lnd%lon(i,j), land_time+lnd%dt_fast, &
+     call diurnal_solar(lnd%lat(i,j), lnd%lon(i,j), lnd%time+lnd%dt_fast, &
           cosz, fracday, rrsun, lnd%dt_fast)
   else
-     call diurnal_solar(lnd%lat(i,j), lnd%lon(i,j), land_time, &
+     call diurnal_solar(lnd%lat(i,j), lnd%lon(i,j), lnd%time, &
           cosz, fracday, rrsun, lnd%dt_fast)
   endif
   

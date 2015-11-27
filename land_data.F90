@@ -20,7 +20,6 @@ private
 public :: land_data_init
 public :: land_data_end
 public :: lnd            ! global data 
-public :: land_time      ! current time
 
 public :: atmos_land_boundary_type ! container for information passed from the 
                          ! atmosphere to land
@@ -121,6 +120,8 @@ type :: land_state_type
    integer        :: nlon,nlat   ! size of global grid
    type(time_type):: dt_fast     ! fast (physical) time step
    type(time_type):: dt_slow     ! slow time step
+   
+   type(time_type):: time        ! current landd model time
 
    real, pointer  :: lon (:,:), lat (:,:) ! domain grid center coordinates, radian
    real, pointer  :: lonb(:,:), latb(:,:) ! domain grid vertices, radian
@@ -144,7 +145,6 @@ end type land_state_type
 
 ! ---- public module variables -----------------------------------------------
 type(land_state_type),save :: lnd
-type(time_type)            :: land_time
 
 ! ---- private module variables ----------------------------------------------
 logical :: module_is_initialized =.FALSE.
@@ -246,7 +246,7 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow)
   lnd%latb = lnd%latb*pi/180.0 ; lnd%lat = lnd%lat*pi/180.0
   
   ! initialize model's time-related parameters
-  land_time   = time
+  lnd%time    = time
   lnd%dt_fast = dt_fast
   lnd%dt_slow = dt_slow
 

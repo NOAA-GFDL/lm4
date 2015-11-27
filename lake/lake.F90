@@ -33,7 +33,7 @@ use land_tile_diag_mod, only : register_tiled_static_field, &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
      send_tile_data_r0d_fptr, add_tiled_static_field_alias, &
      set_default_diag_filter
-use land_data_mod,      only : land_state_type, lnd, land_time
+use land_data_mod,      only : land_state_type, lnd
 use land_tile_io_mod, only : print_netcdf_error, create_tile_out_file, &
      read_tile_data_r1d_fptr, write_tile_data_r1d_fptr, sync_nc_files, &
      get_input_restart_name, gather_tile_data, assemble_tiles
@@ -1055,21 +1055,21 @@ subroutine lake_diag_init ( id_lon, id_lat )
        axes(1:2), 'backwater1 flag', '-', missing_value=-100.0 )
   ! define dynamic diagnostic fields
   id_dz  = register_tiled_diag_field ( module_name, 'lake_dz', axes,         &
-       land_time, 'nominal layer thickness', 'm', missing_value=-100.0 )
+       lnd%time, 'nominal layer thickness', 'm', missing_value=-100.0 )
   id_wl  = register_tiled_diag_field ( module_name, 'lake_wl', axes,         &
-       land_time, 'liquid water mass', 'kg/m2', missing_value=-100.0 )
+       lnd%time, 'liquid water mass', 'kg/m2', missing_value=-100.0 )
   id_ws  = register_tiled_diag_field ( module_name, 'lake_ws', axes,         &
-       land_time, 'solid water mass', 'kg/m2', missing_value=-100.0 )
+       lnd%time, 'solid water mass', 'kg/m2', missing_value=-100.0 )
   id_lwc  = register_tiled_diag_field ( module_name, 'lake_liq',  axes,       &
-       land_time, 'bulk density of liquid water', 'kg/m3',  missing_value=-100.0 )
+       lnd%time, 'bulk density of liquid water', 'kg/m3',  missing_value=-100.0 )
   id_swc  = register_tiled_diag_field ( module_name, 'lake_ice',  axes,       &
-       land_time, 'bulk density of solid water', 'kg/m3',  missing_value=-100.0 )
+       lnd%time, 'bulk density of solid water', 'kg/m3',  missing_value=-100.0 )
   id_temp  = register_tiled_diag_field ( module_name, 'lake_T',  axes,        &
-       land_time, 'temperature',            'degK',  missing_value=-100.0 )
+       lnd%time, 'temperature',            'degK',  missing_value=-100.0 )
   id_K_z  = register_tiled_diag_field ( module_name, 'lake_K_z', axes,         &
-       land_time, 'vertical diffusivity', 'm2/s', missing_value=-100.0 )
+       lnd%time, 'vertical diffusivity', 'm2/s', missing_value=-100.0 )
   id_evap  = register_tiled_diag_field ( module_name, 'lake_evap',  axes(1:2),  &
-       land_time, 'lake evap',            'kg/(m2 s)',  missing_value=-100.0 )
+       lnd%time, 'lake evap',            'kg/(m2 s)',  missing_value=-100.0 )
        
   call add_tiled_static_field_alias (id_silld, module_name, 'sill_depth', &
        axes(1:2), 'obsolete, pls use lake_depth (static)','m', &

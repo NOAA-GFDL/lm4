@@ -25,7 +25,7 @@ use snow_tile_mod, only : &
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
-use land_data_mod,      only : land_state_type, lnd, land_time
+use land_data_mod,      only : land_state_type, lnd
 use land_tile_io_mod, only : create_tile_out_file, read_tile_data_r1d_fptr, &
      write_tile_data_r1d_fptr, print_netcdf_error, get_input_restart_name, &
      sync_nc_files, gather_tile_data, assemble_tiles

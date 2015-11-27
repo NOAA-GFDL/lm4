@@ -31,7 +31,7 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
 use land_tile_diag_mod, only : &
      register_tiled_static_field, register_tiled_diag_field, &
      send_tile_data, diag_buff_type, OP_STD, OP_VAR, set_default_diag_filter
-use land_data_mod,      only : land_state_type, lnd, land_time
+use land_data_mod,      only : land_state_type, lnd
 use land_io_mod, only : read_field
 use land_tile_io_mod, only : &
      create_tile_out_file, gather_tile_data, &
@@ -669,17 +669,17 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
   enddo
     
   ! initialize carbon integrator
-  call vegn_dynamics_init ( id_lon, id_lat, land_time, delta_time )
+  call vegn_dynamics_init ( id_lon, id_lat, lnd%time, delta_time )
 
   ! initialize static vegetation
   call static_vegn_init (new_land_io)
-  call read_static_vegn ( land_time )
+  call read_static_vegn ( lnd%time )
 
   ! initialize harvesting options
   call vegn_harvesting_init()
 
   ! initialize vegetation diagnostic fields
-  call vegn_diag_init ( id_lon, id_lat, id_band, land_time )
+  call vegn_diag_init ( id_lon, id_lat, id_band, lnd%time )
 
   ! ---- diagnostic section
   ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js)
@@ -1938,8 +1938,8 @@ subroutine update_vegn_slow( )
   character(64) :: tag
 
   ! get components of calendar dates for this and previous time step
-  call get_date(land_time,             year0,month0,day0,hour,minute,second)
-  call get_date(land_time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
+  call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
+  call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
 
   if(month0 /= month1) then
      ! heartbeat
@@ -2158,7 +2158,7 @@ subroutine update_vegn_slow( )
 
   ! override with static vegetation
   if(day1/=day0) &
-       call  read_static_vegn(land_time)
+       call  read_static_vegn(lnd%time)
 end subroutine update_vegn_slow
 
 
