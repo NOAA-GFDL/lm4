@@ -121,17 +121,15 @@ type :: land_state_type
    type(time_type):: dt_fast     ! fast (physical) time step
    type(time_type):: dt_slow     ! slow time step
    
-   type(time_type):: time        ! current landd model time
+   type(time_type):: time        ! current land model time
 
-   real, pointer  :: lon (:,:), lat (:,:) ! domain grid center coordinates, radian
-   real, pointer  :: lonb(:,:), latb(:,:) ! domain grid vertices, radian
-   real, pointer  :: area(:,:)  ! land area per grid cell, m2
-   real, pointer  :: cellarea(:,:)  ! grid cell area, m2
-   real, pointer  :: coord_glon(:), coord_glonb(:) ! longitudes for use in diag axis and such, degrees East
-   real, pointer  :: coord_glat(:), coord_glatb(:) ! latitudes for use in diag axis and such, degrees North
+   real, allocatable  :: lon (:,:), lat (:,:) ! domain grid center coordinates, radian
+   real, allocatable  :: lonb(:,:), latb(:,:) ! domain grid vertices, radian
+   real, allocatable  :: area(:,:)  ! land area per grid cell, m2
+   real, allocatable  :: cellarea(:,:)  ! grid cell area, m2
+   real, allocatable  :: coord_glon(:), coord_glonb(:) ! longitudes for use in diag axis and such, degrees East
+   real, allocatable  :: coord_glat(:), coord_glatb(:) ! latitudes for use in diag axis and such, degrees North
    
-   type(domain2d) :: domain ! our domain -- should be the last since it simplifies
-                            ! debugging in totalview
    integer :: nfaces ! number of mosaic faces
    integer :: face  ! the current mosaic face
    integer, allocatable :: pelist(:) ! list of processors that run land model
@@ -141,13 +139,16 @@ type :: land_state_type
    integer :: io_id     ! suffix in the distributed files.
    logical :: append_io_id ! if FALSE, io_id is not appended to the file names
                            ! (for the case io_layout = 1,1)
+
+   type(domain2d) :: domain ! our domain -- should be the last since it simplifies
+                            ! debugging in totalview
 end type land_state_type
 
 ! ---- public module variables -----------------------------------------------
-type(land_state_type),save :: lnd
+type(land_state_type), save :: lnd
 
 ! ---- private module variables ----------------------------------------------
-logical :: module_is_initialized =.FALSE.
+logical :: module_is_initialized = .FALSE.
 
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -292,12 +293,6 @@ end subroutine land_data_init
 subroutine land_data_end()
   module_is_initialized = .FALSE.
 
-  ! deallocate grid data
-  deallocate(lnd%lonb, lnd%latb, lnd%lon, lnd%lat,&
-       lnd%area, lnd%cellarea,&
-       lnd%coord_glonb, lnd%coord_glon, &
-       lnd%coord_glatb, lnd%coord_glat, &       
-       lnd%pelist, lnd%io_pelist)
 end subroutine land_data_end
 
 end module land_data_mod
