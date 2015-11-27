@@ -8,7 +8,7 @@ use nf_utils_mod,     only : nfu_inq_dim, nfu_get_var, nfu_put_var, &
      nfu_get_rec, nfu_put_rec, nfu_def_dim, nfu_def_var, nfu_put_att, &
      nfu_inq_var
 use land_io_mod,      only : print_netcdf_error, input_buf_size
-use land_tile_mod,    only : land_tile_type, land_tile_list_type, &
+use land_tile_mod,    only : land_tile_map, land_tile_type, land_tile_list_type, &
      land_tile_enum_type, first_elmt, tail_elmt, next_elmt, get_elmt_indices, &
      current_tile, operator(/=)
 use land_tile_io_mod, only : get_tile_by_idx, sync_nc_files
@@ -135,7 +135,7 @@ subroutine read_create_cohorts_orig(ncid)
         if (i<lnd%is.or.i>lnd%ie) cycle ! skip points outside of domain
         if (j<lnd%js.or.j>lnd%je) cycle ! skip points outside of domain
         
-        ce = first_elmt(lnd%tile_map(i,j))
+        ce = first_elmt(land_tile_map(i,j))
         do m = 1,t-1
            ce=next_elmt(ce)
         enddo
@@ -153,7 +153,7 @@ subroutine read_create_cohorts_orig(ncid)
   enddo
 
   ! go through all tiles in the domain and allocate requested numner of cohorts
-  ce = first_elmt(lnd%tile_map); te = tail_elmt(lnd%tile_map)
+  ce = first_elmt(land_tile_map); te = tail_elmt(land_tile_map)
   do while (ce/=te)
      tile=>current_tile(ce); ce = next_elmt(ce)
      if(.not.associated(tile%vegn))cycle
@@ -192,7 +192,7 @@ subroutine read_create_cohorts_new(idx,ntiles)
      if (i<lnd%is.or.i>lnd%ie) cycle ! skip points outside of domain
      if (j<lnd%js.or.j>lnd%je) cycle ! skip points outside of domain
 
-     ce = first_elmt(lnd%tile_map(i,j))
+     ce = first_elmt(land_tile_map(i,j))
      do m = 1,t-1
         ce=next_elmt(ce)
      enddo
@@ -209,7 +209,7 @@ subroutine read_create_cohorts_new(idx,ntiles)
   enddo
 
   ! go through all tiles in the domain and allocate requested numner of cohorts
-  ce = first_elmt(lnd%tile_map); te = tail_elmt(lnd%tile_map)
+  ce = first_elmt(land_tile_map); te = tail_elmt(land_tile_map)
   do while (ce/=te)
      tile=>current_tile(ce); ce = next_elmt(ce)
      if(.not.associated(tile%vegn))cycle
@@ -239,8 +239,8 @@ subroutine create_cohort_dimension_orig(ncid)
 
   ! count total number of cohorts in compute domain and max number of
   ! of cohorts per tile
-  ce = first_elmt(lnd%tile_map)
-  te = tail_elmt (lnd%tile_map)
+  ce = first_elmt(land_tile_map)
+  te = tail_elmt (land_tile_map)
   n  = 0
   max_cohorts = 0
   do while (ce/=te)
@@ -259,7 +259,7 @@ subroutine create_cohort_dimension_orig(ncid)
   
   ! calculate compressed cohort index to be written to the restart file
   allocate(idx(max(n,1))) ; idx(:) = -1
-  ce = first_elmt(lnd%tile_map, lnd%is, lnd%js)
+  ce = first_elmt(land_tile_map, lnd%is, lnd%js)
   n = 1
   do while (ce/=te)
      tile=>current_tile(ce)
@@ -326,8 +326,8 @@ subroutine create_cohort_dimension_new(rhandle,cidx,name,tile_dim_length)
 
   ! count total number of cohorts in compute domain and max number of
   ! of cohorts per tile
-  ce = first_elmt(lnd%tile_map)
-  te = tail_elmt (lnd%tile_map)
+  ce = first_elmt(land_tile_map)
+  te = tail_elmt (land_tile_map)
   n  = 0
   max_cohorts = 0
   do while (ce/=te)
@@ -343,7 +343,7 @@ subroutine create_cohort_dimension_new(rhandle,cidx,name,tile_dim_length)
 
   ! calculate compressed cohort index to be written to the restart file
   allocate(cidx(max(n,1))) ; cidx(:) = -1 ! set initial value to a known invalid index
-  ce = first_elmt(lnd%tile_map, lnd%is, lnd%js)
+  ce = first_elmt(land_tile_map, lnd%is, lnd%js)
   n = 1
   do while (ce/=te)
      tile=>current_tile(ce)
@@ -408,7 +408,7 @@ subroutine assemble_cohorts_i0d(fptr,idx,ntiles,data)
   ! gather data into an array along the cohort dimension
   do i = 1, size(idx)
      call get_cohort_by_idx ( idx(i), lnd%nlon, lnd%nlat, ntiles,&
-                             lnd%tile_map, lnd%is, lnd%js,cohort)
+                             land_tile_map, lnd%is, lnd%js,cohort)
      if (associated(cohort)) then
         call fptr(cohort, ptr)
         if(associated(ptr)) ptr = data(i)
@@ -438,7 +438,7 @@ subroutine assemble_cohorts_r0d(fptr,idx,ntiles,data)
   ! gather data into an array along the cohort dimension
   do i = 1, size(idx)
      call get_cohort_by_idx ( idx(i), lnd%nlon, lnd%nlat, ntiles,&
-                             lnd%tile_map, lnd%is, lnd%js,cohort)
+                             land_tile_map, lnd%is, lnd%js,cohort)
      if (associated(cohort)) then
         call fptr(cohort, ptr)
         if(associated(ptr)) ptr = data(i)
@@ -471,7 +471,7 @@ subroutine gather_cohort_data_i0d(fptr,idx,ntiles,data)
   ! gather data into an array along the cohort dimension
   do i = 1, size(idx)
      call get_cohort_by_idx ( idx(i), lnd%nlon, lnd%nlat, ntiles,&
-                             lnd%tile_map, lnd%is, lnd%js,cohort)
+                             land_tile_map, lnd%is, lnd%js,cohort)
      if (associated(cohort)) then
         call fptr(cohort, ptr)
         if(associated(ptr)) then
@@ -507,7 +507,7 @@ subroutine gather_cohort_data_r0d(fptr,idx,ntiles,data)
   ! gather data into an array along the cohort dimension
   do i = 1, size(idx)
      call get_cohort_by_idx ( idx(i), lnd%nlon, lnd%nlat, ntiles,&
-                             lnd%tile_map, lnd%is, lnd%js,cohort)
+                             land_tile_map, lnd%is, lnd%js,cohort)
      if (associated(cohort)) then
         call fptr(cohort, ptr)
         if(associated(ptr)) then 

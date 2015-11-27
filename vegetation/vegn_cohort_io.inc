@@ -76,7 +76,7 @@ subroutine READ_0D_FPTR(ncid,name,fptr,rec)
      ! distribute data over cohorts
      do i = 1, size(idx)
         call get_cohort_by_idx ( idx(i), lnd%nlon, lnd%nlat, ntiles,&
-             lnd%tile_map, lnd%is, lnd%js,cohort)
+             land_tile_map, lnd%is, lnd%js,cohort)
         if (associated(cohort)) then
            call fptr(cohort, ptr)
            if(associated(ptr)) ptr = data(i)
@@ -134,7 +134,7 @@ subroutine WRITE_0D_FPTR(ncid,name,fptr,long_name,units,record)
   ! gather data into an array along the cohort dimension
   do i = 1, size(idx)
      call get_cohort_by_idx ( idx(i), lnd%nlon, lnd%nlat, ntiles,&
-                             lnd%tile_map, lnd%is, lnd%js,cohort)
+                             land_tile_map, lnd%is, lnd%js,cohort)
      if (associated(cohort)) then
         call fptr(cohort, ptr)
         if(associated(ptr)) then 

@@ -23,7 +23,7 @@ use snow_tile_mod, only : &
      snow_data_thermodynamics, snow_data_area, snow_data_radiation, snow_data_diffusion, &
      snow_data_hydraulics, max_lev, cpw, clw, csw
 
-use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
+use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
 use land_data_mod,      only : land_state_type, lnd, land_time
 use land_tile_io_mod, only : create_tile_out_file, read_tile_data_r1d_fptr, &
@@ -199,8 +199,8 @@ subroutine snow_init ( id_lon, id_lat, new_land_io )
     endif
   else
      call error_mesg('snow_init', 'cold-starting snow', NOTE)
-     te = tail_elmt (lnd%tile_map)
-     ce = first_elmt(lnd%tile_map)
+     te = tail_elmt (land_tile_map)
+     ce = first_elmt(land_tile_map)
      do while(ce /= te)
         tile=>current_tile(ce)  ! get pointer to current tile
         ce=next_elmt(ce)       ! advance position to the next tile

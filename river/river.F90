@@ -65,7 +65,7 @@ module river_mod
                                   river_impedes_large_lake
   use constants_mod,       only : PI, RADIAN, tfreeze, DENS_H2O, hlf
   use stock_constants_mod, only : ISTOCK_WATER, ISTOCK_HEAT
-  use land_tile_mod,       only : land_tile_type, land_tile_enum_type, &
+  use land_tile_mod,       only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, get_elmt_indices, &
      operator(/=)
   use land_data_mod,       only : land_data_type, land_state_type, lnd
@@ -668,8 +668,8 @@ end subroutine print_river_tracer_data
     lake_conn   = 0
     lake_backwater = 0
     lake_backwater_1 = 0
-     ce = first_elmt(lnd%tile_map, is=isc, js=jsc)
-    te = tail_elmt (lnd%tile_map)
+     ce = first_elmt(land_tile_map, is=isc, js=jsc)
+    te = tail_elmt (land_tile_map)
     do while(ce /= te)
        call get_elmt_indices(ce,i,j,k)
        tile=>current_tile(ce)  ! get pointer to current tile
@@ -754,8 +754,8 @@ end subroutine print_river_tracer_data
 !***************************************************************
        call mpp_clock_end(physicsclock)
     enddo
-    ce = first_elmt(lnd%tile_map, is=isc, js=jsc)
-    te = tail_elmt (lnd%tile_map)
+    ce = first_elmt(land_tile_map, is=isc, js=jsc)
+    te = tail_elmt (land_tile_map)
     do while(ce /= te)
        call get_elmt_indices(ce,i,j,k)
        tile=>current_tile(ce)  ! get pointer to current tile

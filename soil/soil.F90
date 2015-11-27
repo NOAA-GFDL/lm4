@@ -42,7 +42,7 @@ use soil_carbon_mod, only: poolTotalCarbon, soilMaxCohorts, &
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, &
      C_CEL, C_LIG, C_MIC, A_function, debug_pool, adjust_pool_ncohorts
 
-use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
+use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, prev_elmt, current_tile, get_elmt_indices, &
      operator(/=)
 use land_utils_mod, only : put_to_tiles_r0d_fptr, put_to_tiles_r1d_fptr
@@ -415,7 +415,7 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
         allocate(gw_param(lnd%is:lnd%ie,lnd%js:lnd%je))
         call read_field( 'INPUT/groundwater_residence.nc','tau', lnd%lon, lnd%lat, &
              gw_param, interp='bilinear' )
-        call put_to_tiles_r0d_fptr( gw_param, lnd%tile_map, soil_tau_groundwater_ptr )
+        call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_tau_groundwater_ptr )
         deallocate(gw_param)
      case (GW_HILL, GW_HILL_AR5)
         allocate(gw_param (lnd%is:lnd%ie,lnd%js:lnd%je))
@@ -423,49 +423,49 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
         allocate(gw_param3(lnd%is:lnd%ie,lnd%js:lnd%je))
         call read_field( 'INPUT/geohydrology.nc','hillslope_length',  lnd%lon, lnd%lat, &
           gw_param, interp='bilinear' )
-        call put_to_tiles_r0d_fptr( gw_param*gw_scale_length, lnd%tile_map, soil_hillslope_length_ptr )
+        call put_to_tiles_r0d_fptr( gw_param*gw_scale_length, land_tile_map, soil_hillslope_length_ptr )
         call read_field( 'INPUT/geohydrology.nc','slope', lnd%lon, lnd%lat, &
           gw_param2, interp='bilinear' )
         gw_param = gw_param*gw_param2
-        call put_to_tiles_r0d_fptr( gw_param*gw_scale_relief, lnd%tile_map, soil_hillslope_relief_ptr )
+        call put_to_tiles_r0d_fptr( gw_param*gw_scale_relief, land_tile_map, soil_hillslope_relief_ptr )
           
         if (retro_a0n1 .or. gw_option.eq.GW_HILL_AR5) then
             gw_param = 0.
-            call put_to_tiles_r0d_fptr( gw_param, lnd%tile_map, soil_hillslope_a_ptr )
+            call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_a_ptr )
             gw_param = 1.
-            call put_to_tiles_r0d_fptr( gw_param, lnd%tile_map, soil_hillslope_n_ptr )
+            call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_n_ptr )
 !            call read_field( 'INPUT/geohydrology.nc','hillslope_zeta_bar', &
 !              lnd%lon, lnd%lat, gw_param, interp='bilinear' )
             gw_param = 0.5
-            call put_to_tiles_r0d_fptr( gw_param, lnd%tile_map, soil_hillslope_zeta_bar_ptr )
+            call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_zeta_bar_ptr )
         else
             call read_field( 'INPUT/geohydrology.nc','hillslope_a', &
               lnd%lon, lnd%lat, gw_param, interp='bilinear' )
-            call put_to_tiles_r0d_fptr( gw_param, lnd%tile_map, soil_hillslope_a_ptr )
+            call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_a_ptr )
             call read_field( 'INPUT/geohydrology.nc','hillslope_n', &
               lnd%lon, lnd%lat, gw_param2, interp='bilinear' )
-            call put_to_tiles_r0d_fptr( gw_param2, lnd%tile_map, soil_hillslope_n_ptr )
+            call put_to_tiles_r0d_fptr( gw_param2, land_tile_map, soil_hillslope_n_ptr )
             gw_param3 = (1./(gw_param2+1.)+gw_param/(gw_param2+2.))/(1.+gw_param/2.)
-            call put_to_tiles_r0d_fptr( gw_param3, lnd%tile_map, soil_hillslope_zeta_bar_ptr )
+            call put_to_tiles_r0d_fptr( gw_param3, land_tile_map, soil_hillslope_zeta_bar_ptr )
         endif
 
         call read_field( 'INPUT/geohydrology.nc','soil_e_depth', &
           lnd%lon, lnd%lat, gw_param, interp='bilinear' )
         if (slope_exp.gt.0.01) then
             call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth*(0.08/gw_param2)**slope_exp, &
-                                                  lnd%tile_map, soil_soil_e_depth_ptr )
+                                                  land_tile_map, soil_soil_e_depth_ptr )
         else
-            call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth, lnd%tile_map, soil_soil_e_depth_ptr )
+            call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth, land_tile_map, soil_soil_e_depth_ptr )
         endif
         if (gw_option /= GW_HILL_AR5) then
             call read_field( 'INPUT/geohydrology.nc','perm', lnd%lon, lnd%lat, &
                  gw_param, interp='bilinear' )
-            call put_to_tiles_r0d_fptr(9.8e9*gw_scale_perm*gw_param, lnd%tile_map, &
+            call put_to_tiles_r0d_fptr(9.8e9*gw_scale_perm*gw_param, land_tile_map, &
                                             soil_k_sat_gw_ptr )
         endif
         deallocate(gw_param, gw_param2, gw_param3)
-        te = tail_elmt (lnd%tile_map)
-        ce = first_elmt(lnd%tile_map)
+        te = tail_elmt (land_tile_map)
+        ce = first_elmt(land_tile_map)
         do while(ce /= te)
             tile=>current_tile(ce)  ! get pointer to current tile
             ce=next_elmt(ce)        ! advance position to the next tile
@@ -483,15 +483,15 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
            allocate(gw_param2(lnd%is:lnd%ie,lnd%js:lnd%je))
            call read_field( 'INPUT/geohydrology.nc','hillslope_length',  lnd%lon, lnd%lat, &
              gw_param, interp='bilinear' )
-           call put_to_tiles_r0d_fptr( gw_param*gw_scale_length, lnd%tile_map, soil_hillslope_length_ptr )
+           call put_to_tiles_r0d_fptr( gw_param*gw_scale_length, land_tile_map, soil_hillslope_length_ptr )
            call read_field( 'INPUT/geohydrology.nc','slope', lnd%lon, lnd%lat, &
              gw_param2, interp='bilinear' )
            gw_param = gw_param*gw_param2
-           call put_to_tiles_r0d_fptr( gw_param*gw_scale_relief, lnd%tile_map, soil_hillslope_relief_ptr )
+           call put_to_tiles_r0d_fptr( gw_param*gw_scale_relief, land_tile_map, soil_hillslope_relief_ptr )
            call read_field( 'INPUT/geohydrology.nc','hillslope_zeta_bar', &
              lnd%lon, lnd%lat, gw_param, interp='bilinear' )
            if (zeta_bar_override.gt.0.) gw_param=zeta_bar_override
-           call put_to_tiles_r0d_fptr( gw_param, lnd%tile_map, soil_hillslope_zeta_bar_ptr )
+           call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_zeta_bar_ptr )
            call read_field( 'INPUT/geohydrology.nc','soil_e_depth', &
              lnd%lon, lnd%lat, gw_param, interp='bilinear' )
 
@@ -500,18 +500,18 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
                call error_mesg(module_name, 'soil_init: "slope_exp" > 0.0 requested even though '// &
                                'running with tiled hillslope model.  This may be inconsistent.', WARNING)
                call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth*(0.08/gw_param2)**slope_exp, &
-                                                     lnd%tile_map, soil_soil_e_depth_ptr )
+                                                     land_tile_map, soil_soil_e_depth_ptr )
            else
-               call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth, lnd%tile_map, soil_soil_e_depth_ptr )
+               call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth, land_tile_map, soil_soil_e_depth_ptr )
            endif
            call read_field( 'INPUT/geohydrology.nc','perm', lnd%lon, lnd%lat, &
                   gw_param, interp='bilinear' )
-           call put_to_tiles_r0d_fptr(9.8e9*gw_scale_perm*gw_param, lnd%tile_map, &
+           call put_to_tiles_r0d_fptr(9.8e9*gw_scale_perm*gw_param, land_tile_map, &
                                           soil_k_sat_gw_ptr )
            deallocate(gw_param, gw_param2)
         end if
-        te = tail_elmt (lnd%tile_map)
-        ce = first_elmt(lnd%tile_map)
+        te = tail_elmt (land_tile_map)
+        ce = first_elmt(land_tile_map)
         do while(ce /= te)
             tile=>current_tile(ce)  ! get pointer to current tile
             ce=next_elmt(ce)        ! advance position to the next tile
@@ -538,12 +538,12 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
           lnd%lon, lnd%lat, albedo(:,:,BAND_VIS),'bilinear')
      call read_field( 'INPUT/soil_albedo.nc','SOIL_ALBEDO_NIR',&
           lnd%lon, lnd%lat, albedo(:,:,BAND_NIR),'bilinear')
-     call put_to_tiles_r1d_fptr( albedo, lnd%tile_map, soil_refl_dry_dir_ptr )
-     call put_to_tiles_r1d_fptr( albedo, lnd%tile_map, soil_refl_dry_dif_ptr )
+     call put_to_tiles_r1d_fptr( albedo, land_tile_map, soil_refl_dry_dir_ptr )
+     call put_to_tiles_r1d_fptr( albedo, land_tile_map, soil_refl_dry_dif_ptr )
      ! for now, put the same value into the saturated soil albedo, so that
      ! the albedo does not depend on soil wetness
-     call put_to_tiles_r1d_fptr( albedo, lnd%tile_map, soil_refl_sat_dir_ptr )
-     call put_to_tiles_r1d_fptr( albedo, lnd%tile_map, soil_refl_sat_dif_ptr )
+     call put_to_tiles_r1d_fptr( albedo, land_tile_map, soil_refl_sat_dir_ptr )
+     call put_to_tiles_r1d_fptr( albedo, land_tile_map, soil_refl_sat_dif_ptr )
      deallocate(albedo)
   else if (trim(albedo_to_use)=='brdf-maps') then
      use_brdf = .true.
@@ -564,16 +564,16 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
      call read_field( 'INPUT/soil_brdf.nc','f_geo_nir',&
           lnd%lon, lnd%lat, f_geo(:,:,BAND_NIR),'bilinear')
      refl_dif = g_iso*f_iso + g_vol*f_vol + g_geo*f_geo
-     call put_to_tiles_r1d_fptr( f_iso,    lnd%tile_map, soil_f_iso_dry_ptr )
-     call put_to_tiles_r1d_fptr( f_vol,    lnd%tile_map, soil_f_vol_dry_ptr )
-     call put_to_tiles_r1d_fptr( f_geo,    lnd%tile_map, soil_f_geo_dry_ptr )
-     call put_to_tiles_r1d_fptr( refl_dif, lnd%tile_map, soil_refl_dry_dif_ptr )
+     call put_to_tiles_r1d_fptr( f_iso,    land_tile_map, soil_f_iso_dry_ptr )
+     call put_to_tiles_r1d_fptr( f_vol,    land_tile_map, soil_f_vol_dry_ptr )
+     call put_to_tiles_r1d_fptr( f_geo,    land_tile_map, soil_f_geo_dry_ptr )
+     call put_to_tiles_r1d_fptr( refl_dif, land_tile_map, soil_refl_dry_dif_ptr )
      ! for now, put the same value into the saturated soil albedo, so that
      ! the albedo does not depend on soil wetness
-     call put_to_tiles_r1d_fptr( f_iso,    lnd%tile_map, soil_f_iso_sat_ptr )
-     call put_to_tiles_r1d_fptr( f_vol,    lnd%tile_map, soil_f_vol_sat_ptr )
-     call put_to_tiles_r1d_fptr( f_geo,    lnd%tile_map, soil_f_geo_sat_ptr )
-     call put_to_tiles_r1d_fptr( refl_dif, lnd%tile_map, soil_refl_sat_dif_ptr )
+     call put_to_tiles_r1d_fptr( f_iso,    land_tile_map, soil_f_iso_sat_ptr )
+     call put_to_tiles_r1d_fptr( f_vol,    land_tile_map, soil_f_vol_sat_ptr )
+     call put_to_tiles_r1d_fptr( f_geo,    land_tile_map, soil_f_geo_sat_ptr )
+     call put_to_tiles_r1d_fptr( refl_dif, land_tile_map, soil_refl_sat_dif_ptr )
      deallocate(f_iso, f_vol, f_geo, refl_dif)
   else if (trim(albedo_to_use)=='') then
      ! do nothing, that is leave soil albedo parameters as defined based on the data table
@@ -598,8 +598,8 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
   end if
 
   ! -------- initialize soil state --------
-  te = tail_elmt (lnd%tile_map)
-  ce = first_elmt(lnd%tile_map, is=lnd%is, js=lnd%js) ! Use global indices here because element indices
+  te = tail_elmt (land_tile_map)
+  ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js) ! Use global indices here because element indices
                                                       ! needed.
   do while(ce /= te)
      tile=>current_tile(ce)  ! get pointer to current tile
@@ -719,8 +719,8 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
         endif
 
         if ( field_exist(restart_file_name,'fast_soil_C', domain=lnd%domain) ) then
-           te = tail_elmt (lnd%tile_map)
-           ce = first_elmt(lnd%tile_map)
+           te = tail_elmt (land_tile_map)
+           ce = first_elmt(land_tile_map)
            do while(ce /= te)
                tile=>current_tile(ce)  ! get pointer to current tile
                ce=next_elmt(ce)        ! advance position to the next tile
@@ -894,8 +894,8 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
         endif
 
         if (nfu_inq_var(unit,'fast_soil_C')==NF_NOERR) then
-           te = tail_elmt (lnd%tile_map)
-           ce = first_elmt(lnd%tile_map)
+           te = tail_elmt (land_tile_map)
+           ce = first_elmt(land_tile_map)
            do while(ce /= te)
                tile=>current_tile(ce)  ! get pointer to current tile
                ce=next_elmt(ce)        ! advance position to the next tile
@@ -1113,31 +1113,31 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
   endif
   
   ! ---- static diagnostic section
-  call send_tile_data_r0d_fptr(id_tau_gw,       lnd%tile_map, soil_tau_groundwater_ptr)
-  call send_tile_data_r0d_fptr(id_slope_l,      lnd%tile_map, soil_hillslope_length_ptr)
-  call send_tile_data_r0d_fptr(id_slope_Z,      lnd%tile_map, soil_hillslope_relief_ptr)
-  call send_tile_data_r0d_fptr(id_zeta_bar,     lnd%tile_map, soil_hillslope_zeta_bar_ptr)
-  call send_tile_data_r0d_fptr(id_e_depth,      lnd%tile_map, soil_soil_e_depth_ptr)
-  call send_tile_data_r0d_fptr(id_zeta,         lnd%tile_map, soil_zeta_ptr)
-  call send_tile_data_r0d_fptr(id_tau,          lnd%tile_map, soil_tau_ptr)
-  call send_tile_data_r0d_fptr(id_vwc_wilt,     lnd%tile_map, soil_vwc_wilt_ptr)
-  call send_tile_data_r0d_fptr(id_vwc_fc,       lnd%tile_map, soil_vwc_fc_ptr)
-  call send_tile_data_r0d_fptr(id_vwc_sat,      lnd%tile_map, soil_vwc_sat_ptr)
-  call send_tile_data_r0d_fptr(id_K_sat,        lnd%tile_map, soil_k_sat_ref_ptr)
-  call send_tile_data_r0d_fptr(id_K_gw,         lnd%tile_map, soil_k_sat_gw_ptr)
-  call send_tile_data_r1d_fptr(id_w_fc,         lnd%tile_map, soil_w_fc_ptr)
-  call send_tile_data_r1d_fptr(id_alpha,        lnd%tile_map, soil_alpha_ptr)
-  call send_tile_data_r1d_fptr(id_refl_dry_dir, lnd%tile_map, soil_refl_dry_dir_ptr)
-  call send_tile_data_r1d_fptr(id_refl_dry_dif, lnd%tile_map, soil_refl_dry_dif_ptr)
-  call send_tile_data_r1d_fptr(id_refl_sat_dir, lnd%tile_map, soil_refl_sat_dir_ptr)
-  call send_tile_data_r1d_fptr(id_refl_sat_dif, lnd%tile_map, soil_refl_sat_dif_ptr)
-  call send_tile_data_r1d_fptr(id_f_iso_dry, lnd%tile_map, soil_f_iso_dry_ptr)
-  call send_tile_data_r1d_fptr(id_f_vol_dry, lnd%tile_map, soil_f_vol_dry_ptr)
-  call send_tile_data_r1d_fptr(id_f_geo_dry, lnd%tile_map, soil_f_geo_dry_ptr)
-  call send_tile_data_r1d_fptr(id_f_iso_sat, lnd%tile_map, soil_f_iso_sat_ptr)
-  call send_tile_data_r1d_fptr(id_f_vol_sat, lnd%tile_map, soil_f_vol_sat_ptr)
-  call send_tile_data_r1d_fptr(id_f_geo_sat, lnd%tile_map, soil_f_geo_sat_ptr)
-  call send_tile_data_i0d_fptr(id_type,         lnd%tile_map, soil_tag_ptr)
+  call send_tile_data_r0d_fptr(id_tau_gw,       land_tile_map, soil_tau_groundwater_ptr)
+  call send_tile_data_r0d_fptr(id_slope_l,      land_tile_map, soil_hillslope_length_ptr)
+  call send_tile_data_r0d_fptr(id_slope_Z,      land_tile_map, soil_hillslope_relief_ptr)
+  call send_tile_data_r0d_fptr(id_zeta_bar,     land_tile_map, soil_hillslope_zeta_bar_ptr)
+  call send_tile_data_r0d_fptr(id_e_depth,      land_tile_map, soil_soil_e_depth_ptr)
+  call send_tile_data_r0d_fptr(id_zeta,         land_tile_map, soil_zeta_ptr)
+  call send_tile_data_r0d_fptr(id_tau,          land_tile_map, soil_tau_ptr)
+  call send_tile_data_r0d_fptr(id_vwc_wilt,     land_tile_map, soil_vwc_wilt_ptr)
+  call send_tile_data_r0d_fptr(id_vwc_fc,       land_tile_map, soil_vwc_fc_ptr)
+  call send_tile_data_r0d_fptr(id_vwc_sat,      land_tile_map, soil_vwc_sat_ptr)
+  call send_tile_data_r0d_fptr(id_K_sat,        land_tile_map, soil_k_sat_ref_ptr)
+  call send_tile_data_r0d_fptr(id_K_gw,         land_tile_map, soil_k_sat_gw_ptr)
+  call send_tile_data_r1d_fptr(id_w_fc,         land_tile_map, soil_w_fc_ptr)
+  call send_tile_data_r1d_fptr(id_alpha,        land_tile_map, soil_alpha_ptr)
+  call send_tile_data_r1d_fptr(id_refl_dry_dir, land_tile_map, soil_refl_dry_dir_ptr)
+  call send_tile_data_r1d_fptr(id_refl_dry_dif, land_tile_map, soil_refl_dry_dif_ptr)
+  call send_tile_data_r1d_fptr(id_refl_sat_dir, land_tile_map, soil_refl_sat_dir_ptr)
+  call send_tile_data_r1d_fptr(id_refl_sat_dif, land_tile_map, soil_refl_sat_dif_ptr)
+  call send_tile_data_r1d_fptr(id_f_iso_dry, land_tile_map, soil_f_iso_dry_ptr)
+  call send_tile_data_r1d_fptr(id_f_vol_dry, land_tile_map, soil_f_vol_dry_ptr)
+  call send_tile_data_r1d_fptr(id_f_geo_dry, land_tile_map, soil_f_geo_dry_ptr)
+  call send_tile_data_r1d_fptr(id_f_iso_sat, land_tile_map, soil_f_iso_sat_ptr)
+  call send_tile_data_r1d_fptr(id_f_vol_sat, land_tile_map, soil_f_vol_sat_ptr)
+  call send_tile_data_r1d_fptr(id_f_geo_sat, land_tile_map, soil_f_geo_sat_ptr)
+  call send_tile_data_i0d_fptr(id_type,         land_tile_map, soil_tag_ptr)
 end subroutine soil_init
 
 
@@ -1675,8 +1675,8 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
      call write_tile_data_r1d_fptr(unit,'fsc',          soil_fast_soil_C_ptr,'zfull','fast soil carbon', 'kg C/m2')
      call write_tile_data_r1d_fptr(unit,'ssc',          soil_slow_soil_C_ptr,'zfull','slow soil carbon', 'kg C/m2')
   case (SOILC_CORPSE)
-     te = tail_elmt (lnd%tile_map)
-     ce = first_elmt(lnd%tile_map)
+     te = tail_elmt (land_tile_map)
+     ce = first_elmt(land_tile_map)
      do while(ce /= te)
         tile=>current_tile(ce)  ! get pointer to current tile
         ce=next_elmt(ce)        ! advance position to the next tile
@@ -1981,8 +1981,8 @@ subroutine save_soil_restart_new (tile_dim_length, timestamp)
      id_restart = register_restart_field(soil_restart,fname,'ssc',ssc,compressed=.true., &
                                          longname='slow soil carbon',units='kg C/m2')
   case (SOILC_CORPSE)
-     te = tail_elmt (lnd%tile_map)
-     ce = first_elmt(lnd%tile_map)
+     te = tail_elmt (land_tile_map)
+     ce = first_elmt(land_tile_map)
      do while(ce /= te)
         tile=>current_tile(ce)  ! get pointer to current tile
         ce=next_elmt(ce)        ! advance position to the next tile

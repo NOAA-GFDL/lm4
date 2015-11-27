@@ -26,7 +26,7 @@ use glac_tile_mod,      only: glac_tile_type, &
 
 use land_constants_mod, only : &
      NBANDS
-use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
+use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
 use land_tile_diag_mod, only : &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
@@ -202,8 +202,8 @@ subroutine glac_init ( id_lon, id_lat, new_land_io )
      call error_mesg('glac_init',&
           'cold-starting glacier',&
           NOTE)
-     te = tail_elmt (lnd%tile_map)
-     ce = first_elmt(lnd%tile_map)
+     te = tail_elmt (land_tile_map)
+     ce = first_elmt(land_tile_map)
      do while(ce /= te)
         tile=>current_tile(ce) ! get pointer to current tile
         ce=next_elmt(ce)       ! advance position to the next tile

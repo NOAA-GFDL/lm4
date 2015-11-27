@@ -13,6 +13,7 @@ use time_manager_mod, only : &
      time_type, get_date, set_date, operator(<=), operator(>=)
 use grid_mod, only: &
      get_grid_ntiles
+use land_data_mod, only: lnd, land_time
 
 ! NOTE TO SELF: the "!$" sentinels are not comments: they are compiled if OpenMP 
 ! support is turned on
@@ -24,7 +25,6 @@ private
 ! ==== public interfaces =====================================================
 public :: land_debug_init
 public :: land_debug_end
-public :: set_coordinates
 
 public :: set_current_point
 public :: get_current_point
@@ -60,8 +60,6 @@ end interface check_var_range
 public :: water_cons_tol
 public :: carbon_cons_tol
 public :: do_check_conservation
-
-public :: land_time
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'land_debug',&
@@ -69,16 +67,11 @@ character(len=*), parameter, private   :: &
     tagname     = '$Name$'
 
 ! ==== module variables ======================================================
-! land time is kept here because debug stuff uses it, and importing it
-! from land_data module would create circular dependencies
-type(time_type)      :: land_time
-
 integer, allocatable :: current_debug_level(:)
 integer :: mosaic_tile = 0
 integer, allocatable :: curr_i(:), curr_j(:), curr_k(:)
 type(time_type)      :: start_watch_time, stop_watch_time
 character(128) :: fixed_format
-real, pointer :: lon(:,:), lat(:,:)
 
 !---- namelist ---------------------------------------------------------------
 integer :: watch_point(4)=(/0,0,0,1/) ! coordinates of the point of interest, 
@@ -171,14 +164,6 @@ subroutine land_debug_end()
   deallocate(curr_i,curr_j,curr_k)
   deallocate(current_debug_level)
 end subroutine
-
-! ============================================================================
-subroutine set_coordinates(lon_, lat_)
-   real, pointer :: lon_(:,:), lat_(:,:)
-   
-   lon => lon_
-   lat => lat_
-end subroutine set_coordinates
 
 ! ============================================================================
 subroutine set_current_point(i,j,k)
@@ -312,8 +297,8 @@ subroutine check_var_range_0d(value, lo, hi, tag, varname, severity)
      call get_date(land_time,y,mo,d,h,m,s)
      write(message,'(a,g23.16,2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
           trim(varname)//' out of range: value=', value,&
-	  'at lon=',lon(curr_i(thread),curr_j(thread))*180.0/PI, &
-	  'lat=',lat(curr_i(thread),curr_j(thread))*180.0/PI, &
+	  'at lon=',lnd%lon(curr_i(thread),curr_j(thread))*180.0/PI, &
+	  'lat=',lnd%lat(curr_i(thread),curr_j(thread))*180.0/PI, &
 	  'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
           'time=',y,mo,d,h,m,s
      call error_mesg(trim(tag),message,severity)
@@ -457,8 +442,8 @@ subroutine check_conservation(tag, substance, d1, d2, tolerance, severity)
      call get_date(land_time,y,mo,d,h,m,s)
      write(message,'(3(x,a,g23.16),2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
           'conservation of '//trim(substance)//' is violated; before=', d1, 'after=', d2, 'diff=',d2-d1,&
-	  'at lon=',lon(curr_i(thread),curr_j(thread))*180.0/PI, &
-	  'lat=',lat(curr_i(thread),curr_j(thread))*180.0/PI, &
+	  'at lon=',lnd%lon(curr_i(thread),curr_j(thread))*180.0/PI, &
+	  'lat=',lnd%lat(curr_i(thread),curr_j(thread))*180.0/PI, &
           'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
           'time=',y,mo,d,h,m,s
      call error_mesg(tag,message,severity_)

@@ -44,7 +44,7 @@ use snow_tile_mod, only : snow_tile_heat
 use vegn_tile_mod, only : vegn_tile_heat
 use soil_tile_mod, only : soil_tile_heat
 
-use land_tile_mod, only : &
+use land_tile_mod, only : land_tile_map, &
      land_tile_type, land_tile_list_type, land_tile_enum_type, new_land_tile, delete_land_tile, &
      first_elmt, tail_elmt, next_elmt, operator(/=), operator(==), current_tile, &
      land_tile_list_init, land_tile_list_end, &
@@ -599,11 +599,11 @@ subroutine land_transitions_new (time)
   ! perform the transitions
   do j = lnd%js,lnd%je
   do i = lnd%is,lnd%ie
-     if(empty(lnd%tile_map(i,j))) cycle ! skip cells where there is no land
+     if(empty(land_tile_map(i,j))) cycle ! skip cells where there is no land
      ! set current point for debugging
      call set_current_point(i,j,1)
      ! transiton land area between different tile types
-     call land_transitions_0d(lnd%tile_map(i,j), &
+     call land_transitions_0d(land_tile_map(i,j), &
           transitions(i,j,:)%donor, &
           transitions(i,j,:)%acceptor,&
           transitions(i,j,:)%frac )
@@ -651,11 +651,11 @@ subroutine land_transitions (time)
   ! perform the transitions
   do j = lnd%js,lnd%je
   do i = lnd%is,lnd%ie
-     if(empty(lnd%tile_map(i,j))) cycle ! skip cells where there is no land
+     if(empty(land_tile_map(i,j))) cycle ! skip cells where there is no land
      ! set current point for debugging
      call set_current_point(i,j,1)
      ! transiton land area between different tile types
-     call land_transitions_0d(lnd%tile_map(i,j), &
+     call land_transitions_0d(land_tile_map(i,j), &
           transitions(i,j,:)%donor, &
           transitions(i,j,:)%acceptor,&
           transitions(i,j,:)%frac )

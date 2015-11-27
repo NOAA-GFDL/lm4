@@ -31,7 +31,7 @@ use land_data_mod,      only : lnd, land_time
 use land_io_mod,        only : print_netcdf_error
 use land_numerics_mod,  only : nearest
 use land_tile_io_mod,   only : create_tile_out_file,sync_nc_files
-use land_tile_mod,      only : land_tile_type, land_tile_enum_type, first_elmt, &
+use land_tile_mod,      only : land_tile_map, land_tile_type, land_tile_enum_type, first_elmt, &
      tail_elmt, next_elmt, current_tile, operator(/=), nitems
 use vegn_cohort_mod,    only : vegn_cohort_type
 use cohort_io_mod,      only : create_cohort_dimension, gather_cohort_data, &
@@ -448,7 +448,7 @@ subroutine static_vegn_init(new_land_io)
      tile_dim_length = 0
      do j = lnd%js, lnd%je
      do i = lnd%is, lnd%ie
-        k = nitems(lnd%tile_map(i,j))
+        k = nitems(land_tile_map(i,j))
         tile_dim_length = max(tile_dim_length,k)
      enddo
      enddo

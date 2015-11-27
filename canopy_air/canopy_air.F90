@@ -28,7 +28,7 @@ use land_constants_mod, only : NBANDS,d608,mol_CO2,mol_air
 use land_tracers_mod, only : ntcana, isphum, ico2
 use cana_tile_mod, only : cana_tile_type, &
      canopy_air_mass, canopy_air_mass_for_tracers, cpw
-use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
+use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
 use land_data_mod,      only : land_state_type, lnd
 use land_tile_io_mod, only : create_tile_out_file, &
@@ -175,8 +175,8 @@ subroutine cana_init ( id_lon, id_lat, new_land_io )
   init_tr(ico2)   = init_co2*mol_CO2/mol_air*(1-init_tr(isphum)) ! convert to kg CO2/kg wet air
 
   ! first, set the initial values
-  te = tail_elmt (lnd%tile_map)
-  ce = first_elmt(lnd%tile_map)
+  te = tail_elmt (land_tile_map)
+  ce = first_elmt(land_tile_map)
   do while(ce /= te)
      tile=>current_tile(ce)  ! get pointer to current tile
      ce=next_elmt(ce)       ! advance position to the next tile

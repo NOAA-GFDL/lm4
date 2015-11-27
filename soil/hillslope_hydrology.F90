@@ -8,7 +8,7 @@ module hillslope_hydrology_mod
 use fms_mod, only : write_version_number, error_mesg, FATAL, NOTE
 use soil_tile_mod, only : &
      soil_tile_type, clw, initval, soil_data_hydraulic_properties
-use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
+use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), nitems
 use fms_mod, only : write_version_number
 use land_data_mod,      only : land_state_type, lnd, land_time
@@ -261,12 +261,12 @@ subroutine hlsp_hydrology_1(num_species)
    do j=lnd%js,lnd%je
       do i=lnd%is,lnd%ie
 
-         te = tail_elmt (lnd%tile_map(i,j))
+         te = tail_elmt (land_tile_map(i,j))
 
          ! Initial loop over tile list
          ! ZMS for now this is an extra loop to calculate soil hydraulic props.
          ! This will need to be consolidated later.
-         ce = first_elmt(lnd%tile_map(i,j))
+         ce = first_elmt(land_tile_map(i,j))
          k = 0
          do while(ce /= te)
             tile=>current_tile(ce)  ! get pointer to current tile
@@ -310,11 +310,11 @@ subroutine hlsp_hydrology_1(num_species)
 !         area_stream = 0.
 
          ! Get first pointer to tile list.
-         ce = first_elmt(lnd%tile_map(i,j))
+         ce = first_elmt(land_tile_map(i,j))
          k = 1
 
          ! Allocate and initialize gtos_bytile
-         numtiles = nitems(lnd%tile_map(i,j))
+         numtiles = nitems(land_tile_map(i,j))
          allocate(gtos_bytile(numtiles, num_l), gtosh_bytile(numtiles, num_l), &
              gtost_bytile(numtiles, num_l, num_species) )
          gtos_bytile(:,:) = 0.
@@ -358,7 +358,7 @@ subroutine hlsp_hydrology_1(num_species)
             tdiv_below(:,:) = 0.
 
             ! Get pointer to second tile list
-            ce2 = first_elmt(lnd%tile_map(i,j))
+            ce2 = first_elmt(land_tile_map(i,j))
 
             ! Loop over second tile list, and calculate fluxes 
             do while (ce2 /= te)
@@ -710,7 +710,7 @@ subroutine hlsp_hydrology_1(num_species)
          ! Check conservation of water, energy, and tracers, 
          ! and send tile diagnostics.
          ! Repeat single loop over tile list
-         ce = first_elmt(lnd%tile_map(i,j))
+         ce = first_elmt(land_tile_map(i,j))
          
          wbal = 0.
          ebal = 0.
