@@ -18,7 +18,7 @@ use fms_mod, only: error_mesg, file_exist, close_file, check_nml_error, &
 use fms_io_mod, only: read_compressed, restart_file_type, free_restart_type, &
       save_restart, register_restart_field, set_domain, nullify_domain, get_field_size
 
-use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
+use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, get_elmt_indices, operator(/=)
 use land_utils_mod, only : put_to_tiles_r0d_fptr 
 use land_tile_diag_mod, only : diag_buff_type, &
@@ -590,8 +590,8 @@ subroutine hlsp_init ( id_lon, id_lat, new_land_io )
 
   if (.not. do_hillslope_model) then
      ! Set hillslope indices all to 0 and return
-     te = tail_elmt (lnd%tile_map)
-     ce = first_elmt(lnd%tile_map)
+     te = tail_elmt (land_tile_map)
+     ce = first_elmt(land_tile_map)
      do while(ce /= te)
         tile=>current_tile(ce)  ! get pointer to current tile
         ce=next_elmt(ce)        ! advance position to the next tile
@@ -669,8 +669,8 @@ subroutine hlsp_init ( id_lon, id_lat, new_land_io )
   tfreeze_diff = 0. ! Initialize before tile loop.
 
   ! Assign hillslope-topographic-position dependent parameters to tiles.
-  te = tail_elmt (lnd%tile_map)
-  ce = first_elmt(lnd%tile_map, is=lis, js=ljs)
+  te = tail_elmt (land_tile_map)
+  ce = first_elmt(land_tile_map, is=lis, js=ljs)
   do while(ce /= te)
      tile=>current_tile(ce)  ! get pointer to current tile
      call get_elmt_indices(ce,i=li,j=lj,k=lk)
@@ -781,16 +781,16 @@ subroutine hlsp_init ( id_lon, id_lat, new_land_io )
    !id_tile_hlsp_elev, id_tile_hlsp_hpos, id_tile_hlsp_width, id_transm_bedrock, &
    !id_hidx_j, id_hidx_k
    ! soil_e_depth and k_sat_gw will be done in soil_init.
-   call send_tile_data_i0d_fptr(id_hidx_j,         lnd%tile_map,     soil_hidx_j_ptr)
-   call send_tile_data_i0d_fptr(id_hidx_k,         lnd%tile_map,     soil_hidx_k_ptr)
-!   call send_tile_data_r0d_fptr(id_soil_e_depth,   lnd%tile_map,     soil_soil_e_depth_ptr)
-   call send_tile_data_r0d_fptr(id_microtopo,      lnd%tile_map,     soil_microtopo_ptr)
-   call send_tile_data_r0d_fptr(id_tile_hlsp_length,lnd%tile_map,    soil_tile_hlsp_length_ptr)
-   call send_tile_data_r0d_fptr(id_tile_hlsp_slope, lnd%tile_map,    soil_tile_hlsp_slope_ptr)
-   call send_tile_data_r0d_fptr(id_tile_hlsp_elev,  lnd%tile_map,    soil_tile_hlsp_elev_ptr)
-   call send_tile_data_r0d_fptr(id_tile_hlsp_hpos,  lnd%tile_map,    soil_tile_hlsp_hpos_ptr)
-   call send_tile_data_r0d_fptr(id_tile_hlsp_width, lnd%tile_map,    soil_tile_hlsp_width_ptr)
-!   call send_tile_data_r0d_fptr(id_transm_bedrock,  lnd%tile_map,    soil_transm_bedrock_ptr)
+   call send_tile_data_i0d_fptr(id_hidx_j,         land_tile_map,     soil_hidx_j_ptr)
+   call send_tile_data_i0d_fptr(id_hidx_k,         land_tile_map,     soil_hidx_k_ptr)
+!   call send_tile_data_r0d_fptr(id_soil_e_depth,   land_tile_map,     soil_soil_e_depth_ptr)
+   call send_tile_data_r0d_fptr(id_microtopo,      land_tile_map,     soil_microtopo_ptr)
+   call send_tile_data_r0d_fptr(id_tile_hlsp_length,land_tile_map,    soil_tile_hlsp_length_ptr)
+   call send_tile_data_r0d_fptr(id_tile_hlsp_slope, land_tile_map,    soil_tile_hlsp_slope_ptr)
+   call send_tile_data_r0d_fptr(id_tile_hlsp_elev,  land_tile_map,    soil_tile_hlsp_elev_ptr)
+   call send_tile_data_r0d_fptr(id_tile_hlsp_hpos,  land_tile_map,    soil_tile_hlsp_hpos_ptr)
+   call send_tile_data_r0d_fptr(id_tile_hlsp_width, land_tile_map,    soil_tile_hlsp_width_ptr)
+!   call send_tile_data_r0d_fptr(id_transm_bedrock,  land_tile_map,    soil_transm_bedrock_ptr)
 
    deallocate(num_topo_hlsps, frac_topo_hlsps, &
             soil_e_depth, &
@@ -962,8 +962,8 @@ subroutine transitions_disturbance_length_init()
    type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
    type(land_tile_type), pointer :: tile   ! pointer to current tile
 
-   te = tail_elmt (lnd%tile_map)
-   ce = first_elmt(lnd%tile_map)
+   te = tail_elmt (land_tile_map)
+   ce = first_elmt(land_tile_map)
    do while(ce /= te)
       tile=>current_tile(ce)  ! get pointer to current tile
       ce=next_elmt(ce)        ! advance position to the next tile

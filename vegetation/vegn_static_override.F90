@@ -27,11 +27,11 @@ use diag_manager_mod,   only : get_base_date
 use nf_utils_mod,       only : nfu_inq_dim, nfu_get_dim, nfu_def_dim, &
      nfu_inq_compressed_var, nfu_get_compressed_rec, nfu_validtype, &
      nfu_get_valid_range, nfu_is_valid, nfu_put_rec, nfu_put_att
-use land_data_mod,      only : lnd, land_time
+use land_data_mod,      only : lnd
 use land_io_mod,        only : print_netcdf_error
 use land_numerics_mod,  only : nearest
 use land_tile_io_mod,   only : create_tile_out_file,sync_nc_files
-use land_tile_mod,      only : land_tile_type, land_tile_enum_type, first_elmt, &
+use land_tile_mod,      only : land_tile_map, land_tile_type, land_tile_enum_type, first_elmt, &
      tail_elmt, next_elmt, current_tile, operator(/=), nitems
 use vegn_cohort_mod,    only : vegn_cohort_type
 use cohort_io_mod,      only : create_cohort_dimension, gather_cohort_data, &
@@ -453,7 +453,7 @@ subroutine static_vegn_init(new_land_io)
      tile_dim_length = 0
      do j = lnd%js, lnd%je
      do i = lnd%is, lnd%ie
-        k = nitems(lnd%tile_map(i,j))
+        k = nitems(land_tile_map(i,j))
         tile_dim_length = max(tile_dim_length,k)
      enddo
      enddo
@@ -610,14 +610,14 @@ subroutine write_static_vegn()
   if(.not.write_static_veg) return;
 
   ! get components of calendar dates for this and previous time step
-  call get_date(land_time,             year0,month0,day0,hour,minute,second)
-  call get_date(land_time-lnd%dt_fast, year1,month1,day1,hour,minute,second)
+  call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
+  call get_date(lnd%time-lnd%dt_fast, year1,month1,day1,hour,minute,second)
 
   if (     (trim(static_veg_freq)=='daily'  .and.  day1/=day0)   &
        .or.(trim(static_veg_freq)=='monthly'.and.month1/=month0) &
        .or.(trim(static_veg_freq)=='annual' .and. year1/=year0) )&
        then
-  t = (time_type_to_real(land_time)-time_type_to_real(base_time))/86400
+  t = (time_type_to_real(lnd%time)-time_type_to_real(base_time))/86400
   if(new_land_io_for_static_vegn) then
      call gather_cohort_data(cohort_species_ptr,cidx,tile_dim_length,species)
      call gather_cohort_data(cohort_bl_ptr,cidx,tile_dim_length,bl)

@@ -25,13 +25,13 @@ use soil_tile_mod, only: soil_tile_type, soil_ave_temp, &
                          soil_ave_theta0, soil_ave_theta1, soil_psi_stress
 use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, mol_air, &
      seconds_per_year
-use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
+use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
      get_elmt_indices, land_tile_heat, land_tile_carbon, get_tile_water
 use land_tile_diag_mod, only : register_tiled_static_field, register_tiled_diag_field, &
      send_tile_data, diag_buff_type, OP_STD, OP_VAR, set_default_diag_filter, &
      cmor_name
-use land_data_mod,      only : land_state_type, lnd, land_time
+use land_data_mod, only : land_state_type, lnd
 use land_io_mod, only : read_field
 use land_tile_io_mod, only : &
      create_tile_out_file, gather_tile_data, &
@@ -629,8 +629,8 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
   ! Go through all tiles and initialize the cohorts that have not been initialized yet --
   ! this allows to read partial restarts. Also initialize accumulation counters to zero
   ! or the values from the restarts.
-  te = tail_elmt(lnd%tile_map)
-  ce = first_elmt(lnd%tile_map, is=lnd%is, js=lnd%js)
+  te = tail_elmt(land_tile_map)
+  ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js)
   do while(ce /= te)
      tile=>current_tile(ce)  ! get pointer to current tile
      call get_elmt_indices(ce,i,j)
@@ -674,21 +674,21 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
   enddo
     
   ! initialize carbon integrator
-  call vegn_dynamics_init ( id_lon, id_lat, land_time, delta_time )
+  call vegn_dynamics_init ( id_lon, id_lat, lnd%time, delta_time )
 
   ! initialize static vegetation
   call static_vegn_init (new_land_io)
-  call read_static_vegn ( land_time )
+  call read_static_vegn ( lnd%time )
 
   ! initialize harvesting options
   call vegn_harvesting_init()
 
   ! initialize vegetation diagnostic fields
-  call vegn_diag_init ( id_lon, id_lat, id_band, land_time )
+  call vegn_diag_init ( id_lon, id_lat, id_band, lnd%time )
 
   ! ---- diagnostic section
-  ce = first_elmt(lnd%tile_map, is=lnd%is, js=lnd%js)
-  te  = tail_elmt(lnd%tile_map)
+  ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js)
+  te  = tail_elmt(land_tile_map)
   do while(ce /= te)
      tile => current_tile(ce)
      ce=next_elmt(ce)     
@@ -984,7 +984,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   ! store global variables
   ! find first tile and get n_accum and nmn_acm from it
   n_accum = 0; nmn_acm = 0
-  ce = first_elmt(lnd%tile_map) ; te = tail_elmt(lnd%tile_map)
+  ce = first_elmt(land_tile_map) ; te = tail_elmt(land_tile_map)
   do while ( ce /= te )
      tile => current_tile(ce) ; ce=next_elmt(ce)
      if(associated(tile%vegn)) then
@@ -1414,7 +1414,7 @@ subroutine save_vegn_restart_new(tile_dim_length, timestamp)
   ! store global variables
   ! find first tile and get n_accum and nmn_acm from it
   n_accum = 0; nmn_acm = 0
-  ce = first_elmt(lnd%tile_map) ; te = tail_elmt(lnd%tile_map)
+  ce = first_elmt(land_tile_map) ; te = tail_elmt(land_tile_map)
   do while ( ce /= te )
      tile => current_tile(ce) ; ce=next_elmt(ce)
      if(associated(tile%vegn)) then
@@ -1982,8 +1982,8 @@ subroutine update_vegn_slow( )
   character(64) :: tag
 
   ! get components of calendar dates for this and previous time step
-  call get_date(land_time,             year0,month0,day0,hour,minute,second)
-  call get_date(land_time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
+  call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
+  call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
 
   if(month0 /= month1) then
      ! heartbeat
@@ -1991,7 +1991,7 @@ subroutine update_vegn_slow( )
      call error_mesg('update_vegn_slow',trim(timestamp),NOTE)
   endif
 
-  ce = first_elmt(lnd%tile_map, lnd%is, lnd%js) ; te = tail_elmt(lnd%tile_map)
+  ce = first_elmt(land_tile_map, lnd%is, lnd%js) ; te = tail_elmt(land_tile_map)
   do while ( ce /= te )
      call get_elmt_indices(ce,i,j,k) ; call set_current_point(i,j,k) ! this is for debug output only
      tile => current_tile(ce) ; ce=next_elmt(ce)
@@ -2233,7 +2233,7 @@ subroutine update_vegn_slow( )
 
   ! override with static vegetation
   if(day1/=day0) &
-       call  read_static_vegn(land_time)
+       call  read_static_vegn(lnd%time)
 end subroutine update_vegn_slow
 
 
@@ -2249,7 +2249,7 @@ subroutine vegn_seed_transport()
   real :: f_supply ! fraction of the supply that gets spent
   real :: f_demand ! fraction of the demand that gets satisfied
 
-  ce = first_elmt(lnd%tile_map, lnd%is, lnd%js) ; te = tail_elmt(lnd%tile_map)
+  ce = first_elmt(land_tile_map, lnd%is, lnd%js) ; te = tail_elmt(land_tile_map)
   total_seed_supply = 0.0; total_seed_demand = 0.0
   do while ( ce /= te )
      call get_elmt_indices(ce,i,j)
@@ -2277,7 +2277,7 @@ subroutine vegn_seed_transport()
 
   ! redistribute part (or possibly all) of the supply to satisfy part (or possibly all) 
   ! of the demand
-  ce = first_elmt(lnd%tile_map) ; te = tail_elmt(lnd%tile_map)
+  ce = first_elmt(land_tile_map) ; te = tail_elmt(land_tile_map)
   do while ( ce /= te )
      call get_elmt_indices(ce,i,j)
      tile => current_tile(ce) ; ce=next_elmt(ce)

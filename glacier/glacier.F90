@@ -26,12 +26,12 @@ use glac_tile_mod,      only: glac_tile_type, &
 
 use land_constants_mod, only : &
      NBANDS
-use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
+use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
 use land_tile_diag_mod, only : &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
      set_default_diag_filter
-use land_data_mod,      only : land_state_type, lnd, land_time
+use land_data_mod,      only : land_state_type, lnd
 use land_io_mod, only : print_netcdf_error
 use land_tile_io_mod, only: create_tile_out_file, read_tile_data_r1d_fptr, &
      write_tile_data_r1d_fptr, get_input_restart_name, sync_nc_files, &
@@ -202,8 +202,8 @@ subroutine glac_init ( id_lon, id_lat, new_land_io )
      call error_mesg('glac_init',&
           'cold-starting glacier',&
           NOTE)
-     te = tail_elmt (lnd%tile_map)
-     ce = first_elmt(lnd%tile_map)
+     te = tail_elmt (land_tile_map)
+     ce = first_elmt(land_tile_map)
      do while(ce /= te)
         tile=>current_tile(ce) ! get pointer to current tile
         ce=next_elmt(ce)       ! advance position to the next tile
@@ -958,24 +958,24 @@ subroutine glac_diag_init ( id_lon, id_lat, zfull, zhalf )
 
   ! define diagnostic fields
   id_lwc = register_tiled_diag_field ( module_name, 'glac_liq', axes,        &
-       land_time, 'bulk density of liquid water', 'kg/m3', missing_value=-100.0 )
+       lnd%time, 'bulk density of liquid water', 'kg/m3', missing_value=-100.0 )
   id_swc  = register_tiled_diag_field ( module_name, 'glac_ice',  axes,      &
-       land_time, 'bulk density of solid water', 'kg/m3',  missing_value=-100.0 )
+       lnd%time, 'bulk density of solid water', 'kg/m3',  missing_value=-100.0 )
   id_temp  = register_tiled_diag_field ( module_name, 'glac_T',  axes,       &
-       land_time, 'temperature',            'degK',  missing_value=-100.0 )
+       lnd%time, 'temperature',            'degK',  missing_value=-100.0 )
 if (.not.lm2) then
   id_ie  = register_tiled_diag_field ( module_name, 'glac_rie',  axes(1:2),  &
-       land_time, 'inf exc runf',            'kg/(m2 s)',  missing_value=-100.0 )
+       lnd%time, 'inf exc runf',            'kg/(m2 s)',  missing_value=-100.0 )
   id_sn  = register_tiled_diag_field ( module_name, 'glac_rsn',  axes(1:2),  &
-       land_time, 'satn runf',            'kg/(m2 s)',  missing_value=-100.0 )
+       lnd%time, 'satn runf',            'kg/(m2 s)',  missing_value=-100.0 )
   id_bf  = register_tiled_diag_field ( module_name, 'glac_rbf',  axes(1:2),  &
-       land_time, 'baseflow',            'kg/(m2 s)',  missing_value=-100.0 )
+       lnd%time, 'baseflow',            'kg/(m2 s)',  missing_value=-100.0 )
   id_hie  = register_tiled_diag_field ( module_name, 'glac_hie',  axes(1:2), &
-       land_time, 'heat ie runf',            'W/m2',  missing_value=-100.0 )
+       lnd%time, 'heat ie runf',            'W/m2',  missing_value=-100.0 )
   id_hsn  = register_tiled_diag_field ( module_name, 'glac_hsn',  axes(1:2), &
-       land_time, 'heat sn runf',            'W/m2',  missing_value=-100.0 )
+       lnd%time, 'heat sn runf',            'W/m2',  missing_value=-100.0 )
   id_hbf  = register_tiled_diag_field ( module_name, 'glac_hbf',  axes(1:2), &
-       land_time, 'heat bf runf',            'W/m2',  missing_value=-100.0 )
+       lnd%time, 'heat bf runf',            'W/m2',  missing_value=-100.0 )
 endif
 
   

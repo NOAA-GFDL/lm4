@@ -15,7 +15,8 @@ use nf_utils_mod, only : nfu_inq_dim, nfu_inq_var, nfu_def_dim, nfu_def_var, &
 use land_io_mod, only : print_netcdf_error, read_field, input_buf_size
 use land_tile_mod, only : land_tile_type, land_tile_list_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, get_elmt_indices, operator(/=), &
-     tile_exists_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk
+     tile_exists_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk, &
+     land_tile_map
      
 use land_data_mod, only  : lnd, land_state_type
 use land_utils_mod, only : put_to_tiles_r0d_fptr
@@ -309,8 +310,8 @@ subroutine create_tile_out_file_fptr(ncid, name, glon, glat, tile_exists, &
   integer :: i,j,k,n
 
   ! count total number of tiles in this domain
-  ce = first_elmt(lnd%tile_map, lnd%is, lnd%js)
-  te = tail_elmt (lnd%tile_map)
+  ce = first_elmt(land_tile_map, lnd%is, lnd%js)
+  te = tail_elmt (land_tile_map)
   n  = 0
   do while (ce/=te)
      if (tile_exists(current_tile(ce))) n = n+1
@@ -319,7 +320,7 @@ subroutine create_tile_out_file_fptr(ncid, name, glon, glat, tile_exists, &
   
   ! calculate compressed tile index to be written to the restart file;
   allocate(idx(max(n,1))); idx(:) = -1 ! set init value to a known invalid index
-  ce = first_elmt(lnd%tile_map, lnd%is, lnd%js)
+  ce = first_elmt(land_tile_map, lnd%is, lnd%js)
   n = 1
   do while (ce/=te)
      call get_elmt_indices(ce,i,j,k)
@@ -392,8 +393,8 @@ subroutine create_tile_out_file_fptr_new(rhandle,idx,name,tile_exists,tile_dim_l
   integer :: i,j,k,n
 
   ! count total number of tiles in this domain
-  ce = first_elmt(lnd%tile_map, lnd%is, lnd%js)
-  te = tail_elmt (lnd%tile_map)
+  ce = first_elmt(land_tile_map, lnd%is, lnd%js)
+  te = tail_elmt (land_tile_map)
   n  = 0
   do while (ce/=te)
      if (tile_exists(current_tile(ce))) n = n+1
@@ -402,7 +403,7 @@ subroutine create_tile_out_file_fptr_new(rhandle,idx,name,tile_exists,tile_dim_l
 
   ! calculate compressed tile index to be written to the restart file;
   allocate(idx(max(n,1))); idx(:) = -1 ! set init value to a known invalid index
-  ce = first_elmt(lnd%tile_map, lnd%is, lnd%js)
+  ce = first_elmt(land_tile_map, lnd%is, lnd%js)
   n = 1
   do while (ce/=te)
      call get_elmt_indices(ce,i,j,k)
@@ -507,7 +508,7 @@ subroutine read_tile_data_i0d_fptr(ncid,name,fptr)
       __NF_ASRT__(nf_get_vara_int(ncid,varid,(/j/),(/min(bufsize,dimlen(1)-j+1)/),x1d))
       ! distribute the data over the tiles
       do i = 1, min(input_buf_size,dimlen(1)-j+1)
-         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                               lnd%is,lnd%js, tileptr)
          call fptr(tileptr, ptr)
          if(associated(ptr)) ptr = x1d(i)
@@ -561,7 +562,7 @@ subroutine read_tile_data_i1d_fptr(ncid,name,fptr)
       __NF_ASRT__(nf_get_vara_int(ncid,varid,start,count,x1d))
       ! distribute the data over the tiles
       do i = 1, min(bufsize,dimlen(1)-j+1)
-         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                               lnd%is,lnd%js, tileptr)
          do n = 1, count(2)
             call fptr(tileptr, n, ptr)
@@ -612,7 +613,7 @@ subroutine read_tile_data_r0d_fptr_r0(ncid,name,fptr)
       __NF_ASRT__(nf_get_vara_double(ncid,varid,(/j/),(/min(bufsize,dimlen(1)-j+1)/),x1d))
       ! distribute the data over the tiles
       do i = 1, min(bufsize,dimlen(1)-j+1)
-         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                               lnd%is,lnd%js, tileptr)
          call fptr(tileptr, ptr)
          if(associated(ptr)) ptr = x1d(i)
@@ -663,7 +664,7 @@ subroutine read_tile_data_r0d_fptr_r0i (ncid,name,fptr,index)
       __NF_ASRT__(nf_get_vara_double(ncid,varid,(/j/),(/min(bufsize,dimlen(1)-j+1)/),x1d))
       ! distribute the data over the tiles
       do i = 1, min(bufsize,dimlen(1)-j+1)
-         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                               lnd%is,lnd%js, tileptr)
          call fptr(tileptr, index, ptr)
          if(associated(ptr)) ptr = x1d(i)
@@ -716,7 +717,7 @@ subroutine read_tile_data_r1d_fptr_r0i(ncid,name,fptr)
       __NF_ASRT__(nf_get_vara_double(ncid,varid,start,count,x1d))
       ! distribute the data over the tiles
       do i = 1, min(bufsize,dimlen(1)-j+1)
-         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                               lnd%is,lnd%js, tileptr)
          do n = 1,count(2) 
             call fptr(tileptr, n, ptr)
@@ -773,7 +774,7 @@ subroutine read_tile_data_r1d_fptr_r0ij(ncid,name,fptr,index)
       __NF_ASRT__(nf_get_vara_double(ncid,varid,start,count,x1d))
       ! distribute the data over the tiles
       do i = 1, min(bufsize,dimlen(1)-j+1)
-         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                               lnd%is,lnd%js, tileptr)
          do n = 1,count(2) 
             call fptr(tileptr, n, index, ptr)
@@ -830,7 +831,7 @@ subroutine read_tile_data_r2d_fptr_r0ij (ncid,name,fptr)
       __NF_ASRT__(nf_get_vara_double(ncid,varid,start,count,x1d))
       ! distribute the data over the tiles
       do i = 1, min(bufsize,dimlen(1)-j+1)
-         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                               lnd%is,lnd%js, tileptr)
          do m = 1,dimlen(2)
          do n = 1,dimlen(3)
@@ -889,7 +890,7 @@ subroutine read_tile_data_r2d_fptr_r0ijk (ncid,name,fptr,index)
       __NF_ASRT__(nf_get_vara_double(ncid,varid,start,count,x1d))
       ! distribute the data over the tiles
       do i = 1, min(bufsize,dimlen(1)-j+1)
-         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                               lnd%is,lnd%js, tileptr)
          do m = 1,dimlen(2)
          do n = 1,dimlen(3)
@@ -1203,7 +1204,7 @@ subroutine write_tile_data_i0d_fptr(ncid,name,fptr,long_name,units)
   ! gather data into an array along the tile dimension. It is assumed that 
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      call fptr(tileptr, ptr)
      if(associated(ptr)) then
@@ -1255,7 +1256,7 @@ subroutine write_tile_data_i1d_fptr(ncid,name,fptr,zdim,long_name,units)
   ! gather data into an array along the tile dimension. It is assumed that 
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      do k = 1,nlev
         call fptr(tileptr, k, ptr)
@@ -1307,7 +1308,7 @@ subroutine write_tile_data_r0d_fptr_r0(ncid,name,fptr,long_name,units)
   ! gather data into an array along the tile dimension. It is assumed that 
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      call fptr(tileptr, ptr)
      if(associated(ptr)) then
@@ -1358,7 +1359,7 @@ subroutine write_tile_data_r0d_fptr_r0i(ncid,name,fptr,index,long_name,units)
   ! gather data into an array along the tile dimension. It is assumed that 
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      call fptr(tileptr,index,ptr)
      if(associated(ptr)) then
@@ -1410,7 +1411,7 @@ subroutine write_tile_data_r1d_fptr_r0i(ncid,name,fptr,zdim,long_name,units)
   ! gather data into an array along the tile dimension. It is assumed that 
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      do j = 1,nlev
      call fptr(tileptr, j, ptr)
@@ -1465,7 +1466,7 @@ subroutine write_tile_data_r1d_fptr_r0ij(ncid,name,fptr,index,zdim,long_name,uni
   ! gather data into an array along the tile dimension. It is assumed that 
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      do n = 1,nlev
         call fptr(tileptr,n,index, ptr)
@@ -1523,7 +1524,7 @@ subroutine write_tile_data_r2d_fptr_r0ij(ncid,name,fptr,dim1,dim2,long_name,unit
   ! gather data into an array along the tile dimension. It is assumed that 
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      do n=1, n1
      do m=1, n2
@@ -1583,7 +1584,7 @@ subroutine write_tile_data_r2d_fptr_r0ijk(ncid,name,fptr,index,dim1,dim2,long_na
   ! gather data into an array along the tile dimension. It is assumed that 
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      do n=1, n1
      do m=1, n2
@@ -1619,7 +1620,7 @@ subroutine gather_tile_data_i0d(fptr,idx,data)
 ! gather data into an array along the tile dimension. It is assumed that 
 ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      call fptr(tileptr, ptr)
      if(associated(ptr)) data(i)=ptr
@@ -1641,7 +1642,7 @@ subroutine gather_tile_data_r0d(fptr,idx,data)
 ! gather data into an array along the tile dimension. It is assumed that 
 ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      call fptr(tileptr, ptr)
      if(associated(ptr)) data(i)=ptr
@@ -1664,7 +1665,7 @@ subroutine gather_tile_data_r0d_idx(fptr,n,idx,data)
 ! gather data into an array along the tile dimension. It is assumed that 
 ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      call fptr(tileptr, n, ptr)
      if(associated(ptr)) data(i)=ptr
@@ -1686,7 +1687,7 @@ subroutine gather_tile_data_r1d(fptr,idx,data)
 ! gather data into an array along the tile dimension. It is assumed that 
 ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      do j = 1,size(data,2)
         call fptr(tileptr, j, ptr)
@@ -1711,7 +1712,7 @@ subroutine gather_tile_data_r1d_idx1(fptr,n,idx,data)
 ! gather data into an array along the tile dimension. It is assumed that 
 ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      do j = 1,size(data,2)
         call fptr(tileptr, j, n, ptr)
@@ -1735,7 +1736,7 @@ subroutine gather_tile_data_i1d(fptr,idx,data)
 ! gather data into an array along the tile dimension. It is assumed that 
 ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      do j = 1,size(data,2)
         call fptr(tileptr, j, ptr)
@@ -1759,7 +1760,7 @@ subroutine gather_tile_data_r2d(fptr,idx,data)
 ! gather data into an array along the tile dimension. It is assumed that 
 ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      do k=1,size(data,2)
      do m=1,size(data,3)
@@ -1786,7 +1787,7 @@ subroutine gather_tile_data_r2d_idx(fptr,n,idx,data)
 ! gather data into an array along the tile dimension. It is assumed that 
 ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      do k=1,size(data,2)
      do m=1,size(data,3)
@@ -1813,7 +1814,7 @@ subroutine gather_tile_data_r1d_idx(fptr,idx,nidx,data)
   ! gather data into an array along the tile dimension. It is assumed that 
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      call fptr(tileptr, nidx, ptr)
      if(associated(ptr)) then
@@ -1834,7 +1835,7 @@ subroutine assemble_tiles_i0d(fptr,idx,data)
 
 ! distribute the data over the tiles
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      call fptr(tileptr, ptr)
      if(associated(ptr)) ptr=data(i)
@@ -1853,7 +1854,7 @@ subroutine assemble_tiles_r0d(fptr,idx,data)
 
 ! distribute the data over the tiles
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      call fptr(tileptr, ptr)
      if(associated(ptr)) ptr=data(i)
@@ -1873,7 +1874,7 @@ subroutine assemble_tiles_r0d_idx(fptr,n,idx,data)
 
 ! distribute the data over the tiles
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      call fptr(tileptr, n, ptr)
      if(associated(ptr)) ptr=data(i)
@@ -1892,7 +1893,7 @@ subroutine assemble_tiles_r1d(fptr,idx,data)
 
 ! distribute the data over the tiles
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      do j = 1,size(data,2)
         call fptr(tileptr, j, ptr)
@@ -1914,7 +1915,7 @@ subroutine assemble_tiles_r1d_idx1(fptr,n,idx,data)
 
 ! distribute the data over the tiles
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      do j = 1,size(data,2)
         call fptr(tileptr, j, n, ptr)
@@ -1935,7 +1936,7 @@ subroutine assemble_tiles_i1d(fptr,idx,data)
 
 ! distribute the data over the tiles
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      do j = 1,size(data,2)
         call fptr(tileptr, j, ptr)
@@ -1956,7 +1957,7 @@ subroutine assemble_tiles_r2d(fptr,idx,data)
 
 ! distribute the data over the tiles
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      do k=1,size(data,2)
      do m=1,size(data,3)
@@ -1980,7 +1981,7 @@ subroutine assemble_tiles_r2d_idx(fptr,n,idx,data)
 
 ! distribute the data over the tiles
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      do k=1,size(data,2)
      do m=1,size(data,3)
@@ -2005,7 +2006,7 @@ subroutine assemble_tiles_r1d_idx(fptr,idx,data,index)
 
 ! distribute the data over the tiles
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,lnd%tile_map,&
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%is,lnd%js, tileptr)
      call fptr(tileptr, index, ptr)
      if(associated(ptr)) ptr=data(i)

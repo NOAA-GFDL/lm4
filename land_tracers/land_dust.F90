@@ -26,7 +26,7 @@ use vegn_tile_mod, only : vegn_tile_LAI, vegn_tile_SAI
 use vegn_data_mod, only:  LU_PAST, LU_CROP, LU_SCND, LU_NTRL
 use land_tile_mod, only : land_tile_type, land_tile_grnd_T
 use land_tile_diag_mod, only : register_tiled_diag_field, send_tile_data
-use land_data_mod, only : land_state_type, lnd, land_time
+use land_data_mod, only : land_state_type, lnd
 use land_io_mod, only : read_field
 use land_tracers_mod, only : ntcana, isphum
 use land_tile_diag_mod, only : &
@@ -248,66 +248,66 @@ subroutine land_dust_init (id_lon, id_lat, mask)
   
   ! initialize diagnostic fields
   id_soil_wetness = register_tiled_diag_field(diag_name, 'soil_wetness', (/id_lon,id_lat/),  &
-       land_time, 'soil wetness for dust emission calculations', 'unitless', missing_value=-1.0)
+       lnd%time, 'soil wetness for dust emission calculations', 'unitless', missing_value=-1.0)
   id_soil_iceness = register_tiled_diag_field(diag_name, 'soil_iceness', (/id_lon,id_lat/),  &
-       land_time, 'soil ice content for dust emission calculations', 'unitless', missing_value=-1.0)
+       lnd%time, 'soil ice content for dust emission calculations', 'unitless', missing_value=-1.0)
   id_dust_emis = register_tiled_diag_field(diag_name, 'dust_emis', (/id_lon,id_lat/),  &
-       land_time, 'dust emission', 'kg/(m2 s)', missing_value=-1.0)
+       lnd%time, 'dust emission', 'kg/(m2 s)', missing_value=-1.0)
   id_u_ts = register_tiled_diag_field(diag_name, 'u_ts', (/id_lon,id_lat/),  &
-       land_time, 'threshold of wind erosion', 'm/s', missing_value=-1.0)
+       lnd%time, 'threshold of wind erosion', 'm/s', missing_value=-1.0)
   id_bareness = register_tiled_diag_field(diag_name, 'bareness', (/id_lon,id_lat/),  &
-       land_time, 'bareness measure', 'unitless', missing_value=-1.0)
+       lnd%time, 'bareness measure', 'unitless', missing_value=-1.0)
   id_ddep_tot = register_tiled_diag_field(diag_name, 'dust_ddep', (/id_lon,id_lat/),  &
-       land_time, 'total dust dry deposition', 'kg/(m2 s)', missing_value=-1.0)
+       lnd%time, 'total dust dry deposition', 'kg/(m2 s)', missing_value=-1.0)
   id_wdep_tot = register_tiled_diag_field(diag_name, 'dust_wdep', (/id_lon,id_lat/),  &
-       land_time, 'total dust wet deposition in canopy air', 'kg/(m2 s)', missing_value=-1.0)
+       lnd%time, 'total dust wet deposition in canopy air', 'kg/(m2 s)', missing_value=-1.0)
   id_fatm_tot = register_tiled_diag_field(diag_name, 'dust_fatm', (/id_lon,id_lat/),  &
-       land_time, 'total dust flux to the atmosphere', 'kg/(m2 s)', missing_value=-1.0)
+       lnd%time, 'total dust flux to the atmosphere', 'kg/(m2 s)', missing_value=-1.0)
   id_cana_dens = register_tiled_diag_field(diag_name, 'cana_dens', (/id_lon,id_lat/),  &
-       land_time, 'density of canopy air', 'kg/m3', missing_value=-1.0)
+       lnd%time, 'density of canopy air', 'kg/m3', missing_value=-1.0)
 
   id_dust_source = register_static_field ( diag_name, 'dust_source', (/id_lon, id_lat/), &
        'topographical dust source', missing_value = -1.0 )
-  if (id_dust_source > 0 ) used = send_data( id_dust_source, dust_source, land_time )
+  if (id_dust_source > 0 ) used = send_data( id_dust_source, dust_source, lnd%time )
 
   do i = 1,n_dust_tracers
      name = trdata(i)%name
      trdata(i)%id_emis = register_tiled_diag_field(diag_name, trim(name)//'_emis', &
-       (/id_lon,id_lat/),  land_time, trim(name)//' emission', &
+       (/id_lon,id_lat/),  lnd%time, trim(name)//' emission', &
        'kg/(m2 s)', missing_value=-1.0)
      trdata(i)%id_ddep = register_tiled_diag_field(diag_name, trim(name)//'_ddep', &
-       (/id_lon,id_lat/),  land_time, trim(name)//' dry deposition', 'kg/(m2 s)', &
+       (/id_lon,id_lat/),  lnd%time, trim(name)//' dry deposition', 'kg/(m2 s)', &
        missing_value=-1.0)
      trdata(i)%id_wdep = register_tiled_diag_field(diag_name, trim(name)//'_wdep', &
-       (/id_lon,id_lat/),  land_time, trim(name)//' wet deposition in canopy air', 'kg/(m2 s)', &
+       (/id_lon,id_lat/),  lnd%time, trim(name)//' wet deposition in canopy air', 'kg/(m2 s)', &
        missing_value=-1.0)
      trdata(i)%id_flux_atm = &
        register_tiled_diag_field(diag_name, trim(name)//'_flux_atm', &
-       (/id_lon,id_lat/),  land_time, trim(name)//' flux to the atmosphere', &
+       (/id_lon,id_lat/),  lnd%time, trim(name)//' flux to the atmosphere', &
        'kg/(m2 s)', missing_value=-1.0)
      trdata(i)%id_dfdtr = &
        register_tiled_diag_field(diag_name, trim(name)//'_dfdtr', &
-       (/id_lon,id_lat/),  land_time,'derivative of '//trim(name)//' flux to the atmosphere', &
+       (/id_lon,id_lat/),  lnd%time,'derivative of '//trim(name)//' flux to the atmosphere', &
        'kg/(m2 s)', missing_value=-1.0)
      trdata(i)%id_con_v_lam = &
        register_tiled_diag_field(diag_name, trim(name)//'_con_v_lam', &
-       (/id_lon,id_lat/),  land_time, 'quasi-laminar conductance between canopy and canopy air for '//trim(name), &
+       (/id_lon,id_lat/),  lnd%time, 'quasi-laminar conductance between canopy and canopy air for '//trim(name), &
        'm/s', missing_value=-1.0)
      trdata(i)%id_con_g_lam = &
        register_tiled_diag_field(diag_name, trim(name)//'_con_g_lam', &
-       (/id_lon,id_lat/),  land_time, 'quasi-laminar conductance between ground and canopy air for '//trim(name), &
+       (/id_lon,id_lat/),  lnd%time, 'quasi-laminar conductance between ground and canopy air for '//trim(name), &
        'm/s', missing_value=-1.0)
      trdata(i)%id_con_v = &
        register_tiled_diag_field(diag_name, trim(name)//'_con_v', &
-       (/id_lon,id_lat/),  land_time, 'total conductance between canopy and canopy air for'//trim(name), &
+       (/id_lon,id_lat/),  lnd%time, 'total conductance between canopy and canopy air for'//trim(name), &
        'm/s', missing_value=-1.0)
      trdata(i)%id_con_g = &
        register_tiled_diag_field(diag_name, trim(name)//'_con_g', &
-       (/id_lon,id_lat/),  land_time, 'total conductance between ground and canopy air for '//trim(name), &
+       (/id_lon,id_lat/),  lnd%time, 'total conductance between ground and canopy air for '//trim(name), &
        'm/s', missing_value=-1.0)
      trdata(i)%id_vdep = &
        register_tiled_diag_field(diag_name, trim(name)//'_vdep', &
-       (/id_lon,id_lat/),  land_time, 'sedimentation velocity in canopy air for '//trim(name), &
+       (/id_lon,id_lat/),  lnd%time, 'sedimentation velocity in canopy air for '//trim(name), &
        'm/s', missing_value=-1.0)
   enddo
 

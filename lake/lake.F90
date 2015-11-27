@@ -27,13 +27,13 @@ use lake_tile_mod, only : &
      lake_data_thermodynamics, &
      cpw,clw,csw, lake_width_inside_lake, large_lake_sill_width, &
      lake_specific_width, n_outlet, outlet_face, outlet_i, outlet_j, outlet_width
-use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
+use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
 use land_tile_diag_mod, only : register_tiled_static_field, &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
      send_tile_data_r0d_fptr, add_tiled_static_field_alias, &
      set_default_diag_filter
-use land_data_mod,      only : land_state_type, lnd, land_time
+use land_data_mod,      only : land_state_type, lnd
 use land_tile_io_mod, only : print_netcdf_error, create_tile_out_file, &
      read_tile_data_r1d_fptr, write_tile_data_r1d_fptr, sync_nc_files, &
      get_input_restart_name, gather_tile_data, assemble_tiles
@@ -218,15 +218,15 @@ subroutine lake_init ( id_lon, id_lat, new_land_io )
   IF (LARGE_DYN_SMALL_STAT) THEN
 
      if (river_data_exist) call read_data('INPUT/river_data.nc', 'connected_to_next', bufferc(:,:), lnd%domain)
-     call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_connected_to_next_ptr)
+     call put_to_tiles_r0d_fptr(bufferc, land_tile_map, lake_connected_to_next_ptr)
 
      if (river_data_exist) call read_data('INPUT/river_data.nc', 'whole_lake_area', buffer(:,:), lnd%domain)
-     call put_to_tiles_r0d_fptr(buffer, lnd%tile_map, lake_whole_area_ptr)
+     call put_to_tiles_r0d_fptr(buffer, land_tile_map, lake_whole_area_ptr)
 
      if (river_data_exist) call read_data('INPUT/river_data.nc', 'lake_depth_sill', buffer(:,:),  lnd%domain)
      buffer = min(buffer, lake_depth_max)
      buffer = max(buffer, lake_depth_min)
-     call put_to_tiles_r0d_fptr(buffer,  lnd%tile_map, lake_depth_sill_ptr)
+     call put_to_tiles_r0d_fptr(buffer,  land_tile_map, lake_depth_sill_ptr)
 
      ! lake_tau is just used here as a flag for 'large lakes'
      ! sill width of -1 is a flag saying not to allow transient storage
@@ -241,7 +241,7 @@ subroutine lake_init ( id_lon, id_lat, new_land_io )
              buffer(outlet_i(i),outlet_j(i)) = outlet_width(i)
            enddo
      endif
-     call put_to_tiles_r0d_fptr(buffer, lnd%tile_map, lake_width_sill_ptr)
+     call put_to_tiles_r0d_fptr(buffer, land_tile_map, lake_width_sill_ptr)
 
      buffer = 1.e8
      if (river_data_exist .and. max_plain_slope.gt.0.) &
@@ -249,10 +249,10 @@ subroutine lake_init ( id_lon, id_lat, new_land_io )
      if (river_data_exist) call read_data('INPUT/river_data.nc', 'travel', buffert(:,:), lnd%domain)
      bufferc = 0.
      where (buffer.lt.max_plain_slope .and. buffert.gt.1.5) bufferc = 1.
-     call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_backwater_ptr)
+     call put_to_tiles_r0d_fptr(bufferc, land_tile_map, lake_backwater_ptr)
      bufferc = 0
      where (buffer.lt.max_plain_slope .and. buffert.lt.1.5) bufferc = 1.
-     call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_backwater_1_ptr)
+     call put_to_tiles_r0d_fptr(bufferc, land_tile_map, lake_backwater_1_ptr)
 
   ELSE
      if (river_data_exist) then
@@ -261,24 +261,24 @@ subroutine lake_init ( id_lon, id_lat, new_land_io )
      endif
      where (bufferc.eq.0.)                      buffer = 0.
      where (bufferc.gt.0..and.bufferc.lt.2.e10) buffer = max(2., 2.5e-4*sqrt(bufferc))
-     call put_to_tiles_r0d_fptr(buffer,  lnd%tile_map, lake_depth_sill_ptr)
-     call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_whole_area_ptr)
+     call put_to_tiles_r0d_fptr(buffer,  land_tile_map, lake_depth_sill_ptr)
+     call put_to_tiles_r0d_fptr(bufferc, land_tile_map, lake_whole_area_ptr)
 
      buffer = 4. * buffer
      where (bufferc.gt.2.e10) buffer = min(buffer, 60.)
      if (river_data_exist) call read_data('INPUT/river_data.nc', 'connected_to_next', bufferc(:,:), lnd%domain)
-     call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_connected_to_next_ptr)
+     call put_to_tiles_r0d_fptr(bufferc, land_tile_map, lake_connected_to_next_ptr)
 
      where (bufferc.gt.0.5) buffer=lake_width_inside_lake
      if (make_all_lakes_wide) buffer = lake_width_inside_lake
-     call put_to_tiles_r0d_fptr(buffer, lnd%tile_map, lake_width_sill_ptr)
+     call put_to_tiles_r0d_fptr(buffer, land_tile_map, lake_width_sill_ptr)
   ENDIF
 
   deallocate (buffer, bufferc, buffert)
 
   ! -------- initialize lake state --------
-  te = tail_elmt (lnd%tile_map)
-  ce = first_elmt(lnd%tile_map)
+  te = tail_elmt (land_tile_map)
+  ce = first_elmt(land_tile_map)
   do while(ce /= te)
      tile=>current_tile(ce)  ! get pointer to current tile
      ce=next_elmt(ce)        ! advance position to the next tile
@@ -347,10 +347,10 @@ subroutine lake_init ( id_lon, id_lat, new_land_io )
 
   call lake_diag_init ( id_lon, id_lat )
   ! ---- static diagnostic section
-  call send_tile_data_r0d_fptr(id_sillw, lnd%tile_map, lake_width_sill_ptr)
-  call send_tile_data_r0d_fptr(id_silld, lnd%tile_map, lake_depth_sill_ptr)
-  call send_tile_data_r0d_fptr(id_backw, lnd%tile_map, lake_backwater_ptr)
-  call send_tile_data_r0d_fptr(id_back1, lnd%tile_map, lake_backwater_1_ptr)
+  call send_tile_data_r0d_fptr(id_sillw, land_tile_map, lake_width_sill_ptr)
+  call send_tile_data_r0d_fptr(id_silld, land_tile_map, lake_depth_sill_ptr)
+  call send_tile_data_r0d_fptr(id_backw, land_tile_map, lake_backwater_ptr)
+  call send_tile_data_r0d_fptr(id_back1, land_tile_map, lake_backwater_1_ptr)
 end subroutine lake_init
 
 
@@ -1055,21 +1055,21 @@ subroutine lake_diag_init ( id_lon, id_lat )
        axes(1:2), 'backwater1 flag', '-', missing_value=-100.0 )
   ! define dynamic diagnostic fields
   id_dz  = register_tiled_diag_field ( module_name, 'lake_dz', axes,         &
-       land_time, 'nominal layer thickness', 'm', missing_value=-100.0 )
+       lnd%time, 'nominal layer thickness', 'm', missing_value=-100.0 )
   id_wl  = register_tiled_diag_field ( module_name, 'lake_wl', axes,         &
-       land_time, 'liquid water mass', 'kg/m2', missing_value=-100.0 )
+       lnd%time, 'liquid water mass', 'kg/m2', missing_value=-100.0 )
   id_ws  = register_tiled_diag_field ( module_name, 'lake_ws', axes,         &
-       land_time, 'solid water mass', 'kg/m2', missing_value=-100.0 )
+       lnd%time, 'solid water mass', 'kg/m2', missing_value=-100.0 )
   id_lwc  = register_tiled_diag_field ( module_name, 'lake_liq',  axes,       &
-       land_time, 'bulk density of liquid water', 'kg/m3',  missing_value=-100.0 )
+       lnd%time, 'bulk density of liquid water', 'kg/m3',  missing_value=-100.0 )
   id_swc  = register_tiled_diag_field ( module_name, 'lake_ice',  axes,       &
-       land_time, 'bulk density of solid water', 'kg/m3',  missing_value=-100.0 )
+       lnd%time, 'bulk density of solid water', 'kg/m3',  missing_value=-100.0 )
   id_temp  = register_tiled_diag_field ( module_name, 'lake_T',  axes,        &
-       land_time, 'temperature',            'degK',  missing_value=-100.0 )
+       lnd%time, 'temperature',            'degK',  missing_value=-100.0 )
   id_K_z  = register_tiled_diag_field ( module_name, 'lake_K_z', axes,         &
-       land_time, 'vertical diffusivity', 'm2/s', missing_value=-100.0 )
+       lnd%time, 'vertical diffusivity', 'm2/s', missing_value=-100.0 )
   id_evap  = register_tiled_diag_field ( module_name, 'lake_evap',  axes(1:2),  &
-       land_time, 'lake evap',            'kg/(m2 s)',  missing_value=-100.0 )
+       lnd%time, 'lake evap',            'kg/(m2 s)',  missing_value=-100.0 )
        
   call add_tiled_static_field_alias (id_silld, module_name, 'sill_depth', &
        axes(1:2), 'obsolete, pls use lake_depth (static)','m', &
