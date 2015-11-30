@@ -1,7 +1,7 @@
 module land_io_mod
 
-use constants_mod,     only : PI
-use fms_mod,           only : file_exist, error_mesg, FATAL, stdlog, mpp_pe, &
+use constants_mod, only : PI
+use fms_mod, only : file_exist, error_mesg, FATAL, WARNING, stdlog, mpp_pe, &
      mpp_root_pe, write_version_number, string, check_nml_error, close_file
 
 #ifdef INTERNAL_FILE_NML
@@ -220,16 +220,27 @@ subroutine do_read_cover_field(ncid,varid,lonb,latb,input_cover_types,frac)
   ! to minimize the i/o and work done by horiz_interp, find the boundaries
   ! of latitude belt in input data that covers the entire latb array
   in_j_start=bisect(in_latb, minval(latb))
-  in_j_count=bisect(in_latb, maxval(latb))-in_j_start+1
+  in_j_count=bisect(in_latb, maxval(latb))
 
   ! check for unreasonable values
   if (in_j_start<1) &
      call error_mesg('do_read_cover_field','input latitude start index ('&
-                     //string(in_j_start)//') is out of bounds', FATAL)
+                     //trim(string(in_j_start))//') is out of bounds', FATAL)
+
+  if (in_j_count<1) then
+     call error_mesg('do_read_cover_field', 'failed to find index of max model latb ['//&
+        trim(string(maxval(latb)*180/PI))//'] in the input latb ['//&
+        trim(string(minval(in_latb)*180/PI))//','//trim(string(maxval(in_latb)*180/PI))//']', &
+        WARNING)
+     in_j_count = size(in_latb)-1
+  endif
+
+  in_j_count=in_j_count-in_j_start+1
   if (in_j_start+in_j_count-1>nlat) &
-     call error_mesg('do_read_cover_field','input latitude count ('&
-                     //string(in_j_count)//') is too large (start index='&
-                     //string(in_j_start)//')', FATAL)
+     call error_mesg('do_read_fraction_field','input latitude count ('&
+         //trim(string(in_j_count))//') is too large (start index='&
+         //trim(string(in_j_start))//') size='//trim(string(size(in_latb))), &
+         FATAL)
 
   ! allocate input data buffers
   allocate ( x(nlon,in_j_count), in_cover(nlon,in_j_count) )
@@ -290,16 +301,25 @@ subroutine do_read_fraction_field(ncid,varid,lonb,latb,input_cover_types,frac)
   ! find the boundaries of latitude belt in input data that covers the 
   ! entire latb array
   in_j_start=bisect(in_latb, minval(latb))
-  in_j_count=bisect(in_latb, maxval(latb))-in_j_start+1
+  in_j_count=bisect(in_latb, maxval(latb))
+  if (in_j_count<1) then
+     call error_mesg('do_read_fraction_field', 'failed to find index of max latb ['//&
+        trim(string(maxval(latb)*180/PI))//'] in the input latitudes ['//&
+        trim(string(minval(in_latb)*180/PI))//','//trim(string(maxval(in_latb)*180/PI))//']', &
+        WARNING)
+     in_j_count = size(in_latb)-1
+  endif
+  in_j_count=in_j_count-in_j_start+1
 
   ! check for unreasonable values
   if (in_j_start<1) &
      call error_mesg('do_read_fraction_field','input latitude start index ('&
-                     //string(in_j_start)//') is out of bounds', FATAL)
+                     //trim(string(in_j_start))//') is out of bounds', FATAL)
   if (in_j_start+in_j_count-1>nlat) &
      call error_mesg('do_read_fraction_field','input latitude count ('&
-                     //string(in_j_count)//') is too large (start index='&
-                     //string(in_j_start)//')', FATAL)
+         //trim(string(in_j_count))//') is too large (start index='&
+         //trim(string(in_j_start))//') size='//trim(string(size(in_latb))), &
+         FATAL)
 
   allocate( in_mask(nlon,in_j_count), in_frac(nlon,in_j_count,ntypes) )
 
