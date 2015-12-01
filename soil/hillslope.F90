@@ -22,7 +22,7 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, get_elmt_indices, operator(/=)
 use land_utils_mod, only : put_to_tiles_r0d_fptr 
 use land_tile_diag_mod, only : diag_buff_type, &
-     register_tiled_static_field, &
+     register_tiled_static_field, set_default_diag_filter, &
      send_tile_data_r0d_fptr, &
      send_tile_data_i0d_fptr, OP_SUM
 use land_data_mod,      only : lnd
@@ -814,6 +814,9 @@ subroutine hlsp_diag_init ( id_lon, id_lat )
 
    ! define array of axis indices
    axes = (/ id_lon, id_lat /)
+
+   ! set the default sub-sampling filter for the fields below
+   call set_default_diag_filter('soil')
 
    ! define static [ZMS: FOR TESTING] fields
 
