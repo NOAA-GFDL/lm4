@@ -273,7 +273,7 @@ integer :: &
 ! diagnostic ids for canopy air tracers (moist mass ratio)
 integer, allocatable :: id_cana_tr(:)
 ! diag IDs of CMOR variables
-integer :: id_evspsblveg, id_evspsblsoi, id_nbr
+integer :: id_prveg, id_tran, id_evspsblveg, id_evspsblsoi, id_nbr
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
 ! It is supposed to be double-precision signaling NaN, to trigger a trap when
@@ -2365,6 +2365,8 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
       call send_tile_data(id_total_C, land_tile_carbon(tile),         tile%diag)
 
   ! CMOR variables
+  call send_tile_data(id_prveg, (precip_l+precip_s)*vegn_ifrac,       tile%diag)
+  call send_tile_data(id_tran,  vegn_uptk,                            tile%diag)
   ! evspsblsoi is evaporation from *soil*, so we send zero from glaciers and lakes;
   ! the result is averaged over the entire land surface, as required by CMIP. evspsblveg 
   ! doesn't need this distinction because it is already zero over glaciers and lakes.
@@ -3269,7 +3271,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
        'conductance for sensible heat between ground surface and canopy air', &
        'm/s', missing_value=-1.0 )
   id_transp  = register_tiled_diag_field ( module_name, 'transp', axes, time, &
-             'transpiration; = uptake by roots', 'kg/(m2 s)', missing_value=-1.0e+20 )
+             'Transpiration', 'kg/(m2 s)', missing_value=-1.0e+20 )
   id_wroff = register_tiled_diag_field ( module_name, 'wroff', axes, time, &
              'rate of liquid runoff to rivers', 'kg/(m2 s)', missing_value=-1.0e+20 )
   id_sroff = register_tiled_diag_field ( module_name, 'sroff', axes, time, &
@@ -3371,6 +3373,9 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
        'carbon non-conservation in update_land_model_fast_0d', 'kgC/(m2 s)', missing_value=-1.0 )
 
   ! CMOR variables
+  id_prveg = register_tiled_diag_field ( cmor_name, 'prveg', axes, time, &
+             'Precipitation onto Canopy', 'kg m-2 s-1', missing_value=-1.0e+20, &
+             standard_name='precipitation_flux_onto_canopy')
   id_evspsblveg = register_tiled_diag_field ( cmor_name, 'evspsblveg', axes, time, &
              'Evaporation from Canopy', 'kg m-2 s-1', missing_value=-1.0e+20, &
              standard_name='water_evaporation_flux_from_canopy')
@@ -3380,6 +3385,9 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
   id_nbr = register_tiled_diag_field ( cmor_name, 'nbr', axes, time, &
              'net biospheric productivity', 'kg C m-2 s-1', missing_value=-1.0, &
              standard_name='net_biospheric_productivity')
+  id_tran  = register_tiled_diag_field ( cmor_name, 'tran', axes, time, &
+             'Transpiration', 'kg m-2 s-1', missing_value=-1.0e+20, & 
+             standard_name='transpiration_flux')
 
 end subroutine land_diag_init
 
