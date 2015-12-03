@@ -105,16 +105,16 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
   call set_default_diag_filter('land')
   id_gpp_cmor = register_tiled_diag_field ( cmor_name, 'gpp', (/id_lon,id_lat/), & 
        time, 'Gross Primary Production', 'kg C m-2 s-1', missing_value=-1.0, &
-       standard_name='gross_primary_production')
+       standard_name='gross_primary_production', fill_missing=.TRUE.)
   id_npp_cmor = register_tiled_diag_field ( cmor_name, 'npp', (/id_lon,id_lat/), & 
        time, 'Net Primary Production', 'kg C m-2 s-1', missing_value=-1.0, &
-       standard_name='net_primary_production')
+       standard_name='net_primary_production', fill_missing=.TRUE.)
   id_ra = register_tiled_diag_field ( cmor_name, 'ra', (/id_lon,id_lat/), & 
        time, 'Autotrophic (Plant) Respiration', 'kg C m-2 s-1', missing_value=-1.0, &
-       standard_name='autotrophic_plant_respiration')
+       standard_name='autotrophic_plant_respiration', fill_missing=.TRUE.)
   id_rgrowth = register_tiled_diag_field ( cmor_name, 'rGrowth', (/id_lon,id_lat/), & 
        time, 'Growth Autotrophic Respiration', 'kg C m-2 s-1', missing_value=-1.0, &
-       standard_name='growth_autotrophic_respiration')
+       standard_name='growth_autotrophic_respiration', fill_missing=.TRUE.)
   
 end subroutine vegn_dynamics_init
 

@@ -88,6 +88,8 @@ type :: tiled_diag_field_type
    integer :: size   ! size of the field data in the per-tile buffers
    integer :: op     ! aggregation operation
    integer :: static ! static/dynamic indicator, one of FLD_STATIC/FLD_DYNAMIC/FLD_LIKE_AREA
+   logical :: fill_missing ! if TRUE, missing values (e.g. ocean points) are 
+                     ! filled with zeros, as per CMIP requirements
    integer :: n_sends! number of data points sent to the field since last dump
    integer :: alias = 0 ! ID of the first alias in the chain
    character(32) :: module,name ! for debugging purposes only
@@ -295,7 +297,7 @@ end subroutine add_cell_methods
 
 ! ============================================================================
 function register_tiled_diag_field(module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, op, standard_name) result (id)
+     long_name, units, missing_value, range, op, standard_name, fill_missing) result (id)
 
   integer :: id
 
@@ -309,16 +311,17 @@ function register_tiled_diag_field(module_name, field_name, axes, init_time, &
   real,             intent(in), optional :: range(2)
   integer,          intent(in), optional :: op ! aggregation operation code
   character(len=*), intent(in), optional :: standard_name
+  logical,          intent(in), optional :: fill_missing
   
   id = reg_field(FLD_DYNAMIC, module_name, field_name, init_time, axes, long_name, &
-         units, missing_value, range, op=op, standard_name=standard_name)
+         units, missing_value, range, op=op, standard_name=standard_name, fill_missing=fill_missing)
   call add_cell_measures(id)
   call add_cell_methods(id)
 end function
 
 ! ============================================================================
 function register_tiled_static_field(module_name, field_name, axes, &
-     long_name, units, missing_value, range, require, op, standard_name) result (id)
+     long_name, units, missing_value, range, require, op, standard_name, fill_missing) result (id)
 
   integer :: id
 
@@ -332,12 +335,14 @@ function register_tiled_static_field(module_name, field_name, axes, &
   logical,          intent(in), optional :: require
   integer,          intent(in), optional :: op ! aggregation operation code
   character(len=*), intent(in), optional :: standard_name
+  logical,          intent(in), optional :: fill_missing
   
   ! --- local vars
   type(time_type) :: init_time
 
   id = reg_field(FLD_STATIC, module_name, field_name, init_time, axes, long_name, &
-         units, missing_value, range, require, op, standard_name=standard_name)
+         units, missing_value, range, require, op, standard_name=standard_name, &
+         fill_missing=fill_missing)
   call add_cell_measures(id)
   call add_cell_methods(id)
 end function
@@ -450,7 +455,7 @@ end subroutine reg_field_alias
 ! of selectors
 function reg_field(static, module_name, field_name, init_time, axes, &
      long_name, units, missing_value, range, require, op, offset, &
-     area, cell_methods, standard_name) result(id)
+     area, cell_methods, standard_name, fill_missing) result(id)
  
   integer :: id
 
@@ -469,6 +474,8 @@ function reg_field(static, module_name, field_name, init_time, axes, &
   character(len=*), intent(in), optional :: area ! name of the area associated with this field, if not default
   character(len=*), intent(in), optional :: cell_methods ! cell_methods associated with this field, if not default
   character(len=*), intent(in), optional :: standard_name 
+  logical,          intent(in), optional :: fill_missing ! if true, missing values (e.g. ocean points) 
+                                                         ! are filled with zeros, as per CMIP requirements
 
   ! ---- local vars
   integer, pointer :: diag_ids(:) ! ids returned by FMS diag manager for each selector
@@ -543,6 +550,9 @@ function reg_field(static, module_name, field_name, init_time, axes, &
      ! in the debugger
      fields(id)%module=module_name 
      fields(id)%name=field_name
+     ! store the filler flag
+     fields(id)%fill_missing = .FALSE.
+     if(present(fill_missing))fields(id)%fill_missing = fill_missing
      ! increment the field id by some (large) number to distinguish it from the 
      ! IDs of regular FMS diagnostic fields
      id = id + BASE_TILED_FIELD_ID
@@ -798,6 +808,7 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
   integer :: is,ie,js,je,ks,ke ! array boundaries
   logical :: used ! value returned from send_data (ignored)
   real, allocatable :: buffer(:,:,:), weight(:,:,:), var(:,:,:)
+  logical, allocatable :: mask(:,:,:)
   type(land_tile_enum_type)     :: ce, te
   type(land_tile_type), pointer :: tile
   
@@ -807,7 +818,7 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
   ks = field%offset   ; ke = field%offset + field%size - 1
   
   ! allocate and initialize temporary buffers
-  allocate(buffer(is:ie,js:je,ks:ke), weight(is:ie,js:je,ks:ke))
+  allocate(buffer(is:ie,js:je,ks:ke), weight(is:ie,js:je,ks:ke), mask(is:ie,js:je,ks:ke))
   buffer(:,:,:) = 0.0
   weight(:,:,:) = 0.0
   
@@ -836,7 +847,8 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
   enddo
 
   ! normalize accumulated data
-  where (weight>0) buffer=buffer/weight
+  mask = (weight>0)
+  where (mask) buffer=buffer/weight
 
   if (field%op == OP_VAR.or.field%op==OP_STD) then
      ! second loop to process the variance and standard deviation diagnostics.
@@ -868,18 +880,23 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
      ! calculated in the first loop
      select case (field%OP)
      case (OP_VAR)
-         where (weight>0) buffer = var/weight
+         where (mask) buffer = var/weight
      case (OP_STD)
-         where (weight>0) buffer = sqrt(var/weight)
+         where (mask) buffer = sqrt(var/weight)
      end select
      deallocate(var)
   endif
   
+  ! fill missing data, if necessary
+  if (field%fill_missing) then
+     where (.not.mask) buffer = 0.0
+     mask = .TRUE.
+  endif
   ! send diag field
-  used = send_data ( id, buffer, time, mask=weight>0 )   
+  used = send_data ( id, buffer, time, mask=mask )
 
   ! clean up temporary data
-  deallocate(buffer,weight)
+  deallocate(buffer,weight,mask)
 
 end subroutine
 

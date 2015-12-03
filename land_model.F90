@@ -3375,19 +3375,19 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
   ! CMOR variables
   id_prveg = register_tiled_diag_field ( cmor_name, 'prveg', axes, time, &
              'Precipitation onto Canopy', 'kg m-2 s-1', missing_value=-1.0e+20, &
-             standard_name='precipitation_flux_onto_canopy')
+             standard_name='precipitation_flux_onto_canopy', fill_missing=.TRUE.)
   id_evspsblveg = register_tiled_diag_field ( cmor_name, 'evspsblveg', axes, time, &
              'Evaporation from Canopy', 'kg m-2 s-1', missing_value=-1.0e+20, &
-             standard_name='water_evaporation_flux_from_canopy')
+             standard_name='water_evaporation_flux_from_canopy', fill_missing=.TRUE.)
   id_evspsblsoi = register_tiled_diag_field ( cmor_name, 'evspsblsoi', axes, time, &
              'Water Evaporation from Soil', 'kg m-2 s-1', missing_value=-1.0e+20, &
-             standard_name='water_evaporation_flux_from_soil')
+             standard_name='water_evaporation_flux_from_soil', fill_missing=.TRUE.)
   id_nbr = register_tiled_diag_field ( cmor_name, 'nbr', axes, time, &
              'net biospheric productivity', 'kg C m-2 s-1', missing_value=-1.0, &
-             standard_name='net_biospheric_productivity')
+             standard_name='net_biospheric_productivity', fill_missing=.TRUE.)
   id_tran  = register_tiled_diag_field ( cmor_name, 'tran', axes, time, &
              'Transpiration', 'kg m-2 s-1', missing_value=-1.0e+20, & 
-             standard_name='transpiration_flux')
+             standard_name='transpiration_flux', fill_missing=.TRUE.)
 
 end subroutine land_diag_init
 

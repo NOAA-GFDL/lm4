@@ -1637,34 +1637,34 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
   call set_default_diag_filter('land')
   id_mrlsl = register_tiled_diag_field ( cmor_name, 'mrlsl', axes,  &
        lnd%time, 'Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
-       standard_name='moisture_content_of_soil_layer')
+       standard_name='moisture_content_of_soil_layer', fill_missing=.TRUE.)
   id_mrso  = register_tiled_diag_field ( cmor_name, 'mrso', axes(1:2),  &
        lnd%time, 'Total Soil Moisture Content', 'kg m-2', missing_value=-100.0, &
-       standard_name='soil_moisture_content')
+       standard_name='soil_moisture_content', fill_missing=.TRUE.)
   id_mrlso = register_tiled_diag_field ( cmor_name, 'mrlso', axes(1:2),  &
        lnd%time, 'Soil Frozen Water Content', 'kg m-2', missing_value=-100.0, &
-       standard_name='soil_frozen_water_content')
+       standard_name='soil_frozen_water_content', fill_missing=.TRUE.)
   id_mrros = register_tiled_diag_field ( cmor_name, 'mrros',  axes(1:2),  &
        lnd%time, 'Surface Runoff', 'kg m-2 s-1',  missing_value=-100.0, &
-       standard_name='surface_runoff_flux')
+       standard_name='surface_runoff_flux', fill_missing=.TRUE.)
   id_mrro = register_tiled_diag_field ( cmor_name, 'mrro',  axes(1:2),  &
        lnd%time, 'Total Runoff', 'kg m-2 s-1',  missing_value=-100.0, &
-       standard_name='runoff_flux')
+       standard_name='runoff_flux', fill_missing=.TRUE.)
   id_csoil = register_tiled_diag_field ( cmor_name, 'cSoil', axes(1:2),  &
        lnd%time, 'Carbon in Soil Pool', 'kg C m-2', missing_value=-100.0, &
-       standard_name='soil_carbon_content')
+       standard_name='soil_carbon_content', fill_missing=.TRUE.)
   id_csoilfast = register_tiled_diag_field ( cmor_name, 'cSoilFast', axes(1:2),  &
        lnd%time, 'Carbon in Fast Soil Pool', 'kg C m-2', missing_value=-100.0, &
-       standard_name='carbon_in_fast_soil_pool')
+       standard_name='carbon_in_fast_soil_pool', fill_missing=.TRUE.)
   id_csoilmedium = register_tiled_diag_field ( cmor_name, 'cSoilMedium', axes(1:2),  &
        lnd%time, 'Carbon in Medium Soil Pool', 'kg C m-2', missing_value=-100.0, &
-       standard_name='carbon_in_medium_soil_pool')
+       standard_name='carbon_in_medium_soil_pool', fill_missing=.TRUE.)
   id_csoilslow = register_tiled_diag_field ( cmor_name, 'cSoilSlow', axes(1:2),  &
        lnd%time, 'Carbon in Slow Soil Pool', 'kg C m-2', missing_value=-100.0, &
-       standard_name='carbon_in_fast_soil_pool')
+       standard_name='carbon_in_fast_soil_pool', fill_missing=.TRUE.)
   id_rh = register_tiled_diag_field ( cmor_name, 'rh', (/id_lon,id_lat/), & 
        lnd%time, 'Heterotrophic Respiration', 'kg C m-2 s-1', missing_value=-1.0, &
-       standard_name='heterotrophic_respiration')
+       standard_name='heterotrophic_respiration', fill_missing=.TRUE.)
 
 end subroutine soil_diag_init
 
