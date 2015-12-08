@@ -2294,6 +2294,10 @@ subroutine update_vegn_slow( )
         call vegn_daily_npp(tile%vegn)
      endif
 
+cmass1 = land_tile_carbon(tile)
+call check_conservation ('vegn_daily_npp','carbon'      , cmass0, cmass1, carbon_cons_tol)
+
+
      ! monthly averaging
      if (month1 /= month0) then
         ! compute averages from accumulated monthly values
@@ -2334,18 +2338,33 @@ subroutine update_vegn_slow( )
         tile%vegn%nmn_acm = 0
      endif
 
+cmass1 = land_tile_carbon(tile)
+call check_conservation ('update_vegn_slow: averaging','carbon'      , cmass0, cmass1, carbon_cons_tol)
+
+
      if (year1 /= year0 .and. do_biogeography) then
         call vegn_biogeography(tile%vegn)
      endif
+
+cmass1 = land_tile_carbon(tile)
+call check_conservation ('vegn_biogeography','carbon'      , cmass0, cmass1, carbon_cons_tol)
 
      if (year1 /= year0 .and. do_peat_redistribution) then
         call redistribute_peat_carbon(tile%soil)
      endif
 
+
+cmass1 = land_tile_carbon(tile)
+call check_conservation ('redistribute_peat_carbon','carbon'      , cmass0, cmass1, carbon_cons_tol)
+
      if (month1 /= month0.and.do_patch_disturbance) then
         call update_fuel(tile%vegn,tile%soil%w_wilt(1)/tile%soil%pars%vwc_sat)
         ! assume that all layers are the same soil type and wilting is vertically homogeneous
      endif
+
+
+cmass1 = land_tile_carbon(tile)
+call check_conservation ('update_fuel','carbon'      , cmass0, cmass1, carbon_cons_tol)
 
      if (day1 /= day0 .and. do_cohort_dynamics) then
         n = tile%vegn%n_cohorts
@@ -2361,14 +2380,26 @@ subroutine update_vegn_slow( )
         call vegn_nat_mortality(tile%vegn,tile%soil,86400.0)
      endif
 
+
+cmass1 = land_tile_carbon(tile)
+call check_conservation ('growth and mortality','carbon'      , cmass0, cmass1, carbon_cons_tol)
+
      if  (month1 /= month0 .and. do_phenology) then
         call vegn_phenology (tile%vegn, tile%soil)
         ! assume that all layers are the same soil type and wilting is vertically homogeneous
      endif
 
+
+cmass1 = land_tile_carbon(tile)
+call check_conservation ('vegn_phenology','carbon'      , cmass0, cmass1, carbon_cons_tol)
+
      if (year1 /= year0 .and. do_patch_disturbance) then
         call vegn_disturbance(tile%vegn, tile%soil, seconds_per_year)
      endif
+
+
+cmass1 = land_tile_carbon(tile)
+call check_conservation ('vegn_disturbance','carbon'      , cmass0, cmass1, carbon_cons_tol)
 
      if (year1 /= year0) then
         call vegn_harvesting(tile%vegn)
@@ -2392,6 +2423,11 @@ subroutine update_vegn_slow( )
            tile%vegn%harv_rate(:) = 0.0
         end where
      endif
+
+
+
+cmass1 = land_tile_carbon(tile)
+call check_conservation ('vegn_harvesting','carbon'      , cmass0, cmass1, carbon_cons_tol)
 
      if (do_check_conservation) then
         ! + conservation check, part 2: calculate totals in final state, and compare

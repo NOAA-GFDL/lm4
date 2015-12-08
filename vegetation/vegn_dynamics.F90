@@ -206,6 +206,10 @@ total_myc_mine_C_uptake = 0.0
      root_exudate_C = max(cc%npp,0.0)*root_exudate_frac
      cc%carbon_gain = cc%carbon_gain + (cc%npp-root_exudate_C)*dt_fast_yr
 
+     if(root_exudate_frac < 0) then
+         __DEBUG4__(root_exudate_frac,cc%nitrogen_stress,cc%max_live_biomass,cc%bl+cc%br)
+         call error_mesg('vegn_carbon_int','root_exudate_frac<0',FATAL)
+     endif
 
      ! check if leaves/roots are present and need to be accounted in maintenance
      if(cc%status == LEAF_ON) then
@@ -438,6 +442,12 @@ total_myc_mine_C_uptake = 0.0
 
      ! To do: Figure out excess C if mycorrhizae N-limited and add back to root exudate C
      total_root_exudate_C = total_root_exudate_C + root_exudate_C*dt_fast_yr - scavenger_myc_C_allocated - N_fixer_C_allocated - miner_myc_C_allocated
+     
+     if(total_root_exudate_C < 0.0) then
+         __DEBUG4__(root_exudate_C*dt_fast_yr,scavenger_myc_C_allocated,N_fixer_C_allocated,miner_myc_C_allocated)
+         call error_mesg('vegn_carbon_int','Root exudate C < 0',FATAL)
+     endif
+
      total_scavenger_myc_C_allocated = total_scavenger_myc_C_allocated + scavenger_myc_C_allocated
      total_miner_myc_C_allocated = total_miner_myc_C_allocated + miner_myc_C_allocated
      total_scav_myc_immob = total_scav_myc_immob + mycorrhizal_scav_N_immob
