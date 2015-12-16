@@ -7,7 +7,7 @@ use constants_mod,      only : TFREEZE, PI, rdgas, dens_h2o, grav
 use sphum_mod,          only : qscomp
 
 use land_constants_mod, only : Rugas, seconds_per_year, mol_h2o, mol_air, d608
-use land_numerics_mod,  only : gammaU
+use land_numerics_mod,  only : gammaU, gamma
 use land_debug_mod,     only : is_watch_point, check_var_range
 use soil_tile_mod,      only : soil_tile_type, psi_wilt
 use vegn_tile_mod,      only : vegn_tile_type
