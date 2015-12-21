@@ -54,7 +54,7 @@ end interface
 public :: get_area_id
 
 ! name of the table used for CMOR-compatible variables
-character(*), public, parameter :: cmor_name='cmor'
+character(*), public, parameter :: cmor_name='cmor_land'
 ! ==== end of public interface ===============================================
 
 
