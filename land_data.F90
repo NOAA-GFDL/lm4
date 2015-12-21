@@ -127,6 +127,7 @@ type :: land_state_type
    real, allocatable  :: lonb(:,:), latb(:,:) ! domain grid vertices, radian
    real, allocatable  :: area(:,:)  ! land area per grid cell, m2
    real, allocatable  :: cellarea(:,:)  ! grid cell area, m2
+   real, allocatable  :: landfrac(:,:)  ! fraction of land in the grid cell
    real, allocatable  :: coord_glon(:), coord_glonb(:) ! longitudes for use in diag axis and such, degrees East
    real, allocatable  :: coord_glat(:), coord_glatb(:) ! latitudes for use in diag axis and such, degrees North
    
@@ -262,6 +263,7 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table)
   allocate(lnd%lat     (lnd%is:lnd%ie,   lnd%js:lnd%je))
   allocate(lnd%area    (lnd%is:lnd%ie,   lnd%js:lnd%je))
   allocate(lnd%cellarea(lnd%is:lnd%ie,   lnd%js:lnd%je))
+  allocate(lnd%landfrac(lnd%is:lnd%ie,   lnd%js:lnd%je))
   allocate(lnd%coord_glon(nlon), lnd%coord_glonb(nlon+1))
   allocate(lnd%coord_glat(nlat), lnd%coord_glatb(nlat+1))
 
@@ -270,6 +272,7 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table)
   call get_grid_cell_centers ('LND',lnd%face,lnd%coord_glon, lnd%coord_glat)
   call get_grid_cell_area    ('LND',lnd%face,lnd%cellarea, domain=lnd%domain)
   call get_grid_comp_area    ('LND',lnd%face,lnd%area,     domain=lnd%domain)
+  lnd%landfrac = lnd%area/lnd%cellarea
   
   ! set local coordinates arrays -- temporary, till such time as the global arrays
   ! are not necessary

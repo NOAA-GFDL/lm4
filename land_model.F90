@@ -78,7 +78,8 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
      land_tile_enum_type, new_land_tile, insert, nitems, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
      get_elmt_indices, get_tile_tags, land_tile_carbon, land_tile_heat, &
-     get_tile_water, init_tile_map, free_tile_map, max_n_tiles
+     get_tile_water, init_tile_map, free_tile_map, max_n_tiles, &
+     tile_exists_func
 use land_data_mod, only : land_data_type, atmos_land_boundary_type, &
      land_state_type, land_data_init, land_data_end, lnd
 use nf_utils_mod,  only : nfu_inq_var, nfu_inq_dim, nfu_get_var
@@ -107,6 +108,10 @@ use hillslope_mod, only: retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
                          read_hlsp_namelist, hlsp_init, hlsp_config_check
 use hillslope_mod, only: save_hlsp_restart_new
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
+
+use vegn_data_mod, only : LU_CROP, LU_PAST, LU_NTRL, LU_SCND, &
+    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR
+
 
 implicit none
 private
@@ -211,7 +216,6 @@ logical  :: stock_warning_issued  = .FALSE.
 logical  :: update_cana_co2 ! if false, cana_co2 is not updated during the model run.
 character(len=256) :: grid_spec_file="INPUT/grid_spec.nc" 
 real     :: delta_time ! duration of main land time step (s)
-real,    allocatable :: frac           (:,:)    ! fraction of land in cells
 logical, allocatable :: river_land_mask(:,:), missing_rivers(:,:)
 real,    allocatable :: no_riv(:,:)
 
@@ -274,6 +278,8 @@ integer :: &
 integer, allocatable :: id_cana_tr(:)
 ! diag IDs of CMOR variables
 integer :: id_prveg, id_tran, id_evspsblveg, id_evspsblsoi, id_nbr
+integer :: id_cropFrac, id_pastureFrac, id_residualFrac, &
+           id_treeFrac, id_grassFrac, id_c3pftFrac, id_c4pftFrac
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
 ! It is supposed to be double-precision signaling NaN, to trigger a trap when
@@ -397,10 +403,6 @@ subroutine land_model_init &
   delta_time  = time_type_to_real(lnd%dt_fast) ! store in a module variable for convenience
   call init_tile_map()
 
-  ! calculate land fraction
-  allocate(frac(lnd%is:lnd%ie,lnd%js:lnd%je))
-  frac = lnd%area/lnd%cellarea
-
   ! [5] initialize tiling
   call get_input_restart_name(restart_base_name,restart_exists,restart_file_name)
   if(restart_exists) then
@@ -472,7 +474,7 @@ subroutine land_model_init &
   ! send some static diagnostic fields to output
   if ( id_cellarea > 0 ) used = send_data ( id_cellarea, lnd%cellarea, lnd%time )
   if ( id_landarea > 0 ) used = send_data ( id_landarea, lnd%area, lnd%time )
-  if ( id_landfrac > 0 ) used = send_data ( id_landfrac, frac,     lnd%time )
+  if ( id_landfrac > 0 ) used = send_data ( id_landfrac, lnd%landfrac,     lnd%time )
   if ( id_geolon_t > 0 ) used = send_data ( id_geolon_t, lnd%lon*180.0/PI, lnd%time )
   if ( id_geolat_t > 0 ) used = send_data ( id_geolat_t, lnd%lat*180.0/PI, lnd%time )
 
@@ -492,11 +494,11 @@ subroutine land_model_init &
   allocate ( no_riv        (lnd%is:lnd%ie,lnd%js:lnd%je))
   call river_init( lnd%lon, lnd%lat, &
                    lnd%time, lnd%dt_fast, lnd%domain,     &
-                   frac, &
+                   lnd%landfrac, &
                    id_lon, id_lat, get_area_id('land'),   &
                    new_land_io,                           &
                    river_land_mask                        )
-  missing_rivers = frac.gt.0. .and. .not.river_land_mask
+  missing_rivers = lnd%landfrac.gt.0. .and. .not.river_land_mask
   no_riv = 0.
   where (missing_rivers) no_riv = 1.
   if ( id_no_riv > 0 ) used = send_data( id_no_riv, no_riv, lnd%time )
@@ -548,7 +550,7 @@ subroutine land_model_init &
   ! mask error checking
   do j=lnd%js,lnd%je
   do i=lnd%is,lnd%ie
-     if(frac(i,j)>0.neqv.ANY(land2cplr%mask(i,j,:))) then
+     if(lnd%landfrac(i,j)>0.neqv.ANY(land2cplr%mask(i,j,:))) then
         call error_mesg('land_model_init','masks are not equal',FATAL)
      endif
   enddo
@@ -604,7 +606,6 @@ subroutine land_model_end (cplr2land, land2cplr)
   ! deallocate storage allocated for tracers
   deallocate(id_cana_tr)
   
-  deallocate(frac)
   deallocate(river_land_mask, missing_rivers, no_riv)
   call dealloc_land2cplr(land2cplr, dealloc_discharges=.TRUE.)
   call dealloc_cplr2land(cplr2land)
@@ -862,7 +863,7 @@ subroutine land_cover_cold_start(lnd)
   call retrieve_hlsp_indices(hlsp_pos, hlsp_par)
 
   ! remove any input lake fraction in coastal cells
-  where (frac.lt. 1.-gfrac_tol) lake(:,:,1) = 0.
+  where (lnd%landfrac.lt. 1.-gfrac_tol) lake(:,:,1) = 0.
   ! NOTE that the lake area in the coastal cells can be set to non-zero
   ! again by the "ground fraction reconciliation code" below. Strictly
   ! speaking the above line of code should be replaced with the section
@@ -885,7 +886,7 @@ subroutine land_cover_cold_start(lnd)
      i = iwatch-lnd%is+lbound(glac,1); j = jwatch-lnd%js+lbound(glac,2)
      __DEBUG2__(lnd%is,lnd%js)
      write(*,'(a,99(a,i4.2,x))')'local indices:','i=',i,'j=',j
-     __DEBUG3__(frac(iwatch,jwatch),land_mask(i,j),valid_data(i,j))
+     __DEBUG3__(lnd%landfrac(iwatch,jwatch),land_mask(i,j),valid_data(i,j))
      __DEBUG1__(glac(i,j,:))
      __DEBUG1__(lake(i,j,:))
      __DEBUG1__(soil(i,j,:))
@@ -928,7 +929,7 @@ subroutine land_cover_cold_start(lnd)
 !-zero  do j = lnd%js,lnd%je
 !-zero  do i = lnd%is,lnd%ie
 !-zero     call set_current_point(i,j,1)
-!-zero     if (frac(i,j) < 1-gfrac_tol) then
+!-zero     if (lnd%landfrac(i,j) < 1-gfrac_tol) then
 !-zero        lake(i,j,:) = 0.0
 !-zero        if(is_watch_point())then
 !-zero           write(*,*)'###### land_cover_cold_start: lake fraction is set to zero #####'
@@ -1339,10 +1340,10 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
   ! pass through to ocean the runoff that was not seen by river module because of land_frac diffs.
   ! need to multiply by gfrac to spread over whole cell
-  where (missing_rivers) discharge_l = (runoff-runoff_c(:,:,i_river_ice))*frac
+  where (missing_rivers) discharge_l = (runoff-runoff_c(:,:,i_river_ice))*lnd%landfrac
   do i_species = 1, n_river_tracers
     where (missing_rivers) &
-     discharge_c(:,:,i_species) = runoff_c(:,:,i_species)*frac
+     discharge_c(:,:,i_species) = runoff_c(:,:,i_species)*lnd%landfrac
   enddo
 
   ! don't send negatives or insignificant values to ocean. put them in the sink instead.
@@ -1366,11 +1367,11 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
   ! scale up fluxes sent to ocean to compensate for non-ocean fraction of discharge cell.
   ! split heat into liquid and solid streams
-  where (frac.lt.1.) 
-      land2cplr%discharge           = discharge_l        / (1-frac)
-      land2cplr%discharge_snow      = discharge_c(:,:,i_river_ice) / (1-frac)
-      land2cplr%discharge_heat      = heat_frac_liq*discharge_c(:,:,i_river_heat) / (1-frac)
-      land2cplr%discharge_snow_heat =               discharge_c(:,:,i_river_heat) / (1-frac) &
+  where (lnd%landfrac.lt.1.) 
+      land2cplr%discharge           = discharge_l        / (1-lnd%landfrac)
+      land2cplr%discharge_snow      = discharge_c(:,:,i_river_ice) / (1-lnd%landfrac)
+      land2cplr%discharge_heat      = heat_frac_liq*discharge_c(:,:,i_river_heat) / (1-lnd%landfrac)
+      land2cplr%discharge_snow_heat =               discharge_c(:,:,i_river_heat) / (1-lnd%landfrac) &
                                      - land2cplr%discharge_heat
   end where
 
@@ -1468,6 +1469,15 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   if (id_dis_heat > 0) used = send_data (id_dis_heat, discharge_c(:,:,i_river_heat), lnd%time) 
   if (id_dis_sink > 0) used = send_data (id_dis_sink, discharge_sink,     lnd%time) 
   if (id_dis_DOC > 0)  used = send_data (id_dis_DOC,  discharge_c(:,:,i_river_DOC), lnd%time)
+
+  ! send CMOR cell fraction fields
+  call send_cellfrac_data(id_cropFrac,     is_crop)
+  call send_cellfrac_data(id_pastureFrac,  is_pasture)
+  call send_cellfrac_data(id_residualFrac, is_residual)
+  call send_cellfrac_data(id_treeFrac,     is_tree)
+  call send_cellfrac_data(id_grassFrac,    is_ntrlgrass)
+  call send_cellfrac_data(id_c3pftFrac,    is_C3)
+  call send_cellfrac_data(id_c4pftFrac,    is_C4)
 
   ! deallocate override buffer
   deallocate(phot_co2_data)
@@ -2377,7 +2387,6 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   endif
   call send_tile_data(id_evspsblveg,  vegn_levap+vegn_fevap,          tile%diag)
   call send_tile_data(id_nbr,    -vegn_fco2*mol_C/mol_co2,            tile%diag)
-  
 end subroutine update_land_model_fast_0d
 
 
@@ -2766,7 +2775,7 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
   land2cplr%rough_mom      (i,j,k) = tile%land_z0m
   land2cplr%rough_heat     (i,j,k) = tile%land_z0s
 
-  if (use_coast_rough .and. frac(i,j)<max_coast_frac) then
+  if (use_coast_rough .and. lnd%landfrac(i,j)<max_coast_frac) then
      land2cplr%rough_mom   (i,j,k) = coast_rough_mom
      land2cplr%rough_heat  (i,j,k) = coast_rough_heat
   endif
@@ -2818,7 +2827,7 @@ subroutine update_land_bc_slow (land2cplr)
        land2cplr%rough_scale = max(land2cplr%rough_mom,land2cplr%rough_scale)
   if (.not.use_coast_topo_rough) then
      do k = 1, size(land2cplr%rough_mom,3)
-        where(frac<max_coast_frac) &
+        where(lnd%landfrac<max_coast_frac) &
             land2cplr%rough_scale(:,:,k) = land2cplr%rough_mom(:,:,k)
      enddo
   endif
@@ -3389,7 +3398,147 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
              'Transpiration', 'kg m-2 s-1', missing_value=-1.0e+20, & 
              standard_name='transpiration_flux', fill_missing=.TRUE.)
 
+  id_cropFrac = register_diag_field ( cmor_name, 'cropFrac', axes, time, &
+             'Crop Fraction','%', standard_name='crop_fraction', &
+             area=id_cellarea)
+  call diag_field_add_attribute(id_cropFrac,'cell_methods','area: mean')
+  id_pastureFrac = register_diag_field ( cmor_name, 'pastureFrac', axes, time, &
+             'Anthropogenic Pasture Fraction','%', standard_name='anthropogenic_pasture_fraction', &
+             area=id_cellarea)
+  call diag_field_add_attribute(id_pastureFrac,'cell_methods','area: mean')
+  id_residualFrac = register_static_field ( cmor_name, 'residualFrac', axes, &
+             'Fraction of Grid Cell that is Land but Neither Vegetation-Coverd nor Bare Soil','%', &
+             standard_name='fraction_of_land_which_is_non_vegetation_and_non_bare_soil', &
+             area=id_cellarea)
+  call diag_field_add_attribute(id_cropFrac,'cell_methods','area: mean')
+  id_treeFrac = register_diag_field ( cmor_name, 'treeFrac', axes, time, &
+             'Tree Cover Fraction','%', standard_name='tree_cover_fraction', area=id_cellarea)
+  call diag_field_add_attribute(id_treeFrac,'cell_methods','area: mean')
+  id_grassFrac = register_diag_field ( cmor_name, 'grassFrac', axes, time, &
+             'Natural Grass Fraction','%', standard_name='natural_grass_fraction', &
+             area=id_cellarea)
+  call diag_field_add_attribute(id_grassFrac,'cell_methods','area: mean')
+  id_c3pftFrac = register_diag_field ( cmor_name, 'c3PftFrac', axes, time, &
+             'Total C3 PFT Cover Fraction','%', standard_name='total_c3_pft_cover_fraction', &
+             area=id_cellarea)
+  call diag_field_add_attribute(id_c3pftFrac,'cell_methods','area: mean')
+  id_c4pftFrac = register_diag_field ( cmor_name, 'c4PftFrac', axes, time, &
+             'Total C4 PFT Cover Fraction','%', standard_name='total_c4_pft_cover_fraction', &
+             area=id_cellarea)
+  call diag_field_add_attribute(id_c4pftFrac,'cell_methods','area: mean')
+  
 end subroutine land_diag_init
+
+! ==============================================================================
+subroutine send_cellfrac_data(id, f)
+  integer, intent(in) :: id ! id of the diagnostic field
+  procedure(tile_exists_func) :: f ! existence detector function
+
+  ! ---- local vars
+  integer :: i,j,k
+  logical :: used
+  type(land_tile_type), pointer :: tile
+  type(land_tile_enum_type) :: ce, te
+  real :: frac(lnd%is:lnd%ie,lnd%js:lnd%je)
+
+  if (.not.id>0) return ! do nothing if the firld was not registered
+  
+  frac(:,:) = 0.0
+  ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js)
+  te = tail_elmt(land_tile_map)
+  do while(ce /= te)
+     ! calculate indices of the current tile in the input arrays;
+     ! assume all the cplr2land components have the same lbounds
+     call get_elmt_indices(ce,i,j,k)
+     ! set this point coordinates as current for debug output
+     ! call set_current_point(i,j,k)
+     ! get pointer to current tile
+     tile => current_tile(ce)
+     ! advance enumerator to the next tile
+     ce=next_elmt(ce)
+     ! accumulate fractions
+     if (f(tile)) then
+        frac(i,j) = frac(i,j)+tile%frac*100.0*lnd%landfrac(i,j)
+     endif
+  enddo
+  used=send_data(id, frac, lnd%time)
+end subroutine send_cellfrac_data
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+function is_crop(tile) result(answer); logical :: answer 
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+  if (.not.associated(tile)) return
+  if (.not.associated(tile%vegn)) return
+  answer = (tile%vegn%landuse == LU_CROP)
+end function is_crop
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+function is_pasture(tile) result(answer); logical :: answer 
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+  if (.not.associated(tile)) return
+  if (.not.associated(tile%vegn)) return
+  answer = (tile%vegn%landuse == LU_PAST)
+end function is_pasture
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+function is_tree(tile) result(answer); logical :: answer 
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+  if (.not.associated(tile)) return
+  if (.not.associated(tile%vegn)) return
+  answer = (tile%vegn%cohorts(1)%species == SP_TEMPDEC).or. &
+           (tile%vegn%cohorts(1)%species == SP_TROPICAL).or. &
+           (tile%vegn%cohorts(1)%species == SP_EVERGR) 
+end function is_tree
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+function is_ntrlgrass(tile) result(answer); logical :: answer 
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+  if (.not.associated(tile)) return
+  if (.not.associated(tile%vegn)) return
+  answer = ((tile%vegn%cohorts(1)%species == SP_C3GRASS).or. &
+            (tile%vegn%cohorts(1)%species == SP_C4GRASS) &
+           ).and.( &
+            (tile%vegn%landuse==LU_NTRL).or. &
+            (tile%vegn%landuse==LU_SCND) &
+           )
+end function is_ntrlgrass
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+function is_C4(tile) result(answer); logical :: answer 
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+  if (.not.associated(tile)) return
+  if (.not.associated(tile%vegn)) return
+  answer = (tile%vegn%cohorts(1)%species == SP_C4GRASS)
+end function is_C4
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+function is_C3(tile) result(answer); logical :: answer 
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+  if (.not.associated(tile)) return
+  if (.not.associated(tile%vegn)) return
+  answer = (tile%vegn%cohorts(1)%species /= SP_C4GRASS)
+end function is_C3
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+function is_residual(tile) result(answer); logical :: answer 
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+  if (.not.associated(tile)) return
+  answer = (associated(tile%glac).or.associated(tile%lake))
+end function is_residual
 
 ! ============================================================================
 ! allocates boundary data for land domain and current number of tiles
