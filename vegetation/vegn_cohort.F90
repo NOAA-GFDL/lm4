@@ -553,7 +553,8 @@ subroutine update_biomass_pools(c)
      ! This might cause problems in situations where the cumulative extra biomass doesn't get reset for a long time
     !  c%nitrogen_stress = (c%bl+c%br+c%cumulative_extra_live_biomass)/c%max_live_biomass
 
-     c%nitrogen_stress = ((c%bl+c%br)/c%max_live_biomass)/(1.2-(c%bl+c%br)/c%max_live_biomass)
+    !  c%nitrogen_stress = ((c%bl+c%br)/c%max_live_biomass)/(1.2-(c%bl+c%br)/c%max_live_biomass)
+    c%nitrogen_stress = ((c%bl+c%br)/c%max_live_biomass)
 
      ! When maximum live biomass is limited by N uptake
      if(c%bl+c%br > c%max_live_biomass .AND. N_limits_live_biomass) then
