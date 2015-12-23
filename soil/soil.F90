@@ -1587,7 +1587,7 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
         land_time, 'dead microbe soil nitrogen per layer', 'kg N/m3', missing_value=-100.0 )
    id_protectedN = register_tiled_diag_field ( module_name, 'protected_soil_N', axes,  &
         land_time, 'protected soil nitrogen per layer', 'kg N/m3', missing_value=-100.0 )
-   id_livemic_N = register_tiled_diag_field ( module_name, 'livemic_N',  &
+   id_livemic_N = register_tiled_diag_field ( module_name, 'live_microbe_N',  &
         (/id_lon,id_lat,id_zfull/), land_time, 'live microbe soil nitrogen', 'kg N/m3', &
         missing_value=-100.0 )
   id_fast_dissolved_C = register_tiled_diag_field ( module_name, 'fast_dissolved_C', axes,  &
@@ -1854,6 +1854,10 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
        land_time, 'dead microbe leaf litter carbon', 'kg C/m2', missing_value=-100.0 )
   id_leaflitter_livemic_C = register_tiled_diag_field ( module_name, 'leaflitter_live_microbe_C', axes(1:2),  &
        land_time, 'live microbe leaf litter carbon', 'kg C/m2', missing_value=-100.0 )
+       id_leaflitter_total_C = register_tiled_diag_field ( module_name, 'leaflitter_total_C', axes(1:2),  &
+            land_time, 'leaf litter total carbon', 'kg C/m2', missing_value=-100.0 )
+            id_leaflitter_total_N = register_tiled_diag_field ( module_name, 'leaflitter_total_N', axes(1:2),  &
+                 land_time, 'leaf litter total nitrogen', 'kg N/m2', missing_value=-100.0 )
        id_leaflitter_fast_N = register_tiled_diag_field ( module_name, 'fast_leaflitter_N', axes(1:2),  &
             land_time, 'fast leaf litter nitrogen', 'kg N/m2', missing_value=-100.0 )
        id_leaflitter_slow_N = register_tiled_diag_field ( module_name, 'slow_leaflitter_N', axes(1:2),  &
@@ -1875,6 +1879,11 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
        land_time, 'dead microbe coarse wood litter carbon', 'kg C/m2', missing_value=-100.0 )
   id_coarsewoodlitter_livemic_C = register_tiled_diag_field ( module_name, 'coarsewoodlitter_live_microbe_C', axes(1:2),  &
        land_time, 'live microbe coarse wood litter carbon', 'kg C/m2', missing_value=-100.0 )
+  id_coarseWoodlitter_total_C = register_tiled_diag_field ( module_name, 'coarsewoodlitter_total_C', axes(1:2),  &
+       land_time, 'coarse wood litter total carbon', 'kg C/m2', missing_value=-100.0 )
+
+       id_coarseWoodlitter_total_N = register_tiled_diag_field ( module_name, 'coarsewoodlitter_total_N', axes(1:2),  &
+            land_time, 'coarse wood litter total nitrogen', 'kg N/m2', missing_value=-100.0 )
 
        id_coarsewoodlitter_fast_N = register_tiled_diag_field ( module_name, 'fast_coarsewoodlitter_N', axes(1:2),  &
             land_time, 'fast coarse wood litter nitrogen', 'kg N/m2', missing_value=-100.0 )
@@ -1897,6 +1906,10 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
        land_time, 'dead microbe fine wood litter carbon', 'kg C/m2', missing_value=-100.0 )
   id_finewoodlitter_livemic_C = register_tiled_diag_field ( module_name, 'finewoodlitter_live_microbe_C', axes(1:2),  &
        land_time, 'live microbe fine wood litter carbon', 'kg C/m2', missing_value=-100.0 )
+       id_fineWoodlitter_total_C = register_tiled_diag_field ( module_name, 'finewoodlitter_total_C', axes(1:2),  &
+            land_time, 'fine wood litter total carbon', 'kg C/m2', missing_value=-100.0 )
+      id_fineWoodlitter_total_N = register_tiled_diag_field ( module_name, 'finewoodlitter_total_N', axes(1:2),  &
+           land_time, 'fine wood litter total nitrogen', 'kg N/m2', missing_value=-100.0 )
        id_finewoodlitter_fast_N = register_tiled_diag_field ( module_name, 'fast_finewoodlitter_N', axes(1:2),  &
             land_time, 'fast fine wood litter nitrogen', 'kg N/m2', missing_value=-100.0 )
        id_finewoodlitter_slow_N = register_tiled_diag_field ( module_name, 'slow_finewoodlitter_N', axes(1:2),  &
@@ -1923,13 +1936,33 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
        land_time, 'slow fine wood litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
   id_finewoodlitter_deadmic_dissolved_C = register_tiled_diag_field ( module_name, 'finewoodlitter_dead_microbe_dissolved_C', axes(1:2),  &
        land_time, 'dead microbe fine wood litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
-
   id_coarsewoodlitter_fast_dissolved_C = register_tiled_diag_field ( module_name, 'fast_coarsewoodlitter_dissolved_C', axes(1:2),  &
        land_time, 'fast coarse woodlitter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
   id_coarsewoodlitter_slow_dissolved_C = register_tiled_diag_field ( module_name, 'slow_coarsewoodlitter_dissolved_C', axes(1:2),  &
        land_time, 'slow coarse wood litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
   id_coarsewoodlitter_deadmic_dissolved_C = register_tiled_diag_field ( module_name, 'coarsewoodlitter_dead_microbe_dissolved_C', axes(1:2),  &
        land_time, 'dead microbe coarse wood litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
+
+       id_leaflitter_fast_dissolved_N = register_tiled_diag_field ( module_name, 'fast_leaflitter_dissolved_N', axes(1:2),  &
+            land_time, 'fast leaf litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
+       id_leaflitter_slow_dissolved_N = register_tiled_diag_field ( module_name, 'slow_leaflitter_dissolved_N', axes(1:2),  &
+            land_time, 'slow leaf litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
+       id_leaflitter_deadmic_dissolved_N = register_tiled_diag_field ( module_name, 'leaflitter_dead_microbe_dissolved_N', axes(1:2),  &
+            land_time, 'dead microbe leaf litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
+       id_finewoodlitter_fast_dissolved_N = register_tiled_diag_field ( module_name, 'fast_finewoodlitter_dissolved_N', axes(1:2),  &
+            land_time, 'fast fine wood litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
+       id_finewoodlitter_slow_dissolved_N = register_tiled_diag_field ( module_name, 'slow_finewoodlitter_dissolved_N', axes(1:2),  &
+            land_time, 'slow fine wood litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
+       id_finewoodlitter_deadmic_dissolved_N = register_tiled_diag_field ( module_name, 'finewoodlitter_dead_microbe_dissolved_N', axes(1:2),  &
+            land_time, 'dead microbe fine wood litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
+       id_coarsewoodlitter_fast_dissolved_N = register_tiled_diag_field ( module_name, 'fast_coarsewoodlitter_dissolved_N', axes(1:2),  &
+            land_time, 'fast coarse woodlitter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
+       id_coarsewoodlitter_slow_dissolved_N = register_tiled_diag_field ( module_name, 'slow_coarsewoodlitter_dissolved_N', axes(1:2),  &
+            land_time, 'slow coarse wood litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
+       id_coarsewoodlitter_deadmic_dissolved_N = register_tiled_diag_field ( module_name, 'coarsewoodlitter_dead_microbe_dissolved_N', axes(1:2),  &
+            land_time, 'dead microbe coarse wood litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
+
+
   id_livemic_C = register_tiled_diag_field ( module_name, 'live_microbe_C', axes,  &
        land_time, 'Live microbe soil carbon', 'kg C/m3', missing_value=-100.0 )
   id_nsoilcohorts = register_tiled_diag_field ( module_name, 'n_soil_cohorts', axes,  &
@@ -1996,8 +2029,12 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
 
   id_livemic_C_leaching = register_tiled_diag_field ( module_name, 'livemic_C_leaching', axes, &
        land_time, 'net layer live microbe C leaching',  'kg/(m2 s)', missing_value=-100.0)
-  !id_protected_C_leaching = register_tiled_diag_field ( module_name, 'protected_C_leaching', axes, &
-  !     land_time, 'net layer protected soil C leaching',  'kg/(m2 s)', missing_value=-100.0)
+   id_livemic_N_leaching = register_tiled_diag_field ( module_name, 'livemic_N_leaching', axes, &
+        land_time, 'net layer live microbe N leaching',  'kg/(m2 s)', missing_value=-100.0)
+  id_protected_C_leaching = register_tiled_diag_field ( module_name, 'protected_C_leaching', axes, &
+      land_time, 'net layer protected soil C leaching',  'kg/(m2 s)', missing_value=-100.0)
+  id_protected_N_leaching = register_tiled_diag_field ( module_name, 'protected_N_leaching', axes, &
+      land_time, 'net layer protected soil N leaching',  'kg/(m2 s)', missing_value=-100.0)
   id_leaflitter_fast_C_leaching = register_tiled_diag_field ( module_name, 'fast_leaflitter_C_leaching', axes(1:2), &
         land_time, 'Leaf litter fast C leaching','kg/(m2 s)', missing_value=-100.0)
   id_leaflitter_slow_C_leaching = register_tiled_diag_field ( module_name, 'slow_leaflitter_C_leaching', axes(1:2), &
