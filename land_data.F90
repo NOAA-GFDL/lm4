@@ -244,8 +244,7 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table)
   else
      call error_mesg('land_data_init','io_domain is undefined, contact developer', FATAL)
   endif
-!  lnd%append_io_id = (io_layout(1)/=1.or.io_layout(2)/=1)
-  lnd%append_io_id = .TRUE.
+  lnd%append_io_id = (io_layout(1)/=1.or.io_layout(2)/=1)
 
   ! get the domain information
   call mpp_get_compute_domain(lnd%domain, lnd%is,lnd%ie,lnd%js,lnd%je)
