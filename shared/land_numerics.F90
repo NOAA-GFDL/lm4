@@ -11,7 +11,7 @@ if(.NOT.(x))call my_error(mod_name,message,FATAL,thisfile,__LINE__)
 module land_numerics_mod
 
 use fms_mod, only: error_mesg, FATAL, NOTE, write_version_number, mpp_pe, &
-     stdout
+     string, stdout
 use mpp_mod, only: mpp_npes, mpp_get_current_pelist, mpp_send, mpp_recv, &
      mpp_sync, mpp_sync_self, EVENT_RECV, COMM_TAG_1,  COMM_TAG_2,       &
      COMM_TAG_3,  COMM_TAG_4, COMM_TAG_5,  COMM_TAG_6, COMM_TAG_7,       &
@@ -1535,38 +1535,18 @@ function gammaU ( x, p )
   return
 end function gammaU
 
-
-! ==============================================================================
-! Returns the value ln[Gamma(xx)] for xx > 0. INTEGER j
-function gammln(xx) 
-   real :: gammln,xx
-   integer :: j
-   DOUBLE PRECISION ser,stp,tmp,x,y,cof(6)
-   ! Internal arithmetic will be done in double precision, a nicety that you can omit 
-   ! if five-figure accuracy is good enough.
-   SAVE cof,stp
-   DATA cof,stp/76.18009172947146d0,-86.50532032941677d0, &
-      24.01409824083091d0,-1.231739572450155d0,.1208650973866179d-2, &
-      -.5395239384953d-5,2.5066282746310005d0/ 
-   x=xx
-   y=x
-   tmp=x+5.5d0
-   tmp=(x+0.5d0)*log(tmp)-tmp
-   ser=1.000000000190015d0
-   do j=1,6
-      y=y+1.d0
-      ser=ser+cof(j)/y 
-   enddo
-   gammln=tmp+log(stp*ser/x)
-end function gammln
-
 ! ==============================================================================
 ! Returns the value Gamma(xx) for xx > 0.
 function gamma(xx) 
   real :: gamma
-  real :: xx
+  real, intent(in) :: xx
+  integer :: ierr
   
-  gamma = exp(gammln(xx))
+  gamma = exp(alngam(xx,ierr))
+  if (ierr.ne.0) call error_mesg('land_niumerics', 'argument of gamma function ('&
+                                //trim(string(xx))//') is out of accepted range',&
+                                FATAL)
+  
 end function gamma
 
 ! ==============================================================================
