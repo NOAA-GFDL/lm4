@@ -37,7 +37,7 @@ use snow_tile_mod, only : snow_tile_heat
 use vegn_tile_mod, only : vegn_tile_heat
 use soil_tile_mod, only : soil_tile_heat
 
-use land_tile_mod, only : &
+use land_tile_mod, only : land_tile_map, &
      land_tile_type, land_tile_list_type, land_tile_enum_type, new_land_tile, delete_land_tile, &
      first_elmt, tail_elmt, next_elmt, operator(/=), operator(==), current_tile, &
      land_tile_list_init, land_tile_list_end, merge_land_tile_into_list, &
@@ -45,12 +45,9 @@ use land_tile_mod, only : &
      get_tile_water, land_tile_carbon, land_tile_heat
 use land_tile_io_mod, only : print_netcdf_error
 
-use land_data_mod, only : &
-     land_data_type, lnd, land_time
-use vegn_tile_mod, only : &
-     vegn_tile_type, vegn_tran_priority
-use vegn_harvesting_mod, only : &
-     vegn_cut_forest
+use land_data_mod, only : land_data_type, lnd
+use vegn_tile_mod, only : vegn_tile_type, vegn_tran_priority
+use vegn_harvesting_mod, only : vegn_cut_forest
 
 use land_debug_mod, only : set_current_point, is_watch_point, get_current_point, &
     do_check_conservation
@@ -312,7 +309,7 @@ subroutine land_transitions_init(id_lon, id_lat)
      if(landuse_name(k2)=='')cycle
      ! construct a name of input field and register the field
      fieldname = trim(landuse_name(k1))//'2'//trim(landuse_name(k2))
-     diag_ids(k1,k2) = register_diag_field(diag_mod_name,fieldname,(/id_lon,id_lat/), land_time, &
+     diag_ids(k1,k2) = register_diag_field(diag_mod_name,fieldname,(/id_lon,id_lat/), lnd%time, &
           'rate of transition from '//trim(landuse_longname(k1))//' to '//trim(landuse_longname(k2)),& 
           units='1/year', missing_value=-1.0)
   enddo
@@ -386,11 +383,11 @@ subroutine land_transitions (time)
   ! perform the transitions
   do j = lnd%js,lnd%je
   do i = lnd%is,lnd%ie
-     if(empty(lnd%tile_map(i,j))) cycle ! skip cells where there is no land
+     if(empty(land_tile_map(i,j))) cycle ! skip cells where there is no land
      ! set current point for debugging
      call set_current_point(i,j,1)
      ! transiton land area between different tile types
-     call land_transitions_0d(lnd%tile_map(i,j), &
+     call land_transitions_0d(land_tile_map(i,j), &
           transitions(i,j,:)%donor, &
           transitions(i,j,:)%acceptor,&
           transitions(i,j,:)%frac )

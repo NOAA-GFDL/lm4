@@ -16,12 +16,12 @@ use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, fsc_froot, agf_bs, &
        do_ppa, LEAF_OFF, DBH_mort, A_mort, B_mort, mortrate_s, nat_mortality_splits_tiles
 use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_bwood
 use soil_tile_mod,   only : soil_tile_type, num_l, dz
-use land_tile_mod,   only : land_tile_type, land_tile_enum_type, &
+use land_tile_mod,   only : land_tile_map, land_tile_type, land_tile_enum_type, &
      land_tile_list_type, land_tile_list_init, land_tile_list_end, &
      empty, first_elmt, tail_elmt, next_elmt, merge_land_tile_into_list, &
      current_tile, operator(==), operator(/=), remove, insert, new_land_tile, &
      land_tile_heat, land_tile_carbon, get_tile_water, nitems
-use land_data_mod,   only : lnd, land_time
+use land_data_mod,   only : lnd
 use soil_mod,        only : add_soil_carbon
 use soil_carbon_mod, only : add_litter, soil_carbon_option, &
      SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, N_C_TYPES, C_CEL
@@ -312,8 +312,8 @@ subroutine vegn_nat_mortality_ppa ( )
   character(*),parameter :: tag = 'vegn_nat_mortality_ppa'
 
   ! get components of calendar dates for this and previous time step
-  call get_date(land_time,             year0,month0,day0,hour,minute,second)
-  call get_date(land_time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
+  call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
+  call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
 
   if (.not.(do_ppa.and.year1 /= year0)) return  ! do nothing 
 
@@ -321,7 +321,7 @@ subroutine vegn_nat_mortality_ppa ( )
 
   do j = lnd%js,lnd%je
   do i = lnd%is,lnd%ie
-     if(empty(lnd%tile_map(i,j))) cycle ! skip cells where there is no land
+     if(empty(land_tile_map(i,j))) cycle ! skip cells where there is no land
      ! set current point for debugging
      call set_current_point(i,j,1)
 
@@ -329,7 +329,7 @@ subroutine vegn_nat_mortality_ppa ( )
         ! conservation check code, part 1: calculate the pre-transition grid
         ! cell totals
         lmass0 = 0 ; fmass0 = 0 ; cmass0 = 0 ; heat0 = 0
-        ts = first_elmt(lnd%tile_map(i,j)) ; te=tail_elmt(lnd%tile_map(i,j))
+        ts = first_elmt(land_tile_map(i,j)) ; te=tail_elmt(land_tile_map(i,j))
         do while (ts /= te)
            ptr=>current_tile(ts); ts=next_elmt(ts)
            call get_tile_water(ptr,lm,fm)
@@ -339,7 +339,7 @@ subroutine vegn_nat_mortality_ppa ( )
         enddo
      endif
 
-     ts = first_elmt(lnd%tile_map(i,j)) ; te=tail_elmt(lnd%tile_map(i,j))
+     ts = first_elmt(land_tile_map(i,j)) ; te=tail_elmt(land_tile_map(i,j))
      do while (ts /= te)
         t0=>current_tile(ts); ts=next_elmt(ts)
         if (.not.associated(t0%vegn)) cycle ! do nothing for non-vegetated cycles
@@ -355,7 +355,7 @@ subroutine vegn_nat_mortality_ppa ( )
      enddo
      if (is_watch_cell()) then
         write(*,*) '#### vegn_nat_mortality_ppa ####'
-        write(*,*) 'N tiles before merge = ', nitems(lnd%tile_map(i,j))
+        write(*,*) 'N tiles before merge = ', nitems(land_tile_map(i,j))
         write(*,*) 'N of disturbed tiles = ',    nitems(disturbed_tiles)
      endif 
      ! merge disturbed tiles back into the original list
@@ -364,10 +364,10 @@ subroutine vegn_nat_mortality_ppa ( )
         ts = first_elmt(disturbed_tiles)
         if (ts == te) exit ! reached the end of the list
         t0=>current_tile(ts)
-        call remove(ts) ; call merge_land_tile_into_list(t0,lnd%tile_map(i,j))
+        call remove(ts) ; call merge_land_tile_into_list(t0,land_tile_map(i,j))
      enddo
      if (is_watch_cell()) then
-        write(*,*) 'N tiles after merge = ', nitems(lnd%tile_map(i,j))
+        write(*,*) 'N tiles after merge = ', nitems(land_tile_map(i,j))
      endif
      ! at this point the list of disturbed tiles must be empty 
      if (.not.empty(disturbed_tiles)) call error_mesg('vegn_nat_mortality_ppa', &
@@ -377,7 +377,7 @@ subroutine vegn_nat_mortality_ppa ( )
         ! conservation check part 2: calculate grid cell totals in final state, and 
         ! compare them with pre-transition totals
         lmass1 = 0 ; fmass1 = 0 ; cmass1 = 0 ; heat1 = 0
-        ts = first_elmt(lnd%tile_map(i,j)) ; te=tail_elmt(lnd%tile_map(i,j))
+        ts = first_elmt(land_tile_map(i,j)) ; te=tail_elmt(land_tile_map(i,j))
         do while (ts /= te)
            ptr=>current_tile(ts); ts=next_elmt(ts)
            call get_tile_water(ptr,lm,fm)

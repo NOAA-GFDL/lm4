@@ -32,6 +32,7 @@ use land_tile_selectors_mod, only : tile_selector_type, &
      SEL_SOIL, SEL_VEGN, SEL_LAKE, SEL_GLAC, SEL_SNOW, SEL_CANA, SEL_HLSP
 use tile_diag_buff_mod, only : &
      diag_buff_type, init_diag_buff
+use land_data_mod, only : lnd
 
 implicit none
 private
@@ -40,6 +41,10 @@ public :: land_tile_type
 public :: land_tile_list_type
 public :: land_tile_enum_type
 public :: diag_buff_type
+
+! operations with tile map
+public :: init_tile_map, free_tile_map
+public :: max_n_tiles
 
 ! operations with tile
 public :: new_land_tile, delete_land_tile
@@ -72,6 +77,7 @@ public :: print_land_tile_statistics
 ! abstract interfaces for accessor functions
 public :: tile_exists_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk
 
+public :: land_tile_map ! array of tile lists 
 ! ==== end of public interfaces ==============================================
 interface new_land_tile
    module procedure land_tile_ctor
@@ -251,11 +257,50 @@ end interface
 ! ==== module data ===========================================================
 integer :: n_created_land_tiles = 0 ! total number of created tiles
 integer :: n_deleted_land_tiles = 0 ! total number of deleted tiles
-
+type(land_tile_list_type), pointer :: land_tile_map(:,:) ! map of tiles
 
 contains 
 
 ! #### land_tile_type and operations #########################################
+
+! ============================================================================
+! initialize land tile map
+subroutine init_tile_map()
+  integer :: i,j
+
+  allocate(land_tile_map (lnd%is:lnd%ie, lnd%js:lnd%je))
+  do j = lnd%js,lnd%je
+  do i = lnd%is,lnd%ie
+     call land_tile_list_init(land_tile_map(i,j))
+  enddo
+  enddo
+end subroutine init_tile_map
+
+! ============================================================================
+! deallocate land tile map
+subroutine free_tile_map()
+  integer :: i,j
+  
+  do j = lnd%js,lnd%je
+  do i = lnd%is,lnd%ie
+     call land_tile_list_end(land_tile_map(i,j))
+  enddo
+  enddo
+end subroutine free_tile_map
+
+! ============================================================================
+! get max number of tiles in the domain
+function max_n_tiles() result(n)
+  integer :: n
+  integer :: i,j
+
+  n=1
+  do j=lnd%js,lnd%je
+  do i=lnd%is,lnd%ie
+     n=max(n, nitems(land_tile_map(i,j)))
+  enddo
+  enddo
+end function max_n_tiles
 
 ! ============================================================================
 ! tile constructor: given a list of sub-model tile tags, creates a land tile

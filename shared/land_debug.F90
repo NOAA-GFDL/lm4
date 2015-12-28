@@ -5,7 +5,7 @@ use mpp_mod, only: input_nml_file
 #else
 use fms_mod, only: open_namelist_file
 #endif
-
+use constants_mod, only: PI
 use fms_mod, only: &
      error_mesg, file_exist, check_nml_error, stdlog, write_version_number, &
      close_file, mpp_pe, mpp_npes, mpp_root_pe, string, FATAL, WARNING, NOTE
@@ -13,6 +13,7 @@ use time_manager_mod, only : &
      time_type, get_date, set_date, operator(<=), operator(>=)
 use grid_mod, only: &
      get_grid_ntiles
+use land_data_mod, only: lnd
 
 ! NOTE TO SELF: the "!$" sentinels are not comments: they are compiled if OpenMP 
 ! support is turned on
@@ -60,8 +61,6 @@ end interface check_var_range
 public :: water_cons_tol
 public :: carbon_cons_tol
 public :: do_check_conservation
-
-public :: land_time
 ! ==== module constants ======================================================
 character(len=*), parameter, private   :: &
     module_name = 'land_debug',&
@@ -69,10 +68,6 @@ character(len=*), parameter, private   :: &
     tagname     = '$Name$'
 
 ! ==== module variables ======================================================
-! land time is kept here because debug stuff uses it, and importing it
-! from land_data module would create circular dependencies
-type(time_type)      :: land_time
-
 integer, allocatable :: current_debug_level(:)
 integer              :: mosaic_tile = 0
 integer, allocatable :: curr_i(:), curr_j(:), curr_k(:)
@@ -157,7 +152,7 @@ subroutine land_debug_init()
 
   ! construct the format string for output
   fixed_format = '(a'//trim(string(label_len))//',99g23.16)'
-  
+
   start_watch_time = set_date(start_watching(1), start_watching(2), start_watching(3), &
                               start_watching(4), start_watching(5), start_watching(6)  )
   stop_watch_time  = set_date( stop_watching(1),  stop_watching(2),  stop_watching(3), &
@@ -231,8 +226,8 @@ integer function current_face() ; current_face = mosaic_tile ; end function
 ! ============================================================================
 function is_watch_time()
    logical :: is_watch_time
-   is_watch_time = land_time >= start_watch_time &
-             .and. land_time <= stop_watch_time
+   is_watch_time = lnd%time >= start_watch_time &
+             .and. lnd%time <= stop_watch_time
 end function is_watch_time
 
 ! ============================================================================
@@ -300,10 +295,12 @@ subroutine check_var_range_0d(value, lo, hi, tag, varname, severity)
   else
      thread = 1
 !$   thread = OMP_GET_THREAD_NUM()+1
-     call get_date(land_time,y,mo,d,h,m,s)
-     write(message,'(a,g23.16,4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
+     call get_date(lnd%time,y,mo,d,h,m,s)
+     write(message,'(a,g23.16,2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
           trim(varname)//' out of range: value=', value,&
-	  'at i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
+          'at lon=',lnd%lon(curr_i(thread),curr_j(thread))*180.0/PI, &
+          'lat=',lnd%lat(curr_i(thread),curr_j(thread))*180.0/PI, &
+          'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
           'time=',y,mo,d,h,m,s
      call error_mesg(trim(tag),message,severity)
   endif
@@ -333,10 +330,12 @@ subroutine check_var_range_1d(value, lo, hi, tag, varname, severity)
      else
         thread = 1
 !$      thread = OMP_GET_THREAD_NUM()+1
-        call get_date(land_time,y,mo,d,h,m,s)
-        write(message,'(a,g23.16,4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
+        call get_date(lnd%time,y,mo,d,h,m,s)
+        write(message,'(a,g23.16,2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
              trim(varname)//'('//trim(string(i))//')'//' out of range: value=', value,&
-             'at i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
+             'at lon=',lnd%lon(curr_i(thread),curr_j(thread))*180.0/PI, &
+             'lat=',lnd%lat(curr_i(thread),curr_j(thread))*180.0/PI, &
+             'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
              'time=',y,mo,d,h,m,s
         call error_mesg(trim(tag),message,severity)
      endif
@@ -457,10 +456,12 @@ subroutine check_conservation(tag, substance, d1, d2, tolerance, severity)
   else
      thread = 1
 !$   thread = OMP_GET_THREAD_NUM()+1
-     call get_date(land_time,y,mo,d,h,m,s)
-     write(message,'(3(x,a,g23.16),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
+     call get_date(lnd%time,y,mo,d,h,m,s)
+     write(message,'(3(x,a,g23.16),2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
           'conservation of '//trim(substance)//' is violated; before=', d1, 'after=', d2, 'diff=',d2-d1,&
-          'at i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
+          'at lon=',lnd%lon(curr_i(thread),curr_j(thread))*180.0/PI, &
+          'lat=',lnd%lat(curr_i(thread),curr_j(thread))*180.0/PI, &
+          'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
           'time=',y,mo,d,h,m,s
      call error_mesg(tag,message,severity_)
   endif
@@ -482,9 +483,11 @@ subroutine land_error_message(text,severity)
 
   thread = 1
 !$   thread = OMP_GET_THREAD_NUM()+1
-  call get_date(land_time,y,mo,d,h,m,s)
-  write(message,'(4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))') &
-       'at i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
+  call get_date(lnd%time,y,mo,d,h,m,s)
+  write(message,'(2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))') &
+       'at lon=',lnd%lon(curr_i(thread),curr_j(thread))*180.0/PI, &
+       'lat=',lnd%lat(curr_i(thread),curr_j(thread))*180.0/PI, &
+       'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
        'time=',y,mo,d,h,m,s
   call error_mesg(text,message,severity_)
   
