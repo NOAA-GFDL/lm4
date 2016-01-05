@@ -695,6 +695,14 @@ subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled
     MINERAL_prod=dfloat(0)
     IMM_Nprod=dfloat(0)
 
+
+
+    if(.NOT. check_cohort(cohort)) THEN
+       call print_cohort(cohort)
+       call error_mesg('update_cohort','Cohort invalid at beginning of subroutine',FATAL)
+    endif
+
+
     !Calculate potential respiration rate (if not N limited)
     !Litter
     potential_tempResp=Resp(cohort%litterC,cohort%livingMicrobeC,T,theta,air_filled_porosity)
@@ -801,7 +809,7 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
         tempN_decomposed=pot_tempN_decomposed !*N_inhibitory_factor  !Actual amount of nitrogen decomposed
         overflow_resp=0
 
-    else
+    elseif(carbon_supply>=maintenance_resp) THEN
         ! Growth is carbon limited -- extra N is mineralized
         N_LIM_STATE = EXCESS_N
         cohort%livingMicrobeC = cohort%livingMicrobeC + dt*(carbon_supply - microbeTurnover)
@@ -814,26 +822,61 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
         livemic_C_produced=dt*carbon_supply
         livemic_N_produced=dt*(carbon_supply-maintenance_resp)/CN_microb
 
+    else     
+        ! Maintenance resp exceeds carbon supply. In this case, some additional biomass N will be lost
+        N_LIM_STATE = EXCESS_N
+        cohort%livingMicrobeC = cohort%livingMicrobeC + dt*(carbon_supply - microbeTurnover)
+        cohort%livingMicrobeN = cohort%livingMicrobeN + dt*(carbon_supply/CN_microb - microbeTurnover/CN_microb)
+
+        tempResp=potential_tempResp
+        tempN_decomposed=pot_tempN_decomposed
+        overflow_resp=0.0
+        CN_imbalance_term = nitrogen_supply-(carbon_supply-maintenance_resp)/CN_microb
+
+        livemic_C_produced=dt*carbon_supply
+        livemic_N_produced=dt*(carbon_supply-maintenance_resp)/CN_microb
+
     endif
+
+
+    ! Enforce correct microbial C:N. Model has been having problems with slow increase in microbial C relative to N.  
+    !This feels a bit kloodgy but hopefully shouldn't cause problems
+    if(cohort%livingMicrobeC/cohort%livingMicrobeN - CN_microb > 1e-3) then
+        ! Too much microbial C. Respire extra C
+        overflow_resp = overflow_resp + (cohort%livingMicrobeC - cohort%livingMicrobeN*CN_microb)
+        cohort%livingMicrobeC = cohort%livingMicrobeC - (cohort%livingMicrobeC - cohort%livingMicrobeN*CN_microb)
+    endif
+    if(cohort%livingMicrobeC/cohort%livingMicrobeN - CN_microb < -1e-3) then
+        ! Too much microbial N. Mineralize extra N
+        CN_imbalance_term = CN_imbalance_term + (cohort%livingMicrobeN - cohort%livingMicrobeC/CN_microb)
+        cohort%livingMicrobeN = cohort%livingMicrobeN - (cohort%livingMicrobeN - cohort%livingMicrobeC/CN_microb)
+    endif
+
 
 
     !!Check for validity of C/N
     IF(cohort%livingMicrobeN<0) then
 
-        print *,'dMNdt_req',dMNdt_req
         print *,'et',et
-        print *,'microbeTurnover_Npot',microbeTurnover_Npot
-        print *,'microbeTurnover_Nreq',microbeTurnover_Nreq
+        print *,'microbeTurnover',microbeTurnover*dt
+        print *,'microbeTurnover_N',microbeTurnover*et/CN_microb*dt
         print *,'CN_imbalance_term',CN_imbalance_term
-        print *,'N_inhibitory_factor', N_inhibitory_factor
-
+        print *,'N_LIM_STATE', N_LIM_STATE
+        print *,'N supply',dt*nitrogen_supply
+        print *,'livemic_N_produced',livemic_N_produced
+        print *,'carbon_supply',carbon_supply
+        print *,'maintenance_resp',maintenance_resp
         print *,'dN for live microb N',dt*(sum(mup*tempN_decomposed)-CN_imbalance_term-(microbeTurnover*et)/CN_microb)
-
+        print *,'theta',theta
+        print *,'T',T
+        print *,'IMM_max',cohort%IMM_N_max
+        print *,'ammonium',ammonium
+        print *,'nitrate',nitrate
         print *,'Live microbe N',cohort%livingMicrobeN
         print *,'Immobilized inorganic N',cohort%IMM_N_gross*dt
         print *,'Mineralized organic N',cohort%MINER_gross*dt
-        print *,'Dead microbe N',deadmic_N_produced
         print *,'Previous microbe N',temp_N_microbes
+        print *,'Previous microbe C',temp_C_microbes
         print *,'dt',dt
         print *,'Live microbe C',cohort%livingMicrobeC
 
@@ -842,10 +885,11 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
     ENDIF
 
 
- if(cohort%livingMicrobeN>0) then
-    IF(abs((cohort%livingMicrobeC/cohort%livingMicrobeN)-CN_microb).ge.1d-8)THEN
+ if(cohort%livingMicrobeN>1d-8) then
+    IF(abs((cohort%livingMicrobeC/cohort%livingMicrobeN)-CN_microb).ge.1d-5)THEN
         WRITE(*,*)'The fix C/N microbial ratio is not respected after the decomposition processes'
-        write(*,*)'C/N',prova2
+        write(*,*)'C/N',cohort%livingMicrobeC/cohort%livingMicrobeN
+        call print_cohort(cohort)
         call error_mesg('update_cohort','Microbe C:N not preserved',FATAL)
     ENDIF
  endif
@@ -874,6 +918,40 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
         cohort%IMM_N_gross=-CN_imbalance_term
         cohort%MINER_gross=sum((1-mup)*tempN_decomposed)
     ENDIF
+
+
+    if(cohort%IMM_N_gross<0.0 .OR. cohort%MINER_gross<0.0) then
+         print *,'Immob',cohort%IMM_N_gross
+         print *,'Mineralization',cohort%MINER_gross
+         
+        print *,'et',et
+        print *,'microbeTurnover',microbeTurnover*dt
+        print *,'microbeTurnover_N',microbeTurnover*et/CN_microb*dt
+        print *,'CN_imbalance_term',CN_imbalance_term
+        print *,'N_LIM_STATE', N_LIM_STATE
+        print *,'N supply',dt*nitrogen_supply
+        print *,'livemic_N_produced',livemic_N_produced
+        print *,'carbon_supply',carbon_supply
+        print *,'maintenance_resp',maintenance_resp
+        print *,'dN for live microb N',dt*(sum(mup*tempN_decomposed)-CN_imbalance_term-(microbeTurnover*et)/CN_microb)
+        print *,'theta',theta
+        print *,'T',T
+        print *,'IMM_max',cohort%IMM_N_max
+        print *,'ammonium',ammonium
+
+        print *,'nitrate',nitrate
+        print *,'Live microbe N',cohort%livingMicrobeN
+        print *,'Immobilized inorganic N',cohort%IMM_N_gross*dt
+        print *,'Mineralized organic N',cohort%MINER_gross*dt
+        print *,'Previous microbe N',temp_N_microbes
+        print *,'Previous microbe C',temp_C_microbes
+        print *,'dt',dt
+        print *,'Live microbe C',cohort%livingMicrobeC
+
+        call print_cohort(cohort)
+        call error_mesg('update_cohort','N Min < 0 or N immob < 0',FATAL)
+    endif
+
 
     CO2prod=dt*(sum(tempResp*(1.0-eup))+microbeTurnover*(1.0-et)+overflow_resp) !kg/m2
     cohort%litterC=cohort%litterC-dt*tempResp     !kg/m2
@@ -1112,7 +1190,9 @@ pure subroutine initializeCohort(cohort,litterInputC,litterInputN,initialMicrobe
 
     cohort%MINER_prod=0.0
     cohort%IMM_Nprod=0.0
-
+    cohort%MINER_gross=0.0
+    cohort%IMM_N_gross=0.0
+    cohort%IMM_N_max=0.0
 
 end subroutine initializeCohort
 
@@ -1218,7 +1298,7 @@ pure subroutine mycorrhizal_mineral_N_uptake_rate(pool,myc_biomass,layer_thickne
 end subroutine mycorrhizal_mineral_N_uptake_rate
 
 ! Calculates rate of N mineralization from miner (ecto) mycorrhizae, WITHOUT changing any pools
-pure subroutine hypothetical_mycorrhizal_decomposition(pool,myc_biomass,T,theta,air_filled_porosity,N_uptake,C_uptake,CO2prod,dt)
+ subroutine hypothetical_mycorrhizal_decomposition(pool,myc_biomass,T,theta,air_filled_porosity,N_uptake,C_uptake,CO2prod,dt)
   type(soil_pool),intent(in)::pool
   real,intent(in)::myc_biomass,dt,T,theta,air_filled_porosity
   real,intent(out)::N_uptake,C_uptake,CO2prod
@@ -1375,12 +1455,16 @@ subroutine print_cohort(cohort)
 
     WRITE (*,*),'gross miner =',cohort%MINER_prod
     WRITE (*,*),'gross Immobil =',cohort%IMM_Nprod
+    WRITE (*,*),'last miner =',cohort%MINER_gross
+    WRITE (*,*),'last immob =',cohort%IMM_N_gross
     WRITE (*,*),'Sum of nitrogen =',cohortNsum(cohort)
+
+    if(cohort%livingMicrobeN>0) WRITE(*,*), 'Microbe C:N =',cohort%livingMicrobeC/cohort%livingMicrobeN
 end subroutine
 
 
 !Check for carbon balance and invalid values
-pure logical function check_cohort(cohort) result(cohortGood)
+ logical function check_cohort(cohort) result(cohortGood)
     type(litterCohort),intent(in)::cohort
     integer::n
     logical:: tempGood
@@ -1390,7 +1474,7 @@ pure logical function check_cohort(cohort) result(cohortGood)
     real,parameter :: tol_roundoff = 1.e-11    ![kg C/m^2] tolerance for roundoff error in soil carbon numerics
 
     cohortGood=.NOT. ( &
-     (min(cohort%originalLitterC,cohort%livingMicrobeC,cohort%CO2).lt.-tol_roundoff) .OR. &
+     (min(cohort%originalLitterC,cohort%livingMicrobeC,cohort%CO2,cohort%livingMicrobeN).lt.-tol_roundoff) .OR. &
     isNAN(cohort%originalLitterC) .OR. &
     isNAN(cohort%livingMicrobeC) .OR. &
     isNAN(cohort%CO2)  .OR. &
@@ -1419,6 +1503,9 @@ pure logical function check_cohort(cohort) result(cohortGood)
         cohortGood=cohortGood .AND. tempGood
     ENDDO
 
+
+    cohortGood = cohortGood .AND. (cohort%IMM_N_gross>=0) .AND. (cohort%MINER_gross>=0)
+   
     ! IF(.NOT. cohortGood) THEN
     !     WRITE (*,*)'Cohort carbon pool error:'
     !     call print_cohort(cohort)
@@ -1427,11 +1514,18 @@ pure logical function check_cohort(cohort) result(cohortGood)
     !  ENDIF
 
 
+ if(cohort%livingMicrobeN>0) then
+    IF(abs((cohort%livingMicrobeC/cohort%livingMicrobeN)-CN_microb).ge.1d-1)THEN
+      cohortGood = .FALSE.
+    ENDIF
+ endif
+
+
 end function check_cohort
 
 
 
-pure function cohortCSum(cohort,only_active)
+ function cohortCSum(cohort,only_active)
     type(litterCohort),intent(in)::cohort
     logical,intent(in),optional::only_active
     real::tempSum
@@ -1454,7 +1548,7 @@ pure function cohortCSum(cohort,only_active)
     cohortCSum=tempSum
 END FUNCTION
 
-pure function cohortNSum(cohort,only_active)
+ function cohortNSum(cohort,only_active)
     type(litterCohort),intent(in)::cohort
     logical,intent(in),optional::only_active
     real*8::tempSum
@@ -1758,7 +1852,7 @@ end subroutine remove_cohort
 
 
 
-pure subroutine combine_cohorts(cohort1,cohort2,result)
+ subroutine combine_cohorts(cohort1,cohort2,result)
     type(litterCohort),intent(in)::cohort1,cohort2
     type(litterCohort),intent(out)::result
 
@@ -1778,17 +1872,25 @@ pure subroutine combine_cohorts(cohort1,cohort2,result)
     result%originalLitterN=(cohort1%originalLitterN + cohort2%originalLitterN)!xz
     result%MINER_prod=(cohort1%MINER_prod + cohort2%MINER_prod)!xz
     result%IMM_Nprod=(cohort1%IMM_Nprod + cohort2%IMM_Nprod)!xz
-
+    result%MINER_gross=(cohort1%MINER_gross + cohort2%MINER_gross)
+    result%IMM_N_gross=(cohort1%IMM_N_gross + cohort2%IMM_N_gross)
     !Cbefore=cohortCsum(cohort1)*cohort1%cohortVolume+cohortCsum(cohort2)*cohort2%cohortVolume
     !Cafter=cohortCsum(result)*result%cohortVolume
 
     !IF (Cbefore.ne.Cafter) PRINT *,'Error in combining cohorts:',Cafter-Cbefore
 
+    if(.NOT. check_cohort(result)) then
+        print *,'Invalid cohort generated'
+        call print_cohort(result)
+        call error_mesg('combine_cohorts','Resulting cohort invalid',FATAL)
+    endif
+
+
 end subroutine
 
 
 !Returns the cohort with all fields multiplied by x
-function multiply_cohort(cohort,x) result(result)
+pure function multiply_cohort(cohort,x) result(result)
     type(litterCohort),intent(in) :: cohort
     real,intent(in) :: x
     type(litterCohort) :: result
@@ -1880,10 +1982,28 @@ subroutine transfer_pool_fraction(source, destination, fraction)
     destination%denitrif=destination%denitrif+source%denitrif*fraction
     source%denitrif=source%denitrif*(1.0-fraction)
 
+    do nn=1,source%n_cohorts
+         IF (.NOT. check_cohort(source%litterCohorts(nn))) THEN
+              WRITE(*,*),'transfer_pool_fraction: Cohort',nn,'of',source%n_cohorts,'bad'
+            call print_cohort(source%litterCohorts(nn))
+            call error_mesg('add_C_N_to_rhizosphere','Bad cohort',FATAL)
+       ENDIF
+    enddo
+
+
+    do nn=1,destination%n_cohorts
+         IF (.NOT. check_cohort(destination%litterCohorts(nn))) THEN
+              WRITE(*,*),'transfer_pool_fraction: Cohort',nn,'of',destination%n_cohorts,'bad'
+            call print_cohort(destination%litterCohorts(nn))
+            call error_mesg('add_C_N_to_rhizosphere','Bad cohort',FATAL)
+       ENDIF
+    enddo
+
+
 end subroutine
 
 !Sums all cohorts in layer into a single cohort
-pure type(litterCohort) function totalPoolCohort(pool)
+type(litterCohort) function totalPoolCohort(pool)
     type(litterCohort)::tempCohort
     type(soil_pool),intent(in)::pool
     integer::ii
@@ -1899,7 +2019,7 @@ end function
 
 
 
-pure subroutine poolTotals(pool,fastC,fastN,slowC,slowN,deadMicrobeC,deadMicrobeN,liveMicrobeC,liveMicrobeN,protectedC,protectedN,&
+ subroutine poolTotals(pool,fastC,fastN,slowC,slowN,deadMicrobeC,deadMicrobeN,liveMicrobeC,liveMicrobeN,protectedC,protectedN,&
         fast_dissolvedC,slow_dissolvedC,deadmic_dissolvedC,fast_dissolvedN,slow_dissolvedN,deadmic_dissolvedN,ncohorts,totalCarbon,totalNitrogen,&
         fast_protectedC,slow_protectedC,deadmic_protectedC,fast_protectedN,slow_protectedN,deadmic_protectedN)
     real, intent(out),optional::fastC,fastN,slowC,slowN,deadMicrobeC,deadMicrobeN,&

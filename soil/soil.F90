@@ -7070,7 +7070,7 @@ end subroutine myc_miner_N_uptake
 
 ! Uptake of mineral N by mycorrhizal "miners" -- Should correspond to Ecto mycorrhizae
 ! Pure version, for use in marginal gain calculations
-pure subroutine hypothetical_myc_miner_N_uptake(soil,vegn,myc_biomass,total_N_uptake,total_C_uptake,total_CO2prod,dt)
+ subroutine hypothetical_myc_miner_N_uptake(soil,vegn,myc_biomass,total_N_uptake,total_C_uptake,total_CO2prod,dt)
   real,intent(in)::myc_biomass,dt  ! dt in years, myc_biomass in kgC/m2
   real,intent(out)::total_N_uptake,total_C_uptake,total_CO2prod
   type(vegn_tile_type),intent(in)::vegn

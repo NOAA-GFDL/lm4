@@ -117,6 +117,16 @@ subroutine vegn_photosynthesis ( vegn, &
              cohort%extinct, fs+fw, stomatal_cond, psyn, resp, Ed)
         ! store the calculated photosythesis and fotorespiration for future use
         ! in carbon_int
+
+        if(( isnan(psyn)) .or. (isnan(resp))) THEN
+             print *,'Invalid result from gs_Leuning'
+             __DEBUG5__(PAR_dn,PAR_net,cohort%Tv,cana_q,cohort%lai)
+             __DEBUG5__(cohort%leaf_age, p_surf, water_supply, sp, cohort%pt)
+             __DEBUG4__(cana_co2,cohort%extinct,fs+fw,stomatal_cond)
+             __DEBUG3__(psyn,resp,Ed)
+             call error_mesg('vegn_photosynthesis','Invalid result from gs_Leuning',FATAL)
+        endif
+
         cohort%An_op  = psyn * seconds_per_year
         cohort%An_cl  = resp * seconds_per_year
         ! convert stomatal conductance, photosynthesis and leaf respiration from units
@@ -270,7 +280,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
  
   ! find the LAI level at which gross photosynthesis rates are equal
   ! only if PAR is positive
-  if ( light_top > light_crit ) then
+  if ( light_top > light_crit .AND. lai>1e-6 ) then ! -- added lai test to prevent floating point error on lai ~1e-16 in Ag_l calc
      if (pt==PT_C4) then ! C4 species
         coef0=(1+ds/do1)/spdata(pft)%m_cond;
         ci=(ca+1.6*coef0*capgam)/(1+1.6*coef0);
