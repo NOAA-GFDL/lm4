@@ -11,15 +11,12 @@ use fms_mod, only : write_version_number, string, error_mesg, FATAL, NOTE, &
      check_nml_error, stdlog, mpp_root_pe
 use mpp_io_mod, only : axistype, mpp_get_atts, mpp_get_axis_data, &
      mpp_open, mpp_close, MPP_RDONLY, MPP_WRONLY, MPP_ASCII
-use vegn_data_mod, only : &
-     N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, &
+use vegn_data_mod, only : N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, &
      HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, &
      HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
      agf_bs, fsc_liv, fsc_froot, fsc_wood
-use vegn_tile_mod, only : &
-     vegn_tile_type
-use vegn_cohort_mod, only : &
-     vegn_cohort_type, update_biomass_pools
+use vegn_tile_mod, only : vegn_tile_type, vegn_tile_LAI
+use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools
 use soil_carbon_mod, only: soil_carbon_option, &
      SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE
 
@@ -43,6 +40,7 @@ character(len=*), parameter   :: &
      tagname = '$Name$', &
      module_name = 'vegn_harvesting_mod'
 real, parameter :: ONETHIRD = 1.0/3.0
+integer, parameter :: DAILY = 1, ANNUAL = 2
 
 ! ==== module data ===========================================================
 
@@ -50,6 +48,11 @@ real, parameter :: ONETHIRD = 1.0/3.0
 logical, public :: do_harvesting       = .TRUE.  ! if true, then harvesting of crops and pastures is done
 real :: grazing_intensity      = 0.25    ! fraction of biomass removed each time by grazing
 real :: grazing_residue        = 0.1     ! fraction of the grazed biomass transferred into soil pools
+character(16) :: grazing_frequency = 'annual' ! or 'daily'
+real :: min_lai_for_grazing    = 0.0     ! no grazing if LAI lower than this threshold
+  ! NOTE that regardless of the grazing frequency, the soil carbon input from 
+  ! grazing still goes to intermediate pools, and then it is transferred from
+  ! these pools to soil/litter carbon pools with constant rates over the next year.
 real :: frac_wood_wasted_harv  = 0.25    ! fraction of wood wasted while harvesting
 real :: frac_wood_wasted_clear = 0.25    ! fraction of wood wasted while clearing land for pastures or crops
 logical :: waste_below_ground_wood = .TRUE. ! If true, all the wood below ground (1-agf_bs fraction of bwood 
@@ -59,9 +62,12 @@ real :: frac_wood_med          = ONETHIRD ! fraction of wood consumed with mediu
 real :: frac_wood_slow         = ONETHIRD ! fraction of wood consumed slowly
 real :: crop_seed_density      = 0.1     ! biomass of seeds left after crop harvesting, kg/m2
 namelist/harvesting_nml/ do_harvesting, grazing_intensity, grazing_residue, &
+     grazing_frequency, min_lai_for_grazing, &
      frac_wood_wasted_harv, frac_wood_wasted_clear, waste_below_ground_wood, &
      frac_wood_fast, frac_wood_med, frac_wood_slow, &
      crop_seed_density
+
+integer :: grazing_freq = -1 ! inidicator of grazing frequency (ANNUAL or DAILY)
 
 contains ! ###################################################################
 
@@ -97,6 +103,17 @@ subroutine vegn_harvesting_init
           'sum of frac_wood_fast, frac_wood_med, and frac_wood_slow must be 1.0',&
           FATAL)
   endif
+  ! parse the grazing frequency parameter
+  select case(grazing_frequency)
+  case('annual')
+     grazing_freq = ANNUAL
+  case('daily')
+     grazing_freq = DAILY
+     ! scale grazing intensity for daily frequency
+     grazing_intensity = grazing_intensity/365.0
+  case default
+     call error_mesg('vegn_harvesting_init','grazing_frequency must be "annual" or "daily"',FATAL)
+  end select
 end subroutine vegn_harvesting_init
 
 
@@ -107,21 +124,21 @@ end subroutine vegn_harvesting_end
 
 ! ============================================================================
 ! harvest vegetation in a tile
-subroutine vegn_harvesting(vegn, year, month, day)
+subroutine vegn_harvesting(vegn, end_of_year, end_of_month, end_of_day)
   type(vegn_tile_type), intent(inout) :: vegn
-  logical, intent(in) :: year, month, day ! indicators of respective period boundaries
+  logical, intent(in) :: end_of_year, end_of_month, end_of_day ! indicators of respective period boundaries
 
-  if (.not.do_harvesting) &
-       return ! do nothing if no harvesting requested
+  if (.not.do_harvesting) return ! do nothing if no harvesting requested
 
-  if (year) then
-     select case(vegn%landuse)
-     case(LU_PAST)  ! pasture
-        call vegn_graze_pasture    (vegn)
-     case(LU_CROP)  ! crop
-        call vegn_harvest_cropland (vegn)
-     end select
-  endif
+  select case(vegn%landuse)
+  case(LU_PAST)  ! pasture
+     if ((end_of_day  .and. grazing_freq==DAILY).or. &
+         (end_of_year .and. grazing_freq==ANNUAL)) then
+        call vegn_graze_pasture (vegn)
+     endif
+  case(LU_CROP)  ! crop
+     if (end_of_year) call vegn_harvest_cropland (vegn)
+  end select
 end subroutine
 
 
@@ -134,6 +151,8 @@ subroutine vegn_graze_pasture(vegn)
   real ::  bdead1, balive1, bleaf1, bfroot1, btotal1 ! updated combined biomass pools
   type(vegn_cohort_type), pointer :: cc ! shorthand for the current cohort
   integer :: i
+
+  if ( vegn_tile_LAI(vegn) .lt. min_lai_for_grazing ) return
 
   balive0 = 0 ; balive1 = 0
   bdead0  = 0 ; bdead1  = 0 
