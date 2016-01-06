@@ -157,6 +157,7 @@ subroutine vegn_disturbance(vegn, soil, dt)
         soil%leaflitter_ssn_in=soil%leaflitter_ssn_in+new_slow_N_ag
         !fsc_in and ssc_in updated in add_root_litter
         call add_root_litter(soil,vegn,(/new_fast_C_bg,new_slow_C_bg,0.0/),(/new_fast_N_bg,new_slow_N_bg,0.0/))
+
      case default
         call error_mesg('vegn_disturbance','soil_carbon_option is invalid. This should never happen. Contact developer.', FATAL)
      end select
@@ -195,6 +196,10 @@ subroutine vegn_disturbance(vegn, soil, dt)
 
            new_slow_C_coarsewoodlitter=(1-fsc_liv)*(cc%blv+cc%bsw*agf_bs) + (1-fsc_wood)*(cc%bwood)*agf_bs
 
+           new_fast_C_bg=(fsc_froot*cc%br+fsc_liv*cc%bsw*(1-agf_bs)) + fsc_wood*cc%bwood*(1-agf_bs)
+           new_slow_C_bg=((1.0-fsc_froot)*cc%br+(1.0-fsc_liv)*cc%bsw*(1-agf_bs)) + (1.0-fsc_wood)*cc%bwood*(1-agf_bs)
+
+
            if(soil_carbon_option == SOILC_CORPSE_N) then
 
                new_fast_N_leaflitter=fsc_liv*(cc%bl)/leaf_fast_c2n
@@ -202,8 +207,6 @@ subroutine vegn_disturbance(vegn, soil, dt)
                new_slow_N_leaflitter=(1-fsc_liv)*(cc%bl)/leaf_slow_c2n
                new_slow_N_coarsewoodlitter=(1-fsc_liv)*(cc%blv/leaf_slow_c2n+cc%bsw*agf_bs/wood_slow_c2n) + (1-fsc_wood)*(cc%bwood)/wood_slow_c2n*agf_bs
 
-               new_fast_N_ag=fsc_liv*(cc%bl/leaf_fast_c2n+cc%blv/leaf_fast_c2n+cc%bsw/wood_fast_c2n*agf_bs) + fsc_wood*(cc%bwood)*agf_bs/wood_fast_c2n
-               new_slow_N_ag=(1-fsc_liv)*(cc%bl/leaf_slow_c2n+cc%blv/leaf_slow_c2n+cc%bsw/wood_slow_c2n*agf_bs) + (1-fsc_wood)*(cc%bwood)*agf_bs/wood_slow_c2n
                new_fast_N_bg=(fsc_froot*cc%br+fsc_liv*cc%bsw*(1-agf_bs))/froot_fast_c2n + fsc_wood*cc%bwood*(1-agf_bs)/wood_slow_c2n
                new_slow_N_bg=((1-fsc_froot)*cc%br + (1-fsc_liv)*cc%bsw*(1-agf_bs))/froot_slow_c2n + (1-fsc_wood)*cc%bwood*(1-agf_bs)/wood_slow_c2n
 
@@ -212,8 +215,6 @@ subroutine vegn_disturbance(vegn, soil, dt)
                new_fast_N_coarsewoodlitter=0.0
                new_slow_N_leaflitter=0.0
                new_slow_N_coarsewoodlitter=0.0
-               new_fast_N_ag=0.0
-               new_slow_N_ag=0.0
                new_fast_N_bg=0.0
                new_slow_N_bg=0.0
            endif
@@ -231,6 +232,15 @@ subroutine vegn_disturbance(vegn, soil, dt)
            soil%coarsewoodlitter_ssn_in=soil%coarsewoodlitter_ssn_in+new_slow_N_coarsewoodlitter
 
            call add_root_litter(soil, vegn, (/new_fast_C_bg,new_slow_C_bg,0.0/),(/new_fast_N_bg,new_slow_N_bg,0.0/))
+
+
+           if(abs(new_fast_C_leaflitter+new_fast_C_coarsewoodlitter+new_slow_C_leaflitter+new_slow_C_coarsewoodlitter+new_fast_C_bg+new_slow_C_bg-(cc%bliving+cc%bwood))>1e-8) then
+                  print *,'total C input',new_fast_C_leaflitter+new_fast_C_coarsewoodlitter+new_slow_C_leaflitter+new_slow_C_coarsewoodlitter+new_fast_C_bg+new_slow_C_bg
+                  print *,'bliving + bwood',cc%bliving+cc%bwood
+                  print *,'Difference',new_fast_C_leaflitter+new_fast_C_coarsewoodlitter+new_slow_C_leaflitter+new_slow_C_coarsewoodlitter+new_fast_C_bg+new_slow_C_bg-(cc%bliving+cc%bwood)
+                  call error_mesg('vegn_disturbance','C input to soil pools does not match loss from veg pools',FATAL)
+           endif
+
         case default
            call error_mesg('vegn_disturbance','soil_carbon_option is invalid. This should never happen. Contact developer.', FATAL)
         end select

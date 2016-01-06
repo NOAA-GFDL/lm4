@@ -206,6 +206,10 @@ total_myc_mine_C_uptake = 0.0
      root_exudate_C = max(cc%npp,0.0)*root_exudate_frac
      cc%carbon_gain = cc%carbon_gain + (cc%npp-root_exudate_C)*dt_fast_yr
 
+     if(root_exudate_frac < 0) then
+         __DEBUG4__(root_exudate_frac,cc%nitrogen_stress,cc%bl+cc%br,cc%npp)
+         call error_mesg('vegn_carbon_int','root_exudate_frac<0',FATAL)
+     endif
 
      ! check if leaves/roots are present and need to be accounted in maintenance
      if(cc%status == LEAF_ON) then
@@ -430,6 +434,11 @@ total_myc_mine_C_uptake = 0.0
      if(cc%myc_miner_biomass_C<0) call error_mesg('vegn_carbon_int','Mycorrhizal miner biomass < 0',FATAL)
      if(cc%N_fixer_biomass_C<0) call error_mesg('vegn_carbon_int','N fixer biomass < 0',FATAL)
 
+     if(isnan(cc%myc_scavenger_biomass_C)) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger biomass is NaN',FATAL)
+     if(isnan(cc%myc_miner_biomass_C)) call error_mesg('vegn_carbon_int','Mycorrhizal miner biomass is NaN',FATAL)
+     if(isnan(cc%N_fixer_biomass_C)) call error_mesg('vegn_carbon_int','N fixer biomass is NaN',FATAL)
+
+
      ! First add mycorrhizal and N fixer turnover to soil C pools
      call add_root_litter(soil,vegn,(/0.0,0.0,cc%myc_scavenger_biomass_C/mycorrhizal_turnover_time/)*dt_fast_yr,(/0.0,0.0,cc%myc_scavenger_biomass_N/mycorrhizal_turnover_time/)*dt_fast_yr)
      call add_root_litter(soil,vegn,(/0.0,0.0,cc%myc_miner_biomass_C/mycorrhizal_turnover_time/)*dt_fast_yr,(/0.0,0.0,cc%myc_miner_biomass_N/mycorrhizal_turnover_time/)*dt_fast_yr)
@@ -444,8 +453,24 @@ total_myc_mine_C_uptake = 0.0
      cc%N_fixer_biomass_C = cc%N_fixer_biomass_C + N_fixer_C_allocated*N_fixer_C_efficiency - cc%N_fixer_biomass_C/N_fixer_turnover_time*dt_fast_yr
      cc%N_fixer_biomass_N = cc%N_fixer_biomass_N + N_fixer_C_allocated*N_fixer_C_efficiency/c2n_N_fixer - cc%N_fixer_biomass_N/N_fixer_turnover_time*dt_fast_yr
 
+
+
+     if(cc%myc_scavenger_biomass_C<0) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger biomass < 0',FATAL)
+     if(cc%myc_miner_biomass_C<0) call error_mesg('vegn_carbon_int','Mycorrhizal miner biomass < 0',FATAL)
+     if(cc%N_fixer_biomass_C<0) call error_mesg('vegn_carbon_int','N fixer biomass < 0',FATAL)
+
+     if(isnan(cc%myc_scavenger_biomass_C)) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger biomass is NaN',FATAL)
+     if(isnan(cc%myc_miner_biomass_C)) call error_mesg('vegn_carbon_int','Mycorrhizal miner biomass is NaN',FATAL)
+     if(isnan(cc%N_fixer_biomass_C)) call error_mesg('vegn_carbon_int','N fixer biomass is NaN',FATAL)
+
      ! To do: Figure out excess C if mycorrhizae N-limited and add back to root exudate C
      total_root_exudate_C = total_root_exudate_C + root_exudate_C*dt_fast_yr - scavenger_myc_C_allocated - N_fixer_C_allocated - miner_myc_C_allocated
+
+     if(total_root_exudate_C < 0.0) then
+         __DEBUG4__(root_exudate_C*dt_fast_yr,scavenger_myc_C_allocated,N_fixer_C_allocated,miner_myc_C_allocated)
+         call error_mesg('vegn_carbon_int','Root exudate C < 0',FATAL)
+     endif
+
      total_scavenger_myc_C_allocated = total_scavenger_myc_C_allocated + scavenger_myc_C_allocated
      total_miner_myc_C_allocated = total_miner_myc_C_allocated + miner_myc_C_allocated
      total_scav_myc_immob = total_scav_myc_immob + mycorrhizal_scav_N_immob
