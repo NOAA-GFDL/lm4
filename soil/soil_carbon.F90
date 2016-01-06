@@ -263,7 +263,7 @@ subroutine init_soil_pool(pool,protectionRate,Qmax,max_cohorts)
     IF (allocated(pool%litterCohorts)) deallocate(pool%litterCohorts)
 
     IF (use_rhizosphere_cohort) THEN
-        DO WHILE(size(pool%litterCohorts)<max(BULK,RHIZ))
+        DO WHILE(pool%n_cohorts<max(BULK,RHIZ))
             call initializeCohort(newCohort)
             call add_cohort(pool,newCohort)
         ENDDO

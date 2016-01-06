@@ -112,6 +112,7 @@ subroutine vegn_disturbance(vegn, soil, dt)
 
      cc%bwood = cc%bwood * (1-fraction_lost);
      cc%bsw   = cc%bsw   * (1-fraction_lost);
+     cc%wood_N = cc%wood_N*(1-fraction_lost)
 
      vegn%csmoke_pool = vegn%csmoke_pool + spdata(sp)%smoke_fraction*delta;
 
@@ -163,6 +164,9 @@ subroutine vegn_disturbance(vegn, soil, dt)
      cc%bl  = cc%bl  * (1-fraction_lost);
      cc%blv = cc%blv * (1-fraction_lost);
      cc%br  = cc%br  * (1-fraction_lost);
+     cc%leaf_N = cc%leaf_N*(1-fraction_lost);
+     cc%root_N = cc%root_N*(1-fraction_lost);
+
 
      vegn%csmoke_pool = vegn%csmoke_pool + spdata(sp)%smoke_fraction*delta;
 
@@ -234,6 +238,11 @@ subroutine vegn_disturbance(vegn, soil, dt)
 
         cc%bliving = 0.;
         cc%bwood   = 0.;
+        cc%leaf_N = 0
+        cc%root_N = 0
+        cc%wood_N = 0
+        cc%stored_N = 0
+        cc%total_N = 0
      endif
      call update_biomass_pools(cc)
   enddo
@@ -409,6 +418,7 @@ subroutine vegn_nat_mortality(vegn, soil, deltat)
 
      cc%bwood = cc%bwood * (1-fraction_lost);
      cc%bsw   = cc%bsw   * (1-fraction_lost);
+     cc%wood_N = cc%wood_N * (1-fraction_lost)
 
      ! for budget tracking -temporarily
      ! It doesn't look correct to me: ssc_in should probably include factor
@@ -445,6 +455,9 @@ subroutine vegn_nat_mortality(vegn, soil, deltat)
         cc%br  = cc%br  * (1-fraction_lost);
         cc%bl  = cc%bl  * (1-fraction_lost);
         cc%blv = cc%blv * (1-fraction_lost);
+        cc%leaf_N = cc%leaf_N*(1-fraction_lost)
+        cc%root_N = cc%root_N*(1-fraction_lost)
+
 
         ! for budget tracking
         soil%ssc_in(1)  = soil%ssc_in(1)  + (cc%bwood+cc%bsw)*fraction_lost;

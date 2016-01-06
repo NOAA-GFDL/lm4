@@ -424,8 +424,8 @@ real :: leaf_fast_c2n=	66	!x2z parameters change the amount of carbon in leaves 
 real :: leaf_slow_c2n=	50	!x2z
 real :: froot_fast_c2n=	50	!x2z
 real :: froot_slow_c2n=	50	!x2z
-real :: wood_fast_c2n=	200	!x2z Wiki  http://en.wikipedia.org/wiki/Carbon-to-nitrogen_ratio
-real :: wood_slow_c2n= 	200	!x2z Wiki  http://en.wikipedia.org/wiki/Carbon-to-nitrogen_ratio
+real :: wood_fast_c2n=	300	!x2z Wiki  http://en.wikipedia.org/wiki/Carbon-to-nitrogen_ratio
+real :: wood_slow_c2n= 	300	!x2z Wiki  http://en.wikipedia.org/wiki/Carbon-to-nitrogen_ratio
 real :: root_exudate_N_frac = 0.0 ! N fraction of root exudates. See e.g. Drake et al 2013
 
 real :: root_exudate_frac_max     = 0.5     ! Maximum fraction of NPP that can be allocated to mycorrhizae and root exudation

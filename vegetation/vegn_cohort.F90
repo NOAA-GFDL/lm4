@@ -1,5 +1,7 @@
 module vegn_cohort_mod
 
+#include "../shared/debug.inc"
+
 use constants_mod, only: PI
 
 use land_constants_mod, only: NBANDS, &
@@ -11,6 +13,7 @@ use vegn_data_mod, only : spdata, &
 use vegn_data_mod, only : PT_C3, PT_C4, CMPT_ROOT, CMPT_LEAF, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
    LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDIOUS
+use vegn_data_mod,only : leaf_fast_c2n,leaf_slow_c2n,froot_fast_c2n,froot_slow_c2n,wood_fast_c2n
 
 implicit none
 private
@@ -134,7 +137,6 @@ type :: vegn_cohort_type
 
   ! BNS: Maximum leaf biomass, to be used in the context of nitrogen limitation as suggested by Elena
   ! This will be either fixed or calculated as a function of nitrogen uptake or availability
-  real :: max_live_biomass = 0.0
   real :: nitrogen_stress = 0.0
   real :: cumulative_extra_live_biomass = 0.0
 
@@ -147,6 +149,13 @@ type :: vegn_cohort_type
   ! Biomass of symbiotic N fixing microbes
   real :: N_fixer_biomass_C = 0.0
   real :: N_fixer_biomass_N = 0.0
+
+  ! Nitrogen vegetation pools
+  real :: stored_N = 0.0
+  real :: leaf_N = 0.0
+  real :: wood_N = 0.0
+  real :: root_N = 0.0
+  real :: total_N = 0.0
 
 ! in LM3V the cohort structure has a handy pointer to the tile it belongs to;
 ! so operations on cohort can update tile-level variables. In this code, it is
@@ -529,17 +538,56 @@ end subroutine update_bio_living_fraction
 
 
 ! ============================================================================
+! Calculate maximum nitrogen-limited live biomass pools
+!   leaf_N_content=1/leaf_fast_c2n*fsc_liv + 1/leaf_slow_c2n*(1-fsc_liv)  ! N fraction, kgN/kgC
+!   root_N_content=1/froot_fast_c2n*fsc_froot + 1/froot_slow_c2n*(1-fsc_froot)
+!   tile%vegn%cohorts(1:n)%max_live_biomass=tile%vegn%low_pass_N_uptake/(leaf_N_content+root_N_content)
+
+! ============================================================================
 ! redistribute living biomass pools in a given cohort, and update related
 ! properties (height, lai, sai)
 subroutine update_biomass_pools(c)
   type(vegn_cohort_type), intent(inout) :: c
 
-  real :: extra_live_biomass  ! Live biomass in excess of max (used in N limitation system) -- BNS
+  real :: biomass_N_demand  ! Live biomass in excess of max (used in N limitation system) -- BNS
+  real :: x_wood,x_leaf,x_root ! For N-limited biomass distribution
 
   c%b      = c%bliving + c%bwood;
   c%height = height_from_biomass(c%b);
   call update_bio_living_fraction(c);
+
+  c%total_N = c%stored_N+c%leaf_N+c%wood_N+c%root_N
+  ! Stress increases as stored N declines relative to total biomass N demand
+  ! N stress is calculated based on "potential pools" without N limitation
+  biomass_N_demand=(c%bliving*c%Pl/leaf_fast_c2n + c%bliving*c%Pr/froot_fast_c2n + c%bliving*c%Psw/wood_fast_c2n)
+  ! c%nitrogen_stress = biomass_N_demand/c%total_N
+  if(c%total_N > biomass_N_demand) then
+    c%nitrogen_stress = (biomass_N_demand/(c%total_N-biomass_N_demand-c%bwood/wood_fast_c2n))**4 ! This is demand/storage, constrained to be >0
+  else
+    c%nitrogen_stress = 5.0
+  endif
+  c%nitrogen_stress = min(c%nitrogen_stress,5.0)
+  c%nitrogen_stress = max(c%nitrogen_stress,0.0)
+
+  ! This calculates relative allocation based on nitrogen stress
+  ! Should match results from update_living_bio_fraction at 0 stress and skew toward root and wood growth as N stress increases
+  x_wood = c%Psw*(c%nitrogen_stress**2+1.0)
+  x_leaf = c%Pl
+  x_root = c%Pr*exp(c%nitrogen_stress)
+
+! __DEBUG3__(x_wood,x_leaf,x_root)
+! __DEBUG5__(c%stored_N,c%leaf_N,c%wood_N,c%root_N,c%nitrogen_stress)
+
+  if(N_limits_live_biomass) then
+    c%Psw=x_wood/(x_wood+x_leaf+x_root)
+    c%Pl=x_leaf/(x_wood+x_leaf+x_root)
+    c%Pr=x_root/(x_wood+x_leaf+x_root)
+  endif
+
   c%bsw = c%Psw*c%bliving;
+
+
+
   if(c%status == LEAF_OFF) then
      c%blv = c%Pl*c%bliving + c%Pr*c%bliving;
      c%bl  = 0;
@@ -550,35 +598,14 @@ subroutine update_biomass_pools(c)
      c%bl  = c%Pl*c%bliving;
      c%br  = c%Pr*c%bliving;
 
-     ! This might cause problems in situations where the cumulative extra biomass doesn't get reset for a long time
-    !  c%nitrogen_stress = (c%bl+c%br+c%cumulative_extra_live_biomass)/c%max_live_biomass
-
-    !  c%nitrogen_stress = ((c%bl+c%br)/c%max_live_biomass)/(1.2-(c%bl+c%br)/c%max_live_biomass)
-    c%nitrogen_stress = ((c%bl+c%br)/c%max_live_biomass)
-
-     ! When maximum live biomass is limited by N uptake
-     if(c%bl+c%br > c%max_live_biomass .AND. N_limits_live_biomass) then
-       extra_live_biomass=max(0.0,c%bl+c%br-c%max_live_biomass)
-       ! Maybe add some exponential relaxation to the cumulative live biomass?
-       c%cumulative_extra_live_biomass = c%cumulative_extra_live_biomass + extra_live_biomass
-       ! What to do with extra biomass?  Roots or wood?
-       ! Probably needs some sort of optimization
-       c%bl=c%bl-extra_live_biomass*c%Pl/(c%Pl+c%Pr)
-       c%br=c%br-extra_live_biomass*c%Pr/(c%Pl+c%Pr)
-       ! Putting extra biomass in wood for now
-       ! c%br=c%br+extra_leaf_biomass
-       ! Note: adding to sapwood would work better with plant growth model (hardwood is produced gradually from sap wood)
-      !  c%bwood = c%bwood + extra_live_biomass
-      c%bsw = c%bsw+extra_live_biomass
-      ! Make sure biomass properties are still correct
-      !  c%bliving = c%bliving - extra_live_biomass
-       c%Pl=c%bl/c%bliving
-       c%Pr=c%br/c%bliving
-       c%Psw  = 1 - c%Pl - c%Pr
-     else
-       c%cumulative_extra_live_biomass = 0.0
-     endif
   endif
+
+  c%leaf_N=c%bl/leaf_fast_c2n
+  c%wood_N=(c%bwood+c%bsw)/wood_fast_c2n
+  c%root_N=c%br/froot_fast_c2n
+  c%stored_N=c%total_N-(c%leaf_N+c%wood_N+c%root_N)
+
+
 
 
   c%lai = lai_from_biomass(c%bl,c%species)

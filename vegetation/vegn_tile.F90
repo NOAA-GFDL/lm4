@@ -140,9 +140,6 @@ type :: vegn_tile_type
    real :: ncm_acm    = 0.0 ! accumulated number of cold months
 
 
-   ! Should be updated each time step
-   real :: low_pass_N_uptake = 0.0 ! Low-pass-filtered N uptake, used to calculate N limitation on leaf biomass
-
    ! it's probably possible to get rid of the fields below
    real :: npp=0.0 ! net primary productivity
    real :: nep=0.0 ! net ecosystem productivity
@@ -251,7 +248,11 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   __MERGE__(bsw)     ! biomass of sapwood, kg C/m2
   __MERGE__(bwood)   ! biomass of heartwood, kg C/m2
   __MERGE__(bliving) ! leaves, fine roots, and sapwood biomass
-  __MERGE__(max_live_biomass) ! Maximum leaf biomass
+  __MERGE__(stored_N) ! Cohort stored nitrogen
+  __MERGE__(wood_N) ! Cohort wood nitrogen
+  __MERGE__(leaf_N) ! Cohort leaf nitrogen
+  __MERGE__(root_N) ! Cohort root nitrogen
+  __MERGE__(total_N) ! Cohort total nitrogen
   __MERGE__(myc_scavenger_biomass_C) ! Scavenger mycorrhizal biomass C
   __MERGE__(myc_scavenger_biomass_N) ! Scavenger mycorrhizal biomass N
   __MERGE__(myc_miner_biomass_C) ! Miner mycorrhizal biomass C
@@ -284,7 +285,6 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
 
   __MERGE__(age);
 
-  __MERGE__(low_pass_N_uptake) ! Smooth N uptake
 
   __MERGE__(fsc_pool_ag); __MERGE__(fsc_rate_ag)
   __MERGE__(ssc_pool_ag); __MERGE__(ssc_rate_ag)

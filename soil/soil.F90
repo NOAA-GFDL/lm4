@@ -1635,10 +1635,14 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
             land_time, 'total dead microbe DON divergence loss', 'kg N/m2', missing_value=-100.0 )
        id_total_DON_div_loss = register_tiled_diag_field ( module_name, 'total_DON_div', axes(1:2), &
             land_time, 'total rate of DON divergence loss', 'kg N/m^2/s', missing_value=initval)
-    id_NO3_div_loss = register_tiled_diag_field ( module_name, 'total_NO3_div', axes(1:2), &
-         land_time, 'total rate of NO3 divergence loss', 'kg N/m^2/s', missing_value=initval)
-     id_NH4_div_loss = register_tiled_diag_field ( module_name, 'total_NH4_div', axes(1:2), &
-          land_time, 'total rate of NH4 divergence loss', 'kg N/m^2/s', missing_value=initval)
+    id_NO3_div_loss = register_tiled_diag_field ( module_name, 'total_cumulative_NO3_div', axes(1:2), &
+         land_time, 'total rate of NO3 divergence loss', 'kg N/m^2', missing_value=initval)
+     id_NH4_div_loss = register_tiled_diag_field ( module_name, 'total_cumulative_NH4_div', axes(1:2), &
+          land_time, 'total rate of NH4 divergence loss', 'kg N/m^2', missing_value=initval)
+          id_total_NO3_div_loss = register_tiled_diag_field ( module_name, 'total_NO3_div', axes(1:2), &
+               land_time, 'total rate of NO3 divergence loss', 'kg N/m^2/s', missing_value=initval)
+           id_total_NH4_div_loss = register_tiled_diag_field ( module_name, 'total_NH4_div', axes(1:2), &
+                land_time, 'total rate of NH4 divergence loss', 'kg N/m^2/s', missing_value=initval)
 
   id_rsoil = register_tiled_diag_field ( module_name, 'rsoil',  &
        (/id_lon,id_lat/), land_time, 'soil respiration', 'kg C/(m2 year)', &
@@ -7022,7 +7026,10 @@ subroutine myc_scavenger_N_uptake(soil,vegn,myc_biomass,total_N_uptake,dt)
   total_N_uptake=0.0
   do nn=1,num_l
     call mycorrhizal_mineral_N_uptake_rate(soil%soil_organic_matter(nn),myc_biomass*uptake_frac_max(nn),dz(nn),nitrate_uptake,ammonium_uptake)
+    ammonium_uptake = min(ammonium_uptake,soil%soil_organic_matter(nn)%ammonium/dt)
+    nitrate_uptake = min(nitrate_uptake,soil%soil_organic_matter(nn)%nitrate/dt)
     total_N_uptake=total_N_uptake+(ammonium_uptake+nitrate_uptake)*dt
+
     soil%soil_organic_matter(nn)%ammonium=soil%soil_organic_matter(nn)%ammonium-ammonium_uptake*dt
     soil%soil_organic_matter(nn)%nitrate=soil%soil_organic_matter(nn)%nitrate-nitrate_uptake*dt
   enddo
@@ -7030,6 +7037,8 @@ subroutine myc_scavenger_N_uptake(soil,vegn,myc_biomass,total_N_uptake,dt)
   ! Mycorrhizae should have access to litter layer too
   ! Might want to update this so it calculates actual layer thickness?
   call mycorrhizal_mineral_N_uptake_rate(soil%leafLitter,myc_biomass*uptake_frac_max(1),dz(1),nitrate_uptake,ammonium_uptake)
+  ammonium_uptake = min(ammonium_uptake,soil%leafLitter%ammonium/dt)
+  nitrate_uptake = min(nitrate_uptake,soil%leafLitter%nitrate/dt)
   total_N_uptake=total_N_uptake+(nitrate_uptake+ammonium_uptake)*dt
   soil%leafLitter%ammonium=soil%leafLitter%ammonium-ammonium_uptake*dt
   soil%leafLitter%nitrate=soil%leafLitter%nitrate-nitrate_uptake*dt

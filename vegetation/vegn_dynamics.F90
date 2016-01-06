@@ -246,6 +246,10 @@ total_myc_mine_C_uptake = 0.0
      cc%carbon_gain = cc%carbon_gain - cc%md;
      cc%carbon_loss = cc%carbon_loss + cc%md; ! used in diagnostics only
 
+     cc%leaf_N = cc%leaf_N - md_leaf/leaf_fast_c2n
+     cc%root_N = cc%root_N - md_froot/froot_fast_c2n
+     cc%wood_N = cc%wood_N - md_wood/wood_fast_c2n
+
      ! add md from leaf and root pools to fast soil carbon
      select case (soil_carbon_option)
      case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
@@ -417,6 +421,10 @@ total_myc_mine_C_uptake = 0.0
      soil%myc_mine_N_uptake=soil%myc_mine_N_uptake+myc_mine_N_uptake-mycorrhizal_mine_N_immob
      soil%symbiotic_N_fixation=soil%symbiotic_N_fixation+N_fixation
      soil%active_root_N_uptake=soil%active_root_N_uptake+root_active_N_uptake
+
+     cc%stored_N = cc%stored_N + myc_scav_N_uptake-mycorrhizal_scav_N_immob + myc_mine_N_uptake-mycorrhizal_mine_N_immob &
+                       +N_fixation+root_active_N_uptake - root_exudate_C*root_exudate_N_frac*dt_fast_yr
+
 
      if(cc%myc_scavenger_biomass_C<0) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger biomass < 0',FATAL)
      if(cc%myc_miner_biomass_C<0) call error_mesg('vegn_carbon_int','Mycorrhizal miner biomass < 0',FATAL)
@@ -679,6 +687,7 @@ subroutine vegn_phenology(vegn, soil)
               ! soil%ssc_in(1)+=(1.0-data->fsc_liv)*(leaf_litter+root_litter);
               soil%fsc_in(1)  = soil%fsc_in(1)  + leaf_litter+root_litter;
           case(SOILC_CORPSE_N)
+            !!!! Need to do something about retranslocation here !!!
               call add_litter(soil%leafLitter,(/fsc_liv*leaf_litter,(1-fsc_liv)*leaf_litter,0.0/),&
                                                 (/fsc_liv*leaf_litter/leaf_fast_c2n,(1-fsc_liv)*leaf_litter/leaf_slow_c2n,0.0/))
               soil%leaflitter_fsc_in=soil%leaflitter_fsc_in+fsc_liv*leaf_litter
@@ -705,6 +714,11 @@ subroutine vegn_phenology(vegn, soil)
            cc%bl  = 0.0;
            cc%br  = 0.0;
            cc%lai = 0.0;
+
+           cc%stored_N = cc%stored_N + l_fract*(cc%leaf_N+cc%root_N) ! l_fract is taking care of retranslocation for now
+           cc%leaf_N = 0.0
+           cc%root_N = 0.0
+
 
            ! update state
            cc%bliving = cc%blv + cc%br + cc%bl + cc%bsw;

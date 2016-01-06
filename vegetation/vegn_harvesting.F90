@@ -150,6 +150,7 @@ subroutine vegn_graze_pasture(vegn)
      vegn%harv_pool(HARV_POOL_PAST) = vegn%harv_pool(HARV_POOL_PAST) + &
           cc%bliving*cc%Pl*grazing_intensity*(1-grazing_residue) ;
      cc%bliving = cc%bliving - cc%bliving*cc%Pl*grazing_intensity;
+     cc%leaf_N = cc%leaf_N - cc%leaf_N*grazing_intensity
 
      ! redistribute leftover biomass between biomass pools
      call update_biomass_pools(cc);
@@ -271,6 +272,10 @@ subroutine vegn_harvest_cropland(vegn)
      end select
      cc%bliving = cc%bliving * (1-fraction_harvested);
      cc%bwood   = cc%bwood   * (1-fraction_harvested);
+     cc%leaf_N = cc%leaf_N*(1-fraction_harvested)
+     cc%root_N = cc%root_N*(1-fraction_harvested)
+     cc%wood_N = cc%wood_N*(1-fraction_harvested)
+     ! Should stored N be lost or retained?
      ! redistribute leftover biomass between biomass pools
      call update_biomass_pools(cc);
   enddo
@@ -400,6 +405,10 @@ subroutine vegn_cut_forest(vegn, new_landuse)
 
      cc%bliving = cc%bliving*(1-frac_harvested);
      cc%bwood   = cc%bwood*(1-frac_harvested);
+     cc%leaf_N = cc%leaf_N*(1-frac_harvested)
+     cc%root_N = cc%root_N*(1-frac_harvested)
+     cc%wood_N = cc%wood_N*(1-frac_harvested)
+     ! Should stored N be lost or retained?
      ! redistribute leftover biomass between biomass pools
      call update_biomass_pools(cc);
   enddo
