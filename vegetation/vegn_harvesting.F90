@@ -107,18 +107,21 @@ end subroutine vegn_harvesting_end
 
 ! ============================================================================
 ! harvest vegetation in a tile
-subroutine vegn_harvesting(vegn)
+subroutine vegn_harvesting(vegn, year, month, day)
   type(vegn_tile_type), intent(inout) :: vegn
+  logical, intent(in) :: year, month, day ! indicators of respective period boundaries
 
   if (.not.do_harvesting) &
        return ! do nothing if no harvesting requested
 
-  select case(vegn%landuse)
-  case(LU_PAST)  ! pasture
-     call vegn_graze_pasture    (vegn)
-  case(LU_CROP)  ! crop
-     call vegn_harvest_cropland (vegn)
-  end select
+  if (year) then
+     select case(vegn%landuse)
+     case(LU_PAST)  ! pasture
+        call vegn_graze_pasture    (vegn)
+     case(LU_CROP)  ! crop
+        call vegn_harvest_cropland (vegn)
+     end select
+  endif
 end subroutine
 
 

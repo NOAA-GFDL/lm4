@@ -2080,8 +2080,10 @@ subroutine update_vegn_slow( )
         call vegn_disturbance(tile%vegn, tile%soil, seconds_per_year)
      endif
 
+     call vegn_harvesting(tile%vegn, year0/=year1, month0/=month1, day0/=day1)
+     
      if (year1 /= year0) then
-        call vegn_harvesting(tile%vegn)
+        ! update rates of carbon transfer from intermediate pools to soil and litter
         tile%vegn%fsc_rate_ag = tile%vegn%fsc_pool_ag/fsc_pool_spending_time
         tile%vegn%ssc_rate_ag = tile%vegn%ssc_pool_ag/ssc_pool_spending_time
         tile%vegn%fsc_rate_bg = tile%vegn%fsc_pool_bg/fsc_pool_spending_time
@@ -2089,6 +2091,7 @@ subroutine update_vegn_slow( )
         
         tile%vegn%leaflitter_buffer_rate_ag = tile%vegn%leaflitter_buffer_ag/fsc_pool_spending_time
         tile%vegn%coarsewoodlitter_buffer_rate_ag = tile%vegn%coarsewoodlitter_buffer_ag/ssc_pool_spending_time
+        ! update rates of harvest spending
         where(harvest_spending_time(:)>0)
            tile%vegn%harv_rate(:) = &
                 tile%vegn%harv_pool(:)/harvest_spending_time(:)
