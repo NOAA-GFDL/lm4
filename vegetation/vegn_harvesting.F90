@@ -15,6 +15,7 @@ use vegn_data_mod, only : N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, &
      HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, &
      HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
      agf_bs, fsc_liv, fsc_froot, fsc_wood
+use soil_tile_mod, only : soil_tile_type
 use vegn_tile_mod, only : vegn_tile_type, vegn_tile_LAI
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools
 use soil_carbon_mod, only: soil_carbon_option, &
@@ -124,8 +125,9 @@ end subroutine vegn_harvesting_end
 
 ! ============================================================================
 ! harvest vegetation in a tile
-subroutine vegn_harvesting(vegn, end_of_year, end_of_month, end_of_day)
+subroutine vegn_harvesting(vegn, soil, end_of_year, end_of_month, end_of_day)
   type(vegn_tile_type), intent(inout) :: vegn
+  type(soil_tile_type), intent(inout) :: soil
   logical, intent(in) :: end_of_year, end_of_month, end_of_day ! indicators of respective period boundaries
 
   if (.not.do_harvesting) return ! do nothing if no harvesting requested
@@ -134,7 +136,7 @@ subroutine vegn_harvesting(vegn, end_of_year, end_of_month, end_of_day)
   case(LU_PAST)  ! pasture
      if ((end_of_day  .and. grazing_freq==DAILY).or. &
          (end_of_year .and. grazing_freq==ANNUAL)) then
-        call vegn_graze_pasture (vegn)
+        call vegn_graze_pasture (vegn, soil)
      endif
   case(LU_CROP)  ! crop
      if (end_of_year) call vegn_harvest_cropland (vegn)
@@ -143,14 +145,16 @@ end subroutine
 
 
 ! ============================================================================
-subroutine vegn_graze_pasture(vegn)
+subroutine vegn_graze_pasture(vegn, soil)
   type(vegn_tile_type), intent(inout) :: vegn
+  type(soil_tile_type), intent(inout) :: soil
 
   ! ---- local vars 
   real ::  bdead0, balive0, bleaf0, bfroot0, btotal0 ! initial combined biomass pools
   real ::  bdead1, balive1, bleaf1, bfroot1, btotal1 ! updated combined biomass pools
   type(vegn_cohort_type), pointer :: cc ! shorthand for the current cohort
   integer :: i
+  real :: deltafast, deltaslow
 
   if ( vegn_tile_LAI(vegn) .lt. min_lai_for_grazing ) return
 
@@ -187,10 +191,17 @@ subroutine vegn_graze_pasture(vegn)
   ! update intermediate soil carbon pools
   select case(soil_carbon_option)
   case(SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
-     vegn%fsc_pool_bg = vegn%fsc_pool_bg + &
-          (fsc_liv*(balive0-balive1)+fsc_wood*(bdead0-bdead1))*grazing_residue
-     vegn%ssc_pool_bg = vegn%ssc_pool_bg + &
-          ((1-fsc_liv)*(balive0-balive1)+ (1-fsc_wood)*(bdead0-bdead1))*grazing_residue
+     deltafast = (fsc_liv*(balive0-balive1)+fsc_wood*(bdead0-bdead1))*grazing_residue
+     deltaslow = ((1-fsc_liv)*(balive0-balive1)+ (1-fsc_wood)*(bdead0-bdead1))*grazing_residue
+     if (grazing_freq==DAILY) then
+        ! put carbon directly in the soil pools
+        soil%fast_soil_C(1) = soil%fast_soil_C(1) + deltafast
+        soil%slow_soil_C(1) = soil%slow_soil_C(1) + deltaslow
+     else
+        ! put carbon into intermediate pools for gradual transfer to soil
+        vegn%fsc_pool_bg = vegn%fsc_pool_bg + deltafast
+        vegn%ssc_pool_bg = vegn%ssc_pool_bg + deltaslow
+     endif
   case(SOILC_CORPSE)
      vegn%leaflitter_buffer_ag = vegn%leaflitter_buffer_ag + &
           (bleaf0-bleaf1)*grazing_residue;

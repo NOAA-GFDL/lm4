@@ -2080,7 +2080,7 @@ subroutine update_vegn_slow( )
         call vegn_disturbance(tile%vegn, tile%soil, seconds_per_year)
      endif
 
-     call vegn_harvesting(tile%vegn, year0/=year1, month0/=month1, day0/=day1)
+     call vegn_harvesting(tile%vegn, tile%soil, year0/=year1, month0/=month1, day0/=day1)
      
      if (year1 /= year0) then
         ! update rates of carbon transfer from intermediate pools to soil and litter
