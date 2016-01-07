@@ -51,12 +51,12 @@ real :: grazing_intensity      = 0.25    ! fraction of biomass removed each time
 real :: grazing_residue        = 0.1     ! fraction of the grazed biomass transferred into soil pools
 character(16) :: grazing_frequency = 'annual' ! or 'daily'
 real :: min_lai_for_grazing    = 0.0     ! no grazing if LAI lower than this threshold
-  ! NOTE that regardless of the grazing frequency, the soil carbon input from 
+  ! NOTE that regardless of the grazing frequency, the soil carbon input from
   ! grazing still goes to intermediate pools, and then it is transferred from
   ! these pools to soil/litter carbon pools with constant rates over the next year.
 real :: frac_wood_wasted_harv  = 0.25    ! fraction of wood wasted while harvesting
 real :: frac_wood_wasted_clear = 0.25    ! fraction of wood wasted while clearing land for pastures or crops
-logical :: waste_below_ground_wood = .TRUE. ! If true, all the wood below ground (1-agf_bs fraction of bwood 
+logical :: waste_below_ground_wood = .TRUE. ! If true, all the wood below ground (1-agf_bs fraction of bwood
         ! and bsw) is wasted. Old behavior assumed this to be FALSE.
 real :: frac_wood_fast         = ONETHIRD ! fraction of wood consumed fast
 real :: frac_wood_med          = ONETHIRD ! fraction of wood consumed with medium speed
@@ -84,7 +84,7 @@ subroutine vegn_harvesting_init
 #else
   if (file_exist('input.nml')) then
      unit = open_namelist_file ( )
-     ierr = 1;  
+     ierr = 1;
      do while (ierr /= 0)
         read (unit, nml=harvesting_nml, iostat=io, end=10)
         ierr = check_nml_error (io, 'harvesting_nml')
@@ -93,7 +93,7 @@ subroutine vegn_harvesting_init
      call close_file (unit)
   endif
 #endif
-  
+
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=harvesting_nml)
@@ -149,7 +149,7 @@ subroutine vegn_graze_pasture(vegn, soil)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
 
-  ! ---- local vars 
+  ! ---- local vars
   real ::  bdead0, balive0, bleaf0, bfroot0, btotal0 ! initial combined biomass pools
   real ::  bdead1, balive1, bleaf1, bfroot1, btotal1 ! updated combined biomass pools
   type(vegn_cohort_type), pointer :: cc ! shorthand for the current cohort
@@ -159,9 +159,9 @@ subroutine vegn_graze_pasture(vegn, soil)
   if ( vegn_tile_LAI(vegn) .lt. min_lai_for_grazing ) return
 
   balive0 = 0 ; balive1 = 0
-  bdead0  = 0 ; bdead1  = 0 
+  bdead0  = 0 ; bdead1  = 0
   bleaf0  = 0 ; bleaf1  = 0
-  bfroot0 = 0 ; bfroot1 = 0 
+  bfroot0 = 0 ; bfroot1 = 0
 
   ! update biomass pools for each cohort according to harvested fraction
   do i = 1,vegn%n_cohorts
@@ -178,7 +178,7 @@ subroutine vegn_graze_pasture(vegn, soil)
 
      ! redistribute leftover biomass between biomass pools
      call update_biomass_pools(cc);
- 
+
      ! calculate new combined vegetation biomass pools
      balive1 = balive1 + cc%bl + cc%blv + cc%br
      bleaf1  = bleaf1  + cc%bl + cc%blv
@@ -228,7 +228,7 @@ subroutine vegn_harvest_cropland(vegn)
   real :: fraction_harvested;    ! fraction of biomass harvested this time
   real :: bdead, balive, btotal; ! combined biomass pools
   integer :: i
-  
+
   balive = 0 ; bdead = 0
   ! calculate initial combined biomass pools for the patch
   do i = 1, vegn%n_cohorts
@@ -260,7 +260,7 @@ subroutine vegn_harvest_cropland(vegn)
              (1-fsc_wood)*(cc%bwood + cc%bliving*cc%Psw*(1-agf_bs)))
      case (SOILC_CORPSE)
         vegn%coarsewoodlitter_buffer_ag=vegn%coarsewoodlitter_buffer_ag + fraction_harvested*agf_bs*cc%bwood
-     
+
         vegn%fsc_pool_ag = vegn%fsc_pool_ag + fraction_harvested*( &
              agf_bs*fsc_wood*(cc%bwood));
         vegn%ssc_pool_ag = vegn%ssc_pool_ag + fraction_harvested*( &
@@ -296,7 +296,7 @@ subroutine vegn_cut_forest(vegn, new_landuse)
   real :: bdead, balive, bleaf, bfroot, btotal; ! combined biomass pools
   real :: delta
   integer :: i
-  
+
   balive = 0 ; bdead = 0 ; bleaf = 0 ; bfroot = 0 ;
   ! calculate initial combined biomass pools for the patch
   do i = 1, vegn%n_cohorts
@@ -337,7 +337,7 @@ subroutine vegn_cut_forest(vegn, new_landuse)
 
      ! distribute harvested wood between pools
      if (new_landuse==LU_SCND) then
-        ! this is harvesting, distribute between 3 different wood pools 
+        ! this is harvesting, distribute between 3 different wood pools
         vegn%harv_pool(HARV_POOL_WOOD_FAST) = vegn%harv_pool(HARV_POOL_WOOD_FAST) &
              + wood_harvested*frac_wood_fast
         vegn%harv_pool(HARV_POOL_WOOD_MED) = vegn%harv_pool(HARV_POOL_WOOD_MED) &
@@ -350,7 +350,7 @@ subroutine vegn_cut_forest(vegn, new_landuse)
              + wood_harvested
      endif
 
-     ! distribute wood and living biomass between fast and slow intermediate 
+     ! distribute wood and living biomass between fast and slow intermediate
      ! soil carbon pools according to fractions specified thorough the namelists
      delta = (cc%bwood+cc%bsw)*frac_harvested*frac_wood_wasted;
      if(delta<0) call error_mesg('vegn_cut_forest', &
@@ -360,7 +360,7 @@ subroutine vegn_cut_forest(vegn, new_landuse)
      select case (soil_carbon_option)
      case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
         vegn%ssc_pool_bg = vegn%ssc_pool_bg + delta*(1-fsc_wood)
-        vegn%fsc_pool_bg = vegn%fsc_pool_bg + delta*   fsc_wood 
+        vegn%fsc_pool_bg = vegn%fsc_pool_bg + delta*   fsc_wood
 
         delta = balive * frac_harvested;
         if(delta<0) call error_mesg('vegn_cut_forest', &
@@ -383,11 +383,11 @@ subroutine vegn_cut_forest(vegn, new_landuse)
 
         vegn%ssc_pool_ag = vegn%ssc_pool_ag + delta*(1-fsc_liv)  ;
         vegn%fsc_pool_ag = vegn%fsc_pool_ag + delta*   fsc_liv    ;
-     
+
         vegn%leaflitter_buffer_ag=vegn%leaflitter_buffer_ag+delta
-     
+
         vegn%ssc_pool_bg = vegn%ssc_pool_bg + bfroot*frac_harvested*(1-fsc_froot)
-        vegn%fsc_pool_bg = vegn%fsc_pool_bg + bfroot*frac_harvested*fsc_froot 
+        vegn%fsc_pool_bg = vegn%fsc_pool_bg + bfroot*frac_harvested*fsc_froot
      case default
         call error_mesg('vegn_phenology','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
      end select
@@ -399,4 +399,4 @@ subroutine vegn_cut_forest(vegn, new_landuse)
   enddo
 end subroutine vegn_cut_forest
 
-end module 
+end module
