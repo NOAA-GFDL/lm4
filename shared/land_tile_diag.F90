@@ -59,7 +59,7 @@ character(*), public, parameter :: cmor_name='cmor_land'
 
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: mod_name = 'lan_tile_diag_mod'
+character(len=*), parameter :: mod_name = 'land_tile_diag_mod'
 #include "../shared/version_variable.inc"
 character(len=*), parameter :: tagname  = '$Name$'
 
