@@ -20,20 +20,21 @@ private
 ! ==== public interfaces =====================================================
 public :: land_data_init
 public :: land_data_end
-public :: lnd            ! global data 
+public :: lnd            ! global data
 
-public :: atmos_land_boundary_type ! container for information passed from the 
+public :: atmos_land_boundary_type ! container for information passed from the
                          ! atmosphere to land
-public :: land_data_type ! container for information passed from land to 
+public :: land_data_type ! container for information passed from land to
                          ! the atmosphere
 public :: land_state_type
+
+public :: log_version    ! prints version number
 ! ==== end of public interfaces ==============================================
 
 ! ---- module constants ------------------------------------------------------
-character(len=*), parameter :: &
-     module_name = 'land_data_mod', &
-     version     = '$Id$', &
-     tagname     = '$Name$'
+character(len=*), parameter :: module_name = 'land_data_mod'
+#include "shared/version_variable.inc"
+character(len=*), parameter :: tagname     = '$Name$'
 
 ! ---- types -----------------------------------------------------------------
 type :: atmos_land_boundary_type
@@ -47,15 +48,15 @@ type :: atmos_land_boundary_type
         lprec     => NULL(), &   ! liquid precipitation rate, kg/(m2 s)
         fprec     => NULL(), &   ! frozen precipitation rate, kg/(m2 s)
         tprec     => NULL(), &   ! temperature of precipitation, degK
-   ! components of downward shortwave flux, W/m2  
-        sw_flux_down_vis_dir   => NULL(), & ! visible direct 
+   ! components of downward shortwave flux, W/m2
+        sw_flux_down_vis_dir   => NULL(), & ! visible direct
         sw_flux_down_total_dir => NULL(), & ! total direct
         sw_flux_down_vis_dif   => NULL(), & ! visible diffuse
         sw_flux_down_total_dif => NULL(), & ! total diffuse
    ! derivatives of the fluxes
         dhdt      => NULL(), &   ! sensible w.r.t. surface temperature
         dhdq      => NULL(), &   ! sensible w.r.t. surface humidity
-        drdt      => NULL(), &   ! longwave w.r.t. surface radiative temperature 
+        drdt      => NULL(), &   ! longwave w.r.t. surface radiative temperature
    !
         cd_m      => NULL(), &   ! drag coefficient for momentum, dimensionless
         cd_t      => NULL(), &   ! drag coefficient for tracers, dimensionless
@@ -68,7 +69,7 @@ type :: atmos_land_boundary_type
 
    real, dimension(:,:,:,:), pointer :: & ! (lon, lat, tile, tracer)
         tr_flux => NULL(),   &   ! tracer flux, including water vapor flux
-        dfdtr   => NULL()        ! derivative of the flux w.r.t. tracer surface value, 
+        dfdtr   => NULL()        ! derivative of the flux w.r.t. tracer surface value,
                                  ! including evap over surface specific humidity
 
    integer :: xtype             !REGRID, REDIST or DIRECT
@@ -84,8 +85,8 @@ type :: land_data_type
         t_ca           => NULL(),  & ! canopy air temperature, degK
         albedo         => NULL(),  & ! broadband land albedo [unused?]
         albedo_vis_dir => NULL(),  & ! albedo for direct visible radiation
-        albedo_nir_dir => NULL(),  & ! albedo for direct NIR radiation 
-        albedo_vis_dif => NULL(),  & ! albedo for diffuse visible radiation 
+        albedo_nir_dir => NULL(),  & ! albedo for direct NIR radiation
+        albedo_vis_dif => NULL(),  & ! albedo for diffuse visible radiation
         albedo_nir_dif => NULL(),  & ! albedo for diffuse NIR radiation
         rough_mom      => NULL(),  & ! surface roughness length for momentum, m
         rough_heat     => NULL(),  & ! roughness length for tracers and heat, m
@@ -120,7 +121,7 @@ type :: land_state_type
    integer        :: nlon,nlat   ! size of global grid
    type(time_type):: dt_fast     ! fast (physical) time step
    type(time_type):: dt_slow     ! slow time step
-   
+
    type(time_type):: time        ! current land model time
 
    real, allocatable  :: lon (:,:), lat (:,:) ! domain grid center coordinates, radian
@@ -130,7 +131,7 @@ type :: land_state_type
    real, allocatable  :: landfrac(:,:)  ! fraction of land in the grid cell
    real, allocatable  :: coord_glon(:), coord_glonb(:) ! longitudes for use in diag axis and such, degrees East
    real, allocatable  :: coord_glat(:), coord_glatb(:) ! latitudes for use in diag axis and such, degrees North
-   
+
    integer :: nfaces ! number of mosaic faces
    integer :: face  ! the current mosaic face
    integer, allocatable :: pelist(:) ! list of processors that run land model
@@ -154,6 +155,28 @@ logical :: module_is_initialized = .FALSE.
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
+! ============================================================================
+subroutine log_version(version, modname, filename, tag, unit)
+  character(len=*), intent(in) :: version
+  character(len=*), intent(in), optional :: &
+          modname, filename, tag
+  integer, intent(in), optional :: unit
+  
+  character(512) :: message
+  integer :: i
+  message=''
+  
+  if (present(filename)) then
+     ! remove the directory part of the name
+     i = scan(filename,'/',back=.true.)
+     
+     message = trim(filename(i+1:))
+  endif
+  if (present(modname)) then
+     message = trim(modname)//' ('//trim(message)//')'
+  endif
+  call write_version_number (trim(message)//': '//trim(version),tag,unit)
+end subroutine log_version
 
 ! ============================================================================
 subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table)
@@ -167,7 +190,7 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table)
 
   ! ---- local vars
   integer :: nlon, nlat ! size of global grid in lon and lat directions
-  integer :: ntiles     ! number of tiles in the mosaic grid 
+  integer :: ntiles     ! number of tiles in the mosaic grid
   integer :: ntracers, ndiag ! non-optional output from register_tracers
   integer, allocatable :: tile_ids(:) ! mosaic tile IDs for the current PE
   type(domain2d), pointer :: io_domain ! our io_domain
@@ -181,12 +204,12 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table)
                                           ! processors would be all ocean points and
                                           ! are not assigned to actual processors.
                                           ! This need not be assigned if all logical
-                                          ! processors are used. 
+                                          ! processors are used.
 
   ! write the version and tag name to the logfile
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, __FILE__, tagname)
 
-  ! define the processor layout information according to the global grid size 
+  ! define the processor layout information according to the global grid size
   call get_grid_ntiles('LND',ntiles)
   lnd%nfaces = ntiles
   call get_grid_size('LND',1,nlon,nlat)
@@ -273,7 +296,7 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table)
   call get_grid_cell_area    ('LND',lnd%face,lnd%cellarea, domain=lnd%domain)
   call get_grid_comp_area    ('LND',lnd%face,lnd%area,     domain=lnd%domain)
   lnd%landfrac = lnd%area/lnd%cellarea
-  
+
   ! set local coordinates arrays -- temporary, till such time as the global arrays
   ! are not necessary
   call get_grid_cell_vertices('LND',lnd%face,lnd%lonb,lnd%latb, domain=lnd%domain)
@@ -281,7 +304,7 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table)
   ! convert coordinates to radian; note that 1D versions stay in degrees
   lnd%lonb = lnd%lonb*pi/180.0 ; lnd%lon = lnd%lon*pi/180.0
   lnd%latb = lnd%latb*pi/180.0 ; lnd%lat = lnd%lat*pi/180.0
-  
+
   ! initialize model's time-related parameters
   lnd%time    = time
   lnd%dt_fast = dt_fast

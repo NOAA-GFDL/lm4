@@ -12,9 +12,8 @@ public :: put_to_tiles_r1d_fptr
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: &
-     version = '$Id$', &
-     tagname = '$Name$'
+#include "../shared/version_variable.inc"
+character(len=*), parameter :: tagname     = '$Name$'
 
 contains
 
@@ -26,7 +25,7 @@ subroutine put_to_tiles_r0d_fptr(x2d, tile_map, fptr)
 
   integer :: i,j
   type(land_tile_enum_type)     :: te,ce   ! tail and current tile list elements
-  type(land_tile_type), pointer :: tileptr ! pointer to tile   
+  type(land_tile_type), pointer :: tileptr ! pointer to tile
   real                , pointer :: ptr     ! pointer to the data element within a tile
 
   ce = first_elmt( tile_map )
@@ -49,7 +48,7 @@ subroutine put_to_tiles_r1d_fptr(x2d, tile_map, fptr)
 
   integer :: i,j,k
   type(land_tile_enum_type)     :: te,ce   ! tail and current tile list elements
-  type(land_tile_type), pointer :: tileptr ! pointer to tile   
+  type(land_tile_type), pointer :: tileptr ! pointer to tile
   real                , pointer :: ptr     ! pointer to the data element within a tile
 
   ce = first_elmt( tile_map )

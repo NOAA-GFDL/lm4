@@ -1,43 +1,43 @@
 module river_mod
 !-----------------------------------------------------------------------
-!                   GNU General Public License                        
-!                                                                      
-! This program is free software; you can redistribute it and/or modify it and  
-! are expected to follow the terms of the GNU General Public License  
-! as published by the Free Software Foundation; either version 2 of   
-! the License, or (at your option) any later version.                 
-!                                                                      
-! MOM is distributed in the hope that it will be useful, but WITHOUT    
-! ANY WARRANTY; without even the implied warranty of MERCHANTABILITY  
-! or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public    
-! License for more details.                                           
-!                                                                      
-! For the full text of the GNU General Public License,                
-! write to: Free Software Foundation, Inc.,                           
-!           675 Mass Ave, Cambridge, MA 02139, USA.                   
-! or see:   http://www.gnu.org/licenses/gpl.html                      
+!                   GNU General Public License
+!
+! This program is free software; you can redistribute it and/or modify it and
+! are expected to follow the terms of the GNU General Public License
+! as published by the Free Software Foundation; either version 2 of
+! the License, or (at your option) any later version.
+!
+! MOM is distributed in the hope that it will be useful, but WITHOUT
+! ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+! or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+! License for more details.
+!
+! For the full text of the GNU General Public License,
+! write to: Free Software Foundation, Inc.,
+!           675 Mass Ave, Cambridge, MA 02139, USA.
+! or see:   http://www.gnu.org/licenses/gpl.html
 !-----------------------------------------------------------------------
-! <CONTACT EMAIL="Kirsten.Findell@@noaa.gov"> Kirsten Findell </CONTACT> 
-! <CONTACT EMAIL="Zhi.Liang@@noaa.gov"> Zhi Liang </CONTACT> 
+! <CONTACT EMAIL="Kirsten.Findell@@noaa.gov"> Kirsten Findell </CONTACT>
+! <CONTACT EMAIL="Zhi.Liang@@noaa.gov"> Zhi Liang </CONTACT>
 ! <NAMELIST NAME="river_nml">
 ! <DATA NAME="layout" TYPE="integer, dimension(2)">
 !  Processor domain layout for river model. If layout(1)*layout(2) is not equal
-!  to mpp_npes, the river model layout will be assigned the layout of land model 
-!  passed through river_init. 
-!  </DATA> 
+!  to mpp_npes, the river model layout will be assigned the layout of land model
+!  passed through river_init.
+!  </DATA>
 ! <DATA NAME="do_rivers" TYPE="logical">
-!   set true to run river model ( default is true). If FALSE, rivers are 
+!   set true to run river model ( default is true). If FALSE, rivers are
 !   essentially turned off to save computing time
-!  </DATA> 
+!  </DATA>
 ! <DATA NAME="dt_slow" TYPE="real">
-!   slow time step for river model. dt_slow must be integer multiplier of dt_fast passed 
+!   slow time step for river model. dt_slow must be integer multiplier of dt_fast passed
 !   from land model ( land model time step).
-!  </DATA> 
+!  </DATA>
 ! <DATA NAME="diag_freq" TYPE="integer">
 !   Number of slow time steps between sending out diagnositics data(default is 1). Please
-!   note that diagnostic output frequency ( specified in diag_table ) must be divided by 
+!   note that diagnostic output frequency ( specified in diag_table ) must be divided by
 !   diag_freq*dt_slow.
-!  </DATA> 
+!  </DATA>
 ! </NAMELIST>
 
 #ifdef INTERNAL_FILE_NML
@@ -50,9 +50,9 @@ module river_mod
   use mpp_mod,             only : mpp_error, FATAL, WARNING, NOTE, stdout, stdlog
   use mpp_mod,             only : mpp_pe, mpp_chksum, mpp_max
   use mpp_mod,             only : mpp_clock_id, mpp_clock_begin, mpp_clock_end, MPP_CLOCK_DETAILED
-  use mpp_domains_mod,     only : domain2d, mpp_get_compute_domain, mpp_get_global_domain 
+  use mpp_domains_mod,     only : domain2d, mpp_get_compute_domain, mpp_get_global_domain
   use mpp_domains_mod,     only : mpp_get_data_domain, mpp_update_domains, mpp_get_ntile_count
-  use fms_mod,             only : write_version_number, check_nml_error, string
+  use fms_mod,             only : check_nml_error, string
   use fms_mod,             only : close_file, file_exist, field_size, read_data, write_data
   use fms_mod,             only : field_exist, CLOCK_FLAG_DEFAULT
   use fms_io_mod,          only : get_mosaic_tile_file, get_instance_filename
@@ -68,7 +68,7 @@ module river_mod
   use land_tile_mod,       only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, get_elmt_indices, &
      operator(/=)
-  use land_data_mod,       only : land_data_type, land_state_type, lnd
+  use land_data_mod,       only : land_data_type, land_state_type, lnd, log_version
   use lake_tile_mod,       only : num_l
   use field_manager_mod, only: fm_field_name_len, fm_string_len, &
      fm_type_name_len, fm_path_name_len, fm_dump_list, fm_get_length, &
@@ -81,8 +81,9 @@ module river_mod
   private
 
 !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id$'
-  character(len=128) :: tagname = '$Name$'
+character(len=*), parameter :: module_name = 'river_mod'
+#include "../shared/version_variable.inc"
+character(len=*), parameter :: tagname = '$Name$'
 
 !--- public interface ------------------------------------------------
   public :: river_init, river_end, river_type, update_river, river_stock_pe
@@ -107,11 +108,11 @@ module river_mod
   real               :: sinuosity = 1.3
   real               :: channel_tau = 86400*365.25*10     ! channel geometry reflects average flow over O(10 y)
   logical :: lake_area_bug = .FALSE. ! if set to true, reverts to buggy (quebec)
-      ! behavior, where by mistake cell area was used instead of land area to 
+      ! behavior, where by mistake cell area was used instead of land area to
       ! compute the area of lakes.
   logical :: stop_on_mask_mismatch = .TRUE. ! if set to false, then the data mismatches (mmismatch
       ! of land and river masks, and discharges in pouints where there is no ocean) are reported,
-      ! but don't cause the abort of the program. 
+      ! but don't cause the abort of the program.
   ! ZMS
   logical :: tracers_from_runoff = .false. ! if true, use runoff_c(:,:,num_phys+1:num_species)
           ! rather than source concentration and flux files
@@ -126,9 +127,9 @@ module river_mod
   character(len=128) :: river_Omean_file = 'INPUT/river_Omean.nc'
 !---------------------------------------------------------------------
   logical :: module_is_initialized = .FALSE.
-  integer :: isc, iec, jsc, jec                         ! compute domain decomposition 
-  integer :: isd, ied, jsd, jed                         ! data domain decomposition 
-  integer :: nlon, nlat                                 ! size of computational river grid 
+  integer :: isc, iec, jsc, jec                         ! compute domain decomposition
+  integer :: isd, ied, jsd, jed                         ! data domain decomposition
+  integer :: nlon, nlat                                 ! size of computational river grid
   integer :: num_lake_lev
   integer :: id_outflowmean, id_lake_depth_sill
   integer :: id_dx, id_basin, id_So, id_depth, id_width, id_vel
@@ -155,12 +156,12 @@ module river_mod
   integer,          allocatable, dimension(:) :: id_run_stor
   integer,          allocatable, dimension(:) :: id_outflow, id_removal, id_dis
   integer,          allocatable, dimension(:) :: id_lake_outflow
-  integer                       :: num_fast_calls 
+  integer                       :: num_fast_calls
   integer                       :: slow_step = 0          ! record number of slow time step run.
   type(domain2d),          save :: domain
   type(river_type) ,       save :: River
 
-!--- clock id variable 
+!--- clock id variable
   integer :: slowclock, bndslowclock, physicsclock, diagclock, riverclock
   logical :: remember_new_land_io
 
@@ -209,7 +210,7 @@ contains
 
     type(Leo_Mad_trios)   :: DHG_exp            ! downstream equation exponents
     type(Leo_Mad_trios)   :: DHG_coef           ! downstream equation coefficients
-    type(Leo_Mad_trios)   :: AAS_exp            ! at-a-station equation exponents 
+    type(Leo_Mad_trios)   :: AAS_exp            ! at-a-station equation exponents
 
     type(restart_file_type) :: river_restart
 
@@ -237,14 +238,14 @@ contains
 #endif
 
 !--- write version and namelist info to logfile --------------------
-    call write_version_number(version,tagname)
+    call log_version(version,module_name,__FILE__,tagname)
     unit=stdlog()
-    write(unit, river_nml)  
+    write(unit, river_nml)
 
     river_land_mask = .false.
     if(.not.do_rivers) return ! do nothing further if the rivers are turned off
 
-!--- check name list variables 
+!--- check name list variables
 
     if(diag_freq .le. 0) call mpp_error(FATAL,'river_mod: diag_freq should be a positive integer')
 
@@ -312,7 +313,7 @@ contains
 !--- register diag field
     call river_diag_init (id_lon, id_lat, id_area_land)
 
-!--- read restart file 
+!--- read restart file
     remember_new_land_io = new_land_io
 
     call get_instance_filename('INPUT/river.res.nc', filename)
@@ -342,7 +343,7 @@ contains
               enddo
            endif
            id_restart = register_restart_field(river_restart,'river.res.nc','Omean', River%outflowmean, domain)
-           if (field_exist(filename,'depth',domain)) then 
+           if (field_exist(filename,'depth',domain)) then
               id_restart = register_restart_field(river_restart,'river.res.nc','depth', River%depth, domain, mandatory=.false.)
            endif
            call restore_state(river_restart)
@@ -371,13 +372,13 @@ contains
               enddo
            endif
            call read_data(filename,'Omean',            River%outflowmean,      domain)
-           if (field_exist(filename,'depth',domain)) then 
+           if (field_exist(filename,'depth',domain)) then
                 ! call mpp_error(WARNING, 'river_init : Reading field "depth" from '//trim(filename))
                 call read_data(filename,'depth',       River%depth,            domain)
            else
                 ! call mpp_error(WARNING, 'river_init : "depth" is not present in '//trim(filename))
-           endif     
-        endif     
+           endif
+        endif
     else
         call mpp_error(NOTE, 'river_init : cold start, set data to 0')
         River%storage    = 0.0
@@ -426,7 +427,7 @@ contains
 ! initialize river tracers
 subroutine river_tracers_init()
 
- integer :: i, m, n 
+ integer :: i, m, n
  character(fm_field_name_len) :: name ! name of the river tracer
  character(fm_type_name_len)  :: typ  ! type of the river tracer
 
@@ -437,7 +438,7 @@ subroutine river_tracers_init()
  if(.not.fm_dump_list(trtable, recursive=.TRUE.)) &
     call mpp_error(NOTE, 'river_mod: Cannot dump field list "'//trtable//'"')
 
- ! allocating more space than absolutely necessary, in case water, and "physical 
+ ! allocating more space than absolutely necessary, in case water, and "physical
  ! tracers" (ice and heat) are not present in the user-supplied tracer table
  allocate(trdata(0:m+num_phys))
  ! initialize some parameters of the pre-defined species (water and "physical" tracres)
@@ -449,7 +450,7 @@ subroutine river_tracers_init()
 
  trdata(2)%name = 'het'; trdata(2)%longname = 'sensible heat content'
  trdata(2)%units = 'K'; trdata(2)%flux_units = 'W/m2'; trdata(2)%store_units = 'J/m2'
- 
+
  ! read generic parameters of the tracers
  do while (fm_loop_over_list(trtable, name, typ, n))
     ! look for the tracer already in the table
@@ -468,7 +469,7 @@ subroutine river_tracers_init()
  do num_species = ubound(trdata,1),0,-1
     if (trdata(num_species)%name/='') exit ! from loop
  enddo
- 
+
  ! TODO: read specific tracer parameters. Different tracers might have different parameter sets.
 
  call print_river_tracer_data(stdout())
@@ -488,7 +489,7 @@ function river_tracer_index(name) result(tr)
    character(*), intent(in) :: name
 
    integer :: i
-   
+
    tr = NO_TRACER
    do i = 1, num_species
       if (name==trdata(i)%name) then
@@ -499,16 +500,16 @@ function river_tracer_index(name) result(tr)
 end function river_tracer_index
 
 !#####################################################################
-! reads the field_table entry for specific tracers and fills in 
+! reads the field_table entry for specific tracers and fills in
 ! generic tracer parameters
 subroutine read_river_tracer_data(name,tr)
   character(*), intent(in) :: name
   type(tracer_data_type), intent(inout) :: tr
 
-  ! ---- local vars  
+  ! ---- local vars
   character(fm_path_name_len)  :: listname
   character(fm_path_name_len)  :: current_list
-  
+
   current_list = fm_get_current_list()
   if (current_list .eq. ' ') call mpp_error(FATAL, 'river_mod: Could not get the current list')
   listname = trtable//'/'//trim(name)
@@ -519,7 +520,7 @@ subroutine read_river_tracer_data(name,tr)
   tr%units       = fm_util_get_string('units',       caller='river_mod', default_value=tr%units,       scalar=.true.)
   tr%flux_units  = fm_util_get_string('flux_units',  caller='river_mod', default_value=tr%flux_units,  scalar=.true.)
   tr%store_units = fm_util_get_string('store_units', caller='river_mod', default_value=tr%store_units, scalar=.true.)
-  
+
 #define __PARSE__(v) tr%v = fm_util_get_real(#v, caller='river_mod', default_value=tr%v, scalar=.true.)
   __PARSE__(t_ref)
   __PARSE__(vf_ref)
@@ -546,7 +547,7 @@ subroutine print_river_tracer_data(unit)
   call add_row(table, 'vf_ref', trdata(:)%vf_ref)
   call add_row(table, 'q10', trdata(:)%q10)
   call add_row(table, 'kinv', trdata(:)%kinv)
-  
+
   call print(table,unit)
 end subroutine print_river_tracer_data
 
@@ -591,7 +592,7 @@ end subroutine print_river_tracer_data
         call mpp_clock_begin(slowclock)
         call update_river_slow(River%run_stor(:,:)/real(num_fast_calls), &
              River%run_stor_c(:,:,:)/real(num_fast_calls) )
-        call mpp_clock_end(slowclock)       
+        call mpp_clock_end(slowclock)
         call mpp_clock_begin(bndslowclock)
         call update_river_bnd_slow
         call mpp_clock_end(bndslowclock)
@@ -711,7 +712,7 @@ end subroutine print_river_tracer_data
              ! to avoid indices out of bounds in the lake_sfc_A check
              i_next = i; j_next=j
           endif
-         
+
           if (lake_backwater(i,j).gt.0.5 .and. lake_sfc_A(i,j).gt.0. .and. &
                                             lake_sfc_A(i_next,j_next).gt.0. ) then
              ! because of river backwater, lake in this cell relaxes toward level of
@@ -724,7 +725,7 @@ end subroutine print_river_tracer_data
              ! set to river depth in same cell
              lake_depth_sill(i,j) = lake_depth_sill(i,j) + River%depth(i,j)
           elseif (lake_conn(i,j).gt.0.5 ) then
-             ! for all but furthest dowstream cell of a multi-cell lake, 
+             ! for all but furthest dowstream cell of a multi-cell lake,
              ! relax toward level in next cell (same lake) downstream
              if (lake_conn(i_next,j_next).gt.0.5 .or. all_big_outlet_ctn0) then
                   lake_depth_sill(i,j) = lake_sfc_bot(i_next,j_next) &
@@ -804,22 +805,22 @@ end subroutine print_river_tracer_data
     if (id_LWSr > 0) then
        where (lnd%area > 0) &
             rivr_LMASS = rivr_LMASS / lnd%area
-       used = send_data (id_LWSr, rivr_LMASS, River%time, mask=lnd%area>0) 
+       used = send_data (id_LWSr, rivr_LMASS, River%time, mask=lnd%area>0)
     endif
-    if (id_FWSr > 0) then   
+    if (id_FWSr > 0) then
        where (lnd%area > 0) &
             rivr_FMASS = rivr_FMASS / lnd%area
-       used = send_data (id_FWSr, rivr_FMASS, River%time, mask=lnd%area>0) 
+       used = send_data (id_FWSr, rivr_FMASS, River%time, mask=lnd%area>0)
     endif
     if (id_HSr > 0) then
        where (lnd%area > 0) &
             rivr_HEAT = rivr_HEAT / lnd%area
-       used = send_data (id_HSr, rivr_HEAT, River%time, mask=lnd%area>0) 
+       used = send_data (id_HSr, rivr_HEAT, River%time, mask=lnd%area>0)
     endif
     if (id_meltr > 0) then
        where (lnd%area > 0) &
             rivr_MELT = rivr_MELT / lnd%area
-       used = send_data (id_meltr, rivr_MELT, River%time, mask=lnd%area>0) 
+       used = send_data (id_meltr, rivr_MELT, River%time, mask=lnd%area>0)
     end if
     if(mod(slow_step, diag_freq) == 0)  call river_diag(lake_depth_sill)
     call mpp_clock_end(diagclock)
@@ -931,9 +932,9 @@ end subroutine print_river_tracer_data
        call write_data(filename,'Omean', River%outflowmean, domain)
        call write_data(filename,'depth', River%depth, domain)
     endif
-  
+
   end subroutine save_river_restart
-  
+
 !#####################################################################
   subroutine get_river_data(land_lon, land_lat, land_frac)
     real,            intent(in) :: land_lon(isc:,jsc:)  ! geographical lontitude of cell center
@@ -961,10 +962,10 @@ end subroutine print_river_tracer_data
         call read_data(river_src_file, 'y', glat, no_domain=.true.)
       endif
     call read_data(river_src_file, 'x', xt, domain)
-    call read_data(river_src_file, 'y', yt, domain) 
-    call read_data(river_src_file, 'land_frac', frac, domain) 
-    call read_data(river_src_file, 'lake_frac', lake_frac, domain) 
-    !--- the following will be changed when the river data sets is finalized. 
+    call read_data(river_src_file, 'y', yt, domain)
+    call read_data(river_src_file, 'land_frac', frac, domain)
+    call read_data(river_src_file, 'lake_frac', lake_frac, domain)
+    !--- the following will be changed when the river data sets is finalized.
     xt = land_lon
     yt = land_lat
 !--- transform to radians, since land model grid use radians and compare with land grid.
@@ -973,7 +974,7 @@ end subroutine print_river_tracer_data
     allocate(River%lat_1d    (1:nj            ) )
     allocate(River%lon       (isc:iec, jsc:jec) )
     allocate(River%lat       (isc:iec, jsc:jec) )
-    allocate(River%land_area  (isc:iec, jsc:jec) )     
+    allocate(River%land_area  (isc:iec, jsc:jec) )
     allocate(River%basinid   (isc:iec, jsc:jec) )
     allocate(River%landfrac  (isc:iec, jsc:jec) )
     allocate(River%mask      (isc:iec, jsc:jec) )
@@ -1041,7 +1042,7 @@ end subroutine print_river_tracer_data
     River%inflow    = 0.
     River%inflow_c  = 0.
 !--- read the data from the source file
-    call read_data(river_src_file, 'tocell', River%tocell, domain) 
+    call read_data(river_src_file, 'tocell', River%tocell, domain)
 
     where (River%tocell(:,:).eq.  4) River%tocell(:,:)=3
     where (River%tocell(:,:).eq.  8) River%tocell(:,:)=4
@@ -1049,7 +1050,7 @@ end subroutine print_river_tracer_data
     where (River%tocell(:,:).eq. 32) River%tocell(:,:)=6
     where (River%tocell(:,:).eq. 64) River%tocell(:,:)=7
     where (River%tocell(:,:).eq.128) River%tocell(:,:)=8
-    
+
     nerrors = 0
     do j = jsc, jec
     do i = isc, iec
@@ -1073,11 +1074,11 @@ end subroutine print_river_tracer_data
                'get_river_data: river discharges into a land point '&
                //trim(coordinates(i,j))//' where there is no ocean')
           nerrors = nerrors+1
-       endif    
+       endif
     end do
     end do
-    
-    if (nerrors>0.and.stop_on_mask_mismatch) call mpp_error(FATAL,& 
+
+    if (nerrors>0.and.stop_on_mask_mismatch) call mpp_error(FATAL,&
         'get_river_data: river/land mask-related mismatch detected during river data initialization')
 
     call read_data(river_src_file, 'basin', River%basinid, domain)
@@ -1089,15 +1090,15 @@ end subroutine print_river_tracer_data
 
     River%travel = 0
     call read_data(river_src_file, 'travel', River%travel(isc:iec,jsc:jec), domain)
-    call mpp_update_domains(River%travel, domain) 
-    call read_data(river_src_file, 'celllength', River%reach_length, domain) 
+    call mpp_update_domains(River%travel, domain)
+    call read_data(river_src_file, 'celllength', River%reach_length, domain)
     River%reach_length = River%reach_length * River%landfrac * (1.-lake_frac)
     if (land_area_called_cellarea) then
-        call read_data(river_src_file, 'cellarea', River%land_area, domain) 
+        call read_data(river_src_file, 'cellarea', River%land_area, domain)
       else
-        call read_data(river_src_file, 'land_area', River%land_area, domain) 
+        call read_data(river_src_file, 'land_area', River%land_area, domain)
       endif
-!    call read_data(river_src_file, 'So', River%So, domain) 
+!    call read_data(river_src_file, 'So', River%So, domain)
     River%So = 0.0
     where (River%So .LT. 0.0) River%So = Somin
 
@@ -1120,7 +1121,7 @@ end subroutine print_river_tracer_data
 ! regular diagnostic fields
     do i = 0, num_species
       id_inflow(i) = register_diag_field ( mod_name, 'rv_i_'//trim(trdata(i)%name),      &
-           (/id_lon, id_lat/), River%Time, 'river inflow, '//trim(trdata(i)%longname),   & 
+           (/id_lon, id_lat/), River%Time, 'river inflow, '//trim(trdata(i)%longname),   &
            trdata(i)%flux_units, missing_value=missing )
       id_outflow(i) = register_diag_field ( mod_name, 'rv_o_'//trim(trdata(i)%name),     &
            (/id_lon, id_lat/), River%Time, 'river outflow, '//trim(trdata(i)%longname),  &
@@ -1377,7 +1378,7 @@ end subroutine print_river_tracer_data
     type(Leo_Mad_trios), intent(inout) :: AAS_exp  ! Exponents for at-a-station equations
 
 !!! Exponents for the downstream hydraulic geometry equations
-    DHG_exp%on_w = ave_DHG_exp(1) 
+    DHG_exp%on_w = ave_DHG_exp(1)
     DHG_exp%on_d = ave_DHG_exp(2)
     DHG_exp%on_V = ave_DHG_exp(3)
 
@@ -1420,7 +1421,7 @@ end subroutine river_stock_pe
 function coordinates(i,j) result(s); character(128) :: s
    integer, intent(in) :: i,j
    s ='('//trim(string(i))//','//trim(string(j))//')'
-   if (lnd%nfaces>1) s=trim(s)//' on cubic sphere face '//string(lnd%face) 
+   if (lnd%nfaces>1) s=trim(s)//' on cubic sphere face '//string(lnd%face)
 end function coordinates
 
 end module river_mod
@@ -1471,7 +1472,7 @@ program river_solo
   integer              :: yr,mon,day,hr,min,sec, calendar_type=-1
   integer              :: outunit
   real, allocatable    :: runoff(:,:), discharge(:,:)
-  integer              :: initClock, mainClock, termClock, updateClock 
+  integer              :: initClock, mainClock, termClock, updateClock
 !Balaji
   real, allocatable :: runoff_c(:,:,:)
   real, allocatable :: discharge2ocean(:,:)
@@ -1512,7 +1513,7 @@ program river_solo
       call mpp_open(unit, 'RESTART/river_solo.res',form=MPP_ASCII,&
            action=MPP_OVERWR,threading=MPP_SINGLE,fileset=MPP_SINGLE,nohdrs=.true.)
       write(unit,*) yr, mon, day, hr, min, sec
-      write(unit,*) calendar_type 
+      write(unit,*) calendar_type
       call mpp_close(unit)
   endif
 
@@ -1555,7 +1556,7 @@ contains
     unit=stdlog()
     write(unit, nml= river_solo_nml)
 
-! set the calendar 
+! set the calendar
     if (calendar(1:6) == 'julian') then
         calendar_type = julian
     else if (calendar(1:6) == 'NOLEAP') then
@@ -1570,11 +1571,11 @@ contains
         call mpp_error (FATAL,'==>Error from ocean_solo_mod: no namelist value for calendar')
     endif
 
-! get river_solo restart 
+! get river_solo restart
     if (file_exist('INPUT/river_solo.res')) then
         call mpp_open(unit,'INPUT/river_solo.res',form=MPP_ASCII,action=MPP_RDONLY)
         read(unit,*) date
-        read(unit,*) calendar_type 
+        read(unit,*) calendar_type
         call close_file(unit)
     endif
 
@@ -1611,7 +1612,7 @@ contains
     month = month_name(date(2))
     if ( mpp_pe() == mpp_root_pe() ) write (unit,'(6i4,2x,a3)') date, month(1:3)
 
-    call close_file (unit)  
+    call close_file (unit)
 
 !--- get the land grid and set up domain decomposition
     call get_grid_size('LND', 1, ni, nj)

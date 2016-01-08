@@ -37,9 +37,7 @@ public :: update_biomass_pools
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: &
-     version = '$Id$', &
-     tagname = '$Name$'
+#include "../shared/version_variable.inc"
 
 ! ==== types =================================================================
 ! vegn_cohort_type describes the data that belong to a vegetation cohort

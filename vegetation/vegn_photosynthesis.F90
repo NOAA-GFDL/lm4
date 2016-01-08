@@ -2,8 +2,8 @@ module vegn_photosynthesis_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod,            only : write_version_number, error_mesg, FATAL
-use constants_mod,      only : TFREEZE 
+use fms_mod,            only : error_mesg, FATAL
+use constants_mod,      only : TFREEZE
 use sphum_mod,          only : qscomp
 
 use land_constants_mod, only : BAND_VIS, Rugas,seconds_per_year, mol_h2o, mol_air
@@ -11,6 +11,7 @@ use land_debug_mod,     only : is_watch_point
 use vegn_data_mod,      only : MSPECIES, PT_C4, spdata
 use vegn_tile_mod,      only : vegn_tile_type
 use vegn_cohort_mod,    only : vegn_cohort_type, get_vegn_wet_frac
+use land_data_mod,      only : log_version
 
 implicit none
 private
@@ -21,10 +22,10 @@ public :: vegn_photosynthesis
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
-character(len=*), private, parameter :: &
-   version = '$Id$', &
-   tagname = '$Name$', &
-   module_name = 'vegn_photosynthesis'
+character(len=*), parameter :: module_name = 'vegn_photosynthesis'
+#include "../shared/version_variable.inc"
+character(len=*), parameter :: tagname     = '$Name$'
+
 ! values for internal vegetation photosynthesis option selector
 integer, parameter :: VEGN_PHOT_SIMPLE  = 1 ! zero photosynthesis
 integer, parameter :: VEGN_PHOT_LEUNING = 2 ! photosynthesis according to simplified Leuning model
@@ -40,7 +41,7 @@ contains
 subroutine vegn_photosynthesis_init(photosynthesis_to_use)
   character(*), intent(in) :: photosynthesis_to_use
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, __FILE__, tagname)
 
   ! convert symbolic names of photosynthesis options into numeric IDs to
   ! speed up selection during run-time
@@ -65,7 +66,7 @@ subroutine vegn_photosynthesis ( vegn, &
      soil_beta, soil_water_supply, &
      evap_demand, stomatal_cond, psyn, resp )
   type(vegn_tile_type), intent(in) :: vegn
-  real, intent(in)  :: PAR_dn   ! downward PAR at the top of the canopy, W/m2 
+  real, intent(in)  :: PAR_dn   ! downward PAR at the top of the canopy, W/m2
   real, intent(in)  :: PAR_net  ! net PAR absorbed by the canopy, W/m2
   real, intent(in)  :: cana_q   ! specific humidity in canopy air space, kg/kg
   real, intent(in)  :: cana_co2 ! co2 concentration in canopy air space, mol CO2/mol dry air
@@ -106,11 +107,11 @@ subroutine vegn_photosynthesis ( vegn, &
 
   case(VEGN_PHOT_LEUNING)
      if(cohort%lai > 0) then
-        ! assign species type to local var, purely for convenience 
+        ! assign species type to local var, purely for convenience
         sp = cohort%species
         ! recalculate the water supply to mol H20 per m2 of leaf per second
         water_supply = soil_water_supply/(mol_h2o*cohort%lai)
-      
+
         call get_vegn_wet_frac (cohort, fw=fw, fs=fs)
         call gs_Leuning(PAR_dn, PAR_net, cohort%Tv, cana_q, cohort%lai, &
              cohort%leaf_age, p_surf, water_supply, sp, cohort%pt, cana_co2, &
@@ -170,7 +171,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   real,    intent(out)   :: acl  ! leaf respiration, mol C/(m2 s)
   real,    intent(out)   :: Ed   ! evaporative demand, mol H2O/(m2 s)
 
-  ! ---- local vars     
+  ! ---- local vars
   ! photosynthesis
   real :: vm;
   real :: kc,ko; ! Michaelis-Menten constants for CO2 and O2, respectively
@@ -186,7 +187,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   real :: ds;  ! humidity deficit, kg/kg
   real :: hl;  ! saturated specific humidity at the leaf temperature, kg/kg
   real :: do1;
-  
+
   ! misceleneous
   real :: dum2;
   real, parameter :: light_crit = 0;
@@ -194,7 +195,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
 
   ! new average computations
   real :: lai_eq;
-  real, parameter :: rad_phot = 0.0000046 ! PAR conversion factor of J -> mol of quanta 
+  real, parameter :: rad_phot = 0.0000046 ! PAR conversion factor of J -> mol of quanta
   real :: light_top;
   real :: par_net;
   real :: Ag;
@@ -234,7 +235,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   ! empirical relationship from McCree is light=rn*0.0000046
   light_top = rad_top*rad_phot;
   par_net   = rad_net*rad_phot;
-  
+
   ! calculate humidity deficit, kg/kg
   call qscomp(tl, p_surf, hl)
   ds = max(hl-ea,0.0)
@@ -244,7 +245,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   ko=0.25   *exp(1400.0*(1.0/288.2-1.0/tl))*p_sea/p_surf;
   kc=0.00015*exp(6000.0*(1.0/288.2-1.0/tl))*p_sea/p_surf;
   vm=spdata(pft)%Vmax*exp(3000.0*(1.0/288.2-1.0/tl));
-  !decrease Vmax due to aging of temperate deciduous leaves 
+  !decrease Vmax due to aging of temperate deciduous leaves
   !(based on Wilson, Baldocchi and Hanson (2001)."Plant,Cell, and Environment", vol 24, 571-583)
   if (spdata(pft)%leaf_age_tau>0 .and. leaf_age>spdata(pft)%leaf_age_onset) then
      vm=vm*exp(-(leaf_age-spdata(pft)%leaf_age_onset)/spdata(pft)%leaf_age_tau)
@@ -253,21 +254,21 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   capgam=0.5*kc/ko*0.21*0.209; ! Farquhar & Caemmerer 1982
 
   ! Find respiration for the whole canopy layer
-  
+
   Resp=spdata(pft)%gamma_resp*vm*lai;
   Resp=Resp/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))));
-  
-  
+
+
   ! ignore the difference in concentrations of CO2 near
   !  the leaf and in the canopy air, rb=0.
- 
+
   Ag_l=0.;
   Ag_rb=0.;
   Ag=0.;
   anbar=-Resp/lai;
   gsbar=b;
 
- 
+
   ! find the LAI level at which gross photosynthesis rates are equal
   ! only if PAR is positive
   if ( light_top > light_crit ) then
@@ -276,10 +277,10 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
         ci=(ca+1.6*coef0*capgam)/(1+1.6*coef0);
         if (ci>capgam) then
            f2=vm;
-           f3=18000.0*vm*ci;       
-       
+           f3=18000.0*vm*ci;
+
            dum2=min(f2,f3)
-           
+
            ! find LAI level at which rubisco limited rate is equal to light limited rate
            lai_eq = -log(dum2/(kappa*spdata(pft)%alpha_phot*light_top))/kappa;
            lai_eq = min(max(0.0,lai_eq),lai) ! limit lai_eq to physically possible range
@@ -294,7 +295,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
              ((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))));
            An=Ag-Resp;
            anbar=An/lai;
-     
+
            if(anbar>0.0) then
                gsbar=anbar/(ci-capgam)/coef0;
            endif
@@ -328,12 +329,12 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
         endif ! ci>capgam
      endif
   endif ! light is available for photosynthesis
-  
+
   an_w=anbar;
   if (an_w > 0.) then
      an_w=an_w*(1-spdata(pft)%wet_leaf_dreg*leaf_wet);
   endif
-  
+
   gs_w=gsbar*(1-spdata(pft)%wet_leaf_dreg*leaf_wet);
 
   if (gs_w > gs_lim) then
@@ -363,14 +364,14 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   gs=gs_w;
   apot=an_w;
   acl=-Resp/lai;
-  
+
 
 #else
 ! no water limitation on stomata
-   gs=gsbar;  
-   apot=anbar; 
-   acl=-Resp/lai; 
-#endif 
+   gs=gsbar;
+   apot=anbar;
+   acl=-Resp/lai;
+#endif
 
    ! finally, convert units of stomatal conductance to m/s from mol/(m2 s) by
    ! multiplying it by a volume of a mole of gas

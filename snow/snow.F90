@@ -10,7 +10,7 @@ use fms_mod, only: open_namelist_file
 #endif
 
 use fms_mod, only : error_mesg, file_exist, check_nml_error, &
-     stdlog, write_version_number, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
+     stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
 use fms_io_mod, only : read_compressed, restart_file_type, free_restart_type, &
      field_exist, get_field_size, save_restart, register_restart_axis, &
      register_restart_field, set_domain, nullify_domain
@@ -25,7 +25,7 @@ use snow_tile_mod, only : &
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
-use land_data_mod,      only : land_state_type, lnd
+use land_data_mod, only : land_state_type, lnd, log_version
 use land_tile_io_mod, only : create_tile_out_file, read_tile_data_r1d_fptr, &
      write_tile_data_r1d_fptr, print_netcdf_error, get_input_restart_name, &
      sync_nc_files, gather_tile_data, assemble_tiles
@@ -51,10 +51,9 @@ public :: snow_step_2
 
 
 ! ==== module variables ======================================================
-character(len=*), parameter, private   :: &
-       module_name = 'snow_mod' ,&
-       version     = '$Id$' ,&
-       tagname     = '$Name$'
+character(len=*), parameter :: module_name = 'snow_mod'
+#include "../shared/version_variable.inc"
+character(len=*), parameter :: tagname = '$Name$'
 
 ! ==== module variables ======================================================
 
@@ -67,7 +66,7 @@ real    :: max_snow             = 1000.
 real    :: wet_max              = 0.0  ! TEMP, move to snow_data
 real    :: snow_density         = 300. ! TEMP, move to snow_data and generalize
    real :: init_temp = 260.   ! cold-start snow T
-   real :: init_pack_ws   =   0.  
+   real :: init_pack_ws   =   0.
    real :: init_pack_wl   =   0.
    real :: min_snow_mass = 0.
 
@@ -106,14 +105,14 @@ subroutine read_snow_namelist()
 
   call read_snow_data_namelist(num_l,dz,mc_fict)
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, __FILE__, tagname)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=snow_nml, iostat=io)
   ierr = check_nml_error(io, 'snow_nml')
 #else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
-     ierr = 1;  
+     ierr = 1;
      do while (ierr /= 0)
         read (unit, nml=snow_nml, iostat=io, end=10)
         ierr = check_nml_error (io, 'snow_nml')
@@ -140,7 +139,7 @@ end subroutine read_snow_namelist
 ! ============================================================================
 ! initialize snow model
 subroutine snow_init ( id_lon, id_lat, new_land_io )
-  integer, intent(in)               :: id_lon  ! ID of land longitude (X) axis  
+  integer, intent(in)               :: id_lon  ! ID of land longitude (X) axis
   integer, intent(in)               :: id_lat  ! ID of land latitude (Y) axis
   logical, intent(in)               :: new_land_io ! This is a transition var and will be removed
 
@@ -195,7 +194,7 @@ subroutine snow_init ( id_lon, id_lat, new_land_io )
         call read_tile_data_r1d_fptr(unit, 'temp', snow_temp_ptr  )
         call read_tile_data_r1d_fptr(unit, 'wl'  , snow_wl_ptr )
         call read_tile_data_r1d_fptr(unit, 'ws'  , snow_ws_ptr )
-        __NF_ASRT__(nf_close(unit))     
+        __NF_ASRT__(nf_close(unit))
     endif
   else
      call error_mesg('snow_init', 'cold-starting snow', NOTE)
@@ -204,13 +203,13 @@ subroutine snow_init ( id_lon, id_lat, new_land_io )
      do while(ce /= te)
         tile=>current_tile(ce)  ! get pointer to current tile
         ce=next_elmt(ce)       ! advance position to the next tile
-        
+
         if (.not.associated(tile%snow)) cycle
         do k = 1,num_l
            tile%snow%wl(k) = init_pack_wl * dz(k)
            tile%snow%ws(k) = init_pack_ws * dz(k)
            tile%snow%T(k)  = init_temp
-        enddo 
+        enddo
      enddo
   endif
 
@@ -316,7 +315,7 @@ end subroutine save_snow_restart_new
 subroutine snow_get_sfc_temp(snow, snow_T)
   type(snow_tile_type), intent(in) :: snow
   real, intent(out) :: snow_T
-  
+
   snow_T = snow%T(1)
 end subroutine
 
@@ -348,7 +347,7 @@ subroutine snow_radiation ( snow_T, cosz, &
   call snow_data_radiation (snow_T, snow_refl_dir, snow_refl_dif, &
                                 snow_emis, cosz, use_brdf )
   snow_refl_lw = 1 - snow_emis
-end subroutine 
+end subroutine
 
 
 ! ============================================================================
@@ -459,7 +458,7 @@ subroutine snow_step_1 ( snow, snow_G_Z, snow_G_TZ, &
      denom = delta_time/heat_capacity(1)
      snow_G0    = ccc(1)*(snow%T(2)- snow%T(1) &
           + snow%f(1)) / denom
-     snow_DGDT  = (1 - ccc(1)*(1-snow%e(1))) / denom    
+     snow_DGDT  = (1 - ccc(1)*(1-snow%e(1))) / denom
   endif
 
 !    else  ! one-level case
@@ -474,19 +473,19 @@ subroutine snow_step_1 ( snow, snow_G_Z, snow_G_TZ, &
   endif
 
   if(is_watch_point()) then
-     write(*,*) 'snow_depth', snow_depth 
+     write(*,*) 'snow_depth', snow_depth
      write(*,*) '############ snow_step_1 output'
      write(*,*) 'mask      ', .true.
-     write(*,*) 'snow_T    ', snow_T     
-     write(*,*) 'snow_rh   ', snow_rh    
-     write(*,*) 'snow_liq  ', snow_liq   
-     write(*,*) 'snow_ice  ', snow_ice   
-     write(*,*) 'snow_subl ', snow_subl  
-     write(*,*) 'snow_area ', snow_area  
-     write(*,*) 'snow_G_Z  ', snow_G_Z   
-     write(*,*) 'snow_G_TZ ', snow_G_TZ  
-     write(*,*) 'snow_G0   ', snow_G0    
-     write(*,*) 'snow_DGDT ', snow_DGDT  
+     write(*,*) 'snow_T    ', snow_T
+     write(*,*) 'snow_rh   ', snow_rh
+     write(*,*) 'snow_liq  ', snow_liq
+     write(*,*) 'snow_ice  ', snow_ice
+     write(*,*) 'snow_subl ', snow_subl
+     write(*,*) 'snow_area ', snow_area
+     write(*,*) 'snow_G_Z  ', snow_G_Z
+     write(*,*) 'snow_G_TZ ', snow_G_TZ
+     write(*,*) 'snow_G0   ', snow_G0
+     write(*,*) 'snow_DGDT ', snow_DGDT
      write(*,*) '############ end of snow_step_1 output'
   endif
 
@@ -545,18 +544,18 @@ end subroutine snow_step_1
 
   if(is_watch_point()) then
      write(*,*) '############ snow_step_2 input'
-     write(*,*) 'mask       ', .TRUE.       
-     write(*,*) 'snow_subl  ', snow_subl  
-     write(*,*) 'vegn_lprec ', vegn_lprec 
-     write(*,*) 'vegn_fprec ', vegn_fprec 
+     write(*,*) 'mask       ', .TRUE.
+     write(*,*) 'snow_subl  ', snow_subl
+     write(*,*) 'vegn_lprec ', vegn_lprec
+     write(*,*) 'vegn_fprec ', vegn_fprec
      write(*,*) 'vegn_hlprec', vegn_hlprec
      write(*,*) 'vegn_hfprec', vegn_hfprec
-     write(*,*) 'DTg        ', DTg        
-     write(*,*) 'Mg_imp     ', Mg_imp     
-     write(*,*) 'evapg      ', evapg      
-     write(*,*) 'fswg       ', fswg       
-     write(*,*) 'flwg       ', flwg       
-     write(*,*) 'sensg      ', sensg      
+     write(*,*) 'DTg        ', DTg
+     write(*,*) 'Mg_imp     ', Mg_imp
+     write(*,*) 'evapg      ', evapg
+     write(*,*) 'fswg       ', fswg
+     write(*,*) 'flwg       ', flwg
+     write(*,*) 'sensg      ', sensg
      write(*,*) '############ end of snow_step_2 input'
 
      write(*,*) 'depth   ', depth
@@ -622,7 +621,7 @@ end subroutine snow_step_1
   subs_fsw = fswg - snow_fsw
   subs_flw = flwg - snow_flw
   subs_evap = evapg - snow_levap - snow_fevap
-  subs_sens = sensg - snow_sens 
+  subs_sens = sensg - snow_sens
 
   ! ---- load surface temp change and perform back substitution --------------
   if (depth>0) then
@@ -707,7 +706,7 @@ end subroutine snow_step_1
   endif
 
   ! ---- distribute implicit phase change downward through snow layers -------
-  if (depth>0) then 
+  if (depth>0) then
       snow_melt = Mg_imp/delta_time
   else
       snow_melt = 0
@@ -1004,7 +1003,7 @@ end subroutine snow_step_1
                    sum_sno,sum_liq, sum_heat
            endif
         endif
-        
+
      enddo
      if (depth > 0) then
         new_wl(l) = sum_liq
@@ -1020,7 +1019,7 @@ end subroutine snow_step_1
         write(*,'(i2,3(a,g23.16))')l,&
              ' new_wl=', new_wl(l),&
              ' new_ws=', new_ws(l),&
-             ' new_T =', new_T(l) 
+             ' new_T =', new_T(l)
      enddo
   endif
 
@@ -1032,7 +1031,7 @@ end subroutine snow_step_1
       + mc_fict*dz(l)*fict_heat ) &
       / (clw*new_wl(l) + csw*new_ws(l) + dz(l)*mc_fict)
   enddo
-    
+
   do l = 1, num_l
     if (depth > 0) then
       snow%ws(l) = new_ws(l)

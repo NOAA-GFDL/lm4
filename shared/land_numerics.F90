@@ -10,8 +10,7 @@ if(.NOT.(x))call my_error(mod_name,message,FATAL,thisfile,__LINE__)
 
 module land_numerics_mod
 
-use fms_mod, only: error_mesg, FATAL, NOTE, write_version_number, mpp_pe, &
-     stdout
+use fms_mod, only: error_mesg, FATAL, NOTE, mpp_pe, stdout
 use mpp_mod, only: mpp_npes, mpp_get_current_pelist, mpp_send, mpp_recv, &
      mpp_sync, mpp_sync_self, EVENT_RECV, COMM_TAG_1,  COMM_TAG_2,       &
      COMM_TAG_3,  COMM_TAG_4, COMM_TAG_5,  COMM_TAG_6, COMM_TAG_7,       &
@@ -22,6 +21,8 @@ use mpp_mod, only: mpp_npes, mpp_get_current_pelist, mpp_send, mpp_recv, &
 
 use mpp_domains_mod, only : domain2d, mpp_get_compute_domain, &
      mpp_get_global_domain
+
+use land_data_mod, only : log_version
 
 implicit none
 private
@@ -56,14 +57,14 @@ interface nearest
 end interface
 
 logical :: module_is_initialized =.FALSE.
-! module constants
-character(len=*), parameter :: &
-     mod_name = 'land_numerics_mod', &
-     version  = '$Id$', &
-     tagname  = '$Name$', &
-     thisfile = __FILE__
+! ==== module constants ======================================================
+character(len=*), parameter :: mod_name = 'land_numerics_mod'
+#include "../shared/version_variable.inc"
+character(len=*), parameter :: tagname  = '$Name$'
+character(len=*), parameter :: thisfile = __FILE__
+
 ! ==== public type ===========================================================
-! this data structure describes the horizontal remapping: that is, the operation 
+! this data structure describes the horizontal remapping: that is, the operation
 ! of copying the data from the source points to the destination points. The source
 ! points are not necessarily on the same PE as destination points.
 type :: horiz_remap_type
@@ -75,8 +76,8 @@ type :: horiz_remap_type
        src_i(:)=>NULL(), & ! x-indices of source points
        src_j(:)=>NULL(), & ! y-indices of source points
        src_p(:)=>NULL()    ! processor number of source points
-   ! data distribution map: for each processor pair that communicate 
-   ! (unidirectionally), an entry in the srcPE and dstPE arrays holds their 
+   ! data distribution map: for each processor pair that communicate
+   ! (unidirectionally), an entry in the srcPE and dstPE arrays holds their
    ! numbers. This map is the same on each of the PEs that participate in
    ! remapping.
    integer :: mapSize = 0
@@ -93,8 +94,8 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 ! Initializes the numerics module.
 subroutine numerics_init()
 
-  module_is_initialized =.TRUE. 
-  call write_version_number(version,tagname)
+  module_is_initialized =.TRUE.
+  call log_version(version, mod_name, __FILE__, tagname)
 
 end subroutine numerics_init
 
@@ -250,7 +251,7 @@ subroutine lin_int1m(data, xx, x, res, mask)
   f1 = 1.0-f2
 
   ! finally, update the result
-  where (mask) 
+  where (mask)
      res = data(:,i1)*f1+data(:,i2)*f2
   endwhere
 
@@ -278,7 +279,7 @@ subroutine lin_int2m(data, tt, t, res, mask)
   f1 = 1-f2
 
   ! update the result
-  where (mask) 
+  where (mask)
      res = data(:,:,i1)*f1+data(:,:,i2)*f2
   endwhere
 end subroutine lin_int2m
@@ -298,7 +299,7 @@ subroutine ludcmp(a,indx,status)
   integer, intent(out), optional :: status
 
   integer, parameter :: TINY = 1.0e-20
-  integer :: n ! size of the matrix 
+  integer :: n ! size of the matrix
   integer :: i,j,k,imax
   real    :: aamax,dum,sum
   real    :: vv(size(a,1)) ! implicit scaling for each row
@@ -306,13 +307,13 @@ subroutine ludcmp(a,indx,status)
   n = size(a,1)
   if(present(status))status = 0
 
-  ! find largest element in each row and calculate scaling 
+  ! find largest element in each row and calculate scaling
   do i = 1,n
      aamax = 0.0
      do j = 1,n
         if(abs(a(i,j)) > aamax)aamax = abs(a(i,j))
      enddo
-     if(.not.(aamax /= 0.0)) then 
+     if(.not.(aamax /= 0.0)) then
         if(present(status))then
            status = -1; aamax = TINY
         else
@@ -355,7 +356,7 @@ subroutine ludcmp(a,indx,status)
      endif
      indx(j) = imax
      ! if the pivot element is zero, then the matrix is singular (at least to the
-     ! precision of the algorithm). For some applications on singular matrices, it 
+     ! precision of the algorithm). For some applications on singular matrices, it
      ! is desirable to substitute TINY for zero
      if(a(j,j)==0.0) a(j,j) = TINY
 
@@ -372,7 +373,7 @@ end subroutine ludcmp
 
 ! ==============================================================================
 ! given a LU decomposition of matrix a(n,n), permutation vector indx, and right-
-! hand side b, solves the set of linear equations A*X = B 
+! hand side b, solves the set of linear equations A*X = B
 subroutine lubksb(a,indx,b)
   real,    intent(in)    :: a(:,:)  ! LU-decomposed matrix
   integer, intent(in)    :: indx(:) ! permutation vector, as returned by the ludcmp
@@ -414,7 +415,7 @@ subroutine tridiag(a,b,c,r,u)
 
   integer :: j
   real :: bet, gam(size(a))
-  
+
   ! check that the sizes are the same
   if(size(a)/=size(b).or.size(a)/=size(c).or.size(a)/=size(r)) &
        call error_mesg('tridiag','sizes of input arrays are not equal',FATAL)
@@ -448,7 +449,7 @@ subroutine nearest1D(mask, lon, lat, plon, plat, iout, jout, dist)
   real,    intent(in) :: lat(:)     ! latitudes of input grid central points, radian
   real,    intent(in) :: plon, plat ! coordinates of destination point, radian
   integer, intent(out):: iout, jout ! indices of nearest valid (unmasked) point
-  real, optional, intent(out):: dist ! distance to the point 
+  real, optional, intent(out):: dist ! distance to the point
 
   ! ---- local constants
   character(*),parameter :: mod_name='nearest1D'
@@ -458,7 +459,7 @@ subroutine nearest1D(mask, lon, lat, plon, plat, iout, jout, dist)
 
   __ASSERT__(size(mask,1)==size(lon),'sizes of "mask" and "lon" are inconsistent')
   __ASSERT__(size(mask,2)==size(lat),'sizes of "mask" and "lat" are inconsistent')
-  
+
   r = HUGE(r)  ! some value larger than any possible distance
 
   do j = 1, size(mask,2)
@@ -484,11 +485,11 @@ subroutine nearest2D(mask, lon, lat, plon, plat, iout, jout, dist)
   real,    intent(in) :: lat(:,:)   ! latitudes of input grid central points, radian
   real,    intent(in) :: plon, plat ! coordinates of destination point, radian
   integer, intent(out):: iout, jout ! indices of nearest valid (unmasked) point
-  real, optional, intent(out):: dist! distance to the point 
+  real, optional, intent(out):: dist! distance to the point
 
   ! ---- local constants
   character(*),parameter :: mod_name='nearest2D'
-  ! ---- local vars 
+  ! ---- local vars
   integer :: i,j
   real    :: r,r1
 
@@ -512,20 +513,20 @@ subroutine nearest2D(mask, lon, lat, plon, plat, iout, jout, dist)
 end subroutine nearest2D
 
 ! ============================================================================
-! private functions that calculates the distance between two points given their 
+! private functions that calculates the distance between two points given their
 ! coordinates
 function distance(lon1, lat1, lon2, lat2) ; real distance
   ! calculates distance between points on unit square
   real, intent(in) :: lon1,lat1,lon2,lat2
-  
+
   real :: x1,y1,z1, x2,y2,z2
   real :: dlon
   dlon = (lon2-lon1)
-  
+
   z1 = sin(lat1) ;  z2 = sin(lat2)
   y1 = 0.0       ;  y2 = cos(lat2)*sin(dlon)
   x1 = cos(lat1) ;  x2 = cos(lat2)*cos(dlon)
-  
+
   ! distance = acos(x1*x2 + z1*z2)
   distance = (x1-x2)**2+(y1-y2)**2+(z1-z2)**2
 end function distance
@@ -543,10 +544,10 @@ if (associated(x)) then; deallocate(x); x=>NULL(); endif
    __DEALLOC__(map%src_j)
    __DEALLOC__(map%src_p)
    map%n=0
-      
+
    __DEALLOC__(map%srcPE)
    __DEALLOC__(map%dstPE)
-   map%mapSize=0   
+   map%mapSize=0
 #undef __DEALLOC__
 end subroutine
 
@@ -567,12 +568,12 @@ subroutine horiz_remap_print(map, prefix)
 end subroutine
 
 ! ============================================================================
-! given the local mask of the points that need filling, the local mask of 
+! given the local mask of the points that need filling, the local mask of
 ! the valid points, local arrays of coordinates, and the domain, returns the
 ! remapping information that can be used later to fill the data
 subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
   logical, intent(in) :: invalid(:,:) ! mask of points to be filled
-  logical, intent(in) :: valid  (:,:) ! mask of valid input points 
+  logical, intent(in) :: valid  (:,:) ! mask of valid input points
   real,    intent(in) :: lon(:,:)   ! longitudes of input grid central points, radian
   real,    intent(in) :: lat(:,:)   ! latitudes of input grid central points, radian
   type(domain2d), intent(in) :: domain ! our domain
@@ -580,9 +581,9 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
   type(horiz_remap_type), intent(out) :: map ! remapping information
 
 
-  ! --- local constants  
+  ! --- local constants
   character(*), parameter :: mod_name='horiz_remap_new'
-  ! --- local vars  
+  ! --- local vars
   integer :: ntot ! total number of missing points across all PEs
   integer :: is,ie,js,je ! boundaries of our compute domain
   integer :: npes ! total number of PEs
@@ -601,7 +602,7 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
 
   ! get the number of longitudes in global domain (only used to resolve ambiguities
   ! in PE-count independent manner)
-  call mpp_get_global_domain(domain, xsize = nlon )  
+  call mpp_get_global_domain(domain, xsize = nlon )
   ! get the size of our domain
   call mpp_get_compute_domain(domain, is,ie,js,je)
   ! check the input array shapes
@@ -617,7 +618,7 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
   if(size(lat,1)/=ie-is+1.or.size(lat,2)/=je-js+1) then
     call my_error(mod_name,'shape of input array "'//'lat'//'" must be the same as shape of compute domain',FATAL)
   endif
-  
+
   ! get the number of missing points for this PE
   map%n = count(invalid)
 
@@ -626,7 +627,7 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
   ! and the number of the root PE
   root_pe = pes(1)
 
-  ! [x] compute the global number of missing points and assemble the 
+  ! [x] compute the global number of missing points and assemble the
   ! array of point numbers per PE on root PE
   ! no need to send data to oneself (rab)
   if (mpp_pe()/=root_pe) then
@@ -643,11 +644,11 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
         call mpp_send(ntot,pes(p),tag=COMM_TAG_2)
      enddo
   endif
-  
+
   call mpp_sync_self()
   ! we don't need to do anything if there are no missing points anywhere
   if (ntot==0) return
-  
+
   ! [x] allocate global buffers
   allocate(glon(ntot),glat(ntot),from_pe(ntot),dist(ntot),ii(ntot),jj(ntot))
 
@@ -665,7 +666,7 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
      endif
   enddo
   enddo
-  
+
   ! [x] send the array of point coordinates to root PE and get the global
   ! arrays of point coordinates in return
   if (mpp_pe()/=root_pe) then
@@ -679,11 +680,11 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
      call mpp_recv(glon(1),glen=ntot,from_pe=root_pe, tag=COMM_TAG_6)
      call mpp_recv(glat(1),glen=ntot,from_pe=root_pe, tag=COMM_TAG_7)
   else
-     ! root PE receives data from all PEs and assembles global coordinate arrays 
+     ! root PE receives data from all PEs and assembles global coordinate arrays
      ! in the order of PEs in the list, except that it puts its own data first.
      from_pe(1:map%n) = root_pe
      k=map%n+1
-     do p = 1,npes 
+     do p = 1,npes
         if (pes(p)==root_pe) cycle
         call mpp_recv(n1,pes(p), tag=COMM_TAG_3)
         if (n1>0) then
@@ -704,12 +705,12 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
 
   ! [x] find the nearest points in the domain
   do k = 1, ntot
-     call nearest(valid,lon,lat,glon(k),glat(k),ii(k),jj(k),dist=dist(k))     
+     call nearest(valid,lon,lat,glon(k),glat(k),ii(k),jj(k),dist=dist(k))
   enddo
   ! convert local domain indices to global
   ii(:) = ii(:)+is-1; jj(:)=jj(:)+js-1
 
-  ! [5] send the data to root PE and let it calculate the points corresponding to 
+  ! [5] send the data to root PE and let it calculate the points corresponding to
   ! the global minimum distance
   if (mpp_pe()/=root_pe) then
      ! non-root PE just sends the data
@@ -733,7 +734,7 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
   else
      ! root PE does the bulk of processing: it assembles all the data
      ! and sends the relevant parts back to the processors that need them
-     
+
      ! receive data about domain-specific nearest points from PEs and select
      ! the globally nearest point among them
      allocate(ibuf(ntot),jbuf(ntot),dbuf(ntot))
@@ -754,7 +755,7 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
            endif
         enddo
      enddo
-     
+
      ! release buffers
      deallocate (ibuf,jbuf,dbuf)
 
@@ -764,14 +765,14 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
      k0=1; m=1
      do p = 1, npes
         do k = sum(np(1:p-1))+1, sum(np(1:p))
-           if (from_pe(k) == pes(p)) cycle ! skip communications to itself 
+           if (from_pe(k) == pes(p)) cycle ! skip communications to itself
            if (ANY(map%srcPE(k0:m-1)==from_pe(k))) cycle ! skip src->dst pair that already exists
            ! add current pair to the communication map
            map%srcPE(m)=from_pe(k); map%dstPE(m)=pes(p); m=m+1
         enddo
         k0=m
      enddo
-     
+
      ! actual number of elements in comm. map is m-1
      map%mapSize=m-1
 
@@ -800,14 +801,14 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
         call mpp_sync_self()
         k = k+np(p)
      enddo
-     
+
   endif
 
   call mpp_sync_self()
 
   deallocate(glon,glat,from_pe,dist,ii,jj)
-  
-  ! note that many communications in this routine can be sped up if the data 
+
+  ! note that many communications in this routine can be sped up if the data
   ! are combined.
   ! For example instead of sending ii,jj,and from_pe one can encode them
   ! in a single integer array [ a(i*3-2)=ii(i), a(i*3-1)=jj(i), a(i*3)=from_pe(i) ]
@@ -820,7 +821,7 @@ subroutine horiz_remap(map,domain,d)
   type(horiz_remap_type), intent(in)    :: map
   type(domain2d)        , intent(in)    :: domain
   real                  , intent(inout) :: d(:,:,:) ! field to fill
-  
+
   ! ---- local vars
   integer :: is,ie,js,je ! bounds of out compute domain
   integer :: i,j,k,n
@@ -880,7 +881,7 @@ subroutine horiz_remap(map,domain,d)
 
         ! get the response
         call mpp_recv(buf(1,1),glen=size(buf),from_pe=map%srcPE(k), tag=COMM_TAG_20)
-        ! fill the data 
+        ! fill the data
         j = 1
         do i = 1,map%n
            if (map%src_p(i)==map%srcPE(k)) then

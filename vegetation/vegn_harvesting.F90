@@ -6,7 +6,7 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod, only : write_version_number, string, error_mesg, FATAL, NOTE, &
+use fms_mod, only : string, error_mesg, FATAL, NOTE, &
      mpp_pe, write_version_number, file_exist, close_file, &
      check_nml_error, stdlog, mpp_root_pe
 use mpp_io_mod, only : axistype, mpp_get_atts, mpp_get_axis_data, &
@@ -20,6 +20,7 @@ use vegn_tile_mod, only : vegn_tile_type, vegn_tile_LAI
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools
 use soil_carbon_mod, only: soil_carbon_option, &
      SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE
+use land_data_mod, only: log_version
 
 implicit none
 private
@@ -36,10 +37,9 @@ public :: vegn_cut_forest
 ! ==== end of public interface ===============================================
 
 ! ==== module constants ======================================================
-character(len=*), parameter   :: &
-     version = '$Id$', &
-     tagname = '$Name$', &
-     module_name = 'vegn_harvesting_mod'
+character(len=*), parameter :: module_name = 'vegn_harvesting_mod'
+#include "../shared/version_variable.inc"
+character(len=*), parameter :: tagname     = '$Name$'
 real, parameter :: ONETHIRD = 1.0/3.0
 integer, parameter :: DAILY = 1, ANNUAL = 2
 
@@ -76,7 +76,7 @@ contains ! ###################################################################
 subroutine vegn_harvesting_init
   integer :: unit, ierr, io
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, __FILE__, tagname)
 
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=harvesting_nml, iostat=io)

@@ -53,12 +53,10 @@ interface read_create_cohorts
 end interface read_create_cohorts
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: &
-     module_name = 'cohort_io_mod', &
-     version     = '$Id$', &
-     tagname     = '$Name$'
-! name of the "compressed" dimension (and dimension variable) in the output 
-! netcdf files -- that is, the dimensions written out using compression by 
+character(len=*), parameter :: module_name = 'cohort_io_mod'
+#include "../shared/version_variable.inc"
+
+! netcdf files -- that is, the dimensions written out using compression by
 ! gathering, as described in CF conventions.
 character(len=*),   parameter :: cohort_index_name   = 'cohort_index'
 
@@ -71,7 +69,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 ! ============================================================================
 ! given compressed index, sizes of the global grid, 2D array of tile lists
 ! and the lower boundaries of this array, returns a pointer to the cohort
-! corresponding to the compressed index, or NULL is the index is outside 
+! corresponding to the compressed index, or NULL is the index is outside
 ! current domain, or such tile does not exist, or such cohort does not exist.
 subroutine get_cohort_by_idx(idx,nlon,nlat,ntiles,tiles,is,js,ptr)
    integer, intent(in) :: idx ! index
@@ -79,11 +77,11 @@ subroutine get_cohort_by_idx(idx,nlon,nlat,ntiles,tiles,is,js,ptr)
    integer, intent(in) :: is, js
    type(land_tile_list_type), intent(in) :: tiles(is:,js:)
    type(vegn_cohort_type), pointer :: ptr
-   
+
    ! ---- local vars
    integer :: tile_idx, k
    type(land_tile_type), pointer :: tile
-   
+
    ptr=>NULL()
    if ( idx < 0 ) return
    tile_idx = modulo(idx,nlon*nlat*ntiles)
@@ -103,7 +101,7 @@ subroutine read_create_cohorts_orig(ncid)
 
   integer :: ncohorts ! total number of cohorts in restart file
   integer :: nlon, nlat, ntiles ! size of respective dimensions
- 
+
   integer, allocatable :: idx(:)
   integer :: i,j,t,k,m, n, nn, idxid
   integer :: bufsize
@@ -120,10 +118,10 @@ subroutine read_create_cohorts_orig(ncid)
   __NF_ASRT__(nfu_inq_var(ncid,cohort_index_name,id=idxid))
   bufsize = min(input_buf_size,ncohorts)
   allocate(idx(bufsize))
-  
+
   do nn = 1, ncohorts, bufsize
      __NF_ASRT__(nf_get_vara_int(ncid,idxid,nn,min(bufsize,ncohorts-nn+1),idx))
-     
+
      do n = 1,min(bufsize,ncohorts-nn+1)
         if(idx(n)<0) cycle ! skip illegal indices
         k = idx(n)
@@ -131,10 +129,10 @@ subroutine read_create_cohorts_orig(ncid)
         j = modulo(k,nlat)+1   ; k = k/nlat
         t = modulo(k,ntiles)+1 ; k = k/ntiles
         k = k+1
-        
+
         if (i<lnd%is.or.i>lnd%ie) cycle ! skip points outside of domain
         if (j<lnd%js.or.j>lnd%je) cycle ! skip points outside of domain
-        
+
         ce = first_elmt(land_tile_map(i,j))
         do m = 1,t-1
            ce=next_elmt(ce)
@@ -170,14 +168,14 @@ subroutine read_create_cohorts_new(idx,ntiles)
 
   integer :: ncohorts ! total number of cohorts in restart file
   integer :: nlon, nlat ! size of respective dimensions
- 
+
   integer :: i,j,t,k,m, n
   type(land_tile_enum_type) :: ce, te
   type(land_tile_type), pointer :: tile
   character(len=64) :: info ! for error message
 
   ! get the size of dimensions
-  nlon = lnd%nlon 
+  nlon = lnd%nlon
   nlat = lnd%nlat
   ncohorts = size(idx)
 
@@ -218,7 +216,7 @@ subroutine read_create_cohorts_new(idx,ntiles)
 end subroutine read_create_cohorts_new
 
 ! ============================================================================
-! creates cohort dimension, if necessary, in the output restart file. NOTE 
+! creates cohort dimension, if necessary, in the output restart file. NOTE
 ! that this subroutine should be called even if restart has not been created
 ! (because, for example, there happen to be no vegetation in a certain domain),
 ! for the reason that it calls mpp_max, and that should be called for each
@@ -230,7 +228,7 @@ subroutine create_cohort_dimension_orig(ncid)
   ! ---- local vars
   type(land_tile_enum_type) :: ce, te ! tile list enumerators
   type(land_tile_type), pointer :: tile
- 
+
   integer, allocatable :: idx(:)   ! integer compressed index of tiles
   integer :: i,j,k,c,n,ntiles,max_cohorts,p
   integer :: iret
@@ -246,7 +244,7 @@ subroutine create_cohort_dimension_orig(ncid)
   do while (ce/=te)
      tile=>current_tile(ce)
      if(associated(tile%vegn))then
-        n = n+tile%vegn%n_cohorts 
+        n = n+tile%vegn%n_cohorts
         max_cohorts = max(max_cohorts,tile%vegn%n_cohorts)
      endif
      ce=next_elmt(ce)
@@ -256,7 +254,7 @@ subroutine create_cohort_dimension_orig(ncid)
 
   ! get the size of the tile dimension from the file
   __NF_ASRT__(nfu_inq_dim(ncid,'tile',len=ntiles))
-  
+
   ! calculate compressed cohort index to be written to the restart file
   allocate(idx(max(n,1))) ; idx(:) = -1
   ce = first_elmt(land_tile_map, lnd%is, lnd%js)
@@ -270,7 +268,7 @@ subroutine create_cohort_dimension_orig(ncid)
                 (c-1)*lnd%nlon*lnd%nlat*ntiles + &
                 (k-1)*lnd%nlon*lnd%nlat + &
                 (j-1)*lnd%nlon + &
-                (i-1)        
+                (i-1)
            n = n+1
         enddo
      endif
@@ -321,7 +319,7 @@ subroutine create_cohort_dimension_new(rhandle,cidx,name,tile_dim_length)
   ! ---- local vars
   type(land_tile_enum_type) :: ce, te ! tile list enumerators
   type(land_tile_type), pointer :: tile
- 
+
   integer :: i,j,k,c,n,max_cohorts
 
   ! count total number of cohorts in compute domain and max number of
@@ -333,7 +331,7 @@ subroutine create_cohort_dimension_new(rhandle,cidx,name,tile_dim_length)
   do while (ce/=te)
      tile=>current_tile(ce)
      if(associated(tile%vegn))then
-        n = n+tile%vegn%n_cohorts 
+        n = n+tile%vegn%n_cohorts
         max_cohorts = max(max_cohorts,tile%vegn%n_cohorts)
      endif
      ce=next_elmt(ce)
@@ -354,7 +352,7 @@ subroutine create_cohort_dimension_new(rhandle,cidx,name,tile_dim_length)
                 (c-1)*lnd%nlon*lnd%nlat*tile_dim_length + &
                 (k-1)*lnd%nlon*lnd%nlat + &
                 (j-1)*lnd%nlon + &
-                (i-1)        
+                (i-1)
            n = n+1
         enddo
      endif
@@ -391,7 +389,7 @@ subroutine assemble_cohorts_i0d(fptr,idx,ntiles,data)
   integer, intent(in) :: ntiles ! size of the tile dimension
   integer, intent(in) :: data(:) ! local cohort data
   ! subroutine returning the pointer to the data to be written
-  interface 
+  interface
      subroutine fptr(cohort, ptr)
        use vegn_cohort_mod, only : vegn_cohort_type
        type(vegn_cohort_type), pointer :: cohort ! input
@@ -421,7 +419,7 @@ subroutine assemble_cohorts_r0d(fptr,idx,ntiles,data)
   integer, intent(in) :: ntiles ! size of the tile dimension
   real, intent(in) :: data(:) ! local cohort data
   ! subroutine returning the pointer to the data to be written
-  interface 
+  interface
      subroutine fptr(cohort, ptr)
        use vegn_cohort_mod, only : vegn_cohort_type
        type(vegn_cohort_type), pointer :: cohort ! input
@@ -451,7 +449,7 @@ subroutine gather_cohort_data_i0d(fptr,idx,ntiles,data)
   integer, intent(in) :: ntiles ! size of the tile dimension
   integer, intent(out) :: data(:) ! local cohort data
   ! subroutine returning the pointer to the data to be written
-  interface 
+  interface
      subroutine fptr(cohort, ptr)
        use vegn_cohort_mod, only : vegn_cohort_type
        type(vegn_cohort_type), pointer :: cohort ! input
@@ -487,7 +485,7 @@ subroutine gather_cohort_data_r0d(fptr,idx,ntiles,data)
   integer, intent(in) :: ntiles ! size of the tile dimension
   real, intent(out) :: data(:) ! local cohort data
   ! subroutine returning the pointer to the data to be written
-  interface 
+  interface
      subroutine fptr(cohort, ptr)
        use vegn_cohort_mod, only : vegn_cohort_type
        type(vegn_cohort_type), pointer :: cohort ! input
@@ -510,7 +508,7 @@ subroutine gather_cohort_data_r0d(fptr,idx,ntiles,data)
                              land_tile_map, lnd%is, lnd%js,cohort)
      if (associated(cohort)) then
         call fptr(cohort, ptr)
-        if(associated(ptr)) then 
+        if(associated(ptr)) then
            data(i) = ptr
            mask(i) = 1
         endif

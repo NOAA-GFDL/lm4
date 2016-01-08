@@ -11,17 +11,12 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod, only : &
-     write_version_number, file_exist, check_nml_error, &
-     read_data, close_file, stdlog
-use constants_mod, only : &
-     pi, tfreeze, hlf
-use land_constants_mod, only : &
-     NBANDS
-use land_io_mod, only : &
-     init_cover_field
-use land_tile_selectors_mod, only : &
-     tile_selector_type, SEL_LAKE, register_tile_selector
+use fms_mod, only : file_exist, check_nml_error, read_data, close_file, stdlog
+use constants_mod, only : pi, tfreeze, hlf
+use land_constants_mod, only : NBANDS
+use land_data_mod, only : log_version
+use land_io_mod, only : init_cover_field
+use land_tile_selectors_mod, only : tile_selector_type, SEL_LAKE, register_tile_selector
 
 implicit none
 private
@@ -55,10 +50,9 @@ end interface
 
 
 ! ==== module constants ======================================================
-character(len=*), private, parameter   :: &
-     version     = '$Id$', &
-     tagname     = '$Name$', &
-     module_name = 'lake_tile_mod'
+character(len=*), parameter :: module_name = 'lake_tile_mod'
+#include "../shared/version_variable.inc"
+character(len=*), parameter :: tagname     = '$Name$'
 
 integer, parameter :: max_lev          = 80
 integer, parameter :: n_dim_lake_types = 1  ! size of lookup table
@@ -149,7 +143,7 @@ integer, public :: n_outlet      = 0
 logical :: use_lm2_awc           = .false.
 logical, public :: lake_specific_width    = .false.
 integer :: n_map_1st_lake_type = 10
-  
+
 integer, public :: outlet_face(100)
 integer, public :: outlet_i(100)
 integer, public :: outlet_j(100)
@@ -169,7 +163,7 @@ logical :: round_frac_down       = .false.  ! when false, any lake_frac < min_la
                                             ! is set to min_lake_frac.
                                             ! when true, any lake_frac < min_lake_frac
                                             ! is set to 0.
-                                            
+
 character(len=16):: lake_to_use     = 'single-tile'
        ! 'multi-tile' for tiled soil [default]
        ! 'single-tile' for geographically varying soil with single type per
@@ -232,7 +226,7 @@ namelist /lake_data_nml/ lake_width_inside_lake, &
      dat_refl_dry_dif,            dat_refl_sat_dif,              &
      dat_emis_dry,              dat_emis_sat,                &
      dat_z0_momentum,   dat_z0_momentum_ice,        dat_tf_depr, &
-     f_iso_ice, f_vol_ice, f_geo_ice, f_iso_liq, f_vol_liq, f_geo_liq 
+     f_iso_ice, f_vol_ice, f_geo_ice, f_iso_liq, f_vol_liq, f_geo_liq
 
 
 !---- end of namelist --------------------------------------------------------
@@ -249,14 +243,14 @@ subroutine read_lake_data_namelist(lake_n_lev)
   integer :: i
   real    :: z
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, __FILE__, tagname)
 #ifdef INTERNAL_FILE_NML
      read (input_nml_file, nml=lake_data_nml, iostat=io)
      ierr = check_nml_error(io, 'lake_data_nml')
 #else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
-     ierr = 1;  
+     ierr = 1;
      do while (ierr /= 0)
         read (unit, nml=lake_data_nml, iostat=io, end=10)
         ierr = check_nml_error (io, 'lake_data_nml')
@@ -311,10 +305,10 @@ end function lake_tile_ctor
 function lake_tile_copy_ctor(lake) result(ptr)
   type(lake_tile_type), pointer    :: ptr  ! return value
   type(lake_tile_type), intent(in) :: lake ! tile to copy
-  
+
   allocate(ptr)
   ptr=lake ! copy all non-pointer data
-  ! no need to allocate storage for allocatable components of the tile, because 
+  ! no need to allocate storage for allocatable components of the tile, because
   ! F2003 takes care of that, and also takes care of copying data
 end function lake_tile_copy_ctor
 
@@ -404,13 +398,13 @@ function lake_cover_cold_start(land_mask, lonb, latb, domain) result (lake_frac)
      call init_cover_field(lake_to_use, 'INPUT/ground_type.nc', 'cover','frac', &
           lonb, latb, lake_index_constant, input_cover_types, lake_frac)
   endif
-  
+
   if (round_frac_down) then
       where (lake_frac.gt.0. .and. lake_frac.lt.min_lake_frac) lake_frac = 0.
     else
       where (lake_frac.gt.0. .and. lake_frac.lt.min_lake_frac) lake_frac = min_lake_frac
     endif
-  
+
 end function lake_cover_cold_start
 
 ! =============================================================================
@@ -422,7 +416,7 @@ function lake_tiles_can_be_merged(lake1,lake2) result(response)
 end function lake_tiles_can_be_merged
 
 ! =============================================================================
-! combine two lake tiles with specified weights; the results goes into the 
+! combine two lake tiles with specified weights; the results goes into the
 ! second one
 ! THIS NEEDS TO BE REVISED FOR TILE-DEPENDENT DZ
 subroutine merge_lake_tiles(t1,w1,t2,w2)
@@ -486,7 +480,7 @@ end function lake_is_selected
 function get_lake_tile_tag(lake) result(tag)
   integer :: tag
   type(lake_tile_type), intent(in) :: lake
-  
+
   tag = lake%tag
 end function get_lake_tile_tag
 
@@ -584,7 +578,7 @@ subroutine lake_tile_stock_pe (lake, twd_liq, twd_sol  )
   type(lake_tile_type),  intent(in)    :: lake
   real,                  intent(out)   :: twd_liq, twd_sol
   integer n
-  
+
   twd_liq = 0.
   twd_sol = 0.
   do n=1, size(lake%wl)

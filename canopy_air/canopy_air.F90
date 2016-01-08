@@ -11,7 +11,7 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod, only : write_version_number, error_mesg, FATAL, NOTE, file_exist, &
+use fms_mod, only : error_mesg, FATAL, NOTE, file_exist, &
      close_file, check_nml_error, mpp_pe, mpp_root_pe, stdlog, string
 use fms_io_mod, only : read_compressed, restart_file_type, free_restart_type
 use fms_io_mod, only : field_exist, get_field_size, save_restart
@@ -30,7 +30,7 @@ use cana_tile_mod, only : cana_tile_type, &
      canopy_air_mass, canopy_air_mass_for_tracers, cpw
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
-use land_data_mod,      only : land_state_type, lnd
+use land_data_mod, only : land_state_type, lnd, log_version
 use land_tile_io_mod, only : create_tile_out_file, &
      read_tile_data_r0d_fptr, write_tile_data_r0d_fptr, &
      read_tile_data_r1d_fptr, write_tile_data_r1d_fptr, &
@@ -56,10 +56,9 @@ public :: cana_step_2
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
-character(len=*), private, parameter :: &
-  version = '$Id$', &
-  tagname = '$Name$', &
-  module_name = 'canopy_air_mod'
+character(len=*), parameter :: module_name = 'canopy_air_mod'
+#include "../shared/version_variable.inc"
+character(len=*), parameter :: tagname     = '$Name$'
 
 ! options for turbulence parameter calculations
 integer, parameter :: TURB_LM3W = 1, TURB_LM3V = 2
@@ -84,7 +83,7 @@ namelist /cana_nml/ &
 !---- end of namelist --------------------------------------------------------
 
 logical :: module_is_initialized =.FALSE.
-integer :: turbulence_option ! selected option of turbulence parameters 
+integer :: turbulence_option ! selected option of turbulence parameters
      ! calculations
 
 ! ==== NetCDF declarations ===================================================
@@ -102,14 +101,14 @@ subroutine read_cana_namelist()
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, __FILE__, tagname)
 #ifdef INTERNAL_FILE_NML
      read (input_nml_file, nml=cana_nml, iostat=io)
      ierr = check_nml_error(io, 'cana_nml')
 #else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
-     ierr = 1;  
+     ierr = 1;
      do while (ierr /= 0)
         read (unit, nml=cana_nml, iostat=io, end=10)
         ierr = check_nml_error (io, 'cana_nml')
@@ -127,7 +126,7 @@ end subroutine read_cana_namelist
 ! ============================================================================
 ! initialize canopy air
 subroutine cana_init ( id_lon, id_lat, new_land_io )
-  integer, intent(in)          :: id_lon  ! ID of land longitude (X) axis  
+  integer, intent(in)          :: id_lon  ! ID of land longitude (X) axis
   integer, intent(in)          :: id_lat  ! ID of land latitude (Y) axis
   logical, intent(in)          :: new_land_io  ! This is a transition var and will be removed
 
@@ -155,7 +154,7 @@ subroutine cana_init ( id_lon, id_lat, new_land_io )
   ! get the initial conditions for tracers
 
   ! For  now, we get the initial value from the surface_value parameter of the
-  ! *atmospheric* tracer vertical profile, except for co2 and sphum. init_q in 
+  ! *atmospheric* tracer vertical profile, except for co2 and sphum. init_q in
   ! the cana_nml sets the initial value of the specific humidity, and init_co2
   ! sets the initial value of the dry volumetric mixing ration for co2.
   ! If surface_value is not defined in tracer table, then initial condition is zero
@@ -180,9 +179,9 @@ subroutine cana_init ( id_lon, id_lat, new_land_io )
   do while(ce /= te)
      tile=>current_tile(ce)  ! get pointer to current tile
      ce=next_elmt(ce)       ! advance position to the next tile
-     
+
      if (.not.associated(tile%cana)) cycle
-     
+
      if (associated(tile%glac)) then
         tile%cana%T = init_T_cold
      else
@@ -230,7 +229,7 @@ subroutine cana_init ( id_lon, id_lat, new_land_io )
                    '" was set to initial value '//string(init_tr(tr)), NOTE)
            endif
         enddo
-        __NF_ASRT__(nf_close(unit))     
+        __NF_ASRT__(nf_close(unit))
      endif
   else
      call error_mesg('cana_init',&
@@ -238,7 +237,7 @@ subroutine cana_init ( id_lon, id_lat, new_land_io )
           NOTE)
   endif
 
-  ! initialize options, to avoid expensive character comparisons during 
+  ! initialize options, to avoid expensive character comparisons during
   ! run-time
   if (trim(turbulence_to_use)=='lm3v') then
      turbulence_option = TURB_LM3V
@@ -248,7 +247,7 @@ subroutine cana_init ( id_lon, id_lat, new_land_io )
      call error_mesg('cana_init', 'canopy air turbulence option turbulence_to_use="'// &
           trim(turbulence_to_use)//'" is invalid, use "lm3w" or "lm3v"', FATAL)
   endif
-  
+
 end subroutine cana_init
 
 
@@ -341,8 +340,8 @@ end subroutine save_cana_restart_new
 ! set up constants for linearization of radiative transfer, using information
 ! provided by soil, snow and vegetation modules.
 subroutine cana_radiation (lm2, &
-     subs_refl_dir, subs_refl_dif, subs_refl_lw, & 
-     snow_refl_dir, snow_refl_dif, snow_refl_lw, & 
+     subs_refl_dir, subs_refl_dif, subs_refl_lw, &
+     snow_refl_dir, snow_refl_dif, snow_refl_lw, &
      snow_area, &
      vegn_refl_dir, vegn_refl_dif, vegn_tran_dir, vegn_tran_dif, &
      vegn_tran_dir_dir, vegn_refl_lw, vegn_tran_lw,  &
@@ -357,8 +356,8 @@ subroutine cana_radiation (lm2, &
        snow_area, &
        vegn_refl_dir(NBANDS), vegn_tran_dir(NBANDS), & ! vegn reflectance & transmittance for direct light
        vegn_tran_dir_dir(NBANDS), & !
-       vegn_refl_dif(NBANDS), vegn_tran_dif(NBANDS), & ! vegn reflectance & transmittance for diffuse light 
-       vegn_refl_lw,  vegn_tran_lw,  & ! vegn reflectance & transmittance for thermal radiation 
+       vegn_refl_dif(NBANDS), vegn_tran_dif(NBANDS), & ! vegn reflectance & transmittance for diffuse light
+       vegn_refl_lw,  vegn_tran_lw,  & ! vegn reflectance & transmittance for thermal radiation
        vegn_cover
 
   real, intent(out) :: &
@@ -433,7 +432,7 @@ subroutine cana_turbulence (u_star,&
      con_v_h, con_v_v, con_g_h, con_g_v )
   real, intent(in) :: &
        u_star, & ! friction velocity, m/s
-       land_d, land_z0m, land_z0s, grnd_z0s, & 
+       land_d, land_z0m, land_z0s, grnd_z0s, &
        vegn_cover, vegn_height, &
        vegn_lai, vegn_sai, vegn_d_leaf
   real, intent(out) :: &
@@ -444,7 +443,7 @@ subroutine cana_turbulence (u_star,&
   real, parameter :: a_max = 3
   real, parameter :: leaf_co = 0.01 ! meters per second^(1/2)
                                     ! leaf_co = g_b(z)/sqrt(wind(z)/d_leaf)
-  ! ---- local vars 
+  ! ---- local vars
   real :: a        ! parameter of exponential wind profile within canopy:
                    ! u = u(ztop)*exp(-a*(1-z/ztop))
   real :: height   ! effective height of vegetation
@@ -470,7 +469,7 @@ subroutine cana_turbulence (u_star,&
      height = max(vegn_height,0.1) ! effective height of the vegetation
      a = a_max
      wind=u_star/VONKARM*log((height-land_d)/land_z0m) ! normalized wind on top of the canopy
-  
+
      con_v_h = (2*max(vegn_lai,lai_min_turb)*leaf_co*(1-exp(-a/2))/a)*sqrt(wind/vegn_d_leaf)
 
      if (land_d > 0.06 .and. vegn_idx > 0.25) then
@@ -524,7 +523,7 @@ subroutine cana_roughness(lm2, &
   real, parameter :: d_h_max = 2./3.
   real, parameter :: z0m_h_max = 1/7.35
 
-  ! ---- local vars 
+  ! ---- local vars
   real :: d_h      ! ratio of displacement height to vegetation height
   real :: z0m_h    ! ratio of roughness length to vegetation height
   real :: grnd_z0m, grnd_z0s
@@ -560,7 +559,7 @@ subroutine cana_roughness(lm2, &
         land_z0m = grnd_z0m
         land_z0s = grnd_z0s
      endif
-     
+
   case(TURB_LM3V)
      height = max(vegn_height,0.1) ! effective height of the vegetation
      vegn_idx = vegn_lai+vegn_sai  ! total vegetation index
@@ -571,19 +570,19 @@ subroutine cana_roughness(lm2, &
         else
            land_z0m = grnd_z0m + 0.3*height*sqrt(0.07*vegn_idx)
         endif
-     else 
+     else
         ! bare soil or leaf off
         land_z0m = 0.1 *height
         land_d   = 0.66*height
      endif
-     land_z0s = land_z0m*exp(-2.0) 
+     land_z0s = land_z0m*exp(-2.0)
 
      if (allow_small_z0.and.is_lake_or_glac) then
          land_d = 0
 	 land_z0m = grnd_z0m
 	 land_z0s = grnd_z0s
        endif
-     
+
   end select
 
 end subroutine cana_roughness
@@ -596,7 +595,7 @@ subroutine cana_state ( cana, cana_T, cana_q, cana_co2 )
   if (present(cana_T))   cana_T   = cana%T
   if (present(cana_q))   cana_q   = cana%tr(isphum)
   if (present(cana_co2)) cana_co2 = cana%tr(ico2)
-  
+
 end subroutine
 
 ! ============================================================================
@@ -679,8 +678,8 @@ end subroutine
 subroutine cana_tr_ptr(t,i,p)
   type(land_tile_type), pointer    :: t
   integer,              intent(in) :: i
-  real,                 pointer    :: p 
-  
+  real,                 pointer    :: p
+
   p=>NULL()
   if(associated(t))then
      if(associated(t%cana))p=>t%cana%tr(i)

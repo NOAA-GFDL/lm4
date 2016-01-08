@@ -33,9 +33,8 @@ end interface
 
 #undef __INTERFACE_SECTION__
 ! ---- module constants ------------------------------------------------------
-character(len=*), parameter :: &
-     version = '$Id$', &
-     tagname = '$Name$'
+#include "../../shared/version_variable.inc"
+character(len=*), parameter :: tagname = '$Name$'
 
 ! ---- private type - used to hold dimension/packing information during unpacking
 ! (see get_compressed_var_i_r8)
@@ -43,7 +42,7 @@ type diminfo_type
    integer, pointer :: idx(:)=>NULL() ! packing information
    integer :: length  ! size of the dimension in the input array
    integer :: stride  ! stide along the dimension in the output array
-end type 
+end type
 
 ! ==== NetCDF declarations ===================================================
 include 'netcdf.inc'
@@ -77,7 +76,7 @@ function inq_compressed_dim_i(ncid,dimid,ndims,dimids,dimlens,dimname) result (i
   integer, intent(out), optional :: dimids(:)
   integer, intent(out), optional :: dimlens(:)
   character(*), intent(out), optional :: dimname
-  
+
   character(NF_MAX_NAME) :: dimname_
   character(1024) :: compress ! should be more than enough to hold the compression info
   integer :: dimlen,dimid0,varid,n,is,ie
@@ -135,7 +134,7 @@ function inq_compressed_var_n(ncid, name, id, xtype, ndims, dimids, dimlens, nat
   iret = inq_compressed_var_i(ncid,vid,vname,xtype,ndims,dimids,dimlens,natts,&
        is_dim,has_records,varsize,recsize,nrec,is_compressed)
 
-7 return  
+7 return
 end function
 
 ! ============================================================================
@@ -157,7 +156,7 @@ function inq_compressed_var_i(ncid, vid, name, xtype, ndims, dimids, dimlens, &
   integer, intent(out), optional :: nrec    ! number of records
   logical, intent(out), optional :: is_compressed ! true if variable is actually compressed
 
-  
+
   integer :: nd0, dids0(NF_MAX_VAR_DIMS),dlens0(NF_MAX_VAR_DIMS)
   integer :: nd1, dids1(NF_MAX_VAR_DIMS),dlens1(NF_MAX_VAR_DIMS)
   integer :: i,n,unlimdim,vsize,rsize

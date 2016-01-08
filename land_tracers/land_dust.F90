@@ -11,7 +11,7 @@ use fms_mod, only: open_namelist_file
 use constants_mod, only: PI, rdgas, GRAV, PSTD_MKS, DENS_H2O
 use land_constants_mod, only : d608, kBoltz
 
-use fms_mod, only : write_version_number, error_mesg, FATAL, NOTE, file_exist, &
+use fms_mod, only : error_mesg, FATAL, NOTE, file_exist, &
      close_file, check_nml_error, mpp_pe, mpp_root_pe, stdlog, stdout, string, lowercase
 use time_manager_mod, only: time_type, time_type_to_real
 use diag_manager_mod, only : diag_axis_init, register_static_field, &
@@ -26,7 +26,7 @@ use vegn_tile_mod, only : vegn_tile_LAI, vegn_tile_SAI
 use vegn_data_mod, only:  LU_PAST, LU_CROP, LU_SCND, LU_NTRL
 use land_tile_mod, only : land_tile_type, land_tile_grnd_T
 use land_tile_diag_mod, only : register_tiled_diag_field, send_tile_data
-use land_data_mod, only : land_state_type, lnd
+use land_data_mod, only : land_state_type, lnd, log_version
 use land_io_mod, only : read_field
 use land_tracers_mod, only : ntcana, isphum
 use land_tile_diag_mod, only : &
@@ -45,11 +45,10 @@ public :: update_land_dust
 ! ==== end of public interfaces ================================================
 
 ! ==== module constants ========================================================
-character(len=*), private, parameter :: &
-  version     = '$Id$', &
-  tagname     = '$Name$', &
-  module_name = 'land_dust_mod', &
-  diag_name   = 'land_dust'
+character(len=*), parameter :: module_name = 'land_dust_mod'
+#include "../shared/version_variable.inc"
+character(len=*), parameter :: tagname     = '$Name$'
+character(len=*), parameter :: diag_name   = 'land_dust'
 
 type :: dust_data_type
    character(32) :: name = ''
@@ -61,20 +60,20 @@ type :: dust_data_type
    logical       :: do_emission   = .FALSE.
    real          :: alpha_r, alpha_s ! wet deposition parametrs for rain and snow
    real          :: source_fraction = 0.0 ! fraction of the source allocated to this dust tracer
-   
+
    integer :: & ! diag field ids
      id_emis,      id_ddep,      id_wdep, &
      id_flux_atm,  id_dfdtr, &
      id_con_v_lam, id_con_g_lam, &
      id_con_v,     id_con_g, &
-     id_vdep 
+     id_vdep
 end type dust_data_type
 
 
 ! ==== module variables ========================================================
 
 !---- namelist -----------------------------------------------------------------
-real :: soil_depth = 0.15 ! depth scale for soil wetness averaging, m 
+real :: soil_depth = 0.15 ! depth scale for soil wetness averaging, m
 real :: c1         = 10.0 ! adjustment factor for bareness calculations
 real :: sai_thresh = 0.05 ! stem area index threshold for dust emission
 real :: lai_thresh = 0.1  ! leaf area index threshold for dust emission
@@ -117,7 +116,7 @@ integer :: id_soil_wetness, id_soil_iceness, id_dust_emis, id_dust_source, &
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 subroutine land_dust_init (id_lon, id_lat, mask)
-  integer, intent(in) :: id_lon  ! ID of land longitude (X) axis  
+  integer, intent(in) :: id_lon  ! ID of land longitude (X) axis
   integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
   logical, intent(inout) :: mask(:)
 
@@ -131,8 +130,8 @@ subroutine land_dust_init (id_lon, id_lat, mask)
   real    :: value ! temporary storage for parsing input
   type(table_printer_type) :: table
 
-  ! log module version 
-  call write_version_number(version, tagname)
+  ! log module version
+  call log_version(version, module_name, __FILE__, tagname)
   logunit = stdlog()
   outunit = stdout()
 
@@ -143,7 +142,7 @@ subroutine land_dust_init (id_lon, id_lat, mask)
 #else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
-     ierr = 1;  
+     ierr = 1;
      do while (ierr /= 0)
         read (unit, nml=land_dust_nml, iostat=io, end=10)
         ierr = check_nml_error (io, 'land_dust_nml')
@@ -182,20 +181,20 @@ subroutine land_dust_init (id_lon, id_lat, mask)
      if (.not.mask(tr)) cycle ! sip all tracers that were already registered
 
      call get_tracer_names(MODEL_LAND, tr, name)
-     if (lowercase(name(1:4)).ne.'dust') cycle ! this is not dust, we are not interested  
+     if (lowercase(name(1:4)).ne.'dust') cycle ! this is not dust, we are not interested
 
      mask(tr) = .FALSE. ! this is our tracer, mark it non-generic
-     
+
      i = i+1
      trdata(i)%name    = name
      trdata(i)%tr_cana = tr
-     
+
      trdata(i)%tr_atm = get_tracer_index(MODEL_ATMOS,name)
      if (trdata(i)%tr_atm == NO_TRACER) cycle ! no such tracer in the atmosphere, nothing to do here
-     
+
      method = ''; parameters = ''
      if (query_method('dry_deposition', MODEL_ATMOS, trdata(i)%tr_atm, method)) then
-        trdata(i)%do_deposition = (index(lowercase(method),'lm3')>0) 
+        trdata(i)%do_deposition = (index(lowercase(method),'lm3')>0)
      endif
 
      method = ''; parameters = ''
@@ -237,7 +236,7 @@ subroutine land_dust_init (id_lon, id_lat, mask)
   call add_row(table, 'alpha_s',         trdata(:)%alpha_s)
   call print(table,stdlog())
   call print(table,stdout())
-  
+
   ! read dust source field
   allocate(dust_source(lnd%is:lnd%ie,lnd%js:lnd%je))
   call read_field( input_file_name, input_field_name, &
@@ -245,7 +244,7 @@ subroutine land_dust_init (id_lon, id_lat, mask)
 
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('land')
-  
+
   ! initialize diagnostic fields
   id_soil_wetness = register_tiled_diag_field(diag_name, 'soil_wetness', (/id_lon,id_lat/),  &
        lnd%time, 'soil wetness for dust emission calculations', 'unitless', missing_value=-1.0)
@@ -330,7 +329,7 @@ elemental real function sedimentation_velocity(T,p,r,rho) result(vdep)
    real, intent(in) :: p   ! pressure, Pa
    real, intent(in) :: r   ! radius of dust particles, m
    real, intent(in) :: rho ! density of dust particles, kg/m3
- 
+
    real :: viscosity, free_path, C_c
    viscosity = 1.458E-6 * T**1.5/(T+110.4)   ! Dynamic viscosity [kg/(m s)]
    free_path = 6.6e-8*T/293.15*(PSTD_MKS/p)
@@ -347,7 +346,7 @@ elemental real function laminar_conductance(T,p,sphum,ustar,r,rho,vdep) result(c
    real, intent(in) :: r     ! radius of dust particles, m
    real, intent(in) :: rho   ! density of dust particles, kg/m3
    real, intent(in) :: vdep  ! sedimentation velocity, m/s
-      
+
    ! ---- local vars
    real :: diff      ! diffusion coefficient for the particles, m2/s
    real :: viscosity ! dynamic viscosity, kg/(m s)
@@ -356,7 +355,7 @@ elemental real function laminar_conductance(T,p,sphum,ustar,r,rho,vdep) result(c
    real :: rho_air   ! air density, kg/m3
    real :: Sc        ! Schmidt number, unitless
    real :: St        ! Stokes number, unitless
-   
+
    viscosity = 1.458E-6 * T**1.5/(T+110.4)  ! Dynamic viscosity [kg/(m s)]
    free_path = 6.6e-8*T/293.15*(PSTD_MKS/p)
    C_c = 1.0 + free_path/r * (1.257+0.4*exp(-1.1*r/free_path))
@@ -416,7 +415,7 @@ subroutine update_land_dust(tile, i, j, tr_flux, dfdtr, &
 
   ! calculate dust sources
   call update_dust_source(tile,i,j,ustar,wind10,emis)
-  
+
   rho = p_surf/(rdgas*tile%cana%T*(1+d608*tile%cana%tr(isphum))) ! air density
   wdep_tot = 0.0; ddep_tot = 0.0 ; fatm_tot = 0.0 ! initialize total fluxes to zero for accumulation
   if (associated(tile%vegn)) LAI = vegn_tile_LAI(tile%vegn)
@@ -429,8 +428,8 @@ subroutine update_land_dust(tile, i, j, tr_flux, dfdtr, &
         ! calculate deposition velocity
         vdep = sedimentation_velocity(tile%cana%T, p_surf, rwet, rho_wet)
         ! calculate the conductance of quasi-laminar layers
-        ! is using the same ustar correct? ustar is value calculated for the 
-        ! momentum flux from the atmos, is it applicable to the laminar 
+        ! is using the same ustar correct? ustar is value calculated for the
+        ! momentum flux from the atmos, is it applicable to the laminar
         ! conductances?
         if (associated(tile%vegn)) then
            con_v_lam = LAI*laminar_conductance(tile%vegn%cohorts(1)%Tv, p_surf, tile%cana%tr(isphum), ustar, rwet, rho_wet, vdep)
@@ -484,8 +483,8 @@ subroutine update_land_dust(tile, i, j, tr_flux, dfdtr, &
   enddo
   call send_tile_data(id_ddep_tot,  ddep_tot,  tile%diag)
   call send_tile_data(id_wdep_tot,  wdep_tot,  tile%diag)
-  call send_tile_data(id_fatm_tot,  fatm_tot,  tile%diag)  
-  call send_tile_data(id_cana_dens, rho,       tile%diag)  
+  call send_tile_data(id_fatm_tot,  fatm_tot,  tile%diag)
+  call send_tile_data(id_cana_dens, rho,       tile%diag)
 end subroutine update_land_dust
 
 
@@ -508,7 +507,7 @@ subroutine update_dust_source(tile, i, j, ustar, wind10, emis)
   real :: u_ts, u_thresh ! wind erosion threshold, m/s
   real :: dust_emis
   integer :: tr ! tracer index
-  
+
   u_ts     = 100.0 ! unrealistically big value guaranteed to be above ustar
   bareness = 1.0  ! value for bare ground
   soil_wetness = 0.0 ; soil_iceness = 0.0 ! for glaciers and lakes
@@ -538,7 +537,7 @@ subroutine update_dust_source(tile, i, j, ustar, wind10, emis)
           endif
        endif
     endif
-  
+
     if ((soil_wetness < sliq_thresh).and.(soil_iceness<sice_thresh)) then
        u_ts = u_thresh
        if (dependency_soil_moisture) then
@@ -549,7 +548,7 @@ subroutine update_dust_source(tile, i, j, ustar, wind10, emis)
       dust_emis = ch*bareness*dust_source(i,j)*(wind10-u_ts)*wind10**2
     endif
   endif
-  
+
   ! distribute dust emission among dust tracers
   do tr = 1,n_dust_tracers
      if (trdata(tr)%do_emission) &
@@ -562,7 +561,7 @@ subroutine update_dust_source(tile, i, j, ustar, wind10, emis)
   call send_tile_data(id_dust_emis,    dust_emis,    tile%diag)
   call send_tile_data(id_u_ts,         u_ts,         tile%diag)
   call send_tile_data(id_bareness,     bareness,     tile%diag)
-    
+
 end subroutine update_dust_source
 
 end module land_dust_mod

@@ -10,8 +10,8 @@ use mpp_io_mod, only : mpp_get_file_name
 use axis_utils_mod, only : get_axis_bounds
 
 use constants_mod,     only : PI
-use fms_mod,           only : file_exist, error_mesg, FATAL, stdlog, mpp_pe, &
-     mpp_root_pe, write_version_number, string, check_nml_error, close_file
+use fms_mod, only : file_exist, error_mesg, FATAL, stdlog, mpp_pe, &
+     mpp_root_pe, string, check_nml_error, close_file
 
 use mpp_mod, only: mpp_sync
 #ifdef INTERNAL_FILE_NML
@@ -28,6 +28,7 @@ use horiz_interp_mod,  only : horiz_interp_type, &
 use land_numerics_mod, only : nearest, bisect
 use nf_utils_mod,      only : nfu_validtype, nfu_get_dim, nfu_get_dim_bounds, &
      nfu_get_valid_range, nfu_is_valid, nfu_inq_var, nfu_get_var
+use land_data_mod, only : log_version
 
 implicit none
 private
@@ -54,10 +55,9 @@ include 'netcdf.inc'
 #define __NF_ASRT__(x) call print_netcdf_error((x),__FILE__,__LINE__)
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: &
-     module_name = 'land_io_mod', &
-     version     = '$Id$', &
-     tagname     = '$Name$'
+character(len=*), parameter :: module_name = 'land_io_mod'
+#include "../shared/version_variable.inc"
+character(len=*), parameter :: tagname     = '$Name$'
 
 logical :: module_is_initialized = .false.
 character(len=64)  :: interp_method = "conservative"
@@ -73,7 +73,7 @@ subroutine read_land_io_namelist()
   module_is_initialized = .TRUE.
 
   ! [1] print out version number
-  call write_version_number (version, tagname)
+  call log_version (version, module_name, __FILE__, tagname)
 
 #ifdef INTERNAL_FILE_NML
      read (input_nml_file, nml=land_io_nml, iostat=io)
@@ -81,7 +81,7 @@ subroutine read_land_io_namelist()
 #else
   if (file_exist('input.nml')) then
      unit = open_namelist_file ( )
-     ierr = 1;  
+     ierr = 1;
      do while (ierr /= 0)
         read (unit, nml=land_io_nml, iostat=io, end=10)
         ierr = check_nml_error (io, 'land_io_nml')
@@ -89,7 +89,7 @@ subroutine read_land_io_namelist()
 10   continue
      call close_file (unit)
   endif
-#endif   
+#endif
   if (mpp_pe() == mpp_root_pe()) then
      unit = stdlog()
      write (unit, nml=land_io_nml)
@@ -99,7 +99,7 @@ subroutine read_land_io_namelist()
   if(trim(interp_method) .NE. "conservative" .AND. trim(interp_method) .NE. "conserve_great_circle") then
      call error_mesg ( module_name,'interp_method should be "conservative" or "conserve_great_circle"', FATAL)
   endif
-  
+
   if (input_buf_size <= 0) then
      call error_mesg ( module_name,'input_buf_size must be larger than zero', FATAL)
   endif
@@ -127,9 +127,9 @@ subroutine init_cover_field( &
 
   if( .not. module_is_initialized ) &
        call error_mesg(module_name,'land_io_init is not called', FATAL)
- 
+
   frac = 0
-  
+
   if (cover_to_use == 'multi-tile') then
      call read_cover_field(filename,cover_field_name,frac_field_name,lonb,latb,input_cover_types,frac)
   else if (cover_to_use=='single-tile') then
@@ -365,7 +365,7 @@ end subroutine do_read_cover_field
   endif
   call mpp_get_axis_data(axes_bnd, in_latb)
   in_lonb = in_lonb*PI/180.0; in_latb = in_latb*PI/180.0
-  ! find the boundaries of latitude belt in input data that covers the 
+  ! find the boundaries of latitude belt in input data that covers the
   ! entire latb array
   in_j_start=bisect(in_latb, minval(latb))
   in_j_count=bisect(in_latb, maxval(latb))-in_j_start+1
@@ -393,7 +393,7 @@ end subroutine do_read_cover_field
   call mpp_read( input_unit, field, in_frac, start, count ) ! interface called here is mpp_read_region_r3D
   call mpp_get_atts(field,valid=v)
 
-  ! Initialize horizontal interpolator; we assume that the valid data mask is 
+  ! Initialize horizontal interpolator; we assume that the valid data mask is
   ! the same for all levels in input frac array. This is probably a good assumption
   ! in all cases.
   where(mpp_is_valid(in_frac(:,:,1),v))
@@ -570,7 +570,7 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
   logical, allocatable :: imask(:,:,:) ! mask of valid input values
   real,    allocatable :: rmask(:,:,:) ! real mask for interpolator
   real    :: omask(size(data,1),size(data,2),size(data,3)) ! mask of valid output data
-  character(len=20) :: interpolation 
+  character(len=20) :: interpolation
   integer :: i,j,k,imap,jmap
   type(validtype) :: v
   type(horiz_interp_type) :: hinterp
@@ -590,7 +590,7 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
 
   interpolation = "bilinear"
   if(present(interp)) interpolation = interp
-  
+
   call mpp_get_info(input_unit,ndim,nvar,natt,nrec)
   allocate(fields(nvar), all_axes(ndim))
   call mpp_get_axes(input_unit, all_axes)
@@ -612,7 +612,7 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
   allocate(varaxes(varndims))
   call mpp_get_atts(fld, axes=varaxes)
   nlon = dimlens(1) ; nlat = dimlens(2)
-  nlev = 1; 
+  nlev = 1;
   if (varndims==3) nlev=dimlens(3)
   if(nlev/=size(data,3)) then
      call error_mesg('read_field','3rd dimension length of the variable "'&
@@ -694,7 +694,7 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
 
   select case(trim(interpolation))
   case ("nearest")
-     allocate (x(nlon, nlat, nlev), imask(nlon, nlat, nlev))  
+     allocate (x(nlon, nlat, nlev), imask(nlon, nlat, nlev))
      ! read input data
      call mpp_read(input_unit, fld, x)
      imask = mpp_is_valid(x,v)
@@ -708,7 +708,7 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
      enddo
      deallocate(x,imask)
   case default
-     ! to minimize memory footprint, find the latitudinal boundaries in input 
+     ! to minimize memory footprint, find the latitudinal boundaries in input
      ! data grid that cover our domain.
      minlat = minval(lat)
      maxlat = maxval(lat)

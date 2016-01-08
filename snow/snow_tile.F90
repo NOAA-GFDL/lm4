@@ -8,14 +8,11 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod, only : &
-     write_version_number, file_exist, check_nml_error, &
-     close_file, stdlog
+use fms_mod, only : file_exist, check_nml_error, close_file, stdlog
 use constants_mod,only: tfreeze, hlf
-use land_constants_mod, only : &
-     NBANDS
-use land_tile_selectors_mod, only : &
-     tile_selector_type
+use land_constants_mod, only : NBANDS
+use land_tile_selectors_mod, only : tile_selector_type
+use land_data_mod, only : log_version
 
 implicit none
 private
@@ -49,10 +46,10 @@ end interface
 
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: &
-     module_name = 'snow_tile_mod' ,&
-     version     = '$Id$' ,&
-     tagname     = '$Name$'
+character(len=*), parameter :: module_name = 'snow_tile_mod'
+#include "../shared/version_variable.inc"
+character(len=*), parameter :: tagname = '$Name$'
+
 integer, parameter :: max_lev = 10
 real   , parameter :: t_range = 10.0 ! degK
 
@@ -125,8 +122,8 @@ namelist /snow_data_nml/use_mcm_masking,    w_sat,                 &
                     emis_snow_max,          emis_snow_min,         &
                     k_over_B,             &
                     num_l,                   dz, cpw, clw, csw, mc_fict, &
-     f_iso_cold, f_vol_cold, f_geo_cold, f_iso_warm, f_vol_warm, f_geo_warm 
-     
+     f_iso_cold, f_vol_cold, f_geo_cold, f_iso_warm, f_vol_warm, f_geo_warm
+
 !---- end of namelist --------------------------------------------------------
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -142,14 +139,14 @@ subroutine read_snow_data_namelist(snow_num_l, snow_dz, snow_mc_fict)
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, __FILE__, tagname)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=snow_data_nml, iostat=io)
   ierr = check_nml_error(io, 'snow_data_nml')
 #else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
-     ierr = 1;  
+     ierr = 1;
      do while (ierr /= 0)
         read (unit, nml=snow_data_nml, iostat=io, end=10)
         ierr = check_nml_error (io, 'snow_data_nml')
@@ -197,7 +194,7 @@ function snow_tile_copy_ctor(snow) result(ptr)
   allocate(ptr)
   ! copy all non-pointer members
   ptr = snow
-  ! no need to allocate storage for allocatable components of the type, because 
+  ! no need to allocate storage for allocatable components of the type, because
   ! F2003 takes care of that, and also takes care of copying data
 end function snow_tile_copy_ctor
 
@@ -223,16 +220,16 @@ subroutine merge_snow_tiles(snow1, w1, snow2, w2)
   type(snow_tile_type), intent(in)    :: snow1
   type(snow_tile_type), intent(inout) :: snow2
   real                , intent(in)    :: w1, w2 ! relative weights
-  
+
   ! ---- local vars
   real    :: x1, x2 ! normalized weights
   real    :: HEAT1, HEAT2
   integer :: i
-  
+
   ! calculate normalized weights
   x1 = w1/(w1+w2)
   x2 = 1-x1
-  
+
   do i = 1, num_l
     HEAT1 = (mc_fict*dz(i)+clw*snow1%wl(i)+csw*snow1%ws(i))*(snow1%T(i)-tfreeze)
     HEAT2 = (mc_fict*dz(i)+clw*snow2%wl(i)+csw*snow2%ws(i))*(snow2%T(i)-tfreeze)
@@ -262,7 +259,7 @@ end function snow_is_selected
 function get_snow_tile_tag(snow) result(tag)
   integer :: tag
   type(snow_tile_type), intent(in) :: snow
-  
+
   tag = snow%tag
 end function get_snow_tile_tag
 
@@ -287,9 +284,9 @@ subroutine snow_data_hydraulics (wl, ws, psi, hyd_cond )
   real, intent(in),  dimension(:) :: wl, ws
   real, intent(out), dimension(:) :: psi, hyd_cond
 
-  ! ---- local vars 
+  ! ---- local vars
   integer :: l
-  
+
   do l = 1, num_l
     psi     (l) = psi_sat *(w_sat/(wl(l)+ws(l)))**chb
     hyd_cond(l) = k_sat*(wl(l)/w_sat)**(3+2*chb)
@@ -366,7 +363,7 @@ subroutine snow_tile_stock_pe (snow, twd_liq, twd_sol  )
   type(snow_tile_type),  intent(in)    :: snow
   real,                  intent(out)   :: twd_liq, twd_sol
   integer n
-  
+
   twd_liq = 0.
   twd_sol = 0.
   do n=1, size(snow%wl)
@@ -387,7 +384,7 @@ function snow_tile_heat (snow) result(heat) ; real heat
   do i = 1,num_l
      heat = heat - snow%ws(i)*hlf &
         + (mc_fict*dz(i) + clw*snow%wl(i) + csw*snow%ws(i))  &
-                                      * (snow%T(i)-tfreeze) 
+                                      * (snow%T(i)-tfreeze)
   enddo
 end function snow_tile_heat
 

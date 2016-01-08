@@ -63,10 +63,9 @@ end interface
 
 
 ! ==== module constants ======================================================
-character(len=*), parameter   :: &
-     version = '$Id$', &
-     tagname = '$Name$', &
-     module_name = 'vegn_tile_mod'
+character(len=*), parameter :: module_name = 'vegn_tile_mod'
+#include "../shared/version_variable.inc"
+character(len=*), parameter :: tagname     = '$Name$'
 
 ! ==== types =================================================================
 type :: vegn_tile_type
@@ -84,7 +83,7 @@ type :: vegn_tile_type
    real :: ssc_pool_ag=0.0, ssc_rate_ag=0.0 ! for slow soil carbon above ground
    real :: fsc_pool_bg=0.0, fsc_rate_bg=0.0 ! for fast soil carbon below ground
    real :: ssc_pool_bg=0.0, ssc_rate_bg=0.0 ! for slow soil carbon below ground
-   
+
    real :: leaflitter_buffer_ag=0.0, coarsewoodlitter_buffer_ag=0.0
    real :: leaflitter_buffer_rate_ag=0.0, coarsewoodlitter_buffer_rate_ag=0.0
 
@@ -269,7 +268,7 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   __MERGE__(ssc_pool_ag); __MERGE__(ssc_rate_ag)
   __MERGE__(fsc_pool_bg); __MERGE__(fsc_rate_bg)
   __MERGE__(ssc_pool_bg); __MERGE__(ssc_rate_bg)
-  
+
   __MERGE__(leaflitter_buffer_ag); __MERGE__(leaflitter_buffer_rate_ag)
   __MERGE__(coarsewoodlitter_buffer_ag); __MERGE__(coarsewoodlitter_buffer_rate_ag)
 
