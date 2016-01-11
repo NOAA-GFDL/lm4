@@ -1,11 +1,11 @@
 module land_data_mod
 
-use mpp_mod           , only : mpp_get_current_pelist, mpp_pe
+use mpp_mod           , only : mpp_get_current_pelist
 use constants_mod     , only : PI
 use mpp_domains_mod   , only : domain2d, mpp_get_compute_domain, &
      mpp_define_layout, mpp_define_domains, mpp_define_io_domain, &
      mpp_get_current_ntile, mpp_get_tile_id, CYCLIC_GLOBAL_DOMAIN, &
-     mpp_get_io_domain, mpp_get_pelist, mpp_get_layout, mpp_get_domain_npes
+     mpp_get_io_domain, mpp_get_pelist, mpp_get_domain_npes
 use fms_mod           , only : write_version_number, mpp_npes, stdout, &
      file_exist, error_mesg, FATAL
 use fms_io_mod        , only : parse_mask_table
@@ -21,14 +21,13 @@ private
 public :: land_data_init
 public :: land_data_end
 public :: lnd            ! global data
+public :: log_version    ! prints version number
 
 public :: atmos_land_boundary_type ! container for information passed from the
                          ! atmosphere to land
 public :: land_data_type ! container for information passed from land to
                          ! the atmosphere
 public :: land_state_type
-
-public :: log_version    ! prints version number
 ! ==== end of public interfaces ==============================================
 
 ! ---- module constants ------------------------------------------------------

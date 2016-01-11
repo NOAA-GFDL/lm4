@@ -30,7 +30,6 @@ use diag_manager_mod, only : diag_axis_init, register_static_field, &
 use constants_mod, only : radius, hlf, hlv, hls, tfreeze, pi, rdgas, rvgas, cp_air, &
      stefan
 use astronomy_mod, only : astronomy_init, diurnal_solar
-use sphum_mod, only : qscomp
 use tracer_manager_mod, only : NO_TRACER, get_tracer_index, get_tracer_names
 
 use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, mol_air, mol_C, mol_co2
@@ -63,14 +62,12 @@ use soil_tile_mod, only : soil_tile_stock_pe, soil_tile_heat
 use soil_mod, only      : soil_cover_cold_start, retrieve_soil_tags ! moved here
                           ! to eliminate circular dependencies with hillslope mods
 use vegn_tile_mod, only : vegn_cover_cold_start, vegn_data_rs_min, &
-                          update_derived_vegn_data, vegn_tile_stock_pe, &
-                          vegn_tile_heat
-use lake_tile_mod, only : lake_cover_cold_start, lake_tile_stock_pe, &
-                          lake_tile_heat
+     update_derived_vegn_data, vegn_tile_stock_pe, vegn_tile_heat
+use lake_tile_mod, only : lake_cover_cold_start, lake_tile_stock_pe, lake_tile_heat
 use glac_tile_mod, only : glac_pars_type, glac_cover_cold_start, &
-                          glac_tile_stock_pe, glac_tile_heat
+     glac_tile_stock_pe, glac_tile_heat
 use snow_tile_mod, only : snow_tile_stock_pe, snow_tile_heat
-use land_numerics_mod, only : ludcmp, lubksb, nearest, &
+use land_numerics_mod, only : ludcmp, lubksb, &
      horiz_remap_type, horiz_remap_new, horiz_remap, horiz_remap_del, &
      horiz_remap_print
 use land_io_mod, only : read_land_io_namelist, input_buf_size
@@ -83,17 +80,16 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
 use land_data_mod, only : land_data_type, atmos_land_boundary_type, &
      land_state_type, land_data_init, land_data_end, lnd, log_version
 use nf_utils_mod,  only : nfu_inq_var, nfu_inq_dim, nfu_get_var
-use land_utils_mod, only : put_to_tiles_r0d_fptr
 use land_tile_io_mod, only : print_netcdf_error, create_tile_out_file, &
-    read_tile_data_r0d_fptr, write_tile_data_r0d_fptr, &
-    write_tile_data_i0d_fptr, get_input_restart_name, &
-    gather_tile_data, assemble_tiles
+     read_tile_data_r0d_fptr, write_tile_data_r0d_fptr, &
+     write_tile_data_i0d_fptr, get_input_restart_name, &
+     gather_tile_data, assemble_tiles
 use land_tile_diag_mod, only : tile_diag_init, tile_diag_end, &
-    set_default_diag_filter, get_area_id, &
-    register_tiled_diag_field, register_tiled_area_fields, &
-    add_tiled_diag_field_alias, &
-    send_tile_data, dump_tile_diag_fields, &
-    OP_AVERAGE, OP_SUM, cmor_name
+     set_default_diag_filter, get_area_id, &
+     register_tiled_diag_field, register_tiled_area_fields, &
+     add_tiled_diag_field_alias, &
+     send_tile_data, dump_tile_diag_fields, &
+     OP_AVERAGE, OP_SUM, cmor_name
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, get_watch_point, check_temp_range, current_face, &
      get_current_point, check_conservation, water_cons_tol, carbon_cons_tol, &
@@ -105,7 +101,7 @@ use land_transitions_mod, only : &
      save_land_transitions_restart
 use stock_constants_mod, only: ISTOCK_WATER, ISTOCK_HEAT, ISTOCK_SALT
 use hillslope_mod, only: retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
-                         read_hlsp_namelist, hlsp_init, hlsp_config_check
+     read_hlsp_namelist, hlsp_init, hlsp_config_check
 use hillslope_mod, only: save_hlsp_restart_new
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
 
