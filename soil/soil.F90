@@ -3246,7 +3246,8 @@ end subroutine soil_step_1
      enddo
      if (l_max_active_layer.lt.num_l .and. l_max_active_layer.gt.0) then
         do l = 1, l_max_active_layer
-           div_al(l) = K_x(l) * soil%pars%hillslope_relief*dz(l) &
+           div_al(l) = active_layer_drainage_acceleration &
+                 * K_x(l) * soil%pars%hillslope_relief*dz(l) &
                  / (soil%pars%hillslope_length*soil%pars%hillslope_length)
         enddo
      endif
