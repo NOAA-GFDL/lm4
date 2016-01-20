@@ -625,6 +625,12 @@ IF (soil_carbon_option == SOILC_CORPSE_N) THEN
             N_mineralization = soil_MINERAL
             N_immobilization = soil_IMM_N
 
+ELSE
+
+  nitrification=0.0
+  denitrification=0.0
+  N_mineralization = soil_MINERAL
+  N_immobilization = soil_IMM_N
 ENDIF
 
     fast_C_loss_rate=resp(1)
@@ -822,7 +828,7 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
         livemic_C_produced=dt*carbon_supply
         livemic_N_produced=dt*(carbon_supply-maintenance_resp)/CN_microb
 
-    else     
+    else
         ! Maintenance resp exceeds carbon supply. In this case, some additional biomass N will be lost
         N_LIM_STATE = EXCESS_N
         cohort%livingMicrobeC = cohort%livingMicrobeC + dt*(carbon_supply - microbeTurnover)
@@ -839,7 +845,7 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
     endif
 
 
-    ! Enforce correct microbial C:N. Model has been having problems with slow increase in microbial C relative to N.  
+    ! Enforce correct microbial C:N. Model has been having problems with slow increase in microbial C relative to N.
     !This feels a bit kloodgy but hopefully shouldn't cause problems
     if(cohort%livingMicrobeC/cohort%livingMicrobeN - CN_microb > 1e-3) then
         ! Too much microbial C. Respire extra C
@@ -923,7 +929,7 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
     if(cohort%IMM_N_gross<0.0 .OR. cohort%MINER_gross<0.0) then
          print *,'Immob',cohort%IMM_N_gross
          print *,'Mineralization',cohort%MINER_gross
-         
+
         print *,'et',et
         print *,'microbeTurnover',microbeTurnover*dt
         print *,'microbeTurnover_N',microbeTurnover*et/CN_microb*dt
@@ -1505,7 +1511,7 @@ end subroutine
 
 
     cohortGood = cohortGood .AND. (cohort%IMM_N_gross>=0) .AND. (cohort%MINER_gross>=0)
-   
+
     ! IF(.NOT. cohortGood) THEN
     !     WRITE (*,*)'Cohort carbon pool error:'
     !     call print_cohort(cohort)
