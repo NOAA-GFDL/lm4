@@ -97,7 +97,6 @@ use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
 use static_vegn_mod, only : write_static_vegn
 use land_transitions_mod, only : &
      land_transitions_init, land_transitions_end, land_transitions, &
-     land_transitions_init_new, land_transitions_new, &
      save_land_transitions_restart
 use stock_constants_mod, only: ISTOCK_WATER, ISTOCK_HEAT, ISTOCK_SALT
 use hillslope_mod, only: retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
@@ -505,11 +504,8 @@ subroutine land_model_init &
   if (i_river_ice  == NO_TRACER) call error_mesg ('land_model_init','required river tracer for ice not found', FATAL)
   if (i_river_heat == NO_TRACER) call error_mesg ('land_model_init','required river tracer for heat not found', FATAL)
 
-  if(new_land_io) then
-    call land_transitions_init_new (id_lon, id_lat)
-  else
-    call land_transitions_init (id_lon, id_lat)
-  endif
+  call land_transitions_init (id_lon, id_lat)
+
   call land_tracer_driver_init (id_lon, id_lat)
   ! [8] initialize boundary data
   ! [8.1] allocate storage for the boundary data
@@ -2398,11 +2394,7 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   call mpp_clock_begin(landClock)
   call mpp_clock_begin(landSlowClock)
 
-  if(new_land_io) then
-    call land_transitions_new( lnd%time )
-  else
-    call land_transitions( lnd%time )
-  endif
+  call land_transitions( lnd%time )
   call update_vegn_slow( )
   ! send the accumulated diagnostics to the output
   call dump_tile_diag_fields(land_tile_map, lnd%time)
