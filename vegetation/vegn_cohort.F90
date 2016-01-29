@@ -561,11 +561,20 @@ subroutine update_biomass_pools(c)
   ! N stress is calculated based on "potential pools" without N limitation
   biomass_N_demand=(c%bliving*c%Pl/leaf_fast_c2n + c%bliving*c%Pr/froot_fast_c2n + c%bliving*c%Psw/wood_fast_c2n)
   ! c%nitrogen_stress = biomass_N_demand/c%total_N
-  if(c%total_N > biomass_N_demand) then
-    c%nitrogen_stress = (biomass_N_demand/(c%total_N-biomass_N_demand-c%bwood/wood_fast_c2n))**4 ! This is demand/storage, constrained to be >0
+
+  ! Spring physical analogy -- restoring force proportional to distance from equilibrium (equal to demand)
+  ! Leaving spring constant 1.0 for now
+  if (c%total_N>0.0) then
+    c%nitrogen_stress = -1.0 * ((c%total_N-biomass_N_demand-c%bwood/wood_fast_c2n) - 1.5*biomass_N_demand)/c%total_N
   else
-    c%nitrogen_stress = 5.0
+    c%nitrogen_stress = 0.0
   endif
+  ! if(c%total_N > biomass_N_demand) then
+  !   c%nitrogen_stress = (biomass_N_demand/(c%total_N-biomass_N_demand-c%bwood/wood_fast_c2n))**1 ! This is demand/storage, constrained to be >0
+  !
+  ! else
+  !   c%nitrogen_stress = 5.0
+  ! endif
   c%nitrogen_stress = min(c%nitrogen_stress,5.0)
   c%nitrogen_stress = max(c%nitrogen_stress,0.0)
 
@@ -573,7 +582,7 @@ subroutine update_biomass_pools(c)
   ! Should match results from update_living_bio_fraction at 0 stress and skew toward root and wood growth as N stress increases
   x_wood = c%Psw*(c%nitrogen_stress**2+1.0)
   x_leaf = c%Pl
-  x_root = c%Pr*exp(c%nitrogen_stress)
+  x_root = c%Pr*exp(c%nitrogen_stress*0.5)
 
 ! __DEBUG3__(x_wood,x_leaf,x_root)
 ! __DEBUG5__(c%stored_N,c%leaf_N,c%wood_N,c%root_N,c%nitrogen_stress)

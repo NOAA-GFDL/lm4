@@ -18,7 +18,7 @@ use vegn_data_mod, only : spdata, &
      leaf_fast_c2n,leaf_slow_c2n,froot_fast_c2n,froot_slow_c2n,wood_fast_c2n,wood_slow_c2n, root_exudate_N_frac,& !x2z - ens: lets get rid of c2n?
      ! BNS: C2N ratios should be temporary fix, which we can get rid of once N is integrated into vegetation code
      root_exudate_frac_max, dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
-     N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer
+     N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, TOT_annual_NH4_dep,TOT_annual_NO3_dep
 
 use vegn_tile_mod, only: vegn_tile_type,vegn_tile_carbon
 use soil_tile_mod, only: soil_tile_type,soil_tile_carbon
@@ -841,10 +841,8 @@ subroutine update_soil_pools(vegn, soil)
   real :: deltafast, deltaslow, deltafast_N, deltaslow_N;
 
   !!!!!!!!!!!!!!!x2z /ADD deposition CHECK
-  real ::   TOT_annual_NH4_dep=0.0001
-  real ::   TOT_annual_NO3_dep=0.0001
-  real ::   TOT_annual_NH4_fert=0.0
-  real ::  TOT_annual_NO3_fert=0.0
+  ! This should really be read in from some external data set or something
+
 !  real ::  input_time_fert=130.0
 
 if(TOT_annual_NH4_dep.gt.dfloat(0))then
