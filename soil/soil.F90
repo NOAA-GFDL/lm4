@@ -6957,7 +6957,7 @@ subroutine add_root_exudates(soil,vegn,exudateC,exudateN)
     if (is_watch_point()) then
        write (*,*) '##### add_root_exudates #####'
        __DEBUG1__(exudateC)
-       __DEBUG1__(uptake_frac_max)
+       ! __DEBUG1__(uptake_frac_max)
     endif
 
     do nn=1,num_l

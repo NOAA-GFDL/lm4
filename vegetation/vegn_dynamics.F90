@@ -5,7 +5,7 @@ module vegn_dynamics_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod, only: write_version_number, error_mesg, FATAL
+use fms_mod, only: write_version_number, error_mesg, FATAL,NOTE
 use time_manager_mod, only: time_type
 
 use land_constants_mod, only : seconds_per_year, mol_C
@@ -20,8 +20,8 @@ use vegn_data_mod, only : spdata, &
      root_exudate_frac_max, dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
      N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer
 
-use vegn_tile_mod, only: vegn_tile_type
-use soil_tile_mod, only: soil_tile_type
+use vegn_tile_mod, only: vegn_tile_type,vegn_tile_carbon
+use soil_tile_mod, only: soil_tile_type,soil_tile_carbon
 use vegn_cohort_mod, only : vegn_cohort_type, &
      update_biomass_pools, update_bio_living_fraction, update_species
 use soil_carbon_mod, only: soil_carbon_option, &
@@ -168,6 +168,7 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, diag)
   if(is_watch_point()) then
      write(*,*)'#### vegn_carbon_int ####'
      __DEBUG2__(soilt,theta)
+     __DEBUG2__(vegn_tile_carbon(vegn),soil_tile_carbon(soil))
   endif
 
 total_scavenger_myc_C_allocated = 0.0
@@ -244,11 +245,31 @@ total_myc_mine_C_uptake = 0.0
         cc%md = md_leaf + md_froot + cc%Psw_alphasw * cc%bliving * dt_fast_yr
      end select
 
+ if(is_watch_point()) then
+   write(*,*) 'Before md transfer to soil'
+   __DEBUG2__(soil_tile_carbon(soil),vegn_tile_carbon(vegn))
+ endif
+ 
      cc%bwood_gain = cc%bwood_gain + cc%Psw_alphasw * cc%bliving * dt_fast_yr;
+
+     ! This is causing nonconservation just below, at a point where md_wood>bwood_gain
+     ! Fix: Reduce md_wood to match bwood_gain OR subtract from cc%bwood?
      cc%bwood_gain = cc%bwood_gain - md_wood;
-     if (cc%bwood_gain < 0.0) cc%bwood_gain=0.0; ! potential non-conservation ?
+ 
+
+   if(is_watch_point()) then 
+     __DEBUG2__(cc%bwood_gain,md_wood)
+   endif
+
+     if (cc%bwood_gain < 0.0) then 
+       call error_mesg('vegn_carbon_int','Warning: bwood_gain < 0 after subtracting md_wood',NOTE)
+       ! cc%bwood_gain=0.0; BNS: just letting this be <0 for now to solve conservation problem ! potential non-conservation ?
+     endif
+
      cc%carbon_gain = cc%carbon_gain - cc%md;
      cc%carbon_loss = cc%carbon_loss + cc%md; ! used in diagnostics only
+
+ 
 
      cc%leaf_N = cc%leaf_N - md_leaf/leaf_fast_c2n
      cc%root_N = cc%root_N - md_froot/froot_fast_c2n
@@ -313,6 +334,10 @@ total_myc_mine_C_uptake = 0.0
         call error_mesg('vegn_carbon_int','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
      end select
 
+ if(is_watch_point()) then
+   write(*,*) 'After md'
+   __DEBUG2__(soil_tile_carbon(soil),vegn_tile_carbon(vegn))
+ endif
 
      vegn%veg_in  = vegn%veg_in  + cc%npp*dt_fast_yr;
      vegn%veg_out = vegn%veg_out + md_alive+md_wood;
@@ -421,6 +446,12 @@ total_myc_mine_C_uptake = 0.0
      endif
 
 
+ if(is_watch_point()) then
+   write(*,*) 'After md, before mycorrhizal turnover'
+   __DEBUG2__(soil_tile_carbon(soil),vegn_tile_carbon(vegn))
+ endif
+ 
+
      soil%myc_scav_N_uptake=soil%myc_scav_N_uptake+myc_scav_N_uptake-mycorrhizal_scav_N_immob
      soil%myc_mine_N_uptake=soil%myc_mine_N_uptake+myc_mine_N_uptake-mycorrhizal_mine_N_immob
      soil%symbiotic_N_fixation=soil%symbiotic_N_fixation+N_fixation
@@ -437,6 +468,10 @@ total_myc_mine_C_uptake = 0.0
      if(isnan(cc%myc_scavenger_biomass_C)) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger biomass is NaN',FATAL)
      if(isnan(cc%myc_miner_biomass_C)) call error_mesg('vegn_carbon_int','Mycorrhizal miner biomass is NaN',FATAL)
      if(isnan(cc%N_fixer_biomass_C)) call error_mesg('vegn_carbon_int','N fixer biomass is NaN',FATAL)
+
+     if(is_watch_point()) then
+        __DEBUG3__(cc%myc_scavenger_biomass_C,cc%myc_miner_biomass_C,cc%N_fixer_biomass_C)
+     endif
 
 
      ! First add mycorrhizal and N fixer turnover to soil C pools
@@ -486,9 +521,19 @@ total_myc_mine_C_uptake = 0.0
    ! fsc_in and ssc_in updated in add_root_exudates
    call add_root_exudates(soil,vegn,total_root_exudate_C,total_root_exudate_C*root_exudate_N_frac)
 
+ if(is_watch_point()) then 
+     write(*,*),'Total soil C before Dsdt'
+      __DEBUG1__(soil_tile_carbon(soil))
+ endif
 
   ! update soil carbon
   call Dsdt(vegn, soil, diag, soilt, theta)
+
+ if(is_watch_point()) then
+     write(*,*),'Total soil C after Dsdt'
+     __DEBUG2__(soil_tile_carbon(soil),vegn%rh*dt_fast_yr)
+ endif
+
 
   ! Add respiration/C waste from mycorrhizae and N fixers
   vegn%rh = vegn%rh + (total_scavenger_myc_C_allocated*(1-myc_scav_C_efficiency)+ &
@@ -499,10 +544,21 @@ total_myc_mine_C_uptake = 0.0
   vegn%nep = vegn%npp - vegn%rh
   if(is_watch_point()) then
      __DEBUG3__(vegn%npp,vegn%rh,vegn%nep)
+     __DEBUG5__(total_root_exudate_C,total_scavenger_myc_C_allocated,total_miner_myc_C_allocated,total_N_fixer_C_allocated,total_mining_CO2prod)
   endif
 
+ if(is_watch_point()) then
+   write(*,*) 'Before update_soil_pools'
+   __DEBUG4__(soil_tile_carbon(soil),vegn_tile_carbon(vegn),vegn%rh*dt_fast_yr,vegn%nep*dt_fast_yr)
+ endif
+ 
   call update_soil_pools(vegn, soil)
   vegn%age = vegn%age + dt_fast_yr;
+
+ if(is_watch_point()) then
+   write(*,*) 'At end of vegn_carbon_int'
+   __DEBUG4__(soil_tile_carbon(soil),vegn_tile_carbon(vegn),vegn%rh*dt_fast_yr,vegn%nep*dt_fast_yr)
+ endif
 
 
   ! ---- diagnostic section
