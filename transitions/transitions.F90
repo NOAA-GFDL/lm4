@@ -181,16 +181,14 @@ subroutine land_transitions_init(id_lon, id_lat)
 
   ! read restart file, if any
   if (file_exist('INPUT/landuse.res')) then
-     call error_mesg('land_transitions_init',&
-          'reading restart "INPUT/landuse.res"',&
+     call error_mesg('land_transitions_init','reading restart "INPUT/landuse.res"',&
           NOTE)
      call mpp_open(unit,'INPUT/landuse.res', action=MPP_RDONLY, form=MPP_ASCII)
      read(unit,*) year,month,day,hour,min,sec
      time0 = set_date(year,month,day,hour,min,sec)
      call mpp_close(unit)
   else
-     call error_mesg('land_transitions_init',&
-          'cold-starting land transitions',&
+     call error_mesg('land_transitions_init','cold-starting land transitions',&
           NOTE)
      time0 = set_date(0001,01,01);
   endif
@@ -222,13 +220,13 @@ subroutine land_transitions_init(id_lon, id_lat)
   endif
 
   if (do_landuse_change) then
-     if (trim(input_file)=='') call error_mesg('landuse_init', &
+     if (trim(input_file)=='') call error_mesg('land_transitions_init', &
           'do_landuse_change is requested, but landuse transition file is not specified', &
           FATAL)
 
      ierr=nf_open(input_file,NF_NOWRITE,ncid)
 
-     if(ierr/=NF_NOERR) call error_mesg('landuse_init', &
+     if(ierr/=NF_NOERR) call error_mesg('land_transitions_init', &
           'do_landuse_change is requested, but landuse transition file "'// &
           trim(input_file)//'" could not be opened because '//nf_strerror(ierr), FATAL)
 
@@ -355,51 +353,52 @@ end subroutine land_transitions_end
 
 
 ! ============================================================================
-subroutine init_intranset(ncid,tran,input_file,name,fieldnames)
+subroutine init_intranset(ncid,tran,input_file,name,text)
    type(in_tran_set_type), intent(out) :: tran
    integer , intent(in) :: ncid
-   character(*), intent(in) :: input_file, name, fieldnames
+   character(*), intent(in) :: input_file, name, text
    
-   character(*), parameter :: delimiters = '+, '
-   integer :: i,is,ie,k,ierr,n, srclen
+   character(*), parameter :: DELIM = '+, '
+   integer :: i,is,ie,k,ierr,n,srclen
    tran%name=name
-   ! count delimiters in the fieldnames
+   ! count delimiters in the text
    n = 1 ! assume string is not empty
-   srclen = len(fieldnames)
+   srclen = len(text)
    do i = 1, srclen
-      if (index(delimiters,fieldnames(i:i)).ne.0) n=n+1
+      if (index(DELIM,text(i:i)).ne.0) n=n+1
       ! this will fail if there are multiple sequential delimiters 
    enddo
    ! allocate enough space for input field ids
    allocate(tran%id(n))
    tran%id(:) = -1
    ! initialize 
-   is = 1; k = 1
-   do i = is,srclen
-      if ((index(delimiters,fieldnames(i:i)).ne.0).or.(i==srclen)) then
-         if (index(delimiters,fieldnames(i:i)).ne.0) then
-            ie = i-1
+   i = 1; k = 1
+   do
+      ! skip delimiters
+      do while (i<=srclen.and.index(DELIM,text(i:i))/=0) 
+        i = i+1
+      enddo
+      is = i
+      if (i>srclen) exit ! from loop
+      ! find the end of the name
+      do while (i<=srclen.and.index(DELIM,text(i:i))==0) 
+        i = i+1
+      enddo
+      ie = i-1
+      ierr = nfu_inq_var(ncid,text(is:ie), id=tran%id(k))
+      if (ierr/=NF_NOERR) then
+         if (ierr==NF_ENOTVAR) then
+            call error_mesg('land_transitions_init',&
+                 'did not find field "'//trim(text(is:ie))//&
+                 '" in file "'//trim(input_file)//'"', NOTE)
+            tran%id(k)=-1 ! to indicate that input field is not present in the input data
          else
-            ie = i
+            call error_mesg('land_transitions_init',&
+                 'error initializing field "'//trim(text(is:ie))//&
+                 '" from file "'//trim(input_file)//'" : '//nf_strerror(ierr), FATAL)
          endif
-         ierr = nfu_inq_var(ncid,fieldnames(is:ie), id=tran%id(k))
-         if (ierr/=NF_NOERR) then
-            if (ierr==NF_ENOTVAR) then
-               call error_mesg('landuse_init',&
-                    'did not find field "'//trim(fieldnames(is:ie))//&
-                    '" in file "'//trim(input_file)//'"', NOTE)
-               tran%id(k)=-1 ! to indicate that input field is not present in the input data
-            else
-               call error_mesg('landuse_init',&
-                    'error initializing field "'//trim(fieldnames(is:ie))//&
-                    '" from file "'//trim(input_file)//'" : '//&
-                    nf_strerror(ierr), &
-                    FATAL)
-            endif
-         endif
-         k  = k+1
-         is = i+1
       endif
+      k  = k+1
    enddo
 end subroutine init_intranset
 
