@@ -37,7 +37,7 @@ use nfu_mod, only : nfu_validtype, nfu_inq_var, nfu_get_dim_bounds, nfu_get_rec,
      nfu_get_dim, nfu_get_valid_range, nfu_is_valid
 
 use vegn_data_mod, only : &
-     N_LU_TYPES, LU_NTRL, LU_SCND, landuse_name, landuse_longname
+     N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, landuse_name, landuse_longname
 
 use cana_tile_mod, only : cana_tile_heat
 use snow_tile_mod, only : snow_tile_heat
@@ -115,9 +115,29 @@ type(axistype), allocatable, dimension(:) :: axes, all_axes
 type(axistype) :: axis_bnd
 type(fieldtype), allocatable, dimension(:) :: fields
 
+! translation of luh2 names and LM3 landuse types
+character(5) :: luh2name(11)
+integer      :: luh2type(11)
+integer :: idata
+data (luh2name(idata), luh2type(idata), idata = 1, 11) / &
+   'primf', LU_NTRL, &
+   'primn', LU_NTRL, &
+   'secdf', LU_SCND, &
+   'secdn', LU_SCND, &
+   ! urban
+   'c3ann', LU_CROP, &
+   'c4ann', LU_CROP, &
+   'c3per', LU_CROP, &
+   'c4per', LU_CROP, &
+   'c3nfx', LU_CROP, &
+   'pastr', LU_PAST, &
+   'range', LU_PAST  /
+
+
 ! ---- namelist variables ---------------------------------------------------
 logical, public :: do_landuse_change = .FALSE. ! if true, then the landuse changes with time
 character(len=512) :: input_file = ''
+character(len=16)  :: data_type  = 'luh1' ! or 'luh2'
 ! sets how to handle transition overshoot: that is, the situation when transition
 ! is larger than available area of the given land use type.
 character(len=16) :: overshoot_handling = 'report' ! or 'stop', or 'ignore'
@@ -125,7 +145,7 @@ real :: overshoot_tolerance = 1e-4 ! tolerance interval for overshoots
 ! specifies how to handle non-conservation
 character(len=16) :: conservation_handling = 'stop' ! or 'report', or 'ignore'
 
-namelist/landuse_nml/input_file, do_landuse_change, &
+namelist/landuse_nml/do_landuse_change, input_file, data_type, &
      overshoot_handling, overshoot_tolerance, &
      conservation_handling
 
@@ -139,7 +159,7 @@ subroutine land_transitions_init(id_lon, id_lat)
   ! ---- local vars
   integer        :: len, unit, ierr, io
   integer        :: year,month,day,hour,min,sec
-  integer        :: k1,k2,k3,i,id
+  integer        :: k1,k2,k3,i,id, n1,n2
   real,allocatable :: lon_in(:,:),lat_in(:,:)
   character(len=12) :: fieldname
   integer :: dimids(NF_MAX_VAR_DIMS), dimlens(NF_MAX_VAR_DIMS)
@@ -152,6 +172,7 @@ subroutine land_transitions_init(id_lon, id_lat)
   character(len=NF_MAX_NAME) :: timename  ! name of the time variable
   character(len=256)         :: timeunits ! units ot time in the file
   character(len=24) :: calendar ! model calendar
+  character(len=2048) :: text
 
   if(module_is_initialized) return
 
@@ -231,15 +252,40 @@ subroutine land_transitions_init(id_lon, id_lat)
           trim(input_file)//'" could not be opened because '//nf_strerror(ierr), FATAL)
 
      ! initialize array of input fields
-     do k1 = 1,size(input_fields,1)
-     do k2 = 1,size(input_fields,2)
-        ! construct a name of input field and register the field
-        fieldname = trim(landuse_name(k1))//'2'//trim(landuse_name(k2))
-        if(trim(fieldname)=='2') cycle ! skip unspecified tiles
-
-        call init_intranset(ncid,input_fields(k1,k2),input_file,fieldname,fieldname)
-     enddo
-     enddo
+     select case (trim(lowercase(data_type)))
+     case('luh1')
+        do k1 = 1,size(input_fields,1)
+        do k2 = 1,size(input_fields,2)
+           ! construct a name of input field and register the field
+           fieldname = trim(landuse_name(k1))//'2'//trim(landuse_name(k2))
+           if(trim(fieldname)=='2') cycle ! skip unspecified tiles
+           call init_intranset(ncid,input_fields(k1,k2),input_file,fieldname,fieldname)
+        enddo
+        enddo
+     case('luh2')
+        do k1 = 1,size(input_fields,1)
+        do k2 = 1,size(input_fields,2)
+           ! construct a name of input field and initialize the aggregation of input fields
+           fieldname = trim(landuse_name(k1))//'2'//trim(landuse_name(k2))
+           if(trim(fieldname)=='2') cycle ! skip unspecified tiles
+           if (k1==k2.and.k1/=LU_SCND) cycle ! skip transitions to the same LM3 LU type, except scnd2scnd
+           text=''
+           do n1 = 1,size(luh2type)
+              if (luh2type(n1)/=k1) cycle
+              do n2 = 1,size(luh2type)
+                 if (luh2type(n2)/=k2) cycle
+                 text=trim(text)//'+'//luh2name(n1)//'_to_'//luh2name(n2)
+              enddo
+           enddo
+           call error_mesg('land_transitions_init','initialising aggregate transition ' &
+                           //trim(fieldname)//' = '//trim(text),NOTE)
+           call init_intranset(ncid,input_fields(k1,k2),input_file,fieldname,text)
+        enddo
+        enddo
+     case default
+        call error_mesg('land_transitions_init','unknown data_soutce "'&
+                       //trim(data_type)//'", use "luh1" or "luh2"', FATAL)
+     end select
 
      ! initialize the input data grid and horizontal interpolator
      ! find any field that is defined in input data
@@ -276,9 +322,9 @@ l1:  do k1 = 1,size(input_fields,1)
 
         ! get the first record from variable and obtain the mask of valid data
         ! assume that valid mask does not change with time
-        __NF_ASRT__(nfu_get_rec(ncid,fieldname,1,buffer_in))
+        __NF_ASRT__(nfu_get_rec(ncid,id,1,buffer_in))
         ! get the valid range for the variable
-        __NF_ASRT__(nfu_get_valid_range(ncid,fieldname,v))
+        __NF_ASRT__(nfu_get_valid_range(ncid,id,v))
         ! get the mask
         where (nfu_is_valid(buffer_in,v))
            mask_in = 1
@@ -304,7 +350,7 @@ l1:  do k1 = 1,size(input_fields,1)
         calendar=valid_calendar_types(get_calendar_type())
 
         ! loop through the time axis and get time_type values in time_in
-        if (index(lowercase(timeunits),'calendar year')>0) then
+        if (index(lowercase(timeunits),'calendar_year')>0) then
            do i = 1,size(time)
               time_in(i) = set_date(nint(time(i)),1,1,0,0,0) ! uses model calendar
            end do
@@ -357,7 +403,7 @@ subroutine init_intranset(ncid,tran,input_file,name,text)
    type(in_tran_set_type), intent(out) :: tran
    integer , intent(in) :: ncid
    character(*), intent(in) :: input_file, name, text
-   
+
    character(*), parameter :: DELIM = '+, '
    integer :: i,is,ie,k,ierr,n,srclen
    tran%name=name
@@ -366,22 +412,23 @@ subroutine init_intranset(ncid,tran,input_file,name,text)
    srclen = len(text)
    do i = 1, srclen
       if (index(DELIM,text(i:i)).ne.0) n=n+1
-      ! this will fail if there are multiple sequential delimiters 
+      ! this will fail if there are multiple sequential delimiters
    enddo
    ! allocate enough space for input field ids
    allocate(tran%id(n))
    tran%id(:) = -1
-   ! initialize 
+   ! initialize
    i = 1; k = 1
    do
       ! skip delimiters
-      do while (i<=srclen.and.index(DELIM,text(i:i))/=0) 
+      do while (i<=srclen)
+        if(index(DELIM,text(i:i))==0) exit ! this is not a delimiter
         i = i+1
       enddo
       is = i
       if (i>srclen) exit ! from loop
       ! find the end of the name
-      do while (i<=srclen.and.index(DELIM,text(i:i))==0) 
+      do while (i<=srclen.and.index(DELIM,text(i:i))==0)
         i = i+1
       enddo
       ie = i-1
@@ -409,7 +456,7 @@ subroutine get_intranset(ncid,tran,rec,buffer)
    type(in_tran_set_type), intent(in) :: tran
    integer, intent(in) :: rec
    real, intent(inout) :: buffer(:,:)
-   
+
    real :: recbuff(size(buffer,1),size(buffer,2))
    integer :: i
 
