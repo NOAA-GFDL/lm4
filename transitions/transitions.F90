@@ -100,7 +100,7 @@ end type tran_type
 
 ! ==== module data ==========================================================
 logical :: module_is_initialized = .FALSE.
-integer :: ncid ! netcd id of the input file
+integer :: ncid ! netcdf id of the input file
 integer :: input_unit
 type(in_tran_set_type) :: input_fields (N_LU_TYPES,N_LU_TYPES) ! id's of input transition rate fields
 integer :: diag_ids  (N_LU_TYPES,N_LU_TYPES)
@@ -124,7 +124,7 @@ data (luh2name(idata), luh2type(idata), idata = 1, 11) / &
    'primn', LU_NTRL, &
    'secdf', LU_SCND, &
    'secdn', LU_SCND, &
-   ! urban
+   ! urban is skipped for now
    'c3ann', LU_CROP, &
    'c4ann', LU_CROP, &
    'c3per', LU_CROP, &
@@ -263,6 +263,9 @@ subroutine land_transitions_init(id_lon, id_lat)
         enddo
         enddo
      case('luh2')
+        ! LUH2 data set has more land use types and transitions than LM3,
+        ! therefore several transitions need to be aggregated on input to get
+        ! the transitions among LM3 land use types
         do k1 = 1,size(input_fields,1)
         do k2 = 1,size(input_fields,2)
            ! construct a name of input field and initialize the aggregation of input fields
@@ -399,6 +402,7 @@ end subroutine land_transitions_end
 
 
 ! ============================================================================
+! initializes set of transitions that need to be aggregated on input
 subroutine init_intranset(ncid,tran,input_file,name,text)
    type(in_tran_set_type), intent(out) :: tran
    integer , intent(in) :: ncid
@@ -451,6 +455,7 @@ end subroutine init_intranset
 
 
 ! ============================================================================
+! read and aggregates set of transitions
 subroutine get_intranset(ncid,tran,rec,buffer)
    integer, intent(in) :: ncid
    type(in_tran_set_type), intent(in) :: tran
@@ -494,6 +499,7 @@ subroutine land_transitions (time)
 
   ! ---- local vars.
   integer :: i,j,k1,k2
+  real    :: frac(lnd%is:lnd%ie,lnd%js:lnd%je)
   type(tran_type), pointer :: transitions(:,:,:) => NULL()
   integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
 
@@ -509,12 +515,17 @@ subroutine land_transitions (time)
        return ! do nothing during a year
 
   ! get transition rates for current time: read map of transitions, and accumulate
-  ! as many layers in array of transitions as necessary. Note that "transitions"
-  ! array gets reallocated inside get_transitions as necessary, it has only as many
+  ! as many time steps in array of transitions as necessary. Note that "transitions"
+  ! array gets reallocated inside add_to_transitions as necessary, it has only as many
   ! layers as the max number of transitions occuring at a point at the time.
   do k1 = 1,N_LU_TYPES
   do k2 = 1,N_LU_TYPES
-     call get_transitions(time0,time,k1,k2,transitions,new_transitions_io=.false.)
+     ! get transition rate for this specific transition
+     frac(:,:) = 0.0
+     if (any(input_fields(k1,k2)%id(:)>0)) then
+        call integral_transition(time0,time,input_fields(k1,k2),frac)
+     endif
+     call add_to_transitions(frac,time0,time,k1,k2,transitions)
   enddo
   enddo
 
@@ -880,56 +891,47 @@ end function total_transition_area
 
 ! ============================================================================
 
-subroutine get_transitions(time0,time1,k1,k2,tran,new_transitions_io)
+subroutine add_to_transitions(frac, time0,time1,k1,k2,tran)
+  real, intent(in) :: frac(lnd%is:lnd%ie,lnd%js:lnd%je)
   type(time_type), intent(in) :: time0       ! time of previous calculation of
     ! transitions (the integral transitinos will be calculated between time0
     ! and time)
   type(time_type), intent(in) :: time1       ! current time
   integer, intent(in) :: k1,k2               ! kinds of tiles
   type(tran_type), pointer :: tran(:,:,:)    ! transition info
-  logical, intent(in) :: new_transitions_io
 
   ! ---- local vars
   integer :: i,j,k,sec,days
   type(tran_type), pointer :: ptr(:,:,:) => NULL()
-  real    :: frac(lnd%is:lnd%ie,lnd%js:lnd%je)
   real    :: part_of_year
   logical :: used
 
   ! allocate array of transitions, if necessary
-  if (.not.associated(tran)) then
-     allocate(tran(lnd%is:lnd%ie,lnd%js:lnd%je,1) )
-  end if
+  if (.not.associated(tran)) allocate(tran(lnd%is:lnd%ie,lnd%js:lnd%je,1))
 
-  ! get transition rate for this specific transition
-  frac(:,:) = 0.0
-  if (any(input_fields(k1,k2)%id(:)>0)) then
-     call integral_transition(time0,time1,input_fields(k1,k2),frac)
-
-     do j = lnd%js,lnd%je
-     do i = lnd%is,lnd%ie
-        if(frac(i,j) == 0) cycle ! skip points where transition rate is zero
-        ! find the first empty transition element for the current indices
-        k = 1
-        do while ( k <= size(tran,3) )
-           if(tran(i,j,k)%donor == 0) exit
-           k = k+1
-        enddo
-
-        if (k>size(tran,3)) then
-           ! if there is no room, make the array of transitions larger
-           allocate(ptr(lnd%is:lnd%ie,lnd%js:lnd%je,size(tran,3)*2))
-           ptr(:,:,1:size(tran,3)) = tran
-           deallocate(tran)
-           tran => ptr
-           nullify(ptr)
-        end if
-
-        ! store the transition element
-        tran(i,j,k) = tran_type(k1,k2,frac(i,j))
+  do j = lnd%js,lnd%je
+  do i = lnd%is,lnd%ie
+     if(frac(i,j) == 0) cycle ! skip points where transition rate is zero
+     ! find the first empty transition element for the current indices
+     k = 1
+     do while ( k <= size(tran,3) )
+        if(tran(i,j,k)%donor == 0) exit
+        k = k+1
      enddo
-     enddo
-  endif
+
+     if (k>size(tran,3)) then
+        ! if there is no room, make the array of transitions larger
+        allocate(ptr(lnd%is:lnd%ie,lnd%js:lnd%je,size(tran,3)*2))
+        ptr(:,:,1:size(tran,3)) = tran
+        deallocate(tran)
+        tran => ptr
+        nullify(ptr)
+     end if
+
+     ! store the transition element
+     tran(i,j,k) = tran_type(k1,k2,frac(i,j))
+  enddo
+  enddo
 
   ! send transition data to diagnostics
   if(diag_ids(k1,k2)>0) then
@@ -938,7 +940,7 @@ subroutine get_transitions(time0,time1,k1,k2,tran,new_transitions_io)
      used = send_data(diag_ids(k1,k2),frac/part_of_year,time1)
   endif
 
-end subroutine get_transitions
+end subroutine add_to_transitions
 
 
 ! ==============================================================================
