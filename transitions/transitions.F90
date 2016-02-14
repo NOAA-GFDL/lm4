@@ -88,12 +88,14 @@ include 'netcdf.inc'
 #define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
 
 ! ==== data types ===========================================================
-type :: in_tran_set_type
-   ! input transition field can be a sum of several netcdf fields
-   character(64) :: name ! internal lm3 name of the field
+! set of variables that are summed up on input
+type :: var_set_type
+   character(64) :: name  = '' ! internal lm3 name of the field
+   integer       :: nvars = 0  ! number of variable ids
    integer, allocatable :: id(:)    ! ids of the input fields
 end type
 
+! a description of single transition
 type :: tran_type
    integer :: donor    = 0  ! kind of donor tile
    integer :: acceptor = 0  ! kind of acceptor tile
@@ -105,7 +107,7 @@ logical :: module_is_initialized = .FALSE.
 
 integer :: ncid ! netcdf id of the input file
 integer :: nlon_in, nlat_in
-type(in_tran_set_type) :: input_fields (N_LU_TYPES,N_LU_TYPES) ! id's of input transition rate fields
+type(var_set_type) :: input_fields (N_LU_TYPES,N_LU_TYPES) ! id's of input transition rate fields
 integer :: diag_ids  (N_LU_TYPES,N_LU_TYPES)
 real, allocatable :: norm_in  (:,:) ! normalizing factor to convert input data to
         ! units of [fractions of vegetated area per year]
@@ -281,7 +283,8 @@ subroutine land_transitions_init(id_lon, id_lat)
         ! construct a name of input field and register the field
         fieldname = trim(landuse_name(k1))//'2'//trim(landuse_name(k2))
         if(trim(fieldname)=='2') cycle ! skip unspecified tiles
-        call init_intranset(ncid,input_fields(k1,k2),input_file,fieldname,fieldname)
+        input_fields(k1,k2)%name=fieldname
+        call add_var_to_varset(input_fields(k1,k2),ncid,input_file,fieldname)
      enddo
      enddo
 
@@ -289,23 +292,12 @@ subroutine land_transitions_init(id_lon, id_lat)
      ! LUH2 data set has more land use types and transitions than LM3,
      ! therefore several transitions need to be aggregated on input to get
      ! the transitions among LM3 land use types
-     do k1 = 1,size(input_fields,1)
-     do k2 = 1,size(input_fields,2)
-        ! construct a name of input field and initialize the aggregation of input fields
-        fieldname = trim(landuse_name(k1))//'2'//trim(landuse_name(k2))
-        if(trim(fieldname)=='2') cycle ! skip unspecified tiles
+     do n1 = 1,size(luh2type)
+     do n2 = 1,size(luh2type)
+        k1 = luh2type(n1)
+        k2 = luh2type(n2)
         if (k1==k2.and.k1/=LU_SCND) cycle ! skip transitions to the same LM3 LU type, except scnd2scnd
-        text=''
-        do n1 = 1,size(luh2type)
-           if (luh2type(n1)/=k1) cycle
-           do n2 = 1,size(luh2type)
-              if (luh2type(n2)/=k2) cycle
-              text=trim(text)//'+'//luh2name(n1)//'_to_'//luh2name(n2)
-           enddo
-        enddo
-        call error_mesg('land_transitions_init','initializing aggregate transition ' &
-                        //trim(fieldname)//' = '//trim(text),NOTE)
-        call init_intranset(ncid,input_fields(k1,k2),input_file,fieldname,text)
+        call add_var_to_varset(input_fields(k1,k2),ncid,input_file,luh2name(n1)//'_to_'//luh2name(n2))
      enddo
      enddo
 
@@ -436,65 +428,50 @@ subroutine land_transitions_end()
 
 end subroutine land_transitions_end
 
-
 ! ============================================================================
-! initializes set of transitions that need to be aggregated on input
-subroutine init_intranset(ncid,tran,input_file,name,text)
-   type(in_tran_set_type), intent(out) :: tran
-   integer , intent(in) :: ncid
-   character(*), intent(in) :: input_file, name, text
+subroutine add_var_to_varset(varset,ncid,filename,varname)
+   type(var_set_type), intent(inout) :: varset
+   integer     , intent(in) :: ncid     ! id of netcdf file
+   character(*), intent(in) :: filename ! name of the file (for reporting problems only)
+   character(*), intent(in) :: varname  ! name of the variable
 
-   character(*), parameter :: DELIM = '+, '
-   integer :: i,is,ie,k,ierr,n,srclen
-   tran%name=name
-   ! count delimiters in the text
-   n = 1 ! assume string is not empty
-   srclen = len(text)
-   do i = 1, srclen
-      if (index(DELIM,text(i:i)).ne.0) n=n+1
-      ! this will fail if there are multiple sequential delimiters
-   enddo
-   ! allocate enough space for input field ids
-   allocate(tran%id(n))
-   tran%id(:) = -1
-   ! initialize
-   i = 1; k = 1
-   do
-      ! skip delimiters
-      do while (i<=srclen)
-        if(index(DELIM,text(i:i))==0) exit ! this is not a delimiter
-        i = i+1
-      enddo
-      is = i
-      if (i>srclen) exit ! from loop
-      ! find the end of the name
-      do while (i<=srclen.and.index(DELIM,text(i:i))==0)
-        i = i+1
-      enddo
-      ie = i-1
-      ierr = nfu_inq_var(ncid,text(is:ie), id=tran%id(k))
-      if (ierr/=NF_NOERR) then
-         if (ierr==NF_ENOTVAR) then
-            call error_mesg('land_transitions_init',&
-                 'did not find field "'//trim(text(is:ie))//&
-                 '" in file "'//trim(input_file)//'"', NOTE)
-            tran%id(k)=-1 ! to indicate that input field is not present in the input data
-         else
-            call error_mesg('land_transitions_init',&
-                 'error initializing field "'//trim(text(is:ie))//&
-                 '" from file "'//trim(input_file)//'" : '//nf_strerror(ierr), FATAL)
-         endif
-      endif
-      k  = k+1
-   enddo
-end subroutine init_intranset
+   integer, allocatable :: id(:)
+   integer :: varid, ierr
+
+   if (.not.allocated(varset%id)) then
+      allocate(varset%id(10))
+      varset%id(:) = -1
+   endif
+   if (varset%nvars >= size(varset%id)) then
+      ! make space for new variables
+      allocate(id(size(varset%id)+10))
+      id(:) = -1
+      id(1:varset%nvars) = varset%id(1:varset%nvars)
+      call move_alloc(id,varset%id)
+   endif
+
+   ierr = nfu_inq_var(ncid, varname, id=varid)
+   select case(ierr)
+   case (NF_NOERR)
+      varset%nvars = varset%nvars+1
+      varset%id(varset%nvars) = varid
+   case (NF_ENOTVAR)
+      call error_mesg('land_transitions_init',&
+           'did not find field "'//trim(varname)//'" in file "'//trim(filename)//'"',&
+           NOTE)
+   case default
+      call error_mesg('land_transitions_init',&
+           'error initializing field "'//varname//&
+           '" from file "'//trim(filename)//'" : '//nf_strerror(ierr), FATAL)
+   end select
+end subroutine add_var_to_varset
 
 
 ! ============================================================================
 ! read, aggregate, and interpolate set of transitions
-subroutine get_intranset(ncid,tran,rec,frac)
+subroutine get_varset_data(ncid,varset,rec,frac)
    integer, intent(in) :: ncid
-   type(in_tran_set_type), intent(in) :: tran
+   type(var_set_type), intent(in) :: varset
    integer, intent(in) :: rec
    real, intent(out) :: frac(:,:)
 
@@ -503,17 +480,15 @@ subroutine get_intranset(ncid,tran,rec,frac)
    integer :: i
 
    frac = 0.0
-   if (.not.allocated(tran%id)) return
-
    buff1 = 0.0
-   do i = 1,size(tran%id(:))
-     if (tran%id(i)>0) then
-        __NF_ASRT__(nfu_get_rec(ncid,tran%id(i),rec,buff0))
+   do i = 1,varset%nvars
+     if (varset%id(i)>0) then
+        __NF_ASRT__(nfu_get_rec(ncid,varset%id(i),rec,buff0))
         buff1 = buff1 + buff0
      endif
    enddo
    call horiz_interp(interp,buff1*norm_in,frac)
-end subroutine get_intranset
+end subroutine get_varset_data
 
 
 ! ============================================================================
@@ -989,7 +964,7 @@ end subroutine add_to_transitions
 ! integral of transition rates) over the specified interval
 subroutine integral_transition(t1, t2, tran, frac, err_msg)
   type(time_type), intent(in)  :: t1,t2 ! time boundaries
-  type(in_tran_set_type), intent(in)  :: tran ! id of the field
+  type(var_set_type), intent(in)  :: tran ! id of the field
   real           , intent(out) :: frac(:,:)
   character(len=*),intent(out), optional :: err_msg
 
@@ -1017,12 +992,12 @@ subroutine integral_transition(t1, t2, tran, frac, err_msg)
   if(msg /= '') then
     if(fms_error_handler('integral_transition','Message from time_interp: '//trim(msg),err_msg)) return
   endif
-  call get_intranset(ncid,tran,i1,frac)
+  call get_varset_data(ncid,tran,i1,frac)
 
   dt = (time_in(i2)-time_in(i1))//set_time(0,days_in_year((time_in(i2)+time_in(i1))/2))
   sum = -frac*w*dt
   do while(time_in(i2)<=te)
-     call get_intranset(ncid,tran,i1,frac)
+     call get_varset_data(ncid,tran,i1,frac)
      dt = (time_in(i2)-time_in(i1))//set_time(0,days_in_year((time_in(i2)+time_in(i1))/2))
      sum = sum+frac*dt
      i2 = i2+1
@@ -1034,7 +1009,7 @@ subroutine integral_transition(t1, t2, tran, frac, err_msg)
   if(msg /= '') then
     if(fms_error_handler('integral_transition','Message from time_interp: '//trim(msg),err_msg)) return
   endif
-  call get_intranset(ncid,tran,i1,frac)
+  call get_varset_data(ncid,tran,i1,frac)
   dt = (time_in(i2)-time_in(i1))//set_time(0,days_in_year((time_in(i2)+time_in(i1))/2))
   frac = sum+frac*w*dt
   ! check the transition rate validity
