@@ -471,7 +471,7 @@ subroutine land_model_init &
   i_river_DOC  = river_tracer_index('doc')
   i_river_DON  = river_tracer_index('don')
   i_river_NO3  = river_tracer_index('NO3')
-  i_river_NO3  = river_tracer_index('NH4')
+  i_river_NH4  = river_tracer_index('NH4')
   if (i_river_ice  == NO_TRACER) call error_mesg ('land_model_init','required river tracer for ice not found', FATAL)
   if (i_river_heat == NO_TRACER) call error_mesg ('land_model_init','required river tracer for heat not found', FATAL)
 
