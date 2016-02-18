@@ -300,8 +300,10 @@ subroutine land_transitions_init(id_lon, id_lat)
      enddo
      enddo
 
-     if (time0==set_date(0001,01,01).and.state_file/='') then
+     if (time0==set_date(0001,01,01)) then
         ! initialize state input for initial transition from all-natural state.
+        if (trim(state_file)=='') call error_mesg('land_transitions_init',&
+            'starting land use transitions, but land use state file is not specified',FATAL)
 
         ! open state file
         ierr=nf_open(state_file,NF_NOWRITE,state_ncid)
