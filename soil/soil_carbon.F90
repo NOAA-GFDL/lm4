@@ -148,6 +148,7 @@ end type soil_pool
 !---- namelist ---------------------------------------------------------------
 character(32) :: soil_carbon_model_to_use = 'CENTURY-like' ! or 'CENTURY-like-by-layer', or 'CORPSE', or 'CORPSE-N'
 logical                   :: use_rhizosphere_cohort=.FALSE.  !Use 2 fixed cohorts for rhizosphere and bulk soil if true
+logical                   :: denitrif_first_order=.FALSE.   ! Do first-order denitrification from nitrate pool (not as part of OM decomp) if true
 real,dimension(n_c_types) :: Ea=(/37e3,54e3,50e3/)          !Activation energy (kJ/mol)
 real*8					   :: Ea_NH4=37e3	                 !Activation energy for immobilization of ammonium (kJ/mol)
 real*8					   :: Ea_NO3=37e3	                 !Activation energy for immobilization of nitrate (kJ/mol)
@@ -165,6 +166,9 @@ real*8                     :: V_NH4_ref=0.03                 !Ref. Microbes Effi
 real*8                     :: V_NO3_ref=0.01                 !Ref. Microbes Efficiency of Nitrate immobilizatiion
 real*8					   :: Knitr_ref=0.01				 !Nitirification constant at reference temperature  (yr-1)
 real*8					   :: Kdenitr_ref=0.01				 !Denitirification constant at reference temperature  (yr-1)
+real*8,dimension(n_c_types) :: vmaxref_denitrif=(/450e0,2.5e0,60e0/) ! Organic matter decomp rates with denitrification as electron acceptor
+real*8             :: k_denitrif=1e-2          ! Half saturation constant for denitrification (kgNO3-N/kgNO3-N demand/year)
+real*8             :: denitrif_NO3_factor=0.18
 real*8                     :: CN_microb=8                    !Fixed microbial C:N ratio
 
 real,dimension(n_c_types) :: eup=(/0.6,0.2,0.1/)            !Fraction of degraded C that goes into microbial biomass
@@ -225,7 +229,8 @@ namelist /soil_carbon_nml/ &
             N_protected_relative_solubility,&
             DON_deposition_rate,&
             N_limit_scheme,&
-            Vmax_myc_min_N_uptk,k_myc_min_N_uptk,eup_myc,vmaxref_myc_decomp,k_myc_decomp
+            Vmax_myc_min_N_uptk,k_myc_min_N_uptk,eup_myc,vmaxref_myc_decomp,k_myc_decomp,&
+            vmaxref_denitrif,k_denitrif,denitrif_first_order,denitrif_NO3_factor
 
 
 !---- end-of-namelist --------------------------------------------------------
@@ -403,6 +408,7 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
     protected_C_produced=0.0
     protected_turnover_rate=0.0
     nitrif=dfloat(0)!xz
+    denitrification=0.0
     Ndecomp=dfloat(0)
     protected_N_produced=dfloat(0)
     protected_N_turnover_rate=dfloat(0)
@@ -550,7 +556,7 @@ if (soil_carbon_option == SOILC_CORPSE_N) then
                         totalResp=tempresp,totalN_decomposed=temp_N_decomposed,deadmic_C_produced=temp_deadmic_C,deadmic_N_produced=temp_deadmic_N,&
                         protected_produced=temp_protected,protected_N_produced=temp_N_protected,&
                         protected_turnover_rate=temp_protected_turnover_rate,protected_N_turnover_rate=temp_protected_N_turnover_rate,&
-                        CO2prod=tempCO2,IMM_Nprod=tempIMM_N,MINERAL_prod=temp_MINERAL,livemic_C_produced=temp_livemic_C,livemic_N_produced=temp_livemic_N)
+                        CO2prod=tempCO2,IMM_Nprod=tempIMM_N,MINERAL_prod=temp_MINERAL,denitrif=denitrif,livemic_C_produced=temp_livemic_C,livemic_N_produced=temp_livemic_N)
         IF (.NOT. check_cohort(pool%litterCohorts(n))) THEN
             if(present(badCohort)) badCohort=n
             WRITE (*,*),'UPDATE_POOL: Cohort',n,'of',pool%n_cohorts,'bad'
@@ -582,6 +588,7 @@ if (soil_carbon_option == SOILC_CORPSE_N) then
 
         soil_MINERAL=soil_MINERAL+temp_MINERAL  !xz kg/m2
         soil_IMM_N=soil_IMM_N+tempIMM_N !xz kg/m2
+        denitrification = denitrification + denitrif*dt ! kgN/m2
 
 !        if (is_watch_point()) then
 !           __DEBUG4__(cohortVolume,T,theta,air_filled_porosity)
@@ -606,19 +613,25 @@ IF (soil_carbon_option == SOILC_CORPSE_N) THEN
 
     !!!!!!!!!!!!!xz Denitrification; check with LM3 code; Currently the code only calculate the denitrification rate with Temperature, we might improve it by adding siol water content
          !!!xz CH note: check the theta condition because the denitri may work differently from the rest of proccesses
+         IF(denitrif_first_order) then
+
           IF(theta.gt.denitrif_theta_min)THEN  !xz when the soil water content is higher than minimum soil water content(defined in the parameters), then dinitrification take a potential rate; otherwise it is 0
     			Denitrif=min(pool%nitrate,Kdenitr(T)*pool%nitrate*dt)
     			if(Denitrif.lt.dfloat(0))then
-    				stop
+    				call error_mesg('update_pool','Denitrif < 0',FATAL)
     			endif
            ELSE
     			Denitrif=dfloat(0)
            ENDIF
 
-    !!!!!!!!!!!!!xz update the pool
-            pool%nitrate=pool%nitrate-Denitrif
+           !!!!!!!!!!!!!xz update the pool
+          pool%nitrate=pool%nitrate-denitrif
 
-            pool%denitrif=pool%denitrif+Denitrif
+         ENDIF
+
+
+
+            pool%denitrif=pool%denitrif+denitrif
 
             nitrification=nitrif
             denitrification=denitrif
@@ -648,10 +661,10 @@ end subroutine update_pool
 !Do litter respiration and microbial turnover for one litter cohort
 subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled_porosity,protection_rate,protection_rate_N,dt,&
         totalResp,deadmic_C_produced,deadmic_N_produced,protected_produced,protected_N_produced,&
-        protected_turnover_rate,protected_N_turnover_rate,CO2prod,totalN_decomposed,IMM_Nprod,MINERAL_prod,livemic_C_produced,livemic_N_produced) !xz
+        protected_turnover_rate,protected_N_turnover_rate,CO2prod,totalN_decomposed,IMM_Nprod,MINERAL_prod,denitrif,livemic_C_produced,livemic_N_produced) !xz
     type(litterCohort),intent(inout)::cohort
     real,intent(out)::totalResp(n_c_types),CO2prod,protected_produced(n_c_types),protected_N_produced(n_c_types),protected_turnover_rate(n_c_types), &
-        protected_N_turnover_rate(n_c_types),deadmic_C_produced,deadmic_N_produced,IMM_Nprod,MINERAL_prod,livemic_C_produced,livemic_N_produced
+        protected_N_turnover_rate(n_c_types),deadmic_C_produced,deadmic_N_produced,IMM_Nprod,MINERAL_prod,denitrif,livemic_C_produced,livemic_N_produced
     real,intent(in)::cohortVolume,T,theta,dt,protection_rate(n_c_types),protection_rate_N(n_c_types) !Temperature, volumetric water content, delta time
     real,intent(in)::air_filled_porosity
     real,intent(inout)::nitrate, ammonium
@@ -662,6 +675,10 @@ subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled
 
     real::totalN_decomposed(n_c_types),prova_imm1,prova_imm2,prova_imm3,prova_imm4,provaCN1,provaCN2,provaCN3
     real::pot_tempN_decomposed(n_c_types), potential_N_decomp(n_c_types),diff(n_c_types),tempN_decomposed(n_c_types)
+    real::denitrif_NO3_demand ! kgN/m2/year
+    real,dimension(n_c_types)::potential_tempResp_denitrif, denitrif_Resp,pot_tempN_decomposed_denitrif ! kgC/m2/year
+    real::carbon_supply_denitrif,nitrogen_supply_denitrif
+
 
     real::a,b,c, delta, temp_a, N_inhibitory_factor, solution1, solution2, denominator,denominator_sum,prova1,prova2,somma1,somma2,term3,provaCN_imm,dMNdt_req,dMCdt_req
     integer::i
@@ -712,6 +729,16 @@ subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled
     !Calculate potential respiration rate (if not N limited)
     !Litter
     potential_tempResp=Resp(cohort%litterC,cohort%livingMicrobeC,T,theta,air_filled_porosity)
+
+    ! Respiration of carbon supported by denitrification rather than oxygen; kgC/m2/yr
+    potential_tempResp_denitrif=Resp_denitrif(cohort%litterC,cohort%livingMicrobeC,T,theta,air_filled_porosity,nitrate)
+    ! Factor based on stoichiometry of denitrification; kgN/m2/yr
+    denitrif_NO3_demand=sum(potential_tempResp_denitrif*(1.0-eup))*denitrif_NO3_factor
+
+    ! print *,air_filled_porosity,nitrate,denitrif_NO3_demand,sum(potential_tempResp_denitrif),sum(potential_tempResp)
+
+    ! potential_tempResp = potential_tempResp + denitrif_Resp
+
     !Make sure it does not exceed available C
     where(dt*potential_tempResp > cohort%litterC)
         potential_tempResp=cohort%litterC/dt
@@ -722,13 +749,16 @@ subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled
 if(soil_carbon_option == SOILC_CORPSE_N) then
     where(cohort%litterC>0)
         pot_tempN_decomposed=potential_tempResp*cohort%litterN/cohort%litterC !kgC/m2/yr
+        pot_tempN_decomposed_denitrif=denitrif_Resp*cohort%litterN/cohort%litterC
     elsewhere
         pot_tempN_decomposed=0.0
+        pot_tempN_decomposed_denitrif=0.0
     end where
 
 
     cohort%IMM_N_max=min((ammonium+nitrate)/dt,cohort%livingMicrobeC*(V_NH4(T)*ammonium+V_NO3(T)*nitrate)*(theta**3)*max((air_filled_porosity)**gas_diffusion_exp,min_anaerobic_resp_factor))   !kg/m2/yr
     nitrogen_supply=sum(pot_tempN_decomposed*mup)
+    nitrogen_supply_denitrif=sum(pot_tempN_decomposed_denitrif*mup)
     temp_N_microbes=cohort%livingMicrobeN
 endif
 
@@ -737,7 +767,7 @@ endif
 
 
     carbon_supply=sum(potential_tempResp*eup)
-
+    carbon_supply_denitrif=sum(denitrif_Resp*eup)
 
     maintenance_resp=microbeTurnover*(1.0-et)
 
@@ -747,11 +777,15 @@ endif
 
 IF(soil_carbon_option == SOILC_CORPSE_N) THEN
 
-    if(carbon_supply - maintenance_resp > (nitrogen_supply+cohort%IMM_N_max)*CN_microb) THEN
+    if(carbon_supply - maintenance_resp > (nitrogen_supply-denitrif_NO3_demand+cohort%IMM_N_max)*CN_microb) THEN
         ! Growth is nitrogen limited, with not enough mineral N to support it with max immobilization
         N_LIM_STATE=N_LIMITED
         CN_imbalance_term = -cohort%IMM_N_max
 
+        ! Just skip denitrifaction in this case for now, since it probably doesn't amount to much if mineral N is limiting microbial growth
+        ! Probably better to do this with implicit solution at some point :-(
+        denitrif_Resp = 0.0
+        denitrif_NO3_demand = 0.0
 
         !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
         if(N_limit_scheme==NLIM_OVERFLOW) THEN
@@ -801,9 +835,13 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
         endif
 
 
-    elseif(carbon_supply - maintenance_resp >= nitrogen_supply*CN_microb) THEN
+    elseif(carbon_supply - maintenance_resp >= (nitrogen_supply-denitrif_NO3_demand)*CN_microb) THEN
         ! Growth must be supported by immobilization of some mineral nitrogen, but is ultimately carbon limited
         N_LIM_STATE = IMMOBILIZATION
+
+        carbon_supply = carbon_supply+carbon_supply_denitrif
+        nitrogen_supply = nitrogen_supply+nitrogen_supply_denitrif
+
         CN_imbalance_term = -((carbon_supply-maintenance_resp)/CN_microb - nitrogen_supply)
         cohort%livingMicrobeC = cohort%livingMicrobeC + dt*(carbon_supply - microbeTurnover)
         cohort%livingMicrobeN = cohort%livingMicrobeN + dt*((carbon_supply-maintenance_resp)/CN_microb - microbeTurnover*et/CN_microb)
@@ -811,31 +849,39 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
         livemic_C_produced=dt*carbon_supply
         livemic_N_produced=dt*(carbon_supply-maintenance_resp)/CN_microb
 
-        tempResp=potential_tempResp !*N_inhibitory_factor  !Actual amount of carbon decomposed
-        tempN_decomposed=pot_tempN_decomposed !*N_inhibitory_factor  !Actual amount of nitrogen decomposed
+        tempResp=potential_tempResp+denitrif_Resp ! Note, waste from denitrif still goes to CO2 !Actual amount of carbon decomposed
+        tempN_decomposed=pot_tempN_decomposed+pot_tempN_decomposed_denitrif  !Actual amount of nitrogen decomposed
         overflow_resp=0
 
     elseif(carbon_supply>=maintenance_resp) THEN
         ! Growth is carbon limited -- extra N is mineralized
         N_LIM_STATE = EXCESS_N
+
+        carbon_supply = carbon_supply+carbon_supply_denitrif
+        nitrogen_supply = nitrogen_supply+nitrogen_supply_denitrif
+
         cohort%livingMicrobeC = cohort%livingMicrobeC + dt*(carbon_supply - microbeTurnover)
         cohort%livingMicrobeN = cohort%livingMicrobeN + dt*((carbon_supply-maintenance_resp)/CN_microb - microbeTurnover*et/CN_microb)
         CN_imbalance_term = nitrogen_supply - (carbon_supply-maintenance_resp)/CN_microb
 
-        tempResp=potential_tempResp  !Actual amount of carbon decomposed
-        tempN_decomposed=pot_tempN_decomposed  !Actual amount of nitrogen decomposed
+        tempResp=potential_tempResp+denitrif_Resp  !Actual amount of carbon decomposed
+        tempN_decomposed=pot_tempN_decomposed+pot_tempN_decomposed_denitrif  !Actual amount of nitrogen decomposed
         overflow_resp=0
-        livemic_C_produced=dt*carbon_supply
+        livemic_C_produced=dt*carbon_supply ! Note, waste from denitrif still goes to CO2
         livemic_N_produced=dt*(carbon_supply-maintenance_resp)/CN_microb
 
     else
         ! Maintenance resp exceeds carbon supply. In this case, some additional biomass N will be lost
         N_LIM_STATE = EXCESS_N
+
+        carbon_supply = carbon_supply+carbon_supply_denitrif
+        nitrogen_supply = nitrogen_supply+nitrogen_supply_denitrif
+
         cohort%livingMicrobeC = cohort%livingMicrobeC + dt*(carbon_supply - microbeTurnover)
         cohort%livingMicrobeN = cohort%livingMicrobeN + dt*(carbon_supply/CN_microb - microbeTurnover/CN_microb)
 
-        tempResp=potential_tempResp
-        tempN_decomposed=pot_tempN_decomposed
+        tempResp=potential_tempResp+denitrif_Resp ! Note, waste from denitrif still goes to CO2
+        tempN_decomposed=pot_tempN_decomposed+pot_tempN_decomposed_denitrif
         overflow_resp=0.0
         CN_imbalance_term = nitrogen_supply-(carbon_supply-maintenance_resp)/CN_microb
 
@@ -881,6 +927,8 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
         print *,'Live microbe N',cohort%livingMicrobeN
         print *,'Immobilized inorganic N',cohort%IMM_N_gross*dt
         print *,'Mineralized organic N',cohort%MINER_gross*dt
+        print *,'Denitrified NO3',denitrif_NO3_demand
+        print *,'Denitrification resp',denitrif_Resp
         print *,'Previous microbe N',temp_N_microbes
         print *,'Previous microbe C',temp_C_microbes
         print *,'dt',dt
@@ -958,11 +1006,17 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
         call error_mesg('update_cohort','N Min < 0 or N immob < 0',FATAL)
     endif
 
-
+    ! This includes denitrification resp added above
     CO2prod=dt*(sum(tempResp*(1.0-eup))+microbeTurnover*(1.0-et)+overflow_resp) !kg/m2
+    ! This includes denitrification resp added above
     cohort%litterC=cohort%litterC-dt*tempResp     !kg/m2
 
+
+
+
     !-----update quantity of available nitrate and ammonium in soil -----------------------------------------
+    if(.NOT. denitrif_first_order)  nitrate = nitrate - denitrif_NO3_demand*dt
+
     IF((V_NH4(T)*ammonium+V_NO3(T)*nitrate).gt.dfloat(0))THEN
         nitrate=nitrate+min(CN_imbalance_term,dfloat(0))*(V_NO3(T)*(nitrate)/(V_NH4(T)*ammonium+V_NO3(T)*nitrate))*dt
         ammonium=ammonium+max(CN_imbalance_term,dfloat(0))*dt+min(CN_imbalance_term,dfloat(0))*dt*(V_NH4(T)*(ammonium)/(V_NH4(T)*ammonium+V_NO3(T)*nitrate))+sum((1-mup)*tempN_decomposed)*dt
@@ -1006,6 +1060,7 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
         cohort%MINER_gross=0.0
         deadmic_N_produced=0.0
         livemic_N_produced=0.0
+        denitrif_NO3_demand=0.0
 
     ENDIF
 
@@ -1029,6 +1084,8 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
 
     cohort%Rtot=cohort%Rtot+sum(totalResp)
 
+    denitrif = denitrif_NO3_demand
+
     if(.NOT. check_cohort(cohort)) THEN
        call print_cohort(cohort)
        print *,'N limitation type',N_LIM_STATE
@@ -1043,6 +1100,7 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
        print *,'Dead mic N prod',deadmic_N_produced
        print *,'Maintenance resp',maintenance_resp*dt
        print *,'Uptake resp',totalResp*(1.0-eup)*dt
+       print *,'Denitrif',denitrif_NO3_demand
        print *,'Cohort C - required total',cohortCSum(cohort)-cohort%originalLitterC
        call error_mesg('update_cohort','Cohort invalid',FATAL)
     endif
@@ -1225,14 +1283,44 @@ pure function Resp(Ctotal,Chet,T,theta,air_filled_porosity)
 
     Resp=Vmax(T)*theta**3*(Cavail)*enz/(sum(Cavail)*kC+enz)*max((air_filled_porosity)**gas_diffusion_exp,min_anaerobic_resp_factor*aerobic_max)
 
-    !ox_avail=oxygen_concentration(Ox,sum(tempresp)/sum(Cavail)*theta*oxPerC)
-    !print *,sum(tempresp)/sum(Cavail)
-    !print *,ox_avail/(kO+ox_avail)
-    !print *,tempresp*(1.0-theta)+theta*tempresp*ox_avail/(kO+ox_avail)
 
-    !Assumes pores are either saturated or not oxygen limited, divided according to theta
-    !Resp=tempresp*(1.0-theta)+theta*tempresp*ox_avail/(kO+ox_avail)
 end function Resp
+
+
+
+pure function Resp_denitrif(Ctotal,Chet,T,theta,air_filled_porosity,nitrate)
+    real,intent(in)::Chet                       !heterotrophic (microbial) C
+    real,intent(in)::T,theta                    !temperature (k), theta (fraction of 1.0)
+    real,intent(in)::air_filled_porosity        !Fraction of 1.0.  Different from theta since it includes ice
+    real,intent(in),dimension(n_c_types)::Ctotal !Substrate C
+    real,intent(in)::nitrate                     !Available nitrate
+    real,dimension(n_c_types)::Resp_denitrif,tempresp
+    real::denitrif_NO3_demand
+    real::enz,Cavail(n_c_types)
+    real, parameter :: aerobic_max = 0.022 ! Maximum soil-moisture factor under ideal conditions
+
+
+
+    enz=Chet*enzfrac
+
+    !Good place to implement DAMM functionality: Available carbon is the amount that diffuses to enzyme site
+    Cavail=Ctotal
+    IF(sum(Cavail).eq.0.0 .OR. theta.eq.0.0 .OR. enz.eq.0.0) THEN
+        Resp_denitrif=0.0
+        return
+    ENDIF
+
+    tempresp=Vmax_denitrif(T)*(Cavail)*enz/(sum(Cavail)*kC+enz)*theta**3*max(0.0,(denitrif_theta_min-air_filled_porosity**gas_diffusion_exp))*aerobic_max
+
+    ! Actual denitrification rate as limited by NO3 concentration; kgN/m2/yr
+    ! k_denitrif relates demand (rate) to NO3 pool for rate limitation
+    denitrif_NO3_demand=sum(tempresp*(1.0-eup))*denitrif_NO3_factor
+    Resp_denitrif = tempresp * nitrate/(nitrate + k_denitrif*denitrif_NO3_demand)
+
+
+
+end function Resp_denitrif
+
 
 pure function Resp_myc(Ctotal,Chet,T,theta,air_filled_porosity)
     real,intent(in)::Chet                       !heterotrophic (microbial) C
@@ -1275,6 +1363,15 @@ pure function Vmax(T)
     Vmax=alpha*exp(-Ea/(Rugas*T))
 end function Vmax
 
+pure function Vmax_denitrif(T)
+    real,intent(in)::T
+    real,parameter::Tref=293.15
+    real,dimension(n_c_types)::alpha,Vmax_denitrif
+
+    alpha=vmaxref_denitrif/exp(-Ea/(Rugas*Tref))
+    Vmax_denitrif=alpha*exp(-Ea/(Rugas*T))
+end function Vmax_denitrif
+
 pure function Vmax_myc(T)
     real,intent(in)::T
     real,parameter::Tref=293.15
@@ -1283,6 +1380,8 @@ pure function Vmax_myc(T)
     alpha=vmaxref_myc_decomp/exp(-Ea/(Rugas*Tref))
     Vmax_myc=alpha*exp(-Ea/(Rugas*T))
 end function Vmax_myc
+
+
 
 
 ! Calculates the rate of [Arbuscular] mycorrhizal uptake of mineral N in the pool.
@@ -2191,7 +2290,7 @@ subroutine tracer_advection(tracer_mass,flow,div,dz,del_tracer,divergence_loss,w
     integer::ll,nlayers
     ! real,dimension(size(tracer_mass)) ::flow_eff ! flow adjusted to be units of [m], weighted by 1/wl  ZACK'S CODE
     real, parameter                   :: minwl = 0.1 ![mm] minimum allowed wl
-    real,parameter::dens_h2o=1000.
+    real,parameter::dens_h2o=1000.   ! kg/m3
 !    real*8,parameter::porosity=0.3  !CH valore inventato  !xz volumn of water over volumn of soil; need to consider to change!!
     !real,intent(in)::theta
     !real*8::dt=1.0/(48.0*365.0)

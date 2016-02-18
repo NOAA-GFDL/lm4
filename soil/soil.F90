@@ -260,7 +260,7 @@ integer :: id_fast_soil_C, id_slow_soil_C, id_protected_C, id_fsc, id_ssc,&
     id_excess, id_deficit, id_deficit_2, id_deficit_3, id_deficit_4, id_zeta, id_tau, &
     id_psi_bot, id_sat_frac, id_stor_frac, id_sat_depth, id_sat_dept2, &
     id_cf_1, id_cf_3, id_wt_1, id_wt_2, id_wt_2a, id_wt_2b, id_wt_3, id_wt2_3, id_wt_4, &
-    id_div_bf, id_div_if, id_div_al, &
+    id_div_bf, id_div_if, id_div_al, id_div,&
     id_z_cap, id_active_layer, id_surface_water, id_inun_frac, id_rsn_frac, id_flow, id_reflux, &
     id_fast_C_leaching,id_slow_C_leaching,id_livemic_C_leaching,id_deadmic_C_leaching,&
     id_fast_N_leaching,id_slow_N_leaching,id_livemic_N_leaching,id_deadmic_N_leaching,&
@@ -1626,7 +1626,7 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
        land_time, 'total dead microbe DOC divergence loss', 'kg C/m2', missing_value=-100.0 )
   id_total_DOC_div_loss = register_tiled_diag_field ( module_name, 'total_DOC_div', axes(1:2), &
        land_time, 'total rate of DOC divergence loss', 'kg C/m^2/s', missing_value=initval)
-
+id_div = register_tiled_diag_field(module_name, 'div',axes,land_time,'Water divergence rate by layer','kg/m2/s',missing_value=-100.0)
        id_fast_DON_div_loss = register_tiled_diag_field ( module_name, 'fast_DON_div_loss', (/id_lon,id_lat/),  &
             land_time, 'total fast DON divergence loss', 'kg N/m2', missing_value=-100.0 )
        id_slow_DON_div_loss = register_tiled_diag_field ( module_name, 'slow_DON_div_loss', (/id_lon,id_lat/),  &
@@ -5173,6 +5173,7 @@ soil%passive_N_uptake=sum(passive_ammonium_uptake+passive_nitrate_uptake)
   call send_tile_data(id_div_bf, div_bf, diag)
   call send_tile_data(id_div_if, div_if, diag)
   call send_tile_data(id_div_al, div_al, diag)
+  call send_tile_data(id_div,div,diag)
 
   call send_tile_data(id_ie,   lrunf_ie, diag)
   call send_tile_data(id_sn,   lrunf_sn, diag)
@@ -5670,10 +5671,10 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
 
   call poolTotals(soil%leafLitter,fastC=temp_fast_C,slowC=temp_slow_C,deadMicrobeC=temp_deadmic_C,liveMicrobeC=temp_livemic_C, &
                                 fastN=temp_fast_N,slowN=temp_slow_N,deadMicrobeN=temp_deadmic_N,liveMicrobeN=temp_livemic_N    )
-  total_fast_C=total_fast_C+temp_fast_N
-  total_slow_C=total_slow_C+temp_slow_N
-  total_deadmic_C=total_deadmic_C+temp_deadmic_N
-  total_livemic_C=total_livemic_C+temp_livemic_N
+  total_fast_C=total_fast_C+temp_fast_C
+  total_slow_C=total_slow_C+temp_slow_C
+  total_deadmic_C=total_deadmic_C+temp_deadmic_C
+  total_livemic_C=total_livemic_C+temp_livemic_C
 
   !Accumulate turnover rates for determining steady state pools
   if(temp_fast_C>0)soil%leaflitter_fast_C_turnover_accumulated=soil%leaflitter_fast_C_turnover_accumulated+leaflitter_fast_C_loss_rate/temp_fast_C
