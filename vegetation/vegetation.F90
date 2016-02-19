@@ -1987,7 +1987,7 @@ subroutine update_vegn_slow( )
 
   if(month0 /= month1) then
      ! heartbeat
-     write(timestamp,'("Current date is ",i4.4,"-",i2.2,"-",i2.2)'),year0,month0,day0
+     write(timestamp,'("Current date is ",i4.4,"-",i2.2,"-",i2.2)')year0,month0,day0
      call error_mesg('update_vegn_slow',trim(timestamp),NOTE)
   endif
 
