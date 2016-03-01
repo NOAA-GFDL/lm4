@@ -93,7 +93,7 @@ use land_tile_diag_mod, only : tile_diag_init, tile_diag_end, &
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, get_watch_point, check_temp_range, current_face, &
      get_current_point, check_conservation, water_cons_tol, carbon_cons_tol, &
-     is_watch_cell, do_check_conservation, check_var_range
+     is_watch_cell, is_watch_time, do_check_conservation, check_var_range
 use static_vegn_mod, only : write_static_vegn
 use land_transitions_mod, only : &
      land_transitions_init, land_transitions_end, land_transitions, &
@@ -2819,10 +2819,11 @@ subroutine update_land_bc_slow (land2cplr)
      enddo
   endif
   call get_watch_point(i,j,k,face)
-  if ( lnd%face==face.and.             &
-       lnd%is<=i.and.i<=lnd%ie.and.    &
-       lnd%js<=j.and.j<=lnd%je.and.    &
-       k<=size(land2cplr%rough_scale,3)) then
+  if ( lnd%face==face.and.                   &
+       lnd%is<=i.and.i<=lnd%ie.and.          &
+       lnd%js<=j.and.j<=lnd%je.and.          &
+       k<=size(land2cplr%rough_scale,3).and. &
+       is_watch_time()) then
      write(*,*)'#### update_land_bc_slow ### output ####'
      write(*,*)'land2cplr%rough_scale',land2cplr%rough_scale(i,j,k)
      write(*,*)'#### update_land_bc_slow ### end of output ####'
