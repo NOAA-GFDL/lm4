@@ -627,6 +627,7 @@ IF (soil_carbon_option == SOILC_CORPSE_N) THEN
            !!!!!!!!!!!!!xz update the pool
           pool%nitrate=pool%nitrate-denitrif
 
+            denitrification=denitrif
          ENDIF
 
 
@@ -634,7 +635,6 @@ IF (soil_carbon_option == SOILC_CORPSE_N) THEN
             pool%denitrif=pool%denitrif+denitrif
 
             nitrification=nitrif
-            denitrification=denitrif
             N_mineralization = soil_MINERAL
             N_immobilization = soil_IMM_N
 

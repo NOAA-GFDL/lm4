@@ -61,7 +61,7 @@ real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 da
 integer :: id_npp, id_nep, id_gpp, id_resp, id_resl, id_resr, id_resg, &
     id_soilt, id_theta, id_litter, &
     id_mycorrhizal_scav_allocation, id_mycorrhizal_scav_immobilization,&
-    id_mycorrhizal_mine_allocation, id_mycorrhizal_mine_immobilization, id_N_fixer_allocation, &
+    id_mycorrhizal_mine_allocation, id_mycorrhizal_mine_immobilization, id_N_fixer_allocation, id_total_plant_N_uptake, &
     id_N_fix_marginal_gain, id_myc_scav_marginal_gain, id_myc_mine_marginal_gain, id_rhiz_exudation, id_nitrogen_stress
 
 
@@ -135,6 +135,9 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
       id_nitrogen_stress = register_tiled_diag_field ( module_name, 'nitrogen_stress',  &
            (/id_lon,id_lat/), time, 'Nitrogen stress index', 'Dimensionless', &
            missing_value=-100.0 )
+     id_total_plant_N_uptake = register_tiled_diag_field ( module_name, 'plant_N_uptake',  &
+            (/id_lon,id_lat/), time, 'Plant N uptake rate', 'kg N/(m2 year)', &
+            missing_value=-100.0 )
 end subroutine vegn_dynamics_init
 
 
@@ -162,6 +165,7 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, diag)
   real :: myc_scav_marginal_gain,myc_mine_marginal_gain, N_fix_marginal_gain,rhiz_exud_frac
   real :: root_active_N_uptake, mining_CO2prod,total_mining_CO2prod
   real :: N_fixation_2, myc_N_uptake, myc_N_uptake_2, myc_C_uptake, myc_C_uptake_2
+  real :: total_plant_N_uptake
   integer :: sp ! shorthand for current cohort specie
   integer :: i
 
@@ -457,9 +461,9 @@ total_myc_mine_C_uptake = 0.0
      soil%symbiotic_N_fixation=soil%symbiotic_N_fixation+N_fixation
      soil%active_root_N_uptake=soil%active_root_N_uptake+root_active_N_uptake
 
-     cc%stored_N = cc%stored_N + myc_scav_N_uptake-mycorrhizal_scav_N_immob + myc_mine_N_uptake-mycorrhizal_mine_N_immob &
-                       +N_fixation+root_active_N_uptake - root_exudate_C*root_exudate_N_frac*dt_fast_yr
-
+     total_plant_N_uptake = myc_scav_N_uptake-mycorrhizal_scav_N_immob + myc_mine_N_uptake-mycorrhizal_mine_N_immob &
+                       +N_fixation+root_active_N_uptake
+     cc%stored_N = cc%stored_N + total_plant_N_uptake - root_exudate_C*root_exudate_N_frac*dt_fast_yr
 
      if(cc%myc_scavenger_biomass_C<0) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger biomass < 0',FATAL)
      if(cc%myc_miner_biomass_C<0) call error_mesg('vegn_carbon_int','Mycorrhizal miner biomass < 0',FATAL)
@@ -582,6 +586,7 @@ total_myc_mine_C_uptake = 0.0
   call send_tile_data(id_N_fix_marginal_gain,N_fix_marginal_gain,diag)
   call send_tile_data(id_rhiz_exudation,total_root_exudate_C/dt_fast_yr,diag)
   call send_tile_data(id_nitrogen_stress,vegn%cohorts(1)%nitrogen_stress,diag)
+  call send_tile_data(id_total_plant_N_uptake,total_plant_N_uptake/dt_fast_yr,diag)
 
 end subroutine vegn_carbon_int
 

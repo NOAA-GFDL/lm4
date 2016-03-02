@@ -1614,7 +1614,7 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
            land_time, 'Nitrification rate per layer', 'kg N/m3/year', missing_value=-100.0 )
    id_denitrification_rate = register_tiled_diag_field ( module_name, 'soil_denitrification_rate', axes,  &
         land_time, 'Denitrification rate per layer', 'kg N/m3/year', missing_value=-100.0 )
-  id_total_carbon_layered = register_tiled_diag_field ( module_name, 'total_soil_carbon_layered', axes,  &
+id_total_carbon_layered = register_tiled_diag_field ( module_name, 'total_soil_carbon_layered', axes,  &
        land_time, 'total soil carbon per layer', 'kg C/m3', missing_value=-100.0 )
    id_total_nitrogen_layered = register_tiled_diag_field ( module_name, 'total_soil_nitrogen_layered', axes,  &
         land_time, 'total soil nitrogen per layer', 'kg N/m3', missing_value=-100.0 )
