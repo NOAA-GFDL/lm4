@@ -676,7 +676,7 @@ subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled
     real::totalN_decomposed(n_c_types),prova_imm1,prova_imm2,prova_imm3,prova_imm4,provaCN1,provaCN2,provaCN3
     real::pot_tempN_decomposed(n_c_types), potential_N_decomp(n_c_types),diff(n_c_types),tempN_decomposed(n_c_types)
     real::denitrif_NO3_demand ! kgN/m2/year
-    real,dimension(n_c_types)::potential_tempResp_denitrif, denitrif_Resp,pot_tempN_decomposed_denitrif ! kgC/m2/year
+    real,dimension(n_c_types):: denitrif_Resp,pot_tempN_decomposed_denitrif ! kgC/m2/year
     real::carbon_supply_denitrif,nitrogen_supply_denitrif
 
 
@@ -731,11 +731,16 @@ subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled
     potential_tempResp=Resp(cohort%litterC,cohort%livingMicrobeC,T,theta,air_filled_porosity)
 
     ! Respiration of carbon supported by denitrification rather than oxygen; kgC/m2/yr
-    potential_tempResp_denitrif=Resp_denitrif(cohort%litterC,cohort%livingMicrobeC,T,theta,air_filled_porosity,nitrate)
+    denitrif_Resp=Resp_denitrif(cohort%litterC,cohort%livingMicrobeC,T,theta,air_filled_porosity,nitrate)
     ! Factor based on stoichiometry of denitrification; kgN/m2/yr
-    denitrif_NO3_demand=sum(potential_tempResp_denitrif*(1.0-eup))*denitrif_NO3_factor
+    denitrif_NO3_demand=sum(denitrif_Resp)*denitrif_NO3_factor
 
-    ! print *,air_filled_porosity,nitrate,denitrif_NO3_demand,sum(potential_tempResp_denitrif),sum(potential_tempResp)
+    if(denitrif_NO3_demand*dt>nitrate) then
+        denitrif_Resp = denitrif_Resp*nitrate/(denitrif_NO3_demand*dt)
+        denitrif_NO3_demand=nitrate/dt
+    endif
+
+    ! print *,air_filled_porosity,nitrate,denitrif_NO3_demand,sum(denitrif_Resp),sum(potential_tempResp)
 
     ! potential_tempResp = potential_tempResp + denitrif_Resp
 
@@ -1314,8 +1319,13 @@ pure function Resp_denitrif(Ctotal,Chet,T,theta,air_filled_porosity,nitrate)
 
     ! Actual denitrification rate as limited by NO3 concentration; kgN/m2/yr
     ! k_denitrif relates demand (rate) to NO3 pool for rate limitation
-    denitrif_NO3_demand=sum(tempresp*(1.0-eup))*denitrif_NO3_factor
-    Resp_denitrif = tempresp * nitrate/(nitrate + k_denitrif*denitrif_NO3_demand)
+    denitrif_NO3_demand=sum(tempresp)*denitrif_NO3_factor
+
+    if(nitrate>0.0) then
+      Resp_denitrif = tempresp * nitrate/(nitrate + k_denitrif*denitrif_NO3_demand)
+    else
+      resp_denitrif = 0.0
+    endif
 
 
 
