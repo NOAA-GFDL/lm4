@@ -761,7 +761,7 @@ if(soil_carbon_option == SOILC_CORPSE_N) then
     end where
 
 
-    cohort%IMM_N_max=min((ammonium+nitrate)/dt,cohort%livingMicrobeC*(V_NH4(T)*ammonium+V_NO3(T)*nitrate)*(theta**3)*max((air_filled_porosity)**gas_diffusion_exp,min_anaerobic_resp_factor))   !kg/m2/yr
+    cohort%IMM_N_max=min((ammonium+nitrate)/dt-denitrif_NO3_demand,cohort%livingMicrobeC*(V_NH4(T)*ammonium+V_NO3(T)*nitrate)*(theta**3)*max((air_filled_porosity)**gas_diffusion_exp,min_anaerobic_resp_factor))   !kg/m2/yr
     nitrogen_supply=sum(pot_tempN_decomposed*mup)
     nitrogen_supply_denitrif=sum(pot_tempN_decomposed_denitrif*mup)
     temp_N_microbes=cohort%livingMicrobeN
@@ -782,15 +782,18 @@ endif
 
 IF(soil_carbon_option == SOILC_CORPSE_N) THEN
 
-    if(carbon_supply - maintenance_resp > (nitrogen_supply-denitrif_NO3_demand+cohort%IMM_N_max)*CN_microb) THEN
+carbon_supply = carbon_supply+carbon_supply_denitrif
+nitrogen_supply = nitrogen_supply+nitrogen_supply_denitrif
+
+    if(carbon_supply - maintenance_resp > (nitrogen_supply+cohort%IMM_N_max)*CN_microb) THEN
         ! Growth is nitrogen limited, with not enough mineral N to support it with max immobilization
         N_LIM_STATE=N_LIMITED
-        CN_imbalance_term = -cohort%IMM_N_max
+        CN_imbalance_term = -cohort%IMM_N_max 
 
         ! Just skip denitrifaction in this case for now, since it probably doesn't amount to much if mineral N is limiting microbial growth
         ! Probably better to do this with implicit solution at some point :-(
-        denitrif_Resp = 0.0
-        denitrif_NO3_demand = 0.0
+        ! denitrif_Resp = 0.0
+        ! denitrif_NO3_demand = 0.0
 
         !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
         if(N_limit_scheme==NLIM_OVERFLOW) THEN
@@ -804,8 +807,8 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
             overflow_resp=carbon_supply - livemic_C_produced/dt
 
 
-            tempResp=potential_tempResp !*N_inhibitory_factor  !Actual amount of carbon decomposed
-            tempN_decomposed=pot_tempN_decomposed !*N_inhibitory_factor  !Actual amount of nitrogen decomposed
+            tempResp=potential_tempResp + denitrif_resp !*N_inhibitory_factor  !Actual amount of carbon decomposed
+            tempN_decomposed=pot_tempN_decomposed + pot_tempN_decomposed_denitrif !*N_inhibitory_factor  !Actual amount of nitrogen decomposed
 
             !print *,'overflow_resp',overflow_resp
             !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -840,12 +843,12 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
         endif
 
 
-    elseif(carbon_supply - maintenance_resp >= (nitrogen_supply-denitrif_NO3_demand)*CN_microb) THEN
+    elseif(carbon_supply - maintenance_resp >= (nitrogen_supply)*CN_microb) THEN
         ! Growth must be supported by immobilization of some mineral nitrogen, but is ultimately carbon limited
         N_LIM_STATE = IMMOBILIZATION
 
-        carbon_supply = carbon_supply+carbon_supply_denitrif
-        nitrogen_supply = nitrogen_supply+nitrogen_supply_denitrif
+        ! carbon_supply = carbon_supply+carbon_supply_denitrif
+        ! nitrogen_supply = nitrogen_supply+nitrogen_supply_denitrif
 
         CN_imbalance_term = -((carbon_supply-maintenance_resp)/CN_microb - nitrogen_supply)
         cohort%livingMicrobeC = cohort%livingMicrobeC + dt*(carbon_supply - microbeTurnover)
@@ -862,8 +865,8 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
         ! Growth is carbon limited -- extra N is mineralized
         N_LIM_STATE = EXCESS_N
 
-        carbon_supply = carbon_supply+carbon_supply_denitrif
-        nitrogen_supply = nitrogen_supply+nitrogen_supply_denitrif
+        ! carbon_supply = carbon_supply+carbon_supply_denitrif
+        ! nitrogen_supply = nitrogen_supply+nitrogen_supply_denitrif
 
         cohort%livingMicrobeC = cohort%livingMicrobeC + dt*(carbon_supply - microbeTurnover)
         cohort%livingMicrobeN = cohort%livingMicrobeN + dt*((carbon_supply-maintenance_resp)/CN_microb - microbeTurnover*et/CN_microb)
@@ -879,8 +882,8 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
         ! Maintenance resp exceeds carbon supply. In this case, some additional biomass N will be lost
         N_LIM_STATE = EXCESS_N
 
-        carbon_supply = carbon_supply+carbon_supply_denitrif
-        nitrogen_supply = nitrogen_supply+nitrogen_supply_denitrif
+        ! carbon_supply = carbon_supply+carbon_supply_denitrif
+        ! nitrogen_supply = nitrogen_supply+nitrogen_supply_denitrif
 
         cohort%livingMicrobeC = cohort%livingMicrobeC + dt*(carbon_supply - microbeTurnover)
         cohort%livingMicrobeN = cohort%livingMicrobeN + dt*(carbon_supply/CN_microb - microbeTurnover/CN_microb)
@@ -1107,6 +1110,7 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
        print *,'Uptake resp',totalResp*(1.0-eup)*dt
        print *,'Denitrif',denitrif_NO3_demand
        print *,'Cohort C - required total',cohortCSum(cohort)-cohort%originalLitterC
+       print *,'Nitrate',nitrate
        call error_mesg('update_cohort','Cohort invalid',FATAL)
     endif
 
