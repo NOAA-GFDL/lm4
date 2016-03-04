@@ -5611,8 +5611,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
             fast_N_loss_rate=leaflitter_fast_N_loss_rate,slow_N_loss_rate=leaflitter_slow_N_loss_rate, deadmic_N_loss_rate=leaflitter_deadmic_N_loss_rate, &
             deadmic_C_produced=leaflitter_deadmic_C_produced, protected_C_produced=leaflitter_protected_C_produced, protected_turnover_rate=leaflitter_protected_C_turnover_rate, &
             deadmic_N_produced=leaflitter_deadmic_N_produced, protected_N_produced=leaflitter_protected_N_produced, protected_N_turnover_rate=leaflitter_protected_N_turnover_rate, &
-            C_dissolved=leaflitter_C_dissolved, deposited_C=leaflitter_C_deposited, badCohort=badCohort,&
-            N_dissolved=leaflitter_N_dissolved, deposited_N=leaflitter_N_deposited,nitrification=leaflitter_nitrif,denitrification=leaflitter_denitrif,&
+            badCohort=badCohort,&
+            nitrification=leaflitter_nitrif,denitrification=leaflitter_denitrif,&
             N_mineralization=leaflitter_N_mineralization,N_immobilization=leafLitter_N_immobilization)
   IF (badCohort.ne.0) THEN
         call get_current_point(point_i,point_j,point_k,point_face)
@@ -5630,8 +5630,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
             fast_N_loss_rate=fineWoodlitter_fast_N_loss_rate,slow_N_loss_rate=fineWoodlitter_slow_N_loss_rate, deadmic_N_loss_rate=fineWoodlitter_deadmic_N_loss_rate, &
             deadmic_C_produced=fineWoodlitter_deadmic_C_produced, protected_C_produced=fineWoodlitter_protected_C_produced, protected_turnover_rate=fineWoodlitter_protected_C_turnover_rate, &
             deadmic_N_produced=fineWoodlitter_deadmic_N_produced, protected_N_produced=fineWoodlitter_protected_N_produced, protected_N_turnover_rate=fineWoodlitter_protected_N_turnover_rate, &
-            C_dissolved=fineWoodlitter_C_dissolved, deposited_C=fineWoodlitter_C_deposited, badCohort=badCohort,&
-            N_dissolved=fineWoodlitter_N_dissolved, deposited_N=fineWoodlitter_N_deposited,nitrification=fineWoodlitter_nitrif,denitrification=fineWoodlitter_denitrif,&
+            badCohort=badCohort,&
+            nitrification=fineWoodlitter_nitrif,denitrification=fineWoodlitter_denitrif,&
             N_mineralization=fineWoodlitter_N_mineralization,N_immobilization=fineWoodLitter_N_immobilization)
 
   IF (badCohort.ne.0) THEN
@@ -5654,8 +5654,7 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
             protected_turnover_rate=coarseWoodlitter_protected_C_turnover_rate, &
             deadmic_N_produced=coarseWoodlitter_deadmic_N_produced, protected_N_produced=coarseWoodlitter_protected_N_produced, &
             protected_N_turnover_rate=coarseWoodlitter_protected_N_turnover_rate, &
-            C_dissolved=coarseWoodlitter_C_dissolved, deposited_C=coarseWoodlitter_C_deposited, badCohort=badCohort,&
-            N_dissolved=coarseWoodlitter_N_dissolved, deposited_N=coarseWoodlitter_N_deposited,&
+            badCohort=badCohort,&
             nitrification=coarseWoodlitter_nitrif,denitrification=coarseWoodlitter_denitrif,&
             N_mineralization=coarseWoodlitter_N_mineralization,N_immobilization=coarseWoodLitter_N_immobilization)
 
@@ -5762,8 +5761,7 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
                 protected_turnover_rate=protected_C_turnover_rate(:,k), &
                 deadmic_N_produced=deadmic_N_produced(k), protected_N_produced=protected_N_produced(:,k), &
                 protected_N_turnover_rate=protected_N_turnover_rate(:,k), &
-                C_dissolved=C_dissolved(:,k), deposited_C=C_deposited(:,k), badCohort=badCohort,&
-                N_dissolved=N_dissolved(:,k), deposited_N=N_deposited(:,k),&
+                badCohort=badCohort,&
                 nitrification=soil_nitrif(k),denitrification=soil_denitrif(k),&
                 N_mineralization=soil_N_mineralization(k),N_immobilization=soil_N_immobilization(k))
 

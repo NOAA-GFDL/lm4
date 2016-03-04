@@ -189,8 +189,8 @@ real,dimension(n_c_types) :: protection_species=(/0.5,0.5,1.0/)  !Relative prote
 
 real*8,dimension(n_c_types) :: protection_species_N=(/0.5,0.5,1.0/)
 
-real                      :: C_leaching_solubility=1e-2       !Rate carbon dissolves in soil water at saturated moisture (yr-1)
-real*8                     :: N_leaching_solubility=1e-2	   !Rate nitrogen dissolves in soil water at saturated moisture (yr-1)
+real                      :: C_leaching_solubility=0.5       !Amount of carbon dissolves in soil water at saturated moisture (fraction)
+real*8                     :: N_leaching_solubility=0.5	   !Amount of nitrogen dissolves in soil water at saturated moisture (fraction)
 
 real,dimension(n_c_types) :: C_flavor_relative_solubility=(/1.0,1.0,1.0/) !For each C flavor, relative to 1.0
 real*8,dimension(n_c_types) :: N_flavor_relative_solubility=(/1.0,1.0,1.0/) !For each N flavor, relative to 1.0
@@ -198,8 +198,8 @@ real*8,dimension(n_c_types) :: N_flavor_relative_solubility=(/1.0,1.0,1.0/) !For
 real                      :: protected_relative_solubility=1.0 !Relative to 1.0
 real*8                     :: N_protected_relative_solubility=1.0 !Relative to 1.0
 
-real                      :: DOC_deposition_rate=1e-2       !Rate carbon is deposited from DOC ((kgC/kgH2O)-1 yr-1)
-real*8                     :: DON_deposition_rate=1e-2       !Rate nitrogen is deposited from DON (yr-1)
+real                      :: DOC_deposition_rate=1.0       !Amount of dissolved C deposited after leaching (fraction)
+real*8                     :: DON_deposition_rate=1.0       !Amount of dissolved N deposited after leaching (fraction)
 
 real                      :: gas_diffusion_exp=2.5          !Exponent for gas diffusion power law dependence on theta
                                                             !See Meslin et al 2010, SSAJ
@@ -362,17 +362,108 @@ subroutine soil_NO3_deposition(NO3_dep,pool)
     pool%nitrate=pool%nitrate+NO3_dep
 end subroutine
 
+
+
+subroutine dissolve_carbon(pool,theta)
+  type(soil_pool),intent(inout)::pool
+  real,intent(in)::theta
+
+  real :: C_dissolution_rate, N_dissolution_rate
+  real :: C_protected_solubility, N_protected_solubility
+  real::C_dissolved(n_c_types),protectedC_dissolved(n_c_types),livemicrobeC_dissolved
+  real::N_dissolved(n_c_types),protectedN_dissolved(n_c_types),livemicrobeN_dissolved
+
+
+
+  if(theta > 0.0) then
+
+      C_dissolution_rate=C_leaching_solubility*theta
+
+      !Protected carbon can dissolve, but much faster under high moisture conditions
+      C_protected_solubility=theta**gas_diffusion_exp*protected_relative_solubility
+      if (C_protected_solubility<0.0) C_protected_solubility=0.0
+      if (C_protected_solubility>1.0) C_protected_solubility=1.0
+
+        IF(soil_carbon_option == SOILC_CORPSE_N) THEN
+              N_dissolution_rate=N_leaching_solubility*theta
+
+              N_protected_solubility=theta**gas_diffusion_exp*N_protected_relative_solubility
+              if (N_protected_solubility<0.0) N_protected_solubility=0.0
+              if (N_protected_solubility>1.0) N_protected_solubility=1.0
+
+          ELSE
+
+              N_protected_solubility=0.0
+        ENDIF
+
+
+      call remove_C_N_fraction_from_pool(pool,C_dissolution_rate,N_dissolution_rate, &
+                  litterC_removed=C_dissolved,protectedC_removed=protectedC_dissolved,&
+                  livemicrobeC_removed=livemicrobeC_dissolved,&
+                  litterN_removed=N_dissolved,protectedN_removed=protectedN_dissolved,&
+                  livemicrobeN_removed=livemicrobeN_dissolved,&
+                  C_protectedMobility=C_protected_solubility,livingMicrobeMobility=dfloat(0),&
+                  C_litterMobility=C_flavor_relative_solubility,N_protectedMobility=N_protected_solubility,&
+                  N_litterMobility=N_flavor_relative_solubility)
+
+      C_dissolved=C_dissolved+protectedC_dissolved
+      ! protected_turnover_rate=protected_turnover_rate+protectedC_dissolved/dt
+      N_dissolved=N_dissolved+protectedN_dissolved
+      ! protected_N_turnover_rate=protected_N_turnover_rate+protectedN_dissolved/dt
+
+      pool%dissolved_carbon=pool%dissolved_carbon+C_dissolved
+      pool%dissolved_nitrogen=pool%dissolved_nitrogen+N_dissolved
+
+  endif
+
+
+end subroutine dissolve_carbon
+
+
+subroutine deposit_dissolved_C(pool)
+  type(soil_pool),intent(inout)::pool
+  real::deposited_C(n_c_types),deposited_N(n_c_types)
+
+  deposited_C=DOC_deposition_rate*pool%dissolved_carbon
+
+  where(deposited_C > pool%dissolved_carbon)
+      deposited_C=pool%dissolved_carbon
+      pool%dissolved_carbon=0.0
+  elsewhere
+      pool%dissolved_carbon=pool%dissolved_carbon-deposited_C
+  end where
+
+  IF(soil_carbon_option == SOILC_CORPSE_N) THEN
+        deposited_N=DOC_deposition_rate*pool%dissolved_nitrogen
+        where(deposited_N > pool%dissolved_nitrogen) !xz
+            deposited_N=pool%dissolved_nitrogen  !xz  (kg/m2)
+            pool%dissolved_nitrogen=dfloat(0)!xz
+        elsewhere!xz
+            pool%dissolved_nitrogen=pool%dissolved_nitrogen-deposited_N   !xz
+        end where!xz
+
+    ELSE
+
+        deposited_N=0.0
+
+  ENDIF
+
+
+  call add_C_N_to_cohorts(pool,litterC=deposited_C,litterN=deposited_N)
+
+end subroutine deposit_dissolved_C
+
+
 subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_water,dt,layerThickness,&
             fast_C_loss_rate,slow_C_loss_rate,deadmic_C_loss_rate,fast_N_loss_rate,slow_N_loss_rate,deadmic_N_loss_rate,&
             CO2prod,deadmic_C_produced,deadmic_N_produced,protected_C_produced,protected_N_produced,protected_turnover_rate,protected_N_turnover_rate,&
-            C_dissolved,deposited_C,N_dissolved,deposited_N,nitrification,denitrification,N_mineralization,N_immobilization,badCohort)
+            nitrification,denitrification,N_mineralization,N_immobilization,badCohort)
     type(soil_pool),intent(inout)::pool
     real,intent(in)::T,theta,dt,air_filled_porosity,liquid_water,frozen_water,layerThickness
     real,intent(out)::fast_C_loss_rate,slow_C_loss_rate,deadmic_C_loss_rate,fast_N_loss_rate,slow_N_loss_rate,deadmic_N_loss_rate
     real,intent(out)::CO2prod,nitrification,denitrification,N_mineralization,N_immobilization !  kgC/m2 and kgN/m2 (not rates)
     real,intent(out)::protected_C_produced(n_c_types),protected_N_produced(n_c_types),&
         protected_turnover_rate(n_c_types),protected_N_turnover_rate(n_c_types),deadmic_C_produced,deadmic_N_produced
-    real,intent(out),dimension(n_c_types)::C_dissolved,deposited_C,N_dissolved,deposited_N
     integer,intent(out),optional::badCohort
     ! dt is in years!
 
@@ -382,12 +473,9 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
             tempCO2,poolProtectedC,temp_protected_turnover_rate(n_c_types),temp_protected_N_turnover_rate(n_c_types),&
             Prate_limited(n_c_types),Prate_limited_N(n_c_types),prevC(n_c_types),prevN(n_c_types),&
             temp_deadmic_C,temp_deadmic_N,tempIMM_N,soil_IMM_N,temp_MINERAL, soil_MINERAL,temp_livemic_C,temp_livemic_N
-    real::C_dissolution_rate,liquid_frac,N_dissolution_rate!xz
-    real::protectedC_dissolved(n_c_types),livemicrobeC_dissolved!xz
-    real::protectedN_dissolved(n_c_types),livemicrobeN_dissolved!xz
+
     real::activeVolume,inactiveVolume,cohortVolume!xz
-    real::C_protected_solubility!xz
-    real::N_protected_solubility,nitrif,Denitrif!xz
+    real::nitrif,Denitrif!xz
 
 
 !   if (is_watch_point()) then
@@ -417,8 +505,6 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
     soil_IMM_N=dfloat(0)
     soil_MINERAL=dfloat(0)
 
-    livemicrobeC_dissolved=0.0
-    livemicrobeN_dissolved=0.0
 
 
     if(present(badCohort)) badCohort=0
@@ -430,99 +516,6 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
 
     if(.NOT.allocated(pool%litterCohorts)) call add_litter(pool,(/0.0,0.0,0.0/),(/0.0,0.0,0.0/))
     call cull_cohorts(pool)
-
-    !Update dissolved carbon
-    !If there is liquid water, it exchanges carbon with the soil
-    !If all the water is frozen, there is no exchange
-    !If there is no water at all, then any dissolved carbon is dumped into the soil
-    if(liquid_water > 0.0) then
-        liquid_frac=liquid_water/(liquid_water+frozen_water)
-        deposited_C=DOC_deposition_rate*pool%dissolved_carbon*liquid_frac*dt
-
-        C_dissolution_rate=C_leaching_solubility*theta
-
-        where(deposited_C > pool%dissolved_carbon)
-            deposited_C=pool%dissolved_carbon
-            pool%dissolved_carbon=0.0
-        elsewhere
-            pool%dissolved_carbon=pool%dissolved_carbon-deposited_C
-        end where
-
-        !Protected carbon can dissolve, but much faster under high moisture conditions
-        C_protected_solubility=theta**gas_diffusion_exp*protected_relative_solubility
-        if (C_protected_solubility<0.0) C_protected_solubility=0.0
-        if (C_protected_solubility>1.0) C_protected_solubility=1.0
-
-IF(soil_carbon_option == SOILC_CORPSE_N) THEN
-        deposited_N=DOC_deposition_rate*pool%dissolved_nitrogen*liquid_frac*dt
-        N_dissolution_rate=N_leaching_solubility*theta
-        where(deposited_N > pool%dissolved_nitrogen) !xz
-            deposited_N=pool%dissolved_nitrogen  !xz  (kg/m2)
-            pool%dissolved_nitrogen=dfloat(0)!xz
-        elsewhere!xz
-            pool%dissolved_nitrogen=pool%dissolved_nitrogen-deposited_N   !xz
-        end where!xz
-        N_protected_solubility=theta**gas_diffusion_exp*N_protected_relative_solubility
-        if (N_protected_solubility<0.0) N_protected_solubility=0.0
-        if (N_protected_solubility>1.0) N_protected_solubility=1.0
-
-    ELSE
-
-        deposited_N=0.0
-        N_dissolution_rate=0.0
-        N_protected_solubility=0.0
-ENDIF
-
-
-        call remove_C_N_fraction_from_pool(pool,C_dissolution_rate*dt,N_dissolution_rate*dt, &
-                    litterC_removed=C_dissolved,protectedC_removed=protectedC_dissolved,&
-                    livemicrobeC_removed=livemicrobeC_dissolved,&
-                    litterN_removed=N_dissolved,protectedN_removed=protectedN_dissolved,&
-                    livemicrobeN_removed=livemicrobeN_dissolved,&
-                    C_protectedMobility=C_protected_solubility,livingMicrobeMobility=dfloat(0),&
-                    C_litterMobility=C_flavor_relative_solubility,N_protectedMobility=N_protected_solubility,&
-                    N_litterMobility=N_flavor_relative_solubility)
-
-        C_dissolved=C_dissolved+protectedC_dissolved
-        protected_turnover_rate=protected_turnover_rate+protectedC_dissolved/dt
-        N_dissolved=N_dissolved+protectedN_dissolved
-        protected_N_turnover_rate=protected_N_turnover_rate+protectedN_dissolved/dt
-    elseif(frozen_water > 0.0) then
-        deposited_C=0.0
-        C_dissolved=0.0
-        deposited_N=0.0
-        N_dissolved=0.0
-    else
-        deposited_C=DOC_deposition_rate*pool%dissolved_carbon*dt
-        where(deposited_C > pool%dissolved_carbon)
-            deposited_C=pool%dissolved_carbon
-            pool%dissolved_carbon=0.0
-        elsewhere
-            pool%dissolved_carbon=pool%dissolved_carbon-deposited_C
-        end where
-        C_dissolved=0.0
-
-if (soil_carbon_option == SOILC_CORPSE_N) then
-        deposited_N=DON_deposition_rate*pool%dissolved_nitrogen*dt
-        where(deposited_N > pool%dissolved_nitrogen)
-            deposited_N=pool%dissolved_nitrogen
-            pool%dissolved_nitrogen=0.0
-        elsewhere
-            pool%dissolved_nitrogen=pool%dissolved_nitrogen-deposited_N
-        end where
-        N_dissolved=0.0
-
-    else
-        deposited_N=0.0
-        N_dissolved=0.0
-
-    endif
-
-    endif
-
-    call add_C_N_to_cohorts(pool,litterC=deposited_C,litterN=deposited_N)
-    pool%dissolved_carbon=pool%dissolved_carbon+C_dissolved
-    pool%dissolved_nitrogen=pool%dissolved_nitrogen+N_dissolved
 
 
 
@@ -2721,7 +2714,11 @@ ELSE  ! End of code if SOILC_CORPSE_N
 
 ENDIF
 
-
+  call dissolve_carbon(leaflitter,wl(1)/(dens_h2o*dz(1))) ! Doesn't take porosity into account
+  call dissolve_carbon(woodlitter,wl(1)/(dens_h2o*dz(1)))
+  do ii=1, size(soil)
+    call dissolve_carbon(soil(ii),wl(ii)/(dens_h2o*dz(ii)))
+  enddo
 
     surf_DOC_loss_loc(:) = 0.0
     surf_DON_loss_loc(:) = 0.0
@@ -2882,6 +2879,12 @@ ENDIF
     ENDIF
 
 !!!!xz Nitrogen [end]
+    enddo
+
+    call deposit_dissolved_C(leaflitter)
+    call deposit_dissolved_C(woodlitter)
+    do ii=1, size(soil)
+      call deposit_dissolved_C(soil(ii))
     enddo
 
 
