@@ -124,15 +124,15 @@ integer :: overshoot_opt ! selector for overshoot handling options, for efficien
 integer :: conservation_opt ! selector for non-conservation handling options, for efficiency
 
 ! translation of luh2 names and LM3 landuse types
-character(5) :: luh2name(11)
-integer      :: luh2type(11)
+character(5) :: luh2name(12)
+integer      :: luh2type(12)
 integer :: idata
-data (luh2name(idata), luh2type(idata), idata = 1, 11) / &
+data (luh2name(idata), luh2type(idata), idata = 1, 12) / &
    'primf', LU_NTRL, &
    'primn', LU_NTRL, &
    'secdf', LU_SCND, &
    'secdn', LU_SCND, &
-   ! urban is skipped for now
+   'urban', LU_CROP, &
    'c3ann', LU_CROP, &
    'c4ann', LU_CROP, &
    'c3per', LU_CROP, &
