@@ -53,7 +53,7 @@ use land_tile_mod, only : land_tile_map, &
 use land_tile_io_mod, only : print_netcdf_error
 
 use land_data_mod, only : land_data_type, lnd, log_version
-use vegn_tile_mod, only : vegn_tile_type, vegn_tran_priority
+use vegn_tile_mod, only : vegn_tile_type, vegn_tile_bwood
 use vegn_harvesting_mod, only : vegn_cut_forest
 
 use land_debug_mod, only : set_current_point, is_watch_cell, get_current_point, check_var_range
@@ -940,6 +940,39 @@ function total_transition_area(list,src_kind,dst_kind,tau) result (total_area)
   enddo
 
 end function total_transition_area
+
+
+! ============================================================================
+! given a vegetation patch, destination kind of transition, and "transition
+! intensity" value, this function returns a fraction of tile that will parti-
+! cipate in transition.
+!
+! this function must be contiguous, monotonic, its value must be within
+! interval [0,1]
+!
+! this function is used to determine what part of each tile is to be converted
+! to another land use kind; the equation is solved to get "transition intensity"
+! tau for which total area is equal to requested. Tau is, therefore, a dummy
+! parameter, and only relative values of the priority functions for tiles
+! participating in transition have any meaning. For most transitions the priority
+! function is just equal to tau: therefore there is no preference, and all tiles
+! contribute equally to converted area. For secondary vegetation harvesting,
+! however, priority also depends on wood biomass, and therefore tiles
+! with high wood biomass are harvested first.
+function vegn_tran_priority(vegn, dst_kind, tau) result(P); real :: P
+  type(vegn_tile_type), intent(in) :: vegn
+  integer             , intent(in) :: dst_kind
+  real                , intent(in) :: tau
+
+  real :: vegn_bwood
+
+  if (vegn%landuse==LU_SCND.and.dst_kind==LU_SCND) then ! secondary biomass harvesting
+     vegn_bwood = vegn_tile_bwood(vegn)
+     P = max(min(tau+vegn_bwood,1.0),0.0)
+  else
+     P = max(min(tau,1.0),0.0)
+  endif
+end function vegn_tran_priority
 
 
 ! ============================================================================
