@@ -189,6 +189,8 @@ real    :: coast_rough_heat = 1.35e-5 ! prescribed coastal roughness for heat an
 real    :: max_coast_frac   = 1.0     ! threshold defining which point is coastal
 logical :: use_coast_topo_rough = .true. ! if false, the topographic roughness scaling
                                       ! is not used over coastal points
+real    :: precip_warning_tol = -1.0e-19 ! if liquid or solid precip (input 
+           ! from atmos) is below this value, a warning is printed
 
 namelist /land_model_nml/ use_old_conservation_equations, &
                           lm2, give_stock_details, &
@@ -202,7 +204,8 @@ namelist /land_model_nml/ use_old_conservation_equations, &
                           nearest_point_search, print_remapping, &
                           use_coast_rough, coast_rough_mom, coast_rough_heat, &
                           max_coast_frac, use_coast_topo_rough, &
-                          layout, io_layout, new_land_io, mask_table
+                          layout, io_layout, new_land_io, mask_table, &
+                          precip_warning_tol
 ! ---- end of namelist -------------------------------------------------------
 
 logical  :: module_is_initialized = .FALSE.
@@ -1608,8 +1611,8 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   character(64) :: tag
 
   ! sanity checks of some input values
-  call check_var_range(precip_l,  0.0, 1.0,        'land model input', 'precip_l',    WARNING)
-  call check_var_range(precip_s,  0.0, 1.0,        'land model input', 'precip_s',    WARNING)
+  call check_var_range(precip_l, precip_warning_tol, HUGE(1.0), 'land model input', 'precip_l', WARNING)
+  call check_var_range(precip_s, precip_warning_tol, HUGE(1.0), 'land model input', 'precip_s', WARNING)
   call check_temp_range(atmos_T,                   'land model input', 'atmos_T')
   call check_var_range(ISa_dn_dir, 0.0, 1360.0,    'land model input', 'sw.down.dir', WARNING)
   call check_var_range(ISa_dn_dif, 0.0, 1360.0,    'land model input', 'sw.down.dif', WARNING)
