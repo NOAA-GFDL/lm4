@@ -18,7 +18,7 @@ use vegn_data_mod, only : spdata, &
      leaf_fast_c2n,leaf_slow_c2n,froot_fast_c2n,froot_slow_c2n,wood_fast_c2n,wood_slow_c2n, root_exudate_N_frac,& !x2z - ens: lets get rid of c2n?
      ! BNS: C2N ratios should be temporary fix, which we can get rid of once N is integrated into vegetation code
      root_exudate_frac_max, dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
-     N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, TOT_annual_NH4_dep,TOT_annual_NO3_dep
+     N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer
 
 use vegn_tile_mod, only: vegn_tile_type,vegn_tile_carbon
 use soil_tile_mod, only: soil_tile_type,soil_tile_carbon
@@ -26,10 +26,12 @@ use vegn_cohort_mod, only : vegn_cohort_type, &
      update_biomass_pools, update_bio_living_fraction, update_species
 use soil_carbon_mod, only: soil_carbon_option, &
     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
-    add_litter, poolTotals, debug_pool,soil_NO3_deposition,soil_NH4_deposition
+    add_litter, poolTotals, debug_pool,soil_NO3_deposition,soil_NH4_deposition,soil_org_N_deposition
 
 use soil_mod, only: add_root_litter, add_root_exudates, Dsdt, myc_scavenger_N_uptake, hypothetical_myc_scavenger_N_uptake, &
     myc_miner_N_uptake, hypothetical_myc_miner_N_uptake,root_N_uptake
+
+use nitrogen_sources_mod, only: do_nitrogen_deposition
 
 use land_debug_mod, only : is_watch_point
 
@@ -142,11 +144,13 @@ end subroutine vegn_dynamics_init
 
 
 ! ============================================================================
-subroutine vegn_carbon_int(vegn, soil, soilt, theta, diag)
+subroutine vegn_carbon_int(vegn, soil, soilt, theta, ndep_nit, ndep_amm, ndep_org, diag)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
   real, intent(in) :: soilt ! average temperature of soil for soil carbon decomposition, deg K
   real, intent(in) :: theta ! average soil wetness, unitless
+  real, intent(in) :: ndep_nit, ndep_amm, ndep_org ! total nitrate, ammonium,
+      ! and organic nitrogen inputs (deposition plus fertilization), kg N/(m2 yr)
   type(diag_buff_type), intent(inout) :: diag
 
   ! TODO: possibly move soil-related calculations from calling procedure here,
@@ -183,6 +187,19 @@ total_N_fixation = 0.0
 total_N_fixer_C_allocated = 0.0
 total_mining_CO2prod = 0.0
 total_myc_mine_C_uptake = 0.0
+
+  ! Do N deposition first. For now, it all goes to leaf litter
+  if(ndep_amm > 0.0)then
+		call soil_NH4_deposition(ndep_amm*dt_fast_yr,soil%leafLitter)
+	endif
+
+	if(ndep_nit > 0.0) then
+		call soil_NO3_deposition(ndep_nit*dt_fast_yr,soil%leafLitter)
+	endif
+
+  if (ndep_org > 0.0) then
+    call soil_org_N_deposition(ndep_org*dt_fast_yr,soil%leafLitter)
+  endif
 
   !  update plant carbon
   vegn%npp = 0
@@ -253,19 +270,19 @@ total_myc_mine_C_uptake = 0.0
    write(*,*) 'Before md transfer to soil'
    __DEBUG2__(soil_tile_carbon(soil),vegn_tile_carbon(vegn))
  endif
- 
+
      cc%bwood_gain = cc%bwood_gain + cc%Psw_alphasw * cc%bliving * dt_fast_yr;
 
      ! This is causing nonconservation just below, at a point where md_wood>bwood_gain
      ! Fix: Reduce md_wood to match bwood_gain OR subtract from cc%bwood?
      cc%bwood_gain = cc%bwood_gain - md_wood;
- 
 
-   if(is_watch_point()) then 
+
+   if(is_watch_point()) then
      __DEBUG2__(cc%bwood_gain,md_wood)
    endif
 
-     if (cc%bwood_gain < 0.0) then 
+     if (cc%bwood_gain < 0.0) then
        call error_mesg('vegn_carbon_int','Warning: bwood_gain < 0 after subtracting md_wood',NOTE)
        ! cc%bwood_gain=0.0; BNS: just letting this be <0 for now to solve conservation problem ! potential non-conservation ?
      endif
@@ -273,7 +290,7 @@ total_myc_mine_C_uptake = 0.0
      cc%carbon_gain = cc%carbon_gain - cc%md;
      cc%carbon_loss = cc%carbon_loss + cc%md; ! used in diagnostics only
 
- 
+
 
      cc%leaf_N = cc%leaf_N - md_leaf/leaf_fast_c2n
      cc%root_N = cc%root_N - md_froot/froot_fast_c2n
@@ -454,7 +471,7 @@ total_myc_mine_C_uptake = 0.0
    write(*,*) 'After md, before mycorrhizal turnover'
    __DEBUG2__(soil_tile_carbon(soil),vegn_tile_carbon(vegn))
  endif
- 
+
 
      soil%myc_scav_N_uptake=soil%myc_scav_N_uptake+myc_scav_N_uptake-mycorrhizal_scav_N_immob
      soil%myc_mine_N_uptake=soil%myc_mine_N_uptake+myc_mine_N_uptake-mycorrhizal_mine_N_immob
@@ -525,7 +542,7 @@ total_myc_mine_C_uptake = 0.0
    ! fsc_in and ssc_in updated in add_root_exudates
    call add_root_exudates(soil,vegn,total_root_exudate_C,total_root_exudate_C*root_exudate_N_frac)
 
- if(is_watch_point()) then 
+ if(is_watch_point()) then
      write(*,*),'Total soil C before Dsdt'
       __DEBUG1__(soil_tile_carbon(soil))
  endif
@@ -555,7 +572,7 @@ total_myc_mine_C_uptake = 0.0
    write(*,*) 'Before update_soil_pools'
    __DEBUG4__(soil_tile_carbon(soil),vegn_tile_carbon(vegn),vegn%rh*dt_fast_yr,vegn%nep*dt_fast_yr)
  endif
- 
+
   call update_soil_pools(vegn, soil)
   vegn%age = vegn%age + dt_fast_yr;
 
@@ -850,13 +867,6 @@ subroutine update_soil_pools(vegn, soil)
 
 !  real ::  input_time_fert=130.0
 
-if(TOT_annual_NH4_dep.gt.dfloat(0))then
-		call soil_NH4_deposition(TOT_annual_NH4_dep*dt_fast_yr,soil%leafLitter)
-	endif
-
-	if(TOT_annual_NO3_dep.gt.dfloat(0))then
-		call soil_NO3_deposition(TOT_annual_NO3_dep*dt_fast_yr,soil%leafLitter)
-	endif
 
   select case (soil_carbon_option)
   case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)

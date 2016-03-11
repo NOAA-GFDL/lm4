@@ -65,6 +65,7 @@ public :: soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPS
 public :: N_limit_scheme!x2z
 public :: soil_NO3_deposition!x2z
 public :: soil_NH4_deposition!x2z
+public :: soil_org_N_deposition
 
 ! =====end of public interfaces ==============================================
 
@@ -362,7 +363,13 @@ subroutine soil_NO3_deposition(NO3_dep,pool)
     pool%nitrate=pool%nitrate+NO3_dep
 end subroutine
 
+!Deposit organic nitrogen into soil pool. Assumes it's all "fast", for now
+subroutine soil_org_N_deposition(org_N_dep,pool)
+    type(soil_pool),intent(inout) :: pool
+    real*8,intent(in)::org_N_dep
 
+    call add_C_N_to_cohorts(pool,litterN=(/org_N_dep,0.0,0.0/))
+end subroutine
 
 subroutine dissolve_carbon(pool,theta)
   type(soil_pool),intent(inout)::pool
@@ -781,7 +788,7 @@ nitrogen_supply = nitrogen_supply+nitrogen_supply_denitrif
     if(carbon_supply - maintenance_resp > (nitrogen_supply+cohort%IMM_N_max)*CN_microb) THEN
         ! Growth is nitrogen limited, with not enough mineral N to support it with max immobilization
         N_LIM_STATE=N_LIMITED
-        CN_imbalance_term = -cohort%IMM_N_max 
+        CN_imbalance_term = -cohort%IMM_N_max
 
         ! Just skip denitrifaction in this case for now, since it probably doesn't amount to much if mineral N is limiting microbial growth
         ! Probably better to do this with implicit solution at some point :-(

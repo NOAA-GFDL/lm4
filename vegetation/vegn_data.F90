@@ -108,8 +108,7 @@ public :: &
     phen_ev1, phen_ev2, cmc_eps, &
     leaf_fast_c2n,leaf_slow_c2n,froot_fast_c2n,froot_slow_c2n,wood_fast_c2n,wood_slow_c2n, root_exudate_N_frac,& !x2z - ens: lets get rid of c2n?
     root_exudate_frac_max, dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
-    N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, N_limits_live_biomass, root_NH4_uptake_rate, root_NO3_uptake_rate,&
-    TOT_annual_NH4_dep,TOT_annual_NO3_dep
+    N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, N_limits_live_biomass, root_NH4_uptake_rate, root_NO3_uptake_rate
 
 
 ! ---- public subroutine
@@ -442,8 +441,6 @@ real :: N_fixation_rate       = 0.1     ! N fixation rate per unit fixer biomass
 logical :: N_limits_live_biomass = .FALSE.  ! Option to have N uptake limit max biomass.  Only relevant with CORPSE_N
 real :: root_NH4_uptake_rate = 1.0      ! 1/year (assumes rhizosphere only, which accounts for root length)
 real :: root_NO3_uptake_rate = 1.0      ! 1/year (assumes rhizosphere only, which accounts for root length)
-real :: TOT_annual_NH4_dep = 0.0        ! kgN/m2/year of atmospheric deposition
-real :: TOT_annual_NO3_dep = 0.0        ! kgN/m2/year of atmospheric deposition
 
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
@@ -474,8 +471,7 @@ namelist /vegn_data_nml/ &
   root_exudate_frac, tracer_cuticular_cond,&
   leaf_fast_c2n, leaf_slow_c2n, froot_fast_c2n, froot_slow_c2n, wood_fast_c2n, wood_slow_c2n, root_exudate_N_frac,&
   root_exudate_frac_max, dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
-  N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, N_limits_live_biomass, root_NH4_uptake_rate, root_NO3_uptake_rate,&
-  TOT_annual_NH4_dep, TOT_annual_NO3_dep
+  N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, N_limits_live_biomass, root_NH4_uptake_rate, root_NO3_uptake_rate
 
 contains ! ###################################################################
 
