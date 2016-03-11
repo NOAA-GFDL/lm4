@@ -189,7 +189,7 @@ real    :: coast_rough_heat = 1.35e-5 ! prescribed coastal roughness for heat an
 real    :: max_coast_frac   = 1.0     ! threshold defining which point is coastal
 logical :: use_coast_topo_rough = .true. ! if false, the topographic roughness scaling
                                       ! is not used over coastal points
-real    :: precip_warning_tol = -1.0e-19 ! if liquid or solid precip (input 
+real    :: precip_warning_tol = -1.0e-18 ! if liquid or solid precip (input 
            ! from atmos) is below this value, a warning is printed
 
 namelist /land_model_nml/ use_old_conservation_equations, &
