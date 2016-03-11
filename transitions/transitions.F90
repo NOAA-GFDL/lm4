@@ -46,7 +46,7 @@ use soil_tile_mod, only : soil_tile_heat
 
 use land_tile_mod, only : land_tile_map, &
      land_tile_type, land_tile_list_type, land_tile_enum_type, new_land_tile, delete_land_tile, &
-     first_elmt, tail_elmt, next_elmt, operator(/=), operator(==), current_tile, &
+     first_elmt, tail_elmt, loop_over_tiles, operator(==), current_tile, &
      land_tile_list_init, land_tile_list_end, &
      empty, erase, remove, insert, land_tiles_can_be_merged, merge_land_tiles, &
      get_tile_water, land_tile_carbon, land_tile_heat
@@ -630,9 +630,8 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
   ! cell totals
   lmass0 = 0 ; fmass0 = 0 ; cmass0 = 0 ; heat0 = 0
   soil_heat0 = 0 ;  vegn_heat0 = 0 ; cana_heat0 = 0 ; snow_heat0 = 0
-  ts = first_elmt(d_list) ; te=tail_elmt(d_list)
-  do while (ts /= te)
-     ptr=>current_tile(ts); ts=next_elmt(ts)
+  ts = first_elmt(d_list)
+  do while (loop_over_tiles(ts, ptr))
      call get_tile_water(ptr,lm,fm)
      lmass0 = lmass0 + lm*ptr%frac ; fmass0 = fmass0 + fm*ptr%frac
 
@@ -646,11 +645,9 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
   enddo
 
   ! calculate the area that can participate in land transitions
-  atot = 0 ; ts = first_elmt(d_list) ; te=tail_elmt(d_list)
-  do while (ts /= te)
-     ptr=>current_tile(ts); ts=next_elmt(ts)
-     if (.not.associated(ptr%vegn)) cycle
-     atot = atot + ptr%frac
+  atot = 0 ; ts = first_elmt(d_list)
+  do while (loop_over_tiles(ts,ptr))
+     if (associated(ptr%vegn)) atot = atot + ptr%frac
   enddo
 
   if (is_watch_cell()) then
@@ -660,11 +657,10 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      enddo
 
      write(*,*)'### land_transitions_0d: land fractions before transitions (initial state) ###'
-     ts = first_elmt(d_list) ; te=tail_elmt(d_list)
-     do while (ts /= te)
-        ptr=>current_tile(ts); ts=next_elmt(ts)
-        if (.not.associated(ptr%vegn)) cycle
-        write(*,*)'landuse=',ptr%vegn%landuse,' area=',ptr%frac
+     ts = first_elmt(d_list)
+     do while (loop_over_tiles(ts,ptr))
+        if (associated(ptr%vegn)) &
+                write(*,*)'landuse=',ptr%vegn%landuse,' area=',ptr%frac
      enddo
      write(*,'(a,g23.16)')'total area=',atot
   endif
@@ -683,16 +679,14 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
   enddo
   if (is_watch_cell()) then
      write(*,*)'### land_transitions_0d: land fractions after splitting changing parts ###'
-     atot = 0 ; ts = first_elmt(d_list) ; te=tail_elmt(d_list)
-     do while (ts /= te)
-        ptr=>current_tile(ts); ts=next_elmt(ts)
+     atot = 0 ; ts = first_elmt(d_list)
+     do while (loop_over_tiles(ts,ptr))
         if (.not.associated(ptr%vegn)) cycle
         write(*,'(2(a,g23.16,2x))')'   donor: landuse=',ptr%vegn%landuse,' area=',ptr%frac
         atot = atot + ptr%frac
      enddo
-     ts = first_elmt(a_list); te=tail_elmt(a_list)
-     do while (ts /= te)
-        ptr=>current_tile(ts); ts=next_elmt(ts)
+     ts = first_elmt(a_list)
+     do while (loop_over_tiles(ts, ptr))
         if (.not.associated(ptr%vegn)) cycle
         write(*,'(2(a,g23.16,2x))')'acceptor: landuse=',ptr%vegn%landuse,' area=',ptr%frac
         atot = atot + ptr%frac
@@ -731,10 +725,8 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
 
   if (is_watch_cell()) then
      write(*,*)'### land_transitions_0d: land fractions final state ###'
-     atot = 0
-     ts = first_elmt(d_list); te=tail_elmt(d_list)
-     do while (ts /= te)
-        ptr=>current_tile(ts); ts=next_elmt(ts)
+     atot = 0 ; ts = first_elmt(d_list)
+     do while (loop_over_tiles(ts, ptr))
         if (.not.associated(ptr%vegn)) cycle
         write(*,'(2(a,g23.16,2x))')'landuse=',ptr%vegn%landuse,' area=',ptr%frac
         atot = atot + ptr%frac
@@ -746,9 +738,8 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
   ! compare them with pre-transition totals
   lmass1 = 0 ; fmass1 = 0 ; cmass1 = 0 ; heat1 = 0
   soil_heat1 = 0 ;  vegn_heat1 = 0 ; cana_heat1 = 0 ; snow_heat1 = 0
-  ts = first_elmt(d_list) ; te=tail_elmt(d_list)
-  do while (ts /= te)
-     ptr=>current_tile(ts); ts=next_elmt(ts)
+  ts = first_elmt(d_list)
+  do while (loop_over_tiles(ts,ptr))
      call get_tile_water(ptr,lm,fm)
      lmass1 = lmass1 + lm*ptr%frac ; fmass1 = fmass1 + fm*ptr%frac
 
@@ -766,8 +757,8 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
   call check_conservation ('canopy air heat content', cana_heat0 , cana_heat1 , 1e-6)
   call check_conservation ('vegetation heat content', vegn_heat0 , vegn_heat1 , 1e-6)
   call check_conservation ('snow heat content',       snow_heat0 , snow_heat1 , 1e-6)
-  call check_conservation ('soil heat content',       soil_heat0 , soil_heat1 , 1e-6)
-  call check_conservation ('heat content', heat0 , heat1 , 1e-6)
+  call check_conservation ('soil heat content',       soil_heat0 , soil_heat1 , 1e-4)
+  call check_conservation ('heat content', heat0 , heat1 , 1e-4)
 
 end subroutine land_transitions_0d
 
@@ -782,12 +773,11 @@ subroutine land_tile_merge(tile, list)
 
   ! ---- local vars
   type(land_tile_type), pointer :: ptr
-  type(land_tile_enum_type) :: ct,et
+  type(land_tile_enum_type) :: ct
 
   ! try to find a tile that we can merge to
-  ct = first_elmt(list) ; et = tail_elmt(list)
-  do while(ct/=et)
-     ptr=>current_tile(ct) ; ct = next_elmt(ct)
+  ct = first_elmt(list)
+  do while(loop_over_tiles(ct,ptr))
      if (land_tiles_can_be_merged(tile,ptr)) then
         call merge_land_tiles(tile,ptr)
         call delete_land_tile(tile)
@@ -805,15 +795,14 @@ end subroutine land_tile_merge
 ! land use changes in the process
 subroutine split_changing_tile_parts(d_list,d_kind,a_kind,dfrac,a_list)
   type(land_tile_list_type), intent(in) :: d_list ! list of donor tiles
-  integer, intent(in) :: d_kind ! kind of donor tiles
-  integer, intent(in) :: a_kind ! kind of acceptor tiles
-  real,    intent(in) :: dfrac  ! fraction of land area that changes kind
+  integer, intent(in) :: d_kind ! LU type of donor tiles
+  integer, intent(in) :: a_kind ! LU type of acceptor tiles
+  real,    intent(in) :: dfrac  ! fraction of land area that changes LU type
   type(land_tile_list_type), intent(inout) :: a_list ! list of acceptors
 
   ! ---- local vars
-  type(land_tile_enum_type) :: ct, et
-  type(land_tile_type), pointer :: temp
-  type(land_tile_type), pointer :: tile
+  type(land_tile_enum_type) :: ct
+  type(land_tile_type), pointer :: tile, temp
   real :: area, darea, area0, area1
   real :: x0,x1,x2 ! values of transition intensity
   real, parameter :: eps = 1e-6 ! area calculation precision
@@ -823,10 +812,8 @@ subroutine split_changing_tile_parts(d_list,d_kind,a_kind,dfrac,a_list)
   integer :: i,j,k,face ! coordinates of current point, for overshoot diagnostics
 
   ! calculate total area of the tiles that should be transitioned to another kind
-  area = 0
-  ct = first_elmt(d_list); et=tail_elmt(d_list)
-  do while (ct /= et)
-     tile=>current_tile(ct); ct=next_elmt(ct)
+  ct = first_elmt(d_list); area = 0.0
+  do while (loop_over_tiles(ct, tile))
      if (.not.associated(tile%vegn)) cycle
      if (tile%vegn%landuse == d_kind)  &
           area = area + tile%frac
@@ -890,26 +877,24 @@ subroutine split_changing_tile_parts(d_list,d_kind,a_kind,dfrac,a_list)
   enddo
 
   ! do tile transitions to destination list
-  ct = first_elmt(d_list); et=tail_elmt(d_list)
-  do while (ct /= et)
-     tile=>current_tile(ct) ; ct=next_elmt(ct)
-     if(.not.associated(tile%vegn)) cycle
-     if(tile%vegn%landuse == d_kind) then
-        darea = vegn_tran_priority(tile%vegn, a_kind, x2)
-        if(darea > 0) then
-           ! make a copy
-           temp => new_land_tile(tile)
-           temp%frac = tile%frac*darea
-           tile%frac = tile%frac*(1.0-darea)
-           ! convert land use type of the tile:
-           ! cut the forest, if necessary
-           if(temp%vegn%landuse==LU_NTRL.or.temp%vegn%landuse==LU_SCND) &
-                call vegn_cut_forest(temp%vegn, a_kind)
-           ! change landuse type of the tile
-           temp%vegn%landuse = a_kind
-           ! add the new tile to the resulting list
-           call insert(temp, a_list) ! insert tile into output list
-        endif
+  ct = first_elmt(d_list)
+  do while (loop_over_tiles(ct, tile))
+     if(.not.associated(tile%vegn))  cycle ! skip all non-vegetation tiles
+     if(tile%vegn%landuse /= d_kind) cycle ! skip all tiles that doe not match "donor" LU kind
+     darea = vegn_tran_priority(tile%vegn, a_kind, x2)
+     if(darea > 0) then
+        ! make a copy of current tile
+        temp => new_land_tile(tile)
+        temp%frac = tile%frac*darea
+        tile%frac = tile%frac*(1.0-darea)
+        ! convert land use type of the tile:
+        ! cut the forest, if necessary
+        if(temp%vegn%landuse==LU_NTRL.or.temp%vegn%landuse==LU_SCND) &
+             call vegn_cut_forest(temp%vegn, a_kind)
+        ! change landuse type of the tile
+        temp%vegn%landuse = a_kind
+        ! add the new tile to the resulting list
+        call insert(temp, a_list) ! insert tile into output list
      endif
   enddo
 
@@ -927,13 +912,12 @@ function total_transition_area(list,src_kind,dst_kind,tau) result (total_area)
   real    , intent(in) :: tau                ! transition intensity
 
   ! ---- local vars
-  type(land_tile_enum_type) :: ct, et
+  type(land_tile_enum_type) :: ct
   type(land_tile_type), pointer :: tile
 
   total_area = 0
-  ct = first_elmt(list) ; et = tail_elmt(list)
-  do while (ct/=et)
-     tile=>current_tile(ct);  ct = next_elmt(ct)
+  ct = first_elmt(list)
+  do while (loop_over_tiles(ct, tile))
      if (.not.associated(tile%vegn)) cycle ! skip non-vegetated tiles
      if(tile%vegn%landuse == src_kind) &
           total_area = total_area + tile%frac*vegn_tran_priority(tile%vegn,dst_kind,tau)

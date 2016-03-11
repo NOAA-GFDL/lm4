@@ -61,6 +61,7 @@ public :: land_tile_list_init, land_tile_list_end
 public :: first_elmt, tail_elmt
 public :: operator(==), operator(/=) ! comparison of two enumerators
 public :: next_elmt, prev_elmt ! enumerator advance operations
+public :: loop_over_tiles ! provides simple way to iterate over a list of tiles
 public :: current_tile ! returns pointer to the tile at a position
 public :: insert  ! inserts a tile at a given position, or appends it to a list
 public :: erase   ! erases tile at current position
@@ -890,6 +891,23 @@ subroutine get_elmt_indices(ce,i,j,k)
   if (present(k)) k = ce%k
 
 end subroutine get_elmt_indices
+
+! ============================================================================
+! given an enumerator, sets tile pointer to the current tile and its indices, and 
+! attempts to advance enumerator to the next tile. If enumerator was already at
+! the end of the tile list, returns FALSE; in this case pointer "tile" and
+! indices i,j,k are not defined.
+function loop_over_tiles(ce, tile, i,j,k) result(R); logical R
+  type(land_tile_enum_type), intent(inout) :: ce
+  type(land_tile_type)     , pointer, optional :: tile
+  integer, intent(out), optional :: i,j,k ! indices of the tile
+
+  if (present(tile)) tile=>current_tile(ce)
+  call get_elmt_indices(ce,i,j,k)
+  ! advance enumerator to the next element
+  ce = next_elmt(ce)
+  R  = associated(tile)
+end function loop_over_tiles
 
 ! ============================================================================
 ! inserts tile at the position indicated by enumerator: in fact right in front
