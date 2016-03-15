@@ -47,7 +47,7 @@ use soil_tile_mod, only : soil_tile_heat
 use land_tile_mod, only : land_tile_map, &
      land_tile_type, land_tile_list_type, land_tile_enum_type, new_land_tile, delete_land_tile, &
      first_elmt, tail_elmt, loop_over_tiles, operator(==), current_tile, &
-     land_tile_list_init, land_tile_list_end, &
+     land_tile_list_init, land_tile_list_end, nitems, elmt_at_index, &
      empty, erase, remove, insert, land_tiles_can_be_merged, merge_land_tiles, &
      get_tile_water, land_tile_carbon, land_tile_heat
 use land_tile_io_mod, only : print_netcdf_error
@@ -57,6 +57,7 @@ use vegn_tile_mod, only : vegn_tile_type, vegn_tile_bwood
 use vegn_harvesting_mod, only : vegn_cut_forest
 
 use land_debug_mod, only : set_current_point, is_watch_cell, get_current_point, check_var_range
+use land_numerics_mod, only : rank_descending
 
 implicit none
 private
@@ -80,8 +81,15 @@ integer, parameter :: &
      OPT_IGNORE = 0, &
      OPT_STOP   = 1, &
      OPT_REPORT = 2
-! TODO: describe differences between data sets
+integer, parameter :: &
+     DISTR_LM3 = 0, &
+     DISTR_MIN = 1
+! order of transitions (resulting land use types, hight to low priority) for the
+! min-n-tiles transition distribution option
+! integer, parameter :: tran_order(4) = (/LU_URBAN, LU_CROP, LU_PAST, LU_SCND/)
+integer, parameter :: tran_order(3) = (/LU_CROP, LU_PAST, LU_SCND/)
 
+! TODO: describe differences between data sets
 
 ! ==== NetCDF declarations ===================================================
 include 'netcdf.inc'
@@ -120,8 +128,9 @@ type(time_type), allocatable :: state_time_in(:) ! time axis in input data
 type(horiz_interp_type), save :: interp ! interpolator for the input data
 type(time_type) :: time0 ! time of previous transition calculations
 
-integer :: overshoot_opt ! selector for overshoot handling options, for efficiency
-integer :: conservation_opt ! selector for non-conservation handling options, for efficiency
+integer :: tran_distr_opt = -1 ! selector for transition distribution option, for efficiency
+integer :: overshoot_opt = -1 ! selector for overshoot handling options, for efficiency
+integer :: conservation_opt = -1 ! selector for non-conservation handling options, for efficiency
 
 ! translation of luh2 names and LM3 landuse types
 character(5) :: luh2name(12)
@@ -148,6 +157,12 @@ character(len=1024) :: input_file  = '' ! input data set of transition dates
 character(len=1024) :: state_file  = '' ! input data set of LU states (for initial transition only)
 character(len=1024) :: static_file = '' ! static data file, for input land fraction
 character(len=16)  :: data_type  = 'luh1' ! or 'luh2'
+! distribute_transitions sets how the land use transitions are distributed among
+! tiles within grid cells. 'lm3' is traditional (transitions applied to every
+! tile in equal measure, except secondary-to-secondary); 'min-tiles' applies
+! transitions to tiles in the order of priority, thereby minimizing the number
+! of resulting tiles
+character(len=16)  :: distribute_transitions  = 'lm3' ! or 'min-n-tiles'
 ! sets how to handle transition overshoot: that is, the situation when transition
 ! is larger than available area of the given land use type.
 character(len=16) :: overshoot_handling = 'report' ! or 'stop', or 'ignore'
@@ -156,7 +171,7 @@ real :: overshoot_tolerance = 1e-4 ! tolerance interval for overshoots
 character(len=16) :: conservation_handling = 'stop' ! or 'report', or 'ignore'
 
 namelist/landuse_nml/do_landuse_change, input_file, state_file, static_file, data_type, &
-     overshoot_handling, overshoot_tolerance, &
+     distribute_transitions, overshoot_handling, overshoot_tolerance, &
      conservation_handling
 
 
@@ -219,6 +234,18 @@ subroutine land_transitions_init(id_lon, id_lat)
           NOTE)
      time0 = set_date(0001,01,01);
   endif
+
+  ! parse the transition distribution option
+  select case(trim(lowercase(distribute_transitions)))
+  case ('lm3')
+     tran_distr_opt = DISTR_LM3
+  case ('min-n-tiles')
+     tran_distr_opt = DISTR_MIN
+  case default
+     call error_mesg('land_transitions_init','distribute_transitions value "'//&
+          trim(overshoot_handling)//'" is incorrect, use "lm3" or "min-n-tiles"',&
+          FATAL)
+  end select
 
   ! parse the overshoot handling option
   if (trim(overshoot_handling)=='stop') then
@@ -614,7 +641,7 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
   real   , intent(in) :: area(:)    ! array of areas changing from donor tiles to acceptor tiles
 
   ! ---- local vars
-  integer :: i
+  integer :: i, k
   type(land_tile_type), pointer :: ptr
   type(land_tile_list_type) :: a_list
   type(land_tile_enum_type) :: ts, te
@@ -672,11 +699,34 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
   ! to be the most convenient place as both original and final landuse kind
   ! is known for each part.
   call land_tile_list_init(a_list)
-  do i = 1,size(d_kinds)
-     call split_changing_tile_parts(d_list,d_kinds(i),a_kinds(i),area(i)*atot,a_list)
-     ! the factor atot normalizes the transitions to the total area in the grid cell
-     ! available for the land use, that is, the area of land excluding lakes and glaciers
-  enddo
+  select case (tran_distr_opt)
+  case (DISTR_LM3)
+     do i = 1,size(d_kinds)
+        call split_changing_tile_parts(d_list,d_kinds(i),a_kinds(i),area(i)*atot,a_list)
+        ! the factor atot normalizes the transitions to the total area in the grid cell
+        ! available for the land use, that is, the area of land excluding lakes and glaciers
+     enddo
+  case (DISTR_MIN)
+     ! d_kinds and a_kinds are the arrays of initial and final LU types for each of
+     ! the transitions. The arrays are of equal size. For each initial and final
+     ! LU types src and dst, there is only one element src->dst in these arrays.
+     !
+     ! We go in order (U,C,P,S) through the final LU types, and apply all transitions
+     ! that convert land to this type. Since initial type for each of these transitions
+     ! are different, there should not be dependence on the order of operations.
+     !
+     ! An alternative algorithm would be to arrange d_kinds, a_kinds, and area in
+     ! the above order (x->U, x->C, x->P, x->S for any x), and go through the
+     ! arranged array.
+     do k = 1,size(tran_order)
+        do i = 1,size(a_kinds)
+           if (a_kinds(i)==tran_order(k)) then
+              call split_changing_tile_parts_by_priority( &
+                         d_list,d_kinds(i),a_kinds(i),area(i)*atot,a_list)
+           endif
+        enddo
+     enddo
+  end select
   if (is_watch_cell()) then
      write(*,*)'### land_transitions_0d: land fractions after splitting changing parts ###'
      atot = 0 ; ts = first_elmt(d_list)
@@ -789,6 +839,135 @@ subroutine land_tile_merge(tile, list)
   call insert(tile,list)
 end subroutine land_tile_merge
 
+! =============================================================================
+! check that the requested area of transitions is not larger than available area
+! in tiles
+subroutine check_area_overshoot(area, d_kind, a_kind, dfrac)
+  real,    intent(in) :: area   ! total area of donor tiles
+  integer, intent(in) :: d_kind ! LU type of donor tiles
+  integer, intent(in) :: a_kind ! LU type of acceptor tiles
+  real,    intent(in) :: dfrac  ! fraction of land area that changes LU type
+
+  integer :: severity ! severity of overshoot errors
+  integer :: i,j,k,face ! coordinates of current point, for overshoot diagnostics
+
+  ! check for overshoot situation: that is, a case where the transition area is
+  ! larger than the available area
+  if(overshoot_opt /= OPT_IGNORE.and.dfrac>area+overshoot_tolerance) then
+     severity = WARNING
+     if (overshoot_opt==OPT_STOP) severity = FATAL
+     call get_current_point(i,j,k,face)
+     call error_mesg('landuse',&
+          'transition at ('//trim(string(i))//','//trim(string(j))//&
+          ',face='//trim(string(face))//&
+          ') from "'//trim(landuse_name(d_kind))// &
+          '" to "'  //trim(landuse_name(a_kind))//&
+          '" ('//trim(string(dfrac))//') is larger than area of "'&
+          //trim(landuse_name(d_kind))//'" ('//trim(string(area))//')', &
+          severity)
+  endif
+end subroutine check_area_overshoot
+
+! =============================================================================
+! splits changing parts of donor tiles into a separate tile list, performing
+! land use changes in the process
+subroutine split_changing_tile_parts_by_priority(d_list,d_kind,a_kind,dfrac,a_list)
+  type(land_tile_list_type), intent(in) :: d_list ! list of donor tiles
+  integer, intent(in) :: d_kind ! LU type of donor tiles
+  integer, intent(in) :: a_kind ! LU type of acceptor tiles
+  real,    intent(in) :: dfrac  ! fraction of land area that changes LU type
+  type(land_tile_list_type), intent(inout) :: a_list ! list of acceptors
+
+  ! ---- local vars
+  type(land_tile_enum_type) :: ct
+  type(land_tile_type), pointer :: tile, temp
+  real :: area, darea, tfrac
+  real,    allocatable :: priority(:) ! priority of the land use transition fro each tile
+  integer, allocatable :: idx(:)      ! array of tile indices in the descending priority order
+  integer :: k
+  integer :: ntiles ! number of tiles in d_list
+
+  ! calculate total area of the tiles that should be transitioned to another kind
+  ct = first_elmt(d_list); area = 0.0
+  do while (loop_over_tiles(ct, tile))
+     if (.not.associated(tile%vegn)) cycle
+     if (tile%vegn%landuse == d_kind) area = area + tile%frac
+  enddo
+
+  call check_area_overshoot(area,d_kind,a_kind,dfrac)
+
+  ! calculate transition priorities
+  ntiles = nitems(d_list)
+  allocate(priority(ntiles), idx(ntiles))
+  priority(:) = -HUGE(1.0)
+  k = 0; ct = first_elmt(d_list)
+  do while (loop_over_tiles(ct,tile))
+     k = k+1
+     if(.not.associated(tile%vegn))  cycle ! skip non-vegetated tiles
+     if(tile%vegn%landuse /= d_kind) cycle ! skip tiles that do not match donor LU type
+     priority(k) = landuse_priority(tile, a_kind)
+  enddo
+
+  ! sort landuse transition priorities in descending order
+  call rank_descending(priority, idx)
+
+  ! transition cannot be more than current total area of specified kind
+  tfrac = min(dfrac,area)
+  do k = 1, ntiles
+     if (tfrac==0) exit ! from loop, no more area to transition
+     tile=>elmt_at_index(d_list, idx(k))
+     if (.not.associated(tile%vegn)) cycle ! landuse cannot be applied to non-vegetated tiles
+     if(tile%vegn%landuse /= d_kind) cycle ! skip tiles that do not match donor LU type
+     darea = min(tile%frac, tfrac)
+     if (darea>0) then
+        ! make a copy of current tile
+        temp => new_land_tile(tile)
+        temp%frac = darea
+        tile%frac = tile%frac-darea
+        ! convert land use type of the tile: cut the forest, if necessary
+        if(temp%vegn%landuse==LU_NTRL.or.temp%vegn%landuse==LU_SCND) &
+                call vegn_cut_forest(temp%vegn, a_kind)
+        ! change landuse type of the tile
+        temp%vegn%landuse = a_kind
+        ! add the new tile to the resulting list
+        call insert(temp, a_list) ! insert tile into output list
+        ! calculate remaining area of transition
+        tfrac = tfrac-darea
+     endif
+  enddo
+
+end subroutine split_changing_tile_parts_by_priority
+
+! ============================================================================
+! returns priority of the land use tile: tiles with highest number will be
+! consumed first by the land use transition
+function landuse_priority(tile, dst) result(P); real P
+  type(land_tile_type), intent(in) :: tile
+  integer, intent(in) :: dst ! land use types we are transitioning to
+
+  integer :: src ! land use type of the tile
+
+  P = -HUGE(1.0) ! very low priority
+  if (.not.associated(tile%vegn)) return
+  src = tile%vegn%landuse
+
+  if ((src==LU_SCND.or.src==LU_NTRL).and.dst==LU_SCND) then
+     ! for wood harvesting (NTRL->SCND or SCND->SCND), first
+     ! consume tiles with highest wood biomass
+     P = vegn_tile_bwood(tile%vegn)
+  else if (dst==LU_SCND) then
+     ! for abandonment, we first consume top-of-the-hill tiles
+     ! hidx_j is the index of the hillslope tile; the higher the index the
+     ! higher the tile in the hillslope
+     P = tile%soil%hidx_j
+  else if (src==LU_CROP.and.dst==LU_PAST) then
+     ! for CROP->PAST conversion, start from the top of the hill
+     P = tile%soil%hidx_j
+  else
+     ! for everything else, start from the bottom
+     P = -tile%soil%hidx_j
+  endif
+end function landuse_priority
 
 ! =============================================================================
 ! splits changing parts of donor tiles into a separate tile list, performing
@@ -806,10 +985,8 @@ subroutine split_changing_tile_parts(d_list,d_kind,a_kind,dfrac,a_list)
   real :: area, darea, area0, area1
   real :: x0,x1,x2 ! values of transition intensity
   real, parameter :: eps = 1e-6 ! area calculation precision
+  real, parameter :: factor = 1.6 ! multiplier for solution bracketing
   integer :: iter
-  real :: factor = 1.6
-  integer :: severity ! severity of overshoot errors
-  integer :: i,j,k,face ! coordinates of current point, for overshoot diagnostics
 
   ! calculate total area of the tiles that should be transitioned to another kind
   ct = first_elmt(d_list); area = 0.0
@@ -819,21 +996,7 @@ subroutine split_changing_tile_parts(d_list,d_kind,a_kind,dfrac,a_list)
           area = area + tile%frac
   enddo
 
-  ! check for overshoot situation: that is, a case where the transition area is
-  ! larger than the available area
-  if(overshoot_opt /= OPT_IGNORE.and.dfrac>area+overshoot_tolerance) then
-     severity = WARNING
-     if (overshoot_opt==OPT_STOP) severity = FATAL
-     call get_current_point(i,j,k,face)
-     call error_mesg('she_landuse',&
-          'transition at ('//trim(string(i))//','//trim(string(j))//&
-          ',face='//trim(string(face))//&
-          ') from "'//trim(landuse_name(d_kind))// &
-          '" to "'  //trim(landuse_name(a_kind))//&
-          '" ('//trim(string(dfrac))//') is larger than area of "'&
-          //trim(landuse_name(d_kind))//'" ('//trim(string(area))//')', &
-          severity)
-  endif
+  call check_area_overshoot(area,d_kind,a_kind,dfrac)
 
   ! if area of the tiles of requested kind is zero we cannot transition
   ! anything, so just return
