@@ -51,9 +51,11 @@ real :: grazing_intensity      = 0.25    ! fraction of biomass removed each time
 real :: grazing_residue        = 0.1     ! fraction of the grazed biomass transferred into soil pools
 character(16) :: grazing_frequency = 'annual' ! or 'daily'
 real :: min_lai_for_grazing    = 0.0     ! no grazing if LAI lower than this threshold
-  ! NOTE that regardless of the grazing frequency, the soil carbon input from
+  ! NOTE that in CORPSE mode regardless of the grazing frequency soil carbon input from
   ! grazing still goes to intermediate pools, and then it is transferred from
   ! these pools to soil/litter carbon pools with constant rates over the next year.
+  ! In CENTURY mode grazing residue is deposited to soil directly in case of daily 
+  ! grazing frequency; still goes through intermediate pools in case of annual grazing.
 real :: frac_wood_wasted_harv  = 0.25    ! fraction of wood wasted while harvesting
 real :: frac_wood_wasted_clear = 0.25    ! fraction of wood wasted while clearing land for pastures or crops
 logical :: waste_below_ground_wood = .TRUE. ! If true, all the wood below ground (1-agf_bs fraction of bwood

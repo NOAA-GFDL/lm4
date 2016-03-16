@@ -59,8 +59,10 @@ public :: land_tile_grnd_T ! returns temperature of the ground surface
 ! operations with tile lists and tile list enumerators
 public :: land_tile_list_init, land_tile_list_end
 public :: first_elmt, tail_elmt
+public :: elmt_at_index ! given list and k, returns list[k]
 public :: operator(==), operator(/=) ! comparison of two enumerators
 public :: next_elmt, prev_elmt ! enumerator advance operations
+public :: loop_over_tiles ! provides simple way to iterate over a list of tiles
 public :: current_tile ! returns pointer to the tile at a position
 public :: insert  ! inserts a tile at a given position, or appends it to a list
 public :: erase   ! erases tile at current position
@@ -662,6 +664,21 @@ function n_items_in_list(list) result (n)
 end function n_items_in_list
 
 ! ============================================================================
+function elmt_at_index(list,k) result(ptr)
+  type(land_tile_list_type), intent(in) :: list ! list of tiles
+  integer,                   intent(in) :: k    ! index
+  type(land_tile_type), pointer :: ptr ! return value
+
+  type(land_tile_enum_type) :: ct
+  integer :: i
+  ct = first_elmt(list); i = 1
+  do while (loop_over_tiles(ct, ptr))
+     if (i==k) exit ! from loop
+     i = i+1
+  enddo
+end function elmt_at_index
+
+! ============================================================================
 subroutine insert_in_list(tile,list)
   type(land_tile_type),           pointer :: tile
   type(land_tile_list_type), intent(inout) :: list
@@ -890,6 +907,23 @@ subroutine get_elmt_indices(ce,i,j,k)
   if (present(k)) k = ce%k
 
 end subroutine get_elmt_indices
+
+! ============================================================================
+! given an enumerator, sets tile pointer to the current tile and its indices, and
+! attempts to advance enumerator to the next tile. If enumerator was already at
+! the end of the tile list, returns FALSE; in this case pointer "tile" and
+! indices i,j,k are not defined.
+function loop_over_tiles(ce, tile, i,j,k) result(R); logical R
+  type(land_tile_enum_type), intent(inout) :: ce
+  type(land_tile_type)     , pointer, optional :: tile
+  integer, intent(out), optional :: i,j,k ! indices of the tile
+
+  if (present(tile)) tile=>current_tile(ce)
+  call get_elmt_indices(ce,i,j,k)
+  ! advance enumerator to the next element
+  ce = next_elmt(ce)
+  R  = associated(tile)
+end function loop_over_tiles
 
 ! ============================================================================
 ! inserts tile at the position indicated by enumerator: in fact right in front

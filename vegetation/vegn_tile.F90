@@ -38,9 +38,10 @@ public :: vegn_is_selected
 public :: get_vegn_tile_tag
 public :: vegn_tile_stock_pe
 public :: vegn_tile_carbon ! returns total carbon per tile
-public :: vegn_tile_heat ! returns hate content of the vegetation
-public :: vegn_tile_LAI ! returns LAI of the vegetation
-public :: vegn_tile_SAI ! returns LAI of the vegetation
+public :: vegn_tile_heat ! returns heat content of the vegetation
+public :: vegn_tile_LAI ! returns leaf area index
+public :: vegn_tile_SAI ! returns stem area index
+public :: vegn_tile_bwood ! returns wood biomass
 
 public :: read_vegn_data_namelist
 public :: vegn_cover_cold_start
@@ -50,8 +51,6 @@ public :: vegn_hydraulic_properties
 public :: vegn_data_rs_min
 public :: vegn_seed_supply
 public :: vegn_seed_demand
-
-public :: vegn_tran_priority ! returns transition priority for land use
 
 public :: vegn_add_bliving
 public :: update_derived_vegn_data  ! given state variables, calculate derived values
@@ -191,8 +190,8 @@ function vegn_tiles_can_be_merged(vegn1,vegn2) result(response)
      response = .false. ! different land use types can't be merged
   else if (vegn1%landuse == LU_SCND) then ! secondary vegetation tiles
      ! get tile wood biomasses
-     b1 = get_vegn_tile_bwood(vegn1)
-     b2 = get_vegn_tile_bwood(vegn2)
+     b1 = vegn_tile_bwood(vegn1)
+     b2 = vegn_tile_bwood(vegn2)
      ! find biomass bins where each the tiles belongs to
      i1 = 0 ; i2 = 0
      do i = 1, size(scnd_biomass_bins(:))
@@ -464,48 +463,6 @@ subroutine vegn_add_bliving ( vegn, delta )
   call update_biomass_pools(vegn%cohorts(1))
 end subroutine vegn_add_bliving
 
-
-
-
-
-! ============================================================================
-! given a vegetation patch, destination kind of transition, and "transition
-! intensity" value, this function returns a fraction of tile that will parti-
-! cipate in transition.
-!
-! this function must be contiguous, monotonic, its value must be within
-! interval [0,1]
-!
-! this function is used to determine what part of each tile is to be converted
-! to another land use kind; the equation is solved to get "transition intensity"
-! tau for which total area is equal to requested. Tau is, therefore, a dummy
-! parameter, and only relative values of the priority functions for tiles
-! participating in transition have any meaning. For most transitions the priority
-! function is just equal to tau: therefore there is no preference, and all tiles
-! contribute equally to converted area. For secondary vegetation harvesting,
-! however, priority also depends on wood biomass, and therefore tiles
-! with high wood biomass are harvested first.
-function vegn_tran_priority(vegn, dst_kind, tau) result(pri)
-  real :: pri
-  type(vegn_tile_type), intent(in) :: vegn
-  integer             , intent(in) :: dst_kind
-  real                , intent(in) :: tau
-
-  real :: vegn_bwood
-  integer :: i
-
-  if (vegn%landuse==LU_SCND.and.dst_kind==LU_SCND) then ! secondary biomass harvesting
-     vegn_bwood = 0
-     do i = 1,vegn%n_cohorts
-        vegn_bwood = vegn_bwood + vegn%cohorts(i)%bwood
-     enddo
-     pri = max(min(tau+vegn_bwood,1.0),0.0)
-  else
-     pri = max(min(tau,1.0),0.0)
-  endif
-end function vegn_tran_priority
-
-
 ! ============================================================================
 function vegn_cover_cold_start(land_mask, lonb, latb) result (vegn_frac)
 ! creates and initializes a field of fractional vegn coverage
@@ -564,7 +521,7 @@ end function get_vegn_tile_tag
 
 ! ============================================================================
 ! returns total wood biomass per tile
-function get_vegn_tile_bwood(vegn) result(bwood)
+function vegn_tile_bwood(vegn) result(bwood)
   real :: bwood
   type(vegn_tile_type), intent(in) :: vegn
 
@@ -575,7 +532,7 @@ function get_vegn_tile_bwood(vegn) result(bwood)
   do i = 1,vegn%n_cohorts
      bwood = bwood + vegn%cohorts(i)%bwood
   enddo
-end function get_vegn_tile_bwood
+end function vegn_tile_bwood
 
 ! ============================================================================
 ! returns total leaf area index
