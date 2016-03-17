@@ -27,9 +27,10 @@ use land_tile_diag_mod, only : diag_buff_type, &
      send_tile_data_i0d_fptr, OP_SUM
 use land_data_mod, only : lnd, log_version
 use land_io_mod, only : read_field
-use land_tile_io_mod, only : create_tile_out_file, write_tile_data_i0d_fptr, read_tile_data_i0d_fptr, &
-     get_input_restart_name, sync_nc_files, print_netcdf_error, &
-     gather_tile_data, assemble_tiles
+use land_tile_io_mod, only: land_restart_type, &
+     init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
+     add_restart_axis, add_int_tile_data, get_int_tile_data, &
+     print_netcdf_error
 use nf_utils_mod,  only : nfu_inq_dim
 use land_debug_mod, only : is_watch_point, is_watch_cell, set_current_point
 use land_transitions_mod, only : do_landuse_change
@@ -53,7 +54,7 @@ public :: retrieve_hlsp_indices ! returns hillslope position and parent to land_
                                 ! All indices are 0 if .not. do_hillslope_model.
 public :: horiz_wt_depth_to_init ! returns water table depth to init, when soil:horiz_init_wt == .true.
 public :: hlsp_end
-public :: save_hlsp_restart, save_hlsp_restart_new
+public :: save_hlsp_restart
 public :: hlsp_config_check     ! Check configuration for errors, at the end of land_model_init sequence.
                                 ! Also deallocate any module variables used during cold start.
 public :: calculate_wt_init  ! Calculates water table depth for initialization to be returned by
@@ -129,8 +130,8 @@ logical, public     :: tiled_DOC_flux = .false. ! True ==> Calculate DOC fluxes 
 
 character(len=256)  :: hillslope_surfdata = 'INPUT/hillslope.nc'
 character(len=24)   :: hlsp_interpmethod = 'nearest'
-character(len=24), parameter  :: hlsp_rst_ifname = 'INPUT/hlsp.res.nc'
-character(len=24), parameter  :: hlsp_rst_ofname = 'hlsp.res.nc'
+character(*), parameter  :: hlsp_rst_ifname = 'INPUT/hlsp.res.nc'
+character(*), parameter  :: hlsp_rst_ofname = 'hlsp.res.nc'
 
 ! Removed do_hillslope_model from namelist.  Tie to gw_option in soil_tile.
 namelist /hlsp_nml/ num_vertclusters, max_num_topo_hlsps, hillslope_horz_subdiv, &
@@ -556,10 +557,9 @@ end subroutine retrieve_hlsp_indices
 
 ! ============================================================================
 ! initialize hillslope model
-subroutine hlsp_init ( id_lon, id_lat, new_land_io )
+subroutine hlsp_init ( id_lon, id_lat )
   integer, intent(in)  :: id_lon  ! ID of land longitude (X) axis
   integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
-  logical, intent(in) :: new_land_io !< This is a transition var and will be removed
 
   ! ---- local vars
   integer :: unit         ! unit for various i/o
@@ -575,15 +575,14 @@ subroutine hlsp_init ( id_lon, id_lat, new_land_io )
   integer :: hj, hk ! hillslope pos, par indices
   real    :: rhj, NN ! real hj, num_vertclusters
   real    :: c, a ! convergence, hlsp_slope
-  character(len=256) :: restart_file_name, mesg
+  character(len=256) :: mesg
   logical :: restart_exists
   real :: tfreeze_diff
   real :: hpos ! local horizontal position (-)
   real :: hbdu ! local upstream bdy (-)
   real :: hbdd ! local downstream bdy (-)
   logical :: found
-  integer :: siz(4), tsize
-  integer, allocatable :: i0d(:), idx(:)
+  type(land_restart_type) :: restart
 
   module_is_initialized = .TRUE.
 
@@ -626,34 +625,16 @@ subroutine hlsp_init ( id_lon, id_lat, new_land_io )
                                 soil_e_depth, microtopo, hlsp_length, hlsp_slope, hlsp_slope_exp, &
                                 hlsp_top_width, k_sat_gw)
 
-  call get_input_restart_name(hlsp_rst_ifname,restart_exists,restart_file_name)
+  call open_land_restart(restart,hlsp_rst_ifname,restart_exists)
   if (restart_exists) then
-     if (new_land_io) then
-        ! fms read routine expect the "original" restart file name, not the one
-        ! modified with the get_input_restart_name
-        restart_file_name = hlsp_rst_ifname
-        call error_mesg('vegn_init', 'Using new hlsp restart read', NOTE)
-        call get_field_size(restart_file_name, 'tile_index', siz, field_found=found, domain=lnd%domain)
-        if (.not.found) call error_mesg(trim(module_name), 'tile axis not found in '//trim(restart_file_name), FATAL)
-        tsize = siz(1)
-        allocate(idx(tsize), i0d(tsize))
-        call read_compressed(restart_file_name,'tile_index',idx, domain=lnd%domain, timelevel=1)
-        call read_compressed(restart_file_name,'HIDX_J',i0d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_hidx_j_ptr,idx,i0d)
-        call read_compressed(restart_file_name,'HIDX_K',i0d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_hidx_k_ptr,idx,i0d)
-     else
-        call error_mesg(module_name, 'hlsp_init, '// &
-             'reading NetCDF restart "'//trim(restart_file_name)//'"', &
-             NOTE)
-        __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
-        call read_tile_data_i0d_fptr(unit, 'HIDX_J'       , soil_hidx_j_ptr  )
-        call read_tile_data_i0d_fptr(unit, 'HIDX_K'       , soil_hidx_k_ptr  )
-        __NF_ASRT__(nf_close(unit))
-        if (cold_start) &
-           call error_mesg(module_name, 'hlsp_init: coldfracs subroutine called even though restart file '// &
-                                'exists! Inconsistency of "cold_start" in hillslope_mod.', FATAL)
-     endif
+     call error_mesg(module_name, 'hlsp_init, '// &
+          'reading NetCDF restart "'//trim(hlsp_rst_ifname)//'"', &
+          NOTE)
+     if (cold_start) &
+        call error_mesg(module_name, 'hlsp_init: coldfracs subroutine called even though restart file '// &
+                             'exists! Inconsistency of "cold_start" in hillslope_mod.', FATAL)
+     call get_int_tile_data(restart, 'HIDX_J', soil_hidx_j_ptr)
+     call get_int_tile_data(restart, 'HIDX_K', soil_hidx_k_ptr)
   else
      call error_mesg(module_name, 'hlsp_init: '// &
           'cold-starting hillslope model',&
@@ -664,6 +645,7 @@ subroutine hlsp_init ( id_lon, id_lat, new_land_io )
                              'does not exist! Inconsistency of "cold_start" in hillslope_mod.', FATAL)
 
   endif
+  call free_land_restart(restart)
 
   tfreeze_diff = 0. ! Initialize before tile loop.
 
@@ -866,55 +848,26 @@ subroutine save_hlsp_restart (tile_dim_length, timestamp)
   character(*), intent(in) :: timestamp ! timestamp to add to the file name
 
   ! ---- local vars ----------------------------------------------------------
-  integer :: unit            ! restart file i/o unit
+  character(267) :: filename
+  type(land_restart_type) :: restart ! restart file i/o object
 
   if (.not. do_hillslope_model) return
 
   call error_mesg(module_name,'writing hillslope restart',NOTE)
+! must set domain so that io_domain is available
+  call set_domain(lnd%domain)
+! Note that filename is updated for tile & rank numbers during file creation
+  filename = trim(timestamp)//hlsp_rst_ofname
+  call init_land_restart(restart, filename, soil_tile_exists, tile_dim_length)
 
-  ! create output file, including internal structure necessary for output
-  call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//hlsp_rst_ofname, &
-          lnd%coord_glon, lnd%coord_glat, soil_tile_exists, tile_dim_length )
-  ! in addition, define vertical coordinate
-
-  call sync_nc_files(unit)         ! restart file i/o unit
-
-  ! write out fields
-  call write_tile_data_i0d_fptr(unit,'HIDX_J',soil_hidx_j_ptr,'hillslope position index','-')
-  call write_tile_data_i0d_fptr(unit,'HIDX_K',soil_hidx_k_ptr,'hillslope parent index','-')
-
-  ! close file
-  __NF_ASRT__(nf_close(unit))
+  call add_int_tile_data(restart,'HIDX_J',soil_hidx_j_ptr,'hillslope position index','-')
+  call add_int_tile_data(restart,'HIDX_K',soil_hidx_k_ptr,'hillslope parent index','-')
+  ! save performs io domain aggregation through mpp_io as with regular domain data
+  call save_land_restart(restart)
+  call free_land_restart(restart)
+  call nullify_domain()
 
 end subroutine save_hlsp_restart
-
-subroutine save_hlsp_restart_new (tile_dim_length, timestamp)
-  integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
-  character(*), intent(in) :: timestamp ! timestamp to add to the file name
-
-  ! ---- local vars ----------------------------------------------------------
-  type(restart_file_type) :: hlsp_restart
-  character(256) :: fname
-  integer, allocatable :: idx(:), hidx_j(:), hidx_k(:)
-  integer :: tsize, id_restart
-
-  if (.not. do_hillslope_model) return
-  call error_mesg('save_hlsp_restart_new','writing new hillslope restart',NOTE)
-  call set_domain(lnd%domain)
-  fname = trim(timestamp)//trim(hlsp_rst_ofname)
-  call create_tile_out_file(hlsp_restart,idx,fname,soil_tile_exists,tile_dim_length)
-  tsize = size(idx)
-  allocate(hidx_j(tsize), hidx_k(tsize))
-  call gather_tile_data(soil_hidx_j_ptr,idx,hidx_j)
-  id_restart = register_restart_field(hlsp_restart, fname, 'HIDX_J', hidx_j, &
-               longname='hillslope position index', units='-', compressed_axis='C')
-  call gather_tile_data(soil_hidx_k_ptr,idx,hidx_k)
-  id_restart = register_restart_field(hlsp_restart, fname, 'HIDX_K', hidx_k, &
-               longname='hillslope parent index', units='-', compressed_axis='C')
-  call save_restart(hlsp_restart)
-  deallocate(hidx_j, hidx_k)
-
-end subroutine save_hlsp_restart_new
 
 ! ============================================================================
 subroutine hlsp_config_check()
@@ -1123,9 +1076,11 @@ end function meanelev
 ! cohort accessor functions: given a pointer to cohort, return a pointer to a
 ! specific member of the cohort structure
 #define DEFINE_SOIL_ACCESSOR_0D(xtype,x) subroutine soil_ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%x;endif;end subroutine
+type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%x;endif;\
+end subroutine
 #define DEFINE_SOIL_COMPONENT_ACCESSOR_0D(xtype,component,x) subroutine soil_ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%component%x;endif;end subroutine
+type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%component%x;endif;\
+end subroutine
 
 DEFINE_SOIL_ACCESSOR_0D(integer,hidx_j)
 DEFINE_SOIL_ACCESSOR_0D(integer,hidx_k)

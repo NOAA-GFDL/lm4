@@ -41,6 +41,7 @@ public :: read_land_io_namelist
 public :: print_netcdf_error
 
 public :: input_buf_size
+public :: new_land_io
 ! ==== end of public interface ===============================================
 
 interface read_field
@@ -62,7 +63,8 @@ character(len=*), parameter :: tagname     = '$Name$'
 logical :: module_is_initialized = .false.
 character(len=64)  :: interp_method = "conservative"
 integer :: input_buf_size = 65536 ! input buffer size for tile and cohort reading
-namelist /land_io_nml/ interp_method, input_buf_size
+logical :: new_land_io = .false.
+namelist /land_io_nml/ interp_method, input_buf_size, new_land_io
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 

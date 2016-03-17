@@ -31,11 +31,9 @@ use cana_tile_mod, only : cana_tile_type, &
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
 use land_data_mod, only : land_state_type, lnd, log_version
-use land_tile_io_mod, only : create_tile_out_file, &
-     read_tile_data_r0d_fptr, write_tile_data_r0d_fptr, &
-     read_tile_data_r1d_fptr, write_tile_data_r1d_fptr, &
-     get_input_restart_name, print_netcdf_error, &
-     gather_tile_data, assemble_tiles
+use land_tile_io_mod, only: land_restart_type, &
+     init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
+     add_restart_axis, add_tile_data, get_tile_data, field_exists
 use land_debug_mod, only : is_watch_point, check_temp_range
 
 implicit none
@@ -46,7 +44,6 @@ public :: read_cana_namelist
 public :: cana_init
 public :: cana_end
 public :: save_cana_restart
-public :: save_cana_restart_new
 public :: cana_radiation
 public :: cana_turbulence
 public :: cana_roughness
@@ -86,13 +83,7 @@ logical :: module_is_initialized =.FALSE.
 integer :: turbulence_option ! selected option of turbulence parameters
      ! calculations
 
-! ==== NetCDF declarations ===================================================
-include 'netcdf.inc'
-#define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
-
-
 contains
-
 
 ! ============================================================================
 subroutine read_cana_namelist()
@@ -125,21 +116,16 @@ end subroutine read_cana_namelist
 
 ! ============================================================================
 ! initialize canopy air
-subroutine cana_init ( id_lon, id_lat, new_land_io )
-  integer, intent(in)          :: id_lon  ! ID of land longitude (X) axis
-  integer, intent(in)          :: id_lat  ! ID of land latitude (Y) axis
-  logical, intent(in)          :: new_land_io  ! This is a transition var and will be removed
+subroutine cana_init ( id_lon, id_lat )
+  integer, intent(in) :: id_lon  ! ID of land longitude (X) axis
+  integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
 
   ! ---- local vars ----------------------------------------------------------
-  integer :: unit         ! unit for various i/o
   type(land_tile_enum_type)     :: te,ce ! last and current tile
   type(land_tile_type), pointer :: tile   ! pointer to current tile
-  character(len=256) :: restart_file_name
-  character(len=17) :: restart_base_name='INPUT/cana.res.nc'
-  integer :: siz(4)
-  integer, allocatable :: idx(:)         ! I/O domain vector of compressed indices
-  real,    allocatable :: r0d(:)         ! I/O domain vector of real data
-  logical :: found,restart_exists
+  character(*), parameter :: restart_file_name='INPUT/cana.res.nc'
+  type(land_restart_type) :: restart
+  logical :: restart_exists
 
   character(len=32)  :: name  ! name of the tracer
   integer            :: tr, i ! tracer indices
@@ -191,51 +177,28 @@ subroutine cana_init ( id_lon, id_lat, new_land_io )
   enddo
 
   ! then read the restart if it exists
-  call get_input_restart_name(restart_base_name,restart_exists,restart_file_name)
+  call open_land_restart(restart,restart_file_name,restart_exists)
   if (restart_exists) then
      call error_mesg('cana_init',&
           'reading NetCDF restart "'//trim(restart_file_name)//'"',&
           NOTE)
-     if(new_land_io)then
-        call error_mesg('cana_init', 'Using new canopy restart read', NOTE)
-
-        call get_field_size(restart_base_name,'tile_index',siz, field_found=found, domain=lnd%domain)
-        if ( .not. found ) call error_mesg(trim(module_name), &
-                       'tile_index axis not found in '//trim(restart_file_name), FATAL)
-        allocate(idx(siz(1)),r0d(siz(1)))
-        call read_compressed(restart_base_name,'tile_index',idx, domain=lnd%domain, timelevel=1)
-
-        call read_compressed(restart_base_name,'temp',r0d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(cana_T_ptr,idx,r0d)
-
-        do tr = 1, ntcana
-          call get_tracer_names(MODEL_LAND, tr, name=name)
-          if(field_exist(restart_base_name,name,domain=lnd%domain)) then
-            call read_compressed(restart_base_name,name,r0d, domain=lnd%domain, timelevel=1)
-            call assemble_tiles(cana_tr_ptr,idx,r0d,tr)
-          endif
-        enddo
-        deallocate(idx,r0d)
-     else
-        __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
-        call read_tile_data_r0d_fptr(unit, 'temp', cana_T_ptr  )
-        do tr = 1, ntcana
-           call get_tracer_names(MODEL_LAND, tr, name=name)
-           if(nfu_inq_var(unit,trim(name))==NF_NOERR) then
-              call error_mesg('cana_init','reading tracer "'//trim(name)//'"',NOTE)
-              call read_tile_data_r0d_fptr(unit,name,cana_tr_ptr,tr)
-           else
-              call error_mesg('cana_init', 'tracer "'//trim(name)// &
-                   '" was set to initial value '//string(init_tr(tr)), NOTE)
-           endif
-        enddo
-        __NF_ASRT__(nf_close(unit))
-     endif
+     call get_tile_data(restart, 'temp', cana_T_ptr)
+     do tr = 1, ntcana
+        call get_tracer_names(MODEL_LAND, tr, name=name)
+        if (field_exists(restart,trim(name))) then
+           call error_mesg('cana_init','reading tracer "'//trim(name)//'"',NOTE)
+           call get_tile_data(restart,name,cana_tr_ptr,tr)
+        else
+           call error_mesg('cana_init', 'tracer "'//trim(name)// &
+                '" was set to initial value '//string(init_tr(tr)), NOTE)
+        endif
+     enddo
   else
      call error_mesg('cana_init',&
           'cold-starting canopy air',&
           NOTE)
   endif
+  call free_land_restart(restart)
 
   ! initialize options, to avoid expensive character comparisons during
   ! run-time
@@ -247,16 +210,13 @@ subroutine cana_init ( id_lon, id_lat, new_land_io )
      call error_mesg('cana_init', 'canopy air turbulence option turbulence_to_use="'// &
           trim(turbulence_to_use)//'" is invalid, use "lm3w" or "lm3v"', FATAL)
   endif
-
 end subroutine cana_init
 
 
 ! ============================================================================
 ! release memory
 subroutine cana_end ()
-
   module_is_initialized =.FALSE.
-
 end subroutine cana_end
 
 
@@ -265,75 +225,31 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
   integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
   character(*), intent(in) :: timestamp ! timestamp to add to the file name
 
-  ! ---- local vars ----------------------------------------------------------
-  integer :: unit            ! restart file i/o unit
+  ! ---- local vars
+  character(267) :: filename
+  type(land_restart_type) :: restart ! restart file i/o object
   character(len=32)  :: name,units
   character(len=128) :: longname
   integer :: tr
 
   call error_mesg('cana_end','writing NetCDF restart',NOTE)
-  call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'cana.res.nc',&
-          lnd%coord_glon, lnd%coord_glat, cana_tile_exists, tile_dim_length)
-
-     ! write temperature
-     call write_tile_data_r0d_fptr(unit,'temp' ,cana_T_ptr,'canopy air temperature','degrees_K')
-     ! write all tracers
-     do tr = 1,ntcana
-        call get_tracer_names(MODEL_LAND, tr, name, longname, units)
-        if (tr==ico2.and..not.save_qco2) cycle
-        call write_tile_data_r0d_fptr(unit,name,cana_tr_ptr,tr,'canopy air '//trim(longname),trim(units))
-     enddo
-     ! close output file
-     __NF_ASRT__(nf_close(unit))
-end subroutine save_cana_restart
-
-! ============================================================================
-subroutine save_cana_restart_new(tile_dim_length, timestamp)
-  integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
-  character(*), intent(in) :: timestamp ! timestamp to add to the file name
-
-  ! ---- local vars ----------------------------------------------------------
-  character(len=267) :: fname
-  type(restart_file_type) :: cana_restart ! restart file i/o object
-  integer, allocatable :: idx(:)
-  real, allocatable :: cana_T(:)
-  real, allocatable :: cana_tr(:,:)
-  integer :: id_restart, isize, tr
-  character(len=32)  :: name,units
-  character(len=128) :: longname
-
-  call error_mesg('cana_end','writing new format NetCDF restart',NOTE)
 ! must set domain so that io_domain is available
   call set_domain(lnd%domain)
-! Note that fname is updated for tile & rank numbers during file creation
-  fname = trim(timestamp)//'cana.res.nc'
-  call create_tile_out_file(cana_restart,idx,fname,cana_tile_exists,tile_dim_length)
-  isize = size(idx)
+! Note that filename is updated for tile & rank numbers during file creation
+  filename = trim(timestamp)//'cana.res.nc'
+  call init_land_restart(restart, filename, cana_tile_exists, tile_dim_length)
 
-  allocate(cana_T(isize))
-  allocate(cana_tr(isize,ntcana))
-
-  ! Output data provides signature
-  call gather_tile_data(cana_T_ptr,idx,cana_T)
-  id_restart = register_restart_field(cana_restart,fname,'temp',cana_T, &
-                                      longname='canopy air temperature',units='degrees_K')
-
+  ! write temperature
+  call add_tile_data(restart,'temp',cana_T_ptr,'canopy air temperature','degrees_K')
   do tr = 1,ntcana
      call get_tracer_names(MODEL_LAND, tr, name, longname, units)
      if (tr==ico2.and..not.save_qco2) cycle
-     call gather_tile_data(cana_tr_ptr,idx,tr,cana_tr(:,tr))
-     id_restart = register_restart_field(cana_restart,fname,name,cana_tr(:,tr), &
-                                         longname=trim(longname), units=trim(units))
+     call add_tile_data(restart,name,cana_tr_ptr,tr,'canopy air '//trim(longname),trim(units))
   enddo
-
-  ! save performs io domain aggregation through mpp_io as with regular domain data
-  call save_restart(cana_restart)
-
-  deallocate(idx,cana_T,cana_tr)
-
-  call free_restart_type(cana_restart)
+  call save_land_restart(restart)
+  call free_land_restart(restart)
   call nullify_domain()
-end subroutine save_cana_restart_new
+end subroutine save_cana_restart
 
 
 ! ============================================================================

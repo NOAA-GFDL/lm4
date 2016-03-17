@@ -73,6 +73,7 @@ module river_mod
   use field_manager_mod, only: fm_field_name_len, fm_string_len, &
      fm_type_name_len, fm_path_name_len, fm_dump_list, fm_get_length, &
      fm_get_current_list, fm_loop_over_list, fm_change_list
+  use land_io_mod,         only : new_land_io
   use fm_util_mod, only : fm_util_get_real, fm_util_get_logical, fm_util_get_string
   use tracer_manager_mod, only : NO_TRACER
   use table_printer_mod
@@ -163,7 +164,6 @@ character(len=*), parameter :: tagname = '$Name$'
 
 !--- clock id variable
   integer :: slowclock, bndslowclock, physicsclock, diagclock, riverclock
-  logical :: remember_new_land_io
 
 !--- tracer-related constants, types, and data
 character(*), parameter :: trtable='/land_mod/river_tracer' ! name of the field manager tracer table
@@ -191,7 +191,7 @@ contains
 
 !#####################################################################
   subroutine river_init( land_lon, land_lat, time, dt_fast, land_domain, &
-                         land_frac, id_lon, id_lat, id_area_land, new_land_io, river_land_mask )
+                         land_frac, id_lon, id_lat, id_area_land, river_land_mask )
     real,            intent(in) :: land_lon(:,:)     ! geographical longitude of cell center
     real,            intent(in) :: land_lat(:,:)     ! geographical latitude of cell center
     type(time_type), intent(in) :: time              ! current time
@@ -200,7 +200,6 @@ contains
     real,            intent(in) :: land_frac(:,:)    ! land area fraction from land model
     integer,         intent(in) :: id_lon, id_lat    ! IDs of diagnostic axes
     integer,         intent(in) :: id_area_land      ! IDs of the and area diag field
-    logical,         intent(in) :: new_land_io
     logical,         intent(out):: river_land_mask(:,:) ! land mask seen by rivers
 
     integer              :: unit, io_status, ierr, id_restart
@@ -314,8 +313,6 @@ contains
     call river_diag_init (id_lon, id_lat, id_area_land)
 
 !--- read restart file
-    remember_new_land_io = new_land_io
-
     call get_instance_filename('INPUT/river.res.nc', filename)
     call get_mosaic_tile_file(trim(filename), filename, .false., domain)
     if(file_exist(trim(filename),domain) ) then
@@ -670,7 +667,7 @@ end subroutine print_river_tracer_data
     lake_conn   = 0
     lake_backwater = 0
     lake_backwater_1 = 0
-     ce = first_elmt(land_tile_map, is=isc, js=jsc)
+    ce = first_elmt(land_tile_map, is=isc, js=jsc)
     te = tail_elmt (land_tile_map)
     do while(ce /= te)
        call get_elmt_indices(ce,i,j,k)
@@ -904,7 +901,7 @@ end subroutine print_river_tracer_data
     type(restart_file_type) :: river_restart
 
     if(.not.do_rivers) return ! do nothing further if rivers are turned off
-    if(remember_new_land_io) then
+    if(new_land_io) then
        id_restart = register_restart_field(river_restart,'river.res.nc','storage', River%storage, domain)
        id_restart = register_restart_field(river_restart,'river.res.nc','discharge2ocean', discharge2ocean_next, domain)
        do tr = 1, num_species

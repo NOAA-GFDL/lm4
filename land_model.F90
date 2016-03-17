@@ -37,24 +37,23 @@ use land_tracers_mod, only : land_tracers_init, land_tracers_end, ntcana, isphum
 use land_tracer_driver_mod, only: land_tracer_driver_init, land_tracer_driver_end, &
      update_cana_tracers
 use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_temp, &
-     glac_radiation, glac_diffusion, glac_step_1, glac_step_2, save_glac_restart, &
-     save_glac_restart_new
+     glac_radiation, glac_diffusion, glac_step_1, glac_step_2, save_glac_restart
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
-     lake_radiation, lake_diffusion, lake_step_1, lake_step_2, save_lake_restart, save_lake_restart_new
+     lake_radiation, lake_diffusion, lake_step_1, lake_step_2, save_lake_restart
 use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
      soil_radiation, soil_diffusion, soil_step_1, soil_step_2, soil_step_3, &
-     save_soil_restart, save_soil_restart_new
+     save_soil_restart
 use soil_carbon_mod, only : read_soil_carbon_namelist, n_c_types
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
      snow_radiation, snow_diffusion, snow_get_depth_area, snow_step_1, snow_step_2, &
-     save_snow_restart, save_snow_restart_new
+     save_snow_restart
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, vegn_get_cover, &
      vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
-     update_vegn_slow, save_vegn_restart, save_vegn_restart_new
+     update_vegn_slow, save_vegn_restart
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, cana_state,&
      cana_step_1, cana_step_2, cana_radiation, cana_roughness, &
-     save_cana_restart, save_cana_restart_new
+     save_cana_restart
 use river_mod, only : river_init, river_end, update_river, river_stock_pe, &
      save_river_restart, river_tracers_init, num_river_tracers, river_tracer_index
 use topo_rough_mod, only : topo_rough_init, topo_rough_end, update_topo_rough
@@ -70,7 +69,7 @@ use snow_tile_mod, only : snow_tile_stock_pe, snow_tile_heat
 use land_numerics_mod, only : ludcmp, lubksb, &
      horiz_remap_type, horiz_remap_new, horiz_remap, horiz_remap_del, &
      horiz_remap_print
-use land_io_mod, only : read_land_io_namelist, input_buf_size
+use land_io_mod, only : read_land_io_namelist, input_buf_size, new_land_io
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
      land_tile_enum_type, new_land_tile, insert, nitems, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
@@ -80,10 +79,10 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
 use land_data_mod, only : land_data_type, atmos_land_boundary_type, &
      land_state_type, land_data_init, land_data_end, lnd, log_version
 use nf_utils_mod,  only : nfu_inq_var, nfu_inq_dim, nfu_get_var
-use land_tile_io_mod, only : print_netcdf_error, create_tile_out_file, &
-     read_tile_data_r0d_fptr, write_tile_data_r0d_fptr, &
-     write_tile_data_i0d_fptr, get_input_restart_name, &
-     gather_tile_data, assemble_tiles
+use land_tile_io_mod, only: land_restart_type, &
+     init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
+     add_tile_data, add_int_tile_data, get_tile_data, &
+     field_exists, print_netcdf_error
 use land_tile_diag_mod, only : tile_diag_init, tile_diag_end, &
      set_default_diag_filter, get_area_id, &
      register_tiled_diag_field, register_tiled_area_fields, &
@@ -101,7 +100,6 @@ use land_transitions_mod, only : &
 use stock_constants_mod, only: ISTOCK_WATER, ISTOCK_HEAT, ISTOCK_SALT
 use hillslope_mod, only: retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
      read_hlsp_namelist, hlsp_init, hlsp_config_check
-use hillslope_mod, only: save_hlsp_restart_new
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
 
 use vegn_data_mod, only : LU_CROP, LU_PAST, LU_NTRL, LU_SCND, &
@@ -152,12 +150,11 @@ real    :: tau_snow_T_adj = -1.0 ! time scale of snow temperature adjustment
               ! for the snow-free surface (s); negative means no adjustment
 logical :: prohibit_negative_canopy_water = .FALSE. ! if true, then in case of negative canopy
               ! water the evaporation is fixed and the equations are re-solved.
-              ! Default retrievs old behavior.
+              ! Default retrieves old behavior.
 character(16) :: nearest_point_search = 'global' ! specifies where to look for
               ! nearest points for missing data, "global" or "face"
 logical :: print_remapping = .FALSE. ! if true, full land cover remapping
               ! information is printed on the cold start
-logical :: new_land_io=.true.
 integer :: layout(2) = (/0,0/)
 integer :: io_layout(2) = (/0,0/)
   ! mask_table contains information for masking domain ( n_mask, layout and mask_list).
@@ -189,7 +186,7 @@ real    :: coast_rough_heat = 1.35e-5 ! prescribed coastal roughness for heat an
 real    :: max_coast_frac   = 1.0     ! threshold defining which point is coastal
 logical :: use_coast_topo_rough = .true. ! if false, the topographic roughness scaling
                                       ! is not used over coastal points
-real    :: precip_warning_tol = -1.0e-18 ! if liquid or solid precip (input 
+real    :: precip_warning_tol = -1.0e-18 ! if liquid or solid precip (input
            ! from atmos) is below this value, a warning is printed
 
 namelist /land_model_nml/ use_old_conservation_equations, &
@@ -204,7 +201,7 @@ namelist /land_model_nml/ use_old_conservation_equations, &
                           nearest_point_search, print_remapping, &
                           use_coast_rough, coast_rough_mom, coast_rough_heat, &
                           max_coast_frac, use_coast_topo_rough, &
-                          layout, io_layout, new_land_io, mask_table, &
+                          layout, io_layout, mask_table, &
                           precip_warning_tol
 ! ---- end of namelist -------------------------------------------------------
 
@@ -323,15 +320,14 @@ subroutine land_model_init &
   integer :: unit, ierr, io
   integer :: id_lon, id_lat, id_band, id_zfull ! IDs of land diagnostic axes
   logical :: used                        ! return value of send_data diagnostics routine
-  integer :: i,j,k,siz(4)
-  integer, allocatable :: idx(:) ! I/O domain vector of compressed indices
-  real, allocatable :: r0d(:) ! I/O domain vector of real data
+  integer :: i,j,k
   type(land_tile_type), pointer :: tile
   type(land_tile_enum_type) :: ce, te
-  character(len=256) :: restart_file_name
-  character(len=17) :: restart_base_name='INPUT/land.res.nc'
-  logical :: restart_exists, found
   integer :: ico2_atm ! index of CO2 tracer in the atmos, or NO_TRACER
+
+  type(land_restart_type) :: restart
+  character(*), parameter :: restart_file_name='INPUT/land.res.nc'
+  logical :: restart_exists
 
   ! IDs of local clocks
   integer :: landInitClock
@@ -401,58 +397,14 @@ subroutine land_model_init &
   call init_tile_map()
 
   ! [5] initialize tiling
-  call get_input_restart_name(restart_base_name,restart_exists,restart_file_name)
+  call open_land_restart(restart,restart_file_name,restart_exists)
   if(restart_exists) then
-     call error_mesg('land_model_init',&
-          'reading NetCDF restart "'//trim(restart_file_name)//'"',&
-          NOTE)
-
-     if(new_land_io)then
-
-       restart_file_name = restart_base_name
-       call error_mesg('land_model_init', 'Using new land restart read', NOTE)
-
-       call get_field_size(restart_file_name,'tile_index',siz, field_found=found, domain=lnd%domain)
-       if ( .not. found ) call error_mesg(trim(module_name), &
-                      'tile_index axis not found in '//trim(restart_file_name), FATAL)
-       allocate(idx(siz(1)))
-       allocate(r0d(siz(1)))
-       call read_compressed(restart_file_name,'tile_index',idx, domain=lnd%domain, timelevel=1)
-
-       ! read map of tiles -- retrieve information from
-       call land_cover_warm_start_new(restart_file_name,lnd,idx)
-
-       ! initialize land model data
-       if(field_exist(restart_file_name,'lwup',domain=lnd%domain)) then
-            call read_compressed(restart_file_name,'lwup',r0d, domain=lnd%domain, timelevel=1)
-            call assemble_tiles(land_lwup_ptr,idx,r0d)
-       endif
-
-       if(field_exist(restart_file_name,'e_res_1',domain=lnd%domain)) then
-            call read_compressed(restart_file_name,'e_res_1',r0d, domain=lnd%domain, timelevel=1)
-            call assemble_tiles(land_e_res_1_ptr,idx,r0d)
-       endif
-
-       if(field_exist(restart_file_name,'e_res_2',domain=lnd%domain)) then
-            call read_compressed(restart_file_name,'e_res_2',r0d, domain=lnd%domain, timelevel=1)
-            call assemble_tiles(land_e_res_2_ptr,idx,r0d)
-       endif
-
-       deallocate(idx,r0d)
-     else
-       ! old land restarts
-       ! read map of tiles -- retrieve information from
-       call land_cover_warm_start(restart_file_name,lnd)
-       ! initialize land model data
-       __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,ncid))
-       if (nf_inq_varid(ncid,'lwup',varid)==NF_NOERR) &
-            call read_tile_data_r0d_fptr(ncid,'lwup',land_lwup_ptr)
-       if (nf_inq_varid(ncid,'e_res_1',varid)==NF_NOERR) &
-            call read_tile_data_r0d_fptr(ncid,'e_res_1',land_e_res_1_ptr)
-       if (nf_inq_varid(ncid,'e_res_2',varid)==NF_NOERR) &
-            call read_tile_data_r0d_fptr(ncid,'e_res_2',land_e_res_2_ptr)
-       __NF_ASRT__(nf_close(ncid))
-     endif
+     ! read map of tiles -- retrieve information from
+     call land_cover_warm_start(restart)
+     ! initialize land model data
+     if (field_exists(restart, 'lwup'   )) call get_tile_data(restart,'lwup',   land_lwup_ptr)
+     if (field_exists(restart, 'e_res_1')) call get_tile_data(restart,'e_res_1',land_e_res_1_ptr)
+     if (field_exists(restart, 'e_res_2')) call get_tile_data(restart,'e_res_2',land_e_res_2_ptr)
   else
      ! initialize map of tiles -- construct it by combining tiles
      ! from component models
@@ -461,6 +413,7 @@ subroutine land_model_init &
           NOTE)
      call land_cover_cold_start(lnd)
   endif
+  call free_land_restart(restart)
 
   ! [6] initialize land model diagnostics -- must be before *_data_init so that
   ! *_data_init can write static fields if necessary
@@ -476,14 +429,14 @@ subroutine land_model_init &
   if ( id_geolat_t > 0 ) used = send_data ( id_geolat_t, lnd%lat*180.0/PI, lnd%time )
 
   ! [7] initialize individual sub-models
-  call hlsp_init ( id_lon, id_lat, new_land_io ) ! Must be called before soil_init
-  call soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
+  call hlsp_init ( id_lon, id_lat ) ! Must be called before soil_init
+  call soil_init ( id_lon, id_lat, id_band, id_zfull )
   call hlsp_hydro_init (id_lon, id_lat, id_zfull) ! Must be called after soil_init
-  call vegn_init ( id_lon, id_lat, id_band, new_land_io )
-  call lake_init ( id_lon, id_lat, new_land_io )
-  call glac_init ( id_lon, id_lat, new_land_io )
-  call snow_init ( id_lon, id_lat, new_land_io )
-  call cana_init ( id_lon, id_lat, new_land_io )
+  call vegn_init ( id_lon, id_lat, id_band )
+  call lake_init ( id_lon, id_lat )
+  call glac_init ( id_lon, id_lat )
+  call snow_init ( id_lon, id_lat )
+  call cana_init ( id_lon, id_lat )
   call topo_rough_init( lnd%time, lnd%lonb, lnd%latb, &
        lnd%domain, id_lon, id_lat)
   allocate (river_land_mask(lnd%is:lnd%ie,lnd%js:lnd%je))
@@ -493,7 +446,6 @@ subroutine land_model_init &
                    lnd%time, lnd%dt_fast, lnd%domain,     &
                    lnd%landfrac, &
                    id_lon, id_lat, get_area_id('land'),   &
-                   new_land_io,                           &
                    river_land_mask                        )
   missing_rivers = lnd%landfrac.gt.0. .and. .not.river_land_mask
   no_riv = 0.
@@ -619,26 +571,15 @@ end subroutine land_model_end
 
 
 ! ============================================================================
-! write land model restarts
 subroutine land_model_restart(timestamp)
   character(*), intent(in), optional :: timestamp ! timestamp to add to the file name
 
-  if(new_land_io) then
-     call land_model_restart_new(timestamp)
-  else
-     call land_model_restart_orig(timestamp)
-  endif
-end subroutine land_model_restart
-
-! ============================================================================
-subroutine land_model_restart_orig(timestamp)
-  character(*), intent(in), optional :: timestamp ! timestamp to add to the file name
-
   ! ---- local vars
+  character(267) :: filename
+  type(land_restart_type) :: restart ! restart file i/o object
   integer :: tile_dim_length ! length of tile dimension in output files
                              ! global max of number of tiles per gridcell
   integer :: i,j,k
-  integer :: unit ! netcdf id of the restart file
   character(256) :: timestamp_
 
   ! [1] count all land tiles and determine the length of tile dimension
@@ -665,26 +606,30 @@ subroutine land_model_restart_orig(timestamp)
   if (present(timestamp)) then
      if(trim(timestamp)/='') timestamp_=trim(timestamp)//'.'
   endif
-  call create_tile_out_file(unit,'RESTART/'//trim(timestamp_)//'land.res.nc', &
-       lnd%coord_glon, lnd%coord_glat, land_tile_exists, tile_dim_length)
+  call set_domain(lnd%domain)
+  ! Note that filename is updated for tile & rank numbers during file creation
+  filename = trim(timestamp)//'land.res.nc'
+  call init_land_restart(restart, filename, land_tile_exists, tile_dim_length)
 
   ! [4] write data fields
   ! write fractions and tile tags
-  call write_tile_data_r0d_fptr(unit,'frac',land_frac_ptr,'fractional area of tile')
-  call write_tile_data_i0d_fptr(unit,'glac',glac_tag_ptr,'tag of glacier tiles')
-  call write_tile_data_i0d_fptr(unit,'lake',lake_tag_ptr,'tag of lake tiles')
-  call write_tile_data_i0d_fptr(unit,'soil',soil_tag_ptr,'tag of soil tiles')
-  call write_tile_data_i0d_fptr(unit,'vegn',vegn_tag_ptr,'tag of vegetation tiles')
+  call add_tile_data(restart,'frac',land_frac_ptr,'fractional area of tile')
+  call add_int_tile_data(restart,'glac',glac_tag_ptr,'tag of glacier tiles')
+  call add_int_tile_data(restart,'lake',lake_tag_ptr,'tag of lake tiles')
+  call add_int_tile_data(restart,'soil',soil_tag_ptr,'tag of soil tiles')
+  call add_int_tile_data(restart,'vegn',vegn_tag_ptr,'tag of vegetation tiles')
   ! write the upward long-wave flux
-  call write_tile_data_r0d_fptr(unit,'lwup',land_lwup_ptr,'upward long-wave flux')
+  call add_tile_data(restart,'lwup',land_lwup_ptr,'upward long-wave flux')
   ! write energy residuals
-  call write_tile_data_r0d_fptr(unit,'e_res_1',land_e_res_1_ptr,&
+  call add_tile_data(restart,'e_res_1',land_e_res_1_ptr,&
        'energy residual in canopy air energy balance equation', 'W/m2')
-  call write_tile_data_r0d_fptr(unit,'e_res_2',land_e_res_2_ptr,&
+  call add_tile_data(restart,'e_res_2',land_e_res_2_ptr,&
        'energy residual in canopy energy balance equation', 'W/m2')
 
   ! [5] close file
-  __NF_ASRT__(nf_close(unit))
+  call save_land_restart(restart)
+  call free_land_restart(restart)
+  call nullify_domain()
 
   ! [6] save component models' restarts
   call save_land_transitions_restart(timestamp_)
@@ -697,129 +642,7 @@ subroutine land_model_restart_orig(timestamp)
   call save_cana_restart(tile_dim_length,timestamp_)
   call save_river_restart(timestamp_)
 
-end subroutine land_model_restart_orig
-
-! ============================================================================
-subroutine land_model_restart_new(timestamp)
-  character(*), intent(in), optional :: timestamp ! timestamp to add to the file name
-
-  ! ---- local vars
-  integer :: i,j,k,isize,id_restart
-  integer :: tile_dim_length ! length of tile dimension in output files
-                             ! will end up as global max of number of
-                             ! tiles per gridcell
-  character(256) :: timestamp_
-  character(267) :: fname
-  type(restart_file_type) :: lnd_restart
-  integer, allocatable :: idx(:)
-  integer, allocatable :: glac_data(:)
-  integer, allocatable :: lake_data(:)
-  integer, allocatable :: soil_data(:)
-  integer, allocatable :: vegn_data(:)
-  real, allocatable :: frac_data(:)
-  real, allocatable :: lwup_data(:)
-  real, allocatable :: e_res_1_data(:)
-  real, allocatable :: e_res_2_data(:)
-
-
-  call error_mesg('land_model_restart', 'Using new land restart write', NOTE)
-
-  ! [1] count all land tiles and determine the length of tile dimension
-  ! sufficient for the current domain
-    tile_dim_length = 0
-  do j = lnd%js, lnd%je
-  do i = lnd%is, lnd%ie
-     k = nitems(land_tile_map(i,j))
-     tile_dim_length = max(tile_dim_length,k)
-  enddo
-  enddo
-
-  ! [2] calculate the tile dimension length by taking the max across all domains
-  call mpp_max(tile_dim_length)
-
-  ! [3] create tile output file
-  timestamp_=''
-  if (present(timestamp)) then
-     if(trim(timestamp)/='') timestamp_=trim(timestamp)//'.'
-  endif
-  fname = trim(timestamp_)//'land.res.nc'
-
-! must set domain so that io_domain is available
-  call set_domain(lnd%domain)
-! Note that fname is updated for tile & rank numbers during file creation
-  call create_tile_out_file(lnd_restart,idx,fname,land_tile_exists,tile_dim_length)
-  isize = size(idx)
-
-  allocate(         &
-  glac_data(isize), &
-  lake_data(isize), &
-  soil_data(isize), &
-  vegn_data(isize), &
-  frac_data(isize), &
-  lwup_data(isize), &
-  e_res_1_data(isize), &
-  e_res_2_data(isize))
-
-  ! [4] write data fields
-  ! write meta data
-
-  ! Output data provides signature
-  call gather_tile_data(land_frac_ptr,idx,frac_data)
-  id_restart = register_restart_field(lnd_restart,fname,'frac',frac_data, &
-       longname='fractional area of tile')
-  call gather_tile_data(glac_tag_ptr,idx,glac_data)
-  id_restart = register_restart_field(lnd_restart,fname,'glac',glac_data, &
-       longname='tag of glacier tiles', data_default=MPP_FILL_INT)
-  call gather_tile_data(lake_tag_ptr,idx,lake_data)
-  id_restart = register_restart_field(lnd_restart,fname,'lake',lake_data, &
-       longname='tag of lake tiles', data_default=MPP_FILL_INT )
-  call gather_tile_data(soil_tag_ptr,idx,soil_data)
-  id_restart = register_restart_field(lnd_restart,fname,'soil',soil_data, &
-       longname='tag of soil tiles', data_default=MPP_FILL_INT)
-  call gather_tile_data(vegn_tag_ptr,idx,vegn_data)
-  id_restart = register_restart_field(lnd_restart,fname,'vegn',vegn_data, &
-       longname='tag of vegetation tiles', data_default=MPP_FILL_INT)
-
-  ! write the upward long-wave flux
-  call gather_tile_data(land_lwup_ptr,idx,lwup_data)
-  id_restart = register_restart_field(lnd_restart,fname,'lwup',lwup_data, &
-                longname='upward long-wave flux', data_default=MPP_FILL_DOUBLE )
-  ! write energy residuals
-  call gather_tile_data(land_e_res_1_ptr,idx,e_res_1_data)
-  id_restart = register_restart_field(lnd_restart,fname,'e_res_1',e_res_1_data, &
-       longname='energy residual in canopy air energy balance equation', units='W/m2', &
-       data_default=MPP_FILL_DOUBLE)
-  call gather_tile_data(land_e_res_2_ptr,idx,e_res_2_data)
-  id_restart = register_restart_field(lnd_restart,fname,'e_res_2',e_res_2_data, &
-       longname='energy residual in canopy energy balance equation', units='W/m2', &
-       data_default=MPP_FILL_DOUBLE)
-
-  ! save performs io domain aggregation through mpp_io as with regular domain data
-  call save_restart(lnd_restart)
-
-  deallocate(idx, &
-             glac_data, &
-             lake_data, &
-             soil_data, &
-             vegn_data, &
-             frac_data, &
-             lwup_data, &
-             e_res_1_data, &
-             e_res_2_data)
-  call free_restart_type(lnd_restart)
-  call nullify_domain()
-
-  ! [6] save component models' restarts
-  call save_land_transitions_restart(timestamp_)
-  call save_glac_restart_new(tile_dim_length,timestamp_)
-  call save_lake_restart_new(tile_dim_length,timestamp_)
-  call save_soil_restart_new(tile_dim_length,timestamp_)
-  call save_hlsp_restart_new(tile_dim_length,timestamp_)
-  call save_snow_restart_new(tile_dim_length,timestamp_)
-  call save_vegn_restart_new(tile_dim_length,timestamp_)
-  call save_cana_restart_new(tile_dim_length,timestamp_)
-  call save_river_restart(timestamp_)
-end subroutine land_model_restart_new
+end subroutine land_model_restart
 
 ! ============================================================================
 subroutine land_cover_cold_start(lnd)
@@ -1029,7 +852,7 @@ subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,soiltags0,&
      __DEBUG1__(soil0)
      __DEBUG1__(vegn0)
      __DEBUG1__(factor)
-     write(*,*)'#### land_cover_cold_start_0d renormlaized fractions ####'
+     write(*,*)'#### land_cover_cold_start_0d renormalized fractions ####'
      __DEBUG1__(glac)
      __DEBUG1__(lake)
      __DEBUG1__(soil)
@@ -1098,35 +921,39 @@ subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,soiltags0,&
 end subroutine land_cover_cold_start_0d
 
 ! ============================================================================
+subroutine land_cover_warm_start(restart)
+  type(land_restart_type), intent(in) :: restart
+  if (new_land_io) then
+     call land_cover_warm_start_new(restart)
+  else
+     call land_cover_warm_start_orig(restart)
+  endif
+end subroutine land_cover_warm_start
+
+! ============================================================================
 ! reads the land restart file and restores the tiling structure from this file
-subroutine land_cover_warm_start_new ( restart_file_name, lnd, idx )
-  character(len=*), intent(in) :: restart_file_name
-  type(land_state_type), intent(inout) :: lnd
-  integer,               intent(in)    :: idx(:) ! compressed tile index
+subroutine land_cover_warm_start_new (restart)
+  type(land_restart_type), intent(in) :: restart
 
   ! ---- local vars
   integer, allocatable :: glac(:), lake(:), soil(:), vegn(:) ! tile tags
   real,    allocatable :: frac(:) ! fraction of land covered by tile
   integer :: ntiles    ! total number of land tiles in the input file
-  integer :: bufsize   ! size of the input buffer
-  integer :: dimids(1) ! id of tile dimension
-  character(NF_MAX_NAME) :: tile_dim_name ! name of the tile dimension and respective variable
   integer :: i,j,k,it
-  type(land_tile_type), pointer :: tile;
-  integer :: start, count ! slab for reading
+  type(land_tile_type), pointer :: tile
 
-  ntiles = size(idx)
-  allocate(glac(ntiles), lake(ntiles), soil(ntiles), vegn(ntiles), frac(ntiles)  )
+  ntiles = size(restart%tidx)
+  allocate(glac(ntiles), lake(ntiles), soil(ntiles), vegn(ntiles), frac(ntiles))
 
-  call read_compressed(restart_file_name,'frac',frac,domain=lnd%domain, timelevel=1)
-  call read_compressed(restart_file_name,'glac',glac,domain=lnd%domain, timelevel=1)
-  call read_compressed(restart_file_name,'lake',lake,domain=lnd%domain, timelevel=1)
-  call read_compressed(restart_file_name,'soil',soil,domain=lnd%domain, timelevel=1)
-  call read_compressed(restart_file_name,'vegn',vegn,domain=lnd%domain, timelevel=1)
+  call read_compressed(restart%basename,'frac',frac,domain=lnd%domain, timelevel=1)
+  call read_compressed(restart%basename,'glac',glac,domain=lnd%domain, timelevel=1)
+  call read_compressed(restart%basename,'lake',lake,domain=lnd%domain, timelevel=1)
+  call read_compressed(restart%basename,'soil',soil,domain=lnd%domain, timelevel=1)
+  call read_compressed(restart%basename,'vegn',vegn,domain=lnd%domain, timelevel=1)
 
   ! create tiles
   do it = 1,ntiles
-     k = idx(it)
+     k = restart%tidx(it)
      if (k<0) cycle ! skip negative indices
      i = modulo(k,lnd%nlon)+1; k = k/lnd%nlon
      j = modulo(k,lnd%nlat)+1; k = k/lnd%nlat
@@ -1144,9 +971,8 @@ end subroutine land_cover_warm_start_new
 
 ! ============================================================================
 ! reads the land restart file and restores the tiling structure from this file
-subroutine land_cover_warm_start ( restart_file_name, lnd )
-  character(len=*), intent(in) :: restart_file_name
-  type(land_state_type), intent(inout) :: lnd
+subroutine land_cover_warm_start_orig (restart)
+  type(land_restart_type), intent(in) :: restart
 
   ! ---- local vars
   integer, allocatable :: idx(:) ! compressed tile index
@@ -1163,7 +989,7 @@ subroutine land_cover_warm_start ( restart_file_name, lnd )
   ! netcdf variable IDs
   integer :: id_idx, id_frac, id_glac, id_lake, id_soil, id_vegn
 
-  __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,ncid))
+  __NF_ASRT__(nf_open(restart%filename,NF_NOWRITE,ncid))
   ! allocate the input data
   __NF_ASRT__(nfu_inq_var(ncid,'frac',id=id_frac,varsize=ntiles,dimids=dimids))
    ! allocate input buffers for compression index and the variable
@@ -1175,7 +1001,7 @@ subroutine land_cover_warm_start ( restart_file_name, lnd )
   ! hold the compressed indices
   __NF_ASRT__(nfu_inq_dim(ncid,dimids(1),name=tile_dim_name))
   __NF_ASRT__(nfu_inq_var(ncid,tile_dim_name,id=id_idx))
-  ! get the IDs of the varables to read
+  ! get the IDs of the variables to read
   __NF_ASRT__(nfu_inq_var(ncid,'glac',id=id_glac))
   __NF_ASRT__(nfu_inq_var(ncid,'lake',id=id_lake))
   __NF_ASRT__(nfu_inq_var(ncid,'soil',id=id_soil))
@@ -1247,7 +1073,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   integer :: i_species ! river tracer iterator
   integer :: i1        ! index used to iterate over grid cells efficiently
   integer :: is,ie,js,je ! horizontal bounds of the override buffer
-  type(land_tile_enum_type) :: ce, te ! tile enumarator
+  type(land_tile_enum_type) :: ce, te ! tile enumerator
   type(land_tile_type), pointer :: tile ! pointer to current tile
 
   ! variables for data override
@@ -1308,7 +1134,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
            runoff(i,j), runoff_c(i,j,:) &
         )
         ! some of the diagnostic variables are sent from here, purely for coding
-        ! convenince: the compute domain-level 2d and 3d vars are generaly not
+        ! convenience: the compute domain-level 2d and 3d vars are generally not
         ! available inside update_land_model_fast_0d, so the diagnostics for those
         ! was left here.
         call send_tile_data(id_area, tile%frac*lnd%area(i,j),        tile%diag)
@@ -1385,7 +1211,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
    end do
 #endif
 
-  ce = first_elmt(land_tile_map,                  &
+  ce = first_elmt(land_tile_map,             &
               is=lbound(cplr2land%t_flux,1), &
               js=lbound(cplr2land%t_flux,2)  )
   te = tail_elmt(land_tile_map)
@@ -1458,10 +1284,10 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   ! send the accumulated diagnostics to the output
   call dump_tile_diag_fields(land_tile_map, lnd%time)
 
-  if (id_dis_liq > 0)  used = send_data (id_dis_liq,  discharge_l,        lnd%time)
+  if (id_dis_liq > 0)  used = send_data (id_dis_liq,  discharge_l, lnd%time)
   if (id_dis_ice > 0)  used = send_data (id_dis_ice,  discharge_c(:,:,i_river_ice), lnd%time)
   if (id_dis_heat > 0) used = send_data (id_dis_heat, discharge_c(:,:,i_river_heat), lnd%time)
-  if (id_dis_sink > 0) used = send_data (id_dis_sink, discharge_sink,     lnd%time)
+  if (id_dis_sink > 0) used = send_data (id_dis_sink, discharge_sink, lnd%time)
   if (id_dis_DOC > 0)  used = send_data (id_dis_DOC,  discharge_c(:,:,i_river_DOC), lnd%time)
 
   ! send CMOR cell fraction fields
@@ -1496,7 +1322,7 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   real, intent(in) :: &
        precip_l, precip_s, & ! liquid and solid precipitation, kg/(m2 s)
        atmos_T, &        ! incoming precipitation temperature (despite its name), deg K
-       Ha0,   DHaDTc, &  ! sensible heat flux from the canopy air to the atmosphere
+       Ha0, DHaDTc, &    ! sensible heat flux from the canopy air to the atmosphere
        tr_flux(:), dfdtr(:), &  ! tracer flux from canopy air to the atmosphere
        ISa_dn_dir(NBANDS), & ! downward direct sw radiation at the top of the canopy
        ISa_dn_dif(NBANDS), & ! downward diffuse sw radiation at the top of the canopy
@@ -3053,7 +2879,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
   ! set up an array of axes, for convenience
   axes = (/id_lon, id_lat/)
 
-  ! register auxilary coordinate variables
+  ! register auxiliary coordinate variables
 
   id_geolon_t = register_static_field ( module_name, 'geolon_t', axes, &
        'longitude of grid cell centers', 'degrees_E', missing_value = -1.0e+20 )
@@ -3072,7 +2898,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
   ! register areas and fractions for the rest of the diagnostic fields
   call register_tiled_area_fields(module_name, axes, time, id_area, id_frac)
 
-  ! set the deafult filter (for area and subsampling) for consequent calls to
+  ! set the default filter (for area and subsampling) for consequent calls to
   ! register_tiled_diag_field
   call set_default_diag_filter('land')
 
@@ -3398,7 +3224,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
              area=id_cellarea)
   call diag_field_add_attribute(id_pastureFrac,'cell_methods','area: mean')
   id_residualFrac = register_static_field ( cmor_name, 'residualFrac', axes, &
-             'Fraction of Grid Cell that is Land but Neither Vegetation-Coverd nor Bare Soil','%', &
+             'Fraction of Grid Cell that is Land but Neither Vegetation-Covered nor Bare Soil','%', &
              standard_name='fraction_of_land_which_is_non_vegetation_and_non_bare_soil', &
              area=id_cellarea)
   call diag_field_add_attribute(id_cropFrac,'cell_methods','area: mean')
@@ -3432,7 +3258,7 @@ subroutine send_cellfrac_data(id, f)
   type(land_tile_enum_type) :: ce, te
   real :: frac(lnd%is:lnd%ie,lnd%js:lnd%je)
 
-  if (.not.id>0) return ! do nothing if the firld was not registered
+  if (.not.id>0) return ! do nothing if the field was not registered
 
   frac(:,:) = 0.0
   ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js)
@@ -3586,7 +3412,7 @@ subroutine realloc_land2cplr ( bnd )
      allocate( bnd%discharge_snow     (lnd%is:lnd%ie,lnd%js:lnd%je) )
      allocate( bnd%discharge_snow_heat(lnd%is:lnd%ie,lnd%js:lnd%je) )
 
-     ! discharge and discaharge_snow must be, in contrast to the rest of the boundary
+     ! discharge and dischargee_snow must be, in contrast to the rest of the boundary
      ! values, filled with zeroes. The reason is because not all of the usable elements
      ! are updated by the land model (only coastal points are).
      bnd%discharge           = 0.0
@@ -3832,7 +3658,8 @@ end subroutine land_data_type_chksum
 ! enumerate all the tiles within the domain, call accessor routine for each of them, and
 ! get or set the value pointed to by the accessor routine.
 #define DEFINE_LAND_ACCESSOR_0D(xtype,x) subroutine land_ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))p=>t%x;end subroutine
+type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))p=>t%x;\
+end subroutine
 
 DEFINE_LAND_ACCESSOR_0D(real,frac)
 DEFINE_LAND_ACCESSOR_0D(real,lwup)
@@ -3849,7 +3676,8 @@ end function land_tile_exists
 
 #define DEFINE_TAG_ACCESSOR(x) subroutine  x ## _tag_ptr(t,p);\
 type(land_tile_type),pointer::t;integer,pointer::p;p=>NULL();if(associated(t))\
-then;if (associated(t%x)) p=>t%x%tag;endif;end subroutine
+then;if (associated(t%x)) p=>t%x%tag;endif;\
+end subroutine
 
 DEFINE_TAG_ACCESSOR(glac)
 DEFINE_TAG_ACCESSOR(lake)
