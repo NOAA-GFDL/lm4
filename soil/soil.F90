@@ -1506,7 +1506,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
         call add_tile_data(restart,'slow_turnover_accumulated', 'zfull', soil_slow_turnover_accumulated_ptr ,'slow soil carbon turnover', 'year-1')
         call add_tile_data(restart,'deadmic_turnover_accumulated', 'zfull', soil_deadmic_turnover_accumulated_ptr ,'dead microbe soil carbon turnover', 'year-1')
         call add_tile_data(restart,'fast_protected_turnover_accumulated', 'zfull', soil_fast_protected_turnover_accumulated_ptr ,'fast protected soil carbon turnover', 'year-1')
-        call add_tile_data(restart,'slow_protected_turnover_accumulated', 'zfull', soil_slow_protected_turnover_accumulated_ptr ,'slow protectedsoil carbon turnover', 'year-1')
+        call add_tile_data(restart,'slow_protected_turnover_accumulated', 'zfull', soil_slow_protected_turnover_accumulated_ptr ,'slow protected soil carbon turnover', 'year-1')
         call add_tile_data(restart,'deadmic_protected_turnover_accumulated', 'zfull', soil_deadmic_protected_turnover_accumulated_ptr ,'dead microbe protected soil carbon turnover', 'year-1')
 
         call add_tile_data(restart,'leaflitter_fast_turnover_accumulated',soil_leaflitter_fast_turnover_accumulated_ptr,'fast leaf litter carbon turnover', 'year-1')
