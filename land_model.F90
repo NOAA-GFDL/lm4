@@ -75,7 +75,7 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
      get_elmt_indices, get_tile_tags, land_tile_carbon, land_tile_heat, &
      get_tile_water, init_tile_map, free_tile_map, max_n_tiles, &
-     tile_exists_func
+     tile_exists_func, loop_over_tiles
 use land_data_mod, only : land_data_type, atmos_land_boundary_type, &
      land_state_type, land_data_init, land_data_end, lnd, log_version
 use nf_utils_mod,  only : nfu_inq_var, nfu_inq_dim, nfu_get_var
@@ -272,7 +272,8 @@ integer :: &
 integer, allocatable :: id_cana_tr(:)
 ! diag IDs of CMOR variables
 integer :: id_sftlf, id_sftgif
-integer :: id_prveg, id_tran, id_evspsblveg, id_evspsblsoi, id_nbr
+integer :: id_prveg, id_tran, id_evspsblveg, id_evspsblsoi, id_nbr, &
+           id_snw, id_lwsnl, id_snm
 integer :: id_cropFrac, id_cropFracC3, id_cropFracC4, id_pastureFrac, id_residualFrac, &
            id_grassFrac, id_grassFracC3, id_grassFracC4, &
            id_treeFrac, id_c3pftFrac, id_c4pftFrac
@@ -1219,11 +1220,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   ce = first_elmt(land_tile_map,             &
               is=lbound(cplr2land%t_flux,1), &
               js=lbound(cplr2land%t_flux,2)  )
-  te = tail_elmt(land_tile_map)
-  do while(ce /= te)
-     call get_elmt_indices(ce,i,j,k)
-     tile => current_tile(ce)
-     ce=next_elmt(ce)
+  do while(loop_over_tiles(ce,tile,i,j,k))
      cana_VMASS = 0. ;                   cana_HEAT = 0.
      vegn_LMASS = 0. ; vegn_FMASS = 0. ; vegn_HEAT = 0.
      snow_LMASS = 0. ; snow_FMASS = 0. ; snow_HEAT = 0.
@@ -1281,7 +1278,11 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      call send_tile_data(id_HSc, cana_HEAT, tile%diag)
      call send_tile_data(id_water, subs_LMASS+subs_FMASS, tile%diag)
      call send_tile_data(id_snow,  snow_LMASS+snow_FMASS, tile%diag)
-     enddo
+
+     ! CMOR variables
+     call send_tile_data(id_snw, snow_FMASS, tile%diag)
+     call send_tile_data(id_lwsnl, snow_LMASS, tile%diag)
+  enddo
 
   ! advance land model time
   lnd%time = lnd%time + lnd%dt_fast
@@ -2216,6 +2217,8 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   endif
   call send_tile_data(id_evspsblveg,  vegn_levap+vegn_fevap,          tile%diag)
   call send_tile_data(id_nbr,    -vegn_fco2*mol_C/mol_co2,            tile%diag)
+  call send_tile_data(id_snm, snow_melt,                              tile%diag)
+
 end subroutine update_land_model_fast_0d
 
 
@@ -3223,6 +3226,16 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
   id_tran  = register_tiled_diag_field ( cmor_name, 'tran', axes, time, &
              'Transpiration', 'kg m-2 s-1', missing_value=-1.0e+20, &
              standard_name='transpiration_flux', fill_missing=.TRUE.)
+  id_snw = register_tiled_diag_field ( cmor_name, 'snw', axes, time, &
+             'Surface Snow Amount','kg m-2', standard_name='surface_snow_amount', &
+             missing_value=-1.0e+20, fill_missing=.TRUE.)
+  id_lwsnl = register_tiled_diag_field ( cmor_name, 'lwsnl', axes, time, &
+             'Liquid Water Content of Snow Layer','kg m-2', &
+             standard_name='liquid_water_content_of_snow_layer', &
+             missing_value=-1.0e+20, fill_missing=.TRUE.)
+  id_snm = register_tiled_diag_field ( cmor_name, 'snm', axes, time, &
+             'Surface Snow Melt','kg m-2 s-1', standard_name='surface_snow_melt_flux', &
+             missing_value=-1.0e+20, fill_missing=.TRUE.)
 
   id_sftlf = register_static_field ( cmor_name, 'sftlf', axes, &
              'Land Area Fraction','%', standard_name='land_area_fraction', &
