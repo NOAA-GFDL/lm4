@@ -55,6 +55,7 @@ public :: get_area_id
 
 ! name of the table used for CMOR-compatible variables
 character(*), public, parameter :: cmor_name='cmor_land'
+real, public, parameter      :: cmor_mrsos_depth=0.1 ! depth of mrsos soil moisture averaging, m
 ! ==== end of public interface ===============================================
 
 

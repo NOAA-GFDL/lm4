@@ -51,7 +51,7 @@ use land_tile_diag_mod, only : diag_buff_type, &
      send_tile_data, send_tile_data_r0d_fptr, send_tile_data_r1d_fptr, &
      send_tile_data_i0d_fptr, &
      add_tiled_diag_field_alias, add_tiled_static_field_alias, &
-     set_default_diag_filter, cmor_name
+     set_default_diag_filter, cmor_name, cmor_mrsos_depth
 use land_data_mod, only : land_state_type, lnd, log_version
 use land_io_mod, only : read_field
 use land_tile_io_mod, only: land_restart_type, &
@@ -272,7 +272,7 @@ integer :: id_fast_soil_C, id_slow_soil_C, id_protected_C, id_fsc, id_ssc,&
     id_surf_DOC_loss, id_total_C_leaching, id_total_DOC_div_loss
 
 ! diag IDs of CMOR variables
-integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrso, id_mrlso, id_mrfso, &
+integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, id_mrfso, &
     id_mrro, id_mrros, id_csoil, id_rh, &
     id_csoilfast, id_csoilmedium, id_csoilslow
 
@@ -280,7 +280,7 @@ integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrso, id_mrlso, id_mrfso, &
 integer :: id_st_diff
 
 integer, allocatable, dimension(:,:,:), private :: soil_tags ! module copy of soil tags for cold start
-
+real, allocatable :: mrsos_weight(:) ! weights for mrsos averaging
 ! ==== end of module variables ===============================================
 
 contains
@@ -848,6 +848,8 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
   ! ---- local vars
   integer :: axes(3)
   integer :: id_zhalf
+  integer :: l ! layer index
+  character(80) :: str ! buffer for forming long names (e.g. see mrsos)
 
   ! define vertical axis and its edges
   id_zhalf = diag_axis_init ( &
@@ -1325,6 +1327,11 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
 #endif
 
   ! CMOR variables
+  ! set up weights for mrsos averaging
+  allocate(mrsos_weight(num_l))
+  do l = 1,num_l
+     mrsos_weight(l) = min(1.0,max(0.0,(cmor_mrsos_depth-zhalf(l))/dz(l)))
+  enddo
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('land')
   id_mrlsl = register_tiled_diag_field ( cmor_name, 'mrlsl', axes,  &
@@ -1336,9 +1343,17 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
   id_mrsll = register_tiled_diag_field ( cmor_name, 'mrsll', axes,  &
        lnd%time, 'Liquid Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
        standard_name='liquid_moisture_content_of_soil_layer', fill_missing=.TRUE.)
+  id_mrsol = register_tiled_diag_field ( cmor_name, 'mrsol', axes,  &
+       lnd%time, 'Total Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
+       standard_name='total_moisture_content_of_soil_layer', fill_missing=.TRUE.)
   id_mrso  = register_tiled_diag_field ( cmor_name, 'mrso', axes(1:2),  &
        lnd%time, 'Total Soil Moisture Content', 'kg m-2', missing_value=-100.0, &
        standard_name='soil_moisture_content', fill_missing=.TRUE.)
+  write(str,'(f10.2)') cmor_mrsos_depth
+  id_mrsos  = register_tiled_diag_field ( cmor_name, 'mrsos', axes(1:2),  &
+       lnd%time, 'Moisture in Upper '//trim(adjustl(str))//' m of Soil Column', &
+       'kg m-2', missing_value=-100.0, standard_name='soil_moisture_content', &
+       fill_missing=.TRUE.)
   id_mrfso = register_tiled_diag_field ( cmor_name, 'mrfso', axes(1:2),  &
        lnd%time, 'Soil Frozen Water Content', 'kg m-2', missing_value=-100.0, &
        standard_name='soil_frozen_water_content', fill_missing=.TRUE.)
@@ -2871,7 +2886,9 @@ end subroutine soil_step_1
   if (id_mrlsl > 0) call send_tile_data(id_mrlsl, soil%wl+soil%ws, diag)
   if (id_mrsfl > 0) call send_tile_data(id_mrsfl, soil%ws, diag)
   if (id_mrsll > 0) call send_tile_data(id_mrsll, soil%wl, diag)
+  if (id_mrsol > 0) call send_tile_data(id_mrsol, soil%wl+soil%ws, diag)
   if (id_mrso > 0)  call send_tile_data(id_mrso,  sum(soil%wl+soil%ws), diag)
+  if (id_mrsos > 0) call send_tile_data(id_mrsos, sum((soil%wl+soil%ws)*mrsos_weight), diag)
   if (id_mrfso > 0) call send_tile_data(id_mrfso, sum(soil%ws), diag)
   if (id_mrlso > 0) call send_tile_data(id_mrlso, sum(soil%wl), diag)
   call send_tile_data(id_mrros, lrunf_ie+lrunf_sn, diag)
