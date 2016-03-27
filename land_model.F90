@@ -272,8 +272,9 @@ integer :: &
 integer, allocatable :: id_cana_tr(:)
 ! diag IDs of CMOR variables
 integer :: id_prveg, id_tran, id_evspsblveg, id_evspsblsoi, id_nbr
-integer :: id_cropFrac, id_pastureFrac, id_residualFrac, &
-           id_treeFrac, id_grassFrac, id_c3pftFrac, id_c4pftFrac
+integer :: id_cropFrac, id_cropFracC3, id_cropFracC4, id_pastureFrac, id_residualFrac, &
+           id_grassFrac, id_grassFracC3, id_grassFracC4, &
+           id_treeFrac, id_c3pftFrac, id_c4pftFrac
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
 ! It is supposed to be double-precision signaling NaN, to trigger a trap when
@@ -1292,10 +1293,14 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
   ! send CMOR cell fraction fields
   call send_cellfrac_data(id_cropFrac,     is_crop)
+  call send_cellfrac_data(id_cropFracC3,   is_crop_C3)
+  call send_cellfrac_data(id_cropFracC4,   is_crop_C4)
   call send_cellfrac_data(id_pastureFrac,  is_pasture)
   call send_cellfrac_data(id_residualFrac, is_residual)
   call send_cellfrac_data(id_treeFrac,     is_tree)
   call send_cellfrac_data(id_grassFrac,    is_ntrlgrass)
+  call send_cellfrac_data(id_grassFracC3,  is_ntrlgrass_C3)
+  call send_cellfrac_data(id_grassFracC4,  is_ntrlgrass_C4)
   call send_cellfrac_data(id_c3pftFrac,    is_C3)
   call send_cellfrac_data(id_c4pftFrac,    is_C4)
 
@@ -3219,6 +3224,14 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
              'Crop Fraction','%', standard_name='crop_fraction', &
              area=id_cellarea)
   call diag_field_add_attribute(id_cropFrac,'cell_methods','area: mean')
+  id_cropFracC3 = register_diag_field ( cmor_name, 'cropFracC3', axes, time, &
+             'C3 Crop Fraction','%', standard_name='crop_fraction_c3', &
+             area=id_cellarea)
+  call diag_field_add_attribute(id_cropFracC3,'cell_methods','area: mean')
+  id_cropFracC4 = register_diag_field ( cmor_name, 'cropFracC4', axes, time, &
+             'C4 Crop Fraction','%', standard_name='crop_fraction_c4', &
+             area=id_cellarea)
+  call diag_field_add_attribute(id_cropFracC4,'cell_methods','area: mean')
   id_pastureFrac = register_diag_field ( cmor_name, 'pastureFrac', axes, time, &
              'Anthropogenic Pasture Fraction','%', standard_name='anthropogenic_pasture_fraction', &
              area=id_cellarea)
@@ -3235,6 +3248,14 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
              'Natural Grass Fraction','%', standard_name='natural_grass_fraction', &
              area=id_cellarea)
   call diag_field_add_attribute(id_grassFrac,'cell_methods','area: mean')
+  id_grassFracC3 = register_diag_field ( cmor_name, 'grassFracC3', axes, time, &
+             'C3 Natural Grass Fraction','%', standard_name='natural_grass_fraction_c3', &
+             area=id_cellarea)
+  call diag_field_add_attribute(id_grassFracC3,'cell_methods','area: mean')
+  id_grassFracC4 = register_diag_field ( cmor_name, 'grassFracC4', axes, time, &
+             'C4 Natural Grass Fraction','%', standard_name='natural_grass_fraction_c4', &
+             area=id_cellarea)
+  call diag_field_add_attribute(id_grassFracC4,'cell_methods','area: mean')
   id_c3pftFrac = register_diag_field ( cmor_name, 'c3PftFrac', axes, time, &
              'Total C3 PFT Cover Fraction','%', standard_name='total_c3_pft_cover_fraction', &
              area=id_cellarea)
@@ -3292,6 +3313,28 @@ function is_crop(tile) result(answer); logical :: answer
 end function is_crop
 
 ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+function is_crop_C3(tile) result(answer); logical :: answer
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+  if (.not.associated(tile)) return
+  if (.not.associated(tile%vegn)) return
+  answer = (tile%vegn%landuse == LU_CROP).and. &
+           (tile%vegn%cohorts(1)%species /= SP_C4GRASS)
+end function is_crop_C3
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+function is_crop_C4(tile) result(answer); logical :: answer
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+  if (.not.associated(tile)) return
+  if (.not.associated(tile%vegn)) return
+  answer = (tile%vegn%landuse == LU_CROP).and. &
+           (tile%vegn%cohorts(1)%species == SP_C4GRASS)
+end function is_crop_C4
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 function is_pasture(tile) result(answer); logical :: answer
   type(land_tile_type), pointer :: tile
 
@@ -3327,6 +3370,32 @@ function is_ntrlgrass(tile) result(answer); logical :: answer
             (tile%vegn%landuse==LU_SCND) &
            )
 end function is_ntrlgrass
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+function is_ntrlgrass_C3(tile) result(answer); logical :: answer
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+  if (.not.associated(tile)) return
+  if (.not.associated(tile%vegn)) return
+  answer = (tile%vegn%cohorts(1)%species == SP_C3GRASS).and.( &
+            (tile%vegn%landuse==LU_NTRL).or. &
+            (tile%vegn%landuse==LU_SCND) &
+           )
+end function is_ntrlgrass_C3
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+function is_ntrlgrass_C4(tile) result(answer); logical :: answer
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+  if (.not.associated(tile)) return
+  if (.not.associated(tile%vegn)) return
+  answer = (tile%vegn%cohorts(1)%species == SP_C4GRASS).and.( &
+            (tile%vegn%landuse==LU_NTRL).or. &
+            (tile%vegn%landuse==LU_SCND) &
+           )
+end function is_ntrlgrass_C4
 
 ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 function is_C4(tile) result(answer); logical :: answer
