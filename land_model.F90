@@ -271,6 +271,7 @@ integer :: &
 ! diagnostic ids for canopy air tracers (moist mass ratio)
 integer, allocatable :: id_cana_tr(:)
 ! diag IDs of CMOR variables
+integer :: id_sftlf, id_sftgif
 integer :: id_prveg, id_tran, id_evspsblveg, id_evspsblsoi, id_nbr
 integer :: id_cropFrac, id_cropFracC3, id_cropFracC4, id_pastureFrac, id_residualFrac, &
            id_grassFrac, id_grassFracC3, id_grassFracC4, &
@@ -428,6 +429,9 @@ subroutine land_model_init &
   if ( id_landfrac > 0 ) used = send_data ( id_landfrac, lnd%landfrac,     lnd%time )
   if ( id_geolon_t > 0 ) used = send_data ( id_geolon_t, lnd%lon*180.0/PI, lnd%time )
   if ( id_geolat_t > 0 ) used = send_data ( id_geolat_t, lnd%lat*180.0/PI, lnd%time )
+  ! CMOR variables
+  if ( id_sftgif > 0 ) call send_cellfrac_data(id_sftgif,is_glacier)
+  if ( id_sftlf > 0 )  used = send_data(id_sftlf,lnd%landfrac*100, lnd%time)
 
   ! [7] initialize individual sub-models
   call hlsp_init ( id_lon, id_lat ) ! Must be called before soil_init
@@ -3220,6 +3224,14 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
              'Transpiration', 'kg m-2 s-1', missing_value=-1.0e+20, &
              standard_name='transpiration_flux', fill_missing=.TRUE.)
 
+  id_sftlf = register_static_field ( cmor_name, 'sftlf', axes, &
+             'Land Area Fraction','%', standard_name='land_area_fraction', &
+             area=id_cellarea)
+  call diag_field_add_attribute(id_sftlf,'cell_methods','area: mean')
+  id_sftgif = register_static_field ( cmor_name, 'sftgif', axes, &
+             'Fraction of Grid Cell Covered with Glacier','%', standard_name='land_ice_area_fraction', &
+             area=id_cellarea)
+  call diag_field_add_attribute(id_sftgif,'cell_methods','area: mean')
   id_cropFrac = register_diag_field ( cmor_name, 'cropFrac', axes, time, &
              'Crop Fraction','%', standard_name='crop_fraction', &
              area=id_cellarea)
@@ -3425,6 +3437,15 @@ function is_residual(tile) result(answer); logical :: answer
   if (.not.associated(tile)) return
   answer = (associated(tile%glac).or.associated(tile%lake))
 end function is_residual
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+function is_glacier(tile) result(answer); logical :: answer
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+  if (.not.associated(tile)) return
+  answer = associated(tile%glac)
+end function is_glacier
 
 ! ============================================================================
 ! allocates boundary data for land domain and current number of tiles
