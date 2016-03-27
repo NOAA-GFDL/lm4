@@ -272,7 +272,7 @@ integer :: id_fast_soil_C, id_slow_soil_C, id_protected_C, id_fsc, id_ssc,&
     id_surf_DOC_loss, id_total_C_leaching, id_total_DOC_div_loss
 
 ! diag IDs of CMOR variables
-integer :: id_mrlsl, id_mrso, id_mrlso, id_mrro, id_mrros, id_csoil, id_rh, &
+integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrso, id_mrlso, id_mrro, id_mrros, id_csoil, id_rh, &
     id_csoilfast, id_csoilmedium, id_csoilslow
 
 ! test tridiagonal solver for advection
@@ -1329,6 +1329,12 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
   id_mrlsl = register_tiled_diag_field ( cmor_name, 'mrlsl', axes,  &
        lnd%time, 'Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
        standard_name='moisture_content_of_soil_layer', fill_missing=.TRUE.)
+  id_mrsfl = register_tiled_diag_field ( cmor_name, 'mrsfl', axes,  &
+       lnd%time, 'Frozen Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
+       standard_name='frozen_moisture_content_of_soil_layer', fill_missing=.TRUE.)
+  id_mrsll = register_tiled_diag_field ( cmor_name, 'mrsll', axes,  &
+       lnd%time, 'Liquid Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
+       standard_name='liquid_moisture_content_of_soil_layer', fill_missing=.TRUE.)
   id_mrso  = register_tiled_diag_field ( cmor_name, 'mrso', axes(1:2),  &
        lnd%time, 'Total Soil Moisture Content', 'kg m-2', missing_value=-100.0, &
        standard_name='soil_moisture_content', fill_missing=.TRUE.)
@@ -2859,6 +2865,8 @@ end subroutine soil_step_1
 
   ! CMOR variables
   if (id_mrlsl > 0) call send_tile_data(id_mrlsl, soil%wl+soil%ws, diag)
+  if (id_mrsfl > 0) call send_tile_data(id_mrsfl, soil%ws, diag)
+  if (id_mrsll > 0) call send_tile_data(id_mrsll, soil%wl, diag)
   if (id_mrso > 0)  call send_tile_data(id_mrso,  sum(soil%wl+soil%ws), diag)
   if (id_mrlso > 0) call send_tile_data(id_mrlso, sum(soil%ws), diag)
   call send_tile_data(id_mrros, lrunf_ie+lrunf_sn, diag)
