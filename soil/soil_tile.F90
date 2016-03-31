@@ -44,7 +44,6 @@ public :: read_soil_data_namelist
 public :: soil_ice_porosity
 public :: soil_ave_ice_porosity
 
-public :: soil_data_radiation
 public :: soil_data_diffusion
 public :: soil_data_thermodynamics
 public :: soil_data_hydraulic_properties
@@ -61,7 +60,7 @@ public :: soil_ave_theta1! calculate average soil moisture, ens based on all wat
 public :: soil_ave_wetness ! calculate average soil wetness
 public :: soil_theta     ! returns array of soil moisture, for all layers
 public :: soil_psi_stress ! return soil-water-stress index
-public :: g_iso, g_vol, g_geo, g_RT
+public :: g_RT
 public :: num_storage_pts
 public :: gw_zeta_s, gw_flux_table, gw_area_table
 public :: gw_scale_length, gw_scale_relief, gw_scale_soil_depth, slope_exp
@@ -90,20 +89,6 @@ real,    parameter :: g_RT             = grav / (rvgas*t_ref)
 real,    parameter :: sigma_max        = 2.2
 real,    parameter :: K_rel_min        = 1.e-12
 real,    parameter, public :: initval  = 1.e36 ! For initializing variables
-
-! from the modis brdf/albedo product user's guide:
-real            :: g_iso  = 1.
-real            :: g_vol  = 0.189184
-real            :: g_geo  = -1.377622
-real            :: g0_iso = 1.0
-real            :: g1_iso = 0.0
-real            :: g2_iso = 0.0
-real            :: g0_vol = -0.007574
-real            :: g1_vol = -0.070987
-real            :: g2_vol =  0.307588
-real            :: g0_geo = -1.284909
-real            :: g1_geo = -0.166314
-real            :: g2_geo =  0.041840
 
 ! geohydrology option selector (not used by lm2)
 integer, parameter, public ::   &
@@ -1473,40 +1458,6 @@ function soil_psi_stress(soil, zeta) result (A) ; real :: A
   A = A/N
 
 end function soil_psi_stress
-
-! ============================================================================
-! compute bare-soil albedo, bare-soil emissivity, bare-soil roughness
-! for scalar transport, and beta function
-subroutine soil_data_radiation ( soil, cosz, use_brdf, soil_alb_dir, soil_alb_dif, soil_emis )
-  type(soil_tile_type), intent(in)  :: soil
-  real,                 intent(in)  :: cosz
-  logical,              intent(in)  :: use_brdf
-  real,                 intent(out) :: soil_alb_dir(NBANDS), soil_alb_dif(NBANDS), soil_emis
-  ! ---- local vars
-  real :: soil_sfc_vlc, blend, dry_value(NBANDS), sat_value(NBANDS)
-  real :: zenith_angle, zsq, zcu
-
-  soil_sfc_vlc  = soil%wl(1)/(dens_h2o*dz(1))
-  blend         = max(0., min(1., soil_sfc_vlc/soil%pars%vwc_sat))
-  if (use_brdf) then
-     zenith_angle = acos(cosz)
-     zsq = zenith_angle*zenith_angle
-     zcu = zenith_angle*zsq
-     dry_value =  soil%pars%f_iso_dry*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
-                + soil%pars%f_vol_dry*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
-                + soil%pars%f_geo_dry*(g0_geo+g1_geo*zsq+g2_geo*zcu)
-     sat_value =  soil%pars%f_iso_sat*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
-                + soil%pars%f_vol_sat*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
-                + soil%pars%f_geo_sat*(g0_geo+g1_geo*zsq+g2_geo*zcu)
-  else
-     dry_value = soil%pars%refl_dry_dir
-     sat_value = soil%pars%refl_sat_dir
-  endif
-  soil_alb_dir  = dry_value              + blend*(sat_value             -dry_value)
-  soil_alb_dif  = soil%pars%refl_dry_dif + blend*(soil%pars%refl_sat_dif-soil%pars%refl_dry_dif)
-  soil_emis     = soil%pars%emis_dry     + blend*(soil%pars%emis_sat    -soil%pars%emis_dry    )
-end subroutine soil_data_radiation
-
 
 ! ============================================================================
 ! compute bare-soil albedo, bare-soil emissivity, bare-soil roughness
