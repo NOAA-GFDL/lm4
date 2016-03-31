@@ -18,8 +18,8 @@ use constants_mod,      only: tfreeze, hlv, hlf, PI
 use land_constants_mod, only : NBANDS
 use snow_tile_mod, only : &
      snow_tile_type, read_snow_data_namelist, &
-     snow_data_thermodynamics, snow_data_area, snow_data_radiation, snow_data_diffusion, &
-     snow_data_hydraulics, max_lev, cpw, clw, csw
+     snow_data_thermodynamics, snow_data_area, snow_radiation, snow_data_diffusion, &
+     snow_data_hydraulics, max_lev, cpw, clw, csw, use_brdf
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
@@ -46,7 +46,7 @@ public :: snow_step_2
 ! =====end of public interfaces ==============================================
 
 
-! ==== module variables ======================================================
+! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'snow_mod'
 #include "../shared/version_variable.inc"
 character(len=*), parameter :: tagname = '$Name$'
@@ -73,7 +73,6 @@ namelist /snow_nml/ retro_heat_capacity, lm2, steal, albedo_to_use, &
 !---- end of namelist --------------------------------------------------------
 
 logical         :: module_is_initialized =.FALSE.
-logical         :: use_brdf
 real            :: delta_time
 integer         :: num_l    ! # of snow layers
 ! next three 'z' variables are all normalized by total snow pack depth
@@ -241,21 +240,6 @@ subroutine snow_get_depth_area(snow, snow_depth, snow_area)
   snow_depth = snow_depth / snow_density
   call snow_data_area (snow_depth, snow_area )
 end subroutine
-
-
-! ============================================================================
-! compute snow properties needed to do soil-canopy-atmos energy balance
-subroutine snow_radiation ( snow_T, cosz, &
-     snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis )
-  real, intent(in) :: snow_T  ! snow temperature, deg K
-  real, intent(in) :: cosz ! cosine of zenith angle
-  real, intent(out) :: snow_refl_dir(NBANDS), snow_refl_dif(NBANDS), snow_refl_lw, snow_emis
-
-  call snow_data_radiation (snow_T, snow_refl_dir, snow_refl_dif, &
-                                snow_emis, cosz, use_brdf )
-  snow_refl_lw = 1 - snow_emis
-end subroutine snow_radiation
-
 
 ! ============================================================================
 ! compute snow properties needed to do soil-canopy-atmos energy balance

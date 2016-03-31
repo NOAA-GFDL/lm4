@@ -33,7 +33,7 @@ public :: read_snow_data_namelist
 public :: snow_data_thermodynamics
 public :: snow_data_hydraulics
 public :: snow_data_area
-public :: snow_data_radiation
+public :: snow_radiation
 public :: snow_data_diffusion
 
 public :: max_lev
@@ -51,21 +51,23 @@ character(len=*), parameter :: module_name = 'snow_tile_mod'
 character(len=*), parameter :: tagname = '$Name$'
 
 integer, parameter :: max_lev = 10
-real   , parameter :: t_range = 10.0 ! degK
 
 ! from the modis brdf/albedo product user's guide:
-real            :: g_iso  = 1.
-real            :: g_vol  = 0.189184
-real            :: g_geo  = -1.377622
-real            :: g0_iso = 1.0
-real            :: g1_iso = 0.0
-real            :: g2_iso = 0.0
-real            :: g0_vol = -0.007574
-real            :: g1_vol = -0.070987
-real            :: g2_vol =  0.307588
-real            :: g0_geo = -1.284909
-real            :: g1_geo = -0.166314
-real            :: g2_geo =  0.041840
+real, parameter :: g_iso  = 1.
+real, parameter :: g_vol  = 0.189184
+real, parameter :: g_geo  = -1.377622
+real, parameter :: g0_iso = 1.0
+real, parameter :: g1_iso = 0.0
+real, parameter :: g2_iso = 0.0
+real, parameter :: g0_vol = -0.007574
+real, parameter :: g1_vol = -0.070987
+real, parameter :: g2_vol =  0.307588
+real, parameter :: g0_geo = -1.284909
+real, parameter :: g1_geo = -0.166314
+real, parameter :: g2_geo =  0.041840
+
+! range of temperatures for ramp between "warm" and "cold" albedo
+real, parameter :: t_range = 10.0 ! degK
 
 ! ==== types =================================================================
 
@@ -78,6 +80,7 @@ type :: snow_tile_type
 end type snow_tile_type
 
 ! ==== module data ===========================================================
+logical, public :: use_brdf
 
 !---- namelist ---------------------------------------------------------------
 logical :: use_mcm_masking       = .false.   ! MCM snow mask fn
@@ -110,7 +113,6 @@ real    :: mc_fict = 10. * 4218 ! additional (fictitious) soil heat capacity (fo
   real :: f_iso_warm(NBANDS) = (/ 0.354, 0.530 /)
   real :: f_vol_warm(NBANDS) = (/ 0.200, 0.252 /)
   real :: f_geo_warm(NBANDS) = (/ 0.054, 0.064 /)
-  real :: refl_cold_dif(NBANDS), refl_warm_dif(NBANDS)
 
 namelist /snow_data_nml/use_mcm_masking,    w_sat,                 &
                     psi_sat,                k_sat,                 &
@@ -164,9 +166,6 @@ subroutine read_snow_data_namelist(snow_num_l, snow_dz, snow_mc_fict)
   snow_num_l = num_l
   snow_dz    = dz
   snow_mc_fict = mc_fict
-
-  refl_cold_dif = g_iso*f_iso_cold + g_vol*f_vol_cold + g_geo*f_geo_cold
-  refl_warm_dif = g_iso*f_iso_warm + g_vol*f_vol_warm + g_geo*f_geo_warm
 
 end subroutine read_snow_data_namelist
 
@@ -310,14 +309,13 @@ subroutine snow_data_area ( snow_depth, snow_area )
 
 end subroutine snow_data_area
 
-
 ! ============================================================================
-subroutine snow_data_radiation(snow_T, snow_refl_dir, snow_refl_dif, snow_emis,&
-                                  cosz, use_brdf)
-  real, intent(in) :: snow_T
-  real, intent(out):: snow_refl_dir(NBANDS), snow_refl_dif(NBANDS), snow_emis
-  real, optional :: cosz
-  logical :: use_brdf
+! compute snow properties needed to do soil-canopy-atmos energy balance
+subroutine snow_radiation ( snow_T, cosz, &
+     snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis )
+  real, intent(in) :: snow_T  ! snow temperature, deg K
+  real, intent(in) :: cosz ! cosine of zenith angle
+  real, intent(out) :: snow_refl_dir(NBANDS), snow_refl_dif(NBANDS), snow_refl_lw, snow_emis
 
   ! ---- local vars
   real :: blend
@@ -336,8 +334,8 @@ subroutine snow_data_radiation(snow_T, snow_refl_dir, snow_refl_dif, snow_emis,&
      cold_value_dir = f_iso_cold*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
                     + f_vol_cold*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
                     + f_geo_cold*(g0_geo+g1_geo*zsq+g2_geo*zcu)
-     warm_value_dif = refl_warm_dif
-     cold_value_dif = refl_cold_dif
+     cold_value_dif = g_iso*f_iso_cold + g_vol*f_vol_cold + g_geo*f_geo_cold
+     warm_value_dif = g_iso*f_iso_warm + g_vol*f_vol_warm + g_geo*f_geo_warm
   else
      warm_value_dir = refl_snow_min_dir
      cold_value_dir = refl_snow_max_dir
@@ -347,8 +345,8 @@ subroutine snow_data_radiation(snow_T, snow_refl_dir, snow_refl_dif, snow_emis,&
   snow_refl_dir = cold_value_dir + blend*(warm_value_dir-cold_value_dir)
   snow_refl_dif = cold_value_dif + blend*(warm_value_dif-cold_value_dif)
   snow_emis     = emis_snow_max + blend*(emis_snow_min-emis_snow_max  )
-end subroutine snow_data_radiation
-
+  snow_refl_lw  = 1 - snow_emis
+end subroutine snow_radiation
 
 ! ============================================================================
 subroutine snow_data_diffusion(snow_z0s, snow_z0m)
