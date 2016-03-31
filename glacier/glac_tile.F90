@@ -33,7 +33,7 @@ public :: glac_tile_heat
 public :: read_glac_data_namelist
 public :: glac_cover_cold_start
 
-public :: glac_data_radiation
+public :: glac_radiation
 public :: glac_data_diffusion
 public :: glac_data_thermodynamics
 public :: glac_data_hydraulics
@@ -57,18 +57,18 @@ real,    parameter :: psi_wilt         = -150.  ! matric head at wilting
 real,    parameter :: comp             = 0.001  ! m^-1
 
 ! from the modis brdf/albedo product user's guide:
-real            :: g_iso  = 1.
-real            :: g_vol  = 0.189184
-real            :: g_geo  = -1.377622
-real            :: g0_iso = 1.0
-real            :: g1_iso = 0.0
-real            :: g2_iso = 0.0
-real            :: g0_vol = -0.007574
-real            :: g1_vol = -0.070987
-real            :: g2_vol =  0.307588
-real            :: g0_geo = -1.284909
-real            :: g1_geo = -0.166314
-real            :: g2_geo =  0.041840
+real, parameter :: g_iso  = 1.
+real, parameter :: g_vol  = 0.189184
+real, parameter :: g_geo  = -1.377622
+real, parameter :: g0_iso = 1.0
+real, parameter :: g1_iso = 0.0
+real, parameter :: g2_iso = 0.0
+real, parameter :: g0_vol = -0.007574
+real, parameter :: g1_vol = -0.070987
+real, parameter :: g2_vol =  0.307588
+real, parameter :: g0_geo = -1.284909
+real, parameter :: g1_geo = -0.166314
+real, parameter :: g2_geo =  0.041840
 
 ! ==== types =================================================================
 type :: glac_pars_type
@@ -107,6 +107,7 @@ end type glac_tile_type
 ! NOTE: When adding or modifying fields of this types, don't forget to change
 ! the operations on tile (e.g. copy) accordingly
 ! ==== module data ===========================================================
+logical, public :: use_brdf
 
 !---- namelist ---------------------------------------------------------------
 real    :: k_over_B              = 2         ! reset to 0 for MCM
@@ -130,7 +131,6 @@ real    :: t_range               = 10.0
   real :: f_iso_warm(NBANDS) = (/ 0.177, 0.265 /)
   real :: f_vol_warm(NBANDS) = (/ 0.100, 0.126 /)
   real :: f_geo_warm(NBANDS) = (/ 0.027, 0.032 /)
-  real :: refl_cold_dif(NBANDS), refl_warm_dif(NBANDS)
 
 ! ---- remainder are used only for cold start ---------
 character(len=16):: glac_to_use  = 'single-tile'
@@ -225,10 +225,7 @@ subroutine read_glac_data_namelist(glac_n_lev, glac_dz)
 #endif
   unit=stdlog()
   write (unit, nml=glac_data_nml)
-
-  refl_cold_dif = g_iso*f_iso_cold + g_vol*f_vol_cold + g_geo*f_geo_cold
-  refl_warm_dif = g_iso*f_iso_warm + g_vol*f_vol_warm + g_geo*f_geo_warm
-
+  
   ! register selectors for tile-specific diagnostics
   do i=1, n_dim_glac_types
      call register_tile_selector(tile_names(i), long_name='',&
@@ -449,12 +446,14 @@ end subroutine glac_dry_heat_cap
 
 ! ============================================================================
 ! compute bare-glacier albedos and bare-glacier emissivity
-subroutine glac_data_radiation ( glac, cosz, use_brdf, &
-                                 glac_refl_dir, glac_refl_dif, glac_emis )
+subroutine glac_radiation ( glac, cosz, &
+     glac_refl_dir, glac_refl_dif, glac_refl_lw, glac_emis )
   type(glac_tile_type), intent(in) :: glac
-  real,                 intent(in) :: cosz
-  logical,              intent(in) :: use_brdf
-  real,                 intent(out):: glac_refl_dir(:), glac_refl_dif(:), glac_emis
+  real, intent(in)  :: cosz
+  real, intent(out) :: &
+       glac_refl_dir(NBANDS), glac_refl_dif(NBANDS), & ! glacier albedos for direct and diffuse light
+       glac_refl_lw,   &  ! glacier reflectance for longwave (thermal) radiation
+       glac_emis          ! glacier emissivity
 
   ! ---- local vars
   real  :: blend, t_crit
@@ -476,8 +475,8 @@ subroutine glac_data_radiation ( glac, cosz, use_brdf, &
       cold_value_dir = f_iso_cold*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
                      + f_vol_cold*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
                      + f_geo_cold*(g0_geo+g1_geo*zsq+g2_geo*zcu)
-      warm_value_dif = refl_warm_dif
-      cold_value_dif = refl_cold_dif
+      warm_value_dif = g_iso*f_iso_warm + g_vol*f_vol_warm + g_geo*f_geo_warm
+      cold_value_dif = g_iso*f_iso_cold + g_vol*f_vol_cold + g_geo*f_geo_cold
     else
       warm_value_dir = glac%pars%refl_min_dir
       cold_value_dir = glac%pars%refl_max_dir
@@ -487,8 +486,8 @@ subroutine glac_data_radiation ( glac, cosz, use_brdf, &
   glac_refl_dir = cold_value_dir + blend*(warm_value_dir-cold_value_dir)
   glac_refl_dif = cold_value_dif + blend*(warm_value_dif-cold_value_dif)
   glac_emis     = glac%pars%emis_dry + blend*(glac%pars%emis_sat-glac%pars%emis_dry)
-
-end subroutine glac_data_radiation
+  glac_refl_lw  = 1 - glac_emis
+end subroutine glac_radiation
 
 
 ! ============================================================================

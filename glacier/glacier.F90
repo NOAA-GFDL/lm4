@@ -19,7 +19,7 @@ use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o, PI
 
 use glac_tile_mod,      only: glac_tile_type, &
      read_glac_data_namelist, glac_data_thermodynamics, glac_data_hydraulics, &
-     glac_data_radiation, glac_data_diffusion, max_lev, cpw, clw, csw
+     glac_radiation, glac_data_diffusion, max_lev, cpw, clw, csw, use_brdf
 
 use land_constants_mod, only : NBANDS
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
@@ -67,7 +67,6 @@ namelist /glac_nml/ lm2, conserve_glacier_mass,  albedo_to_use, &
 !---- end of namelist --------------------------------------------------------
 
 logical         :: module_is_initialized =.FALSE.
-logical         :: use_brdf
 real            :: delta_time       ! fast time step
 
 integer         :: num_l            ! # of water layers
@@ -240,21 +239,6 @@ subroutine glac_get_sfc_temp ( glac, glac_T )
 
   glac_T = glac%T(1)
 end subroutine glac_get_sfc_temp
-
-
-! ============================================================================
-subroutine glac_radiation ( glac, cosz, &
-     glac_refl_dir, glac_refl_dif, glac_refl_lw, glac_emis )
-  type(glac_tile_type), intent(in) :: glac
-  real, intent(in)  :: cosz
-  real, intent(out) :: &
-       glac_refl_dir(NBANDS), glac_refl_dif(NBANDS), & ! glacier albedos for direct and diffuse light
-       glac_refl_lw,   &  ! glacier reflectance for longwave (thermal) radiation
-       glac_emis          ! glacier emissivity
-
-  call glac_data_radiation ( glac, cosz, use_brdf, glac_refl_dir, glac_refl_dif, glac_emis )
-  glac_refl_lw = 1 - glac_emis
-end subroutine glac_radiation
 
 
 ! ============================================================================
