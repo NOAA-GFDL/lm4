@@ -21,10 +21,11 @@ use constants_mod, only: tfreeze, hlv, hlf, dens_h2o, PI, grav, vonkarm, &
 use land_constants_mod, only : NBANDS
 use lake_tile_mod, only : &
      lake_tile_type, read_lake_data_namelist, &
-     lake_data_radiation, lake_data_diffusion, &
+     lake_radiation, lake_data_diffusion, &
      lake_data_thermodynamics, &
      cpw,clw,csw, lake_width_inside_lake, large_lake_sill_width, &
-     lake_specific_width, n_outlet, outlet_face, outlet_i, outlet_j, outlet_width
+     lake_specific_width, n_outlet, outlet_face, outlet_i, outlet_j, &
+     outlet_width, use_brdf
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
 use land_tile_diag_mod, only : register_tiled_static_field, &
@@ -97,7 +98,6 @@ real    :: tc_molec             = 0.59052 ! dens_h2o*clw*K_z_molec
 real    :: tc_molec_ice         = 2.5
 
 logical         :: module_is_initialized =.FALSE.
-logical         :: use_brdf
 real            :: delta_time
 
 integer         :: num_l              ! # of water layers
@@ -349,20 +349,6 @@ subroutine lake_get_sfc_temp(lake, lake_T)
 
   lake_T = lake%T(1)
 end subroutine lake_get_sfc_temp
-
-
-! ============================================================================
-! compute lake-only radiation properties
-subroutine lake_radiation ( lake, cosz, &
-     lake_refl_dir, lake_refl_dif, lake_refl_lw, lake_emis )
-  type(lake_tile_type), intent(in) :: lake
-  real, intent(in) :: cosz
-  real, intent(out) :: lake_refl_dir(NBANDS), lake_refl_dif(NBANDS), lake_refl_lw, lake_emis
-
-  call lake_data_radiation ( lake, cosz, use_brdf, lake_refl_dir, lake_refl_dif, lake_emis )
-  lake_refl_lw = 1 - lake_emis
-end subroutine lake_radiation
-
 
 ! ============================================================================
 ! compute lake-only roughness parameters

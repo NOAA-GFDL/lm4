@@ -35,7 +35,7 @@ public :: lake_tile_heat
 public :: read_lake_data_namelist
 public :: lake_cover_cold_start
 
-public :: lake_data_radiation
+public :: lake_radiation
 public :: lake_data_diffusion
 public :: lake_data_thermodynamics
 
@@ -60,18 +60,18 @@ real,    parameter :: psi_wilt         = -150.  ! matric head at wilting
 real,    parameter :: comp             = 0.001  ! m^-1
 
 ! from the modis brdf/albedo product user's guide:
-real            :: g_iso  = 1.
-real            :: g_vol  = 0.189184
-real            :: g_geo  = -1.377622
-real            :: g0_iso = 1.0
-real            :: g1_iso = 0.0
-real            :: g2_iso = 0.0
-real            :: g0_vol = -0.007574
-real            :: g1_vol = -0.070987
-real            :: g2_vol =  0.307588
-real            :: g0_geo = -1.284909
-real            :: g1_geo = -0.166314
-real            :: g2_geo =  0.041840
+real, parameter :: g_iso  = 1.
+real, parameter :: g_vol  = 0.189184
+real, parameter :: g_geo  = -1.377622
+real, parameter :: g0_iso = 1.0
+real, parameter :: g1_iso = 0.0
+real, parameter :: g2_iso = 0.0
+real, parameter :: g0_vol = -0.007574
+real, parameter :: g1_vol = -0.070987
+real, parameter :: g2_vol =  0.307588
+real, parameter :: g0_geo = -1.284909
+real, parameter :: g1_geo = -0.166314
+real, parameter :: g2_geo =  0.041840
 
 ! ==== types =================================================================
 type :: lake_pars_type
@@ -125,6 +125,7 @@ real, public :: &
      cpw = 1952.0, & ! specific heat of water vapor at constant pressure
      clw = 4218.0, & ! specific heat of water (liquid)
      csw = 2106.0    ! specific heat of water (ice)
+logical, public :: use_brdf
 
 !---- namelist ---------------------------------------------------------------
 real    :: lake_width_inside_lake = 1.e5
@@ -156,7 +157,6 @@ real, public :: outlet_width(100)
   real :: f_iso_liq(NBANDS) = (/ 0.056, 0.131 /)
   real :: f_vol_liq(NBANDS) = (/ 0.017, 0.053 /)
   real :: f_geo_liq(NBANDS) = (/ 0.004, 0.010 /)
-  real :: refl_ice_dif(NBANDS), refl_liq_dif(NBANDS)
 
 ! ---- remainder are used only for cold start ---------
 logical :: round_frac_down       = .false.  ! when false, any lake_frac < min_lake_frac
@@ -263,9 +263,6 @@ subroutine read_lake_data_namelist(lake_n_lev)
   write(unit, nml=lake_data_nml)
 
   ! initialize global module data here
-
-  refl_ice_dif = g_iso*f_iso_ice + g_vol*f_vol_ice + g_geo*f_geo_ice
-  refl_liq_dif = g_iso*f_iso_liq + g_vol*f_vol_liq + g_geo*f_geo_liq
 
   ! register selectors for tile-specific diagnostics
   do i=1, n_dim_lake_types
@@ -487,12 +484,11 @@ end function get_lake_tile_tag
 
 ! ============================================================================
 ! compute bare-lake albedos and bare-lake emissivity
-subroutine lake_data_radiation ( lake, cosz, use_brdf, &
-                                  lake_alb_dir, lake_alb_dif, lake_emis )
-  type(lake_tile_type), intent(in)  :: lake
-  real,                 intent(in)  :: cosz
-  logical,              intent(in)  :: use_brdf
-  real,                 intent(out) :: lake_alb_dir(:), lake_alb_dif(:), lake_emis
+subroutine lake_radiation ( lake, cosz, &
+     lake_refl_dir, lake_refl_dif, lake_refl_lw, lake_emis )
+  type(lake_tile_type), intent(in) :: lake
+  real, intent(in) :: cosz
+  real, intent(out) :: lake_refl_dir(NBANDS), lake_refl_dif(NBANDS), lake_refl_lw, lake_emis
 
   ! ---- local vars
   real :: lake_sfc_vlc, blend
@@ -504,27 +500,28 @@ subroutine lake_data_radiation ( lake, cosz, use_brdf, &
   lake_sfc_vlc = lake%wl(1)/lake%dz(1)
   blend        = lake_sfc_vlc/lake%pars%w_sat
   if (use_brdf) then
-      zenith_angle = acos(cosz)
-      zsq = zenith_angle*zenith_angle
-      zcu = zenith_angle*zsq
-      liq_value_dir =  f_iso_liq*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
-                     + f_vol_liq*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
-                     + f_geo_liq*(g0_geo+g1_geo*zsq+g2_geo*zcu)
-      ice_value_dir =  f_iso_ice*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
-                     + f_vol_ice*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
-                     + f_geo_ice*(g0_geo+g1_geo*zsq+g2_geo*zcu)
-      liq_value_dif = refl_liq_dif
-      ice_value_dif = refl_ice_dif
-    else
-      liq_value_dir = lake%pars%refl_sat_dir
-      ice_value_dir = lake%pars%refl_dry_dir
-      liq_value_dif = lake%pars%refl_sat_dif
-      ice_value_dif = lake%pars%refl_dry_dif
-    endif
-  lake_alb_dir = ice_value_dir + blend*(liq_value_dir-ice_value_dir)
-  lake_alb_dif = ice_value_dif + blend*(liq_value_dif-ice_value_dif)
-  lake_emis = lake%pars%emis_dry   + blend*(lake%pars%emis_sat-lake%pars%emis_dry  )
-end subroutine lake_data_radiation
+     zenith_angle = acos(cosz)
+     zsq = zenith_angle*zenith_angle
+     zcu = zenith_angle*zsq
+     liq_value_dir =  f_iso_liq*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
+                    + f_vol_liq*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
+                    + f_geo_liq*(g0_geo+g1_geo*zsq+g2_geo*zcu)
+     ice_value_dir =  f_iso_ice*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
+                    + f_vol_ice*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
+                    + f_geo_ice*(g0_geo+g1_geo*zsq+g2_geo*zcu)
+     liq_value_dif = g_iso*f_iso_liq + g_vol*f_vol_liq + g_geo*f_geo_liq
+     ice_value_dif = g_iso*f_iso_ice + g_vol*f_vol_ice + g_geo*f_geo_ice
+  else
+     liq_value_dir = lake%pars%refl_sat_dir
+     ice_value_dir = lake%pars%refl_dry_dir
+     liq_value_dif = lake%pars%refl_sat_dif
+     ice_value_dif = lake%pars%refl_dry_dif
+  endif
+  lake_refl_dir = ice_value_dir + blend*(liq_value_dir-ice_value_dir)
+  lake_refl_dif = ice_value_dif + blend*(liq_value_dif-ice_value_dif)
+  lake_emis     = lake%pars%emis_dry   + blend*(lake%pars%emis_sat-lake%pars%emis_dry  )
+  lake_refl_lw  = 1 - lake_emis
+end subroutine lake_radiation
 
 ! ============================================================================
 ! compute bare-lake roughness
