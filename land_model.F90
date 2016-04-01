@@ -52,7 +52,7 @@ use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, vegn_get_cov
      update_vegn_slow, save_vegn_restart
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, cana_state,&
-     cana_step_1, cana_step_2, cana_radiation, cana_roughness, &
+     cana_step_1, cana_step_2, cana_roughness, &
      save_cana_restart
 use river_mod, only : river_init, river_end, update_river, river_stock_pe, &
      save_river_restart, river_tracers_init, num_river_tracers, river_tracer_index
@@ -2399,6 +2399,79 @@ subroutine land_surface_energy_balance ( &
     endif
 end subroutine land_surface_energy_balance
 
+! ============================================================================
+! set up constants for linearization of radiative transfer, using information
+! provided by soil, snow and vegetation modules.
+subroutine land_radiation (lm2, &
+     subs_refl_dir, subs_refl_dif, subs_refl_lw, &
+     snow_refl_dir, snow_refl_dif, snow_refl_lw, &
+     snow_area, &
+     vegn_refl_dir, vegn_refl_dif, vegn_tran_dir, vegn_tran_dif, &
+     vegn_tran_dir_dir, vegn_refl_lw, vegn_tran_lw,  &
+     vegn_cover, &
+     Sg_dir, Sg_dif, Sv_dir, Sv_dif, &
+     land_albedo_dir, land_albedo_dif )
+
+  logical, intent(in) :: lm2
+  real, intent(in) :: &
+       subs_refl_dir(NBANDS), subs_refl_dif(NBANDS), subs_refl_lw,  & ! sub-snow reflectances for direct, diffuse, and LW radiation respectively
+       snow_refl_dir(NBANDS), snow_refl_dif(NBANDS), snow_refl_lw,  & ! snow reflectances for direct, diffuse, and LW radiation respectively
+       snow_area, &
+       vegn_refl_dir(NBANDS), vegn_tran_dir(NBANDS), & ! vegn reflectance & transmittance for direct light
+       vegn_tran_dir_dir(NBANDS), & !
+       vegn_refl_dif(NBANDS), vegn_tran_dif(NBANDS), & ! vegn reflectance & transmittance for diffuse light
+       vegn_refl_lw,  vegn_tran_lw,  & ! vegn reflectance & transmittance for thermal radiation
+       vegn_cover
+
+  real, intent(out) :: &
+     Sg_dir(NBANDS), Sg_dif(NBANDS), & ! fraction of downward short-wave absorbed by ground and snow
+     Sv_dir(NBANDS), Sv_dif(NBANDS), & ! fraction of downward short-wave absorbed by vegetation
+     land_albedo_dir(NBANDS), land_albedo_dif(NBANDS)
+
+  ! ---- local vars
+  real :: &
+       grnd_refl_dir(NBANDS), & ! SW reflectances of ground surface (by spectral band)
+       grnd_refl_dif(NBANDS), & ! SW reflectances of ground surface (by spectral band)
+       grnd_refl_lw             ! LW reflectance of ground surface
+  real :: &
+       subs_up_from_dir(NBANDS), subs_up_from_dif(NBANDS), &
+       subs_dn_dir_from_dir(NBANDS),  subs_dn_dif_from_dif(NBANDS), subs_dn_dif_from_dir(NBANDS)
+
+  grnd_refl_dir = subs_refl_dir + (snow_refl_dir - subs_refl_dir) * snow_area
+  grnd_refl_dif = subs_refl_dif + (snow_refl_dif - subs_refl_dif) * snow_area
+  grnd_refl_lw  = subs_refl_lw  + (snow_refl_lw  - subs_refl_lw ) * snow_area
+
+  ! ---- shortwave -----------------------------------------------------------
+  ! allocation to canopy and ground, based on solution for single
+  ! vegetation layer of limited cover. Both ground and vegetation are gray.
+  Sv_dir = 0; Sv_dif = 0
+  if (lm2) then
+     subs_dn_dir_from_dir = vegn_tran_dir_dir
+     subs_dn_dif_from_dir = vegn_tran_dir
+     subs_dn_dif_from_dif = vegn_tran_dif
+     subs_up_from_dir = grnd_refl_dir*subs_dn_dir_from_dir + &
+                        grnd_refl_dif*subs_dn_dif_from_dir
+     subs_up_from_dif = grnd_refl_dif*subs_dn_dif_from_dif
+     land_albedo_dir  = subs_up_from_dir+vegn_refl_dir
+     land_albedo_dif  = subs_up_from_dif+vegn_refl_dif
+  else
+     subs_dn_dir_from_dir = vegn_tran_dir_dir
+     subs_dn_dif_from_dir = (vegn_tran_dir + vegn_refl_dif*grnd_refl_dir*vegn_tran_dir_dir)&
+                          / (1 - grnd_refl_dif*vegn_refl_dif)
+     subs_dn_dif_from_dif = vegn_tran_dif &
+                          / (1 - grnd_refl_dif*vegn_refl_dif)
+     subs_up_from_dir = grnd_refl_dir*subs_dn_dir_from_dir + &
+                        grnd_refl_dif*subs_dn_dif_from_dir
+     subs_up_from_dif = grnd_refl_dif*subs_dn_dif_from_dif
+     land_albedo_dir  = subs_up_from_dir*vegn_tran_dif + vegn_refl_dir
+     land_albedo_dif  = subs_up_from_dif*vegn_tran_dif + vegn_refl_dif
+  endif
+
+  Sg_dir = subs_dn_dir_from_dir + subs_dn_dif_from_dir - subs_up_from_dir
+  Sg_dif = subs_dn_dif_from_dif - subs_up_from_dif
+  Sv_dir = 1 - Sg_dir - land_albedo_dir
+  Sv_dif = 1 - Sg_dif - land_albedo_dif
+end subroutine land_radiation
 
 ! ============================================================================
 subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
@@ -2532,7 +2605,7 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
      if(associated(tile%soil).and.vegn_cover>0.01) snow_area_rad = 1
   endif
 
-  call cana_radiation( lm2, &
+  call land_radiation( lm2, &
        subs_refl_dir, subs_refl_dif, subs_refl_lw, &
        snow_refl_dir, snow_refl_dif, snow_refl_lw, &
        snow_area_rad,  &

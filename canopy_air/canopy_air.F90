@@ -44,7 +44,6 @@ public :: read_cana_namelist
 public :: cana_init
 public :: cana_end
 public :: save_cana_restart
-public :: cana_radiation
 public :: cana_turbulence
 public :: cana_roughness
 public :: cana_state
@@ -68,15 +67,13 @@ real :: init_q           = 0.
 real :: init_co2         = 350.0e-6 ! ppmv = mol co2/mol of dry air
 character(len=32) :: turbulence_to_use = 'lm3w' ! or lm3v
 logical :: save_qco2     = .TRUE.
-logical :: sfc_dir_albedo_bug = .FALSE. ! if true, reverts to buggy behavior
-! where direct albedo was mistakenly used for part of sub-canopy diffuse light
 logical :: allow_small_z0 = .FALSE. ! to use z0 provided by lake and glac modules
 real :: lai_min_turb = 0.0 ! fudge to desensitize Tv to SW/cosz inconsistency
 real :: bare_rah_sca     = 0.01     ! bare-ground resistance between ground and canopy air, s/m
 namelist /cana_nml/ &
   init_T, init_T_cold, init_q, init_co2, turbulence_to_use, &
   canopy_air_mass, canopy_air_mass_for_tracers, cpw, save_qco2, &
-  sfc_dir_albedo_bug, allow_small_z0, lai_min_turb, bare_rah_sca
+  allow_small_z0, lai_min_turb, bare_rah_sca
 !---- end of namelist --------------------------------------------------------
 
 logical :: module_is_initialized =.FALSE.
@@ -250,96 +247,6 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
   call free_land_restart(restart)
   call nullify_domain()
 end subroutine save_cana_restart
-
-
-! ============================================================================
-! set up constants for linearization of radiative transfer, using information
-! provided by soil, snow and vegetation modules.
-subroutine cana_radiation (lm2, &
-     subs_refl_dir, subs_refl_dif, subs_refl_lw, &
-     snow_refl_dir, snow_refl_dif, snow_refl_lw, &
-     snow_area, &
-     vegn_refl_dir, vegn_refl_dif, vegn_tran_dir, vegn_tran_dif, &
-     vegn_tran_dir_dir, vegn_refl_lw, vegn_tran_lw,  &
-     vegn_cover, &
-     Sg_dir, Sg_dif, Sv_dir, Sv_dif, &
-     land_albedo_dir, land_albedo_dif )
-
-  logical, intent(in) :: lm2
-  real, intent(in) :: &
-       subs_refl_dir(NBANDS), subs_refl_dif(NBANDS), subs_refl_lw,  & ! sub-snow reflectances for direct, diffuse, and LW radiation respectively
-       snow_refl_dir(NBANDS), snow_refl_dif(NBANDS), snow_refl_lw,  & ! snow reflectances for direct, diffuse, and LW radiation respectively
-       snow_area, &
-       vegn_refl_dir(NBANDS), vegn_tran_dir(NBANDS), & ! vegn reflectance & transmittance for direct light
-       vegn_tran_dir_dir(NBANDS), & !
-       vegn_refl_dif(NBANDS), vegn_tran_dif(NBANDS), & ! vegn reflectance & transmittance for diffuse light
-       vegn_refl_lw,  vegn_tran_lw,  & ! vegn reflectance & transmittance for thermal radiation
-       vegn_cover
-
-  real, intent(out) :: &
-     Sg_dir(NBANDS), Sg_dif(NBANDS), & ! fraction of downward short-wave absorbed by ground and snow
-     Sv_dir(NBANDS), Sv_dif(NBANDS), & ! fraction of downward short-wave absorbed by vegetation
-     land_albedo_dir(NBANDS), land_albedo_dif(NBANDS)
-
-  ! ---- local vars
-  real :: &
-       grnd_refl_dir(NBANDS), & ! SW reflectances of ground surface (by spectral band)
-       grnd_refl_dif(NBANDS), & ! SW reflectances of ground surface (by spectral band)
-       grnd_refl_lw             ! LW reflectance of ground surface
-  real :: &
-       subs_up_from_dir(NBANDS), subs_up_from_dif(NBANDS), &
-       subs_dn_dir_from_dir(NBANDS),  subs_dn_dif_from_dif(NBANDS), subs_dn_dif_from_dir(NBANDS)
-
-  grnd_refl_dir = subs_refl_dir + (snow_refl_dir - subs_refl_dir) * snow_area
-  grnd_refl_dif = subs_refl_dif + (snow_refl_dif - subs_refl_dif) * snow_area
-  grnd_refl_lw  = subs_refl_lw  + (snow_refl_lw  - subs_refl_lw ) * snow_area
-
-  ! ---- shortwave -----------------------------------------------------------
-  ! allocation to canopy and ground, based on solution for single
-  ! vegetation layer of limited cover. both ground and vegetation are gray.
-  Sv_dir = 0; Sv_dif = 0
-  IF (LM2) THEN
-
-     subs_dn_dir_from_dir = vegn_tran_dir_dir
-     subs_dn_dif_from_dir = vegn_tran_dir
-     subs_dn_dif_from_dif = vegn_tran_dif
-     if (sfc_dir_albedo_bug) then
-        subs_up_from_dir = grnd_refl_dir &
-             * (subs_dn_dir_from_dir + subs_dn_dif_from_dir)
-     else
-        subs_up_from_dir = grnd_refl_dir*subs_dn_dir_from_dir + &
-                           grnd_refl_dif*subs_dn_dif_from_dir
-     endif
-     subs_up_from_dif = grnd_refl_dif*subs_dn_dif_from_dif
-     land_albedo_dir = subs_up_from_dir+vegn_refl_dir
-     land_albedo_dif = subs_up_from_dif+vegn_refl_dif
-
-  ELSE
-
-     subs_dn_dir_from_dir = vegn_tran_dir_dir
-     subs_dn_dif_from_dir = (vegn_tran_dir + vegn_refl_dif*grnd_refl_dir*vegn_tran_dir_dir)&
-                          / (1 - grnd_refl_dif*vegn_refl_dif)
-     subs_dn_dif_from_dif = vegn_tran_dif &
-                          / (1 - grnd_refl_dif*vegn_refl_dif)
-     if (sfc_dir_albedo_bug) then
-        subs_up_from_dir = grnd_refl_dir * (subs_dn_dir_from_dir + subs_dn_dif_from_dir)
-     else
-        subs_up_from_dir = grnd_refl_dir*subs_dn_dir_from_dir + &
-                           grnd_refl_dif*subs_dn_dif_from_dir
-     endif
-     subs_up_from_dif = grnd_refl_dif*subs_dn_dif_from_dif
-     land_albedo_dir  = subs_up_from_dir*vegn_tran_dif + vegn_refl_dir
-     land_albedo_dif  = subs_up_from_dif*vegn_tran_dif + vegn_refl_dif
-
-  ENDIF
-
-  Sg_dir = subs_dn_dir_from_dir + subs_dn_dif_from_dir - subs_up_from_dir
-  Sg_dif = subs_dn_dif_from_dif - subs_up_from_dif
-  Sv_dir = 1 - Sg_dir - land_albedo_dir
-  Sv_dif = 1 - Sg_dif - land_albedo_dif
-
-end subroutine cana_radiation
-
 
 ! ============================================================================
 subroutine cana_turbulence (u_star,&
