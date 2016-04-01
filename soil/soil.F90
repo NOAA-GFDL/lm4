@@ -24,7 +24,7 @@ use tracer_manager_mod, only: NO_TRACER
 use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, seconds_per_year
 use soil_tile_mod, only : GW_LM2, GW_LINEAR, GW_HILL_AR5, GW_HILL, GW_TILED, &
      soil_tile_type, soil_pars_type, read_soil_data_namelist, &
-     soil_radiation, soil_data_thermodynamics, &
+     soil_data_thermodynamics, &
      soil_data_hydraulic_properties, soil_data_psi_for_rh, &
      soil_data_gw_hydraulics, soil_data_gw_hydraulics_ar5, &
      soil_data_vwc_for_init_only, &
@@ -90,7 +90,6 @@ public :: soil_end
 public :: save_soil_restart
 
 public :: soil_get_sfc_temp
-public :: soil_radiation
 public :: soil_step_1
 public :: soil_step_2
 public :: soil_step_3

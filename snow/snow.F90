@@ -18,7 +18,7 @@ use constants_mod,      only: tfreeze, hlv, hlf, PI
 use land_constants_mod, only : NBANDS
 use snow_tile_mod, only : &
      snow_tile_type, read_snow_data_namelist, &
-     snow_data_thermodynamics, snow_data_area, snow_radiation, &
+     snow_data_thermodynamics, snow_data_area, &
      snow_data_hydraulics, max_lev, cpw, clw, csw, use_brdf
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
@@ -39,7 +39,6 @@ public :: snow_end
 public :: save_snow_restart
 public :: snow_get_sfc_temp
 public :: snow_get_depth_area
-public :: snow_radiation
 public :: snow_step_1
 public :: snow_step_2
 ! =====end of public interfaces ==============================================

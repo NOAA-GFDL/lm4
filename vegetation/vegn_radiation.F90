@@ -7,7 +7,7 @@ use land_constants_mod, only : NBANDS
 use vegn_data_mod,      only : spdata, min_cosz
 use vegn_tile_mod,      only : vegn_tile_type
 use vegn_cohort_mod,    only : vegn_cohort_type, vegn_data_cover, get_vegn_wet_frac
-use snow_mod,           only : snow_radiation
+use snow_tile_mod,      only : snow_radiation
 
 use land_debug_mod,     only : is_watch_point
 use land_data_mod,      only : log_version

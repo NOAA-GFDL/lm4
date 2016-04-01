@@ -21,7 +21,6 @@ use constants_mod, only: tfreeze, hlv, hlf, dens_h2o, PI, grav, vonkarm, &
 use land_constants_mod, only : NBANDS
 use lake_tile_mod, only : &
      lake_tile_type, read_lake_data_namelist, &
-     lake_radiation, &
      lake_data_thermodynamics, &
      cpw,clw,csw, lake_width_inside_lake, large_lake_sill_width, &
      lake_specific_width, n_outlet, outlet_face, outlet_i, outlet_j, &
@@ -48,7 +47,6 @@ public :: lake_init
 public :: lake_end
 public :: save_lake_restart
 public :: lake_get_sfc_temp
-public :: lake_radiation
 public :: lake_step_1
 public :: lake_step_2
 

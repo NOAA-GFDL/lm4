@@ -19,7 +19,7 @@ use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o, PI
 
 use glac_tile_mod,      only: glac_tile_type, &
      read_glac_data_namelist, glac_data_thermodynamics, glac_data_hydraulics, &
-     glac_radiation, max_lev, cpw, clw, csw, use_brdf
+     max_lev, cpw, clw, csw, use_brdf
 
 use land_constants_mod, only : NBANDS
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
@@ -42,7 +42,6 @@ public :: glac_init
 public :: glac_end
 public :: save_glac_restart
 public :: glac_get_sfc_temp
-public :: glac_radiation
 public :: glac_step_1
 public :: glac_step_2
 ! =====end of public interfaces ==============================================
