@@ -18,12 +18,13 @@ use fms_mod, only : file_exist, check_nml_error, &
 use constants_mod, only : &
      pi, tfreeze, rvgas, grav, dens_h2o, hlf, epsln
 use land_constants_mod, only : &
-     NBANDS
+     BAND_VIS, BAND_NIR, NBANDS
 use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_SOIL, register_tile_selector
 use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, &
     soil_carbon_pool, combine_pools, init_soil_carbon, poolTotalCarbon, n_c_types
 use land_data_mod, only : log_version
+use land_debug_mod, only : check_var_range
 
 implicit none
 private
@@ -44,6 +45,7 @@ public :: read_soil_data_namelist
 public :: soil_ice_porosity
 public :: soil_ave_ice_porosity
 
+public :: soil_radiation
 public :: soil_data_diffusion
 public :: soil_data_thermodynamics
 public :: soil_data_hydraulic_properties
@@ -89,6 +91,20 @@ real,    parameter :: g_RT             = grav / (rvgas*t_ref)
 real,    parameter :: sigma_max        = 2.2
 real,    parameter :: K_rel_min        = 1.e-12
 real,    parameter, public :: initval  = 1.e36 ! For initializing variables
+
+! from the modis brdf/albedo product user's guide:
+real, public, parameter :: g_iso  = 1.
+real, public, parameter :: g_vol  = 0.189184
+real, public, parameter :: g_geo  = -1.377622
+real, parameter :: g0_iso = 1.0
+real, parameter :: g1_iso = 0.0
+real, parameter :: g2_iso = 0.0
+real, parameter :: g0_vol = -0.007574
+real, parameter :: g1_vol = -0.070987
+real, parameter :: g2_vol =  0.307588
+real, parameter :: g0_geo = -1.284909
+real, parameter :: g1_geo = -0.166314
+real, parameter :: g2_geo =  0.041840
 
 ! geohydrology option selector (not used by lm2)
 integer, parameter, public ::   &
@@ -270,6 +286,7 @@ end type soil_tile_type
 
 ! ==== module data ===========================================================
 integer, public :: gw_option
+logical, public :: use_brdf = .false.
 
 real, public :: &
      cpw = 1952.0, & ! specific heat of water vapor at constant pressure
@@ -1458,6 +1475,45 @@ function soil_psi_stress(soil, zeta) result (A) ; real :: A
   A = A/N
 
 end function soil_psi_stress
+
+! ============================================================================
+! compute soil radiative properties
+subroutine soil_radiation ( soil, cosz, &
+     soil_refl_dir, soil_refl_dif, soil_refl_lw, soil_emis )
+  type(soil_tile_type), intent(in) :: soil
+  real, intent(in)  :: cosz
+  real, intent(out) :: soil_refl_dir(NBANDS), soil_refl_dif(NBANDS), soil_refl_lw, soil_emis
+
+  ! ---- local vars
+  real :: soil_sfc_vlc, blend, dry_value(NBANDS), sat_value(NBANDS)
+  real :: zenith_angle, zsq, zcu
+
+  soil_sfc_vlc  = soil%wl(1)/(dens_h2o*dz(1))
+  blend         = max(0., min(1., soil_sfc_vlc/soil%pars%vwc_sat))
+  if (use_brdf) then
+     zenith_angle = acos(cosz)
+     zsq = zenith_angle*zenith_angle
+     zcu = zenith_angle*zsq
+     dry_value =  soil%pars%f_iso_dry*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
+                + soil%pars%f_vol_dry*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
+                + soil%pars%f_geo_dry*(g0_geo+g1_geo*zsq+g2_geo*zcu)
+     sat_value =  soil%pars%f_iso_sat*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
+                + soil%pars%f_vol_sat*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
+                + soil%pars%f_geo_sat*(g0_geo+g1_geo*zsq+g2_geo*zcu)
+  else
+     dry_value = soil%pars%refl_dry_dir
+     sat_value = soil%pars%refl_sat_dir
+  endif
+  soil_refl_dir  = dry_value              + blend*(sat_value             -dry_value)
+  soil_refl_dif  = soil%pars%refl_dry_dif + blend*(soil%pars%refl_sat_dif-soil%pars%refl_dry_dif)
+  soil_emis      = soil%pars%emis_dry     + blend*(soil%pars%emis_sat    -soil%pars%emis_dry    )
+  soil_refl_lw   = 1 - soil_emis
+
+  call check_var_range(soil_refl_dir(BAND_VIS), 0.0, 1.0, 'soil_radiation', 'soil_refl_dir(VIS)', FATAL)
+  call check_var_range(soil_refl_dir(BAND_NIR), 0.0, 1.0, 'soil_radiation', 'soil_refl_dir(NIR)', FATAL)
+  call check_var_range(soil_refl_dif(BAND_VIS), 0.0, 1.0, 'soil_radiation', 'soil_refl_dif(VIS)', FATAL)
+  call check_var_range(soil_refl_dif(BAND_NIR), 0.0, 1.0, 'soil_radiation', 'soil_refl_dif(NIR)', FATAL)
+end subroutine soil_radiation
 
 ! ============================================================================
 ! compute bare-soil albedo, bare-soil emissivity, bare-soil roughness

@@ -24,13 +24,13 @@ use tracer_manager_mod, only: NO_TRACER
 use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, seconds_per_year
 use soil_tile_mod, only : GW_LM2, GW_LINEAR, GW_HILL_AR5, GW_HILL, GW_TILED, &
      soil_tile_type, soil_pars_type, read_soil_data_namelist, &
-     soil_data_diffusion, soil_data_thermodynamics, &
+     soil_radiation, soil_data_diffusion, soil_data_thermodynamics, &
      soil_data_hydraulic_properties, soil_data_psi_for_rh, &
      soil_data_gw_hydraulics, soil_data_gw_hydraulics_ar5, &
      soil_data_vwc_for_init_only, &
      soil_data_init_derive_subsurf_pars, &
      soil_data_init_derive_subsurf_pars_ar5, soil_data_init_derive_subsurf_pars_tiled, &
-     max_lev, psi_wilt, cpw, clw, csw, g_RT, aspect, &
+     max_lev, psi_wilt, cpw, clw, csw, g_iso, g_vol, g_geo, use_brdf, g_RT, aspect, &
      gw_scale_length, gw_scale_relief, gw_scale_soil_depth, &
      slope_exp, gw_scale_perm, k0_macro_x, retro_a0n1, &
      soil_type_file, &
@@ -61,7 +61,7 @@ use land_tile_io_mod, only: land_restart_type, &
 use vegn_data_mod, only: K1, K2
 use vegn_tile_mod, only : vegn_tile_type, vegn_uptake_profile, vegn_hydraulic_properties
 use land_debug_mod, only : is_watch_point, get_current_point, set_current_point, &
-    check_var_range, check_conservation, is_watch_cell
+     check_conservation, is_watch_cell
 use uptake_mod, only : UPTAKE_LINEAR, UPTAKE_DARCY2D, UPTAKE_DARCY2D_LIN, &
      uptake_init, darcy2d_uptake, darcy2d_uptake_solver
 
@@ -107,20 +107,6 @@ public :: redistribute_peat_carbon
 character(len=*), parameter :: module_name = 'soil'
 #include "../shared/version_variable.inc"
 character(len=*), parameter :: tagname = '$Name$'
-
-! from the modis brdf/albedo product user's guide:
-real, parameter :: g_iso  = 1.
-real, parameter :: g_vol  = 0.189184
-real, parameter :: g_geo  = -1.377622
-real, parameter :: g0_iso = 1.0
-real, parameter :: g1_iso = 0.0
-real, parameter :: g2_iso = 0.0
-real, parameter :: g0_vol = -0.007574
-real, parameter :: g1_vol = -0.070987
-real, parameter :: g2_vol =  0.307588
-real, parameter :: g0_geo = -1.284909
-real, parameter :: g1_geo = -0.166314
-real, parameter :: g2_geo =  0.041840
 
 ! ==== module variables ======================================================
 
@@ -220,7 +206,6 @@ namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
 !---- end of namelist --------------------------------------------------------
 
 logical         :: module_is_initialized =.FALSE.
-logical         :: use_brdf = .false.
 real            :: delta_time ! fast (physical) time step, s
 real            :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 days)
 logical         :: use_single_geo
@@ -1583,46 +1568,6 @@ subroutine soil_get_sfc_temp ( soil, soil_T )
 
   soil_T= soil%T(1)
 end subroutine soil_get_sfc_temp
-
-
-! ============================================================================
-! compute soil radiative properties
-subroutine soil_radiation ( soil, cosz, &
-     soil_refl_dir, soil_refl_dif, soil_refl_lw, soil_emis )
-  type(soil_tile_type), intent(in) :: soil
-  real, intent(in)  :: cosz
-  real, intent(out) :: soil_refl_dir(NBANDS), soil_refl_dif(NBANDS), soil_refl_lw, soil_emis
-
-  ! ---- local vars
-  real :: soil_sfc_vlc, blend, dry_value(NBANDS), sat_value(NBANDS)
-  real :: zenith_angle, zsq, zcu
-
-  soil_sfc_vlc  = soil%wl(1)/(dens_h2o*dz(1))
-  blend         = max(0., min(1., soil_sfc_vlc/soil%pars%vwc_sat))
-  if (use_brdf) then
-     zenith_angle = acos(cosz)
-     zsq = zenith_angle*zenith_angle
-     zcu = zenith_angle*zsq
-     dry_value =  soil%pars%f_iso_dry*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
-                + soil%pars%f_vol_dry*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
-                + soil%pars%f_geo_dry*(g0_geo+g1_geo*zsq+g2_geo*zcu)
-     sat_value =  soil%pars%f_iso_sat*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
-                + soil%pars%f_vol_sat*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
-                + soil%pars%f_geo_sat*(g0_geo+g1_geo*zsq+g2_geo*zcu)
-  else
-     dry_value = soil%pars%refl_dry_dir
-     sat_value = soil%pars%refl_sat_dir
-  endif
-  soil_refl_dir  = dry_value              + blend*(sat_value             -dry_value)
-  soil_refl_dif  = soil%pars%refl_dry_dif + blend*(soil%pars%refl_sat_dif-soil%pars%refl_dry_dif)
-  soil_emis      = soil%pars%emis_dry     + blend*(soil%pars%emis_sat    -soil%pars%emis_dry    )
-  soil_refl_lw   = 1 - soil_emis
-
-  call check_var_range(soil_refl_dir(BAND_VIS), 0.0, 1.0, 'soil_radiation', 'soil_refl_dir(VIS)', FATAL)
-  call check_var_range(soil_refl_dir(BAND_NIR), 0.0, 1.0, 'soil_radiation', 'soil_refl_dir(NIR)', FATAL)
-  call check_var_range(soil_refl_dif(BAND_VIS), 0.0, 1.0, 'soil_radiation', 'soil_refl_dif(VIS)', FATAL)
-  call check_var_range(soil_refl_dif(BAND_NIR), 0.0, 1.0, 'soil_radiation', 'soil_refl_dif(NIR)', FATAL)
-end subroutine soil_radiation
 
 
 ! ============================================================================
