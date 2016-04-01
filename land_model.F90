@@ -37,18 +37,18 @@ use land_tracers_mod, only : land_tracers_init, land_tracers_end, ntcana, isphum
 use land_tracer_driver_mod, only: land_tracer_driver_init, land_tracer_driver_end, &
      update_cana_tracers
 use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_temp, &
-     glac_radiation, glac_diffusion, glac_step_1, glac_step_2, save_glac_restart
+     glac_radiation, glac_step_1, glac_step_2, save_glac_restart
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
-     lake_radiation, lake_diffusion, lake_step_1, lake_step_2, save_lake_restart
+     lake_radiation, lake_step_1, lake_step_2, save_lake_restart
 use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
-     soil_radiation, soil_diffusion, soil_step_1, soil_step_2, soil_step_3, &
+     soil_radiation, soil_step_1, soil_step_2, soil_step_3, &
      save_soil_restart
 use soil_carbon_mod, only : read_soil_carbon_namelist, n_c_types
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
-     snow_radiation, snow_diffusion, snow_get_depth_area, snow_step_1, snow_step_2, &
+     snow_radiation, snow_get_depth_area, snow_step_1, snow_step_2, &
      save_snow_restart
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, vegn_get_cover, &
-     vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
+     vegn_radiation, vegn_properties, vegn_step_1, vegn_step_2, vegn_step_3, &
      update_vegn_slow, save_vegn_restart
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, cana_state,&
@@ -57,15 +57,16 @@ use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, cana_state,&
 use river_mod, only : river_init, river_end, update_river, river_stock_pe, &
      save_river_restart, river_tracers_init, num_river_tracers, river_tracer_index
 use topo_rough_mod, only : topo_rough_init, topo_rough_end, update_topo_rough
-use soil_tile_mod, only : soil_tile_stock_pe, soil_tile_heat
+use soil_tile_mod, only : soil_tile_stock_pe, soil_tile_heat, soil_roughness
 use soil_mod, only      : soil_cover_cold_start, retrieve_soil_tags ! moved here
                           ! to eliminate circular dependencies with hillslope mods
 use vegn_tile_mod, only : vegn_cover_cold_start, vegn_data_rs_min, &
      update_derived_vegn_data, vegn_tile_stock_pe, vegn_tile_heat
-use lake_tile_mod, only : lake_cover_cold_start, lake_tile_stock_pe, lake_tile_heat
-use glac_tile_mod, only : glac_pars_type, glac_cover_cold_start, &
-     glac_tile_stock_pe, glac_tile_heat
-use snow_tile_mod, only : snow_tile_stock_pe, snow_tile_heat
+use lake_tile_mod, only : lake_cover_cold_start, lake_tile_stock_pe, &
+     lake_tile_heat, lake_roughness
+use glac_tile_mod, only : glac_cover_cold_start, &
+     glac_tile_stock_pe, glac_tile_heat, glac_roughness
+use snow_tile_mod, only : snow_tile_stock_pe, snow_tile_heat, snow_roughness
 use land_numerics_mod, only : ludcmp, lubksb, &
      horiz_remap_type, horiz_remap_new, horiz_remap, horiz_remap_del, &
      horiz_remap_print
@@ -1528,8 +1529,8 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   if (associated(tile%vegn)) then
   ! Calculate net short-wave radiation input to the vegetation
      RSv    = tile%Sv_dir*ISa_dn_dir + tile%Sv_dif*ISa_dn_dif
-     call soil_diffusion(tile%soil, subs_z0s, subs_z0m)
-     call snow_diffusion(tile%snow, snow_z0s, snow_z0m)
+     call soil_roughness(tile%soil, subs_z0s, subs_z0m)
+     call snow_roughness(tile%snow, snow_z0s, snow_z0m)
      grnd_z0s = exp( (1-snow_area)*log(subs_z0s) + snow_area*log(snow_z0s))
 
      ! cana_co2 is moist mass mixing ratio [kg CO2/kg wet air], convert it to dry
@@ -2531,13 +2532,13 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
 
   if (associated(tile%glac)) then
      call glac_radiation(tile%glac, cosz, subs_refl_dir, subs_refl_dif, subs_refl_lw, grnd_emis)
-     call glac_diffusion(tile%glac, subs_z0s, subs_z0m )
+     call glac_roughness(tile%glac, subs_z0s, subs_z0m )
   else if (associated(tile%lake)) then
      call lake_radiation(tile%lake, cosz, subs_refl_dir, subs_refl_dif, subs_refl_lw, grnd_emis)
-     call lake_diffusion(tile%lake, subs_z0s, subs_z0m )
+     call lake_roughness(tile%lake, subs_z0s, subs_z0m )
   else if (associated(tile%soil)) then
      call soil_radiation(tile%soil, cosz, subs_refl_dir, subs_refl_dif, subs_refl_lw, grnd_emis)
-     call soil_diffusion(tile%soil, subs_z0s, subs_z0m )
+     call soil_roughness(tile%soil, subs_z0s, subs_z0m )
   else
      call get_current_point(face=face)
      call error_mesg('update_land_model_fast','none of the surface tiles exist at ('//&
@@ -2547,7 +2548,7 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
 
   call snow_radiation ( tile%snow%T(1), cosz, snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis)
   call snow_get_depth_area ( tile%snow, snow_depth, snow_area )
-  call snow_diffusion ( tile%snow, snow_z0s, snow_z0m )
+  call snow_roughness ( tile%snow, snow_z0s, snow_z0m )
 
   if (associated(tile%vegn)) then
      call update_derived_vegn_data(tile%vegn)
@@ -2559,7 +2560,9 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
                    vegn_refl_lw, vegn_tran_lw)
      ! (later see if we can remove vegn_cover from c-a-radiation...) TEMPORARY
      call vegn_get_cover ( tile%vegn, snow_depth, vegn_cover)
-     call vegn_diffusion ( tile%vegn, vegn_cover, vegn_height, vegn_lai, vegn_sai, vegn_d_leaf)
+     ! vegn_properties returns integral properties of the canopy, relevant for the
+     ! calculations of the land roughness and displacement
+     call vegn_properties ( tile%vegn, vegn_cover, vegn_height, vegn_lai, vegn_sai, vegn_d_leaf)
   else
      ! set radiative properties for null vegetation
      vegn_refl_dif     = 0

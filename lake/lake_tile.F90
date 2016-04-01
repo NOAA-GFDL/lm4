@@ -36,7 +36,7 @@ public :: read_lake_data_namelist
 public :: lake_cover_cold_start
 
 public :: lake_radiation
-public :: lake_data_diffusion
+public :: lake_roughness
 public :: lake_data_thermodynamics
 
 public :: max_lev
@@ -525,11 +525,10 @@ end subroutine lake_radiation
 
 ! ============================================================================
 ! compute bare-lake roughness
-subroutine lake_data_diffusion ( lake,lake_z0s, lake_z0m )
+subroutine lake_roughness ( lake,lake_z0s, lake_z0m )
   type(lake_tile_type), intent(in)  :: lake
   real,                 intent(out) :: lake_z0s, lake_z0m
 
-  ! ---- surface roughness
   if (lake%ws(1).le.0.) then
       lake_z0s = lake%z0_scalar
       lake_z0m = lake%pars%z0_momentum
@@ -537,7 +536,7 @@ subroutine lake_data_diffusion ( lake,lake_z0s, lake_z0m )
       lake_z0s = lake%z0_scalar_ice
       lake_z0m = lake%pars%z0_momentum_ice
     endif
-end subroutine lake_data_diffusion
+end subroutine lake_roughness
 
 ! ============================================================================
 ! compute lake thermodynamic properties.

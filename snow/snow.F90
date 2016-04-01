@@ -18,7 +18,7 @@ use constants_mod,      only: tfreeze, hlv, hlf, PI
 use land_constants_mod, only : NBANDS
 use snow_tile_mod, only : &
      snow_tile_type, read_snow_data_namelist, &
-     snow_data_thermodynamics, snow_data_area, snow_radiation, snow_data_diffusion, &
+     snow_data_thermodynamics, snow_data_area, snow_radiation, &
      snow_data_hydraulics, max_lev, cpw, clw, csw, use_brdf
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
@@ -40,7 +40,6 @@ public :: save_snow_restart
 public :: snow_get_sfc_temp
 public :: snow_get_depth_area
 public :: snow_radiation
-public :: snow_diffusion
 public :: snow_step_1
 public :: snow_step_2
 ! =====end of public interfaces ==============================================
@@ -241,15 +240,6 @@ subroutine snow_get_depth_area(snow, snow_depth, snow_area)
   call snow_data_area (snow_depth, snow_area )
 end subroutine
 
-! ============================================================================
-! compute snow properties needed to do soil-canopy-atmos energy balance
-subroutine snow_diffusion ( snow, snow_z0s, snow_z0m )
-  type(snow_tile_type), intent(in) :: snow
-  real, intent(out) :: snow_z0s, snow_z0m
-
-  call snow_data_diffusion ( snow_z0s, snow_z0m )
-end subroutine
-
 
 ! ============================================================================
 ! update snow properties explicitly for time step.
@@ -381,7 +371,6 @@ subroutine snow_step_1 ( snow, snow_G_Z, snow_G_TZ, &
   endif
 
 end subroutine snow_step_1
-
 
 
 ! ============================================================================

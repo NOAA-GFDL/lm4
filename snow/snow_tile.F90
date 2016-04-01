@@ -34,7 +34,7 @@ public :: snow_data_thermodynamics
 public :: snow_data_hydraulics
 public :: snow_data_area
 public :: snow_radiation
-public :: snow_data_diffusion
+public :: snow_roughness
 
 public :: max_lev
 public :: cpw, clw, csw
@@ -349,12 +349,13 @@ subroutine snow_radiation ( snow_T, cosz, &
 end subroutine snow_radiation
 
 ! ============================================================================
-subroutine snow_data_diffusion(snow_z0s, snow_z0m)
+subroutine snow_roughness(snow, snow_z0s, snow_z0m)
+  type(snow_tile_type), intent(in) :: snow ! not used
   real, intent(out):: snow_z0s, snow_z0m
 
   snow_z0m =  z0_momentum
   snow_z0s =  z0_momentum * exp(-k_over_B)
-end subroutine snow_data_diffusion
+end subroutine snow_roughness
 
 ! ============================================================================
 subroutine snow_tile_stock_pe (snow, twd_liq, twd_sol  )

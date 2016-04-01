@@ -76,7 +76,7 @@ public :: save_vegn_restart
 
 public :: vegn_get_cover
 public :: vegn_radiation
-public :: vegn_diffusion
+public :: vegn_properties
 
 public :: vegn_step_1
 public :: vegn_step_2
@@ -870,9 +870,9 @@ end subroutine vegn_get_cover
 
 
 ! ============================================================================
-subroutine vegn_diffusion ( vegn, vegn_cover, vegn_height, vegn_lai, vegn_sai, vegn_d_leaf)
+subroutine vegn_properties ( vegn, vegn_cover, vegn_height, vegn_lai, vegn_sai, vegn_d_leaf)
   type(vegn_tile_type), intent(in) :: vegn
-  real,                intent(out) :: &
+  real, intent(out) :: &
        vegn_cover, vegn_height, vegn_lai, vegn_sai, vegn_d_leaf
 
   vegn_cover  = vegn%cohorts(1)%cover
@@ -881,7 +881,7 @@ subroutine vegn_diffusion ( vegn, vegn_cover, vegn_height, vegn_lai, vegn_sai, v
   vegn_height = vegn%cohorts(1)%height
   vegn_d_leaf = vegn%cohorts(1)%leaf_size
 
-end subroutine vegn_diffusion
+end subroutine vegn_properties
 
 
 ! ============================================================================

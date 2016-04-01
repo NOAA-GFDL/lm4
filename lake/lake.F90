@@ -21,7 +21,7 @@ use constants_mod, only: tfreeze, hlv, hlf, dens_h2o, PI, grav, vonkarm, &
 use land_constants_mod, only : NBANDS
 use lake_tile_mod, only : &
      lake_tile_type, read_lake_data_namelist, &
-     lake_radiation, lake_data_diffusion, &
+     lake_radiation, &
      lake_data_thermodynamics, &
      cpw,clw,csw, lake_width_inside_lake, large_lake_sill_width, &
      lake_specific_width, n_outlet, outlet_face, outlet_i, outlet_j, &
@@ -49,7 +49,6 @@ public :: lake_end
 public :: save_lake_restart
 public :: lake_get_sfc_temp
 public :: lake_radiation
-public :: lake_diffusion
 public :: lake_step_1
 public :: lake_step_2
 
@@ -350,14 +349,6 @@ subroutine lake_get_sfc_temp(lake, lake_T)
   lake_T = lake%T(1)
 end subroutine lake_get_sfc_temp
 
-! ============================================================================
-! compute lake-only roughness parameters
-subroutine lake_diffusion ( lake, lake_z0s, lake_z0m )
-  type(lake_tile_type), intent(in) :: lake
-  real, intent(out) :: lake_z0s, lake_z0m
-
-  call lake_data_diffusion ( lake, lake_z0s, lake_z0m )
-end subroutine lake_diffusion
 
 ! ============================================================================
 ! update lake properties explicitly for time step.

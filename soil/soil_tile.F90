@@ -46,7 +46,7 @@ public :: soil_ice_porosity
 public :: soil_ave_ice_porosity
 
 public :: soil_radiation
-public :: soil_data_diffusion
+public :: soil_roughness
 public :: soil_data_thermodynamics
 public :: soil_data_hydraulic_properties
 public :: soil_data_psi_for_rh
@@ -1518,13 +1518,13 @@ end subroutine soil_radiation
 ! ============================================================================
 ! compute bare-soil albedo, bare-soil emissivity, bare-soil roughness
 ! for scalar transport, and beta function
-subroutine soil_data_diffusion ( soil, soil_z0s, soil_z0m )
+subroutine soil_roughness ( soil, soil_z0s, soil_z0m )
   type(soil_tile_type), intent(in)  :: soil
   real,                 intent(out) :: soil_z0s, soil_z0m
 
   soil_z0s = soil%z0_scalar
   soil_z0m = soil%pars%z0_momentum
-end subroutine soil_data_diffusion
+end subroutine soil_roughness
 
 ! ============================================================================
 ! compute soil thermodynamic properties.
