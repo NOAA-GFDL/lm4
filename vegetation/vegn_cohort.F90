@@ -551,6 +551,7 @@ subroutine update_biomass_pools(c)
 
   real :: biomass_N_demand  ! Live biomass in excess of max (used in N limitation system) -- BNS
   real :: x_wood,x_leaf,x_root ! For N-limited biomass distribution
+  real :: potential_stored_N ! N storage if there is no N-caused change in biomass allocation
 
   c%b      = c%bliving + c%bwood;
   c%height = height_from_biomass(c%b);
@@ -559,16 +560,24 @@ subroutine update_biomass_pools(c)
   c%total_N = c%stored_N+c%leaf_N+c%wood_N+c%root_N
   ! Stress increases as stored N declines relative to total biomass N demand
   ! N stress is calculated based on "potential pools" without N limitation
-  biomass_N_demand=(c%bliving*c%Pl/leaf_fast_c2n + c%bliving*c%Pr/froot_fast_c2n + c%bliving*c%Psw/wood_fast_c2n)
+  ! biomass_N_demand=(c%bliving*c%Pl/leaf_fast_c2n + c%bliving*c%Pr/froot_fast_c2n + c%bliving*c%Psw/wood_fast_c2n)
+  ! Elena suggests using 2*(root N + leaf N) as storage target
+  biomass_N_demand=(c%bliving*c%Pl/leaf_fast_c2n + c%bliving*c%Pr/froot_fast_c2n)
+  potential_stored_N = c%total_N - biomass_N_demand - (c%bwood+c%bsw)/wood_fast_c2n
   ! c%nitrogen_stress = biomass_N_demand/c%total_N
 
-  ! Spring physical analogy -- restoring force proportional to distance from equilibrium (equal to demand)
+  ! Spring physical analogy -- restoring force proportional to distance from target (equal to demand*2.0)
   ! Leaving spring constant 1.0 for now
-  if (c%total_N>0.0) then
-    c%nitrogen_stress = -1.0 * ((c%total_N-biomass_N_demand-c%bwood/wood_fast_c2n) - 1.5*biomass_N_demand)/c%total_N
-  else
-    c%nitrogen_stress = 0.0
-  endif
+  ! Stress is normalized by N demand so it's an index that doesn't depend on total biomass
+
+  ! if (c%total_N>0.0) then
+  !  c%nitrogen_stress = -1.0 * ((potential_stored_N) - 2.0*biomass_N_demand)/abs(c%total_N)
+    c%nitrogen_stress = (2.0*biomass_N_demand - potential_stored_N)/abs(biomass_N_demand)
+  ! else
+  !   c%nitrogen_stress = 0.0
+  ! endif
+
+
   ! if(c%total_N > biomass_N_demand) then
   !   c%nitrogen_stress = (biomass_N_demand/(c%total_N-biomass_N_demand-c%bwood/wood_fast_c2n))**1 ! This is demand/storage, constrained to be >0
   !
