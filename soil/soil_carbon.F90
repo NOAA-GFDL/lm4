@@ -158,6 +158,7 @@ real*8					   :: Ea_denitr=37e3				 !Activation energy for uptake of inorganic n
 real*8             :: Vmax_myc_min_N_uptk=365.0    ! Vmax of mycorrhizal uptake of mineral N (year-1)
 real*8             :: k_myc_min_N_uptk=0.01       ! half-saturation constant for mycorrhizal uptake of mineral N (kgC/m3 of mycorrhizal biomass)
 real*8             :: k_myc_decomp=0.01           ! half-saturation constant for mycorrhizal decomposition
+real*8             :: k_conc_myc_min_N_uptk=3e-3       ! half-saturation constant for mycorrhizal uptake of mineral N (kgN/m3 of NO3 or NH4)
 real,dimension(n_c_types) :: vmaxref_myc_decomp=(/4500e0,25e0,600e0/)
 real,dimension(n_c_types) :: vmaxref=(/4e1,1e1,.5e1/)       !Vmax at reference temperature (yr-1)
 real,dimension(n_c_types) :: kC=(/.5,.1,0.05/)              !Michaelis-Menton C parameter (dimensionless)
@@ -230,7 +231,7 @@ namelist /soil_carbon_nml/ &
             N_protected_relative_solubility,&
             DON_deposition_rate,&
             N_limit_scheme,&
-            Vmax_myc_min_N_uptk,k_myc_min_N_uptk,eup_myc,vmaxref_myc_decomp,k_myc_decomp,&
+            Vmax_myc_min_N_uptk,k_myc_min_N_uptk,eup_myc,vmaxref_myc_decomp,k_myc_decomp,k_conc_myc_min_N_uptk,&
             vmaxref_denitrif,k_denitrif,denitrif_first_order,denitrif_NO3_factor
 
 
@@ -1409,10 +1410,10 @@ pure subroutine mycorrhizal_mineral_N_uptake_rate(pool,myc_biomass,layer_thickne
 
 
   ! This is a Michaelis-Menton function of mycorrhizal biomass concentration and total mineral N
-  nitrate_uptake = pool%nitrate*Vmax_myc_min_N_uptk*&
-          (myc_biomass/layer_thickness)/(k_myc_min_N_uptk+myc_biomass/layer_thickness)
-  ammonium_uptake = pool%ammonium*Vmax_myc_min_N_uptk*&
-          (myc_biomass/layer_thickness)/(k_myc_min_N_uptk+myc_biomass/layer_thickness)
+  nitrate_uptake = pool%nitrate/layer_thickness/(pool%nitrate/layer_thickness + k_conc_myc_min_N_uptk)*Vmax_myc_min_N_uptk*&
+          (myc_biomass/layer_thickness)/(k_myc_min_N_uptk+myc_biomass/layer_thickness)*layer_thickness
+  ammonium_uptake = pool%ammonium/layer_thickness/(pool%ammonium/layer_thickness + k_conc_myc_min_N_uptk)*Vmax_myc_min_N_uptk*&
+          (myc_biomass/layer_thickness)/(k_myc_min_N_uptk+myc_biomass/layer_thickness)*layer_thickness
 
 end subroutine mycorrhizal_mineral_N_uptake_rate
 

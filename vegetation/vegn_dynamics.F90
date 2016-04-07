@@ -18,7 +18,7 @@ use vegn_data_mod, only : spdata, &
      leaf_fast_c2n,leaf_slow_c2n,froot_fast_c2n,froot_slow_c2n,wood_fast_c2n,wood_slow_c2n, root_exudate_N_frac,& !x2z - ens: lets get rid of c2n?
      ! BNS: C2N ratios should be temporary fix, which we can get rid of once N is integrated into vegetation code
      root_exudate_frac_max, dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
-     N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer
+     N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, excess_stored_N_leakage_rate
 
 use vegn_tile_mod, only: vegn_tile_type,vegn_tile_carbon
 use soil_tile_mod, only: soil_tile_type,soil_tile_carbon
@@ -161,7 +161,7 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, ndep_nit, ndep_amm, ndep_or
   real :: cgain, closs ! carbon gain and loss accumulated for entire tile
   real :: md_alive, md_leaf, md_wood, md_froot ! component of maintenance demand
   real :: gpp ! gross primary productivity per tile
-  real :: root_exudate_C, total_root_exudate_C, root_exudate_frac
+  real :: root_exudate_C, total_root_exudate_C,root_exudate_N, total_root_exudate_N, root_exudate_frac
   real :: myc_scav_exudate_frac, mycorrhizal_scav_N_immob, myc_mine_exudate_frac, mycorrhizal_mine_N_immob
   real :: myc_scav_N_uptake,total_scavenger_myc_C_allocated,scavenger_myc_C_allocated,total_scav_myc_immob
   real :: myc_mine_N_uptake,myc_mine_C_uptake,total_miner_myc_C_allocated,miner_myc_C_allocated,total_mine_myc_immob,total_myc_mine_C_uptake
@@ -206,6 +206,7 @@ total_myc_mine_C_uptake = 0.0
   resp = 0 ; resl = 0 ; resr = 0 ; resg = 0 ; gpp = 0
   cgain = 0 ; closs = 0
   total_root_exudate_C = 0
+  total_root_exudate_N = 0
   soil%myc_scav_N_uptake = 0
   soil%myc_mine_N_uptake = 0
   soil%symbiotic_N_fixation = 0
@@ -482,6 +483,8 @@ total_myc_mine_C_uptake = 0.0
                        +N_fixation+root_active_N_uptake
      cc%stored_N = cc%stored_N + total_plant_N_uptake - root_exudate_C*root_exudate_N_frac*dt_fast_yr
 
+
+
      if(cc%myc_scavenger_biomass_C<0) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger biomass < 0',FATAL)
      if(cc%myc_miner_biomass_C<0) call error_mesg('vegn_carbon_int','Mycorrhizal miner biomass < 0',FATAL)
      if(cc%N_fixer_biomass_C<0) call error_mesg('vegn_carbon_int','N fixer biomass < 0',FATAL)
@@ -519,8 +522,16 @@ total_myc_mine_C_uptake = 0.0
      if(isnan(cc%myc_miner_biomass_C)) call error_mesg('vegn_carbon_int','Mycorrhizal miner biomass is NaN',FATAL)
      if(isnan(cc%N_fixer_biomass_C)) call error_mesg('vegn_carbon_int','N fixer biomass is NaN',FATAL)
 
+     ! To prevent excess stored N buildup under high soil N, leak stored N when stress is zero
+     root_exudate_N=(root_exudate_C*dt_fast_yr - scavenger_myc_C_allocated - N_fixer_C_allocated - miner_myc_C_allocated)/dt_fast_yr*root_exudate_N_frac
+     if(cc%nitrogen_stress<=0 .AND. cc%stored_N>0) then
+       root_exudate_N = root_exudate_N + cc%stored_N*excess_stored_N_leakage_rate
+       cc%stored_N=cc%stored_N - cc%stored_N*excess_stored_N_leakage_rate*dt_fast_yr
+     endif
+
      ! To do: Figure out excess C if mycorrhizae N-limited and add back to root exudate C
      total_root_exudate_C = total_root_exudate_C + root_exudate_C*dt_fast_yr - scavenger_myc_C_allocated - N_fixer_C_allocated - miner_myc_C_allocated
+     total_root_exudate_N = total_root_exudate_N + root_exudate_N*dt_fast_yr
 
      if(total_root_exudate_C < 0.0) then
          __DEBUG4__(root_exudate_C*dt_fast_yr,scavenger_myc_C_allocated,N_fixer_C_allocated,miner_myc_C_allocated)
@@ -540,7 +551,7 @@ total_myc_mine_C_uptake = 0.0
    enddo
 
    ! fsc_in and ssc_in updated in add_root_exudates
-   call add_root_exudates(soil,vegn,total_root_exudate_C,total_root_exudate_C*root_exudate_N_frac)
+   call add_root_exudates(soil,vegn,total_root_exudate_C,total_root_exudate_N)
 
  if(is_watch_point()) then
      write(*,*),'Total soil C before Dsdt'

@@ -1,6 +1,6 @@
 module nitrogen_sources_mod
 
-#include "../shared/debug.inc"
+#include "shared/debug.inc"
 
 use constants_mod, only : PI
 use time_manager_mod, only : time_type, get_date, operator(/=), operator(-), &

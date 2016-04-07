@@ -61,7 +61,7 @@ use land_tile_io_mod, only : create_tile_out_file, write_tile_data_r0d_fptr,&
      write_tile_data_i1d_fptr_all,read_tile_data_i1d_fptr_all,&
      print_netcdf_error, get_input_restart_name, sync_nc_files, gather_tile_data, assemble_tiles
 use nf_utils_mod, only : nfu_def_dim, nfu_put_att, nfu_inq_var
-use vegn_data_mod, only: K1, K2, root_NH4_uptake_rate, root_NO3_uptake_rate
+use vegn_data_mod, only: K1, K2, root_NH4_uptake_rate, root_NO3_uptake_rate, k_ammonium_root_uptake, k_nitrate_root_uptake
 use vegn_tile_mod, only : vegn_tile_type, vegn_uptake_profile, vegn_hydraulic_properties
 use land_debug_mod, only : is_watch_point, get_current_point, set_current_point, &
     check_var_range, check_conservation, is_watch_cell
@@ -6984,7 +6984,7 @@ subroutine root_N_uptake(soil,vegn,total_N_uptake,dt)
   real,intent(in)::dt
 
   real,dimension(num_l) :: uptake_frac_max, vegn_uptake_term, vrl
-  real::nitrate_uptake,ammonium_uptake
+  real::nitrate_uptake,ammonium_uptake,ammonium_concentration,nitrate_concentration
   integer::nn
 
   real :: K_r,r_r
@@ -6998,8 +6998,14 @@ subroutine root_N_uptake(soil,vegn,total_N_uptake,dt)
   total_N_uptake=0.0
   do nn=1,num_l
     rhizosphere_frac=min(3.141592*((r_rhiz+r_r)**2-r_r**2)*vrl(nn),1.0)
-    ammonium_uptake = soil%soil_organic_matter(nn)%ammonium*rhizosphere_frac*root_NH4_uptake_rate*dt
-    nitrate_uptake = soil%soil_organic_matter(nn)%nitrate*rhizosphere_frac*root_NO3_uptake_rate*dt
+    ammonium_concentration=soil%soil_organic_matter(nn)%ammonium*rhizosphere_frac/dz(nn)
+    ammonium_uptake = ammonium_concentration/(ammonium_concentration+k_ammonium_root_uptake)*root_NH4_uptake_rate*dt*dz(nn)
+    nitrate_concentration=soil%soil_organic_matter(nn)%nitrate*rhizosphere_frac/dz(nn)
+    nitrate_uptake = nitrate_concentration/(nitrate_concentration+k_nitrate_root_uptake)*root_NO3_uptake_rate*dt*dz(nn)
+    if(ammonium_uptake>soil%soil_organic_matter(nn)%ammonium) then
+       __DEBUG5__(nn,rhizosphere_frac,ammonium_concentration,ammonium_uptake,soil%soil_organic_matter(nn)%ammonium)
+      endif
+    if(nitrate_uptake>soil%soil_organic_matter(nn)%nitrate) then; __DEBUG4__(nn,nitrate_concentration,nitrate_uptake,soil%soil_organic_matter(nn)%nitrate); endif
     soil%soil_organic_matter(nn)%ammonium=soil%soil_organic_matter(nn)%ammonium-ammonium_uptake
     soil%soil_organic_matter(nn)%nitrate=soil%soil_organic_matter(nn)%nitrate-nitrate_uptake
     total_N_uptake = total_N_uptake + ammonium_uptake + nitrate_uptake
@@ -7028,6 +7034,9 @@ subroutine myc_scavenger_N_uptake(soil,vegn,myc_biomass,total_N_uptake,dt)
     ammonium_uptake = min(ammonium_uptake,soil%soil_organic_matter(nn)%ammonium/dt)
     nitrate_uptake = min(nitrate_uptake,soil%soil_organic_matter(nn)%nitrate/dt)
     total_N_uptake=total_N_uptake+(ammonium_uptake+nitrate_uptake)*dt
+
+    if(ammonium_uptake*dt>soil%soil_organic_matter(nn)%ammonium) then; __DEBUG2__(ammonium_uptake*dt,soil%soil_organic_matter(nn)%ammonium); endif
+    if(nitrate_uptake*dt>soil%soil_organic_matter(nn)%nitrate) then; __DEBUG2__(nitrate_uptake*dt,soil%soil_organic_matter(nn)%nitrate); endif
 
     soil%soil_organic_matter(nn)%ammonium=soil%soil_organic_matter(nn)%ammonium-ammonium_uptake*dt
     soil%soil_organic_matter(nn)%nitrate=soil%soil_organic_matter(nn)%nitrate-nitrate_uptake*dt
