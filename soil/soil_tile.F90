@@ -2030,7 +2030,7 @@ function soil_tile_heat (soil) result(heat) ; real heat
           clw*soil%groundwater(i)*(soil%groundwater_T(i)-tfreeze) - &
           hlf*soil%ws(i)
   enddo
-end function
+end function soil_tile_heat
 
 ! ============================================================================
 ! returns soil tile carbon content, kg C/m2
@@ -2056,6 +2056,6 @@ function soil_tile_carbon (soil); real soil_tile_carbon
   case default
      soil_tile_carbon = sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:))
   end select
-end function
+end function soil_tile_carbon
 
 end module soil_tile_mod

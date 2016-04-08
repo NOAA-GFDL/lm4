@@ -160,15 +160,15 @@ subroutine log_version(version, modname, filename, tag, unit)
   character(len=*), intent(in), optional :: &
           modname, filename, tag
   integer, intent(in), optional :: unit
-  
+
   character(512) :: message
   integer :: i
   message=''
-  
+
   if (present(filename)) then
      ! remove the directory part of the name
      i = scan(filename,'/',back=.true.)
-     
+
      message = trim(filename(i+1:))
   endif
   if (present(modname)) then

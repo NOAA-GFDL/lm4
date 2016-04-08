@@ -794,12 +794,12 @@ ENDIF  !************************************************************************
   call send_tile_data (id_lwc,  glac%wl(1:num_l)/dz(1:num_l), diag )
   call send_tile_data (id_swc,  glac%ws(1:num_l)/dz(1:num_l), diag )
   if (.not.lm2) then
-  call send_tile_data (id_ie,   lrunf_ie,        diag )
-  call send_tile_data (id_sn,   lrunf_sn,        diag )
-  call send_tile_data (id_bf,   lrunf_bf,        diag )
-  call send_tile_data (id_hie,  hlrunf_ie,       diag )
-  call send_tile_data (id_hsn,  hlrunf_sn,       diag )
-  call send_tile_data (id_hbf,  hlrunf_bf,       diag )
+     call send_tile_data (id_ie,   lrunf_ie,        diag )
+     call send_tile_data (id_sn,   lrunf_sn,        diag )
+     call send_tile_data (id_bf,   lrunf_bf,        diag )
+     call send_tile_data (id_hie,  hlrunf_ie,       diag )
+     call send_tile_data (id_hsn,  hlrunf_sn,       diag )
+     call send_tile_data (id_hbf,  hlrunf_bf,       diag )
   endif
 
 end subroutine glac_step_2
@@ -834,20 +834,20 @@ subroutine glac_diag_init ( id_lon, id_lat, zfull, zhalf )
        lnd%time, 'bulk density of solid water', 'kg/m3',  missing_value=-100.0 )
   id_temp  = register_tiled_diag_field ( module_name, 'glac_T',  axes,       &
        lnd%time, 'temperature',            'degK',  missing_value=-100.0 )
-if (.not.lm2) then
-  id_ie  = register_tiled_diag_field ( module_name, 'glac_rie',  axes(1:2),  &
-       lnd%time, 'inf exc runf',            'kg/(m2 s)',  missing_value=-100.0 )
-  id_sn  = register_tiled_diag_field ( module_name, 'glac_rsn',  axes(1:2),  &
-       lnd%time, 'satn runf',            'kg/(m2 s)',  missing_value=-100.0 )
-  id_bf  = register_tiled_diag_field ( module_name, 'glac_rbf',  axes(1:2),  &
-       lnd%time, 'baseflow',            'kg/(m2 s)',  missing_value=-100.0 )
-  id_hie  = register_tiled_diag_field ( module_name, 'glac_hie',  axes(1:2), &
-       lnd%time, 'heat ie runf',            'W/m2',  missing_value=-100.0 )
-  id_hsn  = register_tiled_diag_field ( module_name, 'glac_hsn',  axes(1:2), &
-       lnd%time, 'heat sn runf',            'W/m2',  missing_value=-100.0 )
-  id_hbf  = register_tiled_diag_field ( module_name, 'glac_hbf',  axes(1:2), &
-       lnd%time, 'heat bf runf',            'W/m2',  missing_value=-100.0 )
-endif
+  if (.not.lm2) then
+     id_ie  = register_tiled_diag_field ( module_name, 'glac_rie',  axes(1:2),  &
+          lnd%time, 'inf exc runf',            'kg/(m2 s)',  missing_value=-100.0 )
+     id_sn  = register_tiled_diag_field ( module_name, 'glac_rsn',  axes(1:2),  &
+          lnd%time, 'satn runf',            'kg/(m2 s)',  missing_value=-100.0 )
+     id_bf  = register_tiled_diag_field ( module_name, 'glac_rbf',  axes(1:2),  &
+          lnd%time, 'baseflow',            'kg/(m2 s)',  missing_value=-100.0 )
+     id_hie  = register_tiled_diag_field ( module_name, 'glac_hie',  axes(1:2), &
+          lnd%time, 'heat ie runf',            'W/m2',  missing_value=-100.0 )
+     id_hsn  = register_tiled_diag_field ( module_name, 'glac_hsn',  axes(1:2), &
+          lnd%time, 'heat sn runf',            'W/m2',  missing_value=-100.0 )
+     id_hbf  = register_tiled_diag_field ( module_name, 'glac_hbf',  axes(1:2), &
+          lnd%time, 'heat bf runf',            'W/m2',  missing_value=-100.0 )
+  endif
 
 end subroutine glac_diag_init
 

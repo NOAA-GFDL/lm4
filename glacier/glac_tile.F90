@@ -225,7 +225,7 @@ subroutine read_glac_data_namelist(glac_n_lev, glac_dz)
 #endif
   unit=stdlog()
   write (unit, nml=glac_data_nml)
-  
+
   ! register selectors for tile-specific diagnostics
   do i=1, n_dim_glac_types
      call register_tile_selector(tile_names(i), long_name='',&

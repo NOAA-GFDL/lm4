@@ -418,7 +418,6 @@ subroutine cana_state ( cana, cana_T, cana_q, cana_co2 )
   if (present(cana_T))   cana_T   = cana%T
   if (present(cana_q))   cana_q   = cana%tr(isphum)
   if (present(cana_co2)) cana_co2 = cana%tr(ico2)
-
 end subroutine
 
 ! ============================================================================

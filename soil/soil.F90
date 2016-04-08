@@ -2330,7 +2330,7 @@ end subroutine soil_step_1
         dTr_s = 0.
         dTr_g(num_l) = 1.
         l = num_l
-        ziph = sum(dz)
+        ziph = sum(dz(1:num_l))
         zimh = ziph - dz(num_l)
         if (depth_to_gw_flow .lt. zimh) then
            dTR_g(l) = dz(l)
@@ -2648,7 +2648,7 @@ end subroutine soil_step_1
      macro_inf = min(lrunf_ie*delta_time,sum_air*dens_h2o)
      tflow = tfreeze + hlrunf_ie/(clw*lrunf_ie)
      if (sum_air.gt.0.) then
-        denom = sum(air_depth*macro_frac/dz)
+        denom = sum(air_depth*macro_frac/dz(1:num_l))
         ! tentatively distribute macropore infiltration in proportion
         ! to available pore volume and macropore density
         do l= 1, num_l
@@ -4349,7 +4349,6 @@ subroutine add_root_exudates(soil,vegn,exudateC)
            call debug_pool(soil%soil_C(nn),'soil_C(nn) after ')
         endif
     enddo
-
 
 end subroutine add_root_exudates
 

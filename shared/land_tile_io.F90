@@ -402,12 +402,12 @@ subroutine add_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr,longname,units)
      allocate(data(size(restart%tidx),n))
      call gather_tile_data_r1d(fptr,restart%tidx,data)
      ! checking name of the dimension here is a dirty trick, which is sure to
-     ! bite us in the future, but it is necessary because fms_io has no way to 
-     ! figure out what the additional dimension of the variable is. A better way 
-     ! to fix that is to rewrite fms_io so that it allows to specify the dimensions 
+     ! bite us in the future, but it is necessary because fms_io has no way to
+     ! figure out what the additional dimension of the variable is. A better way
+     ! to fix that is to rewrite fms_io so that it allows to specify the dimensions
      ! of the variable in a sane way.
      if (trim(zdim)=='soilCCohort') then
-        ! write (*,*) 'writing "',trim(varname),'" with C_CC' 
+        ! write (*,*) 'writing "',trim(varname),'" with C_CC'
         id_restart = register_restart_field(restart%rhandle, restart%basename, varname, data, &
              compressed=.true., longname=longname, units=units, restart_owns_data=.true., &
              compressed_axis='C_CC')
@@ -460,12 +460,12 @@ subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index,longname,
         enddo
      enddo
      ! checking name of the dimension here is a dirty trick, which is sure to
-     ! bite us in the future, but it is necessary because fms_io has no way to 
-     ! figure out what the additional dimension of the variable is. A better way 
-     ! to fix that is to rewrite fms_io so that it allows to specify the dimensions 
+     ! bite us in the future, but it is necessary because fms_io has no way to
+     ! figure out what the additional dimension of the variable is. A better way
+     ! to fix that is to rewrite fms_io so that it allows to specify the dimensions
      ! of the variable in a sane way.
      if (trim(zdim)=='soilCCohort') then
-        ! write (*,*) 'writing "',trim(varname),'" with C_CC' 
+        ! write (*,*) 'writing "',trim(varname),'" with C_CC'
         id_restart = register_restart_field(restart%rhandle, restart%basename, varname, data, &
              compressed=.true., longname=longname, units=units, restart_owns_data=.true., &
              compressed_axis='C_CC')
