@@ -1,24 +1,24 @@
 module river_type_mod
 !-----------------------------------------------------------------------
-!                   GNU General Public License                        
-!                                                                      
-! This program is free software; you can redistribute it and/or modify it and  
-! are expected to follow the terms of the GNU General Public License  
-! as published by the Free Software Foundation; either version 2 of   
-! the License, or (at your option) any later version.                 
-!                                                                      
-! MOM is distributed in the hope that it will be useful, but WITHOUT    
-! ANY WARRANTY; without even the implied warranty of MERCHANTABILITY  
-! or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public    
-! License for more details.                                           
-!                                                                      
-! For the full text of the GNU General Public License,                
-! write to: Free Software Foundation, Inc.,                           
-!           675 Mass Ave, Cambridge, MA 02139, USA.                   
-! or see:   http://www.gnu.org/licenses/gpl.html                      
+!                   GNU General Public License
+!
+! This program is free software; you can redistribute it and/or modify it and
+! are expected to follow the terms of the GNU General Public License
+! as published by the Free Software Foundation; either version 2 of
+! the License, or (at your option) any later version.
+!
+! MOM is distributed in the hope that it will be useful, but WITHOUT
+! ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+! or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+! License for more details.
+!
+! For the full text of the GNU General Public License,
+! write to: Free Software Foundation, Inc.,
+!           675 Mass Ave, Cambridge, MA 02139, USA.
+! or see:   http://www.gnu.org/licenses/gpl.html
 !-----------------------------------------------------------------------
-! <CONTACT EMAIL="klf@@gfdl.noaa.gov"> Kirsten Findell </CONTACT> 
-! <CONTACT EMAIL="z1l@@gfdl.noaa.gov"> Zhi Liang </CONTACT> 
+! <CONTACT EMAIL="klf@@gfdl.noaa.gov"> Kirsten Findell </CONTACT>
+! <CONTACT EMAIL="z1l@@gfdl.noaa.gov"> Zhi Liang </CONTACT>
 
   use time_manager_mod, only : time_type
 
@@ -26,8 +26,8 @@ module river_type_mod
   private
 
 !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id$'
-  character(len=128) :: tagname = '$Name$'
+#include "../shared/version_variable.inc"
+character(len=*), parameter :: tagname = '$Name$'
 
 !--- public interface ------------------------------------------------
   public :: river_type, Leo_Mad_trios
@@ -44,16 +44,16 @@ module river_type_mod
      real, dimension(:,:),      pointer :: landfrac      => NULL()
      logical, dimension(:,:),   pointer :: mask          => NULL()
      real, dimension(:,:),      pointer :: land_area     => NULL()
-     integer, dimension(:,:),   pointer :: basinid       => NULL() 
+     integer, dimension(:,:),   pointer :: basinid       => NULL()
      integer, dimension(:,:),   pointer :: tocell        => NULL()
      integer, dimension(:,:),   pointer :: travel        => NULL()
      integer, dimension(:,:),   pointer :: i_tocell      => NULL()
      integer, dimension(:,:),   pointer :: j_tocell      => NULL()
-     real, dimension(:,:),      pointer :: storage       => NULL()     
-     real, dimension(:,:),      pointer :: stordis       => NULL()     
+     real, dimension(:,:),      pointer :: storage       => NULL()
+     real, dimension(:,:),      pointer :: stordis       => NULL()
      real, dimension(:,:),      pointer :: run_stor      => NULL()  ! runoff storage
-     real, dimension(:,:,:),    pointer :: storage_c     => NULL()     
-     real, dimension(:,:,:),    pointer :: stordis_c     => NULL()     
+     real, dimension(:,:,:),    pointer :: storage_c     => NULL()
+     real, dimension(:,:,:),    pointer :: stordis_c     => NULL()
      real, dimension(:,:,:),    pointer :: run_stor_c    => NULL()  ! tracer runoff storage
      real, dimension(:,:),      pointer :: inflow        => NULL()
      real, dimension(:,:,:),    pointer :: inflow_c      => NULL()

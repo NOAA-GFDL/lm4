@@ -9,10 +9,9 @@ private
 public :: qscomp
 
 ! ==== module constants ======================================================
-character(len=*), private, parameter :: &
-   version = '$Id$', &
-   tagname = '$Name$' ,&
-   module_name = 'vegn'
+#include "../shared/version_variable.inc"
+character(len=*), parameter :: tagname     = '$Name$'
+
 real, parameter :: d622 = rdgas/rvgas
 real, parameter :: d378 = 1.0-d622
 real, parameter :: del_temp = 0.1 ! temperature increment for q_sat derivative calc.
@@ -39,7 +38,7 @@ subroutine qscomp(T, p, qsat, DqsatDT )
   ! if requested, calculate the derivative of qsat w.r.t. temperature
   if (present(DqsatDT)) then
      call escomp(T+del_temp,esat)
-     DqsatDT = (d622*esat/(p-d378*esat)-qsat)/del_temp 
+     DqsatDT = (d622*esat/(p-d378*esat)-qsat)/del_temp
   endif
 end subroutine qscomp
 

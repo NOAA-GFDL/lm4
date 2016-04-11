@@ -5,16 +5,15 @@ use mpp_mod, only: input_nml_file
 #else
 use fms_mod, only: open_namelist_file
 #endif
-
-use fms_mod, only: &
-     error_mesg, file_exist, check_nml_error, stdlog, write_version_number, &
+use constants_mod, only: PI
+use fms_mod, only: error_mesg, file_exist, check_nml_error, stdlog, &
      close_file, mpp_pe, mpp_npes, mpp_root_pe, string, FATAL, WARNING, NOTE
 use time_manager_mod, only : &
      time_type, get_date, set_date, operator(<=), operator(>=)
-use grid_mod, only: &
-     get_grid_ntiles
+use grid_mod, only: get_grid_ntiles
+use land_data_mod, only: lnd, log_version
 
-! NOTE TO SELF: the "!$" sentinels are not comments: they are compiled if OpenMP 
+! NOTE TO SELF: the "!$" sentinels are not comments: they are compiled if OpenMP
 ! support is turned on
 !$ use omp_lib, only: OMP_GET_MAX_THREADS, OMP_GET_THREAD_NUM
 
@@ -60,18 +59,12 @@ public :: water_cons_tol
 public :: carbon_cons_tol
 public :: do_check_conservation
 
-public :: land_time
 ! ==== module constants ======================================================
-character(len=*), parameter, private   :: &
-    module_name = 'land_debug',&
-    version     = '$Id$',&
-    tagname     = '$Name$'
+character(len=*), parameter :: module_name = 'land_debug'
+#include "../shared/version_variable.inc"
+character(len=*), parameter :: tagname     = '$Name$'
 
 ! ==== module variables ======================================================
-! land time is kept here because debug stuff uses it, and importing it
-! from land_data module would create circular dependencies
-type(time_type)      :: land_time
-
 integer, allocatable :: current_debug_level(:)
 integer :: mosaic_tile = 0
 integer, allocatable :: curr_i(:), curr_j(:), curr_k(:)
@@ -79,18 +72,18 @@ type(time_type)      :: start_watch_time, stop_watch_time
 character(128) :: fixed_format
 
 !---- namelist ---------------------------------------------------------------
-integer :: watch_point(4)=(/0,0,0,1/) ! coordinates of the point of interest, 
+integer :: watch_point(4)=(/0,0,0,1/) ! coordinates of the point of interest,
            ! i,j,tile,mosaic_tile
 integer :: start_watching(6) = (/    1, 1, 1, 0, 0, 0 /)
 integer :: stop_watching(6)  = (/ 9999, 1, 1, 0, 0, 0 /)
 real    :: temp_lo = 120.0 ! lower limit of "reasonable" temperature range, deg K
 real    :: temp_hi = 373.0 ! upper limit of "reasonable" temperature range, deg K
-logical :: print_hex_debug = .FALSE. ! if TRUE, hex representation of debug 
+logical :: print_hex_debug = .FALSE. ! if TRUE, hex representation of debug
            ! values is also printed
 integer :: label_len = 12  ! minimum length of text labels for debug output
-logical :: trim_labels = .FALSE. ! if TRUE, the length of text labels in debug 
-           ! printout is never allowed to exceed label_len, resulting in 
-           ! trimming of the labels. Set it to TRUE to match earlier debug 
+logical :: trim_labels = .FALSE. ! if TRUE, the length of text labels in debug
+           ! printout is never allowed to exceed label_len, resulting in
+           ! trimming of the labels. Set it to TRUE to match earlier debug
            ! printout
 namelist/land_debug_nml/ watch_point, &
    start_watching, stop_watching, &
@@ -98,8 +91,8 @@ namelist/land_debug_nml/ watch_point, &
    print_hex_debug, label_len, trim_labels
 
 logical :: do_check_conservation = .FALSE.
-real    :: water_cons_tol  = 1e-11 ! tolerance of water conservation checks 
-real    :: carbon_cons_tol = 1e-13 ! tolerance of carbon conservation checks  
+real    :: water_cons_tol  = 1e-11 ! tolerance of water conservation checks
+real    :: carbon_cons_tol = 1e-13 ! tolerance of carbon conservation checks
 namelist/land_conservation_nml/ do_check_conservation, water_cons_tol, carbon_cons_tol
 
 contains
@@ -110,8 +103,8 @@ subroutine land_debug_init()
   integer :: unit, ierr, io, ntiles
   integer :: max_threads
 
-  call write_version_number(version, tagname)
-  
+  call log_version(version, module_name, __FILE__, tagname)
+
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=land_debug_nml, iostat=io)
   ierr = check_nml_error(io, 'land_debug_nml')
@@ -120,7 +113,7 @@ subroutine land_debug_init()
 #else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
-     ierr = 1;  
+     ierr = 1;
      do while (ierr /= 0)
         read (unit, nml=land_debug_nml, iostat=io, end=10)
         ierr = check_nml_error (io, 'land_debug_nml')
@@ -128,7 +121,7 @@ subroutine land_debug_init()
 10   continue
      call close_file (unit)
      unit = open_namelist_file()
-     ierr = 1;  
+     ierr = 1;
      do while (ierr /= 0)
         read (unit, nml=land_conservation_nml, iostat=io, end=11)
         ierr = check_nml_error (io, 'land_conservation_nml')
@@ -143,12 +136,12 @@ subroutine land_debug_init()
      write(unit, nml=land_conservation_nml)
   endif
 
-  ! set number of our mosaic tile 
+  ! set number of our mosaic tile
   call get_grid_ntiles('LND',ntiles)
   mosaic_tile = ntiles*mpp_pe()/mpp_npes() + 1  ! assumption
 
   ! set number of threads and allocate by-thread arrays
-    max_threads = 1  
+    max_threads = 1
 !$  max_threads = OMP_GET_MAX_THREADS()
   allocate(curr_i(max_threads),curr_j(max_threads),curr_k(max_threads))
   allocate(current_debug_level(max_threads))
@@ -230,8 +223,8 @@ integer function current_face() ; current_face = mosaic_tile ; end function
 ! ============================================================================
 function is_watch_time()
    logical :: is_watch_time
-   is_watch_time = land_time >= start_watch_time &
-             .and. land_time <= stop_watch_time
+   is_watch_time = lnd%time >= start_watch_time &
+             .and. lnd%time <= stop_watch_time
 end function is_watch_time
 
 ! ============================================================================
@@ -299,10 +292,12 @@ subroutine check_var_range_0d(value, lo, hi, tag, varname, severity)
   else
      thread = 1
 !$   thread = OMP_GET_THREAD_NUM()+1
-     call get_date(land_time,y,mo,d,h,m,s)
-     write(message,'(a,g23.16,4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
+     call get_date(lnd%time,y,mo,d,h,m,s)
+     write(message,'(a,g23.16,2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
           trim(varname)//' out of range: value=', value,&
-	  'at i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
+	  'at lon=',lnd%lon(curr_i(thread),curr_j(thread))*180.0/PI, &
+	  'lat=',lnd%lat(curr_i(thread),curr_j(thread))*180.0/PI, &
+	  'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
           'time=',y,mo,d,h,m,s
      call error_mesg(trim(tag),message,severity)
   endif
@@ -333,7 +328,7 @@ end subroutine check_var_range_1d
 subroutine debug_printout_r0d(description,value)
   character(*), intent(in) :: description
   real        , intent(in) :: value
-  
+
   if (trim_labels.or.len_trim(description)<label_len) then
      write(*,fixed_format,advance='NO')trim(description),value
   else
@@ -346,7 +341,7 @@ end subroutine
 subroutine debug_printout_i0d(description,value)
   character(*), intent(in) :: description
   integer     , intent(in) :: value
-  
+
   if (trim_labels.or.len_trim(description)<label_len) then
      write(*,fixed_format,advance='NO')trim(description),value
   else
@@ -358,7 +353,7 @@ end subroutine
 subroutine debug_printout_l0d(description,value)
   character(*), intent(in) :: description
   logical     , intent(in) :: value
-  
+
   if (trim_labels.or.len_trim(description)<label_len) then
      write(*,fixed_format,advance='NO')trim(description),value
   else
@@ -370,7 +365,7 @@ end subroutine
 subroutine debug_printout_r1d(description,values)
   character(*), intent(in) :: description
   real        , intent(in) :: values(:)
-  
+
   integer :: i
 
   if (trim_labels.or.len_trim(description)<label_len) then
@@ -387,7 +382,7 @@ end subroutine
 subroutine debug_printout_i1d(description,values)
   character(*), intent(in) :: description
   integer     , intent(in) :: values(:)
-  
+
   integer :: i
 
   if (trim_labels.or.len_trim(description)<label_len) then
@@ -395,12 +390,12 @@ subroutine debug_printout_i1d(description,values)
   else
      write(*,'(x,a,99g23.16)',advance='NO')trim(description),values
   endif
-end subroutine 
+end subroutine
 
 subroutine debug_printout_r2d(description,values)
   character(*), intent(in) :: description
   real        , intent(in) :: values(:,:)
-  
+
   if (trim_labels.or.len_trim(description)<label_len) then
      write(*,fixed_format,advance='NO')trim(description),values
   else
@@ -428,7 +423,7 @@ subroutine check_conservation(tag, substance, d1, d2, tolerance, severity)
   integer :: severity_
 
   if(.not.do_check_conservation) return
-  
+
   severity_=FATAL
   if (present(severity))severity_=severity
 
@@ -442,13 +437,15 @@ subroutine check_conservation(tag, substance, d1, d2, tolerance, severity)
   else
      thread = 1
 !$   thread = OMP_GET_THREAD_NUM()+1
-     call get_date(land_time,y,mo,d,h,m,s)
-     write(message,'(3(x,a,g23.16),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
+     call get_date(lnd%time,y,mo,d,h,m,s)
+     write(message,'(3(x,a,g23.16),2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
           'conservation of '//trim(substance)//' is violated; before=', d1, 'after=', d2, 'diff=',d2-d1,&
-          'at i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
+	  'at lon=',lnd%lon(curr_i(thread),curr_j(thread))*180.0/PI, &
+	  'lat=',lnd%lat(curr_i(thread),curr_j(thread))*180.0/PI, &
+          'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
           'time=',y,mo,d,h,m,s
      call error_mesg(tag,message,severity_)
   endif
-end subroutine 
+end subroutine
 
 end module land_debug_mod

@@ -24,10 +24,9 @@ public :: update_fuel
 ! =====end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: &
-     version = '$Id$', &
-     tagname = '$Name$', &
-     module_name = 'vegn_disturbance_mod'
+character(len=*), parameter :: module_name = 'vegn_disturbance_mod'
+#include "../shared/version_variable.inc"
+character(len=*), parameter :: tagname     = '$Name$'
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -35,7 +34,7 @@ subroutine vegn_disturbance(vegn, soil, dt)
   type(vegn_tile_type), intent(inout) :: vegn ! vegetation data
   type(soil_tile_type), intent(inout) :: soil ! soil data
   real, intent(in) :: dt ! time since last disturbance calculations, s
-  
+
 
   real, parameter :: BMIN = 1e-10; ! should be the same as in growth function
   ! ---- local vars
@@ -52,22 +51,22 @@ subroutine vegn_disturbance(vegn, soil, dt)
   deltat = dt/seconds_per_year ! convert time interval to years
 
   !  Disturbance Rates
-  precip=vegn%p_ann*86400*365; 
+  precip=vegn%p_ann*86400*365;
   drought_month = vegn%lambda;
   vegn%disturbance_rate(0) = 0.0;
   vegn%disturbance_rate(1) = 0.0;
-  
+
   call calculate_patch_disturbance_rates(vegn)
-   
+
   ! Fire disturbance implicitly, i.e.  not patch creating
   vegn%area_disturbed_by_fire = (1.0-exp(-vegn%disturbance_rate(1)*deltat));
-  
-  do i = 1,vegn%n_cohorts   
+
+  do i = 1,vegn%n_cohorts
      cc => vegn%cohorts(i)
      sp = cc%species
 
-     fraction_lost = 1.0-exp(-vegn%disturbance_rate(1)*deltat);	
-      
+     fraction_lost = 1.0-exp(-vegn%disturbance_rate(1)*deltat);
+
      ! "dead" biomass : wood + sapwood
      delta = (cc%bwood+cc%bsw)*fraction_lost;
      select case (soil_carbon_option)
@@ -86,12 +85,12 @@ subroutine vegn_disturbance(vegn, soil, dt)
      case default
         call error_mesg('vegn_disturbance','soil_carbon_option is invalid. This should never happen. Contact developer.', FATAL)
      end select
-     
+
      cc%bwood = cc%bwood * (1-fraction_lost);
      cc%bsw   = cc%bsw   * (1-fraction_lost);
-      
+
      vegn%csmoke_pool = vegn%csmoke_pool + spdata(sp)%smoke_fraction*delta;
-      
+
      ! for budget tracking - temporarily not keeping wood and the rest separately,ens
      !      soil%ssc_in(1)+=delta*(1.0-spdata(sp)%smoke_fraction)*(1-fsc_wood); */
      !      soil%fsc_in(1)+=delta*(1.0-spdata(sp)%smoke_fraction)*fsc_wood; */
@@ -100,7 +99,7 @@ subroutine vegn_disturbance(vegn, soil, dt)
         !     soil%fsc_in(1)+=cc%bsw*fraction_lost *(1.0-spdata(sp)%smoke_fraction);
      endif
      vegn%veg_out = vegn%veg_out+delta;
-      
+
      !"alive" biomass: leaves, roots, and virtual pool
      delta = (cc%bl+cc%blv+cc%br)*fraction_lost;
      select case (soil_carbon_option)
@@ -121,29 +120,29 @@ subroutine vegn_disturbance(vegn, soil, dt)
      case default
         call error_mesg('vegn_disturbance','soil_carbon_option is invalid. This should never happen. Contact developer.', FATAL)
      end select
-      
+
      cc%bl  = cc%bl  * (1-fraction_lost);
      cc%blv = cc%blv * (1-fraction_lost);
      cc%br  = cc%br  * (1-fraction_lost);
-      
+
      vegn%csmoke_pool = vegn%csmoke_pool + spdata(sp)%smoke_fraction*delta;
-      
+
      vegn%veg_out = vegn%veg_out+delta;
-      
+
      !"living" biomass:leaves, roots and sapwood
      delta = cc%bliving*fraction_lost;
      cc%bliving = cc%bliving - delta;
 
      if(cc%bliving < BMIN) then
-        ! remove vegetaion competely 	      
+        ! remove vegetaion competely
         select case (soil_carbon_option)
         case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
            soil%fast_soil_C(1) = soil%fast_soil_C(1) + fsc_liv*cc%bliving+ fsc_wood*cc%bwood;
            soil%slow_soil_C(1) = soil%slow_soil_C(1) + (1.- fsc_liv)*cc%bliving+ (1-fsc_wood)*cc%bwood;
-        
+
            soil%fsc_in(1) = soil%fsc_in(1) + cc%bwood+cc%bliving;
         case (SOILC_CORPSE)
-           ! remove vegetation competely 	      
+           ! remove vegetation competely
            new_fast_C_ag=fsc_liv*(cc%bl+cc%blv+cc%bsw*agf_bs) + fsc_wood*(cc%bwood)*agf_bs
            new_slow_C_ag=(1-fsc_liv)*(cc%bl+cc%blv+cc%bsw*agf_bs) + (1-fsc_wood)*(cc%bwood)*agf_bs
            new_fast_C_bg=fsc_froot*cc%br+fsc_liv*cc%bsw*(1-agf_bs) + fsc_wood*cc%bwood*(1-agf_bs)
@@ -163,7 +162,7 @@ subroutine vegn_disturbance(vegn, soil, dt)
            call error_mesg('vegn_disturbance','soil_carbon_option is invalid. This should never happen. Contact developer.', FATAL)
         end select
         vegn%veg_out = vegn%veg_out + cc%bwood+cc%bliving;
-        
+
         cc%bliving = 0.;
         cc%bwood   = 0.;
      endif
@@ -189,21 +188,21 @@ subroutine calculate_patch_disturbance_rates(vegn)
 #else
 
   ! lambda is the number of drought months;
-  fire_prob = vegn%lambda/(1.+vegn%lambda); 
+  fire_prob = vegn%lambda/(1.+vegn%lambda);
   ! compute average fuel during fire months
   if (vegn%lambda > 0.00001 ) fuel = fuel/vegn%lambda;
   vegn%disturbance_rate(1) = fuel * fire_prob;
 
   ! put a threshold for very dry years for warm places
   if (vegn%t_ann > 273.16 .and. vegn%lambda > 3.)  vegn%disturbance_rate(1)=0.33;
-#endif  
-  
+#endif
+
   if(vegn%disturbance_rate(1) > 0.33) vegn%disturbance_rate(1)=0.33;
-  
+
   ! this is only true for the one cohort per patch case
   vegn%disturbance_rate(0) = spdata(vegn%cohorts(1)%species)%treefall_disturbance_rate;
   vegn%total_disturbance_rate = vegn%disturbance_rate(1)+vegn%disturbance_rate(0);
-  
+
   vegn%fuel = fuel;
 end subroutine calculate_patch_disturbance_rates
 
@@ -218,7 +217,7 @@ function fire(vegn) result(fireterm)
 
   fireterm = 0
   precip_av = vegn%p_ann * seconds_per_year;
-!!$  vegn%ignition_rate = 0.00;             
+!!$  vegn%ignition_rate = 0.00;
   vegn%fuel = vegn%total_biomass;
 
   if(vegn%fuel>0.0) then
@@ -235,7 +234,7 @@ subroutine update_fuel(vegn, wilt)
   real, intent(in) :: wilt ! ratio of wilting to saturated water content
 
   ! ---- local constants
-  !  these three used to be in data 
+  !  these three used to be in data
   real, parameter :: fire_height_threashold = 100;
   real, parameter :: fp1 = 1.; ! disturbance rate per kgC/m2 of fuel
   ! ---- local vars
@@ -245,9 +244,9 @@ subroutine update_fuel(vegn, wilt)
   real ::  babove;
   integer :: i
 
-  do i = 1,vegn%n_cohorts   
+  do i = 1,vegn%n_cohorts
      cc => vegn%cohorts(i)
-     ! calculate theta_crit: actually either fact_crit_fire or cnst_crit_fire 
+     ! calculate theta_crit: actually either fact_crit_fire or cnst_crit_fire
      ! is zero, enforced by logic in the vegn_data.F90
      theta_crit = spdata(cc%species)%cnst_crit_fire &
            + wilt*spdata(cc%species)%fact_crit_fire
@@ -257,12 +256,12 @@ subroutine update_fuel(vegn, wilt)
           .and.(vegn%tsoil_av > 278.16)) then
         babove = cc%bl + agf_bs * (cc%bsw + cc%bwood + cc%blv);
         ! this is fuel available durng the drought months only
-        vegn%fuel = vegn%fuel + spdata(cc%species)%fuel_intensity*babove;	
+        vegn%fuel = vegn%fuel + spdata(cc%species)%fuel_intensity*babove;
      endif
   enddo
 
-  ! note that the ignition rate calculation based on the value of theta_crit for 
-  ! the last cohort -- currently it doesn't matter since we have just one cohort, 
+  ! note that the ignition rate calculation based on the value of theta_crit for
+  ! the last cohort -- currently it doesn't matter since we have just one cohort,
   ! but something needs to be done about that in the future
   ignition_rate = 0.;
   if ( (vegn%theta_av_fire < theta_crit) &
@@ -279,22 +278,22 @@ subroutine vegn_nat_mortality(vegn, soil, deltat)
   type(vegn_tile_type), intent(inout) :: vegn  ! vegetation data
   type(soil_tile_type), intent(inout) :: soil  ! soil data
   real, intent(in) :: deltat ! time since last mortality calculations, s
-  
+
   ! ---- local vars
   type(vegn_cohort_type), pointer :: cc    ! current cohort
   real :: delta;
   real :: fraction_lost;
   real :: bdead, balive; ! combined biomass pools
   integer :: i
-  
-  vegn%disturbance_rate(0)        = 0.0; 
+
+  vegn%disturbance_rate(0)        = 0.0;
   vegn%area_disturbed_by_treefall = 0.0;
-  
+
   do i = 1,vegn%n_cohorts
      cc => vegn%cohorts(i)
      ! Treat treefall disturbance implicitly, i.e. not creating a new tile.
-     ! note that this disturbance rate calculation only works for the one cohort per 
-     ! tile case -- in case of multiple cohort disturbance rate perhaps needs to be 
+     ! note that this disturbance rate calculation only works for the one cohort per
+     ! tile case -- in case of multiple cohort disturbance rate perhaps needs to be
      ! accumulated (or averaged? or something else?) over the cohorts.
      vegn%disturbance_rate(0) = spdata(cc%species)%treefall_disturbance_rate;
      vegn%area_disturbed_by_treefall = &
@@ -304,8 +303,8 @@ subroutine vegn_nat_mortality(vegn, soil, deltat)
      balive = cc%bl + cc%blv + cc%br;
      bdead  = cc%bsw + cc%bwood;
      ! ens need a daily PATCH_FREQ here, for now it is set to 48
-     fraction_lost = 1.0-exp(-vegn%disturbance_rate(0)*deltat/seconds_per_year);     
-      
+     fraction_lost = 1.0-exp(-vegn%disturbance_rate(0)*deltat/seconds_per_year);
+
      ! "dead" biomass : wood + sapwood
      delta = bdead*fraction_lost;
 
@@ -328,7 +327,7 @@ subroutine vegn_nat_mortality(vegn, soil, deltat)
      cc%bsw   = cc%bsw   * (1-fraction_lost);
 
      ! for budget tracking -temporarily
-     ! It doesn't look correct to me: ssc_in should probably include factor 
+     ! It doesn't look correct to me: ssc_in should probably include factor
      ! (1-fsc_wood) and the whole calculations should be moved up in front
      ! of bwood and bsw modification
      ! soil%fsc_in(1)+= cc%bsw*fraction_lost;
@@ -336,11 +335,11 @@ subroutine vegn_nat_mortality(vegn, soil, deltat)
          soil%ssc_in(1)  = soil%ssc_in(1)  + (cc%bwood+cc%bsw)*fraction_lost;
      endif
      vegn%veg_out = vegn%veg_out + delta;
-     
+
      ! kill the live biomass if mortality is set to affect it
      if (spdata(cc%species)%mortality_kills_balive) then
         delta = (cc%bl + cc%blv + cc%br)*fraction_lost
-        
+
         select case (soil_carbon_option)
         case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
            soil%slow_soil_C(1) = soil%slow_soil_C(1) + (1-fsc_liv)*delta;
@@ -351,7 +350,7 @@ subroutine vegn_nat_mortality(vegn, soil, deltat)
         case default
            call error_mesg('vegn_nat_mortality','soil_carbon_option is invalid. This should never happen. Contact developer.', FATAL)
         end select
-        
+
         cc%br  = cc%br  * (1-fraction_lost);
         cc%bl  = cc%bl  * (1-fraction_lost);
         cc%blv = cc%blv * (1-fraction_lost);
@@ -364,7 +363,7 @@ subroutine vegn_nat_mortality(vegn, soil, deltat)
      cc%bliving = cc%bsw + cc%bl + cc%br + cc%blv;
      call update_biomass_pools(cc);
   enddo
-     
+
 end subroutine vegn_nat_mortality
 
 

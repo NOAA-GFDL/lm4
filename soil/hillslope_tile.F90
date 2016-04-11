@@ -17,10 +17,9 @@ public :: hlsp_is_selected
 
 
 ! ==== module constants ======================================================
-character(len=*), parameter, private   :: &
-    module_name = 'hillslope_tile',&
-    version     = '$Id$',&
-    tagname     = '$Name$'
+character(len=*), parameter :: module_name = 'hillslope_tile'
+#include "../shared/version_variable.inc"
+character(len=*), parameter :: tagname = '$Name$'
 
 ! ==== module variables ======================================================
 
@@ -55,7 +54,7 @@ subroutine register_hlsp_selectors(max_num_topo_hlsps, num_vertclusters, diagnos
          selector_name= 'hlspcluster' // trim(adjustl(jchar))
          call register_tile_selector(selector_name, long_name='tiles in hillslope cluster '//trim(adjustl(jchar)),&
                 tag = SEL_HLSP, idata1 = j )
-      
+
       end do
    end if
 
