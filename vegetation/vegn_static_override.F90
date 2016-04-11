@@ -53,7 +53,6 @@ public :: write_static_vegn
 ! ==== module constants =====================================================
 character(len=*), parameter :: module_name = 'static_vegn_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 ! ==== module data ==========================================================
 logical :: module_is_initialized = .FALSE.
@@ -106,7 +105,8 @@ subroutine read_static_vegn_namelist(static_veg_used)
   ! ---- local vars
   integer :: unit, ierr, io
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=static_veg_nml, iostat=io)

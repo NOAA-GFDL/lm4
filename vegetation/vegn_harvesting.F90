@@ -39,7 +39,6 @@ public :: vegn_cut_forest
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'vegn_harvesting_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 real, parameter :: ONETHIRD = 1.0/3.0
 integer, parameter :: DAILY = 1, ANNUAL = 2
 
@@ -78,7 +77,8 @@ contains ! ###################################################################
 subroutine vegn_harvesting_init
   integer :: unit, ierr, io
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=harvesting_nml, iostat=io)

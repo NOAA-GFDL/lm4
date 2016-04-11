@@ -57,7 +57,6 @@ public :: large_dyn_small_stat
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'lake'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 ! ==== module variables ======================================================
 
@@ -120,7 +119,8 @@ subroutine read_lake_namelist()
 
   call read_lake_data_namelist(num_l)
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
      read (input_nml_file, nml=lake_nml, iostat=io)
      ierr = check_nml_error(io, 'lake_nml')

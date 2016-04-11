@@ -114,7 +114,6 @@ public :: read_vegn_data_namelist
 ! ==== constants =============================================================
 character(len=*), parameter :: module_name = 'vegn_data_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 real, parameter :: TWOTHIRDS  = 2.0/3.0
 
@@ -456,7 +455,8 @@ subroutine read_vegn_data_namelist()
 
   type(table_printer_type) :: table
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=vegn_data_nml, iostat=io)
   ierr = check_nml_error(io, 'vegn_data_nml')

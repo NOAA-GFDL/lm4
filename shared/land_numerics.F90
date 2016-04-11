@@ -62,7 +62,6 @@ logical :: module_is_initialized =.FALSE.
 ! ==== module constants ======================================================
 character(len=*), parameter :: mod_name = 'land_numerics_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname  = '$Name$'
 character(len=*), parameter :: thisfile = __FILE__
 
 ! ==== public type ===========================================================
@@ -97,7 +96,8 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 subroutine numerics_init()
 
   module_is_initialized =.TRUE.
-  call log_version(version, mod_name, __FILE__, tagname)
+  call log_version(version, mod_name, &
+  __FILE__)
 
 end subroutine numerics_init
 

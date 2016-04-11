@@ -84,7 +84,6 @@ module river_mod
 !--- version information ---------------------------------------------
 character(len=*), parameter :: module_name = 'river_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 !--- public interface ------------------------------------------------
   public :: river_init, river_end, river_type, update_river, river_stock_pe
@@ -237,7 +236,8 @@ contains
 #endif
 
 !--- write version and namelist info to logfile --------------------
-    call log_version(version,module_name,__FILE__,tagname)
+    call log_version(version,module_name,&
+    __FILE__)
     unit=stdlog()
     write(unit, river_nml)
 

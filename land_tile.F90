@@ -120,7 +120,6 @@ end interface
 
 ! ==== module constants ======================================================
 #include "shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 ! ==== data types ============================================================
 ! land_tile_type describes the structure of the land model tile; basically

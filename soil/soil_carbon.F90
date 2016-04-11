@@ -67,7 +67,6 @@ integer, parameter, public :: & ! indices of carbon chemical species
 
 character(len=*), parameter :: module_name = 'soil_carbon_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 integer, parameter :: SOILC_CENTURY          = 1
 integer, parameter :: SOILC_CENTURY_BY_LAYER = 2
@@ -179,7 +178,8 @@ subroutine read_soil_carbon_namelist
   integer :: i
   real    :: z
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=soil_carbon_nml, iostat=io)
   ierr = check_nml_error(io, 'soil_carbon_nml')

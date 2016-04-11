@@ -27,7 +27,6 @@ public :: darcy2d_uptake, darcy2d_uptake_solver
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'uptake'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 ! values for internal soil uptake option selector
 integer, parameter ::   &
@@ -50,7 +49,8 @@ subroutine uptake_init(num_l_in, dz_in, zfull_in)
        dz_in(:), &  ! layer thickness
        zfull_in(:)  ! layer centers
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
   module_is_initialized =.TRUE.
 
   num_l = num_l_in

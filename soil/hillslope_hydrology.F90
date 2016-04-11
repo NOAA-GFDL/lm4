@@ -42,7 +42,6 @@ public :: stiff_explicit_gwupdate
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'hillslope_hydrology'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 ! ---- diagnostic field IDs
 !integer :: id_gtos_hlsp, & ! ground to stream runoff for hillslope area
@@ -70,7 +69,8 @@ subroutine hlsp_hydro_lev_init(num_l_in, dz_in, zfull_in)
        dz_in(:), &  ! layer thickness
        zfull_in(:)  ! layer centers
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
   module_is_initialized =.TRUE.
 
   num_l = num_l_in

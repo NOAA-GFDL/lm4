@@ -128,7 +128,6 @@ public :: Lnd_stock_pe          ! return stocks of conservative quantities
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'land'
-character(len=*), parameter :: tagname     = '$Name$'
 #include "shared/version_variable.inc"
 
 ! ==== module variables ======================================================
@@ -341,7 +340,8 @@ subroutine land_model_init &
   module_is_initialized = .TRUE.
 
   ! [1] print out version number
-  call log_version (version, module_name, __FILE__, tagname)
+  call log_version (version, module_name, &
+  __FILE__)
 
   ! initialize land model clocks
   landClock      = mpp_clock_id('Land'               ,CLOCK_FLAG_DEFAULT,CLOCK_COMPONENT)

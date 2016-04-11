@@ -65,7 +65,6 @@ end interface
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: module_name = 'nf_utils_mod'
 #include "../../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 ! ---- module types ----------------------------------------------------------
 type nfu_validtype

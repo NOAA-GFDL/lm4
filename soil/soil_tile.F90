@@ -81,7 +81,6 @@ end interface
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'soil_tile_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 integer, parameter :: max_lev          = 100
 integer, parameter, public :: n_dim_soil_types = 14      ! max size of lookup table
@@ -555,7 +554,8 @@ subroutine read_soil_data_namelist(soil_num_l, soil_dz, soil_single_geo, &
   type(fieldtype), allocatable :: Fields(:)
   type(axistype),  allocatable :: axes(:)
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=soil_data_nml, iostat=io)
   ierr = check_nml_error(io, 'soil_data_nml')

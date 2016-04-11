@@ -54,7 +54,6 @@ public :: cana_step_2
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'canopy_air_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 ! options for turbulence parameter calculations
 integer, parameter :: TURB_LM3W = 1, TURB_LM3V = 2
@@ -89,7 +88,8 @@ subroutine read_cana_namelist()
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
      read (input_nml_file, nml=cana_nml, iostat=io)
      ierr = check_nml_error(io, 'cana_nml')

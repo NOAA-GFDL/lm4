@@ -49,7 +49,6 @@ end interface
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'glac_tile_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 integer, parameter :: max_lev          = 30 ! max number of levels in glacier
 integer, parameter :: n_dim_glac_types = 1  ! size of lookup table
@@ -207,7 +206,8 @@ subroutine read_glac_data_namelist(glac_n_lev, glac_dz)
   integer :: i
   real    :: z
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
      read (input_nml_file, nml=glac_data_nml, iostat=io)
      ierr = check_nml_error(io, 'glac_data_nml')

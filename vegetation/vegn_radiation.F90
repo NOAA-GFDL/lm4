@@ -23,7 +23,6 @@ public :: vegn_radiation
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'vegn_radiation'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 ! values for internal vegetation radiation option selector
 integer, parameter :: VEGN_RAD_BIGLEAF   = 1 ! "big-leaf" radiation
@@ -52,7 +51,8 @@ subroutine vegn_radiation_init(rad_to_use,snow_rad_to_use)
   character(*), intent(in) :: rad_to_use
   character(*), intent(in) :: snow_rad_to_use
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
   ! convert symbolic names of radiation options into numeric IDs to
   ! speed up selection during run-time

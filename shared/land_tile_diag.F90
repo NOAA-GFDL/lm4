@@ -62,7 +62,6 @@ real, public, parameter      :: cmor_mrsos_depth=0.1 ! depth of mrsos soil moist
 ! ==== module constants ======================================================
 character(len=*), parameter :: mod_name = 'land_tile_diag_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname  = '$Name$'
 
 integer, parameter :: INIT_FIELDS_SIZE     = 1     ! initial size of the fields array
 integer, parameter :: BASE_TILED_FIELD_ID  = 65536 ! base value for tiled field
@@ -116,7 +115,8 @@ subroutine tile_diag_init()
   if (module_is_initialized) return
 
   module_is_initialized = .true.
-  call log_version(version, mod_name, __FILE__, tagname)
+  call log_version(version, mod_name, &
+  __FILE__)
 
   ! initialize diag selectors
   call tile_selectors_init()

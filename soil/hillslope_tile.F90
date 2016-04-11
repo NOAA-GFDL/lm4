@@ -19,7 +19,6 @@ public :: hlsp_is_selected
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'hillslope_tile'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 ! ==== module variables ======================================================
 

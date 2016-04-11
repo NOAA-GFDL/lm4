@@ -10,7 +10,6 @@ public :: qscomp
 
 ! ==== module constants ======================================================
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 real, parameter :: d622 = rdgas/rvgas
 real, parameter :: d378 = 1.0-d622

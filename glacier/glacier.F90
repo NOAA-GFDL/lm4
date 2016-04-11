@@ -50,7 +50,6 @@ public :: glac_step_2
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'glacier'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 ! ==== module variables ======================================================
 
@@ -91,7 +90,8 @@ subroutine read_glac_namelist()
 
   call read_glac_data_namelist(num_l, dz)
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
      read (input_nml_file, nml=glac_nml, iostat=io)
      ierr = check_nml_error(io, 'glac_nml')

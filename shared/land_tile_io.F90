@@ -91,7 +91,6 @@ end interface
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'land_tile_io_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 ! name of the "compressed" dimension (and dimension variable) in the output
 ! netcdf files -- that is, the dimensions written out using compression by

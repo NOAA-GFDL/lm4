@@ -62,7 +62,6 @@ public :: do_check_conservation
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'land_debug'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 ! ==== module variables ======================================================
 integer, allocatable :: current_debug_level(:)
@@ -103,7 +102,8 @@ subroutine land_debug_init()
   integer :: unit, ierr, io, ntiles
   integer :: max_threads
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=land_debug_nml, iostat=io)

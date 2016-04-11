@@ -58,7 +58,6 @@ include 'netcdf.inc'
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'land_io_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 logical :: module_is_initialized = .false.
 character(len=64)  :: interp_method = "conservative"
@@ -75,7 +74,8 @@ subroutine read_land_io_namelist()
   module_is_initialized = .TRUE.
 
   ! [1] print out version number
-  call log_version (version, module_name, __FILE__, tagname)
+  call log_version (version, module_name, &
+  __FILE__)
 
 #ifdef INTERNAL_FILE_NML
      read (input_nml_file, nml=land_io_nml, iostat=io)

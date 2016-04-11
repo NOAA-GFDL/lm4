@@ -47,7 +47,6 @@ public :: update_land_dust
 ! ==== module constants ========================================================
 character(len=*), parameter :: module_name = 'land_dust_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 character(len=*), parameter :: diag_name   = 'land_dust'
 
 type :: dust_data_type
@@ -131,7 +130,8 @@ subroutine land_dust_init (id_lon, id_lat, mask)
   type(table_printer_type) :: table
 
   ! log module version
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
   logunit = stdlog()
   outunit = stdout()
 

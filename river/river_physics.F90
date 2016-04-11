@@ -50,7 +50,6 @@ module river_physics_mod
 !--- version information ---------------------------------------------
 character(len=*), parameter :: module_name = 'river_physics_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 
 ! ---- public interfaces -----------------------------------------------------
@@ -152,7 +151,8 @@ contains
 #endif
 
 !--- write version and namelist info to logfile --------------------
-    call log_version(version, module_name, __FILE__, tagname)
+    call log_version(version, module_name, &
+    __FILE__)
     unit=stdlog()
     write (unit, river_physics_nml)
 

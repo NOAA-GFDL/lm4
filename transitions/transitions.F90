@@ -74,7 +74,6 @@ public :: land_transitions
 character(len=*), parameter :: module_name = 'land_transitions_mod'
 character(len=*), parameter :: diag_mod_name = 'landuse'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 ! selectors for overshoot handling options, for efficiency
 integer, parameter :: &
@@ -196,7 +195,8 @@ subroutine land_transitions_init(id_lon, id_lat)
 
   if(module_is_initialized) return
   module_is_initialized = .TRUE.
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
   call horiz_interp_init
 

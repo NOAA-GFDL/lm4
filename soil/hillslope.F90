@@ -71,7 +71,6 @@ private :: meanelev ! used by calculate_wt_init
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'hillslope'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 integer, parameter :: max_vc = 30 ! Max num_vertclusters that can be input from namelist for
                                   ! tile horizontal grid.
@@ -181,7 +180,8 @@ subroutine read_hlsp_namelist()
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=hlsp_nml, iostat=io)
   ierr = check_nml_error(io, 'hlsp_nml')

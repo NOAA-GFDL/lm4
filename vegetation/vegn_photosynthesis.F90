@@ -24,7 +24,6 @@ public :: vegn_photosynthesis
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'vegn_photosynthesis'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 ! values for internal vegetation photosynthesis option selector
 integer, parameter :: VEGN_PHOT_SIMPLE  = 1 ! zero photosynthesis
@@ -41,7 +40,8 @@ contains
 subroutine vegn_photosynthesis_init(photosynthesis_to_use)
   character(*), intent(in) :: photosynthesis_to_use
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
   ! convert symbolic names of photosynthesis options into numeric IDs to
   ! speed up selection during run-time

@@ -47,7 +47,6 @@ public :: snow_step_2
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'snow_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 ! ==== module variables ======================================================
 
@@ -94,7 +93,8 @@ subroutine read_snow_namelist()
 
   call read_snow_data_namelist(num_l,dz,mc_fict)
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=snow_nml, iostat=io)
   ierr = check_nml_error(io, 'snow_nml')

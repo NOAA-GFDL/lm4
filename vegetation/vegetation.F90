@@ -88,7 +88,6 @@ public :: update_vegn_slow
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'vegn'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 ! values for internal selector of CO2 option used for photosynthesis
 integer, parameter :: VEGN_PHOT_CO2_PRESCRIBED  = 1
@@ -198,7 +197,8 @@ subroutine read_vegn_namelist()
   call read_vegn_data_namelist()
   call read_static_vegn_namelist(use_static_veg)
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
     read (input_nml_file, nml=vegn_nml, iostat=io)
     ierr = check_nml_error(io, 'vegn_nml')

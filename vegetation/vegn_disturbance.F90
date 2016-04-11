@@ -26,7 +26,6 @@ public :: update_fuel
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'vegn_disturbance_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 

@@ -71,7 +71,6 @@ namelist/topo_rough_nml/ use_topo_rough, topo_rough_factor, max_topo_rough, &
 character(len=*), parameter :: module_name   = 'topo_rough_mod'
 character(len=*), parameter :: diag_mod_name = 'topo_rough'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 ! ==== module private data ===================================================
 real, allocatable, save ::topo_stdev(:,:)
@@ -104,8 +103,8 @@ subroutine topo_rough_init(time, lonb, latb, domain, id_lon,id_lat)
   integer :: id
   logical :: used, got_stdev
 
-  ! write the version and tagname to the logfile
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
   ! read and write (to logfile) namelist variables
 #ifdef INTERNAL_FILE_NML

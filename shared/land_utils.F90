@@ -13,7 +13,6 @@ public :: put_to_tiles_r1d_fptr
 
 ! ==== module constants ======================================================
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 contains
 

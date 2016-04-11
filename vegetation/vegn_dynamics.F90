@@ -44,7 +44,6 @@ public :: vegn_biogeography !
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'vegn'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 real, parameter :: GROWTH_RESP=0.333  ! fraction of npp lost as growth respiration
 
@@ -66,7 +65,8 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
   type(time_type), intent(in) :: time       ! initial time for diagnostic fields
   real           , intent(in) :: delta_time ! fast time step, s
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
   ! set up global variables
   dt_fast_yr = delta_time/seconds_per_year

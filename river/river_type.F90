@@ -27,7 +27,6 @@ module river_type_mod
 
 !--- version information ---------------------------------------------
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 !--- public interface ------------------------------------------------
   public :: river_type, Leo_Mad_trios

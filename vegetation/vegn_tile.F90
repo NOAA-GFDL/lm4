@@ -64,7 +64,6 @@ end interface
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'vegn_tile_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 ! ==== types =================================================================
 type :: vegn_tile_type

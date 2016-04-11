@@ -24,6 +24,5 @@ public :: nfu_get_compressed_rec
 
 ! ==== module constants ======================================================
 #include "../../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 end module nf_utils_mod
