@@ -78,7 +78,7 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
      get_elmt_indices, get_tile_tags, land_tile_carbon, land_tile_heat, &
      get_tile_water, init_tile_map, free_tile_map, max_n_tiles, &
-     tile_exists_func, loop_over_tiles
+     tile_exists_func, loop_over_tiles, land_tile_log_version
 use land_data_mod, only : land_data_type, atmos_land_boundary_type, &
      land_state_type, land_data_init, land_data_end, lnd, log_version
 use nf_utils_mod,  only : nfu_inq_var, nfu_inq_dim, nfu_get_var
@@ -340,6 +340,7 @@ subroutine land_model_init &
   module_is_initialized = .TRUE.
 
   ! [1] print out version number
+  call land_tile_log_version()
   call log_version (version, module_name, &
   __FILE__)
 

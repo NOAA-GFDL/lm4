@@ -16,7 +16,7 @@ use time_manager_mod, only: time_type, time_type_to_real, get_date, operator(-)
 use constants_mod,    only: tfreeze, rdgas, rvgas, hlv, hlf, cp_air, PI
 use sphum_mod, only: qscomp
 
-use vegn_tile_mod, only: vegn_tile_type, &
+use vegn_tile_mod, only: vegn_tile_type, vegn_tile_log_version, &
      vegn_seed_demand, vegn_seed_supply, vegn_add_bliving, &
      cpw, clw, csw
 use soil_tile_mod, only: soil_tile_type, soil_ave_temp, &
@@ -42,9 +42,8 @@ use vegn_data_mod, only : SP_C4GRASS, LEAF_ON, LU_NTRL, read_vegn_data_namelist,
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
      N_HARV_POOLS, HARV_POOL_NAMES, HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, &
      HARV_POOL_WOOD_FAST, HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, agf_bs
-use vegn_cohort_mod, only : vegn_cohort_type, &
-     update_species,&
-     vegn_data_heat_capacity, vegn_data_intrcptn_cap, &
+use vegn_cohort_mod, only : vegn_cohort_type, vegn_cohort_log_version, &
+     vegn_data_heat_capacity, vegn_data_intrcptn_cap, update_species,&
      get_vegn_wet_frac, vegn_data_cover
 use canopy_air_mod, only : cana_turbulence
 
@@ -58,7 +57,8 @@ use static_vegn_mod, only : read_static_vegn_namelist, static_vegn_init, static_
      read_static_vegn
 use vegn_dynamics_mod, only : vegn_dynamics_init, vegn_carbon_int, vegn_growth, &
      vegn_daily_npp, vegn_phenology, vegn_biogeography
-use vegn_disturbance_mod, only : vegn_nat_mortality, vegn_disturbance, update_fuel
+use vegn_disturbance_mod, only : vegn_disturbance_init, vegn_nat_mortality, &
+     vegn_disturbance, update_fuel
 use vegn_harvesting_mod, only : &
      vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting
 use soil_carbon_mod, only : add_litter, poolTotalCarbon, cull_cohorts, &
@@ -197,6 +197,8 @@ subroutine read_vegn_namelist()
   call read_vegn_data_namelist()
   call read_static_vegn_namelist(use_static_veg)
 
+  call vegn_tile_log_version()
+  call vegn_cohort_log_version()
   call log_version(version, module_name, &
   __FILE__)
 #ifdef INTERNAL_FILE_NML
@@ -457,6 +459,9 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
   ! initialize harvesting options
   call vegn_harvesting_init()
 
+  ! initialize distrurbances 
+  call vegn_disturbance_init()
+  
   ! initialize vegetation diagnostic fields
   call vegn_diag_init ( id_lon, id_lat, id_band, lnd%time )
 

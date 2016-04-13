@@ -26,7 +26,7 @@ use tracer_manager_mod, only : get_tracer_index, query_method, NO_TRACER
 use nf_utils_mod, only : nfu_inq_var
 use land_constants_mod, only : NBANDS,d608,mol_CO2,mol_air
 use land_tracers_mod, only : ntcana, isphum, ico2
-use cana_tile_mod, only : cana_tile_type, &
+use cana_tile_mod, only : cana_tile_log_version, cana_tile_type, &
      canopy_air_mass, canopy_air_mass_for_tracers, cpw
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
@@ -88,6 +88,7 @@ subroutine read_cana_namelist()
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
+  call cana_tile_log_version()
   call log_version(version, module_name, &
   __FILE__)
 #ifdef INTERNAL_FILE_NML

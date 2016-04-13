@@ -32,11 +32,13 @@ use land_tile_selectors_mod, only : tile_selector_type, &
      SEL_SOIL, SEL_VEGN, SEL_LAKE, SEL_GLAC, SEL_SNOW, SEL_CANA, SEL_HLSP
 use tile_diag_buff_mod, only : &
      diag_buff_type, new_diag_buff, delete_diag_buff
-use land_data_mod, only : lnd
+use land_data_mod, only : lnd, log_version
 
 implicit none
 private
 ! ==== public interfaces =====================================================
+public :: land_tile_log_version
+
 public :: land_tile_type
 public :: land_tile_list_type
 public :: land_tile_enum_type
@@ -119,6 +121,7 @@ end interface
 
 
 ! ==== module constants ======================================================
+character(len=*), parameter :: module_name = 'land_tile'
 #include "shared/version_variable.inc"
 
 ! ==== data types ============================================================
@@ -258,6 +261,12 @@ integer :: n_deleted_land_tiles = 0 ! total number of deleted tiles
 type(land_tile_list_type), pointer :: land_tile_map(:,:) ! map of tiles
 
 contains
+
+! =============================================================================
+subroutine land_tile_log_version()
+  call log_version(version, module_name, &
+  __FILE__)
+end subroutine land_tile_log_version
 
 ! #### land_tile_type and operations #########################################
 

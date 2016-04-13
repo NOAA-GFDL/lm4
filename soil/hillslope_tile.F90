@@ -6,11 +6,13 @@ module hillslope_tile_mod
 use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_HLSP, register_tile_selector
 use soil_tile_mod, only : soil_tile_type
+use land_data_mod, only : log_version
 
 implicit none
 private
 
 ! ==== public interfaces =====================================================
+public :: hillslope_tile_log_version
 public :: register_hlsp_selectors
 public :: hlsp_is_selected
 ! =====end of public interfaces ==============================================
@@ -24,6 +26,12 @@ character(len=*), parameter :: module_name = 'hillslope_tile'
 
 
 contains
+
+subroutine hillslope_tile_log_version()
+  call log_version(version, module_name, &
+  __FILE__)
+end subroutine hillslope_tile_log_version
+
 
 ! ============================================================================
 ! Define hillslope selector types to be used in diagnostic output.

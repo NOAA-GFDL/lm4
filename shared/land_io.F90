@@ -73,7 +73,6 @@ subroutine read_land_io_namelist()
 
   module_is_initialized = .TRUE.
 
-  ! [1] print out version number
   call log_version (version, module_name, &
   __FILE__)
 

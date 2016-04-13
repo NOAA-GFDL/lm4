@@ -35,7 +35,7 @@ use nf_utils_mod,  only : nfu_inq_dim
 use land_debug_mod, only : is_watch_point, is_watch_cell, set_current_point
 use land_transitions_mod, only : do_landuse_change
 use vegn_harvesting_mod , only : do_harvesting
-use hillslope_tile_mod , only : register_hlsp_selectors
+use hillslope_tile_mod , only : register_hlsp_selectors, hillslope_tile_log_version
 use constants_mod, only : tfreeze
 use soil_tile_mod, only : gw_option, GW_TILED, initval, soil_tile_type, &
      gw_scale_length, gw_scale_relief
@@ -180,6 +180,7 @@ subroutine read_hlsp_namelist()
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
+  call hillslope_tile_log_version()
   call log_version(version, module_name, &
   __FILE__)
 #ifdef INTERNAL_FILE_NML

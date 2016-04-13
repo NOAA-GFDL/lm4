@@ -4,6 +4,7 @@ use constants_mod, only: PI
 
 use land_constants_mod, only: NBANDS, &
      mol_h2o, mol_air
+use land_data_mod, only : log_version
 use vegn_data_mod, only : spdata, &
    use_mcm_masking, use_bucket, critical_root_density, &
    tg_c4_thresh, tg_c3_thresh, l_fract, fsc_liv, &
@@ -16,6 +17,8 @@ implicit none
 private
 ! ==== public interfaces =====================================================
 public :: vegn_cohort_type
+
+public :: vegn_cohort_log_version
 
 ! operations defined for cohorts
 !public :: new_cohort, delete_cohort
@@ -37,6 +40,7 @@ public :: update_biomass_pools
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
+character(len=*), parameter :: module_name = 'vegn_cohort'
 #include "../shared/version_variable.inc"
 
 ! ==== types =================================================================
@@ -141,6 +145,12 @@ type :: vegn_cohort_type
 end type vegn_cohort_type
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+! =============================================================================
+subroutine vegn_cohort_log_version()
+  call log_version(version, module_name, &
+  __FILE__)
+end subroutine vegn_cohort_log_version
 
 
 ! ============================================================================

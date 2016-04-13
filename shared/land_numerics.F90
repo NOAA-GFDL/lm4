@@ -94,11 +94,8 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 ! ============================================================================
 ! Initializes the numerics module.
 subroutine numerics_init()
-
   module_is_initialized =.TRUE.
-  call log_version(version, mod_name, &
-  __FILE__)
-
+  call log_version(version, mod_name, thisfile)
 end subroutine numerics_init
 
 

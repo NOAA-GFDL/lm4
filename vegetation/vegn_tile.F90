@@ -26,10 +26,13 @@ use vegn_cohort_mod, only : vegn_cohort_type, &
      height_from_biomass, lai_from_biomass, update_bio_living_fraction, &
      cohort_uptake_profile, cohort_hydraulic_properties, update_biomass_pools
 
+use land_data_mod, only : log_version
+
 implicit none
 private
 
 ! ==== public interfaces =====================================================
+public :: vegn_tile_log_version
 public :: vegn_tile_type
 
 public :: new_vegn_tile, delete_vegn_tile
@@ -62,7 +65,7 @@ end interface
 
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: module_name = 'vegn_tile_mod'
+character(len=*), parameter :: module_name = 'vegn_tile'
 #include "../shared/version_variable.inc"
 
 ! ==== types =================================================================
@@ -146,6 +149,11 @@ real, public :: &
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
+! =============================================================================
+subroutine vegn_tile_log_version()
+  call log_version(version, module_name, &
+  __FILE__)
+end subroutine vegn_tile_log_version
 
 ! ============================================================================
 function vegn_tile_ctor(tag) result(ptr)
