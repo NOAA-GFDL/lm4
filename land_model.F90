@@ -507,7 +507,7 @@ subroutine land_model_init &
   do j=lnd%js,lnd%je
   do i=lnd%is,lnd%ie
      if(lnd%landfrac(i,j)>0.neqv.ANY(land2cplr%mask(i,j,:))) then
-        call error_mesg('land_model_init','masks are not equal',FATAL)
+        call error_mesg('land_model_init','land masks from grid spec and from land restart do not match',FATAL)
      endif
   enddo
   enddo
