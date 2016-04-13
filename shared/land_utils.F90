@@ -11,9 +11,6 @@ public :: put_to_tiles_r0d_fptr
 public :: put_to_tiles_r1d_fptr
 ! ==== end of public interfaces ==============================================
 
-! ==== module constants ======================================================
-#include "../shared/version_variable.inc"
-
 contains
 
 ! ============================================================================

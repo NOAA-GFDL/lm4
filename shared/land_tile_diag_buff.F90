@@ -20,7 +20,6 @@ end type diag_buff_type
 
 ! ==== module constants =====================================================
 integer, parameter :: MIN_DIAG_BUFF_SIZE = 1
-#include "../shared/version_variable.inc"
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 

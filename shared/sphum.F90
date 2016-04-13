@@ -9,8 +9,6 @@ private
 public :: qscomp
 
 ! ==== module constants ======================================================
-#include "../shared/version_variable.inc"
-
 real, parameter :: d622 = rdgas/rvgas
 real, parameter :: d378 = 1.0-d622
 real, parameter :: del_temp = 0.1 ! temperature increment for q_sat derivative calc.
