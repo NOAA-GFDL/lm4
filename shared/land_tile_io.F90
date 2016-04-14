@@ -159,6 +159,7 @@ subroutine open_land_restart(restart,filename,restart_exists)
   ! ---- local vars
   integer :: len(4) ! length of the index
   logical :: found   ! true if field exists
+  integer :: ierr
 
   restart%basename = filename
   call get_input_restart_name(restart%basename,restart_exists,restart%filename)
@@ -186,7 +187,9 @@ subroutine open_land_restart(restart,filename,restart_exists)
      !       just constants, no sense to make them namelists vars
   else ! old i/o
       __NF_ASRT__(nf_open(restart%filename,NF_NOWRITE,restart%ncid))
-      __NF_ASRT__(nfu_inq_dim(restart%ncid,'tile',len=restart%tile_dim_length))
+      ierr = nfu_inq_dim(restart%ncid,'tile',len=restart%tile_dim_length)
+      if (ierr/=NF_NOERR) call error_mesg('open_land_restart', &
+           'dimension "tile" not found in file "'//trim(filename)//'"', FATAL)
   endif
 end subroutine open_land_restart
 
