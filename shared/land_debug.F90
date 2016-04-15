@@ -313,12 +313,29 @@ subroutine check_var_range_1d(value, lo, hi, tag, varname, severity)
   integer     , intent(in) :: severity ! severity of the non-conservation error:
          ! Can be WARNING, FATAL, or negative. Negative means check is not done.
 
+  ! ---- local vars
   integer :: i
+  integer :: y,mo,d,h,m,s ! components of date
+  integer :: thread
+  character(512) :: message
 
   if (severity<0) return
 
   do i = 1,size(value)
-     call check_var_range_0d(value(i), lo, hi, tag, trim(varname)//'('//trim(string(i))//')', severity)
+     if(lo<=value(i).and.value(i)<=hi) then
+        cycle
+     else
+        thread = 1
+!$      thread = OMP_GET_THREAD_NUM()+1
+        call get_date(lnd%time,y,mo,d,h,m,s)
+        write(message,'(a,g23.16,2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
+             trim(varname)//'('//trim(string(i))//')'//' out of range: value=', value,&
+             'at lon=',lnd%lon(curr_i(thread),curr_j(thread))*180.0/PI, &
+             'lat=',lnd%lat(curr_i(thread),curr_j(thread))*180.0/PI, &
+             'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
+             'time=',y,mo,d,h,m,s
+        call error_mesg(trim(tag),message,severity)
+     endif
   enddo
 end subroutine check_var_range_1d
 
