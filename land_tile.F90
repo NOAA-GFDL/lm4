@@ -113,11 +113,6 @@ interface nitems
    module procedure n_items_in_list
 end interface
 
-! ==== module constants ======================================================
-character(len=*), parameter :: &
-     version = '$Id$', &
-     tagname = '$Name$'
-
 ! ==== data types ============================================================
 ! land_tile_type describes the structure of the land model tile; basically
 ! it is a container for tile-specific data, plus some information common to 

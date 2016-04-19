@@ -16,9 +16,6 @@ end type diag_buff_type
 
 ! ==== module constants =====================================================
 integer, parameter :: MIN_DIAG_BUFF_SIZE = 1
-character(len=*), parameter :: &
-     version = '$Id$', &
-     tagname = '$Name$'
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 

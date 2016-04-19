@@ -15,16 +15,6 @@ public :: register_hlsp_selectors
 public :: hlsp_is_selected
 ! =====end of public interfaces ==============================================
 
-
-! ==== module constants ======================================================
-character(len=*), parameter, private   :: &
-    module_name = 'hillslope_tile',&
-    version     = '$Id$',&
-    tagname     = '$Name$'
-
-! ==== module variables ======================================================
-
-
 contains
 
 ! ============================================================================

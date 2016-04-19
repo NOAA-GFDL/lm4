@@ -83,11 +83,7 @@ interface write_tile_data_r2d_fptr
 end interface
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: &
-     module_name = 'land_tile_io_mod', &
-     version     = '$Id$', &
-     tagname     = '$Name$'
-
+character(len=*), parameter :: module_name = 'land_tile_io'
 ! name of the "compressed" dimension (and dimension variable) in the output 
 ! netcdf files -- that is, the dimensions written out using compression by 
 ! gathering, as described in CF conventions. See subroutines write_tile_data,

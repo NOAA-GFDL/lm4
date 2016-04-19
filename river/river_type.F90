@@ -25,10 +25,6 @@ module river_type_mod
   implicit none
   private
 
-!--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id$'
-  character(len=128) :: tagname = '$Name$'
-
 !--- public interface ------------------------------------------------
   public :: river_type, Leo_Mad_trios
   integer, public, parameter :: NO_RIVER_FLAG = -9999

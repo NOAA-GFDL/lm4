@@ -27,9 +27,4 @@ real, public, parameter :: MPa_per_m = dens_h2o*grav*1.0e-6 ! pressure of one me
 
 ! ==== end of public interfaces ==============================================
 
-! ==== module constants ======================================================
-character(len=*), parameter :: &
-     version = '$Id$', &
-     tagname = '$Name$'
-
 end module

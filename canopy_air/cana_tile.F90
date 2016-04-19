@@ -1,10 +1,8 @@
 module cana_tile_mod
 
 use land_tracers_mod, only : ntcana, isphum, ico2
-use land_tile_selectors_mod, only : &
-     tile_selector_type
-use constants_mod, only : &
-     cp_air, tfreeze
+use land_tile_selectors_mod, only : tile_selector_type
+use constants_mod, only : cp_air, tfreeze
 use land_constants_mod, only : mol_C, mol_co2
 
 implicit none
@@ -37,11 +35,6 @@ interface new_cana_tile
    module procedure cana_tile_ctor
    module procedure cana_tile_copy_ctor
 end interface
-
-! ==== module constants ======================================================
-character(len=*), parameter :: &
-     version = '$Id$', &
-     tagname = '$Name$'
 
 ! ==== data types ======================================================
 type :: cana_tile_type

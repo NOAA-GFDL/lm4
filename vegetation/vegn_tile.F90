@@ -61,13 +61,6 @@ interface new_vegn_tile
    module procedure vegn_tile_copy_ctor
 end interface
 
-
-! ==== module constants ======================================================
-character(len=*), parameter   :: &
-     version = '$Id$', & 
-     tagname = '$Name$', &
-     module_name = 'vegn_tile_mod'
-
 ! ==== types =================================================================
 type :: vegn_tile_type
    integer :: tag ! kind of the tile

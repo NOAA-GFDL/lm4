@@ -102,7 +102,6 @@ subroutine topo_rough_init(time, lonb, latb, domain, id_lon,id_lat)
   integer :: id
   logical :: used, got_stdev
 
-  ! write the version and tagname to the logfile
   call log_version(version, module_name, &
   __FILE__)
 

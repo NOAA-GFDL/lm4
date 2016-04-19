@@ -39,11 +39,6 @@ public :: init_cohort_hydraulics
 public :: cohorts_can_be_merged
 ! ==== end of public interfaces ==============================================
 
-! ==== module constants ======================================================
-character(len=*), parameter :: &
-     version = '$Id$', &
-     tagname = '$Name$'
-
 ! ==== types =================================================================
 ! vegn_cohort_type describes the data that belong to a vegetation cohort
 type :: vegn_cohort_type

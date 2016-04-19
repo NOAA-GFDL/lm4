@@ -40,10 +40,6 @@ public :: kill_plants_ppa
 ! =====end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: &
-     version = '$Id$', &
-     tagname = '$Name$', &
-     module_name = 'vegn_disturbance_mod'
 ! TODO: possibly move all definition of cpw,clw,csw in one place
 real, parameter :: &
      cpw = 1952.0, & ! specific heat of water vapor at constant pressure
