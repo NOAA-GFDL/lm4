@@ -10,7 +10,7 @@ use fms_mod, only: open_namelist_file
 #endif
 
 use fms_mod, only : error_mesg, file_exist, read_data, check_nml_error, &
-     stdlog, write_version_number, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
+     stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
 use time_manager_mod,   only: time_type, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init, register_diag_field,           &
                               register_static_field, send_data
@@ -30,7 +30,7 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
 use land_tile_diag_mod, only : register_tiled_static_field, &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
      send_tile_data_r0d_fptr, add_tiled_static_field_alias, set_default_diag_filter
-use land_data_mod,      only : land_state_type, lnd
+use land_data_mod,      only : lnd, log_version
 use land_tile_io_mod, only : print_netcdf_error, create_tile_out_file, &
      read_tile_data_r1d_fptr, write_tile_data_r1d_fptr, sync_nc_files, &
      get_input_restart_name
@@ -57,10 +57,8 @@ public :: large_dyn_small_stat
 
 
 ! ==== module constants ======================================================
-character(len=*), parameter, private   :: &
-    module_name = 'lake',&
-    version     = '$Id$',&
-    tagname     = '$Name$'
+character(len=*), parameter :: module_name = 'lake'
+#include "../shared/version_variable.inc"
 
 ! ==== module variables ======================================================
 
@@ -128,7 +126,8 @@ subroutine read_lake_namelist()
 
   call read_lake_data_namelist(num_l)
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
      read (input_nml_file, nml=lake_nml, iostat=io)
      ierr = check_nml_error(io, 'lake_nml')

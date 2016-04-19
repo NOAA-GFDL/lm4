@@ -52,7 +52,7 @@ module river_mod
   use mpp_mod,             only : mpp_clock_id, mpp_clock_begin, mpp_clock_end, MPP_CLOCK_DETAILED
   use mpp_domains_mod,     only : domain2d, mpp_get_compute_domain, mpp_get_global_domain 
   use mpp_domains_mod,     only : mpp_get_data_domain, mpp_update_domains, mpp_get_ntile_count
-  use fms_mod,             only : write_version_number, check_nml_error, string
+  use fms_mod,             only : check_nml_error, string
   use fms_mod,             only : close_file, file_exist, field_size, read_data, write_data
   use fms_mod,             only : field_exist, CLOCK_FLAG_DEFAULT
   use fms_io_mod,          only : get_mosaic_tile_file, get_instance_filename
@@ -67,7 +67,7 @@ module river_mod
   use land_tile_mod,       only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, get_elmt_indices, &
      operator(/=)
-  use land_data_mod,       only : land_data_type, land_state_type, lnd
+  use land_data_mod,       only : lnd, log_version
   use lake_tile_mod,       only : num_l
   use field_manager_mod, only: fm_field_name_len, fm_string_len, &
      fm_type_name_len, fm_path_name_len, fm_dump_list, fm_get_length, &
@@ -80,8 +80,8 @@ module river_mod
   private
 
 !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id$'
-  character(len=128) :: tagname = '$Name$'
+character(len=*), parameter :: module_name = 'river'
+#include "../shared/version_variable.inc"
 
 !--- public interface ------------------------------------------------
   public :: river_init, river_end, river_type, update_river, river_stock_pe
@@ -230,7 +230,8 @@ contains
 #endif
 
 !--- write version and namelist info to logfile --------------------
-    call write_version_number(version,tagname)
+    call log_version(version, module_name, &
+    __FILE__)
     unit=stdlog()
     write(unit, river_nml)  
 

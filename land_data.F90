@@ -13,7 +13,6 @@ use time_manager_mod  , only : time_type
 use grid_mod          , only : get_grid_ntiles, get_grid_size, get_grid_cell_vertices, &
      get_grid_cell_centers, get_grid_cell_area, get_grid_comp_area, &
      define_cube_mosaic
-use land_tracers_mod  , only : ntcana
 
 implicit none
 private
@@ -22,6 +21,7 @@ private
 public :: land_data_init
 public :: land_data_end
 public :: lnd            ! global data 
+public :: log_version    ! prints version number
 
 public :: atmos_land_boundary_type ! container for information passed from the 
                          ! atmosphere to land
@@ -31,10 +31,8 @@ public :: land_state_type
 ! ==== end of public interfaces ==============================================
 
 ! ---- module constants ------------------------------------------------------
-character(len=*), parameter :: &
-     module_name = 'land_data_mod', &
-     version     = '$Id$', &
-     tagname     = '$Name$'
+character(len=*), parameter :: module_name = 'land_data_mod'
+#include "shared/version_variable.inc"
 
 ! ---- types -----------------------------------------------------------------
 type :: atmos_land_boundary_type
@@ -128,6 +126,7 @@ type :: land_state_type
    real, allocatable  :: lonb(:,:), latb(:,:) ! domain grid vertices, radian
    real, allocatable  :: area(:,:)  ! land area per grid cell, m2
    real, allocatable  :: cellarea(:,:)  ! grid cell area, m2
+   real, allocatable  :: landfrac(:,:)  ! fraction of land in the grid cell
    real, allocatable  :: coord_glon(:), coord_glonb(:) ! longitudes for use in diag axis and such, degrees East
    real, allocatable  :: coord_glat(:), coord_glatb(:) ! latitudes for use in diag axis and such, degrees North
    
@@ -151,8 +150,32 @@ type(land_state_type), save :: lnd
 ! ---- private module variables ----------------------------------------------
 logical :: module_is_initialized = .FALSE.
 
+
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
+
+! ============================================================================
+subroutine log_version(version, modname, filename, tag, unit)
+  character(len=*), intent(in) :: version
+  character(len=*), intent(in), optional :: &
+          modname, filename, tag
+  integer, intent(in), optional :: unit
+
+  character(512) :: message
+  integer :: i
+  message=''
+
+  if (present(filename)) then
+     ! remove the directory part of the name
+     i = scan(filename,'/',back=.true.)
+
+     message = trim(filename(i+1:))
+  endif
+  if (present(modname)) then
+     message = trim(modname)//' ('//trim(message)//')'
+  endif
+  call write_version_number (trim(message)//': '//trim(version),tag,unit)
+end subroutine log_version
 
 ! ============================================================================
 subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table)
@@ -183,7 +206,8 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table)
                                           ! processors are used. 
 
   ! write the version and tag name to the logfile
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
   ! define the processor layout information according to the global grid size 
   call get_grid_ntiles('LND',ntiles)

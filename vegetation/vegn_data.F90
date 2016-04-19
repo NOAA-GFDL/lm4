@@ -8,7 +8,7 @@ use fms_mod, only: open_namelist_file
 
 use constants_mod, only : PI
 use fms_mod, only : &
-     write_version_number, file_exist, check_nml_error, &
+     file_exist, check_nml_error, &
      close_file, stdlog, stdout, string, lowercase, error_mesg, NOTE, FATAL
 use field_manager_mod, only: MODEL_LAND, fm_field_name_len, fm_string_len, &
      fm_path_name_len, fm_type_name_len, fm_dump_list, fm_get_length, &
@@ -16,6 +16,7 @@ use field_manager_mod, only: MODEL_LAND, fm_field_name_len, fm_string_len, &
 use fm_util_mod, only : fm_util_get_real, fm_util_get_logical, fm_util_get_string
 
 use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, MPa_per_m
+use land_data_mod, only : log_version
 use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_VEGN, register_tile_selector
 use table_printer_mod
@@ -128,10 +129,8 @@ public :: read_vegn_data_namelist
 ! ==== end of public interfaces ==============================================
 
 ! ==== constants =============================================================
-character(len=*), parameter   :: &
-     version     = '$Id$', &
-     tagname     = '$Name$', &
-     module_name = 'vegn_data_mod'
+character(len=*), parameter :: module_name = 'vegn_data_mod'
+#include "../shared/version_variable.inc"
 real, parameter :: TWOTHIRDS  = 2.0/3.0
 
 
@@ -370,7 +369,8 @@ subroutine read_vegn_data_namelist()
   integer :: species_errors, total_errors
   logical, allocatable :: spdata_set(:)
   
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=vegn_data_nml, iostat=io)
   ierr = check_nml_error(io, 'vegn_data_nml')

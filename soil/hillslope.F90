@@ -13,7 +13,7 @@ use fms_mod, only: open_namelist_file
 
 use mpp_mod, only: mpp_pe, mpp_root_pe
 use fms_mod, only: error_mesg, file_exist, close_file, check_nml_error, &
-     stdlog, write_version_number, FATAL, NOTE, WARNING
+     stdlog, FATAL, NOTE, WARNING
 
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
@@ -23,7 +23,7 @@ use land_tile_diag_mod, only : diag_buff_type, &
      register_tiled_static_field, &
      send_tile_data_r0d_fptr, &
      send_tile_data_i0d_fptr
-use land_data_mod, only : lnd
+use land_data_mod, only : lnd, log_version
 use land_io_mod, only : read_field
 use land_tile_io_mod, only : create_tile_out_file, &
      write_tile_data_i0d_fptr, & 
@@ -67,10 +67,8 @@ private :: meanelev ! used by calculate_wt_init
 
 
 ! ==== module constants ======================================================
-character(len=*), parameter, private   :: &
-    module_name = 'hillslope',&
-    version     = '$Id$',&
-    tagname     = '$Name$'
+character(len=*), parameter :: module_name = 'hillslope'
+#include "../shared/version_variable.inc"
 
 integer, parameter :: max_vc = 30 ! Max num_vertclusters that can be input from namelist for 
                                   ! tile horizontal grid.
@@ -179,7 +177,8 @@ subroutine read_hlsp_namelist()
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=hlsp_nml, iostat=io)
   ierr = check_nml_error(io, 'hlsp_nml')

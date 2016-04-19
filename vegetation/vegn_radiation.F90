@@ -1,9 +1,10 @@
 module vegn_radiation_mod
 
-use fms_mod,            only : write_version_number, error_mesg, FATAL
+use fms_mod,            only : error_mesg, FATAL
 use constants_mod,      only : stefan
 
 use land_constants_mod, only : NBANDS
+use land_data_mod,      only : log_version
 use vegn_data_mod,      only : spdata, min_cosz
 use vegn_tile_mod,      only : vegn_tile_type
 use vegn_cohort_mod,    only : vegn_cohort_type, vegn_data_cover, get_vegn_wet_frac
@@ -20,10 +21,8 @@ public :: vegn_radiation
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
-character(len=*), private, parameter :: &
-   version = '$Id$', &
-   tagname = '$Name$' ,&
-   module_name = 'vegn_radiation'
+character(len=*), parameter :: module_name = 'vegn_dynamics'
+#include "../shared/version_variable.inc"
 ! values for internal vegetation radiation option selector
 integer, parameter :: VEGN_RAD_BIGLEAF   = 1 ! "big-leaf" radiation
 integer, parameter :: VEGN_RAD_TWOSTREAM = 2 ! two-stream radiation code
@@ -51,7 +50,8 @@ subroutine vegn_radiation_init(rad_to_use,snow_rad_to_use)
   character(*), intent(in) :: rad_to_use
   character(*), intent(in) :: snow_rad_to_use
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
   ! convert symbolic names of radiation options into numeric IDs to
   ! speed up selection during run-time

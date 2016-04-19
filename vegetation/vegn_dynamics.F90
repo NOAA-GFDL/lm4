@@ -5,11 +5,12 @@ module vegn_dynamics_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod, only: write_version_number, error_mesg, FATAL, WARNING
+use fms_mod, only: error_mesg, FATAL, WARNING
 use time_manager_mod, only: time_type
 
 use constants_mod, only : PI,tfreeze
 use land_constants_mod, only : seconds_per_year, mol_C
+use land_data_mod, only : log_version
 use land_debug_mod, only : is_watch_point, check_var_range
 use land_tile_diag_mod, only : OP_SUM, OP_MEAN, &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
@@ -51,10 +52,9 @@ public :: kill_small_cohorts_ppa
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
-character(len=*), private, parameter :: &
-   version = '$Id$', &
-   tagname = '$Name$' ,&
-   module_name = 'vegn'
+character(len=*), parameter :: module_name = 'vegn_dynamics'
+#include "../shared/version_variable.inc"
+character(len=*), parameter :: diag_mod_name = 'vegn'
 
 real, parameter :: GROWTH_RESP=0.333  ! fraction of NPP lost as growth respiration
 
@@ -77,7 +77,8 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
   type(time_type), intent(in) :: time       ! initial time for diagnostic fields
   real           , intent(in) :: delta_time ! fast time step, s
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
   ! set up global variables
   dt_fast_yr = delta_time/seconds_per_year
@@ -86,34 +87,34 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
   call set_default_diag_filter('soil')
 
   ! register diagnostic fields
-  id_gpp = register_cohort_diag_field ( module_name, 'gpp',  &
+  id_gpp = register_cohort_diag_field ( diag_mod_name, 'gpp',  &
        (/id_lon,id_lat/), time, 'gross primary productivity', 'kg C/(m2 year)', &
        missing_value=-100.0)
-  id_npp = register_cohort_diag_field ( module_name, 'npp',  &
+  id_npp = register_cohort_diag_field ( diag_mod_name, 'npp',  &
        (/id_lon,id_lat/), time, 'net primary productivity', 'kg C/(m2 year)', &
        missing_value=-100.0)
-  id_nep = register_tiled_diag_field ( module_name, 'nep',  &
+  id_nep = register_tiled_diag_field ( diag_mod_name, 'nep',  &
        (/id_lon,id_lat/), time, 'net ecosystem productivity', 'kg C/(m2 year)', &
        missing_value=-100.0 )
-  id_litter = register_tiled_diag_field (module_name, 'litter', (/id_lon,id_lat/), &
+  id_litter = register_tiled_diag_field (diag_mod_name, 'litter', (/id_lon,id_lat/), &
        time, 'litter productivity', 'kg C/(m2 year)', missing_value=-100.0)
-  id_resp = register_cohort_diag_field ( module_name, 'resp', (/id_lon,id_lat/), &
+  id_resp = register_cohort_diag_field ( diag_mod_name, 'resp', (/id_lon,id_lat/), &
        time, 'respiration', 'kg C/(m2 year)', missing_value=-100.0)
-  id_resl = register_cohort_diag_field ( module_name, 'resl', (/id_lon,id_lat/), &
+  id_resl = register_cohort_diag_field ( diag_mod_name, 'resl', (/id_lon,id_lat/), &
        time, 'leaf respiration', 'kg C/(m2 year)', missing_value=-100.0)
-  id_resr = register_cohort_diag_field ( module_name, 'resr', (/id_lon,id_lat/), &
+  id_resr = register_cohort_diag_field ( diag_mod_name, 'resr', (/id_lon,id_lat/), &
        time, 'root respiration', 'kg C/(m2 year)', missing_value=-100.0)
-  id_ress = register_cohort_diag_field ( module_name, 'ress', (/id_lon,id_lat/), &
+  id_ress = register_cohort_diag_field ( diag_mod_name, 'ress', (/id_lon,id_lat/), &
        time, 'stem respiration', 'kg C/(m2 year)', missing_value=-100.0)
-  id_resg = register_cohort_diag_field ( module_name, 'resg', (/id_lon,id_lat/), &
+  id_resg = register_cohort_diag_field ( diag_mod_name, 'resg', (/id_lon,id_lat/), &
        time, 'growth respiration', 'kg C/(m2 year)', missing_value=-100.0)
-  id_soilt = register_tiled_diag_field ( module_name, 'tsoil_av',  &
+  id_soilt = register_tiled_diag_field ( diag_mod_name, 'tsoil_av',  &
        (/id_lon,id_lat/), time, 'average soil temperature for carbon decomposition', 'degK', &
        missing_value=-100.0 )
-  id_theta = register_tiled_diag_field ( module_name, 'theta',  &
+  id_theta = register_tiled_diag_field ( diag_mod_name, 'theta',  &
        (/id_lon,id_lat/), time, 'average soil wetness for carbon decomposition', 'm3/m3', &
        missing_value=-100.0 )
-  id_age = register_cohort_diag_field ( module_name, 'age',  &
+  id_age = register_cohort_diag_field ( diag_mod_name, 'age',  &
        (/id_lon,id_lat/), time, 'average cohort age', 'years', &
        missing_value=-100.0)
 end subroutine vegn_dynamics_init

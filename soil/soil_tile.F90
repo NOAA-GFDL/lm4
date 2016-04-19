@@ -8,13 +8,12 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod, only : &
-     write_version_number, file_exist, check_nml_error, &
+use fms_mod, only : file_exist, check_nml_error, &
      close_file, stdlog, read_data, error_mesg, FATAL
 use constants_mod, only : &
      pi, tfreeze, rvgas, grav, dens_h2o, hlf, epsln
-use land_constants_mod, only : &
-     NBANDS
+use land_constants_mod, only : NBANDS
+use land_data_mod, only : log_version
 use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_SOIL, register_tile_selector
 use land_io_mod, only : print_netcdf_error
@@ -86,10 +85,8 @@ interface new_soil_tile
 end interface
 
 ! ==== module constants ======================================================
-character(len=*), parameter   :: &
-     version     = '$Id$', &
-     tagname     = '$Name$', &
-     module_name = 'soil_tile_mod'
+character(len=*), parameter :: module_name = 'soil_tile_mod'
+#include "../shared/version_variable.inc"
 
 integer, parameter :: max_lev          = 100 
 integer, parameter, public :: n_dim_soil_types = 14      ! max size of lookup table
@@ -521,7 +518,8 @@ subroutine read_soil_data_namelist(soil_single_geo, soil_gw_option )
   integer :: ierr         ! error code, returned by i/o routines
   integer :: i, rcode, ncid, varid, dimids(3)
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=soil_data_nml, iostat=io)
   ierr = check_nml_error(io, 'soil_data_nml')

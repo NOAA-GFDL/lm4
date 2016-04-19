@@ -11,7 +11,7 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod, only : write_version_number, error_mesg, FATAL, NOTE, file_exist, &
+use fms_mod, only : error_mesg, FATAL, NOTE, file_exist, &
      close_file, check_nml_error, mpp_pe, mpp_root_pe, stdlog, string
 use time_manager_mod, only : time_type, time_type_to_real
 use constants_mod, only : rdgas, rvgas, cp_air, PI, VONKARM
@@ -30,7 +30,7 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
 use land_tile_diag_mod, only : &
      register_tiled_diag_field, send_tile_data, diag_buff_type
-use land_data_mod,      only : land_state_type, lnd
+use land_data_mod, only : lnd, log_version
 use land_tile_io_mod, only : create_tile_out_file, &
      read_tile_data_r0d_fptr, write_tile_data_r0d_fptr, &
      get_input_restart_name, print_netcdf_error
@@ -50,10 +50,8 @@ public :: cana_state
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
-character(len=*), private, parameter :: &
-  version = '$Id$', &
-  tagname = '$Name$', &
-  module_name = 'canopy_air_mod'
+character(len=*), parameter :: module_name = 'canopy_air_mod'
+#include "../shared/version_variable.inc"
 
 ! options for turbulence parameter calculations
 integer, parameter :: TURB_LM3W = 1, TURB_LM3V = 2
@@ -94,7 +92,8 @@ subroutine read_cana_namelist()
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
      read (input_nml_file, nml=cana_nml, iostat=io)
      ierr = check_nml_error(io, 'cana_nml')

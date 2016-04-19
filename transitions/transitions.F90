@@ -12,8 +12,8 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod, only : write_version_number, string, error_mesg, FATAL, WARNING, NOTE, &
-     mpp_pe, write_version_number, file_exist, close_file, &
+use fms_mod, only : string, error_mesg, FATAL, WARNING, NOTE, &
+     mpp_pe, file_exist, close_file, &
      check_nml_error, stdlog, mpp_root_pe, fms_error_handler
 use mpp_io_mod, only : mpp_open, mpp_close, MPP_RDONLY, MPP_ASCII
 use time_manager_mod, only : time_type, set_date, get_date, set_time, &
@@ -45,7 +45,7 @@ use land_tile_mod, only : land_tile_map, &
      get_tile_water, land_tile_carbon, land_tile_heat
 use land_tile_io_mod, only : print_netcdf_error
 
-use land_data_mod, only : land_data_type, lnd
+use land_data_mod, only : lnd, log_version
 use vegn_tile_mod, only : vegn_tile_type, vegn_tran_priority
 use vegn_harvesting_mod, only : vegn_cut_forest
 
@@ -66,11 +66,9 @@ public :: do_landuse_change
 ! ==== end of public interface ==============================================
 
 ! ==== module constants =====================================================
-character(len=*), parameter   :: &
-     version = '$Id$', &
-     tagname = '$Name$', &
-     module_name = 'land_transitions_mod', &
-     diag_mod_name = 'landuse'
+character(len=*), parameter :: module_name = 'land_transitions_mod'
+#include "../shared/version_variable.inc"
+character(len=*), parameter :: diag_mod_name = 'landuse'
 ! selectors for overshoot handling options, for efficiency
 integer, parameter :: &
      OPT_IGNORE = 0, &
@@ -141,8 +139,10 @@ subroutine land_transitions_init(id_lon, id_lat)
 
   if(module_is_initialized) return
 
+  call log_version(version, module_name, &
+  __FILE__)
+
   call horiz_interp_init
-  call write_version_number(version, tagname)
 
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=landuse_nml, iostat=io)

@@ -12,7 +12,7 @@ use fms_mod, only: open_namelist_file
 #endif
 
 use fms_mod, only : error_mesg, file_exist, check_nml_error, &
-     stdlog, write_version_number, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
+     stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
 use time_manager_mod,   only: time_type_to_real
 use constants_mod,      only: tfreeze, hlv, hlf, PI
 
@@ -26,7 +26,7 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
 use land_tile_diag_mod, only : &
      register_tiled_diag_field, send_tile_data, diag_buff_type
-use land_data_mod,      only : land_state_type, lnd
+use land_data_mod,      only : lnd, log_version
 use land_tile_io_mod, only : create_tile_out_file, read_tile_data_r1d_fptr, &
      write_tile_data_r1d_fptr, print_netcdf_error, get_input_restart_name, &
      sync_nc_files
@@ -50,10 +50,8 @@ public :: snow_step_2
 
 
 ! ==== module variables ======================================================
-character(len=*), parameter, private   :: &
-       module_name = 'snow_mod' ,&
-       version     = '$Id$' ,&
-       tagname     = '$Name$'
+character(len=*), parameter :: module_name = 'snow_mod'
+#include "../shared/version_variable.inc"
 
 ! ==== module variables ======================================================
 
@@ -105,7 +103,8 @@ subroutine read_snow_namelist()
 
   call read_snow_data_namelist(num_l,dz,mc_fict)
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=snow_nml, iostat=io)
   ierr = check_nml_error(io, 'snow_nml')

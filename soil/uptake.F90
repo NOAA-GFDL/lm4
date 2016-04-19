@@ -12,13 +12,13 @@ use fms_mod, only: open_namelist_file
 #endif
 
 use fms_mod, only: error_mesg, file_exist, check_nml_error, &
-     stdlog, write_version_number, close_file, mpp_pe, mpp_root_pe, &
+     stdlog, close_file, mpp_pe, mpp_root_pe, &
      FATAL, WARNING, NOTE
 use constants_mod, only: PI
 
-use soil_tile_mod, only : &
-     soil_tile_type, soil_pars_type, max_lev, psi_wilt
+use soil_tile_mod, only : soil_tile_type, soil_pars_type, max_lev, psi_wilt
 use land_debug_mod, only : is_watch_point
+use land_data_mod, only : log_version
 
 implicit none
 private
@@ -33,10 +33,8 @@ public :: darcy2d_uptake, darcy2d_uptake_solver
 
 
 ! ==== module constants ======================================================
-character(len=*), parameter, private   :: &
-    module_name = 'uptake',&
-    version     = '$Id$',&
-    tagname     = '$Name$'
+character(len=*), parameter :: module_name = 'uptake'
+#include "../shared/version_variable.inc"
 
 ! values for internal soil uptake option selector
 integer, parameter ::   &
@@ -87,7 +85,8 @@ subroutine uptake_init(num_l_in, dz_in, zfull_in)
        zfull_in(:)  ! layer centers
 
   integer :: unit, ierr, io
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=uptake_nml, iostat=io)
   ierr = check_nml_error(io, 'uptake_nml')

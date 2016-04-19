@@ -2,13 +2,14 @@ module vegn_photosynthesis_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod,            only : write_version_number, error_mesg, FATAL,WARNING
+use fms_mod,            only : error_mesg, FATAL,WARNING
 use constants_mod,      only : TFREEZE, PI, rdgas, dens_h2o, grav 
 use sphum_mod,          only : qscomp
 
 use land_constants_mod, only : Rugas, seconds_per_year, mol_h2o, mol_air, d608
 use land_numerics_mod,  only : gammaU, gamma
 use land_debug_mod,     only : is_watch_point, check_var_range
+use land_data_mod,      only : log_version
 use soil_tile_mod,      only : soil_tile_type, psi_wilt
 use vegn_tile_mod,      only : vegn_tile_type
 use vegn_data_mod,      only : PT_C4, FORM_GRASS, spdata, T_transp_min
@@ -23,10 +24,8 @@ public :: vegn_photosynthesis
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
-character(len=*), private, parameter :: &
-   version = '$Id$', &
-   tagname = '$Name$', &
-   module_name = 'vegn_photosynthesis'
+character(len=*), parameter :: module_name = 'vegn_photosynthesis'
+#include "../shared/version_variable.inc"
 ! values for internal vegetation photosynthesis option selector
 integer, parameter :: VEGN_PHOT_SIMPLE  = 1 ! zero photosynthesis
 integer, parameter :: VEGN_PHOT_LEUNING = 2 ! photosynthesis according to simplified Leuning model
@@ -54,7 +53,8 @@ subroutine vegn_photosynthesis_init(photosynthesis_to_use, water_stress_to_use, 
   character(*), intent(in) :: water_stress_to_use
   logical,      intent(in) :: hydraulics_repair_in
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
   ! convert symbolic names of photosynthesis options into numeric IDs to
   ! speed up selection during run-time

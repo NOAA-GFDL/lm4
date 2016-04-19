@@ -8,14 +8,11 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod, only : &
-     write_version_number, file_exist, check_nml_error, &
-     close_file, stdlog
+use fms_mod, only : file_exist, check_nml_error, close_file, stdlog
 use constants_mod,only: tfreeze, hlf
-use land_constants_mod, only : &
-     NBANDS
-use land_tile_selectors_mod, only : &
-     tile_selector_type
+use land_constants_mod, only : NBANDS
+use land_data_mod, only : log_version
+use land_tile_selectors_mod, only : tile_selector_type
 
 implicit none
 private
@@ -48,10 +45,8 @@ end interface
 
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: &
-     module_name = 'snow_tile_mod' ,&
-     version     = '$Id$' ,&
-     tagname     = '$Name$'
+character(len=*), parameter :: module_name = 'snow_tile_mod'
+#include "../shared/version_variable.inc"
 integer, parameter :: max_lev = 10
 real   , parameter :: t_range = 10.0 ! degK
 
@@ -141,7 +136,8 @@ subroutine read_snow_data_namelist(snow_num_l, snow_dz, snow_mc_fict)
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=snow_data_nml, iostat=io)
   ierr = check_nml_error(io, 'snow_data_nml')

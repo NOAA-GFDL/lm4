@@ -12,7 +12,7 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod,            only : write_version_number, error_mesg, FATAL, NOTE, &
+use fms_mod,            only : error_mesg, FATAL, NOTE, &
      mpp_pe, file_exist, close_file, check_nml_error, stdlog, &
      mpp_root_pe, get_mosaic_tile_file, fms_error_handler
 use time_interp_mod,    only : time_interp
@@ -21,7 +21,7 @@ use diag_manager_mod,   only : get_base_date
 use nf_utils_mod,       only : nfu_inq_dim, nfu_get_dim, nfu_def_dim, &
      nfu_inq_compressed_var, nfu_get_compressed_rec, nfu_validtype, &
      nfu_get_valid_range, nfu_is_valid, nfu_put_rec, nfu_put_att
-use land_data_mod,      only : lnd
+use land_data_mod,      only : lnd, log_version
 use land_io_mod,        only : print_netcdf_error
 use land_numerics_mod,  only : nearest
 use land_tile_io_mod,   only : create_tile_out_file,sync_nc_files
@@ -45,10 +45,8 @@ public :: write_static_vegn
 ! ==== end of public interface ==============================================
 
 ! ==== module constants =====================================================
-character(len=*), parameter :: &
-     module_name = 'static_vegn_mod', &
-     version     = '$Id$', &
-     tagname     = '$Name$'
+character(len=*), parameter :: module_name = 'static_vegn_mod'
+#include "../shared/version_variable.inc"
 
 ! ==== module data ==========================================================
 logical :: module_is_initialized = .FALSE.
@@ -93,7 +91,8 @@ subroutine read_static_vegn_namelist(static_veg_used)
   ! ---- local vars
   integer :: unit, ierr, io
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=static_veg_nml, iostat=io)

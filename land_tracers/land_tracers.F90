@@ -1,10 +1,10 @@
 module land_tracers_mod
 
-use fms_mod           , only : write_version_number, mpp_npes, string, &
-                               error_mesg, FATAL, NOTE, stdout
+use fms_mod, only : mpp_npes, string, error_mesg, FATAL, NOTE, stdout
 use field_manager_mod , only : MODEL_LAND
 use tracer_manager_mod, only : register_tracers, get_number_tracers, &
    get_tracer_index, get_tracer_names, NO_TRACER
+use land_data_mod, only : log_version
 
 implicit none
 private
@@ -17,10 +17,8 @@ integer, public :: isphum, ico2 ! indices of specific humidity and CO2
 ! ==== end of public interfaces ==============================================
 
 ! ---- module constants ------------------------------------------------------
-character(len=*), parameter :: &
-     module_name = 'land_tracers_mod', &
-     version     = '$Id$', &
-     tagname     = '$Name$'
+character(len=*), parameter :: module_name = 'land_tracers_mod'
+#include "../shared/version_variable.inc"
 
 ! ---- private module variables ----------------------------------------------
 logical :: module_is_initialized = .FALSE.
@@ -33,7 +31,8 @@ subroutine land_tracers_init()
   character(32) :: name
   
   ! write the version and tag name to the logfile
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
   call register_tracers ( MODEL_LAND, ntracers, ntcana, ndiag )
   

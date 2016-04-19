@@ -12,7 +12,7 @@ use fms_mod, only: open_namelist_file
 #endif
 
 use fms_mod, only: error_mesg, file_exist, check_nml_error, &
-     stdlog, write_version_number, close_file, mpp_pe, mpp_root_pe, &
+     stdlog, close_file, mpp_pe, mpp_root_pe, &
      FATAL, WARNING, NOTE
 use time_manager_mod,   only: time_type, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
@@ -53,7 +53,7 @@ use land_tile_diag_mod, only : diag_buff_type, set_default_diag_filter, &
      send_tile_data, send_tile_data_r0d_fptr, send_tile_data_r1d_fptr, &
      send_tile_data_i0d_fptr, &
      add_tiled_diag_field_alias, add_tiled_static_field_alias
-use land_data_mod, only : land_state_type, lnd
+use land_data_mod, only : lnd, log_version
 use land_io_mod, only : read_field
 use land_tile_io_mod, only : create_tile_out_file, write_tile_data_r0d_fptr,& 
      write_tile_data_r1d_fptr, write_tile_data_r2d_fptr, write_tile_data_r2d_fptr,&
@@ -122,10 +122,8 @@ end interface add_root_exudates
 
 
 ! ==== module constants ======================================================
-character(len=*), parameter, private   :: &
-    module_name = 'soil',&
-    version     = '$Id$',&
-    tagname     = '$Name$'
+character(len=*), parameter :: module_name = 'soil'
+#include "../shared/version_variable.inc"
 
 ! ==== module variables ======================================================
 
@@ -296,7 +294,8 @@ subroutine read_soil_namelist()
 
   call read_soil_data_namelist(use_single_geo,gw_option)
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=soil_nml, iostat=io)
   ierr = check_nml_error(io, 'soil_nml')

@@ -7,13 +7,13 @@ use fms_mod, only: open_namelist_file
 #endif
 use constants_mod, only: PI
 use fms_mod, only: &
-     error_mesg, file_exist, check_nml_error, stdlog, write_version_number, &
+     error_mesg, file_exist, check_nml_error, stdlog, &
      close_file, mpp_pe, mpp_npes, mpp_root_pe, string, FATAL, WARNING, NOTE
 use time_manager_mod, only : &
      time_type, get_date, set_date, operator(<=), operator(>=)
 use grid_mod, only: &
      get_grid_ntiles
-use land_data_mod, only: lnd
+use land_data_mod, only: lnd, log_version
 
 ! NOTE TO SELF: the "!$" sentinels are not comments: they are compiled if OpenMP 
 ! support is turned on
@@ -62,10 +62,8 @@ public :: water_cons_tol
 public :: carbon_cons_tol
 public :: do_check_conservation
 ! ==== module constants ======================================================
-character(len=*), parameter, private   :: &
-    module_name = 'land_debug',&
-    version     = '$Id$',&
-    tagname     = '$Name$'
+character(len=*), parameter :: module_name = 'land_debug'
+#include "../shared/version_variable.inc"
 
 ! ==== module variables ======================================================
 integer, allocatable :: current_debug_level(:)
@@ -106,7 +104,8 @@ subroutine land_debug_init()
   integer :: unit, ierr, io, ntiles
   integer :: max_threads
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
   
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=land_debug_nml, iostat=io)

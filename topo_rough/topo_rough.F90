@@ -12,12 +12,13 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-  use fms_mod,            only : write_version_number, error_mesg, FATAL, NOTE, &
+  use fms_mod,            only : error_mesg, FATAL, NOTE, &
        open_restart_file, set_domain, read_data, &
        write_data, close_file, file_exist, check_nml_error, mpp_pe, &
        mpp_root_pe, stdlog
   use diag_manager_mod,   only : register_static_field, send_data
   use topography_mod,     only : get_topog_stdev
+  use land_data_mod, only : log_version
 
 implicit none
 private
@@ -67,11 +68,8 @@ namelist/topo_rough_nml/ use_topo_rough, topo_rough_factor, max_topo_rough, &
      topo_rough_source, topo_rough_file, topo_rough_var
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: &
-     module_name   = 'she_topo_rough', &
-     diag_mod_name = 'topo_rough', &
-     version       = '$Id$', &
-     tagname       = '$Name$'
+character(len=*), parameter :: module_name = 'topo_rough'
+#include "../shared/version_variable.inc"
 
 ! ==== module private data ===================================================
 real, allocatable, save ::topo_stdev(:,:)
@@ -105,7 +103,8 @@ subroutine topo_rough_init(time, lonb, latb, domain, id_lon,id_lat)
   logical :: used, got_stdev
 
   ! write the version and tagname to the logfile
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
   ! read and write (to logfile) namelist variables
 #ifdef INTERNAL_FILE_NML
@@ -160,7 +159,7 @@ subroutine topo_rough_init(time, lonb, latb, domain, id_lon,id_lat)
   endif
 
   ! diag output : send topo_stdev to diagnostics
-  id = register_static_field(diag_mod_name,'topo_rough',(/id_lon,id_lat/), &
+  id = register_static_field(module_name,'topo_rough',(/id_lon,id_lat/), &
        'momentum drag coefficient scaling lenght','m',missing_value=-1.0 )
   if(id > 0) &
        used = send_data(id,topo_stdev,time)

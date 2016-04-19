@@ -10,7 +10,7 @@ if(.NOT.(x))call my_error(mod_name,message,FATAL,thisfile,__LINE__)
 
 module land_numerics_mod
 
-use fms_mod, only: error_mesg, FATAL, NOTE, write_version_number, mpp_pe, &
+use fms_mod, only: error_mesg, FATAL, NOTE, mpp_pe, &
      string, stdout
 use mpp_mod, only: mpp_npes, mpp_get_current_pelist, mpp_send, mpp_recv, &
      mpp_sync, mpp_sync_self, EVENT_RECV, COMM_TAG_1,  COMM_TAG_2,       &
@@ -22,6 +22,7 @@ use mpp_mod, only: mpp_npes, mpp_get_current_pelist, mpp_send, mpp_recv, &
 
 use mpp_domains_mod, only : domain2d, mpp_get_compute_domain, &
      mpp_get_global_domain
+use land_data_mod, only : log_version
 
 implicit none
 private
@@ -62,10 +63,9 @@ end interface
 
 logical :: module_is_initialized =.FALSE.
 ! module constants
+character(len=*), parameter :: module_name = 'lake_tile_mod'
+#include "../shared/version_variable.inc"
 character(len=*), parameter :: &
-     mod_name = 'land_numerics_mod', &
-     version  = '$Id$', &
-     tagname  = '$Name$', &
      thisfile = __FILE__
 ! ==== public type ===========================================================
 ! this data structure describes the horizontal remapping: that is, the operation 
@@ -99,7 +99,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 subroutine numerics_init()
 
   module_is_initialized =.TRUE. 
-  call write_version_number(version,tagname)
+  call log_version(version, module_name, thisfile)
 
 end subroutine numerics_init
 
@@ -114,10 +114,12 @@ function bisect(xx, x1, periodic)
   real, intent(in)              :: x1        ! point to locate
   logical, intent(in), optional :: periodic  ! if present and true, the data
                                              ! domain is assumed to be periodic
-  ! ---- result type ---------------------------------------------------
+  ! ---- result type
   integer bisect
 
-  ! ---- local vars ----------------------------------------------------
+  character(*),parameter :: mod_name='bisect'
+
+   ! ---- local vars
   real    :: x              ! duplicate of input value
   integer :: low, high, mid
   integer :: n              ! size of the input array
@@ -162,7 +164,9 @@ subroutine lin_int0(data, xx, x, res)
   real, intent(in) :: x          ! coordinates to interpolate to
   real, intent(inout) :: res     ! result of interpolation
 
-  ! ---- local vars ----------------------------------------------------------
+  character(*),parameter :: mod_name='lin_int0'
+
+  ! ---- local vars
   integer :: i1, i2
   real    :: f1, f2
 
@@ -189,7 +193,9 @@ subroutine lin_int1(data, xx, x, res)
   real, intent(in) :: x            ! coordinates to interpolate to
   real, intent(inout) :: res(:)    ! result of interpolation
 
-  ! ---- local vars ----------------------------------------------------------
+  character(*),parameter :: mod_name='lin_int0'
+
+  ! ---- local vars
   integer :: i1, i2
   real    :: f1, f2
 
@@ -217,7 +223,8 @@ subroutine lin_int2(data, tt, t, res)
   real, intent(in) :: t            ! time to interpolate to
   real, intent(inout) :: res(:,:)  ! result
 
-  ! ---- local vars ----------------------------------------------------------
+  character(*),parameter :: mod_name='lin_int2'
+  ! ---- local vars
   integer :: i1, i2
   real    :: f1, f2
 
@@ -242,7 +249,8 @@ subroutine lin_int1m(data, xx, x, res, mask)
   real, intent(inout) :: res(:)    ! result of interpolation
   logical, intent(in) :: mask(:)   ! valid data mask
 
-  ! ---- local vars ----------------------------------------------------------
+  character(*),parameter :: mod_name='lin_int1m'
+  ! ---- local vars
   integer :: i1, i2
   real    :: f1, f2
 
@@ -271,7 +279,8 @@ subroutine lin_int2m(data, tt, t, res, mask)
   real, intent(inout) :: res(:,:)  ! result
   logical, intent(in) :: mask(:,:) ! interpolation mask
 
-  ! ---- local vars ----------------------------------------------------------
+  character(*),parameter :: mod_name='lin_int2m'
+  ! ---- local vars
   integer :: i1, i2
   real    :: f1, f2
 
@@ -876,6 +885,7 @@ subroutine horiz_remap(map,domain,d)
   type(domain2d)        , intent(in)    :: domain
   real                  , intent(inout) :: d(:,:,:) ! field to fill
   
+  character(*),parameter :: mod_name='horiz_remap'
   ! ---- local vars
   integer :: is,ie,js,je ! bounds of out compute domain
   integer :: i,j,k,n
@@ -1559,7 +1569,7 @@ subroutine my_error(mod_name, message, mode, file, line)
   character(len=*), intent(in), optional :: file
   integer,          intent(in), optional :: line
 
-  ! ---- local vars ----------------------------------------------------------
+  ! ---- local vars
   character(len=512) :: mesg
   if(present(file)) then ! assume that file and line are either both present or not
      write(mesg,'("File ",a," Line ",i4.4," :: ",a)')&

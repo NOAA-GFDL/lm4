@@ -16,7 +16,7 @@ use fms_mod, only: open_namelist_file
 #endif
 
 use mpp_mod, only : mpp_max, mpp_sum,  mpp_chksum
-use fms_mod, only : write_version_number, error_mesg, FATAL, WARNING, NOTE, mpp_pe, &
+use fms_mod, only : error_mesg, FATAL, WARNING, NOTE, mpp_pe, &
      mpp_root_pe, file_exist, check_nml_error, close_file, &
      stdlog, stderr, mpp_clock_id, mpp_clock_begin, mpp_clock_end, string, &
      stdout, CLOCK_FLAG_DEFAULT, CLOCK_COMPONENT, CLOCK_ROUTINE
@@ -73,7 +73,7 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
      get_elmt_indices, get_tile_tags, get_tile_water, land_tile_heat, &
      land_tile_carbon, max_n_tiles, init_tile_map
 use land_data_mod, only : land_data_type, atmos_land_boundary_type, &
-     land_state_type, land_data_init, land_data_end, lnd
+     land_state_type, land_data_init, land_data_end, lnd, log_version
 use nf_utils_mod,  only : nfu_inq_var, nfu_inq_dim, nfu_get_var
 use land_utils_mod, only : put_to_tiles_r0d_fptr
 use land_tile_io_mod, only : print_netcdf_error, create_tile_out_file, &
@@ -114,10 +114,8 @@ public :: Lnd_stock_pe          ! return stocks of conservative quantities
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: &
-     module_name = 'land', &
-     version     = '$Id$', &
-     tagname     = '$Name$'
+character(len=*), parameter :: module_name = 'land'
+#include "../shared/version_variable.inc"
 
 ! ==== module variables ======================================================
 
@@ -312,7 +310,8 @@ subroutine land_model_init &
   module_is_initialized = .TRUE.
 
   ! [1] print out version number
-  call write_version_number (version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
   ! initialize land model clocks
   landClock      = mpp_clock_id('Land'               ,CLOCK_FLAG_DEFAULT,CLOCK_COMPONENT)

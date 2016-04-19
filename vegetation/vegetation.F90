@@ -8,7 +8,7 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod, only: write_version_number, error_mesg, NOTE, WARNING, FATAL, file_exist, &
+use fms_mod, only: error_mesg, NOTE, WARNING, FATAL, file_exist, &
                    close_file, check_nml_error, stdlog, string 
 use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe
 use time_manager_mod, only: time_type, time_type_to_real, get_date, operator(-)
@@ -33,7 +33,7 @@ use land_tile_diag_mod, only : OP_SUM, OP_MEAN, OP_MAX, OP_DOMINANT, &
      register_tiled_static_field, register_tiled_diag_field, &
      send_tile_data, diag_buff_type, register_cohort_diag_field, send_cohort_data, &
      set_default_diag_filter
-use land_data_mod,      only : land_state_type, lnd
+use land_data_mod,      only : lnd, log_version
 use land_io_mod, only : read_field
 use land_tile_io_mod, only : create_tile_out_file, &
      write_tile_data_r0d_fptr, write_tile_data_i0d_fptr, &
@@ -97,10 +97,8 @@ public :: update_vegn_slow
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
-character(len=*), private, parameter :: &
-   version = '$Id$', &
-   tagname = '$Name$', &
-   module_name = 'vegn'
+character(len=*), parameter :: module_name = 'vegn'
+#include "../shared/version_variable.inc"
 ! values for internal selector of CO2 option used for photosynthesis
 integer, parameter :: VEGN_PHOT_CO2_PRESCRIBED  = 1
 integer, parameter :: VEGN_PHOT_CO2_INTERACTIVE = 2
@@ -235,7 +233,8 @@ subroutine read_vegn_namelist()
   call read_vegn_data_namelist()
   call read_static_vegn_namelist(use_static_veg)
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
     read (input_nml_file, nml=vegn_nml, iostat=io)
     ierr = check_nml_error(io, 'vegn_nml')

@@ -7,10 +7,11 @@ module soil_carbon_mod
 
 use constants_mod, only : pi, dens_h2o
 use land_constants_mod, only : Rugas, seconds_per_year
-use fms_mod, only: check_nml_error, file_exist, write_version_number, close_file, &
+use fms_mod, only: check_nml_error, file_exist, close_file, &
             stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, WARNING, NOTE
 use vegn_data_mod, only: K1,K2
 use land_numerics_mod,only: tridiag
+use land_data_mod, only: log_version
 use land_debug_mod, only: get_current_point, is_watch_point, check_var_range
 
 #ifdef INTERNAL_FILE_NML
@@ -60,10 +61,8 @@ public :: adjust_pool_ncohorts
 
 
 ! ==== module constants ======================================================
-character(len=*), parameter   :: &
-     version     = '$Id$', &
-     tagname     = '$Name$', &
-     module_name = 'soil_carbon_mod'
+character(len=*), parameter :: module_name = 'soil_carbon_mod'
+#include "../shared/version_variable.inc"
 
 integer, parameter :: N_C_TYPES = 3  ! Carbon chemical species (Cellulose, lignin, microbial products)
 integer, parameter :: & ! indices of carbon chemical species
@@ -196,7 +195,8 @@ subroutine read_soil_carbon_namelist
   integer :: i
   real    :: z
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=soil_carbon_nml, iostat=io)
   ierr = check_nml_error(io, 'soil_carbon_nml')

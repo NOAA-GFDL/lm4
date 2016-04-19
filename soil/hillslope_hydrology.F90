@@ -5,13 +5,12 @@ module hillslope_hydrology_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod, only : write_version_number, error_mesg, FATAL, NOTE
+use fms_mod, only : error_mesg, FATAL, NOTE
 use soil_tile_mod, only : &
      soil_tile_type, clw, initval, soil_data_hydraulic_properties
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), nitems
-use fms_mod, only : write_version_number
-use land_data_mod, only : land_state_type, lnd
+use land_data_mod, only : lnd, log_version
 use land_debug_mod, only : is_watch_point, set_current_point, get_current_point, &
      do_check_conservation, check_conservation, is_watch_cell
 use hillslope_mod, only : do_hillslope_model, strm_depth_penetration, use_hlsp_aspect_in_gwflow, &
@@ -39,10 +38,8 @@ public :: stiff_explicit_gwupdate
 
 
 ! ==== module constants ======================================================
-character(len=*), parameter, private   :: &
-    module_name = 'hillslope_hydrology',&
-    version     = '$Id$',&
-    tagname     = '$Name$'
+character(len=*), parameter :: module_name = 'hillslope_hydrology'
+#include "../shared/version_variable.inc"
 
 ! ---- diagnostic field IDs
 !integer :: id_gtos_hlsp, & ! ground to stream runoff for hillslope area
@@ -70,7 +67,8 @@ subroutine hlsp_hydro_lev_init(num_l_in, dz_in, zfull_in)
        dz_in(:), &  ! layer thickness
        zfull_in(:)  ! layer centers
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
   module_is_initialized =.TRUE.
 
   num_l = num_l_in

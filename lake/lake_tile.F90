@@ -11,13 +11,13 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod, only : &
-     write_version_number, file_exist, check_nml_error, &
+use fms_mod, only : file_exist, check_nml_error, &
      read_data, close_file, stdlog
 use constants_mod, only : &
      pi, tfreeze, hlf
 use land_constants_mod, only : &
      NBANDS
+use land_data_mod, only : log_version
 use land_io_mod, only : &
      init_cover_field
 use land_tile_selectors_mod, only : &
@@ -55,10 +55,8 @@ end interface
 
 
 ! ==== module constants ======================================================
-character(len=*), private, parameter   :: &
-     version     = '$Id$', &
-     tagname     = '$Name$', &
-     module_name = 'lake_tile_mod'
+character(len=*), parameter :: module_name = 'lake_tile_mod'
+#include "../shared/version_variable.inc"
 
 integer, parameter :: max_lev          = 80
 integer, parameter :: n_dim_lake_types = 1  ! size of lookup table
@@ -249,7 +247,8 @@ subroutine read_lake_data_namelist(lake_n_lev)
   integer :: i
   real    :: z
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
      read (input_nml_file, nml=lake_data_nml, iostat=io)
      ierr = check_nml_error(io, 'lake_data_nml')

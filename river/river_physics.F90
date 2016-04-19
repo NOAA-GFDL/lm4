@@ -31,7 +31,7 @@ module river_physics_mod
   use mpp_domains_mod, only : mpp_get_compute_domains
   use mpp_domains_mod, only : mpp_get_num_overlap, mpp_get_overlap
   use mpp_domains_mod, only : mpp_get_update_size, mpp_get_update_pelist
-  use fms_mod,         only : stdlog, write_version_number
+  use fms_mod,         only : stdlog
   use fms_mod,         only : close_file, check_nml_error, file_exist
   use diag_manager_mod,only : register_diag_field, send_data
   use tracer_manager_mod, only : NO_TRACER
@@ -40,6 +40,7 @@ module river_physics_mod
   use lake_tile_mod,   only : num_l
   use constants_mod,   only : tfreeze, hlf, DENS_H2O
   use land_debug_mod,  only : set_current_point, is_watch_cell
+  use land_data_mod,   only : log_version
 
   implicit none
   private
@@ -47,8 +48,8 @@ module river_physics_mod
   real    :: missing = -1.e8
 
 !--- version information ---------------------------------------------
-  character(len=128) :: version = '$Id$'
-  character(len=128) :: tagname = '$Name$'
+character(len=*), parameter :: module_name = 'river_physics'
+#include "../shared/version_variable.inc"
 
 
 ! ---- public interfaces -----------------------------------------------------
@@ -150,7 +151,8 @@ contains
 #endif
 
 !--- write version and namelist info to logfile --------------------
-    call write_version_number(version,tagname)
+    call log_version(version, module_name, &
+    __FILE__)
     unit=stdlog()
     write (unit, river_physics_nml)  
 

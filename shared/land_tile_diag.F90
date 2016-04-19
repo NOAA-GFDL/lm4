@@ -6,7 +6,7 @@ use diag_axis_mod,      only : get_axis_length
 use diag_manager_mod,   only : register_diag_field, register_static_field, &
      diag_field_add_attribute, diag_field_add_cell_measures, send_data
 use diag_util_mod,      only : log_diag_field_info
-use fms_mod,            only : write_version_number, error_mesg, string, FATAL
+use fms_mod,            only : error_mesg, string, FATAL
 
 use land_tile_selectors_mod, only : tile_selectors_init, tile_selectors_end, &
      tile_selector_type, register_tile_selector, selector_suffix, &
@@ -16,7 +16,7 @@ use land_tile_mod,      only : land_tile_type, diag_buff_type, &
      land_tile_enum_type, operator(/=), current_tile, &
      tile_is_selected, fptr_i0, fptr_r0, fptr_r0i
 use vegn_cohort_mod,    only : vegn_cohort_type
-use land_data_mod,      only : lnd
+use land_data_mod,      only : lnd, log_version
 use tile_diag_buff_mod, only : diag_buff_type, realloc_diag_buff
 
 implicit none
@@ -63,10 +63,8 @@ character(*), public, parameter :: cmor_name='cmor'
 
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: &
-     mod_name = 'land_tile_diag_mod', &
-     version  = '$Id$', &
-     tagname  = '$Name$'
+character(len=*), parameter :: mod_name = 'lake_tile_mod'
+#include "../shared/version_variable.inc"
 
 integer, parameter :: INIT_FIELDS_SIZE      = 1       ! initial size of the fields array
 integer, parameter :: BASE_TILED_FIELD_ID   = 65536   ! base value for tiled field 
@@ -149,7 +147,8 @@ subroutine tile_diag_init()
   if (module_is_initialized) return
 
   module_is_initialized = .true.
-  call write_version_number(version, tagname)
+  call log_version(version, mod_name, &
+  __FILE__)
 
   ! initialize diag selectors
   call tile_selectors_init()

@@ -2,7 +2,7 @@ module land_io_mod
 
 use constants_mod, only : PI
 use fms_mod, only : file_exist, error_mesg, FATAL, WARNING, stdlog, mpp_pe, &
-     mpp_root_pe, write_version_number, string, check_nml_error, close_file
+     mpp_root_pe, string, check_nml_error, close_file
 
 #ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
@@ -16,6 +16,7 @@ use horiz_interp_mod,  only : horiz_interp_type, &
      horiz_interp
 
 use land_numerics_mod, only : nearest, bisect
+use land_data_mod, only : log_version
 use nf_utils_mod,      only : nfu_validtype, nfu_get_dim, nfu_get_dim_bounds, &
      nfu_get_valid_range, nfu_is_valid, nfu_inq_var, nfu_get_var
 
@@ -44,10 +45,8 @@ include 'netcdf.inc'
 #define __NF_ASRT__(x) call print_netcdf_error((x),__FILE__,__LINE__)
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: &
-     module_name = 'land_io_mod', &
-     version     = '$Id$', &
-     tagname     = '$Name$'
+character(len=*), parameter :: module_name = 'land_io_mod'
+#include "../shared/version_variable.inc"
 
 logical :: module_is_initialized = .false.
 
@@ -64,7 +63,8 @@ subroutine read_land_io_namelist()
   module_is_initialized = .TRUE.
 
   ! [1] print out version number
-  call write_version_number (version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
 #ifdef INTERNAL_FILE_NML
      read (input_nml_file, nml=land_io_nml, iostat=io)

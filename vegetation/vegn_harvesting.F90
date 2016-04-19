@@ -6,11 +6,12 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod, only : write_version_number, string, error_mesg, FATAL, NOTE, &
-     mpp_pe, write_version_number, file_exist, close_file, &
+use fms_mod, only : string, error_mesg, FATAL, NOTE, &
+     mpp_pe, file_exist, close_file, &
      check_nml_error, stdlog, mpp_root_pe
 use mpp_io_mod, only : axistype, mpp_get_atts, mpp_get_axis_data, &
      mpp_open, mpp_close, MPP_RDONLY, MPP_WRONLY, MPP_ASCII
+use land_data_mod, only : log_version
 use vegn_data_mod, only : &
      N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, &
      HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, &
@@ -40,10 +41,8 @@ public :: do_harvesting
 ! ==== end of public interface ===============================================
 
 ! ==== module constants ======================================================
-character(len=*), parameter   :: &
-     version = '$Id$', &
-     tagname = '$Name$', &
-     module_name = 'vegn_harvesting_mod'
+character(len=*), parameter :: module_name = 'vegn_dynamics'
+#include "../shared/version_variable.inc"
 real, parameter :: ONETHIRD = 1.0/3.0
 
 ! ==== module data ===========================================================
@@ -71,7 +70,8 @@ contains ! ###################################################################
 subroutine vegn_harvesting_init
   integer :: unit, ierr, io
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=harvesting_nml, iostat=io)
