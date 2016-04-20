@@ -14,7 +14,7 @@ use fms_io_mod, only : restart_file_type, free_restart_type, save_restart, &
      register_restart_axis, register_restart_field, get_instance_filename, &
      field_exist, get_field_size, read_compressed, read_data
 use fms_mod, only : error_mesg, file_exist,     &
-     check_nml_error, stdlog, write_version_number, &
+     check_nml_error, stdlog, &
      close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
 use time_manager_mod, only : time_type
 use data_override_mod, only : data_override

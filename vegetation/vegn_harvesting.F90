@@ -7,7 +7,7 @@ use fms_mod, only: open_namelist_file
 #endif
 
 use fms_mod, only : string, error_mesg, FATAL, NOTE, &
-     mpp_pe, write_version_number, file_exist, close_file, &
+     mpp_pe, file_exist, close_file, &
      check_nml_error, stdlog, mpp_root_pe
 use mpp_io_mod, only : axistype, mpp_get_atts, mpp_get_axis_data, &
      mpp_open, mpp_close, MPP_RDONLY, MPP_WRONLY, MPP_ASCII

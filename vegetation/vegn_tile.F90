@@ -1,7 +1,6 @@
 module vegn_tile_mod
 
-use fms_mod, only : &
-     write_version_number, stdlog, error_mesg, FATAL
+use fms_mod, only : stdlog, error_mesg, FATAL
 use constants_mod, only : &
      tfreeze, hlf
 
