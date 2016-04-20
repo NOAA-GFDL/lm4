@@ -10,15 +10,14 @@ use soil_tile_mod, only : &
      soil_tile_type, clw, initval, soil_data_hydraulic_properties
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), nitems
-use land_data_mod, only : land_state_type, lnd, log_version
+use land_data_mod, only : lnd, log_version
 use land_debug_mod, only : is_watch_point, set_current_point, get_current_point, &
                            check_conservation, is_watch_cell
 use hillslope_mod, only : do_hillslope_model, strm_depth_penetration, use_hlsp_aspect_in_gwflow, &
                           use_geohydrodata, stiff_do_explicit, dammed_strm_bc, simple_inundation, &
                           surf_flow_velocity, limit_intertile_flow, flow_ratio_limit, exp_inundation, &
                           tiled_DOC_flux
-use constants_mod,      only: tfreeze, &
-                              dens_h2o, epsln
+use constants_mod, only : tfreeze, dens_h2o, epsln
       ! Use global tfreeze in energy flux calculations, not local freezing-point-depression temperature.
 use fms_mod, only: error_mesg, FATAL
 use time_manager_mod, only : time_type, time_type_to_real

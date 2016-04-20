@@ -22,7 +22,7 @@ public :: vegn_photosynthesis
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: module_name = 'vegn_photosynthesis'
+character(len=*), parameter :: module_name = 'vegn_photosynthesis_mod'
 #include "../shared/version_variable.inc"
 
 ! values for internal vegetation photosynthesis option selector

@@ -26,7 +26,7 @@ public :: update_fuel
 ! =====end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: module_name = 'vegn_disturbance'
+character(len=*), parameter :: module_name = 'vegn_disturbance_mod'
 #include "../shared/version_variable.inc"
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-

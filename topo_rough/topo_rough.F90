@@ -68,8 +68,7 @@ namelist/topo_rough_nml/ use_topo_rough, topo_rough_factor, max_topo_rough, &
      topo_rough_source, topo_rough_file, topo_rough_var
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: module_name   = 'topo_rough_mod'
-character(len=*), parameter :: diag_mod_name = 'topo_rough'
+character(len=*), parameter :: module_name = 'topo_rough'
 #include "../shared/version_variable.inc"
 
 ! ==== module private data ===================================================
@@ -159,7 +158,7 @@ subroutine topo_rough_init(time, lonb, latb, domain, id_lon,id_lat)
   endif
 
   ! diag output : send topo_stdev to diagnostics
-  id = register_static_field(diag_mod_name,'topo_rough',(/id_lon,id_lat/), &
+  id = register_static_field(module_name,'topo_rough',(/id_lon,id_lat/), &
        'momentum drag coefficient scaling lenght','m',missing_value=-1.0 )
   if(id > 0) &
        used = send_data(id,topo_stdev,time)

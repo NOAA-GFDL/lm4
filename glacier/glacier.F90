@@ -13,7 +13,7 @@ use fms_mod, only : error_mesg, file_exist, check_nml_error, stdlog, close_file,
      mpp_pe, mpp_root_pe, FATAL, NOTE
 use fms_io_mod, only : set_domain, nullify_domain
 
-use time_manager_mod,   only: time_type, time_type_to_real
+use time_manager_mod,   only: time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o, PI
 
@@ -24,10 +24,9 @@ use glac_tile_mod,      only: glac_tile_type, &
 use land_constants_mod, only : NBANDS
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
-use land_tile_diag_mod, only : &
-     register_tiled_diag_field, send_tile_data, diag_buff_type, &
-     set_default_diag_filter
-use land_data_mod, only : land_state_type, lnd, log_version
+use land_tile_diag_mod, only : set_default_diag_filter, &
+     register_tiled_diag_field, send_tile_data, diag_buff_type
+use land_data_mod, only : lnd, log_version
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_restart_axis, add_tile_data, get_tile_data

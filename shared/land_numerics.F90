@@ -60,7 +60,7 @@ end interface
 
 logical :: module_is_initialized =.FALSE.
 ! ==== module constants ======================================================
-character(len=*), parameter :: mod_name = 'land_numerics_mod'
+character(len=*), parameter :: mod_name = 'land_numerics'
 #include "../shared/version_variable.inc"
 character(len=*), parameter :: thisfile = __FILE__
 
@@ -109,10 +109,12 @@ function bisect(xx, x1, periodic)
   real, intent(in)              :: x1        ! point to locate
   logical, intent(in), optional :: periodic  ! if present and true, the data
                                              ! domain is assumed to be periodic
-  ! ---- result type ---------------------------------------------------
+  ! ---- result type
   integer bisect
 
-  ! ---- local vars ----------------------------------------------------
+  character(*),parameter :: mod_name='bisect'
+
+   ! ---- local vars
   real    :: x              ! duplicate of input value
   integer :: low, high, mid
   integer :: n              ! size of the input array
@@ -157,7 +159,9 @@ subroutine lin_int0(data, xx, x, res)
   real, intent(in) :: x          ! coordinates to interpolate to
   real, intent(inout) :: res     ! result of interpolation
 
-  ! ---- local vars ----------------------------------------------------------
+  character(*),parameter :: mod_name='lin_int0'
+
+  ! ---- local vars
   integer :: i1, i2
   real    :: f1, f2
 
@@ -184,7 +188,9 @@ subroutine lin_int1(data, xx, x, res)
   real, intent(in) :: x            ! coordinates to interpolate to
   real, intent(inout) :: res(:)    ! result of interpolation
 
-  ! ---- local vars ----------------------------------------------------------
+  character(*),parameter :: mod_name='lin_int0'
+
+  ! ---- local vars
   integer :: i1, i2
   real    :: f1, f2
 
@@ -212,7 +218,8 @@ subroutine lin_int2(data, tt, t, res)
   real, intent(in) :: t            ! time to interpolate to
   real, intent(inout) :: res(:,:)  ! result
 
-  ! ---- local vars ----------------------------------------------------------
+  character(*),parameter :: mod_name='lin_int2'
+  ! ---- local vars
   integer :: i1, i2
   real    :: f1, f2
 
@@ -237,7 +244,8 @@ subroutine lin_int1m(data, xx, x, res, mask)
   real, intent(inout) :: res(:)    ! result of interpolation
   logical, intent(in) :: mask(:)   ! valid data mask
 
-  ! ---- local vars ----------------------------------------------------------
+  character(*),parameter :: mod_name='lin_int1m'
+  ! ---- local vars
   integer :: i1, i2
   real    :: f1, f2
 
@@ -266,7 +274,8 @@ subroutine lin_int2m(data, tt, t, res, mask)
   real, intent(inout) :: res(:,:)  ! result
   logical, intent(in) :: mask(:,:) ! interpolation mask
 
-  ! ---- local vars ----------------------------------------------------------
+  character(*),parameter :: mod_name='lin_int2m'
+  ! ---- local vars
   integer :: i1, i2
   real    :: f1, f2
 
@@ -821,6 +830,7 @@ subroutine horiz_remap(map,domain,d)
   type(domain2d)        , intent(in)    :: domain
   real                  , intent(inout) :: d(:,:,:) ! field to fill
 
+  character(*),parameter :: mod_name='horiz_remap'
   ! ---- local vars
   integer :: is,ie,js,je ! bounds of out compute domain
   integer :: i,j,k,n
@@ -979,7 +989,7 @@ subroutine my_error(mod_name, message, mode, file, line)
   character(len=*), intent(in), optional :: file
   integer,          intent(in), optional :: line
 
-  ! ---- local vars ----------------------------------------------------------
+  ! ---- local vars
   character(len=512) :: mesg
   if(present(file)) then ! assume that file and line are either both present or not
      write(mesg,'("File ",a," Line ",i4.4," :: ",a)')&

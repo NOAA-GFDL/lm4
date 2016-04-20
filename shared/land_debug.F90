@@ -60,7 +60,7 @@ public :: carbon_cons_tol
 public :: do_check_conservation
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: module_name = 'land_debug'
+character(len=*), parameter :: module_name = 'land_debug_mod'
 #include "../shared/version_variable.inc"
 
 ! ==== module variables ======================================================

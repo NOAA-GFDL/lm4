@@ -13,27 +13,23 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only : error_mesg, FATAL, NOTE, file_exist, &
      close_file, check_nml_error, mpp_pe, mpp_root_pe, stdlog, string
-use fms_io_mod, only : read_compressed, restart_file_type, free_restart_type
-use fms_io_mod, only : field_exist, get_field_size, save_restart
-use fms_io_mod, only : register_restart_axis, register_restart_field, set_domain, nullify_domain
-use time_manager_mod, only : time_type, time_type_to_real
+use fms_io_mod, only : set_domain, nullify_domain
 use constants_mod, only : rdgas, rvgas, cp_air, PI, VONKARM
 use sphum_mod, only : qscomp
 use field_manager_mod, only : parse, MODEL_ATMOS, MODEL_LAND
-use tracer_manager_mod, only : get_number_tracers, get_tracer_index, get_tracer_names
-use tracer_manager_mod, only : get_tracer_index, query_method, NO_TRACER
+use tracer_manager_mod, only : get_tracer_index, get_tracer_names, &
+     query_method, NO_TRACER
 
-use nf_utils_mod, only : nfu_inq_var
-use land_constants_mod, only : NBANDS,d608,mol_CO2,mol_air
+use land_constants_mod, only : mol_CO2, d608, mol_air
 use land_tracers_mod, only : ntcana, isphum, ico2
-use cana_tile_mod, only : cana_tile_log_version, cana_tile_type, &
+use cana_tile_mod, only : cana_tile_type, &
      canopy_air_mass, canopy_air_mass_for_tracers, cpw
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
-use land_data_mod, only : land_state_type, lnd, log_version
+use land_data_mod, only : lnd, log_version
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
-     add_restart_axis, add_tile_data, get_tile_data, field_exists
+     add_tile_data, get_tile_data, field_exists
 use land_debug_mod, only : is_watch_point, check_temp_range
 
 implicit none
@@ -88,7 +84,6 @@ subroutine read_cana_namelist()
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
-  call cana_tile_log_version()
   call log_version(version, module_name, &
   __FILE__)
 #ifdef INTERNAL_FILE_NML

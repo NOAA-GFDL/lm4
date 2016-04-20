@@ -15,8 +15,7 @@ use mpp_mod, only: mpp_pe, mpp_root_pe
 use fms_mod, only: error_mesg, file_exist, close_file, check_nml_error, &
      stdlog, FATAL, NOTE, WARNING
 
-use fms_io_mod, only: read_compressed, restart_file_type, free_restart_type, &
-      save_restart, register_restart_field, set_domain, nullify_domain, get_field_size
+use fms_io_mod, only: set_domain, nullify_domain
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, get_elmt_indices, operator(/=)
@@ -35,7 +34,7 @@ use nf_utils_mod,  only : nfu_inq_dim
 use land_debug_mod, only : is_watch_point, is_watch_cell, set_current_point
 use land_transitions_mod, only : do_landuse_change
 use vegn_harvesting_mod , only : do_harvesting
-use hillslope_tile_mod , only : register_hlsp_selectors, hillslope_tile_log_version
+use hillslope_tile_mod , only : register_hlsp_selectors
 use constants_mod, only : tfreeze
 use soil_tile_mod, only : gw_option, GW_TILED, initval, soil_tile_type, &
      gw_scale_length, gw_scale_relief
@@ -126,7 +125,6 @@ logical, public     :: limit_intertile_flow = .false. ! True ==> Limit explicit 
 real, public        :: flow_ratio_limit = 1.    ! max delta psi to length ratio allowed, if limit_intertile_flow
 logical, public     :: tiled_DOC_flux = .false. ! True ==> Calculate DOC fluxes for soil carbon model
 
-
 character(len=256)  :: hillslope_surfdata = 'INPUT/hillslope.nc'
 character(len=24)   :: hlsp_interpmethod = 'nearest'
 character(*), parameter  :: hlsp_rst_ifname = 'INPUT/hlsp.res.nc'
@@ -180,7 +178,6 @@ subroutine read_hlsp_namelist()
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
-  call hillslope_tile_log_version()
   call log_version(version, module_name, &
   __FILE__)
 #ifdef INTERNAL_FILE_NML
@@ -582,7 +579,6 @@ subroutine hlsp_init ( id_lon, id_lat )
   real :: hpos ! local horizontal position (-)
   real :: hbdu ! local upstream bdy (-)
   real :: hbdd ! local downstream bdy (-)
-  logical :: found
   type(land_restart_type) :: restart
 
   module_is_initialized = .TRUE.

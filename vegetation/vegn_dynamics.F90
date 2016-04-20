@@ -65,7 +65,7 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
   type(time_type), intent(in) :: time       ! initial time for diagnostic fields
   real           , intent(in) :: delta_time ! fast time step, s
 
-  call log_version(version, module_name, &
+  call log_version(version, 'vegn_dynamics_mod', &
   __FILE__)
 
   ! set up global variables

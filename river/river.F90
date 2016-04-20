@@ -68,7 +68,7 @@ module river_mod
   use land_tile_mod,       only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, get_elmt_indices, &
      operator(/=)
-  use land_data_mod,       only : land_data_type, land_state_type, lnd, log_version
+  use land_data_mod,       only : lnd, log_version
   use lake_tile_mod,       only : num_l
   use field_manager_mod, only: fm_field_name_len, fm_string_len, &
      fm_type_name_len, fm_path_name_len, fm_dump_list, fm_get_length, &
@@ -236,7 +236,7 @@ contains
 #endif
 
 !--- write version and namelist info to logfile --------------------
-    call log_version(version,module_name,&
+    call log_version(version, module_name, &
     __FILE__)
     unit=stdlog()
     write(unit, river_nml)
@@ -315,6 +315,7 @@ contains
 !--- read restart file
     call get_instance_filename('INPUT/river.res.nc', filename)
     call get_mosaic_tile_file(trim(filename), filename, .false., domain)
+
     if(file_exist(trim(filename),domain) ) then
         call mpp_error(NOTE, 'river_init : Read restart files '//trim(filename))
         if(new_land_io) then

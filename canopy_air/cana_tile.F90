@@ -1,19 +1,14 @@
 module cana_tile_mod
 
 use land_tracers_mod, only : ntcana, isphum, ico2
-use land_tile_selectors_mod, only : &
-     tile_selector_type
-use constants_mod, only : &
-     cp_air, tfreeze
+use land_tile_selectors_mod, only : tile_selector_type
+use constants_mod, only : cp_air, tfreeze
 use land_constants_mod, only : mol_C, mol_co2
-use land_data_mod, only : log_version
 
 implicit none
 private
 
 ! ==== public interfaces =====================================================
-public :: cana_tile_log_version
-
 public :: cana_tile_type
 
 public :: new_cana_tile, delete_cana_tile
@@ -41,10 +36,6 @@ interface new_cana_tile
    module procedure cana_tile_copy_ctor
 end interface
 
-! ==== version string ========================================================
-character(len=*), parameter :: module_name = 'cana_tile'
-#include "../shared/version_variable.inc"
-
 ! ==== data types ======================================================
 type :: cana_tile_type
   real T                 ! temperature of canopy air, deg K
@@ -52,12 +43,6 @@ type :: cana_tile_type
 end type cana_tile_type
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-
-! =============================================================================
-subroutine cana_tile_log_version()
-  call log_version(version, module_name, &
-  __FILE__)
-end subroutine cana_tile_log_version
 
 ! =============================================================================
 function cana_tile_ctor() result(ptr)

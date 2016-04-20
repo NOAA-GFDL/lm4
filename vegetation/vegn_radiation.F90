@@ -21,7 +21,7 @@ public :: vegn_radiation
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: module_name = 'vegn_radiation'
+character(len=*), parameter :: module_name = 'vegn_radiation_mod'
 #include "../shared/version_variable.inc"
 
 ! values for internal vegetation radiation option selector

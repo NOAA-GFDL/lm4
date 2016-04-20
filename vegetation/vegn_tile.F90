@@ -1,14 +1,13 @@
 module vegn_tile_mod
 
-use fms_mod, only : stdlog, error_mesg, FATAL
-use constants_mod, only : &
-     tfreeze, hlf
+#include "../shared/debug.inc"
+
+use fms_mod,            only : error_mesg, FATAL
+use constants_mod,      only : tfreeze, hlf
 
 use land_constants_mod, only : NBANDS
-use land_io_mod, only : &
-     init_cover_field
-use land_tile_selectors_mod, only : &
-     tile_selector_type, SEL_VEGN
+use land_io_mod,        only : init_cover_field
+use land_tile_selectors_mod, only : tile_selector_type
 
 use vegn_data_mod, only : &
      NSPECIES, MSPECIES, NCMPT, C2B, &
@@ -25,13 +24,10 @@ use vegn_cohort_mod, only : vegn_cohort_type, &
      height_from_biomass, lai_from_biomass, update_bio_living_fraction, &
      cohort_uptake_profile, cohort_hydraulic_properties, update_biomass_pools
 
-use land_data_mod, only : log_version
-
 implicit none
 private
 
 ! ==== public interfaces =====================================================
-public :: vegn_tile_log_version
 public :: vegn_tile_type
 
 public :: new_vegn_tile, delete_vegn_tile
@@ -61,11 +57,6 @@ interface new_vegn_tile
    module procedure vegn_tile_ctor
    module procedure vegn_tile_copy_ctor
 end interface
-
-
-! ==== module constants ======================================================
-character(len=*), parameter :: module_name = 'vegn_tile'
-#include "../shared/version_variable.inc"
 
 ! ==== types =================================================================
 type :: vegn_tile_type
@@ -147,12 +138,6 @@ real, public :: &
      csw = 2106.0    ! specific heat of water (ice)
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-
-! =============================================================================
-subroutine vegn_tile_log_version()
-  call log_version(version, module_name, &
-  __FILE__)
-end subroutine vegn_tile_log_version
 
 ! ============================================================================
 function vegn_tile_ctor(tag) result(ptr)

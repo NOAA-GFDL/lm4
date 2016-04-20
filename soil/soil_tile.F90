@@ -17,8 +17,7 @@ use fms_mod, only : file_exist, check_nml_error, &
      close_file, stdlog, read_data, error_mesg, FATAL
 use constants_mod, only : &
      pi, tfreeze, rvgas, grav, dens_h2o, hlf, epsln
-use land_constants_mod, only : &
-     BAND_VIS, BAND_NIR, NBANDS
+use land_constants_mod, only : BAND_VIS, BAND_NIR, NBANDS
 use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_SOIL, register_tile_selector
 use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, &

@@ -13,9 +13,6 @@ use fms_mod, only : error_mesg, FATAL, NOTE, mpp_pe, get_mosaic_tile_file
 use fms_io_mod, only : restart_file_type, free_restart_type, save_restart, &
      register_restart_axis, register_restart_field, get_instance_filename, &
      field_exist, get_field_size, read_compressed, read_data
-use fms_mod, only : error_mesg, file_exist,     &
-     check_nml_error, stdlog, &
-     close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
 use time_manager_mod, only : time_type
 use data_override_mod, only : data_override
 
@@ -27,7 +24,7 @@ use land_tile_mod, only : land_tile_type, land_tile_list_type, land_tile_enum_ty
      tile_exists_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk, &
      land_tile_map
 
-use land_data_mod, only  : lnd, land_state_type
+use land_data_mod, only  : lnd
 use land_utils_mod, only : put_to_tiles_r0d_fptr
 
 implicit none

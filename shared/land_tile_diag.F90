@@ -37,6 +37,7 @@ public :: register_tiled_diag_field
 public :: register_tiled_static_field
 public :: add_tiled_diag_field_alias
 public :: add_tiled_static_field_alias
+
 public :: send_tile_data
 public :: send_tile_data_r0d_fptr, send_tile_data_r1d_fptr
 public :: send_tile_data_i0d_fptr
@@ -78,7 +79,6 @@ integer, parameter :: OP_STD     = 3 ! standard deviation of tile values
 integer, parameter :: FLD_STATIC    = 0
 integer, parameter :: FLD_DYNAMIC   = 1
 integer, parameter :: FLD_LIKE_AREA = 2
-
 
 ! ==== derived types =========================================================
 type :: tiled_diag_field_type
@@ -317,7 +317,7 @@ function register_tiled_diag_field(module_name, field_name, axes, init_time, &
          units, missing_value, range, op=op, standard_name=standard_name, fill_missing=fill_missing)
   call add_cell_measures(id)
   call add_cell_methods(id)
-end function
+end function register_tiled_diag_field
 
 ! ============================================================================
 function register_tiled_static_field(module_name, field_name, axes, &
@@ -345,7 +345,7 @@ function register_tiled_static_field(module_name, field_name, axes, &
          fill_missing=fill_missing)
   call add_cell_measures(id)
   call add_cell_methods(id)
-end function
+end function register_tiled_static_field
 
 
 ! ============================================================================
@@ -368,7 +368,7 @@ subroutine add_tiled_static_field_alias(id0, module_name, field_name, axes, &
 
   call reg_field_alias(id0, FLD_STATIC, module_name, field_name, axes, init_time, &
      long_name, units, missing_value, range, op, standard_name=standard_name)
-end subroutine
+end subroutine add_tiled_static_field_alias
 
 
 ! ============================================================================
@@ -389,7 +389,7 @@ subroutine add_tiled_diag_field_alias(id0, module_name, field_name, axes, init_t
 
   call reg_field_alias(id0, FLD_DYNAMIC, module_name, field_name, axes, init_time, &
      long_name, units, missing_value, range, op, standard_name=standard_name)
-end subroutine
+end subroutine add_tiled_diag_field_alias
 
 ! ============================================================================
 subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time, &
@@ -898,7 +898,7 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
   ! clean up temporary data
   deallocate(buffer,weight,mask)
 
-end subroutine
+end subroutine dump_diag_field_with_sel
 
 
 end module land_tile_diag_mod
