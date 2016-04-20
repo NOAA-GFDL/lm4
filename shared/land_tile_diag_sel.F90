@@ -1,6 +1,7 @@
 module land_tile_selectors_mod
 
 use fms_mod, only : error_mesg, WARNING
+use land_data_mod, only : log_version
 
 implicit none
 private
@@ -69,6 +70,8 @@ subroutine tile_selectors_init()
   if (module_is_initialized) return
 
   module_is_initialized = .true.
+  call log_version(version, module_name, &
+  __FILE__)
 
   allocate (selectors(INIT_SEL_SIZE))
   n_selectors = 0 ! initialize number of registered selectors
