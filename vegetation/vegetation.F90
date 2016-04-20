@@ -41,7 +41,8 @@ use land_tile_io_mod, only : &
 use vegn_data_mod, only : SP_C4GRASS, LEAF_ON, LU_NTRL, read_vegn_data_namelist, &
      tau_drip_l, tau_drip_s, T_transp_min, cold_month_threshold, soil_carbon_depth_scale, &
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
-     N_HARV_POOLS, HARV_POOL_NAMES, leaf_fast_c2n,leaf_slow_c2n,wood_fast_c2n,wood_slow_c2n,fsc_liv,froot_fast_c2n,froot_slow_c2n,fsc_froot, c2n_mycorrhizae, c2n_N_fixer, N_limits_live_biomass
+     N_HARV_POOLS, HARV_POOL_NAMES,&
+     c2n_mycorrhizae, c2n_N_fixer, N_limits_live_biomass, spdata
 use vegn_cohort_mod, only : vegn_cohort_type, &
      update_species,&
      vegn_data_heat_capacity, vegn_data_intrcptn_cap, &
@@ -106,7 +107,6 @@ real    :: init_Wl           = 0
 real    :: init_Ws           = 0
 real    :: init_Tv           = 288.
 real    :: init_cohort_bl    = 0.05 ! initial biomass of leaves, kg C/m2
-real    :: init_cohort_max_live_biomass = 1.0 ! Initial max live biomass, kg C/m2
 real    :: init_cohort_blv   = 0.0  ! initial biomass of labile store, kg C/m2
 real    :: init_cohort_br    = 0.05 ! initial biomass of fine roots, kg C/m2
 real    :: init_cohort_bsw   = 0.05 ! initial biomass of sapwood, kg C/m2
@@ -144,7 +144,7 @@ real :: rav_lit_ssc       = 0.0 ! litter resistance to vapor per ssc
 real :: rav_lit_deadmic   = 0.0 ! litter resistance to vapor per dead microbe C
 real :: rav_lit_bwood     = 0.0 ! litter resistance to vapor per bwood
 
-real :: N_uptake_smoothing_timescale = 1.0 ! Weighting parameter for low pass filter on N uptake (years)
+
 
 logical :: do_peat_redistribution = .FALSE.
 
@@ -159,7 +159,7 @@ namelist /vegn_nml/ &
     do_biogeography, do_seed_transport, &
     min_Wl, min_Ws, tau_smooth_ncm, &
     rav_lit_0, rav_lit_vi, rav_lit_fsc, rav_lit_ssc, rav_lit_deadmic, rav_lit_bwood,&
-    do_peat_redistribution, init_cohort_max_live_biomass,N_uptake_smoothing_timescale
+    do_peat_redistribution
 
 !---- end of namelist --------------------------------------------------------
 
@@ -757,7 +757,6 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
      cohort%npp_previous_day = 0.0
      cohort%status  = LEAF_ON
      cohort%leaf_age = 0.0
-    !  cohort%max_live_biomass = init_cohort_max_live_biomass
      cohort%cumulative_extra_live_biomass = 0.0
      cohort%myc_scavenger_biomass_C = init_cohort_scavenger_myc_biomass
      cohort%myc_scavenger_biomass_N = init_cohort_scavenger_myc_biomass/c2n_mycorrhizae
@@ -765,16 +764,17 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
      cohort%myc_miner_biomass_N = init_cohort_miner_myc_biomass/c2n_mycorrhizae
      cohort%N_fixer_biomass_C = init_N_fixer_biomass
      cohort%N_fixer_biomass_N = init_N_fixer_biomass/c2n_N_fixer
-     cohort%stored_N = init_cohort_max_live_biomass/leaf_fast_c2n
-     cohort%leaf_N = cohort%bl/leaf_fast_c2n
-     cohort%wood_N = (cohort%bwood+cohort%bsw)/wood_fast_c2n
-     cohort%root_N = cohort%br/froot_fast_c2n
-     cohort%total_N = cohort%stored_N+cohort%leaf_N+cohort%wood_N+cohort%root_N
+
      if(did_read_biodata.and.do_biogeography) then
         call update_species(cohort,t_ann(i,j),t_cold(i,j),p_ann(i,j),ncm(i,j),LU_NTRL)
      else
         cohort%species = tile%vegn%tag
      endif
+     cohort%leaf_N = cohort%bl/spdata(cohort%species)%leaf_live_c2n
+     cohort%wood_N = (cohort%bwood+cohort%bsw)/spdata(cohort%species)%wood_c2n
+     cohort%root_N = cohort%br/spdata(cohort%species)%froot_live_c2n
+     cohort%stored_N = 2*(cohort%leaf_N+cohort%root_N)
+     cohort%total_N = cohort%stored_N+cohort%leaf_N+cohort%wood_N+cohort%root_N
   enddo
 
   ! initialize carbon integrator
@@ -2281,11 +2281,6 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
 
   vegn%n_accum   = vegn%n_accum+1
 
-  ! Do low pass filter on N uptake
-  ! print *,'vegn_step_3',soil%passive_N_uptake,soil%myc_scav_N_uptake,vegn%low_pass_N_uptake
-  ! N_filter_weight=1.0/(1.0+N_uptake_smoothing_timescale/dt_fast_yr)
-  ! vegn%low_pass_N_uptake = vegn%low_pass_N_uptake*(1.0-N_filter_weight) + &
-  !   (soil%passive_N_uptake+soil%myc_scav_N_uptake+soil%myc_mine_N_uptake+soil%symbiotic_N_fixation+soil%active_root_N_uptake)/dt_fast_yr*N_filter_weight
 
 
   call send_tile_data(id_theph, theta, diag)
@@ -2426,11 +2421,6 @@ call check_conservation ('update_fuel','carbon'      , cmass0, cmass1, carbon_co
         call send_tile_data(id_cgain,sum(tile%vegn%cohorts(1:n)%carbon_gain),tile%diag)
         call send_tile_data(id_closs,sum(tile%vegn%cohorts(1:n)%carbon_loss),tile%diag)
         call send_tile_data(id_wdgain,sum(tile%vegn%cohorts(1:n)%bwood_gain),tile%diag)
-        ! if(soil_carbon_option == SOILC_CORPSE_N) then
-        !   leaf_N_content=1/leaf_fast_c2n*fsc_liv + 1/leaf_slow_c2n*(1-fsc_liv)  ! N fraction, kgN/kgC
-        !   root_N_content=1/froot_fast_c2n*fsc_froot + 1/froot_slow_c2n*(1-fsc_froot)
-        !   tile%vegn%cohorts(1:n)%max_live_biomass=tile%vegn%low_pass_N_uptake/(leaf_N_content+root_N_content)
-        ! endif
         call vegn_growth(tile%vegn)
         call vegn_nat_mortality(tile%vegn,tile%soil,86400.0)
      endif

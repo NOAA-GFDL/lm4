@@ -15,8 +15,7 @@ use vegn_data_mod, only : &
      N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, &
      HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, &
      HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
-     agf_bs, fsc_liv, fsc_froot, fsc_wood, &
-     leaf_fast_c2n,leaf_slow_c2n,froot_fast_c2n,froot_slow_c2n,wood_fast_c2n,wood_slow_c2n
+     agf_bs, fsc_wood, fsc_liv, spdata
 use vegn_tile_mod, only : &
      vegn_tile_type
 use vegn_cohort_mod, only : &
@@ -132,6 +131,7 @@ subroutine vegn_graze_pasture(vegn)
   real ::  bdead1, balive1, bleaf1, bfroot1, btotal1 ! updated combined biomass pools
   type(vegn_cohort_type), pointer :: cc ! shorthand for the current cohort
   integer :: i
+  integer :: sp
 
   balive0 = 0 ; balive1 = 0
   bdead0  = 0 ; bdead1  = 0
@@ -141,11 +141,13 @@ subroutine vegn_graze_pasture(vegn)
   ! update biomass pools for each cohort according to harvested fraction
   do i = 1,vegn%n_cohorts
      cc=>vegn%cohorts(i)
+     sp = cc%species
+
      ! calculate total biomass pools for the patch
-     balive0 = balive0 + cc%bl + cc%blv + cc%br
-     bleaf0  = bleaf0  + cc%bl + cc%blv
-     bfroot0 = bfroot0 + cc%br
-     bdead0  = bdead0  + cc%bwood + cc%bsw
+     balive0 =  cc%bl + cc%blv + cc%br
+     bleaf0  =  cc%bl + cc%blv
+     bfroot0 =  cc%br
+     bdead0  =  cc%bwood + cc%bsw
      ! only potential leaves are consumed
      vegn%harv_pool(HARV_POOL_PAST) = vegn%harv_pool(HARV_POOL_PAST) + &
           cc%bliving*cc%Pl*grazing_intensity*(1-grazing_residue) ;
@@ -156,54 +158,59 @@ subroutine vegn_graze_pasture(vegn)
      call update_biomass_pools(cc);
 
      ! calculate new combined vegetation biomass pools
-     balive1 = balive1 + cc%bl + cc%blv + cc%br
-     bleaf1  = bleaf1  + cc%bl + cc%blv
-     bfroot1 = bfroot1 + cc%br
-     bdead1  = bdead1  + cc%bwood + cc%bsw
+     balive1 =  cc%bl + cc%blv + cc%br
+     bleaf1  =  cc%bl + cc%blv
+     bfroot1 =  cc%br
+     bdead1  =  cc%bwood + cc%bsw
+
+
+     ! update intermediate soil carbon pools
+     select case(soil_carbon_option)
+     case(SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
+         vegn%fsc_pool_bg = vegn%fsc_pool_bg + &
+                 (fsc_liv*(balive0-balive1)+fsc_wood*(bdead0-bdead1))*grazing_residue
+         vegn%ssc_pool_bg = vegn%ssc_pool_bg + &
+                 ((1-fsc_liv)*(balive0-balive1)+ (1-fsc_wood)*(bdead0-bdead1))*grazing_residue
+     case(SOILC_CORPSE, SOILC_CORPSE_N)
+         vegn%leaflitter_buffer_fast = vegn%leaflitter_buffer_fast + &
+                 (bleaf0-bleaf1)*grazing_residue*spdata(sp)%fsc_liv;
+         vegn%leaflitter_buffer_slow = vegn%leaflitter_buffer_slow + &
+                 (bleaf0-bleaf1)*grazing_residue*(1-spdata(sp)%fsc_liv);
+         vegn%coarsewoodlitter_buffer_fast = vegn%coarsewoodlitter_buffer_fast + &
+                 agf_bs*(bdead0-bdead1)*grazing_residue*fsc_wood
+         vegn%coarsewoodlitter_buffer_slow = vegn%coarsewoodlitter_buffer_slow + &
+                 agf_bs*(bdead0-bdead1)*grazing_residue*(1-fsc_wood)
+
+         vegn%fsc_pool_bg=vegn%fsc_pool_bg + grazing_residue*(spdata(sp)%fsc_froot*(bfroot0-bfroot1) +(1-agf_bs)*fsc_wood*(bdead0-bdead1))
+         vegn%ssc_pool_bg = vegn%ssc_pool_bg + grazing_residue*((1-spdata(sp)%fsc_froot)*(bfroot0-bfroot1) +  (1-agf_bs)*(1-fsc_wood)*(bdead0-bdead1))
+
+
+         if(soil_carbon_option == SOILC_CORPSE_N) then
+
+             vegn%leaflitter_buffer_fast_N = vegn%leaflitter_buffer_fast_N + &
+                     (bleaf0-bleaf1)*grazing_residue*spdata(sp)%fsc_liv/spdata(sp)%leaf_live_c2n;
+             vegn%leaflitter_buffer_slow_N = vegn%leaflitter_buffer_slow_N + &
+                     (bleaf0-bleaf1)*grazing_residue*(1-spdata(sp)%fsc_liv)/spdata(sp)%leaf_live_c2n;
+             vegn%coarsewoodlitter_buffer_fast_N = vegn%coarsewoodlitter_buffer_fast_N + &
+                     agf_bs*(bdead0-bdead1)*grazing_residue*fsc_wood/spdata(sp)%wood_c2n
+             vegn%coarsewoodlitter_buffer_slow_N = vegn%coarsewoodlitter_buffer_slow_N + &
+                     agf_bs*(bdead0-bdead1)*grazing_residue*(1-fsc_wood)/spdata(sp)%wood_c2n
+
+
+             vegn%fsn_pool_bg=vegn%fsn_pool_bg + grazing_residue*(spdata(sp)%fsc_froot*(bfroot0-bfroot1)/spdata(sp)%froot_live_c2n +(1-agf_bs)*fsc_wood*(bdead0-bdead1)/spdata(sp)%wood_c2n)
+             vegn%ssn_pool_bg = vegn%ssn_pool_bg + grazing_residue*((1-spdata(sp)%fsc_froot)*(bfroot0-bfroot1)/spdata(sp)%froot_live_c2n +  (1-agf_bs)*(1-fsc_wood)*(bdead0-bdead1)/spdata(sp)%wood_c2n)
+         endif
+
+     case default
+         call error_mesg('vegn_graze_pasture','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
+     end select
+
+
   enddo
-  btotal0 = balive0 + bdead0
-  btotal1 = balive1 + bdead1
-
-  ! update intermediate soil carbon pools
-  select case(soil_carbon_option)
-  case(SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
-      vegn%fsc_pool_bg = vegn%fsc_pool_bg + &
-              (fsc_liv*(balive0-balive1)+fsc_wood*(bdead0-bdead1))*grazing_residue
-      vegn%ssc_pool_bg = vegn%ssc_pool_bg + &
-              ((1-fsc_liv)*(balive0-balive1)+ (1-fsc_wood)*(bdead0-bdead1))*grazing_residue
-  case(SOILC_CORPSE, SOILC_CORPSE_N)
-      vegn%leaflitter_buffer_fast = vegn%leaflitter_buffer_fast + &
-              (bleaf0-bleaf1)*grazing_residue*fsc_liv;
-      vegn%leaflitter_buffer_slow = vegn%leaflitter_buffer_slow + &
-              (bleaf0-bleaf1)*grazing_residue*(1-fsc_liv);
-      vegn%coarsewoodlitter_buffer_fast = vegn%coarsewoodlitter_buffer_fast + &
-              agf_bs*(bdead0-bdead1)*grazing_residue*fsc_wood
-      vegn%coarsewoodlitter_buffer_slow = vegn%coarsewoodlitter_buffer_slow + &
-              agf_bs*(bdead0-bdead1)*grazing_residue*(1-fsc_wood)
-
-      vegn%fsc_pool_bg=vegn%fsc_pool_bg + grazing_residue*(fsc_froot*(bfroot0-bfroot1) +(1-agf_bs)*fsc_wood*(bdead0-bdead1))
-      vegn%ssc_pool_bg = vegn%ssc_pool_bg + grazing_residue*((1-fsc_froot)*(bfroot0-bfroot1) +  (1-agf_bs)*(1-fsc_wood)*(bdead0-bdead1))
+  ! btotal0 = balive0 + bdead0
+  ! btotal1 = balive1 + bdead1
 
 
-      if(soil_carbon_option == SOILC_CORPSE_N) then
-
-          vegn%leaflitter_buffer_fast_N = vegn%leaflitter_buffer_fast_N + &
-                  (bleaf0-bleaf1)*grazing_residue*fsc_liv/leaf_fast_c2n;
-          vegn%leaflitter_buffer_slow_N = vegn%leaflitter_buffer_slow_N + &
-                  (bleaf0-bleaf1)*grazing_residue*(1-fsc_liv)/leaf_slow_c2n;
-          vegn%coarsewoodlitter_buffer_fast_N = vegn%coarsewoodlitter_buffer_fast_N + &
-                  agf_bs*(bdead0-bdead1)*grazing_residue*fsc_wood/wood_fast_c2n
-          vegn%coarsewoodlitter_buffer_slow_N = vegn%coarsewoodlitter_buffer_slow_N + &
-                  agf_bs*(bdead0-bdead1)*grazing_residue*(1-fsc_wood)/wood_slow_c2n
-
-
-          vegn%fsn_pool_bg=vegn%fsn_pool_bg + grazing_residue*(fsc_froot*(bfroot0-bfroot1)/froot_fast_c2n +(1-agf_bs)*fsc_wood*(bdead0-bdead1)/wood_fast_c2n)
-          vegn%ssn_pool_bg = vegn%ssn_pool_bg + grazing_residue*((1-fsc_froot)*(bfroot0-bfroot1)/froot_slow_c2n +  (1-agf_bs)*(1-fsc_wood)*(bdead0-bdead1)/wood_slow_c2n)
-      endif
-
-  case default
-      call error_mesg('vegn_graze_pasture','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
-  end select
 end subroutine vegn_graze_pasture
 
 
@@ -216,11 +223,13 @@ subroutine vegn_harvest_cropland(vegn)
   real :: fraction_harvested;    ! fraction of biomass harvested this time
   real :: bdead, balive, btotal; ! combined biomass pools
   integer :: i
+  integer :: sp
 
   balive = 0 ; bdead = 0
   ! calculate initial combined biomass pools for the patch
   do i = 1, vegn%n_cohorts
      cc=>vegn%cohorts(i)
+     sp=cc%species
      ! calculate total biomass pools for the patch
      balive = balive + cc%bl + cc%blv + cc%br
      bdead  = bdead  + cc%bwood + cc%bsw
@@ -250,20 +259,20 @@ subroutine vegn_harvest_cropland(vegn)
         vegn%coarsewoodlitter_buffer_fast=vegn%coarsewoodlitter_buffer_fast + fraction_harvested*agf_bs*cc%bwood*fsc_wood
         vegn%coarsewoodlitter_buffer_slow=vegn%coarsewoodlitter_buffer_slow + fraction_harvested*agf_bs*cc%bwood*(1-fsc_wood)
 
-        vegn%fsc_pool_bg = vegn%fsc_pool_bg + fraction_harvested*(fsc_froot*cc%bliving*cc%Pr + &
+        vegn%fsc_pool_bg = vegn%fsc_pool_bg + fraction_harvested*(spdata(sp)%fsc_froot*cc%bliving*cc%Pr + &
                (1-agf_bs)*fsc_wood*(cc%bwood + cc%bliving*cc%Psw))
-        vegn%ssc_pool_bg = vegn%ssc_pool_bg + fraction_harvested*((1-fsc_froot)*cc%bliving*cc%Pr + &
+        vegn%ssc_pool_bg = vegn%ssc_pool_bg + fraction_harvested*((1-spdata(sp)%fsc_froot)*cc%bliving*cc%Pr + &
                (1-agf_bs)*(1-fsc_wood)*(cc%bwood + cc%bliving*cc%Psw))
 
        if(soil_carbon_option == SOILC_CORPSE_N) then
 
-           vegn%coarsewoodlitter_buffer_fast_N=vegn%coarsewoodlitter_buffer_fast_N + fraction_harvested*agf_bs*cc%bwood*fsc_wood/wood_fast_c2n
-           vegn%coarsewoodlitter_buffer_slow_N=vegn%coarsewoodlitter_buffer_slow_N + fraction_harvested*agf_bs*cc%bwood*(1-fsc_wood)/wood_slow_c2n
+           vegn%coarsewoodlitter_buffer_fast_N=vegn%coarsewoodlitter_buffer_fast_N + fraction_harvested*agf_bs*cc%bwood*fsc_wood/spdata(sp)%wood_c2n
+           vegn%coarsewoodlitter_buffer_slow_N=vegn%coarsewoodlitter_buffer_slow_N + fraction_harvested*agf_bs*cc%bwood*(1-fsc_wood)/spdata(sp)%wood_c2n
 
-           vegn%fsn_pool_bg = vegn%fsn_pool_bg + fraction_harvested*(fsc_froot*cc%bliving*cc%Pr/froot_fast_c2n + &
-                   (1-agf_bs)*fsc_wood*(cc%bwood + cc%bliving*cc%Psw)/wood_fast_c2n)
-           vegn%ssn_pool_bg = vegn%ssn_pool_bg + fraction_harvested*((1-fsc_froot)*cc%bliving*cc%Pr/froot_slow_c2n + &
-                   (1-agf_bs)*(1-fsc_wood)*(cc%bwood + cc%bliving*cc%Psw)/wood_slow_c2n)
+           vegn%fsn_pool_bg = vegn%fsn_pool_bg + fraction_harvested*(spdata(sp)%fsc_froot*cc%bliving*cc%Pr/spdata(sp)%froot_live_c2n + &
+                   (1-agf_bs)*fsc_wood*(cc%bwood + cc%bliving*cc%Psw)/spdata(sp)%wood_c2n)
+           vegn%ssn_pool_bg = vegn%ssn_pool_bg + fraction_harvested*((1-spdata(sp)%fsc_froot)*cc%bliving*cc%Pr/spdata(sp)%froot_live_c2n + &
+                   (1-agf_bs)*(1-fsc_wood)*(cc%bwood + cc%bliving*cc%Psw)/spdata(sp)%wood_c2n)
 
        endif
 
@@ -298,7 +307,7 @@ subroutine vegn_cut_forest(vegn, new_landuse)
   real :: wood_harvested         ! anount of harvested wood, kgC/m2
   real :: bdead, balive, bleaf, bfroot, btotal; ! combined biomass pools
   real :: delta
-  integer :: i
+  integer :: i,sp
 
   balive = 0 ; bdead = 0 ; bleaf = 0 ; bfroot = 0 ;
   ! calculate initial combined biomass pools for the patch
@@ -335,7 +344,7 @@ subroutine vegn_cut_forest(vegn, new_landuse)
   ! update biomass pools for each cohort according to harvested fraction
   do i = 1, vegn%n_cohorts
      cc => vegn%cohorts(i)
-
+     sp=cc%species
      ! calculate total amount of harvested wood, minus the wasted part
      wood_harvested = (cc%bwood+cc%bsw)*frac_harvested*(1-frac_wood_wasted)
 
@@ -383,20 +392,20 @@ subroutine vegn_cut_forest(vegn, new_landuse)
                 'harvested amount of live biomass ('//string(delta)//' kgC/m2) is below zero', &
                 FATAL)
 
-        vegn%leaflitter_buffer_fast=vegn%leaflitter_buffer_fast+delta*fsc_liv
-        vegn%leaflitter_buffer_slow=vegn%leaflitter_buffer_slow+delta*(1-fsc_liv)
+        vegn%leaflitter_buffer_fast=vegn%leaflitter_buffer_fast+delta*spdata(sp)%fsc_liv
+        vegn%leaflitter_buffer_slow=vegn%leaflitter_buffer_slow+delta*(1-spdata(sp)%fsc_liv)
 
-        vegn%ssc_pool_bg = vegn%ssc_pool_bg + bfroot*frac_harvested*(1-fsc_froot) + (cc%bwood+cc%bsw)*frac_harvested*(1-agf_bs)*(1-fsc_wood)
-        vegn%fsc_pool_bg = vegn%fsc_pool_bg + bfroot*frac_harvested*fsc_froot + (cc%bwood+cc%bsw)*frac_harvested*(1-agf_bs)*fsc_wood
+        vegn%ssc_pool_bg = vegn%ssc_pool_bg + cc%br*frac_harvested*(1-spdata(sp)%fsc_froot) + (cc%bwood+cc%bsw)*frac_harvested*(1-agf_bs)*(1-fsc_wood)
+        vegn%fsc_pool_bg = vegn%fsc_pool_bg + cc%br*frac_harvested*spdata(sp)%fsc_froot + (cc%bwood+cc%bsw)*frac_harvested*(1-agf_bs)*fsc_wood
 
         if(soil_carbon_option == SOILC_CORPSE_N) then
 
-            vegn%coarsewoodlitter_buffer_fast_N=vegn%coarsewoodlitter_buffer_fast_N+delta*fsc_wood/wood_fast_c2n
-            vegn%coarsewoodlitter_buffer_slow_N=vegn%coarsewoodlitter_buffer_fast_N+delta*(1-fsc_wood)/wood_slow_c2n
-            vegn%leaflitter_buffer_fast_N=vegn%leaflitter_buffer_fast_N+delta*fsc_liv/wood_fast_c2n
-            vegn%leaflitter_buffer_slow_N=vegn%leaflitter_buffer_slow_N+delta*(1-fsc_liv)/wood_slow_c2n
-            vegn%ssn_pool_bg = vegn%ssn_pool_bg + bfroot*frac_harvested*(1-fsc_froot)/froot_slow_c2n + (cc%bwood+cc%bsw)*frac_harvested*(1-agf_bs)*(1-fsc_wood)/wood_slow_c2n
-            vegn%fsn_pool_bg = vegn%fsn_pool_bg + bfroot*frac_harvested*fsc_froot/froot_fast_c2n + (cc%bwood+cc%bsw)*frac_harvested*(1-agf_bs)*fsc_wood/wood_fast_c2n
+            vegn%coarsewoodlitter_buffer_fast_N=vegn%coarsewoodlitter_buffer_fast_N+(cc%wood_N*fsc_wood+cc%stored_N*spdata(sp)%fsc_liv)*frac_harvested*agf_bs*frac_wood_wasted_ag
+            vegn%coarsewoodlitter_buffer_slow_N=vegn%coarsewoodlitter_buffer_fast_N+(cc%wood_N*(1-fsc_wood)+cc%stored_N*(1-spdata(sp)%fsc_liv))*frac_harvested*agf_bs*frac_wood_wasted_ag
+            vegn%leaflitter_buffer_fast_N=vegn%leaflitter_buffer_fast_N+cc%leaf_N*spdata(sp)%fsc_liv*frac_harvested
+            vegn%leaflitter_buffer_slow_N=vegn%leaflitter_buffer_slow_N+cc%leaf_N*(1-spdata(sp)%fsc_liv)*frac_harvested
+            vegn%ssn_pool_bg = vegn%ssn_pool_bg + cc%root_N*frac_harvested*(1-spdata(sp)%fsc_froot) + (cc%wood_N*(1-fsc_wood)+cc%stored_N*(1-spdata(sp)%fsc_liv))*frac_harvested*(1-agf_bs)
+            vegn%fsn_pool_bg = vegn%fsn_pool_bg + cc%root_N*frac_harvested*spdata(sp)%fsc_froot + (cc%wood_N*fsc_wood+cc%stored_N*spdata(sp)%fsc_liv)*frac_harvested*(1-agf_bs)
         endif
 
     case default

@@ -13,9 +13,9 @@ use land_tile_diag_mod, only : &
      register_tiled_diag_field, send_tile_data, diag_buff_type
 use vegn_data_mod, only : spdata, &
      CMPT_VLEAF, CMPT_SAPWOOD, CMPT_ROOT, CMPT_WOOD, CMPT_LEAF, LEAF_ON, LEAF_OFF, &
-     fsc_liv, fsc_wood, fsc_froot, soil_carbon_depth_scale, C2B, agf_bs, &
+     fsc_liv, fsc_wood, soil_carbon_depth_scale, C2B, agf_bs, &
      l_fract, &
-     leaf_fast_c2n,leaf_slow_c2n,froot_fast_c2n,froot_slow_c2n,wood_fast_c2n,wood_slow_c2n, root_exudate_N_frac,& !x2z - ens: lets get rid of c2n?
+      root_exudate_N_frac,& !x2z - ens: lets get rid of c2n?
      ! BNS: C2N ratios should be temporary fix, which we can get rid of once N is integrated into vegetation code
      root_exudate_frac_max, dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
      N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, excess_stored_N_leakage_rate
@@ -292,10 +292,10 @@ total_myc_mine_C_uptake = 0.0
      cc%carbon_loss = cc%carbon_loss + cc%md; ! used in diagnostics only
 
 
-
-     cc%leaf_N = cc%leaf_N - md_leaf/leaf_fast_c2n
-     cc%root_N = cc%root_N - md_froot/froot_fast_c2n
-     cc%wood_N = cc%wood_N - md_wood/wood_fast_c2n
+     ! Should this N be lost or retranslocated?
+     cc%leaf_N = cc%leaf_N - md_leaf/spdata(sp)%leaf_live_c2n
+     cc%root_N = cc%root_N - md_froot/spdata(sp)%froot_live_c2n
+     cc%wood_N = cc%wood_N - md_wood/spdata(sp)%wood_c2n
 
      ! add md from leaf and root pools to fast soil carbon
      select case (soil_carbon_option)
@@ -312,21 +312,23 @@ total_myc_mine_C_uptake = 0.0
            call debug_pool(soil%leafLitter,      'leafLitter (before)'      )
            call debug_pool(soil%coarseWoodLitter,'coarseWoodLitter (before)')
         endif
-        call add_litter(soil%leafLitter,(/fsc_liv *md_leaf, (1-fsc_liv)*md_leaf ,0.0/),(/fsc_liv *md_leaf/leaf_fast_c2n, (1-fsc_liv)*md_leaf/leaf_slow_c2n ,0.0/))
-        call add_litter(soil%coarseWoodLitter,(/fsc_wood *md_wood*agf_bs, (1-fsc_wood)*md_wood*agf_bs, 0.0/),(/fsc_wood *md_wood*agf_bs/wood_fast_c2n, (1-fsc_wood)*md_wood*agf_bs/wood_slow_c2n, 0.0/))
-        soil%leaflitter_fsc_in=soil%leaflitter_fsc_in+fsc_liv *md_leaf
-        soil%leaflitter_ssc_in=soil%leaflitter_ssc_in+(1-fsc_liv)*md_leaf
+        call add_litter(soil%leafLitter,(/spdata(sp)%fsc_liv *md_leaf, (1-spdata(sp)%fsc_liv)*md_leaf ,0.0/),&
+                (/spdata(sp)%fsc_liv *md_leaf/spdata(sp)%leaf_live_c2n, (1-fsc_liv)*md_leaf/spdata(sp)%leaf_live_c2n ,0.0/))
+        call add_litter(soil%coarseWoodLitter,(/fsc_wood *md_wood*agf_bs, (1-fsc_wood)*md_wood*agf_bs, 0.0/),&
+                (/fsc_wood *md_wood*agf_bs/spdata(sp)%wood_c2n, (1-fsc_wood)*md_wood*agf_bs/spdata(sp)%wood_c2n, 0.0/))
+        soil%leaflitter_fsc_in=soil%leaflitter_fsc_in+spdata(sp)%fsc_liv *md_leaf
+        soil%leaflitter_ssc_in=soil%leaflitter_ssc_in+(1-spdata(sp)%fsc_liv)*md_leaf
         soil%coarsewoodlitter_fsc_in=soil%coarsewoodlitter_fsc_in +    fsc_wood *md_wood*agf_bs
         soil%coarsewoodlitter_ssc_in=soil%coarsewoodlitter_ssc_in + (1-fsc_wood)*md_wood*agf_bs
-        soil%leaflitter_fsn_in=soil%leaflitter_fsn_in+fsc_liv *md_leaf/leaf_fast_c2n
-        soil%leaflitter_ssn_in=soil%leaflitter_ssn_in+(1-fsc_liv)*md_leaf/leaf_slow_c2n
-        soil%coarsewoodlitter_fsn_in=soil%coarsewoodlitter_fsn_in +    fsc_wood *md_wood*agf_bs/wood_fast_c2n
-        soil%coarsewoodlitter_ssn_in=soil%coarsewoodlitter_ssn_in + (1-fsc_wood)*md_wood*agf_bs/wood_slow_c2n
+        soil%leaflitter_fsn_in=soil%leaflitter_fsn_in+spdata(sp)%fsc_liv *md_leaf/spdata(sp)%leaf_live_c2n
+        soil%leaflitter_ssn_in=soil%leaflitter_ssn_in+(1-spdata(sp)%fsc_liv)*md_leaf/spdata(sp)%leaf_live_c2n
+        soil%coarsewoodlitter_fsn_in=soil%coarsewoodlitter_fsn_in +    fsc_wood *md_wood*agf_bs/spdata(sp)%wood_c2n
+        soil%coarsewoodlitter_ssn_in=soil%coarsewoodlitter_ssn_in + (1-fsc_wood)*md_wood*agf_bs/spdata(sp)%wood_c2n
 	!ssc_in and fsc_in updated in add_root_litter
-        call add_root_litter(soil,vegn,(/fsc_froot*md_froot + fsc_wood*md_wood*(1-agf_bs),&
-					(1-fsc_froot)*md_froot + (1-fsc_wood)*md_wood*(1-agf_bs),0.0/), &
-                    (/fsc_froot*md_froot/froot_fast_c2n + fsc_wood*md_wood*(1-agf_bs)/wood_fast_c2n,&
-            					(1-fsc_froot)*md_froot/froot_slow_c2n + (1-fsc_wood)*md_wood*(1-agf_bs)/wood_slow_c2n,0.0/))
+        call add_root_litter(soil,vegn,(/spdata(sp)%fsc_froot*md_froot + fsc_wood*md_wood*(1-agf_bs),&
+					(1-spdata(sp)%fsc_froot)*md_froot + (1-fsc_wood)*md_wood*(1-agf_bs),0.0/), &
+                    (/spdata(sp)%fsc_froot*md_froot/spdata(sp)%froot_live_c2n + fsc_wood*md_wood*(1-agf_bs)/spdata(sp)%wood_c2n,&
+            					(1-spdata(sp)%fsc_froot)*md_froot/spdata(sp)%froot_live_c2n + (1-fsc_wood)*md_wood*(1-agf_bs)/spdata(sp)%wood_c2n,0.0/))
 	if (is_watch_point()) then
            call debug_pool(soil%leafLitter,      'leafLitter (after)'      )
            call debug_pool(soil%coarseWoodLitter,'coarseWoodLitter (after)')
@@ -336,16 +338,16 @@ total_myc_mine_C_uptake = 0.0
             call debug_pool(soil%leafLitter,      'leafLitter (before)'      )
             call debug_pool(soil%coarseWoodLitter,'coarseWoodLitter (before)')
         endif
-        call add_litter(soil%leafLitter,(/fsc_liv *md_leaf, (1-fsc_liv)*md_leaf ,0.0/),(/0.0,0.0 ,0.0/))
+        call add_litter(soil%leafLitter,(/spdata(sp)%fsc_liv *md_leaf, (1-spdata(sp)%fsc_liv)*md_leaf ,0.0/),(/0.0,0.0 ,0.0/))
         call add_litter(soil%coarseWoodLitter,(/fsc_wood *md_wood*agf_bs, (1-fsc_wood)*md_wood*agf_bs, 0.0/),(/0.0,0.0, 0.0/))
-        soil%leaflitter_fsc_in=soil%leaflitter_fsc_in+fsc_liv *md_leaf
-        soil%leaflitter_ssc_in=soil%leaflitter_ssc_in+(1-fsc_liv)*md_leaf
+        soil%leaflitter_fsc_in=soil%leaflitter_fsc_in+spdata(sp)%fsc_liv *md_leaf
+        soil%leaflitter_ssc_in=soil%leaflitter_ssc_in+(1-spdata(sp)%fsc_liv)*md_leaf
         soil%coarsewoodlitter_fsc_in=soil%coarsewoodlitter_fsc_in +    fsc_wood *md_wood*agf_bs
         soil%coarsewoodlitter_ssc_in=soil%coarsewoodlitter_ssc_in + (1-fsc_wood)*md_wood*agf_bs
 
         !ssc_in and fsc_in updated in add_root_litter
-        call add_root_litter(soil,vegn,(/fsc_froot*md_froot + fsc_wood*md_wood*(1-agf_bs),&
-        (1-fsc_froot)*md_froot + (1-fsc_wood)*md_wood*(1-agf_bs),0.0/), &
+        call add_root_litter(soil,vegn,(/spdata(sp)%fsc_froot*md_froot + fsc_wood*md_wood*(1-agf_bs),&
+        (1-spdata(sp)%fsc_froot)*md_froot + (1-fsc_wood)*md_wood*(1-agf_bs),0.0/), &
         (/0.0,0.0,0.0/))
         if (is_watch_point()) then
             call debug_pool(soil%leafLitter,      'leafLitter (after)'      )
@@ -754,14 +756,14 @@ subroutine vegn_phenology(vegn, soil)
   real :: theta_crit; ! critical ratio of average soil water to sat. water
   real :: psi_stress_crit ! critical soil-water-stress index
   real :: wilt ! ratio of wilting to saturated water content
-  integer :: i
+  integer :: i, sp
 
   wilt = soil%w_wilt(1)/soil%pars%vwc_sat
   vegn%litter = 0
 
   do i = 1,vegn%n_cohorts
      cc => vegn%cohorts(i)
-
+     sp=cc%species
      if(is_watch_point())then
         write(*,*)'####### vegn_phenology #######'
         __DEBUG4__(vegn%theta_av_phen, wilt, spdata(cc%species)%cnst_crit_phen, spdata(cc%species)%fact_crit_phen)
@@ -801,23 +803,27 @@ subroutine vegn_phenology(vegn, soil)
               ! soil%ssc_in(1)+=(1.0-data->fsc_liv)*(leaf_litter+root_litter);
               soil%fsc_in(1)  = soil%fsc_in(1)  + leaf_litter+root_litter;
           case(SOILC_CORPSE_N)
-            !!!! Need to do something about retranslocation here !!!
-              call add_litter(soil%leafLitter,(/fsc_liv*leaf_litter,(1-fsc_liv)*leaf_litter,0.0/),&
-                                                (/fsc_liv*leaf_litter/leaf_fast_c2n,(1-fsc_liv)*leaf_litter/leaf_slow_c2n,0.0/))
-              soil%leaflitter_fsc_in=soil%leaflitter_fsc_in+fsc_liv*leaf_litter
-              soil%leaflitter_ssc_in=soil%leaflitter_ssc_in+(1-fsc_liv)*leaf_litter
-              soil%leaflitter_fsn_in=soil%leaflitter_fsn_in+fsc_liv*leaf_litter/leaf_slow_c2n
-              soil%leaflitter_ssn_in=soil%leaflitter_ssn_in+(1-fsc_liv)*leaf_litter/leaf_slow_c2n
+            ! Retranslocation: l_fract determines how much leaf and root C is converted to blv !!!
+            ! Retranslocation is converting the same fraction of N back to storage !
+            ! This should be correct for N, but is not how carbon works in plants  !
+              call add_litter(soil%leafLitter,(/spdata(sp)%fsc_liv*leaf_litter,(1-spdata(sp)%fsc_liv)*leaf_litter,0.0/),&
+                                                (/spdata(sp)%fsc_liv*cc%leaf_N*(1.0-l_fract)*(1.0-spdata(sp)%leaf_retranslocation_frac),&
+                                                (1-spdata(sp)%fsc_liv)*cc%leaf_N*(1.0-l_fract)*(1.0-spdata(sp)%leaf_retranslocation_frac),0.0/))
+              soil%leaflitter_fsc_in=soil%leaflitter_fsc_in+spdata(sp)%fsc_liv*leaf_litter
+              soil%leaflitter_ssc_in=soil%leaflitter_ssc_in+(1-spdata(sp)%fsc_liv)*leaf_litter
+              soil%leaflitter_fsn_in=soil%leaflitter_fsn_in+spdata(sp)%fsc_liv*cc%leaf_N*(1.0-l_fract)*(1.0-spdata(sp)%leaf_retranslocation_frac)
+              soil%leaflitter_ssn_in=soil%leaflitter_ssn_in+(1-spdata(sp)%fsc_liv)*cc%leaf_N*(1.0-l_fract)*(1.0-spdata(sp)%leaf_retranslocation_frac)
               !ssc_in and fsc_in updated in add_root_litter
-              call add_root_litter(soil, vegn, (/fsc_froot*root_litter,(1-fsc_froot)*root_litter,0.0/),&
-                                (/fsc_froot*root_litter/froot_fast_c2n,(1-fsc_froot)*root_litter/froot_slow_c2n,0.0/))
+              call add_root_litter(soil, vegn, (/spdata(sp)%fsc_froot*root_litter,(1-spdata(sp)%fsc_froot)*root_litter,0.0/),&
+                                (/spdata(sp)%fsc_froot*cc%root_N*(1.0-l_fract)*(1.0-spdata(sp)%froot_retranslocation_frac),&
+                                (1-spdata(sp)%fsc_froot)*cc%root_N*(1.0-l_fract)*(1.0-spdata(sp)%froot_retranslocation_frac),0.0/))
             case(SOILC_CORPSE)
-                call add_litter(soil%leafLitter,(/fsc_liv*leaf_litter,(1-fsc_liv)*leaf_litter,0.0/),&
+                call add_litter(soil%leafLitter,(/spdata(sp)%fsc_liv*leaf_litter,(1-spdata(sp)%fsc_liv)*leaf_litter,0.0/),&
                             (/0.0,0.0,0.0/))
-                soil%leaflitter_fsc_in=soil%leaflitter_fsc_in+fsc_liv*leaf_litter
-                soil%leaflitter_ssc_in=soil%leaflitter_ssc_in+(1-fsc_liv)*leaf_litter
+                soil%leaflitter_fsc_in=soil%leaflitter_fsc_in+spdata(sp)%fsc_liv*leaf_litter
+                soil%leaflitter_ssc_in=soil%leaflitter_ssc_in+(1-spdata(sp)%fsc_liv)*leaf_litter
                 !ssc_in and fsc_in updated in add_root_litter
-                call add_root_litter(soil, vegn, (/fsc_froot*root_litter,(1-fsc_froot)*root_litter,0.0/),&
+                call add_root_litter(soil, vegn, (/spdata(sp)%fsc_froot*root_litter,(1-spdata(sp)%fsc_froot)*root_litter,0.0/),&
                             (/0.0,0.0,0.0/))
            case default
               call error_mesg('vegn_phenology','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
@@ -829,7 +835,11 @@ subroutine vegn_phenology(vegn, soil)
            cc%br  = 0.0;
            cc%lai = 0.0;
 
-           cc%stored_N = cc%stored_N + l_fract*(cc%leaf_N+cc%root_N) ! l_fract is taking care of retranslocation for now
+           ! l_fract fraction of N is returned to storage, PLUS retranslocation frac of the actual litter
+           ! This seems like double counting, but is necessary so that litter C:N is correct
+           ! Real fix would be not retranslocating so much carbon (which is not biologically correct)
+           cc%stored_N = cc%stored_N + l_fract*(cc%leaf_N+cc%root_N) + &
+                     (1.0-l_fract)*(cc%leaf_N*spdata(sp)%leaf_retranslocation_frac+cc%root_N*spdata(sp)%froot_retranslocation_frac)
            cc%leaf_N = 0.0
            cc%root_N = 0.0
 

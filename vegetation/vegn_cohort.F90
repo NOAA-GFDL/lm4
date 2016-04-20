@@ -8,12 +8,12 @@ use land_constants_mod, only: NBANDS, &
      mol_h2o, mol_air
 use vegn_data_mod, only : spdata, &
    use_mcm_masking, use_bucket, critical_root_density, &
-   tg_c4_thresh, tg_c3_thresh, l_fract, fsc_liv, &
+   tg_c4_thresh, tg_c3_thresh, &
    phen_ev1, phen_ev2, cmc_eps, N_limits_live_biomass
 use vegn_data_mod, only : PT_C3, PT_C4, CMPT_ROOT, CMPT_LEAF, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
    LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDIOUS
-use vegn_data_mod,only : leaf_fast_c2n,leaf_slow_c2n,froot_fast_c2n,froot_slow_c2n,wood_fast_c2n
+use vegn_data_mod,only : spdata
 
 implicit none
 private
@@ -537,11 +537,6 @@ subroutine update_bio_living_fraction(c)
 end subroutine update_bio_living_fraction
 
 
-! ============================================================================
-! Calculate maximum nitrogen-limited live biomass pools
-!   leaf_N_content=1/leaf_fast_c2n*fsc_liv + 1/leaf_slow_c2n*(1-fsc_liv)  ! N fraction, kgN/kgC
-!   root_N_content=1/froot_fast_c2n*fsc_froot + 1/froot_slow_c2n*(1-fsc_froot)
-!   tile%vegn%cohorts(1:n)%max_live_biomass=tile%vegn%low_pass_N_uptake/(leaf_N_content+root_N_content)
 
 ! ============================================================================
 ! redistribute living biomass pools in a given cohort, and update related
@@ -560,10 +555,10 @@ subroutine update_biomass_pools(c)
   c%total_N = c%stored_N+c%leaf_N+c%wood_N+c%root_N
   ! Stress increases as stored N declines relative to total biomass N demand
   ! N stress is calculated based on "potential pools" without N limitation
-  ! biomass_N_demand=(c%bliving*c%Pl/leaf_fast_c2n + c%bliving*c%Pr/froot_fast_c2n + c%bliving*c%Psw/wood_fast_c2n)
+  ! biomass_N_demand=(c%bliving*c%Pl/leaf_live_c2n + c%bliving*c%Pr/froot_live_c2n + c%bliving*c%Psw/wood_fast_c2n)
   ! Elena suggests using 2*(root N + leaf N) as storage target
-  biomass_N_demand=(c%bliving*c%Pl/leaf_fast_c2n + c%bliving*c%Pr/froot_fast_c2n)
-  potential_stored_N = c%total_N - biomass_N_demand - (c%bwood+c%bsw)/wood_fast_c2n
+  biomass_N_demand=(c%bliving*c%Pl/spdata(c%species)%leaf_live_c2n + c%bliving*c%Pr/spdata(c%species)%froot_live_c2n)
+  potential_stored_N = c%total_N - biomass_N_demand - (c%bwood+c%bsw)/spdata(c%species)%wood_c2n
   ! c%nitrogen_stress = biomass_N_demand/c%total_N
 
   ! Spring physical analogy -- restoring force proportional to distance from target (equal to demand*2.0)
@@ -618,9 +613,9 @@ subroutine update_biomass_pools(c)
 
   endif
 
-  c%leaf_N=c%bl/leaf_fast_c2n
-  c%wood_N=(c%bwood+c%bsw)/wood_fast_c2n
-  c%root_N=c%br/froot_fast_c2n
+  c%leaf_N=c%bl/spdata(c%species)%leaf_live_c2n
+  c%wood_N=(c%bwood+c%bsw)/spdata(c%species)%wood_c2n
+  c%root_N=c%br/spdata(c%species)%froot_live_c2n
   c%stored_N=c%total_N-(c%leaf_N+c%wood_N+c%root_N)
 
 
