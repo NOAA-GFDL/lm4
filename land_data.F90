@@ -1,11 +1,11 @@
 module land_data_mod
 
-use mpp_mod           , only : mpp_get_current_pelist, mpp_pe
+use mpp_mod           , only : mpp_get_current_pelist
 use constants_mod     , only : PI
 use mpp_domains_mod   , only : domain2d, mpp_get_compute_domain, &
      mpp_define_layout, mpp_define_domains, mpp_define_io_domain, &
      mpp_get_current_ntile, mpp_get_tile_id, CYCLIC_GLOBAL_DOMAIN, &
-     mpp_get_io_domain, mpp_get_pelist, mpp_get_layout, mpp_get_domain_npes
+     mpp_get_io_domain, mpp_get_pelist, mpp_get_domain_npes
 use fms_mod           , only : write_version_number, mpp_npes, stdout, &
      file_exist, error_mesg, FATAL
 use fms_io_mod        , only : parse_mask_table
@@ -153,7 +153,6 @@ logical :: module_is_initialized = .FALSE.
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-
 ! ============================================================================
 subroutine log_version(version, modname, filename, tag, unit)
   character(len=*), intent(in) :: version
@@ -286,6 +285,7 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table)
   allocate(lnd%lat     (lnd%is:lnd%ie,   lnd%js:lnd%je))
   allocate(lnd%area    (lnd%is:lnd%ie,   lnd%js:lnd%je))
   allocate(lnd%cellarea(lnd%is:lnd%ie,   lnd%js:lnd%je))
+  allocate(lnd%landfrac(lnd%is:lnd%ie,   lnd%js:lnd%je))
   allocate(lnd%coord_glon(nlon), lnd%coord_glonb(nlon+1))
   allocate(lnd%coord_glat(nlat), lnd%coord_glatb(nlat+1))
 
@@ -294,6 +294,7 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table)
   call get_grid_cell_centers ('LND',lnd%face,lnd%coord_glon, lnd%coord_glat)
   call get_grid_cell_area    ('LND',lnd%face,lnd%cellarea, domain=lnd%domain)
   call get_grid_comp_area    ('LND',lnd%face,lnd%area,     domain=lnd%domain)
+  lnd%landfrac = lnd%area/lnd%cellarea
   
   ! set local coordinates arrays -- temporary, till such time as the global arrays
   ! are not necessary
@@ -316,6 +317,7 @@ end subroutine land_data_init
 ! ============================================================================
 subroutine land_data_end()
   module_is_initialized = .FALSE.
+
 end subroutine land_data_end
 
 end module land_data_mod
