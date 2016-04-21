@@ -45,6 +45,10 @@ interface nfu_put_att
    module procedure put_att_int_n
 end interface
 
+#define F90_TYPE character
+#define NF_TYPE  text
+#include "getput.inc"
+
 #define F90_TYPE integer
 #define NF_TYPE  int
 #include "getput.inc"
@@ -554,6 +558,10 @@ end function
 ! ============================================================================
 ! nfu_get_var interface
 ! ============================================================================
+#define F90_TYPE character
+#define NF_TYPE  text
+#include "getput.inc"
+
 #define F90_TYPE integer
 #define NF_TYPE  int
 #include "getput.inc"

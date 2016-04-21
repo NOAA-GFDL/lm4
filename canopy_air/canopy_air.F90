@@ -13,28 +13,23 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only : error_mesg, FATAL, NOTE, file_exist, &
      close_file, check_nml_error, mpp_pe, mpp_root_pe, stdlog, string
-use time_manager_mod, only : time_type, time_type_to_real
+use fms_io_mod, only : set_domain, nullify_domain
 use constants_mod, only : rdgas, rvgas, cp_air, PI, VONKARM
-use sphum_mod, only : qscomp
 use field_manager_mod, only : parse, MODEL_ATMOS, MODEL_LAND
-use tracer_manager_mod, only : get_number_tracers, get_tracer_index, get_tracer_names, &
-     NO_TRACER
-use tracer_manager_mod, only : get_tracer_index, query_method, NO_TRACER
+use tracer_manager_mod, only : get_tracer_index, get_tracer_names, &
+     query_method, NO_TRACER
 
-use nf_utils_mod, only : nfu_inq_var
-use land_constants_mod, only : NBANDS,mol_CO2,mol_air
+use land_constants_mod, only : mol_CO2, mol_air
 use land_tracers_mod, only : ntcana, isphum, ico2
 use cana_tile_mod, only : cana_tile_type, &
      canopy_air_mass, canopy_air_mass_for_tracers, cpw
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
-use land_tile_diag_mod, only : &
-     register_tiled_diag_field, send_tile_data, diag_buff_type
 use land_data_mod, only : lnd, log_version
-use land_tile_io_mod, only : create_tile_out_file, &
-     read_tile_data_r0d_fptr, write_tile_data_r0d_fptr, &
-     get_input_restart_name, print_netcdf_error
-use land_debug_mod, only : is_watch_point, check_temp_range
+use land_tile_io_mod, only: land_restart_type, &
+     init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
+     add_tile_data, get_tile_data, field_exists
+use land_debug_mod, only : is_watch_point
 
 implicit none
 private
@@ -77,13 +72,7 @@ logical :: module_is_initialized =.FALSE.
 integer :: turbulence_option ! selected option of turbulence parameters 
      ! calculations
 
-! ==== NetCDF declarations ===================================================
-include 'netcdf.inc'
-#define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
-
-
 contains
-
 
 ! ============================================================================
 subroutine read_cana_namelist()
@@ -122,10 +111,10 @@ subroutine cana_init ( id_lon, id_lat )
   integer, intent(in)          :: id_lat  ! ID of land latitude (Y) axis
 
   ! ---- local vars ----------------------------------------------------------
-  integer :: unit         ! unit for various i/o
   type(land_tile_enum_type)     :: te,ce ! last and current tile
   type(land_tile_type), pointer :: tile   ! pointer to current tile
-  character(len=256) :: restart_file_name
+  character(*), parameter :: restart_file_name='INPUT/cana.res.nc'
+  type(land_restart_type) :: restart
   logical :: restart_exists
 
   character(32)  :: name  ! name of the tracer
@@ -178,29 +167,28 @@ subroutine cana_init ( id_lon, id_lat )
   enddo
 
   ! then read the restart if it exists
-  call get_input_restart_name('INPUT/cana.res.nc',restart_exists,restart_file_name)
+  call open_land_restart(restart,restart_file_name,restart_exists)
   if (restart_exists) then
      call error_mesg('cana_init',&
           'reading NetCDF restart "'//trim(restart_file_name)//'"',&
           NOTE)
-     __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
-     call read_tile_data_r0d_fptr(unit, 'temp', cana_T_ptr  )
+     call get_tile_data(restart, 'temp', cana_T_ptr)
      do tr = 1, ntcana
         call get_tracer_names(MODEL_LAND, tr, name=name)
-        if(nfu_inq_var(unit,trim(name))==NF_NOERR) then
+        if (field_exists(restart,trim(name))) then
            call error_mesg('cana_init','reading tracer "'//trim(name)//'"',NOTE)
-           call read_tile_data_r0d_fptr(unit,name,cana_tr_ptr,tr)
+           call get_tile_data(restart,name,cana_tr_ptr,tr)
         else
            call error_mesg('cana_init', 'tracer "'//trim(name)// &
                 '" was set to initial value '//string(init_tr(tr)), NOTE)
         endif
      enddo
-     __NF_ASRT__(nf_close(unit))     
   else
      call error_mesg('cana_init',&
           'cold-starting canopy air',&
           NOTE)
   endif
+  call free_land_restart(restart)
 
   ! initialize options, to avoid expensive character comparisons during 
   ! run-time
@@ -212,16 +200,13 @@ subroutine cana_init ( id_lon, id_lat )
      call error_mesg('cana_init', 'canopy air turbulence option turbulence_to_use="'// &
           trim(turbulence_to_use)//'" is invalid, use "lm3w" or "lm3v"', FATAL)
   endif
-  
 end subroutine cana_init
 
 
 ! ============================================================================
 ! release memory
 subroutine cana_end ()
-
   module_is_initialized =.FALSE.
-
 end subroutine cana_end
 
 
@@ -230,28 +215,31 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
   integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
   character(*), intent(in) :: timestamp ! timestamp to add to the file name
 
-  ! ---- local vars ----------------------------------------------------------
-  integer :: unit            ! restart file i/o unit
-  character(32)  :: name,units
-  character(128) :: longname
+  ! ---- local vars
+  character(267) :: filename
+  type(land_restart_type) :: restart ! restart file i/o object
+  character(len=32)  :: name,units
+  character(len=128) :: longname
   integer :: tr 
 
   call error_mesg('cana_end','writing NetCDF restart',NOTE)
-  call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'cana.res.nc',&
-          lnd%coord_glon, lnd%coord_glat, cana_tile_exists, tile_dim_length)
+! must set domain so that io_domain is available
+  call set_domain(lnd%domain)
+! Note that filename is updated for tile & rank numbers during file creation
+  filename = trim(timestamp)//'cana.res.nc'
+  call init_land_restart(restart, filename, cana_tile_exists, tile_dim_length)
 
   ! write temperature
-  call write_tile_data_r0d_fptr(unit,'temp' ,cana_T_ptr,'canopy air temperature','degrees_K')
-  ! write all tracers
+  call add_tile_data(restart,'temp',cana_T_ptr,'canopy air temperature','degrees_K')
   do tr = 1,ntcana
      call get_tracer_names(MODEL_LAND, tr, name, longname, units)
      if (tr==ico2.and..not.save_qco2) cycle
-     call write_tile_data_r0d_fptr(unit,name,cana_tr_ptr,tr,'canopy air '//trim(longname),trim(units))
+     call add_tile_data(restart,name,cana_tr_ptr,tr,'canopy air '//trim(longname),trim(units))
   enddo
-  ! close output file
-  __NF_ASRT__(nf_close(unit))
+  call save_land_restart(restart)
+  call free_land_restart(restart)
+  call nullify_domain()
 end subroutine save_cana_restart
-
 
 ! ============================================================================
 subroutine cana_turbulence (u_star,&
@@ -469,16 +457,25 @@ logical function cana_tile_exists(tile)
    cana_tile_exists = associated(tile%cana)
 end function cana_tile_exists
 
-! ============================================================================
-! accessor functions: given a pointer to a land tile, they return pointer
-! to the desired member of the land tile, of NULL if this member does not
-! exist.
-#define DEFINE_CANA_ACCESSOR_0D(xtype,x) subroutine cana_ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%cana))p=>t%cana%x;endif;end subroutine
-#define DEFINE_CANA_ACCESSOR_1D(xtype,x) subroutine cana_ ## x ## _ptr(t,i,p);\
-type(land_tile_type),pointer::t;integer,intent(in)::i;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%cana))p=>t%cana%x(i);endif;end subroutine
+subroutine cana_T_ptr(t,p)
+  type(land_tile_type), pointer :: t
+  real,                 pointer :: p
 
-DEFINE_CANA_ACCESSOR_0D(real,T)
-DEFINE_CANA_ACCESSOR_1D(real,tr)
+  p=>NULL()
+  if(associated(t))then
+     if(associated(t%cana))p=>t%cana%T
+  endif
+end subroutine
+
+subroutine cana_tr_ptr(t,i,p)
+  type(land_tile_type), pointer    :: t
+  integer,              intent(in) :: i
+  real,                 pointer    :: p
+
+  p=>NULL()
+  if(associated(t))then
+     if(associated(t%cana))p=>t%cana%tr(i)
+  endif
+end subroutine
 
 end module canopy_air_mod

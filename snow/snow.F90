@@ -13,6 +13,7 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only : error_mesg, file_exist, check_nml_error, &
      stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
+use fms_io_mod, only : set_domain, nullify_domain
 use time_manager_mod,   only: time_type_to_real
 use constants_mod,      only: tfreeze, hlv, hlf, PI
 
@@ -24,12 +25,10 @@ use snow_tile_mod, only : &
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
-use land_tile_diag_mod, only : &
-     register_tiled_diag_field, send_tile_data, diag_buff_type
 use land_data_mod,      only : lnd, log_version
-use land_tile_io_mod, only : create_tile_out_file, read_tile_data_r1d_fptr, &
-     write_tile_data_r1d_fptr, print_netcdf_error, get_input_restart_name, &
-     sync_nc_files
+use land_tile_io_mod, only: land_restart_type, &
+     init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
+     add_restart_axis, add_tile_data, get_tile_data
 use nf_utils_mod, only : nfu_def_dim, nfu_put_att
 use land_debug_mod, only : is_watch_point
 
@@ -49,7 +48,7 @@ public :: snow_step_2
 ! =====end of public interfaces ==============================================
 
 
-! ==== module variables ======================================================
+! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'snow_mod'
 #include "../shared/version_variable.inc"
 
@@ -86,10 +85,6 @@ real            :: heat_capacity_retro = 1.6e6
 real            :: mc_fict
 
 ! ==== end of module variables ===============================================
-
-! ==== NetCDF declarations ===================================================
-include 'netcdf.inc'
-#define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
 
 contains
 
@@ -142,30 +137,25 @@ subroutine snow_init ( id_lon, id_lat )
   integer, intent(in)               :: id_lat  ! ID of land latitude (Y) axis
 
   ! ---- local vars ----------------------------------------------------------
-  integer :: unit,k         ! unit for various i/o
+  integer :: k
   type(land_tile_enum_type)     :: te,ce ! tail and current tile list elements
   type(land_tile_type), pointer :: tile  ! pointer to current tile
-  character(len=256) :: restart_file_name
+  character(*), parameter :: restart_file_name='INPUT/snow.res.nc'
+  type(land_restart_type) :: restart
   logical :: restart_exists
 
   module_is_initialized = .TRUE.
   delta_time = time_type_to_real(lnd%dt_fast)
 
   ! -------- initialize snow state --------
-  call get_input_restart_name('INPUT/snow.res.nc',restart_exists,restart_file_name)
+  call open_land_restart(restart,restart_file_name,restart_exists)
   if (restart_exists) then
-     call error_mesg('snow_init',&
-          'reading NetCDF restart "'//trim(restart_file_name)//'"',&
-          NOTE)
-     __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
-     call read_tile_data_r1d_fptr(unit, 'temp', snow_temp_ptr  )
-     call read_tile_data_r1d_fptr(unit, 'wl'  , snow_wl_ptr )
-     call read_tile_data_r1d_fptr(unit, 'ws'  , snow_ws_ptr )
-     __NF_ASRT__(nf_close(unit))     
+     call error_mesg('snow_init', 'reading NetCDF restart "'//trim(restart_file_name)//'"', NOTE)
+     call get_tile_data(restart, 'temp', 'zfull', snow_temp_ptr)
+     call get_tile_data(restart, 'wl'  , 'zfull', snow_wl_ptr)
+     call get_tile_data(restart, 'ws'  , 'zfull', snow_ws_ptr)
   else
-     call error_mesg('snow_init',&
-          'cold-starting snow',&
-          NOTE)
+     call error_mesg('snow_init', 'cold-starting snow', NOTE)
      te = tail_elmt (land_tile_map)
      ce = first_elmt(land_tile_map)
      do while(ce /= te)
@@ -180,6 +170,7 @@ subroutine snow_init ( id_lon, id_lat )
         enddo 
      enddo
   endif
+  call free_land_restart(restart)
 
   if (trim(albedo_to_use)=='') then
      use_brdf = .false.
@@ -208,28 +199,24 @@ subroutine save_snow_restart (tile_dim_length, timestamp)
   integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
   character(*), intent(in) :: timestamp ! timestamp to add to the file name
 
-  ! ---- local vars ----------------------------------------------------------
-  integer :: unit            ! restart file i/o unit
+  ! ---- local vars
+  character(267) :: filename
+  type(land_restart_type) :: restart ! restart file i/o object
 
   call error_mesg('snow_end','writing NetCDF restart',NOTE)
-  ! create output file, including internal structure necessary for tile output
-  call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'snow.res.nc', &
-          lnd%coord_glon, lnd%coord_glat, snow_tile_exists, tile_dim_length )
+  call set_domain(lnd%domain)
+! Note that filename is updated for tile & rank numbers during file creation
+  filename = trim(timestamp)//'snow.res.nc'
+  call init_land_restart(restart, filename, snow_tile_exists, tile_dim_length)
+  call add_restart_axis(restart,'zfull',zz(1:num_l),'Z',longname='depth of level centers',sense=-1)
 
-  ! additionally, define vertical coordinate
-  if (mpp_pe()==lnd%io_pelist(1)) then
-     __NF_ASRT__(nfu_def_dim(unit,'zfull',zz(1:num_l),'depth of level centers'))
-     __NF_ASRT__(nfu_put_att(unit,'zfull','positive','down'))
-  endif
-  call sync_nc_files(unit)
+  call add_tile_data(restart,'temp','zfull',snow_temp_ptr, 'snow temperature','degrees_K')
+  call add_tile_data(restart,'wl'  ,'zfull',snow_wl_ptr,   'snow liquid water content','kg/m2')
+  call add_tile_data(restart,'ws'  ,'zfull',snow_ws_ptr,   'snow solid water content','kg/m2')
 
-  ! write fields
-  call write_tile_data_r1d_fptr(unit,'temp',snow_temp_ptr,'zfull','snow temperature','degrees_K')
-  call write_tile_data_r1d_fptr(unit,'wl'  ,snow_wl_ptr,  'zfull','snow liquid water content','kg/m2')
-  call write_tile_data_r1d_fptr(unit,'ws'  ,snow_ws_ptr,  'zfull','snow solid water content','kg/m2')
-  ! close output file
-  if (mpp_pe()==lnd%io_pelist(1)) &
-       __NF_ASRT__(nf_close(unit))
+  call save_land_restart(restart)
+  call free_land_restart(restart)
+  call nullify_domain()
 
 end subroutine save_snow_restart
 
@@ -725,41 +712,41 @@ end subroutine snow_step_1
   snow_hlrunf = 0.
   snow_hfrunf = 0.
   if (0. < snow_mass .and. snow_mass < min_snow_mass ) then
-        do l = 1, num_l
-          snow_hlrunf = snow_hlrunf  &
-            + clw*snow%wl(l)*(snow%T(l)-tfreeze)
-          snow_hfrunf = snow_hfrunf  &
-            + csw*snow%ws(l)*(snow%T(l)-tfreeze)
-          enddo
-        snow_lrunf  = sum(snow%wl)
-        snow_frunf  = snow_mass
-        snow_mass   = 0.
-        snow%ws = 0.
-        snow%wl = 0.
-    else if (max_snow < snow_mass) then
-        snow_frunf  = snow_mass - max_snow
-        snow_mass  = max_snow
-        sum_sno  = 0
-        snow_transfer = 0
-        do l = 1, num_l
-          if (sum_sno + snow%ws(l) > snow_frunf) then
-              snow_transfer = snow_frunf - sum_sno
-            else
-              snow_transfer = snow%ws(l)
-            endif
-          if (snow%ws(l) > 0) then
-              frac = snow_transfer / snow%ws(l)
-            else
-              frac = 1.
-            endif
-          sum_sno  = sum_sno  + snow_transfer
-          snow_lrunf  = snow_lrunf  +     frac*snow%wl(l)
-          snow_hlrunf = snow_hlrunf + clw*frac*snow%wl(l)*(snow%T(l)-tfreeze)
-          snow_hfrunf = snow_hfrunf + csw*frac*snow%ws(l)*(snow%T(l)-tfreeze)
-          snow%ws(l) = (1-frac)*snow%ws(l)
-          snow%wl(l) = (1-frac)*snow%wl(l)
-          enddo
-    endif
+     do l = 1, num_l
+       snow_hlrunf = snow_hlrunf  &
+         + clw*snow%wl(l)*(snow%T(l)-tfreeze)
+       snow_hfrunf = snow_hfrunf  &
+         + csw*snow%ws(l)*(snow%T(l)-tfreeze)
+       enddo
+     snow_lrunf  = sum(snow%wl)
+     snow_frunf  = snow_mass
+     snow_mass   = 0.
+     snow%ws = 0.
+     snow%wl = 0.
+  else if (max_snow < snow_mass) then
+     snow_frunf  = snow_mass - max_snow
+     snow_mass  = max_snow
+     sum_sno  = 0
+     snow_transfer = 0
+     do l = 1, num_l
+        if (sum_sno + snow%ws(l) > snow_frunf) then
+           snow_transfer = snow_frunf - sum_sno
+        else
+           snow_transfer = snow%ws(l)
+        endif
+        if (snow%ws(l) > 0) then
+           frac = snow_transfer / snow%ws(l)
+        else
+           frac = 1.
+        endif
+        sum_sno  = sum_sno  + snow_transfer
+        snow_lrunf  = snow_lrunf  +     frac*snow%wl(l)
+        snow_hlrunf = snow_hlrunf + clw*frac*snow%wl(l)*(snow%T(l)-tfreeze)
+        snow_hfrunf = snow_hfrunf + csw*frac*snow%ws(l)*(snow%T(l)-tfreeze)
+        snow%ws(l) = (1-frac)*snow%ws(l)
+        snow%wl(l) = (1-frac)*snow%wl(l)
+     enddo
+  endif
   snow_lrunf  = snow_lrunf  / delta_time
   snow_frunf  = snow_frunf  / delta_time
   snow_hlrunf = snow_hlrunf / delta_time
@@ -786,7 +773,7 @@ end subroutine snow_step_1
   new_wl=0
   new_T=0
   do l = 1, num_l
-    depth = depth + snow%ws(l)
+     depth = depth + snow%ws(l)
   enddo
   depth = depth / snow_density
 
@@ -942,9 +929,7 @@ subroutine snow_temp_ptr(tile, i, ptr)
    real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%snow)) then
-        ptr => tile%snow%T(i)
-      endif
+      if(associated(tile%snow)) ptr => tile%snow%T(i)
    endif
 end subroutine snow_temp_ptr
 
@@ -954,9 +939,7 @@ subroutine snow_wl_ptr(tile, i, ptr)
    real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%snow)) then
-        ptr => tile%snow%wl(i)
-      endif
+      if(associated(tile%snow)) ptr => tile%snow%wl(i)
    endif
 end subroutine snow_wl_ptr
 
@@ -966,9 +949,7 @@ subroutine snow_ws_ptr(tile, i, ptr)
    real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%snow)) then
-        ptr => tile%snow%ws(i)
-      endif
+      if(associated(tile%snow)) ptr => tile%snow%ws(i)
    endif
 end subroutine snow_ws_ptr
 

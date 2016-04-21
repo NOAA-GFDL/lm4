@@ -9,10 +9,11 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod,            only: error_mesg, file_exist,     &
-                              check_nml_error, stdlog, &
-                              close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
-use time_manager_mod,   only: time_type, time_type_to_real
+use fms_mod, only : error_mesg, file_exist, check_nml_error, stdlog, close_file, &
+     mpp_pe, mpp_root_pe, FATAL, NOTE
+use fms_io_mod, only : set_domain, nullify_domain
+
+use time_manager_mod,   only: time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o, PI
 
@@ -20,18 +21,17 @@ use glac_tile_mod,      only: glac_tile_type, &
      read_glac_data_namelist, glac_data_thermodynamics, glac_data_hydraulics, &
      glac_data_radiation, max_lev, cpw, clw, csw
 
-use land_constants_mod, only : &
-     NBANDS
+use land_constants_mod, only : NBANDS
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
 use land_tile_diag_mod, only : set_default_diag_filter, &
      register_tiled_diag_field, send_tile_data, diag_buff_type
 use land_data_mod, only : lnd, log_version
-use land_io_mod, only : print_netcdf_error
-use land_tile_io_mod, only: create_tile_out_file, read_tile_data_r1d_fptr, &
-     write_tile_data_r1d_fptr, get_input_restart_name, sync_nc_files
-use nf_utils_mod, only : nfu_def_dim, nfu_put_att
+use land_tile_io_mod, only: land_restart_type, &
+     init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
+     add_restart_axis, add_tile_data, get_tile_data
 use land_debug_mod, only : is_watch_point
+
 implicit none
 private
 
@@ -45,7 +45,6 @@ public :: glac_radiation
 public :: glac_step_1
 public :: glac_step_2
 ! =====end of public interfaces ==============================================
-
 
 
 ! ==== module constants ======================================================
@@ -79,10 +78,6 @@ integer :: id_zhalf, id_zfull
 integer :: id_lwc, id_swc, id_temp, id_ie, id_sn, id_bf, id_hie, id_hsn, id_hbf
 
 ! ==== end of module variables ===============================================
-
-! ==== NetCDF declarations ===================================================
-include 'netcdf.inc'
-#define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
 
 contains
 
@@ -135,26 +130,24 @@ subroutine glac_init ( id_lon, id_lat )
   integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
 
   ! ---- local vars
-  integer :: unit         ! unit for various i/o
   type(land_tile_enum_type)     :: te,ce ! last and current tile list elements
   type(land_tile_type), pointer :: tile  ! pointer to current tile
-  character(len=256) :: restart_file_name
+  type(land_restart_type) :: restart
   logical :: restart_exists
+  character(*), parameter :: restart_file_name='INPUT/glac.res.nc'
 
   module_is_initialized = .TRUE.
   delta_time = time_type_to_real(lnd%dt_fast)
 
   ! -------- initialize glac state --------
-  call get_input_restart_name('INPUT/glac.res.nc',restart_exists,restart_file_name)
+  call open_land_restart(restart,restart_file_name,restart_exists)
   if (restart_exists) then
      call error_mesg('glac_init',&
           'reading NetCDF restart "'//trim(restart_file_name)//'"',&
           NOTE)
-     __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
-     call read_tile_data_r1d_fptr(unit, 'temp'         , glac_temp_ptr  )
-     call read_tile_data_r1d_fptr(unit, 'wl'           , glac_wl_ptr )
-     call read_tile_data_r1d_fptr(unit, 'ws'           , glac_ws_ptr )
-     __NF_ASRT__(nf_close(unit))     
+     call get_tile_data(restart, 'temp', 'zfull', glac_temp_ptr)
+     call get_tile_data(restart, 'wl',   'zfull', glac_wl_ptr)
+     call get_tile_data(restart, 'ws',   'zfull', glac_ws_ptr)
   else
      call error_mesg('glac_init',&
           'cold-starting glacier',&
@@ -177,6 +170,7 @@ subroutine glac_init ( id_lon, id_lat )
         tile%glac%T             = init_temp
      enddo
   endif
+  call free_land_restart(restart)
   
   if (trim(albedo_to_use)=='brdf-params') then
      use_brdf = .true.
@@ -207,34 +201,32 @@ subroutine glac_end ()
 
 end subroutine glac_end
 
-
 ! ============================================================================
 subroutine save_glac_restart (tile_dim_length, timestamp)
   integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
   character(*), intent(in) :: timestamp ! timestamp to add to the file name
 
-  integer :: unit ! restart file i/o unit
+  ! ---- local vars
+  character(267) :: filename
+  type(land_restart_type) :: restart ! restart file i/o object
 
   call error_mesg('glac_end','writing NetCDF restart',NOTE)
-  call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'glac.res.nc', &
-          lnd%coord_glon, lnd%coord_glat, glac_tile_exists, tile_dim_length)
+! must set domain so that io_domain is available
+  call set_domain(lnd%domain)
+! Note that filename is updated for tile & rank numbers during file creation
+  filename = trim(timestamp)//'glac.res.nc'
+  call init_land_restart(restart, filename, glac_tile_exists, tile_dim_length)
+  call add_restart_axis(restart,'zfull',zfull(1:num_l),'Z','m','full level',sense=-1)
 
-  ! in addition, define vertical coordinate
-  if (mpp_pe()==lnd%io_pelist(1)) then
-     __NF_ASRT__(nfu_def_dim(unit,'zfull',zfull(1:num_l),'full level','m'))
-     __NF_ASRT__(nfu_put_att(unit,'zfull','positive','down'))
-  endif
-  ! synchronize the output between writers and readers
-  call sync_nc_files(unit)
-        
-  ! write out fields
-  call write_tile_data_r1d_fptr(unit,'temp'         ,glac_temp_ptr,'zfull','glacier temperature','degrees_K')
-  call write_tile_data_r1d_fptr(unit,'wl'           ,glac_wl_ptr  ,'zfull','liquid water content','kg/m2')
-  call write_tile_data_r1d_fptr(unit,'ws'           ,glac_ws_ptr  ,'zfull','solid water content','kg/m2')
-   
-  ! close file
-  __NF_ASRT__(nf_close(unit))
+  ! Output data provides signature
+  call add_tile_data(restart,'temp', 'zfull', glac_temp_ptr, longname='glacier temperature',  units='degrees_K')
+  call add_tile_data(restart,'wl',   'zfull', glac_wl_ptr,   longname='liquid water content', units='kg/m2')
+  call add_tile_data(restart,'ws',   'zfull', glac_ws_ptr,   longname='solid water content',  units='kg/m2')
 
+  ! save performs io domain aggregation through mpp_io as with regular domain data
+  call save_land_restart(restart)
+  call free_land_restart(restart)
+  call nullify_domain()
 end subroutine save_glac_restart
 
 
@@ -858,22 +850,21 @@ subroutine glac_diag_init ( id_lon, id_lat, zfull, zhalf )
        lnd%time, 'bulk density of solid water', 'kg/m3',  missing_value=-100.0 )
   id_temp  = register_tiled_diag_field ( module_name, 'glac_T',  axes,       &
        lnd%time, 'temperature',            'degK',  missing_value=-100.0 )
-if (.not.lm2) then
-  id_ie  = register_tiled_diag_field ( module_name, 'glac_rie',  axes(1:2),  &
-       lnd%time, 'inf exc runf',            'kg/(m2 s)',  missing_value=-100.0 )
-  id_sn  = register_tiled_diag_field ( module_name, 'glac_rsn',  axes(1:2),  &
-       lnd%time, 'satn runf',            'kg/(m2 s)',  missing_value=-100.0 )
-  id_bf  = register_tiled_diag_field ( module_name, 'glac_rbf',  axes(1:2),  &
-       lnd%time, 'baseflow',            'kg/(m2 s)',  missing_value=-100.0 )
-  id_hie  = register_tiled_diag_field ( module_name, 'glac_hie',  axes(1:2), &
-       lnd%time, 'heat ie runf',            'W/m2',  missing_value=-100.0 )
-  id_hsn  = register_tiled_diag_field ( module_name, 'glac_hsn',  axes(1:2), &
-       lnd%time, 'heat sn runf',            'W/m2',  missing_value=-100.0 )
-  id_hbf  = register_tiled_diag_field ( module_name, 'glac_hbf',  axes(1:2), &
-       lnd%time, 'heat bf runf',            'W/m2',  missing_value=-100.0 )
-endif
+  if (.not.lm2) then
+     id_ie  = register_tiled_diag_field ( module_name, 'glac_rie',  axes(1:2),  &
+          lnd%time, 'inf exc runf',            'kg/(m2 s)',  missing_value=-100.0 )
+     id_sn  = register_tiled_diag_field ( module_name, 'glac_rsn',  axes(1:2),  &
+          lnd%time, 'satn runf',            'kg/(m2 s)',  missing_value=-100.0 )
+     id_bf  = register_tiled_diag_field ( module_name, 'glac_rbf',  axes(1:2),  &
+          lnd%time, 'baseflow',            'kg/(m2 s)',  missing_value=-100.0 )
+     id_hie  = register_tiled_diag_field ( module_name, 'glac_hie',  axes(1:2), &
+          lnd%time, 'heat ie runf',            'W/m2',  missing_value=-100.0 )
+     id_hsn  = register_tiled_diag_field ( module_name, 'glac_hsn',  axes(1:2), &
+          lnd%time, 'heat sn runf',            'W/m2',  missing_value=-100.0 )
+     id_hbf  = register_tiled_diag_field ( module_name, 'glac_hbf',  axes(1:2), &
+          lnd%time, 'heat bf runf',            'W/m2',  missing_value=-100.0 )
+  endif
 
-  
 end subroutine glac_diag_init
 
 ! ============================================================================
@@ -895,9 +886,7 @@ subroutine glac_temp_ptr(tile, i, ptr)
    real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%glac)) then
-        ptr => tile%glac%T(i)
-      endif
+      if(associated(tile%glac)) ptr => tile%glac%T(i)
    endif
 end subroutine glac_temp_ptr
 
@@ -907,9 +896,7 @@ subroutine glac_wl_ptr(tile, i, ptr)
    real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%glac)) then
-        ptr => tile%glac%wl(i)
-      endif
+      if(associated(tile%glac)) ptr => tile%glac%wl(i)
    endif
 end subroutine glac_wl_ptr
 
@@ -919,9 +906,7 @@ subroutine glac_ws_ptr(tile, i, ptr)
    real                , pointer :: ptr  ! returned pointer to the data
    ptr=>NULL()
    if(associated(tile)) then
-      if(associated(tile%glac)) then
-        ptr => tile%glac%ws(i)
-      endif
+      if(associated(tile%glac)) ptr => tile%glac%ws(i)
    endif
 end subroutine glac_ws_ptr
 
