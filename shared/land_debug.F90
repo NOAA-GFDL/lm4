@@ -52,6 +52,7 @@ interface check_var_range
    module procedure check_var_range_1d
 end interface check_var_range
 
+public :: log_date
 
 ! conservation tolerances for use across the code. This module doesn't use
 ! them, just serves as a convenient place to share them across all land code
@@ -464,5 +465,14 @@ subroutine check_conservation(tag, substance, d1, d2, tolerance, severity)
      call error_mesg(tag,message,severity_)
   endif
 end subroutine
+
+subroutine log_date(tag,time)
+  character(*),    intent(in) :: tag
+  type(time_type), intent(in) :: time
+  integer :: y,mo,d,h,m,s ! components of date for debug printout
+
+  call get_date(lnd%time,y,mo,d,h,m,s)
+  write(*,'(a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))') tag,y,mo,d,h,m,s
+end subroutine log_date
 
 end module land_debug_mod

@@ -95,7 +95,8 @@ use land_tile_diag_mod, only : tile_diag_init, tile_diag_end, &
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, get_watch_point, check_temp_range, current_face, &
      get_current_point, check_conservation, water_cons_tol, carbon_cons_tol, &
-     is_watch_cell, is_watch_time, do_check_conservation, check_var_range
+     is_watch_cell, is_watch_time, do_check_conservation, check_var_range, &
+     log_date
 use static_vegn_mod, only : write_static_vegn
 use land_transitions_mod, only : &
      land_transitions_init, land_transitions_end, land_transitions, &
@@ -1447,8 +1448,13 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   ! variables for conservation checks
   real :: lmass0, fmass0, heat0, cmass0, v0
   real :: lmass1, fmass1, heat1, cmass1
-  character(64) :: tag
+  character(*), parameter :: tag = 'update_land_model_fast_0d'
 
+
+  if(is_watch_point()) then
+     write(*,*)
+     call log_date('#### update_land_model_fast_0d begins:',lnd%time)
+  endif
   ! sanity checks of some input values
   call check_var_range(precip_l, precip_warning_tol, HUGE(1.0), 'land model input', 'precip_l', WARNING)
   call check_var_range(precip_s, precip_warning_tol, HUGE(1.0), 'land model input', 'precip_s', WARNING)
@@ -2071,7 +2077,6 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   if(do_check_conservation) then
      ! + conservation check, part 2: calculate totals in final state, and compare
      ! with previous totals
-     tag = 'update_land_model_fast_0d'
      call get_tile_water(tile,lmass1,fmass1)
      call check_conservation (tag,'water', &
          lmass0+fmass0+(precip_l+precip_s-land_evap-(snow_frunf+subs_lrunf+snow_lrunf))*delta_time, &
