@@ -22,7 +22,7 @@ use constants_mod, only : tfreeze, dens_h2o, epsln
 use fms_mod, only: error_mesg, FATAL
 use time_manager_mod, only : time_type, time_type_to_real
 use land_tile_diag_mod, only : diag_buff_type, register_tiled_diag_field, &
-     send_tile_data
+     send_tile_data, set_default_diag_filter
 use soil_carbon_mod, only : retrieve_DOC
 
 implicit none
@@ -787,6 +787,9 @@ subroutine hlsp_hydro_init (id_lon, id_lat, id_zfull)
 
    ! define array of axis indices
    axes = (/ id_lon, id_lat, id_zfull /)
+
+   ! set the default sub-sampling filter for the fields below
+   call set_default_diag_filter('soil')
 
    ! define diagnostic fields
 

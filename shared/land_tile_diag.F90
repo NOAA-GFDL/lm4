@@ -58,12 +58,12 @@ interface send_cohort_data
 end interface
 
 ! name of the table used for CMOR-compatible variables
-character(*), public, parameter :: cmor_name='cmor'
+character(*), public, parameter :: cmor_name='cmor_land'
 ! ==== end of public interface ===============================================
 
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: mod_name = 'lake_tile_mod'
+character(len=*), parameter :: mod_name = 'land_tile_diag_mod'
 #include "../shared/version_variable.inc"
 
 integer, parameter :: INIT_FIELDS_SIZE      = 1       ! initial size of the fields array

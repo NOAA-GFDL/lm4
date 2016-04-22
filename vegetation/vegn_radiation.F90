@@ -11,6 +11,7 @@ use vegn_cohort_mod,    only : vegn_cohort_type, vegn_data_cover, get_vegn_wet_f
 use snow_mod,           only : snow_radiation
 
 use land_debug_mod,     only : is_watch_point 
+use land_data_mod,      only : log_version
 
 implicit none
 private
@@ -21,8 +22,9 @@ public :: vegn_radiation
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: module_name = 'vegn_dynamics'
+character(len=*), parameter :: module_name = 'vegn_radiation_mod'
 #include "../shared/version_variable.inc"
+
 ! values for internal vegetation radiation option selector
 integer, parameter :: VEGN_RAD_BIGLEAF   = 1 ! "big-leaf" radiation
 integer, parameter :: VEGN_RAD_TWOSTREAM = 2 ! two-stream radiation code

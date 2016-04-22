@@ -6,13 +6,11 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 use constants_mod, only: PI
-use fms_mod, only: &
-     error_mesg, file_exist, check_nml_error, stdlog, &
+use fms_mod, only: error_mesg, file_exist, check_nml_error, stdlog, &
      close_file, mpp_pe, mpp_npes, mpp_root_pe, string, FATAL, WARNING, NOTE
 use time_manager_mod, only : &
      time_type, get_date, set_date, operator(<=), operator(>=)
-use grid_mod, only: &
-     get_grid_ntiles
+use grid_mod, only: get_grid_ntiles
 use land_data_mod, only: lnd, log_version
 
 ! NOTE TO SELF: the "!$" sentinels are not comments: they are compiled if OpenMP 
@@ -61,8 +59,9 @@ end interface check_var_range
 public :: water_cons_tol
 public :: carbon_cons_tol
 public :: do_check_conservation
+
 ! ==== module constants ======================================================
-character(len=*), parameter :: module_name = 'land_debug'
+character(len=*), parameter :: module_name = 'land_debug_mod'
 #include "../shared/version_variable.inc"
 
 ! ==== module variables ======================================================

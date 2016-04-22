@@ -866,7 +866,6 @@ subroutine save_hlsp_restart (tile_dim_length, timestamp)
 
 end subroutine save_hlsp_restart
 
-
 ! ============================================================================
 subroutine hlsp_config_check()
 

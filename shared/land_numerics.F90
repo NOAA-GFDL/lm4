@@ -10,8 +10,7 @@ if(.NOT.(x))call my_error(mod_name,message,FATAL,thisfile,__LINE__)
 
 module land_numerics_mod
 
-use fms_mod, only: error_mesg, FATAL, NOTE, mpp_pe, &
-     string, stdout
+use fms_mod, only: error_mesg, FATAL, NOTE, mpp_pe, string, stdout
 use mpp_mod, only: mpp_npes, mpp_get_current_pelist, mpp_send, mpp_recv, &
      mpp_sync, mpp_sync_self, EVENT_RECV, COMM_TAG_1,  COMM_TAG_2,       &
      COMM_TAG_3,  COMM_TAG_4, COMM_TAG_5,  COMM_TAG_6, COMM_TAG_7,       &
@@ -22,6 +21,7 @@ use mpp_mod, only: mpp_npes, mpp_get_current_pelist, mpp_send, mpp_recv, &
 
 use mpp_domains_mod, only : domain2d, mpp_get_compute_domain, &
      mpp_get_global_domain
+
 use land_data_mod, only : log_version
 
 implicit none
@@ -62,11 +62,11 @@ interface nearest
 end interface
 
 logical :: module_is_initialized =.FALSE.
-! module constants
-character(len=*), parameter :: module_name = 'lake_tile_mod'
+! ==== module constants ======================================================
+character(len=*), parameter :: mod_name = 'land_numerics_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: &
-     thisfile = __FILE__
+character(len=*), parameter :: thisfile = __FILE__
+
 ! ==== public type ===========================================================
 ! this data structure describes the horizontal remapping: that is, the operation 
 ! of copying the data from the source points to the destination points. The source
@@ -97,10 +97,8 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 ! ============================================================================
 ! Initializes the numerics module.
 subroutine numerics_init()
-
   module_is_initialized =.TRUE. 
-  call log_version(version, module_name, thisfile)
-
+  call log_version(version, mod_name, thisfile)
 end subroutine numerics_init
 
 

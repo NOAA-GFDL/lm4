@@ -275,10 +275,6 @@ integer, allocatable, dimension(:,:,:), private :: soil_tags ! module copy of so
 
 ! ==== end of module variables ===============================================
 
-! ==== NetCDF declarations ===================================================
-include 'netcdf.inc'
-#define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
-
 contains
 
 ! ============================================================================

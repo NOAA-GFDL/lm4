@@ -41,7 +41,7 @@ public :: do_harvesting
 ! ==== end of public interface ===============================================
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: module_name = 'vegn_dynamics'
+character(len=*), parameter :: module_name = 'vegn_harvesting_mod'
 #include "../shared/version_variable.inc"
 real, parameter :: ONETHIRD = 1.0/3.0
 

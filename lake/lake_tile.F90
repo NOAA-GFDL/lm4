@@ -11,17 +11,12 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod, only : file_exist, check_nml_error, &
-     read_data, close_file, stdlog
-use constants_mod, only : &
-     pi, tfreeze, hlf
-use land_constants_mod, only : &
-     NBANDS
+use fms_mod, only : file_exist, check_nml_error, read_data, close_file, stdlog
+use constants_mod, only : pi, tfreeze, hlf
+use land_constants_mod, only : NBANDS
 use land_data_mod, only : log_version
-use land_io_mod, only : &
-     init_cover_field
-use land_tile_selectors_mod, only : &
-     tile_selector_type, SEL_LAKE, register_tile_selector
+use land_io_mod, only : init_cover_field
+use land_tile_selectors_mod, only : tile_selector_type, SEL_LAKE, register_tile_selector
 
 implicit none
 private
@@ -64,18 +59,18 @@ real,    parameter :: psi_wilt         = -150.  ! matric head at wilting
 real,    parameter :: comp             = 0.001  ! m^-1
 
 ! from the modis brdf/albedo product user's guide:
-real            :: g_iso  = 1.
-real            :: g_vol  = 0.189184
-real            :: g_geo  = -1.377622
-real            :: g0_iso = 1.0
-real            :: g1_iso = 0.0
-real            :: g2_iso = 0.0
-real            :: g0_vol = -0.007574
-real            :: g1_vol = -0.070987
-real            :: g2_vol =  0.307588
-real            :: g0_geo = -1.284909
-real            :: g1_geo = -0.166314
-real            :: g2_geo =  0.041840
+real, parameter :: g_iso  = 1.
+real, parameter :: g_vol  = 0.189184
+real, parameter :: g_geo  = -1.377622
+real, parameter :: g0_iso = 1.0
+real, parameter :: g1_iso = 0.0
+real, parameter :: g2_iso = 0.0
+real, parameter :: g0_vol = -0.007574
+real, parameter :: g1_vol = -0.070987
+real, parameter :: g2_vol =  0.307588
+real, parameter :: g0_geo = -1.284909
+real, parameter :: g1_geo = -0.166314
+real, parameter :: g2_geo =  0.041840
 
 ! ==== types =================================================================
 type :: lake_pars_type
@@ -536,7 +531,6 @@ subroutine lake_roughness ( lake,lake_z0s, lake_z0m )
   type(lake_tile_type), intent(in)  :: lake
   real,                 intent(out) :: lake_z0s, lake_z0m
 
-  ! ---- surface roughness
   if (lake%ws(1).le.0.) then
       lake_z0s = lake%z0_scalar
       lake_z0m = lake%pars%z0_momentum

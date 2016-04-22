@@ -12,8 +12,7 @@ use fms_mod, only: open_namelist_file
 #endif
 
 use fms_mod, only: error_mesg, file_exist, check_nml_error, &
-     stdlog, close_file, mpp_pe, mpp_root_pe, &
-     FATAL, WARNING, NOTE
+     stdlog, close_file, mpp_pe, mpp_root_pe, FATAL
 use constants_mod, only: PI
 
 use soil_tile_mod, only : soil_tile_type, soil_pars_type, max_lev, psi_wilt
@@ -33,7 +32,7 @@ public :: darcy2d_uptake, darcy2d_uptake_solver
 
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: module_name = 'uptake'
+character(len=*), parameter :: module_name = 'uptake_mod'
 #include "../shared/version_variable.inc"
 
 ! values for internal soil uptake option selector

@@ -52,7 +52,7 @@ public :: kill_small_cohorts_ppa
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: module_name = 'vegn_dynamics'
+character(len=*), parameter :: module_name = 'vegn_dynamics_mod'
 #include "../shared/version_variable.inc"
 character(len=*), parameter :: diag_mod_name = 'vegn'
 

@@ -49,7 +49,7 @@ public :: snow_step_2
 
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: module_name = 'snow_mod'
+character(len=*), parameter :: module_name = 'snow'
 #include "../shared/version_variable.inc"
 
 ! ==== module variables ======================================================

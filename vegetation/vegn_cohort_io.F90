@@ -44,7 +44,7 @@ interface assemble_cohorts
 end interface assemble_cohorts
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: module_name = 'cohort_io'
+character(len=*), parameter :: module_name = 'cohort_io_mod'
 ! name of the "compressed" dimension (and dimension variable) in the output
 ! netcdf files -- that is, the dimensions written out using compression by
 ! gathering, as described in CF conventions.
