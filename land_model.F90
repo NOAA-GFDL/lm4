@@ -6,7 +6,7 @@ module land_model_mod
 #include "shared/debug.inc"
 
 use time_manager_mod, only : time_type, get_time, increment_time, time_type_to_real, &
-     print_date, operator(+)
+     operator(+)
 use mpp_domains_mod, only : domain2d, mpp_get_ntile_count
 
 #ifdef INTERNAL_FILE_NML
@@ -87,7 +87,7 @@ use land_tile_diag_mod, only : OP_SUM, tile_diag_init, tile_diag_end, &
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, is_watch_cell, is_watch_time, get_watch_point, get_current_point, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, &
-     check_var_range, check_temp_range, current_face
+     check_var_range, check_temp_range, current_face, log_date
 use static_vegn_mod, only : write_static_vegn
 use land_transitions_mod, only : &
      land_transitions_init, land_transitions_end, land_transitions, &
@@ -1436,7 +1436,7 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   calc_carbon_cons = do_check_conservation.or.(id_carbon_cons>0)
   if(is_watch_point()) then
      write(*,*)
-     call print_date(lnd%time, '#### update_land_model_fast_0d begins:')
+     call log_date('#### update_land_model_fast_0d begins:',lnd%time)
   endif
 
   ! sanity checks of some input values

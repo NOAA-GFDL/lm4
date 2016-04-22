@@ -37,6 +37,7 @@ public :: check_var_range
 public :: check_conservation
 
 public :: land_error_message
+public :: log_date
 public :: dpri
 
 interface dpri
@@ -52,7 +53,6 @@ interface check_var_range
    module procedure check_var_range_0d
    module procedure check_var_range_1d
 end interface check_var_range
-
 
 ! conservation tolerances for use across the code. This module doesn't use
 ! them, just serves as a convenient place to share them across all land code
@@ -440,6 +440,7 @@ subroutine check_conservation(tag, substance, d1, d2, tolerance, severity)
   character(512) :: message
   integer :: severity_
   
+  if(.not.do_check_conservation) return
   
   severity_=FATAL
   if (present(severity))severity_=severity
@@ -490,5 +491,16 @@ subroutine land_error_message(text,severity)
   call error_mesg(text,message,severity_)
   
 end subroutine land_error_message
+
+! ============================================================================
+! print time in the debug output
+subroutine log_date(tag,time)
+  character(*),    intent(in) :: tag
+  type(time_type), intent(in) :: time
+  integer :: y,mo,d,h,m,s ! components of date for debug printout
+
+  call get_date(lnd%time,y,mo,d,h,m,s)
+  write(*,'(a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))') tag,y,mo,d,h,m,s
+end subroutine log_date
 
 end module land_debug_mod
