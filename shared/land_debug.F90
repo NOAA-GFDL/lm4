@@ -54,6 +54,11 @@ interface check_var_range
    module procedure check_var_range_1d
 end interface check_var_range
 
+interface check_temp_range
+   module procedure check_temp_range_0d
+   module procedure check_temp_range_1d
+end interface check_temp_range
+
 ! conservation tolerances for use across the code. This module doesn't use
 ! them, just serves as a convenient place to share them across all land code
 public :: water_cons_tol
@@ -262,13 +267,21 @@ end subroutine get_watch_point
 ! ============================================================================
 ! checks if the temperature within reasonable range, and prints a message
 ! if it isn't
-subroutine check_temp_range(temp, tag, varname)
+subroutine check_temp_range_0d(temp, tag, varname)
   real, intent(in) :: temp ! temperature to check
   character(*), intent(in) :: tag ! tag to print
   character(*), intent(in) :: varname ! name of the variable for printout
 
   call check_var_range(temp,temp_lo,temp_hi,tag,varname,WARNING)
-end subroutine check_temp_range
+end subroutine check_temp_range_0d
+
+subroutine check_temp_range_1d(temp, tag, varname)
+  real, intent(in) :: temp(:) ! temperature to check
+  character(*), intent(in) :: tag ! tag to print
+  character(*), intent(in) :: varname ! name of the variable for printout
+
+  call check_var_range(temp,temp_lo,temp_hi,tag,varname,WARNING)
+end subroutine check_temp_range_1d
 
 ! ============================================================================
 ! checks if the value is within specified range, and prints a message

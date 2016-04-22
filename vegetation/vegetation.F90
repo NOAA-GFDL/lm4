@@ -1184,10 +1184,9 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   ! TODO: verify cover calculations
     
   gaps = 1.0 ; current_layer = cc(1)%layer ; layer_gaps = 1.0
+  ! check the range of input temperature
+  call check_temp_range(cc(1:vegn%n_cohorts)%Tv, 'vegn_step_1','Tv of cohort')
   do i = 1,vegn%n_cohorts
-     ! check the range of input temperature
-     call check_temp_range(cc(i)%Tv, 'vegn_step_1',&
-         'cohort('//trim(string(i))//')%Tv')
      ! calculate the fractions of intercepted precipitation
      vegn_ifrac(i) = cc(i)%cover
      ! get the lai
