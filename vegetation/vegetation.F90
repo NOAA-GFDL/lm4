@@ -176,7 +176,7 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
    id_leaf_emis, id_snow_crit, id_stomatal, id_an_op, id_an_cl, &
    id_bl, id_blv, id_br, id_bsw, id_bwood, id_btot, id_species, id_status, id_max_live_biomass,&
    id_myc_scavenger_biomass_C,id_myc_scavenger_biomass_N,id_N_fixer_biomass_C,id_N_fixer_biomass_N,&
-   id_cohort_stored_N,id_cohort_wood_N,id_cohort_leaf_N,id_cohort_root_N,id_cohort_total_N,&
+   id_cohort_stored_N,id_cohort_wood_N,id_cohort_sapwood_N,id_cohort_leaf_N,id_cohort_root_N,id_cohort_total_N,&
    id_myc_miner_biomass_C,id_myc_miner_biomass_N,&
    id_con_v_h, id_con_v_v, id_fuel, id_harv_pool(N_HARV_POOLS), &
    id_harv_rate(N_HARV_POOLS), id_t_harv_pool, id_t_harv_rate, &
@@ -393,6 +393,8 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
         call assemble_cohorts(cohort_stored_N_ptr,idx,tdimlen,r0d)
         call read_compressed(restart_file_name_2, 'cohort_wood_N', r0d, domain=lnd%domain, timelevel=1)
         call assemble_cohorts(cohort_wood_N_ptr,idx,tdimlen,r0d)
+        call read_compressed(restart_file_name_2, 'cohort_sapwood_N', r0d, domain=lnd%domain, timelevel=1)
+        call assemble_cohorts(cohort_sapwood_N_ptr,idx,tdimlen,r0d)
         call read_compressed(restart_file_name_2, 'cohort_leaf_N', r0d, domain=lnd%domain, timelevel=1)
         call assemble_cohorts(cohort_leaf_N_ptr,idx,tdimlen,r0d)
         call read_compressed(restart_file_name_2, 'cohort_root_N', r0d, domain=lnd%domain, timelevel=1)
@@ -614,6 +616,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
         call read_cohort_data_r0d_fptr(unit, 'cohort_stored_N', cohort_stored_N_ptr )
         call read_cohort_data_r0d_fptr(unit, 'cohort_leaf_N', cohort_leaf_N_ptr )
         call read_cohort_data_r0d_fptr(unit, 'cohort_wood_N', cohort_wood_N_ptr )
+        call read_cohort_data_r0d_fptr(unit, 'cohort_sapwood_N', cohort_sapwood_N_ptr )
         call read_cohort_data_r0d_fptr(unit, 'cohort_root_N', cohort_root_N_ptr )
         call read_cohort_data_r0d_fptr(unit, 'cohort_total_N', cohort_total_N_ptr )
         call read_cohort_data_i0d_fptr(unit, 'status', cohort_status_ptr )
@@ -771,10 +774,11 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
         cohort%species = tile%vegn%tag
      endif
      cohort%leaf_N = cohort%bl/spdata(cohort%species)%leaf_live_c2n
-     cohort%wood_N = (cohort%bwood+cohort%bsw)/spdata(cohort%species)%wood_c2n
+     cohort%wood_N = cohort%bwood/spdata(cohort%species)%wood_c2n
+     cohort%sapwood_N = cohort%bsw/spdata(cohort%species)%sapwood_c2n
      cohort%root_N = cohort%br/spdata(cohort%species)%froot_live_c2n
-     cohort%stored_N = 2*(cohort%leaf_N+cohort%root_N)
-     cohort%total_N = cohort%stored_N+cohort%leaf_N+cohort%wood_N+cohort%root_N
+     cohort%stored_N = 1*(cohort%leaf_N+cohort%root_N)
+     cohort%total_N = cohort%stored_N+cohort%leaf_N+cohort%wood_N+cohort%root_N+cohort%sapwood_N
   enddo
 
   ! initialize carbon integrator
@@ -887,6 +891,8 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
        (/id_lon,id_lat/), time, 'nitrogen content of fine roots', 'kg N/m2', missing_value=-1.0 )
   id_cohort_wood_N = register_tiled_diag_field ( module_name, 'wood_N',  &
        (/id_lon,id_lat/), time, 'nitrogen content of wood', 'kg N/m2', missing_value=-1.0 )
+ id_cohort_sapwood_N = register_tiled_diag_field ( module_name, 'sapwood_N',  &
+      (/id_lon,id_lat/), time, 'nitrogen content of sapwood', 'kg N/m2', missing_value=-1.0 )
    id_cohort_stored_N = register_tiled_diag_field ( module_name, 'veg_stored_N',  &
         (/id_lon,id_lat/), time, 'veg nitrogen storage', 'kg N/m2', missing_value=-1.0 )
   id_cohort_total_N = register_tiled_diag_field ( module_name, 'veg_total_N',  &
@@ -1158,6 +1164,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call write_cohort_data_r0d_fptr(unit,'myc_miner_biomass_N', cohort_myc_miner_biomass_N_ptr, 'miner mycorrhizal biomass N associated with individual','kg N/m2')
   call write_cohort_data_r0d_fptr(unit,'cohort_stored_N', cohort_stored_N_ptr, 'stored N pool of individual','kg N/m2')
   call write_cohort_data_r0d_fptr(unit,'cohort_wood_N', cohort_wood_N_ptr, 'wood N pool of individual','kg N/m2')
+  call write_cohort_data_r0d_fptr(unit,'cohort_sapwood_N', cohort_sapwood_N_ptr, 'sapwood N pool of individual','kg N/m2')
   call write_cohort_data_r0d_fptr(unit,'cohort_leaf_N', cohort_leaf_N_ptr, 'leaf N pool of individual','kg N/m2')
   call write_cohort_data_r0d_fptr(unit,'cohort_root_N', cohort_root_N_ptr, 'root N pool of individual','kg N/m2')
   call write_cohort_data_r0d_fptr(unit,'cohort_total_N', cohort_total_N_ptr, 'total N pool of individual','kg N/m2')
@@ -1303,6 +1310,7 @@ subroutine save_vegn_restart_new(tile_dim_length, timestamp)
   real, allocatable :: N_fixer_biomass_N(:)
   real, allocatable :: cohort_stored_N(:)
   real, allocatable :: cohort_wood_N(:)
+  real, allocatable :: cohort_sapwood_N(:)
   real, allocatable :: cohort_leaf_N(:)
   real, allocatable :: cohort_root_N(:)
   real, allocatable :: cohort_total_N(:)
@@ -1426,6 +1434,7 @@ subroutine save_vegn_restart_new(tile_dim_length, timestamp)
             N_fixer_biomass_N(csize),&
             cohort_stored_N(csize),&
             cohort_wood_N(csize),&
+            cohort_sapwood_N(csize),&
             cohort_leaf_N(csize),&
             cohort_root_N(csize),&
             cohort_total_N(csize),&
@@ -1494,6 +1503,9 @@ subroutine save_vegn_restart_new(tile_dim_length, timestamp)
              call gather_cohort_data(cohort_wood_N_ptr,cidx,tile_dim_length,cohort_wood_N)
              id_restart = register_restart_field(vegn2_restart,fname,'cohort_wood_N',cohort_wood_N,&
                   longname='wood N associated with individual',units='kg N/m2', compressed_axis='H')
+                  call gather_cohort_data(cohort_sapwood_N_ptr,cidx,tile_dim_length,cohort_sapwood_N)
+                  id_restart = register_restart_field(vegn2_restart,fname,'cohort_sapwood_N',cohort_sapwood_N,&
+                       longname='sapwood N associated with individual',units='kg N/m2', compressed_axis='H')
                   call gather_cohort_data(cohort_leaf_N_ptr,cidx,tile_dim_length,cohort_leaf_N)
                   id_restart = register_restart_field(vegn2_restart,fname,'cohort_leaf_N',cohort_leaf_N,&
                        longname='leaf N associated with individual',units='kg N/m2', compressed_axis='H')
@@ -2549,6 +2561,7 @@ call check_conservation ('vegn_harvesting','carbon'      , cmass0, cmass1, carbo
 
      call send_tile_data(id_cohort_leaf_N,      sum(tile%vegn%cohorts(1:n)%leaf_N),     tile%diag)
      call send_tile_data(id_cohort_wood_N,      sum(tile%vegn%cohorts(1:n)%wood_N),     tile%diag)
+     call send_tile_data(id_cohort_sapwood_N,      sum(tile%vegn%cohorts(1:n)%sapwood_N),     tile%diag)
      call send_tile_data(id_cohort_root_N,      sum(tile%vegn%cohorts(1:n)%root_N),     tile%diag)
      call send_tile_data(id_cohort_stored_N,      sum(tile%vegn%cohorts(1:n)%stored_N),     tile%diag)
      call send_tile_data(id_cohort_total_N,      sum(tile%vegn%cohorts(1:n)%total_N),     tile%diag)
@@ -2756,6 +2769,7 @@ DEFINE_COHORT_ACCESSOR(real,N_fixer_biomass_N)
 DEFINE_COHORT_ACCESSOR(real,stored_N)
 DEFINE_COHORT_ACCESSOR(real,leaf_N)
 DEFINE_COHORT_ACCESSOR(real,wood_N)
+DEFINE_COHORT_ACCESSOR(real,sapwood_N)
 DEFINE_COHORT_ACCESSOR(real,root_N)
 DEFINE_COHORT_ACCESSOR(real,total_N)
 DEFINE_COHORT_ACCESSOR(integer,status)

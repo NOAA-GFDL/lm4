@@ -250,6 +250,7 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   __MERGE__(bliving) ! leaves, fine roots, and sapwood biomass
   __MERGE__(stored_N) ! Cohort stored nitrogen
   __MERGE__(wood_N) ! Cohort wood nitrogen
+  __MERGE__(sapwood_N) ! Cohort wood nitrogen
   __MERGE__(leaf_N) ! Cohort leaf nitrogen
   __MERGE__(root_N) ! Cohort root nitrogen
   __MERGE__(total_N) ! Cohort total nitrogen

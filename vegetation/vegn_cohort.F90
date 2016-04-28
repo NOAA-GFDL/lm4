@@ -154,6 +154,7 @@ type :: vegn_cohort_type
   real :: stored_N = 0.0
   real :: leaf_N = 0.0
   real :: wood_N = 0.0
+  real :: sapwood_N = 0.0
   real :: root_N = 0.0
   real :: total_N = 0.0
 
@@ -550,15 +551,18 @@ subroutine update_biomass_pools(c)
 
   c%b      = c%bliving + c%bwood;
   c%height = height_from_biomass(c%b);
+
+  c%total_N = c%stored_N+c%leaf_N+c%wood_N+c%root_N+c%sapwood_N
+
   call update_bio_living_fraction(c);
 
-  c%total_N = c%stored_N+c%leaf_N+c%wood_N+c%root_N
+
   ! Stress increases as stored N declines relative to total biomass N demand
   ! N stress is calculated based on "potential pools" without N limitation
   ! biomass_N_demand=(c%bliving*c%Pl/leaf_live_c2n + c%bliving*c%Pr/froot_live_c2n + c%bliving*c%Psw/wood_fast_c2n)
   ! Elena suggests using 2*(root N + leaf N) as storage target
   biomass_N_demand=(c%bliving*c%Pl/spdata(c%species)%leaf_live_c2n + c%bliving*c%Pr/spdata(c%species)%froot_live_c2n)
-  potential_stored_N = c%total_N - biomass_N_demand - (c%bwood+c%bsw)/spdata(c%species)%wood_c2n
+  potential_stored_N = c%total_N - biomass_N_demand - c%bwood/spdata(c%species)%wood_c2n-c%bsw/spdata(c%species)%sapwood_c2n
   ! c%nitrogen_stress = biomass_N_demand/c%total_N
 
   ! Spring physical analogy -- restoring force proportional to distance from target (equal to demand*2.0)
@@ -614,9 +618,10 @@ subroutine update_biomass_pools(c)
   endif
 
   c%leaf_N=c%bl/spdata(c%species)%leaf_live_c2n
-  c%wood_N=(c%bwood+c%bsw)/spdata(c%species)%wood_c2n
+  c%wood_N=c%bwood/spdata(c%species)%wood_c2n
+  c%sapwood_N=c%bsw/spdata(c%species)%sapwood_c2n
   c%root_N=c%br/spdata(c%species)%froot_live_c2n
-  c%stored_N=c%total_N-(c%leaf_N+c%wood_N+c%root_N)
+  c%stored_N=c%total_N-(c%leaf_N+c%wood_N+c%root_N+c%sapwood_N)
 
 
 

@@ -208,6 +208,7 @@ type spec_data_type
   real    :: froot_live_c2n
   real    :: froot_retranslocation_frac
   real    :: wood_c2n
+  real    :: sapwood_c2n
 
 end type
 
@@ -436,16 +437,18 @@ real :: fsc_liv_sp(0:MSPECIES)  =  &  ! Species-specific fsc_liv, separate for b
         (/0.8      ,    0.8    ,     0.8       ,    0.8     ,   0.8       ,  0.8,    0.8,     0.8,  0.8,     0.8,     0.8,    0.8,    0.8,   0.8/)
 real :: fsc_froot(0:MSPECIES)      = &
         (/0.3      ,    0.3    ,     0.3       ,    0.3     ,   0.3       ,  0.3,    0.3,     0.3,  0.3,     0.3,     0.3,    0.3,    0.3,   0.3/)
-real :: leaf_live_c2n(0:MSPECIES)=  &  ! C:N ratio of live leaves. Difference from litter properties determines retranslocation
+real :: leaf_live_c2n(0:MSPECIES)=  &  ! C:N ratio of live leaves.
         (/30      ,    30    ,     30       ,    30     ,   30       ,  30,    30,     30,  30,     30,     30,    30,    30,   30/)
-real :: leaf_retranslocation_frac(0:MSPECIES) = & ! Fraction of leaf N retranslocated before leaf drop. Currently NOT used (see l_fract)
+real :: leaf_retranslocation_frac(0:MSPECIES) = & ! Fraction of leaf N retranslocated before leaf drop.
         (/0.5      ,    0.5    ,     0.5       ,    0.5     ,   0.5       ,  0.5,    0.5,     0.5,  0.5,     0.5,     0.5,    0.5,    0.5,   0.5/)
-real :: froot_live_c2n(0:MSPECIES)=  &  ! C:N ratio of live fine roots. Difference from litter properties determines retranslocation.
+real :: froot_live_c2n(0:MSPECIES)=  &  ! C:N ratio of live fine roots.
         (/50      ,    50    ,     50       ,    50     ,   50       ,  50,    50,     50,  50,     50,     50,    50,    50,   50/)
-real :: froot_retranslocation_frac(0:MSPECIES) = & ! Fraction of fine root N retranslocated before senescence. Currently NOT used (see l_fract)
+real :: froot_retranslocation_frac(0:MSPECIES) = & ! Fraction of fine root N retranslocated before senescence.
         (/0.0      ,    0.0    ,     0.0       ,    0.0     ,   0.0       ,  0.0,    0.0,     0.0,  0.0,     0.0,     0.0,    0.0,    0.0,   0.0/)
 real :: wood_c2n(0:MSPECIES)=	&	!x2z Wiki  http://en.wikipedia.org/wiki/Carbon-to-nitrogen_ratio
         (/500      ,    500    ,     500       ,    500     ,   500       ,  500,    500,     500,  500,     500,     500,    500,    500,   500/)
+real :: sapwood_c2n(0:MSPECIES)=  &  ! C:N ratio of sapwood.
+        (/50      ,    50    ,     50       ,    50     ,   50       ,  50,    50,     50,  50,     50,     50,    50,    50,   50/)
 real :: root_exudate_N_frac = 0.0 ! N fraction of root exudates. See e.g. Drake et al 2013
 
 real :: root_exudate_frac_max     = 0.5     ! Maximum fraction of NPP that can be allocated to mycorrhizae and root exudation
@@ -492,7 +495,7 @@ namelist /vegn_data_nml/ &
   cnst_crit_phen, fact_crit_phen, cnst_crit_fire, fact_crit_fire, &
   scnd_biomass_bins, phen_ev1, phen_ev2, &
   root_exudate_frac, tracer_cuticular_cond,&
-  leaf_retranslocation_frac, leaf_live_c2n,froot_live_c2n, froot_retranslocation_frac, wood_c2n, root_exudate_N_frac,&
+  leaf_retranslocation_frac, leaf_live_c2n,froot_live_c2n, froot_retranslocation_frac, wood_c2n, sapwood_c2n, root_exudate_N_frac,&
   root_exudate_frac_max, dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
   N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, N_limits_live_biomass, root_NH4_uptake_rate, root_NO3_uptake_rate,&
   k_nitrate_root_uptake,k_ammonium_root_uptake,excess_stored_N_leakage_rate
@@ -599,6 +602,7 @@ subroutine read_vegn_data_namelist()
   spdata%froot_live_c2n = froot_live_c2n
   spdata%froot_retranslocation_frac = froot_retranslocation_frac
   spdata%wood_c2n = wood_c2n
+  spdata%sapwood_c2n = sapwood_c2n
 
   spdata%tracer_cuticular_cond = tracer_cuticular_cond
 
