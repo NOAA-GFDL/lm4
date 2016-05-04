@@ -518,7 +518,7 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
     if(present(badCohort)) badCohort=0
 
 
-    if(pool%nitrate<0) THEN
+    if(pool%nitrate<0 .AND. soil_carbon_option == SOILC_CORPSE_N) THEN
         call error_mesg('update_pool','Nitrate < 0',FATAL)
     endif
 
