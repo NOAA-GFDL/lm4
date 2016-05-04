@@ -38,6 +38,7 @@ public :: vegn_is_selected
 public :: get_vegn_tile_tag
 public :: vegn_tile_stock_pe
 public :: vegn_tile_carbon ! returns total carbon per tile
+public :: vegn_tile_nitrogen
 public :: vegn_tile_heat ! returns hate content of the vegetation
 public :: vegn_tile_LAI ! returns LAI of the vegetation
 public :: vegn_tile_SAI ! returns LAI of the vegetation
@@ -668,7 +669,8 @@ function vegn_tile_carbon(vegn) result(carbon) ; real carbon
           vegn%cohorts(i)%br + vegn%cohorts(i)%bwood + &
           vegn%cohorts(i)%bsw + &
           vegn%cohorts(i)%carbon_gain + vegn%cohorts(i)%bwood_gain + &
-          vegn%cohorts(i)%myc_scavenger_biomass_C + vegn%cohorts(i)%myc_miner_biomass_C + vegn%cohorts(i)%N_fixer_biomass_C  ! Mycorrhizal and N fixer biomass added by B. Sulman
+          vegn%cohorts(i)%myc_scavenger_biomass_C + vegn%cohorts(i)%myc_miner_biomass_C + &
+          vegn%cohorts(i)%N_fixer_biomass_C  ! Mycorrhizal and N fixer biomass added by B. Sulman
   enddo
   carbon = carbon + sum(vegn%harv_pool) + &
            vegn%fsc_pool_ag + vegn%ssc_pool_ag + &
@@ -680,6 +682,34 @@ function vegn_tile_carbon(vegn) result(carbon) ; real carbon
   ! finewoodlitter buffers not currently implemented
 
 end function vegn_tile_carbon
+
+! ============================================================================
+! returns total nitrogen in the tile, kg N/m2
+function vegn_tile_nitrogen(vegn) result(nitrogen) ; real nitrogen
+  type(vegn_tile_type), intent(in)  :: vegn
+
+  integer :: i
+
+  nitrogen = 0
+  do i = 1,vegn%n_cohorts
+     nitrogen = nitrogen + &
+            vegn%cohorts(i)%root_N+vegn%cohorts(i)%sapwood_N+&
+            vegn%cohorts(i)%wood_N+vegn%cohorts(i)%leaf_N+vegn%cohorts(i)%stored_N
+
+     ! Symbiotes are counted as part of veg, not part of soil
+     nitrogen = nitrogen + vegn%cohorts(i)%N_fixer_biomass_N+&
+     vegn%cohorts(i)%myc_miner_biomass_N+vegn%cohorts(i)%myc_scavenger_biomass_N
+
+  enddo
+  nitrogen = nitrogen  + &    ! Harvest pools currently don't keep track of nitrogen
+           vegn%fsn_pool_bg + vegn%ssn_pool_bg
+
+  ! Pools associated with aboveground litter CORPSE pools
+  nitrogen = nitrogen + vegn%leaflitter_buffer_fast_N + vegn%leaflitter_buffer_slow_N + &
+                    vegn%coarsewoodlitter_buffer_fast_N + vegn%coarsewoodlitter_buffer_slow_N
+  ! finewoodlitter buffers not currently implemented
+
+end function vegn_tile_nitrogen
 
 
 ! ============================================================================
