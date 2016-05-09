@@ -159,7 +159,7 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, ndep_nit, ndep_amm, ndep_or
   type(vegn_cohort_type), pointer :: cc
   real :: resp, resl, resr, resg ! respiration terms accumulated for all cohorts
   real :: cgain, closs ! carbon gain and loss accumulated for entire tile
-  real :: md_alive, md_leaf, md_wood, md_froot ! component of maintenance demand
+  real :: md_alive, md_leaf, md_wood, md_froot, md_sapwood ! component of maintenance demand
   real :: gpp ! gross primary productivity per tile
   real :: root_exudate_C, total_root_exudate_C,root_exudate_N, total_root_exudate_N, root_exudate_frac
   real :: myc_scav_exudate_frac, mycorrhizal_scav_N_immob, myc_mine_exudate_frac, mycorrhizal_mine_N_immob
@@ -252,9 +252,12 @@ total_myc_mine_C_uptake = 0.0
 
      ! compute branch and coarse wood losses for tree types
      md_wood =0;
+     md_sapwood=0;
      if (sp > 1) then
         md_wood = 0.6 *cc%bwood * spdata(sp)%alpha(CMPT_WOOD)*dt_fast_yr;
+        md_sapwood = 0.6 *cc%bsw * spdata(sp)%alpha(CMPT_SAPWOOD)*dt_fast_yr;
      endif
+     md_alive = md_alive+md_sapwood
 
      ! this silliness with the mathematically equivalent formulas is
      ! solely to bit-reproduce old results in both CENTURY and CORPSE
@@ -264,7 +267,7 @@ total_myc_mine_C_uptake = 0.0
      case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
         cc%md = md_alive + cc%Psw_alphasw * cc%bliving * dt_fast_yr
     case (SOILC_CORPSE, SOILC_CORPSE_N)
-        cc%md = md_leaf + md_froot + cc%Psw_alphasw * cc%bliving * dt_fast_yr
+        cc%md = md_leaf + md_froot + md_sapwood + cc%Psw_alphasw * cc%bliving * dt_fast_yr
      end select
 
  if(is_watch_point()) then
@@ -296,12 +299,13 @@ total_myc_mine_C_uptake = 0.0
      cc%leaf_N = cc%leaf_N - md_leaf/spdata(sp)%leaf_live_c2n
      cc%root_N = cc%root_N - md_froot/spdata(sp)%froot_live_c2n
      cc%wood_N = cc%wood_N - md_wood/spdata(sp)%wood_c2n
+     cc%sapwood_N = cc%sapwood_N - md_sapwood/spdata(sp)%sapwood_c2n
 
      ! add md from leaf and root pools to fast soil carbon
      select case (soil_carbon_option)
      case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-        soil%fast_soil_C(1) = soil%fast_soil_C(1) +    fsc_liv *md_alive +    fsc_wood *md_wood;
-        soil%slow_soil_C(1) = soil%slow_soil_C(1) + (1-fsc_liv)*md_alive + (1-fsc_wood)*md_wood;
+        soil%fast_soil_C(1) = soil%fast_soil_C(1) +    fsc_liv *(md_alive) +    fsc_wood *md_wood;
+        soil%slow_soil_C(1) = soil%slow_soil_C(1) + (1-fsc_liv)*(md_alive) + (1-fsc_wood)*md_wood;
      ! for budget tracking
 !/*     cp->fsc_in(1)+= data->fsc_liv*md_alive+data->fsc_wood*md_wood; */
 !/*     cp->ssc_in(1)+= (1.- data->fsc_liv)*md_alive+(1-data->fsc_wood)*md_wood; */
@@ -316,19 +320,21 @@ total_myc_mine_C_uptake = 0.0
                 (/spdata(sp)%fsc_liv *md_leaf/spdata(sp)%leaf_live_c2n, (1-fsc_liv)*md_leaf/spdata(sp)%leaf_live_c2n ,0.0/))
         call add_litter(soil%coarseWoodLitter,(/fsc_wood *md_wood*agf_bs, (1-fsc_wood)*md_wood*agf_bs, 0.0/),&
                 (/fsc_wood *md_wood*agf_bs/spdata(sp)%wood_c2n, (1-fsc_wood)*md_wood*agf_bs/spdata(sp)%wood_c2n, 0.0/))
+        call add_litter(soil%coarseWoodLitter,(/fsc_liv *md_sapwood*agf_bs, (1-fsc_liv)*md_sapwood*agf_bs, 0.0/),&
+                (/fsc_liv *md_sapwood*agf_bs/spdata(sp)%sapwood_c2n, (1-fsc_liv)*md_sapwood*agf_bs/spdata(sp)%sapwood_c2n, 0.0/))
         soil%leaflitter_fsc_in=soil%leaflitter_fsc_in+spdata(sp)%fsc_liv *md_leaf
         soil%leaflitter_ssc_in=soil%leaflitter_ssc_in+(1-spdata(sp)%fsc_liv)*md_leaf
-        soil%coarsewoodlitter_fsc_in=soil%coarsewoodlitter_fsc_in +    fsc_wood *md_wood*agf_bs
-        soil%coarsewoodlitter_ssc_in=soil%coarsewoodlitter_ssc_in + (1-fsc_wood)*md_wood*agf_bs
+        soil%coarsewoodlitter_fsc_in=soil%coarsewoodlitter_fsc_in +    fsc_wood *md_wood*agf_bs + fsc_liv*md_sapwood*agf_bs
+        soil%coarsewoodlitter_ssc_in=soil%coarsewoodlitter_ssc_in + (1-fsc_wood)*md_wood*agf_bs + (1-fsc_liv)*md_sapwood*agf_bs
         soil%leaflitter_fsn_in=soil%leaflitter_fsn_in+spdata(sp)%fsc_liv *md_leaf/spdata(sp)%leaf_live_c2n
         soil%leaflitter_ssn_in=soil%leaflitter_ssn_in+(1-spdata(sp)%fsc_liv)*md_leaf/spdata(sp)%leaf_live_c2n
-        soil%coarsewoodlitter_fsn_in=soil%coarsewoodlitter_fsn_in +    fsc_wood *md_wood*agf_bs/spdata(sp)%wood_c2n
-        soil%coarsewoodlitter_ssn_in=soil%coarsewoodlitter_ssn_in + (1-fsc_wood)*md_wood*agf_bs/spdata(sp)%wood_c2n
+        soil%coarsewoodlitter_fsn_in=soil%coarsewoodlitter_fsn_in +    fsc_wood *md_wood*agf_bs/spdata(sp)%wood_c2n + fsc_liv *md_sapwood*agf_bs/spdata(sp)%sapwood_c2n
+        soil%coarsewoodlitter_ssn_in=soil%coarsewoodlitter_ssn_in + (1-fsc_wood)*md_wood*agf_bs/spdata(sp)%wood_c2n + (1-fsc_liv) *md_sapwood*agf_bs/spdata(sp)%sapwood_c2n
 	!ssc_in and fsc_in updated in add_root_litter
-        call add_root_litter(soil,vegn,(/spdata(sp)%fsc_froot*md_froot + fsc_wood*md_wood*(1-agf_bs),&
-					(1-spdata(sp)%fsc_froot)*md_froot + (1-fsc_wood)*md_wood*(1-agf_bs),0.0/), &
-                    (/spdata(sp)%fsc_froot*md_froot/spdata(sp)%froot_live_c2n + fsc_wood*md_wood*(1-agf_bs)/spdata(sp)%wood_c2n,&
-            					(1-spdata(sp)%fsc_froot)*md_froot/spdata(sp)%froot_live_c2n + (1-fsc_wood)*md_wood*(1-agf_bs)/spdata(sp)%wood_c2n,0.0/))
+        call add_root_litter(soil,vegn,(/spdata(sp)%fsc_froot*md_froot + fsc_wood*md_wood*(1-agf_bs) + fsc_liv*md_sapwood*(1-agf_bs),&
+					(1-spdata(sp)%fsc_froot)*md_froot + (1-fsc_wood)*md_wood*(1-agf_bs) + (1-fsc_liv)*md_sapwood*(1-agf_bs),0.0/), &
+                    (/spdata(sp)%fsc_froot*md_froot/spdata(sp)%froot_live_c2n + fsc_wood*md_wood*(1-agf_bs)/spdata(sp)%wood_c2n + fsc_liv*md_sapwood*(1-agf_bs)/spdata(sp)%sapwood_c2n,&
+            					(1-spdata(sp)%fsc_froot)*md_froot/spdata(sp)%froot_live_c2n + (1-fsc_wood)*md_wood*(1-agf_bs)/spdata(sp)%wood_c2n + (1-fsc_liv)*md_sapwood*(1-agf_bs)/spdata(sp)%sapwood_c2n,0.0/))
 	if (is_watch_point()) then
            call debug_pool(soil%leafLitter,      'leafLitter (after)'      )
            call debug_pool(soil%coarseWoodLitter,'coarseWoodLitter (after)')
@@ -339,15 +345,16 @@ total_myc_mine_C_uptake = 0.0
             call debug_pool(soil%coarseWoodLitter,'coarseWoodLitter (before)')
         endif
         call add_litter(soil%leafLitter,(/spdata(sp)%fsc_liv *md_leaf, (1-spdata(sp)%fsc_liv)*md_leaf ,0.0/),(/0.0,0.0 ,0.0/))
-        call add_litter(soil%coarseWoodLitter,(/fsc_wood *md_wood*agf_bs, (1-fsc_wood)*md_wood*agf_bs, 0.0/),(/0.0,0.0, 0.0/))
+        call add_litter(soil%coarseWoodLitter,(/fsc_wood *md_wood*agf_bs + fsc_liv*md_sapwood*agf_bs, &
+                      (1-fsc_wood)*md_wood*agf_bs+(1-fsc_liv)*md_sapwood*agf_bs, 0.0/),(/0.0,0.0, 0.0/))
         soil%leaflitter_fsc_in=soil%leaflitter_fsc_in+spdata(sp)%fsc_liv *md_leaf
         soil%leaflitter_ssc_in=soil%leaflitter_ssc_in+(1-spdata(sp)%fsc_liv)*md_leaf
-        soil%coarsewoodlitter_fsc_in=soil%coarsewoodlitter_fsc_in +    fsc_wood *md_wood*agf_bs
-        soil%coarsewoodlitter_ssc_in=soil%coarsewoodlitter_ssc_in + (1-fsc_wood)*md_wood*agf_bs
+        soil%coarsewoodlitter_fsc_in=soil%coarsewoodlitter_fsc_in +    fsc_wood *md_wood*agf_bs + fsc_liv*md_sapwood*agf_bs
+        soil%coarsewoodlitter_ssc_in=soil%coarsewoodlitter_ssc_in + (1-fsc_wood)*md_wood*agf_bs + (1-fsc_liv)*md_sapwood*agf_bs
 
         !ssc_in and fsc_in updated in add_root_litter
-        call add_root_litter(soil,vegn,(/spdata(sp)%fsc_froot*md_froot + fsc_wood*md_wood*(1-agf_bs),&
-        (1-spdata(sp)%fsc_froot)*md_froot + (1-fsc_wood)*md_wood*(1-agf_bs),0.0/), &
+        call add_root_litter(soil,vegn,(/spdata(sp)%fsc_froot*md_froot + fsc_wood*md_wood*(1-agf_bs) + fsc_liv*md_sapwood*(1-agf_bs),&
+        (1-spdata(sp)%fsc_froot)*md_froot + (1-fsc_wood)*md_wood*(1-agf_bs)+(1-fsc_liv)*md_sapwood*(1-agf_bs),0.0/), &
         (/0.0,0.0,0.0/))
         if (is_watch_point()) then
             call debug_pool(soil%leafLitter,      'leafLitter (after)'      )
@@ -367,7 +374,7 @@ total_myc_mine_C_uptake = 0.0
      vegn%veg_out = vegn%veg_out + md_alive+md_wood;
 
      if(is_watch_point()) then
-        __DEBUG3__(md_wood,md_leaf,md_froot)
+        __DEBUG4__(md_wood,md_leaf,md_froot,md_sapwood)
         __DEBUG4__(cc%bl, cc%br, cc%bsw, cc%bwood)
         __DEBUG3__(cc%An_op, cc%An_cl, cc%lai)
         __DEBUG1__(cc%species)
