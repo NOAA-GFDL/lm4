@@ -4185,7 +4185,7 @@ subroutine advection_tri(soil, flow, dW_l, tflow, d_GW, div, delta_time, t_soil_
 
    ! Upstream weighting of advection. Preserving u_plus here for now.
    u_minus = 1.0; u_plus = 0.0
-   where (flow.lt.0.) u_minus = 0.
+   where (flow(1:num_l).lt.0.) u_minus = 0.
    do l = 1, num_l-1
       u_plus(l) = 1. - u_minus(l+1)
    enddo
