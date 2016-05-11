@@ -7048,8 +7048,17 @@ subroutine myc_scavenger_N_uptake(soil,vegn,myc_biomass,total_N_uptake,dt)
   ammonium_uptake = min(ammonium_uptake,soil%leafLitter%ammonium/dt)
   nitrate_uptake = min(nitrate_uptake,soil%leafLitter%nitrate/dt)
   total_N_uptake=total_N_uptake+(nitrate_uptake+ammonium_uptake)*dt
+
   soil%leafLitter%ammonium=soil%leafLitter%ammonium-ammonium_uptake*dt
   soil%leafLitter%nitrate=soil%leafLitter%nitrate-nitrate_uptake*dt
+
+
+  call mycorrhizal_mineral_N_uptake_rate(soil%coarseWoodLitter,myc_biomass*uptake_frac_max(1),dz(1),nitrate_uptake,ammonium_uptake)
+  ammonium_uptake = min(ammonium_uptake,soil%coarseWoodLitter%ammonium/dt)
+  nitrate_uptake = min(nitrate_uptake,soil%coarseWoodLitter%nitrate/dt)
+  total_N_uptake=total_N_uptake+(nitrate_uptake+ammonium_uptake)*dt
+  soil%coarseWoodLitter%ammonium=soil%coarseWoodLitter%ammonium-ammonium_uptake*dt
+  soil%coarseWoodLitter%nitrate=soil%coarseWoodLitter%nitrate-nitrate_uptake*dt
 
 end subroutine myc_scavenger_N_uptake
 
@@ -7070,6 +7079,8 @@ pure subroutine hypothetical_myc_scavenger_N_uptake(soil,vegn,myc_biomass,total_
   total_N_uptake=0.0
   do nn=1,num_l
     call mycorrhizal_mineral_N_uptake_rate(soil%soil_organic_matter(nn),myc_biomass*uptake_frac_max(nn),dz(nn),nitrate_uptake,ammonium_uptake)
+    ammonium_uptake = min(ammonium_uptake,soil%soil_organic_matter(nn)%ammonium/dt)
+    nitrate_uptake = min(nitrate_uptake,soil%soil_organic_matter(nn)%nitrate/dt)
     total_N_uptake=total_N_uptake+(ammonium_uptake+nitrate_uptake)*dt
     !soil%soil_organic_matter(nn)%ammonium=soil%soil_organic_matter(nn)%ammonium-ammonium_uptake*dt
     !soil%soil_organic_matter(nn)%nitrate=soil%soil_organic_matter(nn)%nitrate-nitrate_uptake*dt
@@ -7077,10 +7088,18 @@ pure subroutine hypothetical_myc_scavenger_N_uptake(soil,vegn,myc_biomass,total_
 
   ! Mycorrhizae should have access to litter layer too
   ! Might want to update this so it calculates actual layer thickness?
+  ! Assume 20% of mycorrhizal biomass accesses litter, so we're not dependent on layer thickness
   call mycorrhizal_mineral_N_uptake_rate(soil%leafLitter,myc_biomass*uptake_frac_max(1),dz(1),nitrate_uptake,ammonium_uptake)
+  ammonium_uptake = min(ammonium_uptake,soil%leafLitter%ammonium/dt)
+  nitrate_uptake = min(nitrate_uptake,soil%leafLitter%nitrate/dt)
   total_N_uptake=total_N_uptake+(nitrate_uptake+ammonium_uptake)*dt
+
   !soil%leafLitter%ammonium=soil%leafLitter%ammonium-ammonium_uptake*dt
   !soil%leafLitter%nitrate=soil%leafLitter%nitrate-nitrate_uptake*dt
+  call mycorrhizal_mineral_N_uptake_rate(soil%coarseWoodLitter,myc_biomass*uptake_frac_max(1),dz(1),nitrate_uptake,ammonium_uptake)
+  ammonium_uptake = min(ammonium_uptake,soil%coarseWoodLitter%ammonium/dt)
+  nitrate_uptake = min(nitrate_uptake,soil%coarseWoodLitter%nitrate/dt)
+  total_N_uptake=total_N_uptake+(nitrate_uptake+ammonium_uptake)*dt
 
 end subroutine hypothetical_myc_scavenger_N_uptake
 
@@ -7114,7 +7133,12 @@ subroutine myc_miner_N_uptake(soil,vegn,myc_biomass,total_N_uptake,total_C_uptak
 
   ! Mycorrhizae should have access to litter layer too
   ! Might want to update this so it calculates actual layer thickness?
-  call mycorrhizal_decomposition(soil%leafLitter,myc_biomass*uptake_frac_max(1),T(1),theta(1),air_filled_porosity(1),N_uptake,C_uptake,CO2prod,dt)
+  call mycorrhizal_decomposition(soil%leafLitter,myc_biomass*0.3,T(1),theta(1),air_filled_porosity(1),N_uptake,C_uptake,CO2prod,dt)
+  total_N_uptake=total_N_uptake+N_uptake
+  total_C_uptake = total_C_uptake+C_uptake
+  total_CO2prod = total_CO2prod + CO2prod
+
+  call mycorrhizal_decomposition(soil%coarseWoodLitter,myc_biomass*0.3,T(1),theta(1),air_filled_porosity(1),N_uptake,C_uptake,CO2prod,dt)
   total_N_uptake=total_N_uptake+N_uptake
   total_C_uptake = total_C_uptake+C_uptake
   total_CO2prod = total_CO2prod + CO2prod
@@ -7151,7 +7175,12 @@ end subroutine myc_miner_N_uptake
 
   ! Mycorrhizae should have access to litter layer too
   ! Might want to update this so it calculates actual layer thickness?
-  call hypothetical_mycorrhizal_decomposition(soil%leafLitter,myc_biomass*uptake_frac_max(1),T(1),theta(1),air_filled_porosity(1),N_uptake,C_uptake,CO2prod,dt)
+  call hypothetical_mycorrhizal_decomposition(soil%leafLitter,myc_biomass*0.3,T(1),theta(1),air_filled_porosity(1),N_uptake,C_uptake,CO2prod,dt)
+  total_N_uptake=total_N_uptake+N_uptake
+  total_C_uptake = total_C_uptake+C_uptake
+  total_CO2prod=total_CO2prod+CO2prod
+
+  call hypothetical_mycorrhizal_decomposition(soil%coarseWoodLitter,myc_biomass*0.3,T(1),theta(1),air_filled_porosity(1),N_uptake,C_uptake,CO2prod,dt)
   total_N_uptake=total_N_uptake+N_uptake
   total_C_uptake = total_C_uptake+C_uptake
   total_CO2prod=total_CO2prod+CO2prod

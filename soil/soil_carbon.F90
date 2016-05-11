@@ -679,7 +679,7 @@ subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled
     real::denitrif_NO3_demand ! kgN/m2/year
     real,dimension(n_c_types):: denitrif_Resp,pot_tempN_decomposed_denitrif ! kgC/m2/year
     real::carbon_supply_denitrif,nitrogen_supply_denitrif
-
+    real::frac_nitrate,frac_ammonium
 
     real::a,b,c, delta, temp_a, N_inhibitory_factor, solution1, solution2, denominator,denominator_sum,prova1,prova2,somma1,somma2,term3,provaCN_imm,dMNdt_req,dMCdt_req
     integer::i
@@ -687,6 +687,7 @@ subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled
     real:: CN_litter_3p(n_c_types)
     integer :: N_lim_state  ! Keep track of N limitation in this time step for debugging
     integer, parameter :: EXCESS_N = 1, N_LIMITED = 2, IMMOBILIZATION = 3, N_LIM_TURNED_OFF = -999
+
 
     !!!!!xz from CH code[end]
     real::maintenance_resp,overflow_resp,carbon_supply,nitrogen_supply !!BNS
@@ -1026,13 +1027,28 @@ nitrogen_supply = nitrogen_supply+nitrogen_supply_denitrif
     !-----update quantity of available nitrate and ammonium in soil -----------------------------------------
     if(.NOT. denitrif_first_order)  nitrate = nitrate - denitrif_NO3_demand*dt
 
-    IF((V_NH4(T)*ammonium+V_NO3(T)*nitrate).gt.dfloat(0))THEN
-        nitrate=nitrate+min(CN_imbalance_term,dfloat(0))*(V_NO3(T)*(nitrate)/(V_NH4(T)*ammonium+V_NO3(T)*nitrate))*dt
-        ammonium=ammonium+max(CN_imbalance_term,dfloat(0))*dt+min(CN_imbalance_term,dfloat(0))*dt*(V_NH4(T)*(ammonium)/(V_NH4(T)*ammonium+V_NO3(T)*nitrate))+sum((1-mup)*tempN_decomposed)*dt
+    ! Mineralized N goes to NH4
+    ammonium = ammonium + cohort%MINER_gross*dt
+
+    ! Immobilized N taken up from NO3 and NH4
+    IF((V_NH4(T)*ammonium+V_NO3(T)*nitrate) > 0)THEN
+      frac_nitrate=V_NO3(T)*nitrate/(V_NH4(T)*ammonium+V_NO3(T)*nitrate)
+      frac_ammonium = 1.0-frac_nitrate
     ELSE
-        nitrate=nitrate+(min(CN_imbalance_term,dfloat(0))/2)*dt
-        ammonium=ammonium+max(CN_imbalance_term,dfloat(0))*dt+min(CN_imbalance_term,dfloat(0))/2*dt+(sum((1-mup)*tempN_decomposed))*dt
+      frac_nitrate=0.5
+      frac_ammonium=0.5
     ENDIF
+
+      nitrate = nitrate - cohort%IMM_N_gross*frac_nitrate*dt
+      ammonium = ammonium - cohort%IMM_N_gross*frac_ammonium*dt
+
+    ! IF((V_NH4(T)*ammonium+V_NO3(T)*nitrate).gt.dfloat(0))THEN
+    !     nitrate=nitrate+min(CN_imbalance_term,dfloat(0))*(V_NO3(T)*(nitrate)/(V_NH4(T)*ammonium+V_NO3(T)*nitrate))*dt
+    !     ammonium=ammonium+max(CN_imbalance_term,dfloat(0))*dt+min(CN_imbalance_term,dfloat(0))*dt*(V_NH4(T)*(ammonium)/(V_NH4(T)*ammonium+V_NO3(T)*nitrate))+sum((1-mup)*tempN_decomposed)*dt
+    ! ELSE
+    !     nitrate=nitrate+(min(CN_imbalance_term,dfloat(0))/2)*dt
+    !     ammonium=ammonium+max(CN_imbalance_term,dfloat(0))*dt+min(CN_imbalance_term,dfloat(0))/2*dt+(sum((1-mup)*tempN_decomposed))*dt
+    ! ENDIF
 
     ELSE ! if not SOILC_CORPSE_N
         N_LIM_STATE = N_LIM_TURNED_OFF
