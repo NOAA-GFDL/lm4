@@ -3056,13 +3056,13 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
      if (id_leaflitter_dissolved(k)>0) call send_tile_data(id_leaflitter_dissolved(k),leaflitter_C_dissolved(k)/dt_fast_yr,diag)
      if (id_finewoodlitter_dissolved(k)>0) call send_tile_data(id_finewoodlitter_dissolved(k),finewoodlitter_C_dissolved(k)/dt_fast_yr,diag)
      if (id_coarsewoodlitter_dissolved(k)>0) call send_tile_data(id_coarsewoodlitter_dissolved(k),coarsewoodlitter_C_dissolved(k)/dt_fast_yr,diag)
-     if (id_dissolved(k)>0) call send_tile_data(id_dissolved(k),C_dissolved(k,:)/dt_fast_yr/dz(1:num_l),diag)
+!     if (id_dissolved(k)>0) call send_tile_data(id_dissolved(k),C_dissolved(k,:)/dt_fast_yr/dz(1:num_l),diag)
   
      if (id_leaflitter_deposited(k)>0) call send_tile_data(id_leaflitter_deposited(k),leaflitter_C_deposited(k)/dt_fast_yr,diag)
      if (id_finewoodlitter_deposited(k)>0) call send_tile_data(id_finewoodlitter_deposited(k),finewoodlitter_C_deposited(k)/dt_fast_yr,diag)
      if (id_coarsewoodlitter_deposited(k)>0) call send_tile_data(id_coarsewoodlitter_deposited(k),coarsewoodlitter_C_deposited(k)/dt_fast_yr,diag)
   
-     if (id_deposited(k)>0) call send_tile_data(id_deposited(k),C_deposited(k,:)/dt_fast_yr/dz(1:num_l),diag)
+!     if (id_deposited(k)>0) call send_tile_data(id_deposited(k),C_deposited(k,:)/dt_fast_yr/dz(1:num_l),diag)
   enddo
 end subroutine Dsdt_CORPSE
 
@@ -3732,6 +3732,7 @@ subroutine rhizosphere_frac(vegn, rhiz_frac)
   integer :: i
   
   ! first calculate the volume of rhizosphere
+  rhiz_vol(:) = 0.0
   do i = 1,vegn%n_cohorts
      associate(cc=>vegn%cohorts(i),sp=>spdata(vegn%cohorts(i)%species))
      rhiz_vol(:) = rhiz_vol(:) + &
