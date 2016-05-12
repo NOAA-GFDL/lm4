@@ -174,6 +174,7 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
      cohort%An_cl  = 0
      stomatal_cond = 0 
      evap_demand   = 0
+     RHi           = 1.0
      ! TODO: call vegn_hydraulics?
      return
   endif
