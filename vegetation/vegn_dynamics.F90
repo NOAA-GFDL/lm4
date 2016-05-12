@@ -519,7 +519,6 @@ subroutine vegn_starvation_ppa (vegn, soil)
   real :: leaf_litt(N_C_TYPES) ! fine surface litter per tile, kgC/m2
   real :: wood_litt(N_C_TYPES) ! coarse surface litter per tile, kgC/m2
   real :: root_litt(num_l, N_C_TYPES) ! root litter per soil layer, kgC/m2
-  real :: profile(num_l) ! storage for vertical profile of exudates and root litter
 
   leaf_litt = 0 ; wood_litt = 0; root_litt = 0
   do i = 1, vegn%n_cohorts
@@ -1019,7 +1018,7 @@ subroutine update_soil_pools(vegn, soil)
   integer :: i,k
   real :: delta
   real :: deltafast, deltaslow, deltafast_N, deltaslow_N
-  real :: profile(num_l), profile1(num_l)
+  real :: profile(num_l), profile1(num_l), psum ! for depostion profile calculation
   real :: litterC(num_l,N_C_TYPES) ! soil litter C input by layer and type
   real :: litterN(num_l,N_C_TYPES) ! soil litter N input by layer and type
 
@@ -1080,19 +1079,23 @@ subroutine update_soil_pools(vegn, soil)
      vegn%ssc_pool_bg    = vegn%ssc_pool_bg    - deltaslow;
 
      ! vertical profile of litter is proportional to the average of liiter profiles
-     ! of all cohorts, weighted with biomasses of fine roots (is this a good
-     ! assumption?)
+     ! of all cohorts, weighted with biomasses of fine roots. This doesn't seem to
+     ! be a very good assumption, since fine roots sometimes die (mass is zero),
+     ! but profile should not be zero in this case. 
+     profile(:) = 0.0
      do i = 1,vegn%n_cohorts
         associate(cc=>vegn%cohorts(i))
         call cohort_root_litter_profile(cc,dz,profile1)
         profile(:) = profile(:) + profile1(:)*cc%br*cc%nindivs
         end associate
      enddo
-     if (is_watch_point()) then
-        __DEBUG2__(deltafast,deltaslow)
-        __DEBUG1__(profile)
+     psum = sum(profile)
+     if (psum>0) then
+        profile(:) = profile(:)/psum
+     else
+        profile(:) = 0.0
+        profile(1) = 1.0
      endif
-     profile(:)=profile(:)/sum(profile)
      do k = 1,num_l
         litterC(k,:) = (/deltafast,deltaslow,0.0/) * profile(k)
         litterN(k,:) = (/0.0,      0.0,      0.0/) * profile(k)
