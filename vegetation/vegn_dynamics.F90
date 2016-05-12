@@ -228,7 +228,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   call add_root_exudates(soil,total_root_exudate_C)
 
   ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, leaf_litt, wood_litt, root_litt)
+  call add_soil_carbon(soil, vegn, leaf_litt, wood_litt, root_litt)
 
   if(is_watch_point()) then
      write(*,*)'#### vegn_carbon_int_lm3 output ####'
@@ -422,7 +422,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   endif
 
   ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, leaf_litt, wood_litt, root_litt)
+  call add_soil_carbon(soil, vegn, leaf_litt, wood_litt, root_litt)
   ! update soil carbon
   call Dsdt(vegn, soil, diag, tsoil, theta)
 
@@ -581,7 +581,7 @@ subroutine vegn_starvation_ppa (vegn, soil)
   endif
 
   ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, leaf_litt, wood_litt, root_litt)
+  call add_soil_carbon(soil, vegn, leaf_litt, wood_litt, root_litt)
 
 end subroutine vegn_starvation_ppa
 
@@ -888,7 +888,7 @@ subroutine vegn_phenology_lm3(vegn, soil)
   enddo
 
   ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, leaf_litter=leaf_litt, root_litter=root_litt)
+  call add_soil_carbon(soil, vegn, leaf_litter=leaf_litt, root_litter=root_litt)
 
 end subroutine vegn_phenology_lm3
 
@@ -948,7 +948,7 @@ subroutine vegn_phenology_ppa(vegn, soil)
      end associate
   enddo
   ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, leaf_litter=leaf_litt)
+  call add_soil_carbon(soil, vegn, leaf_litter=leaf_litt)
 end subroutine vegn_phenology_ppa
 
 
@@ -986,7 +986,7 @@ end subroutine vegn_phenology_ppa
   enddo
   vegn%litter  = vegn%litter  + sum(leaf_litt)
   vegn%veg_out = vegn%veg_out + sum(leaf_litt)
-  call add_soil_carbon(soil, leaf_litter=leaf_litt)
+  call add_soil_carbon(soil, vegn, leaf_litter=leaf_litt)
 end subroutine vegn_leaf_fall_ppa
 
 
@@ -1016,8 +1016,12 @@ subroutine update_soil_pools(vegn, soil)
   type(soil_tile_type), intent(inout) :: soil
   
   ! ---- local vars
-  real :: delta;
-  real :: deltafast, deltaslow;
+  integer :: i,k
+  real :: delta
+  real :: deltafast, deltaslow, deltafast_N, deltaslow_N
+  real :: profile(num_l), profile1(num_l)
+  real :: litterC(num_l,N_C_TYPES) ! soil litter C input by layer and type
+  real :: litterN(num_l,N_C_TYPES) ! soil litter N input by layer and type
 
   select case (soil_carbon_option)
   case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
@@ -1057,8 +1061,8 @@ subroutine update_soil_pools(vegn, soil)
      ! are not used in the calculations of the total carbon.
      vegn%leaflitter_buffer_rate_ag = MAX(0.0, MIN(vegn%leaflitter_buffer_rate_ag, vegn%leaflitter_buffer_ag/dt_fast_yr))
      vegn%coarsewoodlitter_buffer_rate_ag = MAX(0.0, MIN(vegn%coarsewoodlitter_buffer_rate_ag, vegn%coarsewoodlitter_buffer_ag/dt_fast_yr))
-     call add_litter(soil%leafLitter,(/vegn%leaflitter_buffer_rate_ag*dt_fast_yr*fsc_liv,vegn%leaflitter_buffer_rate_ag*dt_fast_yr*(1.0-fsc_liv),0.0/))
-     call add_litter(soil%coarsewoodLitter,(/vegn%coarsewoodlitter_buffer_rate_ag*dt_fast_yr*fsc_liv,vegn%coarsewoodlitter_buffer_rate_ag*dt_fast_yr*(1.0-fsc_liv),0.0/))
+     call add_litter(soil%leafLitter,[vegn%leaflitter_buffer_rate_ag*dt_fast_yr*fsc_liv,vegn%leaflitter_buffer_rate_ag*dt_fast_yr*(1.0-fsc_liv),0.0], [0.0, 0.0, 0.0])
+     call add_litter(soil%coarsewoodLitter,[vegn%coarsewoodlitter_buffer_rate_ag*dt_fast_yr*fsc_liv,vegn%coarsewoodlitter_buffer_rate_ag*dt_fast_yr*(1.0-fsc_liv),0.0], [0.0, 0.0, 0.0])
   
      ! update fsc input rate so that intermediate fsc pool is never
      ! depleted below zero; on the other hand the pool can be only 
@@ -1074,11 +1078,26 @@ subroutine update_soil_pools(vegn, soil)
      deltaslow = vegn%ssc_rate_bg*dt_fast_yr;
      !soil%prog(1)%slow_soil_C = soil%prog(1)%slow_soil_C + delta;
      vegn%ssc_pool_bg    = vegn%ssc_pool_bg    - deltaslow;
-     ! TODO: figure out how to distribute the additional soil litter vertically.
-     ! Strictly speaking we need to keep pools and rates distributed vertically,
-     ! For now, add belowground litter using vertical profile of the first cohort.
-     ! perhaps we can use average cohort root profile... 
-     call add_root_litter(soil, vegn%cohorts(1), (/deltafast,deltaslow,0.0/))
+
+     ! vertical profile of litter is proportional to the average of liiter profiles
+     ! of all cohorts, weighted with biomasses of fine roots (is this a good
+     ! assumption?)
+     do i = 1,vegn%n_cohorts
+        associate(cc=>vegn%cohorts(i))
+        call cohort_root_litter_profile(cc,dz,profile1)
+        profile(:) = profile(:) + profile1(:)*cc%br*cc%nindivs
+        end associate
+     enddo
+     if (is_watch_point()) then
+        __DEBUG2__(deltafast,deltaslow)
+        __DEBUG1__(profile)
+     endif
+     profile(:)=profile(:)/sum(profile)
+     do k = 1,num_l
+        litterC(k,:) = (/deltafast,deltaslow,0.0/) * profile(k)
+        litterN(k,:) = (/0.0,      0.0,      0.0/) * profile(k)
+     enddo
+     call add_root_litter(soil, vegn, litterC, litterN )
   case default
      call error_mesg('update_soil_pools','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
   end select
@@ -1179,7 +1198,7 @@ subroutine vegn_reproduction_ppa (vegn,soil)
     
     end associate   ! F2003
   enddo
-  call add_soil_carbon(soil, leaf_litter=litt)
+  call add_soil_carbon(soil, vegn, leaf_litter=litt)
   
   vegn%n_cohorts = k
   if(is_watch_point()) then
@@ -1246,7 +1265,7 @@ subroutine kill_small_cohorts_ppa(vegn,soil)
      vegn%cohorts=>cc
   endif
   ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, leaf_litt, wood_litt, root_litt)
+  call add_soil_carbon(soil, vegn, leaf_litt, wood_litt, root_litt)
 
   if (is_watch_point()) then
      write(*,*) '##### vegn_mergecohorts_ppa output #####'

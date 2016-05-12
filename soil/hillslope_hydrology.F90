@@ -397,8 +397,8 @@ subroutine hlsp_hydrology_1(num_species)
                      end if
 
                      if (tiled_DOC_flux) then
-                        call retrieve_DOC(soil%soil_C, DOC, num_l)
-                        call retrieve_DOC(soil2%soil_C, DOC2, num_l)
+                        call retrieve_DOC(soil%soil_organic_matter, DOC, num_l)
+                        call retrieve_DOC(soil2%soil_organic_matter, DOC2, num_l)
                      end if
 
                      ! Loop over vertical layers
@@ -484,8 +484,8 @@ subroutine hlsp_hydrology_1(num_species)
                      end if
                      
                      if (tiled_DOC_flux) then
-                        call retrieve_DOC(soil%soil_C, DOC, num_l)
-                        call retrieve_DOC(soil2%soil_C, DOC2, num_l)
+                        call retrieve_DOC(soil%soil_organic_matter, DOC, num_l)
+                        call retrieve_DOC(soil2%soil_organic_matter, DOC2, num_l)
                      end if
                      
                      ! Loop over vertical layers
@@ -604,7 +604,7 @@ subroutine hlsp_hydrology_1(num_species)
                end if
 
                if (tiled_DOC_flux) then
-                  call retrieve_DOC(soil%soil_C, DOC, num_l)
+                  call retrieve_DOC(soil%soil_organic_matter, DOC, num_l)
                end if
 
                ! Loop over vertical layers

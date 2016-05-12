@@ -150,7 +150,7 @@ subroutine vegn_disturbance(vegn, soil, dt)
      end associate
   enddo
 
-  call add_soil_carbon(soil, leaf_litt, wood_litt, root_litt)
+  call add_soil_carbon(soil, vegn, leaf_litt, wood_litt, root_litt)
 
   vegn%csmoke_rate = vegn%csmoke_pool; ! kg C/(m2 yr)
 end subroutine vegn_disturbance
@@ -285,7 +285,7 @@ subroutine vegn_nat_mortality_lm3(vegn, soil, deltat)
      call update_biomass_pools(cc);
   enddo
   ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, wood_litter=wood_litt, root_litter=root_litt)     
+  call add_soil_carbon(soil, vegn, wood_litter=wood_litt, root_litter=root_litt)     
 end subroutine vegn_nat_mortality_lm3
 
 
@@ -552,9 +552,9 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
      enddo
   endif
 
-  call add_soil_carbon(t0%soil, leaf_litt0, wood_litt0, root_litt0)
+  call add_soil_carbon(t0%soil, t0%vegn, leaf_litt0, wood_litt0, root_litt0)
   if (associated(t1)) &
-     call add_soil_carbon(t1%soil, leaf_litt1, wood_litt1, root_litt1)
+     call add_soil_carbon(t1%soil, t1%vegn, leaf_litt1, wood_litt1, root_litt1)
 
   if (do_check_conservation) then
      ! + conservation check, part 2: calculate totals in final state, and compare 

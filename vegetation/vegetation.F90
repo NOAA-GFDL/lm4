@@ -73,7 +73,7 @@ use vegn_disturbance_mod, only : vegn_nat_mortality_lm3, &
 use vegn_harvesting_mod, only : &
      vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting
 use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, &
-     add_litter, poolTotalCarbon, cull_cohorts
+     add_litter, cull_cohorts
 use soil_mod, only : redistribute_peat_carbon
 
 implicit none
@@ -2141,8 +2141,8 @@ subroutine update_vegn_slow( )
         call cull_cohorts(tile%soil%leafLitter)
         call cull_cohorts(tile%soil%fineWoodLitter)
         call cull_cohorts(tile%soil%coarseWoodLitter)
-        do ii=1,size(tile%soil%soil_C)
-              call cull_cohorts(tile%soil%soil_C(ii))
+        do ii=1,num_l
+              call cull_cohorts(tile%soil%soil_organic_matter(ii))
         enddo
      endif
   enddo
