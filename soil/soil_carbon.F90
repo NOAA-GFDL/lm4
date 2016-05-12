@@ -408,8 +408,8 @@ subroutine dissolve_carbon(pool,theta)
               if (N_protected_solubility>1.0) N_protected_solubility=1.0
 
           ELSE
-
-              N_protected_solubility=0.0
+              N_dissolution_rate = 0.0
+              N_protected_solubility = 0.0
         ENDIF
 
 
