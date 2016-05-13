@@ -18,8 +18,7 @@ use land_tile_diag_mod, only : OP_SUM, OP_MEAN, &
 use vegn_data_mod, only : spdata, &
      CMPT_NSC, CMPT_SAPWOOD, CMPT_LEAF, CMPT_ROOT, CMPT_VLEAF, CMPT_WOOD, &
      PHEN_DECIDUOUS, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
-     fsc_liv, fsc_wood, fsc_froot, agf_bs, &
-     l_fract, mcv_min, mcv_lai, do_ppa, tau_seed, &
+     agf_bs, l_fract, mcv_min, mcv_lai, do_ppa, tau_seed, &
      understory_lai_factor, bseed_distr, wood_fract_min, do_alt_allometry
 use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon
 use soil_tile_mod, only: num_l, dz, soil_tile_type, clw, csw
@@ -131,7 +130,6 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   ! TODO: possibly move soil-related calculations from calling procedure here,
   !       now that we have soil passed as an argument
 
-  type(vegn_cohort_type), pointer :: cc
   type(vegn_cohort_type), pointer :: c(:) ! for debug only
   real :: md_leaf, md_wood, md_froot ! component of maintenance demand
   real :: md ! plant tissue maintenance, kg C/timestep
@@ -159,8 +157,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   !  update plant carbon
   leaf_litt = 0 ; wood_litt = 0; root_litt = 0 ; total_root_exudate_C = 0
   do i = 1, vegn%n_cohorts   
-     cc => vegn%cohorts(i)
-     sp = cc%species
+     associate(cc=>vegn%cohorts(i), sp=>spdata(vegn%cohorts(i)%species))
 
      call plant_respiration(cc,soilt, resp(i), resl(i), resr(i), ress(i))
    
@@ -177,23 +174,23 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
      ! accumulate npp for the current day
      cc%npp_previous_day_tmp = cc%npp_previous_day_tmp + npp(i); 
      
-     root_exudate_C = max(npp(i),0.0)*spdata(sp)%root_exudate_frac
+     root_exudate_C = max(npp(i),0.0)*sp%root_exudate_frac
      call cohort_root_exudate_profile(cc,dz,profile)
      total_root_exudate_C = total_root_exudate_C + profile*root_exudate_C*cc%nindivs*dt_fast_yr
      cc%carbon_gain = cc%carbon_gain + (npp(i)-root_exudate_C)*dt_fast_yr
           
      ! check if leaves/roots are present and need to be accounted in maintenance
      if(cc%status == LEAF_ON) then
-        md_leaf = cc%Pl * spdata(sp)%alpha(CMPT_LEAF)*cc%bliving*dt_fast_yr
-        md_froot= cc%Pr * spdata(sp)%alpha(CMPT_ROOT)*cc%bliving*dt_fast_yr
+        md_leaf = cc%Pl * sp%alpha(CMPT_LEAF)*cc%bliving*dt_fast_yr
+        md_froot= cc%Pr * sp%alpha(CMPT_ROOT)*cc%bliving*dt_fast_yr
      else
         md_leaf  = 0
         md_froot = 0
      endif
      
      ! compute branch and coarse wood losses for tree types
-     if (spdata(sp)%lifeform==FORM_WOODY) then
-        md_wood = 0.6 * cc%bwood * spdata(sp)%alpha(CMPT_WOOD)*dt_fast_yr
+     if (sp%lifeform==FORM_WOODY) then
+        md_wood = 0.6 * cc%bwood * sp%alpha(CMPT_WOOD)*dt_fast_yr
      else
         md_wood = 0
      endif
@@ -207,14 +204,14 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
      cc%carbon_loss = cc%carbon_loss + md; ! used in diagnostics only
 
      ! add maintenance demand from leaf and root pools to fast soil carbon
-     leaf_litt(:) = leaf_litt(:) + (/fsc_liv,  1-fsc_liv,  0.0/)*md_leaf*cc%nindivs
-     wood_litt(:) = wood_litt(:) + (/fsc_wood, 1-fsc_wood, 0.0/)*md_wood*agf_bs*cc%nindivs
+     leaf_litt(:) = leaf_litt(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*md_leaf*cc%nindivs
+     wood_litt(:) = wood_litt(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*md_wood*agf_bs*cc%nindivs
      call cohort_root_litter_profile(cc, dz, profile)
      do l = 1, num_l
-        root_litt(l,:) = root_litt(l,:) + profile(l)*cc%nindivs*(/ &
-             fsc_froot    *md_froot + fsc_wood    *md_wood*(1-agf_bs), &
-             (1-fsc_froot)*md_froot + (1-fsc_wood)*md_wood*(1-agf_bs), &
-             0.0/)
+        root_litt(l,:) = root_litt(l,:) + profile(l)*cc%nindivs*[ &
+             sp%fsc_froot    *md_froot + sp%fsc_wood    *md_wood*(1-agf_bs), &
+             (1-sp%fsc_froot)*md_froot + (1-sp%fsc_wood)*md_wood*(1-agf_bs), &
+             0.0]
      enddo
 
      vegn%veg_in  = vegn%veg_in  + npp(i)*cc%nindivs*dt_fast_yr;
@@ -222,6 +219,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
 
      ! update cohort age
      cc%age = cc%age + dt_fast_yr
+     end associate
   enddo
 
   ! fsc_in and ssc_in updated in add_root_exudates
@@ -387,13 +385,13 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      md_wood = 0.0
 
      ! accumulate liter and soil carbon inputs across all cohorts
-     leaf_litt(:) = leaf_litt(:) + (/fsc_liv,  1-fsc_liv,  0.0/)*deltaBL*cc%nindivs
-     wood_litt(:) = wood_litt(:) + (/fsc_wood, 1-fsc_wood, 0.0/)*md_wood*agf_bs*cc%nindivs
+     leaf_litt(:) = leaf_litt(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*deltaBL*cc%nindivs
+     wood_litt(:) = wood_litt(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*md_wood*agf_bs*cc%nindivs
      call cohort_root_litter_profile(cc, dz, profile)
      do l = 1, num_l
         root_litt(l,:) = root_litt(l,:) + profile(l)*cc%nindivs*(/ &
-             fsc_froot    *deltaBR + fsc_wood    *md_wood*(1-agf_bs), & ! fast
-             (1-fsc_froot)*deltaBR + (1-fsc_wood)*md_wood*(1-agf_bs), & ! slow
+             sp%fsc_froot    *deltaBR + sp%fsc_wood    *md_wood*(1-agf_bs), & ! fast
+             (1-sp%fsc_froot)*deltaBR + (1-sp%fsc_wood)*md_wood*(1-agf_bs), & ! slow
              0.0/) ! microbes
      enddo
 
@@ -861,13 +859,13 @@ subroutine vegn_phenology_lm3(vegn, soil)
            
            leaf_litter = (1.0-l_fract)*cc%bl*cc%nindivs;
            root_litter = (1.0-l_fract)*cc%br*cc%nindivs;
-           leaf_litt(:) = leaf_litt(:)+(/fsc_liv*leaf_litter,(1-fsc_liv)*leaf_litter,0.0/)
+           leaf_litt(:) = leaf_litt(:)+(/sp%fsc_liv*leaf_litter,(1-sp%fsc_liv)*leaf_litter,0.0/)
            call cohort_root_litter_profile(cc, dz, profile)
            do l = 1, num_l
-              root_litt(l,:) = root_litt(l,:) + profile(l)*(/ &
-                   fsc_froot*root_litter, &
-                   (1-fsc_froot)*root_litter, &
-                   0.0/)
+              root_litt(l,:) = root_litt(l,:) + profile(l)*[ &
+                   sp%fsc_froot*root_litter, &
+                   (1-sp%fsc_froot)*root_litter, &
+                   0.0]
            enddo
 
            vegn%litter = vegn%litter + leaf_litter + root_litter
@@ -939,7 +937,7 @@ subroutine vegn_phenology_ppa(vegn, soil)
          cc%bliving = cc%blv + cc%br + cc%bl + cc%bsw
 
          leaf_litter = (1.-l_fract) * (leaf_fall+root_mortality) * cc%nindivs
-         leaf_litt(:) = leaf_litt(:)+(/fsc_liv,1-fsc_liv,0.0/)*leaf_litter
+         leaf_litt(:) = leaf_litt(:)+[sp%fsc_liv,1-sp%fsc_liv,0.0]*leaf_litter
          vegn%litter = vegn%litter + leaf_litter
          soil%fsc_in(1)  = soil%fsc_in(1)  + leaf_litter
          vegn%veg_out = vegn%veg_out + leaf_litter
@@ -979,7 +977,7 @@ end subroutine vegn_phenology_ppa
         if(cc%bl == 0.)cc%leaf_age = 0.0
         cc%bliving = cc%blv + cc%br + cc%bl + cc%bsw
 
-        leaf_litt(:) = leaf_litt(:) + [fsc_liv,1-fsc_liv,0.0]*(1-l_fract) * leaf_fall * cc%nindivs
+        leaf_litt(:) = leaf_litt(:) + [sp%fsc_liv,1-sp%fsc_liv,0.0]*(1-l_fract) * leaf_fall * cc%nindivs
      endif
      end associate
   enddo
@@ -1060,8 +1058,17 @@ subroutine update_soil_pools(vegn, soil)
      ! are not used in the calculations of the total carbon.
      vegn%leaflitter_buffer_rate_ag = MAX(0.0, MIN(vegn%leaflitter_buffer_rate_ag, vegn%leaflitter_buffer_ag/dt_fast_yr))
      vegn%coarsewoodlitter_buffer_rate_ag = MAX(0.0, MIN(vegn%coarsewoodlitter_buffer_rate_ag, vegn%coarsewoodlitter_buffer_ag/dt_fast_yr))
-     call add_litter(soil%leafLitter,[vegn%leaflitter_buffer_rate_ag*dt_fast_yr*fsc_liv,vegn%leaflitter_buffer_rate_ag*dt_fast_yr*(1.0-fsc_liv),0.0], [0.0, 0.0, 0.0])
-     call add_litter(soil%coarsewoodLitter,[vegn%coarsewoodlitter_buffer_rate_ag*dt_fast_yr*fsc_liv,vegn%coarsewoodlitter_buffer_rate_ag*dt_fast_yr*(1.0-fsc_liv),0.0], [0.0, 0.0, 0.0])
+     ! NOTE that we are using spdata(1)%fsc_liv and spdata(1)%sp%fsc_wood, which is patently
+     ! incorrect. This is a stopgap measure before switching to split fast/slow 
+     ! buffer implemented by Ben.
+     call add_litter(soil%leafLitter,[ &
+          vegn%leaflitter_buffer_rate_ag*dt_fast_yr*spdata(1)%fsc_liv, &
+          vegn%leaflitter_buffer_rate_ag*dt_fast_yr*(1.0-spdata(1)%fsc_liv), &
+          0.0], [0.0, 0.0, 0.0])
+     call add_litter(soil%coarsewoodLitter,[ &
+          vegn%coarsewoodlitter_buffer_rate_ag*dt_fast_yr*spdata(1)%fsc_liv, &
+          vegn%coarsewoodlitter_buffer_rate_ag*dt_fast_yr*(1.0-spdata(1)%fsc_liv), &
+          0.0], [0.0, 0.0, 0.0])
   
      ! update fsc input rate so that intermediate fsc pool is never
      ! depleted below zero; on the other hand the pool can be only 
@@ -1176,7 +1183,7 @@ subroutine vegn_reproduction_ppa (vegn,soil)
 
     failed_seeds = (1.-sp%prob_g*sp%prob_e) * parent%bseed * parent%nindivs
     vegn%litter = vegn%litter + failed_seeds
-    litt(:) = litt(:) + (/fsc_liv,1-fsc_liv,0.0/)*failed_seeds
+    litt(:) = litt(:) + [sp%fsc_liv,1-sp%fsc_liv,0.0]*failed_seeds
     vegn%veg_out = vegn%veg_out + failed_seeds
 
     parent%bseed = 0.0

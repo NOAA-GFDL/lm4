@@ -5,7 +5,7 @@ use constants_mod, only: PI
 use land_constants_mod, only: NBANDS, mol_h2o, mol_air
 use vegn_data_mod, only : spdata, &
    use_mcm_masking, use_bucket, critical_root_density, &
-   tg_c4_thresh, tg_c3_thresh, l_fract, fsc_liv, &
+   tg_c4_thresh, tg_c3_thresh, l_fract, &
    phen_ev1, phen_ev2, cmc_eps
 use vegn_data_mod, only : PT_C3, PT_C4, CMPT_ROOT, CMPT_LEAF, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &

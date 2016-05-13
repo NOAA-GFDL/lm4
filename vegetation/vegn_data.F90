@@ -109,7 +109,7 @@ public :: &
     ! vegetation data, imported from LM3V
     spdata, &
     min_cosz, &
-    agf_bs, K1,K2, fsc_liv, fsc_wood, fsc_froot, &
+    agf_bs, K1,K2, &
     tau_drip_l, tau_drip_s, & ! canopy water and snow residence times, for drip calculations
     GR_factor, tg_c3_thresh, tg_c4_thresh, &
     fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
@@ -117,7 +117,17 @@ public :: &
     cold_month_threshold, scnd_biomass_bins, &
     phen_ev1, phen_ev2, cmc_eps, & 
     b0_growth, tau_seed, understory_lai_factor, bseed_distr, &
-    DBH_mort, A_mort, B_mort, mortrate_s
+    DBH_mort, A_mort, B_mort, mortrate_s, &
+
+    root_exudate_N_frac,& !x2z - ens: lets get rid of c2n?
+    root_exudate_frac_max, dynamic_root_exudation, &
+    c2n_mycorrhizae, mycorrhizal_turnover_time, &
+    myc_scav_C_efficiency, myc_mine_C_efficiency, &
+    N_fixer_turnover_time, N_fixer_C_efficiency, &
+    N_fixation_rate, c2n_N_fixer, N_limits_live_biomass, &
+    root_NH4_uptake_rate, root_NO3_uptake_rate, &
+    k_ammonium_root_uptake, k_nitrate_root_uptake, excess_stored_N_leakage_rate
+
 
 logical, public :: do_ppa = .FALSE.
 logical, public :: do_alt_allometry = .FALSE.
@@ -241,6 +251,19 @@ type spec_data_type
   real    :: psi_tlp=0.0                  ! psi at turgor loss point
 
   real    :: root_exudate_frac = 0.0 ! fraction of NPP that ends up in root exudates
+
+  real    :: fsc_liv    = 0.8 ! Species-specific fsc_liv, separate for backwards compatibility
+  real    :: fsc_froot  = 0.3
+  real    :: fsc_wood   = 0.2
+
+  real    :: leaf_live_c2n  = 30.0    ! C:N ratio of live leaves.
+  real    :: froot_live_c2n = 50.0    ! C:N ratio of live fine roots.
+  real    :: sapwood_c2n    = 50.0    ! C:N ratio of sapwood.
+  real    :: wood_c2n       = 500.0   ! x2z Wiki  http://en.wikipedia.org/wiki/Carbon-to-nitrogen_ratio
+
+  real    :: leaf_retranslocation_frac  = 0.5 ! Fraction of leaf N retranslocated before leaf drop.
+  real    :: froot_retranslocation_frac = 0.0 ! Fraction of fine root N retranslocated before senescence.
+
 end type
 
 ! ==== module data ===========================================================
@@ -278,9 +301,6 @@ real :: soil_carbon_depth_scale = 0.2   ! depth of active soil for carbon decomp
 real :: cold_month_threshold    = 283.0 ! monthly temperature threshold for calculations of number of cold months
 real :: agf_bs         = 0.8 ! ratio of above ground stem to total stem
 real :: K1 = 10.0, K2 = 0.05 ! soil decomposition parameters
-real :: fsc_liv        = 0.8
-real :: fsc_wood       = 0.2
-real :: fsc_froot      = 0.3
 real :: tau_drip_l     = 21600.0 ! canopy water residence time, for drip calculations
 real :: tau_drip_s     = 86400.0 ! canopy snow residence time, for drip calculations
 real :: GR_factor = 0.33 ! growth respiration factor     
@@ -329,6 +349,24 @@ real :: bseed_distr(NCMPT) = & ! partitioning of of new seedling biomass among c
        (/     0.8,     0.2,     0.0,     0.0,     0.0,    0.0  /)
         !     nsc, sapwood,    leaf,    root,   vleaf,    wood 
 
+real :: root_exudate_N_frac = 0.0 ! N fraction of root exudates. See e.g. Drake et al 2013
+real :: root_exudate_frac_max     = 0.5     ! Maximum fraction of NPP that can be allocated to mycorrhizae and root exudation
+logical :: dynamic_root_exudation    = .FALSE. ! Whether to dynamically determine root exudation rate from plant N limitation
+real :: c2n_mycorrhizae           = 10      ! C:N ratio of mycorrhizal biomass
+real :: mycorrhizal_turnover_time = 0.1     ! Mean residence time of live mycorrhizal biomass (yr)
+real :: myc_scav_C_efficiency      = 0.8      ! Efficiency of C allocation to scavenger mycorrhizae (remainder goes to CO2)
+real :: myc_mine_C_efficiency      = 0.8      ! Efficiency of C allocation to miner mycorrhizae (remainder goes to CO2)
+real :: c2n_N_fixer           = 10      ! C:N ratio of N-fixing microbe biomass
+real :: N_fixer_turnover_time = 0.1     ! Mean residence time of live N fixer biomass (yr)
+real :: N_fixer_C_efficiency  = 0.5      ! Efficiency of C allocation to N fixers (remainder goes to CO2)
+real :: N_fixation_rate       = 0.1     ! N fixation rate per unit fixer biomass (kgN/kg fixer C/year)
+logical :: N_limits_live_biomass = .FALSE.  ! Option to have N uptake limit max biomass.  Only relevant with CORPSE_N
+real :: root_NH4_uptake_rate = 0.1      ! kg/m3/year (assumes rhizosphere only, which accounts for root length)
+real :: root_NO3_uptake_rate = 0.1      ! kg/m3/year (assumes rhizosphere only, which accounts for root length)
+real :: k_ammonium_root_uptake = 3e-2   ! Half-saturation for root NH4 uptake (kgN/m3)
+real :: k_nitrate_root_uptake = 3e-2    ! Half-saturation for root NO3 uptake (kgN/m3)
+real :: excess_stored_N_leakage_rate = 1.0 ! Leaking of excess cohort stored N back to soil (Fraction per year)
+
 
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
@@ -338,7 +376,7 @@ namelist /vegn_data_nml/ &
   min_cosz, &
   soil_carbon_depth_scale, cold_month_threshold, &
 
-  agf_bs, K1,K2, fsc_liv, fsc_wood, fsc_froot, &
+  agf_bs, K1,K2, &
   tau_drip_l, tau_drip_s, GR_factor, tg_c3_thresh, tg_c4_thresh, &
   fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
   l_fract, wood_fract_min, T_transp_min, &
@@ -351,7 +389,18 @@ namelist /vegn_data_nml/ &
   mortrate_s, cmc_eps, &
   DBH_mort, A_mort, B_mort, &
   b0_growth, tau_seed, understory_lai_factor, &
-  do_alt_allometry, nat_mortality_splits_tiles
+  do_alt_allometry, nat_mortality_splits_tiles, &
+ 
+  ! N-related namelist values
+  root_exudate_N_frac,& !x2z - ens: lets get rid of c2n?
+  root_exudate_frac_max, dynamic_root_exudation, &
+  c2n_mycorrhizae, mycorrhizal_turnover_time, &
+  myc_scav_C_efficiency, myc_mine_C_efficiency, &
+  N_fixer_turnover_time, N_fixer_C_efficiency, &
+  N_fixation_rate, c2n_N_fixer, N_limits_live_biomass, &
+  root_NH4_uptake_rate, root_NO3_uptake_rate, &
+  k_ammonium_root_uptake, k_nitrate_root_uptake, excess_stored_N_leakage_rate
+
 
 contains ! ###################################################################
 
@@ -660,6 +709,17 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(psi_tlp)
 
   __GET_SPDATA_REAL__(root_exudate_frac)
+  ! nitrogen-related parameters
+  __GET_SPDATA_REAL__(fsc_liv)
+  __GET_SPDATA_REAL__(fsc_froot)
+  __GET_SPDATA_REAL__(fsc_wood)
+  __GET_SPDATA_REAL__(leaf_live_c2n)
+  __GET_SPDATA_REAL__(froot_live_c2n)
+  __GET_SPDATA_REAL__(wood_c2n)
+  __GET_SPDATA_REAL__(sapwood_c2n)
+  __GET_SPDATA_REAL__(leaf_retranslocation_frac)
+  __GET_SPDATA_REAL__(froot_retranslocation_frac)
+
 #undef __GET_SPDATA_REAL__
 
   ! check for typos in the namelist: detects parameters that are listed in the
@@ -882,6 +942,16 @@ subroutine print_species_data(unit)
   call add_row(table, 'smoke_fraction',spdata(:)%smoke_fraction)
 
   call add_row(table, 'root_exudate_frac', spdata(:)%root_exudate_frac)
+  ! nitrogen-related parameters
+  call add_row(table, 'fsc_liv',       spdata(:)%fsc_liv)
+  call add_row(table, 'fsc_froot',     spdata(:)%fsc_froot)
+  call add_row(table, 'fsc_froot',     spdata(:)%fsc_wood)
+  call add_row(table, 'leaf_live_c2n', spdata(:)%leaf_live_c2n)
+  call add_row(table, 'froot_live_c2n',spdata(:)%froot_live_c2n)
+  call add_row(table, 'wood_c2n',      spdata(:)%wood_c2n)
+  call add_row(table, 'sapwood_c2n',   spdata(:)%sapwood_c2n)
+  call add_row(table, 'leaf_retranslocation_frac',  spdata(:)%leaf_retranslocation_frac)
+  call add_row(table, 'froot_retranslocation_frac', spdata(:)%froot_retranslocation_frac)
 
   call add_row(table, 'dat_height',       spdata(:)%dat_height)
   call add_row(table, 'dat_lai',          spdata(:)%dat_lai)
