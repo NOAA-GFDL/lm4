@@ -711,56 +711,6 @@ end subroutine biomass_allocation_ppa
 
 
 ! ============================================================================
-! The combined reduction in decomposition rate as a function of TEMP and MOIST
-! Based on CENTURY Parton et al 1993 GBC 7(4):785-809 and Bolker's copy of
-! CENTURY code
-elemental function A_function(soilt, theta) result(A)
-  real :: A                 ! return value, resulting reduction in decomposition rate
-  real, intent(in) :: soilt ! effective temperature for soil carbon decomposition
-  real, intent(in) :: theta 
-
-  real :: soil_temp; ! temperature of the soil, deg C
-  real :: Td; ! rate multiplier due to temp
-  real :: Wd; ! rate reduction due to moisture
-
-  ! coefficients and terms used in temperature term
-  real :: Topt,Tmax,t1,t2,tshl,tshr;
-
-  soil_temp = soilt-273.16;
-
-  ! EFFECT OF TEMPERATURE
-  ! from Bolker's century code
-  Tmax=45.0;
-  if (soil_temp > Tmax) soil_temp = Tmax;
-  Topt=35.0;
-  tshr=0.2; tshl=2.63;
-  t1=(Tmax-soil_temp)/(Tmax-Topt);
-  t2=exp((tshr/tshl)*(1.-t1**tshl));
-  Td=t1**tshr*t2;
-
-  if (soil_temp > -10) Td=Td+0.05;
-  if (Td > 1.) Td=1.;
-
-  ! EFFECT OF MOISTURE
-  ! Linn and Doran, 1984, Soil Sci. Amer. J. 48:1267-1272
-  ! This differs from the Century Wd
-  ! was modified by slm/ens based on the figures from the above paper 
-  !     (not the reported function)
-
-  if(theta <= 0.3) then
-     Wd = 0.2;
-  else if(theta <= 0.6) then
-     Wd = 0.2+0.8*(theta-0.3)/0.3;
-  else 
-     Wd = exp(2.3*(0.6-theta));
-  endif
-
-  A = (Td*Wd); ! the combined (multiplicative) effect of temp and water
-               ! on decomposition rates
-end function A_function
-
-
-! ============================================================================
 ! calculated thermal inhibition factor depending on temperature
 function thermal_inhibition(T) result(tfs); real tfs
   real, intent(in) :: T ! temperature, degK
