@@ -176,6 +176,7 @@ real*8                     :: CN_microb=8                    !Fixed microbial C:
 real,dimension(n_c_types) :: eup=(/0.6,0.2,0.1/)            !Fraction of degraded C that goes into microbial biomass
 real,dimension(n_c_types) :: eup_myc=(/0.6,0.2,0.1/)            !Fraction of degraded C that goes into mycorrhizal biomass
 real*8,dimension(n_c_types) :: mup(n_c_types)=(/0.9,0.9,0.9/)  !Fraction of decomposed N that goes into microbial biomass
+real*8,dimension(n_c_types) :: mup_myc(n_c_types)=(/0.9,0.9,0.9/)
 
 real                      :: minMicrobeC=1e-5               !Minimum microbial biomass (prevents complete collapse if > 0.0)
 real*8					  :: gamma_nitr=0.6				 !Proportion of ammonium that is NOT lost as gas during the nitrification process
@@ -231,7 +232,7 @@ namelist /soil_carbon_nml/ &
             N_protected_relative_solubility,&
             DON_deposition_rate,&
             N_limit_scheme,&
-            Vmax_myc_min_N_uptk,k_myc_min_N_uptk,eup_myc,vmaxref_myc_decomp,k_myc_decomp,k_conc_myc_min_N_uptk,&
+            Vmax_myc_min_N_uptk,k_myc_min_N_uptk,eup_myc,mup_myc,vmaxref_myc_decomp,k_myc_decomp,k_conc_myc_min_N_uptk,&
             vmaxref_denitrif,k_denitrif,denitrif_first_order,denitrif_NO3_factor
 
 
@@ -1474,7 +1475,7 @@ end subroutine mycorrhizal_mineral_N_uptake_rate
     end where
 
     C_uptake = C_uptake + sum(potential_tempResp*eup)*dt
-    N_uptake = N_uptake + sum(pot_tempN_decomposed)*dt
+    N_uptake = N_uptake + sum(pot_tempN_decomposed*mup_myc)*dt
     CO2prod = CO2prod + sum(potential_tempResp*(1-eup))*dt
 
   enddo
@@ -1523,7 +1524,7 @@ subroutine mycorrhizal_decomposition(pool,myc_biomass,T,theta,air_filled_porosit
     end where
 
     C_uptake = C_uptake + sum(potential_tempResp*eup_myc)*dt
-    N_uptake = N_uptake + sum(pot_tempN_decomposed)*dt
+    N_uptake = N_uptake + sum(pot_tempN_decomposed*mup_myc)*dt
     CO2prod = CO2prod + sum(potential_tempResp*(1-eup_myc))*dt
 
     pool%litterCohorts(nn)%litterC = pool%litterCohorts(nn)%litterC - potential_tempResp*dt
@@ -1531,6 +1532,7 @@ subroutine mycorrhizal_decomposition(pool,myc_biomass,T,theta,air_filled_porosit
     pool%litterCohorts(nn)%originalLitterC = pool%litterCohorts(nn)%originalLitterC - sum(potential_tempResp*eup_myc)*dt
     pool%litterCohorts(nn)%originalLitterN = pool%litterCohorts(nn)%originalLitterN - sum(pot_tempN_decomposed)*dt
     pool%litterCohorts(nn)%CO2 = pool%litterCohorts(nn)%CO2 + sum(potential_tempResp*(1-eup_myc))*dt
+    pool%ammonium = pool%ammonium + sum(pot_tempN_decomposed*(1.0-mup_myc))*dt
 
   enddo
 

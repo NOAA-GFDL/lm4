@@ -438,7 +438,7 @@ real :: fsc_liv_sp(0:MSPECIES)  =  &  ! Species-specific fsc_liv, separate for b
 real :: fsc_froot(0:MSPECIES)      = &
         (/0.3      ,    0.3    ,     0.3       ,    0.3     ,   0.3       ,  0.3,    0.3,     0.3,  0.3,     0.3,     0.3,    0.3,    0.3,   0.3/)
 real :: leaf_live_c2n(0:MSPECIES)=  &  ! C:N ratio of live leaves.
-        (/30      ,    30    ,     30       ,    30     ,   30       ,  30,    30,     30,  30,     30,     30,    30,    30,   30/)
+        (/22      ,    22    ,     21       ,    25     ,   44       ,  30,    30,     30,  30,     30,     30,    30,    30,   30/)
 real :: leaf_retranslocation_frac(0:MSPECIES) = & ! Fraction of leaf N retranslocated before leaf drop.
         (/0.5      ,    0.5    ,     0.5       ,    0.5     ,   0.5       ,  0.5,    0.5,     0.5,  0.5,     0.5,     0.5,    0.5,    0.5,   0.5/)
 real :: froot_live_c2n(0:MSPECIES)=  &  ! C:N ratio of live fine roots.
@@ -446,9 +446,9 @@ real :: froot_live_c2n(0:MSPECIES)=  &  ! C:N ratio of live fine roots.
 real :: froot_retranslocation_frac(0:MSPECIES) = & ! Fraction of fine root N retranslocated before senescence.
         (/0.0      ,    0.0    ,     0.0       ,    0.0     ,   0.0       ,  0.0,    0.0,     0.0,  0.0,     0.0,     0.0,    0.0,    0.0,   0.0/)
 real :: wood_c2n(0:MSPECIES)=	&	!x2z Wiki  http://en.wikipedia.org/wiki/Carbon-to-nitrogen_ratio
-        (/500      ,    500    ,     500       ,    500     ,   500       ,  500,    500,     500,  500,     500,     500,    500,    500,   500/)
+        (/400      ,    400    ,     400       ,    400     ,   400       ,  500,    500,     500,  500,     500,     500,    500,    500,   500/)
 real :: sapwood_c2n(0:MSPECIES)=  &  ! C:N ratio of sapwood.
-        (/50      ,    50    ,     50       ,    50     ,   50       ,  50,    50,     50,  50,     50,     50,    50,    50,   50/)
+        (/100     ,    100   ,     100      ,    100    ,   100      ,  50,    50,     50,  50,     50,     50,    50,    50,   50/)
 real :: root_exudate_N_frac = 0.0 ! N fraction of root exudates. See e.g. Drake et al 2013
 
 real :: root_exudate_frac_max     = 0.5     ! Maximum fraction of NPP that can be allocated to mycorrhizae and root exudation

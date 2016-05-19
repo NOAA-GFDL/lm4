@@ -106,6 +106,7 @@ public :: hypothetical_myc_scavenger_N_uptake
 public :: myc_miner_N_uptake
 public :: hypothetical_myc_miner_N_uptake
 public :: root_N_uptake
+public :: hypothetical_root_N_uptake
 public :: redistribute_peat_carbon
 ! =====end of public interfaces ==============================================
 
@@ -7014,6 +7015,45 @@ subroutine root_N_uptake(soil,vegn,total_N_uptake,dt)
 
 end subroutine root_N_uptake
 
+
+! Nitrogen uptake from the rhizosphere by roots (active transport across root-soil interface)
+! Mineral nitrogen is taken up from the rhizosphere only
+subroutine hypothetical_root_N_uptake(soil,vegn,total_N_uptake,dt)
+  real,intent(out)::total_N_uptake
+  type(vegn_tile_type),intent(in)::vegn
+  type(soil_tile_type),intent(in)::soil
+  real,intent(in)::dt
+
+  real,dimension(num_l) :: uptake_frac_max, vegn_uptake_term, vrl
+  real::nitrate_uptake,ammonium_uptake,ammonium_concentration,nitrate_concentration
+  integer::nn
+
+  real :: K_r,r_r
+  real :: plant_height, xylem_area_frac,xylem_resist,dum4
+  real :: rhizosphere_frac
+
+  call vegn_uptake_profile (vegn, dz(1:num_l), uptake_frac_max, vegn_uptake_term )
+  ! r_r and vpl are to set rhizosphere size
+  call vegn_hydraulic_properties(vegn, dz(1:num_l),always_use_bsw, vrl, K_r, r_r, plant_height, xylem_area_frac,xylem_resist,dum4)
+
+  total_N_uptake=0.0
+  do nn=1,num_l
+    rhizosphere_frac=min(3.141592*((r_rhiz+r_r)**2-r_r**2)*vrl(nn),1.0)
+    ammonium_concentration=soil%soil_organic_matter(nn)%ammonium*rhizosphere_frac/dz(nn)
+    ammonium_uptake = ammonium_concentration/(ammonium_concentration+k_ammonium_root_uptake)*root_NH4_uptake_rate*dt*dz(nn)
+    nitrate_concentration=soil%soil_organic_matter(nn)%nitrate*rhizosphere_frac/dz(nn)
+    nitrate_uptake = nitrate_concentration/(nitrate_concentration+k_nitrate_root_uptake)*root_NO3_uptake_rate*dt*dz(nn)
+    if(ammonium_uptake>soil%soil_organic_matter(nn)%ammonium) then
+       __DEBUG5__(nn,rhizosphere_frac,ammonium_concentration,ammonium_uptake,soil%soil_organic_matter(nn)%ammonium)
+      endif
+    if(nitrate_uptake>soil%soil_organic_matter(nn)%nitrate) then; __DEBUG4__(nn,nitrate_concentration,nitrate_uptake,soil%soil_organic_matter(nn)%nitrate); endif
+    ! soil%soil_organic_matter(nn)%ammonium=soil%soil_organic_matter(nn)%ammonium-ammonium_uptake
+    ! soil%soil_organic_matter(nn)%nitrate=soil%soil_organic_matter(nn)%nitrate-nitrate_uptake
+    total_N_uptake = total_N_uptake + ammonium_uptake + nitrate_uptake
+  enddo
+
+
+end subroutine hypothetical_root_N_uptake
 
 ! Uptake of mineral N by mycorrhizal "scavengers" -- Should correspond to Arbuscular mycorrhizae
 subroutine myc_scavenger_N_uptake(soil,vegn,myc_biomass,total_N_uptake,dt)
