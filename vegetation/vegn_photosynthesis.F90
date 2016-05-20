@@ -336,7 +336,11 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
 
   ko=0.25   *exp(1400.0*(1.0/288.2-1.0/tl))*p_sea/p_surf;
   kc=0.00015*exp(6000.0*(1.0/288.2-1.0/tl))*p_sea/p_surf;
+  
   vm=spdata(pft)%Vmax*exp(3000.0*(1.0/288.2-1.0/tl));
+  
+  if (layer > 1) vm=vm/2.; !reduce vmax in the understory by half
+  
   !decrease Vmax due to aging of temperate deciduous leaves 
   !(based on Wilson, Baldocchi and Hanson (2001)."Plant,Cell, and Environment", vol 24, 571-583)
   if (spdata(pft)%leaf_age_tau>0 .and. leaf_age>spdata(pft)%leaf_age_onset) then
@@ -347,7 +351,10 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
 
   ! Find respiration for the whole canopy layer
   
-  Resp=spdata(pft)%gamma_resp*vm*lai/layer
+  Resp=spdata(pft)%gamma_resp*vm*lai !/layer
+  
+  if (layer > 1) Resp =Resp/2.; !reduce gamma_resp by 50% per Steve's experiments - need a reference
+  
   Resp=Resp/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))));
   
   

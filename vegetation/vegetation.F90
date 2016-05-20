@@ -376,6 +376,10 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
         call get_cohort_data(restart2, 'psi_l', cohort_psi_l_ptr )
         call get_cohort_data(restart2, 'Kxa',   cohort_Kxa_ptr )
         call get_cohort_data(restart2, 'Kla',   cohort_Kla_ptr )
+
+        call get_cohort_data(restart2, 'growth_prev_day', cohort_growth_previous_day_ptr )
+        call get_cohort_data(restart2, 'branch_sw_loss', cohort_branch_sw_loss_ptr )
+        call get_cohort_data(restart2, 'branch_wood_loss', cohort_branch_wood_loss_ptr )
         did_read_cohort_structure=.TRUE.
      else 
         did_read_cohort_structure=.FALSE.
@@ -502,9 +506,11 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      
      ! create and initialize cohorts for this vegetation tile
      tile%vegn%n_cohorts = init_n_cohorts
+     __DEBUG2__(init_n_cohorts,tile%vegn%n_cohorts)
      tile%vegn%tc_pheno  = init_Tv  ! initial temperature for phenology
      allocate(tile%vegn%cohorts(tile%vegn%n_cohorts))
      do n = 1,tile%vegn%n_cohorts
+     
         associate(cc => tile%vegn%cohorts(n))
         cc%Wl = init_Wl
         cc%Ws = init_Ws
@@ -523,8 +529,13 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
         cc%npp_previous_day = 0.0
         cc%status  = LEAF_ON
         cc%leaf_age = 0.0
+        
         if (do_ppa) then
            cc%species = init_cohort_spp(n)
+           cc%growth_previous_day = 0.0
+           cc%growth_previous_day_tmp = 0.0
+           cc%branch_sw_loss = 0.0
+           cc%branch_wood_loss = 0.0
            if (cc%species < 0) call error_mesg('vegn_init','species "'//trim(init_cohort_species(n))//&
                    '" needed for initialization, but not found in the list of species parameters', FATAL)
         else if(did_read_biodata.and.do_biogeography) then
@@ -537,6 +548,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
            cc%species = tile%vegn%tag
         endif
         cc%K_r = spdata(cc%species)%root_perm
+        __DEBUG1__(cc%age)
         end associate
      enddo
   enddo
@@ -929,6 +941,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   ! n_accum and nmn_acm are currently the same for all tiles; we only call mpp_max
   ! to handle the situation when there are no tiles in the current domain
   call mpp_max(n_accum); call mpp_max(nmn_acm)
+
   call add_scalar_data(restart2,'n_accum',n_accum,'number of accumulated steps')
   call add_scalar_data(restart2,'nmn_acm',nmn_acm,'number of accumulated months')
     
@@ -966,6 +979,10 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'leaf_age',cohort_leaf_age_ptr, 'age of leaves since bud burst', 'days')
   call add_cohort_data(restart2,'cohort_age',cohort_age_ptr, 'age of cohort', 'years')
   call add_cohort_data(restart2,'npp_prev_day', cohort_npp_previous_day_ptr, 'previous day NPP','kg C/year')
+
+  call add_cohort_data(restart2,'growth_prev_day', cohort_growth_previous_day_ptr, ' growth previous day','kg C/year')
+  call add_cohort_data(restart2,'branch_sw_loss', cohort_branch_sw_loss_ptr, ' branch_sw_loss','kg C/year')
+  call add_cohort_data(restart2,'branch_wood_loss', cohort_branch_wood_loss_ptr, 'branch_wood_loss','kg C/year')
 
   call add_int_tile_data(restart2,'landuse',vegn_landuse_ptr,'vegetation land use type')
   call add_tile_data(restart2,'age',vegn_age_ptr,'vegetation age', 'yr')
@@ -1885,6 +1902,20 @@ subroutine update_vegn_slow( )
         tile%vegn%daily_t_min =  HUGE(1.0)
      endif
 
+     if (do_check_conservation) then
+        ! + conservation check, part 2: calculate totals in final state, and compare 
+        ! with previous totals
+        tag = 'update_vegn_slow 1'
+        call get_tile_water(tile,lmass1,fmass1)
+        heat1  = land_tile_heat  (tile)
+        cmass1 = land_tile_carbon(tile)     
+        call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol)
+        call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
+        call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
+   !     call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16)
+        ! - end of conservation check, part 2
+     endif
+
      ! monthly averaging
      if (month1 /= month0) then
         ! compute averages from accumulated monthly values 
@@ -1902,6 +1933,19 @@ subroutine update_vegn_slow( )
         tile%vegn%t_cold_acm = min(tile%vegn%t_cold_acm, tile%vegn%tc_av)
 
         tile%vegn%nmn_acm = tile%vegn%nmn_acm+1 ! increase the number of accumulated months
+     endif
+     if (do_check_conservation) then
+        ! + conservation check, part 2: calculate totals in final state, and compare 
+        ! with previous totals
+        tag = 'update_vegn_slow 2'
+        call get_tile_water(tile,lmass1,fmass1)
+        heat1  = land_tile_heat  (tile)
+        cmass1 = land_tile_carbon(tile)     
+        call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol)
+        call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
+        call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
+   !     call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16)
+        ! - end of conservation check, part 2
      endif
 
      ! annual averaging
@@ -1927,6 +1971,19 @@ subroutine update_vegn_slow( )
      if (year1 /= year0 .and. do_biogeography) then
         call vegn_biogeography(tile%vegn)
      endif
+     if (do_check_conservation) then
+        ! + conservation check, part 2: calculate totals in final state, and compare 
+        ! with previous totals
+        tag = 'update_vegn_slow 3'
+        call get_tile_water(tile,lmass1,fmass1)
+        heat1  = land_tile_heat  (tile)
+        cmass1 = land_tile_carbon(tile)     
+        call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol)
+        call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
+        call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
+   !     call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16)
+        ! - end of conservation check, part 2
+     endif
 
      if (year1 /= year0 .and. do_peat_redistribution) then
         call redistribute_peat_carbon(tile%soil)
@@ -1936,20 +1993,87 @@ subroutine update_vegn_slow( )
         call update_fuel(tile%vegn,tile%soil%w_wilt(1)/tile%soil%pars%vwc_sat)
         ! assume that all layers are the same soil type and wilting is vertically homogeneous
      endif
-
+     if (do_check_conservation) then
+        ! + conservation check, part 2: calculate totals in final state, and compare 
+        ! with previous totals
+        tag = 'update_vegn_slow 4'
+        call get_tile_water(tile,lmass1,fmass1)
+        heat1  = land_tile_heat  (tile)
+        cmass1 = land_tile_carbon(tile)     
+        call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol)
+        call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
+        call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
+   !     call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16)
+        ! - end of conservation check, part 2
+     endif
+ 
      if (day1 /= day0 .and. do_cohort_dynamics) then
         N = tile%vegn%n_cohorts ; cc=>tile%vegn%cohorts(1:N)
         call send_tile_data(id_cgain,sum(cc(1:N)%carbon_gain*cc(1:N)%nindivs),tile%diag)
         call send_tile_data(id_closs,sum(cc(1:N)%carbon_loss*cc(1:N)%nindivs),tile%diag)
         call send_tile_data(id_wdgain,sum(cc(1:N)%bwood_gain*cc(1:N)%nindivs),tile%diag)
 
-        call vegn_growth(tile%vegn) ! selects lm3 or ppa inside
+     
+        call vegn_growth(tile%vegn, tile%diag) ! selects lm3 or ppa inside
+     if (do_check_conservation) then
+        ! + conservation check, part 2: calculate totals in final state, and compare 
+        ! with previous totals
+        tag = 'update_vegn_slow 4.1'
+        call get_tile_water(tile,lmass1,fmass1)
+        heat1  = land_tile_heat  (tile)
+        cmass1 = land_tile_carbon(tile)     
+        call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol)
+        call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
+        call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
+   !     call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16)
+        ! - end of conservation check, part 2
+     endif
+
         if (do_ppa) then
            call vegn_starvation_ppa(tile%vegn, tile%soil)
+     if (do_check_conservation) then
+        ! + conservation check, part 2: calculate totals in final state, and compare 
+        ! with previous totals
+        tag = 'update_vegn_slow 4.2'
+        call get_tile_water(tile,lmass1,fmass1)
+        heat1  = land_tile_heat  (tile)
+        cmass1 = land_tile_carbon(tile)     
+        call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol)
+        call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
+        call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
+   !     call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16)
+        ! - end of conservation check, part 2
+     endif
            call vegn_phenology_ppa (tile%vegn, tile%soil)
+     if (do_check_conservation) then
+        ! + conservation check, part 2: calculate totals in final state, and compare 
+        ! with previous totals
+        tag = 'update_vegn_slow 4.3'
+        call get_tile_water(tile,lmass1,fmass1)
+        heat1  = land_tile_heat  (tile)
+        cmass1 = land_tile_carbon(tile)     
+        call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol)
+        call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
+        call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
+   !     call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16)
+        ! - end of conservation check, part 2
+     endif
         else
            call vegn_nat_mortality_lm3(tile%vegn,tile%soil,86400.0)
         endif
+     endif
+     if (do_check_conservation) then
+        ! + conservation check, part 2: calculate totals in final state, and compare 
+        ! with previous totals
+        tag = 'update_vegn_slow 5'
+        call get_tile_water(tile,lmass1,fmass1)
+        heat1  = land_tile_heat  (tile)
+        cmass1 = land_tile_carbon(tile)     
+        call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol)
+        call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
+        call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
+   !     call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16)
+        ! - end of conservation check, part 2
      endif
 
      if  (month1 /= month0 .and. do_phenology) then
@@ -1957,15 +2081,81 @@ subroutine update_vegn_slow( )
             call vegn_phenology_lm3 (tile%vegn,tile%soil)
         ! assume that all layers are the same soil type and wilting is vertically homogeneous
      endif
+     if (do_check_conservation) then
+        ! + conservation check, part 2: calculate totals in final state, and compare 
+        ! with previous totals
+        tag = 'update_vegn_slow 6'
+        call get_tile_water(tile,lmass1,fmass1)
+        heat1  = land_tile_heat  (tile)
+        cmass1 = land_tile_carbon(tile)     
+        call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol)
+        call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
+        call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
+   !     call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16)
+        ! - end of conservation check, part 2
+     endif
 
      if (year1 /= year0 .and. do_patch_disturbance) then
         call vegn_disturbance(tile%vegn, tile%soil, seconds_per_year)
      endif
 
+     if (do_check_conservation) then
+        ! + conservation check, part 2: calculate totals in final state, and compare 
+        ! with previous totals
+        tag = 'update_vegn_slow 7'
+        call get_tile_water(tile,lmass1,fmass1)
+        heat1  = land_tile_heat  (tile)
+        cmass1 = land_tile_carbon(tile)     
+        call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol)
+        call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
+        call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
+   !     call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16)
+        ! - end of conservation check, part 2
+     endif
+
      if (do_ppa.and.year1 /= year0) then
         call vegn_reproduction_ppa(tile%vegn, tile%soil)
+     if (do_check_conservation) then
+        ! + conservation check, part 2: calculate totals in final state, and compare 
+        ! with previous totals
+        tag = 'update_vegn_slow 7.1'
+        call get_tile_water(tile,lmass1,fmass1)
+        heat1  = land_tile_heat  (tile)
+        cmass1 = land_tile_carbon(tile)     
+        call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol)
+        call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
+        call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
+   !     call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16)
+        ! - end of conservation check, part 2
+     endif
         call vegn_relayer_cohorts_ppa(tile%vegn)
+     if (do_check_conservation) then
+        ! + conservation check, part 2: calculate totals in final state, and compare 
+        ! with previous totals
+        tag = 'update_vegn_slow 7.2'
+        call get_tile_water(tile,lmass1,fmass1)
+        heat1  = land_tile_heat  (tile)
+        cmass1 = land_tile_carbon(tile)     
+        call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol)
+        call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
+        call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
+   !     call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16)
+        ! - end of conservation check, part 2
+     endif
         call vegn_mergecohorts_ppa(tile%vegn)
+     if (do_check_conservation) then
+        ! + conservation check, part 2: calculate totals in final state, and compare 
+        ! with previous totals
+        tag = 'update_vegn_slow 7.3'
+        call get_tile_water(tile,lmass1,fmass1)
+        heat1  = land_tile_heat  (tile)
+        cmass1 = land_tile_carbon(tile)     
+        call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol)
+        call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
+        call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
+   !     call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16)
+        ! - end of conservation check, part 2
+     endif
         call kill_small_cohorts_ppa(tile%vegn,tile%soil)
         
         ! update DBH_ys
@@ -1975,6 +2165,20 @@ subroutine update_vegn_slow( )
                                           tile%vegn%cohorts(ii)%bwood
         enddo
      endif
+     if (do_check_conservation) then
+        ! + conservation check, part 2: calculate totals in final state, and compare 
+        ! with previous totals
+        tag = 'update_vegn_slow 8'
+        call get_tile_water(tile,lmass1,fmass1)
+        heat1  = land_tile_heat  (tile)
+        cmass1 = land_tile_carbon(tile)     
+        call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol)
+        call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
+        call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
+   !     call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16)
+        ! - end of conservation check, part 2
+     endif
+
      
      if (year1 /= year0) then
         call vegn_harvesting(tile%vegn)
@@ -1991,6 +2195,19 @@ subroutine update_vegn_slow( )
         elsewhere
            tile%vegn%harv_rate(:) = 0.0
         end where
+     endif
+     if (do_check_conservation) then
+        ! + conservation check, part 2: calculate totals in final state, and compare 
+        ! with previous totals
+        tag = 'update_vegn_slow 9'
+        call get_tile_water(tile,lmass1,fmass1)
+        heat1  = land_tile_heat  (tile)
+        cmass1 = land_tile_carbon(tile)     
+        call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol)
+        call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
+        call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
+   !     call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16)
+        ! - end of conservation check, part 2
      endif
 
      ! + sanity checks
@@ -2381,6 +2598,10 @@ DEFINE_COHORT_ACCESSOR(integer,status)
 DEFINE_COHORT_ACCESSOR(real,leaf_age)
 DEFINE_COHORT_ACCESSOR(real,age)
 DEFINE_COHORT_ACCESSOR(real,npp_previous_day)
+DEFINE_COHORT_ACCESSOR(real,growth_previous_day)
+DEFINE_COHORT_ACCESSOR(real,growth_previous_day_tmp)
+DEFINE_COHORT_ACCESSOR(real,branch_sw_loss)
+DEFINE_COHORT_ACCESSOR(real,branch_wood_loss)
 DEFINE_COHORT_ACCESSOR(real,BM_ys)
 DEFINE_COHORT_ACCESSOR(real,DBH_ys)
 DEFINE_COHORT_ACCESSOR(real,topyear)

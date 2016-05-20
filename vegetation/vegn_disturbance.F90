@@ -471,8 +471,9 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
   endif
 
   f0 = t0%frac ! save original tile fraction for future use
-
+  write (*,*) 'in natural mortality'
   if (do_check_conservation) then
+  
      ! + conservation check, part 1: calculate the pre-transition totals
      call get_tile_water(t0,lmass0,fmass0)
      heat0  = land_tile_heat  (t0)
@@ -644,7 +645,7 @@ subroutine kill_plants_ppa(cc, vegn, soil, ndead, fsmoke, leaf_litt, wood_litt, 
 
   ! calculate total carbon losses, kgC/m2
   lost_wood  = ndead * (cc%bwood+cc%bsw+cc%bwood_gain)
-  lost_alive = ndead * (cc%bl+cc%br+cc%blv+cc%bseed+cc%nsc+cc%carbon_gain)
+  lost_alive = ndead * (cc%bl+cc%br+cc%blv+cc%bseed+cc%nsc+cc%carbon_gain+cc%growth_previous_day)
   ! loss to fire
   burned_wood  = fsmoke*lost_wood
   burned_alive = fsmoke*lost_alive
@@ -656,7 +657,7 @@ subroutine kill_plants_ppa(cc, vegn, soil, ndead, fsmoke, leaf_litt, wood_litt, 
   vegn%csmoke_pool = vegn%csmoke_pool + burned_wood + burned_alive
     
   ! add remaining lost C to soil carbon pools
-  leaf_litt(:) = leaf_litt(:) + [fsc_liv,  1-fsc_liv,  0.0]*(cc%bl+cc%bseed+cc%carbon_gain)*(1-fsmoke)*ndead
+  leaf_litt(:) = leaf_litt(:) + [fsc_liv,  1-fsc_liv,  0.0]*(cc%bl+cc%bseed+cc%carbon_gain+cc%growth_previous_day)*(1-fsmoke)*ndead
   wood_litt(:) = wood_litt(:) + [fsc_wood, 1-fsc_wood, 0.0]*(cc%bwood+cc%bsw+cc%bwood_gain)*(1-fsmoke)*agf_bs*ndead
   wood_litt(C_CEL) = wood_litt(C_CEL)+cc%nsc*(1-fsmoke)*agf_bs*ndead
   call cohort_root_litter_profile(cc, dz, profile)

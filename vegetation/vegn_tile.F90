@@ -362,6 +362,8 @@ subroutine vegn_mergecohorts_ppa(vegn)
 
   allocate(cc(vegn%n_cohorts))
 
+!  write(*,*)'vegn_mergecohorts_ppa n_cohorts before: ', vegn%n_cohorts
+
   merged(:)=.FALSE. ; k = 0
   do i = 1, vegn%n_cohorts 
      if(merged(i)) cycle ! skip cohorts that were already merged
@@ -382,6 +384,7 @@ subroutine vegn_mergecohorts_ppa(vegn)
   vegn%cohorts=>cc
 
   ! note that the size of the vegn%cohorts may be larger than vegn%n_cohorts
+!  write(*,*)'vegn_mergecohorts_ppa n_cohorts after: ', vegn%n_cohorts
 end subroutine vegn_mergecohorts_ppa
 
 ! ============================================================================
@@ -422,7 +425,9 @@ subroutine merge_cohorts(c1,c2)
   __MERGE__(dbh)     ! diameter at breast height
   __MERGE__(height)  ! cohort height
   __MERGE__(crownarea)   ! area of cohort crown
-
+   __MERGE__(branch_sw_loss)
+  __MERGE__(branch_wood_loss)
+  __MERGE__(growth_previous_day)
   __MERGE__(age)     ! age of individual
   __MERGE__(carbon_gain) ! carbon gain during a day, kg C/indiv
   __MERGE__(carbon_loss) ! carbon loss during a day, kg C/indiv [diag only]
@@ -465,6 +470,8 @@ subroutine vegn_relayer_cohorts_ppa (vegn)
   real    :: frac ! fraction of the layer covered so far by the canopies
   type(vegn_cohort_type), pointer :: cc(:),new(:)
   real    :: nindivs
+
+  write(*,*)'vegn_relayer_cohorts_ppa n_cohorts after: ', vegn%n_cohorts
   
   ! rank cohorts in descending order by height. For now, assume that they are 
   ! in order
@@ -505,6 +512,7 @@ subroutine vegn_relayer_cohorts_ppa (vegn)
   ! replace the array of cohorts
   deallocate(vegn%cohorts)
   vegn%cohorts => new ; vegn%n_cohorts = i
+  write(*,*)'vegn_relayer_cohorts_ppa n_cohorts after: ', vegn%n_cohorts
 end subroutine vegn_relayer_cohorts_ppa
 
 ! ============================================================================
@@ -708,7 +716,8 @@ function vegn_tile_carbon(vegn) result(carbon) ; real carbon
           vegn%cohorts(i)%br  + vegn%cohorts(i)%bwood + &
           vegn%cohorts(i)%bsw + vegn%cohorts(i)%bseed + &
           vegn%cohorts(i)%nsc + &
-          vegn%cohorts(i)%carbon_gain + vegn%cohorts(i)%bwood_gain &
+          vegn%cohorts(i)%carbon_gain + vegn%cohorts(i)%bwood_gain + &
+          vegn%cohorts(i)%growth_previous_day &
          )*vegn%cohorts(i)%nindivs
   enddo
   carbon = carbon + sum(vegn%harv_pool) + &

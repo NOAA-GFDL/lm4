@@ -142,6 +142,12 @@ type :: vegn_cohort_type
                             ! retirement rate of sapwood into wood
   real :: extinct = 0.0     ! light extinction coefficient in the canopy for photosynthesis calculations
   
+  ! ens introduce for growth respiration
+   real :: growth_previous_day     = 0.0
+   real :: growth_previous_day_tmp   = 0.0
+   real :: branch_sw_loss = 0.0
+   real :: branch_wood_loss = 0.0
+   
 ! for phenology
   real :: gdd = 0.0
 
@@ -563,10 +569,19 @@ subroutine init_cohort_allometry_ppa(cc)
 
   btot = max(0.0001,cc%bwood+cc%bsw)
   associate(sp=>spdata(cc%species))
-     cc%DBH        = (btot / sp%alphaBM) ** ( 1.0/sp%thetaBM )
-!    cc%treeBM     = sp%alphaBM * cc%dbh ** sp%thetaBM
-     cc%height     = sp%alphaHT * cc%dbh ** sp%thetaHT
-     cc%crownarea  = sp%alphaCA * cc%dbh ** sp%thetaCA
+!     cc%DBH        = (btot / sp%alphaBM) ** ( 1.0/sp%thetaBM )
+!!    cc%treeBM     = sp%alphaBM * cc%dbh ** sp%thetaBM
+!     cc%height     = sp%alphaHT * cc%dbh ** sp%thetaHT
+!     cc%crownarea  = sp%alphaCA * cc%dbh ** sp%thetaCA
+
+! ens change allometry to HML
+! need to add a namelist for allometry switches, need to do it by pft - maybe by species or pft
+
+     cc%DBH        = (btot / sp%alphaBM) ** ( 1.0/sp%thetaBM ) ! need to init from dbh
+     cc%height     = 60.97697 *(cc%DBH**0.8631476)/(0.6841742+cc%DBH**0.8631476)
+     cc%crownarea  = 243.7808*cc%DBH**1.18162
+
+
 
      ! calculations of bl_max and br_max are here only for the sake of the
      ! diagnostics, because otherwise those fields are inherited from the 
