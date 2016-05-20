@@ -340,7 +340,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      
      gpp(i)  = (cc%An_op - cc%An_cl)*mol_C*cc%leafarea     
      ! growth respiration comes from nsc pool not gpp now
-     resg(i) = cc%growth_previous_day_tmp*365.0 ! kg C per individual per year
+     resg(i) = cc%growth_previous_day_tmp ! kg C per individual per year
 
      cc%growth_previous_day = cc%growth_previous_day - resg(i)*dt_fast_yr
      
@@ -961,7 +961,6 @@ subroutine biomass_allocation_ppa(cc)
      
      !ens --compute daily growth to compute respiration, apply it next day, use npp_previous day variable, units kg C/(m2 *year)
      cc%growth_previous_day = cc%growth_previous_day+(max(0., G_LFR+G_WF)+delta_bsw_branch)*GROWTH_RESP ! this is for growth respiration to come from nsc
-     cc%growth_previous_day_tmp = max(0.0,cc%growth_previous_day)
      
 
      ! calculate tendency of breast height diameter given increase of bsw
@@ -1068,8 +1067,14 @@ subroutine biomass_allocation_ppa(cc)
     ! cc%nsc = cc%nsc + cc%carbon_gain
     !should some nsc go into sapwood and wood or seed
     
-    cc%growth_previous_day_tmp = max(0.0,cc%growth_previous_day)
   endif ! cc%status == LEAF_ON
+
+  ! calculate spending rate of growth respiration, to distribute it uniformly
+  ! in time over the next day:
+  cc%growth_previous_day_tmp = max(0.0,cc%growth_previous_day)*365.0
+  ! factor 365.0 converts the rate of growth respiration release to atmosphere
+  ! from kgC/day (frequency of this subroutine calls) to kgC/year, the units we 
+  ! use for other vegetation fluxes
 
   ! reset carbon accumulation terms
   cc%carbon_gain = 0
