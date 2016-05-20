@@ -557,7 +557,7 @@ subroutine add_int_cohort_data(restart,varname,fptr,longname,units)
 
   if (new_land_io) then
      allocate(r(size(restart%cidx)))
-     call gather_cohort_datai_i0d(fptr,restart%cidx,restart%tile_dim_length,r)
+     call gather_cohort_data_i0d(fptr,restart%cidx,restart%tile_dim_length,r)
      id_restart = register_restart_field(restart%rhandle,restart%basename,varname,r, &
           longname=longname, units=units, compressed_axis='H', restart_owns_data=.true.)
   else
@@ -596,7 +596,7 @@ subroutine get_int_cohort_data(restart,varname,fptr)
         'cohort index not found in file "'//restart%filename//'"',FATAL)
      allocate(r(size(restart%cidx)))
      call read_compressed(restart%basename, varname, r, domain=lnd%domain, timelevel=1)
-     call assemble_cohortsi_i0d(fptr,restart%cidx,restart%tile_dim_length,r)
+     call assemble_cohorts_i0d(fptr,restart%cidx,restart%tile_dim_length,r)
      deallocate(r)
   else
      call read_cohort_data_i0d_fptr(restart%ncid,varname,fptr)
