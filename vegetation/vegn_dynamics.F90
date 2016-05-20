@@ -340,7 +340,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      
      gpp(i)  = (cc%An_op - cc%An_cl)*mol_C*cc%leafarea     
      ! growth respiration comes from nsc pool not gpp now
-     resg(i) = cc%growth_previous_day_tmp*365.0 ! in units of C per m2 per year
+     resg(i) = cc%growth_previous_day_tmp*365.0 ! kg C per individual per year
 
      cc%growth_previous_day = cc%growth_previous_day - resg(i)*dt_fast_yr
      

@@ -143,9 +143,10 @@ type :: vegn_cohort_type
   real :: extinct = 0.0     ! light extinction coefficient in the canopy for photosynthesis calculations
   
   ! ens introduce for growth respiration
-   real :: growth_previous_day     = 0.0
-   real :: growth_previous_day_tmp   = 0.0
-   real :: branch_sw_loss = 0.0
+   real :: growth_previous_day     = 0.0 ! kgC/individual, pool of growth respiration
+   real :: growth_previous_day_tmp = 0.0 ! kgC/individual per year, rate of release of 
+                                         ! growth respiration to the atmosphere
+   real :: branch_sw_loss   = 0.0
    real :: branch_wood_loss = 0.0
    
 ! for phenology

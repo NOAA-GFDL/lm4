@@ -378,6 +378,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
         call get_cohort_data(restart2, 'Kla',   cohort_Kla_ptr )
 
         call get_cohort_data(restart2, 'growth_prev_day', cohort_growth_previous_day_ptr )
+        call get_cohort_data(restart2, 'growth_prev_day_tmp', cohort_growth_previous_day_tmp_ptr )
         call get_cohort_data(restart2, 'branch_sw_loss', cohort_branch_sw_loss_ptr )
         call get_cohort_data(restart2, 'branch_wood_loss', cohort_branch_wood_loss_ptr )
         did_read_cohort_structure=.TRUE.
@@ -508,9 +509,9 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      tile%vegn%n_cohorts = init_n_cohorts
      __DEBUG2__(init_n_cohorts,tile%vegn%n_cohorts)
      tile%vegn%tc_pheno  = init_Tv  ! initial temperature for phenology
+
      allocate(tile%vegn%cohorts(tile%vegn%n_cohorts))
      do n = 1,tile%vegn%n_cohorts
-     
         associate(cc => tile%vegn%cohorts(n))
         cc%Wl = init_Wl
         cc%Ws = init_Ws
@@ -532,10 +533,6 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
         
         if (do_ppa) then
            cc%species = init_cohort_spp(n)
-           cc%growth_previous_day = 0.0
-           cc%growth_previous_day_tmp = 0.0
-           cc%branch_sw_loss = 0.0
-           cc%branch_wood_loss = 0.0
            if (cc%species < 0) call error_mesg('vegn_init','species "'//trim(init_cohort_species(n))//&
                    '" needed for initialization, but not found in the list of species parameters', FATAL)
         else if(did_read_biodata.and.do_biogeography) then
@@ -980,8 +977,9 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'cohort_age',cohort_age_ptr, 'age of cohort', 'years')
   call add_cohort_data(restart2,'npp_prev_day', cohort_npp_previous_day_ptr, 'previous day NPP','kg C/year')
 
-  call add_cohort_data(restart2,'growth_prev_day', cohort_growth_previous_day_ptr, ' growth previous day','kg C/year')
-  call add_cohort_data(restart2,'branch_sw_loss', cohort_branch_sw_loss_ptr, ' branch_sw_loss','kg C/year')
+  call add_cohort_data(restart2,'growth_prev_day', cohort_growth_previous_day_ptr, 'pool of growth respiration','kg C')
+  call add_cohort_data(restart2,'growth_prev_day_tmp', cohort_growth_previous_day_tmp_ptr, 'rate of growth respiration release to atmos','kg C/year')
+  call add_cohort_data(restart2,'branch_sw_loss', cohort_branch_sw_loss_ptr, 'branch_sw_loss','kg C/year')
   call add_cohort_data(restart2,'branch_wood_loss', cohort_branch_wood_loss_ptr, 'branch_wood_loss','kg C/year')
 
   call add_int_tile_data(restart2,'landuse',vegn_landuse_ptr,'vegetation land use type')
