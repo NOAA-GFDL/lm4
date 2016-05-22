@@ -65,6 +65,11 @@ integer, public, parameter :: & ! phenology type
  PHEN_DECIDUOUS = 0, &
  PHEN_EVERGREEN = 1
 
+integer, public, parameter :: & ! allometry type
+ ALLOM_EW     = 0, & ! Ensheng's original
+ ALLOM_EW1    = 1, & ! Ensheng's "alternative"
+ ALLOM_HML    = 2    ! Helena's allometry
+
 integer, public, parameter :: & ! status of leaves
  LEAF_ON      = 0, &  ! leaves are displayed
  LEAF_OFF     = 5     ! leaves are dropped
@@ -141,7 +146,8 @@ type spec_data_type
   real    :: treefall_disturbance_rate = 0.025;
   logical :: mortality_kills_balive    = .false.! if true, then bl, blv, and br are affected by natural mortality
   integer :: pt = PT_C3 ! photosynthetic physiology of species
-  integer :: phent = PHEN_DECIDUOUS ! type of phenology 
+  integer :: phent = PHEN_DECIDUOUS ! type of phenology
+  integer :: allomt = ALLOM_HML ! type of allometry
   integer :: lifeform = FORM_WOODY ! vegetation lifeform
 
   real    :: c1 = 0.4807692 ! unitless, coefficient for living biomass allocation
@@ -217,6 +223,7 @@ type spec_data_type
   real    :: dat_snow_crit    = 0.0333
   !  for PPA, Weng, 7/25/2011
   real    :: alphaHT = 20.0, thetaHT = 0.5 ! height = alphaHT * DBH ** thetaHT
+  real    :: gammaHT = 0.6841742           ! heigh parameter for HML allometry
   real    :: alphaCA = 30.0, thetaCA = 1.5 ! crown area = alphaCA * DBH ** thetaCA
   real    :: alphaBM       , thetaBM = 2.5 ! biomass = alphaBM * DBH ** thetaBM (used in reverse, 
                                            ! to compute DBH given biomass)
@@ -571,6 +578,19 @@ subroutine read_species_data(name, sp, errors_found)
      call error_mesg(module_name,'Phenology type "'//trim(str)//'" is invalid, use "deciduous" or "evergreen"', FATAL)
   end select
 
+  call add_known_name('allometry_type')
+  str = fm_util_get_string('allometry_type', caller = module_name, default_value = 'HML', scalar = .true.)
+  select case (trim(lowercase(str)))
+  case('ew')
+     sp%allomt = ALLOM_EW
+  case('ew1')
+     sp%allomt = ALLOM_EW1
+  case('hml')
+     sp%allomt = ALLOM_HML
+  case default
+     call error_mesg(module_name,'Allometry type "'//trim(str)//'" is invalid, use "EW", "EW1", or "HML"', FATAL)
+  end select
+
   call add_known_name('lifeform')
   str = fm_util_get_string('lifeform', caller = module_name, default_value = 'tree', scalar = .true.)
   select case (trim(lowercase(str)))
@@ -637,6 +657,8 @@ subroutine read_species_data(name, sp, errors_found)
 
   !  for PPA, Weng, 7/25/2011
   __GET_SPDATA_REAL__(alphaHT)
+  __GET_SPDATA_REAL__(thetaHT)
+  __GET_SPDATA_REAL__(gammaHT)
   __GET_SPDATA_REAL__(alphaCA)
   __GET_SPDATA_REAL__(alphaBM)
   __GET_SPDATA_REAL__(alphaCSASW)
@@ -825,8 +847,10 @@ subroutine print_species_data(unit)
   call add_row(table, 'Resp_understory_factor', spdata(:)%Resp_understory_factor)
 
   ! PPA-related parameters
+  call add_row(table, 'Allometry Type',  spdata(:)%allomt)
   call add_row(table, 'alphaHT', spdata(:)%alphaHT)
   call add_row(table, 'thetaHT', spdata(:)%thetaHT)
+  call add_row(table, 'gammaHT', spdata(:)%gammaHT)
   call add_row(table, 'alphaCA', spdata(:)%alphaCA)
   call add_row(table, 'thetaCA', spdata(:)%thetaCA)
   call add_row(table, 'alphaBM', spdata(:)%alphaBM)

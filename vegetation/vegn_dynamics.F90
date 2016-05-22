@@ -18,6 +18,7 @@ use land_tile_diag_mod, only : OP_SUM, OP_MEAN, &
 use vegn_data_mod, only : spdata, &
      CMPT_NSC, CMPT_SAPWOOD, CMPT_LEAF, CMPT_ROOT, CMPT_VLEAF, CMPT_WOOD, &
      PHEN_DECIDUOUS, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
+     ALLOM_EW, ALLOM_EW1, ALLOM_HML, &
      fsc_liv, fsc_wood, fsc_froot, agf_bs, &
      l_fract, mcv_min, mcv_lai, do_ppa, tau_seed, &
      understory_lai_factor, bseed_distr, wood_fract_min, do_alt_allometry
@@ -945,7 +946,6 @@ subroutine biomass_allocation_ppa(cc)
         ! deltaBSW = (1.0-sp%v_seed)* (cc%carbon_gain - G_LFR)
         deltaSeed=      sp%v_seed * G_WF
         deltaBSW = (1.0-sp%v_seed)* G_WF
-        
      else
          deltaSeed= 0.0 
          deltaBSW = G_WF
@@ -962,52 +962,28 @@ subroutine biomass_allocation_ppa(cc)
      !ens --compute daily growth to compute respiration, apply it next day, use npp_previous day variable, units kg C/(m2 *year)
      cc%growth_previous_day = cc%growth_previous_day+(max(0., G_LFR+G_WF)+delta_bsw_branch)*GROWTH_RESP ! this is for growth respiration to come from nsc
      
-
-     ! calculate tendency of breast height diameter given increase of bsw
-!     deltaDBH     = deltaBSW / (sp%thetaBM * sp%alphaBM * cc%DBH**(sp%thetaBM-1))
-!     deltaHeight  = sp%thetaHT * sp%alphaHT * cc%DBH**(sp%thetaHT-1) * deltaDBH
-!!     deltaCA      = sp%thetaCA * sp%alphaCA * cc%DBH**(sp%thetaCA-1) * deltaDBH
-!     if(do_alt_allometry) then
-!         deltaCA  = sp%thetaCA * sp%alphaCA *     &
-!               (1./(exp(15.*(cc%DBH-DBHtp))+1.))  *     &     
-!               cc%DBH**(sp%thetaCA-1) * deltaDBH
-!     else
-!         deltaCA  = sp%thetaCA * sp%alphaCA * cc%DBH**(sp%thetaCA-1) * deltaDBH
-!     endif
-
-!     cc%DBH       = cc%DBH       + deltaDBH
-!     cc%height    = cc%height    + deltaHeight
-!     cc%crownarea = cc%crownarea + deltaCA
-
-!     ! calculate DBH, BLmax, BRmax, BSWmax using allometric relationships
-!     ! Weng 2012-01-31 update_bio_living_fraction
-!     CSAsw    = sp%alphaCSASW * cc%DBH**sp%thetaCSASW
-!     CSAtot   = PI * (cc%DBH/2.0)**2
-!     CSAwd    = max(0.0, CSAtot - CSAsw)
-!     DBHwd    = 2*sqrt(CSAwd/PI)
-!     BSWmax   = sp%alphaBM * (cc%DBH**sp%thetaBM - DBHwd**sp%thetaBM)
-   
-!     ! Update Kxa, stem conductance if we are tracking past damage
-!     ! TODO: make hydraulics_repair a namelist parameter?
-!     if (.not.hydraulics_repair) then
-!        deltaCSAsw = CSAsw - (sp%alphaCSASW * (cc%DBH - deltaDBH)**sp%thetaCSASW)
-!        cc%Kxa = (cc%Kxa*CSAsw + sp%Kxam*deltaCSAsw)/(CSAsw + deltaCSAsw)
-
-! ens new height from HML - need a namelist here
-!     alpha_z = 60.97697
-!     b_z = 0.1829603
-!     gamma_z = 0.6841742
-!     alpha_ca = 243.7808
-!     b_ca = 1.18162
-!     alpha_s = 0.559
-     
-     
-     deltaDBH     = deltaBSW*(gamma_z+cc%DBH **b_z)**2/(sp%rho_wood * alpha_z * alpha_s * &
-                    (cc%DBH**(1.+b_z)*(2.*(gamma_z+cc%DBH**b_z)+gamma_z*b_z)))
-     deltaHeight  = deltaDBH* alpha_z *gamma_z*b_z/(cc%DBH**(1.-b_z) * &
-                    (gamma_z + cc%DBH**b_z)**2)
-     deltaCA      = deltaDBH * alpha_ca * b_ca * cc%DBH**(b_ca-1.)              
-                
+     select case (sp%allomt)
+     case (ALLOM_EW, ALLOM_EW1)
+        ! calculate tendency of breast height diameter given increase of bsw
+        deltaDBH     = deltaBSW / (sp%thetaBM * sp%alphaBM * cc%DBH**(sp%thetaBM-1))
+        deltaHeight  = sp%thetaHT * sp%alphaHT * cc%DBH**(sp%thetaHT-1) * deltaDBH
+!       deltaCA      = sp%thetaCA * sp%alphaCA * cc%DBH**(sp%thetaCA-1) * deltaDBH
+        if(sp%allomt == ALLOM_EW1) then
+            deltaCA  = sp%thetaCA * sp%alphaCA *     &
+                  (1./(exp(15.*(cc%DBH-DBHtp))+1.))  *     &     
+                  cc%DBH**(sp%thetaCA-1) * deltaDBH
+        else
+            deltaCA  = sp%thetaCA * sp%alphaCA * cc%DBH**(sp%thetaCA-1) * deltaDBH
+        endif
+     case (ALLOM_HML)
+        deltaDBH     = deltaBSW*(gamma_z+cc%DBH **b_z)**2/(sp%rho_wood * alpha_z * alpha_s * &
+                       (cc%DBH**(1.+b_z)*(2.*(gamma_z+cc%DBH**b_z)+gamma_z*b_z)))
+        deltaHeight  = deltaDBH* alpha_z *gamma_z*b_z/(cc%DBH**(1.-b_z) * &
+                       (gamma_z + cc%DBH**b_z)**2)
+        deltaCA      = deltaDBH * alpha_ca * b_ca * cc%DBH**(b_ca-1.)              
+     case default
+        call error_mesg('biomass_allocation_ppa','Unknown allometry type. This should never happen.', FATAL)
+     end select
     
      cc%DBH       = cc%DBH       + deltaDBH
      cc%height    = cc%height    + deltaHeight
