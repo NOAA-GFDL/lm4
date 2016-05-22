@@ -167,6 +167,8 @@ type spec_data_type
   real    :: gamma_resp = 0.02   !
   real    :: wet_leaf_dreg = 0.3 ! wet leaf photosynthesis down-regulation
   real    :: leaf_age_onset = 100.0, leaf_age_tau = 150.0
+  real    :: Vmax_understory_factor = 0.5 ! Vmax multiplier for understory
+  real    :: Resp_understory_factor = 0.5 ! Resp multiplier for understory
 
   ! radiation parameters for 2 bands, VIS and NIR
   real    :: leaf_refl (NBANDS) = (/ 0.10, 0.50/) ! reflectance of leaf
@@ -594,8 +596,10 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(wet_leaf_dreg)
   __GET_SPDATA_REAL__(leaf_age_onset)
   __GET_SPDATA_REAL__(leaf_age_tau)
-  __GET_SPDATA_REAL__(dfr)
+  __GET_SPDATA_REAL__(Vmax_understory_factor)
+  __GET_SPDATA_REAL__(Resp_understory_factor)
 
+  __GET_SPDATA_REAL__(dfr)
   __GET_SPDATA_REAL__(srl)
   __GET_SPDATA_REAL__(root_r)
   __GET_SPDATA_REAL__(root_perm)
@@ -817,6 +821,8 @@ subroutine print_species_data(unit)
   call add_row(table, 'wet_leaf_dreg', spdata(:)%wet_leaf_dreg)
   call add_row(table, 'leaf_age_onset',spdata(:)%leaf_age_onset)
   call add_row(table, 'leaf_age_tau',  spdata(:)%leaf_age_tau)
+  call add_row(table, 'Vmax_understory_factor', spdata(:)%Vmax_understory_factor)
+  call add_row(table, 'Resp_understory_factor', spdata(:)%Resp_understory_factor)
 
   ! PPA-related parameters
   call add_row(table, 'alphaHT', spdata(:)%alphaHT)

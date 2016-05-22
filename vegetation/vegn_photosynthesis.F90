@@ -339,7 +339,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   
   vm=spdata(pft)%Vmax*exp(3000.0*(1.0/288.2-1.0/tl));
   
-  if (layer > 1) vm=vm/2.; !reduce vmax in the understory by half
+  if (layer > 1) vm=vm*spdata(pft)%Vmax_understory_factor ! reduce vmax in the understory
   
   !decrease Vmax due to aging of temperate deciduous leaves 
   !(based on Wilson, Baldocchi and Hanson (2001)."Plant,Cell, and Environment", vol 24, 571-583)
@@ -353,7 +353,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   
   Resp=spdata(pft)%gamma_resp*vm*lai !/layer
   
-  if (layer > 1) Resp =Resp/2.; !reduce gamma_resp by 50% per Steve's experiments - need a reference
+  if (layer > 1) Resp = Resp*spdata(pft)%Resp_understory_factor ! reduce gamma_resp by 50% per Steve's experiments - need a reference
   
   Resp=Resp/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))));
   
