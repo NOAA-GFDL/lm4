@@ -471,7 +471,7 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
   endif
 
   f0 = t0%frac ! save original tile fraction for future use
-  write (*,*) 'in natural mortality'
+  ! write (*,*) 'in natural mortality'
   if (do_check_conservation) then
   
      ! + conservation check, part 1: calculate the pre-transition totals

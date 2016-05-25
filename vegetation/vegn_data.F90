@@ -222,16 +222,15 @@ type spec_data_type
   real    :: dat_rs_min       = 131.0
   real    :: dat_snow_crit    = 0.0333
   !  for PPA, Weng, 7/25/2011
-  real    :: alphaHT = 20.0, thetaHT = 0.5 ! height = alphaHT * DBH ** thetaHT
-  real    :: gammaHT = 0.6841742           ! heigh parameter for HML allometry
-  real    :: alphaCA = 30.0, thetaCA = 1.5 ! crown area = alphaCA * DBH ** thetaCA
-  real    :: alphaBM       , thetaBM = 2.5 ! biomass = alphaBM * DBH ** thetaBM (used in reverse, 
-                                           ! to compute DBH given biomass)
+  real    :: alphaHT = 20.0,  thetaHT = 0.5, gammaHT = 0.6841742 ! height allometry parameters
+  real    :: alphaCA = 30.0,  thetaCA = 1.5 ! crown area alloametry parameters
+  real    :: alphaBM = 0.559, thetaBM = 2.5 ! biomass allometry parameters
   real    :: alphaCSASW    = 2.25e-2, thetaCSASW = 1.5 ! 
   real    :: maturalage    = 1.0    ! the age that can reproduce
   real    :: fecundity     = 0.0    ! max C allocated to next generation per unit canopy area, kg C/m2
   real    :: v_seed        = 0.1    ! fraction of G_SF to G_F
-  real    :: seedlingsize  = 0.02   ! size of the seedlings, kgC/indiv
+  real    :: seedling_height   = 0.1 ! height of the seedlings, m
+  real    :: seedling_nsc_frac = 3.0 ! initial seedling NSC, as fraction of bl_max (typically > 1)
   real    :: prob_g = 0.45, prob_e = 0.3 ! germination and establishment probabilities
   real    :: mortrate_d_c  = 0.05   ! daily mortality rate in canopy
   real    :: mortrate_d_u  = 0.2    ! daily mortality rate in understory
@@ -356,7 +355,6 @@ namelist /vegn_data_nml/ &
   
   ! PPA-related namelist values
   do_ppa, &
-  bseed_distr, &
   mortrate_s, cmc_eps, &
   DBH_mort, A_mort, B_mort, &
   b0_growth, tau_seed, understory_lai_factor, &
@@ -660,12 +658,12 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(thetaHT)
   __GET_SPDATA_REAL__(gammaHT)
   __GET_SPDATA_REAL__(alphaCA)
+  __GET_SPDATA_REAL__(thetaCA)
   __GET_SPDATA_REAL__(alphaBM)
-  __GET_SPDATA_REAL__(alphaCSASW)
-  __GET_SPDATA_REAL__(thetaCSASW)
   __GET_SPDATA_REAL__(maturalage)
   __GET_SPDATA_REAL__(v_seed)
-  __GET_SPDATA_REAL__(seedlingsize)
+  __GET_SPDATA_REAL__(seedling_height)
+  __GET_SPDATA_REAL__(seedling_nsc_frac)
   __GET_SPDATA_REAL__(prob_g)
   __GET_SPDATA_REAL__(prob_e)
   __GET_SPDATA_REAL__(mortrate_d_c)
@@ -777,10 +775,17 @@ subroutine init_derived_species_data(sp)
       ! formula for mu_bar gives an undefined value, so we handle it separately 
       sp%mu_bar = 1.0
    endif
-   ! calculate alphaBM parameter of allometry
-   ! note that rho_wood was re-introduced for this calculation
-   sp%alphaBM    = sp%rho_wood * sp%taperfactor * PI/4. * sp%alphaHT
+   select case (sp%allomt)
+   case (ALLOM_EW,ALLOM_EW1)
+      sp%thetaHT = 0.5
+      sp%thetaCA = sp%thetaHT + 1
+      sp%thetaBM = sp%thetaHT + 2
+      ! calculate alphaBM parameter of allometry
+      ! note that rho_wood was re-introduced for this calculation
+      sp%alphaBM = sp%taperfactor * PI/4. * sp%alphaHT
+   end select 
    sp%alphaCSASW = sp%phiCSA*sp%LAImax*sp%alphaCA
+   sp%thetaCSASW = sp%thetaCA
 
   ! Convert units: from MPa to Pa
   sp%Kxam = sp%Kxam * 1e-6
@@ -859,7 +864,8 @@ subroutine print_species_data(unit)
   call add_row(table, 'thetaCSASW', spdata(:)%thetaCSASW)
   call add_row(table, 'maturalage', spdata(:)%maturalage)
   call add_row(table, 'v_seed', spdata(:)%v_seed)
-  call add_row(table, 'seedlingsize', spdata(:)%seedlingsize)
+  call add_row(table, 'seedling_height', spdata(:)%seedling_height)
+  call add_row(table, 'seedling_nsc_frac', spdata(:)%seedling_nsc_frac)
   call add_row(table, 'prob_g', spdata(:)%prob_g)
   call add_row(table, 'prob_e', spdata(:)%prob_e)
   call add_row(table, 'mortrate_d_c', spdata(:)%mortrate_d_c)

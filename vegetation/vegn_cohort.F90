@@ -10,6 +10,7 @@ use vegn_data_mod, only : spdata, &
 use vegn_data_mod, only : PT_C3, PT_C4, CMPT_ROOT, CMPT_LEAF, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
    LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDUOUS, &
+   ALLOM_EW, ALLOM_EW1, ALLOM_HML, &
    do_ppa
 use soil_tile_mod, only : max_lev
 
@@ -19,6 +20,7 @@ private
 public :: vegn_cohort_type
 
 ! operations defined for cohorts
+public :: biomass_of_individual
 public :: get_vegn_wet_frac
 public :: vegn_data_cover
 public :: cohort_root_properties
@@ -164,7 +166,19 @@ end type vegn_cohort_type
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-
+! ============================================================================
+! returns biomass of an individual of given cohort, kgC
+real function biomass_of_individual(cohort)
+  type(vegn_cohort_type), intent(in) :: cohort
+  biomass_of_individual = &
+          cohort%bl  + cohort%blv + &
+          cohort%br  + cohort%bwood + &
+          cohort%bsw + cohort%bseed + &
+          cohort%nsc + &
+          cohort%carbon_gain + cohort%bwood_gain + &
+          cohort%growth_previous_day
+end function biomass_of_individual
+         
 ! ============================================================================
 ! calculates functional dependence of wet canopy function f = x**p and its 
 ! derivative, but approximates it with linear function in the vicinity 
@@ -557,39 +571,56 @@ subroutine update_biomass_pools(c)
 end subroutine update_biomass_pools
 
 
-! ============================================================================
-! calculate tree height, DBH, height, and crown area by bwood and density 
-! The allometry equations are from Ray Dybzinski et al. 2011 and Farrior et al. in review
-!         HT = alphaHT * DBH ** (gamma-1)   ! DBH --> Height
-!         CA = alphaCA * DBH ** gamma       ! DBH --> Crown Area
-!         BM = alphaBM * DBH ** (gamma + 1) ! DBH --> tree biomass
-subroutine init_cohort_allometry_ppa(cc)
+! ==============================================================================
+subroutine init_cohort_allometry_ppa(cc, height, nsc_frac)
   type(vegn_cohort_type), intent(inout) :: cc
-
-  real    :: btot ! total biomass per individual, kg C
-
-  btot = max(0.0001,cc%bwood+cc%bsw)
+  real, intent(in) :: height
+  real, intent(in) :: nsc_frac ! amount of nsc, as a fraction of bl_max
+                               ! NOTE: typically nsc_frac is greater than 1
+  
+  real :: bw ! biomass of wood+sapwood, based on allometry and height
+  real :: Dwood ! diameter of heartwood
+  
   associate(sp=>spdata(cc%species))
-!     cc%DBH        = (btot / sp%alphaBM) ** ( 1.0/sp%thetaBM )
-!!    cc%treeBM     = sp%alphaBM * cc%dbh ** sp%thetaBM
-!     cc%height     = sp%alphaHT * cc%dbh ** sp%thetaHT
-!     cc%crownarea  = sp%alphaCA * cc%dbh ** sp%thetaCA
+  cc%height = height
+  select case (sp%allomt)
+  case (ALLOM_EW,ALLOM_EW1)
+     cc%dbh = (height/sp%alphaHT)**(1.0/sp%thetaHT)
+     bw = sp%rho_wood * sp%alphaBM * cc%dbh**sp%thetaBM
+     Dwood = sqrt(max(0.0,cc%dbh**2 - 4/pi*sp%alphaCSASW * cc%dbh**sp%thetaCSASW))
+     cc%bwood = sp%rho_wood * sp%alphaBM * cc%dbh**sp%thetaBM
+     cc%bsw   = bw - cc%bwood
+  case (ALLOM_HML)
+     cc%dbh = (sp%gammaHT/(sp%alphaHT/height - 1))**(1.0/sp%thetaHT)
+     bw = sp%rho_wood * sp%alphaBM * cc%dbh**2 * cc%height 
+     Dwood = sqrt(max(0.0,cc%dbh**2 - 4/pi*sp%alphaCSASW * cc%dbh**sp%thetaCSASW))
+     cc%bwood = sp%rho_wood * sp%alphaBM * Dwood**2 * cc%height 
+     cc%bsw   = bw - cc%bwood
+  end select
+  
+  ! update derived quantyties based on the allometry
+  cc%crownarea = sp%alphaCA * cc%dbh**sp%thetaCA 
+  cc%bl      = 0.0
+  cc%br      = 0.0
+  cc%bl_max  = sp%LMA   * sp%LAImax        * cc%crownarea
+  cc%br_max  = sp%phiRL * sp%LAImax/sp%SRA * cc%crownarea
+  cc%nsc     = nsc_frac * cc%bl_max
+  cc%blv     = 0.0
+  cc%bseed   = 0.0
+  cc%bliving = cc%br + cc%bl + cc%bsw + cc%blv
 
-! ens change allometry to HML
-! need to add a namelist for allometry switches, need to do it by pft - maybe by species or pft
-
-     cc%DBH        = (btot / sp%alphaBM) ** ( 1.0/sp%thetaBM ) ! need to init from dbh
-     cc%height     = 60.97697 *(cc%DBH**0.8631476)/(0.6841742+cc%DBH**0.8631476)
-     cc%crownarea  = 243.7808*cc%DBH**1.18162
-
-
-
-     ! calculations of bl_max and br_max are here only for the sake of the
-     ! diagnostics, because otherwise those fields are inherited from the 
-     ! parent cohort and produce spike in the output, even though these spurious
-     ! values are not used by the model
-     cc%bl_max = sp%LMA   * sp%LAImax        * cc%crownarea
-     cc%br_max = sp%phiRL * sp%LAImax/sp%SRA * cc%crownarea 
+  cc%growth_previous_day     = 0.0
+  cc%growth_previous_day_tmp = 0.0
+  cc%branch_sw_loss          = 0.0
+  cc%branch_wood_loss        = 0.0
+  cc%carbon_gain = 0.0
+  cc%carbon_loss = 0.0
+  cc%DBH_ys      = cc%DBH
+  cc%BM_ys       = cc%bsw + cc%bwood
+  cc%npp_previous_day     = 0.0
+  cc%npp_previous_day_tmp = 0.0
+  cc%leaf_age    = 0.0
+  
   end associate
 end subroutine init_cohort_allometry_ppa
 

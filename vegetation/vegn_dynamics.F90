@@ -21,12 +21,12 @@ use vegn_data_mod, only : spdata, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, &
      fsc_liv, fsc_wood, fsc_froot, agf_bs, &
      l_fract, mcv_min, mcv_lai, do_ppa, tau_seed, &
-     understory_lai_factor, bseed_distr, wood_fract_min, do_alt_allometry
+     understory_lai_factor, wood_fract_min, do_alt_allometry
 use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon
 use soil_tile_mod, only: num_l, dz, soil_tile_type, clw, csw
 use vegn_cohort_mod, only : vegn_cohort_type, &
      update_biomass_pools, update_bio_living_fraction, update_species, &
-     leaf_area_from_biomass, init_cohort_allometry_ppa, &
+     leaf_area_from_biomass, biomass_of_individual, init_cohort_allometry_ppa, &
      cohort_root_litter_profile, cohort_root_exudate_profile
 use vegn_disturbance_mod, only : kill_plants_ppa
 use soil_carbon_mod, only: N_C_TYPES, soil_carbon_option, &
@@ -861,7 +861,7 @@ end subroutine vegn_starvation_ppa
 ! using accumulated carbon_gain
 subroutine biomass_allocation_ppa(cc)
   type(vegn_cohort_type), intent(inout) :: cc
-  
+
   real :: CSAtot ! total cross section area, m2
   real :: CSAsw  ! Sapwood cross sectional area, m2
   real :: CSAwd  ! Heartwood cross sectional area, m2
@@ -881,22 +881,19 @@ subroutine biomass_allocation_ppa(cc)
   real :: NSCtarget ! target NSC storage
   real :: delta_bsw_branch
   real :: delta_wood_branch
-  
+
   real, parameter :: DBHtp = 0.8 ! m
   logical :: hydraulics_repair = .FALSE.
-  
+
   !ens
   real :: fsf = 0.2 ! in Weng et al 205, page 2677 units are 0.2 day
   ! new constants for HML equations
-  real ::   alpha_z = 60.97697
-  real ::   b_z = 0.8631476
-  real ::   gamma_z = 0.6841742
-  real ::   alpha_ca = 243.7808
-  real ::   b_ca = 1.18162
-  real ::   alpha_s = 0.559
-     
-  
-  
+!  real ::   alpha_z = 60.97697    ! alphaHT
+!  real ::   b_z = 0.8631476       ! thetaHT
+!  real ::   gamma_z = 0.6841742   ! gammaHT
+!  real ::   alpha_ca = 243.7808   ! alphaCA
+!  real ::   b_ca = 1.18162        ! thetaCA
+!  real ::   alpha_s = 0.559       ! alphaBM
 
   associate (sp => spdata(cc%species)) ! F2003
 
@@ -908,7 +905,7 @@ subroutine biomass_allocation_ppa(cc)
      ! calculate the carbon spent on growth of leaves and roots
      G_LFR    = max(0.0, min(cc%bl_max+cc%br_max-cc%bl-cc%br,  &
                             0.1*cc%nsc/(1+GROWTH_RESP))) ! don't allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
-                            
+
      ! and distribute it between roots and leaves
      deltaBL  = min(G_LFR, max(0.0, &
           (G_LFR*cc%bl_max + cc%bl_max*cc%br - cc%br_max*cc%bl)/(cc%bl_max + cc%br_max) &
@@ -919,26 +916,24 @@ subroutine biomass_allocation_ppa(cc)
      !ens first replace lost branch sapwood
      delta_bsw_branch  = 0.0
      if (cc%branch_sw_loss > 0) then
-     delta_bsw_branch = max (min(cc%branch_sw_loss, 0.1*cc%nsc/(1+GROWTH_RESP)), 0.0)
-     cc%bsw = cc%bsw+delta_bsw_branch
-     cc%branch_sw_loss = cc%branch_sw_loss - delta_bsw_branch
+        delta_bsw_branch = max (min(cc%branch_sw_loss, 0.1*cc%nsc/(1+GROWTH_RESP)), 0.0)
+        cc%bsw = cc%bsw+delta_bsw_branch
+        cc%branch_sw_loss = cc%branch_sw_loss - delta_bsw_branch
      endif
- 
+
      ! replace lost branch wood from sapwood pool- do we need respiration here?
-     if (cc%branch_wood_loss > 0) then   
-     delta_wood_branch = max(min(cc%branch_wood_loss, 0.25*cc%bsw), 0.0)
-     cc%bsw = cc%bsw - delta_wood_branch
-     cc%bwood = cc%bwood + delta_wood_branch
-     cc%branch_wood_loss = cc%branch_wood_loss - delta_wood_branch
+     if (cc%branch_wood_loss > 0) then
+        delta_wood_branch = max(min(cc%branch_wood_loss, 0.25*cc%bsw), 0.0)
+        cc%bsw = cc%bsw - delta_wood_branch
+        cc%bwood = cc%bwood + delta_wood_branch
+        cc%branch_wood_loss = cc%branch_wood_loss - delta_wood_branch
      endif
-     
-     
-     NSCtarget = 4.0*cc%bl_max 
+
+
+     NSCtarget = 4.0*cc%bl_max
      G_WF=0.0
-     
-     
      if (NSCtarget < cc%nsc) then ! ens change this
-     G_WF = max (0.0, fsf*(cc%nsc - NSCtarget)/(1+GROWTH_RESP))
+        G_WF = max (0.0, fsf*(cc%nsc - NSCtarget)/(1+GROWTH_RESP))
      endif
      ! change maturity threashold to a diameter threash-hold
      if (cc%layer == 1 .AND. cc%age > sp%maturalage) then
@@ -947,8 +942,8 @@ subroutine biomass_allocation_ppa(cc)
         deltaSeed=      sp%v_seed * G_WF
         deltaBSW = (1.0-sp%v_seed)* G_WF
      else
-         deltaSeed= 0.0 
-         deltaBSW = G_WF
+        deltaSeed= 0.0
+        deltaBSW = G_WF
      endif
      ! update biomass pools due to growth
      cc%bl     = cc%bl    + deltaBL  ! updated in vegn_int_ppa
@@ -956,57 +951,68 @@ subroutine biomass_allocation_ppa(cc)
      cc%bsw    = cc%bsw   + deltaBSW
      cc%bseed  = cc%bseed + deltaSeed
      cc%nsc = cc%nsc - (G_LFR + G_WF+delta_bsw_branch )*(1.+GROWTH_RESP)
-     
+
      if (cc%nsc < 0.) write (*, *)'nsc is negative!!!!!!'
-     
+
      !ens --compute daily growth to compute respiration, apply it next day, use npp_previous day variable, units kg C/(m2 *year)
      cc%growth_previous_day = cc%growth_previous_day+(max(0., G_LFR+G_WF)+delta_bsw_branch)*GROWTH_RESP ! this is for growth respiration to come from nsc
-     
+
      select case (sp%allomt)
      case (ALLOM_EW, ALLOM_EW1)
         ! calculate tendency of breast height diameter given increase of bsw
-        deltaDBH     = deltaBSW / (sp%thetaBM * sp%alphaBM * cc%DBH**(sp%thetaBM-1))
+        deltaDBH     = deltaBSW / (sp%thetaBM * sp%alphaBM * sp%rho_wood * cc%DBH**(sp%thetaBM-1))
         deltaHeight  = sp%thetaHT * sp%alphaHT * cc%DBH**(sp%thetaHT-1) * deltaDBH
-!       deltaCA      = sp%thetaCA * sp%alphaCA * cc%DBH**(sp%thetaCA-1) * deltaDBH
         if(sp%allomt == ALLOM_EW1) then
             deltaCA  = sp%thetaCA * sp%alphaCA *     &
-                  (1./(exp(15.*(cc%DBH-DBHtp))+1.))  *     &     
+                  (1./(exp(15.*(cc%DBH-DBHtp))+1.))  *     &
                   cc%DBH**(sp%thetaCA-1) * deltaDBH
         else
             deltaCA  = sp%thetaCA * sp%alphaCA * cc%DBH**(sp%thetaCA-1) * deltaDBH
         endif
      case (ALLOM_HML)
-        deltaDBH     = deltaBSW*(gamma_z+cc%DBH **b_z)**2/(sp%rho_wood * alpha_z * alpha_s * &
-                       (cc%DBH**(1.+b_z)*(2.*(gamma_z+cc%DBH**b_z)+gamma_z*b_z)))
-        deltaHeight  = deltaDBH* alpha_z *gamma_z*b_z/(cc%DBH**(1.-b_z) * &
-                       (gamma_z + cc%DBH**b_z)**2)
-        deltaCA      = deltaDBH * alpha_ca * b_ca * cc%DBH**(b_ca-1.)              
+        deltaDBH     = deltaBSW*(sp%gammaHT+cc%DBH**sp%thetaHT)**2/(sp%rho_wood * sp%alphaHT * sp%alphaBM * &
+                       (cc%DBH**(1.+sp%thetaHT)*(2.*(sp%gammaHT+cc%DBH**sp%thetaHT)+sp%gammaHT*sp%thetaHT)))
+!         deltaHeight  = sp%alphaHT*(cc%DBH+deltaDBH)**sp%thetaHT/(sp%gammaHT+(cc%DBH+deltaDBH)**sp%thetaHT) &
+!                        - cc%height
+        deltaHeight  = deltaDBH* sp%alphaHT *sp%gammaHT*sp%thetaHT/(cc%DBH**(1.-sp%thetaHT) * &
+                       (sp%gammaHT + cc%DBH**sp%thetaHT)**2)
+        deltaCA      = deltaDBH * sp%alphaCA * sp%thetaCA * cc%DBH**(sp%thetaCA-1.)
+!         __DEBUG4__(cc%bl,cc%br,cc%bsw,cc%bwood)
+!         __DEBUG3__(cc%DBH,cc%height,cc%crownarea)
+!         __DEBUG4__(deltaBL,deltaBR,deltaBSW,deltaSeed)
+!         __DEBUG3__(deltaDBH,deltaHeight,deltaCA)
      case default
         call error_mesg('biomass_allocation_ppa','Unknown allometry type. This should never happen.', FATAL)
      end select
-    
+
      cc%DBH       = cc%DBH       + deltaDBH
      cc%height    = cc%height    + deltaHeight
      cc%crownarea = cc%crownarea + deltaCA
 
-!     ! calculate DBH, BLmax, BRmax, BSWmax using allometric relationships
-!     ! Weng 2012-01-31 update_bio_living_fraction
-     CSAsw    = sp%alphaCSASW * cc%DBH**sp%thetaCSASW
-     CSAtot   = PI * (cc%DBH/2.0)**2
-     CSAwd    = max(0.0, CSAtot - CSAsw)
-     DBHwd    = 2*sqrt(CSAwd/PI)
-     BSWmax   = sp%alphaBM * (cc%DBH**sp%thetaBM - DBHwd**sp%thetaBM)
-   
+     ! calculate DBH, BLmax, BRmax, BSWmax using allometric relationships
+     ! Weng 2012-01-31 update_bio_living_fraction
+     ! slm 20160523: max biomass of sapwood BSWmax is calculated from allometric
+     ! relationships as the B(DBH) - B(DBH of heartwood). DBH of heartwood is
+     ! calculated using the allometric relationship for sapwood cross-section
+     CSAsw    = sp%alphaCSASW * cc%DBH**sp%thetaCSASW ! sapwood cross-section
+     CSAtot   = PI * (cc%DBH/2.0)**2 ! total trunk cross-section
+     CSAwd    = max(0.0, CSAtot - CSAsw) ! cross-section of heartwood
+     DBHwd    = 2*sqrt(CSAwd/PI) ! DBH of heartwood
+     select case(sp%allomt)
+     case (ALLOM_EW,ALLOM_EW1)
+        BSWmax = sp%alphaBM * sp%rho_wood * (cc%DBH**sp%thetaBM - DBHwd**sp%thetaBM)
+     case (ALLOM_HML)
+        BSWmax = sp%alphaBM * sp%rho_wood * cc%height * (cc%DBH**2 - DBHwd**2)
+     end select
+
      ! Update Kxa, stem conductance if we are tracking past damage
      ! TODO: make hydraulics_repair a namelist parameter?
      if (.not.hydraulics_repair) then
         deltaCSAsw = CSAsw - (sp%alphaCSASW * (cc%DBH - deltaDBH)**sp%thetaCSASW)
         cc%Kxa = (cc%Kxa*CSAsw + sp%Kxam*deltaCSAsw)/(CSAsw + deltaCSAsw)
-
-
-
      endif
 
+     ! slm 20160523: are we retiring sapwood to wood only if it exceeds max sapwood? why?
      deltaBwood = max(cc%bsw - BSWmax, 0.0)
      cc%bwood   = cc%bwood + deltaBwood
      cc%bsw     = cc%bsw   - deltaBwood
@@ -1042,20 +1048,20 @@ subroutine biomass_allocation_ppa(cc)
     ! ens, after hsc was updated after carbon gain
     ! cc%nsc = cc%nsc + cc%carbon_gain
     !should some nsc go into sapwood and wood or seed
-    
+
   endif ! cc%status == LEAF_ON
 
   ! calculate spending rate of growth respiration, to distribute it uniformly
   ! in time over the next day:
   cc%growth_previous_day_tmp = max(0.0,cc%growth_previous_day)*365.0
   ! factor 365.0 converts the rate of growth respiration release to atmosphere
-  ! from kgC/day (frequency of this subroutine calls) to kgC/year, the units we 
+  ! from kgC/day (frequency of this subroutine calls) to kgC/year, the units we
   ! use for other vegetation fluxes
 
   ! reset carbon accumulation terms
   cc%carbon_gain = 0
   cc%carbon_loss = 0
-  
+
   end associate ! F2003
 end subroutine biomass_allocation_ppa
 
@@ -1489,24 +1495,15 @@ subroutine vegn_reproduction_ppa (vegn,soil)
     cc         = parent
     __DEBUG2__(cc%age, cc%layer)
 
-    cc%status  = LEAF_OFF
+    call init_cohort_allometry_ppa(cc, sp%seedling_height, sp%seedling_nsc_frac)
+    cc%status     = LEAF_OFF
     cc%firstlayer = 0
-    cc%age     = 0.0
-    cc%bl      = sp%seedlingsize * bseed_distr(CMPT_LEAF)
-    cc%br      = sp%seedlingsize * bseed_distr(CMPT_ROOT)
-    cc%bsw     = sp%seedlingsize * bseed_distr(CMPT_SAPWOOD) ! sp%seedlingsize*0.1
-    cc%bwood   = sp%seedlingsize * bseed_distr(CMPT_WOOD)    ! sp%seedlingsize*0.05
-    cc%nsc     = sp%seedlingsize * bseed_distr(CMPT_NSC)     ! sp%seedlingsize*0.85
-    cc%blv     = sp%seedlingsize * bseed_distr(CMPT_VLEAF)
-    cc%bseed   = 0.0
-    cc%topyear = 0.0
-    cc%growth_previous_day = 0.0
-    cc%growth_previous_day_tmp = 0.0
-    cc%branch_sw_loss = 0.0
-    cc%branch_wood_loss = 0.0
-!   added germination probability (prob_g) and establishment probability ((prob_e), Weng 2014-01-06
+    cc%age        = 0.0
+    cc%topyear    = 0.0
+
+    ! added germination probability (prob_g) and establishment probability ((prob_e), Weng 2014-01-06
     cc%nindivs = parent%bseed*parent%nindivs * sp%prob_g * sp%prob_e   &
-                 /(sp%seedlingsize*sum(bseed_distr(:)))
+                 /biomass_of_individual(cc)
 !    __DEBUG3__(cc%age, cc%layer, cc%nindivs)
 
     failed_seeds = (1.-sp%prob_g*sp%prob_e) * parent%bseed * parent%nindivs
@@ -1516,17 +1513,6 @@ subroutine vegn_reproduction_ppa (vegn,soil)
 
     parent%bseed = 0.0
 
-    call init_cohort_allometry_ppa(cc)
-    cc%carbon_gain = 0.0
-    cc%carbon_loss = 0.0
-!    call biomass_allocation_ppa(cc)
-    cc%bliving     = cc%br + cc%bl + cc%bsw + cc%blv
-    cc%DBH_ys      = cc%DBH
-    cc%BM_ys       = cc%bsw + cc%bwood
-    cc%npp_previous_day     = 0.0
-    cc%npp_previous_day_tmp = 0.0
-    cc%leaf_age     = 0.0
-    
     ! we assume that the newborn cohort is dry; since nindivs of the parent
     ! doesn't change we don't need to do anything with its Wl and Ws to 
     ! conserve water (since Wl and Ws are per individual)

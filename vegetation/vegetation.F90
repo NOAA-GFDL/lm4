@@ -122,10 +122,9 @@ real    :: init_cohort_blv(MAX_INIT_COHORTS)     = 0.0  ! initial biomass of lab
 real    :: init_cohort_br(MAX_INIT_COHORTS)      = 0.05 ! initial biomass of fine roots, kg C/individual
 real    :: init_cohort_bsw(MAX_INIT_COHORTS)     = 0.05 ! initial biomass of sapwood, kg C/individual
 real    :: init_cohort_bwood(MAX_INIT_COHORTS)   = 0.05 ! initial biomass of heartwood, kg C/individual
-real    :: init_cohort_bseed(MAX_INIT_COHORTS)   = 0.05 ! initial biomass of seeds, kg C/individual
-real    :: init_cohort_nsc(MAX_INIT_COHORTS)     = 0.0  ! initial non-structural biomass, kg C/individual
-real    :: init_cohort_cmc(MAX_INIT_COHORTS)     = 0.0  ! initial intercepted water
 real    :: init_cohort_age(MAX_INIT_COHORTS)     = 0.0  ! initial cohort age, year
+real    :: init_cohort_height(MAX_INIT_COHORTS)  = 0.1  ! initial cohort height, m
+real    :: init_cohort_nsc_frac(MAX_INIT_COHORTS)= 3.0  ! initial cohort NSC, as fraction of max. bl
 character(32) :: rad_to_use = 'big-leaf' ! or 'two-stream'
 character(32) :: snow_rad_to_use = 'ignore' ! or 'paint-leaves'
 character(32) :: photosynthesis_to_use = 'simple' ! or 'leuning'
@@ -170,7 +169,7 @@ namelist /vegn_nml/ &
     lm2, init_Wl, init_Ws, init_Tv, cpw, clw, csw, &
     init_n_cohorts, init_cohort_species, init_cohort_nindivs, &
     init_cohort_bl, init_cohort_blv, init_cohort_br, init_cohort_bsw, &
-    init_cohort_bwood, init_cohort_bseed, init_cohort_nsc, init_cohort_cmc, &
+    init_cohort_bwood, init_cohort_height, &
     rad_to_use, snow_rad_to_use, photosynthesis_to_use, &
     co2_to_use_for_photosynthesis, co2_for_photosynthesis, &
     water_stress_to_use, hydraulics_repair, &
@@ -522,8 +521,6 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
         cc%br      = init_cohort_br(n)
         cc%bsw     = init_cohort_bsw(n)
         cc%bwood   = init_cohort_bwood(n)
-        cc%bseed   = init_cohort_bseed(n)
-        cc%nsc     = init_cohort_nsc(n)
         cc%nindivs = init_cohort_nindivs(n)
         cc%age     = init_cohort_age(n)
         cc%bliving = cc%bl+cc%br+cc%blv+cc%bsw
@@ -533,6 +530,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
         
         if (do_ppa) then
            cc%species = init_cohort_spp(n)
+           call init_cohort_allometry_ppa(cc, init_cohort_height(n), init_cohort_nsc_frac(n))
            if (cc%species < 0) call error_mesg('vegn_init','species "'//trim(init_cohort_species(n))//&
                    '" needed for initialization, but not found in the list of species parameters', FATAL)
         else if(did_read_biodata.and.do_biogeography) then
@@ -558,7 +556,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
         ce=next_elmt(ce)        ! advance position to the next tile
         if (.not.associated(tile%vegn)) cycle
         do n = 1, tile%vegn%n_cohorts
-           call init_cohort_allometry_ppa(tile%vegn%cohorts(n))
+           call init_cohort_allometry_ppa(tile%vegn%cohorts(n), init_cohort_height(n), init_cohort_nsc_frac(n))
            call init_cohort_hydraulics(tile%vegn%cohorts(n), tile%soil%pars%psi_sat_ref) ! adam wolf
            ! initialize DBH_ys
            tile%vegn%cohorts(n)%DBH_ys = tile%vegn%cohorts(n)%dbh

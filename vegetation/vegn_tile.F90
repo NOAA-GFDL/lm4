@@ -21,7 +21,7 @@ use vegn_data_mod, only : &
      scnd_biomass_bins, do_ppa
 
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
-     cohorts_can_be_merged, leaf_area_from_biomass
+     cohorts_can_be_merged, leaf_area_from_biomass, biomass_of_individual
 
 use soil_tile_mod, only : max_lev
 
@@ -472,7 +472,7 @@ subroutine vegn_relayer_cohorts_ppa (vegn)
   type(vegn_cohort_type), pointer :: cc(:),new(:)
   real    :: nindivs
 
-  write(*,*)'vegn_relayer_cohorts_ppa n_cohorts after: ', vegn%n_cohorts
+!  write(*,*)'vegn_relayer_cohorts_ppa n_cohorts before: ', vegn%n_cohorts
   
   ! rank cohorts in descending order by height. For now, assume that they are 
   ! in order
@@ -513,7 +513,7 @@ subroutine vegn_relayer_cohorts_ppa (vegn)
   ! replace the array of cohorts
   deallocate(vegn%cohorts)
   vegn%cohorts => new ; vegn%n_cohorts = i
-  write(*,*)'vegn_relayer_cohorts_ppa n_cohorts after: ', vegn%n_cohorts
+!  write(*,*)'vegn_relayer_cohorts_ppa n_cohorts after: ', vegn%n_cohorts
 end subroutine vegn_relayer_cohorts_ppa
 
 ! ============================================================================
@@ -713,13 +713,7 @@ function vegn_tile_carbon(vegn) result(carbon) ; real carbon
   carbon = 0
   do i = 1,vegn%n_cohorts
      carbon = carbon + &
-         (vegn%cohorts(i)%bl  + vegn%cohorts(i)%blv + &
-          vegn%cohorts(i)%br  + vegn%cohorts(i)%bwood + &
-          vegn%cohorts(i)%bsw + vegn%cohorts(i)%bseed + &
-          vegn%cohorts(i)%nsc + &
-          vegn%cohorts(i)%carbon_gain + vegn%cohorts(i)%bwood_gain + &
-          vegn%cohorts(i)%growth_previous_day &
-         )*vegn%cohorts(i)%nindivs
+         biomass_of_individual(vegn%cohorts(i))*vegn%cohorts(i)%nindivs
   enddo
   carbon = carbon + sum(vegn%harv_pool) + &
            vegn%fsc_pool_ag + vegn%ssc_pool_ag + &
