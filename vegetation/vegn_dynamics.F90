@@ -63,7 +63,7 @@ real, parameter :: GROWTH_RESP=0.333  ! fraction of NPP lost as growth respirati
 real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 days)
 
 ! diagnostic field IDs
-integer :: id_npp, id_nep, id_gpp, id_growth_prev_day
+integer :: id_npp, id_nep, id_gpp, id_wood_prod
 integer :: id_rsoil, id_rsoil_fast, id_rsoil_slow
 integer :: id_resp, id_resl, id_resr, id_ress, id_resg, id_asoil
 integer :: id_soilt, id_theta, id_litter, id_age
@@ -97,8 +97,8 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
   id_nep = register_tiled_diag_field ( diag_mod_name, 'nep',  &
        (/id_lon,id_lat/), time, 'net ecosystem productivity', 'kg C/(m2 year)', &
        missing_value=-100.0 )
-  id_growth_prev_day = register_cohort_diag_field ( diag_mod_name, 'growth_prev_day',  &
-       (/id_lon,id_lat/), time, 'growth_prev_day', 'kg C/(m2 year)', &
+  id_wood_prod = register_cohort_diag_field ( diag_mod_name, 'wood_prod',  &
+       (/id_lon,id_lat/), time, 'total wood (heartwood+sapwood) production', 'kgC/(m2 year)', &
        missing_value=-100.0)
   id_litter = register_tiled_diag_field (diag_mod_name, 'litter', (/id_lon,id_lat/), &
        time, 'litter productivity', 'kg C/(m2 year)', missing_value=-100.0)
@@ -649,6 +649,7 @@ subroutine vegn_growth (vegn, diag)
   type(vegn_cohort_type), pointer :: cc    ! current cohort
   real :: cmass0,cmass1 ! for debug only
   integer :: i, N
+  real, dimension(vegn%n_cohorts) :: wood_prod
 
   if (is_watch_point()) then
      cmass0 = vegn_tile_carbon(vegn)
@@ -663,7 +664,7 @@ subroutine vegn_growth (vegn, diag)
      !__DEBUG1__(cc%carbon_gain)
       
         cc%nsc=cc%nsc+cc%carbon_gain
-        call biomass_allocation_ppa(cc) 
+        call biomass_allocation_ppa(cc,wood_prod(i)) 
          
    
      !write(*,*)"############## in vegn_growth #################"
@@ -676,13 +677,11 @@ subroutine vegn_growth (vegn, diag)
      !__DEBUG1__(cc%bwood)
      !__DEBUG1__(cc%nsc)
      
-   cc%carbon_gain = 0.0
+        cc%carbon_gain = 0.0
      else
         cc%bwood   = cc%bwood   + cc%bwood_gain
         cc%bliving = cc%bliving + cc%carbon_gain
-        
-    
-        
+
         if(cc%bliving < 0) then
            cc%bwood    = cc%bwood+cc%bliving
            cc%bliving  = 0
@@ -696,6 +695,8 @@ subroutine vegn_growth (vegn, diag)
         cc%carbon_gain = 0
         cc%carbon_loss = 0
         cc%bwood_gain  = 0
+        
+        wood_prod(i) = -100.0 ! missing value
      endif
 
      if (cc%status == LEAF_ON) then
@@ -709,66 +710,13 @@ subroutine vegn_growth (vegn, diag)
      endif
   end do
   N = vegn%n_cohorts   
-!  call send_cohort_data(id_growth_prev_day,tile%diag,vegn%cohorts(1:N),vegn_cohorts(1:N)%growth_prev_day, weight=cc(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_wood_prod,diag,vegn%cohorts(1:N),wood_prod(:), weight=vegn%cohorts(1:N)%nindivs, op=OP_SUM)
 
   if (is_watch_point()) then
      cmass1 = vegn_tile_carbon(vegn)
      write(*,*)"############## vegn_growth #################"
   endif
 end subroutine vegn_growth
-!***********************************************************************
-subroutine vegn_growth_old (vegn)
-  type(vegn_tile_type), intent(inout) :: vegn
-
-  ! ---- local vars
-  type(vegn_cohort_type), pointer :: cc    ! current cohort
-  real :: cmass0,cmass1 ! for debug only
-  integer :: i
-
-  if (is_watch_point()) then
-     cmass0 = vegn_tile_carbon(vegn)
-  endif
-
-  do i = 1, vegn%n_cohorts   
-     cc => vegn%cohorts(i)
-
-     if (do_ppa) then
-        call biomass_allocation_ppa(cc)
-     else
-        cc%bwood   = cc%bwood   + cc%bwood_gain
-        cc%bliving = cc%bliving + cc%carbon_gain
-        
-        if(cc%bliving < 0) then
-           cc%bwood    = cc%bwood+cc%bliving
-           cc%bliving  = 0
-           if (cc%bwood < 0) &
-                cc%bwood = 0 ! in principle, that's not conserving carbon
-        endif
-        
-        call update_biomass_pools(cc)
-        
-        ! reset carbon accumulation terms
-        cc%carbon_gain = 0
-        cc%carbon_loss = 0
-        cc%bwood_gain  = 0
-     endif
-
-     if (cc%status == LEAF_ON) then
-        cc%leaf_age = cc%leaf_age + 1.0
-        ! limit the maximum leaf age by the leaf time span (reciprocal of leaf 
-        ! turnover rate alpha) for given species. alpha is in 1/year, factor of
-        ! 365 converts the result to days.
-        if (spdata(cc%species)%alpha(CMPT_LEAF) > 0) &
-             cc%leaf_age = min(cc%leaf_age,365.0/spdata(cc%species)%alpha(CMPT_LEAF))
-     endif
-  end do
-
-  if (is_watch_point()) then
-     cmass1 = vegn_tile_carbon(vegn)
-     write(*,*)"############## vegn_growth #################"
-     __DEBUG3__(cmass1-cmass0, cmass1, cmass0)
-  endif
-end subroutine vegn_growth_old
 
 !***********************************************************************
 !========================================================================
@@ -859,8 +807,9 @@ end subroutine vegn_starvation_ppa
 ! ==============================================================================
 ! updates cohort vegetation structure, biomass pools, LAI, SAI, and height  
 ! using accumulated carbon_gain
-subroutine biomass_allocation_ppa(cc)
+subroutine biomass_allocation_ppa(cc, wood_prod)
   type(vegn_cohort_type), intent(inout) :: cc
+  real, intent(out) :: wood_prod ! wood production, kgC/year per individual
 
   real :: CSAtot ! total cross section area, m2
   real :: CSAsw  ! Sapwood cross sectional area, m2
@@ -952,6 +901,7 @@ subroutine biomass_allocation_ppa(cc)
      cc%bseed  = cc%bseed + deltaSeed
      cc%nsc = cc%nsc - (G_LFR + G_WF+delta_bsw_branch )*(1.+GROWTH_RESP)
 
+     wood_prod = deltaBSW*365.0 ! factor converst it from kgC/day to kgC/year
      if (cc%nsc < 0.) write (*, *)'nsc is negative!!!!!!'
 
      !ens --compute daily growth to compute respiration, apply it next day, use npp_previous day variable, units kg C/(m2 *year)
