@@ -9,8 +9,8 @@ use vegn_data_mod, only : spdata, &
    phen_ev1, phen_ev2, cmc_eps
 use vegn_data_mod, only : PT_C3, PT_C4, CMPT_ROOT, CMPT_LEAF, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
-   LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDUOUS, &
-   ALLOM_EW, ALLOM_EW1, ALLOM_HML, &
+   LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDUOUS, FORM_GRASS, &
+   ALLOM_EW, ALLOM_EW1, ALLOM_HML, understory_lai_factor, &
    do_ppa
 use soil_tile_mod, only : max_lev
 
@@ -577,10 +577,11 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac)
   real, intent(in) :: height
   real, intent(in) :: nsc_frac ! amount of nsc, as a fraction of bl_max
                                ! NOTE: typically nsc_frac is greater than 1
-  
+
   real :: bw ! biomass of wood+sapwood, based on allometry and height
   real :: Dwood ! diameter of heartwood
-  
+  real :: BL_c, BL_u ! max leaf bimass for canopy and understory, respectively
+
   associate(sp=>spdata(cc%species))
   cc%height = height
   select case (sp%allomt)
@@ -592,18 +593,24 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac)
      cc%bsw   = bw - cc%bwood
   case (ALLOM_HML)
      cc%dbh = (sp%gammaHT/(sp%alphaHT/height - 1))**(1.0/sp%thetaHT)
-     bw = sp%rho_wood * sp%alphaBM * cc%dbh**2 * cc%height 
+     bw = sp%rho_wood * sp%alphaBM * cc%dbh**2 * cc%height
      Dwood = sqrt(max(0.0,cc%dbh**2 - 4/pi*sp%alphaCSASW * cc%dbh**sp%thetaCSASW))
-     cc%bwood = sp%rho_wood * sp%alphaBM * Dwood**2 * cc%height 
+     cc%bwood = sp%rho_wood * sp%alphaBM * Dwood**2 * cc%height
      cc%bsw   = bw - cc%bwood
   end select
-  
+
   ! update derived quantyties based on the allometry
-  cc%crownarea = sp%alphaCA * cc%dbh**sp%thetaCA 
+  cc%crownarea = sp%alphaCA * cc%dbh**sp%thetaCA
   cc%bl      = 0.0
   cc%br      = 0.0
-  cc%bl_max  = sp%LMA   * sp%LAImax        * cc%crownarea
-  cc%br_max  = sp%phiRL * sp%LAImax/sp%SRA * cc%crownarea
+  BL_u = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac) * understory_lai_factor
+  BL_c = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
+  if(sp%lifeform == FORM_GRASS) then
+     cc%bl_max = BL_c
+  else
+     cc%bl_max = BL_u + min(cc%topyear/5.0,1.0)*(BL_c - BL_u)
+  endif
+  cc%br_max  = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
   cc%nsc     = nsc_frac * cc%bl_max
   cc%blv     = 0.0
   cc%bseed   = 0.0
@@ -620,7 +627,7 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac)
   cc%npp_previous_day     = 0.0
   cc%npp_previous_day_tmp = 0.0
   cc%leaf_age    = 0.0
-  
+
   end associate
 end subroutine init_cohort_allometry_ppa
 

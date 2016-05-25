@@ -1492,14 +1492,12 @@ subroutine vegn_reproduction_ppa (vegn,soil)
                parent => vegn%cohorts(i), &
                sp     => spdata(vegn%cohorts(i)%species) )
     ! copy all parent values into the new cohort then change some of them below
-    cc         = parent
-    __DEBUG2__(cc%age, cc%layer)
-
-    call init_cohort_allometry_ppa(cc, sp%seedling_height, sp%seedling_nsc_frac)
+    cc            = parent
     cc%status     = LEAF_OFF
     cc%firstlayer = 0
     cc%age        = 0.0
     cc%topyear    = 0.0
+    call init_cohort_allometry_ppa(cc, sp%seedling_height, sp%seedling_nsc_frac)
 
     ! added germination probability (prob_g) and establishment probability ((prob_e), Weng 2014-01-06
     cc%nindivs = parent%bseed*parent%nindivs * sp%prob_g * sp%prob_e   &
