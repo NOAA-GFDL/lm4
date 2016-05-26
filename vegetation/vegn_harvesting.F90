@@ -152,7 +152,7 @@ subroutine vegn_graze_pasture(vegn)
      vegn%harv_pool(HARV_POOL_PAST) = vegn%harv_pool(HARV_POOL_PAST) + &
           cc%bliving*cc%Pl*grazing_intensity*(1-grazing_residue) ;
      cc%bliving = cc%bliving - cc%bliving*cc%Pl*grazing_intensity;
-     cc%leaf_N = cc%leaf_N - cc%leaf_N*grazing_intensity
+     cc%stored_N = cc%stored_N - cc%bliving*cc%Pl*grazing_intensity/spdata(sp)%leaf_live_c2n
 
      ! redistribute leftover biomass between biomass pools
      call update_biomass_pools(cc);
@@ -279,14 +279,18 @@ subroutine vegn_harvest_cropland(vegn)
      case default
         call error_mesg('vegn_harvest_cropland','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
      end select
-     cc%bliving = cc%bliving * (1-fraction_harvested);
-     cc%bwood   = cc%bwood   * (1-fraction_harvested);
-     cc%leaf_N = cc%leaf_N*(1-fraction_harvested)
-     cc%root_N = cc%root_N*(1-fraction_harvested)
+     ! Leaf and root N could be zero due to phenology, so take from stored N
+     ! and use potential biomass rather than actual
+     cc%stored_N = cc%stored_N - cc%bliving*cc%Pl*(1-fraction_harvested)/spdata(sp)%leaf_live_c2n
+     cc%stored_N = cc%stored_N - cc%bliving*cc%Pr*(1-fraction_harvested)/spdata(sp)%froot_live_c2n
      cc%wood_N = cc%wood_N*(1-fraction_harvested)
      cc%sapwood_N = cc%sapwood_N*(1-fraction_harvested)
      ! Should stored N be lost or retained?
      ! redistribute leftover biomass between biomass pools
+
+     cc%bliving = cc%bliving * (1-fraction_harvested);
+     cc%bwood   = cc%bwood   * (1-fraction_harvested);
+
      call update_biomass_pools(cc);
   enddo
 end subroutine vegn_harvest_cropland
@@ -385,7 +389,7 @@ subroutine vegn_cut_forest(vegn, new_landuse)
     case (SOILC_CORPSE, SOILC_CORPSE_N)
         delta = (cc%bwood+cc%bsw)*frac_harvested*agf_bs*frac_wood_wasted_ag;
         vegn%coarsewoodlitter_buffer_fast=vegn%coarsewoodlitter_buffer_fast+delta*fsc_wood
-        vegn%coarsewoodlitter_buffer_slow=vegn%coarsewoodlitter_buffer_fast+delta*(1-fsc_wood)
+        vegn%coarsewoodlitter_buffer_slow=vegn%coarsewoodlitter_buffer_slow+delta*(1-fsc_wood)
 
 
         delta = (cc%bl+cc%blv) * frac_harvested;
@@ -396,8 +400,13 @@ subroutine vegn_cut_forest(vegn, new_landuse)
         vegn%leaflitter_buffer_fast=vegn%leaflitter_buffer_fast+delta*spdata(sp)%fsc_liv
         vegn%leaflitter_buffer_slow=vegn%leaflitter_buffer_slow+delta*(1-spdata(sp)%fsc_liv)
 
-        vegn%ssc_pool_bg = vegn%ssc_pool_bg + cc%br*frac_harvested*(1-spdata(sp)%fsc_froot) + (cc%bwood+cc%bsw)*frac_harvested*(1-agf_bs)*(1-fsc_wood)
-        vegn%fsc_pool_bg = vegn%fsc_pool_bg + cc%br*frac_harvested*spdata(sp)%fsc_froot + (cc%bwood+cc%bsw)*frac_harvested*(1-agf_bs)*fsc_wood
+        vegn%ssc_pool_bg = vegn%ssc_pool_bg + cc%br*frac_harvested*(1-spdata(sp)%fsc_froot)
+        vegn%fsc_pool_bg = vegn%fsc_pool_bg + cc%br*frac_harvested*spdata(sp)%fsc_froot
+
+        if(waste_below_ground_wood) then
+          vegn%ssc_pool_bg = vegn%ssc_pool_bg + (cc%bwood+cc%bsw)*frac_harvested*(1-agf_bs)*(1-fsc_wood)
+          vegn%fsc_pool_bg = vegn%fsc_pool_bg + (cc%bwood+cc%bsw)*frac_harvested*(1-agf_bs)*fsc_wood
+        endif
 
         if(soil_carbon_option == SOILC_CORPSE_N) then
 
@@ -405,8 +414,13 @@ subroutine vegn_cut_forest(vegn, new_landuse)
             vegn%coarsewoodlitter_buffer_slow_N=vegn%coarsewoodlitter_buffer_fast_N+(cc%wood_N*(1-fsc_wood)+(cc%sapwood_N+cc%stored_N)*(1-spdata(sp)%fsc_liv))*frac_harvested*agf_bs*frac_wood_wasted_ag
             vegn%leaflitter_buffer_fast_N=vegn%leaflitter_buffer_fast_N+cc%leaf_N*spdata(sp)%fsc_liv*frac_harvested
             vegn%leaflitter_buffer_slow_N=vegn%leaflitter_buffer_slow_N+cc%leaf_N*(1-spdata(sp)%fsc_liv)*frac_harvested
-            vegn%ssn_pool_bg = vegn%ssn_pool_bg + cc%root_N*frac_harvested*(1-spdata(sp)%fsc_froot) + (cc%wood_N*(1-fsc_wood)+(cc%sapwood_N+cc%stored_N)*(1-spdata(sp)%fsc_liv))*frac_harvested*(1-agf_bs)
-            vegn%fsn_pool_bg = vegn%fsn_pool_bg + cc%root_N*frac_harvested*spdata(sp)%fsc_froot + (cc%wood_N*fsc_wood+(cc%sapwood_N+cc%stored_N)*spdata(sp)%fsc_liv)*frac_harvested*(1-agf_bs)
+            vegn%ssn_pool_bg = vegn%ssn_pool_bg + cc%root_N*frac_harvested*(1-spdata(sp)%fsc_froot)
+            vegn%fsn_pool_bg = vegn%fsn_pool_bg + cc%root_N*frac_harvested*spdata(sp)%fsc_froot
+
+            if(waste_below_ground_wood) then
+              vegn%ssn_pool_bg = vegn%ssn_pool_bg + (cc%wood_N*(1-fsc_wood)+(cc%sapwood_N+cc%stored_N)*(1-spdata(sp)%fsc_liv))*frac_harvested*(1-agf_bs)
+              vegn%fsn_pool_bg = vegn%fsn_pool_bg + (cc%wood_N*fsc_wood+(cc%sapwood_N+cc%stored_N)*spdata(sp)%fsc_liv)*frac_harvested*(1-agf_bs)
+            endif
         endif
 
     case default
@@ -419,6 +433,7 @@ subroutine vegn_cut_forest(vegn, new_landuse)
      cc%root_N = cc%root_N*(1-frac_harvested)
      cc%wood_N = cc%wood_N*(1-frac_harvested)
      cc%sapwood_N = cc%sapwood_N*(1-frac_harvested)
+     cc%stored_N = cc%stored_N*(1-frac_harvested)
      ! Should stored N be lost or retained?
      ! redistribute leftover biomass between biomass pools
      call update_biomass_pools(cc);

@@ -115,6 +115,7 @@ real    :: init_cohort_cmc   = 0.0  ! initial intercepted water
 real    :: init_cohort_scavenger_myc_biomass = 0.0 ! initial scavenger mycorrhizal biomass, kgC/m2
 real    :: init_cohort_miner_myc_biomass = 0.0 ! initial miner mycorrhizal biomass, kgC/m2
 real    :: init_N_fixer_biomass = 0.0 ! initial N fixer microbe biomass, kgC/m2
+real    :: init_cohort_stored_N_mult = 1.5 ! Multiple of initial leaf N + root N
 character(32) :: rad_to_use = 'big-leaf' ! or 'two-stream'
 character(32) :: snow_rad_to_use = 'ignore' ! or 'paint-leaves'
 character(32) :: photosynthesis_to_use = 'simple' ! or 'leuning'
@@ -152,6 +153,8 @@ namelist /vegn_nml/ &
     lm2, init_Wl, init_Ws, init_Tv, cpw, clw, csw, &
     init_cohort_bl, init_cohort_blv, init_cohort_br, init_cohort_bsw, &
     init_cohort_bwood, init_cohort_cmc, &
+    init_cohort_stored_N_mult, init_cohort_scavenger_myc_biomass, init_cohort_miner_myc_biomass, &
+    init_N_fixer_biomass, &
     rad_to_use, snow_rad_to_use, photosynthesis_to_use, &
     co2_to_use_for_photosynthesis, co2_for_photosynthesis, &
     do_cohort_dynamics, do_patch_disturbance, do_phenology, &
@@ -773,11 +776,11 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
      else
         cohort%species = tile%vegn%tag
      endif
-     cohort%leaf_N = cohort%bl/spdata(cohort%species)%leaf_live_c2n
+     cohort%leaf_N = (cohort%bl+cohort%blv)/spdata(cohort%species)%leaf_live_c2n
      cohort%wood_N = cohort%bwood/spdata(cohort%species)%wood_c2n
      cohort%sapwood_N = cohort%bsw/spdata(cohort%species)%sapwood_c2n
      cohort%root_N = cohort%br/spdata(cohort%species)%froot_live_c2n
-     cohort%stored_N = 1*(cohort%leaf_N+cohort%root_N)
+     cohort%stored_N = init_cohort_stored_N_mult*(cohort%leaf_N+cohort%root_N)
      cohort%total_N = cohort%stored_N+cohort%leaf_N+cohort%wood_N+cohort%root_N+cohort%sapwood_N
   enddo
 
