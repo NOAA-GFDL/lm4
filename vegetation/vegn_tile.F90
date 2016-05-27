@@ -670,7 +670,7 @@ function vegn_tile_carbon(vegn) result(carbon) ; real carbon
           vegn%cohorts(i)%bsw + &
           vegn%cohorts(i)%carbon_gain + vegn%cohorts(i)%bwood_gain + &
           vegn%cohorts(i)%myc_scavenger_biomass_C + vegn%cohorts(i)%myc_miner_biomass_C + &
-          vegn%cohorts(i)%N_fixer_biomass_C  ! Mycorrhizal and N fixer biomass added by B. Sulman
+          vegn%cohorts(i)%N_fixer_biomass_C + vegn%cohorts(i)%root_exudate_buffer_C ! Mycorrhizal and N fixer biomass added by B. Sulman
   enddo
   carbon = carbon + sum(vegn%harv_pool) + &
            vegn%fsc_pool_ag + vegn%ssc_pool_ag + &

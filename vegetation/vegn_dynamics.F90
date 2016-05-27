@@ -172,7 +172,7 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, ndep_nit, ndep_amm, ndep_or
   real :: myc_scav_marginal_gain,myc_mine_marginal_gain, N_fix_marginal_gain,rhiz_exud_frac,rhiz_exud_marginal_gain
   real :: root_active_N_uptake, mining_CO2prod,total_mining_CO2prod
   real :: N_fixation_2, myc_N_uptake, myc_N_uptake_2, myc_C_uptake, myc_C_uptake_2
-  real :: total_plant_N_uptake, excess_C
+  real :: total_plant_N_uptake, excess_C, current_root_exudation
   integer :: sp ! shorthand for current cohort specie
   integer :: i
 
@@ -447,7 +447,22 @@ total_myc_mine_C_uptake = 0.0
         !  endif
         ! !  rhiz_exud_frac = 0.3  ! Using fixed value for now
 
+        ! This is C sent to N acquisition in this time step
+        ! Deplete's cohort's root_exudate_buffer_C, at a 1 day time scale
+        ! root_exudate_C is added to root_exudate_buffer_C
 
+        ! Just empty buffer if it's very low, to prevent numerical problems during long periods of zero npp (i.e. winter deciduous)
+        if(cc%root_exudate_buffer_C<1e-10) then
+          current_root_exudation = cc%root_exudate_buffer_C/dt_fast_yr
+          cc%root_exudate_buffer_C = root_exudate_C*dt_fast_yr
+        else
+          current_root_exudation = cc%root_exudate_buffer_C*365.0  ! kgC/m2/year, for 1-day time scale depletion
+          cc%root_exudate_buffer_C = cc%root_exudate_buffer_C + (root_exudate_C-current_root_exudation)*dt_fast_yr
+        endif
+
+        if(cc%root_exudate_buffer_C<0) call error_mesg('vegn_carbon_int','root_exudate_buffer_C<0',FATAL)
+
+        ! __DEBUG3__(current_root_exudation,cc%root_exudate_buffer_C,root_exudate_C)
 
          ! Scavenging (AM-style)
          call myc_scavenger_N_uptake(soil,vegn,cc%myc_scavenger_biomass_C,myc_scav_N_uptake,dt_fast_yr)
@@ -476,8 +491,8 @@ total_myc_mine_C_uptake = 0.0
          ! Root uptake of nitrogen
          call root_N_uptake(soil,vegn,root_active_N_uptake,dt_fast_yr)
 
-         if (root_exudate_C>0) then
-           rhiz_exud_marginal_gain = (root_active_N_uptake/dt_fast_yr)/(root_exudate_C*0.3)+(myc_mine_marginal_gain+myc_scav_marginal_gain)*0.3
+         if (current_root_exudation>0) then
+           rhiz_exud_marginal_gain = (root_active_N_uptake/dt_fast_yr)/(current_root_exudation*0.3)+(myc_mine_marginal_gain+myc_scav_marginal_gain)*0.3
          else
            rhiz_exud_marginal_gain = (myc_mine_marginal_gain+myc_scav_marginal_gain)*0.3
          endif
@@ -501,21 +516,21 @@ total_myc_mine_C_uptake = 0.0
             N_fixer_exudate_frac = N_fix_marginal_gain/(myc_scav_marginal_gain+myc_mine_marginal_gain+N_fix_marginal_gain+rhiz_exud_marginal_gain)
             rhiz_exud_frac = rhiz_exud_marginal_gain/(myc_scav_marginal_gain+myc_mine_marginal_gain+N_fix_marginal_gain+rhiz_exud_marginal_gain)
           else
-            ! Divide evenly if there is no marginal gain.  But this probably only happens if root_exudate_C is zero
+            ! Divide evenly if there is no marginal gain.  But this probably only happens if current_root_exudation is zero
             myc_scav_exudate_frac = 0.4*0.7
             myc_mine_exudate_frac = 0.3*0.7
             N_fixer_exudate_frac = 0.3*0.7
             rhiz_exud_frac = 0.3
           endif
 
-          N_fixer_C_allocated = root_exudate_C*N_fixer_exudate_frac*dt_fast_yr
-          miner_myc_C_allocated=root_exudate_C*myc_mine_exudate_frac*dt_fast_yr
-          scavenger_myc_C_allocated=root_exudate_C*myc_scav_exudate_frac*dt_fast_yr
+          N_fixer_C_allocated = current_root_exudation*N_fixer_exudate_frac*dt_fast_yr
+          miner_myc_C_allocated=current_root_exudation*myc_mine_exudate_frac*dt_fast_yr
+          scavenger_myc_C_allocated=current_root_exudation*myc_scav_exudate_frac*dt_fast_yr
 
-          ! if (root_exudate_C>0) then
+          ! if (current_root_exudation>0) then
           !   print *,'allocation 1'
           !   __DEBUG3__(scavenger_myc_C_allocated,myc_scav_marginal_gain,myc_scav_N_uptake)
-          !   __DEBUG3__(N_fix_marginal_gain,rhiz_exud_marginal_gain,root_exudate_C)
+          !   __DEBUG3__(N_fix_marginal_gain,rhiz_exud_marginal_gain,current_root_exudation)
           ! endif
 
 
@@ -533,7 +548,7 @@ total_myc_mine_C_uptake = 0.0
              N_fixer_exudate_frac = N_fix_marginal_gain/(myc_scav_marginal_gain+myc_mine_marginal_gain+N_fix_marginal_gain+rhiz_exud_marginal_gain)
              rhiz_exud_frac = rhiz_exud_marginal_gain/(myc_scav_marginal_gain+myc_mine_marginal_gain+N_fix_marginal_gain+rhiz_exud_marginal_gain)
            else
-             ! Divide evenly if there is no marginal gain.  But this probably only happens if root_exudate_C is zero
+             ! Divide evenly if there is no marginal gain.  But this probably only happens if current_root_exudation is zero
              myc_scav_exudate_frac = 0.4*0.7
              myc_mine_exudate_frac = 0.3*0.7
              N_fixer_exudate_frac = 0.3*0.7
@@ -541,14 +556,14 @@ total_myc_mine_C_uptake = 0.0
            endif
           !
           !  ! Adjusted C allocation and immobilization
-           N_fixer_C_allocated = root_exudate_C*N_fixer_exudate_frac*dt_fast_yr
-           miner_myc_C_allocated=root_exudate_C*myc_mine_exudate_frac*dt_fast_yr
-           scavenger_myc_C_allocated=root_exudate_C*myc_scav_exudate_frac*dt_fast_yr
+           N_fixer_C_allocated = current_root_exudation*N_fixer_exudate_frac*dt_fast_yr
+           miner_myc_C_allocated=current_root_exudation*myc_mine_exudate_frac*dt_fast_yr
+           scavenger_myc_C_allocated=current_root_exudation*myc_scav_exudate_frac*dt_fast_yr
           !
-          !  if (root_exudate_C>0) then
+          !  if (current_root_exudation>0) then
           !    print *,'allocation 2'
           !    __DEBUG4__(scavenger_myc_C_allocated,myc_scav_marginal_gain,myc_scav_N_uptake,mycorrhizal_scav_N_immob)
-          !    __DEBUG3__(N_fix_marginal_gain,rhiz_exud_marginal_gain,root_exudate_C)
+          !    __DEBUG3__(N_fix_marginal_gain,rhiz_exud_marginal_gain,current_root_exudation)
           !  endif
 
            mycorrhizal_scav_N_immob = max(0.0,scavenger_myc_C_allocated*myc_scav_C_efficiency/c2n_mycorrhizae-scavenger_myc_C_allocated*root_exudate_N_frac)
@@ -582,10 +597,11 @@ total_myc_mine_C_uptake = 0.0
           !   mycorrhizal_scav_N_immob = max(0.0,scavenger_myc_C_allocated*myc_scav_C_efficiency/c2n_mycorrhizae-scavenger_myc_C_allocated*root_exudate_N_frac)
           endif
 
-          ! if (root_exudate_C>0) then
-          !   print *,'allocation 3'
-          !   __DEBUG4__(scavenger_myc_C_allocated,myc_scav_marginal_gain,myc_scav_N_uptake,mycorrhizal_scav_N_immob)
-          !   __DEBUG3__(N_fix_marginal_gain,rhiz_exud_marginal_gain,root_exudate_C)
+          ! if (current_root_exudation>0) then
+          !   print *,'allocation'
+          !   __DEBUG3__(myc_scav_marginal_gain,myc_scav_N_uptake,mycorrhizal_scav_N_immob)
+          !   __DEBUG3__(N_fix_marginal_gain,rhiz_exud_marginal_gain,current_root_exudation)
+          !   __DEBUG3__(N_fixer_C_allocated,miner_myc_C_allocated,scavenger_myc_C_allocated)
           ! endif
 
      else
@@ -616,7 +632,7 @@ total_myc_mine_C_uptake = 0.0
 
      total_plant_N_uptake = myc_scav_N_uptake-mycorrhizal_scav_N_immob + myc_mine_N_uptake-mycorrhizal_mine_N_immob &
                        +N_fixation+root_active_N_uptake
-     cc%stored_N = cc%stored_N + total_plant_N_uptake - root_exudate_C*root_exudate_N_frac*dt_fast_yr
+     cc%stored_N = cc%stored_N + total_plant_N_uptake - current_root_exudation*root_exudate_N_frac*dt_fast_yr
 
 
 
@@ -664,18 +680,18 @@ total_myc_mine_C_uptake = 0.0
      if(isnan(cc%N_fixer_biomass_C)) call error_mesg('vegn_carbon_int','N fixer biomass is NaN',FATAL)
 
      ! To prevent excess stored N buildup under high soil N, leak stored N when stress is zero
-     root_exudate_N=(root_exudate_C*dt_fast_yr - scavenger_myc_C_allocated - N_fixer_C_allocated - miner_myc_C_allocated)/dt_fast_yr*root_exudate_N_frac
+     root_exudate_N=(current_root_exudation*dt_fast_yr - scavenger_myc_C_allocated - N_fixer_C_allocated - miner_myc_C_allocated)/dt_fast_yr*root_exudate_N_frac
      if(cc%nitrogen_stress<=0 .AND. cc%stored_N>0) then
        root_exudate_N = root_exudate_N + cc%stored_N*excess_stored_N_leakage_rate
        cc%stored_N=cc%stored_N - cc%stored_N*excess_stored_N_leakage_rate*dt_fast_yr
      endif
 
      ! To do: Figure out excess C if mycorrhizae N-limited and add back to root exudate C
-     total_root_exudate_C = total_root_exudate_C + root_exudate_C*dt_fast_yr - scavenger_myc_C_allocated - N_fixer_C_allocated - miner_myc_C_allocated
+     total_root_exudate_C = total_root_exudate_C + current_root_exudation*dt_fast_yr - scavenger_myc_C_allocated - N_fixer_C_allocated - miner_myc_C_allocated
      total_root_exudate_N = total_root_exudate_N + root_exudate_N*dt_fast_yr
 
      if(total_root_exudate_C < 0.0) then
-         __DEBUG4__(root_exudate_C*dt_fast_yr,scavenger_myc_C_allocated,N_fixer_C_allocated,miner_myc_C_allocated)
+         __DEBUG4__(current_root_exudation*dt_fast_yr,scavenger_myc_C_allocated,N_fixer_C_allocated,miner_myc_C_allocated)
          call error_mesg('vegn_carbon_int','Root exudate C < 0',FATAL)
      endif
 

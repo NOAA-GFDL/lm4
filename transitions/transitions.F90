@@ -18,7 +18,7 @@ use mpp_io_mod, only : mpp_get_atts, MPP_RDONLY, MPP_NETCDF, MPP_MULTI, MPP_SING
 use mpp_io_mod, only : mpp_get_times, mpp_open, mpp_close, MPP_ASCII, mpp_get_field_index
 
 use axis_utils_mod, only : get_axis_bounds
-                       
+
 use fms_mod, only : write_version_number, string, error_mesg, FATAL, WARNING, NOTE, &
      mpp_pe, write_version_number, file_exist, close_file, &
      check_nml_error, stdlog, mpp_root_pe, fms_error_handler
@@ -60,7 +60,7 @@ use vegn_harvesting_mod, only : &
      vegn_cut_forest
 
 use land_debug_mod, only : set_current_point, is_watch_point, get_current_point
-     
+
 implicit none
 private
 
@@ -117,17 +117,17 @@ type(fieldtype), allocatable, dimension(:) :: fields
 ! ---- namelist variables ---------------------------------------------------
 logical, public :: do_landuse_change = .FALSE. ! if true, then the landuse changes with time
 character(len=512) :: input_file = ''
-! sets how to handle transition overshoot: that is, the situation when transition 
+! sets how to handle transition overshoot: that is, the situation when transition
 ! is larger than available area of the given land use type.
 character(len=16) :: overshoot_handling = 'report' ! or 'stop', or 'ignore'
-real :: overshoot_tolerance = 1e-4 ! tolerance interval for overshoots 
+real :: overshoot_tolerance = 1e-4 ! tolerance interval for overshoots
 ! specifies how to handle non-conservation
 character(len=16) :: conservation_handling = 'stop' ! or 'report', or 'ignore'
 
 namelist/landuse_nml/input_file, do_landuse_change, &
      overshoot_handling, overshoot_tolerance, &
      conservation_handling
-     
+
 
 contains ! ###################################################################
 
@@ -164,7 +164,7 @@ subroutine land_transitions_init(id_lon, id_lat)
 #else
   if (file_exist('input.nml')) then
      unit = open_namelist_file ( )
-     ierr = 1;  
+     ierr = 1;
      do while (ierr /= 0)
         read (unit, nml=landuse_nml, iostat=io, end=10)
         ierr = check_nml_error (io, 'landuse_nml')
@@ -173,7 +173,7 @@ subroutine land_transitions_init(id_lon, id_lat)
      call close_file (unit)
   endif
 #endif
-  
+
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=landuse_nml)
@@ -194,7 +194,7 @@ subroutine land_transitions_init(id_lon, id_lat)
           NOTE)
      time0 = set_date(0001,01,01);
   endif
-  
+
   ! parse the overshoot handling option
   if (trim(overshoot_handling)=='stop') then
      overshoot_opt = OPT_STOP
@@ -231,7 +231,7 @@ subroutine land_transitions_init(id_lon, id_lat)
      if(ierr/=NF_NOERR) call error_mesg('landuse_init', &
           'do_landuse_change is requested, but landuse transition file "'// &
           trim(input_file)//'" could not be opened because '//nf_strerror(ierr), FATAL)
-  
+
      ! initialize array of input field ids
      input_ids(:,:) = 0
      do k1 = 1,size(input_ids,1)
@@ -239,7 +239,7 @@ subroutine land_transitions_init(id_lon, id_lat)
         ! construct a name of input field and register the field
         fieldname = trim(landuse_name(k1))//'2'//trim(landuse_name(k2))
         if(trim(fieldname)=='2') cycle ! skip unspecified tiles
-        
+
         ierr = nfu_inq_var(ncid,fieldname, id=input_ids(k1,k2))
         if (ierr/=NF_NOERR) then
            if (ierr==NF_ENOTVAR) then
@@ -254,10 +254,10 @@ subroutine land_transitions_init(id_lon, id_lat)
         endif
         ! initialize the input data grid and horizontal interpolator
         if ((.not.grid_initialized).and.(input_ids(k1,k2)>0)) then
-           ! we assume that all transition rate fields are specified on the same grid, 
+           ! we assume that all transition rate fields are specified on the same grid,
            ! in both horizontal and time "directions". Therefore there is a single grid
            ! for all fields, initialized only once.
-           
+
            __NF_ASRT__(nfu_inq_var(ncid,fieldname,dimids=dimids,dimlens=dimlens,nrec=nrec))
            ! allocate temporary variables
            allocate(lon_in(dimlens(1)+1,1), &
@@ -288,8 +288,8 @@ subroutine land_transitions_init(id_lon, id_lat)
                 lnd%lonb, lnd%latb, &
                 interp_method='conservative',&
                 mask_in=mask_in, is_latlon_in=.TRUE. )
-           
-           ! get the time axis 
+
+           ! get the time axis
            __NF_ASRT__(nf_inq_unlimdim(ncid, timedim))
            __NF_ASRT__(nfu_get_dim(ncid, timedim, time))
            ! get units of time
@@ -304,7 +304,7 @@ subroutine land_transitions_init(id_lon, id_lat)
            do i = 1,size(time)
               time_in(i) = get_cal_time(time(i),timeunits,calendar)
            end do
-           
+
            grid_initialized = .true.
            ! get rid of allocated data
            deallocate(lon_in,lat_in,time,mask_in)
@@ -324,7 +324,7 @@ subroutine land_transitions_init(id_lon, id_lat)
      ! construct a name of input field and register the field
      fieldname = trim(landuse_name(k1))//'2'//trim(landuse_name(k2))
      diag_ids(k1,k2) = register_diag_field(diag_mod_name,fieldname,(/id_lon,id_lat/), land_time, &
-          'rate of transition from '//trim(landuse_longname(k1))//' to '//trim(landuse_longname(k2)),& 
+          'rate of transition from '//trim(landuse_longname(k1))//' to '//trim(landuse_longname(k2)),&
           units='1/year', missing_value=-1.0)
   enddo
   enddo
@@ -367,7 +367,7 @@ subroutine land_transitions_init_new(id_lon, id_lat)
 #else
   if (file_exist('input.nml')) then
      unit = open_namelist_file ( )
-     ierr = 1;  
+     ierr = 1;
      do while (ierr /= 0)
         read (unit, nml=landuse_nml, iostat=io, end=10)
         ierr = check_nml_error (io, 'landuse_nml')
@@ -376,7 +376,7 @@ subroutine land_transitions_init_new(id_lon, id_lat)
      call close_file (unit)
   endif
 #endif
-  
+
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=landuse_nml)
@@ -397,7 +397,7 @@ subroutine land_transitions_init_new(id_lon, id_lat)
           NOTE)
      time0 = set_date(0001,01,01);
   endif
-  
+
   ! parse the overshoot handling option
   if (trim(overshoot_handling)=='stop') then
      overshoot_opt = OPT_STOP
@@ -435,7 +435,7 @@ subroutine land_transitions_init_new(id_lon, id_lat)
      if(ierr/=0) call error_mesg('landuse_init', &
           'do_landuse_change is requested, but landuse transition file "'// &
           trim(input_file)//' could not be opened', FATAL)
-  
+
      call mpp_get_info(input_unit,ndim,nvar,natt,nrec)
      allocate(fields(nvar), all_axes(ndim))
      call mpp_get_axes(input_unit, all_axes)
@@ -447,20 +447,20 @@ subroutine land_transitions_init_new(id_lon, id_lat)
         ! construct a name of input field and register the field
         fieldname = trim(landuse_name(k1))//'2'//trim(landuse_name(k2))
         if(trim(fieldname)=='2') cycle ! skip unspecified tiles
-        
+
         nfield = mpp_get_field_index(fields,trim(fieldname))
         if ( nfield > 0 ) then
           input_ids(k1,k2) = nfield
         else
           input_ids(k1,k2) = -1 ! Indicates that input field is not present in the input data
         endif
-       
+
         ! initialize the input data grid and horizontal interpolator
         if ((.not.grid_initialized).and.(input_ids(k1,k2)>0)) then
-           ! we assume that all transition rate fields are specified on the same grid, 
+           ! we assume that all transition rate fields are specified on the same grid,
            ! in both horizontal and time "directions". Therefore there is a single grid
            ! for all fields, initialized only once.
-           
+
            call mpp_get_atts(fields(input_ids(k1,k2)), ndim=num_dims, siz=dimlens)
            allocate(axes(num_dims))
            call mpp_get_atts(fields(input_ids(k1,k2)), axes=axes)
@@ -493,8 +493,8 @@ subroutine land_transitions_init_new(id_lon, id_lat)
                 lnd%lonb, lnd%latb, &
                 interp_method='conservative',&
                 mask_in=mask_in, is_latlon_in=.TRUE. )
-           
-           ! get the time axis 
+
+           ! get the time axis
            call mpp_get_times(input_unit, time)
            ! get units of time
            timeunits = ' '
@@ -506,7 +506,7 @@ subroutine land_transitions_init_new(id_lon, id_lat)
            do i = 1,size(time)
               time_in(i) = get_cal_time(time(i),timeunits,calendar)
            end do
-           
+
            grid_initialized = .true.
            ! get rid of allocated data
            deallocate(lon_in,lat_in,time,mask_in)
@@ -526,7 +526,7 @@ subroutine land_transitions_init_new(id_lon, id_lat)
      ! construct a name of input field and register the field
      fieldname = trim(landuse_name(k1))//'2'//trim(landuse_name(k2))
      diag_ids(k1,k2) = register_diag_field(diag_mod_name,fieldname,(/id_lon,id_lat/), land_time, &
-          'rate of transition from '//trim(landuse_longname(k1))//' to '//trim(landuse_longname(k2)),& 
+          'rate of transition from '//trim(landuse_longname(k1))//' to '//trim(landuse_longname(k2)),&
           units='1/year', missing_value=-1.0)
   enddo
   enddo
@@ -538,7 +538,7 @@ end subroutine land_transitions_init_new
 
 ! ============================================================================
 subroutine land_transitions_end()
-  
+
   if (do_landuse_change) &
        call horiz_interp_del(interp)
   if(allocated(time_in)) &
@@ -551,7 +551,7 @@ end subroutine land_transitions_end
 ! ============================================================================
 subroutine save_land_transitions_restart(timestamp)
   character(*), intent(in) :: timestamp ! timestamp to add to the file name
-  
+
   integer :: unit,year,month,day,hour,min,sec
 
   call mpp_open( unit, 'RESTART/'//trim(timestamp)//'landuse.res', nohdrs=.TRUE. )
@@ -568,7 +568,7 @@ end subroutine save_land_transitions_restart
 ! ============================================================================
 ! performs transitions between tiles, e.g. conversion of forests to crop, etc.
 subroutine land_transitions_new (time)
-  type(time_type), intent(in) :: time 
+  type(time_type), intent(in) :: time
 
   ! ---- local vars.
   integer :: i,j,k1,k2
@@ -584,7 +584,7 @@ subroutine land_transitions_new (time)
   call get_date(time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
   if(year0 == year1) &
 !!$  if(day0 == day1) &
-       return ! do nothing during a year 
+       return ! do nothing during a year
 
   ! get transition rates for current time: read map of transitions, and accumulate
   ! as many layers in array of transitions as necessary. Note that "transitions"
@@ -609,10 +609,10 @@ subroutine land_transitions_new (time)
           transitions(i,j,:)%frac )
   enddo
   enddo
-  
+
   ! deallocate array of transitions
   if (associated(transitions)) deallocate(transitions)
-  
+
   ! store current time for future reference
   time0=time
 
@@ -620,7 +620,7 @@ end subroutine land_transitions_new
 
 ! =============================================================================
 subroutine land_transitions (time)
-  type(time_type), intent(in) :: time 
+  type(time_type), intent(in) :: time
 
   ! ---- local vars.
   integer :: i,j,k1,k2
@@ -636,7 +636,7 @@ subroutine land_transitions (time)
   call get_date(time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
   if(year0 == year1) &
 !!$  if(day0 == day1) &
-       return ! do nothing during a year 
+       return ! do nothing during a year
 
   ! get transition rates for current time: read map of transitions, and accumulate
   ! as many layers in array of transitions as necessary. Note that "transitions"
@@ -661,10 +661,10 @@ subroutine land_transitions (time)
           transitions(i,j,:)%frac )
   enddo
   enddo
-  
+
   ! deallocate array of transitions
   if (associated(transitions)) deallocate(transitions)
-  
+
   ! store current time for future reference
   time0=time
 
@@ -676,7 +676,7 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
   integer, intent(in) :: d_kinds(:) ! array of donor tile kinds
   integer, intent(in) :: a_kinds(:) ! array of acceptor tile kinds
   real   , intent(in) :: area(:)    ! array of areas changing from donor tiles to acceptor tiles
-  
+
   ! ---- local vars
   integer :: i
   type(land_tile_type), pointer :: ptr
@@ -685,7 +685,7 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
   real :: atot ! total fraction of tiles that can be involved in transitions
   ! variable used for conservation check:
   real :: lmass0, fmass0, cmass0, heat0, &
-       soil_heat0, vegn_heat0, cana_heat0, snow_heat0, soil_carbon0, vegn_carbon0, cana_carbon0 ! pre-transition values 
+       soil_heat0, vegn_heat0, cana_heat0, snow_heat0, soil_carbon0, vegn_carbon0, cana_carbon0 ! pre-transition values
   real :: lmass1, fmass1, cmass1, heat1, &
        soil_heat1, vegn_heat1, cana_heat1, snow_heat1, soil_carbon1, vegn_carbon1, cana_carbon1 ! post-transition values
   real :: lm, fm ! buffers for transition calulations
@@ -703,7 +703,7 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
 
      heat0  = heat0  + land_tile_heat  (ptr)*ptr%frac
      cmass0 = cmass0 + land_tile_carbon(ptr)*ptr%frac
-     
+
      if(associated(ptr%cana)) cana_carbon0 = cana_carbon0 + cana_tile_carbon(ptr%cana)*ptr%frac
      if(associated(ptr%vegn)) vegn_carbon0 = vegn_carbon0 + vegn_tile_carbon(ptr%vegn)*ptr%frac
      if(associated(ptr%soil)) soil_heat0 = soil_heat0 + soil_tile_heat(ptr%soil)*ptr%frac
@@ -738,7 +738,7 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      write(*,'(a,g23.16)')'total area=',atot
   endif
 
-  ! split each donor tile and gather the parts that undergo a 
+  ! split each donor tile and gather the parts that undergo a
   ! transition into a separate list. Note that the kind of the landuse is
   ! changed during this transition, including forest harvesting if necessary.
   ! This has to occur at some time before the tiles are merged, and it seems
@@ -771,8 +771,8 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
 
   ! move all tiles from the donor list to the acceptor list -- this will ensure
   ! that all the tiles that can be merged at this time will be
-  te = tail_elmt(d_list) 
-  do 
+  te = tail_elmt(d_list)
+  do
      ts=first_elmt(d_list)
      if(ts==te) exit ! reached the end of the list
      ptr=>current_tile(ts)
@@ -787,7 +787,7 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
   ! d_list is empty at this point
 
   ! merge all generated tiles into the source (donor) list
-  te = tail_elmt(a_list) 
+  te = tail_elmt(a_list)
   do
      ts=first_elmt(a_list)
      if(ts==te) exit ! break out of loop
@@ -811,7 +811,7 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      write(*,'(a,g23.16)')'total area=',atot
   endif
 
-  ! conservation check part 2: calculate grid cell totals in final state, and 
+  ! conservation check part 2: calculate grid cell totals in final state, and
   ! compare them with pre-transition totals
   lmass1 = 0 ; fmass1 = 0 ; cmass1 = 0 ; heat1 = 0 ; soil_carbon1 = 0
   soil_heat1 = 0 ;  vegn_heat1 = 0 ; cana_heat1 = 0 ; snow_heat1 = 0
@@ -845,12 +845,12 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
   call check_conservation ('vegetation carbon', vegn_carbon0, vegn_carbon1, 1e-6)
   call check_conservation ('canopy carbon', cana_carbon0, cana_carbon1, 1e-6)
 
-end subroutine land_transitions_0d 
+end subroutine land_transitions_0d
 
 
 ! ==============================================================================
 ! given a pointer to a tile and a tile list, insert the tile into the list so that
-! if tile can be merged with any one already present, it is merged; otherwise 
+! if tile can be merged with any one already present, it is merged; otherwise
 ! the tile is inserted into the list
 subroutine land_tile_merge(tile, list)
   type(land_tile_type), pointer :: tile
@@ -859,7 +859,7 @@ subroutine land_tile_merge(tile, list)
   ! ---- local vars
   type(land_tile_type), pointer :: ptr
   type(land_tile_enum_type) :: ct,et
-  
+
   ! try to find a tile that we can merge to
   ct = first_elmt(list) ; et = tail_elmt(list)
   do while(ct/=et)
@@ -885,7 +885,7 @@ subroutine split_changing_tile_parts(d_list,d_kind,a_kind,dfrac,a_list)
   integer, intent(in) :: a_kind ! kind of acceptor tiles
   real,    intent(in) :: dfrac  ! fraction of land area that changes kind
   type(land_tile_list_type), intent(inout) :: a_list ! list of acceptors
-  
+
   ! ---- local vars
   type(land_tile_enum_type) :: ct, et
   type(land_tile_type), pointer :: temp
@@ -927,7 +927,7 @@ subroutine split_changing_tile_parts(d_list,d_kind,a_kind,dfrac,a_list)
   ! if area of the tiles of requested kind is zero we cannot transition
   ! anything, so just return
   if (area==0) return
-       
+
   ! transition cannot be more than current total area of specified kind
   darea = min(dfrac, area)
 
@@ -949,7 +949,7 @@ subroutine split_changing_tile_parts(d_list,d_kind,a_kind,dfrac,a_list)
      if (iter>50) then
         call error_mesg('veg_tile_transitions',&
              'cannot braket transition intensity interval after 50 iterations',&
-             FATAL) 
+             FATAL)
      endif
   enddo
 
@@ -973,7 +973,7 @@ subroutine split_changing_tile_parts(d_list,d_kind,a_kind,dfrac,a_list)
      if(tile%vegn%landuse == d_kind) then
         darea = vegn_tran_priority(tile%vegn, a_kind, x2)
         if(darea > 0) then
-           ! make a copy 
+           ! make a copy
            temp => new_land_tile(tile)
            temp%frac = tile%frac*darea
            tile%frac = tile%frac*(1.0-darea)
@@ -983,7 +983,7 @@ subroutine split_changing_tile_parts(d_list,d_kind,a_kind,dfrac,a_list)
                 call vegn_cut_forest(temp%vegn, a_kind)
            ! change landuse type of the tile
            temp%vegn%landuse = a_kind
-           ! add the new tile to the resulting list 
+           ! add the new tile to the resulting list
            call insert(temp, a_list) ! insert tile into output list
         endif
      endif
@@ -993,7 +993,7 @@ end subroutine split_changing_tile_parts
 
 
 ! ============================================================================
-! calculates total area (fraction of grid cell area) participating in 
+! calculates total area (fraction of grid cell area) participating in
 ! vegetation transition from src_kind to dst_kind for given transition
 ! intensity tau
 function total_transition_area(list,src_kind,dst_kind,tau) result (total_area)
@@ -1007,22 +1007,22 @@ function total_transition_area(list,src_kind,dst_kind,tau) result (total_area)
   type(land_tile_type), pointer :: tile
 
   total_area = 0
-  ct = first_elmt(list) ; et = tail_elmt(list) 
+  ct = first_elmt(list) ; et = tail_elmt(list)
   do while (ct/=et)
      tile=>current_tile(ct);  ct = next_elmt(ct)
      if (.not.associated(tile%vegn)) cycle ! skip non-vegetated tiles
      if(tile%vegn%landuse == src_kind) &
           total_area = total_area + tile%frac*vegn_tran_priority(tile%vegn,dst_kind,tau)
   enddo
-  
+
 end function total_transition_area
 
 
 ! ============================================================================
 
 subroutine get_transitions(time0,time1,k1,k2,tran,new_transitions_io)
-  type(time_type), intent(in) :: time0       ! time of previous calculation of 
-    ! transitions (the integral transitinos will be calculated between time0 
+  type(time_type), intent(in) :: time0       ! time of previous calculation of
+    ! transitions (the integral transitinos will be calculated between time0
     ! and time)
   type(time_type), intent(in) :: time1       ! current time
   integer, intent(in) :: k1,k2               ! kinds of tiles
@@ -1049,7 +1049,7 @@ subroutine get_transitions(time0,time1,k1,k2,tran,new_transitions_io)
      else
        call integral_transition(time0,time1,input_ids(k1,k2),frac)
      endif
-     
+
      do j = lnd%js,lnd%je
      do i = lnd%is,lnd%ie
         if(frac(i,j) == 0) cycle ! skip points where transition rate is zero
@@ -1107,21 +1107,21 @@ subroutine integral_transition_new(t1, t2, id, frac, err_msg)
   character(len=256) :: msg
 
   msg = ''
-  ! adjust the integration limits, in case they are out of range   
+  ! adjust the integration limits, in case they are out of range
   n = size(time_in)
-  ts = t1; 
+  ts = t1;
   if (ts<time_in(1)) ts = time_in(1)
-  if (ts>time_in(n)) ts = time_in(n) 
+  if (ts>time_in(n)) ts = time_in(n)
   te = t2
   if (te<time_in(1)) te = time_in(1)
-  if (te>time_in(n)) te = time_in(n) 
+  if (te>time_in(n)) te = time_in(n)
 
   call time_interp(ts, time_in, w, i1,i2, err_msg=msg)
   if(msg /= '') then
     if(fms_error_handler('integral_transition','Message from time_interp: '//trim(msg),err_msg)) return
   endif
   call mpp_read(input_unit, fields(id), buffer_in, i1)
-  
+
 
   frac = 0;
   call horiz_interp(interp,buffer_in,frac)
@@ -1172,14 +1172,14 @@ subroutine integral_transition(t1, t2, id, frac, err_msg)
   character(len=256) :: msg
 
   msg = ''
-  ! adjust the integration limits, in case they are out of range   
+  ! adjust the integration limits, in case they are out of range
   n = size(time_in)
-  ts = t1; 
+  ts = t1;
   if (ts<time_in(1)) ts = time_in(1)
-  if (ts>time_in(n)) ts = time_in(n) 
+  if (ts>time_in(n)) ts = time_in(n)
   te = t2
   if (te<time_in(1)) te = time_in(1)
-  if (te>time_in(n)) te = time_in(n) 
+  if (te>time_in(n)) te = time_in(n)
 
   call time_interp(ts, time_in, w, i1,i2, err_msg=msg)
   if(msg /= '') then
@@ -1232,7 +1232,7 @@ subroutine check_conservation(name, d1, d2, tolerance)
 
   severity = WARNING
   if (overshoot_opt==OPT_STOP) severity = FATAL
-  
+
   if (abs(d1-d2)>tolerance) then
      call get_current_point(i=curr_i,j=curr_j,face=face)
      write(message,'(a,3(x,a,i4), 2(x,a,g23.16))')&
@@ -1241,6 +1241,6 @@ subroutine check_conservation(name, d1, d2, tolerance)
           'value before=', d1, 'after=', d2
      call error_mesg('land_transitions',message,severity)
   endif
-end subroutine check_conservation 
+end subroutine check_conservation
 
 end module
