@@ -506,7 +506,6 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      
      ! create and initialize cohorts for this vegetation tile
      tile%vegn%n_cohorts = init_n_cohorts
-     __DEBUG2__(init_n_cohorts,tile%vegn%n_cohorts)
      tile%vegn%tc_pheno  = init_Tv  ! initial temperature for phenology
 
      allocate(tile%vegn%cohorts(tile%vegn%n_cohorts))

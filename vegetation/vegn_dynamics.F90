@@ -808,7 +808,7 @@ end subroutine vegn_starvation_ppa
 ! using accumulated carbon_gain
 subroutine biomass_allocation_ppa(cc, wood_prod)
   type(vegn_cohort_type), intent(inout) :: cc
-  real, intent(out) :: wood_prod ! wood production, kgC/year per individual
+  real, intent(out) :: wood_prod ! wood production, kgC/year per individual, diagnostic output
 
   real :: CSAtot ! total cross section area, m2
   real :: CSAsw  ! Sapwood cross sectional area, m2
@@ -849,6 +849,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod)
   ! typical in lm3?)
   delta_bsw_branch = 0.
   delta_wood_branch  = 0.
+  wood_prod = 0. ! set initial value
   if (cc%status == LEAF_ON) then
      ! calculate the carbon spent on growth of leaves and roots
      G_LFR    = max(0.0, min(cc%bl_max+cc%br_max-cc%bl-cc%br,  &
