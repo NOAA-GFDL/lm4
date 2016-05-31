@@ -148,9 +148,9 @@ type spec_data_type
                 ! fraction times sapwood retirement rate
 
   ! decay rates of plant carbon pools, 1/yr
-  real    :: alpha_nsc=0.0, alpha_sapwood=0.0, alpha_leaf=1.0, alpha_root=1.0, alpha_vleaf=0.0, alpha_wood=1.2e-2
+  real    :: alpha_leaf=1.0, alpha_root=1.0, alpha_wood=1.2e-2
   ! respiration rates of plant carbon pools
-  real    :: beta_nsc = 0.0, beta_sapwood=0.0, beta_leaf=0.0, beta_root=1.25, beta_vleaf=0.0, beta_wood=0.0
+  real    :: beta_sapwood=0.0, beta_root=1.25, beta_vleaf=0.0
   
   real    :: dfr         = 5.8   ! fine root diameter ? or parameter relating diameter of fine roots to resistance
   ! the following two parameters are used in the Darcy-law calculations of water supply
@@ -591,17 +591,11 @@ subroutine read_species_data(name, sp, errors_found)
   
   __GET_SPDATA_REAL__(alpha_leaf)
   __GET_SPDATA_REAL__(alpha_root)
-  __GET_SPDATA_REAL__(alpha_vleaf)
-  __GET_SPDATA_REAL__(alpha_sapwood)
   __GET_SPDATA_REAL__(alpha_wood)
-  __GET_SPDATA_REAL__(alpha_nsc)
 
-  __GET_SPDATA_REAL__(beta_leaf)
   __GET_SPDATA_REAL__(beta_root)
   __GET_SPDATA_REAL__(beta_vleaf)
   __GET_SPDATA_REAL__(beta_sapwood)
-  __GET_SPDATA_REAL__(beta_wood)
-  __GET_SPDATA_REAL__(beta_nsc)
 
   __GET_SPDATA_REAL__(Vmax)
   __GET_SPDATA_REAL__(m_cond)
@@ -817,17 +811,11 @@ subroutine print_species_data(unit)
 
   call add_row(table, 'alpha_leaf',    spdata(:)%alpha_leaf)
   call add_row(table, 'alpha_root',    spdata(:)%alpha_root)
-  call add_row(table, 'alpha_vleaf',   spdata(:)%alpha_vleaf)
-  call add_row(table, 'alpha_sapwood', spdata(:)%alpha_sapwood)
   call add_row(table, 'alpha_wood',    spdata(:)%alpha_wood)
-  call add_row(table, 'alpha_nsc',     spdata(:)%alpha_nsc)
 
-  call add_row(table, 'beta_leaf',     spdata(:)%beta_leaf)
   call add_row(table, 'beta_root',     spdata(:)%beta_root)
   call add_row(table, 'beta_vleaf',    spdata(:)%beta_vleaf)
   call add_row(table, 'beta_sapwood',  spdata(:)%beta_sapwood)
-  call add_row(table, 'beta_wood',     spdata(:)%beta_wood)
-  call add_row(table, 'beta_nsc',      spdata(:)%beta_nsc)
 
   call add_row(table, 'dfr',           spdata(:)%dfr)
 
