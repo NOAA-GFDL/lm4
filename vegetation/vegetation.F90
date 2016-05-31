@@ -543,7 +543,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
            cc%species = tile%vegn%tag
         endif
         cc%K_r = spdata(cc%species)%root_perm
-        __DEBUG1__(cc%age)
+        !__DEBUG1__(cc%age)
         end associate
      enddo
   enddo
