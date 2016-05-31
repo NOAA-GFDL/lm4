@@ -7,7 +7,7 @@ use vegn_data_mod, only : spdata, &
    use_mcm_masking, use_bucket, critical_root_density, &
    tg_c4_thresh, tg_c3_thresh, l_fract, fsc_liv, &
    phen_ev1, phen_ev2, cmc_eps
-use vegn_data_mod, only : PT_C3, PT_C4, CMPT_ROOT, CMPT_LEAF, &
+use vegn_data_mod, only : PT_C3, PT_C4, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
    LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDUOUS, FORM_GRASS, &
    ALLOM_EW, ALLOM_EW1, ALLOM_HML, understory_lai_factor, &
@@ -543,7 +543,7 @@ subroutine update_bio_living_fraction(c)
   c%Pl   = D
   c%Pr   = spdata(sp)%c1 * D
   c%Psw  = 1 - c%Pl - c%Pr
-  c%Psw_alphasw = spdata(sp)%c3 * spdata(sp)%alpha(CMPT_LEAF) * D
+  c%Psw_alphasw = spdata(sp)%c3 * spdata(sp)%alpha_leaf * D
   
 end subroutine update_bio_living_fraction
 

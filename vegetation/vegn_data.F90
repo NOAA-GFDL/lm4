@@ -49,14 +49,6 @@ character(len=12), parameter :: lm3_species_name(0:N_LM3_SPECIES-1) = &
 integer, public, parameter :: n_dim_vegn_types = 9
 integer, public, parameter :: MSPECIES = N_LM3_SPECIES+n_dim_vegn_types-1
  
-integer, public, parameter :: NCMPT = 6, & ! number of carbon compartments
- CMPT_NSC     = 1, & ! non-structural carbon compartment
- CMPT_SAPWOOD = 2, & ! sapwood compartment
- CMPT_LEAF    = 3, & ! leaf compartment
- CMPT_ROOT    = 4, & ! fine root compartment
- CMPT_VLEAF   = 5, & ! virtual leaves compartment (labile store)
- CMPT_WOOD    = 6    ! structural wood compartment
-
 integer, public, parameter :: & ! physiology types
  PT_C3        = 0, &
  PT_C4        = 1
@@ -121,7 +113,7 @@ public :: &
     l_fract, wood_fract_min, T_transp_min, soil_carbon_depth_scale, &
     cold_month_threshold, scnd_biomass_bins, &
     phen_ev1, phen_ev2, cmc_eps, & 
-    b0_growth, tau_seed, understory_lai_factor, bseed_distr, &
+    b0_growth, tau_seed, understory_lai_factor, &
     DBH_mort, A_mort, B_mort, mortrate_s
 
 logical, public :: do_ppa = .FALSE.
@@ -155,8 +147,10 @@ type spec_data_type
   real    :: c3 = 0.4423077 ! unitless, coefficient for calculation of sapwood biomass 
                 ! fraction times sapwood retirement rate
 
-  real    :: alpha(NCMPT) = (/0.0,  0.0,  1.0,  1.0,  0.0,  1.2e-2/) ! decay rates of plant carbon pools, 1/yr
-  real    :: beta (NCMPT) = (/0.0,  0.0,  0.0,  1.25, 0.0,  0.0   /) ! respiration rates of plant carbon pools
+  ! decay rates of plant carbon pools, 1/yr
+  real    :: alpha_nsc=0.0, alpha_sapwood=0.0, alpha_leaf=1.0, alpha_root=1.0, alpha_vleaf=0.0, alpha_wood=1.2e-2
+  ! respiration rates of plant carbon pools
+  real    :: beta_nsc = 0.0, beta_sapwood=0.0, beta_leaf=0.0, beta_root=1.25, beta_vleaf=0.0, beta_wood=0.0
   
   real    :: dfr         = 5.8   ! fine root diameter ? or parameter relating diameter of fine roots to resistance
   ! the following two parameters are used in the Darcy-law calculations of water supply
@@ -332,10 +326,6 @@ real :: DBH_mort   = 0.025 ! characteristic DBH for mortality
 real :: A_mort     = 4.0   ! A coefficient in understory mortality rate correction, 1/year
 real :: B_mort     = 30.0  ! B coefficient in understory mortality rate correction, 1/m
 real :: mortrate_s = 2.3   ! mortality rate of starving plants, 1/year, 2.3 = approx 0.9 plants die in a year
-
-real :: bseed_distr(NCMPT) = & ! partitioning of of new seedling biomass among compartments 
-       (/     0.8,     0.2,     0.0,     0.0,     0.0,    0.0  /)
-        !     nsc, sapwood,    leaf,    root,   vleaf,    wood 
 
 
 namelist /vegn_data_nml/ &
@@ -537,14 +527,6 @@ subroutine read_species_data(name, sp, errors_found)
   call add_known_name('mortality_kills_balive')
   sp%mortality_kills_balive = fm_util_get_logical('mortality_kills_balive', &
         caller=module_name, default_value=sp%mortality_kills_balive, scalar=.true.)
-  call add_known_name('alpha')
-  call add_known_name('beta')
-  do j = 1,NCMPT
-     sp%alpha(j) = fm_util_get_real('alpha', &
-              caller=module_name, default_value=sp%alpha(j), index=j)
-     sp%beta(j) = fm_util_get_real('beta', &
-              caller=module_name, default_value=sp%beta(j), index=j)
-  enddo
   call add_known_name('leaf_refl')
   call add_known_name('leaf_tran')
   do j = 1, NBANDS
@@ -607,6 +589,20 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(c2)
   __GET_SPDATA_REAL__(c3)
   
+  __GET_SPDATA_REAL__(alpha_leaf)
+  __GET_SPDATA_REAL__(alpha_root)
+  __GET_SPDATA_REAL__(alpha_vleaf)
+  __GET_SPDATA_REAL__(alpha_sapwood)
+  __GET_SPDATA_REAL__(alpha_wood)
+  __GET_SPDATA_REAL__(alpha_nsc)
+
+  __GET_SPDATA_REAL__(beta_leaf)
+  __GET_SPDATA_REAL__(beta_root)
+  __GET_SPDATA_REAL__(beta_vleaf)
+  __GET_SPDATA_REAL__(beta_sapwood)
+  __GET_SPDATA_REAL__(beta_wood)
+  __GET_SPDATA_REAL__(beta_nsc)
+
   __GET_SPDATA_REAL__(Vmax)
   __GET_SPDATA_REAL__(m_cond)
   __GET_SPDATA_REAL__(alpha_phot)
@@ -751,7 +747,7 @@ subroutine init_derived_species_data(sp)
    else
       ! calculate specific leaf area (cm2/g(biomass))
       ! Global Raich et al 94 PNAS pp 13730-13734
-      leaf_life_span     = 12.0/sp%alpha(CMPT_LEAF) ! in months
+      leaf_life_span     = 12.0/sp%alpha_leaf ! in months
       specific_leaf_area = 10.0**(2.4 - 0.46*log10(leaf_life_span));       
       ! convert to m2/kgC
       specific_leaf_area = C2B*specific_leaf_area*1000.0/10000.0
@@ -819,19 +815,19 @@ subroutine print_species_data(unit)
   call add_row(table, 'C2',            spdata(:)%c2)
   call add_row(table, 'C3',            spdata(:)%c3)
 
-  call add_row(table, 'alpha_leaf',    spdata(:)%alpha(CMPT_LEAF))
-  call add_row(table, 'alpha_root',    spdata(:)%alpha(CMPT_ROOT))
-  call add_row(table, 'alpha_vleaf',   spdata(:)%alpha(CMPT_VLEAF))
-  call add_row(table, 'alpha_sapwood', spdata(:)%alpha(CMPT_SAPWOOD))
-  call add_row(table, 'alpha_wood',    spdata(:)%alpha(CMPT_WOOD))
-  call add_row(table, 'alpha_nsc',     spdata(:)%alpha(CMPT_NSC))
+  call add_row(table, 'alpha_leaf',    spdata(:)%alpha_leaf)
+  call add_row(table, 'alpha_root',    spdata(:)%alpha_root)
+  call add_row(table, 'alpha_vleaf',   spdata(:)%alpha_vleaf)
+  call add_row(table, 'alpha_sapwood', spdata(:)%alpha_sapwood)
+  call add_row(table, 'alpha_wood',    spdata(:)%alpha_wood)
+  call add_row(table, 'alpha_nsc',     spdata(:)%alpha_nsc)
 
-  call add_row(table, 'beta_leaf',     spdata(:)%beta(CMPT_LEAF))
-  call add_row(table, 'beta_root',     spdata(:)%beta(CMPT_ROOT))
-  call add_row(table, 'beta_vleaf',    spdata(:)%beta(CMPT_VLEAF))
-  call add_row(table, 'beta_sapwood',  spdata(:)%beta(CMPT_SAPWOOD))
-  call add_row(table, 'beta_wood',     spdata(:)%beta(CMPT_WOOD))
-  call add_row(table, 'beta_nsc',      spdata(:)%beta(CMPT_NSC))
+  call add_row(table, 'beta_leaf',     spdata(:)%beta_leaf)
+  call add_row(table, 'beta_root',     spdata(:)%beta_root)
+  call add_row(table, 'beta_vleaf',    spdata(:)%beta_vleaf)
+  call add_row(table, 'beta_sapwood',  spdata(:)%beta_sapwood)
+  call add_row(table, 'beta_wood',     spdata(:)%beta_wood)
+  call add_row(table, 'beta_nsc',      spdata(:)%beta_nsc)
 
   call add_row(table, 'dfr',           spdata(:)%dfr)
 

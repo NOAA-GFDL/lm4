@@ -16,7 +16,6 @@ use land_tile_diag_mod, only : OP_SUM, OP_MEAN, &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
      register_cohort_diag_field, send_cohort_data, set_default_diag_filter, OP_SUM
 use vegn_data_mod, only : spdata, &
-     CMPT_NSC, CMPT_SAPWOOD, CMPT_LEAF, CMPT_ROOT, CMPT_VLEAF, CMPT_WOOD, &
      PHEN_DECIDUOUS, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, &
      fsc_liv, fsc_wood, fsc_froot, agf_bs, &
@@ -188,8 +187,8 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
           
      ! check if leaves/roots are present and need to be accounted in maintenance
      if(cc%status == LEAF_ON) then
-        md_leaf = cc%Pl * spdata(sp)%alpha(CMPT_LEAF)*cc%bliving*dt_fast_yr
-        md_froot= cc%Pr * spdata(sp)%alpha(CMPT_ROOT)*cc%bliving*dt_fast_yr
+        md_leaf = cc%Pl * spdata(sp)%alpha_leaf*cc%bliving*dt_fast_yr
+        md_froot= cc%Pr * spdata(sp)%alpha_root*cc%bliving*dt_fast_yr
      else
         md_leaf  = 0
         md_froot = 0
@@ -197,7 +196,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
      
      ! compute branch and coarse wood losses for tree types
      if (spdata(sp)%lifeform==FORM_WOODY) then
-        md_wood = 0.6 * cc%bwood * spdata(sp)%alpha(CMPT_WOOD)*dt_fast_yr
+        md_wood = 0.6 * cc%bwood * spdata(sp)%alpha_wood*dt_fast_yr
      else
         md_wood = 0
      endif
@@ -355,8 +354,8 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 
      ! Weng, 2013-01-28
      ! Turnover regardless of STATUS
-     deltaBL = cc%bl * sp%alpha(CMPT_LEAF) * dt_fast_yr
-     deltaBR = cc%br * sp%alpha(CMPT_ROOT) * dt_fast_yr
+     deltaBL = cc%bl * sp%alpha_leaf * dt_fast_yr
+     deltaBR = cc%br * sp%alpha_root * dt_fast_yr
      
      cc%bl = cc%bl - deltaBL
      cc%br = cc%br - deltaBR
@@ -367,16 +366,16 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      md_wood = 0.0 
      md_branch_sw = 0.0
      if (spdata(cc%species)%lifeform == FORM_WOODY) then 
-        ! md_wood = 0.6 *cc%bwood * sp%alpha(CMPT_WOOD)*dt_fast_yr
+        ! md_wood = 0.6 *cc%bwood * sp%alpha_wood*dt_fast_yr
         ! set turnoverable wood biomass as a linear function of bl_max (max.foliage
         ! biomass) (Wang, Chuankuan 2006)
-        !md_wood = MIN(cc%bwood,cc%bl_max) * sp%alpha(CMPT_LEAF)*dt_fast_yr
+        !md_wood = MIN(cc%bwood,cc%bl_max) * sp%alpha_leaf*dt_fast_yr
         
-       ! md_wood = 1/4*Max(cc%bwood,0.0) * sp%alpha(CMPT_wood)*dt_fast_yr
-       ! md_branch_sw = 1/4*Max(cc%bsw,0.0) * sp%alpha(CMPT_wood)*dt_fast_yr
+       ! md_wood = 1/4*Max(cc%bwood,0.0) * sp%alpha_wood*dt_fast_yr
+       ! md_branch_sw = 1/4*Max(cc%bsw,0.0) * sp%alpha_wood*dt_fast_yr
          
-         md_wood = 0.25 * Max(cc%bwood,0.0) * sp%alpha(CMPT_wood) *dt_fast_yr
-         md_branch_sw = 0.25 * Max(cc%bsw,0.0) * sp%alpha(CMPT_wood)*dt_fast_yr
+         md_wood = 0.25 * Max(cc%bwood,0.0) * sp%alpha_wood *dt_fast_yr
+         md_branch_sw = 0.25 * Max(cc%bsw,0.0) * sp%alpha_wood*dt_fast_yr
   
         cc%branch_sw_loss = cc%branch_sw_loss + md_branch_sw !remember how much was lost over the day
         cc%branch_wood_loss = cc%branch_wood_loss + md_wood   
@@ -554,8 +553,8 @@ subroutine vegn_carbon_int_ppa_old (vegn, soil, tsoil, theta, diag)
 
      ! Weng, 2013-01-28
      ! Turnover regardless of STATUS
-     deltaBL = cc%bl * sp%alpha(CMPT_LEAF) * dt_fast_yr
-     deltaBR = cc%br * sp%alpha(CMPT_ROOT) * dt_fast_yr
+     deltaBL = cc%bl * sp%alpha_leaf * dt_fast_yr
+     deltaBR = cc%br * sp%alpha_root * dt_fast_yr
      cc%bl = cc%bl - deltaBL
      cc%br = cc%br - deltaBR
 
@@ -564,10 +563,10 @@ subroutine vegn_carbon_int_ppa_old (vegn, soil, tsoil, theta, diag)
      ! compute branch and coarse wood losses for tree types
      md_wood = 0.0
      if (spdata(cc%species)%lifeform == FORM_WOODY) then 
-        ! md_wood = 0.6 *cc%bwood * sp%alpha(CMPT_WOOD)*dt_fast_yr
+        ! md_wood = 0.6 *cc%bwood * sp%alpha_wood*dt_fast_yr
         ! set turnoverable wood biomass as a linear function of bl_max (max.foliage
         ! biomass) (Wang, Chuankuan 2006)
-        md_wood = MIN(cc%bwood,cc%bl_max) * sp%alpha(CMPT_LEAF)*dt_fast_yr
+        md_wood = MIN(cc%bwood,cc%bl_max) * sp%alpha_leaf*dt_fast_yr
      endif
      ! Why md_wood is set to 0?
      md_wood = 0.0
@@ -704,8 +703,8 @@ subroutine vegn_growth (vegn, diag)
         ! limit the maximum leaf age by the leaf time span (reciprocal of leaf 
         ! turnover rate alpha) for given species. alpha is in 1/year, factor of
         ! 365 converts the result to days.
-        if (spdata(cc%species)%alpha(CMPT_LEAF) > 0) &
-             cc%leaf_age = min(cc%leaf_age,365.0/spdata(cc%species)%alpha(CMPT_LEAF))
+        if (spdata(cc%species)%alpha_leaf > 0) &
+             cc%leaf_age = min(cc%leaf_age,365.0/spdata(cc%species)%alpha_leaf)
         
      endif
   end do
@@ -1099,15 +1098,15 @@ subroutine plant_respiration(cc, tsoil, resp, r_leaf, r_root, r_stem)
   tfs = thermal_inhibition(tsoil)
 
   r_leaf = -mol_C*cc%An_cl*cc%leafarea;
-  r_vleaf = spdata(sp)%beta(CMPT_VLEAF) * cc%blv*tf;
+  r_vleaf = spdata(sp)%beta_vleaf * cc%blv*tf;
   if (do_ppa) then
      ! Stem auto-respiration is proportional to cambium area, not sapwood biomass
      Acambium = PI * cc%DBH * cc%height * 1.2
-     r_stem   = spdata(sp)%beta(CMPT_SAPWOOD) * Acambium * tf
+     r_stem   = spdata(sp)%beta_sapwood * Acambium * tf
   else
-     r_stem   = spdata(sp)%beta(CMPT_SAPWOOD) * cc%bsw * tf
+     r_stem   = spdata(sp)%beta_sapwood * cc%bsw * tf
   endif
-  r_root  = spdata(sp)%beta(CMPT_ROOT) * cc%br*tfs;
+  r_root  = spdata(sp)%beta_root * cc%br*tfs;
 
   resp = r_leaf + r_vleaf + r_stem + r_root
 end subroutine plant_respiration
