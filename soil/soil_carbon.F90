@@ -194,6 +194,8 @@ real*8,dimension(n_c_types) :: protection_species_N=(/0.5,0.5,1.0/)
 
 real                      :: C_leaching_solubility=0.5       !Amount of carbon dissolves in soil water at saturated moisture (fraction)
 real*8                     :: N_leaching_solubility=0.5	   !Amount of nitrogen dissolves in soil water at saturated moisture (fraction)
+real                      :: ammonium_solubility=0.1       ! Amount of ammonium dissolves in soil water at saturated moisture (fraction)
+real                      :: nitrate_solubility=0.8       ! Amount of nitrate dissolves in soil water at saturated moisture (fraction)
 
 real,dimension(n_c_types) :: C_flavor_relative_solubility=(/1.0,1.0,1.0/) !For each C flavor, relative to 1.0
 real*8,dimension(n_c_types) :: N_flavor_relative_solubility=(/1.0,1.0,1.0/) !For each N flavor, relative to 1.0
@@ -233,7 +235,7 @@ namelist /soil_carbon_nml/ &
             DON_deposition_rate,&
             N_limit_scheme,&
             Vmax_myc_min_N_uptk,k_myc_min_N_uptk,eup_myc,mup_myc,vmaxref_myc_decomp,k_myc_decomp,k_conc_myc_min_N_uptk,&
-            vmaxref_denitrif,k_denitrif,denitrif_first_order,denitrif_NO3_factor
+            vmaxref_denitrif,k_denitrif,denitrif_first_order,denitrif_NO3_factor,nitrate_solubility,ammonium_solubility
 
 
 !---- end-of-namelist --------------------------------------------------------
@@ -2609,25 +2611,26 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
 !!!!!!!!!!!!!!!!!!xz ADD CH's code for Nitrogen !!!Please Check the unit!!!!! Is the unit of the inputs from the point model the same as the CH's experiment?
     ! Probably should include wood litter in this too
     ! Ammonium should be less soluble than nitrate, probably.  Could use retrieve_dissolved_mineral_N to standardize that --BNS
-    NH4_dissolved(1)=leaflitter%ammonium + woodlitter%ammonium  !kg/m2
-    NH4_dissolved(2:size(soil)+1)=soil(:)%ammonium  !kg/m2
+    leaf_NH4_frac=leaflitter%ammonium/(leaflitter%ammonium + woodlitter%ammonium)
 
-    if(NH4_dissolved(1)>0) then
-        leaf_NH4_frac=leaflitter%ammonium/NH4_dissolved(1)
-    else
-        leaf_NH4_frac=0.0
-    endif
+    NH4_dissolved(1)=(leaflitter%ammonium + woodlitter%ammonium)*ammonium_solubility  !kg/m2
+    leaflitter%ammonium=leaflitter%ammonium-leaflitter%ammonium*ammonium_solubility
+    woodlitter%ammonium=woodlitter%ammonium-woodlitter%ammonium*ammonium_solubility
+    NH4_dissolved(2:size(soil)+1)=soil(:)%ammonium*ammonium_solubility  !kg/m2
+    soil(:)%ammonium=soil(:)%ammonium*(1-ammonium_solubility)
 
-    NO3_dissolved(1)=leaflitter%nitrate + woodlitter%ammonium   !kg/m2
-    NO3_dissolved(2:size(soil)+1)=soil(:)%nitrate   !kg/m2
 
-    if(NO3_dissolved(1)>0) then
-        leaf_NO3_frac=leaflitter%nitrate/NO3_dissolved(1)
-    else
-        leaf_NO3_frac=0.0
-    endif
+    leaf_NO3_frac=leaflitter%nitrate/(leaflitter%nitrate + woodlitter%nitrate)
 
-    if(any(NH4_dissolved(:)<dfloat(0))) then
+    NO3_dissolved(1)=(leaflitter%nitrate + woodlitter%nitrate)*nitrate_solubility   !kg/m2
+    leaflitter%nitrate=leaflitter%nitrate-leaflitter%nitrate*nitrate_solubility
+    woodlitter%nitrate=woodlitter%nitrate-woodlitter%nitrate*nitrate_solubility
+    NO3_dissolved(2:size(soil)+1)=soil(:)%nitrate*nitrate_solubility   !kg/m2
+    soil(:)%nitrate=soil(:)%nitrate*(1-nitrate_solubility)
+
+
+
+  if(any(NH4_dissolved(:)<dfloat(0))) then
 		print *,NH4_dissolved(:)
 		call error_mesg('ammonium_leaching_with_litter','Dissolved ammonium < 0 (before advection)',FATAL)
 	endif
@@ -2707,14 +2710,14 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
 	NO3_dissolved(:)=NO3_dissolved(:)-div_loss_NO3(:)
 
 
-	leaflitter%ammonium=NH4_dissolved(1)*leaf_NH4_frac
-    woodlitter%ammonium=NH4_dissolved(1)*(1.0-leaf_NH4_frac)
+	leaflitter%ammonium=leaflitter%ammonium + NH4_dissolved(1)*leaf_NH4_frac
+    woodlitter%ammonium=woodlitter%ammonium + NH4_dissolved(1)*(1.0-leaf_NH4_frac)
 
-	soil(:)%ammonium=NH4_dissolved(2:size(soil)+1)
+	soil(:)%ammonium=soil(:)%ammonium + NH4_dissolved(2:size(soil)+1)
 
-	leaflitter%nitrate=NO3_dissolved(1)*leaf_NO3_frac
-    woodlitter%nitrate=NO3_dissolved(1)*(1.0-leaf_NO3_frac)
-	soil(:)%nitrate=NO3_dissolved(2:size(soil)+1)
+	leaflitter%nitrate=leaflitter%nitrate + NO3_dissolved(1)*leaf_NO3_frac
+    woodlitter%nitrate=woodlitter%nitrate + NO3_dissolved(1)*(1.0-leaf_NO3_frac)
+	soil(:)%nitrate=soil(:)%nitrate + NO3_dissolved(2:size(soil)+1)
 
 	if(present(del_soil_NH4)) del_soil_NH4(:)=d_NH4(2:size(soil)+1)  !variazione con la percolazione del contenuto di NH4 nel suolo
 	if(present(del_soil_NO3)) del_soil_NO3(:)=d_NO3(2:size(soil)+1)

@@ -586,7 +586,7 @@ subroutine update_biomass_pools(c)
   !   c%nitrogen_stress = 5.0
   ! endif
   c%nitrogen_stress = min(c%nitrogen_stress,5.0)
-  c%nitrogen_stress = max(c%nitrogen_stress,0.0)
+  c%nitrogen_stress = max(c%nitrogen_stress,0.05)
 
   ! This calculates relative allocation based on nitrogen stress
   ! Should match results from update_living_bio_fraction at 0 stress and skew toward root and wood growth as N stress increases
