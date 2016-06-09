@@ -2611,6 +2611,9 @@ end subroutine soil_step_1
                                       div_NO3_loss=div_NO3_loss,div_NH4_loss=div_NH4_loss,&
                                       tiled=.FALSE. )
       surf_DOC_loss(:) = 0.
+      surf_DON_loss(:) = 0.
+      surf_NO3_loss = 0.
+      surf_NH4_loss = 0.
    end if
 
    soil%fast_DOC_leached=soil%fast_DOC_leached+sum(div_DOC_loss(1,:)) + surf_DOC_loss(1)
