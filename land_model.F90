@@ -94,6 +94,8 @@ use land_transitions_mod, only : &
      land_transitions_init, land_transitions_end, land_transitions, &
      save_land_transitions_restart
 use stock_constants_mod, only: ISTOCK_WATER, ISTOCK_HEAT, ISTOCK_SALT
+use nitrogen_sources_mod, only : nitrogen_sources_init, nitrogen_sources_end, &
+     update_nitrogen_sources, nitrogen_sources, do_nitrogen_deposition
 use hillslope_mod, only: retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
                          read_hlsp_namelist, hlsp_init, hlsp_config_check
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
@@ -420,6 +422,7 @@ subroutine land_model_init &
   call glac_init ( id_lon, id_lat )
   call snow_init ( id_lon, id_lat )
   call cana_init ( id_lon, id_lat )
+  call nitrogen_sources_init ( lnd%time, id_lon, id_lat )
   call topo_rough_init( lnd%time, lnd%lonb, lnd%latb, &
        lnd%domain, id_lon, id_lat)
   allocate (river_land_mask(lnd%is:lnd%ie,lnd%js:lnd%je))
@@ -527,6 +530,7 @@ subroutine land_model_end (cplr2land, land2cplr)
   call snow_end ()
   call vegn_end ()
   call cana_end ()
+  call nitrogen_sources_end ()
   call topo_rough_end()
   call river_end()
 
@@ -1075,6 +1079,10 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   call data_override('LND','phot_co2',phot_co2_data,lnd%time, &
        override=phot_co2_overridden)
 
+  ! get the fertilization data
+  if (do_nitrogen_deposition) call update_nitrogen_sources(lnd%time, lnd%time+lnd%dt_fast)
+
+
   ! clear the runoff values, for accumulation over the tiles
   runoff = 0 ; runoff_c = 0
 
@@ -1362,6 +1370,10 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   real :: flwg ! updated value of long-wave ground energy balance
   real :: denom ! denominator in the LW radiative balance calculations
   real :: sum0, sum1, sum2
+
+  real :: ndep_nit, ndep_amm, ndep_org  ! rates of nitrate, ammonium,
+                ! and organic nitrogen input to the soil, kg N/(m2 yr)
+
 
   integer :: vegn_layer(N) ! layer number of each cohort
   real :: &
@@ -2121,8 +2133,11 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   vegn_fco2 = 0
   if (associated(tile%vegn)) then
      ! do the calculations that require updated land surface prognostic variables
+     if(do_nitrogen_deposition) &
+            call nitrogen_sources(lnd%time, ix, iy, tile%vegn%p_ann, precip_l+precip_s, &
+                    tile%vegn%landuse, ndep_nit, ndep_amm, ndep_org, tile%diag)
      call vegn_step_3 (tile%vegn, tile%soil, tile%cana%T, precip_l+precip_s, &
-          vegn_fco2, tile%diag)
+          ndep_nit, ndep_amm, ndep_org, vegn_fco2, tile%diag)
      ! if vegn is present, then soil must be too
      call soil_step_3(tile%soil, tile%diag)
   endif

@@ -1606,11 +1606,13 @@ end subroutine vegn_step_2
 ! ============================================================================
 ! do the vegetation calculations that require updated (end-of-timestep) values 
 ! of prognostic land variables
-subroutine vegn_step_3(vegn, soil, cana_T, precip, vegn_fco2, diag)
+subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org, vegn_fco2, diag)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
   real, intent(in) :: cana_T ! canopy temperature, deg K
   real, intent(in) :: precip ! total (rain+snow) precipitation, kg/(m2 s)
+  real, intent(in) :: ndep_nit, ndep_amm, ndep_org ! total nitrate, ammonium,
+      ! and organic nitrogen inputs (deposition plus fertilization), kg N/(m2 yr)
   real, intent(out) :: vegn_fco2 ! co2 flux from vegetation, kg CO2/(m2 s)
   type(diag_buff_type), intent(inout) :: diag
   
