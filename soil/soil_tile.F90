@@ -215,7 +215,6 @@ type :: soil_tile_type
    real :: geothermal_heat_flux
    ! data that were local to soil.f90
    real, allocatable ::  &
-       uptake_frac(:),   &
        heat_capacity_dry(:), &
        e(:), f(:),       &
        gw_flux_norm(:),  &
@@ -663,7 +662,6 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
             ptr%k_macro_z         (num_l),  &
             ptr%k_macro_x         (num_l),  &
             ptr%vwc_max           (num_l),  &
-            ptr%uptake_frac       (num_l),  &
             ptr%heat_capacity_dry (num_l),  &
             ptr%e                 (num_l),  &
             ptr%f                 (num_l),  &

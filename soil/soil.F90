@@ -2204,7 +2204,7 @@ end subroutine soil_step_1
   IF (LM2) THEN
      flow(1) = 0
      do l = 1, num_l
-        infilt(l) = soil%uptake_frac(l)*lprec_eff *delta_time
+        infilt(l) = soil_uptake_frac(l)*lprec_eff *delta_time
         flow(l+1) = max(0., soil%wl(l) + flow(l) &
               + infilt(l) - soil%w_fc(l)*dz(l)*dens_h2o)
         dW_l(l) = flow(l) - flow(l+1) + infilt(l)
