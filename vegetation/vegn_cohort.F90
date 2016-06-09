@@ -6,7 +6,7 @@ use land_constants_mod, only: NBANDS, mol_h2o, mol_air
 use vegn_data_mod, only : spdata, &
    use_mcm_masking, use_bucket, critical_root_density, &
    tg_c4_thresh, tg_c3_thresh, l_fract, &
-   phen_ev1, phen_ev2, cmc_eps
+   phen_ev1, phen_ev2, cmc_eps, N_limits_live_biomass
 use vegn_data_mod, only : PT_C3, PT_C4, CMPT_ROOT, CMPT_LEAF, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
    LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDUOUS, &
@@ -145,14 +145,29 @@ type :: vegn_cohort_type
 ! for phenology
   real :: gdd = 0.0
 
-! in LM3V the cohort structure has a handy pointer to the tile it belongs to;
-! so operations on cohort can update tile-level variables. In this code, it is
-! probably impossible to have this pointer here: it needs to be of type
-! "type(vegn_tile_type), pointer", which means that the vegn_cohort_mod needs to
-! use vegn_tile_mod. But the vegn_tile_mod itself uses vegn_cohort_mod, and 
-! this would create a circular dependency of modules, something that's 
-! prohibited in FORTRAN.
-!  type(vegn_tile_type), pointer :: cp
+  ! BNS: Maximum leaf biomass, to be used in the context of nitrogen limitation as suggested by Elena
+  ! This will be either fixed or calculated as a function of nitrogen uptake or availability
+  real :: nitrogen_stress = 0.0
+  real :: cumulative_extra_live_biomass = 0.0
+
+  ! Biomass of "scavenger" type mycorrhizae (corresponding to Arbuscular mycorrhizae)
+  real :: myc_scavenger_biomass_C = 0.0
+  real :: myc_scavenger_biomass_N = 0.0
+  real :: myc_miner_biomass_C = 0.0
+  real :: myc_miner_biomass_N = 0.0
+
+  ! Biomass of symbiotic N fixing microbes
+  real :: N_fixer_biomass_C = 0.0
+  real :: N_fixer_biomass_N = 0.0
+
+  ! Nitrogen vegetation pools
+  real :: stored_N = 0.0
+  real :: leaf_N = 0.0
+  real :: wood_N = 0.0
+  real :: sapwood_N = 0.0
+  real :: root_N = 0.0
+  real :: total_N = 0.0
+
 end type vegn_cohort_type
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -533,20 +548,79 @@ end subroutine update_bio_living_fraction
 subroutine update_biomass_pools(c)
   type(vegn_cohort_type), intent(inout) :: c
 
+  real :: biomass_N_demand  ! Live biomass in excess of max (used in N limitation system) -- BNS
+  real :: x_wood,x_leaf,x_root ! For N-limited biomass distribution
+  real :: potential_stored_N ! N storage if there is no N-caused change in biomass allocation
+
   if (do_ppa) return ! in PPA mode, do nothing at all
 
-  c%height = height_from_biomass(btotal(c))
+  c%height  = height_from_biomass(btotal(c));
+  c%total_N = c%stored_N+c%leaf_N+c%wood_N+c%root_N+c%sapwood_N
+
   call update_bio_living_fraction(c);
+
+
+  ! Stress increases as stored N declines relative to total biomass N demand
+  ! N stress is calculated based on "potential pools" without N limitation
+  ! biomass_N_demand=(c%bliving*c%Pl/leaf_live_c2n + c%bliving*c%Pr/froot_live_c2n + c%bliving*c%Psw/wood_fast_c2n)
+  ! Elena suggests using 2*(root N + leaf N) as storage target
+  biomass_N_demand=(c%bliving*c%Pl/spdata(c%species)%leaf_live_c2n + c%bliving*c%Pr/spdata(c%species)%froot_live_c2n)
+  potential_stored_N = c%total_N - biomass_N_demand - c%bwood/spdata(c%species)%wood_c2n-c%bsw/spdata(c%species)%sapwood_c2n
+  ! c%nitrogen_stress = biomass_N_demand/c%total_N
+
+  ! Spring physical analogy -- restoring force proportional to distance from target (equal to demand*2.0)
+  ! Leaving spring constant 1.0 for now
+  ! Stress is normalized by N demand so it's an index that doesn't depend on total biomass
+
+  ! if (c%total_N>0.0) then
+  !  c%nitrogen_stress = -1.0 * ((potential_stored_N) - 2.0*biomass_N_demand)/abs(c%total_N)
+    c%nitrogen_stress = (2.0*biomass_N_demand - potential_stored_N)/abs(biomass_N_demand)
+  ! else
+  !   c%nitrogen_stress = 0.0
+  ! endif
+
+
+  ! if(c%total_N > biomass_N_demand) then
+  !   c%nitrogen_stress = (biomass_N_demand/(c%total_N-biomass_N_demand-c%bwood/wood_fast_c2n))**1 ! This is demand/storage, constrained to be >0
+  !
+  ! else
+  !   c%nitrogen_stress = 5.0
+  ! endif
+  c%nitrogen_stress = min(c%nitrogen_stress,5.0)
+  c%nitrogen_stress = max(c%nitrogen_stress,0.0)
+
+  ! This calculates relative allocation based on nitrogen stress
+  ! Should match results from update_living_bio_fraction at 0 stress and skew toward root and wood growth as N stress increases
+  x_wood = c%Psw*(c%nitrogen_stress**2+1.0)
+  x_leaf = c%Pl
+  x_root = c%Pr*exp(c%nitrogen_stress*0.5)
+
+! __DEBUG3__(x_wood,x_leaf,x_root)
+! __DEBUG5__(c%stored_N,c%leaf_N,c%wood_N,c%root_N,c%nitrogen_stress)
+
+  if(N_limits_live_biomass) then
+    c%Psw=x_wood/(x_wood+x_leaf+x_root)
+    c%Pl=x_leaf/(x_wood+x_leaf+x_root)
+    c%Pr=x_root/(x_wood+x_leaf+x_root)
+  endif
+
   c%bsw = c%Psw*c%bliving;
   if(c%status == LEAF_OFF) then
      c%blv = c%Pl*c%bliving + c%Pr*c%bliving;
      c%bl  = 0;
      c%br  = 0;
+    !  c%nitrogen_stress = 0
   else
      c%blv = 0;
      c%bl  = c%Pl*c%bliving;
      c%br  = c%Pr*c%bliving;
   endif
+
+  c%leaf_N=c%bl/spdata(c%species)%leaf_live_c2n
+  c%wood_N=c%bwood/spdata(c%species)%wood_c2n
+  c%sapwood_N=c%bsw/spdata(c%species)%sapwood_c2n
+  c%root_N=c%br/spdata(c%species)%froot_live_c2n
+  c%stored_N=c%total_N-(c%leaf_N+c%wood_N+c%root_N+c%sapwood_N)
 end subroutine update_biomass_pools
 
 
