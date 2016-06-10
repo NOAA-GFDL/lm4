@@ -36,6 +36,7 @@ public :: vegn_is_selected
 public :: vegn_tile_tag    ! returns tag of the vegetation tile
 public :: vegn_tile_stock_pe
 public :: vegn_tile_carbon ! returns total carbon per tile [kgC/m2]
+public :: vegn_tile_nitrogen ! returns total nitrogen per tile [kgN/m2]
 public :: vegn_tile_bwood  ! returns total woody biomass of tile [kgC/m2]
 public :: vegn_tile_heat   ! returns heat content of the vegetation [J/m2]
 public :: vegn_tile_LAI    ! returns total LAI of vegetation [m2/m2]
@@ -82,8 +83,17 @@ type :: vegn_tile_type
    real :: fsc_pool_bg=0.0, fsc_rate_bg=0.0 ! for fast soil carbon below ground
    real :: ssc_pool_bg=0.0, ssc_rate_bg=0.0 ! for slow soil carbon below ground
    
-   real :: leaflitter_buffer_ag=0.0,      coarsewoodlitter_buffer_ag=0.0
-   real :: leaflitter_buffer_rate_ag=0.0, coarsewoodlitter_buffer_rate_ag=0.0
+   real :: fsn_pool_bg=0.0, fsn_rate_bg=0.0 ! for fast soil nitrogen below ground
+   real :: ssn_pool_bg=0.0, ssn_rate_bg=0.0 ! for slow soil nitrogen below ground
+
+   real :: leaflitter_buffer_fast=0.0, leaflitter_buffer_slow=0.0
+   real :: coarsewoodlitter_buffer_fast=0.0, coarsewoodlitter_buffer_slow=0.0
+   real :: leaflitter_buffer_rate_fast=0.0, leaflitter_buffer_rate_slow=0.0
+   real :: coarsewoodlitter_buffer_rate_fast=0.0, coarsewoodlitter_buffer_rate_slow=0.0
+   real :: leaflitter_buffer_fast_N=0.0, leaflitter_buffer_slow_N=0.0
+   real :: coarsewoodlitter_buffer_fast_N=0.0, coarsewoodlitter_buffer_slow_N=0.0
+   real :: leaflitter_buffer_rate_fast_N=0.0, leaflitter_buffer_rate_slow_N=0.0
+   real :: coarsewoodlitter_buffer_rate_fast_N=0.0, coarsewoodlitter_buffer_rate_slow_N=0.0
 
    real :: csmoke_pool=0.0 ! carbon lost through fires, kg C/m2 
    real :: csmoke_rate=0.0 ! rate of release of the above to atmosphere, kg C/(m2 yr)
@@ -268,6 +278,19 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
      __MERGE__(bseed)   ! future progeny, kgC/indiv
      __MERGE__(age)     ! age of individual
 
+     __MERGE__(stored_N) ! Cohort stored nitrogen
+     __MERGE__(wood_N) ! Cohort wood nitrogen
+     __MERGE__(sapwood_N) ! Cohort wood nitrogen
+     __MERGE__(leaf_N) ! Cohort leaf nitrogen
+     __MERGE__(root_N) ! Cohort root nitrogen
+     __MERGE__(total_N) ! Cohort total nitrogen
+     __MERGE__(myc_scavenger_biomass_C) ! Scavenger mycorrhizal biomass C
+     __MERGE__(myc_scavenger_biomass_N) ! Scavenger mycorrhizal biomass N
+     __MERGE__(myc_miner_biomass_C) ! Miner mycorrhizal biomass C
+     __MERGE__(myc_miner_biomass_N) ! Miner mycorrhizal biomass N
+     __MERGE__(N_fixer_biomass_C) ! N Fixer biomass C
+     __MERGE__(N_fixer_biomass_N) ! N Fixer biomass N
+
      __MERGE__(carbon_gain) ! carbon gain during a day, kg C/m2
      __MERGE__(carbon_loss) ! carbon loss during a day, kg C/m2 [diag only]
      __MERGE__(bwood_gain)  ! heartwood gain during a day, kg C/m2
@@ -302,10 +325,18 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   __MERGE__(fsc_pool_bg); __MERGE__(fsc_rate_bg)
   __MERGE__(ssc_pool_bg); __MERGE__(ssc_rate_bg)
   
-  __MERGE__(leaflitter_buffer_ag)
-  __MERGE__(leaflitter_buffer_rate_ag)
-  __MERGE__(coarsewoodlitter_buffer_ag)
-  __MERGE__(coarsewoodlitter_buffer_rate_ag)
+  __MERGE__(fsn_pool_bg); __MERGE__(fsn_rate_bg)
+  __MERGE__(ssn_pool_bg); __MERGE__(ssn_rate_bg)
+
+  __MERGE__(leaflitter_buffer_fast);       __MERGE__(leaflitter_buffer_rate_fast)
+  __MERGE__(coarsewoodlitter_buffer_fast); __MERGE__(coarsewoodlitter_buffer_rate_fast)
+  __MERGE__(leaflitter_buffer_slow);       __MERGE__(leaflitter_buffer_rate_slow)
+  __MERGE__(coarsewoodlitter_buffer_slow); __MERGE__(coarsewoodlitter_buffer_rate_slow)
+
+  __MERGE__(leaflitter_buffer_fast_N);       __MERGE__(leaflitter_buffer_rate_fast_N)
+  __MERGE__(coarsewoodlitter_buffer_fast_N); __MERGE__(coarsewoodlitter_buffer_rate_fast_N)
+  __MERGE__(leaflitter_buffer_slow_N);       __MERGE__(leaflitter_buffer_rate_slow_N)
+  __MERGE__(coarsewoodlitter_buffer_slow_N); __MERGE__(coarsewoodlitter_buffer_rate_slow_N)
 
   __MERGE__(csmoke_pool)
   __MERGE__(csmoke_rate)
@@ -428,6 +459,19 @@ subroutine merge_cohorts(c1,c2)
   __MERGE__(carbon_loss) ! carbon loss during a day, kg C/indiv [diag only]
   __MERGE__(bwood_gain)  ! heartwood gain during a day, kg C/indiv
   __MERGE__(topyear)     ! the years that a cohort in canopy layer
+
+  __MERGE__(myc_scavenger_biomass_C)
+  __MERGE__(myc_scavenger_biomass_N)
+  __MERGE__(myc_miner_biomass_C)
+  __MERGE__(myc_miner_biomass_N)
+  __MERGE__(N_fixer_biomass_C)
+  __MERGE__(N_fixer_biomass_N)
+  __MERGE__(stored_N)
+  __MERGE__(leaf_N)
+  __MERGE__(wood_N)
+  __MERGE__(sapwood_N)
+  __MERGE__(root_N)
+  __MERGE__(total_N)
 
   ! calculate the resulting dry heat capacity
   c2%leafarea = leaf_area_from_biomass(c2%bl, c2%species, c2%layer, c2%firstlayer)
@@ -708,13 +752,52 @@ function vegn_tile_carbon(vegn) result(carbon) ; real carbon
           vegn%cohorts(i)%br  + vegn%cohorts(i)%bwood + &
           vegn%cohorts(i)%bsw + vegn%cohorts(i)%bseed + &
           vegn%cohorts(i)%nsc + &
-          vegn%cohorts(i)%carbon_gain + vegn%cohorts(i)%bwood_gain &
+          vegn%cohorts(i)%carbon_gain + vegn%cohorts(i)%bwood_gain + &
+          ! Mycorrhizal and N fixer biomass added by B. Sulman
+          vegn%cohorts(i)%myc_scavenger_biomass_C + &
+          vegn%cohorts(i)%myc_miner_biomass_C + &
+          vegn%cohorts(i)%N_fixer_biomass_C &
          )*vegn%cohorts(i)%nindivs
   enddo
   carbon = carbon + sum(vegn%harv_pool) + &
            vegn%fsc_pool_ag + vegn%ssc_pool_ag + &
            vegn%fsc_pool_bg + vegn%ssc_pool_bg + vegn%csmoke_pool
+
+  ! Pools associated with aboveground litter CORPSE pools
+  carbon = carbon + vegn%leaflitter_buffer_fast + vegn%leaflitter_buffer_slow + &
+                    vegn%coarsewoodlitter_buffer_fast + vegn%coarsewoodlitter_buffer_slow
+  ! finewoodlitter buffers not currently implemented
+
 end function vegn_tile_carbon
+
+! ============================================================================
+! returns total nitrogen in the tile, kg N/m2
+function vegn_tile_nitrogen(vegn) result(nitrogen) ; real nitrogen
+  type(vegn_tile_type), intent(in)  :: vegn
+
+  integer :: i
+
+  nitrogen = 0
+  do i = 1,vegn%n_cohorts
+     nitrogen = nitrogen + &
+           (vegn%cohorts(i)%root_N + vegn%cohorts(i)%sapwood_N + &
+            vegn%cohorts(i)%wood_N + vegn%cohorts(i)%leaf_N + &
+            vegn%cohorts(i)%stored_N + &
+            ! Symbiotes are counted as part of veg, not part of soil
+            vegn%cohorts(i)%N_fixer_biomass_N + &
+            vegn%cohorts(i)%myc_miner_biomass_N + &
+            vegn%cohorts(i)%myc_scavenger_biomass_N &
+           )*vegn%cohorts(i)%nindivs
+  enddo
+  nitrogen = nitrogen + &    ! Harvest pools currently don't keep track of nitrogen
+           vegn%fsn_pool_bg + vegn%ssn_pool_bg
+
+  ! Pools associated with aboveground litter CORPSE pools
+  nitrogen = nitrogen + vegn%leaflitter_buffer_fast_N + vegn%leaflitter_buffer_slow_N + &
+                    vegn%coarsewoodlitter_buffer_fast_N + vegn%coarsewoodlitter_buffer_slow_N
+  ! finewoodlitter buffers not currently implemented
+
+end function vegn_tile_nitrogen
 
 
 ! ============================================================================

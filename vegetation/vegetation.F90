@@ -399,10 +399,14 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
         call get_tile_data(restart2,'ssc_rate_ag',vegn_ssc_rate_ag_ptr)
         call get_tile_data(restart2,'ssc_pool_bg',vegn_ssc_pool_bg_ptr)
         call get_tile_data(restart2,'ssc_rate_bg',vegn_ssc_rate_bg_ptr)
-        call get_tile_data(restart2,'leaflitter_buffer_ag',vegn_leaflitter_buffer_ag_ptr)
-        call get_tile_data(restart2,'coarsewoodlitter_buffer_ag',vegn_coarsewoodlitter_buffer_ag_ptr)
-        call get_tile_data(restart2,'leaflitter_buffer_rate_ag',vegn_leaflitter_buffer_ag_ptr)
-        call get_tile_data(restart2,'coarsewoodlitter_buffer_rate_ag',vegn_coarsewoodlitter_buffer_ag_ptr)
+        call get_tile_data(restart2,'leaflitter_buffer_fast',vegn_leaflitter_buffer_fast_ptr)
+        call get_tile_data(restart2,'leaflitter_buffer_slow',vegn_leaflitter_buffer_slow_ptr)
+        call get_tile_data(restart2,'leaflitter_buffer_rate_fast',vegn_leaflitter_buffer_rate_fast_ptr)
+        call get_tile_data(restart2,'leaflitter_buffer_rate_slow',vegn_leaflitter_buffer_rate_slow_ptr)
+        call get_tile_data(restart2,'coarsewoodlitter_buffer_fast',vegn_coarsewoodlitter_buffer_fast_ptr)
+        call get_tile_data(restart2,'coarsewoodlitter_buffer_slow',vegn_coarsewoodlitter_buffer_slow_ptr)
+        call get_tile_data(restart2,'coarsewoodlitter_buffer_rate_fast',vegn_coarsewoodlitter_buffer_rate_fast_ptr)
+        call get_tile_data(restart2,'coarsewoodlitter_buffer_rate_slow',vegn_coarsewoodlitter_buffer_rate_slow_ptr)
      else
         call get_tile_data(restart2,'fsc_pool',vegn_fsc_pool_bg_ptr)
         call get_tile_data(restart2,'fsc_rate',vegn_fsc_rate_bg_ptr)
@@ -980,10 +984,14 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_tile_data(restart2,'ssc_pool_bg',vegn_ssc_pool_bg_ptr,'intermediate pool for BG slow soil carbon input', 'kg C/m2')
   call add_tile_data(restart2,'ssc_rate_bg',vegn_ssc_rate_bg_ptr,'conversion rate of BG ssc_pool to slow soil carbon', 'kg C/(m2 yr)')
 
-  call add_tile_data(restart2,'leaflitter_buffer_ag',vegn_leaflitter_buffer_ag_ptr,'intermediate pool for AG leaf litter carbon input', 'kg C/m2')
-  call add_tile_data(restart2,'leaflitter_buffer_rate_ag',vegn_leaflitter_buffer_rate_ag_ptr,'conversion rate of AG leaf litter to litter carbon pool', 'kg C/(m2 yr)')
-  call add_tile_data(restart2,'coarsewoodlitter_buffer_ag',vegn_coarsewoodlitter_buffer_ag_ptr,'intermediate pool for AG coarsewood litter carbon input', 'kg C/m2')
-  call add_tile_data(restart2,'coarsewoodlitter_buffer_rate_ag',vegn_coarsewoodlitter_buffer_rate_ag_ptr,'conversion rate of AG coarsewood litter to litter carbon pool', 'kg C/(m2 yr)')
+  call add_tile_data(restart2,'leaflitter_buffer_fast',vegn_leaflitter_buffer_fast_ptr,'intermediate pool for fast leaf litter carbon input', 'kg C/m2')
+  call add_tile_data(restart2,'leaflitter_buffer_slow',vegn_leaflitter_buffer_slow_ptr,'intermediate pool for slow leaf litter carbon input', 'kg C/m2')
+  call add_tile_data(restart2,'leaflitter_buffer_rate_fast',vegn_leaflitter_buffer_rate_fast_ptr,'conversion rate of fast leaf litter to litter carbon pool', 'kg C/(m2 yr)')
+  call add_tile_data(restart2,'leaflitter_buffer_rate_slow',vegn_leaflitter_buffer_rate_slow_ptr,'conversion rate of slow leaf litter to litter carbon pool', 'kg C/(m2 yr)')
+  call add_tile_data(restart2,'coarsewoodlitter_buffer_fast',vegn_coarsewoodlitter_buffer_fast_ptr,'intermediate pool for fast coarsewood litter carbon input', 'kg C/m2')
+  call add_tile_data(restart2,'coarsewoodlitter_buffer_slow',vegn_coarsewoodlitter_buffer_slow_ptr,'intermediate pool for slow coarsewood litter carbon input', 'kg C/m2')
+  call add_tile_data(restart2,'coarsewoodlitter_buffer_rate_fast',vegn_coarsewoodlitter_buffer_rate_fast_ptr,'conversion rate of fast coarsewood litter to litter carbon pool', 'kg C/(m2 yr)')
+  call add_tile_data(restart2,'coarsewoodlitter_buffer_rate_slow',vegn_coarsewoodlitter_buffer_rate_slow_ptr,'conversion rate of slow coarsewood litter to litter carbon pool', 'kg C/(m2 yr)')
 
   ! water and heat buffers
   call add_tile_data(restart2,'drop_wl',vegn_drop_wl_ptr,'amount of liquid water dropped by dead trees, etc.', 'kg/m2')
@@ -1985,8 +1993,14 @@ subroutine update_vegn_slow( )
         tile%vegn%fsc_rate_bg = tile%vegn%fsc_pool_bg/fsc_pool_spending_time
         tile%vegn%ssc_rate_bg = tile%vegn%ssc_pool_bg/ssc_pool_spending_time
         
-        tile%vegn%leaflitter_buffer_rate_ag = tile%vegn%leaflitter_buffer_ag/fsc_pool_spending_time
-        tile%vegn%coarsewoodlitter_buffer_rate_ag = tile%vegn%coarsewoodlitter_buffer_ag/ssc_pool_spending_time
+        tile%vegn%leaflitter_buffer_rate_fast = tile%vegn%leaflitter_buffer_fast/fsc_pool_spending_time
+        tile%vegn%coarsewoodlitter_buffer_rate_fast = tile%vegn%coarsewoodlitter_buffer_fast/fsc_pool_spending_time
+        tile%vegn%leaflitter_buffer_rate_slow = tile%vegn%leaflitter_buffer_slow/ssc_pool_spending_time
+        tile%vegn%coarsewoodlitter_buffer_rate_slow = tile%vegn%coarsewoodlitter_buffer_slow/ssc_pool_spending_time
+        tile%vegn%leaflitter_buffer_rate_fast_N = tile%vegn%leaflitter_buffer_fast_N/fsc_pool_spending_time
+        tile%vegn%coarsewoodlitter_buffer_rate_fast_N = tile%vegn%coarsewoodlitter_buffer_fast_N/fsc_pool_spending_time
+        tile%vegn%leaflitter_buffer_rate_slow_N = tile%vegn%leaflitter_buffer_slow_N/ssc_pool_spending_time
+        tile%vegn%coarsewoodlitter_buffer_rate_slow_N = tile%vegn%coarsewoodlitter_buffer_slow_N/ssc_pool_spending_time
         where(harvest_spending_time(:)>0)
            tile%vegn%harv_rate(:) = &
                 tile%vegn%harv_pool(:)/harvest_spending_time(:)
@@ -2087,10 +2101,10 @@ subroutine update_vegn_slow( )
      call send_tile_data(id_ssc_pool_bg,tile%vegn%ssc_pool_ag,tile%diag)
      call send_tile_data(id_ssc_rate_bg,tile%vegn%ssc_rate_ag,tile%diag)
      
-     call send_tile_data(id_leaflitter_buffer_ag,tile%vegn%leaflitter_buffer_ag,tile%diag)
-     call send_tile_data(id_leaflitter_buffer_rate_ag,tile%vegn%leaflitter_buffer_rate_ag,tile%diag)
-     call send_tile_data(id_coarsewoodlitter_buffer_ag,tile%vegn%coarsewoodlitter_buffer_ag,tile%diag)
-     call send_tile_data(id_coarsewoodlitter_buffer_rate_ag,tile%vegn%coarsewoodlitter_buffer_rate_ag,tile%diag)
+!      call send_tile_data(id_leaflitter_buffer_ag,tile%vegn%leaflitter_buffer_ag,tile%diag)
+!      call send_tile_data(id_leaflitter_buffer_rate_ag,tile%vegn%leaflitter_buffer_rate_ag,tile%diag)
+!      call send_tile_data(id_coarsewoodlitter_buffer_ag,tile%vegn%coarsewoodlitter_buffer_ag,tile%diag)
+!      call send_tile_data(id_coarsewoodlitter_buffer_rate_ag,tile%vegn%coarsewoodlitter_buffer_rate_ag,tile%diag)
 
      call send_tile_data(id_fuel,    tile%vegn%fuel, tile%diag)
 
@@ -2327,10 +2341,22 @@ DEFINE_VEGN_ACCESSOR_0D(real,fsc_rate_bg)
 DEFINE_VEGN_ACCESSOR_0D(real,ssc_pool_bg)
 DEFINE_VEGN_ACCESSOR_0D(real,ssc_rate_bg)
 
-DEFINE_VEGN_ACCESSOR_0D(real,leaflitter_buffer_ag)
-DEFINE_VEGN_ACCESSOR_0D(real,leaflitter_buffer_rate_ag)
-DEFINE_VEGN_ACCESSOR_0D(real,coarsewoodlitter_buffer_ag)
-DEFINE_VEGN_ACCESSOR_0D(real,coarsewoodlitter_buffer_rate_ag)
+DEFINE_VEGN_ACCESSOR_0D(real,leaflitter_buffer_fast)
+DEFINE_VEGN_ACCESSOR_0D(real,leaflitter_buffer_rate_fast)
+DEFINE_VEGN_ACCESSOR_0D(real,coarsewoodlitter_buffer_fast)
+DEFINE_VEGN_ACCESSOR_0D(real,coarsewoodlitter_buffer_rate_fast)
+DEFINE_VEGN_ACCESSOR_0D(real,leaflitter_buffer_slow)
+DEFINE_VEGN_ACCESSOR_0D(real,leaflitter_buffer_rate_slow)
+DEFINE_VEGN_ACCESSOR_0D(real,coarsewoodlitter_buffer_slow)
+DEFINE_VEGN_ACCESSOR_0D(real,coarsewoodlitter_buffer_rate_slow)
+DEFINE_VEGN_ACCESSOR_0D(real,leaflitter_buffer_fast_N)
+DEFINE_VEGN_ACCESSOR_0D(real,leaflitter_buffer_rate_fast_N)
+DEFINE_VEGN_ACCESSOR_0D(real,coarsewoodlitter_buffer_fast_N)
+DEFINE_VEGN_ACCESSOR_0D(real,coarsewoodlitter_buffer_rate_fast_N)
+DEFINE_VEGN_ACCESSOR_0D(real,leaflitter_buffer_slow_N)
+DEFINE_VEGN_ACCESSOR_0D(real,leaflitter_buffer_rate_slow_N)
+DEFINE_VEGN_ACCESSOR_0D(real,coarsewoodlitter_buffer_slow_N)
+DEFINE_VEGN_ACCESSOR_0D(real,coarsewoodlitter_buffer_rate_slow_N)
 
 DEFINE_VEGN_ACCESSOR_0D(real,tc_av)
 DEFINE_VEGN_ACCESSOR_0D(real,theta_av_phen)
