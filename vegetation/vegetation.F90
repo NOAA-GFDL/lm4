@@ -1895,6 +1895,8 @@ subroutine update_vegn_slow( )
         tile%vegn%daily_t_min =  HUGE(1.0)
      endif
 
+     call check_conservation_2(tile,'update_vegn_slow 1',lmass0,fmass0,cmass0)
+
      ! monthly averaging
      if (month1 /= month0) then
         ! compute averages from accumulated monthly values 
@@ -1913,6 +1915,8 @@ subroutine update_vegn_slow( )
 
         tile%vegn%nmn_acm = tile%vegn%nmn_acm+1 ! increase the number of accumulated months
      endif
+
+     call check_conservation_2(tile,'update_vegn_slow 2',lmass0,fmass0,cmass0)
 
      ! annual averaging
      if (year1 /= year0) then
@@ -1938,6 +1942,8 @@ subroutine update_vegn_slow( )
         call vegn_biogeography(tile%vegn)
      endif
 
+     call check_conservation_2(tile,'update_vegn_slow 3',lmass0,fmass0,cmass0)
+
      if (year1 /= year0 .and. do_peat_redistribution) then
         call redistribute_peat_carbon(tile%soil)
      endif
@@ -1947,6 +1953,8 @@ subroutine update_vegn_slow( )
         ! assume that all layers are the same soil type and wilting is vertically homogeneous
      endif
 
+     call check_conservation_2(tile,'update_vegn_slow 4',lmass0,fmass0,cmass0)
+ 
      if (day1 /= day0 .and. do_cohort_dynamics) then
         N = tile%vegn%n_cohorts ; cc=>tile%vegn%cohorts(1:N)
         call send_tile_data(id_cgain,sum(cc(1:N)%carbon_gain*cc(1:N)%nindivs),tile%diag)
@@ -1954,28 +1962,39 @@ subroutine update_vegn_slow( )
         call send_tile_data(id_wdgain,sum(cc(1:N)%bwood_gain*cc(1:N)%nindivs),tile%diag)
 
         call vegn_growth(tile%vegn) ! selects lm3 or ppa inside
+        call check_conservation_2(tile,'update_vegn_slow 4.1',lmass0,fmass0,cmass0)
+
         if (do_ppa) then
            call vegn_starvation_ppa(tile%vegn, tile%soil)
+           call check_conservation_2(tile,'update_vegn_slow 4.2',lmass0,fmass0,cmass0)
            call vegn_phenology_ppa (tile%vegn, tile%soil)
+           call check_conservation_2(tile,'update_vegn_slow 4.3',lmass0,fmass0,cmass0)
         else
            call vegn_nat_mortality_lm3(tile%vegn,tile%soil,86400.0)
         endif
      endif
+     call check_conservation_2(tile,'update_vegn_slow 5',lmass0,fmass0,cmass0)
 
      if  (month1 /= month0 .and. do_phenology) then
         if (.not.do_ppa) &
             call vegn_phenology_lm3 (tile%vegn,tile%soil)
         ! assume that all layers are the same soil type and wilting is vertically homogeneous
      endif
+     call check_conservation_2(tile,'update_vegn_slow 6',lmass0,fmass0,cmass0)
 
      if (year1 /= year0 .and. do_patch_disturbance) then
         call vegn_disturbance(tile%vegn, tile%soil, seconds_per_year)
      endif
 
+     call check_conservation_2(tile,'update_vegn_slow 7',lmass0,fmass0,cmass0)
+
      if (do_ppa.and.year1 /= year0) then
         call vegn_reproduction_ppa(tile%vegn, tile%soil)
+        call check_conservation_2(tile,'update_vegn_slow 7.1',lmass0,fmass0,cmass0)
         call vegn_relayer_cohorts_ppa(tile%vegn)
+        call check_conservation_2(tile,'update_vegn_slow 7.2',lmass0,fmass0,cmass0)
         call vegn_mergecohorts_ppa(tile%vegn)
+        call check_conservation_2(tile,'update_vegn_slow 7.3',lmass0,fmass0,cmass0)
         call kill_small_cohorts_ppa(tile%vegn,tile%soil)
         
         ! update DBH_ys
@@ -1985,6 +2004,7 @@ subroutine update_vegn_slow( )
                                           tile%vegn%cohorts(ii)%bwood
         enddo
      endif
+     call check_conservation_2(tile,'update_vegn_slow 8',lmass0,fmass0,cmass0)
      
      if (year1 /= year0) then
         call vegn_harvesting(tile%vegn)
@@ -2008,6 +2028,7 @@ subroutine update_vegn_slow( )
            tile%vegn%harv_rate(:) = 0.0
         end where
      endif
+     call check_conservation_2(tile,'update_vegn_slow 9',lmass0,fmass0,cmass0)
 
      ! + sanity checks
      do ii = 1,tile%vegn%n_cohorts
@@ -2174,6 +2195,32 @@ subroutine update_vegn_slow( )
 
 end subroutine update_vegn_slow
 
+
+! ============================================================================
+! + conservation check, part 2: calculate totals in final state, and compare 
+! with previous totals
+subroutine check_conservation_2(tile,tag,lmass,fmass,cmass,heat)
+  type(land_tile_type), intent(in) :: tile
+  character(*), intent(in) :: tag
+  real, intent(in), optional :: lmass,fmass,cmass,heat ! stocks to check against
+
+  real :: lmass1,fmass1,cmass1,heat1
+  if (.not.do_check_conservation) return
+
+  if (present(lmass).or.present(fmass)) then
+     call get_tile_water(tile,lmass1,fmass1)
+     if(present(lmass)) call check_conservation (tag,'liquid water', lmass, lmass1, water_cons_tol)
+     if(present(lmass)) call check_conservation (tag,'frozen water', fmass, fmass1, water_cons_tol)
+  endif
+  if (present(cmass)) then
+     cmass1 = land_tile_carbon(tile)     
+     call check_conservation (tag,'carbon', cmass, cmass1, carbon_cons_tol)
+  endif
+  if (present(heat)) then
+     heat1  = land_tile_heat  (tile)
+     call check_conservation (tag,'heat content', heat , heat1 , 1e-16)
+  endif 
+end subroutine check_conservation_2
 
 ! ============================================================================
 subroutine vegn_seed_transport()
