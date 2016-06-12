@@ -36,7 +36,7 @@ public :: soil_tiles_can_be_merged, merge_soil_tiles
 public :: soil_is_selected
 public :: get_soil_tile_tag
 public :: soil_tile_stock_pe
-public :: soil_tile_heat, soil_tile_carbon
+public :: soil_tile_heat, soil_tile_carbon, soil_tile_nitrogen
 
 public :: read_soil_data_namelist
 
