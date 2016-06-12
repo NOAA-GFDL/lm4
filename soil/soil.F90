@@ -3796,34 +3796,53 @@ end subroutine add_root_exudates_1
 
 
 ! ============================================================================
-subroutine add_soil_carbon(soil,vegn,leaf_litter,wood_litter,root_litter)
+subroutine add_soil_carbon(soil,vegn,leaf_litter_C,wood_litter_C,root_litter_C,&
+                                     leaf_litter_N,wood_litter_N,root_litter_N)
   type(soil_tile_type), intent(inout) :: soil
   type(vegn_tile_type), intent(in)    :: vegn
-  real, intent(in), optional :: leaf_litter(N_C_TYPES)
-  real, intent(in), optional :: wood_litter(N_C_TYPES)
-  real, intent(in), optional :: root_litter(num_l,N_C_TYPES)
+  real, intent(in), optional :: leaf_litter_C(N_C_TYPES)
+  real, intent(in), optional :: wood_litter_C(N_C_TYPES)
+  real, intent(in), optional :: root_litter_C(num_l,N_C_TYPES)
+  real, intent(in), optional :: leaf_litter_N(N_C_TYPES)
+  real, intent(in), optional :: wood_litter_N(N_C_TYPES)
+  real, intent(in), optional :: root_litter_N(num_l,N_C_TYPES)
   
   integer :: l
   real :: fsc, ssc
-  real :: leaf_litt(N_C_TYPES)
-  real :: wood_litt(N_C_TYPES)
-  real :: root_litt(num_l,N_C_TYPES)
+  real :: leaf_litt_C(N_C_TYPES), leaf_litt_N(N_C_TYPES)
+  real :: wood_litt_C(N_C_TYPES), wood_litt_N(N_C_TYPES)
+  real :: root_litt_C(num_l,N_C_TYPES), root_litt_N(num_l,N_C_TYPES)
   real :: rhiz_frac(num_l)
 
-  if (present(leaf_litter)) then
-     leaf_litt(:) = leaf_litter(:)
+  if (present(leaf_litter_C)) then
+     leaf_litt_C(:) = leaf_litter_C(:)
   else
-     leaf_litt(:) = 0.0
+     leaf_litt_C(:) = 0.0
   endif
-  if (present(wood_litter)) then
-     wood_litt(:) = wood_litter(:)
+  if (present(wood_litter_C)) then
+     wood_litt_C(:) = wood_litter_C(:)
   else
-     wood_litt(:) = 0.0
+     wood_litt_C(:) = 0.0
   endif
-  if (present(root_litter)) then
-     root_litt(:,:) = root_litter(:,:)
+  if (present(root_litter_C)) then
+     root_litt_C(:,:) = root_litter_C(:,:)
   else
-     root_litt(:,:) = 0.0
+     root_litt_C(:,:) = 0.0
+  endif
+  if (present(leaf_litter_N)) then
+     leaf_litt_N(:) = leaf_litter_N(:)
+  else
+     leaf_litt_N(:) = 0.0
+  endif
+  if (present(wood_litter_N)) then
+     wood_litt_N(:) = wood_litter_N(:)
+  else
+     wood_litt_N(:) = 0.0
+  endif
+  if (present(root_litter_N)) then
+     root_litt_N(:,:) = root_litter_N(:,:)
+  else
+     root_litt_N(:,:) = 0.0
   endif
 
   ! CEL=cellulose (fast); LIG=lignin (slow); this function reasonably assumes 
@@ -3831,34 +3850,34 @@ subroutine add_soil_carbon(soil,vegn,leaf_litter,wood_litter,root_litter)
 
   select case (soil_carbon_option)
   case (SOILC_CENTURY)
-     fsc = leaf_litt(C_CEL) + wood_litt(C_CEL) + sum(root_litt(:,C_CEL))
-     ssc = leaf_litt(C_LIG) + wood_litt(C_LIG) + sum(root_litt(:,C_LIG))
+     fsc = leaf_litt_C(C_CEL) + wood_litt_C(C_CEL) + sum(root_litt_C(:,C_CEL))
+     ssc = leaf_litt_C(C_LIG) + wood_litt_C(C_LIG) + sum(root_litt_C(:,C_LIG))
      soil%fast_soil_C(1) = soil%fast_soil_C(1) + fsc
      soil%slow_soil_C(1) = soil%slow_soil_C(1) + ssc
      ! for budget tracking
      soil%fsc_in(1) = soil%fsc_in(1) + fsc
      soil%ssc_in(1) = soil%ssc_in(1) + ssc
   case (SOILC_CENTURY_BY_LAYER)
-     fsc = leaf_litt(C_CEL) + wood_litt(C_CEL)
-     ssc = leaf_litt(C_LIG) + wood_litt(C_LIG)
+     fsc = leaf_litt_C(C_CEL) + wood_litt_C(C_CEL)
+     ssc = leaf_litt_C(C_LIG) + wood_litt_C(C_LIG)
      soil%fast_soil_C(1) = soil%fast_soil_C(1) + fsc
      soil%slow_soil_C(1) = soil%slow_soil_C(1) + ssc
      ! for budget tracking
      soil%fsc_in(1) = soil%fsc_in(1) + fsc
      soil%ssc_in(1) = soil%ssc_in(1) + ssc
      do l = 1,num_l
-        soil%fast_soil_C(l) = soil%fast_soil_C(l) + root_litt(l,C_CEL)
-        soil%slow_soil_C(l) = soil%slow_soil_C(l) + root_litt(l,C_LIG)
+        soil%fast_soil_C(l) = soil%fast_soil_C(l) + root_litt_C(l,C_CEL)
+        soil%slow_soil_C(l) = soil%slow_soil_C(l) + root_litt_C(l,C_LIG)
         ! for budget tracking
-        soil%fsc_in(l) = soil%fsc_in(l) + root_litt(l,C_CEL)
-        soil%ssc_in(l) = soil%ssc_in(l) + root_litt(l,C_LIG)
+        soil%fsc_in(l) = soil%fsc_in(l) + root_litt_C(l,C_CEL)
+        soil%ssc_in(l) = soil%ssc_in(l) + root_litt_C(l,C_LIG)
      enddo
   case (SOILC_CORPSE)
-     call add_litter(soil%leafLitter,       leaf_litt, [0.0, 0.0, 0.0])
-     call add_litter(soil%coarseWoodLitter, wood_litt, [0.0, 0.0, 0.0])
+     call add_litter(soil%leafLitter,       leaf_litt_C, leaf_litt_N)
+     call add_litter(soil%coarseWoodLitter, wood_litt_C, wood_litt_N)
      call rhizosphere_frac(vegn, rhiz_frac)
      do l = 1,num_l
-        call add_litter(soil%soil_organic_matter(l), root_litt(l,:), [0.0, 0.0, 0.0], rhiz_frac(l))
+        call add_litter(soil%soil_organic_matter(l), root_litt_C(l,:), root_litt_N(l,:), rhiz_frac(l))
      enddo
   end select
 end subroutine add_soil_carbon
