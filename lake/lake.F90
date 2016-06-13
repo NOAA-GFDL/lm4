@@ -10,7 +10,7 @@ use fms_mod, only: open_namelist_file
 #endif
 
 use fms_mod, only : error_mesg, file_exist, read_data, check_nml_error, &
-     stdlog,close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
+     lowercase, stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
 use fms_io_mod, only : read_compressed, restart_file_type, free_restart_type, &
      field_exist, get_field_size, save_restart, register_restart_axis, &
      register_restart_field, set_domain, nullify_domain
@@ -70,7 +70,7 @@ character(len=*), parameter :: tagname     = '$Name$'
 !---- namelist ---------------------------------------------------------------
 real    :: init_temp            = 288.        ! cold-start lake T
 real    :: init_w               = 1000.      ! cold-start w(l)/dz(l)
-logical :: use_rh_feedback      = .true.
+character(16) :: rh_feedback_to_use = 'alpha'  ! or 'beta', or 'none'
 logical :: make_all_lakes_wide  = .false.
 logical :: large_dyn_small_stat = .true.
 logical :: relayer_in_step_one  = .false.
@@ -89,13 +89,19 @@ real    :: lake_depth_min       = 1.99
 real    :: max_plain_slope      = -1.e10
 
 namelist /lake_nml/ init_temp, init_w,       &
-                    use_rh_feedback, cpw, clw, csw, &
+                    rh_feedback_to_use, cpw, clw, csw, &
                     make_all_lakes_wide, large_dyn_small_stat, &
                     relayer_in_step_one, float_ice_to_top, &
                     min_rat, do_stratify, albedo_to_use, K_z_large, &
 		    K_z_background, K_z_min, K_z_factor, &
 		    lake_depth_max, lake_depth_min, max_plain_slope
 !---- end of namelist --------------------------------------------------------
+integer, public :: lake_rh_feedback     = -1
+integer, public, parameter :: &
+   LAKE_RH_NONE  = 0, &
+   LAKE_RH_ALPHA = 1, &
+   LAKE_RH_BETA  = 2
+
 real    :: K_z_molec            = 1.4e-7
 real    :: tc_molec             = 0.59052 ! dens_h2o*clw*K_z_molec
 real    :: tc_molec_ice         = 2.5
@@ -171,6 +177,14 @@ subroutine read_lake_namelist()
           '" is invalid, use "brdf-params", or nothing ("")',&
           FATAL)
   endif
+
+  if (trim(lowercase(rh_feedback_to_use))=='alpha') then
+     lake_rh_feedback = LAKE_RH_ALPHA
+  else if (trim(lowercase(rh_feedback_to_use))=='beta') then
+     lake_rh_feedback = LAKE_RH_BETA
+  else
+     lake_rh_feedback = LAKE_RH_NONE
+  endif  
 
 end subroutine read_lake_namelist
 
@@ -531,11 +545,11 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
 
   lake%K_z = 0.
   lake_T = lake%T(1)
-  if (use_rh_feedback) then
-      lake_depth = (sum(lake%wl(:))+sum(lake%ws(:))) / DENS_H2O
-    else
-      lake_depth = lake%pars%depth_sill
-    endif
+  if (lake_rh_feedback == LAKE_RH_NONE) then
+     lake_depth = lake%pars%depth_sill
+  else
+     lake_depth = (sum(lake%wl(:))+sum(lake%ws(:))) / DENS_H2O
+  endif
   call lake_data_thermodynamics ( lake%pars, lake_depth, lake_rh, &
                                   lake%heat_capacity_dry, thermal_cond )
 ! Ignore air humidity in converting atmospheric friction velocity to lake value

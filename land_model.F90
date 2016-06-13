@@ -31,8 +31,9 @@ use constants_mod, only : radius, hlf, hlv, hls, tfreeze, pi, rdgas, rvgas, cp_a
      stefan
 use astronomy_mod, only : astronomy_init, diurnal_solar
 use tracer_manager_mod, only : NO_TRACER, get_tracer_index, get_tracer_names
+use sphum_mod, only : qscomp
 
-use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, mol_air, mol_C, mol_co2
+use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, d608, mol_air, mol_C, mol_co2
 use land_tracers_mod, only : land_tracers_init, land_tracers_end, ntcana, isphum, ico2
 use land_tracer_driver_mod, only: land_tracer_driver_init, land_tracer_driver_end, &
      update_cana_tracers
@@ -40,6 +41,7 @@ use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_te
      glac_radiation, glac_diffusion, glac_step_1, glac_step_2, save_glac_restart, &
      save_glac_restart_new
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
+     lake_rh_feedback, LAKE_RH_BETA, &
      lake_radiation, lake_diffusion, lake_step_1, lake_step_2, save_lake_restart, save_lake_restart_new
 use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
      soil_radiation, soil_diffusion, soil_step_1, soil_step_2, soil_step_3, &
@@ -1532,6 +1534,8 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
        flwv0,  DflwvDTg,  DflwvDTv,& ! linearization of net LW radiation to the canopy
        flwg0,  DflwgDTg,  DflwgDTv,& ! linearization of net LW radiation to the canopy
        vegn_drip_l, vegn_drip_s, & ! drip rate of water and snow, respectively, kg/(m2 s)
+       qsat,  DqsatDTg, & ! saturated specifuc humidity at the ground and its derivative w.r.t. temperature
+       rho, & ! density of canopy air
        vegn_lai
 
   ! increments of respective variables over time step, results of the implicit
@@ -1555,6 +1559,7 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
        vegn_fco2, & ! co2 flux from the vegetation, kg CO2/(m2 s)
        hlv_Tv, hlv_Tu, & ! latent heat of vaporization at vegn and uptake temperatures, respectively
        hls_Tv, &         ! latent heat of sublimation at vegn temperature
+       grnd_q,         & ! explicit specific humidity at ground surface
        grnd_rh,        & ! explicit relative humidity at ground surface
        grnd_rh_psi,    & ! psi derivative of relative humidity at ground surface
        grnd_liq, grnd_ice, grnd_subl, &
@@ -1744,9 +1749,31 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   fswg     = SUM(tile%Sg_dir*ISa_dn_dir + tile%Sg_dif*ISa_dn_dif)
   vegn_fsw = SUM(RSv)
 
-  call cana_step_1 (tile%cana, p_surf, con_g_h, con_g_v,   &
-       grnd_t, grnd_rh, grnd_rh_psi, &
-       Hg0,  DHgDTg, DHgDTc, Eg0, DEgDTg, DEgDqc, DEgDpsig)
+!   call cana_step_1 (tile%cana, p_surf, con_g_h, con_g_v,   &
+!        grnd_t, grnd_rh, grnd_rh_psi, &
+!        Hg0,  DHgDTg, DHgDTc, Eg0, DEgDTg, DEgDqc, DEgDpsig)
+
+
+  rho      =  p_surf/(rdgas*tile%cana%T*(1+d608*tile%cana%tr(isphum)))
+  Hg0      =  rho*cp_air*con_g_h*(grnd_T - tile%cana%T)
+  DHgDTg   =  rho*cp_air*con_g_h
+  DHgDTc   = -rho*cp_air*con_g_h
+
+  if (associated(tile%lake).and.lake_rh_feedback == LAKE_RH_BETA) then
+     ! adjust the conductance so that the water vapor flux to the atmopshere is 
+     ! E = beta*rho*CD*|v|*(qsat - qatm), with beta=grnd_rh
+     grnd_rh  = min(grnd_rh, 1-1.0e-6) ! to protect from infinite conductance
+     con_g_v  = grnd_rh/(1-grnd_rh)*DEaDqc/rho
+     grnd_rh  = 1.0
+  endif
+  call check_temp_range(grnd_T,'update_land_model_fast_0d','grnd_T')
+  call qscomp(grnd_T, p_surf, qsat, DqsatDTg)
+  grnd_q   = grnd_rh * qsat
+  Eg0      =  rho*con_g_v*(grnd_q  - tile%cana%tr(isphum))
+  DEgDTg   =  rho*con_g_v*DqsatDTg*grnd_rh
+  DEgDqc   = -rho*con_g_v
+  DEgDpsig =  rho*con_g_v*qsat*grnd_rh_psi
+  
 
 ! [X.X] using long-wave optical properties, calculate the explicit long-wave
 !       radiative balances and their derivatives w.r.t. temperatures
