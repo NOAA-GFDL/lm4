@@ -506,6 +506,19 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   call send_tile_data(id_soilt,soilt,diag)
   call send_tile_data(id_theta,theta,diag)
 
+  ! FIXME slm: some of the fields below probbaly need to cohort diag fields
+  call send_tile_data(id_mycorrhizal_scav_allocation,total_scavenger_myc_C_allocated/dt_fast_yr,diag)
+  call send_tile_data(id_mycorrhizal_scav_immobilization,total_scav_myc_immob/dt_fast_yr,diag)
+  call send_tile_data(id_mycorrhizal_mine_allocation,total_miner_myc_C_allocated/dt_fast_yr,diag)
+  call send_tile_data(id_mycorrhizal_mine_immobilization,total_mine_myc_immob/dt_fast_yr,diag)
+  call send_tile_data(id_N_fixer_allocation,total_N_fixer_C_allocated/dt_fast_yr,diag)
+  call send_tile_data(id_myc_scav_marginal_gain,myc_scav_marginal_gain,diag)
+  call send_tile_data(id_myc_mine_marginal_gain,myc_mine_marginal_gain,diag)
+  call send_tile_data(id_N_fix_marginal_gain,N_fix_marginal_gain,diag)
+  call send_tile_data(id_rhiz_exudation,total_root_exudate_C/dt_fast_yr,diag)
+  call send_tile_data(id_nitrogen_stress,vegn%cohorts(1)%nitrogen_stress,diag)
+  call send_tile_data(id_total_plant_N_uptake,total_plant_N_uptake/dt_fast_yr,diag)
+
 end subroutine vegn_carbon_int_lm3
 
 
