@@ -244,6 +244,11 @@ type :: soil_tile_type
    real                   :: fast_DOC_leached !Carbon that has been leached out of the column
    real                   :: slow_DOC_leached !Carbon that has been leached out of the column
    real                   :: deadmic_DOC_leached !Carbon that has been leached out of the column
+   real                   :: passive_N_uptake = 0.0 ! N uptake by water flux into roots
+   real                   :: myc_scav_N_uptake = 0.0 ! N uptake by "scavenger" mycorrhizae (mostly corresponding to Arbuscular mycorrhizae)
+   real                   :: myc_mine_N_uptake = 0.0 ! N uptake by "miner" mycorrhizae (corresponding to Ectomycorrhizae)
+   real                   :: symbiotic_N_fixation = 0.0 ! N fixation by symbiotic microbes
+   real                   :: active_root_N_uptake = 0.0 ! Mineral N uptake from rhizosphere by active transport across root membrane
    ! values for the diagnostic of carbon budget and soil carbon acceleration
    real, allocatable :: &
        asoil_in(:), &

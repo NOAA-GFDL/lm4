@@ -42,7 +42,8 @@ use soil_carbon_mod, only: poolTotals, soilMaxCohorts, &
      tracer_leaching_with_litter,transfer_pool_fraction, n_c_types, &
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
      C_CEL, C_LIG, C_MIC, c_shortname, c_longname, &
-     A_function, debug_pool, adjust_pool_ncohorts
+     A_function, debug_pool, adjust_pool_ncohorts, &
+     mycorrhizal_decomposition, mycorrhizal_mineral_n_uptake_rate
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, prev_elmt, current_tile, get_elmt_indices, &
@@ -59,7 +60,8 @@ use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_tile_data, add_int_tile_data, get_tile_data, get_int_tile_data, &
      add_restart_axis, field_exists
-use vegn_data_mod, only: K1, K2, spdata
+use vegn_data_mod, only: K1, K2, spdata, root_NH4_uptake_rate, root_NO3_uptake_rate, &
+     k_ammonium_root_uptake, k_nitrate_root_uptake
 use vegn_cohort_mod, only : vegn_cohort_type, & 
      cohort_uptake_profile, cohort_root_exudate_profile, cohort_root_litter_profile 
 
@@ -106,6 +108,9 @@ public :: get_soil_litter_C
 public :: add_soil_carbon
 public :: add_root_litter
 public :: add_root_exudates
+public :: root_N_uptake
+public :: myc_scavenger_N_uptake
+public :: myc_miner_N_uptake
 public :: redistribute_peat_carbon
 ! =====end of public interfaces ==============================================
 interface add_root_exudates
@@ -3767,14 +3772,16 @@ end subroutine add_root_litter
 ! ============================================================================
 ! Spread root exudate C through profile, using vertical root profile from vegn_uptake_profile
 ! Differs from add_root_litter -- C is distributed through existing cohorts, not deposited as new cohort
-subroutine add_root_exudates_0(soil,exudateC)
-  type(soil_tile_type), intent(inout)  :: soil
-  real                , intent(in)     :: exudateC(num_l) ! kgC/(m2 of soil)
+subroutine add_root_exudates_0(soil,exudateC,exudateN)
+  type(soil_tile_type),   intent(inout)  :: soil
+  real, dimension(num_l), intent(in)     :: exudateC, exudateN ! kgC or kgN per m2 of soil 
   
   integer :: k
   
   do k=1,num_l
-     call add_C_N_to_cohorts(soil%soil_organic_matter(k),litterC=(/exudateC(k),0.0,0.0/))
+     call add_C_N_to_cohorts(soil%soil_organic_matter(k),   &
+                             litterC=[exudateC(k),0.0,0.0], &
+                             litterN=[exudateN(k),0.0,0.0]  )
   enddo
 end subroutine add_root_exudates_0
 
@@ -3881,6 +3888,123 @@ subroutine add_soil_carbon(soil,vegn,leaf_litter_C,wood_litter_C,root_litter_C,&
      enddo
   end select
 end subroutine add_soil_carbon
+
+
+! ============================================================================
+! Nitrogen uptake from the rhizosphere by roots (active transport across root-soil interface)
+! Mineral nitrogen is taken up from the rhizosphere only
+subroutine root_N_uptake(soil,vegn,total_N_uptake,dt)
+  real,intent(out)::total_N_uptake
+  type(vegn_tile_type),intent(in)::vegn
+  type(soil_tile_type),intent(inout)::soil
+  real,intent(in)::dt
+
+  real :: nitrate_uptake, ammonium_uptake, ammonium_concentration, nitrate_concentration
+  real :: rhiz_frac(num_l)
+  integer :: k
+
+  call rhizosphere_frac(vegn, rhiz_frac)
+
+  total_N_uptake=0.0
+  do k=1,num_l
+    ammonium_concentration=soil%soil_organic_matter(k)%ammonium*rhiz_frac(k)/dz(k)
+    ammonium_uptake = ammonium_concentration/(ammonium_concentration+k_ammonium_root_uptake)*root_NH4_uptake_rate*dt*dz(k)
+    nitrate_concentration=soil%soil_organic_matter(k)%nitrate*rhiz_frac(k)/dz(k)
+    nitrate_uptake = nitrate_concentration/(nitrate_concentration+k_nitrate_root_uptake)*root_NO3_uptake_rate*dt*dz(k)
+    if(ammonium_uptake>soil%soil_organic_matter(k)%ammonium) then
+       __DEBUG5__(k,rhiz_frac(k),ammonium_concentration,ammonium_uptake,soil%soil_organic_matter(k)%ammonium)
+    endif
+    if(nitrate_uptake>soil%soil_organic_matter(k)%nitrate) then
+       __DEBUG4__(k,nitrate_concentration,nitrate_uptake,soil%soil_organic_matter(k)%nitrate)
+    endif
+    soil%soil_organic_matter(k)%ammonium=soil%soil_organic_matter(k)%ammonium-ammonium_uptake
+    soil%soil_organic_matter(k)%nitrate=soil%soil_organic_matter(k)%nitrate-nitrate_uptake
+    total_N_uptake = total_N_uptake + ammonium_uptake + nitrate_uptake
+  enddo
+end subroutine root_N_uptake
+
+
+! ============================================================================
+! Uptake of mineral N by mycorrhizal "scavengers" -- Should correspond to Arbuscular mycorrhizae
+subroutine myc_scavenger_N_uptake(soil,cc,myc_biomass,total_N_uptake,dt,update_pools)
+  type(soil_tile_type),   intent(inout) :: soil
+  type(vegn_cohort_type), intent(in)    :: cc
+  real,intent(in)  :: myc_biomass ! myc_biomass in kgC/m2
+  real,intent(out) :: total_N_uptake
+  real, intent(in) :: dt  ! dt in years
+  logical, intent(in) :: update_pools
+
+  real,dimension(num_l) :: uptake_frac_max, vegn_uptake_term
+  real::nitrate_uptake,ammonium_uptake
+  integer::k
+
+  call cohort_uptake_profile (cc, dz(1:num_l), uptake_frac_max, vegn_uptake_term )
+
+  total_N_uptake=0.0
+  do k=1,num_l
+    call mycorrhizal_mineral_N_uptake_rate(soil%soil_organic_matter(k),myc_biomass*uptake_frac_max(k),dz(k),nitrate_uptake,ammonium_uptake)
+    ammonium_uptake = min(ammonium_uptake,soil%soil_organic_matter(k)%ammonium/dt)
+    nitrate_uptake = min(nitrate_uptake,soil%soil_organic_matter(k)%nitrate/dt)
+    total_N_uptake=total_N_uptake+(ammonium_uptake+nitrate_uptake)*dt
+
+    if(ammonium_uptake*dt>soil%soil_organic_matter(k)%ammonium) then; __DEBUG2__(ammonium_uptake*dt,soil%soil_organic_matter(k)%ammonium); endif
+    if(nitrate_uptake*dt>soil%soil_organic_matter(k)%nitrate) then; __DEBUG2__(nitrate_uptake*dt,soil%soil_organic_matter(k)%nitrate); endif
+    if (update_pools) then
+       soil%soil_organic_matter(k)%ammonium=soil%soil_organic_matter(k)%ammonium-ammonium_uptake*dt
+       soil%soil_organic_matter(k)%nitrate=soil%soil_organic_matter(k)%nitrate-nitrate_uptake*dt
+    endif
+  enddo
+
+  ! Mycorrhizae should have access to litter layer too
+  ! Might want to update this so it calculates actual layer thickness?
+  call mycorrhizal_mineral_N_uptake_rate(soil%leafLitter,myc_biomass*uptake_frac_max(1),dz(1),nitrate_uptake,ammonium_uptake)
+  ammonium_uptake = min(ammonium_uptake,soil%leafLitter%ammonium/dt)
+  nitrate_uptake = min(nitrate_uptake,soil%leafLitter%nitrate/dt)
+  total_N_uptake=total_N_uptake+(nitrate_uptake+ammonium_uptake)*dt
+  if (update_pools) then
+     soil%leafLitter%ammonium=soil%leafLitter%ammonium-ammonium_uptake*dt
+     soil%leafLitter%nitrate=soil%leafLitter%nitrate-nitrate_uptake*dt
+  endif
+end subroutine myc_scavenger_N_uptake
+
+
+! ============================================================================
+! Uptake of mineral N by mycorrhizal "miners" -- Should correspond to Ecto mycorrhizae
+subroutine myc_miner_N_uptake(soil,cc,myc_biomass,total_N_uptake,total_C_uptake,total_CO2prod,dt,update_pools)
+  type(soil_tile_type), intent(inout) :: soil
+  type(vegn_cohort_type), intent(in)  :: cc
+  real,    intent(in)  :: myc_biomass
+  real,    intent(out) :: total_N_uptake, total_C_uptake, total_CO2prod
+  real,    intent(in)  :: dt  ! dt in years, myc_biomass in kgC/m2
+  logical, intent(in)  :: update_pools
+
+  real, dimension(num_l) :: uptake_frac_max, vegn_uptake_term
+  real :: N_uptake,C_uptake,CO2prod
+  real, dimension(num_l) :: T, theta, air_filled_porosity
+  integer :: k
+
+  call cohort_uptake_profile (cc, dz(1:num_l), uptake_frac_max, vegn_uptake_term )
+  T = soil%T(:)
+  theta = max(min(soil_theta(soil),1.0),0.0)
+  air_filled_porosity=max(min(1.0-theta-soil_ice_porosity(soil),1.0),0.0)
+
+  total_N_uptake=0.0
+  total_C_uptake=0.0
+  total_CO2prod=0.0
+  do k=1,num_l
+     call mycorrhizal_decomposition(soil%soil_organic_matter(k),myc_biomass*uptake_frac_max(k),T(k),theta(k),air_filled_porosity(k),N_uptake,C_uptake,CO2prod,dt,update_pools)
+     total_N_uptake=total_N_uptake+N_uptake
+     total_C_uptake = total_C_uptake+C_uptake
+     total_CO2prod=total_CO2prod+CO2prod
+  enddo
+
+  ! Mycorrhizae should have access to litter layer too
+  ! Might want to update this so it calculates actual layer thickness?
+  call mycorrhizal_decomposition(soil%leafLitter,myc_biomass*uptake_frac_max(1),T(1),theta(1),air_filled_porosity(1),N_uptake,C_uptake,CO2prod,dt,update_pools)
+  total_N_uptake=total_N_uptake+N_uptake
+  total_C_uptake = total_C_uptake+C_uptake
+  total_CO2prod = total_CO2prod + CO2prod
+end subroutine myc_miner_N_uptake
 
 
 ! ============================================================================
