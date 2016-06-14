@@ -1716,6 +1716,8 @@ end subroutine soil_step_1
   real :: surf_NO3_loss, surf_NH4_loss ! [kg N/m^2] NH4 and NO3 loss from top soil layer to surface runoff due to efflux
   real :: total_C_leaching(num_l) ! [kg C/m^2/s] net total vertical DOC leaching by layer
   real :: total_DOC_div           ! [kg C/m^2/s] net total DOC divergence loss rate
+
+  real, dimension(num_l) :: passive_ammonium_uptake, passive_nitrate_uptake ! Uptake of dissolved mineral N by roots through water uptake
   ! --------------------------------------------------------------------------
   div_active(:) = 0.0
 
@@ -2570,9 +2572,26 @@ end subroutine soil_step_1
       enddo
    endif
 
-!New version that combines the two leaching steps and should do a better job of moving DOC from litter layer
-!For now, we are assuming that only leaf litter gets leached
-!ZMS Edited to allow for tiled fluxes. Also pass in water content before Richards.
+   ! Do plant nitrogen uptake
+   ! Passive uptake by roots, equal to N concentration times root water uptake
+   ! units of uptake: kg/m2/s
+   ! units of wl_before: mm = kg/m2
+   ! units of N: kg/m2
+   ! N/wl_before -> kg N/kg H2O
+   where(wl_before>1.0e-4)
+      passive_ammonium_uptake = min(soil%soil_organic_matter(:)%ammonium,max(0.0,uptake*soil%soil_organic_matter(:)%ammonium/wl_before))
+      passive_nitrate_uptake = min(soil%soil_organic_matter(:)%nitrate,max(0.0,uptake*soil%soil_organic_matter(:)%nitrate/wl_before))
+   elsewhere
+      passive_ammonium_uptake=0.0
+      passive_nitrate_uptake=0.0
+   end where
+   soil%soil_organic_matter(:)%ammonium=soil%soil_organic_matter(:)%ammonium-passive_ammonium_uptake
+   soil%soil_organic_matter(:)%nitrate=soil%soil_organic_matter(:)%nitrate-passive_nitrate_uptake
+   soil%passive_N_uptake=sum(passive_ammonium_uptake+passive_nitrate_uptake)
+
+   ! New version that combines the two leaching steps and should do a better job of moving DOC from litter layer
+   ! For now, we are assuming that only leaf litter gets leached
+   ! ZMS Edited to allow for tiled fluxes. Also pass in water content before Richards.
    if (gw_option == GW_TILED) then
       call tracer_leaching_with_litter(soil=soil%soil_organic_matter(:),&
                                         wl=wl_before,&
