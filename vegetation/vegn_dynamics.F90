@@ -11,7 +11,7 @@ use time_manager_mod, only: time_type
 use constants_mod, only : PI,tfreeze
 use land_constants_mod, only : seconds_per_year, mol_C
 use land_data_mod, only : log_version
-use land_debug_mod, only : is_watch_point, check_var_range
+use land_debug_mod, only : is_watch_point
 use land_tile_diag_mod, only : OP_SUM, OP_MEAN, &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
      register_cohort_diag_field, send_cohort_data, set_default_diag_filter
