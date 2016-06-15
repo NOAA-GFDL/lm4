@@ -45,7 +45,9 @@ use vegn_data_mod, only : read_vegn_data_namelist, &
      LEAF_ON, LU_NTRL, nspecies, N_HARV_POOLS, HARV_POOL_NAMES, C2B, &
      spdata, mcv_min, mcv_lai, agf_bs, tau_drip_l, tau_drip_s, T_transp_min, &
      do_ppa, cold_month_threshold, soil_carbon_depth_scale, &
-     fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time
+     fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
+     c2n_mycorrhizae, c2n_mycorrhizae, c2n_N_fixer
+
 
 use vegn_cohort_mod, only : vegn_cohort_type, &
      init_cohort_allometry_ppa, init_cohort_hydraulics, &
@@ -126,7 +128,9 @@ real    :: init_cohort_bsw(MAX_INIT_COHORTS)     = 0.05 ! initial biomass of sap
 real    :: init_cohort_bwood(MAX_INIT_COHORTS)   = 0.05 ! initial biomass of heartwood, kg C/individual
 real    :: init_cohort_bseed(MAX_INIT_COHORTS)   = 0.05 ! initial biomass of seeds, kg C/individual
 real    :: init_cohort_nsc(MAX_INIT_COHORTS)     = 0.0  ! initial non-structural biomass, kg C/individual
-real    :: init_cohort_cmc(MAX_INIT_COHORTS)     = 0.0  ! initial intercepted water
+real    :: init_cohort_myc_scav(MAX_INIT_COHORTS) = 0.0 ! initial scavenger mycorrhizal biomass, kgC/m2
+real    :: init_cohort_myc_mine(MAX_INIT_COHORTS) = 0.0 ! initial miner mycorrhizal biomass, kgC/m2
+real    :: init_cohort_n_fixer(MAX_INIT_COHORTS)  = 0.0 ! initial N fixer microbe biomass, kgC/m2
 real    :: init_cohort_age(MAX_INIT_COHORTS)     = 0.0  ! initial cohort age, year
 character(32) :: rad_to_use = 'big-leaf' ! or 'two-stream'
 character(32) :: snow_rad_to_use = 'ignore' ! or 'paint-leaves'
@@ -172,7 +176,8 @@ namelist /vegn_nml/ &
     lm2, init_Wl, init_Ws, init_Tv, cpw, clw, csw, &
     init_n_cohorts, init_cohort_species, init_cohort_nindivs, &
     init_cohort_bl, init_cohort_blv, init_cohort_br, init_cohort_bsw, &
-    init_cohort_bwood, init_cohort_bseed, init_cohort_nsc, init_cohort_cmc, &
+    init_cohort_bwood, init_cohort_bseed, init_cohort_nsc, &
+    init_cohort_myc_scav, init_cohort_myc_mine, init_cohort_n_fixer, &
     rad_to_use, snow_rad_to_use, photosynthesis_to_use, &
     co2_to_use_for_photosynthesis, co2_for_photosynthesis, &
     water_stress_to_use, hydraulics_repair, &
@@ -523,6 +528,9 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
         cc%bwood   = init_cohort_bwood(n)
         cc%bseed   = init_cohort_bseed(n)
         cc%nsc     = init_cohort_nsc(n)
+        cc%myc_scavenger_biomass_C = init_cohort_myc_scav(n)
+        cc%myc_miner_biomass_C     = init_cohort_myc_mine(n)
+        cc%N_fixer_biomass_C       = init_cohort_n_fixer(n)
         cc%nindivs = init_cohort_nindivs(n)
         cc%age     = init_cohort_age(n)
         cc%bliving = cc%bl+cc%br+cc%blv+cc%bsw
@@ -542,8 +550,19 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
         else
            cc%species = tile%vegn%tag
         endif
-        cc%K_r = spdata(cc%species)%root_perm
-        end associate
+        associate(sp=>spdata(cc%species))
+        cc%K_r        = sp%root_perm
+        cc%leaf_N     = cc%bl/sp%leaf_live_c2n
+        cc%wood_N     = cc%bwood/sp%wood_c2n
+        cc%sapwood_N  = cc%bsw/sp%sapwood_c2n
+        cc%root_N     = cc%br/sp%froot_live_c2n
+        cc%stored_N   = 1*(cc%leaf_N+cc%root_N)
+        cc%total_N    = cc%stored_N+cc%leaf_N+cc%wood_N+cc%root_N+cc%sapwood_N
+        cc%myc_scavenger_biomass_N = cc%myc_scavenger_biomass_C/c2n_mycorrhizae
+        cc%myc_miner_biomass_N     = cc%myc_miner_biomass_N/c2n_mycorrhizae
+        cc%N_fixer_biomass_N       = cc%N_fixer_biomass_N/c2n_N_fixer
+        end associate ! sp
+        end associate ! cc
      enddo
   enddo
 
