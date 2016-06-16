@@ -1257,7 +1257,7 @@ subroutine update_soil_pools(vegn, soil)
      delta = vegn%ssc_rate_bg*dt_fast_yr;
      soil%slow_soil_C(1) = soil%slow_soil_C(1) + delta;
      vegn%ssc_pool_bg    = vegn%ssc_pool_bg    - delta;
-  case (SOILC_CORPSE)
+  case (SOILC_CORPSE,SOILC_CORPSE_N)
      ! update fsc input rate so that intermediate fsc pool is never
      ! depleted below zero; on the other hand the pool can be only
      ! depleted, never increased

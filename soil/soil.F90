@@ -726,7 +726,7 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull )
         call get_tile_data(restart,'asoil_in','zfull',soil_asoil_in_ptr)
         call get_tile_data(restart,'fsc_in','zfull',soil_fsc_in_ptr)
         call get_tile_data(restart,'ssc_in','zfull',soil_ssc_in_ptr)
-     case (SOILC_CORPSE)
+     case (SOILC_CORPSE, SOILC_CORPSE_N)
         call get_tile_data(restart,'asoil_in','zfull',soil_asoil_in_ptr)
         do i = 1,N_C_TYPES
            call get_tile_data(restart,trim(c_shortname(i))//'_protected_in','zfull',sc_protected_in_ptr, i)
@@ -1240,7 +1240,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   filename = trim(timestamp)//'soil.res.nc'
   call init_land_restart(restart, filename, soil_tile_exists, tile_dim_length)
   call add_restart_axis(restart,'zfull',zfull(1:num_l),'Z','m','full level',sense=-1)
-     if (soil_carbon_option==SOILC_CORPSE) then
+     if (soil_carbon_option==SOILC_CORPSE.or.soil_carbon_option==SOILC_CORPSE_N) then
      call add_restart_axis(restart,'soilCCohort',(/(float(i),i=1,soilMaxCohorts)/),'CC')
   endif
         
@@ -1255,7 +1255,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
      call add_tile_data(restart,'fsc', 'zfull', soil_fast_soil_C_ptr ,'fast soil carbon', 'kg C/m2')
      call add_tile_data(restart,'ssc', 'zfull', soil_slow_soil_C_ptr ,'slow soil carbon', 'kg C/m2')
-  case (SOILC_CORPSE)
+  case (SOILC_CORPSE, SOILC_CORPSE_N)
      ! make sure all arrays of carbon cohorts are of the same length
      te = tail_elmt (land_tile_map)
      ce = first_elmt(land_tile_map)
@@ -1313,7 +1313,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
      call add_tile_data(restart,'slow_DOC_leached',     soil_slow_DOC_leached_ptr, 'Cumulative slow DOC leached out of the column', 'kg/m2')
      call add_tile_data(restart,'deadmic_DOC_leached',  soil_deadmic_DOC_leached_ptr, 'Cumulative dead microbe DOC leached out of the column', 'kg/m2')
   case default
-     call error_mesg('save_soil_restart','soil_carbon_option is invalid. This should never happen. Contact developer', FATAL)
+     call error_mesg('save_soil_restart','unrecognized soil carbon option -- this should never happen', FATAL)
   end select  
   call save_land_restart(restart)
   call free_land_restart(restart)
@@ -1329,7 +1329,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
         call add_tile_data(restart,'fsc_in','zfull',soil_fsc_in_ptr,'fast soil carbon input', 'kg C/m2')
         call add_tile_data(restart,'ssc_in','zfull',soil_ssc_in_ptr,'slow soil carbon input', 'kg C/m2')
 
-     case (SOILC_CORPSE)
+     case (SOILC_CORPSE, SOILC_CORPSE_N)
         call add_tile_data(restart,'asoil_in','zfull',soil_asoil_in_ptr,'aerobic activity modifier', 'unitless')
 
         do i = 1,N_C_TYPES
@@ -1347,7 +1347,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
            call add_tile_data(restart,trim(c_shortname(i))//'_protected_turnover_accumulated','zfull',sc_protected_turnover_ptr, i, trim(c_longname(i))//' protected soil carbon turnover', 'year-1')
         enddo
      case default
-        call error_mesg('save_soil_restart', 'unrecpgnized soil carbon option -- this should never happen', FATAL)
+        call error_mesg('save_soil_restart', 'unrecognized soil carbon option -- this should never happen', FATAL)
      end select
      call save_land_restart(restart)
      call free_land_restart(restart)
@@ -2769,12 +2769,12 @@ subroutine soil_step_3(soil, diag)
   real :: total_carbon_layered(num_l)
   
   select case (soil_carbon_option)
-  case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
+  case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
      if (id_fsc>0) call send_tile_data(id_fsc, sum(soil%fast_soil_C(:)), diag)
      if (id_ssc>0) call send_tile_data(id_ssc, sum(soil%slow_soil_C(:)), diag)
      call send_tile_data(id_fast_soil_C, soil%fast_soil_C(:)/dz(1:num_l), diag)
      call send_tile_data(id_slow_soil_C, soil%slow_soil_C(:)/dz(1:num_l), diag)
-  case (SOILC_CORPSE)
+  case (SOILC_CORPSE, SOILC_CORPSE_N)
      total_carbon_layered=0.0
      total_fast=0.0
      total_slow=0.0
@@ -2890,6 +2890,8 @@ subroutine soil_step_3(soil, diag)
      if (id_protected_total > 0) call send_tile_data(id_protected_total, sum_protectedC, diag)
      if (id_dissolved_total > 0) call send_tile_data(id_dissolved_total, total_dissolved, diag)
      if (id_total_soil_C > 0) call send_tile_data(id_total_soil_C, total_carbon, diag)
+  case default
+     call error_mesg('soil_step_3','unrecognized soil carbon option -- this should never happen', FATAL)
   end select  
 
 end subroutine soil_step_3
@@ -2906,10 +2908,10 @@ subroutine Dsdt(vegn, soil, diag, soilt, theta)
   select case (soil_carbon_option)
   case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
      call Dsdt_CENTURY(vegn, soil, diag, soilt, theta)
-  case (SOILC_CORPSE)
+  case (SOILC_CORPSE, SOILC_CORPSE_N)
      call Dsdt_CORPSE(vegn, soil, diag)
   case default
-     call error_mesg('Dsdt','soil_carbon_option is invalid. This should never happen. Contact developer', FATAL)
+     call error_mesg('Dsdt','unrecognized soil carbon option -- this should never happen', FATAL)
   end select
 end subroutine Dsdt
 
@@ -3739,14 +3741,14 @@ subroutine get_soil_litter_C(soil, litter_fast_C, litter_slow_C, litter_deadmic_
      litter_deadmic_C    ! mass of dead microbes in litter, [kgC/m2]
 
   select case(soil_carbon_option)
-  case(SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
+  case(SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
      litter_fast_C    = soil%fast_soil_C(1)
      litter_slow_C    = soil%slow_soil_C(1)
      litter_deadmic_C = 0.0
-  case(SOILC_CORPSE)
+  case(SOILC_CORPSE, SOILC_CORPSE_N)
      call poolTotals(soil%leafLitter,fastC=litter_fast_C,slowC=litter_slow_C,deadMicrobeC=litter_deadmic_C)
   case default
-     call error_mesg('vegn_step_1','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
+     call error_mesg('get_soil_litter_C','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
   end select
 end subroutine get_soil_litter_C
 
@@ -3898,13 +3900,15 @@ subroutine add_soil_carbon(soil,vegn,leaf_litter_C,wood_litter_C,root_litter_C,&
         soil%fsc_in(l) = soil%fsc_in(l) + root_litt_C(l,C_CEL)
         soil%ssc_in(l) = soil%ssc_in(l) + root_litt_C(l,C_LIG)
      enddo
-  case (SOILC_CORPSE)
+  case (SOILC_CORPSE, SOILC_CORPSE_N)
      call add_litter(soil%leafLitter,       leaf_litt_C, leaf_litt_N)
      call add_litter(soil%coarseWoodLitter, wood_litt_C, wood_litt_N)
      call rhizosphere_frac(vegn, rhiz_frac)
      do l = 1,num_l
         call add_litter(soil%soil_organic_matter(l), root_litt_C(l,:), root_litt_N(l,:), rhiz_frac(l))
      enddo
+  case default
+     call error_mesg('add_soil_carbon','unrecognized soil carbon option -- this should never happen', FATAL)
   end select
 end subroutine add_soil_carbon
 
