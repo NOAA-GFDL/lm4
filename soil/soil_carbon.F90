@@ -1747,7 +1747,7 @@ subroutine add_litter(pool,newLitterC,newLitterN,rhizosphere_frac)
   endif
 
   pool%carbon_in(:) = pool%carbon_in(:) + newLitterC(:)
-  ! TODO: add tracking of nitrogen input here
+  ! FIXME slm: add tracking of nitrogen input here
 end subroutine add_litter
 
 !Add carbon to all cohorts in pool, weighted by cohort size.  

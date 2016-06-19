@@ -201,7 +201,8 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   real :: root_active_N_uptake, mining_CO2prod,total_mining_CO2prod
   real :: N_fixation_2, myc_N_uptake, myc_N_uptake_2, myc_C_uptake, myc_C_uptake_2
   real :: total_plant_N_uptake
-  
+  real :: rh ! additional heterotrophic respiration from mycorrhizae and N fixers
+
   c=>vegn%cohorts(1:vegn%n_cohorts)
   N = vegn%n_cohorts
   if(is_watch_point()) then
@@ -222,6 +223,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   soil%myc_mine_N_uptake = 0
   soil%symbiotic_N_fixation = 0
   soil%active_root_N_uptake = 0
+  rh = 0
   do i = 1, vegn%n_cohorts
      associate(cc=>vegn%cohorts(i), sp=>spdata(vegn%cohorts(i)%species))
 
@@ -305,7 +307,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
      cc%age = cc%age + dt_fast_yr
 
      ! Mycorrhizal N uptake
-     ! FIXME slm: 
+     ! FIXME slm:
      !  - uptakes should be calculated per individul, and then scaled with nindivs
      !  - split uptake code in a separate subroutine (?)
      if (soil_carbon_option == SOILC_CORPSE_N) then
@@ -408,11 +410,11 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
      ! First add mycorrhizal and N fixer turnover to soil C pools
      do l = 1, num_l
         root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*cc%nindivs*( &
-           [ 0.0, 0.0, cc%myc_scavenger_biomass_C +cc%myc_miner_biomass_C ]/mycorrhizal_turnover_time +&
+           [ 0.0, 0.0, cc%myc_scavenger_biomass_C+cc%myc_miner_biomass_C ]/mycorrhizal_turnover_time +&
            [ 0.0, 0.0, cc%N_fixer_biomass_C]/N_fixer_turnover_time &
            )*dt_fast_yr
         root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*cc%nindivs*( &
-           [ 0.0, 0.0, cc%myc_scavenger_biomass_N +cc%myc_miner_biomass_N ]/mycorrhizal_turnover_time + &
+           [ 0.0, 0.0, cc%myc_scavenger_biomass_N+cc%myc_miner_biomass_N ]/mycorrhizal_turnover_time + &
            [ 0.0, 0.0, cc%N_fixer_biomass_N ]/N_fixer_turnover_time &
            )*dt_fast_yr
      enddo
@@ -452,6 +454,11 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
      total_N_fixation = total_N_fixation + N_fixation
      total_N_fixer_C_allocated = total_N_fixer_C_allocated + N_fixer_C_allocated
 
+     ! Accumulate respiration/C waste from mycorrhizae and N fixers
+     rh = rh + (total_scavenger_myc_C_allocated*(1-myc_scav_C_efficiency)+ &
+            total_miner_myc_C_allocated*(1-myc_mine_C_efficiency) + &
+            total_N_fixer_C_allocated*(1-N_fixer_C_efficiency) + total_mining_CO2prod )/dt_fast_yr
+
      end associate
   enddo
 
@@ -485,6 +492,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
 
   ! update soil carbon
   call Dsdt(vegn, soil, diag, soilt, theta)
+  vegn%rh = vegn%rh + rh
 
   ! NEP is equal to NNP minus soil respiration
   vegn%nep = sum(npp(1:N)*c(1:N)%nindivs) - vegn%rh
