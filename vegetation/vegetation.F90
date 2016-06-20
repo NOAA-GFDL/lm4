@@ -406,6 +406,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      call get_cohort_data(restart2, 'cohort_sapwood_N', cohort_sapwood_N_ptr )
      call get_cohort_data(restart2, 'cohort_root_N', cohort_root_N_ptr )
      call get_cohort_data(restart2, 'cohort_total_N', cohort_total_N_ptr )
+     call get_cohort_data(restart2, 'nitrogen_stress', cohort_nitrogen_stress_ptr )
 
      if(field_exists(restart2,'landuse')) &
           call get_int_tile_data(restart2,'landuse',vegn_landuse_ptr)
@@ -1017,6 +1018,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'cohort_leaf_N', cohort_leaf_N_ptr, 'leaf N pool of individual','kg N/m2')
   call add_cohort_data(restart2,'cohort_root_N', cohort_root_N_ptr, 'root N pool of individual','kg N/m2')
   call add_cohort_data(restart2,'cohort_total_N', cohort_total_N_ptr, 'total N pool of individual','kg N/m2')
+  call add_cohort_data(restart2,'nitrogen_stress', cohort_nitrogen_stress_ptr, 'total N pool of individual','kg N/m2')
 
   call add_int_tile_data(restart2,'landuse',vegn_landuse_ptr,'vegetation land use type')
   call add_tile_data(restart2,'age',vegn_age_ptr,'vegetation age', 'yr')
@@ -2524,6 +2526,7 @@ DEFINE_COHORT_ACCESSOR(real,sapwood_N)
 DEFINE_COHORT_ACCESSOR(real,leaf_N)
 DEFINE_COHORT_ACCESSOR(real,root_N)
 DEFINE_COHORT_ACCESSOR(real,total_N)
+DEFINE_COHORT_ACCESSOR(real,nitrogen_stress)
 
 ! wolf
 DEFINE_COHORT_ACCESSOR(real,psi_r)
