@@ -112,7 +112,7 @@ type :: vegn_cohort_type
   
   real    :: w_scale = 1.0 ! water stress reduction of stomatal conductance, unitless,
                           ! for diagnostics only
-
+  
 ! ---- uptake-related variables
   real    :: root_length(max_lev) = 0.0 ! individual's root length per unit depth, m of root/m
   real    :: K_r = 0.0 ! root membrane permeability per unit area, kg/(m3 s)
