@@ -167,6 +167,7 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   real    :: gs      ! max stomatal conductance per individual, m/s
   real    :: gb      ! aerodynamic conductance of canopy air per individual, m/s 
   real    :: fdry    ! fraction of canopy not covered by intercepted water/snow
+  real    :: evap_demand_old
 
   if(cohort%lai <= 0) then
      ! no leaves means no photosynthesis and zero stomatal conductance, of course
@@ -194,9 +195,9 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   ! scale down stomatal conductance and photosynthesis due to leaf wetness 
   ! effect
   call get_vegn_wet_frac (cohort, fw=fw, fs=fs)
-  stomatal_cond = stomatal_cond*(1-spdata(sp)%wet_leaf_dreg*(fs+fw));
+  stomatal_cond = stomatal_cond*(1-spdata(sp)%wet_leaf_dreg*fw);
   if (psyn > 0) &
-     psyn = psyn*(1-spdata(sp)%wet_leaf_dreg*(fs+fw));  
+     psyn = psyn*(1-spdata(sp)%wet_leaf_dreg*fw);  
   ! limit stomatal conductance
   if (stomatal_cond > gs_lim) then
      if(psyn > 0) psyn = psyn*gs_lim/stomatal_cond
@@ -208,13 +209,26 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   ! convert units of stomatal conductance from mol/(m2 s) to m/(s indiv) by
   ! multiplying it by a volume of a mole of gas and by leaf area of individual
   gs = stomatal_cond * Rugas * cohort%Tv / p_surf * cohort%leafarea
+  ! mol_h2o/molair = 18.0e-3( molar mass of water, kg/mol_air) /wtmair/1000.0 ( molar mass of air, kg). where wtmair=2.896440E+01
+  
   ! aerodynamic conductance per individual
   gb = con_v_v * cohort%crownarea ! foliage-CAS conductance per m2 => per individual
+  
+  if (psyn > 0) psyn = psyn*gb/(gs+gb) ! decrease photosynthesis due to CO2 supply towards the leaf by 1/gb
+  
   rho = p_surf/(rdgas*cana_T*(1+d608*cana_q)) ! canopy air density
-  fdry = 1-fw-fs ! fraction of canopy that is dry
+  !fdry = 1-fw-fs ! fraction of canopy that is dry
+  fdry = 1
   ! transpiration demand, kg/(indiv s) 
   evap_demand = rho * fdry * gs*gb/(gs+gb) * (leaf_q*RHi-cana_q)
-
+  ! in LM3 old demand = gs_w*ds*mol_air/mol_h2o;
+  ! ! calculate humidity deficit, kg/kg
+  !  call qscomp(tl, p_surf, hl)
+  ! ds = max(hl-ea,0.0)
+  
+  evap_demand_old = stomatal_cond * ds * 18.0e-3/2.896440E+01/1000.0 * cohort%leafarea
+  
+   ! ens test evap_demand = rho  * gs * (leaf_q*RHi-cana_q)
   ! scale down stomatal conductance and photosynthesis due to water stress
   select case (water_stress_option)
   case (WSTRESS_LM3)
@@ -223,6 +237,8 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
      else
         w_scale = 1.0
      endif
+     
+     
   case (WSTRESS_HYDRAULICS)
      call vegn_hydraulics(soil, vegn, cohort, p_surf, cana_T, cana_q, gb, gs, fdry, &
           w_scale, RHi )
@@ -231,7 +247,9 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   case default
      call error_mesg('vegn_stomatal_cond', 'invalid vegetation water stress option', FATAL)
   end select
-
+!print *, 'w_scale ', w_scale, 'evap_demand', evap_demand, ' old ',evap_demand_old, 'water_supply', &
+!soil_water_supply, ' gb red ', gb/(gs+gb), ' fdry ', fdry, ' rho ', rho 
+  
   stomatal_cond=w_scale*stomatal_cond
   if(psyn > 0) psyn = psyn*w_scale
   if(psyn < 0.and.stomatal_cond>b) stomatal_cond=b
