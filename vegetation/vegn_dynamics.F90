@@ -379,9 +379,8 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      md_wood = 0.0 
      md_branch_sw = 0.0
      if (spdata(cc%species)%lifeform == FORM_WOODY) then 
-        ! TODO: 0.25 is fraction of total wood in branches, make a namelist later
-        md_wood = 0.25 * Max(cc%bwood,0.0) * sp%alpha_wood * dt_fast_yr
-        md_branch_sw = 0.25 * Max(cc%bsw,0.0) * sp%alpha_wood * dt_fast_yr
+        md_wood      = sp%branch_wood_frac * Max(cc%bwood,0.0) * sp%alpha_wood * dt_fast_yr
+        md_branch_sw = sp%branch_wood_frac * Max(cc%bsw,0.0)   * sp%alpha_wood * dt_fast_yr
   
         cc%branch_sw_loss = cc%branch_sw_loss + md_branch_sw !remember how much was lost over the day
         cc%branch_wood_loss = cc%branch_wood_loss + md_wood   

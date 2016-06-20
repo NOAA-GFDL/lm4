@@ -243,6 +243,7 @@ type spec_data_type
   real    :: psi_tlp=0.0                  ! psi at turgor loss point
 
   real    :: root_exudate_frac = 0.0 ! fraction of NPP that ends up in root exudates
+  real    :: branch_wood_frac = 0.25 ! fraction of total wood biomass in branches
 end type
 
 ! ==== module data ===========================================================
@@ -674,6 +675,7 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(psi_tlp)
 
   __GET_SPDATA_REAL__(root_exudate_frac)
+  __GET_SPDATA_REAL__(branch_wood_frac)
 #undef __GET_SPDATA_REAL__
 
   ! check for typos in the namelist: detects parameters that are listed in the
@@ -902,6 +904,7 @@ subroutine print_species_data(unit)
   call add_row(table, 'smoke_fraction',spdata(:)%smoke_fraction)
 
   call add_row(table, 'root_exudate_frac', spdata(:)%root_exudate_frac)
+  call add_row(table, 'branch_wood_frac', spdata(:)%branch_wood_frac)
 
   call add_row(table, 'dat_height',       spdata(:)%dat_height)
   call add_row(table, 'dat_lai',          spdata(:)%dat_lai)
