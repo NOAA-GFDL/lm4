@@ -2916,10 +2916,10 @@ subroutine adjust_pool_ncohorts(pool)
     type(soil_pool),intent(inout) :: pool
 
     !Remove cohorts if size is too large
-    if (pool%n_cohorts.gt.pool%max_cohorts) call cull_cohorts(pool)
+    if (pool%n_cohorts.gt.soilMaxCohorts) call cull_cohorts(pool)
     
     !Add empty cohorts until size is correct
-    do while (pool%n_cohorts.lt.pool%max_cohorts)
+    do while (pool%n_cohorts.lt.soilMaxCohorts)
         call add_litter(pool,(/0.0,0.0,0.0/),(/0.0,0.0,0.0/))
     enddo
 end subroutine
