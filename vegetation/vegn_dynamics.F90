@@ -418,6 +418,18 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 
 !  call add_root_exudates(soil,total_root_exudate_C)
 
+  ! add litter accumulated over the cohorts
+  call add_soil_carbon(soil, leaf_litt, wood_litt, root_litt)
+  ! update soil carbon
+  call Dsdt(vegn, soil, diag, tsoil, theta)
+
+  ! NEP is equal to NPP minus soil respiration
+!  vegn%nep = sum(npp(1:N)*c(1:N)%nindivs) - vegn%rh
+  vegn%nep = sum((gpp(1:N)-resp(1:N))*c(1:N)%nindivs) - vegn%rh
+
+  call update_soil_pools(vegn, soil)
+  vegn%age = vegn%age + dt_fast_yr;
+
   if(is_watch_point()) then
      write(*,*)'#### vegn_carbon_int_ppa output ####'
      __DEBUG1__(resl)
@@ -433,20 +445,9 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      __DEBUG1__(c%bsw)
      __DEBUG1__(c%bwood)
      __DEBUG1__(c%nsc)
+     __DEBUG1__(vegn%rh)
      write(*,*)'#### end of vegn_carbon_int_ppa output ####'
   endif
-
-  ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, leaf_litt, wood_litt, root_litt)
-  ! update soil carbon
-  call Dsdt(vegn, soil, diag, tsoil, theta)
-
-  ! NEP is equal to NPP minus soil respiration
-!  vegn%nep = sum(npp(1:N)*c(1:N)%nindivs) - vegn%rh
-  vegn%nep = sum((gpp(1:N)-resp(1:N))*c(1:N)%nindivs) - vegn%rh
-
-  call update_soil_pools(vegn, soil)
-  vegn%age = vegn%age + dt_fast_yr;
 
 ! ------ diagnostic section
   call send_cohort_data(id_gpp, diag, c(1:N), gpp(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
