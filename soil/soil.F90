@@ -112,10 +112,6 @@ interface add_root_litter
    module procedure add_root_litter_0
    module procedure add_root_litter_1
 end interface add_root_litter
-interface add_root_exudates
-   module procedure add_root_exudates_0
-   module procedure add_root_exudates_1
-end interface add_root_exudates
 
 
 ! ==== module constants ======================================================
@@ -3664,32 +3660,27 @@ end subroutine add_root_litter_1
 ! ============================================================================
 ! Spread root exudate C through profile, using vertical root profile from vegn_uptake_profile
 ! Differs from add_root_litter -- C is distributed through existing cohorts, not deposited as new cohort
-subroutine add_root_exudates_0(soil,exudateC)
+subroutine add_root_exudates(soil,exudateC)
   type(soil_tile_type), intent(inout)  :: soil
   real                , intent(in)     :: exudateC(num_l) ! kgC/(m2 of soil)
   
   integer :: l
   
-  do l=1,num_l
-     call add_carbon_to_cohorts(soil%soil_C(l),litterC=(/exudateC(l),0.0,0.0/))
-  enddo
-end subroutine add_root_exudates_0
-
-
-! ============================================================================
-subroutine add_root_exudates_1(soil,cohort,exudateC)
-  type(soil_tile_type), intent(inout)  :: soil
-  type(vegn_cohort_type), intent(in)   :: cohort
-  real,intent(in) :: exudateC ! kgC/m2 of tile
-  
-  real    :: profile(num_l)
-  integer :: n
-  
-  call cohort_root_exudate_profile (cohort, dz(1:num_l), profile)
-  do n=1,num_l
-      call add_carbon_to_cohorts(soil%soil_C(n),litterC=(/exudateC*profile(n),0.0,0.0/))
-  enddo
-end subroutine add_root_exudates_1
+  select case (soil_carbon_option)
+  case (SOILC_CENTURY)
+     soil%fast_soil_C(1) = soil%fast_soil_C(1) + sum(exudateC(:))
+     soil%fsc_in(1) = soil%fsc_in(1) + sum(exudateC(:)) ! for budget tracking
+  case (SOILC_CENTURY_BY_LAYER)
+     do l = 1,num_l
+        soil%fast_soil_C(l) = soil%fast_soil_C(l) + exudateC(l)
+        soil%fsc_in(l) = soil%fsc_in(l) + exudateC(l) ! for budget tracking
+     enddo
+  case (SOILC_CORPSE)
+     do l = 1,num_l
+        call add_carbon_to_cohorts(soil%soil_C(l),litterC=(/exudateC(l),0.0,0.0/))
+     enddo
+  end select
+end subroutine add_root_exudates
 
 
 ! ============================================================================

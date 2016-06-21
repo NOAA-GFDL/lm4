@@ -359,9 +359,12 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      
      resp(i) = resp(i) + resg(i) ! add growth respiration and maintenance respiration
      npp(i)  = gpp(i) - resp(i)
-     call cohort_root_litter_profile(cc, dz, profile)
      root_exudate_C(i) = max(npp(i),0.0)*sp%root_exudate_frac
-     total_root_exudate_C = total_root_exudate_C + profile*root_exudate_C(i)*cc%nindivs*dt_fast_yr
+     call cohort_root_exudate_profile(cc, dz, profile)
+     do l = 1,num_l
+        total_root_exudate_C(l) = total_root_exudate_C(l) + &
+             profile(l)*root_exudate_C(i)*cc%nindivs*dt_fast_yr
+     enddo
      npp(i) = npp(i) - root_exudate_C(i)
                       
      cc%carbon_gain = cc%carbon_gain-root_exudate_C(i)*dt_fast_yr
@@ -401,10 +404,9 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      wood_litt(:) = wood_litt(:) + (/fsc_wood, 1.-fsc_wood, 0.0/)*(md_wood+md_branch_sw)*cc%nindivs
      
      call cohort_root_litter_profile(cc, dz, profile)
-     
      do l = 1, num_l
         root_litt(l,:) = root_litt(l,:) + profile(l)*cc%nindivs*(/ &
-             fsc_froot    *deltaBR + root_exudate_C(i)*dt_fast_yr, & ! fast
+             fsc_froot    *deltaBR , & ! fast
              (1-fsc_froot)*deltaBR , & ! slow
              0.0/) ! microbes
      enddo
@@ -416,14 +418,13 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      end associate
   enddo 
 
-!  call add_root_exudates(soil,total_root_exudate_C)
-
-  ! add litter accumulated over the cohorts
+  ! add litter and exudates accumulated over the cohorts
+  call add_root_exudates(soil, total_root_exudate_C)
   call add_soil_carbon(soil, leaf_litt, wood_litt, root_litt)
   ! update soil carbon
   call Dsdt(vegn, soil, diag, tsoil, theta)
 
-  ! NEP is equal to NPP minus soil respiration
+  ! NEP is equal to GPP minus autotrophic and soil respiration
 !  vegn%nep = sum(npp(1:N)*c(1:N)%nindivs) - vegn%rh
   vegn%nep = sum((gpp(1:N)-resp(1:N))*c(1:N)%nindivs) - vegn%rh
 
@@ -465,183 +466,6 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   call send_cohort_data(id_exudate, diag, c(1:N), root_exudate_C(1:N), weight=c(1:N)%nindivs, op=OP_MEAN)
 end subroutine vegn_carbon_int_ppa
 !*****************************************************************************
-subroutine vegn_carbon_int_ppa_old (vegn, soil, tsoil, theta, diag)
-  ! TODO: possibly get rid of tsoil, theta, since they can be calculated here 
-  type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(inout) :: soil
-  real, intent(in) :: tsoil ! average temperature of soil for soil carbon decomposition, deg K
-  real, intent(in) :: theta ! average soil wetness, unitless
-  type(diag_buff_type), intent(inout) :: diag
-
-  real :: md_wood;
-  real :: deltaBL, deltaBR ! leaf and fine root carbon tendencies
-  integer :: i, l, N
-  real :: NSC_supply,LR_demand,LR_deficit
-  real :: NSCtarget
-  real :: R_days,fNSC,fLFR,fStem,fSeed
-  type(vegn_cohort_type), pointer :: c(:) ! for debug only
-  ! accumulators of total input to root litter and soil carbon
-  real :: leaf_litt(N_C_TYPES) ! fine surface litter per tile, kgC/m2
-  real :: wood_litt(N_C_TYPES) ! coarse surface litter per tile, kgC/m2
-  real :: root_litt(num_l, N_C_TYPES) ! root litter per soil layer, kgC/m2
-  real :: profile(num_l) ! storage for vertical profile of exudates and root litter
-  real, dimension(vegn%n_cohorts) :: resp, resl, resr, ress, resg, gpp, npp
-
-  c=>vegn%cohorts(1:vegn%n_cohorts)
-  N = vegn%n_cohorts
-
-  if(is_watch_point()) then
-     write(*,*)'#### vegn_carbon_int_ppa input ####'
-     __DEBUG2__(tsoil,theta)
-     __DEBUG1__(c%species)
-     __DEBUG1__(c%status)
-     __DEBUG1__(c%bl)
-     __DEBUG1__(c%blv)
-     __DEBUG1__(c%br)
-     __DEBUG1__(c%bsw)
-     __DEBUG1__(c%bwood)
-     __DEBUG1__(c%nsc)
-     __DEBUG1__(c%An_op)
-     __DEBUG1__(c%An_cl)
-     __DEBUG1__(c%bl_max)
-     __DEBUG1__(c%br_max)
-     __DEBUG1__(c%dbh)
-     __DEBUG1__(c%height)
-     __DEBUG1__(c%leafarea)
-     __DEBUG1__(c%carbon_gain)
-     __DEBUG1__(c%carbon_loss)
-  endif
-  ! update plant carbon for all cohorts
-  leaf_litt = 0 ; wood_litt = 0; root_litt = 0 ! ; total_root_exudate_C = 0
-  ! TODO: add root exudates to the balance. in LM3 it's a fraction of npp; 
-  !       in PPA perhaps it might be proportional to NSC, with some decay
-  !       time?
-  do i = 1, vegn%n_cohorts
-     associate ( cc => vegn%cohorts(i), sp => spdata(vegn%cohorts(i)%species))
-
-     ! that was in eddy_npp_PPA
-     call plant_respiration(cc,tsoil,resp(i),resl(i),resr(i),ress(i))
-     gpp(i)  = (cc%An_op - cc%An_cl)*mol_C*cc%leafarea
-
-!    A new scheme for plant growth, modified 9/3/2013 based on Steve's
-!    suggestions
-     R_days = 5.0
-     fNSC=0.02
-     fLFR=0.2
-     fStem= dt_fast_yr/sp%tauNSC  ! 0.05
-     fSeed= dt_fast_yr/tau_seed   ! 0.05
-     NSCtarget = 4.0*cc%bl_max    ! 1.5*(cc%bl_max + cc%br_max)
-     
-!    '365.*dt_fast_yr/R_days' is '1/hours', eg. 1/120
-!    the fraction filled per hour
-     LR_demand = 0.0
-     NSC_supply= 0.0
-
-     IF(cc%nsc > 0 .AND. cc%status == LEAF_ON)then
-         LR_deficit=max(cc%bl_max+cc%br_max-cc%bl-cc%br, 0.0)
-         LR_demand =min(LR_deficit*fLFR*365.*dt_fast_yr, fNSC*cc%nsc)
-         NSC_supply=max((cc%nsc-0.5*NSCtarget)*fStem,0.0) ! Weng 2014-01-23 for smoothing deltaDBH
-         ! slm: signs are weird: LR_demand>0, NSC_supply<0
-     endif
-
-	!ens
-	
-
-     resg(i) = GROWTH_RESP * (LR_demand + NSC_supply)/dt_fast_yr 
-     cc%carbon_gain = cc%carbon_gain + (LR_demand + NSC_supply) 
-    
-    
- 
-     resp(i) = resp(i) + resg(i)
-     npp(i)  = gpp(i) - resp(i)
-     cc%nsc  = cc%nsc + gpp(i)*dt_fast_yr             &
-                      - (LR_demand + NSC_supply)  &
-                      - resp(i)*dt_fast_yr
-
-     ! Weng, 2013-01-28
-     ! Turnover regardless of STATUS
-     deltaBL = cc%bl * sp%alpha_leaf * dt_fast_yr
-     deltaBR = cc%br * sp%alpha_root * dt_fast_yr
-     cc%bl = cc%bl - deltaBL
-     cc%br = cc%br - deltaBR
-
-     cc%carbon_loss = cc%carbon_loss + deltaBL + deltaBR  ! used in diagnostics only
-
-     ! compute branch and coarse wood losses for tree types
-     md_wood = 0.0
-     if (spdata(cc%species)%lifeform == FORM_WOODY) then 
-        ! md_wood = 0.6 *cc%bwood * sp%alpha_wood*dt_fast_yr
-        ! set turnoverable wood biomass as a linear function of bl_max (max.foliage
-        ! biomass) (Wang, Chuankuan 2006)
-        md_wood = MIN(cc%bwood,cc%bl_max) * sp%alpha_leaf*dt_fast_yr
-     endif
-     ! Why md_wood is set to 0?
-     md_wood = 0.0
-
-     ! accumulate liter and soil carbon inputs across all cohorts
-     leaf_litt(:) = leaf_litt(:) + (/fsc_liv,  1-fsc_liv,  0.0/)*deltaBL*cc%nindivs
-     wood_litt(:) = wood_litt(:) + (/fsc_wood, 1-fsc_wood, 0.0/)*md_wood*agf_bs*cc%nindivs
-     call cohort_root_litter_profile(cc, dz, profile)
-     do l = 1, num_l
-        root_litt(l,:) = root_litt(l,:) + profile(l)*cc%nindivs*(/ &
-             fsc_froot    *deltaBR + fsc_wood    *md_wood*(1-agf_bs), & ! fast
-             (1-fsc_froot)*deltaBR + (1-fsc_wood)*md_wood*(1-agf_bs), & ! slow
-             0.0/) ! microbes
-     enddo
-
-     ! increment cohort age
-     cc%age = cc%age + dt_fast_yr
-     ! resg(i) = 0 ! slm: that doesn't make much sense to me... why?
-     end associate
-  enddo 
-
-  if(is_watch_point()) then
-     write(*,*)'#### vegn_carbon_int_ppa output ####'
-     __DEBUG1__(resl)
-     __DEBUG1__(resr)
-     __DEBUG1__(resg)
-     __DEBUG1__(resp)
-     __DEBUG1__(npp)
-     __DEBUG1__(gpp)
-     __DEBUG1__(c%carbon_gain)
-     __DEBUG1__(c%bl)
-     __DEBUG1__(c%blv)
-     __DEBUG1__(c%br)
-     __DEBUG1__(c%bsw)
-     __DEBUG1__(c%bwood)
-     __DEBUG1__(c%nsc)
-     write(*,*)'#### end of vegn_carbon_int_ppa output ####'
-  endif
-
-  ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, leaf_litt, wood_litt, root_litt)
-  ! update soil carbon
-  call Dsdt(vegn, soil, diag, tsoil, theta)
-
-  ! NEP is equal to NPP minus soil respiration
-  vegn%nep = sum(npp(1:N)*c(1:N)%nindivs) - vegn%rh
-
-  call update_soil_pools(vegn, soil)
-  vegn%age = vegn%age + dt_fast_yr;
-
-! ------ diagnostic section
-  call send_cohort_data(id_gpp, diag, c(1:N), gpp(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_npp, diag, c(1:N), npp(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_tile_data(id_nep,vegn%nep,diag)
-  call send_tile_data(id_litter,vegn%litter,diag)
-  call send_cohort_data(id_resp, diag, c(1:N), resp(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_resl, diag, c(1:N), resl(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_resr, diag, c(1:N), resr(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_ress, diag, c(1:N), ress(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_resg, diag, c(1:N), resg(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_tile_data(id_soilt,tsoil,diag)
-  call send_tile_data(id_theta,theta,diag)
-  call send_cohort_data(id_age, diag, c(1:N), c(1:N)%age, weight=c(1:N)%nindivs, op=OP_MEAN)
-end subroutine vegn_carbon_int_ppa_old
-!*******************************************
-
-
-
 
 
 ! ============================================================================
