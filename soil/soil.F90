@@ -783,12 +783,18 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull )
            call get_tile_data(restart,'finewoodlitter_'//trim(c_shortname(i))//'_in',sc_finewoodlitter_in_ptr,i)
            call get_tile_data(restart,'coarsewoodlitter_'//trim(c_shortname(i))//'_in',sc_coarsewoodlitter_in_ptr,i)
 
-           call get_tile_data(restart,trim(c_shortname(i))//'_turnover_accumulated','zfull',sc_turnover_ptr, i)
-           call get_tile_data(restart,'leaflitter_'//trim(c_shortname(i))//'_turnover_accumulated', sc_leaflitter_turnover_ptr, i)
-           call get_tile_data(restart,'finewoodlitter_'//trim(c_shortname(i))//'_turnover_accumulated', sc_finewoodlitter_turnover_ptr, i)
-           call get_tile_data(restart,'coarsewoodlitter_'//trim(c_shortname(i))//'_turnover_accumulated', sc_coarsewoodlitter_turnover_ptr, i)
-
-           call get_tile_data(restart,trim(c_shortname(i))//'_protected_turnover_accumulated','zfull',sc_protected_turnover_ptr, i)
+           ! C turnover rates
+           call get_tile_data(restart,trim(c_shortname(i))//'_C_turnover_accumulated','zfull',sc_C_turnover_ptr, i)
+           call get_tile_data(restart,trim(c_shortname(i))//'_protected_C_turnover_accumulated','zfull',sc_protected_C_turnover_ptr, i)
+           call get_tile_data(restart,'leaflitter_'//trim(c_shortname(i))//'_C_turnover_accumulated', sc_leaflitter_C_turnover_ptr, i)
+           call get_tile_data(restart,'finewoodlitter_'//trim(c_shortname(i))//'_C_turnover_accumulated', sc_finewoodlitter_C_turnover_ptr, i)
+           call get_tile_data(restart,'coarsewoodlitter_'//trim(c_shortname(i))//'_C_turnover_accumulated', sc_coarsewoodlitter_C_turnover_ptr, i)
+           ! N turnover rates
+           call get_tile_data(restart,trim(c_shortname(i))//'_N_turnover_accumulated','zfull',sc_N_turnover_ptr, i)
+           call get_tile_data(restart,trim(c_shortname(i))//'_protected_N_turnover_accumulated','zfull',sc_protected_N_turnover_ptr, i)
+           call get_tile_data(restart,'leaflitter_'//trim(c_shortname(i))//'_N_turnover_accumulated', sc_leaflitter_N_turnover_ptr, i)
+           call get_tile_data(restart,'finewoodlitter_'//trim(c_shortname(i))//'_N_turnover_accumulated', sc_finewoodlitter_N_turnover_ptr, i)
+           call get_tile_data(restart,'coarsewoodlitter_'//trim(c_shortname(i))//'_N_turnover_accumulated', sc_coarsewoodlitter_N_turnover_ptr, i)
         enddo
      case default
         call error_mesg('save_soil_restart', 'unrecognized soil carbon option -- this should never happen', FATAL)
@@ -1434,12 +1440,28 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
            call add_tile_data(restart,'finewoodlitter_'//trim(c_shortname(i))//'_in',  sc_finewoodlitter_in_ptr, i, trim(c_longname(i))//' fine wood litter carbon input','kg C/m2')
            call add_tile_data(restart,'coarsewoodlitter_'//trim(c_shortname(i))//'_in',sc_coarsewoodlitter_in_ptr, i, trim(c_longname(i))//' coarse wood litter carbon input','kg C/m2')
 
-           call add_tile_data(restart,trim(c_shortname(i))//'_turnover_accumulated','zfull',sc_turnover_ptr, i, trim(c_longname(i))//' soil carbon turnover','year-1')
-           call add_tile_data(restart,'leaflitter_'//trim(c_shortname(i))//'_turnover_accumulated', sc_leaflitter_turnover_ptr, i, trim(c_longname(i))//' leaf litter carbon turnover', 'year-1')
-           call add_tile_data(restart,'finewoodlitter_'//trim(c_shortname(i))//'_turnover_accumulated', sc_finewoodlitter_turnover_ptr, i, trim(c_longname(i))//' fine wood litter carbon turnover', 'year-1')
-           call add_tile_data(restart,'coarsewoodlitter_'//trim(c_shortname(i))//'_turnover_accumulated', sc_coarsewoodlitter_turnover_ptr, i, trim(c_longname(i))//' coarse wood litter carbon turnover', 'year-1')
-
-           call add_tile_data(restart,trim(c_shortname(i))//'_protected_turnover_accumulated','zfull',sc_protected_turnover_ptr, i, trim(c_longname(i))//' protected soil carbon turnover', 'year-1')
+           ! C turnover rates
+           call add_tile_data(restart,trim(c_shortname(i))//'_protected_C_turnover_accumulated','zfull', &
+                    sc_protected_C_turnover_ptr, i, trim(c_longname(i))//' protected soil carbon turnover', 'year-1')
+           call add_tile_data(restart,trim(c_shortname(i))//'_C_turnover_accumulated','zfull', &
+                    sc_C_turnover_ptr, i, trim(c_longname(i))//' soil carbon turnover','year-1')
+           call add_tile_data(restart,'leaflitter_'//trim(c_shortname(i))//'_C_turnover_accumulated', &
+                    sc_leaflitter_C_turnover_ptr, i, trim(c_longname(i))//' leaf litter carbon turnover', 'year-1')
+           call add_tile_data(restart,'finewoodlitter_'//trim(c_shortname(i))//'_C_turnover_accumulated', &
+                    sc_finewoodlitter_C_turnover_ptr, i, trim(c_longname(i))//' fine wood litter carbon turnover', 'year-1')
+           call add_tile_data(restart,'coarsewoodlitter_'//trim(c_shortname(i))//'_C_turnover_accumulated', &
+                    sc_coarsewoodlitter_C_turnover_ptr, i, trim(c_longname(i))//' coarse wood litter carbon turnover', 'year-1')
+           ! N turnover rates
+           call add_tile_data(restart,trim(c_shortname(i))//'_protected_N_turnover_accumulated','zfull', &
+                    sc_protected_N_turnover_ptr, i, trim(c_longname(i))//' protected soil carbon turnover', 'year-1')
+           call add_tile_data(restart,trim(c_shortname(i))//'_N_turnover_accumulated','zfull', &
+                    sc_N_turnover_ptr, i, trim(c_longname(i))//' soil carbon turnover','year-1')
+           call add_tile_data(restart,'leaflitter_'//trim(c_shortname(i))//'_N_turnover_accumulated', &
+                    sc_leaflitter_C_turnover_ptr, i, trim(c_longname(i))//' leaf litter nitrogen turnover', 'year-1')
+           call add_tile_data(restart,'finewoodlitter_'//trim(c_shortname(i))//'_N_turnover_accumulated', &
+                    sc_finewoodlitter_N_turnover_ptr, i, trim(c_longname(i))//' fine wood litter nitrogen turnover', 'year-1')
+           call add_tile_data(restart,'coarsewoodlitter_'//trim(c_shortname(i))//'_N_turnover_accumulated', &
+                    sc_coarsewoodlitter_N_turnover_ptr, i, trim(c_longname(i))//' coarse wood litter nitrogen turnover', 'year-1')
         enddo
      case default
         call error_mesg('save_soil_restart', 'unrecognized soil carbon option -- this should never happen', FATAL)
@@ -4375,19 +4397,19 @@ DEFINE_SOIL_ACCESSOR_0D(real,deadmic_DOC_leached)
 subroutine sc_leaflitter_in_ptr(t,i,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i; real,pointer::p; p=>NULL();
   if(associated(t))then
-     if(associated(t%soil))p=>t%soil%leaflitter%carbon_in(i)
+     if(associated(t%soil))p=>t%soil%leaflitter%C_in(i)
   endif
 end subroutine
 subroutine sc_finewoodlitter_in_ptr(t,i,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i; real,pointer::p; p=>NULL();
   if(associated(t))then
-     if(associated(t%soil))p=>t%soil%finewoodlitter%carbon_in(i)
+     if(associated(t%soil))p=>t%soil%finewoodlitter%C_in(i)
   endif
 end subroutine
 subroutine sc_coarsewoodlitter_in_ptr(t,i,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i; real,pointer::p; p=>NULL();
   if(associated(t))then
-     if(associated(t%soil))p=>t%soil%coarsewoodlitter%carbon_in(i)
+     if(associated(t%soil))p=>t%soil%coarsewoodlitter%C_in(i)
   endif
 end subroutine
 
@@ -4444,7 +4466,7 @@ subroutine sc_carbon_in_ptr(t,i,j,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
   p=>NULL()
   if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%carbon_in(j)
+     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%C_in(j)
   endif
 end subroutine
 
@@ -4452,23 +4474,39 @@ subroutine sc_protected_in_ptr(t,i,j,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
   p=>NULL()
   if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%protected_in(j)
+     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%protected_C_in(j)
   endif
 end subroutine
 
-subroutine sc_turnover_ptr(t,i,j,p)
+subroutine sc_C_turnover_ptr(t,i,j,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
   p=>NULL()
   if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%turnover(j)
+     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%C_turnover(j)
   endif
 end subroutine
 
-subroutine sc_protected_turnover_ptr(t,i,j,p)
+subroutine sc_protected_C_turnover_ptr(t,i,j,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
   p=>NULL()
   if(associated(t)) then
-     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%protected_turnover(j)
+     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%protected_C_turnover(j)
+  endif
+end subroutine
+
+subroutine sc_N_turnover_ptr(t,i,j,p)
+  type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
+  p=>NULL()
+  if(associated(t)) then
+     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%N_turnover(j)
+  endif
+end subroutine
+
+subroutine sc_protected_N_turnover_ptr(t,i,j,p)
+  type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
+  p=>NULL()
+  if(associated(t)) then
+     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%protected_N_turnover(j)
   endif
 end subroutine
 
@@ -4528,9 +4566,12 @@ end subroutine
 DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR1(real,leafLitter,dissolved_carbon) 
 DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR1(real,fineWoodLitter,dissolved_carbon) 
 DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR1(real,coarseWoodLitter,dissolved_carbon)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR1(real,leaflitter,turnover)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR1(real,fineWoodLitter,turnover)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR1(real,coarseWoodLitter,turnover)
+DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR1(real,leaflitter,C_turnover)
+DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR1(real,fineWoodLitter,C_turnover)
+DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR1(real,coarseWoodLitter,C_turnover)
+DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR1(real,leaflitter,N_turnover)
+DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR1(real,fineWoodLitter,N_turnover)
+DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR1(real,coarseWoodLitter,N_turnover)
 
 DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR1(real,leafLitter,dissolved_nitrogen) 
 DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR1(real,fineWoodLitter,dissolved_nitrogen) 
