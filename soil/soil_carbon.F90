@@ -289,8 +289,6 @@ subroutine read_soil_carbon_namelist
   integer :: unit         ! unit for namelist i/o
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
-  integer :: i
-  real    :: z
 
   call log_version(version, module_name, &
   __FILE__)
@@ -484,7 +482,7 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
     integer::n
 
     real::tempresp(N_C_TYPES),resp(N_C_TYPES),temp_N_decomposed(N_C_TYPES),Ndecomp(N_C_TYPES),temp_protected(N_C_TYPES),temp_N_protected(N_C_TYPES),&
-            tempCO2,poolProtectedC,temp_protected_turnover_rate(N_C_TYPES),temp_protected_N_turnover_rate(N_C_TYPES),&
+            tempCO2,temp_protected_turnover_rate(N_C_TYPES),temp_protected_N_turnover_rate(N_C_TYPES),&
             Prate_limited(N_C_TYPES),Prate_limited_N(N_C_TYPES),prevC(N_C_TYPES),prevN(N_C_TYPES),&
             temp_deadmic_C,temp_deadmic_N,tempIMM_N,soil_IMM_N,temp_MINERAL, soil_MINERAL,temp_livemic_C,temp_livemic_N
 
@@ -680,12 +678,12 @@ subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled
     real,intent(in)::air_filled_porosity
     real,intent(inout)::nitrate, ammonium
 
-    real::microbeTurnover,temp_C_microbes,CN_imbalance_term,temp_N_microbes,pot_CN_imbalance_term,microbeTurnover_Npot,microbeTurnover_Nreq
-    real::potential_tempResp(N_C_TYPES),oldminC(N_C_TYPES),tempResp(N_C_TYPES),Max_tempResp_possible(N_C_TYPES),prova_decomp1(N_C_TYPES),prova_decomp2(N_C_TYPES),N_inhibitory_factor_test(N_C_TYPES)
+    real::microbeTurnover,temp_C_microbes,CN_imbalance_term,temp_N_microbes
+    real::potential_tempResp(N_C_TYPES),tempResp(N_C_TYPES)
     real,dimension(N_C_TYPES)::protectedCTurnover,newProtectedC,protectedNturnover,newProtectedN
 
-    real::totalN_decomposed(N_C_TYPES),prova_imm1,prova_imm2,prova_imm3,prova_imm4,provaCN1,provaCN2,provaCN3
-    real::pot_tempN_decomposed(N_C_TYPES), potential_N_decomp(N_C_TYPES),diff(N_C_TYPES),tempN_decomposed(N_C_TYPES)
+    real::totalN_decomposed(N_C_TYPES)
+    real::pot_tempN_decomposed(N_C_TYPES), potential_N_decomp(N_C_TYPES),tempN_decomposed(N_C_TYPES)
     real::denitrif_NO3_demand ! kgN/m2/year
     real,dimension(N_C_TYPES):: denitrif_Resp,pot_tempN_decomposed_denitrif ! kgC/m2/year
     real::carbon_supply_denitrif,nitrogen_supply_denitrif
@@ -1258,7 +1256,7 @@ pure function Resp(Ctotal,Chet,T,theta,air_filled_porosity)
     real,intent(in)::T,theta             ! temperature (k), theta (fraction of 1.0)
     real,intent(in)::air_filled_porosity ! Fraction of 1.0.  Different from theta since it includes ice
     real,intent(in)::Ctotal(N_C_TYPES)   ! Substrate C
-    real,dimension(N_C_TYPES)::Resp,tempresp
+    real,dimension(N_C_TYPES)::Resp
     real::enz,Cavail(N_C_TYPES)
     real, parameter :: aerobic_max = 0.022 ! Maximum soil-moisture factor under ideal conditions
     
@@ -1525,7 +1523,6 @@ logical function check_cohort(cohort) result(cohortGood)
     integer::n
     logical:: tempGood
     real :: cohortC
-    real :: cohortN
     ! ZMS
     real,parameter :: tol_roundoff = 1.e-11    ! [kg C/m^2] tolerance for roundoff error in soil carbon numerics
     
@@ -1784,8 +1781,6 @@ subroutine add_C_N_to_rhizosphere(pool,newCarbon,newNitrogen)
     real,intent(in)::newCarbon(N_C_TYPES),newNitrogen(N_C_TYPES)
     
     type(litterCohort)::rhizosphere,newcohort
-    real::litterC_removed(N_C_TYPES),protectedC_removed(N_C_TYPES),liveMicrobeC_removed
-    real::litterN_removed(N_C_TYPES),protectedN_removed(N_C_TYPES),liveMicrobeN_removed
     integer::n
     
     if(.NOT. use_rhizosphere_cohort) then
@@ -2418,7 +2413,7 @@ subroutine tracer_leaching_with_litter(soil,wl,leaflitter,woodlitter,flow,litter
     real::d_DOC(N_C_TYPES,size(soil)+1),d_DON(N_C_TYPES,size(soil)+1),d_NH4(size(soil)+1),d_NO3(size(soil)+1)!xz
 
     real,dimension(size(soil)+1) :: flow_with_litter, div_with_litter, dz_with_litter ! water flow
-    integer::l,ii,badcohort,n
+    integer::l,ii
 
     !real::litterThickness,leaflitterTotalC,woodlitterTotalC,DOCbefore(size(soil)+1),leaf_DOC_frac!xz
     real::litterThickness,leaflitterTotalC,woodlitterTotalC,DOCbefore(size(soil)+1),DONbefore(size(soil)+1),leaf_DOC_frac,leaf_DON_frac,&

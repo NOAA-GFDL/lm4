@@ -68,8 +68,7 @@ real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 da
 
 ! diagnostic field IDs
 integer :: id_npp, id_nep, id_gpp
-integer :: id_rsoil, id_rsoil_fast, id_rsoil_slow
-integer :: id_resp, id_resl, id_resr, id_ress, id_resg, id_asoil
+integer :: id_resp, id_resl, id_resr, id_ress, id_resg
 integer :: id_soilt, id_theta, id_litter, id_age
 integer :: &
     id_mycorrhizal_scav_allocation, id_mycorrhizal_scav_immobilization, &
@@ -189,7 +188,6 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
       root_litt_C, root_litt_N ! root litter per soil layer, kgC/m2 and kgN/m2
   real :: profile(num_l) ! storage for vertical profile of exudates and root litter
   real, dimension(vegn%n_cohorts) :: resp, resl, resr, ress, resg, gpp, npp
-  integer :: sp ! shorthand for current cohort specie
   integer :: i, l, N
 
   real :: root_exudate_C,root_exudate_N, root_exudate_frac
@@ -1040,7 +1038,6 @@ subroutine vegn_phenology_lm3(vegn, soil)
   type(soil_tile_type), intent(inout) :: soil
 
   ! ---- local vars
-  type(vegn_cohort_type), pointer :: cc
   real :: leaf_litter_C,root_litter_C,leaf_litter_N,root_litter_N
   real :: theta_crit; ! critical ratio of average soil water to sat. water
   real :: psi_stress_crit ! critical soil-water-stress index
@@ -1134,7 +1131,6 @@ subroutine vegn_phenology_ppa(vegn, soil)
   real    :: leaf_litter_C, leaf_litter_N, leaf_litt_C(N_C_TYPES), leaf_litt_N(N_C_TYPES)
   real    :: dead_leaves_C, dead_leaves_N
   real    :: dead_roots_C, dead_roots_N
-  real    :: BL_u,BL_c
 
   real, parameter :: leaf_fall_rate = 0.075 ! per day
   real, parameter :: root_mort_rate = 0.0
@@ -1426,7 +1422,6 @@ subroutine vegn_reproduction_ppa (vegn,soil)
 ! ---- local vars
   type(vegn_cohort_type), pointer :: ccold(:)   ! pointer to old cohort array
   real :: failed_seeds !, prob_g, prob_e
-  logical :: invasion = .FALSE.
   integer :: newcohorts ! number of new cohorts to be created
   integer :: i, k ! cohort indices
   real :: litt(N_C_TYPES)
@@ -1529,7 +1524,6 @@ subroutine kill_small_cohorts_ppa(vegn,soil)
      wood_litt_C, wood_litt_N    ! coarse surface litter per tile, kgC/m2 and kgN/m2
   real, dimension(num_l, N_C_TYPES) :: &
      root_litt_C, root_litt_N ! root litter per soil layer, kgC/m2 and kgN/m2
-  real :: profile(num_l) ! storage for vertical profile of exudates and root litter
   integer :: i,k
 
  ! Weng, 2013-09-07

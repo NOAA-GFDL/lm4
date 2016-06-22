@@ -333,7 +333,6 @@ character(32) :: geohydrology_to_use = 'hill_ar5'
        ! 'hill' -- for integrated-tile hillslope geohydrology
        ! 'hill_ar5' -- integrated-tile hillslope geohydrology reproducing AR5 simulations
        ! 'tiled' -- for full hillslope-model geohydrology with hillslopes discretized into tiles
-logical :: use_mcm_albedo        = .false.   ! .true. for CLIMAP albedo inputs
 logical :: use_single_geo        = .false.   ! .true. for global gw res time,
                                              ! e.g., to recover MCM
 logical :: use_alpha             = .true.    ! for vertical change in soil properties
@@ -431,9 +430,6 @@ real, dimension(n_dim_soil_types) :: clay = &  ! Clay percentage (for calculatin
 
 real :: peat_soil_e_depth = -1  ! If positive (and GW_TILED or GW_HILL), override soil_e_depth for peat
 real :: peat_kx0 = -1           ! If non-negative (and GW_TILED or GW_HILL), override macroporosity for peat
-logical :: repro_zms = .FALSE. ! if true, changes calculations of zfull to reproduce Zack's hillslope code.
-                               ! The two ways of calculating zfull are mathematically identical, but they differ
-                               ! in the lowest bits of answer.
 namelist /soil_data_nml/ psi_wilt, &
      soil_to_use, soil_type_file, tile_names, input_cover_types, &
      comp, K_min, K_max_matrix, DThDP_max, psi_min, k_over_B, &
@@ -444,7 +440,7 @@ namelist /soil_data_nml/ psi_wilt, &
      use_tau_fix, use_sat_fix, use_comp_for_ic, use_comp_for_push, limit_hi_psi, use_fluid_ice, &
      use_alt3_soil_hydraulics, &
      limit_DThDP, &
-     use_mcm_albedo, use_single_geo, geohydrology_to_use, &
+     use_single_geo, geohydrology_to_use, &
      use_alpha, &
      retro_a0n1, &
      soil_index_constant,         &
@@ -734,11 +730,8 @@ end subroutine delete_soil_tile
 subroutine soil_data_init_0d(soil)
   type(soil_tile_type), intent(inout) :: soil
   
-!  real tau_groundwater
-!  real rsa_exp         ! riparian source-area exponent
-  integer :: k, i, l, code, m_zeta, m_tau
-  real    :: alpha_inf_sq, alpha_sfc_sq, comp_local
-  real    :: single_log_zeta_s, single_log_tau, frac_zeta, frac_tau
+  integer :: k, l
+  real    :: comp_local
   real    :: z ! depth at top of current layer
   
   k = soil%tag
@@ -1539,7 +1532,7 @@ subroutine soil_data_hydraulics (soil, vlc, vsc, &
       DPsi_min, DPsi_max, psi_for_rh
   ! ---- local vars ----------------------------------------------------------
   integer l
-  real :: vlc_loc, vlc_k, psi_k, sigma, B, por, psi_s, k_sat, alt_psi_for_rh
+  real :: vlc_loc, k_sat, alt_psi_for_rh
   real :: alpha_sq, f_psi
   logical flag
   
