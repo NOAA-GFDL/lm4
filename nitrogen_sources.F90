@@ -42,7 +42,7 @@ public :: do_nitrogen_deposition
 
 ! ==== module constants =======================================================
 character(len=*), parameter :: module_name = 'nitrogen_sources'
-#include "../shared/version_variable.inc"
+#include "shared/version_variable.inc"
 character(len=*), private, parameter :: &
    diag_mod_name = 'vegn'
 
