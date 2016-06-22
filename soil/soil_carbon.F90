@@ -894,12 +894,12 @@ subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled
 
         ! Enforce correct microbial C:N. Model has been having problems with slow increase in microbial C relative to N.
         ! This feels a bit kloodgy but hopefully shouldn't cause problems
-        if(cohort%livingMicrobeC/cohort%livingMicrobeN - CN_microb > 1e-3) then
+        if(cohort%livingMicrobeC > (CN_microb+1e-3)*cohort%livingMicrobeN) then
             ! Too much microbial C. Respire extra C
             overflow_resp = overflow_resp + (cohort%livingMicrobeC - cohort%livingMicrobeN*CN_microb)
             cohort%livingMicrobeC = cohort%livingMicrobeC - (cohort%livingMicrobeC - cohort%livingMicrobeN*CN_microb)
         endif
-        if(cohort%livingMicrobeC/cohort%livingMicrobeN - CN_microb < -1e-3) then
+        if(cohort%livingMicrobeC < (CN_microb-1e-3)*cohort%livingMicrobeN) then
             ! Too much microbial N. Mineralize extra N
             CN_imbalance_term = CN_imbalance_term + (cohort%livingMicrobeN - cohort%livingMicrobeC/CN_microb)
             cohort%livingMicrobeN = cohort%livingMicrobeN - (cohort%livingMicrobeN - cohort%livingMicrobeC/CN_microb)
