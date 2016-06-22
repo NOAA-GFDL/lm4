@@ -223,7 +223,16 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   soil%myc_mine_N_uptake = 0
   soil%symbiotic_N_fixation = 0
   soil%active_root_N_uptake = 0
-  rh = 0
+
+  total_scavenger_myc_C_allocated = 0.0
+  total_miner_myc_C_allocated = 0.0
+  total_scav_myc_immob = 0.0
+  total_mine_myc_immob = 0.0
+  total_mining_CO2prod = 0.0
+  total_myc_mine_C_uptake = 0.0
+  total_N_fixation = 0.0
+  total_N_fixer_C_allocated = 0.0
+  rh = 0.0
   do i = 1, vegn%n_cohorts
      associate(cc=>vegn%cohorts(i), sp=>spdata(vegn%cohorts(i)%species))
 
