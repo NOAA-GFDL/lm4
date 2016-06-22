@@ -777,12 +777,18 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull )
      case (SOILC_CORPSE, SOILC_CORPSE_N)
         call get_tile_data(restart,'asoil_in','zfull',soil_asoil_in_ptr)
         do i = 1,N_C_TYPES
-           call get_tile_data(restart,trim(c_shortname(i))//'_protected_in','zfull',sc_protected_in_ptr, i)
-           call get_tile_data(restart,trim(c_shortname(i))//'_carbon_in','zfull',sc_carbon_in_ptr, i)
-           call get_tile_data(restart,'leaflitter_'//trim(c_shortname(i))//'_in',sc_leaflitter_in_ptr,i)
-           call get_tile_data(restart,'finewoodlitter_'//trim(c_shortname(i))//'_in',sc_finewoodlitter_in_ptr,i)
-           call get_tile_data(restart,'coarsewoodlitter_'//trim(c_shortname(i))//'_in',sc_coarsewoodlitter_in_ptr,i)
-
+           ! C inputs
+           call get_tile_data(restart,trim(c_shortname(i))//'_protected_C_in','zfull',sc_protected_C_in_ptr, i)
+           call get_tile_data(restart,trim(c_shortname(i))//'_C_in','zfull',sc_C_in_ptr, i)
+           call get_tile_data(restart,'leaflitter_'//trim(c_shortname(i))//'_C_in',sc_leaflitter_C_in_ptr,i)
+           call get_tile_data(restart,'finewoodlitter_'//trim(c_shortname(i))//'_C_in',sc_finewoodlitter_C_in_ptr,i)
+           call get_tile_data(restart,'coarsewoodlitter_'//trim(c_shortname(i))//'_C_in',sc_coarsewoodlitter_C_in_ptr,i)
+           ! N inputs
+           call get_tile_data(restart,trim(c_shortname(i))//'_protected_N_in','zfull',sc_protected_N_in_ptr, i)
+           call get_tile_data(restart,trim(c_shortname(i))//'_N_in','zfull',sc_N_in_ptr, i)
+           call get_tile_data(restart,'leaflitter_'//trim(c_shortname(i))//'_N_in',sc_leaflitter_N_in_ptr,i)
+           call get_tile_data(restart,'finewoodlitter_'//trim(c_shortname(i))//'_N_in',sc_finewoodlitter_N_in_ptr,i)
+           call get_tile_data(restart,'coarsewoodlitter_'//trim(c_shortname(i))//'_N_in',sc_coarsewoodlitter_N_in_ptr,i)
            ! C turnover rates
            call get_tile_data(restart,trim(c_shortname(i))//'_C_turnover_accumulated','zfull',sc_C_turnover_ptr, i)
            call get_tile_data(restart,trim(c_shortname(i))//'_protected_C_turnover_accumulated','zfull',sc_protected_C_turnover_ptr, i)
@@ -1434,12 +1440,28 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
         call add_tile_data(restart,'asoil_in','zfull',soil_asoil_in_ptr,'aerobic activity modifier', 'unitless')
 
         do i = 1,N_C_TYPES
-           call add_tile_data(restart,trim(c_shortname(i))//'_protected_in','zfull',sc_protected_in_ptr, i,'protected '//trim(c_longname(i))//' soil carbon input', 'kg C/m2')
-           call add_tile_data(restart,trim(c_shortname(i))//'_carbon_in','zfull',sc_carbon_in_ptr, i, trim(c_longname(i))//' soil carbon input', 'kg C/m2')
-           call add_tile_data(restart,'leaflitter_'//trim(c_shortname(i))//'_in', sc_leaflitter_in_ptr, i, trim(c_longname(i))//' leaf litter carbon input','kg C/m2')
-           call add_tile_data(restart,'finewoodlitter_'//trim(c_shortname(i))//'_in',  sc_finewoodlitter_in_ptr, i, trim(c_longname(i))//' fine wood litter carbon input','kg C/m2')
-           call add_tile_data(restart,'coarsewoodlitter_'//trim(c_shortname(i))//'_in',sc_coarsewoodlitter_in_ptr, i, trim(c_longname(i))//' coarse wood litter carbon input','kg C/m2')
-
+           ! C inputs
+           call add_tile_data(restart,trim(c_shortname(i))//'_protected_C_in','zfull',&
+                    sc_protected_C_in_ptr, i,'protected '//trim(c_longname(i))//' soil carbon input', 'kg C/m2')
+           call add_tile_data(restart,trim(c_shortname(i))//'_C_in','zfull',&
+                    sc_C_in_ptr, i, trim(c_longname(i))//' soil carbon input', 'kg C/m2')
+           call add_tile_data(restart,'leaflitter_'//trim(c_shortname(i))//'_C_in', &
+                    sc_leaflitter_C_in_ptr, i, trim(c_longname(i))//' leaf litter carbon input','kg C/m2')
+           call add_tile_data(restart,'finewoodlitter_'//trim(c_shortname(i))//'_C_in',  &
+                    sc_finewoodlitter_C_in_ptr, i, trim(c_longname(i))//' fine wood litter carbon input','kg C/m2')
+           call add_tile_data(restart,'coarsewoodlitter_'//trim(c_shortname(i))//'_C_in',&
+                    sc_coarsewoodlitter_C_in_ptr, i, trim(c_longname(i))//' coarse wood litter carbon input','kg C/m2')
+           ! N_inputs
+           call add_tile_data(restart,trim(c_shortname(i))//'_protected_N_in','zfull',&
+                    sc_protected_N_in_ptr, i,'protected '//trim(c_longname(i))//' soil nitrogen input', 'kg C/m2')
+           call add_tile_data(restart,trim(c_shortname(i))//'_N_in','zfull',&
+                    sc_N_in_ptr, i, trim(c_longname(i))//' soil nitrogen input', 'kg C/m2')
+           call add_tile_data(restart,'leaflitter_'//trim(c_shortname(i))//'_N_in', &
+                    sc_leaflitter_N_in_ptr, i, trim(c_longname(i))//' leaf litter nitrogen input','kg C/m2')
+           call add_tile_data(restart,'finewoodlitter_'//trim(c_shortname(i))//'_N_in',  &
+                    sc_finewoodlitter_N_in_ptr, i, trim(c_longname(i))//' fine wood litter nitrogen input','kg C/m2')
+           call add_tile_data(restart,'coarsewoodlitter_'//trim(c_shortname(i))//'_N_in',&
+                    sc_coarsewoodlitter_N_in_ptr, i, trim(c_longname(i))//' coarse wood litter nitrogen input','kg C/m2')
            ! C turnover rates
            call add_tile_data(restart,trim(c_shortname(i))//'_protected_C_turnover_accumulated','zfull', &
                     sc_protected_C_turnover_ptr, i, trim(c_longname(i))//' protected soil carbon turnover', 'year-1')
@@ -4394,22 +4416,45 @@ DEFINE_SOIL_ACCESSOR_0D(real,fast_DOC_leached)
 DEFINE_SOIL_ACCESSOR_0D(real,slow_DOC_leached)
 DEFINE_SOIL_ACCESSOR_0D(real,deadmic_DOC_leached)
 
-subroutine sc_leaflitter_in_ptr(t,i,p)
+subroutine sc_leaflitter_C_in_ptr(t,i,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i; real,pointer::p; p=>NULL();
   if(associated(t))then
      if(associated(t%soil))p=>t%soil%leaflitter%C_in(i)
   endif
 end subroutine
-subroutine sc_finewoodlitter_in_ptr(t,i,p)
+
+subroutine sc_leaflitter_N_in_ptr(t,i,p)
+  type(land_tile_type),pointer::t; integer,intent(in)::i; real,pointer::p; p=>NULL();
+  if(associated(t))then
+     if(associated(t%soil))p=>t%soil%leaflitter%N_in(i)
+  endif
+end subroutine
+
+subroutine sc_finewoodlitter_C_in_ptr(t,i,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i; real,pointer::p; p=>NULL();
   if(associated(t))then
      if(associated(t%soil))p=>t%soil%finewoodlitter%C_in(i)
   endif
 end subroutine
-subroutine sc_coarsewoodlitter_in_ptr(t,i,p)
+
+subroutine sc_finewoodlitter_N_in_ptr(t,i,p)
+  type(land_tile_type),pointer::t; integer,intent(in)::i; real,pointer::p; p=>NULL();
+  if(associated(t))then
+     if(associated(t%soil))p=>t%soil%finewoodlitter%N_in(i)
+  endif
+end subroutine
+
+subroutine sc_coarsewoodlitter_C_in_ptr(t,i,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i; real,pointer::p; p=>NULL();
   if(associated(t))then
      if(associated(t%soil))p=>t%soil%coarsewoodlitter%C_in(i)
+  endif
+end subroutine
+
+subroutine sc_coarsewoodlitter_N_in_ptr(t,i,p)
+  type(land_tile_type),pointer::t; integer,intent(in)::i; real,pointer::p; p=>NULL();
+  if(associated(t))then
+     if(associated(t%soil))p=>t%soil%coarsewoodlitter%N_in(i)
   endif
 end subroutine
 
@@ -4462,7 +4507,7 @@ subroutine sc_DON_ptr(t,i,j,p)
   endif
 end subroutine
 
-subroutine sc_carbon_in_ptr(t,i,j,p)
+subroutine sc_C_in_ptr(t,i,j,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
   p=>NULL()
   if(associated(t)) then
@@ -4470,11 +4515,27 @@ subroutine sc_carbon_in_ptr(t,i,j,p)
   endif
 end subroutine
 
-subroutine sc_protected_in_ptr(t,i,j,p)
+subroutine sc_N_in_ptr(t,i,j,p)
+  type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
+  p=>NULL()
+  if(associated(t)) then
+     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%N_in(j)
+  endif
+end subroutine
+
+subroutine sc_protected_C_in_ptr(t,i,j,p)
   type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
   p=>NULL()
   if(associated(t)) then
      if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%protected_C_in(j)
+  endif
+end subroutine
+
+subroutine sc_protected_N_in_ptr(t,i,j,p)
+  type(land_tile_type),pointer::t; integer,intent(in)::i,j;real,pointer::p
+  p=>NULL()
+  if(associated(t)) then
+     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%protected_N_in(j)
   endif
 end subroutine
 
