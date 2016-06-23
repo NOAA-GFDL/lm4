@@ -462,9 +462,7 @@ end subroutine deposit_dissolved_C
 
 
 subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_water,dt,layerThickness,&
-            fast_C_loss_rate,slow_C_loss_rate,deadmic_C_loss_rate,&
-            fast_N_loss_rate,slow_N_loss_rate,deadmic_N_loss_rate,&
-            CO2prod,&
+            C_loss_rate, N_loss_rate, CO2prod, &
             deadmic_C_produced,deadmic_N_produced,&
             protected_C_produced,protected_N_produced,&
             protected_turnover_rate,protected_N_turnover_rate,&
@@ -472,7 +470,7 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
             badCohort)
     type(soil_pool),intent(inout)::pool
     real,intent(in)::T,theta,dt,air_filled_porosity,liquid_water,frozen_water,layerThickness
-    real,intent(out)::fast_C_loss_rate,slow_C_loss_rate,deadmic_C_loss_rate,fast_N_loss_rate,slow_N_loss_rate,deadmic_N_loss_rate
+    real,intent(out) :: C_loss_rate(N_C_TYPES), N_loss_rate(N_C_TYPES) ! loss rates for C and N per time step
     real,intent(out)::CO2prod,nitrification,denitrification,N_mineralization,N_immobilization !  kgC/m2 and kgN/m2 (not rates)
     real,intent(out)::protected_C_produced(N_C_TYPES),protected_N_produced(N_C_TYPES),&
         protected_turnover_rate(N_C_TYPES),protected_N_turnover_rate(N_C_TYPES),deadmic_C_produced,deadmic_N_produced
@@ -481,7 +479,7 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
     
     integer::n
 
-    real::tempresp(N_C_TYPES),resp(N_C_TYPES),temp_N_decomposed(N_C_TYPES),Ndecomp(N_C_TYPES),temp_protected(N_C_TYPES),temp_N_protected(N_C_TYPES),&
+    real::tempresp(N_C_TYPES),temp_N_decomposed(N_C_TYPES),temp_protected(N_C_TYPES),temp_N_protected(N_C_TYPES),&
             tempCO2,temp_protected_turnover_rate(N_C_TYPES),temp_protected_N_turnover_rate(N_C_TYPES),&
             Prate_limited(N_C_TYPES),Prate_limited_N(N_C_TYPES),prevC(N_C_TYPES),prevN(N_C_TYPES),&
             temp_deadmic_C,temp_deadmic_N,tempIMM_N,soil_IMM_N,temp_MINERAL, soil_MINERAL,temp_livemic_C,temp_livemic_N
@@ -504,13 +502,13 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
 !       enddo
 !    endif
 
-    resp=0.0
+    C_loss_rate(:)=0.0
+    N_loss_rate(:)=0.0
     CO2prod=0.0
     protected_C_produced=0.0
     protected_turnover_rate=0.0
     nitrif=0.0! xz
     denitrification=0.0
-    Ndecomp=0.0
     protected_N_produced=0.0
     protected_N_turnover_rate=0.0
     deadmic_C_produced=0.0
@@ -519,7 +517,6 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
     soil_MINERAL=0.0
 
 
-    
     if(present(badCohort)) badCohort=0
 
     
@@ -575,8 +572,8 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
             WRITE (*,*),'Pool ammonium:',pool%ammonium
         ENDIF
         
-        resp=resp+tempresp
-        Ndecomp=Ndecomp+temp_N_decomposed
+        C_loss_rate=C_loss_rate+tempresp
+        N_loss_rate=N_loss_rate+temp_N_decomposed
 
         protected_C_produced=protected_C_produced+temp_protected
         protected_N_produced=protected_N_produced+temp_N_protected
@@ -646,22 +643,14 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
         N_immobilization = soil_IMM_N
     ENDIF
 
-    fast_C_loss_rate=resp(1)
-    slow_C_loss_rate=resp(2)
-    deadmic_C_loss_rate=resp(3)
-
-    fast_N_loss_rate=Ndecomp(1)! xz
-    slow_N_loss_rate=Ndecomp(2)! xz
-    deadmic_N_loss_rate=Ndecomp(3)! xz
-
     ! update turnover rates
     total = totalPoolCohort(pool)
     where (total%litterC(:)>0) &
-        pool%C_turnover(:) = pool%C_turnover(:)+resp(:)/total%litterC(:)
+        pool%C_turnover(:) = pool%C_turnover(:)+C_loss_rate(:)/total%litterC(:)
+    where (total%litterN(:)>0) &
+        pool%N_turnover(:) = pool%N_turnover(:)+N_loss_rate(:)/total%litterN(:)
     where (total%protectedC(:)>0) &
         pool%protected_C_turnover(:) = pool%protected_C_turnover(:)+protected_turnover_rate(:)/total%protectedC(:)
-    where (total%litterN(:)>0) &
-        pool%N_turnover(:) = pool%N_turnover(:)+Ndecomp(:)/total%litterN(:)
     where (total%protectedN(:)>0) &
         pool%protected_N_turnover(:) = pool%protected_N_turnover(:)+protected_N_turnover_rate(:)/total%litterN(:)
 end subroutine update_pool
@@ -2465,6 +2454,7 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
         leaf_NH4_frac=0.0
     endif
 
+    ! FIXME slm: perhaps needt to be woodlitter%nitrate?
     NO3_dissolved(1)=leaflitter%nitrate + woodlitter%ammonium   !kg/m2
     NO3_dissolved(2:size(soil)+1)=soil(:)%nitrate   !kg/m2
 

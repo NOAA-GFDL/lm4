@@ -14,7 +14,7 @@ use fms_mod, only: open_namelist_file
 use fms_mod, only: error_mesg, file_exist, check_nml_error, &
      stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, WARNING, NOTE
 use fms_io_mod, only: set_domain, nullify_domain
-use time_manager_mod,   only: time_type_to_real
+use time_manager_mod,   only: time_type, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: pi, tfreeze, hlv, hlf, dens_h2o
 use tracer_manager_mod, only: NO_TRACER
@@ -257,10 +257,7 @@ integer :: id_fast_soil_C, id_slow_soil_C, id_protected_C, id_fsc, id_ssc,&
     id_leaflitter_fast_dissolved_C,id_leaflitter_slow_dissolved_C,id_leaflitter_deadmic_dissolved_C,&
     id_finewoodlitter_fast_dissolved_C,id_finewoodlitter_slow_dissolved_C,id_finewoodlitter_deadmic_dissolved_C,&
     id_coarsewoodlitter_fast_dissolved_C,id_coarsewoodlitter_slow_dissolved_C,id_coarsewoodlitter_deadmic_dissolved_C,&
-    id_rsoil_leaflitter_deadmic, id_rsoil_leaflitter_fast, id_rsoil_leaflitter_slow, &
-    id_rsoil_finewoodlitter_deadmic, id_rsoil_finewoodlitter_fast, id_rsoil_finewoodlitter_slow, &
-    id_rsoil_coarsewoodlitter_deadmic, id_rsoil_coarsewoodlitter_fast, id_rsoil_coarsewoodlitter_slow, &
-    id_rsoil_fast, id_rsoil_slow, id_resp,id_rsoil_deadmic,id_asoil,id_rsoil,&
+    id_resp,id_asoil,id_rsoil,&
     id_leaflitter_dissolved(N_C_TYPES), id_leaflitter_deposited(N_C_TYPES), &
     id_finewoodlitter_dissolved(N_C_TYPES), id_finewoodlitter_deposited(N_C_TYPES), &
     id_coarsewoodlitter_dissolved(N_C_TYPES), id_coarsewoodlitter_deposited(N_C_TYPES), &
@@ -271,6 +268,9 @@ integer :: id_fast_soil_C, id_slow_soil_C, id_protected_C, id_fsc, id_ssc,&
     id_fast_DOC_div_loss,id_slow_DOC_div_loss,id_deadmic_DOC_div_loss, &
     id_slomtot, id_wet_frac, id_macro_infilt, &
     id_surf_DOC_loss, id_total_C_leaching, id_total_DOC_div_loss
+
+integer, dimension(N_C_TYPES) :: &
+    id_rsoil_C, id_rsoil_leaflitter, id_rsoil_coarsewoodlitter, id_rsoil_finewoodlitter
 ! test tridiagonal solver for advection
 integer :: id_st_diff
 
@@ -838,6 +838,48 @@ end subroutine soil_init
 
 
 ! ============================================================================
+function replace_text (s,text,rep)  result(outs)
+character(*), intent(in) :: s,text,rep
+character(len(s)+100) :: outs     ! provide outs with extra 100 char len
+
+integer      :: i, nt, nr
+
+outs = s ; nt = len_trim(text) ; nr = len_trim(rep)
+do
+   i = index(outs,text(:nt)) ; if (i == 0) exit
+   outs = outs(:i-1) // rep(:nr) // outs(i+nt:)
+end do
+end function replace_text
+
+! ============================================================================
+function register_soilc_diag_field(module_name, field_name, axes, init_time, &
+     long_name, units, missing_value, range, op, standard_name) result (id)
+
+  integer :: id(N_C_TYPES)
+
+  character(len=*), intent(in) :: module_name
+  character(len=*), intent(in) :: field_name
+  integer,          intent(in) :: axes(:)
+  type(time_type),  intent(in) :: init_time
+  character(len=*), intent(in), optional :: long_name
+  character(len=*), intent(in), optional :: units
+  real,             intent(in), optional :: missing_value
+  real,             intent(in), optional :: range(2)
+  character(len=*), intent(in), optional :: op ! aggregation operation
+  character(len=*), intent(in), optional :: standard_name
+
+  integer :: i
+  
+  do i = 1, N_C_TYPES
+     id(i) = register_tiled_diag_field(module_name, &
+             trim(replace_text(field_name,'*',trim(c_shortname(i)))), &
+             axes, init_time, &
+             trim(replace_text(long_name,'*',trim(c_longname(i)))), &
+             units, missing_value, range, op, standard_name)
+  enddo
+end function register_soilc_diag_field
+
+! ============================================================================
 subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
   integer, intent(in) :: id_lon  ! ID of land longitude (X) axis  
   integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
@@ -893,43 +935,20 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
   id_rsoil = register_tiled_diag_field ( module_name, 'rsoil',  &
        (/id_lon,id_lat/), lnd%time, 'soil respiration', 'kg C/(m2 year)', &
        missing_value=-100.0 )
-  id_rsoil_fast = register_tiled_diag_field ( module_name, 'rsoil_fast',  &
-       axes, lnd%time, 'fast soil carbon respiration', 'kg C/(m3 year)', &
+
+  id_rsoil_C(:) = register_soilc_diag_field(module_name, 'rsoil_*', &
+       [ id_lon, id_lat, id_zfull ], lnd%time, '* soil carbon respiration', 'kg C/(m3 year)', &
        missing_value=-100.0 )
-  id_rsoil_slow = register_tiled_diag_field ( module_name, 'rsoil_slow',  &
-       axes, lnd%time, 'slow soil carbon respiration', 'kg C/(m3 year)', &
+  id_rsoil_leaflitter(:) = register_soilc_diag_field ( module_name, 'rsoil_leaflitter_*',  &
+       [ id_lon, id_lat ], lnd%time, 'surface leaf litter * C respiration', 'kg C/(m2 year)', &
        missing_value=-100.0 )
-  id_rsoil_deadmic = register_tiled_diag_field ( module_name, 'rsoil_deadmic',  &
-       axes, lnd%time, 'dead microbe soil carbon respiration', 'kg C/(m3 year)', &
+  id_rsoil_coarsewoodlitter(:) = register_soilc_diag_field ( module_name, 'rsoil_coarsewoodlitter_*',  &
+       [ id_lon,id_lat ], lnd%time, 'surface coarse wood litter * C respiration', 'kg C/(m2 year)', &
        missing_value=-100.0 )
-  id_rsoil_leaflitter_fast = register_tiled_diag_field ( module_name, 'rsoil_leaflitter_fast',  &
-       (/id_lon,id_lat/), lnd%time, 'surface leaf litter fast C respiration', 'kg C/(m2 year)', &
+  id_rsoil_finewoodlitter(:) = register_soilc_diag_field ( module_name, 'rsoil_finewoodlitter_*',  &
+       [ id_lon,id_lat ], lnd%time, 'surface fine wood litter * C respiration', 'kg C/(m2 year)', &
        missing_value=-100.0 )
-  id_rsoil_leaflitter_slow = register_tiled_diag_field ( module_name, 'rsoil_leaflitter_slow',  &
-       (/id_lon,id_lat/), lnd%time, 'surface leaf litter slow C respiration', 'kg C/(m2 year)', &
-       missing_value=-100.0 )
-  id_rsoil_leaflitter_deadmic = register_tiled_diag_field ( module_name, 'rsoil_leaflitter_deadmic',  &
-       (/id_lon,id_lat/), lnd%time, 'surface leaf litter dead microbe C respiration', 'kg C/(m2 year)', &
-       missing_value=-100.0 )
-  id_rsoil_coarsewoodlitter_fast = register_tiled_diag_field ( module_name, 'rsoil_coarsewoodlitter_fast',  &
-       (/id_lon,id_lat/), lnd%time, 'surface coarse wood litter fast C respiration', 'kg C/(m2 year)', &
-       missing_value=-100.0 )
-  id_rsoil_coarsewoodlitter_slow = register_tiled_diag_field ( module_name, 'rsoil_coarsewoodlitter_slow',  &
-       (/id_lon,id_lat/), lnd%time, 'surface coarse wood litter slow C respiration', 'kg C/(m2 year)', &
-       missing_value=-100.0 )
-  id_rsoil_coarsewoodlitter_deadmic = register_tiled_diag_field ( module_name, 'rsoil_coarsewoodlitter_deadmic',  &
-       (/id_lon,id_lat/), lnd%time, 'surface coarse wood litter dead microbe C respiration', 'kg C/(m2 year)', &
-       missing_value=-100.0 )
-  id_rsoil_finewoodlitter_fast = register_tiled_diag_field ( module_name, 'rsoil_finewoodlitter_fast',  &
-       (/id_lon,id_lat/), lnd%time, 'surface fine wood litter fast C respiration', 'kg C/(m2 year)', &
-       missing_value=-100.0 )
-  id_rsoil_finewoodlitter_slow = register_tiled_diag_field ( module_name, 'rsoil_finewoodlitter_slow',  &
-       (/id_lon,id_lat/), lnd%time, 'surface fine wood litter slow C respiration', 'kg C/(m2 year)', &
-       missing_value=-100.0 )
-  id_rsoil_finewoodlitter_deadmic = register_tiled_diag_field ( module_name, 'rsoil_finewoodlitter_deadmic',  &
-       (/id_lon,id_lat/), lnd%time, 'surface fine wood litter dead microbe C respiration', 'kg C/(m2 year)', &
-       missing_value=-100.0 )
-  do i = 1,N_C_TYPES 
+  do i = 1,N_C_TYPES
      id_dissolved(i) = register_tiled_diag_field ( module_name, trim(c_shortname(i))//'_dissolve_rate',  &
           axes, lnd%time, 'fast soil carbon dissolving rate', 'kg C/(m3 year)', missing_value=-100.0 )
      id_deposited(i) = register_tiled_diag_field ( module_name, trim(c_shortname(i))//'_deposition_rate',  &
@@ -3061,17 +3080,9 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   type(soil_tile_type), intent(inout) :: soil
   type(diag_buff_type), intent(inout) :: diag
 
-  real :: leaflitter_fast_C_loss_rate, leaflitter_slow_C_loss_rate, leaflitter_deadmic_C_loss_rate
-  real :: leaflitter_fast_N_loss_rate, leaflitter_slow_N_loss_rate, leaflitter_deadmic_N_loss_rate
-  real :: finewoodlitter_fast_C_loss_rate, finewoodlitter_slow_C_loss_rate, finewoodlitter_deadmic_C_loss_rate
-  real :: finewoodlitter_fast_N_loss_rate, finewoodlitter_slow_N_loss_rate, finewoodlitter_deadmic_N_loss_rate
-  real :: coarsewoodlitter_fast_C_loss_rate, coarsewoodlitter_slow_C_loss_rate, coarsewoodlitter_deadmic_C_loss_rate
-  real :: coarsewoodlitter_fast_N_loss_rate, coarsewoodlitter_slow_N_loss_rate, coarsewoodlitter_deadmic_N_loss_rate
-  real :: fast_C_loss_rate(num_l), fast_N_loss_rate(num_l)
-  real :: slow_C_loss_rate(num_l), slow_N_loss_rate(num_l)
-  real :: dead_microbe_C_loss_rate(num_l), dead_microbe_N_loss_rate(num_l)
+  real :: C_loss_rate(N_C_TYPES,num_l), N_loss_rate(N_C_TYPES, num_l)
   real, dimension(num_l) :: decomp_T,decomp_theta,ice_porosity
-  real :: A          (num_l) ! decomp rate reduction due to moisture and temperature
+  real :: A(num_l) ! decomp rate reduction due to moisture and temperature
   real :: leaflitter_deadmic_C_produced, leaflitter_deadmic_N_produced
   real :: fineWoodlitter_deadmic_C_produced, fineWoodlitter_deadmic_N_produced
   real :: coarseWoodlitter_deadmic_C_produced, coarseWoodlitter_deadmic_N_produced
@@ -3093,7 +3104,7 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   real :: soil_nitrif(num_l), soil_denitrif(num_l), soil_N_mineralization(num_l), soil_N_immobilization(num_l)
 
   integer :: badCohort   ! For soil carbon pool carbon balance and invalid number check
-  integer :: k
+  integer :: i,k
   real :: CO2prod
   real :: leaflitter_C_dissolved(3),leaflitter_C_deposited(3),C_dissolved(3,num_l),C_deposited(3,num_l)
   real :: finewoodlitter_C_dissolved(3),finewoodlitter_C_deposited(3)
@@ -3111,8 +3122,7 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
 
   call update_pool(pool=soil%leafLitter,T=decomp_T(1),theta=decomp_theta(1),air_filled_porosity=1.0-(decomp_theta(1)+ice_porosity(1)),&
             liquid_water=soil%wl(1),frozen_water=soil%ws(1),dt=dt_fast_yr,layerThickness=dz(1),&
-            fast_C_loss_rate=leaflitter_fast_C_loss_rate, slow_C_loss_rate=leaflitter_slow_C_loss_rate, deadmic_C_loss_rate=leaflitter_deadmic_C_loss_rate, CO2prod=CO2prod, &
-            fast_N_loss_rate=leaflitter_fast_N_loss_rate, slow_N_loss_rate=leaflitter_slow_N_loss_rate, deadmic_N_loss_rate=leaflitter_deadmic_N_loss_rate, &
+            C_loss_rate=C_loss_rate(:,1), N_loss_rate=N_loss_rate(:,1), CO2prod=CO2prod, &
             deadmic_C_produced=leaflitter_deadmic_C_produced, protected_C_produced=leaflitter_protected_C_produced, protected_turnover_rate=leaflitter_protected_C_turnover_rate, &
             deadmic_N_produced=leaflitter_deadmic_N_produced, protected_N_produced=leaflitter_protected_N_produced, protected_N_turnover_rate=leaflitter_protected_N_turnover_rate, &
             badCohort=badCohort,&
@@ -3125,11 +3135,13 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
         call error_mesg('Dsdt','Found bad cohort in leaf litter',FATAL)
   ENDIF  
   vegn%rh=vegn%rh + CO2prod/dt_fast_yr ! accumulate loss of C to atmosphere
+  do i = 1, N_C_TYPES
+     call send_tile_data(id_rsoil_leaflitter(i), C_loss_rate(i,1), diag)
+  enddo
   
   call update_pool(pool=soil%fineWoodLitter,T=decomp_T(1),theta=decomp_theta(1),air_filled_porosity=1.0-(decomp_theta(1)+ice_porosity(1)),&
             liquid_water=soil%wl(1),frozen_water=soil%ws(1),dt=dt_fast_yr,layerThickness=dz(1),&
-            fast_C_loss_rate=fineWoodlitter_fast_C_loss_rate,slow_C_loss_rate=fineWoodlitter_slow_C_loss_rate, deadmic_C_loss_rate=fineWoodlitter_deadmic_C_loss_rate, CO2prod=CO2prod, &
-            fast_N_loss_rate=fineWoodlitter_fast_N_loss_rate,slow_N_loss_rate=fineWoodlitter_slow_N_loss_rate, deadmic_N_loss_rate=fineWoodlitter_deadmic_N_loss_rate, &
+            C_loss_rate=C_loss_rate(:,1), N_loss_rate=N_loss_rate(:,1), CO2prod=CO2prod, &
             deadmic_C_produced=fineWoodlitter_deadmic_C_produced, protected_C_produced=fineWoodlitter_protected_C_produced, protected_turnover_rate=fineWoodlitter_protected_C_turnover_rate, &
             deadmic_N_produced=fineWoodlitter_deadmic_N_produced, protected_N_produced=fineWoodlitter_protected_N_produced, protected_N_turnover_rate=fineWoodlitter_protected_N_turnover_rate, &
             badCohort=badCohort,&
@@ -3142,13 +3154,13 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
         call error_mesg('Dsdt','Found bad cohort in fineWood litter',FATAL)
   ENDIF
   vegn%rh=vegn%rh + CO2prod/dt_fast_yr ! accumulate loss of C to atmosphere
+  do i = 1, N_C_TYPES
+     call send_tile_data(id_rsoil_finewoodlitter(i), C_loss_rate(i,1), diag)
+  enddo
   
   call update_pool(pool=soil%coarseWoodLitter,T=decomp_T(1),theta=decomp_theta(1),air_filled_porosity=1.0-(decomp_theta(1)+ice_porosity(1)),&
             liquid_water=soil%wl(1),frozen_water=soil%ws(1),dt=dt_fast_yr,layerThickness=dz(1),&
-            fast_C_loss_rate=coarseWoodlitter_fast_C_loss_rate,slow_C_loss_rate=coarseWoodlitter_slow_C_loss_rate, &
-            deadmic_C_loss_rate=coarseWoodlitter_deadmic_C_loss_rate, CO2prod=CO2prod, &
-            fast_N_loss_rate=coarseWoodlitter_fast_N_loss_rate,slow_N_loss_rate=coarseWoodlitter_slow_N_loss_rate, &
-            deadmic_N_loss_rate=coarseWoodlitter_deadmic_N_loss_rate, &
+            C_loss_rate=C_loss_rate(:,1), N_loss_rate=N_loss_rate(:,1), CO2prod=CO2prod, &
             deadmic_C_produced=coarseWoodlitter_deadmic_C_produced, protected_C_produced=coarseWoodlitter_protected_C_produced, &
             protected_turnover_rate=coarseWoodlitter_protected_C_turnover_rate, &
             deadmic_N_produced=coarseWoodlitter_deadmic_N_produced, protected_N_produced=coarseWoodlitter_protected_N_produced, &
@@ -3163,15 +3175,15 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
         call error_mesg('Dsdt','Found bad cohort in coarseWood litter',FATAL)
   ENDIF
   vegn%rh=vegn%rh + CO2prod/dt_fast_yr ! accumulate loss of C to atmosphere  
+  do i = 1, N_C_TYPES
+     call send_tile_data(id_rsoil_coarsewoodlitter(i), C_loss_rate(i,1), diag)
+  enddo
 
   ! Next we have to go through layers and decompose the soil carbon pools
   do k=1,num_l
       call update_pool(pool=soil%soil_organic_matter(k),T=decomp_T(k),theta=decomp_theta(k),air_filled_porosity=1.0-(decomp_theta(k)+ice_porosity(k)),&
                 liquid_water=soil%wl(k),frozen_water=soil%ws(k),dt=dt_fast_yr,layerThickness=dz(k),&
-                fast_C_loss_rate=fast_C_loss_rate(k),slow_C_loss_rate=slow_C_loss_rate(k), &
-                deadmic_C_loss_rate=dead_microbe_C_loss_rate(k), CO2prod=CO2prod, &
-                fast_N_loss_rate=fast_N_loss_rate(k),slow_N_loss_rate=slow_N_loss_rate(k), &
-                deadmic_N_loss_rate=dead_microbe_N_loss_rate(k), &
+                C_loss_rate=C_loss_rate(:,k), N_loss_rate=N_loss_rate(:,k), CO2prod=CO2prod, &
                 deadmic_C_produced=deadmic_C_produced(k), protected_C_produced=protected_C_produced(:,k), &
                 protected_turnover_rate=protected_C_turnover_rate(:,k), &
                 deadmic_N_produced=deadmic_N_produced(k), protected_N_produced=protected_N_produced(:,k), &
@@ -3188,12 +3200,14 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
 
     vegn%rh=vegn%rh + CO2prod/dt_fast_yr ! accumulate loss of C to atmosphere
   enddo
-
+  do i = 1, N_C_TYPES
+     call send_tile_data(id_rsoil_C(i), C_loss_rate(i,:)/dz(1:num_l), diag)
+  enddo
 
   ! for budget check
-  vegn%fsc_out = vegn%fsc_out + (sum(fast_C_loss_rate(:)) + leaflitter_fast_C_loss_rate + finewoodlitter_fast_C_loss_rate + coarsewoodlitter_fast_C_loss_rate)*dt_fast_yr
-  vegn%ssc_out = vegn%ssc_out + (sum(slow_C_loss_rate(:)) + leaflitter_slow_C_loss_rate + finewoodlitter_slow_C_loss_rate + coarsewoodlitter_slow_C_loss_rate)*dt_fast_yr;
-  vegn%deadmic_out = vegn%deadmic_out + (sum(dead_microbe_C_loss_rate(:)) + leaflitter_deadmic_C_loss_rate + coarsewoodlitter_deadmic_C_loss_rate + finewoodlitter_deadmic_C_loss_rate)*dt_fast_yr
+!   vegn%fsc_out = vegn%fsc_out + (sum(fast_C_loss_rate(:)) + leaflitter_fast_C_loss_rate + finewoodlitter_fast_C_loss_rate + coarsewoodlitter_fast_C_loss_rate)*dt_fast_yr
+!   vegn%ssc_out = vegn%ssc_out + (sum(slow_C_loss_rate(:)) + leaflitter_slow_C_loss_rate + finewoodlitter_slow_C_loss_rate + coarsewoodlitter_slow_C_loss_rate)*dt_fast_yr;
+!   vegn%deadmic_out = vegn%deadmic_out + (sum(dead_microbe_C_loss_rate(:)) + leaflitter_deadmic_C_loss_rate + coarsewoodlitter_deadmic_C_loss_rate + finewoodlitter_deadmic_C_loss_rate)*dt_fast_yr
   
 
   ! accumulate decomposition rate reduction for the soil carbon restart output
@@ -3203,18 +3217,6 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   !       e.g. weight it with the carbon loss, or something like that
 
   ! ---- diagnostic section
-  if (id_rsoil_fast>0)  call send_tile_data(id_rsoil_fast, fast_C_loss_rate(:)/dz(1:num_l), diag)
-  if (id_rsoil_slow>0)  call send_tile_data(id_rsoil_slow, slow_C_loss_rate(:)/dz(1:num_l), diag)
-  if (id_rsoil_deadmic>0) call send_tile_data(id_rsoil_deadmic, dead_microbe_C_loss_rate(:)/dz(1:num_l), diag)
-  if (id_rsoil_leaflitter_fast>0) call send_tile_data(id_rsoil_leaflitter_fast, leaflitter_fast_C_loss_rate, diag)
-  if (id_rsoil_leaflitter_slow>0) call send_tile_data(id_rsoil_leaflitter_slow, leaflitter_slow_C_loss_rate, diag)
-  if (id_rsoil_leaflitter_deadmic>0) call send_tile_data(id_rsoil_leaflitter_deadmic, leaflitter_deadmic_C_loss_rate, diag)
-  if (id_rsoil_finewoodlitter_fast>0) call send_tile_data(id_rsoil_finewoodlitter_fast, finewoodlitter_fast_C_loss_rate, diag)
-  if (id_rsoil_finewoodlitter_slow>0) call send_tile_data(id_rsoil_finewoodlitter_slow, finewoodlitter_slow_C_loss_rate, diag)
-  if (id_rsoil_finewoodlitter_deadmic>0) call send_tile_data(id_rsoil_finewoodlitter_deadmic, finewoodlitter_deadmic_C_loss_rate, diag)
-  if (id_rsoil_coarsewoodlitter_fast>0) call send_tile_data(id_rsoil_coarsewoodlitter_fast, coarsewoodlitter_fast_C_loss_rate, diag)
-  if (id_rsoil_coarsewoodlitter_slow>0) call send_tile_data(id_rsoil_coarsewoodlitter_slow, coarsewoodlitter_slow_C_loss_rate, diag)
-  if (id_rsoil_coarsewoodlitter_deadmic>0) call send_tile_data(id_rsoil_coarsewoodlitter_deadmic, coarsewoodlitter_deadmic_C_loss_rate, diag)
   call send_tile_data(id_rsoil, vegn%rh, diag)
   ! TODO: arithmetic averaging of A does not seem correct; we need to invent something better,
   !       e.g. weight it with the carbon loss, or something like that
@@ -3273,8 +3275,8 @@ subroutine Dsdt_CENTURY(vegn, soil, diag, soilt, theta)
   soil%asoil_in(:) = soil%asoil_in(:) + A(:)
 
   ! ---- diagnostic section
-  if (id_rsoil_fast>0)  call send_tile_data(id_rsoil_fast, fast_C_loss(:)/(dz(1:num_l)*dt_fast_yr), diag)
-  if (id_rsoil_slow>0)  call send_tile_data(id_rsoil_slow, slow_C_loss(:)/(dz(1:num_l)*dt_fast_yr), diag)
+  call send_tile_data(id_rsoil_C(C_CEL), fast_C_loss(:)/(dz(1:num_l)*dt_fast_yr), diag)
+  call send_tile_data(id_rsoil_C(C_LIG), slow_C_loss(:)/(dz(1:num_l)*dt_fast_yr), diag)
   call send_tile_data(id_rsoil, vegn%rh, diag)
 
   ! TODO: arithmetic averaging of A does not seem correct; we need to invent something better,
