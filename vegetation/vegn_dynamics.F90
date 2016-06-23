@@ -9,7 +9,7 @@ use fms_mod, only: error_mesg, FATAL, WARNING
 use time_manager_mod, only: time_type
 
 use constants_mod, only : PI,tfreeze
-use land_constants_mod, only : seconds_per_year, mol_C
+use land_constants_mod, only : days_per_year, seconds_per_year, mol_C
 use land_data_mod, only : log_version
 use land_debug_mod, only : is_watch_point, check_var_range
 use land_tile_diag_mod, only : OP_SUM, OP_MEAN, &
@@ -62,10 +62,10 @@ real, parameter :: GROWTH_RESP=0.333  ! fraction of NPP lost as growth respirati
 real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 days)
 
 ! diagnostic field IDs
-integer :: id_npp, id_nep, id_gpp, id_wood_prod, id_leaf_root_gr,id_sw_seed_gr
+integer :: id_npp, id_nep, id_gpp, id_wood_prod, id_leaf_root_gr, id_sw_seed_gr
 integer :: id_rsoil, id_rsoil_fast, id_rsoil_slow
 integer :: id_resp, id_resl, id_resr, id_ress, id_resg, id_asoil
-integer :: id_soilt, id_theta, id_litter, id_age, id_exudate
+integer :: id_soilt, id_theta, id_litter, id_age, id_exudate, id_dbh_growth
 
 
 contains
@@ -104,6 +104,9 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
        missing_value=-100.0)
   id_sw_seed_gr = register_cohort_diag_field ( diag_mod_name, 'sw_seed_gr',  &
        (/id_lon,id_lat/), time, 'C respired in seeds and sapwood growth', 'kgC/(m2 year)', &
+       missing_value=-100.0)    
+  id_dbh_growth = register_cohort_diag_field ( diag_mod_name, 'dbh_gr',  &
+       (/id_lon,id_lat/), time, 'growth rathe of DBH', 'm/year', &
        missing_value=-100.0)    
   id_litter = register_tiled_diag_field (diag_mod_name, 'litter', (/id_lon,id_lat/), &
        time, 'litter productivity', 'kg C/(m2 year)', missing_value=-100.0)
@@ -479,9 +482,8 @@ subroutine vegn_growth (vegn, diag)
   type(vegn_cohort_type), pointer :: cc    ! current cohort
   real :: cmass0,cmass1 ! for debug only
   integer :: i, N
-  real, dimension(vegn%n_cohorts) :: wood_prod
-  real, dimension(vegn%n_cohorts) :: leaf_root_gr
-  real, dimension(vegn%n_cohorts) :: sw_seed_gr
+  real, dimension(vegn%n_cohorts) :: &
+     wood_prod, leaf_root_gr, sw_seed_gr, deltaDBH
   
   if (is_watch_point()) then
      cmass0 = vegn_tile_carbon(vegn)
@@ -496,7 +498,7 @@ subroutine vegn_growth (vegn, diag)
      !__DEBUG1__(cc%carbon_gain)
       
         cc%nsc=cc%nsc+cc%carbon_gain
-        call biomass_allocation_ppa(cc,wood_prod(i),leaf_root_gr(i),sw_seed_gr(i)) 
+        call biomass_allocation_ppa(cc,wood_prod(i),leaf_root_gr(i),sw_seed_gr(i),deltaDBH(i))
          
    
      !write(*,*)"############## in vegn_growth #################"
@@ -545,6 +547,8 @@ subroutine vegn_growth (vegn, diag)
   call send_cohort_data(id_wood_prod,diag,vegn%cohorts(1:N),wood_prod(:), weight=vegn%cohorts(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_leaf_root_gr,diag,vegn%cohorts(1:N),leaf_root_gr(:), weight=vegn%cohorts(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_sw_seed_gr,diag,vegn%cohorts(1:N),sw_seed_gr(:), weight=vegn%cohorts(1:N)%nindivs, op=OP_SUM)
+  ! conversion of DBH_growth assumes that vegn_growth is called daily
+  call send_cohort_data(id_DBH_growth,diag,vegn%cohorts(1:N),deltaDBH(:)*days_per_year, weight=vegn%cohorts(1:N)%nindivs, op=OP_MEAN)
   
   if (is_watch_point()) then
      cmass1 = vegn_tile_carbon(vegn)
@@ -641,11 +645,12 @@ end subroutine vegn_starvation_ppa
 ! ==============================================================================
 ! updates cohort vegetation structure, biomass pools, LAI, SAI, and height  
 ! using accumulated carbon_gain
-subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr)
+subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH)
   type(vegn_cohort_type), intent(inout) :: cc
   real, intent(out) :: wood_prod ! wood production, kgC/year per individual, diagnostic output
   real, intent(out) :: leaf_root_gr! allocation to leaf and fine root, kgC/year
   real, intent(out) :: sw_seed_gr! allocation to sapwood and seed, kgC/year
+  real, intent(out) :: deltaDBH ! tendency of breast height diameter, m
 
   real :: CSAtot ! total cross section area, m2
   real :: CSAsw  ! Sapwood cross sectional area, m2
@@ -658,7 +663,6 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr)
   real :: deltaBL, deltaBR ! tendencies of leaf and root biomass, kgC/individual
   real :: deltaBSW ! tendency of sapwood biomass, kgC/individual
   real :: deltaBwood ! tendency of wood biomass, kgC/individual
-  real :: deltaDBH ! tendency of breast height diameter, m
   real :: deltaCA ! tendency of crown area, m2/individual
   real :: deltaHeight ! tendency of vegetation height
   real :: deltaCSAsw ! tendency of sapwood area
@@ -680,6 +684,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr)
 !  real ::   b_ca = 1.18162        ! thetaCA
 !  real ::   alpha_s = 0.559       ! alphaBM
 
+  
   associate (sp => spdata(cc%species)) ! F2003
 
   ! TODO: what if carbon_gain is not 0, but leaves are OFF (marginal case? or
@@ -687,7 +692,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr)
   delta_bsw_branch = 0.
   delta_wood_branch  = 0.
   ! set init values for diag output, to be returned when the actual calulations are bypassed:
-  wood_prod = 0.0 ; leaf_root_gr = 0.0 ; sw_seed_gr = 0.0 
+  wood_prod = 0.0 ; leaf_root_gr = 0.0 ; sw_seed_gr = 0.0 ; deltaDBH = 0.0
   if (cc%status == LEAF_ON) then
      ! calculate the carbon spent on growth of leaves and roots
      G_LFR    = max(0.0, min(cc%bl_max+cc%br_max-cc%bl-cc%br,  &
@@ -741,7 +746,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr)
 
      wood_prod = deltaBSW*365.0 ! conversion from kgC/day to kgC/year
      leaf_root_gr = G_LFR*365.0 ! conversion from kgC/day to kgC/year
-     sw_seed_gr = (G_WF+delta_bsw_branch )*GROWTH_RESP*365.0 ! conversion from kgC/day to kgC/year
+     sw_seed_gr = (G_WF+delta_bsw_branch )*GROWTH_RESP*days_per_year ! conversion from kgC/day to kgC/year
      
      if (cc%nsc < 0.) write (*, *)'nsc is negative!!!!!!'
 
