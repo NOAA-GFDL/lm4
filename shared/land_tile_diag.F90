@@ -93,13 +93,14 @@ character(32), parameter :: opstrings(6) = (/ & ! symbolica names of the aggrega
 
 ! TODO: generalize treatment of cohort filters. Possible filters include: selected 
 ! species, selected species in the canopy, trees above certain age, etc...
-integer, parameter :: N_CHRT_FILTERS = 3 ! number of pssible distinct cohort filters,
+integer, parameter :: N_CHRT_FILTERS = 4 ! number of pssible distinct cohort filters,
 ! currently : all vegetation, upper canopy layer, and understory
-character(2),  parameter :: chrt_filter_suffix(N_CHRT_FILTERS) = (/'  ','_1','_U'/)
+character(4),  parameter :: chrt_filter_suffix(N_CHRT_FILTERS) = (/'    ','_1  ','_U  ','_TOP'/)
 character(32), parameter :: chrt_filter_name(N_CHRT_FILTERS)   = (/&
     '                                ', &
     ' in top canopy layer            ', &
-    ' in understory                  '  /)
+    ' in understory                  ', &
+    ' for the top cohort             '  /)
 
 ! static/dynamic indicators
 integer, parameter :: FLD_STATIC    = 0
@@ -1027,8 +1028,9 @@ subroutine send_cohort_data_with_weight (id, buffer, cc, data, weight, op)
   real,                   intent(in)    :: weight(:) ! averaging weight
   integer,                intent(in)    :: op        ! cohort aggregation operation
   
-  integer :: i
+  integer :: i,k
   real    :: value
+  logical :: mask(size(data))
   
   if (id<=0) return
 
@@ -1060,6 +1062,19 @@ subroutine send_cohort_data_with_weight (id, buffer, cc, data, weight, op)
      ! understory cohorts
      value = aggregate(data,weight,op,mask=cc(:)%layer>1)
      call send_tile_data(cfields(i)%ids(3), value, buffer)
+  endif
+  if (cfields(i)%ids(4) > 0) then
+     ! top cohort: mask out everything but the tallest cohort
+     mask(:) = .FALSE.
+     ! NOTE that because relayering of cohort occurs infrequently, the tallest
+     ! cohort is not necessarily the first. Strange things happen when cohorts
+     ! get pushed out of top layer, including sudden increase in height. The reason 
+     ! perhaps the change of the parameters (including target NSC) that happens
+     ! when cohort becomes understory... For now, just save the first cohort value.
+     ! k = maxloc(cc(1:size(data))%height,1); mask(k) = .TRUE.
+     mask(1) = .TRUE.
+     value = aggregate(data,weight,op,mask=mask)
+     call send_tile_data(cfields(i)%ids(4), value, buffer)
   endif
 end subroutine send_cohort_data_with_weight
 
