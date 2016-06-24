@@ -24,7 +24,7 @@ use land_tile_mod,   only : land_tile_map, land_tile_type, land_tile_enum_type, 
 use land_data_mod,   only : lnd
 use soil_mod,        only : add_soil_carbon
 use soil_carbon_mod, only : add_litter, soil_carbon_option, &
-     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, N_C_TYPES, C_CEL
+     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, N_C_TYPES, C_FAST
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
      cohort_root_litter_profile
 
@@ -706,11 +706,11 @@ subroutine kill_plants_ppa(cc, vegn, soil, ndead, fsmoke, leaf_litt_C, wood_litt
   associate(sp=>spdata(cc%species))
   leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*(cc%bl+cc%bseed+cc%carbon_gain)*(1-fsmoke)*ndead
   wood_litt_C(:) = wood_litt_C(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(cc%bwood+cc%bsw+cc%bwood_gain)*(1-fsmoke)*agf_bs*ndead
-  wood_litt_C(C_CEL) = wood_litt_C(C_CEL)+cc%nsc*(1-fsmoke)*agf_bs*ndead
+  wood_litt_C(C_FAST) = wood_litt_C(C_FAST)+cc%nsc*(1-fsmoke)*agf_bs*ndead
   ! what is the seed nitrogen? What do we do with nitrogen storage?
   leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*cc%leaf_N*(1-fsmoke)*ndead
   wood_litt_N(:) = wood_litt_N(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(cc%wood_N+cc%sapwood_N)*(1-fsmoke)*agf_bs*ndead
-  wood_litt_N(C_CEL) = wood_litt_N(C_CEL)+cc%stored_N*(1-fsmoke)*agf_bs*ndead
+  wood_litt_N(C_FAST) = wood_litt_N(C_FAST)+cc%stored_N*(1-fsmoke)*agf_bs*ndead
   call cohort_root_litter_profile(cc, dz, profile)
   do l = 1, num_l
      root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*ndead*(1-fsmoke)*(/ &

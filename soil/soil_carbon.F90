@@ -38,7 +38,7 @@ public :: add_litter
 public :: add_C_N_to_cohorts
 public :: add_C_N_to_rhizosphere
 public :: combine_pools
-public :: poolTotals
+public :: poolTotals, poolTotals1
 public :: init_soil_pool
 public :: read_soil_carbon_namelist
 
@@ -63,7 +63,7 @@ public :: soil_NO3_deposition!x2z
 public :: soil_NH4_deposition!x2z
 public :: soil_org_N_deposition
 
-public :: N_C_TYPES, C_CEL, C_LIG, C_MIC
+public :: N_C_TYPES, C_FAST, C_SLOW, C_MIC
 public :: c_shortname, c_longname
 public :: adjust_pool_ncohorts
 ! =====end of public interfaces ==============================================
@@ -75,8 +75,8 @@ character(len=*), parameter :: module_name = 'soil_carbon_mod'
 
 integer, parameter :: N_C_TYPES = 3  ! Carbon chemical species (Cellulose, lignin, microbial products)
 integer, parameter :: & ! indices of carbon chemical species
-    C_CEL = 1, & ! cellulose (fast)
-    C_LIG = 2, & ! lignin (slow)
+    C_FAST = 1, & ! cellulose (fast)
+    C_SLOW = 2, & ! lignin (slow)
     C_MIC = 3    ! microbial producs
 
 ! names of the carbon types, for i/o
@@ -2120,6 +2120,43 @@ end function
     endif
 end subroutine poolTotals
 
+ subroutine poolTotals1(pool, litterC, litterN, livemicC, livemicN, &
+        dissolvedC, dissolvedN, protectedC, protectedN, totalC, totalN, ncohorts)
+    type(soil_pool), intent(in) :: pool
+    real, intent(out), dimension(N_C_TYPES), optional :: &
+        litterC,    litterN,    &
+        protectedC, protectedN, &
+        dissolvedC, dissolvedN
+    real, intent(out), optional :: &
+        totalC, totalN, &
+        livemicC,livemicN
+    integer, intent(out), optional :: ncohorts
+    
+    type(litterCohort)::totalCohort
+    integer::n
+    
+    totalCohort=totalPoolCohort(pool)
+
+    if (present(litterC))    litterC=totalCohort%litterC(:)
+    if (present(litterN))    litterN=totalCohort%litterN(:)
+    if (present(livemicC))   livemicC=totalCohort%livingMicrobeC
+    if (present(livemicN))   livemicN=totalCohort%livingMicrobeN
+    if (present(protectedC)) protectedC=totalCohort%protectedC(:)
+    if (present(protectedN)) protectedN=totalCohort%protectedN(:)
+    if (present(dissolvedC)) dissolvedC=pool%dissolved_carbon(:)
+    if (present(dissolvedN)) dissolvedN=pool%dissolved_nitrogen(:)
+    if (present(totalC)) totalC=sum(totalCohort%litterC)+sum(totalCohort%protectedC)+&
+            totalCohort%livingMicrobeC+sum(pool%dissolved_carbon)
+    if (present(totalN)) totalN=sum(totalCohort%litterN)+sum(totalCohort%protectedN)+&
+            totalCohort%livingMicrobeN+sum(pool%dissolved_nitrogen)+pool%ammonium+pool%nitrate
+    
+    if (present(ncohorts)) then
+        ncohorts=0
+        do n=1,pool%n_cohorts
+            if (cohortCsum(pool%litterCohorts(n)).gt.0.0) ncohorts=ncohorts+1
+        enddo
+    endif
+end subroutine poolTotals1
 
 ! Combine cohorts in a pool, making sure the total number is less than the pool max cohorts
 subroutine cull_cohorts(pool)
