@@ -18,6 +18,7 @@ use land_tile_mod,      only : land_tile_type, diag_buff_type, &
 use vegn_cohort_mod,    only : vegn_cohort_type
 use land_data_mod,      only : lnd, log_version
 use tile_diag_buff_mod, only : diag_buff_type, realloc_diag_buff
+! use ifcore 
 
 implicit none
 private
@@ -719,6 +720,13 @@ subroutine send_tile_data_1d(id, x, buffer)
   is = fields(i)%offset ; ie = is+fields(i)%size-1
 
   ! store the data
+  if(ie-is+1.ne.size(x)) then
+     ! call TRACEBACKQQ()
+     call error_mesg (mod_name, &
+         'size of input data ('//string(size(x))//') does not match size of diag field "'&
+         //trim(fields(i)%module)//'/'//trim(fields(i)%name)//'" ('//string(ie-is+1)//').', &
+         FATAL)
+  endif
   buffer%data(is:ie) = x(:)
   buffer%mask(is:ie) = .TRUE.
 
