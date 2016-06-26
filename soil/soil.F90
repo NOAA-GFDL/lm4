@@ -3052,8 +3052,8 @@ subroutine soil_step_3(soil, diag)
      call send_tile_data(id_protected_total_N, sum(total_prot_N), diag)
      call send_tile_data(id_dissolved_total_C, sum(total_diss_C), diag)
      call send_tile_data(id_dissolved_total_N, sum(total_diss_N), diag)
-     call send_tile_data(id_total_soil_C, sum(total_C)+total_livemic_C+total_diss_C+total_prot_C, diag)
-     call send_tile_data(id_total_soil_N, sum(total_N)+total_livemic_N+total_diss_N+total_prot_N, diag)
+     call send_tile_data(id_total_soil_C, sum(total_C+total_diss_C+total_prot_C)+total_livemic_C, diag)
+     call send_tile_data(id_total_soil_N, sum(total_N+total_diss_N+total_prot_N)+total_livemic_N, diag)
   case default
      call error_mesg('soil_step_3','unrecognized soil carbon option -- this should never happen', FATAL)
   end select  
@@ -4048,11 +4048,12 @@ end subroutine add_soil_carbon
 ! ============================================================================
 ! Nitrogen uptake from the rhizosphere by roots (active transport across root-soil interface)
 ! Mineral nitrogen is taken up from the rhizosphere only
-subroutine root_N_uptake(soil,vegn,total_N_uptake,dt)
+subroutine root_N_uptake(soil,vegn,total_N_uptake,dt,update_pools)
   real,intent(out)::total_N_uptake
   type(vegn_tile_type),intent(in)::vegn
   type(soil_tile_type),intent(inout)::soil
   real,intent(in)::dt
+  logical, intent(in) :: update_pools
 
   real :: nitrate_uptake, ammonium_uptake, ammonium_concentration, nitrate_concentration
   real :: rhiz_frac(num_l)
@@ -4072,8 +4073,10 @@ subroutine root_N_uptake(soil,vegn,total_N_uptake,dt)
     if(nitrate_uptake>soil%soil_organic_matter(k)%nitrate) then
        __DEBUG4__(k,nitrate_concentration,nitrate_uptake,soil%soil_organic_matter(k)%nitrate)
     endif
-    soil%soil_organic_matter(k)%ammonium=soil%soil_organic_matter(k)%ammonium-ammonium_uptake
-    soil%soil_organic_matter(k)%nitrate=soil%soil_organic_matter(k)%nitrate-nitrate_uptake
+    if (update_pools) then
+       soil%soil_organic_matter(k)%ammonium=soil%soil_organic_matter(k)%ammonium-ammonium_uptake
+       soil%soil_organic_matter(k)%nitrate=soil%soil_organic_matter(k)%nitrate-nitrate_uptake
+    endif
     total_N_uptake = total_N_uptake + ammonium_uptake + nitrate_uptake
   enddo
 end subroutine root_N_uptake
@@ -4112,6 +4115,8 @@ subroutine myc_scavenger_N_uptake(soil,cc,myc_biomass,total_N_uptake,dt,update_p
 
   ! Mycorrhizae should have access to litter layer too
   ! Might want to update this so it calculates actual layer thickness?
+  ! Assume 20% of mycorrhizal biomass accesses litter, so we're not dependent 
+  ! on layer thickness
   call mycorrhizal_mineral_N_uptake_rate(soil%leafLitter,myc_biomass*uptake_frac_max(1),dz(1),nitrate_uptake,ammonium_uptake)
   ammonium_uptake = min(ammonium_uptake,soil%leafLitter%ammonium/dt)
   nitrate_uptake = min(nitrate_uptake,soil%leafLitter%nitrate/dt)
@@ -4119,6 +4124,14 @@ subroutine myc_scavenger_N_uptake(soil,cc,myc_biomass,total_N_uptake,dt,update_p
   if (update_pools) then
      soil%leafLitter%ammonium=soil%leafLitter%ammonium-ammonium_uptake*dt
      soil%leafLitter%nitrate=soil%leafLitter%nitrate-nitrate_uptake*dt
+  endif
+  call mycorrhizal_mineral_N_uptake_rate(soil%coarseWoodLitter,myc_biomass*uptake_frac_max(1),dz(1),nitrate_uptake,ammonium_uptake)
+  ammonium_uptake = min(ammonium_uptake,soil%coarseWoodLitter%ammonium/dt)
+  nitrate_uptake = min(nitrate_uptake,soil%coarseWoodLitter%nitrate/dt)
+  total_N_uptake=total_N_uptake+(nitrate_uptake+ammonium_uptake)*dt
+  if (update_pools) then
+     soil%coarseWoodLitter%ammonium=soil%coarseWoodLitter%ammonium-ammonium_uptake*dt
+     soil%coarseWoodLitter%nitrate=soil%coarseWoodLitter%nitrate-nitrate_uptake*dt
   endif
 end subroutine myc_scavenger_N_uptake
 
@@ -4155,7 +4168,12 @@ subroutine myc_miner_N_uptake(soil,cc,myc_biomass,total_N_uptake,total_C_uptake,
 
   ! Mycorrhizae should have access to litter layer too
   ! Might want to update this so it calculates actual layer thickness?
-  call mycorrhizal_decomposition(soil%leafLitter,myc_biomass*uptake_frac_max(1),T(1),theta(1),air_filled_porosity(1),N_uptake,C_uptake,CO2prod,dt,update_pools)
+  call mycorrhizal_decomposition(soil%leafLitter,myc_biomass*0.3,T(1),theta(1),air_filled_porosity(1),N_uptake,C_uptake,CO2prod,dt,update_pools)
+  total_N_uptake=total_N_uptake+N_uptake
+  total_C_uptake = total_C_uptake+C_uptake
+  total_CO2prod = total_CO2prod + CO2prod
+
+  call mycorrhizal_decomposition(soil%coarseWoodLitter,myc_biomass*0.3,T(1),theta(1),air_filled_porosity(1),N_uptake,C_uptake,CO2prod,dt,update_pools)
   total_N_uptake=total_N_uptake+N_uptake
   total_C_uptake = total_C_uptake+C_uptake
   total_CO2prod = total_CO2prod + CO2prod

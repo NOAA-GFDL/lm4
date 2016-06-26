@@ -1945,6 +1945,7 @@ function soil_tile_nitrogen (soil); real soil_tile_nitrogen
 
   select case (soil_carbon_option)
   case (SOILC_CORPSE,SOILC_CORPSE_N)
+     soil_tile_nitrogen = 0.0
      do i=1,num_l
         call poolTotals(soil%soil_organic_matter(i),totalNitrogen=temp)
         soil_tile_nitrogen=soil_tile_nitrogen+temp

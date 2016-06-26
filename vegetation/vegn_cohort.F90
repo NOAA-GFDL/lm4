@@ -148,7 +148,6 @@ type :: vegn_cohort_type
   ! BNS: Maximum leaf biomass, to be used in the context of nitrogen limitation as suggested by Elena
   ! This will be either fixed or calculated as a function of nitrogen uptake or availability
   real :: nitrogen_stress = 0.0
-  real :: cumulative_extra_live_biomass = 0.0
 
   ! Biomass of "scavenger" type mycorrhizae (corresponding to Arbuscular mycorrhizae)
   real :: myc_scavenger_biomass_C = 0.0
@@ -159,6 +158,9 @@ type :: vegn_cohort_type
   ! Biomass of symbiotic N fixing microbes
   real :: N_fixer_biomass_C = 0.0
   real :: N_fixer_biomass_N = 0.0
+
+  ! Buffer pool for root exudation (so it's smoother than daily NPP fluctuations)
+  real :: root_exudate_buffer_C = 0.0
 
   ! Nitrogen vegetation pools
   real :: stored_N = 0.0
@@ -587,7 +589,7 @@ subroutine update_biomass_pools(c)
   !   c%nitrogen_stress = 5.0
   ! endif
   c%nitrogen_stress = min(c%nitrogen_stress,5.0)
-  c%nitrogen_stress = max(c%nitrogen_stress,0.0)
+  c%nitrogen_stress = max(c%nitrogen_stress,0.05)
 
   ! This calculates relative allocation based on nitrogen stress
   ! Should match results from update_living_bio_fraction at 0 stress and skew toward root and wood growth as N stress increases

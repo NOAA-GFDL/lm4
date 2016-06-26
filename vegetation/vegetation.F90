@@ -131,6 +131,7 @@ real    :: init_cohort_nsc(MAX_INIT_COHORTS)     = 0.0  ! initial non-structural
 real    :: init_cohort_myc_scav(MAX_INIT_COHORTS) = 0.0 ! initial scavenger mycorrhizal biomass, kgC/m2
 real    :: init_cohort_myc_mine(MAX_INIT_COHORTS) = 0.0 ! initial miner mycorrhizal biomass, kgC/m2
 real    :: init_cohort_n_fixer(MAX_INIT_COHORTS)  = 0.0 ! initial N fixer microbe biomass, kgC/m2
+real    :: init_cohort_stored_N_mult(MAX_INIT_COHORTS) = 1.5 ! Multiple of initial leaf N + root N
 real    :: init_cohort_age(MAX_INIT_COHORTS)     = 0.0  ! initial cohort age, year
 character(32) :: rad_to_use = 'big-leaf' ! or 'two-stream'
 character(32) :: snow_rad_to_use = 'ignore' ! or 'paint-leaves'
@@ -178,6 +179,7 @@ namelist /vegn_nml/ &
     init_cohort_bl, init_cohort_blv, init_cohort_br, init_cohort_bsw, &
     init_cohort_bwood, init_cohort_bseed, init_cohort_nsc, &
     init_cohort_myc_scav, init_cohort_myc_mine, init_cohort_n_fixer, &
+    init_cohort_stored_N_mult, &
     rad_to_use, snow_rad_to_use, photosynthesis_to_use, &
     co2_to_use_for_photosynthesis, co2_for_photosynthesis, &
     water_stress_to_use, hydraulics_repair, &
@@ -407,6 +409,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      call get_cohort_data(restart2, 'cohort_root_N', cohort_root_N_ptr )
      call get_cohort_data(restart2, 'cohort_total_N', cohort_total_N_ptr )
      call get_cohort_data(restart2, 'nitrogen_stress', cohort_nitrogen_stress_ptr )
+     call get_cohort_data(restart2, 'root_exudate_buffer_C', cohort_root_exudate_buffer_C_ptr )
 
      if(field_exists(restart2,'landuse')) &
           call get_int_tile_data(restart2,'landuse',vegn_landuse_ptr)
@@ -548,6 +551,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
         cc%nindivs = init_cohort_nindivs(n)
         cc%age     = init_cohort_age(n)
         cc%bliving = cc%bl+cc%br+cc%blv+cc%bsw
+        cc%root_exudate_buffer_C = 0.0
         cc%npp_previous_day = 0.0
         cc%status  = LEAF_ON
         cc%leaf_age = 0.0
@@ -566,11 +570,11 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
         endif
         associate(sp=>spdata(cc%species))
         cc%K_r        = sp%root_perm
-        cc%leaf_N     = cc%bl/sp%leaf_live_c2n
+        cc%leaf_N     = (cc%bl+cc%blv)/sp%leaf_live_c2n
         cc%wood_N     = cc%bwood/sp%wood_c2n
         cc%sapwood_N  = cc%bsw/sp%sapwood_c2n
         cc%root_N     = cc%br/sp%froot_live_c2n
-        cc%stored_N   = 1*(cc%leaf_N+cc%root_N)
+        cc%stored_N   = init_cohort_stored_N_mult(n)*(cc%leaf_N+cc%root_N)
         cc%total_N    = cc%stored_N+cc%leaf_N+cc%wood_N+cc%root_N+cc%sapwood_N
         cc%myc_scavenger_biomass_N = cc%myc_scavenger_biomass_C/c2n_mycorrhizae
         cc%myc_miner_biomass_N     = cc%myc_miner_biomass_N/c2n_mycorrhizae
@@ -1019,6 +1023,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'cohort_root_N', cohort_root_N_ptr, 'root N pool of individual','kg N/m2')
   call add_cohort_data(restart2,'cohort_total_N', cohort_total_N_ptr, 'total N pool of individual','kg N/m2')
   call add_cohort_data(restart2,'nitrogen_stress', cohort_nitrogen_stress_ptr, 'total N pool of individual','kg N/m2')
+  call add_cohort_data(restart2,'root_exudate_buffer_C', cohort_root_exudate_buffer_C_ptr, 'cumulative live biomass over N limit for individual','kg N/m2')
 
   call add_int_tile_data(restart2,'landuse',vegn_landuse_ptr,'vegetation land use type')
   call add_tile_data(restart2,'age',vegn_age_ptr,'vegetation age', 'yr')
@@ -2527,6 +2532,7 @@ DEFINE_COHORT_ACCESSOR(real,leaf_N)
 DEFINE_COHORT_ACCESSOR(real,root_N)
 DEFINE_COHORT_ACCESSOR(real,total_N)
 DEFINE_COHORT_ACCESSOR(real,nitrogen_stress)
+DEFINE_COHORT_ACCESSOR(real,root_exudate_buffer_C)
 
 ! wolf
 DEFINE_COHORT_ACCESSOR(real,psi_r)
