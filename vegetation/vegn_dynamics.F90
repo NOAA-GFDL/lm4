@@ -26,7 +26,7 @@ use vegn_data_mod, only : spdata, &
      c2n_mycorrhizae, c2n_N_fixer, &
      root_exudate_N_frac, mycorrhizal_turnover_time, N_fixer_turnover_time
 use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon
-use soil_tile_mod, only: num_l, dz, soil_tile_type, clw, csw
+use soil_tile_mod, only: num_l, dz, soil_tile_type, clw, csw, LEAF, CWOOD
 use vegn_cohort_mod, only : vegn_cohort_type, &
      update_biomass_pools, update_bio_living_fraction, update_species, &
      leaf_area_from_biomass, init_cohort_allometry_ppa, &
@@ -1450,7 +1450,7 @@ subroutine update_soil_pools(vegn, soil)
         deltafast_N = 0.0
         deltaslow_N = 0.0
      endif
-     call add_litter(soil%leafLitter, [deltafast, deltaslow, 0.0], [deltafast_N, deltaslow_N, 0.0])
+     call add_litter(soil%litter(LEAF), [deltafast, deltaslow, 0.0], [deltafast_N, deltaslow_N, 0.0])
      vegn%leaflitter_buffer_fast = vegn%leaflitter_buffer_fast - deltafast
      vegn%leaflitter_buffer_slow = vegn%leaflitter_buffer_slow - deltaslow
      vegn%leaflitter_buffer_fast_N = vegn%leaflitter_buffer_fast_N - deltafast_N
@@ -1473,7 +1473,7 @@ subroutine update_soil_pools(vegn, soil)
         deltafast_N=0.0
         deltaslow_N=0.0
      endif
-     call add_litter(soil%coarsewoodlitter,[deltafast,deltaslow,0.0],[deltafast_N,deltaslow_N,0.0])
+     call add_litter(soil%litter(CWOOD),[deltafast,deltaslow,0.0],[deltafast_N,deltaslow_N,0.0])
      vegn%coarsewoodlitter_buffer_fast = vegn%coarsewoodlitter_buffer_fast - deltafast
      vegn%coarsewoodlitter_buffer_slow = vegn%coarsewoodlitter_buffer_slow - deltaslow
      vegn%coarsewoodlitter_buffer_fast_N = vegn%coarsewoodlitter_buffer_fast_N - deltafast_N

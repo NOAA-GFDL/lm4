@@ -119,6 +119,23 @@ integer, parameter, public ::   &
      GW_HILL           = 3, &
      GW_TILED          = 4
 
+! litter pool constants
+integer, parameter, public :: &
+     N_LITTER_POOLS    = 3, &
+     LEAF              = 1, & ! leaf litter
+     CWOOD             = 2, & ! coarse wood litter
+     FWOOD             = 3    ! fine wood litter
+
+character(16), parameter, public :: l_shortname(N_LITTER_POOLS) = [ &
+     'leaf            ', &
+     'coarsewood      ', &
+     'finewood        '  ]
+
+character(16), parameter, public :: l_longname(N_LITTER_POOLS) = [ &
+     'leaf            ', &
+     'coarse wood     ', &
+     'fine wood       '  ]
+
 ! ==== types =================================================================
 type :: soil_pars_type
   real vwc_wilt
@@ -236,11 +253,9 @@ type :: soil_tile_type
        fast_soil_C(:), & ! fast soil carbon pool, (kg C/m2), per layer
        slow_soil_C(:)    ! slow soil carbon pool, (kg C/m2), per layer
    ! values for CORPSE
+   type(soil_pool) :: litter(N_LITTER_POOLS) ! Surface litter pools, just one layer
    type(soil_pool), allocatable :: soil_organic_matter(:) ! Soil carbon in soil layers, using soil_carbon_mod soil carbon pool type
    integer, allocatable   :: is_peat(:)             ! Keeps track of whether soil layer is peat, for redistribution
-   type(soil_pool) :: leafLitter             ! Surface litter pools, just one layer
-   type(soil_pool) :: fineWoodLitter         ! Separating makes fire modeling easier
-   type(soil_pool) :: coarseWoodLitter
    real                   :: fast_DOC_leached !Carbon that has been leached out of the column
    real                   :: slow_DOC_leached !Carbon that has been leached out of the column
    real                   :: deadmic_DOC_leached !Carbon that has been leached out of the column
@@ -696,11 +711,11 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
 
   call soil_data_init_0d(ptr)
   do i=1,num_l
-     call init_soil_pool(ptr%soil_organic_matter(i),Qmax=ptr%pars%Qmax)
+     call init_soil_pool(ptr%soil_organic_matter(i), Qmax=ptr%pars%Qmax)
   enddo
-  call init_soil_pool(ptr%leafLitter,protectionRate=0.0,Qmax=0.0,max_cohorts=1)
-  call init_soil_pool(ptr%fineWoodLitter,protectionRate=0.0,Qmax=0.0,max_cohorts=1)
-  call init_soil_pool(ptr%coarseWoodLitter,protectionRate=0.0,Qmax=0.0,max_cohorts=1)
+  do i = 1,N_LITTER_POOLS
+     call init_soil_pool(ptr%litter(i), protectionRate=0.0, Qmax=0.0, max_cohorts=1)
+  enddo
 end function soil_tile_ctor
 
 
@@ -1168,9 +1183,9 @@ subroutine merge_soil_tiles(s1,w1,s2,w2)
   enddo
   !is_peat is 1 or 0, so multiplying is like an AND operation
   s2%is_peat(:) = s1%is_peat(:) * s2%is_peat(:)
-  call combine_pools(s1%leafLitter,s2%leafLitter,w1,w2)
-  call combine_pools(s1%fineWoodLitter,s2%fineWoodLitter,w1,w2)
-  call combine_pools(s1%coarseWoodLitter,s2%coarseWoodLitter,w1,w2)
+  do i = 1, N_LITTER_POOLS
+     call combine_pools(s1%litter(i),s2%litter(i),w1,w2)
+  enddo
   s2%asoil_in(:)    = s1%asoil_in(:)*x1 + s2%asoil_in(:)*x2
   s2%fsc_in(:)      = s1%fsc_in(:)*x1 + s2%fsc_in(:)*x2
   s2%ssc_in(:)      = s1%ssc_in(:)*x1 + s2%ssc_in(:)*x2
@@ -1923,12 +1938,10 @@ function soil_tile_carbon (soil); real soil_tile_carbon
 	call poolTotals(soil%soil_organic_matter(i),totalCarbon=temp)
         soil_tile_carbon=soil_tile_carbon+temp
      enddo
-     call poolTotals(soil%leafLitter,totalCarbon=temp)
-     soil_tile_carbon=soil_tile_carbon+temp
-     call poolTotals(soil%fineWoodLitter,totalCarbon=temp)
-     soil_tile_carbon=soil_tile_carbon+temp
-     call poolTotals(soil%coarseWoodLitter,totalCarbon=temp)
-     soil_tile_carbon=soil_tile_carbon+temp
+     do i = 1,N_LITTER_POOLS
+        call poolTotals(soil%litter(i),totalCarbon=temp)
+        soil_tile_carbon=soil_tile_carbon+temp
+     enddo
   case default
      soil_tile_carbon = sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:))
   end select
@@ -1950,12 +1963,10 @@ function soil_tile_nitrogen (soil); real soil_tile_nitrogen
         call poolTotals(soil%soil_organic_matter(i),totalNitrogen=temp)
         soil_tile_nitrogen=soil_tile_nitrogen+temp
      enddo
-     call poolTotals(soil%leafLitter,totalNitrogen=temp)
-     soil_tile_nitrogen=soil_tile_nitrogen+temp
-     call poolTotals(soil%fineWoodLitter,totalNitrogen=temp)
-     soil_tile_nitrogen=soil_tile_nitrogen+temp
-     call poolTotals(soil%coarseWoodLitter,totalNitrogen=temp)
-     soil_tile_nitrogen=soil_tile_nitrogen+temp
+     do i = 1,N_LITTER_POOLS
+        call poolTotals(soil%litter(i),totalNitrogen=temp)
+        soil_tile_nitrogen=soil_tile_nitrogen+temp
+     enddo
   case default
      soil_tile_nitrogen = 0.0
   end select

@@ -23,7 +23,8 @@ use vegn_tile_mod, only: vegn_tile_type, &
      vegn_tile_LAI, vegn_tile_SAI, &
      cpw, clw, csw
 use soil_tile_mod, only: soil_tile_type, num_l, dz, zhalf, zfull, &
-     soil_ave_temp, soil_ave_theta0, soil_ave_theta1, soil_psi_stress
+     soil_ave_temp, soil_ave_theta0, soil_ave_theta1, soil_psi_stress, &
+     N_LITTER_POOLS, LEAF
 use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, mol_air, &
      seconds_per_year, MPa_per_m
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
@@ -1700,9 +1701,9 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
   call check_var_range(ndep_amm, 0.0, HUGE(1.0), 'vegn_step_3', 'ndep_amm', FATAL)
   call check_var_range(ndep_nit, 0.0, HUGE(1.0), 'vegn_step_3', 'ndep_nit', FATAL)
   call check_var_range(ndep_org, 0.0, HUGE(1.0), 'vegn_step_3', 'ndep_org', FATAL)
-  call soil_NH4_deposition(ndep_amm*dt_fast_yr,soil%leafLitter)
-  call soil_NO3_deposition(ndep_nit*dt_fast_yr,soil%leafLitter)
-  call soil_org_N_deposition(ndep_org*dt_fast_yr,soil%leafLitter)
+  call soil_NH4_deposition(ndep_amm*dt_fast_yr,soil%litter(LEAF))
+  call soil_NO3_deposition(ndep_nit*dt_fast_yr,soil%litter(LEAF))
+  call soil_org_N_deposition(ndep_org*dt_fast_yr,soil%litter(LEAF))
 
   if (do_ppa) then
      call vegn_carbon_int_ppa(vegn, soil, tsoil, theta, diag)
@@ -2228,11 +2229,11 @@ subroutine update_vegn_slow( )
 
      if(soil_carbon_option==SOILC_CORPSE.or.soil_carbon_option==SOILC_CORPSE_N) then
         !Knock soil carbon cohorts down to their maximum number
-        call cull_cohorts(tile%soil%leafLitter)
-        call cull_cohorts(tile%soil%fineWoodLitter)
-        call cull_cohorts(tile%soil%coarseWoodLitter)
+        do ii = 1,N_LITTER_POOLS
+           call cull_cohorts(tile%soil%litter(ii))
+        enddo
         do ii=1,num_l
-              call cull_cohorts(tile%soil%soil_organic_matter(ii))
+           call cull_cohorts(tile%soil%soil_organic_matter(ii))
         enddo
      endif
   enddo
