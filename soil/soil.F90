@@ -230,12 +230,9 @@ integer :: n_river_tracers = 0
 integer :: i_river_DOC     = NO_TRACER
 
 ! ---- diagnostic field IDs
-integer :: id_protected_C, id_fsc, id_ssc, id_fsn, id_ssn, &
-    id_leaflitter_livemic, id_nleaflittercohorts, &
-    id_finewoodlitter_livemic, id_nfinewoodlittercohorts, &
-    id_coarsewoodlitter_livemic, id_ncoarsewoodlittercohorts, &
+integer :: id_fsc, id_ssc, id_fsn, id_ssn, &
     id_livemic, id_nsoilcohorts, id_Qmax, id_protectedC,  id_deadmic_total_C, id_livemic_total_C, id_deadmic_total_N, id_livemic_total_N, &
-    id_total_soil_C,id_total_soil_N,id_dissolved_total_C,id_dissolved_total_N,id_coarseWoodlitter_total_C,id_fineWoodlitter_total_C,id_leaflitter_total_C,&
+    id_total_soil_C,id_total_soil_N,id_dissolved_total_C,id_dissolved_total_N,&
     id_total_C_layered, id_total_N_layered, &
     id_lwc, id_swc, id_psi, id_temp, &
     id_ie, id_sn, id_bf, id_if, id_al, id_nu, id_sc, &
@@ -252,30 +249,25 @@ integer :: id_protected_C, id_fsc, id_ssc, id_fsn, id_ssn, &
     id_cf_1, id_cf_3, id_wt_1, id_wt_2, id_wt_2a, id_wt_2b, id_wt_3, id_wt2_3, id_wt_4, &
     id_div_bf, id_div_if, id_div_al, &
     id_z_cap, id_active_layer, id_surface_water, id_inun_frac, id_rsn_frac, id_flow, id_reflux, &
-    id_fast_C_leaching,id_slow_C_leaching,id_livemic_C_leaching,id_deadmic_C_leaching,&
-    id_protected_C_leaching, &
+    id_protected_C_leaching, id_livemic_C_leaching, &
     id_protected_total_C, id_protected_total_N, &
-    id_leaflitter_fast_dissolved_C,id_leaflitter_slow_dissolved_C,id_leaflitter_deadmic_dissolved_C,&
-    id_finewoodlitter_fast_dissolved_C,id_finewoodlitter_slow_dissolved_C,id_finewoodlitter_deadmic_dissolved_C,&
-    id_coarsewoodlitter_fast_dissolved_C,id_coarsewoodlitter_slow_dissolved_C,id_coarsewoodlitter_deadmic_dissolved_C,&
     id_resp,id_asoil,id_rsoil,&
-    id_leaflitter_fast_C_leaching,id_leaflitter_slow_C_leaching,id_leaflitter_deadmic_C_leaching,&
-    id_finewoodlitter_fast_C_leaching,id_finewoodlitter_slow_C_leaching,id_finewoodlitter_deadmic_C_leaching,&
-    id_coarsewoodlitter_fast_C_leaching,id_coarsewoodlitter_slow_C_leaching,id_coarsewoodlitter_deadmic_C_leaching,&
     id_fast_DOC_div_loss,id_slow_DOC_div_loss,id_deadmic_DOC_div_loss, &
     id_slomtot, id_wet_frac, id_macro_infilt, &
     id_surf_DOC_loss, id_total_C_leaching, id_total_DOC_div_loss
 
+integer, dimension(N_LITTER_POOLS) :: &
+    id_litter_livemic, id_nlittercohorts, id_litter_total_C
 integer, dimension(N_C_TYPES) :: &
-    id_soil_C, id_leaflitter_C, id_coarsewoodlitter_C, id_finewoodlitter_C, &
-    id_soil_N, id_leaflitter_N, id_coarsewoodlitter_N, id_finewoodlitter_N, &
-    id_soil_dissolved_C, id_leaflitter_dissolved_C, id_coarsewoodlitter_dissolved_C, id_finewoodlitter_dissolved_C, &
-    id_soil_dissolved_N, id_leaflitter_dissolved_N, id_coarsewoodlitter_dissolved_N, id_finewoodlitter_dissolved_N, &
-    id_soil_protected_C, id_leaflitter_protected_C, id_coarsewoodlitter_protected_C, id_finewoodlitter_protected_C, &
-    id_soil_protected_N, id_leaflitter_protected_N, id_coarsewoodlitter_protected_N, id_finewoodlitter_protected_N, &
-    id_rsoil_C, id_rsoil_leaflitter, id_rsoil_coarsewoodlitter, id_rsoil_finewoodlitter, &
-    id_rsoil_N
-    
+    id_soil_C,           id_soil_N, &
+    id_soil_dissolved_C, id_soil_dissolved_N, &
+    id_soil_protected_C, id_soil_protected_N, &
+    id_rsoil_C,          id_rsoil_N, &
+    id_C_leaching
+integer, dimension(N_LITTER_POOLS,N_C_TYPES) :: &
+    id_litter_C, id_litter_N, id_litter_dissolved_C, id_litter_dissolved_N, &
+    id_litter_protected_C, id_litter_protected_N, id_litter_resp, &
+    id_litter_C_leaching
     
 ! test tridiagonal solver for advection
 integer :: id_st_diff
@@ -820,7 +812,7 @@ end do
 end function replace_text
 
 ! ============================================================================
-function register_soilc_diag_field(module_name, field_name, axes, init_time, &
+function register_soilc_diag_fields(module_name, field_name, axes, init_time, &
      long_name, units, missing_value, range, op, standard_name) result (id)
 
   integer :: id(N_C_TYPES)
@@ -840,12 +832,75 @@ function register_soilc_diag_field(module_name, field_name, axes, init_time, &
   
   do i = 1, N_C_TYPES
      id(i) = register_tiled_diag_field(module_name, &
-             trim(replace_text(field_name,'*',trim(c_shortname(i)))), &
+             trim(replace_text(field_name,'<ctype>',trim(c_shortname(i)))), &
              axes, init_time, &
-             trim(replace_text(long_name,'*',trim(c_longname(i)))), &
+             trim(replace_text(long_name,'<ctype>',trim(c_longname(i)))), &
              units, missing_value, range, op, standard_name)
   enddo
-end function register_soilc_diag_field
+end function register_soilc_diag_fields
+
+! ============================================================================
+! registered an array of diag fields, one per litter pool
+function register_litter_diag_fields(module_name, field_name, axes, init_time, &
+     long_name, units, missing_value, range, op, standard_name) result (id)
+
+  integer :: id(N_LITTER_POOLS)
+
+  character(len=*), intent(in) :: module_name
+  character(len=*), intent(in) :: field_name
+  integer,          intent(in) :: axes(:)
+  type(time_type),  intent(in) :: init_time
+  character(len=*), intent(in), optional :: long_name
+  character(len=*), intent(in), optional :: units
+  real,             intent(in), optional :: missing_value
+  real,             intent(in), optional :: range(2)
+  character(len=*), intent(in), optional :: op ! aggregation operation
+  character(len=*), intent(in), optional :: standard_name
+
+  integer :: i
+  
+  do i = 1, N_LITTER_POOLS
+     id(i) = register_tiled_diag_field(module_name, &
+             trim(replace_text(field_name,'<ltype>',trim(l_shortname(i)))), &
+             axes, init_time, &
+             trim(replace_text(long_name,'<ltype>',trim(l_longname(i)))), &
+             units, missing_value, range, op, standard_name)
+  enddo
+end function register_litter_diag_fields
+
+! ============================================================================
+! registered a 2D array of diag fields, one per litter pool per carbon type
+function register_litter_soilc_diag_fields(module_name, field_name, axes, init_time, &
+     long_name, units, missing_value, range, op, standard_name) result (id)
+
+  integer :: id(N_LITTER_POOLS, N_C_TYPES)
+
+  character(len=*), intent(in) :: module_name
+  character(len=*), intent(in) :: field_name
+  integer,          intent(in) :: axes(:)
+  type(time_type),  intent(in) :: init_time
+  character(len=*), intent(in), optional :: long_name
+  character(len=*), intent(in), optional :: units
+  real,             intent(in), optional :: missing_value
+  real,             intent(in), optional :: range(2)
+  character(len=*), intent(in), optional :: op ! aggregation operation
+  character(len=*), intent(in), optional :: standard_name
+
+  integer :: i, k
+  character(128) :: name
+  character(512) :: lname
+  
+  do i = 1, N_C_TYPES
+     do k = 1, N_LITTER_POOLS
+        name = replace_text(field_name,'<ctype>',trim(c_shortname(i)))
+        name = replace_text(name,      '<ltype>',trim(l_shortname(k)))
+        lname = replace_text(long_name,'<ctype>',trim(c_longname(i)))
+        lname = replace_text(lname,    '<ltype>',trim(l_longname(k)))
+        id(k,i) = register_tiled_diag_field(module_name, trim(name), axes, init_time, trim(lname), &
+             units, missing_value, range, op, standard_name)
+     enddo
+  enddo
+end function register_litter_soilc_diag_fields
 
 ! ============================================================================
 subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
@@ -873,6 +928,7 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
   call set_default_diag_filter('soil')
 
   ! define diagnostic fields
+  ! FIXME slm: generalize by carbon type
   id_protectedC = register_tiled_diag_field ( module_name, 'protected_soil_C', axes,  &
        lnd%time, 'protected soil carbon per layer', 'kg C/m3', missing_value=-100.0 )
   id_fast_DOC_div_loss = register_tiled_diag_field ( module_name, 'fast_DOC_div_loss', (/id_lon,id_lat/),  &
@@ -884,86 +940,59 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
   id_total_DOC_div_loss = register_tiled_diag_field ( module_name, 'total_DOC_div', axes(1:2), &
        lnd%time, 'total rate of DOC divergence loss', 'kg C/m^2/s', missing_value=initval)
   id_rsoil = register_tiled_diag_field ( module_name, 'rsoil',  &
-       (/id_lon,id_lat/), lnd%time, 'soil respiration', 'kg C/(m2 year)', &
-       missing_value=-100.0 )
+       axes(1:2), lnd%time, 'soil respiration', 'kg C/(m2 year)', missing_value=-100.0 )
 
-  ! by-carbon-species diag fields
-  id_soil_C(:) = register_soilc_diag_field(module_name, '*_soil_C', &
-       axes, lnd%time, '* soil carbon', 'kg C/m3', missing_value=-100.0 )
-  id_soil_dissolved_C(:) = register_soilc_diag_field(module_name, '*_dissolved_C', &
-       axes, lnd%time, '* dissolved soil carbon', 'kg C/m3', missing_value=-100.0 )
-  id_soil_protected_C(:) = register_soilc_diag_field(module_name, '*_protected_C', &
-       axes, lnd%time, '* protected soil carbon', 'kg C/m3', missing_value=-100.0 )
-  id_rsoil_C(:) = register_soilc_diag_field(module_name, 'rsoil_*', &
-       axes, lnd%time, '* soil carbon respiration', 'kg C/(m3 year)', missing_value=-100.0 )
   id_total_C_layered = register_tiled_diag_field ( module_name, 'total_soil_C_layered', &
        axes, lnd%time, 'total soil carbon', 'kg C/m3', missing_value=-100.0 )
-  
-  id_soil_N(:) = register_soilc_diag_field(module_name, '*_soil_N', &
-       axes, lnd%time, '* soil nitrogen', 'kg N/m3', missing_value=-100.0 )
-  id_soil_dissolved_N(:) = register_soilc_diag_field(module_name, '*_dissolved_N', &
-       axes, lnd%time, '* dissolved soil nitrogen', 'kg N/m3', missing_value=-100.0 )
-  id_soil_protected_N(:) = register_soilc_diag_field(module_name, '*_protected_N', &
-       axes, lnd%time, '* protected soil nitrogen', 'kg N/m3', missing_value=-100.0 )
-  id_rsoil_N(:) = register_soilc_diag_field(module_name, 'rsoil_N_*', &
-       axes, lnd%time, '* soil nitrogen respiration', 'kg N/(m3 year)', missing_value=-100.0 )
   id_total_N_layered = register_tiled_diag_field ( module_name, 'total_soil_N_layered', axes,  &
        lnd%time, 'total soil nitrogen', 'kg N/m3', missing_value=-100.0 )
+  ! by-carbon-species diag fields
+  id_soil_C(:) = register_soilc_diag_fields(module_name, '<ctype>_soil_C', &
+       axes, lnd%time, '<ctype> soil carbon', 'kg C/m3', missing_value=-100.0 )
+  id_soil_dissolved_C(:) = register_soilc_diag_fields(module_name, '<ctype>_dissolved_C', &
+       axes, lnd%time, '<ctype> dissolved soil carbon', 'kg C/m3', missing_value=-100.0 )
+  id_soil_protected_C(:) = register_soilc_diag_fields(module_name, '<ctype>_protected_C', &
+       axes, lnd%time, '<ctype> protected soil carbon', 'kg C/m3', missing_value=-100.0 )
+  id_rsoil_C(:) = register_soilc_diag_fields(module_name, 'rsoil_<ctype>', &
+       axes, lnd%time, '<ctype> soil carbon respiration', 'kg C/(m3 year)', missing_value=-100.0 )
+  id_soil_N(:) = register_soilc_diag_fields(module_name, '<ctype>_soil_N', &
+       axes, lnd%time, '<ctype> soil nitrogen', 'kg N/m3', missing_value=-100.0 )
+  id_soil_dissolved_N(:) = register_soilc_diag_fields(module_name, '<ctype>_dissolved_N', &
+       axes, lnd%time, '<ctype> dissolved soil nitrogen', 'kg N/m3', missing_value=-100.0 )
+  id_soil_protected_N(:) = register_soilc_diag_fields(module_name, '<ctype>_protected_N', &
+       axes, lnd%time, '<ctype> protected soil nitrogen', 'kg N/m3', missing_value=-100.0 )
+  id_rsoil_N(:) = register_soilc_diag_fields(module_name, 'rsoil_N_<ctype>', &
+       axes, lnd%time, '<ctype> soil nitrogen respiration', 'kg N/(m3 year)', missing_value=-100.0 )
+  id_C_leaching(:) = register_soilc_diag_fields ( module_name, '<ctype>_C_leaching', axes, &
+       lnd%time, 'net layer <ctype> soil C leaching',  'kg/(m2 s)', missing_value=-100.0)
 
-  id_leaflitter_C(:) = register_soilc_diag_field ( module_name, '*_leaflitter_C', &
-       axes(1:2), lnd%time, '* leaf litter carbon', 'kg C/m2', missing_value=-100.0 )
-  id_leaflitter_dissolved_C(:) = register_soilc_diag_field ( module_name, '*_leaflitter_dissolved_C', &
-       axes(1:2), lnd%time, '* leaf litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
-  id_leaflitter_protected_C(:) = register_soilc_diag_field ( module_name, '*_leaflitter_protected_C', &
-       axes(1:2), lnd%time, '* leaf litter protected carbon', 'kg C/m2', missing_value=-100.0 )
-  id_rsoil_leaflitter(:) = register_soilc_diag_field ( module_name, 'rsoil_leaflitter_*',  &
-       axes(1:2), lnd%time, 'surface leaf litter * C respiration', 'kg C/(m2 year)', &
+  ! litter fields
+  id_litter_C(:,:) = register_litter_soilc_diag_fields ( module_name, '<ctype>_<ltype>litter_C', &
+       axes(1:2), lnd%time, '<ctype> <ltype> litter carbon', 'kg C/m2', missing_value=-100.0 )
+  id_litter_dissolved_C(:,:) = register_litter_soilc_diag_fields ( module_name, '<ctype>_<ltype>litter_dissolved_C', &
+       axes(1:2), lnd%time, '<ctype> <ltype> litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
+  id_litter_protected_C(:,:) = register_litter_soilc_diag_fields ( module_name, '<ctype>_<ltype>litter_protected_C', &
+       axes(1:2), lnd%time, '<ctype> <ltype> litter protected carbon', 'kg C/m2', missing_value=-100.0 )
+  id_litter_resp(:,:) = register_litter_soilc_diag_fields ( module_name, 'rsoil_<ltype>litter_<ctype>',  &
+       axes(1:2), lnd%time, 'surface <ltype> litter <ctype> C respiration', 'kg C/(m2 year)', &
        missing_value=-100.0 )
-  id_leaflitter_livemic = register_tiled_diag_field ( module_name, 'leaflitter_live_microbe_C', axes(1:2),  &
-       lnd%time, 'live microbe leaf litter carbon', 'kg C/m2', missing_value=-100.0 )
-  id_leaflitter_total_C = register_tiled_diag_field ( module_name, 'leaflitter_total_C', &
-       axes(1:2),  lnd%time, 'leaf litter total carbon', 'kg C/m2', missing_value=-100.0 )
-
-  id_rsoil_coarsewoodlitter(:) = register_soilc_diag_field ( module_name, 'rsoil_coarsewoodlitter_*',  &
-       [ id_lon,id_lat ], lnd%time, 'surface coarse wood litter * C respiration', 'kg C/(m2 year)', &
-       missing_value=-100.0 )
-  id_rsoil_finewoodlitter(:) = register_soilc_diag_field ( module_name, 'rsoil_finewoodlitter_*',  &
-       [ id_lon,id_lat ], lnd%time, 'surface fine wood litter * C respiration', 'kg C/(m2 year)', &
-       missing_value=-100.0 )
-  id_coarsewoodlitter_C(:) = register_soilc_diag_field ( module_name, '*_coarsewoodlitter_C', &
-       axes(1:2), lnd%time, '* coarse wood litter carbon', 'kg C/m2', missing_value=-100.0 )
-  id_finewoodlitter_C(:) = register_soilc_diag_field ( module_name, '*_finewoodlitter_C', &
-       axes(1:2), lnd%time, '* fine wood litter carbon', 'kg C/m2', missing_value=-100.0 )
+  id_litter_C_leaching(:,:) = register_litter_soilc_diag_fields ( module_name, '<ctype>_<ltype>litter_C_leaching', &
+       axes(1:2), lnd%time, '<ltype> litter <ctype> C leaching','kg/(m2 s)', missing_value=-100.0)
+  id_litter_livemic(:) = register_litter_diag_fields ( module_name, '<ltype>litter_live_microbe_C', &
+       axes(1:2),  lnd%time, 'live microbe <ltype> litter carbon', 'kg C/m2', missing_value=-100.0 )
+  id_litter_total_C(:) = register_litter_diag_fields ( module_name, '<ltype>litter_total_C', &
+       axes(1:2),  lnd%time, '<ltype> litter total carbon', 'kg C/m2', missing_value=-100.0 )
+  id_nlittercohorts(:) = register_litter_diag_fields ( module_name, 'n_<ltype>litter_cohorts', axes(1:2),  &
+       lnd%time, 'number of <ltype> litter cohorts', missing_value=-100.0 )
 
   id_resp = register_tiled_diag_field ( module_name, 'resp', (/id_lon,id_lat/), &
        lnd%time, 'Total soil respiration', 'kg C/(m2 year)', missing_value=-100.0 )
   id_Qmax = register_tiled_diag_field ( module_name, 'Qmax', axes(1:2),  &
        lnd%time, 'Maximum clay sorptive capacity', 'kg C/m3', missing_value=-100.0 )
-
-  id_coarsewoodlitter_livemic = register_tiled_diag_field ( module_name, 'coarsewoodlitter_live_microbe_C', axes(1:2),  &
-       lnd%time, 'live microbe coarse wood litter carbon', 'kg C/m2', missing_value=-100.0 )
-  id_coarseWoodlitter_total_C = register_tiled_diag_field ( module_name, 'coarsewoodlitter_total_C', &
-       axes(1:2),  lnd%time, 'coarse wood litter total carbon', 'kg C/m2', missing_value=-100.0 )
-  id_finewoodlitter_livemic = register_tiled_diag_field ( module_name, 'finewoodlitter_live_microbe_C', axes(1:2),  &
-       lnd%time, 'live microbe fine wood litter carbon', 'kg C/m2', missing_value=-100.0 )
-  id_fineWoodlitter_total_C = register_tiled_diag_field ( module_name, 'finewoodlitter_total_C', &
-       axes(1:2), lnd%time, 'fine wood litter total carbon', 'kg C/m2', missing_value=-100.0 )
-
-  id_finewoodlitter_dissolved_C(:) = register_soilc_diag_field ( module_name, '*_finewoodlitter_dissolved_C', &
-       axes(1:2),  lnd%time, '* fine wood litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )       
-  id_coarsewoodlitter_dissolved_C = register_soilc_diag_field ( module_name, '*_coarsewoodlitter_dissolved_C', &
-       axes(1:2),  lnd%time, '* coarse woodlitter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
-
   id_livemic = register_tiled_diag_field ( module_name, 'live_microbe_C', axes,  &
        lnd%time, 'Total live microbe soil carbon', 'kg C/m3', missing_value=-100.0 )
   id_nsoilcohorts = register_tiled_diag_field ( module_name, 'n_soil_cohorts', axes,  &
        lnd%time, 'number of soil cohorts', missing_value=-100.0 )
-  id_nleaflittercohorts = register_tiled_diag_field ( module_name, 'n_leaflitter_cohorts', axes(1:2),  &
-       lnd%time, 'number of leaf litter cohorts', missing_value=-100.0 )
-  id_nfinewoodlittercohorts = register_tiled_diag_field ( module_name, 'n_finewoodlitter_cohorts', axes(1:2),  &
-       lnd%time, 'number of fine wood litter cohorts', missing_value=-100.0 )
-  id_ncoarsewoodlittercohorts = register_tiled_diag_field ( module_name, 'n_coarsewoodlitter_cohorts', axes(1:2),  &
-       lnd%time, 'number of coarse wood litter cohorts', missing_value=-100.0 )
   id_deadmic_total_C = register_tiled_diag_field ( module_name, 'deadmic_total_C', axes(1:2),  &
        lnd%time, 'total dead microbe soil carbon', 'kg C/m2', missing_value=-100.0 )
   id_deadmic_total_N = register_tiled_diag_field ( module_name, 'deadmic_total_N', axes(1:2),  &
@@ -984,36 +1013,12 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
        lnd%time, 'total soil carbon', 'kg C/m2', missing_value=-100.0 )
   id_total_soil_N = register_tiled_diag_field ( module_name, 'total_soil_N', axes(1:2),  &
        lnd%time, 'total soil nitrogen', 'kg N/m2', missing_value=-100.0 )
-  id_fast_C_leaching = register_tiled_diag_field ( module_name, 'fast_C_leaching', axes, &
-       lnd%time, 'net layer fast soil C leaching',  'kg/(m2 s)', missing_value=-100.0)
-  id_slow_C_leaching = register_tiled_diag_field ( module_name, 'slow_C_leaching', axes, &
-       lnd%time, 'net layer slow soil C leaching',  'kg/(m2 s)', missing_value=-100.0)
-  id_deadmic_C_leaching = register_tiled_diag_field ( module_name, 'deadmic_C_leaching', axes, &
-       lnd%time, 'net layer dead microbe soil C leaching',  'kg/(m2 s)', missing_value=-100.0)
   id_total_C_leaching = register_tiled_diag_field ( module_name, 'total_C_leaching', axes, &
        lnd%time, 'net layer total vertical soil C leaching', 'kg/(m2 s)', missing_value=initval)
   id_livemic_C_leaching = register_tiled_diag_field ( module_name, 'livemic_C_leaching', axes, &
        lnd%time, 'net layer live microbe C leaching',  'kg/(m2 s)', missing_value=-100.0)
   !id_protected_C_leaching = register_tiled_diag_field ( module_name, 'protected_C_leaching', axes, &
   !     lnd%time, 'net layer protected soil C leaching',  'kg/(m2 s)', missing_value=-100.0)
-  id_leaflitter_fast_C_leaching = register_tiled_diag_field ( module_name, 'fast_leaflitter_C_leaching', axes(1:2), &
-        lnd%time, 'Leaf litter fast C leaching','kg/(m2 s)', missing_value=-100.0)
-  id_leaflitter_slow_C_leaching = register_tiled_diag_field ( module_name, 'slow_leaflitter_C_leaching', axes(1:2), &
-        lnd%time, 'Leaf litter slow C leaching','kg/(m2 s)', missing_value=-100.0)
-  id_leaflitter_deadmic_C_leaching = register_tiled_diag_field ( module_name, 'deadmic_leaflitter_C_leaching', axes(1:2), &
-        lnd%time, 'Leaf litter dead microbe C leaching','kg/(m2 s)', missing_value=-100.0)
-  id_coarsewoodlitter_fast_C_leaching = register_tiled_diag_field ( module_name, 'fast_coarsewoodlitter_C_leaching', axes(1:2), &
-        lnd%time, 'Coarse wood litter fast C leaching','kg/(m2 s)', missing_value=-100.0)
-  id_coarsewoodlitter_slow_C_leaching = register_tiled_diag_field ( module_name, 'slow_coarsewoodlitter_C_leaching', axes(1:2), &
-        lnd%time, 'Coarse wood litter slow C leaching','kg/(m2 s)', missing_value=-100.0)
-  id_coarsewoodlitter_deadmic_C_leaching = register_tiled_diag_field ( module_name, 'deadmic_coarsewoodlitter_C_leaching', axes(1:2), &
-        lnd%time, 'Coarse wood litter dead microbe C leaching','kg/(m2 s)', missing_value=-100.0)
-  id_finewoodlitter_fast_C_leaching = register_tiled_diag_field ( module_name, 'fast_finewoodlitter_C_leaching', axes(1:2), &
-        lnd%time, 'Fine wood litter fast C leaching','kg/(m2 s)', missing_value=-100.0)
-  id_finewoodlitter_slow_C_leaching = register_tiled_diag_field ( module_name, 'slow_finewoodlitter_C_leaching', axes(1:2), &
-        lnd%time, 'Fine wood litter slow C leaching','kg/(m2 s)', missing_value=-100.0)
-  id_finewoodlitter_deadmic_C_leaching = register_tiled_diag_field ( module_name, 'deadmic_finewoodlitter_C_leaching', axes(1:2), &
-        lnd%time, 'Fine wood litter dead microbe C leaching','kg/(m2 s)', missing_value=-100.0)
   ! ZMS
   id_slomtot = register_tiled_diag_field ( module_name, 'total_lit_SOM_C', axes(1:2), &
        lnd%time, 'sum of all litter and soil carbon pools', 'kg C/m^2', missing_value=-100.0)
@@ -1719,7 +1724,7 @@ end subroutine soil_step_1
   logical :: stiff
   logical :: hlsp_stiff ! were all the horizontal conductivities zero at the call to hlsp_hydrology_1?
   real :: zimh, ziph, dTr_g(num_l), dTr_s(num_l)
-  integer :: n_iter, l, l_max_active_layer
+  integer :: n_iter, l, l_max_active_layer, i
   real :: &
        uptake(num_l),   & ! uptake by roots per layer, kg/(m2 s)
        uptake1(num_l),  & ! uptake by roots per layer per individual, kg/(indiv s)
@@ -2774,14 +2779,11 @@ end subroutine soil_step_1
   call send_tile_data(id_hsc,  hlrunf_sc, diag)
   if (id_evap > 0) call send_tile_data(id_evap,  soil_levap+soil_fevap, diag)
 
-   if (id_leaflitter_fast_C_leaching > 0) call send_tile_data(id_leaflitter_fast_C_leaching,leaflitter_DOC_loss(1)/delta_time,diag)
-   if (id_leaflitter_slow_C_leaching > 0) call send_tile_data(id_leaflitter_slow_C_leaching,leaflitter_DOC_loss(2)/delta_time,diag)
-   if (id_leaflitter_deadmic_C_leaching > 0) call send_tile_data(id_leaflitter_deadmic_C_leaching,leaflitter_DOC_loss(3)/delta_time,diag)
-  
-   if (id_coarsewoodlitter_fast_C_leaching > 0) call send_tile_data(id_coarsewoodlitter_fast_C_leaching,woodlitter_DOC_loss(1)/delta_time,diag)
-   if (id_coarsewoodlitter_slow_C_leaching > 0) call send_tile_data(id_coarsewoodlitter_slow_C_leaching,woodlitter_DOC_loss(2)/delta_time,diag)
-   if (id_coarsewoodlitter_deadmic_C_leaching > 0) call send_tile_data(id_coarsewoodlitter_deadmic_C_leaching,woodlitter_DOC_loss(3)/delta_time,diag)
-  
+  do i = 1, N_C_TYPES
+    call send_tile_data(id_litter_C_leaching(LEAF,i),leaflitter_DOC_loss(i)/delta_time,diag)  
+    call send_tile_data(id_litter_C_leaching(CWOOD,i),woodlitter_DOC_loss(i)/delta_time,diag)
+    call send_tile_data(id_C_leaching(i), DOC_leached(i,:)/delta_time,diag)
+  enddo  
   
   call send_tile_data(id_heat_cap, soil%heat_capacity_dry, diag)
   call send_tile_data(id_active_layer, active_layer_thickness, diag)
@@ -2800,9 +2802,6 @@ end subroutine soil_step_1
      call send_tile_data(id_reflux, reflux, diag)
   end if
   call send_tile_data(id_macro_infilt, flow_macro, diag)
-  call send_tile_data(id_fast_C_leaching, DOC_leached(1,:)/delta_time,diag)
-  call send_tile_data(id_slow_C_leaching, DOC_leached(2,:)/delta_time,diag)
-  call send_tile_data(id_deadmic_C_leaching, DOC_leached(3,:)/delta_time,diag)
   do l=1,num_l
      total_C_leaching(l) = sum(DOC_leached(:,l))/delta_time
   end do
@@ -2885,20 +2884,19 @@ subroutine soil_step_3(soil, diag)
         total_diss_N    = total_diss_N + sum(soil%litter(k)%dissolved_nitrogen(:))
         total_prot_N    = total_prot_N + sum(litter_protected_C(:))
  
-! FIXME slm: add back diag fields
 ! FIXME slm: add nitrogen diag fields
-!         call send_tile_data(id_nlittercohorts(k), real(litter_ncohorts), diag)
-!         do i = 1, N_C_TYPES
-!            call send_tile_data(id_leaflitter_C(k,i), litter_C(i), diag)
-!            call send_tile_data(id_leaflitter_N(k,i), litter_N(i), diag)
-!            call send_tile_data(id_leaflitter_protected_C(k,i), litter_protected_C(i), diag)
-!            call send_tile_data(id_leaflitter_protected_N(k,i), litter_protected_N(i), diag)
-!            call send_tile_data(id_leaflitter_dissolved_C(k,i), soil%leafLitter%dissolved_carbon(i), diag)
-!            call send_tile_data(id_leaflitter_dissolved_N(k,i), soil%leafLitter%dissolved_nitrogen(i), diag)
-!         enddo
-!         call send_tile_data(id_litter_livemic(k), litter_livemic_C, diag)
-!         call send_tile_data(id_litter_total_C(k), &
-!               sum(litter_C)+litter_livemic_C+sum(soil%litter(k)%dissolved_carbon(:)),diag)  
+        call send_tile_data(id_nlittercohorts(k), real(litter_ncohorts), diag)
+        do i = 1, N_C_TYPES
+           call send_tile_data(id_litter_C(k,i), litter_C(i), diag)
+           call send_tile_data(id_litter_N(k,i), litter_N(i), diag)
+           call send_tile_data(id_litter_protected_C(k,i), litter_protected_C(i), diag)
+           call send_tile_data(id_litter_protected_N(k,i), litter_protected_N(i), diag)
+           call send_tile_data(id_litter_dissolved_C(k,i), soil%litter(k)%dissolved_carbon(i), diag)
+           call send_tile_data(id_litter_dissolved_N(k,i), soil%litter(k)%dissolved_nitrogen(i), diag)
+        enddo
+        call send_tile_data(id_litter_livemic(k), litter_livemic_C, diag)
+        call send_tile_data(id_litter_total_C(k), &
+              sum(litter_C)+litter_livemic_C+sum(soil%litter(k)%dissolved_carbon(:)),diag)  
      enddo
     
      ! diagnostic of totals
@@ -3007,6 +3005,7 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
      ENDIF  
      vegn%rh=vegn%rh + CO2prod/dt_fast_yr ! accumulate loss of C to atmosphere
      do i = 1, N_C_TYPES
+!        FIXME: put it back
 !        call send_tile_data(id_rsoil_litter(k,i), C_loss_rate(i,1), diag)
      enddo
   enddo
@@ -3037,6 +3036,7 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   enddo
 
   ! for budget check
+!   FIXME: put it back
 !   vegn%fsc_out = vegn%fsc_out + (sum(fast_C_loss_rate(:)) + leaflitter_fast_C_loss_rate + finewoodlitter_fast_C_loss_rate + coarsewoodlitter_fast_C_loss_rate)*dt_fast_yr
 !   vegn%ssc_out = vegn%ssc_out + (sum(slow_C_loss_rate(:)) + leaflitter_slow_C_loss_rate + finewoodlitter_slow_C_loss_rate + coarsewoodlitter_slow_C_loss_rate)*dt_fast_yr;
 !   vegn%deadmic_out = vegn%deadmic_out + (sum(dead_microbe_C_loss_rate(:)) + leaflitter_deadmic_C_loss_rate + coarsewoodlitter_deadmic_C_loss_rate + finewoodlitter_deadmic_C_loss_rate)*dt_fast_yr
