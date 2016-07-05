@@ -5,12 +5,13 @@ module vegn_dynamics_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod, only: write_version_number, error_mesg, FATAL,NOTE
+use fms_mod, only: error_mesg, FATAL,NOTE
 use time_manager_mod, only: time_type
 
 use land_constants_mod, only : seconds_per_year, mol_C
-use land_tile_diag_mod, only : &
-     register_tiled_diag_field, send_tile_data, diag_buff_type
+use land_tile_diag_mod, only : register_tiled_diag_field, send_tile_data, &
+     set_default_diag_filter, diag_buff_type, cmor_name
+
 use vegn_data_mod, only : spdata, &
      CMPT_VLEAF, CMPT_SAPWOOD, CMPT_ROOT, CMPT_WOOD, CMPT_LEAF, LEAF_ON, LEAF_OFF, &
      fsc_liv, fsc_wood, soil_carbon_depth_scale, C2B, agf_bs, &
@@ -34,6 +35,7 @@ use soil_mod, only: add_root_litter, add_root_exudates, Dsdt, myc_scavenger_N_up
 use nitrogen_sources_mod, only: do_nitrogen_deposition
 
 use land_debug_mod, only : is_watch_point
+use land_data_mod, only : log_version
 
 implicit none
 private
@@ -49,10 +51,8 @@ public :: vegn_biogeography !
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
-character(len=*), private, parameter :: &
-   version = '$Id$', &
-   tagname = '$Name$' ,&
-   module_name = 'vegn'
+character(len=*), parameter :: module_name = 'vegn'
+#include "../shared/version_variable.inc"
 
 real, parameter :: GROWTH_RESP=0.333  ! fraction of npp lost as growth respiration
 
@@ -66,6 +66,8 @@ integer :: id_npp, id_nep, id_gpp, id_resp, id_resl, id_resr, id_resg, &
     id_mycorrhizal_mine_allocation, id_mycorrhizal_mine_immobilization, id_N_fixer_allocation, id_total_plant_N_uptake, &
     id_N_fix_marginal_gain, id_rhiz_exud_marginal_gain, id_myc_scav_marginal_gain, id_myc_mine_marginal_gain, id_rhiz_exudation, id_nitrogen_stress
 
+! CMOR diagnostic field IDs
+integer :: id_gpp_cmor, id_npp_cmor, id_ra, id_rgrowth
 
 contains
 
@@ -76,10 +78,14 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
   type(time_type), intent(in) :: time       ! initial time for diagnostic fields
   real           , intent(in) :: delta_time ! fast time step, s
 
-  call write_version_number(version, tagname)
+  call log_version(version, 'vegn_dynamics_mod', &
+  __FILE__)
 
   ! set up global variables
   dt_fast_yr = delta_time/seconds_per_year
+
+  ! set the default sub-sampling filter for the fields below
+  call set_default_diag_filter('soil')
 
   ! register diagnostic fields
   id_gpp = register_tiled_diag_field ( module_name, 'gpp',  &
@@ -143,6 +149,22 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
      id_total_plant_N_uptake = register_tiled_diag_field ( module_name, 'plant_N_uptake',  &
             (/id_lon,id_lat/), time, 'Plant N uptake rate', 'kg N/(m2 year)', &
             missing_value=-100.0 )
+
+  ! set the default sub-sampling filter for CMOR variables
+  call set_default_diag_filter('land')
+  id_gpp_cmor = register_tiled_diag_field ( cmor_name, 'gpp', (/id_lon,id_lat/), &
+       time, 'Gross Primary Production', 'kg C m-2 s-1', missing_value=-1.0, &
+       standard_name='gross_primary_production', fill_missing=.TRUE.)
+  id_npp_cmor = register_tiled_diag_field ( cmor_name, 'npp', (/id_lon,id_lat/), &
+       time, 'Net Primary Production', 'kg C m-2 s-1', missing_value=-1.0, &
+       standard_name='net_primary_production', fill_missing=.TRUE.)
+  id_ra = register_tiled_diag_field ( cmor_name, 'ra', (/id_lon,id_lat/), &
+       time, 'Autotrophic (Plant) Respiration', 'kg C m-2 s-1', missing_value=-1.0, &
+       standard_name='autotrophic_plant_respiration', fill_missing=.TRUE.)
+  id_rgrowth = register_tiled_diag_field ( cmor_name, 'rGrowth', (/id_lon,id_lat/), &
+       time, 'Growth Autotrophic Respiration', 'kg C m-2 s-1', missing_value=-1.0, &
+       standard_name='growth_autotrophic_respiration', fill_missing=.TRUE.)
+
 end subroutine vegn_dynamics_init
 
 
@@ -237,6 +259,7 @@ total_myc_mine_C_uptake = 0.0
          call error_mesg('vegn_carbon_int','root_exudate_frac<0',FATAL)
      endif
 
+
      ! check if leaves/roots are present and need to be accounted in maintenance
      if(cc%status == LEAF_ON) then
         md_alive = (cc%Pl * spdata(sp)%alpha(CMPT_LEAF) + &
@@ -272,11 +295,6 @@ total_myc_mine_C_uptake = 0.0
     case (SOILC_CORPSE, SOILC_CORPSE_N)
         cc%md = md_leaf + md_froot + md_sapwood + cc%Psw_alphasw * cc%bliving * dt_fast_yr
      end select
-
- if(is_watch_point()) then
-   write(*,*) 'Before md transfer to soil'
-   __DEBUG2__(soil_tile_carbon(soil),vegn_tile_carbon(vegn))
- endif
 
      cc%bwood_gain = cc%bwood_gain + cc%Psw_alphasw * cc%bliving * dt_fast_yr;
 
@@ -632,6 +650,7 @@ total_myc_mine_C_uptake = 0.0
 
      total_plant_N_uptake = myc_scav_N_uptake-mycorrhizal_scav_N_immob + myc_mine_N_uptake-mycorrhizal_mine_N_immob &
                        +N_fixation+root_active_N_uptake
+
      cc%stored_N = cc%stored_N + total_plant_N_uptake - current_root_exudation*root_exudate_N_frac*dt_fast_yr
 
 
@@ -773,6 +792,12 @@ total_myc_mine_C_uptake = 0.0
   call send_tile_data(id_rhiz_exudation,total_root_exudate_C/dt_fast_yr,diag)
   call send_tile_data(id_nitrogen_stress,vegn%cohorts(1)%nitrogen_stress,diag)
   call send_tile_data(id_total_plant_N_uptake,total_plant_N_uptake/dt_fast_yr,diag)
+
+  ! ---- CMOR diagnostics
+  call send_tile_data(id_gpp_cmor, gpp/seconds_per_year, diag)
+  call send_tile_data(id_npp_cmor, vegn%npp/seconds_per_year, diag)
+  call send_tile_data(id_ra, (resp-resg)/seconds_per_year, diag)
+  call send_tile_data(id_rgrowth, resg/seconds_per_year, diag)
 
 end subroutine vegn_carbon_int
 
@@ -920,6 +945,7 @@ subroutine vegn_phenology(vegn, soil)
   do i = 1,vegn%n_cohorts
      cc => vegn%cohorts(i)
      sp=cc%species
+
      if(is_watch_point())then
         write(*,*)'####### vegn_phenology #######'
         __DEBUG4__(vegn%theta_av_phen, wilt, spdata(cc%species)%cnst_crit_phen, spdata(cc%species)%fact_crit_phen)
@@ -1057,6 +1083,7 @@ subroutine update_soil_pools(vegn, soil)
      delta = vegn%ssc_rate_bg*dt_fast_yr;
      soil%slow_soil_C(1) = soil%slow_soil_C(1) + delta;
      vegn%ssc_pool_bg    = vegn%ssc_pool_bg    - delta;
+
   case (SOILC_CORPSE, SOILC_CORPSE_N)
 
 
@@ -1118,6 +1145,7 @@ subroutine update_soil_pools(vegn, soil)
      vegn%coarsewoodlitter_buffer_slow = vegn%coarsewoodlitter_buffer_slow - deltaslow
      vegn%coarsewoodlitter_buffer_fast_N = vegn%coarsewoodlitter_buffer_fast_N - deltafast_N
      vegn%coarsewoodlitter_buffer_slow_N = vegn%coarsewoodlitter_buffer_slow_N - deltaslow_N
+
 
 
      ! update fsc input rate so that intermediate fsc pool is never

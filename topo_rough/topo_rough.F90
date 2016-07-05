@@ -12,12 +12,13 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-  use fms_mod,            only : write_version_number, error_mesg, FATAL, NOTE, &
+  use fms_mod,            only : error_mesg, FATAL, NOTE, &
        open_restart_file, set_domain, read_data, &
        write_data, close_file, file_exist, check_nml_error, mpp_pe, &
        mpp_root_pe, stdlog
   use diag_manager_mod,   only : register_static_field, send_data
   use topography_mod,     only : get_topog_stdev
+  use land_data_mod,      only : log_version
 
 implicit none
 private
@@ -36,17 +37,17 @@ public :: update_topo_rough
 !     Maximum of topographic "roughness length" used for momentum drag scaling
 !   </DATA>
 !   <DATA NAME="topo_rough_factor" TYPE="real" DEFAULT="1.0">
-!     Scaling factor to convert topography variance to topographic 
+!     Scaling factor to convert topography variance to topographic
 !     "roughness length"
 !   </DATA>
 !   <DATA NAME="topo_rough_source" TYPE="caharacter(len=16)" DEFAULT="'computed'">
-!     Source of the sub-grid topography variance data for topographic momentum drag scaling. 
-!     'computed' means that the variance is calculated based on high-resolution 
+!     Source of the sub-grid topography variance data for topographic momentum drag scaling.
+!     'computed' means that the variance is calculated based on high-resolution
 !     topography data. 'input' means that the data will be provided in specified file
 !     (NetCDF of IEEE binary)
 !   </DATA>
 !   <DATA NAME="topo_rough_file" TYPE="character(len=256)" DEFAULT="INPUT/mg_drag.data.nc">
-!     Name of the file to be used as an input for sub-grid topography variance data. 
+!     Name of the file to be used as an input for sub-grid topography variance data.
 !     The file can be either NetCDF (in this case variable name can also be specified), or
 !     IEEE.
 !   </DATA>
@@ -67,11 +68,8 @@ namelist/topo_rough_nml/ use_topo_rough, topo_rough_factor, max_topo_rough, &
      topo_rough_source, topo_rough_file, topo_rough_var
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: &
-     module_name   = 'she_topo_rough', &
-     diag_mod_name = 'topo_rough', &
-     version       = '$Id$', &
-     tagname       = '$Name$'
+character(len=*), parameter :: module_name = 'topo_rough'
+#include "../shared/version_variable.inc"
 
 ! ==== module private data ===================================================
 real, allocatable, save ::topo_stdev(:,:)
@@ -89,14 +87,14 @@ subroutine topo_rough_init(time, lonb, latb, domain, id_lon,id_lat)
   integer        , intent(in) :: id_lon,id_lat   ! IDs of diagnostic axes
 !   <ERROR MSG="could not read topography data" STATUS="FATAL">
 !     get_topog_stdev failed to provide topography variance data.
-!   </ERROR>  
+!   </ERROR>
 !   <ERROR MSG="input file for for topography standard deviation ... does not exist" STATUS="FATAL">
 !     topo_rough_source is set to 'input', but input file name either
-!     not specified or specified incorrectly, so the program cannot 
+!     not specified or specified incorrectly, so the program cannot
 !     find it.
 !   </ERROR>
 !   <ERROR MSG="... is not a valid value for topo_rough_source" STATUS="FATAL">
-!     specified value of namelist parameter topo_rough_source is invalid; 
+!     specified value of namelist parameter topo_rough_source is invalid;
 !     valid values are 'computed' or 'input'.
 !   </ERROR>
   ! --- local vars
@@ -104,8 +102,8 @@ subroutine topo_rough_init(time, lonb, latb, domain, id_lon,id_lat)
   integer :: id
   logical :: used, got_stdev
 
-  ! write the version and tagname to the logfile
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
   ! read and write (to logfile) namelist variables
 #ifdef INTERNAL_FILE_NML
@@ -114,7 +112,7 @@ subroutine topo_rough_init(time, lonb, latb, domain, id_lon,id_lat)
 #else
   if (file_exist('input.nml')) then
      unit = open_namelist_file ( )
-     ierr = 1;  
+     ierr = 1;
      do while (ierr /= 0)
         read (unit, nml=topo_rough_nml, iostat=io, end=10)
         ierr = check_nml_error (io, 'topo_rough_nml')
@@ -147,7 +145,7 @@ subroutine topo_rough_init(time, lonb, latb, domain, id_lon,id_lat)
              call error_mesg('topo_rough_init',            &
              'input file for topography standard deviation "'// &
              trim(topo_rough_file)//'" does not exist', FATAL)
-        
+
         call set_domain(domain)
         call read_data(topo_rough_file,topo_rough_var,topo_stdev)
      else
@@ -160,7 +158,7 @@ subroutine topo_rough_init(time, lonb, latb, domain, id_lon,id_lat)
   endif
 
   ! diag output : send topo_stdev to diagnostics
-  id = register_static_field(diag_mod_name,'topo_rough',(/id_lon,id_lat/), &
+  id = register_static_field(module_name,'topo_rough',(/id_lon,id_lat/), &
        'momentum drag coefficient scaling lenght','m',missing_value=-1.0 )
   if(id > 0) &
        used = send_data(id,topo_stdev,time)
@@ -180,8 +178,8 @@ subroutine update_topo_rough(topo_rough)
   ! ---- local vars
   integer :: k
 
-  ! just assign standard deviation (scaled and trimmed according to namelist 
-  ! parameters) to the output field 
+  ! just assign standard deviation (scaled and trimmed according to namelist
+  ! parameters) to the output field
   do k = 1, size(topo_rough,3)
      topo_rough(:,:,k) = topo_stdev(:,:)
   enddo

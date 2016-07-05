@@ -7,11 +7,12 @@ module soil_carbon_mod
 
 use constants_mod, only : pi, dens_h2o
 use land_constants_mod, only : Rugas, seconds_per_year
-use fms_mod, only: check_nml_error, file_exist, write_version_number, close_file, &
+use fms_mod, only: check_nml_error, file_exist, close_file, &
             stdlog, mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE
 use vegn_data_mod, only: K1,K2
 use land_numerics_mod,only: tridiag
 use land_debug_mod, only: get_current_point, is_watch_point
+use land_data_mod, only: log_version
 
 #ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
@@ -54,7 +55,7 @@ public :: mycorrhizal_decomposition
 public :: hypothetical_mycorrhizal_decomposition
 
 #ifndef STANDALONE_SOIL_CARBON
-public :: get_pool_data_accessors
+public :: adjust_pool_ncohorts
 public :: A_function
 #endif
 
@@ -71,11 +72,15 @@ public :: soil_org_N_deposition
 
 
 ! ==== module constants ======================================================
-integer,parameter,public::n_c_types=3  !Carbon chemical species (Cellulose, lignin, microbial products)
-character(len=*), parameter   :: &
-     version     = '$Id$', &
-     tagname     = '$Name$', &
-     module_name = 'soil_carbon_mod'
+integer, parameter, public :: N_C_TYPES=3  !Carbon chemical species (Cellulose, lignin, microbial products)
+integer, parameter, public :: & ! indices of carbon chemical species
+    C_CEL = 1, & ! cellulose (fast)
+    C_LIG = 2, & ! lignin (slow)
+    C_MIC = 3    ! microbial producs
+
+character(len=*), parameter :: module_name = 'soil_carbon_mod'
+#include "../shared/version_variable.inc"
+
 integer, parameter :: SOILC_CENTURY          = 1
 integer, parameter :: SOILC_CENTURY_BY_LAYER = 2
 integer, parameter :: SOILC_CORPSE           = 3
@@ -252,7 +257,6 @@ subroutine init_soil_pool(pool,protectionRate,Qmax,max_cohorts)
     integer,optional,intent(in) :: max_cohorts
 
     type(litterCohort) :: newCohort
-
     pool%max_cohorts=soilMaxCohorts
     pool%protection_rate=protection_rate
     pool%Qmax=0.0
@@ -291,7 +295,8 @@ subroutine read_soil_carbon_namelist
   integer :: i
   real    :: z
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=soil_carbon_nml, iostat=io)
   ierr = check_nml_error(io, 'soil_carbon_nml')
@@ -524,6 +529,8 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
     if(pool%nitrate<0 .AND. soil_carbon_option == SOILC_CORPSE_N) THEN
         call error_mesg('update_pool','Nitrate < 0',FATAL)
     endif
+
+    if(is_nan(pool%nitrate)) call error_mesg('update_pool','Nitrate value is invalid',FATAL)
 
     if(.NOT.allocated(pool%litterCohorts)) call add_litter(pool,(/0.0,0.0,0.0/),(/0.0,0.0,0.0/))
     call cull_cohorts(pool)
@@ -1577,18 +1584,17 @@ subroutine print_cohort(cohort)
     type(litterCohort)::cohort
 
     WRITE (*,*),'----------------'
-    WRITE (*,*),'Original C =',cohort%originalLitterC
     WRITE (*,*),'Unprotected C=',cohort%litterC
     WRITE (*,*),'Living microbial C =',cohort%livingMicrobeC
     WRITE (*,*),'Protected C =',cohort%protectedC
 
     WRITE (*,*),'CO2 =',cohort%CO2
     WRITE (*,*),'Rtot =',cohort%Rtot
+    WRITE (*,*),'Original C =',cohort%originalLitterC
     WRITE (*,*),'Sum of carbon =',cohortCsum(cohort)
     WRITE (*,*),'----------------'
 
     WRITE (*,*),'----------------'
-    WRITE (*,*),'Original N =',cohort%originalLitterN
     WRITE (*,*),'Unprotected N=',cohort%litterN
     WRITE (*,*),'Living microbial N =',cohort%livingMicrobeN
     WRITE (*,*),'Protected N =',cohort%protectedN
@@ -1597,6 +1603,8 @@ subroutine print_cohort(cohort)
     WRITE (*,*),'gross Immobil =',cohort%IMM_Nprod
     WRITE (*,*),'last miner =',cohort%MINER_gross
     WRITE (*,*),'last immob =',cohort%IMM_N_gross
+    WRITE (*,*),'Original N =',cohort%originalLitterN
+    WRITE (*,*),'Original N + immob - miner =',cohort%originalLitterN-cohort%MINER_prod+cohort%IMM_Nprod
     WRITE (*,*),'Sum of nitrogen =',cohortNsum(cohort)
 
     if(cohort%livingMicrobeN>0) WRITE(*,*), 'Microbe C:N =',cohort%livingMicrobeC/cohort%livingMicrobeN
@@ -1615,12 +1623,11 @@ end subroutine
 
     cohortGood=.NOT. ( &
      (min(cohort%originalLitterC,cohort%livingMicrobeC,cohort%CO2,cohort%livingMicrobeN).lt.-tol_roundoff) .OR. &
-    isNAN(cohort%originalLitterC) .OR. &
-    isNAN(cohort%livingMicrobeC) .OR. &
-    isNAN(cohort%CO2)  .OR. &
-    (min(cohort%originalLitterN,cohort%livingMicrobeN).lt.0) .OR. &
-    isNAN(cohort%originalLitterN) .OR. &
-    isNAN(cohort%livingMicrobeN) &
+    is_nan(cohort%originalLitterC) .OR. &
+    is_nan(cohort%livingMicrobeC) .OR. &
+    is_nan(cohort%CO2)  .OR. &
+    is_nan(cohort%originalLitterN) .OR. &
+    is_nan(cohort%livingMicrobeN) &
     )
 
    cohortC=cohortCSum(cohort)
@@ -1635,10 +1642,10 @@ end subroutine
         (cohort%protectedC(n).lt.0) .OR. &
         (cohort%litterN(n).lt.0) .OR. &
         (cohort%protectedN(n).lt.0) .OR. &
-        (isNAN(cohort%litterC(n))) .OR. &
-        (isNAN(cohort%protectedC(n)))  .OR. &
-        (isNAN(cohort%litterN(n))) .OR. &
-        (isNAN(cohort%protectedN(n)))  &
+        (is_nan(cohort%litterC(n))) .OR. &
+        (is_nan(cohort%protectedC(n)))  .OR. &
+        (is_nan(cohort%litterN(n))) .OR. &
+        (is_nan(cohort%protectedN(n)))  &
         )
         cohortGood=cohortGood .AND. tempGood
     ENDDO
@@ -1788,6 +1795,7 @@ subroutine add_litter(pool,newLitterC,newLitterN,rhizosphere_frac)
         pool%litterCohorts(BULK)=tempCohort
 
     endif
+
 
 
 end subroutine add_litter
@@ -2022,6 +2030,10 @@ end subroutine remove_cohort
     if(.NOT. check_cohort(result)) then
         print *,'Invalid cohort generated'
         call print_cohort(result)
+        print *,'Cohort1:'
+        call print_cohort(cohort1)
+        print *,'Cohort2:'
+        call print_cohort(cohort2)
         call error_mesg('combine_cohorts','Resulting cohort invalid',FATAL)
     endif
 
@@ -2252,8 +2264,6 @@ subroutine cull_cohorts(pool)
     ENDDO
 
     !Cafter=cohortCsum(totalCarbonCohort(pool))
-    !IF(ncombined.gt.0) WRITE (*,*),'Combined',ncombined,'cohorts'
-    !totalCombineError=totalCombineError+(Cafter-Cbefore)
 
 end subroutine cull_cohorts
 
@@ -2577,7 +2587,6 @@ subroutine tracer_leaching_with_litter(soil,wl,leaflitter,woodlitter,flow,litter
 !!!!!!!xz Not in CH's code. need to consider add N here as well.
     real :: surf_DOC_loss_loc(n_c_types), surf_DON_loss_loc(n_c_types), surf_NO3_loss_loc, surf_NH4_loss_loc
     real, parameter :: minwl = 0.1 ! [mm]
-!!!!!!!xz [end]
 
     !For now, use a mininum litter thickness of 5 mm
     call poolTotals(leaflitter, totalCarbon=leaflitterTotalC)
@@ -2611,7 +2620,17 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
 !!!!!!!!!!!!!!!!!!xz ADD CH's code for Nitrogen !!!Please Check the unit!!!!! Is the unit of the inputs from the point model the same as the CH's experiment?
     ! Probably should include wood litter in this too
     ! Ammonium should be less soluble than nitrate, probably.  Could use retrieve_dissolved_mineral_N to standardize that --BNS
-    leaf_NH4_frac=leaflitter%ammonium/(leaflitter%ammonium + woodlitter%ammonium)
+
+    if(is_nan(leaflitter%nitrate)) call error_mesg('tracer_leaching_with_litter',&
+                'leaf litter nitrate is invalid (beginning)',FATAL)
+    if(is_nan(woodlitter%nitrate)) call error_mesg('tracer_leaching_with_litter',&
+                'wood litter nitrate is invalid (beginning)',FATAL)
+
+    if(leaflitter%ammonium+woodlitter%ammonium>0) then
+      leaf_NH4_frac=leaflitter%ammonium/(leaflitter%ammonium + woodlitter%ammonium)
+    else
+      leaf_NH4_frac=0.5
+    endif
 
     NH4_dissolved(1)=(leaflitter%ammonium + woodlitter%ammonium)*ammonium_solubility  !kg/m2
     leaflitter%ammonium=leaflitter%ammonium-leaflitter%ammonium*ammonium_solubility
@@ -2619,8 +2638,11 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
     NH4_dissolved(2:size(soil)+1)=soil(:)%ammonium*ammonium_solubility  !kg/m2
     soil(:)%ammonium=soil(:)%ammonium*(1-ammonium_solubility)
 
-
-    leaf_NO3_frac=leaflitter%nitrate/(leaflitter%nitrate + woodlitter%nitrate)
+    if(leaflitter%nitrate+woodlitter%nitrate>0) then
+      leaf_NO3_frac=leaflitter%nitrate/(leaflitter%nitrate + woodlitter%nitrate)
+    else
+      leaf_NO3_frac=0.5
+    endif
 
     NO3_dissolved(1)=(leaflitter%nitrate + woodlitter%nitrate)*nitrate_solubility   !kg/m2
     leaflitter%nitrate=leaflitter%nitrate-leaflitter%nitrate*nitrate_solubility
@@ -2753,6 +2775,7 @@ ENDIF
     call dissolve_carbon(soil(ii),wl(ii)/(dens_h2o*dz(ii)))
   enddo
 
+
     surf_DOC_loss_loc(:) = 0.0
     surf_DON_loss_loc(:) = 0.0
     do ii=1,n_c_types
@@ -2762,9 +2785,8 @@ ENDIF
        if(DOC(ii,1)>0) then
            leaf_DOC_frac=leaflitter%dissolved_carbon(ii)/DOC(ii,1)
        else
-           leaf_DOC_frac=0.0
+           leaf_DOC_frac=0.5
        endif
-
 
        DOC(ii,2:size(soil)+1)=soil(:)%dissolved_carbon(ii)
 
@@ -2841,7 +2863,7 @@ ENDIF
          if(DON(ii,1)>0) then
              leaf_DON_frac=leaflitter%dissolved_nitrogen(ii)/DON(ii,1)
          else
-             leaf_DON_frac=dfloat(0)
+             leaf_DON_frac=0.5
          endif !xz
         DON(ii,2:size(soil)+1)=soil(:)%dissolved_nitrogen(ii)!xz
         if(any(DON(ii,:)<dfloat(0))) then
@@ -2919,7 +2941,6 @@ ENDIF
     do ii=1, size(soil)
       call deposit_dissolved_C(soil(ii))
     enddo
-
 
 end subroutine tracer_leaching_with_litter
 
@@ -3017,73 +3038,22 @@ end function V_NO3
 
 
 
+
 #ifndef STANDALONE_SOIL_CARBON
+subroutine adjust_pool_ncohorts(pool)
+    type(soil_pool),intent(inout) :: pool
+    type(litterCohort) :: newCohort
 
-! This is used for writing restart files.  Needs to be able to generate a pointer to every field of soil_pool and litterCohort that affects model behavior
-subroutine get_pool_data_accessors(pool,fast_soil_C,fast_soil_N,slow_soil_C,slow_soil_N,deadMicrobeC,deadMicrobeN,livingMicrobeC,livingMicrobeN,&
-    Rtot,CO2,originalLitterC, originalLitterN,&
-           fast_protected_C,fast_protected_N,slow_protected_C,slow_protected_N,deadMicrobe_protected_C,deadMicrobe_protected_N,&
-           fast_DOC,slow_DOC,deadMicrobe_DOC,fast_DON,slow_DON,deadMicrobe_DON,&
-           ammonium,nitrate,nitrif,denitrif,IMM_N_max,IMM_N_gross,MINER_gross,MINER_prod,IMM_Nprod)
-    type(soil_pool),intent(inout),target::pool
-    real,pointer,dimension(:),optional::fast_soil_C,fast_soil_N,slow_soil_C,slow_soil_N,deadMicrobeC,deadMicrobeN,&
-                livingMicrobeC,livingMicrobeN,Rtot,CO2,originalLitterC,originalLitterN,&
-                                        fast_protected_C,fast_protected_N,slow_protected_C,slow_protected_N,deadMicrobe_protected_C,deadMicrobe_protected_N,&
-                                        IMM_N_max,IMM_N_gross,MINER_gross,MINER_prod,IMM_Nprod
-    real,pointer,optional :: fast_DOC,fast_DON,slow_DOC,slow_DON,deadMicrobe_DOC,deadMicrobe_DON,ammonium,nitrate,nitrif,denitrif
-
-
-
-    integer :: n ! shorthand for pool%n_cohorts
-
-    !First make sure the length of the litterCohorts array is right
     !Remove cohorts if size is too large
-    IF (pool%n_cohorts.gt.soilMaxCohorts) call cull_cohorts(pool)
+    if (pool%n_cohorts.gt.soilMaxCohorts) call cull_cohorts(pool)
 
     !Add empty cohorts until size is correct
-    DO WHILE (pool%n_cohorts.lt.soilMaxCohorts)
-        call add_litter(pool,(/0.0,0.0,0.0/),(/0.0,0.0,0.0/))
-    ENDDO
 
-    n = pool%n_cohorts
-    IF(present(livingMicrobeC)) livingMicrobeC=>pool%litterCohorts(1:n)%livingMicrobeC
-    IF(present(livingMicrobeN)) livingMicrobeN=>pool%litterCohorts(1:n)%livingMicrobeN
-    IF(present(Rtot))Rtot=>pool%litterCohorts(1:n)%Rtot
-    IF(present(CO2))CO2=>pool%litterCohorts(1:n)%CO2
-    IF(present(originalLitterC))originalLitterC=>pool%litterCohorts(1:n)%originalLitterC
-    IF(present(originalLitterN))originalLitterN=>pool%litterCohorts(1:n)%originalLitterN
-    IF(present(fast_soil_C))fast_soil_C=>pool%litterCohorts(1:n)%litterC(1)
-    IF(present(slow_soil_C))slow_soil_C=>pool%litterCohorts(1:n)%litterC(2)
-    IF(present(deadMicrobeC))deadMicrobeC=>pool%litterCohorts(1:n)%litterC(3)
-    IF(present(fast_soil_N))fast_soil_N=>pool%litterCohorts(1:n)%litterN(1)
-    IF(present(slow_soil_N))slow_soil_N=>pool%litterCohorts(1:n)%litterN(2)
-    IF(present(deadMicrobeN))deadMicrobeN=>pool%litterCohorts(1:n)%litterN(3)
-    IF(present(fast_protected_C))fast_protected_C=>pool%litterCohorts(1:n)%protectedC(1)
-    IF(present(slow_protected_C))slow_protected_C=>pool%litterCohorts(1:n)%protectedC(2)
-    IF(present(deadMicrobe_protected_C))deadMicrobe_protected_C=>pool%litterCohorts(1:n)%protectedC(3)
-    IF(present(fast_protected_N))fast_protected_N=>pool%litterCohorts(1:n)%protectedN(1)
-    IF(present(slow_protected_N))slow_protected_N=>pool%litterCohorts(1:n)%protectedN(2)
-    IF(present(deadMicrobe_protected_N))deadMicrobe_protected_N=>pool%litterCohorts(1:n)%protectedN(3)
-
-    IF(present(IMM_N_max))IMM_N_max=>pool%litterCohorts(1:n)%IMM_N_max
-    IF(present(IMM_N_gross))IMM_N_gross=>pool%litterCohorts(1:n)%IMM_N_gross
-    IF(present(MINER_gross))MINER_gross=>pool%litterCohorts(1:n)%MINER_gross
-    IF(present(MINER_prod))MINER_prod=>pool%litterCohorts(1:n)%MINER_prod
-    IF(present(IMM_Nprod))IMM_Nprod=>pool%litterCohorts(1:n)%IMM_Nprod
-
-    IF(present(fast_DOC)) fast_DOC=>pool%dissolved_carbon(1)
-    IF(present(slow_DOC)) slow_DOC=>pool%dissolved_carbon(2)
-    IF(present(deadMicrobe_DOC)) deadMicrobe_DOC=>pool%dissolved_carbon(3)
-    IF(present(fast_DON)) fast_DON=>pool%dissolved_nitrogen(1)
-    IF(present(slow_DON)) slow_DON=>pool%dissolved_nitrogen(2)
-    IF(present(deadMicrobe_DON)) deadMicrobe_DON=>pool%dissolved_nitrogen(3)
-    IF(present(ammonium)) ammonium=>pool%ammonium
-    IF(present(nitrate)) nitrate=>pool%nitrate
-    IF(present(nitrif)) nitrif=>pool%nitrif
-    IF(present(denitrif)) denitrif=>pool%denitrif
-
-end subroutine get_pool_data_accessors
-
+    do while (pool%n_cohorts.lt.soilMaxCohorts)
+      call initializeCohort(newCohort)
+      call add_cohort(pool,newCohort)
+    enddo
+end subroutine
 
 #else
 
@@ -3135,5 +3105,15 @@ end subroutine tridiag
 
 
 #endif
+
+! pgi: does not have bult-in isNaN function
+! gfortran: versions <5 do not appear to support ieee_arithmetic module
+
+! note that there is a danger that the compilr optimizes the comparison away
+! but I don't see how
+logical elemental function is_nan(x)
+   real, intent(in) :: x
+   is_nan = (x/=x)
+end function is_nan
 
 end module soil_carbon_mod

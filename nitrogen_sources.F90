@@ -172,6 +172,7 @@ subroutine nitrogen_sources_init(time, id_lon, id_lat)
   integer :: unit, ierr, io
 
   call write_version_number(version, tagname)
+  call error_mesg('nitrogen_sources_init','Initializing nitrogen sources',NOTE)
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
      ierr = 1;

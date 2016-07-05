@@ -4,8 +4,8 @@
 module vegn_disturbance_mod
 
 use land_constants_mod, only : seconds_per_year
-use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, agf_bs, LEAF_OFF
-
+use land_data_mod,   only : log_version
+use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, fsc_froot, agf_bs, LEAF_OFF
 use vegn_tile_mod,   only : vegn_tile_type
 use soil_tile_mod,   only : soil_tile_type
 use vegn_cohort_mod, only : vegn_cohort_type, height_from_biomass, lai_from_biomass, &
@@ -19,18 +19,23 @@ implicit none
 private
 
 ! ==== public interfaces =====================================================
+public :: vegn_disturbance_init
 public :: vegn_nat_mortality
 public :: vegn_disturbance
 public :: update_fuel
 ! =====end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: &
-     version = '$Id$', &
-     tagname = '$Name$', &
-     module_name = 'vegn_disturbance_mod'
+character(len=*), parameter :: module_name = 'vegn_disturbance_mod'
+#include "../shared/version_variable.inc"
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+! =============================================================================
+subroutine vegn_disturbance_init()
+  call log_version(version, module_name, &
+  __FILE__)
+end subroutine vegn_disturbance_init
 
 subroutine vegn_disturbance(vegn, soil, dt)
   type(vegn_tile_type), intent(inout) :: vegn ! vegetation data

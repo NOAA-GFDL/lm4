@@ -11,7 +11,7 @@ public :: add_row
 public :: print
 public :: dealloc
 
-! ---- module constants   
+! ---- module constants
 character(*), parameter :: DEFAULT_FORMAT      = '(g16.9)'
 integer     , parameter :: DEFAULT_CELL_WIDTH  = 16
 integer     , parameter :: DEFAULT_TABLE_WIDTH = HUGE(1)
@@ -31,17 +31,17 @@ interface add_row
    module procedure add_row_logical, add_row_character
 end interface add_row
 
-contains 
+contains
 
 
 ! ==============================================================================
 ! deallocats all table data and resets the counters
 subroutine dealloc(t)
    type(table_printer_type), intent(inout) :: t
-   
+
    if (associated(t%table))  deallocate(t%table)
    t%table => null() ; t%nr = 0 ; t%nc = 0
-end subroutine 
+end subroutine
 
 
 ! ==============================================================================
@@ -49,12 +49,12 @@ end subroutine
 subroutine init_with_headers(t,names)
    type(table_printer_type), intent(inout) :: t
    character(*), intent(in) :: names(:)
-   
+
    call dealloc(t)
    t%nc = size(names)
    call realloc_table(t)
    t%table(1:,0) = names(:)
-end subroutine 
+end subroutine
 
 
 ! ==============================================================================
@@ -176,7 +176,7 @@ subroutine print(t,unit,max_width,cell_width,head_width,transposed)
    logical, intent(in), optional :: transposed ! if true, the table is transposed
 
    integer :: unit_
-   integer :: max_width_, head_width_, cell_width_ 
+   integer :: max_width_, head_width_, cell_width_
    logical :: transposed_
    integer :: cells_per_line, k
 
@@ -194,7 +194,7 @@ subroutine print(t,unit,max_width,cell_width,head_width,transposed)
         call print_table_section(transpose(t%table),&
                 k,min(t%nr,k+cells_per_line-1),1,t%nc,&
                 unit_,cell_width_,head_width_)
-     enddo   
+     enddo
    else
      do k = 1, t%nc, cells_per_line
         call print_table_section(t%table,&
@@ -212,23 +212,23 @@ subroutine print_table_section(table,is,ie,js,je,unit,cell_width,head_width)
    integer, intent(in) :: unit       ! unit number for i/o
    integer, intent(in) :: cell_width ! width of each cell
    integer, intent(in) :: head_width ! width of the row header
-   
+
    integer :: i,j,k
    integer :: cells_per_line
    character(128) :: fhead,fcell,ftop,fmid,fbot! format strings
    character(32) :: l, cell
    character :: toprule,midrule,botrule,fieldsep
-   
+
    ! TODO: make all 4 things below optional arguments
    toprule = '='
    midrule = '-'
    botrule = '='
    fieldsep = ' '
-   
+
    ! create formats for the cells, and for the row headers
    write(l,*)cell_width; fcell = '(a'//trim(adjustl(l))//')'
    write(l,*)head_width; fhead = '(a'//trim(adjustl(l))//')'
-   
+
    ! create formats for table separator
    write(l,*)head_width+(cell_width+1)*(ie-is+1)
    l = adjustl(l)
@@ -256,13 +256,13 @@ subroutine print_table_section(table,is,ie,js,je,unit,cell_width,head_width)
             cell = repeat('*',cell_width)
          else
             cell = table(i,j)
-         endif   
+         endif
          write(unit,fcell,advance='no') cell
       enddo
       write(unit,*) ! go to the next line
    enddo
    write(unit,fbot) ! bottom-ruler
-   
+
 end subroutine print_table_section
 
 end module
@@ -271,7 +271,7 @@ end module
 #if 0
 program test
    use table_printer_mod
-   
+
    type(table_printer_type) :: t
 
    call init_with_headers(t,(/'a','b','c','d','e'/))
@@ -300,6 +300,6 @@ program test
    call print(t,head_width=10)
    call print(t,head_width=10,transposed=.TRUE.)
    call dealloc(t)
-   
+
 end program
 #endif

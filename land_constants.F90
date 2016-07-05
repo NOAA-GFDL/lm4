@@ -25,9 +25,4 @@ real, public, parameter :: mol_CO2 = 44.00995e-3 ! molar mass of CO2,kg
 real, public, parameter :: mol_h2o = 18.0e-3 ! molar mass of water, kg
 ! ==== end of public interfaces ==============================================
 
-! ==== module constants ======================================================
-character(len=*), parameter :: &
-     version = '$Id$', &
-     tagname = '$Name$'
-
 end module

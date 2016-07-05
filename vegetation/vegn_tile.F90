@@ -1,15 +1,13 @@
 module vegn_tile_mod
 
-use fms_mod, only : &
-     write_version_number, stdlog, error_mesg, FATAL
-use constants_mod, only : &
-     tfreeze, hlf
+#include "../shared/debug.inc"
+
+use fms_mod,            only : error_mesg, FATAL
+use constants_mod,      only : tfreeze, hlf
 
 use land_constants_mod, only : NBANDS
-use land_io_mod, only : &
-     init_cover_field
-use land_tile_selectors_mod, only : &
-     tile_selector_type, SEL_VEGN
+use land_io_mod,        only : init_cover_field
+use land_tile_selectors_mod, only : tile_selector_type
 
 use vegn_data_mod, only : &
      NSPECIES, MSPECIES, NCMPT, C2B, &
@@ -39,9 +37,10 @@ public :: get_vegn_tile_tag
 public :: vegn_tile_stock_pe
 public :: vegn_tile_carbon ! returns total carbon per tile
 public :: vegn_tile_nitrogen
-public :: vegn_tile_heat ! returns hate content of the vegetation
-public :: vegn_tile_LAI ! returns LAI of the vegetation
-public :: vegn_tile_SAI ! returns LAI of the vegetation
+public :: vegn_tile_heat ! returns heat content of the vegetation
+public :: vegn_tile_LAI ! returns leaf area index
+public :: vegn_tile_SAI ! returns stem area index
+public :: vegn_tile_bwood ! returns wood biomass
 
 public :: read_vegn_data_namelist
 public :: vegn_cover_cold_start
@@ -52,8 +51,6 @@ public :: vegn_data_rs_min
 public :: vegn_seed_supply
 public :: vegn_seed_demand
 
-public :: vegn_tran_priority ! returns transition priority for land use
-
 public :: vegn_add_bliving
 public :: update_derived_vegn_data  ! given state variables, calculate derived values
 ! =====end of public interfaces ==============================================
@@ -61,13 +58,6 @@ interface new_vegn_tile
    module procedure vegn_tile_ctor
    module procedure vegn_tile_copy_ctor
 end interface
-
-
-! ==== module constants ======================================================
-character(len=*), parameter   :: &
-     version = '$Id$', &
-     tagname = '$Name$', &
-     module_name = 'vegn_tile_mod'
 
 ! ==== types =================================================================
 type :: vegn_tile_type
@@ -81,8 +71,6 @@ type :: vegn_tile_type
 
    ! fields for smoothing out the contribution of the spike-type processes (e.g.
    ! harvesting) to the soil carbon pools over some period of time
-   real :: fsc_pool_ag=0.0, fsc_rate_ag=0.0 ! for fast soil carbon above ground
-   real :: ssc_pool_ag=0.0, ssc_rate_ag=0.0 ! for slow soil carbon above ground
    real :: fsc_pool_bg=0.0, fsc_rate_bg=0.0 ! for fast soil carbon below ground
    real :: ssc_pool_bg=0.0, ssc_rate_bg=0.0 ! for slow soil carbon below ground
 
@@ -159,7 +147,6 @@ real, public :: &
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-
 ! ============================================================================
 function vegn_tile_ctor(tag) result(ptr)
   type(vegn_tile_type), pointer :: ptr ! return value
@@ -202,8 +189,8 @@ function vegn_tiles_can_be_merged(vegn1,vegn2) result(response)
      response = .false. ! different land use types can't be merged
   else if (vegn1%landuse == LU_SCND) then ! secondary vegetation tiles
      ! get tile wood biomasses
-     b1 = get_vegn_tile_bwood(vegn1)
-     b2 = get_vegn_tile_bwood(vegn2)
+     b1 = vegn_tile_bwood(vegn1)
+     b2 = vegn_tile_bwood(vegn2)
      ! find biomass bins where each the tiles belongs to
      i1 = 0 ; i2 = 0
      do i = 1, size(scnd_biomass_bins(:))
@@ -288,8 +275,6 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   __MERGE__(age);
 
 
-  __MERGE__(fsc_pool_ag); __MERGE__(fsc_rate_ag)
-  __MERGE__(ssc_pool_ag); __MERGE__(ssc_rate_ag)
   __MERGE__(fsc_pool_bg); __MERGE__(fsc_rate_bg)
   __MERGE__(ssc_pool_bg); __MERGE__(ssc_rate_bg)
 
@@ -499,48 +484,6 @@ subroutine vegn_add_bliving ( vegn, delta )
   call update_biomass_pools(vegn%cohorts(1))
 end subroutine vegn_add_bliving
 
-
-
-
-
-! ============================================================================
-! given a vegetation patch, destination kind of transition, and "transition
-! intensity" value, this function returns a fraction of tile that will parti-
-! cipate in transition.
-!
-! this function must be contiguous, monotonic, its value must be within
-! interval [0,1]
-!
-! this function is used to determine what part of each tile is to be converted
-! to another land use kind; the equation is solved to get "transition intensity"
-! tau for which total area is equal to requested. Tau is, therefore, a dummy
-! parameter, and only relative values of the priority functions for tiles
-! participating in transition have any meaning. For most transitions the priority
-! function is just equal to tau: therefore there is no preference, and all tiles
-! contribute equally to converted area. For secondary vegetation harvesting,
-! however, priority also depends on wood biomass, and therefore tiles
-! with high wood biomass are harvested first.
-function vegn_tran_priority(vegn, dst_kind, tau) result(pri)
-  real :: pri
-  type(vegn_tile_type), intent(in) :: vegn
-  integer             , intent(in) :: dst_kind
-  real                , intent(in) :: tau
-
-  real :: vegn_bwood
-  integer :: i
-
-  if (vegn%landuse==LU_SCND.and.dst_kind==LU_SCND) then ! secondary biomass harvesting
-     vegn_bwood = 0
-     do i = 1,vegn%n_cohorts
-        vegn_bwood = vegn_bwood + vegn%cohorts(i)%bwood
-     enddo
-     pri = max(min(tau+vegn_bwood,1.0),0.0)
-  else
-     pri = max(min(tau,1.0),0.0)
-  endif
-end function vegn_tran_priority
-
-
 ! ============================================================================
 function vegn_cover_cold_start(land_mask, lonb, latb) result (vegn_frac)
 ! creates and initializes a field of fractional vegn coverage
@@ -599,7 +542,7 @@ end function get_vegn_tile_tag
 
 ! ============================================================================
 ! returns total wood biomass per tile
-function get_vegn_tile_bwood(vegn) result(bwood)
+function vegn_tile_bwood(vegn) result(bwood)
   real :: bwood
   type(vegn_tile_type), intent(in) :: vegn
 
@@ -610,7 +553,7 @@ function get_vegn_tile_bwood(vegn) result(bwood)
   do i = 1,vegn%n_cohorts
      bwood = bwood + vegn%cohorts(i)%bwood
   enddo
-end function get_vegn_tile_bwood
+end function vegn_tile_bwood
 
 ! ============================================================================
 ! returns total leaf area index
@@ -673,7 +616,6 @@ function vegn_tile_carbon(vegn) result(carbon) ; real carbon
           vegn%cohorts(i)%N_fixer_biomass_C + vegn%cohorts(i)%root_exudate_buffer_C ! Mycorrhizal and N fixer biomass added by B. Sulman
   enddo
   carbon = carbon + sum(vegn%harv_pool) + &
-           vegn%fsc_pool_ag + vegn%ssc_pool_ag + &
            vegn%fsc_pool_bg + vegn%ssc_pool_bg + vegn%csmoke_pool
 
   ! Pools associated with aboveground litter CORPSE pools

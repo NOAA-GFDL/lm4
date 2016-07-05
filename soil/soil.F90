@@ -12,11 +12,9 @@ use fms_mod, only: open_namelist_file
 #endif
 
 use fms_mod, only: error_mesg, file_exist, check_nml_error, &
-     stdlog, write_version_number, close_file, mpp_pe, mpp_root_pe, FATAL, WARNING, NOTE
-use fms_io_mod, only: read_compressed, restart_file_type, free_restart_type, &
-      field_exist, save_restart, &
-      register_restart_field, set_domain, nullify_domain, get_field_size
-use time_manager_mod,   only: time_type, increment_time, time_type_to_real
+     stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, WARNING, NOTE
+use fms_io_mod, only: set_domain, nullify_domain
+use time_manager_mod,   only: time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o
 use tracer_manager_mod, only: NO_TRACER
@@ -24,26 +22,26 @@ use tracer_manager_mod, only: NO_TRACER
 use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, seconds_per_year
 use soil_tile_mod, only : GW_LM2, GW_LINEAR, GW_HILL_AR5, GW_HILL, GW_TILED, &
      soil_tile_type, soil_pars_type, read_soil_data_namelist, &
-     soil_data_radiation, soil_data_diffusion, soil_data_thermodynamics, &
+     soil_data_thermodynamics, &
      soil_data_hydraulic_properties, soil_data_psi_for_rh, &
      soil_data_gw_hydraulics, soil_data_gw_hydraulics_ar5, &
      soil_data_vwc_for_init_only, &
      soil_data_init_derive_subsurf_pars, &
      soil_data_init_derive_subsurf_pars_ar5, soil_data_init_derive_subsurf_pars_tiled, &
-     max_lev, psi_wilt, cpw, clw, csw, g_iso, g_vol, g_geo, g_RT, aspect, &
+     max_lev, psi_wilt, cpw, clw, csw, g_iso, g_vol, g_geo, use_brdf, g_RT, aspect, &
      gw_scale_length, gw_scale_relief, gw_scale_soil_depth, &
      slope_exp, gw_scale_perm, k0_macro_x, retro_a0n1, &
      soil_type_file, &
      soil_tile_stock_pe, initval, comp, soil_theta, soil_ice_porosity
 
-use soil_carbon_mod, only: poolTotals, get_pool_data_accessors, soilMaxCohorts, &
-     update_pool, add_litter,add_C_N_to_rhizosphere, &
+use soil_carbon_mod, only: poolTotals, soilMaxCohorts, &
+     update_pool, add_litter, add_C_N_to_rhizosphere, &
      tracer_leaching_with_litter,transfer_pool_fraction, n_c_types, &
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
-     A_function, debug_pool, mycorrhizal_mineral_N_uptake_rate, mycorrhizal_decomposition, hypothetical_mycorrhizal_decomposition
+     C_CEL, C_LIG, C_MIC, A_function, debug_pool, adjust_pool_ncohorts, &
+     mycorrhizal_mineral_N_uptake_rate, mycorrhizal_decomposition, hypothetical_mycorrhizal_decomposition
 
-
-use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
+use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, prev_elmt, current_tile, get_elmt_indices, &
      operator(/=)
 use land_utils_mod, only : put_to_tiles_r0d_fptr, put_to_tiles_r1d_fptr
@@ -52,19 +50,17 @@ use land_tile_diag_mod, only : diag_buff_type, &
      send_tile_data, send_tile_data_r0d_fptr, send_tile_data_r1d_fptr, &
      send_tile_data_i0d_fptr, &
      add_tiled_diag_field_alias, add_tiled_static_field_alias, &
-     set_default_diag_filter
-use land_data_mod, only : land_state_type, lnd, land_time
+     set_default_diag_filter, cmor_name, cmor_mrsos_depth
+use land_data_mod, only : land_state_type, lnd, log_version
 use land_io_mod, only : read_field
-use land_tile_io_mod, only : create_tile_out_file, write_tile_data_r0d_fptr,&
-     write_tile_data_r1d_fptr, read_tile_data_r0d_fptr, read_tile_data_r1d_fptr,&
-     read_tile_data_layered_cohort_fptr, write_tile_data_layered_cohort_fptr,&
-     write_tile_data_i1d_fptr_all,read_tile_data_i1d_fptr_all,&
-     print_netcdf_error, get_input_restart_name, sync_nc_files, gather_tile_data, assemble_tiles
-use nf_utils_mod, only : nfu_def_dim, nfu_put_att, nfu_inq_var
+use land_tile_io_mod, only: land_restart_type, &
+     init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
+     add_tile_data, add_int_tile_data, get_tile_data, get_int_tile_data, &
+     add_restart_axis, field_exists
 use vegn_data_mod, only: K1, K2, root_NH4_uptake_rate, root_NO3_uptake_rate, k_ammonium_root_uptake, k_nitrate_root_uptake
 use vegn_tile_mod, only : vegn_tile_type, vegn_uptake_profile, vegn_hydraulic_properties
 use land_debug_mod, only : is_watch_point, get_current_point, set_current_point, &
-    check_var_range, check_conservation, is_watch_cell
+     check_conservation, is_watch_cell
 use uptake_mod, only : UPTAKE_LINEAR, UPTAKE_DARCY2D, UPTAKE_DARCY2D_LIN, &
      uptake_init, darcy2d_uptake, darcy2d_uptake_solver
 
@@ -77,6 +73,7 @@ use soil_tile_mod, only : n_dim_soil_types, soil_to_use, &
      soil_index_constant, input_cover_types
 use hillslope_hydrology_mod, only: hlsp_hydro_lev_init, hlsp_hydrology_2, &
      stiff_explicit_gwupdate
+use river_mod, only : river_tracer_index
 
 ! Test tridiagonal solution for advection
 use land_numerics_mod, only : tridiag
@@ -90,11 +87,8 @@ public :: retrieve_soil_tags
 public :: soil_init
 public :: soil_end
 public :: save_soil_restart
-public :: save_soil_restart_new
 
 public :: soil_get_sfc_temp
-public :: soil_radiation
-public :: soil_diffusion
 public :: soil_step_1
 public :: soil_step_2
 public :: soil_step_3
@@ -113,10 +107,8 @@ public :: redistribute_peat_carbon
 
 
 ! ==== module constants ======================================================
-character(len=*), parameter, private   :: &
-    module_name = 'soil',&
-    version     = '$Id$',&
-    tagname     = '$Name$'
+character(len=*), parameter :: module_name = 'soil'
+#include "../shared/version_variable.inc"
 
 ! ==== module variables ======================================================
 
@@ -217,7 +209,6 @@ namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
 !---- end of namelist --------------------------------------------------------
 
 logical         :: module_is_initialized =.FALSE.
-logical         :: use_brdf = .false.
 real            :: delta_time ! fast (physical) time step, s
 real            :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 days)
 logical         :: use_single_geo
@@ -230,8 +221,11 @@ real            :: Eg_min
 integer         :: uptake_option = -1
 integer         :: gw_option = -1
 
-
-real, allocatable :: soilCCohort_data(:)
+integer :: n_river_tracers = 0
+integer :: i_river_DOC     = NO_TRACER
+integer :: i_river_DON     = NO_TRACER
+integer :: i_river_NO3     = NO_TRACER
+integer :: i_river_NH4     = NO_TRACER
 
 ! ---- diagnostic field IDs
 integer :: id_fast_soil_C, id_slow_soil_C, id_protected_C, id_fsc, id_ssc,&
@@ -331,16 +325,20 @@ integer :: id_fast_soil_C, id_slow_soil_C, id_protected_C, id_fsc, id_ssc,&
     			id_coarsewoodlitter_CUE_CO2,id_coarsewoodlitter_NUE_MINERAL,id_coarsewoodlitter_CUE_mic,id_coarsewoodlitter_NUE_mic,&
     			id_soil_CUE_CO2,id_soil_NUE_MINERAL,id_soil_CUE_mic,id_soil_NUE_mic
 
+        ! diag IDs of CMOR variables
+    integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, id_mrfso, &
+        id_mrro, id_mrros, id_csoil, id_rh, &
+        id_csoilfast, id_csoilmedium, id_csoilslow
+
+
 ! test tridiagonal solver for advection
 integer :: id_st_diff
 
 integer, allocatable, dimension(:,:,:), private :: soil_tags ! module copy of soil tags for cold start
+real, allocatable :: mrsos_weight(:) ! weights for mrsos averaging
+
 
 ! ==== end of module variables ===============================================
-
-! ==== NetCDF declarations ===================================================
-include 'netcdf.inc'
-#define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
 
 contains
 
@@ -354,7 +352,8 @@ subroutine read_soil_namelist()
 
   call read_soil_data_namelist(num_l,dz,use_single_geo,gw_option)
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=soil_nml, iostat=io)
   ierr = check_nml_error(io, 'soil_nml')
@@ -416,15 +415,13 @@ end subroutine read_soil_namelist
 
 ! ============================================================================
 ! initialize soil model
-subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
+subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
   integer, intent(in)  :: id_lon  ! ID of land longitude (X) axis
   integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
   integer, intent(in)  :: id_band ! ID of spectral band axis
   integer, intent(out) :: id_zfull ! ID of vertical soil axis
-  logical, intent(in) :: new_land_io
 
   ! ---- local vars
-  integer :: unit, unit1  ! unit numbers for various i/o
   type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
   type(land_tile_type), pointer :: tile   ! pointer to current tile
   ! input data buffers for respective variables:
@@ -439,25 +436,23 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
 
   integer :: i, li, lj, k ! indices
   real :: psi(num_l), mwc(num_l)
-  character(len=256) :: restart_file_name
-  character(len=17)  :: restart_base_name='INPUT/soil.res.nc'
-  integer :: siz(4), isize,  nz, ncc, nccoh
-  integer, allocatable :: idx(:)  ! I/O domain vector of compressed indices
-  real,    allocatable :: r2d(:,:,:), r1d(:,:), r1dc(:,:), r0d(:) ! I/O domain level dependent vector of real data
-  integer, allocatable :: i1d(:,:)  ! I/O domain level dependent vector of integer data
-  logical :: restart_exists, found
+
+  type(land_restart_type) :: restart, restart1
+  logical :: restart_exists
+  character(*), parameter :: restart_file_name = 'INPUT/soil.res.nc'
 
   module_is_initialized = .TRUE.
   delta_time = time_type_to_real(lnd%dt_fast)
   dt_fast_yr = delta_time/seconds_per_year
 
-  allocate(soilCCohort_data(soilMaxCohorts))
-  soilCCohort_data = (/(nccoh,nccoh=1,soilMaxCohorts)/)
-
   call uptake_init(num_l,dz,zfull)
   call hlsp_hydro_lev_init(num_l,dz,zfull)
 
-
+  ! initialize river tracer indices
+  i_river_DOC  = river_tracer_index('doc')
+  i_river_DON  = river_tracer_index('don')
+  i_river_NO3  = river_tracer_index('no3')
+  i_river_NH4  = river_tracer_index('nh4')
 
   ! -------- initialize soil model diagnostic fields
   call soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
@@ -469,7 +464,7 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
         allocate(gw_param(lnd%is:lnd%ie,lnd%js:lnd%je))
         call read_field( 'INPUT/groundwater_residence.nc','tau', lnd%lon, lnd%lat, &
              gw_param, interp='bilinear' )
-        call put_to_tiles_r0d_fptr( gw_param, lnd%tile_map, soil_tau_groundwater_ptr )
+        call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_tau_groundwater_ptr )
         deallocate(gw_param)
      case (GW_HILL, GW_HILL_AR5)
         allocate(gw_param (lnd%is:lnd%ie,lnd%js:lnd%je))
@@ -477,49 +472,49 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
         allocate(gw_param3(lnd%is:lnd%ie,lnd%js:lnd%je))
         call read_field( 'INPUT/geohydrology.nc','hillslope_length',  lnd%lon, lnd%lat, &
           gw_param, interp='bilinear' )
-        call put_to_tiles_r0d_fptr( gw_param*gw_scale_length, lnd%tile_map, soil_hillslope_length_ptr )
+        call put_to_tiles_r0d_fptr( gw_param*gw_scale_length, land_tile_map, soil_hillslope_length_ptr )
         call read_field( 'INPUT/geohydrology.nc','slope', lnd%lon, lnd%lat, &
           gw_param2, interp='bilinear' )
         gw_param = gw_param*gw_param2
-        call put_to_tiles_r0d_fptr( gw_param*gw_scale_relief, lnd%tile_map, soil_hillslope_relief_ptr )
+        call put_to_tiles_r0d_fptr( gw_param*gw_scale_relief, land_tile_map, soil_hillslope_relief_ptr )
 
         if (retro_a0n1 .or. gw_option.eq.GW_HILL_AR5) then
             gw_param = 0.
-            call put_to_tiles_r0d_fptr( gw_param, lnd%tile_map, soil_hillslope_a_ptr )
+            call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_a_ptr )
             gw_param = 1.
-            call put_to_tiles_r0d_fptr( gw_param, lnd%tile_map, soil_hillslope_n_ptr )
+            call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_n_ptr )
 !            call read_field( 'INPUT/geohydrology.nc','hillslope_zeta_bar', &
 !              lnd%lon, lnd%lat, gw_param, interp='bilinear' )
             gw_param = 0.5
-            call put_to_tiles_r0d_fptr( gw_param, lnd%tile_map, soil_hillslope_zeta_bar_ptr )
+            call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_zeta_bar_ptr )
         else
             call read_field( 'INPUT/geohydrology.nc','hillslope_a', &
               lnd%lon, lnd%lat, gw_param, interp='bilinear' )
-            call put_to_tiles_r0d_fptr( gw_param, lnd%tile_map, soil_hillslope_a_ptr )
+            call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_a_ptr )
             call read_field( 'INPUT/geohydrology.nc','hillslope_n', &
               lnd%lon, lnd%lat, gw_param2, interp='bilinear' )
-            call put_to_tiles_r0d_fptr( gw_param2, lnd%tile_map, soil_hillslope_n_ptr )
+            call put_to_tiles_r0d_fptr( gw_param2, land_tile_map, soil_hillslope_n_ptr )
             gw_param3 = (1./(gw_param2+1.)+gw_param/(gw_param2+2.))/(1.+gw_param/2.)
-            call put_to_tiles_r0d_fptr( gw_param3, lnd%tile_map, soil_hillslope_zeta_bar_ptr )
+            call put_to_tiles_r0d_fptr( gw_param3, land_tile_map, soil_hillslope_zeta_bar_ptr )
         endif
 
         call read_field( 'INPUT/geohydrology.nc','soil_e_depth', &
           lnd%lon, lnd%lat, gw_param, interp='bilinear' )
         if (slope_exp.gt.0.01) then
             call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth*(0.08/gw_param2)**slope_exp, &
-                                                  lnd%tile_map, soil_soil_e_depth_ptr )
+                                                  land_tile_map, soil_soil_e_depth_ptr )
         else
-            call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth, lnd%tile_map, soil_soil_e_depth_ptr )
+            call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth, land_tile_map, soil_soil_e_depth_ptr )
         endif
         if (gw_option /= GW_HILL_AR5) then
             call read_field( 'INPUT/geohydrology.nc','perm', lnd%lon, lnd%lat, &
                  gw_param, interp='bilinear' )
-            call put_to_tiles_r0d_fptr(9.8e9*gw_scale_perm*gw_param, lnd%tile_map, &
+            call put_to_tiles_r0d_fptr(9.8e9*gw_scale_perm*gw_param, land_tile_map, &
                                             soil_k_sat_gw_ptr )
         endif
         deallocate(gw_param, gw_param2, gw_param3)
-        te = tail_elmt (lnd%tile_map)
-        ce = first_elmt(lnd%tile_map)
+        te = tail_elmt (land_tile_map)
+        ce = first_elmt(land_tile_map)
         do while(ce /= te)
             tile=>current_tile(ce)  ! get pointer to current tile
             ce=next_elmt(ce)        ! advance position to the next tile
@@ -537,15 +532,15 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
            allocate(gw_param2(lnd%is:lnd%ie,lnd%js:lnd%je))
            call read_field( 'INPUT/geohydrology.nc','hillslope_length',  lnd%lon, lnd%lat, &
              gw_param, interp='bilinear' )
-           call put_to_tiles_r0d_fptr( gw_param*gw_scale_length, lnd%tile_map, soil_hillslope_length_ptr )
+           call put_to_tiles_r0d_fptr( gw_param*gw_scale_length, land_tile_map, soil_hillslope_length_ptr )
            call read_field( 'INPUT/geohydrology.nc','slope', lnd%lon, lnd%lat, &
              gw_param2, interp='bilinear' )
            gw_param = gw_param*gw_param2
-           call put_to_tiles_r0d_fptr( gw_param*gw_scale_relief, lnd%tile_map, soil_hillslope_relief_ptr )
+           call put_to_tiles_r0d_fptr( gw_param*gw_scale_relief, land_tile_map, soil_hillslope_relief_ptr )
            call read_field( 'INPUT/geohydrology.nc','hillslope_zeta_bar', &
              lnd%lon, lnd%lat, gw_param, interp='bilinear' )
            if (zeta_bar_override.gt.0.) gw_param=zeta_bar_override
-           call put_to_tiles_r0d_fptr( gw_param, lnd%tile_map, soil_hillslope_zeta_bar_ptr )
+           call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_zeta_bar_ptr )
            call read_field( 'INPUT/geohydrology.nc','soil_e_depth', &
              lnd%lon, lnd%lat, gw_param, interp='bilinear' )
 
@@ -554,18 +549,18 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
                call error_mesg(module_name, 'soil_init: "slope_exp" > 0.0 requested even though '// &
                                'running with tiled hillslope model.  This may be inconsistent.', WARNING)
                call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth*(0.08/gw_param2)**slope_exp, &
-                                                     lnd%tile_map, soil_soil_e_depth_ptr )
+                                                     land_tile_map, soil_soil_e_depth_ptr )
            else
-               call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth, lnd%tile_map, soil_soil_e_depth_ptr )
+               call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth, land_tile_map, soil_soil_e_depth_ptr )
            endif
            call read_field( 'INPUT/geohydrology.nc','perm', lnd%lon, lnd%lat, &
                   gw_param, interp='bilinear' )
-           call put_to_tiles_r0d_fptr(9.8e9*gw_scale_perm*gw_param, lnd%tile_map, &
+           call put_to_tiles_r0d_fptr(9.8e9*gw_scale_perm*gw_param, land_tile_map, &
                                           soil_k_sat_gw_ptr )
            deallocate(gw_param, gw_param2)
         end if
-        te = tail_elmt (lnd%tile_map)
-        ce = first_elmt(lnd%tile_map)
+        te = tail_elmt (land_tile_map)
+        ce = first_elmt(land_tile_map)
         do while(ce /= te)
             tile=>current_tile(ce)  ! get pointer to current tile
             ce=next_elmt(ce)        ! advance position to the next tile
@@ -592,12 +587,12 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
           lnd%lon, lnd%lat, albedo(:,:,BAND_VIS),'bilinear')
      call read_field( 'INPUT/soil_albedo.nc','SOIL_ALBEDO_NIR',&
           lnd%lon, lnd%lat, albedo(:,:,BAND_NIR),'bilinear')
-     call put_to_tiles_r1d_fptr( albedo, lnd%tile_map, soil_refl_dry_dir_ptr )
-     call put_to_tiles_r1d_fptr( albedo, lnd%tile_map, soil_refl_dry_dif_ptr )
+     call put_to_tiles_r1d_fptr( albedo, land_tile_map, soil_refl_dry_dir_ptr )
+     call put_to_tiles_r1d_fptr( albedo, land_tile_map, soil_refl_dry_dif_ptr )
      ! for now, put the same value into the saturated soil albedo, so that
      ! the albedo does not depend on soil wetness
-     call put_to_tiles_r1d_fptr( albedo, lnd%tile_map, soil_refl_sat_dir_ptr )
-     call put_to_tiles_r1d_fptr( albedo, lnd%tile_map, soil_refl_sat_dif_ptr )
+     call put_to_tiles_r1d_fptr( albedo, land_tile_map, soil_refl_sat_dir_ptr )
+     call put_to_tiles_r1d_fptr( albedo, land_tile_map, soil_refl_sat_dif_ptr )
      deallocate(albedo)
   else if (trim(albedo_to_use)=='brdf-maps') then
      use_brdf = .true.
@@ -618,16 +613,16 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
      call read_field( 'INPUT/soil_brdf.nc','f_geo_nir',&
           lnd%lon, lnd%lat, f_geo(:,:,BAND_NIR),'bilinear')
      refl_dif = g_iso*f_iso + g_vol*f_vol + g_geo*f_geo
-     call put_to_tiles_r1d_fptr( f_iso,    lnd%tile_map, soil_f_iso_dry_ptr )
-     call put_to_tiles_r1d_fptr( f_vol,    lnd%tile_map, soil_f_vol_dry_ptr )
-     call put_to_tiles_r1d_fptr( f_geo,    lnd%tile_map, soil_f_geo_dry_ptr )
-     call put_to_tiles_r1d_fptr( refl_dif, lnd%tile_map, soil_refl_dry_dif_ptr )
+     call put_to_tiles_r1d_fptr( f_iso,    land_tile_map, soil_f_iso_dry_ptr )
+     call put_to_tiles_r1d_fptr( f_vol,    land_tile_map, soil_f_vol_dry_ptr )
+     call put_to_tiles_r1d_fptr( f_geo,    land_tile_map, soil_f_geo_dry_ptr )
+     call put_to_tiles_r1d_fptr( refl_dif, land_tile_map, soil_refl_dry_dif_ptr )
      ! for now, put the same value into the saturated soil albedo, so that
      ! the albedo does not depend on soil wetness
-     call put_to_tiles_r1d_fptr( f_iso,    lnd%tile_map, soil_f_iso_sat_ptr )
-     call put_to_tiles_r1d_fptr( f_vol,    lnd%tile_map, soil_f_vol_sat_ptr )
-     call put_to_tiles_r1d_fptr( f_geo,    lnd%tile_map, soil_f_geo_sat_ptr )
-     call put_to_tiles_r1d_fptr( refl_dif, lnd%tile_map, soil_refl_sat_dif_ptr )
+     call put_to_tiles_r1d_fptr( f_iso,    land_tile_map, soil_f_iso_sat_ptr )
+     call put_to_tiles_r1d_fptr( f_vol,    land_tile_map, soil_f_vol_sat_ptr )
+     call put_to_tiles_r1d_fptr( f_geo,    land_tile_map, soil_f_geo_sat_ptr )
+     call put_to_tiles_r1d_fptr( refl_dif, land_tile_map, soil_refl_sat_dif_ptr )
      deallocate(f_iso, f_vol, f_geo, refl_dif)
   else if (trim(albedo_to_use)=='') then
      ! do nothing, that is leave soil albedo parameters as defined based on the data table
@@ -652,8 +647,8 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
   end if
 
   ! -------- initialize soil state --------
-  te = tail_elmt (lnd%tile_map)
-  ce = first_elmt(lnd%tile_map, is=lnd%is, js=lnd%js) ! Use global indices here because element indices
+  te = tail_elmt (land_tile_map)
+  ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js) ! Use global indices here because element indices
                                                       ! needed.
   do while(ce /= te)
      tile=>current_tile(ce)  ! get pointer to current tile
@@ -715,830 +710,310 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull, new_land_io)
      deallocate(ref_soil_t, wetmask)
   end if
 
-  call get_input_restart_name(restart_base_name,restart_exists,restart_file_name,new_land_io)
+  call open_land_restart(restart,restart_file_name,restart_exists)
   if (restart_exists) then
-     if(new_land_io) then
-        restart_file_name = restart_base_name
+       call error_mesg('soil_init', 'reading NetCDF restart "'//trim(restart_file_name)//'"', NOTE)
+       call get_tile_data(restart, 'temp', 'zfull', soil_T_ptr  )
+       call get_tile_data(restart, 'wl', 'zfull', soil_wl_ptr )
+       call get_tile_data(restart, 'ws', 'zfull', soil_ws_ptr )
+       call get_tile_data(restart, 'groundwater', 'zfull', soil_groundwater_ptr )
+       call get_tile_data(restart, 'groundwater_T', 'zfull', soil_groundwater_T_ptr)
+       if(field_exists(restart, 'uptake_T')) &
+            call get_tile_data(restart, 'uptake_T', soil_uptake_T_ptr)
 
-        call error_mesg('soil_init', 'Using new soil restart read', NOTE)
-        call get_field_size(restart_file_name, 'tile_index', siz, field_found=found, domain=lnd%domain)
-        if ( .not.found ) call error_mesg(trim(module_name), &
-             'tile_index axis not found in '//trim(restart_file_name), FATAL)
-        isize = siz(1)
-
-        call get_field_size(restart_file_name, 'zfull', siz, field_found=found, domain=lnd%domain)
-        if ( .not.found ) call error_mesg(trim(module_name), 'Z axis not found in '//trim(restart_file_name), FATAL)
-        nz = siz(1)
-
-        allocate(idx(isize),r1d(isize,nz),r0d(isize),i1d(isize,nz))
-        call read_compressed(restart_file_name,'tile_index',idx, domain=lnd%domain, timelevel=1)
-
-        call read_compressed(restart_file_name,'temp',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_T_ptr,idx,r1d)
-
-        call read_compressed(restart_file_name,'wl',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_wl_ptr,idx,r1d)
-
-        call read_compressed(restart_file_name,'ws',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_ws_ptr,idx,r1d)
-
-        call read_compressed(restart_file_name,'groundwater',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_groundwater_ptr,idx,r1d)
-
-        call read_compressed(restart_file_name,'groundwater_T',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_groundwater_T_ptr,idx,r1d)
-
-        if ( field_exist(restart_file_name,'uptake_T', domain=lnd%domain) ) then
-           call read_compressed(restart_file_name,'uptake_T',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_uptake_T_ptr,idx,r0d)
-        endif
-
-        if (soil_carbon_option==SOILC_CENTURY.or.soil_carbon_option==SOILC_CENTURY_BY_LAYER) then
-           if ( field_exist(restart_file_name,'fsc', domain=lnd%domain) ) then
-              call read_compressed(restart_file_name,'fsc',r1d, domain=lnd%domain, timelevel=1)
-              call assemble_tiles(soil_fast_soil_C_ptr,idx,r1d)
-              call read_compressed(restart_file_name,'ssc',r1d, domain=lnd%domain, timelevel=1)
-              call assemble_tiles(soil_slow_soil_C_ptr,idx,r1d)
-           else
-              ! try to read fsc and ssc from vegetation restart
-              call get_input_restart_name('INPUT/vegn2.res.nc',restart_exists,restart_file_name,new_land_io)
-              if (restart_exists) then
-                restart_file_name = 'INPUT/vegn2.res.nc'
-                call read_compressed(restart_file_name,'fsc',r0d, domain=lnd%domain, timelevel=1)
-                call assemble_tiles(soil_fast_soil_C_ptr,idx,r0d,1)
-                call read_compressed(restart_file_name,'ssc',r0d, domain=lnd%domain, timelevel=1)
-                call assemble_tiles(soil_slow_soil_C_ptr,idx,r0d,1)
-              endif
-           endif
-        endif
-
-        if ( field_exist(restart_file_name,'fast_soil_C', domain=lnd%domain) ) then
-           call get_field_size(restart_file_name, 'soilCCohort', siz, field_found=found, domain=lnd%domain)
-           if ( .not.found ) call error_mesg(trim(module_name), &
-                'soil carbon cohort axis not found in '//trim(restart_file_name), FATAL)
-           ncc = siz(1)
-           allocate(r2d(isize,nz,ncc),r1dc(isize,ncc))
-           call read_compressed(restart_file_name,'fast_soil_C',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fast_soil_C_ptr,idx,r2d)
-           call read_compressed(restart_file_name,'slow_soil_C',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_slow_soil_C_ptr,idx,r2d)
-           call read_compressed(restart_file_name,'deadMic',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_deadMicrobeC_ptr,idx,r2d)
-           call read_compressed(restart_file_name,'fastProtectedC',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fast_protected_C_ptr,idx,r2d)
-           call read_compressed(restart_file_name,'slowProtectedC',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_slow_protected_C_ptr,idx,r2d)
-           call read_compressed(restart_file_name,'deadMicrobeProtectedC',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_deadMicrobe_protected_C_ptr,idx,r2d)
-           call read_compressed(restart_file_name,'liveMic',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_livingMicrobeC_ptr,idx,r2d)
-           call read_compressed(restart_file_name,'CO2',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_CO2_ptr,idx,r2d)
-           call read_compressed(restart_file_name,'Rtot',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_Rtot_ptr,idx,r2d)
-           call read_compressed(restart_file_name,'originalCohortC',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_originalLitterC_ptr,idx,r2d)
-
-if(soil_carbon_option == SOILC_CORPSE_N) then
-           call read_compressed(restart_file_name,'fast_soil_N',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fast_soil_N_ptr,idx,r2d)
-           call read_compressed(restart_file_name,'slow_soil_N',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_slow_soil_N_ptr,idx,r2d)
-           call read_compressed(restart_file_name,'deadMic_N',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_deadMicrobeN_ptr,idx,r2d)
-           call read_compressed(restart_file_name,'fastProtectedN',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fast_protected_N_ptr,idx,r2d)
-           call read_compressed(restart_file_name,'slowProtectedN',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_slow_protected_N_ptr,idx,r2d)
-           call read_compressed(restart_file_name,'deadMicrobeProtectedN',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_deadMicrobe_protected_N_ptr,idx,r2d)
-           call read_compressed(restart_file_name,'liveMic_N',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_livingMicrobeN_ptr,idx,r2d)
-           call read_compressed(restart_file_name,'originalCohortN',r2d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_originalLitterC_ptr,idx,r2d)
-           ! Leaving out IMM_N_max, IMM_N_gross, MINER_gross, etc for now -- BNS
-
-           call read_compressed(restart_file_name,'soil_DON_fast',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_fast_DON_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'soil_DON_slow',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_slow_DON_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'soil_DON_deadmic',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_deadmicrobe_DON_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'soil_NO3',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_nitrate_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'soil_NH4',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_ammonium_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'soil_nitrif',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_nitrif_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'soil_denitrif',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_denitrif_ptr,idx,r1d)
-
-           call read_compressed(restart_file_name,'fast_DON_leached',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_fast_DON_leached_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'slow_DON_leached',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_slow_DON_leached_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'deadmic_DON_leached',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_deadmic_DON_leached_ptr,idx,r0d)
-
-           call read_compressed(restart_file_name,'leaf_litter_fast_N',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_fast_soil_N_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'leaf_litter_slow_N',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_slow_soil_N_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'leaf_litter_deadMic_N',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_deadMicrobeN_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'leaf_litter_liveMic_N',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_livingMicrobeN_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'leaf_litter_originalCohortN',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_originalLitterN_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'leaf_litter_fastProtectedN',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_fast_protected_N_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'leaf_litter_slowProtectedN',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_slow_protected_N_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'leaf_litter_deadMicrobeProtectedN',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_deadMicrobe_protected_N_ptr,idx,r1dc)
-
-           call read_compressed(restart_file_name,'leaf_litter_DON_fast',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leaflitter_fast_DON_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'leaf_litter_DON_slow',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leaflitter_slow_DON_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'leaf_litter_DON_deadmic',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leaflitter_deadMicrobe_DON_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'leaf_litter_NO3',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leaflitter_nitrate_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'leaf_litter_NH4',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leaflitter_ammonium_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'leaf_litter_nitrif',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leaflitter_nitrif_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'leaf_litter_denitrif',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leaflitter_denitrif_ptr,idx,r1d)
-
-           call read_compressed(restart_file_name,'fineWood_litter_fast_N',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_fast_soil_N_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'fineWood_litter_slow_N',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_slow_soil_N_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'fineWood_litter_deadMic_N',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_deadMicrobeN_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'fineWood_litter_liveMic_N',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_livingMicrobeN_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'fineWood_litter_originalCohortN',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_originalLitterN_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'fineWood_litter_fastProtectedN',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_fast_protected_N_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'fineWood_litter_slowProtectedN',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_slow_protected_N_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'fineWood_litter_deadMicrobeProtectedN',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_deadMicrobe_protected_N_ptr,idx,r1dc)
-
-           call read_compressed(restart_file_name,'coarseWood_litter_fast_N',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_fast_soil_N_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_slow_N',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_slow_soil_N_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_deadMic_N',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_deadMicrobeN_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_liveMic_N',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_livingMicrobeN_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_originalCohortN',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_originalLitterN_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_fastProtectedN',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_fast_protected_N_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_slowProtectedN',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_slow_protected_N_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_deadMicrobeProtectedN',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_deadMicrobe_protected_N_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_DON_fast',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodlitter_fast_DON_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'coarseWood_litter_DON_slow',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodlitter_slow_DON_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'coarseWood_litter_DON_deadmic',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodlitter_deadMicrobe_DON_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'coarseWood_litter_NO3',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodlitter_nitrate_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'coarseWood_litter_NH4',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodlitter_ammonium_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'coarseWood_litter_nitrif',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodlitter_nitrif_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'coarseWood_litter_denitrif',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodlitter_denitrif_ptr,idx,r1d)
-
-           call read_compressed(restart_file_name,'fineWood_litter_DON_fast',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodlitter_fast_DON_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'fineWood_litter_DON_slow',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodlitter_slow_DON_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'fineWood_litter_DON_deadmic',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodlitter_deadMicrobe_DON_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'fineWood_litter_NO3',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodlitter_nitrate_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'fineWood_litter_NH4',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodlitter_ammonium_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'fineWood_litter_nitrif',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodlitter_nitrif_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'fineWood_litter_denitrif',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodlitter_denitrif_ptr,idx,r1d)
+       if (soil_carbon_option==SOILC_CENTURY.or.soil_carbon_option==SOILC_CENTURY_BY_LAYER) then
+          if(field_exists(restart, 'fsc')) then
+             call get_tile_data(restart,'fsc','zfull',soil_fast_soil_C_ptr)
+             call get_tile_data(restart,'ssc','zfull',soil_slow_soil_C_ptr)
+          else
+             ! try to read fsc and ssc from vegetation restart
+             call open_land_restart(restart1,'INPUT/vegn2.res.nc',restart_exists)
+             if (restart_exists) then
+                ! read old (scalar) fsc and ssc into the first element of the fast_soil_C
+                ! and slow_soil_C arrays
+                call get_tile_data(restart1,'fsc',soil_fast_soil_C_ptr,1)
+                call get_tile_data(restart1,'ssc',soil_slow_soil_C_ptr,1)
+             endif
+             call free_land_restart(restart1)
+          endif
        endif
 
-           call read_compressed(restart_file_name,'soil_DOC_fast',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_fast_DOC_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'soil_DOC_slow',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_slow_DOC_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'soil_DOC_deadmic',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_deadmicrobe_DOC_ptr,idx,r1d)
+       if (field_exists(restart,'fast_soil_C')) then
+          ! we are dealing with CORPSE restart
+          te = tail_elmt (land_tile_map)
+          ce = first_elmt(land_tile_map)
+          do while(ce /= te)
+              tile=>current_tile(ce)  ! get pointer to current tile
+              ce=next_elmt(ce)        ! advance position to the next tile
+              if (.not.associated(tile%soil)) cycle
+              call adjust_pool_ncohorts(tile%soil%leafLitter)
+              call adjust_pool_ncohorts(tile%soil%fineWoodLitter)
+              call adjust_pool_ncohorts(tile%soil%coarseWoodLitter)
+              do i = 1,num_l
+                 call adjust_pool_ncohorts(tile%soil%soil_organic_matter(i))
+              enddo
+          end do
 
+          call get_tile_data(restart, 'fast_soil_C', 'zfull','soilCCohort', sc_soil_C_ptr, C_CEL)
+          call get_tile_data(restart, 'slow_soil_C', 'zfull','soilCCohort', sc_soil_C_ptr, C_LIG)
+          call get_tile_data(restart, 'deadMic',     'zfull','soilCCohort', sc_soil_C_ptr, C_MIC)
+          call get_tile_data(restart, 'fastProtectedC', 'zfull','soilCCohort', sc_protected_C_ptr, C_CEL)
+          call get_tile_data(restart, 'slowProtectedC', 'zfull','soilCCohort', sc_protected_C_ptr, C_LIG)
+          call get_tile_data(restart, 'deadMicrobeProtectedC', 'zfull','soilCCohort', sc_protected_C_ptr, C_MIC)
 
+          call get_tile_data(restart,'liveMic', 'zfull','soilCCohort',soilc_livingMicrobeC_ptr)
+          call get_tile_data(restart,'CO2', 'zfull','soilCCohort',soilc_CO2_ptr)
+          call get_tile_data(restart,'Rtot', 'zfull','soilCCohort',soilc_Rtot_ptr)
+          call get_tile_data(restart,'originalCohortC', 'zfull','soilCCohort', soilc_originalLitterC_ptr)
 
-           if(field_exist(restart_file_name,'fast_DOC_leached',domain=lnd%domain)) then
-              call read_compressed(restart_file_name,'fast_DOC_leached',r0d, domain=lnd%domain, timelevel=1)
-              call assemble_tiles(soil_fast_DOC_leached_ptr,idx,r0d)
-              call read_compressed(restart_file_name,'slow_DOC_leached',r0d, domain=lnd%domain, timelevel=1)
-              call assemble_tiles(soil_slow_DOC_leached_ptr,idx,r0d)
-              call read_compressed(restart_file_name,'deadmic_DOC_leached',r0d, domain=lnd%domain, timelevel=1)
-              call assemble_tiles(soil_deadmic_DOC_leached_ptr,idx,r0d)
-           endif
+          call get_tile_data(restart, 'soil_DOC_fast', 'zfull',soil_fast_DOC_ptr)
+          call get_tile_data(restart, 'soil_DOC_slow', 'zfull',soil_slow_DOC_ptr)
+          call get_tile_data(restart, 'soil_DOC_deadmic', 'zfull',soil_deadmicrobe_DOC_ptr)
 
+          if(field_exists(restart, 'fast_DOC_leached')) then
+             call get_tile_data(restart,'fast_DOC_leached', soil_fast_DOC_leached_ptr)
+             call get_tile_data(restart,'slow_DOC_leached', soil_slow_DOC_leached_ptr)
+             call get_tile_data(restart,'deadmic_DOC_leached', soil_deadmic_DOC_leached_ptr)
+          endif
 
-           call read_compressed(restart_file_name,'leaf_litter_fast_C',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_fast_soil_C_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'leaf_litter_slow_C',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_slow_soil_C_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'leaf_litter_deadMic_C',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_deadMicrobeC_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'leaf_litter_liveMic_C',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_livingMicrobeC_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'leaf_litter_CO2',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_CO2_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'leaf_litter_Rtot',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_Rtot_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'leaf_litter_originalCohortC',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_originalLitterC_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'leaf_litter_fastProtectedC',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_fast_protected_C_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'leaf_litter_slowProtectedC',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_slow_protected_C_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'leaf_litter_deadMicrobeProtectedC',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leafLitter_deadMicrobe_protected_C_ptr,idx,r1dc)
+          call get_tile_data(restart, 'leaf_litter_fast_C', 'soilCCohort', soilc_leafLitter_litterC_ptr, C_CEL)
+          call get_tile_data(restart, 'leaf_litter_slow_C', 'soilCCohort', soilc_leafLitter_litterC_ptr, C_LIG)
+          call get_tile_data(restart, 'leaf_litter_deadMic_C', 'soilCCohort', soilc_leafLitter_litterC_ptr, C_MIC)
+          call get_tile_data(restart, 'leaf_litter_liveMic_C', 'soilCCohort', soilc_leafLitter_livingMicrobeC_ptr)
+          call get_tile_data(restart, 'leaf_litter_CO2', 'soilCCohort', soilc_leafLitter_CO2_ptr)
+          call get_tile_data(restart, 'leaf_litter_Rtot', 'soilCCohort', soilc_leafLitter_Rtot_ptr)
+          call get_tile_data(restart, 'leaf_litter_originalCohortC', 'soilCCohort',soilc_leafLitter_originalLitterC_ptr)
+          call get_tile_data(restart, 'leaf_litter_fastProtectedC', 'soilCCohort',soilc_leafLitter_protectedC_ptr, C_CEL)
+          call get_tile_data(restart, 'leaf_litter_slowProtectedC', 'soilCCohort',soilc_leafLitter_protectedC_ptr, C_LIG)
+          call get_tile_data(restart, 'leaf_litter_deadMicrobeProtectedC', 'soilCCohort', soilc_leafLitter_protectedC_ptr, C_MIC)
 
+          call get_tile_data(restart, 'leaf_litter_DOC_fast',soilc_leaflitter_DOC_ptr, C_CEL)
+          call get_tile_data(restart, 'leaf_litter_DOC_slow',soilc_leaflitter_DOC_ptr, C_LIG)
+          call get_tile_data(restart, 'leaf_litter_DOC_deadmic',soilc_leaflitter_DOC_ptr, C_MIC)
 
+          call get_tile_data(restart, 'fineWood_litter_fast_C', 'soilCCohort', soilc_fineWoodLitter_litterC_ptr, C_CEL)
+          call get_tile_data(restart, 'fineWood_litter_slow_C', 'soilCCohort', soilc_fineWoodLitter_litterC_ptr, C_LIG)
+          call get_tile_data(restart, 'fineWood_litter_deadMic_C', 'soilCCohort' , soilc_fineWoodLitter_litterC_ptr, C_MIC)
+          call get_tile_data(restart, 'fineWood_litter_liveMic_C', 'soilCCohort' , soilc_fineWoodLitter_livingMicrobeC_ptr)
+          call get_tile_data(restart, 'fineWood_litter_CO2', 'soilCCohort', soilc_fineWoodLitter_CO2_ptr)
+          call get_tile_data(restart, 'fineWood_litter_Rtot', 'soilCCohort', soilc_fineWoodLitter_Rtot_ptr)
+          call get_tile_data(restart, 'fineWood_litter_originalCohortC', 'soilCCohort',soilc_fineWoodLitter_originalLitterC_ptr)
+          call get_tile_data(restart, 'fineWood_litter_fastProtectedC', 'soilCCohort',soilc_fineWoodLitter_protectedC_ptr, C_CEL)
+          call get_tile_data(restart, 'fineWood_litter_slowProtectedC', 'soilCCohort',soilc_fineWoodLitter_protectedC_ptr, C_LIG)
+          call get_tile_data(restart, 'fineWood_litter_deadMicrobeProtectedC', 'soilCCohort',soilc_fineWoodLitter_protectedC_ptr, C_MIC)
 
-           call read_compressed(restart_file_name,'leaf_litter_DOC_fast',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leaflitter_fast_DOC_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'leaf_litter_DOC_slow',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leaflitter_slow_DOC_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'leaf_litter_DOC_deadmic',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_leaflitter_deadMicrobe_DOC_ptr,idx,r0d)
+          call get_tile_data(restart, 'fineWood_litter_DOC_fast',soilc_fineWoodlitter_DOC_ptr, C_CEL)
+          call get_tile_data(restart, 'fineWood_litter_DOC_slow',soilc_fineWoodlitter_DOC_ptr, C_LIG)
+          call get_tile_data(restart, 'fineWood_litter_DOC_deadmic',soilc_fineWoodlitter_DOC_ptr, C_MIC)
 
+          call get_tile_data(restart, 'coarseWood_litter_fast_C', 'soilCCohort', soilc_coarseWoodLitter_litterC_ptr, C_CEL)
+          call get_tile_data(restart, 'coarseWood_litter_slow_C', 'soilCCohort', soilc_coarseWoodLitter_litterC_ptr, C_LIG)
+          call get_tile_data(restart, 'coarseWood_litter_deadMic_C', 'soilCCohort', soilc_coarseWoodLitter_litterC_ptr, C_MIC)
+          call get_tile_data(restart, 'coarseWood_litter_liveMic_C', 'soilCCohort', soilc_coarseWoodLitter_livingMicrobeC_ptr)
+          call get_tile_data(restart, 'coarseWood_litter_CO2', 'soilCCohort', soilc_coarseWoodLitter_CO2_ptr)
+          call get_tile_data(restart, 'coarseWood_litter_Rtot', 'soilCCohort', soilc_coarseWoodLitter_Rtot_ptr)
+          call get_tile_data(restart, 'coarseWood_litter_originalCohortC', 'soilCCohort', soilc_coarseWoodLitter_originalLitterC_ptr)
+          call get_tile_data(restart, 'coarseWood_litter_fastProtectedC', 'soilCCohort', soilc_coarseWoodLitter_protectedC_ptr, C_CEL)
+          call get_tile_data(restart, 'coarseWood_litter_slowProtectedC', 'soilCCohort', soilc_coarseWoodLitter_protectedC_ptr, C_LIG)
+          call get_tile_data(restart, 'coarseWood_litter_deadMicrobeProtectedC', 'soilCCohort', soilc_coarseWoodLitter_protectedC_ptr, C_MIC)
 
+          call get_tile_data(restart, 'coarseWood_litter_DOC_fast',soilc_coarseWoodlitter_DOC_ptr, C_CEL)
+          call get_tile_data(restart, 'coarseWood_litter_DOC_slow',soilc_coarseWoodlitter_DOC_ptr, C_LIG)
+          call get_tile_data(restart, 'coarseWood_litter_DOC_deadmic',soilc_coarseWoodlitter_DOC_ptr, C_MIC)
 
+          if(soil_carbon_option == SOILC_CORPSE_N) then
+            call get_tile_data(restart, 'fast_soil_N', 'zfull','soilCCohort', sc_soil_N_ptr, C_CEL)
+            call get_tile_data(restart, 'slow_soil_N', 'zfull','soilCCohort', sc_soil_N_ptr, C_LIG)
+            call get_tile_data(restart, 'deadMicN',     'zfull','soilCCohort', sc_soil_N_ptr, C_MIC)
+            call get_tile_data(restart, 'fastProtectedN', 'zfull','soilCCohort', sc_protected_N_ptr, C_CEL)
+            call get_tile_data(restart, 'slowProtectedN', 'zfull','soilCCohort', sc_protected_N_ptr, C_LIG)
+            call get_tile_data(restart, 'deadMicrobeProtectedN', 'zfull','soilCCohort', sc_protected_N_ptr, C_MIC)
 
-           call read_compressed(restart_file_name,'fineWood_litter_fast_C',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_fast_soil_C_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'fineWood_litter_slow_C',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_slow_soil_C_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'fineWood_litter_deadMic_C',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_deadMicrobeC_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'fineWood_litter_liveMic_C',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_livingMicrobeC_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'fineWood_litter_CO2',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_CO2_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'fineWood_litter_Rtot',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_Rtot_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'fineWood_litter_originalCohortC',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_originalLitterC_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'fineWood_litter_fastProtectedC',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_fast_protected_C_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'fineWood_litter_slowProtectedC',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_slow_protected_C_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'fineWood_litter_deadMicrobeProtectedC',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodLitter_deadMicrobe_protected_C_ptr,idx,r1dc)
+            call get_tile_data(restart,'liveMicN', 'zfull','soilCCohort',soilc_livingMicrobeN_ptr)
+            call get_tile_data(restart,'originalCohortN', 'zfull','soilCCohort', soilc_originalLitterN_ptr)
 
+            call get_tile_data(restart,'soil_NO3', 'zfull',soilc_nitrate_ptr)
+            call get_tile_data(restart,'soil_NH4', 'zfull', soilc_ammonium_ptr)
+            call get_tile_data(restart,'soil_nitrif', 'zfull',soilc_nitrif_ptr)
+            call get_tile_data(restart,'soil_denitrif', 'zfull', soilc_denitrif_ptr)
 
+            call get_tile_data(restart, 'soil_DON_fast', 'zfull',soil_fast_DON_ptr)
+            call get_tile_data(restart, 'soil_DON_slow', 'zfull',soil_slow_DON_ptr)
+            call get_tile_data(restart, 'soil_DON_deadmic', 'zfull',soil_deadmicrobe_DON_ptr)
 
-           call read_compressed(restart_file_name,'fineWood_litter_DOC_fast',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodlitter_fast_DOC_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'fineWood_litter_DOC_slow',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodlitter_slow_DOC_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'fineWood_litter_DOC_deadmic',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_fineWoodlitter_deadMicrobe_DOC_ptr,idx,r0d)
+            if(field_exists(restart, 'fast_DON_leached')) then
+               call get_tile_data(restart,'fast_DON_leached', soil_fast_DON_leached_ptr)
+               call get_tile_data(restart,'slow_DON_leached', soil_slow_DON_leached_ptr)
+               call get_tile_data(restart,'deadmic_DON_leached', soil_deadmic_DON_leached_ptr)
+            endif
 
+            call get_tile_data(restart, 'leaf_litter_fast_N', 'soilCCohort', soilc_leafLitter_litterN_ptr, C_CEL)
+            call get_tile_data(restart, 'leaf_litter_slow_N', 'soilCCohort', soilc_leafLitter_litterN_ptr, C_LIG)
+            call get_tile_data(restart, 'leaf_litter_deadMic_N', 'soilCCohort', soilc_leafLitter_litterN_ptr, C_MIC)
+            call get_tile_data(restart, 'leaf_litter_liveMic_N', 'soilCCohort', soilc_leafLitter_livingMicrobeN_ptr)
+            call get_tile_data(restart, 'leaf_litter_NO3', soilc_leafLitter_nitrate_ptr)
+            call get_tile_data(restart, 'leaf_litter_NH4', soilc_leafLitter_ammonium_ptr)
+            call get_tile_data(restart, 'leaf_litter_nitrif', soilc_leafLitter_nitrif_ptr)
+            call get_tile_data(restart, 'leaf_litter_denitrif', soilc_leafLitter_denitrif_ptr)
+            call get_tile_data(restart, 'leaf_litter_originalCohortN', 'soilCCohort',soilc_leafLitter_originalLitterN_ptr)
+            call get_tile_data(restart, 'leaf_litter_fastProtectedN', 'soilCCohort',soilc_leafLitter_protectedN_ptr, C_CEL)
+            call get_tile_data(restart, 'leaf_litter_slowProtectedN', 'soilCCohort',soilc_leafLitter_protectedN_ptr, C_LIG)
+            call get_tile_data(restart, 'leaf_litter_deadMicrobeProtectedN', 'soilCCohort', soilc_leafLitter_protectedN_ptr, C_MIC)
 
+            call get_tile_data(restart, 'leaf_litter_DON_fast',soilc_leaflitter_DON_ptr, C_CEL)
+            call get_tile_data(restart, 'leaf_litter_DON_slow',soilc_leaflitter_DON_ptr, C_LIG)
+            call get_tile_data(restart, 'leaf_litter_DON_deadmic',soilc_leaflitter_DON_ptr, C_MIC)
 
-           call read_compressed(restart_file_name,'coarseWood_litter_fast_C',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_fast_soil_C_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_slow_C',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_slow_soil_C_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_deadMic_C',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_deadMicrobeC_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_liveMic_C',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_livingMicrobeC_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_CO2',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_CO2_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_Rtot',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_Rtot_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_originalCohortC',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_originalLitterC_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_fastProtectedC',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_fast_protected_C_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_slowProtectedC',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_slow_protected_C_ptr,idx,r1dc)
-           call read_compressed(restart_file_name,'coarseWood_litter_deadMicrobeProtectedC',r1dc, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodLitter_deadMicrobe_protected_C_ptr,idx,r1dc)
+            call get_tile_data(restart, 'fineWood_litter_fast_N', 'soilCCohort', soilc_fineWoodLitter_litterN_ptr, C_CEL)
+            call get_tile_data(restart, 'fineWood_litter_slow_N', 'soilCCohort', soilc_fineWoodLitter_litterN_ptr, C_LIG)
+            call get_tile_data(restart, 'fineWood_litter_deadMic_N', 'soilCCohort' , soilc_fineWoodLitter_litterN_ptr, C_MIC)
+            call get_tile_data(restart, 'fineWood_litter_liveMic_N', 'soilCCohort' , soilc_fineWoodLitter_livingMicrobeN_ptr)
+            call get_tile_data(restart, 'fineWood_litter_NO3', soilc_fineWoodLitter_nitrate_ptr)
+            call get_tile_data(restart, 'fineWood_litter_NH4', soilc_fineWoodLitter_ammonium_ptr)
+            call get_tile_data(restart, 'fineWood_litter_nitrif', soilc_fineWoodLitter_nitrif_ptr)
+            call get_tile_data(restart, 'fineWood_litter_denitrif', soilc_fineWoodLitter_denitrif_ptr)
+            call get_tile_data(restart, 'fineWood_litter_originalCohortN', 'soilCCohort',soilc_fineWoodLitter_originalLitterN_ptr)
+            call get_tile_data(restart, 'fineWood_litter_fastProtectedN', 'soilCCohort',soilc_fineWoodLitter_protectedN_ptr, C_CEL)
+            call get_tile_data(restart, 'fineWood_litter_slowProtectedN', 'soilCCohort',soilc_fineWoodLitter_protectedN_ptr, C_LIG)
+            call get_tile_data(restart, 'fineWood_litter_deadMicrobeProtectedN', 'soilCCohort',soilc_fineWoodLitter_protectedN_ptr, C_MIC)
 
+            call get_tile_data(restart, 'fineWood_litter_DON_fast',soilc_fineWoodlitter_DON_ptr, C_CEL)
+            call get_tile_data(restart, 'fineWood_litter_DON_slow',soilc_fineWoodlitter_DON_ptr, C_LIG)
+            call get_tile_data(restart, 'fineWood_litter_DON_deadmic',soilc_fineWoodlitter_DON_ptr, C_MIC)
 
+            call get_tile_data(restart, 'coarseWood_litter_fast_N', 'soilCCohort', soilc_coarseWoodLitter_litterN_ptr, C_CEL)
+            call get_tile_data(restart, 'coarseWood_litter_slow_N', 'soilCCohort', soilc_coarseWoodLitter_litterN_ptr, C_LIG)
+            call get_tile_data(restart, 'coarseWood_litter_deadMic_N', 'soilCCohort', soilc_coarseWoodLitter_litterN_ptr, C_MIC)
+            call get_tile_data(restart, 'coarseWood_litter_liveMic_N', 'soilCCohort', soilc_coarseWoodLitter_livingMicrobeN_ptr)
+            call get_tile_data(restart, 'coarseWood_litter_NO3', soilc_coarseWoodLitter_nitrate_ptr)
+            call get_tile_data(restart, 'coarseWood_litter_NH4', soilc_coarseWoodLitter_ammonium_ptr)
+            call get_tile_data(restart, 'coarseWood_litter_nitrif', soilc_coarseWoodLitter_nitrif_ptr)
+            call get_tile_data(restart, 'coarseWood_litter_denitrif', soilc_coarseWoodLitter_denitrif_ptr)
+            call get_tile_data(restart, 'coarseWood_litter_originalCohortN', 'soilCCohort', soilc_coarseWoodLitter_originalLitterN_ptr)
+            call get_tile_data(restart, 'coarseWood_litter_fastProtectedN', 'soilCCohort', soilc_coarseWoodLitter_protectedN_ptr, C_CEL)
+            call get_tile_data(restart, 'coarseWood_litter_slowProtectedN', 'soilCCohort', soilc_coarseWoodLitter_protectedN_ptr, C_LIG)
+            call get_tile_data(restart, 'coarseWood_litter_deadMicrobeProtectedN', 'soilCCohort', soilc_coarseWoodLitter_protectedN_ptr, C_MIC)
 
-           call read_compressed(restart_file_name,'coarseWood_litter_DOC_fast',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodlitter_fast_DOC_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'coarseWood_litter_DOC_slow',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodlitter_slow_DOC_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'coarseWood_litter_DOC_deadmic',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soilc_coarseWoodlitter_deadMicrobe_DOC_ptr,idx,r0d)
+            call get_tile_data(restart, 'coarseWood_litter_DON_fast',soilc_coarseWoodlitter_DON_ptr, C_CEL)
+            call get_tile_data(restart, 'coarseWood_litter_DON_slow',soilc_coarseWoodlitter_DON_ptr, C_LIG)
+            call get_tile_data(restart, 'coarseWood_litter_DON_deadmic',soilc_coarseWoodlitter_DON_ptr, C_MIC)
 
+          endif
 
-
-           if(field_exist(restart_file_name,'is_peat',domain=lnd%domain)) then
-              call read_compressed(restart_file_name,'is_peat',i1d, domain=lnd%domain, timelevel=1)
-              call assemble_tiles(soil_is_peat_ptr,idx,i1d)
-           endif
-           deallocate(r2d, r1dc)
-        endif
-        deallocate(idx,r1d,r0d,i1d)
-     else
-        call error_mesg('soil_init', 'reading NetCDF restart "'//trim(restart_file_name)//'"', NOTE)
-        __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
-        call read_tile_data_r1d_fptr(unit, 'temp'         , soil_T_ptr  )
-        call read_tile_data_r1d_fptr(unit, 'wl'           , soil_wl_ptr )
-        call read_tile_data_r1d_fptr(unit, 'ws'           , soil_ws_ptr )
-        call read_tile_data_r1d_fptr(unit, 'groundwater'  , soil_groundwater_ptr )
-        call read_tile_data_r1d_fptr(unit, 'groundwater_T', soil_groundwater_T_ptr)
-        if(nfu_inq_var(unit, 'uptake_T')==NF_NOERR) call read_tile_data_r0d_fptr(unit, 'uptake_T', soil_uptake_T_ptr)
-
-        if (soil_carbon_option==SOILC_CENTURY.or.soil_carbon_option==SOILC_CENTURY_BY_LAYER) then
-           if(nfu_inq_var(unit, 'fsc')==NF_NOERR) then
-              call read_tile_data_r1d_fptr(unit,'fsc',soil_fast_soil_C_ptr)
-              call read_tile_data_r1d_fptr(unit,'ssc',soil_slow_soil_C_ptr)
-           else
-              ! try to read fsc and ssc from vegetation restart
-              call get_input_restart_name('INPUT/vegn2.res.nc',restart_exists,restart_file_name)
-              if (restart_exists) then
-                 __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit1))
-                 ! read old (scalar) fsc and ssc into the first element of the fast_soil_C
-                 ! and slow_soil_C arrays
-                 call read_tile_data_r1d_fptr(unit1,'fsc',soil_fast_soil_C_ptr,1)
-                 call read_tile_data_r1d_fptr(unit1,'ssc',soil_slow_soil_C_ptr,1)
-              endif
-           endif
-        endif
-
-        if (nfu_inq_var(unit,'fast_soil_C')==NF_NOERR) then
-           call read_tile_data_layered_cohort_fptr(unit, 'fast_soil_C', soilc_fast_soil_C_ptr)
-           call read_tile_data_layered_cohort_fptr(unit, 'slow_soil_C', soilc_slow_soil_C_ptr)
-           call read_tile_data_layered_cohort_fptr(unit, 'deadMic'    , soilc_deadMicrobeC_ptr)
-           call read_tile_data_layered_cohort_fptr(unit, 'fastProtectedC'    , soilc_fast_protected_C_ptr)
-           call read_tile_data_layered_cohort_fptr(unit, 'slowProtectedC'    , soilc_slow_protected_C_ptr)
-           call read_tile_data_layered_cohort_fptr(unit, 'deadMicrobeProtectedC'    , soilc_deadMicrobe_protected_C_ptr)
-           call read_tile_data_layered_cohort_fptr(unit, 'liveMic'    , soilc_livingMicrobeC_ptr)
-           call read_tile_data_layered_cohort_fptr(unit, 'CO2'        , soilc_CO2_ptr)
-           call read_tile_data_layered_cohort_fptr(unit, 'Rtot'       , soilc_Rtot_ptr)
-           call read_tile_data_layered_cohort_fptr(unit, 'originalCohortC',soilc_originalLitterC_ptr)
-
-if (soil_carbon_option == SOILC_CORPSE_N) then
-
-           call read_tile_data_layered_cohort_fptr(unit, 'fast_soil_N', soilc_fast_soil_N_ptr)
-           call read_tile_data_layered_cohort_fptr(unit, 'slow_soil_N', soilc_slow_soil_N_ptr)
-           call read_tile_data_layered_cohort_fptr(unit, 'deadMic_N'    , soilc_deadMicrobeN_ptr)
-           call read_tile_data_layered_cohort_fptr(unit, 'fastProtectedN'    , soilc_fast_protected_N_ptr)
-           call read_tile_data_layered_cohort_fptr(unit, 'slowProtectedN'    , soilc_slow_protected_N_ptr)
-           call read_tile_data_layered_cohort_fptr(unit, 'deadMicrobeProtectedN'    , soilc_deadMicrobe_protected_N_ptr)
-           call read_tile_data_layered_cohort_fptr(unit, 'liveMicN'    , soilc_livingMicrobeN_ptr)
-           call read_tile_data_layered_cohort_fptr(unit, 'originalCohortN',soilc_originalLitterN_ptr)
-           ! Leaving out cohort-level immobilization and mineralization fields for now -- BNS
-
-           call read_tile_data_r1d_fptr(unit, 'soil_DON_fast',soil_fast_DON_ptr)
-           call read_tile_data_r1d_fptr(unit, 'soil_DON_slow',soil_slow_DON_ptr)
-           call read_tile_data_r1d_fptr(unit, 'soil_DON_deadmic',soil_deadmicrobe_DON_ptr)
-           call read_tile_data_r1d_fptr(unit, 'soil_NO3',soil_nitrate_ptr)
-           call read_tile_data_r1d_fptr(unit, 'soil_NH4',soil_ammonium_ptr)
-           call read_tile_data_r1d_fptr(unit, 'soil_nitrif',soil_nitrif_ptr)
-           call read_tile_data_r1d_fptr(unit, 'soil_denitrif',soil_denitrif_ptr)
-
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_fast_N'    , soilc_leafLitter_fast_soil_N_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_slow_N'    , soilc_leafLitter_slow_soil_N_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_deadMic_N'    , soilc_leafLitter_deadMicrobeN_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_liveMic_N'    , soilc_leafLitter_livingMicrobeN_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_originalCohortN',soilc_leafLitter_originalLitterN_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_fastProtectedN',soilc_leafLitter_fast_protected_N_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_slowProtectedN',soilc_leafLitter_slow_protected_N_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_deadMicrobeProtectedN',soilc_leafLitter_deadMicrobe_protected_N_ptr)
-
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_fast_N'    , soilc_fineWoodLitter_fast_soil_N_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_slow_N'    , soilc_fineWoodLitter_slow_soil_N_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_deadMic_N'    , soilc_fineWoodLitter_deadMicrobeN_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_liveMic_N'    , soilc_fineWoodLitter_livingMicrobeN_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_originalCohortN',soilc_fineWoodLitter_originalLitterN_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_fastProtectedN',soilc_fineWoodLitter_fast_protected_N_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_slowProtectedN',soilc_fineWoodLitter_slow_protected_N_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_deadMicrobeProtectedN',soilc_fineWoodLitter_deadMicrobe_protected_N_ptr)
-
-           call read_tile_data_r0d_fptr(unit, 'fineWood_litter_DON_fast',soilc_fineWoodLitter_fast_DON_ptr)
-           call read_tile_data_r0d_fptr(unit, 'fineWood_litter_DON_slow',soilc_fineWoodLitter_slow_DON_ptr)
-           call read_tile_data_r0d_fptr(unit, 'fineWood_litter_DON_deadmic',soilc_fineWoodLitter_deadmicrobe_DON_ptr)
-           call read_tile_data_r0d_fptr(unit, 'fineWood_litter_NO3',soilc_fineWoodLitter_nitrate_ptr)
-           call read_tile_data_r0d_fptr(unit, 'fineWood_litter_NH4',soilc_fineWoodLitter_ammonium_ptr)
-           call read_tile_data_r0d_fptr(unit, 'fineWood_litter_nitrif',soilc_fineWoodLitter_nitrif_ptr)
-           call read_tile_data_r0d_fptr(unit, 'fineWood_litter_denitrif',soilc_fineWoodLitter_denitrif_ptr)
-
-           call read_tile_data_r0d_fptr(unit, 'leaf_litter_DON_fast',soilc_leafLitter_fast_DON_ptr)
-           call read_tile_data_r0d_fptr(unit, 'leaf_litter_DON_slow',soilc_leafLitter_slow_DON_ptr)
-           call read_tile_data_r0d_fptr(unit, 'leaf_litter_DON_deadmic',soilc_leafLitter_deadmicrobe_DON_ptr)
-           call read_tile_data_r0d_fptr(unit, 'leaf_litter_NO3',soilc_leafLitter_nitrate_ptr)
-           call read_tile_data_r0d_fptr(unit, 'leaf_litter_NH4',soilc_leafLitter_ammonium_ptr)
-           call read_tile_data_r0d_fptr(unit, 'leaf_litter_nitrif',soilc_leafLitter_nitrif_ptr)
-           call read_tile_data_r0d_fptr(unit, 'leaf_litter_denitrif',soilc_leafLitter_denitrif_ptr)
-
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_fast_N'    , soilc_coarseWoodLitter_fast_soil_N_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_slow_N'    , soilc_coarseWoodLitter_slow_soil_N_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_deadMic_N'    , soilc_coarseWoodLitter_deadMicrobeN_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_liveMic_N'    , soilc_coarseWoodLitter_livingMicrobeN_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_originalCohortN',soilc_coarseWoodLitter_originalLitterN_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_fastProtectedN',soilc_coarseWoodLitter_fast_protected_N_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_slowProtectedN',soilc_coarseWoodLitter_slow_protected_N_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_deadMicrobeProtectedN',soilc_coarseWoodLitter_deadMicrobe_protected_N_ptr)
-
-           call read_tile_data_r0d_fptr(unit, 'coarseWood_litter_DON_fast',soilc_coarseWoodLitter_fast_DON_ptr)
-           call read_tile_data_r0d_fptr(unit, 'coarseWood_litter_DON_slow',soilc_coarseWoodLitter_slow_DON_ptr)
-           call read_tile_data_r0d_fptr(unit, 'coarseWood_litter_DON_deadmic',soilc_coarseWoodLitter_deadmicrobe_DON_ptr)
-           call read_tile_data_r0d_fptr(unit, 'coarseWood_litter_NO3',soilc_coarseWoodLitter_nitrate_ptr)
-           call read_tile_data_r0d_fptr(unit, 'coarseWood_litter_NH4',soilc_coarseWoodLitter_ammonium_ptr)
-           call read_tile_data_r0d_fptr(unit, 'coarseWood_litter_nitrif',soilc_coarseWoodLitter_nitrif_ptr)
-           call read_tile_data_r0d_fptr(unit, 'coarseWood_litter_denitrif',soilc_coarseWoodLitter_denitrif_ptr)
-
-
+          if(field_exists(restart, 'is_peat')) then
+             call get_int_tile_data(restart, 'is_peat','zfull', soil_is_peat_ptr)
+          endif
        endif
+    else
+       call error_mesg('soil_init', 'cold-starting soil', NOTE)
+    endif
+    call free_land_restart(restart)
 
-           call read_tile_data_r1d_fptr(unit, 'soil_DOC_fast',soil_fast_DOC_ptr)
-           call read_tile_data_r1d_fptr(unit, 'soil_DOC_slow',soil_slow_DOC_ptr)
-           call read_tile_data_r1d_fptr(unit, 'soil_DOC_deadmic',soil_deadmicrobe_DOC_ptr)
+      ! read soil carbon restart, if present
+      call open_land_restart(restart,'INPUT/soil_carbon.res.nc',restart_exists)
+      if (restart_exists) then
+         call error_mesg('veg_data_init','reading soil_carbon restart',NOTE)
+         call get_tile_data(restart,'asoil_in','zfull',soil_asoil_in_ptr)
+         call get_tile_data(restart,'fsc_in','zfull',soil_fsc_in_ptr)
+         call get_tile_data(restart,'ssc_in','zfull',soil_ssc_in_ptr)
+         if ((soil_carbon_option==SOILC_CORPSE .or. soil_carbon_option==SOILC_CORPSE_N) .and. field_exists(restart,'leaflitter_fsc_in')) then
+           call get_tile_data(restart,'leaflitter_fsc_in', soil_leaflitter_fsc_in_ptr)
+           call get_tile_data(restart,'leaflitter_ssc_in', soil_leaflitter_ssc_in_ptr)
+           call get_tile_data(restart,'finewoodlitter_fsc_in', soil_finewoodlitter_fsc_in_ptr)
+           call get_tile_data(restart,'finewoodlitter_ssc_in', soil_finewoodlitter_ssc_in_ptr)
+           call get_tile_data(restart,'coarsewoodlitter_fsc_in', soil_coarsewoodlitter_fsc_in_ptr)
+           call get_tile_data(restart,'coarsewoodlitter_ssc_in', soil_coarsewoodlitter_ssc_in_ptr)
 
-
-
-           if(nfu_inq_var(unit, 'fast_DOC_leached')==NF_NOERR) then
-              call read_tile_data_r0d_fptr(unit,'fast_DOC_leached',     soil_fast_DOC_leached_ptr)
-              call read_tile_data_r0d_fptr(unit,'slow_DOC_leached',     soil_slow_DOC_leached_ptr)
-              call read_tile_data_r0d_fptr(unit,'deadmic_DOC_leached',     soil_deadmic_DOC_leached_ptr)
-           endif
-           if(nfu_inq_var(unit, 'fast_DON_leached')==NF_NOERR) then
-              call read_tile_data_r0d_fptr(unit,'fast_DON_leached',     soil_fast_DON_leached_ptr)
-              call read_tile_data_r0d_fptr(unit,'slow_DON_leached',     soil_slow_DON_leached_ptr)
-              call read_tile_data_r0d_fptr(unit,'deadmic_DON_leached',     soil_deadmic_DON_leached_ptr)
-              call read_tile_data_r0d_fptr(unit,'NO3_leached',     soil_NO3_leached_ptr)
-              call read_tile_data_r0d_fptr(unit,'NH4_leached',     soil_NH4_leached_ptr)
-           endif
-
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_fast_C'    , soilc_leafLitter_fast_soil_C_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_slow_C'    , soilc_leafLitter_slow_soil_C_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_deadMic_C'    , soilc_leafLitter_deadMicrobeC_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_liveMic_C'    , soilc_leafLitter_livingMicrobeC_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_CO2'        , soilc_leafLitter_CO2_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_Rtot'       , soilc_leafLitter_Rtot_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_originalCohortC',soilc_leafLitter_originalLitterC_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_fastProtectedC',soilc_leafLitter_fast_protected_C_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_slowProtectedC',soilc_leafLitter_slow_protected_C_ptr)
-           call read_tile_data_r1d_fptr(unit, 'leaf_litter_deadMicrobeProtectedC',soilc_leafLitter_deadMicrobe_protected_C_ptr)
-
-           call read_tile_data_r0d_fptr(unit, 'leaf_litter_DOC_fast',soilc_leaflitter_fast_DOC_ptr)
-           call read_tile_data_r0d_fptr(unit, 'leaf_litter_DOC_slow',soilc_leaflitter_slow_DOC_ptr)
-           call read_tile_data_r0d_fptr(unit, 'leaf_litter_DOC_deadmic',soilc_leaflitter_deadMicrobe_DOC_ptr)
-
-
-
-
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_fast_C'    , soilc_fineWoodLitter_fast_soil_C_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_slow_C'    , soilc_fineWoodLitter_slow_soil_C_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_deadMic_C'    , soilc_fineWoodLitter_deadMicrobeC_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_liveMic_C'    , soilc_fineWoodLitter_livingMicrobeC_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_CO2'        , soilc_fineWoodLitter_CO2_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_Rtot'       , soilc_fineWoodLitter_Rtot_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_originalCohortC',soilc_fineWoodLitter_originalLitterC_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_fastProtectedC',soilc_fineWoodLitter_fast_protected_C_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_slowProtectedC',soilc_fineWoodLitter_slow_protected_C_ptr)
-           call read_tile_data_r1d_fptr(unit, 'fineWood_litter_deadMicrobeProtectedC',soilc_fineWoodLitter_deadMicrobe_protected_C_ptr)
-
-           call read_tile_data_r0d_fptr(unit, 'fineWood_litter_DOC_fast',soilc_fineWoodlitter_fast_DOC_ptr)
-           call read_tile_data_r0d_fptr(unit, 'fineWood_litter_DOC_slow',soilc_fineWoodlitter_slow_DOC_ptr)
-           call read_tile_data_r0d_fptr(unit, 'fineWood_litter_DOC_deadmic',soilc_fineWoodlitter_deadMicrobe_DOC_ptr)
+            call get_tile_data(restart,'deadmic_in','zfull',soil_deadmic_C_in_ptr)
+            call get_tile_data(restart,'fast_protected_in','zfull',soil_fast_protected_C_in_ptr)
+            call get_tile_data(restart,'slow_protected_in','zfull', soil_slow_protected_C_in_ptr)
+            call get_tile_data(restart,'deadmic_protected_in','zfull', soil_deadmic_protected_C_in_ptr)
+            call get_tile_data(restart,'leaflitter_deadmic_in', soil_leaflitter_deadmic_C_in_ptr)
+            call get_tile_data(restart,'finewoodlitter_deadmic_in', soil_finewoodlitter_deadmic_C_in_ptr)
+            call get_tile_data(restart,'coarsewoodlitter_deadmic_in', soil_coarsewoodlitter_deadmic_C_in_ptr)
+            call get_tile_data(restart,'fast_turnover_accumulated','zfull', soil_fast_C_turnover_accumulated_ptr)
+            call get_tile_data(restart,'slow_turnover_accumulated','zfull', soil_slow_C_turnover_accumulated_ptr)
+            call get_tile_data(restart,'deadmic_turnover_accumulated','zfull', soil_deadmic_C_turnover_accumulated_ptr)
+            call get_tile_data(restart,'fast_protected_turnover_accumulated','zfull', soil_fast_protected_C_turnover_accumulated_ptr)
+            call get_tile_data(restart,'slow_protected_turnover_accumulated','zfull', soil_slow_protected_C_turnover_accumulated_ptr)
+            call get_tile_data(restart,'deadmic_protected_turnover_accumulated','zfull', soil_deadmic_protected_C_turnover_accumulated_ptr)
+            call get_tile_data(restart,'leaflitter_fast_turnover_accumulated', soil_leaflitter_fast_C_turnover_accumulated_ptr)
+            call get_tile_data(restart,'leaflitter_slow_turnover_accumulated', soil_leaflitter_slow_C_turnover_accumulated_ptr)
+            call get_tile_data(restart,'leaflitter_deadmic_turnover_accumulated', soil_leaflitter_deadmic_C_turnover_accumulated_ptr)
+            call get_tile_data(restart,'finewoodlitter_fast_turnover_accumulated', soil_finewoodlitter_fast_C_turnover_accumulated_ptr)
+            call get_tile_data(restart,'finewoodlitter_slow_turnover_accumulated', soil_finewoodlitter_slow_C_turnover_accumulated_ptr)
+            call get_tile_data(restart,'finewoodlitter_deadmic_turnover_accumulated', soil_finewoodlitter_deadmic_C_turnover_accumulated_ptr)
+            call get_tile_data(restart,'coarsewoodlitter_fast_turnover_accumulated', soil_coarsewoodlitter_fast_C_turnover_accumulated_ptr)
+            call get_tile_data(restart,'coarsewoodlitter_slow_turnover_accumulated', soil_coarsewoodlitter_slow_C_turnover_accumulated_ptr)
+            call get_tile_data(restart,'coarsewoodlitter_deadmic_turnover_accumulated', soil_coarsewoodlitter_deadmic_C_turnover_accumulated_ptr)
 
 
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_fast_C'    , soilc_coarseWoodLitter_fast_soil_C_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_slow_C'    , soilc_coarseWoodLitter_slow_soil_C_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_deadMic_C'    , soilc_coarseWoodLitter_deadMicrobeC_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_liveMic_C'    , soilc_coarseWoodLitter_livingMicrobeC_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_CO2'        , soilc_coarseWoodLitter_CO2_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_Rtot'       , soilc_coarseWoodLitter_Rtot_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_originalCohortC',soilc_coarseWoodLitter_originalLitterC_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_fastProtectedC',soilc_coarseWoodLitter_fast_protected_C_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_slowProtectedC',soilc_coarseWoodLitter_slow_protected_C_ptr)
-           call read_tile_data_r1d_fptr(unit, 'coarseWood_litter_deadMicrobeProtectedC',soilc_coarseWoodLitter_deadMicrobe_protected_C_ptr)
+            IF(soil_carbon_option == SOILC_CORPSE_N) THEN
+              call get_tile_data(restart,'fsn_in','zfull',soil_fsn_in_ptr)
+              call get_tile_data(restart,'ssn_in','zfull',soil_ssn_in_ptr)
+              call get_tile_data(restart,'deadmic_N_in','zfull',soil_deadmic_N_in_ptr)
+              call get_tile_data(restart,'fast_protected_N_in','zfull',soil_fast_protected_N_in_ptr)
+              call get_tile_data(restart,'slow_protected_N_in','zfull', soil_slow_protected_N_in_ptr)
+              call get_tile_data(restart,'deadmic_protected_N_in','zfull', soil_deadmic_protected_N_in_ptr)
+              call get_tile_data(restart,'leaflitter_fsn_in', soil_leaflitter_fsn_in_ptr)
+              call get_tile_data(restart,'leaflitter_ssn_in', soil_leaflitter_ssn_in_ptr)
+              call get_tile_data(restart,'leaflitter_deadmic_N_in', soil_leaflitter_deadmic_N_in_ptr)
+              call get_tile_data(restart,'finewoodlitter_fsn_in', soil_finewoodlitter_fsn_in_ptr)
+              call get_tile_data(restart,'finewoodlitter_ssn_in', soil_finewoodlitter_ssn_in_ptr)
+              call get_tile_data(restart,'finewoodlitter_deadmic_N_in', soil_finewoodlitter_deadmic_N_in_ptr)
+              call get_tile_data(restart,'coarsewoodlitter_fsn_in', soil_coarsewoodlitter_fsn_in_ptr)
+              call get_tile_data(restart,'coarsewoodlitter_ssn_in', soil_coarsewoodlitter_ssn_in_ptr)
+              call get_tile_data(restart,'coarsewoodlitter_deadmic_N_in', soil_coarsewoodlitter_deadmic_N_in_ptr)
+              call get_tile_data(restart,'fast_N_turnover_accumulated','zfull', soil_fast_N_turnover_accumulated_ptr)
+              call get_tile_data(restart,'slow_N_turnover_accumulated','zfull', soil_slow_N_turnover_accumulated_ptr)
+              call get_tile_data(restart,'deadmic_N_turnover_accumulated','zfull', soil_deadmic_N_turnover_accumulated_ptr)
+              call get_tile_data(restart,'fast_protected_N_turnover_accumulated','zfull', soil_fast_protected_N_turnover_accumulated_ptr)
+              call get_tile_data(restart,'slow_protected_N_turnover_accumulated','zfull', soil_slow_protected_N_turnover_accumulated_ptr)
+              call get_tile_data(restart,'deadmic_protected_N_turnover_accumulated','zfull', soil_deadmic_protected_N_turnover_accumulated_ptr)
+              call get_tile_data(restart,'leaflitter_fast_N_turnover_accumulated', soil_leaflitter_fast_N_turnover_accumulated_ptr)
+              call get_tile_data(restart,'leaflitter_slow_N_turnover_accumulated', soil_leaflitter_slow_N_turnover_accumulated_ptr)
+              call get_tile_data(restart,'leaflitter_deadmic_N_turnover_accumulated', soil_leaflitter_deadmic_N_turnover_accumulated_ptr)
+              call get_tile_data(restart,'finewoodlitter_fast_N_turnover_accumulated', soil_finewoodlitter_fast_N_turnover_accumulated_ptr)
+              call get_tile_data(restart,'finewoodlitter_slow_N_turnover_accumulated', soil_finewoodlitter_slow_N_turnover_accumulated_ptr)
+              call get_tile_data(restart,'finewoodlitter_deadmic_N_turnover_accumulated', soil_finewoodlitter_deadmic_N_turnover_accumulated_ptr)
+              call get_tile_data(restart,'coarsewoodlitter_fast_N_turnover_accumulated', soil_coarsewoodlitter_fast_N_turnover_accumulated_ptr)
+              call get_tile_data(restart,'coarsewoodlitter_slow_N_turnover_accumulated', soil_coarsewoodlitter_slow_N_turnover_accumulated_ptr)
+              call get_tile_data(restart,'coarsewoodlitter_deadmic_N_turnover_accumulated', soil_coarsewoodlitter_deadmic_N_turnover_accumulated_ptr)
 
-           call read_tile_data_r0d_fptr(unit, 'coarseWood_litter_DOC_fast',soilc_coarseWoodlitter_fast_DOC_ptr)
-           call read_tile_data_r0d_fptr(unit, 'coarseWood_litter_DOC_slow',soilc_coarseWoodlitter_slow_DOC_ptr)
-           call read_tile_data_r0d_fptr(unit, 'coarseWood_litter_DOC_deadmic',soilc_coarseWoodlitter_deadMicrobe_DOC_ptr)
+            ENDIF
 
-
-
-           if(nfu_inq_var(unit, 'is_peat')==NF_NOERR) then
-              call read_tile_data_i1d_fptr_all(unit, 'is_peat',soil_is_peat_ptr)
-           endif
-        endif
-        __NF_ASRT__(nf_close(unit))
-     endif
-  else
-     call error_mesg('soil_init', 'cold-starting soil', NOTE)
-  endif
-
-  ! read soil carbon restart, if present
-  call get_input_restart_name('INPUT/soil_carbon.res.nc',restart_exists,restart_file_name)
-  if (restart_exists) then
-     call error_mesg('veg_data_init','reading soil_carbon restart',NOTE)
-     if(new_land_io) then
-        restart_file_name = 'INPUT/soil_carbon.res.nc'
-        call get_field_size(restart_file_name, 'tile_index', siz, field_found=found, domain=lnd%domain)
-        if ( .not.found ) call error_mesg(trim(module_name), &
-             'tile_index axis not found in '//trim(restart_file_name), FATAL)
-        isize = siz(1)
-
-        call get_field_size(restart_file_name, 'zfull', siz, field_found=found, domain=lnd%domain)
-        if ( .not.found ) call error_mesg(trim(module_name), &
-             'Z axis not found in '//trim(restart_file_name), FATAL)
-        nz = siz(1)
-
-        allocate(idx(isize),r0d(isize),r1d(isize,nz))
-        call read_compressed(restart_file_name,'tile_index',idx, domain=lnd%domain, timelevel=1)
-
-        call read_compressed(restart_file_name,'asoil_in',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_asoil_in_ptr,idx,r1d)
-
-        call read_compressed(restart_file_name,'fsc_in',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_fsc_in_ptr,idx,r1d)
-
-        call read_compressed(restart_file_name,'ssc_in',r1d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(soil_ssc_in_ptr,idx,r1d)
-
-        if ((soil_carbon_option==SOILC_CORPSE .or. soil_carbon_option==SOILC_CORPSE_N) .and. field_exist(restart_file_name,'deadmic_C_in', domain=lnd%domain)) then
-              ! Note: Probably want to make backward compatible with restarts that have deadmic_in
-           call read_compressed(restart_file_name,'deadmic_C_in',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_deadmic_C_in_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'fast_protected_C_in',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_fast_protected_C_in_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'slow_protected_C_in',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_slow_protected_C_in_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'deadmic_protected_C_in',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_deadmic_protected_C_in_ptr,idx,r1d)
+         endif
+      endif
+      call free_land_restart(restart)
 
 
-           call read_compressed(restart_file_name,'leaflitter_fsc_in',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_leaflitter_fsc_in_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'leaflitter_ssc_in',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_leaflitter_ssc_in_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'leaflitter_deadmic_C_in',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_leaflitter_deadmic_C_in_ptr,idx,r0d)
-
-
-           call read_compressed(restart_file_name,'finewoodlitter_fsc_in',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_finewoodlitter_fsc_in_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'finewoodlitter_ssc_in',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_finewoodlitter_ssc_in_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'finewoodlitter_deadmic_C_in',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_finewoodlitter_deadmic_C_in_ptr,idx,r0d)
-
-
-           call read_compressed(restart_file_name,'coarsewoodlitter_fsc_in',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_coarsewoodlitter_fsc_in_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'coarsewoodlitter_ssc_in',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_coarsewoodlitter_ssc_in_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'coarsewoodlitter_deadmic_in',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_coarsewoodlitter_deadmic_C_in_ptr,idx,r0d)
-
-
-           call read_compressed(restart_file_name,'fast_C_turnover_accumulated',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_fast_C_turnover_accumulated_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'slow_C_turnover_accumulated',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_slow_C_turnover_accumulated_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'deadmic_C_turnover_accumulated',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_deadmic_C_turnover_accumulated_ptr,idx,r1d)
-
-
-           call read_compressed(restart_file_name,'fast_protected_C_turnover_accumulated',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_fast_protected_C_turnover_accumulated_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'slow_C_protected_C_turnover_accumulated',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_slow_protected_C_turnover_accumulated_ptr,idx,r1d)
-           call read_compressed(restart_file_name,'deadmic_protected_C_turnover_accumulated',r1d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_deadmic_protected_C_turnover_accumulated_ptr,idx,r1d)
-
-
-           call read_compressed(restart_file_name,'leaflitter_fast_C_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_leaflitter_fast_C_turnover_accumulated_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'leaflitter_slow_C_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_leaflitter_slow_C_turnover_accumulated_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'leaflitter_deadmic_C_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_leaflitter_deadmic_C_turnover_accumulated_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'finewoodlitter_fast_C_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_finewoodlitter_fast_C_turnover_accumulated_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'finewoodlitter_slow_C_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_finewoodlitter_slow_C_turnover_accumulated_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'finewoodlitter_deadmic_C_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_finewoodlitter_deadmic_C_turnover_accumulated_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'coarsewoodlitter_fast_C_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_coarsewoodlitter_fast_C_turnover_accumulated_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'coarsewoodlitter_slow_C_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_coarsewoodlitter_slow_C_turnover_accumulated_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'coarsewoodlitter_deadmic_C_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_coarsewoodlitter_deadmic_C_turnover_accumulated_ptr,idx,r0d)
-
-           IF(soil_carbon_option == SOILC_CORPSE_N) THEN
-               call read_compressed(restart_file_name,'fsn_in',r1d, domain=lnd%domain, timelevel=1)
-               call assemble_tiles(soil_fsn_in_ptr,idx,r1d)
-               call read_compressed(restart_file_name,'ssn_in',r1d, domain=lnd%domain, timelevel=1)
-               call assemble_tiles(soil_ssn_in_ptr,idx,r1d)
-
-               call read_compressed(restart_file_name,'deadmic_N_in',r1d, domain=lnd%domain, timelevel=1)
-               call assemble_tiles(soil_deadmic_N_in_ptr,idx,r1d)
-               call read_compressed(restart_file_name,'fast_protected_N_in',r1d, domain=lnd%domain, timelevel=1)
-               call assemble_tiles(soil_fast_protected_N_in_ptr,idx,r1d)
-               call read_compressed(restart_file_name,'slow_protected_N_in',r1d, domain=lnd%domain, timelevel=1)
-               call assemble_tiles(soil_slow_protected_N_in_ptr,idx,r1d)
-               call read_compressed(restart_file_name,'deadmic_protected_N_in',r1d, domain=lnd%domain, timelevel=1)
-               call assemble_tiles(soil_deadmic_protected_N_in_ptr,idx,r1d)
-
-               call read_compressed(restart_file_name,'leaflitter_fsn_in',r0d, domain=lnd%domain, timelevel=1)
-               call assemble_tiles(soil_leaflitter_fsn_in_ptr,idx,r0d)
-               call read_compressed(restart_file_name,'leaflitter_ssn_in',r0d, domain=lnd%domain, timelevel=1)
-               call assemble_tiles(soil_leaflitter_ssn_in_ptr,idx,r0d)
-               call read_compressed(restart_file_name,'leaflitter_deadmic_N_in',r0d, domain=lnd%domain, timelevel=1)
-               call assemble_tiles(soil_leaflitter_deadmic_N_in_ptr,idx,r0d)
-
-               call read_compressed(restart_file_name,'finewoodlitter_fsn_in',r0d, domain=lnd%domain, timelevel=1)
-               call assemble_tiles(soil_finewoodlitter_fsn_in_ptr,idx,r0d)
-               call read_compressed(restart_file_name,'finewoodlitter_ssn_in',r0d, domain=lnd%domain, timelevel=1)
-               call assemble_tiles(soil_finewoodlitter_ssn_in_ptr,idx,r0d)
-               call read_compressed(restart_file_name,'finewoodlitter_deadmic_N_in',r0d, domain=lnd%domain, timelevel=1)
-               call assemble_tiles(soil_finewoodlitter_deadmic_N_in_ptr,idx,r0d)
-
-               call read_compressed(restart_file_name,'coarsewoodlitter_fsn_in',r0d, domain=lnd%domain, timelevel=1)
-               call assemble_tiles(soil_coarsewoodlitter_fsn_in_ptr,idx,r0d)
-               call read_compressed(restart_file_name,'coarsewoodlitter_ssn_in',r0d, domain=lnd%domain, timelevel=1)
-               call assemble_tiles(soil_coarsewoodlitter_ssn_in_ptr,idx,r0d)
-               call read_compressed(restart_file_name,'coarsewoodlitter_deadmic_N_in',r0d, domain=lnd%domain, timelevel=1)
-               call assemble_tiles(soil_coarsewoodlitter_deadmic_N_in_ptr,idx,r0d)
-
-               call read_compressed(restart_file_name,'fast_N_turnover_accumulated',r1d, domain=lnd%domain, timelevel=1)
-               call assemble_tiles(soil_fast_N_turnover_accumulated_ptr,idx,r1d)
-               call read_compressed(restart_file_name,'slow_N_turnover_accumulated',r1d, domain=lnd%domain, timelevel=1)
-               call assemble_tiles(soil_slow_N_turnover_accumulated_ptr,idx,r1d)
-               call read_compressed(restart_file_name,'deadmic_N_turnover_accumulated',r1d, domain=lnd%domain, timelevel=1)
-               call assemble_tiles(soil_deadmic_N_turnover_accumulated_ptr,idx,r1d)
-
-               call read_compressed(restart_file_name,'fast_protected_N_turnover_accumulated',r1d, domain=lnd%domain, timelevel=1)
-               call assemble_tiles(soil_fast_protected_N_turnover_accumulated_ptr,idx,r1d)
-               call read_compressed(restart_file_name,'slow_protected_N_turnover_accumulated',r1d, domain=lnd%domain, timelevel=1)
-               call assemble_tiles(soil_slow_protected_N_turnover_accumulated_ptr,idx,r1d)
-               call read_compressed(restart_file_name,'deadmic_protected_N_turnover_accumulated',r1d, domain=lnd%domain, timelevel=1)
-               call assemble_tiles(soil_deadmic_protected_N_turnover_accumulated_ptr,idx,r1d)
-
-           call read_compressed(restart_file_name,'leaflitter_fast_N_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_leaflitter_fast_N_turnover_accumulated_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'leaflitter_slow_N_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_leaflitter_slow_N_turnover_accumulated_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'leaflitter_deadmic_N_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_leaflitter_deadmic_N_turnover_accumulated_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'finewoodlitter_fast_N_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_finewoodlitter_fast_N_turnover_accumulated_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'finewoodlitter_slow_N_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_finewoodlitter_slow_N_turnover_accumulated_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'finewoodlitter_deadmic_N_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_finewoodlitter_deadmic_N_turnover_accumulated_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'coarsewoodlitter_fast_N_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_coarsewoodlitter_fast_N_turnover_accumulated_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'coarsewoodlitter_slow_N_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_coarsewoodlitter_slow_N_turnover_accumulated_ptr,idx,r0d)
-           call read_compressed(restart_file_name,'coarsewoodlitter_deadmic_N_turnover_accumulated',r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(soil_coarsewoodlitter_deadmic_N_turnover_accumulated_ptr,idx,r0d)
-
-       ENDIF  ! End of SOILC_CORPSE_N option
-        endif
-        deallocate(idx,r0d,r1d)
-     else
-        __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
-        call error_mesg('veg_data_init','reading soil_carbon restart',NOTE)
-        call read_tile_data_r1d_fptr(unit,'asoil_in',soil_asoil_in_ptr)
-        call read_tile_data_r1d_fptr(unit,'fsc_in',soil_fsc_in_ptr)
-        call read_tile_data_r1d_fptr(unit,'ssc_in',soil_ssc_in_ptr)
-        if ((soil_carbon_option==SOILC_CORPSE .or. soil_carbon_option==SOILC_CORPSE_N) .and. nfu_inq_var(unit, 'deadmic_C_in')==NF_NOERR) then
-           call read_tile_data_r1d_fptr(unit,'deadmic_C_in',soil_deadmic_C_in_ptr)
-
-           call read_tile_data_r1d_fptr(unit,'fast_protected_C_in',soil_fast_protected_C_in_ptr)
-           call read_tile_data_r1d_fptr(unit,'slow_protected_C_in', soil_slow_protected_C_in_ptr)
-           call read_tile_data_r1d_fptr(unit,'deadmic_protected_C_in', soil_deadmic_protected_C_in_ptr)
-
-
-           call read_tile_data_r0d_fptr(unit,'leaflitter_fsc_in', soil_leaflitter_fsc_in_ptr)
-           call read_tile_data_r0d_fptr(unit,'leaflitter_ssc_in', soil_leaflitter_ssc_in_ptr)
-           call read_tile_data_r0d_fptr(unit,'leaflitter_deadmic_C_in', soil_leaflitter_deadmic_C_in_ptr)
-
-
-           call read_tile_data_r0d_fptr(unit,'finewoodlitter_fsc_in', soil_finewoodlitter_fsc_in_ptr)
-           call read_tile_data_r0d_fptr(unit,'finewoodlitter_ssc_in', soil_finewoodlitter_ssc_in_ptr)
-           call read_tile_data_r0d_fptr(unit,'finewoodlitter_deadmic_C_in', soil_finewoodlitter_deadmic_C_in_ptr)
-
-
-           call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_fsc_in', soil_coarsewoodlitter_fsc_in_ptr)
-           call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_ssc_in', soil_coarsewoodlitter_ssc_in_ptr)
-           call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_deadmic_C_in', soil_coarsewoodlitter_deadmic_C_in_ptr)
-
-
-           call read_tile_data_r1d_fptr(unit,'fast_C_turnover_accumulated', soil_fast_C_turnover_accumulated_ptr)
-           call read_tile_data_r1d_fptr(unit,'slow_C_turnover_accumulated', soil_slow_C_turnover_accumulated_ptr)
-           call read_tile_data_r1d_fptr(unit,'deadmic_C_turnover_accumulated', soil_deadmic_C_turnover_accumulated_ptr)
-           call read_tile_data_r1d_fptr(unit,'fast_protected_C_turnover_accumulated', soil_fast_protected_C_turnover_accumulated_ptr)
-           call read_tile_data_r1d_fptr(unit,'slow_protected_C_turnover_accumulated', soil_slow_protected_C_turnover_accumulated_ptr)
-           call read_tile_data_r1d_fptr(unit,'deadmic_protected_C_turnover_accumulated', soil_deadmic_protected_C_turnover_accumulated_ptr)
-
-
-           call read_tile_data_r0d_fptr(unit,'leaflitter_fast_C_turnover_accumulated', soil_leaflitter_fast_C_turnover_accumulated_ptr)
-           call read_tile_data_r0d_fptr(unit,'leaflitter_slow_C_turnover_accumulated', soil_leaflitter_slow_C_turnover_accumulated_ptr)
-           call read_tile_data_r0d_fptr(unit,'leaflitter_deadmic_C_turnover_accumulated', soil_leaflitter_deadmic_C_turnover_accumulated_ptr)
-           call read_tile_data_r0d_fptr(unit,'finewoodlitter_fast_C_turnover_accumulated', soil_finewoodlitter_fast_C_turnover_accumulated_ptr)
-           call read_tile_data_r0d_fptr(unit,'finewoodlitter_slow_C_turnover_accumulated', soil_finewoodlitter_slow_C_turnover_accumulated_ptr)
-           call read_tile_data_r0d_fptr(unit,'finewoodlitter_deadmic_C_turnover_accumulated', soil_finewoodlitter_deadmic_C_turnover_accumulated_ptr)
-           call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_fast_C_turnover_accumulated', soil_coarsewoodlitter_fast_C_turnover_accumulated_ptr)
-           call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_slow_C_turnover_accumulated', soil_coarsewoodlitter_slow_C_turnover_accumulated_ptr)
-           call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_deadmic_C_turnover_accumulated', soil_coarsewoodlitter_deadmic_C_turnover_accumulated_ptr)
-
-IF(soil_carbon_option == SOILC_CORPSE_N) THEN
-    call read_tile_data_r1d_fptr(unit,'fast_protected_N_turnover_accumulated', soil_fast_protected_N_turnover_accumulated_ptr)
-    call read_tile_data_r1d_fptr(unit,'slow_protected_N_turnover_accumulated', soil_slow_protected_N_turnover_accumulated_ptr)
-    call read_tile_data_r1d_fptr(unit,'deadmic_protected_N_turnover_accumulated', soil_deadmic_protected_N_turnover_accumulated_ptr)
-
-    call read_tile_data_r1d_fptr(unit,'fast_N_turnover_accumulated', soil_fast_N_turnover_accumulated_ptr)
-    call read_tile_data_r1d_fptr(unit,'slow_N_turnover_accumulated', soil_slow_N_turnover_accumulated_ptr)
-    call read_tile_data_r1d_fptr(unit,'deadmic_N_turnover_accumulated', soil_deadmic_N_turnover_accumulated_ptr)
-
-    call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_fsn_in', soil_coarsewoodlitter_fsn_in_ptr)
-    call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_ssn_in', soil_coarsewoodlitter_ssn_in_ptr)
-    call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_deadmic_N_in', soil_coarsewoodlitter_deadmic_N_in_ptr)
-
-    call read_tile_data_r0d_fptr(unit,'leaflitter_fsn_in', soil_leaflitter_fsn_in_ptr)
-    call read_tile_data_r0d_fptr(unit,'leaflitter_ssn_in', soil_leaflitter_ssn_in_ptr)
-    call read_tile_data_r0d_fptr(unit,'leaflitter_deadmic_N_in', soil_leaflitter_deadmic_N_in_ptr)
-    call read_tile_data_r0d_fptr(unit,'finewoodlitter_fsn_in', soil_finewoodlitter_fsn_in_ptr)
-    call read_tile_data_r0d_fptr(unit,'finewoodlitter_ssn_in', soil_finewoodlitter_ssn_in_ptr)
-    call read_tile_data_r0d_fptr(unit,'finewoodlitter_deadmic_N_in', soil_finewoodlitter_deadmic_N_in_ptr)
-
-    call read_tile_data_r1d_fptr(unit,'fsn_in',soil_fsn_in_ptr)
-    call read_tile_data_r1d_fptr(unit,'ssn_in',soil_ssn_in_ptr)
-    call read_tile_data_r1d_fptr(unit,'deadmic_N_in',soil_deadmic_N_in_ptr)
-    call read_tile_data_r1d_fptr(unit,'fast_protected_N_in',soil_fast_protected_N_in_ptr)
-    call read_tile_data_r1d_fptr(unit,'slow_protected_N_in', soil_slow_protected_N_in_ptr)
-    call read_tile_data_r1d_fptr(unit,'deadmic_protected_N_in', soil_deadmic_protected_N_in_ptr)
-
-           call read_tile_data_r0d_fptr(unit,'leaflitter_fast_N_turnover_accumulated', soil_leaflitter_fast_N_turnover_accumulated_ptr)
-           call read_tile_data_r0d_fptr(unit,'leaflitter_slow_N_turnover_accumulated', soil_leaflitter_slow_N_turnover_accumulated_ptr)
-           call read_tile_data_r0d_fptr(unit,'leaflitter_deadmic_N_turnover_accumulated', soil_leaflitter_deadmic_N_turnover_accumulated_ptr)
-           call read_tile_data_r0d_fptr(unit,'finewoodlitter_fast_N_turnover_accumulated', soil_finewoodlitter_fast_N_turnover_accumulated_ptr)
-           call read_tile_data_r0d_fptr(unit,'finewoodlitter_slow_N_turnover_accumulated', soil_finewoodlitter_slow_N_turnover_accumulated_ptr)
-           call read_tile_data_r0d_fptr(unit,'finewoodlitter_deadmic_N_turnover_accumulated', soil_finewoodlitter_deadmic_N_turnover_accumulated_ptr)
-           call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_fast_N_turnover_accumulated', soil_coarsewoodlitter_fast_N_turnover_accumulated_ptr)
-           call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_slow_N_turnover_accumulated', soil_coarsewoodlitter_slow_N_turnover_accumulated_ptr)
-           call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_deadmic_N_turnover_accumulated', soil_coarsewoodlitter_deadmic_N_turnover_accumulated_ptr)
-ENDIF
-
-        endif
-        __NF_ASRT__(nf_close(unit))
-     endif
-  endif
 
   ! ---- static diagnostic section
-  call send_tile_data_r0d_fptr(id_tau_gw,       lnd%tile_map, soil_tau_groundwater_ptr)
-  call send_tile_data_r0d_fptr(id_slope_l,      lnd%tile_map, soil_hillslope_length_ptr)
-  call send_tile_data_r0d_fptr(id_slope_Z,      lnd%tile_map, soil_hillslope_relief_ptr)
-  call send_tile_data_r0d_fptr(id_zeta_bar,     lnd%tile_map, soil_hillslope_zeta_bar_ptr)
-  call send_tile_data_r0d_fptr(id_e_depth,      lnd%tile_map, soil_soil_e_depth_ptr)
-  call send_tile_data_r0d_fptr(id_zeta,         lnd%tile_map, soil_zeta_ptr)
-  call send_tile_data_r0d_fptr(id_tau,          lnd%tile_map, soil_tau_ptr)
-  call send_tile_data_r0d_fptr(id_vwc_wilt,     lnd%tile_map, soil_vwc_wilt_ptr)
-  call send_tile_data_r0d_fptr(id_vwc_fc,       lnd%tile_map, soil_vwc_fc_ptr)
-  call send_tile_data_r0d_fptr(id_vwc_sat,      lnd%tile_map, soil_vwc_sat_ptr)
-  call send_tile_data_r0d_fptr(id_K_sat,        lnd%tile_map, soil_k_sat_ref_ptr)
-  call send_tile_data_r0d_fptr(id_K_gw,         lnd%tile_map, soil_k_sat_gw_ptr)
-  call send_tile_data_r1d_fptr(id_w_fc,         lnd%tile_map, soil_w_fc_ptr)
-  call send_tile_data_r1d_fptr(id_alpha,        lnd%tile_map, soil_alpha_ptr)
-  call send_tile_data_r1d_fptr(id_refl_dry_dir, lnd%tile_map, soil_refl_dry_dir_ptr)
-  call send_tile_data_r1d_fptr(id_refl_dry_dif, lnd%tile_map, soil_refl_dry_dif_ptr)
-  call send_tile_data_r1d_fptr(id_refl_sat_dir, lnd%tile_map, soil_refl_sat_dir_ptr)
-  call send_tile_data_r1d_fptr(id_refl_sat_dif, lnd%tile_map, soil_refl_sat_dif_ptr)
-  call send_tile_data_r1d_fptr(id_f_iso_dry, lnd%tile_map, soil_f_iso_dry_ptr)
-  call send_tile_data_r1d_fptr(id_f_vol_dry, lnd%tile_map, soil_f_vol_dry_ptr)
-  call send_tile_data_r1d_fptr(id_f_geo_dry, lnd%tile_map, soil_f_geo_dry_ptr)
-  call send_tile_data_r1d_fptr(id_f_iso_sat, lnd%tile_map, soil_f_iso_sat_ptr)
-  call send_tile_data_r1d_fptr(id_f_vol_sat, lnd%tile_map, soil_f_vol_sat_ptr)
-  call send_tile_data_r1d_fptr(id_f_geo_sat, lnd%tile_map, soil_f_geo_sat_ptr)
-  call send_tile_data_i0d_fptr(id_type,         lnd%tile_map, soil_tag_ptr)
+  call send_tile_data_r0d_fptr(id_tau_gw,       land_tile_map, soil_tau_groundwater_ptr)
+  call send_tile_data_r0d_fptr(id_slope_l,      land_tile_map, soil_hillslope_length_ptr)
+  call send_tile_data_r0d_fptr(id_slope_Z,      land_tile_map, soil_hillslope_relief_ptr)
+  call send_tile_data_r0d_fptr(id_zeta_bar,     land_tile_map, soil_hillslope_zeta_bar_ptr)
+  call send_tile_data_r0d_fptr(id_e_depth,      land_tile_map, soil_soil_e_depth_ptr)
+  call send_tile_data_r0d_fptr(id_zeta,         land_tile_map, soil_zeta_ptr)
+  call send_tile_data_r0d_fptr(id_tau,          land_tile_map, soil_tau_ptr)
+  call send_tile_data_r0d_fptr(id_vwc_wilt,     land_tile_map, soil_vwc_wilt_ptr)
+  call send_tile_data_r0d_fptr(id_vwc_fc,       land_tile_map, soil_vwc_fc_ptr)
+  call send_tile_data_r0d_fptr(id_vwc_sat,      land_tile_map, soil_vwc_sat_ptr)
+  call send_tile_data_r0d_fptr(id_K_sat,        land_tile_map, soil_k_sat_ref_ptr)
+  call send_tile_data_r0d_fptr(id_K_gw,         land_tile_map, soil_k_sat_gw_ptr)
+  call send_tile_data_r1d_fptr(id_w_fc,         land_tile_map, soil_w_fc_ptr)
+  call send_tile_data_r1d_fptr(id_alpha,        land_tile_map, soil_alpha_ptr)
+  call send_tile_data_r1d_fptr(id_refl_dry_dir, land_tile_map, soil_refl_dry_dir_ptr)
+  call send_tile_data_r1d_fptr(id_refl_dry_dif, land_tile_map, soil_refl_dry_dif_ptr)
+  call send_tile_data_r1d_fptr(id_refl_sat_dir, land_tile_map, soil_refl_sat_dir_ptr)
+  call send_tile_data_r1d_fptr(id_refl_sat_dif, land_tile_map, soil_refl_sat_dif_ptr)
+  call send_tile_data_r1d_fptr(id_f_iso_dry, land_tile_map, soil_f_iso_dry_ptr)
+  call send_tile_data_r1d_fptr(id_f_vol_dry, land_tile_map, soil_f_vol_dry_ptr)
+  call send_tile_data_r1d_fptr(id_f_geo_dry, land_tile_map, soil_f_geo_dry_ptr)
+  call send_tile_data_r1d_fptr(id_f_iso_sat, land_tile_map, soil_f_iso_sat_ptr)
+  call send_tile_data_r1d_fptr(id_f_vol_sat, land_tile_map, soil_f_vol_sat_ptr)
+  call send_tile_data_r1d_fptr(id_f_geo_sat, land_tile_map, soil_f_geo_sat_ptr)
+  call send_tile_data_i0d_fptr(id_type,         land_tile_map, soil_tag_ptr)
 end subroutine soil_init
 
 
@@ -1552,6 +1027,8 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
   ! ---- local vars
   integer :: axes(3)
   integer :: id_zhalf
+  integer :: l ! layer index
+  character(80) :: str ! buffer for forming long names (e.g. see mrsos)
 
   ! define vertical axis and its edges
   id_zhalf = diag_axis_init ( &
@@ -1568,680 +1045,680 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
 
   ! define diagnostic fields
   id_rhizosphere_frac = register_tiled_diag_field ( module_name, 'rhizosphere_frac', axes, &
-       land_time, 'rhizosphere fraction of soil', 'm3/m3', missing_value=-100.0 )
+       lnd%time, 'rhizosphere fraction of soil', 'm3/m3', missing_value=-100.0 )
   id_fast_soil_C = register_tiled_diag_field ( module_name, 'fast_soil_C', axes,  &
-       land_time, 'fast soil carbon', 'kg C/m3', missing_value=-100.0 )
+       lnd%time, 'fast soil carbon', 'kg C/m3', missing_value=-100.0 )
   id_slow_soil_C = register_tiled_diag_field ( module_name, 'slow_soil_C', axes,  &
-       land_time, 'slow soil carbon', 'kg C/m3', missing_value=-100.0 )
+       lnd%time, 'slow soil carbon', 'kg C/m3', missing_value=-100.0 )
   id_deadmic_C = register_tiled_diag_field ( module_name, 'dead_microbe_C', axes,  &
-       land_time, 'dead microbe soil carbon per layer', 'kg C/m3', missing_value=-100.0 )
+       lnd%time, 'dead microbe soil carbon per layer', 'kg C/m3', missing_value=-100.0 )
   id_protectedC = register_tiled_diag_field ( module_name, 'protected_soil_C', axes,  &
-       land_time, 'protected soil carbon per layer', 'kg C/m3', missing_value=-100.0 )
+       lnd%time, 'protected soil carbon per layer', 'kg C/m3', missing_value=-100.0 )
   id_livemic_C = register_tiled_diag_field ( module_name, 'livemic',  &
-       (/id_lon,id_lat,id_zfull/), land_time, 'live microbe soil carbon', 'kg C/m3', &
+       (/id_lon,id_lat,id_zfull/), lnd%time, 'live microbe soil carbon', 'kg C/m3', &
        missing_value=-100.0 )
    id_fast_soil_N = register_tiled_diag_field ( module_name, 'fast_soil_N', axes,  &
-        land_time, 'fast soil nitrogen', 'kg N/m3', missing_value=-100.0 )
+        lnd%time, 'fast soil nitrogen', 'kg N/m3', missing_value=-100.0 )
    id_slow_soil_N = register_tiled_diag_field ( module_name, 'slow_soil_N', axes,  &
-        land_time, 'slow soil nitrogen', 'kg N/m3', missing_value=-100.0 )
+        lnd%time, 'slow soil nitrogen', 'kg N/m3', missing_value=-100.0 )
    id_deadmic_N = register_tiled_diag_field ( module_name, 'dead_microbe_N', axes,  &
-        land_time, 'dead microbe soil nitrogen per layer', 'kg N/m3', missing_value=-100.0 )
+        lnd%time, 'dead microbe soil nitrogen per layer', 'kg N/m3', missing_value=-100.0 )
    id_protectedN = register_tiled_diag_field ( module_name, 'protected_soil_N', axes,  &
-        land_time, 'protected soil nitrogen per layer', 'kg N/m3', missing_value=-100.0 )
+        lnd%time, 'protected soil nitrogen per layer', 'kg N/m3', missing_value=-100.0 )
    id_livemic_N = register_tiled_diag_field ( module_name, 'live_microbe_N',  &
-        (/id_lon,id_lat,id_zfull/), land_time, 'live microbe soil nitrogen', 'kg N/m3', &
+        (/id_lon,id_lat,id_zfull/), lnd%time, 'live microbe soil nitrogen', 'kg N/m3', &
         missing_value=-100.0 )
   id_fast_dissolved_C = register_tiled_diag_field ( module_name, 'fast_dissolved_C', axes,  &
-       land_time, 'fast dissolved carbon per layer', 'kg C/m3', missing_value=-100.0 )
+       lnd%time, 'fast dissolved carbon per layer', 'kg C/m3', missing_value=-100.0 )
   id_slow_dissolved_C = register_tiled_diag_field ( module_name, 'slow_dissolved_C', axes,  &
-       land_time, 'slow dissolved carbon per layer', 'kg C/m3', missing_value=-100.0 )
+       lnd%time, 'slow dissolved carbon per layer', 'kg C/m3', missing_value=-100.0 )
   id_deadmic_dissolved_C = register_tiled_diag_field ( module_name, 'dead_microbe_dissolved_C', axes,  &
-       land_time, 'dead microbe dissolved carbon per layer', 'kg C/m3', missing_value=-100.0 )
+       lnd%time, 'dead microbe dissolved carbon per layer', 'kg C/m3', missing_value=-100.0 )
    id_fast_dissolved_N = register_tiled_diag_field ( module_name, 'fast_dissolved_N', axes,  &
-        land_time, 'fast dissolved nitrogen per layer', 'kg N/m3', missing_value=-100.0 )
+        lnd%time, 'fast dissolved nitrogen per layer', 'kg N/m3', missing_value=-100.0 )
    id_slow_dissolved_N = register_tiled_diag_field ( module_name, 'slow_dissolved_N', axes,  &
-        land_time, 'slow dissolved nitrogen per layer', 'kg N/m3', missing_value=-100.0 )
+        lnd%time, 'slow dissolved nitrogen per layer', 'kg N/m3', missing_value=-100.0 )
    id_deadmic_dissolved_N = register_tiled_diag_field ( module_name, 'dead_microbe_dissolved_N', axes,  &
-        land_time, 'dead microbe dissolved nitrogen per layer', 'kg N/m3', missing_value=-100.0 )
+        lnd%time, 'dead microbe dissolved nitrogen per layer', 'kg N/m3', missing_value=-100.0 )
     id_soil_nitrate = register_tiled_diag_field ( module_name, 'soil_NO3', axes,  &
-         land_time, 'NO3 per layer', 'kg N/m3', missing_value=-100.0 )
+         lnd%time, 'NO3 per layer', 'kg N/m3', missing_value=-100.0 )
      id_soil_ammonium = register_tiled_diag_field ( module_name, 'soil_NH4', axes,  &
-          land_time, 'NO3 per layer', 'kg N/m3', missing_value=-100.0 )
+          lnd%time, 'NO3 per layer', 'kg N/m3', missing_value=-100.0 )
       id_nitrif = register_tiled_diag_field ( module_name, 'soil_nitrif', axes,  &
-           land_time, 'Cumulative nitrification per layer', 'kg N/m3', missing_value=-100.0 )
+           lnd%time, 'Cumulative nitrification per layer', 'kg N/m3', missing_value=-100.0 )
    id_denitrif = register_tiled_diag_field ( module_name, 'soil_denitrif', axes,  &
-        land_time, 'Cumulative denitrification per layer', 'kg N/m3', missing_value=-100.0 )
+        lnd%time, 'Cumulative denitrification per layer', 'kg N/m3', missing_value=-100.0 )
       id_nitrification_rate = register_tiled_diag_field ( module_name, 'soil_nitrification_rate', axes,  &
-           land_time, 'Nitrification rate per layer', 'kg N/m3/year', missing_value=-100.0 )
+           lnd%time, 'Nitrification rate per layer', 'kg N/m3/year', missing_value=-100.0 )
    id_denitrification_rate = register_tiled_diag_field ( module_name, 'soil_denitrification_rate', axes,  &
-        land_time, 'Denitrification rate per layer', 'kg N/m3/year', missing_value=-100.0 )
+        lnd%time, 'Denitrification rate per layer', 'kg N/m3/year', missing_value=-100.0 )
 id_total_carbon_layered = register_tiled_diag_field ( module_name, 'total_soil_carbon_layered', axes,  &
-       land_time, 'total soil carbon per layer', 'kg C/m3', missing_value=-100.0 )
+       lnd%time, 'total soil carbon per layer', 'kg C/m3', missing_value=-100.0 )
    id_total_nitrogen_layered = register_tiled_diag_field ( module_name, 'total_soil_nitrogen_layered', axes,  &
-        land_time, 'total soil nitrogen per layer', 'kg N/m3', missing_value=-100.0 )
+        lnd%time, 'total soil nitrogen per layer', 'kg N/m3', missing_value=-100.0 )
   id_fast_DOC_div_loss = register_tiled_diag_field ( module_name, 'fast_DOC_div_loss', (/id_lon,id_lat/),  &
-       land_time, 'total fast DOC divergence loss', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'total fast DOC divergence loss', 'kg C/m2', missing_value=-100.0 )
   id_slow_DOC_div_loss = register_tiled_diag_field ( module_name, 'slow_DOC_div_loss', (/id_lon,id_lat/),  &
-       land_time, 'total slow DOC divergence loss', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'total slow DOC divergence loss', 'kg C/m2', missing_value=-100.0 )
   id_deadmic_DOC_div_loss = register_tiled_diag_field ( module_name, 'deadmic_DOC_div_loss', (/id_lon,id_lat/),  &
-       land_time, 'total dead microbe DOC divergence loss', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'total dead microbe DOC divergence loss', 'kg C/m2', missing_value=-100.0 )
   id_total_DOC_div_loss = register_tiled_diag_field ( module_name, 'total_DOC_div', axes(1:2), &
-       land_time, 'total rate of DOC divergence loss', 'kg C/m^2/s', missing_value=initval)
-id_div = register_tiled_diag_field(module_name, 'div',axes,land_time,'Water divergence rate by layer','kg/m2/s',missing_value=-100.0)
+       lnd%time, 'total rate of DOC divergence loss', 'kg C/m^2/s', missing_value=initval)
+id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water divergence rate by layer','kg/m2/s',missing_value=-100.0)
        id_fast_DON_div_loss = register_tiled_diag_field ( module_name, 'fast_DON_div_loss', (/id_lon,id_lat/),  &
-            land_time, 'total fast DON divergence loss', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'total fast DON divergence loss', 'kg N/m2', missing_value=-100.0 )
        id_slow_DON_div_loss = register_tiled_diag_field ( module_name, 'slow_DON_div_loss', (/id_lon,id_lat/),  &
-            land_time, 'total slow DON divergence loss', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'total slow DON divergence loss', 'kg N/m2', missing_value=-100.0 )
        id_deadmic_DON_div_loss = register_tiled_diag_field ( module_name, 'deadmic_DON_div_loss', (/id_lon,id_lat/),  &
-            land_time, 'total dead microbe DON divergence loss', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'total dead microbe DON divergence loss', 'kg N/m2', missing_value=-100.0 )
        id_total_DON_div_loss = register_tiled_diag_field ( module_name, 'total_DON_div', axes(1:2), &
-            land_time, 'total rate of DON divergence loss', 'kg N/m^2/s', missing_value=initval)
+            lnd%time, 'total rate of DON divergence loss', 'kg N/m^2/s', missing_value=initval)
     id_NO3_div_loss = register_tiled_diag_field ( module_name, 'total_cumulative_NO3_div', axes(1:2), &
-         land_time, 'total rate of NO3 divergence loss', 'kg N/m^2', missing_value=initval)
+         lnd%time, 'total rate of NO3 divergence loss', 'kg N/m^2', missing_value=initval)
      id_NH4_div_loss = register_tiled_diag_field ( module_name, 'total_cumulative_NH4_div', axes(1:2), &
-          land_time, 'total rate of NH4 divergence loss', 'kg N/m^2', missing_value=initval)
+          lnd%time, 'total rate of NH4 divergence loss', 'kg N/m^2', missing_value=initval)
           id_total_NO3_div_loss = register_tiled_diag_field ( module_name, 'total_NO3_div', axes(1:2), &
-               land_time, 'total rate of NO3 divergence loss', 'kg N/m^2/s', missing_value=initval)
+               lnd%time, 'total rate of NO3 divergence loss', 'kg N/m^2/s', missing_value=initval)
            id_total_NH4_div_loss = register_tiled_diag_field ( module_name, 'total_NH4_div', axes(1:2), &
-                land_time, 'total rate of NH4 divergence loss', 'kg N/m^2/s', missing_value=initval)
+                lnd%time, 'total rate of NH4 divergence loss', 'kg N/m^2/s', missing_value=initval)
 
   id_rsoil = register_tiled_diag_field ( module_name, 'rsoil',  &
-       (/id_lon,id_lat/), land_time, 'soil respiration', 'kg C/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'soil respiration', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_rsoil_fast = register_tiled_diag_field ( module_name, 'rsoil_fast',  &
-       axes, land_time, 'fast soil carbon respiration', 'kg C/(m3 year)', &
+       axes, lnd%time, 'fast soil carbon respiration', 'kg C/(m3 year)', &
        missing_value=-100.0 )
   id_rsoil_fast_N = register_tiled_diag_field ( module_name, 'rsoil_fast_N',  &
-       axes, land_time, 'fast soil nitrogen degradation', 'kg N/(m3 year)', &
+       axes, lnd%time, 'fast soil nitrogen degradation', 'kg N/(m3 year)', &
        missing_value=-100.0 )
   id_rsoil_slow = register_tiled_diag_field ( module_name, 'rsoil_slow',  &
-       axes, land_time, 'slow soil carbon respiration', 'kg C/(m3 year)', &
+       axes, lnd%time, 'slow soil carbon respiration', 'kg C/(m3 year)', &
        missing_value=-100.0 )
   id_rsoil_slow_N = register_tiled_diag_field ( module_name, 'rsoil_slow_N',  &
-       axes, land_time, 'slow soil nitrogen degradation', 'kg N/(m3 year)', &
+       axes, lnd%time, 'slow soil nitrogen degradation', 'kg N/(m3 year)', &
        missing_value=-100.0 )
   id_rsoil_deadmic = register_tiled_diag_field ( module_name, 'rsoil_deadmic',  &
-       axes, land_time, 'dead microbe soil carbon respiration', 'kg C/(m3 year)', &
+       axes, lnd%time, 'dead microbe soil carbon respiration', 'kg C/(m3 year)', &
        missing_value=-100.0 )
   id_rsoil_deadmic_N = register_tiled_diag_field ( module_name, 'rsoil_deadmic_N',  &
-       axes, land_time, 'dead microbe soil nitrogen degradation', 'kg N/(m3 year)', &
+       axes, lnd%time, 'dead microbe soil nitrogen degradation', 'kg N/(m3 year)', &
        missing_value=-100.0 )
   id_N_mineralization_rate = register_tiled_diag_field ( module_name, 'N_mineralization_rate',  &
-       axes, land_time, 'Soil N mineralization rate', 'kg N/(m3 year)', &
+       axes, lnd%time, 'Soil N mineralization rate', 'kg N/(m3 year)', &
        missing_value=-100.0 )
   id_N_immobilization_rate = register_tiled_diag_field ( module_name, 'N_immobilization_rate',  &
-       axes, land_time, 'Soil N immobilization rate', 'kg N/(m3 year)', &
+       axes, lnd%time, 'Soil N immobilization rate', 'kg N/(m3 year)', &
        missing_value=-100.0 )
   id_rsoil_leaflitter_fast = register_tiled_diag_field ( module_name, 'rsoil_leaflitter_fast',  &
-       (/id_lon,id_lat/), land_time, 'surface leaf litter fast C respiration', 'kg C/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface leaf litter fast C respiration', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_rsoil_leaflitter_slow = register_tiled_diag_field ( module_name, 'rsoil_leaflitter_slow',  &
-       (/id_lon,id_lat/), land_time, 'surface leaf litter slow C respiration', 'kg C/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface leaf litter slow C respiration', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_rsoil_leaflitter_deadmic = register_tiled_diag_field ( module_name, 'rsoil_leaflitter_deadmic',  &
-       (/id_lon,id_lat/), land_time, 'surface leaf litter dead microbe C respiration', 'kg C/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface leaf litter dead microbe C respiration', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_rsoil_leaflitter_fast_N = register_tiled_diag_field ( module_name, 'rsoil_leaflitter_fast_N',  &
-       (/id_lon,id_lat/), land_time, 'surface leaf litter fast N degradation', 'kg N/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface leaf litter fast N degradation', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_rsoil_leaflitter_slow_N = register_tiled_diag_field ( module_name, 'rsoil_leaflitter_slow_N',  &
-       (/id_lon,id_lat/), land_time, 'surface leaf litter slow N degradation', 'kg N/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface leaf litter slow N degradation', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_rsoil_leaflitter_deadmic_N = register_tiled_diag_field ( module_name, 'rsoil_leaflitter_deadmic_N',  &
-       (/id_lon,id_lat/), land_time, 'surface leaf litter dead microbe N degradation', 'kg N/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface leaf litter dead microbe N degradation', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_leaflitter_N_mineralization_rate = register_tiled_diag_field ( module_name, 'leaflitter_N_mineralization_rate',  &
-       (/id_lon,id_lat/), land_time, 'surface leaf litter N mineralization', 'kg N/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface leaf litter N mineralization', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_leaflitter_N_immobilization_rate = register_tiled_diag_field ( module_name, 'leaflitter_N_immobilization_rate',  &
-       (/id_lon,id_lat/), land_time, 'surface leaf litter N immobilization', 'kg N/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface leaf litter N immobilization', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_leaflitter_nitrification_rate = register_tiled_diag_field ( module_name, 'leaflitter_nitrification_rate',  &
-       (/id_lon,id_lat/), land_time, 'surface leaf litter nitrification', 'kg N/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface leaf litter nitrification', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_leaflitter_denitrification_rate = register_tiled_diag_field ( module_name, 'leaflitter_denitrification_rate',  &
-       (/id_lon,id_lat/), land_time, 'surface leaf litter denitrification', 'kg N/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface leaf litter denitrification', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_rsoil_coarsewoodlitter_fast = register_tiled_diag_field ( module_name, 'rsoil_coarsewoodlitter_fast',  &
-       (/id_lon,id_lat/), land_time, 'surface coarse wood litter fast C respiration', 'kg C/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface coarse wood litter fast C respiration', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_rsoil_coarsewoodlitter_slow = register_tiled_diag_field ( module_name, 'rsoil_coarsewoodlitter_slow',  &
-       (/id_lon,id_lat/), land_time, 'surface coarse wood litter slow C respiration', 'kg C/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface coarse wood litter slow C respiration', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_rsoil_coarsewoodlitter_deadmic = register_tiled_diag_field ( module_name, 'rsoil_coarsewoodlitter_deadmic',  &
-       (/id_lon,id_lat/), land_time, 'surface coarse wood litter dead microbe C respiration', 'kg C/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface coarse wood litter dead microbe C respiration', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_rsoil_coarsewoodlitter_fast_N = register_tiled_diag_field ( module_name, 'rsoil_coarsewoodlitter_fast_N',  &
-       (/id_lon,id_lat/), land_time, 'surface coarse wood litter fast N degradation', 'kg N/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface coarse wood litter fast N degradation', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_rsoil_coarsewoodlitter_slow_N = register_tiled_diag_field ( module_name, 'rsoil_coarsewoodlitter_slow_N',  &
-       (/id_lon,id_lat/), land_time, 'surface coarse wood litter slow N degradation', 'kg N/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface coarse wood litter slow N degradation', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_rsoil_coarsewoodlitter_deadmic_N = register_tiled_diag_field ( module_name, 'rsoil_coarsewoodlitter_deadmic_N',  &
-       (/id_lon,id_lat/), land_time, 'surface coarse wood litter dead microbe N degradation', 'kg N/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface coarse wood litter dead microbe N degradation', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_coarsewoodlitter_N_mineralization_rate = register_tiled_diag_field ( module_name, 'coarsewoodlitter_N_mineralization_rate',  &
-       (/id_lon,id_lat/), land_time, 'surface coarse wood litter N mineralization', 'kg N/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface coarse wood litter N mineralization', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_coarsewoodlitter_N_immobilization_rate = register_tiled_diag_field ( module_name, 'coarsewoodlitter_N_immobilization_rate',  &
-       (/id_lon,id_lat/), land_time, 'surface coarse wood litter N immobilization', 'kg N/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface coarse wood litter N immobilization', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_coarsewoodlitter_nitrification_rate = register_tiled_diag_field ( module_name, 'coarsewoodlitter_nitrification_rate',  &
-       (/id_lon,id_lat/), land_time, 'surface coarse wood litter nitrification', 'kg N/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface coarse wood litter nitrification', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_coarsewoodlitter_denitrification_rate = register_tiled_diag_field ( module_name, 'coarsewoodlitter_denitrification_rate',  &
-       (/id_lon,id_lat/), land_time, 'surface coarse wood litter denitrification', 'kg N/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface coarse wood litter denitrification', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_rsoil_finewoodlitter_fast = register_tiled_diag_field ( module_name, 'rsoil_finewoodlitter_fast',  &
-       (/id_lon,id_lat/), land_time, 'surface fine wood litter fast C respiration', 'kg C/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface fine wood litter fast C respiration', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_rsoil_finewoodlitter_slow = register_tiled_diag_field ( module_name, 'rsoil_finewoodlitter_slow',  &
-       (/id_lon,id_lat/), land_time, 'surface fine wood litter slow C respiration', 'kg C/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface fine wood litter slow C respiration', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_rsoil_finewoodlitter_deadmic = register_tiled_diag_field ( module_name, 'rsoil_finewoodlitter_deadmic',  &
-       (/id_lon,id_lat/), land_time, 'surface fine wood litter dead microbe C respiration', 'kg C/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface fine wood litter dead microbe C respiration', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_rsoil_finewoodlitter_fast_N = register_tiled_diag_field ( module_name, 'rsoil_finewoodlitter_fast_N',  &
-       (/id_lon,id_lat/), land_time, 'surface fine wood litter fast N degradation', 'kg N/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface fine wood litter fast N degradation', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_rsoil_finewoodlitter_slow_N = register_tiled_diag_field ( module_name, 'rsoil_finewoodlitter_slow_N',  &
-       (/id_lon,id_lat/), land_time, 'surface fine wood litter slow N degradation', 'kg N/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface fine wood litter slow N degradation', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_rsoil_finewoodlitter_deadmic_N = register_tiled_diag_field ( module_name, 'rsoil_finewoodlitter_deadmic_N',  &
-       (/id_lon,id_lat/), land_time, 'surface fine wood litter dead microbe N degradation', 'kg N/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface fine wood litter dead microbe N degradation', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_finewoodlitter_N_mineralization_rate = register_tiled_diag_field ( module_name, 'finewoodlitter_N_mineralization_rate',  &
-       (/id_lon,id_lat/), land_time, 'surface fine wood litter N mineralization', 'kg N/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface fine wood litter N mineralization', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_finewoodlitter_N_immobilization_rate = register_tiled_diag_field ( module_name, 'finewoodlitter_N_immobilization_rate',  &
-       (/id_lon,id_lat/), land_time, 'surface fine wood litter N immobilization', 'kg N/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface fine wood litter N immobilization', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_finewoodlitter_nitrification_rate = register_tiled_diag_field ( module_name, 'finewoodlitter_nitrification_rate',  &
-       (/id_lon,id_lat/), land_time, 'surface fine wood litter nitrification', 'kg N/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface fine wood litter nitrification', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_finewoodlitter_denitrification_rate = register_tiled_diag_field ( module_name, 'finewoodlitter_denitrification_rate',  &
-       (/id_lon,id_lat/), land_time, 'surface fine wood litter denitrification', 'kg N/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'surface fine wood litter denitrification', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_total_N_mineralization_rate = register_tiled_diag_field ( module_name, 'total_N_mineralization_rate',  &
-       (/id_lon,id_lat/), land_time, 'Total N mineralization', 'kg N/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'Total N mineralization', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_total_N_immobilization_rate = register_tiled_diag_field ( module_name, 'total_N_immobilization_rate',  &
-       (/id_lon,id_lat/), land_time, 'Total N immobilization', 'kg N/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'Total N immobilization', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_total_nitrification_rate = register_tiled_diag_field ( module_name, 'total_nitrification_rate',  &
-       (/id_lon,id_lat/), land_time, 'Total nitrification', 'kg N/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'Total nitrification', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_total_denitrification_rate = register_tiled_diag_field ( module_name, 'total_denitrification_rate',  &
-       (/id_lon,id_lat/), land_time, 'Total denitrification', 'kg N/(m2 year)', &
+       (/id_lon,id_lat/), lnd%time, 'Total denitrification', 'kg N/(m2 year)', &
        missing_value=-100.0 )
   id_C_dissolve_rate_fast = register_tiled_diag_field ( module_name, 'fast_C_dissolve_rate',  &
-       axes, land_time, 'fast soil carbon dissolving rate', 'kg C/(m3 year)', &
+       axes, lnd%time, 'fast soil carbon dissolving rate', 'kg C/(m3 year)', &
        missing_value=-100.0 )
   id_C_dissolve_rate_slow = register_tiled_diag_field ( module_name, 'slow_C_dissolve_rate',  &
-       axes, land_time, 'slow soil carbon dissolving rate', 'kg C/(m3 year)', &
+       axes, lnd%time, 'slow soil carbon dissolving rate', 'kg C/(m3 year)', &
        missing_value=-100.0 )
   id_C_dissolve_rate_deadmic = register_tiled_diag_field ( module_name, 'deadmic_C_dissolve_rate',  &
-       axes, land_time, 'dead microbe soil carbon dissolving rate', 'kg C/(m3 year)', &
+       axes, lnd%time, 'dead microbe soil carbon dissolving rate', 'kg C/(m3 year)', &
        missing_value=-100.0 )
   id_C_deposition_fast = register_tiled_diag_field ( module_name, 'fast_C_deposition_rate',  &
-       axes, land_time, 'fast soil carbon deposition from DOC rate', 'kg C/(m3 year)', &
+       axes, lnd%time, 'fast soil carbon deposition from DOC rate', 'kg C/(m3 year)', &
        missing_value=-100.0 )
   id_C_deposition_slow = register_tiled_diag_field ( module_name, 'slow_C_deposition_rate',  &
-       axes, land_time, 'slow soil carbon deposition from DOC rate', 'kg C/(m3 year)', &
+       axes, lnd%time, 'slow soil carbon deposition from DOC rate', 'kg C/(m3 year)', &
        missing_value=-100.0 )
   id_C_deposition_deadmic = register_tiled_diag_field ( module_name, 'deadmic_C_deposition_rate',  &
-       axes, land_time, 'dead microbe soil carbon deposition from DOC rate', 'kg C/(m3 year)', &
+       axes, lnd%time, 'dead microbe soil carbon deposition from DOC rate', 'kg C/(m3 year)', &
        missing_value=-100.0 )
   id_leaflitter_C_dissolve_rate_fast = register_tiled_diag_field ( module_name, 'leaflitter_fast_C_dissolve_rate',  &
-       axes(1:2), land_time, 'fast leaf litter carbon dissolving rate', 'kg C/(m2 year)', &
+       axes(1:2), lnd%time, 'fast leaf litter carbon dissolving rate', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_leaflitter_C_dissolve_rate_slow = register_tiled_diag_field ( module_name, 'leaflitter_slow_C_dissolve_rate',  &
-       axes(1:2), land_time, 'slow leaf litter carbon dissolving rate', 'kg C/(m2 year)', &
+       axes(1:2), lnd%time, 'slow leaf litter carbon dissolving rate', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_leaflitter_C_dissolve_rate_deadmic = register_tiled_diag_field ( module_name, 'leaflitter_deadmic_C_dissolve_rate',  &
-       axes(1:2), land_time, 'dead microbe leaf litter carbon dissolving rate', 'kg C/(m2 year)', &
+       axes(1:2), lnd%time, 'dead microbe leaf litter carbon dissolving rate', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_leaflitter_C_deposition_fast = register_tiled_diag_field ( module_name, 'leaflitter_fast_C_deposition_rate',  &
-       axes(1:2), land_time, 'fast leaf litter carbon deposition from DOC rate', 'kg C/(m2 year)', &
+       axes(1:2), lnd%time, 'fast leaf litter carbon deposition from DOC rate', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_leaflitter_C_deposition_slow = register_tiled_diag_field ( module_name, 'leaflitter_slow_C_deposition_rate',  &
-       axes(1:2), land_time, 'slow leaf litter carbon deposition from DOC rate', 'kg C/(m2 year)', &
+       axes(1:2), lnd%time, 'slow leaf litter carbon deposition from DOC rate', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_leaflitter_C_deposition_deadmic = register_tiled_diag_field ( module_name, 'leaflitter_deadmic_C_deposition_rate',  &
-       axes(1:2), land_time, 'dead microbe leaf litter carbon deposition from DOC rate', 'kg C/(m2 year)', &
+       axes(1:2), lnd%time, 'dead microbe leaf litter carbon deposition from DOC rate', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_finewoodlitter_C_dissolve_rate_fast = register_tiled_diag_field ( module_name, 'finewoodlitter_fast_C_dissolve_rate',  &
-       axes(1:2), land_time, 'fast fine wood litter carbon dissolving rate', 'kg C/(m2 year)', &
+       axes(1:2), lnd%time, 'fast fine wood litter carbon dissolving rate', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_finewoodlitter_C_dissolve_rate_slow = register_tiled_diag_field ( module_name, 'finewoodlitter_slow_C_dissolve_rate',  &
-       axes(1:2), land_time, 'slow fine wood litter carbon dissolving rate', 'kg C/(m2 year)', &
+       axes(1:2), lnd%time, 'slow fine wood litter carbon dissolving rate', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_finewoodlitter_C_dissolve_rate_deadmic = register_tiled_diag_field ( module_name, 'finewoodlitter_deadmic_C_dissolve_rate',  &
-       axes(1:2), land_time, 'dead microbe fine wood litter carbon dissolving rate', 'kg C/(m2 year)', &
+       axes(1:2), lnd%time, 'dead microbe fine wood litter carbon dissolving rate', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_finewoodlitter_C_deposition_fast = register_tiled_diag_field ( module_name, 'finewoodlitter_fast_C_deposition_rate',  &
-       axes(1:2), land_time, 'fast fine wood litter carbon deposition from DOC rate', 'kg C/(m2 year)', &
+       axes(1:2), lnd%time, 'fast fine wood litter carbon deposition from DOC rate', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_finewoodlitter_C_deposition_slow = register_tiled_diag_field ( module_name, 'finewoodlitter_slow_C_deposition_rate',  &
-       axes(1:2), land_time, 'slow fine wood litter carbon deposition from DOC rate', 'kg C/(m2 year)', &
+       axes(1:2), lnd%time, 'slow fine wood litter carbon deposition from DOC rate', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_finewoodlitter_C_deposition_deadmic = register_tiled_diag_field ( module_name, 'finewoodlitter_deadmic_C_deposition_rate',  &
-       axes(1:2), land_time, 'dead microbe fine wood litter carbon deposition from DOC rate', 'kg C/(m2 year)', &
+       axes(1:2), lnd%time, 'dead microbe fine wood litter carbon deposition from DOC rate', 'kg C/(m2 year)', &
        missing_value=-100.0 )
     id_coarsewoodlitter_C_dissolve_rate_fast = register_tiled_diag_field ( module_name, 'coarsewoodlitter_fast_C_dissolve_rate',  &
-       axes(1:2), land_time, 'fast coarse wood litter carbon dissolving rate', 'kg C/(m2 year)', &
+       axes(1:2), lnd%time, 'fast coarse wood litter carbon dissolving rate', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_coarsewoodlitter_C_dissolve_rate_slow = register_tiled_diag_field ( module_name, 'coarsewoodlitter_slow_C_dissolve_rate',  &
-       axes(1:2), land_time, 'slow coarse wood litter carbon dissolving rate', 'kg C/(m2 year)', &
+       axes(1:2), lnd%time, 'slow coarse wood litter carbon dissolving rate', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_coarsewoodlitter_C_dissolve_rate_deadmic = register_tiled_diag_field ( module_name, 'coarsewoodlitter_deadmic_C_dissolve_rate',  &
-       axes(1:2), land_time, 'dead microbe coarse wood litter carbon dissolving rate', 'kg C/(m2 year)', &
+       axes(1:2), lnd%time, 'dead microbe coarse wood litter carbon dissolving rate', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_coarsewoodlitter_C_deposition_fast = register_tiled_diag_field ( module_name, 'coarsewoodlitter_fast_C_deposition_rate',  &
-       axes(1:2), land_time, 'fast coarse wood litter carbon deposition from DOC rate', 'kg C/(m2 year)', &
+       axes(1:2), lnd%time, 'fast coarse wood litter carbon deposition from DOC rate', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_coarsewoodlitter_C_deposition_slow = register_tiled_diag_field ( module_name, 'coarsewoodlitter_slow_C_deposition_rate',  &
-       axes(1:2), land_time, 'slow coarse wood litter carbon deposition from DOC rate', 'kg C/(m2 year)', &
+       axes(1:2), lnd%time, 'slow coarse wood litter carbon deposition from DOC rate', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_coarsewoodlitter_C_deposition_deadmic = register_tiled_diag_field ( module_name, 'coarsewoodlitter_deadmic_C_deposition_rate',  &
-       axes(1:2), land_time, 'dead microbe coarse wood litter carbon deposition from DOC rate', 'kg C/(m2 year)', &
+       axes(1:2), lnd%time, 'dead microbe coarse wood litter carbon deposition from DOC rate', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_resp = register_tiled_diag_field ( module_name, 'resp', (/id_lon,id_lat/), &
-       land_time, 'Total soil respiration', 'kg C/(m2 year)', missing_value=-100.0 )
+       lnd%time, 'Total soil respiration', 'kg C/(m2 year)', missing_value=-100.0 )
   id_Qmax = register_tiled_diag_field ( module_name, 'Qmax', axes(1:2),  &
-       land_time, 'Maximum clay sorptive capacity', 'kg C/m3', missing_value=-100.0 )
+       lnd%time, 'Maximum clay sorptive capacity', 'kg C/m3', missing_value=-100.0 )
 
   id_leaflitter_fast_C = register_tiled_diag_field ( module_name, 'fast_leaflitter_C', axes(1:2),  &
-       land_time, 'fast leaf litter carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'fast leaf litter carbon', 'kg C/m2', missing_value=-100.0 )
   id_leaflitter_slow_C = register_tiled_diag_field ( module_name, 'slow_leaflitter_C', axes(1:2),  &
-       land_time, 'slow leaf litter carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'slow leaf litter carbon', 'kg C/m2', missing_value=-100.0 )
   id_leaflitter_deadmic_C = register_tiled_diag_field ( module_name, 'leaflitter_dead_microbe_C', axes(1:2),  &
-       land_time, 'dead microbe leaf litter carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'dead microbe leaf litter carbon', 'kg C/m2', missing_value=-100.0 )
   id_leaflitter_livemic_C = register_tiled_diag_field ( module_name, 'leaflitter_live_microbe_C', axes(1:2),  &
-       land_time, 'live microbe leaf litter carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'live microbe leaf litter carbon', 'kg C/m2', missing_value=-100.0 )
        id_leaflitter_total_C = register_tiled_diag_field ( module_name, 'leaflitter_total_C', axes(1:2),  &
-            land_time, 'leaf litter total carbon', 'kg C/m2', missing_value=-100.0 )
+            lnd%time, 'leaf litter total carbon', 'kg C/m2', missing_value=-100.0 )
             id_leaflitter_total_N = register_tiled_diag_field ( module_name, 'leaflitter_total_N', axes(1:2),  &
-                 land_time, 'leaf litter total nitrogen', 'kg N/m2', missing_value=-100.0 )
+                 lnd%time, 'leaf litter total nitrogen', 'kg N/m2', missing_value=-100.0 )
        id_leaflitter_fast_N = register_tiled_diag_field ( module_name, 'fast_leaflitter_N', axes(1:2),  &
-            land_time, 'fast leaf litter nitrogen', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'fast leaf litter nitrogen', 'kg N/m2', missing_value=-100.0 )
        id_leaflitter_slow_N = register_tiled_diag_field ( module_name, 'slow_leaflitter_N', axes(1:2),  &
-            land_time, 'slow leaf litter nitrogen', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'slow leaf litter nitrogen', 'kg N/m2', missing_value=-100.0 )
        id_leaflitter_deadmic_N = register_tiled_diag_field ( module_name, 'leaflitter_dead_microbe_N', axes(1:2),  &
-            land_time, 'dead microbe leaf litter nitrogen', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'dead microbe leaf litter nitrogen', 'kg N/m2', missing_value=-100.0 )
        id_leaflitter_livemic_N = register_tiled_diag_field ( module_name, 'leaflitter_live_microbe_N', axes(1:2),  &
-            land_time, 'live microbe leaf litter nitrogen', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'live microbe leaf litter nitrogen', 'kg N/m2', missing_value=-100.0 )
         id_leaflitter_nitrate = register_tiled_diag_field ( module_name, 'leaflitter_NO3', axes(1:2),  &
-             land_time, 'Leaf litter nitrate', 'kg N/m2', missing_value=-100.0 )
+             lnd%time, 'Leaf litter nitrate', 'kg N/m2', missing_value=-100.0 )
      id_leaflitter_ammonium = register_tiled_diag_field ( module_name, 'leaflitter_NH4', axes(1:2),  &
-          land_time, 'Leaf litter ammonium', 'kg N/m2', missing_value=-100.0 )
+          lnd%time, 'Leaf litter ammonium', 'kg N/m2', missing_value=-100.0 )
 
   id_coarsewoodlitter_fast_C = register_tiled_diag_field ( module_name, 'fast_coarsewoodlitter_C', axes(1:2),  &
-       land_time, 'fast coarse wood litter carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'fast coarse wood litter carbon', 'kg C/m2', missing_value=-100.0 )
   id_coarsewoodlitter_slow_C = register_tiled_diag_field ( module_name, 'slow_coarsewoodlitter_C', axes(1:2),  &
-       land_time, 'slow coarse wood litter carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'slow coarse wood litter carbon', 'kg C/m2', missing_value=-100.0 )
   id_coarsewoodlitter_deadmic_C = register_tiled_diag_field ( module_name, 'coarsewoodlitter_dead_microbe_C', axes(1:2),  &
-       land_time, 'dead microbe coarse wood litter carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'dead microbe coarse wood litter carbon', 'kg C/m2', missing_value=-100.0 )
   id_coarsewoodlitter_livemic_C = register_tiled_diag_field ( module_name, 'coarsewoodlitter_live_microbe_C', axes(1:2),  &
-       land_time, 'live microbe coarse wood litter carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'live microbe coarse wood litter carbon', 'kg C/m2', missing_value=-100.0 )
   id_coarseWoodlitter_total_C = register_tiled_diag_field ( module_name, 'coarsewoodlitter_total_C', axes(1:2),  &
-       land_time, 'coarse wood litter total carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'coarse wood litter total carbon', 'kg C/m2', missing_value=-100.0 )
 
        id_coarseWoodlitter_total_N = register_tiled_diag_field ( module_name, 'coarsewoodlitter_total_N', axes(1:2),  &
-            land_time, 'coarse wood litter total nitrogen', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'coarse wood litter total nitrogen', 'kg N/m2', missing_value=-100.0 )
 
        id_coarsewoodlitter_fast_N = register_tiled_diag_field ( module_name, 'fast_coarsewoodlitter_N', axes(1:2),  &
-            land_time, 'fast coarse wood litter nitrogen', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'fast coarse wood litter nitrogen', 'kg N/m2', missing_value=-100.0 )
        id_coarsewoodlitter_slow_N = register_tiled_diag_field ( module_name, 'slow_coarsewoodlitter_N', axes(1:2),  &
-            land_time, 'slow coarse wood litter nitrogen', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'slow coarse wood litter nitrogen', 'kg N/m2', missing_value=-100.0 )
        id_coarsewoodlitter_deadmic_N = register_tiled_diag_field ( module_name, 'coarsewoodlitter_dead_microbe_N', axes(1:2),  &
-            land_time, 'dead microbe coarse wood litter nitrogen', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'dead microbe coarse wood litter nitrogen', 'kg N/m2', missing_value=-100.0 )
        id_coarsewoodlitter_livemic_N = register_tiled_diag_field ( module_name, 'coarsewoodlitter_live_microbe_N', axes(1:2),  &
-            land_time, 'live microbe coarse wood litter nitrogen', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'live microbe coarse wood litter nitrogen', 'kg N/m2', missing_value=-100.0 )
             id_coarsewoodlitter_nitrate = register_tiled_diag_field ( module_name, 'coarsewoodlitter_NO3', axes(1:2),  &
-                 land_time, 'Coarse wood litter nitrate', 'kg N/m2', missing_value=-100.0 )
+                 lnd%time, 'Coarse wood litter nitrate', 'kg N/m2', missing_value=-100.0 )
          id_coarsewoodlitter_ammonium = register_tiled_diag_field ( module_name, 'coarsewoodlitter_NH4', axes(1:2),  &
-              land_time, 'Coarse wood litter ammonium', 'kg N/m2', missing_value=-100.0 )
+              lnd%time, 'Coarse wood litter ammonium', 'kg N/m2', missing_value=-100.0 )
 
   id_finewoodlitter_fast_C = register_tiled_diag_field ( module_name, 'fast_finewoodlitter_C', axes(1:2),  &
-       land_time, 'fast fine wood litter carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'fast fine wood litter carbon', 'kg C/m2', missing_value=-100.0 )
   id_finewoodlitter_slow_C = register_tiled_diag_field ( module_name, 'slow_finewoodlitter_C', axes(1:2),  &
-       land_time, 'slow fine wood litter carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'slow fine wood litter carbon', 'kg C/m2', missing_value=-100.0 )
   id_finewoodlitter_deadmic_C = register_tiled_diag_field ( module_name, 'finewoodlitter_dead_microbe_C', axes(1:2),  &
-       land_time, 'dead microbe fine wood litter carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'dead microbe fine wood litter carbon', 'kg C/m2', missing_value=-100.0 )
   id_finewoodlitter_livemic_C = register_tiled_diag_field ( module_name, 'finewoodlitter_live_microbe_C', axes(1:2),  &
-       land_time, 'live microbe fine wood litter carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'live microbe fine wood litter carbon', 'kg C/m2', missing_value=-100.0 )
        id_fineWoodlitter_total_C = register_tiled_diag_field ( module_name, 'finewoodlitter_total_C', axes(1:2),  &
-            land_time, 'fine wood litter total carbon', 'kg C/m2', missing_value=-100.0 )
+            lnd%time, 'fine wood litter total carbon', 'kg C/m2', missing_value=-100.0 )
       id_fineWoodlitter_total_N = register_tiled_diag_field ( module_name, 'finewoodlitter_total_N', axes(1:2),  &
-           land_time, 'fine wood litter total nitrogen', 'kg N/m2', missing_value=-100.0 )
+           lnd%time, 'fine wood litter total nitrogen', 'kg N/m2', missing_value=-100.0 )
        id_finewoodlitter_fast_N = register_tiled_diag_field ( module_name, 'fast_finewoodlitter_N', axes(1:2),  &
-            land_time, 'fast fine wood litter nitrogen', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'fast fine wood litter nitrogen', 'kg N/m2', missing_value=-100.0 )
        id_finewoodlitter_slow_N = register_tiled_diag_field ( module_name, 'slow_finewoodlitter_N', axes(1:2),  &
-            land_time, 'slow fine wood litter nitrogen', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'slow fine wood litter nitrogen', 'kg N/m2', missing_value=-100.0 )
        id_finewoodlitter_deadmic_N = register_tiled_diag_field ( module_name, 'finewoodlitter_dead_microbe_N', axes(1:2),  &
-            land_time, 'dead microbe fine wood litter nitrogen', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'dead microbe fine wood litter nitrogen', 'kg N/m2', missing_value=-100.0 )
        id_finewoodlitter_livemic_N = register_tiled_diag_field ( module_name, 'finewoodlitter_live_microbe_N', axes(1:2),  &
-            land_time, 'live microbe fine wood litter nitrogen', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'live microbe fine wood litter nitrogen', 'kg N/m2', missing_value=-100.0 )
             id_finewoodlitter_nitrate = register_tiled_diag_field ( module_name, 'finewoodlitter_NO3', axes(1:2),  &
-                 land_time, 'Fine wood litter nitrate', 'kg N/m2', missing_value=-100.0 )
+                 lnd%time, 'Fine wood litter nitrate', 'kg N/m2', missing_value=-100.0 )
          id_finewoodlitter_ammonium = register_tiled_diag_field ( module_name, 'finewoodlitter_NH4', axes(1:2),  &
-              land_time, 'Fine wood litter ammonium', 'kg N/m2', missing_value=-100.0 )
+              lnd%time, 'Fine wood litter ammonium', 'kg N/m2', missing_value=-100.0 )
 
 
   id_leaflitter_fast_dissolved_C = register_tiled_diag_field ( module_name, 'fast_leaflitter_dissolved_C', axes(1:2),  &
-       land_time, 'fast leaf litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'fast leaf litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
   id_leaflitter_slow_dissolved_C = register_tiled_diag_field ( module_name, 'slow_leaflitter_dissolved_C', axes(1:2),  &
-       land_time, 'slow leaf litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'slow leaf litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
   id_leaflitter_deadmic_dissolved_C = register_tiled_diag_field ( module_name, 'leaflitter_dead_microbe_dissolved_C', axes(1:2),  &
-       land_time, 'dead microbe leaf litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'dead microbe leaf litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
   id_finewoodlitter_fast_dissolved_C = register_tiled_diag_field ( module_name, 'fast_finewoodlitter_dissolved_C', axes(1:2),  &
-       land_time, 'fast fine wood litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'fast fine wood litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
   id_finewoodlitter_slow_dissolved_C = register_tiled_diag_field ( module_name, 'slow_finewoodlitter_dissolved_C', axes(1:2),  &
-       land_time, 'slow fine wood litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'slow fine wood litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
   id_finewoodlitter_deadmic_dissolved_C = register_tiled_diag_field ( module_name, 'finewoodlitter_dead_microbe_dissolved_C', axes(1:2),  &
-       land_time, 'dead microbe fine wood litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'dead microbe fine wood litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
   id_coarsewoodlitter_fast_dissolved_C = register_tiled_diag_field ( module_name, 'fast_coarsewoodlitter_dissolved_C', axes(1:2),  &
-       land_time, 'fast coarse woodlitter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'fast coarse woodlitter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
   id_coarsewoodlitter_slow_dissolved_C = register_tiled_diag_field ( module_name, 'slow_coarsewoodlitter_dissolved_C', axes(1:2),  &
-       land_time, 'slow coarse wood litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'slow coarse wood litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
   id_coarsewoodlitter_deadmic_dissolved_C = register_tiled_diag_field ( module_name, 'coarsewoodlitter_dead_microbe_dissolved_C', axes(1:2),  &
-       land_time, 'dead microbe coarse wood litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'dead microbe coarse wood litter dissolved carbon', 'kg C/m2', missing_value=-100.0 )
 
        id_leaflitter_fast_dissolved_N = register_tiled_diag_field ( module_name, 'fast_leaflitter_dissolved_N', axes(1:2),  &
-            land_time, 'fast leaf litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'fast leaf litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
        id_leaflitter_slow_dissolved_N = register_tiled_diag_field ( module_name, 'slow_leaflitter_dissolved_N', axes(1:2),  &
-            land_time, 'slow leaf litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'slow leaf litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
        id_leaflitter_deadmic_dissolved_N = register_tiled_diag_field ( module_name, 'leaflitter_dead_microbe_dissolved_N', axes(1:2),  &
-            land_time, 'dead microbe leaf litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'dead microbe leaf litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
        id_finewoodlitter_fast_dissolved_N = register_tiled_diag_field ( module_name, 'fast_finewoodlitter_dissolved_N', axes(1:2),  &
-            land_time, 'fast fine wood litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'fast fine wood litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
        id_finewoodlitter_slow_dissolved_N = register_tiled_diag_field ( module_name, 'slow_finewoodlitter_dissolved_N', axes(1:2),  &
-            land_time, 'slow fine wood litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'slow fine wood litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
        id_finewoodlitter_deadmic_dissolved_N = register_tiled_diag_field ( module_name, 'finewoodlitter_dead_microbe_dissolved_N', axes(1:2),  &
-            land_time, 'dead microbe fine wood litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'dead microbe fine wood litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
        id_coarsewoodlitter_fast_dissolved_N = register_tiled_diag_field ( module_name, 'fast_coarsewoodlitter_dissolved_N', axes(1:2),  &
-            land_time, 'fast coarse woodlitter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'fast coarse woodlitter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
        id_coarsewoodlitter_slow_dissolved_N = register_tiled_diag_field ( module_name, 'slow_coarsewoodlitter_dissolved_N', axes(1:2),  &
-            land_time, 'slow coarse wood litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'slow coarse wood litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
        id_coarsewoodlitter_deadmic_dissolved_N = register_tiled_diag_field ( module_name, 'coarsewoodlitter_dead_microbe_dissolved_N', axes(1:2),  &
-            land_time, 'dead microbe coarse wood litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'dead microbe coarse wood litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
 
 
   id_livemic_C = register_tiled_diag_field ( module_name, 'live_microbe_C', axes,  &
-       land_time, 'Live microbe soil carbon', 'kg C/m3', missing_value=-100.0 )
+       lnd%time, 'Live microbe soil carbon', 'kg C/m3', missing_value=-100.0 )
   id_nsoilcohorts = register_tiled_diag_field ( module_name, 'n_soil_cohorts', axes,  &
-       land_time, 'number of soil cohorts', missing_value=-100.0 )
+       lnd%time, 'number of soil cohorts', missing_value=-100.0 )
   id_nleaflittercohorts = register_tiled_diag_field ( module_name, 'n_leaflitter_cohorts', axes(1:2),  &
-       land_time, 'number of leaf litter cohorts', missing_value=-100.0 )
+       lnd%time, 'number of leaf litter cohorts', missing_value=-100.0 )
   id_nfinewoodlittercohorts = register_tiled_diag_field ( module_name, 'n_finewoodlitter_cohorts', axes(1:2),  &
-       land_time, 'number of fine wood litter cohorts', missing_value=-100.0 )
+       lnd%time, 'number of fine wood litter cohorts', missing_value=-100.0 )
   id_ncoarsewoodlittercohorts = register_tiled_diag_field ( module_name, 'n_coarsewoodlitter_cohorts', axes(1:2),  &
-       land_time, 'number of coarse wood litter cohorts', missing_value=-100.0 )
+       lnd%time, 'number of coarse wood litter cohorts', missing_value=-100.0 )
   id_deadmic_C_total = register_tiled_diag_field ( module_name, 'deadmic_total_C', axes(1:2),  &
-       land_time, 'total dead microbe soil carbon including litter', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'total dead microbe soil carbon including litter', 'kg C/m2', missing_value=-100.0 )
   id_livemic_C_total = register_tiled_diag_field ( module_name, 'livemic_total_C', axes(1:2),  &
-       land_time, 'total live microbe soil carbon including litter', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'total live microbe soil carbon including litter', 'kg C/m2', missing_value=-100.0 )
   id_protected_C_total = register_tiled_diag_field ( module_name, 'protected_total_C', axes(1:2),  &
-       land_time, 'total protected soil carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'total protected soil carbon', 'kg C/m2', missing_value=-100.0 )
   id_dissolved_C_total = register_tiled_diag_field ( module_name, 'dissolved_total_C', axes(1:2),  &
-       land_time, 'total dissolved soil carbon including litter', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'total dissolved soil carbon including litter', 'kg C/m2', missing_value=-100.0 )
   id_total_soil_C = register_tiled_diag_field ( module_name, 'total_soil_C', axes(1:2),  &
-       land_time, 'total soil carbon including litter', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'total soil carbon including litter', 'kg C/m2', missing_value=-100.0 )
 
        id_deadmic_N_total = register_tiled_diag_field ( module_name, 'deadmic_total_N', axes(1:2),  &
-            land_time, 'total dead microbe soil nitrogen including litter', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'total dead microbe soil nitrogen including litter', 'kg N/m2', missing_value=-100.0 )
        id_livemic_N_total = register_tiled_diag_field ( module_name, 'livemic_total_N', axes(1:2),  &
-            land_time, 'total live microbe soil nitrogen including litter', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'total live microbe soil nitrogen including litter', 'kg N/m2', missing_value=-100.0 )
        id_protected_N_total = register_tiled_diag_field ( module_name, 'protected_total_N', axes(1:2),  &
-            land_time, 'total protected soil nitrogen including litter', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'total protected soil nitrogen including litter', 'kg N/m2', missing_value=-100.0 )
        id_dissolved_N_total = register_tiled_diag_field ( module_name, 'dissolved_total_N', axes(1:2),  &
-            land_time, 'total dissolved soil nitrogen including litter', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'total dissolved soil nitrogen including litter', 'kg N/m2', missing_value=-100.0 )
        id_total_soil_N = register_tiled_diag_field ( module_name, 'total_soil_N', axes(1:2),  &
-            land_time, 'total soil nitrogen including litter', 'kg N/m2', missing_value=-100.0 )
+            lnd%time, 'total soil nitrogen including litter', 'kg N/m2', missing_value=-100.0 )
         id_total_soil_organic_N = register_tiled_diag_field ( module_name, 'total_soil_organic_N', axes(1:2),  &
-             land_time, 'total soil organic nitrogen', 'kg N/m2', missing_value=-100.0 )
+             lnd%time, 'total soil organic nitrogen', 'kg N/m2', missing_value=-100.0 )
          id_total_soil_ammonium = register_tiled_diag_field ( module_name, 'total_soil_ammonium', axes(1:2),  &
-              land_time, 'total soil ammonium including litter', 'kg N/m2', missing_value=-100.0 )
+              lnd%time, 'total soil ammonium including litter', 'kg N/m2', missing_value=-100.0 )
           id_total_soil_nitrate = register_tiled_diag_field ( module_name, 'total_soil_nitrate', axes(1:2),  &
-               land_time, 'total soil nitrate including litter', 'kg N/m2', missing_value=-100.0 )
+               lnd%time, 'total soil nitrate including litter', 'kg N/m2', missing_value=-100.0 )
 
   id_fast_C_leaching = register_tiled_diag_field ( module_name, 'fast_C_leaching', axes, &
-       land_time, 'net layer fast soil C leaching',  'kg/(m2 s)', missing_value=-100.0)
+       lnd%time, 'net layer fast soil C leaching',  'kg/(m2 s)', missing_value=-100.0)
   id_slow_C_leaching = register_tiled_diag_field ( module_name, 'slow_C_leaching', axes, &
-       land_time, 'net layer slow soil C leaching',  'kg/(m2 s)', missing_value=-100.0)
+       lnd%time, 'net layer slow soil C leaching',  'kg/(m2 s)', missing_value=-100.0)
   id_deadmic_C_leaching = register_tiled_diag_field ( module_name, 'deadmic_C_leaching', axes, &
-       land_time, 'net layer dead microbe soil C leaching',  'kg/(m2 s)', missing_value=-100.0)
+       lnd%time, 'net layer dead microbe soil C leaching',  'kg/(m2 s)', missing_value=-100.0)
   id_total_C_leaching = register_tiled_diag_field ( module_name, 'total_C_leaching', axes, &
-       land_time, 'total vertical soil C leaching', 'kg/(m2 s)', missing_value=initval)
+       lnd%time, 'total vertical soil C leaching', 'kg/(m2 s)', missing_value=initval)
 
        id_fast_N_leaching = register_tiled_diag_field ( module_name, 'fast_N_leaching', axes, &
-            land_time, 'net layer fast soil N leaching',  'kg/(m2 s)', missing_value=-100.0)
+            lnd%time, 'net layer fast soil N leaching',  'kg/(m2 s)', missing_value=-100.0)
        id_slow_N_leaching = register_tiled_diag_field ( module_name, 'slow_N_leaching', axes, &
-            land_time, 'net layer slow soil N leaching',  'kg/(m2 s)', missing_value=-100.0)
+            lnd%time, 'net layer slow soil N leaching',  'kg/(m2 s)', missing_value=-100.0)
        id_deadmic_N_leaching = register_tiled_diag_field ( module_name, 'deadmic_N_leaching', axes, &
-            land_time, 'net layer dead microbe soil N leaching',  'kg/(m2 s)', missing_value=-100.0)
+            lnd%time, 'net layer dead microbe soil N leaching',  'kg/(m2 s)', missing_value=-100.0)
        id_total_ON_leaching = register_tiled_diag_field ( module_name, 'total_ON_leaching', axes, &
-            land_time, 'total vertical soil organic N leaching', 'kg/(m2 s)', missing_value=initval)
+            lnd%time, 'total vertical soil organic N leaching', 'kg/(m2 s)', missing_value=initval)
     id_NO3_leaching = register_tiled_diag_field ( module_name, 'NO3_leaching', axes, &
-         land_time, 'net layer NO3 leaching',  'kgN/(m2 s)', missing_value=-100.0)
+         lnd%time, 'net layer NO3 leaching',  'kgN/(m2 s)', missing_value=-100.0)
      id_NH4_leaching = register_tiled_diag_field ( module_name, 'NH4_leaching', axes, &
-          land_time, 'net layer NH4 leaching',  'kgN/(m2 s)', missing_value=-100.0)
+          lnd%time, 'net layer NH4 leaching',  'kgN/(m2 s)', missing_value=-100.0)
       id_total_NO3_leaching = register_tiled_diag_field ( module_name, 'total_NO3_leaching', axes, &
-           land_time, 'Total NO3 leaching',  'kgN/(m2 s)', missing_value=-100.0)
+           lnd%time, 'Total NO3 leaching',  'kgN/(m2 s)', missing_value=-100.0)
        id_total_NH4_leaching = register_tiled_diag_field ( module_name, 'total_NH4_leaching', axes, &
-            land_time, 'Total NH4 leaching',  'kgN/(m2 s)', missing_value=-100.0)
+            lnd%time, 'Total NH4 leaching',  'kgN/(m2 s)', missing_value=-100.0)
 
   id_livemic_C_leaching = register_tiled_diag_field ( module_name, 'livemic_C_leaching', axes, &
-       land_time, 'net layer live microbe C leaching',  'kg/(m2 s)', missing_value=-100.0)
+       lnd%time, 'net layer live microbe C leaching',  'kg/(m2 s)', missing_value=-100.0)
    id_livemic_N_leaching = register_tiled_diag_field ( module_name, 'livemic_N_leaching', axes, &
-        land_time, 'net layer live microbe N leaching',  'kg/(m2 s)', missing_value=-100.0)
+        lnd%time, 'net layer live microbe N leaching',  'kg/(m2 s)', missing_value=-100.0)
   id_protected_C_leaching = register_tiled_diag_field ( module_name, 'protected_C_leaching', axes, &
-      land_time, 'net layer protected soil C leaching',  'kg/(m2 s)', missing_value=-100.0)
+      lnd%time, 'net layer protected soil C leaching',  'kg/(m2 s)', missing_value=-100.0)
   id_protected_N_leaching = register_tiled_diag_field ( module_name, 'protected_N_leaching', axes, &
-      land_time, 'net layer protected soil N leaching',  'kg/(m2 s)', missing_value=-100.0)
+      lnd%time, 'net layer protected soil N leaching',  'kg/(m2 s)', missing_value=-100.0)
   id_leaflitter_fast_C_leaching = register_tiled_diag_field ( module_name, 'fast_leaflitter_C_leaching', axes(1:2), &
-        land_time, 'Leaf litter fast C leaching','kg/(m2 s)', missing_value=-100.0)
+        lnd%time, 'Leaf litter fast C leaching','kg/(m2 s)', missing_value=-100.0)
   id_leaflitter_slow_C_leaching = register_tiled_diag_field ( module_name, 'slow_leaflitter_C_leaching', axes(1:2), &
-        land_time, 'Leaf litter slow C leaching','kg/(m2 s)', missing_value=-100.0)
+        lnd%time, 'Leaf litter slow C leaching','kg/(m2 s)', missing_value=-100.0)
   id_leaflitter_deadmic_C_leaching = register_tiled_diag_field ( module_name, 'deadmic_leaflitter_C_leaching', axes(1:2), &
-        land_time, 'Leaf litter dead microbe C leaching','kg/(m2 s)', missing_value=-100.0)
+        lnd%time, 'Leaf litter dead microbe C leaching','kg/(m2 s)', missing_value=-100.0)
   id_coarsewoodlitter_fast_C_leaching = register_tiled_diag_field ( module_name, 'fast_coarsewoodlitter_C_leaching', axes(1:2), &
-        land_time, 'Coarse wood litter fast C leaching','kg/(m2 s)', missing_value=-100.0)
+        lnd%time, 'Coarse wood litter fast C leaching','kg/(m2 s)', missing_value=-100.0)
   id_coarsewoodlitter_slow_C_leaching = register_tiled_diag_field ( module_name, 'slow_coarsewoodlitter_C_leaching', axes(1:2), &
-        land_time, 'Coarse wood litter slow C leaching','kg/(m2 s)', missing_value=-100.0)
+        lnd%time, 'Coarse wood litter slow C leaching','kg/(m2 s)', missing_value=-100.0)
   id_coarsewoodlitter_deadmic_C_leaching = register_tiled_diag_field ( module_name, 'deadmic_coarsewoodlitter_C_leaching', axes(1:2), &
-        land_time, 'Coarse wood litter dead microbe C leaching','kg/(m2 s)', missing_value=-100.0)
+        lnd%time, 'Coarse wood litter dead microbe C leaching','kg/(m2 s)', missing_value=-100.0)
   id_finewoodlitter_fast_C_leaching = register_tiled_diag_field ( module_name, 'fast_finewoodlitter_C_leaching', axes(1:2), &
-        land_time, 'Fine wood litter fast C leaching','kg/(m2 s)', missing_value=-100.0)
+        lnd%time, 'Fine wood litter fast C leaching','kg/(m2 s)', missing_value=-100.0)
   id_finewoodlitter_slow_C_leaching = register_tiled_diag_field ( module_name, 'slow_finewoodlitter_C_leaching', axes(1:2), &
-        land_time, 'Fine wood litter slow C leaching','kg/(m2 s)', missing_value=-100.0)
+        lnd%time, 'Fine wood litter slow C leaching','kg/(m2 s)', missing_value=-100.0)
   id_finewoodlitter_deadmic_C_leaching = register_tiled_diag_field ( module_name, 'deadmic_finewoodlitter_C_leaching', axes(1:2), &
-        land_time, 'Fine wood litter dead microbe C leaching','kg/(m2 s)', missing_value=-100.0)
+        lnd%time, 'Fine wood litter dead microbe C leaching','kg/(m2 s)', missing_value=-100.0)
 
         id_leaflitter_fast_N_leaching = register_tiled_diag_field ( module_name, 'fast_leaflitter_N_leaching', axes(1:2), &
-              land_time, 'Leaf litter fast N leaching','kg/(m2 s)', missing_value=-100.0)
+              lnd%time, 'Leaf litter fast N leaching','kg/(m2 s)', missing_value=-100.0)
         id_leaflitter_slow_N_leaching = register_tiled_diag_field ( module_name, 'slow_leaflitter_N_leaching', axes(1:2), &
-              land_time, 'Leaf litter slow N leaching','kg/(m2 s)', missing_value=-100.0)
+              lnd%time, 'Leaf litter slow N leaching','kg/(m2 s)', missing_value=-100.0)
         id_leaflitter_deadmic_N_leaching = register_tiled_diag_field ( module_name, 'deadmic_leaflitter_N_leaching', axes(1:2), &
-              land_time, 'Leaf litter dead microbe N leaching','kg/(m2 s)', missing_value=-100.0)
+              lnd%time, 'Leaf litter dead microbe N leaching','kg/(m2 s)', missing_value=-100.0)
         id_coarsewoodlitter_fast_N_leaching = register_tiled_diag_field ( module_name, 'fast_coarsewoodlitter_N_leaching', axes(1:2), &
-              land_time, 'Coarse wood litter fast N leaching','kg/(m2 s)', missing_value=-100.0)
+              lnd%time, 'Coarse wood litter fast N leaching','kg/(m2 s)', missing_value=-100.0)
         id_coarsewoodlitter_slow_N_leaching = register_tiled_diag_field ( module_name, 'slow_coarsewoodlitter_N_leaching', axes(1:2), &
-              land_time, 'Coarse wood litter slow N leaching','kg/(m2 s)', missing_value=-100.0)
+              lnd%time, 'Coarse wood litter slow N leaching','kg/(m2 s)', missing_value=-100.0)
         id_coarsewoodlitter_deadmic_C_leaching = register_tiled_diag_field ( module_name, 'deadmic_coarsewoodlitter_C_leaching', axes(1:2), &
-              land_time, 'Coarse wood litter dead microbe N leaching','kg/(m2 s)', missing_value=-100.0)
+              lnd%time, 'Coarse wood litter dead microbe N leaching','kg/(m2 s)', missing_value=-100.0)
         id_finewoodlitter_fast_N_leaching = register_tiled_diag_field ( module_name, 'fast_finewoodlitter_N_leaching', axes(1:2), &
-              land_time, 'Fine wood litter fast N leaching','kg/(m2 s)', missing_value=-100.0)
+              lnd%time, 'Fine wood litter fast N leaching','kg/(m2 s)', missing_value=-100.0)
         id_finewoodlitter_slow_N_leaching = register_tiled_diag_field ( module_name, 'slow_finewoodlitter_N_leaching', axes(1:2), &
-              land_time, 'Fine wood litter slow N leaching','kg/(m2 s)', missing_value=-100.0)
+              lnd%time, 'Fine wood litter slow N leaching','kg/(m2 s)', missing_value=-100.0)
         id_finewoodlitter_deadmic_N_leaching = register_tiled_diag_field ( module_name, 'deadmic_finewoodlitter_N_leaching', axes(1:2), &
-              land_time, 'Fine wood litter dead microbe N leaching','kg/(m2 s)', missing_value=-100.0)
+              lnd%time, 'Fine wood litter dead microbe N leaching','kg/(m2 s)', missing_value=-100.0)
       id_finewoodlitter_NO3_leaching = register_tiled_diag_field ( module_name, 'finewoodlitter_NO3_leaching', axes(1:2), &
-            land_time, 'Fine wood litter NO3 leaching','kg/(m2 s)', missing_value=-100.0)
+            lnd%time, 'Fine wood litter NO3 leaching','kg/(m2 s)', missing_value=-100.0)
     id_coarsewoodlitter_NO3_leaching = register_tiled_diag_field ( module_name, 'coarsewoodlitter_NO3_leaching', axes(1:2), &
-          land_time, 'Coarse wood litter NO3 leaching','kg/(m2 s)', missing_value=-100.0)
+          lnd%time, 'Coarse wood litter NO3 leaching','kg/(m2 s)', missing_value=-100.0)
       id_leaflitter_NO3_leaching = register_tiled_diag_field ( module_name, 'leaflitter_NO3_leaching', axes(1:2), &
-            land_time, 'Leaf litter NO3 leaching','kg/(m2 s)', missing_value=-100.0)
+            lnd%time, 'Leaf litter NO3 leaching','kg/(m2 s)', missing_value=-100.0)
             id_finewoodlitter_NH4_leaching = register_tiled_diag_field ( module_name, 'finewoodlitter_NH4_leaching', axes(1:2), &
-                  land_time, 'Fine wood litter NH4 leaching','kg/(m2 s)', missing_value=-100.0)
+                  lnd%time, 'Fine wood litter NH4 leaching','kg/(m2 s)', missing_value=-100.0)
           id_coarsewoodlitter_NH4_leaching = register_tiled_diag_field ( module_name, 'coarsewoodlitter_NH4_leaching', axes(1:2), &
-                land_time, 'Coarse wood litter NH4 leaching','kg/(m2 s)', missing_value=-100.0)
+                lnd%time, 'Coarse wood litter NH4 leaching','kg/(m2 s)', missing_value=-100.0)
             id_leaflitter_NH4_leaching = register_tiled_diag_field ( module_name, 'leaflitter_NH4_leaching', axes(1:2), &
-                  land_time, 'Leaf litter NH4 leaching','kg/(m2 s)', missing_value=-100.0)
+                  lnd%time, 'Leaf litter NH4 leaching','kg/(m2 s)', missing_value=-100.0)
 
 
         id_root_profile = register_tiled_diag_field ( module_name, 'root_profile', axes, &
-              land_time, 'Vertical root profile in soil','Fraction', missing_value=-100.0)
+              lnd%time, 'Vertical root profile in soil','Fraction', missing_value=-100.0)
 
   ! ZMS
   id_total_soil_carbon = register_tiled_diag_field ( module_name, 'total_lit_SOM_C', axes(1:2), &
-       land_time, 'vertical sum of all litter and soil carbon pools', 'kg C/m^2', missing_value=-100.0)
+       lnd%time, 'vertical sum of all litter and soil carbon pools', 'kg C/m^2', missing_value=-100.0)
   id_surf_DOC_loss = register_tiled_diag_field ( module_name, 'surf_DOC_loss', axes(1:2), &
-       land_time, 'loss of top layer DOC to surface runoff due to efflux', 'kg C/m^2/s', &
+       lnd%time, 'loss of top layer DOC to surface runoff due to efflux', 'kg C/m^2/s', &
        missing_value=initval)
 
        id_surf_DON_loss = register_tiled_diag_field ( module_name, 'surf_DON_loss', axes(1:2), &
-            land_time, 'loss of top layer DON to surface runoff due to efflux', 'kg N/m^2/s', &
+            lnd%time, 'loss of top layer DON to surface runoff due to efflux', 'kg N/m^2/s', &
             missing_value=initval)
         id_surf_NO3_loss = register_tiled_diag_field ( module_name, 'surf_NO3_loss', axes(1:2), &
-             land_time, 'loss of top layer NO3 to surface runoff due to efflux', 'kg N/m^2/s', &
+             lnd%time, 'loss of top layer NO3 to surface runoff due to efflux', 'kg N/m^2/s', &
              missing_value=initval)
          id_surf_NH4_loss = register_tiled_diag_field ( module_name, 'surf_NH4_loss', axes(1:2), &
-              land_time, 'loss of top layer NH4 to surface runoff due to efflux', 'kg N/m^2/s', &
+              lnd%time, 'loss of top layer NH4 to surface runoff due to efflux', 'kg N/m^2/s', &
               missing_value=initval)
 
   id_fsc = register_tiled_diag_field ( module_name, 'fsc', axes(1:2),  &
-       land_time, 'total fast soil carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'total fast soil carbon', 'kg C/m2', missing_value=-100.0 )
   id_ssc = register_tiled_diag_field ( module_name, 'ssc', axes(1:2),  &
-       land_time, 'total slow soil carbon', 'kg C/m2', missing_value=-100.0 )
+       lnd%time, 'total slow soil carbon', 'kg C/m2', missing_value=-100.0 )
    id_fsn = register_tiled_diag_field ( module_name, 'fsn', axes(1:2),  &
-        land_time, 'total fast soil nitrogen', 'kg N/m2', missing_value=-100.0 )
+        lnd%time, 'total fast soil nitrogen', 'kg N/m2', missing_value=-100.0 )
    id_ssn = register_tiled_diag_field ( module_name, 'ssn', axes(1:2),  &
-        land_time, 'total slow soil nitrogen', 'kg N/m2', missing_value=-100.0 )
+        lnd%time, 'total slow soil nitrogen', 'kg N/m2', missing_value=-100.0 )
   id_lwc = register_tiled_diag_field ( module_name, 'soil_liq', axes,  &
-       land_time, 'bulk density of liquid water', 'kg/m3', missing_value=-100.0 )
+       lnd%time, 'bulk density of liquid water', 'kg/m3', missing_value=-100.0 )
   id_swc  = register_tiled_diag_field ( module_name, 'soil_ice',  axes,  &
-       land_time, 'bulk density of solid water', 'kg/m3',  missing_value=-100.0 )
+       lnd%time, 'bulk density of solid water', 'kg/m3',  missing_value=-100.0 )
   id_psi = register_tiled_diag_field ( module_name, 'soil_psi', axes,  &
-       land_time, 'soil-water matric head', 'm', missing_value=-100.0 )
+       lnd%time, 'soil-water matric head', 'm', missing_value=-100.0 )
   id_temp  = register_tiled_diag_field ( module_name, 'soil_T',  axes,       &
-       land_time, 'temperature',            'degK',  missing_value=-100.0 )
+       lnd%time, 'temperature',            'degK',  missing_value=-100.0 )
   id_ie  = register_tiled_diag_field ( module_name, 'soil_rie',  axes(1:2),  &
-       land_time, 'inf exc runf',            'kg/(m2 s)',  missing_value=-100.0 )
+       lnd%time, 'inf exc runf',            'kg/(m2 s)',  missing_value=-100.0 )
   id_sn  = register_tiled_diag_field ( module_name, 'soil_rsn',  axes(1:2),  &
-       land_time, 'satn runf',            'kg/(m2 s)',  missing_value=-100.0 )
+       lnd%time, 'satn runf',            'kg/(m2 s)',  missing_value=-100.0 )
   id_bf  = register_tiled_diag_field ( module_name, 'soil_rbf',  axes(1:2),  &
-       land_time, 'baseflow',            'kg/(m2 s)',  missing_value=-100.0 )
+       lnd%time, 'baseflow',            'kg/(m2 s)',  missing_value=-100.0 )
   id_if  = register_tiled_diag_field ( module_name, 'soil_rif',  axes(1:2),  &
-       land_time, 'interflow',            'kg/(m2 s)',  missing_value=-100.0 )
+       lnd%time, 'interflow',            'kg/(m2 s)',  missing_value=-100.0 )
   id_al  = register_tiled_diag_field ( module_name, 'soil_ral',  axes(1:2),  &
-       land_time, 'active layer flow',    'kg/(m2 s)',  missing_value=-100.0 )
+       lnd%time, 'active layer flow',    'kg/(m2 s)',  missing_value=-100.0 )
   id_nu  = register_tiled_diag_field ( module_name, 'soil_rnu',  axes(1:2),  &
-       land_time, 'numerical runoff',    'kg/(m2 s)',  missing_value=-100.0 )
+       lnd%time, 'numerical runoff',    'kg/(m2 s)',  missing_value=-100.0 )
   id_sc  = register_tiled_diag_field ( module_name, 'soil_rsc',  axes(1:2),  &
-       land_time, 'lm2 groundwater runoff',    'kg/(m2 s)',  missing_value=-100.0 )
+       lnd%time, 'lm2 groundwater runoff',    'kg/(m2 s)',  missing_value=-100.0 )
   id_hie  = register_tiled_diag_field ( module_name, 'soil_hie',  axes(1:2), &
-       land_time, 'heat ie runf',            'W/m2',  missing_value=-100.0 )
+       lnd%time, 'heat ie runf',            'W/m2',  missing_value=-100.0 )
   id_hsn  = register_tiled_diag_field ( module_name, 'soil_hsn',  axes(1:2), &
-       land_time, 'heat sn runf',            'W/m2',  missing_value=-100.0 )
+       lnd%time, 'heat sn runf',            'W/m2',  missing_value=-100.0 )
   id_hbf  = register_tiled_diag_field ( module_name, 'soil_hbf',  axes(1:2), &
-       land_time, 'heat bf runf',            'W/m2',  missing_value=-100.0 )
+       lnd%time, 'heat bf runf',            'W/m2',  missing_value=-100.0 )
   id_hif  = register_tiled_diag_field ( module_name, 'soil_hif',  axes(1:2), &
-       land_time, 'heat if runf',            'W/m2',  missing_value=-100.0 )
+       lnd%time, 'heat if runf',            'W/m2',  missing_value=-100.0 )
   id_hal  = register_tiled_diag_field ( module_name, 'soil_hal',  axes(1:2), &
-       land_time, 'heat al runf',            'W/m2',  missing_value=-100.0 )
+       lnd%time, 'heat al runf',            'W/m2',  missing_value=-100.0 )
   id_hnu  = register_tiled_diag_field ( module_name, 'soil_hnu',  axes(1:2), &
-       land_time, 'heat nu runoff',          'W/m2',  missing_value=-100.0 )
+       lnd%time, 'heat nu runoff',          'W/m2',  missing_value=-100.0 )
   id_hsc  = register_tiled_diag_field ( module_name, 'soil_hsc',  axes(1:2), &
-       land_time, 'heat sc runoff',          'W/m2',  missing_value=-100.0 )
+       lnd%time, 'heat sc runoff',          'W/m2',  missing_value=-100.0 )
   id_evap  = register_tiled_diag_field ( module_name, 'soil_evap',  axes(1:2), &
-       land_time, 'soil evap',            'kg/(m2 s)',  missing_value=-100.0 )
+       lnd%time, 'soil evap',            'kg/(m2 s)',  missing_value=-100.0 )
   id_excess  = register_tiled_diag_field ( module_name, 'sfc_excess',  axes(1:2),  &
-       land_time, 'sfc excess pushed down',    'kg/(m2 s)',  missing_value=-100.0 )
+       lnd%time, 'sfc excess pushed down',    'kg/(m2 s)',  missing_value=-100.0 )
 
   id_uptk_n_iter  = register_tiled_diag_field ( module_name, 'uptake_n_iter',  axes(1:2), &
-       land_time, 'number of iterations for soil uptake',  missing_value=-100.0 )
+       lnd%time, 'number of iterations for soil uptake',  missing_value=-100.0 )
   id_uptk = register_tiled_diag_field ( module_name, 'soil_uptk', axes, &
-       land_time, 'uptake of water by roots', 'kg/(m2 s)',  missing_value=-100.0 )
+       lnd%time, 'uptake of water by roots', 'kg/(m2 s)',  missing_value=-100.0 )
   id_psi_x0 = register_tiled_diag_field ( module_name, 'soil_psix0', axes(1:2), &
-       land_time, 'xylem potential at z=0', 'm',  missing_value=-100.0 )
+       lnd%time, 'xylem potential at z=0', 'm',  missing_value=-100.0 )
   id_sws_n_iter  = register_tiled_diag_field ( module_name, 'sws_n_iter',  axes(1:2), &
-       land_time, 'number of iterations for soil water supply',  missing_value=-100.0 )
+       lnd%time, 'number of iterations for soil water supply',  missing_value=-100.0 )
   id_psi_x0_sws = register_tiled_diag_field ( module_name, 'soil_psix0_sws', axes(1:2), &
-       land_time, 'xylem potential at z=0 for max transpiration', 'm',  missing_value=-100.0 )
+       lnd%time, 'xylem potential at z=0 for max transpiration', 'm',  missing_value=-100.0 )
   id_deficit = register_tiled_diag_field ( module_name, 'soil_def', axes(1:2), &
-       land_time, 'groundwater storage deficit', '-',  missing_value=-100.0 )
+       lnd%time, 'groundwater storage deficit', '-',  missing_value=-100.0 )
   id_deficit_2 = register_tiled_diag_field ( module_name, 'soil_def2', axes(1:2), &
-       land_time, 'groundwater storage deficit2', '-',  missing_value=-100.0 )
+       lnd%time, 'groundwater storage deficit2', '-',  missing_value=-100.0 )
   id_deficit_3 = register_tiled_diag_field ( module_name, 'soil_def3', axes(1:2), &
-       land_time, 'groundwater storage deficit3', '-',  missing_value=-100.0 )
+       lnd%time, 'groundwater storage deficit3', '-',  missing_value=-100.0 )
   id_deficit_4 = register_tiled_diag_field ( module_name, 'soil_def4', axes(1:2), &
-       land_time, 'groundwater storage deficit4', '-',  missing_value=-100.0 )
+       lnd%time, 'groundwater storage deficit4', '-',  missing_value=-100.0 )
   id_psi_bot = register_tiled_diag_field ( module_name, 'soil_psi_n', axes(1:2), &
-       land_time, 'psi at bottom of soil column', 'm',  missing_value=-100.0 )
+       lnd%time, 'psi at bottom of soil column', 'm',  missing_value=-100.0 )
   id_sat_frac = register_tiled_diag_field ( module_name, 'soil_fsat', axes(1:2), &
-       land_time, 'fraction of soil area saturated at surface', '-',  missing_value=-100.0 )
+       lnd%time, 'fraction of soil area saturated at surface', '-',  missing_value=-100.0 )
   id_stor_frac = register_tiled_diag_field ( module_name, 'soil_fgw', axes(1:2), &
-       land_time, 'groundwater storage frac above base elev', '-',  missing_value=-100.0 )
+       lnd%time, 'groundwater storage frac above base elev', '-',  missing_value=-100.0 )
   id_sat_depth = register_tiled_diag_field ( module_name, 'soil_wtdep', axes(1:2), &
-       land_time, 'depth below sfc to saturated soil', 'm',  missing_value=-100.0 )
+       lnd%time, 'depth below sfc to saturated soil', 'm',  missing_value=-100.0 )
   id_sat_dept2 = register_tiled_diag_field ( module_name, 'soil_wtdp2', axes(1:2), &
-       land_time, 'alt depth below sfc to saturated soil', 'm',  missing_value=-100.0 )
+       lnd%time, 'alt depth below sfc to saturated soil', 'm',  missing_value=-100.0 )
   id_z_cap = register_tiled_diag_field ( module_name, 'soil_zcap', axes(1:2), &
-       land_time, 'depth below sfc to capillary fringe', 'm',  missing_value=-100.0 )
+       lnd%time, 'depth below sfc to capillary fringe', 'm',  missing_value=-100.0 )
 
   id_div_bf = register_tiled_diag_field ( module_name, 'soil_dvbf', axes, &
-       land_time, 'baseflow by layer', 'kg/(m2 s)',  missing_value=-100.0 )
+       lnd%time, 'baseflow by layer', 'kg/(m2 s)',  missing_value=-100.0 )
   id_div_if = register_tiled_diag_field ( module_name, 'soil_dvif', axes, &
-       land_time, 'interflow by layer', 'kg/(m2 s)',  missing_value=-100.0 )
+       lnd%time, 'interflow by layer', 'kg/(m2 s)',  missing_value=-100.0 )
   id_div_al = register_tiled_diag_field ( module_name, 'soil_dval', axes, &
-       land_time, 'active-layer flow by layer', 'kg/(m2 s)',  missing_value=-100.0 )
+       lnd%time, 'active-layer flow by layer', 'kg/(m2 s)',  missing_value=-100.0 )
 
   id_cf_1 = register_tiled_diag_field ( module_name, 'soil_cf_1', axes(1:2), &
-       land_time, 'soil_cf_1', 'm',  missing_value=-100.0 )
+       lnd%time, 'soil_cf_1', 'm',  missing_value=-100.0 )
   id_cf_3 = register_tiled_diag_field ( module_name, 'soil_cf_3', axes(1:2), &
-       land_time, 'soil_cf_3', 'm',  missing_value=-100.0 )
+       lnd%time, 'soil_cf_3', 'm',  missing_value=-100.0 )
   id_wt_1 = register_tiled_diag_field ( module_name, 'soil_wt_1', axes(1:2), &
-       land_time, 'soil_wt_1', 'm',  missing_value=-100.0 )
+       lnd%time, 'soil_wt_1', 'm',  missing_value=-100.0 )
   id_wt_2 = register_tiled_diag_field ( module_name, 'soil_wt_2', axes(1:2), &
-       land_time, 'soil_wt_2', 'm',  missing_value=-100.0 )
+       lnd%time, 'soil_wt_2', 'm',  missing_value=-100.0 )
   id_wt_2a = register_tiled_diag_field ( module_name, 'soil_wt_2a', axes(1:2), &
-       land_time, 'Water Table Depth from Surface to Saturation', 'm',  missing_value=-100.0 )
+       lnd%time, 'Water Table Depth from Surface to Saturation', 'm',  missing_value=-100.0 )
   id_wt_2b = register_tiled_diag_field ( module_name, 'soil_wt_2b', axes(1:2), &
-       land_time, 'Water Table Depth from Surface to Liquid Saturation', 'm',  missing_value=-100.0 )
+       lnd%time, 'Water Table Depth from Surface to Liquid Saturation', 'm',  missing_value=-100.0 )
   id_wt_3 = register_tiled_diag_field ( module_name, 'soil_wt_3', axes(1:2), &
-       land_time, 'soil_wt_3', 'm',  missing_value=-100.0 )
+       lnd%time, 'soil_wt_3', 'm',  missing_value=-100.0 )
   id_wt2_3 = register_tiled_diag_field ( module_name, 'soil_wt2_3', axes(1:2), &
-       land_time, 'soil_wt2_3', 'm',  missing_value=-100.0 )
+       lnd%time, 'soil_wt2_3', 'm',  missing_value=-100.0 )
   id_wt_4 = register_tiled_diag_field ( module_name, 'soil_wt_4', axes(1:2), &
-       land_time, 'Interpolated psi = 0 from Bottom Up', 'm',  missing_value=-100.0 )
+       lnd%time, 'Interpolated psi = 0 from Bottom Up', 'm',  missing_value=-100.0 )
 
   id_active_layer = register_tiled_diag_field ( module_name, 'soil_alt', axes(1:2), &
-       land_time, 'active-layer thickness', 'm',  missing_value=-100.0 )
+       lnd%time, 'active-layer thickness', 'm',  missing_value=-100.0 )
   id_heat_cap = register_tiled_diag_field ( module_name, 'soil_heat_cap',  &
-       axes, land_time, 'heat capacity of dry soil','J/(m3 K)', missing_value=-100.0 )
+       axes, lnd%time, 'heat capacity of dry soil','J/(m3 K)', missing_value=-100.0 )
   id_thermal_cond =  register_tiled_diag_field ( module_name, 'soil_tcon', &
-       axes, land_time, 'soil thermal conductivity', 'W/(m K)',  missing_value=-100.0 )
+       axes, lnd%time, 'soil thermal conductivity', 'W/(m K)',  missing_value=-100.0 )
 
   id_surface_water = register_tiled_diag_field (module_name, 'surface_water', &
-       axes(1:2), land_time, 'surface water storage', 'm', missing_value=-100.0 )
+       axes(1:2), lnd%time, 'surface water storage', 'm', missing_value=-100.0 )
   id_inun_frac = register_tiled_diag_field (module_name, 'inun_fraction', &
-       axes(1:2), land_time, 'inundated area fraction', '-', missing_value=-100.0 )
+       axes(1:2), lnd%time, 'inundated area fraction', '-', missing_value=-100.0 )
   if (gw_option == GW_TILED) then
      id_wet_frac = register_tiled_diag_field (module_name, 'wet_fraction', &
-       axes(1:2), land_time, 'diagnostic wetland fraction', '-', missing_value=-100.0 )
+       axes(1:2), lnd%time, 'diagnostic wetland fraction', '-', missing_value=-100.0 )
   end if
   if (gw_option == GW_TILED .and. simple_inundation) then
       id_rsn_frac = register_tiled_diag_field (module_name, 'surface_runoff_frac', &
-         axes(1:2), land_time, 'effective fraction of throughfall converted to sat-excess surface runoff', '-', missing_value=-100.0 )
+         axes(1:2), lnd%time, 'effective fraction of throughfall converted to sat-excess surface runoff', '-', missing_value=-100.0 )
   end if
   id_flow = register_tiled_diag_field (module_name, 'flow', axes, &
-       land_time, 'vertical soil water flow at interface above (+ downward)', 'mm/s', missing_value=initval )
+       lnd%time, 'vertical soil water flow at interface above (+ downward)', 'mm/s', missing_value=initval )
   id_reflux = register_tiled_diag_field (module_name, 'reflux', axes(1:2), &
-       land_time, 'upwards flow of soil water at surface; zero if flow into surface', 'mm/s', missing_value=-100.0 )
+       lnd%time, 'upwards flow of soil water at surface; zero if flow into surface', 'mm/s', missing_value=-100.0 )
   id_macro_infilt = register_tiled_diag_field (module_name, 'macro_inf', axes(1:2), &
-       land_time, 'infiltration (decrease to IE runoff) at soil surface due to vertical macroporosity', 'mm/s', missing_value=-100.0 )
+       lnd%time, 'infiltration (decrease to IE runoff) at soil surface due to vertical macroporosity', 'mm/s', missing_value=-100.0 )
 
   id_type = register_tiled_static_field ( module_name, 'soil_type',  &
        axes(1:2), 'soil type', missing_value=-1.0 )
@@ -2305,7 +1782,7 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,land_time,'Water dive
        missing_value=-1.0 )
 
   id_asoil = register_tiled_diag_field ( module_name, 'asoil', &
-       (/id_lon,id_lat/), land_time, 'aerobic activity modifier', &
+       (/id_lon,id_lat/), lnd%time, 'aerobic activity modifier', &
        missing_value=-100.0 )
 
   ! the following fields are for compatibility with older diag tables only
@@ -2331,9 +1808,67 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,land_time,'Water dive
 #ifdef ZMSDEBUG_TRIDIAGTEST
   ! For testing tridiagonal solution for advection
   id_st_diff = register_tiled_diag_field ( module_name, 'soil_T_diff', axes,  &
-      land_time, 'soil Temperature difference after advection with tridiagonal solution', &
+      lnd%time, 'soil Temperature difference after advection with tridiagonal solution', &
       'K', missing_value=-100.0 )
 #endif
+
+
+! CMOR variables
+! set up weights for mrsos averaging
+allocate(mrsos_weight(num_l))
+do l = 1,num_l
+   mrsos_weight(l) = min(1.0,max(0.0,(cmor_mrsos_depth-zhalf(l))/dz(l)))
+enddo
+! set the default sub-sampling filter for the fields below
+call set_default_diag_filter('land')
+id_mrlsl = register_tiled_diag_field ( cmor_name, 'mrlsl', axes,  &
+     lnd%time, 'Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
+     standard_name='moisture_content_of_soil_layer', fill_missing=.TRUE.)
+id_mrsfl = register_tiled_diag_field ( cmor_name, 'mrsfl', axes,  &
+     lnd%time, 'Frozen Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
+     standard_name='frozen_moisture_content_of_soil_layer', fill_missing=.TRUE.)
+id_mrsll = register_tiled_diag_field ( cmor_name, 'mrsll', axes,  &
+     lnd%time, 'Liquid Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
+     standard_name='liquid_moisture_content_of_soil_layer', fill_missing=.TRUE.)
+id_mrsol = register_tiled_diag_field ( cmor_name, 'mrsol', axes,  &
+     lnd%time, 'Total Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
+     standard_name='total_moisture_content_of_soil_layer', fill_missing=.TRUE.)
+id_mrso  = register_tiled_diag_field ( cmor_name, 'mrso', axes(1:2),  &
+     lnd%time, 'Total Soil Moisture Content', 'kg m-2', missing_value=-100.0, &
+     standard_name='soil_moisture_content', fill_missing=.TRUE.)
+write(str,'(f10.2)') cmor_mrsos_depth
+id_mrsos  = register_tiled_diag_field ( cmor_name, 'mrsos', axes(1:2),  &
+     lnd%time, 'Moisture in Upper '//trim(adjustl(str))//' m of Soil Column', &
+     'kg m-2', missing_value=-100.0, standard_name='soil_moisture_content', &
+     fill_missing=.TRUE.)
+id_mrfso = register_tiled_diag_field ( cmor_name, 'mrfso', axes(1:2),  &
+     lnd%time, 'Soil Frozen Water Content', 'kg m-2', missing_value=-100.0, &
+     standard_name='soil_frozen_water_content', fill_missing=.TRUE.)
+id_mrlso = register_tiled_diag_field ( cmor_name, 'mrlso', axes(1:2),  &
+     lnd%time, 'Soil Liquid Water Content', 'kg m-2', missing_value=-100.0, &
+     standard_name='soil_frozen_water_content', fill_missing=.TRUE.)
+id_mrros = register_tiled_diag_field ( cmor_name, 'mrros',  axes(1:2),  &
+     lnd%time, 'Surface Runoff', 'kg m-2 s-1',  missing_value=-100.0, &
+     standard_name='surface_runoff_flux', fill_missing=.TRUE.)
+id_mrro = register_tiled_diag_field ( cmor_name, 'mrro',  axes(1:2),  &
+     lnd%time, 'Total Runoff', 'kg m-2 s-1',  missing_value=-100.0, &
+     standard_name='runoff_flux', fill_missing=.TRUE.)
+id_csoil = register_tiled_diag_field ( cmor_name, 'cSoil', axes(1:2),  &
+     lnd%time, 'Carbon in Soil Pool', 'kg C m-2', missing_value=-100.0, &
+     standard_name='soil_carbon_content', fill_missing=.TRUE.)
+id_csoilfast = register_tiled_diag_field ( cmor_name, 'cSoilFast', axes(1:2),  &
+     lnd%time, 'Carbon in Fast Soil Pool', 'kg C m-2', missing_value=-100.0, &
+     standard_name='carbon_in_fast_soil_pool', fill_missing=.TRUE.)
+id_csoilmedium = register_tiled_diag_field ( cmor_name, 'cSoilMedium', axes(1:2),  &
+     lnd%time, 'Carbon in Medium Soil Pool', 'kg C m-2', missing_value=-100.0, &
+     standard_name='carbon_in_medium_soil_pool', fill_missing=.TRUE.)
+id_csoilslow = register_tiled_diag_field ( cmor_name, 'cSoilSlow', axes(1:2),  &
+     lnd%time, 'Carbon in Slow Soil Pool', 'kg C m-2', missing_value=-100.0, &
+     standard_name='carbon_in_fast_soil_pool', fill_missing=.TRUE.)
+id_rh = register_tiled_diag_field ( cmor_name, 'rh', (/id_lon,id_lat/), &
+     lnd%time, 'Heterotrophic Respiration', 'kg C m-2 s-1', missing_value=-1.0, &
+     standard_name='heterotrophic_respiration', fill_missing=.TRUE.)
+
 
 end subroutine soil_diag_init
 
@@ -2346,1378 +1881,296 @@ subroutine soil_end ()
 end subroutine soil_end
 
 
+
 ! ============================================================================
 subroutine save_soil_restart (tile_dim_length, timestamp)
   integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
   character(*), intent(in) :: timestamp ! timestamp to add to the file name
 
   ! ---- local vars ----------------------------------------------------------
-  integer :: unit            ! restart file i/o unit
+  character(267) :: filename
+  type(land_restart_type) :: restart ! restart file i/o object
+  type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
+  type(land_tile_type), pointer :: tile   ! pointer to current tile
+  integer :: i
 
   call error_mesg('soil_end','writing NetCDF restart',NOTE)
-  ! create output file, including internal structure necessary for output
-  call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'soil.res.nc', &
-          lnd%coord_glon, lnd%coord_glat, soil_tile_exists, tile_dim_length )
-  ! in addition, define vertical coordinate
-  if (mpp_pe()==lnd%io_pelist(1)) then
-     __NF_ASRT__(nfu_def_dim(unit,'zfull',zfull(1:num_l),'full level','m'))
-     __NF_ASRT__(nfu_put_att(unit,'zfull','positive','down'))
-     if (soil_carbon_option==SOILC_CORPSE .or. soil_carbon_option==SOILC_CORPSE_N) then
-        __NF_ASRT__(nfu_def_dim(unit,name='soilCCohort',size=soilMaxCohorts,xtype=NF_INT,long_name='Soil carbon cohort'))
-     endif
+! must set domain so that io_domain is available
+  call set_domain(lnd%domain)
+! Note that filename is updated for tile & rank numbers during file creation
+  filename = trim(timestamp)//'soil.res.nc'
+  call init_land_restart(restart, filename, soil_tile_exists, tile_dim_length)
+  call add_restart_axis(restart,'zfull',zfull(1:num_l),'Z','m','full level',sense=-1)
+  if (soil_carbon_option==SOILC_CORPSE .OR. soil_carbon_option==SOILC_CORPSE_N) then
+     call add_restart_axis(restart,'soilCCohort',(/(float(i),i=1,soilMaxCohorts)/),'CC')
   endif
-  call sync_nc_files(unit)
 
   ! write out fields
-  call write_tile_data_r1d_fptr(unit,'temp'         ,soil_T_ptr   ,'zfull','soil temperature','degrees_K')
-  call write_tile_data_r1d_fptr(unit,'wl'           ,soil_wl_ptr  ,'zfull','liquid water content','kg/m2')
-  call write_tile_data_r1d_fptr(unit,'ws'           ,soil_ws_ptr  ,'zfull','solid water content','kg/m2')
-  call write_tile_data_r1d_fptr(unit,'groundwater'  ,soil_groundwater_ptr  ,'zfull')
-  call write_tile_data_r1d_fptr(unit,'groundwater_T',soil_groundwater_T_ptr ,'zfull')
-  call write_tile_data_r0d_fptr(unit,'uptake_T',     soil_uptake_T_ptr, 'temperature of transpiring water', 'degrees_K')
+  call add_tile_data(restart,'temp'         , 'zfull', soil_T_ptr,  'soil temperature','degrees_K')
+  call add_tile_data(restart,'wl'           , 'zfull', soil_wl_ptr, 'liquid water content','kg/m2')
+  call add_tile_data(restart,'ws'           , 'zfull', soil_ws_ptr, 'solid water content','kg/m2')
+  call add_tile_data(restart,'groundwater'  , 'zfull', soil_groundwater_ptr, units='kg/m2' )
+  call add_tile_data(restart,'groundwater_T', 'zfull', soil_groundwater_T_ptr, 'groundwater temperature','degrees_K' )
+  call add_tile_data(restart,'uptake_T', soil_uptake_T_ptr, 'temperature of transpiring water', 'degrees_K')
   select case(soil_carbon_option)
   case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-     call write_tile_data_r1d_fptr(unit,'fsc',          soil_fast_soil_C_ptr,'zfull','fast soil carbon', 'kg C/m2')
-     call write_tile_data_r1d_fptr(unit,'ssc',          soil_slow_soil_C_ptr,'zfull','slow soil carbon', 'kg C/m2')
- case (SOILC_CORPSE, SOILC_CORPSE_N)
-     call write_tile_data_layered_cohort_fptr(unit,'fast_soil_C',soilc_fast_soil_C_ptr ,'zfull','soilCCohort','Fast soil carbon','kg/m2')
-     call write_tile_data_layered_cohort_fptr(unit,'slow_soil_C',soilc_slow_soil_C_ptr ,'zfull','soilCCohort','Slow soil carbon','kg/m2')
-     call write_tile_data_layered_cohort_fptr(unit,'deadMic',soilc_deadMicrobeC_ptr ,'zfull','soilCCohort','Dead microbe carbon','kg/m2')
-     call write_tile_data_layered_cohort_fptr(unit,'fastProtectedC',soilc_fast_protected_C_ptr ,'zfull','soilCCohort','Protected fast carbon','kg/m2')
-     call write_tile_data_layered_cohort_fptr(unit,'slowProtectedC',soilc_slow_protected_C_ptr ,'zfull','soilCCohort','Protected slow carbon','kg/m2')
-     call write_tile_data_layered_cohort_fptr(unit,'deadMicrobeProtectedC',soilc_deadMicrobe_protected_C_ptr ,'zfull','soilCCohort','Protected dead microbe carbon','kg/m2')
-     call write_tile_data_layered_cohort_fptr(unit,'liveMic',soilc_livingMicrobeC_ptr ,'zfull','soilCCohort','Living microbial carbon','kg/m2')
-     call write_tile_data_layered_cohort_fptr(unit,'CO2',soilc_CO2_ptr ,'zfull','soilCCohort','Cohort CO2 generated','kg/m2')
-     call write_tile_data_layered_cohort_fptr(unit,'Rtot',soilc_Rtot_ptr ,'zfull','soilCCohort','Total degradation','kg/m2')
-     call write_tile_data_layered_cohort_fptr(unit,'originalCohortC',soilc_originalLitterC_ptr ,'zfull','soilCCohort','Cohort original carbon','g/m2')
-
-! Do we want to write N stuff if not using SOILC_CORPSE_N? It should be valid, but all zeros
-if (soil_carbon_option == SOILC_CORPSE_N) then
-     call write_tile_data_layered_cohort_fptr(unit,'fast_soil_N',soilc_fast_soil_N_ptr ,'zfull','soilCCohort','Fast soil nitrogen','kg/m2')
-     call write_tile_data_layered_cohort_fptr(unit,'slow_soil_N',soilc_slow_soil_N_ptr ,'zfull','soilCCohort','Slow soil nitrogen','kg/m2')
-     call write_tile_data_layered_cohort_fptr(unit,'deadMic_N',soilc_deadMicrobeN_ptr ,'zfull','soilCCohort','Dead microbe nitrogen','kg/m2')
-     call write_tile_data_layered_cohort_fptr(unit,'fastProtectedN',soilc_fast_protected_N_ptr ,'zfull','soilCCohort','Protected fast nitrogen','kg/m2')
-     call write_tile_data_layered_cohort_fptr(unit,'slowProtectedN',soilc_slow_protected_N_ptr ,'zfull','soilCCohort','Protected slow nitrogen','kg/m2')
-     call write_tile_data_layered_cohort_fptr(unit,'deadMicrobeProtectedN',soilc_deadMicrobe_protected_N_ptr ,'zfull','soilCCohort','Protected dead microbe nitrogen','kg/m2')
-     call write_tile_data_layered_cohort_fptr(unit,'liveMicN',soilc_livingMicrobeN_ptr ,'zfull','soilCCohort','Living microbial nitrogen','kg/m2')
-     call write_tile_data_layered_cohort_fptr(unit,'originalCohortN',soilc_originalLitterN_ptr ,'zfull','soilCCohort','Cohort original nitrogen','g/m2')
-     ! Leaving out cohort-level immobilization and mineralization fields for now -- BNS
-
-     call write_tile_data_r1d_fptr(unit,'soil_DON_fast',soil_fast_DON_ptr,'zfull','Dissolved fast nitrogen','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'soil_DON_slow',soil_slow_DON_ptr,'zfull','Dissolved slow nitrogen','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'soil_DON_deadmic',soil_deadmicrobe_DON_ptr,'zfull','Dissolved dead microbe nitrogen','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'soil_NO3',soil_nitrate_ptr,'zfull','Soil nitrate content','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'soil_NH4',soil_ammonium_ptr,'zfull','Soil ammonium content','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'soil_nitrif',soil_nitrif_ptr,'zfull','Soil cumulative nitrification','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'soil_denitrif',soil_denitrif_ptr,'zfull','Soil cumulative denitrification','kg/m2')
-
-     call write_tile_data_r0d_fptr(unit,'fast_DON_leached',     soil_fast_DON_leached_ptr, 'Cumulative fast DON leached out of the column', 'kg/m2')
-     call write_tile_data_r0d_fptr(unit,'slow_DON_leached',     soil_slow_DON_leached_ptr, 'Cumulative slow DON leached out of the column', 'kg/m2')
-     call write_tile_data_r0d_fptr(unit,'deadmic_DON_leached',     soil_deadmic_DON_leached_ptr, 'Cumulative dead microbe DON leached out of the column', 'kg/m2')
-     call write_tile_data_r0d_fptr(unit,'NO3_leached',     soil_NO3_leached_ptr, 'Cumulative NO3 leached out of the column', 'kgN/m2')
-     call write_tile_data_r0d_fptr(unit,'NH4_leached',     soil_NH4_leached_ptr, 'Cumulative NH4 leached out of the column', 'kgN/m2')
-
-     call write_tile_data_r1d_fptr(unit,'leaf_litter_fast_N',soilc_leafLitter_fast_soil_N_ptr,'soilCCohort','Leaf litter fast N','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'leaf_litter_slow_N',soilc_leafLitter_slow_soil_N_ptr,'soilCCohort','Leaf litter slow N','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'leaf_litter_deadMic_N',soilc_leafLitter_deadMicrobeN_ptr,'soilCCohort','Leaf litter dead microbe N','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'leaf_litter_liveMic_N',soilc_leafLitter_livingMicrobeN_ptr,'soilCCohort','Leaf litter live microbe N','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'leaf_litter_originalCohortN',soilc_leafLitter_originalLitterN_ptr,'soilCCohort','Leaf litter cohort original N','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'leaf_litter_fastProtectedN',soilc_leafLitter_fast_protected_N_ptr,'soilCCohort','Leaf litter fast protected N','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'leaf_litter_slowProtectedN',soilc_leafLitter_slow_protected_N_ptr,'soilCCohort','Leaf litter slow protected N','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'leaf_litter_deadMicrobeProtectedN',soilc_leafLitter_deadMicrobe_protected_N_ptr,'soilCCohort','Leaf litter dead microbe protected N','kg/m2')
-
-     call write_tile_data_r0d_fptr(unit,'leaf_litter_DON_fast',soilc_leafLitter_fast_DON_ptr,'Leaf litter dissolved fast nitrogen','kg/m2')
-     call write_tile_data_r0d_fptr(unit,'leaf_litter_DON_slow',soilc_leafLitter_slow_DON_ptr,'Leaf litter dissolved slow nitrogen','kg/m2')
-     call write_tile_data_r0d_fptr(unit,'leaf_litter_DON_deadmic',soilc_leafLitter_deadmicrobe_DON_ptr,'Leaf litter dissolved dead microbe nitrogen','kg/m2')
-     call write_tile_data_r0d_fptr(unit,'leaf_litter_NO3',soilc_leafLitter_nitrate_ptr,'Leaf litter nitrate content','kg/m2')
-     call write_tile_data_r0d_fptr(unit,'leaf_litter_NH4',soilc_leafLitter_ammonium_ptr,'Leaf litter ammonium content','kg/m2')
-     call write_tile_data_r0d_fptr(unit,'leaf_litter_nitrif',soilc_leafLitter_nitrif_ptr,'Leaf litter cumulative nitrification','kg/m2')
-     call write_tile_data_r0d_fptr(unit,'leaf_litter_denitrif',soilc_leafLitter_denitrif_ptr,'Leaf litter cumulative denitrification','kg/m2')
-
-     call write_tile_data_r1d_fptr(unit,'fineWood_litter_fast_N',soilc_fineWoodLitter_fast_soil_N_ptr,'soilCCohort','fineWood litter fast N','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'fineWood_litter_slow_N',soilc_fineWoodLitter_slow_soil_N_ptr,'soilCCohort','fineWood litter slow N','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'fineWood_litter_deadMic_N',soilc_fineWoodLitter_deadMicrobeN_ptr,'soilCCohort','fineWood litter dead microbe N','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'fineWood_litter_liveMic_N',soilc_fineWoodLitter_livingMicrobeN_ptr,'soilCCohort','fineWood litter live microbe N','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'fineWood_litter_originalCohortN',soilc_fineWoodLitter_originalLitterN_ptr,'soilCCohort','fineWood litter cohort original N','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'fineWood_litter_fastProtectedN',soilc_fineWoodLitter_fast_protected_N_ptr,'soilCCohort','fineWood litter fast protected N','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'fineWood_litter_slowProtectedN',soilc_fineWoodLitter_slow_protected_N_ptr,'soilCCohort','fineWood litter slow protected N','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'fineWood_litter_deadMicrobeProtectedN',soilc_fineWoodLitter_deadMicrobe_protected_N_ptr,'soilCCohort','fineWood litter dead microbe protected N','kg/m2')
-
-     call write_tile_data_r0d_fptr(unit,'fineWood_litter_DON_fast',soilc_fineWoodLitter_fast_DON_ptr,'Fine wood litter dissolved fast nitrogen','kg/m2')
-     call write_tile_data_r0d_fptr(unit,'fineWood_litter_DON_slow',soilc_fineWoodLitter_slow_DON_ptr,'Fine wood litter dissolved slow nitrogen','kg/m2')
-     call write_tile_data_r0d_fptr(unit,'fineWood_litter_DON_deadmic',soilc_fineWoodLitter_deadmicrobe_DON_ptr,'Fine wood litter dissolved dead microbe nitrogen','kg/m2')
-     call write_tile_data_r0d_fptr(unit,'fineWood_litter_NO3',soilc_fineWoodLitter_nitrate_ptr,'Fine wood litter nitrate content','kg/m2')
-     call write_tile_data_r0d_fptr(unit,'fineWood_litter_NH4',soilc_fineWoodLitter_ammonium_ptr,'Fine wood litter ammonium content','kg/m2')
-     call write_tile_data_r0d_fptr(unit,'fineWood_litter_nitrif',soilc_fineWoodLitter_nitrif_ptr,'Fine wood litter cumulative nitrification','kg/m2')
-     call write_tile_data_r0d_fptr(unit,'fineWood_litter_denitrif',soilc_fineWoodLitter_denitrif_ptr,'Fine wood litter cumulative denitrification','kg/m2')
-
-     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_fast_N',soilc_coarseWoodLitter_fast_soil_N_ptr,'soilCCohort','coarseWood litter fast N','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_slow_N',soilc_coarseWoodLitter_slow_soil_N_ptr,'soilCCohort','coarseWood litter slow N','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_deadMic_N',soilc_coarseWoodLitter_deadMicrobeN_ptr,'soilCCohort','coarseWood litter dead microbe N','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_liveMic_N',soilc_coarseWoodLitter_livingMicrobeN_ptr,'soilCCohort','coarseWood litter live microbe N','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_originalCohortN',soilc_coarseWoodLitter_originalLitterN_ptr,'soilCCohort','coarseWood litter cohort original N','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_fastProtectedN',soilc_coarseWoodLitter_fast_protected_N_ptr,'soilCCohort','coarseWood litter fast protected N','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_slowProtectedN',soilc_coarseWoodLitter_slow_protected_N_ptr,'soilCCohort','coarseWood litter slow protected N','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_deadMicrobeProtectedN',soilc_coarseWoodLitter_deadMicrobe_protected_N_ptr,'soilCCohort','coarseWood litter dead microbe protected N','kg/m2')
-
-
-     call write_tile_data_r0d_fptr(unit,'coarseWood_litter_DON_fast',soilc_coarseWoodLitter_fast_DON_ptr,'Coarse wood litter dissolved fast nitrogen','kg/m2')
-     call write_tile_data_r0d_fptr(unit,'coarseWood_litter_DON_slow',soilc_coarseWoodLitter_slow_DON_ptr,'Coarse wood litter dissolved slow nitrogen','kg/m2')
-     call write_tile_data_r0d_fptr(unit,'coarseWood_litter_DON_deadmic',soilc_coarseWoodLitter_deadmicrobe_DON_ptr,'Coarse wood litter dissolved dead microbe nitrogen','kg/m2')
-     call write_tile_data_r0d_fptr(unit,'coarseWood_litter_NO3',soilc_coarseWoodLitter_nitrate_ptr,'Coarse wood litter nitrate content','kg/m2')
-     call write_tile_data_r0d_fptr(unit,'coarseWood_litter_NH4',soilc_coarseWoodLitter_ammonium_ptr,'Coarse wood litter ammonium content','kg/m2')
-     call write_tile_data_r0d_fptr(unit,'coarseWood_litter_nitrif',soilc_coarseWoodLitter_nitrif_ptr,'Coarse wood litter cumulative nitrification','kg/m2')
-     call write_tile_data_r0d_fptr(unit,'coarseWood_litter_denitrif',soilc_coarseWoodLitter_denitrif_ptr,'Coarse wood litter cumulative denitrification','kg/m2')
-
-endif
-
-     call write_tile_data_r1d_fptr(unit,'soil_DOC_fast',soil_fast_DOC_ptr,'zfull','Dissolved fast carbon','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'soil_DOC_slow',soil_slow_DOC_ptr,'zfull','Dissolved slow carbon','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'soil_DOC_deadmic',soil_deadmicrobe_DOC_ptr,'zfull','Dissolved dead microbe carbon','kg/m2')
-
-
-     call write_tile_data_r0d_fptr(unit,'fast_DOC_leached',     soil_fast_DOC_leached_ptr, 'Cumulative fast DOC leached out of the column', 'kg/m2')
-     call write_tile_data_r0d_fptr(unit,'slow_DOC_leached',     soil_slow_DOC_leached_ptr, 'Cumulative slow DOC leached out of the column', 'kg/m2')
-     call write_tile_data_r0d_fptr(unit,'deadmic_DOC_leached',     soil_deadmic_DOC_leached_ptr, 'Cumulative dead microbe DOC leached out of the column', 'kg/m2')
-
-
-     call write_tile_data_r1d_fptr(unit,'leaf_litter_fast_C',soilc_leafLitter_fast_soil_C_ptr,'soilCCohort','Leaf litter fast C','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'leaf_litter_slow_C',soilc_leafLitter_slow_soil_C_ptr,'soilCCohort','Leaf litter slow C','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'leaf_litter_deadMic_C',soilc_leafLitter_deadMicrobeC_ptr,'soilCCohort','Leaf litter dead microbe C','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'leaf_litter_liveMic_C',soilc_leafLitter_livingMicrobeC_ptr,'soilCCohort','Leaf litter live microbe C','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'leaf_litter_CO2',soilc_leafLitter_CO2_ptr,'soilCCohort','Leaf litter CO2 generated','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'leaf_litter_Rtot',soilc_leafLitter_Rtot_ptr,'soilCCohort','Leaf litter total degradation','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'leaf_litter_originalCohortC',soilc_leafLitter_originalLitterC_ptr,'soilCCohort','Leaf litter cohort original carbon','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'leaf_litter_fastProtectedC',soilc_leafLitter_fast_protected_C_ptr,'soilCCohort','Leaf litter fast protected C','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'leaf_litter_slowProtectedC',soilc_leafLitter_slow_protected_C_ptr,'soilCCohort','Leaf litter slow protected C','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'leaf_litter_deadMicrobeProtectedC',soilc_leafLitter_deadMicrobe_protected_C_ptr,'soilCCohort','Leaf litter dead microbe protected C','kg/m2')
-
-
-     call write_tile_data_r0d_fptr(unit,'leaf_litter_DOC_fast',soilc_leafLitter_fast_DOC_ptr,'Dissolved leaf litter fast carbon','kg/m2')
-     call write_tile_data_r0d_fptr(unit,'leaf_litter_DOC_slow',soilc_leafLitter_slow_DOC_ptr,'Dissolved leaf litter slow carbon','kg/m2')
-     call write_tile_data_r0d_fptr(unit,'leaf_litter_DOC_deadmic',soilc_leafLitter_deadmicrobe_DOC_ptr,'Dissolved leaf litter dead microbe carbon','kg/m2')
-
-
-
-     call write_tile_data_r1d_fptr(unit,'fineWood_litter_fast_C',soilc_fineWoodLitter_fast_soil_C_ptr,'soilCCohort','Fine wood litter fast C','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'fineWood_litter_slow_C',soilc_fineWoodLitter_slow_soil_C_ptr,'soilCCohort','Fine wood litter slow C','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'fineWood_litter_deadMic_C',soilc_fineWoodLitter_deadMicrobeC_ptr,'soilCCohort','Fine wood litter dead microbe C','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'fineWood_litter_liveMic_C',soilc_fineWoodLitter_livingMicrobeC_ptr,'soilCCohort','Fine wood litter live microbe C','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'fineWood_litter_CO2',soilc_fineWoodLitter_CO2_ptr,'soilCCohort','Fine wood litter CO2 generated','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'fineWood_litter_Rtot',soilc_fineWoodLitter_Rtot_ptr,'soilCCohort','Fine wood litter total degradation','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'fineWood_litter_originalCohortC',soilc_fineWoodLitter_originalLitterC_ptr,'soilCCohort','Fine wood litter cohort original carbon','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'fineWood_litter_fastProtectedC',soilc_fineWoodLitter_fast_protected_C_ptr,'soilCCohort','Fine wood litter fast protected C','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'fineWood_litter_slowProtectedC',soilc_fineWoodLitter_slow_protected_C_ptr,'soilCCohort','Fine wood litter slow protected C','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'fineWood_litter_deadMicrobeProtectedC',soilc_fineWoodLitter_deadMicrobe_protected_C_ptr,'soilCCohort','Fine wood litter dead microbe protected C','kg/m2')
-
-
-
-     call write_tile_data_r0d_fptr(unit,'fineWood_litter_DOC_fast',soilc_fineWoodLitter_fast_DOC_ptr,'Dissolved fine wood litter fast carbon','kg/m2')
-     call write_tile_data_r0d_fptr(unit,'fineWood_litter_DOC_slow',soilc_fineWoodLitter_slow_DOC_ptr,'Dissolved fine wood litter slow carbon','kg/m2')
-     call write_tile_data_r0d_fptr(unit,'fineWood_litter_DOC_deadmic',soilc_fineWoodLitter_deadmicrobe_DOC_ptr,'Dissolved fine wood litter dead microbe carbon','kg/m2')
-
-
-     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_fast_C',soilc_coarseWoodLitter_fast_soil_C_ptr,'soilCCohort','Coarse wood litter fast C','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_slow_C',soilc_coarseWoodLitter_slow_soil_C_ptr,'soilCCohort','Coarse wood litter slow C','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_deadMic_C',soilc_coarseWoodLitter_deadMicrobeC_ptr,'soilCCohort','Coarse wood litter dead microbe C','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_liveMic_C',soilc_coarseWoodLitter_livingMicrobeC_ptr,'soilCCohort','Coarse wood litter live microbe C','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_CO2',soilc_coarseWoodLitter_CO2_ptr,'soilCCohort','Coarse wood litter CO2 generated','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_Rtot',soilc_coarseWoodLitter_Rtot_ptr,'soilCCohort','Coarse wood litter total degradation','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_originalCohortC',soilc_coarseWoodLitter_originalLitterC_ptr,'soilCCohort','Coarse wood litter cohort original carbon','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_fastProtectedC',soilc_coarseWoodLitter_fast_protected_C_ptr,'soilCCohort','Coarse wood litter fast protected C','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_slowProtectedC',soilc_coarseWoodLitter_slow_protected_C_ptr,'soilCCohort','Coarse wood litter slow protected C','kg/m2')
-     call write_tile_data_r1d_fptr(unit,'coarseWood_litter_deadMicrobeProtectedC',soilc_coarseWoodLitter_deadMicrobe_protected_C_ptr,'soilCCohort','Coarse wood litter dead microbe protected C','kg/m2')
-
-
-     call write_tile_data_r0d_fptr(unit,'coarseWood_litter_DOC_fast',soilc_coarseWoodLitter_fast_DOC_ptr,'Dissolved coarse wood litter fast carbon','kg/m2')
-     call write_tile_data_r0d_fptr(unit,'coarseWood_litter_DOC_slow',soilc_coarseWoodLitter_slow_DOC_ptr,'Dissolved coarse wood litter slow carbon','kg/m2')
-     call write_tile_data_r0d_fptr(unit,'coarseWood_litter_DOC_deadmic',soilc_coarseWoodLitter_deadmicrobe_DOC_ptr,'Dissolved coarse wood litter dead microbe carbon','kg/m2')
-
-
-
-     call write_tile_data_i1d_fptr_all(unit,'is_peat',soil_is_peat_ptr,'zfull','Is layer peat?','Boolean')
-  case default
-     call error_mesg('save_soil_restart','soil_carbon_option is invalid. This should never happen. Contact developer', FATAL)
-  end select
-
-  ! close file
-  __NF_ASRT__(nf_close(unit))
-
-  if (write_soil_carbon_restart) then
-     call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'soil_carbon.res.nc', &
-          lnd%coord_glon, lnd%coord_glat, soil_tile_exists, tile_dim_length )
-     ! in addition, define vertical coordinate
-     if (mpp_pe()==lnd%io_pelist(1)) then
-        __NF_ASRT__(nfu_def_dim(unit,'zfull',zfull(1:num_l),'full level','m'))
-        __NF_ASRT__(nfu_put_att(unit,'zfull','positive','down'))
-     endif
-     call sync_nc_files(unit)
-
-     call write_tile_data_r1d_fptr(unit,'asoil_in',soil_asoil_in_ptr,'zfull','aerobic activity modifier', 'unitless')
-     call write_tile_data_r1d_fptr(unit,'fsc_in',soil_fsc_in_ptr,'zfull','fast soil carbon input', 'kg C/m2')
-     call write_tile_data_r1d_fptr(unit,'ssc_in',soil_ssc_in_ptr,'zfull','slow soil carbon input', 'kg C/m2')
-     if (soil_carbon_option == SOILC_CORPSE .or. soil_carbon_option == SOILC_CORPSE_N) then
-         call write_tile_data_r1d_fptr(unit,'fsn_in',soil_fsn_in_ptr,'zfull','fast soil nitrogen input', 'kg N/m2')
-         call write_tile_data_r1d_fptr(unit,'ssn_in',soil_ssn_in_ptr,'zfull','slow soil nitrogen input', 'kg N/m2')
-        call write_tile_data_r1d_fptr(unit,'deadmic_C_in',soil_deadmic_C_in_ptr,'zfull','dead microbe soil carbon input', 'kg C/m2')
-        call write_tile_data_r1d_fptr(unit,'deadmic_N_in',soil_deadmic_N_in_ptr,'zfull','dead microbe soil nitrogen input', 'kg N/m2')
-        call write_tile_data_r1d_fptr(unit,'fast_protected_C_in',soil_fast_protected_C_in_ptr,'zfull','protected fast soil carbon input', 'kg C/m2')
-        call write_tile_data_r1d_fptr(unit,'slow_protected_C_in',soil_slow_protected_C_in_ptr,'zfull','protected slow soil carbon input', 'kg C/m2')
-        call write_tile_data_r1d_fptr(unit,'deadmic_protected_C_in',soil_deadmic_protected_C_in_ptr,'zfull','protected dead microbe soil carbon input', 'kg C/m2')
-        call write_tile_data_r1d_fptr(unit,'fast_protected_N_in',soil_fast_protected_N_in_ptr,'zfull','protected fast soil nitrogen input', 'kg N/m2')
-        call write_tile_data_r1d_fptr(unit,'slow_protected_N_in',soil_slow_protected_N_in_ptr,'zfull','protected slow soil nitrogen input', 'kg N/m2')
-        call write_tile_data_r1d_fptr(unit,'deadmic_protected_N_in',soil_deadmic_protected_N_in_ptr,'zfull','protected dead microbe soil nitrogen input', 'kg N/m2')
-
-        call write_tile_data_r1d_fptr(unit,'fast_C_turnover_accumulated',soil_fast_C_turnover_accumulated_ptr,'zfull','fast soil carbon turnover', 'year-1')
-        call write_tile_data_r1d_fptr(unit,'slow_C_turnover_accumulated',soil_slow_C_turnover_accumulated_ptr,'zfull','slow soil carbon turnover', 'year-1')
-        call write_tile_data_r1d_fptr(unit,'deadmic_C_turnover_accumulated',soil_deadmic_C_turnover_accumulated_ptr,'zfull','dead microbe soil carbon turnover', 'year-1')
-        call write_tile_data_r1d_fptr(unit,'fast_protected_C_turnover_accumulated',soil_fast_protected_C_turnover_accumulated_ptr,'zfull','fast protected soil carbon turnover', 'year-1')
-        call write_tile_data_r1d_fptr(unit,'slow_protected_C_turnover_accumulated',soil_slow_protected_C_turnover_accumulated_ptr,'zfull','slow protectedsoil carbon turnover', 'year-1')
-        call write_tile_data_r1d_fptr(unit,'deadmic_protected_C_turnover_accumulated',soil_deadmic_protected_C_turnover_accumulated_ptr,'zfull','dead microbe protected soil carbon turnover', 'year-1')
-
-        call write_tile_data_r1d_fptr(unit,'fast_N_turnover_accumulated',soil_fast_N_turnover_accumulated_ptr,'zfull','fast soil carbon turnover', 'year-1')
-        call write_tile_data_r1d_fptr(unit,'slow_N_turnover_accumulated',soil_slow_N_turnover_accumulated_ptr,'zfull','slow soil carbon turnover', 'year-1')
-        call write_tile_data_r1d_fptr(unit,'deadmic_N_turnover_accumulated',soil_deadmic_N_turnover_accumulated_ptr,'zfull','dead microbe soil carbon turnover', 'year-1')
-        call write_tile_data_r1d_fptr(unit,'fast_protected_N_turnover_accumulated',soil_fast_protected_N_turnover_accumulated_ptr,'zfull','fast protected soil carbon turnover', 'year-1')
-        call write_tile_data_r1d_fptr(unit,'slow_protected_N_turnover_accumulated',soil_slow_protected_N_turnover_accumulated_ptr,'zfull','slow protectedsoil carbon turnover', 'year-1')
-        call write_tile_data_r1d_fptr(unit,'deadmic_protected_N_turnover_accumulated',soil_deadmic_protected_N_turnover_accumulated_ptr,'zfull','dead microbe protected soil carbon turnover', 'year-1')
-
-
-        call write_tile_data_r0d_fptr(unit,'leaflitter_fast_C_turnover_accumulated',soil_leaflitter_fast_C_turnover_accumulated_ptr,'fast leaf litter carbon turnover', 'year-1')
-        call write_tile_data_r0d_fptr(unit,'leaflitter_slow_C_turnover_accumulated',soil_leaflitter_slow_C_turnover_accumulated_ptr,'slow leaf litter carbon turnover', 'year-1')
-        call write_tile_data_r0d_fptr(unit,'leaflitter_deadmic_C_turnover_accumulated',soil_leaflitter_deadmic_C_turnover_accumulated_ptr,'dead microbe leaf litter carbon turnover', 'year-1')
-        call write_tile_data_r0d_fptr(unit,'leaflitter_fsc_in',soil_leaflitter_fsc_in_ptr,'fast leaf litter carbon input', 'kg C/m2')
-        call write_tile_data_r0d_fptr(unit,'leaflitter_ssc_in',soil_leaflitter_ssc_in_ptr,'slow leaf litter carbon input', 'kg C/m2')
-        call write_tile_data_r0d_fptr(unit,'leaflitter_deadmic_C_in',soil_leaflitter_deadmic_C_in_ptr,'dead microbe leaf litter carbon input', 'kg C/m2')
-
-        call write_tile_data_r0d_fptr(unit,'leaflitter_fast_N_turnover_accumulated',soil_leaflitter_fast_N_turnover_accumulated_ptr,'fast leaf litter nitrogen turnover', 'year-1')
-        call write_tile_data_r0d_fptr(unit,'leaflitter_slow_N_turnover_accumulated',soil_leaflitter_slow_N_turnover_accumulated_ptr,'slow leaf litter nitrogen turnover', 'year-1')
-        call write_tile_data_r0d_fptr(unit,'leaflitter_deadmic_N_turnover_accumulated',soil_leaflitter_deadmic_N_turnover_accumulated_ptr,'dead microbe leaf litter nitrogen turnover', 'year-1')
-        call write_tile_data_r0d_fptr(unit,'leaflitter_fsn_in',soil_leaflitter_fsn_in_ptr,'fast leaf litter nitrogen input', 'kg N/m2')
-        call write_tile_data_r0d_fptr(unit,'leaflitter_ssn_in',soil_leaflitter_ssn_in_ptr,'slow leaf litter nitrogen input', 'kg N/m2')
-        call write_tile_data_r0d_fptr(unit,'leaflitter_deadmic_N_in',soil_leaflitter_deadmic_N_in_ptr,'dead microbe leaf litter nitrogen input', 'kg N/m2')
-
-        call write_tile_data_r0d_fptr(unit,'finewoodlitter_fast_C_turnover_accumulated',soil_finewoodlitter_fast_C_turnover_accumulated_ptr,'fast fine wood litter carbon turnover', 'year-1')
-        call write_tile_data_r0d_fptr(unit,'finewoodlitter_slow_C_turnover_accumulated',soil_finewoodlitter_slow_C_turnover_accumulated_ptr,'slow fine wood litter carbon turnover', 'year-1')
-        call write_tile_data_r0d_fptr(unit,'finewoodlitter_deadmic_C_turnover_accumulated',soil_finewoodlitter_deadmic_C_turnover_accumulated_ptr,'dead microbe fine wood litter carbon turnover', 'year-1')
-        call write_tile_data_r0d_fptr(unit,'finewoodlitter_fsc_in',soil_finewoodlitter_fsc_in_ptr,'fast fine wood litter carbon input', 'kg C/m2')
-        call write_tile_data_r0d_fptr(unit,'finewoodlitter_ssc_in',soil_finewoodlitter_ssc_in_ptr,'slow fine wood litter carbon input', 'kg C/m2')
-        call write_tile_data_r0d_fptr(unit,'finewoodlitter_deadmic_C_in',soil_finewoodlitter_deadmic_C_in_ptr,'dead microbe fine wood litter carbon input', 'kg C/m2')
-
-        call write_tile_data_r0d_fptr(unit,'finewoodlitter_fast_N_turnover_accumulated',soil_finewoodlitter_fast_N_turnover_accumulated_ptr,'fast fine wood litter nitrogen turnover', 'year-1')
-        call write_tile_data_r0d_fptr(unit,'finewoodlitter_slow_N_turnover_accumulated',soil_finewoodlitter_slow_N_turnover_accumulated_ptr,'slow fine wood litter nitrogen turnover', 'year-1')
-        call write_tile_data_r0d_fptr(unit,'finewoodlitter_deadmic_N_turnover_accumulated',soil_finewoodlitter_deadmic_N_turnover_accumulated_ptr,'dead microbe fine wood litter nitrogen turnover', 'year-1')
-        call write_tile_data_r0d_fptr(unit,'finewoodlitter_fsn_in',soil_finewoodlitter_fsn_in_ptr,'fast fine wood litter nitrogen input', 'kg N/m2')
-        call write_tile_data_r0d_fptr(unit,'finewoodlitter_ssn_in',soil_finewoodlitter_ssn_in_ptr,'slow fine wood litter nitrogen input', 'kg N/m2')
-        call write_tile_data_r0d_fptr(unit,'finewoodlitter_deadmic_N_in',soil_finewoodlitter_deadmic_N_in_ptr,'dead microbe fine wood litter nitrogen input', 'kg N/m2')
-
-        call write_tile_data_r0d_fptr(unit,'coarsewoodlitter_fast_C_turnover_accumulated',soil_coarsewoodlitter_fast_C_turnover_accumulated_ptr,'fast coarse wood litter carbon turnover', 'year-1')
-        call write_tile_data_r0d_fptr(unit,'coarsewoodlitter_slow_C_turnover_accumulated',soil_coarsewoodlitter_slow_C_turnover_accumulated_ptr,'slow coarse wood litter carbon turnover', 'year-1')
-        call write_tile_data_r0d_fptr(unit,'coarsewoodlitter_deadmic_C_turnover_accumulated',soil_coarsewoodlitter_deadmic_C_turnover_accumulated_ptr,'dead microbe coarse wood litter carbon turnover', 'year-1')
-        call write_tile_data_r0d_fptr(unit,'coarsewoodlitter_fsc_in',soil_coarsewoodlitter_fsc_in_ptr,'fast coarse wood litter carbon input', 'kg C/m2')
-        call write_tile_data_r0d_fptr(unit,'coarsewoodlitter_ssc_in',soil_coarsewoodlitter_ssc_in_ptr,'slow coarse wood litter carbon input', 'kg C/m2')
-        call write_tile_data_r0d_fptr(unit,'coarsewoodlitter_deadmic_C_in',soil_coarsewoodlitter_deadmic_C_in_ptr,'dead microbe coarse wood litter carbon input', 'kg C/m2')
-
-        call write_tile_data_r0d_fptr(unit,'coarsewoodlitter_fast_N_turnover_accumulated',soil_coarsewoodlitter_fast_N_turnover_accumulated_ptr,'fast coarse wood litter nitrogen turnover', 'year-1')
-        call write_tile_data_r0d_fptr(unit,'coarsewoodlitter_slow_N_turnover_accumulated',soil_coarsewoodlitter_slow_N_turnover_accumulated_ptr,'slow coarse wood litter nitrogen turnover', 'year-1')
-        call write_tile_data_r0d_fptr(unit,'coarsewoodlitter_deadmic_N_turnover_accumulated',soil_coarsewoodlitter_deadmic_N_turnover_accumulated_ptr,'dead microbe coarse wood litter nitrogen turnover', 'year-1')
-        call write_tile_data_r0d_fptr(unit,'coarsewoodlitter_fsn_in',soil_coarsewoodlitter_fsn_in_ptr,'fast coarse wood litter nitrogen input', 'kg N/m2')
-        call write_tile_data_r0d_fptr(unit,'coarsewoodlitter_ssn_in',soil_coarsewoodlitter_ssn_in_ptr,'slow coarse wood litter nitrogen input', 'kg N/m2')
-        call write_tile_data_r0d_fptr(unit,'coarsewoodlitter_deadmic_N_in',soil_coarsewoodlitter_deadmic_N_in_ptr,'dead microbe coarse wood litter nitrogen input', 'kg N/m2')
-
-
-     endif
-     __NF_ASRT__(nf_close(unit))
-  endif
-
-
-end subroutine save_soil_restart
-
-! ============================================================================
-subroutine save_soil_restart_new (tile_dim_length, timestamp)
-  integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
-  character(*), intent(in) :: timestamp ! timestamp to add to the file name
-
-  ! ---- local vars ----------------------------------------------------------
-  integer :: unit            ! restart file i/o unit
-  character(267) :: fname
-  type(restart_file_type) :: soil_restart, soil_carbon_restart ! restart files i/o object
-  integer, allocatable :: idx(:)
-  real, allocatable, dimension(:,:) :: temp, wl, ws, groundwater, groundwater_T, fsc, ssc! (tile_index, zfull)
-  real, allocatable, dimension(:)   :: uptake_T
-  real, allocatable, dimension(:,:) :: asoil_in, fsc_in, ssc_in
-
-  real, allocatable, dimension(:,:) :: fsn_in, ssn_in
-
-  real, allocatable, dimension(:,:,:) :: & ! (tile_index, zfull, soilCCohort)
-                  fast_soil_C,           &
-                  slow_soil_C,           &
-                  deadMic,               &
-                  fastProtectedC,        &
-                  slowProtectedC,        &
-                  deadMicrobeProtectedC, &
-                  liveMic,               &
-                  CO2,                   &
-                  Rtot,                  &
-                  originalCohortC
-
-  real, allocatable, dimension(:,:,:) :: & ! (tile_index, zfull, soilCCohort)
-                  fast_soil_N,           &
-                  slow_soil_N,           &
-                  deadMic_N,               &
-                  fastProtectedN,        &
-                  slowProtectedN,        &
-                  deadMicrobeProtectedN, &
-                  liveMic_N,               &
-                  originalCohortN
-
-  real, allocatable, dimension(:,:) :: & ! (tile_index, zfull)
-                  soil_DOC_fast,       &
-                  soil_DOC_slow,       &
-                  soil_DOC_deadmic,    &
-                  deadmic_in ,          &
-                  fast_protected_in ,   &
-                  slow_protected_in ,   &
-                  deadmic_protected_in , &
-                  fast_turnover_accumulated , &
-                  slow_turnover_accumulated , &
-                  deadmic_turnover_accumulated , &
-                  fast_protected_turnover_accumulated , &
-                  slow_protected_turnover_accumulated , &
-                  deadmic_protected_turnover_accumulated
-
-  real, allocatable, dimension(:,:) :: & ! (tile_index, zfull)
-                  soil_DON_fast,       &
-                  soil_DON_slow,       &
-                  soil_DON_deadmic,    &
-                  soil_NO3,            &
-                  soil_NH4,            &
-                  soil_nitrif,         &
-                  soil_denitrif,       &
-                  deadmic_N_in ,          &
-                  fast_protected_N_in ,   &
-                  slow_protected_N_in ,   &
-                  deadmic_protected_N_in , &
-                  fast_N_turnover_accumulated , &
-                  slow_N_turnover_accumulated , &
-                  deadmic_N_turnover_accumulated , &
-                  fast_protected_N_turnover_accumulated , &
-                  slow_protected_N_turnover_accumulated , &
-                  deadmic_protected_N_turnover_accumulated
-
-  real, allocatable, dimension(:,:) ::                   & ! (tile_index, soilCCohort)
-                  leaf_litter_fast_C,                    &
-                  leaf_litter_slow_C,                    &
-                  leaf_litter_deadMic_C,                 &
-                  leaf_litter_liveMic_C,                 &
-                  leaf_litter_CO2,                       &
-                  leaf_litter_Rtot,                      &
-                  leaf_litter_originalCohortC,           &
-                  leaf_litter_fastProtectedC,            &
-                  leaf_litter_slowProtectedC,            &
-                  leaf_litter_deadMicrobeProtectedC,     &
-                  fineWood_litter_fast_C,                &
-                  fineWood_litter_slow_C,                &
-                  fineWood_litter_deadMic_C,             &
-                  fineWood_litter_liveMic_C,             &
-                  fineWood_litter_CO2,                   &
-                  fineWood_litter_Rtot,                  &
-                  fineWood_litter_originalCohortC,       &
-                  fineWood_litter_fastProtectedC,        &
-                  fineWood_litter_slowProtectedC,        &
-                  fineWood_litter_deadMicrobeProtectedC, &
-                  coarseWood_litter_fast_C,              &
-                  coarseWood_litter_slow_C,              &
-                  coarseWood_litter_deadMic_C,           &
-                  coarseWood_litter_liveMic_C,           &
-                  coarseWood_litter_CO2,                 &
-                  coarseWood_litter_Rtot,                &
-                  coarseWood_litter_originalCohortC,     &
-                  coarseWood_litter_fastProtectedC,      &
-                  coarseWood_litter_slowProtectedC,      &
-                  coarseWood_litter_deadMicrobeProtectedC
-
-
-  real, allocatable, dimension(:,:) ::                   & ! (tile_index, soilCCohort)
-                  leaf_litter_fast_N,                    &
-                  leaf_litter_slow_N,                    &
-                  leaf_litter_deadMic_N,                 &
-                  leaf_litter_liveMic_N,                 &
-                  leaf_litter_originalCohortN,           &
-                  leaf_litter_fastProtectedN,            &
-                  leaf_litter_slowProtectedN,            &
-                  leaf_litter_deadMicrobeProtectedN,     &
-                  fineWood_litter_fast_N,                &
-                  fineWood_litter_slow_N,                &
-                  fineWood_litter_deadMic_N,             &
-                  fineWood_litter_liveMic_N,             &
-                  fineWood_litter_originalCohortN,       &
-                  fineWood_litter_fastProtectedN,        &
-                  fineWood_litter_slowProtectedN,        &
-                  fineWood_litter_deadMicrobeProtectedN, &
-                  coarseWood_litter_fast_N,              &
-                  coarseWood_litter_slow_N,              &
-                  coarseWood_litter_deadMic_N,           &
-                  coarseWood_litter_liveMic_N,           &
-                  coarseWood_litter_originalCohortN,     &
-                  coarseWood_litter_fastProtectedN,      &
-                  coarseWood_litter_slowProtectedN,      &
-                  coarseWood_litter_deadMicrobeProtectedN
-
-  real, allocatable, dimension(:) :: & ! (tile_index)
-        fast_DOC_leached ,            &
-        slow_DOC_leached ,            &
-        deadmic_DOC_leached ,         &
-        leaf_litter_DOC_fast ,        &
-        leaf_litter_DOC_slow ,        &
-        leaf_litter_DOC_deadmic ,     &
-        fineWood_litter_DOC_fast ,    &
-        fineWood_litter_DOC_slow ,    &
-        fineWood_litter_DOC_deadmic , &
-        coarseWood_litter_DOC_fast ,  &
-        coarseWood_litter_DOC_slow ,  &
-        coarseWood_litter_DOC_deadmic ,                 &
-        leaflitter_fast_turnover_accumulated ,          &
-        leaflitter_slow_turnover_accumulated ,          &
-        leaflitter_deadmic_turnover_accumulated ,       &
-        leaflitter_fsc_in ,                             &
-        leaflitter_ssc_in ,                             &
-        leaflitter_deadmic_in ,                         &
-        finewoodlitter_fast_turnover_accumulated ,      &
-        finewoodlitter_slow_turnover_accumulated ,      &
-        finewoodlitter_deadmic_turnover_accumulated ,   &
-        finewoodlitter_fsc_in ,                         &
-        finewoodlitter_ssc_in ,                         &
-        finewoodlitter_deadmic_in ,                     &
-        coarsewoodlitter_fast_turnover_accumulated ,    &
-        coarsewoodlitter_slow_turnover_accumulated ,    &
-        coarsewoodlitter_deadmic_turnover_accumulated , &
-        coarsewoodlitter_fsc_in ,                       &
-        coarsewoodlitter_ssc_in ,                       &
-        coarsewoodlitter_deadmic_in
-
-
-real, allocatable, dimension(:) :: & ! (tile_index)
-      fast_DON_leached ,            &
-      slow_DON_leached ,            &
-      deadmic_DON_leached ,         &
-      NO3_leached ,                 &
-      NH4_leached ,                 &
-      leaf_litter_DON_fast ,        &
-      leaf_litter_DON_slow ,        &
-      leaf_litter_DON_deadmic ,     &
-      leaf_litter_NO3,              &
-      leaf_litter_NH4,              &
-      leaf_litter_nitrif,           &
-      leaf_litter_denitrif,         &
-      fineWood_litter_DON_fast ,    &
-      fineWood_litter_DON_slow ,    &
-      fineWood_litter_DON_deadmic , &
-      fineWood_litter_NO3,              &
-      fineWood_litter_NH4,              &
-      fineWood_litter_nitrif,           &
-      fineWood_litter_denitrif,         &
-      coarseWood_litter_DON_fast ,  &
-      coarseWood_litter_DON_slow ,  &
-      coarseWood_litter_DON_deadmic ,                 &
-      coarseWood_litter_NO3,              &
-      coarseWood_litter_NH4,              &
-      coarseWood_litter_nitrif,           &
-      coarseWood_litter_denitrif,         &
-      leaflitter_fast_N_turnover_accumulated ,          &
-      leaflitter_slow_N_turnover_accumulated ,          &
-      leaflitter_deadmic_N_turnover_accumulated ,       &
-      leaflitter_fsn_in ,                             &
-      leaflitter_ssn_in ,                             &
-      leaflitter_deadmic_N_in ,                         &
-      finewoodlitter_fast_N_turnover_accumulated ,      &
-      finewoodlitter_slow_N_turnover_accumulated ,      &
-      finewoodlitter_deadmic_N_turnover_accumulated ,   &
-      finewoodlitter_fsn_in ,                         &
-      finewoodlitter_ssn_in ,                         &
-      finewoodlitter_deadmic_N_in ,                     &
-      coarsewoodlitter_fast_N_turnover_accumulated ,    &
-      coarsewoodlitter_slow_N_turnover_accumulated ,    &
-      coarsewoodlitter_deadmic_N_turnover_accumulated , &
-      coarsewoodlitter_fsn_in ,                       &
-      coarsewoodlitter_ssn_in ,                       &
-      coarsewoodlitter_deadmic_N_in
-
-  integer, allocatable, dimension(:,:) :: is_peat ! (tile_index, zfull)
-  integer :: id_restart, isize, nccoh
-
-  call error_mesg('soil_end','writing new format NetCDF restart',NOTE)
-
-  ! must set domain so that io_domain is available
-  call set_domain(lnd%domain)
-! Note that fname is updated for tile & rank numbers during file creation
-  fname = trim(timestamp)//'soil.res.nc'
-
-  select case(soil_carbon_option)
-  case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-     call create_tile_out_file(soil_restart,idx,fname,soil_tile_exists,tile_dim_length,zfull(1:num_l))
- case (SOILC_CORPSE, SOILC_CORPSE_N)
-     call create_tile_out_file(soil_restart,idx,fname,soil_tile_exists,tile_dim_length,zfull(1:num_l),soilCCohort_data=soilCCohort_data)
-  case default
-     call error_mesg('save_soil_restart','soil_carbon_option is invalid. This should never happen. Contact developer', FATAL)
-  end select
-
-  isize = size(idx)
-  allocate(temp(isize,num_l),wl(isize,num_l),ws(isize,num_l),groundwater(isize,num_l),groundwater_T(isize,num_l),uptake_T(isize))
-
- ! Output data provides signature
-  call gather_tile_data(soil_T_ptr,idx,temp)
-  id_restart = register_restart_field(soil_restart,fname,'temp',temp,compressed=.true., &
-                                      longname='soil temperature',units='degrees_K')
-
-  call gather_tile_data(soil_wl_ptr,idx,wl)
-  id_restart = register_restart_field(soil_restart,fname,'wl',wl,compressed=.true., &
-                                      longname='liquid water content',units='kg/m2')
-
-  call gather_tile_data(soil_ws_ptr,idx,ws)
-  id_restart = register_restart_field(soil_restart,fname,'ws',ws,compressed=.true., &
-                                      longname='solid water content',units='kg/m2')
-
-  call gather_tile_data(soil_groundwater_ptr,idx,groundwater)
-  id_restart = register_restart_field(soil_restart,fname,'groundwater',groundwater,compressed=.true., &
-                                      longname='groundwater',units='kg/m2')
-
-  call gather_tile_data(soil_groundwater_T_ptr,idx,groundwater_T)
-  id_restart = register_restart_field(soil_restart,fname,'groundwater_T',groundwater_T,compressed=.true., &
-                                      longname='groundwater temperature',units='degrees_K')
-
-  call gather_tile_data(soil_uptake_T_ptr,idx,uptake_T)
-  id_restart = register_restart_field(soil_restart,fname,'uptake_T',uptake_T, &
-                                      longname='temperature of transpiring water',units='degrees_K')
-
-  select case(soil_carbon_option)
-  case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-     allocate(fsc(isize,num_l), ssc(isize,num_l))
-
-     call gather_tile_data(soil_fast_soil_C_ptr,idx,fsc)
-     id_restart = register_restart_field(soil_restart,fname,'fsc',fsc,compressed=.true., &
-                                         longname='fast soil carbon',units='kg C/m2')
-
-     call gather_tile_data(soil_slow_soil_C_ptr,idx,ssc)
-     id_restart = register_restart_field(soil_restart,fname,'ssc',ssc,compressed=.true., &
-                                         longname='slow soil carbon',units='kg C/m2')
+     call add_tile_data(restart,'fsc', 'zfull', soil_fast_soil_C_ptr ,'fast soil carbon', 'kg C/m2')
+     call add_tile_data(restart,'ssc', 'zfull', soil_slow_soil_C_ptr ,'slow soil carbon', 'kg C/m2')
   case (SOILC_CORPSE, SOILC_CORPSE_N)
-
-     ! Register the fields that have the soil carbon cohort axis
-     allocate(fast_soil_C(isize,num_l,soilMaxCohorts))
-     call gather_tile_data(soilc_fast_soil_C_ptr,idx,fast_soil_C)
-     id_restart = register_restart_field(soil_restart,fname,'fast_soil_C',fast_soil_C,compressed=.true., &
-                                         longname='Fast soil carbon',units='kg/m2')
-     allocate(slow_soil_C(isize,num_l,soilMaxCohorts))
-     call gather_tile_data(soilc_slow_soil_C_ptr,idx,slow_soil_C)
-     id_restart = register_restart_field(soil_restart,fname,'slow_soil_C',slow_soil_C,compressed=.true., &
-                                         longname='Slow soil carbon',units='kg/m2')
-     allocate(deadMic(isize,num_l,soilMaxCohorts))
-     call gather_tile_data(soilc_deadMicrobeC_ptr,idx,deadMic)
-     id_restart = register_restart_field(soil_restart,fname,'deadMic',deadMic,compressed=.true., &
-                                         longname='Dead microbe carbon',units='kg/m2')
-
+     te = tail_elmt (land_tile_map)
+     ce = first_elmt(land_tile_map)
+     do while(ce /= te)
+        tile=>current_tile(ce)  ! get pointer to current tile
+        ce=next_elmt(ce)        ! advance position to the next tile
+        if (.not.associated(tile%soil)) cycle
+        call adjust_pool_ncohorts(tile%soil%leafLitter)
+        call adjust_pool_ncohorts(tile%soil%fineWoodLitter)
+        call adjust_pool_ncohorts(tile%soil%coarseWoodLitter)
+        do i = 1,num_l
+           call adjust_pool_ncohorts(tile%soil%soil_organic_matter(i))
+        enddo
+     end do
 
 
-     allocate(fastProtectedC(isize,num_l,soilMaxCohorts))
-     call gather_tile_data(soilc_fast_protected_C_ptr,idx,fastProtectedC)
-     id_restart = register_restart_field(soil_restart,fname,'fastProtectedC',fastProtectedC,compressed=.true., &
-                                         longname='Protected fast carbon',units='kg/m2')
-     allocate(slowProtectedC(isize,num_l,soilMaxCohorts))
-     call gather_tile_data(soilc_slow_protected_C_ptr,idx,slowProtectedC)
-     id_restart = register_restart_field(soil_restart,fname,'slowProtectedC',slowProtectedC,compressed=.true., &
-                                         longname='Protected slow carbon',units='kg/m2')
-     allocate(deadMicrobeProtectedC(isize,num_l,soilMaxCohorts))
-     call gather_tile_data(soilc_deadMicrobe_protected_C_ptr,idx,deadMicrobeProtectedC)
-     id_restart = register_restart_field(soil_restart,fname,'deadMicrobeProtectedC',deadMicrobeProtectedC,compressed=.true., &
-                                         longname='Protected dead microbe carbon',units='kg/m2')
+          call add_tile_data(restart,'fast_soil_C','zfull','soilCCohort',sc_soil_C_ptr,C_CEL,'Fast soil carbon','kg/m2')
+          call add_tile_data(restart,'slow_soil_C', 'zfull','soilCCohort',sc_soil_C_ptr,C_LIG,'Slow soil carbon','kg/m2')
+          call add_tile_data(restart,'deadMic', 'zfull','soilCCohort',sc_soil_C_ptr,C_MIC,'Dead microbe carbon','kg/m2')
+          call add_tile_data(restart,'fastProtectedC', 'zfull','soilCCohort',sc_protected_C_ptr,C_CEL,'Protected fast carbon','kg/m2')
+          call add_tile_data(restart,'slowProtectedC', 'zfull','soilCCohort',sc_protected_C_ptr,C_LIG,'Protected slow carbon','kg/m2')
+          call add_tile_data(restart,'deadMicrobeProtectedC', 'zfull','soilCCohort',sc_protected_C_ptr,C_MIC,'Protected dead microbe carbon','kg/m2')
 
+          call add_tile_data(restart,'liveMic', 'zfull','soilCCohort', soilc_livingMicrobeC_ptr,'Living microbial carbon','kg/m2')
+          call add_tile_data(restart,'CO2', 'zfull','soilCCohort', soilc_CO2_ptr,'Cohort CO2 generated','kg/m2')
+          call add_tile_data(restart,'Rtot', 'zfull','soilCCohort', soilc_Rtot_ptr,'Total degradation','kg/m2')
+          call add_tile_data(restart,'originalCohortC', 'zfull','soilCCohort', soilc_originalLitterC_ptr,'Cohort original carbon','g/m2')
 
+          call add_tile_data(restart,'soil_DOC_fast', 'zfull', soil_fast_DOC_ptr ,'Dissolved fast carbon','kg/m2')
+          call add_tile_data(restart,'soil_DOC_slow', 'zfull', soil_slow_DOC_ptr ,'Dissolved slow carbon','kg/m2')
+          call add_tile_data(restart,'soil_DOC_deadmic', 'zfull', soil_deadmicrobe_DOC_ptr ,'Dissolved dead microbe carbon','kg/m2')
 
-     allocate(liveMic(isize,num_l,soilMaxCohorts))
-     call gather_tile_data(soilc_livingMicrobeC_ptr,idx,liveMic)
-     id_restart = register_restart_field(soil_restart,fname,'liveMic',liveMic,compressed=.true., &
-                                         longname='Living microbial carbon',units='kg/m2')
+          call add_tile_data(restart,'fast_DOC_leached',     soil_fast_DOC_leached_ptr, 'Cumulative fast DOC leached out of the column', 'kg/m2')
+          call add_tile_data(restart,'slow_DOC_leached',     soil_slow_DOC_leached_ptr, 'Cumulative slow DOC leached out of the column', 'kg/m2')
+          call add_tile_data(restart,'deadmic_DOC_leached',     soil_deadmic_DOC_leached_ptr, 'Cumulative dead microbe DOC leached out of the column', 'kg/m2')
 
+          call add_tile_data(restart,'leaf_litter_fast_C', 'soilCCohort', soilc_leafLitter_litterC_ptr,C_CEL,'Leaf litter fast C','kg/m2')
+          call add_tile_data(restart,'leaf_litter_slow_C', 'soilCCohort', soilc_leafLitter_litterC_ptr,C_LIG,'Leaf litter slow C','kg/m2')
+          call add_tile_data(restart,'leaf_litter_deadMic_C', 'soilCCohort', soilc_leafLitter_litterC_ptr,C_MIC,'Leaf litter dead microbe C','kg/m2')
+          call add_tile_data(restart,'leaf_litter_liveMic_C','soilCCohort' ,soilc_leafLitter_livingMicrobeC_ptr,'Leaf litter live microbe C','kg/m2')
+          call add_tile_data(restart,'leaf_litter_CO2','soilCCohort',soilc_leafLitter_CO2_ptr,'Leaf litter CO2 generated','kg/m2')
+          call add_tile_data(restart,'leaf_litter_Rtot','soilCCohort', soilc_leafLitter_Rtot_ptr,'Leaf litter total degradation','kg/m2')
+          call add_tile_data(restart,'leaf_litter_originalCohortC','soilCCohort',soilc_leafLitter_originalLitterC_ptr,'Leaf litter cohort original carbon','kg/m2')
+          call add_tile_data(restart,'leaf_litter_fastProtectedC', 'soilCCohort', soilc_leafLitter_protectedC_ptr,C_CEL,'Leaf litter fast protected C','kg/m2')
+          call add_tile_data(restart,'leaf_litter_slowProtectedC', 'soilCCohort', soilc_leafLitter_protectedC_ptr,C_LIG,'Leaf litter slow protected C','kg/m2')
+          call add_tile_data(restart,'leaf_litter_deadMicrobeProtectedC','soilCCohort', soilc_leafLitter_protectedC_ptr,C_MIC,'Leaf litter dead microbe protected C','kg/m2')
 
-     allocate(CO2(isize,num_l,soilMaxCohorts))
-     call gather_tile_data(soilc_CO2_ptr,idx,CO2)
-     id_restart = register_restart_field(soil_restart,fname,'CO2',CO2,compressed=.true., &
-                                         longname='Cohort CO2 generated',units='kg/m2')
-     allocate(Rtot(isize,num_l,soilMaxCohorts))
-     call gather_tile_data(soilc_Rtot_ptr,idx,Rtot)
-     id_restart = register_restart_field(soil_restart,fname,'Rtot',Rtot,compressed=.true., &
-                                         longname='Total degradation',units='kg/m2')
-     allocate(originalCohortC(isize,num_l,soilMaxCohorts))
-     call gather_tile_data(soilc_originalLitterC_ptr,idx,originalCohortC)
-     id_restart = register_restart_field(soil_restart,fname,'originalCohortC',originalCohortC,compressed=.true., &
-                                         longname='Cohort original carbon',units='kg/m2')
+          call add_tile_data(restart,'leaf_litter_DOC_fast',soilc_leafLitter_DOC_ptr,C_CEL,'Dissolved leaf litter fast carbon','kg/m2')
+          call add_tile_data(restart,'leaf_litter_DOC_slow',soilc_leafLitter_DOC_ptr,C_LIG,'Dissolved leaf litter slow carbon','kg/m2')
+          call add_tile_data(restart,'leaf_litter_DOC_deadmic',soilc_leafLitter_DOC_ptr,C_MIC,'Dissolved leaf litter dead microbe carbon','kg/m2')
 
+          call add_tile_data(restart,'fineWood_litter_fast_C', 'soilCCohort', soilc_fineWoodLitter_litterC_ptr,C_CEL,'Fine wood litter fast C','kg/m2')
+          call add_tile_data(restart,'fineWood_litter_slow_C', 'soilCCohort', soilc_fineWoodLitter_litterC_ptr,C_LIG,'Fine wood litter slow C','kg/m2')
+          call add_tile_data(restart,'fineWood_litter_deadMic_C', 'soilCCohort', soilc_fineWoodLitter_litterC_ptr,C_MIC,'Fine wood litter dead microbe C','kg/m2')
+          call add_tile_data(restart,'fineWood_litter_liveMic_C', 'soilCCohort', soilc_fineWoodLitter_livingMicrobeC_ptr,'Fine wood litter live microbe C','kg/m2')
+          call add_tile_data(restart,'fineWood_litter_CO2','soilCCohort', soilc_fineWoodLitter_CO2_ptr,'Fine wood litter CO2 generated','kg/m2')
+          call add_tile_data(restart,'fineWood_litter_Rtot','soilCCohort',soilc_fineWoodLitter_Rtot_ptr,'Fine wood litter total degradation','kg/m2')
+          call add_tile_data(restart,'fineWood_litter_originalCohortC','soilCCohort',soilc_fineWoodLitter_originalLitterC_ptr,'Fine wood litter cohort original carbon','kg/m2')
+          call add_tile_data(restart,'fineWood_litter_fastProtectedC', 'soilCCohort', soilc_fineWoodLitter_protectedC_ptr,C_CEL,'Fine wood litter fast protected C','kg/m2')
+          call add_tile_data(restart,'fineWood_litter_slowProtectedC', 'soilCCohort', soilc_fineWoodLitter_protectedC_ptr,C_LIG,'Fine wood litter slow protected C','kg/m2')
+          call add_tile_data(restart,'fineWood_litter_deadMicrobeProtectedC', 'soilCCohort', soilc_fineWoodLitter_protectedC_ptr,C_MIC,'Fine wood litter dead microbe protected C','kg/m2')
 
+          call add_tile_data(restart,'fineWood_litter_DOC_fast',soilc_fineWoodLitter_DOC_ptr,C_CEL,'Dissolved fine wood litter fast carbon','kg/m2')
+          call add_tile_data(restart,'fineWood_litter_DOC_slow',soilc_fineWoodLitter_DOC_ptr,C_LIG,'Dissolved fine wood litter slow carbon','kg/m2')
+          call add_tile_data(restart,'fineWood_litter_DOC_deadmic',soilc_fineWoodLitter_DOC_ptr,C_MIC,'Dissolved fine wood litter dead microbe carbon','kg/m2')
 
+          call add_tile_data(restart,'coarseWood_litter_fast_C', 'soilCCohort', soilc_coarseWoodLitter_litterC_ptr,C_CEL,'Coarse wood litter fast C','kg/m2')
+          call add_tile_data(restart,'coarseWood_litter_slow_C', 'soilCCohort', soilc_coarseWoodLitter_litterC_ptr,C_LIG,'Coarse wood litter slow C','kg/m2')
+          call add_tile_data(restart,'coarseWood_litter_deadMic_C', 'soilCCohort', soilc_coarseWoodLitter_litterC_ptr,C_MIC,'Coarse wood litter dead microbe C','kg/m2')
+          call add_tile_data(restart,'coarseWood_litter_liveMic_C', 'soilCCohort', soilc_coarseWoodLitter_livingMicrobeC_ptr,'Coarse wood litter live microbe C','kg/m2')
+          call add_tile_data(restart,'coarseWood_litter_CO2','soilCCohort',soilc_coarseWoodLitter_CO2_ptr,'Coarse wood litter CO2 generated','kg/m2')
+          call add_tile_data(restart,'coarseWood_litter_Rtot','soilCCohort',soilc_coarseWoodLitter_Rtot_ptr,'Coarse wood litter total degradation','kg/m2')
+          call add_tile_data(restart,'coarseWood_litter_originalCohortC','soilCCohort',soilc_coarseWoodLitter_originalLitterC_ptr,'Coarse wood litter cohort original carbon','kg/m2')
+          call add_tile_data(restart,'coarseWood_litter_fastProtectedC', 'soilCCohort', soilc_coarseWoodLitter_protectedC_ptr,C_CEL,'Coarse wood litter fast protected C','kg/m2')
+          call add_tile_data(restart,'coarseWood_litter_slowProtectedC', 'soilCCohort', soilc_coarseWoodLitter_protectedC_ptr,C_LIG,'Coarse wood litter slow protected C','kg/m2')
+          call add_tile_data(restart,'coarseWood_litter_deadMicrobeProtectedC', 'soilCCohort', soilc_coarseWoodLitter_protectedC_ptr,C_MIC,'Coarse wood litter dead microbe protected C','kg/m2')
 
-     allocate(soil_DOC_fast(isize,num_l))
-     call gather_tile_data(soil_fast_DOC_ptr,idx,soil_DOC_fast)
-     id_restart = register_restart_field(soil_restart,fname,'soil_DOC_fast',soil_DOC_fast,compressed=.true., &
-                                         longname='Dissolved fast carbon',units='kg/m2')
-     allocate(soil_DOC_slow(isize,num_l))
-     call gather_tile_data(soil_slow_DOC_ptr,idx,soil_DOC_slow)
-     id_restart = register_restart_field(soil_restart,fname,'soil_DOC_slow',soil_DOC_slow,compressed=.true., &
-                                         longname='Dissolved slow carbon',units='kg/m2')
-     allocate(soil_DOC_deadmic(isize,num_l))
-     call gather_tile_data(soil_deadmicrobe_DOC_ptr,idx,soil_DOC_deadmic)
-     id_restart = register_restart_field(soil_restart,fname,'soil_DOC_deadmic',soil_DOC_deadmic,compressed=.true., &
-                                         longname='Dissolved dead microbe carbon',units='kg/m2')
+          call add_tile_data(restart,'coarseWood_litter_DOC_fast',soilc_coarseWoodLitter_DOC_ptr,C_CEL,'Dissolved coarse wood litter fast carbon','kg/m2')
+          call add_tile_data(restart,'coarseWood_litter_DOC_slow',soilc_coarseWoodLitter_DOC_ptr,C_LIG,'Dissolved coarse wood litter slow carbon','kg/m2')
+          call add_tile_data(restart,'coarseWood_litter_DOC_deadmic',soilc_coarseWoodLitter_DOC_ptr,C_MIC,'Dissolved coarse wood litter dead microbe carbon','kg/m2')
 
-
-
-     allocate(fast_DOC_leached(isize))
-     call gather_tile_data(soil_fast_DOC_leached_ptr,idx,fast_DOC_leached)
-     id_restart = register_restart_field(soil_restart,fname,'fast_DOC_leached',fast_DOC_leached, &
-                                         longname='Cumulative fast DOC leached out of the column',units='kg/m2')
-     allocate(slow_DOC_leached(isize))
-     call gather_tile_data(soil_slow_DOC_leached_ptr,idx,slow_DOC_leached)
-     id_restart = register_restart_field(soil_restart,fname,'slow_DOC_leached',slow_DOC_leached, &
-                                         longname='Cumulative slow DOC leached out of the column',units='kg/m2')
-     allocate(deadmic_DOC_leached(isize))
-     call gather_tile_data(soil_deadmic_DOC_leached_ptr,idx,deadmic_DOC_leached)
-     id_restart = register_restart_field(soil_restart,fname,'deadmic_DOC_leached',deadmic_DOC_leached, &
-                                         longname='Cumulative dead microbe DOC leached out of the column',units='kg/m2')
-
-
-
-     allocate(leaf_litter_fast_C(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_leafLitter_fast_soil_C_ptr,idx,leaf_litter_fast_C)
-     id_restart = register_restart_field(soil_restart,fname,'leaf_litter_fast_C',leaf_litter_fast_C,compressed=.true., &
-                                         longname='Leaf litter fast C',units='kg/m2', compressed_axis='C_CC')
-     allocate(leaf_litter_slow_C(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_leafLitter_slow_soil_C_ptr,idx,leaf_litter_slow_C)
-     id_restart = register_restart_field(soil_restart,fname,'leaf_litter_slow_C',leaf_litter_slow_C,compressed=.true., &
-                                         longname='Leaf litter slow C',units='kg/m2', compressed_axis='C_CC')
-     allocate(leaf_litter_deadMic_C(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_leafLitter_deadMicrobeC_ptr,idx,leaf_litter_deadMic_C)
-     id_restart = register_restart_field(soil_restart,fname,'leaf_litter_deadMic_C',leaf_litter_deadMic_C,compressed=.true., &
-                                         longname='Leaf litter dead microbe C',units='kg/m2', compressed_axis='C_CC')
-     allocate(leaf_litter_liveMic_C(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_leafLitter_livingMicrobeC_ptr,idx,leaf_litter_liveMic_C)
-     id_restart = register_restart_field(soil_restart,fname,'leaf_litter_liveMic_C',leaf_litter_liveMic_C,compressed=.true., &
-                                         longname='Leaf litter live microbe C',units='kg/m2', compressed_axis='C_CC')
-     allocate(leaf_litter_CO2(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_leafLitter_CO2_ptr,idx,leaf_litter_CO2)
-     id_restart = register_restart_field(soil_restart,fname,'leaf_litter_CO2',leaf_litter_CO2,compressed=.true., &
-                                         longname='Leaf litter CO2 generated',units='kg/m2', compressed_axis='C_CC')
-     allocate(leaf_litter_Rtot(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_leafLitter_Rtot_ptr,idx,leaf_litter_Rtot)
-     id_restart = register_restart_field(soil_restart,fname,'leaf_litter_Rtot',leaf_litter_Rtot,compressed=.true., &
-                                         longname='Leaf litter total degradation',units='kg/m2', compressed_axis='C_CC')
-     allocate(leaf_litter_originalCohortC(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_leafLitter_originalLitterC_ptr,idx,leaf_litter_originalCohortC)
-     id_restart = register_restart_field(soil_restart,fname,'leaf_litter_originalCohortC',leaf_litter_originalCohortC,compressed=.true., &
-                                         longname='Leaf litter cohort original carbon',units='kg/m2', compressed_axis='C_CC')
-     allocate(leaf_litter_fastProtectedC(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_leafLitter_fast_protected_C_ptr,idx,leaf_litter_fastProtectedC)
-     id_restart = register_restart_field(soil_restart,fname,'leaf_litter_fastProtectedC',leaf_litter_fastProtectedC,compressed=.true., &
-                                         longname='Leaf litter fast protected C',units='kg/m2', compressed_axis='C_CC')
-     allocate(leaf_litter_slowProtectedC(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_leafLitter_slow_protected_C_ptr,idx,leaf_litter_slowProtectedC)
-     id_restart = register_restart_field(soil_restart,fname,'leaf_litter_slowProtectedC',leaf_litter_slowProtectedC,compressed=.true., &
-                                         longname='Leaf litter slow protected C',units='kg/m2', compressed_axis='C_CC')
-     allocate(leaf_litter_deadMicrobeProtectedC(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_leafLitter_deadMicrobe_protected_C_ptr,idx,leaf_litter_deadMicrobeProtectedC)
-     id_restart = register_restart_field(soil_restart,fname,'leaf_litter_deadMicrobeProtectedC',leaf_litter_deadMicrobeProtectedC,compressed=.true., &
-                                         longname='Leaf litter dead microbe protected C',units='kg/m2', compressed_axis='C_CC')
-     allocate(leaf_litter_DOC_fast(isize))
-     call gather_tile_data(soilc_leafLitter_fast_DOC_ptr,idx,leaf_litter_DOC_fast)
-     id_restart = register_restart_field(soil_restart,fname,'leaf_litter_DOC_fast',leaf_litter_DOC_fast, &
-                                         longname='Dissolved leaf litter fast carbon',units='kg/m2')
-     allocate(leaf_litter_DOC_slow(isize))
-     call gather_tile_data(soilc_leafLitter_slow_DOC_ptr,idx,leaf_litter_DOC_slow)
-     id_restart = register_restart_field(soil_restart,fname,'leaf_litter_DOC_slow',leaf_litter_DOC_slow, &
-                                         longname='Dissolved leaf litter slow carbon',units='kg/m2')
-     allocate(leaf_litter_DOC_deadmic(isize))
-     call gather_tile_data(soilc_leafLitter_deadmicrobe_DOC_ptr,idx,leaf_litter_DOC_deadmic)
-     id_restart = register_restart_field(soil_restart,fname,'leaf_litter_DOC_deadmic',leaf_litter_DOC_deadmic, &
-                                         longname='Dissolved leaf litter dead microbe carbon',units='kg/m2')
-
-
-
-     allocate(fineWood_litter_fast_C(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_fineWoodLitter_fast_soil_C_ptr,idx,fineWood_litter_fast_C)
-     id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_fast_C',fineWood_litter_fast_C,compressed=.true., &
-                                         longname='Fine wood litter fast C',units='kg/m2', compressed_axis='C_CC')
-     allocate(fineWood_litter_slow_C(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_fineWoodLitter_slow_soil_C_ptr,idx,fineWood_litter_slow_C)
-     id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_slow_C',fineWood_litter_slow_C,compressed=.true., &
-                                         longname='Fine wood litter slow C',units='kg/m2', compressed_axis='C_CC')
-     allocate(fineWood_litter_deadMic_C(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_fineWoodLitter_deadMicrobeC_ptr,idx,fineWood_litter_deadMic_C)
-     id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_deadMic_C',fineWood_litter_deadMic_C,compressed=.true., &
-                                         longname='Fine wood litter dead microbe C',units='kg/m2', compressed_axis='C_CC')
-     allocate(fineWood_litter_liveMic_C(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_fineWoodLitter_livingMicrobeC_ptr,idx,fineWood_litter_liveMic_C)
-     id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_liveMic_C',fineWood_litter_liveMic_C,compressed=.true., &
-                                         longname='Fine wood litter live microbe C',units='kg/m2', compressed_axis='C_CC')
-     allocate(fineWood_litter_CO2(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_fineWoodLitter_CO2_ptr,idx,fineWood_litter_CO2)
-     id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_CO2',fineWood_litter_CO2,compressed=.true., &
-                                         longname='Fine wood litter CO2 generated',units='kg/m2', compressed_axis='C_CC')
-     allocate(fineWood_litter_Rtot(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_fineWoodLitter_Rtot_ptr,idx,fineWood_litter_Rtot)
-     id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_Rtot',fineWood_litter_Rtot,compressed=.true., &
-                                         longname='Fine wood litter total degradation',units='kg/m2', compressed_axis='C_CC')
-     allocate(fineWood_litter_originalCohortC(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_fineWoodLitter_originalLitterC_ptr,idx,fineWood_litter_originalCohortC)
-     id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_originalCohortC',fineWood_litter_originalCohortC,compressed=.true., &
-                                         longname='Fine wood litter cohort original carbon',units='kg/m2', compressed_axis='C_CC')
-     allocate(fineWood_litter_fastProtectedC(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_fineWoodLitter_fast_protected_C_ptr,idx,fineWood_litter_fastProtectedC)
-     id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_fastProtectedC',fineWood_litter_fastProtectedC,compressed=.true., &
-                                         longname='Fine wood litter fast protected C',units='kg/m2', compressed_axis='C_CC')
-     allocate(fineWood_litter_slowProtectedC(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_fineWoodLitter_slow_protected_C_ptr,idx,fineWood_litter_slowProtectedC)
-     id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_slowProtectedC',fineWood_litter_slowProtectedC,compressed=.true., &
-                                         longname='Fine wood litter slow protected C',units='kg/m2', compressed_axis='C_CC')
-     allocate(fineWood_litter_deadMicrobeProtectedC(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_fineWoodLitter_deadMicrobe_protected_C_ptr,idx,fineWood_litter_deadMicrobeProtectedC)
-     id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_deadMicrobeProtectedC',fineWood_litter_deadMicrobeProtectedC,compressed=.true., &
-                                         longname='Fine wood litter dead microbe protected C',units='kg/m2', compressed_axis='C_CC')
-     allocate(fineWood_litter_DOC_fast(isize))
-     call gather_tile_data(soilc_fineWoodLitter_fast_DOC_ptr,idx,fineWood_litter_DOC_fast)
-     id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_DOC_fast',fineWood_litter_DOC_fast, &
-                                         longname='Dissolved fine wood litter fast carbon',units='kg/m2')
-     allocate(fineWood_litter_DOC_slow(isize))
-     call gather_tile_data(soilc_fineWoodLitter_slow_DOC_ptr,idx,fineWood_litter_DOC_slow)
-     id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_DOC_slow',fineWood_litter_DOC_slow, &
-                                         longname='Dissolved fine wood litter slow carbon',units='kg/m2')
-     allocate(fineWood_litter_DOC_deadmic(isize))
-     call gather_tile_data(soilc_fineWoodLitter_deadmicrobe_DOC_ptr,idx,fineWood_litter_DOC_deadmic)
-     id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_DOC_deadmic',fineWood_litter_DOC_deadmic, &
-                                         longname='Dissolved fine wood litter dead microbe carbon',units='kg/m2')
-
-
-
-     allocate(coarseWood_litter_fast_C(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_coarseWoodLitter_fast_soil_C_ptr,idx,coarseWood_litter_fast_C)
-     id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_fast_C',coarseWood_litter_fast_C,compressed=.true., &
-                                         longname='Coarse wood litter fast C',units='kg/m2', compressed_axis='C_CC')
-     allocate(coarseWood_litter_slow_C(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_coarseWoodLitter_slow_soil_C_ptr,idx,coarseWood_litter_slow_C)
-     id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_slow_C',coarseWood_litter_slow_C,compressed=.true., &
-                                         longname='Coarse wood litter slow C',units='kg/m2', compressed_axis='C_CC')
-     allocate(coarseWood_litter_deadMic_C(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_coarseWoodLitter_deadMicrobeC_ptr,idx,coarseWood_litter_deadMic_C)
-     id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_deadMic_C',coarseWood_litter_deadMic_C,compressed=.true., &
-                                         longname='Coarse wood litter dead microbe C',units='kg/m2', compressed_axis='C_CC')
-     allocate(coarseWood_litter_liveMic_C(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_coarseWoodLitter_livingMicrobeC_ptr,idx,coarseWood_litter_liveMic_C)
-     id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_liveMic_C',coarseWood_litter_liveMic_C,compressed=.true., &
-                                         longname='Coarse wood litter live microbe C',units='kg/m2', compressed_axis='C_CC')
-     allocate(coarseWood_litter_CO2(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_coarseWoodLitter_CO2_ptr,idx,coarseWood_litter_CO2)
-     id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_CO2',coarseWood_litter_CO2,compressed=.true., &
-                                         longname='Coarse wood litter CO2 generated',units='kg/m2', compressed_axis='C_CC')
-     allocate(coarseWood_litter_Rtot(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_coarseWoodLitter_Rtot_ptr,idx,coarseWood_litter_Rtot)
-     id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_Rtot',coarseWood_litter_Rtot,compressed=.true., &
-                                         longname='Coarse wood litter total degradation',units='kg/m2', compressed_axis='C_CC')
-     allocate(coarseWood_litter_originalCohortC(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_coarseWoodLitter_originalLitterC_ptr,idx,coarseWood_litter_originalCohortC)
-     id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_originalCohortC',coarseWood_litter_originalCohortC,compressed=.true., &
-                                         longname='Coarse wood litter cohort original carbon',units='kg/m2', compressed_axis='C_CC')
-     allocate(coarseWood_litter_fastProtectedC(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_coarseWoodLitter_fast_protected_C_ptr,idx,coarseWood_litter_fastProtectedC)
-     id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_fastProtectedC',coarseWood_litter_fastProtectedC,compressed=.true., &
-                                         longname='Coarse wood litter fast protected C',units='kg/m2', compressed_axis='C_CC')
-     allocate(coarseWood_litter_slowProtectedC(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_coarseWoodLitter_slow_protected_C_ptr,idx,coarseWood_litter_slowProtectedC)
-     id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_slowProtectedC',coarseWood_litter_slowProtectedC,compressed=.true., &
-                                         longname='Coarse wood litter slow protected C',units='kg/m2', compressed_axis='C_CC')
-     allocate(coarseWood_litter_deadMicrobeProtectedC(isize,soilMaxCohorts))
-     call gather_tile_data(soilc_coarseWoodLitter_deadMicrobe_protected_C_ptr,idx,coarseWood_litter_deadMicrobeProtectedC)
-     id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_deadMicrobeProtectedC',coarseWood_litter_deadMicrobeProtectedC,compressed=.true., &
-                                         longname='Coarse wood litter dead microbe protected C',units='kg/m2', compressed_axis='C_CC')
-     allocate(coarseWood_litter_DOC_fast(isize))
-     call gather_tile_data(soilc_coarseWoodLitter_fast_DOC_ptr,idx,coarseWood_litter_DOC_fast)
-     id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_DOC_fast',coarseWood_litter_DOC_fast, &
-                                         longname='Dissolved coarse wood litter fast carbon',units='kg/m2')
-     allocate(coarseWood_litter_DOC_slow(isize))
-     call gather_tile_data(soilc_coarseWoodLitter_slow_DOC_ptr,idx,coarseWood_litter_DOC_slow)
-     id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_DOC_slow',coarseWood_litter_DOC_slow, &
-                                         longname='Dissolved coarse wood litter slow carbon',units='kg/m2')
-     allocate(coarseWood_litter_DOC_deadmic(isize))
-     call gather_tile_data(soilc_coarseWoodLitter_deadmicrobe_DOC_ptr,idx,coarseWood_litter_DOC_deadmic)
-     id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_DOC_deadmic',coarseWood_litter_DOC_deadmic, &
-                                         longname='Dissolved coarse wood litter dead microbe carbon',units='kg/m2')
-
-     allocate(is_peat(isize,num_l))
-     call gather_tile_data(soil_is_peat_ptr,idx,is_peat)
-     id_restart = register_restart_field(soil_restart,fname,'is_peat',is_peat,compressed=.true., &
-                                         longname='Is layer peat?',units='Boolean')
 
 
      if (soil_carbon_option == SOILC_CORPSE_N) then
-          allocate(fast_soil_N(isize,num_l,soilMaxCohorts))
-          call gather_tile_data(soilc_fast_soil_N_ptr,idx,fast_soil_N)
-          id_restart = register_restart_field(soil_restart,fname,'fast_soil_N',fast_soil_N,compressed=.true., &
-                                              longname='Fast soil nitrogen',units='kg/m2')
-          allocate(slow_soil_N(isize,num_l,soilMaxCohorts))
-          call gather_tile_data(soilc_slow_soil_N_ptr,idx,slow_soil_N)
-          id_restart = register_restart_field(soil_restart,fname,'slow_soil_N',slow_soil_N,compressed=.true., &
-                                              longname='Slow soil nitrogen',units='kg/m2')
-          allocate(deadMic_N(isize,num_l,soilMaxCohorts))
-          call gather_tile_data(soilc_deadMicrobeN_ptr,idx,deadMic_N)
-          id_restart = register_restart_field(soil_restart,fname,'deadMic_N',deadMic_N,compressed=.true., &
-                                              longname='Dead microbe nitrogen',units='kg/m2')
-         allocate(fastProtectedN(isize,num_l,soilMaxCohorts))
-         call gather_tile_data(soilc_fast_protected_N_ptr,idx,fastProtectedN)
-         id_restart = register_restart_field(soil_restart,fname,'fastProtectedN',fastProtectedN,compressed=.true., &
-                                             longname='Protected fast nitrogen',units='kg/m2')
-         allocate(slowProtectedN(isize,num_l,soilMaxCohorts))
-         call gather_tile_data(soilc_slow_protected_N_ptr,idx,slowProtectedN)
-         id_restart = register_restart_field(soil_restart,fname,'slowProtectedN',slowProtectedN,compressed=.true., &
-                                             longname='Protected slow nitrogen',units='kg/m2')
-         allocate(deadMicrobeProtectedN(isize,num_l,soilMaxCohorts))
-         call gather_tile_data(soilc_deadMicrobe_protected_N_ptr,idx,deadMicrobeProtectedN)
-         id_restart = register_restart_field(soil_restart,fname,'deadMicrobeProtectedN',deadMicrobeProtectedN,compressed=.true., &
-                                             longname='Protected dead microbe nitrogen',units='kg/m2')
-         allocate(originalCohortN(isize,num_l,soilMaxCohorts))
-         call gather_tile_data(soilc_originalLitterN_ptr,idx,originalCohortN)
-         id_restart = register_restart_field(soil_restart,fname,'originalCohortN',originalCohortN,compressed=.true., &
-                                             longname='Cohort original nitrogen',units='kg/m2')
 
-         allocate(liveMic_N(isize,num_l,soilMaxCohorts))
-         call gather_tile_data(soilc_livingMicrobeN_ptr,idx,liveMic_N)
-         id_restart = register_restart_field(soil_restart,fname,'liveMic_N',liveMic_N,compressed=.true., &
-                                             longname='Living microbial nitrogen',units='kg/m2')
+       call add_tile_data(restart,'fast_soil_N','zfull','soilCCohort',sc_soil_N_ptr,C_CEL,'Fast soil nitrogen','kg/m2')
+       call add_tile_data(restart,'slow_soil_N', 'zfull','soilCCohort',sc_soil_N_ptr,C_LIG,'Slow soil nitrogen','kg/m2')
+       call add_tile_data(restart,'deadMicN', 'zfull','soilCCohort',sc_soil_N_ptr,C_MIC,'Dead microbe nitrogen','kg/m2')
+       call add_tile_data(restart,'fastProtectedN', 'zfull','soilCCohort',sc_protected_N_ptr,C_CEL,'Protected fast nitrogen','kg/m2')
+       call add_tile_data(restart,'slowProtectedN', 'zfull','soilCCohort',sc_protected_N_ptr,C_LIG,'Protected slow nitrogen','kg/m2')
+       call add_tile_data(restart,'deadMicrobeProtectedN', 'zfull','soilCCohort',sc_protected_N_ptr,C_MIC,'Protected dead microbe nitrogen','kg/m2')
 
-         allocate(soil_DON_fast(isize,num_l))
-         call gather_tile_data(soil_fast_DON_ptr,idx,soil_DON_fast)
-         id_restart = register_restart_field(soil_restart,fname,'soil_DON_fast',soil_DON_fast,compressed=.true., &
-                                             longname='Dissolved fast nitrogen',units='kg/m2')
-         allocate(soil_DON_slow(isize,num_l))
-         call gather_tile_data(soil_slow_DON_ptr,idx,soil_DON_slow)
-         id_restart = register_restart_field(soil_restart,fname,'soil_DON_slow',soil_DON_slow,compressed=.true., &
-                                             longname='Dissolved slow nitrogen',units='kg/m2')
-         allocate(soil_DON_deadmic(isize,num_l))
-         call gather_tile_data(soil_deadmicrobe_DON_ptr,idx,soil_DON_deadmic)
-         id_restart = register_restart_field(soil_restart,fname,'soil_DON_deadmic',soil_DON_deadmic,compressed=.true., &
-                                             longname='Dissolved dead microbe nitrogen',units='kg/m2')
-         allocate(soil_NO3(isize,num_l))
-         call gather_tile_data(soil_nitrate_ptr,idx,soil_NO3)
-         id_restart = register_restart_field(soil_restart,fname,'soil_NO3',soil_NO3,compressed=.true., &
-                                             longname='NO3 content',units='kgN/m2')
-         allocate(soil_NH4(isize,num_l))
-         call gather_tile_data(soil_ammonium_ptr,idx,soil_NH4)
-         id_restart = register_restart_field(soil_restart,fname,'soil_NH4',soil_NH4,compressed=.true., &
-                                             longname='NH4 content',units='kgN/m2')
-         allocate(soil_nitrif(isize,num_l))
-         call gather_tile_data(soil_nitrif_ptr,idx,soil_nitrif)
-         id_restart = register_restart_field(soil_restart,fname,'soil_nitrif',soil_nitrif,compressed=.true., &
-                                             longname='Cumulative nitrification',units='kgN/m2')
-         allocate(soil_denitrif(isize,num_l))
-         call gather_tile_data(soil_denitrif_ptr,idx,soil_denitrif)
-         id_restart = register_restart_field(soil_restart,fname,'soil_denitrif',soil_denitrif,compressed=.true., &
-                                             longname='Cumulative denitrification',units='kgN/m2')
+       call add_tile_data(restart,'liveMicN', 'zfull','soilCCohort', soilc_livingMicrobeN_ptr,'Living microbial nitrogen','kg/m2')
+       call add_tile_data(restart,'soil_NO3', 'zfull', soilc_nitrate_ptr,'Soil nitrate','kg/m2')
+       call add_tile_data(restart,'soil_NH4', 'zfull', soilc_ammonium_ptr,'Soil ammonium','kg/m2')
+       call add_tile_data(restart,'soil_nitrif', 'zfull', soilc_nitrif_ptr,'Total nitrification','kg/m2')
+       call add_tile_data(restart,'soil_denitrif', 'zfull', soilc_denitrif_ptr,'Total denitrification','kg/m2')
+       call add_tile_data(restart,'originalCohortN', 'zfull','soilCCohort', soilc_originalLitterN_ptr,'Cohort original nitrogen','kg/m2')
 
-         allocate(fast_DON_leached(isize))
-         call gather_tile_data(soil_fast_DON_leached_ptr,idx,fast_DON_leached)
-         id_restart = register_restart_field(soil_restart,fname,'fast_DON_leached',fast_DON_leached, &
-                                             longname='Cumulative fast DON leached out of the column',units='kg/m2')
-         allocate(slow_DON_leached(isize))
-         call gather_tile_data(soil_slow_DOC_leached_ptr,idx,slow_DON_leached)
-         id_restart = register_restart_field(soil_restart,fname,'slow_DON_leached',slow_DON_leached, &
-                                             longname='Cumulative slow DON leached out of the column',units='kg/m2')
-         allocate(deadmic_DON_leached(isize))
-         call gather_tile_data(soil_deadmic_DON_leached_ptr,idx,deadmic_DON_leached)
-         id_restart = register_restart_field(soil_restart,fname,'deadmic_DON_leached',deadmic_DON_leached, &
-                                             longname='Cumulative dead microbe DON leached out of the column',units='kg/m2')
+       call add_tile_data(restart,'soil_DON_fast', 'zfull', soil_fast_DON_ptr ,'Dissolved fast organic nitrogen','kg/m2')
+       call add_tile_data(restart,'soil_DON_slow', 'zfull', soil_slow_DON_ptr ,'Dissolved slow organic nitrogen','kg/m2')
+       call add_tile_data(restart,'soil_DON_deadmic', 'zfull', soil_deadmicrobe_DON_ptr ,'Dissolved dead microbe organic nitrogen','kg/m2')
 
-         allocate(NO3_leached(isize))
-         call gather_tile_data(soil_NO3_leached_ptr,idx,NO3_leached)
-         id_restart = register_restart_field(soil_restart,fname,'NO3_leached',NO3_leached, &
-                                             longname='Cumulative NO3 leached out of the column',units='kgN/m2')
+       call add_tile_data(restart,'fast_DON_leached',     soil_fast_DON_leached_ptr, 'Cumulative fast DON leached out of the column', 'kg/m2')
+       call add_tile_data(restart,'slow_DON_leached',     soil_slow_DON_leached_ptr, 'Cumulative slow DON leached out of the column', 'kg/m2')
+       call add_tile_data(restart,'deadmic_DON_leached',     soil_deadmic_DON_leached_ptr, 'Cumulative dead microbe DON leached out of the column', 'kg/m2')
 
-         allocate(NH4_leached(isize))
-         call gather_tile_data(soil_NH4_leached_ptr,idx,NH4_leached)
-         id_restart = register_restart_field(soil_restart,fname,'NH4_leached',NH4_leached, &
-                                             longname='Cumulative NH4 leached out of the column',units='kgN/m2')
+       call add_tile_data(restart,'leaf_litter_fast_N', 'soilCCohort', soilc_leafLitter_litterN_ptr,C_CEL,'Leaf litter fast N','kg/m2')
+       call add_tile_data(restart,'leaf_litter_slow_N', 'soilCCohort', soilc_leafLitter_litterN_ptr,C_LIG,'Leaf litter slow N','kg/m2')
+       call add_tile_data(restart,'leaf_litter_deadMic_N', 'soilCCohort', soilc_leafLitter_litterN_ptr,C_MIC,'Leaf litter dead microbe N','kg/m2')
+       call add_tile_data(restart,'leaf_litter_liveMic_N','soilCCohort' ,soilc_leafLitter_livingMicrobeN_ptr,'Leaf litter live microbe N','kg/m2')
+       call add_tile_data(restart,'leaf_litter_NO3',soilc_leafLitter_nitrate_ptr,'Leaf litter nitrate','kg/m2')
+       call add_tile_data(restart,'leaf_litter_NH4', soilc_leafLitter_ammonium_ptr,'Leaf litter ammonium','kg/m2')
+       call add_tile_data(restart,'leaf_litter_nitrif', soilc_leafLitter_nitrif_ptr,'Leaf litter total nitrification','kg/m2')
+       call add_tile_data(restart,'leaf_litter_denitrif', soilc_leafLitter_denitrif_ptr,'Leaf litter total denitrification','kg/m2')
+       call add_tile_data(restart,'leaf_litter_originalCohortN','soilCCohort',soilc_leafLitter_originalLitterN_ptr,'Leaf litter cohort original nitrogen','kg/m2')
+       call add_tile_data(restart,'leaf_litter_fastProtectedN', 'soilCCohort', soilc_leafLitter_protectedN_ptr,C_CEL,'Leaf litter fast protected N','kg/m2')
+       call add_tile_data(restart,'leaf_litter_slowProtectedN', 'soilCCohort', soilc_leafLitter_protectedN_ptr,C_LIG,'Leaf litter slow protected N','kg/m2')
+       call add_tile_data(restart,'leaf_litter_deadMicrobeProtectedN','soilCCohort', soilc_leafLitter_protectedN_ptr,C_MIC,'Leaf litter dead microbe protected N','kg/m2')
+
+       call add_tile_data(restart,'leaf_litter_DON_fast',soilc_leafLitter_DON_ptr,C_CEL,'Dissolved leaf litter fast nitrogen','kg/m2')
+       call add_tile_data(restart,'leaf_litter_DON_slow',soilc_leafLitter_DON_ptr,C_LIG,'Dissolved leaf litter slow nitrogen','kg/m2')
+       call add_tile_data(restart,'leaf_litter_DON_deadmic',soilc_leafLitter_DON_ptr,C_MIC,'Dissolved leaf litter dead microbe nitrogen','kg/m2')
+
+       call add_tile_data(restart,'fineWood_litter_fast_N', 'soilCCohort', soilc_fineWoodLitter_litterN_ptr,C_CEL,'Fine wood litter fast N','kg/m2')
+       call add_tile_data(restart,'fineWood_litter_slow_N', 'soilCCohort', soilc_fineWoodLitter_litterN_ptr,C_LIG,'Fine wood litter slow N','kg/m2')
+       call add_tile_data(restart,'fineWood_litter_deadMic_N', 'soilCCohort', soilc_fineWoodLitter_litterN_ptr,C_MIC,'Fine wood litter dead microbe N','kg/m2')
+       call add_tile_data(restart,'fineWood_litter_liveMic_N','soilCCohort' ,soilc_fineWoodLitter_livingMicrobeN_ptr,'Fine wood litter live microbe N','kg/m2')
+       call add_tile_data(restart,'fineWood_litter_NO3',soilc_fineWoodLitter_nitrate_ptr,'Fine wood litter nitrate','kg/m2')
+       call add_tile_data(restart,'fineWood_litter_NH4', soilc_fineWoodLitter_ammonium_ptr,'Fine wood litter ammonium','kg/m2')
+       call add_tile_data(restart,'fineWood_litter_nitrif', soilc_fineWoodLitter_nitrif_ptr,'Fine wood litter total nitrification','kg/m2')
+       call add_tile_data(restart,'fineWood_litter_denitrif', soilc_fineWoodLitter_denitrif_ptr,'Fine wood litter total denitrification','kg/m2')
+       call add_tile_data(restart,'fineWood_litter_originalCohortN','soilCCohort',soilc_fineWoodLitter_originalLitterN_ptr,'Fine wood litter cohort original nitrogen','kg/m2')
+       call add_tile_data(restart,'fineWood_litter_fastProtectedN', 'soilCCohort', soilc_fineWoodLitter_protectedN_ptr,C_CEL,'Fine wood litter fast protected N','kg/m2')
+       call add_tile_data(restart,'fineWood_litter_slowProtectedN', 'soilCCohort', soilc_fineWoodLitter_protectedN_ptr,C_LIG,'Fine wood litter slow protected N','kg/m2')
+       call add_tile_data(restart,'fineWood_litter_deadMicrobeProtectedN','soilCCohort', soilc_fineWoodLitter_protectedN_ptr,C_MIC,'Fine wood litter dead microbe protected N','kg/m2')
+
+       call add_tile_data(restart,'fineWood_litter_DON_fast',soilc_fineWoodLitter_DON_ptr,C_CEL,'Dissolved fine wood litter fast nitrogen','kg/m2')
+       call add_tile_data(restart,'fineWood_litter_DON_slow',soilc_fineWoodLitter_DON_ptr,C_LIG,'Dissolved fine wood litter slow nitrogen','kg/m2')
+       call add_tile_data(restart,'fineWood_litter_DON_deadmic',soilc_fineWoodLitter_DON_ptr,C_MIC,'Dissolved fine wood litter dead microbe nitrogen','kg/m2')
 
 
-         allocate(leaf_litter_fast_N(isize,soilMaxCohorts))
-         call gather_tile_data(soilc_leafLitter_fast_soil_N_ptr,idx,leaf_litter_fast_N)
-         id_restart = register_restart_field(soil_restart,fname,'leaf_litter_fast_N',leaf_litter_fast_N,compressed=.true., &
-                                             longname='Leaf litter fast N',units='kg/m2', compressed_axis='C_CC')
-         allocate(leaf_litter_slow_N(isize,soilMaxCohorts))
-         call gather_tile_data(soilc_leafLitter_slow_soil_N_ptr,idx,leaf_litter_slow_N)
-         id_restart = register_restart_field(soil_restart,fname,'leaf_litter_slow_N',leaf_litter_slow_N,compressed=.true., &
-                                             longname='Leaf litter slow N',units='kg/m2', compressed_axis='C_CC')
-         allocate(leaf_litter_deadMic_N(isize,soilMaxCohorts))
-         call gather_tile_data(soilc_leafLitter_deadMicrobeN_ptr,idx,leaf_litter_deadMic_N)
-         id_restart = register_restart_field(soil_restart,fname,'leaf_litter_deadMic_N',leaf_litter_deadMic_N,compressed=.true., &
-                                             longname='Leaf litter dead microbe N',units='kg/m2', compressed_axis='C_CC')
-         allocate(leaf_litter_liveMic_N(isize,soilMaxCohorts))
-         call gather_tile_data(soilc_leafLitter_livingMicrobeN_ptr,idx,leaf_litter_liveMic_N)
-         id_restart = register_restart_field(soil_restart,fname,'leaf_litter_liveMic_N',leaf_litter_liveMic_N,compressed=.true., &
-                                             longname='Leaf litter live microbe N',units='kg/m2', compressed_axis='C_CC')
-         allocate(leaf_litter_originalCohortN(isize,soilMaxCohorts))
-         call gather_tile_data(soilc_leafLitter_originalLitterN_ptr,idx,leaf_litter_originalCohortN)
-         id_restart = register_restart_field(soil_restart,fname,'leaf_litter_originalCohortN',leaf_litter_originalCohortN,compressed=.true., &
-                                             longname='Leaf litter cohort original nitrogen',units='kg/m2', compressed_axis='C_CC')
-         allocate(leaf_litter_fastProtectedN(isize,soilMaxCohorts))
-         call gather_tile_data(soilc_leafLitter_fast_protected_N_ptr,idx,leaf_litter_fastProtectedN)
-         id_restart = register_restart_field(soil_restart,fname,'leaf_litter_fastProtectedN',leaf_litter_fastProtectedN,compressed=.true., &
-                                             longname='Leaf litter fast protected N',units='kg/m2', compressed_axis='C_CC')
-         allocate(leaf_litter_slowProtectedN(isize,soilMaxCohorts))
-         call gather_tile_data(soilc_leafLitter_slow_protected_N_ptr,idx,leaf_litter_slowProtectedN)
-         id_restart = register_restart_field(soil_restart,fname,'leaf_litter_slowProtectedN',leaf_litter_slowProtectedN,compressed=.true., &
-                                             longname='Leaf litter slow protected N',units='kg/m2', compressed_axis='C_CC')
-         allocate(leaf_litter_deadMicrobeProtectedN(isize,soilMaxCohorts))
-         call gather_tile_data(soilc_leafLitter_deadMicrobe_protected_N_ptr,idx,leaf_litter_deadMicrobeProtectedN)
-         id_restart = register_restart_field(soil_restart,fname,'leaf_litter_deadMicrobeProtectedN',leaf_litter_deadMicrobeProtectedN,compressed=.true., &
-                                             longname='Leaf litter dead microbe protected N',units='kg/m2', compressed_axis='C_CC')
-         allocate(leaf_litter_DON_fast(isize))
-         call gather_tile_data(soilc_leafLitter_fast_DON_ptr,idx,leaf_litter_DON_fast)
-         id_restart = register_restart_field(soil_restart,fname,'leaf_litter_DON_fast',leaf_litter_DON_fast, &
-                                             longname='Dissolved leaf litter fast nitrogen',units='kg/m2')
-         allocate(leaf_litter_DON_slow(isize))
-         call gather_tile_data(soilc_leafLitter_slow_DON_ptr,idx,leaf_litter_DON_slow)
-         id_restart = register_restart_field(soil_restart,fname,'leaf_litter_DON_slow',leaf_litter_DON_slow, &
-                                             longname='Dissolved leaf litter slow nitrogen',units='kg/m2')
-         allocate(leaf_litter_DON_deadmic(isize))
-         call gather_tile_data(soilc_leafLitter_deadmicrobe_DON_ptr,idx,leaf_litter_DON_deadmic)
-         id_restart = register_restart_field(soil_restart,fname,'leaf_litter_DON_deadmic',leaf_litter_DON_deadmic, &
-                                             longname='Dissolved leaf litter dead microbe nitrogen',units='kg/m2')
-         allocate(leaf_litter_NO3(isize))
-         call gather_tile_data(soilc_leafLitter_nitrate_ptr,idx,leaf_litter_NO3)
-         id_restart = register_restart_field(soil_restart,fname,'leaf_litter_NO3',leaf_litter_NO3, &
-                                             longname='Leaf litter NO3 content',units='kgN/m2')
-         allocate(leaf_litter_NH4(isize))
-         call gather_tile_data(soilc_leafLitter_ammonium_ptr,idx,leaf_litter_NH4)
-         id_restart = register_restart_field(soil_restart,fname,'leaf_litter_NH4',leaf_litter_NH4, &
-                                             longname='Leaf litter NH4 content',units='kgN/m2')
-         allocate(leaf_litter_nitrif(isize))
-         call gather_tile_data(soilc_leafLitter_nitrif_ptr,idx,leaf_litter_nitrif)
-         id_restart = register_restart_field(soil_restart,fname,'leaf_litter_nitrif',leaf_litter_nitrif, &
-                                             longname='Leaf litter cumulative nitrification',units='kgN/m2')
-         allocate(leaf_litter_denitrif(isize))
-         call gather_tile_data(soilc_leafLitter_denitrif_ptr,idx,leaf_litter_denitrif)
-         id_restart = register_restart_field(soil_restart,fname,'leaf_litter_denitrif',leaf_litter_denitrif, &
-                                             longname='Leaf litter cumulative denitrification',units='kgN/m2')
+        call add_tile_data(restart,'coarseWood_litter_fast_N', 'soilCCohort', soilc_coarseWoodLitter_litterN_ptr,C_CEL,'coarse wood litter fast N','kg/m2')
+        call add_tile_data(restart,'coarseWood_litter_slow_N', 'soilCCohort', soilc_coarseWoodLitter_litterN_ptr,C_LIG,'coarse wood litter slow N','kg/m2')
+        call add_tile_data(restart,'coarseWood_litter_deadMic_N', 'soilCCohort', soilc_coarseWoodLitter_litterN_ptr,C_MIC,'coarse wood litter dead microbe N','kg/m2')
+        call add_tile_data(restart,'coarseWood_litter_liveMic_N','soilCCohort' ,soilc_coarseWoodLitter_livingMicrobeN_ptr,'coarse wood litter live microbe N','kg/m2')
+        call add_tile_data(restart,'coarseWood_litter_NO3',soilc_coarseWoodLitter_nitrate_ptr,'coarse wood litter nitrate','kg/m2')
+        call add_tile_data(restart,'coarseWood_litter_NH4', soilc_coarseWoodLitter_ammonium_ptr,'coarse wood litter ammonium','kg/m2')
+        call add_tile_data(restart,'coarseWood_litter_nitrif', soilc_coarseWoodLitter_nitrif_ptr,'coarse wood litter total nitrification','kg/m2')
+        call add_tile_data(restart,'coarseWood_litter_denitrif', soilc_coarseWoodLitter_denitrif_ptr,'coarse wood litter total denitrification','kg/m2')
+        call add_tile_data(restart,'coarseWood_litter_originalCohortN','soilCCohort',soilc_coarseWoodLitter_originalLitterN_ptr,'coarse wood litter cohort original nitrogen','kg/m2')
+        call add_tile_data(restart,'coarseWood_litter_fastProtectedN', 'soilCCohort', soilc_coarseWoodLitter_protectedN_ptr,C_CEL,'coarse wood litter fast protected N','kg/m2')
+        call add_tile_data(restart,'coarseWood_litter_slowProtectedN', 'soilCCohort', soilc_coarseWoodLitter_protectedN_ptr,C_LIG,'coarse wood litter slow protected N','kg/m2')
+        call add_tile_data(restart,'coarseWood_litter_deadMicrobeProtectedN','soilCCohort', soilc_coarseWoodLitter_protectedN_ptr,C_MIC,'coarse wood litter dead microbe protected N','kg/m2')
 
-         allocate(fineWood_litter_fast_N(isize,soilMaxCohorts))
-         call gather_tile_data(soilc_fineWoodLitter_fast_soil_N_ptr,idx,fineWood_litter_fast_N)
-         id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_fast_N',fineWood_litter_fast_N,compressed=.true., &
-                                             longname='Fine wood litter fast N',units='kg/m2', compressed_axis='C_CC')
-         allocate(fineWood_litter_slow_N(isize,soilMaxCohorts))
-         call gather_tile_data(soilc_fineWoodLitter_slow_soil_N_ptr,idx,fineWood_litter_slow_N)
-         id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_slow_N',fineWood_litter_slow_N,compressed=.true., &
-                                             longname='Fine wood litter slow N',units='kg/m2', compressed_axis='C_CC')
-         allocate(fineWood_litter_deadMic_N(isize,soilMaxCohorts))
-         call gather_tile_data(soilc_fineWoodLitter_deadMicrobeN_ptr,idx,fineWood_litter_deadMic_N)
-         id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_deadMic_N',fineWood_litter_deadMic_N,compressed=.true., &
-                                             longname='Fine wood litter dead microbe N',units='kg/m2', compressed_axis='C_CC')
-         allocate(fineWood_litter_liveMic_N(isize,soilMaxCohorts))
-         call gather_tile_data(soilc_fineWoodLitter_livingMicrobeN_ptr,idx,fineWood_litter_liveMic_N)
-         id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_liveMic_N',fineWood_litter_liveMic_N,compressed=.true., &
-                                             longname='Fine wood litter live microbe N',units='kg/m2', compressed_axis='C_CC')
-         allocate(fineWood_litter_originalCohortN(isize,soilMaxCohorts))
-         call gather_tile_data(soilc_fineWoodLitter_originalLitterN_ptr,idx,fineWood_litter_originalCohortN)
-         id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_originalCohortN',fineWood_litter_originalCohortN,compressed=.true., &
-                                             longname='Fine wood litter cohort original nitrogen',units='kg/m2', compressed_axis='C_CC')
-         allocate(fineWood_litter_fastProtectedN(isize,soilMaxCohorts))
-         call gather_tile_data(soilc_fineWoodLitter_fast_protected_N_ptr,idx,fineWood_litter_fastProtectedN)
-         id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_fastProtectedN',fineWood_litter_fastProtectedN,compressed=.true., &
-                                             longname='Fine wood litter fast protected N',units='kg/m2', compressed_axis='C_CC')
-         allocate(fineWood_litter_slowProtectedN(isize,soilMaxCohorts))
-         call gather_tile_data(soilc_fineWoodLitter_slow_protected_N_ptr,idx,fineWood_litter_slowProtectedN)
-         id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_slowProtectedN',fineWood_litter_slowProtectedN,compressed=.true., &
-                                             longname='Fine wood litter slow protected N',units='kg/m2', compressed_axis='C_CC')
-         allocate(fineWood_litter_deadMicrobeProtectedN(isize,soilMaxCohorts))
-         call gather_tile_data(soilc_fineWoodLitter_deadMicrobe_protected_N_ptr,idx,fineWood_litter_deadMicrobeProtectedN)
-         id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_deadMicrobeProtectedN',fineWood_litter_deadMicrobeProtectedN,compressed=.true., &
-                                             longname='Fine wood litter dead microbe protected N',units='kg/m2', compressed_axis='C_CC')
-         allocate(fineWood_litter_DON_fast(isize))
-         call gather_tile_data(soilc_fineWoodLitter_fast_DON_ptr,idx,fineWood_litter_DON_fast)
-         id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_DON_fast',fineWood_litter_DON_fast, &
-                                             longname='Dissolved fine wood litter fast nitrogen',units='kg/m2')
-         allocate(fineWood_litter_DON_slow(isize))
-         call gather_tile_data(soilc_fineWoodLitter_slow_DON_ptr,idx,fineWood_litter_DON_slow)
-         id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_DON_slow',fineWood_litter_DON_slow, &
-                                             longname='Dissolved fine wood litter slow nitrogen',units='kg/m2')
-         allocate(fineWood_litter_DON_deadmic(isize))
-         call gather_tile_data(soilc_fineWoodLitter_deadmicrobe_DON_ptr,idx,fineWood_litter_DON_deadmic)
-         id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_DON_deadmic',fineWood_litter_DON_deadmic, &
-                                             longname='Dissolved fine wood litter dead microbe nitrogen',units='kg/m2')
-         allocate(fineWood_litter_NO3(isize))
-         call gather_tile_data(soilc_fineWoodLitter_nitrate_ptr,idx,fineWood_litter_NO3)
-         id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_NO3',fineWood_litter_NO3, &
-                                             longname='Fine wood litter NO3 content',units='kgN/m2')
-         allocate(fineWood_litter_NH4(isize))
-         call gather_tile_data(soilc_fineWoodLitter_ammonium_ptr,idx,fineWood_litter_NH4)
-         id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_NH4',fineWood_litter_NH4, &
-                                             longname='Fine wood litter NH4 content',units='kgN/m2')
-         allocate(fineWood_litter_nitrif(isize))
-         call gather_tile_data(soilc_fineWoodLitter_nitrif_ptr,idx,fineWood_litter_nitrif)
-         id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_nitrif',fineWood_litter_nitrif, &
-                                             longname='Fine wood litter cumulative nitrification',units='kgN/m2')
-         allocate(fineWood_litter_denitrif(isize))
-         call gather_tile_data(soilc_fineWoodLitter_denitrif_ptr,idx,fineWood_litter_denitrif)
-         id_restart = register_restart_field(soil_restart,fname,'fineWood_litter_denitrif',fineWood_litter_denitrif, &
-                                             longname='Fine wood litter cumulative denitrification',units='kgN/m2')
+        call add_tile_data(restart,'coarseWood_litter_DON_fast',soilc_coarseWoodLitter_DON_ptr,C_CEL,'Dissolved coarse wood litter fast nitrogen','kg/m2')
+        call add_tile_data(restart,'coarseWood_litter_DON_slow',soilc_coarseWoodLitter_DON_ptr,C_LIG,'Dissolved coarse wood litter slow nitrogen','kg/m2')
+        call add_tile_data(restart,'coarseWood_litter_DON_deadmic',soilc_coarseWoodLitter_DON_ptr,C_MIC,'Dissolved coarse wood litter dead microbe nitrogen','kg/m2')
 
-          allocate(coarseWood_litter_fast_N(isize,soilMaxCohorts))
-          call gather_tile_data(soilc_coarseWoodLitter_fast_soil_N_ptr,idx,coarseWood_litter_fast_N)
-          id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_fast_N',coarseWood_litter_fast_N,compressed=.true., &
-                                              longname='coarse wood litter fast N',units='kg/m2', compressed_axis='C_CC')
-          allocate(coarseWood_litter_slow_N(isize,soilMaxCohorts))
-          call gather_tile_data(soilc_coarseWoodLitter_slow_soil_N_ptr,idx,coarseWood_litter_slow_N)
-          id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_slow_N',coarseWood_litter_slow_N,compressed=.true., &
-                                              longname='coarse wood litter slow N',units='kg/m2', compressed_axis='C_CC')
-          allocate(coarseWood_litter_deadMic_N(isize,soilMaxCohorts))
-          call gather_tile_data(soilc_coarseWoodLitter_deadMicrobeN_ptr,idx,coarseWood_litter_deadMic_N)
-          id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_deadMic_N',coarseWood_litter_deadMic_N,compressed=.true., &
-                                              longname='coarse wood litter dead microbe N',units='kg/m2', compressed_axis='C_CC')
-          allocate(coarseWood_litter_liveMic_N(isize,soilMaxCohorts))
-          call gather_tile_data(soilc_coarseWoodLitter_livingMicrobeN_ptr,idx,coarseWood_litter_liveMic_N)
-          id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_liveMic_N',coarseWood_litter_liveMic_N,compressed=.true., &
-                                              longname='coarse wood litter live microbe N',units='kg/m2', compressed_axis='C_CC')
-          allocate(coarseWood_litter_originalCohortN(isize,soilMaxCohorts))
-          call gather_tile_data(soilc_coarseWoodLitter_originalLitterN_ptr,idx,coarseWood_litter_originalCohortN)
-          id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_originalCohortN',coarseWood_litter_originalCohortN,compressed=.true., &
-                                              longname='coarse wood litter cohort original nitrogen',units='kg/m2', compressed_axis='C_CC')
-          allocate(coarseWood_litter_fastProtectedN(isize,soilMaxCohorts))
-          call gather_tile_data(soilc_coarseWoodLitter_fast_protected_N_ptr,idx,coarseWood_litter_fastProtectedN)
-          id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_fastProtectedN',coarseWood_litter_fastProtectedN,compressed=.true., &
-                                              longname='coarse wood litter fast protected N',units='kg/m2', compressed_axis='C_CC')
-          allocate(coarseWood_litter_slowProtectedN(isize,soilMaxCohorts))
-          call gather_tile_data(soilc_coarseWoodLitter_slow_protected_N_ptr,idx,coarseWood_litter_slowProtectedN)
-          id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_slowProtectedN',coarseWood_litter_slowProtectedN,compressed=.true., &
-                                              longname='coarse wood litter slow protected N',units='kg/m2', compressed_axis='C_CC')
-          allocate(coarseWood_litter_deadMicrobeProtectedN(isize,soilMaxCohorts))
-          call gather_tile_data(soilc_coarseWoodLitter_deadMicrobe_protected_N_ptr,idx,coarseWood_litter_deadMicrobeProtectedN)
-          id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_deadMicrobeProtectedN',coarseWood_litter_deadMicrobeProtectedN,compressed=.true., &
-                                              longname='coarse wood litter dead microbe protected N',units='kg/m2', compressed_axis='C_CC')
-          allocate(coarseWood_litter_DON_fast(isize))
-          call gather_tile_data(soilc_coarseWoodLitter_fast_DON_ptr,idx,coarseWood_litter_DON_fast)
-          id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_DON_fast',coarseWood_litter_DON_fast, &
-                                              longname='Dissolved coarse wood litter fast nitrogen',units='kg/m2')
-          allocate(coarseWood_litter_DON_slow(isize))
-          call gather_tile_data(soilc_coarseWoodLitter_slow_DON_ptr,idx,coarseWood_litter_DON_slow)
-          id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_DON_slow',coarseWood_litter_DON_slow, &
-                                              longname='Dissolved coarse wood litter slow nitrogen',units='kg/m2')
-          allocate(coarseWood_litter_DON_deadmic(isize))
-          call gather_tile_data(soilc_coarseWoodLitter_deadmicrobe_DON_ptr,idx,coarseWood_litter_DON_deadmic)
-          id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_DON_deadmic',coarseWood_litter_DON_deadmic, &
-                                              longname='Dissolved coarse wood litter dead microbe nitrogen',units='kg/m2')
-          allocate(coarseWood_litter_NO3(isize))
-          call gather_tile_data(soilc_coarseWoodLitter_nitrate_ptr,idx,coarseWood_litter_NO3)
-          id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_NO3',coarseWood_litter_NO3, &
-                                              longname='coarse wood litter NO3 content',units='kgN/m2')
-          allocate(coarseWood_litter_NH4(isize))
-          call gather_tile_data(soilc_coarseWoodLitter_ammonium_ptr,idx,coarseWood_litter_NH4)
-          id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_NH4',coarseWood_litter_NH4, &
-                                              longname='coarse wood litter NH4 content',units='kgN/m2')
-          allocate(coarseWood_litter_nitrif(isize))
-          call gather_tile_data(soilc_coarseWoodLitter_nitrif_ptr,idx,coarseWood_litter_nitrif)
-          id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_nitrif',coarseWood_litter_nitrif, &
-                                              longname='coarse wood litter cumulative nitrification',units='kgN/m2')
-          allocate(coarseWood_litter_denitrif(isize))
-          call gather_tile_data(soilc_coarseWoodLitter_denitrif_ptr,idx,coarseWood_litter_denitrif)
-          id_restart = register_restart_field(soil_restart,fname,'coarseWood_litter_denitrif',coarseWood_litter_denitrif, &
-                                              longname='Coarse wood litter cumulative denitrification',units='kgN/m2')
+      endif
 
 
-     endif
-
+     call add_int_tile_data(restart,'is_peat', 'zfull', soil_is_peat_ptr ,'Is layer peat?','Boolean')
+  case default
+     call error_mesg('save_soil_restart','soil_carbon_option is invalid. This should never happen. Contact developer', FATAL)
   end select
-
-  ! save performs io domain aggregation through mpp_io as with regular domain data
-  call save_restart(soil_restart)
-  call free_restart_type(soil_restart)
-
-  deallocate(temp, wl, ws, groundwater, groundwater_T, uptake_T)
-  select case(soil_carbon_option)
-  case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-    deallocate(fsc, ssc)
-  case (SOILC_CORPSE, SOILC_CORPSE_N)
-    deallocate(fast_soil_C, slow_soil_C, deadMic, fastProtectedC, slowProtectedC, deadMicrobeProtectedC, liveMic, CO2, Rtot,     &
-      originalCohortC, soil_DOC_fast, soil_DOC_slow, soil_DOC_deadmic, fast_DOC_leached, slow_DOC_leached, deadmic_DOC_leached,  &
-      leaf_litter_fast_C, leaf_litter_slow_C, leaf_litter_deadMic_C, leaf_litter_liveMic_C, leaf_litter_CO2,                     &
-      leaf_litter_Rtot, leaf_litter_originalCohortC, leaf_litter_fastProtectedC, leaf_litter_slowProtectedC,                     &
-      leaf_litter_deadMicrobeProtectedC, leaf_litter_DOC_fast, leaf_litter_DOC_slow, leaf_litter_DOC_deadmic,                    &
-      fineWood_litter_fast_C, fineWood_litter_slow_C, fineWood_litter_deadMic_C, fineWood_litter_liveMic_C, fineWood_litter_CO2, &
-      fineWood_litter_Rtot, fineWood_litter_originalCohortC, fineWood_litter_fastProtectedC, fineWood_litter_slowProtectedC,     &
-      fineWood_litter_deadMicrobeProtectedC, fineWood_litter_DOC_fast, fineWood_litter_DOC_slow, fineWood_litter_DOC_deadmic,    &
-      coarseWood_litter_fast_C, coarseWood_litter_slow_C, coarseWood_litter_deadMic_C, coarseWood_litter_liveMic_C,              &
-      coarseWood_litter_CO2, coarseWood_litter_Rtot, coarseWood_litter_originalCohortC, coarseWood_litter_fastProtectedC,        &
-      coarseWood_litter_slowProtectedC, coarseWood_litter_deadMicrobeProtectedC, coarseWood_litter_DOC_fast,                     &
-      coarseWood_litter_DOC_slow, coarseWood_litter_DOC_deadmic, is_peat)
-
-if(soil_carbon_option == SOILC_CORPSE_N) then
-
-      deallocate(fast_soil_N, slow_soil_N, deadMic_N, fastProtectedN, slowProtectedN, deadMicrobeProtectedN, liveMic_N,     &
-        originalCohortN, soil_DON_fast, soil_DON_slow, soil_DON_deadmic, fast_DON_leached, slow_DON_leached, deadmic_DON_leached,  &
-        NO3_leached, NH4_leached, &
-        leaf_litter_fast_N, leaf_litter_slow_N, leaf_litter_deadMic_N, leaf_litter_liveMic_N,                     &
-        leaf_litter_originalCohortN, leaf_litter_fastProtectedN, leaf_litter_slowProtectedN,                     &
-        leaf_litter_deadMicrobeProtectedN, leaf_litter_DON_fast, leaf_litter_DON_slow, leaf_litter_DON_deadmic,                    &
-        fineWood_litter_fast_N, fineWood_litter_slow_N, fineWood_litter_deadMic_N, fineWood_litter_liveMic_N, &
-        fineWood_litter_originalCohortN, fineWood_litter_fastProtectedN, fineWood_litter_slowProtectedN,     &
-        fineWood_litter_deadMicrobeProtectedN, fineWood_litter_DON_fast, fineWood_litter_DON_slow, fineWood_litter_DON_deadmic,    &
-        coarseWood_litter_fast_N, coarseWood_litter_slow_N, coarseWood_litter_deadMic_N, coarseWood_litter_liveMic_N,              &
-        coarseWood_litter_originalCohortN, coarseWood_litter_fastProtectedN,        &
-        coarseWood_litter_slowProtectedN, coarseWood_litter_deadMicrobeProtectedN, coarseWood_litter_DON_fast,                     &
-        coarseWood_litter_DON_slow, coarseWood_litter_DON_deadmic,                                                   &
-        soil_NO3, soil_NH4, soil_nitrif, soil_denitrif, leaf_litter_NO3, leaf_litter_NH4, leaf_litter_nitrif, leaf_litter_denitrif, &
-        fineWood_litter_NO3, fineWood_litter_NH4, fineWood_litter_nitrif, fineWood_litter_denitrif, &
-        coarseWood_litter_NO3, coarseWood_litter_NH4, coarseWood_litter_nitrif, coarseWood_litter_denitrif    )
-    endif
-
-  end select
+  call save_land_restart(restart)
+  call free_land_restart(restart)
 
   if (write_soil_carbon_restart) then
-    fname = trim(timestamp)//'soil_carbon.res.nc'
-    call create_tile_out_file(soil_carbon_restart,idx,fname,soil_tile_exists,tile_dim_length,zaxis_data=zfull(1:num_l))
-    allocate(asoil_in(isize,num_l), fsc_in(isize,num_l),  ssc_in(isize,num_l))
+     filename = trim(timestamp)//'soil_carbon.res.nc'
+     call init_land_restart(restart, filename, soil_tile_exists, tile_dim_length)
+     call add_restart_axis(restart,'zfull',zfull(1:num_l),'Z','m','full level',sense=-1)
 
-    call gather_tile_data(soil_asoil_in_ptr,idx,asoil_in)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'asoil_in',asoil_in,compressed=.true., &
-                                        longname='aerobic activity modifier',units='unitless')
+     call add_tile_data(restart,'asoil_in', 'zfull', soil_asoil_in_ptr ,'aerobic activity modifier', 'unitless')
+     call add_tile_data(restart,'fsc_in', 'zfull', soil_fsc_in_ptr ,'fast soil carbon input', 'kg C/m2')
+     call add_tile_data(restart,'ssc_in', 'zfull', soil_ssc_in_ptr ,'slow soil carbon input', 'kg C/m2')
+     if (soil_carbon_option == SOILC_CORPSE .OR. soil_carbon_option == SOILC_CORPSE_N) then
+        call add_tile_data(restart,'deadmic_in', 'zfull', soil_deadmic_C_in_ptr ,'dead microbe soil carbon input', 'kg C/m2')
+        call add_tile_data(restart,'fast_protected_in', 'zfull', soil_fast_protected_C_in_ptr ,'protected fast soil carbon input', 'kg C/m2')
+        call add_tile_data(restart,'slow_protected_in', 'zfull', soil_slow_protected_C_in_ptr ,'protected slow soil carbon input', 'kg C/m2')
+        call add_tile_data(restart,'deadmic_protected_in', 'zfull', soil_deadmic_protected_C_in_ptr ,'protected dead microbe soil carbon input', 'kg C/m2')
+        call add_tile_data(restart,'fast_turnover_accumulated', 'zfull', soil_fast_C_turnover_accumulated_ptr ,'fast soil carbon turnover', 'year-1')
+        call add_tile_data(restart,'slow_turnover_accumulated', 'zfull', soil_slow_C_turnover_accumulated_ptr ,'slow soil carbon turnover', 'year-1')
+        call add_tile_data(restart,'deadmic_turnover_accumulated', 'zfull', soil_deadmic_C_turnover_accumulated_ptr ,'dead microbe soil carbon turnover', 'year-1')
+        call add_tile_data(restart,'fast_protected_turnover_accumulated', 'zfull', soil_fast_protected_C_turnover_accumulated_ptr ,'fast protected soil carbon turnover', 'year-1')
+        call add_tile_data(restart,'slow_protected_turnover_accumulated', 'zfull', soil_slow_protected_C_turnover_accumulated_ptr ,'slow protected soil carbon turnover', 'year-1')
+        call add_tile_data(restart,'deadmic_protected_turnover_accumulated', 'zfull', soil_deadmic_protected_C_turnover_accumulated_ptr ,'dead microbe protected soil carbon turnover', 'year-1')
 
-    call gather_tile_data(soil_fsc_in_ptr,idx,fsc_in)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'fsc_in',fsc_in,compressed=.true., &
-                                        longname='fast soil carbon input',units='kg C/m2')
+        call add_tile_data(restart,'leaflitter_fast_turnover_accumulated',soil_leaflitter_fast_C_turnover_accumulated_ptr,'fast leaf litter carbon turnover', 'year-1')
+        call add_tile_data(restart,'leaflitter_slow_turnover_accumulated',soil_leaflitter_slow_C_turnover_accumulated_ptr,'slow leaf litter carbon turnover', 'year-1')
+        call add_tile_data(restart,'leaflitter_deadmic_turnover_accumulated',soil_leaflitter_deadmic_C_turnover_accumulated_ptr,'dead microbe leaf litter carbon turnover', 'year-1')
+        call add_tile_data(restart,'leaflitter_fsc_in',soil_leaflitter_fsc_in_ptr,'fast leaf litter carbon input', 'kg C/m2')
+        call add_tile_data(restart,'leaflitter_ssc_in',soil_leaflitter_ssc_in_ptr,'slow leaf litter carbon input', 'kg C/m2')
+        call add_tile_data(restart,'leaflitter_deadmic_in',soil_leaflitter_deadmic_C_in_ptr,'dead microbe leaf litter carbon input', 'kg C/m2')
 
-    call gather_tile_data(soil_ssc_in_ptr,idx,ssc_in)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'ssc_in',ssc_in,compressed=.true., &
-                                        longname='slow soil carbon input',units='kg C/m2')
+        call add_tile_data(restart,'finewoodlitter_fast_turnover_accumulated',soil_finewoodlitter_fast_C_turnover_accumulated_ptr,'fast fine wood litter carbon turnover', 'year-1')
+        call add_tile_data(restart,'finewoodlitter_slow_turnover_accumulated',soil_finewoodlitter_slow_C_turnover_accumulated_ptr,'slow fine wood litter carbon turnover', 'year-1')
+        call add_tile_data(restart,'finewoodlitter_deadmic_turnover_accumulated',soil_finewoodlitter_deadmic_C_turnover_accumulated_ptr,'dead microbe fine wood litter carbon turnover', 'year-1')
+        call add_tile_data(restart,'finewoodlitter_fsc_in',soil_finewoodlitter_fsc_in_ptr,'fast fine wood litter carbon input', 'kg C/m2')
+        call add_tile_data(restart,'finewoodlitter_ssc_in',soil_finewoodlitter_ssc_in_ptr,'slow fine wood litter carbon input', 'kg C/m2')
+        call add_tile_data(restart,'finewoodlitter_deadmic_in',soil_finewoodlitter_deadmic_C_in_ptr,'dead microbe fine wood litter carbon input', 'kg C/m2')
 
-    if (soil_carbon_option == SOILC_CORPSE .or. soil_carbon_option == SOILC_CORPSE_N) then
+        call add_tile_data(restart,'coarsewoodlitter_fast_turnover_accumulated',soil_coarsewoodlitter_fast_C_turnover_accumulated_ptr,'fast coarse wood litter carbon turnover', 'year-1')
+        call add_tile_data(restart,'coarsewoodlitter_slow_turnover_accumulated',soil_coarsewoodlitter_slow_C_turnover_accumulated_ptr,'slow coarse wood litter carbon turnover', 'year-1')
+        call add_tile_data(restart,'coarsewoodlitter_deadmic_turnover_accumulated',soil_coarsewoodlitter_deadmic_C_turnover_accumulated_ptr,'dead microbe coarse wood litter carbon turnover', 'year-1')
+        call add_tile_data(restart,'coarsewoodlitter_fsc_in',soil_coarsewoodlitter_fsc_in_ptr,'fast coarse wood litter carbon input', 'kg C/m2')
+        call add_tile_data(restart,'coarsewoodlitter_ssc_in',soil_coarsewoodlitter_ssc_in_ptr,'slow coarse wood litter carbon input', 'kg C/m2')
+        call add_tile_data(restart,'coarsewoodlitter_deadmic_in',soil_coarsewoodlitter_deadmic_C_in_ptr,'dead microbe coarse wood litter carbon input', 'kg C/m2')
 
-       allocate(deadmic_in(isize,num_l))
-       call gather_tile_data(soil_deadmic_C_in_ptr ,idx,deadmic_in)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'deadmic_C_in',deadmic_in,compressed=.true., longname='dead microbe soil carbon input',units='kg C/m2')
-       allocate(fast_protected_in(isize,num_l))
-       call gather_tile_data(soil_fast_protected_C_in_ptr ,idx,fast_protected_in)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'fast_protected_C_in',fast_protected_in,compressed=.true., longname='protected fast soil carbon input',units='kg C/m2')
-       allocate(slow_protected_in(isize,num_l))
-       call gather_tile_data(soil_slow_protected_C_in_ptr ,idx,slow_protected_in)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'slow_protected_C_in',slow_protected_in,compressed=.true., longname='protected slow soil carbon input',units='kg C/m2')
-       allocate(deadmic_protected_in(isize,num_l))
-       call gather_tile_data(soil_deadmic_protected_C_in_ptr ,idx,deadmic_protected_in)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'deadmic_protected_C_in',deadmic_protected_in,compressed=.true., longname='protected dead microbe soil carbon input',units='kg C/m2')
-       allocate(fast_turnover_accumulated(isize,num_l))
-       call gather_tile_data(soil_fast_C_turnover_accumulated_ptr ,idx,fast_turnover_accumulated)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'fast_C_turnover_accumulated',fast_turnover_accumulated,compressed=.true., longname='fast soil carbon turnover',units='year-1')
-       allocate(slow_turnover_accumulated(isize,num_l))
-       call gather_tile_data(soil_slow_C_turnover_accumulated_ptr ,idx,slow_turnover_accumulated)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'slow_C_turnover_accumulated',slow_turnover_accumulated,compressed=.true., longname='slow soil carbon turnover',units='year-1')
-       allocate(deadmic_turnover_accumulated(isize,num_l))
-       call gather_tile_data(soil_deadmic_C_turnover_accumulated_ptr ,idx,deadmic_turnover_accumulated)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'deadmic_C_turnover_accumulated',deadmic_turnover_accumulated,compressed=.true., longname='dead microbe soil carbon turnover',units='year-1')
-       allocate(fast_protected_turnover_accumulated(isize,num_l))
-       call gather_tile_data(soil_fast_protected_C_turnover_accumulated_ptr ,idx,fast_protected_turnover_accumulated)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'fast_protected_C_turnover_accumulated',fast_protected_turnover_accumulated,compressed=.true., longname='fast protected soil carbon turnover',units='year-1')
-       allocate(slow_protected_turnover_accumulated(isize,num_l))
-       call gather_tile_data(soil_slow_protected_C_turnover_accumulated_ptr ,idx,slow_protected_turnover_accumulated)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'slow_protected_C_turnover_accumulated',slow_protected_turnover_accumulated,compressed=.true., longname='slow protected soil carbon turnover',units='year-1')
-       allocate(deadmic_protected_turnover_accumulated(isize,num_l))
-       call gather_tile_data(soil_deadmic_protected_C_turnover_accumulated_ptr ,idx,deadmic_protected_turnover_accumulated)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'deadmic_protected_C_turnover_accumulated',deadmic_protected_turnover_accumulated,compressed=.true., longname='dead microbe protected soil carbon turnover',units='year-1')
+        if (soil_carbon_option == SOILC_CORPSE_N) then
+          call add_tile_data(restart,'fsn_in', 'zfull', soil_fsn_in_ptr ,'fast soil nitrogen input', 'kg N/m2')
+          call add_tile_data(restart,'ssn_in', 'zfull', soil_ssn_in_ptr ,'slow soil nitrogen input', 'kg N/m2')
+          call add_tile_data(restart,'deadmic_N_in', 'zfull', soil_deadmic_N_in_ptr ,'dead microbe soil nitrogen input', 'kg N/m2')
+          call add_tile_data(restart,'fast_protected_N_in', 'zfull', soil_fast_protected_N_in_ptr ,'protected fast soil nitrogen input', 'kg N/m2')
+          call add_tile_data(restart,'slow_protected_N_in', 'zfull', soil_slow_protected_N_in_ptr ,'protected slow soil nitrogen input', 'kg N/m2')
+          call add_tile_data(restart,'deadmic_protected_N_in', 'zfull', soil_deadmic_protected_N_in_ptr ,'protected dead microbe soil nitrogen input', 'kg N/m2')
+          call add_tile_data(restart,'fast_N_turnover_accumulated', 'zfull', soil_fast_N_turnover_accumulated_ptr ,'fast soil nitrogen turnover', 'year-1')
+          call add_tile_data(restart,'slow_N_turnover_accumulated', 'zfull', soil_slow_N_turnover_accumulated_ptr ,'slow soil nitrogen turnover', 'year-1')
+          call add_tile_data(restart,'deadmic_N_turnover_accumulated', 'zfull', soil_deadmic_N_turnover_accumulated_ptr ,'dead microbe soil nitrogen turnover', 'year-1')
+          call add_tile_data(restart,'fast_protected_N_turnover_accumulated', 'zfull', soil_fast_protected_N_turnover_accumulated_ptr ,'fast protected soil nitrogen turnover', 'year-1')
+          call add_tile_data(restart,'slow_protected_N_turnover_accumulated', 'zfull', soil_slow_protected_N_turnover_accumulated_ptr ,'slow protected soil nitrogen turnover', 'year-1')
+          call add_tile_data(restart,'deadmic_protected_N_turnover_accumulated', 'zfull', soil_deadmic_protected_N_turnover_accumulated_ptr ,'dead microbe protected soil nitrogen turnover', 'year-1')
 
+          call add_tile_data(restart,'leaflitter_fast_N_turnover_accumulated',soil_leaflitter_fast_N_turnover_accumulated_ptr,'fast leaf litter nitrogen turnover', 'year-1')
+          call add_tile_data(restart,'leaflitter_slow_N_turnover_accumulated',soil_leaflitter_slow_N_turnover_accumulated_ptr,'slow leaf litter nitrogen turnover', 'year-1')
+          call add_tile_data(restart,'leaflitter_deadmic_N_turnover_accumulated',soil_leaflitter_deadmic_N_turnover_accumulated_ptr,'dead microbe leaf litter nitrogen turnover', 'year-1')
+          call add_tile_data(restart,'leaflitter_fsn_in',soil_leaflitter_fsn_in_ptr,'fast leaf litter nitrogen input', 'kg N/m2')
+          call add_tile_data(restart,'leaflitter_ssn_in',soil_leaflitter_ssn_in_ptr,'slow leaf litter nitrogen input', 'kg N/m2')
+          call add_tile_data(restart,'leaflitter_deadmic_N_in',soil_leaflitter_deadmic_N_in_ptr,'dead microbe leaf litter nitrogen input', 'kg N/m2')
 
+          call add_tile_data(restart,'finewoodlitter_fast_N_turnover_accumulated',soil_finewoodlitter_fast_N_turnover_accumulated_ptr,'fast fine wood litter nitrogen turnover', 'year-1')
+          call add_tile_data(restart,'finewoodlitter_slow_N_turnover_accumulated',soil_finewoodlitter_slow_N_turnover_accumulated_ptr,'slow fine wood litter nitrogen turnover', 'year-1')
+          call add_tile_data(restart,'finewoodlitter_deadmic_N_turnover_accumulated',soil_finewoodlitter_deadmic_N_turnover_accumulated_ptr,'dead microbe fine wood litter nitrogen turnover', 'year-1')
+          call add_tile_data(restart,'finewoodlitter_fsn_in',soil_finewoodlitter_fsn_in_ptr,'fast fine wood litter nitrogen input', 'kg N/m2')
+          call add_tile_data(restart,'finewoodlitter_ssn_in',soil_finewoodlitter_ssn_in_ptr,'slow fine wood litter nitrogen input', 'kg N/m2')
+          call add_tile_data(restart,'finewoodlitter_deadmic_N_in',soil_finewoodlitter_deadmic_N_in_ptr,'dead microbe fine wood litter nitrogen input', 'kg N/m2')
 
-       allocate(leaflitter_fast_turnover_accumulated(isize))
-       call gather_tile_data(soil_leaflitter_fast_C_turnover_accumulated_ptr ,idx,leaflitter_fast_turnover_accumulated)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'leaflitter_fast_C_turnover_accumulated',leaflitter_fast_turnover_accumulated, longname='fast leaf litter carbon turnover',units='year-1')
-       allocate(leaflitter_slow_turnover_accumulated(isize))
-       call gather_tile_data(soil_leaflitter_slow_C_turnover_accumulated_ptr ,idx,leaflitter_slow_turnover_accumulated)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'leaflitter_slow_C_turnover_accumulated',leaflitter_slow_turnover_accumulated, longname='slow leaf litter carbon turnover',units='year-1')
-       allocate(leaflitter_deadmic_turnover_accumulated(isize))
-       call gather_tile_data(soil_leaflitter_deadmic_C_turnover_accumulated_ptr ,idx,leaflitter_deadmic_turnover_accumulated)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'leaflitter_deadmic_C_turnover_accumulated',leaflitter_deadmic_turnover_accumulated, longname='dead microbe leaf litter carbon turnover',units='year-1')
-       allocate(leaflitter_fsc_in(isize))
-       call gather_tile_data(soil_leaflitter_fsc_in_ptr ,idx,leaflitter_fsc_in)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'leaflitter_fsc_in',leaflitter_fsc_in, longname='fast leaf litter carbon input',units='kg C/m2')
-       allocate(leaflitter_ssc_in(isize))
-       call gather_tile_data(soil_leaflitter_ssc_in_ptr ,idx,leaflitter_ssc_in)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'leaflitter_ssc_in',leaflitter_ssc_in, longname='slow leaf litter carbon input',units='kg C/m2')
-       allocate(leaflitter_deadmic_in(isize))
-       call gather_tile_data(soil_leaflitter_deadmic_C_in_ptr ,idx,leaflitter_deadmic_in)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'leaflitter_deadmic_C_in',leaflitter_deadmic_in, longname='dead microbe leaf litter carbon input',units='kg C/m2')
-
-
-
-       allocate(finewoodlitter_fast_turnover_accumulated(isize))
-       call gather_tile_data(soil_finewoodlitter_fast_C_turnover_accumulated_ptr ,idx,finewoodlitter_fast_turnover_accumulated)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'finewoodlitter_fast_C_turnover_accumulated',finewoodlitter_fast_turnover_accumulated, longname='fast fine wood litter carbon turnover',units='year-1')
-       allocate(finewoodlitter_slow_turnover_accumulated(isize))
-       call gather_tile_data(soil_finewoodlitter_slow_C_turnover_accumulated_ptr ,idx,finewoodlitter_slow_turnover_accumulated)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'finewoodlitter_slow_C_turnover_accumulated',finewoodlitter_slow_turnover_accumulated, longname='slow fine wood litter carbon turnover',units='year-1')
-       allocate(finewoodlitter_deadmic_turnover_accumulated(isize))
-       call gather_tile_data(soil_finewoodlitter_deadmic_C_turnover_accumulated_ptr ,idx,finewoodlitter_deadmic_turnover_accumulated)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'finewoodlitter_deadmic_C_turnover_accumulated',finewoodlitter_deadmic_turnover_accumulated, longname='dead microbe fine wood litter carbon turnover',units='year-1')
-       allocate(finewoodlitter_fsc_in(isize))
-       call gather_tile_data(soil_finewoodlitter_fsc_in_ptr ,idx,finewoodlitter_fsc_in)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'finewoodlitter_fsc_in',finewoodlitter_fsc_in, longname='fast fine wood litter carbon input',units='kg C/m2')
-       allocate(finewoodlitter_ssc_in(isize))
-       call gather_tile_data(soil_finewoodlitter_ssc_in_ptr ,idx,finewoodlitter_ssc_in)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'finewoodlitter_ssc_in',finewoodlitter_ssc_in, longname='slow fine wood litter carbon input',units='kg C/m2')
-       allocate(finewoodlitter_deadmic_in(isize))
-       call gather_tile_data(soil_finewoodlitter_deadmic_C_in_ptr ,idx,finewoodlitter_deadmic_in)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'finewoodlitter_deadmic_C_in',finewoodlitter_deadmic_in, longname='dead microbe fine wood litter carbon input',units='kg C/m2')
+          call add_tile_data(restart,'coarsewoodlitter_fast_N_turnover_accumulated',soil_coarsewoodlitter_fast_N_turnover_accumulated_ptr,'fast coarse wood litter nitrogen turnover', 'year-1')
+          call add_tile_data(restart,'coarsewoodlitter_slow_N_turnover_accumulated',soil_coarsewoodlitter_slow_N_turnover_accumulated_ptr,'slow coarse wood litter nitrogen turnover', 'year-1')
+          call add_tile_data(restart,'coarsewoodlitter_deadmic_N_turnover_accumulated',soil_coarsewoodlitter_deadmic_N_turnover_accumulated_ptr,'dead microbe coarse wood litter nitrogen turnover', 'year-1')
+          call add_tile_data(restart,'coarsewoodlitter_fsn_in',soil_coarsewoodlitter_fsn_in_ptr,'fast coarse wood litter nitrogen input', 'kg N/m2')
+          call add_tile_data(restart,'coarsewoodlitter_ssn_in',soil_coarsewoodlitter_ssn_in_ptr,'slow coarse wood litter nitrogen input', 'kg N/m2')
+          call add_tile_data(restart,'coarsewoodlitter_deadmic_N_in',soil_coarsewoodlitter_deadmic_N_in_ptr,'dead microbe coarse wood litter nitrogen input', 'kg N/m2')
 
 
+        endif
 
-       allocate(coarsewoodlitter_fast_turnover_accumulated(isize))
-       call gather_tile_data(soil_coarsewoodlitter_fast_C_turnover_accumulated_ptr ,idx,coarsewoodlitter_fast_turnover_accumulated)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'coarsewoodlitter_fast_C_turnover_accumulated',coarsewoodlitter_fast_turnover_accumulated, longname='fast coarse wood litter carbon turnover',units='year-1')
-       allocate(coarsewoodlitter_slow_turnover_accumulated(isize))
-       call gather_tile_data(soil_coarsewoodlitter_slow_C_turnover_accumulated_ptr ,idx,coarsewoodlitter_slow_turnover_accumulated)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'coarsewoodlitter_slow_C_turnover_accumulated',coarsewoodlitter_slow_turnover_accumulated, longname='slow coarse wood litter carbon turnover',units='year-1')
-       allocate(coarsewoodlitter_deadmic_turnover_accumulated(isize))
-       call gather_tile_data(soil_coarsewoodlitter_deadmic_C_turnover_accumulated_ptr ,idx,coarsewoodlitter_deadmic_turnover_accumulated)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'coarsewoodlitter_deadmic_C_turnover_accumulated',coarsewoodlitter_deadmic_turnover_accumulated, longname='dead microbe coarse wood litter carbon turnover',units='year-1')
-       allocate(coarsewoodlitter_fsc_in(isize))
-       call gather_tile_data(soil_coarsewoodlitter_fsc_in_ptr ,idx,coarsewoodlitter_fsc_in)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'coarsewoodlitter_fsc_in',coarsewoodlitter_fsc_in, longname='fast coarse wood litter carbon input',units='kg C/m2')
-       allocate(coarsewoodlitter_ssc_in(isize))
-       call gather_tile_data(soil_coarsewoodlitter_ssc_in_ptr ,idx,coarsewoodlitter_ssc_in)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'coarsewoodlitter_ssc_in',coarsewoodlitter_ssc_in, longname='slow coarse wood litter carbon input',units='kg C/m2')
-       allocate(coarsewoodlitter_deadmic_in(isize))
-       call gather_tile_data(soil_coarsewoodlitter_deadmic_C_in_ptr ,idx,coarsewoodlitter_deadmic_in)
-       id_restart = register_restart_field(soil_carbon_restart,fname,'coarsewoodlitter_deadmic_C_in',coarsewoodlitter_deadmic_in, longname='dead microbe coarse wood litter carbon input',units='kg C/m2')
-
-
-if(soil_carbon_option == SOILC_CORPSE_N) then
-    allocate(fsn_in(isize,num_l),  ssn_in(isize,num_l))
-    call gather_tile_data(soil_fsn_in_ptr,idx,fsn_in)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'fsn_in',fsn_in,compressed=.true., &
-                                        longname='fast soil nitrogen input',units='kg N/m2')
-
-    call gather_tile_data(soil_ssn_in_ptr,idx,ssn_in)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'ssn_in',ssn_in,compressed=.true., &
-                                        longname='slow soil nitrogen input',units='kg N/m2')
-
-
-    allocate(coarsewoodlitter_fast_N_turnover_accumulated(isize))
-    call gather_tile_data(soil_coarsewoodlitter_fast_N_turnover_accumulated_ptr ,idx,coarsewoodlitter_fast_N_turnover_accumulated)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'coarsewoodlitter_fast_N_turnover_accumulated',coarsewoodlitter_fast_N_turnover_accumulated, longname='fast coarse wood litter nitrogen turnover',units='year-1')
-    allocate(coarsewoodlitter_slow_N_turnover_accumulated(isize))
-    call gather_tile_data(soil_coarsewoodlitter_slow_N_turnover_accumulated_ptr ,idx,coarsewoodlitter_slow_N_turnover_accumulated)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'coarsewoodlitter_slow_N_turnover_accumulated',coarsewoodlitter_slow_N_turnover_accumulated, longname='slow coarse wood litter nitrogen turnover',units='year-1')
-    allocate(coarsewoodlitter_deadmic_N_turnover_accumulated(isize))
-    call gather_tile_data(soil_coarsewoodlitter_deadmic_N_turnover_accumulated_ptr ,idx,coarsewoodlitter_deadmic_N_turnover_accumulated)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'coarsewoodlitter_deadmic_N_turnover_accumulated',coarsewoodlitter_deadmic_N_turnover_accumulated, longname='dead microbe coarse wood litter nitrogen turnover',units='year-1')
-    allocate(coarsewoodlitter_fsn_in(isize))
-    call gather_tile_data(soil_coarsewoodlitter_fsn_in_ptr ,idx,coarsewoodlitter_fsn_in)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'coarsewoodlitter_fsn_in',coarsewoodlitter_fsn_in, longname='fast coarse wood litter nitrogen input',units='kg N/m2')
-    allocate(coarsewoodlitter_ssn_in(isize))
-    call gather_tile_data(soil_coarsewoodlitter_ssn_in_ptr ,idx,coarsewoodlitter_ssn_in)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'coarsewoodlitter_ssn_in',coarsewoodlitter_ssn_in, longname='slow coarse wood litter nitrogen input',units='kg N/m2')
-    allocate(coarsewoodlitter_deadmic_N_in(isize))
-    call gather_tile_data(soil_coarsewoodlitter_deadmic_N_in_ptr ,idx,coarsewoodlitter_deadmic_N_in)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'coarsewoodlitter_deadmic_N_in',coarsewoodlitter_deadmic_N_in, longname='dead microbe coarse wood litter nitrogen input',units='kg N/m2')
-
-    allocate(finewoodlitter_fast_N_turnover_accumulated(isize))
-    call gather_tile_data(soil_finewoodlitter_fast_N_turnover_accumulated_ptr ,idx,finewoodlitter_fast_N_turnover_accumulated)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'finewoodlitter_fast_N_turnover_accumulated',finewoodlitter_fast_N_turnover_accumulated, longname='fast fine wood litter carbon turnover',units='year-1')
-    allocate(finewoodlitter_slow_N_turnover_accumulated(isize))
-    call gather_tile_data(soil_finewoodlitter_slow_N_turnover_accumulated_ptr ,idx,finewoodlitter_slow_N_turnover_accumulated)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'finewoodlitter_slow_N_turnover_accumulated',finewoodlitter_slow_N_turnover_accumulated, longname='slow fine wood litter carbon turnover',units='year-1')
-    allocate(finewoodlitter_deadmic_N_turnover_accumulated(isize))
-    call gather_tile_data(soil_finewoodlitter_deadmic_N_turnover_accumulated_ptr ,idx,finewoodlitter_deadmic_N_turnover_accumulated)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'finewoodlitter_deadmic_N_turnover_accumulated',finewoodlitter_deadmic_N_turnover_accumulated, longname='dead microbe fine wood litter carbon turnover',units='year-1')
-    allocate(finewoodlitter_fsn_in(isize))
-    call gather_tile_data(soil_finewoodlitter_fsn_in_ptr ,idx,finewoodlitter_fsn_in)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'finewoodlitter_fsn_in',finewoodlitter_fsn_in, longname='fast fine wood litter nitrogen input',units='kg N/m2')
-    allocate(finewoodlitter_ssn_in(isize))
-    call gather_tile_data(soil_finewoodlitter_ssn_in_ptr ,idx,finewoodlitter_ssn_in)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'finewoodlitter_ssn_in',finewoodlitter_ssn_in, longname='slow fine wood litter nitrogen input',units='kg N/m2')
-    allocate(finewoodlitter_deadmic_N_in(isize))
-    call gather_tile_data(soil_finewoodlitter_deadmic_N_in_ptr ,idx,finewoodlitter_deadmic_N_in)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'finewoodlitter_deadmic_N_in',finewoodlitter_deadmic_N_in, longname='dead microbe fine wood litter nitrogen input',units='kg N/m2')
-
-    allocate(leaflitter_fast_N_turnover_accumulated(isize))
-    call gather_tile_data(soil_leaflitter_fast_N_turnover_accumulated_ptr ,idx,leaflitter_fast_N_turnover_accumulated)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'leaflitter_fast_N_turnover_accumulated',leaflitter_fast_N_turnover_accumulated, longname='fast leaf litter nitrogen turnover',units='year-1')
-    allocate(leaflitter_slow_N_turnover_accumulated(isize))
-    call gather_tile_data(soil_leaflitter_slow_N_turnover_accumulated_ptr ,idx,leaflitter_slow_N_turnover_accumulated)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'leaflitter_slow_N_turnover_accumulated',leaflitter_slow_N_turnover_accumulated, longname='slow leaf litter nitrogen turnover',units='year-1')
-    allocate(leaflitter_deadmic_N_turnover_accumulated(isize))
-    call gather_tile_data(soil_leaflitter_deadmic_N_turnover_accumulated_ptr ,idx,leaflitter_deadmic_N_turnover_accumulated)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'leaflitter_deadmic_N_turnover_accumulated',leaflitter_deadmic_N_turnover_accumulated, longname='dead microbe leaf litter nitrogen turnover',units='year-1')
-    allocate(leaflitter_fsn_in(isize))
-    call gather_tile_data(soil_leaflitter_fsn_in_ptr ,idx,leaflitter_fsn_in)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'leaflitter_fsn_in',leaflitter_fsn_in, longname='fast leaf litter nitrogen input',units='kg N/m2')
-    allocate(leaflitter_ssn_in(isize))
-    call gather_tile_data(soil_leaflitter_ssn_in_ptr ,idx,leaflitter_ssn_in)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'leaflitter_ssn_in',leaflitter_ssn_in, longname='slow leaf litter nitrogen input',units='kg N/m2')
-    allocate(leaflitter_deadmic_N_in(isize))
-    call gather_tile_data(soil_leaflitter_deadmic_N_in_ptr ,idx,leaflitter_deadmic_N_in)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'leaflitter_deadmic_N_in',leaflitter_deadmic_N_in, longname='dead microbe leaf litter nitrogen input',units='kg N/m2')
-
-    allocate(deadmic_N_in(isize,num_l))
-    call gather_tile_data(soil_deadmic_N_in_ptr ,idx,deadmic_N_in)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'deadmic_N_in',deadmic_N_in,compressed=.true., longname='dead microbe soil nitrogen input',units='kg N/m2')
-    allocate(fast_protected_N_in(isize,num_l))
-    call gather_tile_data(soil_fast_protected_N_in_ptr ,idx,fast_protected_N_in)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'fast_protected_N_in',fast_protected_N_in,compressed=.true., longname='protected fast soil nitrogen input',units='kg N/m2')
-    allocate(slow_protected_N_in(isize,num_l))
-    call gather_tile_data(soil_slow_protected_N_in_ptr ,idx,slow_protected_N_in)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'slow_protected_N_in',slow_protected_N_in,compressed=.true., longname='protected slow soil nitrogen input',units='kg N/m2')
-    allocate(deadmic_protected_N_in(isize,num_l))
-    call gather_tile_data(soil_deadmic_protected_N_in_ptr ,idx,deadmic_protected_N_in)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'deadmic_protected_N_in',deadmic_protected_N_in,compressed=.true., longname='protected dead microbe soil nitrogen input',units='kg N/m2')
-    allocate(fast_N_turnover_accumulated(isize,num_l))
-    call gather_tile_data(soil_fast_N_turnover_accumulated_ptr ,idx,fast_N_turnover_accumulated)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'fast_N_turnover_accumulated',fast_N_turnover_accumulated,compressed=.true., longname='fast soil nitrogen turnover',units='year-1')
-    allocate(slow_turnover_accumulated(isize,num_l))
-    call gather_tile_data(soil_slow_N_turnover_accumulated_ptr ,idx,slow_N_turnover_accumulated)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'slow_N_turnover_accumulated',slow_N_turnover_accumulated,compressed=.true., longname='slow soil nitrogen turnover',units='year-1')
-    allocate(deadmic_N_turnover_accumulated(isize,num_l))
-    call gather_tile_data(soil_deadmic_N_turnover_accumulated_ptr ,idx,deadmic_N_turnover_accumulated)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'deadmic_N_turnover_accumulated',deadmic_N_turnover_accumulated,compressed=.true., longname='dead microbe soil nitrogen turnover',units='year-1')
-    allocate(fast_protected_N_turnover_accumulated(isize,num_l))
-    call gather_tile_data(soil_fast_protected_N_turnover_accumulated_ptr ,idx,fast_protected_N_turnover_accumulated)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'fast_protected_N_turnover_accumulated',fast_protected_N_turnover_accumulated,compressed=.true., longname='fast protected soil nitrogen turnover',units='year-1')
-    allocate(slow_protected_turnover_accumulated(isize,num_l))
-    call gather_tile_data(soil_slow_protected_N_turnover_accumulated_ptr ,idx,slow_protected_N_turnover_accumulated)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'slow_protected_N_turnover_accumulated',slow_protected_N_turnover_accumulated,compressed=.true., longname='slow protected soil nitrogen turnover',units='year-1')
-    allocate(deadmic_protected_N_turnover_accumulated(isize,num_l))
-    call gather_tile_data(soil_deadmic_protected_N_turnover_accumulated_ptr ,idx,deadmic_protected_N_turnover_accumulated)
-    id_restart = register_restart_field(soil_carbon_restart,fname,'deadmic_protected_N_turnover_accumulated',deadmic_protected_N_turnover_accumulated,compressed=.true., longname='dead microbe protected soil nitrogen turnover',units='year-1')
-
-
-endif
-
-    endif
-
-  call save_restart(soil_carbon_restart)
-  call free_restart_type(soil_carbon_restart)
-  deallocate(idx, asoil_in, fsc_in, ssc_in)
-  if (soil_carbon_option == SOILC_CORPSE .or. soil_carbon_option==SOILC_CORPSE_N) then
-    deallocate(deadmic_in,fast_protected_in,slow_protected_in,deadmic_protected_in,fast_turnover_accumulated,                   &
-       slow_turnover_accumulated,deadmic_turnover_accumulated,fast_protected_turnover_accumulated,                              &
-       slow_protected_turnover_accumulated,deadmic_protected_turnover_accumulated,leaflitter_fast_turnover_accumulated,         &
-       leaflitter_slow_turnover_accumulated,leaflitter_deadmic_turnover_accumulated,leaflitter_fsc_in,leaflitter_ssc_in,        &
-       leaflitter_deadmic_in,finewoodlitter_fast_turnover_accumulated,finewoodlitter_slow_turnover_accumulated,                 &
-       finewoodlitter_deadmic_turnover_accumulated,finewoodlitter_fsc_in,finewoodlitter_ssc_in,finewoodlitter_deadmic_in,       &
-       coarsewoodlitter_fast_turnover_accumulated,coarsewoodlitter_slow_turnover_accumulated,                                   &
-       coarsewoodlitter_deadmic_turnover_accumulated,coarsewoodlitter_fsc_in,coarsewoodlitter_ssc_in,coarsewoodlitter_deadmic_in)
-
-       deallocate(deadmic_N_in,fast_protected_N_in,slow_protected_N_in,deadmic_protected_N_in,fast_N_turnover_accumulated,                   &
-          slow_N_turnover_accumulated,deadmic_N_turnover_accumulated,fast_protected_N_turnover_accumulated,fsn_in,ssn_in ,                &
-          slow_protected_N_turnover_accumulated,deadmic_protected_N_turnover_accumulated,leaflitter_fast_N_turnover_accumulated,         &
-          leaflitter_slow_N_turnover_accumulated,leaflitter_deadmic_N_turnover_accumulated,leaflitter_fsn_in,leaflitter_ssn_in,        &
-          leaflitter_deadmic_N_in,finewoodlitter_fast_N_turnover_accumulated,finewoodlitter_slow_N_turnover_accumulated,                 &
-          finewoodlitter_deadmic_N_turnover_accumulated,finewoodlitter_fsn_in,finewoodlitter_ssn_in,finewoodlitter_deadmic_N_in,       &
-          coarsewoodlitter_fast_N_turnover_accumulated,coarsewoodlitter_slow_N_turnover_accumulated,                                   &
-          coarsewoodlitter_deadmic_N_turnover_accumulated,coarsewoodlitter_fsn_in,coarsewoodlitter_ssn_in,coarsewoodlitter_deadmic_N_in)
+     endif
+     call save_land_restart(restart)
+     call free_land_restart(restart)
   endif
-  endif
+  call nullify_domain()
+end subroutine save_soil_restart
 
-end subroutine save_soil_restart_new
 
 
 ! ============================================================================
@@ -3727,33 +2180,6 @@ subroutine soil_get_sfc_temp ( soil, soil_T )
 
   soil_T= soil%T(1)
 end subroutine soil_get_sfc_temp
-
-
-! ============================================================================
-! compute soil radiative properties
-subroutine soil_radiation ( soil, cosz, &
-     soil_refl_dir, soil_refl_dif, soil_refl_lw, soil_emis )
-  type(soil_tile_type), intent(in) :: soil
-  real, intent(in)  :: cosz
-  real, intent(out) :: soil_refl_dir(NBANDS), soil_refl_dif(NBANDS), soil_refl_lw, soil_emis
-
-  call soil_data_radiation ( soil, cosz, use_brdf, soil_refl_dir, soil_refl_dif, soil_emis )
-  soil_refl_lw = 1 - soil_emis
-  call check_var_range(soil_refl_dir(BAND_VIS), 0.0, 1.0, 'soil_radiation', 'soil_refl_dir(VIS)', FATAL)
-  call check_var_range(soil_refl_dir(BAND_NIR), 0.0, 1.0, 'soil_radiation', 'soil_refl_dir(NIR)', FATAL)
-  call check_var_range(soil_refl_dif(BAND_VIS), 0.0, 1.0, 'soil_radiation', 'soil_refl_dif(VIS)', FATAL)
-  call check_var_range(soil_refl_dif(BAND_NIR), 0.0, 1.0, 'soil_radiation', 'soil_refl_dif(NIR)', FATAL)
-end subroutine soil_radiation
-
-
-! ============================================================================
-! compute soil roughness
-subroutine soil_diffusion ( soil, soil_z0s, soil_z0m )
-  type(soil_tile_type), intent(in) :: soil
-  real, intent(out) :: soil_z0s, soil_z0m
-
-  call soil_data_diffusion ( soil, soil_z0s, soil_z0m )
-end subroutine soil_diffusion
 
 
 ! ============================================================================
@@ -4016,7 +2442,7 @@ end subroutine soil_step_1
                            use_tfreeze_in_grnd_latent, &
                            soil_levap, soil_fevap, soil_melt, &
                            soil_lrunf, soil_hlrunf, soil_Ttop, soil_Ctop, &
-                           soil_frunf, soil_hfrunf, soil_doc_runf, soil_don_runf, soil_NO3_runf, soil_NH4_runf)
+                           soil_frunf, soil_hfrunf, soil_tr_runf)
   type(soil_tile_type), intent(inout) :: soil
   type(vegn_tile_type), intent(in)    :: vegn
   type(diag_buff_type), intent(inout) :: diag
@@ -4040,10 +2466,7 @@ end subroutine soil_step_1
        soil_Ctop, & ! ?? soil surface layer heat capacity [J/m^2.K]
        soil_frunf, & ! ?? frozen runoff from soil [mm/s]
        soil_hfrunf, & ! ?? heat associated with frozen runoff from soil [W/m^2]
-       soil_doc_runf, & ! dissolved carbon tracer runoff from soil [kgC/m^2/s]
-       soil_don_runf, & ! dissolved organic N runoff from soil [kgN/m2/s]
-       soil_NO3_runf, soil_NH4_runf ! dissolved nitrate and ammonium runoff from soil [kgN/m2/s]
-
+       soil_tr_runf(:) ! dissolved organic carbon runoff from soil [kgC/m^2/s]
 
   ! ---- local vars ----------------------------------------------------------
   real, dimension(num_l)   :: del_t, &! ?? temperature tendency [K]
@@ -4538,7 +2961,7 @@ real :: NH4_leached(num_l), div_NH4_loss(num_l),  &     ! NH4 leaching
         dTr_s = 0.
         dTr_g(num_l) = 1.
         l = num_l
-        ziph = sum(dz)
+        ziph = sum(dz(1:num_l))
         zimh = ziph - dz(num_l)
         if (depth_to_gw_flow .lt. zimh) then
            dTR_g(l) = dz(l)
@@ -4581,10 +3004,11 @@ real :: NH4_leached(num_l), div_NH4_loss(num_l),  &     ! NH4 leaching
         l_max_active_layer = l
      enddo
      if (l_max_active_layer.lt.num_l .and. l_max_active_layer.gt.0) then
-        do l = 1, l_max_active_layer
-           div_al(l) = K_x(l) * soil%pars%hillslope_relief*dz(l) &
-                 / (soil%pars%hillslope_length*soil%pars%hillslope_length)
-        enddo
+       do l = 1, l_max_active_layer
+          div_al(l) = active_layer_drainage_acceleration &
+                * K_x(l) * soil%pars%hillslope_relief*dz(l) &
+                / (soil%pars%hillslope_length*soil%pars%hillslope_length)
+       enddo
      endif
 
   CASE (GW_TILED)
@@ -4855,7 +3279,7 @@ real :: NH4_leached(num_l), div_NH4_loss(num_l),  &     ! NH4 leaching
      macro_inf = min(lrunf_ie*delta_time,sum_air*dens_h2o)
      tflow = tfreeze + hlrunf_ie/(clw*lrunf_ie)
      if (sum_air.gt.0.) then
-        denom = sum(air_depth*macro_frac/dz)
+        denom = sum(air_depth*macro_frac/dz(1:num_l))
         ! tentatively distribute macropore infiltration in proportion
         ! to available pore volume and macropore density
         do l= 1, num_l
@@ -5117,10 +3541,14 @@ soil%passive_N_uptake=sum(passive_ammonium_uptake+passive_nitrate_uptake)
    total_DON_div = total_DON_div/delta_time
    total_NO3_div = total_NO3_div/delta_time
    total_NH4_div = total_NH4_div/delta_time
-   soil_doc_runf = total_DOC_div
-   soil_don_runf = total_DON_div
-   soil_NO3_runf = total_NO3_div
-   soil_NH4_runf = total_NH4_div
+   if (i_river_DOC/=NO_TRACER) &
+       soil_tr_runf(i_river_DOC) = total_DOC_div
+   if (i_river_DON/=NO_TRACER) &
+       soil_tr_runf(i_river_DON) = total_DON_div
+   if (i_river_NO3/=NO_TRACER) &
+       soil_tr_runf(i_river_NO3) = total_NO3_div
+   if (i_river_NH4/=NO_TRACER) &
+       soil_tr_runf(i_river_NH4) = total_NH4_div
 
    if (is_watch_point()) then
       write(*,*)'##### soil_step_2 checkpoint 7 #####'
@@ -5145,6 +3573,19 @@ soil%passive_N_uptake=sum(passive_ammonium_uptake+passive_nitrate_uptake)
   if (id_lwc > 0) call send_tile_data(id_lwc,  soil%wl/dz(1:num_l), diag)
   if (id_swc > 0) call send_tile_data(id_swc,  soil%ws/dz(1:num_l), diag)
   if (id_psi > 0) call send_tile_data(id_psi,  psi+dPsi, diag)
+
+  ! CMOR variables
+  if (id_mrlsl > 0) call send_tile_data(id_mrlsl, soil%wl+soil%ws, diag)
+  if (id_mrsfl > 0) call send_tile_data(id_mrsfl, soil%ws, diag)
+  if (id_mrsll > 0) call send_tile_data(id_mrsll, soil%wl, diag)
+  if (id_mrsol > 0) call send_tile_data(id_mrsol, soil%wl+soil%ws, diag)
+  if (id_mrso > 0)  call send_tile_data(id_mrso,  sum(soil%wl+soil%ws), diag)
+  if (id_mrsos > 0) call send_tile_data(id_mrsos, sum((soil%wl+soil%ws)*mrsos_weight), diag)
+  if (id_mrfso > 0) call send_tile_data(id_mrfso, sum(soil%ws), diag)
+  if (id_mrlso > 0) call send_tile_data(id_mrlso, sum(soil%wl), diag)
+  call send_tile_data(id_mrros, lrunf_ie+lrunf_sn, diag)
+  call send_tile_data(id_mrro,  lrunf_ie+lrunf_sn+lrunf_bf+lrunf_nu, diag)
+
   ! ZMS uncomment for back-compatibility with diag tables
   if (gw_option == GW_TILED) then
      call send_tile_data(id_deficit, deficit, diag)
@@ -5286,235 +3727,373 @@ subroutine soil_step_3(soil, diag)
   real :: total_carbon_layered(num_l),total_nitrogen_layered(num_l)
   real :: total_nitrate, total_ammonium
 
-  total_carbon_layered=0.0
-  total_fast_C=0.0
-  total_slow_C=0.0
-  total_deadmic_C=0.0
-  total_livemic_C=0.0
-  total_protected_C=0.0
-  total_dissolved_C=0.0
-  total_carbon=0.0
+  select case (soil_carbon_option)
+  case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
+     if (id_fsc>0) call send_tile_data(id_fsc, sum(soil%fast_soil_C(:)), diag)
+     if (id_ssc>0) call send_tile_data(id_ssc, sum(soil%slow_soil_C(:)), diag)
+     if (id_csoil>0) call send_tile_data(id_csoil, sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:)), diag)
+     call send_tile_data(id_fast_soil_C, soil%fast_soil_C(:)/dz(1:num_l), diag)
+     call send_tile_data(id_slow_soil_C, soil%slow_soil_C(:)/dz(1:num_l), diag)
 
-  total_nitrogen_layered=0.0
-  total_fast_N=0.0
-  total_slow_N=0.0
-  total_deadmic_N=0.0
-  total_livemic_N=0.0
-  total_protected_N=0.0
-  total_dissolved_N=0.0
-  total_nitrogen=0.0
+     ! --- CMOR vars
+     if (id_csoilfast>0) call send_tile_data(id_csoilfast, sum(soil%fast_soil_C(:)), diag)
+     if (id_csoilmedium>0) call send_tile_data(id_csoilmedium, sum(soil%slow_soil_C(:)), diag)
+     call send_tile_data(id_csoilslow, 0.0, diag)
+     ! --- end of CMOR vars
 
-  DO layer=1,num_l
-    call poolTotals(soil%soil_organic_matter(layer),fastC=fast_C(layer),fastN=fast_N(layer),slowC=slow_C(layer),slowN=slow_N(layer),&
-    deadMicrobeC=deadMicrobeC(layer),liveMicrobeC=liveMicrobeC(layer),protectedC=protectedC(layer),&
-    deadMicrobeN=deadMicrobeN(layer),liveMicrobeN=liveMicrobeN(layer),protectedN=protectedN(layer),&
-    fast_dissolvedC=fast_dissolved_C(layer),slow_dissolvedC=slow_dissolved_C(layer),&
-    fast_dissolvedN=fast_dissolved_N(layer),slow_dissolvedN=slow_dissolved_N(layer),&
-    deadmic_dissolvedC=deadmic_dissolved_C(layer),ncohorts=ncohorts(layer),totalCarbon=total_carbon_layered(layer),&
-    deadmic_dissolvedN=deadmic_dissolved_N(layer),totalNitrogen=total_nitrogen_layered(layer)  )
-  ENDDO
+  case (SOILC_CORPSE)
+     total_carbon_layered=0.0
+     total_fast_C=0.0
+     total_slow_C=0.0
+     total_deadmic_C=0.0
+     total_livemic_C=0.0
+     total_protected_C=0.0
+     total_dissolved_C=0.0
+     total_carbon=0.0
 
-  total_fast_C=sum(fast_C)
-  total_slow_C=sum(slow_C)
-  total_deadmic_C=sum(deadMicrobeC)
-  total_livemic_C=sum(liveMicrobeC)
-  total_protected_C=sum(protectedC)
-  total_dissolved_C=sum(fast_dissolved_C+slow_dissolved_C+deadmic_dissolved_C)
+     DO layer=1,num_l
+       call poolTotals(soil%soil_organic_matter(layer),fastC=fast_C(layer),slowC=slow_C(layer),&
+       deadMicrobeC=deadMicrobeC(layer),liveMicrobeC=liveMicrobeC(layer),protectedC=protectedC(layer),&
+       fast_dissolvedC=fast_dissolved_C(layer),slow_dissolvedC=slow_dissolved_C(layer),deadmic_dissolvedC=deadmic_dissolved_C(layer),&
+       ncohorts=ncohorts(layer),totalCarbon=total_carbon_layered(layer))
+     ENDDO
 
-  total_fast_N=sum(fast_N)
-  total_slow_N=sum(slow_N)
-  total_deadmic_N=sum(deadMicrobeN)
-  total_livemic_N=sum(liveMicrobeN)
-  total_protected_N=sum(protectedN)
-  total_dissolved_N=sum(fast_dissolved_N+slow_dissolved_N+deadmic_dissolved_N)
-  total_nitrate = sum(soil%soil_organic_matter(:)%nitrate)
-  total_ammonium = sum(soil%soil_organic_matter(:)%ammonium)
+     total_fast_C=sum(fast_C)
+     total_slow_C=sum(slow_C)
+     total_deadmic_C=sum(deadMicrobeC)
+     total_livemic_C=sum(liveMicrobeC)
+     total_protected_C=sum(protectedC)
+     total_dissolved_C=sum(fast_dissolved_C+slow_dissolved_C+deadmic_dissolved_C)
 
-  if (id_fast_soil_C > 0) call send_tile_data(id_fast_soil_C, fast_C/dz, diag)
-  if (id_slow_soil_C > 0) call send_tile_data(id_slow_soil_C, slow_C/dz, diag)
-  if (id_deadmic_C > 0) call send_tile_data(id_deadmic_C, deadMicrobeC/dz, diag)
-  if (id_livemic_C > 0) call send_tile_data(id_livemic_C, liveMicrobeC/dz, diag)
-  if (id_protectedC > 0) call send_tile_data(id_protectedC, protectedC/dz, diag)
-  if (id_nsoilcohorts > 0) call send_tile_data(id_nsoilcohorts, real(ncohorts), diag)
-  if (id_fast_dissolved_C > 0) call send_tile_data(id_fast_dissolved_C, fast_dissolved_C/dz, diag)
-  if (id_slow_dissolved_C > 0) call send_tile_data(id_slow_dissolved_C, slow_dissolved_C/dz, diag)
-  if (id_deadmic_dissolved_C > 0) call send_tile_data(id_deadmic_dissolved_C, deadmic_dissolved_C/dz, diag)
-  if (id_total_carbon_layered > 0) call send_tile_data(id_total_carbon_layered, total_carbon_layered/dz,diag)
+     if (id_fast_soil_C > 0) call send_tile_data(id_fast_soil_C, fast_C/dz(1:num_l), diag)
+     if (id_slow_soil_C > 0) call send_tile_data(id_slow_soil_C, slow_C/dz(1:num_l), diag)
+     if (id_deadmic_C > 0) call send_tile_data(id_deadmic_C, deadMicrobeC/dz(1:num_l), diag)
+     if (id_livemic_C > 0) call send_tile_data(id_livemic_C, liveMicrobeC/dz(1:num_l), diag)
+     if (id_protectedC > 0) call send_tile_data(id_protectedC, protectedC/dz(1:num_l), diag)
+     if (id_nsoilcohorts > 0) call send_tile_data(id_nsoilcohorts, real(ncohorts), diag)
+     if (id_fast_dissolved_C > 0) call send_tile_data(id_fast_dissolved_C, fast_dissolved_C/dz(1:num_l), diag)
+     if (id_slow_dissolved_C > 0) call send_tile_data(id_slow_dissolved_C, slow_dissolved_C/dz(1:num_l), diag)
+     if (id_deadmic_dissolved_C > 0) call send_tile_data(id_deadmic_dissolved_C, deadmic_dissolved_C/dz(1:num_l), diag)
+     if (id_total_carbon_layered > 0) call send_tile_data(id_total_carbon_layered, total_carbon_layered/dz(1:num_l),diag)
 
-  if (id_fast_DOC_div_loss > 0) call send_tile_data(id_fast_DOC_div_loss, soil%fast_DOC_leached,diag)
-  if (id_slow_DOC_div_loss > 0) call send_tile_data(id_slow_DOC_div_loss, soil%slow_DOC_leached,diag)
-  if (id_deadmic_DOC_div_loss > 0) call send_tile_data(id_deadmic_DOC_div_loss, soil%deadmic_DOC_leached,diag)
+     if (id_fast_DOC_div_loss > 0) call send_tile_data(id_fast_DOC_div_loss, soil%fast_DOC_leached,diag)
+     if (id_slow_DOC_div_loss > 0) call send_tile_data(id_slow_DOC_div_loss, soil%slow_DOC_leached,diag)
+     if (id_deadmic_DOC_div_loss > 0) call send_tile_data(id_deadmic_DOC_div_loss, soil%deadmic_DOC_leached,diag)
 
-
-  if (id_fast_soil_N > 0) call send_tile_data(id_fast_soil_N, fast_N/dz, diag)
-  if (id_slow_soil_N > 0) call send_tile_data(id_slow_soil_N, slow_N/dz, diag)
-  if (id_deadmic_N > 0) call send_tile_data(id_deadmic_N, deadMicrobeN/dz, diag)
-  if (id_livemic_N > 0) call send_tile_data(id_livemic_N, liveMicrobeN/dz, diag)
-  if (id_protectedN > 0) call send_tile_data(id_protectedN, protectedN/dz, diag)
-  if (id_fast_dissolved_N > 0) call send_tile_data(id_fast_dissolved_N, fast_dissolved_N/dz, diag)
-  if (id_slow_dissolved_N > 0) call send_tile_data(id_slow_dissolved_N, slow_dissolved_N/dz, diag)
-  if (id_deadmic_dissolved_N > 0) call send_tile_data(id_deadmic_dissolved_N, deadmic_dissolved_N/dz, diag)
-  if (id_total_nitrogen_layered > 0) call send_tile_data(id_total_nitrogen_layered, total_nitrogen_layered/dz,diag)
-  if (id_soil_ammonium > 0) call send_tile_data(id_soil_ammonium, soil%soil_organic_matter(1:num_l)%ammonium/dz,diag)
-  if (id_soil_nitrate > 0) call send_tile_data(id_soil_nitrate, soil%soil_organic_matter(1:num_l)%nitrate/dz,diag)
-
-  if (id_fast_DON_div_loss > 0) call send_tile_data(id_fast_DON_div_loss, soil%fast_DON_leached,diag)
-  if (id_slow_DON_div_loss > 0) call send_tile_data(id_slow_DON_div_loss, soil%slow_DON_leached,diag)
-  if (id_deadmic_DON_div_loss > 0) call send_tile_data(id_deadmic_DON_div_loss, soil%deadmic_DON_leached,diag)
-  if (id_NO3_div_loss > 0) call send_tile_data(id_NO3_div_loss, soil%NO3_leached,diag)
-  if (id_NH4_div_loss > 0) call send_tile_data(id_NH4_div_loss, soil%NH4_leached,diag)
-
-  call poolTotals(soil%leafLitter,fastC=litter_fast_C,slowC=litter_slow_C,deadMicrobeC=litter_deadmic_C,&
-                    liveMicrobeC=litter_livemic_C,ncohorts=litter_ncohorts,&
-                    fastN=litter_fast_N,slowN=litter_slow_N,deadMicrobeN=litter_deadmic_N,liveMicrobeN=litter_livemic_N,&
-                    totalCarbon=litter_total_C, totalNitrogen=litter_total_N)
-  total_fast_C=total_fast_C+litter_fast_C
-  total_slow_C=total_slow_C+litter_slow_C
-  total_deadmic_C=total_deadmic_C+litter_deadmic_C
-  total_livemic_C=total_livemic_C+litter_livemic_C
-  total_dissolved_C=total_dissolved_C+sum(soil%leafLitter%dissolved_carbon(:))
-
-  total_fast_N=total_fast_N+litter_fast_N
-  total_slow_N=total_slow_N+litter_slow_N
-  total_deadmic_N=total_deadmic_N+litter_deadmic_N
-  total_livemic_N=total_livemic_N+litter_livemic_N
-  total_dissolved_N=total_dissolved_N+sum(soil%leafLitter%dissolved_nitrogen(:))
-  total_nitrate=total_nitrate+soil%leafLitter%nitrate
-  total_ammonium=total_ammonium+soil%leafLitter%ammonium
+     call poolTotals(soil%leafLitter,fastC=litter_fast_C,slowC=litter_slow_C,deadmicrobeC=litter_deadmic_C,&
+            liveMicrobeC=litter_livemic_C,ncohorts=litter_ncohorts)
+     total_fast_C=total_fast_C+litter_fast_C
+     total_slow_C=total_slow_C+litter_slow_C
+     total_deadmic_C=total_deadmic_C+litter_deadmic_C
+     total_livemic_C=total_livemic_C+litter_livemic_C
+     total_dissolved_C=total_dissolved_C+sum(soil%leafLitter%dissolved_carbon(:))
 
 
-  if (id_nleaflittercohorts > 0) call send_tile_data(id_nleaflittercohorts, real(litter_ncohorts), diag)
-  if (id_leaflitter_fast_C > 0) call send_tile_data(id_leaflitter_fast_C, litter_fast_C, diag)
-  if (id_leaflitter_slow_C > 0) call send_tile_data(id_leaflitter_slow_C, litter_slow_C, diag)
-  if (id_leaflitter_deadmic_C > 0) call send_tile_data(id_leaflitter_deadmic_C, litter_deadmic_C, diag)
-  if (id_leaflitter_livemic_C > 0) call send_tile_data(id_leaflitter_livemic_C, litter_livemic_C, diag)
-  if (id_leaflitter_fast_dissolved_C > 0) call send_tile_data(id_leaflitter_fast_dissolved_C, soil%leafLitter%dissolved_carbon(1), diag)
-  if (id_leaflitter_slow_dissolved_C > 0) call send_tile_data(id_leaflitter_slow_dissolved_C, soil%leafLitter%dissolved_carbon(2), diag)
-  if (id_leaflitter_deadmic_dissolved_C > 0) call send_tile_data(id_leaflitter_deadmic_dissolved_C, soil%leafLitter%dissolved_carbon(3), diag)
-  if (id_leaflitter_total_C > 0) call send_tile_data(id_leaflitter_total_C, litter_total_C,diag)
+     if (id_nleaflittercohorts > 0) call send_tile_data(id_nleaflittercohorts, real(litter_ncohorts), diag)
+     if (id_leaflitter_fast_C > 0) call send_tile_data(id_leaflitter_fast_C, litter_fast_C, diag)
+     if (id_leaflitter_slow_C > 0) call send_tile_data(id_leaflitter_slow_C, litter_slow_C, diag)
+     if (id_leaflitter_deadmic_C > 0) call send_tile_data(id_leaflitter_deadmic_C, litter_deadmic_C, diag)
+     if (id_leaflitter_livemic_C > 0) call send_tile_data(id_leaflitter_livemic_C, litter_livemic_C, diag)
+     if (id_leaflitter_fast_dissolved_C > 0) call send_tile_data(id_leaflitter_fast_dissolved_C, soil%leafLitter%dissolved_carbon(1), diag)
+     if (id_leaflitter_slow_dissolved_C > 0) call send_tile_data(id_leaflitter_slow_dissolved_C, soil%leafLitter%dissolved_carbon(2), diag)
+     if (id_leaflitter_deadmic_dissolved_C > 0) call send_tile_data(id_leaflitter_deadmic_dissolved_C, soil%leafLitter%dissolved_carbon(3), diag)
+     if (id_leaflitter_total_C > 0) call send_tile_data(id_leaflitter_total_C, &
+           litter_fast_C+litter_slow_C+litter_deadmic_C+litter_livemic_C+sum(soil%leafLitter%dissolved_carbon(:)),diag)
 
-  if (id_leaflitter_fast_N > 0) call send_tile_data(id_leaflitter_fast_N, litter_fast_N, diag)
-  if (id_leaflitter_slow_N > 0) call send_tile_data(id_leaflitter_slow_N, litter_slow_N, diag)
-  if (id_leaflitter_deadmic_N > 0) call send_tile_data(id_leaflitter_deadmic_N, litter_deadmic_N, diag)
-  if (id_leaflitter_livemic_N > 0) call send_tile_data(id_leaflitter_livemic_N, litter_livemic_N, diag)
-  if (id_leaflitter_fast_dissolved_N > 0) call send_tile_data(id_leaflitter_fast_dissolved_N, soil%leafLitter%dissolved_nitrogen(1), diag)
-  if (id_leaflitter_slow_dissolved_N > 0) call send_tile_data(id_leaflitter_slow_dissolved_N, soil%leafLitter%dissolved_nitrogen(2), diag)
-  if (id_leaflitter_deadmic_dissolved_N > 0) call send_tile_data(id_leaflitter_deadmic_dissolved_N, soil%leafLitter%dissolved_nitrogen(3), diag)
-  if (id_leaflitter_total_N > 0) call send_tile_data(id_leaflitter_total_N, litter_total_N,diag)
+     call poolTotals(soil%fineWoodLitter,fastC=litter_fast_C,slowC=litter_slow_C,deadMicrobeC=litter_deadmic_C,&
+              liveMicrobeC=litter_livemic_C,ncohorts=litter_ncohorts)
+     total_fast_C=total_fast_C+litter_fast_C
+     total_slow_C=total_slow_C+litter_slow_C
+     total_deadmic_C=total_deadmic_C+litter_deadmic_C
+     total_livemic_C=total_livemic_C+litter_livemic_C
+     total_dissolved_C=total_dissolved_C+sum(soil%fineWoodLitter%dissolved_carbon(:))
 
-
-  call poolTotals(soil%fineWoodLitter,fastC=litter_fast_C,slowC=litter_slow_C,deadMicrobeC=litter_deadmic_C,&
-                    liveMicrobeC=litter_livemic_C,ncohorts=litter_ncohorts,&
-                    fastN=litter_fast_N,slowN=litter_slow_N,deadMicrobeN=litter_deadmic_N,liveMicrobeN=litter_livemic_N,&
-                    totalCarbon=litter_total_C, totalNitrogen=litter_total_N)
-  total_fast_C=total_fast_C+litter_fast_C
-  total_slow_C=total_slow_C+litter_slow_C
-  total_deadmic_C=total_deadmic_C+litter_deadmic_C
-  total_livemic_C=total_livemic_C+litter_livemic_C
-  total_dissolved_C=total_dissolved_C+sum(soil%fineWoodLitter%dissolved_carbon(:))
-
-  total_fast_N=total_fast_N+litter_fast_N
-  total_slow_N=total_slow_N+litter_slow_N
-  total_deadmic_N=total_deadmic_N+litter_deadmic_N
-  total_livemic_N=total_livemic_N+litter_livemic_N
-  total_dissolved_N=total_dissolved_N+sum(soil%fineWoodLitter%dissolved_nitrogen(:))
-  total_nitrate=total_nitrate+soil%fineWoodLitter%nitrate
-  total_ammonium=total_ammonium+soil%fineWoodLitter%ammonium
+     if (id_nfineWoodlittercohorts > 0) call send_tile_data(id_nfineWoodlittercohorts, real(litter_ncohorts), diag)
+     if (id_fineWoodlitter_fast_C > 0) call send_tile_data(id_fineWoodlitter_fast_C, litter_fast_C, diag)
+     if (id_fineWoodlitter_slow_C > 0) call send_tile_data(id_fineWoodlitter_slow_C, litter_slow_C, diag)
+     if (id_fineWoodlitter_deadmic_C > 0) call send_tile_data(id_fineWoodlitter_deadmic_C, litter_deadmic_C, diag)
+     if (id_fineWoodlitter_livemic_C > 0) call send_tile_data(id_fineWoodlitter_livemic_C, litter_livemic_C, diag)
+     if (id_fineWoodlitter_fast_dissolved_C > 0) call send_tile_data(id_fineWoodlitter_fast_dissolved_C, soil%fineWoodLitter%dissolved_carbon(1), diag)
+     if (id_fineWoodlitter_slow_dissolved_C > 0) call send_tile_data(id_fineWoodlitter_slow_dissolved_C, soil%fineWoodLitter%dissolved_carbon(2), diag)
+     if (id_fineWoodlitter_deadmic_dissolved_C > 0) call send_tile_data(id_fineWoodlitter_deadmic_dissolved_C, soil%fineWoodLitter%dissolved_carbon(3), diag)
+     if (id_fineWoodlitter_total_C > 0) call send_tile_data(id_fineWoodlitter_total_C, &
+           litter_fast_C+litter_slow_C+litter_deadmic_C+litter_livemic_C+sum(soil%fineWoodLitter%dissolved_carbon(:)),diag)
 
 
-  if (id_nfineWoodlittercohorts > 0) call send_tile_data(id_nfineWoodlittercohorts, real(litter_ncohorts), diag)
-  if (id_fineWoodlitter_fast_C > 0) call send_tile_data(id_fineWoodlitter_fast_C, litter_fast_C, diag)
-  if (id_fineWoodlitter_slow_C > 0) call send_tile_data(id_fineWoodlitter_slow_C, litter_slow_C, diag)
-  if (id_fineWoodlitter_deadmic_C > 0) call send_tile_data(id_fineWoodlitter_deadmic_C, litter_deadmic_C, diag)
-  if (id_fineWoodlitter_livemic_C > 0) call send_tile_data(id_fineWoodlitter_livemic_C, litter_livemic_C, diag)
-  if (id_fineWoodlitter_fast_dissolved_C > 0) call send_tile_data(id_fineWoodlitter_fast_dissolved_C, soil%fineWoodLitter%dissolved_carbon(1), diag)
-  if (id_fineWoodlitter_slow_dissolved_C > 0) call send_tile_data(id_fineWoodlitter_slow_dissolved_C, soil%fineWoodLitter%dissolved_carbon(2), diag)
-  if (id_fineWoodlitter_deadmic_dissolved_C > 0) call send_tile_data(id_fineWoodlitter_deadmic_dissolved_C, soil%fineWoodLitter%dissolved_carbon(3), diag)
-  if (id_fineWoodlitter_total_C > 0) call send_tile_data(id_fineWoodlitter_total_C, litter_total_C,diag)
+     call poolTotals(soil%coarseWoodLitter,fastC=litter_fast_C,slowC=litter_slow_C,deadMicrobeC=litter_deadmic_C,&
+            liveMicrobeC=litter_livemic_C,ncohorts=litter_ncohorts)
+     total_fast_C=total_fast_C+litter_fast_C
+     total_slow_C=total_slow_C+litter_slow_C
+     total_deadmic_C=total_deadmic_C+litter_deadmic_C
+     total_livemic_C=total_livemic_C+litter_livemic_C
+     total_dissolved_C=total_dissolved_C+sum(soil%leafLitter%dissolved_carbon(:))
 
-  if (id_fineWoodlitter_fast_N > 0) call send_tile_data(id_fineWoodlitter_fast_N, litter_fast_N, diag)
-  if (id_fineWoodlitter_slow_N > 0) call send_tile_data(id_fineWoodlitter_slow_N, litter_slow_N, diag)
-  if (id_fineWoodlitter_deadmic_N > 0) call send_tile_data(id_fineWoodlitter_deadmic_N, litter_deadmic_N, diag)
-  if (id_fineWoodlitter_livemic_N > 0) call send_tile_data(id_fineWoodlitter_livemic_N, litter_livemic_N, diag)
-  if (id_fineWoodlitter_fast_dissolved_N > 0) call send_tile_data(id_fineWoodlitter_fast_dissolved_N, soil%fineWoodLitter%dissolved_nitrogen(1), diag)
-  if (id_fineWoodlitter_slow_dissolved_N > 0) call send_tile_data(id_fineWoodlitter_slow_dissolved_N, soil%fineWoodLitter%dissolved_nitrogen(2), diag)
-  if (id_fineWoodlitter_deadmic_dissolved_N > 0) call send_tile_data(id_fineWoodlitter_deadmic_dissolved_N, soil%fineWoodLitter%dissolved_nitrogen(3), diag)
-  if (id_fineWoodlitter_total_N > 0) call send_tile_data(id_fineWoodlitter_total_N, litter_total_N,diag)
+     if (id_ncoarseWoodlittercohorts > 0) call send_tile_data(id_ncoarseWoodlittercohorts, real(litter_ncohorts), diag)
+     if (id_coarseWoodlitter_fast_C > 0) call send_tile_data(id_coarseWoodlitter_fast_C, litter_fast_C, diag)
+     if (id_coarseWoodlitter_slow_C > 0) call send_tile_data(id_coarseWoodlitter_slow_C, litter_slow_C, diag)
+     if (id_coarseWoodlitter_deadmic_C > 0) call send_tile_data(id_coarseWoodlitter_deadmic_C, litter_deadmic_C, diag)
+     if (id_coarseWoodlitter_livemic_C > 0) call send_tile_data(id_coarseWoodlitter_livemic_C, litter_livemic_C, diag)
+     if (id_coarseWoodlitter_fast_dissolved_C > 0) call send_tile_data(id_coarseWoodlitter_fast_dissolved_C, soil%coarseWoodLitter%dissolved_carbon(1), diag)
+     if (id_coarseWoodlitter_slow_dissolved_C > 0) call send_tile_data(id_coarseWoodlitter_slow_dissolved_C, soil%coarseWoodLitter%dissolved_carbon(2), diag)
+     if (id_coarseWoodlitter_deadmic_dissolved_C > 0) call send_tile_data(id_coarseWoodlitter_deadmic_dissolved_C, soil%coarseWoodLitter%dissolved_carbon(3), diag)
+     if (id_coarseWoodlitter_total_C > 0) call send_tile_data(id_coarseWoodlitter_total_C, &
+           litter_fast_C+litter_slow_C+litter_deadmic_C+litter_livemic_C+sum(soil%coarseWoodLitter%dissolved_carbon(:)),diag)
 
+     sum_fsc = total_fast_C
+     sum_ssc = total_slow_C
+     sum_deadmic_C = total_deadmic_C
+     sum_livemic_C = total_livemic_C
+     sum_protectedC = total_protected_C
+     total_carbon=total_fast_C+total_slow_C+total_deadmic_C+total_livemic_C+total_dissolved_C+total_protected_C
+    ! --- CMOR vars
+    call send_tile_data(id_csoilfast,   sum_fsc, diag)
+    call send_tile_data(id_csoilmedium, sum_ssc, diag)
+    call send_tile_data(id_csoilslow,   0.0,     diag)
+    ! --- end of CMOR vars
+    if (id_csoil > 0) call send_tile_data(id_csoil, sum_ssc+sum_fsc, diag)
+     if (id_fsc > 0) call send_tile_data(id_fsc, sum_fsc, diag)
+     if (id_ssc > 0) call send_tile_data(id_ssc, sum_ssc, diag)
+     if (id_deadmic_C_total > 0) call send_tile_data(id_deadmic_C_total, sum_deadmic_C, diag)
+     if (id_livemic_C_total > 0) call send_tile_data(id_livemic_C_total, sum_livemic_C, diag)
 
-  call poolTotals(soil%coarseWoodLitter,fastC=litter_fast_C,slowC=litter_slow_C,deadMicrobeC=litter_deadmic_C,&
-                    liveMicrobeC=litter_livemic_C,ncohorts=litter_ncohorts,&
-                    fastN=litter_fast_N,slowN=litter_slow_N,deadMicrobeN=litter_deadmic_N,liveMicrobeN=litter_livemic_N,&
-                    totalCarbon=litter_total_C, totalNitrogen=litter_total_N)
-  total_fast_C=total_fast_C+litter_fast_C
-  total_slow_C=total_slow_C+litter_slow_C
-  total_deadmic_C=total_deadmic_C+litter_deadmic_C
-  total_livemic_C=total_livemic_C+litter_livemic_C
-  total_dissolved_C=total_dissolved_C+sum(soil%coarseWoodLitter%dissolved_carbon(:))
-
-  total_fast_N=total_fast_N+litter_fast_N
-  total_slow_N=total_slow_N+litter_slow_N
-  total_deadmic_N=total_deadmic_N+litter_deadmic_N
-  total_livemic_N=total_livemic_N+litter_livemic_N
-  total_dissolved_N=total_dissolved_N+sum(soil%coarseWoodLitter%dissolved_nitrogen(:))
-  total_nitrate=total_nitrate+soil%coarseWoodLitter%nitrate
-  total_ammonium=total_ammonium+soil%coarseWoodLitter%ammonium
-
-
-  if (id_ncoarseWoodlittercohorts > 0) call send_tile_data(id_ncoarseWoodlittercohorts, real(litter_ncohorts), diag)
-  if (id_coarseWoodlitter_fast_C > 0) call send_tile_data(id_coarseWoodlitter_fast_C, litter_fast_C, diag)
-  if (id_coarseWoodlitter_slow_C > 0) call send_tile_data(id_coarseWoodlitter_slow_C, litter_slow_C, diag)
-  if (id_coarseWoodlitter_deadmic_C > 0) call send_tile_data(id_coarseWoodlitter_deadmic_C, litter_deadmic_C, diag)
-  if (id_coarseWoodlitter_livemic_C > 0) call send_tile_data(id_coarseWoodlitter_livemic_C, litter_livemic_C, diag)
-  if (id_coarseWoodlitter_fast_dissolved_C > 0) call send_tile_data(id_coarseWoodlitter_fast_dissolved_C, soil%coarseWoodLitter%dissolved_carbon(1), diag)
-  if (id_coarseWoodlitter_slow_dissolved_C > 0) call send_tile_data(id_coarseWoodlitter_slow_dissolved_C, soil%coarseWoodLitter%dissolved_carbon(2), diag)
-  if (id_coarseWoodlitter_deadmic_dissolved_C > 0) call send_tile_data(id_coarseWoodlitter_deadmic_dissolved_C, soil%coarseWoodLitter%dissolved_carbon(3), diag)
-  if (id_coarseWoodlitter_total_C > 0) call send_tile_data(id_coarseWoodlitter_total_C, litter_total_C,diag)
-
-  if (id_coarseWoodlitter_fast_N > 0) call send_tile_data(id_coarseWoodlitter_fast_N, litter_fast_N, diag)
-  if (id_coarseWoodlitter_slow_N > 0) call send_tile_data(id_coarseWoodlitter_slow_N, litter_slow_N, diag)
-  if (id_coarseWoodlitter_deadmic_N > 0) call send_tile_data(id_coarseWoodlitter_deadmic_N, litter_deadmic_N, diag)
-  if (id_coarseWoodlitter_livemic_N > 0) call send_tile_data(id_coarseWoodlitter_livemic_N, litter_livemic_N, diag)
-  if (id_coarseWoodlitter_fast_dissolved_N > 0) call send_tile_data(id_coarseWoodlitter_fast_dissolved_N, soil%coarseWoodLitter%dissolved_nitrogen(1), diag)
-  if (id_coarseWoodlitter_slow_dissolved_N > 0) call send_tile_data(id_coarseWoodlitter_slow_dissolved_N, soil%coarseWoodLitter%dissolved_nitrogen(2), diag)
-  if (id_coarseWoodlitter_deadmic_dissolved_N > 0) call send_tile_data(id_coarseWoodlitter_deadmic_dissolved_N, soil%coarseWoodLitter%dissolved_nitrogen(3), diag)
-  if (id_coarseWoodlitter_total_N > 0) call send_tile_data(id_coarseWoodlitter_total_N, litter_total_N,diag)
+     if (id_protected_C_total > 0) call send_tile_data(id_protected_C_total, sum_protectedC, diag)
+     if (id_dissolved_C_total > 0) call send_tile_data(id_dissolved_C_total, total_dissolved_C, diag)
+     if (id_total_soil_C > 0) call send_tile_data(id_total_soil_C, total_carbon, diag)
 
 
-  sum_fsc = total_fast_C
-  sum_ssc = total_slow_C
-  sum_deadmic_C = total_deadmic_C
-  sum_livemic_C = total_livemic_C
-  sum_protectedC = total_protected_C
-  total_carbon=total_fast_C+total_slow_C+total_deadmic_C+total_livemic_C+total_dissolved_C+total_protected_C
-  if (id_fsc > 0) call send_tile_data(id_fsc, sum_fsc, diag)
-  if (id_ssc > 0) call send_tile_data(id_ssc, sum_ssc, diag)
-  if (id_deadmic_C_total > 0) call send_tile_data(id_deadmic_C_total, sum_deadmic_C, diag)
-  if (id_livemic_C_total > 0) call send_tile_data(id_livemic_C_total, sum_livemic_C, diag)
+  case (SOILC_CORPSE_N)
 
-  if (id_protected_C_total > 0) call send_tile_data(id_protected_C_total, sum_protectedC, diag)
-  if (id_dissolved_C_total > 0) call send_tile_data(id_dissolved_C_total, total_dissolved_C, diag)
-  if (id_total_soil_C > 0) call send_tile_data(id_total_soil_C, total_carbon, diag)
+    total_carbon_layered=0.0
+    total_fast_C=0.0
+    total_slow_C=0.0
+    total_deadmic_C=0.0
+    total_livemic_C=0.0
+    total_protected_C=0.0
+    total_dissolved_C=0.0
+    total_carbon=0.0
+
+    total_nitrogen_layered=0.0
+    total_fast_N=0.0
+    total_slow_N=0.0
+    total_deadmic_N=0.0
+    total_livemic_N=0.0
+    total_protected_N=0.0
+    total_dissolved_N=0.0
+    total_nitrogen=0.0
+
+    DO layer=1,num_l
+      call poolTotals(soil%soil_organic_matter(layer),fastC=fast_C(layer),fastN=fast_N(layer),slowC=slow_C(layer),slowN=slow_N(layer),&
+      deadMicrobeC=deadMicrobeC(layer),liveMicrobeC=liveMicrobeC(layer),protectedC=protectedC(layer),&
+      deadMicrobeN=deadMicrobeN(layer),liveMicrobeN=liveMicrobeN(layer),protectedN=protectedN(layer),&
+      fast_dissolvedC=fast_dissolved_C(layer),slow_dissolvedC=slow_dissolved_C(layer),&
+      fast_dissolvedN=fast_dissolved_N(layer),slow_dissolvedN=slow_dissolved_N(layer),&
+      deadmic_dissolvedC=deadmic_dissolved_C(layer),ncohorts=ncohorts(layer),totalCarbon=total_carbon_layered(layer),&
+      deadmic_dissolvedN=deadmic_dissolved_N(layer),totalNitrogen=total_nitrogen_layered(layer)  )
+    ENDDO
+
+    total_fast_C=sum(fast_C)
+    total_slow_C=sum(slow_C)
+    total_deadmic_C=sum(deadMicrobeC)
+    total_livemic_C=sum(liveMicrobeC)
+    total_protected_C=sum(protectedC)
+    total_dissolved_C=sum(fast_dissolved_C+slow_dissolved_C+deadmic_dissolved_C)
+
+    total_fast_N=sum(fast_N)
+    total_slow_N=sum(slow_N)
+    total_deadmic_N=sum(deadMicrobeN)
+    total_livemic_N=sum(liveMicrobeN)
+    total_protected_N=sum(protectedN)
+    total_dissolved_N=sum(fast_dissolved_N+slow_dissolved_N+deadmic_dissolved_N)
+    total_nitrate = sum(soil%soil_organic_matter(:)%nitrate)
+    total_ammonium = sum(soil%soil_organic_matter(:)%ammonium)
+
+    if (id_fast_soil_C > 0) call send_tile_data(id_fast_soil_C, fast_C/dz, diag)
+    if (id_slow_soil_C > 0) call send_tile_data(id_slow_soil_C, slow_C/dz, diag)
+    if (id_deadmic_C > 0) call send_tile_data(id_deadmic_C, deadMicrobeC/dz, diag)
+    if (id_livemic_C > 0) call send_tile_data(id_livemic_C, liveMicrobeC/dz, diag)
+    if (id_protectedC > 0) call send_tile_data(id_protectedC, protectedC/dz, diag)
+    if (id_nsoilcohorts > 0) call send_tile_data(id_nsoilcohorts, real(ncohorts), diag)
+    if (id_fast_dissolved_C > 0) call send_tile_data(id_fast_dissolved_C, fast_dissolved_C/dz, diag)
+    if (id_slow_dissolved_C > 0) call send_tile_data(id_slow_dissolved_C, slow_dissolved_C/dz, diag)
+    if (id_deadmic_dissolved_C > 0) call send_tile_data(id_deadmic_dissolved_C, deadmic_dissolved_C/dz, diag)
+    if (id_total_carbon_layered > 0) call send_tile_data(id_total_carbon_layered, total_carbon_layered/dz,diag)
+
+    if (id_fast_DOC_div_loss > 0) call send_tile_data(id_fast_DOC_div_loss, soil%fast_DOC_leached,diag)
+    if (id_slow_DOC_div_loss > 0) call send_tile_data(id_slow_DOC_div_loss, soil%slow_DOC_leached,diag)
+    if (id_deadmic_DOC_div_loss > 0) call send_tile_data(id_deadmic_DOC_div_loss, soil%deadmic_DOC_leached,diag)
 
 
-  sum_fsn = total_fast_N
-  sum_ssn = total_slow_N
-  sum_deadmic_N = total_deadmic_N
-  sum_livemic_N = total_livemic_N
-  sum_protectedN = total_protected_N
-  total_nitrogen=total_fast_N+total_slow_N+total_deadmic_N+total_livemic_N+total_dissolved_N+total_protected_N
-  if (id_fsn > 0) call send_tile_data(id_fsn, sum_fsn, diag)
-  if (id_ssn > 0) call send_tile_data(id_ssn, sum_ssn, diag)
-  if (id_deadmic_N_total > 0) call send_tile_data(id_deadmic_N_total, sum_deadmic_N, diag)
-  if (id_livemic_N_total > 0) call send_tile_data(id_livemic_N_total, sum_livemic_N, diag)
+    if (id_fast_soil_N > 0) call send_tile_data(id_fast_soil_N, fast_N/dz, diag)
+    if (id_slow_soil_N > 0) call send_tile_data(id_slow_soil_N, slow_N/dz, diag)
+    if (id_deadmic_N > 0) call send_tile_data(id_deadmic_N, deadMicrobeN/dz, diag)
+    if (id_livemic_N > 0) call send_tile_data(id_livemic_N, liveMicrobeN/dz, diag)
+    if (id_protectedN > 0) call send_tile_data(id_protectedN, protectedN/dz, diag)
+    if (id_fast_dissolved_N > 0) call send_tile_data(id_fast_dissolved_N, fast_dissolved_N/dz, diag)
+    if (id_slow_dissolved_N > 0) call send_tile_data(id_slow_dissolved_N, slow_dissolved_N/dz, diag)
+    if (id_deadmic_dissolved_N > 0) call send_tile_data(id_deadmic_dissolved_N, deadmic_dissolved_N/dz, diag)
+    if (id_total_nitrogen_layered > 0) call send_tile_data(id_total_nitrogen_layered, total_nitrogen_layered/dz,diag)
+    if (id_soil_ammonium > 0) call send_tile_data(id_soil_ammonium, soil%soil_organic_matter(1:num_l)%ammonium/dz,diag)
+    if (id_soil_nitrate > 0) call send_tile_data(id_soil_nitrate, soil%soil_organic_matter(1:num_l)%nitrate/dz,diag)
 
-  if (id_protected_N_total > 0) call send_tile_data(id_protected_N_total, sum_protectedN, diag)
-  if (id_dissolved_N_total > 0) call send_tile_data(id_dissolved_N_total, total_dissolved_N, diag)
-  if (id_total_soil_organic_N > 0) call send_tile_data(id_total_soil_N, total_nitrogen, diag)
-  if (id_total_soil_N > 0) call send_tile_data(id_total_soil_N, total_nitrogen+total_ammonium+total_nitrate, diag)
-  if (id_total_soil_ammonium > 0) call send_tile_data(id_total_soil_ammonium, total_ammonium, diag)
-  if (id_total_soil_nitrate > 0) call send_tile_data(id_total_soil_nitrate, total_nitrate, diag)
+    if (id_fast_DON_div_loss > 0) call send_tile_data(id_fast_DON_div_loss, soil%fast_DON_leached,diag)
+    if (id_slow_DON_div_loss > 0) call send_tile_data(id_slow_DON_div_loss, soil%slow_DON_leached,diag)
+    if (id_deadmic_DON_div_loss > 0) call send_tile_data(id_deadmic_DON_div_loss, soil%deadmic_DON_leached,diag)
+    if (id_NO3_div_loss > 0) call send_tile_data(id_NO3_div_loss, soil%NO3_leached,diag)
+    if (id_NH4_div_loss > 0) call send_tile_data(id_NH4_div_loss, soil%NH4_leached,diag)
 
+    call poolTotals(soil%leafLitter,fastC=litter_fast_C,slowC=litter_slow_C,deadMicrobeC=litter_deadmic_C,&
+                      liveMicrobeC=litter_livemic_C,ncohorts=litter_ncohorts,&
+                      fastN=litter_fast_N,slowN=litter_slow_N,deadMicrobeN=litter_deadmic_N,liveMicrobeN=litter_livemic_N,&
+                      totalCarbon=litter_total_C, totalNitrogen=litter_total_N)
+    total_fast_C=total_fast_C+litter_fast_C
+    total_slow_C=total_slow_C+litter_slow_C
+    total_deadmic_C=total_deadmic_C+litter_deadmic_C
+    total_livemic_C=total_livemic_C+litter_livemic_C
+    total_dissolved_C=total_dissolved_C+sum(soil%leafLitter%dissolved_carbon(:))
+
+    total_fast_N=total_fast_N+litter_fast_N
+    total_slow_N=total_slow_N+litter_slow_N
+    total_deadmic_N=total_deadmic_N+litter_deadmic_N
+    total_livemic_N=total_livemic_N+litter_livemic_N
+    total_dissolved_N=total_dissolved_N+sum(soil%leafLitter%dissolved_nitrogen(:))
+    total_nitrate=total_nitrate+soil%leafLitter%nitrate
+    total_ammonium=total_ammonium+soil%leafLitter%ammonium
+
+
+    if (id_nleaflittercohorts > 0) call send_tile_data(id_nleaflittercohorts, real(litter_ncohorts), diag)
+    if (id_leaflitter_fast_C > 0) call send_tile_data(id_leaflitter_fast_C, litter_fast_C, diag)
+    if (id_leaflitter_slow_C > 0) call send_tile_data(id_leaflitter_slow_C, litter_slow_C, diag)
+    if (id_leaflitter_deadmic_C > 0) call send_tile_data(id_leaflitter_deadmic_C, litter_deadmic_C, diag)
+    if (id_leaflitter_livemic_C > 0) call send_tile_data(id_leaflitter_livemic_C, litter_livemic_C, diag)
+    if (id_leaflitter_fast_dissolved_C > 0) call send_tile_data(id_leaflitter_fast_dissolved_C, soil%leafLitter%dissolved_carbon(1), diag)
+    if (id_leaflitter_slow_dissolved_C > 0) call send_tile_data(id_leaflitter_slow_dissolved_C, soil%leafLitter%dissolved_carbon(2), diag)
+    if (id_leaflitter_deadmic_dissolved_C > 0) call send_tile_data(id_leaflitter_deadmic_dissolved_C, soil%leafLitter%dissolved_carbon(3), diag)
+    if (id_leaflitter_total_C > 0) call send_tile_data(id_leaflitter_total_C, litter_total_C,diag)
+
+    if (id_leaflitter_fast_N > 0) call send_tile_data(id_leaflitter_fast_N, litter_fast_N, diag)
+    if (id_leaflitter_slow_N > 0) call send_tile_data(id_leaflitter_slow_N, litter_slow_N, diag)
+    if (id_leaflitter_deadmic_N > 0) call send_tile_data(id_leaflitter_deadmic_N, litter_deadmic_N, diag)
+    if (id_leaflitter_livemic_N > 0) call send_tile_data(id_leaflitter_livemic_N, litter_livemic_N, diag)
+    if (id_leaflitter_fast_dissolved_N > 0) call send_tile_data(id_leaflitter_fast_dissolved_N, soil%leafLitter%dissolved_nitrogen(1), diag)
+    if (id_leaflitter_slow_dissolved_N > 0) call send_tile_data(id_leaflitter_slow_dissolved_N, soil%leafLitter%dissolved_nitrogen(2), diag)
+    if (id_leaflitter_deadmic_dissolved_N > 0) call send_tile_data(id_leaflitter_deadmic_dissolved_N, soil%leafLitter%dissolved_nitrogen(3), diag)
+    if (id_leaflitter_total_N > 0) call send_tile_data(id_leaflitter_total_N, litter_total_N,diag)
+
+
+    call poolTotals(soil%fineWoodLitter,fastC=litter_fast_C,slowC=litter_slow_C,deadMicrobeC=litter_deadmic_C,&
+                      liveMicrobeC=litter_livemic_C,ncohorts=litter_ncohorts,&
+                      fastN=litter_fast_N,slowN=litter_slow_N,deadMicrobeN=litter_deadmic_N,liveMicrobeN=litter_livemic_N,&
+                      totalCarbon=litter_total_C, totalNitrogen=litter_total_N)
+    total_fast_C=total_fast_C+litter_fast_C
+    total_slow_C=total_slow_C+litter_slow_C
+    total_deadmic_C=total_deadmic_C+litter_deadmic_C
+    total_livemic_C=total_livemic_C+litter_livemic_C
+    total_dissolved_C=total_dissolved_C+sum(soil%fineWoodLitter%dissolved_carbon(:))
+
+    total_fast_N=total_fast_N+litter_fast_N
+    total_slow_N=total_slow_N+litter_slow_N
+    total_deadmic_N=total_deadmic_N+litter_deadmic_N
+    total_livemic_N=total_livemic_N+litter_livemic_N
+    total_dissolved_N=total_dissolved_N+sum(soil%fineWoodLitter%dissolved_nitrogen(:))
+    total_nitrate=total_nitrate+soil%fineWoodLitter%nitrate
+    total_ammonium=total_ammonium+soil%fineWoodLitter%ammonium
+
+
+    if (id_nfineWoodlittercohorts > 0) call send_tile_data(id_nfineWoodlittercohorts, real(litter_ncohorts), diag)
+    if (id_fineWoodlitter_fast_C > 0) call send_tile_data(id_fineWoodlitter_fast_C, litter_fast_C, diag)
+    if (id_fineWoodlitter_slow_C > 0) call send_tile_data(id_fineWoodlitter_slow_C, litter_slow_C, diag)
+    if (id_fineWoodlitter_deadmic_C > 0) call send_tile_data(id_fineWoodlitter_deadmic_C, litter_deadmic_C, diag)
+    if (id_fineWoodlitter_livemic_C > 0) call send_tile_data(id_fineWoodlitter_livemic_C, litter_livemic_C, diag)
+    if (id_fineWoodlitter_fast_dissolved_C > 0) call send_tile_data(id_fineWoodlitter_fast_dissolved_C, soil%fineWoodLitter%dissolved_carbon(1), diag)
+    if (id_fineWoodlitter_slow_dissolved_C > 0) call send_tile_data(id_fineWoodlitter_slow_dissolved_C, soil%fineWoodLitter%dissolved_carbon(2), diag)
+    if (id_fineWoodlitter_deadmic_dissolved_C > 0) call send_tile_data(id_fineWoodlitter_deadmic_dissolved_C, soil%fineWoodLitter%dissolved_carbon(3), diag)
+    if (id_fineWoodlitter_total_C > 0) call send_tile_data(id_fineWoodlitter_total_C, litter_total_C,diag)
+
+    if (id_fineWoodlitter_fast_N > 0) call send_tile_data(id_fineWoodlitter_fast_N, litter_fast_N, diag)
+    if (id_fineWoodlitter_slow_N > 0) call send_tile_data(id_fineWoodlitter_slow_N, litter_slow_N, diag)
+    if (id_fineWoodlitter_deadmic_N > 0) call send_tile_data(id_fineWoodlitter_deadmic_N, litter_deadmic_N, diag)
+    if (id_fineWoodlitter_livemic_N > 0) call send_tile_data(id_fineWoodlitter_livemic_N, litter_livemic_N, diag)
+    if (id_fineWoodlitter_fast_dissolved_N > 0) call send_tile_data(id_fineWoodlitter_fast_dissolved_N, soil%fineWoodLitter%dissolved_nitrogen(1), diag)
+    if (id_fineWoodlitter_slow_dissolved_N > 0) call send_tile_data(id_fineWoodlitter_slow_dissolved_N, soil%fineWoodLitter%dissolved_nitrogen(2), diag)
+    if (id_fineWoodlitter_deadmic_dissolved_N > 0) call send_tile_data(id_fineWoodlitter_deadmic_dissolved_N, soil%fineWoodLitter%dissolved_nitrogen(3), diag)
+    if (id_fineWoodlitter_total_N > 0) call send_tile_data(id_fineWoodlitter_total_N, litter_total_N,diag)
+
+
+    call poolTotals(soil%coarseWoodLitter,fastC=litter_fast_C,slowC=litter_slow_C,deadMicrobeC=litter_deadmic_C,&
+                      liveMicrobeC=litter_livemic_C,ncohorts=litter_ncohorts,&
+                      fastN=litter_fast_N,slowN=litter_slow_N,deadMicrobeN=litter_deadmic_N,liveMicrobeN=litter_livemic_N,&
+                      totalCarbon=litter_total_C, totalNitrogen=litter_total_N)
+    total_fast_C=total_fast_C+litter_fast_C
+    total_slow_C=total_slow_C+litter_slow_C
+    total_deadmic_C=total_deadmic_C+litter_deadmic_C
+    total_livemic_C=total_livemic_C+litter_livemic_C
+    total_dissolved_C=total_dissolved_C+sum(soil%coarseWoodLitter%dissolved_carbon(:))
+
+    total_fast_N=total_fast_N+litter_fast_N
+    total_slow_N=total_slow_N+litter_slow_N
+    total_deadmic_N=total_deadmic_N+litter_deadmic_N
+    total_livemic_N=total_livemic_N+litter_livemic_N
+    total_dissolved_N=total_dissolved_N+sum(soil%coarseWoodLitter%dissolved_nitrogen(:))
+    total_nitrate=total_nitrate+soil%coarseWoodLitter%nitrate
+    total_ammonium=total_ammonium+soil%coarseWoodLitter%ammonium
+
+
+    if (id_ncoarseWoodlittercohorts > 0) call send_tile_data(id_ncoarseWoodlittercohorts, real(litter_ncohorts), diag)
+    if (id_coarseWoodlitter_fast_C > 0) call send_tile_data(id_coarseWoodlitter_fast_C, litter_fast_C, diag)
+    if (id_coarseWoodlitter_slow_C > 0) call send_tile_data(id_coarseWoodlitter_slow_C, litter_slow_C, diag)
+    if (id_coarseWoodlitter_deadmic_C > 0) call send_tile_data(id_coarseWoodlitter_deadmic_C, litter_deadmic_C, diag)
+    if (id_coarseWoodlitter_livemic_C > 0) call send_tile_data(id_coarseWoodlitter_livemic_C, litter_livemic_C, diag)
+    if (id_coarseWoodlitter_fast_dissolved_C > 0) call send_tile_data(id_coarseWoodlitter_fast_dissolved_C, soil%coarseWoodLitter%dissolved_carbon(1), diag)
+    if (id_coarseWoodlitter_slow_dissolved_C > 0) call send_tile_data(id_coarseWoodlitter_slow_dissolved_C, soil%coarseWoodLitter%dissolved_carbon(2), diag)
+    if (id_coarseWoodlitter_deadmic_dissolved_C > 0) call send_tile_data(id_coarseWoodlitter_deadmic_dissolved_C, soil%coarseWoodLitter%dissolved_carbon(3), diag)
+    if (id_coarseWoodlitter_total_C > 0) call send_tile_data(id_coarseWoodlitter_total_C, litter_total_C,diag)
+
+    if (id_coarseWoodlitter_fast_N > 0) call send_tile_data(id_coarseWoodlitter_fast_N, litter_fast_N, diag)
+    if (id_coarseWoodlitter_slow_N > 0) call send_tile_data(id_coarseWoodlitter_slow_N, litter_slow_N, diag)
+    if (id_coarseWoodlitter_deadmic_N > 0) call send_tile_data(id_coarseWoodlitter_deadmic_N, litter_deadmic_N, diag)
+    if (id_coarseWoodlitter_livemic_N > 0) call send_tile_data(id_coarseWoodlitter_livemic_N, litter_livemic_N, diag)
+    if (id_coarseWoodlitter_fast_dissolved_N > 0) call send_tile_data(id_coarseWoodlitter_fast_dissolved_N, soil%coarseWoodLitter%dissolved_nitrogen(1), diag)
+    if (id_coarseWoodlitter_slow_dissolved_N > 0) call send_tile_data(id_coarseWoodlitter_slow_dissolved_N, soil%coarseWoodLitter%dissolved_nitrogen(2), diag)
+    if (id_coarseWoodlitter_deadmic_dissolved_N > 0) call send_tile_data(id_coarseWoodlitter_deadmic_dissolved_N, soil%coarseWoodLitter%dissolved_nitrogen(3), diag)
+    if (id_coarseWoodlitter_total_N > 0) call send_tile_data(id_coarseWoodlitter_total_N, litter_total_N,diag)
+
+
+    sum_fsc = total_fast_C
+    sum_ssc = total_slow_C
+    sum_deadmic_C = total_deadmic_C
+    sum_livemic_C = total_livemic_C
+    sum_protectedC = total_protected_C
+    total_carbon=total_fast_C+total_slow_C+total_deadmic_C+total_livemic_C+total_dissolved_C+total_protected_C
+    if (id_fsc > 0) call send_tile_data(id_fsc, sum_fsc, diag)
+    if (id_ssc > 0) call send_tile_data(id_ssc, sum_ssc, diag)
+    if (id_deadmic_C_total > 0) call send_tile_data(id_deadmic_C_total, sum_deadmic_C, diag)
+    if (id_livemic_C_total > 0) call send_tile_data(id_livemic_C_total, sum_livemic_C, diag)
+
+    if (id_protected_C_total > 0) call send_tile_data(id_protected_C_total, sum_protectedC, diag)
+    if (id_dissolved_C_total > 0) call send_tile_data(id_dissolved_C_total, total_dissolved_C, diag)
+    if (id_total_soil_C > 0) call send_tile_data(id_total_soil_C, total_carbon, diag)
+
+
+    sum_fsn = total_fast_N
+    sum_ssn = total_slow_N
+    sum_deadmic_N = total_deadmic_N
+    sum_livemic_N = total_livemic_N
+    sum_protectedN = total_protected_N
+    total_nitrogen=total_fast_N+total_slow_N+total_deadmic_N+total_livemic_N+total_dissolved_N+total_protected_N
+    if (id_fsn > 0) call send_tile_data(id_fsn, sum_fsn, diag)
+    if (id_ssn > 0) call send_tile_data(id_ssn, sum_ssn, diag)
+    if (id_deadmic_N_total > 0) call send_tile_data(id_deadmic_N_total, sum_deadmic_N, diag)
+    if (id_livemic_N_total > 0) call send_tile_data(id_livemic_N_total, sum_livemic_N, diag)
+
+    if (id_protected_N_total > 0) call send_tile_data(id_protected_N_total, sum_protectedN, diag)
+    if (id_dissolved_N_total > 0) call send_tile_data(id_dissolved_N_total, total_dissolved_N, diag)
+    if (id_total_soil_organic_N > 0) call send_tile_data(id_total_soil_N, total_nitrogen, diag)
+    if (id_total_soil_N > 0) call send_tile_data(id_total_soil_N, total_nitrogen+total_ammonium+total_nitrate, diag)
+    if (id_total_soil_ammonium > 0) call send_tile_data(id_total_soil_ammonium, total_ammonium, diag)
+    if (id_total_soil_nitrate > 0) call send_tile_data(id_total_soil_nitrate, total_nitrate, diag)
+
+
+  end select
 
 end subroutine soil_step_3
 
@@ -5821,6 +4400,7 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   ! Still need to set these up for N -- BNS
   vegn%fsc_out = vegn%fsc_out + (sum(fast_C_loss_rate(:)) + leaflitter_fast_C_loss_rate + finewoodlitter_fast_C_loss_rate + coarsewoodlitter_fast_C_loss_rate)*dt_fast_yr
   vegn%ssc_out = vegn%ssc_out + (sum(slow_C_loss_rate(:)) + leaflitter_slow_C_loss_rate + finewoodlitter_slow_C_loss_rate + coarsewoodlitter_slow_C_loss_rate)*dt_fast_yr;
+  vegn%deadmic_out = vegn%deadmic_out + (sum(dead_microbe_C_loss_rate(:)) + leaflitter_deadmic_C_loss_rate + coarsewoodlitter_deadmic_C_loss_rate + finewoodlitter_deadmic_C_loss_rate)*dt_fast_yr
 
 
   ! accumulate decomposition rate reduction for the soil carbon restart output
@@ -5832,9 +4412,9 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   !       e.g. weight it with the carbon loss, or something like that
 
   ! ---- diagnostic section
-  if (id_rsoil_fast>0)  call send_tile_data(id_rsoil_fast, fast_C_loss_rate(:)/dz, diag)
-  if (id_rsoil_slow>0)  call send_tile_data(id_rsoil_slow, slow_C_loss_rate(:)/dz, diag)
-  if (id_rsoil_deadmic>0) call send_tile_data(id_rsoil_deadmic, dead_microbe_C_loss_rate(:)/dz, diag)
+  if (id_rsoil_fast>0)  call send_tile_data(id_rsoil_fast, fast_C_loss_rate(:)/dz(1:num_l), diag)
+  if (id_rsoil_slow>0)  call send_tile_data(id_rsoil_slow, slow_C_loss_rate(:)/dz(1:num_l), diag)
+  if (id_rsoil_deadmic>0) call send_tile_data(id_rsoil_deadmic, dead_microbe_C_loss_rate(:)/dz(1:num_l), diag)
   if (id_rsoil_leaflitter_fast>0) call send_tile_data(id_rsoil_leaflitter_fast, leaflitter_fast_C_loss_rate, diag)
   if (id_rsoil_leaflitter_slow>0) call send_tile_data(id_rsoil_leaflitter_slow, leaflitter_slow_C_loss_rate, diag)
   if (id_rsoil_leaflitter_deadmic>0) call send_tile_data(id_rsoil_leaflitter_deadmic, leaflitter_deadmic_C_loss_rate, diag)
@@ -5845,6 +4425,7 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   if (id_rsoil_coarsewoodlitter_slow>0) call send_tile_data(id_rsoil_coarsewoodlitter_slow, coarsewoodlitter_slow_C_loss_rate, diag)
   if (id_rsoil_coarsewoodlitter_deadmic>0) call send_tile_data(id_rsoil_coarsewoodlitter_deadmic, coarsewoodlitter_deadmic_C_loss_rate, diag)
   call send_tile_data(id_rsoil, vegn%rh, diag)
+  call send_tile_data(id_rh, vegn%rh/seconds_per_year, diag)
   ! TODO: arithmetic averaging of A doesn't seem correct; we need to invent something better,
   !       e.g. weight it with the carbon loss, or something like that
   if (id_asoil>0) call send_tile_data(id_asoil, sum(A(:))/size(A(:)), diag)
@@ -5951,6 +4532,7 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
     call vegn_uptake_profile (vegn, dz(1:num_l), uptake_frac_max, vegn_uptake_term )
     call send_tile_data(id_root_profile, uptake_frac_max, diag)
   endif
+
 end subroutine Dsdt_CORPSE
 
 
@@ -7444,13 +6026,17 @@ end subroutine init_soil_twc
 ! cohort accessor functions: given a pointer to cohort, return a pointer to a
 ! specific member of the cohort structure
 #define DEFINE_SOIL_ACCESSOR_0D(xtype,x) subroutine soil_ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%x;endif;end subroutine
-#define DEFINE_SOIL_ACCESSOR_1D(xtype,x) subroutine soil_ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p(:);p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%x;endif;end subroutine
+type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%x;endif;\
+end subroutine
+#define DEFINE_SOIL_ACCESSOR_1D(xtype,x) subroutine soil_ ## x ## _ptr(t,i,p);\
+type(land_tile_type),pointer::t;integer,intent(in)::i;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%x(i);endif;\
+end subroutine
 #define DEFINE_SOIL_COMPONENT_ACCESSOR_0D(xtype,component,x) subroutine soil_ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%component%x;endif;end subroutine
-#define DEFINE_SOIL_COMPONENT_ACCESSOR_1D(xtype,component,x) subroutine soil_ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p(:);p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%component%x;endif;end subroutine
+type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%component%x;endif;\
+end subroutine
+#define DEFINE_SOIL_COMPONENT_ACCESSOR_1D(xtype,component,x) subroutine soil_ ## x ## _ptr(t,i,p);\
+type(land_tile_type),pointer::t;integer,intent(in)::i;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%component%x(i);endif;\
+end subroutine
 
 DEFINE_SOIL_ACCESSOR_1D(real,w_fc)
 DEFINE_SOIL_ACCESSOR_1D(real,alpha)
@@ -7569,218 +6155,210 @@ DEFINE_SOIL_ACCESSOR_0D(real,coarsewoodlitter_slow_N_turnover_accumulated)
 DEFINE_SOIL_ACCESSOR_0D(real,coarsewoodlitter_deadmic_N_turnover_accumulated)
 
 ! stuff below is for CORPSE
-#define DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR(xtype,x) subroutine soilc_ ## x ## _ptr(t,p,layer);\
-type(land_tile_type),pointer::t;xtype,pointer::p(:);integer,intent(in)::layer;p=>NULL();if(associated(t))then;if(associated(t%soil))call get_pool_data_accessors(t%soil%soil_organic_matter(layer),x=p);endif;end subroutine
-#define DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(xtype,pool,x) subroutine soilc_ ## pool ## _ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p(:);p=>NULL();if(associated(t))then;if(associated(t%soil))call get_pool_data_accessors(t%soil%pool,x=p);endif;end subroutine
-#define DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(xtype,pool,x) subroutine soilc_ ## pool ## _ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))call get_pool_data_accessors(t%soil%pool,x=p);endif;end subroutine
 
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR(real,fast_soil_C)
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR(real,slow_soil_C)
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR(real,deadMicrobeC)
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR(real,fast_protected_C)
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR(real,slow_protected_C)
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR(real,deadMicrobe_protected_C)
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR(real,livingMicrobeC)
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR(real,Rtot)
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR(real,CO2)
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR(real,originalLitterC)
+#define DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(xtype,x) subroutine soilc_ ## x ## _ptr(t,i,j,p);\
+type(land_tile_type),pointer::t;xtype,pointer::p;integer,intent(in)::i,j;p=>NULL();if(associated(t))then;\
+if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%x;endif;\
+end subroutine
+DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,livingMicrobeC)
+DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,Rtot)
+DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,CO2)
+DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,originalLitterC)
 
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR(real,fast_soil_N)
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR(real,slow_soil_N)
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR(real,deadMicrobeN)
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR(real,fast_protected_N)
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR(real,slow_protected_N)
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR(real,deadMicrobe_protected_N)
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR(real,livingMicrobeN)
-DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR(real,originalLitterN)
+DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,livingMicrobeN)
+DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,originalLitterN)
 
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,leafLitter,fast_soil_C)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,leafLitter,slow_soil_C)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,leafLitter,deadMicrobeC)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,leafLitter,livingMicrobeC)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,leafLitter,Rtot)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,leafLitter,CO2)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,leafLitter,originalLitterC)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,leafLitter,fast_protected_C)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,leafLitter,slow_protected_C)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,leafLitter,deadMicrobe_protected_C)
-
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,leafLitter,fast_soil_N)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,leafLitter,slow_soil_N)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,leafLitter,deadMicrobeN)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,leafLitter,livingMicrobeN)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,leafLitter,originalLitterN)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,leafLitter,fast_protected_N)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,leafLitter,slow_protected_N)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,leafLitter,deadMicrobe_protected_N)
-
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,leafLitter,fast_DOC)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,leafLitter,slow_DOC)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,leafLitter,deadMicrobe_DOC)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,leafLitter,fast_DON)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,leafLitter,slow_DON)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,leafLitter,deadMicrobe_DON)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,leafLitter,nitrate)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,leafLitter,ammonium)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,leafLitter,nitrif)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,leafLitter,denitrif)
-
-
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,fineWoodLitter,fast_soil_C)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,fineWoodLitter,slow_soil_C)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,fineWoodLitter,deadMicrobeC)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,fineWoodLitter,livingMicrobeC)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,fineWoodLitter,Rtot)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,fineWoodLitter,CO2)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,fineWoodLitter,originalLitterC)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,fineWoodLitter,fast_protected_C)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,fineWoodLitter,slow_protected_C)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,fineWoodLitter,deadMicrobe_protected_C)
-
-
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,fineWoodLitter,fast_soil_N)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,fineWoodLitter,slow_soil_N)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,fineWoodLitter,deadMicrobeN)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,fineWoodLitter,livingMicrobeN)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,fineWoodLitter,originalLitterN)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,fineWoodLitter,fast_protected_N)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,fineWoodLitter,slow_protected_N)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,fineWoodLitter,deadMicrobe_protected_N)
-
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,fineWoodLitter,fast_DOC)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,fineWoodLitter,slow_DOC)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,fineWoodLitter,deadMicrobe_DOC)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,fineWoodLitter,fast_DON)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,fineWoodLitter,slow_DON)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,fineWoodLitter,deadMicrobe_DON)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,fineWoodLitter,nitrate)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,fineWoodLitter,ammonium)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,fineWoodLitter,nitrif)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,fineWoodLitter,denitrif)
-
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,coarseWoodLitter,fast_soil_C)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,coarseWoodLitter,slow_soil_C)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,coarseWoodLitter,deadMicrobeC)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,coarseWoodLitter,livingMicrobeC)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,coarseWoodLitter,Rtot)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,coarseWoodLitter,CO2)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,coarseWoodLitter,originalLitterC)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,coarseWoodLitter,fast_protected_C)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,coarseWoodLitter,slow_protected_C)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,coarseWoodLitter,deadMicrobe_protected_C)
-
-
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,coarseWoodLitter,fast_soil_N)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,coarseWoodLitter,slow_soil_N)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,coarseWoodLitter,deadMicrobeN)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,coarseWoodLitter,livingMicrobeN)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,coarseWoodLitter,originalLitterN)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,coarseWoodLitter,fast_protected_N)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,coarseWoodLitter,slow_protected_N)
-DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR(real,coarseWoodLitter,deadMicrobe_protected_N)
-
-
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,coarseWoodLitter,fast_DOC)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,coarseWoodLitter,slow_DOC)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,coarseWoodLitter,deadMicrobe_DOC)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,coarseWoodLitter,fast_DON)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,coarseWoodLitter,slow_DON)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,coarseWoodLitter,deadMicrobe_DON)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,coarseWoodLitter,nitrate)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,coarseWoodLitter,ammonium)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,coarseWoodLitter,nitrif)
-DEFINE_SOIL_C_POOL_NONCOHORT_COMPONENT_ACCESSOR(real,coarseWoodLitter,denitrif)
-
-subroutine soil_fast_DOC_ptr(t,p)
-type(land_tile_type),pointer::t
-real,pointer::p(:)
-p=>NULL()
-if(associated(t))then
-if(associated(t%soil))p=>t%soil%soil_organic_matter(:)%dissolved_carbon(1)
-endif
+#define DEFINE_SOIL_LAYER_COMPONENT_ACCESSOR1(xtype,x) subroutine soilc_ ## x ## _ptr(t,i,p);\
+type(land_tile_type),pointer::t;xtype,pointer::p;integer,intent(in)::i;p=>NULL();if(associated(t))then;\
+if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%x;endif;\
 end subroutine
 
-subroutine soil_slow_DOC_ptr(t,p)
-type(land_tile_type),pointer::t
-real,pointer::p(:)
-p=>NULL()
-if(associated(t))then
-if(associated(t%soil))p=>t%soil%soil_organic_matter(:)%dissolved_carbon(2)
-endif
+DEFINE_SOIL_LAYER_COMPONENT_ACCESSOR1(real,nitrate)
+DEFINE_SOIL_LAYER_COMPONENT_ACCESSOR1(real,ammonium)
+DEFINE_SOIL_LAYER_COMPONENT_ACCESSOR1(real,nitrif)
+DEFINE_SOIL_LAYER_COMPONENT_ACCESSOR1(real,denitrif)
+
+subroutine sc_soil_C_ptr(t,i,j,k,p)
+  type(land_tile_type),pointer::t; integer,intent(in)::i,j,k;real,pointer::p
+  p=>NULL()
+  if(associated(t)) then
+     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%litterC(k)
+  endif
 end subroutine
 
-subroutine soil_deadMicrobe_DOC_ptr(t,p)
-type(land_tile_type),pointer::t
-real,pointer::p(:)
-p=>NULL()
-if(associated(t))then
-if(associated(t%soil))p=>t%soil%soil_organic_matter(:)%dissolved_carbon(3)
-endif
+subroutine sc_protected_C_ptr(t,i,j,k,p)
+  type(land_tile_type),pointer::t; integer,intent(in)::i,j,k;real,pointer::p
+  p=>NULL()
+  if(associated(t)) then
+     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%protectedC(k)
+  endif
 end subroutine
 
-subroutine soil_fast_DON_ptr(t,p)
-type(land_tile_type),pointer::t
-real,pointer::p(:)
-p=>NULL()
-if(associated(t))then
-if(associated(t%soil))p=>t%soil%soil_organic_matter(:)%dissolved_nitrogen(1)
-endif
+subroutine sc_soil_N_ptr(t,i,j,k,p)
+  type(land_tile_type),pointer::t; integer,intent(in)::i,j,k;real,pointer::p
+  p=>NULL()
+  if(associated(t)) then
+     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%litterN(k)
+  endif
 end subroutine
 
-subroutine soil_slow_DON_ptr(t,p)
-type(land_tile_type),pointer::t
-real,pointer::p(:)
-p=>NULL()
-if(associated(t))then
-if(associated(t%soil))p=>t%soil%soil_organic_matter(:)%dissolved_nitrogen(2)
-endif
+subroutine sc_protected_N_ptr(t,i,j,k,p)
+  type(land_tile_type),pointer::t; integer,intent(in)::i,j,k;real,pointer::p
+  p=>NULL()
+  if(associated(t)) then
+     if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%litterCohorts(j)%protectedN(k)
+  endif
 end subroutine
 
-subroutine soil_deadMicrobe_DON_ptr(t,p)
-type(land_tile_type),pointer::t
-real,pointer::p(:)
-p=>NULL()
-if(associated(t))then
-if(associated(t%soil))p=>t%soil%soil_organic_matter(:)%dissolved_nitrogen(3)
-endif
+#define DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(xtype,pool,x) subroutine soilc_ ## pool ## _ ## x ## _ptr(t,i,p);\
+type(land_tile_type),pointer::t;integer,intent(in)::i;xtype,pointer::p;p=>NULL();if(associated(t))then;\
+if(associated(t%soil))p=>t%soil%pool%litterCohorts(i)%x;endif;\
 end subroutine
 
-subroutine soil_nitrate_ptr(t,p)
-type(land_tile_type),pointer::t
-real,pointer::p(:)
-p=>NULL()
-if(associated(t))then
-if(associated(t%soil))p=>t%soil%soil_organic_matter(:)%nitrate
-endif
+#define DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR0(xtype,pool,x) subroutine soilc_ ## pool ## _ ## x ## _ptr(t,p);\
+type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;\
+if(associated(t%soil))p=>t%soil%pool%x;endif;\
 end subroutine
 
-subroutine soil_ammonium_ptr(t,p)
-type(land_tile_type),pointer::t
-real,pointer::p(:)
-p=>NULL()
-if(associated(t))then
-if(associated(t%soil))p=>t%soil%soil_organic_matter(:)%ammonium
-endif
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,leafLitter,livingMicrobeC)
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,leafLitter,CO2)
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,leafLitter,Rtot)
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,leafLitter,originalLitterC)
+
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,leafLitter,livingMicrobeN)
+DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR0(real,leafLitter,nitrate)
+DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR0(real,leafLitter,ammonium)
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,leafLitter,originalLitterN)
+DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR0(real,leafLitter,nitrif)
+DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR0(real,leafLitter,denitrif)
+
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,fineWoodLitter,livingMicrobeC)
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,fineWoodLitter,CO2)
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,fineWoodLitter,Rtot)
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,fineWoodLitter,originalLitterC)
+
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,fineWoodLitter,livingMicrobeN)
+DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR0(real,fineWoodLitter,nitrate)
+DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR0(real,fineWoodLitter,ammonium)
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,fineWoodLitter,originalLitterN)
+DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR0(real,fineWoodLitter,nitrif)
+DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR0(real,fineWoodLitter,denitrif)
+
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,coarseWoodLitter,livingMicrobeC)
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,coarseWoodLitter,CO2)
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,coarseWoodLitter,Rtot)
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,coarseWoodLitter,originalLitterC)
+
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,coarseWoodLitter,livingMicrobeN)
+DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR0(real,coarseWoodLitter,nitrate)
+DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR0(real,coarseWoodLitter,ammonium)
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,coarseWoodLitter,originalLitterN)
+DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR0(real,coarseWoodLitter,nitrif)
+DEFINE_SOIL_C_POOL_COMPONENT_ACCESSOR0(real,coarseWoodLitter,denitrif)
+
+#define DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR1(xtype,pool,x) subroutine soilc_ ## pool ## _ ## x ## _ptr(t,i,j,p);\
+type(land_tile_type),pointer::t;integer,intent(in)::i,j;xtype,pointer::p;p=>NULL();if(associated(t))then;\
+if(associated(t%soil))p=>t%soil%pool%litterCohorts(i)%x(j);endif;\
 end subroutine
 
-subroutine soil_nitrif_ptr(t,p)
-type(land_tile_type),pointer::t
-real,pointer::p(:)
-p=>NULL()
-if(associated(t))then
-if(associated(t%soil))p=>t%soil%soil_organic_matter(:)%nitrif
-endif
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR1(real,leafLitter,litterC)
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR1(real,leafLitter,protectedC)
+
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR1(real,fineWoodLitter,litterC)
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR1(real,fineWoodLitter,protectedC)
+
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR1(real,coarseWoodLitter,litterC)
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR1(real,coarseWoodLitter,protectedC)
+
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR1(real,leafLitter,litterN)
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR1(real,leafLitter,protectedN)
+
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR1(real,fineWoodLitter,litterN)
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR1(real,fineWoodLitter,protectedN)
+
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR1(real,coarseWoodLitter,litterN)
+DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR1(real,coarseWoodLitter,protectedN)
+
+#define DEFINE_SOIL_C_POOL_DOC_ACCESSOR(xtype,pool) subroutine soilc_ ## pool ## _DOC_ptr(t,i,p);\
+type(land_tile_type),pointer::t;integer,intent(in)::i;real,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%pool%dissolved_carbon(i);endif;\
 end subroutine
 
-subroutine soil_denitrif_ptr(t,p)
-type(land_tile_type),pointer::t
-real,pointer::p(:)
-p=>NULL()
-if(associated(t))then
-if(associated(t%soil))p=>t%soil%soil_organic_matter(:)%denitrif
-endif
+DEFINE_SOIL_C_POOL_DOC_ACCESSOR(real,leafLitter)
+DEFINE_SOIL_C_POOL_DOC_ACCESSOR(real,fineWoodLitter)
+DEFINE_SOIL_C_POOL_DOC_ACCESSOR(real,coarseWoodLitter)
+
+#define DEFINE_SOIL_C_POOL_DON_ACCESSOR(xtype,pool) subroutine soilc_ ## pool ## _DON_ptr(t,i,p);\
+type(land_tile_type),pointer::t;integer,intent(in)::i;real,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%pool%dissolved_nitrogen(i);endif;\
+end subroutine
+
+DEFINE_SOIL_C_POOL_DON_ACCESSOR(real,leafLitter)
+DEFINE_SOIL_C_POOL_DON_ACCESSOR(real,fineWoodLitter)
+DEFINE_SOIL_C_POOL_DON_ACCESSOR(real,coarseWoodLitter)
+
+subroutine soil_fast_DOC_ptr(t,i,p)
+   type(land_tile_type), pointer    :: t
+   integer,              intent(in) :: i
+   real,                 pointer    :: p
+
+   p=>NULL()
+   if(associated(t))then
+      if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%dissolved_carbon(1)
+   endif
+end subroutine
+
+subroutine soil_fast_DON_ptr(t,i,p)
+   type(land_tile_type), pointer    :: t
+   integer,              intent(in) :: i
+   real,                 pointer    :: p
+
+   p=>NULL()
+   if(associated(t))then
+      if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%dissolved_nitrogen(1)
+   endif
+end subroutine
+
+subroutine soil_slow_DOC_ptr(t,i,p)
+   type(land_tile_type), pointer    :: t
+   integer,              intent(in) :: i
+   real,                 pointer    :: p
+
+   p=>NULL()
+   if(associated(t))then
+      if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%dissolved_carbon(2)
+   endif
+end subroutine
+
+subroutine soil_slow_DON_ptr(t,i,p)
+   type(land_tile_type), pointer    :: t
+   integer,              intent(in) :: i
+   real,                 pointer    :: p
+
+   p=>NULL()
+   if(associated(t))then
+      if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%dissolved_nitrogen(2)
+   endif
+end subroutine
+
+subroutine soil_deadMicrobe_DOC_ptr(t,i,p)
+   type(land_tile_type), pointer    :: t
+   integer,              intent(in) :: i
+   real,                 pointer    :: p
+
+   p=>NULL()
+   if(associated(t))then
+      if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%dissolved_carbon(3)
+   endif
+end subroutine
+
+subroutine soil_deadMicrobe_DON_ptr(t,i,p)
+   type(land_tile_type), pointer    :: t
+   integer,              intent(in) :: i
+   real,                 pointer    :: p
+
+   p=>NULL()
+   if(associated(t))then
+      if(associated(t%soil))p=>t%soil%soil_organic_matter(i)%dissolved_nitrogen(3)
+   endif
 end subroutine
 
 end module soil_mod

@@ -6,13 +6,13 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod, only : &
-     write_version_number, file_exist, check_nml_error, &
+use fms_mod, only : file_exist, check_nml_error, &
      close_file, stdlog, stdout
 
 use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR
 use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_VEGN, register_tile_selector
+use land_data_mod, only : log_version
 use table_printer_mod
 
 implicit none
@@ -117,10 +117,9 @@ public :: read_vegn_data_namelist
 ! ==== end of public interfaces ==============================================
 
 ! ==== constants =============================================================
-character(len=*), parameter   :: &
-     version     = '$Id$', &
-     tagname     = '$Name$', &
-     module_name = 'vegn_data_mod'
+character(len=*), parameter :: module_name = 'vegn_data_mod'
+#include "../shared/version_variable.inc"
+
 real, parameter :: TWOTHIRDS  = 2.0/3.0
 
 
@@ -514,7 +513,8 @@ subroutine read_vegn_data_namelist()
 
   type(table_printer_type) :: table
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=vegn_data_nml, iostat=io)
   ierr = check_nml_error(io, 'vegn_data_nml')

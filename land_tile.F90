@@ -32,6 +32,7 @@ use land_tile_selectors_mod, only : tile_selector_type, &
      SEL_SOIL, SEL_VEGN, SEL_LAKE, SEL_GLAC, SEL_SNOW, SEL_CANA, SEL_HLSP
 use tile_diag_buff_mod, only : &
      diag_buff_type, new_diag_buff, delete_diag_buff
+use land_data_mod, only : lnd
 
 implicit none
 private
@@ -40,6 +41,10 @@ public :: land_tile_type
 public :: land_tile_list_type
 public :: land_tile_enum_type
 public :: diag_buff_type
+
+! operations with tile map
+public :: init_tile_map, free_tile_map
+public :: max_n_tiles
 
 ! operations with tile
 public :: new_land_tile, delete_land_tile
@@ -55,8 +60,10 @@ public :: land_tile_grnd_T ! returns temperature of the ground surface
 ! operations with tile lists and tile list enumerators
 public :: land_tile_list_init, land_tile_list_end
 public :: first_elmt, tail_elmt
+public :: elmt_at_index ! given list and k, returns list[k]
 public :: operator(==), operator(/=) ! comparison of two enumerators
 public :: next_elmt, prev_elmt ! enumerator advance operations
+public :: loop_over_tiles ! provides simple way to iterate over a list of tiles
 public :: current_tile ! returns pointer to the tile at a position
 public :: insert  ! inserts a tile at a given position, or appends it to a list
 public :: erase   ! erases tile at current position
@@ -72,10 +79,11 @@ public :: print_land_tile_info
 public :: print_land_tile_statistics
 
 ! abstract interfaces for accessor functions
-public :: tile_exists_func, fptr_i0, fptr_i1, fptr_r0, fptr_r1, fptr_r0i, &
-          fptr_r0ij, fptr_r0ijk
+public :: tile_exists_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk
 
+public :: land_tile_map ! array of tile lists
 ! ==== end of public interfaces ==============================================
+
 interface new_land_tile
    module procedure land_tile_ctor
    module procedure land_tile_copy_ctor
@@ -109,12 +117,6 @@ end interface
 interface nitems
    module procedure n_items_in_list
 end interface
-
-
-! ==== module constants ======================================================
-character(len=*), parameter :: &
-     version = '$Id$', &
-     tagname = '$Name$'
 
 ! ==== data types ============================================================
 ! land_tile_type describes the structure of the land model tile; basically
@@ -195,22 +197,22 @@ abstract interface
   ! data im massive operations on tiles, such as i/o or (sometimes) diagnostics
 
   ! given land tile, returns pointer to some scalar real data
-  ! within this tile, or an NULL pointer if there is no data
+  ! within this tile, or an unassociated pointer if there is no data
   subroutine fptr_r0(tile, ptr)
      import land_tile_type
      type(land_tile_type), pointer :: tile ! input
      real                , pointer :: ptr  ! returned pointer to the data
   end subroutine fptr_r0
   ! given land tile and an index, returns pointer to some scalar real data
-  ! within this tile, or an NULL pointer if there is no data
+  ! within this tile, or an unassociated pointer if there is no data
   subroutine fptr_r0i(tile, i, ptr)
      import land_tile_type
      type(land_tile_type), pointer :: tile ! input
-     integer             , intent(in) :: i ! indices in the array
+     integer             , intent(in) :: i ! index in the array
      real                , pointer :: ptr  ! returned pointer to the data
   end subroutine fptr_r0i
   ! given land tile and an 2 indices, returns pointer to some scalar real data
-  ! within this tile, or an NULL pointer if there is no data
+  ! within this tile, or an unassociated pointer if there is no data
   subroutine fptr_r0ij(tile, i,j, ptr)
      import land_tile_type
      type(land_tile_type), pointer :: tile ! input
@@ -218,35 +220,29 @@ abstract interface
      real                , pointer :: ptr  ! returned pointer to the data
   end subroutine fptr_r0ij
   ! given land tile and an 3 indices, returns pointer to some scalar real data
-  ! within this tile, or an NULL pointer if there is no data
+  ! within this tile, or an unassociated pointer if there is no data
   subroutine fptr_r0ijk(tile, i,j,k, ptr)
      import land_tile_type
      type(land_tile_type), pointer :: tile ! input
      integer             , intent(in) :: i,j,k ! indices in the array
      real                , pointer :: ptr  ! returned pointer to the data
   end subroutine fptr_r0ijk
-  ! given land tile, returns pointer to some real 1D array
-  ! within this tile, or an NULL pointer if there is no data
-  subroutine fptr_r1(tile, ptr)
-     import land_tile_type
-     type(land_tile_type), pointer :: tile ! input
-     real                , pointer :: ptr(:) ! returned pointer to the data
-  end subroutine fptr_r1
 
   ! given land tile, returns pointer to some scalar integer data
-  ! within this tile, or an NULL pointer if there is no data
+  ! within this tile, or an unassociated pointer if there is no data
   subroutine fptr_i0(tile, ptr)
      import land_tile_type
      type(land_tile_type), pointer :: tile ! input
      integer             , pointer :: ptr  ! returned pointer to the data
   end subroutine fptr_i0
-  ! given land tile, returns pointer to some integer 1D array
-  ! within this tile, or an NULL pointer if there is no data
-  subroutine fptr_i1(tile, ptr)
+  ! given land tile and an index, returns pointer to some scalar integer data
+  ! within this tile, or an unassociated pointer if there is no data
+  subroutine fptr_i0i(tile, i, ptr)
      import land_tile_type
      type(land_tile_type), pointer :: tile ! input
-     integer             , pointer :: ptr(:) ! returned pointer to the data
-  end subroutine fptr_i1
+     integer             , intent(in) :: i ! index in the array
+     integer             , pointer :: ptr  ! returned pointer to the data
+  end subroutine fptr_i0i
   ! NOTE: import statements are needed because in FORTRAN interface blocks
   ! do not have access to their environment by host association, so without
   ! "import" they don't know the definition of land_tile_type, and compilation
@@ -256,11 +252,50 @@ end interface
 ! ==== module data ===========================================================
 integer :: n_created_land_tiles = 0 ! total number of created tiles
 integer :: n_deleted_land_tiles = 0 ! total number of deleted tiles
-
+type(land_tile_list_type), pointer :: land_tile_map(:,:) ! map of tiles
 
 contains
 
 ! #### land_tile_type and operations #########################################
+
+! ============================================================================
+! initialize land tile map
+subroutine init_tile_map()
+  integer :: i,j
+
+  allocate(land_tile_map (lnd%is:lnd%ie, lnd%js:lnd%je))
+  do j = lnd%js,lnd%je
+  do i = lnd%is,lnd%ie
+     call land_tile_list_init(land_tile_map(i,j))
+  enddo
+  enddo
+end subroutine init_tile_map
+
+! ============================================================================
+! deallocate land tile map
+subroutine free_tile_map()
+  integer :: i,j
+
+  do j = lnd%js,lnd%je
+  do i = lnd%is,lnd%ie
+     call land_tile_list_end(land_tile_map(i,j))
+  enddo
+  enddo
+end subroutine free_tile_map
+
+! ============================================================================
+! get max number of tiles in the domain
+function max_n_tiles() result(n)
+  integer :: n
+  integer :: i,j
+
+  n=1
+  do j=lnd%js,lnd%je
+  do i=lnd%is,lnd%ie
+     n=max(n, nitems(land_tile_map(i,j)))
+  enddo
+  enddo
+end function max_n_tiles
 
 ! ============================================================================
 ! tile constructor: given a list of sub-model tile tags, creates a land tile
@@ -640,6 +675,21 @@ function n_items_in_list(list) result (n)
 end function n_items_in_list
 
 ! ============================================================================
+function elmt_at_index(list,k) result(ptr)
+  type(land_tile_list_type), intent(in) :: list ! list of tiles
+  integer,                   intent(in) :: k    ! index
+  type(land_tile_type), pointer :: ptr ! return value
+
+  type(land_tile_enum_type) :: ct
+  integer :: i
+  ct = first_elmt(list); i = 1
+  do while (loop_over_tiles(ct, ptr))
+     if (i==k) exit ! from loop
+     i = i+1
+  enddo
+end function elmt_at_index
+
+! ============================================================================
 subroutine insert_in_list(tile,list)
   type(land_tile_type),           pointer :: tile
   type(land_tile_list_type), intent(inout) :: list
@@ -868,6 +918,23 @@ subroutine get_elmt_indices(ce,i,j,k)
   if (present(k)) k = ce%k
 
 end subroutine get_elmt_indices
+
+! ============================================================================
+! given an enumerator, sets tile pointer to the current tile and its indices, and
+! attempts to advance enumerator to the next tile. If enumerator was already at
+! the end of the tile list, returns FALSE; in this case pointer "tile" and
+! indices i,j,k are not defined.
+function loop_over_tiles(ce, tile, i,j,k) result(R); logical R
+  type(land_tile_enum_type), intent(inout) :: ce
+  type(land_tile_type)     , pointer, optional :: tile
+  integer, intent(out), optional :: i,j,k ! indices of the tile
+
+  if (present(tile)) tile=>current_tile(ce)
+  call get_elmt_indices(ce,i,j,k)
+  ! advance enumerator to the next element
+  ce = next_elmt(ce)
+  R  = associated(tile)
+end function loop_over_tiles
 
 ! ============================================================================
 ! inserts tile at the position indicated by enumerator: in fact right in front

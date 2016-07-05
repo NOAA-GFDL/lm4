@@ -8,14 +8,11 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod, only : &
-     write_version_number, file_exist, check_nml_error, &
-     close_file, stdlog
+use fms_mod, only : file_exist, check_nml_error, close_file, stdlog
 use constants_mod,only: tfreeze, hlf
-use land_constants_mod, only : &
-     NBANDS
-use land_tile_selectors_mod, only : &
-     tile_selector_type
+use land_constants_mod, only : NBANDS
+use land_tile_selectors_mod, only : tile_selector_type
+use land_data_mod, only : log_version
 
 implicit none
 private
@@ -36,8 +33,8 @@ public :: read_snow_data_namelist
 public :: snow_data_thermodynamics
 public :: snow_data_hydraulics
 public :: snow_data_area
-public :: snow_data_radiation
-public :: snow_data_diffusion
+public :: snow_radiation
+public :: snow_roughness
 
 public :: max_lev
 public :: cpw, clw, csw
@@ -49,26 +46,27 @@ end interface
 
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: &
-     module_name = 'snow_tile_mod' ,&
-     version     = '$Id$' ,&
-     tagname     = '$Name$'
+character(len=*), parameter :: module_name = 'snow_tile_mod'
+#include "../shared/version_variable.inc"
+
 integer, parameter :: max_lev = 10
-real   , parameter :: t_range = 10.0 ! degK
 
 ! from the modis brdf/albedo product user's guide:
-real            :: g_iso  = 1.
-real            :: g_vol  = 0.189184
-real            :: g_geo  = -1.377622
-real            :: g0_iso = 1.0
-real            :: g1_iso = 0.0
-real            :: g2_iso = 0.0
-real            :: g0_vol = -0.007574
-real            :: g1_vol = -0.070987
-real            :: g2_vol =  0.307588
-real            :: g0_geo = -1.284909
-real            :: g1_geo = -0.166314
-real            :: g2_geo =  0.041840
+real, parameter :: g_iso  = 1.
+real, parameter :: g_vol  = 0.189184
+real, parameter :: g_geo  = -1.377622
+real, parameter :: g0_iso = 1.0
+real, parameter :: g1_iso = 0.0
+real, parameter :: g2_iso = 0.0
+real, parameter :: g0_vol = -0.007574
+real, parameter :: g1_vol = -0.070987
+real, parameter :: g2_vol =  0.307588
+real, parameter :: g0_geo = -1.284909
+real, parameter :: g1_geo = -0.166314
+real, parameter :: g2_geo =  0.041840
+
+! range of temperatures for ramp between "warm" and "cold" albedo
+real, parameter :: t_range = 10.0 ! degK
 
 ! ==== types =================================================================
 
@@ -81,6 +79,7 @@ type :: snow_tile_type
 end type snow_tile_type
 
 ! ==== module data ===========================================================
+logical, public :: use_brdf
 
 !---- namelist ---------------------------------------------------------------
 logical :: use_mcm_masking       = .false.   ! MCM snow mask fn
@@ -113,7 +112,6 @@ real    :: mc_fict = 10. * 4218 ! additional (fictitious) soil heat capacity (fo
   real :: f_iso_warm(NBANDS) = (/ 0.354, 0.530 /)
   real :: f_vol_warm(NBANDS) = (/ 0.200, 0.252 /)
   real :: f_geo_warm(NBANDS) = (/ 0.054, 0.064 /)
-  real :: refl_cold_dif(NBANDS), refl_warm_dif(NBANDS)
 
 namelist /snow_data_nml/use_mcm_masking,    w_sat,                 &
                     psi_sat,                k_sat,                 &
@@ -125,8 +123,8 @@ namelist /snow_data_nml/use_mcm_masking,    w_sat,                 &
                     emis_snow_max,          emis_snow_min,         &
                     k_over_B,             &
                     num_l,                   dz, cpw, clw, csw, mc_fict, &
-     f_iso_cold, f_vol_cold, f_geo_cold, f_iso_warm, f_vol_warm, f_geo_warm 
-     
+     f_iso_cold, f_vol_cold, f_geo_cold, f_iso_warm, f_vol_warm, f_geo_warm
+
 !---- end of namelist --------------------------------------------------------
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -142,14 +140,15 @@ subroutine read_snow_data_namelist(snow_num_l, snow_dz, snow_mc_fict)
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=snow_data_nml, iostat=io)
   ierr = check_nml_error(io, 'snow_data_nml')
 #else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
-     ierr = 1;  
+     ierr = 1;
      do while (ierr /= 0)
         read (unit, nml=snow_data_nml, iostat=io, end=10)
         ierr = check_nml_error (io, 'snow_data_nml')
@@ -167,9 +166,6 @@ subroutine read_snow_data_namelist(snow_num_l, snow_dz, snow_mc_fict)
   snow_num_l = num_l
   snow_dz    = dz
   snow_mc_fict = mc_fict
-
-  refl_cold_dif = g_iso*f_iso_cold + g_vol*f_vol_cold + g_geo*f_geo_cold
-  refl_warm_dif = g_iso*f_iso_warm + g_vol*f_vol_warm + g_geo*f_geo_warm
 
 end subroutine read_snow_data_namelist
 
@@ -197,7 +193,7 @@ function snow_tile_copy_ctor(snow) result(ptr)
   allocate(ptr)
   ! copy all non-pointer members
   ptr = snow
-  ! no need to allocate storage for allocatable components of the type, because 
+  ! no need to allocate storage for allocatable components of the type, because
   ! F2003 takes care of that, and also takes care of copying data
 end function snow_tile_copy_ctor
 
@@ -223,16 +219,16 @@ subroutine merge_snow_tiles(snow1, w1, snow2, w2)
   type(snow_tile_type), intent(in)    :: snow1
   type(snow_tile_type), intent(inout) :: snow2
   real                , intent(in)    :: w1, w2 ! relative weights
-  
+
   ! ---- local vars
   real    :: x1, x2 ! normalized weights
   real    :: HEAT1, HEAT2
   integer :: i
-  
+
   ! calculate normalized weights
   x1 = w1/(w1+w2)
   x2 = 1-x1
-  
+
   do i = 1, num_l
     HEAT1 = (mc_fict*dz(i)+clw*snow1%wl(i)+csw*snow1%ws(i))*(snow1%T(i)-tfreeze)
     HEAT2 = (mc_fict*dz(i)+clw*snow2%wl(i)+csw*snow2%ws(i))*(snow2%T(i)-tfreeze)
@@ -262,7 +258,7 @@ end function snow_is_selected
 function get_snow_tile_tag(snow) result(tag)
   integer :: tag
   type(snow_tile_type), intent(in) :: snow
-  
+
   tag = snow%tag
 end function get_snow_tile_tag
 
@@ -287,9 +283,9 @@ subroutine snow_data_hydraulics (wl, ws, psi, hyd_cond )
   real, intent(in),  dimension(:) :: wl, ws
   real, intent(out), dimension(:) :: psi, hyd_cond
 
-  ! ---- local vars 
+  ! ---- local vars
   integer :: l
-  
+
   do l = 1, num_l
     psi     (l) = psi_sat *(w_sat/(wl(l)+ws(l)))**chb
     hyd_cond(l) = k_sat*(wl(l)/w_sat)**(3+2*chb)
@@ -313,14 +309,13 @@ subroutine snow_data_area ( snow_depth, snow_area )
 
 end subroutine snow_data_area
 
-
 ! ============================================================================
-subroutine snow_data_radiation(snow_T, snow_refl_dir, snow_refl_dif, snow_emis,&
-                                  cosz, use_brdf)
-  real, intent(in) :: snow_T
-  real, intent(out):: snow_refl_dir(NBANDS), snow_refl_dif(NBANDS), snow_emis
-  real, optional :: cosz
-  logical :: use_brdf
+! compute snow properties needed to do soil-canopy-atmos energy balance
+subroutine snow_radiation ( snow_T, cosz, &
+     snow_refl_dir, snow_refl_dif, snow_refl_lw, snow_emis )
+  real, intent(in) :: snow_T  ! snow temperature, deg K
+  real, intent(in) :: cosz ! cosine of zenith angle
+  real, intent(out) :: snow_refl_dir(NBANDS), snow_refl_dif(NBANDS), snow_refl_lw, snow_emis
 
   ! ---- local vars
   real :: blend
@@ -339,8 +334,8 @@ subroutine snow_data_radiation(snow_T, snow_refl_dir, snow_refl_dif, snow_emis,&
      cold_value_dir = f_iso_cold*(g0_iso+g1_iso*zsq+g2_iso*zcu) &
                     + f_vol_cold*(g0_vol+g1_vol*zsq+g2_vol*zcu) &
                     + f_geo_cold*(g0_geo+g1_geo*zsq+g2_geo*zcu)
-     warm_value_dif = refl_warm_dif
-     cold_value_dif = refl_cold_dif
+     cold_value_dif = g_iso*f_iso_cold + g_vol*f_vol_cold + g_geo*f_geo_cold
+     warm_value_dif = g_iso*f_iso_warm + g_vol*f_vol_warm + g_geo*f_geo_warm
   else
      warm_value_dir = refl_snow_min_dir
      cold_value_dir = refl_snow_max_dir
@@ -350,23 +345,24 @@ subroutine snow_data_radiation(snow_T, snow_refl_dir, snow_refl_dif, snow_emis,&
   snow_refl_dir = cold_value_dir + blend*(warm_value_dir-cold_value_dir)
   snow_refl_dif = cold_value_dif + blend*(warm_value_dif-cold_value_dif)
   snow_emis     = emis_snow_max + blend*(emis_snow_min-emis_snow_max  )
-end subroutine snow_data_radiation
-
+  snow_refl_lw  = 1 - snow_emis
+end subroutine snow_radiation
 
 ! ============================================================================
-subroutine snow_data_diffusion(snow_z0s, snow_z0m)
+subroutine snow_roughness(snow, snow_z0s, snow_z0m)
+  type(snow_tile_type), intent(in) :: snow ! not used
   real, intent(out):: snow_z0s, snow_z0m
 
   snow_z0m =  z0_momentum
   snow_z0s =  z0_momentum * exp(-k_over_B)
-end subroutine snow_data_diffusion
+end subroutine snow_roughness
 
 ! ============================================================================
 subroutine snow_tile_stock_pe (snow, twd_liq, twd_sol  )
   type(snow_tile_type),  intent(in)    :: snow
   real,                  intent(out)   :: twd_liq, twd_sol
   integer n
-  
+
   twd_liq = 0.
   twd_sol = 0.
   do n=1, size(snow%wl)
@@ -387,7 +383,7 @@ function snow_tile_heat (snow) result(heat) ; real heat
   do i = 1,num_l
      heat = heat - snow%ws(i)*hlf &
         + (mc_fict*dz(i) + clw*snow%wl(i) + csw*snow%ws(i))  &
-                                      * (snow%T(i)-tfreeze) 
+                                      * (snow%T(i)-tfreeze)
   enddo
 end function snow_tile_heat
 

@@ -13,17 +13,17 @@ use mpp_io_mod, only : &
      mpp_get_fields, mpp_get_atts, mpp_get_field_index, fieldtype, &
      axistype, mpp_get_info
 
-use fms_mod, only : &
-     write_version_number, file_exist, check_nml_error, &
+use fms_mod, only : file_exist, check_nml_error, &
      close_file, stdlog, read_data, error_mesg, FATAL
 use constants_mod, only : &
      pi, tfreeze, rvgas, grav, dens_h2o, hlf, epsln
-use land_constants_mod, only : &
-     NBANDS
+use land_constants_mod, only : BAND_VIS, BAND_NIR, NBANDS
 use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_SOIL, register_tile_selector
 use soil_carbon_mod, only : &
-    soil_pool, combine_pools, init_soil_pool, poolTotals, n_c_types
+    soil_pool, combine_pools, init_soil_pool, poolTotals, n_c_types, soil_carbon_option, SOILC_CORPSE, SOILC_CORPSE_N
+use land_data_mod, only : log_version
+use land_debug_mod, only : check_var_range
 
 implicit none
 private
@@ -44,8 +44,8 @@ public :: read_soil_data_namelist
 public :: soil_ice_porosity
 public :: soil_ave_ice_porosity
 
-public :: soil_data_radiation
-public :: soil_data_diffusion
+public :: soil_radiation
+public :: soil_roughness
 public :: soil_data_thermodynamics
 public :: soil_data_hydraulic_properties
 public :: soil_data_psi_for_rh
@@ -61,7 +61,7 @@ public :: soil_ave_theta1! calculate average soil moisture, ens based on all wat
 public :: soil_ave_wetness ! calculate average soil wetness
 public :: soil_theta     ! returns array of soil moisture, for all layers
 public :: soil_psi_stress ! return soil-water-stress index
-public :: g_iso, g_vol, g_geo, g_RT
+public :: g_RT
 public :: num_storage_pts
 public :: gw_zeta_s, gw_flux_table, gw_area_table
 public :: gw_scale_length, gw_scale_relief, gw_scale_soil_depth, slope_exp
@@ -78,10 +78,8 @@ interface new_soil_tile
 end interface
 
 ! ==== module constants ======================================================
-character(len=*), parameter   :: &
-     version     = '$Id$', &
-     tagname     = '$Name$', &
-     module_name = 'soil_tile_mod'
+character(len=*), parameter :: module_name = 'soil_tile_mod'
+#include "../shared/version_variable.inc"
 
 integer, parameter :: max_lev          = 100
 integer, parameter, public :: n_dim_soil_types = 14      ! max size of lookup table
@@ -93,18 +91,18 @@ real,    parameter :: K_rel_min        = 1.e-12
 real,    parameter, public :: initval  = 1.e36 ! For initializing variables
 
 ! from the modis brdf/albedo product user's guide:
-real            :: g_iso  = 1.
-real            :: g_vol  = 0.189184
-real            :: g_geo  = -1.377622
-real            :: g0_iso = 1.0
-real            :: g1_iso = 0.0
-real            :: g2_iso = 0.0
-real            :: g0_vol = -0.007574
-real            :: g1_vol = -0.070987
-real            :: g2_vol =  0.307588
-real            :: g0_geo = -1.284909
-real            :: g1_geo = -0.166314
-real            :: g2_geo =  0.041840
+real, public, parameter :: g_iso  = 1.
+real, public, parameter :: g_vol  = 0.189184
+real, public, parameter :: g_geo  = -1.377622
+real, parameter :: g0_iso = 1.0
+real, parameter :: g1_iso = 0.0
+real, parameter :: g2_iso = 0.0
+real, parameter :: g0_vol = -0.007574
+real, parameter :: g1_vol = -0.070987
+real, parameter :: g2_vol =  0.307588
+real, parameter :: g0_geo = -1.284909
+real, parameter :: g1_geo = -0.166314
+real, parameter :: g2_geo =  0.041840
 
 ! geohydrology option selector (not used by lm2)
 integer, parameter, public ::   &
@@ -329,6 +327,7 @@ end type soil_tile_type
 
 ! ==== module data ===========================================================
 integer, public :: gw_option
+logical, public :: use_brdf = .false.
 
 real, public :: &
      cpw = 1952.0, & ! specific heat of water vapor at constant pressure
@@ -597,7 +596,8 @@ subroutine read_soil_data_namelist(soil_num_l, soil_dz, soil_single_geo, &
   type(fieldtype), allocatable :: Fields(:)
   type(axistype),  allocatable :: axes(:)
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=soil_data_nml, iostat=io)
   ierr = check_nml_error(io, 'soil_data_nml')
@@ -1352,14 +1352,17 @@ subroutine merge_soil_tiles(s1,w1,s2,w2)
   ! merge soil carbon
   s2%fast_soil_C(:) = s1%fast_soil_C(:)*x1 + s2%fast_soil_C(:)*x2
   s2%slow_soil_C(:) = s1%slow_soil_C(:)*x1 + s2%slow_soil_C(:)*x2
-  do i=1,num_l
-    call combine_pools(s1%soil_organic_matter(i),s2%soil_organic_matter(i),w1,w2)
-  enddo
+
   !is_peat is 1 or 0, so multiplying is like an AND operation
   s2%is_peat(:) = s1%is_peat(:) * s2%is_peat(:)
-  call combine_pools(s1%leafLitter,s2%leafLitter,w1,w2)
-  call combine_pools(s1%fineWoodLitter,s2%fineWoodLitter,w1,w2)
-  call combine_pools(s1%coarseWoodLitter,s2%coarseWoodLitter,w1,w2)
+  if(soil_carbon_option==SOILC_CORPSE .OR. soil_carbon_option==SOILC_CORPSE_N) then
+     do i=1,num_l
+       call combine_pools(s1%soil_organic_matter(i),s2%soil_organic_matter(i),w1,w2)
+     enddo
+     call combine_pools(s1%leafLitter,s2%leafLitter,w1,w2)
+     call combine_pools(s1%fineWoodLitter,s2%fineWoodLitter,w1,w2)
+     call combine_pools(s1%coarseWoodLitter,s2%coarseWoodLitter,w1,w2)
+  endif
   s2%asoil_in(:)    = s1%asoil_in(:)*x1 + s2%asoil_in(:)*x2
   s2%fsc_in(:)      = s1%fsc_in(:)*x1 + s2%fsc_in(:)*x2
   s2%ssc_in(:)      = s1%ssc_in(:)*x1 + s2%ssc_in(:)*x2
@@ -1427,6 +1430,7 @@ subroutine merge_soil_tiles(s1,w1,s2,w2)
   s2%coarsewoodlitter_fsn_in = s1%coarsewoodlitter_fsn_in*x1 + s2%coarsewoodlitter_fsn_in*x2
   s2%coarsewoodlitter_ssn_in = s1%coarsewoodlitter_ssn_in*x1 + s2%coarsewoodlitter_ssn_in*x2
   s2%coarsewoodlitter_deadmic_N_in = s1%coarsewoodlitter_deadmic_N_in*x1 + s2%coarsewoodlitter_deadmic_N_in*x2
+
 
   s2%fast_DOC_leached=s1%fast_DOC_leached*x1 + s2%fast_DOC_leached*x2
   s2%slow_DOC_leached=s1%slow_DOC_leached*x1 + s2%slow_DOC_leached*x2
@@ -1553,7 +1557,7 @@ pure function soil_theta(soil) result (theta1)
   type(soil_tile_type), intent(in) :: soil
   real :: theta1(num_l)
 
-  theta1(:) = min(max(soil%wl(:)/(dens_h2o*dz(:)),0.0)/(soil%pars%vwc_sat),1.0)
+  theta1(:) = min(max(soil%wl(:)/(dens_h2o*dz(1:num_l)),0.0)/(soil%pars%vwc_sat),1.0)
 end function soil_theta
 
 
@@ -1616,13 +1620,13 @@ function soil_psi_stress(soil, zeta) result (A) ; real :: A
 end function soil_psi_stress
 
 ! ============================================================================
-! compute bare-soil albedo, bare-soil emissivity, bare-soil roughness
-! for scalar transport, and beta function
-subroutine soil_data_radiation ( soil, cosz, use_brdf, soil_alb_dir, soil_alb_dif, soil_emis )
-  type(soil_tile_type), intent(in)  :: soil
-  real,                 intent(in)  :: cosz
-  logical,              intent(in)  :: use_brdf
-  real,                 intent(out) :: soil_alb_dir(NBANDS), soil_alb_dif(NBANDS), soil_emis
+! compute soil radiative properties
+subroutine soil_radiation ( soil, cosz, &
+     soil_refl_dir, soil_refl_dif, soil_refl_lw, soil_emis )
+  type(soil_tile_type), intent(in) :: soil
+  real, intent(in)  :: cosz
+  real, intent(out) :: soil_refl_dir(NBANDS), soil_refl_dif(NBANDS), soil_refl_lw, soil_emis
+
   ! ---- local vars
   real :: soil_sfc_vlc, blend, dry_value(NBANDS), sat_value(NBANDS)
   real :: zenith_angle, zsq, zcu
@@ -1643,22 +1647,27 @@ subroutine soil_data_radiation ( soil, cosz, use_brdf, soil_alb_dir, soil_alb_di
      dry_value = soil%pars%refl_dry_dir
      sat_value = soil%pars%refl_sat_dir
   endif
-  soil_alb_dir  = dry_value              + blend*(sat_value             -dry_value)
-  soil_alb_dif  = soil%pars%refl_dry_dif + blend*(soil%pars%refl_sat_dif-soil%pars%refl_dry_dif)
-  soil_emis     = soil%pars%emis_dry     + blend*(soil%pars%emis_sat    -soil%pars%emis_dry    )
-end subroutine soil_data_radiation
+  soil_refl_dir  = dry_value              + blend*(sat_value             -dry_value)
+  soil_refl_dif  = soil%pars%refl_dry_dif + blend*(soil%pars%refl_sat_dif-soil%pars%refl_dry_dif)
+  soil_emis      = soil%pars%emis_dry     + blend*(soil%pars%emis_sat    -soil%pars%emis_dry    )
+  soil_refl_lw   = 1 - soil_emis
 
+  call check_var_range(soil_refl_dir(BAND_VIS), 0.0, 1.0, 'soil_radiation', 'soil_refl_dir(VIS)', FATAL)
+  call check_var_range(soil_refl_dir(BAND_NIR), 0.0, 1.0, 'soil_radiation', 'soil_refl_dir(NIR)', FATAL)
+  call check_var_range(soil_refl_dif(BAND_VIS), 0.0, 1.0, 'soil_radiation', 'soil_refl_dif(VIS)', FATAL)
+  call check_var_range(soil_refl_dif(BAND_NIR), 0.0, 1.0, 'soil_radiation', 'soil_refl_dif(NIR)', FATAL)
+end subroutine soil_radiation
 
 ! ============================================================================
 ! compute bare-soil albedo, bare-soil emissivity, bare-soil roughness
 ! for scalar transport, and beta function
-subroutine soil_data_diffusion ( soil, soil_z0s, soil_z0m )
+subroutine soil_roughness ( soil, soil_z0s, soil_z0m )
   type(soil_tile_type), intent(in)  :: soil
   real,                 intent(out) :: soil_z0s, soil_z0m
 
   soil_z0s = soil%z0_scalar
   soil_z0m = soil%pars%z0_momentum
-end subroutine soil_data_diffusion
+end subroutine soil_roughness
 
 ! ============================================================================
 ! compute soil thermodynamic properties.
@@ -2164,7 +2173,7 @@ function soil_tile_heat (soil) result(heat) ; real heat
           clw*soil%groundwater(i)*(soil%groundwater_T(i)-tfreeze) - &
           hlf*soil%ws(i)
   enddo
-end function
+end function soil_tile_heat
 
 ! ============================================================================
 ! returns soil tile carbon content, kg C/m2
@@ -2174,18 +2183,24 @@ function soil_tile_carbon (soil); real soil_tile_carbon
   real    :: temp
   integer :: i
 
-  soil_tile_carbon = sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:))
-  do i=1,num_l
-	call poolTotals(soil%soil_organic_matter(i),totalCarbon=temp)
-  	soil_tile_carbon=soil_tile_carbon+temp
-  enddo
-  call poolTotals(soil%leafLitter,totalCarbon=temp)
-  soil_tile_carbon=soil_tile_carbon+temp
-  call poolTotals(soil%fineWoodLitter,totalCarbon=temp)
-  soil_tile_carbon=soil_tile_carbon+temp
-  call poolTotals(soil%coarseWoodLitter,totalCarbon=temp)
-  soil_tile_carbon=soil_tile_carbon+temp
-end function
+  select case (soil_carbon_option)
+  case (SOILC_CORPSE,SOILC_CORPSE_N)
+     soil_tile_carbon = 0.0
+     do i=1,num_l
+        call poolTotals(soil%soil_organic_matter(i),totalCarbon=temp)
+        soil_tile_carbon=soil_tile_carbon+temp
+     enddo
+     call poolTotals(soil%leafLitter,totalCarbon=temp)
+     soil_tile_carbon=soil_tile_carbon+temp
+     call poolTotals(soil%fineWoodLitter,totalCarbon=temp)
+     soil_tile_carbon=soil_tile_carbon+temp
+     call poolTotals(soil%coarseWoodLitter,totalCarbon=temp)
+     soil_tile_carbon=soil_tile_carbon+temp
+  case default
+     soil_tile_carbon = sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:))
+  end select
+end function soil_tile_carbon
+
 
 ! ============================================================================
 ! returns soil tile nitrogen content, kg N/m2

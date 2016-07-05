@@ -4,14 +4,14 @@ module land_tracer_driver_mod
 
 use constants_mod, only : rdgas
 use time_manager_mod, only : time_type, time_type_to_real
-use fms_mod, only : lowercase, write_version_number, stdout, stdlog
+use fms_mod, only : lowercase, stdout, stdlog
 use field_manager_mod , only : MODEL_ATMOS, MODEL_LAND, parse
 use tracer_manager_mod, only : NO_TRACER, get_tracer_index, get_tracer_names, query_method
 use table_printer_mod
 
 use land_constants_mod, only : d608, kBoltz
 use land_debug_mod, only : is_watch_point
-use land_data_mod, only : land_state_type, lnd, land_time
+use land_data_mod, only : land_state_type, lnd, log_version
 use land_tracers_mod, only : ntcana, isphum, ico2
 use land_tile_mod, only : land_tile_type, land_tile_grnd_T
 use land_tile_diag_mod, only : set_default_diag_filter, &
@@ -35,23 +35,21 @@ public :: update_cana_tracers
 ! ==== end of public interfaces ==============================================
 
 ! ---- module constants ------------------------------------------------------
-character(len=*), parameter :: &
-     module_name = 'land_tracer_driver_mod', &
-     version     = '$Id$', &
-     tagname     = '$Name$', &
-     diag_name   = 'land_tracers'
+character(len=*), parameter :: module_name = 'land_tracer_driver_mod'
+#include "../shared/version_variable.inc"
+character(len=*), parameter :: diag_name   = 'land_tracers'
 
-real :: diffusivity_h2o = 0.282e-4 ! diffusivity of water vapor m2/s, 
-    ! Cussler, E. L. (1997). Diffusion: Mass Transfer in Fluid Systems (2nd ed.). 
+real :: diffusivity_h2o = 0.282e-4 ! diffusivity of water vapor m2/s,
+    ! Cussler, E. L. (1997). Diffusion: Mass Transfer in Fluid Systems (2nd ed.).
     ! New York: Cambridge University Press. ISBN 0-521-45078-0.
 
 ! ---- data types -----------------------------------------------------------
 type :: tracer_data_type
    character(32) :: name = ''  ! tracer name
    integer :: tr_atm  = NO_TRACER ! index of this tracer in atmos tracer array
-   
+
    logical :: is_generic    = .TRUE. ! flag of generic tracer; initialization of non-generic tracers should turn it to FALSE
-   logical :: do_deposition = .TRUE. ! if true, generic dry deposition is used 
+   logical :: do_deposition = .TRUE. ! if true, generic dry deposition is used
    ! dry deposition parameters. The default values are set as O3 parameters from (Wesely, 1989)
    real    :: diff_ratio    = 1.6    ! ratio of water vapor molecular diffusivity in the air to that of the tracer, unitless
    real    :: Henry_const   = 0.01   ! Henry's law constant for the gas, M atm-1
@@ -60,7 +58,7 @@ type :: tracer_data_type
    real    :: r_ls          = 1000.0 ! resistance of snow covered portion of the leaf, s/m
    real    :: r_gsS         = 100.0  ! parameter of ground resistance
    real    :: r_gsO         = 300.0  ! parameter of ground resistance
-   
+
    integer :: & ! diag field IDs
      id_emis,      id_ddep,  &
      id_flux_atm,  id_dfdtr, &
@@ -78,8 +76,8 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
 subroutine land_tracer_driver_init(id_lon, id_lat)
-  integer, intent(in) :: id_lon, id_lat  ! IDs of longitude and latitude diagnostic axis  
-  
+  integer, intent(in) :: id_lon, id_lat  ! IDs of longitude and latitude diagnostic axis
+
   integer :: tr ! tracer index
   real    :: value ! temporary storage for parsing input
   character(32)  :: name, units, funits ! name and units of the tracer and flux
@@ -89,7 +87,8 @@ subroutine land_tracer_driver_init(id_lon, id_lat)
   type(table_printer_type) :: table
 
   ! write the version and tag name to the logfile
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
   ! calculate time step
   dt  = time_type_to_real(lnd%dt_fast) ! store in a module variable for convenience
@@ -102,13 +101,13 @@ subroutine land_tracer_driver_init(id_lon, id_lat)
   ! initialize non-generic tracers, e.g.:
   ! call land_dust_init(id_lon, id_lat, trdata(:)%is_generic)
   ! NOTE that (1) the non-generic tracer init must skip all non-generic tracers
-  ! that have already been initialized (in case there is a conflict), and 
+  ! that have already been initialized (in case there is a conflict), and
   ! (2) it must set trdata(:)%is_generic to FALSE for the tracers it claims
 
   ! initialize generic tracer parameters
   do tr = 1, ntcana
      if (.not.trdata(tr)%is_generic) cycle ! skip all non-generic tracers
-     
+
      call get_tracer_names(MODEL_LAND, tr, trdata(tr)%name)
      trdata(tr)%tr_atm = get_tracer_index (MODEL_ATMOS, trdata(tr)%name)
 
@@ -117,7 +116,7 @@ subroutine land_tracer_driver_init(id_lon, id_lat)
      method = ''; parameters = ''
      if (trdata(tr)%tr_atm >0) then
         if (query_method('dry_deposition', MODEL_ATMOS, trdata(tr)%tr_atm, method)) then
-           trdata(tr)%do_deposition = (index(lowercase(method),'land:lm3')>0) 
+           trdata(tr)%do_deposition = (index(lowercase(method),'land:lm3')>0)
         endif
      endif
      ! set up deposition parameters
@@ -141,51 +140,51 @@ subroutine land_tracer_driver_init(id_lon, id_lat)
   call add_row(table, 'r_ls',             trdata(:)%r_ls)
   call add_row(table, 'r_gsS',            trdata(:)%r_gsS)
   call add_row(table, 'r_gsO',            trdata(:)%r_gsO)
-  
+
   call print(table,stdlog())
   call print(table,stdout())
-  
+
   ! register diag fields for generic tracers
-  call set_default_diag_filter('land')  
+  call set_default_diag_filter('land')
   do tr = 1, ntcana
      call get_tracer_names(MODEL_LAND, tr, name, longname, units)
 
      funits = flux_units(units)
      trdata(tr)%id_flux_atm = &
        register_tiled_diag_field(diag_name, trim(name)//'_flux_atm', &
-       (/id_lon,id_lat/),  land_time, trim(name)//' flux to the atmosphere', &
+       (/id_lon,id_lat/),  lnd%time, trim(name)//' flux to the atmosphere', &
        trim(funits), missing_value=-1.0)
      ! TODO: verify units of dfdtr
      trdata(tr)%id_dfdtr = &
        register_tiled_diag_field(diag_name, trim(name)//'_dfdtr', &
-       (/id_lon,id_lat/),  land_time,'derivative of '//trim(name)//' flux to the atmosphere', &
+       (/id_lon,id_lat/),  lnd%time,'derivative of '//trim(name)//' flux to the atmosphere', &
        trim(funits), missing_value=-1.0)
      if (trdata(tr)%do_deposition) then
         ! TODO: initialize parameters of generic dry deposition here
-        
+
         trdata(tr)%id_ddep = &
           register_tiled_diag_field(diag_name, trim(name)//'_ddep', &
-          (/id_lon,id_lat/),  land_time, trim(name)//' dry deposition', 'kg/(m2 s)', &
+          (/id_lon,id_lat/),  lnd%time, trim(name)//' dry deposition', 'kg/(m2 s)', &
           missing_value=-1.0)
         trdata(tr)%id_con_v_lam = &
           register_tiled_diag_field(diag_name, trim(name)//'_con_v_lam', &
-          (/id_lon,id_lat/),  land_time, 'quasi-laminar conductance between canopy and canopy air for '//trim(name), &
+          (/id_lon,id_lat/),  lnd%time, 'quasi-laminar conductance between canopy and canopy air for '//trim(name), &
           'm/s', missing_value=-1.0)
         trdata(tr)%id_con_g_lam = &
           register_tiled_diag_field(diag_name, trim(name)//'_con_g_lam', &
-          (/id_lon,id_lat/),  land_time, 'quasi-laminar conductance between ground and canopy air for '//trim(name), &
+          (/id_lon,id_lat/),  lnd%time, 'quasi-laminar conductance between ground and canopy air for '//trim(name), &
           'm/s', missing_value=-1.0)
         trdata(tr)%id_con_v = &
           register_tiled_diag_field(diag_name, trim(name)//'_con_v', &
-          (/id_lon,id_lat/),  land_time, 'total conductance between canopy and canopy air for'//trim(name), &
+          (/id_lon,id_lat/),  lnd%time, 'total conductance between canopy and canopy air for'//trim(name), &
           'm/s', missing_value=-1.0)
         trdata(tr)%id_con_g = &
           register_tiled_diag_field(diag_name, trim(name)//'_con_g', &
-          (/id_lon,id_lat/),  land_time, 'total conductance between ground and canopy air for '//trim(name), &
+          (/id_lon,id_lat/),  lnd%time, 'total conductance between ground and canopy air for '//trim(name), &
           'm/s', missing_value=-1.0)
         trdata(tr)%id_conc = &
           register_tiled_diag_field(diag_name, trim(name), &
-          (/id_lon,id_lat/),  land_time, 'concentration or '//trim(name)//' in canopy air', &
+          (/id_lon,id_lat/),  lnd%time, 'concentration or '//trim(name)//' in canopy air', &
           units, missing_value=-1.0)
      endif
   enddo
@@ -197,14 +196,14 @@ end subroutine land_tracer_driver_init
 subroutine land_tracer_driver_end()
   ! call finalizers for all non-generic tracers, e.g.:
   ! call land_dust_end()
-  
+
   deallocate(trdata)
   module_is_initialized = .FALSE.
 end subroutine land_tracer_driver_end
 
 
 ! ============================================================================
-! calculates conductance of laminar sublayer for given tracer. 
+! calculates conductance of laminar sublayer for given tracer.
 ! Seinfeld and Pandis (1989) Atmospheric Chemistry and Physics, Wiley, 1998, p963
 elemental real function laminar_conductance(T,p,sphum,ustar,diff) result(cond)
    real, intent(in) :: T       ! air temperature, deg K
@@ -212,12 +211,12 @@ elemental real function laminar_conductance(T,p,sphum,ustar,diff) result(cond)
    real, intent(in) :: sphum   ! specific humidity, kg/kg
    real, intent(in) :: ustar   ! friction velocity, m/s
    real, intent(in) :: diff    ! molecular diffusivity of the species (m2/s)
-      
+
    real :: rho_air ! density of air, kg/m3
    ! ---- local vars
    real :: viscosity ! dynamic viscosity, kg/(m s)
    real :: Sc        ! Schmidt number, unitless
-   
+
    viscosity = 1.458E-6 * T**1.5/(T+110.4)  ! Dynamic viscosity [kg/(m s)]
    rho_air = p/(rdgas*T*(1+d608*sphum))
    if (diff > 0) then
@@ -230,7 +229,7 @@ end function laminar_conductance
 
 
 ! ============================================================================
-! updates concentration of tracers in the canopy air, taking into account dry 
+! updates concentration of tracers in the canopy air, taking into account dry
 ! deposition and exchange with the atmosphere
 subroutine update_cana_tracers(tile, i, j, tr_flux, dfdtr, &
      precip_l, precip_s, pressure, ustar, con_g, con_v, stomatal_cond )
@@ -254,7 +253,7 @@ subroutine update_cana_tracers(tile, i, j, tr_flux, dfdtr, &
   real    :: con_v_lam ! quasi-laminar layer conductance for vegetation, m/s
   real    :: con_g_lam ! quasi-laminar layer conductance for ground, m/s
   real    :: con_st  ! total stomatal conductance, scaled by dry leaf area, m/s
-  real    :: con_mx  ! "mesophyll conductance", m/s 
+  real    :: con_mx  ! "mesophyll conductance", m/s
   real    :: con_cu  ! total cuticular conductance, including dry and wet areas, m/s
   real    :: con_gr  ! "ground conductance", m/s
   real    :: cv0, cv1, cv2, cg0 ! intermediate values for total conductance calculations, m/s
@@ -297,7 +296,7 @@ subroutine update_cana_tracers(tile, i, j, tr_flux, dfdtr, &
   ! ustar passed into this subroutine corresponds to the momentum dissipation
   ! (tau = rho*ustar**2) on the entire land surface. If vegetation is present,
   ! momentum dissipates on both leaves and ground; for the momentum conservation
-  ! we need to reduce dissipation per unit surface proportionally to the total 
+  ! we need to reduce dissipation per unit surface proportionally to the total
   ! surface area. Factor of 2 takes into account that the leaves are 2-sided.
    ustar_s = ustar/sqrt(2*LAI+1.0)
 
@@ -312,14 +311,14 @@ subroutine update_cana_tracers(tile, i, j, tr_flux, dfdtr, &
   else
      con_st = 0.0
   endif
-  
+
   if (is_watch_point()) then
      __DEBUG4__(LAI,ustar,ustar_s,con_st)
   endif
-  
+
   do tr = 1, ntcana
      if (.not.trdata(tr)%is_generic) cycle
-     
+
      if (trdata(tr)%do_deposition) then
         if (associated(tile%vegn)) then
            ! conductance of quasi-laminar layers
@@ -347,10 +346,10 @@ subroutine update_cana_tracers(tile, i, j, tr_flux, dfdtr, &
            cv1 = 1/(trdata(tr)%diff_ratio/con_st+1/con_mx)
         endif
 
-        cv2 = cv1 + con_cu ! sum of stomatal/mesophyll and cuticular conductances 
+        cv2 = cv1 + con_cu ! sum of stomatal/mesophyll and cuticular conductances
 
         ! total conductance between canopy air and canopy
-        if (cv0+cv2>0) cv = cv0*cv2/(cv0+cv2) 
+        if (cv0+cv2>0) cv = cv0*cv2/(cv0+cv2)
 
         ! TODO: reactivity of the species on the ground must be taken into account
         !       this reactivity may be different for snow/water/soil

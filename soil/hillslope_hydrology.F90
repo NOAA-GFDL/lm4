@@ -5,27 +5,26 @@ module hillslope_hydrology_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod, only : write_version_number, error_mesg, FATAL, NOTE
+use fms_mod, only : error_mesg, FATAL, NOTE
 use soil_tile_mod, only : &
      soil_tile_type, clw, initval, soil_data_hydraulic_properties
-use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
+use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), nitems
-use fms_mod, only : write_version_number
-use land_data_mod,      only : land_state_type, lnd, land_time
+use land_data_mod, only : lnd, log_version
 use land_debug_mod, only : is_watch_point, set_current_point, get_current_point, &
                            check_conservation, is_watch_cell
 use hillslope_mod, only : do_hillslope_model, strm_depth_penetration, use_hlsp_aspect_in_gwflow, &
                           use_geohydrodata, stiff_do_explicit, dammed_strm_bc, simple_inundation, &
                           surf_flow_velocity, limit_intertile_flow, flow_ratio_limit, exp_inundation, &
                           tiled_DOC_flux
-use constants_mod,      only: tfreeze, &
-                              dens_h2o, epsln
+use constants_mod, only : tfreeze, dens_h2o, epsln
       ! Use global tfreeze in energy flux calculations, not local freezing-point-depression temperature.
 use fms_mod, only: error_mesg, FATAL
 use time_manager_mod, only : time_type, time_type_to_real
 use land_tile_diag_mod, only : diag_buff_type, register_tiled_diag_field, &
-     send_tile_data
+                                send_tile_data, set_default_diag_filter
 use soil_carbon_mod, only : retrieve_DOC, retrieve_DON, retrieve_dissolved_mineral_N
+
 
 implicit none
 private
@@ -40,10 +39,8 @@ public :: stiff_explicit_gwupdate
 
 
 ! ==== module constants ======================================================
-character(len=*), parameter, private   :: &
-    module_name = 'hillslope_hydrology',&
-    version     = '$Id$',&
-    tagname     = '$Name$'
+character(len=*), parameter :: module_name = 'hillslope_hydrology'
+#include "../shared/version_variable.inc"
 
 ! ---- diagnostic field IDs
 !integer :: id_gtos_hlsp, & ! ground to stream runoff for hillslope area
@@ -75,7 +72,8 @@ subroutine hlsp_hydro_lev_init(num_l_in, dz_in, zfull_in)
        dz_in(:), &  ! layer thickness
        zfull_in(:)  ! layer centers
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
   module_is_initialized =.TRUE.
 
   num_l = num_l_in
@@ -291,12 +289,12 @@ subroutine hlsp_hydrology_1(num_species)
    do j=lnd%js,lnd%je
       do i=lnd%is,lnd%ie
 
-         te = tail_elmt (lnd%tile_map(i,j))
+         te = tail_elmt (land_tile_map(i,j))
 
          ! Initial loop over tile list
          ! ZMS for now this is an extra loop to calculate soil hydraulic props.
          ! This will need to be consolidated later.
-         ce = first_elmt(lnd%tile_map(i,j))
+         ce = first_elmt(land_tile_map(i,j))
          k = 0
          do while(ce /= te)
             tile=>current_tile(ce)  ! get pointer to current tile
@@ -343,11 +341,11 @@ subroutine hlsp_hydrology_1(num_species)
 !         area_stream = 0.
 
          ! Get first pointer to tile list.
-         ce = first_elmt(lnd%tile_map(i,j))
+         ce = first_elmt(land_tile_map(i,j))
          k = 1
 
          ! Allocate and initialize gtos_bytile
-         numtiles = nitems(lnd%tile_map(i,j))
+         numtiles = nitems(land_tile_map(i,j))
          allocate(gtos_bytile(numtiles, num_l), gtosh_bytile(numtiles, num_l), &
              gtosDOC_bytile(numtiles, num_l, num_species),gtosDON_bytile(numtiles, num_l, num_species), &
              gtosNO3_bytile(numtiles,num_l), gtosNH4_bytile(numtiles,num_l) )
@@ -404,7 +402,7 @@ subroutine hlsp_hydrology_1(num_species)
             NH4div_below(:)  = 0.
 
             ! Get pointer to second tile list
-            ce2 = first_elmt(lnd%tile_map(i,j))
+            ce2 = first_elmt(land_tile_map(i,j))
 
             ! Loop over second tile list, and calculate fluxes
             do while (ce2 /= te)
@@ -451,9 +449,9 @@ subroutine hlsp_hydrology_1(num_species)
 
                         ! These should always be zero if soil_carbon_option is not SOILC_CORPSE_N
                         call retrieve_DON(soil%soil_organic_matter, DON, num_l)
-                        call retrieve_DON(soil%soil_organic_matter, DON2, num_l)
+                        call retrieve_DON(soil2%soil_organic_matter, DON2, num_l)
                         call retrieve_dissolved_mineral_N(soil%soil_organic_matter,nitrate,ammonium,num_l)
-                        call retrieve_dissolved_mineral_N(soil%soil_organic_matter,nitrate2,ammonium2,num_l)
+                        call retrieve_dissolved_mineral_N(soil2%soil_organic_matter,nitrate2,ammonium2,num_l)
                      end if
 
                      ! Loop over vertical layers
@@ -835,7 +833,7 @@ subroutine hlsp_hydrology_1(num_species)
          ! Check conservation of water, energy, and tracers,
          ! and send tile diagnostics.
          ! Repeat single loop over tile list
-         ce = first_elmt(lnd%tile_map(i,j))
+         ce = first_elmt(land_tile_map(i,j))
 
          wbal = 0.
          ebal = 0.
@@ -934,6 +932,9 @@ subroutine hlsp_hydro_init (id_lon, id_lat, id_zfull)
    ! define array of axis indices
    axes = (/ id_lon, id_lat, id_zfull /)
 
+   ! set the default sub-sampling filter for the fields below
+   call set_default_diag_filter('soil')
+
    ! define diagnostic fields
 
 !   id_gtos_hlsp = register_tiled_diag_field ( module_name, 'grnd_to_stream_water', axes(1:2), &
@@ -942,31 +943,31 @@ subroutine hlsp_hydro_init (id_lon, id_lat, id_zfull)
 !       Time, 'advected groundwater heat flux to stream at hillslope bottom, normalized by hillslope area', 'W/m^2',  missing_value=initval )
 
    id_gdiv = register_tiled_diag_field ( module_name, 'groundwater_divergence', axes, &
-       land_time, 'groundwater divergence out of tiles, excluding flow to stream (i.e., baseflow)', 'mm/s', &
+       lnd%time, 'groundwater divergence out of tiles, excluding flow to stream (i.e., baseflow)', 'mm/s', &
        missing_value=initval )
    id_ghdiv = register_tiled_diag_field ( module_name, 'groundwater_heat_div', axes, &
-       land_time, 'heat flux associated with groundwater divergence (excl. to stream)', 'W/m^2', missing_value=initval )
+       lnd%time, 'heat flux associated with groundwater divergence (excl. to stream)', 'W/m^2', missing_value=initval )
    id_gtos = register_tiled_diag_field ( module_name, 'grounddiv_to_stream', axes, &
-       land_time, 'groundwater divergence out of tiles directly to stream', 'mm/s', &
+       lnd%time, 'groundwater divergence out of tiles directly to stream', 'mm/s', &
        missing_value=initval )
    id_gtosh = register_tiled_diag_field ( module_name, 'groundheatdiv_to_stream', axes, &
-       land_time, 'heat flux associated with groundwater divergence to stream', 'W/m^2', missing_value=initval )
+       lnd%time, 'heat flux associated with groundwater divergence to stream', 'W/m^2', missing_value=initval )
    id_gDOCdiv = register_tiled_diag_field ( module_name, 'groundwater_DOC_div', axes, &
-       land_time, 'DOC groundwater divergence out of tiles, excluding to stream', 'kg C/m^2/s', missing_value=initval )
+       lnd%time, 'DOC groundwater divergence out of tiles, excluding to stream', 'kg C/m^2/s', missing_value=initval )
    id_gtosDOC = register_tiled_diag_field ( module_name, 'groundtracer_DOC_to_stream', axes, &
-       land_time, 'DOC flux to stream via groundwater', 'kg C/m^2/s', missing_value=initval )
+       lnd%time, 'DOC flux to stream via groundwater', 'kg C/m^2/s', missing_value=initval )
    id_gDONdiv = register_tiled_diag_field ( module_name, 'groundwater_DON_div', axes, &
-       land_time, 'DON groundwater divergence out of tiles, excluding to stream', 'kg N/m^2/s', missing_value=initval )
+       lnd%time, 'DON groundwater divergence out of tiles, excluding to stream', 'kg N/m^2/s', missing_value=initval )
    id_gtosDON = register_tiled_diag_field ( module_name, 'groundtracer_DON_to_stream', axes, &
-       land_time, 'DON flux to stream via groundwater', 'kg N/m^2/s', missing_value=initval )
+       lnd%time, 'DON flux to stream via groundwater', 'kg N/m^2/s', missing_value=initval )
    id_gNO3div = register_tiled_diag_field ( module_name, 'groundwater_NO3_div', axes, &
-       land_time, 'NO3 groundwater divergence out of tiles, excluding to stream', 'kg N/m^2/s', missing_value=initval )
+       lnd%time, 'NO3 groundwater divergence out of tiles, excluding to stream', 'kg N/m^2/s', missing_value=initval )
    id_gtosNO3 = register_tiled_diag_field ( module_name, 'groundtracer_NO3_to_stream', axes, &
-       land_time, 'NO3 flux to stream via groundwater', 'kg N/m^2/s', missing_value=initval )
+       lnd%time, 'NO3 flux to stream via groundwater', 'kg N/m^2/s', missing_value=initval )
    id_gNH4div = register_tiled_diag_field ( module_name, 'groundwater_NH4_div', axes, &
-       land_time, 'NH4 groundwater divergence out of tiles, excluding to stream', 'kg N/m^2/s', missing_value=initval )
+       lnd%time, 'NH4 groundwater divergence out of tiles, excluding to stream', 'kg N/m^2/s', missing_value=initval )
    id_gtosNH4 = register_tiled_diag_field ( module_name, 'groundtracer_NH4_to_stream', axes, &
-       land_time, 'NH4 flux to stream via groundwater', 'kg N/m^2/s', missing_value=initval )
+       lnd%time, 'NH4 flux to stream via groundwater', 'kg N/m^2/s', missing_value=initval )
 
 end subroutine hlsp_hydro_init
 
@@ -986,7 +987,7 @@ subroutine stiff_explicit_gwupdate (soil, div_it, hdiv_it, div, lrunf_bf)
    integer :: i,j,k,t
 
    call get_current_point(i,j,k,t)
-   time = time_type_to_real(land_time)
+   time = time_type_to_real(lnd%time)
    write(mesg,*)'Tile at point (i,j,k,face): ', i,',', j, ',', k, ',', t, ' has become stiff', &
                 ' (i.e., completely frozen) during the timestep at time ', time, '.', &
                 'Explicitly updating for inter-tile ', &

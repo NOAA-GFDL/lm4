@@ -20,18 +20,15 @@ end type diag_buff_type
 
 ! ==== module constants =====================================================
 integer, parameter :: MIN_DIAG_BUFF_SIZE = 1
-character(len=*), parameter :: &
-     version = '$Id$', &
-     tagname = '$Name$'
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
 function diag_buff_ctor() result(buffer)
   type(diag_buff_type), pointer :: buffer
-  
+
   integer :: m ! initial size of the buffer
-  
+
   allocate(buffer)
   m = MIN_DIAG_BUFF_SIZE
   allocate(buffer%mask(m),buffer%data(m))
@@ -45,7 +42,7 @@ end function
 function diag_buff_copy_ctor(buffer) result(ptr)
   type(diag_buff_type), pointer :: ptr ! return value
   type(diag_buff_type), intent(in) :: buffer ! buffer to copy
-  
+
   allocate(ptr)
   allocate(ptr%mask(size(buffer%mask)),ptr%data(size(buffer%data)))
   ! initialize buffer content
@@ -57,11 +54,11 @@ end function
 ! ============================================================================
 subroutine delete_diag_buff(buffer)
   type(diag_buff_type), pointer :: buffer
-  
+
   if(.not.associated(buffer)) return
   deallocate(buffer%mask,buffer%data)
   deallocate(buffer)
-  
+
 end subroutine
 
 
@@ -69,7 +66,7 @@ end subroutine
 ! reallocates buffer to have at least m elements
 subroutine realloc_diag_buff(buffer, m)
   type(diag_buff_type), intent(inout) :: buffer
-  integer             , intent(in)    :: m 
+  integer             , intent(in)    :: m
 
   real    , pointer :: new_data(:)
   logical , pointer :: new_mask(:)

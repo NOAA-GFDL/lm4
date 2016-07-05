@@ -11,31 +11,25 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod, only : write_version_number, error_mesg, FATAL, NOTE, file_exist, &
+use fms_mod, only : error_mesg, FATAL, NOTE, file_exist, &
      close_file, check_nml_error, mpp_pe, mpp_root_pe, stdlog, string
-use fms_io_mod, only : read_compressed, restart_file_type, free_restart_type
-use fms_io_mod, only : field_exist, get_field_size, save_restart
-use fms_io_mod, only : register_restart_axis, register_restart_field, set_domain, nullify_domain
-use time_manager_mod, only : time_type, time_type_to_real
+use fms_io_mod, only : set_domain, nullify_domain
 use constants_mod, only : rdgas, rvgas, cp_air, PI, VONKARM
 use sphum_mod, only : qscomp
 use field_manager_mod, only : parse, MODEL_ATMOS, MODEL_LAND
-use tracer_manager_mod, only : get_number_tracers, get_tracer_index, get_tracer_names
-use tracer_manager_mod, only : get_tracer_index, query_method, NO_TRACER
+use tracer_manager_mod, only : get_tracer_index, get_tracer_names, &
+     query_method, NO_TRACER
 
-use nf_utils_mod, only : nfu_inq_var
-use land_constants_mod, only : NBANDS,d608,mol_CO2,mol_air
+use land_constants_mod, only : mol_CO2, d608, mol_air
 use land_tracers_mod, only : ntcana, isphum, ico2
 use cana_tile_mod, only : cana_tile_type, &
      canopy_air_mass, canopy_air_mass_for_tracers, cpw
-use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
+use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
-use land_data_mod,      only : land_state_type, lnd
-use land_tile_io_mod, only : create_tile_out_file, &
-     read_tile_data_r0d_fptr, write_tile_data_r0d_fptr, &
-     read_tile_data_r1d_fptr, write_tile_data_r1d_fptr, &
-     get_input_restart_name, print_netcdf_error, &
-     gather_tile_data, assemble_tiles
+use land_data_mod, only : lnd, log_version
+use land_tile_io_mod, only: land_restart_type, &
+     init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
+     add_tile_data, get_tile_data, field_exists
 use land_debug_mod, only : is_watch_point, check_temp_range
 
 implicit none
@@ -46,8 +40,6 @@ public :: read_cana_namelist
 public :: cana_init
 public :: cana_end
 public :: save_cana_restart
-public :: save_cana_restart_new
-public :: cana_radiation
 public :: cana_turbulence
 public :: cana_roughness
 public :: cana_state
@@ -56,10 +48,8 @@ public :: cana_step_2
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
-character(len=*), private, parameter :: &
-  version = '$Id$', &
-  tagname = '$Name$', &
-  module_name = 'canopy_air_mod'
+character(len=*), parameter :: module_name = 'canopy_air_mod'
+#include "../shared/version_variable.inc"
 
 ! options for turbulence parameter calculations
 integer, parameter :: TURB_LM3W = 1, TURB_LM3V = 2
@@ -72,28 +62,20 @@ real :: init_q           = 0.
 real :: init_co2         = 350.0e-6 ! ppmv = mol co2/mol of dry air
 character(len=32) :: turbulence_to_use = 'lm3w' ! or lm3v
 logical :: save_qco2     = .TRUE.
-logical :: sfc_dir_albedo_bug = .FALSE. ! if true, reverts to buggy behavior
-! where direct albedo was mistakenly used for part of sub-canopy diffuse light
 logical :: allow_small_z0 = .FALSE. ! to use z0 provided by lake and glac modules
 real :: lai_min_turb = 0.0 ! fudge to desensitize Tv to SW/cosz inconsistency
 real :: bare_rah_sca     = 0.01     ! bare-ground resistance between ground and canopy air, s/m
 namelist /cana_nml/ &
   init_T, init_T_cold, init_q, init_co2, turbulence_to_use, &
   canopy_air_mass, canopy_air_mass_for_tracers, cpw, save_qco2, &
-  sfc_dir_albedo_bug, allow_small_z0, lai_min_turb, bare_rah_sca
+  allow_small_z0, lai_min_turb, bare_rah_sca
 !---- end of namelist --------------------------------------------------------
 
 logical :: module_is_initialized =.FALSE.
-integer :: turbulence_option ! selected option of turbulence parameters 
+integer :: turbulence_option ! selected option of turbulence parameters
      ! calculations
 
-! ==== NetCDF declarations ===================================================
-include 'netcdf.inc'
-#define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
-
-
 contains
-
 
 ! ============================================================================
 subroutine read_cana_namelist()
@@ -102,14 +84,15 @@ subroutine read_cana_namelist()
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
      read (input_nml_file, nml=cana_nml, iostat=io)
      ierr = check_nml_error(io, 'cana_nml')
 #else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
-     ierr = 1;  
+     ierr = 1;
      do while (ierr /= 0)
         read (unit, nml=cana_nml, iostat=io, end=10)
         ierr = check_nml_error (io, 'cana_nml')
@@ -126,21 +109,16 @@ end subroutine read_cana_namelist
 
 ! ============================================================================
 ! initialize canopy air
-subroutine cana_init ( id_lon, id_lat, new_land_io )
-  integer, intent(in)          :: id_lon  ! ID of land longitude (X) axis  
-  integer, intent(in)          :: id_lat  ! ID of land latitude (Y) axis
-  logical, intent(in)          :: new_land_io  ! This is a transition var and will be removed
+subroutine cana_init ( id_lon, id_lat )
+  integer, intent(in) :: id_lon  ! ID of land longitude (X) axis
+  integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
 
   ! ---- local vars ----------------------------------------------------------
-  integer :: unit         ! unit for various i/o
   type(land_tile_enum_type)     :: te,ce ! last and current tile
   type(land_tile_type), pointer :: tile   ! pointer to current tile
-  character(len=256) :: restart_file_name
-  character(len=17) :: restart_base_name='INPUT/cana.res.nc'
-  integer :: siz(4)
-  integer, allocatable :: idx(:)         ! I/O domain vector of compressed indices
-  real,    allocatable :: r0d(:)         ! I/O domain vector of real data
-  logical :: found,restart_exists
+  character(*), parameter :: restart_file_name='INPUT/cana.res.nc'
+  type(land_restart_type) :: restart
+  logical :: restart_exists
 
   character(len=32)  :: name  ! name of the tracer
   integer            :: tr, i ! tracer indices
@@ -155,7 +133,7 @@ subroutine cana_init ( id_lon, id_lat, new_land_io )
   ! get the initial conditions for tracers
 
   ! For  now, we get the initial value from the surface_value parameter of the
-  ! *atmospheric* tracer vertical profile, except for co2 and sphum. init_q in 
+  ! *atmospheric* tracer vertical profile, except for co2 and sphum. init_q in
   ! the cana_nml sets the initial value of the specific humidity, and init_co2
   ! sets the initial value of the dry volumetric mixing ration for co2.
   ! If surface_value is not defined in tracer table, then initial condition is zero
@@ -175,14 +153,14 @@ subroutine cana_init ( id_lon, id_lat, new_land_io )
   init_tr(ico2)   = init_co2*mol_CO2/mol_air*(1-init_tr(isphum)) ! convert to kg CO2/kg wet air
 
   ! first, set the initial values
-  te = tail_elmt (lnd%tile_map)
-  ce = first_elmt(lnd%tile_map)
+  te = tail_elmt (land_tile_map)
+  ce = first_elmt(land_tile_map)
   do while(ce /= te)
      tile=>current_tile(ce)  ! get pointer to current tile
      ce=next_elmt(ce)       ! advance position to the next tile
-     
+
      if (.not.associated(tile%cana)) cycle
-     
+
      if (associated(tile%glac)) then
         tile%cana%T = init_T_cold
      else
@@ -192,53 +170,30 @@ subroutine cana_init ( id_lon, id_lat, new_land_io )
   enddo
 
   ! then read the restart if it exists
-  call get_input_restart_name(restart_base_name,restart_exists,restart_file_name)
+  call open_land_restart(restart,restart_file_name,restart_exists)
   if (restart_exists) then
      call error_mesg('cana_init',&
           'reading NetCDF restart "'//trim(restart_file_name)//'"',&
           NOTE)
-     if(new_land_io)then
-        call error_mesg('cana_init', 'Using new canopy restart read', NOTE)
-
-        call get_field_size(restart_base_name,'tile_index',siz, field_found=found, domain=lnd%domain)
-        if ( .not. found ) call error_mesg(trim(module_name), &
-                       'tile_index axis not found in '//trim(restart_file_name), FATAL)
-        allocate(idx(siz(1)),r0d(siz(1)))
-        call read_compressed(restart_base_name,'tile_index',idx, domain=lnd%domain, timelevel=1)
-
-        call read_compressed(restart_base_name,'temp',r0d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(cana_T_ptr,idx,r0d)
-
-        do tr = 1, ntcana
-          call get_tracer_names(MODEL_LAND, tr, name=name)
-          if(field_exist(restart_base_name,name,domain=lnd%domain)) then
-            call read_compressed(restart_base_name,name,r0d, domain=lnd%domain, timelevel=1)
-            call assemble_tiles(cana_tr_ptr,idx,r0d,tr)
-          endif
-        enddo
-        deallocate(idx,r0d)
-     else
-        __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
-        call read_tile_data_r0d_fptr(unit, 'temp', cana_T_ptr  )
-        do tr = 1, ntcana
-           call get_tracer_names(MODEL_LAND, tr, name=name)
-           if(nfu_inq_var(unit,trim(name))==NF_NOERR) then
-              call error_mesg('cana_init','reading tracer "'//trim(name)//'"',NOTE)
-              call read_tile_data_r1d_fptr(unit,name,cana_tr_ptr,tr)
-           else
-              call error_mesg('cana_init', 'tracer "'//trim(name)// &
-                   '" was set to initial value '//string(init_tr(tr)), NOTE)
-           endif
-        enddo
-        __NF_ASRT__(nf_close(unit))     
-     endif
+     call get_tile_data(restart, 'temp', cana_T_ptr)
+     do tr = 1, ntcana
+        call get_tracer_names(MODEL_LAND, tr, name=name)
+        if (field_exists(restart,trim(name))) then
+           call error_mesg('cana_init','reading tracer "'//trim(name)//'"',NOTE)
+           call get_tile_data(restart,name,cana_tr_ptr,tr)
+        else
+           call error_mesg('cana_init', 'tracer "'//trim(name)// &
+                '" was set to initial value '//string(init_tr(tr)), NOTE)
+        endif
+     enddo
   else
      call error_mesg('cana_init',&
           'cold-starting canopy air',&
           NOTE)
   endif
+  call free_land_restart(restart)
 
-  ! initialize options, to avoid expensive character comparisons during 
+  ! initialize options, to avoid expensive character comparisons during
   ! run-time
   if (trim(turbulence_to_use)=='lm3v') then
      turbulence_option = TURB_LM3V
@@ -248,16 +203,13 @@ subroutine cana_init ( id_lon, id_lat, new_land_io )
      call error_mesg('cana_init', 'canopy air turbulence option turbulence_to_use="'// &
           trim(turbulence_to_use)//'" is invalid, use "lm3w" or "lm3v"', FATAL)
   endif
-  
 end subroutine cana_init
 
 
 ! ============================================================================
 ! release memory
 subroutine cana_end ()
-
   module_is_initialized =.FALSE.
-
 end subroutine cana_end
 
 
@@ -266,165 +218,31 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
   integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
   character(*), intent(in) :: timestamp ! timestamp to add to the file name
 
-  ! ---- local vars ----------------------------------------------------------
-  integer :: unit            ! restart file i/o unit
+  ! ---- local vars
+  character(267) :: filename
+  type(land_restart_type) :: restart ! restart file i/o object
   character(len=32)  :: name,units
   character(len=128) :: longname
   integer :: tr
 
   call error_mesg('cana_end','writing NetCDF restart',NOTE)
-  call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'cana.res.nc',&
-          lnd%coord_glon, lnd%coord_glat, cana_tile_exists, tile_dim_length)
-
-     ! write temperature
-     call write_tile_data_r0d_fptr(unit,'temp' ,cana_T_ptr,'canopy air temperature','degrees_K')
-     ! write all tracers
-     do tr = 1,ntcana
-        call get_tracer_names(MODEL_LAND, tr, name, longname, units)
-        if (tr==ico2.and..not.save_qco2) cycle
-        call write_tile_data_r1d_fptr(unit,name,cana_tr_ptr,tr,'canopy air '//trim(longname),trim(units))
-     enddo
-     ! close output file
-     __NF_ASRT__(nf_close(unit))
-end subroutine save_cana_restart
-
-! ============================================================================
-subroutine save_cana_restart_new(tile_dim_length, timestamp)
-  integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
-  character(*), intent(in) :: timestamp ! timestamp to add to the file name
-
-  ! ---- local vars ----------------------------------------------------------
-  character(len=267) :: fname
-  type(restart_file_type) :: cana_restart ! restart file i/o object
-  integer, allocatable :: idx(:)
-  real, allocatable :: cana_T(:)
-  real, allocatable :: cana_tr(:,:)
-  integer :: id_restart, isize, tr
-  character(len=32)  :: name,units
-  character(len=128) :: longname
-
-  call error_mesg('cana_end','writing new format NetCDF restart',NOTE)
 ! must set domain so that io_domain is available
   call set_domain(lnd%domain)
-! Note that fname is updated for tile & rank numbers during file creation
-  fname = trim(timestamp)//'cana.res.nc'
-  call create_tile_out_file(cana_restart,idx,fname,cana_tile_exists,tile_dim_length)
-  isize = size(idx)
+! Note that filename is updated for tile & rank numbers during file creation
+  filename = trim(timestamp)//'cana.res.nc'
+  call init_land_restart(restart, filename, cana_tile_exists, tile_dim_length)
 
-  allocate(cana_T(isize))
-  allocate(cana_tr(isize,ntcana))
-
-  ! Output data provides signature
-  call gather_tile_data(cana_T_ptr,idx,cana_T)
-  id_restart = register_restart_field(cana_restart,fname,'temp',cana_T, &
-                                      longname='canopy air temperature',units='degrees_K')
-
+  ! write temperature
+  call add_tile_data(restart,'temp',cana_T_ptr,'canopy air temperature','degrees_K')
   do tr = 1,ntcana
      call get_tracer_names(MODEL_LAND, tr, name, longname, units)
      if (tr==ico2.and..not.save_qco2) cycle
-     call gather_tile_data(cana_tr_ptr,idx,tr,cana_tr(:,tr))
-     id_restart = register_restart_field(cana_restart,fname,name,cana_tr(:,tr), &
-                                         longname=trim(longname), units=trim(units))
+     call add_tile_data(restart,name,cana_tr_ptr,tr,'canopy air '//trim(longname),trim(units))
   enddo
-
-  ! save performs io domain aggregation through mpp_io as with regular domain data
-  call save_restart(cana_restart)
-
-  deallocate(idx,cana_T,cana_tr)
-
-  call free_restart_type(cana_restart)
+  call save_land_restart(restart)
+  call free_land_restart(restart)
   call nullify_domain()
-end subroutine save_cana_restart_new
-
-
-! ============================================================================
-! set up constants for linearization of radiative transfer, using information
-! provided by soil, snow and vegetation modules.
-subroutine cana_radiation (lm2, &
-     subs_refl_dir, subs_refl_dif, subs_refl_lw, & 
-     snow_refl_dir, snow_refl_dif, snow_refl_lw, & 
-     snow_area, &
-     vegn_refl_dir, vegn_refl_dif, vegn_tran_dir, vegn_tran_dif, &
-     vegn_tran_dir_dir, vegn_refl_lw, vegn_tran_lw,  &
-     vegn_cover, &
-     Sg_dir, Sg_dif, Sv_dir, Sv_dif, &
-     land_albedo_dir, land_albedo_dif )
-
-  logical, intent(in) :: lm2
-  real, intent(in) :: &
-       subs_refl_dir(NBANDS), subs_refl_dif(NBANDS), subs_refl_lw,  & ! sub-snow reflectances for direct, diffuse, and LW radiation respectively
-       snow_refl_dir(NBANDS), snow_refl_dif(NBANDS), snow_refl_lw,  & ! snow reflectances for direct, diffuse, and LW radiation respectively
-       snow_area, &
-       vegn_refl_dir(NBANDS), vegn_tran_dir(NBANDS), & ! vegn reflectance & transmittance for direct light
-       vegn_tran_dir_dir(NBANDS), & !
-       vegn_refl_dif(NBANDS), vegn_tran_dif(NBANDS), & ! vegn reflectance & transmittance for diffuse light 
-       vegn_refl_lw,  vegn_tran_lw,  & ! vegn reflectance & transmittance for thermal radiation 
-       vegn_cover
-
-  real, intent(out) :: &
-     Sg_dir(NBANDS), Sg_dif(NBANDS), & ! fraction of downward short-wave absorbed by ground and snow
-     Sv_dir(NBANDS), Sv_dif(NBANDS), & ! fraction of downward short-wave absorbed by vegetation
-     land_albedo_dir(NBANDS), land_albedo_dif(NBANDS)
-
-  ! ---- local vars
-  real :: &
-       grnd_refl_dir(NBANDS), & ! SW reflectances of ground surface (by spectral band)
-       grnd_refl_dif(NBANDS), & ! SW reflectances of ground surface (by spectral band)
-       grnd_refl_lw             ! LW reflectance of ground surface
-  real :: &
-       subs_up_from_dir(NBANDS), subs_up_from_dif(NBANDS), &
-       subs_dn_dir_from_dir(NBANDS),  subs_dn_dif_from_dif(NBANDS), subs_dn_dif_from_dir(NBANDS)
-
-  grnd_refl_dir = subs_refl_dir + (snow_refl_dir - subs_refl_dir) * snow_area
-  grnd_refl_dif = subs_refl_dif + (snow_refl_dif - subs_refl_dif) * snow_area
-  grnd_refl_lw  = subs_refl_lw  + (snow_refl_lw  - subs_refl_lw ) * snow_area
-
-  ! ---- shortwave -----------------------------------------------------------
-  ! allocation to canopy and ground, based on solution for single
-  ! vegetation layer of limited cover. both ground and vegetation are gray.
-  Sv_dir = 0; Sv_dif = 0
-  IF (LM2) THEN
-
-     subs_dn_dir_from_dir = vegn_tran_dir_dir
-     subs_dn_dif_from_dir = vegn_tran_dir
-     subs_dn_dif_from_dif = vegn_tran_dif
-     if (sfc_dir_albedo_bug) then
-        subs_up_from_dir = grnd_refl_dir &
-             * (subs_dn_dir_from_dir + subs_dn_dif_from_dir)
-     else
-        subs_up_from_dir = grnd_refl_dir*subs_dn_dir_from_dir + &
-                           grnd_refl_dif*subs_dn_dif_from_dir
-     endif
-     subs_up_from_dif = grnd_refl_dif*subs_dn_dif_from_dif
-     land_albedo_dir = subs_up_from_dir+vegn_refl_dir
-     land_albedo_dif = subs_up_from_dif+vegn_refl_dif
-
-  ELSE
-
-     subs_dn_dir_from_dir = vegn_tran_dir_dir
-     subs_dn_dif_from_dir = (vegn_tran_dir + vegn_refl_dif*grnd_refl_dir*vegn_tran_dir_dir)&
-                          / (1 - grnd_refl_dif*vegn_refl_dif)
-     subs_dn_dif_from_dif = vegn_tran_dif &
-                          / (1 - grnd_refl_dif*vegn_refl_dif)
-     if (sfc_dir_albedo_bug) then
-        subs_up_from_dir = grnd_refl_dir * (subs_dn_dir_from_dir + subs_dn_dif_from_dir)
-     else
-        subs_up_from_dir = grnd_refl_dir*subs_dn_dir_from_dir + &
-                           grnd_refl_dif*subs_dn_dif_from_dir
-     endif
-     subs_up_from_dif = grnd_refl_dif*subs_dn_dif_from_dif
-     land_albedo_dir  = subs_up_from_dir*vegn_tran_dif + vegn_refl_dir
-     land_albedo_dif  = subs_up_from_dif*vegn_tran_dif + vegn_refl_dif
-
-  ENDIF
-
-  Sg_dir = subs_dn_dir_from_dir + subs_dn_dif_from_dir - subs_up_from_dir
-  Sg_dif = subs_dn_dif_from_dif - subs_up_from_dif
-  Sv_dir = 1 - Sg_dir - land_albedo_dir
-  Sv_dif = 1 - Sg_dif - land_albedo_dif
-
-end subroutine cana_radiation
-
+end subroutine save_cana_restart
 
 ! ============================================================================
 subroutine cana_turbulence (u_star,&
@@ -433,7 +251,7 @@ subroutine cana_turbulence (u_star,&
      con_v_h, con_v_v, con_g_h, con_g_v )
   real, intent(in) :: &
        u_star, & ! friction velocity, m/s
-       land_d, land_z0m, land_z0s, grnd_z0s, & 
+       land_d, land_z0m, land_z0s, grnd_z0s, &
        vegn_cover, vegn_height, &
        vegn_lai, vegn_sai, vegn_d_leaf
   real, intent(out) :: &
@@ -444,7 +262,7 @@ subroutine cana_turbulence (u_star,&
   real, parameter :: a_max = 3
   real, parameter :: leaf_co = 0.01 ! meters per second^(1/2)
                                     ! leaf_co = g_b(z)/sqrt(wind(z)/d_leaf)
-  ! ---- local vars 
+  ! ---- local vars
   real :: a        ! parameter of exponential wind profile within canopy:
                    ! u = u(ztop)*exp(-a*(1-z/ztop))
   real :: height   ! effective height of vegetation
@@ -470,7 +288,7 @@ subroutine cana_turbulence (u_star,&
      height = max(vegn_height,0.1) ! effective height of the vegetation
      a = a_max
      wind=u_star/VONKARM*log((height-land_d)/land_z0m) ! normalized wind on top of the canopy
-  
+
      con_v_h = (2*max(vegn_lai,lai_min_turb)*leaf_co*(1-exp(-a/2))/a)*sqrt(wind/vegn_d_leaf)
 
      if (land_d > 0.06 .and. vegn_idx > 0.25) then
@@ -524,7 +342,7 @@ subroutine cana_roughness(lm2, &
   real, parameter :: d_h_max = 2./3.
   real, parameter :: z0m_h_max = 1/7.35
 
-  ! ---- local vars 
+  ! ---- local vars
   real :: d_h      ! ratio of displacement height to vegetation height
   real :: z0m_h    ! ratio of roughness length to vegetation height
   real :: grnd_z0m, grnd_z0s
@@ -560,7 +378,7 @@ subroutine cana_roughness(lm2, &
         land_z0m = grnd_z0m
         land_z0s = grnd_z0s
      endif
-     
+
   case(TURB_LM3V)
      height = max(vegn_height,0.1) ! effective height of the vegetation
      vegn_idx = vegn_lai+vegn_sai  ! total vegetation index
@@ -571,19 +389,19 @@ subroutine cana_roughness(lm2, &
         else
            land_z0m = grnd_z0m + 0.3*height*sqrt(0.07*vegn_idx)
         endif
-     else 
+     else
         ! bare soil or leaf off
         land_z0m = 0.1 *height
         land_d   = 0.66*height
      endif
-     land_z0s = land_z0m*exp(-2.0) 
+     land_z0s = land_z0m*exp(-2.0)
 
      if (allow_small_z0.and.is_lake_or_glac) then
          land_d = 0
 	 land_z0m = grnd_z0m
 	 land_z0s = grnd_z0s
        endif
-     
+
   end select
 
 end subroutine cana_roughness
@@ -596,7 +414,6 @@ subroutine cana_state ( cana, cana_T, cana_q, cana_co2 )
   if (present(cana_T))   cana_T   = cana%T
   if (present(cana_q))   cana_q   = cana%tr(isphum)
   if (present(cana_co2)) cana_co2 = cana%tr(ico2)
-  
 end subroutine
 
 ! ============================================================================
@@ -666,16 +483,25 @@ logical function cana_tile_exists(tile)
    cana_tile_exists = associated(tile%cana)
 end function cana_tile_exists
 
-! ============================================================================
-! accessor functions: given a pointer to a land tile, they return pointer
-! to the desired member of the land tile, of NULL if this member does not
-! exist.
-#define DEFINE_CANA_ACCESSOR_0D(xtype,x) subroutine cana_ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%cana))p=>t%cana%x;endif;end subroutine
-#define DEFINE_CANA_ACCESSOR_1D(xtype,x) subroutine cana_ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p(:);p=>NULL();if(associated(t))then;if(associated(t%cana))p=>t%cana%x;endif;end subroutine
+subroutine cana_T_ptr(t,p)
+  type(land_tile_type), pointer :: t
+  real,                 pointer :: p
 
-DEFINE_CANA_ACCESSOR_0D(real,T)
-DEFINE_CANA_ACCESSOR_1D(real,tr)
+  p=>NULL()
+  if(associated(t))then
+     if(associated(t%cana))p=>t%cana%T
+  endif
+end subroutine
+
+subroutine cana_tr_ptr(t,i,p)
+  type(land_tile_type), pointer    :: t
+  integer,              intent(in) :: i
+  real,                 pointer    :: p
+
+  p=>NULL()
+  if(associated(t))then
+     if(associated(t%cana))p=>t%cana%tr(i)
+  endif
+end subroutine
 
 end module canopy_air_mod

@@ -8,15 +8,14 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod, only: write_version_number, error_mesg, NOTE,FATAL, file_exist, close_file, &
-                   check_nml_error, stdlog
-use fms_io_mod, only: register_restart_field, restart_file_type, set_domain, save_restart, &
-                      free_restart_type, field_exist, read_data, read_compressed, get_field_size
+
+use fms_mod, only: error_mesg, NOTE,FATAL, file_exist, close_file, &
+      check_nml_error, stdlog
+use fms_io_mod, only: set_domain, nullify_domain
 use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe
 use time_manager_mod, only: time_type, time_type_to_real, get_date, operator(-)
 use constants_mod,    only: tfreeze, rdgas, rvgas, hlv, hlf, cp_air, PI
 use sphum_mod, only: qscomp
-use nf_utils_mod, only: nfu_def_var, nfu_get_var, nfu_put_var, nfu_inq_var
 
 use vegn_tile_mod, only: vegn_tile_type, &
      vegn_seed_demand, vegn_seed_supply, vegn_add_bliving, &
@@ -25,34 +24,33 @@ use soil_tile_mod, only: soil_tile_type, soil_ave_temp, &
                          soil_ave_theta0, soil_ave_theta1, soil_psi_stress
 use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, mol_air, &
      seconds_per_year
-use land_tile_mod, only : land_tile_type, land_tile_enum_type, &
+use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
      get_elmt_indices, land_tile_heat, land_tile_carbon, land_tile_nitrogen, get_tile_water
-use land_tile_diag_mod, only : &
-     register_tiled_static_field, register_tiled_diag_field, &
-     send_tile_data, diag_buff_type, OP_STD, OP_VAR, set_default_diag_filter
-use land_data_mod,      only : land_state_type, lnd, land_time
+use land_tile_diag_mod, only : register_tiled_static_field, register_tiled_diag_field, &
+     send_tile_data, diag_buff_type, OP_STD, OP_VAR, set_default_diag_filter, &
+     cmor_name
+use land_data_mod, only : lnd, log_version
 use land_io_mod, only : read_field
-use land_tile_io_mod, only : &
-     create_tile_out_file, gather_tile_data, &
-     write_tile_data_r0d_fptr, write_tile_data_i0d_fptr, write_tile_data_r1d_fptr, &
-     read_tile_data_r0d_fptr,  read_tile_data_i0d_fptr,  read_tile_data_r1d_fptr, &
-     print_netcdf_error, get_input_restart_name, assemble_tiles
+
+use land_tile_io_mod, only: land_restart_type, &
+     init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
+     add_restart_axis, add_tile_data, add_int_tile_data, add_scalar_data, &
+     get_scalar_data, get_tile_data, get_int_tile_data, field_exists
+
 use vegn_data_mod, only : SP_C4GRASS, LEAF_ON, LU_NTRL, read_vegn_data_namelist, &
      tau_drip_l, tau_drip_s, T_transp_min, cold_month_threshold, soil_carbon_depth_scale, &
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
-     N_HARV_POOLS, HARV_POOL_NAMES,&
+     N_HARV_POOLS, HARV_POOL_NAMES, HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, &
+     HARV_POOL_WOOD_FAST, HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, agf_bs, &
      c2n_mycorrhizae, c2n_N_fixer, N_limits_live_biomass, spdata
 use vegn_cohort_mod, only : vegn_cohort_type, &
-     update_species,&
-     vegn_data_heat_capacity, vegn_data_intrcptn_cap, &
+     vegn_data_heat_capacity, vegn_data_intrcptn_cap, update_species,&
      get_vegn_wet_frac, vegn_data_cover
 use canopy_air_mod, only : cana_turbulence
 
 use cohort_io_mod, only :  read_create_cohorts, create_cohort_dimension, &
-     read_cohort_data_r0d_fptr,  read_cohort_data_i0d_fptr,&
-     write_cohort_data_r0d_fptr, write_cohort_data_i0d_fptr, gather_cohort_data,&
-     assemble_cohorts
+     add_cohort_data, add_int_cohort_data, get_cohort_data, get_int_cohort_data
 use land_debug_mod, only : is_watch_point, set_current_point, check_temp_range, &
      carbon_cons_tol, water_cons_tol, check_conservation, do_check_conservation
 use vegn_radiation_mod, only : vegn_radiation_init, vegn_radiation
@@ -61,7 +59,8 @@ use static_vegn_mod, only : read_static_vegn_namelist, static_vegn_init, static_
      read_static_vegn
 use vegn_dynamics_mod, only : vegn_dynamics_init, vegn_carbon_int, vegn_growth, &
      vegn_daily_npp, vegn_phenology, vegn_biogeography
-use vegn_disturbance_mod, only : vegn_nat_mortality, vegn_disturbance, update_fuel
+use vegn_disturbance_mod, only : vegn_disturbance_init, vegn_nat_mortality, &
+     vegn_disturbance, update_fuel
 use vegn_harvesting_mod, only : &
      vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting
 use soil_carbon_mod, only : add_litter, poolTotals, cull_cohorts, &
@@ -76,11 +75,10 @@ public :: read_vegn_namelist
 public :: vegn_init
 public :: vegn_end
 public :: save_vegn_restart
-public :: save_vegn_restart_new
 
 public :: vegn_get_cover
 public :: vegn_radiation
-public :: vegn_diffusion
+public :: vegn_properties
 
 public :: vegn_step_1
 public :: vegn_step_2
@@ -90,10 +88,9 @@ public :: update_vegn_slow
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
-character(len=*), private, parameter :: &
-   version = '$Id$', &
-   tagname = '$Name$', &
-   module_name = 'vegn'
+character(len=*), parameter :: module_name = 'vegn'
+#include "../shared/version_variable.inc"
+
 ! values for internal selector of CO2 option used for photosynthesis
 integer, parameter :: VEGN_PHOT_CO2_PRESCRIBED  = 1
 integer, parameter :: VEGN_PHOT_CO2_INTERACTIVE = 2
@@ -148,6 +145,8 @@ real :: rav_lit_bwood     = 0.0 ! litter resistance to vapor per bwood
 
 
 logical :: do_peat_redistribution = .FALSE.
+logical :: biodata_bug    = .FALSE. ! if true, initialization of t_ann, t_cold, p_ann,
+                                    ! and p_cold from biodata is not done
 
 namelist /vegn_nml/ &
     lm2, init_Wl, init_Ws, init_Tv, cpw, clw, csw, &
@@ -162,7 +161,8 @@ namelist /vegn_nml/ &
     do_biogeography, do_seed_transport, &
     min_Wl, min_Ws, tau_smooth_ncm, &
     rav_lit_0, rav_lit_vi, rav_lit_fsc, rav_lit_ssc, rav_lit_deadmic, rav_lit_bwood,&
-    do_peat_redistribution
+    do_peat_redistribution, &
+    biodata_bug
 
 !---- end of namelist --------------------------------------------------------
 
@@ -185,8 +185,8 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
    id_harv_rate(N_HARV_POOLS), id_t_harv_pool, id_t_harv_rate, &
    id_csmoke_pool, id_csmoke_rate, id_fsc_in, id_fsc_out, id_ssc_in, &
    id_ssc_out, id_deadmic_in, id_deadmic_out, id_veg_in, id_veg_out, &
-   id_fsc_pool_ag, id_fsc_rate_ag, id_fsc_pool_bg, id_fsc_rate_bg,&
-   id_ssc_pool_ag, id_ssc_rate_ag, id_ssc_pool_bg, id_ssc_rate_bg,&
+   id_fsc_pool_bg, id_fsc_rate_bg,&
+   id_ssc_pool_bg, id_ssc_rate_bg,&
    id_leaflitter_buffer_fast, id_woodlitter_buffer_fast,id_leaflitter_buffer_rate_fast, id_woodlitter_buffer_rate_fast,& ! id_coarsewoodlitter_buffer_rate_ag is 34 characters long (pjp)
    id_leaflitter_buffer_fast_N, id_woodlitter_buffer_fast_N,id_leaflitter_buffer_rate_fast_N, id_woodlitter_buffer_rate_fast_N,& ! id_coarsewoodlitter_buffer_rate_ag is 34 characters long (pjp)
    id_leaflitter_buffer_slow, id_woodlitter_buffer_slow,id_leaflitter_buffer_rate_slow, id_woodlitter_buffer_rate_slow,& ! id_coarsewoodlitter_buffer_rate_ag is 34 characters long (pjp)
@@ -195,11 +195,11 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
    id_lambda, id_afire, id_atfall, id_closs, id_cgain, id_wdgain, id_leaf_age, &
    id_phot_co2, id_theph, id_psiph, id_evap_demand, id_passive_N_uptake,&
    id_myc_scavenger_N_uptake,id_myc_miner_N_uptake,id_symbiotic_N_fixation,id_active_root_N_uptake
+! CMOR variables
+integer :: id_lai_cmor, id_btot_cmor, id_cproduct, &
+   id_fFire, id_fGrazing, id_fHarvest, id_fLuc, &
+   id_cLeaf, id_cWood, id_cRoot, id_cMisc
 ! ==== end of module variables ===============================================
-
-! ==== NetCDF declarations ===================================================
-include 'netcdf.inc'
-#define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
 
 contains
 
@@ -214,7 +214,8 @@ subroutine read_vegn_namelist()
   call read_vegn_data_namelist()
   call read_static_vegn_namelist(use_static_veg)
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
     read (input_nml_file, nml=vegn_nml, iostat=io)
     ierr = check_nml_error(io, 'vegn_nml')
@@ -273,11 +274,10 @@ end subroutine read_vegn_namelist
 
 ! ============================================================================
 ! initialize vegetation
-subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
+subroutine vegn_init ( id_lon, id_lat, id_band )
   integer, intent(in) :: id_lon  ! ID of land longitude (X) axis
   integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
   integer, intent(in) :: id_band ! ID of spectral band axis
-  logical, intent(in) :: new_land_io !< This is a transition var and will be removed
 
   ! ---- local vars
   integer :: unit         ! unit for various i/o
@@ -286,15 +286,12 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
   type(vegn_cohort_type), pointer :: cohort! pointer to initial cohort for cold-start
   integer :: n_accum
   integer :: nmn_acm
-  character(len=256) :: restart_file_name_1, restart_file_name_2
+  type(land_restart_type) :: restart1, restart2
   logical :: restart_1_exists, restart_2_exists
   real, allocatable :: t_ann(:,:),t_cold(:,:),p_ann(:,:),ncm(:,:) ! buffers for biodata reading
-  logical :: did_read_biodata = .FALSE.
+  logical :: did_read_biodata
   integer :: i,j ! indices of current tile
-  logical :: found !< used to determine if a field is found.
-  integer :: siz(4), csize, tsize, tdimlen
-  integer, allocatable :: i0d(:), idx(:)
-  real, allocatable :: r0d(:)
+
   module_is_initialized = .TRUE.
 
   ! ---- make module copy of time and calculate time step ------------------
@@ -305,409 +302,144 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
   ! ---- initialize vegn state ---------------------------------------------
   n_accum = 0
   nmn_acm = 0
-  call get_input_restart_name('INPUT/vegn1.res.nc',restart_1_exists, restart_file_name_1)
-  call get_input_restart_name('INPUT/vegn2.res.nc',restart_2_exists, restart_file_name_2)
-
+  call open_land_restart(restart1,'INPUT/vegn1.res.nc',restart_1_exists)
+  call open_land_restart(restart2,'INPUT/vegn2.res.nc',restart_2_exists)
   if (restart_1_exists) then
      call error_mesg('vegn_init',&
-          'reading NetCDF restarts "'//trim(restart_file_name_1)//&
-          '" and "'//trim(restart_file_name_2)//'"',&
+          'reading NetCDF restarts "INPUT/vegn1.res.nc" and "INPUT/vegn2.res.nc"',&
           NOTE)
 
-     if (new_land_io) then
-        ! fms read routine expect the "original" restart file name, not the one
-        ! modified with the get_input_restart_name
-        restart_file_name_1 = 'INPUT/vegn1.res.nc'
-        restart_file_name_2 = 'INPUT/vegn2.res.nc'
+     ! read the cohort index and generate appropriate number of cohorts
+     ! for each vegetation tile
+     call read_create_cohorts(restart1)
+     call get_cohort_data(restart1, 'tv', cohort_tv_ptr)
+     call get_cohort_data(restart1, 'wl', cohort_wl_ptr)
+     call get_cohort_data(restart1, 'ws', cohort_ws_ptr)
 
-        call error_mesg('vegn_init', 'Using new vegetation restart read', NOTE)
+     ! read global variables
+     call get_scalar_data(restart2,'n_accum',n_accum)
+     call get_scalar_data(restart2,'nmn_acm',nmn_acm)
 
-        call get_field_size(restart_file_name_1, 'tile', siz, field_found=found, domain=lnd%domain)
-        if (.not.found) call error_mesg(trim(module_name), &
-             'tile axis not found in '//trim(restart_file_name_1), FATAL)
-        tdimlen = siz(1)
-        call get_field_size(restart_file_name_1, 'cohort_index', siz, field_found=found, domain=lnd%domain)
-        if (.not.found) call error_mesg(trim(module_name), &
-             'cohort_index axis not found in '//trim(restart_file_name_1), FATAL)
-        csize = siz(1)
+     call get_int_cohort_data(restart2, 'species', cohort_species_ptr)
+     call get_cohort_data(restart2, 'hite', cohort_height_ptr)
+     call get_cohort_data(restart2, 'bl', cohort_bl_ptr)
+     call get_cohort_data(restart2, 'blv', cohort_blv_ptr)
+     call get_cohort_data(restart2, 'br', cohort_br_ptr)
+     call get_cohort_data(restart2, 'bsw', cohort_bsw_ptr)
+     call get_cohort_data(restart2, 'bwood', cohort_bwood_ptr)
 
-        allocate(idx(csize), i0d(csize), r0d(csize))
-
-        call read_compressed(restart_file_name_1, 'cohort_index', idx, domain=lnd%domain, timelevel=1)
-
-        call read_create_cohorts(idx,tdimlen)
-
-        call read_compressed(restart_file_name_1, 'tv', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_tv_ptr,idx,tdimlen,r0d)
-
-        call read_compressed(restart_file_name_1, 'wl', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_wl_ptr,idx,tdimlen,r0d)
-
-        call read_compressed(restart_file_name_1, 'ws', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_ws_ptr,idx,tdimlen,r0d)
-
-        ! ** cohorts
-        call read_compressed(restart_file_name_2, 'species', i0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_species_ptr,idx,tdimlen,i0d)
-
-        call read_compressed(restart_file_name_2, 'hite', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_height_ptr,idx,tdimlen,r0d)
-
-        call read_compressed(restart_file_name_2, 'bl', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_bl_ptr,idx,tdimlen,r0d)
-
-        call read_compressed(restart_file_name_2, 'blv', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_blv_ptr,idx,tdimlen,r0d)
-
-        call read_compressed(restart_file_name_2, 'br', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_br_ptr,idx,tdimlen,r0d)
-
-        call read_compressed(restart_file_name_2, 'bsw', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_bsw_ptr,idx,tdimlen,r0d)
-
-        call read_compressed(restart_file_name_2, 'bwood', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_bwood_ptr,idx,tdimlen,r0d)
-
-        ! call read_compressed(restart_file_name_2, 'max_live_biomass', r0d, domain=lnd%domain, timelevel=1)
-        ! call assemble_cohorts(cohort_max_live_biomass_ptr,idx,tdimlen,r0d)
-
-        call read_compressed(restart_file_name_2, 'root_exudate_buffer_C', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_root_exudate_buffer_C_ptr,idx,tdimlen,r0d)
-
-        call read_compressed(restart_file_name_2, 'myc_scavenger_biomass_C', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_myc_scavenger_biomass_C_ptr,idx,tdimlen,r0d)
-
-        call read_compressed(restart_file_name_2, 'myc_scavenger_biomass_N', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_myc_scavenger_biomass_N_ptr,idx,tdimlen,r0d)
-
-        call read_compressed(restart_file_name_2, 'myc_miner_biomass_C', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_myc_miner_biomass_C_ptr,idx,tdimlen,r0d)
-
-        call read_compressed(restart_file_name_2, 'myc_miner_biomass_N', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_myc_miner_biomass_N_ptr,idx,tdimlen,r0d)
-
-        call read_compressed(restart_file_name_2, 'N_fixer_biomass_C', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_N_fixer_biomass_C_ptr,idx,tdimlen,r0d)
-
-        call read_compressed(restart_file_name_2, 'N_fixer_biomass_N', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_N_fixer_biomass_N_ptr,idx,tdimlen,r0d)
-
-        call read_compressed(restart_file_name_2, 'cohort_stored_N', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_stored_N_ptr,idx,tdimlen,r0d)
-        call read_compressed(restart_file_name_2, 'cohort_wood_N', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_wood_N_ptr,idx,tdimlen,r0d)
-        call read_compressed(restart_file_name_2, 'cohort_sapwood_N', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_sapwood_N_ptr,idx,tdimlen,r0d)
-        call read_compressed(restart_file_name_2, 'cohort_leaf_N', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_leaf_N_ptr,idx,tdimlen,r0d)
-        call read_compressed(restart_file_name_2, 'cohort_root_N', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_root_N_ptr,idx,tdimlen,r0d)
-        call read_compressed(restart_file_name_2, 'cohort_total_N', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_total_N_ptr,idx,tdimlen,r0d)
-
-        call read_compressed(restart_file_name_2, 'bliving', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_bliving_ptr,idx,tdimlen,r0d)
-
-        call read_compressed(restart_file_name_2, 'status', i0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_status_ptr,idx,tdimlen,i0d)
-
-        if ( field_exist(restart_file_name_2, 'leaf_age', domain=lnd%domain) ) then
-           call read_compressed(restart_file_name_2, 'leaf_age', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_cohorts(cohort_leaf_age_ptr,idx,tdimlen,r0d)
-        endif
-
-        call read_compressed(restart_file_name_2, 'npp_prev_day', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_cohorts(cohort_npp_previous_day_ptr,idx,tdimlen,r0d)
-
-        deallocate(idx, i0d, r0d)
-
-        call get_field_size(restart_file_name_2, 'tile_index', siz, field_found=found, domain=lnd%domain)
-        if (.not.found) call error_mesg(trim(module_name), &
-             'tile_index axis not found in '//trim(restart_file_name_2), FATAL)
-        tsize = siz(1)
-
-        allocate(idx(tsize), i0d(tsize), r0d(tsize))
-        call read_compressed(restart_file_name_2,'tile_index',idx,domain=lnd%domain, timelevel=1)
-
-        call read_data(restart_file_name_2, 'n_accum', n_accum, domain=lnd%domain)
-        call read_data(restart_file_name_2, 'nmn_acm', nmn_acm, domain=lnd%domain)
-
-        if ( field_exist(restart_file_name_2, 'landuse', domain=lnd%domain) ) then
-           call read_compressed(restart_file_name_2, 'landuse', i0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_landuse_ptr,idx,i0d)
-        endif
-
-        call read_compressed(restart_file_name_2, 'age', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(vegn_age_ptr,idx,r0d)
+     call get_cohort_data(restart2, 'root_exudate_buffer_C', cohort_root_exudate_buffer_C_ptr)
+     call get_cohort_data(restart2, 'myc_scavenger_biomass_C', cohort_myc_scavenger_biomass_C_ptr)
+     call get_cohort_data(restart2, 'myc_scavenger_biomass_N', cohort_myc_scavenger_biomass_N_ptr)
+     call get_cohort_data(restart2, 'myc_miner_biomass_C', cohort_myc_miner_biomass_C_ptr)
+     call get_cohort_data(restart2, 'myc_miner_biomass_N', cohort_myc_miner_biomass_N_ptr)
+     call get_cohort_data(restart2, 'N_fixer_biomass_C', cohort_N_fixer_biomass_C_ptr)
+     call get_cohort_data(restart2, 'N_fixer_biomass_N', cohort_N_fixer_biomass_N_ptr)
+     call get_cohort_data(restart2, 'cohort_stored_N', cohort_stored_N_ptr)
+     call get_cohort_data(restart2, 'cohort_wood_N', cohort_wood_N_ptr)
+     call get_cohort_data(restart2, 'cohort_sapwood_N', cohort_sapwood_N_ptr)
+     call get_cohort_data(restart2, 'cohort_leaf_N', cohort_leaf_N_ptr)
+     call get_cohort_data(restart2, 'cohort_root_N', cohort_root_N_ptr)
+     call get_cohort_data(restart2, 'cohort_total_N', cohort_total_N_ptr)
 
 
-       if ( field_exist(restart_file_name_2, 'fsc_pool_ag', domain=lnd%domain) ) then
-           call read_compressed(restart_file_name_2, 'fsc_pool_ag', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_fsc_pool_ag_ptr,idx,r0d)
-           call read_compressed(restart_file_name_2, 'fsc_rate_ag', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_fsc_rate_ag_ptr,idx,r0d)
-           call read_compressed(restart_file_name_2, 'fsc_pool_bg', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_fsc_pool_bg_ptr,idx,r0d)
-           call read_compressed(restart_file_name_2, 'fsc_rate_bg', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_fsc_rate_bg_ptr,idx,r0d)
-           call read_compressed(restart_file_name_2, 'ssc_pool_ag', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_ssc_pool_ag_ptr,idx,r0d)
-           call read_compressed(restart_file_name_2, 'ssc_rate_ag', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_ssc_rate_ag_ptr,idx,r0d)
-           call read_compressed(restart_file_name_2, 'ssc_pool_bg', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_ssc_pool_bg_ptr,idx,r0d)
-           call read_compressed(restart_file_name_2, 'ssc_rate_bg', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_ssc_rate_bg_ptr,idx,r0d)
-           call read_compressed(restart_file_name_2, 'leaflitter_buffer_fast', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_leaflitter_buffer_fast_ptr,idx,r0d)
-           call read_compressed(restart_file_name_2, 'leaflitter_buffer_slow', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_leaflitter_buffer_slow_ptr,idx,r0d)
-           call read_compressed(restart_file_name_2, 'coarsewoodlitter_buffer_fast', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_coarsewoodlitter_buffer_fast_ptr,idx,r0d) ! vegn_coarsewoodlitter_buffer_ag_ptr is 35 characters long (pjp)
-           call read_compressed(restart_file_name_2, 'coarsewoodlitter_buffer_slow', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_coarsewoodlitter_buffer_slow_ptr,idx,r0d) ! vegn_coarsewoodlitter_buffer_ag_ptr is 35 characters long (pjp)
-           call read_compressed(restart_file_name_2, 'leaflitter_buffer_rate_fast', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_leaflitter_buffer_rate_fast_ptr,idx,r0d) ! vegn_leaflitter_buffer_rate_ag_ptr is 34 characters long (pjp)
-           call read_compressed(restart_file_name_2, 'leaflitter_buffer_rate_slow', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_leaflitter_buffer_rate_slow_ptr,idx,r0d) ! vegn_leaflitter_buffer_rate_ag_ptr is 34 characters long (pjp)
-           call read_compressed(restart_file_name_2, 'coarsewoodlitter_buffer_rate_fast', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_coarsewoodlitter_buffer_rate_fast_ptr,idx,r0d) ! vegn_coarsewoodlitter_buffer_rate_ag_ptr is 40 characters long (pjp)
-           call read_compressed(restart_file_name_2, 'coarsewoodlitter_buffer_rate_slow', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_coarsewoodlitter_buffer_rate_slow_ptr,idx,r0d) ! vegn_coarsewoodlitter_buffer_rate_ag_ptr is 40 characters long (pjp)
-           call read_compressed(restart_file_name_2, 'leaflitter_buffer_fast_N', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_leaflitter_buffer_fast_N_ptr,idx,r0d)
-           call read_compressed(restart_file_name_2, 'leaflitter_buffer_slow_N', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_leaflitter_buffer_slow_N_ptr,idx,r0d)
-           call read_compressed(restart_file_name_2, 'coarsewoodlitter_buffer_fast_N', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_coarsewoodlitter_buffer_fast_N_ptr,idx,r0d) ! vegn_coarsewoodlitter_buffer_ag_ptr is 35 characters long (pjp)
-           call read_compressed(restart_file_name_2, 'coarsewoodlitter_buffer_slow_N', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_coarsewoodlitter_buffer_slow_N_ptr,idx,r0d) ! vegn_coarsewoodlitter_buffer_ag_ptr is 35 characters long (pjp)
-           call read_compressed(restart_file_name_2, 'leaflitter_buffer_rate_fast_N', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_leaflitter_buffer_rate_fast_N_ptr,idx,r0d) ! vegn_leaflitter_buffer_rate_ag_ptr is 34 characters long (pjp)
-           call read_compressed(restart_file_name_2, 'leaflitter_buffer_rate_slow_N', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_leaflitter_buffer_rate_slow_N_ptr,idx,r0d) ! vegn_leaflitter_buffer_rate_ag_ptr is 34 characters long (pjp)
-           call read_compressed(restart_file_name_2, 'coarsewoodlitter_buffer_rate_fast_N', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_coarsewoodlitter_buffer_rate_fast_N_ptr,idx,r0d) ! vegn_coarsewoodlitter_buffer_rate_ag_ptr is 40 characters long (pjp)
-           call read_compressed(restart_file_name_2, 'coarsewoodlitter_buffer_rate_slow_N', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_coarsewoodlitter_buffer_rate_slow_N_ptr,idx,r0d)
-        else
-           call read_compressed(restart_file_name_2, 'fsc_pool', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_fsc_pool_bg_ptr,idx,r0d)
-           call read_compressed(restart_file_name_2, 'fsc_rate', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_fsc_rate_bg_ptr,idx,r0d)
-           call read_compressed(restart_file_name_2, 'ssc_pool', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_ssc_pool_bg_ptr,idx,r0d)
-           call read_compressed(restart_file_name_2, 'ssc_rate', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_ssc_rate_bg_ptr,idx,r0d)
-        endif
-        ! monthly-mean values
-        call read_compressed(restart_file_name_2, 'tc_av', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(vegn_tc_av_ptr,idx,r0d)
 
-        if ( field_exist(restart_file_name_2, 'theta_av_phen', domain=lnd%domain) ) then
-           call read_compressed(restart_file_name_2, 'theta_av_phen', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_theta_av_phen_ptr,idx,r0d)
+     call get_cohort_data(restart2, 'bliving', cohort_bliving_ptr)
+     call get_int_cohort_data(restart2, 'status', cohort_status_ptr)
+     if(field_exists(restart2,'leaf_age')) &
+          call get_cohort_data(restart2,'leaf_age',cohort_leaf_age_ptr)
+     call get_cohort_data(restart2, 'npp_prev_day', cohort_npp_previous_day_ptr)
 
-           call read_compressed(restart_file_name_2, 'theta_av_fire', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_theta_av_fire_ptr,idx,r0d)
+     if(field_exists(restart2,'landuse')) &
+          call get_int_tile_data(restart2,'landuse',vegn_landuse_ptr)
+     call get_tile_data(restart2,'age',vegn_age_ptr)
+     if(field_exists(restart2,'fsc_pool_bg')) then
+       call get_tile_data(restart2,'fsc_pool_bg',vegn_fsc_pool_bg_ptr)
+       call get_tile_data(restart2,'fsc_rate_bg',vegn_fsc_rate_bg_ptr)
+       call get_tile_data(restart2,'ssc_pool_bg',vegn_ssc_pool_bg_ptr)
+       call get_tile_data(restart2,'ssc_rate_bg',vegn_ssc_rate_bg_ptr)
+       if(field_exists(restart2, 'fsc_pool_ag')) then ! This has been replaced, but put in leaf litter for backwards compatibility
+         call get_tile_data(restart2,'fsc_pool_ag',vegn_leaflitter_buffer_fast_ptr)
+         call get_tile_data(restart2,'fsc_rate_ag',vegn_leaflitter_buffer_rate_fast_ptr)
+         call get_tile_data(restart2,'ssc_pool_ag',vegn_leaflitter_buffer_slow_ptr)
+         call get_tile_data(restart2,'ssc_rate_ag',vegn_leaflitter_buffer_rate_slow_ptr)
+       else
+         call get_tile_data(restart2,'leaflitter_buffer_fast',vegn_leaflitter_buffer_fast_ptr)
+         call get_tile_data(restart2,'leaflitter_buffer_slow',vegn_leaflitter_buffer_slow_ptr)
+         call get_tile_data(restart2,'coarsewoodlitter_buffer_fast',vegn_coarsewoodlitter_buffer_fast_ptr)
+         call get_tile_data(restart2,'coarsewoodlitter_buffer_slow',vegn_coarsewoodlitter_buffer_slow_ptr)
+         call get_tile_data(restart2,'leaflitter_buffer_rate_fast',vegn_leaflitter_buffer_rate_fast_ptr)
+         call get_tile_data(restart2,'coarsewoodlitter_buffer_rate_fast',vegn_coarsewoodlitter_buffer_rate_fast_ptr)
+         call get_tile_data(restart2,'leaflitter_buffer_rate_slow',vegn_leaflitter_buffer_rate_slow_ptr)
+         call get_tile_data(restart2,'coarsewoodlitter_buffer_rate_slow',vegn_coarsewoodlitter_buffer_rate_slow_ptr)
+       endif
 
-           call read_compressed(restart_file_name_2, 'psist_av', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_psist_av_ptr,idx,r0d)
-        else
-           call read_compressed(restart_file_name_2, 'theta_av', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_theta_av_phen_ptr,idx,r0d)
 
-           call read_compressed(restart_file_name_2, 'theta_av', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_theta_av_fire_ptr,idx,r0d)
-        endif
-
-        call read_compressed(restart_file_name_2, 'tsoil_av', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(vegn_tsoil_av_ptr,idx,r0d)
-
-        call read_compressed(restart_file_name_2, 'precip_av', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(vegn_precip_av_ptr,idx,r0d)
-
-        call read_compressed(restart_file_name_2, 'lambda', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(vegn_lambda_ptr,idx,r0d)
-
-        call read_compressed(restart_file_name_2, 'fuel', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(vegn_fuel_ptr,idx,r0d)
-
-        ! annual-mean values
-        call read_compressed(restart_file_name_2, 't_ann', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(vegn_t_ann_ptr,idx,r0d)
-
-        call read_compressed(restart_file_name_2, 't_cold', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(vegn_t_cold_ptr,idx,r0d)
-
-        call read_compressed(restart_file_name_2, 'p_ann', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(vegn_p_ann_ptr,idx,r0d)
-
-        call read_compressed(restart_file_name_2, 'ncm', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(vegn_ncm_ptr,idx,r0d)
-
-        ! accumulated values for annual averaging
-        call read_compressed(restart_file_name_2, 't_ann_acm', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(vegn_t_ann_acm_ptr,idx,r0d)
-
-        call read_compressed(restart_file_name_2, 't_cold_acm', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(vegn_t_cold_acm_ptr,idx,r0d)
-
-        call read_compressed(restart_file_name_2, 'p_ann_acm', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(vegn_p_ann_acm_ptr,idx,r0d)
-
-        call read_compressed(restart_file_name_2, 'ncm_acm', r0d, domain=lnd%domain, timelevel=1)
-        call assemble_tiles(vegn_ncm_acm_ptr,idx,r0d)
-
-        ! burned carbon pool and rate
-        if ( field_exist(restart_file_name_2, 'csmoke_pool', domain=lnd%domain) ) then
-           call read_compressed(restart_file_name_2, 'csmoke_pool', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_csmoke_pool_ptr,idx,r0d)
-        endif
-        if ( field_exist(restart_file_name_2, 'csmoke_rate', domain=lnd%domain) ) then
-           call read_compressed(restart_file_name_2, 'csmoke_rate', r0d, domain=lnd%domain, timelevel=1)
-           call assemble_tiles(vegn_csmoke_rate_ptr,idx,r0d)
-        endif
-
-        ! harvesting pools and rates
-        do i = 1, N_HARV_POOLS
-           if ( field_exist(restart_file_name_2, trim(HARV_POOL_NAMES(i))//'_harv_pool', domain=lnd%domain) ) then
-              call read_compressed(restart_file_name_2, trim(HARV_POOL_NAMES(i))//'_harv_pool', r0d, domain=lnd%domain, timelevel=1)
-              call assemble_tiles(vegn_harv_pool_ptr,idx,r0d,i)
-           endif
-           if ( field_exist(restart_file_name_2, trim(HARV_POOL_NAMES(i))//'_harv_rate', domain=lnd%domain) ) then
-              call read_compressed(restart_file_name_2, trim(HARV_POOL_NAMES(i))//'_harv_rate', r0d, domain=lnd%domain, timelevel=1)
-              call assemble_tiles(vegn_harv_rate_ptr,idx,r0d,i)
-           endif
-        enddo
-
-        deallocate(idx, i0d, r0d)
+       if(soil_carbon_option == SOILC_CORPSE_N) then
+         call get_tile_data(restart2,'fsn_pool_bg',vegn_fsn_pool_bg_ptr)
+         call get_tile_data(restart2,'fsn_rate_bg',vegn_fsn_rate_bg_ptr)
+         call get_tile_data(restart2,'ssn_pool_bg',vegn_ssn_pool_bg_ptr)
+         call get_tile_data(restart2,'ssn_rate_bg',vegn_ssn_rate_bg_ptr)
+         call get_tile_data(restart2,'leaflitter_buffer_fast_N',vegn_leaflitter_buffer_fast_N_ptr)
+         call get_tile_data(restart2,'leaflitter_buffer_slow_N',vegn_leaflitter_buffer_slow_N_ptr)
+         call get_tile_data(restart2,'coarsewoodlitter_buffer_fast_N',vegn_coarsewoodlitter_buffer_fast_N_ptr)
+         call get_tile_data(restart2,'coarsewoodlitter_buffer_slow_N',vegn_coarsewoodlitter_buffer_slow_N_ptr)
+         call get_tile_data(restart2,'leaflitter_buffer_rate_fast_N',vegn_leaflitter_buffer_rate_fast_N_ptr)
+         call get_tile_data(restart2,'coarsewoodlitter_buffer_rate_fast_N',vegn_coarsewoodlitter_buffer_rate_fast_N_ptr)
+         call get_tile_data(restart2,'leaflitter_buffer_rate_slow_N',vegn_leaflitter_buffer_rate_slow_N_ptr)
+         call get_tile_data(restart2,'coarsewoodlitter_buffer_rate_slow_N',vegn_coarsewoodlitter_buffer_rate_slow_N_ptr)
+       endif
      else
-        __NF_ASRT__(nf_open(restart_file_name_1,NF_NOWRITE,unit))
-        ! read the cohort index and generate appropriate number of cohorts
-        ! for each vegetation tile
-        call read_create_cohorts(unit)
-
-        ! read cohort data
-        call read_cohort_data_r0d_fptr(unit, 'tv', cohort_tv_ptr )
-        call read_cohort_data_r0d_fptr(unit, 'wl', cohort_wl_ptr )
-        call read_cohort_data_r0d_fptr(unit, 'ws', cohort_ws_ptr )
-        __NF_ASRT__(nf_close(unit))
-
-        __NF_ASRT__(nf_open(restart_file_name_2,NF_NOWRITE,unit))
-        ! read global variables
-        __NF_ASRT__(nfu_get_var(unit,'n_accum',n_accum))
-        __NF_ASRT__(nfu_get_var(unit,'nmn_acm',nmn_acm))
-
-        call read_cohort_data_i0d_fptr(unit, 'species', cohort_species_ptr )
-        call read_cohort_data_r0d_fptr(unit, 'hite', cohort_height_ptr )
-        call read_cohort_data_r0d_fptr(unit, 'bl', cohort_bl_ptr )
-        call read_cohort_data_r0d_fptr(unit, 'blv', cohort_blv_ptr )
-        call read_cohort_data_r0d_fptr(unit, 'br', cohort_br_ptr )
-        call read_cohort_data_r0d_fptr(unit, 'bsw', cohort_bsw_ptr )
-        call read_cohort_data_r0d_fptr(unit, 'bwood', cohort_bwood_ptr )
-        call read_cohort_data_r0d_fptr(unit, 'bliving', cohort_bliving_ptr )
-        ! call read_cohort_data_r0d_fptr(unit, 'max_live_biomass', cohort_max_live_biomass_ptr )
-        call read_cohort_data_r0d_fptr(unit, 'root_exudate_buffer_C', cohort_root_exudate_buffer_C_ptr )
-        call read_cohort_data_r0d_fptr(unit, 'myc_scavenger_biomass_C', cohort_myc_scavenger_biomass_C_ptr )
-        call read_cohort_data_r0d_fptr(unit, 'myc_scavenger_biomass_N', cohort_myc_scavenger_biomass_N_ptr )
-        call read_cohort_data_r0d_fptr(unit, 'myc_miner_biomass_C', cohort_myc_miner_biomass_C_ptr )
-        call read_cohort_data_r0d_fptr(unit, 'myc_miner_biomass_N', cohort_myc_miner_biomass_N_ptr )
-        call read_cohort_data_r0d_fptr(unit, 'N_fixer_biomass_C', cohort_N_fixer_biomass_C_ptr )
-        call read_cohort_data_r0d_fptr(unit, 'N_fixer_biomass_N', cohort_N_fixer_biomass_N_ptr )
-        call read_cohort_data_r0d_fptr(unit, 'cohort_stored_N', cohort_stored_N_ptr )
-        call read_cohort_data_r0d_fptr(unit, 'cohort_leaf_N', cohort_leaf_N_ptr )
-        call read_cohort_data_r0d_fptr(unit, 'cohort_wood_N', cohort_wood_N_ptr )
-        call read_cohort_data_r0d_fptr(unit, 'cohort_sapwood_N', cohort_sapwood_N_ptr )
-        call read_cohort_data_r0d_fptr(unit, 'cohort_root_N', cohort_root_N_ptr )
-        call read_cohort_data_r0d_fptr(unit, 'cohort_total_N', cohort_total_N_ptr )
-        call read_cohort_data_i0d_fptr(unit, 'status', cohort_status_ptr )
-        if(nfu_inq_var(unit,'leaf_age')==NF_NOERR) &
-             call read_cohort_data_r0d_fptr(unit,'leaf_age',cohort_leaf_age_ptr)
-        call read_cohort_data_r0d_fptr(unit, 'npp_prev_day', cohort_npp_previous_day_ptr )
-
-        if(nfu_inq_var(unit,'landuse')==NF_NOERR) &
-             call read_tile_data_i0d_fptr(unit,'landuse',vegn_landuse_ptr)
-        call read_tile_data_r0d_fptr(unit,'age',vegn_age_ptr)
-        if(nfu_inq_var(unit,'fsc_pool_ag')==NF_NOERR) then
-          call read_tile_data_r0d_fptr(unit,'fsc_pool_ag',vegn_fsc_pool_ag_ptr)
-          call read_tile_data_r0d_fptr(unit,'fsc_rate_ag',vegn_fsc_rate_ag_ptr)
-          call read_tile_data_r0d_fptr(unit,'fsc_pool_bg',vegn_fsc_pool_bg_ptr)
-          call read_tile_data_r0d_fptr(unit,'fsc_rate_bg',vegn_fsc_rate_bg_ptr)
-          call read_tile_data_r0d_fptr(unit,'ssc_pool_ag',vegn_ssc_pool_ag_ptr)
-          call read_tile_data_r0d_fptr(unit,'ssc_rate_ag',vegn_ssc_rate_ag_ptr)
-          call read_tile_data_r0d_fptr(unit,'ssc_pool_bg',vegn_ssc_pool_bg_ptr)
-          call read_tile_data_r0d_fptr(unit,'ssc_rate_bg',vegn_ssc_rate_bg_ptr)
-         if(nfu_inq_var(unit,'leaflitter_buffer_fast')==NF_NOERR) then  ! These pools weren't properly implemented before, so I'm skipping the old ones for now --BNS
-            call read_tile_data_r0d_fptr(unit,'leaflitter_buffer_fast',vegn_leaflitter_buffer_fast_ptr)
-            call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_buffer_fast',vegn_coarsewoodlitter_buffer_fast_ptr)
-            call read_tile_data_r0d_fptr(unit,'leaflitter_buffer_rate_fast',vegn_leaflitter_buffer_rate_fast_ptr)             ! wrong pointer function is being used here. I have corrected it in the new_land_io section (pjp)
-            call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_buffer_rate_fast',vegn_coarsewoodlitter_buffer_rate_fast_ptr) ! wrong pointer function is being used here. I have corrected it in the new_land_io section (pjp)
-            call read_tile_data_r0d_fptr(unit,'leaflitter_buffer_slow',vegn_leaflitter_buffer_slow_ptr)
-            call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_buffer_slow',vegn_coarsewoodlitter_buffer_slow_ptr)
-            call read_tile_data_r0d_fptr(unit,'leaflitter_buffer_rate_slow',vegn_leaflitter_buffer_rate_slow_ptr)
-            call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_buffer_rate_slow',vegn_coarsewoodlitter_buffer_rate_slow_ptr)
-            call read_tile_data_r0d_fptr(unit,'leaflitter_buffer_slow_N',vegn_leaflitter_buffer_slow_N_ptr)
-            call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_buffer_slow_N',vegn_coarsewoodlitter_buffer_slow_N_ptr)
-            call read_tile_data_r0d_fptr(unit,'leaflitter_buffer_rate_slow_N',vegn_leaflitter_buffer_rate_slow_N_ptr)
-            call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_buffer_rate_slow_N',vegn_coarsewoodlitter_buffer_rate_slow_N_ptr)
-          else
-            call read_tile_data_r0d_fptr(unit,'leaflitter_buffer_ag',vegn_leaflitter_buffer_slow_ptr)  ! put it all in slow for old version
-            call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_buffer_ag',vegn_coarsewoodlitter_buffer_slow_ptr)
-            call read_tile_data_r0d_fptr(unit,'leaflitter_buffer_rate_ag',vegn_leaflitter_buffer_rate_slow_ptr)
-            call read_tile_data_r0d_fptr(unit,'coarsewoodlitter_buffer_rate_ag',vegn_coarsewoodlitter_buffer_rate_slow_ptr)
-          endif
-        else
-          call read_tile_data_r0d_fptr(unit,'fsc_pool',vegn_fsc_pool_bg_ptr)
-          call read_tile_data_r0d_fptr(unit,'fsc_rate',vegn_fsc_rate_bg_ptr)
-          call read_tile_data_r0d_fptr(unit,'ssc_pool',vegn_ssc_pool_bg_ptr)
-          call read_tile_data_r0d_fptr(unit,'ssc_rate',vegn_ssc_rate_bg_ptr)
-        endif
-        ! monthly-mean values
-        call read_tile_data_r0d_fptr(unit,'tc_av', vegn_tc_av_ptr)
-        if(nfu_inq_var(unit,'theta_av_phen')==NF_NOERR) then
-           call read_tile_data_r0d_fptr(unit,'theta_av_phen', vegn_theta_av_phen_ptr)
-           call read_tile_data_r0d_fptr(unit,'theta_av_fire', vegn_theta_av_fire_ptr)
-           call read_tile_data_r0d_fptr(unit,'psist_av', vegn_psist_av_ptr)
-        else
-           call read_tile_data_r0d_fptr(unit,'theta_av', vegn_theta_av_phen_ptr)
-           call read_tile_data_r0d_fptr(unit,'theta_av', vegn_theta_av_fire_ptr)
-           ! psist_av remains at initial value (equal to 0)
-        endif
-        call read_tile_data_r0d_fptr(unit,'tsoil_av', vegn_tsoil_av_ptr)
-        call read_tile_data_r0d_fptr(unit,'precip_av', vegn_precip_av_ptr)
-        call read_tile_data_r0d_fptr(unit,'lambda', vegn_lambda_ptr)
-        call read_tile_data_r0d_fptr(unit,'fuel', vegn_fuel_ptr)
-        ! annual-mean values
-        call read_tile_data_r0d_fptr(unit,'t_ann', vegn_t_ann_ptr)
-        call read_tile_data_r0d_fptr(unit,'t_cold', vegn_t_cold_ptr)
-        call read_tile_data_r0d_fptr(unit,'p_ann', vegn_p_ann_ptr)
-        call read_tile_data_r0d_fptr(unit,'ncm', vegn_ncm_ptr)
-        ! accumulated values for annual averaging
-        call read_tile_data_r0d_fptr(unit,'t_ann_acm', vegn_t_ann_acm_ptr)
-        call read_tile_data_r0d_fptr(unit,'t_cold_acm', vegn_t_cold_acm_ptr)
-        call read_tile_data_r0d_fptr(unit,'p_ann_acm', vegn_p_ann_acm_ptr)
-        call read_tile_data_r0d_fptr(unit,'ncm_acm', vegn_ncm_acm_ptr)
-        ! burned carbon pool and rate
-        if(nfu_inq_var(unit,'csmoke_pool')==NF_NOERR) &
-             call read_tile_data_r0d_fptr(unit,'csmoke_pool',vegn_csmoke_pool_ptr)
-        if(nfu_inq_var(unit,'csmoke_rate')==NF_NOERR) &
-             call read_tile_data_r0d_fptr(unit,'csmoke_rate',vegn_csmoke_rate_ptr)
-        ! harvesting pools and rates
-        do i = 1, N_HARV_POOLS
-           if (nfu_inq_var(unit,trim(HARV_POOL_NAMES(i))//'_harv_pool')==NF_NOERR) &
-                call read_tile_data_r1d_fptr(unit,trim(HARV_POOL_NAMES(i))//'_harv_pool',vegn_harv_pool_ptr,i)
-           if (nfu_inq_var(unit,trim(HARV_POOL_NAMES(i))//'_harv_rate')==NF_NOERR) &
-                call read_tile_data_r1d_fptr(unit,trim(HARV_POOL_NAMES(i))//'_harv_rate',vegn_harv_rate_ptr,i)
-        enddo
-
-        __NF_ASRT__(nf_close(unit))
+       call get_tile_data(restart2,'fsc_pool',vegn_fsc_pool_bg_ptr)
+       call get_tile_data(restart2,'fsc_rate',vegn_fsc_rate_bg_ptr)
+       call get_tile_data(restart2,'ssc_pool',vegn_ssc_pool_bg_ptr)
+       call get_tile_data(restart2,'ssc_rate',vegn_ssc_rate_bg_ptr)
      endif
+     ! monthly-mean values
+     call get_tile_data(restart2,'tc_av', vegn_tc_av_ptr)
+     if(field_exists(restart2,'theta_av_phen')) then
+        call get_tile_data(restart2,'theta_av_phen', vegn_theta_av_phen_ptr)
+        call get_tile_data(restart2,'theta_av_fire', vegn_theta_av_fire_ptr)
+        call get_tile_data(restart2,'psist_av', vegn_psist_av_ptr)
+     else
+        call get_tile_data(restart2,'theta_av', vegn_theta_av_phen_ptr)
+        call get_tile_data(restart2,'theta_av', vegn_theta_av_fire_ptr)
+        ! psist_av remains at initial value (equal to 0)
+     endif
+     call get_tile_data(restart2,'tsoil_av', vegn_tsoil_av_ptr)
+     call get_tile_data(restart2,'precip_av', vegn_precip_av_ptr)
+     call get_tile_data(restart2,'lambda', vegn_lambda_ptr)
+     call get_tile_data(restart2,'fuel', vegn_fuel_ptr)
+     ! annual-mean values
+     call get_tile_data(restart2,'t_ann', vegn_t_ann_ptr)
+     call get_tile_data(restart2,'t_cold', vegn_t_cold_ptr)
+     call get_tile_data(restart2,'p_ann', vegn_p_ann_ptr)
+     call get_tile_data(restart2,'ncm', vegn_ncm_ptr)
+     ! accumulated values for annual averaging
+     call get_tile_data(restart2,'t_ann_acm', vegn_t_ann_acm_ptr)
+     call get_tile_data(restart2,'t_cold_acm', vegn_t_cold_acm_ptr)
+     call get_tile_data(restart2,'p_ann_acm', vegn_p_ann_acm_ptr)
+     call get_tile_data(restart2,'ncm_acm', vegn_ncm_acm_ptr)
+     ! burned carbon pool and rate
+     if(field_exists(restart2,'csmoke_pool')) &
+          call get_tile_data(restart2,'csmoke_pool',vegn_csmoke_pool_ptr)
+     if(field_exists(restart2,'csmoke_rate')) &
+          call get_tile_data(restart2,'csmoke_rate',vegn_csmoke_rate_ptr)
+     ! harvesting pools and rates
+     do i = 1, N_HARV_POOLS
+        if (field_exists(restart2,trim(HARV_POOL_NAMES(i))//'_harv_pool')) &
+             call get_tile_data(restart2,trim(HARV_POOL_NAMES(i))//'_harv_pool',vegn_harv_pool_ptr,i)
+        if (field_exists(restart2,trim(HARV_POOL_NAMES(i))//'_harv_rate')) &
+             call get_tile_data(restart2,trim(HARV_POOL_NAMES(i))//'_harv_rate',vegn_harv_rate_ptr,i)
+     enddo
   else
      call error_mesg('vegn_init',&
           'cold-starting vegetation',&
           NOTE)
   endif
+  call free_land_restart(restart1)
+  call free_land_restart(restart2)
+
   ! read climatological fields for initialization of species distribution
   if (file_exist('INPUT/biodata.nc'))then
      allocate(&
@@ -715,21 +447,21 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
           t_cold(lnd%is:lnd%ie,lnd%js:lnd%je),&
           p_ann (lnd%is:lnd%ie,lnd%js:lnd%je),&
           ncm   (lnd%is:lnd%ie,lnd%js:lnd%je) )
-     call read_field( 'INPUT/biodata.nc','T_ANN', &
-          lnd%lon, lnd%lat, t_ann, interp='nearest')
-     call read_field( 'INPUT/biodata.nc','T_COLD', &
-          lnd%lon, lnd%lat, t_cold, interp='nearest')
-     call read_field( 'INPUT/biodata.nc','P_ANN', &
-          lnd%lon, lnd%lat, p_ann, interp='nearest')
-     call read_field( 'INPUT/biodata.nc','NCM', &
-          lnd%lon, lnd%lat, ncm, interp='nearest')
+     call read_field( 'INPUT/biodata.nc','T_ANN', lnd%lon, lnd%lat, t_ann, interp='nearest')
+     call read_field( 'INPUT/biodata.nc','T_COLD', lnd%lon, lnd%lat, t_cold, interp='nearest')
+     call read_field( 'INPUT/biodata.nc','P_ANN', lnd%lon, lnd%lat, p_ann, interp='nearest')
+     call read_field( 'INPUT/biodata.nc','NCM', lnd%lon, lnd%lat, ncm, interp='nearest')
      did_read_biodata = .TRUE.
+     call error_mesg('vegn_init','did read INPUT/biodata.nc',NOTE)
+  else
+     did_read_biodata = .FALSE.
+     call error_mesg('vegn_init','did NOT read INPUT/biodata.nc',NOTE)
   endif
   ! Go through all tiles and initialize the cohorts that have not been initialized yet --
   ! this allows to read partial restarts. Also initialize accumulation counters to zero
   ! or the values from the restarts.
-  te = tail_elmt(lnd%tile_map)
-  ce = first_elmt(lnd%tile_map, is=lnd%is, js=lnd%js)
+  te = tail_elmt(land_tile_map)
+  ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js)
   do while(ce /= te)
      tile=>current_tile(ce)  ! get pointer to current tile
      call get_elmt_indices(ce,i,j)
@@ -742,7 +474,6 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
 
 
      if (tile%vegn%n_cohorts>0) cycle ! skip initialized tiles
-
 
      ! create and initialize cohorts for this vegetation tile
      ! for now, just create a new cohort with default values of biomasses
@@ -772,6 +503,12 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
 
      if(did_read_biodata.and.do_biogeography) then
         call update_species(cohort,t_ann(i,j),t_cold(i,j),p_ann(i,j),ncm(i,j),LU_NTRL)
+        if (.not.biodata_bug) then
+           tile%vegn%t_ann  = t_ann (i,j)
+           tile%vegn%t_cold = t_cold(i,j)
+           tile%vegn%p_ann  = p_ann (i,j)
+           tile%vegn%ncm    = ncm   (i,j)
+        endif
      else
         cohort%species = tile%vegn%tag
      endif
@@ -784,21 +521,24 @@ subroutine vegn_init ( id_lon, id_lat, id_band, new_land_io )
   enddo
 
   ! initialize carbon integrator
-  call vegn_dynamics_init ( id_lon, id_lat, land_time, delta_time )
+  call vegn_dynamics_init ( id_lon, id_lat, lnd%time, delta_time )
 
   ! initialize static vegetation
-  call static_vegn_init (new_land_io)
-  call read_static_vegn ( land_time )
+  call static_vegn_init ()
+  call read_static_vegn (lnd%time)
 
   ! initialize harvesting options
   call vegn_harvesting_init()
 
+  ! initialize distrurbances
+  call vegn_disturbance_init()
+
   ! initialize vegetation diagnostic fields
-  call vegn_diag_init ( id_lon, id_lat, id_band, land_time )
+  call vegn_diag_init ( id_lon, id_lat, id_band, lnd%time )
 
   ! ---- diagnostic section
-  ce = first_elmt(lnd%tile_map, is=lnd%is, js=lnd%js)
-  te  = tail_elmt(lnd%tile_map)
+  ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js)
+  te  = tail_elmt(land_tile_map)
   do while(ce /= te)
      tile => current_tile(ce)
      ce=next_elmt(ce)
@@ -981,16 +721,7 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
           missing_value=-999.0)
   enddo
 
-  id_fsc_pool_ag = register_tiled_diag_field (module_name, 'fsc_pool_ag', (/id_lon, id_lat/), &
-       time, 'intermediate pool of above-ground fast soil carbon', 'kg C/m2', missing_value=-999.0)
-  id_fsc_rate_ag = register_tiled_diag_field (module_name, 'fsc_rate_ag', (/id_lon, id_lat/), &
-       time, 'rate of conversion of above-ground fsc_pool to the fast soil_carbon', 'kg C/(m2 yr)', &
-       missing_value=-999.0)
-  id_ssc_pool_ag = register_tiled_diag_field (module_name, 'ssc_pool_ag', (/id_lon, id_lat/), &
-       time, 'intermediate pool of above-ground slow soil carbon', 'kg C/m2', missing_value=-999.0)
-  id_ssc_rate_ag = register_tiled_diag_field (module_name, 'ssc_rate_ag', (/id_lon, id_lat/), &
-       time, 'rate of conversion of above-ground ssc_pool to the fast soil_carbon', 'kg C/(m2 yr)', &
-       missing_value=-999.0)
+
   id_leaflitter_buffer_fast = register_tiled_diag_field (module_name, 'leaflitter_buffer_fast', (/id_lon, id_lat/), &
        time, 'intermediate pool of fast leaf litter carbon', 'kg C/m2', missing_value=-999.0)
   id_leaflitter_buffer_rate_fast = register_tiled_diag_field (module_name, 'leaflitter_buffer_rate_fast', (/id_lon, id_lat/), &
@@ -1071,6 +802,44 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
   id_phot_co2 = register_tiled_diag_field (module_name, 'qco2_phot',(/id_lon,id_lat/), &
        time, 'CO2 mixing ratio for photosynthesis calculations', 'mol CO2/mol dry air', &
        missing_value=-1.0)
+
+  ! CMOR variables
+  ! set the default sub-sampling filter for the fields below
+  call set_default_diag_filter('land')
+  id_lai_cmor = register_tiled_diag_field ( cmor_name, 'lai',  (/id_lon,id_lat/), &
+       time, 'Leaf Area Fraction', '%', missing_value=-1.0, &
+       standard_name='leaf_area_index', fill_missing=.TRUE.)
+  id_btot_cmor = register_tiled_diag_field ( cmor_name, 'cVeg', (/id_lon,id_lat/), &
+       time, 'Carbon in Vegetation', 'kg C m-2', missing_value=-1.0, &
+       standard_name='vegetation_carbon_content', fill_missing=.TRUE.)
+  id_cproduct = register_tiled_diag_field( cmor_name, 'cProduct', (/id_lon,id_lat/), &
+       time, 'Carbon in Products of Land Use Change', 'kg C m-2', missing_value=-999.0, &
+       standard_name='carbon_in_producs_of_luc', fill_missing=.TRUE.)
+  id_fFire = register_tiled_diag_field ( cmor_name, 'fFire', (/id_lon, id_lat/), &
+       time, 'CO2 Emission from Fire', 'kg C m-2 s-1', missing_value=-1.0, &
+       standard_name='co2_emission_from_fire', fill_missing=.TRUE.)
+  id_fGrazing = register_tiled_diag_field( cmor_name, 'fGrazing', (/id_lon,id_lat/), &
+       time, 'CO2 flux to Atmosphere from Grazing', 'kg C m-2 s-1', missing_value=-1.0, &
+       standard_name='co2_flux_to_atmosphere_from_grazing', fill_missing=.TRUE.)
+  id_fHarvest = register_tiled_diag_field( cmor_name, 'fHarvest', (/id_lon,id_lat/), &
+       time, 'CO2 flux to Atmosphere from Crop Harvesting', 'kg C m-2 s-1', missing_value=-1.0, &
+       standard_name='co2_flux_to_atmosphere_from_crop_harvesting', fill_missing=.TRUE.)
+  id_fLuc = register_tiled_diag_field( cmor_name, 'fLuc', (/id_lon,id_lat/), &
+       time, 'CO2 flux to Atmosphere from Land Use Change', 'kg C m-2 s-1', missing_value=-1.0, &
+       standard_name='co2_flux_to_atmosphere_from_land_use_change', fill_missing=.TRUE.)
+  id_cLeaf = register_tiled_diag_field ( cmor_name, 'cLeaf',  (/id_lon,id_lat/), &
+       time, 'Carbon in Leaves', 'kg C m-2', missing_value=-1.0, &
+       standard_name='carbon_in_leaves', fill_missing=.TRUE.)
+  id_cWood = register_tiled_diag_field ( cmor_name, 'cWood',  (/id_lon,id_lat/), &
+       time, 'Carbon in Wood', 'kg C m-2', missing_value=-1.0, &
+       standard_name='carbon_in_wood', fill_missing=.TRUE.)
+  id_cRoot = register_tiled_diag_field ( cmor_name, 'cRoot',  (/id_lon,id_lat/), &
+       time, 'Carbon in Roots', 'kg C m-2', missing_value=-1.0, &
+       standard_name='carbon_in_roots', fill_missing=.TRUE.)
+  id_cMisc = register_tiled_diag_field ( cmor_name, 'cMisc',  (/id_lon,id_lat/), &
+       time, 'Carbon in Other Living Compartments', 'kg C m-2', missing_value=-1.0, &
+       standard_name='carbon_in_other_living_compartments', fill_missing=.TRUE.)
+
 end subroutine
 
 
@@ -1093,38 +862,43 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
   character(*), intent(in) :: timestamp ! timestamp to add to the file name
 
-  ! ---- local vars ----------------------------------------------------------
-  integer :: unit ! restart file unit
-  integer :: ierr, i
+  ! ---- local vars
+  integer ::  i
   type(land_tile_enum_type) :: ce, te
   type(land_tile_type), pointer :: tile
   integer :: n_accum, nmn_acm
 
+  character(267) :: filename
+  type(land_restart_type) :: restart1, restart2 ! restart file i/o object
+
   call error_mesg('vegn_end','writing NetCDF restart',NOTE)
+
+  call set_domain(lnd%domain) ! must set domain so that io_domain is available
   ! create output file, including internal structure necessary for tile output
-  call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'vegn1.res.nc', &
-          lnd%coord_glon, lnd%coord_glat, vegn_tile_exists, tile_dim_length)
+  filename = trim(timestamp)//'vegn1.res.nc'
+  call init_land_restart(restart1, filename, vegn_tile_exists, tile_dim_length)
+
   ! create compressed dimension for vegetation cohorts -- must be called even
   ! if restart has not been created, because it calls mpp_max and that should
   ! be called on all PEs to work
-  call create_cohort_dimension(unit)
+  call create_cohort_dimension(restart1)
 
-  call write_cohort_data_r0d_fptr(unit,'tv',cohort_tv_ptr,'vegetation temperature','degrees_K')
-  call write_cohort_data_r0d_fptr(unit,'wl',cohort_wl_ptr,'vegetation liquid water content','kg/m2')
-  call write_cohort_data_r0d_fptr(unit,'ws',cohort_ws_ptr,'vegetation solid water content','kg/m2')
-  ! close output file
-  __NF_ASRT__(nf_close(unit))
+  call add_cohort_data(restart1,'tv',cohort_tv_ptr,'vegetation temperature','degrees_K')
+  call add_cohort_data(restart1,'wl',cohort_wl_ptr,'vegetation liquid water content','kg/m2')
+  call add_cohort_data(restart1,'ws',cohort_ws_ptr,'vegetation solid water content','kg/m2')
+  call save_land_restart(restart1)
+  call free_land_restart(restart1)
 
 
-  call create_tile_out_file(unit,'RESTART/'//trim(timestamp)//'vegn2.res.nc', &
-          lnd%coord_glon, lnd%coord_glat, vegn_tile_exists, tile_dim_length )
+  filename = trim(timestamp)//'vegn2.res.nc'
+  call init_land_restart(restart2, filename, vegn_tile_exists, tile_dim_length)
   ! create compressed dimension for vegetation cohorts -- see note above
-  call create_cohort_dimension(unit)
+  call create_cohort_dimension(restart2)
 
   ! store global variables
   ! find first tile and get n_accum and nmn_acm from it
   n_accum = 0; nmn_acm = 0
-  ce = first_elmt(lnd%tile_map) ; te = tail_elmt(lnd%tile_map)
+  ce = first_elmt(land_tile_map) ; te = tail_elmt(land_tile_map)
   do while ( ce /= te )
      tile => current_tile(ce) ; ce=next_elmt(ce)
      if(associated(tile%vegn)) then
@@ -1136,684 +910,127 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   ! to handle the situation when there are no tiles in the current domain
   call mpp_max(n_accum); call mpp_max(nmn_acm)
 
-  if(mpp_pe()==lnd%io_pelist(1)) then
-     ierr = nf_redef(unit)
-     __NF_ASRT__(nfu_def_var(unit,'n_accum',NF_INT,long_name='number of accumulated steps'))
-     __NF_ASRT__(nfu_def_var(unit,'nmn_acm',NF_INT,long_name='number of accumulated months'))
-     ierr = nf_enddef(unit)
-     __NF_ASRT__(nfu_put_var(unit,'n_accum',n_accum))
-     __NF_ASRT__(nfu_put_var(unit,'nmn_acm',nmn_acm))
-  end if
+  call add_scalar_data(restart2,'n_accum',n_accum,'number of accumulated steps')
 
-  call write_cohort_data_i0d_fptr(unit,'species', cohort_species_ptr, 'vegetation species')
-  call write_cohort_data_r0d_fptr(unit,'hite', cohort_height_ptr, 'vegetation height','m')
-  call write_cohort_data_r0d_fptr(unit,'bl', cohort_bl_ptr, 'biomass of leaves per individual','kg C/m2')
-  call write_cohort_data_r0d_fptr(unit,'blv', cohort_blv_ptr, 'biomass of virtual leaves (labile store) per individual','kg C/m2')
-  call write_cohort_data_r0d_fptr(unit,'br', cohort_br_ptr, 'biomass of fine roots per individual','kg C/m2')
-  call write_cohort_data_r0d_fptr(unit,'bsw', cohort_bsw_ptr, 'biomass of sapwood per individual','kg C/m2')
-  call write_cohort_data_r0d_fptr(unit,'bwood', cohort_bwood_ptr, 'biomass of heartwood per individual','kg C/m2')
-  call write_cohort_data_r0d_fptr(unit,'bliving', cohort_bliving_ptr, 'total living biomass per individual','kg C/m2')
-!     call write_cohort_data_r0d_fptr(unit,'tleaf', cohort_tleaf_ptr, 'leaf temperature','degK')
-  call write_cohort_data_i0d_fptr(unit,'status', cohort_status_ptr, 'leaf status')
-  call write_cohort_data_r0d_fptr(unit,'leaf_age',cohort_leaf_age_ptr, 'age of leaves since bud burst', 'days')
-  ! call write_cohort_data_r0d_fptr(unit,'max_live_biomass', cohort_max_live_biomass_ptr, 'max leaf biomass for individual','kg C/m2')
-  call write_cohort_data_r0d_fptr(unit,'root_exudate_buffer_C', cohort_root_exudate_buffer_C_ptr, 'cumulative live biomass over N limit for individual','kg C/m2')
-  call write_cohort_data_r0d_fptr(unit,'myc_scavenger_biomass_C', cohort_myc_scavenger_biomass_C_ptr, 'scavenger mycorrhizal biomass C associated with individual','kg C/m2')
-  call write_cohort_data_r0d_fptr(unit,'myc_scavenger_biomass_N', cohort_myc_scavenger_biomass_N_ptr, 'scavenger mycorrhizal biomass N associated with individual','kg N/m2')
-  call write_cohort_data_r0d_fptr(unit,'N_fixer_biomass_C', cohort_N_fixer_biomass_C_ptr, 'symbiotic N fixer biomass C associated with individual','kg C/m2')
-  call write_cohort_data_r0d_fptr(unit,'N_fixer_biomass_N', cohort_N_fixer_biomass_N_ptr, 'symbiotic N fixer biomass N associated with individual','kg N/m2')
-  call write_cohort_data_r0d_fptr(unit,'myc_miner_biomass_C', cohort_myc_miner_biomass_C_ptr, 'miner mycorrhizal biomass C associated with individual','kg C/m2')
-  call write_cohort_data_r0d_fptr(unit,'myc_miner_biomass_N', cohort_myc_miner_biomass_N_ptr, 'miner mycorrhizal biomass N associated with individual','kg N/m2')
-  call write_cohort_data_r0d_fptr(unit,'cohort_stored_N', cohort_stored_N_ptr, 'stored N pool of individual','kg N/m2')
-  call write_cohort_data_r0d_fptr(unit,'cohort_wood_N', cohort_wood_N_ptr, 'wood N pool of individual','kg N/m2')
-  call write_cohort_data_r0d_fptr(unit,'cohort_sapwood_N', cohort_sapwood_N_ptr, 'sapwood N pool of individual','kg N/m2')
-  call write_cohort_data_r0d_fptr(unit,'cohort_leaf_N', cohort_leaf_N_ptr, 'leaf N pool of individual','kg N/m2')
-  call write_cohort_data_r0d_fptr(unit,'cohort_root_N', cohort_root_N_ptr, 'root N pool of individual','kg N/m2')
-  call write_cohort_data_r0d_fptr(unit,'cohort_total_N', cohort_total_N_ptr, 'total N pool of individual','kg N/m2')
+  call add_scalar_data(restart2,'nmn_acm',nmn_acm,'number of accumulated months')
+  call add_int_cohort_data(restart2,'species', cohort_species_ptr, 'vegetation species')
+  call add_cohort_data(restart2,'hite', cohort_height_ptr, 'vegetation height','m')
+  call add_cohort_data(restart2,'bl', cohort_bl_ptr, 'biomass of leaves per individual','kg C/m2')
+  call add_cohort_data(restart2,'blv', cohort_blv_ptr, 'biomass of virtual leaves (labile store) per individual','kg C/m2')
+  call add_cohort_data(restart2,'br', cohort_br_ptr, 'biomass of fine roots per individual','kg C/m2')
+  call add_cohort_data(restart2,'bsw', cohort_bsw_ptr, 'biomass of sapwood per individual','kg C/m2')
+  call add_cohort_data(restart2,'bwood', cohort_bwood_ptr, 'biomass of heartwood per individual','kg C/m2')
+  call add_cohort_data(restart2,'bliving', cohort_bliving_ptr, 'total living biomass per individual','kg C/m2')
+  call add_int_cohort_data(restart2,'status', cohort_status_ptr, 'leaf status')
+  call add_cohort_data(restart2,'leaf_age',cohort_leaf_age_ptr, 'age of leaves since bud burst', 'days')
 
+  call add_cohort_data(restart2,'root_exudate_buffer_C', cohort_root_exudate_buffer_C_ptr, 'C in root exudate buffer','kg C/m2')
+  call add_cohort_data(restart2,'myc_scavenger_biomass_C', cohort_myc_scavenger_biomass_C_ptr, 'scavenger mycorrhizal biomass C associated with individual','kg C/m2')
+  call add_cohort_data(restart2,'myc_scavenger_biomass_N', cohort_myc_scavenger_biomass_N_ptr, 'scavenger mycorrhizal biomass N associated with individual','kg C/m2')
+  call add_cohort_data(restart2,'N_fixer_biomass_C', cohort_N_fixer_biomass_C_ptr, 'symbiotic N fixer biomass C associated with individual','kg C/m2')
+  call add_cohort_data(restart2,'N_fixer_biomass_N', cohort_N_fixer_biomass_N_ptr, 'symbiotic N fixer biomass N associated with individual','kg C/m2')
+  call add_cohort_data(restart2,'myc_miner_biomass_C', cohort_myc_miner_biomass_C_ptr, 'miner mycorrhizal biomass C associated with individual','kg C/m2')
+  call add_cohort_data(restart2,'myc_miner_biomass_N', cohort_myc_miner_biomass_N_ptr, 'miner mycorrhizal biomass N associated with individual','kg C/m2')
+  call add_cohort_data(restart2,'cohort_stored_N', cohort_stored_N_ptr, 'stored N pool of individual','kg C/m2')
+  call add_cohort_data(restart2,'cohort_wood_N', cohort_wood_N_ptr, 'wood N pool of individual','kg C/m2')
+  call add_cohort_data(restart2,'cohort_sapwood_N', cohort_sapwood_N_ptr, 'sapwood N pool of individual','kg C/m2')
+  call add_cohort_data(restart2,'cohort_leaf_N', cohort_leaf_N_ptr, 'leaf N pool of individual','kg C/m2')
+  call add_cohort_data(restart2,'cohort_root_N', cohort_root_N_ptr, 'root N pool of individual','kg C/m2')
+  call add_cohort_data(restart2,'cohort_total_N', cohort_total_N_ptr, 'total N pool of individual','kg C/m2')
 
-!     call write_cohort_data_r0d_fptr(unit,'intercept_l', cohort_cmc_ptr, 'intercepted water per cohort','kg/m2')
-  call write_cohort_data_r0d_fptr(unit,'npp_prev_day', cohort_npp_previous_day_ptr, 'previous day NPP','kg C/(m2 year)')
+  call add_cohort_data(restart2,'npp_prev_day', cohort_npp_previous_day_ptr, 'previous day NPP','kg C/(m2 year)')
 
-  call write_tile_data_i0d_fptr(unit,'landuse',vegn_landuse_ptr,'vegetation land use type')
-  call write_tile_data_r0d_fptr(unit,'age',vegn_age_ptr,'vegetation age', 'yr')
-  call write_tile_data_r0d_fptr(unit,'fsc_pool_ag',vegn_fsc_pool_ag_ptr, &
-       'intermediate pool for AG fast soil carbon input', 'kg C/m2')
-  call write_tile_data_r0d_fptr(unit,'fsc_rate_ag',vegn_fsc_rate_ag_ptr, &
-       'conversion rate of AG fsc_pool to fast soil carbon', 'kg C/(m2 yr)')
-  call write_tile_data_r0d_fptr(unit,'ssc_pool_ag',vegn_ssc_pool_ag_ptr, &
-       'intermediate pool for AG slow soil carbon input', 'kg C/m2')
-  call write_tile_data_r0d_fptr(unit,'ssc_rate_ag',vegn_ssc_rate_ag_ptr, &
-       'conversion rate of AG ssc_pool to slow soil carbon', 'kg C/(m2 yr)')
-  call write_tile_data_r0d_fptr(unit,'fsc_pool_bg',vegn_fsc_pool_bg_ptr, &
+  call add_int_tile_data(restart2,'landuse',vegn_landuse_ptr,'vegetation land use type')
+  call add_tile_data(restart2,'age',vegn_age_ptr,'vegetation age', 'yr')
+  call add_tile_data(restart2,'fsc_pool_bg',vegn_fsc_pool_bg_ptr, &
        'intermediate pool for BG fast soil carbon input', 'kg C/m2')
-  call write_tile_data_r0d_fptr(unit,'fsc_rate_bg',vegn_fsc_rate_bg_ptr, &
+  call add_tile_data(restart2,'fsc_rate_bg',vegn_fsc_rate_bg_ptr, &
        'conversion rate of BG fsc_pool to fast soil carbon', 'kg C/(m2 yr)')
-  call write_tile_data_r0d_fptr(unit,'ssc_pool_bg',vegn_ssc_pool_bg_ptr, &
+  call add_tile_data(restart2,'ssc_pool_bg',vegn_ssc_pool_bg_ptr, &
        'intermediate pool for BG slow soil carbon input', 'kg C/m2')
-  call write_tile_data_r0d_fptr(unit,'ssc_rate_bg',vegn_ssc_rate_bg_ptr, &
+  call add_tile_data(restart2,'ssc_rate_bg',vegn_ssc_rate_bg_ptr, &
        'conversion rate of BG ssc_pool to slow soil carbon', 'kg C/(m2 yr)')
 
-  call write_tile_data_r0d_fptr(unit,'leaflitter_buffer_fast',vegn_leaflitter_buffer_fast_ptr, &
-       'intermediate pool for fast leaf litter carbon input', 'kg C/m2')
-  call write_tile_data_r0d_fptr(unit,'leaflitter_buffer_rate_fast',vegn_leaflitter_buffer_rate_fast_ptr, &
-       'conversion rate of fast leaf litter to litter carbon pool', 'kg C/(m2 yr)')
-  call write_tile_data_r0d_fptr(unit,'coarsewoodlitter_buffer_fast',vegn_coarsewoodlitter_buffer_fast_ptr, &
-       'intermediate pool for fast coarsewood litter carbon input', 'kg C/m2')
-  call write_tile_data_r0d_fptr(unit,'coarsewoodlitter_buffer_rate_fast',vegn_coarsewoodlitter_buffer_rate_fast_ptr, &
-       'conversion rate of fast coarsewood litter to litter carbon pool', 'kg C/(m2 yr)')
-   call write_tile_data_r0d_fptr(unit,'leaflitter_buffer_slow',vegn_leaflitter_buffer_slow_ptr, &
-        'intermediate pool for slow leaf litter carbon input', 'kg C/m2')
-   call write_tile_data_r0d_fptr(unit,'leaflitter_buffer_rate_slow',vegn_leaflitter_buffer_rate_slow_ptr, &
-        'conversion rate of slow leaf litter to litter carbon pool', 'kg C/(m2 yr)')
-   call write_tile_data_r0d_fptr(unit,'coarsewoodlitter_buffer_slow',vegn_coarsewoodlitter_buffer_slow_ptr, &
-        'intermediate pool for slow coarsewood litter carbon input', 'kg C/m2')
-   call write_tile_data_r0d_fptr(unit,'coarsewoodlitter_buffer_rate_slow',vegn_coarsewoodlitter_buffer_rate_slow_ptr, &
-        'conversion rate of slow coarsewood litter to litter carbon pool', 'kg C/(m2 yr)')
+   call add_tile_data(restart2,'fsn_pool_bg',vegn_fsn_pool_bg_ptr, &
+        'intermediate pool for BG fast soil nitrogen input', 'kg N/m2')
+   call add_tile_data(restart2,'fsn_rate_bg',vegn_fsn_rate_bg_ptr, &
+        'conversion rate of BG fsn_pool to fast soil nitrogen', 'kg N/(m2 yr)')
+   call add_tile_data(restart2,'ssn_pool_bg',vegn_ssn_pool_bg_ptr, &
+        'intermediate pool for BG slow soil nitrogen input', 'kg N/m2')
+   call add_tile_data(restart2,'ssn_rate_bg',vegn_ssn_rate_bg_ptr, &
+        'conversion rate of BG ssn_pool to slow soil nitrogen', 'kg N/(m2 yr)')
 
-        call write_tile_data_r0d_fptr(unit,'leaflitter_buffer_fast_N',vegn_leaflitter_buffer_fast_N_ptr, &
-             'intermediate pool for fast leaf litter nitrogen input', 'kg N/m2')
-        call write_tile_data_r0d_fptr(unit,'leaflitter_buffer_rate_fast_N',vegn_leaflitter_buffer_rate_fast_N_ptr, &
-             'conversion rate of fast leaf litter to litter nitrogen pool', 'kg N/(m2 yr)')
-        call write_tile_data_r0d_fptr(unit,'coarsewoodlitter_buffer_fast_N',vegn_coarsewoodlitter_buffer_fast_N_ptr, &
-             'intermediate pool for fast coarsewood litter nitrogen input', 'kg N/m2')
-        call write_tile_data_r0d_fptr(unit,'coarsewoodlitter_buffer_rate_fast_N',vegn_coarsewoodlitter_buffer_rate_fast_N_ptr, &
-             'conversion rate of fast coarsewood litter to litter nitrogen pool', 'kg N/(m2 yr)')
-         call write_tile_data_r0d_fptr(unit,'leaflitter_buffer_slow_N',vegn_leaflitter_buffer_slow_N_ptr, &
-              'intermediate pool for slow leaf litter nitrogen input', 'kg N/m2')
-         call write_tile_data_r0d_fptr(unit,'leaflitter_buffer_rate_slow_N',vegn_leaflitter_buffer_rate_slow_N_ptr, &
-              'conversion rate of slow leaf litter to litter nitrogen pool', 'kg N/(m2 yr)')
-         call write_tile_data_r0d_fptr(unit,'coarsewoodlitter_buffer_slow_N',vegn_coarsewoodlitter_buffer_slow_N_ptr, &
-              'intermediate pool for slow coarsewood litter nitrogen input', 'kg N/m2')
-         call write_tile_data_r0d_fptr(unit,'coarsewoodlitter_buffer_rate_slow_N',vegn_coarsewoodlitter_buffer_rate_slow_N_ptr, &
-              'conversion rate of slow coarsewood litter to litter nitrogen pool', 'kg N/(m2 yr)')
+  call add_tile_data(restart2,'leaflitter_buffer_fast',vegn_leaflitter_buffer_fast_ptr, &
+       'intermediate pool for fast leaf litter carbon input', 'kg C/m2')
+  call add_tile_data(restart2,'leaflitter_buffer_rate_fast',vegn_leaflitter_buffer_rate_fast_ptr, &
+       'conversion rate of fast leaf litter to litter carbon pool', 'kg C/(m2 yr)')
+  call add_tile_data(restart2,'coarsewoodlitter_buffer_fast',vegn_coarsewoodlitter_buffer_fast_ptr, &
+       'intermediate pool for fast coarsewood litter carbon input', 'kg C/m2')
+  call add_tile_data(restart2,'coarsewoodlitter_buffer_rate_fast',vegn_coarsewoodlitter_buffer_rate_fast_ptr, &
+       'conversion rate of fast coarsewood litter to litter carbon pool', 'kg C/(m2 yr)')
+ call add_tile_data(restart2,'leaflitter_buffer_slow',vegn_leaflitter_buffer_slow_ptr, &
+      'intermediate pool for slow leaf litter carbon input', 'kg C/m2')
+ call add_tile_data(restart2,'leaflitter_buffer_rate_slow',vegn_leaflitter_buffer_rate_slow_ptr, &
+      'conversion rate of slow leaf litter to litter carbon pool', 'kg C/(m2 yr)')
+ call add_tile_data(restart2,'coarsewoodlitter_buffer_slow',vegn_coarsewoodlitter_buffer_slow_ptr, &
+      'intermediate pool for slow coarsewood litter carbon input', 'kg C/m2')
+ call add_tile_data(restart2,'coarsewoodlitter_buffer_rate_slow',vegn_coarsewoodlitter_buffer_rate_slow_ptr, &
+      'conversion rate of slow coarsewood litter to litter carbon pool', 'kg C/(m2 yr)')
+
+call add_tile_data(restart2,'leaflitter_buffer_fast_N',vegn_leaflitter_buffer_fast_N_ptr, &
+     'intermediate pool for fast leaf litter nitrogen input', 'kg N/m2')
+call add_tile_data(restart2,'leaflitter_buffer_rate_fast_N',vegn_leaflitter_buffer_rate_fast_N_ptr, &
+     'conversion rate of fast leaf litter to litter nitrogen pool', 'kg N/(m2 yr)')
+call add_tile_data(restart2,'coarsewoodlitter_buffer_fast_N',vegn_coarsewoodlitter_buffer_fast_N_ptr, &
+     'intermediate pool for fast coarsewood litter nitrogen input', 'kg N/m2')
+call add_tile_data(restart2,'coarsewoodlitter_buffer_rate_fast_N',vegn_coarsewoodlitter_buffer_rate_fast_N_ptr, &
+     'conversion rate of fast coarsewood litter to litter nitrogen pool', 'kg N/(m2 yr)')
+call add_tile_data(restart2,'leaflitter_buffer_slow_N',vegn_leaflitter_buffer_slow_N_ptr, &
+    'intermediate pool for slow leaf litter nitrogen input', 'kg N/m2')
+call add_tile_data(restart2,'leaflitter_buffer_rate_slow_N',vegn_leaflitter_buffer_rate_slow_N_ptr, &
+    'conversion rate of slow leaf litter to litter nitrogen pool', 'kg N/(m2 yr)')
+call add_tile_data(restart2,'coarsewoodlitter_buffer_slow_N',vegn_coarsewoodlitter_buffer_slow_N_ptr, &
+    'intermediate pool for slow coarsewood litter nitrogen input', 'kg N/m2')
+call add_tile_data(restart2,'coarsewoodlitter_buffer_rate_slow_N',vegn_coarsewoodlitter_buffer_rate_slow_N_ptr, &
+    'conversion rate of slow coarsewood litter to litter nitrogen pool', 'kg N/(m2 yr)')
 
   ! monthly-mean values
-  call write_tile_data_r0d_fptr(unit,'tc_av', vegn_tc_av_ptr,'average canopy air temperature','degK')
-  call write_tile_data_r0d_fptr(unit,'theta_av_phen', vegn_theta_av_phen_ptr,'average soil moisture for phenology')
-  call write_tile_data_r0d_fptr(unit,'theta_av_fire', vegn_theta_av_fire_ptr,'average soil moisture for fire')
-  call write_tile_data_r0d_fptr(unit,'psist_av', vegn_psist_av_ptr,'average soil-water-stress index')
-  call write_tile_data_r0d_fptr(unit,'tsoil_av', vegn_tsoil_av_ptr,'average bulk soil temperature for soil carbon','degK')
-  call write_tile_data_r0d_fptr(unit,'precip_av', vegn_precip_av_ptr,'average total precipitation','kg/(m2 s)')
-  call write_tile_data_r0d_fptr(unit,'lambda', vegn_lambda_ptr,'dryness parameter')
-  call write_tile_data_r0d_fptr(unit,'fuel', vegn_fuel_ptr,'fuel density','kg C/m2')
+  call add_tile_data(restart2,'tc_av', vegn_tc_av_ptr,'average canopy air temperature','degK')
+  call add_tile_data(restart2,'theta_av_phen', vegn_theta_av_phen_ptr,'average soil moisture for phenology')
+  call add_tile_data(restart2,'theta_av_fire', vegn_theta_av_fire_ptr,'average soil moisture for fire')
+  call add_tile_data(restart2,'psist_av', vegn_psist_av_ptr,'average soil-water-stress index')
+  call add_tile_data(restart2,'tsoil_av', vegn_tsoil_av_ptr,'average bulk soil temperature for soil carbon','degK')
+  call add_tile_data(restart2,'precip_av', vegn_precip_av_ptr,'average total precipitation','kg/(m2 s)')
+  call add_tile_data(restart2,'lambda', vegn_lambda_ptr,'dryness parameter')
+  call add_tile_data(restart2,'fuel', vegn_fuel_ptr,'fuel density','kg C/m2')
   ! annual-mean values
-  call write_tile_data_r0d_fptr(unit,'t_ann', vegn_t_ann_ptr,'average annual canopy air temperature','degK')
-  call write_tile_data_r0d_fptr(unit,'t_cold', vegn_t_cold_ptr,'average canopy air temperature of coldest month','degK')
-  call write_tile_data_r0d_fptr(unit,'p_ann', vegn_p_ann_ptr,'average annual precipitation','kg/(m2 s)')
-  call write_tile_data_r0d_fptr(unit,'ncm', vegn_ncm_ptr,'number of cold months')
+  call add_tile_data(restart2,'t_ann', vegn_t_ann_ptr,'average annual canopy air temperature','degK')
+  call add_tile_data(restart2,'t_cold', vegn_t_cold_ptr,'average canopy air temperature of coldest month','degK')
+  call add_tile_data(restart2,'p_ann', vegn_p_ann_ptr,'average annual precipitation','kg/(m2 s)')
+  call add_tile_data(restart2,'ncm', vegn_ncm_ptr,'number of cold months')
   ! accumulated values for annual averaging
-  call write_tile_data_r0d_fptr(unit,'t_ann_acm', vegn_t_ann_acm_ptr,'accumulated annual canopy air temperature','degK')
-  call write_tile_data_r0d_fptr(unit,'t_cold_acm', vegn_t_cold_acm_ptr,'accumulated temperature of coldest month','degK')
-  call write_tile_data_r0d_fptr(unit,'p_ann_acm', vegn_p_ann_acm_ptr,'accumulated precipitation','kg/(m2 s)')
-  call write_tile_data_r0d_fptr(unit,'ncm_acm', vegn_ncm_acm_ptr,'accumulated number of cold months')
+  call add_tile_data(restart2,'t_ann_acm', vegn_t_ann_acm_ptr,'accumulated annual canopy air temperature','degK')
+  call add_tile_data(restart2,'t_cold_acm', vegn_t_cold_acm_ptr,'accumulated temperature of coldest month','degK')
+  call add_tile_data(restart2,'p_ann_acm', vegn_p_ann_acm_ptr,'accumulated precipitation','kg/(m2 s)')
+  call add_tile_data(restart2,'ncm_acm', vegn_ncm_acm_ptr,'accumulated number of cold months')
 
   ! burned carbon pool and rate
-  call write_tile_data_r0d_fptr(unit,'csmoke_pool',vegn_csmoke_pool_ptr,'carbon lost through fires', 'kg C/m2')
-  call write_tile_data_r0d_fptr(unit,'csmoke_rate',vegn_csmoke_rate_ptr,'rate of release of carbon lost through fires to the atmosphere', 'kg C/(m2 yr)')
+  call add_tile_data(restart2,'csmoke_pool',vegn_csmoke_pool_ptr,'carbon lost through fires', 'kg C/m2')
+  call add_tile_data(restart2,'csmoke_rate',vegn_csmoke_rate_ptr,'rate of release of carbon lost through fires to the atmosphere', 'kg C/(m2 yr)')
 
   ! harvesting pools and rates
   do i = 1, N_HARV_POOLS
-     call write_tile_data_r1d_fptr(unit, trim(HARV_POOL_NAMES(i))//'_harv_pool', &
+     call add_tile_data(restart2, trim(HARV_POOL_NAMES(i))//'_harv_pool', &
           vegn_harv_pool_ptr, i, 'harvested carbon','kg C/m2')
-     call write_tile_data_r1d_fptr(unit, trim(HARV_POOL_NAMES(i))//'_harv_rate', &
+     call add_tile_data(restart2, trim(HARV_POOL_NAMES(i))//'_harv_rate', &
           vegn_harv_rate_ptr, i, 'rate of release of harvested carbon to the atmosphere','kg C/(m2 yr)')
   enddo
 
 
-  __NF_ASRT__(nf_close(unit))
-
+  call save_land_restart(restart2)
+  call free_land_restart(restart2)
+  call nullify_domain()
 end subroutine save_vegn_restart
-
-! ============================================================================
-subroutine save_vegn_restart_new(tile_dim_length, timestamp)
-  integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
-  character(*), intent(in) :: timestamp ! timestamp to add to the file name
-
-  character(267) :: fname
-  type(restart_file_type) :: vegn1_restart
-  type(restart_file_type) :: vegn2_restart
-  integer, allocatable :: tidx(:)
-  integer, allocatable :: cidx(:)
-  integer :: tsize,csize
-  integer :: id_restart
-  integer :: i
-
-  ! Tile pointers/variables
-  type(land_tile_enum_type) :: ce, te
-  type(land_tile_type), pointer :: tile
-
-  ! vegn1 restart variables
-  real, allocatable :: tv(:)
-  real, allocatable :: wl(:)
-  real, allocatable :: ws(:)
-
-  ! vegn2 restart variables
-  integer :: nmn_acm, n_accum
-  ! ** cohorts
-  integer, allocatable :: species(:)
-  real, allocatable :: hite(:)
-  real, allocatable :: bl(:)
-  real, allocatable :: blv(:)
-  real, allocatable :: br(:)
-  real, allocatable :: bsw(:)
-  real, allocatable :: bwood(:)
-  real, allocatable :: bliving(:)
-  integer, allocatable :: status(:)
-  real, allocatable :: leaf_age(:)
-  real, allocatable :: npp_prev_day(:)
-  real, allocatable :: max_live_biomass(:)
-  real, allocatable :: root_exudate_buffer_C(:)
-  real, allocatable :: myc_scavenger_biomass_C(:)
-  real, allocatable :: myc_scavenger_biomass_N(:)
-  real, allocatable :: myc_miner_biomass_C(:)
-  real, allocatable :: myc_miner_biomass_N(:)
-  real, allocatable :: N_fixer_biomass_C(:)
-  real, allocatable :: N_fixer_biomass_N(:)
-  real, allocatable :: cohort_stored_N(:)
-  real, allocatable :: cohort_wood_N(:)
-  real, allocatable :: cohort_sapwood_N(:)
-  real, allocatable :: cohort_leaf_N(:)
-  real, allocatable :: cohort_root_N(:)
-  real, allocatable :: cohort_total_N(:)
-  ! ** tile
-  integer, allocatable :: landuse(:)
-  real, allocatable :: age(:)
-  real, allocatable :: coh(:)
-  real, allocatable :: fsc_pool_ag(:)
-  real, allocatable :: fsc_rate_ag(:)
-  real, allocatable :: ssc_pool_ag(:)
-  real, allocatable :: ssc_rate_ag(:)
-  real, allocatable :: fsc_pool_bg(:)
-  real, allocatable :: fsc_rate_bg(:)
-  real, allocatable :: ssc_pool_bg(:)
-  real, allocatable :: ssc_rate_bg(:)
-  real, allocatable :: leaflitter_buffer_fast(:)
-  real, allocatable :: leaflitter_buffer_rate_fast(:)
-  real, allocatable :: coarsewoodlitter_buffer_fast(:)
-  real, allocatable :: coarsewoodlitter_buffer_rate_fast(:)
-  real, allocatable :: leaflitter_buffer_slow(:)
-  real, allocatable :: leaflitter_buffer_rate_slow(:)
-  real, allocatable :: coarsewoodlitter_buffer_slow(:)
-  real, allocatable :: coarsewoodlitter_buffer_rate_slow(:)
-  real, allocatable :: leaflitter_buffer_fast_N(:)
-  real, allocatable :: leaflitter_buffer_rate_fast_N(:)
-  real, allocatable :: coarsewoodlitter_buffer_fast_N(:)
-  real, allocatable :: coarsewoodlitter_buffer_rate_fast_N(:)
-  real, allocatable :: leaflitter_buffer_slow_N(:)
-  real, allocatable :: leaflitter_buffer_rate_slow_N(:)
-  real, allocatable :: coarsewoodlitter_buffer_slow_N(:)
-  real, allocatable :: coarsewoodlitter_buffer_rate_slow_N(:)
-  real, allocatable :: tc_av(:)
-  real, allocatable :: theta_av_phen(:)
-  real, allocatable :: theta_av_fire(:)
-  real, allocatable :: psist_av(:)
-  real, allocatable :: tsoil_av(:)
-  real, allocatable :: precip_av(:)
-  real, allocatable :: lambda(:)
-  real, allocatable :: fuel(:)
-  real, allocatable :: t_ann(:)
-  real, allocatable :: t_cold(:)
-  real, allocatable :: p_ann(:)
-  real, allocatable :: ncm(:)
-  real, allocatable :: t_ann_acm(:)
-  real, allocatable :: t_cold_acm(:)
-  real, allocatable :: p_ann_acm(:)
-  real, allocatable :: ncm_acm(:)
-  real, allocatable :: csmoke_pool(:)
-  real, allocatable :: csmoke_rate(:)
-  real, allocatable :: harv_pool(:,:)
-  real, allocatable :: harv_rate(:,:)
-
-  call error_mesg('vegn_end','writing new format NetCDF restart', NOTE)
-  ! must set domain so that io_domain is available
-  call set_domain(lnd%domain)
-
-  ! ***** vegn1 restart
-  ! Note that fname is updated for tile and rank number during file creation
-  fname = trim(timestamp)//'vegn1.res.nc'
-  call create_tile_out_file(vegn1_restart,tidx,fname,vegn_tile_exists,tile_dim_length)
-  tsize = size(tidx)
-  ! create compressed dimension for vegetation cohorts -- must be called even
-  ! if restart has not been created, because it calls mpp_max and that should
-  ! be called on all PEs to work
-  call create_cohort_dimension(vegn1_restart,cidx,fname,tile_dim_length)
-  csize = size(cidx)
-
-  allocate(       &
-       tv(csize), &
-       wl(csize), &
-       ws(csize))
-
-  call gather_cohort_data(cohort_tv_ptr,cidx,tile_dim_length,tv)
-  id_restart = register_restart_field(vegn1_restart,fname,'tv',tv,longname='vegetation temperature', &
-                                      units='degrees_K', compressed_axis='H')
-  call gather_cohort_data(cohort_wl_ptr,cidx,tile_dim_length,wl)
-  id_restart = register_restart_field(vegn1_restart,fname,'wl',wl,longname='vegetation liquid water content', &
-                                      units='kg/m2', compressed_axis='H')
-  call gather_cohort_data(cohort_ws_ptr,cidx,tile_dim_length,ws)
-  id_restart = register_restart_field(vegn1_restart,fname,'ws',ws,longname='vegetation solid water content', &
-                                      units='kg/m2', compressed_axis='H')
-
-  call save_restart(vegn1_restart)
-
-  deallocate(tidx, &
-             cidx, &
-             tv,   &
-             wl,   &
-             ws)
-  call free_restart_type(vegn1_restart)
-
-  ! ***** vegn2 restart
-  ! Note that fname is updated for tile and rank number during file creation
-  fname = trim(timestamp)//'vegn2.res.nc'
-  call create_tile_out_file(vegn2_restart,tidx,fname,vegn_tile_exists,tile_dim_length)
-  tsize = size(tidx)
-  ! create compressed dimension for vegetation cohorts -- must be called even
-  ! if restart has not been created, because it calls mpp_max and that should
-  ! be called on all PEs to work
-  call create_cohort_dimension(vegn2_restart,cidx,fname,tile_dim_length)
-  csize = size(cidx)
-
-  ! ** cohorts
-  allocate( species(csize), &
-            hite(csize),    &
-            bl(csize),      &
-            blv(csize),     &
-            br(csize),      &
-            bsw(csize),     &
-            bwood(csize),   &
-            bliving(csize), &
-            status(csize),  &
-            leaf_age(csize),&
-            max_live_biomass(csize),&
-            root_exudate_buffer_C(csize),&
-            myc_scavenger_biomass_C(csize),&
-            myc_scavenger_biomass_N(csize),&
-            myc_miner_biomass_C(csize),&
-            myc_miner_biomass_N(csize),&
-            N_fixer_biomass_C(csize),&
-            N_fixer_biomass_N(csize),&
-            cohort_stored_N(csize),&
-            cohort_wood_N(csize),&
-            cohort_sapwood_N(csize),&
-            cohort_leaf_N(csize),&
-            cohort_root_N(csize),&
-            cohort_total_N(csize),&
-            npp_prev_day(csize))
-  ! ** cohorts
-  call gather_cohort_data(cohort_species_ptr,cidx,tile_dim_length,species)
-  id_restart = register_restart_field(vegn2_restart,fname,'species',species,&
-       longname='vegetation species', compressed_axis='H')
-  call gather_cohort_data(cohort_height_ptr,cidx,tile_dim_length,hite)
-  id_restart = register_restart_field(vegn2_restart,fname,'hite',hite,&
-       longname='vegetation height',units='m', compressed_axis='H')
-  call gather_cohort_data(cohort_bl_ptr,cidx,tile_dim_length,bl)
-  id_restart = register_restart_field(vegn2_restart,fname,'bl',bl,&
-       longname='biomass of leaves per individual',units='kg C/m2', compressed_axis='H')
-  call gather_cohort_data(cohort_blv_ptr,cidx,tile_dim_length,blv)
-  id_restart = register_restart_field(vegn2_restart,fname,'blv',blv,&
-       longname='biomass of virtual leaves (labile store) per individual',units='kg C/m2', compressed_axis='H')
-  call gather_cohort_data(cohort_br_ptr,cidx,tile_dim_length,br)
-  id_restart = register_restart_field(vegn2_restart,fname,'br',br,&
-       longname='biomass of fine roots per individual',units='kg C/m2', compressed_axis='H')
-  call gather_cohort_data(cohort_bsw_ptr,cidx,tile_dim_length,bsw)
-  id_restart = register_restart_field(vegn2_restart,fname,'bsw',bsw,&
-       longname='biomass of sapwood per individual',units='kg C/m2', compressed_axis='H')
-  call gather_cohort_data(cohort_bwood_ptr,cidx,tile_dim_length,bwood)
-  id_restart = register_restart_field(vegn2_restart,fname,'bwood',bwood,&
-       longname='biomass of heartwood per individual',units='kg C/m2', compressed_axis='H')
-  call gather_cohort_data(cohort_bliving_ptr,cidx,tile_dim_length,bliving)
-  id_restart = register_restart_field(vegn2_restart,fname,'bliving',bliving,&
-       longname='total living biomass per individual',units='kg C/m2', compressed_axis='H')
-  call gather_cohort_data(cohort_status_ptr,cidx,tile_dim_length,status)
-  id_restart = register_restart_field(vegn2_restart,fname,'status',status,&
-       longname='leaf status', compressed_axis='H')
-  call gather_cohort_data(cohort_leaf_age_ptr,cidx,tile_dim_length,leaf_age)
-  id_restart = register_restart_field(vegn2_restart,fname,'leaf_age',leaf_age,&
-       longname='age of leaves since bud burst',units='days', compressed_axis='H')
-  call gather_cohort_data(cohort_npp_previous_day_ptr,cidx,tile_dim_length,npp_prev_day)
-  id_restart = register_restart_field(vegn2_restart,fname,'npp_prev_day',npp_prev_day,&
-       longname='previous day NPP',units='kg C/(m2 year)', compressed_axis='H')
- ! call gather_cohort_data(cohort_max_live_biomass_ptr,cidx,tile_dim_length,max_live_biomass)
- ! id_restart = register_restart_field(vegn2_restart,fname,'max_live_biomass',max_live_biomass,&
- !      longname='maximum live biomass limit for individual',units='kg C/m2', compressed_axis='H')
- !      call gather_cohort_data(cohort_root_exudate_buffer_C_ptr,cidx,tile_dim_length,root_exudate_buffer_C)
- !      id_restart = register_restart_field(vegn2_restart,fname,'root_exudate_buffer_C',root_exudate_buffer_C,&
- !           longname='cumulative live biomass over the limit for individual',units='kg C/m2', compressed_axis='H')
-  call gather_cohort_data(cohort_myc_scavenger_biomass_C_ptr,cidx,tile_dim_length,myc_scavenger_biomass_C)
-  id_restart = register_restart_field(vegn2_restart,fname,'myc_scavenger_biomass_C',myc_scavenger_biomass_C,&
-       longname='scavenger mycorrhizal biomass C associated with individual',units='kg C/m2', compressed_axis='H')
-   call gather_cohort_data(cohort_myc_scavenger_biomass_N_ptr,cidx,tile_dim_length,myc_scavenger_biomass_N)
-   id_restart = register_restart_field(vegn2_restart,fname,'myc_scavenger_biomass_N',myc_scavenger_biomass_N,&
-        longname='scavenger mycorrhizal biomass N associated with individual',units='kg N/m2', compressed_axis='H')
-        call gather_cohort_data(cohort_myc_miner_biomass_C_ptr,cidx,tile_dim_length,myc_miner_biomass_C)
-        id_restart = register_restart_field(vegn2_restart,fname,'myc_miner_biomass_C',myc_miner_biomass_C,&
-             longname='miner mycorrhizal biomass C associated with individual',units='kg C/m2', compressed_axis='H')
-         call gather_cohort_data(cohort_myc_miner_biomass_N_ptr,cidx,tile_dim_length,myc_miner_biomass_N)
-         id_restart = register_restart_field(vegn2_restart,fname,'myc_miner_biomass_N',myc_miner_biomass_N,&
-              longname='miner mycorrhizal biomass N associated with individual',units='kg N/m2', compressed_axis='H')
-        call gather_cohort_data(cohort_N_fixer_biomass_C_ptr,cidx,tile_dim_length,N_fixer_biomass_C)
-        id_restart = register_restart_field(vegn2_restart,fname,'N_fixer_biomass_C',N_fixer_biomass_C,&
-             longname='Symbiotic N fixer biomass C associated with individual',units='kg C/m2', compressed_axis='H')
-         call gather_cohort_data(cohort_N_fixer_biomass_N_ptr,cidx,tile_dim_length,N_fixer_biomass_N)
-         id_restart = register_restart_field(vegn2_restart,fname,'N_fixer_biomass_N',N_fixer_biomass_N,&
-              longname='Symbiotic N fixer biomass N associated with individual',units='kg N/m2', compressed_axis='H')
-        call gather_cohort_data(cohort_stored_N_ptr,cidx,tile_dim_length,cohort_stored_N)
-        id_restart = register_restart_field(vegn2_restart,fname,'cohort_stored_N',cohort_stored_N,&
-             longname='Stored N associated with individual',units='kg N/m2', compressed_axis='H')
-             call gather_cohort_data(cohort_wood_N_ptr,cidx,tile_dim_length,cohort_wood_N)
-             id_restart = register_restart_field(vegn2_restart,fname,'cohort_wood_N',cohort_wood_N,&
-                  longname='wood N associated with individual',units='kg N/m2', compressed_axis='H')
-                  call gather_cohort_data(cohort_sapwood_N_ptr,cidx,tile_dim_length,cohort_sapwood_N)
-                  id_restart = register_restart_field(vegn2_restart,fname,'cohort_sapwood_N',cohort_sapwood_N,&
-                       longname='sapwood N associated with individual',units='kg N/m2', compressed_axis='H')
-                  call gather_cohort_data(cohort_leaf_N_ptr,cidx,tile_dim_length,cohort_leaf_N)
-                  id_restart = register_restart_field(vegn2_restart,fname,'cohort_leaf_N',cohort_leaf_N,&
-                       longname='leaf N associated with individual',units='kg N/m2', compressed_axis='H')
-                       call gather_cohort_data(cohort_root_N_ptr,cidx,tile_dim_length,cohort_root_N)
-                       id_restart = register_restart_field(vegn2_restart,fname,'cohort_root_N',cohort_root_N,&
-                            longname='root N associated with individual',units='kg N/m2', compressed_axis='H')
-                            call gather_cohort_data(cohort_total_N_ptr,cidx,tile_dim_length,cohort_total_N)
-                            id_restart = register_restart_field(vegn2_restart,fname,'cohort_total_N',cohort_total_N,&
-                                 longname='total N associated with individual',units='kg N/m2', compressed_axis='H')
-
-  ! ** tile
-  allocate(landuse(tsize),               &
-           age(tsize),                   &
-           fsc_pool_ag(tsize),           &
-           fsc_rate_ag(tsize),           &
-           ssc_pool_ag(tsize),           &
-           ssc_rate_ag(tsize),           &
-           fsc_pool_bg(tsize),           &
-           fsc_rate_bg(tsize),           &
-           ssc_pool_bg(tsize),           &
-           ssc_rate_bg(tsize),           &
-           leaflitter_buffer_fast(tsize),  &
-           leaflitter_buffer_rate_fast(tsize), &
-           coarsewoodlitter_buffer_fast(tsize), &
-           coarsewoodlitter_buffer_rate_fast(tsize), &
-           leaflitter_buffer_slow(tsize),  &
-           leaflitter_buffer_rate_slow(tsize), &
-           coarsewoodlitter_buffer_slow(tsize), &
-           coarsewoodlitter_buffer_rate_slow(tsize), &
-           leaflitter_buffer_fast_N(tsize),  &
-           leaflitter_buffer_rate_fast_N(tsize), &
-           coarsewoodlitter_buffer_fast_N(tsize), &
-           coarsewoodlitter_buffer_rate_fast_N(tsize), &
-           leaflitter_buffer_slow_N(tsize),  &
-           leaflitter_buffer_rate_slow_N(tsize), &
-           coarsewoodlitter_buffer_slow_N(tsize), &
-           coarsewoodlitter_buffer_rate_slow_N(tsize), &
-           tc_av(tsize),                 &
-           theta_av_phen(tsize),         &
-           theta_av_fire(tsize),         &
-           psist_av(tsize),              &
-           tsoil_av(tsize),              &
-           precip_av(tsize),             &
-           lambda(tsize),                &
-           fuel(tsize),                  &
-           t_ann(tsize),                 &
-           t_cold(tsize),                &
-           p_ann(tsize),                 &
-           ncm(tsize),                   &
-           t_ann_acm(tsize),             &
-           t_cold_acm(tsize),            &
-           p_ann_acm(tsize),             &
-           ncm_acm(tsize),               &
-           csmoke_pool(tsize),           &
-           csmoke_rate(tsize),           &
-           harv_pool(tsize,N_HARV_POOLS),&
-           harv_rate(tsize,N_HARV_POOLS))
-
-
-  ! ** tile
-  call gather_tile_data(vegn_landuse_ptr,tidx,landuse)
-  id_restart = register_restart_field(vegn2_restart,fname,'landuse',landuse,&
-       longname='vegetation land use type', compressed_axis='C')
-  call gather_tile_data(vegn_age_ptr,tidx,age)
-  id_restart = register_restart_field(vegn2_restart,fname,'age',age,&
-       longname='vegetation age',units='yr', compressed_axis='C')
-
-
-  call gather_tile_data(vegn_fsc_pool_ag_ptr,tidx,fsc_pool_ag)
-  id_restart = register_restart_field(vegn2_restart,fname,'fsc_pool_ag',fsc_pool_ag,&
-       longname='intermediate pool for AG fast soil carbon input',units='kg C/m2', compressed_axis='C')
-  call gather_tile_data(vegn_fsc_rate_ag_ptr,tidx,fsc_rate_ag)
-  id_restart = register_restart_field(vegn2_restart,fname,'fsc_rate_ag',fsc_rate_ag,&
-       longname='conversion rate of AG fsc_pool to fast soil carbon',units='kg C/(m2 yr)', compressed_axis='C')
-  call gather_tile_data(vegn_ssc_pool_ag_ptr,tidx,ssc_pool_ag)
-  id_restart = register_restart_field(vegn2_restart,fname,'ssc_pool_ag',ssc_pool_ag,&
-       longname='intermediate pool for AG slow soil carbon input',units='kg C/m2', compressed_axis='C')
-  call gather_tile_data(vegn_ssc_rate_ag_ptr,tidx,ssc_rate_ag)
-  id_restart = register_restart_field(vegn2_restart,fname,'ssc_rate_ag',ssc_rate_ag,&
-       longname='conversion rate of AG ssc_pool to slow soil carbon',units='kg C/(m2 yr)', compressed_axis='C')
-
-  call gather_tile_data(vegn_fsc_pool_bg_ptr,tidx,fsc_pool_bg)
-  id_restart = register_restart_field(vegn2_restart,fname,'fsc_pool_bg',fsc_pool_bg,&
-       longname='intermediate pool for BG fast soil carbon input',units='kg C/m2', compressed_axis='C')
-  call gather_tile_data(vegn_fsc_rate_bg_ptr,tidx,fsc_rate_bg)
-  id_restart = register_restart_field(vegn2_restart,fname,'fsc_rate_bg',fsc_rate_bg,&
-       longname='conversion rate of BG fsc_pool to fast soil carbon',units='kg C/(m2 yr)', compressed_axis='C')
-  call gather_tile_data(vegn_ssc_pool_bg_ptr,tidx,ssc_pool_bg)
-  id_restart = register_restart_field(vegn2_restart,fname,'ssc_pool_bg',ssc_pool_bg,&
-       longname='intermediate pool for BG slow soil carbon input',units='kg C/m2', compressed_axis='C')
-  call gather_tile_data(vegn_ssc_rate_bg_ptr,tidx,ssc_rate_bg)
-  id_restart = register_restart_field(vegn2_restart,fname,'ssc_rate_bg',ssc_rate_bg,&
-       longname='conversion rate of BG ssc_pool to slow soil carbon',units='kg C/(m2 yr)', compressed_axis='C')
-
-  call gather_tile_data(vegn_leaflitter_buffer_fast_ptr,tidx,leaflitter_buffer_fast)
-  id_restart = register_restart_field(vegn2_restart,fname,'leaflitter_buffer_fast',leaflitter_buffer_fast,&
-       longname='intermediate pool for fast leaf litter carbon input',units='kg C/m2', compressed_axis='C')
-  call gather_tile_data(vegn_leaflitter_buffer_rate_fast_ptr,tidx,leaflitter_buffer_rate_fast)
-  id_restart = register_restart_field(vegn2_restart,fname,'leaflitter_buffer_rate_fast',leaflitter_buffer_rate_fast,&
-       longname='conversion rate of fast leaf litter to litter carbon pool',units='kg C/(m2 yr)', compressed_axis='C')
-  call gather_tile_data(vegn_coarsewoodlitter_buffer_fast_ptr,tidx,coarsewoodlitter_buffer_fast)
-  id_restart = register_restart_field(vegn2_restart,fname,'coarsewoodlitter_buffer_fast',coarsewoodlitter_buffer_fast,&
-       longname='intermediate pool for fast coarsewood litter carbon input',units='kg C/m2', compressed_axis='C')
-  call gather_tile_data(vegn_coarsewoodlitter_buffer_rate_fast_ptr,tidx,coarsewoodlitter_buffer_rate_fast)
-  id_restart = register_restart_field(vegn2_restart,fname,'coarsewoodlitter_buffer_rate_fast',coarsewoodlitter_buffer_rate_fast,&
-       longname='conversion rate of fast coarsewood litter to litter carbon pool',units='kg C/(m2 yr)', compressed_axis='C')
-   call gather_tile_data(vegn_leaflitter_buffer_slow_ptr,tidx,leaflitter_buffer_slow)
-   id_restart = register_restart_field(vegn2_restart,fname,'leaflitter_buffer_slow',leaflitter_buffer_slow,&
-        longname='intermediate pool for slow leaf litter carbon input',units='kg C/m2', compressed_axis='C')
-   call gather_tile_data(vegn_leaflitter_buffer_rate_slow_ptr,tidx,leaflitter_buffer_rate_slow)
-   id_restart = register_restart_field(vegn2_restart,fname,'leaflitter_buffer_rate_slow',leaflitter_buffer_rate_slow,&
-        longname='conversion rate of slow leaf litter to litter carbon pool',units='kg C/(m2 yr)', compressed_axis='C')
-   call gather_tile_data(vegn_coarsewoodlitter_buffer_slow_ptr,tidx,coarsewoodlitter_buffer_slow)
-   id_restart = register_restart_field(vegn2_restart,fname,'coarsewoodlitter_buffer_slow',coarsewoodlitter_buffer_slow,&
-        longname='intermediate pool for slow coarsewood litter carbon input',units='kg C/m2', compressed_axis='C')
-   call gather_tile_data(vegn_coarsewoodlitter_buffer_rate_slow_ptr,tidx,coarsewoodlitter_buffer_rate_slow)
-   id_restart = register_restart_field(vegn2_restart,fname,'coarsewoodlitter_buffer_rate_slow',coarsewoodlitter_buffer_rate_slow,&
-        longname='conversion rate of slow coarsewood litter to litter carbon pool',units='kg C/(m2 yr)', compressed_axis='C')
-
-        call gather_tile_data(vegn_leaflitter_buffer_fast_N_ptr,tidx,leaflitter_buffer_fast_N)
-        id_restart = register_restart_field(vegn2_restart,fname,'leaflitter_buffer_fast_N',leaflitter_buffer_fast_N,&
-             longname='intermediate pool for fast leaf litter nitrogen input',units='kg N/m2', compressed_axis='C')
-        call gather_tile_data(vegn_leaflitter_buffer_rate_fast_N_ptr,tidx,leaflitter_buffer_rate_fast_N)
-        id_restart = register_restart_field(vegn2_restart,fname,'leaflitter_buffer_rate_fast_N',leaflitter_buffer_rate_fast_N,&
-             longname='conversion rate of fast leaf litter to litter nitrogen pool',units='kg N/(m2 yr)', compressed_axis='C')
-        call gather_tile_data(vegn_coarsewoodlitter_buffer_fast_N_ptr,tidx,coarsewoodlitter_buffer_fast_N)
-        id_restart = register_restart_field(vegn2_restart,fname,'coarsewoodlitter_buffer_fast_N',coarsewoodlitter_buffer_fast_N,&
-             longname='intermediate pool for fast coarsewood litter nitrogen input',units='kg N/m2', compressed_axis='C')
-        call gather_tile_data(vegn_coarsewoodlitter_buffer_rate_fast_N_ptr,tidx,coarsewoodlitter_buffer_rate_fast_N)
-        id_restart = register_restart_field(vegn2_restart,fname,'coarsewoodlitter_buffer_rate_fast_N',coarsewoodlitter_buffer_rate_fast_N,&
-             longname='conversion rate of fast coarsewood litter to litter nitrogen pool',units='kg N/(m2 yr)', compressed_axis='C')
-         call gather_tile_data(vegn_leaflitter_buffer_slow_N_ptr,tidx,leaflitter_buffer_slow_N)
-         id_restart = register_restart_field(vegn2_restart,fname,'leaflitter_buffer_slow_N',leaflitter_buffer_slow_N,&
-              longname='intermediate pool for slow leaf litter nitrogen input',units='kg N/m2', compressed_axis='C')
-         call gather_tile_data(vegn_leaflitter_buffer_rate_slow_N_ptr,tidx,leaflitter_buffer_rate_slow_N)
-         id_restart = register_restart_field(vegn2_restart,fname,'leaflitter_buffer_rate_slow_N',leaflitter_buffer_rate_slow_N,&
-              longname='conversion rate of slow leaf litter to litter nitrogen pool',units='kg N/(m2 yr)', compressed_axis='C')
-         call gather_tile_data(vegn_coarsewoodlitter_buffer_slow_N_ptr,tidx,coarsewoodlitter_buffer_slow_N)
-         id_restart = register_restart_field(vegn2_restart,fname,'coarsewoodlitter_buffer_slow_N',coarsewoodlitter_buffer_slow_N,&
-              longname='intermediate pool for slow coarsewood litter nitrogen input',units='kg N/m2', compressed_axis='C')
-         call gather_tile_data(vegn_coarsewoodlitter_buffer_rate_slow_N_ptr,tidx,coarsewoodlitter_buffer_rate_slow_N)
-         id_restart = register_restart_field(vegn2_restart,fname,'coarsewoodlitter_buffer_rate_slow_N',coarsewoodlitter_buffer_rate_slow_N,&
-              longname='conversion rate of slow coarsewood litter to litter nitrogen pool',units='kg N/(m2 yr)', compressed_axis='C')
-
-  ! monthly-mean values
-  call gather_tile_data(vegn_tc_av_ptr,tidx,tc_av)
-  id_restart = register_restart_field(vegn2_restart,fname,'tc_av',tc_av,&
-       longname='average canopy air temperature',units='degK', compressed_axis='C')
-  call gather_tile_data(vegn_theta_av_phen_ptr,tidx,theta_av_phen)
-  id_restart = register_restart_field(vegn2_restart,fname,'theta_av_phen',theta_av_phen,&
-       longname='average soil moisture for phenology', compressed_axis='C')
-  call gather_tile_data(vegn_theta_av_fire_ptr,tidx,theta_av_fire)
-  id_restart = register_restart_field(vegn2_restart,fname,'theta_av_fire',theta_av_fire,&
-       longname='average soil moisture for fire', compressed_axis='C')
-  call gather_tile_data(vegn_psist_av_ptr,tidx,psist_av)
-  id_restart = register_restart_field(vegn2_restart,fname,'psist_av',psist_av,&
-       longname='average soil-water-stress index', compressed_axis='C')
-  call gather_tile_data(vegn_tsoil_av_ptr,tidx,tsoil_av)
-  id_restart = register_restart_field(vegn2_restart,fname,'tsoil_av',tsoil_av,&
-       longname='average bulk soil temperature for soil carbon',units='degK', compressed_axis='C')
-  call gather_tile_data(vegn_precip_av_ptr,tidx,precip_av)
-  id_restart = register_restart_field(vegn2_restart,fname,'precip_av',precip_av,&
-       longname='average total precipitation',units='kg/(m2 s)', compressed_axis='C')
-  call gather_tile_data(vegn_lambda_ptr,tidx,lambda)
-  id_restart = register_restart_field(vegn2_restart,fname,'lambda',lambda,&
-       longname='dryness parameter', compressed_axis='C')
-  call gather_tile_data(vegn_fuel_ptr,tidx,fuel)
-  id_restart = register_restart_field(vegn2_restart,fname,'fuel',fuel,&
-       longname='fuel density',units='kg C/m2', compressed_axis='C')
-
-  ! annual-mean values
-  call gather_tile_data(vegn_t_ann_ptr,tidx,t_ann)
-  id_restart = register_restart_field(vegn2_restart,fname,'t_ann',t_ann,&
-       longname='average annual canopy air temperature',units='degK', compressed_axis='C')
-  call gather_tile_data(vegn_t_cold_ptr,tidx,t_cold)
-  id_restart = register_restart_field(vegn2_restart,fname,'t_cold',t_cold,&
-       longname='average canopy air temperature of coldest month',units='degK', compressed_axis='C')
-  call gather_tile_data(vegn_p_ann_ptr,tidx,p_ann)
-  id_restart = register_restart_field(vegn2_restart,fname,'p_ann',p_ann,&
-       longname='average annual precipitation',units='kg/(m2 s)', compressed_axis='C')
-  call gather_tile_data(vegn_ncm_ptr,tidx,ncm)
-  id_restart = register_restart_field(vegn2_restart,fname,'ncm',ncm,&
-       longname='number of cold months', compressed_axis='C')
-
-  ! accumulated values for annual averaging
-  call gather_tile_data(vegn_t_ann_acm_ptr,tidx,t_ann_acm)
-  id_restart = register_restart_field(vegn2_restart,fname,'t_ann_acm',t_ann_acm,&
-       longname='accumulated annual canopy air temperature',units='degK', compressed_axis='C')
-  call gather_tile_data(vegn_t_cold_acm_ptr,tidx,t_cold_acm)
-  id_restart = register_restart_field(vegn2_restart,fname,'t_cold_acm',t_cold_acm,&
-       longname='accumulated temperature of coldest month',units='degK', compressed_axis='C')
-  call gather_tile_data(vegn_p_ann_acm_ptr,tidx,p_ann_acm)
-  id_restart = register_restart_field(vegn2_restart,fname,'p_ann_acm',p_ann_acm,&
-       longname='accumulated precipitation',units='kg/(m2 s)', compressed_axis='C')
-  call gather_tile_data(vegn_ncm_acm_ptr,tidx,ncm_acm)
-  id_restart = register_restart_field(vegn2_restart,fname,'ncm_acm',ncm_acm,&
-       longname='accumulated number of cold months', compressed_axis='C')
-
-  ! burned carbon pool and rate
-  call gather_tile_data(vegn_csmoke_pool_ptr,tidx,csmoke_pool)
-  id_restart = register_restart_field(vegn2_restart,fname,'csmoke_pool',csmoke_pool,&
-       longname='carbon lost through fires',units='kg C/m2', compressed_axis='C')
-  call gather_tile_data(vegn_csmoke_rate_ptr,tidx,csmoke_rate)
-  id_restart = register_restart_field(vegn2_restart,fname,'csmoke_rate',csmoke_rate,&
-       longname='rate of release of carbon lost through fires to the atmosphere',units='kg C/(m2 yr)', compressed_axis='C')
-
-  ! harvesting pools and rates
-  do i = 1, N_HARV_POOLS
-     call gather_tile_data(vegn_harv_pool_ptr,tidx,i,harv_pool(:,i))
-     id_restart = register_restart_field(vegn2_restart,fname,trim(HARV_POOL_NAMES(i))//'_harv_pool',harv_pool(:,i),&
-          longname='harvested carbon',units='kg C/m2', compressed_axis='C')
-     call gather_tile_data(vegn_harv_rate_ptr,tidx,i,harv_rate(:,i))
-     id_restart = register_restart_field(vegn2_restart,fname,trim(HARV_POOL_NAMES(i))//'_harv_rate',harv_rate(:,i),&
-          longname='rate of release of harvested carbon to the atmosphere',units='kg C/(m2 yr)', compressed_axis='C')
-  enddo
-
-  ! store global variables
-  ! find first tile and get n_accum and nmn_acm from it
-  n_accum = 0; nmn_acm = 0
-  ce = first_elmt(lnd%tile_map) ; te = tail_elmt(lnd%tile_map)
-  do while ( ce /= te )
-     tile => current_tile(ce) ; ce=next_elmt(ce)
-     if(associated(tile%vegn)) then
-        n_accum = tile%vegn%n_accum
-        nmn_acm = tile%vegn%nmn_acm
-     endif
-  enddo
-  ! n_accum and nmn_acm are currently the same for all tiles; we only call mpp_max
-  ! to handle the situation when there are no tiles in the current domain
-  call mpp_max(n_accum); call mpp_max(nmn_acm)
-  id_restart = register_restart_field(vegn2_restart,fname,'n_accum',n_accum,&
-       longname='number of accumulated steps')
-  id_restart = register_restart_field(vegn2_restart,fname,'nmn_acm',nmn_acm,&
-       longname='number of accumulated months')
-
-  call save_restart(vegn2_restart)
-
-  deallocate( cidx,&
-              tidx,&
-              species,     &
-              hite,        &
-              bl,          &
-              blv,         &
-              br,          &
-              bsw,         &
-              bwood,       &
-              bliving,     &
-              status,      &
-              max_live_biomass,&
-              root_exudate_buffer_C,&
-              myc_scavenger_biomass_C,&
-              myc_scavenger_biomass_N,&
-              myc_miner_biomass_C,&
-              myc_miner_biomass_N,&
-              N_fixer_biomass_C,&
-              N_fixer_biomass_N,&
-              leaf_age,    &
-              npp_prev_day,&
-              landuse,      &
-              age,          &
-              fsc_pool_ag,  &
-              fsc_rate_ag,  &
-              ssc_pool_ag,  &
-              ssc_rate_ag,  &
-              fsc_pool_bg,  &
-              fsc_rate_bg,  &
-              ssc_pool_bg,  &
-              ssc_rate_bg,  &
-              leaflitter_buffer_fast,  &
-              leaflitter_buffer_rate_fast, &
-              coarsewoodlitter_buffer_fast, &
-              coarsewoodlitter_buffer_rate_fast, &
-              leaflitter_buffer_slow,  &
-              leaflitter_buffer_rate_slow, &
-              coarsewoodlitter_buffer_slow, &
-              coarsewoodlitter_buffer_rate_slow, &
-              leaflitter_buffer_fast_N,  &
-              leaflitter_buffer_rate_fast_N, &
-              coarsewoodlitter_buffer_fast_N, &
-              coarsewoodlitter_buffer_rate_fast_N, &
-              leaflitter_buffer_slow_N,  &
-              leaflitter_buffer_rate_slow_N, &
-              coarsewoodlitter_buffer_slow_N, &
-              coarsewoodlitter_buffer_rate_slow_N, &
-              tc_av,        &
-              theta_av_phen,&
-              theta_av_fire,&
-              psist_av,     &
-              tsoil_av,     &
-              precip_av,    &
-              lambda,       &
-              fuel,         &
-              t_ann,        &
-              t_cold,       &
-              p_ann,        &
-              ncm,          &
-              t_ann_acm,    &
-              t_cold_acm,   &
-              p_ann_acm,    &
-              ncm_acm,      &
-              csmoke_pool,  &
-              csmoke_rate,  &
-              harv_pool,    &
-              harv_rate)
-  call free_restart_type(vegn2_restart)
-end subroutine save_vegn_restart_new
 
 ! ============================================================================
 subroutine vegn_get_cover(vegn, snow_depth, vegn_cover)
@@ -1830,9 +1047,9 @@ end subroutine vegn_get_cover
 
 
 ! ============================================================================
-subroutine vegn_diffusion ( vegn, vegn_cover, vegn_height, vegn_lai, vegn_sai, vegn_d_leaf)
+subroutine vegn_properties ( vegn, vegn_cover, vegn_height, vegn_lai, vegn_sai, vegn_d_leaf)
   type(vegn_tile_type), intent(in) :: vegn
-  real,                intent(out) :: &
+  real, intent(out) :: &
        vegn_cover, vegn_height, vegn_lai, vegn_sai, vegn_d_leaf
 
   vegn_cover  = vegn%cohorts(1)%cover
@@ -1841,7 +1058,7 @@ subroutine vegn_diffusion ( vegn, vegn_cover, vegn_height, vegn_lai, vegn_sai, v
   vegn_height = vegn%cohorts(1)%height
   vegn_d_leaf = vegn%cohorts(1)%leaf_size
 
-end subroutine vegn_diffusion
+end subroutine vegn_properties
 
 
 ! ============================================================================
@@ -2222,6 +1439,8 @@ subroutine vegn_step_2 ( vegn, diag, &
   call send_tile_data(id_leaf_emis, cohort%leaf_emis, diag)
   call send_tile_data(id_snow_crit, cohort%snow_crit, diag)
 
+  ! CMOR variables
+  call send_tile_data(id_lai_cmor, cohort%lai*100.0, diag)
 end subroutine vegn_step_2
 
 
@@ -2296,7 +1515,6 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
   vegn%n_accum   = vegn%n_accum+1
 
 
-
   call send_tile_data(id_theph, theta, diag)
   call send_tile_data(id_psiph, psist, diag)
   call send_tile_data(id_passive_N_uptake,soil%passive_N_uptake/dt_fast_yr,diag)
@@ -2330,16 +1548,16 @@ subroutine update_vegn_slow( )
   character(64) :: tag
 
   ! get components of calendar dates for this and previous time step
-  call get_date(land_time,             year0,month0,day0,hour,minute,second)
-  call get_date(land_time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
+  call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
+  call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
 
   if(month0 /= month1) then
      ! heartbeat
-     write(timestamp,'("Current date is ",i4.4,"-",i2.2,"-",i2.2)'),year0,month0,day0
+     write(timestamp,'("Current date is ",i4.4,"-",i2.2,"-",i2.2)')year0,month0,day0
      call error_mesg('update_vegn_slow',trim(timestamp),NOTE)
   endif
 
-  ce = first_elmt(lnd%tile_map, lnd%is, lnd%js) ; te = tail_elmt(lnd%tile_map)
+  ce = first_elmt(land_tile_map, lnd%is, lnd%js) ; te = tail_elmt(land_tile_map)
   do while ( ce /= te )
      call get_elmt_indices(ce,i,j,k) ; call set_current_point(i,j,k) ! this is for debug output only
      tile => current_tile(ce) ; ce=next_elmt(ce)
@@ -2459,11 +1677,11 @@ call check_conservation ('vegn_phenology','carbon'      , cmass0, cmass1, carbon
 
 cmass1 = land_tile_carbon(tile)
 call check_conservation ('vegn_disturbance','carbon'      , cmass0, cmass1, carbon_cons_tol)
+     call vegn_harvesting(tile%vegn, tile%soil, year0/=year1, month0/=month1, day0/=day1)
+
 
      if (year1 /= year0) then
-        call vegn_harvesting(tile%vegn)
-        tile%vegn%fsc_rate_ag = tile%vegn%fsc_pool_ag/fsc_pool_spending_time
-        tile%vegn%ssc_rate_ag = tile%vegn%ssc_pool_ag/ssc_pool_spending_time
+        ! update rates of carbon transfer from intermediate pools to soil and litter
         tile%vegn%fsc_rate_bg = tile%vegn%fsc_pool_bg/fsc_pool_spending_time
         tile%vegn%ssc_rate_bg = tile%vegn%ssc_pool_bg/ssc_pool_spending_time
 
@@ -2475,6 +1693,8 @@ call check_conservation ('vegn_disturbance','carbon'      , cmass0, cmass1, carb
         tile%vegn%coarsewoodlitter_buffer_rate_fast_N = tile%vegn%coarsewoodlitter_buffer_fast_N/fsc_pool_spending_time
         tile%vegn%leaflitter_buffer_rate_slow_N = tile%vegn%leaflitter_buffer_slow_N/ssc_pool_spending_time
         tile%vegn%coarsewoodlitter_buffer_rate_slow_N = tile%vegn%coarsewoodlitter_buffer_slow_N/ssc_pool_spending_time
+
+        ! update rates of harvest spending
         where(harvest_spending_time(:)>0)
            tile%vegn%harv_rate(:) = &
                 tile%vegn%harv_pool(:)/harvest_spending_time(:)
@@ -2496,6 +1716,7 @@ call check_conservation ('vegn_harvesting','carbon'      , cmass0, cmass1, carbo
         heat1  = land_tile_heat  (tile)
         cmass1 = land_tile_carbon(tile)
         nmass1 = land_tile_nitrogen(tile)
+
         call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol)
         call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
         call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
@@ -2518,19 +1739,15 @@ call check_conservation ('vegn_harvesting','carbon'      , cmass0, cmass1, carbo
         call send_tile_data(id_harv_pool(ii),tile%vegn%harv_pool(ii),tile%diag)
         call send_tile_data(id_harv_rate(ii),tile%vegn%harv_rate(ii),tile%diag)
      enddo
-     call send_tile_data(id_t_harv_pool,sum(tile%vegn%harv_pool(:)),tile%diag)
-     call send_tile_data(id_t_harv_rate,sum(tile%vegn%harv_rate(:)),tile%diag)
+     if (id_t_harv_pool>0) call send_tile_data(id_t_harv_pool,sum(tile%vegn%harv_pool(:)),tile%diag)
+     if (id_t_harv_rate>0) call send_tile_data(id_t_harv_rate,sum(tile%vegn%harv_rate(:)),tile%diag)
      call send_tile_data(id_csmoke_pool,tile%vegn%csmoke_pool,tile%diag)
      call send_tile_data(id_csmoke_rate,tile%vegn%csmoke_rate,tile%diag)
 
-     call send_tile_data(id_fsc_pool_ag,tile%vegn%fsc_pool_ag,tile%diag)
-     call send_tile_data(id_fsc_rate_ag,tile%vegn%fsc_rate_ag,tile%diag)
-     call send_tile_data(id_ssc_pool_ag,tile%vegn%ssc_pool_ag,tile%diag)
-     call send_tile_data(id_ssc_rate_ag,tile%vegn%ssc_rate_ag,tile%diag)
-     call send_tile_data(id_fsc_pool_bg,tile%vegn%fsc_pool_ag,tile%diag)
-     call send_tile_data(id_fsc_rate_bg,tile%vegn%fsc_rate_ag,tile%diag)
-     call send_tile_data(id_ssc_pool_bg,tile%vegn%ssc_pool_ag,tile%diag)
-     call send_tile_data(id_ssc_rate_bg,tile%vegn%ssc_rate_ag,tile%diag)
+     call send_tile_data(id_fsc_pool_bg,tile%vegn%fsc_pool_bg,tile%diag)
+     call send_tile_data(id_fsc_rate_bg,tile%vegn%fsc_rate_bg,tile%diag)
+     call send_tile_data(id_ssc_pool_bg,tile%vegn%ssc_pool_bg,tile%diag)
+     call send_tile_data(id_ssc_rate_bg,tile%vegn%ssc_rate_bg,tile%diag)
 
      call send_tile_data(id_leaflitter_buffer_fast,tile%vegn%leaflitter_buffer_fast,tile%diag)
      call send_tile_data(id_leaflitter_buffer_rate_fast,tile%vegn%leaflitter_buffer_rate_fast,tile%diag)
@@ -2588,6 +1805,34 @@ call check_conservation ('vegn_harvesting','carbon'      , cmass0, cmass1, carbo
      call send_tile_data(id_deadmic_out, tile%vegn%deadmic_out, tile%diag)
      call send_tile_data(id_veg_in,  tile%vegn%veg_in,  tile%diag)
      call send_tile_data(id_veg_out, tile%vegn%veg_out, tile%diag)
+
+     ! CMOR variables
+     if(id_btot_cmor>0) call send_tile_data(id_btot_cmor, &
+                   sum(tile%vegn%cohorts(1:n)%bl    &
+                      +tile%vegn%cohorts(1:n)%blv   &
+                      +tile%vegn%cohorts(1:n)%br    &
+                      +tile%vegn%cohorts(1:n)%bsw   &
+                      +tile%vegn%cohorts(1:n)%bwood ), tile%diag)
+     if (id_cproduct>0) call send_tile_data(id_cproduct,&
+                   sum(tile%vegn%harv_pool(:)), tile%diag)
+     call send_tile_data(id_fFire, tile%vegn%csmoke_rate/seconds_per_year, tile%diag)
+     call send_tile_data(id_fGrazing, tile%vegn%harv_rate(HARV_POOL_PAST)/seconds_per_year, tile%diag)
+     call send_tile_data(id_fHarvest, tile%vegn%harv_rate(HARV_POOL_CROP)/seconds_per_year, tile%diag)
+     call send_tile_data(id_fHarvest, &
+         (tile%vegn%harv_rate(HARV_POOL_CLEARED) &
+         +tile%vegn%harv_rate(HARV_POOL_WOOD_FAST) &
+         +tile%vegn%harv_rate(HARV_POOL_WOOD_MED) &
+         +tile%vegn%harv_rate(HARV_POOL_WOOD_SLOW) &
+         )/seconds_per_year, tile%diag)
+     if (id_cLeaf>0) call send_tile_data(id_cLeaf, sum(tile%vegn%cohorts(1:n)%bl), tile%diag)
+     if (id_cWood>0) call send_tile_data(id_cWood, &
+         (sum(tile%vegn%cohorts(1:n)%bwood)+sum(tile%vegn%cohorts(1:n)%bsw))*agf_bs, tile%diag)
+     if (id_cRoot>0) call send_tile_data(id_cRoot, &
+         (sum(tile%vegn%cohorts(1:n)%bwood)+sum(tile%vegn%cohorts(1:n)%bsw))*(1-agf_bs) &
+            +sum(tile%vegn%cohorts(1:n)%br), &
+         tile%diag)
+     if (id_cMisc>0) call send_tile_data(id_cMisc, sum(tile%vegn%cohorts(1:n)%blv), tile%diag)
+
      ! ---- end of diagnostic section
 
      ! reset averages and number of steps to 0 before the start of new month
@@ -2607,13 +1852,15 @@ call check_conservation ('vegn_harvesting','carbon'      , cmass0, cmass1, carbo
         tile%vegn%fuel       = 0
      endif
 
-     !Knock soil carbon cohorts down to their maximum number
-     call cull_cohorts(tile%soil%leafLitter)
-     call cull_cohorts(tile%soil%fineWoodLitter)
-     call cull_cohorts(tile%soil%coarseWoodLitter)
-     do ii=1,size(tile%soil%soil_organic_matter)
-           call cull_cohorts(tile%soil%soil_organic_matter(ii))
-     enddo
+     if(soil_carbon_option==SOILC_CORPSE .OR. soil_carbon_option==SOILC_CORPSE_N) then
+        !Knock soil carbon cohorts down to their maximum number
+        call cull_cohorts(tile%soil%leafLitter)
+        call cull_cohorts(tile%soil%fineWoodLitter)
+        call cull_cohorts(tile%soil%coarseWoodLitter)
+        do ii=1,size(tile%soil%soil_organic_matter)
+              call cull_cohorts(tile%soil%soil_organic_matter(ii))
+        enddo
+     endif
   enddo
 
   ! seed transport
@@ -2623,7 +1870,7 @@ call check_conservation ('vegn_harvesting','carbon'      , cmass0, cmass1, carbo
 
   ! override with static vegetation
   if(day1/=day0) &
-       call  read_static_vegn(land_time)
+       call  read_static_vegn(lnd%time)
 end subroutine update_vegn_slow
 
 
@@ -2639,7 +1886,7 @@ subroutine vegn_seed_transport()
   real :: f_supply ! fraction of the supply that gets spent
   real :: f_demand ! fraction of the demand that gets satisfied
 
-  ce = first_elmt(lnd%tile_map, lnd%is, lnd%js) ; te = tail_elmt(lnd%tile_map)
+  ce = first_elmt(land_tile_map, lnd%is, lnd%js) ; te = tail_elmt(land_tile_map)
   total_seed_supply = 0.0; total_seed_demand = 0.0
   do while ( ce /= te )
      call get_elmt_indices(ce,i,j)
@@ -2667,7 +1914,7 @@ subroutine vegn_seed_transport()
 
   ! redistribute part (or possibly all) of the supply to satisfy part (or possibly all)
   ! of the demand
-  ce = first_elmt(lnd%tile_map) ; te = tail_elmt(lnd%tile_map)
+  ce = first_elmt(land_tile_map) ; te = tail_elmt(land_tile_map)
   do while ( ce /= te )
      call get_elmt_indices(ce,i,j)
      tile => current_tile(ce) ; ce=next_elmt(ce)
@@ -2692,27 +1939,32 @@ end function vegn_tile_exists
 ! cohort accessor functions: given a pointer to cohort, return a pointer to a
 ! specific member of the cohort structure
 #define DEFINE_VEGN_ACCESSOR_0D(xtype,x) subroutine vegn_ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%vegn))p=>t%vegn%x;endif;end subroutine
+type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%vegn))p=>t%vegn%x;endif;\
+end subroutine
 
-#define DEFINE_VEGN_ACCESSOR_1D(xtype,x) subroutine vegn_ ## x ## _ptr(t,p);\
-type(land_tile_type),pointer::t;xtype,pointer::p(:);p=>NULL();if(associated(t))then;if(associated(t%vegn))p=>t%vegn%x;endif;end subroutine
+#define DEFINE_VEGN_ACCESSOR_1D(xtype,x) subroutine vegn_ ## x ## _ptr(t,i,p);\
+type(land_tile_type),pointer::t;integer,intent(in)::i;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%vegn))p=>t%vegn%x(i);endif;\
+end subroutine
 
 #define DEFINE_COHORT_ACCESSOR(xtype,x) subroutine cohort_ ## x ## _ptr(c,p);\
-type(vegn_cohort_type),pointer::c;xtype,pointer::p;p=>NULL();if(associated(c))p=>c%x;end subroutine
+type(vegn_cohort_type),pointer::c;xtype,pointer::p;p=>NULL();if(associated(c))p=>c%x;\
+end subroutine
 
 #define DEFINE_COHORT_COMPONENT_ACCESSOR(xtype,component,x) subroutine cohort_ ## x ## _ptr(c,p);\
-type(vegn_cohort_type),pointer::c;xtype,pointer::p;p=>NULL();if(associated(c))p=>c%component%x;end subroutine
+type(vegn_cohort_type),pointer::c;xtype,pointer::p;p=>NULL();if(associated(c))p=>c%component%x;\
+end subroutine
 
 DEFINE_VEGN_ACCESSOR_0D(integer,landuse)
 DEFINE_VEGN_ACCESSOR_0D(real,age)
-DEFINE_VEGN_ACCESSOR_0D(real,fsc_pool_ag)
-DEFINE_VEGN_ACCESSOR_0D(real,fsc_rate_ag)
-DEFINE_VEGN_ACCESSOR_0D(real,ssc_pool_ag)
-DEFINE_VEGN_ACCESSOR_0D(real,ssc_rate_ag)
 DEFINE_VEGN_ACCESSOR_0D(real,fsc_pool_bg)
 DEFINE_VEGN_ACCESSOR_0D(real,fsc_rate_bg)
 DEFINE_VEGN_ACCESSOR_0D(real,ssc_pool_bg)
 DEFINE_VEGN_ACCESSOR_0D(real,ssc_rate_bg)
+
+DEFINE_VEGN_ACCESSOR_0D(real,fsn_pool_bg)
+DEFINE_VEGN_ACCESSOR_0D(real,fsn_rate_bg)
+DEFINE_VEGN_ACCESSOR_0D(real,ssn_pool_bg)
+DEFINE_VEGN_ACCESSOR_0D(real,ssn_rate_bg)
 
 DEFINE_VEGN_ACCESSOR_0D(real,leaflitter_buffer_fast)
 DEFINE_VEGN_ACCESSOR_0D(real,leaflitter_buffer_rate_fast)
