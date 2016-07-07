@@ -11,7 +11,7 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use fms_mod, only: error_mesg, file_exist, check_nml_error, &
+use fms_mod, only: error_mesg, string, file_exist, check_nml_error, &
      stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, WARNING, NOTE
 use fms_io_mod, only: set_domain, nullify_domain
 use time_manager_mod,   only: time_type, time_type_to_real
@@ -68,7 +68,7 @@ use vegn_cohort_mod, only : vegn_cohort_type, &
 
 use vegn_tile_mod, only : vegn_tile_type, vegn_tile_bwood
 use land_debug_mod, only : is_watch_point, is_watch_cell, get_current_point, &
-     set_current_point, check_var_range, check_conservation
+     set_current_point, check_var_range, check_conservation, land_error_message
 use uptake_mod, only : uptake_init, &
      uptake_option, UPTAKE_LINEAR, UPTAKE_DARCY2D, UPTAKE_DARCY2D_LIN, &
      darcy2d_uptake, darcy2d_uptake_solver
@@ -273,6 +273,7 @@ integer, dimension(N_C_TYPES) :: &
 integer, dimension(N_LITTER_POOLS,N_C_TYPES) :: &
     id_litter_C, id_litter_N, id_litter_dissolved_C, id_litter_dissolved_N, &
     id_litter_protected_C, id_litter_protected_N, &
+    id_litter_rsoil_C,     id_litter_rsoil_N, &
     id_litter_C_leaching !, id_litter_N_leaching
 
 ! FIXME: add N leaching terms to diagnostics?
@@ -990,6 +991,8 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
        axes(1:2), lnd%time, '<ctype> <ltype> litter protected carbon', 'kg C/m2', missing_value=-100.0 )
   id_litter_C_leaching(:,:) = register_litter_soilc_diag_fields ( module_name, '<ctype>_<ltype>litter_C_leaching', &
        axes(1:2), lnd%time, '<ltype> litter <ctype> C leaching','kg/(m2 s)', missing_value=-100.0)
+  id_litter_rsoil_C(:,:) = register_litter_soilc_diag_fields ( module_name, 'rsoil_<ltype>litter_<ctype>',  &
+       axes(1:2), lnd%time, 'surface <ltype> litter <ctype> carbon degradation', 'kg C/(m2 year)', missing_value=-100.0 )
   id_litter_livemic_C(:) = register_litter_diag_fields ( module_name, '<ltype>litter_live_microbe_C', &
        axes(1:2),  lnd%time, 'live microbe <ltype> litter carbon', 'kg C/m2', missing_value=-100.0 )
   id_litter_total_C(:) = register_litter_diag_fields ( module_name, '<ltype>litter_total_C', &
@@ -1003,6 +1006,8 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
        axes(1:2), lnd%time, '<ctype> <ltype> litter dissolved nitrogen', 'kg N/m2', missing_value=-100.0 )
   id_litter_protected_N(:,:) = register_litter_soilc_diag_fields ( module_name, '<ctype>_<ltype>litter_protected_N', &
        axes(1:2), lnd%time, '<ctype> <ltype> litter protected nitrogen', 'kg N/m2', missing_value=-100.0 )
+  id_litter_rsoil_N(:,:) = register_litter_soilc_diag_fields ( module_name, 'rsoil_<ltype>litter_<ctype>_N',  &
+       axes(1:2), lnd%time, 'surface <ltype> litter <ctype> nitrogen degradation', 'kg N/(m2 year)', missing_value=-100.0 )
 !  id_litter_N_leaching(:,:) = register_litter_soilc_diag_fields ( module_name, '<ctype>_<ltype>litter_N_leaching', &
 !       axes(1:2), lnd%time, '<ltype> litter <ctype> N leaching','kg/(m2 s)', missing_value=-100.0)
   id_litter_livemic_N(:) = register_litter_diag_fields ( module_name, '<ltype>litter_live_microbe_N', &
@@ -3013,16 +3018,20 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
             nitrification=leaflitter_nitrif, denitrification=leaflitter_denitrif,&
             N_mineralization=leaflitter_N_mineralization, N_immobilization=leafLitter_N_immobilization)
      IF (badCohort.ne.0) THEN
-        call get_current_point(point_i,point_j,point_k,point_face)
-        WRITE (*,*), 'Found bad cohort in leaf litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
         WRITE (*,*), 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
-        call error_mesg('Dsdt','Found bad cohort in leaf litter',FATAL)
+        call land_error_message('Dsdt: Found bad cohort in '//trim(l_longname(k))//' litter.',FATAL)
      ENDIF  
      vegn%rh=vegn%rh + CO2prod/dt_fast_yr ! accumulate loss of C to atmosphere
+     ! NOTE that the first layer of C_loss_rate and N_loss_rate are used as buffers 
+     ! for litter diagnostic output.
      do i = 1, N_C_TYPES
-!        FIXME: put it back
-!        call send_tile_data(id_rsoil_litter(k,i), C_loss_rate(i,1), diag)
+        call send_tile_data(id_litter_rsoil_C(k,i), C_loss_rate(i,1), diag)
+        call send_tile_data(id_litter_rsoil_N(k,i), N_loss_rate(i,1), diag)
      enddo
+     ! for budget check
+     vegn%fsc_out     = vegn%fsc_out     + C_loss_rate(C_FAST,1)*dt_fast_yr
+     vegn%ssc_out     = vegn%ssc_out     + C_loss_rate(C_SLOW,1)*dt_fast_yr
+     vegn%deadmic_out = vegn%deadmic_out + C_loss_rate(C_MIC,1) *dt_fast_yr
   enddo
 
   ! Next we have to go through layers and decompose the soil carbon pools
@@ -3038,10 +3047,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
                 nitrification=soil_nitrif(k),denitrification=soil_denitrif(k),&
                 N_mineralization=soil_N_mineralization(k),N_immobilization=soil_N_immobilization(k))
     IF (badCohort.ne.0) THEN
-        call get_current_point(point_i,point_j,point_k,point_face)
-        WRITE (*,*), 'Found bad cohort in layer',k,'Point i,j,k,face:',point_i,point_j,point_k,point_face
         WRITE (*,*), 'T=',decomp_T(k),'theta=',decomp_theta(k),'dt=',dt_fast_yr
-        call error_mesg('Dsdt','Found bad cohort',FATAL)
+        call land_error_message('Dsdt: Found bad cohort in layer'//trim(string(k))//' of soil carbon.',FATAL)
     ENDIF
 
     vegn%rh=vegn%rh + CO2prod/dt_fast_yr ! accumulate loss of C to atmosphere
@@ -3050,12 +3057,10 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
      call send_tile_data(id_rsoil_C(i), C_loss_rate(i,:)/dz(1:num_l), diag)
      call send_tile_data(id_rsoil_N(i), N_loss_rate(i,:)/dz(1:num_l), diag)
   enddo
-
   ! for budget check
-!   FIXME: put it back
-!   vegn%fsc_out = vegn%fsc_out + (sum(fast_C_loss_rate(:)) + leaflitter_fast_C_loss_rate + finewoodlitter_fast_C_loss_rate + coarsewoodlitter_fast_C_loss_rate)*dt_fast_yr
-!   vegn%ssc_out = vegn%ssc_out + (sum(slow_C_loss_rate(:)) + leaflitter_slow_C_loss_rate + finewoodlitter_slow_C_loss_rate + coarsewoodlitter_slow_C_loss_rate)*dt_fast_yr;
-!   vegn%deadmic_out = vegn%deadmic_out + (sum(dead_microbe_C_loss_rate(:)) + leaflitter_deadmic_C_loss_rate + coarsewoodlitter_deadmic_C_loss_rate + finewoodlitter_deadmic_C_loss_rate)*dt_fast_yr
+  vegn%fsc_out     = vegn%fsc_out     + sum(C_loss_rate(C_FAST,:))*dt_fast_yr
+  vegn%ssc_out     = vegn%ssc_out     + sum(C_loss_rate(C_SLOW,:))*dt_fast_yr
+  vegn%deadmic_out = vegn%deadmic_out + sum(C_loss_rate(C_MIC,:)) *dt_fast_yr
   
 
   ! accumulate decomposition rate reduction for the soil carbon restart output
