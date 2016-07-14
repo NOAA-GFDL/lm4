@@ -23,7 +23,8 @@ use fms_mod, only: error_mesg, FATAL
 use time_manager_mod, only : time_type, time_type_to_real
 use land_tile_diag_mod, only : diag_buff_type, register_tiled_diag_field, &
      send_tile_data, set_default_diag_filter
-use soil_carbon_mod, only : retrieve_DOC
+use soil_carbon_mod, only : retrieve_DOC, retrieve_DON, retrieve_dissolved_mineral_N
+
 
 implicit none
 private
@@ -49,8 +50,12 @@ integer :: id_gdiv, & !  groundwater divergence (excl. to stream) (mm/s)
            id_ghdiv   !  heat flux associated with groundwater divergence (excl. to stream) (W/m^2)
 integer :: id_gtos, & !  groundwater divergence from tile to stream (mm/s)
            id_gtosh   !  heat flux associated with groundwater divergence to stream (W/m^2)
-integer :: id_gtdiv, & ! tracer flux associated with groundwater divergence (excl. to stream) (kg C/m^2/s)
-           id_gtost    ! tracer flux from tile to stream (kg C/m^2/s)
+integer :: id_gDOCdiv, & ! tracer flux associated with groundwater divergence (excl. to stream) (kg C/m^2/s)
+           id_gtosDOC  ! tracer flux from tile to stream (kg C/m^2/s)
+integer :: id_gDONdiv, & ! tracer flux associated with groundwater divergence (excl. to stream) (kg N/m^2/s)
+           id_gtosDON  ! tracer flux from tile to stream (kg N/m^2/s)
+integer :: id_gNO3div, id_gNH4div, & ! tracer flux associated with groundwater divergence (excl. to stream) (kg N/m^2/s)
+          id_gtosNO3, id_gtosNH4  ! tracer flux from tile to stream (kg N/m^2/s)
 
 ! ==== module variables ======================================================
 logical :: module_is_initialized =.FALSE.
@@ -178,7 +183,12 @@ subroutine hlsp_hydrology_1(num_species)
        ground_to_stream_heat ! groundwater runoff heat directly to stream (W/m^2)
 
    real, dimension(lnd%is:lnd%ie,lnd%js:lnd%je,num_species) :: &
-       ground_to_stream_tracers ! groundwater runoff tracers directly to stream (1/m/s)
+       ground_to_stream_DOC, & ! groundwater runoff tracers directly to stream (1/m/s)
+       ground_to_stream_DON
+
+   real, dimension(lnd%is:lnd%ie,lnd%js:lnd%je) :: &
+        ground_to_stream_NO3, &  ! groundwater runoff NO3 directly to stream (1/m/s)
+        ground_to_stream_NH4     ! groundwater runoff NH4 directly to stream (1/m/s)
 
    integer ::     j,i,l,k,s
    type(land_tile_type), pointer :: tile, tile2 ! pointers to tile list elements
@@ -199,13 +209,27 @@ subroutine hlsp_hydrology_1(num_species)
    real    ::     hdiv_above(1:num_l)  ! running sum of contributing tile energy flux (W/m^2)
    real    ::     hdiv_level(1:num_l)  ! running sum of tile energy flux from same hillslope level (W/m^2)
    real    ::     hdiv_below(1:num_l)  ! running sum of tile energy flux downslope  (W/m^2) (+ out of tile)
-   real    ::     tdiv_above(1:num_l,1:num_species) ! running sum of contributing tile tracer flux (1/m^2/s)
-   real    ::     tdiv_level(1:num_l,1:num_species) ! running sum of tile tracer flux from same hillslope
+   real    ::     DOCdiv_above(1:num_l,1:num_species) ! running sum of contributing tile tracer flux (1/m^2/s)
+   real    ::     DOCdiv_level(1:num_l,1:num_species) ! running sum of tile tracer flux from same hillslope
                                                     ! level (1/m^2/s)
-   real    ::     tdiv_below(1:num_l,1:num_species) ! running sum of tile tracer flux downslope (1/m^2/s)
+   real    ::     DOCdiv_below(1:num_l,1:num_species) ! running sum of tile tracer flux downslope (1/m^2/s)
+   real    ::     DONdiv_above(1:num_l,1:num_species) ! running sum of contributing tile tracer flux (1/m^2/s)
+   real    ::     DONdiv_level(1:num_l,1:num_species) ! running sum of tile tracer flux from same hillslope
+                                                 ! level (1/m^2/s)
+   real    ::     DONdiv_below(1:num_l,1:num_species) ! running sum of tile tracer flux downslope (1/m^2/s)
+   real    ::     NO3div_above(1:num_l)
+   real    ::     NO3div_level(1:num_l)
+   real    ::     NO3div_below(1:num_l)
+   real    ::     NH4div_above(1:num_l)
+   real    ::     NH4div_level(1:num_l)
+   real    ::     NH4div_below(1:num_l)
+
    real    ::     wbal        ! total water for balance check (mm/s)
    real    ::     ebal        ! total energy for balance check (W/m^2)
-   real    ::     tbal(1:num_species)  ! total tracer for balance check (1/m^2/s)
+   real    ::     DOCbal(1:num_species)  ! total tracer for balance check (1/m^2/s)
+   real    ::     DONbal(1:num_species)  ! total tracer for balance check (1/m^2/s)
+   real    ::     NO3bal      ! total tracer for balance check (1/m^2/s)
+   real    ::     NH4bal      ! total tracer for balance check (1/m^2/s)
    real    ::     k_hat       ! effective hydraulic conductivity between tiles for layer (mm/s)
    real    ::     ks          ! factor for limiting penetration of stream (-)
    real    ::     L_hat       ! mean hillslope length (m), possibly corrected for aspect
@@ -216,12 +240,12 @@ subroutine hlsp_hydrology_1(num_species)
    real    ::     deltapsi    ! Absolute difference in hydraulic head for tile 1 - tile 2 (m)
    real    ::     wflux       ! water flux, temporary (mm/s)
    real    ::     eflux       ! energy flux, temproary (W/m^2)
-   real    ::     tflux(num_species) ! tracer flux, temporary (1/m^2/s)
+   real    ::     docflux(num_species),donflux(num_species),NO3flux,NH4flux ! tracer flux, temporary (1/m^2/s)
    real    ::     delta_h     ! elevation difference between tile 1 and 2 (m)
    real    ::     y           ! disturbance lengthscale (m)
    real, parameter :: wthresh = 1.e-14 ! water balance error threshold (mm/s)
    real, parameter :: ethresh = 1.e-8  ! energy balance error threshold (W/m^2)
-   real, parameter :: tthresh = 1.e-13 ! carbon balance error threshold (kg C/m^2/s)
+   real, parameter :: tthresh = 1.e-13 ! carbon, nitrogen balance error threshold (kg C/m^2/s)
    real    ::     frl         ! flow ratio limit: maximum ratio of head difference to length
                               ! allowed when limiting intertile flows
 
@@ -239,11 +263,18 @@ subroutine hlsp_hydrology_1(num_species)
                                                      ! dimension (tiles, num_l)
    real, allocatable :: gtosh_bytile(:,:) ! [W/m^2] gwater heat to stream
                                                      ! dimension (tiles, num_l)
-   real, allocatable :: gtost_bytile(:,:,:) ! [1/m^2/s] gwater tracers to stream
+   real, allocatable :: gtosDOC_bytile(:,:,:) ! [1/m^2/s] gwater DOC to stream
                                                      ! dimension (tiles, num_l, num_species)
-   real, dimension(num_l) :: gtdiv, gtost ! [1/m^2/s] gwater tracer divergence, and div to stream, summed
+   real, allocatable :: gtosDON_bytile(:,:,:) ! [1/m^2/s] gwater DON to stream
+   real, allocatable :: gtosNO3_bytile(:,:) ! [1/m^2/s] gwater NO3 to stream
+                                                     ! dimension (tiles, num_l)
+   real, allocatable :: gtosNH4_bytile(:,:) ! [1/m^2/s] gwater heat to stream
+                                                   ! dimension (tiles, num_l)
+   real, dimension(num_l) :: gDOCdiv, gtosDOC, gDONdiv, gtosDON ! [1/m^2/s] gwater tracer divergence, and div to stream, summed
    integer :: numtiles ! number of tiles in gridcell
    real, dimension(num_species, num_l) :: DOC, DOC2  ! [kg C/m^2] dissolved carbon in tile1 & tile2
+   real, dimension(num_species, num_l) :: DON, DON2  ! [kg N/m^2] dissolved organic nitrogen in tile1 and tile2
+   real, dimension(num_l)              :: ammonium, ammonium2, nitrate, nitrate2  ! [kg N/m^2] dissolved NH4 and NO3 in tile1 and til2
    real, parameter   :: minwl = 0.1 ! mm
    character(len=64) :: speciesname
 
@@ -302,7 +333,10 @@ subroutine hlsp_hydrology_1(num_species)
          ! Initialize for gridcell
          ground_to_stream(i,j) = 0.
          ground_to_stream_heat(i,j) = 0.
-         ground_to_stream_tracers(i,j,:) = 0.
+         ground_to_stream_DOC(i,j,:) = 0.
+         ground_to_stream_DON(i,j,:) = 0.
+         ground_to_stream_NO3(i,j) = 0.
+         ground_to_stream_NH4(i,j) = 0.
          ! ZMS Add diagnostic for hillslope-specific streamflow?
 !         area_stream = 0.
 
@@ -313,10 +347,14 @@ subroutine hlsp_hydrology_1(num_species)
          ! Allocate and initialize gtos_bytile
          numtiles = nitems(land_tile_map(i,j))
          allocate(gtos_bytile(numtiles, num_l), gtosh_bytile(numtiles, num_l), &
-             gtost_bytile(numtiles, num_l, num_species) )
+             gtosDOC_bytile(numtiles, num_l, num_species),gtosDON_bytile(numtiles, num_l, num_species), &
+             gtosNO3_bytile(numtiles,num_l), gtosNH4_bytile(numtiles,num_l) )
          gtos_bytile(:,:) = 0.
          gtosh_bytile(:,:) = 0.
-         gtost_bytile(:,:,:) = 0.
+         gtosDOC_bytile(:,:,:) = 0.
+         gtosDON_bytile(:,:,:) = 0.
+         gtosNO3_bytile(:,:) = 0.
+         gtosNH4_bytile(:,:) = 0.
          
          do while(ce /= te)
             tile=>current_tile(ce)  ! get pointer to current tile
@@ -350,9 +388,18 @@ subroutine hlsp_hydrology_1(num_species)
             hdiv_above(:) = 0.
             hdiv_level(:) = 0.
             hdiv_below(:) = 0.
-            tdiv_above(:,:) = 0.
-            tdiv_level(:,:) = 0.
-            tdiv_below(:,:) = 0.
+            DOCdiv_above(:,:) = 0.
+            DOCdiv_level(:,:) = 0.
+            DOCdiv_below(:,:) = 0.
+            DONdiv_above(:,:) = 0.
+            DONdiv_level(:,:) = 0.
+            DONdiv_below(:,:) = 0.
+            NO3div_above(:)  = 0.
+            NO3div_level(:)  = 0.
+            NO3div_below(:)  = 0.
+            NH4div_above(:)  = 0.
+            NH4div_level(:)  = 0.
+            NH4div_below(:)  = 0.
 
             ! Get pointer to second tile list
             ce2 = first_elmt(land_tile_map(i,j))
@@ -399,6 +446,12 @@ subroutine hlsp_hydrology_1(num_species)
                      if (tiled_DOC_flux) then
                         call retrieve_DOC(soil%soil_organic_matter, DOC, num_l)
                         call retrieve_DOC(soil2%soil_organic_matter, DOC2, num_l)
+
+                        ! These should always be zero if soil_carbon_option is not SOILC_CORPSE_N
+                        call retrieve_DON(soil%soil_organic_matter, DON, num_l)
+                        call retrieve_DON(soil2%soil_organic_matter, DON2, num_l)
+                        call retrieve_dissolved_mineral_N(soil%soil_organic_matter,nitrate,ammonium,num_l)
+                        call retrieve_dissolved_mineral_N(soil2%soil_organic_matter,nitrate2,ammonium2,num_l)
                      end if
 
                      ! Loop over vertical layers
@@ -444,18 +497,34 @@ subroutine hlsp_hydrology_1(num_species)
 
                         ! Tracer flux
                         if (tiled_DOC_flux) then
-                           do s=1,num_species
-                              if (wflux < 0.) then ! water flowing into tile: tracers advected in
-                                 tflux(s) = wflux * DOC2(s,l) / max(soil2%wl(l), minwl)
-                              else                 ! water flowing out of tile: tracers advected out
-                                 tflux(s) = wflux * DOC(s,l) / max(soil%wl(l), minwl)
-                              end if
-                           end do
+
+                          if (wflux < 0.) then ! water flowing into tile: tracers advected in
+                              do s=1,num_species
+                                 docflux(s) = wflux * DOC2(s,l) / max(soil2%wl(l), minwl)
+                                 donflux(s) = wflux * DON2(s,l) / max(soil2%wl(l), minwl)
+                              end do
+                              NO3flux = wflux * nitrate2(l)/max(soil2%wl(l), minwl)
+                              NH4flux = wflux * ammonium2(l)/max(soil2%wl(l), minwl)
+                          else                 ! water flowing out of tile: tracers advected out
+                              do s=1,num_species
+                                  docflux(s) = wflux * DOC(s,l) / max(soil%wl(l), minwl)
+                                  donflux(s) = wflux * DON(s,l) / max(soil%wl(l), minwl)
+                              end do
+                              NO3flux = wflux * nitrate(l) / max(soil%wl(l), minwl)
+                              NH4flux = wflux * ammonium(l) / max(soil%wl(l), minwl)
+                          end if
+
                            ! Update fluxes
                            if (soil%hidx_j == soil2%hidx_j - 1) then ! tile2 above tile
-                              tdiv_above(l,:) = tdiv_above(l,:) + tflux(:)
+                              docdiv_above(l,:) = docdiv_above(l,:) + docflux(:)
+                              dondiv_above(l,:) = dondiv_above(l,:) + donflux(:)
+                              NO3div_above(l) = NO3div_above(l) + NO3flux
+                              NH4div_above(l) = NH4div_above(l) + NH4flux
                            else ! tile2 below tile
-                              tdiv_below(l,:) = tdiv_below(l,:) + tflux(:)
+                              docdiv_below(l,:) = docdiv_below(l,:) + docflux(:)
+                              dondiv_below(l,:) = dondiv_below(l,:) + donflux(:)
+                              NO3div_below(l) = NO3div_below(l) + NO3flux
+                              NH4div_below(l) = NH4div_below(l) + NH4flux
                            end if
                         end if
                         
@@ -486,6 +555,10 @@ subroutine hlsp_hydrology_1(num_species)
                      if (tiled_DOC_flux) then
                         call retrieve_DOC(soil%soil_organic_matter, DOC, num_l)
                         call retrieve_DOC(soil2%soil_organic_matter, DOC2, num_l)
+                        call retrieve_DON(soil%soil_organic_matter, DON, num_l)
+                        call retrieve_DON(soil%soil_organic_matter, DON2, num_l)
+                        call retrieve_dissolved_mineral_N(soil%soil_organic_matter,nitrate,ammonium,num_l)
+                        call retrieve_dissolved_mineral_N(soil%soil_organic_matter,nitrate2,ammonium2,num_l)
                      end if
                      
                      ! Loop over vertical layers
@@ -523,15 +596,27 @@ subroutine hlsp_hydrology_1(num_species)
                         hdiv_level(l) = hdiv_level(l) + eflux
 
                         if (tiled_DOC_flux) then
-                           do s=1,num_species
-                              if (wflux < 0.) then ! water flowing into tile: tracers advected in
-                                 tflux(s) = wflux * DOC2(s,l) / max(soil2%wl(l), minwl)
+                            if (wflux < 0.) then ! water flowing into tile: tracers advected in
+                                do s=1,num_species
+                                    docflux(s) = wflux * DOC2(s,l) / max(soil2%wl(l), minwl)
+                                    donflux(s) = wflux * DON2(s,l) / max(soil2%wl(l), minwl)
+                                end do
+                                NO3flux = wflux * nitrate2(l) / max(soil2%wl(l), minwl)
+                                NH4flux = wflux * ammonium2(l) / max(soil2%wl(l), minwl)
                               else                 ! water flowing out of tile: tracers advected out
-                                 tflux(s) = wflux * DOC(s,l) / max(soil%wl(l), minwl)
+                                  do s=1,num_species
+                                      docflux(s) = wflux * DOC(s,l) / max(soil%wl(l), minwl)
+                                      donflux(s) = wflux * DON(s,l) / max(soil%wl(l), minwl)
+                                  end do
+                                  NO3flux = wflux * nitrate(l) / max(soil%wl(l), minwl)
+                                  NH4flux = wflux * ammonium(l) / max(soil%wl(l), minwl)
                               end if
-                           end do
+
                            ! Update fluxes
-                           tdiv_level(l,:) = tdiv_level(l,:) + tflux(:)
+                           docdiv_level(l,:) = docdiv_level(l,:) + docflux(:)
+                           dondiv_level(l,:) = dondiv_level(l,:) + donflux(:)
+                           NO3div_level(l) = NO3div_level(l) + NO3flux
+                           NH4div_level(l) = NH4div_level(l) + NH4flux
                         end if
 
                         ! Debug
@@ -553,6 +638,9 @@ subroutine hlsp_hydrology_1(num_species)
             soil%div_hlsp(:) = 0.
             soil%div_hlsp_heat(:) = 0.
             soil%div_hlsp_DOC(:,:) = 0.
+            soil%div_hlsp_DON(:,:) = 0.
+            soil%div_hlsp_NO3(:) = 0.
+            soil%div_hlsp_NH4(:) = 0.
 
             ! Add to outputs
             if (area_above > 0.) then
@@ -560,8 +648,12 @@ subroutine hlsp_hydrology_1(num_species)
                soil%div_hlsp_heat(:) = soil%div_hlsp_heat(:) + hdiv_above(:) / area_above
                do s=1,num_species
                   soil%div_hlsp_DOC(s,:) = soil%div_hlsp_DOC(s,:) &
-                        + tdiv_above(:,s) / area_above
+                        + docdiv_above(:,s) / area_above
+                soil%div_hlsp_DON(s,:) = soil%div_hlsp_DON(s,:) &
+                      + dondiv_above(:,s) / area_above
                end do
+               soil%div_hlsp_NO3(:) = soil%div_hlsp_NO3(:) + NO3div_above(:) / area_above
+               soil%div_hlsp_NH4(:) = soil%div_hlsp_NH4(:) + NH4div_above(:) / area_above
             end if
             
             if (area_level > 0.) then
@@ -571,8 +663,14 @@ subroutine hlsp_hydrology_1(num_species)
                soil%div_hlsp_heat(:) = soil%div_hlsp_heat(:) + hdiv_level(:) / area_level
                do s=1,num_species
                   soil%div_hlsp_DOC(s,:) = soil%div_hlsp_DOC(s,:) &
-                        + tdiv_level(:,s) / area_level
+                        + docdiv_level(:,s) / area_level
+                    soil%div_hlsp_DON(s,:) = soil%div_hlsp_DON(s,:) &
+                          + dondiv_level(:,s) / area_level
                end do
+               soil%div_hlsp_NO3(:) = soil%div_hlsp_NO3(:) &
+                     + NO3div_level(:) / area_level
+               soil%div_hlsp_NH4(:) = soil%div_hlsp_NH4(:) &
+                     + NH4div_level(:) / area_level
             end if
             
             if (area_below > 0.) then
@@ -580,8 +678,14 @@ subroutine hlsp_hydrology_1(num_species)
                soil%div_hlsp_heat(:) = soil%div_hlsp_heat(:) + hdiv_below(:) / area_below
                do s=1,num_species
                   soil%div_hlsp_DOC(s,:) = soil%div_hlsp_DOC(s,:) &
-                        + tdiv_below(:,s) / area_below
-               end do                
+                        + docdiv_below(:,s) / area_below
+                  soil%div_hlsp_DON(s,:) = soil%div_hlsp_DON(s,:) &
+                        + dondiv_below(:,s) / area_below
+               end do
+               soil%div_hlsp_NO3(:) = soil%div_hlsp_NO3(:) &
+                        + NO3div_below(:) / area_below
+               soil%div_hlsp_NH4(:) = soil%div_hlsp_NH4(:) &
+                        + NH4div_below(:) / area_below
             end if
 
 
@@ -605,6 +709,8 @@ subroutine hlsp_hydrology_1(num_species)
 
                if (tiled_DOC_flux) then
                   call retrieve_DOC(soil%soil_organic_matter, DOC, num_l)
+                  call retrieve_DON(soil%soil_organic_matter, DON, num_l)
+                  call retrieve_dissolved_mineral_N(soil%soil_organic_matter,nitrate,ammonium,num_l)
                end if
 
                ! Loop over vertical layers
@@ -647,13 +753,18 @@ subroutine hlsp_hydrology_1(num_species)
                   end if
 
                   if (tiled_DOC_flux) then
-                     do s=1,num_species
+
                         if (wflux < 0.) then !water flowing into tile
                         !
                         else ! water flowing into stream: DOC advected to stream
-                           tflux(s) = wflux * DOC(s,l) / max(soil%wl(l), minwl)
+                            do s=1,num_species
+                                docflux(s) = wflux * DOC(s,l) / max(soil%wl(l), minwl)
+                                donflux(s) = wflux * DON(s,l) / max(soil%wl(l), minwl)
+                           end do
+                           NO3flux = wflux * nitrate(l) / max(soil%wl(l), minwl)
+                           NH4flux = wflux * ammonium(l) / max(soil%wl(l), minwl)
                         end if
-                     end do
+
                   end if
 
 
@@ -673,11 +784,26 @@ subroutine hlsp_hydrology_1(num_species)
 
                      if (tiled_DOC_flux) then
                         do s=1,num_species
-                           soil%div_hlsp_DOC(s,l) = soil%div_hlsp_DOC(s,l) + tflux(s)
-                           gtost_bytile(k,l,s) = tflux(s)
-                           ground_to_stream_tracers(i,j,s) = ground_to_stream_tracers(i,j,s) &
-                                  + tflux(s) * A1
+                           soil%div_hlsp_DOC(s,l) = soil%div_hlsp_DOC(s,l) + docflux(s)
+                           gtosDOC_bytile(k,l,s) = docflux(s)
+                           ground_to_stream_DOC(i,j,s) = ground_to_stream_DOC(i,j,s) &
+                                  + docflux(s) * A1
+
+                          soil%div_hlsp_DON(s,l) = soil%div_hlsp_DON(s,l) + donflux(s)
+                          gtosDON_bytile(k,l,s) = donflux(s)
+                          ground_to_stream_DON(i,j,s) = ground_to_stream_DON(i,j,s) &
+                                 + donflux(s) * A1
                         end do
+                        soil%div_hlsp_NO3(l) = soil%div_hlsp_NO3(l) + NO3flux
+                        gtosNO3_bytile(k,l) = NO3flux
+                        ground_to_stream_NO3(i,j) = ground_to_stream_NO3(i,j) &
+                               + NO3flux * A1
+
+                       soil%div_hlsp_NH4(l) = soil%div_hlsp_NH4(l) + NH4flux
+                       gtosNH4_bytile(k,l) = NH4flux
+                       ground_to_stream_NH4(i,j) = ground_to_stream_NH4(i,j) &
+                              + NH4flux * A1
+
                      end if
                   end if
 
@@ -700,7 +826,7 @@ subroutine hlsp_hydrology_1(num_species)
          ! ZMS this is not appropriate.  Replace by hillslope areas for diagnostics.
          !ground_to_stream(i,j) = ground_to_stream(i,j) / area_stream
          !ground_to_stream_heat(i,j) = ground_to_stream_heat(i,j) / area_stream
-         !ground_to_stream_tracers(i,j,:) = ground_to_stream_tracers(i,j,:) / area_stream
+         !ground_to_stream_DOC(i,j,:) = ground_to_stream_DOC(i,j,:) / area_stream
 
          ! End of gridcell calculations
          
@@ -711,7 +837,10 @@ subroutine hlsp_hydrology_1(num_species)
          
          wbal = 0.
          ebal = 0.
-         tbal(:) = 0.
+         docbal(:) = 0.
+         donbal(:) = 0.
+         NO3bal = 0.
+         NH4bal = 0.
 
          k = 0
          do while(ce /= te)
@@ -724,8 +853,11 @@ subroutine hlsp_hydrology_1(num_species)
                wbal = wbal + tile%soil%div_hlsp(l) * tile%frac
                ebal = ebal + tile%soil%div_hlsp_heat(l) * tile%frac
                do s=1,num_species
-                     tbal(s) = tbal(s) + tile%soil%div_hlsp_DOC(s,l) * tile%frac
+                     DOCbal(s) = DOCbal(s) + tile%soil%div_hlsp_DOC(s,l) * tile%frac
+                     DONbal(s) = DONbal(s) + tile%soil%div_hlsp_DON(s,l) * tile%frac
                end do
+               NO3bal = NO3bal + tile%soil%div_hlsp_NO3(l) * tile%frac
+               NH4bal = NH4bal + tile%soil%div_hlsp_NH4(l) * tile%frac
             end do
 
             ! Send tile diagnostics
@@ -737,17 +869,25 @@ subroutine hlsp_hydrology_1(num_species)
             call send_tile_data(id_gtosh, gtosh_bytile(k,:), tile%diag)
 
             do l=1,num_l
-               gtost(l) = sum(gtost_bytile(k,l,:))
-               gtdiv(l) = sum(tile%soil%div_hlsp_DOC(:,l)) - gtost(l)
+               gtosDOC(l) = sum(gtosDOC_bytile(k,l,:))
+               gDOCdiv(l) = sum(tile%soil%div_hlsp_DOC(:,l)) - gtosDOC(l)
+               gtosDON(l) = sum(gtosDON_bytile(k,l,:))
+               gDONdiv(l) = sum(tile%soil%div_hlsp_DON(:,l)) - gtosDON(l)
             end do
-            call send_tile_data(id_gtost, gtost, tile%diag)
-            call send_tile_data(id_gtdiv, gtdiv, tile%diag)
+            call send_tile_data(id_gtosDOC, gtosDOC, tile%diag)
+            call send_tile_data(id_gDOCdiv, gDOCdiv, tile%diag)
+
+            call send_tile_data(id_gtosNO3, gtosNO3_bytile(k,:), tile%diag)
+            call send_tile_data(id_gtosNH4, gtosNH4_bytile(k,:), tile%diag)
 
          end do
 
          wbal = wbal - ground_to_stream(i,j)       ! + is into stream
          ebal = ebal - ground_to_stream_heat(i,j)  ! + is into stream
-         tbal(:) = tbal(:) - ground_to_stream_tracers(i,j,:)
+         DOCbal(:) = DOCbal(:) - ground_to_stream_DOC(i,j,:)
+         DONbal(:) = DONbal(:) - ground_to_stream_DON(i,j,:)
+         NO3bal = NO3bal - ground_to_stream_NO3(i,j)
+         NH4bal = NH4bal - ground_to_stream_NH4(i,j)
 
          !! Tracers add code
 
@@ -757,15 +897,20 @@ subroutine hlsp_hydrology_1(num_species)
 
             call check_conservation('hlsp_hydrology_1, between-tile energy fluxes (k value following is not valid)', &
                                     'Energy', ebal, 0., ethresh, FATAL)
-
             do s=1,num_species
                speciesname=''
-               write(speciesname,*) 'Tracer Species ', s
-               call check_conservation('hlsp_hydrology_1, between-tile tracer fluxes (k value following is not valid)', &
-                                       trim(speciesname), tbal(s), 0., tthresh, FATAL)
+               write(speciesname,*) 'DOC Species ', s
+               call check_conservation('hlsp_hydrology_1, between-tile DOC fluxes (k value following is not valid)', &
+                                       trim(speciesname), DOCbal(s), 0., tthresh, FATAL)
+               call check_conservation('hlsp_hydrology_1, between-tile DON fluxes (k value following is not valid)', &
+                                       trim(speciesname), DONbal(s), 0., tthresh, FATAL)
             end do
+            call check_conservation('hlsp_hydrology_1, between-tile NO3 fluxes (k value following is not valid)', &
+                                    'NO3', NO3bal, 0., tthresh, FATAL)
+            call check_conservation('hlsp_hydrology_1, between-tile NH4 fluxes (k value following is not valid)', &
+                                    'NH4', NH4bal, 0., tthresh, FATAL)
          endif
-         deallocate(gtos_bytile, gtosh_bytile, gtost_bytile)
+         deallocate(gtos_bytile, gtosh_bytile, gtosDOC_bytile, gtosDON_bytile, gtosNO3_bytile, gtosNH4_bytile)
  
       end do ! i
    end do ! j
@@ -808,10 +953,22 @@ subroutine hlsp_hydro_init (id_lon, id_lat, id_zfull)
        missing_value=initval )
    id_gtosh = register_tiled_diag_field ( module_name, 'groundheatdiv_to_stream', axes, &
        lnd%time, 'heat flux associated with groundwater divergence to stream', 'W/m^2', missing_value=initval )
-   id_gtdiv = register_tiled_diag_field ( module_name, 'groundwater_tracer_div', axes, &
+   id_gDOCdiv = register_tiled_diag_field ( module_name, 'groundwater_DOC_div', axes, &
        lnd%time, 'DOC groundwater divergence out of tiles, excluding to stream', 'kg C/m^2/s', missing_value=initval )
-   id_gtost = register_tiled_diag_field ( module_name, 'groundtracer_to_stream', axes, &
+   id_gtosDOC = register_tiled_diag_field ( module_name, 'groundtracer_DOC_to_stream', axes, &
        lnd%time, 'DOC flux to stream via groundwater', 'kg C/m^2/s', missing_value=initval )
+   id_gDONdiv = register_tiled_diag_field ( module_name, 'groundwater_DON_div', axes, &
+       lnd%time, 'DON groundwater divergence out of tiles, excluding to stream', 'kg N/m^2/s', missing_value=initval )
+   id_gtosDON = register_tiled_diag_field ( module_name, 'groundtracer_DON_to_stream', axes, &
+       lnd%time, 'DON flux to stream via groundwater', 'kg N/m^2/s', missing_value=initval )
+   id_gNO3div = register_tiled_diag_field ( module_name, 'groundwater_NO3_div', axes, &
+       lnd%time, 'NO3 groundwater divergence out of tiles, excluding to stream', 'kg N/m^2/s', missing_value=initval )
+   id_gtosNO3 = register_tiled_diag_field ( module_name, 'groundtracer_NO3_to_stream', axes, &
+       lnd%time, 'NO3 flux to stream via groundwater', 'kg N/m^2/s', missing_value=initval )
+   id_gNH4div = register_tiled_diag_field ( module_name, 'groundwater_NH4_div', axes, &
+       lnd%time, 'NH4 groundwater divergence out of tiles, excluding to stream', 'kg N/m^2/s', missing_value=initval )
+   id_gtosNH4 = register_tiled_diag_field ( module_name, 'groundtracer_NH4_to_stream', axes, &
+       lnd%time, 'NH4 flux to stream via groundwater', 'kg N/m^2/s', missing_value=initval )
 
 end subroutine hlsp_hydro_init
 
