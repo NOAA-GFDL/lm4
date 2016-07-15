@@ -64,7 +64,7 @@ use land_tile_io_mod, only: land_restart_type, &
 use vegn_data_mod, only: K1, K2, spdata, root_NH4_uptake_rate, root_NO3_uptake_rate, &
      k_ammonium_root_uptake, k_nitrate_root_uptake
 use vegn_cohort_mod, only : vegn_cohort_type, &
-     cohort_uptake_profile, cohort_root_exudate_profile, cohort_root_litter_profile 
+     cohort_uptake_profile, cohort_root_exudate_profile, cohort_root_litter_profile
 
 use vegn_tile_mod, only : vegn_tile_type, vegn_tile_bwood
 use land_debug_mod, only : is_watch_point, is_watch_cell, get_current_point, &
@@ -224,7 +224,7 @@ real            :: dt_fast_yr ! fast (physical) time step, yr (year is defined a
 logical         :: use_single_geo
 real            :: Eg_min
 
-integer         :: gw_option = -1 
+integer         :: gw_option = -1
 
 integer :: n_river_tracers = 0
 integer :: i_river_DOC     = NO_TRACER
@@ -305,7 +305,7 @@ subroutine read_soil_namelist()
 #else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
-     ierr = 1;  
+     ierr = 1;
      do while (ierr /= 0)
         read (unit, nml=soil_nml, iostat=io, end=10)
         ierr = check_nml_error (io, 'soil_nml')
@@ -339,7 +339,7 @@ end subroutine read_soil_namelist
 ! ============================================================================
 ! initialize soil model
 subroutine soil_init ( id_lon, id_lat, id_band, id_zfull )
-  integer, intent(in)  :: id_lon   ! ID of land longitude (X) axis  
+  integer, intent(in)  :: id_lon   ! ID of land longitude (X) axis
   integer, intent(in)  :: id_lat   ! ID of land latitude (Y) axis
   integer, intent(in)  :: id_band  ! ID of spectral band axis
   integer, intent(out) :: id_zfull ! ID of vertical soil axis
@@ -376,7 +376,7 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull )
 
   ! -------- initialize soil model diagnostic fields
   call soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
-  
+
   ! -------- read spatially distributed fields for groundwater parameters, if requested
   if (.not.use_single_geo) then
      select case (gw_option)
@@ -397,7 +397,7 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull )
           gw_param2, interp='bilinear' )
         gw_param = gw_param*gw_param2
         call put_to_tiles_r0d_fptr( gw_param*gw_scale_relief, land_tile_map, soil_hillslope_relief_ptr )
-          
+
         if (retro_a0n1 .or. gw_option.eq.GW_HILL_AR5) then
             gw_param = 0.
             call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_a_ptr )
@@ -552,12 +552,12 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull )
           '" is invalid, use "albedo-map", "brdf-maps", or empty line ("")',&
           FATAL)
   endif
-  
+
   ! Call calculate_wt_init outside tile loop so that it is done once per hillslope
   if (init_wtdep .gt. 0. .and. gw_option == GW_TILED) then
      call calculate_wt_init(init_wtdep)
   end if
-  
+
   if (use_coldstart_wtt_data) then
      allocate(ref_soil_t(lnd%is:lnd%ie,lnd%js:lnd%je), wetmask(lnd%is:lnd%ie,lnd%js:lnd%je))
      call read_field( coldstart_datafile, 'REFSOILT', &
@@ -657,7 +657,7 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull )
            call free_land_restart(restart1)
         endif
      endif
-          
+
      if (field_exists(restart,'fast_soil_C')) then
         ! we are dealing with CORPSE restart
         te = tail_elmt (land_tile_map)
@@ -695,13 +695,13 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull )
            call get_tile_data(restart, trim(l_shortname(i))//'_litter_Rtot',      'soilCCohort', sc_litter_Rtot_ptr, i)
            call get_tile_data(restart, trim(l_shortname(i))//'_litter_originalCohortC', 'soilCCohort',sc_litter_originalLitterC_ptr, i)
         enddo
-         
+
         if(field_exists(restart, 'fast_DOC_leached')) then
            call get_tile_data(restart,'fast_DOC_leached', soil_fast_DOC_leached_ptr)
            call get_tile_data(restart,'slow_DOC_leached', soil_slow_DOC_leached_ptr)
            call get_tile_data(restart,'deadmic_DOC_leached', soil_deadmic_DOC_leached_ptr)
         endif
-     
+
         if(field_exists(restart, 'is_peat')) then
            call get_int_tile_data(restart, 'is_peat','zfull', soil_is_peat_ptr)
         endif
@@ -776,7 +776,7 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull )
      end select
   endif
   call free_land_restart(restart)
-  
+
   ! ---- static diagnostic section
   call send_tile_data_r0d_fptr(id_tau_gw,       land_tile_map, soil_tau_groundwater_ptr)
   call send_tile_data_r0d_fptr(id_slope_l,      land_tile_map, soil_hillslope_length_ptr)
@@ -838,7 +838,7 @@ function register_soilc_diag_fields(module_name, field_name, axes, init_time, &
   character(len=*), intent(in), optional :: standard_name
 
   integer :: i
-  
+
   do i = 1, N_C_TYPES
      id(i) = register_tiled_diag_field(module_name, &
              trim(replace_text(field_name,'<ctype>',trim(c_shortname(i)))), &
@@ -867,7 +867,7 @@ function register_litter_diag_fields(module_name, field_name, axes, init_time, &
   character(len=*), intent(in), optional :: standard_name
 
   integer :: i
-  
+
   do i = 1, N_LITTER_POOLS
      id(i) = register_tiled_diag_field(module_name, &
              trim(replace_text(field_name,'<ltype>',trim(l_shortname(i)))), &
@@ -898,7 +898,7 @@ function register_litter_soilc_diag_fields(module_name, field_name, axes, init_t
   integer :: i, k
   character(128) :: name
   character(512) :: lname
-  
+
   do i = 1, N_C_TYPES
      do k = 1, N_LITTER_POOLS
         name = replace_text(field_name,'<ctype>',trim(c_shortname(i)))
@@ -913,9 +913,9 @@ end function register_litter_soilc_diag_fields
 
 ! ============================================================================
 subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
-  integer, intent(in) :: id_lon  ! ID of land longitude (X) axis  
+  integer, intent(in) :: id_lon  ! ID of land longitude (X) axis
   integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
-  integer, intent(in) :: id_band ! ID of spectral band axis  
+  integer, intent(in) :: id_band ! ID of spectral band axis
   integer, intent(out) :: id_zfull ! ID of vertical soil axis
 
   ! ---- local vars
@@ -940,11 +940,11 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
 
   ! FIXME slm: generalize DOC fields by carbon type
   id_fast_DOC_div_loss = register_tiled_diag_field ( module_name, 'fast_DOC_div_loss', (/id_lon,id_lat/),  &
-       lnd%time, 'total fast DOC divergence loss', 'kg C/m2', missing_value=-100.0 )     
+       lnd%time, 'total fast DOC divergence loss', 'kg C/m2', missing_value=-100.0 )
   id_slow_DOC_div_loss = register_tiled_diag_field ( module_name, 'slow_DOC_div_loss', (/id_lon,id_lat/),  &
-       lnd%time, 'total slow DOC divergence loss', 'kg C/m2', missing_value=-100.0 ) 
+       lnd%time, 'total slow DOC divergence loss', 'kg C/m2', missing_value=-100.0 )
   id_deadmic_DOC_div_loss = register_tiled_diag_field ( module_name, 'deadmic_DOC_div_loss', (/id_lon,id_lat/),  &
-       lnd%time, 'total dead microbe DOC divergence loss', 'kg C/m2', missing_value=-100.0 ) 
+       lnd%time, 'total dead microbe DOC divergence loss', 'kg C/m2', missing_value=-100.0 )
   id_total_DOC_div_loss = register_tiled_diag_field ( module_name, 'total_DOC_div', axes(1:2), &
        lnd%time, 'total rate of DOC divergence loss', 'kg C/m^2/s', missing_value=initval)
 
@@ -1156,7 +1156,7 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
        axes, lnd%time, 'heat capacity of dry soil','J/(m3 K)', missing_value=-100.0 )
   id_thermal_cond =  register_tiled_diag_field ( module_name, 'soil_tcon', &
        axes, lnd%time, 'soil thermal conductivity', 'W/(m K)',  missing_value=-100.0 )
-  
+
   id_surface_water = register_tiled_diag_field (module_name, 'surface_water', &
        axes(1:2), lnd%time, 'surface water storage', 'm', missing_value=-100.0 )
   id_inun_frac = register_tiled_diag_field (module_name, 'inun_fraction', &
@@ -1299,7 +1299,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
      if (soil_carbon_option==SOILC_CORPSE.or.soil_carbon_option==SOILC_CORPSE_N) then
      call add_restart_axis(restart,'soilCCohort',(/(float(i),i=1,soilMaxCohorts)/),'CC')
   endif
-        
+
   ! write out fields
   call add_tile_data(restart,'temp'         , 'zfull', soil_T_ptr,  'soil temperature','degrees_K')
   call add_tile_data(restart,'wl'           , 'zfull', soil_wl_ptr, 'liquid water content','kg/m2')
@@ -1341,13 +1341,13 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
      call add_tile_data(restart,'Rtot','zfull','soilCCohort',sc_Rtot_ptr,'Total degradation','kg/m2')
      call add_tile_data(restart,'originalCohortC','zfull','soilCCohort',sc_originalLitterC_ptr,'Cohort original carbon','g/m2')
 
-     do k = 1,N_LITTER_POOLS          
+     do k = 1,N_LITTER_POOLS
         call add_tile_data(restart,trim(l_shortname(k))//'_litter_liveMic_C','soilCCohort',sc_litter_livingMicrobeC_ptr,k,trim(l_longname(k))//' litter live microbe C','kg/m2')
         call add_tile_data(restart,trim(l_shortname(k))//'_litter_CO2','soilCCohort',sc_litter_CO2_ptr,k,trim(l_longname(k))//' litter CO2 generated','kg/m2')
         call add_tile_data(restart,trim(l_shortname(k))//'_litter_Rtot','soilCCohort',sc_litter_Rtot_ptr,k,trim(l_longname(k))//' litter total degradation','kg/m2')
         call add_tile_data(restart,trim(l_shortname(k))//'_litter_originalCohortC','soilCCohort',sc_litter_originalLitterC_ptr,k,trim(l_longname(k))//' litter cohort original carbon','kg/m2')
      enddo
-    
+
      call add_int_tile_data(restart,'is_peat','zfull',soil_is_peat_ptr,'Is layer peat?','Boolean')
 
      call add_tile_data(restart,'fast_DOC_leached',     soil_fast_DOC_leached_ptr, 'Cumulative fast DOC leached out of the column', 'kg/m2')
@@ -1384,7 +1384,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
      endif
   case default
      call error_mesg('save_soil_restart','unrecognized soil carbon option -- this should never happen', FATAL)
-  end select  
+  end select
   call save_land_restart(restart)
   call free_land_restart(restart)
 
@@ -1479,10 +1479,10 @@ subroutine soil_data_beta ( soil, vegn, soil_beta, soil_water_supply, &
   type(vegn_tile_type), intent(inout) :: vegn ! inout because cc%uptake_frac is updated
   real, intent(out) :: soil_beta(:) ! relative water availability, used only in VEGN_PHOT_SIMPLE treatment
   real, intent(out) :: soil_water_supply(:) ! max rate of water supply to roots, kg/(indiv s)
-  real, intent(out) :: soil_uptake_T(:) ! an estimate of temperature of the water 
+  real, intent(out) :: soil_uptake_T(:) ! an estimate of temperature of the water
              ! taken up by transpiration. In case of 'linear' uptake it is an exact
              ! value; in case of 'darcy*' treatments the actual uptake profile
-             ! is calculated only in step 2, so the value returned is an estimate  
+             ! is calculated only in step 2, so the value returned is an estimate
 
   ! ---- local vars
   integer :: k, l
@@ -1499,7 +1499,7 @@ subroutine soil_data_beta ( soil, vegn, soil_beta, soil_water_supply, &
      vsc(l) = max(0., soil%ws(l) / (dens_h2o*dz(l)))
   enddo
 
-  do k = 1, vegn%n_cohorts 
+  do k = 1, vegn%n_cohorts
      cc=>vegn%cohorts(k)
      call cohort_uptake_profile (cc, dz(1:num_l), uptake_frac_max, vegn_uptake_term )
 
@@ -1592,7 +1592,7 @@ subroutine soil_step_1 ( soil, vegn, diag, &
   soil_rh = exp(psi_for_rh*g_RT)
   soil_rh_psi = g_RT*soil_rh
 
-  call soil_data_thermodynamics ( soil, vlc, vsc,  &  
+  call soil_data_thermodynamics ( soil, vlc, vsc,  &
                                   soil_E_max, thermal_cond )
   if (.not.use_E_max) soil_E_max =  HUGE(soil_E_max)
   soil_E_min = Eg_min
@@ -1634,13 +1634,13 @@ subroutine soil_step_1 ( soil, vegn, diag, &
      end do
      denom = delta_time/(heat_capacity(1) )
      soil_G0   = ccc(1)*(soil%T(2)- soil%T(1) + soil%f(1)) / denom
-     soil_DGDT = (1 - ccc(1)*(1-soil%e(1))) / denom   
+     soil_DGDT = (1 - ccc(1)*(1-soil%e(1))) / denom
   else  ! one-level case
      denom = delta_time/heat_capacity(1)
      soil_G0    = 0.
      soil_DGDT  = 1. / denom
   end if
-  
+
   ! set soil freezing temperature
   soil_tf = soil%pars%tfreeze
 
@@ -1755,7 +1755,7 @@ end subroutine soil_step_1
        tot_nindivs,     & ! total number of individuals, for soil_uptake_frac normalization
        transp1,         & ! transpiration per individual, kg/(indiv s)
        uptake_tot,      & ! total uptake, kg/(m2 s)
-       uptake_pos,      & ! sum of the positive uptake, kg/(m2 s) 
+       uptake_pos,      & ! sum of the positive uptake, kg/(m2 s)
        uptake_T_new, & ! updated average temperature of uptaken water, deg K
        uptake_T_corr,& ! correction for uptake temperature, deg K
        Tu,           & ! temperature of water taken up from (or added to) a layer, deg K
@@ -1764,7 +1764,7 @@ end subroutine soil_step_1
   real :: Theta ! for debug printout only
   integer :: ic ! cohort iterator
   integer :: severity ! for negative wl checking
-  
+
   ! For testing tridiagonal solution
   real, dimension(num_l)   :: t_soil_tridiag ! soil temperature based on generic tridiagonal solution [K]
   real, dimension(num_l)   :: t_diff ! difference from original advection subroutine [K]
@@ -1904,14 +1904,14 @@ end subroutine soil_step_1
      case ( UPTAKE_LINEAR )
         n_iter = 0
         uptake1(:) = cc%uptake_frac(:)*transp1
-     case ( UPTAKE_DARCY2D, UPTAKE_DARCY2D_LIN )     
+     case ( UPTAKE_DARCY2D, UPTAKE_DARCY2D_LIN )
         ! for Darcy-flow uptake, find the root water potential to satify actual
         ! transpiration by the vegetation
         call darcy2d_uptake_solver     (soil, transp1, vegn%root_distance, &
                 cc%root_length, cc%K_r, cc%r_r, &
                 uptake1, psi_x0, n_iter)
         ! Solution provides psi inside the skin, given uptake and K_r for each level
-        ! This calculates effective psi outside the skin (root-soil interface) 
+        ! This calculates effective psi outside the skin (root-soil interface)
         ! across all levels using single Kri for use in cavitation calculations.
      end select
      if (is_watch_point()) then
@@ -1929,7 +1929,7 @@ end subroutine soil_step_1
      if(is_watch_point()) then
         __DEBUG3__(soil%uptake_T, uptake_T_new, uptake_T_corr)
      endif
-     ! save new uptake for the next time step to serve as an estimate of uptake 
+     ! save new uptake for the next time step to serve as an estimate of uptake
      ! temperature
      soil%uptake_T = uptake_T_new
   else
@@ -1955,10 +1955,10 @@ end subroutine soil_step_1
   call send_tile_data(id_uptk, uptake, diag)
   call send_tile_data(id_psi_x0, psi_x0, diag)
 
-  ! update temperature and water content of soil due to root uptake processes 
+  ! update temperature and water content of soil due to root uptake processes
   do l = 1, num_l
-     ! calculate the temperature of water that is taken from the layer (or added 
-     ! to the layer), including energy balance correction 
+     ! calculate the temperature of water that is taken from the layer (or added
+     ! to the layer), including energy balance correction
      if (uptake(l) > 0) then
         Tu = soil%T(l) + uptake_T_corr
      else
@@ -2405,7 +2405,7 @@ end subroutine soil_step_1
                      soil%wl(l) / (dens_h2o*dz(l)*soil%pars%vwc_sat), '. This makes hcap = ', hcap, &
                      ', which is < 0! Model Aborting!'
               call error_mesg(module_name, mesg, FATAL)
-           end if         
+           end if
         end if
      end do
   endif
@@ -2580,7 +2580,7 @@ end subroutine soil_step_1
      __DEBUG3__(soil%hidx_j, soil_lrunf, lrunf_bf)
      __DEBUG5__(lrunf_sn, lrunf_ie, lrunf_if, lrunf_al, lrunf_sc)
   end if
-     
+
 
   do l = 1, num_l
      ! ---- compute explicit melt/freeze --------------------------------------
@@ -2753,7 +2753,7 @@ end subroutine soil_step_1
 
 ! ----------------------------------------------------------------------------
 ! given solution for surface energy balance, write diagnostic output.
-!  
+!
 
   ! ---- diagnostic section
   call send_tile_data(id_temp, soil%T, diag)
@@ -2803,11 +2803,11 @@ end subroutine soil_step_1
   if (id_evap > 0) call send_tile_data(id_evap,  soil_levap+soil_fevap, diag)
 
   do i = 1, N_C_TYPES
-    call send_tile_data(id_litter_C_leaching(LEAF,i),leaflitter_DOC_loss(i)/delta_time,diag)  
+    call send_tile_data(id_litter_C_leaching(LEAF,i),leaflitter_DOC_loss(i)/delta_time,diag)
     call send_tile_data(id_litter_C_leaching(CWOOD,i),woodlitter_DOC_loss(i)/delta_time,diag)
     call send_tile_data(id_C_leaching(i), DOC_leached(i,:)/delta_time,diag)
-  enddo  
-  
+  enddo
+
   call send_tile_data(id_heat_cap, soil%heat_capacity_dry, diag)
   call send_tile_data(id_active_layer, active_layer_thickness, diag)
   if (gw_option == GW_TILED) then
@@ -2952,7 +2952,7 @@ subroutine Dsdt(vegn, soil, diag, soilt, theta)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
   type(diag_buff_type), intent(inout) :: diag
-  real                , intent(in)    :: soilt ! average soil temperature, deg K 
+  real                , intent(in)    :: soilt ! average soil temperature, deg K
   real                , intent(in)    :: theta ! average soil moisture
 
   select case (soil_carbon_option)
@@ -2999,15 +2999,15 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   integer :: i,k
   real :: CO2prod
   integer :: point_i,point_j,point_k,point_face
-  
+
   A(:) = A_function(soil%T(:), soil_theta(soil))
   decomp_T = soil%T(:)
   decomp_theta = soil_theta(soil)
-  ice_porosity = soil_ice_porosity(soil)  
-  
+  ice_porosity = soil_ice_porosity(soil)
+
   vegn%rh=0.0
 
-  !  First surface litter is decomposed 
+  !  First surface litter is decomposed
   do k = 1,N_LITTER_POOLS
      call update_pool(pool=soil%litter(k),T=decomp_T(1),theta=decomp_theta(1),air_filled_porosity=1.0-(decomp_theta(1)+ice_porosity(1)),&
             liquid_water=soil%wl(1),frozen_water=soil%ws(1),dt=dt_fast_yr,layerThickness=dz(1),&
@@ -3020,9 +3020,9 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
      IF (badCohort.ne.0) THEN
         WRITE (*,*), 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
         call land_error_message('Dsdt: Found bad cohort in '//trim(l_longname(k))//' litter.',FATAL)
-     ENDIF  
+     ENDIF
      vegn%rh=vegn%rh + CO2prod/dt_fast_yr ! accumulate loss of C to atmosphere
-     ! NOTE that the first layer of C_loss_rate and N_loss_rate are used as buffers 
+     ! NOTE that the first layer of C_loss_rate and N_loss_rate are used as buffers
      ! for litter diagnostic output.
      do i = 1, N_C_TYPES
         call send_tile_data(id_litter_rsoil_C(k,i), C_loss_rate(i,1), diag)
@@ -3061,11 +3061,11 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   vegn%fsc_out     = vegn%fsc_out     + sum(C_loss_rate(C_FAST,:))*dt_fast_yr
   vegn%ssc_out     = vegn%ssc_out     + sum(C_loss_rate(C_SLOW,:))*dt_fast_yr
   vegn%deadmic_out = vegn%deadmic_out + sum(C_loss_rate(C_MIC,:)) *dt_fast_yr
-  
+
 
   ! accumulate decomposition rate reduction for the soil carbon restart output
   soil%asoil_in(:) = soil%asoil_in(:) + A(:)
-  
+
   ! TODO: arithmetic averaging of A does not seem correct; we need to invent something better,
   !       e.g. weight it with the carbon loss, or something like that
 
@@ -3074,7 +3074,7 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   ! TODO: arithmetic averaging of A does not seem correct; we need to invent something better,
   !       e.g. weight it with the carbon loss, or something like that
   if (id_asoil>0) call send_tile_data(id_asoil, sum(A(:))/size(A(:)), diag)
-  
+
 end subroutine Dsdt_CORPSE
 
 
@@ -3083,13 +3083,13 @@ subroutine Dsdt_CENTURY(vegn, soil, diag, soilt, theta)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
   type(diag_buff_type), intent(inout) :: diag
-  real                , intent(in)    :: soilt ! average soil temperature, deg K 
+  real                , intent(in)    :: soilt ! average soil temperature, deg K
   real                , intent(in)    :: theta ! average soil moisture
 
   real :: fast_C_loss(size(soil%fast_soil_C))
   real :: slow_C_loss(size(soil%slow_soil_C))
   real :: A          (size(soil%slow_soil_C)) ! decomp rate reduction due to moisture and temperature
-  
+
   select case (soil_carbon_option)
   case(SOILC_CENTURY)
       A(:) = A_function(soilt, theta)
@@ -3098,10 +3098,10 @@ subroutine Dsdt_CENTURY(vegn, soil, diag, soilt, theta)
   case default
     call error_mesg('Dsdt_CENTURY','The value of soil_carbon_option is invalid. This should never happen. See developer.',FATAL)
   end select
-  
+
   fast_C_loss = soil%fast_soil_C(:)*A*K1*dt_fast_yr;
   slow_C_loss = soil%slow_soil_C(:)*A*K2*dt_fast_yr;
-  
+
   soil%fast_soil_C = soil%fast_soil_C - fast_C_loss;
   soil%slow_soil_C = soil%slow_soil_C - slow_C_loss;
 
@@ -3296,7 +3296,7 @@ end subroutine soil_push_down_excess
         __DEBUG4__(aaa,bbb,ccc,ddd)
     endif
   enddo
-  
+
   l = 1
   xxx = dens_h2o*dz(l)*DThDP(l)/dt_richards
   bbb = xxx - ( -K(l  )/del_z(l  ) + DKDPm(l  )*grad(l  ))
@@ -3346,7 +3346,7 @@ end subroutine soil_push_down_excess
      endif
      lrunf_ie = lprec_eff - flow(l)/dt_richards
   endif
-      
+
   if(is_watch_point().or.(flag.and.write_when_flagged)) then
      write(*,'(a,i2.2,100(2x,g23.16))') 'l,  b,c,d', l, bbb,ccc,ddd
      write(*,*) ' ##### soil_step_2 checkpoint 3.2 #####'
@@ -3438,7 +3438,7 @@ end subroutine soil_push_down_excess
      write(*,*) 'note: at point ',ipt,jpt,kpt,fpt,'lrunf_ie=',lrunf_ie,' < lrunf_ie_min=',lrunf_ie_min
      call error_mesg(module_name, 'lrunf_ie < lrunf_ie_min', FATAL)
   ENDIF
-       
+
   if(is_watch_point().or.(flag.and.write_when_flagged)) then
      write(*,*) ' ***** soil_step_2 checkpoint 3.3 ***** '
      write(*,*) 'psi_sat',soil%pars%psi_sat_ref
@@ -3488,7 +3488,7 @@ subroutine advection(soil, flow, dW_l, tflow, d_GW, div, delta_time)
      end do
 
 !  end if
-  
+
 ! Upstream weighting of advection. Preserving u_plus here for now.
   u_minus = 1.
   where (flow(1:num_l).lt.0.) u_minus = 0.
@@ -3513,7 +3513,7 @@ subroutine advection(soil, flow, dW_l, tflow, d_GW, div, delta_time)
                         + ccc*(soil%T(l)-soil%T(l+1))    &
                         - ccc*fff(l) ) / ( bbb +ccc*eee(l) )
   enddo
-    
+
   hcap = (soil%heat_capacity_dry(1)*dz(1) + csw*soil%ws(1))/clw
   aaa = -flow(1) * u_minus(1)
   ccc =  flow(2) * u_plus (1)
@@ -3714,7 +3714,7 @@ end subroutine advection_tri
 
 
 ! ============================================================================
-! given soil tile, returns carbon content of various components of litter 
+! given soil tile, returns carbon content of various components of litter
 subroutine get_soil_litter_C(soil, litter_fast_C, litter_slow_C, litter_deadmic_C)
   type(soil_tile_type), intent(in)  :: soil
   real, intent(out) :: &
@@ -3738,10 +3738,10 @@ end subroutine get_soil_litter_C
 subroutine rhizosphere_frac(vegn, rhiz_frac)
   type(vegn_tile_type) , intent(in)    :: vegn
   real, intent(out) :: rhiz_frac(:)  ! volumentric fraction of rhizosphere
-  
+
   real :: rhiz_vol(num_l)  ! volume of rhizosphere in each layer, m3/m2
   integer :: i
-  
+
   ! first calculate the volume of rhizosphere
   rhiz_vol(:) = 0.0
   do i = 1,vegn%n_cohorts
@@ -3760,12 +3760,12 @@ subroutine add_root_litter(soil, vegn, litterC, litterN)
   type(vegn_tile_type) , intent(in)    :: vegn
   real, intent(in) :: litterC(num_l,N_C_TYPES) ! kg C/(m2 of soil)
   real, intent(in) :: litterN(num_l,N_C_TYPES) ! kg C/(m2 of soil)
-  
+
   integer :: i,k
   real :: rhiz_frac(num_l)  ! fraction of rhizosphere in each layer
-  
+
   call rhizosphere_frac(vegn, rhiz_frac)
-  
+
   do k = 1,num_l
      call add_litter(soil%soil_organic_matter(k), litterC(k,:), litterN(k,:), rhiz_frac(k))
   enddo
@@ -3777,10 +3777,10 @@ end subroutine add_root_litter
 ! Differs from add_root_litter -- C is distributed through existing cohorts, not deposited as new cohort
 subroutine add_root_exudates_0(soil,exudateC,exudateN)
   type(soil_tile_type),   intent(inout)  :: soil
-  real, dimension(num_l), intent(in)     :: exudateC, exudateN ! kgC or kgN per m2 of soil 
-  
+  real, dimension(num_l), intent(in)     :: exudateC, exudateN ! kgC or kgN per m2 of soil
+
   integer :: k
-  
+
   do k=1,num_l
      call add_C_N_to_cohorts(soil%soil_organic_matter(k),   &
                              litterC=[exudateC(k),0.0,0.0], &
@@ -3794,10 +3794,10 @@ subroutine add_root_exudates_1(soil,cohort,exudateC)
   type(soil_tile_type), intent(inout)  :: soil
   type(vegn_cohort_type), intent(in)   :: cohort
   real,intent(in) :: exudateC ! kgC/m2 of tile
-  
+
   real    :: profile(num_l)
   integer :: k
-  
+
   call cohort_root_exudate_profile (cohort, dz(1:num_l), profile)
   do k=1,num_l
       call add_C_N_to_cohorts(soil%soil_organic_matter(k),litterC=(/exudateC*profile(k),0.0,0.0/))
@@ -3816,7 +3816,7 @@ subroutine add_soil_carbon(soil,vegn,leaf_litter_C,wood_litter_C,root_litter_C,&
   real, intent(in), optional :: leaf_litter_N(N_C_TYPES)
   real, intent(in), optional :: wood_litter_N(N_C_TYPES)
   real, intent(in), optional :: root_litter_N(num_l,N_C_TYPES)
-  
+
   integer :: l
   real :: fsc, ssc
   real :: leaf_litt_C(N_C_TYPES), leaf_litt_N(N_C_TYPES)
@@ -3855,7 +3855,7 @@ subroutine add_soil_carbon(soil,vegn,leaf_litter_C,wood_litter_C,root_litter_C,&
      root_litt_N(:,:) = 0.0
   endif
 
-  ! CEL=cellulose (fast); LIG=lignin (slow); this function reasonably assumes 
+  ! CEL=cellulose (fast); LIG=lignin (slow); this function reasonably assumes
   ! that there are no microbes in litter
 
   select case (soil_carbon_option)
@@ -3965,7 +3965,7 @@ subroutine myc_scavenger_N_uptake(soil,cc,myc_biomass,total_N_uptake,dt,update_p
 
   ! Mycorrhizae should have access to litter layer too
   ! Might want to update this so it calculates actual layer thickness?
-  ! Assume 20% of mycorrhizal biomass accesses litter, so we're not dependent 
+  ! Assume 20% of mycorrhizal biomass accesses litter, so we're not dependent
   ! on layer thickness
   call mycorrhizal_mineral_N_uptake_rate(soil%litter(LEAF),myc_biomass*uptake_frac_max(1),dz(1),nitrate_uptake,ammonium_uptake)
   ammonium_uptake = min(ammonium_uptake,soil%litter(LEAF)%ammonium/dt)
@@ -4033,23 +4033,23 @@ end subroutine myc_miner_N_uptake
 ! ============================================================================
 subroutine redistribute_peat_carbon(soil)
     type(soil_tile_type), intent(inout) :: soil
-    
+
     integer :: nn
     real :: layer_total_C,layer_total_C_2,layer_max_C,layer_extra_C,fraction_to_remove
     real :: total_C_before,total_C_after
     real :: leaflitter_total_C, woodlitter_total_C
-    
+
     !For conservation check.
     total_C_before=0.0
     do nn=1,num_l
     call poolTotals(soil%soil_organic_matter(num_l),layer_total_C)
     total_C_before=total_C_before+layer_total_C
     enddo
-    
+
     call poolTotals(soil%litter(LEAF),totalCarbon=leaflitter_total_C)
     call poolTotals(soil%litter(CWOOD),totalCarbon=woodlitter_total_C)
     layer_total_C=leaflitter_total_C+woodlitter_total_C
-    
+
     layer_max_C=max_litter_thickness*max_soil_C_density
     layer_extra_C = layer_total_C-layer_max_C
     if(layer_extra_C>0) then
@@ -4057,7 +4057,7 @@ subroutine redistribute_peat_carbon(soil)
         call transfer_pool_fraction(soil%litter(LEAF),soil%soil_organic_matter(1),fraction_to_remove)
         call transfer_pool_fraction(soil%litter(CWOOD),soil%soil_organic_matter(1),fraction_to_remove)
     endif
-    
+
     !Move carbon down if it exceeds layer_max_C
     do nn=1,num_l-1
         call poolTotals(soil%soil_organic_matter(nn),totalCarbon=layer_total_C)
@@ -4068,7 +4068,7 @@ subroutine redistribute_peat_carbon(soil)
             call transfer_pool_fraction(soil%soil_organic_matter(nn),soil%soil_organic_matter(nn+1),fraction_to_remove)
             soil%is_peat(nn)=1
         endif
-        
+
         if (layer_extra_C < 0 .and. (soil%is_peat(nn).ne.0) .and. (soil%is_peat(nn+1).ne.0)) then
              call poolTotals(soil%soil_organic_matter(nn+1),totalCarbon=layer_total_C_2)
              fraction_to_remove = -layer_extra_C/layer_total_C_2
@@ -4079,13 +4079,13 @@ subroutine redistribute_peat_carbon(soil)
              endif
         endif
     enddo
-    
+
     total_C_after=0.0
     do nn=1,num_l
     call poolTotals(soil%soil_organic_matter(num_l),layer_total_C)
     total_C_after=total_C_after+layer_total_C
     enddo
-    
+
     if (abs(total_C_before-total_C_after)>1e-10) then
             print *,'Carbon before:',total_C_before
             print *,'Carbon after:',total_C_after
@@ -4138,7 +4138,7 @@ function soil_cover_cold_start(land_mask, lonb, latb) result(soil_frac)
   if (do_hillslope_model) then
      call hlsp_coldfracs(soil_frac, n_dim_soil_types)
   end if
-  
+
 end function soil_cover_cold_start
 
 
@@ -4167,7 +4167,7 @@ subroutine init_soil_twc(soil, ref_soil_t, mwc)
    real  :: soil_E_max ! not used
    real, dimension(num_l)  :: thermal_cond ! soil thermal conductivity [W/m/K]
    real  :: tres       ! thermal resistance [K / (W/m^2)]
-   
+
    ! First tentatively initialize soil water / ice content, assuming isothermal profile.
    if (ref_soil_t.ge.soil%pars%tfreeze) then
       soil%wl(1:num_l) = mwc(1:num_l)*dz(1:num_l)
@@ -4185,7 +4185,7 @@ subroutine init_soil_twc(soil, ref_soil_t, mwc)
    vlc(:) = soil%wl(1:num_l)/ (dz(1:num_l)*dens_h2o*soil%pars%vwc_sat)
    vsc(:) = soil%ws(1:num_l)/ (dz(1:num_l)*dens_h2o*soil%pars%vwc_sat)
    call soil_data_thermodynamics ( soil, vlc, vsc, soil_E_max, thermal_cond)
-   
+
    ! Walk down through soil and maintain geothermal heat flux profile.
    do l=2,num_l
       tres = 0.5*(dz(l-1)/thermal_cond(l-1) + dz(l)/thermal_cond(l)) ! [K / (W/m^2)] =  [m / (W/m/K)]
@@ -4201,7 +4201,7 @@ subroutine init_soil_twc(soil, ref_soil_t, mwc)
          call soil_data_thermodynamics ( soil, vlc, vsc, soil_E_max, thermal_cond)
       end if
    end do
-   
+
    ! Debug
    ! current point set above call in soil_init
    if (is_watch_point()) then

@@ -507,8 +507,9 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
   endif
 
   f0 = t0%frac ! save original tile fraction for future use
-
+  ! write (*,*) 'in natural mortality'
   if (do_check_conservation) then
+
      ! + conservation check, part 1: calculate the pre-transition totals
      call get_tile_water(t0,lmass0,fmass0)
      heat0  = land_tile_heat  (t0)
@@ -661,7 +662,9 @@ end subroutine tile_nat_mortality_ppa
 
 ! TODO: ask Elena about burning of below-ground biomass
 
-subroutine kill_plants_ppa(cc, vegn, soil, ndead, fsmoke, leaf_litt_C, wood_litt_C, root_litt_C, leaf_litt_N, wood_litt_N, root_litt_N)
+subroutine kill_plants_ppa(cc, vegn, soil, ndead, fsmoke, &
+                           leaf_litt_C, wood_litt_C, root_litt_C, &
+                           leaf_litt_N, wood_litt_N, root_litt_N  )
   type(vegn_cohort_type), intent(inout) :: cc
   type(vegn_tile_type),   intent(inout) :: vegn
   type(soil_tile_type),   intent(inout) :: soil
@@ -691,7 +694,7 @@ subroutine kill_plants_ppa(cc, vegn, soil, ndead, fsmoke, leaf_litt_C, wood_litt
 
   ! calculate total carbon losses, kgC/m2
   lost_wood  = ndead * (cc%bwood+cc%bsw+cc%bwood_gain)
-  lost_alive = ndead * (cc%bl+cc%br+cc%blv+cc%bseed+cc%nsc+cc%carbon_gain)
+  lost_alive = ndead * (cc%bl+cc%br+cc%blv+cc%bseed+cc%nsc+cc%carbon_gain+cc%growth_previous_day)
   ! loss to fire
   burned_wood  = fsmoke*lost_wood
   burned_alive = fsmoke*lost_alive
@@ -704,10 +707,10 @@ subroutine kill_plants_ppa(cc, vegn, soil, ndead, fsmoke, leaf_litt_C, wood_litt
 
   ! add remaining lost C to soil carbon pools
   associate(sp=>spdata(cc%species))
-  leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*(cc%bl+cc%bseed+cc%carbon_gain)*(1-fsmoke)*ndead
+  leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*(cc%bl+cc%bseed+cc%carbon_gain+cc%growth_previous_day)*(1-fsmoke)*ndead
   wood_litt_C(:) = wood_litt_C(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(cc%bwood+cc%bsw+cc%bwood_gain)*(1-fsmoke)*agf_bs*ndead
   wood_litt_C(C_FAST) = wood_litt_C(C_FAST)+cc%nsc*(1-fsmoke)*agf_bs*ndead
-  ! what is the seed nitrogen? What do we do with nitrogen storage?
+  ! FIXME: what is the seed nitrogen? What do we do with nitrogen storage?
   leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*cc%leaf_N*(1-fsmoke)*ndead
   wood_litt_N(:) = wood_litt_N(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(cc%wood_N+cc%sapwood_N)*(1-fsmoke)*agf_bs*ndead
   wood_litt_N(C_FAST) = wood_litt_N(C_FAST)+cc%stored_N*(1-fsmoke)*agf_bs*ndead

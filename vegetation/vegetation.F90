@@ -49,7 +49,6 @@ use vegn_data_mod, only : read_vegn_data_namelist, &
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
      c2n_mycorrhizae, c2n_mycorrhizae, c2n_N_fixer
 
-
 use vegn_cohort_mod, only : vegn_cohort_type, &
      init_cohort_allometry_ppa, init_cohort_hydraulics, &
      update_species, update_bio_living_fraction, get_vegn_wet_frac, &
@@ -134,6 +133,8 @@ real    :: init_cohort_myc_mine(MAX_INIT_COHORTS) = 0.0 ! initial miner mycorrhi
 real    :: init_cohort_n_fixer(MAX_INIT_COHORTS)  = 0.0 ! initial N fixer microbe biomass, kgC/m2
 real    :: init_cohort_stored_N_mult(MAX_INIT_COHORTS) = 1.5 ! Multiple of initial leaf N + root N
 real    :: init_cohort_age(MAX_INIT_COHORTS)     = 0.0  ! initial cohort age, year
+real    :: init_cohort_height(MAX_INIT_COHORTS)  = 0.1  ! initial cohort height, m
+real    :: init_cohort_nsc_frac(MAX_INIT_COHORTS)= 3.0  ! initial cohort NSC, as fraction of max. bl
 character(32) :: rad_to_use = 'big-leaf' ! or 'two-stream'
 character(32) :: snow_rad_to_use = 'ignore' ! or 'paint-leaves'
 character(32) :: photosynthesis_to_use = 'simple' ! or 'leuning'
@@ -179,6 +180,7 @@ namelist /vegn_nml/ &
     init_n_cohorts, init_cohort_species, init_cohort_nindivs, &
     init_cohort_bl, init_cohort_blv, init_cohort_br, init_cohort_bsw, &
     init_cohort_bwood, init_cohort_bseed, init_cohort_nsc, &
+    init_cohort_height, &
     init_cohort_myc_scav, init_cohort_myc_mine, init_cohort_n_fixer, &
     init_cohort_stored_N_mult, &
     rad_to_use, snow_rad_to_use, photosynthesis_to_use, &
@@ -386,6 +388,11 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
         call get_cohort_data(restart2, 'psi_l', cohort_psi_l_ptr )
         call get_cohort_data(restart2, 'Kxa',   cohort_Kxa_ptr )
         call get_cohort_data(restart2, 'Kla',   cohort_Kla_ptr )
+
+        call get_cohort_data(restart2, 'growth_prev_day', cohort_growth_previous_day_ptr )
+        call get_cohort_data(restart2, 'growth_prev_day_tmp', cohort_growth_previous_day_tmp_ptr )
+        call get_cohort_data(restart2, 'branch_sw_loss', cohort_branch_sw_loss_ptr )
+        call get_cohort_data(restart2, 'branch_wood_loss', cohort_branch_wood_loss_ptr )
         did_read_cohort_structure=.TRUE.
      else
         did_read_cohort_structure=.FALSE.
@@ -532,6 +539,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      ! create and initialize cohorts for this vegetation tile
      tile%vegn%n_cohorts = init_n_cohorts
      tile%vegn%tc_pheno  = init_Tv  ! initial temperature for phenology
+
      allocate(tile%vegn%cohorts(tile%vegn%n_cohorts))
      do n = 1,tile%vegn%n_cohorts
         associate(cc => tile%vegn%cohorts(n))
@@ -556,8 +564,10 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
         cc%npp_previous_day = 0.0
         cc%status  = LEAF_ON
         cc%leaf_age = 0.0
+
         if (do_ppa) then
            cc%species = init_cohort_spp(n)
+           call init_cohort_allometry_ppa(cc, init_cohort_height(n), init_cohort_nsc_frac(n))
            if (cc%species < 0) call error_mesg('vegn_init','species "'//trim(init_cohort_species(n))//&
                    '" needed for initialization, but not found in the list of species parameters', FATAL)
         else if(did_read_biodata.and.do_biogeography) then
@@ -580,6 +590,9 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
         cc%myc_scavenger_biomass_N = cc%myc_scavenger_biomass_C/c2n_mycorrhizae
         cc%myc_miner_biomass_N     = cc%myc_miner_biomass_N/c2n_mycorrhizae
         cc%N_fixer_biomass_N       = cc%N_fixer_biomass_N/c2n_N_fixer
+
+        cc%K_r        = sp%root_perm
+        !__DEBUG1__(cc%age)
         end associate ! sp
         end associate ! cc
      enddo
@@ -593,7 +606,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
         ce=next_elmt(ce)        ! advance position to the next tile
         if (.not.associated(tile%vegn)) cycle
         do n = 1, tile%vegn%n_cohorts
-           call init_cohort_allometry_ppa(tile%vegn%cohorts(n))
+           call init_cohort_allometry_ppa(tile%vegn%cohorts(n), init_cohort_height(n), init_cohort_nsc_frac(n))
            call init_cohort_hydraulics(tile%vegn%cohorts(n), tile%soil%pars%psi_sat_ref) ! adam wolf
            ! initialize DBH_ys
            tile%vegn%cohorts(n)%DBH_ys = tile%vegn%cohorts(n)%dbh
@@ -973,6 +986,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   ! n_accum and nmn_acm are currently the same for all tiles; we only call mpp_max
   ! to handle the situation when there are no tiles in the current domain
   call mpp_max(n_accum); call mpp_max(nmn_acm)
+
   call add_scalar_data(restart2,'n_accum',n_accum,'number of accumulated steps')
   call add_scalar_data(restart2,'nmn_acm',nmn_acm,'number of accumulated months')
 
@@ -1025,6 +1039,11 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'cohort_total_N', cohort_total_N_ptr, 'total N pool of individual','kg N/m2')
   call add_cohort_data(restart2,'nitrogen_stress', cohort_nitrogen_stress_ptr, 'total N pool of individual','kg N/m2')
   call add_cohort_data(restart2,'root_exudate_buffer_C', cohort_root_exudate_buffer_C_ptr, 'cumulative live biomass over N limit for individual','kg N/m2')
+
+  call add_cohort_data(restart2,'growth_prev_day', cohort_growth_previous_day_ptr, 'pool of growth respiration','kg C')
+  call add_cohort_data(restart2,'growth_prev_day_tmp', cohort_growth_previous_day_tmp_ptr, 'rate of growth respiration release to atmos','kg C/year')
+  call add_cohort_data(restart2,'branch_sw_loss', cohort_branch_sw_loss_ptr, 'branch_sw_loss','kg C/year')
+  call add_cohort_data(restart2,'branch_wood_loss', cohort_branch_wood_loss_ptr, 'branch_wood_loss','kg C/year')
 
   call add_int_tile_data(restart2,'landuse',vegn_landuse_ptr,'vegetation land use type')
   call add_tile_data(restart2,'age',vegn_age_ptr,'vegetation age', 'yr')
@@ -2013,7 +2032,6 @@ subroutine update_vegn_slow( )
         call update_fuel(tile%vegn,tile%soil%w_wilt(1)/tile%soil%pars%vwc_sat)
         ! assume that all layers are the same soil type and wilting is vertically homogeneous
      endif
-
      call check_conservation_2(tile,'update_vegn_slow 4',lmass0,fmass0,cmass0,nmass0)
 
      if (day1 /= day0 .and. do_cohort_dynamics) then
@@ -2022,7 +2040,7 @@ subroutine update_vegn_slow( )
         call send_tile_data(id_closs,sum(cc(1:N)%carbon_loss*cc(1:N)%nindivs),tile%diag)
         call send_tile_data(id_wdgain,sum(cc(1:N)%bwood_gain*cc(1:N)%nindivs),tile%diag)
 
-        call vegn_growth(tile%vegn) ! selects lm3 or ppa inside
+        call vegn_growth(tile%vegn,tile%diag) ! selects lm3 or ppa inside
         call check_conservation_2(tile,'update_vegn_slow 4.1',lmass0,fmass0,cmass0,nmass0)
 
         if (do_ppa) then
@@ -2046,7 +2064,6 @@ subroutine update_vegn_slow( )
      if (year1 /= year0 .and. do_patch_disturbance) then
         call vegn_disturbance(tile%vegn, tile%soil, seconds_per_year)
      endif
-
      call check_conservation_2(tile,'update_vegn_slow 7',lmass0,fmass0,cmass0,nmass0)
 
      if (do_ppa.and.year1 /= year0) then
@@ -2514,6 +2531,10 @@ DEFINE_COHORT_ACCESSOR(integer,status)
 DEFINE_COHORT_ACCESSOR(real,leaf_age)
 DEFINE_COHORT_ACCESSOR(real,age)
 DEFINE_COHORT_ACCESSOR(real,npp_previous_day)
+DEFINE_COHORT_ACCESSOR(real,growth_previous_day)
+DEFINE_COHORT_ACCESSOR(real,growth_previous_day_tmp)
+DEFINE_COHORT_ACCESSOR(real,branch_sw_loss)
+DEFINE_COHORT_ACCESSOR(real,branch_wood_loss)
 DEFINE_COHORT_ACCESSOR(real,BM_ys)
 DEFINE_COHORT_ACCESSOR(real,DBH_ys)
 DEFINE_COHORT_ACCESSOR(real,topyear)
