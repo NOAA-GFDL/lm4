@@ -56,7 +56,7 @@ subroutine vegn_disturbance(vegn, soil, dt)
   real, parameter :: BMIN = 1e-10; ! should be the same as in growth function
   ! ---- local vars
   real :: precip;
-  real :: delta;
+  real :: delta_C, delta_N
   real :: fraction_lost;
   real :: drought_month;
   real :: deltat
@@ -89,23 +89,20 @@ subroutine vegn_disturbance(vegn, soil, dt)
                              leaf_litt_N, wood_litt_N, root_litt_N)
      else ! original LM3 treatment
         ! "dead" biomass : wood + sapwood
-        delta = (cc%bwood+cc%bsw)*fraction_lost*cc%nindivs
+        delta_C = fraction_lost*cc%nindivs*(cc%bwood+cc%bsw)
+        delta_N = fraction_lost*cc%nindivs*(cc%wood_N+cc%sapwood_N)
 
         ! accumulate liter and soil carbon inputs across all cohorts
         wood_litt_C(:) = wood_litt_C(:) + agf_bs*(1-sp%smoke_fraction)* &
-                        delta*[sp%fsc_wood, 1-sp%fsc_wood, 0.0]
-        wood_litt_N(:) = wood_litt_N(:) + agf_bs*(1-sp%smoke_fraction)*fraction_lost* &
-                       [(cc%wood_N+cc%sapwood_N)*   sp%fsc_wood , &
-                        (cc%wood_N+cc%sapwood_N)*(1-sp%fsc_wood), &
-                        0.0]
+                        delta_C*[sp%fsc_wood, 1-sp%fsc_wood, 0.0]
+        wood_litt_N(:) = wood_litt_N(:) + agf_bs*(1-sp%smoke_fraction)* &
+                        delta_N*[sp%fsc_wood, 1-sp%fsc_wood, 0.0]
         call cohort_root_litter_profile(cc, dz, profile)
         do l = 1, num_l
-           root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*delta*(1-agf_bs)*(1-sp%smoke_fraction) * &
+           root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*delta_C*(1-agf_bs)*(1-sp%smoke_fraction) * &
                        [sp%fsc_wood, 1-sp%fsc_wood, 0.0]
-           root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*fraction_lost*(1.0-agf_bs)*(1-sp%smoke_fraction)* &
-                       [(cc%wood_N+cc%sapwood_N)*   sp%fsc_wood , &
-                        (cc%wood_N+cc%sapwood_N)*(1-sp%fsc_wood), &
-                        0.0]
+           root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*delta_N*(1-agf_bs)*(1-sp%smoke_fraction) * &
+                       [sp%fsc_wood, 1-sp%fsc_wood, 0.0]
         enddo
 
         cc%bwood     = cc%bwood     * (1-fraction_lost)
@@ -113,16 +110,11 @@ subroutine vegn_disturbance(vegn, soil, dt)
         cc%wood_N    = cc%wood_N    * (1-fraction_lost)
         cc%sapwood_N = cc%sapwood_N * (1-fraction_lost)
 
-        vegn%csmoke_pool = vegn%csmoke_pool + sp%smoke_fraction*delta;
-
-        ! for budget tracking - temporarily not keeping wood and the rest separately,ens
-        !      soil%ssc_in(1)+=delta*(1.0-sp%smoke_fraction)*(1-sp%fsc_wood); */
-        !      soil%fsc_in(1)+=delta*(1.0-sp%smoke_fraction)*sp%fsc_wood; */
-
-        vegn%veg_out = vegn%veg_out+delta;
+        vegn%csmoke_pool = vegn%csmoke_pool + sp%smoke_fraction*delta_C
+        vegn%veg_out = vegn%veg_out+delta_C
 
         !"alive" biomass: leaves, roots, and virtual pool
-        delta = (cc%bl+cc%blv+cc%br)*fraction_lost;
+        delta_C = (cc%bl+cc%blv+cc%br)*fraction_lost;
         leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*(cc%bl+cc%blv)*fraction_lost*(1-sp%smoke_fraction)
         leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*cc%leaf_N*fraction_lost*(1-sp%smoke_fraction)
         do l = 1, num_l
@@ -138,19 +130,20 @@ subroutine vegn_disturbance(vegn, soil, dt)
         cc%leaf_N = cc%leaf_N  * (1-fraction_lost)
         cc%root_N = cc%root_N  * (1-fraction_lost)
 
-        vegn%csmoke_pool = vegn%csmoke_pool + sp%smoke_fraction*delta;
-
-        vegn%veg_out = vegn%veg_out+delta;
+        vegn%csmoke_pool = vegn%csmoke_pool + sp%smoke_fraction*delta_C
+        vegn%veg_out = vegn%veg_out+delta_C
 
         !"living" biomass:leaves, roots and sapwood
-        delta = cc%bliving*fraction_lost;
-        cc%bliving = cc%bliving - delta;
+        delta_C = cc%bliving*fraction_lost;
+        cc%bliving = cc%bliving - delta_C
 
         if(cc%bliving < BMIN) then
            ! remove vegetaion competely
            ! accumulate liter and soil carbon inputs across all cohorts
            leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*(cc%bl+cc%blv)
+           leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*cc%leaf_N
            wood_litt_C(:) = wood_litt_C(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*agf_bs*(cc%bwood+cc%bsw)
+           wood_litt_N(:) = wood_litt_N(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*agf_bs*(cc%wood_N+cc%sapwood_N)
            do l = 1, num_l
               root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*[ &
                    sp%fsc_froot    *cc%br + sp%fsc_wood    *(cc%bwood+cc%bsw)*(1-agf_bs), & ! fast
@@ -172,7 +165,8 @@ subroutine vegn_disturbance(vegn, soil, dt)
      end associate
   enddo
 
-  call add_soil_carbon(soil, vegn, leaf_litt_C, wood_litt_C, root_litt_C, leaf_litt_N, wood_litt_N, root_litt_N)
+  call add_soil_carbon(soil, vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
+                                   leaf_litt_N, wood_litt_N, root_litt_N  )
 
   vegn%csmoke_rate = vegn%csmoke_pool; ! kg C/(m2 yr)
 end subroutine vegn_disturbance
@@ -566,7 +560,7 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
            write(*,*)
         enddo
      endif
-     ! kill the individulas affected by natural mortali
+     ! kill the individulas affected by natural mortality
      do i = 1,t0%vegn%n_cohorts
         associate(cc0=>t0%vegn%cohorts(i), cc1=>t1%vegn%cohorts(i))
         if (cc0%layer==1) then
@@ -592,9 +586,9 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
         write(*,*) 'NOT splitting a disturbed tile'
      endif
      do i = 1,t0%vegn%n_cohorts
-        call kill_plants_ppa(t0%vegn%cohorts(i),t0%vegn,t0%soil,ndead(i),0.0,&
-                       leaf_litt0_C,wood_litt0_C,root_litt0_C, &
-                       leaf_litt0_N,wood_litt0_N,root_litt0_N  )
+        call kill_plants_ppa(t0%vegn%cohorts(i), t0%vegn, t0%soil, ndead(i), 0.0,&
+                       leaf_litt0_C, wood_litt0_C, root_litt0_C, &
+                       leaf_litt0_N, wood_litt0_N, root_litt0_N  )
      enddo
   endif
 
