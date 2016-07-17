@@ -377,28 +377,33 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
         ! __DEBUG3__(current_root_exudation,cc%root_exudate_buffer_C,root_exudate_C)
 
         ! Scavenging (AM-style)
+        ! slm: *_marginal_gain variables have units [kgN/kgC]
         call myc_scavenger_N_uptake(soil,cc,cc%myc_scavenger_biomass_C,myc_scav_N_uptake,dt_fast_yr,update_pools=.TRUE.)
-        if (cc%myc_scavenger_biomass_C > 0) then
-           myc_scav_marginal_gain = (max(0.0,myc_scav_N_uptake)/dt_fast_yr)/(cc%myc_scavenger_biomass_C/myc_scav_C_efficiency/mycorrhizal_turnover_time)
-        elseif(myc_scav_C_efficiency == 0) then
+        if(myc_scav_C_efficiency == 0) then
            myc_scav_marginal_gain = 0
         else
-           call myc_scavenger_N_uptake(soil,cc,cc%br*0.001,myc_N_uptake,dt_fast_yr,update_pools=.FALSE.)
-           myc_scav_marginal_gain = (myc_N_uptake/dt_fast_yr)/(cc%br*0.001/myc_scav_C_efficiency/mycorrhizal_turnover_time)
+           if (cc%myc_scavenger_biomass_C > 0) then
+              myc_scav_marginal_gain = (max(0.0,myc_scav_N_uptake)/dt_fast_yr)/(cc%myc_scavenger_biomass_C/myc_scav_C_efficiency/mycorrhizal_turnover_time)
+           else
+              call myc_scavenger_N_uptake(soil,cc,cc%br*0.001,myc_N_uptake,dt_fast_yr,update_pools=.FALSE.)
+              myc_scav_marginal_gain = (myc_N_uptake/dt_fast_yr)/(cc%br*0.001/myc_scav_C_efficiency/mycorrhizal_turnover_time)
+           endif
         endif
 
         ! Mycorrhizal N mining (ECM-style)
         call myc_miner_N_uptake(soil,cc,cc%myc_miner_biomass_C,myc_mine_N_uptake,myc_mine_C_uptake,mining_CO2prod,dt_fast_yr,update_pools=.TRUE.)
-        if(cc%myc_miner_biomass_C>0) then
-           myc_mine_marginal_gain = (max(0.0,myc_mine_N_uptake)/dt_fast_yr)/(cc%myc_miner_biomass_C/myc_mine_C_efficiency/mycorrhizal_turnover_time)
-        elseif(myc_mine_C_efficiency==0) then
+        if(myc_mine_C_efficiency==0) then
            myc_mine_marginal_gain = 0.0
         else
-           call myc_miner_N_uptake(soil,cc,cc%br*0.001,myc_N_uptake,myc_mine_C_uptake,mining_CO2prod,dt_fast_yr,update_pools=.FALSE.)
-           myc_mine_marginal_gain = (myc_N_uptake/dt_fast_yr)/(cc%br*0.001/myc_mine_C_efficiency/mycorrhizal_turnover_time)
+           if(cc%myc_miner_biomass_C>0) then
+              myc_mine_marginal_gain = (max(0.0,myc_mine_N_uptake)/dt_fast_yr)/(cc%myc_miner_biomass_C/myc_mine_C_efficiency/mycorrhizal_turnover_time)
+           else
+              call myc_miner_N_uptake(soil,cc,cc%br*0.001,myc_N_uptake,myc_mine_C_uptake,mining_CO2prod,dt_fast_yr,update_pools=.FALSE.)
+              myc_mine_marginal_gain = (myc_N_uptake/dt_fast_yr)/(cc%br*0.001/myc_mine_C_efficiency/mycorrhizal_turnover_time)
+           endif
         endif
 
-         ! Root uptake of nitrogen
+        ! Root uptake of nitrogen
         call root_N_uptake(soil,vegn,root_active_N_uptake,dt_fast_yr, update_pools=.TRUE.)
         if (current_root_exudation>0) then
            rhiz_exud_marginal_gain = (root_active_N_uptake/dt_fast_yr)/(current_root_exudation*0.3)+(myc_mine_marginal_gain+myc_scav_marginal_gain)*0.3
@@ -408,13 +413,14 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
 
         ! N fixer
         N_fixation = cc%N_fixer_biomass_C*N_fixation_rate*dt_fast_yr
-        if(cc%N_fixer_biomass_C>0) then
-           !  N_fix_marginal_gain = (N_fixation_2-N_fixation)/dt_fast_yr/(0.05*root_exudate_C*dt_fast_yr)
-           N_fix_marginal_gain = (N_fixation/dt_fast_yr)/(cc%N_fixer_biomass_C/N_fixer_C_efficiency/N_fixer_turnover_time)
-        elseif(N_fixer_C_efficiency == 0) then
+        if(N_fixer_C_efficiency == 0) then
            N_fix_marginal_gain = 0.0
         else
-           N_fix_marginal_gain = (cc%br*0.001*N_fixation_rate)/(cc%br*0.001/N_fixer_C_efficiency/N_fixer_turnover_time)
+           if(cc%N_fixer_biomass_C>0) then
+              N_fix_marginal_gain = (N_fixation/dt_fast_yr)/(cc%N_fixer_biomass_C/N_fixer_C_efficiency/N_fixer_turnover_time)
+           else
+              N_fix_marginal_gain = (cc%br*0.001*N_fixation_rate)/(cc%br*0.001/N_fixer_C_efficiency/N_fixer_turnover_time)
+           endif
         endif
 
         ! Calculate relative fractions
