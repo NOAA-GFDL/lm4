@@ -588,8 +588,8 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
         cc%stored_N   = init_cohort_stored_N_mult(n)*(cc%leaf_N+cc%root_N)
         cc%total_N    = cc%stored_N+cc%leaf_N+cc%wood_N+cc%root_N+cc%sapwood_N
         cc%myc_scavenger_biomass_N = cc%myc_scavenger_biomass_C/c2n_mycorrhizae
-        cc%myc_miner_biomass_N     = cc%myc_miner_biomass_N/c2n_mycorrhizae
-        cc%N_fixer_biomass_N       = cc%N_fixer_biomass_N/c2n_N_fixer
+        cc%myc_miner_biomass_N     = cc%myc_miner_biomass_C/c2n_mycorrhizae
+        cc%N_fixer_biomass_N       = cc%N_fixer_biomass_C/c2n_N_fixer
 
         cc%K_r        = sp%root_perm
         !__DEBUG1__(cc%age)
