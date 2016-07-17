@@ -369,10 +369,10 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
      endif
 
      if (soil_carbon_option == SOILC_CORPSE_N) then
+        call check_var_range(cc%root_exudate_buffer_C, 0.0, HUGE(1.0), 'vegn_carbon_int_lm3', 'root_exudate_buffer_C', FATAL)
         ! Calculate return on investment for each N acquisition strategy
         ! Determined by calculating marginal change in N uptake if C allocation to each strategy increased by 10%
         ! Mycorrhizal:
-        if(cc%root_exudate_buffer_C<0) call error_mesg('vegn_carbon_int','root_exudate_buffer_C<0',FATAL)
 
         ! __DEBUG3__(current_root_exudation,cc%root_exudate_buffer_C,root_exudate_C)
 
@@ -415,20 +415,6 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
            N_fix_marginal_gain = 0.0
         else
            N_fix_marginal_gain = (cc%br*0.001*N_fixation_rate)/(cc%br*0.001/N_fixer_C_efficiency/N_fixer_turnover_time)
-        endif
-
-        ! Calculate relative fractions
-        rhiz_exud_frac = 0.3  ! Using fixed value for now
-
-        if (myc_scav_marginal_gain+N_fix_marginal_gain+myc_mine_marginal_gain>0) then
-           myc_scav_exudate_frac = (1.0-rhiz_exud_frac)*myc_scav_marginal_gain/(myc_scav_marginal_gain+myc_mine_marginal_gain+N_fix_marginal_gain)
-           myc_mine_exudate_frac = (1.0-rhiz_exud_frac)*myc_mine_marginal_gain/(myc_scav_marginal_gain+myc_mine_marginal_gain+N_fix_marginal_gain)
-           N_fixer_exudate_frac  = (1.0-rhiz_exud_frac)*N_fix_marginal_gain   /(myc_scav_marginal_gain+myc_mine_marginal_gain+N_fix_marginal_gain)
-        else
-           ! Divide evenly if there is no marginal gain.  But this probably only happens if root_exudate_C is zero
-           myc_scav_exudate_frac = (1.0-rhiz_exud_frac)*0.4
-           myc_mine_exudate_frac = (1.0-rhiz_exud_frac)*0.3
-           N_fixer_exudate_frac  = (1.0-rhiz_exud_frac)*0.3
         endif
 
         ! Calculate relative fractions
