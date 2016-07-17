@@ -248,7 +248,7 @@ type spec_data_type
   ! for hydraulics, wolf
   real    :: Kxam=0.0, Klam=0.0 ! Conductivity, max, per tissue area: units kg/m2 tissue/s/MPa
   real    :: dx=0.0, dl=0.0       ! Breakpoint of Weibull function, MPa
-  real    :: cx=1.0, cl=1.0	  ! Exponent of Weibull function, unitless
+  real    :: cx=1.0, cl=1.0       ! Exponent of Weibull function, unitless
   real    :: psi_tlp=0.0                  ! psi at turgor loss point
 
   real    :: root_exudate_frac = 0.0 ! fraction of NPP that ends up in root exudates
@@ -349,14 +349,14 @@ real :: mortrate_s = 2.3   ! mortality rate of starving plants, 1/year, 2.3 = ap
 
 real :: root_exudate_N_frac = 0.0 ! N fraction of root exudates. See e.g. Drake et al 2013
 real :: root_exudate_frac_max     = 0.5     ! Maximum fraction of NPP that can be allocated to mycorrhizae and root exudation
-logical :: dynamic_root_exudation    = .FALSE. ! Whether to dynamically determine root exudation rate from plant N limitation
+logical :: dynamic_root_exudation = .FALSE. ! Whether to dynamically determine root exudation rate from plant N limitation
 real :: c2n_mycorrhizae           = 10      ! C:N ratio of mycorrhizal biomass
 real :: mycorrhizal_turnover_time = 0.1     ! Mean residence time of live mycorrhizal biomass (yr)
-real :: myc_scav_C_efficiency      = 0.8      ! Efficiency of C allocation to scavenger mycorrhizae (remainder goes to CO2)
-real :: myc_mine_C_efficiency      = 0.8      ! Efficiency of C allocation to miner mycorrhizae (remainder goes to CO2)
+real :: myc_scav_C_efficiency     = 0.8     ! Efficiency of C allocation to scavenger mycorrhizae (remainder goes to CO2)
+real :: myc_mine_C_efficiency     = 0.8     ! Efficiency of C allocation to miner mycorrhizae (remainder goes to CO2)
 real :: c2n_N_fixer           = 10      ! C:N ratio of N-fixing microbe biomass
 real :: N_fixer_turnover_time = 0.1     ! Mean residence time of live N fixer biomass (yr)
-real :: N_fixer_C_efficiency  = 0.5      ! Efficiency of C allocation to N fixers (remainder goes to CO2)
+real :: N_fixer_C_efficiency  = 0.5     ! Efficiency of C allocation to N fixers (remainder goes to CO2)
 real :: N_fixation_rate       = 0.1     ! N fixation rate per unit fixer biomass (kgN/kg fixer C/year)
 logical :: N_limits_live_biomass = .FALSE.  ! Option to have N uptake limit max biomass.  Only relevant with CORPSE_N
 real :: root_NH4_uptake_rate = 0.1      ! kg/m3/year (assumes rhizosphere only, which accounts for root length)

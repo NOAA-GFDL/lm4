@@ -176,7 +176,7 @@ type :: vegn_cohort_type
   real :: wood_N = 0.0
   real :: sapwood_N = 0.0
   real :: root_N = 0.0
-  real :: total_N = 0.0
+  real :: total_N = 0.0 ! sum of plant nitrogen pools (does not includes fixers and mycorrahize)
 
 end type vegn_cohort_type
 
@@ -184,6 +184,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
 ! returns biomass of an individual of given cohort, kgC
+! NOTE that it also includes fixers and mycorrhizae. Should it?
 real function biomass_of_individual(cohort)
   type(vegn_cohort_type), intent(in) :: cohort
   biomass_of_individual = &
