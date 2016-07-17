@@ -1357,7 +1357,7 @@ subroutine vegn_phenology_lm3(vegn, soil)
               root_litt_C(l,:) = root_litt_C(l,:) + profile(l)* &
                    [sp%fsc_froot, 1-sp%fsc_froot, 0.0]*root_litter_C
               root_litt_N(l,:) = root_litt_N(l,:) + profile(l)* &
-                   [sp%fsc_froot, (1-sp%fsc_froot), 0.0]*root_litter_N
+                   [sp%fsc_froot, 1-sp%fsc_froot, 0.0]*root_litter_N
            enddo
 
            vegn%litter = vegn%litter + leaf_litter_C + root_litter_C
@@ -1406,7 +1406,7 @@ subroutine vegn_phenology_ppa(vegn, soil)
   real, parameter :: leaf_fall_rate = 0.075 ! per day
   real, parameter :: root_mort_rate = 0.0
 
-  vegn%litter = 0 ; leaf_litt_C(:) = 0.0 ; leaf_litt_C(:) = 0.0
+  vegn%litter = 0 ; leaf_litt_C(:) = 0.0 ; leaf_litt_N(:) = 0.0
   do i = 1,vegn%n_cohorts
      associate ( cc => vegn%cohorts(i),   &
                  sp => spdata(vegn%cohorts(i)%species) )
@@ -1432,10 +1432,14 @@ subroutine vegn_phenology_ppa(vegn, soil)
          dead_leaves_N = cc%leaf_N * dead_leaves_C/cc%bl
          dead_roots_C = min(root_mort_rate * cc%br_max, cc%br)
          dead_roots_N = cc%root_N * dead_roots_C/cc%br
-         cc%nsc = cc%nsc + l_fract * (dead_leaves_C+dead_roots_C)
-         cc%stored_N = cc%nsc + l_fract * (dead_leaves_N+dead_roots_N)
-         cc%bl  = cc%bl - dead_leaves_C ; cc%leaf_N = cc%leaf_N - dead_leaves_N
-         cc%br  = cc%br - dead_roots_C  ; cc%root_N = cc%root_N - dead_roots_N
+         ! update C and N pools
+         cc%nsc      = cc%nsc      + l_fract * (dead_leaves_C+dead_roots_C)
+         cc%stored_N = cc%stored_N + l_fract * (dead_leaves_N+dead_roots_N)
+         cc%bl       = cc%bl - dead_leaves_C
+         cc%leaf_N   = cc%leaf_N - dead_leaves_N
+         cc%br       = cc%br - dead_roots_C
+         cc%root_N   = cc%root_N - dead_roots_N
+
          cc%lai = leaf_area_from_biomass(cc%bl,cc%species,cc%layer,cc%firstlayer)/ &
                                         (cc%crownarea *(1.0-sp%internal_gap_frac))
          if(cc%bl == 0.)cc%leaf_age = 0.0
