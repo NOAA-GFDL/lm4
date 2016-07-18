@@ -276,6 +276,7 @@ function GET_REC_D4N(ncid,name,rec,data,mask) result (iret)
   integer :: iret ! return value
 
 #ifdef intel14_bug
+  iret = 0
   call error_mesg('nfc_mod',' new_land_io=.FALSE. is not allowed when nfc.F90 is preprocessed with -Dintel14_bug.', FATAL)
 #else
   if (present(mask)) then
