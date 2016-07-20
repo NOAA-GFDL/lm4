@@ -32,8 +32,8 @@ use land_tile_io_mod, only: land_restart_type, &
      print_netcdf_error
 use nf_utils_mod,  only : nfu_inq_dim
 use land_debug_mod, only : is_watch_point, is_watch_cell, set_current_point
-use land_transitions_mod, only : do_landuse_change
-use vegn_harvesting_mod , only : do_harvesting
+! use land_transitions_mod, only : do_landuse_change
+! use vegn_harvesting_mod , only : do_harvesting
 use hillslope_tile_mod , only : register_hlsp_selectors
 use constants_mod, only : tfreeze
 use soil_tile_mod, only : gw_option, GW_TILED, initval, soil_tile_type, &
@@ -872,22 +872,22 @@ subroutine hlsp_config_check()
   if (.not. do_hillslope_model) return
 
   ! Error checking
-  if ( (do_landuse_change .or. do_harvesting) .and. (.not. hillslope_horz_subdiv) .and. &
-        (.not. hillslope_topo_subdiv) ) &
-     call error_mesg(module_name, 'Land use change and harvesting require '// &
-                     'the hillslope model to allow horizontal or topographic hillslope subdivision.',&
-                     FATAL)
-
-  if ((.not. fixed_num_vertclusters) .or. hillslope_topo_subdiv) &
-     call error_mesg(module_name, 'hlsp_init: fixed_num_vertclusters == .true.,'// &
-                     'hillslope_horz_subdiv == .true., and hillslope_topo_subdiv == .false'// &
-                     'is currently required.', &
-                     FATAL)
-
-  ! ZMS fill in this function
-  if ((do_landuse_change .or. do_harvesting) .and. hillslope_horz_subdiv) then
-      call transitions_disturbance_length_init()
-  end if
+  ! if ( (do_landuse_change .or. do_harvesting) .and. (.not. hillslope_horz_subdiv) .and. &
+  !       (.not. hillslope_topo_subdiv) ) &
+  !    call error_mesg(module_name, 'Land use change and harvesting require '// &
+  !                    'the hillslope model to allow horizontal or topographic hillslope subdivision.',&
+  !                    FATAL)
+  !
+  ! if ((.not. fixed_num_vertclusters) .or. hillslope_topo_subdiv) &
+  !    call error_mesg(module_name, 'hlsp_init: fixed_num_vertclusters == .true.,'// &
+  !                    'hillslope_horz_subdiv == .true., and hillslope_topo_subdiv == .false'// &
+  !                    'is currently required.', &
+  !                    FATAL)
+  !
+  ! ! ZMS fill in this function
+  ! if ((do_landuse_change .or. do_harvesting) .and. hillslope_horz_subdiv) then
+  !     call transitions_disturbance_length_init()
+  ! end if
 
   ! Deallocate variables used during init, as this function is called at end of land_model init
   ! sequence.
@@ -1093,6 +1093,3 @@ DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars, tile_hlsp_width)
 
 
 end module hillslope_mod
-
-
-
