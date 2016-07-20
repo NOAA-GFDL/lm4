@@ -2107,9 +2107,14 @@ subroutine transfer_pool_fraction(source, destination, fraction)
 
     integer::nn
     type(litterCohort)::transfer_cohort
+    real::pool1_C,pool2_C,totalC
 
     if(fraction>1.0) call error_mesg('transfer_pool_fraction','fraction > 1.0',FATAL)
     if(fraction<0.0) call error_mesg('transfer_pool_fraction','fraction < 0.0',FATAL)
+
+    call poolTotals(source,totalCarbon=pool1_C)
+    call poolTotals(destination, totalCarbon=pool2_C)
+    totalC=pool1_C+pool2_C
 
     do nn=1,source%n_cohorts
         transfer_cohort=multiply_cohort(source%litterCohorts(nn),fraction)
@@ -2134,6 +2139,14 @@ subroutine transfer_pool_fraction(source, destination, fraction)
 
     destination%denitrif=destination%denitrif+source%denitrif*fraction
     source%denitrif=source%denitrif*(1.0-fraction)
+
+    call poolTotals(source,totalCarbon=pool1_C)
+    call poolTotals(destination, totalCarbon=pool2_C)
+
+    if(abs(pool1_C+pool2_C-totalC) > 1e-10) then
+      __DEBUG2__(pool1_C+pool2_C,totalC)
+      call error_mesg('Transfer_pool_fraction','C not conserved',FATAL)
+    endif
 
     do nn=1,source%n_cohorts
          IF (.NOT. check_cohort(source%litterCohorts(nn))) THEN

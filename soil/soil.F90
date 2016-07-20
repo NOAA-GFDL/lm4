@@ -5845,7 +5845,7 @@ subroutine redistribute_peat_carbon(soil)
     total_C_before=0.0
     total_N_before=0.0
     do nn=1,num_l
-    call poolTotals(soil%soil_organic_matter(num_l),totalCarbon=layer_total_C,totalNitrogen=layer_total_N)
+    call poolTotals(soil%soil_organic_matter(nn),totalCarbon=layer_total_C,totalNitrogen=layer_total_N)
     total_C_before=total_C_before+layer_total_C
     total_N_before=total_N_before+layer_total_N
     enddo
@@ -5892,7 +5892,7 @@ subroutine redistribute_peat_carbon(soil)
     total_C_after=0.0
     total_N_after=0.0
     do nn=1,num_l
-    call poolTotals(soil%soil_organic_matter(num_l),totalCarbon=layer_total_C,totalNitrogen=layer_total_N)
+    call poolTotals(soil%soil_organic_matter(nn),totalCarbon=layer_total_C,totalNitrogen=layer_total_N)
     total_C_after=total_C_after+layer_total_C
     total_N_after=total_N_after+layer_total_N
     enddo
