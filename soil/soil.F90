@@ -5530,10 +5530,13 @@ subroutine add_root_exudates(soil,vegn,exudateC,exudateN)
     real,dimension(num_l) :: uptake_frac_max, vegn_uptake_term
     integer :: nn
 
+    if(exudateC<-1e-10) call error_mesg('add_root_exudates','exudateC<0',FATAL)
+    if(exudateN<-1e-10) call error_mesg('add_root_exudates','exudateN<0',FATAL)
+
     call vegn_uptake_profile (vegn, dz(1:num_l), uptake_frac_max, vegn_uptake_term )
     if(abs(sum(uptake_frac_max(1:num_l)) - 1.0) > 1e-10 ) then
         print *,'1 - sum(vegn_uptake_frac_max)',1.0-sum(uptake_frac_max(1:num_l))
-        call error_mesg('add_root_litter','total of vegn_uptake_frac_max not 1',FATAL)
+        call error_mesg('add_root_exudates','total of vegn_uptake_frac_max not 1',FATAL)
     endif
 
     if (is_watch_point()) then
