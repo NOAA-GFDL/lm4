@@ -53,6 +53,7 @@ public :: retrieve_dissolved_mineral_N
 public :: mycorrhizal_mineral_N_uptake_rate
 public :: mycorrhizal_decomposition
 public :: hypothetical_mycorrhizal_decomposition
+public :: litterDensity
 
 #ifndef STANDALONE_SOIL_CARBON
 public :: adjust_pool_ncohorts

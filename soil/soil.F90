@@ -34,7 +34,7 @@ use soil_tile_mod, only : GW_LM2, GW_LINEAR, GW_HILL_AR5, GW_HILL, GW_TILED, &
      soil_type_file, &
      soil_tile_stock_pe, initval, comp, soil_theta, soil_ice_porosity
 
-use soil_carbon_mod, only: poolTotals, soilMaxCohorts, &
+use soil_carbon_mod, only: poolTotals, soilMaxCohorts, litterDensity, &
      update_pool, add_litter, add_C_N_to_rhizosphere, &
      tracer_leaching_with_litter,transfer_pool_fraction, n_c_types, &
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
@@ -5646,6 +5646,7 @@ subroutine myc_scavenger_N_uptake(soil,vegn,myc_biomass,total_N_uptake,dt)
 
   real,dimension(num_l) :: uptake_frac_max, vegn_uptake_term
   real::nitrate_uptake,ammonium_uptake
+  real::litterThickness,totalC
   integer::nn
 
   call vegn_uptake_profile (vegn, dz(1:num_l), uptake_frac_max, vegn_uptake_term )
@@ -5665,8 +5666,10 @@ subroutine myc_scavenger_N_uptake(soil,vegn,myc_biomass,total_N_uptake,dt)
   enddo
 
   ! Mycorrhizae should have access to litter layer too
-  ! Might want to update this so it calculates actual layer thickness?
-  call mycorrhizal_mineral_N_uptake_rate(soil%leafLitter,myc_biomass*uptake_frac_max(1),dz(1),nitrate_uptake,ammonium_uptake)
+  ! Assuming volumetric concentration in litter layer is the same as top soil layer
+  call poolTotals(soil%leafLitter,totalCarbon=totalC)
+  litterThickness=max(totalC/litterDensity,1e-2)
+  call mycorrhizal_mineral_N_uptake_rate(soil%leafLitter,myc_biomass*uptake_frac_max(1)/dz(1)*litterThickness,litterThickness,nitrate_uptake,ammonium_uptake)
   ammonium_uptake = min(ammonium_uptake,soil%leafLitter%ammonium/dt)
   nitrate_uptake = min(nitrate_uptake,soil%leafLitter%nitrate/dt)
   total_N_uptake=total_N_uptake+(nitrate_uptake+ammonium_uptake)*dt
@@ -5674,8 +5677,9 @@ subroutine myc_scavenger_N_uptake(soil,vegn,myc_biomass,total_N_uptake,dt)
   soil%leafLitter%ammonium=soil%leafLitter%ammonium-ammonium_uptake*dt
   soil%leafLitter%nitrate=soil%leafLitter%nitrate-nitrate_uptake*dt
 
-
-  call mycorrhizal_mineral_N_uptake_rate(soil%coarseWoodLitter,myc_biomass*uptake_frac_max(1),dz(1),nitrate_uptake,ammonium_uptake)
+  call poolTotals(soil%coarseWoodLitter,totalCarbon=totalC)
+  litterThickness=max(totalC/litterDensity,1e-2)
+  call mycorrhizal_mineral_N_uptake_rate(soil%coarseWoodLitter,myc_biomass*uptake_frac_max(1)/dz(1)*litterThickness,litterThickness,nitrate_uptake,ammonium_uptake)
   ammonium_uptake = min(ammonium_uptake,soil%coarseWoodLitter%ammonium/dt)
   nitrate_uptake = min(nitrate_uptake,soil%coarseWoodLitter%nitrate/dt)
   total_N_uptake=total_N_uptake+(nitrate_uptake+ammonium_uptake)*dt
@@ -5686,7 +5690,7 @@ end subroutine myc_scavenger_N_uptake
 
 ! Uptake of mineral N by mycorrhizal "scavengers" -- Should correspond to Arbuscular mycorrhizae
 ! This version is for calculating marginal N acquisition benefit of change in myc biomass, and does not affect pools
-pure subroutine hypothetical_myc_scavenger_N_uptake(soil,vegn,myc_biomass,total_N_uptake,dt)
+subroutine hypothetical_myc_scavenger_N_uptake(soil,vegn,myc_biomass,total_N_uptake,dt)
   real,intent(in)::myc_biomass,dt  ! dt in years, myc_biomass in kgC/m2
   real,intent(out)::total_N_uptake
   type(vegn_tile_type),intent(in)::vegn
@@ -5694,6 +5698,7 @@ pure subroutine hypothetical_myc_scavenger_N_uptake(soil,vegn,myc_biomass,total_
 
   real,dimension(num_l) :: uptake_frac_max, vegn_uptake_term
   real::nitrate_uptake,ammonium_uptake
+  real::totalC,litterThickness
   integer::nn
 
   call vegn_uptake_profile (vegn, dz(1:num_l), uptake_frac_max, vegn_uptake_term )
@@ -5709,16 +5714,19 @@ pure subroutine hypothetical_myc_scavenger_N_uptake(soil,vegn,myc_biomass,total_
   enddo
 
   ! Mycorrhizae should have access to litter layer too
-  ! Might want to update this so it calculates actual layer thickness?
-  ! Assume 20% of mycorrhizal biomass accesses litter, so we're not dependent on layer thickness
-  call mycorrhizal_mineral_N_uptake_rate(soil%leafLitter,myc_biomass*uptake_frac_max(1),dz(1),nitrate_uptake,ammonium_uptake)
+  ! Assuming volumetric concentration in litter layer is the same as top soil layer
+  call poolTotals(soil%leafLitter,totalCarbon=totalC)
+  litterThickness=max(totalC/litterDensity,1e-2)
+  call mycorrhizal_mineral_N_uptake_rate(soil%leafLitter,myc_biomass*uptake_frac_max(1)/dz(1)*litterThickness,litterThickness,nitrate_uptake,ammonium_uptake)
   ammonium_uptake = min(ammonium_uptake,soil%leafLitter%ammonium/dt)
   nitrate_uptake = min(nitrate_uptake,soil%leafLitter%nitrate/dt)
   total_N_uptake=total_N_uptake+(nitrate_uptake+ammonium_uptake)*dt
 
   !soil%leafLitter%ammonium=soil%leafLitter%ammonium-ammonium_uptake*dt
   !soil%leafLitter%nitrate=soil%leafLitter%nitrate-nitrate_uptake*dt
-  call mycorrhizal_mineral_N_uptake_rate(soil%coarseWoodLitter,myc_biomass*uptake_frac_max(1),dz(1),nitrate_uptake,ammonium_uptake)
+  call poolTotals(soil%coarseWoodLitter,totalCarbon=totalC)
+  litterThickness=max(totalC/litterDensity,1e-2)
+  call mycorrhizal_mineral_N_uptake_rate(soil%coarseWoodLitter,myc_biomass*uptake_frac_max(1)/dz(1)*litterThickness,litterThickness,nitrate_uptake,ammonium_uptake)
   ammonium_uptake = min(ammonium_uptake,soil%coarseWoodLitter%ammonium/dt)
   nitrate_uptake = min(nitrate_uptake,soil%coarseWoodLitter%nitrate/dt)
   total_N_uptake=total_N_uptake+(nitrate_uptake+ammonium_uptake)*dt
@@ -5734,7 +5742,7 @@ subroutine myc_miner_N_uptake(soil,vegn,myc_biomass,total_N_uptake,total_C_uptak
   type(soil_tile_type),intent(inout)::soil
 
   real,dimension(num_l) :: uptake_frac_max, vegn_uptake_term
-  real::N_uptake,C_uptake,CO2prod
+  real::N_uptake,C_uptake,CO2prod,totalC,litterThickness
   real,dimension(num_l)::T,theta,air_filled_porosity
   integer::nn
 
@@ -5755,12 +5763,16 @@ subroutine myc_miner_N_uptake(soil,vegn,myc_biomass,total_N_uptake,total_C_uptak
 
   ! Mycorrhizae should have access to litter layer too
   ! Might want to update this so it calculates actual layer thickness?
-  call mycorrhizal_decomposition(soil%leafLitter,myc_biomass*0.3,T(1),theta(1),air_filled_porosity(1),N_uptake,C_uptake,CO2prod,dt)
+  call poolTotals(soil%leafLitter,totalCarbon=totalC)
+  litterThickness=max(totalC/litterDensity,1e-2)
+  call mycorrhizal_decomposition(soil%leafLitter,myc_biomass*uptake_frac_max(1)/dz(1)*litterThickness,T(1),theta(1),air_filled_porosity(1),N_uptake,C_uptake,CO2prod,dt)
   total_N_uptake=total_N_uptake+N_uptake
   total_C_uptake = total_C_uptake+C_uptake
   total_CO2prod = total_CO2prod + CO2prod
 
-  call mycorrhizal_decomposition(soil%coarseWoodLitter,myc_biomass*0.3,T(1),theta(1),air_filled_porosity(1),N_uptake,C_uptake,CO2prod,dt)
+  call poolTotals(soil%coarseWoodLitter,totalCarbon=totalC)
+  litterThickness=max(totalC/litterDensity,1e-2)
+  call mycorrhizal_decomposition(soil%coarseWoodLitter,myc_biomass*uptake_frac_max(1)/dz(1)*litterThickness,T(1),theta(1),air_filled_porosity(1),N_uptake,C_uptake,CO2prod,dt)
   total_N_uptake=total_N_uptake+N_uptake
   total_C_uptake = total_C_uptake+C_uptake
   total_CO2prod = total_CO2prod + CO2prod
@@ -5777,7 +5789,7 @@ end subroutine myc_miner_N_uptake
   type(soil_tile_type),intent(inout)::soil
 
   real,dimension(num_l) :: uptake_frac_max, vegn_uptake_term,T,theta,air_filled_porosity
-  real::N_uptake,C_uptake,CO2prod
+  real::N_uptake,C_uptake,CO2prod,totalC,litterThickness
   integer::nn
 
   call vegn_uptake_profile (vegn, dz(1:num_l), uptake_frac_max, vegn_uptake_term )
@@ -5797,15 +5809,19 @@ end subroutine myc_miner_N_uptake
 
   ! Mycorrhizae should have access to litter layer too
   ! Might want to update this so it calculates actual layer thickness?
-  call hypothetical_mycorrhizal_decomposition(soil%leafLitter,myc_biomass*0.3,T(1),theta(1),air_filled_porosity(1),N_uptake,C_uptake,CO2prod,dt)
+  call poolTotals(soil%leafLitter,totalCarbon=totalC)
+  litterThickness=max(totalC/litterDensity,1e-2)
+  call hypothetical_mycorrhizal_decomposition(soil%leafLitter,myc_biomass*uptake_frac_max(1)/dz(1)*litterThickness,T(1),theta(1),air_filled_porosity(1),N_uptake,C_uptake,CO2prod,dt)
   total_N_uptake=total_N_uptake+N_uptake
   total_C_uptake = total_C_uptake+C_uptake
-  total_CO2prod=total_CO2prod+CO2prod
+  total_CO2prod = total_CO2prod + CO2prod
 
-  call hypothetical_mycorrhizal_decomposition(soil%coarseWoodLitter,myc_biomass*0.3,T(1),theta(1),air_filled_porosity(1),N_uptake,C_uptake,CO2prod,dt)
+  call poolTotals(soil%coarseWoodLitter,totalCarbon=totalC)
+  litterThickness=max(totalC/litterDensity,1e-2)
+  call hypothetical_mycorrhizal_decomposition(soil%coarseWoodLitter,myc_biomass*uptake_frac_max(1)/dz(1)*litterThickness,T(1),theta(1),air_filled_porosity(1),N_uptake,C_uptake,CO2prod,dt)
   total_N_uptake=total_N_uptake+N_uptake
   total_C_uptake = total_C_uptake+C_uptake
-  total_CO2prod=total_CO2prod+CO2prod
+  total_CO2prod = total_CO2prod + CO2prod
 
 end subroutine hypothetical_myc_miner_N_uptake
 
