@@ -26,7 +26,7 @@ use vegn_data_mod, only : spdata, &
      c2n_mycorrhizae, c2n_N_fixer, &
      root_exudate_N_frac, mycorrhizal_turnover_time, N_fixer_turnover_time
 use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon
-use soil_tile_mod, only: num_l, dz, soil_tile_type, clw, csw, LEAF, CWOOD
+use soil_tile_mod, only: num_l, dz, soil_tile_type, clw, csw, N_LITTER_POOLS, LEAF, CWOOD
 use vegn_cohort_mod, only : vegn_cohort_type, &
      update_biomass_pools, update_bio_living_fraction, update_species, &
      leaf_area_from_biomass, biomass_of_individual, init_cohort_allometry_ppa, &
@@ -1526,6 +1526,7 @@ subroutine update_soil_pools(vegn, soil)
   real :: profile(num_l), profile1(num_l), psum ! for depostion profile calculation
   real :: litterC(num_l,N_C_TYPES) ! soil litter C input by layer and type
   real :: litterN(num_l,N_C_TYPES) ! soil litter N input by layer and type
+  real, dimension(N_C_TYPES,N_LITTER_POOLS) :: delta_C, delta_N
 
   select case (soil_carbon_option)
   case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
@@ -1559,55 +1560,21 @@ subroutine update_soil_pools(vegn, soil)
      deltaslow = vegn%ssc_rate_ag*dt_fast_yr;
      vegn%ssc_pool_ag       = vegn%ssc_pool_ag       - deltaslow;
 
-     ! NOTE that this code looks very weird from the point of view of carbon
-     ! balance: we are depleting the {fsc,ssc}_pool_ag, but adding to litter
-     ! from the pools {leaflitter,coarsewoodLitter}_buffer_ag. The latter two
-     ! are not used in the calculations of the total carbon.
-     ! -- BNS -- Good catch, I have tried to fix it.
-     vegn%leaflitter_buffer_rate_fast = MAX(0.0, MIN(vegn%leaflitter_buffer_rate_fast, vegn%leaflitter_buffer_fast/dt_fast_yr))
-     vegn%leaflitter_buffer_rate_slow = MAX(0.0, MIN(vegn%leaflitter_buffer_rate_slow, vegn%leaflitter_buffer_slow/dt_fast_yr))
-     deltafast = vegn%leaflitter_buffer_rate_fast*dt_fast_yr
-     deltaslow = vegn%leaflitter_buffer_rate_slow*dt_fast_yr
+     vegn%litter_rate_C = MAX(0.0, MIN(vegn%litter_rate_C, vegn%litter_buff_C/dt_fast_yr))
+     delta_C = vegn%litter_rate_C*dt_fast_yr
 
      if(soil_carbon_option == SOILC_CORPSE_N) then
-        vegn%leaflitter_buffer_rate_fast_N = MAX(0.0, MIN(vegn%leaflitter_buffer_rate_fast_N, vegn%leaflitter_buffer_fast_N/dt_fast_yr))
-        vegn%leaflitter_buffer_rate_slow_N = MAX(0.0, MIN(vegn%leaflitter_buffer_rate_slow_N, vegn%leaflitter_buffer_slow_N/dt_fast_yr))
-        deltafast_N = vegn%leaflitter_buffer_rate_fast_N*dt_fast_yr
-        deltaslow_N = vegn%leaflitter_buffer_rate_slow_N*dt_fast_yr
+        vegn%litter_rate_N = MAX(0.0, MIN(vegn%litter_rate_N, vegn%litter_buff_N/dt_fast_yr))
      else
-        vegn%leaflitter_buffer_rate_fast_N = 0.0
-        vegn%leaflitter_buffer_rate_slow_N = 0.0
-        deltafast_N = 0.0
-        deltaslow_N = 0.0
+        vegn%litter_rate_N = 0.0
      endif
-     call add_litter(soil%litter(LEAF), [deltafast, deltaslow, 0.0], [deltafast_N, deltaslow_N, 0.0])
-     vegn%leaflitter_buffer_fast = vegn%leaflitter_buffer_fast - deltafast
-     vegn%leaflitter_buffer_slow = vegn%leaflitter_buffer_slow - deltaslow
-     vegn%leaflitter_buffer_fast_N = vegn%leaflitter_buffer_fast_N - deltafast_N
-     vegn%leaflitter_buffer_slow_N = vegn%leaflitter_buffer_slow_N - deltaslow_N
+     delta_N = vegn%litter_rate_N*dt_fast_yr
 
-
-     vegn%coarsewoodlitter_buffer_rate_fast = MAX(0.0, MIN(vegn%coarsewoodlitter_buffer_rate_fast, vegn%coarsewoodlitter_buffer_fast/dt_fast_yr))
-     vegn%coarsewoodlitter_buffer_rate_slow = MAX(0.0, MIN(vegn%coarsewoodlitter_buffer_rate_slow, vegn%coarsewoodlitter_buffer_slow/dt_fast_yr))
-     deltafast = vegn%coarsewoodlitter_buffer_rate_fast*dt_fast_yr
-     deltaslow = vegn%coarsewoodlitter_buffer_rate_slow*dt_fast_yr
-
-     if (soil_carbon_option == SOILC_CORPSE_N) then
-        vegn%coarsewoodlitter_buffer_rate_fast_N = MAX(0.0, MIN(vegn%coarsewoodlitter_buffer_rate_fast_N, vegn%coarsewoodlitter_buffer_fast_N/dt_fast_yr))
-        vegn%coarsewoodlitter_buffer_rate_slow_N = MAX(0.0, MIN(vegn%coarsewoodlitter_buffer_rate_slow_N, vegn%coarsewoodlitter_buffer_slow_N/dt_fast_yr))
-        deltafast_N = vegn%coarsewoodlitter_buffer_rate_fast_N*dt_fast_yr
-        deltaslow_N = vegn%coarsewoodlitter_buffer_rate_slow_N*dt_fast_yr
-     else
-        vegn%coarsewoodlitter_buffer_rate_fast_N= 0.0
-        vegn%coarsewoodlitter_buffer_rate_slow_N=0.0
-        deltafast_N=0.0
-        deltaslow_N=0.0
-     endif
-     call add_litter(soil%litter(CWOOD),[deltafast,deltaslow,0.0],[deltafast_N,deltaslow_N,0.0])
-     vegn%coarsewoodlitter_buffer_fast = vegn%coarsewoodlitter_buffer_fast - deltafast
-     vegn%coarsewoodlitter_buffer_slow = vegn%coarsewoodlitter_buffer_slow - deltaslow
-     vegn%coarsewoodlitter_buffer_fast_N = vegn%coarsewoodlitter_buffer_fast_N - deltafast_N
-     vegn%coarsewoodlitter_buffer_slow_N = vegn%coarsewoodlitter_buffer_slow_N - deltaslow_N
+     do i = 1,N_LITTER_POOLS
+        call add_litter(soil%litter(i), delta_C(:,i), delta_N(:,i))
+     enddo
+     vegn%litter_buff_C = vegn%litter_buff_C - delta_C
+     vegn%litter_buff_N = vegn%litter_buff_N - delta_N
 
      ! update fsc input rate so that intermediate fsc pool is never
      ! depleted below zero; on the other hand the pool can be only

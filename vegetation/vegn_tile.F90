@@ -11,6 +11,7 @@ use land_numerics_mod,  only : rank_descending
 use land_io_mod,        only : init_cover_field
 use land_tile_selectors_mod, only : tile_selector_type
 
+use soil_carbon_mod, only : N_C_TYPES
 use vegn_data_mod, only : &
      MSPECIES, spdata, &
      vegn_to_use,  input_cover_types, vegn_index_constant, &
@@ -23,7 +24,7 @@ use vegn_data_mod, only : &
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
      cohorts_can_be_merged, leaf_area_from_biomass, biomass_of_individual
 
-use soil_tile_mod, only : max_lev
+use soil_tile_mod, only : max_lev, N_LITTER_POOLS
 
 implicit none
 private
@@ -86,14 +87,18 @@ type :: vegn_tile_type
    real :: fsn_pool_bg=0.0, fsn_rate_bg=0.0 ! for fast soil nitrogen below ground
    real :: ssn_pool_bg=0.0, ssn_rate_bg=0.0 ! for slow soil nitrogen below ground
 
-   real :: leaflitter_buffer_fast=0.0, leaflitter_buffer_slow=0.0
-   real :: coarsewoodlitter_buffer_fast=0.0, coarsewoodlitter_buffer_slow=0.0
-   real :: leaflitter_buffer_rate_fast=0.0, leaflitter_buffer_rate_slow=0.0
-   real :: coarsewoodlitter_buffer_rate_fast=0.0, coarsewoodlitter_buffer_rate_slow=0.0
-   real :: leaflitter_buffer_fast_N=0.0, leaflitter_buffer_slow_N=0.0
-   real :: coarsewoodlitter_buffer_fast_N=0.0, coarsewoodlitter_buffer_slow_N=0.0
-   real :: leaflitter_buffer_rate_fast_N=0.0, leaflitter_buffer_rate_slow_N=0.0
-   real :: coarsewoodlitter_buffer_rate_fast_N=0.0, coarsewoodlitter_buffer_rate_slow_N=0.0
+   real, dimension(N_C_TYPES, N_LITTER_POOLS) :: &
+       litter_buff_C = 0.0, litter_rate_C = 0.0, &
+       litter_buff_N = 0.0, litter_rate_N = 0.0
+       
+!    real :: leaflitter_buffer_fast=0.0, leaflitter_buffer_slow=0.0
+!    real :: coarsewoodlitter_buffer_fast=0.0, coarsewoodlitter_buffer_slow=0.0
+!    real :: leaflitter_buffer_rate_fast=0.0, leaflitter_buffer_rate_slow=0.0
+!    real :: coarsewoodlitter_buffer_rate_fast=0.0, coarsewoodlitter_buffer_rate_slow=0.0
+!    real :: leaflitter_buffer_fast_N=0.0, leaflitter_buffer_slow_N=0.0
+!    real :: coarsewoodlitter_buffer_fast_N=0.0, coarsewoodlitter_buffer_slow_N=0.0
+!    real :: leaflitter_buffer_rate_fast_N=0.0, leaflitter_buffer_rate_slow_N=0.0
+!    real :: coarsewoodlitter_buffer_rate_fast_N=0.0, coarsewoodlitter_buffer_rate_slow_N=0.0
 
    real :: csmoke_pool=0.0 ! carbon lost through fires, kg C/m2
    real :: csmoke_rate=0.0 ! rate of release of the above to atmosphere, kg C/(m2 yr)
@@ -328,15 +333,8 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   __MERGE__(fsn_pool_bg); __MERGE__(fsn_rate_bg)
   __MERGE__(ssn_pool_bg); __MERGE__(ssn_rate_bg)
 
-  __MERGE__(leaflitter_buffer_fast);       __MERGE__(leaflitter_buffer_rate_fast)
-  __MERGE__(coarsewoodlitter_buffer_fast); __MERGE__(coarsewoodlitter_buffer_rate_fast)
-  __MERGE__(leaflitter_buffer_slow);       __MERGE__(leaflitter_buffer_rate_slow)
-  __MERGE__(coarsewoodlitter_buffer_slow); __MERGE__(coarsewoodlitter_buffer_rate_slow)
-
-  __MERGE__(leaflitter_buffer_fast_N);       __MERGE__(leaflitter_buffer_rate_fast_N)
-  __MERGE__(coarsewoodlitter_buffer_fast_N); __MERGE__(coarsewoodlitter_buffer_rate_fast_N)
-  __MERGE__(leaflitter_buffer_slow_N);       __MERGE__(leaflitter_buffer_rate_slow_N)
-  __MERGE__(coarsewoodlitter_buffer_slow_N); __MERGE__(coarsewoodlitter_buffer_rate_slow_N)
+  __MERGE__(litter_buff_C); __MERGE__(litter_rate_C)
+  __MERGE__(litter_buff_N); __MERGE__(litter_rate_N)
 
   __MERGE__(csmoke_pool)
   __MERGE__(csmoke_rate)
@@ -764,10 +762,7 @@ function vegn_tile_carbon(vegn) result(carbon) ; real carbon
            vegn%fsc_pool_bg + vegn%ssc_pool_bg + vegn%csmoke_pool
 
   ! Pools associated with aboveground litter CORPSE pools
-  carbon = carbon + vegn%leaflitter_buffer_fast + vegn%leaflitter_buffer_slow + &
-                    vegn%coarsewoodlitter_buffer_fast + vegn%coarsewoodlitter_buffer_slow
-  ! finewoodlitter buffers not currently implemented
-
+  carbon = carbon + sum(vegn%litter_buff_C)
 end function vegn_tile_carbon
 
 ! ============================================================================
@@ -793,10 +788,7 @@ function vegn_tile_nitrogen(vegn) result(nitrogen) ; real nitrogen
            vegn%fsn_pool_bg + vegn%ssn_pool_bg
 
   ! Pools associated with aboveground litter CORPSE pools
-  nitrogen = nitrogen + vegn%leaflitter_buffer_fast_N + vegn%leaflitter_buffer_slow_N + &
-                    vegn%coarsewoodlitter_buffer_fast_N + vegn%coarsewoodlitter_buffer_slow_N
-  ! finewoodlitter buffers not currently implemented
-
+  nitrogen = nitrogen + sum(vegn%litter_buff_N)
 end function vegn_tile_nitrogen
 
 
