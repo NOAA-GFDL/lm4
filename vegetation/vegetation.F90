@@ -55,7 +55,8 @@ use vegn_cohort_mod, only : vegn_cohort_type, &
      vegn_data_cover, btotal, height_from_biomass, leaf_area_from_biomass, &
      cohort_root_properties
 use canopy_air_mod, only : cana_turbulence
-use soil_mod, only : soil_data_beta, get_soil_litter_C, redistribute_peat_carbon
+use soil_mod, only : soil_data_beta, get_soil_litter_C, redistribute_peat_carbon, &
+     register_litter_soilc_diag_fields
 
 use cohort_io_mod, only :  read_create_cohorts, create_cohort_dimension, &
      add_cohort_data, add_int_cohort_data, get_cohort_data, get_int_cohort_data
@@ -216,8 +217,6 @@ integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_ssc_out, id_deadmic_in, id_deadmic_out, id_veg_in, id_veg_out, &
    id_fsc_pool_ag, id_fsc_rate_ag, id_fsc_pool_bg, id_fsc_rate_bg,&
    id_ssc_pool_ag, id_ssc_rate_ag, id_ssc_pool_bg, id_ssc_rate_bg,&
-   id_leaflitter_buffer_ag,      id_coarsewoodlitter_buffer_ag, &
-   id_leaflitter_buffer_rate_ag, id_coarsewoodlitter_buffer_rate_ag, &
    id_t_ann, id_t_cold, id_p_ann, id_ncm, &
    id_lambda, id_afire, id_atfall, id_closs, id_cgain, id_wdgain, id_leaf_age, &
    id_phot_co2, id_theph, id_psiph, id_evap_demand, &
@@ -227,6 +226,9 @@ integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_crownarea, &
    id_soil_water_supply, id_gdd, id_tc_pheno, id_zstar_1, &
    id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi
+integer, dimension(N_LITTER_POOLS, N_C_TYPES) :: &
+   id_litter_buff_C, id_litter_buff_N, &
+   id_litter_rate_C, id_litter_rate_N
 ! ==== end of module variables ===============================================
 
 contains
@@ -432,7 +434,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
         call get_tile_data(restart2,'ssc_pool_bg',vegn_ssc_pool_bg_ptr)
         call get_tile_data(restart2,'ssc_rate_bg',vegn_ssc_rate_bg_ptr)
         do j = 1,N_LITTER_POOLS
-           do i = 1,N_C_TYPES
+           do i = 1,N_C_TYPES-1 ! "-1" excludes deadmic (which is currently always 0) from restarts
               call get_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_'//c_shortname(i),vegn_litter_buff_C_ptr,i,j)
               call get_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_rate_'//c_shortname(i),vegn_litter_rate_C_ptr,i,j)
            enddo
@@ -832,6 +834,15 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
           missing_value=-999.0)
   enddo
 
+  id_litter_buff_C(:,:) = register_litter_soilc_diag_fields(module_name, '<ltype>litter_buff_C_<ctype>', (/id_lon, id_lat/), &
+       time, 'intermediate pool of <ltype> <ctype> litter carbon', 'kg C/m2', missing_value=-999.0)
+  id_litter_buff_N(:,:) = register_litter_soilc_diag_fields(module_name, '<ltype>litter_buff_C_<ctype>', (/id_lon, id_lat/), &
+       time, 'intermediate pool of <ltype> <ctype> litter nitrogen', 'kg N/m2', missing_value=-999.0)
+  id_litter_rate_C(:,:) = register_litter_soilc_diag_fields(module_name, '<ltype>litter_rate_C_<ctype>', (/id_lon, id_lat/), &
+       time, 'rate of conversion of <ltype> litter buffer to the <ctype> soil carbon', 'kg C/(m2 yr)', missing_value=-999.0)
+  id_litter_rate_N(:,:) = register_litter_soilc_diag_fields(module_name, '<ltype>litter_rate_C_<ctype>', (/id_lon, id_lat/), &
+       time, 'rate of conversion of <ltype> litter buffer to the <ctype> soil carbon', 'kg C/(m2 yr)', missing_value=-999.0)
+
   id_fsc_pool_ag = register_tiled_diag_field (module_name, 'fsc_pool_ag', (/id_lon, id_lat/), &
        time, 'intermediate pool of above-ground fast soil carbon', 'kg C/m2', missing_value=-999.0)
   id_fsc_rate_ag = register_tiled_diag_field (module_name, 'fsc_rate_ag', (/id_lon, id_lat/), &
@@ -842,16 +853,7 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
   id_ssc_rate_ag = register_tiled_diag_field (module_name, 'ssc_rate_ag', (/id_lon, id_lat/), &
        time, 'rate of conversion of above-ground ssc_pool to the fast soil_carbon', 'kg C/(m2 yr)', &
        missing_value=-999.0)
-  id_leaflitter_buffer_ag = register_tiled_diag_field (module_name, 'leaflitter_buffer_ag', (/id_lon, id_lat/), &
-       time, 'intermediate pool of leaf litter carbon', 'kg C/m2', missing_value=-999.0)
-  id_leaflitter_buffer_rate_ag = register_tiled_diag_field (module_name, 'leaflitter_buffer_rate_ag', (/id_lon, id_lat/), &
-       time, 'rate of conversion of above-ground leaf litter buffer to the fast soil_carbon', 'kg C/(m2 yr)', &
-       missing_value=-999.0)
-  id_coarsewoodlitter_buffer_ag = register_tiled_diag_field (module_name, 'coarsewoodlitter_buffer_ag', (/id_lon, id_lat/), &
-       time, 'intermediate pool of coarsewood litter carbon', 'kg C/m2', missing_value=-999.0)
-  id_coarsewoodlitter_buffer_rate_ag = register_tiled_diag_field (module_name, 'coarsewoodlitter_buffer_rate_ag', (/id_lon, id_lat/), &
-       time, 'rate of conversion of above-ground coarsewood litter buffer to the fast soil_carbon', 'kg C/(m2 yr)', &
-       missing_value=-999.0)
+  
   id_fsc_pool_bg = register_tiled_diag_field (module_name, 'fsc_pool_bg', (/id_lon, id_lat/), &
        time, 'intermediate pool of below-ground fast soil carbon', 'kg C/m2', missing_value=-999.0)
   id_fsc_rate_bg = register_tiled_diag_field (module_name, 'fsc_rate_bg', (/id_lon, id_lat/), &
@@ -1057,7 +1059,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_tile_data(restart2,'ssc_rate_bg',vegn_ssc_rate_bg_ptr,'conversion rate of BG ssc_pool to slow soil carbon', 'kg C/(m2 yr)')
 
   do j = 1,N_LITTER_POOLS
-     do i = 1,N_C_TYPES
+     do i = 1,N_C_TYPES-1 ! "-1" excludes deadmic from restarts
         call add_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_'//trim(c_shortname(i)),vegn_litter_buff_C_ptr, i, j, &
             'intermediate pool for '//trim(c_longname(i))//' '//trim(l_longname(j))//' litter carbon input', 'kg C/m2')
         call add_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_rate_'//trim(c_shortname(i)),vegn_litter_rate_C_ptr, i, j, &
@@ -2187,10 +2189,15 @@ subroutine update_vegn_slow( )
      call send_tile_data(id_ssc_pool_bg,tile%vegn%ssc_pool_ag,tile%diag)
      call send_tile_data(id_ssc_rate_bg,tile%vegn%ssc_rate_ag,tile%diag)
 
-!      call send_tile_data(id_leaflitter_buffer_ag,tile%vegn%leaflitter_buffer_ag,tile%diag)
-!      call send_tile_data(id_leaflitter_buffer_rate_ag,tile%vegn%leaflitter_buffer_rate_ag,tile%diag)
-!      call send_tile_data(id_coarsewoodlitter_buffer_ag,tile%vegn%coarsewoodlitter_buffer_ag,tile%diag)
-!      call send_tile_data(id_coarsewoodlitter_buffer_rate_ag,tile%vegn%coarsewoodlitter_buffer_rate_ag,tile%diag)
+     do j = 1,N_LITTER_POOLS
+     do i = 1,N_C_TYPES
+        ! note that order of indices in IDs and buffers/rates is different, due to difference in conventions
+        call send_tile_data(id_litter_buff_C(j,i),tile%vegn%litter_buff_C(i,j),tile%diag)
+        call send_tile_data(id_litter_rate_C(j,i),tile%vegn%litter_rate_C(i,j),tile%diag)
+        call send_tile_data(id_litter_buff_N(j,i),tile%vegn%litter_buff_N(i,j),tile%diag)
+        call send_tile_data(id_litter_rate_N(j,i),tile%vegn%litter_rate_N(i,j),tile%diag)
+     enddo
+     enddo
 
      call send_tile_data(id_fuel,    tile%vegn%fuel, tile%diag)
 

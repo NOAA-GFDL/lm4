@@ -113,6 +113,9 @@ public :: root_N_uptake
 public :: myc_scavenger_N_uptake
 public :: myc_miner_N_uptake
 public :: redistribute_peat_carbon
+
+! helper functions that may be better moved elsewhere:
+public :: register_litter_soilc_diag_fields
 ! =====end of public interfaces ==============================================
 interface add_root_exudates
    module procedure add_root_exudates_0

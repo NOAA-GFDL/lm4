@@ -90,15 +90,6 @@ type :: vegn_tile_type
    real, dimension(N_C_TYPES, N_LITTER_POOLS) :: &
        litter_buff_C = 0.0, litter_rate_C = 0.0, &
        litter_buff_N = 0.0, litter_rate_N = 0.0
-       
-!    real :: leaflitter_buffer_fast=0.0, leaflitter_buffer_slow=0.0
-!    real :: coarsewoodlitter_buffer_fast=0.0, coarsewoodlitter_buffer_slow=0.0
-!    real :: leaflitter_buffer_rate_fast=0.0, leaflitter_buffer_rate_slow=0.0
-!    real :: coarsewoodlitter_buffer_rate_fast=0.0, coarsewoodlitter_buffer_rate_slow=0.0
-!    real :: leaflitter_buffer_fast_N=0.0, leaflitter_buffer_slow_N=0.0
-!    real :: coarsewoodlitter_buffer_fast_N=0.0, coarsewoodlitter_buffer_slow_N=0.0
-!    real :: leaflitter_buffer_rate_fast_N=0.0, leaflitter_buffer_rate_slow_N=0.0
-!    real :: coarsewoodlitter_buffer_rate_fast_N=0.0, coarsewoodlitter_buffer_rate_slow_N=0.0
 
    real :: csmoke_pool=0.0 ! carbon lost through fires, kg C/m2
    real :: csmoke_rate=0.0 ! rate of release of the above to atmosphere, kg C/(m2 yr)
