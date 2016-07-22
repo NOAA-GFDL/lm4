@@ -385,7 +385,10 @@ real :: leaf_age_onset(0:MSPECIES) = & ! onset of Vmax decrease due to leaf agin
        (/  100.0,       100.0,        100.0,         100.0,       100.0,  100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0  /)
 real :: leaf_age_tau(0:MSPECIES) = &  ! e-folding time of Vmax decrease due to leaf aging, days (0 or less means no aging)
        (/    0.0,         0.0,          0.0,           0.0,         0.0,    0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0  /)
-
+real :: specific_leaf_area(0:MSPECIES) = &   ! This was calculated as a function of leaf longevity
+       (/    16.01793852,  16.01793852,  16.01793852,  14.4553302 ,6.03990344,  14.4553302 ,  16.01793852,  16.01793852, &
+         6.03990344,  16.01793852,  16.01793852,  16.01793852, &
+        16.01793852,  16.01793852  /)
 real :: root_exudate_frac(0:MSPECIES) = & ! Fraction of NPP that goes into root exudates
         (/   0.0,         0.0,          0.0,           0.0,         0.0,    0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0  /)
 
@@ -461,6 +464,7 @@ real :: N_fixer_turnover_time = 0.1     ! Mean residence time of live N fixer bi
 real :: N_fixer_C_efficiency  = 0.5      ! Efficiency of C allocation to N fixers (remainder goes to CO2)
 real :: N_fixation_rate       = 0.1     ! N fixation rate per unit fixer biomass (kgN/kg fixer C/year)
 logical :: N_limits_live_biomass = .FALSE.  ! Option to have N uptake limit max biomass.  Only relevant with CORPSE_N
+logical :: calc_SLA_from_lifespan = .TRUE.  ! Calculate specific leaf area from leaf lifespan instead of using namelist value
 real :: root_NH4_uptake_rate = 0.1      ! kg/m3/year (assumes rhizosphere only, which accounts for root length)
 real :: root_NO3_uptake_rate = 0.1      ! kg/m3/year (assumes rhizosphere only, which accounts for root length)
 real :: k_ammonium_root_uptake = 3e-2   ! Half-saturation for root NH4 uptake (kgN/m3)
@@ -484,7 +488,7 @@ namelist /vegn_data_nml/ &
   cmc_lai, cmc_pow, csc_lai, csc_pow, cmc_eps, &
   min_cosz, &
   leaf_refl, leaf_tran, leaf_emis, ksi, &
-  leaf_size, &
+  leaf_size, specific_leaf_area, calc_SLA_from_lifespan,&
   soil_carbon_depth_scale, cold_month_threshold, &
 
   smoke_fraction, agf_bs, K1,K2, fsc_liv, fsc_liv_sp, fsc_wood, fsc_froot, &
@@ -593,6 +597,7 @@ subroutine read_vegn_data_namelist()
 
   spdata%smoke_fraction = smoke_fraction
 
+  spdata%specific_leaf_area = specific_leaf_area
   spdata%root_exudate_frac = root_exudate_frac
 
   spdata%fsc_liv = fsc_liv_sp
@@ -718,9 +723,11 @@ subroutine init_derived_species_data(sp)
    sp%leaf_life_span     = 12.0/sp%alpha(CMPT_LEAF) ! in months
    ! calculate specific leaf area (cm2/g(biomass))
    ! Global Raich et al 94 PNAS pp 13730-13734
-   sp%specific_leaf_area = 10.0**(2.4 - 0.46*log10(sp%leaf_life_span));
-   ! convert to (m2/kg(carbon)
-   sp%specific_leaf_area = C2B*sp%specific_leaf_area*1000.0/10000.0
+   if(calc_SLA_from_lifespan) then
+     sp%specific_leaf_area = 10.0**(2.4 - 0.46*log10(sp%leaf_life_span));
+     ! convert to (m2/kg(carbon)
+     sp%specific_leaf_area = C2B*sp%specific_leaf_area*1000.0/10000.0
+   endif
 
 ! rho_wood is not used anywhere?
 !     ! the relationship from Moorcroft, based on Reich
