@@ -173,10 +173,14 @@ subroutine vegn_graze_pasture(vegn, soil)
      cc=>vegn%cohorts(i)
      sp = cc%species
 
+     ! This makes sure biomass pools are correct before calculating changes
+     ! in leaf biomass and such, just in case it wasn't called before
+     call update_biomass_pools(cc);
+
      ! calculate total biomass pools for the patch
      balive0 =  cc%bl + cc%blv + cc%br
-     bleaf0  =  cc%bl + cc%blv
-     bfroot0 =  cc%br
+     bleaf0  =  cc%Pl*cc%bliving  !cc%bl + cc%blv
+     bfroot0 =  cc%Pr*cc%bliving  !cc%br
      bdead0  =  cc%bwood + cc%bsw
      ! only potential leaves are consumed
      vegn%harv_pool(HARV_POOL_PAST) = vegn%harv_pool(HARV_POOL_PAST) + &
@@ -189,8 +193,8 @@ subroutine vegn_graze_pasture(vegn, soil)
 
      ! calculate new combined vegetation biomass pools
      balive1 =  cc%bl + cc%blv + cc%br
-     bleaf1  =  cc%bl + cc%blv
-     bfroot1 =  cc%br
+     bleaf1  =  cc%Pl*cc%bliving  !cc%bl + cc%blv
+     bfroot1 =  cc%Pr*cc%bliving  !cc%br
      bdead1  =  cc%bwood + cc%bsw
 
      btotal0 = balive0 + bdead0
@@ -211,10 +215,10 @@ subroutine vegn_graze_pasture(vegn, soil)
           vegn%ssc_pool_bg = vegn%ssc_pool_bg + deltaslow
        endif
      case(SOILC_CORPSE, SOILC_CORPSE_N)
-       leaflitter_C=(/(bleaf0-bleaf1)*grazing_residue*spdata(sp)%fsc_liv,(bleaf0-bleaf1)*grazing_residue*(1-spdata(sp)%fsc_liv),0.0/)
-       woodlitter_C=(/(bdead0-bdead1)*grazing_residue*fsc_wood,(bdead0-bdead1)*grazing_residue*(1-fsc_wood),0.0/)
-       bglitter_C=(/grazing_residue*(spdata(sp)%fsc_froot*(bfroot0-bfroot1) +(1-agf_bs)*fsc_wood*(bdead0-bdead1)),&
-                                        grazing_residue*(spdata(sp)%fsc_froot*(bfroot0-bfroot1) +(1-agf_bs)*fsc_wood*(bdead0-bdead1)),0.0/)
+       leaflitter_C=(/(bleaf0-bleaf1)*spdata(sp)%fsc_liv,(bleaf0-bleaf1)*(1-spdata(sp)%fsc_liv),0.0/)*grazing_residue
+       woodlitter_C=(/(bdead0-bdead1)*fsc_wood,(bdead0-bdead1)*(1-fsc_wood),0.0/)*agf_bs*grazing_residue
+       bglitter_C=(/(spdata(sp)%fsc_froot*(bfroot0-bfroot1) +(1-agf_bs)*fsc_wood*(bdead0-bdead1)),&
+                     (1.0-spdata(sp)%fsc_froot)*(bfroot0-bfroot1) +(1-agf_bs)*(1.0-fsc_wood)*(bdead0-bdead1),0.0/)*grazing_residue
 
        if(soil_carbon_option == SOILC_CORPSE_N) then
          leaflitter_N=leaflitter_C/spdata(sp)%leaf_live_c2n

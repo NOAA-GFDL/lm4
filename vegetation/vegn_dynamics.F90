@@ -1041,7 +1041,7 @@ subroutine vegn_phenology(vegn, soil)
            ! update state
            cc%bliving = cc%blv + cc%br + cc%bl + cc%bsw;
            cc%b = cc%bliving + cc%bwood ;
-           call update_bio_living_fraction(cc);
+           call update_biomass_pools(cc);
         endif
      endif
   enddo
