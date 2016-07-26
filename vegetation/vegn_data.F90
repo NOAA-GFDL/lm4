@@ -407,10 +407,10 @@ subroutine read_vegn_data_namelist()
   integer :: unit         ! unit for namelist i/o
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
-  character(fm_field_name_len) :: name   ! name of the species
+  character(fm_field_name_len) :: name, name0 ! name of the species
   character(fm_type_name_len)  :: ftype ! type of the field table entry
   type(fm_list_iter_type) :: iter ! iterator over the list of species
-  integer :: i, n
+  integer :: i, k, n
   integer :: species_errors, total_errors
   logical, allocatable :: spdata_set(:)
 
@@ -458,20 +458,31 @@ subroutine read_vegn_data_namelist()
      enddo
   endif
 
+  ! read data for default species and fill the species table with default parameters.
+  ! NOTE that we ignore errors here; they will be caught during the main pass through
+  ! the field table anyway.
+  call fm_init_loop('/land_mod/species',iter)
+  do while (fm_loop_over_list(iter, name, ftype, n))
+     if (trim(name) == 'default' ) then
+        i = species_slot(name)
+        write(*,*) 'found default =',i
+        call read_species_data(name, spdata(i), species_errors)
+        write(*,*) 'read default data =',i, species_errors
+        do k = lbound(spdata,1),ubound(spdata,1)
+           if (i==k) cycle ! skip the deafult species
+           ! set all species data to defaults, except the name
+           name0 = spdata(k)%name
+           spdata(k) = spdata(i)
+           spdata(k)%name = name0
+        enddo
+     endif
+  enddo
+
+  ! go through the species table and read the data
   call fm_init_loop('/land_mod/species',iter)
   total_errors = 0
   do while (fm_loop_over_list(iter, name, ftype, n))
-     ! look for the species already in the table
-     do i = 0,nspecies-1
-        if (trim(spdata(i)%name)==trim(name)) exit ! found slot for species
-     enddo
-     ! if not found, look for an empty slot in the table
-     if (i>=nspecies) then
-        do i = 0, nspecies
-           if (trim(spdata(i)%name)=='') exit ! found an empty slot
-        enddo
-     endif
-     ! write(*,*)trim(name),' ',i,' ',trim(spdata(i)%name),' ',spdata_set(i)
+     i = species_slot(name)
      if (i>=nspecies) then
         call error_mesg(module_name, &
           'could not place species "'//trim(name)//'" into species table, check if you are running in LM3 mode and misspelled species name', NOTE)
@@ -526,6 +537,22 @@ subroutine read_vegn_data_namelist()
   ! register selector for natural grass
   call register_tile_selector('ntrlgrass', long_name='natural (non-human-maintained) grass',&
           tag = SEL_VEGN, idata1 = NG_SEL_TAG)
+
+contains
+
+  function species_slot(name) result(i); integer :: i
+     character(*), intent(in) :: name
+
+     do i = 0,nspecies-1
+        if (trim(spdata(i)%name)==trim(name)) exit ! found slot for species
+     enddo
+     ! if not found, look for an empty slot in the table
+     if (i>=nspecies) then
+        do i = 0, nspecies
+           if (trim(spdata(i)%name)=='') exit ! found an empty slot
+        enddo
+     endif
+  end function species_slot
 
 end subroutine read_vegn_data_namelist
 
