@@ -88,6 +88,7 @@ public :: soil_end
 public :: save_soil_restart
 
 public :: soil_get_sfc_temp
+public :: soil_sfc_water
 public :: soil_step_1
 public :: soil_step_2
 public :: soil_step_3
@@ -1689,6 +1690,26 @@ subroutine soil_data_beta ( soil, vegn, diag, soil_beta, soil_water_supply, &
   end select
 end subroutine soil_data_beta
 
+! ============================================================================
+subroutine soil_sfc_water(soil, grnd_liq, grnd_ice, grnd_subl, grnd_tf)
+  type(soil_tile_type), intent(in) :: soil
+  real, intent(out) :: &
+     grnd_liq, grnd_ice, & ! surface liquid and ice, respectively, kg/m2
+     grnd_subl, &          ! fraction of vapor flux that sublimates
+     grnd_tf               ! freezing temperature
+
+  grnd_liq  = max(soil%wl(1), 0.)
+  grnd_ice  = max(soil%ws(1), 0.)
+  if (grnd_liq + grnd_ice > 0) then
+     grnd_subl = grnd_ice / (grnd_liq + grnd_ice)
+  else
+     grnd_subl = 0
+  endif
+  grnd_liq = 0
+  grnd_ice = 0
+  ! set soil freezing temperature
+  grnd_tf = soil%pars%tfreeze
+end subroutine soil_sfc_water
 
 ! ============================================================================
 ! update soil properties explicitly for time step.
@@ -1753,15 +1774,7 @@ subroutine soil_step_1 ( soil, vegn, diag, &
           + clw*soil%wl(l) + csw*soil%ws(l)
   enddo
 
-  soil_liq  = max(soil%wl(1), 0.)
-  soil_ice  = max(soil%ws(1), 0.)
-  if (soil_liq + soil_ice > 0) then
-     soil_subl = soil_ice / (soil_liq + soil_ice)
-  else
-     soil_subl = 0
-  endif
-  soil_liq = 0
-  soil_ice = 0
+  call soil_sfc_water(soil,soil_liq, soil_ice, soil_subl, soil_tf)
 
   if(num_l > 1) then
      do l = 1, num_l-1
@@ -1793,9 +1806,6 @@ subroutine soil_step_1 ( soil, vegn, diag, &
      soil_G0    = 0.
      soil_DGDT  = 1. / denom
   end if
-
-  ! set soil freezing temperature
-  soil_tf = soil%pars%tfreeze
 
   if(is_watch_point()) then
      write(*,*) '#### soil_step_1 checkpoint 1 ####'
@@ -1942,6 +1952,7 @@ end subroutine soil_step_1
                                   ! to efflux
   real :: total_C_leaching(num_l) ! [kg C/m^2/s] net total vertical DOC leaching by layer
   real :: total_DOC_div           ! [kg C/m^2/s] net total DOC divergence loss rate
+  real :: grnd_liq, grnd_ice, grnd_subl
   ! --------------------------------------------------------------------------
   div_active(:) = 0.0
 
@@ -1973,8 +1984,15 @@ end subroutine soil_step_1
 !  end if
 
   ! ---- record fluxes -----------------------------------------------------
-  soil_levap  = subs_evap*(1-soil_subl)
-  soil_fevap  = subs_evap*   soil_subl
+  grnd_liq  = max(soil%wl(1), 0.)
+  grnd_ice  = max(soil%ws(1), 0.)
+  if (grnd_liq + grnd_ice > 0) then
+     grnd_subl = grnd_ice / (grnd_liq + grnd_ice)
+  else
+     grnd_subl = 0
+  endif
+  soil_levap  = subs_evap*(1-grnd_subl)
+  soil_fevap  = subs_evap*   grnd_subl
   soil_melt   = subs_M_imp / delta_time
 
   ! ---- load surface temp change and perform back substitution ------------

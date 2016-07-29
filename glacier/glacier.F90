@@ -41,6 +41,7 @@ public :: glac_init
 public :: glac_end
 public :: save_glac_restart
 public :: glac_get_sfc_temp
+public :: glac_sfc_water
 public :: glac_step_1
 public :: glac_step_2
 ! =====end of public interfaces ==============================================
@@ -237,6 +238,29 @@ subroutine glac_get_sfc_temp ( glac, glac_T )
   glac_T = glac%T(1)
 end subroutine glac_get_sfc_temp
 
+! ============================================================================
+subroutine glac_sfc_water(glac, grnd_liq, grnd_ice, grnd_subl, grnd_tf)
+  type(glac_tile_type), intent(in)  :: glac
+  real, intent(out) :: &
+     grnd_liq, grnd_ice, & ! surface liquid and ice, respectively, kg/m2
+     grnd_subl, &          ! fraction of vapor flux that sublimates
+     grnd_tf               ! freezing temperature at the surface, degK
+
+  if (lm2) then
+     grnd_liq = 0
+     grnd_ice = 1.e6
+  else
+     grnd_liq  = max(glac%wl(1), 0.0)
+     grnd_ice  = max(glac%ws(1), 0.0)
+  endif
+  if (grnd_liq + grnd_ice > 0 ) then
+     grnd_subl = grnd_ice / (grnd_liq + grnd_ice)
+  else
+     grnd_subl = 0
+  endif
+
+  grnd_tf = glac%pars%tfreeze
+end subroutine glac_sfc_water
 
 ! ============================================================================
 ! update glac properties explicitly for time step.
@@ -294,18 +318,7 @@ subroutine glac_step_1 ( glac, &
           + clw*glac%wl(l) + csw*glac%ws(l)
   enddo
 
-  if (lm2) then
-     glac_liq = 0
-     glac_ice = 1.e6
-  else
-     glac_liq  = max(glac%wl(1), 0.0)
-     glac_ice  = max(glac%ws(1), 0.0)
-  endif
-  if (glac_liq + glac_ice > 0 ) then
-     glac_subl = glac_ice / (glac_liq + glac_ice)
-  else
-     glac_subl = 0
-  endif
+  call glac_sfc_water(glac, glac_liq, glac_ice, glac_subl, glac_tf)
 
   if(num_l > 1) then
      do l = 1, num_l-1

@@ -19,6 +19,7 @@ use land_constants_mod, only : NBANDS
 use snow_tile_mod, only : &
      snow_tile_type, read_snow_data_namelist, &
      snow_data_thermodynamics, snow_data_area, &
+     snow_active, &
      snow_data_hydraulics, max_lev, cpw, clw, csw, use_brdf
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
@@ -39,6 +40,7 @@ public :: snow_end
 public :: save_snow_restart
 public :: snow_get_sfc_temp
 public :: snow_get_depth_area
+public :: snow_sfc_water
 public :: snow_step_1
 public :: snow_step_2
 ! =====end of public interfaces ==============================================
@@ -245,12 +247,12 @@ end subroutine
 ! integrate snow-heat conduction equation upward from bottom of snow
 ! to surface, delivering linearization of surface ground heat flux.
 subroutine snow_step_1 ( snow, snow_G_Z, snow_G_TZ, &
-                         snow_active, snow_T, snow_rh, snow_liq, snow_ice, &
+                         snow_active_1, snow_T, snow_rh, snow_liq, snow_ice, &
                          snow_subl, snow_area, snow_G0, snow_DGDT )
   type(snow_tile_type), intent(inout) :: snow
   real,                 intent(in) :: snow_G_Z
   real,                 intent(in) :: snow_G_TZ
-  logical,              intent(out):: snow_active
+  logical,              intent(out):: snow_active_1
   real,                 intent(out):: &
        snow_T, snow_rh, snow_liq, snow_ice, &
        snow_subl, snow_area, snow_G0, snow_DGDT
@@ -258,6 +260,7 @@ subroutine snow_step_1 ( snow, snow_G_Z, snow_G_TZ, &
   ! ---- local vars
   real :: snow_depth, bbb, denom, dt_e
   real, dimension(num_l):: aaa, ccc, thermal_cond, dz_phys, heat_capacity
+  real :: snow_tf
   integer :: l
 
 ! ----------------------------------------------------------------------------
@@ -275,25 +278,8 @@ subroutine snow_step_1 ( snow, snow_G_Z, snow_G_TZ, &
   enddo
   snow_depth = snow_depth / snow_density
   call snow_data_area (snow_depth, snow_area )
-  ! ---- only liquid in the top snow layer is available to freeze implicitly
-  snow_liq =     snow%wl(1)
-  ! ---- snow in any layer can be melted implicitly
-  snow_ice = sum(snow%ws(:))
-
-! ---- fractionate evaporation/sublimation according to sfc phase ratios
-!  where (max(snow%ws(1),0.)+max(snow%wl(1),0.)>0)
-!      snow_subl = max(snow%ws(1),0.) &
-!       /(max(snow%ws(1),0.)+max(snow%wl(1),0.))
-!    elsewhere
-!      snow_subl = 0
-!    endwhere
-!  snow_active = snow_subl>0.
-  if (snow_depth>0) then
-     snow_subl = 1.
-  else
-     snow_subl = 0
-  endif
-  snow_active = snow_subl>0.
+  call snow_sfc_water(snow, snow_liq, snow_ice, snow_subl, snow_tf)
+  snow_active_1 = snow_active(snow)
 
   do l = 1, num_l
      dz_phys(l) = dz(l)*snow_depth
@@ -957,6 +943,24 @@ end subroutine snow_step_1
   endif
 
 end subroutine snow_step_2
+
+! ============================================================================
+subroutine snow_sfc_water(snow, grnd_liq, grnd_ice, grnd_subl, grnd_tf)
+  type(snow_tile_type), intent(in) :: snow
+  real, intent(out) :: &
+     grnd_liq, grnd_ice, & ! surface liquid and ice, respectively, kg/m2
+     grnd_subl, &          ! fraction of vapor flux that sublimates
+     grnd_tf               ! freezing temperature at the surface, degK
+
+  grnd_liq = snow%wl(1) ! only liquid in the top snow layer is available to freeze implicitly
+  grnd_ice = sum(snow%ws(:)) ! snow in any layer can be melted implicitly
+  if (snow_active(snow)) then
+     grnd_subl = 1.0
+  else
+     grnd_subl = 0
+  endif
+  grnd_tf = tfreeze
+end subroutine snow_sfc_water
 
 ! ============================================================================
 ! tile existence detector: returns a logical value indicating wether component

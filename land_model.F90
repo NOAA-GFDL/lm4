@@ -36,16 +36,14 @@ use land_tracers_mod, only : land_tracers_init, land_tracers_end, ntcana, isphum
 use land_tracer_driver_mod, only: land_tracer_driver_init, land_tracer_driver_end, &
      update_cana_tracers
 use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_temp, &
-     glac_step_1, glac_step_2, save_glac_restart
+     glac_step_1, glac_step_2, save_glac_restart, glac_sfc_water
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
-     lake_step_1, lake_step_2, save_lake_restart
+     lake_sfc_water, lake_step_1, lake_step_2, save_lake_restart
 use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
-     soil_step_1, soil_step_2, soil_step_3, &
-     save_soil_restart
+     soil_sfc_water, soil_step_1, soil_step_2, soil_step_3, save_soil_restart
 use soil_carbon_mod, only : read_soil_carbon_namelist, n_c_types
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
-     snow_get_depth_area, snow_step_1, snow_step_2, &
-     save_snow_restart
+     snow_sfc_water, snow_get_depth_area, snow_step_1, snow_step_2, save_snow_restart
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, vegn_get_cover, &
      vegn_radiation, vegn_properties, vegn_step_1, vegn_step_2, vegn_step_3, &
      update_vegn_slow, save_vegn_restart
@@ -67,7 +65,7 @@ use lake_tile_mod, only : lake_cover_cold_start, lake_tile_stock_pe, &
 use glac_tile_mod, only : glac_cover_cold_start, glac_tile_stock_pe, &
      glac_tile_heat, glac_radiation, glac_roughness
 use snow_tile_mod, only : snow_tile_stock_pe, snow_tile_heat, snow_roughness, &
-     snow_radiation
+     snow_radiation, snow_active
 use land_numerics_mod, only : ludcmp, lubksb, &
      horiz_remap_type, horiz_remap_new, horiz_remap, horiz_remap_del, &
      horiz_remap_print
@@ -1795,8 +1793,8 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
 
      ! solve the non-linear equation for energy balance at the surface.
 
-     call land_surface_energy_balance( &
-          grnd_T, grnd_liq, grnd_ice, grnd_latent, grnd_Tf, grnd_E_min, &
+     call land_surface_energy_balance( tile, &
+          grnd_T, grnd_E_min, &
           grnd_E_max, fswg, &
           flwg0 + b0(iTv)*DflwgDTv, DflwgDTg + b1(iTv)*DflwgDTv, b2(iTv)*DflwgDTv, &
           Hg0   + b0(iTc)*DHgDTc,   DHgDTg   + b1(iTc)*DHgDTc,   b2(iTc)*DHgDTc,   &
@@ -2269,12 +2267,9 @@ end subroutine update_land_model_slow
 ! because the possible combinations of active constraints has multiplied
 ! greatly, we do not allow phase change for any surface (i.e., soil) at which
 ! we might apply a constraint on Eg.
-subroutine land_surface_energy_balance ( &
+subroutine land_surface_energy_balance ( tile, &
      ! surface parameters
      grnd_T,          & ! ground temperature
-     grnd_liq, grnd_ice, & ! amount of water available for freeze or melt on the surface, kg/m2
-     grnd_latent,     & ! specific heat of vaporization for the ground
-     grnd_Tf,         & ! ground freezing temperature
      grnd_E_min,      & ! Eg floor of 0 if condensation is prohibited
      grnd_E_max,      & ! exfiltration rate limit, kg/(m2 s)
      ! components of the ground energy balance linearization. Note that those
@@ -2289,11 +2284,9 @@ subroutine land_surface_energy_balance ( &
      delta_psig,      &
      Mg_imp          )  ! implicit melt, kg/m2
 
+  type(land_tile_type), intent(in) :: tile
   real, intent(in) :: &
      grnd_T,          & ! ground temperature
-     grnd_liq, grnd_ice, & ! amount of water available for freeze or melt on the surface
-     grnd_latent,     & ! specific heat of vaporization for the ground
-     grnd_Tf,         & ! ground freezing temperature
      grnd_E_min,      & ! Eg floor of 0 if condensation is prohibited
      grnd_E_max,      & ! exfiltration rate limit, kg/(m2 s)
      fswg,            & ! net short-wave
@@ -2311,6 +2304,19 @@ subroutine land_surface_energy_balance ( &
   real :: grnd_DBDTg ! full derivative of grnd_B w.r.t. surface temperature
   real :: grnd_DBDpsig ! full derivative of grnd_B w.r.t. surface soil-water matric head
   real :: grnd_E_force, Eg_trial, Eg_check, determinant
+  real :: &
+     grnd_liq, grnd_ice, & ! amount of water available for freeze or melt on the surface, kg/m2
+     grnd_latent,     & ! specific heat of vaporization for the ground
+     grnd_Tf,         & ! ground freezing temperature
+     grnd_subl
+
+  call land_sfc_water(tile, grnd_liq, grnd_ice, grnd_subl, grnd_Tf)
+  if (use_tfreeze_in_grnd_latent) then
+    grnd_latent = hlv + hlf*grnd_subl
+  else
+    grnd_latent = hlv + (cpw-clw)*(grnd_T-tfreeze) &
+               + (hlf + (clw-csw)*(grnd_T-tfreeze)) * grnd_subl
+  endif
 
   grnd_B      = fswg + flwg0      - Hg0      - grnd_latent*Eg0      - G0
   grnd_DBDTg  =        DflwgDTg   - DHgDTg   - grnd_latent*DEgDTg   - DGDTg
@@ -2514,8 +2520,7 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
   logical, optional :: is_init
 
   ! ---- local vars
-  real :: &
-         grnd_T, subs_z0m, subs_z0s, &
+  real ::  grnd_T, subs_z0m, subs_z0s, &
                  snow_z0s, snow_z0m, &
          snow_area, snow_depth
 
@@ -2781,6 +2786,20 @@ subroutine update_land_bc_slow (land2cplr)
 
 end subroutine update_land_bc_slow
 
+! ============================================================================
+subroutine land_sfc_water(tile, grnd_liq, grnd_ice, grnd_subl, grnd_tf)
+  type(land_tile_type), intent(in) :: tile
+  real, intent(out) :: &
+     grnd_liq, grnd_ice, & ! surface liquid and ice, respectively, kg/m2
+     grnd_subl, &          ! fraction of vapor flux that sublimates
+     grnd_tf               ! freezing temperature
+
+  if (associated(tile%glac)) call glac_sfc_water(tile%glac, grnd_liq, grnd_ice, grnd_subl, grnd_tf)
+  if (associated(tile%lake)) call lake_sfc_water(tile%lake, grnd_liq, grnd_ice, grnd_subl, grnd_tf)
+  if (associated(tile%soil)) call soil_sfc_water(tile%soil, grnd_liq, grnd_ice, grnd_subl, grnd_tf)
+
+  if (snow_active(tile%snow)) call snow_sfc_water(tile%snow, grnd_liq, grnd_ice, grnd_subl, grnd_tf)
+end subroutine land_sfc_water
 
 ! ============================================================================
 subroutine Lnd_stock_pe(bnd,index,value)

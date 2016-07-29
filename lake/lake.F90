@@ -47,6 +47,7 @@ public :: lake_init
 public :: lake_end
 public :: save_lake_restart
 public :: lake_get_sfc_temp
+public :: lake_sfc_water
 public :: lake_step_1
 public :: lake_step_2
 
@@ -167,10 +168,10 @@ end subroutine read_lake_namelist
 ! ============================================================================
 ! initialize lake model
 subroutine lake_init ( id_lon, id_lat )
-  integer, intent(in) :: id_lon  ! ID of land longitude (X) axis  
+  integer, intent(in) :: id_lon  ! ID of land longitude (X) axis
   integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
 
-  ! ---- local vars 
+  ! ---- local vars
   type(land_tile_enum_type)     :: te,ce ! last and current tile list elements
   type(land_tile_type), pointer :: tile  ! pointer to current tile
   type(land_restart_type) :: restart
@@ -325,13 +326,13 @@ subroutine save_lake_restart (tile_dim_length, timestamp)
   filename = trim(timestamp)//'lake.res.nc'
   call init_land_restart(restart, filename, lake_tile_exists, tile_dim_length)
   call add_restart_axis(restart,'zfull',zfull(1:num_l),'Z','m','full level',sense=-1)
-  
+
   ! write out fields
   call add_tile_data(restart,'dz',   'zfull', lake_dz_ptr,   'layer thickness','m')
   call add_tile_data(restart,'temp', 'zfull', lake_temp_ptr, 'lake temperature','degrees_K')
   call add_tile_data(restart,'wl',   'zfull', lake_wl_ptr,   'liquid water content','kg/m2')
   call add_tile_data(restart,'ws',   'zfull', lake_ws_ptr,   'solid water content','kg/m2')
-  
+
   ! save performs io domain aggregation through mpp_io as with regular domain data
   call save_land_restart(restart)
   call free_land_restart(restart)
@@ -347,6 +348,24 @@ subroutine lake_get_sfc_temp(lake, lake_T)
   lake_T = lake%T(1)
 end subroutine lake_get_sfc_temp
 
+! ============================================================================
+subroutine lake_sfc_water(lake, grnd_liq, grnd_ice, grnd_subl, grnd_tf)
+  type(lake_tile_type), intent(in) :: lake
+  real, intent(out) :: &
+     grnd_liq, grnd_ice, & ! surface liquid and ice, respectively, kg/m2
+     grnd_subl, &          ! fraction of vapor flux that sublimates
+     grnd_tf               ! freezing temperature
+
+  grnd_liq  = max(lake%wl(1), 0.)
+  grnd_ice  = max(lake%ws(1), 0.)
+  if (grnd_ice > 0) then
+     grnd_subl = 1
+  else
+     grnd_subl = 0
+  endif
+  ! set the freezing temperature of the lake
+  grnd_tf = tfreeze
+end subroutine lake_sfc_water
 
 ! ============================================================================
 ! update lake properties explicitly for time step.
@@ -436,13 +455,7 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
     rho_t(l) = 1. - 1.9549e-5*abs(lake%T(l)-277.)**1.68
     enddo
 
-  lake_liq  = max(lake%wl(1), 0.)
-  lake_ice  = max(lake%ws(1), 0.)
-  if (lake_ice > 0) then
-     lake_subl = 1
-  else
-     lake_subl = 0
-  endif
+  call lake_sfc_water(lake, lake_liq, lake_ice, lake_subl, lake_tf)
 
   if(num_l > 1) then
     if (do_stratify) then
@@ -512,9 +525,6 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
      lake_G0    = 0.
      lake_DGDT  = 1. / denom
   end if
-
-  ! set the freezing temperature of the lake
-  lake_tf = tfreeze
 
   if(is_watch_point()) then
      write(*,*) 'lake_step_1 checkpoint 2'
