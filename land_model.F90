@@ -16,9 +16,8 @@ use fms_mod, only: open_namelist_file
 #endif
 
 use mpp_mod, only : mpp_max, mpp_sum, mpp_chksum, MPP_FILL_INT, MPP_FILL_DOUBLE
-use fms_io_mod, only : read_compressed, restart_file_type, free_restart_type
-use fms_io_mod, only : field_exist, get_field_size, save_restart
-use fms_io_mod, only : register_restart_axis, register_restart_field, set_domain, nullify_domain
+use fms_io_mod, only : read_compressed, restart_file_type, free_restart_type, &
+     set_domain, nullify_domain
 use fms_mod, only : error_mesg, FATAL, WARNING, NOTE, mpp_pe, &
      mpp_root_pe, file_exist, check_nml_error, close_file, &
      stdlog, stderr, mpp_clock_id, mpp_clock_begin, mpp_clock_end, string, &
@@ -1381,9 +1380,6 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   ! time step:
   real :: delta_qc, delta_Tc, delta_Tv, delta_wl, delta_ws, delta_Tg, delta_psig, delta_co2
   real :: flwg ! updated value of long-wave ground energy balance
-  real :: vegn_emis_lw, surf_emis_lw ! emissivities of ground and surface
-  real :: vegn_emsn,    surf_emsn    ! emission by vegetation and surface, respectively
-  real :: denom ! denominator in the LW radiative balance calculations
   real :: sum0, sum1
 
   real :: &
@@ -1598,25 +1594,9 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
 
 ! [X.X] using long-wave optical properties, calculate the explicit long-wave
 !       radiative balances and their derivatives w.r.t. temperatures
-  vegn_emis_lw = 1 - tile%vegn_refl_lw - tile%vegn_tran_lw
-  surf_emis_lw = 1 - tile%surf_refl_lw
-
-  denom = 1-tile%vegn_refl_lw*tile%surf_refl_lw
-
-  vegn_emsn = vegn_emis_lw * stefan * vegn_T**4
-  surf_emsn = surf_emis_lw * stefan * grnd_T**4
-
-  flwv0 = ILa_dn * vegn_emis_lw*(1+tile%vegn_tran_lw*tile%surf_refl_lw/denom) &
-       + vegn_emsn * (tile%surf_refl_lw*vegn_emis_lw/denom-2) &
-       + surf_emsn * vegn_emis_lw/denom
-  DflwvDTg = vegn_emis_lw/denom                      * surf_emis_lw * stefan * 4 * grnd_T**3
-  DflwvDTv = (tile%surf_refl_lw*vegn_emis_lw/denom-2)* vegn_emis_lw * stefan * 4 * vegn_T**3
-
-  flwg0 = (ILa_dn*tile%vegn_tran_lw + vegn_emsn)*(1-tile%surf_refl_lw)/denom &
-       - surf_emsn*(1-tile%vegn_refl_lw)/denom
-  DflwgDTg = -(1-tile%vegn_refl_lw)/denom * surf_emis_lw * stefan * 4 * grnd_T**3
-  DflwgDTv =  (1-tile%surf_refl_lw)/denom * vegn_emis_lw * stefan * 4 * vegn_T**3
-
+  call land_lw_balance(ILa_dn, vegn_T, grnd_T, &
+        tile%vegn_tran_lw, tile%vegn_refl_lw, tile%surf_refl_lw, &
+        flwv0, flwg0, DflwvDTv, DflwvDTg, DflwgDTv, DflwgDTg )
 ! [X.0] calculate the latent heats of vaporization at appropriate temperatures
   if (use_tfreeze_in_grnd_latent) then
     grnd_latent = hlv + hlf*grnd_subl
@@ -1662,8 +1642,6 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
         __DEBUG3__(grnd_T,gT,grnd_rh)
         __DEBUG3__(cana_T,cT,cana_q)
         __DEBUG2__(evap_T,eT)
-        __DEBUG2__(vegn_emis_lw,surf_emis_lw)
-        __DEBUG2__(vegn_emsn,surf_emsn)
         __DEBUG4__(precip_l, vegn_drip_l, pT, precip_T)
         __DEBUG2__(precip_s, vegn_drip_s)
         __DEBUG2__(vegn_ifrac, vegn_lai)
@@ -2207,7 +2185,7 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   call send_tile_data(id_swup_dir, ISa_dn_dir*tile%land_refl_dir,     tile%diag)
   call send_tile_data(id_swup_dif, ISa_dn_dif*tile%land_refl_dif,     tile%diag)
   call send_tile_data(id_lwdn,     ILa_dn,                            tile%diag)
-  call send_tile_data(id_subs_emis,surf_emis_lw,                      tile%diag)
+  call send_tile_data(id_subs_emis,1-tile%surf_refl_lw,               tile%diag)
 
   if (id_total_C > 0) &
       call send_tile_data(id_total_C, land_tile_carbon(tile),         tile%diag)
@@ -2408,15 +2386,63 @@ subroutine land_surface_energy_balance ( &
 end subroutine land_surface_energy_balance
 
 ! ============================================================================
+subroutine land_lw_balance(lwdn_atm, vegn_T, surf_T, &
+  vegn_tran_lw, vegn_refl_lw, surf_refl_lw, &
+  flwv, flwg, DflwvDTv, DflwvDTg, DflwgDTv, DflwgDTg )
+
+  real, intent(in) :: lwdn_atm ! downward long-wave radiation on top of the canopy, W/m2
+  real, intent(in) :: vegn_T ! canopy temperatures, deg K
+  real, intent(in) :: surf_T    ! ground surface temperature, deg K
+  real, intent(in) :: vegn_tran_lw ! transmittance of cohort canopies to long-wave radiation
+  real, intent(in) :: vegn_refl_lw ! reflectance of cohort canopies to long-wave radiation
+  real, intent(in) :: surf_refl_lw ! reflectance of ground surface to long-wave
+
+  real, intent(out) :: flwv ! long-wave balances of canopy, W/m2
+  real, intent(out) :: flwg ! ground surface long-wave balance, W/m2
+  real, intent(out) :: DflwvDTv ! derivative of canopy balance w.r.t. canopy temperatures, W/(m2 K)
+  real, intent(out) :: DflwvDTg ! derivative of canopy balance w.r.t. ground surface temperature, W/(m2 K)
+  real, intent(out) :: DflwgDTv ! derivative of ground surface balance w.r.t. canopy temperature, W/(m2 K)
+  real, intent(out) :: DflwgDTg ! derivative of ground surface balance w.r.t. ground surface temperature, W/(m2 K)
+
+  real :: vegn_emis_lw, surf_emis_lw ! emissivities of ground and surface
+  real :: vegn_emsn,    surf_emsn    ! emission by vegetation and surface, respectively
+  real :: denom ! denominator in the LW radiative balance calculations
+
+  vegn_emis_lw = 1 - vegn_refl_lw - vegn_tran_lw
+  surf_emis_lw = 1 - surf_refl_lw
+
+  denom = 1-vegn_refl_lw*surf_refl_lw
+
+  vegn_emsn = vegn_emis_lw * stefan * vegn_T**4
+  surf_emsn = surf_emis_lw * stefan * surf_T**4
+
+  flwv = lwdn_atm * vegn_emis_lw*(1+vegn_tran_lw*surf_refl_lw/denom) &
+       + vegn_emsn * (surf_refl_lw*vegn_emis_lw/denom-2) &
+       + surf_emsn * vegn_emis_lw/denom
+  DflwvDTg = vegn_emis_lw/denom                 * surf_emis_lw * stefan * 4 * surf_T**3
+  DflwvDTv = (surf_refl_lw*vegn_emis_lw/denom-2)* vegn_emis_lw * stefan * 4 * vegn_T**3
+
+  flwg = (lwdn_atm*vegn_tran_lw + vegn_emsn)*(1-surf_refl_lw)/denom &
+       - surf_emsn*(1-vegn_refl_lw)/denom
+  DflwgDTg = -(1-vegn_refl_lw)/denom * surf_emis_lw * stefan * 4 * surf_T**3
+  DflwgDTv =  (1-surf_refl_lw)/denom * vegn_emis_lw * stefan * 4 * vegn_T**3
+  if (is_watch_point()) then
+     __DEBUG2__(vegn_emis_lw,surf_emis_lw)
+     __DEBUG2__(vegn_emsn,surf_emsn)
+  endif
+end subroutine land_lw_balance
+
+! ============================================================================
 ! set up constants for linearization of radiative transfer, using information
 ! provided by soil, snow and vegetation modules.
-subroutine land_radiation (lm2, &
+subroutine land_sw_radiation (lm2, &
      subs_refl_dir, subs_refl_dif, subs_refl_lw, &
      snow_refl_dir, snow_refl_dif, snow_refl_lw, &
      snow_area, &
-     vegn_refl_dir, vegn_refl_dif, vegn_tran_dir, vegn_tran_dif, &
-     vegn_tran_dir_dir, vegn_refl_lw, vegn_tran_lw,  &
+     vegn_refl_dif, vegn_tran_dif, &
+     vegn_refl_dir, vegn_tran_dir, vegn_tran_dir_dir,  &
      vegn_cover, &
+     ! output
      Sg_dir, Sg_dif, Sv_dir, Sv_dif, &
      land_albedo_dir, land_albedo_dif )
 
@@ -2428,7 +2454,6 @@ subroutine land_radiation (lm2, &
        vegn_refl_dir(NBANDS), vegn_tran_dir(NBANDS), & ! vegn reflectance & transmittance for direct light
        vegn_tran_dir_dir(NBANDS), & !
        vegn_refl_dif(NBANDS), vegn_tran_dif(NBANDS), & ! vegn reflectance & transmittance for diffuse light
-       vegn_refl_lw,  vegn_tran_lw,  & ! vegn reflectance & transmittance for thermal radiation
        vegn_cover
 
   real, intent(out) :: &
@@ -2479,7 +2504,7 @@ subroutine land_radiation (lm2, &
   Sg_dif = subs_dn_dif_from_dif - subs_up_from_dif
   Sv_dir = 1 - Sg_dir - land_albedo_dir
   Sv_dif = 1 - Sg_dif - land_albedo_dif
-end subroutine land_radiation
+end subroutine land_sw_radiation
 
 ! ============================================================================
 subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
@@ -2615,13 +2640,14 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
      if(associated(tile%soil).and.vegn_cover>0.01) snow_area_rad = 1
   endif
 
-  call land_radiation( lm2, &
+  call land_sw_radiation( lm2, &
        subs_refl_dir, subs_refl_dif, subs_refl_lw, &
        snow_refl_dir, snow_refl_dif, snow_refl_lw, &
        snow_area_rad,  &
-       vegn_refl_dir, vegn_refl_dif, vegn_tran_dir, vegn_tran_dif, &
-       vegn_tran_dir_dir, vegn_refl_lw, vegn_tran_lw, &
+       vegn_refl_dif, vegn_tran_dif, &
+       vegn_refl_dir, vegn_tran_dir, vegn_tran_dir_dir, &
        vegn_cover, &
+       ! output
        tile%Sg_dir, tile%Sg_dif, tile%Sv_dir, tile%Sv_dif, &
        tile%land_refl_dir, tile%land_refl_dif )
 
