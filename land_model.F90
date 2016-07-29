@@ -1396,7 +1396,6 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
        grnd_rh_psi,    & ! psi derivative of relative humidity at ground surface
        grnd_liq, grnd_ice, grnd_subl, &
        grnd_tf, &  ! temperature of freezing on the ground
-       grnd_latent, &
        grnd_flux, &
        grnd_E_min, &
        grnd_E_max, &
@@ -1595,13 +1594,7 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   call land_lw_balance(ILa_dn, vegn_T, grnd_T, &
         tile%vegn_tran_lw, tile%vegn_refl_lw, tile%surf_refl_lw, &
         flwv0, flwg0, DflwvDTv, DflwvDTg, DflwgDTv, DflwgDTg )
-! [X.0] calculate the latent heats of vaporization at appropriate temperatures
-  if (use_tfreeze_in_grnd_latent) then
-    grnd_latent = hlv + hlf*grnd_subl
-  else
-    grnd_latent = hlv + (cpw-clw)*(grnd_T-tfreeze) &
-               + (hlf + (clw-csw)*(grnd_T-tfreeze)) * grnd_subl
-  endif
+
   if (use_atmos_T_for_precip_T) then
     precip_T = atmos_T
   else
@@ -1837,7 +1830,8 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
      if(is_watch_point())then
         write(*,*)'#### ground balance'
         __DEBUG2__(fswg,flwg)
-        __DEBUG2__(sensg,evapg*grnd_latent)
+        __DEBUG2__(sensg,evapg*hlv)
+        ! evapg*hlv is only approximate latent heat flux
         __DEBUG1__(grnd_flux)
         __DEBUG1__(Mg_imp)
         write(*,*)'#### implicit time steps'
@@ -1941,8 +1935,7 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   endif
 
   if (associated(tile%glac)) then
-     call glac_step_2 &
-          ( tile%glac, tile%diag, subs_subl, snow_lprec, snow_hlprec, &
+     call glac_step_2 ( tile%glac, tile%diag, snow_lprec, snow_hlprec, &
           subs_DT, subs_M_imp, subs_evap, &
           subs_levap, subs_fevap, &
           subs_melt, subs_lrunf, subs_hlrunf, subs_Ttop, subs_Ctop )
@@ -1950,8 +1943,7 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
      subs_hfrunf = 0.
      subs_tr_runf = 0.0
   else if (associated(tile%lake)) then
-     call lake_step_2 &
-          ( tile%lake, tile%diag, subs_subl, snow_lprec, snow_hlprec, &
+     call lake_step_2 ( tile%lake, tile%diag, snow_lprec, snow_hlprec, &
           subs_DT, subs_M_imp, subs_evap, &
           use_tfreeze_in_grnd_latent, subs_levap, subs_fevap, &
           subs_melt, subs_Ttop, subs_Ctop )
@@ -1961,8 +1953,7 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
      subs_hfrunf = 0.
      subs_tr_runf = 0.0
   else if (associated(tile%soil)) then
-     call soil_step_2 &
-          ( tile%soil, tile%vegn, tile%diag, subs_subl, snow_lprec, snow_hlprec, &
+     call soil_step_2 ( tile%soil, tile%vegn, tile%diag, snow_lprec, snow_hlprec, &
           vegn_uptk, subs_DT, subs_M_imp, subs_evap, &
           use_tfreeze_in_grnd_latent, &
           ! output:

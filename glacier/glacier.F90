@@ -263,6 +263,15 @@ subroutine glac_sfc_water(glac, grnd_liq, grnd_ice, grnd_subl, grnd_tf)
 end subroutine glac_sfc_water
 
 ! ============================================================================
+function glac_subl_frac(glac); real glac_subl_frac
+  type(glac_tile_type), intent(in)  :: glac
+
+  real :: grnd_liq, grnd_ice, grnd_subl, grnd_tf
+  call glac_sfc_water(glac, grnd_liq, grnd_ice, grnd_subl, grnd_tf)
+  glac_subl_frac = grnd_subl
+end function glac_subl_frac
+
+! ============================================================================
 ! update glac properties explicitly for time step.
 ! integrate glac-heat conduction equation upward from bottom of glac
 ! to surface, delivering linearization of surface ground heat flux.
@@ -375,7 +384,7 @@ end subroutine glac_step_1
 
 ! ============================================================================
 ! apply boundary flows to glac water and move glac water vertically.
-  subroutine glac_step_2 ( glac, diag, glac_subl, snow_lprec, snow_hlprec,  &
+  subroutine glac_step_2 ( glac, diag, snow_lprec, snow_hlprec,  &
                            subs_DT, subs_M_imp, subs_evap, &
                            glac_levap, glac_fevap, glac_melt, &
                            glac_lrunf, glac_hlrunf, glac_Ttop, glac_Ctop )
@@ -391,8 +400,6 @@ end subroutine glac_step_1
 
   type(glac_tile_type), intent(inout) :: glac
   type(diag_buff_type), intent(inout) :: diag
-  real, intent(in) :: &
-     glac_subl     !
   real, intent(in) :: &
      snow_lprec, &
      snow_hlprec, &
@@ -411,7 +418,7 @@ end subroutine glac_step_1
   real, dimension(num_l  ) :: div
   real :: &
      lprec_eff, hlprec_eff, tflow, hcap,cap_flow, &
-     melt_per_deg, melt,&
+     melt_per_deg, melt, glac_subl, &
      lrunf_sn,lrunf_ie,lrunf_bf, hlrunf_sn,hlrunf_ie,hlrunf_bf, &
      Qout, DQoutDP,&
      tau_gw, c0, c1, c2, x, aaa, bbb, ccc, ddd, xxx, Dpsi_min, Dpsi_max
@@ -443,12 +450,13 @@ end subroutine glac_step_1
   endif
 
   ! ---- record fluxes ---------
+  glac_subl = glac_subl_frac(glac)
   IF (LM2) THEN ! EVAP SHOULD BE ZERO ANYWAY, BUT THIS IS JUST TO BE SURE...
-  glac_levap  = 0.
-  glac_fevap  = 0.
+     glac_levap  = 0.
+     glac_fevap  = 0.
   ELSE
-  glac_levap  = subs_evap*(1-glac_subl)
-  glac_fevap  = subs_evap*   glac_subl
+     glac_levap  = subs_evap*(1-glac_subl)
+     glac_fevap  = subs_evap*   glac_subl
   ENDIF
   glac_melt   = subs_M_imp / delta_time
 

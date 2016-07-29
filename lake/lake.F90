@@ -358,14 +358,18 @@ subroutine lake_sfc_water(lake, grnd_liq, grnd_ice, grnd_subl, grnd_tf)
 
   grnd_liq  = max(lake%wl(1), 0.)
   grnd_ice  = max(lake%ws(1), 0.)
-  if (grnd_ice > 0) then
-     grnd_subl = 1
-  else
-     grnd_subl = 0
-  endif
+  grnd_subl = lake_subl_frac(lake)
   ! set the freezing temperature of the lake
   grnd_tf = tfreeze
 end subroutine lake_sfc_water
+
+! ============================================================================
+real function lake_subl_frac(lake)
+  type(lake_tile_type), intent(in) :: lake
+  
+  lake_subl_frac = 0
+  if (lake%ws(1)>0) lake_subl_frac = 1
+end function lake_subl_frac
 
 ! ============================================================================
 ! update lake properties explicitly for time step.
@@ -551,15 +555,13 @@ end subroutine lake_step_1
 
 ! ============================================================================
 ! apply boundary flows to lake water and move lake water vertically.
-  subroutine lake_step_2 ( lake, diag, lake_subl, snow_lprec, snow_hlprec,  &
+  subroutine lake_step_2 ( lake, diag, snow_lprec, snow_hlprec,  &
                            subs_DT, subs_M_imp, subs_evap, &
                            use_tfreeze_in_grnd_latent, &
                            lake_levap, lake_fevap, lake_melt, &
                            lake_Ttop, lake_Ctop )
   type(lake_tile_type), intent(inout) :: lake
   type(diag_buff_type), intent(inout) :: diag
-  real, intent(in) :: &
-     lake_subl     !
   real, intent(in) :: &
      snow_lprec, &
      snow_hlprec, &
@@ -579,7 +581,7 @@ end subroutine lake_step_1
   real, dimension(num_l  ) :: div
   real :: ice_to_move, h_upper, h_lower, h_to_move_up, &
      lprec_eff, hlprec_eff, hcap, dheat, &
-     melt_per_deg, melt, lshc1, lshc2
+     melt_per_deg, melt, lshc1, lshc2, lake_subl
   real, dimension(num_l-1) :: del_z
   real :: jj
   integer :: l
@@ -605,6 +607,7 @@ end subroutine lake_step_1
   endif
 
   ! ---- record fluxes ---------
+  lake_subl = lake_subl_frac(lake)
   lake_levap  = subs_evap*(1-lake_subl)
   lake_fevap  = subs_evap*   lake_subl
   lake_melt   = subs_M_imp / delta_time

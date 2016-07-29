@@ -1698,18 +1698,24 @@ subroutine soil_sfc_water(soil, grnd_liq, grnd_ice, grnd_subl, grnd_tf)
      grnd_subl, &          ! fraction of vapor flux that sublimates
      grnd_tf               ! freezing temperature
 
-  grnd_liq  = max(soil%wl(1), 0.)
-  grnd_ice  = max(soil%ws(1), 0.)
-  if (grnd_liq + grnd_ice > 0) then
-     grnd_subl = grnd_ice / (grnd_liq + grnd_ice)
-  else
-     grnd_subl = 0
-  endif
   grnd_liq = 0
   grnd_ice = 0
+  grnd_subl = soil_subl_frac(soil)
   ! set soil freezing temperature
   grnd_tf = soil%pars%tfreeze
 end subroutine soil_sfc_water
+
+! ============================================================================
+real function soil_subl_frac(soil)
+  type(soil_tile_type), intent(in) :: soil
+
+  real :: grnd_liq, grnd_ice ! surface liquid and ice, respectively, kg/m2
+  grnd_liq  = max(soil%wl(1), 0.)
+  grnd_ice  = max(soil%ws(1), 0.)
+  soil_subl_frac = 0.0
+  if (grnd_liq + grnd_ice > 0) &
+      soil_subl_frac = grnd_ice / (grnd_liq + grnd_ice)
+end function soil_subl_frac
 
 ! ============================================================================
 ! update soil properties explicitly for time step.
@@ -1830,7 +1836,7 @@ end subroutine soil_step_1
 
 ! ============================================================================
 ! apply boundary flows to soil water and move soil water vertically.
-  subroutine soil_step_2 ( soil, vegn, diag, soil_subl, snow_lprec, snow_hlprec,  &
+  subroutine soil_step_2 ( soil, vegn, diag, snow_lprec, snow_hlprec,  &
                            vegn_uptk, &
                            subs_DT, subs_M_imp, subs_evap, &
                            use_tfreeze_in_grnd_latent, &
@@ -1840,8 +1846,6 @@ end subroutine soil_step_1
   type(soil_tile_type), intent(inout) :: soil
   type(vegn_tile_type), intent(in)    :: vegn
   type(diag_buff_type), intent(inout) :: diag
-  real, intent(in) :: & ! ZMS assign tentative annotations below with "??"
-       soil_subl     ! ?? solution for soil surface sublimation [mm/s]
   real, intent(in) :: &
        snow_lprec, & ! ?? solid / liquid throughfall infiltrating the snow [mm/s]
        snow_hlprec, & ! ?? heat associated with snow_lprec [W/m^2]
@@ -1899,6 +1903,7 @@ end subroutine soil_step_1
        lrunf_sc, & ! sub-column runoff [mm/s]
        frunf, & ! frozen runoff (due to sat excess) [mm/s]
        hfrunf, & ! heat from frozen runoff (due to sat excess) [W/m^2]
+       soil_subl, & ! fraction of water vapor that leaves surface as sublimation
        d_GW, &
        hlrunf_sn,hlrunf_ie,hlrunf_bf,hlrunf_if,hlrunf_al,hlrunf_nu,hlrunf_sc, & ! runoff heat fluxes [W/m^2]
        c0, c1, c2, Dpsi_min, Dpsi_max, &
@@ -1952,7 +1957,6 @@ end subroutine soil_step_1
                                   ! to efflux
   real :: total_C_leaching(num_l) ! [kg C/m^2/s] net total vertical DOC leaching by layer
   real :: total_DOC_div           ! [kg C/m^2/s] net total DOC divergence loss rate
-  real :: grnd_liq, grnd_ice, grnd_subl
   ! --------------------------------------------------------------------------
   div_active(:) = 0.0
 
@@ -1984,15 +1988,9 @@ end subroutine soil_step_1
 !  end if
 
   ! ---- record fluxes -----------------------------------------------------
-  grnd_liq  = max(soil%wl(1), 0.)
-  grnd_ice  = max(soil%ws(1), 0.)
-  if (grnd_liq + grnd_ice > 0) then
-     grnd_subl = grnd_ice / (grnd_liq + grnd_ice)
-  else
-     grnd_subl = 0
-  endif
-  soil_levap  = subs_evap*(1-grnd_subl)
-  soil_fevap  = subs_evap*   grnd_subl
+  soil_subl = soil_subl_frac(soil)
+  soil_levap  = subs_evap*(1-soil_subl)
+  soil_fevap  = subs_evap*   soil_subl
   soil_melt   = subs_M_imp / delta_time
 
   ! ---- load surface temp change and perform back substitution ------------
