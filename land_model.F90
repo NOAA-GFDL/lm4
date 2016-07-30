@@ -1429,7 +1429,7 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   integer :: ii, jj ! indices for debug output
   integer :: ierr
   integer :: tr, n ! tracer indices
-  logical :: conserve_glacier_mass, snow_active, redo_leaf_water
+  logical :: conserve_glacier_mass, snow, redo_leaf_water
   integer :: canopy_water_step
   real :: subs_z0m, subs_z0s, snow_z0m, snow_z0s, grnd_z0s
   ! variables for conservation checks
@@ -1469,18 +1469,18 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   soil_water_supply = 0.0
   if (associated(tile%glac)) then
      call glac_step_1 ( tile%glac, &
-          grnd_T, grnd_rh, &
+          grnd_rh, &
           snow_G_Z, snow_G_TZ, conserve_glacier_mass  )
      grnd_rh_psi = 0
   else if (associated(tile%lake)) then
      call lake_step_1 ( ustar, p_surf, &
           lnd%lat(i,j), tile%lake, &
-          grnd_T, grnd_rh, &
+          grnd_rh, &
           snow_G_Z, snow_G_TZ)
      grnd_rh_psi = 0
   else if (associated(tile%soil)) then
      call soil_step_1 ( tile%soil, tile%vegn, tile%diag, &
-          grnd_T, soil_uptake_T, soil_beta, soil_water_supply, &
+          soil_uptake_T, soil_beta, soil_water_supply, &
           grnd_rh, grnd_rh_psi, &
           snow_G_Z, snow_G_TZ)
   else
@@ -1498,9 +1498,10 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   endif
 
   call snow_step_1 ( tile%snow, snow_G_Z, snow_G_TZ, &
-       snow_active, snow_T, snow_rh, snow_area, G0, DGDTg )
-  if (snow_active) then
-     grnd_T    = snow_T;   grnd_rh   = snow_rh
+       snow_rh, snow_area, G0, DGDTg )
+  snow = snow_active(tile%snow)
+  if (snow) then
+     grnd_rh   = snow_rh
      grnd_rh_psi = 0
   endif
 
@@ -1540,7 +1541,7 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
         Esi0,  DEsiDTv,  DEsiDqc,  DEsiDwl,  DEsiDwf  )
         if (LM2) then
            con_g_h = con_g_h * con_fac_large
-           if (snow_active) then
+           if (snow) then
               con_g_v = con_g_v * con_fac_large
            else
               con_g_v = con_g_v * con_fac_small
@@ -1549,7 +1550,7 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   else
      RSv    = 0
      con_g_h = con_fac_large ; con_g_v = con_fac_large
-     if(associated(tile%glac).and.conserve_glacier_mass.and..not.snow_active) &
+     if(associated(tile%glac).and.conserve_glacier_mass.and..not.snow) &
           con_g_v = con_fac_small
      con_v_h = 0.0 ; con_v_v = 0.0; stomatal_cond = 0.0
      vegn_T  = cana_T ; vegn_Wl = 0 ; vegn_Ws = 0
@@ -1565,8 +1566,9 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   fswg     = SUM(tile%Sg_dir*ISa_dn_dir + tile%Sg_dif*ISa_dn_dif)
   vegn_fsw = SUM(RSv)
 
+  grnd_T = land_grnd_T(tile)
   call cana_step_1 (tile%cana, p_surf, con_g_h, con_g_v,   &
-       grnd_t, grnd_rh, grnd_rh_psi, &
+       grnd_T, grnd_rh, grnd_rh_psi, &
        Hg0,  DHgDTg, DHgDTc, Eg0, DEgDTg, DEgDqc, DEgDpsig)
 
 ! [X.X] using long-wave optical properties, calculate the explicit long-wave
@@ -1766,7 +1768,7 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
 
      ! solve the non-linear equation for energy balance at the surface.
      call land_surface_energy_balance( tile, &
-          grnd_T, fswg, &
+          fswg, &
           flwg0 + b0(iTv)*DflwgDTv, DflwgDTg + b1(iTv)*DflwgDTv, b2(iTv)*DflwgDTv, &
           Hg0   + b0(iTc)*DHgDTc,   DHgDTg   + b1(iTc)*DHgDTc,   b2(iTc)*DHgDTc,   &
           Eg0   + b0(iqc)*DEgDqc,   DEgDTg   + b1(iqc)*DEgDqc,   DEgDpsig + b2(iqc)*DEgDqc,   &
@@ -1906,7 +1908,7 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
      write(*,*) 'subs_M_imp', subs_M_imp
   endif
 
-  if (snow_active) then
+  if (snow) then
      subs_G = snow_G_Z+snow_G_TZ*subs_DT
   else
      subs_G = 0
@@ -2238,7 +2240,6 @@ end subroutine update_land_model_slow
 ! we might apply a constraint on Eg.
 subroutine land_surface_energy_balance ( tile, &
      ! surface parameters
-     grnd_T,          & ! ground temperature
      ! components of the ground energy balance linearization. Note that those
      ! are full derivatives, which include the response of the other surface
      ! scheme parameters to the change in ground temperature.
@@ -2253,7 +2254,6 @@ subroutine land_surface_energy_balance ( tile, &
 
   type(land_tile_type), intent(in) :: tile
   real, intent(in) :: &
-     grnd_T,          & ! ground temperature
      fswg,            & ! net short-wave
      flwg0, DflwgDTg, DflwgDpsig, & ! net long-wave
      Hg0,   DHgDTg,   DHgDpsig,   & ! sensible heat
@@ -2270,6 +2270,7 @@ subroutine land_surface_energy_balance ( tile, &
   real :: grnd_DBDpsig ! full derivative of grnd_B w.r.t. surface soil-water matric head
   real :: grnd_E_force, Eg_trial, Eg_check, determinant
   real :: &
+     grnd_T,          & ! ground temperature
      grnd_E_min,      & ! Eg floor of 0 if condensation is prohibited
      grnd_E_max,      & ! exfiltration rate limit, kg/(m2 s)
      grnd_liq, grnd_ice, & ! amount of water available for freeze or melt on the surface, kg/m2
@@ -2277,6 +2278,7 @@ subroutine land_surface_energy_balance ( tile, &
      grnd_Tf,         & ! ground freezing temperature
      grnd_subl
 
+  grnd_T = land_grnd_T(tile)
   call land_sfc_water(tile, grnd_liq, grnd_ice, grnd_subl, grnd_Tf)
   if (use_tfreeze_in_grnd_latent) then
     grnd_latent = hlv + hlf*grnd_subl
@@ -2779,6 +2781,17 @@ subroutine grnd_evap_limits(tile, grnd_E_min, grnd_E_max)
   if (associated(tile%soil).and..not.snow_active(tile%snow)) &
       call soil_evap_limits(tile%soil, grnd_E_min, grnd_E_max)
 end subroutine grnd_evap_limits
+
+! ============================================================================
+real function land_grnd_T(tile)
+  type(land_tile_type), intent(in) :: tile
+
+  if (associated(tile%glac)) land_grnd_T = tile%glac%T(1)
+  if (associated(tile%lake)) land_grnd_T = tile%lake%T(1)
+  if (associated(tile%soil)) land_grnd_T = tile%soil%T(1)
+
+  if (snow_active(tile%snow)) land_grnd_T = tile%snow%T(1)
+end function land_grnd_T
 
 ! ============================================================================
 subroutine Lnd_stock_pe(bnd,index,value)

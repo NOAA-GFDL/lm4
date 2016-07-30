@@ -276,11 +276,10 @@ end function glac_subl_frac
 ! integrate glac-heat conduction equation upward from bottom of glac
 ! to surface, delivering linearization of surface ground heat flux.
 subroutine glac_step_1 ( glac, &
-                         glac_T, glac_rh, glac_G0, &
+                         glac_rh, glac_G0, &
                          glac_DGDT, conserve_glacier_mass_out )
   type(glac_tile_type),intent(inout) :: glac
   real, intent(out) :: &
-       glac_T, &
        glac_rh, &
        glac_G0, &
        glac_DGDT
@@ -302,14 +301,6 @@ subroutine glac_step_1 ( glac, &
     write(*,*) 'checkpoint gs1 a'
     write(*,*) 'mask    ',  .TRUE.
     write(*,*) 'T       ', glac%T(1)
-  endif
-
-  glac_T = glac%T(1)
-
-  if(is_watch_point()) then
-     write(*,*) 'checkpoint gs1 b'
-     write(*,*) 'mask    ', .TRUE.
-     write(*,*) 'glac_T       ', glac_T
   endif
 
   do l = 1, num_l
@@ -360,7 +351,6 @@ subroutine glac_step_1 ( glac, &
   if(is_watch_point())then
      write(*,*) 'checkpoint gs1 c'
      write(*,*) 'mask    ', .TRUE.
-     write(*,*) 'T       ', glac_T
      write(*,*) 'rh      ', glac_rh
      write(*,*) 'G0      ', glac_G0
      write(*,*) 'DGDT    ', glac_DGDT

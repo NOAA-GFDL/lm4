@@ -1744,14 +1744,13 @@ end subroutine soil_evap_limits
 ! integrate soil-heat conduction equation upward from bottom of soil
 ! to surface, delivering linearization of surface ground heat flux.
 subroutine soil_step_1 ( soil, vegn, diag, &
-                         soil_T, soil_uptake_T, soil_beta, soil_water_supply, &
+                         soil_uptake_T, soil_beta, soil_water_supply, &
                          soil_rh, soil_rh_psi, &
                          soil_G0, soil_DGDT )
   type(soil_tile_type), intent(inout) :: soil
   type(vegn_tile_type), intent(in)    :: vegn
   type(diag_buff_type), intent(inout) :: diag
   real, intent(out) :: &
-       soil_T, &    ! temperature of the upper layer of the soil, degK
        soil_uptake_T, & ! estimate of the temperature of the water taken up by transpiration
        soil_beta, &
        soil_water_supply, & ! supply of water to vegetation per unit total active root biomass, kg/m2
@@ -1775,7 +1774,6 @@ subroutine soil_step_1 ( soil, vegn, diag, &
 ! of water availability, so that vapor fluxes will not exceed mass limits
 ! ----------------------------------------------------------------------------
 
-  soil_T = soil%T(1)
   call soil_data_beta ( soil, vegn, diag, soil_beta, soil_water_supply, soil_uptake_T, &
                         soil_rh, soil_rh_psi )
 
@@ -1824,7 +1822,6 @@ subroutine soil_step_1 ( soil, vegn, diag, &
   if(is_watch_point()) then
      write(*,*) '#### soil_step_1 checkpoint 1 ####'
      write(*,*) 'mask    ', .true.
-     write(*,*) 'T       ', soil_T
      write(*,*) 'uptake_T', soil_uptake_T
      write(*,*) 'beta    ', soil_beta
      write(*,*) 'rh      ', soil_rh

@@ -376,13 +376,11 @@ end function lake_subl_frac
 ! integrate lake-heat conduction equation upward from bottom of lake
 ! to surface, delivering linearization of surface ground heat flux.
 subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
-                         lake_T, &
                          lake_rh, lake_G0, lake_DGDT )
 
   real, intent(in)   :: u_star_a, p_surf, latitude
   type(lake_tile_type), intent(inout) :: lake
   real, intent(out)  :: &
-       lake_T, &
        lake_rh, &
        lake_G0, &
        lake_DGDT
@@ -403,7 +401,6 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
   if(is_watch_point()) then
      write(*,*) 'lake_step_1 checkpoint 1'
      write(*,*) 'mask    ', .true.
-     write(*,*) 'T       ', lake_T
      write(*,*) 'rh      ', lake_rh
      write(*,*) 'G0      ', lake_G0
      write(*,*) 'DGDT    ', lake_DGDT
@@ -421,7 +418,6 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
   if (relayer_in_step_one) call lake_relayer ( lake )
 
   lake%K_z = 0.
-  lake_T = lake%T(1)
   if (use_rh_feedback) then
       lake_depth = (sum(lake%wl(:))+sum(lake%ws(:))) / DENS_H2O
     else
@@ -430,16 +426,16 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
   call lake_data_thermodynamics ( lake%pars, lake_depth, lake_rh, &
                                   lake%heat_capacity_dry, thermal_cond )
 ! Ignore air humidity in converting atmospheric friction velocity to lake value
-  rho_a = p_surf/(rdgas*lake_T)
+  rho_a = p_surf/(rdgas*lake%T(1))
 ! No momentum transfer through ice cover
   if (lake%ws(1).le.0. .or. wind_penetrates_ice) then
-      u_star = u_star_a*sqrt(rho_a/dens_h2o)
-      k_star = 2.79e-5*sqrt(sin(abs(latitude)))*u_star**(-1.84)
-      k_star = k_star*(c_drag/1.2e-3)**1.84
-    else
-      u_star = 0.
-      k_star = 1.
-    endif
+     u_star = u_star_a*sqrt(rho_a/dens_h2o)
+     k_star = 2.79e-5*sqrt(sin(abs(latitude)))*u_star**(-1.84)
+     k_star = k_star*(c_drag/1.2e-3)**1.84
+  else
+     u_star = 0.
+     k_star = 1.
+  endif
 ! k_star from B. Henderson-Sellers (1985, Appl. Math. Mod., 9)
 !  k_star = 2.79e-5*sqrt(sin(abs(latitude)))*u_star**(-1.84)
   z_cum = 0.
@@ -526,7 +522,6 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
   if(is_watch_point()) then
      write(*,*) 'lake_step_1 checkpoint 2'
      write(*,*) 'mask    ', .true.
-     write(*,*) 'T       ', lake_T
      write(*,*) 'rh      ', lake_rh
      write(*,*) 'G0      ', lake_G0
      write(*,*) 'DGDT    ', lake_DGDT

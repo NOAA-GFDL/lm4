@@ -247,14 +247,13 @@ end subroutine
 ! integrate snow-heat conduction equation upward from bottom of snow
 ! to surface, delivering linearization of surface ground heat flux.
 subroutine snow_step_1 ( snow, snow_G_Z, snow_G_TZ, &
-                         snow_active_1, snow_T, snow_rh, &
+                         snow_rh, &
                          snow_area, snow_G0, snow_DGDT )
   type(snow_tile_type), intent(inout) :: snow
   real,                 intent(in) :: snow_G_Z
   real,                 intent(in) :: snow_G_TZ
-  logical,              intent(out):: snow_active_1
   real,                 intent(out):: &
-       snow_T, snow_rh, snow_area, snow_G0, snow_DGDT
+       snow_rh, snow_area, snow_G0, snow_DGDT
 
   ! ---- local vars
   real :: snow_depth, bbb, denom, dt_e
@@ -266,9 +265,6 @@ subroutine snow_step_1 ( snow, snow_G_Z, snow_G_TZ, &
 ! of water availability, so that vapor fluxes will not exceed mass limits
 ! ----------------------------------------------------------------------------
 
-  snow_T = tfreeze
-  snow_T = snow%T(1)
-
   call snow_data_thermodynamics ( snow_rh, thermal_cond )
   snow_depth= 0.0
   do l = 1, num_l
@@ -276,7 +272,6 @@ subroutine snow_step_1 ( snow, snow_G_Z, snow_G_TZ, &
   enddo
   snow_depth = snow_depth / snow_density
   call snow_data_area (snow_depth, snow_area )
-  snow_active_1 = snow_active(snow)
 
   do l = 1, num_l
      dz_phys(l) = dz(l)*snow_depth
@@ -339,7 +334,6 @@ subroutine snow_step_1 ( snow, snow_G_Z, snow_G_TZ, &
      write(*,*) 'snow_depth', snow_depth
      write(*,*) '############ snow_step_1 output'
      write(*,*) 'mask      ', .true.
-     write(*,*) 'snow_T    ', snow_T
      write(*,*) 'snow_rh   ', snow_rh
      write(*,*) 'snow_area ', snow_area
      write(*,*) 'snow_G_Z  ', snow_G_Z
