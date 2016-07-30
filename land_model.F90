@@ -35,14 +35,14 @@ use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, mol_air, mol_C, mol_c
 use land_tracers_mod, only : land_tracers_init, land_tracers_end, ntcana, isphum, ico2
 use land_tracer_driver_mod, only: land_tracer_driver_init, land_tracer_driver_end, &
      update_cana_tracers
-use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_temp, &
+use glacier_mod, only : read_glac_namelist, glac_init, glac_end, &
      glac_step_1, glac_step_2, save_glac_restart, glac_sfc_water
-use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
+use lake_mod, only : read_lake_namelist, lake_init, lake_end, &
      lake_sfc_water, lake_step_1, lake_step_2, save_lake_restart
-use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
+use soil_mod, only : read_soil_namelist, soil_init, soil_end, &
      soil_sfc_water, soil_evap_limits, soil_step_1, soil_step_2, soil_step_3, save_soil_restart
 use soil_carbon_mod, only : read_soil_carbon_namelist, n_c_types
-use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
+use snow_mod, only : read_snow_namelist, snow_init, snow_end, &
      snow_sfc_water, snow_get_depth_area, snow_step_1, snow_step_2, save_snow_restart
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, vegn_get_cover, &
      vegn_radiation, vegn_properties, vegn_step_1, vegn_step_2, vegn_step_3, &
@@ -2490,8 +2490,8 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
   logical, optional :: is_init
 
   ! ---- local vars
-  real ::  grnd_T, subs_z0m, subs_z0s, &
-                 snow_z0s, snow_z0m, &
+  real ::  subs_z0m, subs_z0s, &
+           snow_z0s, snow_z0m, &
          snow_area, snow_depth
 
   real :: subs_refl_dir(NBANDS), subs_refl_dif(NBANDS) ! direct and diffuse albedos
@@ -2665,11 +2665,6 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
   ! must be stored in the in the restart for reproducibility
   land2cplr%t_surf(i,j,k) = ( tile%lwup/stefan ) ** 0.25
 
-  if (associated(tile%glac)) call glac_get_sfc_temp(tile%glac, grnd_T)
-  if (associated(tile%lake)) call lake_get_sfc_temp(tile%lake, grnd_T)
-  if (associated(tile%soil)) call soil_get_sfc_temp(tile%soil, grnd_T)
-  if (snow_area > 0)         call snow_get_sfc_temp(tile%snow, grnd_T)
-
   ! set the boundary conditions for the flux exchange
   land2cplr%mask           (i,j,k) = .TRUE.
   land2cplr%tile_size      (i,j,k) = tile%frac
@@ -2719,7 +2714,7 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
   call send_tile_data(id_vegn_sctr_dir, vegn_tran_dir,     tile%diag)
   call send_tile_data(id_subs_refl_dir, subs_refl_dir, tile%diag)
   call send_tile_data(id_subs_refl_dif, subs_refl_dif, tile%diag)
-  call send_tile_data(id_grnd_T,     grnd_T,     tile%diag)
+  call send_tile_data(id_grnd_T,  land_grnd_T(tile),   tile%diag)
 
   ! --- debug section
   call check_temp_range(land2cplr%t_ca(i,j,k),'update_land_bc_fast','T_ca')

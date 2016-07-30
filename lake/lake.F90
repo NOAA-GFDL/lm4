@@ -46,7 +46,6 @@ public :: read_lake_namelist
 public :: lake_init
 public :: lake_end
 public :: save_lake_restart
-public :: lake_get_sfc_temp
 public :: lake_sfc_water
 public :: lake_step_1
 public :: lake_step_2
@@ -338,15 +337,6 @@ subroutine save_lake_restart (tile_dim_length, timestamp)
   call free_land_restart(restart)
   call nullify_domain()
 end subroutine save_lake_restart
-
-
-! ============================================================================
-subroutine lake_get_sfc_temp(lake, lake_T)
-  type(lake_tile_type), intent(in) :: lake
-  real, intent(out) :: lake_T
-
-  lake_T = lake%T(1)
-end subroutine lake_get_sfc_temp
 
 ! ============================================================================
 subroutine lake_sfc_water(lake, grnd_liq, grnd_ice, grnd_subl, grnd_tf)

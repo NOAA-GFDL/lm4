@@ -87,7 +87,6 @@ public :: soil_init
 public :: soil_end
 public :: save_soil_restart
 
-public :: soil_get_sfc_temp
 public :: soil_sfc_water
 public :: soil_evap_limits
 public :: soil_step_1
@@ -1557,16 +1556,6 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   endif
   call nullify_domain()
 end subroutine save_soil_restart
-
-
-! ============================================================================
-subroutine soil_get_sfc_temp ( soil, soil_T )
-  type(soil_tile_type), intent(in) :: soil
-  real, intent(out) :: soil_T
-
-  soil_T= soil%T(1)
-end subroutine soil_get_sfc_temp
-
 
 ! ============================================================================
 ! compute beta function

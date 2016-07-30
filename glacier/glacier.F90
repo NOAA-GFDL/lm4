@@ -40,7 +40,6 @@ public :: read_glac_namelist
 public :: glac_init
 public :: glac_end
 public :: save_glac_restart
-public :: glac_get_sfc_temp
 public :: glac_sfc_water
 public :: glac_step_1
 public :: glac_step_2
@@ -227,16 +226,6 @@ subroutine save_glac_restart (tile_dim_length, timestamp)
   call free_land_restart(restart)
   call nullify_domain()
 end subroutine save_glac_restart
-
-
-! ============================================================================
-! returns glacier surface temperature
-subroutine glac_get_sfc_temp ( glac, glac_T )
-  type(glac_tile_type), intent(in)  :: glac
-  real,                 intent(out) :: glac_T
-
-  glac_T = glac%T(1)
-end subroutine glac_get_sfc_temp
 
 ! ============================================================================
 subroutine glac_sfc_water(glac, grnd_liq, grnd_ice, grnd_subl, grnd_tf)

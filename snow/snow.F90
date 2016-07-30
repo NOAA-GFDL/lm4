@@ -38,7 +38,6 @@ public :: read_snow_namelist
 public :: snow_init
 public :: snow_end
 public :: save_snow_restart
-public :: snow_get_sfc_temp
 public :: snow_get_depth_area
 public :: snow_sfc_water
 public :: snow_step_1
@@ -216,15 +215,6 @@ subroutine save_snow_restart (tile_dim_length, timestamp)
   call nullify_domain()
 
 end subroutine save_snow_restart
-
-! ============================================================================
-subroutine snow_get_sfc_temp(snow, snow_T)
-  type(snow_tile_type), intent(in) :: snow
-  real, intent(out) :: snow_T
-
-  snow_T = snow%T(1)
-end subroutine
-
 
 ! ============================================================================
 subroutine snow_get_depth_area(snow, snow_depth, snow_area)
