@@ -89,6 +89,7 @@ public :: save_soil_restart
 
 public :: soil_get_sfc_temp
 public :: soil_sfc_water
+public :: soil_evap_limits
 public :: soil_step_1
 public :: soil_step_2
 public :: soil_step_3
@@ -1718,6 +1719,25 @@ real function soil_subl_frac(soil)
 end function soil_subl_frac
 
 ! ============================================================================
+subroutine soil_evap_limits(soil, soil_E_min, soil_E_max)
+  type(soil_tile_type), intent(in) :: soil
+  real, intent(out) :: soil_E_min, soil_E_max
+
+  real :: vlc
+  soil_E_min = Eg_min
+  if (use_E_max) then
+     vlc = max(0.0, soil%wl(1) / (dens_h2o * dz(1)))
+     soil_E_max = (soil%pars%k_sat_ref*soil%alpha(1)**2) &
+               * (-soil%pars%psi_sat_ref/soil%alpha(1)) &
+               * ((4.+soil%pars%chb)*vlc/ &
+                ((3.+soil%pars%chb)*soil%pars%vwc_sat))**(3.+soil%pars%chb) &
+                / ((1.+3./soil%pars%chb)*dz(1))
+  else
+     soil_E_max =  HUGE(soil_E_max)
+  endif
+end subroutine soil_evap_limits
+
+! ============================================================================
 ! update soil properties explicitly for time step.
 ! MAY WISH TO INTRODUCE 'UNIVERSAL' SENSITIVITIES FOR SIMPLICITY.
 ! T-DEPENDENCE OF HYDRAULIC PROPERTIES COULD BE DONE LESS FREQUENTLY.
@@ -1725,7 +1745,6 @@ end function soil_subl_frac
 ! to surface, delivering linearization of surface ground heat flux.
 subroutine soil_step_1 ( soil, vegn, diag, &
                          soil_T, soil_uptake_T, soil_beta, soil_water_supply, &
-                         soil_E_min, soil_E_max, &
                          soil_rh, soil_rh_psi, &
                          soil_G0, soil_DGDT )
   type(soil_tile_type), intent(inout) :: soil
@@ -1736,8 +1755,6 @@ subroutine soil_step_1 ( soil, vegn, diag, &
        soil_uptake_T, & ! estimate of the temperature of the water taken up by transpiration
        soil_beta, &
        soil_water_supply, & ! supply of water to vegetation per unit total active root biomass, kg/m2
-       soil_E_min, &
-       soil_E_max, &
        soil_rh,   & ! soil surface relative humidity
        soil_rh_psi,& ! derivative of soil_rh w.r.t. soil surface matric head
        soil_G0, soil_DGDT ! linearization of ground heat flux
@@ -1766,10 +1783,7 @@ subroutine soil_step_1 ( soil, vegn, diag, &
      vlc(l) = max(0.0, soil%wl(l) / (dens_h2o * dz(l)))
      vsc(l) = max(0.0, soil%ws(l) / (dens_h2o * dz(l)))
   enddo
-  call soil_data_thermodynamics ( soil, vlc, vsc,  &
-                                  soil_E_max, thermal_cond )
-  if (.not.use_E_max) soil_E_max =  HUGE(soil_E_max)
-  soil_E_min = Eg_min
+  call soil_data_thermodynamics ( soil, vlc, vsc, thermal_cond )
 
   do l = 1, num_l
      heat_capacity(l) = soil%heat_capacity_dry(l) *dz(l) &
@@ -1813,7 +1827,6 @@ subroutine soil_step_1 ( soil, vegn, diag, &
      write(*,*) 'T       ', soil_T
      write(*,*) 'uptake_T', soil_uptake_T
      write(*,*) 'beta    ', soil_beta
-     write(*,*) 'E_max   ', soil_E_max
      write(*,*) 'rh      ', soil_rh
      write(*,*) 'G0      ', soil_G0
      write(*,*) 'DGDT    ', soil_DGDT
@@ -4492,7 +4505,6 @@ subroutine init_soil_twc(soil, ref_soil_t, mwc)
    real, intent(in), dimension(num_l)  :: mwc  ! total water content to init [kg/m^3]
    integer :: l ! soil level
    real, dimension(num_l) :: vlc, vsc ! volumetric liquid and solid water contents [-]
-   real  :: soil_E_max ! not used
    real, dimension(num_l)  :: thermal_cond ! soil thermal conductivity [W/m/K]
    real  :: tres       ! thermal resistance [K / (W/m^2)]
 
@@ -4512,7 +4524,7 @@ subroutine init_soil_twc(soil, ref_soil_t, mwc)
    ! Initialize thermal conductivity
    vlc(:) = soil%wl(1:num_l)/ (dz(1:num_l)*dens_h2o*soil%pars%vwc_sat)
    vsc(:) = soil%ws(1:num_l)/ (dz(1:num_l)*dens_h2o*soil%pars%vwc_sat)
-   call soil_data_thermodynamics ( soil, vlc, vsc, soil_E_max, thermal_cond)
+   call soil_data_thermodynamics ( soil, vlc, vsc, thermal_cond)
 
    ! Walk down through soil and maintain geothermal heat flux profile.
    do l=2,num_l
@@ -4526,7 +4538,7 @@ subroutine init_soil_twc(soil, ref_soil_t, mwc)
          soil%ws(l:num_l) = 0.
          vlc(l:num_l) = soil%wl(l:num_l)/ (dz(l:num_l)*dens_h2o*soil%pars%vwc_sat)
          vsc(l:num_l) = soil%ws(l:num_l)/ (dz(l:num_l)*dens_h2o*soil%pars%vwc_sat)
-         call soil_data_thermodynamics ( soil, vlc, vsc, soil_E_max, thermal_cond)
+         call soil_data_thermodynamics ( soil, vlc, vsc, thermal_cond)
       end if
    end do
 

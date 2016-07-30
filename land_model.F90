@@ -40,7 +40,7 @@ use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_te
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
      lake_sfc_water, lake_step_1, lake_step_2, save_lake_restart
 use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp, &
-     soil_sfc_water, soil_step_1, soil_step_2, soil_step_3, save_soil_restart
+     soil_sfc_water, soil_evap_limits, soil_step_1, soil_step_2, soil_step_3, save_soil_restart
 use soil_carbon_mod, only : read_soil_carbon_namelist, n_c_types
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
      snow_sfc_water, snow_get_depth_area, snow_step_1, snow_step_2, save_snow_restart
@@ -1395,10 +1395,6 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
        grnd_rh,        & ! explicit relative humidity at ground surface
        grnd_rh_psi,    & ! psi derivative of relative humidity at ground surface
        grnd_flux, &
-       grnd_E_min, &
-       grnd_E_max, &
-       soil_E_min, &
-       soil_E_max, &
        soil_beta, &
        RSv(NBANDS), & ! net short-wave radiation balance of the canopy, W/m2
        con_g_h, con_g_v, & ! turbulent cond. between ground and canopy air, for heat and vapor respectively
@@ -1475,24 +1471,18 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
      call glac_step_1 ( tile%glac, &
           grnd_T, grnd_rh, &
           snow_G_Z, snow_G_TZ, conserve_glacier_mass  )
-     grnd_E_min = -HUGE(grnd_E_min)
-     grnd_E_max =  HUGE(grnd_E_max)
      grnd_rh_psi = 0
   else if (associated(tile%lake)) then
      call lake_step_1 ( ustar, p_surf, &
           lnd%lat(i,j), tile%lake, &
           grnd_T, grnd_rh, &
           snow_G_Z, snow_G_TZ)
-     grnd_E_min = -HUGE(grnd_E_min)
-     grnd_E_max =  HUGE(grnd_E_max)
      grnd_rh_psi = 0
   else if (associated(tile%soil)) then
      call soil_step_1 ( tile%soil, tile%vegn, tile%diag, &
-          grnd_T, soil_uptake_T, soil_beta, soil_water_supply, soil_E_min, soil_E_max, &
+          grnd_T, soil_uptake_T, soil_beta, soil_water_supply, &
           grnd_rh, grnd_rh_psi, &
           snow_G_Z, snow_G_TZ)
-     grnd_E_min = soil_E_min
-     grnd_E_max = soil_E_max
   else
      call get_current_point(face=ii)
      call error_mesg('update_land_model_fast','none of the surface tiles exist at ('//&
@@ -1512,8 +1502,6 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   if (snow_active) then
      grnd_T    = snow_T;   grnd_rh   = snow_rh
      grnd_rh_psi = 0
-     grnd_E_min = -HUGE(grnd_E_min)
-     grnd_E_max =  HUGE(grnd_E_max)
   endif
 
   call cana_state(tile%cana, cana_T, cana_q, cana_co2)
@@ -1778,8 +1766,7 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
 
      ! solve the non-linear equation for energy balance at the surface.
      call land_surface_energy_balance( tile, &
-          grnd_T, grnd_E_min, &
-          grnd_E_max, fswg, &
+          grnd_T, fswg, &
           flwg0 + b0(iTv)*DflwgDTv, DflwgDTg + b1(iTv)*DflwgDTv, b2(iTv)*DflwgDTv, &
           Hg0   + b0(iTc)*DHgDTc,   DHgDTg   + b1(iTc)*DHgDTc,   b2(iTc)*DHgDTc,   &
           Eg0   + b0(iqc)*DEgDqc,   DEgDTg   + b1(iqc)*DEgDqc,   DEgDpsig + b2(iqc)*DEgDqc,   &
@@ -2152,8 +2139,8 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   call send_tile_data(id_gequil,  subs_G2,                            tile%diag)
   call send_tile_data(id_grnd_flux, grnd_flux,                        tile%diag)
   call send_tile_data(id_soil_water_supply, soil_water_supply,        tile%diag)
-  if(grnd_E_max.lt.0.5*HUGE(grnd_E_Max)) &
-      call send_tile_data(id_levapg_max, grnd_E_max,                  tile%diag)
+!  if(grnd_E_max.lt.0.5*HUGE(grnd_E_Max)) &
+!      call send_tile_data(id_levapg_max, grnd_E_max,                  tile%diag)
   do tr = 1,ntcana
      call send_tile_data(id_cana_tr(tr), tile%cana%tr(tr),            tile%diag)
   enddo
@@ -2252,8 +2239,6 @@ end subroutine update_land_model_slow
 subroutine land_surface_energy_balance ( tile, &
      ! surface parameters
      grnd_T,          & ! ground temperature
-     grnd_E_min,      & ! Eg floor of 0 if condensation is prohibited
-     grnd_E_max,      & ! exfiltration rate limit, kg/(m2 s)
      ! components of the ground energy balance linearization. Note that those
      ! are full derivatives, which include the response of the other surface
      ! scheme parameters to the change in ground temperature.
@@ -2269,8 +2254,6 @@ subroutine land_surface_energy_balance ( tile, &
   type(land_tile_type), intent(in) :: tile
   real, intent(in) :: &
      grnd_T,          & ! ground temperature
-     grnd_E_min,      & ! Eg floor of 0 if condensation is prohibited
-     grnd_E_max,      & ! exfiltration rate limit, kg/(m2 s)
      fswg,            & ! net short-wave
      flwg0, DflwgDTg, DflwgDpsig, & ! net long-wave
      Hg0,   DHgDTg,   DHgDpsig,   & ! sensible heat
@@ -2287,6 +2270,8 @@ subroutine land_surface_energy_balance ( tile, &
   real :: grnd_DBDpsig ! full derivative of grnd_B w.r.t. surface soil-water matric head
   real :: grnd_E_force, Eg_trial, Eg_check, determinant
   real :: &
+     grnd_E_min,      & ! Eg floor of 0 if condensation is prohibited
+     grnd_E_max,      & ! exfiltration rate limit, kg/(m2 s)
      grnd_liq, grnd_ice, & ! amount of water available for freeze or melt on the surface, kg/m2
      grnd_latent,     & ! specific heat of vaporization for the ground
      grnd_Tf,         & ! ground freezing temperature
@@ -2299,6 +2284,7 @@ subroutine land_surface_energy_balance ( tile, &
     grnd_latent = hlv + (cpw-clw)*(grnd_T-tfreeze) &
                + (hlf + (clw-csw)*(grnd_T-tfreeze)) * grnd_subl
   endif
+  call grnd_evap_limits(tile, grnd_E_min, grnd_E_max)
 
   grnd_B      = fswg + flwg0      - Hg0      - grnd_latent*Eg0      - G0
   grnd_DBDTg  =        DflwgDTg   - DHgDTg   - grnd_latent*DEgDTg   - DGDTg
@@ -2782,6 +2768,17 @@ subroutine land_sfc_water(tile, grnd_liq, grnd_ice, grnd_subl, grnd_tf)
 
   if (snow_active(tile%snow)) call snow_sfc_water(tile%snow, grnd_liq, grnd_ice, grnd_subl, grnd_tf)
 end subroutine land_sfc_water
+
+! ============================================================================
+subroutine grnd_evap_limits(tile, grnd_E_min, grnd_E_max)
+  type(land_tile_type), intent(in) :: tile
+  real, intent(out) :: grnd_E_min, grnd_E_max
+
+  grnd_E_min = -HUGE(grnd_E_min); 
+  grnd_E_max =  HUGE(grnd_E_max); 
+  if (associated(tile%soil).and..not.snow_active(tile%snow)) &
+      call soil_evap_limits(tile%soil, grnd_E_min, grnd_E_max)
+end subroutine grnd_evap_limits
 
 ! ============================================================================
 subroutine Lnd_stock_pe(bnd,index,value)

@@ -1527,28 +1527,18 @@ end subroutine soil_roughness
 
 ! ============================================================================
 ! compute soil thermodynamic properties.
-subroutine soil_data_thermodynamics ( soil, vlc, vsc, &
-                                      soil_E_max, thermal_cond)
+subroutine soil_data_thermodynamics ( soil, vlc, vsc, thermal_cond )
   type(soil_tile_type), intent(inout) :: soil
   real,                 intent(in)  :: vlc(:)
   real,                 intent(in)  :: vsc(:)
-  real,                 intent(out) :: soil_E_max
   real,                 intent(out) :: thermal_cond(:)
-  real s, w, a, n, f
 
+  real s, w, a, n, f
   integer l
 
-  ! assign some index of water availability for snow-free soil
-
-  soil_E_max = (soil%pars%k_sat_ref*soil%alpha(1)**2) &
-               * (-soil%pars%psi_sat_ref/soil%alpha(1)) &
-               * ((4.+soil%pars%chb)*vlc(1)/ &
-                ((3.+soil%pars%chb)*soil%pars%vwc_sat))**(3.+soil%pars%chb) &
-                / ((1.+3./soil%pars%chb)*dz(1))
-
-     w = soil%pars%thermal_cond_weight
-     a = soil%pars%thermal_cond_scale
-     n = soil%pars%thermal_cond_exp
+  w = soil%pars%thermal_cond_weight
+  a = soil%pars%thermal_cond_scale
+  n = soil%pars%thermal_cond_exp
   do l = 1, num_sfc_layers
      soil%heat_capacity_dry(l) = sfc_heat_factor*soil%pars%heat_capacity_dry
      s = (vlc(l)+vsc(l))/soil%pars%vwc_sat
