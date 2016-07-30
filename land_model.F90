@@ -1394,8 +1394,6 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
        hls_Tv, &         ! latent heat of sublimation at vegn temperature
        grnd_rh,        & ! explicit relative humidity at ground surface
        grnd_rh_psi,    & ! psi derivative of relative humidity at ground surface
-       grnd_liq, grnd_ice, grnd_subl, &
-       grnd_tf, &  ! temperature of freezing on the ground
        grnd_flux, &
        grnd_E_min, &
        grnd_E_max, &
@@ -1428,10 +1426,10 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
        snow_hfrunf,subs_fsw,subs_flw,subs_sens,&
        subs_DT, subs_M_imp, subs_evap, snow_Tbot, snow_Cbot, snow_C, subs_levap,&
        subs_fevap,subs_melt,subs_lrunf,subs_hlrunf, subs_frunf, subs_hfrunf,&
-       subs_Ttop,subs_Ctop, subs_subl, new_T, &
+       subs_Ttop,subs_Ctop, new_T, &
        subs_tr_runf(n_river_tracers) ! runoff of tracers from soil
   real :: soil_water_supply ! supply of water to roots, per unit active root biomass, kg/m2
-  real :: snow_T, snow_rh, snow_liq, snow_ice, snow_subl
+  real :: snow_T, snow_rh
   integer :: ii, jj ! indices for debug output
   integer :: ierr
   integer :: tr, n ! tracer indices
@@ -1475,7 +1473,7 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   soil_water_supply = 0.0
   if (associated(tile%glac)) then
      call glac_step_1 ( tile%glac, &
-          grnd_T, grnd_rh, grnd_liq, grnd_ice, grnd_subl, grnd_tf, &
+          grnd_T, grnd_rh, &
           snow_G_Z, snow_G_TZ, conserve_glacier_mass  )
      grnd_E_min = -HUGE(grnd_E_min)
      grnd_E_max =  HUGE(grnd_E_max)
@@ -1483,7 +1481,7 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   else if (associated(tile%lake)) then
      call lake_step_1 ( ustar, p_surf, &
           lnd%lat(i,j), tile%lake, &
-          grnd_T, grnd_rh, grnd_liq, grnd_ice, grnd_subl, grnd_tf, &
+          grnd_T, grnd_rh, &
           snow_G_Z, snow_G_TZ)
      grnd_E_min = -HUGE(grnd_E_min)
      grnd_E_max =  HUGE(grnd_E_max)
@@ -1491,13 +1489,10 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   else if (associated(tile%soil)) then
      call soil_step_1 ( tile%soil, tile%vegn, tile%diag, &
           grnd_T, soil_uptake_T, soil_beta, soil_water_supply, soil_E_min, soil_E_max, &
-          grnd_rh, grnd_rh_psi, grnd_liq, grnd_ice, grnd_subl, grnd_tf, &
+          grnd_rh, grnd_rh_psi, &
           snow_G_Z, snow_G_TZ)
      grnd_E_min = soil_E_min
      grnd_E_max = soil_E_max
-     grnd_liq = 0 ! sorry, but solver cannot handle implicit melt anymore
-     grnd_ice = 0 ! sorry, but solver cannot handle implicit melt anymore
-                  ! no big loss, it's just the surface layer anyway
   else
      call get_current_point(face=ii)
      call error_mesg('update_land_model_fast','none of the surface tiles exist at ('//&
@@ -1512,15 +1507,11 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
      ! - end of conservation check, part 1
   endif
 
-  subs_subl = grnd_subl
-
   call snow_step_1 ( tile%snow, snow_G_Z, snow_G_TZ, &
-       snow_active, snow_T, snow_rh, snow_liq, snow_ice, &
-       snow_subl, snow_area, G0, DGDTg )
+       snow_active, snow_T, snow_rh, snow_area, G0, DGDTg )
   if (snow_active) then
-     grnd_T    = snow_T;   grnd_rh   = snow_rh;   grnd_liq  = snow_liq
+     grnd_T    = snow_T;   grnd_rh   = snow_rh
      grnd_rh_psi = 0
-     grnd_ice  = snow_ice; grnd_subl = snow_subl; grnd_tf   = tfreeze
      grnd_E_min = -HUGE(grnd_E_min)
      grnd_E_max =  HUGE(grnd_E_max)
   endif
@@ -1528,8 +1519,9 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   call cana_state(tile%cana, cana_T, cana_q, cana_co2)
 
   if (associated(tile%vegn)) then
-  ! Calculate net short-wave radiation input to the vegetation
+     ! Calculate net short-wave radiation input to the vegetation
      RSv    = tile%Sv_dir*ISa_dn_dir + tile%Sv_dif*ISa_dn_dif
+     ! calculate roughness of the surface under vegetation
      call soil_roughness(tile%soil, subs_z0s, subs_z0m)
      call snow_roughness(tile%snow, snow_z0s, snow_z0m)
      grnd_z0s = exp( (1-snow_area)*log(subs_z0s) + snow_area*log(snow_z0s))
@@ -1785,7 +1777,6 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
 ! B0, B1, B2 are replaced with solutions
 
      ! solve the non-linear equation for energy balance at the surface.
-
      call land_surface_energy_balance( tile, &
           grnd_T, grnd_E_min, &
           grnd_E_max, fswg, &
@@ -1915,7 +1906,7 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   endif
 
   call snow_step_2 ( tile%snow, &
-       snow_subl, vegn_lprec, vegn_fprec, vegn_hlprec, vegn_hfprec, &
+       vegn_lprec, vegn_fprec, vegn_hlprec, vegn_hfprec, &
        delta_Tg, Mg_imp, evapg, fswg, flwg, sensg, &
        use_tfreeze_in_grnd_latent, &
        ! output:

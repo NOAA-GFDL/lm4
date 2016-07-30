@@ -1726,7 +1726,7 @@ end function soil_subl_frac
 subroutine soil_step_1 ( soil, vegn, diag, &
                          soil_T, soil_uptake_T, soil_beta, soil_water_supply, &
                          soil_E_min, soil_E_max, &
-                         soil_rh, soil_rh_psi, soil_liq, soil_ice, soil_subl, soil_tf, &
+                         soil_rh, soil_rh_psi, &
                          soil_G0, soil_DGDT )
   type(soil_tile_type), intent(inout) :: soil
   type(vegn_tile_type), intent(in)    :: vegn
@@ -1740,10 +1740,6 @@ subroutine soil_step_1 ( soil, vegn, diag, &
        soil_E_max, &
        soil_rh,   & ! soil surface relative humidity
        soil_rh_psi,& ! derivative of soil_rh w.r.t. soil surface matric head
-       soil_liq,  & ! amount of liquid water available for implicit freeze (=0)
-       soil_ice,  & ! amount of ice available for implicit melt (=0)
-       soil_subl, & ! part of sublimation in water vapor flux, dimensionless [0,1]
-       soil_tf,   & ! soil freezing temperature, degK
        soil_G0, soil_DGDT ! linearization of ground heat flux
   ! ---- local vars
   real :: bbb, denom, dt_e
@@ -1779,8 +1775,6 @@ subroutine soil_step_1 ( soil, vegn, diag, &
      heat_capacity(l) = soil%heat_capacity_dry(l) *dz(l) &
           + clw*soil%wl(l) + csw*soil%ws(l)
   enddo
-
-  call soil_sfc_water(soil,soil_liq, soil_ice, soil_subl, soil_tf)
 
   if(num_l > 1) then
      do l = 1, num_l-1
@@ -1821,9 +1815,6 @@ subroutine soil_step_1 ( soil, vegn, diag, &
      write(*,*) 'beta    ', soil_beta
      write(*,*) 'E_max   ', soil_E_max
      write(*,*) 'rh      ', soil_rh
-     write(*,*) 'liq     ', soil_liq
-     write(*,*) 'ice     ', soil_ice
-     write(*,*) 'subl    ', soil_subl
      write(*,*) 'G0      ', soil_G0
      write(*,*) 'DGDT    ', soil_DGDT
      __DEBUG1__(soil_water_supply)

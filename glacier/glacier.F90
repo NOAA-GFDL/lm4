@@ -276,14 +276,12 @@ end function glac_subl_frac
 ! integrate glac-heat conduction equation upward from bottom of glac
 ! to surface, delivering linearization of surface ground heat flux.
 subroutine glac_step_1 ( glac, &
-                         glac_T, glac_rh, glac_liq, glac_ice, glac_subl, &
-                         glac_tf, glac_G0, &
+                         glac_T, glac_rh, glac_G0, &
                          glac_DGDT, conserve_glacier_mass_out )
   type(glac_tile_type),intent(inout) :: glac
   real, intent(out) :: &
        glac_T, &
-       glac_rh, glac_liq, glac_ice, glac_subl, &
-       glac_tf, & ! freezing temperature of glacier, degK
+       glac_rh, &
        glac_G0, &
        glac_DGDT
   logical, intent(out) :: conserve_glacier_mass_out
@@ -327,8 +325,6 @@ subroutine glac_step_1 ( glac, &
           + clw*glac%wl(l) + csw*glac%ws(l)
   enddo
 
-  call glac_sfc_water(glac, glac_liq, glac_ice, glac_subl, glac_tf)
-
   if(num_l > 1) then
      do l = 1, num_l-1
         dt_e = 2 / ( dz(l+1)/thermal_cond(l+1) &
@@ -361,17 +357,11 @@ subroutine glac_step_1 ( glac, &
      glac_DGDT  = 1. / denom
   endif
 
-  ! set freezing temperature of glaciers
-  glac_tf = glac%pars%tfreeze
-
   if(is_watch_point())then
      write(*,*) 'checkpoint gs1 c'
      write(*,*) 'mask    ', .TRUE.
      write(*,*) 'T       ', glac_T
      write(*,*) 'rh      ', glac_rh
-     write(*,*) 'liq     ', glac_liq
-     write(*,*) 'ice     ', glac_ice
-     write(*,*) 'subl    ', glac_subl
      write(*,*) 'G0      ', glac_G0
      write(*,*) 'DGDT    ', glac_DGDT
      do l = 1, num_l

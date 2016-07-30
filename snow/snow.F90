@@ -247,20 +247,18 @@ end subroutine
 ! integrate snow-heat conduction equation upward from bottom of snow
 ! to surface, delivering linearization of surface ground heat flux.
 subroutine snow_step_1 ( snow, snow_G_Z, snow_G_TZ, &
-                         snow_active_1, snow_T, snow_rh, snow_liq, snow_ice, &
-                         snow_subl, snow_area, snow_G0, snow_DGDT )
+                         snow_active_1, snow_T, snow_rh, &
+                         snow_area, snow_G0, snow_DGDT )
   type(snow_tile_type), intent(inout) :: snow
   real,                 intent(in) :: snow_G_Z
   real,                 intent(in) :: snow_G_TZ
   logical,              intent(out):: snow_active_1
   real,                 intent(out):: &
-       snow_T, snow_rh, snow_liq, snow_ice, &
-       snow_subl, snow_area, snow_G0, snow_DGDT
+       snow_T, snow_rh, snow_area, snow_G0, snow_DGDT
 
   ! ---- local vars
   real :: snow_depth, bbb, denom, dt_e
   real, dimension(num_l):: aaa, ccc, thermal_cond, dz_phys, heat_capacity
-  real :: snow_tf
   integer :: l
 
 ! ----------------------------------------------------------------------------
@@ -278,7 +276,6 @@ subroutine snow_step_1 ( snow, snow_G_Z, snow_G_TZ, &
   enddo
   snow_depth = snow_depth / snow_density
   call snow_data_area (snow_depth, snow_area )
-  call snow_sfc_water(snow, snow_liq, snow_ice, snow_subl, snow_tf)
   snow_active_1 = snow_active(snow)
 
   do l = 1, num_l
@@ -344,9 +341,6 @@ subroutine snow_step_1 ( snow, snow_G_Z, snow_G_TZ, &
      write(*,*) 'mask      ', .true.
      write(*,*) 'snow_T    ', snow_T
      write(*,*) 'snow_rh   ', snow_rh
-     write(*,*) 'snow_liq  ', snow_liq
-     write(*,*) 'snow_ice  ', snow_ice
-     write(*,*) 'snow_subl ', snow_subl
      write(*,*) 'snow_area ', snow_area
      write(*,*) 'snow_G_Z  ', snow_G_Z
      write(*,*) 'snow_G_TZ ', snow_G_TZ
@@ -360,7 +354,7 @@ end subroutine snow_step_1
 
 ! ============================================================================
 ! apply boundary flows to snow water and move snow water vertically.
-  subroutine snow_step_2 ( snow, snow_subl,                     &
+  subroutine snow_step_2 ( snow,                     &
                            vegn_lprec, vegn_fprec, vegn_hlprec, vegn_hfprec, &
                            DTg,  Mg_imp,  evapg,  fswg,  flwg,  sensg,  &
                            use_tfreeze_in_grnd_latent, subs_DT, &
@@ -372,7 +366,7 @@ end subroutine snow_step_1
                            snow_avrg_T )
   type(snow_tile_type), intent(inout) :: snow
   real, intent(in) :: &
-     snow_subl, vegn_lprec, vegn_fprec, vegn_hlprec, vegn_hfprec
+     vegn_lprec, vegn_fprec, vegn_hlprec, vegn_hfprec
   real, intent(in) :: &
      DTg, Mg_imp, evapg, fswg, flwg, sensg
   logical, intent(in) :: use_tfreeze_in_grnd_latent
@@ -385,7 +379,7 @@ end subroutine snow_step_1
 
   ! ---- local vars
   real, dimension(num_l) :: del_t, M_layer
-  real :: depth, &
+  real :: depth, snow_subl, &
          cap0, dW_l, dW_s, dcap, dheat,&
          melt, melt_per_deg, drain,       &
          snow_mass, sum_liq, &
@@ -401,6 +395,7 @@ end subroutine snow_step_1
   real :: new_T(num_l)
   ! --------------------------------------------------------------------------
 
+  snow_subl = snow_subl_frac(snow)
   depth= 0.
   do l = 1, num_l
     depth = depth + snow%ws(l)
@@ -961,6 +956,14 @@ subroutine snow_sfc_water(snow, grnd_liq, grnd_ice, grnd_subl, grnd_tf)
   endif
   grnd_tf = tfreeze
 end subroutine snow_sfc_water
+
+! ============================================================================
+real function snow_subl_frac(snow)
+  type(snow_tile_type), intent(in) :: snow
+
+  snow_subl_frac = 0
+  if (snow_active(snow)) snow_subl_frac = 1.0
+end function snow_subl_frac
 
 ! ============================================================================
 ! tile existence detector: returns a logical value indicating wether component

@@ -366,7 +366,7 @@ end subroutine lake_sfc_water
 ! ============================================================================
 real function lake_subl_frac(lake)
   type(lake_tile_type), intent(in) :: lake
-  
+
   lake_subl_frac = 0
   if (lake%ws(1)>0) lake_subl_frac = 1
 end function lake_subl_frac
@@ -377,15 +377,13 @@ end function lake_subl_frac
 ! to surface, delivering linearization of surface ground heat flux.
 subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
                          lake_T, &
-                         lake_rh, lake_liq, lake_ice, lake_subl, lake_tf, lake_G0, &
-                         lake_DGDT )
+                         lake_rh, lake_G0, lake_DGDT )
 
   real, intent(in)   :: u_star_a, p_surf, latitude
   type(lake_tile_type), intent(inout) :: lake
   real, intent(out)  :: &
        lake_T, &
-       lake_rh, lake_liq, lake_ice, lake_subl, &
-       lake_tf, & ! freezing temperature of lake, degK
+       lake_rh, &
        lake_G0, &
        lake_DGDT
 
@@ -407,9 +405,6 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
      write(*,*) 'mask    ', .true.
      write(*,*) 'T       ', lake_T
      write(*,*) 'rh      ', lake_rh
-     write(*,*) 'liq     ', lake_liq
-     write(*,*) 'ice     ', lake_ice
-     write(*,*) 'subl    ', lake_subl
      write(*,*) 'G0      ', lake_G0
      write(*,*) 'DGDT    ', lake_DGDT
     do l = 1, num_l
@@ -458,8 +453,6 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
 ! is a call available in fms?
     rho_t(l) = 1. - 1.9549e-5*abs(lake%T(l)-277.)**1.68
     enddo
-
-  call lake_sfc_water(lake, lake_liq, lake_ice, lake_subl, lake_tf)
 
   if(num_l > 1) then
     if (do_stratify) then
@@ -535,9 +528,6 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
      write(*,*) 'mask    ', .true.
      write(*,*) 'T       ', lake_T
      write(*,*) 'rh      ', lake_rh
-     write(*,*) 'liq     ', lake_liq
-     write(*,*) 'ice     ', lake_ice
-     write(*,*) 'subl    ', lake_subl
      write(*,*) 'G0      ', lake_G0
      write(*,*) 'DGDT    ', lake_DGDT
     do l = 1, num_l
