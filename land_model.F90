@@ -43,7 +43,8 @@ use soil_mod, only : read_soil_namelist, soil_init, soil_end, &
      soil_sfc_water, soil_evap_limits, soil_step_1, soil_step_2, soil_step_3, save_soil_restart
 use soil_carbon_mod, only : read_soil_carbon_namelist, n_c_types
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, &
-     snow_sfc_water, snow_get_depth_area, snow_step_1, snow_step_2, save_snow_restart
+     snow_sfc_water, snow_get_depth_area, snow_step_1, snow_step_2, save_snow_restart, &
+     sweep_tiny_snow
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, vegn_get_cover, &
      vegn_radiation, vegn_properties, vegn_step_1, vegn_step_2, vegn_step_3, &
      update_vegn_slow, save_vegn_restart
@@ -1392,7 +1393,7 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
        vegn_fco2, & ! co2 flux from the vegetation, kg CO2/(m2 s)
        hlv_Tv, hlv_Tu, & ! latent heat of vaporization at vegn and uptake temperatures, respectively
        hls_Tv, &         ! latent heat of sublimation at vegn temperature
-       grnd_rh,        & ! explicit relative humidity at ground surface
+       grnd_rh,        & ! relative humidity at ground surface
        grnd_rh_psi,    & ! psi derivative of relative humidity at ground surface
        grnd_flux, &
        soil_beta, &
@@ -1436,6 +1437,8 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   real :: lmass0, fmass0, heat0, cmass0, v0
   real :: lmass1, fmass1, heat1, cmass1
   character(*), parameter :: tag = 'update_land_model_fast_0d'
+  real :: lswept, fswept, hlswept, hfswept ! amounts of liquid and frozen snow, and corresponding
+                                           ! heat swept with tiny snow
 
 
   if(is_watch_point()) then
@@ -1465,24 +1468,25 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
      ! - end of conservation check, part 1
   endif
 
+  ! if requested (in snow_nml), sweep tiny snow before calling step_1 subroutines to 
+  ! avoid numerical issues.
+  call sweep_tiny_snow(tile%snow, lswept, fswept, hlswept, hfswept)
+
   soil_uptake_T = tfreeze ! just to avoid using un-initialized values
   soil_water_supply = 0.0
   if (associated(tile%glac)) then
      call glac_step_1 ( tile%glac, &
-          grnd_rh, &
-          snow_G_Z, snow_G_TZ, conserve_glacier_mass  )
+          grnd_rh, snow_G_Z, snow_G_TZ, conserve_glacier_mass  )
      grnd_rh_psi = 0
   else if (associated(tile%lake)) then
      call lake_step_1 ( ustar, p_surf, &
           lnd%lat(i,j), tile%lake, &
-          grnd_rh, &
-          snow_G_Z, snow_G_TZ)
+          grnd_rh, snow_G_Z, snow_G_TZ)
      grnd_rh_psi = 0
   else if (associated(tile%soil)) then
      call soil_step_1 ( tile%soil, tile%vegn, tile%diag, &
           soil_uptake_T, soil_beta, soil_water_supply, &
-          grnd_rh, grnd_rh_psi, &
-          snow_G_Z, snow_G_TZ)
+          grnd_rh, grnd_rh_psi, snow_G_Z, snow_G_TZ)
   else
      call get_current_point(face=ii)
      call error_mesg('update_land_model_fast','none of the surface tiles exist at ('//&
@@ -1497,8 +1501,7 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
      ! - end of conservation check, part 1
   endif
 
-  call snow_step_1 ( tile%snow, snow_G_Z, snow_G_TZ, &
-       snow_rh, snow_area, G0, DGDTg )
+  call snow_step_1 ( tile%snow, snow_G_Z, snow_G_TZ, snow_rh, snow_area, G0, DGDTg )
   snow = snow_active(tile%snow)
   if (snow) then
      grnd_rh   = snow_rh
@@ -1760,13 +1763,14 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
 !!$           write(*,'(99g)')sum0-B00(ii),sum1-B10(ii)
 !!$        enddo
      endif
-! the result of this solution is a set of expressions for delta_xx in terms
-! of delta_Tg and delta_psig:
-! delta_xx(i) = B0(i) + B1(i)*delta_Tg + B2(i)*delta_psig. Note that A, B0, B1 and B2
-! are destroyed in the process: A is replaced with LU-decomposition, and
-! B0, B1, B2 are replaced with solutions
-
-     ! solve the non-linear equation for energy balance at the surface.
+     ! the result of this solution is a set of expressions for delta_xx in terms
+     ! of delta_Tg and delta_psig:
+     ! delta_xx(i) = B0(i) + B1(i)*delta_Tg + B2(i)*delta_psig. Note that A, B0, B1 and B2
+     ! are destroyed in the process: A is replaced with LU-decomposition, and
+     ! B0, B1, B2 are replaced with solutions
+     !
+     ! to find delta_Tg and delta_psig, solve (non-linear) equation of energy balance at
+     ! the surface.
      call land_surface_energy_balance( tile, &
           fswg, &
           flwg0 + b0(iTv)*DflwgDTv, DflwgDTg + b1(iTv)*DflwgDTv, b2(iTv)*DflwgDTv, &
@@ -1811,7 +1815,7 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
         write(*,*)'#### ground balance'
         __DEBUG2__(fswg,flwg)
         __DEBUG2__(sensg,evapg*hlv)
-        ! evapg*hlv is only approximate latent heat flux
+        ! note that evapg*hlv is only approximate latent heat flux
         __DEBUG1__(grnd_flux)
         __DEBUG1__(Mg_imp)
         write(*,*)'#### implicit time steps'
@@ -1904,6 +1908,8 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
        snow_levap, snow_fevap, snow_melt, &
        snow_lprec, snow_hlprec, snow_lrunf, snow_frunf, &
        snow_hlrunf, snow_hfrunf, snow_Tbot, snow_Cbot, snow_C, snow_avrg_T )
+       snow_lrunf  = snow_lrunf + lswept;   snow_frunf  = snow_frunf + fswept
+       snow_hlrunf = snow_hlrunf + hlswept; snow_hfrunf = snow_hfrunf + hfswept
   if(is_watch_point()) then
      write(*,*) 'subs_M_imp', subs_M_imp
   endif
@@ -2771,8 +2777,8 @@ subroutine grnd_evap_limits(tile, grnd_E_min, grnd_E_max)
   type(land_tile_type), intent(in) :: tile
   real, intent(out) :: grnd_E_min, grnd_E_max
 
-  grnd_E_min = -HUGE(grnd_E_min); 
-  grnd_E_max =  HUGE(grnd_E_max); 
+  grnd_E_min = -HUGE(grnd_E_min);
+  grnd_E_max =  HUGE(grnd_E_max);
   if (associated(tile%soil).and..not.snow_active(tile%snow)) &
       call soil_evap_limits(tile%soil, grnd_E_min, grnd_E_max)
 end subroutine grnd_evap_limits
