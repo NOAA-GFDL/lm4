@@ -184,7 +184,7 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, ndep_nit, ndep_amm, ndep_or
   type(vegn_cohort_type), pointer :: cc
   real :: resp, resl, resr, resg ! respiration terms accumulated for all cohorts
   real :: cgain, closs ! carbon gain and loss accumulated for entire tile
-  real :: md_alive, md_leaf, md_wood, md_froot, md_sapwood ! component of maintenance demand
+  real :: md_alive, md_leaf, md_vleaf, md_wood, md_froot, md_sapwood ! component of maintenance demand
   real :: gpp ! gross primary productivity per tile
   real :: root_exudate_C, total_root_exudate_C,root_exudate_N, total_root_exudate_N, root_exudate_frac
   real :: myc_scav_exudate_frac, mycorrhizal_scav_N_immob, myc_mine_exudate_frac, mycorrhizal_mine_N_immob
@@ -266,7 +266,8 @@ total_myc_mine_C_uptake = 0.0
         md_alive = (cc%Pl * spdata(sp)%alpha(CMPT_LEAF) + &
                     cc%Pr * spdata(sp)%alpha(CMPT_ROOT))* &
               cc%bliving*dt_fast_yr
-        md_leaf = cc%Pl * spdata(sp)%alpha(CMPT_LEAF)*cc%bliving*dt_fast_yr
+        md_leaf = (cc%Pl * spdata(sp)%alpha(CMPT_LEAF)*cc%bliving)*dt_fast_yr
+        md_vleaf = spdata(sp)%alpha(CMPT_VLEAF)*cc%blv
         md_froot= cc%Pr * spdata(sp)%alpha(CMPT_ROOT)*cc%bliving*dt_fast_yr
         ! NOTE that mathematically. md_alive = md_leaf + md_froot. Unfortunately,
         ! order of operation matters for the bit-wise reproducibility, so all
@@ -274,6 +275,7 @@ total_myc_mine_C_uptake = 0.0
      else
         md_alive = 0
         md_leaf  = 0
+        md_vleaf = 0
 	md_froot = 0
      endif
 
@@ -294,7 +296,7 @@ total_myc_mine_C_uptake = 0.0
      case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
         cc%md = md_alive + cc%Psw_alphasw * cc%bliving * dt_fast_yr
     case (SOILC_CORPSE, SOILC_CORPSE_N)
-        cc%md = md_leaf + md_froot + md_sapwood + cc%Psw_alphasw * cc%bliving * dt_fast_yr
+        cc%md = md_leaf + md_vleaf + md_froot + md_sapwood + cc%Psw_alphasw * cc%bliving * dt_fast_yr
      end select
 
      cc%bwood_gain = cc%bwood_gain + cc%Psw_alphasw * cc%bliving * dt_fast_yr;
@@ -338,7 +340,7 @@ total_myc_mine_C_uptake = 0.0
            call debug_pool(soil%leafLitter,      'leafLitter (before)'      )
            call debug_pool(soil%coarseWoodLitter,'coarseWoodLitter (before)')
         endif
-        call add_litter(soil%leafLitter,(/spdata(sp)%fsc_liv *md_leaf, (1-spdata(sp)%fsc_liv)*md_leaf ,0.0/),&
+        call add_litter(soil%leafLitter,(/spdata(sp)%fsc_liv *(md_leaf+md_vleaf), (1-spdata(sp)%fsc_liv)*(md_leaf+md_vleaf) ,0.0/),&
                 (/spdata(sp)%fsc_liv *md_leaf/spdata(sp)%leaf_live_c2n*spdata(sp)%leaf_retranslocation_frac, &
                 (1-fsc_liv)*md_leaf/spdata(sp)%leaf_live_c2n*spdata(sp)%leaf_retranslocation_frac ,0.0/))
         call add_litter(soil%coarseWoodLitter,(/fsc_wood *md_wood*agf_bs, (1-fsc_wood)*md_wood*agf_bs, 0.0/),&
@@ -346,8 +348,8 @@ total_myc_mine_C_uptake = 0.0
         call add_litter(soil%coarseWoodLitter,(/fsc_liv *md_sapwood*agf_bs, (1-fsc_liv)*md_sapwood*agf_bs, 0.0/),&
                 (/fsc_liv *md_sapwood*agf_bs/spdata(sp)%sapwood_c2n*spdata(sp)%froot_retranslocation_frac, &
                 (1-fsc_liv)*md_sapwood*agf_bs/spdata(sp)%sapwood_c2n*spdata(sp)%froot_retranslocation_frac, 0.0/))
-        soil%leaflitter_fsc_in=soil%leaflitter_fsc_in+spdata(sp)%fsc_liv *md_leaf
-        soil%leaflitter_ssc_in=soil%leaflitter_ssc_in+(1-spdata(sp)%fsc_liv)*md_leaf
+        soil%leaflitter_fsc_in=soil%leaflitter_fsc_in+spdata(sp)%fsc_liv *(md_leaf+md_vleaf)
+        soil%leaflitter_ssc_in=soil%leaflitter_ssc_in+(1-spdata(sp)%fsc_liv)*(md_leaf+md_vleaf)
         soil%coarsewoodlitter_fsc_in=soil%coarsewoodlitter_fsc_in +    fsc_wood *md_wood*agf_bs + fsc_liv*md_sapwood*agf_bs
         soil%coarsewoodlitter_ssc_in=soil%coarsewoodlitter_ssc_in + (1-fsc_wood)*md_wood*agf_bs + (1-fsc_liv)*md_sapwood*agf_bs
         soil%leaflitter_fsn_in=soil%leaflitter_fsn_in+spdata(sp)%fsc_liv *md_leaf/spdata(sp)%leaf_live_c2n*spdata(sp)%leaf_retranslocation_frac
@@ -370,11 +372,11 @@ total_myc_mine_C_uptake = 0.0
             call debug_pool(soil%leafLitter,      'leafLitter (before)'      )
             call debug_pool(soil%coarseWoodLitter,'coarseWoodLitter (before)')
         endif
-        call add_litter(soil%leafLitter,(/spdata(sp)%fsc_liv *md_leaf, (1-spdata(sp)%fsc_liv)*md_leaf ,0.0/),(/0.0,0.0 ,0.0/))
+        call add_litter(soil%leafLitter,(/spdata(sp)%fsc_liv *(md_leaf+md_vleaf), (1-spdata(sp)%fsc_liv)*(md_leaf+md_vleaf) ,0.0/),(/0.0,0.0 ,0.0/))
         call add_litter(soil%coarseWoodLitter,(/fsc_wood *md_wood*agf_bs + fsc_liv*md_sapwood*agf_bs, &
                       (1-fsc_wood)*md_wood*agf_bs+(1-fsc_liv)*md_sapwood*agf_bs, 0.0/),(/0.0,0.0, 0.0/))
-        soil%leaflitter_fsc_in=soil%leaflitter_fsc_in+spdata(sp)%fsc_liv *md_leaf
-        soil%leaflitter_ssc_in=soil%leaflitter_ssc_in+(1-spdata(sp)%fsc_liv)*md_leaf
+        soil%leaflitter_fsc_in=soil%leaflitter_fsc_in+spdata(sp)%fsc_liv *(md_leaf+md_vleaf)
+        soil%leaflitter_ssc_in=soil%leaflitter_ssc_in+(1-spdata(sp)%fsc_liv)*(md_leaf+md_vleaf)
         soil%coarsewoodlitter_fsc_in=soil%coarsewoodlitter_fsc_in +    fsc_wood *md_wood*agf_bs + fsc_liv*md_sapwood*agf_bs
         soil%coarsewoodlitter_ssc_in=soil%coarsewoodlitter_ssc_in + (1-fsc_wood)*md_wood*agf_bs + (1-fsc_liv)*md_sapwood*agf_bs
 
@@ -470,12 +472,21 @@ total_myc_mine_C_uptake = 0.0
         ! Deplete's cohort's root_exudate_buffer_C, at a 1 day time scale
         ! root_exudate_C is added to root_exudate_buffer_C
 
+        ! if(cc%blv > 2*cc%bliving*(cc%Pl+cc%Pr)) then
+        !   ! __DEBUG2__(cc%blv,cc%bliving*(cc%Pl+cc%Pr))
+        !   dummy1 = cc%blv - 2*cc%bliving*(cc%Pl+cc%Pr)
+        !   cc%root_exudate_buffer_C = cc%root_exudate_buffer_C + dummy1
+        !   cc%blv = cc%blv - dummy1
+        !   cc%bliving = cc%bliving - dummy1
+        ! endif
+
+
         ! Just empty buffer if it's very low, to prevent numerical problems during long periods of zero npp (i.e. winter deciduous)
         if(cc%root_exudate_buffer_C<1e-10) then
           current_root_exudation = cc%root_exudate_buffer_C/dt_fast_yr
           cc%root_exudate_buffer_C = root_exudate_C*dt_fast_yr
         else
-          current_root_exudation = cc%root_exudate_buffer_C*365.0  ! kgC/m2/year, for 1-day time scale depletion
+          current_root_exudation = cc%root_exudate_buffer_C*365.0/7.0  ! kgC/m2/year, for 1-day time scale depletion
           cc%root_exudate_buffer_C = cc%root_exudate_buffer_C + (root_exudate_C-current_root_exudation)*dt_fast_yr
         endif
 
@@ -561,8 +572,8 @@ total_myc_mine_C_uptake = 0.0
           mycorrhizal_mine_N_immob = max(0.0,(miner_myc_C_allocated*myc_mine_C_efficiency+myc_mine_C_uptake)/c2n_mycorrhizae-miner_myc_N_allocated)
 
           ! ! Adjust marginal gain based on immobilization
-          if(myc_scav_N_uptake>0) myc_scav_marginal_gain = myc_scav_marginal_gain*max(myc_scav_N_uptake*0.1,myc_scav_N_uptake-mycorrhizal_scav_N_immob)/myc_scav_N_uptake
-          if(myc_mine_N_uptake>0) myc_mine_marginal_gain = myc_mine_marginal_gain*max(myc_mine_N_uptake*0.1,myc_mine_N_uptake-mycorrhizal_mine_N_immob)/myc_mine_N_uptake
+          if(myc_scav_N_uptake>0) myc_scav_marginal_gain = myc_scav_marginal_gain*max(myc_scav_N_uptake*0.5,myc_scav_N_uptake-mycorrhizal_scav_N_immob)/myc_scav_N_uptake
+          if(myc_mine_N_uptake>0) myc_mine_marginal_gain = myc_mine_marginal_gain*max(myc_mine_N_uptake*0.5,myc_mine_N_uptake-mycorrhizal_mine_N_immob)/myc_mine_N_uptake
 
           ! ! Calculate adjusted relative fractions
            if (myc_scav_marginal_gain+N_fix_marginal_gain+myc_mine_marginal_gain+rhiz_exud_marginal_gain>0) then
@@ -597,7 +608,7 @@ total_myc_mine_C_uptake = 0.0
           if((miner_myc_C_allocated*myc_mine_C_efficiency+myc_mine_C_uptake) > c2n_mycorrhizae*(miner_myc_N_allocated+myc_mine_N_uptake)) then
             ! Excess C, so there is immobilization
             ! C allocation reduced to match N, and excess goes back to exudation
-            mycorrhizal_mine_N_immob = min(myc_mine_N_uptake,(miner_myc_C_allocated*myc_mine_C_efficiency+myc_mine_C_uptake)/c2n_mycorrhizae - miner_myc_N_allocated)
+            mycorrhizal_mine_N_immob = min(myc_mine_N_uptake*0.2,(miner_myc_C_allocated*myc_mine_C_efficiency+myc_mine_C_uptake)/c2n_mycorrhizae - miner_myc_N_allocated)
             miner_myc_C_allocated = (mycorrhizal_mine_N_immob+miner_myc_N_allocated)*c2n_mycorrhizae/myc_mine_C_efficiency
 
           else
@@ -610,7 +621,7 @@ total_myc_mine_C_uptake = 0.0
           if((scavenger_myc_C_allocated*myc_scav_C_efficiency) > c2n_mycorrhizae*(scavenger_myc_N_allocated+myc_scav_N_uptake)) then
             ! Excess C, so there is immobilization
             ! C allocation reduced to match N, and excess goes back to exudation
-            mycorrhizal_scav_N_immob = min(myc_scav_N_uptake, (scavenger_myc_C_allocated*myc_scav_C_efficiency)/c2n_mycorrhizae - scavenger_myc_N_allocated)
+            mycorrhizal_scav_N_immob = min(myc_scav_N_uptake*0.2, (scavenger_myc_C_allocated*myc_scav_C_efficiency)/c2n_mycorrhizae - scavenger_myc_N_allocated)
             scavenger_myc_C_allocated = (mycorrhizal_scav_N_immob+scavenger_myc_N_allocated)*c2n_mycorrhizae/myc_scav_C_efficiency
 
           else
@@ -657,7 +668,7 @@ total_myc_mine_C_uptake = 0.0
      total_plant_N_uptake = myc_scav_N_uptake-mycorrhizal_scav_N_immob + myc_mine_N_uptake-mycorrhizal_mine_N_immob &
                        +N_fixation+root_active_N_uptake
 
-     cc%stored_N = cc%stored_N + total_plant_N_uptake - current_root_exudation*root_exudate_N_frac*dt_fast_yr
+     cc%stored_N = cc%stored_N + total_plant_N_uptake
 
 
 
@@ -712,12 +723,16 @@ total_myc_mine_C_uptake = 0.0
 
     !  __DEBUG3__(scavenger_myc_N_allocated,N_fixer_N_allocated,miner_myc_N_allocated)
 
-     root_exudate_N=(current_root_exudation*root_exudate_N_frac*dt_fast_yr - scavenger_myc_N_allocated - N_fixer_N_allocated - miner_myc_N_allocated)/dt_fast_yr
+     !root_exudate_N=(current_root_exudation*root_exudate_N_frac*dt_fast_yr - scavenger_myc_N_allocated - N_fixer_N_allocated - miner_myc_N_allocated)/dt_fast_yr
+     root_exudate_N = 0.0
+
      ! To prevent excess stored N buildup under high soil N, leak stored N when stress is zero
      if(cc%nitrogen_stress<=0 .AND. cc%stored_N>0) then
        root_exudate_N = root_exudate_N + cc%stored_N*excess_stored_N_leakage_rate
        cc%stored_N=cc%stored_N - cc%stored_N*excess_stored_N_leakage_rate*dt_fast_yr
      endif
+
+     cc%stored_N=cc%stored_N - root_exudate_N*dt_fast_yr - scavenger_myc_N_allocated - N_fixer_N_allocated - miner_myc_N_allocated
 
      if(root_exudate_N<0) then
        __DEBUG5__(root_exudate_N*dt_fast_yr,scavenger_myc_N_allocated,N_fixer_N_allocated,miner_myc_N_allocated,miner_myc_C_allocated)

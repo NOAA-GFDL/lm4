@@ -248,7 +248,7 @@ subroutine nitrogen_sources_init(time, id_lon, id_lat)
     if (trim(ndep_nit_file) /= '') then
        ! initilaize external field
        id_ndep_nit_in = init_external_field(trim(ndep_nit_file),trim(ndep_nit_field),&
-                                         domain=lnd%domain,use_comp_domain=.TRUE.,verbose=.TRUE.)
+                                         domain=lnd%domain,use_comp_domain=.TRUE.,verbose=.FALSE.)
     endif
     if (trim(ndep_amm_file) /= '') then
        ! initilaize external field

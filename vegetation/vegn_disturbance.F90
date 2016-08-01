@@ -408,6 +408,10 @@ subroutine vegn_nat_mortality(vegn, soil, deltat)
         soil%fast_soil_C(1) = soil%fast_soil_C(1) +    fsc_wood *delta;
     case (SOILC_CORPSE_N)
         !Add above ground fraction to top soil layer, and the rest to the soil profile
+        if(cc%bwood<0) call error_mesg('vegn_nat_mortality','bwood<0',FATAL)
+        if(cc%bsw<0) call error_mesg('vegn_nat_mortality','bsw<0',FATAL)
+        if(cc%wood_N<0) call error_mesg('vegn_nat_mortality','wood_N<0',FATAL)
+        if(cc%sapwood_N<0) call error_mesg('vegn_nat_mortality','sapwood_N<0',FATAL)
         call add_litter(soil%coarseWoodLitter,(/fsc_wood *delta*agf_bs,(1-fsc_wood)*delta*agf_bs,0.0/),&
         (/(fsc_wood *cc%wood_N+spdata(sp)%fsc_liv*cc%sapwood_N)*fraction_lost*agf_bs,((1-fsc_wood)*cc%wood_N+(1-spdata(sp)%fsc_liv)*cc%sapwood_N)*fraction_lost*agf_bs,0.0/))
         soil%coarseWoodlitter_fsc_in=soil%coarseWoodlitter_fsc_in+fsc_wood *delta*agf_bs
