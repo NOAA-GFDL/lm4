@@ -1,5 +1,7 @@
 module vegn_cohort_mod
 
+#include "../shared/debug.inc"
+
 use constants_mod, only: PI
 
 use land_constants_mod, only: NBANDS, mol_h2o, mol_air
@@ -12,6 +14,7 @@ use vegn_data_mod, only : spdata, &
    ALLOM_EW, ALLOM_EW1, ALLOM_HML, PT_C3, PT_C4, understory_lai_factor, &
    do_ppa
 use soil_tile_mod, only : max_lev
+use fms_mod, only : error_mesg, FATAL
 
 implicit none
 private
@@ -579,6 +582,7 @@ subroutine update_biomass_pools(c)
   real :: biomass_N_demand  ! Live biomass in excess of max (used in N limitation system) -- BNS
   real :: x_wood,x_leaf,x_root ! For N-limited biomass distribution
   real :: potential_stored_N ! N storage if there is no N-caused change in biomass allocation
+  real :: available_N,N_demand,extra_C
 
   if (do_ppa) return ! in PPA mode, do nothing at all
 
@@ -619,18 +623,19 @@ subroutine update_biomass_pools(c)
 
   ! This calculates relative allocation based on nitrogen stress
   ! Should match results from update_living_bio_fraction at 0 stress and skew toward root and wood growth as N stress increases
-  x_wood = c%Psw*(c%nitrogen_stress**2+1.0)
-  x_leaf = c%Pl
-  x_root = c%Pr*exp(c%nitrogen_stress*0.5)
+  ! x_wood = c%Psw*(c%nitrogen_stress**2+1.0)
+  ! x_leaf = c%Pl
+  ! x_root = c%Pr*exp(c%nitrogen_stress*0.5)
+
 
 ! __DEBUG3__(x_wood,x_leaf,x_root)
 ! __DEBUG5__(c%stored_N,c%leaf_N,c%wood_N,c%root_N,c%nitrogen_stress)
 
-  if(N_limits_live_biomass) then
-    c%Psw=x_wood/(x_wood+x_leaf+x_root)
-    c%Pl=x_leaf/(x_wood+x_leaf+x_root)
-    c%Pr=x_root/(x_wood+x_leaf+x_root)
-  endif
+  ! if(N_limits_live_biomass) then
+  !   c%Psw=x_wood/(x_wood+x_leaf+x_root)
+  !   c%Pl=x_leaf/(x_wood+x_leaf+x_root)
+  !   c%Pr=x_root/(x_wood+x_leaf+x_root)
+  ! endif
 
   c%bsw = c%Psw*c%bliving;
   if(c%status == LEAF_OFF) then
@@ -643,6 +648,34 @@ subroutine update_biomass_pools(c)
      c%bl  = c%Pl*c%bliving;
      c%br  = c%Pr*c%bliving;
   endif
+
+
+  if(N_limits_live_biomass) then
+
+    if(c%total_N<0.0) call error_mesg('update_biomass_pools','totalN<0',FATAL)
+
+      available_N = max(0.0,(c%total_N - c%bwood/spdata(c%species)%wood_c2n))
+      N_demand = &
+          (c%bl/spdata(c%species)%leaf_live_c2n+c%bsw/spdata(c%species)%sapwood_c2n+c%br/spdata(c%species)%froot_live_c2n)
+
+      if(N_demand>available_N) then
+        extra_C = (c%bl+c%br+c%bsw)*(1.0-available_N/N_demand)
+        ! __DEBUG3__(available_N/N_demand,extra_C,(c%bl+c%br+c%bsw)*(available_N/N_demand))
+        c%bl=c%bl*available_N/N_demand
+        c%br=c%br*available_N/N_demand
+        c%bsw=c%bsw*available_N/N_demand
+        c%blv=c%blv+extra_C
+        c%Pl=c%Pl*available_N/N_demand
+        c%Pr=c%Pr*available_N/N_demand
+        c%Psw=c%Psw*available_N/N_demand
+        if(c%bsw<0) then
+          __DEBUG3__(c%Pl,c%Pr,c%Psw)
+          __DEBUG5__(N_demand,available_N,c%stored_N,c%total_N,c%bwood/spdata(c%species)%wood_c2n)
+          call error_mesg('update_biomass_pools','bsw<0',FATAL)
+        endif
+      endif
+    endif
+
 
   c%leaf_N=c%bl/spdata(c%species)%leaf_live_c2n
   c%wood_N=c%bwood/spdata(c%species)%wood_c2n

@@ -6,6 +6,8 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
+#include "../shared/debug.inc"
+
 use fms_mod, only : string, error_mesg, FATAL, NOTE, &
      mpp_pe, file_exist, close_file, &
      check_nml_error, stdlog, mpp_root_pe
@@ -52,7 +54,7 @@ real :: grazing_intensity      = 0.25    ! fraction of biomass removed each time
 real :: grazing_residue        = 0.1     ! fraction of the grazed biomass transferred into soil pools
 real :: frac_wood_wasted_harv  = 0.25    ! fraction of wood wasted while harvesting
 real :: frac_wood_wasted_clear = 0.25    ! fraction of wood wasted while clearing land for pastures or crops
-logical :: waste_below_ground_wood = .TRUE. ! If true, all the wood below ground (1-agf_bs fraction of bwood 
+logical :: waste_below_ground_wood = .TRUE. ! If true, all the wood below ground (1-agf_bs fraction of bwood
         ! and bsw) is wasted. Old behavior assumed this to be FALSE.
 real :: frac_wood_fast         = ONETHIRD ! fraction of wood consumed fast
 real :: frac_wood_med          = ONETHIRD ! fraction of wood consumed with medium speed
@@ -78,7 +80,7 @@ subroutine vegn_harvesting_init
 #else
   if (file_exist('input.nml')) then
      unit = open_namelist_file ( )
-     ierr = 1;  
+     ierr = 1;
      do while (ierr /= 0)
         read (unit, nml=harvesting_nml, iostat=io, end=10)
         ierr = check_nml_error (io, 'harvesting_nml')
@@ -87,7 +89,7 @@ subroutine vegn_harvesting_init
      call close_file (unit)
   endif
 #endif
-  
+
   if (mpp_pe() == mpp_root_pe()) then
      unit=stdlog()
      write(unit, nml=harvesting_nml)
@@ -127,33 +129,46 @@ end subroutine
 subroutine vegn_graze_pasture(vegn)
   type(vegn_tile_type), intent(inout) :: vegn
 
-  ! ---- local vars 
-  real ::  bdead0, balive0, bleaf0, bfroot0 ! initial combined biomass pools
-  real ::  bdead1, balive1, bleaf1, bfroot1 ! updated combined biomass pools
+  ! ---- local vars
+  real ::  bdead0, balive0, bleaf0, blv0, bfroot0 ! initial combined biomass pools
+  real ::  bdead1, balive1, bleaf1, blv1, bfroot1 ! updated combined biomass pools
   integer :: i
+  real :: carbon_lost
+  real :: delta_leaf, delta_root, delta_wood
 
   ! update biomass pools for each cohort according to harvested fraction
   do i = 1,vegn%n_cohorts
      associate (cc=>vegn%cohorts(i), sp=>spdata(vegn%cohorts(i)%species))
      ! calculate total biomass pools for the patch
-     balive0 = cc%bl + cc%blv + cc%br
-     bleaf0  = cc%bl + cc%blv
-     bfroot0 = cc%br
-     bdead0  = cc%bwood + cc%bsw
+     balive0 =  cc%bl + cc%blv + cc%br
+     bleaf0  =  cc%bliving*cc%Pl  !cc%bl + cc%blv
+     bfroot0 =  cc%bliving*cc%Pr  !cc%br
+     if(cc%bl+cc%br>0) then  ! Not leaf off/deciduous winter
+       blv0 = cc%blv
+     else
+       blv0    =  cc%blv - cc%bliving*(cc%Pl+cc%Pr) ! Excess carbon (due to N limitation)
+     endif
+     bdead0  =  cc%bwood + cc%bsw
      ! only potential leaves are consumed
+     carbon_lost=cc%bliving*cc%Pl*grazing_intensity
      vegn%harv_pool(HARV_POOL_PAST) = vegn%harv_pool(HARV_POOL_PAST) + &
-          cc%bliving*cc%Pl*grazing_intensity*(1-grazing_residue) ;
-     cc%bliving = cc%bliving - cc%bliving*cc%Pl*grazing_intensity;
-     cc%stored_N = cc%stored_N - cc%bliving*cc%Pl*grazing_intensity/sp%leaf_live_c2n
+          carbon_lost*(1-grazing_residue) ;
+     cc%bliving = cc%bliving - carbon_lost;
+     cc%stored_N = cc%stored_N - carbon_lost/sp%leaf_live_c2n
 
      ! redistribute leftover biomass between biomass pools
      call update_biomass_pools(cc);
- 
+
      ! calculate new combined vegetation biomass pools
-     balive1 = cc%bl + cc%blv + cc%br
-     bleaf1  = cc%bl + cc%blv
-     bfroot1 = cc%br
-     bdead1  = cc%bwood + cc%bsw
+     balive1 =  cc%bl + cc%blv + cc%br
+     bleaf1  =  cc%bliving*cc%Pl  !cc%bl + cc%blv
+     bfroot1 =  cc%bliving*cc%Pr  !cc%br
+     if(cc%bl+cc%br>0) then
+       blv1 = cc%blv
+     else
+       blv1    =  cc%blv - cc%bliving*(cc%Pl+cc%Pr) ! Excess carbon (due to N limitation)
+     endif
+     bdead1  =  cc%bwood + cc%bsw
 
 
      ! update intermediate soil carbon pools
@@ -164,30 +179,40 @@ subroutine vegn_graze_pasture(vegn)
         vegn%ssc_pool_bg = vegn%ssc_pool_bg + grazing_residue*( &
              (1-sp%fsc_liv)*(balive0-balive1)+ (1-sp%fsc_wood)*(bdead0-bdead1))
      case(SOILC_CORPSE, SOILC_CORPSE_N)
+        if(blv0 < blv1) then ! Some biomass was re-absorbed due to N limitation. Reduce litter.
+          delta_leaf=bleaf0-bleaf1   - (blv1-blv0)*(bleaf0-bleaf1)/(bleaf0+bfroot0+bdead0-bleaf1-bfroot1-bdead1)
+          delta_root=bfroot0-bfroot1 - (blv1-blv0)*(bfroot0-bfroot1)/(bleaf0+bfroot0+bdead0-bleaf1-bfroot1-bdead1)
+          delta_wood=bdead0-bdead1   - (blv1-blv0)*(bdead0-bdead1)/(bleaf0+bfroot0+bdead0-bleaf1-bfroot1-bdead1)
+        else   ! Virtual leaves decreased. Send to leaf litter
+          delta_leaf=bleaf0+blv0-bleaf1-blv1
+          delta_root=bfroot0-bfroot1
+          delta_wood=bdead0-bdead1
+        endif
+
         vegn%litter_buff_C(:,LEAF) = vegn%litter_buff_C(:,LEAF) + &
-             [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*(bleaf0-bleaf1)*grazing_residue
+             [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*(delta_leaf)*grazing_residue
         vegn%litter_buff_C(:,CWOOD) = vegn%litter_buff_C(:,CWOOD) + &
-             [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*agf_bs*(bdead0-bdead1)*grazing_residue
+             [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*agf_bs*(delta_wood)*grazing_residue
         vegn%fsc_pool_bg = vegn%fsc_pool_bg + grazing_residue*( &
-              sp%fsc_froot*(bfroot0-bfroot1) + &
-              sp%fsc_liv*(bleaf0-bleaf1) + &
-              (1-agf_bs)*sp%fsc_wood*(bdead0-bdead1))
+              sp%fsc_froot*(delta_root) + &
+              sp%fsc_liv*(delta_leaf) + &
+              (1-agf_bs)*sp%fsc_wood*(delta_wood))
         vegn%ssc_pool_bg = vegn%ssc_pool_bg + grazing_residue*(&
-              (1-sp%fsc_froot)*(bfroot0-bfroot1) + &
-              (1-sp%fsc_liv)*(bleaf0-bleaf1) + &
-              (1-agf_bs)*(1-sp%fsc_wood)*(bdead0-bdead1))
+              (1-sp%fsc_froot)*(delta_root) + &
+              (1-sp%fsc_liv)*(delta_leaf) + &
+              (1-agf_bs)*(1-sp%fsc_wood)*(delta_wood))
         if (soil_carbon_option == SOILC_CORPSE_N) then
            vegn%litter_buff_N(:,LEAF) = vegn%litter_buff_N(:,LEAF) + &
-              [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*(bleaf0-bleaf1)*grazing_residue/sp%leaf_live_c2n
+              [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*(delta_leaf)*grazing_residue/sp%leaf_live_c2n
            vegn%litter_buff_N(:,CWOOD) = vegn%litter_buff_N(:,CWOOD) + &
-              [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*agf_bs*(bdead0-bdead1)*grazing_residue/sp%wood_c2n
+              [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*agf_bs*(delta_wood)*grazing_residue/sp%wood_c2n
 
            vegn%fsn_pool_bg=vegn%fsn_pool_bg + grazing_residue*(&
-                  sp%fsc_froot*(bfroot0-bfroot1)/sp%froot_live_c2n + &
-                  (1-agf_bs)*sp%fsc_wood*(bdead0-bdead1)/sp%wood_c2n)
+                  sp%fsc_froot*(delta_root)/sp%froot_live_c2n + &
+                  (1-agf_bs)*sp%fsc_wood*(delta_wood)/sp%wood_c2n)
            vegn%ssn_pool_bg = vegn%ssn_pool_bg + grazing_residue*(&
-                  (1-sp%fsc_froot)*(bfroot0-bfroot1)/sp%froot_live_c2n + &
-                  (1-agf_bs)*(1-sp%fsc_wood)*(bdead0-bdead1)/sp%wood_c2n)
+                  (1-sp%fsc_froot)*(delta_root)/sp%froot_live_c2n + &
+                  (1-agf_bs)*(1-sp%fsc_wood)*(delta_wood)/sp%wood_c2n)
         endif
      case default
         call error_mesg('vegn_graze_pasture','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
@@ -205,7 +230,7 @@ subroutine vegn_harvest_cropland(vegn)
   real :: fraction_harvested;    ! fraction of biomass harvested this time
   real :: bdead, balive, btotal; ! combined biomass pools
   integer :: i
-  
+
   balive = 0 ; bdead = 0
   ! calculate initial combined biomass pools for the patch
   do i = 1, vegn%n_cohorts
@@ -257,10 +282,12 @@ subroutine vegn_harvest_cropland(vegn)
      case default
         call error_mesg('vegn_harvest_cropland','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
      end select
-     ! Leaf and root N could be zero due to phenology, so take from stored N
-     ! and use potential biomass rather than actual
-     cc%stored_N = cc%stored_N - cc%bliving*cc%Pl*(1-fraction_harvested)/sp%leaf_live_c2n
-     cc%stored_N = cc%stored_N - cc%bliving*cc%Pr*(1-fraction_harvested)/sp%froot_live_c2n
+
+    !  cc%stored_N = cc%stored_N - cc%bliving*cc%Pl*(1-fraction_harvested)/spdata(sp)%leaf_live_c2n
+    !  cc%stored_N = cc%stored_N - cc%bliving*cc%Pr*(1-fraction_harvested)/spdata(sp)%froot_live_c2n
+      cc%stored_N = cc%stored_N*(1-fraction_harvested)
+      cc%leaf_N=cc%leaf_N*(1-fraction_harvested)
+      cc%root_N=cc%root_N*(1-fraction_harvested)
      cc%wood_N = cc%wood_N*(1-fraction_harvested)
      cc%sapwood_N = cc%sapwood_N*(1-fraction_harvested)
      ! Should stored N be lost or retained?
@@ -291,7 +318,7 @@ subroutine vegn_cut_forest(vegn, new_landuse)
   real :: bdead, balive, bleaf, bfroot, btotal; ! combined biomass pools
   real :: delta
   integer :: i
-  
+
   balive = 0 ; bdead = 0 ; bleaf = 0 ; bfroot = 0 ;
   ! calculate initial combined biomass pools for the patch
   do i = 1, vegn%n_cohorts
@@ -330,7 +357,7 @@ subroutine vegn_cut_forest(vegn, new_landuse)
 
      ! distribute harvested wood between pools
      if (new_landuse==LU_SCND) then
-        ! this is harvesting, distribute between 3 different wood pools 
+        ! this is harvesting, distribute between 3 different wood pools
         vegn%harv_pool(HARV_POOL_WOOD_FAST) = vegn%harv_pool(HARV_POOL_WOOD_FAST) &
              + wood_harvested*frac_wood_fast
         vegn%harv_pool(HARV_POOL_WOOD_MED) = vegn%harv_pool(HARV_POOL_WOOD_MED) &
@@ -343,7 +370,7 @@ subroutine vegn_cut_forest(vegn, new_landuse)
              + wood_harvested
      endif
 
-     ! distribute wood and living biomass between fast and slow intermediate 
+     ! distribute wood and living biomass between fast and slow intermediate
      ! soil carbon pools according to fractions specified through the namelists
      delta = (cc%bwood+cc%bsw)*frac_harvested*frac_wood_wasted;
      if(delta<0) call error_mesg('vegn_cut_forest', &
@@ -353,7 +380,7 @@ subroutine vegn_cut_forest(vegn, new_landuse)
      select case (soil_carbon_option)
      case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
         vegn%ssc_pool_bg = vegn%ssc_pool_bg + delta*(1-sp%fsc_wood)
-        vegn%fsc_pool_bg = vegn%fsc_pool_bg + delta*   sp%fsc_wood 
+        vegn%fsc_pool_bg = vegn%fsc_pool_bg + delta*   sp%fsc_wood
 
         delta = balive * frac_harvested;
         if(delta<0) call error_mesg('vegn_cut_forest', &
@@ -364,7 +391,7 @@ subroutine vegn_cut_forest(vegn, new_landuse)
      case (SOILC_CORPSE, SOILC_CORPSE_N)
         delta = (cc%bwood+cc%bsw)*frac_harvested*agf_bs*frac_wood_wasted_ag;
         vegn%litter_buff_C(:,CWOOD) = vegn%litter_buff_C(:,CWOOD) + &
-            [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*delta 
+            [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*delta
 
         delta = (cc%bl+cc%blv) * frac_harvested;
         if(delta<0) call error_mesg('vegn_cut_forest', &
@@ -372,7 +399,7 @@ subroutine vegn_cut_forest(vegn, new_landuse)
                 FATAL)
 
         vegn%litter_buff_C(:,LEAF) = vegn%litter_buff_C(:,LEAF) + &
-            [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*delta 
+            [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*delta
 
         vegn%ssc_pool_bg = vegn%ssc_pool_bg + cc%br*frac_harvested*(1-sp%fsc_froot)
         vegn%fsc_pool_bg = vegn%fsc_pool_bg + cc%br*frac_harvested*sp%fsc_froot
@@ -415,4 +442,4 @@ subroutine vegn_cut_forest(vegn, new_landuse)
   enddo
 end subroutine vegn_cut_forest
 
-end module 
+end module

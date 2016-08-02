@@ -157,7 +157,7 @@ type spec_data_type
                 ! fraction times sapwood retirement rate
 
   ! decay rates of plant carbon pools, 1/yr
-  real    :: alpha_leaf=1.0, alpha_root=1.0, alpha_wood=1.2e-2, alpha_sapwood = 0.0
+  real    :: alpha_leaf=1.0, alpha_root=1.0, alpha_wood=1.2e-2, alpha_sapwood = 0.0, alpha_vleaf = 0.0
   ! respiration rates of plant carbon pools
   real    :: beta_sapwood=0.0, beta_root=1.25, beta_vleaf=0.0
 
@@ -668,6 +668,7 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(alpha_root)
   __GET_SPDATA_REAL__(alpha_wood)
   __GET_SPDATA_REAL__(alpha_sapwood)
+  __GET_SPDATA_REAL__(alpha_vleaf)
 
   __GET_SPDATA_REAL__(beta_root)
   __GET_SPDATA_REAL__(beta_vleaf)
@@ -898,6 +899,7 @@ subroutine print_species_data(unit)
   call add_row(table, 'C3',            spdata(:)%c3)
 
   call add_row(table, 'alpha_leaf',    spdata(:)%alpha_leaf)
+  call add_row(table, 'alpha_vleaf',    spdata(:)%alpha_vleaf)
   call add_row(table, 'alpha_root',    spdata(:)%alpha_root)
   call add_row(table, 'alpha_wood',    spdata(:)%alpha_wood)
   call add_row(table, 'alpha_sapwood', spdata(:)%alpha_sapwood)
