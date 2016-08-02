@@ -288,16 +288,32 @@ subroutine vegn_nat_mortality_lm3(vegn, soil, deltat)
 
      wood_litt_C(:) = wood_litt_C(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*delta_C*agf_bs
      wood_litt_N(:) = wood_litt_N(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*delta_N*agf_bs
+     if (sp%mortality_kills_balive) then
+        wood_litt_C(:) = wood_litt_C(:) + [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*fraction_lost*(cc%bl+cc%blv)
+        wood_litt_N(:) = wood_litt_N(:) + [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*fraction_lost*(cc%leaf_N+cc%stored_N)
+     endif
      call cohort_root_litter_profile(cc, dz, profile)
      do l = 1, num_l
         root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*(1-agf_bs)*delta_C*[sp%fsc_wood, 1-sp%fsc_wood, 0.0]
         root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*(1-agf_bs)*delta_N*[sp%fsc_wood, 1-sp%fsc_wood, 0.0]
+        if (sp%mortality_kills_balive) then
+           root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*[sp%fsc_liv, 1-sp%fsc_liv, 0.0]*fraction_lost*cc%br
+           root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*[sp%fsc_liv, 1-sp%fsc_liv, 0.0]*fraction_lost*cc%root_N
+        endif
      enddo
 
      cc%bwood     = cc%bwood     * (1-fraction_lost)
      cc%bsw       = cc%bsw       * (1-fraction_lost)
      cc%wood_N    = cc%wood_N    * (1-fraction_lost)
      cc%sapwood_N = cc%sapwood_N * (1-fraction_lost)
+     if (sp%mortality_kills_balive) then
+        cc%br       = cc%br       * (1-fraction_lost)
+        cc%bl       = cc%bl       * (1-fraction_lost)
+        cc%blv      = cc%blv      * (1-fraction_lost)
+        cc%leaf_N   = cc%leaf_N   * (1-fraction_lost)
+        cc%root_N   = cc%root_N   * (1-fraction_lost)
+        cc%stored_N = cc%stored_N * (1-fraction_lost)
+     endif
 
      vegn%veg_out = vegn%veg_out + delta_C
 
