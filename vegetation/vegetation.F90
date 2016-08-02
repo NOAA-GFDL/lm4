@@ -47,7 +47,7 @@ use vegn_data_mod, only : read_vegn_data_namelist, &
      spdata, mcv_min, mcv_lai, agf_bs, tau_drip_l, tau_drip_s, T_transp_min, &
      do_ppa, cold_month_threshold, soil_carbon_depth_scale, &
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
-     c2n_mycorrhizae, c2n_mycorrhizae, c2n_N_fixer
+     c2n_N_fixer
 
 use vegn_cohort_mod, only : vegn_cohort_type, &
      init_cohort_allometry_ppa, init_cohort_hydraulics, &
@@ -587,8 +587,8 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
         cc%root_N     = cc%br/sp%froot_live_c2n
         cc%stored_N   = init_cohort_stored_N_mult(n)*(cc%leaf_N+cc%root_N)
         cc%total_N    = cc%stored_N+cc%leaf_N+cc%wood_N+cc%root_N+cc%sapwood_N
-        cc%myc_scavenger_biomass_N = cc%myc_scavenger_biomass_C/c2n_mycorrhizae
-        cc%myc_miner_biomass_N     = cc%myc_miner_biomass_C/c2n_mycorrhizae
+        cc%myc_scavenger_biomass_N = cc%myc_scavenger_biomass_C/sp%c2n_mycorrhizae
+        cc%myc_miner_biomass_N     = cc%myc_miner_biomass_C/sp%c2n_mycorrhizae
         cc%N_fixer_biomass_N       = cc%N_fixer_biomass_C/c2n_N_fixer
 
         cc%K_r        = sp%root_perm

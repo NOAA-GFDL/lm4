@@ -116,10 +116,10 @@ public :: &
     b0_growth, tau_seed, understory_lai_factor, &
     DBH_mort, A_mort, B_mort, mortrate_s, &
 
-    c2n_mycorrhizae, mycorrhizal_turnover_time, &
+    mycorrhizal_turnover_time, &
     myc_scav_C_efficiency, myc_mine_C_efficiency, &
     N_fixer_turnover_time, N_fixer_C_efficiency, &
-    N_fixation_rate, c2n_N_fixer, N_limits_live_biomass, &
+    c2n_N_fixer, N_limits_live_biomass, &
     root_NH4_uptake_rate, root_NO3_uptake_rate, &
     k_ammonium_root_uptake, k_nitrate_root_uptake, excess_stored_N_leakage_rate
 
@@ -249,6 +249,8 @@ type spec_data_type
   real    :: cx=1.0, cl=1.0       ! Exponent of Weibull function, unitless
   real    :: psi_tlp=0.0                  ! psi at turgor loss point
 
+  real    :: N_fixation_rate = 0.1 ! N fixation rate per unit fixer biomass (kgN/kg fixer C/year)
+
   real    :: root_exudate_frac = 0.0 ! fraction of NPP that ends up in root exudates
   real    :: root_exudate_N_frac = 0.0 ! N fraction of root exudates. See e.g. Drake et al 2013
   real    :: root_exudate_frac_max = 0.5     ! Maximum fraction of NPP that can be allocated to mycorrhizae and root exudation
@@ -262,6 +264,7 @@ type spec_data_type
   real    :: froot_live_c2n = 50.0    ! C:N ratio of live fine roots.
   real    :: sapwood_c2n    = 50.0    ! C:N ratio of sapwood.
   real    :: wood_c2n       = 500.0   ! x2z Wiki  http://en.wikipedia.org/wiki/Carbon-to-nitrogen_ratio
+  real    :: c2n_mycorrhizae= 10.0    ! C:N ratio of mycorrhizal biomass
 
   real    :: leaf_retranslocation_frac  = 0.5 ! Fraction of leaf N retranslocated before leaf drop.
   real    :: froot_retranslocation_frac = 0.0 ! Fraction of fine root N retranslocated before senescence.
@@ -348,14 +351,12 @@ real :: A_mort     = 4.0   ! A coefficient in understory mortality rate correcti
 real :: B_mort     = 30.0  ! B coefficient in understory mortality rate correction, 1/m
 real :: mortrate_s = 2.3   ! mortality rate of starving plants, 1/year, 2.3 = approx 0.9 plants die in a year
 
-real :: c2n_mycorrhizae           = 10      ! C:N ratio of mycorrhizal biomass
 real :: mycorrhizal_turnover_time = 0.1     ! Mean residence time of live mycorrhizal biomass (yr)
 real :: myc_scav_C_efficiency     = 0.8     ! Efficiency of C allocation to scavenger mycorrhizae (remainder goes to CO2)
 real :: myc_mine_C_efficiency     = 0.8     ! Efficiency of C allocation to miner mycorrhizae (remainder goes to CO2)
 real :: c2n_N_fixer           = 10      ! C:N ratio of N-fixing microbe biomass
 real :: N_fixer_turnover_time = 0.1     ! Mean residence time of live N fixer biomass (yr)
 real :: N_fixer_C_efficiency  = 0.5     ! Efficiency of C allocation to N fixers (remainder goes to CO2)
-real :: N_fixation_rate       = 0.1     ! N fixation rate per unit fixer biomass (kgN/kg fixer C/year)
 logical :: N_limits_live_biomass = .FALSE.  ! Option to have N uptake limit max biomass.  Only relevant with CORPSE_N
 real :: root_NH4_uptake_rate = 0.1      ! kg/m3/year (assumes rhizosphere only, which accounts for root length)
 real :: root_NO3_uptake_rate = 0.1      ! kg/m3/year (assumes rhizosphere only, which accounts for root length)
@@ -386,10 +387,10 @@ namelist /vegn_data_nml/ &
   do_alt_allometry, nat_mortality_splits_tiles, &
 
   ! N-related namelist values
-  c2n_mycorrhizae, mycorrhizal_turnover_time, &
+  mycorrhizal_turnover_time, &
   myc_scav_C_efficiency, myc_mine_C_efficiency, &
   N_fixer_turnover_time, N_fixer_C_efficiency, &
-  N_fixation_rate, c2n_N_fixer, N_limits_live_biomass, &
+  c2n_N_fixer, N_limits_live_biomass, &
   root_NH4_uptake_rate, root_NO3_uptake_rate, &
   k_ammonium_root_uptake, k_nitrate_root_uptake, excess_stored_N_leakage_rate
 
@@ -748,6 +749,8 @@ subroutine read_species_data(name, sp, errors_found)
 
   __GET_SPDATA_REAL__(branch_wood_frac)
 
+  __GET_SPDATA_REAL__(N_fixation_rate)
+
   __GET_SPDATA_REAL__(root_exudate_frac)
   __GET_SPDATA_REAL__(root_exudate_N_frac)
   __GET_SPDATA_REAL__(root_exudate_frac_max)
@@ -760,6 +763,7 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(froot_live_c2n)
   __GET_SPDATA_REAL__(wood_c2n)
   __GET_SPDATA_REAL__(sapwood_c2n)
+  __GET_SPDATA_REAL__(c2n_mycorrhizae)
   __GET_SPDATA_REAL__(leaf_retranslocation_frac)
   __GET_SPDATA_REAL__(froot_retranslocation_frac)
 #undef __GET_SPDATA_LOGICAL__
@@ -1000,6 +1004,8 @@ subroutine print_species_data(unit)
 
   call add_row(table, 'branch_wood_frac', spdata(:)%branch_wood_frac)
 
+  call add_row(table, 'N_fixation_rate', spdata(:)%N_fixation_rate)
+
   call add_row(table, 'root_exudate_frac', spdata(:)%root_exudate_frac)
   call add_row(table, 'root_exudate_N_frac', spdata(:)%root_exudate_N_frac)
   call add_row(table, 'root_exudate_frac_max', spdata(:)%root_exudate_frac_max)
@@ -1012,6 +1018,7 @@ subroutine print_species_data(unit)
   call add_row(table, 'froot_live_c2n',spdata(:)%froot_live_c2n)
   call add_row(table, 'wood_c2n',      spdata(:)%wood_c2n)
   call add_row(table, 'sapwood_c2n',   spdata(:)%sapwood_c2n)
+  call add_row(table, 'c2n_mycorrhizae', spdata(:)%c2n_mycorrhizae)
   call add_row(table, 'leaf_retranslocation_frac',  spdata(:)%leaf_retranslocation_frac)
   call add_row(table, 'froot_retranslocation_frac', spdata(:)%froot_retranslocation_frac)
 
