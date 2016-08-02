@@ -116,8 +116,6 @@ public :: &
     b0_growth, tau_seed, understory_lai_factor, &
     DBH_mort, A_mort, B_mort, mortrate_s, &
 
-    root_exudate_N_frac,& !x2z - ens: lets get rid of c2n?
-    root_exudate_frac_max, dynamic_root_exudation, &
     c2n_mycorrhizae, mycorrhizal_turnover_time, &
     myc_scav_C_efficiency, myc_mine_C_efficiency, &
     N_fixer_turnover_time, N_fixer_C_efficiency, &
@@ -252,6 +250,9 @@ type spec_data_type
   real    :: psi_tlp=0.0                  ! psi at turgor loss point
 
   real    :: root_exudate_frac = 0.0 ! fraction of NPP that ends up in root exudates
+  real    :: root_exudate_N_frac = 0.0 ! N fraction of root exudates. See e.g. Drake et al 2013
+  real    :: root_exudate_frac_max = 0.5     ! Maximum fraction of NPP that can be allocated to mycorrhizae and root exudation
+  logical :: dynamic_root_exudation = .FALSE. ! Whether to dynamically determine root exudation rate from plant N limitation
 
   real    :: fsc_liv    = 0.8 ! Species-specific fsc_liv, separate for backwards compatibility
   real    :: fsc_froot  = 0.3
@@ -347,9 +348,6 @@ real :: A_mort     = 4.0   ! A coefficient in understory mortality rate correcti
 real :: B_mort     = 30.0  ! B coefficient in understory mortality rate correction, 1/m
 real :: mortrate_s = 2.3   ! mortality rate of starving plants, 1/year, 2.3 = approx 0.9 plants die in a year
 
-real :: root_exudate_N_frac = 0.0 ! N fraction of root exudates. See e.g. Drake et al 2013
-real :: root_exudate_frac_max     = 0.5     ! Maximum fraction of NPP that can be allocated to mycorrhizae and root exudation
-logical :: dynamic_root_exudation = .FALSE. ! Whether to dynamically determine root exudation rate from plant N limitation
 real :: c2n_mycorrhizae           = 10      ! C:N ratio of mycorrhizal biomass
 real :: mycorrhizal_turnover_time = 0.1     ! Mean residence time of live mycorrhizal biomass (yr)
 real :: myc_scav_C_efficiency     = 0.8     ! Efficiency of C allocation to scavenger mycorrhizae (remainder goes to CO2)
@@ -388,8 +386,6 @@ namelist /vegn_data_nml/ &
   do_alt_allometry, nat_mortality_splits_tiles, &
 
   ! N-related namelist values
-  root_exudate_N_frac,& !x2z - ens: lets get rid of c2n?
-  root_exudate_frac_max, dynamic_root_exudation, &
   c2n_mycorrhizae, mycorrhizal_turnover_time, &
   myc_scav_C_efficiency, myc_mine_C_efficiency, &
   N_fixer_turnover_time, N_fixer_C_efficiency, &
@@ -658,6 +654,7 @@ subroutine read_species_data(name, sp, errors_found)
   end select
 
 #define __GET_SPDATA_REAL__(v) sp%v = get_spdata_real(#v, sp%v)
+#define __GET_SPDATA_LOGICAL__(v) sp%v = get_spdata_logical(#v, sp%v)
   __GET_SPDATA_REAL__(treefall_disturbance_rate)
 
   __GET_SPDATA_REAL__(c1)
@@ -752,6 +749,9 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(branch_wood_frac)
 
   __GET_SPDATA_REAL__(root_exudate_frac)
+  __GET_SPDATA_REAL__(root_exudate_N_frac)
+  __GET_SPDATA_REAL__(root_exudate_frac_max)
+  __GET_SPDATA_LOGICAL__(dynamic_root_exudation)
   ! nitrogen-related parameters
   __GET_SPDATA_REAL__(fsc_liv)
   __GET_SPDATA_REAL__(fsc_froot)
@@ -762,6 +762,7 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(sapwood_c2n)
   __GET_SPDATA_REAL__(leaf_retranslocation_frac)
   __GET_SPDATA_REAL__(froot_retranslocation_frac)
+#undef __GET_SPDATA_LOGICAL__
 #undef __GET_SPDATA_REAL__
 
   ! check for typos in the namelist: detects parameters that are listed in the
@@ -813,6 +814,13 @@ contains
       v = fm_util_get_real(name, default_value=dflt, scalar=.true.)
       call add_known_name(name)
    end function get_spdata_real
+
+   function get_spdata_logical(name,dflt) result (v) ; logical :: v
+      character(*), intent(in) :: name ! name of the field
+      logical     , intent(in) :: dflt ! default value
+      v = fm_util_get_logical(name, default_value=dflt, scalar=.true.)
+      call add_known_name(name)
+   end function get_spdata_logical
 
 end subroutine read_species_data
 
@@ -993,6 +1001,9 @@ subroutine print_species_data(unit)
   call add_row(table, 'branch_wood_frac', spdata(:)%branch_wood_frac)
 
   call add_row(table, 'root_exudate_frac', spdata(:)%root_exudate_frac)
+  call add_row(table, 'root_exudate_N_frac', spdata(:)%root_exudate_N_frac)
+  call add_row(table, 'root_exudate_frac_max', spdata(:)%root_exudate_frac_max)
+  call add_row(table, 'dynamic_root_exudation', spdata(:)%dynamic_root_exudation)
   ! nitrogen-related parameters
   call add_row(table, 'fsc_liv',       spdata(:)%fsc_liv)
   call add_row(table, 'fsc_froot',     spdata(:)%fsc_froot)

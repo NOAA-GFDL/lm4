@@ -20,11 +20,10 @@ use vegn_data_mod, only : spdata, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, &
      agf_bs, l_fract, mcv_min, mcv_lai, do_ppa, tau_seed, &
      understory_lai_factor, wood_fract_min, &
-     dynamic_root_exudation, root_exudate_frac_max, &
      myc_scav_C_efficiency, myc_mine_C_efficiency, N_fixer_C_efficiency, &
      N_fixation_rate, excess_stored_N_leakage_rate, &
      c2n_mycorrhizae, c2n_N_fixer, &
-     root_exudate_N_frac, mycorrhizal_turnover_time, N_fixer_turnover_time
+     mycorrhizal_turnover_time, N_fixer_turnover_time
 use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon
 use soil_tile_mod, only: num_l, dz, soil_tile_type, clw, csw, N_LITTER_POOLS, LEAF, CWOOD
 use vegn_cohort_mod, only : vegn_cohort_type, &
@@ -266,12 +265,12 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
      ! accumulate npp for the current day
      cc%npp_previous_day_tmp = cc%npp_previous_day_tmp + npp(i);
 
-     if(dynamic_root_exudation .AND. soil_carbon_option==SOILC_CORPSE_N) then
+     if(sp%dynamic_root_exudation .AND. soil_carbon_option==SOILC_CORPSE_N) then
        ! Initial allocation scheme: root exudation/mycorrhizal allocation depends
        ! on ratio of leaf biomass to max (as determined by N uptake)
        ! Root exudation fraction of NPP limited by some maximum value.
        ! Probably need to rename these parameters and not use a hard-coded value
-       root_exudate_frac = min(0.9,root_exudate_frac_max*cc%nitrogen_stress)
+       root_exudate_frac = min(0.9,sp%root_exudate_frac_max*cc%nitrogen_stress)
      else
        root_exudate_frac = sp%root_exudate_frac
      endif
@@ -447,8 +446,8 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
         !   __DEBUG3__(N_fix_marginal_gain,rhiz_exud_marginal_gain,current_root_exudation)
         ! endif
 
-        mycorrhizal_scav_N_immob = max(0.0,scavenger_myc_C_allocated*myc_scav_C_efficiency/c2n_mycorrhizae-scavenger_myc_C_allocated*root_exudate_N_frac)
-        mycorrhizal_mine_N_immob = max(0.0,(miner_myc_C_allocated*myc_mine_C_efficiency+myc_mine_C_uptake)/c2n_mycorrhizae-miner_myc_C_allocated*root_exudate_N_frac)
+        mycorrhizal_scav_N_immob = max(0.0,scavenger_myc_C_allocated*myc_scav_C_efficiency/c2n_mycorrhizae-scavenger_myc_C_allocated*sp%root_exudate_N_frac)
+        mycorrhizal_mine_N_immob = max(0.0,(miner_myc_C_allocated*myc_mine_C_efficiency+myc_mine_C_uptake)/c2n_mycorrhizae-miner_myc_C_allocated*sp%root_exudate_N_frac)
 
         ! ! Adjust marginal gain based on immobilization
         if(myc_scav_N_uptake>0) myc_scav_marginal_gain = myc_scav_marginal_gain*max(myc_scav_N_uptake*0.1,myc_scav_N_uptake-mycorrhizal_scav_N_immob)/myc_scav_N_uptake
@@ -479,8 +478,8 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
         !    __DEBUG3__(N_fix_marginal_gain,rhiz_exud_marginal_gain,current_root_exudation)
         !  endif
 
-        mycorrhizal_scav_N_immob = max(0.0,scavenger_myc_C_allocated*myc_scav_C_efficiency/c2n_mycorrhizae-scavenger_myc_C_allocated*root_exudate_N_frac)
-        mycorrhizal_mine_N_immob = max(0.0,(miner_myc_C_allocated*myc_mine_C_efficiency+myc_mine_C_uptake)/c2n_mycorrhizae-miner_myc_C_allocated*root_exudate_N_frac)
+        mycorrhizal_scav_N_immob = max(0.0,scavenger_myc_C_allocated*myc_scav_C_efficiency/c2n_mycorrhizae-scavenger_myc_C_allocated*sp%root_exudate_N_frac)
+        mycorrhizal_mine_N_immob = max(0.0,(miner_myc_C_allocated*myc_mine_C_efficiency+myc_mine_C_uptake)/c2n_mycorrhizae-miner_myc_C_allocated*sp%root_exudate_N_frac)
 
 
         if(mycorrhizal_mine_N_immob > myc_mine_N_uptake) then
@@ -491,7 +490,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
            ! Remainder automatically goes back into root exudation below
         ! else
         !   if (myc_mine_N_uptake>0) miner_myc_C_allocated = miner_myc_C_allocated*(1.0-mycorrhizal_mine_N_immob/myc_mine_N_uptake)
-        !   mycorrhizal_mine_N_immob = max(0.0,(miner_myc_C_allocated*myc_mine_C_efficiency+myc_mine_C_uptake)/c2n_mycorrhizae-miner_myc_C_allocated*root_exudate_N_frac)
+        !   mycorrhizal_mine_N_immob = max(0.0,(miner_myc_C_allocated*myc_mine_C_efficiency+myc_mine_C_uptake)/c2n_mycorrhizae-miner_myc_C_allocated*sp%root_exudate_N_frac)
         endif
 
         ! If immobilization is greater than N uptake, then N demand of growth exceeded supply.
@@ -504,7 +503,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
           ! Remainder automatically goes back into root exudation below
         ! else
         !   if(myc_scav_N_uptake>0) scavenger_myc_C_allocated = scavenger_myc_C_allocated*(1.0-mycorrhizal_scav_N_immob/myc_scav_N_uptake)
-        !   mycorrhizal_scav_N_immob = max(0.0,scavenger_myc_C_allocated*myc_scav_C_efficiency/c2n_mycorrhizae-scavenger_myc_C_allocated*root_exudate_N_frac)
+        !   mycorrhizal_scav_N_immob = max(0.0,scavenger_myc_C_allocated*myc_scav_C_efficiency/c2n_mycorrhizae-scavenger_myc_C_allocated*sp%root_exudate_N_frac)
         endif
 
         ! if (current_root_exudation>0) then
@@ -522,7 +521,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
 
      total_plant_N_uptake = myc_scav_N_uptake-mycorrhizal_scav_N_immob + myc_mine_N_uptake-mycorrhizal_mine_N_immob &
                        +N_fixation+root_active_N_uptake
-     cc%stored_N = cc%stored_N + total_plant_N_uptake - current_root_exudation*root_exudate_N_frac*dt_fast_yr
+     cc%stored_N = cc%stored_N + total_plant_N_uptake - current_root_exudation*sp%root_exudate_N_frac*dt_fast_yr
 
      call check_var_range(cc%myc_scavenger_biomass_C, 0.0, HUGE(1.0), 'vegn_carbon_int_lm3', 'myc_scavenger_C', FATAL)
      call check_var_range(cc%myc_miner_biomass_C,     0.0, HUGE(1.0), 'vegn_carbon_int_lm3', 'myc_miner_C', FATAL)
@@ -558,7 +557,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
      call check_var_range(cc%N_fixer_biomass_C,       0.0, HUGE(1.0), 'vegn_carbon_int_lm3', 'N_fixer_C', FATAL)
 
      ! To prevent excess stored N buildup under high soil N, leak stored N when stress is zero
-     root_exudate_N=(current_root_exudation*dt_fast_yr - scavenger_myc_C_allocated - N_fixer_C_allocated - miner_myc_C_allocated)/dt_fast_yr*root_exudate_N_frac
+     root_exudate_N=(current_root_exudation*dt_fast_yr - scavenger_myc_C_allocated - N_fixer_C_allocated - miner_myc_C_allocated)/dt_fast_yr*sp%root_exudate_N_frac
      if(cc%nitrogen_stress<=0 .AND. cc%stored_N>0) then
        root_exudate_N = root_exudate_N + cc%stored_N*excess_stored_N_leakage_rate
        cc%stored_N=cc%stored_N - cc%stored_N*excess_stored_N_leakage_rate*dt_fast_yr
