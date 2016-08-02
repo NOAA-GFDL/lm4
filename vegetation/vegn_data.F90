@@ -249,6 +249,9 @@ type spec_data_type
   real    :: cx=1.0, cl=1.0       ! Exponent of Weibull function, unitless
   real    :: psi_tlp=0.0                  ! psi at turgor loss point
 
+  logical :: do_N_mining_strategy = .TRUE.
+  logical :: do_N_scavenging_strategy = .TRUE.
+  logical :: do_N_fixation_strategy = .TRUE.
   real    :: N_fixation_rate = 0.1 ! N fixation rate per unit fixer biomass (kgN/kg fixer C/year)
 
   real    :: root_exudate_frac = 0.0 ! fraction of NPP that ends up in root exudates
@@ -747,6 +750,9 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(cl)
   __GET_SPDATA_REAL__(psi_tlp)
 
+  __GET_SPDATA_LOGICAL__(do_N_mining_strategy)
+  __GET_SPDATA_LOGICAL__(do_N_scavenging_strategy)
+  __GET_SPDATA_LOGICAL__(do_N_fixation_strategy)
   __GET_SPDATA_REAL__(branch_wood_frac)
 
   __GET_SPDATA_REAL__(N_fixation_rate)
@@ -1004,6 +1010,9 @@ subroutine print_species_data(unit)
 
   call add_row(table, 'branch_wood_frac', spdata(:)%branch_wood_frac)
 
+  call add_row(table, 'do_N_mining_strategy', spdata(:)%do_N_mining_strategy)
+  call add_row(table, 'do_N_scavenging_strategy', spdata(:)%do_N_scavenging_strategy)
+  call add_row(table, 'do_N_fixation_strategy', spdata(:)%do_N_fixation_strategy)
   call add_row(table, 'N_fixation_rate', spdata(:)%N_fixation_rate)
 
   call add_row(table, 'root_exudate_frac', spdata(:)%root_exudate_frac)
