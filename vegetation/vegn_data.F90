@@ -1024,7 +1024,7 @@ subroutine print_species_data(unit)
   ! nitrogen-related parameters
   call add_row(table, 'fsc_liv',       spdata(:)%fsc_liv)
   call add_row(table, 'fsc_froot',     spdata(:)%fsc_froot)
-  call add_row(table, 'fsc_froot',     spdata(:)%fsc_wood)
+  call add_row(table, 'fsc_wood',     spdata(:)%fsc_wood)
   call add_row(table, 'leaf_live_c2n', spdata(:)%leaf_live_c2n)
   call add_row(table, 'froot_live_c2n',spdata(:)%froot_live_c2n)
   call add_row(table, 'wood_c2n',      spdata(:)%wood_c2n)

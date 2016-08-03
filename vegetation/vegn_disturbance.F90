@@ -261,13 +261,15 @@ subroutine vegn_nat_mortality_lm3(vegn, soil, deltat)
   integer :: i,l
   real :: wood_litt_C(n_c_types) ! coarse surface litter per tile, kgC/m2
   real :: wood_litt_N(n_c_types) ! coarse surface litter nitrogen per tile, kgN/m2
+  real :: leaf_litt_C(n_c_types) ! surface leaf litter per tile, kgC/m2
+  real :: leaf_litt_N(n_c_types) ! surface leaf litter nitrogen per tile, kgN/m2
   real :: root_litt_C(num_l, n_c_types) ! root litter per soil layer, kgC/m2
   real :: root_litt_N(num_l, n_c_types) ! root litter nitrogen per soil layer, kgN/m2
   real :: profile(num_l) ! storage for vertical profile of exudates and root litter
 
   vegn%disturbance_rate(0) = 0.0;
-  wood_litt_C = 0; root_litt_C = 0
-  wood_litt_N = 0; root_litt_N = 0
+  wood_litt_C = 0; root_litt_C = 0; leaf_litt_C = 0
+  wood_litt_N = 0; root_litt_N = 0; leaf_litt_N = 0
   do i = 1,vegn%n_cohorts
      associate(cc => vegn%cohorts(i), sp => spdata(vegn%cohorts(i)%species))
      ! Treat treefall disturbance implicitly, i.e. not creating a new tile.
@@ -289,16 +291,16 @@ subroutine vegn_nat_mortality_lm3(vegn, soil, deltat)
      wood_litt_C(:) = wood_litt_C(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*delta_C*agf_bs
      wood_litt_N(:) = wood_litt_N(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*delta_N*agf_bs
      if (sp%mortality_kills_balive) then
-        wood_litt_C(:) = wood_litt_C(:) + [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*fraction_lost*(cc%bl+cc%blv)
-        wood_litt_N(:) = wood_litt_N(:) + [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*fraction_lost*(cc%leaf_N+cc%stored_N)
+        leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*fraction_lost*(cc%bl+cc%blv)
+        leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*fraction_lost*(cc%leaf_N+cc%stored_N)
      endif
      call cohort_root_litter_profile(cc, dz, profile)
      do l = 1, num_l
         root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*(1-agf_bs)*delta_C*[sp%fsc_wood, 1-sp%fsc_wood, 0.0]
         root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*(1-agf_bs)*delta_N*[sp%fsc_wood, 1-sp%fsc_wood, 0.0]
         if (sp%mortality_kills_balive) then
-           root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*[sp%fsc_liv, 1-sp%fsc_liv, 0.0]*fraction_lost*cc%br
-           root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*[sp%fsc_liv, 1-sp%fsc_liv, 0.0]*fraction_lost*cc%root_N
+           root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*[sp%fsc_froot, 1-sp%fsc_froot, 0.0]*fraction_lost*cc%br
+           root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*[sp%fsc_froot, 1-sp%fsc_froot, 0.0]*fraction_lost*cc%root_N
         endif
      enddo
 
@@ -307,6 +309,7 @@ subroutine vegn_nat_mortality_lm3(vegn, soil, deltat)
      cc%wood_N    = cc%wood_N    * (1-fraction_lost)
      cc%sapwood_N = cc%sapwood_N * (1-fraction_lost)
      if (sp%mortality_kills_balive) then
+        delta_C = delta_C+(cc%br+cc%bl+cc%blv)*(1-fraction_lost) ! For correct vegn%veg_out bookkeeping
         cc%br       = cc%br       * (1-fraction_lost)
         cc%bl       = cc%bl       * (1-fraction_lost)
         cc%blv      = cc%blv      * (1-fraction_lost)
@@ -325,8 +328,8 @@ subroutine vegn_nat_mortality_lm3(vegn, soil, deltat)
      end associate
   enddo
   ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, vegn, wood_litter_C=wood_litt_C, root_litter_C=root_litt_C, &
-                                   wood_litter_N=wood_litt_N, root_litter_N=root_litt_N  )
+  call add_soil_carbon(soil, vegn, wood_litter_C=wood_litt_C, leaf_litter_C=leaf_litt_C, root_litter_C=root_litt_C, &
+                                   wood_litter_N=wood_litt_N, leaf_litter_N=leaf_litt_N, root_litter_N=root_litt_N  )
 end subroutine vegn_nat_mortality_lm3
 
 
