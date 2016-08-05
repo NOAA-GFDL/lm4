@@ -134,6 +134,9 @@ type :: vegn_cohort_type
   real :: carbon_loss = 0.0 ! carbon loss since last growth, kg C/individual
   real :: bwood_gain  = 0.0 ! wood gain since last growth, kg C/individual
 
+  real :: nitrogen_gain = 0.0 ! nitrogen gain since last growth, kg N/individual
+  real :: nitrogen_loss = 0.0 ! nitrogen loss since last growth, kg N/individual
+
   ! used in fast time scale calculations
   real :: npp_previous_day     = 0.0
   real :: npp_previous_day_tmp = 0.0
@@ -179,6 +182,7 @@ type :: vegn_cohort_type
   real :: wood_N = 0.0
   real :: sapwood_N = 0.0
   real :: root_N = 0.0
+  real :: seed_N = 0.0
   real :: total_N = 0.0 ! sum of plant nitrogen pools (does not includes fixers and mycorrahize)
 
 end type vegn_cohort_type

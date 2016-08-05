@@ -210,6 +210,8 @@ integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_leaf_emis, id_snow_crit, id_stomatal, &
    id_an_op, id_an_cl,&
    id_bl, id_blv, id_br, id_bsw, id_bwood, id_bseed, id_btot, id_nsc, id_bl_max, id_br_max, &
+   id_leaf_N,id_root_N,id_wood_N,id_sapwood_N,id_seed_N,id_stored_N,id_veg_total_N,id_Ngain,id_Nloss,&
+   id_myc_scavenger_C,id_myc_miner_C,id_N_fixer_C,&
    id_species, id_dominant_by_n, id_dominant_by_b, id_status, &
    id_con_v_h, id_con_v_v, id_fuel, id_harv_pool(N_HARV_POOLS), &
    id_harv_rate(N_HARV_POOLS), id_t_harv_pool, id_t_harv_rate, &
@@ -767,6 +769,29 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
   id_nsc = register_cohort_diag_field ( module_name, 'nsc',  &
        (/id_lon,id_lat/), time, 'biomass in non-structural pool', 'kg C/m2', missing_value=-1.0)
 
+  id_leaf_N = register_cohort_diag_field ( module_name, 'leaf_N',  &
+       (/id_lon,id_lat/), time, 'nitrogen content of leaves', 'kg N/m2', missing_value=-1.0 )
+  id_root_N = register_cohort_diag_field ( module_name, 'root_N',  &
+       (/id_lon,id_lat/), time, 'nitrogen content of fine roots', 'kg N/m2', missing_value=-1.0 )
+  id_wood_N = register_cohort_diag_field ( module_name, 'wood_N',  &
+       (/id_lon,id_lat/), time, 'nitrogen content of wood', 'kg N/m2', missing_value=-1.0 )
+  id_sapwood_N = register_cohort_diag_field ( module_name, 'sapwood_N',  &
+       (/id_lon,id_lat/), time, 'nitrogen content of sapwood', 'kg N/m2', missing_value=-1.0 )
+  id_stored_N = register_cohort_diag_field ( module_name, 'veg_stored_N',  &
+       (/id_lon,id_lat/), time, 'veg nitrogen storage', 'kg N/m2', missing_value=-1.0 )
+  id_veg_total_N = register_cohort_diag_field ( module_name, 'veg_total_N',  &
+       (/id_lon,id_lat/), time, 'veg total nitrogen', 'kg N/m2', missing_value=-1.0 )
+  id_seed_N = register_cohort_diag_field ( module_name, 'seed_N',  &
+       (/id_lon,id_lat/), time, 'nitrogen content of seeds', 'kg N/m2', missing_value=-1.0)
+
+
+  id_myc_scavenger_C = register_cohort_diag_field ( module_name, 'myc_scavenger_biomass_C',  &
+       (/id_lon,id_lat/), time, 'scavenger mycorrhizal biomass C', 'kg C/m2', missing_value=-1.0 )
+  id_myc_miner_C = register_cohort_diag_field ( module_name, 'myc_miner_biomass_C',  &
+       (/id_lon,id_lat/), time, 'miner mycorrhizal biomass C', 'kg C/m2', missing_value=-1.0 )
+  id_N_fixer_C = register_cohort_diag_field ( module_name, 'N_fixer_biomass_C',  &
+       (/id_lon,id_lat/), time, 'symbiotic N fixer biomass C', 'kg C/m2', missing_value=-1.0 )
+
   id_bl_max = register_cohort_diag_field ( module_name, 'bl_max',  &
        (/id_lon,id_lat/), time, 'max biomass of leaves', 'kg C/m2', missing_value=-1.0)
   id_br_max = register_cohort_diag_field ( module_name, 'br_max',  &
@@ -809,6 +834,11 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
        time, 'carbon loss', 'kg C', missing_value=-100.0 )
   id_wdgain = register_tiled_diag_field ( module_name, 'wdgain', (/id_lon,id_lat/), &
        time, 'wood biomass gain', 'kg C', missing_value=-100.0 )
+
+   id_Ngain = register_tiled_diag_field ( module_name, 'Ngain', (/id_lon,id_lat/), &
+        time, 'nitrogen gain', 'kg N', missing_value=-100.0 )
+   id_Nloss = register_tiled_diag_field ( module_name, 'Nloss', (/id_lon,id_lat/), &
+        time, 'nitrogen loss', 'kg N', missing_value=-100.0 )
 
   id_t_ann  = register_tiled_diag_field ( module_name, 't_ann', (/id_lon,id_lat/), &
        time, 'annual mean temperature', 'degK', missing_value=-999.0 )
@@ -853,7 +883,7 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
   id_ssc_rate_ag = register_tiled_diag_field (module_name, 'ssc_rate_ag', (/id_lon, id_lat/), &
        time, 'rate of conversion of above-ground ssc_pool to the fast soil_carbon', 'kg C/(m2 yr)', &
        missing_value=-999.0)
-  
+
   id_fsc_pool_bg = register_tiled_diag_field (module_name, 'fsc_pool_bg', (/id_lon, id_lat/), &
        time, 'intermediate pool of below-ground fast soil carbon', 'kg C/m2', missing_value=-999.0)
   id_fsc_rate_bg = register_tiled_diag_field (module_name, 'fsc_rate_bg', (/id_lon, id_lat/), &
@@ -2040,6 +2070,9 @@ subroutine update_vegn_slow( )
         call send_tile_data(id_closs,sum(cc(1:N)%carbon_loss*cc(1:N)%nindivs),tile%diag)
         call send_tile_data(id_wdgain,sum(cc(1:N)%bwood_gain*cc(1:N)%nindivs),tile%diag)
 
+        call send_tile_data(id_Ngain,sum(cc(1:N)%nitrogen_gain*cc(1:N)%nindivs),tile%diag)
+        call send_tile_data(id_Nloss,sum(cc(1:N)%nitrogen_loss*cc(1:N)%nindivs),tile%diag)
+
         call vegn_growth(tile%vegn,tile%diag) ! selects lm3 or ppa inside
         call check_conservation_2(tile,'update_vegn_slow 4.1',lmass0,fmass0,cmass0,nmass0)
 
@@ -2159,6 +2192,17 @@ subroutine update_vegn_slow( )
      call send_cohort_data(id_bwood,  tile%diag, cc(1:N), cc(1:N)%bwood,  weight=cc(1:N)%nindivs, op=OP_SUM)
      call send_cohort_data(id_bseed,  tile%diag, cc(1:N), cc(1:N)%bseed,  weight=cc(1:N)%nindivs, op=OP_SUM)
      call send_cohort_data(id_nsc,    tile%diag, cc(1:N), cc(1:N)%nsc,    weight=cc(1:N)%nindivs, op=OP_SUM)
+
+     call send_cohort_data(id_leaf_N,     tile%diag, cc(1:N), cc(1:N)%leaf_N,     weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_stored_N,    tile%diag, cc(1:N), cc(1:N)%stored_N,    weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_root_N,     tile%diag, cc(1:N), cc(1:N)%root_N,     weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_sapwood_N,    tile%diag, cc(1:N), cc(1:N)%sapwood_N,    weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_wood_N,  tile%diag, cc(1:N), cc(1:N)%wood_N,  weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_seed_N,  tile%diag, cc(1:N), cc(1:N)%seed_N,  weight=cc(1:N)%nindivs, op=OP_SUM)
+
+     call send_cohort_data(id_myc_scavenger_C,tile%diag, cc(1:N), cc(1:N)%myc_scavenger_biomass_C, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_myc_miner_C,tile%diag, cc(1:N), cc(1:N)%myc_miner_biomass_C, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_N_fixer_C,tile%diag, cc(1:N), cc(1:N)%N_fixer_biomass_C, weight=cc(1:N)%nindivs, op=OP_SUM)
 
      allocate(btot(N)) ! has to be allocated since N cohorts changes inside this subroutine
      btot(1:N) = cc(1:N)%bl    + &

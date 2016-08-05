@@ -76,7 +76,8 @@ integer :: &
     id_N_fixer_allocation, id_total_plant_N_uptake, &
     id_N_fix_marginal_gain, id_myc_scav_marginal_gain, &
     id_myc_mine_marginal_gain, id_rhiz_exudation, id_nitrogen_stress, &
-    id_rhiz_exud_marginal_gain
+    id_rhiz_exud_marginal_gain,id_passive_N_uptake,id_myc_scavenger_N_uptake,&
+    id_myc_miner_N_uptake,id_symbiotic_N_fixation,id_active_root_N_uptake
 
 
 contains
@@ -141,42 +142,53 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
        (/id_lon,id_lat/), time, 'average cohort age', 'years', &
        missing_value=-100.0)
 ! FIXME slm: perhaps the the following fields need to be cohort fields?
-  id_mycorrhizal_scav_allocation = register_tiled_diag_field ( module_name, 'mycorrhizal_scav_allocation',  &
+  id_mycorrhizal_scav_allocation = register_tiled_diag_field ( diag_mod_name, 'mycorrhizal_scav_allocation',  &
        (/id_lon,id_lat/), time, 'C allocation to scavenger mycorrhizae', 'kg C/(m2 year)', &
        missing_value=-100.0 )
-  id_mycorrhizal_scav_immobilization = register_tiled_diag_field ( module_name, 'mycorrhizal_scav_immobilization',  &
+  id_mycorrhizal_scav_immobilization = register_tiled_diag_field ( diag_mod_name, 'mycorrhizal_scav_immobilization',  &
         (/id_lon,id_lat/), time, 'N immobilization by scavenger mycorrhizae', 'kg N/(m2 year)', &
         missing_value=-100.0 )
-  id_mycorrhizal_mine_allocation = register_tiled_diag_field ( module_name, 'mycorrhizal_mine_allocation',  &
+  id_mycorrhizal_mine_allocation = register_tiled_diag_field ( diag_mod_name, 'mycorrhizal_mine_allocation',  &
        (/id_lon,id_lat/), time, 'C allocation to miner mycorrhizae', 'kg C/(m2 year)', &
        missing_value=-100.0 )
-  id_mycorrhizal_mine_immobilization = register_tiled_diag_field ( module_name, 'mycorrhizal_mine_immobilization',  &
+  id_mycorrhizal_mine_immobilization = register_tiled_diag_field ( diag_mod_name, 'mycorrhizal_mine_immobilization',  &
        (/id_lon,id_lat/), time, 'N immobilization by miner mycorrhizae', 'kg N/(m2 year)', &
        missing_value=-100.0 )
-  id_N_fixer_allocation = register_tiled_diag_field ( module_name, 'N_fixer_allocation',  &
+  id_N_fixer_allocation = register_tiled_diag_field ( diag_mod_name, 'N_fixer_allocation',  &
        (/id_lon,id_lat/), time, 'C allocation to N fixers', 'kg C/(m2 year)', &
        missing_value=-100.0 )
-  id_N_fix_marginal_gain = register_tiled_diag_field ( module_name, 'N_fix_marginal_gain',  &
+  id_N_fix_marginal_gain = register_tiled_diag_field ( diag_mod_name, 'N_fix_marginal_gain',  &
        (/id_lon,id_lat/), time, 'Extra N fixation per unit C allocation', 'kg N/(m2 year)/kgC', &
        missing_value=-100.0 )
-  id_myc_scav_marginal_gain = register_tiled_diag_field ( module_name, 'myc_scav_marginal_gain',  &
+  id_myc_scav_marginal_gain = register_tiled_diag_field ( diag_mod_name, 'myc_scav_marginal_gain',  &
        (/id_lon,id_lat/), time, 'Extra N acquisition per unit C allocation to scavenger mycorrhizae', 'kg N/(m2 year)/kgC', &
        missing_value=-100.0 )
-  id_myc_mine_marginal_gain = register_tiled_diag_field ( module_name, 'myc_mine_marginal_gain',  &
+  id_myc_mine_marginal_gain = register_tiled_diag_field ( diag_mod_name, 'myc_mine_marginal_gain',  &
        (/id_lon,id_lat/), time, 'Extra N acquisition per unit C allocation to miner mycorrhizae', 'kg N/(m2 year)/kg C', &
        missing_value=-100.0 )
-  id_rhiz_exudation = register_tiled_diag_field ( module_name, 'rhiz_exudation',  &
+  id_rhiz_exudation = register_tiled_diag_field ( diag_mod_name, 'rhiz_exudation',  &
        (/id_lon,id_lat/), time, 'C allocation to rhizosphere exudation', 'kg C/(m2 year)', &
        missing_value=-100.0 )
-  id_nitrogen_stress = register_tiled_diag_field ( module_name, 'nitrogen_stress',  &
+  id_nitrogen_stress = register_tiled_diag_field ( diag_mod_name, 'nitrogen_stress',  &
        (/id_lon,id_lat/), time, 'Nitrogen stress index', 'Dimensionless', &
        missing_value=-100.0 )
-  id_total_plant_N_uptake = register_tiled_diag_field ( module_name, 'plant_N_uptake',  &
+  id_total_plant_N_uptake = register_tiled_diag_field ( diag_mod_name, 'plant_N_uptake',  &
        (/id_lon,id_lat/), time, 'Plant N uptake rate', 'kg N/(m2 year)', &
        missing_value=-100.0 )
-  id_rhiz_exud_marginal_gain = register_tiled_diag_field ( module_name, 'rhiz_exud_marginal_gain',  &
+  id_rhiz_exud_marginal_gain = register_tiled_diag_field ( diag_mod_name, 'rhiz_exud_marginal_gain',  &
        (/id_lon,id_lat/), time, 'Extra N acquisition per unit rhiz C exudation', 'kg N/(m2 year)/kgC', &
        missing_value=-100.0 )
+
+  id_passive_N_uptake = register_tiled_diag_field ( diag_mod_name, 'passive_N_uptake',  &
+       (/id_lon,id_lat/), time, 'Plant N uptake by root water flow', 'kg N/m2/year', missing_value=-1.0 )
+  id_myc_scavenger_N_uptake = register_tiled_diag_field ( diag_mod_name, 'myc_scavenger_N_uptake',  &
+       (/id_lon,id_lat/), time, 'N uptake by scavenger mycorrhizae', 'kg N/m2/year', missing_value=-1.0 )
+  id_myc_miner_N_uptake = register_tiled_diag_field ( diag_mod_name, 'myc_miner_N_uptake',  &
+       (/id_lon,id_lat/), time, 'N uptake by miner mycorrhizae', 'kg N/m2/year', missing_value=-1.0 )
+  id_symbiotic_N_fixation = register_tiled_diag_field ( diag_mod_name, 'symbiotic_N_fixation',  &
+       (/id_lon,id_lat/), time, 'Symbiotic N fixation', 'kg N/m2/year', missing_value=-1.0 )
+  id_active_root_N_uptake = register_tiled_diag_field ( diag_mod_name, 'active_root_N_uptake',  &
+       (/id_lon,id_lat/), time, 'N uptake by root active transport', 'kg N/m2/year', missing_value=-1.0 )
 end subroutine vegn_dynamics_init
 
 
@@ -689,10 +701,16 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   call send_tile_data(id_myc_scav_marginal_gain,myc_scav_marginal_gain,diag)
   call send_tile_data(id_myc_mine_marginal_gain,myc_mine_marginal_gain,diag)
   call send_tile_data(id_N_fix_marginal_gain,N_fix_marginal_gain,diag)
-  call send_tile_data(id_rhiz_exudation,total_root_exudate_C/dt_fast_yr,diag)
+  call send_tile_data(id_rhiz_exudation,sum(total_root_exudate_C)/dt_fast_yr,diag)
   call send_tile_data(id_nitrogen_stress,vegn%cohorts(1)%nitrogen_stress,diag)
   call send_tile_data(id_total_plant_N_uptake,total_plant_N_uptake/dt_fast_yr,diag)
   call send_tile_data(id_rhiz_exud_marginal_gain,rhiz_exud_marginal_gain,diag)
+
+  call send_tile_data(id_passive_N_uptake,soil%passive_N_uptake/dt_fast_yr,diag)
+  call send_tile_data(id_myc_scavenger_N_uptake,soil%myc_scav_N_uptake/dt_fast_yr,diag)
+  call send_tile_data(id_myc_miner_N_uptake,soil%myc_mine_N_uptake/dt_fast_yr,diag)
+  call send_tile_data(id_symbiotic_N_fixation,soil%symbiotic_N_fixation/dt_fast_yr,diag)
+  call send_tile_data(id_active_root_N_uptake, soil%active_root_N_uptake/dt_fast_yr,diag)
 
 end subroutine vegn_carbon_int_lm3
 

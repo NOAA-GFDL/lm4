@@ -231,6 +231,9 @@ integer         :: gw_option = -1
 
 integer :: n_river_tracers = 0
 integer :: i_river_DOC     = NO_TRACER
+integer :: i_river_DON     = NO_TRACER
+integer :: i_river_NO3     = NO_TRACER
+integer :: i_river_NH4     = NO_TRACER
 
 ! ---- diagnostic field IDs
 ! unused:
@@ -256,7 +259,8 @@ integer ::  &
     id_asoil,id_rsoil,&
     id_fast_DOC_div_loss,id_slow_DOC_div_loss,id_deadmic_DOC_div_loss, &
     id_wet_frac, id_macro_infilt, &
-    id_surf_DOC_loss, id_total_C_leaching, id_total_DOC_div_loss
+    id_surf_DOC_loss, id_total_C_leaching, id_total_DOC_div_loss, &
+    id_total_DON_div_loss, id_total_NO3_div_loss, id_total_NH4_div_loss
 
 integer :: &
     id_protected_C, id_livemic_total_C, id_deadmic_total_C, id_fsc, id_ssc, &
@@ -280,6 +284,12 @@ integer, dimension(N_LITTER_POOLS,N_C_TYPES) :: &
     id_litter_C_leaching !, id_litter_N_leaching
 
 ! FIXME: add N leaching terms to diagnostics?
+
+integer :: &
+    id_total_NH4,id_total_NO3,&
+    id_soil_NO3,id_soil_NH4,&
+    id_total_denitrification_rate,id_NO3_div_loss,&
+    id_NH4_div_loss,id_total_N_mineralization_rate
 
 ! test tridiagonal solver for advection
 integer :: id_st_diff
@@ -376,6 +386,9 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull )
 
   ! initialize river tracer indices
   i_river_DOC  = river_tracer_index('doc')
+  i_river_DON  = river_tracer_index('don')
+  i_river_NO3  = river_tracer_index('no3')
+  i_river_NH4  = river_tracer_index('nh4')
 
   ! -------- initialize soil model diagnostic fields
   call soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
@@ -950,6 +963,12 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
        lnd%time, 'total dead microbe DOC divergence loss', 'kg C/m2', missing_value=-100.0 )
   id_total_DOC_div_loss = register_tiled_diag_field ( module_name, 'total_DOC_div', axes(1:2), &
        lnd%time, 'total rate of DOC divergence loss', 'kg C/m^2/s', missing_value=initval)
+  id_total_DON_div_loss = register_tiled_diag_field ( module_name, 'total_DON_div', axes(1:2), &
+       lnd%time, 'total rate of DON divergence loss', 'kg N/m^2/s', missing_value=initval)
+  id_total_NO3_div_loss = register_tiled_diag_field ( module_name, 'total_NO3_div', axes(1:2), &
+       lnd%time, 'total rate of NO3 divergence loss', 'kg N/m^2/s', missing_value=initval)
+  id_total_NH4_div_loss = register_tiled_diag_field ( module_name, 'total_NH4_div', axes(1:2), &
+       lnd%time, 'total rate of NH4 divergence loss', 'kg N/m^2/s', missing_value=initval)
 
   id_rsoil = register_tiled_diag_field ( module_name, 'rsoil',  &
        axes(1:2), lnd%time, 'soil respiration', 'kg C/(m2 year)', missing_value=-100.0 )
@@ -1017,6 +1036,26 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
        axes(1:2),  lnd%time, 'live microbe <ltype> litter nitrogen', 'kg N/m2', missing_value=-100.0 )
   id_litter_total_N(:) = register_litter_diag_fields ( module_name, '<ltype>litter_total_N', &
        axes(1:2),  lnd%time, '<ltype> litter total nitrogen', 'kg N/m2', missing_value=-100.0 )
+
+
+  id_total_NH4 = register_tiled_diag_field ( module_name, 'total_soil_NH4', axes(1:2),  &
+      lnd%time, 'total NH4 including litter', 'kg N/m2', missing_value=-100.0 )
+  id_total_NO3 = register_tiled_diag_field ( module_name, 'total_soil_NO3', axes(1:2),  &
+       lnd%time, 'total NO3 including litter', 'kg N/m2', missing_value=-100.0 )
+  id_soil_NO3 = register_tiled_diag_field ( module_name, 'soil_NO3', axes,  &
+       lnd%time, 'NO3 per layer', 'kg N/m3', missing_value=-100.0 )
+  id_soil_NH4 = register_tiled_diag_field ( module_name, 'soil_NH4', axes,  &
+       lnd%time, 'NH4 per layer', 'kg N/m3', missing_value=-100.0 )
+  id_total_denitrification_rate = register_tiled_diag_field ( module_name, 'total_denitrification_rate',  &
+       (/id_lon,id_lat/), lnd%time, 'Total denitrification', 'kg N/(m2 year)', &
+       missing_value=-100.0 )
+  id_NO3_div_loss = register_tiled_diag_field ( module_name, 'NO3_div_loss', axes(1:2), &
+       lnd%time, 'total rate of NO3 divergence loss', 'kg N/m^2/s', missing_value=initval)
+  id_NH4_div_loss = register_tiled_diag_field ( module_name, 'NH4_div_loss', axes(1:2), &
+        lnd%time, 'total rate of NH4 divergence loss', 'kg N/m^2/s', missing_value=initval)
+  id_total_N_mineralization_rate = register_tiled_diag_field ( module_name, 'total_N_mineralization_rate',  &
+       (/id_lon,id_lat/), lnd%time, 'Total N mineralization', 'kg N/(m2 year)', &
+       missing_value=-100.0 )
 
   id_nsoilcohorts = register_tiled_diag_field ( module_name, 'n_soil_cohorts', axes,  &
        lnd%time, 'number of soil cohorts', missing_value=-100.0 )
@@ -1807,6 +1846,8 @@ end subroutine soil_step_1
   real :: surf_NO3_loss, surf_NH4_loss ! [kg N/m^2] NH4 and NO3 loss from top soil layer to surface runoff due to efflux
   real :: total_C_leaching(num_l) ! [kg C/m^2/s] net total vertical DOC leaching by layer
   real :: total_DOC_div           ! [kg C/m^2/s] net total DOC divergence loss rate
+  real :: total_DON_div           ! [kg N/m^2/s] net total DON divergence loss rate
+  real :: total_NO3_div,total_NH4_div ! [kg N/m^2/s] net total inorganic N divergence loss rates
 
   real, dimension(num_l) :: passive_ammonium_uptake, passive_nitrate_uptake ! Uptake of dissolved mineral N by roots through water uptake
   ! --------------------------------------------------------------------------
@@ -2736,12 +2777,25 @@ end subroutine soil_step_1
    soil%deadmic_DOC_leached=soil%deadmic_DOC_leached+sum(div_DOC_loss(3,:)) + surf_DOC_loss(3)
    ! Diagnostic. Later pass this back to land_model for transfer to rivers.
    total_DOC_div = sum(surf_DOC_loss(:))
+   total_DON_div = sum(surf_DON_loss(:))
+   total_NO3_div = surf_NO3_loss + sum(div_NO3_loss(1:num_l))
+   total_NH4_div = surf_NH4_loss + sum(div_NH4_loss(1:num_l))
    do l=1,num_l
       total_DOC_div = total_DOC_div + sum(div_DOC_loss(:,l))
+      total_DON_div = total_DON_div + sum(div_DON_loss(:,l))
    end do
    total_DOC_div = total_DOC_div/delta_time
+   total_DON_div = total_DON_div/delta_time
+   total_NO3_div = total_NO3_div/delta_time
+   total_NH4_div = total_NH4_div/delta_time
    if (i_river_DOC/=NO_TRACER) &
        soil_tr_runf(i_river_DOC) = total_DOC_div
+   if (i_river_DON/=NO_TRACER) &
+       soil_tr_runf(i_river_DON) = total_DON_div
+   if (i_river_NO3/=NO_TRACER) &
+       soil_tr_runf(i_river_NO3) = total_NO3_div
+   if (i_river_NH4/=NO_TRACER) &
+       soil_tr_runf(i_river_NH4) = total_NH4_div
 
    if (is_watch_point()) then
       write(*,*)'##### soil_step_2 checkpoint 7 #####'
@@ -2836,6 +2890,9 @@ end subroutine soil_step_1
      call send_tile_data(id_surf_DOC_loss, sum(surf_DOC_loss(:))/delta_time,diag)
   end if
   call send_tile_data(id_total_DOC_div_loss, total_DOC_div, diag)
+  call send_tile_data(id_total_DON_div_loss, total_DON_div, diag)
+  call send_tile_data(id_total_NO3_div_loss, total_NO3_div, diag)
+  call send_tile_data(id_total_NH4_div_loss, total_NH4_div, diag)
 
   if (.not. LM2) call send_tile_data(id_psi_bot, soil%psi(num_l), diag)
 end subroutine soil_step_2
@@ -2855,6 +2912,7 @@ subroutine soil_step_3(soil, diag)
   integer :: i, k, l, ncohorts(num_l), litter_ncohorts
   real :: total_C(N_C_TYPES), total_livemic_C, total_prot_C(N_C_TYPES), total_diss_C(N_C_TYPES), &
           total_N(N_C_TYPES), total_livemic_N, total_prot_N(N_C_TYPES), total_diss_N(N_C_TYPES)
+  real :: total_NO3, total_NH4
 
   select case (soil_carbon_option)
   case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
@@ -2874,10 +2932,13 @@ subroutine soil_step_3(soil, diag)
      total_livemic_C = sum(livemic_C)
      total_prot_C    = sum(protected_C(:,:),2)
      total_diss_C    = sum(dissolved_C(:,:),2)
-     total_N(:)      = sum(soil_C(:,:),2)
-     total_livemic_N = sum(livemic_C)
-     total_prot_N    = sum(protected_C(:,:),2)
-     total_diss_N    = sum(dissolved_C(:,:),2)
+     total_N(:)      = sum(soil_N(:,:),2)
+     total_livemic_N = sum(livemic_N)
+     total_prot_N    = sum(protected_N(:,:),2)
+     total_diss_N    = sum(dissolved_N(:,:),2)
+     total_NO3       = sum(soil%soil_organic_matter(1:num_l)%nitrate)
+     total_NH4       = sum(soil%soil_organic_matter(1:num_l)%ammonium)
+
 
      call send_tile_data(id_nsoilcohorts, real(ncohorts), diag)
      do i = 1, N_C_TYPES
@@ -2899,6 +2960,11 @@ subroutine soil_step_3(soil, diag)
      call send_tile_data(id_slow_DOC_div_loss,    soil%slow_DOC_leached,    diag)
      call send_tile_data(id_deadmic_DOC_div_loss, soil%deadmic_DOC_leached, diag)
 
+     call send_tile_data(id_soil_NO3, soil%soil_organic_matter(1:num_l)%nitrate/dz(1:num_l),diag)
+     call send_tile_data(id_soil_NH4, soil%soil_organic_matter(1:num_l)%ammonium/dz(1:num_l),diag)
+     call send_tile_data(id_total_NO3, total_NO3, diag)
+     call send_tile_data(id_total_NH4, total_NH4, diag)
+
      ! leaf litter diagnostics
      do k = 1, N_LITTER_POOLS
         call poolTotals1 (soil%litter(k), ncohorts=litter_ncohorts, &
@@ -2911,7 +2977,9 @@ subroutine soil_step_3(soil, diag)
         total_N(:)      = total_N(:) + litter_N(:)
         total_livemic_N = total_livemic_N + litter_livemic_N
         total_diss_N    = total_diss_N + sum(soil%litter(k)%dissolved_nitrogen(:))
-        total_prot_N    = total_prot_N + sum(litter_protected_C(:))
+        total_prot_N    = total_prot_N + sum(litter_protected_N(:))
+        total_NO3       = total_NO3 + soil%litter(k)%nitrate
+        total_NH4       = total_NO3 + soil%litter(k)%ammonium
 
         call send_tile_data(id_nlittercohorts(k), real(litter_ncohorts), diag)
         call send_tile_data(id_litter_livemic_C(k), litter_livemic_C, diag)
@@ -2991,9 +3059,7 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   real :: &
      protected_C_produced(N_C_TYPES,num_l), protected_C_turnover_rate(N_C_TYPES,num_l), &
      protected_N_produced(N_C_TYPES,num_l), protected_N_turnover_rate(N_C_TYPES,num_l)
-  real :: leaflitter_nitrif, leaflitter_denitrif, leaflitter_N_mineralization, leafLitter_N_immobilization
-  real :: fineWoodlitter_nitrif, fineWoodlitter_denitrif, fineWoodlitter_N_mineralization, fineWoodlitter_N_immobilization
-  real :: coarseWoodlitter_nitrif, coarseWoodlitter_denitrif, coarseWoodlitter_N_mineralization, coarseWoodlitter_N_immobilization
+  real,dimension(N_LITTER_POOLS) :: litter_nitrif, litter_denitrif, litter_N_mineralization, litter_N_immobilization
   real :: deadmic_C_produced(num_l)
   real :: deadmic_N_produced(num_l)
   real :: soil_nitrif(num_l), soil_denitrif(num_l), soil_N_mineralization(num_l), soil_N_immobilization(num_l)
@@ -3018,8 +3084,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
             deadmic_C_produced=leaflitter_deadmic_C_produced, protected_C_produced=leaflitter_protected_C_produced, protected_turnover_rate=leaflitter_protected_C_turnover_rate, &
             deadmic_N_produced=leaflitter_deadmic_N_produced, protected_N_produced=leaflitter_protected_N_produced, protected_N_turnover_rate=leaflitter_protected_N_turnover_rate, &
             badCohort=badCohort,&
-            nitrification=leaflitter_nitrif, denitrification=leaflitter_denitrif,&
-            N_mineralization=leaflitter_N_mineralization, N_immobilization=leafLitter_N_immobilization)
+            nitrification=litter_nitrif(k), denitrification=litter_denitrif(k),&
+            N_mineralization=litter_N_mineralization(k), N_immobilization=Litter_N_immobilization(k))
      IF (badCohort.ne.0) THEN
         WRITE (*,*), 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
         call land_error_message('Dsdt: Found bad cohort in '//trim(l_longname(k))//' litter.',FATAL)
@@ -3077,6 +3143,12 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   ! TODO: arithmetic averaging of A does not seem correct; we need to invent something better,
   !       e.g. weight it with the carbon loss, or something like that
   if (id_asoil>0) call send_tile_data(id_asoil, sum(A(:))/size(A(:)), diag)
+
+  if (id_total_denitrification_rate>0) call send_tile_data(id_total_denitrification_rate, &
+             (sum(soil_denitrif)+sum(litter_denitrif))/dt_fast_yr,diag)
+  if (id_total_N_mineralization_rate>0) call send_tile_data(id_total_N_mineralization_rate, &
+             (sum(soil_N_mineralization)+sum(litter_N_mineralization))/dt_fast_yr,diag)
+
 
 end subroutine Dsdt_CORPSE
 
