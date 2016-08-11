@@ -73,8 +73,7 @@ use land_numerics_mod, only : ludcmp, lubksb, &
 use land_io_mod, only : read_land_io_namelist, input_buf_size, new_land_io
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
      land_tile_enum_type, new_land_tile, insert, nitems, &
-     first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
-     get_elmt_indices, get_tile_tags, land_tile_carbon, land_tile_heat, &
+     first_elmt, get_tile_tags, land_tile_carbon, land_tile_heat, &
      get_tile_water, init_tile_map, free_tile_map, max_n_tiles, &
      tile_exists_func, loop_over_tiles
 use land_data_mod, only : land_data_type, atmos_land_boundary_type, &
@@ -326,7 +325,7 @@ subroutine land_model_init &
   logical :: used                        ! return value of send_data diagnostics routine
   integer :: i,j,k
   type(land_tile_type), pointer :: tile
-  type(land_tile_enum_type) :: ce, te
+  type(land_tile_enum_type) :: ce
   integer :: ico2_atm ! index of CO2 tracer in the atmos, or NO_TRACER
 
   type(land_restart_type) :: restart
@@ -483,18 +482,8 @@ subroutine land_model_init &
   ce = first_elmt(land_tile_map,                  &
               is=lbound(cplr2land%t_flux,1), &
               js=lbound(cplr2land%t_flux,2)  )
-  te = tail_elmt(land_tile_map)
-  do while(ce /= te)
-     ! calculate indices of the current tile in the input arrays;
-     ! assume all the cplr2land components have the same lbounds
-     call get_elmt_indices(ce,i,j,k)
-     ! set this point coordinates as current for debug output
+  do while(loop_over_tiles(ce,tile, i,j,k))
      call set_current_point(i,j,k)
-     ! get pointer to current tile
-     tile => current_tile(ce)
-     ! advance enumerator to the next tile
-     ce=next_elmt(ce)
-
      call update_land_bc_fast (tile, i,j,k, land2cplr, is_init=.true.)
   enddo
 
@@ -818,7 +807,7 @@ subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,soiltags0,&
   real :: factor ! normalizing factor for the tile areas
   real :: frac
   type(land_tile_enum_type) :: first_non_vegn ! position of first non-vegetated tile in the list
-  type(land_tile_enum_type) :: ce, te
+  type(land_tile_enum_type) :: ce
   real :: athresh = 1.e-10 ! area threshold allowable for deviation from 1
   real :: area ! area sum for gridcell
 
@@ -911,14 +900,9 @@ subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,soiltags0,&
   enddo
 
   ! Check that fractions are set correctly.
-  ce = first_elmt(set)
-  te = tail_elmt(set)
-  area = 0.
-
-  do while (ce /= te)
-     tile => current_tile(ce)
+  ce = first_elmt(set) ; area = 0.
+  do while (loop_over_tiles(ce, tile))
      area = area + tile%frac
-     ce = next_elmt(ce)
   end do
 
   if (abs(area - 1.) > athresh) then
@@ -1081,7 +1065,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   integer :: i_species ! river tracer iterator
   integer :: i1        ! index used to iterate over grid cells efficiently
   integer :: is,ie,js,je ! horizontal bounds of the override buffer
-  type(land_tile_enum_type) :: ce, te ! tile enumerator
+  type(land_tile_enum_type) :: ce ! tile enumerator
   type(land_tile_type), pointer :: tile ! pointer to current tile
 
   ! variables for data override
@@ -1111,17 +1095,13 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   call hlsp_hydrology_1(n_c_types)
 
   ! main tile loop
-!$OMP parallel do schedule(dynamic) default(shared) private(i1,i,j,k,ce,te,tile,ISa_dn_dir,ISa_dn_dif)
+!$OMP parallel do schedule(dynamic) default(shared) private(i1,i,j,k,ce,tile,ISa_dn_dir,ISa_dn_dif)
   do i1 = 0,(ie-is+1)*(je-js+1)-1
      i = mod(i1,ie-is+1)+is
      j = i1/(ie-is+1)+js
 !     __DEBUG4__(is,js,i-is+lnd%is,j-js+lnd%js)
      ce = first_elmt(land_tile_map(i-is+lnd%is,j-js+lnd%js))
-     te = tail_elmt (land_tile_map(i-is+lnd%is,j-js+lnd%js))
-     k = 0
-     do while (ce/=te)
-        k = k+1 ; tile=>current_tile(ce) ; ce = next_elmt(ce)
-
+     do while (loop_over_tiles(ce,tile,k=k))
         ! set this point coordinates as current for debug output
         call set_current_point(i-is+lnd%is,j-js+lnd%js,k)
 
@@ -2191,7 +2171,7 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   ! ---- local vars
   integer :: i,j,k
   type(land_tile_type), pointer :: tile
-  type(land_tile_enum_type) :: ce, te
+  type(land_tile_enum_type) :: ce
 
   call mpp_clock_begin(landClock)
   call mpp_clock_begin(landSlowClock)
@@ -2211,21 +2191,11 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   land2cplr%tile_size = 0.0
 
   ! get the current state of the land boundary for the coupler
-  ce = first_elmt(land_tile_map,                  &
+  ce = first_elmt(land_tile_map,             &
               is=lbound(cplr2land%t_flux,1), &
               js=lbound(cplr2land%t_flux,2)  )
-  te = tail_elmt(land_tile_map)
-  do while(ce /= te)
-     ! calculate indices of the current tile in the input arrays;
-     ! assume all the cplr2land components have the same lbounds
-     call get_elmt_indices(ce,i,j,k)
-     ! set this point coordinates as current for debug output
+  do while(loop_over_tiles(ce,tile,i,j,k))
      call set_current_point(i,j,k)
-     ! get pointer to current tile
-     tile => current_tile(ce)
-     ! advance enumerator to the next tile
-     ce=next_elmt(ce)
-
      call update_land_bc_fast (tile, i,j,k, land2cplr, is_init=.true.)
   enddo
 
@@ -2802,7 +2772,7 @@ integer             , intent(in)  :: index
 real                , intent(out) :: value ! Domain water (Kg) or heat (Joules)
 
 integer :: i,j,n
-type(land_tile_enum_type)     :: ce,te
+type(land_tile_enum_type)     :: ce
 type(land_tile_type), pointer :: tile
 character(len=128) :: message
 integer :: is,ie,js,je
@@ -2842,11 +2812,9 @@ case(ISTOCK_WATER)
   do j = js, je
   do i = is, ie
     ce = first_elmt(land_tile_map(i,j))
-    te = tail_elmt (land_tile_map(i,j))
     gcwd_cana = 0.0; gcwd_glac = 0.0; gcwd_lake = 0.0
     gcwd_soil = 0.0; gcwd_snow = 0.0; gcwd_vegn = 0.0
-    do while(ce /= te)
-      tile => current_tile(ce)
+    do while(loop_over_tiles(ce,tile))
       twd_gas_cana = 0.0
       twd_liq_glac = 0.0 ; twd_sol_glac = 0.0
       twd_liq_lake = 0.0 ; twd_sol_lake = 0.0
@@ -2873,7 +2841,6 @@ case(ISTOCK_WATER)
       gcwd_soil = gcwd_soil + (twd_liq_soil + twd_sol_soil) * tile%frac
       gcwd_snow = gcwd_snow + (twd_liq_snow + twd_sol_snow) * tile%frac
       gcwd_vegn = gcwd_vegn + (twd_liq_vegn + twd_sol_vegn) * tile%frac
-      ce=next_elmt(ce)
     enddo
     v_cana = v_cana + gcwd_cana * lnd%area(i,j)*area_factor
     v_glac = v_glac + gcwd_glac * lnd%area(i,j)*area_factor
@@ -3422,24 +3389,14 @@ subroutine send_cellfrac_data(id, f)
   integer :: i,j,k
   logical :: used
   type(land_tile_type), pointer :: tile
-  type(land_tile_enum_type) :: ce, te
+  type(land_tile_enum_type) :: ce
   real :: frac(lnd%is:lnd%ie,lnd%js:lnd%je)
 
   if (.not.id>0) return ! do nothing if the field was not registered
 
   frac(:,:) = 0.0
   ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js)
-  te = tail_elmt(land_tile_map)
-  do while(ce /= te)
-     ! calculate indices of the current tile in the input arrays;
-     ! assume all the cplr2land components have the same lbounds
-     call get_elmt_indices(ce,i,j,k)
-     ! set this point coordinates as current for debug output
-     ! call set_current_point(i,j,k)
-     ! get pointer to current tile
-     tile => current_tile(ce)
-     ! advance enumerator to the next tile
-     ce=next_elmt(ce)
+  do while (loop_over_tiles(ce, tile, i,j,k))
      ! accumulate fractions
      if (f(tile)) then
         frac(i,j) = frac(i,j)+tile%frac*100.0*lnd%landfrac(i,j)
