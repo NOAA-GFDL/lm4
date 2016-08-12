@@ -23,7 +23,7 @@ use snow_tile_mod, only : &
      snow_data_hydraulics, max_lev, cpw, clw, csw, use_brdf
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
+     first_elmt, loop_over_tiles
 use land_data_mod, only : land_state_type, lnd, log_version
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
@@ -139,7 +139,7 @@ subroutine snow_init (id_lon, id_lat)
 
   ! ---- local vars ----------------------------------------------------------
   integer :: k
-  type(land_tile_enum_type)     :: te,ce ! tail and current tile list elements
+  type(land_tile_enum_type)     :: ce    ! tile list enumerator
   type(land_tile_type), pointer :: tile  ! pointer to current tile
   character(*), parameter :: restart_file_name='INPUT/snow.res.nc'
   type(land_restart_type) :: restart
@@ -157,12 +157,8 @@ subroutine snow_init (id_lon, id_lat)
      call get_tile_data(restart, 'ws'  , 'zfull', snow_ws_ptr)
   else
      call error_mesg('snow_init', 'cold-starting snow', NOTE)
-     te = tail_elmt (land_tile_map)
      ce = first_elmt(land_tile_map)
-     do while(ce /= te)
-        tile=>current_tile(ce)  ! get pointer to current tile
-        ce=next_elmt(ce)       ! advance position to the next tile
-
+     do while(loop_over_tiles(ce, tile))
         if (.not.associated(tile%snow)) cycle
         do k = 1,num_l
            tile%snow%wl(k) = init_pack_wl * dz(k)

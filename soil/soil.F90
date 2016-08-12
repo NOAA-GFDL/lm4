@@ -41,8 +41,7 @@ use soil_carbon_mod, only: poolTotalCarbon, soilMaxCohorts, &
      C_CEL, C_LIG, C_MIC, A_function, debug_pool, adjust_pool_ncohorts
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, prev_elmt, current_tile, get_elmt_indices, &
-     operator(/=)
+     first_elmt, prev_elmt, loop_over_tiles
 use land_utils_mod, only : put_to_tiles_r0d_fptr, put_to_tiles_r1d_fptr
 use land_tile_diag_mod, only : diag_buff_type, &
      register_tiled_static_field, register_tiled_diag_field, &
@@ -360,8 +359,8 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
   integer, intent(out) :: id_zfull ! ID of vertical soil axis
 
   ! ---- local vars
-  type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
-  type(land_tile_type), pointer :: tile   ! pointer to current tile
+  type(land_tile_enum_type)     :: ce   ! tile list enumerator
+  type(land_tile_type), pointer :: tile ! pointer to current tile
   ! input data buffers for respective variables:
   real, allocatable :: gw_param(:,:), gw_param2(:,:), gw_param3(:,:), albedo(:,:,:)
   real, allocatable :: f_iso(:,:,:), f_vol(:,:,:), f_geo(:,:,:), refl_dif(:,:,:)
@@ -448,11 +447,8 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
                                             soil_k_sat_gw_ptr )
         endif
         deallocate(gw_param, gw_param2, gw_param3)
-        te = tail_elmt (land_tile_map)
         ce = first_elmt(land_tile_map)
-        do while(ce /= te)
-            tile=>current_tile(ce)  ! get pointer to current tile
-            ce=next_elmt(ce)        ! advance position to the next tile
+        do while(loop_over_tiles(ce,tile))
             if (.not.associated(tile%soil)) cycle
             select case (gw_option)
             case (GW_HILL)
@@ -494,11 +490,8 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
                                           soil_k_sat_gw_ptr )
            deallocate(gw_param, gw_param2)
         end if
-        te = tail_elmt (land_tile_map)
         ce = first_elmt(land_tile_map)
-        do while(ce /= te)
-            tile=>current_tile(ce)  ! get pointer to current tile
-            ce=next_elmt(ce)        ! advance position to the next tile
+        do while(loop_over_tiles(ce,tile))
             if (.not.associated(tile%soil)) cycle
             call soil_data_init_derive_subsurf_pars_tiled(tile%soil, use_geohydrodata)
         end do
@@ -582,15 +575,9 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
   end if
 
   ! -------- initialize soil state --------
-  te = tail_elmt (land_tile_map)
   ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js) ! Use global indices here because element indices
-                                                      ! needed.
-  do while(ce /= te)
-     tile=>current_tile(ce)  ! get pointer to current tile
-     ce=next_elmt(ce)        ! advance position to the next tile
+  do while(loop_over_tiles(ce,tile,i=li,j=lj,k=k))
      if (.not.associated(tile%soil)) cycle
-     ! Retrieve indices
-     call get_elmt_indices(prev_elmt(ce),i=li,j=lj,k=k)
      call set_current_point(li,lj,k)
      if (init_wtdep .gt. 0.) then
         if (.not. use_coldstart_wtt_data) then
@@ -675,11 +662,8 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
 
      if (field_exists(restart,'fast_soil_C')) then
         ! we are dealing with CORPSE restart
-        te = tail_elmt (land_tile_map)
         ce = first_elmt(land_tile_map)
-        do while(ce /= te)
-            tile=>current_tile(ce)  ! get pointer to current tile
-            ce=next_elmt(ce)        ! advance position to the next tile
+        do while(loop_over_tiles(ce,tile))
             if (.not.associated(tile%soil)) cycle
             call adjust_pool_ncohorts(tile%soil%leafLitter)
             call adjust_pool_ncohorts(tile%soil%fineWoodLitter)
@@ -1397,8 +1381,8 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   ! ---- local vars ----------------------------------------------------------
   character(267) :: filename
   type(land_restart_type) :: restart ! restart file i/o object
-  type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
-  type(land_tile_type), pointer :: tile   ! pointer to current tile
+  type(land_tile_enum_type)     :: ce   ! tile list enumerator
+  type(land_tile_type), pointer :: tile ! pointer to current tile
   integer :: i
 
   call error_mesg('soil_end','writing NetCDF restart',NOTE)
@@ -1424,11 +1408,8 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
      call add_tile_data(restart,'fsc', 'zfull', soil_fast_soil_C_ptr ,'fast soil carbon', 'kg C/m2')
      call add_tile_data(restart,'ssc', 'zfull', soil_slow_soil_C_ptr ,'slow soil carbon', 'kg C/m2')
   case (SOILC_CORPSE)
-     te = tail_elmt (land_tile_map)
      ce = first_elmt(land_tile_map)
-     do while(ce /= te)
-        tile=>current_tile(ce)  ! get pointer to current tile
-        ce=next_elmt(ce)        ! advance position to the next tile
+     do while(loop_over_tiles(ce,tile))
         if (.not.associated(tile%soil)) cycle
         call adjust_pool_ncohorts(tile%soil%leafLitter)
         call adjust_pool_ncohorts(tile%soil%fineWoodLitter)

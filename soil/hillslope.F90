@@ -18,7 +18,7 @@ use fms_mod, only: error_mesg, file_exist, close_file, check_nml_error, &
 use fms_io_mod, only: set_domain, nullify_domain
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, current_tile, get_elmt_indices, operator(/=)
+     first_elmt, loop_over_tiles, get_elmt_indices
 use land_utils_mod, only : put_to_tiles_r0d_fptr
 use land_tile_diag_mod, only : diag_buff_type, &
      register_tiled_static_field, set_default_diag_filter, &
@@ -561,8 +561,8 @@ subroutine hlsp_init ( id_lon, id_lat )
 
   ! ---- local vars
   integer :: unit         ! unit for various i/o
-  type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
-  type(land_tile_type), pointer :: tile   ! pointer to current tile
+  type(land_tile_enum_type)     :: ce    ! tile list enu,erator
+  type(land_tile_type), pointer :: tile  ! pointer to current tile
   real, allocatable, dimension(:,:,:) :: frac_topo_hlsps
   integer, allocatable, dimension(:,:) :: num_topo_hlsps
   real, allocatable, dimension(:,:,:) :: soil_e_depth, microtopo, hlsp_length, &
@@ -585,11 +585,8 @@ subroutine hlsp_init ( id_lon, id_lat )
 
   if (.not. do_hillslope_model) then
      ! Set hillslope indices all to 0 and return
-     te = tail_elmt (land_tile_map)
      ce = first_elmt(land_tile_map)
-     do while(ce /= te)
-        tile=>current_tile(ce)  ! get pointer to current tile
-        ce=next_elmt(ce)        ! advance position to the next tile
+     do while(loop_over_tiles(ce,tile))
         if (associated(tile%soil)) then
            tile%soil%hidx_j = 0
            tile%soil%hidx_k = 0
@@ -647,13 +644,9 @@ subroutine hlsp_init ( id_lon, id_lat )
   tfreeze_diff = 0. ! Initialize before tile loop.
 
   ! Assign hillslope-topographic-position dependent parameters to tiles.
-  te = tail_elmt (land_tile_map)
   ce = first_elmt(land_tile_map, is=lis, js=ljs)
-  do while(ce /= te)
-     tile=>current_tile(ce)  ! get pointer to current tile
-     call get_elmt_indices(ce,i=li,j=lj,k=lk)
+  do while(loop_over_tiles(ce,tile,li,lj,lk))
      call set_current_point(li, lj, lk)
-     ce=next_elmt(ce)        ! advance position to the next tile
 
      if (.not.associated(tile%soil)) cycle
 
@@ -911,14 +904,11 @@ end function soil_tile_exists
 ! For now just set disturb_scale to 1/2 hillslope_length. Later this will be set externally
 ! in transitions code, or in vegetation / peat code.
 subroutine transitions_disturbance_length_init()
-   type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
-   type(land_tile_type), pointer :: tile   ! pointer to current tile
+   type(land_tile_enum_type)     :: ce   ! tile list enumerator
+   type(land_tile_type), pointer :: tile ! pointer to current tile
 
-   te = tail_elmt (land_tile_map)
    ce = first_elmt(land_tile_map)
-   do while(ce /= te)
-      tile=>current_tile(ce)  ! get pointer to current tile
-      ce=next_elmt(ce)        ! advance position to the next tile
+   do while(loop_over_tiles(ce,tile))
       if (associated(tile%soil)) then
          tile%soil%pars%disturb_scale = tile%soil%pars%tile_hlsp_length * num_vertclusters / 2.
       end if

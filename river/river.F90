@@ -66,8 +66,7 @@ module river_mod
   use constants_mod,       only : PI, RADIAN, tfreeze, DENS_H2O, hlf
   use stock_constants_mod, only : ISTOCK_WATER, ISTOCK_HEAT
   use land_tile_mod,       only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, current_tile, get_elmt_indices, &
-     operator(/=)
+     first_elmt, loop_over_tiles
   use land_data_mod,       only : lnd, log_version
   use lake_tile_mod,       only : num_l
   use field_manager_mod, only: fm_field_name_len, fm_string_len, &
@@ -627,7 +626,7 @@ end subroutine print_river_tracer_data
     type(Leo_Mad_trios)   :: DHG_coef
     type(Leo_Mad_trios)   :: AAS_exp
     integer i,j,k, i_next, j_next, i_species
-    type(land_tile_enum_type)     :: te,ce ! last and current tile list elements
+    type(land_tile_enum_type)     :: ce    ! land tile enumerator
     type(land_tile_type), pointer :: tile  ! pointer to current tile
     logical :: used
     ! variables for data override
@@ -669,11 +668,7 @@ end subroutine print_river_tracer_data
     lake_backwater = 0
     lake_backwater_1 = 0
     ce = first_elmt(land_tile_map, is=isc, js=jsc)
-    te = tail_elmt (land_tile_map)
-    do while(ce /= te)
-       call get_elmt_indices(ce,i,j,k)
-       tile=>current_tile(ce)  ! get pointer to current tile
-       ce=next_elmt(ce)        ! advance position to the next tile
+    do while(loop_over_tiles(ce, tile, i,j,k))
        if (.not.associated(tile%lake)) cycle
        if (lake_area_bug) then
           lake_sfc_A (i,j) = tile%frac * lnd%cellarea(i,j)
@@ -755,18 +750,14 @@ end subroutine print_river_tracer_data
        call mpp_clock_end(physicsclock)
     enddo
     ce = first_elmt(land_tile_map, is=isc, js=jsc)
-    te = tail_elmt (land_tile_map)
-    do while(ce /= te)
-       call get_elmt_indices(ce,i,j,k)
-       tile=>current_tile(ce)  ! get pointer to current tile
-       ce=next_elmt(ce)        ! advance position to the next tile
+    do while(loop_over_tiles(ce, tile, i,j,k))
        if (.not.associated(tile%lake)) cycle
        do lev = 1, num_lake_lev
-         tile%lake%T(lev)  = lake_T (i,j,lev)
-         tile%lake%wl(lev) = lake_wl(i,j,lev)
-         tile%lake%ws(lev) = lake_ws(i,j,lev)
-         enddo
+          tile%lake%T(lev)  = lake_T (i,j,lev)
+          tile%lake%wl(lev) = lake_wl(i,j,lev)
+          tile%lake%ws(lev) = lake_ws(i,j,lev)
        enddo
+    enddo
 
     River%outflowmean = River%outflowmean + &
        (River%outflow-River%outflowmean)*River%dt_slow/River%channel_tau

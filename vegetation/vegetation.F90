@@ -24,8 +24,7 @@ use soil_tile_mod, only: soil_tile_type, soil_ave_temp, &
 use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, mol_air, &
      seconds_per_year
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
-     get_elmt_indices, land_tile_heat, land_tile_carbon, get_tile_water
+     first_elmt, loop_over_tiles, land_tile_heat, land_tile_carbon, get_tile_water
 use land_tile_diag_mod, only : register_tiled_static_field, register_tiled_diag_field, &
      send_tile_data, diag_buff_type, OP_STD, OP_VAR, set_default_diag_filter, &
      cmor_name
@@ -264,7 +263,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
 
   ! ---- local vars
   integer :: unit         ! unit for various i/o
-  type(land_tile_enum_type)     :: te,ce ! current and tail tile list elements
+  type(land_tile_enum_type)     :: ce    ! tile list enumerator
   type(land_tile_type), pointer :: tile  ! pointer to current tile
   type(vegn_cohort_type), pointer :: cohort! pointer to initial cohort for cold-start
   integer :: n_accum
@@ -403,12 +402,8 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
   ! Go through all tiles and initialize the cohorts that have not been initialized yet --
   ! this allows to read partial restarts. Also initialize accumulation counters to zero
   ! or the values from the restarts.
-  te = tail_elmt(land_tile_map)
   ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js)
-  do while(ce /= te)
-     tile=>current_tile(ce)  ! get pointer to current tile
-     call get_elmt_indices(ce,i,j)
-     ce=next_elmt(ce)       ! advance position to the next tile
+  do while(loop_over_tiles(ce,tile,i,j))
      if (.not.associated(tile%vegn)) cycle
 
      tile%vegn%n_accum = n_accum
@@ -465,12 +460,8 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
 
   ! ---- diagnostic section
   ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js)
-  te  = tail_elmt(land_tile_map)
-  do while(ce /= te)
-     tile => current_tile(ce)
-     ce=next_elmt(ce)
+  do while(loop_over_tiles(ce, tile))
      if (.not.associated(tile%vegn)) cycle ! skip non-vegetation tiles
-     ! send the data
      call send_tile_data(id_vegn_type,  real(tile%vegn%tag), tile%diag)
   enddo
 
@@ -732,7 +723,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
 
   ! ---- local vars
   integer ::  i
-  type(land_tile_enum_type) :: ce, te
+  type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
   integer :: n_accum, nmn_acm
 
@@ -766,9 +757,8 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   ! store global variables
   ! find first tile and get n_accum and nmn_acm from it
   n_accum = 0; nmn_acm = 0
-  ce = first_elmt(land_tile_map) ; te = tail_elmt(land_tile_map)
-  do while ( ce /= te )
-     tile => current_tile(ce) ; ce=next_elmt(ce)
+  ce = first_elmt(land_tile_map)
+  do while ( loop_over_tiles(ce,tile))
      if(associated(tile%vegn)) then
         n_accum = tile%vegn%n_accum
         nmn_acm = tile%vegn%nmn_acm
@@ -1348,7 +1338,7 @@ subroutine update_vegn_slow( )
 
   ! ---- local vars ----------------------------------------------------------
   integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
-  type(land_tile_enum_type) :: ce, te
+  type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
   integer :: i,j,k ! current point indices
   integer :: ii ! pool iterator
@@ -1371,10 +1361,9 @@ subroutine update_vegn_slow( )
      call error_mesg('update_vegn_slow',trim(timestamp),NOTE)
   endif
 
-  ce = first_elmt(land_tile_map, lnd%is, lnd%js) ; te = tail_elmt(land_tile_map)
-  do while ( ce /= te )
-     call get_elmt_indices(ce,i,j,k) ; call set_current_point(i,j,k) ! this is for debug output only
-     tile => current_tile(ce) ; ce=next_elmt(ce)
+  ce = first_elmt(land_tile_map, lnd%is, lnd%js)
+  do while (loop_over_tiles(ce,tile, i,j,k))
+     call set_current_point(i,j,k) ! this is for debug output only
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
 
      if(do_check_conservation) then
@@ -1624,7 +1613,7 @@ end subroutine update_vegn_slow
 subroutine vegn_seed_transport()
 
   ! local vars
-  type(land_tile_enum_type) :: ce, te
+  type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
   integer :: i,j ! current point indices
   real :: total_seed_supply
@@ -1632,11 +1621,9 @@ subroutine vegn_seed_transport()
   real :: f_supply ! fraction of the supply that gets spent
   real :: f_demand ! fraction of the demand that gets satisfied
 
-  ce = first_elmt(land_tile_map, lnd%is, lnd%js) ; te = tail_elmt(land_tile_map)
   total_seed_supply = 0.0; total_seed_demand = 0.0
-  do while ( ce /= te )
-     call get_elmt_indices(ce,i,j)
-     tile => current_tile(ce) ; ce=next_elmt(ce)
+  ce = first_elmt(land_tile_map, lnd%is, lnd%js)
+  do while (loop_over_tiles(ce,tile,i,j))
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
 
      total_seed_supply = total_seed_supply + vegn_seed_supply(tile%vegn)*tile%frac*lnd%area(i,j)
@@ -1660,13 +1647,9 @@ subroutine vegn_seed_transport()
 
   ! redistribute part (or possibly all) of the supply to satisfy part (or possibly all)
   ! of the demand
-  ce = first_elmt(land_tile_map) ; te = tail_elmt(land_tile_map)
-  do while ( ce /= te )
-     call get_elmt_indices(ce,i,j)
-     tile => current_tile(ce) ; ce=next_elmt(ce)
-     if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
-
-     call vegn_add_bliving(tile%vegn, &
+  ce = first_elmt(land_tile_map)
+  do while (loop_over_tiles(ce,tile))
+     if(associated(tile%vegn)) call vegn_add_bliving(tile%vegn, &
           f_demand*vegn_seed_demand(tile%vegn)-f_supply*vegn_seed_supply(tile%vegn))
   enddo
 end subroutine vegn_seed_transport

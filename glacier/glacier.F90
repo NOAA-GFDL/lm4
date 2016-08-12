@@ -23,7 +23,7 @@ use glac_tile_mod,      only: glac_tile_type, &
 
 use land_constants_mod, only : NBANDS
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
+     first_elmt, loop_over_tiles
 use land_tile_diag_mod, only : set_default_diag_filter, &
      register_tiled_diag_field, send_tile_data, diag_buff_type
 use land_data_mod, only : lnd, log_version
@@ -128,8 +128,8 @@ subroutine glac_init ( id_lon, id_lat )
   integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
 
   ! ---- local vars
-  type(land_tile_enum_type)     :: te,ce ! last and current tile list elements
-  type(land_tile_type), pointer :: tile  ! pointer to current tile
+  type(land_tile_enum_type)     :: ce   ! tile list enumerator
+  type(land_tile_type), pointer :: tile ! pointer to current tile
   type(land_restart_type) :: restart
   logical :: restart_exists
   character(*), parameter :: restart_file_name='INPUT/glac.res.nc'
@@ -150,12 +150,8 @@ subroutine glac_init ( id_lon, id_lat )
      call error_mesg('glac_init',&
           'cold-starting glacier',&
           NOTE)
-     te = tail_elmt (land_tile_map)
      ce = first_elmt(land_tile_map)
-     do while(ce /= te)
-        tile=>current_tile(ce) ! get pointer to current tile
-        ce=next_elmt(ce)       ! advance position to the next tile
-
+     do while(loop_over_tiles(ce,tile))
         if (.not.associated(tile%glac)) cycle
 
         if (init_temp.ge.tfreeze.or.lm2) then      ! USE glac TFREEZE HERE

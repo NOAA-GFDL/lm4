@@ -25,7 +25,7 @@ use land_tracers_mod, only : ntcana, isphum, ico2
 use cana_tile_mod, only : cana_tile_type, &
      canopy_air_mass, canopy_air_mass_for_tracers, cpw
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
+     first_elmt, loop_over_tiles
 use land_data_mod, only : lnd, log_version
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
@@ -114,8 +114,8 @@ subroutine cana_init ( id_lon, id_lat )
   integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
 
   ! ---- local vars ----------------------------------------------------------
-  type(land_tile_enum_type)     :: te,ce ! last and current tile
-  type(land_tile_type), pointer :: tile   ! pointer to current tile
+  type(land_tile_enum_type)     :: ce   ! tile list enumerator
+  type(land_tile_type), pointer :: tile ! pointer to current tile
   character(*), parameter :: restart_file_name='INPUT/cana.res.nc'
   type(land_restart_type) :: restart
   logical :: restart_exists
@@ -153,12 +153,8 @@ subroutine cana_init ( id_lon, id_lat )
   init_tr(ico2)   = init_co2*mol_CO2/mol_air*(1-init_tr(isphum)) ! convert to kg CO2/kg wet air
 
   ! first, set the initial values
-  te = tail_elmt (land_tile_map)
   ce = first_elmt(land_tile_map)
-  do while(ce /= te)
-     tile=>current_tile(ce)  ! get pointer to current tile
-     ce=next_elmt(ce)       ! advance position to the next tile
-
+  do while(loop_over_tiles(ce, tile))
      if (.not.associated(tile%cana)) cycle
 
      if (associated(tile%glac)) then

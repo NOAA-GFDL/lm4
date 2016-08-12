@@ -26,7 +26,7 @@ use lake_tile_mod, only : &
      lake_specific_width, n_outlet, outlet_face, outlet_i, outlet_j, &
      outlet_width, use_brdf
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
+     first_elmt, loop_over_tiles
 use land_tile_diag_mod, only : register_tiled_static_field, &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
      send_tile_data_r0d_fptr, add_tiled_static_field_alias, &
@@ -171,8 +171,8 @@ subroutine lake_init ( id_lon, id_lat )
   integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
 
   ! ---- local vars
-  type(land_tile_enum_type)     :: te,ce ! last and current tile list elements
-  type(land_tile_type), pointer :: tile  ! pointer to current tile
+  type(land_tile_enum_type)     :: ce   ! tile list enumerator
+  type(land_tile_type), pointer :: tile ! pointer to current tile
   type(land_restart_type) :: restart
   logical :: restart_exists
   real, allocatable :: buffer(:,:),bufferc(:,:),buffert(:,:)
@@ -259,12 +259,8 @@ subroutine lake_init ( id_lon, id_lat )
   deallocate (buffer, bufferc, buffert)
 
   ! -------- initialize lake state --------
-  te = tail_elmt (land_tile_map)
   ce = first_elmt(land_tile_map)
-  do while(ce /= te)
-     tile=>current_tile(ce)  ! get pointer to current tile
-     ce=next_elmt(ce)        ! advance position to the next tile
-
+  do while (loop_over_tiles(ce,tile))
      if (.not.associated(tile%lake)) cycle
 
      tile%lake%dz = tile%lake%pars%depth_sill/num_l
