@@ -20,7 +20,7 @@ use nf_utils_mod, only : nfu_inq_dim, nfu_inq_var, nfu_def_dim, nfu_def_var, &
      nfu_get_var, nfu_put_var, nfu_put_att
 use land_io_mod, only : print_netcdf_error, read_field, input_buf_size, new_land_io
 use land_tile_mod, only : land_tile_type, land_tile_list_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, current_tile, get_elmt_indices, operator(/=), &
+     first_elmt, current_tile, loop_over_tiles, &
      tile_exists_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk, &
      land_tile_map
 
@@ -939,31 +939,27 @@ subroutine create_tile_out_file_fptr(ncid, name, glon, glat, tile_exists, &
       ! the total number of qualifying tiles in this domain is equal to zero
 
   ! ---- local vars
-  type(land_tile_enum_type) :: ce, te ! tile list elements
+  type(land_tile_enum_type) :: ce  ! tile list enumerator
+  type(land_tile_type), pointer :: tile
   integer, allocatable :: idx(:)   ! integer compressed index of tiles
   integer :: i,j,k,n
 
   ! count total number of tiles in this domain
   ce = first_elmt(land_tile_map, lnd%is, lnd%js)
-  te = tail_elmt (land_tile_map)
   n  = 0
-  do while (ce/=te)
-     if (tile_exists(current_tile(ce))) n = n+1
-     ce=next_elmt(ce)
+  do while (loop_over_tiles(ce,tile))
+     if (tile_exists(tile)) n = n+1
   end do
 
   ! calculate compressed tile index to be written to the restart file;
   allocate(idx(max(n,1))); idx(:) = -1 ! set init value to a known invalid index
   ce = first_elmt(land_tile_map, lnd%is, lnd%js)
   n = 1
-  do while (ce/=te)
-     call get_elmt_indices(ce,i,j,k)
-
-     if(tile_exists(current_tile(ce))) then
+  do while (loop_over_tiles(ce,tile,i,j,k))
+     if(tile_exists(tile)) then
         idx (n) = (k-1)*lnd%nlon*lnd%nlat + (j-1)*lnd%nlon + (i-1)
         n = n+1
      endif
-     ce=next_elmt(ce)
   end do
   ! create tile output file, defining horizontal coordinate and compressed
   ! dimension
@@ -1023,30 +1019,26 @@ subroutine create_tile_out_file_fptr_new(rhandle,idx,name,tile_exists,tile_dim_l
       ! the total number of qualifying tiles in this domain is equal to zero
 
   ! ---- local vars
-  type(land_tile_enum_type) :: ce, te ! tile list elements
+  type(land_tile_enum_type) :: ce ! tile list enumerator
+  type(land_tile_type), pointer :: tile
   integer :: i,j,k,n
 
   ! count total number of tiles in this domain
   ce = first_elmt(land_tile_map, lnd%is, lnd%js)
-  te = tail_elmt (land_tile_map)
   n  = 0
-  do while (ce/=te)
-     if (tile_exists(current_tile(ce))) n = n+1
-     ce=next_elmt(ce)
+  do while (loop_over_tiles(ce,tile))
+     if (tile_exists(tile)) n = n+1
   end do
 
   ! calculate compressed tile index to be written to the restart file;
   allocate(idx(max(n,1))); idx(:) = -1 ! set init value to a known invalid index
   ce = first_elmt(land_tile_map, lnd%is, lnd%js)
   n = 1
-  do while (ce/=te)
-     call get_elmt_indices(ce,i,j,k)
-
-     if(tile_exists(current_tile(ce))) then
+  do while (loop_over_tiles(ce,tile,i,j,k))
+     if(tile_exists(tile)) then
         idx(n) = (k-1)*lnd%nlon*lnd%nlat + (j-1)*lnd%nlon + (i-1)
         n = n+1
      endif
-     ce=next_elmt(ce)
   end do
   ! create tile output file, defining horizontal coordinate and compressed
   ! dimension
@@ -1070,7 +1062,7 @@ subroutine get_tile_by_idx(idx,nlon,nlat,tiles,is,js,ptr)
 
    ! ---- local vars
    integer :: i,j,k
-   type(land_tile_enum_type) :: ce,te
+   type(land_tile_enum_type) :: ce
 
    ptr=>null()
 
@@ -1085,15 +1077,11 @@ subroutine get_tile_by_idx(idx,nlon,nlat,tiles,is,js,ptr)
    if (j<js.or.j>js+size(tiles,2)-1) return ! skip points outside of domain
    ! loop through the list of tiles at the given point to find k+1st tile
    ce = first_elmt (tiles(i,j))
-   te = tail_elmt  (tiles(i,j))
-   do while(ce/=te.and.k>0)
-     ce=next_elmt(ce); k = k-1
+   do while(loop_over_tiles(ce, ptr).and.k>0)
+      k = k-1
    enddo
-   ! set the returned pointer
-   ! NOTE that if (ce==te) at the end of the loop (that is, there are less
-   ! tiles in the list then requested by the idx), current_tile(ce) returns
-   ! NULL
-   ptr=>current_tile(ce)
+   ! NOTE that at the end of the loop (that is, if there are less tiles in the list 
+   ! then requested by the idx), loop_over_tiles(ce,ptr) returns NULL
 
 end subroutine get_tile_by_idx
 

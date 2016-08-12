@@ -12,8 +12,7 @@ use land_tile_selectors_mod, only : tile_selectors_init, tile_selectors_end, &
      tile_selector_type, register_tile_selector, selector_suffix, &
      n_selectors, selectors
 use land_tile_mod,      only : land_tile_type, diag_buff_type, &
-     land_tile_list_type, first_elmt, tail_elmt, next_elmt, get_elmt_indices, &
-     land_tile_enum_type, operator(/=), current_tile, &
+     land_tile_list_type, land_tile_enum_type, first_elmt, loop_over_tiles, &
      tile_is_selected, fptr_i0, fptr_r0, fptr_r0i
 use land_data_mod,      only : lnd, log_version
 use tile_diag_buff_mod, only : diag_buff_type, realloc_diag_buff
@@ -683,18 +682,15 @@ subroutine send_tile_data_r0d_fptr(id, tile_map, fptr)
   type(land_tile_list_type), intent(inout) :: tile_map(:,:)
   procedure(fptr_r0)  :: fptr
 
-  type(land_tile_enum_type)     :: te,ce   ! tail and current tile list elements
+  type(land_tile_enum_type)     :: ce      ! tile list enumerator
   type(land_tile_type), pointer :: tileptr ! pointer to tile
   real                , pointer :: ptr     ! pointer to the data element within a tile
 
   if(id <= 0) return
   ce = first_elmt( tile_map )
-  te = tail_elmt ( tile_map )
-  do while(ce /= te)
-     tileptr => current_tile(ce)
+  do while(loop_over_tiles(ce,tileptr))
      call fptr(tileptr,ptr)
      if(associated(ptr)) call send_tile_data(id,ptr,tileptr%diag)
-     ce=next_elmt(ce)
   enddo
 end subroutine send_tile_data_r0d_fptr
 
@@ -705,7 +701,7 @@ subroutine send_tile_data_r1d_fptr(id, tile_map, fptr)
   type(land_tile_list_type), intent(inout) :: tile_map(:,:)
   procedure(fptr_r0i) :: fptr
 
-  type(land_tile_enum_type)     :: te,ce   ! tail and current tile list elements
+  type(land_tile_enum_type)     :: ce      ! tile list enumerator
   type(land_tile_type), pointer :: tileptr ! pointer to tile
   real                , pointer :: ptr     ! pointer to the data element within a tile
   real,             allocatable :: buffer(:) ! buffer for accumulating data
@@ -716,15 +712,12 @@ subroutine send_tile_data_r1d_fptr(id, tile_map, fptr)
 
   allocate(buffer(fields(i)%size))
   ce = first_elmt( tile_map )
-  te = tail_elmt ( tile_map )
-  do while(ce /= te)
-     tileptr => current_tile(ce)
+  do while(loop_over_tiles(ce, tileptr))
      do k = 1,fields(i)%size
         call fptr(tileptr,k,ptr)
         if(associated(ptr)) buffer(k) = ptr
      enddo
      call send_tile_data(id,buffer,tileptr%diag)
-     ce=next_elmt(ce)
   enddo
   deallocate(buffer)
 end subroutine send_tile_data_r1d_fptr
@@ -736,18 +729,15 @@ subroutine send_tile_data_i0d_fptr(id, tile_map, fptr)
   type(land_tile_list_type), intent(inout) :: tile_map(:,:)
   procedure(fptr_i0)  :: fptr
 
-  type(land_tile_enum_type)     :: te,ce   ! tail and current tile list elements
+  type(land_tile_enum_type)     :: ce      ! tile list enumerator
   type(land_tile_type), pointer :: tileptr ! pointer to tile
   integer             , pointer :: ptr     ! pointer to the data element within a tile
 
   if(id <= 0) return
   ce = first_elmt( tile_map )
-  te = tail_elmt ( tile_map )
-  do while(ce /= te)
-     tileptr => current_tile(ce)
+  do while(loop_over_tiles(ce,tileptr))
      call fptr(tileptr,ptr)
      if(associated(ptr)) call send_tile_data(id,real(ptr),tileptr%diag)
-     ce=next_elmt(ce)
   enddo
 end subroutine send_tile_data_i0d_fptr
 
@@ -760,7 +750,7 @@ subroutine dump_tile_diag_fields(tiles, time)
   ! ---- local vars
   integer :: ifld ! field number
   integer :: isel ! selector number
-  type(land_tile_enum_type)     :: ce, te
+  type(land_tile_enum_type)     :: ce
   type(land_tile_type), pointer :: tile
   integer :: total_n_sends(n_fields)
   ! ---- local static variables -- saved between calls
@@ -784,11 +774,8 @@ subroutine dump_tile_diag_fields(tiles, time)
   ! all the data are sent to the output, so set the data presence tag to FALSE
   ! in all diag buffers in preparation for the next time step
   ce = first_elmt(tiles)
-  te = tail_elmt (tiles)
-  do while(ce /= te)
-    tile => current_tile(ce)       ! get the pointer to the current tile
+  do while(loop_over_tiles(ce,tile))
     tile%diag%mask(:) = .FALSE.
-    ce = next_elmt(ce)            ! move to the next position
   enddo
   ! reset the first_dump flag
   first_dump = .FALSE.
@@ -809,7 +796,7 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
   logical :: used ! value returned from send_data (ignored)
   real, allocatable :: buffer(:,:,:), weight(:,:,:), var(:,:,:)
   logical, allocatable :: mask(:,:,:)
-  type(land_tile_enum_type)     :: ce, te
+  type(land_tile_enum_type)     :: ce
   type(land_tile_type), pointer :: tile
 
   ! calculate array boundaries
@@ -824,12 +811,7 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
 
   ! accumulate data
   ce = first_elmt(tiles, is=is, js=js)
-  te = tail_elmt (tiles)
-  do while(ce /= te)
-    tile => current_tile(ce)      ! get the pointer to current tile
-    call get_elmt_indices(ce,i,j) ! get the indices of current tile
-    ce = next_elmt(ce)           ! move to the next position
-
+  do while(loop_over_tiles(ce, tile, i,j))
     if ( size(tile%diag%data) < ke )       cycle ! do nothing if there is no data in the buffer
     if ( .not.tile_is_selected(tile,sel) ) cycle ! do nothing if tile is not selected
     select case (field%op)
@@ -863,11 +845,7 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
      do j = js,je
      do i = is,ie
         ce = first_elmt(tiles(i,j))
-        te = tail_elmt (tiles(i,j))
-        do while(ce /= te)
-           tile => current_tile(ce) ! get the pointer to current tile
-           ce = next_elmt(ce)       ! move to the next position
-
+        do while(loop_over_tiles(ce,tile))
            if ( size(tile%diag%data) < ke )       cycle ! do nothing if there is no data in the buffer
            if ( .not.tile_is_selected(tile,sel) ) cycle ! do nothing if tile is not selected
            where(tile%diag%mask(ks:ke))
