@@ -267,7 +267,7 @@ total_myc_mine_C_uptake = 0.0
                     cc%Pr * spdata(sp)%alpha(CMPT_ROOT))* &
               cc%bliving*dt_fast_yr
         md_leaf = (cc%Pl * spdata(sp)%alpha(CMPT_LEAF)*cc%bliving)*dt_fast_yr
-        md_vleaf = spdata(sp)%alpha(CMPT_VLEAF)*cc%blv
+        md_vleaf = spdata(sp)%alpha(CMPT_VLEAF)*cc%blv*dt_fast_yr ! This is zero during leaf-on unless there is some extra C in virtual leaves
         md_froot= cc%Pr * spdata(sp)%alpha(CMPT_ROOT)*cc%bliving*dt_fast_yr
         ! NOTE that mathematically. md_alive = md_leaf + md_froot. Unfortunately,
         ! order of operation matters for the bit-wise reproducibility, so all
@@ -308,6 +308,8 @@ total_myc_mine_C_uptake = 0.0
 
    if(is_watch_point()) then
      __DEBUG2__(cc%bwood_gain,md_wood)
+     __DEBUG2__(cc%carbon_gain,cc%md)
+     __DEBUG5__(md_leaf , md_vleaf , md_froot , md_sapwood , cc%Psw_alphasw * cc%bliving * dt_fast_yr)
    endif
 
      if (cc%bwood_gain < 0.0) then
@@ -341,28 +343,28 @@ total_myc_mine_C_uptake = 0.0
            call debug_pool(soil%coarseWoodLitter,'coarseWoodLitter (before)')
         endif
         call add_litter(soil%leafLitter,(/spdata(sp)%fsc_liv *(md_leaf+md_vleaf), (1-spdata(sp)%fsc_liv)*(md_leaf+md_vleaf) ,0.0/),&
-                (/spdata(sp)%fsc_liv *md_leaf/spdata(sp)%leaf_live_c2n*spdata(sp)%leaf_retranslocation_frac, &
-                (1-fsc_liv)*md_leaf/spdata(sp)%leaf_live_c2n*spdata(sp)%leaf_retranslocation_frac ,0.0/))
+                (/spdata(sp)%fsc_liv *md_leaf/spdata(sp)%leaf_live_c2n*(1.0-spdata(sp)%leaf_retranslocation_frac), &
+                (1-fsc_liv)*md_leaf/spdata(sp)%leaf_live_c2n*(1.0-spdata(sp)%leaf_retranslocation_frac) ,0.0/))
         call add_litter(soil%coarseWoodLitter,(/fsc_wood *md_wood*agf_bs, (1-fsc_wood)*md_wood*agf_bs, 0.0/),&
                 (/fsc_wood *md_wood*agf_bs/spdata(sp)%wood_c2n, (1-fsc_wood)*md_wood*agf_bs/spdata(sp)%wood_c2n, 0.0/))
         call add_litter(soil%coarseWoodLitter,(/fsc_liv *md_sapwood*agf_bs, (1-fsc_liv)*md_sapwood*agf_bs, 0.0/),&
-                (/fsc_liv *md_sapwood*agf_bs/spdata(sp)%sapwood_c2n*spdata(sp)%froot_retranslocation_frac, &
-                (1-fsc_liv)*md_sapwood*agf_bs/spdata(sp)%sapwood_c2n*spdata(sp)%froot_retranslocation_frac, 0.0/))
+                (/fsc_liv *md_sapwood*agf_bs/spdata(sp)%sapwood_c2n*(1.0-spdata(sp)%froot_retranslocation_frac), &
+                (1-fsc_liv)*md_sapwood*agf_bs/spdata(sp)%sapwood_c2n*(1.0-spdata(sp)%froot_retranslocation_frac), 0.0/))
         soil%leaflitter_fsc_in=soil%leaflitter_fsc_in+spdata(sp)%fsc_liv *(md_leaf+md_vleaf)
         soil%leaflitter_ssc_in=soil%leaflitter_ssc_in+(1-spdata(sp)%fsc_liv)*(md_leaf+md_vleaf)
         soil%coarsewoodlitter_fsc_in=soil%coarsewoodlitter_fsc_in +    fsc_wood *md_wood*agf_bs + fsc_liv*md_sapwood*agf_bs
         soil%coarsewoodlitter_ssc_in=soil%coarsewoodlitter_ssc_in + (1-fsc_wood)*md_wood*agf_bs + (1-fsc_liv)*md_sapwood*agf_bs
-        soil%leaflitter_fsn_in=soil%leaflitter_fsn_in+spdata(sp)%fsc_liv *md_leaf/spdata(sp)%leaf_live_c2n*spdata(sp)%leaf_retranslocation_frac
-        soil%leaflitter_ssn_in=soil%leaflitter_ssn_in+(1-spdata(sp)%fsc_liv)*md_leaf/spdata(sp)%leaf_live_c2n*spdata(sp)%leaf_retranslocation_frac
-        soil%coarsewoodlitter_fsn_in=soil%coarsewoodlitter_fsn_in +    fsc_wood *md_wood*agf_bs/spdata(sp)%wood_c2n + fsc_liv *md_sapwood*agf_bs/spdata(sp)%sapwood_c2n*spdata(sp)%froot_retranslocation_frac
-        soil%coarsewoodlitter_ssn_in=soil%coarsewoodlitter_ssn_in + (1-fsc_wood)*md_wood*agf_bs/spdata(sp)%wood_c2n + (1-fsc_liv) *md_sapwood*agf_bs/spdata(sp)%sapwood_c2n*spdata(sp)%froot_retranslocation_frac
+        soil%leaflitter_fsn_in=soil%leaflitter_fsn_in+spdata(sp)%fsc_liv *md_leaf/spdata(sp)%leaf_live_c2n*(1.0-spdata(sp)%leaf_retranslocation_frac)
+        soil%leaflitter_ssn_in=soil%leaflitter_ssn_in+(1-spdata(sp)%fsc_liv)*md_leaf/spdata(sp)%leaf_live_c2n*(1.0-spdata(sp)%leaf_retranslocation_frac)
+        soil%coarsewoodlitter_fsn_in=soil%coarsewoodlitter_fsn_in +    fsc_wood *md_wood*agf_bs/spdata(sp)%wood_c2n + fsc_liv *md_sapwood*agf_bs/spdata(sp)%sapwood_c2n*(1.0-spdata(sp)%froot_retranslocation_frac)
+        soil%coarsewoodlitter_ssn_in=soil%coarsewoodlitter_ssn_in + (1-fsc_wood)*md_wood*agf_bs/spdata(sp)%wood_c2n + (1-fsc_liv) *md_sapwood*agf_bs/spdata(sp)%sapwood_c2n*(1.0-spdata(sp)%froot_retranslocation_frac)
 	!ssc_in and fsc_in updated in add_root_litter
         call add_root_litter(soil,vegn,(/spdata(sp)%fsc_froot*md_froot + fsc_wood*md_wood*(1-agf_bs) + fsc_liv*md_sapwood*(1-agf_bs),&
 					(1-spdata(sp)%fsc_froot)*md_froot + (1-fsc_wood)*md_wood*(1-agf_bs) + (1-fsc_liv)*md_sapwood*(1-agf_bs),0.0/), &
-                    (/spdata(sp)%fsc_froot*md_froot/spdata(sp)%froot_live_c2n*spdata(sp)%froot_retranslocation_frac &
-                     + fsc_wood*md_wood*(1-agf_bs)/spdata(sp)%wood_c2n + fsc_liv*md_sapwood*(1-agf_bs)/spdata(sp)%sapwood_c2n*spdata(sp)%froot_retranslocation_frac, &
-            					(1-spdata(sp)%fsc_froot)*md_froot/spdata(sp)%froot_live_c2n*spdata(sp)%froot_retranslocation_frac&
-                       + (1-fsc_wood)*md_wood*(1-agf_bs)/spdata(sp)%wood_c2n + (1-fsc_liv)*md_sapwood*(1-agf_bs)/spdata(sp)%sapwood_c2n**spdata(sp)%froot_retranslocation_frac,0.0/))
+                    (/spdata(sp)%fsc_froot*md_froot/spdata(sp)%froot_live_c2n*(1.0-spdata(sp)%froot_retranslocation_frac) &
+                     + fsc_wood*md_wood*(1-agf_bs)/spdata(sp)%wood_c2n + fsc_liv*md_sapwood*(1-agf_bs)/spdata(sp)%sapwood_c2n*(1.0-spdata(sp)%froot_retranslocation_frac), &
+            					(1-spdata(sp)%fsc_froot)*md_froot/spdata(sp)%froot_live_c2n*(1.0-spdata(sp)%froot_retranslocation_frac)&
+                       + (1-fsc_wood)*md_wood*(1-agf_bs)/spdata(sp)%wood_c2n + (1-fsc_liv)*md_sapwood*(1-agf_bs)/spdata(sp)%sapwood_c2n*(1.0-spdata(sp)%froot_retranslocation_frac),0.0/))
 	if (is_watch_point()) then
            call debug_pool(soil%leafLitter,      'leafLitter (after)'      )
            call debug_pool(soil%coarseWoodLitter,'coarseWoodLitter (after)')
@@ -609,7 +611,16 @@ total_myc_mine_C_uptake = 0.0
             ! Excess C, so there is immobilization
             ! C allocation reduced to match N, and excess goes back to exudation
             mycorrhizal_mine_N_immob = min(myc_mine_N_uptake*0.2,(miner_myc_C_allocated*myc_mine_C_efficiency+myc_mine_C_uptake)/c2n_mycorrhizae - miner_myc_N_allocated)
-            miner_myc_C_allocated = (mycorrhizal_mine_N_immob+miner_myc_N_allocated)*c2n_mycorrhizae/myc_mine_C_efficiency
+            miner_myc_C_allocated = (mycorrhizal_mine_N_immob+miner_myc_N_allocated)*c2n_mycorrhizae/myc_mine_C_efficiency - myc_mine_C_uptake
+
+            ! If this is negative, it means that mycorrhizal C uptake already provided excess C without any root subsidy
+            ! Add the excess carbon to mining CO2 production
+            if (miner_myc_C_allocated<0.0) then
+              mining_CO2prod = mining_CO2prod + (myc_mine_C_uptake - (mycorrhizal_mine_N_immob+miner_myc_N_allocated)*c2n_mycorrhizae/myc_mine_C_efficiency)
+              myc_mine_C_uptake = (mycorrhizal_mine_N_immob+miner_myc_N_allocated)*c2n_mycorrhizae/myc_mine_C_efficiency
+              miner_myc_C_allocated = 0.0
+            endif
+
 
           else
             ! Excess or adequate N with immobilization
@@ -707,7 +718,9 @@ total_myc_mine_C_uptake = 0.0
 
      cc%N_fixer_biomass_C = cc%N_fixer_biomass_C + N_fixer_C_allocated*N_fixer_C_efficiency - cc%N_fixer_biomass_C/N_fixer_turnover_time*dt_fast_yr
      cc%N_fixer_biomass_N = cc%N_fixer_biomass_N + N_fixer_C_allocated*N_fixer_C_efficiency/c2n_N_fixer - cc%N_fixer_biomass_N/N_fixer_turnover_time*dt_fast_yr
-     N_fixer_N_allocated = min(N_fixer_C_allocated*root_exudate_N_frac,N_fixer_C_allocated*N_fixer_C_efficiency/c2n_N_fixer)
+     ! Let's assume N fixers make their own biomass N
+     ! N_fixer_N_allocated = min(N_fixer_C_allocated*root_exudate_N_frac,N_fixer_C_allocated*N_fixer_C_efficiency/c2n_N_fixer)
+     N_fixer_N_allocated = 0.0
 
 
      if(cc%myc_scavenger_biomass_C<0) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger biomass < 0',FATAL)

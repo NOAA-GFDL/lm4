@@ -1654,7 +1654,11 @@ call check_conservation ('update_fuel','carbon'      , cmass0, cmass1, carbon_co
         call send_tile_data(id_closs,sum(tile%vegn%cohorts(1:n)%carbon_loss),tile%diag)
         call send_tile_data(id_wdgain,sum(tile%vegn%cohorts(1:n)%bwood_gain),tile%diag)
         call vegn_growth(tile%vegn)
+        cmass1 = land_tile_carbon(tile)
+        call check_conservation ('growth','carbon'      , cmass0, cmass1, carbon_cons_tol)
         call vegn_nat_mortality(tile%vegn,tile%soil,86400.0)
+        cmass1 = land_tile_carbon(tile)
+        call check_conservation ('mortality','carbon'      , cmass0, cmass1, carbon_cons_tol)
      endif
 
 
