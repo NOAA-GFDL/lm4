@@ -121,7 +121,7 @@ public :: &
     N_fixer_turnover_time, N_fixer_C_efficiency, &
     c2n_N_fixer, N_limits_live_biomass, &
     root_NH4_uptake_rate, root_NO3_uptake_rate, &
-    k_ammonium_root_uptake, k_nitrate_root_uptake, excess_stored_N_leakage_rate
+    k_ammonium_root_uptake, k_nitrate_root_uptake, excess_stored_N_leakage_rate, calc_SLA_from_lifespan
 
 logical, public :: do_ppa = .FALSE.
 logical, public :: do_alt_allometry = .FALSE.
@@ -367,6 +367,8 @@ real :: k_ammonium_root_uptake = 3e-2   ! Half-saturation for root NH4 uptake (k
 real :: k_nitrate_root_uptake = 3e-2    ! Half-saturation for root NO3 uptake (kgN/m3)
 real :: excess_stored_N_leakage_rate = 1.0 ! Leaking of excess cohort stored N back to soil (Fraction per year)
 
+logical :: calc_SLA_from_lifespan      ! In LM3, whether to calculate SLA from leaf lifespan or use namelist value
+
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
   mcv_min, mcv_lai, &
@@ -395,7 +397,7 @@ namelist /vegn_data_nml/ &
   N_fixer_turnover_time, N_fixer_C_efficiency, &
   c2n_N_fixer, N_limits_live_biomass, &
   root_NH4_uptake_rate, root_NO3_uptake_rate, &
-  k_ammonium_root_uptake, k_nitrate_root_uptake, excess_stored_N_leakage_rate
+  k_ammonium_root_uptake, k_nitrate_root_uptake, excess_stored_N_leakage_rate, calc_SLA_from_lifespan
 
 
 contains ! ###################################################################
@@ -843,7 +845,7 @@ subroutine init_derived_species_data(sp)
    real :: specific_leaf_area  ! m2/kgC
    real :: leaf_life_span      ! months
 
-   if (do_ppa) then
+   if (do_ppa .or. .not. calc_SLA_from_lifespan) then
       ! LMA (leaf mass per unit area) comes directly from namelist
    else
       ! calculate specific leaf area (cm2/g(biomass))

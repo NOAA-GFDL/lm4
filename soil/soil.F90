@@ -38,7 +38,7 @@ use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
      soil_tile_stock_pe, initval, comp, soil_theta, soil_ice_porosity, &
      N_LITTER_POOLS,LEAF,CWOOD,l_shortname,l_longname
 
-use soil_carbon_mod, only: poolTotals, poolTotals1, soilMaxCohorts, &
+use soil_carbon_mod, only: poolTotals, poolTotals1, soilMaxCohorts, litterDensity,&
      update_pool, add_litter, add_C_N_to_rhizosphere, add_C_N_to_cohorts, &
      tracer_leaching_with_litter,transfer_pool_fraction, n_c_types, &
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
@@ -54,7 +54,8 @@ use land_tile_diag_mod, only : diag_buff_type, set_default_diag_filter, &
      register_tiled_static_field, register_tiled_diag_field, &
      send_tile_data, send_tile_data_r0d_fptr, send_tile_data_r1d_fptr, &
      send_tile_data_i0d_fptr, &
-     add_tiled_diag_field_alias, add_tiled_static_field_alias
+     add_tiled_diag_field_alias, add_tiled_static_field_alias, &
+     send_cohort_data, register_cohort_diag_field, OP_SUM
 use land_data_mod, only : lnd, log_version
 use land_io_mod, only : read_field
 use land_tile_io_mod, only: land_restart_type, &
@@ -260,7 +261,7 @@ integer ::  &
     id_fast_DOC_div_loss,id_slow_DOC_div_loss,id_deadmic_DOC_div_loss, &
     id_wet_frac, id_macro_infilt, &
     id_surf_DOC_loss, id_total_C_leaching, id_total_DOC_div_loss, &
-    id_total_DON_div_loss, id_total_NO3_div_loss, id_total_NH4_div_loss
+    id_total_DON_div_loss, id_total_NO3_div_loss, id_total_NH4_div_loss, id_passive_N_uptake
 
 integer :: &
     id_protected_C, id_livemic_total_C, id_deadmic_total_C, id_fsc, id_ssc, &
@@ -288,8 +289,8 @@ integer, dimension(N_LITTER_POOLS,N_C_TYPES) :: &
 integer :: &
     id_total_NH4,id_total_NO3,&
     id_soil_NO3,id_soil_NH4,&
-    id_total_denitrification_rate,id_NO3_div_loss,&
-    id_NH4_div_loss,id_total_N_mineralization_rate
+    id_total_denitrification_rate,id_soil_denitrification_rate,id_NO3_div_loss,&
+    id_NH4_div_loss,id_total_N_mineralization_rate,id_total_N_immobilization_rate,id_total_nitrification_rate
 
 ! test tridiagonal solver for advection
 integer :: id_st_diff
@@ -969,6 +970,8 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
        lnd%time, 'total rate of NO3 divergence loss', 'kg N/m^2/s', missing_value=initval)
   id_total_NH4_div_loss = register_tiled_diag_field ( module_name, 'total_NH4_div', axes(1:2), &
        lnd%time, 'total rate of NH4 divergence loss', 'kg N/m^2/s', missing_value=initval)
+   id_passive_N_uptake = register_cohort_diag_field ( 'vegn', 'passive_N_uptake',  &
+        (/id_lon,id_lat/), lnd%time, 'Plant N uptake by root water flow', 'kg N/m2/year', missing_value=-1.0 )
 
   id_rsoil = register_tiled_diag_field ( module_name, 'rsoil',  &
        axes(1:2), lnd%time, 'soil respiration', 'kg C/(m2 year)', missing_value=-100.0 )
@@ -1049,6 +1052,8 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
   id_total_denitrification_rate = register_tiled_diag_field ( module_name, 'total_denitrification_rate',  &
        (/id_lon,id_lat/), lnd%time, 'Total denitrification', 'kg N/(m2 year)', &
        missing_value=-100.0 )
+ id_soil_denitrification_rate = register_tiled_diag_field ( module_name, 'soil_denitrification_rate', axes,  &
+       lnd%time, 'Denitrification rate per layer', 'kg N/m3/year', missing_value=-100.0 )
   id_NO3_div_loss = register_tiled_diag_field ( module_name, 'NO3_div_loss', axes(1:2), &
        lnd%time, 'total rate of NO3 divergence loss', 'kg N/m^2/s', missing_value=initval)
   id_NH4_div_loss = register_tiled_diag_field ( module_name, 'NH4_div_loss', axes(1:2), &
@@ -1056,6 +1061,12 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
   id_total_N_mineralization_rate = register_tiled_diag_field ( module_name, 'total_N_mineralization_rate',  &
        (/id_lon,id_lat/), lnd%time, 'Total N mineralization', 'kg N/(m2 year)', &
        missing_value=-100.0 )
+ id_total_N_immobilization_rate = register_tiled_diag_field ( module_name, 'total_N_immobilization_rate',  &
+      (/id_lon,id_lat/), lnd%time, 'Total N immobilization', 'kg N/(m2 year)', &
+      missing_value=-100.0 )
+  id_total_nitrification_rate = register_tiled_diag_field ( module_name, 'total_nitrification_rate',  &
+   (/id_lon,id_lat/), lnd%time, 'Total nitrification', 'kg N/(m2 year)', &
+   missing_value=-100.0 )
 
   id_nsoilcohorts = register_tiled_diag_field ( module_name, 'n_soil_cohorts', axes,  &
        lnd%time, 'number of soil cohorts', missing_value=-100.0 )
@@ -1850,6 +1861,7 @@ end subroutine soil_step_1
   real :: total_NO3_div,total_NH4_div ! [kg N/m^2/s] net total inorganic N divergence loss rates
 
   real, dimension(num_l) :: passive_ammonium_uptake, passive_nitrate_uptake ! Uptake of dissolved mineral N by roots through water uptake
+  real, dimension(vegn%n_cohorts) :: passive_N_uptake
   ! --------------------------------------------------------------------------
   div_active(:) = 0.0
 
@@ -1962,7 +1974,29 @@ end subroutine soil_step_1
         __DEBUG3__(transp1,sum(uptake1(1:num_l)),n_iter)
      endif
      uptake = uptake + uptake1*cc%nindivs
+
+     ! Passive nitrogen uptake by roots, equal to N concentration times root water uptake
+     ! units of uptake1: kg/indiv/s
+     ! units of wl_before: mm = kg/m2
+     ! units of N: kg/m2
+     ! N/wl_before -> kg N/kg H2O
+     ! units of delta_time: s
+     ! units of passive_ammonium_uptake, passive_nitrate_uptake, passive_N_uptake: kgN/m2/timestep
+     where(wl_before>1.0e-4)
+        passive_ammonium_uptake = min(soil%soil_organic_matter(:)%ammonium,max(0.0,uptake1*soil%soil_organic_matter(:)%ammonium/wl_before*cc%nindivs*delta_time))
+        passive_nitrate_uptake = min(soil%soil_organic_matter(:)%nitrate,max(0.0,uptake1*soil%soil_organic_matter(:)%nitrate/wl_before*cc%nindivs*delta_time))
+     elsewhere
+        passive_ammonium_uptake=0.0
+        passive_nitrate_uptake=0.0
+     end where
+     soil%soil_organic_matter(:)%ammonium=soil%soil_organic_matter(:)%ammonium-passive_ammonium_uptake
+     soil%soil_organic_matter(:)%nitrate=soil%soil_organic_matter(:)%nitrate-passive_nitrate_uptake
+     passive_N_uptake(ic) = sum(passive_ammonium_uptake + passive_nitrate_uptake)
+     cc%stored_N = cc%stored_N + passive_N_uptake(ic)/cc%nindivs
+
   enddo
+
+  call send_cohort_data(id_passive_N_uptake,diag,vegn%cohorts(1:vegn%n_cohorts),passive_N_uptake/dt_fast_yr,weight=vegn%cohorts(1:vegn%n_cohorts)%nindivs, op=OP_SUM)
 
   uptake_pos = sum(uptake(:),mask=uptake(:)>0)
   if (uptake_option/=UPTAKE_LINEAR.and.uptake_pos > 0) then
@@ -2704,22 +2738,6 @@ end subroutine soil_step_1
       enddo
    endif
 
-   ! Do plant nitrogen uptake
-   ! Passive uptake by roots, equal to N concentration times root water uptake
-   ! units of uptake: kg/m2/s
-   ! units of wl_before: mm = kg/m2
-   ! units of N: kg/m2
-   ! N/wl_before -> kg N/kg H2O
-   where(wl_before>1.0e-4)
-      passive_ammonium_uptake = min(soil%soil_organic_matter(:)%ammonium,max(0.0,uptake*soil%soil_organic_matter(:)%ammonium/wl_before))
-      passive_nitrate_uptake = min(soil%soil_organic_matter(:)%nitrate,max(0.0,uptake*soil%soil_organic_matter(:)%nitrate/wl_before))
-   elsewhere
-      passive_ammonium_uptake=0.0
-      passive_nitrate_uptake=0.0
-   end where
-   soil%soil_organic_matter(:)%ammonium=soil%soil_organic_matter(:)%ammonium-passive_ammonium_uptake
-   soil%soil_organic_matter(:)%nitrate=soil%soil_organic_matter(:)%nitrate-passive_nitrate_uptake
-   soil%passive_N_uptake=sum(passive_ammonium_uptake+passive_nitrate_uptake)
 
    ! New version that combines the two leaching steps and should do a better job of moving DOC from litter layer
    ! For now, we are assuming that only leaf litter gets leached
@@ -3146,9 +3164,13 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
 
   if (id_total_denitrification_rate>0) call send_tile_data(id_total_denitrification_rate, &
              (sum(soil_denitrif)+sum(litter_denitrif))/dt_fast_yr,diag)
+  if (id_soil_denitrification_rate>0) call send_tile_data(id_soil_denitrification_rate, soil_denitrif/dt_fast_yr/dz, diag)
   if (id_total_N_mineralization_rate>0) call send_tile_data(id_total_N_mineralization_rate, &
              (sum(soil_N_mineralization)+sum(litter_N_mineralization))/dt_fast_yr,diag)
-
+ if (id_total_N_immobilization_rate>0) call send_tile_data(id_total_N_immobilization_rate, &
+                (sum(soil_N_immobilization)+sum(litter_N_immobilization))/dt_fast_yr,diag)
+  if (id_total_nitrification_rate>0) call send_tile_data(id_total_nitrification_rate, &
+          (sum(soil_nitrif)+sum(litter_nitrif))/dt_fast_yr,diag)
 
 end subroutine Dsdt_CORPSE
 
@@ -3857,9 +3879,9 @@ subroutine add_root_exudates_0(soil,exudateC,exudateN)
   integer :: k
 
   do k=1,num_l
-     call add_C_N_to_cohorts(soil%soil_organic_matter(k),   &
-                             litterC=[exudateC(k),0.0,0.0], &
-                             litterN=[exudateN(k),0.0,0.0]  )
+     call add_C_N_to_rhizosphere(soil%soil_organic_matter(k),   &
+                             newCarbon=[exudateC(k),0.0,0.0], &
+                             newNitrogen=[exudateN(k),0.0,0.0]  )
   enddo
 end subroutine add_root_exudates_0
 
@@ -3875,7 +3897,7 @@ subroutine add_root_exudates_1(soil,cohort,exudateC)
 
   call cohort_root_exudate_profile (cohort, dz(1:num_l), profile)
   do k=1,num_l
-      call add_C_N_to_cohorts(soil%soil_organic_matter(k),litterC=(/exudateC*profile(k),0.0,0.0/))
+      call add_C_N_to_rhizosphere(soil%soil_organic_matter(k),newCarbon=(/exudateC*profile(k),0.0,0.0/))
   enddo
 end subroutine add_root_exudates_1
 
@@ -3973,8 +3995,8 @@ end subroutine add_soil_carbon
 ! ============================================================================
 ! Nitrogen uptake from the rhizosphere by roots (active transport across root-soil interface)
 ! Mineral nitrogen is taken up from the rhizosphere only
-subroutine root_N_uptake(soil,vegn,total_N_uptake,dt,update_pools)
-  real,intent(out)::total_N_uptake
+subroutine root_N_uptake(soil,vegn,N_uptake_cohorts,dt,update_pools)
+  real,intent(out),dimension(:)::N_uptake_cohorts  ! Units of per individual
   type(vegn_tile_type),intent(in)::vegn
   type(soil_tile_type),intent(inout)::soil
   real,intent(in)::dt
@@ -3982,11 +4004,24 @@ subroutine root_N_uptake(soil,vegn,total_N_uptake,dt,update_pools)
 
   real :: nitrate_uptake, ammonium_uptake, ammonium_concentration, nitrate_concentration
   real :: rhiz_frac(num_l)
-  integer :: k
+  real,dimension(num_l) :: profile, vegn_uptake_term
+  real::cohort_root_biomass(num_l,vegn%n_cohorts),total_root_biomass(num_l)
+  integer :: k,i
 
   call rhizosphere_frac(vegn, rhiz_frac)
 
-  total_N_uptake=0.0
+  do i=1,vegn%n_cohorts
+    call cohort_root_litter_profile (vegn%cohorts(i), dz(1:num_l), profile )
+    cohort_root_biomass(:,i) =  vegn%cohorts(i)%br*vegn%cohorts(i)%nindivs*profile
+  enddo
+
+  total_root_biomass = sum(cohort_root_biomass,dim=2)
+
+  N_uptake_cohorts=0.0
+
+  ! If there is no root biomass, skip the rest since there's no uptake in that case
+  if(sum(total_root_biomass)==0.0) return
+
   do k=1,num_l
     ammonium_concentration=soil%soil_organic_matter(k)%ammonium*rhiz_frac(k)/dz(k)
     ammonium_uptake = ammonium_concentration/(ammonium_concentration+k_ammonium_root_uptake)*root_NH4_uptake_rate*dt*dz(k)
@@ -4002,98 +4037,209 @@ subroutine root_N_uptake(soil,vegn,total_N_uptake,dt,update_pools)
        soil%soil_organic_matter(k)%ammonium=soil%soil_organic_matter(k)%ammonium-ammonium_uptake
        soil%soil_organic_matter(k)%nitrate=soil%soil_organic_matter(k)%nitrate-nitrate_uptake
     endif
-    total_N_uptake = total_N_uptake + ammonium_uptake + nitrate_uptake
+
+    ! Uptake by each cohort is scaled by the fraction of total root biomass in that layer
+    ! that is owned by the cohort
+    do i=1,vegn%n_cohorts
+      N_uptake_cohorts(i)=N_uptake_cohorts(i)+(ammonium_uptake+nitrate_uptake)*cohort_root_biomass(k,i)/total_root_biomass(k)/vegn%cohorts(i)%nindivs
+    enddo
+
   enddo
 end subroutine root_N_uptake
 
 
 ! ============================================================================
 ! Uptake of mineral N by mycorrhizal "scavengers" -- Should correspond to Arbuscular mycorrhizae
-subroutine myc_scavenger_N_uptake(soil,cc,myc_biomass,total_N_uptake,dt,update_pools)
+subroutine myc_scavenger_N_uptake(soil,vegn,N_uptake_cohorts,myc_efficiency,dt,update_pools)
   type(soil_tile_type),   intent(inout) :: soil
-  type(vegn_cohort_type), intent(in)    :: cc
-  real,intent(in)  :: myc_biomass ! myc_biomass in kgC/m2
-  real,intent(out) :: total_N_uptake
+  type(vegn_tile_type),intent(in)::vegn
+  real,intent(out),dimension(:) :: N_uptake_cohorts ! Units: kgN/m2 per individual
   real, intent(in) :: dt  ! dt in years
   logical, intent(in) :: update_pools
+  real, intent(out) :: myc_efficiency ! units: kgN/kg myc biomass C. Should give N uptake efficiency even when myc biomass is zero
 
-  real,dimension(num_l) :: uptake_frac_max, vegn_uptake_term
+  real,dimension(num_l) :: profile, vegn_uptake_term
   real::nitrate_uptake,ammonium_uptake
-  integer::k
+  real::cohort_myc_scav_biomass(num_l,vegn%n_cohorts),total_myc_scav_biomass(num_l)
+  real,dimension(num_l):: myc_biomass_tiny, N_uptake_tiny ! For calculating return on investment when myc biomass is zero
+  real::litterThickness,totalC
+  integer::k,i
+  logical :: myc_biomass_is_zero
 
-  call cohort_uptake_profile (cc, dz(1:num_l), uptake_frac_max, vegn_uptake_term )
+  if(sum(vegn%cohorts(:)%myc_scavenger_biomass_C)>0) then
+    myc_biomass_is_zero = .FALSE.
+    do i=1,vegn%n_cohorts
+      call cohort_root_litter_profile (vegn%cohorts(i), dz(1:num_l), profile )
+      cohort_myc_scav_biomass(:,i) =  vegn%cohorts(i)%myc_scavenger_biomass_C*vegn%cohorts(i)%nindivs*profile
+    enddo
 
-  total_N_uptake=0.0
+  else
+    ! If there is no mycorrhizal biomass, still do calculation so efficiency can be estimated
+    ! This allows plants to grow some biomass from zero
+    if(sum(vegn%cohorts(:)%bliving)==0) then ! No live biomass at all. Assume uptake is zero and skip the rest.
+      N_uptake_cohorts(:)=0.0
+      myc_efficiency=0.0
+      return
+    endif
+
+    myc_biomass_is_zero = .TRUE.
+    do i=1,vegn%n_cohorts
+      call cohort_root_litter_profile (vegn%cohorts(i), dz(1:num_l), profile )
+      cohort_myc_scav_biomass(:,i) =  vegn%cohorts(i)%bliving*vegn%cohorts(i)%nindivs*0.0001*profile
+    enddo
+  endif
+
+
+  total_myc_scav_biomass = sum(cohort_myc_scav_biomass,dim=2)
+  N_uptake_cohorts=0.0
+
+
   do k=1,num_l
-    call mycorrhizal_mineral_N_uptake_rate(soil%soil_organic_matter(k),myc_biomass*uptake_frac_max(k),dz(k),nitrate_uptake,ammonium_uptake)
+    ! Total uptake rate is calculated based on total mycorrhizal biomass
+    call mycorrhizal_mineral_N_uptake_rate(soil%soil_organic_matter(k),total_myc_scav_biomass(k),dz(k),nitrate_uptake,ammonium_uptake)
     ammonium_uptake = min(ammonium_uptake,soil%soil_organic_matter(k)%ammonium/dt)
     nitrate_uptake = min(nitrate_uptake,soil%soil_organic_matter(k)%nitrate/dt)
-    total_N_uptake=total_N_uptake+(ammonium_uptake+nitrate_uptake)*dt
+
+    ! Uptake by each cohort is scaled by the fraction of total mycorrhizal biomass in that layer
+    ! that is owned by the cohort
+    do i=1,vegn%n_cohorts
+      N_uptake_cohorts(i)=N_uptake_cohorts(i)+(ammonium_uptake+nitrate_uptake)*dt*cohort_myc_scav_biomass(k,i)/total_myc_scav_biomass(k)/vegn%cohorts(i)%nindivs
+    enddo
+
 
     if(ammonium_uptake*dt>soil%soil_organic_matter(k)%ammonium) then; __DEBUG2__(ammonium_uptake*dt,soil%soil_organic_matter(k)%ammonium); endif
     if(nitrate_uptake*dt>soil%soil_organic_matter(k)%nitrate) then; __DEBUG2__(nitrate_uptake*dt,soil%soil_organic_matter(k)%nitrate); endif
-    if (update_pools) then
+
+    if (update_pools .and. .not. myc_biomass_is_zero) then  ! If myc biomass is 0, then no actual N is taken up. It is just being used for efficiency calculation
        soil%soil_organic_matter(k)%ammonium=soil%soil_organic_matter(k)%ammonium-ammonium_uptake*dt
        soil%soil_organic_matter(k)%nitrate=soil%soil_organic_matter(k)%nitrate-nitrate_uptake*dt
     endif
   enddo
 
   ! Mycorrhizae should have access to litter layer too
-  ! Might want to update this so it calculates actual layer thickness?
-  ! Assume 20% of mycorrhizal biomass accesses litter, so we're not dependent
-  ! on layer thickness
+  ! Assuming volumetric concentration in litter layer is the same as top soil layer
   do k = 1,N_LITTER_POOLS
-     call mycorrhizal_mineral_N_uptake_rate(soil%litter(k),myc_biomass*uptake_frac_max(1),dz(1),&
+    call poolTotals(soil%litter(k),totalCarbon=totalC)
+    litterThickness=max(totalC/litterDensity,1e-2)
+     call mycorrhizal_mineral_N_uptake_rate(soil%litter(k),total_myc_scav_biomass(1)/dz(1)*litterThickness,litterThickness,&
              nitrate_uptake, ammonium_uptake)
      ammonium_uptake = min(ammonium_uptake,soil%litter(k)%ammonium/dt)
      nitrate_uptake  = min(nitrate_uptake,soil%litter(k)%nitrate/dt)
-     total_N_uptake  = total_N_uptake+(nitrate_uptake+ammonium_uptake)*dt
-     if (update_pools) then
+
+     do i=1,vegn%n_cohorts
+       N_uptake_cohorts(i)=N_uptake_cohorts(i)+(ammonium_uptake+nitrate_uptake)*dt*cohort_myc_scav_biomass(1,i)/total_myc_scav_biomass(1)/vegn%cohorts(i)%nindivs
+     enddo
+
+     if (update_pools .and. .not. myc_biomass_is_zero) then
         soil%litter(k)%ammonium=soil%litter(k)%ammonium-ammonium_uptake*dt
         soil%litter(k)%nitrate=soil%litter(k)%nitrate-nitrate_uptake*dt
      endif
   enddo
+
+  myc_efficiency = sum(N_uptake_cohorts*vegn%cohorts(:)%nindivs)/sum(total_myc_scav_biomass)
+
+  ! If myc biomass was zero, then the calculation used a "virtual" biomass and there is no real uptake
+  if (myc_biomass_is_zero) then
+    N_uptake_cohorts(:)=0.0
+  endif
+
 end subroutine myc_scavenger_N_uptake
 
 
 ! ============================================================================
 ! Uptake of mineral N by mycorrhizal "miners" -- Should correspond to Ecto mycorrhizae
-subroutine myc_miner_N_uptake(soil,cc,myc_biomass,total_N_uptake,total_C_uptake,total_CO2prod,dt,update_pools)
+subroutine myc_miner_N_uptake(soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_CO2prod,myc_efficiency,dt,update_pools)
   type(soil_tile_type), intent(inout) :: soil
-  type(vegn_cohort_type), intent(in)  :: cc
-  real,    intent(in)  :: myc_biomass
-  real,    intent(out) :: total_N_uptake, total_C_uptake, total_CO2prod
-  real,    intent(in)  :: dt  ! dt in years, myc_biomass in kgC/m2
+  type(vegn_tile_type),intent(in)::vegn
+  real,    intent(out) :: N_uptake_cohorts(:), C_uptake_cohorts(:)  ! Units kg/m2 of per individual
+  real,    intent(out) :: total_CO2prod ! Units of kgC/m2 (not per individual)
+  real,    intent(in)  :: dt  ! dt in years
   logical, intent(in)  :: update_pools
+  real, intent(out)     :: myc_efficiency  ! units: kgN/kg myc biomass C. Should give N uptake efficiency even when myc biomass is zero
 
-  real, dimension(num_l) :: uptake_frac_max, vegn_uptake_term
+  real, dimension(num_l) :: profile, vegn_uptake_term
   real :: N_uptake,C_uptake,CO2prod
   real, dimension(num_l) :: T, theta, air_filled_porosity
-  integer :: k
+  real::cohort_myc_mine_biomass(num_l,vegn%n_cohorts),total_myc_mine_biomass(num_l)
+  real::litterThickness,totalC,cohort_frac
+  integer :: k,i
+  logical :: myc_biomass_is_zero
 
-  call cohort_uptake_profile (cc, dz(1:num_l), uptake_frac_max, vegn_uptake_term )
+
+  if(sum(vegn%cohorts(:)%myc_scavenger_biomass_C)>0) then
+    myc_biomass_is_zero = .FALSE.
+    do i=1,vegn%n_cohorts
+      call cohort_root_litter_profile (vegn%cohorts(i), dz(1:num_l), profile )
+      cohort_myc_mine_biomass(:,i) =  vegn%cohorts(i)%myc_miner_biomass_C*vegn%cohorts(i)%nindivs*profile
+    enddo
+
+  else
+    ! If there is no mycorrhizal biomass, still do calculation so efficiency can be estimated
+    ! This allows plants to grow some biomass from zero
+    if(sum(vegn%cohorts(:)%bliving)==0) then ! No live biomass at all. Assume uptake is zero and skip the rest.
+      N_uptake_cohorts(:)=0.0
+      C_uptake_cohorts(:)=0.0
+      total_CO2prod=0.0
+      myc_efficiency=0.0
+      return
+    endif
+
+    myc_biomass_is_zero = .TRUE.
+    do i=1,vegn%n_cohorts
+      call cohort_root_litter_profile (vegn%cohorts(i), dz(1:num_l), profile)
+      cohort_myc_mine_biomass(:,i) =  vegn%cohorts(i)%bliving*vegn%cohorts(i)%nindivs*0.0001*profile
+    enddo
+  endif
+
+
   T = soil%T(:)
   theta = max(min(soil_theta(soil),1.0),0.0)
   air_filled_porosity=max(min(1.0-theta-soil_ice_porosity(soil),1.0),0.0)
 
-  total_N_uptake=0.0
-  total_C_uptake=0.0
+  total_myc_mine_biomass = sum(cohort_myc_mine_biomass,dim=2)
+
+  N_uptake_cohorts=0.0
+  C_uptake_cohorts=0.0
   total_CO2prod=0.0
+
   do k=1,num_l
-     call mycorrhizal_decomposition(soil%soil_organic_matter(k),myc_biomass*uptake_frac_max(k),T(k),theta(k),air_filled_porosity(k),N_uptake,C_uptake,CO2prod,dt,update_pools)
-     total_N_uptake=total_N_uptake+N_uptake
-     total_C_uptake = total_C_uptake+C_uptake
+     call mycorrhizal_decomposition(soil%soil_organic_matter(k),total_myc_mine_biomass(k),&
+          T(k),theta(k),air_filled_porosity(k),N_uptake,C_uptake,CO2prod,dt,&
+          update_pools .and. .not. myc_biomass_is_zero)
      total_CO2prod=total_CO2prod+CO2prod
+
+     do i=1,vegn%n_cohorts
+       cohort_frac=cohort_myc_mine_biomass(k,i)/total_myc_mine_biomass(k)/vegn%cohorts(i)%nindivs
+       N_uptake_cohorts(i)=N_uptake_cohorts(i)+N_uptake*cohort_frac
+       C_uptake_cohorts(i)=C_uptake_cohorts(i)+C_uptake*cohort_frac
+     enddo
   enddo
 
-  ! Mycorrhizae should have access to litter layer too
-  ! Might want to update this so it calculates actual layer thickness?
   do k = 1, N_LITTER_POOLS
-     call mycorrhizal_decomposition(soil%litter(k),myc_biomass*0.3,T(1),theta(1),air_filled_porosity(1),N_uptake,C_uptake,CO2prod,dt,update_pools)
-     total_N_uptake = total_N_uptake+N_uptake
-     total_C_uptake = total_C_uptake+C_uptake
+     call poolTotals(soil%litter(k),totalCarbon=totalC)
+     litterThickness=max(totalC/litterDensity,1e-2)
+     call mycorrhizal_decomposition(soil%litter(k),total_myc_mine_biomass(1)/dz(1)*litterThickness,&
+          T(1),theta(1),air_filled_porosity(1),N_uptake,C_uptake,CO2prod,dt,&
+          update_pools .and. .not. myc_biomass_is_zero)
      total_CO2prod  = total_CO2prod + CO2prod
+
+     do i=1,vegn%n_cohorts
+       cohort_frac=cohort_myc_mine_biomass(k,i)/total_myc_mine_biomass(k)/vegn%cohorts(i)%nindivs
+       N_uptake_cohorts(i)=N_uptake_cohorts(i)+N_uptake*cohort_frac
+       C_uptake_cohorts(i)=C_uptake_cohorts(i)+C_uptake*cohort_frac
+     enddo
+
   enddo
+
+  myc_efficiency = sum(N_uptake_cohorts*vegn%cohorts(:)%nindivs)/sum(total_myc_mine_biomass)
+
+  ! If myc biomass was zero, then the calculation used a tiny "virtual" biomass and there is no real uptake or CO2 production
+  if (myc_biomass_is_zero) then
+    N_uptake_cohorts(:)=0.0
+    C_uptake_cohorts(:)=0.0
+    total_CO2prod      =0.0
+  endif
+
 end subroutine myc_miner_N_uptake
 
 

@@ -50,6 +50,7 @@ public :: retrieve_DON
 public :: retrieve_dissolved_mineral_N
 public :: mycorrhizal_mineral_N_uptake_rate
 public :: mycorrhizal_decomposition
+public :: litterDensity
 
 #ifndef STANDALONE_SOIL_CARBON
 public :: A_function
@@ -1786,10 +1787,16 @@ end subroutine add_C_N_to_cohorts
 
 subroutine add_C_N_to_rhizosphere(pool,newCarbon,newNitrogen)
     type(soil_pool),intent(inout)::pool
-    real,intent(in)::newCarbon(N_C_TYPES),newNitrogen(N_C_TYPES)
+    real,intent(in)::newCarbon(N_C_TYPES)
+    real,intent(in),optional :: newNitrogen(N_C_TYPES)
 
+
+    real :: newNitrogenVal(N_C_TYPES)
     type(litterCohort)::rhizosphere,newcohort
     integer::n
+
+    newNitrogenVal = 0.0
+    if(present(newNitrogen)) newNitrogenVal = newNitrogen
 
     if(.NOT. use_rhizosphere_cohort) then
         !call remove_carbon_fraction_from_pool(pool,rhizosphere_frac,litter_removed,protected_removed,liveMicrobe_removed)
@@ -1798,15 +1805,15 @@ subroutine add_C_N_to_rhizosphere(pool,newCarbon,newNitrogen)
         ! -- Note, I don't think this implementation was used, and it is problematic because it gets called so often
 
         ! Matching prior implementation, this carbon is just spread through soil
-        call add_C_N_to_cohorts(pool,litterC=newCarbon,litterN=newNitrogen)
+        call add_C_N_to_cohorts(pool,litterC=newCarbon,litterN=newNitrogenVal)
     else
-        call initializeCohort(newcohort,newCarbon,newNitrogen)
+        call initializeCohort(newcohort,newCarbon,newNitrogenVal)
         ! New functionality: Rhizosphere is a fixed cohort, just add carbon to that
         ! Ignores rhizosphere_frac
         call combine_cohorts(newcohort,pool%litterCohorts(RHIZ),rhizosphere)
         pool%litterCohorts(RHIZ)=rhizosphere
         pool%C_in(:) = pool%C_in(:) + newCarbon(:)
-        pool%N_in(:) = pool%N_in(:) + newNitrogen(:)
+        pool%N_in(:) = pool%N_in(:) + newNitrogenVal(:)
     endif
 
     do n=1,pool%n_cohorts
