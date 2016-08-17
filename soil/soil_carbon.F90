@@ -1668,6 +1668,19 @@ subroutine add_litter(pool,newLitterC,newLitterN,rhizosphere_frac)
   type(litterCohort)::newCohort,tempCohort
   real::initialMicrobeC,initialMicrobeN
   real::rhiz_frac
+  real,dimension(N_C_TYPES)::N_type_fracs,C_type_fracs
+
+  if(sum(newLitterC)>0) then
+    C_type_fracs=newLitterC/sum(newLitterC)
+  else
+    C_type_fracs=0.0
+  endif
+
+  if(sum(newLitterN)>0) then
+    N_type_fracs=newLitterN/sum(newLitterN)
+  else
+    N_type_fracs=0.0
+  endif
 
   rhiz_frac=1.0
   if(present(rhizosphere_frac)) rhiz_frac=max(0.0,min(1.0,rhizosphere_frac))
@@ -1679,16 +1692,18 @@ subroutine add_litter(pool,newLitterC,newLitterN,rhizosphere_frac)
   initialMicrobeC=sum(newLitterC*minMicrobeC)
   ! More important to conserve N, or to make sure there is some initial microbial biomass?
   ! We could just assume enough fixers to ensure some minimal initial biomass?
+  ! Currently limiting by N: could suppress decomposition for low-N litter, especially with rhizosphere_cohort OFF
   if(soil_carbon_option == SOILC_CORPSE_N) then
-      initialMicrobeN=initialMicrobeC/CN_microb
+      initialMicrobeN=min(sum(newLitterN),initialMicrobeC/CN_microb)
+      if (initialMicrobeN<initialMicrobeC/CN_microb) initialMicrobeC=initialMicrobeN*CN_microb
   else
       initialMicrobeN=0.0
   endif
 
   if (.NOT. use_rhizosphere_cohort) then
       call initializeCohort(newCohort, &
-              litterInputC=newLitterC*(1.0-minMicrobeC), initialMicrobeC=initialMicrobeC, &
-              litterInputN=newLitterN*(1.0-minMicrobeC), initialMicrobeN=initialMicrobeN)
+              litterInputC=newLitterC-initialMicrobeC*C_type_fracs, initialMicrobeC=initialMicrobeC, &
+              litterInputN=newLitterN-initialMicrobeN*N_type_fracs, initialMicrobeN=initialMicrobeN)
       call add_cohort(pool,newCohort)
   else
       ! First make sure there are enough cohorts in pool
@@ -1699,16 +1714,16 @@ subroutine add_litter(pool,newLitterC,newLitterN,rhizosphere_frac)
 
       ! Add rhizosphere fraction
       call initializeCohort(newCohort, &
-              litterInputC=newLitterC*(1.0-minMicrobeC), initialMicrobeC=initialMicrobeC, &
-              litterInputN=newLitterN*(1.0-minMicrobeC), initialMicrobeN=initialMicrobeN, &
+              litterInputC=newLitterC-initialMicrobeC*C_type_fracs, initialMicrobeC=initialMicrobeC, &
+              litterInputN=newLitterN-initialMicrobeN*N_type_fracs, initialMicrobeN=initialMicrobeN, &
               multiplier=rhiz_frac)
       call combine_cohorts(newCohort,pool%litterCohorts(RHIZ),tempCohort)
       pool%litterCohorts(RHIZ)=tempCohort
 
       ! Add bulk soil fraction
       call initializeCohort(newCohort,&
-              litterInputC=newLitterC*(1.0-minMicrobeC), initialMicrobeC=initialMicrobeC, &
-              litterInputN=newLitterN*(1.0-minMicrobeC), initialMicrobeN=initialMicrobeN, &
+              litterInputC=newLitterC-initialMicrobeC*C_type_fracs, initialMicrobeC=initialMicrobeC, &
+              litterInputN=newLitterN-initialMicrobeN*N_type_fracs, initialMicrobeN=initialMicrobeN, &
               multiplier=1.0-rhiz_frac)
       call combine_cohorts(newCohort,pool%litterCohorts(BULK),tempCohort)
       pool%litterCohorts(BULK)=tempCohort

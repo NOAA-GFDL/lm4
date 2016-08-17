@@ -108,7 +108,7 @@ public :: &
     min_cosz, &
     agf_bs, K1,K2, &
     tau_drip_l, tau_drip_s, & ! canopy water and snow residence times, for drip calculations
-    GR_factor, tg_c3_thresh, tg_c4_thresh, &
+    GR_factor, tg_c3_thresh, T_cold_tropical, tg_c4_thresh, &
     fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
     l_fract, wood_fract_min, T_transp_min, soil_carbon_depth_scale, &
     cold_month_threshold, scnd_biomass_bins, &
@@ -316,6 +316,7 @@ real :: GR_factor = 0.33 ! growth respiration factor
 
 real :: tg_c3_thresh = 1.5 ! threshold biomass between tree and grass for C3 plants
 real :: tg_c4_thresh = 2.0 ! threshold biomass between tree and grass for C4 plants
+real :: T_cold_tropical = 278.16 ! Minimum T_cold that makes vegetation tropical (not deciduous)
 real :: fsc_pool_spending_time = 1.0 ! time (yrs) during which intermediate pool of
                   ! fast soil carbon is entirely converted to the fast soil carbon
 real :: ssc_pool_spending_time = 1.0 ! time (yrs) during which intermediate pool of
@@ -378,7 +379,7 @@ namelist /vegn_data_nml/ &
   soil_carbon_depth_scale, cold_month_threshold, &
 
   agf_bs, K1,K2, &
-  tau_drip_l, tau_drip_s, GR_factor, tg_c3_thresh, tg_c4_thresh, &
+  tau_drip_l, tau_drip_s, GR_factor, tg_c3_thresh, tg_c4_thresh, T_cold_tropical,&
   fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
   l_fract, wood_fract_min, T_transp_min, &
   phen_ev1, phen_ev2, &

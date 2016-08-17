@@ -259,6 +259,11 @@ type :: soil_tile_type
    real                   :: fast_DOC_leached !Carbon that has been leached out of the column
    real                   :: slow_DOC_leached !Carbon that has been leached out of the column
    real                   :: deadmic_DOC_leached !Carbon that has been leached out of the column
+
+   ! For nitrogen conservation checking, because there are a lot of fluxes in and out of land to keep track of
+   real                   :: gross_nitrogen_flux_into_tile
+   real                   :: gross_nitrogen_flux_out_of_tile
+
    ! values for the diagnostic of carbon budget and soil carbon acceleration
    real, allocatable :: &
        asoil_in(:), &
@@ -787,6 +792,9 @@ subroutine soil_data_init_0d(soil)
   soil%slow_DOC_leached      = 0.0
   soil%deadmic_DOC_leached   = 0.0
 
+  soil%gross_nitrogen_flux_into_tile = 0.0
+  soil%gross_nitrogen_flux_out_of_tile = 0.0
+
   comp_local = 0.0
   if (use_comp_for_push) comp_local = comp
   do l = 1, num_l
@@ -1188,6 +1196,9 @@ subroutine merge_soil_tiles(s1,w1,s2,w2)
   s2%fast_DOC_leached=s1%fast_DOC_leached*x1 + s2%fast_DOC_leached*x2
   s2%slow_DOC_leached=s1%slow_DOC_leached*x1 + s2%slow_DOC_leached*x2
   s2%deadmic_DOC_leached=s1%deadmic_DOC_leached*x1 + s2%deadmic_DOC_leached*x2
+
+  s2%gross_nitrogen_flux_into_tile=s1%gross_nitrogen_flux_into_tile*x1 + s2%gross_nitrogen_flux_into_tile*x2
+  s2%gross_nitrogen_flux_out_of_tile=s1%gross_nitrogen_flux_out_of_tile*x1 + s2%gross_nitrogen_flux_out_of_tile*x2
 end subroutine merge_soil_tiles
 
 ! =============================================================================

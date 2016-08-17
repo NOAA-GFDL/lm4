@@ -310,6 +310,7 @@ subroutine vegn_nat_mortality_lm3(vegn, soil, deltat)
      cc%sapwood_N = cc%sapwood_N * (1-fraction_lost)
      if (sp%mortality_kills_balive) then
         delta_C = delta_C+(cc%br+cc%bl+cc%blv)*(1-fraction_lost) ! For correct vegn%veg_out bookkeeping
+        delta_N = delta_N+(cc%leaf_N+cc%stored_N+cc%root_N)*(1-fraction_lost)
         cc%br       = cc%br       * (1-fraction_lost)
         cc%bl       = cc%bl       * (1-fraction_lost)
         cc%blv      = cc%blv      * (1-fraction_lost)

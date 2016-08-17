@@ -217,6 +217,7 @@ integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_harv_rate(N_HARV_POOLS), id_t_harv_pool, id_t_harv_rate, &
    id_csmoke_pool, id_csmoke_rate, id_fsc_in, id_fsc_out, id_ssc_in, &
    id_ssc_out, id_deadmic_in, id_deadmic_out, id_veg_in, id_veg_out, &
+   id_tile_nitrogen_gain, id_tile_nitrogen_loss, &
    id_fsc_pool_ag, id_fsc_rate_ag, id_fsc_pool_bg, id_fsc_rate_bg,&
    id_ssc_pool_ag, id_ssc_rate_ag, id_ssc_pool_bg, id_ssc_rate_bg,&
    id_t_ann, id_t_cold, id_p_ann, id_ncm, &
@@ -915,6 +916,11 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
      time,  'vegetation carbon in', 'kg C/m2', missing_value=-999.0 )
   id_veg_out = register_tiled_diag_field ( module_name, 'veg_out',  (/id_lon, id_lat/), &
      time,  'vegetation carbon out', 'kg C/m2', missing_value=-999.0 )
+
+ id_tile_nitrogen_gain = register_tiled_diag_field ( module_name, 'nitrogen_in',  (/id_lon, id_lat/), &
+    time,  'tile nitrogen in', 'kg N/m2', missing_value=-999.0 )
+  id_tile_nitrogen_loss = register_tiled_diag_field ( module_name, 'nitrogen_out',  (/id_lon, id_lat/), &
+     time,  'tile nitrogen out', 'kg N/m2', missing_value=-999.0 )
 
   id_afire = register_tiled_diag_field (module_name, 'afire', (/id_lon,id_lat/), &
        time, 'area been fired', missing_value=-100.0)
@@ -1754,6 +1760,8 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
   call soil_NO3_deposition(ndep_nit*dt_fast_yr,soil%litter(LEAF))
   call soil_org_N_deposition(ndep_org*dt_fast_yr,soil%litter(LEAF))
 
+  soil%gross_nitrogen_flux_into_tile = soil%gross_nitrogen_flux_into_tile + (ndep_amm+ndep_nit+ndep_org)*dt_fast_yr
+
   if (do_ppa) then
      call vegn_carbon_int_ppa(vegn, soil, tsoil, theta, diag)
   else
@@ -2259,6 +2267,9 @@ subroutine update_vegn_slow( )
      call send_tile_data(id_deadmic_out, tile%vegn%deadmic_out, tile%diag)
      call send_tile_data(id_veg_in,  tile%vegn%veg_in,  tile%diag)
      call send_tile_data(id_veg_out, tile%vegn%veg_out, tile%diag)
+
+     call send_tile_data(id_tile_nitrogen_gain,tile%soil%gross_nitrogen_flux_into_tile, tile%diag)
+     call send_tile_data(id_tile_nitrogen_loss,tile%soil%gross_nitrogen_flux_out_of_tile, tile%diag)
      ! ---- end of diagnostic section
 
      ! reset averages and number of steps to 0 before the start of new month
@@ -2270,6 +2281,10 @@ subroutine update_vegn_slow( )
         tile%vegn%theta_av_fire = 0.
         tile%vegn%psist_av = 0.
         tile%vegn%precip_av= 0.
+
+        ! Reset nitrogen tracking too
+        tile%soil%gross_nitrogen_flux_into_tile = 0.0
+        tile%soil%gross_nitrogen_flux_out_of_tile = 0.0
      endif
 
      !reset fuel and drought months before the start of new year
@@ -2334,7 +2349,7 @@ subroutine check_conservation_2(tile,tag,lmass,fmass,cmass,nmass,heat)
   endif
   if (present(nmass)) then
      nmass1  = land_tile_nitrogen(tile)
-     call check_conservation (tag,'nitrogen', nmass, nmass, nitrogen_cons_tol)
+     call check_conservation (tag,'nitrogen', nmass, nmass1, nitrogen_cons_tol)
   endif
   if (present(heat)) then
      heat1  = land_tile_heat(tile)

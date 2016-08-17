@@ -267,7 +267,8 @@ integer :: &
     id_protected_C, id_livemic_total_C, id_deadmic_total_C, id_fsc, id_ssc, &
     id_protected_N, id_livemic_total_N, id_deadmic_total_N, id_fsn, id_ssn, &
     id_livemic_C, id_total_soil_C, id_dissolved_total_C, id_total_C_layered, &
-    id_livemic_N, id_total_soil_N, id_dissolved_total_N, id_total_N_layered
+    id_livemic_N, id_total_soil_N, id_dissolved_total_N, id_total_N_layered, &
+    id_tile_N_gain, id_tile_N_loss
 
 integer, dimension(N_LITTER_POOLS) :: id_nlittercohorts, &
     id_litter_livemic_C, id_litter_total_C, &
@@ -718,6 +719,11 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull )
            call get_tile_data(restart,'slow_DOC_leached', soil_slow_DOC_leached_ptr)
            call get_tile_data(restart,'deadmic_DOC_leached', soil_deadmic_DOC_leached_ptr)
         endif
+
+        if(field_exists(restart, 'gross_nitrogen_flux_into_tile')) then
+           call get_tile_data(restart,'gross_nitrogen_flux_into_tile', soil_gross_nitrogen_flux_into_tile_ptr)
+           call get_tile_data(restart,'gross_nitrogen_flux_out_of_tile', soil_gross_nitrogen_flux_out_of_tile_ptr)
+         endif
 
         if(field_exists(restart, 'is_peat')) then
            call get_int_tile_data(restart, 'is_peat','zfull', soil_is_peat_ptr)
@@ -1434,6 +1440,10 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
            call add_tile_data(restart,trim(l_shortname(k))//'_litter_nitrif', sc_litter_nitrif_ptr, k, trim(l_longname(k))//' litter cumulative nitrification','kg/m2')
            call add_tile_data(restart,trim(l_shortname(k))//'_litter_denitrif', sc_litter_denitrif_ptr, k, trim(l_longname(k))//' litter cumulative denitrification','kg/m2')
         enddo
+
+        call add_tile_data(restart,'gross_nitrogen_flux_into_tile',soil_gross_nitrogen_flux_into_tile_ptr,'Cumulative nitrogen flux into tile','kg/m2')
+        call add_tile_data(restart,'gross_nitrogen_flux_out_of_tile',soil_gross_nitrogen_flux_out_of_tile_ptr,'Cumulative nitrogen flux out of tile','kg/m2')
+
      endif
   case default
      call error_mesg('save_soil_restart','unrecognized soil carbon option -- this should never happen', FATAL)
@@ -1977,20 +1987,20 @@ end subroutine soil_step_1
 
      ! Passive nitrogen uptake by roots, equal to N concentration times root water uptake
      ! units of uptake1: kg/indiv/s
-     ! units of wl_before: mm = kg/m2
+     ! units of wl: mm = kg/m2
      ! units of N: kg/m2
-     ! N/wl_before -> kg N/kg H2O
+     ! N/wl -> kg N/kg H2O
      ! units of delta_time: s
      ! units of passive_ammonium_uptake, passive_nitrate_uptake, passive_N_uptake: kgN/m2/timestep
-     where(wl_before>1.0e-4)
-        passive_ammonium_uptake = min(soil%soil_organic_matter(:)%ammonium,max(0.0,uptake1*soil%soil_organic_matter(:)%ammonium/wl_before*cc%nindivs*delta_time))
-        passive_nitrate_uptake = min(soil%soil_organic_matter(:)%nitrate,max(0.0,uptake1*soil%soil_organic_matter(:)%nitrate/wl_before*cc%nindivs*delta_time))
+     where(soil%wl(1:num_l)>1.0e-4)
+        passive_ammonium_uptake(1:num_l) = min(soil%soil_organic_matter(1:num_l)%ammonium,max(0.0,uptake1(1:num_l)*soil%soil_organic_matter(1:num_l)%ammonium/soil%wl(1:num_l)*cc%nindivs*delta_time))
+        passive_nitrate_uptake(1:num_l) = min(soil%soil_organic_matter(1:num_l)%nitrate,max(0.0,uptake1(1:num_l)*soil%soil_organic_matter(1:num_l)%nitrate/soil%wl(1:num_l)*cc%nindivs*delta_time))
      elsewhere
-        passive_ammonium_uptake=0.0
-        passive_nitrate_uptake=0.0
+        passive_ammonium_uptake(1:num_l)=0.0
+        passive_nitrate_uptake(1:num_l)=0.0
      end where
-     soil%soil_organic_matter(:)%ammonium=soil%soil_organic_matter(:)%ammonium-passive_ammonium_uptake
-     soil%soil_organic_matter(:)%nitrate=soil%soil_organic_matter(:)%nitrate-passive_nitrate_uptake
+     soil%soil_organic_matter(1:num_l)%ammonium=soil%soil_organic_matter(:)%ammonium-passive_ammonium_uptake(1:num_l)
+     soil%soil_organic_matter(1:num_l)%nitrate=soil%soil_organic_matter(:)%nitrate-passive_nitrate_uptake(1:num_l)
      passive_N_uptake(ic) = sum(passive_ammonium_uptake + passive_nitrate_uptake)
      cc%stored_N = cc%stored_N + passive_N_uptake(ic)/cc%nindivs
 
@@ -2802,6 +2812,10 @@ end subroutine soil_step_1
       total_DOC_div = total_DOC_div + sum(div_DOC_loss(:,l))
       total_DON_div = total_DON_div + sum(div_DON_loss(:,l))
    end do
+
+   !FIXME BNS: What if there is net flow of nitrogen into tile from other hillslope tiles?
+   soil%gross_nitrogen_flux_out_of_tile = soil%gross_nitrogen_flux_out_of_tile + total_DON_div+total_NO3_div+total_NH4_div
+
    total_DOC_div = total_DOC_div/delta_time
    total_DON_div = total_DON_div/delta_time
    total_NO3_div = total_NO3_div/delta_time
@@ -3152,6 +3166,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
 
   ! accumulate decomposition rate reduction for the soil carbon restart output
   soil%asoil_in(:) = soil%asoil_in(:) + A(:)
+
+  soil%gross_nitrogen_flux_out_of_tile = soil%gross_nitrogen_flux_out_of_tile + (sum(soil_denitrif)+sum(litter_denitrif))
 
   ! TODO: arithmetic averaging of A does not seem correct; we need to invent something better,
   !       e.g. weight it with the carbon loss, or something like that
@@ -3847,7 +3863,9 @@ subroutine rhizosphere_frac(vegn, rhiz_frac)
          pi*((r_rhiz+sp%root_r)**2-sp%root_r**2)*cc%root_length(1:num_l)*cc%nindivs
      end associate
   enddo
-  rhiz_frac(1:num_l) = min(1.0,rhiz_vol(:)/dz(1:num_l))
+  ! rhiz_frac(1:num_l) = min(1.0,rhiz_vol(:)/dz(1:num_l))
+  ! If root_length is m/m3, then we should not divide by dz here
+  rhiz_frac(1:num_l) = min(1.0,rhiz_vol(:))
 end subroutine rhizosphere_frac
 
 ! ============================================================================
@@ -4106,6 +4124,8 @@ subroutine myc_scavenger_N_uptake(soil,vegn,N_uptake_cohorts,myc_efficiency,dt,u
       N_uptake_cohorts(i)=N_uptake_cohorts(i)+(ammonium_uptake+nitrate_uptake)*dt*cohort_myc_scav_biomass(k,i)/total_myc_scav_biomass(k)/vegn%cohorts(i)%nindivs
     enddo
 
+    !__DEBUG3__(k,ammonium_uptake/soil%soil_organic_matter(k)%ammonium,nitrate_uptake/soil%soil_organic_matter(k)%nitrate)
+    !__DEBUG4__(k,total_myc_scav_biomass(k)/dz(k),soil%soil_organic_matter(k)%ammonium/dz(k),soil%soil_organic_matter(k)%nitrate/dz(k))
 
     if(ammonium_uptake*dt>soil%soil_organic_matter(k)%ammonium) then; __DEBUG2__(ammonium_uptake*dt,soil%soil_organic_matter(k)%ammonium); endif
     if(nitrate_uptake*dt>soil%soil_organic_matter(k)%nitrate) then; __DEBUG2__(nitrate_uptake*dt,soil%soil_organic_matter(k)%nitrate); endif
@@ -4489,6 +4509,9 @@ DEFINE_SOIL_COMPONENT_ACCESSOR_1D(real,pars,f_geo_sat)
 DEFINE_SOIL_ACCESSOR_0D(real,fast_DOC_leached)
 DEFINE_SOIL_ACCESSOR_0D(real,slow_DOC_leached)
 DEFINE_SOIL_ACCESSOR_0D(real,deadmic_DOC_leached)
+
+DEFINE_SOIL_ACCESSOR_0D(real,gross_nitrogen_flux_into_tile)
+DEFINE_SOIL_ACCESSOR_0D(real,gross_nitrogen_flux_out_of_tile)
 
 ! stuff below is for CORPSE
 subroutine sc_soil_C_ptr(t,i,j,k,p)

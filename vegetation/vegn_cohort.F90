@@ -7,7 +7,7 @@ use constants_mod, only: PI
 use land_constants_mod, only: NBANDS, mol_h2o, mol_air
 use vegn_data_mod, only : spdata, &
    use_mcm_masking, use_bucket, critical_root_density, &
-   tg_c4_thresh, tg_c3_thresh, l_fract, &
+   tg_c4_thresh, tg_c3_thresh, T_cold_tropical, l_fract, &
    phen_ev1, phen_ev2, cmc_eps, N_limits_live_biomass, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
    LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDUOUS, FORM_GRASS, &
@@ -521,7 +521,7 @@ subroutine update_species(c, t_ann, t_cold, p_ann, cm, landuse)
      spp=SP_EVERGR;   ! evergreen non-grass
   else if(btotal(c) < tg_c3_thresh) then
      spp=SP_C3GRASS;  ! c3 grass
-  else if ( t_cold > 278.16 ) then  ! ens,slm Jun 21 2003 to prohibit tropical forest in coastal cells
+  else if ( t_cold > T_cold_tropical ) then  ! ens,slm Jun 21 2003 to prohibit tropical forest in coastal cells
      spp=SP_TROPICAL; ! tropical deciduous non-grass
   else
      spp=SP_TEMPDEC;  ! temperate deciduous non-grass

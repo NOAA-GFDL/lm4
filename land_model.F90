@@ -72,7 +72,7 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
      land_tile_enum_type, new_land_tile, insert, nitems, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
      get_elmt_indices, get_tile_tags, get_tile_water, land_tile_heat, &
-     land_tile_carbon, max_n_tiles, init_tile_map, free_tile_map
+     land_tile_carbon, land_tile_nitrogen, max_n_tiles, init_tile_map, free_tile_map
 use land_data_mod, only : land_data_type, atmos_land_boundary_type, &
      land_state_type, land_data_init, land_data_end, lnd, log_version
 use nf_utils_mod,  only : nfu_inq_var, nfu_inq_dim, nfu_get_var
@@ -87,7 +87,7 @@ use land_tile_diag_mod, only : OP_SUM, tile_diag_init, tile_diag_end, &
      set_default_diag_filter, register_tiled_area_fields
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, is_watch_cell, is_watch_time, get_watch_point, get_current_point, &
-     check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, &
+     check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol,nitrogen_cons_tol, &
      check_var_range, check_temp_range, current_face, log_date
 use static_vegn_mod, only : write_static_vegn
 use land_transitions_mod, only : &
@@ -252,8 +252,8 @@ integer :: &
   id_vegn_refl_dir, id_vegn_refl_dif, id_vegn_refl_lw,                     &
   id_vegn_tran_dir, id_vegn_tran_dif, id_vegn_tran_lw,                     &
   id_vegn_sctr_dir,                                                        &
-  id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T, id_total_C, &
-  id_water_cons, id_carbon_cons, id_parnet, id_grnd_rh, id_cana_rh
+  id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T, id_total_C, id_total_N, &
+  id_water_cons, id_carbon_cons, id_nitrogen_cons, id_parnet, id_grnd_rh, id_cana_rh
 integer, allocatable :: id_runf_tr(:), id_dis_tr(:)
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
@@ -1441,13 +1441,14 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   integer :: canopy_water_step
   real :: subs_z0m, subs_z0s, snow_z0m, snow_z0s, grnd_z0s
   ! variables for conservation checks
-  real :: lmass0, fmass0, heat0, cmass0, v0
-  real :: lmass1, fmass1, heat1, cmass1
-  logical :: calc_water_cons, calc_carbon_cons
+  real :: lmass0, fmass0, heat0, cmass0, v0, nmass0, nflux0
+  real :: lmass1, fmass1, heat1, cmass1, nmass1, nflux1
+  logical :: calc_water_cons, calc_carbon_cons, calc_nitrogen_cons
   character(64) :: tag
 
   calc_water_cons  = do_check_conservation.or.(id_water_cons>0)
   calc_carbon_cons = do_check_conservation.or.(id_carbon_cons>0)
+  calc_nitrogen_cons = do_check_conservation.or.(id_nitrogen_cons>0)
   if(is_watch_point()) then
      write(*,*)
      call log_date('#### update_land_model_fast_0d begins:',lnd%time)
@@ -1472,6 +1473,12 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   ! + conservation check, part 1: calculate the pre-transition totals
   if (calc_water_cons)  call get_tile_water(tile,lmass0,fmass0)
   if (calc_carbon_cons) cmass0 = land_tile_carbon(tile)
+  if (calc_nitrogen_cons) nmass0 = land_tile_nitrogen(tile)
+  if(associated(tile%soil)) then
+    nflux0=tile%soil%gross_nitrogen_flux_into_tile - tile%soil%gross_nitrogen_flux_out_of_tile
+  else
+    nflux0=0.0
+  endif
   ! - end of conservation check, part 1
 
   soil_uptake_T(:) = tfreeze ! just to avoid using un-initialized values
@@ -2196,6 +2203,17 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
      v0 = cmass0-(fco2_0+Dfco2Dq*delta_co2)*mol_C/mol_CO2*delta_time
      call send_tile_data(id_carbon_cons, (cmass1-v0)/delta_time, tile%diag)
   endif
+  if(calc_nitrogen_cons) then
+     nmass1 = land_tile_nitrogen(tile)
+     if(associated(tile%soil)) then
+       nflux1=tile%soil%gross_nitrogen_flux_into_tile - tile%soil%gross_nitrogen_flux_out_of_tile
+     else
+       nflux1=0.0
+     endif
+     if (do_check_conservation) call check_conservation (tag,'nitrogen', &
+        nmass0, nmass1 + (nflux0 - nflux1), nitrogen_cons_tol)
+     call send_tile_data(id_nitrogen_cons, (nmass1-nflux1-nmass0+nflux0)/delta_time, tile%diag)
+  endif
   ! heat1  = land_tile_heat(tile)
   ! latent heat is missing below, and it's not trivial to add, because there are
   ! multiple components with their own vaporization heat
@@ -2211,7 +2229,7 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   ! TODO: go through the diagnostics and verify that they do the right thing in PPA case
   ! ---- diagnostic section ----------------------------------------------
   call send_tile_data(id_total_C, cmass1,                             tile%diag)
-
+  call send_tile_data(id_total_N, nmass1,                             tile%diag)
   call send_tile_data(id_frac,    tile%frac,                          tile%diag)
   call send_tile_data(id_ntiles,  1.0,                                tile%diag)
   call send_tile_data(id_precip,  precip_l+precip_s,                  tile%diag)
@@ -3779,12 +3797,16 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
        'explicit ground relative humidity', missing_value=-1.0 )
   id_total_C = register_tiled_diag_field ( module_name, 'Ctot', axes, time, &
        'total land carbon', 'kg C/m2', missing_value=-1.0 )
+  id_total_N = register_tiled_diag_field ( module_name, 'Ntot', axes, time, &
+       'total land nitrogen', 'kg N/m2', missing_value=-1.0 )
 
 
   id_water_cons = register_tiled_diag_field ( module_name, 'water_cons', axes, time, &
        'water non-conservation in update_land_model_fast_0d', 'kg/(m2 s)', missing_value=-1.0 )
   id_carbon_cons = register_tiled_diag_field ( module_name, 'carbon_cons', axes, time, &
        'carbon non-conservation in update_land_model_fast_0d', 'kgC/(m2 s)', missing_value=-1.0 )
+  id_nitrogen_cons = register_tiled_diag_field ( module_name, 'nitrogen_cons', axes, time, &
+       'nitrogen non-conservation in update_land_model_fast_0d', 'kgN/(m2 s)', missing_value=-1.0 )
 
   id_parnet = register_cohort_diag_field ( module_name, 'parnet', axes, time, &
              'net PAR to the vegetation', 'W/m2', missing_value=-1.0e+20)
@@ -4119,4 +4141,3 @@ DEFINE_TAG_ACCESSOR(soil)
 DEFINE_TAG_ACCESSOR(vegn)
 
 end module land_model_mod
-

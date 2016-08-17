@@ -197,7 +197,7 @@ subroutine  update_mycorrhizae(cc,sp,dt_fast_yr,&
                            myc_scav_marginal_gain,myc_mine_marginal_gain,N_fix_marginal_gain,rhiz_exud_marginal_gain,&
                            root_exudate_C, root_exudate_N,&
                            mycorrhizal_scav_N_immob,mycorrhizal_mine_N_immob,&
-                           myc_CO2_prod,N_fixation,&
+                           myc_CO2_prod,N_fixation,total_plant_N_uptake,&
                            myc_turnover_C,myc_turnover_N)
 
 
@@ -211,13 +211,14 @@ subroutine  update_mycorrhizae(cc,sp,dt_fast_yr,&
    real, intent(out):: root_exudate_C, root_exudate_N
    real, intent(out):: mycorrhizal_scav_N_immob,mycorrhizal_mine_N_immob
    real, intent(out):: myc_CO2_prod  ! kgC/m2/individual
-   real, intent(out):: N_fixation
+   real, intent(out):: N_fixation, total_plant_N_uptake
    real, intent(out):: myc_turnover_C,myc_turnover_N
 
    real :: current_root_exudation
    real :: myc_scav_exudate_frac,myc_mine_exudate_frac,N_fixer_exudate_frac,rhiz_exud_frac
    real :: scavenger_myc_N_allocated,miner_myc_N_allocated,N_fixer_N_allocated
    real :: excess_mining_C
+   real :: fixer_biomass_N_fixation
 
    myc_CO2_prod = 0.0
 
@@ -405,9 +406,10 @@ subroutine  update_mycorrhizae(cc,sp,dt_fast_yr,&
 
    cc%N_fixer_biomass_C = cc%N_fixer_biomass_C + N_fixer_C_allocated*N_fixer_C_efficiency - cc%N_fixer_biomass_C/N_fixer_turnover_time*dt_fast_yr
    cc%N_fixer_biomass_N = cc%N_fixer_biomass_N + N_fixer_C_allocated*N_fixer_C_efficiency/c2n_N_fixer - cc%N_fixer_biomass_N/N_fixer_turnover_time*dt_fast_yr
-   ! Let's assume N fixers make their own biomass N
+   ! Let's assume N fixers make their own biomass N, but it needs to be included in total fixation for N budget checks
    !N_fixer_N_allocated = min(N_fixer_C_allocated*sp%root_exudate_N_frac,N_fixer_C_allocated*N_fixer_C_efficiency/c2n_N_fixer)
    N_fixer_N_allocated = 0.0
+   fixer_biomass_N_fixation = N_fixer_C_allocated*N_fixer_C_efficiency/c2n_N_fixer
 
    call check_var_range(cc%myc_scavenger_biomass_C, 0.0, HUGE(1.0), 'vegn_carbon_int_lm3', 'myc_scavenger_C', FATAL)
    call check_var_range(cc%myc_miner_biomass_C,     0.0, HUGE(1.0), 'vegn_carbon_int_lm3', 'myc_miner_C', FATAL)
@@ -417,6 +419,11 @@ subroutine  update_mycorrhizae(cc,sp,dt_fast_yr,&
    if(is_watch_point()) then
       __DEBUG3__(cc%myc_scavenger_biomass_C,cc%myc_miner_biomass_C,cc%N_fixer_biomass_C)
    endif
+
+   total_plant_N_uptake = myc_scav_N_uptake-mycorrhizal_scav_N_immob + myc_mine_N_uptake-mycorrhizal_mine_N_immob &
+                     +N_fixation-fixer_biomass_N_fixation+root_N_uptake
+
+   cc%stored_N = cc%stored_N + total_plant_N_uptake
 
 
  else  ! If nitrogen turned off, everything is zero
@@ -438,6 +445,7 @@ subroutine  update_mycorrhizae(cc,sp,dt_fast_yr,&
       N_fixation = 0.0
       myc_turnover_C = 0.0
       myc_turnover_N = 0.0
+      total_plant_N_uptake = 0.0
 
  endif
 
@@ -567,9 +575,9 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
 
      ! check if leaves/roots are present and need to be accounted in maintenance
      if(cc%status == LEAF_ON) then
-        md_leaf = cc%Pl * sp%alpha_leaf*cc%bliving*dt_fast_yr
-        md_froot= cc%Pr * sp%alpha_root*cc%bliving*dt_fast_yr
-        md_vleaf = sp%alpha_vleaf*cc%blv
+        md_leaf = sp%alpha_leaf*cc%bl*dt_fast_yr
+        md_froot= sp%alpha_root*cc%br*dt_fast_yr
+        md_vleaf = sp%alpha_vleaf*cc%blv*dt_fast_yr
      else
         md_leaf  = 0
         md_vleaf = 0
@@ -618,7 +626,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
              [sp%fsc_liv,   1-sp%fsc_liv,   0.0 ]*md_sapwood*(1-agf_bs) &
              )
         root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*cc%nindivs*( &
-             [sp%fsc_froot, 1-sp%fsc_froot, 0.0 ]*md_froot/sp%froot_live_c2n + &
+             [sp%fsc_froot, 1-sp%fsc_froot, 0.0 ]*md_froot/sp%froot_live_c2n*(1.0-sp%froot_retranslocation_frac) + &
              [sp%fsc_wood,  1-sp%fsc_wood,  0.0 ]*md_wood*(1-agf_bs)/sp%wood_c2n + &
              [sp%fsc_liv,   1-sp%fsc_liv,   0.0 ]*md_sapwood*(1-agf_bs)/sp%sapwood_c2n*(1.0-sp%froot_retranslocation_frac) &
              )
@@ -643,14 +651,8 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
                                 root_exudate_C(i), root_exudate_N(i),&
                                 mycorrhizal_scav_N_immob(i),mycorrhizal_mine_N_immob(i),&
                                 myc_CO2_prod(i),&
-                                N_fixation(i), &
+                                N_fixation(i), total_plant_N_uptake(i), &
                                 myc_turnover_C,myc_turnover_N)
-
-
-     total_plant_N_uptake(i) = myc_scav_N_uptake(i)-mycorrhizal_scav_N_immob(i) + myc_mine_N_uptake(i)-mycorrhizal_mine_N_immob(i) &
-                       +N_fixation(i)+root_active_N_uptake(i)
-
-     cc%stored_N = cc%stored_N + total_plant_N_uptake(i)
 
 
      ! First add mycorrhizal and N fixer turnover to soil C pools
@@ -670,6 +672,8 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
 
      end associate
   enddo
+
+  soil%gross_nitrogen_flux_into_tile = soil%gross_nitrogen_flux_into_tile + sum(N_fixation(1:N)*c(1:N)%nindivs)
 
   ! fsc_in and ssc_in updated in add_root_exudates
   call add_root_exudates(soil,total_root_exudate_C,total_root_exudate_N)
@@ -1419,11 +1423,11 @@ subroutine vegn_phenology_lm3(vegn, soil)
 
            leaf_litter_C = (1.0-l_fract)*cc%bl*cc%nindivs
            leaf_litt_C(:) = leaf_litt_C(:)+[sp%fsc_liv,1-sp%fsc_liv,0.0]*leaf_litter_C
-           leaf_litter_N = (1.0-l_fract)*cc%leaf_N*cc%nindivs*(1.0-sp%leaf_retranslocation_frac)
+           leaf_litter_N =  cc%leaf_N*cc%nindivs*(1.0-sp%leaf_retranslocation_frac)
            leaf_litt_N(:) = leaf_litt_N(:)+[sp%fsc_liv,1-sp%fsc_liv,0.0]*leaf_litter_N
 
            root_litter_C = (1.0-l_fract)*cc%br*cc%nindivs
-           root_litter_N = (1.0-l_fract)*cc%root_N*cc%nindivs*(1.0-sp%froot_retranslocation_frac)
+           root_litter_N = cc%root_N*cc%nindivs*(1.0-sp%froot_retranslocation_frac)
            call cohort_root_litter_profile(cc, dz, profile)
            do l = 1, num_l
               root_litt_C(l,:) = root_litt_C(l,:) + profile(l)* &
@@ -1446,9 +1450,9 @@ subroutine vegn_phenology_lm3(vegn, soil)
 
            ! update state
            cc%bliving = cc%blv + cc%br + cc%bl + cc%bsw;
-           call update_bio_living_fraction(cc);
         endif
      endif ! phenology type
+     call update_biomass_pools(cc); ! BNS: Just do this every time to avoid things getting messed up
      end associate
   enddo
 
