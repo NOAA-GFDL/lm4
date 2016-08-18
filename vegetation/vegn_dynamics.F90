@@ -246,7 +246,7 @@ subroutine  update_mycorrhizae(cc,sp,dt_fast_yr,&
 
       ! Scavenging (AM-style)
       ! slm: *_marginal_gain variables have units [kgN/kgC]
-      if(myc_scav_C_efficiency == 0) then
+      if(myc_scav_C_efficiency == 0 .OR. .NOT. sp%do_N_scavenging_strategy) then
          myc_scav_marginal_gain = 0
       else
          if (cc%myc_scavenger_biomass_C > 0) then
@@ -257,7 +257,7 @@ subroutine  update_mycorrhizae(cc,sp,dt_fast_yr,&
       endif
 
       ! Mycorrhizal N mining (ECM-style)
-      if(myc_mine_C_efficiency==0) then
+      if(myc_mine_C_efficiency==0 .OR. .NOT. sp%do_N_mining_strategy) then
          myc_mine_marginal_gain = 0.0
       else
          if(cc%myc_miner_biomass_C>0) then
@@ -276,7 +276,7 @@ subroutine  update_mycorrhizae(cc,sp,dt_fast_yr,&
 
       ! N fixer
       N_fixation = cc%N_fixer_biomass_C*sp%N_fixation_rate*dt_fast_yr
-      if(N_fixer_C_efficiency == 0) then
+      if(N_fixer_C_efficiency == 0 .OR. .NOT. sp%do_N_fixation_strategy) then
          N_fix_marginal_gain = 0.0
       else
          if(cc%N_fixer_biomass_C>0) then
@@ -395,7 +395,6 @@ subroutine  update_mycorrhizae(cc,sp,dt_fast_yr,&
                           cc%N_fixer_biomass_C/N_fixer_turnover_time/c2n_N_fixer)*dt_fast_yr
 
    ! Update biomass of scavenger mycorrhizae and N fixers
-   ! Currently this does not check for conservation of nitrogen
    cc%myc_scavenger_biomass_C = cc%myc_scavenger_biomass_C + scavenger_myc_C_allocated*myc_scav_C_efficiency - cc%myc_scavenger_biomass_C/mycorrhizal_turnover_time*dt_fast_yr
    cc%myc_scavenger_biomass_N = cc%myc_scavenger_biomass_N + scavenger_myc_C_allocated*myc_scav_C_efficiency/sp%c2n_mycorrhizae - cc%myc_scavenger_biomass_N/mycorrhizal_turnover_time*dt_fast_yr
    scavenger_myc_N_allocated = scavenger_myc_C_allocated*myc_scav_C_efficiency/sp%c2n_mycorrhizae - mycorrhizal_scav_N_immob
@@ -410,6 +409,30 @@ subroutine  update_mycorrhizae(cc,sp,dt_fast_yr,&
    !N_fixer_N_allocated = min(N_fixer_C_allocated*sp%root_exudate_N_frac,N_fixer_C_allocated*N_fixer_C_efficiency/c2n_N_fixer)
    N_fixer_N_allocated = 0.0
    fixer_biomass_N_fixation = N_fixer_C_allocated*N_fixer_C_efficiency/c2n_N_fixer
+
+   ! Prevent numerical errors from very small numbers if biomass is decreasing exponentially by killing it all at some point
+   if(cc%myc_scavenger_biomass_C < 1e-20) then
+     myc_turnover_C = myc_turnover_C + cc%myc_scavenger_biomass_C
+     myc_turnover_N = myc_turnover_N + cc%myc_scavenger_biomass_N
+     cc%myc_scavenger_biomass_C = 0.0
+     cc%myc_scavenger_biomass_N = 0.0
+   endif
+
+   if(cc%myc_miner_biomass_C < 1e-20) then
+     myc_turnover_C = myc_turnover_C + cc%myc_miner_biomass_C
+     myc_turnover_N = myc_turnover_N + cc%myc_miner_biomass_N
+     cc%myc_miner_biomass_C = 0.0
+     cc%myc_miner_biomass_N = 0.0
+   endif
+
+   if(cc%N_fixer_biomass_C < 1e-20) then
+     myc_turnover_C = myc_turnover_C + cc%N_fixer_biomass_C
+     myc_turnover_N = myc_turnover_N + cc%N_fixer_biomass_N
+     cc%N_fixer_biomass_C = 0.0
+     cc%N_fixer_biomass_N = 0.0
+   endif
+
+
 
    call check_var_range(cc%myc_scavenger_biomass_C, 0.0, HUGE(1.0), 'vegn_carbon_int_lm3', 'myc_scavenger_C', FATAL)
    call check_var_range(cc%myc_miner_biomass_C,     0.0, HUGE(1.0), 'vegn_carbon_int_lm3', 'myc_miner_C', FATAL)
@@ -746,7 +769,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   call send_cohort_data(id_myc_scav_marginal_gain,diag,c(1:N),myc_scav_marginal_gain(1:N),weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_myc_mine_marginal_gain,diag,c(1:N),myc_mine_marginal_gain(1:N),weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_N_fix_marginal_gain,diag,c(1:N),N_fix_marginal_gain(1:N),weight=c(1:N)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_rhiz_exudation,diag,c(1:N),total_root_exudate_C(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_rhiz_exudation,diag,c(1:N),root_exudate_C(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_nitrogen_stress,diag,c(1:N),c(1:N)%nitrogen_stress,weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_total_plant_N_uptake,diag,c(1:N),total_plant_N_uptake(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_rhiz_exud_marginal_gain,diag,c(1:N),rhiz_exud_marginal_gain(1:N),weight=c(1:N)%nindivs, op=OP_SUM)
