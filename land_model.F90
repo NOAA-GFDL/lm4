@@ -1487,6 +1487,7 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
      grnd_rh   = snow_rh
      grnd_rh_psi = 0
   endif
+  snow_T = tile%snow%T(1)
 
   call cana_state(tile%cana, cana_T, cana_q, cana_co2)
 
