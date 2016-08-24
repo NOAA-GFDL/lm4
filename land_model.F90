@@ -76,7 +76,7 @@ use land_io_mod, only : read_land_io_namelist, input_buf_size, new_land_io
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
      land_tile_enum_type, new_land_tile, insert, nitems, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
-     get_elmt_indices, get_tile_tags, land_tile_carbon, land_tile_heat, &
+     get_elmt_indices, get_tile_tags, land_tile_carbon, land_tile_nitrogen, land_tile_heat, &
      get_tile_water, init_tile_map, free_tile_map, max_n_tiles, &
      tile_exists_func, loop_over_tiles
 use land_data_mod, only : land_data_type, atmos_land_boundary_type, &
@@ -94,7 +94,7 @@ use land_tile_diag_mod, only : tile_diag_init, tile_diag_end, &
      OP_AVERAGE, OP_SUM, cmor_name
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, get_watch_point, check_temp_range, current_face, &
-     get_current_point, check_conservation, water_cons_tol, carbon_cons_tol, &
+     get_current_point, check_conservation, water_cons_tol, carbon_cons_tol, nitrogen_cons_tol, &
      is_watch_cell, is_watch_time, do_check_conservation, check_var_range, &
      log_date
 use static_vegn_mod, only : write_static_vegn
@@ -271,8 +271,8 @@ integer :: &
   id_vegn_refl_dir, id_vegn_refl_dif, id_vegn_refl_lw,                     &
   id_vegn_tran_dir, id_vegn_tran_dif, id_vegn_tran_lw,                     &
   id_vegn_sctr_dir,                                                        &
-  id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T, id_total_C, &
-  id_water_cons,    id_carbon_cons, id_DOCrunf, id_dis_DOC, id_DONrunf, id_dis_DON, &
+  id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T, id_total_C, id_total_N, &
+  id_water_cons,    id_carbon_cons, id_nitrogen_cons, id_DOCrunf, id_dis_DOC, id_DONrunf, id_dis_DON, &
   id_NH4runf, id_dis_NH4,id_NO3runf, id_dis_NO3
 ! diagnostic ids for canopy air tracers (moist mass ratio)
 integer, allocatable :: id_cana_tr(:)
@@ -1466,8 +1466,8 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
                       ! and organic nitrogen input to the soil, kg N/(m2 yr)
 
   ! variables for conservation checks
-  real :: lmass0, fmass0, heat0, cmass0, v0
-  real :: lmass1, fmass1, heat1, cmass1
+  real :: lmass0, fmass0, heat0, cmass0, v0, nmass0, nflux0
+  real :: lmass1, fmass1, heat1, cmass1, nmass1, nflux1
   character(*), parameter :: tag = 'update_land_model_fast_0d'
 
 
@@ -1495,6 +1495,13 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
      ! + conservation check, part 1: calculate the pre-transition totals
      call get_tile_water(tile,lmass0,fmass0)
      cmass0 = land_tile_carbon(tile)
+     nmass0 = land_tile_nitrogen(tile)
+     if(associated(tile%soil)) then
+       nflux0=tile%soil%gross_nitrogen_flux_into_tile - tile%soil%gross_nitrogen_flux_out_of_tile
+     else
+       nflux0=0.0
+     endif
+
      ! - end of conservation check, part 1
   endif
 
@@ -2121,6 +2128,17 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
      endif
      call send_tile_data(id_carbon_cons, (cmass1-v0)/delta_time, tile%diag)
 
+     nmass1 = land_tile_nitrogen(tile)
+     if(associated(tile%soil)) then
+       nflux1=tile%soil%gross_nitrogen_flux_into_tile - tile%soil%gross_nitrogen_flux_out_of_tile
+     else
+       nflux1=0.0
+     endif
+     if (do_check_conservation) call check_conservation (tag,'nitrogen', &
+        nmass0, nmass1 + (nflux0 - nflux1), nitrogen_cons_tol)
+     call send_tile_data(id_nitrogen_cons, (nmass1-nflux1-nmass0+nflux0)/delta_time, tile%diag)
+
+
      heat1  = land_tile_heat(tile)
      ! latent heat is missing below, and it's not trivial to add, because there are
      ! multiple components with their own vaporization heat
@@ -2247,6 +2265,8 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
 
   if (id_total_C > 0) &
       call send_tile_data(id_total_C, land_tile_carbon(tile),         tile%diag)
+  if (id_total_N > 0) &
+      call send_tile_data(id_total_N, land_tile_nitrogen(tile),         tile%diag)
 
   ! CMOR variables
   call send_tile_data(id_prveg, (precip_l+precip_s)*vegn_ifrac,       tile%diag)
@@ -3323,11 +3343,15 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
        'ground surface temperature', 'degK', missing_value=-1.0 )
   id_total_C = register_tiled_diag_field ( module_name, 'Ctot', axes, time, &
        'total land carbon', 'kg C/m2', missing_value=-1.0 )
+  id_total_N = register_tiled_diag_field ( module_name, 'Ntot', axes, time, &
+       'total land nitrogen', 'kg N/m2', missing_value=-1.0 )
 
   id_water_cons = register_tiled_diag_field ( module_name, 'water_cons', axes, time, &
        'water non-conservation in update_land_model_fast_0d', 'kg/(m2 s)', missing_value=-1.0 )
   id_carbon_cons = register_tiled_diag_field ( module_name, 'carbon_cons', axes, time, &
        'carbon non-conservation in update_land_model_fast_0d', 'kgC/(m2 s)', missing_value=-1.0 )
+  id_nitrogen_cons = register_tiled_diag_field ( module_name, 'nitrogen_cons', axes, time, &
+       'nitrogen non-conservation in update_land_model_fast_0d', 'kgN/(m2 s)', missing_value=-1.0 )
 
   ! CMOR variables
   id_prveg = register_tiled_diag_field ( cmor_name, 'prveg', axes, time, &

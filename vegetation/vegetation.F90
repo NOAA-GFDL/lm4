@@ -19,8 +19,8 @@ use sphum_mod, only: qscomp
 
 use vegn_tile_mod, only: vegn_tile_type, &
      vegn_seed_demand, vegn_seed_supply, vegn_add_bliving, &
-     cpw, clw, csw
-use soil_tile_mod, only: soil_tile_type, soil_ave_temp, &
+     cpw, clw, csw, vegn_tile_nitrogen
+use soil_tile_mod, only: soil_tile_type, soil_ave_temp, soil_tile_nitrogen,&
                          soil_ave_theta0, soil_ave_theta1, soil_psi_stress
 use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, mol_air, &
      seconds_per_year
@@ -52,7 +52,7 @@ use canopy_air_mod, only : cana_turbulence
 use cohort_io_mod, only :  read_create_cohorts, create_cohort_dimension, &
      add_cohort_data, add_int_cohort_data, get_cohort_data, get_int_cohort_data
 use land_debug_mod, only : is_watch_point, set_current_point, check_temp_range, &
-     carbon_cons_tol, water_cons_tol, check_conservation, do_check_conservation
+     carbon_cons_tol, nitrogen_cons_tol, water_cons_tol, check_conservation, do_check_conservation
 use vegn_radiation_mod, only : vegn_radiation_init, vegn_radiation
 use vegn_photosynthesis_mod, only : vegn_photosynthesis_init, vegn_photosynthesis
 use static_vegn_mod, only : read_static_vegn_namelist, static_vegn_init, static_vegn_end, &
@@ -193,8 +193,8 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
    id_leaflitter_buffer_slow_N, id_woodlitter_buffer_slow_N,id_leaflitter_buffer_rate_slow_N, id_woodlitter_buffer_rate_slow_N,& ! id_coarsewoodlitter_buffer_rate_ag is 34 characters long (pjp)
    id_t_ann, id_t_cold, id_p_ann, id_ncm, &
    id_lambda, id_afire, id_atfall, id_closs, id_cgain, id_wdgain, id_leaf_age, &
-   id_phot_co2, id_theph, id_psiph, id_evap_demand, id_passive_N_uptake,&
-   id_myc_scavenger_N_uptake,id_myc_miner_N_uptake,id_symbiotic_N_fixation,id_active_root_N_uptake
+   id_ngain, id_nloss, id_tile_nitrogen_gain, id_tile_nitrogen_loss, &
+   id_phot_co2, id_theph, id_psiph, id_evap_demand
 ! CMOR variables
 integer :: id_lai_cmor, id_btot_cmor, id_cproduct, &
    id_fFire, id_fGrazing, id_fHarvest, id_fLuc, &
@@ -655,16 +655,6 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
           (/id_lon,id_lat/), time, 'symbiotic N fixer biomass_N', 'kg N/m2', missing_value=-1.0 )
     ! id_N_uptake_smoothed = register_tiled_diag_field ( module_name, 'N_uptake_smoothed',  &
     !      (/id_lon,id_lat/), time, 'Smoothed N uptake', 'kg N/m2/year', missing_value=-1.0 )
-   id_passive_N_uptake = register_tiled_diag_field ( module_name, 'passive_N_uptake',  &
-        (/id_lon,id_lat/), time, 'Plant N uptake by root water flow', 'kg N/m2/year', missing_value=-1.0 )
-  id_myc_scavenger_N_uptake = register_tiled_diag_field ( module_name, 'myc_scavenger_N_uptake',  &
-       (/id_lon,id_lat/), time, 'N uptake by scavenger mycorrhizae', 'kg N/m2/year', missing_value=-1.0 )
-   id_myc_miner_N_uptake = register_tiled_diag_field ( module_name, 'myc_miner_N_uptake',  &
-        (/id_lon,id_lat/), time, 'N uptake by miner mycorrhizae', 'kg N/m2/year', missing_value=-1.0 )
-   id_symbiotic_N_fixation = register_tiled_diag_field ( module_name, 'symbiotic_N_fixation',  &
-        (/id_lon,id_lat/), time, 'Symbiotic N fixation', 'kg N/m2/year', missing_value=-1.0 )
-    id_active_root_N_uptake = register_tiled_diag_field ( module_name, 'active_root_N_uptake',  &
-         (/id_lon,id_lat/), time, 'N uptake by root active transport', 'kg N/m2/year', missing_value=-1.0 )
   id_btot = register_tiled_diag_field ( module_name, 'btot',  &
        (/id_lon,id_lat/), time, 'total biomass', 'kg C/m2', missing_value=-1.0 )
   id_fuel = register_tiled_diag_field ( module_name, 'fuel',  &
@@ -696,6 +686,12 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
        time, 'carbon loss', 'kg C', missing_value=-100.0 )
   id_wdgain = register_tiled_diag_field ( module_name, 'wdgain', (/id_lon,id_lat/), &
        time, 'wood biomass gain', 'kg C', missing_value=-100.0 )
+
+  id_Ngain = register_tiled_diag_field ( module_name, 'Ngain', (/id_lon,id_lat/), &
+     time, 'nitrogen gain', 'kg N', missing_value=-100.0 )
+  id_Nloss = register_tiled_diag_field ( module_name, 'Nloss', (/id_lon,id_lat/), &
+       time, 'nitrogen loss', 'kg N', missing_value=-100.0 )
+
 
   id_t_ann  = register_tiled_diag_field ( module_name, 't_ann', (/id_lon,id_lat/), &
        time, 'annual mean temperature', 'degK', missing_value=-999.0 )
@@ -793,6 +789,12 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
      time,  'vegetation carbon in', 'kg C/m2', missing_value=-999.0 )
   id_veg_out = register_tiled_diag_field ( module_name, 'veg_out',  (/id_lon, id_lat/), &
      time,  'vegetation carbon out', 'kg C/m2', missing_value=-999.0 )
+
+ id_tile_nitrogen_gain = register_tiled_diag_field ( module_name, 'nitrogen_in',  (/id_lon, id_lat/), &
+   time,  'tile nitrogen in', 'kg N/m2', missing_value=-999.0 )
+ id_tile_nitrogen_loss = register_tiled_diag_field ( module_name, 'nitrogen_out',  (/id_lon, id_lat/), &
+    time,  'tile nitrogen out', 'kg N/m2', missing_value=-999.0 )
+
 
   id_afire = register_tiled_diag_field (module_name, 'afire', (/id_lon,id_lat/), &
        time, 'area been fired', missing_value=-100.0)
@@ -1517,11 +1519,6 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
 
   call send_tile_data(id_theph, theta, diag)
   call send_tile_data(id_psiph, psist, diag)
-  call send_tile_data(id_passive_N_uptake,soil%passive_N_uptake/dt_fast_yr,diag)
-  call send_tile_data(id_myc_scavenger_N_uptake,soil%myc_scav_N_uptake/dt_fast_yr,diag)
-  call send_tile_data(id_myc_miner_N_uptake,soil%myc_mine_N_uptake/dt_fast_yr,diag)
-  call send_tile_data(id_symbiotic_N_fixation,soil%symbiotic_N_fixation/dt_fast_yr,diag)
-  call send_tile_data(id_active_root_N_uptake, soil%active_root_N_uptake/dt_fast_yr,diag)
 
 end subroutine vegn_step_3
 
@@ -1577,8 +1574,9 @@ subroutine update_vegn_slow( )
      endif
 
 cmass1 = land_tile_carbon(tile)
+nmass1 = land_tile_nitrogen(tile)
 call check_conservation ('vegn_daily_npp','carbon'      , cmass0, cmass1, carbon_cons_tol)
-
+call check_conservation ('vegn_daily_npp','nitrogen'      , nmass0, nmass1, nitrogen_cons_tol)
 
      ! monthly averaging
      if (month1 /= month0) then
@@ -1653,6 +1651,9 @@ call check_conservation ('update_fuel','carbon'      , cmass0, cmass1, carbon_co
         call send_tile_data(id_cgain,sum(tile%vegn%cohorts(1:n)%carbon_gain),tile%diag)
         call send_tile_data(id_closs,sum(tile%vegn%cohorts(1:n)%carbon_loss),tile%diag)
         call send_tile_data(id_wdgain,sum(tile%vegn%cohorts(1:n)%bwood_gain),tile%diag)
+        call send_tile_data(id_Ngain,sum(tile%vegn%cohorts(1:n)%nitrogen_gain),tile%diag)
+        call send_tile_data(id_Nloss,sum(tile%vegn%cohorts(1:n)%nitrogen_loss),tile%diag)
+
         call vegn_growth(tile%vegn)
         cmass1 = land_tile_carbon(tile)
         call check_conservation ('growth','carbon'      , cmass0, cmass1, carbon_cons_tol)
@@ -1810,6 +1811,9 @@ call check_conservation ('vegn_harvesting','carbon'      , cmass0, cmass1, carbo
      call send_tile_data(id_veg_in,  tile%vegn%veg_in,  tile%diag)
      call send_tile_data(id_veg_out, tile%vegn%veg_out, tile%diag)
 
+     call send_tile_data(id_tile_nitrogen_gain,tile%soil%gross_nitrogen_flux_into_tile, tile%diag)
+     call send_tile_data(id_tile_nitrogen_loss,tile%soil%gross_nitrogen_flux_out_of_tile, tile%diag)
+
      ! CMOR variables
      if(id_btot_cmor>0) call send_tile_data(id_btot_cmor, &
                    sum(tile%vegn%cohorts(1:n)%bl    &
@@ -1848,6 +1852,11 @@ call check_conservation ('vegn_harvesting','carbon'      , cmass0, cmass1, carbo
         tile%vegn%theta_av_fire = 0.
         tile%vegn%psist_av = 0.
         tile%vegn%precip_av= 0.
+
+        ! Reset nitrogen tracking too
+        tile%soil%gross_nitrogen_flux_into_tile = 0.0
+        tile%soil%gross_nitrogen_flux_out_of_tile = 0.0
+
      endif
 
      !reset fuel and drought months before the start of new year

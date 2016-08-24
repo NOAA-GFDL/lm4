@@ -57,7 +57,7 @@ public :: log_date
 ! conservation tolerances for use across the code. This module doesn't use
 ! them, just serves as a convenient place to share them across all land code
 public :: water_cons_tol
-public :: carbon_cons_tol
+public :: carbon_cons_tol, nitrogen_cons_tol
 public :: do_check_conservation
 
 ! ==== module constants ======================================================
@@ -93,7 +93,8 @@ namelist/land_debug_nml/ watch_point, &
 logical :: do_check_conservation = .FALSE.
 real    :: water_cons_tol  = 1e-11 ! tolerance of water conservation checks
 real    :: carbon_cons_tol = 1e-13 ! tolerance of carbon conservation checks
-namelist/land_conservation_nml/ do_check_conservation, water_cons_tol, carbon_cons_tol
+real    :: nitrogen_cons_tol = 1e-13 ! tolerance of carbon conservation checks
+namelist/land_conservation_nml/ do_check_conservation, water_cons_tol, carbon_cons_tol, nitrogen_cons_tol
 
 contains
 

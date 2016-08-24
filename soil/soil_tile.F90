@@ -242,11 +242,11 @@ type :: soil_tile_type
    real                   :: slow_DON_leached !Nitrogen that has been leached out of the column
    real                   :: deadmic_DON_leached !Nitrogen that has been leached out of the column
    real                   :: NO3_leached, NH4_leached ! Mineral nitrogen that has been leached out of the column
-   real                   :: passive_N_uptake = 0.0 ! N uptake by water flux into roots
-   real                   :: myc_scav_N_uptake = 0.0 ! N uptake by "scavenger" mycorrhizae (mostly corresponding to Arbuscular mycorrhizae)
-   real                   :: myc_mine_N_uptake = 0.0 ! N uptake by "miner" mycorrhizae (corresponding to Ectomycorrhizae)
-   real                   :: symbiotic_N_fixation = 0.0 ! N fixation by symbiotic microbes
-   real                   :: active_root_N_uptake = 0.0 ! Mineral N uptake from rhizosphere by active transport across root membrane
+
+   ! For nitrogen conservation checking, because there are a lot of fluxes in and out of land to keep track of
+   real                   :: gross_nitrogen_flux_into_tile
+   real                   :: gross_nitrogen_flux_out_of_tile
+
 ! values for the diagnostic of carbon budget and soil carbon acceleration
    real, allocatable :: &
        asoil_in(:), &
@@ -957,13 +957,11 @@ subroutine soil_data_init_0d(soil)
   soil%slow_DON_leached=0.0
   soil%deadmic_DON_leached=0.0
 
+  soil%gross_nitrogen_flux_into_tile = 0.0
+  soil%gross_nitrogen_flux_out_of_tile = 0.0
+
   soil%NO3_leached=0.0
   soil%NH4_leached=0.0
-  soil%passive_N_uptake=0.0
-  soil%myc_scav_N_uptake=0.0
-  soil%myc_mine_N_uptake=0.0
-  soil%symbiotic_N_fixation=0.0
-  soil%active_root_N_uptake=0.0
 
   comp_local = 0.0
   if (use_comp_for_push) comp_local = comp
@@ -1440,6 +1438,10 @@ subroutine merge_soil_tiles(s1,w1,s2,w2)
   s2%deadmic_DON_leached=s1%deadmic_DON_leached*x1 + s2%deadmic_DON_leached*x2
   s2%NO3_leached=s1%NO3_leached*x1 + s2%NO3_leached*x2
   s2%NH4_leached=s1%NH4_leached*x1 + s2%NH4_leached*x2
+
+  s2%gross_nitrogen_flux_into_tile=s1%gross_nitrogen_flux_into_tile*x1 + s2%gross_nitrogen_flux_into_tile*x2
+  s2%gross_nitrogen_flux_out_of_tile=s1%gross_nitrogen_flux_out_of_tile*x1 + s2%gross_nitrogen_flux_out_of_tile*x2
+
 end subroutine merge_soil_tiles
 
 ! =============================================================================

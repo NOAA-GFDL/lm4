@@ -101,7 +101,7 @@ public :: &
     min_cosz, &
     agf_bs, K1,K2, fsc_liv, fsc_wood, fsc_froot, &
     tau_drip_l, tau_drip_s, & ! canopy water and snow residence times, for drip calculations
-    GR_factor, tg_c3_thresh, tg_c4_thresh, &
+    GR_factor, tg_c3_thresh, tg_c4_thresh, T_cold_tropical, &
     fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
     l_fract, T_transp_min, soil_carbon_depth_scale, &
     cold_month_threshold, scnd_biomass_bins, &
@@ -109,7 +109,8 @@ public :: &
     root_exudate_N_frac,& !x2z - ens: lets get rid of c2n?
     root_exudate_frac_max, dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
     N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, N_limits_live_biomass, root_NH4_uptake_rate, root_NO3_uptake_rate,&
-    k_ammonium_root_uptake,k_nitrate_root_uptake,excess_stored_N_leakage_rate
+    k_ammonium_root_uptake,k_nitrate_root_uptake,excess_stored_N_leakage_rate,&
+    do_N_mining_strategy,do_N_scavenging_strategy,do_N_fixation_strategy
 
 
 ! ---- public subroutine
@@ -199,6 +200,10 @@ type spec_data_type
 
   ! Root exudate fraction of npp
   real    :: root_exudate_frac
+
+  logical :: do_N_mining_strategy = .TRUE.
+  logical :: do_N_scavenging_strategy = .TRUE.
+  logical :: do_N_fixation_strategy = .TRUE.
 
   real    :: fsc_liv
   real    :: fsc_froot
@@ -410,6 +415,7 @@ real :: GR_factor = 0.33 ! growth respiration factor
 
 real :: tg_c3_thresh = 1.5 ! threshold biomass between tree and grass for C3 plants
 real :: tg_c4_thresh = 2.0 ! threshold biomass between tree and grass for C4 plants
+real :: T_cold_tropical = 278.16 ! Minimum T_cold that makes vegetation tropical (not deciduous)
 real :: fsc_pool_spending_time = 1.0 ! time (yrs) during which intermediate pool of
                   ! fast soil carbon is entirely converted to the fast soil carbon
 real :: ssc_pool_spending_time = 1.0 ! time (yrs) during which intermediate pool of
@@ -453,6 +459,13 @@ real :: sapwood_c2n(0:MSPECIES)=  &  ! C:N ratio of sapwood.
         (/100     ,    100   ,     100      ,    100    ,   100      ,  50,    50,     50,  50,     50,     50,    50,    50,   50/)
 real :: root_exudate_N_frac = 0.0 ! N fraction of root exudates. See e.g. Drake et al 2013
 
+logical :: do_N_mining_strategy(0:MSPECIES) = &
+        (/ .TRUE.  ,    .TRUE. ,   .TRUE.   ,   .TRUE.  ,   .TRUE.  ,  .TRUE. , .TRUE. , .TRUE. , .TRUE. , .TRUE. , .TRUE., .TRUE., .TRUE., .TRUE./)
+logical :: do_N_scavenging_strategy(0:MSPECIES) = &
+        (/ .TRUE.  ,    .TRUE. ,   .TRUE.   ,   .TRUE.  ,   .TRUE.  ,  .TRUE. , .TRUE. , .TRUE. , .TRUE. , .TRUE. , .TRUE., .TRUE., .TRUE., .TRUE./)
+logical :: do_N_fixation_strategy(0:MSPECIES) = &
+        (/ .TRUE.  ,    .TRUE. ,   .TRUE.   ,   .TRUE.  ,   .TRUE.  ,  .TRUE. , .TRUE. , .TRUE. , .TRUE. , .TRUE. , .TRUE., .TRUE., .TRUE., .TRUE./)
+
 real :: root_exudate_frac_max     = 0.5     ! Maximum fraction of NPP that can be allocated to mycorrhizae and root exudation
 logical :: dynamic_root_exudation    = .FALSE. ! Whether to dynamically determine root exudation rate from plant N limitation
 real :: c2n_mycorrhizae           = 10      ! C:N ratio of mycorrhizal biomass
@@ -492,7 +505,7 @@ namelist /vegn_data_nml/ &
   soil_carbon_depth_scale, cold_month_threshold, &
 
   smoke_fraction, agf_bs, K1,K2, fsc_liv, fsc_liv_sp, fsc_wood, fsc_froot, &
-  tau_drip_l, tau_drip_s, GR_factor, tg_c3_thresh, tg_c4_thresh, &
+  tau_drip_l, tau_drip_s, GR_factor, tg_c3_thresh, tg_c4_thresh, T_cold_tropical,&
   fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
   l_fract, T_transp_min,  tc_crit, psi_stress_crit_phen, &
   cnst_crit_phen, fact_crit_phen, cnst_crit_fire, fact_crit_fire, &
@@ -501,7 +514,9 @@ namelist /vegn_data_nml/ &
   leaf_retranslocation_frac, leaf_live_c2n,froot_live_c2n, froot_retranslocation_frac, wood_c2n, sapwood_c2n, root_exudate_N_frac,&
   root_exudate_frac_max, dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
   N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, N_limits_live_biomass, root_NH4_uptake_rate, root_NO3_uptake_rate,&
-  k_nitrate_root_uptake,k_ammonium_root_uptake,excess_stored_N_leakage_rate
+  k_nitrate_root_uptake,k_ammonium_root_uptake,excess_stored_N_leakage_rate,&
+  do_N_mining_strategy,do_N_scavenging_strategy,do_N_fixation_strategy
+
 
 contains ! ###################################################################
 
@@ -599,6 +614,10 @@ subroutine read_vegn_data_namelist()
 
   spdata%specific_leaf_area = specific_leaf_area
   spdata%root_exudate_frac = root_exudate_frac
+
+  spdata%do_N_mining_strategy = do_N_mining_strategy
+  spdata%do_N_scavenging_strategy = do_N_scavenging_strategy
+  spdata%do_N_fixation_strategy = do_N_fixation_strategy
 
   spdata%fsc_liv = fsc_liv_sp
   spdata%fsc_froot = fsc_froot
@@ -705,6 +724,9 @@ subroutine read_vegn_data_namelist()
 
   call add_row(table,'smoke_fraction',spdata(:)%smoke_fraction)
   call add_row(table,'root_exudate_frac',spdata(:)%root_exudate_frac)
+  call add_row(table,'do_N_mining_strategy',spdata(:)%do_N_mining_strategy)
+  call add_row(table,'do_N_scavenging_strategy',spdata(:)%do_N_scavenging_strategy)
+  call add_row(table,'do_N_fixation_strategy',spdata(:)%do_N_fixation_strategy)
 
   call add_row(table,'tracer_cuticular_cond',spdata(:)%tracer_cuticular_cond)
 

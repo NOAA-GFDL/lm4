@@ -478,7 +478,7 @@ subroutine vegn_nat_mortality(vegn, soil, deltat)
         cc%blv = cc%blv * (1-fraction_lost);
         cc%leaf_N = cc%leaf_N*(1-fraction_lost)
         cc%root_N = cc%root_N*(1-fraction_lost)
-
+        ! Also kill stored N?
 
         ! for budget tracking
         soil%ssc_in(1)  = soil%ssc_in(1)  + (cc%bwood+cc%bsw)*fraction_lost;
