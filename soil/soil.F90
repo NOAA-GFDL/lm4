@@ -3170,8 +3170,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
             leaflitter_deadmic_produced, leaflitter_protected_produced, leaflitter_protected_turnover_rate, leaflitter_C_dissolved, leaflitter_C_deposited, badCohort)
   IF (badCohort.ne.0) THEN
         call get_current_point(point_i,point_j,point_k,point_face)
-        WRITE (*,*), 'Found bad cohort in leaf litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
-        WRITE (*,*), 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
+        WRITE (*,*)  'Found bad cohort in leaf litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
+        WRITE (*,*)  'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
         call error_mesg('Dsdt','Found bad cohort in leaf litter',FATAL)
   ENDIF
 
@@ -3181,8 +3181,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
             fineWoodlitter_deadmic_produced, fineWoodlitter_protected_produced, fineWoodlitter_protected_turnover_rate, fineWoodlitter_C_dissolved, fineWoodlitter_C_deposited, badCohort)
   IF (badCohort.ne.0) THEN
         call get_current_point(point_i,point_j,point_k,point_face)
-        WRITE (*,*), 'Found bad cohort in fineWood litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
-        WRITE (*,*), 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
+        WRITE (*,*)  'Found bad cohort in fineWood litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
+        WRITE (*,*)  'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
         call error_mesg('Dsdt','Found bad cohort in fineWood litter',FATAL)
   ENDIF
 
@@ -3192,8 +3192,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
             coarseWoodlitter_deadmic_produced, coarseWoodlitter_protected_produced, coarseWoodlitter_protected_turnover_rate, coarseWoodlitter_C_dissolved, coarseWoodlitter_C_deposited, badCohort)
   IF (badCohort.ne.0) THEN
         call get_current_point(point_i,point_j,point_k,point_face)
-        WRITE (*,*), 'Found bad cohort in coarseWood litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
-        WRITE (*,*), 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
+        WRITE (*,*)  'Found bad cohort in coarseWood litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
+        WRITE (*,*)  'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
         call error_mesg('Dsdt','Found bad cohort in coarseWood litter',FATAL)
   ENDIF
 
@@ -3255,8 +3255,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
     deadmic_produced(k),protected_produced(:,k),protected_turnover_rate(:,k),C_dissolved(:,k),C_deposited(:,k),badCohort)
     IF (badCohort.ne.0) THEN
         call get_current_point(point_i,point_j,point_k,point_face)
-        WRITE (*,*), 'Found bad cohort in layer',k,'Point i,j,k,face:',point_i,point_j,point_k,point_face
-        WRITE (*,*), 'T=',decomp_T(k),'theta=',decomp_theta(k),'dt=',dt_fast_yr
+        WRITE (*,*)  'Found bad cohort in layer',k,'Point i,j,k,face:',point_i,point_j,point_k,point_face
+        WRITE (*,*)  'T=',decomp_T(k),'theta=',decomp_theta(k),'dt=',dt_fast_yr
         call error_mesg('Dsdt','Found bad cohort',FATAL)
     ENDIF
 
