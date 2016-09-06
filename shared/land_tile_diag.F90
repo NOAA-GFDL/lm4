@@ -15,6 +15,7 @@ use land_tile_mod,      only : land_tile_type, diag_buff_type, &
      land_tile_list_type, land_tile_enum_type, first_elmt, loop_over_tiles, &
      tile_is_selected, fptr_i0, fptr_r0, fptr_r0i
 use land_data_mod,      only : lnd, log_version
+use land_debug_mod,     only : check_var_range
 use tile_diag_buff_mod, only : diag_buff_type, realloc_diag_buff
 
 implicit none
@@ -531,7 +532,7 @@ function reg_field(static, module_name, field_name, init_time, axes, &
      do i = 3, size(axes(:))
         fields(id)%size = fields(id)%size * get_axis_length(axes(i))
      enddo
-     ! if offset is present in the list of the arguments, it means that we don't
+     ! if offset is present in the list of the arguments, it means that we do not
      ! want to increase the current_offset -- this is an alias field
      if (.not.present(offset)) &
         current_offset = current_offset + fields(id)%size
@@ -620,6 +621,9 @@ subroutine send_tile_data_0d(id, x, buffer)
   type(diag_buff_type), intent(inout) :: buffer
 
   integer :: idx, i
+#ifdef DEBUG_LAND_TILE_DIAG
+  real*4 r4
+#endif
 
   if (id <= 0) return
 
@@ -630,6 +634,11 @@ subroutine send_tile_data_0d(id, x, buffer)
   ! calculate offset for the current diagnostic field in the buffer
   i = id - BASE_TILED_FIELD_ID
   idx = fields(i)%offset
+
+#ifdef DEBUG_LAND_TILE_DIAG
+  ! DEBUG : check validity of input data
+  call check_var_range(x,REAL(-HUGE(r4)),REAL(HUGE(r4)),'send_tile_data_0d',fields(i)%name, FATAL)
+#endif
 
   ! store the diagnostic data
   buffer%data(idx) = x
@@ -651,6 +660,10 @@ subroutine send_tile_data_1d(id, x, buffer)
   type(diag_buff_type), intent(inout) :: buffer
 
   integer :: is, ie, i
+#ifdef DEBUG_LAND_TILE_DIAG
+  real*4 r4
+#endif
+
   if (id <= 0) return
 
   ! reallocate diagnostic buffer according to the current number and size of
@@ -660,6 +673,11 @@ subroutine send_tile_data_1d(id, x, buffer)
   ! calculate offset for the current diagnostic field in the buffer
   i = id - BASE_TILED_FIELD_ID ! index in the array of fields
   is = fields(i)%offset ; ie = is+fields(i)%size-1
+
+#ifdef DEBUG_LAND_TILE_DIAG
+  ! DEBUG : check validity of input data
+  call check_var_range(x,REAL(-HUGE(r4)),REAL(HUGE(r4)),'send_tile_data_1d',fields(i)%name, FATAL)
+#endif
 
   ! store the data
   buffer%data(is:ie) = x(:)
