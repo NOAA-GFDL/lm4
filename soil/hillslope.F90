@@ -110,7 +110,7 @@ logical             :: diagnostics_by_cluster    = .false.  ! True ==> create di
 logical             :: init_wt_strmelev      = .true.    ! initialize water table at stream depth
                                                          ! else use requested soil:init_wtdep
 logical             :: equal_length_tiles    = .true.    ! .false. ==> tile lengths input from namelist
-real, dimension(max_vc) :: dl  ! [-] vector of length fractions input from namelist for tile horizontal grid
+real, dimension(max_vc) :: dl = 0.0  ! [-] vector of length fractions input from namelist for tile horizontal grid
                                ! Ordered from stream-most tile to hilltop.
 logical, public     :: dammed_strm_bc = .false.  ! True ==> Hydraulic head increases with stream
                        !depth, limiting outflow with large strm_depth_penetration
