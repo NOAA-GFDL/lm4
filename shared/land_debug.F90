@@ -330,7 +330,7 @@ subroutine check_var_range_1d(value, lo, hi, tag, varname, severity)
 !$      thread = OMP_GET_THREAD_NUM()+1
         call get_date(lnd%time,y,mo,d,h,m,s)
         write(message,'(a,g23.16,2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
-             trim(varname)//'('//trim(string(i))//')'//' out of range: value=', value,&
+             trim(varname)//'('//trim(string(i))//')'//' out of range: value=', value(i),&
              'at lon=',lnd%lon(curr_i(thread),curr_j(thread))*180.0/PI, &
              'lat=',lnd%lat(curr_i(thread),curr_j(thread))*180.0/PI, &
              'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
