@@ -15,7 +15,7 @@ use land_tile_mod,      only : land_tile_type, diag_buff_type, &
      land_tile_list_type, land_tile_enum_type, first_elmt, loop_over_tiles, &
      tile_is_selected, fptr_i0, fptr_r0, fptr_r0i
 use land_data_mod,      only : lnd, log_version
-use land_debug_mod,     only : check_var_range
+use land_debug_mod,     only : check_var_range, set_current_point
 use tile_diag_buff_mod, only : diag_buff_type, realloc_diag_buff
 
 implicit none
@@ -723,19 +723,29 @@ subroutine send_tile_data_r1d_fptr(id, tile_map, fptr)
   type(land_tile_type), pointer :: tileptr ! pointer to tile
   real                , pointer :: ptr     ! pointer to the data element within a tile
   real,             allocatable :: buffer(:) ! buffer for accumulating data
-  integer :: i, k
+  integer :: i, i1,i2,i3, k
+  logical :: have_data
 
   if(id <= 0) return
   i = id - BASE_TILED_FIELD_ID ! index in the array of fields
 
   allocate(buffer(fields(i)%size))
-  ce = first_elmt( tile_map )
-  do while(loop_over_tiles(ce, tileptr))
+  ce = first_elmt( tile_map, is=lnd%is, js=lnd%js )
+  do while(loop_over_tiles(ce, tileptr, i1,i2,i3))
+#ifdef DEBUG_LAND_TILE_DIAG
+     call set_current_point(i1,i2,i3)
+#endif
+     have_data = .FALSE.
      do k = 1,fields(i)%size
         call fptr(tileptr,k,ptr)
-        if(associated(ptr)) buffer(k) = ptr
+        if(associated(ptr)) then
+            buffer(k) = ptr
+            have_data = .TRUE.
+        else
+            buffer(k) = 0.0
+        endif
      enddo
-     call send_tile_data(id,buffer,tileptr%diag)
+     if (have_data) call send_tile_data(id,buffer,tileptr%diag)
   enddo
   deallocate(buffer)
 end subroutine send_tile_data_r1d_fptr
