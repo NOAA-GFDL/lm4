@@ -40,6 +40,27 @@ integer :: num_l ! # of water layers
 real    :: dz    (max_lev)    ! thicknesses of layers
 real    :: zfull (max_lev)
 
+
+abstract  interface
+   subroutine uptake_calc_subr ( soil, psi, VRL, K_r, r_r, uptake_oneway, &
+        uptake_from_sat, uptake, duptake)
+   use soil_tile_mod, only : soil_tile_type
+     type(soil_tile_type), intent(in) :: soil
+     real, intent(in) :: &
+          psi,    &   ! water potential inside roots (in xylem) at zero depth, m
+          VRL(:), &   ! Volumetric Root Length (root length per unit volume), m/m3
+          K_r,    &   ! permeability of the root skin per unit area, kg/(m3 s)
+          r_r         ! radius of the roots, m
+     logical, intent(in) :: &
+          uptake_oneway, & ! if true, then the roots can only take up water, but
+          ! never loose it to the soil
+          uptake_from_sat   ! if false, uptake from saturated soil is prohibited
+     real, intent(out) :: &
+          uptake(:), & ! water uptake by roots
+          duptake(:)   ! derivative of water uptake w.r.t. psi_root
+   end subroutine uptake_calc_subr
+end interface
+
 contains
 
 ! ============================================================================
@@ -354,26 +375,7 @@ subroutine uptake_solver_K (soil, vegn_uptk, VRL, K_r, r_r, uptake_oneway, &
        uptake(:), & ! vertical distribution of soil uptake
        psi_x0       ! water potential inside roots (in xylem) at zero depth, m
   integer, intent(out) :: n_iter ! # of iterations made, for diagnostics only
-
-  interface
-     subroutine uptake_subr ( soil, psi_x0, VRL, K_r, r_r, uptake_oneway, &
-          uptake_from_sat, uptake, duptake)
-     use soil_tile_mod, only : soil_tile_type
-       type(soil_tile_type), intent(in) :: soil
-       real, intent(in) :: &
-            psi_x0, &   ! water potential inside roots (in xylem) at zero depth, m
-            VRL(:), &   ! Volumetric Root Length (root length per unit volume), m/m3
-            K_r,    &   ! permeability of the root skin per unit area, kg/(m3 s)
-            r_r         ! radius of the roots, m
-       logical, intent(in) :: &
-            uptake_oneway, & ! if true, then the roots can only take up water, but
-            ! never loose it to the soil
-            uptake_from_sat   ! if false, uptake from saturated soil is prohibited
-       real, intent(out) :: &
-            uptake(:), & ! water uptake by roots
-            duptake(:)   ! derivative of water uptake w.r.t. psi_root
-     end subroutine uptake_subr
-  end interface
+  procedure(uptake_calc_subr) :: uptake_subr
 
   ! ---- local constants
   ! parameters of uptake equation solver:
@@ -387,6 +389,7 @@ subroutine uptake_solver_K (soil, vegn_uptk, VRL, K_r, r_r, uptake_oneway, &
 
   n_iter = 0
 
+  psi_x0 = psi_wilt
   xl = psi_wilt
   xh = maxval(soil%psi(1:num_l)-zfull(1:num_l))
 
@@ -405,6 +408,7 @@ subroutine uptake_solver_K (soil, vegn_uptk, VRL, K_r, r_r, uptake_oneway, &
         write(*,*)'###### failed to reach lower bracket of uptake #####'
         __DEBUG2__(xl,uptake)
      endif
+     psi_x0 = xl
      return
   endif
 
@@ -431,10 +435,7 @@ subroutine uptake_solver_K (soil, vegn_uptk, VRL, K_r, r_r, uptake_oneway, &
   DfDx = sum(duptake)
   do n_iter = 1, max_iter
      ! check if we already reached the desired precision
-     if(abs(f)<eps) then
-         psi_x0 = x2
-         exit
-       endif
+     if(abs(f)<eps) exit ! from loop
 
      if (is_watch_point()) then
         write(*,*)'##### solution iteration iter=',n_iter
@@ -468,6 +469,7 @@ subroutine uptake_solver_K (soil, vegn_uptk, VRL, K_r, r_r, uptake_oneway, &
         __DEBUG2__(vegn_uptk,sum(uptake))
      endif
   enddo
+  psi_x0 = x2
 
 end subroutine uptake_solver_K
 
