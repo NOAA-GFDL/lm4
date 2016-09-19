@@ -231,6 +231,8 @@ function get_field(fields,field_name,field)
   endif
 
 end function get_field
+
+
 ! ============================================================================
 subroutine do_read_cover_field(input_unit, field, lonb, latb, input_cover_types, frac)
   integer, intent(in)  :: input_unit
@@ -240,35 +242,31 @@ subroutine do_read_cover_field(input_unit, field, lonb, latb, input_cover_types,
   real   , intent(out) :: frac(:,:,:)
 
   ! ---- local vars
-  integer :: nlon, nlat ! size of input map
-  integer :: k
+  integer :: nlon, nlat, k
   integer, allocatable :: in_cover(:,:)
   real, allocatable    :: in_lonb(:), in_latb(:), x(:,:), r_in_cover(:,:)
   type(horiz_interp_type) :: interp
-  integer :: vardims(1024)
   type(validtype) :: v
   integer :: in_j_start, in_j_count ! limits of the latitude belt we read
-  integer :: num_dims, dimlens(1024)
-  type(fieldtype), allocatable :: fields(:)
-  type(axistype),  allocatable :: axes(:)
-  type(axistype) :: axes_bnd
-  integer :: ndim,nvar,natt,nrec
+  integer :: ndim, dimlens(2)
+  type(axistype) :: axes_centers(2), axis_bounds
   integer :: start(4), count(4)
+  character(len=256) :: name
 
-  ! find out dimensions, etc
-  call mpp_get_info(input_unit,ndim,nvar,natt,nrec)
-  allocate(axes(ndim), fields(nvar))
-  call mpp_get_axes(input_unit, axes)
-  call mpp_get_fields(input_unit, fields)
+  ! check the field dimensions
+  call mpp_get_atts(field, ndim=ndim, name=name)
+  if (ndim.ne.2) call error_mesg('do_read_cover_field',&
+          'cover field "'//trim(name)//'" must be two-dimensional (lon,lat)', FATAL)
+
   ! get size of the longitude and latitude axes
-  call mpp_get_atts(field, ndim=num_dims, siz=dimlens) ! field is of type fieldtype and replaces varid.
+  call mpp_get_atts(field, name=name, siz=dimlens, axes=axes_centers)
   nlon = dimlens(1); nlat = dimlens(2)
   allocate ( in_lonb(nlon+1), in_latb(nlat+1) )
-  call get_axis_bounds(axes(1), axes_bnd, axes)
-  call mpp_get_axis_data(axes_bnd, in_lonb(:))
-  call get_axis_bounds(axes(2), axes_bnd, axes)
-  call mpp_get_axis_data(axes_bnd, in_latb(:))
-  in_lonb = in_lonb*PI/180.0; in_latb = in_latb*PI/180.0
+
+  call get_axis_bounds(axes_centers(1), axis_bounds, axes_centers)
+  call mpp_get_axis_data(axis_bounds, in_lonb)
+  call get_axis_bounds(axes_centers(2), axis_bounds, axes_centers)
+  call mpp_get_axis_data(axis_bounds, in_latb)
 
   ! to minimize the i/o and work done by horiz_interp, find the boundaries
   ! of latitude belt in input data that covers the entire latb array
@@ -331,40 +329,26 @@ end subroutine do_read_cover_field
   real, allocatable :: in_mask(:,:)
   type(horiz_interp_type) :: interp
   type(validtype) :: v
-  integer :: vardims(1024)
   integer :: in_j_end, in_j_start, in_j_count ! limits of the latitude belt we read
-  integer :: num_dims, dimlens(1024)
-  type(fieldtype), allocatable :: fields(:)
-  type(axistype),  allocatable :: axes(:)
-  type(axistype) :: axes_bnd
-  integer :: ndim,nvar,natt,nrec
+  integer :: ndim, dimlens(3)
+  type(axistype) :: axes_centers(3), axis_bounds
   integer :: start(4), count(4)
-  character(len=256) :: bnd_name, err_msg
+  character(len=256) :: name
 
-  ! find out dimensions, etc
-  call mpp_get_info(input_unit,ndim,nvar,natt,nrec)
-  allocate(axes(ndim), fields(nvar))
-  call mpp_get_axes(input_unit, axes)
-  call mpp_get_fields(input_unit, fields)
+  ! check the field dimensions
+  call mpp_get_atts(field, ndim=ndim, name=name)
+  if (ndim.ne.3) call error_mesg('do_read_fraction_field', &
+         'fraction field "'//trim(name)//'" must be three-dimensional (lon,lat,_)', FATAL)
+
   ! get size of the longitude and latitude axes
-  call mpp_get_atts(field, ndim=num_dims, siz=dimlens)
+  call mpp_get_atts(field, name=name, siz=dimlens, axes=axes_centers)
   nlon = dimlens(1); nlat = dimlens(2) ; ntypes = dimlens(3)
   allocate ( in_lonb(nlon+1), in_latb(nlat+1) )
 
-  call get_axis_bounds(axes(1), axes_bnd, axes) ! This routine requires some explanation. See below.
-! get_axis_bounds works like this:
-! It looks at the axis appearing as the first argument to see if the name of a bounds axis exists.
-! If it does then: It looks for the bounds axis amoung the array of axes supplied as the third argument and returns it as the second argument.
-! If it does not then: It creates a bounds axis using data from the axis appearing as the first argument and returns this as the second argument.
-
-  call mpp_get_axis_data(axes_bnd, in_lonb)
-  err_msg = ''
-  call get_axis_bounds(axes(2), axes_bnd, axes, bnd_name=bnd_name, err_msg=err_msg)
-  if(len_trim(err_msg) > 0 ) then
-    err_msg = trim(err_msg)//' File: '//trim(mpp_get_file_name(input_unit))
-    call error_mesg('do_read_fraction_field',err_msg, FATAL)
-  endif
-  call mpp_get_axis_data(axes_bnd, in_latb)
+  call get_axis_bounds(axes_centers(1), axis_bounds, axes_centers)
+  call mpp_get_axis_data(axis_bounds, in_lonb)
+  call get_axis_bounds(axes_centers(2), axis_bounds, axes_centers)
+  call mpp_get_axis_data(axis_bounds, in_latb)
   in_lonb = in_lonb*PI/180.0; in_latb = in_latb*PI/180.0
   ! find the boundaries of latitude belt in input data that covers the
   ! entire latb array
@@ -576,39 +560,34 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
   type(validtype) :: v
   type(horiz_interp_type) :: hinterp
   integer :: ndim,nvar,natt,nrec
-  type(axistype), allocatable :: all_axes(:), varaxes(:)
+  type(axistype), allocatable ::  varaxes(:)
   type(axistype):: axis_bnd
   type(fieldtype), allocatable :: fields(:)
   type(fieldtype) :: fld
-  character(len=256) :: bnd_name, axis_name, field_name, file_name
-  character(len=512) :: err_msg
-  logical :: found
-  integer :: bnd_ndims, bnd_index
-  real, allocatable  :: bnd_data(:,:)
-  integer :: bnd_dimlens(4)
+  character(len=256) :: file_name
   real    :: minlat, maxlat
   integer :: jstart, jend, start(4), count(4)
 
   interpolation = "bilinear"
   if(present(interp)) interpolation = interp
 
+  ! find the field in the file
   call mpp_get_info(input_unit,ndim,nvar,natt,nrec)
-  allocate(fields(nvar), all_axes(ndim))
-  call mpp_get_axes(input_unit, all_axes)
+  file_name = mpp_get_file_name(input_unit)
+  allocate(fields(nvar))
   call mpp_get_fields(input_unit, fields)
   k = mpp_get_field_index(fields,trim(varname))
   if(k > 0) then
     fld = fields(k)
   else
-    file_name = mpp_get_file_name(input_unit)
     call error_mesg('read_field','variable "'//trim(varname)//'" not found in file "'//trim(file_name)//'"',FATAL)
   endif
-  ! get the dimensions of our variable
 
+  ! get the dimensions of our variable
   call mpp_get_atts(fld, ndim=varndims, siz=dimlens, valid=v)
   if(varndims<2.or.varndims>3) then
-     call error_mesg('read_field','variable "'//trim(varname)//'" is '//string(varndims)//&
-          'D, but only reading 2D or 3D variables is supported', FATAL)
+     call error_mesg('read_field','variable "'//trim(varname)//'" in file "'//trim(file_name)//&
+          '" is '//string(varndims)//'D, but only reading 2D or 3D variables is supported', FATAL)
   endif
   allocate(varaxes(varndims))
   call mpp_get_atts(fld, axes=varaxes)
@@ -617,8 +596,9 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
   if (varndims==3) nlev=dimlens(3)
   if(nlev/=size(data,3)) then
      call error_mesg('read_field','3rd dimension length of the variable "'&
-          //trim(varname)//'" ('//trim(string(nlev))//') is different from the expected size of data ('// &
-          trim(string(size(data,3)))//')', FATAL)
+          //trim(varname)//'" ('//trim(string(nlev))//') in file "'//trim(file_name)//&
+          '" is different from the expected size of data ('// trim(string(size(data,3)))//')', &
+          FATAL)
   endif
 
   allocate (                 &
@@ -629,68 +609,10 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
   call mpp_get_axis_data(varaxes(1), in_lon)
   call mpp_get_axis_data(varaxes(2), in_lat)
   in_lon = in_lon*PI/180.0; in_lat = in_lat*PI/180.0
-  call get_axis_bounds(varaxes(1), axis_bnd, all_axes)
+  call get_axis_bounds(varaxes(1), axis_bnd, varaxes)
   call mpp_get_axis_data(axis_bnd, in_lonb)
-  err_msg = ''
-  call get_axis_bounds(varaxes(2), axis_bnd, all_axes, bnd_name=bnd_name, err_msg=err_msg)
-  if(len_trim(err_msg) > 0 ) then
-    ! The boundary data for varaxes(2) was not found amoung the axes passed in as "all_axes".
-    ! Look for a field (as opposed to as axis) that has the name of the boundary data.
-    bnd_index = mpp_get_field_index(fields,bnd_name)
-    if(bnd_index > 0) then
-      found = .TRUE.
-    else
-      found = .FALSE.
-    endif
-
-    ! There are multiple error checks in the code below.
-    ! Each requires a long error message. The bulk of the error
-    ! message is assigned here in case it is needed later.
-    file_name = mpp_get_file_name(input_unit)
-    call mpp_get_atts(varaxes(2), name=axis_name)
-    err_msg = 'axis bound "'//trim(bnd_name)//'" of axis "'//trim(axis_name)
-    err_msg = trim(err_msg)//'" of variable "'//trim(varname)//'" of file "'//trim(file_name)//'"'
-
-    if(.not.found) then
-      ! Neither an axis or a field was found that has the name of the boundary data.
-      err_msg = trim(err_msg)//'  The axis bound name is not found in this file.'
-      call error_mesg('read_field',trim(err_msg),FATAL)
-    endif
-
-    if(found) then
-      ! A field was found that has the name of the boundary data.
-      ! This field could have one or two dimensions.
-      ! Lets handle both cases.
-      call mpp_get_atts(fields(bnd_index), ndim=bnd_ndims, siz=bnd_dimlens)
-      if(bnd_ndims < 1 .or. bnd_ndims > 2) then
-        err_msg = trim(err_msg)//'  The axis bound data has more that 2 dimensions. Only 1 or 2 is allowed.'
-        call error_mesg('read_field',trim(err_msg),FATAL)
-      endif
-      if(bnd_dimlens(2) < nlat .or. bnd_dimlens(2) > nlat+1) then
-         err_msg = trim(err_msg)//'  The size of the axis bound data does not conform to the size of the axis data.'
-         call error_mesg('read_field',trim(err_msg),FATAL)
-      endif
-      if(bnd_ndims == 1) then
-        allocate(bnd_data(nlat+1,1))
-      else if(bnd_ndims == 2) then
-        if(bnd_dimlens(1) /= 2) then
-          err_msg = trim(err_msg)//'  The first dimension of the bound data must be 2 or nlat'
-          call error_mesg('read_field',trim(err_msg),FATAL)
-        endif
-        allocate(bnd_data(2,nlat))
-      endif
-      call mpp_read(input_unit, fields(bnd_index), bnd_data)
-      if(bnd_ndims == 1) then
-        in_latb = bnd_data(:,1)
-      else
-        in_latb(1:nlat) = bnd_data(1,:)
-        in_latb(nlat+1) = bnd_data(2,nlat)
-      endif
-      deallocate(bnd_data)
-    endif
-  else
-    call mpp_get_axis_data(axis_bnd, in_latb)
-  endif
+  call get_axis_bounds(varaxes(2), axis_bnd, varaxes)
+  call mpp_get_axis_data(axis_bnd, in_latb)
   in_lonb = in_lonb*PI/180.0; in_latb = in_latb*PI/180.0
 
   select case(trim(interpolation))
@@ -751,7 +673,7 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
   end select
 
   deallocate(in_lonb, in_latb, in_lon, in_lat)
-  deallocate(all_axes, varaxes, fields)
+  deallocate(varaxes, fields)
 
 end subroutine read_field_I_3D
 
