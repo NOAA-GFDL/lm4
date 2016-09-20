@@ -247,16 +247,18 @@ subroutine do_read_cover_field(input_unit, field, lonb, latb, input_cover_types,
   real, allocatable    :: in_lonb(:), in_latb(:), x(:,:), r_in_cover(:,:)
   type(horiz_interp_type) :: interp
   type(validtype) :: v
-  integer :: in_j_start, in_j_count ! limits of the latitude belt we read
+  integer :: in_j_start, in_j_end, in_j_count ! limits of the latitude belt we read
   integer :: ndim, dimlens(2)
   type(axistype) :: axes_centers(2), axis_bounds
   integer :: start(4), count(4)
   character(len=256) :: name
+  real :: min_in_latb, max_in_latb, y
 
   ! check the field dimensions
   call mpp_get_atts(field, ndim=ndim, name=name)
   if (ndim.ne.2) call error_mesg('do_read_cover_field',&
-          'cover field "'//trim(name)//'" must be two-dimensional (lon,lat)', FATAL)
+          'cover field "'//trim(name)//'" in file "'//trim(mpp_get_file_name(input_unit))// &
+          '" must be two-dimensional (lon,lat)', FATAL)
 
   ! get size of the longitude and latitude axes
   call mpp_get_atts(field, name=name, siz=dimlens, axes=axes_centers)
@@ -270,20 +272,40 @@ subroutine do_read_cover_field(input_unit, field, lonb, latb, input_cover_types,
 
   ! to minimize the i/o and work done by horiz_interp, find the boundaries
   ! of latitude belt in input data that covers the entire latb array
-  in_j_start=bisect(in_latb, minval(latb))
-  in_j_count=bisect(in_latb, maxval(latb))-in_j_start+1
+  min_in_latb = minval(in_latb); max_in_latb = maxval(in_latb)
+  y = minval(latb)
+  if (y<min_in_latb) then
+     in_j_start = 1
+  else if (y>max_in_latb) then
+     in_j_start = nlat
+  else
+     in_j_start=bisect(in_latb, y)
+  endif
+
+  y = maxval(latb)
+  if (y<min_in_latb) then
+     in_j_end = 1
+  else if (y>max_in_latb) then
+     in_j_end = nlat
+  else
+     in_j_end = bisect(in_latb, y)
+  endif
+  in_j_count = in_j_end - in_j_start + 1
 
   ! check for unreasonable values
   if (in_j_start<1) &
-     call error_mesg('do_read_cover_field','input latitude start index ('&
-                     //string(in_j_start)//') is out of bounds', FATAL)
+     call error_mesg('do_read_cover_field','reading field "'//trim(name)//'" from file "'&
+                     //trim(mpp_get_file_name(input_unit))//'" input latitude start index ('&
+                     //trim(string(in_j_start))//') is out of bounds', FATAL)
   if (in_j_count<1) &
-     call error_mesg('do_read_cover_field','computed input latitude count for domain'&
+     call error_mesg('do_read_cover_field','reading field "'//trim(name)//'" from file "'&
+                     //trim(mpp_get_file_name(input_unit))//'" computed input latitude count for domain'&
                      //' is not positive, perhaps input data do not cover entire globe', FATAL)
   if (in_j_start+in_j_count-1>nlat) &
-     call error_mesg('do_read_cover_field','input latitude count ('&
-                     //string(in_j_count)//') is too large (start index='&
-                     //string(in_j_start)//')', FATAL)
+     call error_mesg('do_read_cover_field','reading field "'//trim(name)//'" from file "'&
+                     //trim(mpp_get_file_name(input_unit))//'input latitude count ('&
+                     //trim(string(in_j_count))//') is too large (start index='&
+                     //trim(string(in_j_start))//')', FATAL)
 
   ! allocate input data buffers
   allocate ( x(nlon,in_j_count), in_cover(nlon,in_j_count), r_in_cover(nlon,in_j_count) )
@@ -334,11 +356,13 @@ end subroutine do_read_cover_field
   type(axistype) :: axes_centers(3), axis_bounds
   integer :: start(4), count(4)
   character(len=256) :: name
+  real :: min_in_latb, max_in_latb, y
 
   ! check the field dimensions
   call mpp_get_atts(field, ndim=ndim, name=name)
   if (ndim.ne.3) call error_mesg('do_read_fraction_field', &
-         'fraction field "'//trim(name)//'" must be three-dimensional (lon,lat,_)', FATAL)
+         'fraction field "'//trim(name)//'" in file "'//trim(mpp_get_file_name(input_unit))// &
+         '" must be three-dimensional (lon,lat,_)', FATAL)
 
   ! get size of the longitude and latitude axes
   call mpp_get_atts(field, name=name, siz=dimlens, axes=axes_centers)
@@ -352,21 +376,40 @@ end subroutine do_read_cover_field
   in_lonb = in_lonb*PI/180.0; in_latb = in_latb*PI/180.0
   ! find the boundaries of latitude belt in input data that covers the
   ! entire latb array
-  in_j_start=bisect(in_latb, minval(latb))
-  in_j_count=bisect(in_latb, maxval(latb))-in_j_start+1
-  in_j_end = in_j_start + in_j_count - 1
+  min_in_latb = minval(in_latb); max_in_latb = maxval(in_latb)
+  y = minval(latb)
+  if (y<min_in_latb) then
+     in_j_start = 1
+  else if (y>max_in_latb) then
+     in_j_start = nlat
+  else
+     in_j_start=bisect(in_latb, y)
+  endif
+
+  y = maxval(latb)
+  if (y<min_in_latb) then
+     in_j_end = 1
+  else if (y>max_in_latb) then
+     in_j_end = size(in_latb)-1
+  else
+     in_j_end = bisect(in_latb, y)
+  endif
+  in_j_count = in_j_end - in_j_start + 1
 
   ! check for unreasonable values
   if (in_j_start<1) &
-     call error_mesg('do_read_fraction_field','input latitude start index ('&
-                     //string(in_j_start)//') is out of bounds', FATAL)
+     call error_mesg('do_read_fraction_field','reading field "'//trim(name)//'" from file "'&
+                     //trim(mpp_get_file_name(input_unit))//'input latitude start index ('&
+                     //trim(string(in_j_start))//') is out of bounds', FATAL)
   if (in_j_count<1) &
-     call error_mesg('do_read_fraction_field','computed input latitude count for domain'&
+     call error_mesg('do_read_fraction_field','reading field "'//trim(name)//'" from file "'&
+                     //trim(mpp_get_file_name(input_unit))//'computed input latitude count for domain'&
                      //' is not positive, perhaps input data do not cover entire globe', FATAL)
   if (in_j_start+in_j_count-1>nlat) &
-     call error_mesg('do_read_fraction_field','input latitude count ('&
-                     //string(in_j_count)//') is too large (start index='&
-                     //string(in_j_start)//')', FATAL)
+     call error_mesg('do_read_fraction_field','reading field "'//trim(name)//'" from file "'&
+                     //trim(mpp_get_file_name(input_unit))//'input latitude count ('&
+                     //trim(string(in_j_count))//') is too large (start index='&
+                     //trim(string(in_j_start))//')', FATAL)
 
   allocate( in_mask(nlon,in_j_count), in_frac(nlon,in_j_count,ntypes) )
 
