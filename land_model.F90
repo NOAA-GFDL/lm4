@@ -1889,8 +1889,10 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
        snow_levap, snow_fevap, snow_melt, &
        snow_lprec, snow_hlprec, snow_lrunf, snow_frunf, &
        snow_hlrunf, snow_hfrunf, snow_Tbot, snow_Cbot, snow_C, snow_avrg_T )
-       snow_lrunf  = snow_lrunf + lswept;   snow_frunf  = snow_frunf + fswept
-       snow_hlrunf = snow_hlrunf + hlswept; snow_hfrunf = snow_hfrunf + hfswept
+       snow_lrunf  = snow_lrunf  + lswept/delta_time
+       snow_frunf  = snow_frunf  + fswept/delta_time
+       snow_hlrunf = snow_hlrunf + hlswept/delta_time 
+       snow_hfrunf = snow_hfrunf + hfswept/delta_time
   if(is_watch_point()) then
      write(*,*) 'subs_M_imp', subs_M_imp
   endif
