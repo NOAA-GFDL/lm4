@@ -134,14 +134,6 @@ character(len=*), parameter :: module_name = 'river_mod'
   integer :: id_dx, id_basin, id_So, id_depth, id_width, id_vel
   integer :: id_LWSr, id_FWSr, id_HSr, id_meltr
   integer :: id_travel, id_elev, id_tocell
-  ! ***
-  ! the following id_* retained temporarily for compatibility with older diag tables
-  integer :: id_storage_old, id_stordis_old, id_infloc_old, id_inflow_old, id_outflow_old
-  integer :: id_lake_outflow_old, id_disw2o_old, id_outflowmean_old
-  integer :: id_depth_old, id_width_old, id_vel_old
-  integer :: id_r_t_rivr, id_i_t_rivr, id_o_t_rivr, id_lot_rivr, id_s_t_rivr, id_dot_rivr
-  integer :: id_r_frazil, id_i_frazil, id_o_frazil, id_lofrazil, id_s_frazil, id_dofrazil
-  ! ***
   integer :: maxtravel
   real    :: missing = -1.e8
 
@@ -151,10 +143,12 @@ character(len=*), parameter :: module_name = 'river_mod'
 
   real,  allocatable, dimension(:,:)   :: discharge2ocean_next   ! store discharge value
   real,  allocatable, dimension(:,:,:) :: discharge2ocean_next_c ! store discharge value
-  integer,          allocatable, dimension(:) :: id_infloc,  id_storage, id_stordis, id_inflow
-  integer,          allocatable, dimension(:) :: id_run_stor
-  integer,          allocatable, dimension(:) :: id_outflow, id_removal, id_dis
-  integer,          allocatable, dimension(:) :: id_lake_outflow
+  ! IDs of diag fields normalized per land area
+  integer, allocatable, dimension(:)   :: id_infloc,  id_storage, id_stordis, id_inflow, &
+        id_run_stor, id_outflow, id_removal, id_dis, id_lake_outflow
+  ! IDs of diag fields normalized per cell area
+  integer, allocatable, dimension(:)   :: id_infloc_c,  id_storage_c, id_stordis_c, id_inflow_c, &
+        id_run_stor_c, id_outflow_c, id_removal_c, id_dis_c, id_lake_outflow_c
   integer                       :: num_fast_calls
   integer                       :: slow_step = 0          ! record number of slow time step run.
   type(domain2d),          save :: domain
@@ -189,7 +183,7 @@ contains
 
 !#####################################################################
   subroutine river_init( land_lon, land_lat, time, dt_fast, land_domain, &
-                         land_frac, id_lon, id_lat, id_area_land, river_land_mask )
+                         land_frac, id_lon, id_lat, id_area_land, id_cellarea, river_land_mask )
     real,            intent(in) :: land_lon(:,:)     ! geographical longitude of cell center
     real,            intent(in) :: land_lat(:,:)     ! geographical latitude of cell center
     type(time_type), intent(in) :: time              ! current time
@@ -197,7 +191,8 @@ contains
     type(domain2d),  intent(in) :: land_domain       ! land domain
     real,            intent(in) :: land_frac(:,:)    ! land area fraction from land model
     integer,         intent(in) :: id_lon, id_lat    ! IDs of diagnostic axes
-    integer,         intent(in) :: id_area_land      ! IDs of the and area diag field
+    integer,         intent(in) :: id_area_land      ! ID of the land area diag field
+    integer,         intent(in) :: id_cellarea       ! ID of the cellarea diag field
     logical,         intent(out):: river_land_mask(:,:) ! land mask seen by rivers
 
     integer              :: unit, io_status, ierr, id_restart
@@ -293,6 +288,11 @@ contains
     allocate(id_inflow (0:num_species), id_outflow(0:num_species))
     allocate(id_dis    (0:num_species), id_lake_outflow (0:num_species))
     allocate(id_removal(0:num_species), id_stordis(0:num_species), id_run_stor(0:num_species))
+    ! IDs of diag fields normalized per cell area
+    allocate(id_infloc_c (0:num_species), id_storage_c(0:num_species))
+    allocate(id_inflow_c (0:num_species), id_outflow_c(0:num_species))
+    allocate(id_dis_c    (0:num_species), id_lake_outflow_c (0:num_species))
+    allocate(id_removal_c(0:num_species), id_stordis_c(0:num_species), id_run_stor_c(0:num_species))
 
 !--- read the data from the file river_src_file -- has all static river network data
     call get_river_data(land_lon, land_lat, land_frac)
@@ -309,7 +309,7 @@ contains
 !    if (do_age) store_units(3)                  = 'kg-s/m2'
 
 !--- register diag field
-    call river_diag_init (id_lon, id_lat, id_area_land)
+    call river_diag_init (id_lon, id_lat, id_area_land, id_cellarea)
 
 !--- read restart file
     call get_instance_filename('INPUT/river.res.nc', filename)
@@ -1097,17 +1097,21 @@ end subroutine print_river_tracer_data
 
 !#####################################################################
 
-  subroutine river_diag_init(id_lon, id_lat, id_area_land)
+  subroutine river_diag_init(id_lon, id_lat, id_area_land, id_cellarea)
     integer, intent(in) :: id_lon  ! ID of land longitude (X) diag axis
     integer, intent(in) :: id_lat  ! ID of land latitude (Y) diag axis
     integer, intent(in) :: id_area_land  ! ID of land area diag field
+    integer, intent(in) :: id_cellarea  ! ID of cell area diag field
 
     character(len=11)                :: mod_name = 'river'
     real, dimension(isc:iec,jsc:jec) :: tmp
     logical                          :: sent
     integer                          :: i
 
-! regular diagnostic fields
+    ! regular diagnostic fields normalized per land area; values outside of land are zeroed
+    ! out. This is the traditional way of saving the river diagnostics.
+    ! NOTE that for some fields it is problematic, for example when river discharges into
+    ! a grid cell where there is no land, and the value is zeroed-out in the output.
     do i = 0, num_species
       id_inflow(i) = register_diag_field ( mod_name, 'rv_i_'//trim(trdata(i)%name),      &
            (/id_lon, id_lat/), River%Time, 'river inflow, '//trim(trdata(i)%longname),   &
@@ -1138,7 +1142,55 @@ end subroutine print_river_tracer_data
       id_run_stor(i) = register_diag_field ( mod_name, 'rv_u_'//trim(trdata(i)%name),    &
            (/id_lon, id_lat/), River%Time, 'river runoff lag (numerical) storage, '//trim(trdata(i)%longname), &
            trdata(i)%store_units, missing_value=missing )
-      enddo
+    enddo
+
+    ! register fields normalized per cell area
+    do i = 0, num_species
+      id_inflow_c(i) = register_diag_field ( mod_name, 'rv_i_c_'//trim(trdata(i)%name),    &
+           (/id_lon, id_lat/), River%Time, 'river inflow, '//trim(trdata(i)%longname)//', per unit cell area',   &
+           trdata(i)%flux_units, missing_value=missing, area = id_cellarea)
+      call diag_field_add_attribute(id_inflow_c(i),'cell_methods', 'area: mean')
+
+      id_outflow_c(i) = register_diag_field ( mod_name, 'rv_o_c_'//trim(trdata(i)%name),   &
+           (/id_lon, id_lat/), River%Time, 'river outflow, '//trim(trdata(i)%longname)//', per unit cell area',  &
+           trdata(i)%flux_units, missing_value=missing, area = id_cellarea )
+      call diag_field_add_attribute(id_outflow_c(i),'cell_methods', 'area: mean')
+
+      id_dis_c(i)     = register_diag_field ( mod_name, 'rv_d_c_'//trim(trdata(i)%name),   &
+           (/id_lon, id_lat/), River%Time, 'ocean_discharge, '//trim(trdata(i)%longname)//', per unit cell area',&
+           trdata(i)%flux_units, missing_value=missing, area = id_cellarea )
+      call diag_field_add_attribute(id_dis_c(i),'cell_methods', 'area: mean')
+
+      id_lake_outflow_c(i) = register_diag_field ( mod_name, 'rv_l_c_'//trim(trdata(i)%name),     &
+           (/id_lon, id_lat/), River%Time, 'lake outflow, '//trim(trdata(i)%longname)//', per unit cell area', &
+           trdata(i)%flux_units, missing_value=missing, area = id_cellarea )
+      call diag_field_add_attribute(id_lake_outflow_c(i),'cell_methods', 'area: mean')
+
+      id_infloc_c(i) = register_diag_field ( mod_name, 'rv_r_c_'//trim(trdata(i)%name),    &
+           (/id_lon, id_lat/), River%Time, 'local runoff, '//trim(trdata(i)%longname)//', per unit cell area',   &
+           trdata(i)%flux_units, missing_value=missing, area = id_cellarea )
+      call diag_field_add_attribute(id_infloc_c(i),'cell_methods', 'area: mean')
+
+      id_removal_c(i) = register_diag_field ( mod_name, 'rv_m_c_'//trim(trdata(i)%name),   &
+           (/id_lon, id_lat/), River%Time, 'river removal, '//trim(trdata(i)%longname)//', per unit cell area',  &
+           trdata(i)%flux_units, missing_value=missing, area = id_cellarea )
+      call diag_field_add_attribute(id_removal_c(i),'cell_methods', 'area: mean')
+
+      id_storage_c(i) = register_diag_field ( mod_name, 'rv_s_c_'//trim(trdata(i)%name),   &
+           (/id_lon, id_lat/), River%Time, 'river storage, '//trim(trdata(i)%longname)//', per unit cell area',  &
+           trdata(i)%store_units, missing_value=missing, area = id_cellarea )
+      call diag_field_add_attribute(id_storage_c(i),'cell_methods', 'area: mean')
+
+      id_stordis_c(i) = register_diag_field ( mod_name, 'rv_n_c_'//trim(trdata(i)%name),     &
+           (/id_lon, id_lat/), River%Time, 'river discharge lag (numerical) storage, '//trim(trdata(i)%longname)//', per unit cell area', &
+           trdata(i)%store_units, missing_value=missing, area = id_cellarea )
+      call diag_field_add_attribute(id_stordis_c(i),'cell_methods', 'area: mean')
+
+      id_run_stor_c(i) = register_diag_field ( mod_name, 'rv_u_c_'//trim(trdata(i)%name),    &
+           (/id_lon, id_lat/), River%Time, 'river runoff lag (numerical) storage, '//trim(trdata(i)%longname)//', per unit cell area', &
+           trdata(i)%store_units, missing_value=missing, area = id_cellarea )
+      call diag_field_add_attribute(id_run_stor_c(i),'cell_methods', 'area: mean')
+    enddo
 
     id_lake_depth_sill= register_diag_field ( mod_name, 'rv_dsill', (/id_lon, id_lat/), &
          River%Time, 'effective lake sill depth', 'm', missing_value=missing )
@@ -1151,65 +1203,20 @@ end subroutine print_river_tracer_data
     id_vel       = register_diag_field ( mod_name, 'rv_veloc', (/id_lon, id_lat/), &
          River%Time, 'river flow velocity', 'm/s', missing_value=missing )
 
-  id_storage_old=register_diag_field(mod_name,'storage',(/id_lon, id_lat/), River%Time, &
-      'obsolete, pls use rv_s_h2o instead', trdata(0)%store_units,missing_value=missing )
-  id_stordis_old=register_diag_field(mod_name,'stordis',(/id_lon, id_lat/), River%Time, &
-      'obsolete, pls use rv_s_h2o instead', trdata(0)%store_units,missing_value=missing )
-  id_s_frazil=register_diag_field(mod_name,'s_frazil',(/id_lon, id_lat/), River%Time, &
-      'obsolete, pls use rv_s_ice instead', trdata(1)%store_units,missing_value=missing )
-  id_s_t_rivr=register_diag_field(mod_name,'s_t_rivr',(/id_lon, id_lat/), River%Time, &
-      'obsolete, pls use rv_s_het instead', trdata(2)%store_units,missing_value=missing )
-  id_infloc_old=register_diag_field(mod_name,'infloc',(/id_lon, id_lat/), River%Time, &
-      'obsolete, pls use rv_r_h2o instead', trdata(0)%flux_units,missing_value=missing )
-  id_r_frazil=register_diag_field(mod_name,'r_frazil',(/id_lon, id_lat/), River%Time, &
-      'obsolete, pls use rv_r_ice instead', trdata(1)%flux_units,missing_value=missing )
-  id_r_t_rivr=register_diag_field(mod_name,'r_t_rivr',(/id_lon, id_lat/), River%Time, &
-      'obsolete, pls use rv_r_het instead', trdata(2)%flux_units,missing_value=missing )
-  id_inflow_old=register_diag_field(mod_name,'inflow',(/id_lon, id_lat/), River%Time, &
-      'obsolete, pls use rv_r_h2o instead', trdata(0)%flux_units,missing_value=missing )
-  id_i_frazil=register_diag_field(mod_name,'i_frazil',(/id_lon, id_lat/), River%Time, &
-      'obsolete, pls use rv_r_ice instead', trdata(1)%flux_units,missing_value=missing )
-  id_i_t_rivr=register_diag_field(mod_name,'i_t_rivr',(/id_lon, id_lat/), River%Time, &
-      'obsolete, pls use rv_r_het instead', trdata(2)%flux_units,missing_value=missing )
-  id_outflow_old=register_diag_field(mod_name,'outflow',(/id_lon, id_lat/), River%Time, &
-      'obsolete, pls use rv_o_h2o instead', trdata(0)%flux_units,missing_value=missing )
-  id_o_frazil=register_diag_field(mod_name,'o_frazil',(/id_lon, id_lat/), River%Time, &
-      'obsolete, pls use rv_o_ice instead', trdata(1)%flux_units,missing_value=missing )
-  id_o_t_rivr=register_diag_field(mod_name,'o_t_rivr',(/id_lon, id_lat/), River%Time, &
-      'obsolete, pls use rv_o_het instead', trdata(2)%flux_units,missing_value=missing )
-  id_lake_outflow_old=register_diag_field(mod_name,'lake_outflow',(/id_lon, id_lat/), River%Time, &
-      'obsolete, pls use rv_l_h2o instead', trdata(0)%flux_units,missing_value=missing )
-  id_lofrazil=register_diag_field(mod_name,'lofrazil',(/id_lon, id_lat/), River%Time, &
-      'obsolete, pls use rv_l_ice instead', trdata(1)%flux_units,missing_value=missing )
-  id_lot_rivr=register_diag_field(mod_name,'lot_rivr',(/id_lon, id_lat/), River%Time, &
-      'obsolete, pls use rv_l_het instead', trdata(2)%flux_units,missing_value=missing )
-  id_disw2o_old=register_diag_field(mod_name,'disw2o',(/id_lon, id_lat/), River%Time, &
-      'obsolete, pls use rv_d_h2o instead', trdata(0)%flux_units,missing_value=missing )
-  id_dofrazil=register_diag_field(mod_name,'dofrazil',(/id_lon, id_lat/), River%Time, &
-      'obsolete, pls use rv_d_ice instead', trdata(1)%flux_units,missing_value=missing )
-  id_dot_rivr=register_diag_field(mod_name,'dot_rivr',(/id_lon, id_lat/), River%Time, &
-      'obsolete, pls use rv_d_het instead', trdata(2)%flux_units,missing_value=missing )
-
-  id_outflowmean_old   = register_diag_field ( mod_name, 'flowmean', (/id_lon, id_lat/), &
-       River%Time, 'obsolete, pls use rv_Qavg', 'm3/s', missing_value=missing )
-  id_depth_old     = register_diag_field ( mod_name, 'depth', (/id_lon, id_lat/), &
-       River%Time, 'obsolete, pls use rv_depth', 'm', missing_value=missing )
-  id_width_old     = register_diag_field ( mod_name, 'width', (/id_lon, id_lat/), &
-       River%Time, 'obsolete, pls use rv_width', 'm', missing_value=missing )
-  id_vel_old       = register_diag_field ( mod_name, 'vel', (/id_lon, id_lat/), &
-       River%Time, 'obsolete, pls use rv_veloc', 'm/s', missing_value=missing )
-
   ! fields that historically were in the the land_model.F90. They are registered
   ! for module 'land' to preserve compatibility with older diag tables
   id_LWSr   = register_diag_field ( 'land', 'LWSr', (/id_lon, id_lat/), &
        River%Time, 'river liquid mass storage', 'kg/m2', missing_value=-1.0e+20, area=id_area_land )
   call diag_field_add_attribute(id_LWSr,'cell_methods', 'area: mean')
+
   id_FWSr   = register_diag_field ( 'land', 'FWSr', (/id_lon, id_lat/), &
        River%Time, 'river ice mass storage', 'kg/m2', missing_value=-1.0e+20, area=id_area_land )
   call diag_field_add_attribute(id_FWSr,'cell_methods', 'area: mean')
+
   id_HSr   = register_diag_field ( 'land', 'HSr', (/id_lon, id_lat/), &
        River%Time, 'river heat storage', 'J/m2', missing_value=-1.0e+20, area=id_area_land )
   call diag_field_add_attribute(id_HSr,'cell_methods', 'area: mean')
+
   id_meltr   = register_diag_field ( 'land', 'meltr', (/id_lon, id_lat/), &
        River%Time, 'melt in river system', 'kg/m2/s', missing_value=-1.0e+20, area=id_area_land )
   call diag_field_add_attribute(id_meltr,'cell_methods', 'area: mean')
@@ -1252,6 +1259,48 @@ end subroutine print_river_tracer_data
     real diag_factor_2(isc:iec,jsc:jec)
     integer :: tr ! iteratior over river tracers
 
+    diag_factor   = DENS_H2O/lnd%cellarea(:,:)
+    diag_factor_2 = 1.0/(lnd%cellarea(:,:)*River%dt_slow)
+
+    if (id_inflow_c(0) > 0) used = send_data (id_inflow_c(0), &
+            diag_factor*River%inflow(isc:iec,jsc:jec), River%Time, mask=River%mask )
+    if (id_outflow_c(0) > 0) used = send_data (id_outflow_c(0), &
+            diag_factor*River%outflow(isc:iec,jsc:jec), River%Time, mask=River%mask )
+    if (id_storage_c(0) > 0) used = send_data (id_storage_c(0), &
+            diag_factor*River%storage(isc:iec,jsc:jec), River%Time, mask=River%mask )
+    if (id_stordis_c(0) > 0) used = send_data (id_stordis_c(0), &
+            diag_factor*River%stordis(isc:iec,jsc:jec), River%Time, mask=River%mask )
+    if (id_run_stor_c(0) > 0) used = send_data (id_run_stor_c(0), &
+            River%dt_fast*River%run_stor(isc:iec,jsc:jec)/lnd%cellarea, River%Time, mask=River%mask )
+    if (id_infloc_c(0) > 0) used = send_data (id_infloc_c(0), &
+            diag_factor*River%infloc(isc:iec,jsc:jec), River%Time, mask=River%mask )
+    if (id_dis_c(0) > 0)    used = send_data (id_dis_c(0), &
+            diag_factor*River%disw2o(isc:iec,jsc:jec), River%Time)
+    if (id_lake_outflow_c(0) > 0) used = send_data (id_lake_outflow_c(0), &
+            diag_factor_2*River%lake_outflow(isc:iec,jsc:jec), River%Time, mask=River%mask )
+
+    do tr = 1, num_species
+       if (id_outflow_c(tr) > 0) used = send_data (id_outflow_c(tr), &
+         diag_factor*River%outflow_c(isc:iec,jsc:jec,tr), River%Time, mask=River%mask )
+       if (id_lake_outflow_c(tr) > 0) used = send_data (id_lake_outflow_c(tr), &
+         diag_factor_2*River%lake_outflow_c(isc:iec,jsc:jec,tr), River%Time, mask=River%mask )
+       if (id_inflow_c(tr) > 0) used = send_data (id_inflow_c(tr), &
+         diag_factor*River%inflow_c(isc:iec,jsc:jec,tr), River%Time, mask=River%mask )
+       if (id_storage_c(tr) > 0) used = send_data (id_storage_c(tr), &
+         diag_factor*River%storage_c(isc:iec,jsc:jec,tr), River%Time, mask=River%mask )
+       if (id_stordis_c(tr) > 0) used = send_data (id_stordis_c(tr), &
+         diag_factor*River%stordis_c(isc:iec,jsc:jec,tr), River%Time, mask=River%mask )
+       if (id_run_stor_c(tr) > 0) used = send_data (id_run_stor_c(tr), &
+         River%dt_fast*River%run_stor_c(isc:iec,jsc:jec,tr), River%Time, mask=River%mask )
+       if (id_infloc_c(tr) > 0) used = send_data (id_infloc_c(tr), &
+         diag_factor*River%infloc_c(isc:iec,jsc:jec,tr), River%Time, mask=River%mask )
+       if (id_removal_c(tr) > 0) used = send_data (id_removal_c(tr), &
+         diag_factor*River%removal_c(isc:iec,jsc:jec,tr), River%Time, mask=River%mask )
+       if (id_dis_c(tr) > 0)    used = send_data (id_dis_c(tr), &
+         diag_factor*River%disc2o(isc:iec,jsc:jec,tr), River%Time)
+    enddo
+
+    ! recalculate area normalization factors and send data normalized per land area.
     diag_factor = 0.
     diag_factor_2 = 0.
     where (River%land_area(isc:iec,jsc:jec).gt.0.) &
@@ -1275,45 +1324,6 @@ end subroutine print_river_tracer_data
             diag_factor*River%disw2o(isc:iec,jsc:jec), River%Time)
     if (id_lake_outflow(0) > 0) used = send_data (id_lake_outflow(0), &
             diag_factor_2*River%lake_outflow(isc:iec,jsc:jec), River%Time, mask=River%mask )
-
-    if (id_storage_old > 0) used = send_data (id_storage_old, &
-            diag_factor*River%storage(isc:iec,jsc:jec), River%Time, mask=River%mask )
-    if (id_stordis_old > 0) used = send_data (id_stordis_old, &
-            diag_factor*River%stordis(isc:iec,jsc:jec), River%Time, mask=River%mask )
-    if (id_infloc_old > 0) used = send_data (id_infloc_old, &
-            diag_factor*River%infloc(isc:iec,jsc:jec), River%Time, mask=River%mask )
-    if (id_inflow_old > 0) used = send_data (id_inflow_old, &
-            diag_factor*River%inflow(isc:iec,jsc:jec), River%Time, mask=River%mask )
-    if (id_outflow_old > 0) used = send_data (id_outflow_old, &
-            diag_factor*River%outflow(isc:iec,jsc:jec), River%Time, mask=River%mask )
-    if (id_lake_outflow_old > 0) used = send_data (id_lake_outflow_old, &
-            diag_factor_2*River%lake_outflow(isc:iec,jsc:jec), River%Time, mask=River%mask )
-    if (id_disw2o_old > 0)    used = send_data (id_disw2o_old, &
-            diag_factor*River%disw2o(isc:iec,jsc:jec), River%Time)
-    if (id_s_frazil > 0) used = send_data (id_s_frazil, &
-            diag_factor*River%storage_c(isc:iec,jsc:jec,1), River%Time, mask=River%mask )
-    if (id_r_frazil > 0) used = send_data (id_r_frazil, &
-            diag_factor*River%infloc_c(isc:iec,jsc:jec,1), River%Time, mask=River%mask )
-    if (id_i_frazil > 0) used = send_data (id_i_frazil, &
-            diag_factor*River%inflow_c(isc:iec,jsc:jec,1), River%Time, mask=River%mask )
-    if (id_o_frazil > 0) used = send_data (id_o_frazil, &
-            diag_factor*River%outflow_c(isc:iec,jsc:jec,1), River%Time, mask=River%mask )
-    if (id_lofrazil > 0) used = send_data (id_lofrazil, &
-            diag_factor_2*River%lake_outflow_c(isc:iec,jsc:jec,1), River%Time, mask=River%mask )
-    if (id_dofrazil > 0)    used = send_data (id_dofrazil, &
-            diag_factor*River%disc2o(isc:iec,jsc:jec,1), River%Time)
-    if (id_s_t_rivr > 0) used = send_data (id_s_t_rivr, &
-            diag_factor*River%storage_c(isc:iec,jsc:jec,2), River%Time, mask=River%mask )
-    if (id_r_t_rivr > 0) used = send_data (id_r_t_rivr, &
-            diag_factor*River%infloc_c(isc:iec,jsc:jec,2), River%Time, mask=River%mask )
-    if (id_i_t_rivr > 0) used = send_data (id_i_t_rivr, &
-            diag_factor*River%inflow_c(isc:iec,jsc:jec,2), River%Time, mask=River%mask )
-    if (id_o_t_rivr > 0) used = send_data (id_o_t_rivr, &
-            diag_factor*River%outflow_c(isc:iec,jsc:jec,2), River%Time, mask=River%mask )
-    if (id_lot_rivr > 0) used = send_data (id_lot_rivr, &
-            diag_factor_2*River%lake_outflow_c(isc:iec,jsc:jec,2), River%Time, mask=River%mask )
-    if (id_dot_rivr > 0)    used = send_data (id_dot_rivr, &
-            diag_factor*River%disc2o(isc:iec,jsc:jec,2), River%Time)
 
     do tr = 1, num_species
        if (id_outflow(tr) > 0) used = send_data (id_outflow(tr), &
@@ -1345,15 +1355,6 @@ end subroutine print_river_tracer_data
     if (id_depth > 0) used = send_data (id_depth, &
             River%depth(isc:iec,jsc:jec), River%Time, mask=River%mask )
     if (id_vel > 0) used = send_data (id_vel, &
-            River%vel(isc:iec,jsc:jec), River%Time, mask=River%mask )
-
-    if (id_outflowmean_old > 0) used = send_data (id_outflowmean_old, &
-            River%outflowmean(isc:iec,jsc:jec), River%Time, mask=River%mask )
-    if (id_width_old > 0) used = send_data (id_width_old, &
-            River%width(isc:iec,jsc:jec), River%Time, mask=River%mask )
-    if (id_depth_old > 0) used = send_data (id_depth_old, &
-            River%depth(isc:iec,jsc:jec), River%Time, mask=River%mask )
-    if (id_vel_old > 0) used = send_data (id_vel_old, &
             River%vel(isc:iec,jsc:jec), River%Time, mask=River%mask )
 
   end subroutine river_diag

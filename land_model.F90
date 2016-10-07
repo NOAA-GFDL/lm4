@@ -452,7 +452,7 @@ subroutine land_model_init &
   call river_init( lnd%lon, lnd%lat, &
                    lnd%time, lnd%dt_fast, lnd%domain,     &
                    lnd%landfrac, &
-                   id_lon, id_lat, get_area_id('land'),   &
+                   id_lon, id_lat, get_area_id('land'), id_cellarea, &
                    river_land_mask                        )
   missing_rivers = lnd%landfrac.gt.0. .and. .not.river_land_mask
   no_riv = 0.
