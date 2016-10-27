@@ -107,7 +107,7 @@ public :: &
     cold_month_threshold, scnd_biomass_bins, &
     phen_ev1, phen_ev2, cmc_eps, &
     root_exudate_N_frac,& !x2z - ens: lets get rid of c2n?
-    root_exudate_frac_max, dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
+    dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
     N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, N_limits_live_biomass, root_NH4_uptake_rate, root_NO3_uptake_rate,&
     k_ammonium_root_uptake,k_nitrate_root_uptake,excess_stored_N_leakage_rate,&
     do_N_mining_strategy,do_N_scavenging_strategy,do_N_fixation_strategy
@@ -466,7 +466,6 @@ logical :: do_N_scavenging_strategy(0:MSPECIES) = &
 logical :: do_N_fixation_strategy(0:MSPECIES) = &
         (/ .TRUE.  ,    .TRUE. ,   .TRUE.   ,   .TRUE.  ,   .TRUE.  ,  .TRUE. , .TRUE. , .TRUE. , .TRUE. , .TRUE. , .TRUE., .TRUE., .TRUE., .TRUE./)
 
-real :: root_exudate_frac_max     = 0.5     ! Maximum fraction of NPP that can be allocated to mycorrhizae and root exudation
 logical :: dynamic_root_exudation    = .FALSE. ! Whether to dynamically determine root exudation rate from plant N limitation
 real :: c2n_mycorrhizae           = 10      ! C:N ratio of mycorrhizal biomass
 real :: mycorrhizal_turnover_time = 0.1     ! Mean residence time of live mycorrhizal biomass (yr)
@@ -512,7 +511,7 @@ namelist /vegn_data_nml/ &
   scnd_biomass_bins, phen_ev1, phen_ev2, &
   root_exudate_frac, tracer_cuticular_cond,&
   leaf_retranslocation_frac, leaf_live_c2n,froot_live_c2n, froot_retranslocation_frac, wood_c2n, sapwood_c2n, root_exudate_N_frac,&
-  root_exudate_frac_max, dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
+  dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
   N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, N_limits_live_biomass, root_NH4_uptake_rate, root_NO3_uptake_rate,&
   k_nitrate_root_uptake,k_ammonium_root_uptake,excess_stored_N_leakage_rate,&
   do_N_mining_strategy,do_N_scavenging_strategy,do_N_fixation_strategy

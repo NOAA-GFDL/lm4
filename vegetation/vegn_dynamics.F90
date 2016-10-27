@@ -18,7 +18,7 @@ use vegn_data_mod, only : spdata, &
      l_fract, &
       root_exudate_N_frac,& !x2z - ens: lets get rid of c2n?
      ! BNS: C2N ratios should be temporary fix, which we can get rid of once N is integrated into vegetation code
-     root_exudate_frac_max, dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
+     dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
      N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, excess_stored_N_leakage_rate
 
 use vegn_tile_mod, only: vegn_tile_type,vegn_tile_carbon, vegn_tile_nitrogen
@@ -259,7 +259,7 @@ total_myc_mine_C_uptake = 0.0
      if(dynamic_root_exudation .AND. soil_carbon_option==SOILC_CORPSE_N) then
        ! Initial allocation scheme: root exudation/mycorrhizal allocation depends on ratio of leaf biomass to max (as determined by N uptake)
        ! Root exudation fraction of NPP limited by some maximum value.  Probably need to rename these parameters and not use a hard-coded value
-       root_exudate_frac = min(0.9,root_exudate_frac_max*cc%nitrogen_stress)
+       root_exudate_frac = min(0.9,spdata(sp)%root_exudate_frac*cc%nitrogen_stress)
      else
        root_exudate_frac = spdata(sp)%root_exudate_frac
      endif
@@ -459,10 +459,10 @@ total_myc_mine_C_uptake = 0.0
          ! Scavenging (AM-style)
          call myc_scavenger_N_uptake(soil,vegn,cc%myc_scavenger_biomass_C,myc_scav_N_uptake,dt_fast_yr,.TRUE.)
 
-         if (cc%myc_scavenger_biomass_C > 1e-10) then
-           myc_scav_marginal_gain = (max(0.0,myc_scav_N_uptake)/dt_fast_yr)/(cc%myc_scavenger_biomass_C/myc_scav_C_efficiency/mycorrhizal_turnover_time)
-         elseif(myc_scav_C_efficiency == 0 .OR. .NOT. spdata(sp)%do_N_scavenging_strategy) then
+         if(myc_scav_C_efficiency == 0 .OR. .NOT. spdata(sp)%do_N_scavenging_strategy) then
            myc_scav_marginal_gain = 0
+         elseif (cc%myc_scavenger_biomass_C > 1e-10) then
+           myc_scav_marginal_gain = (max(0.0,myc_scav_N_uptake)/dt_fast_yr)/(cc%myc_scavenger_biomass_C/myc_scav_C_efficiency/mycorrhizal_turnover_time)
          else
            call myc_scavenger_N_uptake(soil,vegn,0.001,myc_N_uptake,dt_fast_yr,.FALSE.)
            myc_scav_marginal_gain = (myc_N_uptake/dt_fast_yr)/(0.001/myc_scav_C_efficiency/mycorrhizal_turnover_time)
@@ -471,10 +471,10 @@ total_myc_mine_C_uptake = 0.0
          ! Mycorrhizal N mining (ECM-style)
          call myc_miner_N_uptake(soil,vegn,cc%myc_miner_biomass_C,myc_mine_N_uptake,myc_mine_C_uptake,mining_CO2prod,dt_fast_yr,.TRUE.)
 
-         if(cc%myc_miner_biomass_C>1e-10) then
-           myc_mine_marginal_gain = (max(0.0,myc_mine_N_uptake)/dt_fast_yr)/(cc%myc_miner_biomass_C/myc_mine_C_efficiency/mycorrhizal_turnover_time)
-         elseif(myc_mine_C_efficiency==0 .OR. .NOT. spdata(sp)%do_N_mining_strategy) then
+         if(myc_mine_C_efficiency==0 .OR. .NOT. spdata(sp)%do_N_mining_strategy) then
            myc_mine_marginal_gain = 0.0
+         elseif(cc%myc_miner_biomass_C>1e-10) then
+           myc_mine_marginal_gain = (max(0.0,myc_mine_N_uptake)/dt_fast_yr)/(cc%myc_miner_biomass_C/myc_mine_C_efficiency/mycorrhizal_turnover_time)
          else
            call myc_miner_N_uptake(soil,vegn,0.001,myc_N_uptake,myc_C_uptake,dummy1,dt_fast_yr,.FALSE.)
            myc_mine_marginal_gain = (myc_N_uptake/dt_fast_yr)/(0.001/myc_mine_C_efficiency/mycorrhizal_turnover_time)
@@ -492,11 +492,11 @@ total_myc_mine_C_uptake = 0.0
          ! N fixation
          N_fixation = cc%N_fixer_biomass_C*N_fixation_rate*dt_fast_yr
 
-         if(cc%N_fixer_biomass_C>1e-10) then
+         if(N_fixer_C_efficiency == 0 .OR. .NOT. spdata(sp)%do_N_fixation_strategy) then
+          N_fix_marginal_gain = 0.0
+         elseif(cc%N_fixer_biomass_C>1e-10) then
           !  N_fix_marginal_gain = (N_fixation_2-N_fixation)/dt_fast_yr/(0.05*root_exudate_C*dt_fast_yr)
           N_fix_marginal_gain = (N_fixation/dt_fast_yr)/(cc%N_fixer_biomass_C/N_fixer_C_efficiency/N_fixer_turnover_time)
-        elseif(N_fixer_C_efficiency == 0 .OR. .NOT. spdata(sp)%do_N_fixation_strategy) then
-          N_fix_marginal_gain = 0.0
          else
           N_fix_marginal_gain = (0.001*N_fixation_rate)/(0.001/N_fixer_C_efficiency/N_fixer_turnover_time)
          endif
@@ -698,7 +698,8 @@ total_myc_mine_C_uptake = 0.0
      root_exudate_N = 0.0
 
      ! To prevent excess stored N buildup under high soil N, leak stored N when stress is zero
-     if(cc%nitrogen_stress<=0 .AND. cc%stored_N>0) then
+     ! NOTE: nitrogen_stress has a lower limit in vegn_cohort, so this logic should be fixed somehow so it doesn't need to be manually kept in sync
+     if(cc%nitrogen_stress<=0.05 .AND. cc%stored_N>0) then
        root_exudate_N = root_exudate_N + cc%stored_N*excess_stored_N_leakage_rate
      endif
 

@@ -39,7 +39,7 @@ use soil_carbon_mod, only: poolTotals, soilMaxCohorts, litterDensity, &
      tracer_leaching_with_litter,transfer_pool_fraction, n_c_types, &
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
      C_FAST, C_SLOW, C_MIC, A_function, debug_pool, adjust_pool_ncohorts, &
-     mycorrhizal_mineral_N_uptake_rate, mycorrhizal_decomposition
+     mycorrhizal_mineral_N_uptake_rate, mycorrhizal_decomposition, ammonium_solubility, nitrate_solubility
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, prev_elmt, current_tile, get_elmt_indices, &
@@ -1004,6 +1004,7 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
   call send_tile_data_r0d_fptr(id_vwc_sat,      land_tile_map, soil_vwc_sat_ptr)
   call send_tile_data_r0d_fptr(id_K_sat,        land_tile_map, soil_k_sat_ref_ptr)
   call send_tile_data_r0d_fptr(id_K_gw,         land_tile_map, soil_k_sat_gw_ptr)
+  call send_tile_data_r0d_fptr(id_Qmax,         land_tile_map, soil_Qmax_ptr)
   call send_tile_data_r1d_fptr(id_w_fc,         land_tile_map, soil_w_fc_ptr)
   call send_tile_data_r1d_fptr(id_alpha,        land_tile_map, soil_alpha_ptr)
   call send_tile_data_r1d_fptr(id_refl_dry_dir, land_tile_map, soil_refl_dry_dir_ptr)
@@ -1331,7 +1332,7 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water diver
        missing_value=-100.0 )
   id_resp = register_tiled_diag_field ( module_name, 'resp', (/id_lon,id_lat/), &
        lnd%time, 'Total soil respiration', 'kg C/(m2 year)', missing_value=-100.0 )
-  id_Qmax = register_tiled_diag_field ( module_name, 'Qmax', axes(1:2),  &
+  id_Qmax = register_tiled_diag_field ( module_name, 'soil_Qmax', axes(1:2),  &
        lnd%time, 'Maximum clay sorptive capacity', 'kg C/m3', missing_value=-100.0 )
 
   id_leaflitter_fast_C = register_tiled_diag_field ( module_name, 'fast_leaflitter_C', axes(1:2),  &
@@ -3459,8 +3460,8 @@ real :: NH4_leached(num_l), div_NH4_loss(num_l),  &     ! NH4 leaching
 ! units of N: kg/m2
 ! N/wl_before -> kg N/kg H2O
 where(wl_before>1.0e-4)
-  passive_ammonium_uptake = min(soil%soil_organic_matter(:)%ammonium,max(0.0,uptake*soil%soil_organic_matter(:)%ammonium/wl_before*delta_time))
-  passive_nitrate_uptake = min(soil%soil_organic_matter(:)%nitrate,max(0.0,uptake*soil%soil_organic_matter(:)%nitrate/wl_before*delta_time))
+  passive_ammonium_uptake = min(soil%soil_organic_matter(:)%ammonium,max(0.0,uptake*soil%soil_organic_matter(:)%ammonium*ammonium_solubility/wl_before*delta_time))
+  passive_nitrate_uptake = min(soil%soil_organic_matter(:)%nitrate,max(0.0,uptake*soil%soil_organic_matter(:)%nitrate*nitrate_solubility/wl_before*delta_time))
 elsewhere
   passive_ammonium_uptake=0.0
   passive_nitrate_uptake=0.0

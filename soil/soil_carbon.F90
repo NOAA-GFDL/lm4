@@ -63,6 +63,7 @@ public :: soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, &
 public :: soil_NO3_deposition!x2z
 public :: soil_NH4_deposition!x2z
 public :: soil_org_N_deposition
+public :: ammonium_solubility, nitrate_solubility
 
 public :: N_C_TYPES, C_FAST, C_SLOW, C_MIC
 public :: c_shortname, c_longname
