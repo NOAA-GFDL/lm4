@@ -76,7 +76,7 @@ subroutine READ_0D_FPTR(ncid,name,fptr,rec)
      ! distribute data over cohorts
      do i = 1, size(idx)
         call get_cohort_by_idx ( idx(i), lnd%nlon, lnd%nlat, ntiles,&
-             land_tile_map, lnd%is, lnd%js,cohort)
+             land_tile_map, lnd_ug%ls, lnd_ug%gs, lnd_ug%ge, cohort)
         if (associated(cohort)) then
            call fptr(cohort, ptr)
            if(associated(ptr)) ptr = data(i)
@@ -134,7 +134,7 @@ subroutine WRITE_0D_FPTR(ncid,name,fptr,long_name,units,record)
   ! gather data into an array along the cohort dimension
   do i = 1, size(idx)
      call get_cohort_by_idx ( idx(i), lnd%nlon, lnd%nlat, ntiles,&
-                             land_tile_map, lnd%is, lnd%js,cohort)
+                             land_tile_map, lnd_ug%ls, lnd_ug%gs, lnd_ug%ge, cohort)
      if (associated(cohort)) then
         call fptr(cohort, ptr)
         if(associated(ptr)) then 
@@ -146,15 +146,15 @@ subroutine WRITE_0D_FPTR(ncid,name,fptr,long_name,units,record)
   
   ! if this processor isn't the root IO processor, simply send data to the root 
   ! IO processor and return from the subroutine
-  if (mpp_pe()/=lnd%io_pelist(1)) then
-     call mpp_send(data(1), plen=size(data), to_pe=lnd%io_pelist(1), tag=COMM_TAG_1)
-     call mpp_send(mask(1), plen=size(data), to_pe=lnd%io_pelist(1), tag=COMM_TAG_2)
+  if (mpp_pe()/=lnd_ug%io_pelist(1)) then
+     call mpp_send(data(1), plen=size(data), to_pe=lnd_ug%io_pelist(1), tag=COMM_TAG_1)
+     call mpp_send(mask(1), plen=size(data), to_pe=lnd_ug%io_pelist(1), tag=COMM_TAG_2)
   else
      ! gather data from the processors in io_domain
      allocate(buffer(size(data)))
-     do p = 2,size(lnd%io_pelist)
-        call mpp_recv(buffer(1), glen=size(data), from_pe=lnd%io_pelist(p), tag=COMM_TAG_1)
-        call mpp_recv(mask(1),   glen=size(data), from_pe=lnd%io_pelist(p), tag=COMM_TAG_2)
+     do p = 2,size(lnd_ug%io_pelist)
+        call mpp_recv(buffer(1), glen=size(data), from_pe=lnd_ug%io_pelist(p), tag=COMM_TAG_1)
+        call mpp_recv(mask(1),   glen=size(data), from_pe=lnd_ug%io_pelist(p), tag=COMM_TAG_2)
         where(mask > 0) data = buffer
      enddo
      deallocate(buffer,mask)

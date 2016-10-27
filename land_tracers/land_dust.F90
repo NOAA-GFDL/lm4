@@ -26,7 +26,7 @@ use vegn_tile_mod, only : vegn_tile_LAI, vegn_tile_SAI
 use vegn_data_mod, only:  LU_PAST, LU_CROP, LU_SCND, LU_NTRL
 use land_tile_mod, only : land_tile_type, land_tile_grnd_T
 use land_tile_diag_mod, only : register_tiled_diag_field, send_tile_data
-use land_data_mod, only : land_state_type, lnd, log_version
+use land_data_mod, only : land_state_type, lnd, log_version, lnd_ug, send_data_ug
 use land_io_mod, only : read_field
 use land_tracers_mod, only : ntcana, isphum
 use land_tile_diag_mod, only : &
@@ -102,7 +102,7 @@ logical :: do_dust = .FALSE.  ! if true, do dust calculations
 integer :: n_dust_tracers = 0 ! number of dust tracers
 type(dust_data_type), allocatable :: trdata(:) ! data for specific dust tracers
 
-real, allocatable :: dust_source(:,:) ! geographically-dependent dust source
+real, allocatable :: dust_source(:) ! geographically-dependent dust source
 
 
 real, save    :: dt     ! fast time step, s
@@ -238,9 +238,9 @@ subroutine land_dust_init (id_lon, id_lat, mask)
   call print(table,stdout())
 
   ! read dust source field
-  allocate(dust_source(lnd%is:lnd%ie,lnd%js:lnd%je))
+  allocate(dust_source(lnd_ug%ls:lnd_ug%le))
   call read_field( input_file_name, input_field_name, &
-       lnd%lon, lnd%lat, dust_source, interp='bilinear' )
+       lnd_ug%lon, lnd_ug%lat, dust_source, interp='bilinear' )
 
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('land')
@@ -267,7 +267,7 @@ subroutine land_dust_init (id_lon, id_lat, mask)
 
   id_dust_source = register_static_field ( diag_name, 'dust_source', (/id_lon, id_lat/), &
        'topographical dust source', missing_value = -1.0 )
-  if (id_dust_source > 0 ) used = send_data( id_dust_source, dust_source, lnd%time )
+  if (id_dust_source > 0 ) used = send_data_ug( id_dust_source, dust_source, lnd%time )
 
   do i = 1,n_dust_tracers
      name = trdata(i)%name
@@ -367,10 +367,10 @@ elemental real function laminar_conductance(T,p,sphum,ustar,r,rho,vdep) result(c
 end function laminar_conductance
 
 ! ==============================================================================
-subroutine update_land_dust(tile, i, j, tr_flux, dfdtr, &
+subroutine update_land_dust(tile, l, tr_flux, dfdtr, &
      precip_l, precip_s, p_surf, ustar, con_g, con_v )
   type(land_tile_type), intent(inout) :: tile
-  integer :: i,j ! grid cell indices (global)
+  integer :: l ! unstructure grid cell indices (global)
   real, intent(in) :: tr_flux(:) ! fluxes of tracers
   real, intent(in) :: dfdtr  (:) ! derivatives of tracer fluxes w.r.t. concentrations
   real, intent(in) :: precip_l   ! liquid precipitation, kg/(m2 s)
@@ -414,7 +414,7 @@ subroutine update_land_dust(tile, i, j, tr_flux, dfdtr, &
   wind10 = 10.0*ustar
 
   ! calculate dust sources
-  call update_dust_source(tile,i,j,ustar,wind10,emis)
+  call update_dust_source(tile,l,ustar,wind10,emis)
 
   rho = p_surf/(rdgas*tile%cana%T*(1+d608*tile%cana%tr(isphum))) ! air density
   wdep_tot = 0.0; ddep_tot = 0.0 ; fatm_tot = 0.0 ! initialize total fluxes to zero for accumulation
@@ -489,9 +489,9 @@ end subroutine update_land_dust
 
 
 ! ==============================================================================
-subroutine update_dust_source(tile, i, j, ustar, wind10, emis)
+subroutine update_dust_source(tile, l, ustar, wind10, emis)
   type(land_tile_type), intent(inout) :: tile ! it is only "inout" because diagnostics is sent to it
-  integer :: i,j ! grid cell indices (global)
+  integer :: l ! unstructure grid indices 
   real, intent(in) :: ustar ! friction velocity, m/s
   real, intent(in) :: wind10 ! wind at 10 m above displacement height, m/s
   real, intent(inout) :: emis(:)
@@ -545,7 +545,7 @@ subroutine update_dust_source(tile, i, j, ustar, wind10, emis)
        endif
     endif
     if ((snow_fmass < snow_thresh).and.(wind10 > u_ts)) then
-      dust_emis = ch*bareness*dust_source(i,j)*(wind10-u_ts)*wind10**2
+      dust_emis = ch*bareness*dust_source(l)*(wind10-u_ts)*wind10**2
     endif
   endif
 

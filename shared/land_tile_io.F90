@@ -18,7 +18,7 @@ use fms_mod, only : error_mesg, file_exist,     &
      close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
 use time_manager_mod, only : time_type
 use data_override_mod, only : data_override
-
+use mpp_domains_mod,   only : mpp_pass_SG_to_UG
 use nf_utils_mod, only : nfu_inq_dim, nfu_inq_var, nfu_def_dim, nfu_def_var, &
      nfu_get_var, nfu_put_var, nfu_put_att
 use land_io_mod, only : print_netcdf_error, read_field, input_buf_size, new_land_io
@@ -27,7 +27,7 @@ use land_tile_mod, only : land_tile_type, land_tile_list_type, land_tile_enum_ty
      tile_exists_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk, &
      land_tile_map
 
-use land_data_mod, only  : lnd, land_state_type
+use land_data_mod, only  : lnd, land_state_type, lnd_ug
 use land_utils_mod, only : put_to_tiles_r0d_fptr
 
 implicit none
@@ -148,7 +148,7 @@ subroutine init_land_restart(restart,filename,tile_exists,tile_dim_length)
      restart%should_free_rhandle = .TRUE.
   else
      call create_tile_out_file(restart%ncid,'RESTART/'//trim(restart%basename), &
-          lnd%coord_glon, lnd%coord_glat, tile_exists, tile_dim_length)
+          lnd_ug%coord_glon, lnd_ug%coord_glat, tile_exists, tile_dim_length)
   endif
 end subroutine init_land_restart
 
@@ -235,7 +235,7 @@ subroutine add_restart_axis(restart,name,data,cartesian,units,longname,sense)
      data_(:) = data(:)
      call register_restart_axis(restart%rhandle,restart%basename,name,data_,cartesian,units,longname,sense)
   else
-     if (mpp_pe()==lnd%io_pelist(1)) then
+     if (mpp_pe()==lnd_ug%io_pelist(1)) then
         __NF_ASRT__(nfu_def_dim(restart%ncid,name,data(:),longname,units))
         if (present(sense)) then
            if (sense<0) then
@@ -275,7 +275,7 @@ subroutine add_scalar_data(restart,varname,datum,longname,units)
      id_restart = register_restart_field(restart%rhandle,restart%basename,varname,datum,&
           longname=longname,units=units)
   else
-     if(mpp_pe()==lnd%io_pelist(1)) then
+     if(mpp_pe()==lnd_ug%io_pelist(1)) then
         ierr = nf_redef(restart%ncid)
         __NF_ASRT__(nfu_def_var(restart%ncid,varname,NF_INT,long_name=longname,units=units))
         ierr = nf_enddef(restart%ncid)
@@ -402,12 +402,12 @@ subroutine add_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr,longname,units)
      allocate(data(size(restart%tidx),n))
      call gather_tile_data_r1d(fptr,restart%tidx,data)
      ! checking name of the dimension here is a dirty trick, which is sure to
-     ! bite us in the future, but it is necessary because fms_io has no way to
-     ! figure out what the additional dimension of the variable is. A better way
-     ! to fix that is to rewrite fms_io so that it allows to specify the dimensions
+     ! bite us in the future, but it is necessary because fms_io has no way to 
+     ! figure out what the additional dimension of the variable is. A better way 
+     ! to fix that is to rewrite fms_io so that it allows to specify the dimensions 
      ! of the variable in a sane way.
      if (trim(zdim)=='soilCCohort') then
-        ! write (*,*) 'writing "',trim(varname),'" with C_CC'
+        ! write (*,*) 'writing "',trim(varname),'" with C_CC' 
         id_restart = register_restart_field(restart%rhandle, restart%basename, varname, data, &
              compressed=.true., longname=longname, units=units, restart_owns_data=.true., &
              compressed_axis='C_CC')
@@ -451,7 +451,7 @@ subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index,longname,
      ! the tile dimension spans all the tiles that need to be written.
      do i = 1, size(restart%tidx)
         call get_tile_by_idx(restart%tidx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                             lnd%is,lnd%js, tileptr)
+                             lnd_ug%ls, lnd_ug%gs, lnd_ug%ge, tileptr)
         do n = 1,nlev
            call fptr(tileptr,n,index, ptr)
            if(associated(ptr)) then
@@ -460,12 +460,12 @@ subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index,longname,
         enddo
      enddo
      ! checking name of the dimension here is a dirty trick, which is sure to
-     ! bite us in the future, but it is necessary because fms_io has no way to
-     ! figure out what the additional dimension of the variable is. A better way
-     ! to fix that is to rewrite fms_io so that it allows to specify the dimensions
+     ! bite us in the future, but it is necessary because fms_io has no way to 
+     ! figure out what the additional dimension of the variable is. A better way 
+     ! to fix that is to rewrite fms_io so that it allows to specify the dimensions 
      ! of the variable in a sane way.
      if (trim(zdim)=='soilCCohort') then
-        ! write (*,*) 'writing "',trim(varname),'" with C_CC'
+        ! write (*,*) 'writing "',trim(varname),'" with C_CC' 
         id_restart = register_restart_field(restart%rhandle, restart%basename, varname, data, &
              compressed=.true., longname=longname, units=units, restart_owns_data=.true., &
              compressed_axis='C_CC')
@@ -786,14 +786,14 @@ subroutine get_input_restart_name(name, restart_exists, actual_name, new_land_io
 
   ! Build the restart file name.
   call get_instance_filename(trim(name), actual_name)
-  call get_mosaic_tile_file(trim(actual_name),actual_name,.false.,lnd%domain)
+  call get_mosaic_tile_file(trim(actual_name),actual_name, lnd_ug%domain)
   ! we can't use fms file_exist function here, because it lies: it checks not
   ! just the original name, but the name with PE suffix, and returns true if
   ! either of those exist
   inquire (file=trim(actual_name), exist=restart_exists)
   if (.not.restart_exists) then
      ! try the name with current PE number attached
-     write(PE_suffix,'(".",I4.4)') lnd%io_id
+     write(PE_suffix,'(".",I4.4)') lnd_ug%io_id
      distributed_name = trim(actual_name)//trim(PE_suffix)
      inquire (file=trim(distributed_name), exist=restart_exists)
      if(present(new_land_io)) then
@@ -847,39 +847,37 @@ subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, tile_dim_lengt
 
   ! form the full name of the file
   call get_instance_filename(trim(name), full_name)
-  call get_mosaic_tile_file(trim(full_name),full_name,.false.,lnd%domain)
-  if (lnd%append_io_id) then
-      write(PE_suffix,'(".",I4.4)') lnd%io_id
+  call get_mosaic_tile_file(trim(full_name),full_name,lnd_ug%domain)
+  if (lnd_ug%append_io_id) then
+      write(PE_suffix,'(".",I4.4)') lnd_ug%io_id
   else
       PE_suffix = ''
   endif
 
   full_name = trim(full_name)//trim(PE_suffix)
-
   if(tile_dim_length<=0) &
     call error_mesg('create_tile_out_file','tile axis length must be positive', FATAL)
 
-  if (mpp_pe()/=lnd%io_pelist(1)) then
+  if (mpp_pe()/=lnd_ug%io_pelist(1)) then
      ! if current PE doesn't do io, we just send the data to the processor that
      ! does
-     call mpp_send(size(tidx), plen=1,          to_pe=lnd%io_pelist(1), tag=COMM_TAG_1)
-     call mpp_send(tidx(1),    plen=size(tidx), to_pe=lnd%io_pelist(1), tag=COMM_TAG_2)
+     call mpp_send(size(tidx), plen=1,          to_pe=lnd_ug%io_pelist(1), tag=COMM_TAG_1)
+     call mpp_send(tidx(1),    plen=size(tidx), to_pe=lnd_ug%io_pelist(1), tag=COMM_TAG_2)
   else
      ! gather an array of tile sizes from all processors in our io_domain
-     allocate(ntiles(size(lnd%io_pelist)))
+     allocate(ntiles(size(lnd_ug%io_pelist)))
      ntiles(1) = size(tidx)
-     do p = 2,size(lnd%io_pelist)
-        call mpp_recv(ntiles(p), from_pe=lnd%io_pelist(p), glen=1, tag=COMM_TAG_1)
+     do p = 2,size(lnd_ug%io_pelist)
+        call mpp_recv(ntiles(p), from_pe=lnd_ug%io_pelist(p), glen=1, tag=COMM_TAG_1)
      enddo
      ! gather tile indices from all processors in our io_domain
      allocate(tidx2(sum(ntiles(:))))
      tidx2(1:ntiles(1))=tidx(:)
      k=ntiles(1)+1
-     do p = 2,size(lnd%io_pelist)
-        call mpp_recv(tidx2(k), from_pe=lnd%io_pelist(p), glen=ntiles(p), tag=COMM_TAG_2)
+     do p = 2,size(lnd_ug%io_pelist)
+        call mpp_recv(tidx2(k), from_pe=lnd_ug%io_pelist(p), glen=ntiles(p), tag=COMM_TAG_2)
         k = k+ntiles(p)
      enddo
-
      ! create netcdf file
 #ifdef use_netCDF3
      __NF_ASRT__(nf_create(full_name,NF_CLOBBER,ncid))
@@ -920,9 +918,11 @@ subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, tile_dim_lengt
   ! make sure send-receive operations and file creation have finished
   call mpp_sync()
   ! open file on non-writing processors to have access to the tile index
-  if (mpp_pe()/=lnd%io_pelist(1)) then
+
+  if (mpp_pe()/=lnd_ug%io_pelist(1)) then
      __NF_ASRT__(nf_open(full_name,NF_NOWRITE,ncid))
   endif
+
 end subroutine create_tile_out_file_idx
 
 ! =============================================================================
@@ -946,7 +946,7 @@ subroutine create_tile_out_file_fptr(ncid, name, glon, glat, tile_exists, &
   integer :: i,j,k,n
 
   ! count total number of tiles in this domain
-  ce = first_elmt(land_tile_map, lnd%is, lnd%js)
+  ce = first_elmt(land_tile_map, lnd_ug%ls)
   te = tail_elmt (land_tile_map)
   n  = 0
   do while (ce/=te)
@@ -956,7 +956,7 @@ subroutine create_tile_out_file_fptr(ncid, name, glon, glat, tile_exists, &
 
   ! calculate compressed tile index to be written to the restart file;
   allocate(idx(max(n,1))); idx(:) = -1 ! set init value to a known invalid index
-  ce = first_elmt(land_tile_map, lnd%is, lnd%js)
+  ce = first_elmt(land_tile_map, lnd_ug%ls)
   n = 1
   do while (ce/=te)
      call get_elmt_indices(ce,i,j,k)
@@ -989,7 +989,7 @@ subroutine create_tile_out_file_idx_new(rhandle,name,tidx,tile_dim_length,zaxis_
 
   ! form the full name of the file
   call get_instance_filename(trim(name), file_name)
-  call get_mosaic_tile_file(trim(file_name),file_name,.false.,lnd%domain)
+  call get_mosaic_tile_file(trim(file_name),file_name,lnd_ug%domain)
 
   call register_restart_axis(rhandle,file_name,'lon',lnd%coord_glon(:),'X',units='degrees_east',longname='longitude')
   call register_restart_axis(rhandle,file_name,'lat',lnd%coord_glat(:),'Y',units='degrees_north',longname='latitude')
@@ -1029,7 +1029,7 @@ subroutine create_tile_out_file_fptr_new(rhandle,idx,name,tile_exists,tile_dim_l
   integer :: i,j,k,n
 
   ! count total number of tiles in this domain
-  ce = first_elmt(land_tile_map, lnd%is, lnd%js)
+  ce = first_elmt(land_tile_map, lnd_ug%ls)
   te = tail_elmt (land_tile_map)
   n  = 0
   do while (ce/=te)
@@ -1039,7 +1039,7 @@ subroutine create_tile_out_file_fptr_new(rhandle,idx,name,tile_exists,tile_dim_l
 
   ! calculate compressed tile index to be written to the restart file;
   allocate(idx(max(n,1))); idx(:) = -1 ! set init value to a known invalid index
-  ce = first_elmt(land_tile_map, lnd%is, lnd%js)
+  ce = first_elmt(land_tile_map, lnd_ug%ls)
   n = 1
   do while (ce/=te)
      call get_elmt_indices(ce,i,j,k)
@@ -1063,15 +1063,15 @@ end subroutine create_tile_out_file_fptr_new
 ! and the lower boundaries of this array returns a pointer to the tile
 ! corresponding to the compressed index, or NULL is the index is outside
 ! current domain, or such tile does not exist.
-subroutine get_tile_by_idx(idx,nlon,nlat,tiles,is,js,ptr)
+subroutine get_tile_by_idx(idx,nlon,nlat,tiles,ls,gs,ge,ptr)
    integer, intent(in) :: idx ! index
    integer, intent(in) :: nlon, nlat
-   integer, intent(in) :: is, js
-   type(land_tile_list_type), intent(in) :: tiles(is:,js:)
+   integer, intent(in) :: ls,gs,ge
+   type(land_tile_list_type), intent(in) :: tiles(ls:)
    type(land_tile_type), pointer :: ptr
 
    ! ---- local vars
-   integer :: i,j,k
+   integer :: g,k,npts,l
    type(land_tile_enum_type) :: ce,te
 
    ptr=>null()
@@ -1080,14 +1080,18 @@ subroutine get_tile_by_idx(idx,nlon,nlat,tiles,is,js,ptr)
 
    ! given tile idx, calculate global lon, lat, and tile indices
    k = idx
-   i = modulo(k,nlon)+1 ; k = k/nlon
-   j = modulo(k,nlat)+1 ; k = k/nlat
+   npts = nlon*nlat
+   g = modulo(k,npts)+1 ; k = k/npts
    ! do nothing if the indices is outside of our domain
-   if (i<is.or.i>is+size(tiles,1)-1) return ! skip points outside of domain
-   if (j<js.or.j>js+size(tiles,2)-1) return ! skip points outside of domain
+   if (g<gs.or.g>ge) return ! skip points outside of domain
    ! loop through the list of tiles at the given point to find k+1st tile
-   ce = first_elmt (tiles(i,j))
-   te = tail_elmt  (tiles(i,j))
+   l = lnd_ug%l_index(g)
+   if(l < lnd_ug%ls .OR. l > lnd_ug%le) then
+      print*, " l= ", l, g, lnd_ug%ls, lnd_ug%le, mpp_pe()
+      call error_mesg("land_tile_io", "l < lnd%ls .OR. l > lnd%le", FATAL)
+   endif
+   ce = first_elmt (tiles(l))
+   te = tail_elmt  (tiles(l))
    do while(ce/=te.and.k>0)
      ce=next_elmt(ce); k = k-1
    enddo
@@ -1145,7 +1149,7 @@ subroutine read_tile_data_i0d_fptr(ncid,name,fptr)
       ! distribute the data over the tiles
       do i = 1, min(input_buf_size,dimlen(1)-j+1)
          call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                              lnd%is,lnd%js, tileptr)
+                              lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
          call fptr(tileptr, ptr)
          if(associated(ptr)) ptr = x1d(i)
       enddo
@@ -1193,7 +1197,7 @@ subroutine read_tile_data_r0d_fptr_r0(ncid,name,fptr)
       ! distribute the data over the tiles
       do i = 1, min(bufsize,dimlen(1)-j+1)
          call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                              lnd%is,lnd%js, tileptr)
+                              lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
          call fptr(tileptr, ptr)
          if(associated(ptr)) ptr = x1d(i)
       enddo
@@ -1243,7 +1247,7 @@ subroutine read_tile_data_r0d_fptr_r0i (ncid,name,fptr,index)
       ! distribute the data over the tiles
       do i = 1, min(bufsize,dimlen(1)-j+1)
          call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                              lnd%is,lnd%js, tileptr)
+                              lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
          call fptr(tileptr, index, ptr)
          if(associated(ptr)) ptr = x1d(i)
       enddo
@@ -1295,7 +1299,7 @@ subroutine read_tile_data_i1d_fptr_i0i(ncid,name,fptr)
       ! distribute the data over the tiles
       do i = 1, min(bufsize,dimlen(1)-j+1)
          call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                              lnd%is,lnd%js, tileptr)
+                              lnd_ug%ls,lnd_ug%gs, lnd_ug%ge, tileptr)
          do n = 1,count(2)
             call fptr(tileptr, n, ptr)
             if(associated(ptr)) ptr = x1d(i+count(1)*(n-1))
@@ -1349,7 +1353,7 @@ subroutine read_tile_data_r1d_fptr_r0i(ncid,name,fptr)
       ! distribute the data over the tiles
       do i = 1, min(bufsize,dimlen(1)-j+1)
          call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                              lnd%is,lnd%js, tileptr)
+                              lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
          do n = 1,count(2)
             call fptr(tileptr, n, ptr)
             if(associated(ptr)) ptr = x1d(i+count(1)*(n-1))
@@ -1404,7 +1408,7 @@ subroutine read_tile_data_r1d_fptr_r0ij(ncid,name,fptr,index)
       ! distribute the data over the tiles
       do i = 1, min(bufsize,dimlen(1)-j+1)
          call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                              lnd%is,lnd%js, tileptr)
+                              lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
          do n = 1,count(2)
             call fptr(tileptr, n, index, ptr)
             if(associated(ptr)) ptr = x1d(i+count(1)*(n-1))
@@ -1459,7 +1463,7 @@ subroutine read_tile_data_r2d_fptr_r0ij (ncid,name,fptr)
       ! distribute the data over the tiles
       do i = 1, min(bufsize,dimlen(1)-j+1)
          call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                              lnd%is,lnd%js, tileptr)
+                              lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
          do m = 1,dimlen(2)
          do n = 1,dimlen(3)
             call fptr(tileptr, m, n, ptr)
@@ -1517,7 +1521,7 @@ subroutine read_tile_data_r2d_fptr_r0ijk (ncid,name,fptr,index)
       ! distribute the data over the tiles
       do i = 1, min(bufsize,dimlen(1)-j+1)
          call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                              lnd%is,lnd%js, tileptr)
+                              lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
          do m = 1,dimlen(2)
          do n = 1,dimlen(3)
             call fptr(tileptr, m, n, index, ptr)
@@ -1557,15 +1561,15 @@ subroutine write_tile_data_i1d(ncid,name,data,mask,long_name,units)
 
   ! if our PE doesn't do io (that is, it isn't the root io_domain processor),
   ! simply send the data and mask of valid data to the root IO processor
-  if (mpp_pe()/=lnd%io_pelist(1)) then
-     call mpp_send(data(1), plen=size(data), to_pe=lnd%io_pelist(1), tag=COMM_TAG_3)
-     call mpp_send(mask(1), plen=size(data), to_pe=lnd%io_pelist(1), tag=COMM_TAG_4)
+  if (mpp_pe()/=lnd_ug%io_pelist(1)) then
+     call mpp_send(data(1), plen=size(data), to_pe=lnd_ug%io_pelist(1), tag=COMM_TAG_3)
+     call mpp_send(mask(1), plen=size(data), to_pe=lnd_ug%io_pelist(1), tag=COMM_TAG_4)
   else
      ! gather data and masks from all processors in io_domain
      allocate(buffer(size(data)))
-     do p = 2,size(lnd%io_pelist)
-        call mpp_recv(buffer(1), glen=size(data), from_pe=lnd%io_pelist(p), tag=COMM_TAG_3)
-        call mpp_recv(mask(1),   glen=size(data), from_pe=lnd%io_pelist(p), tag=COMM_TAG_4)
+     do p = 2,size(lnd_ug%io_pelist)
+        call mpp_recv(buffer(1), glen=size(data), from_pe=lnd_ug%io_pelist(p), tag=COMM_TAG_3)
+        call mpp_recv(mask(1),   glen=size(data), from_pe=lnd_ug%io_pelist(p), tag=COMM_TAG_4)
         where (mask>0) data = buffer
      enddo
      ! clean up allocated memory
@@ -1603,20 +1607,19 @@ subroutine write_tile_data_r1d(ncid,name,data,mask,long_name,units)
 
   ! if our PE doesn't do io (that is, it isn't the root io_domain processor),
   ! simply send the data and mask of valid data to the root IO processor
-  if (mpp_pe()/=lnd%io_pelist(1)) then
-     call mpp_send(data(1), plen=size(data), to_pe=lnd%io_pelist(1), tag=COMM_TAG_5)
-     call mpp_send(mask(1), plen=size(data), to_pe=lnd%io_pelist(1), tag=COMM_TAG_6)
+  if (mpp_pe()/=lnd_ug%io_pelist(1)) then
+     call mpp_send(data(1), plen=size(data), to_pe=lnd_ug%io_pelist(1), tag=COMM_TAG_5)
+     call mpp_send(mask(1), plen=size(data), to_pe=lnd_ug%io_pelist(1), tag=COMM_TAG_6)
   else
      ! gather data and masks from the processors in io_domain
      allocate(buffer(size(data)))
-     do p = 2,size(lnd%io_pelist)
-        call mpp_recv(buffer(1), glen=size(data), from_pe=lnd%io_pelist(p), tag=COMM_TAG_5)
-        call mpp_recv(mask(1),   glen=size(data), from_pe=lnd%io_pelist(p), tag=COMM_TAG_6)
+     do p = 2,size(lnd_ug%io_pelist)
+        call mpp_recv(buffer(1), glen=size(data), from_pe=lnd_ug%io_pelist(p), tag=COMM_TAG_5)
+        call mpp_recv(mask(1),   glen=size(data), from_pe=lnd_ug%io_pelist(p), tag=COMM_TAG_6)
         where(mask>0) data = buffer
      enddo
      ! clean up allocated memory
      deallocate(buffer)
-
      ! create variable, if it does not exist
      if(nf_inq_varid(ncid,name,varid)/=NF_NOERR) then
         __NF_ASRT__(nfu_def_var(ncid,name,NF_DOUBLE,(/tile_index_name/),long_name,units,varid))
@@ -1653,15 +1656,15 @@ subroutine write_tile_data_i2d(ncid,name,data,mask,zdim,long_name,units)
 
   ! if our PE does not do io (that is, it is not the root io_domain processor),
   ! simply send the data and mask of valid data to the root IO processor
-  if (mpp_pe()/=lnd%io_pelist(1)) then
-     call mpp_send(data(1,1), plen=size(data),   to_pe=lnd%io_pelist(1), tag=COMM_TAG_7)
-     call mpp_send(mask(1),   plen=size(data,1), to_pe=lnd%io_pelist(1), tag=COMM_TAG_8)
+  if (mpp_pe()/=lnd_ug%io_pelist(1)) then
+     call mpp_send(data(1,1), plen=size(data),   to_pe=lnd_ug%io_pelist(1), tag=COMM_TAG_7)
+     call mpp_send(mask(1),   plen=size(data,1), to_pe=lnd_ug%io_pelist(1), tag=COMM_TAG_8)
   else
      allocate(buffer(size(data,1),size(data,2)))
      ! gather data and masks from the processors in our io_domain
-     do p = 2,size(lnd%io_pelist)
-        call mpp_recv(buffer(1,1), glen=size(data),   from_pe=lnd%io_pelist(p), tag=COMM_TAG_7)
-        call mpp_recv(mask(1),     glen=size(data,1), from_pe=lnd%io_pelist(p), tag=COMM_TAG_8)
+     do p = 2,size(lnd_ug%io_pelist)
+        call mpp_recv(buffer(1,1), glen=size(data),   from_pe=lnd_ug%io_pelist(p), tag=COMM_TAG_7)
+        call mpp_recv(mask(1),     glen=size(data,1), from_pe=lnd_ug%io_pelist(p), tag=COMM_TAG_8)
         do i=1,size(data,1)
            if(mask(i)>0) data(i,:) = buffer(i,:)
         enddo
@@ -1707,15 +1710,15 @@ subroutine write_tile_data_r2d(ncid,name,data,mask,zdim,long_name,units)
 
   ! if our PE doesn't do io (that is, it isn't the root io_domain processor),
   ! simply send the data and mask of valid data to the root IO processor
-  if (mpp_pe()/=lnd%io_pelist(1)) then
-     call mpp_send(data(1,1), plen=size(data),   to_pe=lnd%io_pelist(1), tag=COMM_TAG_7)
-     call mpp_send(mask(1),   plen=size(data,1), to_pe=lnd%io_pelist(1), tag=COMM_TAG_8)
+  if (mpp_pe()/=lnd_ug%io_pelist(1)) then
+     call mpp_send(data(1,1), plen=size(data),   to_pe=lnd_ug%io_pelist(1), tag=COMM_TAG_7)
+     call mpp_send(mask(1),   plen=size(data,1), to_pe=lnd_ug%io_pelist(1), tag=COMM_TAG_8)
   else
      allocate(buffer(size(data,1),size(data,2)))
      ! gather data and masks from the processors in our io_domain
-     do p = 2,size(lnd%io_pelist)
-        call mpp_recv(buffer(1,1), glen=size(data),   from_pe=lnd%io_pelist(p), tag=COMM_TAG_7)
-        call mpp_recv(mask(1),     glen=size(data,1), from_pe=lnd%io_pelist(p), tag=COMM_TAG_8)
+     do p = 2,size(lnd_ug%io_pelist)
+        call mpp_recv(buffer(1,1), glen=size(data),   from_pe=lnd_ug%io_pelist(p), tag=COMM_TAG_7)
+        call mpp_recv(mask(1),     glen=size(data,1), from_pe=lnd_ug%io_pelist(p), tag=COMM_TAG_8)
         do i=1,size(data,1)
            if(mask(i)>0) data(i,:) = buffer(i,:)
         enddo
@@ -1762,15 +1765,15 @@ subroutine write_tile_data_r3d(ncid,name,data,mask,zdim,cohortdim,long_name,unit
 
   ! if our PE does not do io (that is, it is not the root io_domain processor),
   ! simply send the data and mask of valid data to the root IO processor
-  if (mpp_pe()/=lnd%io_pelist(1)) then
-     call mpp_send(data(1,1,1), plen=size(data),   to_pe=lnd%io_pelist(1))
-     call mpp_send(mask(1),   plen=size(data,1), to_pe=lnd%io_pelist(1))
+  if (mpp_pe()/=lnd_ug%io_pelist(1)) then
+     call mpp_send(data(1,1,1), plen=size(data),   to_pe=lnd_ug%io_pelist(1))
+     call mpp_send(mask(1),   plen=size(data,1), to_pe=lnd_ug%io_pelist(1))
   else
      allocate(buffer(size(data,1),size(data,2),size(data,3)))
      ! gather data and masks from the processors in our io_domain
-     do p = 2,size(lnd%io_pelist)
-        call mpp_recv(buffer(1,1,1), glen=size(data),   from_pe=lnd%io_pelist(p))
-        call mpp_recv(mask(1),     glen=size(data,1), from_pe=lnd%io_pelist(p))
+     do p = 2,size(lnd_ug%io_pelist)
+        call mpp_recv(buffer(1,1,1), glen=size(data),   from_pe=lnd_ug%io_pelist(p))
+        call mpp_recv(mask(1),     glen=size(data,1), from_pe=lnd_ug%io_pelist(p))
         do i=1,size(data,1)
             if(mask(i)>0) data(i,:,:) = buffer(i,:,:)
         enddo
@@ -1833,7 +1836,7 @@ subroutine write_tile_data_i0d_fptr(ncid,name,fptr,long_name,units)
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%is,lnd%js, tileptr)
+                          lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
      call fptr(tileptr, ptr)
      if(associated(ptr)) then
         data(i) = ptr
@@ -1882,7 +1885,7 @@ subroutine write_tile_data_r0d_fptr_r0(ncid,name,fptr,long_name,units)
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%is,lnd%js, tileptr)
+                          lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
      call fptr(tileptr, ptr)
      if(associated(ptr)) then
         data(i) = ptr
@@ -1932,7 +1935,7 @@ subroutine write_tile_data_r0d_fptr_r0i(ncid,name,fptr,index,long_name,units)
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%is,lnd%js, tileptr)
+                          lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
      call fptr(tileptr,index,ptr)
      if(associated(ptr)) then
         data(i) = ptr
@@ -1983,7 +1986,7 @@ subroutine write_tile_data_i1d_fptr_i0i(ncid,name,fptr,zdim,long_name,units)
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%is,lnd%js, tileptr)
+                          lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
      do j = 1,nlev
      call fptr(tileptr, j, ptr)
         if(associated(ptr)) then
@@ -2021,6 +2024,8 @@ subroutine write_tile_data_r1d_fptr_r0i(ncid,name,fptr,zdim,long_name,units)
 
   ! get the size of the output array. Note that at this point the variable
   ! might not yet exist, so we cannot use nfu_inq_var
+
+  call sync_nc_files(ncid)
   __NF_ASRT__(nfu_inq_dim(ncid,tile_index_name,len=ntiles))
   __NF_ASRT__(nfu_inq_dim(ncid,zdim,len=nlev))
 
@@ -2037,7 +2042,7 @@ subroutine write_tile_data_r1d_fptr_r0i(ncid,name,fptr,zdim,long_name,units)
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%is,lnd%js, tileptr)
+                          lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
      do j = 1,nlev
      call fptr(tileptr, j, ptr)
         if(associated(ptr)) then
@@ -2051,7 +2056,7 @@ subroutine write_tile_data_r1d_fptr_r0i(ncid,name,fptr,zdim,long_name,units)
   call write_tile_data_r2d(ncid,name,data,mask,zdim,long_name,units)
 
   ! free allocated memory
-  deallocate(data,idx)
+  deallocate(data,idx,mask)
 
 end subroutine write_tile_data_r1d_fptr_r0i
 
@@ -2091,7 +2096,7 @@ subroutine write_tile_data_r1d_fptr_r0ij(ncid,name,fptr,index,zdim,long_name,uni
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%is,lnd%js, tileptr)
+                          lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
      do n = 1,nlev
         call fptr(tileptr,n,index, ptr)
         if(associated(ptr)) then
@@ -2147,7 +2152,7 @@ subroutine write_tile_data_r2d_fptr_r0ij(ncid,name,fptr,dim1,dim2,long_name,unit
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%is,lnd%js, tileptr)
+                          lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
      do n=1, n1
      do m=1, n2
         call fptr(tileptr, n, m, ptr)
@@ -2206,7 +2211,7 @@ subroutine write_tile_data_r2d_fptr_r0ijk(ncid,name,fptr,index,dim1,dim2,long_na
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%is,lnd%js, tileptr)
+                          lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
      do n=1, n1
      do m=1, n2
         call fptr(tileptr, n, m, index, ptr)
@@ -2242,7 +2247,7 @@ subroutine gather_tile_data_i0d(fptr,idx,data)
 ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%is,lnd%js, tileptr)
+                          lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
      call fptr(tileptr, ptr)
      if(associated(ptr)) data(i)=ptr
   enddo
@@ -2264,7 +2269,7 @@ subroutine gather_tile_data_r0d(fptr,idx,data)
 ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%is,lnd%js, tileptr)
+                          lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
      call fptr(tileptr, ptr)
      if(associated(ptr)) data(i)=ptr
   enddo
@@ -2287,7 +2292,7 @@ subroutine gather_tile_data_r0d_idx(fptr,n,idx,data)
 ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%is,lnd%js, tileptr)
+                          lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
      call fptr(tileptr, n, ptr)
      if(associated(ptr)) data(i)=ptr
   enddo
@@ -2309,7 +2314,7 @@ subroutine gather_tile_data_r1d(fptr,idx,data)
 ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%is,lnd%js, tileptr)
+                          lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
      do j = 1,size(data,2)
         call fptr(tileptr, j, ptr)
         if(associated(ptr)) data(i,j)=ptr
@@ -2333,7 +2338,7 @@ subroutine gather_tile_data_i1d(fptr,idx,data)
 ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%is,lnd%js, tileptr)
+                          lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
      do j = 1,size(data,2)
         call fptr(tileptr, j, ptr)
         if(associated(ptr)) data(i,j)=ptr
@@ -2357,7 +2362,7 @@ subroutine gather_tile_data_r2d(fptr,idx,data)
 ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%is,lnd%js, tileptr)
+                          lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
      do k=1,size(data,2)
      do m=1,size(data,3)
         call fptr(tileptr, k, m, ptr)
@@ -2384,7 +2389,7 @@ subroutine gather_tile_data_r2d_idx(fptr,n,idx,data)
 ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%is,lnd%js, tileptr)
+                          lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
      do k=1,size(data,2)
      do m=1,size(data,3)
         call fptr(tileptr, k, m, n, ptr)
@@ -2407,7 +2412,7 @@ subroutine assemble_tiles_i0d(fptr,idx,data)
 ! distribute the data over the tiles
   do i = 1, size(idx)
      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%is,lnd%js, tileptr)
+                          lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
      call fptr(tileptr, ptr)
      if(associated(ptr)) ptr=data(i)
   enddo
@@ -2426,7 +2431,7 @@ subroutine assemble_tiles_r0d(fptr,idx,data)
 ! distribute the data over the tiles
   do i = 1, size(idx)
      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%is,lnd%js, tileptr)
+                          lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
      call fptr(tileptr, ptr)
      if(associated(ptr)) ptr=data(i)
   enddo
@@ -2446,7 +2451,7 @@ subroutine assemble_tiles_r0d_idx(fptr,n,idx,data)
 ! distribute the data over the tiles
   do i = 1, size(idx)
      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%is,lnd%js, tileptr)
+                          lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
      call fptr(tileptr, n, ptr)
      if(associated(ptr)) ptr=data(i)
   enddo
@@ -2465,7 +2470,7 @@ subroutine assemble_tiles_i1d(fptr,idx,data)
 ! distribute the data over the tiles
   do i = 1, size(idx)
      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%is,lnd%js, tileptr)
+                          lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
      do j = 1,size(data,2)
         call fptr(tileptr, j, ptr)
         if(associated(ptr)) ptr=data(i,j)
@@ -2486,7 +2491,7 @@ subroutine assemble_tiles_r1d(fptr,idx,data)
 ! distribute the data over the tiles
   do i = 1, size(idx)
      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%is,lnd%js, tileptr)
+                          lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
      do j = 1,size(data,2)
         call fptr(tileptr, j, ptr)
         if(associated(ptr)) ptr=data(i,j)
@@ -2508,7 +2513,7 @@ subroutine assemble_tiles_r1d_idx(fptr,n,idx,data)
 ! distribute the data over the tiles
   do i = 1, size(idx)
      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%is,lnd%js, tileptr)
+                          lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
      do j = 1,size(data,2)
         call fptr(tileptr, j, n, ptr)
         if(associated(ptr)) ptr=data(i,j)
@@ -2529,7 +2534,7 @@ subroutine assemble_tiles_r2d(fptr,idx,data)
 ! distribute the data over the tiles
   do i = 1, size(idx)
      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%is,lnd%js, tileptr)
+                          lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
      do k=1,size(data,2)
      do m=1,size(data,3)
         call fptr(tileptr, k, m, ptr)
@@ -2553,7 +2558,7 @@ subroutine assemble_tiles_r2d_idx(fptr,n,idx,data)
 ! distribute the data over the tiles
   do i = 1, size(idx)
      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%is,lnd%js, tileptr)
+                          lnd_ug%ls,lnd_ug%gs,lnd_ug%ge, tileptr)
      do k=1,size(data,2)
      do m=1,size(data,3)
         call fptr(tileptr, k, m, n, ptr)
@@ -2573,14 +2578,16 @@ subroutine override_tile_data_r0d_fptr(fieldname,fptr,time,override)
 
   ! ---- local vars
   real    :: data2D(lnd%is:lnd%ie,lnd%js:lnd%je) ! storage for the input data
+  real    :: data1D(lnd_ug%ls:lnd_ug%le)
   logical :: override_
 
   call data_override('LND',fieldname,data2D, time, override_ )
   if(present(override)) override=override_
   if(.not.override_) return ! do nothing if the field was not overridden
+  call mpp_pass_SG_to_UG(lnd_ug%domain, data2D, data1D)
 
   ! distribute the data over the tiles
-  call put_to_tiles_r0d_fptr(data2d,land_tile_map,fptr)
+  call put_to_tiles_r0d_fptr(data1d,land_tile_map,fptr)
 
 end subroutine override_tile_data_r0d_fptr
 
@@ -2592,13 +2599,13 @@ subroutine sync_nc_files(ncid)
 
   integer :: iret
 
-  if(mpp_pe()==lnd%io_pelist(1)) then
+  if(mpp_pe()==lnd_ug%io_pelist(1)) then
      iret = nf_enddef(ncid)
      ! commit possible definition changes and data to the disk
      __NF_ASRT__(nf_sync(ncid))
   endif
   call mpp_sync()
-  if(mpp_pe()/=lnd%io_pelist(1)) then
+  if(mpp_pe()/=lnd_ug%io_pelist(1)) then
      ! synchronize in-memory data structures with the changes on the disk
     __NF_ASRT__(nf_sync(ncid))
   endif

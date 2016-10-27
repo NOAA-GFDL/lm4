@@ -32,7 +32,7 @@ use land_tile_selectors_mod, only : tile_selector_type, &
      SEL_SOIL, SEL_VEGN, SEL_LAKE, SEL_GLAC, SEL_SNOW, SEL_CANA, SEL_HLSP
 use tile_diag_buff_mod, only : &
      diag_buff_type, new_diag_buff, delete_diag_buff
-use land_data_mod, only : lnd
+use land_data_mod, only : lnd, lnd_ug
 
 implicit none
 private
@@ -90,11 +90,11 @@ end interface
 
 interface first_elmt
    module procedure land_tile_list_begin_0d
-   module procedure land_tile_list_begin_2d
+   module procedure land_tile_list_begin_1d
 end interface
 interface tail_elmt
    module procedure land_tile_list_end_0d
-   module procedure land_tile_list_end_2d
+   module procedure land_tile_list_end_1d
 end interface
 
 interface operator(==)
@@ -174,10 +174,11 @@ end type land_tile_list_type
 type :: land_tile_enum_type
    private
    type(land_tile_list_type), pointer :: &
-        tiles(:,:) => NULL()  ! pointer to array of tiles to walk -- may be disassociated
-   integer :: i=0,j=0 ! indices in the above array
+        tiles(:) => NULL()  ! pointer to array of tiles to walk -- may be disassociated
+   integer :: i=0,j=0 ! i,j indices in the above array
+   integer :: l=0     ! index in the unstructure domain
    integer :: k=0     ! number of the current tile in its container
-   integer :: io,jo   ! offsets of indices (to keep track of non-1 ubounds of tiles array)
+   integer :: lo=0    ! offsets of indices (to keep track of non-1 ubounds of tiles array)
    type(land_tile_list_node_type), pointer :: node => NULL() ! pointer to the current container node
 end type land_tile_enum_type
 
@@ -256,7 +257,7 @@ end interface
 ! ==== module data ===========================================================
 integer :: n_created_land_tiles = 0 ! total number of created tiles
 integer :: n_deleted_land_tiles = 0 ! total number of deleted tiles
-type(land_tile_list_type), pointer :: land_tile_map(:,:) ! map of tiles
+type(land_tile_list_type), pointer :: land_tile_map(:) ! map of tiles
 
 contains
 
@@ -265,25 +266,21 @@ contains
 ! ============================================================================
 ! initialize land tile map
 subroutine init_tile_map()
-  integer :: i,j
-
-  allocate(land_tile_map (lnd%is:lnd%ie, lnd%js:lnd%je))
-  do j = lnd%js,lnd%je
-  do i = lnd%is,lnd%ie
-     call land_tile_list_init(land_tile_map(i,j))
-  enddo
+  integer :: l
+ 
+  allocate(land_tile_map(lnd_ug%ls:lnd_ug%le))
+  do l = lnd_ug%ls,lnd_ug%le
+     call land_tile_list_init(land_tile_map(l))
   enddo
 end subroutine init_tile_map
 
 ! ============================================================================
 ! deallocate land tile map
 subroutine free_tile_map()
-  integer :: i,j
+  integer :: l
 
-  do j = lnd%js,lnd%je
-  do i = lnd%is,lnd%ie
-     call land_tile_list_end(land_tile_map(i,j))
-  enddo
+  do l = lnd_ug%ls,lnd_ug%le
+     call land_tile_list_end(land_tile_map(l))
   enddo
 end subroutine free_tile_map
 
@@ -291,13 +288,11 @@ end subroutine free_tile_map
 ! get max number of tiles in the domain
 function max_n_tiles() result(n)
   integer :: n
-  integer :: i,j
+  integer :: l
 
   n=1
-  do j=lnd%js,lnd%je
-  do i=lnd%is,lnd%ie
-     n=max(n, nitems(land_tile_map(i,j)))
-  enddo
+  do l=lnd_ug%ls,lnd_ug%le
+     n=max(n, nitems(land_tile_map(l)))
   enddo
 end function max_n_tiles
 
@@ -723,41 +718,40 @@ function land_tile_list_begin_0d(list) result(ce)
 
   call check_tile_list_inited(list)
   ce%node=>list%head%next
-  ce%i = 1 ; ce%j = 1 ; ce%k = 1
+  ce%i = 1 ; ce%j = 1 ; ce%k = 1 ; ce%l = 1
 end function land_tile_list_begin_0d
 
 
 ! ============================================================================
 ! returns enumerator pointing to the first element of the 2D array of
 ! containers
-function land_tile_list_begin_2d(tiles, is, js) result(ce)
+function land_tile_list_begin_1d(tiles, ls) result(ce)
   type(land_tile_enum_type) :: ce  ! return value
-  type(land_tile_list_type), intent(in), target :: tiles(:,:)
-  integer, intent(in), optional :: is,js ! origin of the array
+  type(land_tile_list_type), intent(in), target :: tiles(:)
+  integer, intent(in), optional :: ls ! origin of the array
 
-  integer :: i,j
+  integer :: l
 
   ! list up pointer to the array of containers
   ce%tiles=>tiles
 
   ! initialize offsets of indices
-  ce%io = 0; ce%jo = 0;
-  if(present(is)) ce%io = is-lbound(tiles,1)
-  if(present(js)) ce%jo = js-lbound(tiles,2)
+  ce%lo = 0
+  if(present(ls)) ce%lo = ls-1
 
   ! initialize current position in the array of containers -- find
   ! first non-empty container and list the pointer to the current
   ! container node
   ce%k = 1
-  do j = lbound(tiles,2),ubound(tiles,2)
-  do i = lbound(tiles,1),ubound(tiles,1)
-     call check_tile_list_inited(tiles(i,j))
-     ce%node => tiles(i,j)%head%next
-     ce%i = i ; ce%j = j
+  do l = 1,size(tiles(:))
+     call check_tile_list_inited(tiles(l))
+     ce%node => tiles(l)%head%next
+     ce%l = l
+     ce%i = lnd_ug%i_index(l+lnd_ug%ls-1)
+     ce%j = lnd_ug%j_index(l+lnd_ug%ls-1)
      if(associated(ce%node%data)) return
   enddo
-  enddo
-end function land_tile_list_begin_2d
+end function land_tile_list_begin_1d
 
 
 ! ============================================================================
@@ -769,36 +763,34 @@ function land_tile_list_end_0d(list) result (ce)
 
   call check_tile_list_inited(list)
   ce%node=>list%head
-  ce%i = 1 ; ce%j = 1 ; ce%k = nitems(list)+1
+  ce%i = 1 ; ce%j = 1 ; ce%l=1 ; ce%k = nitems(list)+1
 end function land_tile_list_end_0d
 
 
 ! ============================================================================
 ! returns enumerator pointing to the end of 2D array of containers: actually
 ! the next element behind the last element of the last container
-function land_tile_list_end_2d(tiles,is,js) result (ce)
+function land_tile_list_end_1d(tiles) result (ce)
   type(land_tile_enum_type) :: ce ! return value
-  type(land_tile_list_type), intent(in), target :: tiles(:,:)
-  integer, intent(in), optional :: is,js ! lower boundaries of the array
+  type(land_tile_list_type), intent(in), target :: tiles(:)
 
   ! list up pointer to the array of containers
   ce%tiles=>tiles
 
   ! initialize offsets of indices
-  ce%io = 0; ce%jo = 0;
-  if(present(is)) ce%io = is-lbound(tiles,1)
-  if(present(js)) ce%jo = js-lbound(tiles,2)
+  ce%lo = 0
 
   ! initialize current position in the array of containers
-  ce%i = ubound(tiles,1)
-  ce%j = ubound(tiles,2)
-  ce%k = nitems(tiles(ce%i,ce%j))+1
+  ce%l = ubound(tiles,1)
+  ce%i = lnd_ug%i_index(ce%l+lnd_ug%ls-1)
+  ce%j = lnd_ug%j_index(ce%l+lnd_ug%ls-1)
+  ce%k = nitems(tiles(ce%l))+1
 
   ! list the pointer to the current tile
-  call check_tile_list_inited(tiles(ce%i,ce%j))
-  ce%node=>tiles(ce%i,ce%j)%head
+  call check_tile_list_inited(tiles(ce%l))
+  ce%node=>tiles(ce%l)%head
 
-end function land_tile_list_end_2d
+end function land_tile_list_end_1d
 
 
 ! ============================================================================
@@ -807,25 +799,23 @@ function next_elmt(pos0) result(ce)
   type(land_tile_enum_type) :: ce ! return value
   type(land_tile_enum_type), intent(in) :: pos0
 
-  integer :: is,ie,js,je
+  integer :: le
 
   ce = pos0
   ce%node => ce%node%next ; ce%k = ce%k+1
   if(associated(ce%tiles)) then
-     is = lbound(ce%tiles,1); ie = ubound(ce%tiles,1)
-     js = lbound(ce%tiles,2); je = ubound(ce%tiles,2)
+     le = ubound(ce%tiles,1)
      do while(.not.associated(ce%node%data))
         ce%k = 1; ! reset tile index
-        if(ce%i<ie)then
-           ce%i = ce%i+1
-        else if(ce%j<je) then
-           ce%i = is
-           ce%j = ce%j + 1
+        if(ce%l<le)then
+           ce%l = ce%l+1
+           ce%i = lnd_ug%i_index(ce%l+lnd_ug%ls-1)
+           ce%j = lnd_ug%j_index(ce%l+lnd_ug%ls-1)
         else
            return
         endif
-        call check_tile_list_inited(ce%tiles(ce%i,ce%j))
-        ce%node => ce%tiles(ce%i,ce%j)%head%next
+        call check_tile_list_inited(ce%tiles(ce%l))
+        ce%node => ce%tiles(ce%l)%head%next
      enddo
   endif
 end function next_elmt
@@ -837,26 +827,24 @@ function prev_elmt(pos0) result(ce)
   type(land_tile_enum_type) :: ce ! return value
   type(land_tile_enum_type), intent(in) :: pos0
 
-  integer :: is,ie,js,je
+  integer :: ls
 
   ce = pos0
   ce%node => ce%node%prev ; ce%k = ce%k - 1
   if(associated(ce%tiles)) then
-     is = lbound(ce%tiles,1); ie = ubound(ce%tiles,1)
-     js = lbound(ce%tiles,2); je = ubound(ce%tiles,2)
+     ls = lbound(ce%tiles,1)
      do while(.not.associated(ce%node%data))
         ce%k = 1; ! reset tile index
-        if(ce%i>is)then
-           ce%i = ce%i - 1
-        else if(ce%j>js) then
-           ce%i = ie
-           ce%j = ce%j - 1
+        if(ce%l>ls)then
+           ce%l = ce%l - 1
+           ce%i = lnd_ug%i_index(ce%l+lnd_ug%ls-1)
+           ce%j = lnd_ug%j_index(ce%l+lnd_ug%ls-1)
         else
            return
         endif
-        call check_tile_list_inited(ce%tiles(ce%i,ce%j))
-        ce%node => ce%tiles(ce%i,ce%j)%head%prev
-        ce%k    =  nitems(ce%tiles(ce%i,ce%j))
+        call check_tile_list_inited(ce%tiles(ce%l))
+        ce%node => ce%tiles(ce%l)%head%prev
+        ce%k    =  nitems(ce%tiles(ce%l))
      enddo
   endif
 
@@ -898,13 +886,14 @@ end function current_tile
 ! returns indices corresponding to the enumerator; for enumerator associated
 ! with a single tile list (not with 2D array of lists) returned i and j are
 ! equal to 1
-subroutine get_elmt_indices(ce,i,j,k)
+subroutine get_elmt_indices(ce,i,j,k,l)
   type(land_tile_enum_type), intent(in) :: ce
-  integer, intent(out), optional :: i,j,k
+  integer, intent(out), optional :: i, j, l, k
 
-  if (present(i)) i = ce%i+ce%io
-  if (present(j)) j = ce%j+ce%jo
+  if (present(i)) i = lnd_ug%i_index(ce%l+lnd_ug%ls-1)
+  if (present(j)) j = lnd_ug%j_index(ce%l+lnd_ug%ls-1)
   if (present(k)) k = ce%k
+  if (present(l)) l = ce%l+ce%lo
 
 end subroutine get_elmt_indices
 
@@ -913,13 +902,13 @@ end subroutine get_elmt_indices
 ! attempts to advance enumerator to the next tile. If enumerator was already at
 ! the end of the tile list, returns FALSE; in this case pointer "tile" and
 ! indices i,j,k are not defined.
-function loop_over_tiles(ce, tile, i,j,k) result(R); logical R
+function loop_over_tiles(ce, tile, l, k) result(R); logical R
   type(land_tile_enum_type), intent(inout) :: ce
   type(land_tile_type)     , pointer, optional :: tile
-  integer, intent(out), optional :: i,j,k ! indices of the tile
+  integer, intent(out), optional :: l,k ! indices of the tile
 
   if (present(tile)) tile=>current_tile(ce)
-  call get_elmt_indices(ce,i,j,k)
+  call get_elmt_indices(ce,l,k)
   ! advance enumerator to the next element
   ce = next_elmt(ce)
   R  = associated(tile)

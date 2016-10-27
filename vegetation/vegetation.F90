@@ -29,7 +29,7 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
 use land_tile_diag_mod, only : register_tiled_static_field, register_tiled_diag_field, &
      send_tile_data, diag_buff_type, OP_STD, OP_VAR, set_default_diag_filter, &
      cmor_name
-use land_data_mod, only : land_state_type, lnd, log_version
+use land_data_mod, only : land_state_type, lnd, log_version, lnd_ug
 use land_io_mod, only : read_field
 
 use land_tile_io_mod, only: land_restart_type, &
@@ -271,9 +271,9 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
   integer :: nmn_acm
   type(land_restart_type) :: restart1, restart2
   logical :: restart_1_exists, restart_2_exists
-  real, allocatable :: t_ann(:,:),t_cold(:,:),p_ann(:,:),ncm(:,:) ! buffers for biodata reading
+  real, allocatable :: t_ann(:),t_cold(:),p_ann(:),ncm(:) ! buffers for biodata reading
   logical :: did_read_biodata
-  integer :: i,j ! indices of current tile
+  integer :: i,j,l ! indices of current tile
 
   module_is_initialized = .TRUE.
 
@@ -386,14 +386,14 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
   ! read climatological fields for initialization of species distribution
   if (file_exist('INPUT/biodata.nc'))then
      allocate(&
-          t_ann (lnd%is:lnd%ie,lnd%js:lnd%je),&
-          t_cold(lnd%is:lnd%ie,lnd%js:lnd%je),&
-          p_ann (lnd%is:lnd%ie,lnd%js:lnd%je),&
-          ncm   (lnd%is:lnd%ie,lnd%js:lnd%je) )
-     call read_field( 'INPUT/biodata.nc','T_ANN', lnd%lon, lnd%lat, t_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','T_COLD',lnd%lon, lnd%lat, t_cold, interp='nearest')
-     call read_field( 'INPUT/biodata.nc','P_ANN', lnd%lon, lnd%lat, p_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','NCM',   lnd%lon, lnd%lat, ncm,    interp='nearest')
+          t_ann (lnd_ug%ls:lnd_ug%le),&
+          t_cold(lnd_ug%ls:lnd_ug%le),&
+          p_ann (lnd_ug%ls:lnd_ug%le),&
+          ncm   (lnd_ug%ls:lnd_ug%le) )
+     call read_field( 'INPUT/biodata.nc','T_ANN', lnd_ug%lon, lnd_ug%lat, t_ann,  interp='nearest')
+     call read_field( 'INPUT/biodata.nc','T_COLD',lnd_ug%lon, lnd_ug%lat, t_cold, interp='nearest')
+     call read_field( 'INPUT/biodata.nc','P_ANN', lnd_ug%lon, lnd_ug%lat, p_ann,  interp='nearest')
+     call read_field( 'INPUT/biodata.nc','NCM',   lnd_ug%lon, lnd_ug%lat, ncm,    interp='nearest')
      did_read_biodata = .TRUE.
      call error_mesg('vegn_init','did read INPUT/biodata.nc',NOTE)
   else
@@ -404,10 +404,10 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
   ! this allows to read partial restarts. Also initialize accumulation counters to zero
   ! or the values from the restarts.
   te = tail_elmt(land_tile_map)
-  ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js)
+  ce = first_elmt(land_tile_map, ls=lnd_ug%ls)
   do while(ce /= te)
      tile=>current_tile(ce)  ! get pointer to current tile
-     call get_elmt_indices(ce,i,j)
+     call get_elmt_indices(ce,l=l)
      ce=next_elmt(ce)       ! advance position to the next tile
      if (.not.associated(tile%vegn)) cycle
 
@@ -435,12 +435,12 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      cohort%status  = LEAF_ON
      cohort%leaf_age = 0.0
      if(did_read_biodata.and.do_biogeography) then
-        call update_species(cohort,t_ann(i,j),t_cold(i,j),p_ann(i,j),ncm(i,j),LU_NTRL)
+        call update_species(cohort,t_ann(l),t_cold(l),p_ann(l),ncm(l),LU_NTRL)
         if (.not.biodata_bug) then
-           tile%vegn%t_ann  = t_ann (i,j)
-           tile%vegn%t_cold = t_cold(i,j)
-           tile%vegn%p_ann  = p_ann (i,j)
-           tile%vegn%ncm    = ncm   (i,j)
+           tile%vegn%t_ann  = t_ann (l)
+           tile%vegn%t_cold = t_cold(l)
+           tile%vegn%p_ann  = p_ann (l)
+           tile%vegn%ncm    = ncm   (l)
         endif
      else
         cohort%species = tile%vegn%tag
@@ -461,7 +461,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
   call vegn_diag_init ( id_lon, id_lat, id_band, lnd%time )
 
   ! ---- diagnostic section
-  ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js)
+  ce = first_elmt(land_tile_map, ls=lnd_ug%ls)
   te  = tail_elmt(land_tile_map)
   do while(ce /= te)
      tile => current_tile(ce)
@@ -1347,7 +1347,7 @@ subroutine update_vegn_slow( )
   integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
   type(land_tile_enum_type) :: ce, te
   type(land_tile_type), pointer :: tile
-  integer :: i,j,k ! current point indices
+  integer :: i,j,k,l ! current point indices
   integer :: ii ! pool iterator
   integer :: n ! number of cohorts
   real    :: weight_ncm ! low-pass filter value for the number of cold months
@@ -1368,9 +1368,9 @@ subroutine update_vegn_slow( )
      call error_mesg('update_vegn_slow',trim(timestamp),NOTE)
   endif
 
-  ce = first_elmt(land_tile_map, lnd%is, lnd%js) ; te = tail_elmt(land_tile_map)
+  ce = first_elmt(land_tile_map, lnd_ug%ls) ; te = tail_elmt(land_tile_map)
   do while ( ce /= te )
-     call get_elmt_indices(ce,i,j,k) ; call set_current_point(i,j,k) ! this is for debug output only
+     call get_elmt_indices(ce,i,j,k,l) ; call set_current_point(i,j,k,l) ! this is for debug output only
      tile => current_tile(ce) ; ce=next_elmt(ce)
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
 
@@ -1629,7 +1629,7 @@ subroutine vegn_seed_transport()
   real :: f_supply ! fraction of the supply that gets spent
   real :: f_demand ! fraction of the demand that gets satisfied
 
-  ce = first_elmt(land_tile_map, lnd%is, lnd%js) ; te = tail_elmt(land_tile_map)
+  ce = first_elmt(land_tile_map, lnd_ug%ls) ; te = tail_elmt(land_tile_map)
   total_seed_supply = 0.0; total_seed_demand = 0.0
   do while ( ce /= te )
      call get_elmt_indices(ce,i,j)

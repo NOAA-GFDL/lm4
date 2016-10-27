@@ -52,7 +52,7 @@ use land_tile_diag_mod, only : diag_buff_type, &
      send_tile_data_i0d_fptr, &
      add_tiled_diag_field_alias, add_tiled_static_field_alias, &
      set_default_diag_filter, cmor_name, cmor_mrsos_depth
-use land_data_mod, only : land_state_type, lnd, log_version
+use land_data_mod, only : land_state_type, lnd, log_version, lnd_ug
 use land_io_mod, only : read_field
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
@@ -364,16 +364,16 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
   type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
   type(land_tile_type), pointer :: tile   ! pointer to current tile
   ! input data buffers for respective variables:
-  real, allocatable :: gw_param(:,:), gw_param2(:,:), gw_param3(:,:), albedo(:,:,:)
-  real, allocatable :: f_iso(:,:,:), f_vol(:,:,:), f_geo(:,:,:), refl_dif(:,:,:)
+  real, allocatable :: gw_param(:), gw_param2(:), gw_param3(:), albedo(:,:)
+  real, allocatable :: f_iso(:,:), f_vol(:,:), f_geo(:,:), refl_dif(:,:)
 
   real :: local_wt_depth ! [m] water table depth for tile (+ for below surface)
-  real, allocatable :: ref_soil_t(:,:) ! reference soil temperature (based on 5 m or surface air temperature)
+  real, allocatable :: ref_soil_t(:) ! reference soil temperature (based on 5 m or surface air temperature)
                                        ! for cold-start initialization
-  real, allocatable :: wetmask(:,:)    ! input mask for zones with high water table
+  real, allocatable :: wetmask(:)    ! input mask for zones with high water table
   logical :: drypoint                  ! This point is predicted to have a falling water table.
 
-  integer :: i, li, lj, k ! indices
+  integer :: i, li, lj, k, ll ! indices
   real :: psi(num_l), mwc(num_l)
 
   type(land_restart_type) :: restart, restart1
@@ -397,19 +397,19 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
   if (.not.use_single_geo) then
      select case (gw_option)
      case (GW_LINEAR,GW_LM2)
-        allocate(gw_param(lnd%is:lnd%ie,lnd%js:lnd%je))
-        call read_field( 'INPUT/groundwater_residence.nc','tau', lnd%lon, lnd%lat, &
+        allocate(gw_param(lnd_ug%ls:lnd_ug%le))
+        call read_field( 'INPUT/groundwater_residence.nc','tau', lnd_ug%lon, lnd_ug%lat, &
              gw_param, interp='bilinear' )
         call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_tau_groundwater_ptr )
         deallocate(gw_param)
      case (GW_HILL, GW_HILL_AR5)
-        allocate(gw_param (lnd%is:lnd%ie,lnd%js:lnd%je))
-        allocate(gw_param2(lnd%is:lnd%ie,lnd%js:lnd%je))
-        allocate(gw_param3(lnd%is:lnd%ie,lnd%js:lnd%je))
-        call read_field( 'INPUT/geohydrology.nc','hillslope_length',  lnd%lon, lnd%lat, &
+        allocate(gw_param (lnd_ug%ls:lnd_ug%le))
+        allocate(gw_param2(lnd_ug%ls:lnd_ug%le))
+        allocate(gw_param3(lnd_ug%ls:lnd_ug%le))
+        call read_field( 'INPUT/geohydrology.nc','hillslope_length',  lnd_ug%lon, lnd_ug%lat, &
           gw_param, interp='bilinear' )
         call put_to_tiles_r0d_fptr( gw_param*gw_scale_length, land_tile_map, soil_hillslope_length_ptr )
-        call read_field( 'INPUT/geohydrology.nc','slope', lnd%lon, lnd%lat, &
+        call read_field( 'INPUT/geohydrology.nc','slope', lnd_ug%lon, lnd_ug%lat, &
           gw_param2, interp='bilinear' )
         gw_param = gw_param*gw_param2
         call put_to_tiles_r0d_fptr( gw_param*gw_scale_relief, land_tile_map, soil_hillslope_relief_ptr )
@@ -425,17 +425,17 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
             call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_zeta_bar_ptr )
         else
             call read_field( 'INPUT/geohydrology.nc','hillslope_a', &
-              lnd%lon, lnd%lat, gw_param, interp='bilinear' )
+              lnd_ug%lon, lnd_ug%lat, gw_param, interp='bilinear' )
             call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_a_ptr )
             call read_field( 'INPUT/geohydrology.nc','hillslope_n', &
-              lnd%lon, lnd%lat, gw_param2, interp='bilinear' )
+              lnd_ug%lon, lnd_ug%lat, gw_param2, interp='bilinear' )
             call put_to_tiles_r0d_fptr( gw_param2, land_tile_map, soil_hillslope_n_ptr )
             gw_param3 = (1./(gw_param2+1.)+gw_param/(gw_param2+2.))/(1.+gw_param/2.)
             call put_to_tiles_r0d_fptr( gw_param3, land_tile_map, soil_hillslope_zeta_bar_ptr )
         endif
 
         call read_field( 'INPUT/geohydrology.nc','soil_e_depth', &
-          lnd%lon, lnd%lat, gw_param, interp='bilinear' )
+          lnd_ug%lon, lnd_ug%lat, gw_param, interp='bilinear' )
         if (slope_exp.gt.0.01) then
             call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth*(0.08/gw_param2)**slope_exp, &
                                                   land_tile_map, soil_soil_e_depth_ptr )
@@ -443,7 +443,7 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
             call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth, land_tile_map, soil_soil_e_depth_ptr )
         endif
         if (gw_option /= GW_HILL_AR5) then
-            call read_field( 'INPUT/geohydrology.nc','perm', lnd%lon, lnd%lat, &
+            call read_field( 'INPUT/geohydrology.nc','perm', lnd_ug%lon, lnd_ug%lat, &
                  gw_param, interp='bilinear' )
             call put_to_tiles_r0d_fptr(9.8e9*gw_scale_perm*gw_param, land_tile_map, &
                                             soil_k_sat_gw_ptr )
@@ -464,21 +464,21 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
         enddo
      case (GW_TILED)
         if (use_geohydrodata) then
-           allocate(gw_param (lnd%is:lnd%ie,lnd%js:lnd%je))
-           allocate(gw_param2(lnd%is:lnd%ie,lnd%js:lnd%je))
-           call read_field( 'INPUT/geohydrology.nc','hillslope_length',  lnd%lon, lnd%lat, &
+           allocate(gw_param (lnd_ug%ls:lnd_ug%le))
+           allocate(gw_param2(lnd_ug%ls:lnd_ug%le))
+           call read_field( 'INPUT/geohydrology.nc','hillslope_length',  lnd_ug%lon, lnd_ug%lat, &
              gw_param, interp='bilinear' )
            call put_to_tiles_r0d_fptr( gw_param*gw_scale_length, land_tile_map, soil_hillslope_length_ptr )
-           call read_field( 'INPUT/geohydrology.nc','slope', lnd%lon, lnd%lat, &
+           call read_field( 'INPUT/geohydrology.nc','slope', lnd_ug%lon, lnd_ug%lat, &
              gw_param2, interp='bilinear' )
            gw_param = gw_param*gw_param2
            call put_to_tiles_r0d_fptr( gw_param*gw_scale_relief, land_tile_map, soil_hillslope_relief_ptr )
            call read_field( 'INPUT/geohydrology.nc','hillslope_zeta_bar', &
-             lnd%lon, lnd%lat, gw_param, interp='bilinear' )
+             lnd_ug%lon, lnd_ug%lat, gw_param, interp='bilinear' )
            if (zeta_bar_override.gt.0.) gw_param=zeta_bar_override
            call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_zeta_bar_ptr )
            call read_field( 'INPUT/geohydrology.nc','soil_e_depth', &
-             lnd%lon, lnd%lat, gw_param, interp='bilinear' )
+             lnd_ug%lon, lnd_ug%lat, gw_param, interp='bilinear' )
 
            if (slope_exp.gt.0.01) then
            ! ZMS It's probably inconsistent to leave in this if statement.
@@ -489,7 +489,7 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
            else
                call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth, land_tile_map, soil_soil_e_depth_ptr )
            endif
-           call read_field( 'INPUT/geohydrology.nc','perm', lnd%lon, lnd%lat, &
+           call read_field( 'INPUT/geohydrology.nc','perm', lnd_ug%lon, lnd_ug%lat, &
                   gw_param, interp='bilinear' )
            call put_to_tiles_r0d_fptr(9.8e9*gw_scale_perm*gw_param, land_tile_map, &
                                           soil_k_sat_gw_ptr )
@@ -518,11 +518,11 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
 
   ! -------- set dry soil albedo values, if requested
   if (trim(albedo_to_use)=='albedo-map') then
-     allocate(albedo(lnd%is:lnd%ie,lnd%js:lnd%je,NBANDS))
+     allocate(albedo(lnd_ug%ls:lnd_ug%le,NBANDS))
      call read_field( 'INPUT/soil_albedo.nc','SOIL_ALBEDO_VIS',&
-          lnd%lon, lnd%lat, albedo(:,:,BAND_VIS),'bilinear')
+          lnd_ug%lon, lnd_ug%lat, albedo(:,BAND_VIS),'bilinear')
      call read_field( 'INPUT/soil_albedo.nc','SOIL_ALBEDO_NIR',&
-          lnd%lon, lnd%lat, albedo(:,:,BAND_NIR),'bilinear')
+          lnd_ug%lon, lnd_ug%lat, albedo(:,BAND_NIR),'bilinear')
      call put_to_tiles_r1d_fptr( albedo, land_tile_map, soil_refl_dry_dir_ptr )
      call put_to_tiles_r1d_fptr( albedo, land_tile_map, soil_refl_dry_dif_ptr )
      ! for now, put the same value into the saturated soil albedo, so that
@@ -532,22 +532,22 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
      deallocate(albedo)
   else if (trim(albedo_to_use)=='brdf-maps') then
      use_brdf = .true.
-     allocate(   f_iso(lnd%is:lnd%ie,lnd%js:lnd%je,NBANDS))
-     allocate(   f_vol(lnd%is:lnd%ie,lnd%js:lnd%je,NBANDS))
-     allocate(   f_geo(lnd%is:lnd%ie,lnd%js:lnd%je,NBANDS))
-     allocate(refl_dif(lnd%is:lnd%ie,lnd%js:lnd%je,NBANDS))
+     allocate(   f_iso(lnd_ug%ls:lnd_ug%le,NBANDS))
+     allocate(   f_vol(lnd_ug%ls:lnd_ug%le,NBANDS))
+     allocate(   f_geo(lnd_ug%ls:lnd_ug%le,NBANDS))
+     allocate(refl_dif(lnd_ug%ls:lnd_ug%le,NBANDS))
      call read_field( 'INPUT/soil_brdf.nc','f_iso_vis',&
-          lnd%lon, lnd%lat, f_iso(:,:,BAND_VIS),'bilinear')
+          lnd_ug%lon, lnd_ug%lat, f_iso(:,BAND_VIS),'bilinear')
      call read_field( 'INPUT/soil_brdf.nc','f_vol_vis',&
-          lnd%lon, lnd%lat, f_vol(:,:,BAND_VIS),'bilinear')
+          lnd_ug%lon, lnd_ug%lat, f_vol(:,BAND_VIS),'bilinear')
      call read_field( 'INPUT/soil_brdf.nc','f_geo_vis',&
-          lnd%lon, lnd%lat, f_geo(:,:,BAND_VIS),'bilinear')
+          lnd_ug%lon, lnd_ug%lat, f_geo(:,BAND_VIS),'bilinear')
      call read_field( 'INPUT/soil_brdf.nc','f_iso_nir',&
-          lnd%lon, lnd%lat, f_iso(:,:,BAND_NIR),'bilinear')
+          lnd_ug%lon, lnd_ug%lat, f_iso(:,BAND_NIR),'bilinear')
      call read_field( 'INPUT/soil_brdf.nc','f_vol_nir',&
-          lnd%lon, lnd%lat, f_vol(:,:,BAND_NIR),'bilinear')
+          lnd_ug%lon, lnd_ug%lat, f_vol(:,BAND_NIR),'bilinear')
      call read_field( 'INPUT/soil_brdf.nc','f_geo_nir',&
-          lnd%lon, lnd%lat, f_geo(:,:,BAND_NIR),'bilinear')
+          lnd_ug%lon, lnd_ug%lat, f_geo(:,BAND_NIR),'bilinear')
      refl_dif = g_iso*f_iso + g_vol*f_vol + g_geo*f_geo
      call put_to_tiles_r1d_fptr( f_iso,    land_tile_map, soil_f_iso_dry_ptr )
      call put_to_tiles_r1d_fptr( f_vol,    land_tile_map, soil_f_vol_dry_ptr )
@@ -575,24 +575,24 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
   end if
 
   if (use_coldstart_wtt_data) then
-     allocate(ref_soil_t(lnd%is:lnd%ie,lnd%js:lnd%je), wetmask(lnd%is:lnd%ie,lnd%js:lnd%je))
+     allocate(ref_soil_t(lnd_ug%ls:lnd_ug%le), wetmask(lnd_ug%ls:lnd_ug%le))
      call read_field( coldstart_datafile, 'REFSOILT', &
-             lnd%lon, lnd%lat, ref_soil_t, interp='bilinear' )
+             lnd_ug%lon, lnd_ug%lat, ref_soil_t, interp='bilinear' )
      call read_field( coldstart_datafile, 'WETMASK', &
-             lnd%lon, lnd%lat, wetmask, interp='bilinear' )
+             lnd_ug%lon, lnd_ug%lat, wetmask, interp='bilinear' )
   end if
 
   ! -------- initialize soil state --------
   te = tail_elmt (land_tile_map)
-  ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js) ! Use global indices here because element indices
-                                                      ! needed.
+  ce = first_elmt(land_tile_map, ls=lnd_ug%ls) ! Use global indices here because element indices
+                                            ! needed.
   do while(ce /= te)
      tile=>current_tile(ce)  ! get pointer to current tile
      ce=next_elmt(ce)        ! advance position to the next tile
      if (.not.associated(tile%soil)) cycle
      ! Retrieve indices
-     call get_elmt_indices(prev_elmt(ce),i=li,j=lj,k=k)
-     call set_current_point(li,lj,k)
+     call get_elmt_indices(prev_elmt(ce),i=li,j=lj,k=k,l=ll)
+     call set_current_point(li,lj,k,ll)
      if (init_wtdep .gt. 0.) then
         if (.not. use_coldstart_wtt_data) then
            if (horiz_init_wt .and. gw_option == GW_TILED) then
@@ -604,7 +604,7 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
               psi = zfull(1:num_l) - init_wtdep
            end if
         else
-           if (wetmask(li, lj) > 0.5) then ! wet point
+           if (wetmask(ll) > 0.5) then ! wet point
               drypoint = .false.
            else
               drypoint = .true.
@@ -638,7 +638,7 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull)
         tile%soil%groundwater_T = init_temp
         tile%soil%uptake_T           = init_temp
      else
-        call init_soil_twc(tile%soil, ref_soil_t(li, lj), mwc)
+        call init_soil_twc(tile%soil, ref_soil_t(ll), mwc)
      end if
   end do
 
@@ -2028,6 +2028,7 @@ end subroutine soil_step_1
                               / ( hcap + (clw-csw)*subs_M_imp )
 
   ! ---- calculate actual uptake and update its T --------------------------
+  psi_x0 = 0
   select case(uptake_option)
   case ( UPTAKE_LINEAR )
      uptake_T_corr = 0

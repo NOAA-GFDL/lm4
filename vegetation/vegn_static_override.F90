@@ -27,7 +27,7 @@ use diag_manager_mod,   only : get_base_date
 use nf_utils_mod,       only : nfu_inq_dim, nfu_get_dim, nfu_def_dim, &
      nfu_inq_compressed_var, nfu_get_compressed_rec, nfu_validtype, &
      nfu_get_valid_range, nfu_is_valid, nfu_put_rec, nfu_put_att
-use land_data_mod,      only : lnd, log_version
+use land_data_mod,      only : lnd, log_version, lnd_ug
 use land_io_mod,        only : print_netcdf_error, new_land_io
 use land_numerics_mod,  only : nearest
 use land_tile_io_mod,   only : create_tile_out_file,sync_nc_files
@@ -66,7 +66,7 @@ type(restart_file_type) :: static_veg_file
 integer :: tile_dim_length ! length of tile dimension in output files. global max of number of tiles per gridcell
 type(time_type),allocatable :: time_line(:) ! time line of input data
 type(time_type)             :: ts,te        ! beginning and end of time interval
-integer, allocatable :: map_i(:,:), map_j(:,:)! remapping arrays: for each of the
+integer, allocatable :: map_i(:), map_j(:)! remapping arrays: for each of the
      ! land grid cells in current domain they hold indices of corresponding points
      ! in the input grid.
 type(time_type) :: base_time ! model base time for static vegetation output
@@ -164,7 +164,7 @@ subroutine static_vegn_init( )
                                          ! valid input data
   logical                    :: has_records ! true if input variable has records
   integer :: year, month, day, hour, minute, sec ! components of base date
-  integer :: m, n, siz(4), ndim, nvar, natt
+  integer :: m, n, siz(4), ndim, nvar, natt, l
   character(len=1024) :: actual_input_file, actual_input_file2
   logical :: input_is_multiface ! TRUE if the input files are face-specific
   logical :: found_file, read_dist, io_domain_exist
@@ -271,8 +271,8 @@ subroutine static_vegn_init( )
        in_lon = in_lon*PI/180.0 ; in_lat = in_lat*PI/180.0
 
        ! COMPUTE INDEX REMAPPING ARRAY
-       allocate(map_i(lnd%is:lnd%ie,lnd%js:lnd%je))
-       allocate(map_j(lnd%is:lnd%ie,lnd%js:lnd%je))
+       allocate(map_i(lnd_ug%ls:lnd_ug%le))
+       allocate(map_j(lnd_ug%ls:lnd_ug%le))
        map_i = -1
        map_j = -1
        if( .not. input_is_multiface ) then
@@ -386,8 +386,8 @@ subroutine static_vegn_init( )
        in_lon = in_lon*PI/180.0 ; in_lat = in_lat*PI/180.0
 
        ! COMPUTE INDEX REMAPPING ARRAY
-       allocate(map_i(lnd%is:lnd%ie,lnd%js:lnd%je))
-       allocate(map_j(lnd%is:lnd%ie,lnd%js:lnd%je))
+       allocate(map_i(lnd_ug%ls:lnd_ug%le))
+       allocate(map_j(lnd_ug%ls:lnd_ug%le))
        allocate(mask(size(in_lon),size(in_lat)))
 
        map_i = -1
@@ -423,17 +423,13 @@ subroutine static_vegn_init( )
                //'data isn''t the same as the size of the mosaic face', FATAL)
        endif
        ! in case of multi-face input, we don't do any remapping
-       do j = lnd%js,lnd%je
-       do i = lnd%is,lnd%ie
-          map_i(i,j) = i; map_j(i,j) = j
-       enddo
+       do l = lnd_ug%ls,lnd_ug%le
+          map_i(l) = lnd_ug%i_index(l); map_j(l) = lnd_ug%j_index(l)
        enddo
     else
        ! do the nearest-point remapping
-       do j = lnd%js,lnd%je
-       do i = lnd%is,lnd%ie
-          call nearest(mask,in_lon,in_lat,lnd%lon(i,j),lnd%lat(i,j),map_i(i,j),map_j(i,j))
-       enddo
+       do l = lnd_ug%ls,lnd_ug%le
+          call nearest(mask,in_lon,in_lat,lnd_ug%lon(l),lnd_ug%lat(l),map_i(l),map_j(l))
        enddo
     endif
     deallocate (in_lon,in_lat)
@@ -447,11 +443,9 @@ subroutine static_vegn_init( )
      ! count all land tiles and determine the length of tile dimension
      ! sufficient for the current domain
      tile_dim_length = 0
-     do j = lnd%js, lnd%je
-     do i = lnd%is, lnd%ie
-        k = nitems(land_tile_map(i,j))
+     do l = lnd_ug%ls, lnd_ug%le
+        k = nitems(land_tile_map(l))
         tile_dim_length = max(tile_dim_length,k)
-     enddo
      enddo
 
      ! [1.1] calculate the tile dimension length by taking the max across all domains

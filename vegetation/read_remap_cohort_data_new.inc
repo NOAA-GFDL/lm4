@@ -13,8 +13,8 @@
 ! ============================================================================
 subroutine READ_REMAP_SUB(Field, fptr, map_i, map_j, cidx, compressed_data)
   type(fieldtype), intent(in) :: Field
-  integer        , intent(in) :: map_i(lnd%is:,lnd%js:) ! re-mapping index
-  integer        , intent(in) :: map_j(lnd%is:,lnd%js:) ! re-mapping index
+  integer        , intent(in) :: map_i(lnd_ug%ls:) ! re-mapping index
+  integer        , intent(in) :: map_j(lnd_ug%ls:) ! re-mapping index
   integer        , intent(in) :: cidx(:)
   F90_TYPE       , intent(in) :: compressed_data(:)
 
@@ -31,7 +31,7 @@ subroutine READ_REMAP_SUB(Field, fptr, map_i, map_j, cidx, compressed_data)
   character(*), parameter :: module_name = "read_remap_cohort_data"
 
   ! ---- local vars
-  integer :: i,j,k,n,ii,jj,ndims, t, c, npos
+  integer :: i,j,k,n,ii,jj,ndims, t, c, npos, l
   type(land_tile_enum_type) :: ce, te
   type(land_tile_type)   , pointer :: tile
   type(vegn_cohort_type) , pointer :: cohort
@@ -94,14 +94,13 @@ subroutine READ_REMAP_SUB(Field, fptr, map_i, map_j, cidx, compressed_data)
   ! distribute data over cohorts. NOTE that this is slightly different from the restart
   ! reading procedure. On reading the restart, all the tiles are counted in sequence,
   ! while here only the vegetation tiles.
-  do j = lnd%js, lnd%je
-  do i = lnd%is, lnd%ie
-     ii = map_i(i,j); jj = map_j(i,j)
+  do l = lnd_ug%ls, lnd_ug%le
+     ii = map_i(l); jj = map_j(l)
      if ((ii.le.0).or.(jj.le.0)) cycle ! skip un-mapped points
      if (.not.any(mask(ii,jj,:,:))) cycle ! skip points where there is no data 
 
-     ce = first_elmt (land_tile_map(i,j))
-     te = tail_elmt  (land_tile_map(i,j))
+     ce = first_elmt (land_tile_map(l))
+     te = tail_elmt  (land_tile_map(l))
      k = 1
 tile_loop:  do while(ce/=te.and.k<=dimlens(2))
         tile=>current_tile(ce); ce=next_elmt(ce);
@@ -120,7 +119,6 @@ tile_loop:  do while(ce/=te.and.k<=dimlens(2))
         enddo
         k = k+1 ! go to the next tile in input data
      enddo tile_loop
-  enddo
   enddo
   
   ! free allocated memory

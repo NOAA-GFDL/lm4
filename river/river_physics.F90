@@ -233,7 +233,7 @@ contains
     ! do for all cells at current number of steps from river mouth
     do j = jsc, jec
       do i = isc, iec
-        call set_current_point(i,j,1) ! for debug output
+        call set_current_point(i,j,1,0) ! for debug output
         if (River%travel(i,j)==cur_travel.and.&
             ((.not.zero_frac_bug).or.(River%landfrac(i,j).gt.0))) then
             ! if zero_frac_bug is FALSE, the second line of condition is

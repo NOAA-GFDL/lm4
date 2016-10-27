@@ -1,6 +1,7 @@
 module land_tile_diag_mod
 
 use mpp_mod,            only : mpp_sum
+use mpp_domains_mod,    only : mpp_pass_ug_to_sg
 use time_manager_mod,   only : time_type
 use diag_axis_mod,      only : get_axis_length
 use diag_manager_mod,   only : register_diag_field, register_static_field, &
@@ -15,7 +16,7 @@ use land_tile_mod,      only : land_tile_type, diag_buff_type, &
      land_tile_list_type, first_elmt, tail_elmt, next_elmt, get_elmt_indices, &
      land_tile_enum_type, operator(/=), current_tile, &
      tile_is_selected, fptr_i0, fptr_r0, fptr_r0i
-use land_data_mod,      only : lnd, log_version
+use land_data_mod,      only : lnd, log_version, lnd_ug
 use tile_diag_buff_mod, only : diag_buff_type, realloc_diag_buff
 
 implicit none
@@ -680,7 +681,7 @@ end subroutine send_tile_data_1d
 ! ============================================================================
 subroutine send_tile_data_r0d_fptr(id, tile_map, fptr)
   integer, intent(in) :: id
-  type(land_tile_list_type), intent(inout) :: tile_map(:,:)
+  type(land_tile_list_type), intent(inout) :: tile_map(:)
   procedure(fptr_r0)  :: fptr
 
   type(land_tile_enum_type)     :: te,ce   ! tail and current tile list elements
@@ -702,7 +703,7 @@ end subroutine send_tile_data_r0d_fptr
 ! ============================================================================
 subroutine send_tile_data_r1d_fptr(id, tile_map, fptr)
   integer, intent(in) :: id
-  type(land_tile_list_type), intent(inout) :: tile_map(:,:)
+  type(land_tile_list_type), intent(inout) :: tile_map(:)
   procedure(fptr_r0i) :: fptr
 
   type(land_tile_enum_type)     :: te,ce   ! tail and current tile list elements
@@ -733,7 +734,7 @@ end subroutine send_tile_data_r1d_fptr
 ! ============================================================================
 subroutine send_tile_data_i0d_fptr(id, tile_map, fptr)
   integer, intent(in) :: id
-  type(land_tile_list_type), intent(inout) :: tile_map(:,:)
+  type(land_tile_list_type), intent(inout) :: tile_map(:)
   procedure(fptr_i0)  :: fptr
 
   type(land_tile_enum_type)     :: te,ce   ! tail and current tile list elements
@@ -754,7 +755,7 @@ end subroutine send_tile_data_i0d_fptr
 
 ! ============================================================================
 subroutine dump_tile_diag_fields(tiles, time)
-  type(land_tile_list_type), intent(in) :: tiles(:,:) !
+  type(land_tile_list_type), intent(in) :: tiles(:) !
   type(time_type)          , intent(in) :: time       ! current time
 
   ! ---- local vars
@@ -798,36 +799,42 @@ end subroutine dump_tile_diag_fields
 ! ============================================================================
 subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
   integer :: id
-  type(land_tile_list_type),   intent(in) :: tiles(:,:)
+  type(land_tile_list_type),   intent(in) :: tiles(:)
   type(tiled_diag_field_type), intent(in) :: field
   type(tile_selector_type)   , intent(in) :: sel
   type(time_type)            , intent(in) :: time ! current time
 
   ! ---- local vars
-  integer :: i,j ! iterators
+  integer :: l ! iterators
   integer :: is,ie,js,je,ks,ke ! array boundaries
+  integer :: ls, le
   logical :: used ! value returned from send_data (ignored)
-  real, allocatable :: buffer(:,:,:), weight(:,:,:), var(:,:,:)
-  logical, allocatable :: mask(:,:,:)
+  real, allocatable :: buffer(:,:), weight(:,:), var(:,:)
+  real, allocatable :: buffer_sg(:,:,:)
+  logical, allocatable :: mask(:,:), mask_sg(:,:,:)
   type(land_tile_enum_type)     :: ce, te
   type(land_tile_type), pointer :: tile
 
   ! calculate array boundaries
-  is = lbound(tiles,1); ie = ubound(tiles,1)
-  js = lbound(tiles,2); je = ubound(tiles,2)
+  ls = lbound(tiles,1); le = ubound(tiles,1)
+  is = lnd%is; ie = lnd%ie
+  js = lnd%js; je = lnd%je
   ks = field%offset   ; ke = field%offset + field%size - 1
 
   ! allocate and initialize temporary buffers
-  allocate(buffer(is:ie,js:je,ks:ke), weight(is:ie,js:je,ks:ke), mask(is:ie,js:je,ks:ke))
-  buffer(:,:,:) = 0.0
-  weight(:,:,:) = 0.0
+  allocate(buffer_sg(is:ie,js:je,ks:ke), mask_sg(is:ie,js:je,ks:ke))
+  allocate(buffer(ls:le,ks:ke), weight(ls:le,ks:ke), mask(ls:le,ks:ke))
+  buffer_sg(:,:,:) = 0.0
+  mask_sg(:,:,:) = .false.
+  weight(:,:) = 0.0
+  buffer(:,:) = 0.0
 
   ! accumulate data
-  ce = first_elmt(tiles, is=is, js=js)
+  ce = first_elmt(tiles)
   te = tail_elmt (tiles)
   do while(ce /= te)
     tile => current_tile(ce)      ! get the pointer to current tile
-    call get_elmt_indices(ce,i,j) ! get the indices of current tile
+    call get_elmt_indices(ce,l=l) ! get the indices of current tile
     ce = next_elmt(ce)           ! move to the next position
 
     if ( size(tile%diag%data) < ke )       cycle ! do nothing if there is no data in the buffer
@@ -835,14 +842,14 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
     select case (field%op)
     case (OP_AVERAGE,OP_VAR,OP_STD)
        where(tile%diag%mask(ks:ke))
-          buffer(i,j,:) = buffer(i,j,:) + tile%diag%data(ks:ke)*tile%frac
+          buffer(l,:) = buffer(l,:) + tile%diag%data(ks:ke)*tile%frac
        end where
-       weight(i,j,:) = weight(i,j,:) + tile%frac
+       weight(l,:) = weight(l,:) + tile%frac
     case (OP_SUM)
        where(tile%diag%mask(ks:ke))
-          buffer(i,j,:) = buffer(i,j,:) + tile%diag%data(ks:ke)
+          buffer(l,:) = buffer(l,:) + tile%diag%data(ks:ke)
        end where
-       weight(i,j,:) = 1
+       weight(l,:) = 1
     end select
   enddo
 
@@ -856,14 +863,13 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
      ! algorithm from http://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
      ! code her is more straightforward. buffer(:,:,:) already contains the mean,
      ! and weight(:,:,:) -- sum of  tile fractions
-     allocate(var(is:ie,js:je,ks:ke))
-     var(:,:,:) = 0.0
+     allocate(var(ls:le,ks:ke))
+     var(:,:) = 0.0
      ! the loop is somewhat different from the first, for no particular reason:
      ! perhaps this way is better for performance?
-     do j = js,je
-     do i = is,ie
-        ce = first_elmt(tiles(i,j))
-        te = tail_elmt (tiles(i,j))
+     do l = ls, le
+        ce = first_elmt(tiles(l))
+        te = tail_elmt (tiles(l))
         do while(ce /= te)
            tile => current_tile(ce) ! get the pointer to current tile
            ce = next_elmt(ce)       ! move to the next position
@@ -871,10 +877,9 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
            if ( size(tile%diag%data) < ke )       cycle ! do nothing if there is no data in the buffer
            if ( .not.tile_is_selected(tile,sel) ) cycle ! do nothing if tile is not selected
            where(tile%diag%mask(ks:ke))
-              var(i,j,:) = var(i,j,:) + tile%frac*(tile%diag%data(ks:ke)-buffer(i,j,:))**2
+              var(l,:) = var(l,:) + tile%frac*(tile%diag%data(ks:ke)-buffer(l,:))**2
            end where
         enddo
-     enddo
      enddo
      ! renormalize the variance or standard deviation. note that weight is
      ! calculated in the first loop
@@ -888,15 +893,19 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
   endif
 
   ! fill missing data, if necessary
+  call mpp_pass_UG_to_SG(lnd_ug%domain, buffer, buffer_sg)
+  call mpp_pass_UG_to_SG(lnd_ug%domain, mask, mask_sg)
+
   if (field%fill_missing) then
-     where (.not.mask) buffer = 0.0
-     mask = .TRUE.
+     where (.not.mask_sg) buffer_sg = 0.0
+     mask_sg = .TRUE.
   endif
   ! send diag field
-  used = send_data ( id, buffer, time, mask=mask )
+  used = send_data ( id, buffer_sg, time, mask=mask_sg )
 
   ! clean up temporary data
   deallocate(buffer,weight,mask)
+  deallocate(buffer_sg, mask_sg)
 
 end subroutine
 

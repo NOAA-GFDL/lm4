@@ -11,7 +11,7 @@ use mpp_mod, only: input_nml_file
 #else
 use fms_mod, only: open_namelist_file
 #endif
-
+use mpp_domains_mod, only : mpp_pass_ug_to_sg
 use mpp_io_mod, only : fieldtype, mpp_get_info, mpp_get_fields
 use mpp_io_mod, only : mpp_get_axes, mpp_get_axis_data, mpp_read, validtype, mpp_is_valid
 use mpp_io_mod, only : mpp_get_atts, MPP_RDONLY, MPP_NETCDF, MPP_MULTI, MPP_SINGLE, axistype
@@ -52,7 +52,7 @@ use land_tile_mod, only : land_tile_map, &
      get_tile_water, land_tile_carbon, land_tile_heat
 use land_tile_io_mod, only : print_netcdf_error
 
-use land_data_mod, only : land_data_type, lnd, log_version
+use land_data_mod, only : land_data_type, lnd, log_version, lnd_ug, send_data_ug
 use vegn_tile_mod, only : vegn_tile_type, vegn_tile_bwood
 use vegn_harvesting_mod, only : vegn_cut_forest
 
@@ -530,8 +530,9 @@ subroutine get_varset_data(ncid,varset,rec,frac)
    integer, intent(in) :: ncid
    type(var_set_type), intent(in) :: varset
    integer, intent(in) :: rec
-   real, intent(out) :: frac(:,:)
-
+   real, intent(out) :: frac(:)
+   
+   real :: frac_sg(lnd%is:lnd%ie,lnd%js:lnd%je)
    real :: buff0(nlon_in,nlat_in)
    real :: buff1(nlon_in,nlat_in)
    integer :: i
@@ -544,7 +545,8 @@ subroutine get_varset_data(ncid,varset,rec,frac)
         buff1 = buff1 + buff0
      endif
    enddo
-   call horiz_interp(interp,buff1*norm_in,frac)
+   call horiz_interp(interp,buff1*norm_in,frac_sg)
+   call mpp_pass_ug_to_sg(lnd_ug%domain, frac, frac_sg)
 end subroutine get_varset_data
 
 
@@ -570,9 +572,9 @@ subroutine land_transitions (time)
   type(time_type), intent(in) :: time
 
   ! ---- local vars.
-  integer :: i,j,k1,k2,i1,i2
-  real    :: frac(lnd%is:lnd%ie,lnd%js:lnd%je)
-  type(tran_type), pointer :: transitions(:,:,:)
+  integer :: i,j,k1,k2,i1,i2,l
+  real    :: frac(lnd_ug%ls:lnd_ug%le)
+  type(tran_type), pointer :: transitions(:,:)
   integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
   real    :: w
 
@@ -595,7 +597,7 @@ subroutine land_transitions (time)
   do k1 = 1,N_LU_TYPES
   do k2 = 1,N_LU_TYPES
      ! get transition rate for this specific transition
-     frac(:,:) = 0.0
+     frac(:) = 0.0
      if (time0==set_date(0001,01,01).and.state_ncid>0) then
         ! read initial transition from state file
         call time_interp(time, state_time_in, w, i1,i2)
@@ -610,17 +612,16 @@ subroutine land_transitions (time)
   enddo
 
   ! perform the transitions
-  do j = lnd%js,lnd%je
-  do i = lnd%is,lnd%ie
-     if(empty(land_tile_map(i,j))) cycle ! skip cells where there is no land
+  do l = lnd_ug%ls,lnd_ug%le
+     i = lnd_ug%i_index(l)
+     j = lnd_ug%j_index(l)
      ! set current point for debugging
-     call set_current_point(i,j,1)
+     call set_current_point(i,j,1,l)
      ! transition land area between different tile types
-     call land_transitions_0d(land_tile_map(i,j), &
-          transitions(i,j,:)%donor, &
-          transitions(i,j,:)%acceptor,&
-          transitions(i,j,:)%frac )
-  enddo
+     call land_transitions_0d(land_tile_map(l), &
+          transitions(l,:)%donor, &
+          transitions(l,:)%acceptor,&
+          transitions(l,:)%frac )
   enddo
 
   ! deallocate array of transitions
@@ -1125,52 +1126,50 @@ end function vegn_tran_priority
 ! ============================================================================
 
 subroutine add_to_transitions(frac, time0,time1,k1,k2,tran)
-  real, intent(in) :: frac(lnd%is:lnd%ie,lnd%js:lnd%je)
+  real, intent(in) :: frac(lnd_ug%ls:lnd_ug%le)
   type(time_type), intent(in) :: time0       ! time of previous calculation of
     ! transitions (the integral transitions will be calculated between time0
     ! and time)
   type(time_type), intent(in) :: time1       ! current time
   integer, intent(in) :: k1,k2               ! kinds of tiles
-  type(tran_type), pointer :: tran(:,:,:)    ! transition info
+  type(tran_type), pointer :: tran(:,:)    ! transition info
 
   ! ---- local vars
-  integer :: i,j,k,sec,days
-  type(tran_type), pointer :: ptr(:,:,:) => NULL()
+  integer :: i,j,k,sec,days, l
+  type(tran_type), pointer :: ptr(:,:) => NULL()
   real    :: part_of_year
   logical :: used
 
   ! allocate array of transitions, if necessary
-  if (.not.associated(tran)) allocate(tran(lnd%is:lnd%ie,lnd%js:lnd%je,1))
+  if (.not.associated(tran)) allocate(tran(lnd_ug%ls:lnd_ug%le,1))
 
-  do j = lnd%js,lnd%je
-  do i = lnd%is,lnd%ie
-     if(frac(i,j) == 0) cycle ! skip points where transition rate is zero
+  do l = lnd_ug%ls, lnd_ug%le
+     if(frac(l) == 0) cycle ! skip points where transition rate is zero
      ! find the first empty transition element for the current indices
      k = 1
-     do while ( k <= size(tran,3) )
-        if(tran(i,j,k)%donor == 0) exit
+     do while ( k <= size(tran,2) )
+        if(tran(l,k)%donor == 0) exit
         k = k+1
      enddo
 
-     if (k>size(tran,3)) then
+     if (k>size(tran,2)) then
         ! if there is no room, make the array of transitions larger
-        allocate(ptr(lnd%is:lnd%ie,lnd%js:lnd%je,size(tran,3)*2))
-        ptr(:,:,1:size(tran,3)) = tran
+        allocate(ptr(lnd_ug%ls:lnd_ug%le,size(tran,2)*2))
+        ptr(:,1:size(tran,2)) = tran
         deallocate(tran)
         tran => ptr
         nullify(ptr)
      end if
 
      ! store the transition element
-     tran(i,j,k) = tran_type(k1,k2,frac(i,j))
-  enddo
+     tran(l,k) = tran_type(k1,k2,frac(l))
   enddo
 
   ! send transition data to diagnostics
   if(diag_ids(k1,k2)>0) then
      call get_time(time1-time0, sec,days)
      part_of_year = (days+sec/86400.0)/days_in_year(time0)
-     used = send_data(diag_ids(k1,k2),frac/part_of_year,time1)
+     used = send_data_ug(diag_ids(k1,k2),frac/part_of_year,time1)
   endif
 
 end subroutine add_to_transitions
@@ -1182,7 +1181,7 @@ end subroutine add_to_transitions
 subroutine integral_transition(t1, t2, tran, frac, err_msg)
   type(time_type), intent(in)  :: t1,t2 ! time boundaries
   type(var_set_type), intent(in)  :: tran ! id of the field
-  real           , intent(out) :: frac(:,:)
+  real           , intent(out) :: frac(:)
   character(len=*),intent(out), optional :: err_msg
 
   ! ---- local vars
@@ -1191,8 +1190,8 @@ subroutine integral_transition(t1, t2, tran, frac, err_msg)
   integer         :: i1,i2
   real :: w  ! time interpolation weight
   real :: dt ! current time interval, in years
-  real :: sum(size(frac,1),size(frac,2))
-  integer :: i,j
+  real :: sum(size(frac(:)))
+  integer :: i,j,l
   character(len=256) :: msg
 
   msg = ''
@@ -1230,11 +1229,11 @@ subroutine integral_transition(t1, t2, tran, frac, err_msg)
   dt = (time_in(i2)-time_in(i1))//set_time(0,days_in_year((time_in(i2)+time_in(i1))/2))
   frac = sum+frac*w*dt
   ! check the transition rate validity
-  do i = 1,size(frac,1)
-  do j = 1,size(frac,2)
-     call set_current_point(i+lnd%is-1,j+lnd%js-1,1)
-     call check_var_range(frac(i,j),0.0,HUGE(1.0),'integral_transition',tran%name, FATAL)
-  enddo
+  do l = 1,size(frac(:))
+     i = lnd_ug%i_index(l+lnd_ug%ls-1)
+     j = lnd_ug%j_index(l+lnd_ug%ls-1)
+     call set_current_point(i,j,1,l+lnd_ug%ls-1)
+     call check_var_range(frac(l),0.0,HUGE(1.0),'integral_transition',tran%name, FATAL)
   enddo
 end subroutine integral_transition
 

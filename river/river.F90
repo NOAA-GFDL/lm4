@@ -52,6 +52,8 @@ module river_mod
   use mpp_mod,             only : mpp_clock_id, mpp_clock_begin, mpp_clock_end, MPP_CLOCK_DETAILED
   use mpp_domains_mod,     only : domain2d, mpp_get_compute_domain, mpp_get_global_domain
   use mpp_domains_mod,     only : mpp_get_data_domain, mpp_update_domains, mpp_get_ntile_count
+  use mpp_domains_mod,     only : domainUG, mpp_get_UG_compute_domain, mpp_pass_ug_to_sg
+  use mpp_domains_mod,     only : mpp_pass_sg_to_ug
   use fms_mod,             only : check_nml_error, string
   use fms_mod,             only : close_file, file_exist, field_size, read_data, write_data
   use fms_mod,             only : field_exist, CLOCK_FLAG_DEFAULT
@@ -68,7 +70,7 @@ module river_mod
   use land_tile_mod,       only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, get_elmt_indices, &
      operator(/=)
-  use land_data_mod,       only : land_data_type, land_state_type, lnd, log_version
+  use land_data_mod,       only : land_data_type, land_state_type, lnd, log_version, lnd_ug
   use lake_tile_mod,       only : num_l
   use field_manager_mod, only: fm_field_name_len, fm_string_len, &
      fm_type_name_len, fm_path_name_len, fm_dump_list, fm_get_length, &
@@ -130,6 +132,7 @@ character(len=*), parameter :: tagname = '$Name$'
   logical :: module_is_initialized = .FALSE.
   integer :: isc, iec, jsc, jec                         ! compute domain decomposition
   integer :: isd, ied, jsd, jed                         ! data domain decomposition
+  integer :: lsc, lec                                   ! unstructure domain decomposition
   integer :: nlon, nlat                                 ! size of computational river grid
   integer :: num_lake_lev
   integer :: id_outflowmean, id_lake_depth_sill
@@ -153,13 +156,16 @@ character(len=*), parameter :: tagname = '$Name$'
 
   real,  allocatable, dimension(:,:)   :: discharge2ocean_next   ! store discharge value
   real,  allocatable, dimension(:,:,:) :: discharge2ocean_next_c ! store discharge value
+  real,  allocatable, dimension(:)     :: discharge2ocean_next_ug   ! store discharge value on UG_domain
+  real,  allocatable, dimension(:,:)   :: discharge2ocean_next_c_ug ! store discharge value on UG_domain
   integer,          allocatable, dimension(:) :: id_infloc,  id_storage, id_stordis, id_inflow
   integer,          allocatable, dimension(:) :: id_run_stor
   integer,          allocatable, dimension(:) :: id_outflow, id_removal, id_dis
   integer,          allocatable, dimension(:) :: id_lake_outflow
   integer                       :: num_fast_calls
   integer                       :: slow_step = 0          ! record number of slow time step run.
-  type(domain2d),          save :: domain
+  type(domain2d),        pointer :: domain => NULL()
+  type(domainUG), pointer :: UG_domain => NULL()
   type(river_type) ,       save :: River
 
 !--- clock id variable
@@ -190,16 +196,17 @@ contains
 
 
 !#####################################################################
-  subroutine river_init( land_lon, land_lat, time, dt_fast, land_domain, &
+  subroutine river_init( land_lon, land_lat, time, dt_fast, land_domain, land_UG_domain, &
                          land_frac, id_lon, id_lat, id_area_land, river_land_mask )
     real,            intent(in) :: land_lon(:,:)     ! geographical longitude of cell center
     real,            intent(in) :: land_lat(:,:)     ! geographical latitude of cell center
     type(time_type), intent(in) :: time              ! current time
     type(time_type), intent(in) :: dt_fast           ! fast time step
-    type(domain2d),  intent(in) :: land_domain       ! land domain
-    real,            intent(in) :: land_frac(:,:)    ! land area fraction from land model
-    integer,         intent(in) :: id_lon, id_lat    ! IDs of diagnostic axes
-    integer,         intent(in) :: id_area_land      ! IDs of the and area diag field
+    type(domain2d),  intent(in), target :: land_domain       ! land domain
+    type(domainUG), intent(in), target :: land_UG_domain
+    real,            intent(in) :: land_frac(:,:)       ! land area fraction from land model on UG_domain
+    integer,         intent(in) :: id_lon, id_lat       ! IDs of diagnostic axes
+    integer,         intent(in) :: id_area_land         ! IDs of the and area diag field
     logical,         intent(out):: river_land_mask(:,:) ! land mask seen by rivers
 
     integer              :: unit, io_status, ierr, id_restart
@@ -270,26 +277,29 @@ contains
          'river_mod: river slow time step dt_slow should be multiple of land model fast time step dt_fast')
 
 !--- get the domain decompsition, river and land will be on the same grid and have the same domain decomposition.
-    domain = land_domain
+    domain => land_domain
+    UG_domain => land_UG_domain
     call mpp_get_global_domain (domain, xsize=River%nlon, ysize=River%nlat)
     call mpp_get_compute_domain(domain, isc, iec, jsc, jec)
     call mpp_get_data_domain   (domain, isd, ied, jsd, jed)
+    call mpp_get_UG_compute_domain(UG_domain, lsc, lec)
+    River%isc=isc; River%iec=iec; River%jsc=jsc; River%jec=jec
 
 !---- make sure the halo size is 1
     if( ied-iec .NE. 1 .OR. isc-isd .NE. 1 .OR. jed-jec .NE. 1 .OR. jsc-jsd .NE. 1 ) &
       call mpp_error(FATAL, "river_mod: halo size in four direction should all be 1")
 
     nxc = iec - isc + 1; nyc = jec - jsc + 1
-    !--- make sure land_lon, land_lat, land_frac is on the compute domain
+    !--- make sure land_lon, land_lat is on the compute domain
     if(size(land_lon,1) .NE. nxc .OR. size(land_lon,2) .NE. nyc ) call mpp_error(FATAL, &
         "river_mod: land_lon should be on the compute domain")
     if(size(land_lat,1) .NE. nxc .OR. size(land_lat,2) .NE. nyc ) call mpp_error(FATAL, &
         "river_mod: land_lat should be on the compute domain")
-    if(size(land_frac,1) .NE. nxc .OR. size(land_frac,2) .NE. nyc ) call mpp_error(FATAL, &
-        "river_mod: land_frac should be on the compute domain")
 
     allocate(discharge2ocean_next  (isc:iec,jsc:jec            ))
     allocate(discharge2ocean_next_c(isc:iec,jsc:jec,num_species))
+    allocate(discharge2ocean_next_ug  (lsc:lec            ))
+    allocate(discharge2ocean_next_c_ug(lsc:lec,num_species))
     allocate(id_infloc (0:num_species), id_storage(0:num_species))
     allocate(id_inflow (0:num_species), id_outflow(0:num_species))
     allocate(id_dis    (0:num_species), id_lake_outflow (0:num_species))
@@ -376,6 +386,9 @@ contains
                 ! call mpp_error(WARNING, 'river_init : "depth" is not present in '//trim(filename))
            endif
         endif
+        !--- pass the data to UG_domain
+        call mpp_pass_SG_to_UG(UG_domain, discharge2ocean_next, discharge2ocean_next_UG)
+        call mpp_pass_SG_to_UG(UG_domain, discharge2ocean_next_c, discharge2ocean_next_c_UG)
     else
         call mpp_error(NOTE, 'river_init : cold start, set data to 0')
         River%storage    = 0.0
@@ -551,10 +564,10 @@ end subroutine print_river_tracer_data
 !#####################################################################
   subroutine update_river ( runoff, runoff_c, discharge2ocean,  &
                                               discharge2ocean_c )
-    real, dimension(:,:),   intent(in)  :: runoff
-    real, dimension(:,:,:), intent(in)  :: runoff_c
-    real, dimension(:,:),   intent(out) :: discharge2ocean
-    real, dimension(:,:,:), intent(out) :: discharge2ocean_c
+    real, dimension(:),   intent(in)  :: runoff
+    real, dimension(:,:), intent(in)  :: runoff_c
+    real, dimension(:),   intent(out) :: discharge2ocean
+    real, dimension(:,:), intent(out) :: discharge2ocean_c
 
     integer, save :: n = 0  ! fast time step with each slow time step
 
@@ -565,37 +578,45 @@ end subroutine print_river_tracer_data
         return
     endif
 
-    discharge2ocean   = discharge2ocean_next
-    discharge2ocean_c(:,:,1:num_species) = discharge2ocean_next_c(:,:,1:num_species)
+    discharge2ocean   = discharge2ocean_next_ug
+
+    discharge2ocean_c(:,1:num_species) = discharge2ocean_next_c_ug(:,1:num_species)
     ! TODO: I don't think the size of the discarge is ever going to be larger than
     ! num_species
-    if (size(discharge2ocean_c,3) > num_species) &
-       discharge2ocean_c(:,:,num_species+1:size(discharge2ocean_c,3)) = 0.
+    if (size(discharge2ocean_c,2) > num_species) &
+       discharge2ocean_c(:,num_species+1:size(discharge2ocean_c,2)) = 0.
 ! deplete the discharge storage pools
-    River%stordis_c = River%stordis_c &
-         - River%dt_fast * discharge2ocean_c/DENS_H2O
+    River%stordis_c(:,:,1:num_species) = River%stordis_c(:,:,1:num_species) &
+         - River%dt_fast * discharge2ocean_next_c(:,:,1:num_species)/DENS_H2O
     River%stordis   = River%stordis   &
-         - River%dt_fast *(discharge2ocean + &
-                           discharge2ocean_c(:,:,1))/DENS_H2O
+         - River%dt_fast *(discharge2ocean_next + &
+                           discharge2ocean_next_c(:,:,1))/DENS_H2O
 
 !  increment time
     River%Time = increment_time(River%Time, River%dt_fast, 0)
     n = n + 1
 !--- accumulate runoff ---------------------
-    River%run_stor   = River%run_stor   + runoff
-    River%run_stor_c = River%run_stor_c + runoff_c
+    River%run_stor_ug   = River%run_stor_ug   + runoff
+    River%run_stor_c_ug = River%run_stor_c_ug + runoff_c
 
     if(n == num_fast_calls) then
         call mpp_clock_begin(slowclock)
-        call update_river_slow(River%run_stor(:,:)/real(num_fast_calls), &
+        River%run_stor = 0
+        River%run_stor_c = 0        
+        call mpp_pass_UG_to_SG(UG_domain, River%run_stor_ug, River%run_stor)
+        call mpp_pass_UG_to_SG(UG_domain, River%run_stor_c_ug, River%run_stor_c)
+        call update_river_slow(River%run_stor/real(num_fast_calls), &
              River%run_stor_c(:,:,:)/real(num_fast_calls) )
+        !--- update discharge2ocean_next, discharge2ocean_next_c to UG_domain
         call mpp_clock_end(slowclock)
         call mpp_clock_begin(bndslowclock)
         call update_river_bnd_slow
         call mpp_clock_end(bndslowclock)
+        call mpp_pass_SG_to_UG(UG_domain, discharge2ocean_next, discharge2ocean_next_ug)
+        call mpp_pass_SG_to_UG(UG_domain, discharge2ocean_next_c, discharge2ocean_next_c_ug)
         n = 0
-        River%run_stor = 0
-        River%run_stor_c = 0
+        River%run_stor_ug = 0
+        River%run_stor_c_ug = 0
     endif
 
     call mpp_clock_end(riverclock)
@@ -621,7 +642,19 @@ end subroutine print_river_tracer_data
                              rivr_HEAT           ! sensible heat content of rivers in cell
     real, dimension(isc:iec,jsc:jec,num_lake_lev) :: &
                              lake_T
-    integer                             :: travelnow, lev
+
+    real, dimension(lnd_ug%ls:lnd_ug%le) :: &
+                             lake_sfc_A_ug, lake_sfc_bot_ug, lake_conn_ug
+    real, dimension(lnd_ug%ls:lnd_ug%le,num_lake_lev) :: &
+                             lake_wl_ug, lake_ws_ug
+    real, dimension(lnd_ug%ls:lnd_ug%le) :: &
+                             lake_depth_sill_ug, lake_width_sill_ug, lake_backwater_ug, &
+                             lake_backwater_1_ug, &
+                             lake_whole_area_ug
+    real, dimension(lnd_ug%ls:lnd_ug%le,num_lake_lev) :: &
+                             lake_T_ug
+
+    integer                             :: travelnow, lev, l
     type(Leo_Mad_trios)   :: DHG_exp
     type(Leo_Mad_trios)   :: DHG_coef
     type(Leo_Mad_trios)   :: AAS_exp
@@ -667,34 +700,59 @@ end subroutine print_river_tracer_data
     lake_conn   = 0
     lake_backwater = 0
     lake_backwater_1 = 0
-    ce = first_elmt(land_tile_map, is=isc, js=jsc)
+    lake_sfc_A_ug  = 0
+    lake_sfc_bot_ug= 0
+    lake_T_ug  = 0
+    lake_wl_ug = 0
+    lake_ws_ug = 0
+    lake_depth_sill_ug  = 0
+    lake_width_sill_ug  = 0
+    lake_whole_area_ug  = 0
+    lake_conn_ug   = 0
+    lake_backwater_ug = 0
+    lake_backwater_1_ug = 0
+
+    ce = first_elmt(land_tile_map, ls=lnd_ug%ls)
     te = tail_elmt (land_tile_map)
     do while(ce /= te)
-       call get_elmt_indices(ce,i,j,k)
+       call get_elmt_indices(ce,i,j,k,l)
+
        tile=>current_tile(ce)  ! get pointer to current tile
        ce=next_elmt(ce)        ! advance position to the next tile
        if (.not.associated(tile%lake)) cycle
        if (lake_area_bug) then
-          lake_sfc_A (i,j) = tile%frac * lnd%cellarea(i,j)
+          lake_sfc_A_ug (l) = tile%frac * lnd_ug%cellarea(l)
        else
-          lake_sfc_A (i,j) = tile%frac * lnd%area(i,j)
+          lake_sfc_A_ug (l) = tile%frac * lnd_ug%area(l)
        endif
        do lev = 1, num_lake_lev
-         lake_T (i,j,lev)   = tile%lake%T(lev)
-         lake_wl(i,j,lev)   = tile%lake%wl(lev)
-         lake_ws(i,j,lev)   = tile%lake%ws(lev)
+         lake_T_ug (l,lev)   = tile%lake%T(lev)
+         lake_wl_ug(l,lev)   = tile%lake%wl(lev)
+         lake_ws_ug(l,lev)   = tile%lake%ws(lev)
        enddo
-       lake_sfc_bot(i,j) = (sum(tile%lake%wl(:)+tile%lake%ws(:)) &
+       lake_sfc_bot_ug(l) = (sum(tile%lake%wl(:)+tile%lake%ws(:)) &
                                -tile%lake%wl(1)-tile%lake%ws(1) ) &
                                     / DENS_H2O
-       lake_depth_sill(i,j)  = tile%lake%pars%depth_sill
-       lake_width_sill(i,j)  = tile%lake%pars%width_sill
-       lake_whole_area(i,j)  = tile%lake%pars%whole_area
-       lake_conn (i,j)       = tile%lake%pars%connected_to_next
-       lake_backwater(i,j)   = tile%lake%pars%backwater
-       lake_backwater_1(i,j) = tile%lake%pars%backwater_1
+       lake_depth_sill_ug(l)  = tile%lake%pars%depth_sill
+       lake_width_sill_ug(l)  = tile%lake%pars%width_sill
+       lake_whole_area_ug(l)  = tile%lake%pars%whole_area
+       lake_conn_ug (l)       = tile%lake%pars%connected_to_next
+       lake_backwater_ug(l)   = tile%lake%pars%backwater
+       lake_backwater_1_ug(l) = tile%lake%pars%backwater_1
     enddo
 
+!z1l: The following might be changed for performance issue. This might be a temporary solution.
+    call mpp_pass_UG_to_SG(lnd_ug%domain, lake_sfc_A_ug, lake_sfc_A)
+    call mpp_pass_UG_to_SG(lnd_ug%domain, lake_T_ug, lake_T)
+    call mpp_pass_UG_to_SG(lnd_ug%domain, lake_wl_ug, lake_wl)
+    call mpp_pass_UG_to_SG(lnd_ug%domain, lake_ws_ug, lake_ws)
+    call mpp_pass_UG_to_SG(lnd_ug%domain, lake_sfc_bot_ug, lake_sfc_bot)
+    call mpp_pass_UG_to_SG(lnd_ug%domain, lake_depth_sill_ug, lake_depth_sill)
+    call mpp_pass_UG_to_SG(lnd_ug%domain, lake_width_sill_ug, lake_width_sill)
+    call mpp_pass_UG_to_SG(lnd_ug%domain, lake_whole_area_ug, lake_whole_area)
+    call mpp_pass_UG_to_SG(lnd_ug%domain, lake_conn_ug, lake_conn)
+    call mpp_pass_UG_to_SG(lnd_ug%domain, lake_backwater_ug, lake_backwater)
+    call mpp_pass_UG_to_SG(lnd_ug%domain, lake_backwater_1_ug, lake_backwater_1)
     call mpp_update_domains (lake_sfc_A,  domain)
     call mpp_update_domains (lake_sfc_bot,domain)
     call mpp_update_domains (lake_wl, domain)
@@ -753,17 +811,22 @@ end subroutine print_river_tracer_data
 !***************************************************************
        call mpp_clock_end(physicsclock)
     enddo
-    ce = first_elmt(land_tile_map, is=isc, js=jsc)
+
+    call mpp_pass_SG_to_UG(lnd_ug%domain, lake_T, lake_T_ug)
+    call mpp_pass_SG_to_UG(lnd_ug%domain, lake_wl, lake_wl_ug)
+    call mpp_pass_SG_to_UG(lnd_ug%domain, lake_ws, lake_ws_ug)
+   
+    ce = first_elmt(land_tile_map, ls=lnd_ug%ls)
     te = tail_elmt (land_tile_map)
     do while(ce /= te)
-       call get_elmt_indices(ce,i,j,k)
+       call get_elmt_indices(ce,i,j,k,l)
        tile=>current_tile(ce)  ! get pointer to current tile
        ce=next_elmt(ce)        ! advance position to the next tile
        if (.not.associated(tile%lake)) cycle
        do lev = 1, num_lake_lev
-         tile%lake%T(lev)  = lake_T (i,j,lev)
-         tile%lake%wl(lev) = lake_wl(i,j,lev)
-         tile%lake%ws(lev) = lake_ws(i,j,lev)
+         tile%lake%T(lev)  = lake_T_ug (l,lev)
+         tile%lake%wl(lev) = lake_wl_ug(l,lev)
+         tile%lake%ws(lev) = lake_ws_ug(l,lev)
          enddo
        enddo
 
@@ -856,7 +919,7 @@ end subroutine print_river_tracer_data
 
 !--- release memory
     deallocate(discharge2ocean_next, discharge2ocean_next_c,&
-         River%run_stor, River%run_stor_c)
+         River%run_stor, River%run_stor_c, River%run_stor_ug, River%run_stor_c_ug)
 
     deallocate( River%lon, River%lat)
     deallocate(River%land_area ,     River%basinid        )
@@ -984,7 +1047,8 @@ end subroutine print_river_tracer_data
     allocate(River%lake_outflow(isc:iec, jsc:jec) )
     allocate(River%storage   (isc:iec, jsc:jec) )
     allocate(River%stordis   (isc:iec, jsc:jec) )
-    allocate(River%run_stor   (isc:iec, jsc:jec) )
+    allocate(River%run_stor  (isc:iec, jsc:jec) )
+    allocate(River%run_stor_ug(lsc:lec) )
     allocate(River%melt      (isc:iec, jsc:jec) )
     allocate(River%disw2o    (isc:iec, jsc:jec) )
     allocate(River%infloc    (isc:iec, jsc:jec))
@@ -997,6 +1061,7 @@ end subroutine print_river_tracer_data
     allocate(River%storage_c (isc:iec, jsc:jec, num_species) )
     allocate(River%stordis_c (isc:iec, jsc:jec, num_species) )
     allocate(River%run_stor_c (isc:iec, jsc:jec, num_species) )
+    allocate(River%run_stor_c_ug (lsc:lec, num_species) )
     allocate(River%outflow_c (isc:iec, jsc:jec, num_species) )
     allocate(River%lake_outflow_c (isc:iec, jsc:jec, num_species) )
     allocate(River%removal_c (isc:iec, jsc:jec, num_species) )
@@ -1028,8 +1093,10 @@ end subroutine print_river_tracer_data
     River%storage_c = 0.0
     River%stordis   = 0.0
     River%run_stor  = 0.0
+    River%run_stor_ug  = 0.0
     River%stordis_c = 0.0
     River%run_stor_c= 0.0
+    River%run_stor_c_ug = 0.0
     River%removal_c = 0.0
     River%depth     = 0.
     River%width     = 0.

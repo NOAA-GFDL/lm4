@@ -19,11 +19,11 @@ contains
 
 ! ============================================================================
 subroutine put_to_tiles_r0d_fptr(x2d, tile_map, fptr)
-  real, intent(in)                         :: x2d     (:,:)
-  type(land_tile_list_type), intent(inout) :: tile_map(:,:)
+  real, intent(in)                         :: x2d     (:)
+  type(land_tile_list_type), intent(inout) :: tile_map(:)
   procedure(fptr_r0)                       :: fptr ! subroutine returning the pointer to the data
 
-  integer :: i,j
+  integer :: l
   type(land_tile_enum_type)     :: te,ce   ! tail and current tile list elements
   type(land_tile_type), pointer :: tileptr ! pointer to tile
   real                , pointer :: ptr     ! pointer to the data element within a tile
@@ -31,10 +31,10 @@ subroutine put_to_tiles_r0d_fptr(x2d, tile_map, fptr)
   ce = first_elmt( tile_map )
   te = tail_elmt ( tile_map )
   do while(ce /= te)
-     call get_elmt_indices(ce,i,j)
+     call get_elmt_indices(ce,l=l)
      tileptr => current_tile(ce)
      call fptr(tileptr,ptr)
-     if (associated(ptr)) ptr=x2d(i,j)
+     if (associated(ptr)) ptr=x2d(l)
      ce=next_elmt(ce)
   enddo
 end subroutine
@@ -42,11 +42,11 @@ end subroutine
 
 ! ============================================================================
 subroutine put_to_tiles_r1d_fptr(x2d, tile_map, fptr)
-  real, intent(in)                         :: x2d     (:,:,:)
-  type(land_tile_list_type), intent(inout) :: tile_map(:,:)
+  real, intent(in)                         :: x2d     (:,:)
+  type(land_tile_list_type), intent(inout) :: tile_map(:)
   procedure(fptr_r0i)                      :: fptr ! subroutine returning the pointer to the data
 
-  integer :: i,j,k
+  integer :: l, k
   type(land_tile_enum_type)     :: te,ce   ! tail and current tile list elements
   type(land_tile_type), pointer :: tileptr ! pointer to tile
   real                , pointer :: ptr     ! pointer to the data element within a tile
@@ -54,11 +54,11 @@ subroutine put_to_tiles_r1d_fptr(x2d, tile_map, fptr)
   ce = first_elmt( tile_map )
   te = tail_elmt ( tile_map )
   do while(ce /= te)
-     call get_elmt_indices(ce,i,j)
+     call get_elmt_indices(ce,l=l)
      tileptr => current_tile(ce)
-     do k = 1, size(x2d,3)
+     do k = 1, size(x2d,2)
         call fptr(tileptr,k,ptr)
-        if (associated(ptr)) ptr=x2d(i,j,k)
+        if (associated(ptr)) ptr=x2d(l,k)
      enddo
      ce=next_elmt(ce)
   enddo

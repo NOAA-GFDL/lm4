@@ -231,10 +231,9 @@ end function laminar_conductance
 ! ============================================================================
 ! updates concentration of tracers in the canopy air, taking into account dry
 ! deposition and exchange with the atmosphere
-subroutine update_cana_tracers(tile, i, j, tr_flux, dfdtr, &
+subroutine update_cana_tracers(tile, tr_flux, dfdtr, &
      precip_l, precip_s, pressure, ustar, con_g, con_v, stomatal_cond )
   type(land_tile_type), intent(inout) :: tile
-  integer :: i,j ! grid cell indices (global)
   real, intent(in) :: tr_flux(:) ! fluxes of tracers
   real, intent(in) :: dfdtr  (:) ! derivatives of tracer fluxes w.r.t. concentrations
   real, intent(in) :: pressure   ! atmospheric pressure, N/m2
