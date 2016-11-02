@@ -521,10 +521,9 @@ subroutine land_model_init &
      call update_land_bc_fast (tile, l,k, land2cplr_ug, is_init=.true.)
   enddo
 
-  call pass_land2cplr_to_sg(land2cplr,land2cplr_ug)
-
   ! [8.4] update topographic roughness scaling
   call update_land_bc_slow( land2cplr_ug )
+  call pass_land2cplr_to_sg(land2cplr,land2cplr_ug)
 
   ! mask error checking
   do l=lnd_ug%ls,lnd_ug%le

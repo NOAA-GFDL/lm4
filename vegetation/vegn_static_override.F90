@@ -321,7 +321,7 @@ subroutine static_vegn_init( )
                      //'" does not exist', FATAL)
           else
              ! if there's more then one face, try opening face-specific input
-             call get_mosaic_tile_file(trim(input_file),actual_input_file,.FALSE.,lnd%domain)
+             call get_mosaic_tile_file(trim(input_file),actual_input_file,lnd_ug%domain)
              if (nf_open(actual_input_file,NF_NOWRITE,ncid)/=NF_NOERR) then
                 call error_mesg('static_vegn_init','Neither "'//trim(input_file)&
                      //'" nor "'//trim(actual_input_file)//'" files exist', FATAL)

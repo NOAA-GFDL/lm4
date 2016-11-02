@@ -770,7 +770,9 @@ subroutine dump_tile_diag_fields(tiles, time)
   total_n_sends(:) = fields(1:n_fields)%n_sends
   call mpp_sum(total_n_sends, n_fields, pelist=lnd%pelist)
 
-!$OMP parallel do schedule(dynamic) default(shared) private(ifld,isel)
+!z1l: The OMP will be un-commented out when send_data support unstructured grid
+!     and the call mpp_pass_UG_to_SG is removed from dump_diag_field_with_sel.
+!!!!!$OMP parallel do schedule(dynamic) default(shared) private(ifld,isel)
   do ifld = 1, n_fields
      if (total_n_sends(ifld) == 0) cycle ! no data to send
      do isel = 1, n_selectors
