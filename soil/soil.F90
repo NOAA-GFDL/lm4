@@ -2275,14 +2275,11 @@ end subroutine soil_step_1
   do l = 1, num_l
      if (soil%wl(l) .ge. 0.) cycle
      if (soil%wl(l) / (dens_h2o*dz(l)*soil%pars%vwc_sat) .ge. thetathresh) cycle
-     call get_current_point(ipt, jpt, kpt, fpt)
-     write(mesg,*) 'soil%wl(l) < 0! l,i,j,k,face:', l, ipt, jpt, kpt, fpt, '. degree of saturation = ', &
-          soil%wl(l) / (dens_h2o*dz(l)*soil%pars%vwc_sat), '. If ".not. allow_neg_wl", '// &
-          'model will abort.'
      if (.not. allow_neg_wl) then
-        call error_mesg(module_name, mesg, FATAL)
+        call check_var_range(soil%wl(l)/(dens_h2o*dz(l)*soil%pars%vwc_sat), 0.0, HUGE(1.0), 'soil_step_2', 'degree of saturation', FATAL)
      else
-        if (verbose) call error_mesg(module_name, mesg, WARNING)
+        if (verbose) &
+            call check_var_range(soil%wl(l)/(dens_h2o*dz(l)*soil%pars%vwc_sat), 0.0, HUGE(1.0), 'soil_step_2', 'degree of saturation', WARNING)
      end if
   end do
 
