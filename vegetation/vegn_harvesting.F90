@@ -46,7 +46,10 @@ integer, parameter :: DAILY = 1, ANNUAL = 2
 
 ! ---- namelist variables ----------------------------------------------------
 logical, public :: do_harvesting       = .TRUE.  ! if true, then harvesting of crops and pastures is done
-real :: grazing_intensity      = 0.25    ! fraction of biomass removed each time by grazing
+real :: grazing_intensity      = 0.25    ! fraction of leaf biomass removed by grazing annually.
+  ! NOTE that for daily grazing, grazing_intensity/365 fraction of leaf biomass is removed 
+  ! every day. E.g. if the desired intensity is 1% of leaves per day, set grazing_intensity 
+  ! to 3.65
 real :: grazing_residue        = 0.1     ! fraction of the grazed biomass transferred into soil pools
 character(16) :: grazing_frequency = 'annual' ! or 'daily'
 real :: min_lai_for_grazing    = 0.0     ! no grazing if LAI lower than this threshold
