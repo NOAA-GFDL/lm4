@@ -30,15 +30,17 @@ use constants_mod, only : radius, hlf, hlv, hls, tfreeze, pi, rdgas, rvgas, cp_a
      stefan
 use astronomy_mod, only : astronomy_init, diurnal_solar
 use tracer_manager_mod, only : NO_TRACER, get_tracer_index, get_tracer_names
+use sphum_mod, only : qscomp
 
-use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, mol_air, mol_C, mol_co2
+use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, d608, mol_air, mol_C, mol_co2
 use land_tracers_mod, only : land_tracers_init, land_tracers_end, ntcana, isphum, ico2
 use land_tracer_driver_mod, only: land_tracer_driver_init, land_tracer_driver_end, &
      update_cana_tracers
 use glacier_mod, only : read_glac_namelist, glac_init, glac_end, &
      glac_step_1, glac_step_2, save_glac_restart, glac_sfc_water
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, &
-     lake_sfc_water, lake_step_1, lake_step_2, save_lake_restart
+     lake_sfc_water, lake_step_1, lake_step_2, save_lake_restart, &
+     lake_rh_feedback, LAKE_RH_BETA
 use soil_mod, only : read_soil_namelist, soil_init, soil_end, &
      soil_sfc_water, soil_evap_limits, soil_step_1, soil_step_2, soil_step_3, save_soil_restart
 use soil_carbon_mod, only : read_soil_carbon_namelist, n_c_types
@@ -50,7 +52,7 @@ use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, vegn_get_cov
      update_vegn_slow, save_vegn_restart
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, cana_state,&
-     cana_step_1, cana_step_2, cana_roughness, &
+     cana_step_2, cana_roughness, &
      save_cana_restart
 use river_mod, only : river_init, river_end, update_river, river_stock_pe, &
      save_river_restart, river_tracers_init, num_river_tracers, river_tracer_index
@@ -1353,6 +1355,8 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
        flwv0,  DflwvDTg,  DflwvDTv,& ! linearization of net LW radiation to the canopy
        flwg0,  DflwgDTg,  DflwgDTv,& ! linearization of net LW radiation to the canopy
        vegn_drip_l, vegn_drip_s, & ! drip rate of water and snow, respectively, kg/(m2 s)
+       qsat,  DqsatDTg, & ! saturated specifuc humidity at the ground and its derivative w.r.t. temperature
+       rho, & ! density of canopy air
        vegn_lai
 
   ! increments of respective variables over time step, results of the implicit
@@ -1373,7 +1377,8 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
        vegn_fco2, & ! co2 flux from the vegetation, kg CO2/(m2 s)
        hlv_Tv, hlv_Tu, & ! latent heat of vaporization at vegn and uptake temperatures, respectively
        hls_Tv, &         ! latent heat of sublimation at vegn temperature
-       grnd_rh,        & ! relative humidity at ground surface
+       grnd_q,         & ! explicit specific humidity at ground surface
+       grnd_rh,        & ! explicit relative humidity at ground surface
        grnd_rh_psi,    & ! psi derivative of relative humidity at ground surface
        grnd_flux, &
        soil_beta, &
@@ -1551,9 +1556,28 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   vegn_fsw = SUM(RSv)
 
   grnd_T = land_grnd_T(tile)
-  call cana_step_1 (tile%cana, p_surf, con_g_h, con_g_v,   &
-       grnd_T, grnd_rh, grnd_rh_psi, &
-       Hg0,  DHgDTg, DHgDTc, Eg0, DEgDTg, DEgDqc, DEgDpsig)
+
+  ! + cana_step_1
+  rho      =  p_surf/(rdgas*tile%cana%T*(1+d608*tile%cana%tr(isphum)))
+  Hg0      =  rho*cp_air*con_g_h*(grnd_T - tile%cana%T)
+  DHgDTg   =  rho*cp_air*con_g_h
+  DHgDTc   = -rho*cp_air*con_g_h
+
+  if (associated(tile%lake).and.lake_rh_feedback == LAKE_RH_BETA) then
+     ! adjust the conductance so that the water vapor flux to the atmopshere is 
+     ! E = beta*rho*CD*|v|*(qsat - qatm), with beta=grnd_rh
+     grnd_rh  = min(grnd_rh, 1-1.0e-6) ! to protect from infinite conductance
+     con_g_v  = grnd_rh/(1-grnd_rh)*DEaDqc/rho
+     grnd_rh  = 1.0
+  endif
+  call check_temp_range(grnd_T,'update_land_model_fast_0d','grnd_T')
+  call qscomp(grnd_T, p_surf, qsat, DqsatDTg)
+  grnd_q   = grnd_rh * qsat
+  Eg0      =  rho*con_g_v*(grnd_q  - tile%cana%tr(isphum))
+  DEgDTg   =  rho*con_g_v*DqsatDTg*grnd_rh
+  DEgDqc   = -rho*con_g_v
+  DEgDpsig =  rho*con_g_v*qsat*grnd_rh_psi
+  ! - cana_step_1
 
 ! [X.X] using long-wave optical properties, calculate the explicit long-wave
 !       radiative balances and their derivatives w.r.t. temperatures

@@ -14,13 +14,13 @@ use fms_mod, only: open_namelist_file
 use fms_mod, only : error_mesg, FATAL, NOTE, file_exist, &
      close_file, check_nml_error, mpp_pe, mpp_root_pe, stdlog, string
 use fms_io_mod, only : set_domain, nullify_domain
-use constants_mod, only : rdgas, rvgas, cp_air, PI, VONKARM
+use constants_mod, only : VONKARM
 use sphum_mod, only : qscomp
 use field_manager_mod, only : parse, MODEL_ATMOS, MODEL_LAND
 use tracer_manager_mod, only : get_tracer_index, get_tracer_names, &
      query_method, NO_TRACER
 
-use land_constants_mod, only : mol_CO2, d608, mol_air
+use land_constants_mod, only : mol_CO2, mol_air
 use land_tracers_mod, only : ntcana, isphum, ico2
 use cana_tile_mod, only : cana_tile_type, &
      canopy_air_mass, canopy_air_mass_for_tracers, cpw
@@ -43,7 +43,6 @@ public :: save_cana_restart
 public :: cana_turbulence
 public :: cana_roughness
 public :: cana_state
-public :: cana_step_1
 public :: cana_step_2
 ! ==== end of public interfaces ==============================================
 
@@ -411,54 +410,6 @@ subroutine cana_state ( cana, cana_T, cana_q, cana_co2 )
   if (present(cana_q))   cana_q   = cana%tr(isphum)
   if (present(cana_co2)) cana_co2 = cana%tr(ico2)
 end subroutine
-
-! ============================================================================
-subroutine cana_step_1 ( cana,&
-     p_surf, con_g_h, con_g_v, grnd_T, grnd_rh, grnd_rh_psi, &
-     Hge,  DHgDTg, DHgDTc,    &
-     Ege,  DEgDTg, DEgDqc, DEgDpsig     )
-  type(cana_tile_type), intent(in) :: cana
-  real, intent(in) :: &
-     p_surf,  & ! surface pressure, Pa
-     con_g_h, & ! conductivity between ground and CAS for heat
-     con_g_v, & ! conductivity between ground and CAS for vapor
-     grnd_T,  & ! ground temperature, degK
-     grnd_rh, & ! ground relative humidity
-     grnd_rh_psi ! psi derivative of ground relative humidity
-  real, intent(out) ::   &
-     Hge,  DHgDTg, DHgDTc, & ! linearization of the sensible heat flux from ground
-     Ege,  DEgDTg, DEgDqc, DEgDpsig    ! linearization of evaporation from ground
-
-  ! ---- local vars
-  real :: rho, grnd_q, qsat, DqsatDTg
-
-  call check_temp_range(grnd_T,'cana_step_1','grnd_T')
-
-  call qscomp(grnd_T,p_surf,qsat,DqsatDTg)
-  grnd_q = grnd_rh * qsat
-
-  rho      =  p_surf/(rdgas*cana%T*(1+d608*cana%tr(isphum)))
-  Hge      =  rho*cp_air*con_g_h*(grnd_T - cana%T)
-  DHgDTg   =  rho*cp_air*con_g_h
-  DHgDTc   = -rho*cp_air*con_g_h
-  Ege      =  rho*con_g_v*(grnd_q  - cana%tr(isphum))
-  DEgDTg   =  rho*con_g_v*DqsatDTg*grnd_rh
-  DEgDqc   = -rho*con_g_v
-  DEgDpsig =  rho*con_g_v*qsat*grnd_rh_psi
-  if(is_watch_point())then
-     write(*,*)'#### cana_step_1 input ####'
-     __DEBUG1__(p_surf)
-     __DEBUG2__(con_g_h,con_g_v)
-     __DEBUG2__(grnd_T,grnd_rh)
-     write(*,*)'#### cana_step_1 internals ####'
-     __DEBUG4__(rho, grnd_q, qsat, DqsatDTg)
-     __DEBUG2__(cana%T,cana%tr(isphum))
-     write(*,*)'#### cana_step_1 output ####'
-     __DEBUG3__(Hge,  DHgDTg, DHgDTc)
-     __DEBUG4__(Ege,  DEgDTg, DEgDqc, DEgDpsig)
-  endif
-end subroutine cana_step_1
-
 
 ! ============================================================================
 subroutine cana_step_2 ( cana, delta_Tc, delta_qc )
