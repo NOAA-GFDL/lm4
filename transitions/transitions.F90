@@ -473,6 +473,11 @@ subroutine get_time_axis(ncid, time_in)
         time_in(i) = get_cal_time(time(i),timeunits,calendar)
      end do
   endif
+! for debugging calendar/time issues:
+!   do i = 1, size(time)
+!      call print_date(time_in(i),'Transition date:')
+!   enddo
+  
   deallocate(time)
 end subroutine get_time_axis
 
@@ -1253,7 +1258,7 @@ subroutine check_conservation(name, d1, d2, tolerance)
   if (conservation_opt == OPT_IGNORE) return ! do nothing
 
   severity = WARNING
-  if (overshoot_opt==OPT_STOP) severity = FATAL
+  if (conservation_opt == OPT_STOP) severity = FATAL
 
   if (abs(d1-d2)>tolerance) then
      call get_current_point(i=curr_i,j=curr_j,face=face)
