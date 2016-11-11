@@ -109,7 +109,7 @@ public :: &
     root_exudate_N_frac,& !x2z - ens: lets get rid of c2n?
     dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
     N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, N_limits_live_biomass, root_NH4_uptake_rate, root_NO3_uptake_rate,&
-    k_ammonium_root_uptake,k_nitrate_root_uptake,excess_stored_N_leakage_rate,&
+    k_ammonium_root_uptake,k_nitrate_root_uptake,excess_stored_N_leakage_rate,myc_growth_rate,myc_N_to_plant_rate,et_myc,&
     do_N_mining_strategy,do_N_scavenging_strategy,do_N_fixation_strategy
 
 
@@ -482,6 +482,9 @@ real :: root_NO3_uptake_rate = 0.1      ! kg/m3/year (assumes rhizosphere only, 
 real :: k_ammonium_root_uptake = 3e-2   ! Half-saturation for root NH4 uptake (kgN/m3)
 real :: k_nitrate_root_uptake = 3e-2    ! Half-saturation for root NO3 uptake (kgN/m3)
 real :: excess_stored_N_leakage_rate = 1.0 ! Leaking of excess cohort stored N back to soil (Fraction per year)
+real :: myc_growth_rate = 100.0        ! Rate at which mycorrhizae convert reservoir to biomass (Fraction per year)
+real :: myc_N_to_plant_rate = 100.0    ! Rate at which plants send N from reservoir to plant (Fraction per year)
+real :: et_myc = 0.7                   ! Fraction of mycorrhizal turnover NOT mineralized to CO2 and NH4
 
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
@@ -513,7 +516,7 @@ namelist /vegn_data_nml/ &
   leaf_retranslocation_frac, leaf_live_c2n,froot_live_c2n, froot_retranslocation_frac, wood_c2n, sapwood_c2n, root_exudate_N_frac,&
   dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
   N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, N_limits_live_biomass, root_NH4_uptake_rate, root_NO3_uptake_rate,&
-  k_nitrate_root_uptake,k_ammonium_root_uptake,excess_stored_N_leakage_rate,&
+  k_nitrate_root_uptake,k_ammonium_root_uptake,excess_stored_N_leakage_rate,myc_growth_rate,myc_N_to_plant_rate,et_myc,&
   do_N_mining_strategy,do_N_scavenging_strategy,do_N_fixation_strategy
 
 

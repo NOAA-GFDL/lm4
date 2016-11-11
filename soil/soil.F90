@@ -5531,10 +5531,11 @@ end subroutine add_root_litter
 ! ============================================================================
 ! Spread root exudate C through profile, using vertical root profile from vegn_uptake_profile
 ! Differs from add_root_litter -- C is distributed through existing cohorts, not deposited as new cohort
-subroutine add_root_exudates(soil,vegn,exudateC,exudateN)
+subroutine add_root_exudates(soil,vegn,exudateC,exudateN,ammonium)
     type(soil_tile_type), intent(inout)  :: soil
     type(vegn_tile_type), intent(in)     :: vegn
     real,intent(in) :: exudateC,exudateN
+    real,intent(in),optional :: ammonium
 
     real,dimension(num_l) :: uptake_frac_max, vegn_uptake_term
     integer :: nn
@@ -5559,6 +5560,7 @@ subroutine add_root_exudates(soil,vegn,exudateC,exudateN)
            call debug_pool(soil%soil_organic_matter(nn),'soil_organic_matter(nn) before')
         endif
         call add_C_N_to_rhizosphere(soil%soil_organic_matter(nn),(/exudateC*uptake_frac_max(nn),0.0,0.0/),(/exudateN*uptake_frac_max(nn),0.0,0.0/))
+        if(present(ammonium)) soil%soil_organic_matter(nn)%ammonium = soil%soil_organic_matter(nn)%ammonium+ammonium*uptake_frac_max(nn)
         soil%fsc_in(nn)=soil%fsc_in(nn)+exudateC*uptake_frac_max(nn)
         soil%fsn_in(nn)=soil%fsn_in(nn)+exudateN*uptake_frac_max(nn)
         if (is_watch_point()) then

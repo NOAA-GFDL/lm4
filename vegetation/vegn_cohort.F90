@@ -148,8 +148,13 @@ type :: vegn_cohort_type
   real :: N_fixer_biomass_C = 0.0
   real :: N_fixer_biomass_N = 0.0
 
-  ! Buffer pool for root exudation (so it's smoother than daily NPP fluctuations)
-  real :: root_exudate_buffer_C = 0.0
+  ! C and N reservoirs of symbiotic microbes (used for growth and transfers to plants)
+  real :: scav_myc_N_reservoir = 0.0
+  real :: scav_myc_C_reservoir = 0.0
+  real :: mine_myc_N_reservoir = 0.0
+  real :: mine_myc_C_reservoir = 0.0
+  real :: N_fixer_N_reservoir = 0.0
+  real :: N_fixer_C_reservoir = 0.0
 
   ! Nitrogen vegetation pools
   real :: stored_N = 0.0

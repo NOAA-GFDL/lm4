@@ -1280,8 +1280,11 @@ pure function Resp(Ctotal,Chet,T,theta,air_filled_porosity)
         return
     ENDIF
 
-    Resp=Vmax(T)*theta**3*(Cavail)*enz/(sum(Cavail)*kC+enz)*max((air_filled_porosity)**gas_diffusion_exp,min_anaerobic_resp_factor*aerobic_max)
-
+    where (Cavail>0)
+      Resp=Vmax(T)*theta**3*(Cavail)*enz/(Cavail*kC+enz)*max((air_filled_porosity)**gas_diffusion_exp,min_anaerobic_resp_factor*aerobic_max)
+  elsewhere
+     Resp=0.0
+   endwhere
 
 end function Resp
 
@@ -1309,7 +1312,11 @@ pure function Resp_denitrif(Ctotal,Chet,T,theta,air_filled_porosity,nitrate)
         return
     ENDIF
 
-    tempresp=Vmax_denitrif(T)*(Cavail)*enz/(sum(Cavail)*kC+enz)*theta**3*max(0.0,(denitrif_theta_min-air_filled_porosity**gas_diffusion_exp))*aerobic_max
+    where(Cavail>0)
+      tempresp=Vmax_denitrif(T)*(Cavail)*enz/(Cavail*kC+enz)*theta**3*max(0.0,(denitrif_theta_min-air_filled_porosity**gas_diffusion_exp))*aerobic_max
+    elsewhere
+      tempresp=0.0
+    endwhere
 
     ! Actual denitrification rate as limited by NO3 concentration; kgN/m2/yr
     ! k_denitrif relates demand (rate) to NO3 pool for rate limitation
@@ -1346,7 +1353,11 @@ pure function Resp_myc(Ctotal,Chet,T,theta,air_filled_porosity)
         return
     ENDIF
 
-    Resp_myc=Vmax_myc(T)*theta**3*(Cavail)*enz/(sum(Cavail)*k_myc_decomp+enz)*max((air_filled_porosity)**gas_diffusion_exp,min_anaerobic_resp_factor*aerobic_max)
+    where(Cavail>0)
+      Resp_myc=Vmax_myc(T)*theta**3*(Cavail)*enz/(Cavail*k_myc_decomp+enz)*max((air_filled_porosity)**gas_diffusion_exp,min_anaerobic_resp_factor*aerobic_max)
+    elsewhere
+      Resp_myc=0.0
+    endwhere
 
     !ox_avail=oxygen_concentration(Ox,sum(tempresp)/sum(Cavail)*theta*oxPerC)
     !print *,sum(tempresp)/sum(Cavail)
