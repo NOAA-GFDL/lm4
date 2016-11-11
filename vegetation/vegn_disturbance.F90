@@ -3,6 +3,8 @@
 ! ============================================================================
 module vegn_disturbance_mod
 
+#include "../shared/debug.inc"
+
 use land_constants_mod, only : seconds_per_year
 use land_data_mod,   only : log_version
 use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, fsc_froot, agf_bs, LEAF_OFF
@@ -412,6 +414,11 @@ subroutine vegn_nat_mortality(vegn, soil, deltat)
         if(cc%bsw<0) call error_mesg('vegn_nat_mortality','bsw<0',FATAL)
         if(cc%wood_N<0) call error_mesg('vegn_nat_mortality','wood_N<0',FATAL)
         if(cc%sapwood_N<0) call error_mesg('vegn_nat_mortality','sapwood_N<0',FATAL)
+        if(cc%stored_N<0) call error_mesg('vegn_nat_mortality','stored_N<0',FATAL) 
+        if(cc%stored_N+cc%leaf_N+cc%wood_N+cc%root_N+cc%sapwood_N<0) then
+            __DEBUG5__(cc%stored_N,cc%leaf_N,cc%wood_N,cc%root_N,cc%sapwood_N)
+            call error_mesg('vegn_nat_mortality','Cohort total N < 0',FATAL)
+        endif
         call add_litter(soil%coarseWoodLitter,(/fsc_wood *delta*agf_bs,(1-fsc_wood)*delta*agf_bs,0.0/),&
         (/(fsc_wood *cc%wood_N+spdata(sp)%fsc_liv*cc%sapwood_N)*fraction_lost*agf_bs,((1-fsc_wood)*cc%wood_N+(1-spdata(sp)%fsc_liv)*cc%sapwood_N)*fraction_lost*agf_bs,0.0/))
         soil%coarseWoodlitter_fsc_in=soil%coarseWoodlitter_fsc_in+fsc_wood *delta*agf_bs
@@ -441,6 +448,10 @@ subroutine vegn_nat_mortality(vegn, soil, deltat)
      cc%wood_N = cc%wood_N * (1-fraction_lost)
      cc%sapwood_N = cc%sapwood_N*(1-fraction_lost)
 
+        if(cc%stored_N+cc%leaf_N+cc%wood_N+cc%root_N+cc%sapwood_N<0) then
+            __DEBUG5__(cc%stored_N,cc%leaf_N,cc%wood_N,cc%root_N,cc%sapwood_N)
+            call error_mesg('vegn_nat_mortality','Cohort total N < 0',FATAL)
+        endif
      ! for budget tracking -temporarily
      ! It doesn't look correct to me: ssc_in should probably include factor
      ! (1-fsc_wood) and the whole calculations should be moved up in front
@@ -479,6 +490,11 @@ subroutine vegn_nat_mortality(vegn, soil, deltat)
         cc%leaf_N = cc%leaf_N*(1-fraction_lost)
         cc%root_N = cc%root_N*(1-fraction_lost)
         ! Also kill stored N?
+
+        if(cc%stored_N+cc%leaf_N+cc%wood_N+cc%root_N+cc%sapwood_N<0) then
+            __DEBUG5__(cc%stored_N,cc%leaf_N,cc%wood_N,cc%root_N,cc%sapwood_N)
+            call error_mesg('vegn_nat_mortality','Cohort total N < 0',FATAL)
+        endif
 
         ! for budget tracking
         soil%ssc_in(1)  = soil%ssc_in(1)  + (cc%bwood+cc%bsw)*fraction_lost;

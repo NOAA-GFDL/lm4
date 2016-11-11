@@ -622,8 +622,11 @@ subroutine update_biomass_pools(c)
 
   if(N_limits_live_biomass) then
 
-    if(c%total_N<0.0) call error_mesg('update_biomass_pools','totalN<0',FATAL)
-
+    if(c%total_N<0.0) then
+      __DEBUG4__(c%leaf_N,c%wood_N,c%root_N,c%sapwood_N)
+      __DEBUG3__(c%status,c%stored_N,c%total_N)   
+      call error_mesg('update_biomass_pools','totalN<0',FATAL)
+    endif
       available_N = max(0.0,(c%total_N - c%bwood/spdata(c%species)%wood_c2n))
       N_demand = &
           (c%bl/spdata(c%species)%leaf_live_c2n+c%bsw/spdata(c%species)%sapwood_c2n+c%br/spdata(c%species)%froot_live_c2n)
@@ -653,7 +656,12 @@ subroutine update_biomass_pools(c)
   c%root_N=c%br/spdata(c%species)%froot_live_c2n
   c%stored_N=c%total_N-(c%leaf_N+c%wood_N+c%root_N+c%sapwood_N)
 
-
+  ! In rare cases wood N content growth could cause stored N to go below zero
+  ! In that case, make sure stored N is zero by reducing wood N
+  if (c%stored_N<0 .AND. N_limits_live_biomass) then
+     c%wood_N=c%wood_N+c%stored_N
+     c%stored_N=0.0
+  endif
 
 
   c%lai = lai_from_biomass(c%bl,c%species)

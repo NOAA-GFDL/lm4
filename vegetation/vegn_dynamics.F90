@@ -19,7 +19,7 @@ use vegn_data_mod, only : spdata, &
       root_exudate_N_frac,& !x2z - ens: lets get rid of c2n?
      ! BNS: C2N ratios should be temporary fix, which we can get rid of once N is integrated into vegetation code
      dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
-     N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, excess_stored_N_leakage_rate
+     N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, excess_stored_N_leakage_rate, N_limits_live_biomass
 
 use vegn_tile_mod, only: vegn_tile_type,vegn_tile_carbon, vegn_tile_nitrogen
 use soil_tile_mod, only: soil_tile_type,soil_tile_carbon, soil_tile_nitrogen
@@ -209,6 +209,8 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, ndep_nit, ndep_amm, ndep_or
   integer :: i
   ! real :: Nbefore,Nafter
   real,dimension(N_C_TYPES) :: leaflitter_C,leaflitter_N,woodlitter_C,woodlitter_N,rootlitter_C,rootlitter_N
+  real :: lim_factor
+  real :: wood_n2c
 
   if(is_watch_point()) then
      write(*,*)'#### vegn_carbon_int ####'
@@ -350,24 +352,29 @@ total_myc_mine_C_uptake = 0.0
         soil%fsc_in(1)  = soil%fsc_in(1) + 1*md_alive+0*md_wood;
         soil%ssc_in(1)  = soil%ssc_in(1) + (1.- 1)*md_alive+(1-0)*md_wood;
     case (SOILC_CORPSE_N)
+      if(cc%bwood>0) then
+        wood_n2c = cc%wood_N/cc%bwood
+      else
+        wood_n2c=0.0
+      endif
 
       ! Should this N be lost or retranslocated?
       cc%leaf_N = cc%leaf_N - md_leaf/spdata(sp)%leaf_live_c2n*(1.0-spdata(sp)%leaf_retranslocation_frac)
       cc%root_N = cc%root_N - md_froot/spdata(sp)%froot_live_c2n*(1.0-spdata(sp)%froot_retranslocation_frac)
-      cc%wood_N = cc%wood_N - md_wood/spdata(sp)%wood_c2n
+      cc%wood_N = cc%wood_N - md_wood*wood_n2c
       cc%sapwood_N = cc%sapwood_N - md_sapwood/spdata(sp)%sapwood_c2n*(1.0-spdata(sp)%froot_retranslocation_frac)
 
        leaflitter_N=(/spdata(sp)%fsc_liv *md_leaf/spdata(sp)%leaf_live_c2n*(1.0-spdata(sp)%leaf_retranslocation_frac), &
                   (1-spdata(sp)%fsc_liv)*md_leaf/spdata(sp)%leaf_live_c2n*(1.0-spdata(sp)%leaf_retranslocation_frac) ,0.0/)
 
-       woodlitter_N=(/fsc_wood *md_wood*agf_bs/spdata(sp)%wood_c2n, (1-fsc_wood)*md_wood*agf_bs/spdata(sp)%wood_c2n, 0.0/)
+       woodlitter_N=(/fsc_wood *md_wood*agf_bs*wood_n2c, (1-fsc_wood)*md_wood*agf_bs*wood_n2c, 0.0/)
        woodlitter_N = woodlitter_N + (/spdata(sp)%fsc_liv *md_sapwood*agf_bs/spdata(sp)%sapwood_c2n*(1.0-spdata(sp)%froot_retranslocation_frac), &
                (1-spdata(sp)%fsc_liv)*md_sapwood*agf_bs/spdata(sp)%sapwood_c2n*(1.0-spdata(sp)%froot_retranslocation_frac), 0.0/)
 
         rootlitter_N=(/spdata(sp)%fsc_froot*md_froot/spdata(sp)%froot_live_c2n*(1.0-spdata(sp)%froot_retranslocation_frac) &
-             + fsc_wood*md_wood*(1-agf_bs)/spdata(sp)%wood_c2n + spdata(sp)%fsc_liv*md_sapwood*(1-agf_bs)/spdata(sp)%sapwood_c2n*(1.0-spdata(sp)%froot_retranslocation_frac), &
+             + fsc_wood*md_wood*(1-agf_bs)*wood_n2c + spdata(sp)%fsc_liv*md_sapwood*(1-agf_bs)/spdata(sp)%sapwood_c2n*(1.0-spdata(sp)%froot_retranslocation_frac), &
             (1-spdata(sp)%fsc_froot)*md_froot/spdata(sp)%froot_live_c2n*(1.0-spdata(sp)%froot_retranslocation_frac)&
-             + (1-fsc_wood)*md_wood*(1-agf_bs)/spdata(sp)%wood_c2n + (1-spdata(sp)%fsc_liv)*md_sapwood*(1-agf_bs)/spdata(sp)%sapwood_c2n*(1.0-spdata(sp)%froot_retranslocation_frac),0.0/)
+             + (1-fsc_wood)*md_wood*(1-agf_bs)*wood_n2c + (1-spdata(sp)%fsc_liv)*md_sapwood*(1-agf_bs)/spdata(sp)%sapwood_c2n*(1.0-spdata(sp)%froot_retranslocation_frac),0.0/)
 
 
         if (is_watch_point()) then
@@ -519,10 +526,19 @@ total_myc_mine_C_uptake = 0.0
           miner_myc_C_allocated=current_root_exudation*myc_mine_exudate_frac*dt_fast_yr
           scavenger_myc_C_allocated=current_root_exudation*myc_scav_exudate_frac*dt_fast_yr
 
-          N_fixer_N_allocated = N_fixer_C_allocated*root_exudate_N_frac
+          N_fixer_N_allocated = 0.0
           miner_myc_N_allocated = miner_myc_C_allocated*root_exudate_N_frac
           scavenger_myc_N_allocated = scavenger_myc_C_allocated*root_exudate_N_frac
 
+          ! Make sure N allocation doesn't completely deplete stored N
+          if (N_fixer_N_allocated+miner_myc_N_allocated+scavenger_myc_N_allocated > 0.0 .AND. &
+                    N_limits_live_biomass .AND. &
+                    N_fixer_N_allocated+miner_myc_N_allocated+scavenger_myc_N_allocated > cc%stored_N*0.9) then
+             lim_factor=cc%stored_N/(N_fixer_N_allocated+miner_myc_N_allocated+scavenger_myc_N_allocated)*0.9
+             N_fixer_N_allocated=N_fixer_N_allocated*lim_factor
+             miner_myc_N_allocated=miner_myc_N_allocated*lim_factor
+             scavenger_myc_N_allocated=scavenger_myc_N_allocated*lim_factor
+          endif
 
           if (current_root_exudation>0 .AND. is_watch_point()) then
             print *,'allocation 1'
@@ -559,7 +575,18 @@ total_myc_mine_C_uptake = 0.0
            N_fixer_N_allocated = N_fixer_C_allocated*root_exudate_N_frac
            miner_myc_N_allocated = miner_myc_C_allocated*root_exudate_N_frac
            scavenger_myc_N_allocated = scavenger_myc_C_allocated*root_exudate_N_frac
-          !
+          
+
+          ! Make sure N allocation doesn't completely deplete stored N
+          if (N_fixer_N_allocated+miner_myc_N_allocated+scavenger_myc_N_allocated > 0.0 .AND. &
+                    N_limits_live_biomass .AND. &
+                    N_fixer_N_allocated+miner_myc_N_allocated+scavenger_myc_N_allocated > cc%stored_N*0.9) then
+             lim_factor=cc%stored_N/(N_fixer_N_allocated+miner_myc_N_allocated+scavenger_myc_N_allocated)*0.9
+             N_fixer_N_allocated=N_fixer_N_allocated*lim_factor
+             miner_myc_N_allocated=miner_myc_N_allocated*lim_factor
+             scavenger_myc_N_allocated=scavenger_myc_N_allocated*lim_factor
+          endif
+  
           if (current_root_exudation>0 .AND. is_watch_point()) then
             print *,'allocation 2'
             __DEBUG2__(mycorrhizal_mine_N_immob,myc_mine_N_uptake)

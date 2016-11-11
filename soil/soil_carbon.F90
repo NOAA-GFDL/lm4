@@ -525,7 +525,7 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
     if(present(badCohort)) badCohort=0
 
 
-    if(pool%nitrate<0 .AND. soil_carbon_option == SOILC_CORPSE_N) THEN
+    if(pool%nitrate<-1e-11 .AND. soil_carbon_option == SOILC_CORPSE_N) THEN
         call error_mesg('update_pool','Nitrate < 0',FATAL)
     endif
 
@@ -1554,10 +1554,10 @@ logical function check_cohort(cohort) result(cohortGood)
 
     DO n=1,N_C_TYPES
         tempGood = .NOT. ( &
-        (cohort%litterC(n).lt.0) .OR. &
-        (cohort%protectedC(n).lt.0) .OR. &
-        (cohort%litterN(n).lt.0) .OR. &
-        (cohort%protectedN(n).lt.0) .OR. &
+        (cohort%litterC(n).lt.-tol_roundoff) .OR. &
+        (cohort%protectedC(n).lt.-tol_roundoff) .OR. &
+        (cohort%litterN(n).lt.-tol_roundoff) .OR. &
+        (cohort%protectedN(n).lt.-tol_roundoff) .OR. &
         (isNAN(cohort%litterC(n))) .OR. &
         (isNAN(cohort%protectedC(n)))  .OR. &
         (isNAN(cohort%litterN(n))) .OR. &
@@ -1567,7 +1567,7 @@ logical function check_cohort(cohort) result(cohortGood)
     ENDDO
 
 
-    cohortGood = cohortGood .AND. (cohort%IMM_N_gross>=0) .AND. (cohort%MINER_gross>=0)
+    cohortGood = cohortGood .AND. (cohort%IMM_N_gross>=-tol_roundoff) .AND. (cohort%MINER_gross>=-tol_roundoff)
 
     ! IF(.NOT. cohortGood) THEN
 !        WRITE (*,*)'Cohort carbon pool error:'
@@ -2547,12 +2547,12 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
     NO3_dissolved(2:size(soil)+1)=soil(:)%nitrate*nitrate_solubility   !kg/m2
     soil(:)%nitrate=soil(:)%nitrate*(1-nitrate_solubility)
 
-    if(any(NH4_dissolved(:)<0.0)) then
+    if(any(NH4_dissolved(:)<-1e-11)) then
                 print *,NH4_dissolved(:)
                 call error_mesg('ammonium_leaching_with_litter','Dissolved ammonium < 0 (before advection)',FATAL)
         endif
 
-        if(any(NO3_dissolved(:)<0.0)) then
+        if(any(NO3_dissolved(:)<-1e-11)) then
                 print *,NO3_dissolved(:)
                 call error_mesg('nitrate_leaching_with_litter','Dissolved nitrate < 0 (before advection)',FATAL)
         endif
@@ -2719,7 +2719,7 @@ ENDIF
            print *,'Total difference:',sum(DOC(ii,:))-sum(DOCbefore)
            call error_mesg('tracer_leaching_with_litter','Dissolved carbon not conserved',FATAL)
        endif
-       if(any(DOC(ii,:)<0)) call error_mesg('tracer_leaching_with_litter','Dissolved carbon < 0 (after advection)',FATAL)
+       if(any(DOC(ii,:)<-1e-11)) call error_mesg('tracer_leaching_with_litter','Dissolved carbon < 0 (after advection)',FATAL)
 
        if (tiled) then ! reset div_loss(ii,2:num_l+1) according to values calculated in hlsp_hydrology
           div_loss(ii,2:size(soil)+1) = div_hlsp_DOC(ii,:)*dt
@@ -2761,7 +2761,7 @@ ENDIF
              leaf_DON_frac=0.0
          endif !xz
         DON(ii,2:size(soil)+1)=soil(:)%dissolved_nitrogen(ii)!xz
-        if(any(DON(ii,:)<0.0)) then
+        if(any(DON(ii,:)<-1e-11)) then
              print *,'Nitrogen flavor',ii
              print *,DON(ii,:)
              call error_mesg('tracer_leaching_with_litter','Dissolved nitrogen < 0 (before advection)',FATAL)
@@ -2782,7 +2782,7 @@ ENDIF
                         print *,'Total difference:',sum(DON(ii,:))-sum(DONbefore)
                         call error_mesg('nitrogen_leaching_with_litter','Dissolved nitrogen not conserved',FATAL)
                 endif
-                if(any(DON(ii,:)<0)) call error_mesg('nitrogen_leaching_with_litter','Dissolved nitrogen < 0 (after advection)',FATAL)
+                if(any(DON(ii,:)<-1e-11)) call error_mesg('nitrogen_leaching_with_litter','Dissolved nitrogen < 0 (after advection)',FATAL)
 
 
 

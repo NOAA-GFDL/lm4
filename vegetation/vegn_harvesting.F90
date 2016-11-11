@@ -163,6 +163,7 @@ subroutine vegn_graze_pasture(vegn, soil)
   real :: deltafast, deltaslow, delta_leaf, delta_root, delta_wood
   real,dimension(n_C_types) :: leaflitter_C,woodlitter_C,bglitter_C,leaflitter_N,woodlitter_N,bglitter_N
   real :: carbon_lost
+  real :: wood_n2c
 
   if ( vegn_tile_LAI(vegn) .lt. min_lai_for_grazing ) return
 
@@ -180,6 +181,11 @@ subroutine vegn_graze_pasture(vegn, soil)
      ! in leaf biomass and such, just in case it wasn't called before
      call update_biomass_pools(cc);
 
+         if(cc%bwood>0) then
+           wood_n2c=cc%wood_N/cc%bwood
+         else
+           wood_n2c=0.0
+         endif
      ! calculate total biomass pools for the patch
      balive0 =  cc%bl + cc%blv + cc%br
      bleaf0  =  cc%bliving*cc%Pl  !cc%bl + cc%blv
@@ -247,8 +253,8 @@ subroutine vegn_graze_pasture(vegn, soil)
        if(soil_carbon_option == SOILC_CORPSE_N) then
          leaflitter_N=leaflitter_C/spdata(sp)%leaf_live_c2n
          woodlitter_N=woodlitter_C/spdata(sp)%leaf_live_c2n
-         bglitter_N=(/grazing_residue*(spdata(sp)%fsc_froot*(delta_root)/spdata(sp)%froot_live_c2n +(1-agf_bs)*fsc_wood*(delta_wood)/spdata(sp)%wood_c2n),&
-                      grazing_residue*((1-spdata(sp)%fsc_froot)*(delta_root)/spdata(sp)%froot_live_c2n +  (1-agf_bs)*(1-fsc_wood)*(delta_wood)/spdata(sp)%wood_c2n),&
+         bglitter_N=(/grazing_residue*(spdata(sp)%fsc_froot*(delta_root)/spdata(sp)%froot_live_c2n +(1-agf_bs)*fsc_wood*(delta_wood)*wood_n2c),&
+                      grazing_residue*((1-spdata(sp)%fsc_froot)*(delta_root)/spdata(sp)%froot_live_c2n +  (1-agf_bs)*(1-fsc_wood)*(delta_wood)*wood_n2c),&
                       0.0/)
        else
          leaflitter_N=(/0.0,0.0,0.0/)
