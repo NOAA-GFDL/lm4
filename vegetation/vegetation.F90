@@ -328,7 +328,12 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      call get_cohort_data(restart2, 'bsw', cohort_bsw_ptr)
      call get_cohort_data(restart2, 'bwood', cohort_bwood_ptr)
 
-     call get_cohort_data(restart2, 'root_exudate_buffer_C', cohort_root_exudate_buffer_C_ptr)
+     call get_cohort_data(restart2, 'scav_myc_C_reservoir', cohort_scav_myc_C_reservoir_ptr)
+     call get_cohort_data(restart2, 'scav_myc_N_reservoir', cohort_scav_myc_N_reservoir_ptr)
+     call get_cohort_data(restart2, 'mine_myc_C_reservoir', cohort_mine_myc_C_reservoir_ptr)
+     call get_cohort_data(restart2, 'scav_myc_N_reservoir', cohort_scav_myc_N_reservoir_ptr)
+     call get_cohort_data(restart2, 'N_fixer_C_reservoir', cohort_N_fixer_C_reservoir_ptr)
+     call get_cohort_data(restart2, 'N_fixer_N_reservoir', cohort_N_fixer_N_reservoir_ptr)
      call get_cohort_data(restart2, 'myc_scavenger_biomass_C', cohort_myc_scavenger_biomass_C_ptr)
      call get_cohort_data(restart2, 'myc_scavenger_biomass_N', cohort_myc_scavenger_biomass_N_ptr)
      call get_cohort_data(restart2, 'myc_miner_biomass_C', cohort_myc_miner_biomass_C_ptr)
@@ -493,7 +498,12 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      cohort%npp_previous_day = 0.0
      cohort%status  = LEAF_ON
      cohort%leaf_age = 0.0
-     cohort%root_exudate_buffer_C = 0.0
+     cohort%scav_myc_C_reservoir = 0.0
+     cohort%scav_myc_N_reservoir = 0.0
+     cohort%mine_myc_C_reservoir = 0.0
+     cohort%mine_myc_N_reservoir = 0.0
+     cohort%N_fixer_C_reservoir = 0.0
+     cohort%N_fixer_N_reservoir = 0.0
      cohort%myc_scavenger_biomass_C = init_cohort_scavenger_myc_biomass
      cohort%myc_scavenger_biomass_N = init_cohort_scavenger_myc_biomass/c2n_mycorrhizae
      cohort%myc_miner_biomass_C = init_cohort_miner_myc_biomass
@@ -926,7 +936,12 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_int_cohort_data(restart2,'status', cohort_status_ptr, 'leaf status')
   call add_cohort_data(restart2,'leaf_age',cohort_leaf_age_ptr, 'age of leaves since bud burst', 'days')
 
-  call add_cohort_data(restart2,'root_exudate_buffer_C', cohort_root_exudate_buffer_C_ptr, 'C in root exudate buffer','kg C/m2')
+  call add_cohort_data(restart2,'scav_myc_C_reservoir', cohort_scav_myc_C_reservoir_ptr, 'C in scavenger myc reservoir for growth','kg C/m2')
+  call add_cohort_data(restart2,'scav_myc_N_reservoir', cohort_scav_myc_N_reservoir_ptr, 'N in scavenger myc reservoir for growth','kg C/m2')
+  call add_cohort_data(restart2,'mine_myc_C_reservoir', cohort_mine_myc_C_reservoir_ptr, 'C in miner myc reservoir for growth','kg C/m2')
+  call add_cohort_data(restart2,'mine_myc_N_reservoir', cohort_mine_myc_N_reservoir_ptr, 'N in miner myc reservoir for growth','kg C/m2')
+  call add_cohort_data(restart2,'N_fixer_C_reservoir', cohort_N_fixer_C_reservoir_ptr, 'C in N fixer reservoir for growth','kg C/m2')
+  call add_cohort_data(restart2,'N_fixer_N_reservoir', cohort_N_fixer_N_reservoir_ptr, 'N in N fixer reservoir for growth','kg C/m2')
   call add_cohort_data(restart2,'myc_scavenger_biomass_C', cohort_myc_scavenger_biomass_C_ptr, 'scavenger mycorrhizal biomass C associated with individual','kg C/m2')
   call add_cohort_data(restart2,'myc_scavenger_biomass_N', cohort_myc_scavenger_biomass_N_ptr, 'scavenger mycorrhizal biomass N associated with individual','kg C/m2')
   call add_cohort_data(restart2,'N_fixer_biomass_C', cohort_N_fixer_biomass_C_ptr, 'symbiotic N fixer biomass C associated with individual','kg C/m2')
@@ -2026,7 +2041,12 @@ DEFINE_COHORT_ACCESSOR(real,bsw)
 DEFINE_COHORT_ACCESSOR(real,bwood)
 DEFINE_COHORT_ACCESSOR(real,bliving)
 
-DEFINE_COHORT_ACCESSOR(real,root_exudate_buffer_C)
+DEFINE_COHORT_ACCESSOR(real,scav_myc_C_reservoir)
+DEFINE_COHORT_ACCESSOR(real,scav_myc_N_reservoir)
+DEFINE_COHORT_ACCESSOR(real,mine_myc_C_reservoir)
+DEFINE_COHORT_ACCESSOR(real,mine_myc_N_reservoir)
+DEFINE_COHORT_ACCESSOR(real,N_fixer_C_reservoir)
+DEFINE_COHORT_ACCESSOR(real,N_fixer_N_reservoir)
 DEFINE_COHORT_ACCESSOR(real,myc_scavenger_biomass_C)
 DEFINE_COHORT_ACCESSOR(real,myc_scavenger_biomass_N)
 DEFINE_COHORT_ACCESSOR(real,myc_miner_biomass_C)
