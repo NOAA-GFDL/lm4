@@ -63,6 +63,7 @@ end interface check_temp_range
 ! them, just serves as a convenient place to share them across all land code
 public :: water_cons_tol
 public :: carbon_cons_tol
+public :: heat_cons_tol
 public :: do_check_conservation
 
 ! ==== module constants ======================================================
@@ -96,9 +97,10 @@ namelist/land_debug_nml/ watch_point, &
    print_hex_debug, label_len, trim_labels
 
 logical :: do_check_conservation = .FALSE.
-real    :: water_cons_tol  = 1e-11 ! tolerance of water conservation checks 
-real    :: carbon_cons_tol = 1e-13 ! tolerance of carbon conservation checks  
-namelist/land_conservation_nml/ do_check_conservation, water_cons_tol, carbon_cons_tol
+real    :: water_cons_tol  = 1e-11 ! tolerance of water conservation checks
+real    :: carbon_cons_tol = 1e-13 ! tolerance of carbon conservation checks
+real    :: heat_cons_tol   = 1e-8  ! tolerance of heat conservation checks
+namelist/land_conservation_nml/ do_check_conservation, water_cons_tol, carbon_cons_tol, heat_cons_tol
 
 contains
 
