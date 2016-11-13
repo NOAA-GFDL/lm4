@@ -11,7 +11,7 @@ use constants_mod,   only : tfreeze
 use land_constants_mod, only : seconds_per_year
 use land_debug_mod,  only : is_watch_point, is_watch_cell, set_current_point, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, &
-     check_var_range
+     heat_cons_tol, check_var_range
 use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, fsc_froot, agf_bs, &
        do_ppa, LEAF_OFF, DBH_mort, A_mort, B_mort, mortrate_s, nat_mortality_splits_tiles
 use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_bwood
@@ -384,7 +384,7 @@ subroutine vegn_nat_mortality_ppa ( )
         call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol)
         call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
         call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
-!        call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16)
+        call check_conservation (tag,'heat content', heat0 , heat1 , heat_cons_tol)
      endif
   enddo
   enddo
@@ -462,8 +462,8 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
      write(*,*) '#### tile_mortality_ppa input ####'
      do i = 1,t0%vegn%n_cohorts
         write(*,'(i2.2)', advance='NO') i
-        call dpri('Nindivs=',t0%vegn%cohorts(i)%nindivs*t0%frac)
-        call dpri('Ndead=',ndead(i)*t0%frac)
+        call dpri('Nindivs=',t0%vegn%cohorts(i)%nindivs)
+        call dpri('Ndead=',ndead(i))
         call dpri('layer=',t0%vegn%cohorts(i)%layer)
         write(*,*)
      enddo
@@ -473,11 +473,11 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
   f0 = t0%frac ! save original tile fraction for future use
   ! write (*,*) 'in natural mortality'
   if (do_check_conservation) then
-  
      ! + conservation check, part 1: calculate the pre-transition totals
      call get_tile_water(t0,lmass0,fmass0)
-     heat0  = land_tile_heat  (t0)
-     cmass0 = land_tile_carbon(t0)
+     lmass0 = lmass0*t0%frac; fmass0 = fmass0*t0%frac
+     heat0  = land_tile_heat  (t0)*t0%frac
+     cmass0 = land_tile_carbon(t0)*t0%frac
      ! - end of conservation check, part 1
   endif
 
@@ -522,9 +522,9 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
         write(*,*) '#### tile_mortality_ppa: before killing plants ####'
         do i = 1,t0%vegn%n_cohorts
            write(*,'(i2.2)', advance='NO') i
-           call dpri('tot.Nindivs=',t0%vegn%cohorts(i)%nindivs*t0%frac+t1%vegn%cohorts(i)%nindivs*t1%frac)
-           call dpri('Nindivs1=',t1%vegn%cohorts(i)%nindivs*t1%frac)
-           call dpri('Nindivs0=',t0%vegn%cohorts(i)%nindivs*t0%frac)
+           call dpri('Nindivs0=',t0%vegn%cohorts(i)%nindivs)
+           call dpri('Nindivs1=',t1%vegn%cohorts(i)%nindivs)
+           call dpri('layer=',t1%vegn%cohorts(i)%layer)
            write(*,*)
         enddo
      endif
@@ -557,30 +557,11 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
   if (associated(t1)) &
      call add_soil_carbon(t1%soil, leaf_litt1, wood_litt1, root_litt1)
 
-  if (do_check_conservation) then
-     ! + conservation check, part 2: calculate totals in final state, and compare 
-     ! with previous totals
-     call get_tile_water(t0,lmass1,fmass1); lmass1 = lmass1*t0%frac; fmass1 = fmass1*t0%frac
-     heat1  = land_tile_heat  (t0)*t0%frac
-     cmass1 = land_tile_carbon(t0)*t0%frac
-     if (associated(t1)) then
-        call get_tile_water(t1,lmass2,fmass2); 
-        lmass1 = lmass1+lmass2*t1%frac; fmass1 = fmass1+fmass2*t1%frac
-        heat1  = heat1+land_tile_heat(t1)*t1%frac
-        cmass1 = cmass1+land_tile_carbon(t1)*t1%frac
-     endif
-     call check_conservation (tag,'liquid water', lmass0, lmass1/f0, water_cons_tol)
-     call check_conservation (tag,'frozen water', fmass0, fmass1/f0, water_cons_tol)
-     call check_conservation (tag,'carbon'      , cmass0, cmass1/f0, carbon_cons_tol)
-!     call check_conservation (tag,'heat content', heat0 , heat1/f0 , 1e-16)
-     ! - end of conservation check, part 2
-  endif
-
   if (is_watch_point()) then
      write(*,*) '#### tile_mortality_ppa output (before relayering cohorts) ####'
      do i = 1,t0%vegn%n_cohorts
         write(*,'(i2.2)', advance='NO') i
-        call dpri('Nindivs0=',t0%vegn%cohorts(i)%nindivs*t0%frac)
+        call dpri('Nindivs0=',t0%vegn%cohorts(i)%nindivs)
         call dpri('layer=',t0%vegn%cohorts(i)%layer)
         if(associated(t1)) then
            call dpri('Nindivs1=',t1%vegn%cohorts(i)%nindivs)
@@ -589,6 +570,26 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
         write(*,*)
      enddo
      write(*,*) '#### end of tile_mortality_ppa output ####'
+  endif
+
+  if (do_check_conservation) then
+     ! + conservation check, part 2: calculate totals in final state, and compare 
+     ! with previous totals
+     call get_tile_water(t0,lmass1,fmass1)
+     lmass1 = lmass1*t0%frac; fmass1 = fmass1*t0%frac
+     heat1  = land_tile_heat  (t0)*t0%frac
+     cmass1 = land_tile_carbon(t0)*t0%frac
+     if (associated(t1)) then
+        call get_tile_water(t1,lmass2,fmass2); 
+        lmass1 = lmass1 + lmass2*t1%frac; fmass1 = fmass1 + fmass2*t1%frac
+        heat1  = heat1  + land_tile_heat  (t1)*t1%frac
+        cmass1 = cmass1 + land_tile_carbon(t1)*t1%frac
+     endif
+     call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol)
+     call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
+     call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
+     call check_conservation (tag,'heat content', heat0 , heat1 , heat_cons_tol)
+     ! - end of conservation check, part 2
   endif
 
   call vegn_relayer_cohorts_ppa(t0%vegn)
@@ -633,8 +634,6 @@ subroutine kill_plants_ppa(cc, vegn, soil, ndead, fsmoke, leaf_litt, wood_litt, 
   call check_var_range(ndead,  0.0, cc%nindivs, 'kill_plants_ppa', 'ndead',  FATAL)
   call check_var_range(fsmoke, 0.0, 1.0,        'kill_plants_ppa', 'fsmoke', FATAL)
   
-  ! reduce the number of individuals
-  cc%nindivs = cc%nindivs-ndead
   
   ! water from dead trees goes to intermediate buffers, to be added to the
   ! precipitation reaching ground on the next physical time step
@@ -668,6 +667,9 @@ subroutine kill_plants_ppa(cc, vegn, soil, ndead, fsmoke, leaf_litt, wood_litt, 
           0.0/)
   enddo
        
+  ! reduce the number of individuals in cohort
+  cc%nindivs = cc%nindivs-ndead
+
   ! for budget tracking - temporary
   vegn%veg_out = vegn%veg_out + lost_alive + lost_wood + burned_alive + burned_wood
 end subroutine kill_plants_ppa
