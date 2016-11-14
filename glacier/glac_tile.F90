@@ -15,6 +15,7 @@ use land_io_mod, only : init_cover_field
 use land_tile_selectors_mod, only : tile_selector_type, register_tile_selector, &
      SEL_GLAC
 use land_data_mod, only : log_version
+use tiling_input_types_mod, only : glacier_predefined_type
 
 implicit none
 private
@@ -24,6 +25,7 @@ public :: glac_pars_type
 public :: glac_tile_type
 
 public :: new_glac_tile, delete_glac_tile
+public :: new_glac_tile_predefined
 public :: glac_tiles_can_be_merged, merge_glac_tiles
 public :: glac_is_selected
 public :: get_glac_tile_tag
@@ -45,6 +47,10 @@ interface new_glac_tile
    module procedure glac_tile_copy_ctor
 end interface
 
+interface new_glac_tile_predefined
+   module procedure glac_tile_ctor_predefined
+   module procedure glac_tile_copy_ctor
+end interface
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'glac_tile_mod'
@@ -245,6 +251,28 @@ subroutine read_glac_data_namelist(glac_n_lev, glac_dz)
   glac_dz = dz
 end subroutine read_glac_data_namelist
 
+! ============================================================================
+function glac_tile_ctor_predefined(tag,glacier_predefined,itile) result(ptr)
+  type(glac_tile_type), pointer :: ptr ! return value
+  integer, intent(in)  :: tag ! kind of tile
+  type(glacier_predefined_type), intent(in) :: glacier_predefined
+  integer, intent(in) :: itile
+
+  allocate(ptr)
+  ptr%tag = tag
+  ! allocate storage for tile data
+  allocate(ptr%wl     (num_l), &
+           ptr%ws     (num_l), &
+           ptr%T      (num_l), &
+           ptr%w_fc   (num_l),  &
+           ptr%w_wilt (num_l),  &
+           ptr%heat_capacity_dry (num_l),  &
+           ptr%e      (num_l),  &
+           ptr%f      (num_l)   )
+
+  ! set initial values of the tile data
+  call glacier_data_init_0d_predefined(ptr,glacier_predefined,itile)
+end function glac_tile_ctor_predefined
 
 ! ============================================================================
 function glac_tile_ctor(tag) result(ptr)
@@ -289,6 +317,54 @@ subroutine delete_glac_tile(ptr)
   deallocate(ptr)
 end subroutine delete_glac_tile
 
+! ============================================================================
+subroutine glacier_data_init_0d_predefined(glac,gp,itile)
+  type(glac_tile_type), intent(inout) :: glac
+  type(glacier_predefined_type), intent(in) :: gp
+  integer, intent(in) :: itile
+
+  integer :: k
+  k = glac%tag
+
+  glac%pars%w_sat = gp%w_sat(itile)
+  glac%pars%awc_lm2 = gp%awc_lm2(itile)
+  glac%pars%k_sat_ref = gp%k_sat_ref(itile)
+  glac%pars%psi_sat_ref = gp%psi_sat_ref(itile)
+  glac%pars%chb = gp%chb(itile)
+  glac%pars%alpha = gp%alpha(itile)
+  glac%pars%heat_capacity_ref = gp%heat_capacity_ref(itile)
+  glac%pars%thermal_cond_ref = gp%thermal_cond_ref(itile)
+  glac%pars%refl_max_dir = gp%refl_max_dir(itile,:)
+  glac%pars%refl_max_dif = gp%refl_max_dif(itile,:)
+  glac%pars%refl_min_dir = gp%refl_min_dir(itile,:)
+  glac%pars%refl_min_dif = gp%refl_min_dif(itile,:)
+  glac%pars%emis_dry = gp%emis_dry(itile)
+  glac%pars%emis_sat = gp%emis_sat(itile)
+  glac%pars%z0_momentum = gp%z0_momentum(itile)
+  glac%pars%tfreeze = gp%tfreeze(itile)
+
+  glac%pars%rsa_exp           = rsa_exp_global
+
+  ! initialize derived data
+  if (use_lm2_awc) then
+     glac%w_wilt(:) = 0.15
+     glac%w_fc  (:) = 0.15 + glac%pars%awc_lm2
+  else
+     glac%w_wilt(:) = glac%pars%w_sat &
+          *(glac%pars%psi_sat_ref/(psi_wilt*glac%pars%alpha))**(1/glac%pars%chb)
+     glac%w_fc  (:) = glac%pars%w_sat &
+          *(rate_fc/(glac%pars%k_sat_ref*glac%pars%alpha**2))**(1/(3+2*glac%pars%chb))
+  endif
+
+  ! below made use of phi_e from parlange via entekhabi
+  glac%Eg_part_ref  = (-4*glac%w_fc(1)**2*glac%pars%k_sat_ref*glac%pars%psi_sat_ref*glac%pars%chb &
+       /(pi*glac%pars%w_sat)) * (glac%w_fc(1)/glac%pars%w_sat)**(2+glac%pars%chb)   &
+       *(2*pi/(3*glac%pars%chb**2*(1+3/glac%pars%chb)*(1+4/glac%pars%chb)))/2
+
+  glac%z0_scalar = glac%pars%z0_momentum * exp(-k_over_B)
+  glac%geothermal_heat_flux = geothermal_heat_flux_constant
+  
+end subroutine glacier_data_init_0d_predefined
 
 ! ============================================================================
 subroutine glacier_data_init_0d(glac)

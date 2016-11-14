@@ -1134,6 +1134,7 @@ end subroutine print_river_tracer_data
 
        ! check that the rivers do not discarge in the middle of the continents
        if ((River%tocell(i,j)==0).and.(land_frac(i,j)>1.0-epsln)) then
+          print*,i,j,River%tocell(i,j),land_frac(i,j)
           call mpp_error(WARNING, &
                'get_river_data: river discharges into a land point '&
                //trim(coordinates(i,j))//' where there is no ocean')

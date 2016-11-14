@@ -45,6 +45,8 @@ use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp,
      soil_step_1, soil_step_2, soil_step_3, &
      save_soil_restart
 use soil_carbon_mod, only : read_soil_carbon_namelist, n_c_types
+use lake_mod, only : lake_init_predefined
+use soil_mod, only : soil_init_predefined
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
      snow_get_depth_area, snow_step_1, snow_step_2, &
      save_snow_restart
@@ -106,10 +108,12 @@ use stock_constants_mod, only: ISTOCK_WATER, ISTOCK_HEAT, ISTOCK_SALT
 use hillslope_mod, only: retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
      read_hlsp_namelist, hlsp_init, hlsp_config_check
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
-
+use hillslope_mod, only: hlsp_init_predefined
 use vegn_data_mod, only : LU_CROP, LU_PAST, LU_NTRL, LU_SCND, &
     SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR
-
+use predefined_tiles_mod, only: land_cover_cold_start_0d_predefined_tiles,&
+                                open_database_predefined_tiles,&
+                                close_database_predefined_tiles
 
 implicit none
 private
@@ -162,6 +166,8 @@ character(16) :: nearest_point_search = 'global' ! specifies where to look for
               ! nearest points for missing data, "global" or "face"
 logical :: print_remapping = .FALSE. ! if true, full land cover remapping
               ! information is printed on the cold start
+logical :: predefined_tiles= .FALSE. ! If true, the tiles for each grid cell for
+              ! each grid cell are read from an external file
 integer :: layout(2) = (/0,0/)
 integer :: io_layout(2) = (/0,0/)
 integer :: npes_io_group = 0
@@ -210,7 +216,7 @@ namelist /land_model_nml/ use_old_conservation_equations, &
                           use_coast_rough, coast_rough_mom, coast_rough_heat, &
                           max_coast_frac, use_coast_topo_rough, &
                           layout, io_layout, mask_table, &
-                          precip_warning_tol, npes_io_group
+                          precip_warning_tol, npes_io_group, predefined_tiles
 ! ---- end of namelist -------------------------------------------------------
 
 logical  :: module_is_initialized = .FALSE.
@@ -427,7 +433,11 @@ subroutine land_model_init &
      call error_mesg('land_model_init',&
           'cold-starting land cover map',&
           NOTE)
-     call land_cover_cold_start(lnd)
+     if (predefined_tiles .eq. .False.) then
+      call land_cover_cold_start(lnd)
+     else if (predefined_tiles .eq. .True.) then
+      call land_cover_cold_start_predefined(lnd)
+     endif
   endif
   call free_land_restart(restart)
 
@@ -448,14 +458,23 @@ subroutine land_model_init &
   if ( id_sftlf > 0 )  used = send_data(id_sftlf,lnd%landfrac*100, lnd%time)
 
   ! [7] initialize individual sub-models
-  call hlsp_init ( id_lon, id_lat ) ! Must be called before soil_init
-  call soil_init ( id_lon, id_lat, id_band, id_zfull )
+  if (predefined_tiles .eq. .False.)then
+   call hlsp_init ( id_lon, id_lat) ! Must be called before soil_init
+   call soil_init ( id_lon, id_lat, id_band, id_zfull)
+  else if (predefined_tiles .eq. .True.)then
+   call hlsp_init_predefined ( id_lon, id_lat) ! Must be called before soil_init
+   call soil_init_predefined ( id_lon, id_lat, id_band, id_zfull)
+  endif
   call hlsp_hydro_init (id_lon, id_lat, id_zfull) ! Must be called after soil_init
-  call vegn_init ( id_lon, id_lat, id_band )
-  call lake_init ( id_lon, id_lat )
-  call glac_init ( id_lon, id_lat )
-  call snow_init ( id_lon, id_lat )
-  call cana_init ( id_lon, id_lat )
+  call vegn_init ( id_lon, id_lat, id_band)
+  if (predefined_tiles .eq. .False.)then
+   call lake_init ( id_lon, id_lat) 
+  else if (predefined_tiles .eq. .True.)then
+   call lake_init_predefined ( id_lon, id_lat)
+  endif
+  call glac_init ( id_lon, id_lat)
+  call snow_init ( id_lon, id_lat)
+  call cana_init ( id_lon, id_lat)
   call topo_rough_init( lnd%time, lnd%lonb, lnd%latb, &
        lnd%domain, lnd_ug%domain, id_lon, id_lat)
   allocate (river_land_mask_sg(lnd%is:lnd%ie,lnd%js:lnd%je))
@@ -822,6 +841,39 @@ subroutine land_cover_cold_start(lnd)
   deallocate(glac,lake,soil,soiltags,hlsp_pos,hlsp_par,vegn,rbuffer)
 #endif
 end subroutine land_cover_cold_start
+
+! ============================================================================
+subroutine land_cover_cold_start_predefined(lnd)
+  type(land_state_type), intent(inout) :: lnd
+
+  ! ---- local vars
+  logical, dimension(lnd%ie-lnd%is+1,lnd%je-lnd%js+1) :: &
+       land_mask
+  integer :: i,j,h5id
+  real, dimension(:,:,:), pointer :: soil
+  real :: t0,t1
+#ifdef COMPILE_THIS
+  ! calculate the global land mask
+  land_mask = lnd%area > 0
+
+  ! Open access to model input database
+  call open_database_predefined_tiles(h5id)
+  
+  do j = 1,size(land_mask,2)
+   do i = 1,size(land_mask,1)
+    if(.not.land_mask(i,j)) cycle ! skip ocean points
+    call set_current_point(i+lnd%is-1,j+lnd%js-1,1)
+    call cpu_time(t0)
+    call land_cover_cold_start_0d_predefined_tiles(land_tile_map(i+lnd%is-1,j+lnd%js-1),&
+         lnd,i,j,h5id)
+    call cpu_time(t1)
+   enddo
+  enddo
+
+  ! Close access to model input database
+  call close_database_predefined_tiles(h5id)
+#endif  
+end subroutine land_cover_cold_start_predefined
 
 ! ============================================================================
 subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,soiltags0,&
