@@ -6,7 +6,8 @@ use fms_mod,            only : error_mesg, FATAL
 use constants_mod,      only : tfreeze, hlf
 
 use land_constants_mod, only : NBANDS
-use land_debug_mod,     only : is_watch_point
+use land_debug_mod,     only : is_watch_point, check_conservation, &
+     carbon_cons_tol, water_cons_tol, heat_cons_tol
 use land_numerics_mod,  only : rank_descending
 use land_io_mod,        only : init_cover_field
 use land_tile_selectors_mod, only : tile_selector_type
@@ -728,7 +729,7 @@ function vegn_tile_heat (vegn) result(heat) ; real heat
 
   integer :: i
 
-  heat = vegn%drop_hl+vegn%drop_hs
+  heat = vegn%drop_hl+vegn%drop_hs-hlf*vegn%drop_ws
   do i = 1, vegn%n_cohorts
      heat = heat + &
             ( (clw*vegn%cohorts(i)%Wl + &
