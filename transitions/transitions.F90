@@ -651,6 +651,7 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
   type(land_tile_list_type) :: a_list
   type(land_tile_enum_type) :: ts, te
   real :: atot ! total fraction of tiles that can be involved in transitions
+  real :: htot ! total fraction heat, for debugging only
   ! variable used for conservation check:
   real :: lmass0, fmass0, cmass0, heat0, &
        soil_heat0, vegn_heat0, cana_heat0, snow_heat0 ! pre-transition values
@@ -689,12 +690,21 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
      enddo
 
      write(*,*)'### land_transitions_0d: land fractions before transitions (initial state) ###'
-     ts = first_elmt(d_list)
+     ts = first_elmt(d_list); htot = 0.0; k = 1
      do while (loop_over_tiles(ts,ptr))
-        if (associated(ptr%vegn)) &
-                write(*,*)'landuse=',ptr%vegn%landuse,' area=',ptr%frac
+        if (associated(ptr%vegn)) then
+            write(*,'(i2.2,2x)', advance='no') k; k = k+1
+            call dpri('landuse',ptr%vegn%landuse)
+            call dpri('area',ptr%frac)
+            call dpri('heat',vegn_tile_heat(ptr%vegn))
+            call dpri('heat*frac',vegn_tile_heat(ptr%vegn)*ptr%frac)
+            write(*,*)
+            htot = htot+vegn_tile_heat(ptr%vegn)*ptr%frac
+        endif
      enddo
-     write(*,'(a,g23.16)')'total area=',atot
+     call dpri('total area=',atot)
+     call dpri('total heat=',htot)
+     write(*,*)
   endif
 
   ! split each donor tile and gather the parts that undergo a
@@ -780,13 +790,21 @@ subroutine land_transitions_0d(d_list,d_kinds,a_kinds,area)
 
   if (is_watch_cell()) then
      write(*,*)'### land_transitions_0d: land fractions final state ###'
-     atot = 0 ; ts = first_elmt(d_list)
-     do while (loop_over_tiles(ts, ptr))
-        if (.not.associated(ptr%vegn)) cycle
-        write(*,'(2(a,g23.16,2x))')'landuse=',ptr%vegn%landuse,' area=',ptr%frac
-        atot = atot + ptr%frac
+     ts = first_elmt(d_list); htot = 0.0; k=0
+     do while (loop_over_tiles(ts,ptr))
+        if (associated(ptr%vegn)) then
+            write(*,'(i2.2,2x)', advance='no') k; k = k+1
+            call dpri('landuse',ptr%vegn%landuse)
+            call dpri('area',ptr%frac)
+            call dpri('heat',vegn_tile_heat(ptr%vegn))
+            call dpri('heat*frac',vegn_tile_heat(ptr%vegn)*ptr%frac)
+            write(*,*)
+            htot = htot+vegn_tile_heat(ptr%vegn)*ptr%frac
+        endif
      enddo
-     write(*,'(a,g23.16)')'total area=',atot
+     call dpri('total area=',atot)
+     call dpri('total heat=',htot)
+     write(*,*)
   endif
 
   ! conservation check part 2: calculate grid cell totals in final state, and
