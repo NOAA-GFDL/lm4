@@ -407,8 +407,6 @@ subroutine merge_cohorts(c1,c2)
   endif
   x2 = 1-x1
   
-  ! update number of individuals in merged cohort
-  c2%nindivs = c1%nindivs+c2%nindivs
 #define __MERGE__(field) c2%field = x1*c1%field + x2*c2%field
   HEAT1 = (clw*c1%Wl + csw*c1%Ws + c1%mcv_dry)*(c1%Tv-tfreeze)
   HEAT2 = (clw*c2%Wl + csw*c2%Ws + c2%mcv_dry)*(c2%Tv-tfreeze)
@@ -439,10 +437,10 @@ subroutine merge_cohorts(c1,c2)
   ! calculate the resulting dry heat capacity
   c2%leafarea = leaf_area_from_biomass(c2%bl, c2%species, c2%layer, c2%firstlayer)
   c2%mcv_dry = max(mcv_min,mcv_lai*c2%leafarea)
-  ! update canopy temperature -- just merge it based on area weights if the heat 
-  ! capacities are zero, or merge it based on the heat content if the heat contents
+  ! update canopy temperature -- just merge temperatures using nindivs as weights if
+  ! the heat capacities are zero, or merge based on the heat content if the heat capacities
   ! are non-zero
-  if(HEAT1>epsilon(1.0).and.HEAT2>epsilon(1.0)) then
+  if(abs(clw*c2%Wl + csw*c2%Ws + c2%mcv_dry) > epsilon(1.0)) then
      c2%Tv = (HEAT1*x1+HEAT2*x2) / &
           (clw*c2%Wl + csw*c2%Ws + c2%mcv_dry) + tfreeze
   else
@@ -451,6 +449,8 @@ subroutine merge_cohorts(c1,c2)
      ! that will result from this if the heat capacities are not zero.
   endif
 #undef  __MERGE__
+  ! update number of individuals in merged cohort
+  c2%nindivs = c1%nindivs+c2%nindivs
 end subroutine merge_cohorts
 
 ! =============================================================================
