@@ -52,7 +52,7 @@ subroutine vegn_disturbance(vegn, soil, dt)
   type(vegn_tile_type), intent(inout) :: vegn ! vegetation data
   type(soil_tile_type), intent(inout) :: soil ! soil data
   real, intent(in) :: dt ! time since last disturbance calculations, s
-  
+
   real, parameter :: BMIN = 1e-10; ! should be the same as in growth function
   ! ---- local vars
   real :: precip;
@@ -69,21 +69,21 @@ subroutine vegn_disturbance(vegn, soil, dt)
   deltat = dt/seconds_per_year ! convert time interval to years
 
   !  Disturbance Rates
-  precip=vegn%p_ann*86400*365; 
+  precip=vegn%p_ann*86400*365;
   drought_month = vegn%lambda;
   vegn%disturbance_rate(0) = 0.0;
   vegn%disturbance_rate(1) = 0.0;
-  
+
   call calculate_patch_disturbance_rates(vegn)
-  
+
   leaf_litt = 0 ; wood_litt = 0; root_litt = 0
-  do i = 1,vegn%n_cohorts   
+  do i = 1,vegn%n_cohorts
      associate (cc => vegn%cohorts(i), &
                 sp => spdata(vegn%cohorts(i)%species)) ! F2003
 
-     fraction_lost = 1.0-exp(-vegn%disturbance_rate(1)*deltat);	
+     fraction_lost = 1.0-exp(-vegn%disturbance_rate(1)*deltat);
      if (do_ppa) then
-        call kill_plants_ppa(cc, vegn, soil, cc%nindivs*fraction_lost, sp%smoke_fraction, &
+        call kill_plants_ppa(cc, vegn, cc%nindivs*fraction_lost, sp%smoke_fraction, &
                              leaf_litt, wood_litt, root_litt)
      else ! original LM3 treatment
         ! "dead" biomass : wood + sapwood
@@ -96,18 +96,18 @@ subroutine vegn_disturbance(vegn, soil, dt)
            root_litt(l,:) = root_litt(l,:) + [fsc_wood, 1-fsc_wood, 0.0] * &
                             profile(l)*delta*(1-agf_bs)*(1-sp%smoke_fraction)
         enddo
-      
+
         cc%bwood = cc%bwood * (1-fraction_lost);
         cc%bsw   = cc%bsw   * (1-fraction_lost);
-      
+
         vegn%csmoke_pool = vegn%csmoke_pool + sp%smoke_fraction*delta;
-      
+
         ! for budget tracking - temporarily not keeping wood and the rest separately,ens
         !      soil%ssc_in(1)+=delta*(1.0-sp%smoke_fraction)*(1-fsc_wood); */
         !      soil%fsc_in(1)+=delta*(1.0-sp%smoke_fraction)*fsc_wood; */
-      
+
         vegn%veg_out = vegn%veg_out+delta;
-      
+
         !"alive" biomass: leaves, roots, and virtual pool
         delta = (cc%bl+cc%blv+cc%br)*fraction_lost;
         leaf_litt(:) = leaf_litt(:) + [fsc_liv, 1-fsc_liv, 0.0]*(cc%bl+cc%blv)*fraction_lost*(1-sp%smoke_fraction)
@@ -115,21 +115,21 @@ subroutine vegn_disturbance(vegn, soil, dt)
            root_litt(l,:) = root_litt(l,:) + [fsc_froot, 1-fsc_froot, 0.0] * &
                             profile(l)*cc%br*fraction_lost*(1-sp%smoke_fraction)
         enddo
-      
+
         cc%bl  = cc%bl  * (1-fraction_lost);
         cc%blv = cc%blv * (1-fraction_lost);
         cc%br  = cc%br  * (1-fraction_lost);
-      
+
         vegn%csmoke_pool = vegn%csmoke_pool + sp%smoke_fraction*delta;
-      
+
         vegn%veg_out = vegn%veg_out+delta;
-      
+
         !"living" biomass:leaves, roots and sapwood
         delta = cc%bliving*fraction_lost;
         cc%bliving = cc%bliving - delta;
 
         if(cc%bliving < BMIN) then
-           ! remove vegetaion competely 	      
+           ! remove vegetaion competely
            ! accumulate liter and soil carbon inputs across all cohorts
            leaf_litt(:) = leaf_litt(:) + [fsc_liv,  1-fsc_liv,  0.0]*(cc%bl+cc%blv)
            wood_litt(:) = wood_litt(:) + [fsc_wood, 1-fsc_wood, 0.0]*agf_bs*(cc%bwood+cc%bsw)
@@ -141,12 +141,12 @@ subroutine vegn_disturbance(vegn, soil, dt)
            enddo
 
            vegn%veg_out = vegn%veg_out + cc%bwood+cc%bliving;
-        
+
            cc%bliving = 0.;
            cc%bwood   = 0.;
         endif
         call update_biomass_pools(cc)
-     endif ! LM3 treatment   
+     endif ! LM3 treatment
      end associate
   enddo
 
@@ -171,20 +171,20 @@ subroutine calculate_patch_disturbance_rates(vegn)
 #else
 
   ! lambda is the number of drought months;
-  fire_prob = vegn%lambda/(1.+vegn%lambda); 
+  fire_prob = vegn%lambda/(1.+vegn%lambda);
   ! compute average fuel during fire months
   if (vegn%lambda > 0.00001 ) fuel = fuel/vegn%lambda;
   vegn%disturbance_rate(1) = fuel * fire_prob;
 
   ! put a threshold for very dry years for warm places
   if (vegn%t_ann > 273.16 .and. vegn%lambda > 3.)  vegn%disturbance_rate(1)=0.33;
-#endif  
-  
+#endif
+
   if(vegn%disturbance_rate(1) > 0.33) vegn%disturbance_rate(1)=0.33;
-  
+
   ! this is only true for the one cohort per patch case
   vegn%disturbance_rate(0) = spdata(vegn%cohorts(1)%species)%treefall_disturbance_rate;
-  
+
   vegn%fuel = fuel;
 end subroutine calculate_patch_disturbance_rates
 
@@ -195,7 +195,7 @@ subroutine update_fuel(vegn, wilt)
   real, intent(in) :: wilt ! ratio of wilting to saturated water content
 
   ! ---- local constants
-  !  these three used to be in data 
+  !  these three used to be in data
   real, parameter :: fire_height_threashold = 100;
   real, parameter :: fp1 = 1.; ! disturbance rate per kgC/m2 of fuel
   ! ---- local vars
@@ -205,9 +205,9 @@ subroutine update_fuel(vegn, wilt)
   real ::  babove;
   integer :: i
 
-  do i = 1,vegn%n_cohorts   
+  do i = 1,vegn%n_cohorts
      cc => vegn%cohorts(i)
-     ! calculate theta_crit: actually either fact_crit_fire or cnst_crit_fire 
+     ! calculate theta_crit: actually either fact_crit_fire or cnst_crit_fire
      ! is zero, enforced by logic in the vegn_data.F90
      theta_crit = spdata(cc%species)%cnst_crit_fire &
            + wilt*spdata(cc%species)%fact_crit_fire
@@ -217,12 +217,12 @@ subroutine update_fuel(vegn, wilt)
           .and.(vegn%tsoil_av > 278.16)) then
         babove = cc%bl + agf_bs * (cc%bsw + cc%bwood + cc%blv);
         ! this is fuel available during the drought months only
-        vegn%fuel = vegn%fuel + spdata(cc%species)%fuel_intensity*babove;	
+        vegn%fuel = vegn%fuel + spdata(cc%species)%fuel_intensity*babove;
      endif
   enddo
 
-  ! note that the ignition rate calculation based on the value of theta_crit for 
-  ! the last cohort -- currently it doesn't matter since we have just one cohort, 
+  ! note that the ignition rate calculation based on the value of theta_crit for
+  ! the last cohort -- currently it doesn't matter since we have just one cohort,
   ! but something needs to be done about that in the future
   ignition_rate = 0.;
   if ( (vegn%theta_av_fire < theta_crit) &
@@ -237,7 +237,7 @@ subroutine vegn_nat_mortality_lm3(vegn, soil, deltat)
   type(vegn_tile_type), intent(inout) :: vegn  ! vegetation data
   type(soil_tile_type), intent(inout) :: soil  ! soil data
   real, intent(in) :: deltat ! time since last mortality calculations, s
-  
+
   ! ---- local vars
   type(vegn_cohort_type), pointer :: cc    ! current cohort
   real :: delta;
@@ -247,14 +247,14 @@ subroutine vegn_nat_mortality_lm3(vegn, soil, deltat)
   real :: wood_litt(n_c_types) ! coarse surface litter per tile, kgC/m2
   real :: root_litt(num_l, n_c_types) ! root litter per soil layer, kgC/m2
   real :: profile(num_l) ! storage for vertical profile of exudates and root litter
-  
-  vegn%disturbance_rate(0) = 0.0; 
+
+  vegn%disturbance_rate(0) = 0.0;
   wood_litt = 0; root_litt = 0
   do i = 1,vegn%n_cohorts
      cc => vegn%cohorts(i)
      ! Treat treefall disturbance implicitly, i.e. not creating a new tile.
-     ! note that this disturbance rate calculation only works for the one cohort per 
-     ! tile case -- in case of multiple cohort disturbance rate perhaps needs to be 
+     ! note that this disturbance rate calculation only works for the one cohort per
+     ! tile case -- in case of multiple cohort disturbance rate perhaps needs to be
      ! accumulated (or averaged? or something else?) over the cohorts.
      vegn%disturbance_rate(0) = spdata(cc%species)%treefall_disturbance_rate;
 
@@ -262,8 +262,8 @@ subroutine vegn_nat_mortality_lm3(vegn, soil, deltat)
      balive = cc%bl + cc%blv + cc%br;
      bdead  = cc%bsw + cc%bwood;
      ! ens need a daily PATCH_FREQ here, for now it is set to 48
-     fraction_lost = 1.0-exp(-vegn%disturbance_rate(0)*deltat/seconds_per_year);     
-      
+     fraction_lost = 1.0-exp(-vegn%disturbance_rate(0)*deltat/seconds_per_year);
+
      ! "dead" biomass : wood + sapwood
      delta = bdead*fraction_lost;
 
@@ -277,15 +277,15 @@ subroutine vegn_nat_mortality_lm3(vegn, soil, deltat)
      cc%bsw   = cc%bsw   * (1-fraction_lost);
 
      vegn%veg_out = vegn%veg_out + delta;
-     
-     ! note that fast "living" pools are not included into mortality because their 
+
+     ! note that fast "living" pools are not included into mortality because their
      ! turnover is calculated separately
 
      cc%bliving = cc%bsw + cc%bl + cc%br + cc%blv;
      call update_biomass_pools(cc);
   enddo
   ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, wood_litter=wood_litt, root_litter=root_litt)     
+  call add_soil_carbon(soil, wood_litter=wood_litt, root_litter=root_litt)
 end subroutine vegn_nat_mortality_lm3
 
 
@@ -302,7 +302,7 @@ subroutine vegn_nat_mortality_ppa ( )
   real, allocatable :: ndead(:)
   ! variable used for conservation check:
   type(land_tile_type), pointer :: ptr
-  real :: lmass0, fmass0, cmass0, heat0 ! pre-transition values 
+  real :: lmass0, fmass0, cmass0, heat0 ! pre-transition values
   real :: lmass1, fmass1, cmass1, heat1 ! post-transition values
   real :: lm, fm
   character(*),parameter :: tag = 'vegn_nat_mortality_ppa'
@@ -311,7 +311,7 @@ subroutine vegn_nat_mortality_ppa ( )
   call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
   call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
 
-  if (.not.(do_ppa.and.year1 /= year0)) return  ! do nothing 
+  if (.not.(do_ppa.and.year1 /= year0)) return  ! do nothing
 
   call land_tile_list_init(disturbed_tiles)
 
@@ -353,10 +353,10 @@ subroutine vegn_nat_mortality_ppa ( )
         write(*,*) '#### vegn_nat_mortality_ppa ####'
         write(*,*) 'N tiles before merge = ', nitems(land_tile_map(i,j))
         write(*,*) 'N of disturbed tiles = ',    nitems(disturbed_tiles)
-     endif 
+     endif
      ! merge disturbed tiles back into the original list
      te = tail_elmt(disturbed_tiles)
-     do 
+     do
         ts = first_elmt(disturbed_tiles)
         if (ts == te) exit ! reached the end of the list
         t0=>current_tile(ts)
@@ -365,12 +365,12 @@ subroutine vegn_nat_mortality_ppa ( )
      if (is_watch_cell()) then
         write(*,*) 'N tiles after merge = ', nitems(land_tile_map(i,j))
      endif
-     ! at this point the list of disturbed tiles must be empty 
+     ! at this point the list of disturbed tiles must be empty
      if (.not.empty(disturbed_tiles)) call error_mesg('vegn_nat_mortality_ppa', &
         'list of disturbed tiles is not empty at the end of the processing', FATAL)
 
      if (do_check_conservation) then
-        ! conservation check part 2: calculate grid cell totals in final state, and 
+        ! conservation check part 2: calculate grid cell totals in final state, and
         ! compare them with pre-transition totals
         lmass1 = 0 ; fmass1 = 0 ; cmass1 = 0 ; heat1 = 0
         ts = first_elmt(land_tile_map(i,j)) ; te=tail_elmt(land_tile_map(i,j))
@@ -395,7 +395,7 @@ end subroutine vegn_nat_mortality_ppa
 
 
 ! ============================================================================
-! for a given cohort and time interval, calculates how many individuals die 
+! for a given cohort and time interval, calculates how many individuals die
 ! naturally during this interval
 subroutine cohort_nat_mortality_ppa(cc, deltat, ndead)
   type(vegn_cohort_type), intent(in)  :: cc     ! cohort
@@ -490,7 +490,7 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
         dying_crownwarea = dying_crownwarea + ndead(i)*t0%vegn%cohorts(i)%crownarea
      endif
   enddo
-  
+
   ! zero out litter terms, for accumulation across cohorts
   leaf_litt0 = 0.0; wood_litt0 = 0.0; root_litt0 = 0.0
   leaf_litt1 = 0.0; wood_litt1 = 0.0; root_litt1 = 0.0
@@ -500,7 +500,7 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
      ! will contain all crown area trees that are dying, while the
      ! original tile has all the crown trees that survive.
      ! Note that in both ne and original tiles nindivs of crown trees are different
-     ! than in the original tile before the 
+     ! than in the original tile before the
      t1 => new_land_tile(t0)
      t1%frac = t0%frac*dying_crownwarea
      t0%frac = t0%frac - t1%frac ! and update it to conserve area
@@ -508,8 +508,8 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
         write(*,*) 'Splitting a disturbed tile'
         __DEBUG3__(f0,t0%frac,t1%frac)
      endif
-     
-     ! change the density of individuals in the cohorts that we split 
+
+     ! change the density of individuals in the cohorts that we split
      do i = 1,t0%vegn%n_cohorts
         associate(cc0=>t0%vegn%cohorts(i), cc1=>t1%vegn%cohorts(i))
         if (cc0%layer==1) then
@@ -533,11 +533,11 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
         associate(cc0=>t0%vegn%cohorts(i), cc1=>t1%vegn%cohorts(i))
         if (cc0%layer==1) then
            ! kill all canopy plants in disturbed cohort, but do not touch undisturbed one
-           call kill_plants_ppa(cc1,t1%vegn,t1%soil,cc1%nindivs,0.0,leaf_litt1,wood_litt1,root_litt1)
+           call kill_plants_ppa(cc1,t1%vegn,cc1%nindivs,0.0,leaf_litt1,wood_litt1,root_litt1)
         else
            ! kill understory plants in both tiles
-           call kill_plants_ppa(cc1,t1%vegn,t1%soil,ndead(i),0.0,leaf_litt1,wood_litt1,root_litt1)
-           call kill_plants_ppa(cc0,t0%vegn,t0%soil,ndead(i),0.0,leaf_litt0,wood_litt0,root_litt0)
+           call kill_plants_ppa(cc1,t1%vegn,ndead(i),0.0,leaf_litt1,wood_litt1,root_litt1)
+           call kill_plants_ppa(cc0,t0%vegn,ndead(i),0.0,leaf_litt0,wood_litt0,root_litt0)
         endif
         end associate
      enddo
@@ -548,7 +548,7 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
         write(*,*) 'NOT splitting a disturbed tile'
      endif
      do i = 1,t0%vegn%n_cohorts
-        call kill_plants_ppa(t0%vegn%cohorts(i),t0%vegn,t0%soil,ndead(i),0.0,&
+        call kill_plants_ppa(t0%vegn%cohorts(i),t0%vegn,ndead(i),0.0,&
                              leaf_litt0,wood_litt0,root_litt0)
      enddo
   endif
@@ -573,14 +573,14 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
   endif
 
   if (do_check_conservation) then
-     ! + conservation check, part 2: calculate totals in final state, and compare 
+     ! + conservation check, part 2: calculate totals in final state, and compare
      ! with previous totals
      call get_tile_water(t0,lmass1,fmass1)
      lmass1 = lmass1*t0%frac; fmass1 = fmass1*t0%frac
      heat1  = land_tile_heat  (t0)*t0%frac
      cmass1 = land_tile_carbon(t0)*t0%frac
      if (associated(t1)) then
-        call get_tile_water(t1,lmass2,fmass2); 
+        call get_tile_water(t1,lmass2,fmass2);
         lmass1 = lmass1 + lmass2*t1%frac; fmass1 = fmass1 + fmass2*t1%frac
         heat1  = heat1  + land_tile_heat  (t1)*t1%frac
         cmass1 = cmass1 + land_tile_carbon(t1)*t1%frac
@@ -600,28 +600,31 @@ end subroutine tile_nat_mortality_ppa
 
 ! ==============================================================================
 ! given a cohort, number of individuals to kill, and fraction of smoke, kills
-! specified fraction of individuals, putting the biomass from the rest into
-! soil and smoke pools. Updates carbon pools and water pools (if there is water
-! on killed trees) in soil and vegn tiles.
+! specified number of individuals in cohort, putting their biomass into litter
+! and smoke pools.
+!
+! In vegn, this subroutine updates csmoke and intermediate heat and water pools (drop_*)
+! that are taken into account in energy/mass solver on the next time step.
+! *_litt arrays are incremented by this subroutine, so that consecutive calls
+! calculate cumulative amount of litter.
 
 ! NOTE that in contrast to LM3 mortality calculation, living biomass is
-! included in losses; does it mean that we double-counting losses in 
+! included in losses; does it mean that we double-counting losses in
 ! maintenance and here?
 
 ! TODO: ask Ensheng and Elena about possible double-counting of live biomass losses.
 
-! we are burning all of biomass (like we did in LM3), including the below-ground 
-! part. Perhaps we should leave the below-ground part alone, and add it to soil 
+! we are burning all of biomass (like we did in LM3), including the below-ground
+! part. Perhaps we should leave the below-ground part alone, and add it to soil
 ! carbon pools?
 
 ! TODO: ask Elena about burning of below-ground biomass
 
-subroutine kill_plants_ppa(cc, vegn, soil, ndead, fsmoke, leaf_litt, wood_litt, root_litt)
+subroutine kill_plants_ppa(cc, vegn, ndead, fsmoke, leaf_litt, wood_litt, root_litt)
   type(vegn_cohort_type), intent(inout) :: cc
   type(vegn_tile_type),   intent(inout) :: vegn
-  type(soil_tile_type),   intent(inout) :: soil
-  real,                   intent(in)    :: ndead ! number of individuals to kill, indiv./m2 
-  real,                   intent(in)    :: fsmoke ! fraction of biomass lost to fire, unitless 
+  real,                   intent(in)    :: ndead ! number of individuals to kill, indiv./m2
+  real,                   intent(in)    :: fsmoke ! fraction of biomass lost to fire, unitless
   real, intent(inout) :: leaf_litt(N_C_TYPES) ! accumulated leaf litter, kg C/m2
   real, intent(inout) :: wood_litt(N_C_TYPES) ! accumulated wood litter, kg C/m2
   real, intent(inout) :: root_litt(num_l, N_C_TYPES) ! accumulated root litter per soil layer, kgC/m2
@@ -630,11 +633,10 @@ subroutine kill_plants_ppa(cc, vegn, soil, ndead, fsmoke, leaf_litt, wood_litt, 
   real :: lost_wood, lost_alive, burned_wood, burned_alive
   real :: profile(num_l) ! storage for vertical profile of exudates and root litter
   integer :: l
-  
+
   call check_var_range(ndead,  0.0, cc%nindivs, 'kill_plants_ppa', 'ndead',  FATAL)
   call check_var_range(fsmoke, 0.0, 1.0,        'kill_plants_ppa', 'fsmoke', FATAL)
-  
-  
+
   ! water from dead trees goes to intermediate buffers, to be added to the
   ! precipitation reaching ground on the next physical time step
   vegn%drop_wl = vegn%drop_wl + cc%wl*ndead
@@ -654,7 +656,7 @@ subroutine kill_plants_ppa(cc, vegn, soil, ndead, fsmoke, leaf_litt, wood_litt, 
 
   ! add fire carbon losses to smoke pool
   vegn%csmoke_pool = vegn%csmoke_pool + burned_wood + burned_alive
-    
+
   ! add remaining lost C to soil carbon pools
   leaf_litt(:) = leaf_litt(:) + [fsc_liv,  1-fsc_liv,  0.0]*(cc%bl+cc%bseed+cc%carbon_gain+cc%growth_previous_day)*(1-fsmoke)*ndead
   wood_litt(:) = wood_litt(:) + [fsc_wood, 1-fsc_wood, 0.0]*(cc%bwood+cc%bsw+cc%bwood_gain)*(1-fsmoke)*agf_bs*ndead
@@ -666,7 +668,7 @@ subroutine kill_plants_ppa(cc, vegn, soil, ndead, fsmoke, leaf_litt, wood_litt, 
           (1-fsc_froot)*cc%br + (1-fsc_wood)*(cc%bsw+cc%bwood+cc%bwood_gain)*(1-agf_bs), &
           0.0/)
   enddo
-       
+
   ! reduce the number of individuals in cohort
   cc%nindivs = cc%nindivs-ndead
 
