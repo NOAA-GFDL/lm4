@@ -15,14 +15,13 @@ use land_debug_mod,  only : is_watch_point, is_watch_cell, set_current_point, &
 use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, fsc_froot, agf_bs, &
        do_ppa, LEAF_OFF, DBH_mort, A_mort, B_mort, mortrate_s, nat_mortality_splits_tiles
 use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_bwood
-use soil_tile_mod,   only : soil_tile_type, num_l, dz
+use soil_tile_mod,   only : soil_tile_type, num_l, dz, add_soil_carbon
 use land_tile_mod,   only : land_tile_map, land_tile_type, land_tile_enum_type, &
      land_tile_list_type, land_tile_list_init, land_tile_list_end, &
      empty, first_elmt, tail_elmt, next_elmt, merge_land_tile_into_list, &
      current_tile, operator(==), operator(/=), remove, insert, new_land_tile, &
      land_tile_heat, land_tile_carbon, get_tile_water, nitems
 use land_data_mod,   only : lnd
-use soil_mod,        only : add_soil_carbon
 use soil_carbon_mod, only : add_litter, soil_carbon_option, &
      SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, N_C_TYPES, C_CEL
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &

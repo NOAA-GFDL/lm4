@@ -17,12 +17,13 @@ use vegn_data_mod, only : do_ppa, &
      HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, &
      HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
      agf_bs, fsc_liv, fsc_froot, fsc_wood
-use vegn_tile_mod, only : &
-     vegn_tile_type
+use vegn_tile_mod, only : vegn_tile_type, vegn_relayer_cohorts_ppa
+use vegn_disturbance_mod, only : kill_plants_ppa
 use vegn_cohort_mod, only : &
      vegn_cohort_type, update_biomass_pools
+use soil_tile_mod, only: num_l
 use soil_carbon_mod, only: soil_carbon_option, &
-     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE
+     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, N_C_TYPES, C_CEL, C_LIG
 
 implicit none
 private
@@ -54,13 +55,17 @@ real :: grazing_residue        = 0.1     ! fraction of the grazed biomass transf
 real :: frac_wood_wasted_harv  = 0.25    ! fraction of wood wasted while harvesting
 real :: frac_wood_wasted_clear = 0.25    ! fraction of wood wasted while clearing land for pastures or crops
 logical :: waste_below_ground_wood = .TRUE. ! If true, all the wood below ground (1-agf_bs fraction of bwood
-        ! and bsw) is wasted. Old behavior assumed this to be FALSE.
+        ! and bsw) is wasted. Old behavior assumed this to be FALSE. NOTE that in PPA this option has no
+        ! effect; below-ground wood is always wasted.
+real :: wood_harv_DBH          = 0.05    ! DBH above which trees are harvested, m
+real :: frac_trampled          = 0.9     ! fraction of small trees that get trampled during harvesting
 real :: frac_wood_fast         = ONETHIRD ! fraction of wood consumed fast
 real :: frac_wood_med          = ONETHIRD ! fraction of wood consumed with medium speed
 real :: frac_wood_slow         = ONETHIRD ! fraction of wood consumed slowly
 real :: crop_seed_density      = 0.1     ! biomass of seeds left after crop harvesting, kg/m2
 namelist/harvesting_nml/ do_harvesting, grazing_intensity, grazing_residue, &
      frac_wood_wasted_harv, frac_wood_wasted_clear, waste_below_ground_wood, &
+     wood_harv_DBH, frac_trampled, &
      frac_wood_fast, frac_wood_med, frac_wood_slow, &
      crop_seed_density
 
@@ -408,6 +413,71 @@ subroutine vegn_cut_forest_ppa(vegn, new_landuse)
   type(vegn_tile_type), intent(inout) :: vegn
   integer, intent(in) :: new_landuse ! new land use type that gets assigned to
                                      ! the tile after the wood harvesting
+
+  ! ---- local vars
+  real :: frac_wood_wasted       ! fraction of wood wasted during transition
+  real, dimension(N_C_TYPES) :: &
+     leaf_litt(N_C_TYPES), & ! accumulated leaf litter, kg C/m2
+     wood_harv(N_C_TYPES), & ! accumulated wood harvest, kg C/m2
+     wood_litt(N_C_TYPES)    ! accumulated wood litter, kg C/m2
+  real :: root_litt(num_l, N_C_TYPES) ! accumulated root litter per soil layer, kgC/m2
+  real :: ndead  ! number of individuals killed in cohort
+  real :: dbh_min
+  integer :: i
+
+  ! define fraction of wood wasted, based on the transition type
+  if (new_landuse==LU_SCND) then
+     ! this is wood haresting
+     frac_wood_wasted = frac_wood_wasted_harv
+     dbh_min = wood_harv_DBH
+  else
+     ! this is land clearance
+     frac_wood_wasted = frac_wood_wasted_clear
+     dbh_min = -HUGE(1.0) ! in clearance, everything is harvested
+  endif
+
+  leaf_litt=0.0; wood_harv=0.0; wood_litt=0.0; root_litt=0.0
+  do i = 1, vegn%n_cohorts
+     associate (cc=>vegn%cohorts(i))
+     if (cc%dbh > dbh_min) then
+        ! these trees are harvested
+        ndead = cc%nindivs
+        call kill_plants_ppa(cc,vegn,ndead,0.0, leaf_litt, wood_harv, root_litt)
+     else
+        ! these trees are too small to be harvested, so a part of them get trampled
+        ! and goes to waste, the rest stays
+        ndead = cc%nindivs * frac_trampled
+        call kill_plants_ppa(cc,vegn,ndead,0.0, leaf_litt, wood_litt, root_litt)
+     endif
+     end associate
+     ! note that below-ground wood all goes to litter, by construction of kill_plants_ppa
+  enddo
+
+  ! distribute harvested wood between pools
+  if (new_landuse==LU_SCND) then
+     ! this is harvesting, distribute between 3 different wood pools
+     vegn%harv_pool(HARV_POOL_WOOD_FAST) = vegn%harv_pool(HARV_POOL_WOOD_FAST) &
+          + sum(wood_harv)*frac_wood_fast*(1-frac_wood_wasted)
+     vegn%harv_pool(HARV_POOL_WOOD_MED) = vegn%harv_pool(HARV_POOL_WOOD_MED) &
+          + sum(wood_harv)*frac_wood_med*(1-frac_wood_wasted)
+     vegn%harv_pool(HARV_POOL_WOOD_SLOW) = vegn%harv_pool(HARV_POOL_WOOD_SLOW) &
+          + sum(wood_harv)*frac_wood_slow*(1-frac_wood_wasted)
+  else
+     ! this is land clearance: everything goes into "cleared" pool
+     vegn%harv_pool(HARV_POOL_CLEARED) = vegn%harv_pool(HARV_POOL_CLEARED) &
+          + sum(wood_harv)*(1-frac_wood_wasted)
+  endif
+
+  ! add litter to intermediate carbon pools
+  vegn%fsc_pool_ag = vegn%fsc_pool_ag + &
+      wood_harv(C_CEL)*frac_wood_wasted + wood_litt(C_CEL) + leaf_litt(C_CEL)
+  vegn%ssc_pool_ag = vegn%ssc_pool_ag + &
+      wood_harv(C_LIG)*frac_wood_wasted + wood_litt(C_LIG) + leaf_litt(C_LIG)
+  vegn%fsc_pool_bg = vegn%fsc_pool_bg + sum(root_litt(:,C_CEL))
+  vegn%ssc_pool_bg = vegn%ssc_pool_bg + sum(root_litt(:,C_LIG))
+  ! note that we assume microbial biomass is zero
+
+  call vegn_relayer_cohorts_ppa(vegn)
 
 end subroutine vegn_cut_forest_ppa
 
