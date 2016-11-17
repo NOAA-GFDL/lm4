@@ -122,6 +122,23 @@ integer, parameter, public ::   &
      GW_HILL           = 3, &
      GW_TILED          = 4
 
+! litter pool constants
+integer, parameter, public :: &
+     N_LITTER_POOLS    = 3, &
+     LEAF              = 1, & ! leaf litter
+     CWOOD             = 2, & ! coarse wood litter
+     FWOOD             = 3    ! fine wood litter
+
+character(16), parameter, public :: l_shortname(N_LITTER_POOLS) = [ &
+     'leaf            ', &
+     'coarsewood      ', &
+     'finewood        '  ]
+
+character(16), parameter, public :: l_longname(N_LITTER_POOLS) = [ &
+     'leaf            ', &
+     'coarse wood     ', &
+     'fine wood       '  ]
+
 ! ==== types =================================================================
 type :: soil_pars_type
   real vwc_wilt

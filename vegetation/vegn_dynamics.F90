@@ -22,7 +22,7 @@ use vegn_data_mod, only : spdata, &
      l_fract, mcv_min, mcv_lai, do_ppa, tau_seed, &
      understory_lai_factor, wood_fract_min, do_alt_allometry
 use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon
-use soil_tile_mod, only: num_l, dz, soil_tile_type, clw, csw, add_soil_carbon
+use soil_tile_mod, only: num_l, dz, soil_tile_type, clw, csw, add_soil_carbon, LEAF, CWOOD
 use vegn_cohort_mod, only : vegn_cohort_type, &
      update_biomass_pools, update_bio_living_fraction, update_species, &
      leaf_area_from_biomass, biomass_of_individual, init_cohort_allometry_ppa, &
@@ -1205,10 +1205,9 @@ subroutine update_soil_pools(vegn, soil)
      ! balance: we are depleting the {fsc,ssc}_pool_ag, but adding to litter
      ! from the pools {leaflitter,coarsewoodLitter}_buffer_ag. The latter two
      ! are not used in the calculations of the total carbon.
-     vegn%leaflitter_buffer_rate_ag = MAX(0.0, MIN(vegn%leaflitter_buffer_rate_ag, vegn%leaflitter_buffer_ag/dt_fast_yr))
-     vegn%coarsewoodlitter_buffer_rate_ag = MAX(0.0, MIN(vegn%coarsewoodlitter_buffer_rate_ag, vegn%coarsewoodlitter_buffer_ag/dt_fast_yr))
-     call add_litter(soil%leafLitter,(/vegn%leaflitter_buffer_rate_ag*dt_fast_yr*fsc_liv,vegn%leaflitter_buffer_rate_ag*dt_fast_yr*(1.0-fsc_liv),0.0/))
-     call add_litter(soil%coarsewoodLitter,(/vegn%coarsewoodlitter_buffer_rate_ag*dt_fast_yr*fsc_liv,vegn%coarsewoodlitter_buffer_rate_ag*dt_fast_yr*(1.0-fsc_liv),0.0/))
+     vegn%litter_rate_C = MAX(0.0, MIN(vegn%litter_rate_C, vegn%litter_buff_C/dt_fast_yr))
+     call add_litter(soil%leafLitter,vegn%litter_rate_C(:,LEAF)*dt_fast_yr)
+     call add_litter(soil%coarsewoodLitter,vegn%litter_rate_C(:,CWOOD)*dt_fast_yr)
   
      ! update fsc input rate so that intermediate fsc pool is never
      ! depleted below zero; on the other hand the pool can be only 
