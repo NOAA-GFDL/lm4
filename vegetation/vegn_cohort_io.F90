@@ -203,6 +203,7 @@ subroutine read_create_cohorts_new(idx,ntiles)
   nlon = lnd%nlon
   nlat = lnd%nlat
   ncohorts = size(idx)
+  npts = nlon*nlat
 
   do n = 1,ncohorts
      if(idx(n)<0) cycle ! skip illegal indices
