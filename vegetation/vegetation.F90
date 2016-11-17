@@ -1623,7 +1623,7 @@ subroutine vegn_seed_transport()
   ! local vars
   type(land_tile_enum_type) :: ce, te
   type(land_tile_type), pointer :: tile
-  integer :: i,j ! current point indices
+  integer :: l ! current point indices
   real :: total_seed_supply
   real :: total_seed_demand
   real :: f_supply ! fraction of the supply that gets spent
@@ -1632,12 +1632,12 @@ subroutine vegn_seed_transport()
   ce = first_elmt(land_tile_map, lnd_ug%ls) ; te = tail_elmt(land_tile_map)
   total_seed_supply = 0.0; total_seed_demand = 0.0
   do while ( ce /= te )
-     call get_elmt_indices(ce,i,j)
+     call get_elmt_indices(ce,l=l)
      tile => current_tile(ce) ; ce=next_elmt(ce)
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
 
-     total_seed_supply = total_seed_supply + vegn_seed_supply(tile%vegn)*tile%frac*lnd%area(i,j)
-     total_seed_demand = total_seed_demand + vegn_seed_demand(tile%vegn)*tile%frac*lnd%area(i,j)
+     total_seed_supply = total_seed_supply + vegn_seed_supply(tile%vegn)*tile%frac*lnd_ug%area(l)
+     total_seed_demand = total_seed_demand + vegn_seed_demand(tile%vegn)*tile%frac*lnd_ug%area(l)
   enddo
   ! sum totals globally
   call mpp_sum(total_seed_demand, pelist=lnd%pelist)
@@ -1659,7 +1659,6 @@ subroutine vegn_seed_transport()
   ! of the demand
   ce = first_elmt(land_tile_map) ; te = tail_elmt(land_tile_map)
   do while ( ce /= te )
-     call get_elmt_indices(ce,i,j)
      tile => current_tile(ce) ; ce=next_elmt(ce)
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
 
