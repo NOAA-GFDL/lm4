@@ -582,12 +582,11 @@ subroutine merge_land_tile_into_list(tile, list)
 
   ! ---- local vars
   type(land_tile_type), pointer :: ptr
-  type(land_tile_enum_type) :: ct,et
+  type(land_tile_enum_type) :: ct
   
   ! try to find a tile that we can merge to
-  ct = first_elmt(list) ; et = tail_elmt(list)
-  do while(ct/=et)
-     ptr=>current_tile(ct) ; ct = next_elmt(ct)
+  ct = first_elmt(list)
+  do while(loop_over_tiles(ct,ptr))
      if (land_tiles_can_be_merged(tile,ptr)) then
         call merge_land_tiles(tile,ptr)
         call delete_land_tile(tile)
@@ -595,7 +594,7 @@ subroutine merge_land_tile_into_list(tile, list)
      endif
   enddo
   ! we reach here only if no suitable files was found in the list
-  ! if no suitable tile was found, just insert given tile into the list
+  ! if no suitable tile was found, just insert given tile into the list.
   call insert(tile,list)
 end subroutine merge_land_tile_into_list
 
