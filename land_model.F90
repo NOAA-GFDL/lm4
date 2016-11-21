@@ -6,7 +6,7 @@ module land_model_mod
 #include "shared/debug.inc"
 
 use time_manager_mod, only : time_type, get_time, increment_time, time_type_to_real, &
-     operator(+)
+     get_date, operator(+), operator(-)
 use mpp_domains_mod, only : domain2d, mpp_get_ntile_count
 
 #ifdef INTERNAL_FILE_NML
@@ -68,10 +68,12 @@ use land_numerics_mod, only : ludcmp, lubksb, lubksb_and_improve, nearest, &
      horiz_remap_print
 use land_io_mod, only : read_land_io_namelist, input_buf_size, new_land_io
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
-     land_tile_enum_type, new_land_tile, insert, nitems, &
+     land_tile_enum_type, new_land_tile, insert, remove, empty, nitems, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
      get_elmt_indices, get_tile_tags, get_tile_water, land_tile_heat, &
-     land_tile_carbon, max_n_tiles, init_tile_map, free_tile_map
+     land_tile_carbon, max_n_tiles, init_tile_map, free_tile_map, &
+     loop_over_tiles, land_tile_list_init, land_tile_list_end, &
+     merge_land_tile_into_list
 use land_data_mod, only : land_data_type, atmos_land_boundary_type, &
      land_state_type, land_data_init, land_data_end, lnd, log_version
 use nf_utils_mod,  only : nfu_inq_var, nfu_inq_dim, nfu_get_var
@@ -2320,15 +2322,46 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
 
   ! ---- local vars
   integer :: i,j,k
+  integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
   integer :: n_cohorts
   type(land_tile_type), pointer :: tile
-  type(land_tile_enum_type) :: ce, te
+  type(land_tile_enum_type) :: ce
+  type(land_tile_list_type) :: tmp
 
   call mpp_clock_begin(landClock)
   call mpp_clock_begin(landSlowClock)
 
+  ! get components of calendar dates for this and previous time step
+  call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
+  call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
+
   ! invoke any processes that potentially change tiling
-  call land_disturbances( )
+  call vegn_nat_mortality_ppa( )
+  call land_transitions( lnd%time )
+
+  ! try to minimize the number of tiles by merging similar ones
+  if (year0/=year1) then
+     call land_tile_list_init(tmp)
+     do j = lnd%js,lnd%je
+     do i = lnd%is,lnd%ie
+        ! merge all tiles into temporary list
+        do while (.not.empty(land_tile_map(i,j)))
+           ce=first_elmt(land_tile_map(i,j))
+           tile=>current_tile(ce)
+           call remove(ce)
+           call merge_land_tile_into_list(tile,tmp)
+        enddo
+        ! move all tiles from temporary list to tile map
+        do while (.not.empty(tmp))
+           ce=first_elmt(tmp)
+           tile=>current_tile(ce)
+           call remove(ce)
+           call insert(tile,land_tile_map(i,j))
+        enddo
+     enddo
+     enddo
+     call land_tile_list_end(tmp)
+  endif
 
   call update_vegn_slow( )
   ! send the accumulated diagnostics to the output
@@ -2347,17 +2380,8 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   ce = first_elmt(land_tile_map,                  &
               is=lbound(cplr2land%t_flux,1), &
               js=lbound(cplr2land%t_flux,2)  )
-  te = tail_elmt(land_tile_map)
-  do while(ce /= te)
-     ! calculate indices of the current tile in the input arrays;
-     ! assume all the cplr2land components have the same lbounds
-     call get_elmt_indices(ce,i,j,k)
-     ! set this point coordinates as current for debug output
+  do while(loop_over_tiles(ce,tile,i,j,k))
      call set_current_point(i,j,k)
-     ! get pointer to current tile
-     tile => current_tile(ce)
-     ! advance enumerator to the next tile
-     ce=next_elmt(ce)
 
      n_cohorts = 1; if (associated(tile%vegn)) n_cohorts = tile%vegn%n_cohorts
      call update_land_bc_fast (tile, n_cohorts, i,j,k, land2cplr, is_init=.true.)
