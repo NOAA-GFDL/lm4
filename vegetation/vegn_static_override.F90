@@ -488,7 +488,7 @@ subroutine static_vegn_init( )
         ! get the base date of the simulation
         call get_base_date(year,month,day,hour,minute,sec)
         base_time = set_date(year, month, day, hour, minute, sec)
-        if(mpp_pe()==lnd%io_pelist(1)) then
+        if(mpp_pe()==lnd_ug%io_pelist(1)) then
            ! create time axis, on root IO processors only
            units = ' '
            write(units, 11) year, month, day, hour, minute, sec
