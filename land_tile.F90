@@ -482,7 +482,7 @@ end function land_tile_carbon
 function land_tile_heat(tile) result(heat) ; real heat
   type(land_tile_type), intent(in) :: tile
 
-  heat = 0
+  heat = tile%e_res_1 + tile%e_res_2
   if (associated(tile%cana)) &
        heat = heat+cana_tile_heat(tile%cana)
   if (associated(tile%glac)) &
@@ -538,6 +538,7 @@ subroutine merge_land_tiles(tile1,tile2)
 
   ! ---- local vars
   real :: x1,x2
+  real :: dheat
 
   if(associated(tile1%glac)) &
        call merge_glac_tiles(tile1%glac, tile1%frac, tile2%glac, tile2%frac)
@@ -551,8 +552,9 @@ subroutine merge_land_tiles(tile1,tile2)
   if(associated(tile1%snow)) &
        call merge_snow_tiles(tile1%snow, tile1%frac, tile2%snow, tile2%frac)
 
+  dheat = 0.0
   if(associated(tile1%vegn)) &
-       call merge_vegn_tiles(tile1%vegn, tile1%frac, tile2%vegn, tile2%frac)
+       call merge_vegn_tiles(tile1%vegn, tile1%frac, tile2%vegn, tile2%frac, dheat)
 
   ! calculate normalized weights
   x1 = tile1%frac/(tile1%frac+tile2%frac)
@@ -569,6 +571,7 @@ subroutine merge_land_tiles(tile1,tile2)
   __MERGE__(runon_Hs)
 #undef __MERGE__
 
+  tile2%e_res_2 = tile2%e_res_2 - dheat
   tile2%frac = tile1%frac + tile2%frac
 end subroutine merge_land_tiles
 

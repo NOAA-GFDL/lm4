@@ -1857,6 +1857,7 @@ subroutine update_vegn_slow( )
   real    :: zstar ! critical depth, for diag only
   character(64) :: str
   real, allocatable :: btot(:) ! storage for total biomass
+  real :: dheat
   
   ! variables for conservation checks
   real :: lmass0, fmass0, heat0, cmass0
@@ -2008,7 +2009,7 @@ subroutine update_vegn_slow( )
         call check_conservation_2(tile,'update_vegn_slow 7.1',lmass0,fmass0,cmass0)
         call vegn_relayer_cohorts_ppa(tile%vegn)
         call check_conservation_2(tile,'update_vegn_slow 7.2',lmass0,fmass0,cmass0)
-        call vegn_mergecohorts_ppa(tile%vegn)
+        call vegn_mergecohorts_ppa(tile%vegn, dheat)
         call check_conservation_2(tile,'update_vegn_slow 7.3',lmass0,fmass0,cmass0)
         call kill_small_cohorts_ppa(tile%vegn,tile%soil)
         
