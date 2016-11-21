@@ -1253,7 +1253,7 @@ subroutine check_conservation(name, d1, d2, tolerance)
   if (conservation_opt == OPT_IGNORE) return ! do nothing
 
   severity = WARNING
-  if (overshoot_opt==OPT_STOP) severity = FATAL
+  if (conservation_opt==OPT_STOP) severity = FATAL
 
   if (abs(d1-d2)>tolerance) then
      call get_current_point(i=curr_i,j=curr_j,face=face)
