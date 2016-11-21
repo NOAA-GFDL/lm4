@@ -58,8 +58,10 @@ public :: land_tile_heat ! returns tile heat content
 ! operations with tile lists and tile list enumerators
 public :: land_tile_list_init, land_tile_list_end
 public :: first_elmt, tail_elmt
+public :: elmt_at_index ! given list and k, returns list[k]
 public :: operator(==), operator(/=) ! comparison of two enumerators
 public :: next_elmt, prev_elmt ! enumerator advance operations
+public :: loop_over_tiles ! provides simple way to iterate over a list of tiles
 public :: current_tile ! returns pointer to the tile at a position
 public :: insert  ! inserts a tile at a given position, or appends it to a list
 public :: erase   ! erases tile at current position
@@ -79,6 +81,7 @@ public :: tile_exists_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fpt
 
 public :: land_tile_map ! array of tile lists 
 ! ==== end of public interfaces ==============================================
+
 interface new_land_tile
    module procedure land_tile_ctor
    module procedure land_tile_copy_ctor
@@ -479,7 +482,7 @@ end function land_tile_carbon
 function land_tile_heat(tile) result(heat) ; real heat
   type(land_tile_type), intent(in) :: tile
 
-  heat = 0
+  heat = tile%e_res_1 + tile%e_res_2
   if (associated(tile%cana)) &
        heat = heat+cana_tile_heat(tile%cana)
   if (associated(tile%glac)) &
@@ -535,6 +538,7 @@ subroutine merge_land_tiles(tile1,tile2)
 
   ! ---- local vars
   real :: x1,x2
+  real :: dheat
 
   if(associated(tile1%glac)) &
        call merge_glac_tiles(tile1%glac, tile1%frac, tile2%glac, tile2%frac)
@@ -548,8 +552,9 @@ subroutine merge_land_tiles(tile1,tile2)
   if(associated(tile1%snow)) &
        call merge_snow_tiles(tile1%snow, tile1%frac, tile2%snow, tile2%frac)
 
+  dheat = 0.0
   if(associated(tile1%vegn)) &
-       call merge_vegn_tiles(tile1%vegn, tile1%frac, tile2%vegn, tile2%frac)
+       call merge_vegn_tiles(tile1%vegn, tile1%frac, tile2%vegn, tile2%frac, dheat)
 
   ! calculate normalized weights
   x1 = tile1%frac/(tile1%frac+tile2%frac)
@@ -566,6 +571,7 @@ subroutine merge_land_tiles(tile1,tile2)
   __MERGE__(runon_Hs)
 #undef __MERGE__
 
+  tile2%e_res_2 = tile2%e_res_2 - dheat
   tile2%frac = tile1%frac + tile2%frac
 end subroutine merge_land_tiles
 
@@ -579,12 +585,11 @@ subroutine merge_land_tile_into_list(tile, list)
 
   ! ---- local vars
   type(land_tile_type), pointer :: ptr
-  type(land_tile_enum_type) :: ct,et
+  type(land_tile_enum_type) :: ct
   
   ! try to find a tile that we can merge to
-  ct = first_elmt(list) ; et = tail_elmt(list)
-  do while(ct/=et)
-     ptr=>current_tile(ct) ; ct = next_elmt(ct)
+  ct = first_elmt(list)
+  do while(loop_over_tiles(ct,ptr))
      if (land_tiles_can_be_merged(tile,ptr)) then
         call merge_land_tiles(tile,ptr)
         call delete_land_tile(tile)
@@ -592,7 +597,7 @@ subroutine merge_land_tile_into_list(tile, list)
      endif
   enddo
   ! we reach here only if no suitable files was found in the list
-  ! if no suitable tile was found, just insert given tile into the list
+  ! if no suitable tile was found, just insert given tile into the list.
   call insert(tile,list)
 end subroutine merge_land_tile_into_list
 
@@ -663,6 +668,21 @@ function n_items_in_list(list) result (n)
      node => node%next
   enddo
 end function n_items_in_list
+
+! ============================================================================
+function elmt_at_index(list,k) result(ptr)
+  type(land_tile_list_type), intent(in) :: list ! list of tiles
+  integer,                   intent(in) :: k    ! index
+  type(land_tile_type), pointer :: ptr ! return value
+
+  type(land_tile_enum_type) :: ct
+  integer :: i
+  ct = first_elmt(list); i = 1
+  do while (loop_over_tiles(ct, ptr))
+     if (i==k) exit ! from loop
+     i = i+1
+  enddo
+end function elmt_at_index
 
 ! ============================================================================
 subroutine insert_in_list(tile,list)
@@ -893,6 +913,23 @@ subroutine get_elmt_indices(ce,i,j,k)
   if (present(k)) k = ce%k
 
 end subroutine get_elmt_indices
+
+! ============================================================================
+! given an enumerator, sets tile pointer to the current tile and its indices, and
+! attempts to advance enumerator to the next tile. If enumerator was already at
+! the end of the tile list, returns FALSE; in this case pointer "tile" and
+! indices i,j,k are not defined.
+function loop_over_tiles(ce, tile, i,j,k) result(R); logical R
+  type(land_tile_enum_type), intent(inout) :: ce
+  type(land_tile_type)     , pointer, optional :: tile
+  integer, intent(out), optional :: i,j,k ! indices of the tile
+
+  if (present(tile)) tile=>current_tile(ce)
+  call get_elmt_indices(ce,i,j,k)
+  ! advance enumerator to the next element
+  ce = next_elmt(ce)
+  R  = associated(tile)
+end function loop_over_tiles
 
 ! ============================================================================
 ! inserts tile at the position indicated by enumerator: in fact right in front 
