@@ -365,9 +365,23 @@ subroutine vegn_mergecohorts_ppa(vegn, dheat)
 
   allocate(cc(vegn%n_cohorts))
 
-!  write(*,*)'vegn_mergecohorts_ppa n_cohorts before: ', vegn%n_cohorts
-
   heat1 = vegn_tile_heat(vegn)
+  if (is_watch_point()) then
+      write(*,*)'#### vegn_mergecohorts_ppa input ####'
+      do i = 1, vegn%n_cohorts
+         associate (c1=>vegn%cohorts(i))
+         write(*,'(i2.2)',advance='NO') i
+         call dpri('wl', c1%wl)
+         call dpri('ws', c1%ws)
+         call dpri('Tv', c1%Tv)
+         call dpri('hcap', clw*c1%Wl + csw*c1%Ws + c1%mcv_dry)
+         call dpri('heat',(clw*c1%Wl + csw*c1%Ws + c1%mcv_dry)*(c1%Tv-tfreeze))
+         call dpri('layer',c1%layer)
+         write(*,*)
+         end associate
+     enddo
+     write(*,*)'#### end of vegn_mergecohorts_ppa input ####'
+  endif
   merged(:)=.FALSE. ; k = 0
   do i = 1, vegn%n_cohorts 
      if(merged(i)) cycle ! skip cohorts that were already merged
@@ -377,6 +391,8 @@ subroutine vegn_mergecohorts_ppa(vegn, dheat)
      do j = i+1, vegn%n_cohorts
         if (merged(j)) cycle ! skip cohorts that are already merged
         if (cohorts_can_be_merged(vegn%cohorts(j),cc(k))) then
+           if (is_watch_point()) &
+              write(*,*) 'merging cohorts ',i,' and ',j,' into ',k
            call merge_cohorts(vegn%cohorts(j),cc(k))
            merged(j) = .TRUE.
         endif
@@ -390,9 +406,25 @@ subroutine vegn_mergecohorts_ppa(vegn, dheat)
 
   heat2 = vegn_tile_heat(vegn)
   dheat = heat2 - heat1
-  call check_var_range(dheat,-1.0,1.0,'vegn_mergecohorts_ppa','vegetation heat tendency due to cohort merge',WARNING)
+  if (is_watch_point()) then
+      write(*,*)'#### vegn_mergecohorts_ppa output ####'
+      do i = 1, vegn%n_cohorts
+         associate (c1=>vegn%cohorts(i))
+         write(*,'(i2.2)',advance='NO') i
+         call dpri('wl', c1%wl)
+         call dpri('ws', c1%ws)
+         call dpri('Tv', c1%Tv)
+         call dpri('hcap', clw*c1%Wl + csw*c1%Ws + c1%mcv_dry)
+         call dpri('heat',(clw*c1%Wl + csw*c1%Ws + c1%mcv_dry)*(c1%Tv-tfreeze))
+         call dpri('layer',c1%layer)
+         write(*,*)
+         end associate
+     enddo
+     __DEBUG3__(heat1,heat2,dheat)
+      write(*,*)'#### end of vegn_mergecohorts_ppa output ####'
+  endif
+!  call check_var_range(dheat,-1.0,1.0,'vegn_mergecohorts_ppa','vegetation heat tendency due to cohort merge',WARNING)
 
-!  write(*,*)'vegn_mergecohorts_ppa n_cohorts after: ', vegn%n_cohorts
 end subroutine vegn_mergecohorts_ppa
 
 ! ============================================================================
@@ -448,10 +480,10 @@ subroutine merge_cohorts(c1,c2)
   ! update canopy temperature -- just merge temperatures using nindivs as weights if
   ! the heat capacities are zero, or merge based on the heat content if the heat capacities
   ! are non-zero
-  call check_var_range(c1%Tv,120.0,373.0,'merge_cohorts before', 'Tv1', FATAL)
-  call check_var_range(c2%Tv,120.0,373.0,'merge_cohorts before', 'Tv2', FATAL)
+!   call check_var_range(c1%Tv,120.0,373.0,'merge_cohorts before', 'Tv1', FATAL)
+!   call check_var_range(c2%Tv,120.0,373.0,'merge_cohorts before', 'Tv2', FATAL)
   hcap = clw*c2%Wl + csw*c2%Ws + c2%mcv_dry
-  if(hcap1*hcap2>0.and.abs(hcap)>epsilon(1.0)) then
+  if(hcap1*hcap2>=0.and.abs(hcap)>epsilon(1.0)) then
      c2%Tv = (HEAT1*x1+HEAT2*x2)/hcap + tfreeze
   else
      ! If cohort heat capacities are of different sign, then it does not make sense to
@@ -459,7 +491,7 @@ subroutine merge_cohorts(c1,c2)
      ! conservation violation; caller needs to take that into account.
      __MERGE__(Tv)
   endif
-  call check_var_range(c2%Tv,120.0,373.0,'merge_cohorts after', 'Tv2', FATAL)
+!  call check_var_range(c2%Tv,120.0,373.0,'merge_cohorts after', 'Tv2', FATAL)
 #undef  __MERGE__
   ! update number of individuals in merged cohort
   c2%nindivs = c1%nindivs+c2%nindivs
