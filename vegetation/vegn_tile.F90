@@ -15,7 +15,7 @@ use vegn_data_mod, only : &
      vegn_to_use,  input_cover_types, &
      mcv_min, mcv_lai, &
      vegn_index_constant, &
-     agf_bs, BSEED, LU_NTRL, LU_SCND, N_HARV_POOLS, &
+     agf_bs, BSEED, C2N_SEED, LU_NTRL, LU_SCND, N_HARV_POOLS, &
      LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, &
      SP_C3GRASS, SP_C4GRASS, &
      scnd_biomass_bins
@@ -23,6 +23,8 @@ use vegn_data_mod, only : &
 use vegn_cohort_mod, only : vegn_cohort_type, &
      height_from_biomass, lai_from_biomass, update_bio_living_fraction, &
      cohort_uptake_profile, cohort_hydraulic_properties, update_biomass_pools
+
+use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE_N
 
 implicit none
 private
@@ -50,6 +52,7 @@ public :: vegn_hydraulic_properties
 public :: vegn_data_rs_min
 public :: vegn_seed_supply
 public :: vegn_seed_demand
+public :: vegn_seed_N_supply
 
 public :: vegn_add_bliving
 public :: update_derived_vegn_data  ! given state variables, calculate derived values
@@ -457,6 +460,28 @@ function vegn_seed_supply ( vegn )
 end function vegn_seed_supply
 
 ! ============================================================================
+function vegn_seed_N_supply ( vegn )
+  real :: vegn_seed_N_supply
+  type(vegn_tile_type), intent(in) :: vegn
+
+  ! ---- local vars
+  real :: vegn_storedN
+  integer :: i
+
+  if(soil_carbon_option .NE. SOILC_CORPSE_N) then
+     vegn_seed_N_supply=0.0
+     return
+  endif
+
+  vegn_storedN = 0
+  do i = 1,vegn%n_cohorts
+     vegn_storedN = vegn_storedN + vegn%cohorts(i)%stored_N
+  enddo
+  vegn_seed_N_supply = MAX (vegn_storedN-BSEED/C2N_SEED, 0.0)
+
+end function vegn_seed_N_supply
+
+! ============================================================================
 function vegn_seed_demand ( vegn )
   real :: vegn_seed_demand
   type(vegn_tile_type), intent(in) :: vegn
@@ -472,12 +497,14 @@ function vegn_seed_demand ( vegn )
 end function vegn_seed_demand
 
 ! ============================================================================
-subroutine vegn_add_bliving ( vegn, delta )
+subroutine vegn_add_bliving ( vegn, delta ,deltaN)
   type(vegn_tile_type), intent(inout) :: vegn
   real :: delta ! increment of bliving
+  real,optional :: deltaN
 
   vegn%cohorts(1)%bliving = vegn%cohorts(1)%bliving + delta
-
+  if(present(deltaN)) vegn%cohorts(1)%stored_N = vegn%cohorts(1)%stored_N+deltaN
+  if(soil_carbon_option==SOILC_CORPSE_N .AND. vegn%cohorts(1)%stored_N<0) call error_mesg('vegn_add_bliving','resulting stored_N is less then 0', FATAL)
   if (vegn%cohorts(1)%bliving < 0)then
      call error_mesg('vegn_add_bliving','resulting bliving is less then 0', FATAL)
   endif

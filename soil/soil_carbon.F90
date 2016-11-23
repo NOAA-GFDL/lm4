@@ -1552,7 +1552,7 @@ logical function check_cohort(cohort) result(cohortGood)
     isNAN(cohort%originalLitterC) .OR. &
     isNAN(cohort%livingMicrobeC) .OR. &
     isNAN(cohort%CO2)  .OR. &
-    (min(cohort%originalLitterN,cohort%livingMicrobeN).lt.0) .OR. &
+    cohort%livingMicrobeN.lt.0 .OR. &
     isNAN(cohort%originalLitterN) .OR. &
     isNAN(cohort%livingMicrobeN) &
     )
@@ -1638,7 +1638,7 @@ END FUNCTION
     tempSum=tempSum+sum(cohort%litterN)
     tempSum=tempSum+sum(cohort%protectedN)
   !  tempSum=tempSum+(cohort%MINER_gross-cohort%IMM_N_gross)
-    if(only_act) then
+    if(.NOT. only_act) then
       tempSum=tempSum+(cohort%MINER_prod-cohort%IMM_Nprod)
     endif
 
@@ -2841,6 +2841,19 @@ ENDIF
 
 !!!!xz Nitrogen [end]
     enddo
+
+    if(any(woodlitter%dissolved_nitrogen<0.0)) then
+        print *,'woodlitter dissolved N < 0'
+        __DEBUG1__(woodlitter%dissolved_nitrogen)
+        __DEBUG1__(leaf_DON_frac)
+        __DEBUG1__(DON(:,1))
+        __DEBUG1__(d_DON(:,1))
+        print *,'wood litter:'
+        call print_cohort(woodlitter%litterCohorts(1))
+        print *,'leaf litter:'
+        call print_cohort(leaflitter%litterCohorts(1))
+        call error_mesg('tracer_leaching_with_litter','woodlitter nitrogen < 0',FATAL)
+    endif
 
     call deposit_dissolved_C(leaflitter)
     call deposit_dissolved_C(woodlitter)

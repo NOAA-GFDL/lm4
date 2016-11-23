@@ -87,6 +87,7 @@ data HARV_POOL_NAMES &
 real, public, parameter :: C2B = 2.0  ! carbon to biomass conversion factor
 
 real, public, parameter :: BSEED = 5e-5 ! seed density for supply/demand calculations, kg C/m2
+real, public, parameter :: C2N_SEED = 50 ! seed C:N ratio
 ! ---- public types
 public :: spec_data_type
 

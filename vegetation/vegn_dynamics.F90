@@ -555,16 +555,18 @@ total_myc_Nmin = 0.0
             d_mine_N_reservoir = d_mine_N_reservoir - miner_myc_growth/c2n_mycorrhizae
 
             N_fixer_growth = cc%N_fixer_C_reservoir*myc_growth_rate*N_fixer_C_efficiency*dt_fast_yr
-            if (N_fixer_growth>c2n_mycorrhizae*cc%N_fixer_N_reservoir*0.9) then
-              ! Not enough nitrogen to support growth. Limit to available N, and leave a little bit left over for plant
-              N_fixer_growth=c2n_mycorrhizae*cc%N_fixer_N_reservoir*0.9
-            endif
+            !if (N_fixer_growth>c2n_mycorrhizae*cc%N_fixer_N_reservoir*0.9) then
+            !  ! Not enough nitrogen to support growth. Limit to available N, and leave a little bit left over for plant
+            !  N_fixer_growth=c2n_mycorrhizae*cc%N_fixer_N_reservoir*0.9
+            !endif
             total_myc_resp = total_myc_resp + N_fixer_growth/N_fixer_C_efficiency*(1.0-N_fixer_C_efficiency)
 
             cc%N_fixer_biomass_C = cc%N_fixer_biomass_C + N_fixer_growth - cc%N_fixer_biomass_C/N_fixer_turnover_time*dt_fast_yr
             cc%N_fixer_biomass_N = cc%N_fixer_biomass_N + N_fixer_growth/c2n_N_fixer - cc%N_fixer_biomass_N/N_fixer_turnover_time*dt_fast_yr
             d_N_fixer_C_reservoir = d_N_fixer_C_reservoir - N_fixer_growth/N_fixer_C_efficiency
-            d_N_fixer_N_reservoir = d_N_fixer_N_reservoir - N_fixer_growth/c2n_mycorrhizae
+            !d_N_fixer_N_reservoir = d_N_fixer_N_reservoir - N_fixer_growth/c2n_mycorrhizae
+            ! N fixers just make all the N they need for their biomass
+            N_fixation = N_fixation + N_fixer_growth/c2n_mycorrhizae
 
             if(cc%myc_scavenger_biomass_C<0) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger biomass < 0',FATAL)
             if(cc%myc_miner_biomass_C<0) then
@@ -573,10 +575,24 @@ total_myc_Nmin = 0.0
             endif
             if(cc%N_fixer_biomass_C<0) call error_mesg('vegn_carbon_int','N fixer biomass < 0',FATAL)
 
+            if(cc%myc_scavenger_biomass_N<0) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger biomass < 0',FATAL)
+            if(cc%myc_miner_biomass_N<0) then
+              __DEBUG3__(cc%myc_miner_biomass_N,myc_mine_N_uptake,miner_myc_N_allocated)
+              call error_mesg('vegn_carbon_int','Mycorrhizal miner biomass N < 0',FATAL)
+            endif
+            if(cc%N_fixer_biomass_N<0) call error_mesg('vegn_carbon_int','N fixer biomass < 0',FATAL)
+
+
+            
+            if(cc%N_fixer_biomass_C<0) call error_mesg('vegn_carbon_int','N fixer biomass < 0',FATAL)
             if(isnan(cc%myc_scavenger_biomass_C)) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger biomass is NaN',FATAL)
             if(isnan(cc%myc_miner_biomass_C)) call error_mesg('vegn_carbon_int','Mycorrhizal miner biomass is NaN',FATAL)
             if(isnan(cc%N_fixer_biomass_C)) call error_mesg('vegn_carbon_int','N fixer biomass is NaN',FATAL)
 
+            if(isnan(cc%myc_scavenger_biomass_N)) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger biomass is NaN',FATAL)
+            if(isnan(cc%myc_miner_biomass_N)) call error_mesg('vegn_carbon_int','Mycorrhizal miner biomass is NaN',FATAL)
+            if(isnan(cc%N_fixer_biomass_N)) call error_mesg('vegn_carbon_int','N fixer biomass is NaN',FATAL)
+            
             cc%scav_myc_C_reservoir = cc%scav_myc_C_reservoir + d_scav_C_reservoir
             cc%scav_myc_N_reservoir = cc%scav_myc_N_reservoir + d_scav_N_reservoir
             cc%mine_myc_C_reservoir = cc%mine_myc_C_reservoir + d_mine_C_reservoir
@@ -584,6 +600,22 @@ total_myc_Nmin = 0.0
             cc%N_fixer_C_reservoir = cc%N_fixer_C_reservoir + d_N_fixer_C_reservoir
             cc%N_fixer_N_reservoir = cc%N_fixer_N_reservoir + d_N_fixer_N_reservoir
 
+            if(abs(cc%mine_myc_N_reservoir)<1e-30) cc%mine_myc_N_reservoir = 0.0
+            if(abs(cc%mine_myc_C_reservoir)<1e-30) cc%mine_myc_C_reservoir = 0.0
+            if(abs(cc%scav_myc_N_reservoir)<1e-30) cc%scav_myc_N_reservoir = 0.0
+            if(abs(cc%scav_myc_C_reservoir)<1e-30) cc%scav_myc_C_reservoir = 0.0
+
+            if(cc%scav_myc_C_reservoir<0) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger C reservoir < 0',FATAL)
+            if(cc%mine_myc_C_reservoir<0) call error_mesg('vegn_carbon_int','Mycorrhizal miner C reservoir < 0',FATAL)
+            if(cc%N_fixer_C_reservoir<0) call error_mesg('vegn_carbon_int','N fixer C reservoir < 0',FATAL)
+            if(cc%scav_myc_N_reservoir<0) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger N reservoir < 0',FATAL)
+            if(cc%mine_myc_N_reservoir<0) then
+                __DEBUG4__(cc%mine_myc_N_reservoir,cc%mine_myc_C_reservoir,cc%myc_miner_biomass_C,cc%myc_miner_biomass_N)
+                __DEBUG4__(cc%species,cc%total_N,cc%leaf_N,cc%stored_N)
+                call error_mesg('vegn_carbon_int','Mycorrhizal miner N reservoir < 0',FATAL)
+            endif
+            if(cc%N_fixer_N_reservoir<0) call error_mesg('vegn_carbon_int','N fixer N reservoir < 0',FATAL)
+            
             ! Calculate N released to plant
             scav_N_to_plant = cc%scav_myc_N_reservoir*myc_N_to_plant_rate*dt_fast_yr
             mine_N_to_plant = cc%mine_myc_N_reservoir*myc_N_to_plant_rate*dt_fast_yr

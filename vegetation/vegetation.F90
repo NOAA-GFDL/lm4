@@ -18,7 +18,7 @@ use constants_mod,    only: tfreeze, rdgas, rvgas, hlv, hlf, cp_air, PI
 use sphum_mod, only: qscomp
 
 use vegn_tile_mod, only: vegn_tile_type, &
-     vegn_seed_demand, vegn_seed_supply, vegn_add_bliving, &
+     vegn_seed_demand, vegn_seed_supply, vegn_seed_N_supply, vegn_add_bliving, &
      cpw, clw, csw, vegn_tile_nitrogen
 use soil_tile_mod, only: soil_tile_type, soil_ave_temp, soil_tile_nitrogen,&
                          soil_ave_theta0, soil_ave_theta1, soil_psi_stress
@@ -43,7 +43,7 @@ use vegn_data_mod, only : SP_C4GRASS, LEAF_ON, LU_NTRL, read_vegn_data_namelist,
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
      N_HARV_POOLS, HARV_POOL_NAMES, HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, &
      HARV_POOL_WOOD_FAST, HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, agf_bs, &
-     c2n_mycorrhizae, c2n_N_fixer, N_limits_live_biomass, spdata
+     c2n_mycorrhizae, c2n_N_fixer,C2N_SEED, N_limits_live_biomass, spdata
 use vegn_cohort_mod, only : vegn_cohort_type, &
      vegn_data_heat_capacity, vegn_data_intrcptn_cap, update_species,&
      get_vegn_wet_frac, vegn_data_cover
@@ -331,7 +331,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      call get_cohort_data(restart2, 'scav_myc_C_reservoir', cohort_scav_myc_C_reservoir_ptr)
      call get_cohort_data(restart2, 'scav_myc_N_reservoir', cohort_scav_myc_N_reservoir_ptr)
      call get_cohort_data(restart2, 'mine_myc_C_reservoir', cohort_mine_myc_C_reservoir_ptr)
-     call get_cohort_data(restart2, 'scav_myc_N_reservoir', cohort_scav_myc_N_reservoir_ptr)
+     call get_cohort_data(restart2, 'scav_myc_N_reservoir', cohort_mine_myc_N_reservoir_ptr)
      call get_cohort_data(restart2, 'N_fixer_C_reservoir', cohort_N_fixer_C_reservoir_ptr)
      call get_cohort_data(restart2, 'N_fixer_N_reservoir', cohort_N_fixer_N_reservoir_ptr)
      call get_cohort_data(restart2, 'myc_scavenger_biomass_C', cohort_myc_scavenger_biomass_C_ptr)
@@ -1909,24 +1909,28 @@ subroutine vegn_seed_transport()
   type(land_tile_enum_type) :: ce, te
   type(land_tile_type), pointer :: tile
   integer :: i,j ! current point indices
-  real :: total_seed_supply
-  real :: total_seed_demand
-  real :: f_supply ! fraction of the supply that gets spent
-  real :: f_demand ! fraction of the demand that gets satisfied
+  real :: total_seed_supply, total_seed_N_supply
+  real :: total_seed_demand, total_seed_N_demand
+  real :: f_supply, f_supply_N ! fraction of the supply that gets spent
+  real :: f_demand, f_demand_N ! fraction of the demand that gets satisfied
 
   ce = first_elmt(land_tile_map, lnd%is, lnd%js) ; te = tail_elmt(land_tile_map)
-  total_seed_supply = 0.0; total_seed_demand = 0.0
+  total_seed_supply = 0.0; total_seed_demand = 0.0; total_seed_N_supply = 0.0
   do while ( ce /= te )
      call get_elmt_indices(ce,i,j)
      tile => current_tile(ce) ; ce=next_elmt(ce)
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
 
      total_seed_supply = total_seed_supply + vegn_seed_supply(tile%vegn)*tile%frac*lnd%area(i,j)
+     total_seed_N_supply = total_seed_N_supply + vegn_seed_N_supply(tile%vegn)*tile%frac*lnd%area(i,j)
      total_seed_demand = total_seed_demand + vegn_seed_demand(tile%vegn)*tile%frac*lnd%area(i,j)
   enddo
+  total_seed_N_demand = total_seed_demand/C2N_SEED
   ! sum totals globally
   call mpp_sum(total_seed_demand, pelist=lnd%pelist)
   call mpp_sum(total_seed_supply, pelist=lnd%pelist)
+  call mpp_sum(total_seed_N_demand, pelist=lnd%pelist)
+  call mpp_sum(total_seed_N_supply, pelist=lnd%pelist)
   ! if either demand or supply are zeros we don't need (or can't) transport anything
   if (total_seed_demand==0.or.total_seed_supply==0)then
      return
@@ -1934,8 +1938,10 @@ subroutine vegn_seed_transport()
 
   ! calculate the fraction of the supply that is going to be used
   f_supply = MIN(total_seed_demand/total_seed_supply, 1.0)
+  f_supply_N = MIN(total_seed_N_demand/total_seed_N_supply,1.0)
   ! calculate the fraction of the demand that is going to be satisfied
   f_demand = MIN(total_seed_supply/total_seed_demand, 1.0)
+  f_demand_N = MIN(total_seed_N_supply/total_seed_N_demand,1.0)
   ! note that either f_supply or f_demand is 1; the mass conservation law in the
   ! following calculations is satisfied since
   ! f_demand*total_seed_demand - f_supply*total_seed_supply == 0
@@ -1949,7 +1955,8 @@ subroutine vegn_seed_transport()
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
 
      call vegn_add_bliving(tile%vegn, &
-          f_demand*vegn_seed_demand(tile%vegn)-f_supply*vegn_seed_supply(tile%vegn))
+          f_demand*vegn_seed_demand(tile%vegn)-f_supply*vegn_seed_supply(tile%vegn),&
+          f_demand_N*vegn_seed_demand(tile%vegn)/C2N_seed-f_supply_N*vegn_seed_N_supply(tile%vegn))
   enddo
 end subroutine vegn_seed_transport
 
