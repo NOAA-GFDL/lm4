@@ -51,6 +51,7 @@ public :: retrieve_dissolved_mineral_N
 public :: mycorrhizal_mineral_N_uptake_rate
 public :: mycorrhizal_decomposition
 public :: litterDensity
+public :: deadmic_slow_frac
 
 #ifndef STANDALONE_SOIL_CARBON
 public :: A_function
@@ -186,6 +187,7 @@ real, dimension(N_C_TYPES) :: vmaxref_denitrif=(/450e0,2.5e0,60e0/) ! Organic ma
 real :: k_denitrif=1e-2                ! Half saturation constant for denitrification (kgNO3-N/kgNO3-N demand/year)
 real :: denitrif_NO3_factor=0.18
 real :: CN_microb=8                    ! Fixed microbial C:N ratio
+real :: deadmic_slow_frac=0.0     ! Fraction of microbial turnover that goes to slow pool
 
 real,dimension(N_C_TYPES) :: eup=(/0.6,0.2,0.1/)            ! Fraction of degraded C that goes into microbial biomass
 real,dimension(N_C_TYPES) :: eup_myc=(/0.6,0.2,0.1/)        ! Fraction of degraded C that goes into mycorrhizal biomass
@@ -222,6 +224,7 @@ real :: DON_deposition_rate=1.0        ! Amount of dissolved N deposited after l
 
 real :: gas_diffusion_exp=2.5          ! Exponent for gas diffusion power law dependence on theta
                                                             ! See Meslin et al 2010, SSAJ
+real :: substrate_diffusion_exp=3.0    ! Exponent for theta dependence at low theta. See Davison et al DAMM model paper
 real :: litterDensity=22.0             ! C density of litter layer (kg/m3)
                                                             ! 22.0 roughly from Gaudinsky et al 2000
 real :: min_anaerobic_resp_factor=0.0  ! Minimum for high soil moisture Resp limitation
@@ -235,9 +238,9 @@ integer :: N_limit_scheme = NLIM_OVERFLOW  ! N limitation scheme to use: See def
 
 namelist /soil_carbon_nml/ &
     soil_carbon_model_to_use, use_rhizosphere_cohort,&
-    Ea,vmaxref,kC,Tmic,et,eup,minMicrobeC,soilMaxCohorts,gas_diffusion_exp,&
+    Ea,vmaxref,kC,Tmic,et,eup,minMicrobeC,soilMaxCohorts,gas_diffusion_exp,substrate_diffusion_exp,&
     tol,enzfrac,tProtected,protection_rate,protection_species,C_leaching_solubility,C_flavor_relative_solubility,DOC_deposition_rate,&
-    litterDensity,protected_relative_solubility,min_anaerobic_resp_factor,microbe_driven_protection,&
+    litterDensity,protected_relative_solubility,min_anaerobic_resp_factor,microbe_driven_protection,deadmic_slow_frac,&
     Ea_NH4,Ea_NO3,Ea_nitrif,Ea_denitr,denitrif_theta_min,&
     V_NH4_ref,V_NO3_ref,Knitr_ref,Kdenitr_ref,&
     CN_microb,mup,gamma_nitr,tProtected_N,&
@@ -457,6 +460,7 @@ subroutine deposit_dissolved_C(pool)
       elsewhere! xz
           pool%dissolved_nitrogen=pool%dissolved_nitrogen-deposited_N   ! xz
       end where! xz
+      call check_var_range(deposited_N,0.0,HUGE(1.0),'deposit_dissolved_N','deposited_N',FATAL)
   ELSE
       deposited_N=0.0
   ENDIF
@@ -949,10 +953,12 @@ subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled
         ENDIF
 
         deadmic_C_produced=dt*microbeTurnover*et
-        cohort%litterC(3)=cohort%litterC(3)+deadmic_C_produced! kg/m2
+        cohort%litterC(3)=cohort%litterC(3)+deadmic_C_produced*(1.0-deadmic_slow_frac)! kg/m2
+        cohort%litterC(2)=cohort%litterC(2)+deadmic_C_produced*(deadmic_slow_frac)
 
         deadmic_N_produced=dt*microbeTurnover*et/CN_microb! xz
-        cohort%litterN(3)=cohort%litterN(3)+deadmic_N_produced! xz  ! kg/m2
+        cohort%litterN(3)=cohort%litterN(3)+deadmic_N_produced*(1.0-deadmic_slow_frac)! xz  ! kg/m2
+        cohort%litterN(2)=cohort%litterN(2)+deadmic_N_produced*(deadmic_slow_frac)
 
 
         IF(CN_imbalance_term.ge.0.0)THEN
@@ -1267,9 +1273,11 @@ pure function Resp(Ctotal,Chet,T,theta,air_filled_porosity)
     real,intent(in)::Ctotal(N_C_TYPES)   ! Substrate C
     real,dimension(N_C_TYPES)::Resp
     real::enz,Cavail(N_C_TYPES)
-    real, parameter :: aerobic_max = 0.022 ! Maximum soil-moisture factor under ideal conditions
+    real :: aerobic_max, theta_resp_max  ! Maximum soil-moisture factor under ideal conditions
 
-
+    ! From solving theta dependence for maximum:
+    theta_resp_max=substrate_diffusion_exp/(gas_diffusion_exp*(1.0+substrate_diffusion_exp/gas_diffusion_exp))
+    aerobic_max=theta_resp_max**substrate_diffusion_exp*(1.0-theta_resp_max)**gas_diffusion_exp
 
     enz=Chet*enzfrac
 
@@ -1281,7 +1289,7 @@ pure function Resp(Ctotal,Chet,T,theta,air_filled_porosity)
     ENDIF
 
     where (Cavail>0)
-      Resp=Vmax(T)*theta**3*(Cavail)*enz/(Cavail*kC+enz)*max((air_filled_porosity)**gas_diffusion_exp,min_anaerobic_resp_factor*aerobic_max)
+      Resp=Vmax(T)*theta**substrate_diffusion_exp*(Cavail)*enz/(Cavail*kC+enz)*max((air_filled_porosity)**gas_diffusion_exp,min_anaerobic_resp_factor*aerobic_max)/aerobic_max
   elsewhere
      Resp=0.0
    endwhere
@@ -1299,8 +1307,12 @@ pure function Resp_denitrif(Ctotal,Chet,T,theta,air_filled_porosity,nitrate)
     real,dimension(N_C_TYPES)::Resp_denitrif,tempresp
     real::denitrif_NO3_demand
     real::enz,Cavail(N_C_TYPES)
-    real, parameter :: aerobic_max = 0.022 ! Maximum soil-moisture factor under ideal conditions
+    real :: aerobic_max, theta_resp_max  ! Maximum soil-moisture factor under ideal conditions
 
+    ! From solving theta dependence for maximum:
+    theta_resp_max=substrate_diffusion_exp/(gas_diffusion_exp*(1.0+substrate_diffusion_exp/gas_diffusion_exp))
+    aerobic_max=theta_resp_max**substrate_diffusion_exp*(1.0-theta_resp_max)**gas_diffusion_exp
+    ! This should be fixed to work with correct denitrif theta dependence
 
 
     enz=Chet*enzfrac
@@ -1313,7 +1325,7 @@ pure function Resp_denitrif(Ctotal,Chet,T,theta,air_filled_porosity,nitrate)
     ENDIF
 
     where(Cavail>0)
-      tempresp=Vmax_denitrif(T)*(Cavail)*enz/(Cavail*kC+enz)*theta**3*max(0.0,(denitrif_theta_min-air_filled_porosity**gas_diffusion_exp))*aerobic_max
+      tempresp=Vmax_denitrif(T)*(Cavail)*enz/(Cavail*kC+enz)*theta**substrate_diffusion_exp*max(0.0,(denitrif_theta_min-air_filled_porosity**gas_diffusion_exp))/aerobic_max
     elsewhere
       tempresp=0.0
     endwhere
@@ -1340,7 +1352,12 @@ pure function Resp_myc(Ctotal,Chet,T,theta,air_filled_porosity)
     real,intent(in),dimension(N_C_TYPES)::Ctotal ! Substrate C
     real,dimension(N_C_TYPES)::Resp_myc,tempresp
     real::enz,Cavail(N_C_TYPES)
-    real, parameter :: aerobic_max = 0.022 ! Maximum soil-moisture factor under ideal conditions
+    real :: aerobic_max, theta_resp_max  ! Maximum soil-moisture factor under ideal conditions
+
+    ! From solving theta dependence for maximum:
+    theta_resp_max=substrate_diffusion_exp/(gas_diffusion_exp*(1.0+substrate_diffusion_exp/gas_diffusion_exp))
+    aerobic_max=theta_resp_max**substrate_diffusion_exp*(1.0-theta_resp_max)**gas_diffusion_exp
+
 
 
 
@@ -1354,7 +1371,7 @@ pure function Resp_myc(Ctotal,Chet,T,theta,air_filled_porosity)
     ENDIF
 
     where(Cavail>0)
-      Resp_myc=Vmax_myc(T)*theta**3*(Cavail)*enz/(Cavail*k_myc_decomp+enz)*max((air_filled_porosity)**gas_diffusion_exp,min_anaerobic_resp_factor*aerobic_max)
+      Resp_myc=Vmax_myc(T)*theta**substrate_diffusion_exp*(Cavail)*enz/(Cavail*k_myc_decomp+enz)*max((air_filled_porosity)**gas_diffusion_exp,min_anaerobic_resp_factor*aerobic_max)/aerobic_max
     elsewhere
       Resp_myc=0.0
     endwhere
@@ -1552,7 +1569,7 @@ logical function check_cohort(cohort) result(cohortGood)
     isNAN(cohort%originalLitterC) .OR. &
     isNAN(cohort%livingMicrobeC) .OR. &
     isNAN(cohort%CO2)  .OR. &
-    (min(cohort%originalLitterN,cohort%livingMicrobeN).lt.0) .OR. &
+    cohort%livingMicrobeN.lt.0 .OR. &
     isNAN(cohort%originalLitterN) .OR. &
     isNAN(cohort%livingMicrobeN) &
     )
@@ -1638,7 +1655,7 @@ END FUNCTION
     tempSum=tempSum+sum(cohort%litterN)
     tempSum=tempSum+sum(cohort%protectedN)
   !  tempSum=tempSum+(cohort%MINER_gross-cohort%IMM_N_gross)
-    if(only_act) then
+    if(.NOT. only_act) then
       tempSum=tempSum+(cohort%MINER_prod-cohort%IMM_Nprod)
     endif
 
@@ -1894,6 +1911,11 @@ subroutine remove_C_N_fraction_from_pool(pool,fractionC,fractionN,litterC_remove
 
     IF(allocated(pool%litterCohorts)) THEN
        DO ii=1,pool%n_cohorts
+         if(.NOT. check_cohort(pool%litterCohorts(ii))) then
+             print *,'Invalid cohort:'
+             call print_cohort(pool%litterCohorts(ii))
+             call error_mesg('remove_C_N_fraction_from_pool','cohort invalid (before)',FATAL)
+         endif
            ! Carbon
            temp2=pool%litterCohorts(ii)%litterC*min(1.0,fractionC)*C_litterFactor
            litterC_removed=litterC_removed+temp2
@@ -1931,6 +1953,12 @@ subroutine remove_C_N_fraction_from_pool(pool,fractionC,fractionN,litterC_remove
                protectedN_removed=0.0
                liveMicrobeN_removed=0.0
            ENDIF
+           if(.NOT. check_cohort(pool%litterCohorts(ii))) then
+               print *,'Invalid cohort:'
+               call print_cohort(pool%litterCohorts(ii))
+               __DEBUG2__(fractionC,fractionN)
+               call error_mesg('remove_C_N_fraction_from_pool','cohort invalid (after)',FATAL)
+           endif
        ENDDO
     ENDIF
     pool%C_in(:) = pool%C_in(:) - litterC_removed(:)
@@ -1962,6 +1990,18 @@ end subroutine remove_cohort
 subroutine combine_cohorts(cohort1,cohort2,result)
     type(litterCohort),intent(in)::cohort1,cohort2
     type(litterCohort),intent(out)::result
+
+    if(.NOT. check_cohort(cohort1)) then
+        print *,'Invalid cohort:'
+        call print_cohort(cohort1)
+        call error_mesg('combine_cohorts','cohort1 invalid',FATAL)
+    endif
+
+    if(.NOT. check_cohort(cohort2)) then
+        print *,'Invalid cohort:'
+        call print_cohort(cohort2)
+        call error_mesg('combine_cohorts','cohort2 invalid',FATAL)
+    endif
 
     call initializeCohort(result)
 
