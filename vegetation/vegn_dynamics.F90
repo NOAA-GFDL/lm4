@@ -22,7 +22,7 @@ use vegn_data_mod, only : spdata, &
      l_fract, mcv_min, mcv_lai, do_ppa, tau_seed, &
      understory_lai_factor, wood_fract_min, do_alt_allometry
 use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon
-use soil_tile_mod, only: num_l, dz, soil_tile_type, clw, csw
+use soil_tile_mod, only: num_l, dz, soil_tile_type, clw, csw, add_soil_carbon, LEAF, CWOOD
 use vegn_cohort_mod, only : vegn_cohort_type, &
      update_biomass_pools, update_bio_living_fraction, update_species, &
      leaf_area_from_biomass, biomass_of_individual, init_cohort_allometry_ppa, &
@@ -31,7 +31,7 @@ use vegn_disturbance_mod, only : kill_plants_ppa
 use soil_carbon_mod, only: N_C_TYPES, soil_carbon_option, &
     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, &
     add_litter
-use soil_mod, only: add_soil_carbon, add_root_litter, add_root_exudates, Dsdt
+use soil_mod, only: add_root_litter, add_root_exudates, Dsdt
 
 implicit none
 private
@@ -587,7 +587,7 @@ subroutine vegn_starvation_ppa (vegn, soil)
 
        deadtrees = min(cc%nindivs*deathrate,cc%nindivs) ! individuals / m2
        ! kill starved plants and add dead C from leaf and root pools to soil carbon
-       call kill_plants_ppa(cc, vegn, soil, deadtrees, 0.0, leaf_litt, wood_litt, root_litt)
+       call kill_plants_ppa(cc, vegn, deadtrees, 0.0, leaf_litt, wood_litt, root_litt)
 
        ! for budget tracking - temporary
        vegn%veg_out = deadtrees * (cc%bl+cc%br+cc%bsw+cc%blv+cc%bseed+cc%nsc+cc%bwood)
@@ -748,7 +748,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      leaf_root_gr = G_LFR*365.0 ! conversion from kgC/day to kgC/year
      sw_seed_gr = (G_WF+delta_bsw_branch )*GROWTH_RESP*days_per_year ! conversion from kgC/day to kgC/year
      
-     if (cc%nsc < 0.) write (*, *)'nsc is negative!!!!!!'
+     call check_var_range(cc%nsc,0.0,HUGE(1.0),'vegn_dynamics','cc%nsc', WARNING)
 
      !ens --compute daily growth to compute respiration, apply it next day, use npp_previous day variable, units kg C/(m2 *year)
      cc%growth_previous_day = cc%growth_previous_day+(max(0., G_LFR+G_WF)+delta_bsw_branch)*GROWTH_RESP ! this is for growth respiration to come from nsc
@@ -1205,10 +1205,9 @@ subroutine update_soil_pools(vegn, soil)
      ! balance: we are depleting the {fsc,ssc}_pool_ag, but adding to litter
      ! from the pools {leaflitter,coarsewoodLitter}_buffer_ag. The latter two
      ! are not used in the calculations of the total carbon.
-     vegn%leaflitter_buffer_rate_ag = MAX(0.0, MIN(vegn%leaflitter_buffer_rate_ag, vegn%leaflitter_buffer_ag/dt_fast_yr))
-     vegn%coarsewoodlitter_buffer_rate_ag = MAX(0.0, MIN(vegn%coarsewoodlitter_buffer_rate_ag, vegn%coarsewoodlitter_buffer_ag/dt_fast_yr))
-     call add_litter(soil%leafLitter,(/vegn%leaflitter_buffer_rate_ag*dt_fast_yr*fsc_liv,vegn%leaflitter_buffer_rate_ag*dt_fast_yr*(1.0-fsc_liv),0.0/))
-     call add_litter(soil%coarsewoodLitter,(/vegn%coarsewoodlitter_buffer_rate_ag*dt_fast_yr*fsc_liv,vegn%coarsewoodlitter_buffer_rate_ag*dt_fast_yr*(1.0-fsc_liv),0.0/))
+     vegn%litter_rate_C = MAX(0.0, MIN(vegn%litter_rate_C, vegn%litter_buff_C/dt_fast_yr))
+     call add_litter(soil%leafLitter,vegn%litter_rate_C(:,LEAF)*dt_fast_yr)
+     call add_litter(soil%coarsewoodLitter,vegn%litter_rate_C(:,CWOOD)*dt_fast_yr)
   
      ! update fsc input rate so that intermediate fsc pool is never
      ! depleted below zero; on the other hand the pool can be only 
@@ -1367,7 +1366,7 @@ subroutine kill_small_cohorts_ppa(vegn,soil)
            k=k+1
            cc(k) = vegn%cohorts(i)
         else
-           call kill_plants_ppa(vegn%cohorts(i), vegn, soil, vegn%cohorts(i)%nindivs, 0.0, &
+           call kill_plants_ppa(vegn%cohorts(i), vegn, vegn%cohorts(i)%nindivs, 0.0, &
                                 leaf_litt, wood_litt, root_litt)
         endif
      enddo

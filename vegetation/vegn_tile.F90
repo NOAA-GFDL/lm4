@@ -2,15 +2,17 @@ module vegn_tile_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod,            only : error_mesg, FATAL
+use fms_mod,            only : error_mesg, WARNING, FATAL
 use constants_mod,      only : tfreeze, hlf
 
 use land_constants_mod, only : NBANDS
-use land_debug_mod,     only : is_watch_point
+use land_debug_mod,     only : is_watch_point, check_conservation, check_var_range, &
+     carbon_cons_tol, water_cons_tol, heat_cons_tol
 use land_numerics_mod,  only : rank_descending
 use land_io_mod,        only : init_cover_field
 use land_tile_selectors_mod, only : tile_selector_type
 
+use soil_carbon_mod, only : N_C_TYPES
 use vegn_data_mod, only : &
      MSPECIES, spdata, &
      vegn_to_use,  input_cover_types, vegn_index_constant, &
@@ -23,7 +25,7 @@ use vegn_data_mod, only : &
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
      cohorts_can_be_merged, leaf_area_from_biomass, biomass_of_individual
 
-use soil_tile_mod, only : max_lev
+use soil_tile_mod, only : max_lev, N_LITTER_POOLS
 
 implicit none
 private
@@ -82,8 +84,8 @@ type :: vegn_tile_type
    real :: fsc_pool_bg=0.0, fsc_rate_bg=0.0 ! for fast soil carbon below ground
    real :: ssc_pool_bg=0.0, ssc_rate_bg=0.0 ! for slow soil carbon below ground
    
-   real :: leaflitter_buffer_ag=0.0,      coarsewoodlitter_buffer_ag=0.0
-   real :: leaflitter_buffer_rate_ag=0.0, coarsewoodlitter_buffer_rate_ag=0.0
+   real, dimension(N_C_TYPES, N_LITTER_POOLS) :: &
+       litter_buff_C = 0.0, litter_rate_C = 0.0
 
    real :: csmoke_pool=0.0 ! carbon lost through fires, kg C/m2 
    real :: csmoke_rate=0.0 ! rate of release of the above to atmosphere, kg C/(m2 yr)
@@ -213,10 +215,11 @@ end function vegn_tiles_can_be_merged
 
 ! ============================================================================
 ! merges two vegetation tiles into one with given weights
-subroutine merge_vegn_tiles(t1,w1,t2,w2)
+subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
   type(vegn_tile_type), intent(in) :: t1
   type(vegn_tile_type), intent(inout) :: t2
   real, intent(in) :: w1, w2 ! relative weights
+  real, intent(out) :: dheat ! heat content change due to cohort merge, J/m2
   
   ! ---- local vars
   real :: x1, x2 ! normalized relative weights
@@ -228,6 +231,7 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   ! calculate normalized weights
   x1 = w1/(w1+w2)
   x2 = 1.0 - x1
+  dheat = 0.0
 
   if (do_ppa) then
      ccold => t2%cohorts ! keep old cohort information
@@ -246,7 +250,7 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
      enddo
      t2%n_cohorts=t1%n_cohorts+t2%n_cohorts
      call vegn_relayer_cohorts_ppa(t2)
-     call vegn_mergecohorts_ppa(t2)
+     call vegn_mergecohorts_ppa(t2, dheat)
   else
      ! the following assumes that there is one, and only one, cohort per tile 
      c1 => t1%cohorts(1)
@@ -302,10 +306,7 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
   __MERGE__(fsc_pool_bg); __MERGE__(fsc_rate_bg)
   __MERGE__(ssc_pool_bg); __MERGE__(ssc_rate_bg)
   
-  __MERGE__(leaflitter_buffer_ag)
-  __MERGE__(leaflitter_buffer_rate_ag)
-  __MERGE__(coarsewoodlitter_buffer_ag)
-  __MERGE__(coarsewoodlitter_buffer_rate_ag)
+  __MERGE__(litter_buff_C); __MERGE__(litter_rate_C)
 
   __MERGE__(csmoke_pool)
   __MERGE__(csmoke_rate)
@@ -352,18 +353,35 @@ end subroutine merge_vegn_tiles
 
 ! ============================================================================
 ! Merge similar cohorts in a tile
-subroutine vegn_mergecohorts_ppa(vegn)
+subroutine vegn_mergecohorts_ppa(vegn, dheat)
   type(vegn_tile_type), intent(inout) :: vegn
+  real, intent(out) :: dheat ! heat content change due to cohort merge, J/m2
 
   ! ---- local vars
   type(vegn_cohort_type), pointer :: cc(:) ! array to hold new cohorts
   logical :: merged(vegn%n_cohorts)        ! mask to skip cohorts that were already merged
   integer :: i,j,k
+  real :: heat1,heat2
 
   allocate(cc(vegn%n_cohorts))
 
-!  write(*,*)'vegn_mergecohorts_ppa n_cohorts before: ', vegn%n_cohorts
-
+  heat1 = vegn_tile_heat(vegn)
+  if (is_watch_point()) then
+      write(*,*)'#### vegn_mergecohorts_ppa input ####'
+      do i = 1, vegn%n_cohorts
+         associate (c1=>vegn%cohorts(i))
+         write(*,'(i2.2)',advance='NO') i
+         call dpri('wl', c1%wl)
+         call dpri('ws', c1%ws)
+         call dpri('Tv', c1%Tv)
+         call dpri('hcap', clw*c1%Wl + csw*c1%Ws + c1%mcv_dry)
+         call dpri('heat',(clw*c1%Wl + csw*c1%Ws + c1%mcv_dry)*(c1%Tv-tfreeze))
+         call dpri('layer',c1%layer)
+         write(*,*)
+         end associate
+     enddo
+     write(*,*)'#### end of vegn_mergecohorts_ppa input ####'
+  endif
   merged(:)=.FALSE. ; k = 0
   do i = 1, vegn%n_cohorts 
      if(merged(i)) cycle ! skip cohorts that were already merged
@@ -373,6 +391,8 @@ subroutine vegn_mergecohorts_ppa(vegn)
      do j = i+1, vegn%n_cohorts
         if (merged(j)) cycle ! skip cohorts that are already merged
         if (cohorts_can_be_merged(vegn%cohorts(j),cc(k))) then
+           if (is_watch_point()) &
+              write(*,*) 'merging cohorts ',i,' and ',j,' into ',k
            call merge_cohorts(vegn%cohorts(j),cc(k))
            merged(j) = .TRUE.
         endif
@@ -382,9 +402,29 @@ subroutine vegn_mergecohorts_ppa(vegn)
   vegn%n_cohorts = k
   deallocate(vegn%cohorts)
   vegn%cohorts=>cc
-
   ! note that the size of the vegn%cohorts may be larger than vegn%n_cohorts
-!  write(*,*)'vegn_mergecohorts_ppa n_cohorts after: ', vegn%n_cohorts
+
+  heat2 = vegn_tile_heat(vegn)
+  dheat = heat2 - heat1
+  if (is_watch_point()) then
+      write(*,*)'#### vegn_mergecohorts_ppa output ####'
+      do i = 1, vegn%n_cohorts
+         associate (c1=>vegn%cohorts(i))
+         write(*,'(i2.2)',advance='NO') i
+         call dpri('wl', c1%wl)
+         call dpri('ws', c1%ws)
+         call dpri('Tv', c1%Tv)
+         call dpri('hcap', clw*c1%Wl + csw*c1%Ws + c1%mcv_dry)
+         call dpri('heat',(clw*c1%Wl + csw*c1%Ws + c1%mcv_dry)*(c1%Tv-tfreeze))
+         call dpri('layer',c1%layer)
+         write(*,*)
+         end associate
+     enddo
+     __DEBUG3__(heat1,heat2,dheat)
+      write(*,*)'#### end of vegn_mergecohorts_ppa output ####'
+  endif
+!  call check_var_range(dheat,-1.0,1.0,'vegn_mergecohorts_ppa','vegetation heat tendency due to cohort merge',WARNING)
+
 end subroutine vegn_mergecohorts_ppa
 
 ! ============================================================================
@@ -395,6 +435,7 @@ subroutine merge_cohorts(c1,c2)
   
   real :: x1, x2 ! normalized relative weights
   real :: HEAT1, HEAT2 ! heat stored in respective canopies
+  real :: hcap1, hcap2, hcap
 
 !  call check_var_range(c1%nindivs,0.0,HUGE(1.0),'merge_cohorts','c1%nindivs',FATAL)
 !  call check_var_range(c2%nindivs,0.0,HUGE(1.0),'merge_cohorts','c2%nindivs',FATAL)
@@ -406,11 +447,9 @@ subroutine merge_cohorts(c1,c2)
   endif
   x2 = 1-x1
   
-  ! update number of individuals in merged cohort
-  c2%nindivs = c1%nindivs+c2%nindivs
 #define __MERGE__(field) c2%field = x1*c1%field + x2*c2%field
-  HEAT1 = (clw*c1%Wl + csw*c1%Ws + c1%mcv_dry)*(c1%Tv-tfreeze)
-  HEAT2 = (clw*c2%Wl + csw*c2%Ws + c2%mcv_dry)*(c2%Tv-tfreeze)
+  hcap1 = clw*c1%Wl + csw*c1%Ws + c1%mcv_dry; HEAT1 = hcap1*(c1%Tv-tfreeze)
+  hcap2 = clw*c2%Wl + csw*c2%Ws + c2%mcv_dry; HEAT2 = hcap2*(c2%Tv-tfreeze)
   __MERGE__(Wl)
   __MERGE__(Ws)
  
@@ -438,18 +477,24 @@ subroutine merge_cohorts(c1,c2)
   ! calculate the resulting dry heat capacity
   c2%leafarea = leaf_area_from_biomass(c2%bl, c2%species, c2%layer, c2%firstlayer)
   c2%mcv_dry = max(mcv_min,mcv_lai*c2%leafarea)
-  ! update canopy temperature -- just merge it based on area weights if the heat 
-  ! capacities are zero, or merge it based on the heat content if the heat contents
+  ! update canopy temperature -- just merge temperatures using nindivs as weights if
+  ! the heat capacities are zero, or merge based on the heat content if the heat capacities
   ! are non-zero
-  if(HEAT1>epsilon(1.0).and.HEAT2>epsilon(1.0)) then
-     c2%Tv = (HEAT1*x1+HEAT2*x2) / &
-          (clw*c2%Wl + csw*c2%Ws + c2%mcv_dry) + tfreeze
+!   call check_var_range(c1%Tv,120.0,373.0,'merge_cohorts before', 'Tv1', FATAL)
+!   call check_var_range(c2%Tv,120.0,373.0,'merge_cohorts before', 'Tv2', FATAL)
+  hcap = clw*c2%Wl + csw*c2%Ws + c2%mcv_dry
+  if(hcap1*hcap2>=0.and.abs(hcap)>epsilon(1.0)) then
+     c2%Tv = (HEAT1*x1+HEAT2*x2)/hcap + tfreeze
   else
+     ! If cohort heat capacities are of different sign, then it does not make sense to
+     ! merge heat content, so we merge temperatures. However, this results in heat
+     ! conservation violation; caller needs to take that into account.
      __MERGE__(Tv)
-     ! TODO: keep track of the possible heat non-conservation, however small,
-     ! that will result from this if the heat capacities are not zero.
   endif
+!  call check_var_range(c2%Tv,120.0,373.0,'merge_cohorts after', 'Tv2', FATAL)
 #undef  __MERGE__
+  ! update number of individuals in merged cohort
+  c2%nindivs = c1%nindivs+c2%nindivs
 end subroutine merge_cohorts
 
 ! =============================================================================
@@ -718,6 +763,9 @@ function vegn_tile_carbon(vegn) result(carbon) ; real carbon
   carbon = carbon + sum(vegn%harv_pool) + &
            vegn%fsc_pool_ag + vegn%ssc_pool_ag + &
            vegn%fsc_pool_bg + vegn%ssc_pool_bg + vegn%csmoke_pool
+
+  ! Pools associated with aboveground litter CORPSE pools
+  carbon = carbon + sum(vegn%litter_buff_C)
 end function vegn_tile_carbon
 
 
@@ -728,7 +776,7 @@ function vegn_tile_heat (vegn) result(heat) ; real heat
 
   integer :: i
 
-  heat = vegn%drop_hl+vegn%drop_hs
+  heat = vegn%drop_hl+vegn%drop_hs-hlf*vegn%drop_ws
   do i = 1, vegn%n_cohorts
      heat = heat + &
             ( (clw*vegn%cohorts(i)%Wl + &
