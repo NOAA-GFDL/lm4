@@ -1548,12 +1548,17 @@ subroutine update_vegn_slow( )
                       +tile%vegn%cohorts(1:n)%br    &
                       +tile%vegn%cohorts(1:n)%bsw   &
                       +tile%vegn%cohorts(1:n)%bwood ), tile%diag)
-     if (id_cproduct>0) call send_tile_data(id_cproduct,&
-                   sum(tile%vegn%harv_pool(:)), tile%diag)
+     if (id_cproduct>0) then
+        cmass1 = 0.0
+        do i = 1, N_HARV_POOLS
+           if (i/=HARV_POOL_CLEARED) cmass1 = cmass1 + tile%vegn%harv_pool(i)
+        enddo
+        call send_tile_data(id_cproduct, cmass1, tile%diag)
+     endif
      call send_tile_data(id_fFire, tile%vegn%csmoke_rate/seconds_per_year, tile%diag)
      call send_tile_data(id_fGrazing, tile%vegn%harv_rate(HARV_POOL_PAST)/seconds_per_year, tile%diag)
      call send_tile_data(id_fHarvest, tile%vegn%harv_rate(HARV_POOL_CROP)/seconds_per_year, tile%diag)
-     call send_tile_data(id_fHarvest, &
+     call send_tile_data(id_fLuc, &
          (tile%vegn%harv_rate(HARV_POOL_CLEARED) &
          +tile%vegn%harv_rate(HARV_POOL_WOOD_FAST) &
          +tile%vegn%harv_rate(HARV_POOL_WOOD_MED) &
