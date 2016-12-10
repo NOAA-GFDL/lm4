@@ -422,6 +422,8 @@ subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time
                     trim(module_name)//'/'//trim(field_name)//'"', FATAL)
     id1 = reg_field(static, module_name, field_name, init_time, axes, long_name, &
           units, missing_value, range, op=op, offset=fields(ifld0)%offset)
+    call add_cell_measures(id1)
+    call add_cell_methods(id1)
     if (id1>0) then
       ifld1 = id1-BASE_TILED_FIELD_ID
       ! check that sizes of the fields are identical
@@ -447,6 +449,8 @@ subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time
     ! as a diag field
     id0 = reg_field(static, module_name, field_name, init_time, axes, long_name, &
           units, missing_value, range, op=op, standard_name=standard_name)
+    call add_cell_measures(id0)
+    call add_cell_methods(id0)
   endif
 end subroutine reg_field_alias
 
