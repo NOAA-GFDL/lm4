@@ -268,14 +268,14 @@ integer :: &
   id_vegn_refl_dir, id_vegn_refl_dif, id_vegn_refl_lw,                     &
   id_vegn_tran_dir, id_vegn_tran_dif, id_vegn_tran_lw,                     &
   id_vegn_sctr_dir,                                                        &
-  id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T, id_total_C, &
+  id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T,             &
   id_water_cons,    id_carbon_cons, id_DOCrunf, id_dis_DOC
 ! diagnostic ids for canopy air tracers (moist mass ratio)
 integer, allocatable :: id_cana_tr(:)
 ! diag IDs of CMOR variables
 integer :: id_sftlf, id_sftgif
 integer :: id_prveg, id_tran, id_evspsblveg, id_evspsblsoi, id_nbr, &
-           id_snw, id_lwsnl, id_snm
+           id_snw, id_lwsnl, id_snm, id_cLand
 integer :: id_cropFrac, id_cropFracC3, id_cropFracC4, id_pastureFrac, id_residualFrac, &
            id_grassFrac, id_grassFracC3, id_grassFracC4, &
            id_treeFrac, id_c3pftFrac, id_c4pftFrac
@@ -2169,9 +2169,6 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   call send_tile_data(id_lwdn,     ILa_dn,                            tile%diag)
   call send_tile_data(id_subs_emis,1-tile%surf_refl_lw,               tile%diag)
 
-  if (id_total_C > 0) &
-      call send_tile_data(id_total_C, land_tile_carbon(tile),         tile%diag)
-
   ! CMOR variables
   call send_tile_data(id_prveg, (precip_l+precip_s)*vegn_ifrac,       tile%diag)
   call send_tile_data(id_tran,  vegn_uptk,                            tile%diag)
@@ -2186,6 +2183,8 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   call send_tile_data(id_evspsblveg,  vegn_levap+vegn_fevap,          tile%diag)
   call send_tile_data(id_nbr,    -vegn_fco2*mol_C/mol_co2,            tile%diag)
   call send_tile_data(id_snm, snow_melt,                              tile%diag)
+  if (id_cLand > 0) &
+      call send_tile_data(id_cLand, land_tile_carbon(tile),         tile%diag)
 
 end subroutine update_land_model_fast_0d
 
@@ -3317,8 +3316,6 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
        'substrate emissivity for long-wave radiation',missing_value=-1.0)
   id_grnd_T = register_tiled_diag_field ( module_name, 'Tgrnd', axes, time, &
        'ground surface temperature', 'degK', missing_value=-1.0 )
-  id_total_C = register_tiled_diag_field ( module_name, 'Ctot', axes, time, &
-       'total land carbon', 'kg C/m2', missing_value=-1.0 )
 
   id_water_cons = register_tiled_diag_field ( module_name, 'water_cons', axes, time, &
        'water non-conservation in update_land_model_fast_0d', 'kg/(m2 s)', missing_value=-1.0 )
@@ -3351,6 +3348,14 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
   id_snm = register_tiled_diag_field ( cmor_name, 'snm', axes, time, &
              'Surface Snow Melt','kg m-2 s-1', standard_name='surface_snow_melt_flux', &
              missing_value=-1.0e+20, fill_missing=.TRUE.)
+
+  id_cLand = register_tiled_diag_field ( cmor_name, 'cLand', axes, time, &
+             'Total carbon in all terrestrial carbon pools', 'kg C m-2', &
+             standard_name='total_land_carbon', &
+             missing_value=-1.0, fill_missing=.TRUE. )
+  ! add alias for compatibility with older diag tables
+  call add_tiled_diag_field_alias(id_cLand, module_name, 'Ctot', axes, time, &
+     'total land carbon', 'kg C/m2', missing_value=-1.0)
 
   id_sftlf = register_static_field ( cmor_name, 'sftlf', axes, &
              'Land Area Fraction','%', standard_name='land_area_fraction', &
