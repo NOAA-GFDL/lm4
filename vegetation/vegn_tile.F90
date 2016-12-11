@@ -15,7 +15,7 @@ use vegn_data_mod, only : &
      vegn_to_use,  input_cover_types, &
      mcv_min, mcv_lai, &
      vegn_index_constant, &
-     agf_bs, BSEED, LU_NTRL, LU_SCND, N_HARV_POOLS, &
+     agf_bs, BSEED, LU_NTRL, LU_SCND, LU_PSL, N_HARV_POOLS, &
      LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, &
      SP_C3GRASS, SP_C4GRASS, &
      scnd_biomass_bins
@@ -477,7 +477,11 @@ function vegn_is_selected(vegn, sel)
 
   select case (sel%idata1)
   case (LU_SEL_TAG)
-     vegn_is_selected = (sel%idata2 == vegn%landuse)
+     if (sel%idata2 == LU_PSL) then
+        vegn_is_selected = ((vegn%landuse == LU_NTRL).or.(vegn%landuse == LU_SCND))
+     else
+        vegn_is_selected = (sel%idata2 == vegn%landuse)
+     endif
   case (SP_SEL_TAG)
      if (.not.associated(vegn%cohorts)) then
         vegn_is_selected = .FALSE.
