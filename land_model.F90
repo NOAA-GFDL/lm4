@@ -274,7 +274,7 @@ integer :: &
 integer, allocatable :: id_cana_tr(:)
 ! diag IDs of CMOR variables
 integer :: id_sftlf, id_sftgif
-integer :: id_prveg, id_tran, id_evspsblveg, id_evspsblsoi, id_nbp, &
+integer :: id_pcp, id_prra, id_prveg, id_tran, id_evspsblveg, id_evspsblsoi, id_nbp, &
            id_snw, id_lwsnl, id_snm, id_cLand
 integer :: id_cropFrac, id_cropFracC3, id_cropFracC4, id_pastureFrac, id_residualFrac, &
            id_grassFrac, id_grassFracC3, id_grassFracC4, &
@@ -2170,6 +2170,8 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   call send_tile_data(id_subs_emis,1-tile%surf_refl_lw,               tile%diag)
 
   ! CMOR variables
+  call send_tile_data(id_pcp,    precip_l+precip_s,                   tile%diag)
+  call send_tile_data(id_prra,   precip_l,                            tile%diag)
   call send_tile_data(id_prveg, (precip_l+precip_s)*vegn_ifrac,       tile%diag)
   call send_tile_data(id_tran,  vegn_uptk,                            tile%diag)
   ! evspsblsoi is evaporation from *soil*, so we send zero from glaciers and lakes;
@@ -3323,6 +3325,12 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
        'carbon non-conservation in update_land_model_fast_0d', 'kgC/(m2 s)', missing_value=-1.0 )
 
   ! CMOR variables
+  id_pcp = register_tiled_diag_field ( cmor_name, 'pcp', axes, time, &
+             'Total Precipitation', 'kg m-2 s-1', missing_value=-1.0e+20, &
+             standard_name='total_precipitation_flux', fill_missing=.TRUE.)
+  id_prra = register_tiled_diag_field ( cmor_name, 'prra', axes, time, &
+             'Rainfall Rate', 'kg m-2 s-1', missing_value=-1.0e+20, &
+             standard_name='rainfall_flux', fill_missing=.TRUE.)
   id_prveg = register_tiled_diag_field ( cmor_name, 'prveg', axes, time, &
              'Precipitation onto Canopy', 'kg m-2 s-1', missing_value=-1.0e+20, &
              standard_name='precipitation_flux_onto_canopy', fill_missing=.TRUE.)
