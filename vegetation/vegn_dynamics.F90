@@ -54,7 +54,7 @@ real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 da
 integer :: id_npp, id_nep, id_gpp, id_resp, id_resl, id_resr, id_resg, &
     id_soilt, id_theta, id_litter
 ! CMOR diagnostic field IDs
-integer :: id_gpp_cmor, id_npp_cmor, id_ra, id_rgrowth
+integer :: id_gpp_cmor, id_npp_cmor, id_nep_cmor, id_ra, id_rgrowth
 
 contains
 
@@ -107,8 +107,14 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
        time, 'Gross Primary Production', 'kg C m-2 s-1', missing_value=-1.0, &
        standard_name='gross_primary_production', fill_missing=.TRUE.)
   id_npp_cmor = register_tiled_diag_field ( cmor_name, 'npp', (/id_lon,id_lat/), &
-       time, 'Net Primary Production', 'kg C m-2 s-1', missing_value=-1.0, &
-       standard_name='net_primary_production', fill_missing=.TRUE.)
+       time, 'Carbon Mass Flux out of Atmosphere due to Net Primary Production on Land', &
+       'kg C m-2 s-1', missing_value=-1.0, &
+       standard_name='net_primary_productivity_of_carbon', fill_missing=.TRUE.)
+  id_nep_cmor = register_tiled_diag_field ( cmor_name, 'nep', (/id_lon,id_lat/), &
+       time, 'Net Carbon Mass Flux out of Atmophere due to Net Ecosystem Productivity on Land.', &
+       'kg C m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_net_downward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_all_land_processes_excluding_anthropogenic_land_use_change', &
+       fill_missing=.TRUE.)
   id_ra = register_tiled_diag_field ( cmor_name, 'ra', (/id_lon,id_lat/), &
        time, 'Autotrophic (Plant) Respiration', 'kg C m-2 s-1', missing_value=-1.0, &
        standard_name='autotrophic_plant_respiration', fill_missing=.TRUE.)
@@ -286,6 +292,7 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, diag)
   ! ---- CMOR diagnostics
   call send_tile_data(id_gpp_cmor, gpp/seconds_per_year, diag)
   call send_tile_data(id_npp_cmor, vegn%npp/seconds_per_year, diag)
+  call send_tile_data(id_nep_cmor, vegn%nep/seconds_per_year, diag)
   call send_tile_data(id_ra, (resp-resg)/seconds_per_year, diag)
   call send_tile_data(id_rgrowth, resg/seconds_per_year, diag)
 

@@ -274,7 +274,7 @@ integer :: &
 integer, allocatable :: id_cana_tr(:)
 ! diag IDs of CMOR variables
 integer :: id_sftlf, id_sftgif
-integer :: id_prveg, id_tran, id_evspsblveg, id_evspsblsoi, id_nbr, &
+integer :: id_prveg, id_tran, id_evspsblveg, id_evspsblsoi, id_nbp, &
            id_snw, id_lwsnl, id_snm, id_cLand
 integer :: id_cropFrac, id_cropFracC3, id_cropFracC4, id_pastureFrac, id_residualFrac, &
            id_grassFrac, id_grassFracC3, id_grassFracC4, &
@@ -2181,7 +2181,7 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
      call send_tile_data(id_evspsblsoi, 0.0,                          tile%diag)
   endif
   call send_tile_data(id_evspsblveg,  vegn_levap+vegn_fevap,          tile%diag)
-  call send_tile_data(id_nbr,    -vegn_fco2*mol_C/mol_co2,            tile%diag)
+  call send_tile_data(id_nbp,    -vegn_fco2*mol_C/mol_co2,            tile%diag)
   call send_tile_data(id_snm, snow_melt,                              tile%diag)
   if (id_cLand > 0) &
       call send_tile_data(id_cLand, land_tile_carbon(tile),         tile%diag)
@@ -3332,9 +3332,11 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
   id_evspsblsoi = register_tiled_diag_field ( cmor_name, 'evspsblsoi', axes, time, &
              'Water Evaporation from Soil', 'kg m-2 s-1', missing_value=-1.0e+20, &
              standard_name='water_evaporation_flux_from_soil', fill_missing=.TRUE.)
-  id_nbr = register_tiled_diag_field ( cmor_name, 'nbr', axes, time, &
-             'net biospheric productivity', 'kg C m-2 s-1', missing_value=-1.0, &
-             standard_name='net_biospheric_productivity', fill_missing=.TRUE.)
+  id_nbp = register_tiled_diag_field ( cmor_name, 'nbp', axes, time, &
+             'Carbon Mass Flux out of Atmosphere due to Net Biospheric Production on Land', &
+             'kg C m-2 s-1', missing_value=-1.0, &
+             standard_name='surface_net_downward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_all_land_processes', &
+             fill_missing=.TRUE.)
   id_tran  = register_tiled_diag_field ( cmor_name, 'tran', axes, time, &
              'Transpiration', 'kg m-2 s-1', missing_value=-1.0e+20, &
              standard_name='transpiration_flux', fill_missing=.TRUE.)
