@@ -1346,9 +1346,14 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
   id_mrro = register_tiled_diag_field ( cmor_name, 'mrro',  axes(1:2),  &
        lnd%time, 'Total Runoff', 'kg m-2 s-1',  missing_value=-100.0, &
        standard_name='runoff_flux', fill_missing=.TRUE.)
+
   id_csoil = register_tiled_diag_field ( cmor_name, 'cSoil', axes(1:2),  &
-       lnd%time, 'Carbon in Soil Pool', 'kg C m-2', missing_value=-100.0, &
+       lnd%time, 'Carbon in Soil Pool', 'kg m-2', missing_value=-100.0, &
        standard_name='soil_carbon_content', fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias ( id_csoil, cmor_name, 'cSoilLut', axes(1:2),  &
+       lnd%time, 'Carbon  In Soil Pool On Land Use Tiles', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_carbon_content_lut', fill_missing=.FALSE.)
+
   id_csoilfast = register_tiled_diag_field ( cmor_name, 'cSoilFast', axes(1:2),  &
        lnd%time, 'Carbon in Fast Soil Pool', 'kg C m-2', missing_value=-100.0, &
        standard_name='carbon_in_fast_soil_pool', fill_missing=.TRUE.)
@@ -1358,9 +1363,14 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
   id_csoilslow = register_tiled_diag_field ( cmor_name, 'cSoilSlow', axes(1:2),  &
        lnd%time, 'Carbon in Slow Soil Pool', 'kg C m-2', missing_value=-100.0, &
        standard_name='carbon_in_fast_soil_pool', fill_missing=.TRUE.)
+
   id_rh = register_tiled_diag_field ( cmor_name, 'rh', (/id_lon,id_lat/), &
-       lnd%time, 'Heterotrophic Respiration', 'kg C m-2 s-1', missing_value=-1.0, &
-       standard_name='heterotrophic_respiration', fill_missing=.TRUE.)
+       lnd%time, 'Heterotrophic Respiration', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='heterotrophic_respiration_carbon_flux', fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias ( id_rh, cmor_name, 'rhLut', axes(1:2),  &
+       lnd%time, 'Soil Heterotrophic Respiration On Land Use Tile', 'kg m-2 s-1', &
+       standard_name='heterotrophic_respiration_carbon_flux', fill_missing=.FALSE., &
+       missing_value=-100.0)
 
 end subroutine soil_diag_init
 
