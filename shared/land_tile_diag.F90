@@ -373,7 +373,7 @@ end subroutine add_tiled_static_field_alias
 
 ! ============================================================================
 subroutine add_tiled_diag_field_alias(id0, module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, op, standard_name)
+     long_name, units, missing_value, range, op, standard_name, fill_missing)
   integer,          intent(inout) :: id0 ! id of the original diag field on input;
    ! if negative then it may be replaced with the alias id on output
   character(len=*), intent(in) :: module_name
@@ -386,14 +386,16 @@ subroutine add_tiled_diag_field_alias(id0, module_name, field_name, axes, init_t
   real,             intent(in), optional :: range(2)
   integer,          intent(in), optional :: op ! aggregation operation code
   character(len=*), intent(in), optional :: standard_name
+  logical,          intent(in), optional :: fill_missing
 
   call reg_field_alias(id0, FLD_DYNAMIC, module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, op, standard_name=standard_name)
+     long_name, units, missing_value, range, op, standard_name=standard_name, &
+     fill_missing=fill_missing)
 end subroutine add_tiled_diag_field_alias
 
 ! ============================================================================
 subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, op, standard_name)
+     long_name, units, missing_value, range, op, standard_name, fill_missing)
 
 
   integer,          intent(inout) :: id0 ! id of the original diag field on input;
@@ -409,6 +411,7 @@ subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time
   real,             intent(in), optional :: range(2)
   integer,          intent(in), optional :: op ! aggregation operation code
   character(len=*), intent(in), optional :: standard_name
+  logical,          intent(in), optional :: fill_missing
 
   ! local vars
   integer :: id1
@@ -421,7 +424,8 @@ subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time
                     ' in definition of tiled diag field alias "'//&
                     trim(module_name)//'/'//trim(field_name)//'"', FATAL)
     id1 = reg_field(static, module_name, field_name, init_time, axes, long_name, &
-          units, missing_value, range, op=op, offset=fields(ifld0)%offset)
+          units, missing_value, range, op=op, offset=fields(ifld0)%offset, &
+          fill_missing=fill_missing)
     call add_cell_measures(id1)
     call add_cell_methods(id1)
     if (id1>0) then
@@ -448,7 +452,8 @@ subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time
     ! the "main" field has not been registered, so simply register the alias
     ! as a diag field
     id0 = reg_field(static, module_name, field_name, init_time, axes, long_name, &
-          units, missing_value, range, op=op, standard_name=standard_name)
+          units, missing_value, range, op=op, standard_name=standard_name,&
+          fill_missing=fill_missing)
     call add_cell_measures(id0)
     call add_cell_methods(id0)
   endif

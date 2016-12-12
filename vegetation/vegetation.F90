@@ -26,8 +26,8 @@ use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, mol_air, 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles, land_tile_heat, land_tile_carbon, get_tile_water
 use land_tile_diag_mod, only : register_tiled_static_field, register_tiled_diag_field, &
-     send_tile_data, diag_buff_type, OP_STD, OP_VAR, set_default_diag_filter, &
-     cmor_name
+     add_tiled_diag_field_alias, set_default_diag_filter, send_tile_data, diag_buff_type, &
+     OP_STD, OP_VAR, cmor_name
 use land_data_mod, only : lnd, log_version
 use land_io_mod, only : read_field
 
@@ -178,7 +178,7 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
    id_lambda, id_afire, id_atfall, id_closs, id_cgain, id_wdgain, id_leaf_age, &
    id_phot_co2, id_theph, id_psiph, id_evap_demand
 ! CMOR variables
-integer :: id_lai_cmor, id_btot_cmor, id_cproduct, &
+integer :: id_btot_cmor, id_cproduct, &
    id_fFire, id_fGrazing, id_fHarvest, id_fLuc, &
    id_cLeaf, id_cWood, id_cRoot, id_cMisc
 ! ==== end of module variables ===============================================
@@ -665,9 +665,12 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
   ! CMOR variables
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('land')
-  id_lai_cmor = register_tiled_diag_field ( cmor_name, 'lai',  (/id_lon,id_lat/), &
-       time, 'Leaf Area Fraction', '%', missing_value=-1.0, &
-       standard_name='leaf_area_index', fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias(id_lai, cmor_name, 'lai', (/id_lon,id_lat/), &
+       time, 'Leaf Area Index', '1', missing_value = -1.0, &
+       standard_name = 'leaf_area_index', fill_missing = .TRUE.)
+  call add_tiled_diag_field_alias(id_lai, cmor_name, 'laiLut', (/id_lon,id_lat/), &
+       time, 'leaf area index on land use tile', '1', missing_value = -1.0, &
+       standard_name = 'leaf_area_index_lut', fill_missing = .FALSE.)
   id_btot_cmor = register_tiled_diag_field ( cmor_name, 'cVeg', (/id_lon,id_lat/), &
        time, 'Carbon in Vegetation', 'kg C m-2', missing_value=-1.0, &
        standard_name='vegetation_carbon_content', fill_missing=.TRUE.)
@@ -1254,8 +1257,6 @@ subroutine vegn_step_2 ( vegn, diag, &
   call send_tile_data(id_leaf_tran, cohort%leaf_tran, diag)
   call send_tile_data(id_leaf_emis, cohort%leaf_emis, diag)
   call send_tile_data(id_snow_crit, cohort%snow_crit, diag)
-  ! CMOR variables
-  call send_tile_data(id_lai_cmor, cohort%lai*100.0, diag)
 end subroutine vegn_step_2
 
 
