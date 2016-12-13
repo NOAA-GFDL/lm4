@@ -275,7 +275,8 @@ integer, allocatable :: id_cana_tr(:)
 ! diag IDs of CMOR variables
 integer :: id_sftlf, id_sftgif
 integer :: id_pcp, id_prra, id_prveg, id_tran, id_evspsblveg, id_evspsblsoi, id_nbp, &
-           id_snw, id_lwsnl, id_snm, id_cLand, id_hflsLut
+           id_snw, id_lwsnl, id_snm, id_cLand, id_hflsLut, id_rlusLut, id_rsusLut, &
+           id_tslsiLut
 integer :: id_cropFrac, id_cropFracC3, id_cropFracC4, id_pastureFrac, id_residualFrac, &
            id_grassFrac, id_grassFracC3, id_grassFracC4, &
            id_treeFrac, id_c3pftFrac, id_c4pftFrac
@@ -2177,6 +2178,9 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   ! flux, since in the model specific heat of vaporization is not equal to hlv;
   ! it depends on temperature and phase state.
   call send_tile_data(id_hflsLut, land_evap*hlv,                      tile%diag)
+  call send_tile_data(id_rlusLut, tile%lwup,                          tile%diag)
+  if (id_rsusLut>0) call send_tile_data(id_rsusLut, &
+    sum(ISa_dn_dir*tile%land_refl_dir+ISa_dn_dif*tile%land_refl_dif), tile%diag)
   call send_tile_data(id_tran,  vegn_uptk,                            tile%diag)
   ! evspsblsoi is evaporation from *soil*, so we send zero from glaciers and lakes;
   ! the result is averaged over the entire land surface, as required by CMIP. evspsblveg
@@ -2190,7 +2194,9 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   call send_tile_data(id_nbp,    -vegn_fco2*mol_C/mol_co2,            tile%diag)
   call send_tile_data(id_snm, snow_melt,                              tile%diag)
   if (id_cLand > 0) &
-      call send_tile_data(id_cLand, land_tile_carbon(tile),         tile%diag)
+      call send_tile_data(id_cLand, land_tile_carbon(tile),           tile%diag)
+  if (id_tslsiLut>0) &
+      call send_tile_data(id_tslsiLut, (tile%lwup/stefan)**0.25,      tile%diag)
 
 end subroutine update_land_model_fast_0d
 
@@ -3352,6 +3358,15 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
              'kg C m-2 s-1', missing_value=-1.0, &
              standard_name='surface_net_downward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_all_land_processes', &
              fill_missing=.TRUE.)
+  id_rlusLut = register_tiled_diag_field ( cmor_name, 'rlusLut', axes, time, &
+             'Surface Upwelling Longwave on Land Use Tile', 'W m-2', &
+             missing_value=-1.0e+20, standard_name='surface_upwelling_longwave_flux_in_air')
+  id_rsusLut = register_tiled_diag_field ( cmor_name, 'rsusLut', axes, time, &
+             'Surface Upwelling Shortwave on Land Use Tile', 'W m-2', &
+             missing_value=-1.0e+20, standard_name='surface_upwelling_shortwave_flux_in_air')
+  id_tslsiLut = register_tiled_diag_field ( cmor_name, 'tslsiLut', axes, time, &
+             'Surface Skin Temperature on Land Use Tile', 'K', &
+             missing_value=-1.0, standard_name='surface_temperature')
   id_tran  = register_tiled_diag_field ( cmor_name, 'tran', axes, time, &
              'Transpiration', 'kg m-2 s-1', missing_value=-1.0e+20, &
              standard_name='transpiration_flux', fill_missing=.TRUE.)
