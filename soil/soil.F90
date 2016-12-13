@@ -1329,11 +1329,17 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
   id_mrso  = register_tiled_diag_field ( cmor_name, 'mrso', axes(1:2),  &
        lnd%time, 'Total Soil Moisture Content', 'kg m-2', missing_value=-100.0, &
        standard_name='soil_moisture_content', fill_missing=.TRUE.)
-  write(str,'(f10.2)') cmor_mrsos_depth
+  call add_tiled_diag_field_alias ( id_mrso, cmor_name, 'mrsoLut', axes(1:2),  &
+       lnd%time, 'Total Soil Moisture Content', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_moisture_content_lut', fill_missing=.FALSE.)
   id_mrsos  = register_tiled_diag_field ( cmor_name, 'mrsos', axes(1:2),  &
-       lnd%time, 'Moisture in Upper '//trim(adjustl(str))//' m of Soil Column', &
-       'kg m-2', missing_value=-100.0, standard_name='soil_moisture_content', &
+       lnd%time, 'Moisture in Upper Portion of Soil Column', &
+       'kg m-2', missing_value=-100.0, standard_name='moisture_content_of_soil_layer', &
        fill_missing=.TRUE.)
+  call  add_tiled_diag_field_alias ( id_mrsos, cmor_name, 'mrsosLut', axes(1:2),  &
+       lnd%time, 'Moisture in Upper Portion of Soil Column of Land Use Tile', &
+       'kg m-2', missing_value=-100.0, standard_name='moisture_content_of_soil_layer', &
+       fill_missing=.FALSE.)
   id_mrfso = register_tiled_diag_field ( cmor_name, 'mrfso', axes(1:2),  &
        lnd%time, 'Soil Frozen Water Content', 'kg m-2', missing_value=-100.0, &
        standard_name='soil_frozen_water_content', fill_missing=.TRUE.)
@@ -1346,6 +1352,9 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
   id_mrro = register_tiled_diag_field ( cmor_name, 'mrro',  axes(1:2),  &
        lnd%time, 'Total Runoff', 'kg m-2 s-1',  missing_value=-100.0, &
        standard_name='runoff_flux', fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias ( id_mrro, cmor_name, 'mrroLut',  axes(1:2),  &
+       lnd%time, 'Total Runoff From Land Use Tile', 'kg m-2 s-1',  missing_value=-100.0, &
+       standard_name='runoff_flux_lut', fill_missing=.FALSE.)
 
   id_csoil = register_tiled_diag_field ( cmor_name, 'cSoil', axes(1:2),  &
        lnd%time, 'Carbon in Soil Pool', 'kg m-2', missing_value=-100.0, &
