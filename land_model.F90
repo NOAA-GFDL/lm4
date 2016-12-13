@@ -105,7 +105,7 @@ use hillslope_mod, only: retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
      read_hlsp_namelist, hlsp_init, hlsp_config_check
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
 
-use vegn_data_mod, only : LU_CROP, LU_PAST, LU_NTRL, LU_SCND, &
+use vegn_data_mod, only : LU_CROP, LU_PAST, LU_NTRL, LU_SCND, LU_URBN, &
     SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR
 
 
@@ -279,7 +279,8 @@ integer :: id_pcp, id_prra, id_prveg, id_tran, id_evspsblveg, id_evspsblsoi, id_
            id_tslsiLut
 integer :: id_cropFrac, id_cropFracC3, id_cropFracC4, id_pastureFrac, id_residualFrac, &
            id_grassFrac, id_grassFracC3, id_grassFracC4, &
-           id_treeFrac, id_c3pftFrac, id_c4pftFrac
+           id_treeFrac, id_c3pftFrac, id_c4pftFrac, id_nwdFracLut, &
+           id_fracLut_psl, id_fracLut_crp, id_fracLut_pst, id_fracLut_urb
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
 ! It is supposed to be double-precision signaling NaN, to trigger a trap when
@@ -1293,7 +1294,11 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   call send_cellfrac_data(id_grassFracC4,  is_ntrlgrass_C4)
   call send_cellfrac_data(id_c3pftFrac,    is_C3)
   call send_cellfrac_data(id_c4pftFrac,    is_C4)
-
+  ! LUMIP land use fractions
+  call send_cellfrac_data(id_fracLut_psl,  is_psl,     scale=1.0)
+  call send_cellfrac_data(id_fracLut_crp,  is_crop,    scale=1.0)
+  call send_cellfrac_data(id_fracLut_pst,  is_pasture, scale=1.0)
+  call send_cellfrac_data(id_fracLut_urb,  is_urban,   scale=1.0)
   ! deallocate override buffer
   deallocate(phot_co2_data)
 
@@ -2197,6 +2202,11 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
       call send_tile_data(id_cLand, land_tile_carbon(tile),           tile%diag)
   if (id_tslsiLut>0) &
       call send_tile_data(id_tslsiLut, (tile%lwup/stefan)**0.25,      tile%diag)
+  if(is_tree(tile)) then
+     call send_tile_data(id_nwdFracLut,    0.0,                       tile%diag)
+  else
+     call send_tile_data(id_nwdFracLut,    1.0,                       tile%diag)
+  endif
 
 end subroutine update_land_model_fast_0d
 
@@ -3392,6 +3402,10 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
   call add_tiled_diag_field_alias(id_cLand, module_name, 'Ctot', axes, time, &
      'total land carbon', 'kg C/m2', missing_value=-1.0)
 
+  id_nwdFracLut = register_tiled_diag_field ( cmor_name, 'nwdFracLut', axes, time, &
+             'Fraction of Land Use Tile Tile That is Non-Woody Vegetation', 'fraction', &
+             standard_name='under_review', missing_value=-1.0)
+
   id_sftlf = register_static_field ( cmor_name, 'sftlf', axes, &
              'Land Area Fraction','%', standard_name='land_area_fraction', &
              area=id_cellarea)
@@ -3444,13 +3458,30 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
              'Total C4 PFT Cover Fraction','%', standard_name='total_c4_pft_cover_fraction', &
              area=id_cellarea)
   call diag_field_add_attribute(id_c4pftFrac,'cell_methods','area: mean')
-
+  ! LUMIP land fractions
+  id_fracLut_psl = register_diag_field ( cmor_name, 'fracLut_psl', axes, time, &
+             'Fraction of Grid Cell for Each Land Use Tile','fraction', &
+             standard_name='under_review', area=id_cellarea)
+  id_fracLut_crp = register_diag_field ( cmor_name, 'fracLut_crop', axes, time, &
+             'Fraction of Grid Cell for Each Land Use Tile','fraction', &
+             standard_name='under_review', area=id_cellarea)
+  id_fracLut_pst = register_diag_field ( cmor_name, 'fracLut_past', axes, time, &
+             'Fraction of Grid Cell for Each Land Use Tile','fraction', &
+             standard_name='under_review', area=id_cellarea)
+  id_fracLut_urb = register_diag_field ( cmor_name, 'fracLut_urbn', axes, time, &
+             'Fraction of Grid Cell for Each Land Use Tile','fraction', &
+             standard_name='under_review', area=id_cellarea)
+  call diag_field_add_attribute(id_fracLut_psl,'cell_methods','area: mean')
+  call diag_field_add_attribute(id_fracLut_crp,'cell_methods','area: mean')
+  call diag_field_add_attribute(id_fracLut_pst,'cell_methods','area: mean')
+  call diag_field_add_attribute(id_fracLut_urb,'cell_methods','area: mean')
 end subroutine land_diag_init
 
 ! ==============================================================================
-subroutine send_cellfrac_data(id, f)
+subroutine send_cellfrac_data(id, f, scale)
   integer, intent(in) :: id ! id of the diagnostic field
   procedure(tile_exists_func) :: f ! existence detector function
+  real, intent(in), optional  :: scale ! scaling factor, for unit conversions 
 
   ! ---- local vars
   integer :: i,j,k
@@ -3458,15 +3489,18 @@ subroutine send_cellfrac_data(id, f)
   type(land_tile_type), pointer :: tile
   type(land_tile_enum_type) :: ce
   real :: frac(lnd%is:lnd%ie,lnd%js:lnd%je)
+  real :: scale_
 
   if (.not.id>0) return ! do nothing if the field was not registered
+  scale_ = 100.0 ! by fractions are in percent
+  if (present(scale)) scale_ = scale
 
   frac(:,:) = 0.0
   ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js)
   do while (loop_over_tiles(ce, tile, i,j,k))
      ! accumulate fractions
      if (f(tile)) then
-        frac(i,j) = frac(i,j)+tile%frac*100.0*lnd%landfrac(i,j)
+        frac(i,j) = frac(i,j)+tile%frac*scale_*lnd%landfrac(i,j)
      endif
   enddo
   used=send_data(id, frac, lnd%time)
@@ -3513,6 +3547,26 @@ function is_pasture(tile) result(answer); logical :: answer
   if (.not.associated(tile%vegn)) return
   answer = (tile%vegn%landuse == LU_PAST)
 end function is_pasture
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+function is_urban(tile) result(answer); logical :: answer
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+  if (.not.associated(tile)) return
+  if (.not.associated(tile%vegn)) return
+  answer = (tile%vegn%landuse == LU_URBN)
+end function is_urban
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+function is_psl(tile) result(answer); logical :: answer
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+  if (.not.associated(tile)) return
+  if (.not.associated(tile%vegn)) return
+  answer = (tile%vegn%landuse == LU_NTRL.or.tile%vegn%landuse == LU_SCND)
+end function is_psl
 
 ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 function is_tree(tile) result(answer); logical :: answer
