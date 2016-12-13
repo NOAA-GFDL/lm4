@@ -178,7 +178,7 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
    id_lambda, id_afire, id_atfall, id_closs, id_cgain, id_wdgain, id_leaf_age, &
    id_phot_co2, id_theph, id_psiph, id_evap_demand
 ! CMOR variables
-integer :: id_btot_cmor, id_cproduct, &
+integer :: id_cproduct, &
    id_fFire, id_fGrazing, id_fHarvest, id_fLuc, &
    id_cLeaf, id_cWood, id_cRoot, id_cMisc
 ! ==== end of module variables ===============================================
@@ -671,9 +671,12 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
   call add_tiled_diag_field_alias(id_lai, cmor_name, 'laiLut', (/id_lon,id_lat/), &
        time, 'leaf area index on land use tile', '1', missing_value = -1.0, &
        standard_name = 'leaf_area_index_lut', fill_missing = .FALSE.)
-  id_btot_cmor = register_tiled_diag_field ( cmor_name, 'cVeg', (/id_lon,id_lat/), &
-       time, 'Carbon in Vegetation', 'kg C m-2', missing_value=-1.0, &
+  call add_tiled_diag_field_alias ( id_btot, cmor_name, 'cVeg', (/id_lon,id_lat/), &
+       time, 'Carbon Mass in Vegetation', 'kg C m-2', missing_value=-1.0, &
        standard_name='vegetation_carbon_content', fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias (id_btot, cmor_name, 'cVegLut', (/id_lon,id_lat/), &
+       time, 'Carbon Mass in Vegetation', 'kg C m-2', missing_value=-1.0, &
+       standard_name='vegetation_carbon_content', fill_missing=.FALSE.)
   id_cproduct = register_tiled_diag_field( cmor_name, 'cProduct', (/id_lon,id_lat/), &
        time, 'Carbon in Products of Land Use Change', 'kg C m-2', missing_value=-999.0, &
        standard_name='carbon_in_producs_of_luc', fill_missing=.TRUE.)
@@ -1522,11 +1525,12 @@ subroutine update_vegn_slow( )
      call send_tile_data(id_br,      sum(tile%vegn%cohorts(1:n)%br),     tile%diag)
      call send_tile_data(id_bsw,     sum(tile%vegn%cohorts(1:n)%bsw),    tile%diag)
      call send_tile_data(id_bwood,   sum(tile%vegn%cohorts(1:n)%bwood),  tile%diag)
-     call send_tile_data(id_btot,    sum(tile%vegn%cohorts(1:n)%bl    &
-                                        +tile%vegn%cohorts(1:n)%blv   &
-                                        +tile%vegn%cohorts(1:n)%br    &
-                                        +tile%vegn%cohorts(1:n)%bsw   &
-                                        +tile%vegn%cohorts(1:n)%bwood ), tile%diag)
+     if (id_btot>0) call send_tile_data(id_btot, &
+                sum(tile%vegn%cohorts(1:n)%bl    &
+                   +tile%vegn%cohorts(1:n)%blv   &
+                   +tile%vegn%cohorts(1:n)%br    &
+                   +tile%vegn%cohorts(1:n)%bsw   &
+                   +tile%vegn%cohorts(1:n)%bwood ), tile%diag)
 
      call send_tile_data(id_fuel,    tile%vegn%fuel, tile%diag)
      call send_tile_data(id_species, real(tile%vegn%cohorts(1)%species), tile%diag)
@@ -1543,12 +1547,6 @@ subroutine update_vegn_slow( )
      call send_tile_data(id_veg_out, tile%vegn%veg_out, tile%diag)
 
      ! CMOR variables
-     if(id_btot_cmor>0) call send_tile_data(id_btot_cmor, &
-                   sum(tile%vegn%cohorts(1:n)%bl    &
-                      +tile%vegn%cohorts(1:n)%blv   &
-                      +tile%vegn%cohorts(1:n)%br    &
-                      +tile%vegn%cohorts(1:n)%bsw   &
-                      +tile%vegn%cohorts(1:n)%bwood ), tile%diag)
      if (id_cproduct>0) then
         cmass1 = 0.0
         do i = 1, N_HARV_POOLS
