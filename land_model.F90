@@ -275,7 +275,7 @@ integer, allocatable :: id_cana_tr(:)
 ! diag IDs of CMOR variables
 integer :: id_sftlf, id_sftgif
 integer :: id_pcp, id_prra, id_prveg, id_tran, id_evspsblveg, id_evspsblsoi, id_nbp, &
-           id_snw, id_lwsnl, id_snm, id_cLand
+           id_snw, id_lwsnl, id_snm, id_cLand, id_hflsLut
 integer :: id_cropFrac, id_cropFracC3, id_cropFracC4, id_pastureFrac, id_residualFrac, &
            id_grassFrac, id_grassFracC3, id_grassFracC4, &
            id_treeFrac, id_c3pftFrac, id_c4pftFrac
@@ -2173,6 +2173,10 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   call send_tile_data(id_pcp,    precip_l+precip_s,                   tile%diag)
   call send_tile_data(id_prra,   precip_l,                            tile%diag)
   call send_tile_data(id_prveg, (precip_l+precip_s)*vegn_ifrac,       tile%diag)
+  ! note that the expression below gives only approximate value of latent heat
+  ! flux, since in the model specific heat of vaporization is not equal to hlv;
+  ! it depends on temperature and phase state.
+  call send_tile_data(id_hflsLut, land_evap*hlv,                      tile%diag)
   call send_tile_data(id_tran,  vegn_uptk,                            tile%diag)
   ! evspsblsoi is evaporation from *soil*, so we send zero from glaciers and lakes;
   ! the result is averaged over the entire land surface, as required by CMIP. evspsblveg
@@ -3340,6 +3344,9 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
   id_evspsblsoi = register_tiled_diag_field ( cmor_name, 'evspsblsoi', axes, time, &
              'Water Evaporation from Soil', 'kg m-2 s-1', missing_value=-1.0e+20, &
              standard_name='water_evaporation_flux_from_soil', fill_missing=.TRUE.)
+  id_hflsLut = register_tiled_diag_field ( cmor_name, 'hflsLut', axes, time, &
+             'Latent Heat Flux on Land Use Tile', 'W m-2', missing_value=-1.0e+20, &
+             standard_name='surface_upward_latent_heat_flux', fill_missing=.FALSE.)
   id_nbp = register_tiled_diag_field ( cmor_name, 'nbp', axes, time, &
              'Carbon Mass Flux out of Atmosphere due to Net Biospheric Production on Land', &
              'kg C m-2 s-1', missing_value=-1.0, &
@@ -3358,6 +3365,9 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
   id_snm = register_tiled_diag_field ( cmor_name, 'snm', axes, time, &
              'Surface Snow Melt','kg m-2 s-1', standard_name='surface_snow_melt_flux', &
              missing_value=-1.0e+20, fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias(id_sens, cmor_name, 'hfssLut', axes, time, &
+      'Sensible Heat Flux on Land Use Tile', 'W m-2', missing_value=-1.0e-20, &
+      standard_name='surface_upward_sensible_heat_flux')
 
   id_cLand = register_tiled_diag_field ( cmor_name, 'cLand', axes, time, &
              'Total carbon in all terrestrial carbon pools', 'kg C m-2', &
