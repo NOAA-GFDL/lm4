@@ -21,6 +21,13 @@ use land_tile_io_mod, only: land_restart_type, &
 use vegn_cohort_mod, only: vegn_cohort_type
 use land_data_mod, only : lnd, land_state_type, lnd_ug
 
+!----------
+!ug support
+use fms_io_mod, only: fms_io_unstructured_register_restart_axis
+use fms_io_mod, only: fms_io_unstructured_register_restart_field
+use fms_io_mod, only: HIDX
+!----------
+
 implicit none
 private
 
@@ -415,10 +422,23 @@ subroutine create_cohort_out_file_idx(rhandle,name,cidx,cohorts_dim_length)
   ! the size of tile dimension really does not matter for the output, but it does
   ! matter for uncompressing utility, since it uses it as a size of the array to
   ! unpack to create tile index dimension and variable.
-  call register_restart_axis(rhandle,name,trim(cohort_index_name),cidx(:),compressed='cohort tile lat lon',&
-                             compressed_axis='H', dimlen=cohorts_dim_length, dimlen_name='cohort',&
-                             dimlen_lname='cohort number within tile', units='none',&
-                             longname='compressed vegetation cohort index',imin=0)
+!----------
+!ug support
+  call fms_io_unstructured_register_restart_axis(rhandle, &
+                                                 name, &
+                                                 trim(cohort_index_name), &
+                                                 cidx, &
+                                                 "cohort tile lat lon", &
+                                                 "H", &
+                                                 cohorts_dim_length, &
+                                                 lnd_ug%domain, &
+                                                 dimlen_name="cohort", &
+                                                 dimlen_lname="cohort number within tile", &
+                                                 units="none", &
+                                                 longname="compressed vegetation cohort index", &
+                                                 imin=0)
+!----------
+
 end subroutine create_cohort_out_file_idx
 
 subroutine assemble_cohorts_i0d(fptr,idx,ntiles,data)
@@ -538,8 +558,18 @@ subroutine add_cohort_data(restart,varname,fptr,longname,units)
   if (new_land_io) then
      allocate(r(size(restart%cidx)))
      call gather_cohort_data_r0d(fptr,restart%cidx,restart%tile_dim_length,r)
-     id_restart = register_restart_field(restart%rhandle,restart%basename,varname,r, &
-          longname=longname, units=units, compressed_axis='H', restart_owns_data=.true.)
+!----------
+!ug support
+     id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, &
+                                                             restart%basename, &
+                                                             varname, &
+                                                             r, &
+                                                             (/HIDX/), &
+                                                             lnd_ug%domain, &
+                                                             longname=longname, &
+                                                             units=units, &
+                                                             restart_owns_data=.true.)
+!----------
   else
      call write_cohort_data_r0d_fptr(restart%ncid,varname,fptr,longname,units)
   endif
@@ -558,8 +588,18 @@ subroutine add_int_cohort_data(restart,varname,fptr,longname,units)
   if (new_land_io) then
      allocate(r(size(restart%cidx)))
      call gather_cohort_data_i0d(fptr,restart%cidx,restart%tile_dim_length,r)
-     id_restart = register_restart_field(restart%rhandle,restart%basename,varname,r, &
-          longname=longname, units=units, compressed_axis='H', restart_owns_data=.true.)
+!----------
+!ug support
+     id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, &
+                                                             restart%basename, &
+                                                             varname, &
+                                                             r, &
+                                                             (/HIDX/), &
+                                                             lnd_ug%domain, &
+                                                             longname=longname, &
+                                                             units=units, &
+                                                             restart_owns_data=.true.)
+!----------
   else
      call write_cohort_data_i0d_fptr(restart%ncid,varname,fptr,longname,units)
   endif

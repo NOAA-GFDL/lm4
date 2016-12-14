@@ -17,8 +17,8 @@ use fms_mod, only: open_namelist_file
 
 use mpp_mod, only : mpp_max, mpp_sum, mpp_chksum, MPP_FILL_INT, MPP_FILL_DOUBLE
 use fms_io_mod, only : read_compressed, restart_file_type, free_restart_type
-use fms_io_mod, only : field_exist, get_field_size, save_restart
-use fms_io_mod, only : register_restart_axis, register_restart_field, set_domain, nullify_domain
+use fms_io_mod, only : field_exist, get_field_size
+use fms_io_mod, only : set_domain, nullify_domain
 use fms_mod, only : error_mesg, FATAL, WARNING, NOTE, mpp_pe, &
      mpp_root_pe, file_exist, check_nml_error, close_file, &
      stdlog, stderr, mpp_clock_id, mpp_clock_begin, mpp_clock_end, string, &
@@ -1027,11 +1027,34 @@ subroutine land_cover_warm_start_new (restart)
   ntiles = size(restart%tidx)
   allocate(glac(ntiles), lake(ntiles), soil(ntiles), vegn(ntiles), frac(ntiles))
 
-  call read_compressed(restart%basename,'frac',frac,domain=lnd%domain, timelevel=1)
-  call read_compressed(restart%basename,'glac',glac,domain=lnd%domain, timelevel=1)
-  call read_compressed(restart%basename,'lake',lake,domain=lnd%domain, timelevel=1)
-  call read_compressed(restart%basename,'soil',soil,domain=lnd%domain, timelevel=1)
-  call read_compressed(restart%basename,'vegn',vegn,domain=lnd%domain, timelevel=1)
+!----------
+!ug support
+  call read_compressed(restart%basename, &
+                       'frac', &
+                       frac, &
+                       domain=lnd%domain, &
+                       timelevel=1)
+  call read_compressed(restart%basename, &
+                       'glac', &
+                       glac, &
+                       domain=lnd%domain, &
+                       timelevel=1)
+  call read_compressed(restart%basename, &
+                       'lake', &
+                       lake, &
+                       domain=lnd%domain, &
+                       timelevel=1)
+  call read_compressed(restart%basename, &
+                       'soil', &
+                       soil, &
+                       domain=lnd%domain, &
+                       timelevel=1)
+  call read_compressed(restart%basename, &
+                       'vegn', &
+                       vegn, &
+                       domain=lnd%domain, &
+                       timelevel=1)
+!----------
 
   npts = lnd%nlon*lnd%nlat
   ! create tiles

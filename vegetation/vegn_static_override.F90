@@ -37,6 +37,13 @@ use vegn_cohort_mod,    only : vegn_cohort_type
 use cohort_io_mod,      only : create_cohort_dimension_new, create_cohort_dimension_orig, gather_cohort_data, &
      write_cohort_data_i0d_fptr, write_cohort_data_r0d_fptr
 
+!----------
+!ug support
+use fms_io_mod, only: fms_io_unstructured_register_restart_axis
+use fms_io_mod, only: fms_io_unstructured_register_restart_field
+use fms_io_mod, only: fms_io_unstructured_save_restart
+use fms_io_mod, only: HIDX
+!----------
 
 implicit none
 private
@@ -459,27 +466,88 @@ subroutine static_vegn_init( )
         base_time = set_date(year, month, day, hour, minute, sec)
         units = ' '
         write(units, 11) year, month, day, hour, minute, sec
-        call register_restart_axis(static_veg_file,'static_veg_out.nc','time',(/0.0/),'T', &
-                            units=units, calendar=valid_calendar_types(get_calendar_type()))
+!----------
+!ug support
+        call fms_io_unstructured_register_restart_axis(static_veg_file, &
+                                                       "static_veg_out.nc", &
+                                                       "time", &
+                                                       (/0.0/), &
+                                                       "T", &
+                                                       lnd_ug%domain, &
+                                                       units=units, &
+                                                       calendar=valid_calendar_types(get_calendar_type()))
+!----------
         csize = size(cidx)
         allocate(species(csize),status(csize),bl(csize), blv(csize), br(csize), bsw(csize), bwood(csize), bliving(csize))
-        id = register_restart_field(static_veg_file,'static_veg_out.nc','species', &
-             species, longname='vegetation species', compressed_axis='H')
-        id = register_restart_field(static_veg_file,'static_veg_out.nc','bl', &
-             bl, longname='biomass of leaves per individual', units='kg C/m2', compressed_axis='H')
-        id = register_restart_field(static_veg_file,'static_veg_out.nc','blv', &
-             blv, longname='biomass of virtual leaves (labile store) per individual', units='kg C/m2', compressed_axis='H')
-        id = register_restart_field(static_veg_file,'static_veg_out.nc','br', &
-             br, longname='biomass of fine roots per individual', units='kg C/m2', compressed_axis='H')
-        id = register_restart_field(static_veg_file,'static_veg_out.nc','bsw', &
-             bsw, longname='biomass of sapwood per individual', units='kg C/m2', compressed_axis='H')
-        id = register_restart_field(static_veg_file,'static_veg_out.nc','bwood', &
-             bwood, longname='biomass of heartwood per individual', units='kg C/m2', compressed_axis='H')
-        id = register_restart_field(static_veg_file,'static_veg_out.nc','bliving', &
-             bliving, longname='total living biomass per individual', units='', compressed_axis='H')
-        id = register_restart_field(static_veg_file,'static_veg_out.nc','status', &
-             status, longname='leaf status', units='', compressed_axis='H')
-        call save_restart(static_veg_file,directory='',time_level=-1.0)
+!----------
+!ug support
+        id = fms_io_unstructured_register_restart_field(static_veg_file, &
+                                                        "static_veg_out.nc", &
+                                                        "species", &
+                                                        species, &
+                                                        (/HIDX/), &
+                                                        lnd_ug%domain, &
+                                                        longname="vegetation species")
+        id = fms_io_unstructured_register_restart_field(static_veg_file, &
+                                                        "static_veg_out.nc", &
+                                                        "bl", &
+                                                        bl, &
+                                                        (/HIDX/), &
+                                                        lnd_ug%domain, &
+                                                        longname="biomass of leaves per individual", &
+                                                        units="kg C/m2")
+        id = fms_io_unstructured_register_restart_field(static_veg_file, &
+                                                        "static_veg_out.nc", &
+                                                        "blv", &
+                                                        blv, &
+                                                        (/HIDX/), &
+                                                        lnd_ug%domain, &
+                                                        longname="biomass of virtual leaves (labile store) per individual", &
+                                                        units="kg C/m2")
+        id = fms_io_unstructured_register_restart_field(static_veg_file, &
+                                                        "static_veg_out.nc", &
+                                                        "br", &
+                                                        br, &
+                                                        (/HIDX/), &
+                                                        lnd_ug%domain, &
+                                                        longname="biomass of fine roots per individual", &
+                                                        units="kg C/m2")
+        id = fms_io_unstructured_register_restart_field(static_veg_file, &
+                                                        "static_veg_out.nc", &
+                                                        "bsw", &
+                                                        bsw, &
+                                                        (/HIDX/), &
+                                                        lnd_ug%domain, &
+                                                        longname="biomass of sapwood per individual", &
+                                                        units="kg C/m2")
+        id = fms_io_unstructured_register_restart_field(static_veg_file, &
+                                                        "static_veg_out.nc", &
+                                                        "bwood", &
+                                                        bwood, &
+                                                        (/HIDX/), &
+                                                        lnd_ug%domain, &
+                                                        longname="biomass of heartwood per individual", &
+                                                        units="kg C/m2")
+        id = fms_io_unstructured_register_restart_field(static_veg_file, &
+                                                        "static_veg_out.nc", &
+                                                        "bliving", &
+                                                        bliving, &
+                                                        (/HIDX/), &
+                                                        lnd_ug%domain, &
+                                                        longname="total living biomass per individual", &
+                                                        units="")
+        id = fms_io_unstructured_register_restart_field(static_veg_file, &
+                                                        "static_veg_out.nc", &
+                                                        "status", &
+                                                        status, &
+                                                        (/HIDX/), &
+                                                        lnd_ug%domain, &
+                                                        longname="leaf status", &
+                                                        units="")
+        call fms_io_unstructured_save_restart(static_veg_file, &
+                                              directory="", &
+                                              time_level=-1.0)
+!----------
      else
         call create_tile_out_file(ncid2,'static_veg_out.nc', &
              lnd%coord_glon, lnd%coord_glat, vegn_tile_exists, tile_dim_length)
@@ -617,7 +685,14 @@ subroutine write_static_vegn()
      call gather_cohort_data(cohort_bwood_ptr,cidx,tile_dim_length,bwood)
      call gather_cohort_data(cohort_bliving_ptr,cidx,tile_dim_length,bliving)
      call gather_cohort_data(cohort_status_ptr,cidx,tile_dim_length,status)
-     call save_restart(static_veg_file,directory='',time_level=t,append=.true.)
+
+!----------
+!ug support
+     call fms_io_unstructured_save_restart(static_veg_file, &
+                                           directory="", &
+                                           append=.true., &
+                                           time_level=t)
+!----------
   else
      ! sync output files with the disk so that every processor sees the same
      ! information, number of records being critical here

@@ -30,6 +30,14 @@ use land_tile_mod, only : land_tile_type, land_tile_list_type, land_tile_enum_ty
 use land_data_mod, only  : lnd, land_state_type, lnd_ug
 use land_utils_mod, only : put_to_tiles_r0d_fptr
 
+!----------
+!ug support
+use fms_io_mod, only: fms_io_unstructured_save_restart
+use fms_io_mod, only: fms_io_unstructured_register_restart_axis
+use fms_io_mod, only: fms_io_unstructured_register_restart_field
+use fms_io_mod, only: CIDX,ZIDX,CCIDX
+!----------
+
 implicit none
 private
 
@@ -196,7 +204,13 @@ end subroutine open_land_restart
 subroutine save_land_restart(restart)
   type(land_restart_type), intent(inout) :: restart
 
-  if (restart%should_free_rhandle) call save_restart(restart%rhandle)
+!----------
+!ug support
+  if (restart%should_free_rhandle) then
+       call fms_io_unstructured_save_restart(restart%rhandle)
+  endif
+!----------
+
 end subroutine save_land_restart
 
 ! ==============================================================================
@@ -233,7 +247,26 @@ subroutine add_restart_axis(restart,name,data,cartesian,units,longname,sense)
   if (new_land_io) then
      allocate(data_(size(data)))
      data_(:) = data(:)
-     call register_restart_axis(restart%rhandle,restart%basename,name,data_,cartesian,units,longname,sense)
+!----------
+!ug support mw
+    call fms_io_unstructured_register_restart_axis(restart%rhandle, &
+                                                   restart%basename, &
+                                                   name, &
+                                                   data_, &
+                                                   cartesian, &
+                                                   lnd_ug%domain, &
+                                                   units=units, &
+                                                   longname=longname, &
+                                                   sense=sense)
+!    call register_restart_axis(restart%rhandle, &
+!                               restart%basename, &
+!                               name, &
+!                               data_, &
+!                               cartesian, &
+!                               units, &
+!                               longname, &
+!                               sense)
+!----------
   else
      if (mpp_pe()==lnd_ug%io_pelist(1)) then
         __NF_ASRT__(nfu_def_dim(restart%ncid,name,data(:),longname,units))
@@ -272,8 +305,22 @@ subroutine add_scalar_data(restart,varname,datum,longname,units)
   integer :: id_restart, ierr
 
   if (new_land_io) then
-     id_restart = register_restart_field(restart%rhandle,restart%basename,varname,datum,&
-          longname=longname,units=units)
+!----------
+!ug support mw
+     id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, &
+                                                             restart%basename, &
+                                                             varname, &
+                                                             datum, &
+                                                             lnd_ug%domain, &
+                                                             longname=longname, &
+                                                             units=units)
+!    id_restart = register_restart_field(restart%rhandle, &
+!                                        restart%basename, &
+!                                        varname, &
+!                                        datum,&
+!                                        longname=longname, &
+!                                        units=units)
+!----------
   else
      if(mpp_pe()==lnd_ug%io_pelist(1)) then
         ierr = nf_redef(restart%ncid)
@@ -298,8 +345,25 @@ subroutine add_tile_data_i0d_fptr_i0(restart,varname,fptr,longname,units)
            'tidx not allocated: looks like land restart was not initialized',FATAL)
      allocate(data(size(restart%tidx)))
      call gather_tile_data_i0d(fptr,restart%tidx,data)
-     id_restart = register_restart_field(restart%rhandle, restart%basename, varname, data, &
-          longname=longname, units=units, restart_owns_data=.true.)
+!----------
+!ug support mw
+     id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, &
+                                                             restart%basename, &
+                                                             varname, &
+                                                             data, &
+                                                             (/CIDX/), &
+                                                             lnd_ug%domain, &
+                                                             longname=longname, &
+                                                             units=units, &
+                                                             restart_owns_data=.true.)
+!    id_restart = register_restart_field(restart%rhandle, &
+!                                        restart%basename, &
+!                                        varname, &
+!                                        data, &
+!                                        longname=longname, &
+!                                        units=units, &
+!                                        restart_owns_data=.true.)
+!----------
   else ! old land io
      call write_tile_data_i0d_fptr(restart%ncid,varname,fptr,longname,units)
   endif
@@ -319,8 +383,25 @@ subroutine add_tile_data_r0d_fptr_r0(restart,varname,fptr,longname,units)
            'tidx not allocated: looks like land restart was not initialized',FATAL)
      allocate(data(size(restart%tidx)))
      call gather_tile_data_r0d(fptr,restart%tidx,data)
-     id_restart = register_restart_field(restart%rhandle, restart%basename, varname, data, &
-          longname=longname, units=units, restart_owns_data=.true.)
+!----------
+!ug support mw
+     id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, &
+                                                             restart%basename, &
+                                                             varname, &
+                                                             data, &
+                                                             (/CIDX/), &
+                                                             lnd_ug%domain, &
+                                                             longname=longname, &
+                                                             units=units, &
+                                                             restart_owns_data=.true.)
+!    id_restart = register_restart_field(restart%rhandle, &
+!                                        restart%basename, &
+!                                        varname, &
+!                                        data, &
+!                                        longname=longname, &
+!                                        units=units, &
+!                                        restart_owns_data=.true.)
+!----------
   else ! old land io
      call write_tile_data_r0d_fptr_r0(restart%ncid,varname,fptr,longname,units)
   endif
@@ -341,8 +422,25 @@ subroutine add_tile_data_r0d_fptr_r0i(restart,varname,fptr,index,longname,units)
            'tidx not allocated: looks like land restart was not initialized',FATAL)
      allocate(data(size(restart%tidx)))
      call gather_tile_data_r0d_idx(fptr,index,restart%tidx,data)
-     id_restart = register_restart_field(restart%rhandle, restart%basename, varname, data, &
-          longname=longname, units=units, restart_owns_data=.true.)
+!----------
+!ug support mw
+     id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, &
+                                                             restart%basename, &
+                                                             varname, &
+                                                             data, &
+                                                             (/CIDX/), &
+                                                             lnd_ug%domain, &
+                                                             longname=longname, &
+                                                             units=units, &
+                                                             restart_owns_data=.true.)
+!    id_restart = register_restart_field(restart%rhandle, &
+!                                        restart%basename, &
+!                                        varname, &
+!                                        data, &
+!                                        longname=longname, &
+!                                        units=units, &
+!                                        restart_owns_data=.true.)
+!----------
   else ! old land io
      call write_tile_data_r0d_fptr_r0i(restart%ncid,varname,fptr,index,longname,units)
   endif
@@ -371,8 +469,26 @@ subroutine add_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr,longname,units)
 
      allocate(data(size(restart%tidx),n))
      call gather_tile_data_i1d(fptr,restart%tidx,data)
-     id_restart = register_restart_field(restart%rhandle, restart%basename, varname, data, &
-          compressed=.true., longname=longname, units=units, restart_owns_data=.true.)
+!----------
+!ug support mw
+     id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, &
+                                                             restart%basename, &
+                                                             varname, &
+                                                             data, &
+                                                             (/CIDX,ZIDX/), &
+                                                             lnd_ug%domain, &
+                                                             longname=longname, &
+                                                             units=units, &
+                                                             restart_owns_data=.true.)
+!    id_restart = register_restart_field(restart%rhandle, &
+!                                        restart%basename, &
+!                                        varname, &
+!                                        data, &
+!                                        compressed=.true., &
+!                                        longname=longname, &
+!                                        units=units, &
+!                                        restart_owns_data=.true.)
+!----------
   else ! old land io
      call write_tile_data_i1d_fptr_i0i(restart%ncid,varname,fptr,zdim,longname,units)
   endif
@@ -408,12 +524,48 @@ subroutine add_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr,longname,units)
      ! of the variable in a sane way.
      if (trim(zdim)=='soilCCohort') then
         ! write (*,*) 'writing "',trim(varname),'" with C_CC' 
-        id_restart = register_restart_field(restart%rhandle, restart%basename, varname, data, &
-             compressed=.true., longname=longname, units=units, restart_owns_data=.true., &
-             compressed_axis='C_CC')
+!----------
+!ug support
+        id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, &
+                                                                restart%basename, &
+                                                                varname, &
+                                                                data, &
+                                                                (/CIDX,CCIDX/), &
+                                                                lnd_ug%domain, &
+                                                                longname=longname, &
+                                                                units=units, &
+                                                                restart_owns_data=.true.)
+!       id_restart = register_restart_field(restart%rhandle, &
+!                                           restart%basename, &
+!                                           varname, &
+!                                           data, &
+!                                           compressed=.true., &
+!                                           longname=longname, &
+!                                           units=units, &
+!                                           restart_owns_data=.true., &
+!                                           compressed_axis='C_CC')
+!----------
      else
-        id_restart = register_restart_field(restart%rhandle, restart%basename, varname, data, &
-             compressed=.true., longname=longname, units=units, restart_owns_data=.true.)
+!----------
+!ug support
+        id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, &
+                                                                restart%basename, &
+                                                                varname, &
+                                                                data, &
+                                                                (/CIDX,ZIDX/), &
+                                                                lnd_ug%domain, &
+                                                                longname=longname, &
+                                                                units=units, &
+                                                                restart_owns_data=.true.)
+!       id_restart = register_restart_field(restart%rhandle, &
+!                                           restart%basename, &
+!                                           varname, &
+!                                           data, &
+!                                           compressed=.true., &
+!                                           longname=longname, &
+!                                           units=units, &
+!                                           restart_owns_data=.true.)
+!----------
      endif
   else ! old land io
      call write_tile_data_r1d_fptr_r0i(restart%ncid,varname,fptr,zdim,longname,units)
@@ -466,12 +618,48 @@ subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index,longname,
      ! of the variable in a sane way.
      if (trim(zdim)=='soilCCohort') then
         ! write (*,*) 'writing "',trim(varname),'" with C_CC' 
-        id_restart = register_restart_field(restart%rhandle, restart%basename, varname, data, &
-             compressed=.true., longname=longname, units=units, restart_owns_data=.true., &
-             compressed_axis='C_CC')
+!----------
+!ug support
+        id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, &
+                                                                restart%basename, &
+                                                                varname, &
+                                                                data, &
+                                                                (/CIDX,CCIDX/), &
+                                                                lnd_ug%domain, &
+                                                                longname=longname, &
+                                                                units=units, &
+                                                                restart_owns_data=.true.)
+!       id_restart = register_restart_field(restart%rhandle, &
+!                                           restart%basename, &
+!                                           varname, &
+!                                           data, &
+!                                           compressed=.true., &
+!                                           longname=longname, &
+!                                           units=units, &
+!                                           restart_owns_data=.true., &
+!                                           compressed_axis='C_CC')
+!----------
      else
-        id_restart = register_restart_field(restart%rhandle, restart%basename, varname, data, &
-             compressed=.true., longname=longname, units=units, restart_owns_data=.true.)
+!----------
+!ug support
+        id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, &
+                                                                restart%basename, &
+                                                                varname, &
+                                                                data, &
+                                                                (/CIDX,ZIDX/), &
+                                                                lnd_ug%domain, &
+                                                                longname=longname, &
+                                                                units=units, &
+                                                                restart_owns_data=.true.)
+!       id_restart = register_restart_field(restart%rhandle, &
+!                                           restart%basename, &
+!                                           varname, &
+!                                           data, &
+!                                           compressed=.true., &
+!                                           longname=longname, &
+!                                           units=units, &
+!                                           restart_owns_data=.true.)
+!----------
      endif
   else ! old land io
      call write_tile_data_r1d_fptr_r0ij(restart%ncid,varname,fptr,index,zdim,longname,units)
@@ -503,8 +691,26 @@ subroutine add_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr,longname,u
 
      allocate(data(size(restart%tidx),n,m))
      call gather_tile_data_r2d(fptr,restart%tidx,data)
-     id_restart = register_restart_field(restart%rhandle, restart%basename, varname, data, &
-          compressed=.true., longname=longname, units=units, restart_owns_data=.true.)
+!----------
+!ug support
+     id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, &
+                                                             restart%basename, &
+                                                             varname, &
+                                                             data, &
+                                                             (/CIDX,ZIDX,CCIDX/), &
+                                                             lnd_ug%domain, &
+                                                             longname=longname, &
+                                                             units=units, &
+                                                             restart_owns_data=.true.)
+!    id_restart = register_restart_field(restart%rhandle, &
+!                                        restart%basename, &
+!                                        varname, &
+!                                        data, &
+!                                        compressed=.true., &
+!                                        longname=longname, &
+!                                        units=units, &
+!                                        restart_owns_data=.true.)
+!----------
   else ! old land io
      call write_tile_data_r2d_fptr_r0ij(restart%ncid,varname,fptr,dim1,dim2,longname,units)
   endif
@@ -536,8 +742,26 @@ subroutine add_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index,lon
 
      allocate(data(size(restart%tidx),n,m))
      call gather_tile_data_r2d_idx(fptr,index,restart%tidx,data)
-     id_restart = register_restart_field(restart%rhandle, restart%basename, varname, data, &
-          compressed=.true., longname=longname, units=units, restart_owns_data=.true.)
+!----------
+!ug support
+     id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, &
+                                                             restart%basename, &
+                                                             varname, &
+                                                             data, &
+                                                             (/CIDX,ZIDX,CCIDX/), &
+                                                             lnd_ug%domain, &
+                                                             longname=longname, &
+                                                             units=units, &
+                                                             restart_owns_data=.true.)
+!    id_restart = register_restart_field(restart%rhandle, &
+!                                        restart%basename, &
+!                                        varname, &
+!                                        data, &
+!                                        compressed=.true., &
+!                                        longname=longname, &
+!                                        units=units, &
+!                                        restart_owns_data=.true.)
+!----------
   else ! old land io
      call write_tile_data_r2d_fptr_r0ijk(restart%ncid,varname,fptr,index,dim1,dim2,longname,units)
   endif
@@ -991,21 +1215,101 @@ subroutine create_tile_out_file_idx_new(rhandle,name,tidx,tile_dim_length,zaxis_
   call get_instance_filename(trim(name), file_name)
   call get_mosaic_tile_file(trim(file_name),file_name,lnd_ug%domain)
 
-  call register_restart_axis(rhandle,file_name,'lon',lnd%coord_glon(:),'X',units='degrees_east',longname='longitude')
-  call register_restart_axis(rhandle,file_name,'lat',lnd%coord_glat(:),'Y',units='degrees_north',longname='latitude')
+!----------
+!ug support
+  call fms_io_unstructured_register_restart_axis(rhandle, &
+                                                 file_name, &
+                                                 "lon", &
+                                                 lnd%coord_glon, &
+                                                 "X", &
+                                                 lnd_ug%domain, &
+                                                 units="degrees_east", &
+                                                 longname="longitude")
+! call register_restart_axis(rhandle, &
+!                            file_name, &
+!                            'lon', &
+!                            lnd%coord_glon(:), &
+!                            'X', &
+!                            units='degrees_east', &
+!                            longname='longitude')
+  call fms_io_unstructured_register_restart_axis(rhandle, &
+                                                 file_name, &
+                                                 "lat", &
+                                                 lnd%coord_glat, &
+                                                 "Y", &
+                                                 lnd_ug%domain, &
+                                                 units="degrees_north", &
+                                                 longname="latitude")
+! call register_restart_axis(rhandle, &
+!                            file_name, &
+!                            'lat', &
+!                            lnd%coord_glat(:), &
+!                            'Y', &
+!                            units='degrees_north', &
+!                            longname='latitude')
   ! the size of tile dimension really does not matter for the output, but it does
   ! matter for uncompressing utility, since it uses it as a size of the array to
   ! unpack to create tile index dimension and variable.
-  call register_restart_axis(rhandle,file_name,trim(tile_index_name),tidx(:),compressed='tile lat lon', &
-                             compressed_axis='C', dimlen=tile_dim_length, dimlen_name='tile', &
-                             dimlen_lname='tile number within grid cell',  &
-                             longname='compressed land point index',imin=0)
+  call fms_io_unstructured_register_restart_axis(rhandle, &
+                                                 file_name, &
+                                                 trim(tile_index_name), &
+                                                 tidx, &
+                                                 "tile lat lon", &
+                                                 "C", &
+                                                 tile_dim_length, &
+                                                 lnd_ug%domain, &
+                                                 dimlen_name="tile", &
+                                                 dimlen_lname="tile number within grid cell", &
+                                                 longname="compressed land point index", &
+                                                 imin=0)
+! call register_restart_axis(rhandle, &
+!                            file_name, &
+!                            trim(tile_index_name), &
+!                            tidx(:), &
+!                            compressed='tile lat lon', &
+!                            compressed_axis='C', &
+!                            dimlen=tile_dim_length, &
+!                            dimlen_name='tile', &
+!                            dimlen_lname='tile number within grid cell',  &
+!                            longname='compressed land point index', &
+!                            imin=0)
 
-  if (present(zaxis_data)) &
-      call register_restart_axis(rhandle,file_name,'zfull',zaxis_data(:),'Z',units='m',longname='full level',sense=-1)
+  if (present(zaxis_data)) then
+      call fms_io_unstructured_register_restart_axis(rhandle, &
+                                                     file_name, &
+                                                     "zfull", &
+                                                     zaxis_data, &
+                                                     "Z", &
+                                                     lnd_ug%domain, &
+                                                     units="m", &
+                                                     longname="full level", &
+                                                     sense=-1)
+!     call register_restart_axis(rhandle, &
+!                                file_name, &
+!                                'zfull', &
+!                                zaxis_data(:), &
+!                                'Z', &
+!                                units='m', &
+!                                longname='full level', &
+!                                sense=-1)
+  endif
 
-  if (present(soilCCohort_data)) &
-      call register_restart_axis(rhandle,file_name,'soilCCohort',soilCCohort_data(:),'CC',longname='Soil carbon cohort')
+  if (present(soilCCohort_data)) then
+      call fms_io_unstructured_register_restart_axis(rhandle, &
+                                                     file_name, &
+                                                     "soilCCohort", &
+                                                     soilCCohort_data, &
+                                                     "CC", &
+                                                     lnd_ug%domain, &
+                                                     longname="Soil carbon cohort")
+!     call register_restart_axis(rhandle, &
+!                                file_name, &
+!                                'soilCCohort', &
+!                                soilCCohort_data(:), &
+!                                'CC', &
+!                                longname='Soil carbon cohort')
+  endif
+!----------
 
 end subroutine create_tile_out_file_idx_new
 

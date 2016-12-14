@@ -13,9 +13,9 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only : error_mesg, FATAL, NOTE, file_exist, &
      close_file, check_nml_error, mpp_pe, mpp_root_pe, stdlog, string
-use fms_io_mod, only : read_compressed, restart_file_type, free_restart_type
-use fms_io_mod, only : field_exist, get_field_size, save_restart
-use fms_io_mod, only : register_restart_axis, register_restart_field, set_domain, nullify_domain
+use fms_io_mod, only : restart_file_type, free_restart_type
+use fms_io_mod, only : field_exist, get_field_size
+use fms_io_mod, only : set_domain, nullify_domain
 use time_manager_mod, only : time_type, time_type_to_real
 use constants_mod, only : rdgas, rvgas, cp_air, PI, VONKARM
 use sphum_mod, only : qscomp

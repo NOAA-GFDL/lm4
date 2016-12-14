@@ -16,7 +16,7 @@ use fms_mod, only: error_mesg, file_exist, close_file, check_nml_error, &
      stdlog, FATAL, NOTE, WARNING
 
 use fms_io_mod, only: read_compressed, restart_file_type, free_restart_type, &
-      save_restart, register_restart_field, set_domain, nullify_domain, get_field_size
+      set_domain, nullify_domain, get_field_size
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, get_elmt_indices, operator(/=)
