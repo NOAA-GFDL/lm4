@@ -303,10 +303,10 @@ subroutine lake_init ( id_lon, id_lat )
 
   call lake_diag_init ( id_lon, id_lat )
   ! ---- static diagnostic section
-  call send_tile_data_r0d_fptr(id_sillw, land_tile_map, lake_width_sill_ptr)
-  call send_tile_data_r0d_fptr(id_silld, land_tile_map, lake_depth_sill_ptr)
-  call send_tile_data_r0d_fptr(id_backw, land_tile_map, lake_backwater_ptr)
-  call send_tile_data_r0d_fptr(id_back1, land_tile_map, lake_backwater_1_ptr)
+  call send_tile_data_r0d_fptr(id_sillw, lake_width_sill_ptr)
+  call send_tile_data_r0d_fptr(id_silld, lake_depth_sill_ptr)
+  call send_tile_data_r0d_fptr(id_backw, lake_backwater_ptr)
+  call send_tile_data_r0d_fptr(id_back1, lake_backwater_1_ptr)
 end subroutine lake_init
 
 

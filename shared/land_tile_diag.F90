@@ -12,7 +12,7 @@ use land_tile_selectors_mod, only : tile_selectors_init, tile_selectors_end, &
      tile_selector_type, register_tile_selector, selector_suffix, &
      n_selectors, selectors
 use land_tile_mod,      only : land_tile_type, diag_buff_type, &
-     land_tile_list_type, land_tile_enum_type, first_elmt, loop_over_tiles, &
+     land_tile_enum_type, first_elmt, loop_over_tiles, &
      land_tile_map, tile_is_selected, fptr_i0, fptr_r0, fptr_r0i
 use land_data_mod,      only : lnd, log_version
 use land_debug_mod,     only : check_var_range, set_current_point
@@ -720,9 +720,8 @@ subroutine send_tile_data_0d_array(id, x)
 end subroutine send_tile_data_0d_array
 
 ! ============================================================================
-subroutine send_tile_data_r0d_fptr(id, tile_map, fptr)
+subroutine send_tile_data_r0d_fptr(id, fptr)
   integer, intent(in) :: id
-  type(land_tile_list_type), intent(inout) :: tile_map(:,:)
   procedure(fptr_r0)  :: fptr
 
   type(land_tile_enum_type)     :: ce      ! tile list enumerator
@@ -730,7 +729,7 @@ subroutine send_tile_data_r0d_fptr(id, tile_map, fptr)
   real                , pointer :: ptr     ! pointer to the data element within a tile
 
   if(id <= 0) return
-  ce = first_elmt( tile_map )
+  ce = first_elmt( land_tile_map )
   do while(loop_over_tiles(ce,tileptr))
      call fptr(tileptr,ptr)
      if(associated(ptr)) call send_tile_data(id,ptr,tileptr%diag)
@@ -739,9 +738,8 @@ end subroutine send_tile_data_r0d_fptr
 
 
 ! ============================================================================
-subroutine send_tile_data_r1d_fptr(id, tile_map, fptr)
+subroutine send_tile_data_r1d_fptr(id, fptr)
   integer, intent(in) :: id
-  type(land_tile_list_type), intent(inout) :: tile_map(:,:)
   procedure(fptr_r0i) :: fptr
 
   type(land_tile_enum_type)     :: ce      ! tile list enumerator
@@ -755,7 +753,7 @@ subroutine send_tile_data_r1d_fptr(id, tile_map, fptr)
   i = id - BASE_TILED_FIELD_ID ! index in the array of fields
 
   allocate(buffer(fields(i)%size))
-  ce = first_elmt( tile_map, is=lnd%is, js=lnd%js )
+  ce = first_elmt( land_tile_map, is=lnd%is, js=lnd%js )
   do while(loop_over_tiles(ce, tileptr, i1,i2,i3))
 #ifdef DEBUG_LAND_TILE_DIAG
      call set_current_point(i1,i2,i3)
@@ -777,9 +775,8 @@ end subroutine send_tile_data_r1d_fptr
 
 
 ! ============================================================================
-subroutine send_tile_data_i0d_fptr(id, tile_map, fptr)
+subroutine send_tile_data_i0d_fptr(id, fptr)
   integer, intent(in) :: id
-  type(land_tile_list_type), intent(inout) :: tile_map(:,:)
   procedure(fptr_i0)  :: fptr
 
   type(land_tile_enum_type)     :: ce      ! tile list enumerator
@@ -787,7 +784,7 @@ subroutine send_tile_data_i0d_fptr(id, tile_map, fptr)
   integer             , pointer :: ptr     ! pointer to the data element within a tile
 
   if(id <= 0) return
-  ce = first_elmt( tile_map )
+  ce = first_elmt( land_tile_map )
   do while(loop_over_tiles(ce,tileptr))
      call fptr(tileptr,ptr)
      if(associated(ptr)) call send_tile_data(id,real(ptr),tileptr%diag)
@@ -796,8 +793,7 @@ end subroutine send_tile_data_i0d_fptr
 
 
 ! ============================================================================
-subroutine dump_tile_diag_fields(tiles, time)
-  type(land_tile_list_type), intent(in) :: tiles(:,:) !
+subroutine dump_tile_diag_fields(time)
   type(time_type)          , intent(in) :: time       ! current time
 
   ! ---- local vars
@@ -817,7 +813,7 @@ subroutine dump_tile_diag_fields(tiles, time)
      if (total_n_sends(ifld) == 0) cycle ! no data to send
      do isel = 1, n_selectors
         if (fields(ifld)%ids(isel) <= 0) cycle
-        call dump_diag_field_with_sel ( fields(ifld)%ids(isel), tiles, &
+        call dump_diag_field_with_sel ( fields(ifld)%ids(isel), &
              fields(ifld), selectors(isel), time )
      enddo
   enddo
@@ -826,7 +822,7 @@ subroutine dump_tile_diag_fields(tiles, time)
 
   ! all the data are sent to the output, so set the data presence tag to FALSE
   ! in all diag buffers in preparation for the next time step
-  ce = first_elmt(tiles)
+  ce = first_elmt(land_tile_map)
   do while(loop_over_tiles(ce,tile))
     tile%diag%mask(:) = .FALSE.
   enddo
@@ -836,9 +832,8 @@ subroutine dump_tile_diag_fields(tiles, time)
 end subroutine dump_tile_diag_fields
 
 ! ============================================================================
-subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
+subroutine dump_diag_field_with_sel(id, field, sel, time)
   integer :: id
-  type(land_tile_list_type),   intent(in) :: tiles(:,:)
   type(tiled_diag_field_type), intent(in) :: field
   type(tile_selector_type)   , intent(in) :: sel
   type(time_type)            , intent(in) :: time ! current time
@@ -853,8 +848,8 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
   type(land_tile_type), pointer :: tile
 
   ! calculate array boundaries
-  is = lbound(tiles,1); ie = ubound(tiles,1)
-  js = lbound(tiles,2); je = ubound(tiles,2)
+  is = lbound(land_tile_map,1); ie = ubound(land_tile_map,1)
+  js = lbound(land_tile_map,2); je = ubound(land_tile_map,2)
   ks = field%offset   ; ke = field%offset + field%size - 1
 
   ! allocate and initialize temporary buffers
@@ -863,7 +858,7 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
   weight(:,:,:) = 0.0
 
   ! accumulate data
-  ce = first_elmt(tiles, is=is, js=js)
+  ce = first_elmt(land_tile_map, is=is, js=js)
   do while(loop_over_tiles(ce, tile, i,j))
     if ( size(tile%diag%data) < ke )       cycle ! do nothing if there is no data in the buffer
     if ( .not.tile_is_selected(tile,sel) ) cycle ! do nothing if tile is not selected
@@ -897,7 +892,7 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
      ! perhaps this way is better for performance?
      do j = js,je
      do i = is,ie
-        ce = first_elmt(tiles(i,j))
+        ce = first_elmt(land_tile_map(i,j))
         do while(loop_over_tiles(ce,tile))
            if ( size(tile%diag%data) < ke )       cycle ! do nothing if there is no data in the buffer
            if ( .not.tile_is_selected(tile,sel) ) cycle ! do nothing if tile is not selected

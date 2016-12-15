@@ -752,16 +752,16 @@ subroutine hlsp_init ( id_lon, id_lat )
    !id_tile_hlsp_elev, id_tile_hlsp_hpos, id_tile_hlsp_width, id_transm_bedrock, &
    !id_hidx_j, id_hidx_k
    ! soil_e_depth and k_sat_gw will be done in soil_init.
-   call send_tile_data_i0d_fptr(id_hidx_j,         land_tile_map,     soil_hidx_j_ptr)
-   call send_tile_data_i0d_fptr(id_hidx_k,         land_tile_map,     soil_hidx_k_ptr)
-!   call send_tile_data_r0d_fptr(id_soil_e_depth,   land_tile_map,     soil_soil_e_depth_ptr)
-   call send_tile_data_r0d_fptr(id_microtopo,      land_tile_map,     soil_microtopo_ptr)
-   call send_tile_data_r0d_fptr(id_tile_hlsp_length,land_tile_map,    soil_tile_hlsp_length_ptr)
-   call send_tile_data_r0d_fptr(id_tile_hlsp_slope, land_tile_map,    soil_tile_hlsp_slope_ptr)
-   call send_tile_data_r0d_fptr(id_tile_hlsp_elev,  land_tile_map,    soil_tile_hlsp_elev_ptr)
-   call send_tile_data_r0d_fptr(id_tile_hlsp_hpos,  land_tile_map,    soil_tile_hlsp_hpos_ptr)
-   call send_tile_data_r0d_fptr(id_tile_hlsp_width, land_tile_map,    soil_tile_hlsp_width_ptr)
-!   call send_tile_data_r0d_fptr(id_transm_bedrock,  land_tile_map,    soil_transm_bedrock_ptr)
+   call send_tile_data_i0d_fptr(id_hidx_j,              soil_hidx_j_ptr)
+   call send_tile_data_i0d_fptr(id_hidx_k,              soil_hidx_k_ptr)
+!   call send_tile_data_r0d_fptr(id_soil_e_depth,        soil_soil_e_depth_ptr)
+   call send_tile_data_r0d_fptr(id_microtopo,           soil_microtopo_ptr)
+   call send_tile_data_r0d_fptr(id_tile_hlsp_length,    soil_tile_hlsp_length_ptr)
+   call send_tile_data_r0d_fptr(id_tile_hlsp_slope,     soil_tile_hlsp_slope_ptr)
+   call send_tile_data_r0d_fptr(id_tile_hlsp_elev,      soil_tile_hlsp_elev_ptr)
+   call send_tile_data_r0d_fptr(id_tile_hlsp_hpos,      soil_tile_hlsp_hpos_ptr)
+   call send_tile_data_r0d_fptr(id_tile_hlsp_width,     soil_tile_hlsp_width_ptr)
+!   call send_tile_data_r0d_fptr(id_transm_bedrock,      soil_transm_bedrock_ptr)
 
    deallocate(num_topo_hlsps, frac_topo_hlsps, &
             soil_e_depth, &

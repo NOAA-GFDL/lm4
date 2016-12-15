@@ -1277,7 +1277,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   lnd%time = lnd%time + lnd%dt_fast
 
   ! send the accumulated diagnostics to the output
-  call dump_tile_diag_fields(land_tile_map, lnd%time)
+  call dump_tile_diag_fields(lnd%time)
 
   if (id_dis_liq > 0)  used = send_data (id_dis_liq,  discharge_l, lnd%time)
   if (id_dis_ice > 0)  used = send_data (id_dis_ice,  discharge_c(:,:,i_river_ice), lnd%time)
@@ -2230,7 +2230,7 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   call land_transitions( lnd%time )
   call update_vegn_slow( )
   ! send the accumulated diagnostics to the output
-  call dump_tile_diag_fields(land_tile_map, lnd%time)
+  call dump_tile_diag_fields(lnd%time)
 
   ! land_transitions may have changed the number of tiles per grid cell: reallocate
   ! boundary conditions, if necessary
