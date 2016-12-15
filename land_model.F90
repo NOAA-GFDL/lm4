@@ -124,6 +124,9 @@ public land_data_type_chksum    ! routine to print checksums for land_data_type
 public atm_lnd_bnd_type_chksum  ! routine to print checksums for atmos_land_boundary_type
 
 public :: Lnd_stock_pe          ! return stocks of conservative quantities
+
+! re-export land diagnostic subroutines for tiled diag in flux exchange
+public set_default_diag_filter, register_tiled_diag_field, send_tile_data
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================

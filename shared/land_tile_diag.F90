@@ -13,7 +13,7 @@ use land_tile_selectors_mod, only : tile_selectors_init, tile_selectors_end, &
      n_selectors, selectors
 use land_tile_mod,      only : land_tile_type, diag_buff_type, &
      land_tile_list_type, land_tile_enum_type, first_elmt, loop_over_tiles, &
-     tile_is_selected, fptr_i0, fptr_r0, fptr_r0i
+     land_tile_map, tile_is_selected, fptr_i0, fptr_r0, fptr_r0i
 use land_data_mod,      only : lnd, log_version
 use land_debug_mod,     only : check_var_range, set_current_point
 use tile_diag_buff_mod, only : diag_buff_type, realloc_diag_buff
@@ -50,6 +50,7 @@ public :: OP_AVERAGE, OP_SUM, OP_VAR, OP_STD
 interface send_tile_data
    module procedure send_tile_data_0d
    module procedure send_tile_data_1d
+   module procedure send_tile_data_0d_array
 end interface
 
 public :: get_area_id
@@ -702,6 +703,21 @@ subroutine send_tile_data_1d(id, x, buffer)
 end subroutine send_tile_data_1d
 
 ! NOTE: 2-d fields can be handled similarly to 1-d with reshape
+
+! ============================================================================
+subroutine send_tile_data_0d_array(id, x)
+  integer, intent(in) :: id
+  real   , intent(in) :: x(:,:,:)
+
+  integer :: i,j,k
+  type(land_tile_enum_type)     :: ce
+  type(land_tile_type), pointer :: tileptr
+
+  ce = first_elmt( land_tile_map )
+  do while(loop_over_tiles(ce,tileptr,i,j,k))
+     call send_tile_data(id,x(i,j,k),tileptr%diag)
+  enddo
+end subroutine send_tile_data_0d_array
 
 ! ============================================================================
 subroutine send_tile_data_r0d_fptr(id, tile_map, fptr)
