@@ -15,9 +15,9 @@ use mpp_mod, only: mpp_pe, mpp_root_pe
 use fms_mod, only: error_mesg, file_exist, close_file, check_nml_error, &
      stdlog, FATAL, NOTE, WARNING
 
-use fms_io_mod, only: read_compressed, restart_file_type, free_restart_type, &
-      set_domain, nullify_domain, get_field_size
-
+use fms_io_mod, only: restart_file_type, free_restart_type, &
+      set_domain, nullify_domain
+!use fms_io_mod, only: get_field_size,read_compressed
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, get_elmt_indices, operator(/=)
 use land_utils_mod, only : put_to_tiles_r0d_fptr

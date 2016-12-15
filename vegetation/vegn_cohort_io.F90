@@ -1,8 +1,7 @@
 module cohort_io_mod
 
 use fms_mod,          only : error_mesg, FATAL, WARNING, get_mosaic_tile_file
-use fms_io_mod,       only : register_restart_axis, restart_file_type, get_instance_filename, &
-   get_field_size, register_restart_field, read_compressed
+use fms_io_mod,       only : restart_file_type, get_instance_filename
 use mpp_mod,          only : mpp_pe, mpp_max, mpp_send, mpp_recv, mpp_sync, &
                              COMM_TAG_1, COMM_TAG_2
 use nf_utils_mod,     only : nfu_inq_dim, nfu_get_var, nfu_put_var, &
@@ -26,6 +25,7 @@ use land_data_mod, only : lnd, land_state_type, lnd_ug
 use fms_io_mod, only: fms_io_unstructured_register_restart_axis
 use fms_io_mod, only: fms_io_unstructured_register_restart_field
 use fms_io_mod, only: HIDX
+use fms_io_mod, only: fms_io_unstructured_read
 !----------
 
 implicit none
@@ -616,7 +616,14 @@ subroutine get_cohort_data(restart,varname,fptr)
      if (.not.allocated(restart%cidx)) call error_mesg('read_create_cohorts', &
         'cohort index not found in file "'//restart%filename//'"',FATAL)
      allocate(r(size(restart%cidx)))
-     call read_compressed(restart%basename, varname, r, domain=lnd%domain, timelevel=1)
+!----------
+!ug support
+     call fms_io_unstructured_read(restart%basename, &
+                                   varname, &
+                                   r, &
+                                   lnd_ug%domain, &
+                                   timelevel=1)
+!----------
      call assemble_cohorts_r0d(fptr,restart%cidx,restart%tile_dim_length,r)
      deallocate(r)
   else
@@ -635,7 +642,14 @@ subroutine get_int_cohort_data(restart,varname,fptr)
      if (.not.allocated(restart%cidx)) call error_mesg('read_create_cohorts', &
         'cohort index not found in file "'//restart%filename//'"',FATAL)
      allocate(r(size(restart%cidx)))
-     call read_compressed(restart%basename, varname, r, domain=lnd%domain, timelevel=1)
+!----------
+!ug support
+     call fms_io_unstructured_read(restart%basename, &
+                                   varname, &
+                                   r, &
+                                   lnd_ug%domain, &
+                                   timelevel=1)
+!----------
      call assemble_cohorts_i0d(fptr,restart%cidx,restart%tile_dim_length,r)
      deallocate(r)
   else

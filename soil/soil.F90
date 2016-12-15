@@ -13,9 +13,9 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only: error_mesg, file_exist, check_nml_error, &
      stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, WARNING, NOTE
-use fms_io_mod, only: read_compressed, restart_file_type, free_restart_type, &
+use fms_io_mod, only: restart_file_type, free_restart_type, &
       field_exist, &
-      set_domain, nullify_domain, get_field_size
+      set_domain, nullify_domain
 use time_manager_mod,   only: time_type, increment_time, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o

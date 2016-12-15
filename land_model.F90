@@ -16,8 +16,8 @@ use fms_mod, only: open_namelist_file
 #endif
 
 use mpp_mod, only : mpp_max, mpp_sum, mpp_chksum, MPP_FILL_INT, MPP_FILL_DOUBLE
-use fms_io_mod, only : read_compressed, restart_file_type, free_restart_type
-use fms_io_mod, only : field_exist, get_field_size
+use fms_io_mod, only : restart_file_type, free_restart_type
+use fms_io_mod, only : field_exist
 use fms_io_mod, only : set_domain, nullify_domain
 use fms_mod, only : error_mesg, FATAL, WARNING, NOTE, mpp_pe, &
      mpp_root_pe, file_exist, check_nml_error, close_file, &
@@ -114,6 +114,11 @@ use vegn_data_mod, only : LU_CROP, LU_PAST, LU_NTRL, LU_SCND, &
 use predefined_tiles_mod, only: land_cover_cold_start_0d_predefined_tiles,&
                                 open_database_predefined_tiles,&
                                 close_database_predefined_tiles
+
+!----------
+!ug support
+use fms_io_mod, only: fms_io_unstructured_read
+!----------
 
 implicit none
 private
@@ -1029,31 +1034,31 @@ subroutine land_cover_warm_start_new (restart)
 
 !----------
 !ug support
-  call read_compressed(restart%basename, &
-                       'frac', &
-                       frac, &
-                       domain=lnd%domain, &
-                       timelevel=1)
-  call read_compressed(restart%basename, &
-                       'glac', &
-                       glac, &
-                       domain=lnd%domain, &
-                       timelevel=1)
-  call read_compressed(restart%basename, &
-                       'lake', &
-                       lake, &
-                       domain=lnd%domain, &
-                       timelevel=1)
-  call read_compressed(restart%basename, &
-                       'soil', &
-                       soil, &
-                       domain=lnd%domain, &
-                       timelevel=1)
-  call read_compressed(restart%basename, &
-                       'vegn', &
-                       vegn, &
-                       domain=lnd%domain, &
-                       timelevel=1)
+  call fms_io_unstructured_read(restart%basename, &
+                                "frac", &
+                                frac, &
+                                lnd_ug%domain, &
+                                timelevel=1)
+  call fms_io_unstructured_read(restart%basename, &
+                                "glac", &
+                                glac, &
+                                lnd_ug%domain, &
+                                timelevel=1)
+  call fms_io_unstructured_read(restart%basename, &
+                                "lake", &
+                                lake, &
+                                lnd_ug%domain, &
+                                timelevel=1)
+  call fms_io_unstructured_read(restart%basename, &
+                                "soil", &
+                                soil, &
+                                lnd_ug%domain, &
+                                timelevel=1)
+  call fms_io_unstructured_read(restart%basename, &
+                                "vegn", &
+                                vegn, &
+                                lnd_ug%domain, &
+                                timelevel=1)
 !----------
 
   npts = lnd%nlon*lnd%nlat
