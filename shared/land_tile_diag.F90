@@ -705,9 +705,11 @@ end subroutine send_tile_data_1d
 ! NOTE: 2-d fields can be handled similarly to 1-d with reshape
 
 ! ============================================================================
-subroutine send_tile_data_0d_array(id, x)
+subroutine send_tile_data_0d_array(id, x, send_immediately)
   integer, intent(in) :: id
   real   , intent(in) :: x(:,:,:)
+  logical, intent(in), optional :: send_immediately ! if true, send data to diag_manager
+    ! right avay, instead of waiting for the next tiled diag fields dump
 
   integer :: i,j,k
   type(land_tile_enum_type)     :: ce
@@ -717,6 +719,11 @@ subroutine send_tile_data_0d_array(id, x)
   do while(loop_over_tiles(ce,tileptr,i,j,k))
      call send_tile_data(id,x(i,j,k),tileptr%diag)
   enddo
+  if(present(send_immediately)) then
+     ! TODO: perhaps need to add time to the arguments, instead of using lnd%time?
+     ! not clear if this will have any effect
+     if(send_immediately) call dump_tile_diag_field(id, lnd%time)
+  endif
 end subroutine send_tile_data_0d_array
 
 ! ============================================================================
@@ -802,8 +809,6 @@ subroutine dump_tile_diag_fields(time)
   type(land_tile_enum_type)     :: ce
   type(land_tile_type), pointer :: tile
   integer :: total_n_sends(n_fields)
-  ! ---- local static variables -- saved between calls
-  logical :: first_dump = .TRUE.
 
   total_n_sends(:) = fields(1:n_fields)%n_sends
   call mpp_sum(total_n_sends, n_fields, pelist=lnd%pelist)
@@ -826,10 +831,50 @@ subroutine dump_tile_diag_fields(time)
   do while(loop_over_tiles(ce,tile))
     tile%diag%mask(:) = .FALSE.
   enddo
-  ! reset the first_dump flag
-  first_dump = .FALSE.
-
 end subroutine dump_tile_diag_fields
+
+! ============================================================================
+! dumps a single field
+! TODO: perhaps need dump aliases as well
+! TODO: perhaps total_n_sends check can be removed to avoid communication
+subroutine dump_tile_diag_field(id, time)
+  integer, intent(in) :: id ! diag id of the field
+  type(time_type), intent(in) :: time       ! current time
+
+  ! ---- local vars
+  integer :: ifld ! field number
+  integer :: isel ! selector number
+  type(land_tile_enum_type)     :: ce
+  type(land_tile_type), pointer :: tile
+  integer :: total_n_sends
+
+  if (id<=0) return ! do nothing if field not registered
+
+  ifld = id-BASE_TILED_FIELD_ID
+  if (ifld<1.or.ifld>n_fields) &
+     call error_mesg(mod_name, 'incorrect field id '//string(id)//' in dump_tile_diag_field ', FATAL)
+
+  total_n_sends = fields(ifld)%n_sends
+  call mpp_sum(total_n_sends, pelist=lnd%pelist)
+
+!$OMP parallel do schedule(dynamic) default(shared) private(isel)
+  if (total_n_sends == 0) return ! no data to send
+  do isel = 1, n_selectors
+     if (fields(ifld)%ids(isel) <= 0) cycle
+     call dump_diag_field_with_sel ( fields(ifld)%ids(isel), &
+          fields(ifld), selectors(isel), time )
+  enddo
+  ! zero out the number of data points sent to the field
+  fields(ifld)%n_sends=0
+
+  ! all the data are sent to the output, so set the data presence tag to FALSE
+  ! in all diag buffers in preparation for the next time step
+  ce = first_elmt(land_tile_map)
+  do while(loop_over_tiles(ce,tile))
+    tile%diag%mask(fields(ifld)%offset:fields(ifld)%offset+fields(ifld)%size-1) = .FALSE.
+  enddo
+
+end subroutine dump_tile_diag_field
 
 ! ============================================================================
 subroutine dump_diag_field_with_sel(id, field, sel, time)
