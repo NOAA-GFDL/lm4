@@ -3394,7 +3394,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
              'Surface Snow Melt','kg m-2 s-1', standard_name='surface_snow_melt_flux', &
              missing_value=-1.0e+20, fill_missing=.TRUE.)
   call add_tiled_diag_field_alias(id_sens, cmor_name, 'hfssLut', axes, time, &
-      'Sensible Heat Flux on Land Use Tile', 'W m-2', missing_value=-1.0e-20, &
+      'Sensible Heat Flux on Land Use Tile', 'W m-2', missing_value=-1.0e+20, &
       standard_name='surface_upward_sensible_heat_flux')
 
   id_cLand = register_tiled_diag_field ( cmor_name, 'cLand', axes, time, &
