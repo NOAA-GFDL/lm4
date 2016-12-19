@@ -1067,7 +1067,7 @@ subroutine land_cover_warm_start_new (restart)
      k = restart%tidx(it)
      if (k<0) cycle ! skip negative indices
      g = modulo(k,npts)+1 
-     if (g<lnd_ug%gs.or.g>lnd_ug%ge) return ! skip points outside of domain
+     if (g<lnd_ug%gs.or.g>lnd_ug%ge) cycle ! skip points outside of domain
      l = lnd_ug%l_index(g)
      ! the size of the tile set at the point (i,j) must be equal to k
      tile=>new_land_tile(frac=frac(it),&

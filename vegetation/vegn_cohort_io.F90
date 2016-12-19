@@ -227,6 +227,13 @@ subroutine read_create_cohorts_new(idx,ntiles)
         ce=next_elmt(ce)
      enddo
      tile=>current_tile(ce)
+
+     if (.not. associated(tile)) then
+         call error_mesg("read_create_cohorts_new", &
+                         "current tile returned null pointer", &
+                         FATAL)
+     endif
+
      if(.not.associated(tile%vegn)) then
         info = ''
         write(info,'("(",3i3,")")')i,j,t
