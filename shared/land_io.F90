@@ -269,6 +269,7 @@ subroutine do_read_cover_field(input_unit, field, lonb, latb, input_cover_types,
   call mpp_get_axis_data(axis_bounds, in_lonb)
   call get_axis_bounds(axes_centers(2), axis_bounds, axes_centers)
   call mpp_get_axis_data(axis_bounds, in_latb)
+  in_lonb = in_lonb*PI/180; in_latb = in_latb*PI/180
 
   ! to minimize the i/o and work done by horiz_interp, find the boundaries
   ! of latitude belt in input data that covers the entire latb array
