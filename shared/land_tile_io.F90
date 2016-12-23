@@ -12,7 +12,7 @@ use mpp_mod, only : COMM_TAG_5,  COMM_TAG_6,  COMM_TAG_7,  COMM_TAG_8
 use fms_mod, only : error_mesg, FATAL, NOTE, mpp_pe, get_mosaic_tile_file
 use fms_io_mod, only : restart_file_type, free_restart_type, &
      get_instance_filename, &
-     field_exist, read_data
+     read_data
 use fms_mod, only : error_mesg, file_exist,     &
      check_nml_error, stdlog, write_version_number, &
      close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
@@ -38,6 +38,7 @@ use fms_io_mod, only: fms_io_unstructured_register_restart_field
 use fms_io_mod, only: CIDX,ZIDX,CCIDX
 use fms_io_mod, only: fms_io_unstructured_get_field_size
 use fms_io_mod, only: fms_io_unstructured_read
+use fms_io_mod, only: fms_io_unstructured_field_exist
 !----------
 
 implicit none
@@ -320,7 +321,9 @@ logical function field_exists(restart,name)
   character(len=*),        intent(in) :: name
 
   if (new_land_io) then
-     field_exists = field_exist(restart%basename,name,domain=lnd%domain)
+     field_exists = fms_io_unstructured_field_exist(restart%basename, &
+                                                    name, &
+                                                    domain=lnd_ug%domain)
   else
      field_exists = (nfu_inq_var(restart%ncid,trim(name))==NF_NOERR)
   endif
