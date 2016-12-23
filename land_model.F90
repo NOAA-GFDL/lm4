@@ -3048,35 +3048,80 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
   nlon = size(clon)
   nlat = size(clat)
 
-  if(mpp_get_ntile_count(lnd%domain)==1) then
-     ! grid has just one tile, so we assume that the grid is regular lat-lon
-     ! define longitude axes and its edges
-     id_lonb = diag_axis_init ( &
-          'lonb', clonb, 'degrees_E', 'X', 'longitude edges', &
-          set_name='land', domain2=domain )
-     id_lon  = diag_axis_init (                                                &
-          'lon',  clon, 'degrees_E', 'X',  &
-          'longitude', set_name='land',  edges=id_lonb, domain2=domain )
+!----------
+!ug support
 
-     ! define latitude axes and its edges
-     id_latb = diag_axis_init ( &
-          'latb', clatb, 'degrees_N', 'Y', 'latitude edges',  &
-          set_name='land',  domain2=domain   )
-     id_lat = diag_axis_init (                                                &
-          'lat',  clat, 'degrees_N', 'Y', &
-          'latitude', set_name='land', edges=id_latb, domain2=domain   )
+  call mpp_get_UG_compute_domain(lnd_ug%domain, &
+                                 ug_dim_size)
+  if (.not. allocated(ug_dim_data)) then
+      allocate(ug_dim_data(ug_dim_size))
+  endif
+  call mpp_get_UG_domain_grid_index(lnd_ug%domain, &
+                                    ug_dim_data)
+  id_ug = diag_axis_init("unstructured_axis",  &
+                         real(ug_dim_data), &
+                         "none", &
+                         "U", &
+                         long_name="unstructured_indices", &
+                         domain=lnd_ug%domain)
+  call diag_axis_add_attribute(id_ug, &
+                               "compress", &
+                               "grid_xt grid_yt")
+
+  id_lon = diag_axis_init("grid_xt", &
+                          
+
+  if (mpp_get_ntile_count(lnd%domain) .eq. 1) then
+
+     !Grid has just one tile, so we assume that the grid is regular lat-lon
+     !Define longitude axes and its edges
+      id_lonb = diag_axis_init('lonb', &
+                               clonb, &
+                               'degrees_E', &
+                               'X', &
+                               'longitude edges', &
+                               set_name='land', &
+                               domain2=domain)
+      id_lon = diag_axis_init('lon', &
+                              clon, &
+                              'degrees_E', &
+                              'X',  &
+                              'longitude', &
+                              set_name='land', &
+                              edges=id_lonb, &
+                              domain2=domain)
+
+     !Define latitude axes and its edges
+      id_latb = diag_axis_init('latb', &
+                               clatb, &
+                               'degrees_N', &
+                               'Y', &
+                               'latitude edges', &
+                               set_name='land', &
+                               domain2=domain)
+      id_lat = diag_axis_init('lat', &
+                              clat, &
+                              'degrees_N', &
+                              'Y', &
+                              'latitude', &
+                              set_name='land', &
+                              edges=id_latb, &
+                              domain2=domain)
   else
-     id_lon = diag_axis_init ( 'grid_xt', (/(real(i),i=1,nlon)/), 'degrees_E', 'X', &
+      id_lon = diag_axis_init('grid_xt', &
+                              (/(real(i),i=1,nlon)/), 'degrees_E', 'X', &
           'T-cell longitude', set_name='land',  domain2=domain, aux='geolon_t' )
      id_lat = diag_axis_init ( 'grid_yt', (/(real(i),i=1,nlat)/), 'degrees_N', 'Y', &
           'T-cell latitude', set_name='land',  domain2=domain, aux='geolat_t' )
   endif
+!----------
   id_band = diag_axis_init (                                                &
        'band',  (/1.0,2.0/), 'unitless', 'Z', &
        'spectral band', set_name='land' )
 
   ! set up an array of axes, for convenience
-  axes = (/id_lon, id_lat/)
+! axes = (/id_lon, id_lat/)
+  axes = (/id_ug/)
 
   ! register auxiliary coordinate variables
 
