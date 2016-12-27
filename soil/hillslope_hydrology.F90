@@ -11,7 +11,7 @@ use soil_tile_mod, only : &
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), nitems, max_n_tiles
 use fms_mod, only : write_version_number
-use land_data_mod, only : land_state_type, lnd, log_version, lnd_ug
+use land_data_mod, only : lnd, log_version
 use land_debug_mod, only : is_watch_point, set_current_point, get_current_point, &
                            check_conservation, is_watch_cell
 use hillslope_mod, only : do_hillslope_model, strm_depth_penetration, use_hlsp_aspect_in_gwflow, &
@@ -175,11 +175,11 @@ subroutine hlsp_hydrology_1(num_species)
    integer, intent(in)  :: num_species ! number of tracer species
    ! Now tied to nspecies in soil_carbon_mod
 
-   real, dimension(lnd_ug%ls:lnd_ug%le) :: &
+   real, dimension(lnd%ls:lnd%le) :: &
        ground_to_stream,  &  ! groundwater runoff directly to stream (mm/s)
        ground_to_stream_heat ! groundwater runoff heat directly to stream (W/m^2)
 
-   real, dimension(lnd_ug%ls:lnd_ug%le,num_species) :: &
+   real, dimension(lnd%ls:lnd%le,num_species) :: &
        ground_to_stream_tracers ! groundwater runoff tracers directly to stream (1/m/s)
 
    integer ::     j,i,l,k,s
@@ -260,10 +260,10 @@ subroutine hlsp_hydrology_1(num_species)
    numtiles = max_n_tiles()
    allocate(gtos_bytile(numtiles, num_l), gtosh_bytile(numtiles, num_l), &
              gtost_bytile(numtiles, num_l, num_species) )
-   do ll=lnd_ug%ls,lnd_ug%le
+   do ll=lnd%ls,lnd%le
          te = tail_elmt (land_tile_map(ll))
-         i = lnd_ug%i_index(ll)
-         j = lnd_ug%j_index(ll)
+         i = lnd%i_index(ll)
+         j = lnd%j_index(ll)
          ! Initial loop over tile list
          ! ZMS for now this is an extra loop to calculate soil hydraulic props.
          ! This will need to be consolidated later.

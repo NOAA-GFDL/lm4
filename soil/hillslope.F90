@@ -16,7 +16,7 @@ use fms_mod, only: error_mesg, file_exist, close_file, check_nml_error, &
      stdlog, FATAL, NOTE, WARNING
 
 use fms_io_mod, only: read_compressed, restart_file_type, free_restart_type, &
-      save_restart, register_restart_field, set_domain, nullify_domain, get_field_size
+      save_restart, register_restart_field, get_field_size
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, get_elmt_indices, operator(/=)
@@ -25,7 +25,7 @@ use land_tile_diag_mod, only : diag_buff_type, &
      register_tiled_static_field, set_default_diag_filter, &
      send_tile_data_r0d_fptr, &
      send_tile_data_i0d_fptr, OP_SUM
-use land_data_mod, only : lnd, log_version, lnd_ug
+use land_data_mod, only : lnd_sg, log_version, lnd
 use land_io_mod, only : read_field
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
@@ -278,51 +278,51 @@ subroutine read_hillslope_surfdat ( ls, le, num_topo_hlsps, frac_topo_hlsps, soi
   ! Note: this function is not currently a robust "nearest" interpolation for cubic-sphere
   ! grids and will need to be updated.
 
-  call read_field( hillslope_surfdata, 'NUM_TOPO_HLSPS', lnd_ug%lon, lnd_ug%lat, num_topo_hlsps, &
+  call read_field( hillslope_surfdata, 'NUM_TOPO_HLSPS', lnd%lon, lnd%lat, num_topo_hlsps, &
                    interp='nearest' )
 
-  call read_field( hillslope_surfdata, 'FRAC_TOPO_HLSPS', lnd_ug%lon, lnd_ug%lat, rbuffer, &
+  call read_field( hillslope_surfdata, 'FRAC_TOPO_HLSPS', lnd%lon, lnd%lat, rbuffer, &
                    interp='nearest' )
   frac_topo_hlsps(:,:) = rbuffer(:,1:max_num_topo_hlsps)
 
   if (.not. use_geohydrodata) then
-     call read_field( hillslope_surfdata, 'SOIL_E_DEPTH', lnd_ug%lon, lnd_ug%lat, rbuffer, &
+     call read_field( hillslope_surfdata, 'SOIL_E_DEPTH', lnd%lon, lnd%lat, rbuffer, &
                       interp=hlsp_interpmethod )
      soil_e_depth(:,:) = rbuffer(:,1:max_num_topo_hlsps)
   else
      soil_e_depth(:,:) = initval ! will not be used
   end if
-  call read_field( hillslope_surfdata, 'MICROTOPO', lnd_ug%lon, lnd_ug%lat, rbuffer, &
+  call read_field( hillslope_surfdata, 'MICROTOPO', lnd%lon, lnd%lat, rbuffer, &
                    interp=hlsp_interpmethod )
   microtopo(:,:) = rbuffer(:,1:max_num_topo_hlsps)
 
-  call read_field( hillslope_surfdata, 'HLSP_LENGTH', lnd_ug%lon, lnd_ug%lat, rbuffer, &
+  call read_field( hillslope_surfdata, 'HLSP_LENGTH', lnd%lon, lnd%lat, rbuffer, &
                    interp=hlsp_interpmethod )
   hlsp_length(:,:) = rbuffer(:,1:max_num_topo_hlsps)
   if (use_geohydrodata) hlsp_length(:,:) = hlsp_length(:,:)*gw_scale_length
 
-  call read_field( hillslope_surfdata, 'HLSP_SLOPE', lnd_ug%lon, lnd_ug%lat, rbuffer, &
+  call read_field( hillslope_surfdata, 'HLSP_SLOPE', lnd%lon, lnd%lat, rbuffer, &
                    interp=hlsp_interpmethod )
   ! Hillslope elevation at top divided by hillslope length
   hlsp_slope(:,:) = rbuffer(:,1:max_num_topo_hlsps)
   if (use_geohydrodata) hlsp_slope(:,:) = hlsp_slope(:,:)*gw_scale_relief
 
-  call read_field( hillslope_surfdata, 'HLSP_SLOPE_EXP', lnd_ug%lon, lnd_ug%lat, rbuffer, &
+  call read_field( hillslope_surfdata, 'HLSP_SLOPE_EXP', lnd%lon, lnd%lat, rbuffer, &
                    interp=hlsp_interpmethod )
   ! Hillslope profile will follow equation z = H(x/L)^a, where a=hlsp_slope_exp,
   ! H = max elevation, and L = max length from stream.
   hlsp_slope_exp(:,:) = rbuffer(:,1:max_num_topo_hlsps)
 
-!  call read_field( hillslope_surfdata, 'HLSP_STREAM_WIDTH', lnd%lon, lnd%lat, rbuffer, &
+!  call read_field( hillslope_surfdata, 'HLSP_STREAM_WIDTH', lnd_sg%lon, lnd_sg%lat, rbuffer, &
 !                   interp=hlsp_interpmethod )
 !  hlsp_stream_width(:,:) = rbuffer(:,1:max_num_topo_hlsps)
 
-  call read_field( hillslope_surfdata, 'HLSP_TOP_WIDTH', lnd_ug%lon, lnd_ug%lat, rbuffer, &
+  call read_field( hillslope_surfdata, 'HLSP_TOP_WIDTH', lnd%lon, lnd%lat, rbuffer, &
                    interp=hlsp_interpmethod )
   hlsp_top_width(:,:) = rbuffer(:,1:max_num_topo_hlsps)
 
   if (.not. use_geohydrodata) then
-     call read_field( hillslope_surfdata, 'BEDROCK_KSAT', lnd_ug%lon, lnd_ug%lat, rbuffer, &
+     call read_field( hillslope_surfdata, 'BEDROCK_KSAT', lnd%lon, lnd%lat, rbuffer, &
                       interp=hlsp_interpmethod )
      k_sat_gw(:,:) = rbuffer(:,1:max_num_topo_hlsps)
   else
@@ -330,7 +330,7 @@ subroutine read_hillslope_surfdat ( ls, le, num_topo_hlsps, frac_topo_hlsps, soi
   end if
 
   if (present(soiltype)) then
-     call read_field( hillslope_surfdata, 'SOILTYPE', lnd_ug%lon, lnd_ug%lat, ibuffer, &
+     call read_field( hillslope_surfdata, 'SOILTYPE', lnd%lon, lnd%lat, ibuffer, &
                      interp='nearest')
      soiltype(:,:) = ibuffer(:,1:max_num_topo_hlsps)
   end if
@@ -344,16 +344,16 @@ end subroutine read_hillslope_surfdat
 ! Calculate fractional areas of tiles in each gridcell for cold start, and determine
 ! hillslope indices. Called from soil_cover_cold_start, only if do_hillslope_model.
 subroutine hlsp_coldfracs ( tile_frac, n_dim_soil_types )
-  real, pointer  :: tile_frac (:,:,:)
+  real, pointer  :: tile_frac (:,:)
   integer, intent(in) :: n_dim_soil_types
-  integer, allocatable :: num_topo_hlsps(:,:)
-  real, allocatable :: frac_topo_hlsps(:,:,:)
-  real, allocatable, dimension(:,:,:) :: soil_e_depth, microtopo, hlsp_length, &
-                                     hlsp_slope, hlsp_slope_exp, &
-                                     hlsp_top_width, k_sat_gw ! Removed hlsp_stream_width
-  integer, allocatable, dimension(:,:,:) :: soiltype
-  integer :: num_lon, num_lat, num_tiles, lis, lie, ljs, lje, i, j, t, h, n, &
-             li, lj, st ! index ranges and bounds
+  integer, allocatable :: num_topo_hlsps(:)
+  real, allocatable :: frac_topo_hlsps(:,:)
+  real, allocatable, dimension(:,:) :: soil_e_depth, microtopo, hlsp_length, &
+                                       hlsp_slope, hlsp_slope_exp, &
+                                       hlsp_top_width, k_sat_gw ! Removed hlsp_stream_width
+  integer, allocatable, dimension(:,:) :: soiltype
+  integer :: num_lnd, num_tiles, lls, lle, l, t, h, n, &
+             ll, st ! index ranges and bounds
   real, allocatable :: soilfracs0(:) ! temporary
   real :: sumfracs, hillfrac, convergence, cfact
   real :: smallnumber = 1.e-12  ! Should be several orders of magnitude greater than machine
@@ -361,18 +361,14 @@ subroutine hlsp_coldfracs ( tile_frac, n_dim_soil_types )
   real :: NN ! num_vertclusters, real
   real :: sum_l ! sum of dl
   character(len=256) :: mesg
-#ifdef COMPILE_THIS
   NN = real(num_vertclusters)
-  num_lon = size(tile_frac,1)
-  num_lat = size(tile_frac,2)
-  num_tiles = size(tile_frac,3)
-  lis = lnd%is
-  lie = lnd%ie
-  ljs = lnd%js
-  lje = lnd%je
-  if ( (num_lon /= lie - lis + 1) .or. (num_lat /= lje - ljs + 1) ) &
+  num_lnd = size(tile_frac,1)
+  num_tiles = size(tile_frac,2)
+  lls = lnd%ls
+  lle = lnd%le
+  if ( (num_lnd /= lle - lls + 1) ) &
      call error_mesg(module_name, 'Land mask used in soil_cover_cold_start and passed to hlsp_coldfracs'// &
-                     'is NOT equal in size to local lat/lon bounds.', FATAL)
+                     'is NOT equal in size to local unstructured grid bounds.', FATAL)
 
   if (.not. equal_length_tiles) then ! Error checking on input dl vector of tile length fracs
      sum_l = sum(dl(1:num_vertclusters))
@@ -386,34 +382,34 @@ subroutine hlsp_coldfracs ( tile_frac, n_dim_soil_types )
                         FATAL)
   end if
 
-  allocate(num_topo_hlsps(lis:lie, ljs:lje), frac_topo_hlsps(lis:lie, ljs:lje, max_num_topo_hlsps), &
-            soil_e_depth(lis:lie, ljs:lje, max_num_topo_hlsps), &
-            microtopo(lis:lie, ljs:lje, max_num_topo_hlsps), &
-            hlsp_length(lis:lie, ljs:lje, max_num_topo_hlsps), &
-            hlsp_slope(lis:lie, ljs:lje, max_num_topo_hlsps), &
-            hlsp_slope_exp(lis:lie, ljs:lje, max_num_topo_hlsps), &
-            hlsp_top_width(lis:lie, ljs:lje, max_num_topo_hlsps), &
-            k_sat_gw(lis:lie, ljs:lje, max_num_topo_hlsps) )
+  allocate(num_topo_hlsps(lls:lle), frac_topo_hlsps(lls:lle, max_num_topo_hlsps), &
+            soil_e_depth(lls:lle, max_num_topo_hlsps), &
+            microtopo(lls:lle, max_num_topo_hlsps), &
+            hlsp_length(lls:lle, max_num_topo_hlsps), &
+            hlsp_slope(lls:lle, max_num_topo_hlsps), &
+            hlsp_slope_exp(lls:lle, max_num_topo_hlsps), &
+            hlsp_top_width(lls:lle, max_num_topo_hlsps), &
+            k_sat_gw(lls:lle, max_num_topo_hlsps) )
   if (soil_types_by_hlsp) &
-     allocate ( soiltype(lis:lie, ljs:lje, max_num_topo_hlsps) )
+     allocate ( soiltype(lls:lle, max_num_topo_hlsps) )
 
-  allocate(hidx_j_loc(num_lon, num_lat, num_tiles), hidx_k_loc(num_lon, num_lat, num_tiles))
+  allocate(hidx_j_loc(num_lnd, num_tiles), hidx_k_loc(num_lnd, num_tiles))
 
   ! For use in other subroutines
   cold_start = .true. ! if this subroutine is called then model is cold starting
-  allocate(fracs_loc(lis:lie, ljs:lje, max_num_topo_hlsps, num_vertclusters), &
-           elev_loc(lis:lie, ljs:lje, max_num_topo_hlsps, num_vertclusters))
-  fracs_loc(:,:,:,:) = initval
-  elev_loc(:,:,:,:) = initval
+  allocate(fracs_loc(lls:lle, max_num_topo_hlsps, num_vertclusters), &
+           elev_loc(lls:lle, max_num_topo_hlsps, num_vertclusters))
+  fracs_loc(:,:,:) = initval
+  elev_loc(:,:,:) = initval
 
   ! Retrieve surface data
   if (soil_types_by_hlsp) then
-     call read_hillslope_surfdat ( lis, lie, ljs, lje, num_topo_hlsps, frac_topo_hlsps, &
+     call read_hillslope_surfdat ( lls, lle, num_topo_hlsps, frac_topo_hlsps, &
                                    soil_e_depth, microtopo, hlsp_length, hlsp_slope, &
                                    hlsp_slope_exp, & !hlsp_stream_width, &
                                    hlsp_top_width, k_sat_gw, soiltype=soiltype)
   else
-     call read_hillslope_surfdat ( lis, lie, ljs, lje, num_topo_hlsps, frac_topo_hlsps, &
+     call read_hillslope_surfdat ( lls, lle, num_topo_hlsps, frac_topo_hlsps, &
                                    soil_e_depth, microtopo, hlsp_length, hlsp_slope, &
                                    hlsp_slope_exp, & !hlsp_stream_width, &
                                    hlsp_top_width, k_sat_gw)
@@ -429,100 +425,97 @@ subroutine hlsp_coldfracs ( tile_frac, n_dim_soil_types )
   ! Walk through land model grid and reassign fractions. Distribute the n_dim_soil_types
   ! across the up to max_num_topo_hlsps * num_vertclusters topo bins.
 
-  do i = 1,num_lon
-     do j = 1,num_lat
-        li = lis + i - 1
-        lj = ljs + j - 1
+  do l = 1, num_lnd
+     ll = lls + l - 1
 
-        soilfracs0(:) = tile_frac(i,j, 1:n_dim_soil_types) ! Copy existing fractions
+     soilfracs0(:) = tile_frac(l, 1:n_dim_soil_types) ! Copy existing fractions
 
-        num_topo_hlsps(li, lj) = min(num_topo_hlsps(li, lj), max_num_topo_hlsps)
-                                 ! surface data could potentially allow for more than namelist
-                                 ! (but not less)
+     num_topo_hlsps(ll) = min(num_topo_hlsps(ll), max_num_topo_hlsps)
+                              ! surface data could potentially allow for more than namelist
+                              ! (but not less)
 
-        sumfracs = sum(frac_topo_hlsps(li,lj, 1:num_topo_hlsps(li, lj)))
-        ! Only the active num_topo_hlsps in each gcell will be used; relative hillslope
-        ! fraction will be normalized to 1 (to conserve total tile fraction returned by
-        ! soil_cover_cold_start).
+     sumfracs = sum(frac_topo_hlsps(ll, 1:num_topo_hlsps(ll)))
+     ! Only the active num_topo_hlsps in each gcell will be used; relative hillslope
+     ! fraction will be normalized to 1 (to conserve total tile fraction returned by
+     ! soil_cover_cold_start).
 
-        if (sumfracs > (1. + smallnumber) .or. sumfracs <= 0.) then
-           write(mesg,*) 'hlsp_curfracs: Invalid hillslope fractions at land '// &
-                         'point li,lj:', li, lj, '.'
-           call error_mesg(module_name, mesg, FATAL)
-        end if
+     if (sumfracs > (1. + smallnumber) .or. sumfracs <= 0.) then
+        write(mesg,*) 'hlsp_curfracs: Invalid hillslope fractions at land '// &
+                      'point ll:', ll, '.'
+        call error_mesg(module_name, mesg, FATAL)
+     end if
 
-        ! Allocate to tiles
-        t = 1
-        tile_frac(i,j, 1:num_tiles) = 0.
-        do h = 1, max_num_topo_hlsps
-           if (h <= num_topo_hlsps(li, lj)) then
+     ! Allocate to tiles
+     t = 1
+     tile_frac(l, 1:num_tiles) = 0.
+     do h = 1, max_num_topo_hlsps
+        if (h <= num_topo_hlsps(ll)) then
 
-              convergence = hlsp_top_width(li, lj, h) !/ 1. hlsp_stream_width(li, lj, h)
-              if (convergence <= 0.) then
-                 write(mesg, *)'hlsp_coldfracs: land point i,j, hillslope h:', li, lj, h, '.', &
-                              'hlsp_top_width = ', convergence, ' <= 0!'
-                 call error_mesg(module_name, mesg, FATAL)
-              end if
-              ! Converging hillslopes have value > 1; diverging < 1.
-
-              sum_l = 0 ! running sum of dl
-              do n = 1, num_vertclusters ! Order from lowest elevation to highest in each hillslope.
-                 ! Calculate fractions for topo bin
-                 ! Initial tiles will have assumed trapezoid shapes as projected onto horizontal
-                 ! surface.
-                 if (equal_length_tiles) then
-                    hillfrac = frac_topo_hlsps(li,lj, h) / sumfracs &  ! hillslope overall area
-                               * ( (2*NN-1 - (n-1)*2)/(2*NN) + (1+(n-1)*2)/(2*NN)*convergence ) & ! hillslope relative area
-                               / real(num_vertclusters) / (1. + convergence) * 2. ! normalization
-                    fracs_loc(li, lj, h, n) = hillfrac
-                 else ! length fraction assigned by input
-                    sum_l = sum_l + dl(n)
-                    !Convergence factor will be width at dl divided by average width
-                    cfact = (convergence*(sum_l - dl(n)/2.) + 1. - (sum_l - dl(n)/2.)) &
-                            *2./(1. + convergence)
-                    hillfrac = frac_topo_hlsps(li,lj, h) / sumfracs & ! hillslope overall area
-                               * dl(n) * cfact ! hillslope relative area
-!!!!
-                    fracs_loc(li, lj, h, n) = hillfrac
-                 end if
-                 ! distribute among soil types
-                 do st = 1, n_dim_soil_types
-                    if (.not. soil_types_by_hlsp) then
-                       tile_frac(i,j, t) = hillfrac * soilfracs0(st)
-                    else if (soiltype(li,lj,h) == st) then
-                       tile_frac(i,j, t) = hillfrac * sum(soilfracs0(:))
-                    ! else weight remains zero
-                    end if
-                    ! Assign tile indices (which will be returned in retrieve_hillslope_indices)
-                    ! Indices for zero-weight tiles will be ignored in land_cover_cold_start_0d
-                    hidx_j_loc(i,j, t) = n
-                    hidx_k_loc(i,j, t) = h
-                    ! Advance tile index
-                    t = t + 1
-
-                    ! Debug
-#ifdef ZMSDEBUG_INIT
-                    !if (is_watch_point()) then
-                       write(*,*)'Assigned tile fraction in hillslope: li, lj, hidx_j,', &
-                                 ' hidx_k, tile_frac:', li, lj, n, h, tile_frac(i,j, t-1)
-                    !end if
-#endif
-                 end do
-              end do
+           convergence = hlsp_top_width(ll, h) !/ 1. hlsp_stream_width(li, lj, h)
+           if (convergence <= 0.) then
+              write(mesg, *)'hlsp_coldfracs: land point l, hillslope h:', ll, h, '.', &
+                            'hlsp_top_width = ', convergence, ' <= 0!'
+              call error_mesg(module_name, mesg, FATAL)
            end if
-        end do
+           ! Converging hillslopes have value > 1; diverging < 1.
 
+           sum_l = 0 ! running sum of dl
+           do n = 1, num_vertclusters ! Order from lowest elevation to highest in each hillslope.
+              ! Calculate fractions for topo bin
+              ! Initial tiles will have assumed trapezoid shapes as projected onto horizontal
+              ! surface.
+              if (equal_length_tiles) then
+                 hillfrac = frac_topo_hlsps(ll, h) / sumfracs &  ! hillslope overall area
+                            * ( (2*NN-1 - (n-1)*2)/(2*NN) + (1+(n-1)*2)/(2*NN)*convergence ) & ! hillslope relative area
+                            / real(num_vertclusters) / (1. + convergence) * 2. ! normalization
+                 fracs_loc(ll, h, n) = hillfrac
+              else ! length fraction assigned by input
+                 sum_l = sum_l + dl(n)
+                 !Convergence factor will be width at dl divided by average width
+                 cfact = (convergence*(sum_l - dl(n)/2.) + 1. - (sum_l - dl(n)/2.)) &
+                         *2./(1. + convergence)
+                 hillfrac = frac_topo_hlsps(ll, h) / sumfracs & ! hillslope overall area
+                            * dl(n) * cfact ! hillslope relative area
+!!!!
+                 fracs_loc(ll, h, n) = hillfrac
+              end if
+              ! distribute among soil types
+              do st = 1, n_dim_soil_types
+                 if (.not. soil_types_by_hlsp) then
+                    tile_frac(l, t) = hillfrac * soilfracs0(st)
+                 else if (soiltype(ll,h) == st) then
+                    tile_frac(l, t) = hillfrac * sum(soilfracs0(:))
+                 ! else weight remains zero
+                 end if
+                 ! Assign tile indices (which will be returned in retrieve_hillslope_indices)
+                 ! Indices for zero-weight tiles will be ignored in land_cover_cold_start_0d
+                 hidx_j_loc(l, t) = n
+                 hidx_k_loc(l, t) = h
+                 ! Advance tile index
+                 t = t + 1
 
-        ! Error checking
-        if (abs(sum(tile_frac(i,j, :)) - sum(soilfracs0(:))) > smallnumber) then
-           write(mesg,*) 'hlsp_curfracs: Error in calculating tile fractions at '// &
-                         'point li,lj:', li, lj, ', error:', &
-                         sum(tile_frac(i,j, :)) - sum(soilfracs0(:))
-           call error_mesg(module_name, mesg, FATAL)
+                 ! Debug
+#ifdef ZMSDEBUG_INIT
+                 !if (is_watch_point()) then
+                    write(*,*)'Assigned tile fraction in hillslope: ll, hidx_j,', &
+                              ' hidx_k, tile_frac:', ll, n, h, tile_frac(l, t-1)
+                 !end if
+#endif
+              end do
+           end do
         end if
+     end do
 
-     end do ! lat
-  end do ! lon
+
+     ! Error checking
+     if (abs(sum(tile_frac(l, :)) - sum(soilfracs0(:))) > smallnumber) then
+        write(mesg,*) 'hlsp_curfracs: Error in calculating tile fractions at '// &
+                      'point ll:', ll, ', error:', &
+                      sum(tile_frac(l, :)) - sum(soilfracs0(:))
+        call error_mesg(module_name, mesg, FATAL)
+     end if
+
+  end do ! num_lnd
 
   deallocate(num_topo_hlsps, frac_topo_hlsps, soil_e_depth, &
              microtopo, hlsp_length, &
@@ -530,7 +523,6 @@ subroutine hlsp_coldfracs ( tile_frac, n_dim_soil_types )
              hlsp_top_width, k_sat_gw, soilfracs0)
 
   if (soil_types_by_hlsp) deallocate(soiltype)
-#endif
 end subroutine hlsp_coldfracs
 
 
@@ -605,8 +597,8 @@ subroutine hlsp_init ( id_lon, id_lat )
 !  call hlsp_diag_init ( id_lon, id_lat )
 
   ! -------- initialize state --------
-  lis = lnd_ug%ls
-  lie = lnd_ug%le
+  lis = lnd%ls
+  lie = lnd%le
   NN = real(num_vertclusters)
 
   allocate(num_topo_hlsps(lis:lie), frac_topo_hlsps(lis:lie, max_num_topo_hlsps), &
@@ -897,14 +889,14 @@ end subroutine hlsp_init_predefined
 !        ! modified with the get_input_restart_name
 !        restart_file_name = hlsp_rst_ifname
 !        call error_mesg('vegn_init', 'Using new hlsp restart read', NOTE)
-!        call get_field_size(restart_file_name, 'tile_index', siz, field_found=found, domain=lnd%domain)
+!        call get_field_size(restart_file_name, 'tile_index', siz, field_found=found, domain=lnd_sg%domain)
 !        if (.not.found) call error_mesg(trim(module_name), 'tile axis not found in '//trim(restart_file_name), FATAL)
 !        tsize = siz(1)
 !        allocate(idx(tsize), i0d(tsize))
-!        call read_compressed(restart_file_name,'tile_index',idx, domain=lnd%domain, timelevel=1)
-!        call read_compressed(restart_file_name,'HIDX_J',i0d, domain=lnd%domain, timelevel=1)
+!        call read_compressed(restart_file_name,'tile_index',idx, domain=lnd_sg%domain, timelevel=1)
+!        call read_compressed(restart_file_name,'HIDX_J',i0d, domain=lnd_sg%domain, timelevel=1)
 !        call assemble_tiles(soil_hidx_j_ptr,idx,i0d)
-!        call read_compressed(restart_file_name,'HIDX_K',i0d, domain=lnd%domain, timelevel=1)
+!        call read_compressed(restart_file_name,'HIDX_K',i0d, domain=lnd_sg%domain, timelevel=1)
 !        call assemble_tiles(soil_hidx_k_ptr,idx,i0d)
 !     else
 !        call error_mesg(module_name, 'hlsp_init, '// &
@@ -1036,7 +1028,6 @@ subroutine save_hlsp_restart (tile_dim_length, timestamp)
 
   call error_mesg(module_name,'writing hillslope restart',NOTE)
 ! must set domain so that io_domain is available
-  call set_domain(lnd%domain)
 ! Note that filename is updated for tile & rank numbers during file creation
   filename = trim(timestamp)//hlsp_rst_ofname
   call init_land_restart(restart, filename, soil_tile_exists, tile_dim_length)
@@ -1046,7 +1037,6 @@ subroutine save_hlsp_restart (tile_dim_length, timestamp)
   ! save performs io domain aggregation through mpp_io as with regular domain data
   call save_land_restart(restart)
   call free_land_restart(restart)
-  call nullify_domain()
 
 end subroutine save_hlsp_restart
 
@@ -1168,8 +1158,8 @@ subroutine calculate_wt_init(wtdep_requested)
    real, parameter :: tolerance = 1.e-9 ! [m] allowed roundoff error
    logical :: lerror = .false. ! error in calculation
 !   character(len=512) :: mesg
-   lls = lnd_ug%ls
-   lle = lnd_ug%le
+   lls = lnd%ls
+   lle = lnd%le
 
    if (cold_start) then ! init_wt_local will be used
       allocate(init_wt_loc(lls:lle, max_num_topo_hlsps, num_vertclusters))
@@ -1212,8 +1202,8 @@ subroutine calculate_wt_init(wtdep_requested)
                      lerror = .true.
                   end if
                   if (lerror) then
-                     li = lnd_ug%i_index(ll)
-                     lj = lnd_ug%j_index(ll)
+                     li = lnd%i_index(ll)
+                     lj = lnd%j_index(ll)
                      write(*,*)'Error in calculation of water table depth at li, lj, hk = ', &
                                   li, lj, hk, '; wtdep_requested = ', wtdep_requested, '.'
                      write(*,*)'fracs = ', fracs(:)

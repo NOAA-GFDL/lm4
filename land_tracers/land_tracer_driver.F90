@@ -11,7 +11,7 @@ use table_printer_mod
 
 use land_constants_mod, only : d608, kBoltz
 use land_debug_mod, only : is_watch_point
-use land_data_mod, only : land_state_type, lnd, log_version
+use land_data_mod, only : lnd, log_version
 use land_tracers_mod, only : ntcana, isphum, ico2
 use land_tile_mod, only : land_tile_type, land_tile_grnd_T
 use land_tile_diag_mod, only : set_default_diag_filter, &

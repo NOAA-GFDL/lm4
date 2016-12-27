@@ -35,7 +35,7 @@ use land_tile_selectors_mod, only : tile_selector_type, &
      SEL_SOIL, SEL_VEGN, SEL_LAKE, SEL_GLAC, SEL_SNOW, SEL_CANA, SEL_HLSP
 use tile_diag_buff_mod, only : &
      diag_buff_type, new_diag_buff, delete_diag_buff
-use land_data_mod, only : lnd, lnd_ug
+use land_data_mod, only : lnd
 use tiling_input_types_mod, only : soil_predefined_type,lake_predefined_type, &
      glacier_predefined_type
 
@@ -279,8 +279,8 @@ contains
 subroutine init_tile_map()
   integer :: l
  
-  allocate(land_tile_map(lnd_ug%ls:lnd_ug%le))
-  do l = lnd_ug%ls,lnd_ug%le
+  allocate(land_tile_map(lnd%ls:lnd%le))
+  do l = lnd%ls,lnd%le
      call land_tile_list_init(land_tile_map(l))
   enddo
 end subroutine init_tile_map
@@ -290,7 +290,7 @@ end subroutine init_tile_map
 subroutine free_tile_map()
   integer :: l
 
-  do l = lnd_ug%ls,lnd_ug%le
+  do l = lnd%ls,lnd%le
      call land_tile_list_end(land_tile_map(l))
   enddo
 end subroutine free_tile_map
@@ -302,7 +302,7 @@ function max_n_tiles() result(n)
   integer :: l
 
   n=1
-  do l=lnd_ug%ls,lnd_ug%le
+  do l=lnd%ls,lnd%le
      n=max(n, nitems(land_tile_map(l)))
   enddo
 end function max_n_tiles
@@ -816,8 +816,8 @@ function land_tile_list_begin_1d(tiles, ls) result(ce)
      call check_tile_list_inited(tiles(l))
      ce%node => tiles(l)%head%next
      ce%l = l
-     ce%i = lnd_ug%i_index(l+lnd_ug%ls-1)
-     ce%j = lnd_ug%j_index(l+lnd_ug%ls-1)
+     ce%i = lnd%i_index(l+lnd%ls-1)
+     ce%j = lnd%j_index(l+lnd%ls-1)
      if(associated(ce%node%data)) return
   enddo
 end function land_tile_list_begin_1d
@@ -851,8 +851,8 @@ function land_tile_list_end_1d(tiles) result (ce)
 
   ! initialize current position in the array of containers
   ce%l = ubound(tiles,1)
-  ce%i = lnd_ug%i_index(ce%l+lnd_ug%ls-1)
-  ce%j = lnd_ug%j_index(ce%l+lnd_ug%ls-1)
+  ce%i = lnd%i_index(ce%l+lnd%ls-1)
+  ce%j = lnd%j_index(ce%l+lnd%ls-1)
   ce%k = nitems(tiles(ce%l))+1
 
   ! list the pointer to the current tile
@@ -878,8 +878,8 @@ function next_elmt(pos0) result(ce)
         ce%k = 1; ! reset tile index
         if(ce%l<le)then
            ce%l = ce%l+1
-           ce%i = lnd_ug%i_index(ce%l+lnd_ug%ls-1)
-           ce%j = lnd_ug%j_index(ce%l+lnd_ug%ls-1)
+           ce%i = lnd%i_index(ce%l+lnd%ls-1)
+           ce%j = lnd%j_index(ce%l+lnd%ls-1)
         else
            return
         endif
@@ -906,8 +906,8 @@ function prev_elmt(pos0) result(ce)
         ce%k = 1; ! reset tile index
         if(ce%l>ls)then
            ce%l = ce%l - 1
-           ce%i = lnd_ug%i_index(ce%l+lnd_ug%ls-1)
-           ce%j = lnd_ug%j_index(ce%l+lnd_ug%ls-1)
+           ce%i = lnd%i_index(ce%l+lnd%ls-1)
+           ce%j = lnd%j_index(ce%l+lnd%ls-1)
         else
            return
         endif
@@ -959,8 +959,8 @@ subroutine get_elmt_indices(ce,i,j,k,l)
   type(land_tile_enum_type), intent(in) :: ce
   integer, intent(out), optional :: i, j, l, k
 
-  if (present(i)) i = lnd_ug%i_index(ce%l+lnd_ug%ls-1)
-  if (present(j)) j = lnd_ug%j_index(ce%l+lnd_ug%ls-1)
+  if (present(i)) i = lnd%i_index(ce%l+lnd%ls-1)
+  if (present(j)) j = lnd%j_index(ce%l+lnd%ls-1)
   if (present(k)) k = ce%k
   if (present(l)) l = ce%l+ce%lo
 

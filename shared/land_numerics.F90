@@ -20,7 +20,7 @@ use mpp_mod, only: mpp_npes, mpp_get_current_pelist, mpp_send, mpp_recv, &
 
 
 use mpp_domains_mod, only : domain2d, mpp_get_compute_domain, &
-     mpp_get_global_domain
+     mpp_get_global_domain, domainUG, mpp_get_ug_compute_domain
 
 use land_data_mod, only : log_version
 
@@ -55,7 +55,7 @@ interface lin_int
 end interface
 
 interface nearest
-   module procedure nearest1D, nearest2D
+   module procedure nearest1D, nearest2D, nearestUG
 end interface
 
 logical :: module_is_initialized =.FALSE.
@@ -72,11 +72,9 @@ character(len=*), parameter :: thisfile = __FILE__
 type :: horiz_remap_type
    integer :: n = 0 ! number of points that need remapping on this PE
    integer, pointer :: &
-       dst_i(:)=>NULL(), & ! x-indices of destination points
-       dst_j(:)=>NULL()    ! y-indices of destination points
+       dst_l(:)=>NULL()    ! unstructured grid indices of destination points
    integer, pointer :: &
-       src_i(:)=>NULL(), & ! x-indices of source points
-       src_j(:)=>NULL(), & ! y-indices of source points
+       src_l(:)=>NULL(), & ! unstructured grid indices of source points
        src_p(:)=>NULL()    ! processor number of source points
    ! data distribution map: for each processor pair that communicate
    ! (unidirectionally), an entry in the srcPE and dstPE arrays holds their
@@ -514,6 +512,37 @@ subroutine nearest2D(mask, lon, lat, plon, plat, iout, jout, dist)
   if (present(dist)) dist=r
 end subroutine nearest2D
 
+subroutine nearestUG(mask, lon, lat, plon, plat, lout, dist)
+  logical, intent(in) :: mask(:)  ! mask of valid input points (.true. if valid point)
+  real,    intent(in) :: lon(:)   ! longitudes of input grid central points, radian
+  real,    intent(in) :: lat(:)   ! latitudes of input grid central points, radian
+  real,    intent(in) :: plon, plat ! coordinates of destination point, radian
+  integer, intent(out):: lout       ! indices of nearest valid (unmasked) point
+  real, optional, intent(out):: dist! distance to the point
+
+  ! ---- local constants
+  character(*),parameter :: mod_name='nearestUG'
+  ! ---- local vars
+  integer :: l
+  real    :: r,r1
+
+  __ASSERT__(ALL(SHAPE(mask)==SHAPE(lon)),'shapes of "mask" and "lon" are different')
+  __ASSERT__(ALL(SHAPE(mask)==SHAPE(lat)),'shapes of "mask" and "lat" are different')
+
+  r = HUGE(r)  ! some value larger than any possible distance
+
+  do l = 1, size(mask(:))
+     if (.not.mask(l)) cycle
+     r1 = distance(plon,plat,lon(l),lat(l))
+     if ( r1 < r ) then
+        lout = l
+        r = r1
+     endif
+  enddo
+  if (present(dist)) dist=r
+end subroutine nearestUG
+
+
 ! ============================================================================
 ! private functions that calculates the distance between two points given their
 ! coordinates
@@ -540,10 +569,8 @@ subroutine horiz_remap_del(map)
    type(horiz_remap_type), intent(inout) :: map
 #define __DEALLOC__(x)\
 if (associated(x)) then; deallocate(x); x=>NULL(); endif
-   __DEALLOC__(map%dst_i)
-   __DEALLOC__(map%dst_j)
-   __DEALLOC__(map%src_i)
-   __DEALLOC__(map%src_j)
+   __DEALLOC__(map%dst_l)
+   __DEALLOC__(map%src_l)
    __DEALLOC__(map%src_p)
    map%n=0
 
@@ -563,10 +590,10 @@ subroutine horiz_remap_print(map, prefix)
 
    do k = 1, map%n
       write(*,100) prefix,&
-         map%src_i(k),map%src_j(k),map%src_p(k),&
-         map%dst_i(k),map%dst_j(k),mpp_pe()
+         map%src_l(k),map%src_p(k),&
+         map%dst_l(k),mpp_pe()
    enddo
-100 format(a,'(I:',i4.4,' J:',i4.4,' PE:',i4.4,') -> (I:',i4.4,' J:',i4.4,' PE:',i4.4,')')
+100 format(a,'(L:',i4.4,' PE:',i4.4,') -> (L:',i4.4,' PE:',i4.4,')')
 end subroutine
 
 ! ============================================================================
@@ -574,11 +601,11 @@ end subroutine
 ! the valid points, local arrays of coordinates, and the domain, returns the
 ! remapping information that can be used later to fill the data
 subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
-  logical, intent(in) :: invalid(:,:) ! mask of points to be filled
-  logical, intent(in) :: valid  (:,:) ! mask of valid input points
-  real,    intent(in) :: lon(:,:)   ! longitudes of input grid central points, radian
-  real,    intent(in) :: lat(:,:)   ! latitudes of input grid central points, radian
-  type(domain2d), intent(in) :: domain ! our domain
+  logical, intent(in) :: invalid(:) ! mask of points to be filled
+  logical, intent(in) :: valid  (:) ! mask of valid input points
+  real,    intent(in) :: lon(:)   ! longitudes of input grid central points, radian
+  real,    intent(in) :: lat(:)   ! latitudes of input grid central points, radian
+  type(domainUG), intent(in) :: domain ! our domain
   integer, intent(in) :: pes(:)     ! list of PEs
   type(horiz_remap_type), intent(out) :: map ! remapping information
 
@@ -587,37 +614,33 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
   character(*), parameter :: mod_name='horiz_remap_new'
   ! --- local vars
   integer :: ntot ! total number of missing points across all PEs
-  integer :: is,ie,js,je ! boundaries of our compute domain
+  integer :: ls,le ! boundaries of our compute domain
   integer :: npes ! total number of PEs
-  integer :: nlon ! longitudinal size of global grid
   integer :: root_pe ! root PE for this operation
   integer, allocatable :: np(:) ! number of missing points per processor
   integer :: p ! processor iterator
   real   , allocatable :: glon(:), glat(:) ! global arrays of missing point coordinates
   integer, allocatable :: from_pe(:) ! number of PE the missing points belong to
   real   , allocatable :: dist(:) ! distance to the missing points
-  integer, allocatable :: ii(:),jj(:) ! indices of the nearest points
-  integer, allocatable :: ibuf(:),jbuf(:) ! send/receive buffers for indices
+  integer, allocatable :: ll(:)   ! indices of the nearest points
+  integer, allocatable :: lbuf(:)  !send/receive buffers for indices
   real   , allocatable :: dbuf(:) ! send/receive buffer for distances
-  integer :: i,j,k,m,n1
+  integer :: k,m,n1,l
   integer :: k0
 
-  ! get the number of longitudes in global domain (only used to resolve ambiguities
-  ! in PE-count independent manner)
-  call mpp_get_global_domain(domain, xsize = nlon )
   ! get the size of our domain
-  call mpp_get_compute_domain(domain, is,ie,js,je)
+  call mpp_get_ug_compute_domain(domain, ls, le)
   ! check the input array shapes
-  if(size(invalid,1)/=ie-is+1.or.size(invalid,2)/=je-js+1) then
+  if(size(invalid(:))/=le-ls+1) then
     call my_error(mod_name,'shape of input array "'//'invalid'//'" must be the same as shape of compute domain',FATAL)
   endif
-  if(size(valid,1)/=ie-is+1.or.size(valid,2)/=je-js+1) then
+  if(size(valid(:))/=le-ls+1) then
     call my_error(mod_name,'shape of input array "'//'valid'//'" must be the same as shape of compute domain',FATAL)
   endif
-  if(size(lon,1)/=ie-is+1.or.size(lon,2)/=je-js+1) then
+  if(size(lon(:))/=le-ls+1) then
     call my_error(mod_name,'shape of input array "'//'lon'//'" must be the same as shape of compute domain',FATAL)
   endif
-  if(size(lat,1)/=ie-is+1.or.size(lat,2)/=je-js+1) then
+  if(size(lat(:))/=le-ls+1) then
     call my_error(mod_name,'shape of input array "'//'lat'//'" must be the same as shape of compute domain',FATAL)
   endif
 
@@ -652,21 +675,19 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
   if (ntot==0) return
 
   ! [x] allocate global buffers
-  allocate(glon(ntot),glat(ntot),from_pe(ntot),dist(ntot),ii(ntot),jj(ntot))
+  allocate(glon(ntot),glat(ntot),from_pe(ntot),dist(ntot),ll(ntot))
 
   ! allocate buffers for missing point indices and processors
-  allocate(map%dst_i(map%n), map%dst_j(map%n))
-  allocate(map%src_i(map%n), map%src_j(map%n), map%src_p(map%n))
+  allocate(map%dst_l(map%n))
+  allocate(map%src_l(map%n), map%src_p(map%n))
   ! and fill the coordinates of missing points for this PE
   k = 1
-  do j=1,size(invalid,2)
-  do i=1,size(invalid,1)
-     if (invalid(i,j)) then
-        glon(k)      = lon(i,j); glat(k)      = lat(i,j)
-        map%dst_i(k) = i+is-1  ; map%dst_j(k) = j+js-1
+  do l=1,size(invalid(:))
+     if (invalid(l)) then
+        glon(k)      = lon(l); glat(k)      = lat(l)
+        map%dst_l(k) = l+ls-1 
         k = k+1
      endif
-  enddo
   enddo
 
   ! [x] send the array of point coordinates to root PE and get the global
@@ -707,31 +728,29 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
 
   ! [x] find the nearest points in the domain
   do k = 1, ntot
-     call nearest(valid,lon,lat,glon(k),glat(k),ii(k),jj(k),dist=dist(k))
+     call nearest(valid,lon,lat,glon(k),glat(k),ll(k),dist=dist(k))
   enddo
   ! convert local domain indices to global
-  ii(:) = ii(:)+is-1; jj(:)=jj(:)+js-1
+  ll(:) = ll(:)+ls-1
 
   ! [5] send the data to root PE and let it calculate the points corresponding to
   ! the global minimum distance
   if (mpp_pe()/=root_pe) then
      ! non-root PE just sends the data
-     call mpp_send(ii(1)  ,plen=ntot,to_pe=root_pe, tag=COMM_TAG_8)
-     call mpp_send(jj(1)  ,plen=ntot,to_pe=root_pe, tag=COMM_TAG_9)
-     call mpp_send(dist(1),plen=ntot,to_pe=root_pe, tag=COMM_TAG_10)
+     call mpp_send(ll(1)  ,plen=ntot,to_pe=root_pe, tag=COMM_TAG_8)
+     call mpp_send(dist(1),plen=ntot,to_pe=root_pe, tag=COMM_TAG_9)
      ! and receives the updated data in response
      if(map%n>0) then
         ! receive the nearest point locations and PEs
-        call mpp_recv(map%src_i(1),glen=map%n,from_pe=root_pe, tag=COMM_TAG_11)
-        call mpp_recv(map%src_j(1),glen=map%n,from_pe=root_pe, tag=COMM_TAG_12)
-        call mpp_recv(map%src_p(1),glen=map%n,from_pe=root_pe, tag=COMM_TAG_13)
+        call mpp_recv(map%src_l(1),glen=map%n,from_pe=root_pe, tag=COMM_TAG_10)
+        call mpp_recv(map%src_p(1),glen=map%n,from_pe=root_pe, tag=COMM_TAG_11)
      endif
      ! receive communication map
-     call mpp_recv(map%mapSize,glen=1,from_pe=root_pe, tag=COMM_TAG_14)
+     call mpp_recv(map%mapSize,glen=1,from_pe=root_pe, tag=COMM_TAG_12)
      if (map%mapSize>0) then
         allocate (map%srcPE(map%mapSize),map%dstPE(map%mapSize))
-        call mpp_recv(map%srcPE(1),glen=map%mapSize,from_pe=root_pe, tag=COMM_TAG_15)
-        call mpp_recv(map%dstPE(1),glen=map%mapSize,from_pe=root_pe, tag=COMM_TAG_16)
+        call mpp_recv(map%srcPE(1),glen=map%mapSize,from_pe=root_pe, tag=COMM_TAG_13)
+        call mpp_recv(map%dstPE(1),glen=map%mapSize,from_pe=root_pe, tag=COMM_TAG_14)
      endif
   else
      ! root PE does the bulk of processing: it assembles all the data
@@ -739,27 +758,26 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
 
      ! receive data about domain-specific nearest points from PEs and select
      ! the globally nearest point among them
-     allocate(ibuf(ntot),jbuf(ntot),dbuf(ntot))
-     ! note that arrays ii,jj, and dist are initially filled with the
+     allocate(lbuf(ntot),dbuf(ntot))
+     ! note that arrays ll, and dist are initially filled with the
      ! nearest points information for the root PE own domain
      from_pe(:) = root_pe
      do p = 1,npes
         if (pes(p)==root_pe) cycle
-        call mpp_recv(ibuf(1),glen=ntot,from_pe=pes(p), tag=COMM_TAG_8)
-        call mpp_recv(jbuf(1),glen=ntot,from_pe=pes(p), tag=COMM_TAG_9)
-        call mpp_recv(dbuf(1),glen=ntot,from_pe=pes(p), tag=COMM_TAG_10)
+        call mpp_recv(lbuf(1),glen=ntot,from_pe=pes(p), tag=COMM_TAG_8)
+        call mpp_recv(dbuf(1),glen=ntot,from_pe=pes(p), tag=COMM_TAG_9)
         do k = 1,ntot
            ! to avoid dependence on the order of operations, give preference
            ! to the lowest leftmost point among the equidistant points
            if (dbuf(k)<dist(k).or.(&
-               dbuf(k)==dist(k).and.jbuf(k)*nlon+ibuf(k)<jj(k)*nlon+ii(k))) then
-              ii(k)=ibuf(k); jj(k)=jbuf(k); dist(k)=dbuf(k); from_pe(k)=pes(p)
+               dbuf(k)==dist(k).and.lbuf(k)<ll(k))) then
+              ll(k)=lbuf(k); dist(k)=dbuf(k); from_pe(k)=pes(p)
            endif
         enddo
      enddo
 
      ! release buffers
-     deallocate (ibuf,jbuf,dbuf)
+     deallocate (lbuf,dbuf)
 
      ! create a communication map: arrays srcPE and dstPE listing all pairs that
      ! communicate
@@ -780,8 +798,7 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
 
      ! simply assign the results for the root PE
      if (map%n>0) then
-        map%src_i(:) = ii(1:map%n)
-        map%src_j(:) = jj(1:map%n)
+        map%src_l(:) = ll(1:map%n)
         map%src_p(:) = from_pe(1:map%n)
      endif
      ! distribute the results among processors
@@ -790,15 +807,14 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
         if (pes(p)==root_pe) cycle
         if (np(p)>0) then
            ! send nearest point location
-           call mpp_send(ii(k),plen=np(p),to_pe=pes(p), tag=COMM_TAG_11)
-           call mpp_send(jj(k),plen=np(p),to_pe=pes(p), tag=COMM_TAG_12)
-           call mpp_send(from_pe(k),plen=np(p),to_pe=pes(p), tag=COMM_TAG_13)
+           call mpp_send(ll(k),plen=np(p),to_pe=pes(p), tag=COMM_TAG_10)
+           call mpp_send(from_pe(k),plen=np(p),to_pe=pes(p), tag=COMM_TAG_11)
         endif
         ! broadcast comm. map
-        call mpp_send(map%mapSize,plen=1,to_pe=pes(p), tag=COMM_TAG_14)
+        call mpp_send(map%mapSize,plen=1,to_pe=pes(p), tag=COMM_TAG_12)
         if (map%mapSize>0) then
-           call mpp_send(map%srcPE(1),plen=map%mapSize,to_pe=pes(p), tag=COMM_TAG_15)
-           call mpp_send(map%dstPE(1),plen=map%mapSize,to_pe=pes(p), tag=COMM_TAG_16)
+           call mpp_send(map%srcPE(1),plen=map%mapSize,to_pe=pes(p), tag=COMM_TAG_13)
+           call mpp_send(map%dstPE(1),plen=map%mapSize,to_pe=pes(p), tag=COMM_TAG_14)
         endif
         call mpp_sync_self()
         k = k+np(p)
@@ -808,11 +824,11 @@ subroutine horiz_remap_new(invalid, valid, lon, lat, domain, pes, map)
 
   call mpp_sync_self()
 
-  deallocate(glon,glat,from_pe,dist,ii,jj)
+  deallocate(glon,glat,from_pe,dist,ll)
 
   ! note that many communications in this routine can be sped up if the data
   ! are combined.
-  ! For example instead of sending ii,jj,and from_pe one can encode them
+  ! For example instead of sending ll and from_pe one can encode them
   ! in a single integer array [ a(i*3-2)=ii(i), a(i*3-1)=jj(i), a(i*3)=from_pe(i) ]
   ! and send that array.
 
@@ -821,28 +837,24 @@ end subroutine
 ! ============================================================================
 subroutine horiz_remap(map,domain,d)
   type(horiz_remap_type), intent(in)    :: map
-  type(domain2d)        , intent(in)    :: domain
-  real                  , intent(inout) :: d(:,:,:) ! field to fill
+  type(domainUG)        , intent(in)    :: domain
+  real                  , intent(inout) :: d(:,:) ! field to fill
 
   ! ---- local vars
-  integer :: is,ie,js,je ! bounds of out compute domain
-  integer :: i,j,k,n
-  integer, allocatable :: ii(:),jj(:)
+  integer :: i,j,k,n,ls,le
+  integer :: is,ie,js,je
+  integer, allocatable :: ll(:)
   real   , allocatable :: buf(:,:)
   logical :: ltmp
 
-  ! get the boundaries of the compute domain, for global->local index
-  ! conversion
-  call mpp_get_compute_domain(domain, is,ie,js,je)
-
-  ltmp = size(d,1)==ie-is+1.or.size(d,2)==je-js+1
+  call mpp_get_ug_compute_domain(domain, ls, le)
+  ltmp = size(d,1)==le-ls+1
   __ASSERT__(ltmp,'shape of data must be the same as shape of compute domain')
 
   ! handle the local points
   do i = 1, map%n
      if (map%src_p(i)==mpp_pe()) then
-       d(map%dst_i(i)-is+1,map%dst_j(i)-js+1,:) = &
-       d(map%src_i(i)-is+1,map%src_j(i)-js+1,:)
+       d(map%dst_l(i)-ls+1,:) = d(map%src_l(i)-ls+1,:)
      endif
   enddo
 
@@ -850,48 +862,45 @@ subroutine horiz_remap(map,domain,d)
   do k = 1, map%mapSize
      if (map%srcPE(k)==mpp_pe()) then
         ! get the size of the data from the other PE
-        call mpp_recv(n,map%dstPE(k), tag=COMM_TAG_17)
-        allocate(ii(n),jj(n),buf(n,size(d,3)))
+        call mpp_recv(n,map%dstPE(k), tag=COMM_TAG_15)
+        allocate(ll(n),buf(n,size(d,2)))
         ! get the indices
-        call mpp_recv(ii(1),glen=n,from_pe=map%dstPE(k), tag=COMM_TAG_18)
-        call mpp_recv(jj(1),glen=n,from_pe=map%dstPE(k), tag=COMM_TAG_19)
+        call mpp_recv(ll(1),glen=n,from_pe=map%dstPE(k), tag=COMM_TAG_16)
         ! fill the buffer
         do i = 1,n
-           if(ii(i)<is.or.ii(i)>ie) call error_mesg('distr_fill','requested index i outside of domain', FATAL)
-           if(jj(i)<js.or.jj(i)>je) call error_mesg('distr_fill','requested index j outside of domain', FATAL)
-           buf(i,:) = d(ii(i)-is+1,jj(i)-js+1,:)
+           if(ll(i)<ls.or.ll(i)>le) call error_mesg('distr_fill','requested index l outside of domain', FATAL)
+           buf(i,:) = d(ll(i)-ls+1,:)
         enddo
         ! send the buffer
-        call mpp_send(buf(1,1),plen=size(buf),to_pe=map%dstPE(k), tag=COMM_TAG_20)
+        call mpp_send(buf(1,1),plen=size(buf),to_pe=map%dstPE(k), tag=COMM_TAG_17)
         call mpp_sync_self()
-        deallocate (ii,jj,buf)
+        deallocate (ll,buf)
      else if (map%dstPE(k)==mpp_pe()) then
         ! send data request
         n = count(map%src_p(:)==map%srcPE(k))
         ! alloacate and fill arrays of requested indices ii and jj
-        allocate(ii(n),jj(n),buf(n,size(d,3)))
+        allocate(ll(n),buf(n,size(d,2)))
         j = 1
         do i = 1, map%n
            if (map%src_p(i)==map%srcPE(k)) then
-              ii(j) = map%src_i(i); jj(j) = map%src_j(i) ; j = j+1
+              ll(j) = map%src_l(i); j = j+1
            endif
         enddo
         ! send the data request
-        call mpp_send(n,map%srcPE(k), tag=COMM_TAG_17)
-        call mpp_send(ii(1),plen=n,to_pe=map%srcPE(k), tag=COMM_TAG_18)
-        call mpp_send(jj(1),plen=n,to_pe=map%srcPE(k), tag=COMM_TAG_19)
+        call mpp_send(n,map%srcPE(k), tag=COMM_TAG_15)
+        call mpp_send(ll(1),plen=n,to_pe=map%srcPE(k), tag=COMM_TAG_16)
 
         ! get the response
-        call mpp_recv(buf(1,1),glen=size(buf),from_pe=map%srcPE(k), tag=COMM_TAG_20)
+        call mpp_recv(buf(1,1),glen=size(buf),from_pe=map%srcPE(k), tag=COMM_TAG_17)
         ! fill the data
         j = 1
         do i = 1,map%n
            if (map%src_p(i)==map%srcPE(k)) then
-              d(map%dst_i(i)-is+1,map%dst_j(i)-js+1,:) = buf(j,:) ; j = j+1
+              d(map%dst_l(i)-ls+1,:) = buf(j,:) ; j = j+1
            endif
         enddo
         call mpp_sync_self()
-        deallocate (ii,jj,buf)
+        deallocate (ll,buf)
      endif
   enddo
 

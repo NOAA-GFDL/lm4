@@ -22,13 +22,12 @@ use fms_mod, only: open_namelist_file
 
 
 use horiz_interp_mod,  only : horiz_interp_type, &
-     horiz_interp_new, horiz_interp_del, &
-     horiz_interp
+     horiz_interp_new, horiz_interp_del, horiz_interp
 
 use land_numerics_mod, only : nearest, bisect
 use nf_utils_mod,      only : nfu_validtype, nfu_get_dim, nfu_get_dim_bounds, &
      nfu_get_valid_range, nfu_is_valid, nfu_inq_var, nfu_get_var
-use land_data_mod, only : log_version
+use land_data_mod, only : log_version, horiz_interp_ug
 
 implicit none
 private
@@ -120,10 +119,10 @@ subroutine init_cover_field( &
   real            , intent(in) :: lonb(:,:), latb(:,:) ! boundaries of the grid cells
   integer         , intent(in) :: uniform_cover
   integer         , intent(in) :: input_cover_types(:)
-  real            , intent(out):: frac(:,:,:) ! output-global map of soil fractional coverage
+  real            , intent(out):: frac(:,:) ! output-global map of soil fractional coverage
 
   ! ---- local vars ---------------------------------------------------------
-  integer :: i,j,k     ! iterators
+  integer :: l, k     ! iterators
   integer :: cover_id
   real    :: maxfrac, total
 
@@ -136,32 +135,28 @@ subroutine init_cover_field( &
      call read_cover_field(filename,cover_field_name,frac_field_name,lonb,latb,input_cover_types,frac)
   else if (cover_to_use=='single-tile') then
      call read_cover_field(filename,cover_field_name,frac_field_name,lonb,latb,input_cover_types,frac)
-     do j = 1,size(frac,2)
-     do i = 1,size(frac,1)
-        total = sum(frac(i,j,:))
+     do l = 1,size(frac,1)
+        total = sum(frac(l,:))
         if (total <= 0) cycle ! operate on valid input data points only
         maxfrac=0 ; cover_id=1
-        do k = 1,size(frac,3)
-           if(frac(i,j,k).gt.maxfrac) then
-              maxfrac=frac(i,j,k)
+        do k = 1,size(frac,2)
+           if(frac(l,k).gt.maxfrac) then
+              maxfrac=frac(l,k)
               cover_id=k
            endif
         enddo
         ! set all fractions except dominant fraction to zero
-        frac(i,j,:) = 0.0
-        frac(i,j,cover_id) = total
-     enddo
+        frac(l,:) = 0.0
+        frac(l,cover_id) = total
      enddo
   else if (cover_to_use == 'uniform') then
      call read_cover_field(filename,cover_field_name,frac_field_name,lonb,latb,input_cover_types,frac)
-     do j = 1,size(frac,2)
-     do i = 1,size(frac,1)
-        total = sum(frac(i,j,:))
+     do l = 1,size(frac,1)
+        total = sum(frac(l,:))
         if (total <= 0) cycle ! operate on valid input data points only
         ! set all fractions except dominant fraction to zero
-        frac(i,j,:) = 0.0
-        frac(i,j,uniform_cover) = total
-     enddo
+        frac(l,:) = 0.0
+        frac(l,uniform_cover) = total
      enddo
   else
      call error_mesg ( module_name,'illegal value of cover_to_use '//cover_to_use, FATAL )
@@ -176,7 +171,7 @@ subroutine read_cover_field(file, cover_field_name, frac_field_name,&
   character(len=*)  , intent(in)  :: file            ! file to read from
   character(len=*)  , intent(in)  :: cover_field_name, frac_field_name
   real              , intent(in)  :: lonb(:,:),latb(:,:) ! boundaries of the model grid
-  real              , intent(out) :: frac(:,:,:)     ! resulting fractions
+  real              , intent(out) :: frac(:,:)     ! resulting fractions
   integer, optional , intent(in)  :: input_cover_types(:)
 
   ! --- local vars
@@ -238,7 +233,7 @@ subroutine do_read_cover_field(input_unit, field, lonb, latb, input_cover_types,
   type(fieldtype), intent(in) :: field
   real   , intent(in)  :: lonb(:,:),latb(:,:)
   integer, intent(in)  :: input_cover_types(:)
-  real   , intent(out) :: frac(:,:,:)
+  real   , intent(out) :: frac(:,:)
 
   ! ---- local vars
   integer :: nlon, nlat ! size of input map
@@ -306,7 +301,7 @@ subroutine do_read_cover_field(input_unit, field, lonb, latb, input_cover_types,
   do k = 1,size(input_cover_types(:))
      x=0
      where(mpp_is_valid(r_in_cover,v).and.in_cover==input_cover_types(k)) x = 1
-     call horiz_interp(interp,x,frac(:,:,k))
+     call horiz_interp_ug(interp,x,frac(:,k))
   enddo
 
   call horiz_interp_del(interp)
@@ -323,7 +318,7 @@ end subroutine do_read_cover_field
   type(fieldtype), intent(in) :: field
   real   , intent(in)  :: lonb(:,:),latb(:,:)
   integer, intent(in)  :: input_cover_types(:)
-  real   , intent(out) :: frac(:,:,:)
+  real   , intent(out) :: frac(:,:)
 
   ! ---- local vars
   integer :: nlon, nlat, ntypes, k, cover
@@ -414,7 +409,7 @@ end subroutine do_read_cover_field
         cycle ! skip all invalid indices in the array of input cover types
      endif
 
-     call horiz_interp(interp,in_frac(:,:,cover),frac(:,:,k))
+     call horiz_interp_ug(interp,in_frac(:,:,cover),frac(:,k))
   enddo
 
   ! clean up memory

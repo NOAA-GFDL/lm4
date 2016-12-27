@@ -11,7 +11,6 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only : error_mesg, file_exist, read_data, check_nml_error, &
      stdlog,close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
-use fms_io_mod, only : set_domain, nullify_domain
 use time_manager_mod, only: time_type_to_real
 use diag_manager_mod, only: diag_axis_init, register_diag_field, &
      register_static_field, send_data
@@ -31,7 +30,7 @@ use land_tile_diag_mod, only : register_tiled_static_field, &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
      send_tile_data_r0d_fptr, add_tiled_static_field_alias, &
      set_default_diag_filter
-use land_data_mod, only : land_state_type, lnd, log_version, lnd_ug
+use land_data_mod, only : lnd_sg, log_version, lnd
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_restart_axis, add_tile_data, get_tile_data, field_exists
@@ -183,14 +182,14 @@ subroutine lake_init_predefined ( id_lon, id_lat)
   module_is_initialized = .TRUE.
   delta_time = time_type_to_real(lnd%dt_fast)
 
-  allocate(buffer (lnd_ug%ls:lnd_ug%le))
-  allocate(bufferc(lnd_ug%ls:lnd_ug%le))
-  allocate(buffert(lnd_ug%ls:lnd_ug%le))
+  allocate(buffer (lnd%ls:lnd%le))
+  allocate(bufferc(lnd%ls:lnd%le))
+  allocate(buffert(lnd%ls:lnd%le))
   buffer (:) = 0
   bufferc(:) = 0
   buffert(:) = 0
 
-  river_data_exist = file_exist('INPUT/river_data.nc', lnd%domain)
+  river_data_exist = file_exist('INPUT/river_data.nc', lnd_sg%domain)
   if (river_data_exist) then
      call error_mesg('lake_init', 'reading lake information from river data file', NOTE)
   else
@@ -199,62 +198,52 @@ subroutine lake_init_predefined ( id_lon, id_lat)
 
   IF (LARGE_DYN_SMALL_STAT) THEN
 
-     if(river_data_exist) call read_data('INPUT/river_data.nc', 'connected_to_next', bufferc(:), lnd%domain)
-     !call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_connected_to_next_ptr)
+     if(river_data_exist) call read_data('INPUT/river_data.nc', 'connected_to_next', bufferc(:), lnd_sg%domain)
 
-     if(river_data_exist) call read_data('INPUT/river_data.nc', 'whole_lake_area', buffer(:), lnd%domain)
-     !call put_to_tiles_r0d_fptr(buffer, lnd%tile_map, lake_whole_area_ptr)
+     if(river_data_exist) call read_data('INPUT/river_data.nc', 'whole_lake_area', buffer(:), lnd_sg%domain)
 
-     if(river_data_exist) call read_data('INPUT/river_data.nc', 'lake_depth_sill', buffer(:),  lnd%domain)
+     if(river_data_exist) call read_data('INPUT/river_data.nc', 'lake_depth_sill', buffer(:),  lnd_sg%domain)
      buffer = min(buffer, lake_depth_max)
      buffer = max(buffer, lake_depth_min)
-     !call put_to_tiles_r0d_fptr(buffer,  lnd%tile_map, lake_depth_sill_ptr)
 
      ! lake_tau is just used here as a flag for 'large lakes'
      ! sill width of -1 is a flag saying not to allow transient storage
-     if(river_data_exist) call read_data('INPUT/river_data.nc', 'lake_tau', buffert(:),  lnd%domain)
+     if(river_data_exist) call read_data('INPUT/river_data.nc', 'lake_tau', buffert(:),  lnd_sg%domain)
      buffer = -1.
      !where (bufferc.gt.0.5) buffer = lake_width_inside_lake
      where (bufferc.lt.0.5 .and. buffert.gt.1.) buffer = large_lake_sill_width
      if (lake_specific_width) then
         do i = 1, n_outlet
            g = outlet_j(i)*lnd%nlon + outlet_i(i)
-           if(lnd_ug%face.eq.outlet_face(i).and.lnd_ug%gs.le.g.and.lnd_ug%ge.ge.g) then
-             l = lnd_ug%l_index(g)
+           if(lnd%face.eq.outlet_face(i).and.lnd%gs.le.g.and.lnd%ge.ge.g) then
+             l = lnd%l_index(g)
              buffer(l) = outlet_width(i)
            endif
         enddo
      endif
-     !call put_to_tiles_r0d_fptr(buffer, lnd%tile_map, lake_width_sill_ptr)
 
      buffer = 1.e8
      if (max_plain_slope.gt.0. .and. river_data_exist) &
-          call read_data('INPUT/river_data.nc', 'max_slope_to_next', buffer(:), lnd%domain)
-     if(river_data_exist) call read_data('INPUT/river_data.nc', 'travel', buffert(:), lnd%domain)
+          call read_data('INPUT/river_data.nc', 'max_slope_to_next', buffer(:), lnd_sg%domain)
+     if(river_data_exist) call read_data('INPUT/river_data.nc', 'travel', buffert(:), lnd_sg%domain)
      bufferc = 0.
      where (buffer.lt.max_plain_slope .and. buffert.gt.1.5) bufferc = 1.
-     !call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_backwater_ptr)
      bufferc = 0
      where (buffer.lt.max_plain_slope .and. buffert.lt.1.5) bufferc = 1.
-     !call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_backwater_1_ptr)
 
   ELSE
-     if(river_data_exist) call read_data('INPUT/river_data.nc', 'whole_lake_area', bufferc(:), lnd%domain)
+     if(river_data_exist) call read_data('INPUT/river_data.nc', 'whole_lake_area', bufferc(:), lnd_sg%domain)
 
-     if(river_data_exist) call read_data('INPUT/river_data.nc', 'lake_depth_sill', buffer(:), lnd%domain)
+     if(river_data_exist) call read_data('INPUT/river_data.nc', 'lake_depth_sill', buffer(:), lnd_sg%domain)
      where (bufferc.eq.0.)                      buffer = 0.
      where (bufferc.gt.0..and.bufferc.lt.2.e10) buffer = max(2., 2.5e-4*sqrt(bufferc))
-     !call put_to_tiles_r0d_fptr(buffer,  lnd%tile_map, lake_depth_sill_ptr)
-     !call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_whole_area_ptr)
 
      buffer = 4. * buffer
      where (bufferc.gt.2.e10) buffer = min(buffer, 60.)
-     if(river_data_exist) call read_data('INPUT/river_data.nc', 'connected_to_next', bufferc(:), lnd%domain)
-     !call put_to_tiles_r0d_fptr(bufferc, lnd%tile_map, lake_connected_to_next_ptr)
+     if(river_data_exist) call read_data('INPUT/river_data.nc', 'connected_to_next', bufferc(:), lnd_sg%domain)
 
      where (bufferc.gt.0.5) buffer=lake_width_inside_lake
      if (make_all_lakes_wide) buffer = lake_width_inside_lake
-     !call put_to_tiles_r0d_fptr(buffer, lnd%tile_map, lake_width_sill_ptr)
   ENDIF
 
   deallocate (buffer, bufferc, buffert)
@@ -320,14 +309,14 @@ subroutine lake_init ( id_lon, id_lat )
   module_is_initialized = .TRUE.
   delta_time = time_type_to_real(lnd%dt_fast)
 
-  allocate(buffer (lnd_ug%ls:lnd_ug%le))
-  allocate(bufferc(lnd_ug%ls:lnd_ug%le))
-  allocate(buffert(lnd_ug%ls:lnd_ug%le))
+  allocate(buffer (lnd%ls:lnd%le))
+  allocate(bufferc(lnd%ls:lnd%le))
+  allocate(buffert(lnd%ls:lnd%le))
   buffer (:) = 0
   bufferc(:) = 0
   buffert(:) = 0
 
-  river_data_exist = file_exist('INPUT/river_data.nc', lnd%domain)
+  river_data_exist = file_exist('INPUT/river_data.nc', lnd_sg%domain)
   if (river_data_exist) then
      call error_mesg('lake_init', 'reading lake information from river data file', NOTE)
   else
@@ -336,28 +325,28 @@ subroutine lake_init ( id_lon, id_lat )
 
   IF (LARGE_DYN_SMALL_STAT) THEN
 
-     if (river_data_exist) call read_data('INPUT/river_data.nc', 'connected_to_next', bufferc(:), lnd%domain, lnd_ug%domain)
+     if (river_data_exist) call read_data('INPUT/river_data.nc', 'connected_to_next', bufferc(:), lnd_sg%domain, lnd%domain)
      call put_to_tiles_r0d_fptr(bufferc, land_tile_map, lake_connected_to_next_ptr)
 
-     if (river_data_exist) call read_data('INPUT/river_data.nc', 'whole_lake_area', buffer(:), lnd%domain, lnd_ug%domain)
+     if (river_data_exist) call read_data('INPUT/river_data.nc', 'whole_lake_area', buffer(:), lnd_sg%domain, lnd%domain)
      call put_to_tiles_r0d_fptr(buffer, land_tile_map, lake_whole_area_ptr)
 
-     if (river_data_exist) call read_data('INPUT/river_data.nc', 'lake_depth_sill', buffer(:), lnd%domain, lnd_ug%domain)
+     if (river_data_exist) call read_data('INPUT/river_data.nc', 'lake_depth_sill', buffer(:), lnd_sg%domain, lnd%domain)
      buffer = min(buffer, lake_depth_max)
      buffer = max(buffer, lake_depth_min)
      call put_to_tiles_r0d_fptr(buffer,  land_tile_map, lake_depth_sill_ptr)
 
      ! lake_tau is just used here as a flag for 'large lakes'
      ! sill width of -1 is a flag saying not to allow transient storage
-     if (river_data_exist) call read_data('INPUT/river_data.nc', 'lake_tau', buffert(:), lnd%domain, lnd_ug%domain)
+     if (river_data_exist) call read_data('INPUT/river_data.nc', 'lake_tau', buffert(:), lnd_sg%domain, lnd%domain)
      buffer = -1.
      !where (bufferc.gt.0.5) buffer = lake_width_inside_lake
      where (bufferc.lt.0.5 .and. buffert.gt.1.) buffer = large_lake_sill_width
      if (lake_specific_width) then
          do i = 1, n_outlet
            g = outlet_j(i)*lnd%nlon + outlet_i(i)
-           if(lnd_ug%face.eq.outlet_face(i).and.lnd_ug%gs.le.g.and.lnd_ug%ge.ge.g) then
-             l = lnd_ug%l_index(g)
+           if(lnd%face.eq.outlet_face(i).and.lnd%gs.le.g.and.lnd%ge.ge.g) then
+             l = lnd%l_index(g)
              buffer(l) = outlet_width(i)
            endif
          enddo
@@ -366,8 +355,8 @@ subroutine lake_init ( id_lon, id_lat )
 
      buffer = 1.e8
      if (river_data_exist .and. max_plain_slope.gt.0.) &
-        call read_data('INPUT/river_data.nc', 'max_slope_to_next', buffer(:), lnd%domain, lnd_ug%domain)
-     if (river_data_exist) call read_data('INPUT/river_data.nc', 'travel', buffert(:), lnd%domain, lnd_ug%domain)
+        call read_data('INPUT/river_data.nc', 'max_slope_to_next', buffer(:), lnd_sg%domain, lnd%domain)
+     if (river_data_exist) call read_data('INPUT/river_data.nc', 'travel', buffert(:), lnd_sg%domain, lnd%domain)
      bufferc = 0.
      where (buffer.lt.max_plain_slope .and. buffert.gt.1.5) bufferc = 1.
      call put_to_tiles_r0d_fptr(bufferc, land_tile_map, lake_backwater_ptr)
@@ -377,8 +366,8 @@ subroutine lake_init ( id_lon, id_lat )
 
   ELSE
      if (river_data_exist) then
-        call read_data('INPUT/river_data.nc', 'whole_lake_area', bufferc(:), lnd%domain, lnd_ug%domain)
-        call read_data('INPUT/river_data.nc', 'lake_depth_sill', buffer(:), lnd%domain, lnd_ug%domain)
+        call read_data('INPUT/river_data.nc', 'whole_lake_area', bufferc(:), lnd_sg%domain, lnd%domain)
+        call read_data('INPUT/river_data.nc', 'lake_depth_sill', buffer(:), lnd_sg%domain, lnd%domain)
      endif
      where (bufferc.eq.0.)                      buffer = 0.
      where (bufferc.gt.0..and.bufferc.lt.2.e10) buffer = max(2., 2.5e-4*sqrt(bufferc))
@@ -387,7 +376,7 @@ subroutine lake_init ( id_lon, id_lat )
 
      buffer = 4. * buffer
      where (bufferc.gt.2.e10) buffer = min(buffer, 60.)
-     if (river_data_exist) call read_data('INPUT/river_data.nc', 'connected_to_next', bufferc(:), lnd%domain, lnd_ug%domain)
+     if (river_data_exist) call read_data('INPUT/river_data.nc', 'connected_to_next', bufferc(:), lnd_sg%domain, lnd%domain)
      call put_to_tiles_r0d_fptr(bufferc, land_tile_map, lake_connected_to_next_ptr)
 
      where (bufferc.gt.0.5) buffer=lake_width_inside_lake
@@ -459,22 +448,20 @@ subroutine save_lake_restart (tile_dim_length, timestamp)
 
   call error_mesg('lake_end','writing NetCDF restart',NOTE)
 ! must set domain so that io_domain is available
-  call set_domain(lnd%domain)
 ! Note that filename is updated for tile & rank numbers during file creation
   filename = trim(timestamp)//'lake.res.nc'
   call init_land_restart(restart, filename, lake_tile_exists, tile_dim_length)
   call add_restart_axis(restart,'zfull',zfull(1:num_l),'Z','m','full level',sense=-1)
   
   ! write out fields
-  call add_tile_data(restart,'dz',   'zfull', lake_dz_ptr,   'layer thickness','m')
-  call add_tile_data(restart,'temp', 'zfull', lake_temp_ptr, 'lake temperature','degrees_K')
-  call add_tile_data(restart,'wl',   'zfull', lake_wl_ptr,   'liquid water content','kg/m2')
-  call add_tile_data(restart,'ws',   'zfull', lake_ws_ptr,   'solid water content','kg/m2')
+  call add_tile_data(restart,'dz',   'zfull', num_l, lake_dz_ptr,   'layer thickness','m')
+  call add_tile_data(restart,'temp', 'zfull', num_l, lake_temp_ptr, 'lake temperature','degrees_K')
+  call add_tile_data(restart,'wl',   'zfull', num_l, lake_wl_ptr,   'liquid water content','kg/m2')
+  call add_tile_data(restart,'ws',   'zfull', num_l, lake_ws_ptr,   'solid water content','kg/m2')
   
   ! save performs io domain aggregation through mpp_io as with regular domain data
   call save_land_restart(restart)
   call free_land_restart(restart)
-  call nullify_domain()
 end subroutine save_lake_restart
 
 

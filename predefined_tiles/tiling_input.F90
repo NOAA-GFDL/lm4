@@ -173,11 +173,11 @@ subroutine open_image_file(buf_ptr,buf_len,image_ptr,dstid)
 
 end subroutine open_image_file
 
-subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
+subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
   
   type(land_tile_list_type),intent(inout) :: tiles
   type(land_state_type),intent(in) :: lnd
-  integer,intent(in) :: i,j,h5id
+  integer,intent(in) :: l,h5id
   type(land_tile_type), pointer :: tile
   integer :: itile,tid,is,js
   !integer :: parent_id = 0
@@ -197,16 +197,10 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,i,j,h5id)
   character(kind=c_char),allocatable,dimension(:),target :: image_ptr
 
   !Determine the lat/lon of the grid cell (degrees)
-  is = i+lnd%is-1
-  js = j+lnd%js-1
-  lon = 180.0*lnd%lon(is,js)/pi
-  lat = 180.0*lnd%lat(is,js)/pi
-
-  !Print out the current lat and lon
-  print*,"Initializing: ",lat,lon
-  !print*,'face',lnd%face ! the current mosaic face
-  !print*,'is',is
-  !print*,'js',js
+  is = lnd%i_index(l)
+  js = lnd%j_index(l)
+  lon = 180.0*lnd%lon(l)/pi
+  lat = 180.0*lnd%lat(l)/pi
 
   !Determine the cell id (I/O core)
   !call determine_cell_id(is,js,h5id,cellid)

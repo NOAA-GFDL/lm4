@@ -70,7 +70,7 @@ module river_mod
   use land_tile_mod,       only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, get_elmt_indices, &
      operator(/=)
-  use land_data_mod,       only : land_data_type, land_state_type, lnd, log_version, lnd_ug
+  use land_data_mod,       only : land_data_type, lnd_sg, log_version, lnd
   use lake_tile_mod,       only : num_l
   use field_manager_mod, only: fm_field_name_len, fm_string_len, &
      fm_type_name_len, fm_path_name_len, fm_dump_list, fm_get_length, &
@@ -304,6 +304,10 @@ contains
     allocate(id_inflow (0:num_species), id_outflow(0:num_species))
     allocate(id_dis    (0:num_species), id_lake_outflow (0:num_species))
     allocate(id_removal(0:num_species), id_stordis(0:num_species), id_run_stor(0:num_species))
+    discharge2ocean_next = 0
+    discharge2ocean_next_c = 0
+    discharge2ocean_next_ug = 0
+    discharge2ocean_next_c_ug = 0
 
 !--- read the data from the file river_src_file -- has all static river network data
     call get_river_data(land_lon, land_lat, land_frac)
@@ -601,8 +605,6 @@ end subroutine print_river_tracer_data
 
     if(n == num_fast_calls) then
         call mpp_clock_begin(slowclock)
-        River%run_stor = 0
-        River%run_stor_c = 0        
         call mpp_pass_UG_to_SG(UG_domain, River%run_stor_ug, River%run_stor)
         call mpp_pass_UG_to_SG(UG_domain, River%run_stor_c_ug, River%run_stor_c)
         call update_river_slow(River%run_stor/real(num_fast_calls), &
@@ -615,6 +617,8 @@ end subroutine print_river_tracer_data
         call mpp_pass_SG_to_UG(UG_domain, discharge2ocean_next, discharge2ocean_next_ug)
         call mpp_pass_SG_to_UG(UG_domain, discharge2ocean_next_c, discharge2ocean_next_c_ug)
         n = 0
+        River%run_stor = 0
+        River%run_stor_c = 0
         River%run_stor_ug = 0
         River%run_stor_c_ug = 0
     endif
@@ -643,15 +647,15 @@ end subroutine print_river_tracer_data
     real, dimension(isc:iec,jsc:jec,num_lake_lev) :: &
                              lake_T
 
-    real, dimension(lnd_ug%ls:lnd_ug%le) :: &
+    real, dimension(lnd%ls:lnd%le) :: &
                              lake_sfc_A_ug, lake_sfc_bot_ug, lake_conn_ug
-    real, dimension(lnd_ug%ls:lnd_ug%le,num_lake_lev) :: &
+    real, dimension(lnd%ls:lnd%le,num_lake_lev) :: &
                              lake_wl_ug, lake_ws_ug
-    real, dimension(lnd_ug%ls:lnd_ug%le) :: &
+    real, dimension(lnd%ls:lnd%le) :: &
                              lake_depth_sill_ug, lake_width_sill_ug, lake_backwater_ug, &
                              lake_backwater_1_ug, &
                              lake_whole_area_ug
-    real, dimension(lnd_ug%ls:lnd_ug%le,num_lake_lev) :: &
+    real, dimension(lnd%ls:lnd%le,num_lake_lev) :: &
                              lake_T_ug
 
     integer                             :: travelnow, lev, l
@@ -712,7 +716,7 @@ end subroutine print_river_tracer_data
     lake_backwater_ug = 0
     lake_backwater_1_ug = 0
 
-    ce = first_elmt(land_tile_map, ls=lnd_ug%ls)
+    ce = first_elmt(land_tile_map, ls=lnd%ls)
     te = tail_elmt (land_tile_map)
     do while(ce /= te)
        call get_elmt_indices(ce,i,j,k,l)
@@ -721,9 +725,9 @@ end subroutine print_river_tracer_data
        ce=next_elmt(ce)        ! advance position to the next tile
        if (.not.associated(tile%lake)) cycle
        if (lake_area_bug) then
-          lake_sfc_A_ug (l) = tile%frac * lnd_ug%cellarea(l)
+          lake_sfc_A_ug (l) = tile%frac * lnd%cellarea(l)
        else
-          lake_sfc_A_ug (l) = tile%frac * lnd_ug%area(l)
+          lake_sfc_A_ug (l) = tile%frac * lnd%area(l)
        endif
        do lev = 1, num_lake_lev
          lake_T_ug (l,lev)   = tile%lake%T(lev)
@@ -742,17 +746,17 @@ end subroutine print_river_tracer_data
     enddo
 
 !z1l: The following might be changed for performance issue. This might be a temporary solution.
-    call mpp_pass_UG_to_SG(lnd_ug%domain, lake_sfc_A_ug, lake_sfc_A)
-    call mpp_pass_UG_to_SG(lnd_ug%domain, lake_T_ug, lake_T)
-    call mpp_pass_UG_to_SG(lnd_ug%domain, lake_wl_ug, lake_wl)
-    call mpp_pass_UG_to_SG(lnd_ug%domain, lake_ws_ug, lake_ws)
-    call mpp_pass_UG_to_SG(lnd_ug%domain, lake_sfc_bot_ug, lake_sfc_bot)
-    call mpp_pass_UG_to_SG(lnd_ug%domain, lake_depth_sill_ug, lake_depth_sill)
-    call mpp_pass_UG_to_SG(lnd_ug%domain, lake_width_sill_ug, lake_width_sill)
-    call mpp_pass_UG_to_SG(lnd_ug%domain, lake_whole_area_ug, lake_whole_area)
-    call mpp_pass_UG_to_SG(lnd_ug%domain, lake_conn_ug, lake_conn)
-    call mpp_pass_UG_to_SG(lnd_ug%domain, lake_backwater_ug, lake_backwater)
-    call mpp_pass_UG_to_SG(lnd_ug%domain, lake_backwater_1_ug, lake_backwater_1)
+    call mpp_pass_UG_to_SG(lnd%domain, lake_sfc_A_ug, lake_sfc_A)
+    call mpp_pass_UG_to_SG(lnd%domain, lake_T_ug, lake_T)
+    call mpp_pass_UG_to_SG(lnd%domain, lake_wl_ug, lake_wl)
+    call mpp_pass_UG_to_SG(lnd%domain, lake_ws_ug, lake_ws)
+    call mpp_pass_UG_to_SG(lnd%domain, lake_sfc_bot_ug, lake_sfc_bot)
+    call mpp_pass_UG_to_SG(lnd%domain, lake_depth_sill_ug, lake_depth_sill)
+    call mpp_pass_UG_to_SG(lnd%domain, lake_width_sill_ug, lake_width_sill)
+    call mpp_pass_UG_to_SG(lnd%domain, lake_whole_area_ug, lake_whole_area)
+    call mpp_pass_UG_to_SG(lnd%domain, lake_conn_ug, lake_conn)
+    call mpp_pass_UG_to_SG(lnd%domain, lake_backwater_ug, lake_backwater)
+    call mpp_pass_UG_to_SG(lnd%domain, lake_backwater_1_ug, lake_backwater_1)
     call mpp_update_domains (lake_sfc_A,  domain)
     call mpp_update_domains (lake_sfc_bot,domain)
     call mpp_update_domains (lake_wl, domain)
@@ -812,11 +816,11 @@ end subroutine print_river_tracer_data
        call mpp_clock_end(physicsclock)
     enddo
 
-    call mpp_pass_SG_to_UG(lnd_ug%domain, lake_T, lake_T_ug)
-    call mpp_pass_SG_to_UG(lnd_ug%domain, lake_wl, lake_wl_ug)
-    call mpp_pass_SG_to_UG(lnd_ug%domain, lake_ws, lake_ws_ug)
+    call mpp_pass_SG_to_UG(lnd%domain, lake_T, lake_T_ug)
+    call mpp_pass_SG_to_UG(lnd%domain, lake_wl, lake_wl_ug)
+    call mpp_pass_SG_to_UG(lnd%domain, lake_ws, lake_ws_ug)
    
-    ce = first_elmt(land_tile_map, ls=lnd_ug%ls)
+    ce = first_elmt(land_tile_map, ls=lnd%ls)
     te = tail_elmt (land_tile_map)
     do while(ce /= te)
        call get_elmt_indices(ce,i,j,k,l)
@@ -863,24 +867,24 @@ end subroutine print_river_tracer_data
   ! convert area-integrated river outputs to unit-area quantities,
   ! using land area for stores, cell area for fluxes to ocean
     if (id_LWSr > 0) then
-       where (lnd%area > 0) &
-            rivr_LMASS = rivr_LMASS / lnd%area
-       used = send_data (id_LWSr, rivr_LMASS, River%time, mask=lnd%area>0)
+       where (lnd_sg%area > 0) &
+            rivr_LMASS = rivr_LMASS / lnd_sg%area
+       used = send_data (id_LWSr, rivr_LMASS, River%time, mask=lnd_sg%area>0)
     endif
     if (id_FWSr > 0) then
-       where (lnd%area > 0) &
-            rivr_FMASS = rivr_FMASS / lnd%area
-       used = send_data (id_FWSr, rivr_FMASS, River%time, mask=lnd%area>0)
+       where (lnd_sg%area > 0) &
+            rivr_FMASS = rivr_FMASS / lnd_sg%area
+       used = send_data (id_FWSr, rivr_FMASS, River%time, mask=lnd_sg%area>0)
     endif
     if (id_HSr > 0) then
-       where (lnd%area > 0) &
-            rivr_HEAT = rivr_HEAT / lnd%area
-       used = send_data (id_HSr, rivr_HEAT, River%time, mask=lnd%area>0)
+       where (lnd_sg%area > 0) &
+            rivr_HEAT = rivr_HEAT / lnd_sg%area
+       used = send_data (id_HSr, rivr_HEAT, River%time, mask=lnd_sg%area>0)
     endif
     if (id_meltr > 0) then
-       where (lnd%area > 0) &
-            rivr_MELT = rivr_MELT / lnd%area
-       used = send_data (id_meltr, rivr_MELT, River%time, mask=lnd%area>0)
+       where (lnd_sg%area > 0) &
+            rivr_MELT = rivr_MELT / lnd_sg%area
+       used = send_data (id_meltr, rivr_MELT, River%time, mask=lnd_sg%area>0)
     end if
     if(mod(slow_step, diag_freq) == 0)  call river_diag(lake_depth_sill)
     call mpp_clock_end(diagclock)
@@ -1472,6 +1476,7 @@ select case(index)
 case(ISTOCK_WATER)
   value = DENS_H2O*(sum(River%storage)+sum(River%stordis)) &
         + sum(River%run_stor*River%land_area)*River%dt_fast
+
 case(ISTOCK_HEAT)
 ! heat stock not yet implemented
   value = 0
@@ -1486,7 +1491,7 @@ end subroutine river_stock_pe
 function coordinates(i,j) result(s); character(128) :: s
    integer, intent(in) :: i,j
    s ='('//trim(string(i))//','//trim(string(j))//')'
-   if (lnd%nfaces>1) s=trim(s)//' on cubic sphere face '//string(lnd%face)
+   if (lnd%nfaces>1) s=trim(s)//' on cubic sphere face '//string(lnd_sg%face)
 end function coordinates
 
 end module river_mod

@@ -16,7 +16,7 @@ use land_tile_mod,      only : land_tile_type, diag_buff_type, &
      land_tile_list_type, first_elmt, tail_elmt, next_elmt, get_elmt_indices, &
      land_tile_enum_type, operator(/=), current_tile, &
      tile_is_selected, fptr_i0, fptr_r0, fptr_r0i
-use land_data_mod,      only : lnd, log_version, lnd_ug
+use land_data_mod,      only : lnd_sg, log_version, lnd
 use tile_diag_buff_mod, only : diag_buff_type, realloc_diag_buff
 
 implicit none
@@ -819,8 +819,8 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
 
   ! calculate array boundaries
   ls = lbound(tiles,1); le = ubound(tiles,1)
-  is = lnd%is; ie = lnd%ie
-  js = lnd%js; je = lnd%je
+  is = lnd_sg%is; ie = lnd_sg%ie
+  js = lnd_sg%js; je = lnd_sg%je
   ks = field%offset   ; ke = field%offset + field%size - 1
 
   ! allocate and initialize temporary buffers
@@ -895,8 +895,8 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
   endif
 
   ! fill missing data, if necessary
-  call mpp_pass_UG_to_SG(lnd_ug%domain, buffer, buffer_sg)
-  call mpp_pass_UG_to_SG(lnd_ug%domain, mask, mask_sg)
+  call mpp_pass_UG_to_SG(lnd%domain, buffer, buffer_sg)
+  call mpp_pass_UG_to_SG(lnd%domain, mask, mask_sg)
 
   if (field%fill_missing) then
      where (.not.mask_sg) buffer_sg = 0.0

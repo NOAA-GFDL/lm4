@@ -15,7 +15,7 @@ use fms_mod, only : error_mesg, FATAL, NOTE, file_exist, &
      close_file, check_nml_error, mpp_pe, mpp_root_pe, stdlog, string
 use fms_io_mod, only : read_compressed, restart_file_type, free_restart_type
 use fms_io_mod, only : field_exist, get_field_size, save_restart
-use fms_io_mod, only : register_restart_axis, register_restart_field, set_domain, nullify_domain
+use fms_io_mod, only : register_restart_axis, register_restart_field
 use time_manager_mod, only : time_type, time_type_to_real
 use constants_mod, only : rdgas, rvgas, cp_air, PI, VONKARM
 use sphum_mod, only : qscomp
@@ -30,7 +30,7 @@ use cana_tile_mod, only : cana_tile_type, &
      canopy_air_mass, canopy_air_mass_for_tracers, cpw
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
-use land_data_mod, only : land_state_type, lnd, log_version
+use land_data_mod, only : log_version
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_restart_axis, add_tile_data, get_tile_data, field_exists
@@ -230,8 +230,6 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
   integer :: tr
 
   call error_mesg('cana_end','writing NetCDF restart',NOTE)
-! must set domain so that io_domain is available
-  call set_domain(lnd%domain)
 ! Note that filename is updated for tile & rank numbers during file creation
   filename = trim(timestamp)//'cana.res.nc'
   call init_land_restart(restart, filename, cana_tile_exists, tile_dim_length)
@@ -245,7 +243,6 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
   enddo
   call save_land_restart(restart)
   call free_land_restart(restart)
-  call nullify_domain()
 end subroutine save_cana_restart
 
 ! ============================================================================

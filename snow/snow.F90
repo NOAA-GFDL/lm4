@@ -11,7 +11,6 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only : error_mesg, file_exist, check_nml_error, &
      stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
-use fms_io_mod, only : set_domain, nullify_domain
 use time_manager_mod,   only: time_type_to_real
 use constants_mod,      only: tfreeze, hlv, hlf, PI
 
@@ -23,7 +22,7 @@ use snow_tile_mod, only : &
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
-use land_data_mod, only : land_state_type, lnd, log_version
+use land_data_mod, only : lnd, log_version
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_restart_axis, add_tile_data, get_tile_data
@@ -199,19 +198,17 @@ subroutine save_snow_restart (tile_dim_length, timestamp)
   type(land_restart_type) :: restart ! restart file i/o object
 
   call error_mesg('snow_end','writing NetCDF restart',NOTE)
-  call set_domain(lnd%domain)
 ! Note that filename is updated for tile & rank numbers during file creation
   filename = trim(timestamp)//'snow.res.nc'
   call init_land_restart(restart, filename, snow_tile_exists, tile_dim_length)
   call add_restart_axis(restart,'zfull',zz(1:num_l),'Z',longname='depth of level centers',sense=-1)
 
-  call add_tile_data(restart,'temp','zfull',snow_temp_ptr, 'snow temperature','degrees_K')
-  call add_tile_data(restart,'wl'  ,'zfull',snow_wl_ptr,   'snow liquid water content','kg/m2')
-  call add_tile_data(restart,'ws'  ,'zfull',snow_ws_ptr,   'snow solid water content','kg/m2')
+  call add_tile_data(restart,'temp','zfull',num_l, snow_temp_ptr, 'snow temperature','degrees_K')
+  call add_tile_data(restart,'wl'  ,'zfull',num_l, snow_wl_ptr,   'snow liquid water content','kg/m2')
+  call add_tile_data(restart,'ws'  ,'zfull',num_l, snow_ws_ptr,   'snow solid water content','kg/m2')
 
   call save_land_restart(restart)
   call free_land_restart(restart)
-  call nullify_domain()
 
 end subroutine save_snow_restart
 

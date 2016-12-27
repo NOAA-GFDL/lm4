@@ -10,8 +10,7 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only: error_mesg, NOTE,FATAL, file_exist, close_file, &
       check_nml_error, stdlog
-use fms_io_mod, only: set_domain, nullify_domain
-use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe
+use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe, mpp_sync, stdout
 use time_manager_mod, only: time_type, time_type_to_real, get_date, operator(-)
 use constants_mod,    only: tfreeze, rdgas, rvgas, hlv, hlf, cp_air, PI
 use sphum_mod, only: qscomp
@@ -29,7 +28,7 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
 use land_tile_diag_mod, only : register_tiled_static_field, register_tiled_diag_field, &
      send_tile_data, diag_buff_type, OP_STD, OP_VAR, set_default_diag_filter, &
      cmor_name
-use land_data_mod, only : land_state_type, lnd, log_version, lnd_ug
+use land_data_mod, only : lnd, log_version
 use land_io_mod, only : read_field
 
 use land_tile_io_mod, only: land_restart_type, &
@@ -386,14 +385,14 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
   ! read climatological fields for initialization of species distribution
   if (file_exist('INPUT/biodata.nc'))then
      allocate(&
-          t_ann (lnd_ug%ls:lnd_ug%le),&
-          t_cold(lnd_ug%ls:lnd_ug%le),&
-          p_ann (lnd_ug%ls:lnd_ug%le),&
-          ncm   (lnd_ug%ls:lnd_ug%le) )
-     call read_field( 'INPUT/biodata.nc','T_ANN', lnd_ug%lon, lnd_ug%lat, t_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','T_COLD',lnd_ug%lon, lnd_ug%lat, t_cold, interp='nearest')
-     call read_field( 'INPUT/biodata.nc','P_ANN', lnd_ug%lon, lnd_ug%lat, p_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','NCM',   lnd_ug%lon, lnd_ug%lat, ncm,    interp='nearest')
+          t_ann (lnd%ls:lnd%le),&
+          t_cold(lnd%ls:lnd%le),&
+          p_ann (lnd%ls:lnd%le),&
+          ncm   (lnd%ls:lnd%le) )
+     call read_field( 'INPUT/biodata.nc','T_ANN', lnd%lon, lnd%lat, t_ann,  interp='nearest')
+     call read_field( 'INPUT/biodata.nc','T_COLD',lnd%lon, lnd%lat, t_cold, interp='nearest')
+     call read_field( 'INPUT/biodata.nc','P_ANN', lnd%lon, lnd%lat, p_ann,  interp='nearest')
+     call read_field( 'INPUT/biodata.nc','NCM',   lnd%lon, lnd%lat, ncm,    interp='nearest')
      did_read_biodata = .TRUE.
      call error_mesg('vegn_init','did read INPUT/biodata.nc',NOTE)
   else
@@ -404,7 +403,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
   ! this allows to read partial restarts. Also initialize accumulation counters to zero
   ! or the values from the restarts.
   te = tail_elmt(land_tile_map)
-  ce = first_elmt(land_tile_map, ls=lnd_ug%ls)
+  ce = first_elmt(land_tile_map, ls=lnd%ls)
   do while(ce /= te)
      tile=>current_tile(ce)  ! get pointer to current tile
      call get_elmt_indices(ce,l=l)
@@ -461,7 +460,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
   call vegn_diag_init ( id_lon, id_lat, id_band, lnd%time )
 
   ! ---- diagnostic section
-  ce = first_elmt(land_tile_map, ls=lnd_ug%ls)
+  ce = first_elmt(land_tile_map, ls=lnd%ls)
   te  = tail_elmt(land_tile_map)
   do while(ce /= te)
      tile => current_tile(ce)
@@ -738,7 +737,6 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
 
   call error_mesg('vegn_end','writing NetCDF restart',NOTE)
 
-  call set_domain(lnd%domain) ! must set domain so that io_domain is available
   ! create output file, including internal structure necessary for tile output
   filename = trim(timestamp)//'vegn1.res.nc'
   call init_land_restart(restart1, filename, vegn_tile_exists, tile_dim_length)
@@ -852,7 +850,6 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
 
   call save_land_restart(restart2)
   call free_land_restart(restart2)
-  call nullify_domain()
 end subroutine save_vegn_restart
 
 ! ============================================================================
@@ -1368,7 +1365,7 @@ subroutine update_vegn_slow( )
      call error_mesg('update_vegn_slow',trim(timestamp),NOTE)
   endif
 
-  ce = first_elmt(land_tile_map, lnd_ug%ls) ; te = tail_elmt(land_tile_map)
+  ce = first_elmt(land_tile_map, lnd%ls) ; te = tail_elmt(land_tile_map)
   do while ( ce /= te )
      call get_elmt_indices(ce,i,j,k,l) ; call set_current_point(i,j,k,l) ! this is for debug output only
      tile => current_tile(ce) ; ce=next_elmt(ce)
@@ -1629,15 +1626,15 @@ subroutine vegn_seed_transport()
   real :: f_supply ! fraction of the supply that gets spent
   real :: f_demand ! fraction of the demand that gets satisfied
 
-  ce = first_elmt(land_tile_map, lnd_ug%ls) ; te = tail_elmt(land_tile_map)
+  ce = first_elmt(land_tile_map, lnd%ls) ; te = tail_elmt(land_tile_map)
   total_seed_supply = 0.0; total_seed_demand = 0.0
   do while ( ce /= te )
      call get_elmt_indices(ce,l=l)
      tile => current_tile(ce) ; ce=next_elmt(ce)
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
 
-     total_seed_supply = total_seed_supply + vegn_seed_supply(tile%vegn)*tile%frac*lnd_ug%area(l)
-     total_seed_demand = total_seed_demand + vegn_seed_demand(tile%vegn)*tile%frac*lnd_ug%area(l)
+     total_seed_supply = total_seed_supply + vegn_seed_supply(tile%vegn)*tile%frac*lnd%area(l)
+     total_seed_demand = total_seed_demand + vegn_seed_demand(tile%vegn)*tile%frac*lnd%area(l)
   enddo
   ! sum totals globally
   call mpp_sum(total_seed_demand, pelist=lnd%pelist)

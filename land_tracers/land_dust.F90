@@ -26,7 +26,7 @@ use vegn_tile_mod, only : vegn_tile_LAI, vegn_tile_SAI
 use vegn_data_mod, only:  LU_PAST, LU_CROP, LU_SCND, LU_NTRL
 use land_tile_mod, only : land_tile_type, land_tile_grnd_T
 use land_tile_diag_mod, only : register_tiled_diag_field, send_tile_data
-use land_data_mod, only : land_state_type, lnd, log_version, lnd_ug, send_data_ug
+use land_data_mod, only : lnd, log_version, send_data_ug
 use land_io_mod, only : read_field
 use land_tracers_mod, only : ntcana, isphum
 use land_tile_diag_mod, only : &
@@ -238,9 +238,9 @@ subroutine land_dust_init (id_lon, id_lat, mask)
   call print(table,stdout())
 
   ! read dust source field
-  allocate(dust_source(lnd_ug%ls:lnd_ug%le))
+  allocate(dust_source(lnd%ls:lnd%le))
   call read_field( input_file_name, input_field_name, &
-       lnd_ug%lon, lnd_ug%lat, dust_source, interp='bilinear' )
+       lnd%lon, lnd%lat, dust_source, interp='bilinear' )
 
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('land')

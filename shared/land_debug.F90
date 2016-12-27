@@ -12,7 +12,7 @@ use fms_mod, only: error_mesg, file_exist, check_nml_error, stdlog, &
 use time_manager_mod, only : &
      time_type, get_date, set_date, operator(<=), operator(>=)
 use grid_mod, only: get_grid_ntiles
-use land_data_mod, only: lnd, log_version, lnd_ug
+use land_data_mod, only: lnd_sg, log_version, lnd
 
 ! NOTE TO SELF: the "!$" sentinels are not comments: they are compiled if OpenMP
 ! support is turned on
@@ -54,6 +54,10 @@ interface check_var_range
    module procedure check_var_range_1d
 end interface check_var_range
 
+interface set_current_point
+   module procedure set_current_point_sg
+   module procedure set_current_point_ug
+end interface set_current_point
 
 ! conservation tolerances for use across the code. This module doesn't use
 ! them, just serves as a convenient place to share them across all land code
@@ -173,8 +177,8 @@ subroutine set_watch_point_UG(mosaic_tile_in)
 
   mosaic_tile = mosaic_tile_in
   watch_point_lindex = 0
-  do l = lnd_ug%ls, lnd_ug%le
-     if(watch_point(1) == lnd_ug%i_index(l) .AND. watch_point(2) == lnd_ug%j_index(l)) then
+  do l = lnd%ls, lnd%le
+     if(watch_point(1) == lnd%i_index(l) .AND. watch_point(2) == lnd%j_index(l)) then
         watch_point_lindex = l
      endif
   enddo
@@ -183,7 +187,7 @@ subroutine set_watch_point_UG(mosaic_tile_in)
 end subroutine set_watch_point_UG
 
 ! ============================================================================
-subroutine set_current_point(i,j,k,l)
+subroutine set_current_point_sg(i,j,k,l)
   integer, intent(in) :: i,j,k,l
 
   integer :: thread, my_mosaic_tile
@@ -204,7 +208,26 @@ subroutine set_current_point(i,j,k,l)
        watch_point(4)==my_mosaic_tile) then
      current_debug_level(thread) = 1
   endif
-end subroutine set_current_point
+end subroutine set_current_point_sg
+
+! ============================================================================
+subroutine set_current_point_ug(l,k)
+  integer, intent(in) :: l,k
+
+  integer :: thread
+    thread = 1
+!$  thread = OMP_GET_THREAD_NUM()+1
+  curr_i(thread) = lnd%i_index(l) ; curr_j(thread) = lnd%j_index(l) 
+  curr_k(thread) = k; curr_l(thread) = l
+
+  current_debug_level(thread) = 0
+  if ( watch_point_lindex==l.and. &
+       watch_point(3)==k.and. &
+       watch_point(4)==mosaic_tile) then
+     current_debug_level(thread) = 1
+  endif
+end subroutine set_current_point_ug
+
 
 ! ============================================================================
 subroutine get_current_point(i,j,k,face)
@@ -322,15 +345,15 @@ subroutine check_var_range_0d(value, lo, hi, tag, varname, severity)
      if(curr_l(thread) == 0) then
         write(message,'(a,g23.16,2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
           trim(varname)//' out of range: value=', value,&
-          'at lon=',lnd%lon(curr_i(thread),curr_j(thread))*180.0/PI, &
-          'lat=',lnd%lat(curr_i(thread),curr_j(thread))*180.0/PI, &
+          'at lon=',lnd_sg%lon(curr_i(thread),curr_j(thread))*180.0/PI, &
+          'lat=',lnd_sg%lat(curr_i(thread),curr_j(thread))*180.0/PI, &
           'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
           'time=',y,mo,d,h,m,s
      else
         write(message,'(a,g23.16,2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
           trim(varname)//' out of range: value=', value,&
-	  'at lon=',lnd_ug%lon(curr_l(thread))*180.0/PI, &
-	  'lat=',lnd_ug%lat(curr_l(thread))*180.0/PI, &
+	  'at lon=',lnd%lon(curr_l(thread))*180.0/PI, &
+	  'lat=',lnd%lat(curr_l(thread))*180.0/PI, &
 	  'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
           'time=',y,mo,d,h,m,s
      endif
@@ -475,8 +498,8 @@ subroutine check_conservation(tag, substance, d1, d2, tolerance, severity)
      call get_date(lnd%time,y,mo,d,h,m,s)
      write(message,'(3(x,a,g23.16),2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
           'conservation of '//trim(substance)//' is violated; before=', d1, 'after=', d2, 'diff=',d2-d1,&
-	  'at lon=',lnd%lon(curr_i(thread),curr_j(thread))*180.0/PI, &
-	  'lat=',lnd%lat(curr_i(thread),curr_j(thread))*180.0/PI, &
+	  'at lon=',lnd_sg%lon(curr_i(thread),curr_j(thread))*180.0/PI, &
+	  'lat=',lnd_sg%lat(curr_i(thread),curr_j(thread))*180.0/PI, &
           'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
           'time=',y,mo,d,h,m,s
      call error_mesg(tag,message,severity_)

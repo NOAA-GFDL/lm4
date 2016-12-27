@@ -11,7 +11,6 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only : error_mesg, file_exist, check_nml_error, stdlog, close_file, &
      mpp_pe, mpp_root_pe, FATAL, NOTE
-use fms_io_mod, only : set_domain, nullify_domain
 
 use time_manager_mod,   only: time_type, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
@@ -27,7 +26,7 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
 use land_tile_diag_mod, only : &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
      set_default_diag_filter
-use land_data_mod, only : land_state_type, lnd, log_version
+use land_data_mod, only : lnd, log_version
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_restart_axis, add_tile_data, get_tile_data
@@ -211,21 +210,19 @@ subroutine save_glac_restart (tile_dim_length, timestamp)
 
   call error_mesg('glac_end','writing NetCDF restart',NOTE)
 ! must set domain so that io_domain is available
-  call set_domain(lnd%domain)
 ! Note that filename is updated for tile & rank numbers during file creation
   filename = trim(timestamp)//'glac.res.nc'
   call init_land_restart(restart, filename, glac_tile_exists, tile_dim_length)
   call add_restart_axis(restart,'zfull',zfull(1:num_l),'Z','m','full level',sense=-1)
 
   ! Output data provides signature
-  call add_tile_data(restart,'temp', 'zfull', glac_temp_ptr, longname='glacier temperature',  units='degrees_K')
-  call add_tile_data(restart,'wl',   'zfull', glac_wl_ptr,   longname='liquid water content', units='kg/m2')
-  call add_tile_data(restart,'ws',   'zfull', glac_ws_ptr,   longname='solid water content',  units='kg/m2')
+  call add_tile_data(restart,'temp', 'zfull', num_l, glac_temp_ptr, longname='glacier temperature',  units='degrees_K')
+  call add_tile_data(restart,'wl',   'zfull', num_l, glac_wl_ptr,   longname='liquid water content', units='kg/m2')
+  call add_tile_data(restart,'ws',   'zfull', num_l, glac_ws_ptr,   longname='solid water content',  units='kg/m2')
 
   ! save performs io domain aggregation through mpp_io as with regular domain data
   call save_land_restart(restart)
   call free_land_restart(restart)
-  call nullify_domain()
 end subroutine save_glac_restart
 
 

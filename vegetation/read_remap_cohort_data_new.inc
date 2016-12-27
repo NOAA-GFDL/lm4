@@ -13,8 +13,8 @@
 ! ============================================================================
 subroutine READ_REMAP_SUB(Field, fptr, map_i, map_j, cidx, compressed_data)
   type(fieldtype), intent(in) :: Field
-  integer        , intent(in) :: map_i(lnd_ug%ls:) ! re-mapping index
-  integer        , intent(in) :: map_j(lnd_ug%ls:) ! re-mapping index
+  integer        , intent(in) :: map_i(lnd%ls:) ! re-mapping index
+  integer        , intent(in) :: map_j(lnd%ls:) ! re-mapping index
   integer        , intent(in) :: cidx(:)
   F90_TYPE       , intent(in) :: compressed_data(:)
 
@@ -94,7 +94,7 @@ subroutine READ_REMAP_SUB(Field, fptr, map_i, map_j, cidx, compressed_data)
   ! distribute data over cohorts. NOTE that this is slightly different from the restart
   ! reading procedure. On reading the restart, all the tiles are counted in sequence,
   ! while here only the vegetation tiles.
-  do l = lnd_ug%ls, lnd_ug%le
+  do l = lnd%ls, lnd%le
      ii = map_i(l); jj = map_j(l)
      if ((ii.le.0).or.(jj.le.0)) cycle ! skip un-mapped points
      if (.not.any(mask(ii,jj,:,:))) cycle ! skip points where there is no data 

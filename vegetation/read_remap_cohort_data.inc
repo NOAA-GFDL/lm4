@@ -14,8 +14,8 @@
 subroutine READ_REMAP_SUB(ncid,name,fptr,map_i,map_j,rec)
   integer           , intent(in) :: ncid ! netcdf id
   character(len=*)  , intent(in) :: name ! name of the variable to read
-  integer           , intent(in) :: map_i(lnd_ug%ls:) ! re-mapping index
-  integer           , intent(in) :: map_j(lnd_ug%ls:) ! re-mapping index
+  integer           , intent(in) :: map_i(lnd%ls:) ! re-mapping index
+  integer           , intent(in) :: map_j(lnd%ls:) ! re-mapping index
   integer, optional , intent(in) :: rec  ! record number (in case there are 
                                          ! several in the file) 
   ! subroutine returning the pointer to the data to be written
@@ -77,7 +77,7 @@ subroutine READ_REMAP_SUB(ncid,name,fptr,map_i,map_j,rec)
   ! distribute data over cohorts. NOTE that this is slightly different from the restart
   ! reading procedure. On reading the restart, all the tiles are counted in sequence,
   ! while here only tne vegetation tiles.
-  do l = lnd_ug%ls, lnd_ug%le
+  do l = lnd%ls, lnd%le
      ii = map_i(l); jj = map_j(l)
      if ((ii.le.0).or.(jj.le.0)) cycle ! skip un-mapped points
      if (.not.any(mask(ii,jj,:,:))) cycle ! skip points where there is no data 

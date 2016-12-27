@@ -4,22 +4,23 @@ use fms_mod,          only : error_mesg, FATAL, WARNING, get_mosaic_tile_file
 use fms_io_mod,       only : register_restart_axis, restart_file_type, get_instance_filename, &
    get_field_size, register_restart_field, read_compressed
 use mpp_mod,          only : mpp_pe, mpp_max, mpp_send, mpp_recv, mpp_sync, &
-                             COMM_TAG_1, COMM_TAG_2
+                             COMM_TAG_1, COMM_TAG_2, COMM_TAG_3, COMM_TAG_4, &
+                             mpp_sync_self, stdout
 use nf_utils_mod,     only : nfu_inq_dim, nfu_get_var, nfu_put_var, &
      nfu_get_rec, nfu_put_rec, nfu_def_dim, nfu_def_var, nfu_put_att, &
      nfu_inq_var
 use land_io_mod,      only : print_netcdf_error, input_buf_size, new_land_io
 use land_tile_mod,    only : land_tile_map, land_tile_type, land_tile_list_type, &
      land_tile_enum_type, first_elmt, tail_elmt, next_elmt, get_elmt_indices, &
-     current_tile, operator(/=)
+     current_tile, operator(/=), nitems
 
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_restart_axis, add_tile_data, get_tile_data, &
-     get_tile_by_idx, sync_nc_files
+     get_tile_by_idx
 
 use vegn_cohort_mod, only: vegn_cohort_type
-use land_data_mod, only : lnd, land_state_type, lnd_ug
+use land_data_mod, only : lnd_sg, lnd
 
 implicit none
 private
@@ -74,6 +75,12 @@ end interface
 include 'netcdf.inc'
 #define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
 
+! The following is for new_land_io = .false. This is just some workaround to avoid to read back
+! from the file just written by root pe. In the future, these variables will be removed.
+! all these variables with suffix saved.
+integer, allocatable :: idx2_saved(:)
+integer              :: ntiles_saved
+integer              :: ncohort_saved 
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -150,8 +157,8 @@ subroutine read_create_cohorts_orig(ncid)
      do n = 1,min(bufsize,ncohorts-nn+1)
         k = idx(n)
         g = modulo(k,npts)+1
-        if(g<lnd_ug%gs.or.g>lnd_ug%ge) cycle ! skip points outside of domain
-        l = lnd_ug%l_index(g)
+        if(g<lnd%gs.or.g>lnd%ge) cycle ! skip points outside of domain
+        l = lnd%l_index(g)
         k = k/npts
         t = modulo(k,ntiles)+1 ; k = k/ntiles
         k = k+1
@@ -161,8 +168,8 @@ subroutine read_create_cohorts_orig(ncid)
         enddo
         tile=>current_tile(ce)
         if(.not.associated(tile%vegn)) then
-           i = lnd_ug%i_index(i)
-           j = lnd_ug%j_index(j)
+           i = lnd%i_index(i)
+           j = lnd%j_index(j)
            info = ''
            write(info,'("(",3i3,")")')i,j,t
            call error_mesg('read_create_cohort',&
@@ -209,8 +216,8 @@ subroutine read_create_cohorts_new(idx,ntiles)
      if(idx(n)<0) cycle ! skip illegal indices
      k = idx(n)
      g = modulo(k,npts)+1
-     if(g<lnd_ug%gs.or.g>lnd_ug%ge) cycle ! skip points outside of domain
-     l = lnd_ug%l_index(g)
+     if(g<lnd%gs.or.g>lnd%ge) cycle ! skip points outside of domain
+     l = lnd%l_index(g)
      k = k/npts
      t = modulo(k,ntiles)+1 ; k = k/ntiles
      k = k+1
@@ -267,7 +274,7 @@ subroutine create_cohort_dimension_orig(ncid)
   type(land_tile_type), pointer :: tile
 
   integer, allocatable :: idx(:)   ! integer compressed index of tiles
-  integer :: i,j,k,c,n,ntiles,max_cohorts,p
+  integer :: i,j,k,c,n,ntiles,max_cohorts,p,l
   integer :: iret
   integer, allocatable :: ncohorts(:) ! array of idx sizes from all PEs in io_domain
   integer, allocatable :: idx2(:) ! array of cohort indices from all PEs in io_domain
@@ -289,12 +296,11 @@ subroutine create_cohort_dimension_orig(ncid)
 
   call mpp_max(max_cohorts)
 
-  ! get the size of the tile dimension from the file
-  __NF_ASRT__(nfu_inq_dim(ncid,'tile',len=ntiles))
+  ntiles = ntiles_saved
 
   ! calculate compressed cohort index to be written to the restart file
   allocate(idx(max(n,1))) ; idx(:) = -1
-  ce = first_elmt(land_tile_map, lnd_ug%ls)
+  ce = first_elmt(land_tile_map, lnd%ls)
   n = 1
   do while (ce/=te)
      tile=>current_tile(ce)
@@ -312,24 +318,24 @@ subroutine create_cohort_dimension_orig(ncid)
      ce=next_elmt(ce)
   end do
 
-  if (mpp_pe()/=lnd_ug%io_pelist(1)) then
+  if (mpp_pe()/=lnd%io_pelist(1)) then
      ! if this processor is not doing io (that is, it's not root io_domain
      ! processor), simply send the data to the root io_domain PE
-     call mpp_send(size(idx), plen=1,         to_pe=lnd_ug%io_pelist(1), tag=COMM_TAG_1)
-     call mpp_send(idx(1),    plen=size(idx), to_pe=lnd_ug%io_pelist(1), tag=COMM_TAG_2)
+     call mpp_send(size(idx), plen=1,         to_pe=lnd%io_pelist(1), tag=COMM_TAG_1)
+     call mpp_send(idx(1),    plen=size(idx), to_pe=lnd%io_pelist(1), tag=COMM_TAG_2)
   else
      ! gather the array of cohort index sizes
-     allocate(ncohorts(size(lnd_ug%io_pelist)))
+     allocate(ncohorts(size(lnd%io_pelist)))
      ncohorts(1) = size(idx)
-     do p = 2,size(lnd_ug%io_pelist)
-        call mpp_recv(ncohorts(p), from_pe=lnd_ug%io_pelist(p), glen=1, tag=COMM_TAG_1)
+     do p = 2,size(lnd%io_pelist)
+        call mpp_recv(ncohorts(p), from_pe=lnd%io_pelist(p), glen=1, tag=COMM_TAG_1)
      enddo
      ! gather cohort index from the processors in our io_domain
      allocate(idx2(sum(ncohorts(:))))
      idx2(1:ncohorts(1))=idx(:)
      k=ncohorts(1)+1
-     do p = 2,size(lnd_ug%io_pelist)
-        call mpp_recv(idx2(k), from_pe=lnd_ug%io_pelist(p), glen=ncohorts(p), tag=COMM_TAG_2)
+     do p = 2,size(lnd%io_pelist)
+        call mpp_recv(idx2(k), from_pe=lnd%io_pelist(p), glen=ncohorts(p), tag=COMM_TAG_2)
         k = k+ncohorts(p)
      enddo
      ! create cohort dimension in the output file
@@ -339,12 +345,44 @@ subroutine create_cohort_dimension_orig(ncid)
      __NF_ASRT__(nfu_def_dim(ncid,cohort_index_name,idx2,'compressed vegetation cohort index'))
      __NF_ASRT__(nfu_put_att(ncid,cohort_index_name,'compress','cohort tile lat lon'))
      __NF_ASRT__(nfu_put_att(ncid,cohort_index_name,'valid_min',0))
+     ncohort_saved = size(idx2(:))
+     if(allocated(idx2_saved)) deallocate(idx2_saved)
+     allocate(idx2_saved(ncohort_saved))
+     idx2_saved = idx2
+
      ! deallocate the data we no longer need
      deallocate(ncohorts,idx2)
      ! leave the define mode to commit the new definitions to the disk
      iret = nf_enddef(ncid)
   endif
-  call sync_nc_files(ncid)
+
+  ntiles_saved = 0
+  do l = lnd%ls, lnd%le
+     k = nitems(land_tile_map(l))
+     ntiles_saved = max(ntiles_saved,k)
+  enddo
+  call mpp_max(ntiles_saved)
+
+  !--- send the idx2 information to other processors.
+  if (mpp_pe() == lnd%io_pelist(1)) then
+     do p = 2,size(lnd%io_pelist)
+        call mpp_send(ncohort_saved, lnd%io_pelist(p), tag=COMM_TAG_3)
+     enddo
+     do p = 2,size(lnd%io_pelist)
+        call mpp_send(idx2_saved(1), plen=ncohort_saved, to_pe=lnd%io_pelist(p), tag=COMM_TAG_4)
+     enddo
+  else
+     call mpp_recv(ncohort_saved, lnd%io_pelist(1), tag=COMM_TAG_3)
+     if(allocated(idx2_saved)) deallocate(idx2_saved)
+     allocate(idx2_saved(ncohort_saved))
+     call mpp_recv(idx2_saved(1), glen=ncohort_saved, from_pe=lnd%io_pelist(1), tag=COMM_TAG_4)
+  endif
+
+  call mpp_sync_self()
+
+  if(allocated(ncohorts)) deallocate(ncohorts)
+  if(allocated(idx2)) deallocate(idx2)
+
 end subroutine create_cohort_dimension_orig
 
 subroutine create_cohort_dimension_new(rhandle,cidx,name,tile_dim_length)
@@ -378,7 +416,7 @@ subroutine create_cohort_dimension_new(rhandle,cidx,name,tile_dim_length)
 
   ! calculate compressed cohort index to be written to the restart file
   allocate(cidx(max(n,1))) ; cidx(:) = -1 ! set initial value to a known invalid index
-  ce = first_elmt(land_tile_map, lnd_ug%ls)
+  ce = first_elmt(land_tile_map, lnd%ls)
   n = 1
   do while (ce/=te)
      tile=>current_tile(ce)
@@ -410,7 +448,7 @@ subroutine create_cohort_out_file_idx(rhandle,name,cidx,cohorts_dim_length)
 
   ! form the full name of the file
   call get_instance_filename(trim(name), file_name)
-  call get_mosaic_tile_file(trim(file_name),file_name,lnd_ug%domain)
+  call get_mosaic_tile_file(trim(file_name),file_name,lnd%domain)
 
   ! the size of tile dimension really does not matter for the output, but it does
   ! matter for uncompressing utility, since it uses it as a size of the array to
@@ -436,7 +474,7 @@ subroutine assemble_cohorts_i0d(fptr,idx,ntiles,data)
   ! gather data into an array along the cohort dimension
   do i = 1, size(idx)
      call get_cohort_by_idx ( idx(i), lnd%nlon, lnd%nlat, ntiles,&
-                             land_tile_map, lnd_ug%ls, lnd_ug%gs, lnd_ug%ge, cohort)
+                             land_tile_map, lnd%ls, lnd%gs, lnd%ge, cohort)
      if (associated(cohort)) then
         call fptr(cohort, ptr)
         if(associated(ptr)) ptr = data(i)
@@ -459,7 +497,7 @@ subroutine assemble_cohorts_r0d(fptr,idx,ntiles,data)
   ! gather data into an array along the cohort dimension
   do i = 1, size(idx)
      call get_cohort_by_idx ( idx(i), lnd%nlon, lnd%nlat, ntiles,&
-                             land_tile_map, lnd_ug%ls, lnd_ug%gs, lnd_ug%ge, cohort)
+                             land_tile_map, lnd%ls, lnd%gs, lnd%ge, cohort)
      if (associated(cohort)) then
         call fptr(cohort, ptr)
         if(associated(ptr)) ptr = data(i)
@@ -485,7 +523,7 @@ subroutine gather_cohort_data_i0d(fptr,idx,ntiles,data)
   ! gather data into an array along the cohort dimension
   do i = 1, size(idx)
      call get_cohort_by_idx ( idx(i), lnd%nlon, lnd%nlat, ntiles,&
-                             land_tile_map, lnd_ug%ls, lnd_ug%gs, lnd_ug%ge, cohort)
+                             land_tile_map, lnd%ls, lnd%gs, lnd%ge, cohort)
      if (associated(cohort)) then
         call fptr(cohort, ptr)
         if(associated(ptr)) then
@@ -514,7 +552,7 @@ subroutine gather_cohort_data_r0d(fptr,idx,ntiles,data)
   ! gather data into an array along the cohort dimension
   do i = 1, size(idx)
      call get_cohort_by_idx ( idx(i), lnd%nlon, lnd%nlat, ntiles,&
-                             land_tile_map, lnd_ug%ls, lnd_ug%gs, lnd_ug%ge, cohort)
+                             land_tile_map, lnd%ls, lnd%gs, lnd%ge, cohort)
      if (associated(cohort)) then
         call fptr(cohort, ptr)
         if(associated(ptr)) then
@@ -576,7 +614,7 @@ subroutine get_cohort_data(restart,varname,fptr)
      if (.not.allocated(restart%cidx)) call error_mesg('read_create_cohorts', &
         'cohort index not found in file "'//restart%filename//'"',FATAL)
      allocate(r(size(restart%cidx)))
-     call read_compressed(restart%basename, varname, r, domain=lnd%domain, timelevel=1)
+     call read_compressed(restart%basename, varname, r, domain=lnd_sg%domain, timelevel=1)
      call assemble_cohorts_r0d(fptr,restart%cidx,restart%tile_dim_length,r)
      deallocate(r)
   else
@@ -595,7 +633,7 @@ subroutine get_int_cohort_data(restart,varname,fptr)
      if (.not.allocated(restart%cidx)) call error_mesg('read_create_cohorts', &
         'cohort index not found in file "'//restart%filename//'"',FATAL)
      allocate(r(size(restart%cidx)))
-     call read_compressed(restart%basename, varname, r, domain=lnd%domain, timelevel=1)
+     call read_compressed(restart%basename, varname, r, domain=lnd_sg%domain, timelevel=1)
      call assemble_cohorts_i0d(fptr,restart%cidx,restart%tile_dim_length,r)
      deallocate(r)
   else

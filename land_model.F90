@@ -7,7 +7,8 @@ module land_model_mod
 
 use time_manager_mod, only : time_type, get_time, increment_time, time_type_to_real, &
      operator(+)
-use mpp_domains_mod, only : domain2d, mpp_get_ntile_count, mpp_pass_SG_to_UG, mpp_pass_ug_to_sg
+use mpp_domains_mod, only : domain2d, mpp_get_ntile_count, mpp_pass_SG_to_UG, mpp_pass_ug_to_sg, &
+                            mpp_get_UG_domain_tile_pe_inf
 
 #ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
@@ -18,13 +19,13 @@ use fms_mod, only: open_namelist_file
 use mpp_mod, only : mpp_max, mpp_sum, mpp_chksum, MPP_FILL_INT, MPP_FILL_DOUBLE
 use fms_io_mod, only : read_compressed, restart_file_type, free_restart_type
 use fms_io_mod, only : field_exist, get_field_size, save_restart
-use fms_io_mod, only : register_restart_axis, register_restart_field, set_domain, nullify_domain
+use fms_io_mod, only : register_restart_axis, register_restart_field
 use fms_mod, only : error_mesg, FATAL, WARNING, NOTE, mpp_pe, &
      mpp_root_pe, file_exist, check_nml_error, close_file, &
      stdlog, stderr, mpp_clock_id, mpp_clock_begin, mpp_clock_end, string, &
      stdout, CLOCK_FLAG_DEFAULT, CLOCK_COMPONENT, CLOCK_ROUTINE
 use field_manager_mod, only : MODEL_LAND, MODEL_ATMOS
-use data_override_mod, only : data_override
+use data_override_mod, only : data_override_ug
 use diag_manager_mod, only : diag_axis_init, register_static_field, &
      register_diag_field, send_data, diag_field_add_attribute
 use land_data_mod, only : send_data_ug
@@ -83,8 +84,8 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
      get_tile_water, init_tile_map, free_tile_map, max_n_tiles, &
      tile_exists_func, loop_over_tiles
 use land_data_mod, only : land_data_type, atmos_land_boundary_type, &
-     land_state_type, land_data_init, land_data_end, lnd, log_version, &
-     land_data_type_ug, atmos_land_boundary_type_ug, lnd_ug
+     land_state_type, land_data_init, land_data_end, lnd_sg, log_version, &
+     lnd, land_state_type_sg
 use nf_utils_mod,  only : nfu_inq_var, nfu_inq_dim, nfu_get_var
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
@@ -130,8 +131,6 @@ public land_data_type_chksum    ! routine to print checksums for land_data_type
 public atm_lnd_bnd_type_chksum  ! routine to print checksums for atmos_land_boundary_type
 
 public :: Lnd_stock_pe          ! return stocks of conservative quantities
-public :: pass_cplr2land_to_ug, pass_land2cplr_to_sg
-public :: atmos_land_boundary_type_ug, land_data_type_ug
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
@@ -311,7 +310,7 @@ contains
 
 ! ============================================================================
 subroutine land_model_init &
-     (cplr2land, land2cplr, cplr2land_ug, land2cplr_ug, time_init, time, dt_fast, dt_slow)
+     (cplr2land, land2cplr, time_init, time, dt_fast, dt_slow)
 ! initialize land model using grid description file as an input. This routine
 ! reads land grid boundaries and area of land from a grid description file
 
@@ -326,8 +325,6 @@ subroutine land_model_init &
 ! so critical.
   type(atmos_land_boundary_type), intent(inout) :: cplr2land ! boundary data
   type(land_data_type)          , intent(inout) :: land2cplr ! boundary data
-  type(atmos_land_boundary_type_ug), intent(inout) :: cplr2land_ug ! boundary data
-  type(land_data_type_ug)          , intent(inout) :: land2cplr_ug ! boundary data
   type(time_type), intent(in) :: time_init ! initial time of simulation (?)
   type(time_type), intent(in) :: time      ! current time
   type(time_type), intent(in) :: dt_fast   ! fast time step
@@ -414,7 +411,7 @@ subroutine land_model_init &
 
   ! [ ] initialize land state data, including grid geometry and processor decomposition
   call land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table,npes_io_group)
-  call set_watch_point_UG(lnd_ug%face)
+  call set_watch_point_UG(lnd%face)
   delta_time  = time_type_to_real(lnd%dt_fast) ! store in a module variable for convenience
   call init_tile_map()
 
@@ -434,7 +431,7 @@ subroutine land_model_init &
           'cold-starting land cover map',&
           NOTE)
      if (predefined_tiles .eq. .False.) then
-      call land_cover_cold_start(lnd)
+      call land_cover_cold_start(lnd_sg)
      else if (predefined_tiles .eq. .True.) then
       call land_cover_cold_start_predefined(lnd)
      endif
@@ -443,19 +440,19 @@ subroutine land_model_init &
 
   ! [6] initialize land model diagnostics -- must be before *_data_init so that
   ! *_data_init can write static fields if necessary
-  call land_diag_init( lnd%coord_glonb, lnd%coord_glatb, lnd%coord_glon, lnd%coord_glat, time, lnd%domain, &
+  call land_diag_init( lnd_sg%coord_glonb, lnd_sg%coord_glatb, lnd_sg%coord_glon, lnd_sg%coord_glat, time, lnd_sg%domain, &
        id_lon, id_lat, id_band )
   ! set the land diagnostic axes ids for the flux exchange
   land2cplr%axes = (/id_lon,id_lat/)
   ! send some static diagnostic fields to output
-  if ( id_cellarea > 0 ) used = send_data ( id_cellarea, lnd%cellarea, lnd%time )
-  if ( id_landarea > 0 ) used = send_data ( id_landarea, lnd%area, lnd%time )
-  if ( id_landfrac > 0 ) used = send_data ( id_landfrac, lnd%landfrac,     lnd%time )
-  if ( id_geolon_t > 0 ) used = send_data ( id_geolon_t, lnd%lon*180.0/PI, lnd%time )
-  if ( id_geolat_t > 0 ) used = send_data ( id_geolat_t, lnd%lat*180.0/PI, lnd%time )
+!  if ( id_cellarea > 0 ) used = send_data ( id_cellarea, lnd%cellarea, lnd_sg%time )
+!  if ( id_landarea > 0 ) used = send_data ( id_landarea, lnd%area, lnd_sg%time )
+!  if ( id_landfrac > 0 ) used = send_data ( id_landfrac, lnd%landfrac,     lnd_sg%time )
+!  if ( id_geolon_t > 0 ) used = send_data ( id_geolon_t, lnd_sg%lon*180.0/PI, lnd_sg%time )
+!  if ( id_geolat_t > 0 ) used = send_data ( id_geolat_t, lnd_sg%lat*180.0/PI, lnd_sg%time )
   ! CMOR variables
   if ( id_sftgif > 0 ) call send_cellfrac_data(id_sftgif,is_glacier)
-  if ( id_sftlf > 0 )  used = send_data(id_sftlf,lnd%landfrac*100, lnd%time)
+  if ( id_sftlf > 0 )  used = send_data(id_sftlf,lnd_sg%landfrac*100, lnd%time)
 
   ! [7] initialize individual sub-models
   if (predefined_tiles .eq. .False.)then
@@ -475,22 +472,22 @@ subroutine land_model_init &
   call glac_init ( id_lon, id_lat)
   call snow_init ( id_lon, id_lat)
   call cana_init ( id_lon, id_lat)
-  call topo_rough_init( lnd%time, lnd%lonb, lnd%latb, &
-       lnd%domain, lnd_ug%domain, id_lon, id_lat)
-  allocate (river_land_mask_sg(lnd%is:lnd%ie,lnd%js:lnd%je))
-  allocate (missing_rivers_sg (lnd%is:lnd%ie,lnd%js:lnd%je))
-  allocate (no_riv_sg         (lnd%is:lnd%ie,lnd%js:lnd%je))
-  call river_init( lnd%lon, lnd%lat, &
-                   lnd%time, lnd%dt_fast, lnd%domain,     &
-                   lnd_ug%domain, lnd%landfrac, &
+  call topo_rough_init( lnd%time, lnd_sg%lonb, lnd_sg%latb, &
+       lnd_sg%domain, lnd%domain, id_lon, id_lat)
+  allocate (river_land_mask_sg(lnd_sg%is:lnd_sg%ie,lnd_sg%js:lnd_sg%je))
+  allocate (missing_rivers_sg (lnd_sg%is:lnd_sg%ie,lnd_sg%js:lnd_sg%je))
+  allocate (no_riv_sg         (lnd_sg%is:lnd_sg%ie,lnd_sg%js:lnd_sg%je))
+  call river_init( lnd_sg%lon, lnd_sg%lat, &
+                   lnd%time, lnd%dt_fast, lnd_sg%domain,     &
+                   lnd%domain, lnd_sg%landfrac, &
                    id_lon, id_lat, get_area_id('land'),   &
                    river_land_mask_sg                        )
-  missing_rivers_sg = lnd%landfrac.gt.0. .and. .not.river_land_mask_sg
+  missing_rivers_sg = lnd_sg%landfrac.gt.0. .and. .not.river_land_mask_sg
   no_riv_sg = 0.
   where (missing_rivers_sg) no_riv_sg = 1.
   if ( id_no_riv > 0 ) used = send_data( id_no_riv, no_riv_sg, lnd%time )
-  allocate(no_riv(lnd_ug%ls:lnd_ug%le), missing_rivers(lnd_ug%ls:lnd_ug%le))
-  call mpp_pass_SG_to_UG(lnd_ug%domain, no_riv_sg, no_riv)
+  allocate(no_riv(lnd%ls:lnd%le), missing_rivers(lnd%ls:lnd%le))
+  call mpp_pass_SG_to_UG(lnd%domain, no_riv_sg, no_riv)
   where(no_riv > 0.)
      missing_rivers = .true.
   else where
@@ -515,17 +512,13 @@ subroutine land_model_init &
   call mpp_max(max_ntiles)
   call realloc_land2cplr ( land2cplr )
   call realloc_cplr2land ( cplr2land )
-  call realloc_land2cplr_ug ( land2cplr_ug )
-  call realloc_cplr2land_ug ( cplr2land_ug )
-
-  call pass_land2cplr_to_sg(land2cplr,land2cplr_ug)
 
   ! [8.2] set the land mask to FALSE everywhere -- update_land_bc_fast
   ! will set it to true where necessary
   land2cplr%mask = .FALSE.
   land2cplr%tile_size = 0.0
   ! [8.3] get the current state of the land boundary for the coupler
-  ce = first_elmt(land_tile_map, ls=lnd_ug%ls )
+  ce = first_elmt(land_tile_map, ls=lnd%ls )
   te = tail_elmt(land_tile_map)
   do while(ce /= te)
      ! calculate indices of the current tile in the input arrays;
@@ -537,16 +530,15 @@ subroutine land_model_init &
      tile => current_tile(ce)
      ! advance enumerator to the next tile
      ce=next_elmt(ce)
-     call update_land_bc_fast (tile, l,k, land2cplr_ug, is_init=.true.)
+     call update_land_bc_fast (tile, l,k, land2cplr, is_init=.true.)
   enddo
 
   ! [8.4] update topographic roughness scaling
-  call update_land_bc_slow( land2cplr_ug )
-  call pass_land2cplr_to_sg(land2cplr,land2cplr_ug)
+  call update_land_bc_slow( land2cplr )
 
   ! mask error checking
-  do l=lnd_ug%ls,lnd_ug%le
-     if(lnd_ug%landfrac(l)>0.neqv.ANY(land2cplr_ug%mask(l,:))) then
+  do l=lnd%ls,lnd%le
+     if(lnd%landfrac(l)>0.neqv.ANY(land2cplr%mask(l,:))) then
         call error_mesg('land_model_init','masks are not equal',FATAL)
      endif
   enddo
@@ -577,7 +569,6 @@ subroutine land_model_end (cplr2land, land2cplr)
   type(atmos_land_boundary_type), intent(inout) :: cplr2land
   type(land_data_type)          , intent(inout) :: land2cplr
 
-  ! ---- local vars
   module_is_initialized = .FALSE.
 
   call error_mesg('land_model_end','writing NetCDF restart',NOTE)
@@ -635,7 +626,7 @@ subroutine land_model_restart(timestamp)
   ! [1] count all land tiles and determine the length of tile dimension
   ! sufficient for the current domain
   tile_dim_length = 0
-  do l = lnd_ug%ls, lnd_ug%le
+  do l = lnd%ls, lnd%le
      k = nitems(land_tile_map(l))
      tile_dim_length = max(tile_dim_length,k)
   enddo
@@ -654,7 +645,6 @@ subroutine land_model_restart(timestamp)
   if (present(timestamp)) then
      if(trim(timestamp)/='') timestamp_=trim(timestamp)//'.'
   endif
-  call set_domain(lnd%domain)
   ! Note that filename is updated for tile & rank numbers during file creation
   filename = trim(timestamp)//'land.res.nc'
   call init_land_restart(restart, filename, land_tile_exists, tile_dim_length)
@@ -677,7 +667,6 @@ subroutine land_model_restart(timestamp)
   ! [5] close file
   call save_land_restart(restart)
   call free_land_restart(restart)
-  call nullify_domain()
 
   ! [6] save component models' restarts
   call save_land_transitions_restart(timestamp_)
@@ -693,21 +682,21 @@ subroutine land_model_restart(timestamp)
 end subroutine land_model_restart
 
 ! ============================================================================
-subroutine land_cover_cold_start(lnd)
-  type(land_state_type), intent(inout) :: lnd
-#ifdef COMPILE_THIS
+subroutine land_cover_cold_start(lnd_sg)
+  type(land_state_type_sg), intent(inout) :: lnd_sg
 
   ! ---- local vars
-  real, dimension(:,:,:), pointer :: &
+  real, dimension(:,:), pointer :: &
        glac, soil, lake, vegn ! arrays of fractions for respective sub-models
-  integer, pointer, dimension(:,:,:) :: soiltags ! array of soil type tags
-  integer, pointer, dimension(:,:,:) :: hlsp_pos ! hillslope position index
-  integer, pointer, dimension(:,:,:) :: hlsp_par ! hillslope parent index
-  real   , pointer, dimension(:,:,:) :: rbuffer ! real buffer for remap
-  logical, dimension(lnd%ie-lnd%is+1,lnd%je-lnd%js+1) :: &
+  integer, pointer, dimension(:,:) :: soiltags ! array of soil type tags
+  integer, pointer, dimension(:,:) :: hlsp_pos ! hillslope position index
+  integer, pointer, dimension(:,:) :: hlsp_par ! hillslope parent index
+  real   , pointer, dimension(:,:) :: rbuffer ! real buffer for remap
+  logical, dimension(lnd%le-lnd%ls+1) :: &
        land_mask, valid_data, invalid_data
-  integer :: iwatch,jwatch,kwatch,face
-  integer :: i,j
+  integer :: iwatch,jwatch,kwatch,face,lwatch
+  integer :: i,j,l,p,lll
+  integer :: tile_root_pe,tile_npes
   integer :: ps,pe ! boundaries of PE list for remapping
   type(horiz_remap_type) :: map
 
@@ -715,21 +704,21 @@ subroutine land_cover_cold_start(lnd)
   land_mask = lnd%area > 0
 
   ! get the global maps of fractional covers for each of the sub-models
-  glac=>glac_cover_cold_start(land_mask,lnd%lonb,lnd%latb)
-  lake=>lake_cover_cold_start(land_mask,lnd%lonb,lnd%latb,lnd%domain)
-  soil=>soil_cover_cold_start(land_mask,lnd%lonb,lnd%latb)
-  vegn=>vegn_cover_cold_start(land_mask,lnd%lonb,lnd%latb)
+  glac=>glac_cover_cold_start(land_mask,lnd_sg%lonb,lnd_sg%latb)
+  lake=>lake_cover_cold_start(land_mask,lnd_sg%lonb,lnd_sg%latb,lnd_sg%domain)
+  soil=>soil_cover_cold_start(land_mask,lnd_sg%lonb,lnd_sg%latb)
+  vegn=>vegn_cover_cold_start(land_mask,lnd_sg%lonb,lnd_sg%latb)
 
   ! Because of hillslope model, soil tiles may not be returned in order of soil type.
-  allocate(soiltags(size(soil,1), size(soil,2), size(soil,3)))
+  allocate(soiltags(size(soil,1), size(soil,2)))
   call retrieve_soil_tags(soiltags)
   ! Tiles will be constructed with hillslope data.
-  allocate(hlsp_pos(size(soil,1), size(soil,2), size(soil,3)))
-  allocate(hlsp_par(size(soil,1), size(soil,2), size(soil,3)))
+  allocate(hlsp_pos(size(soil,1), size(soil,2)))
+  allocate(hlsp_par(size(soil,1), size(soil,2)))
   call retrieve_hlsp_indices(hlsp_pos, hlsp_par)
 
   ! remove any input lake fraction in coastal cells
-  where (lnd%landfrac.lt. 1.-gfrac_tol) lake(:,:,1) = 0.
+  where (lnd%landfrac.lt. 1.-gfrac_tol) lake(:,1) = 0.
   ! NOTE that the lake area in the coastal cells can be set to non-zero
   ! again by the "ground fraction reconciliation code" below. Strictly
   ! speaking the above line of code should be replaced with the section
@@ -739,33 +728,40 @@ subroutine land_cover_cold_start(lnd)
   ! made.
 
   ! reconcile ground fractions with the land mask within compute domain
-  valid_data = land_mask.and.(sum(glac,3)+sum(lake,3)+sum(soil,3)>0)
+  valid_data = land_mask.and.(sum(glac,2)+sum(lake,2)+sum(soil,2)>0)
   invalid_data = land_mask.and..not.valid_data
 
-  call get_watch_point(iwatch,jwatch,kwatch,face)
-  if (face==lnd%face.and.(lnd%is<=iwatch.and.iwatch<=lnd%ie).and.(lnd%js<=jwatch.and.jwatch<=lnd%je)) then
+  call get_watch_point(iwatch,jwatch,kwatch,face,lwatch)
+  if (face==lnd%face.and.(lnd%ls<=lwatch.and.lwatch<=lnd%le) ) then
      write(*,*)'###### land_cover_cold_start: input data #####'
-     write(*,'(99(a,i4.2,x))')'iwatch=',iwatch,'jwatch=',jwatch,'face=',lnd%face
-     write(*,'(99(a,g23.16,x))')'lon=',lnd%lon(iwatch,jwatch)*180/PI,'lat=',lnd%lat(iwatch,jwatch)*180/PI
+     write(*,'(99(a,i4.2,x))')'iwatch=',iwatch,'jwatch=',jwatch,'face=',face
+     write(*,'(99(a,g23.16,x))')'lon=',lnd%lon(lwatch)*180/PI,'lat=',lnd%lat(lwatch)*180/PI
      ! calculate local compute domain indices; we assume glac,lake,soil,vegn all
      ! have the same lbounds
-     i = iwatch-lnd%is+lbound(glac,1); j = jwatch-lnd%js+lbound(glac,2)
-     __DEBUG2__(lnd%is,lnd%js)
-     write(*,'(a,99(a,i4.2,x))')'local indices:','i=',i,'j=',j
-     __DEBUG3__(lnd%landfrac(iwatch,jwatch),land_mask(i,j),valid_data(i,j))
-     __DEBUG1__(glac(i,j,:))
-     __DEBUG1__(lake(i,j,:))
-     __DEBUG1__(soil(i,j,:))
-     __DEBUG1__(vegn(i,j,:))
+     l = lwatch-lnd%ls+lbound(glac,1)
+     __DEBUG1__(lnd%ls)
+     write(*,'(a,99(a,i4.2,x))')'local indices:','l=',l
+     __DEBUG3__(lnd%landfrac(lwatch),land_mask(l),valid_data(l))
+     __DEBUG1__(glac(l,:))
+     __DEBUG1__(lake(l,:))
+     __DEBUG1__(soil(l,:))
+     __DEBUG1__(vegn(l,:))
   endif
 
   if (trim(nearest_point_search)=='global') then
      ps=0 ; pe=size(lnd%pelist)-1
   else if (trim(nearest_point_search)=='face') then
-     ! this assumes that the number of PEs is divisible by the number of
-     ! mosaic faces. lnd%pelist starts with 0
-     ps = size(lnd%pelist)/lnd%nfaces*(lnd%face-1)
-     pe = size(lnd%pelist)/lnd%nfaces*lnd%face - 1
+     call mpp_get_UG_domain_tile_pe_inf(lnd%domain, tile_root_pe, npes=tile_npes)
+     ps = -1
+     do p = 0, size(lnd%pelist(:))-1
+        if(lnd%pelist(p) == tile_root_pe) then
+           ps = p
+           exit
+        endif
+     enddo
+     if( ps == -1) call error_mesg('land_cover_cold_start',&
+           'tile_root_pe is not in the lnd%pelist', FATAL)
+     pe = ps + tile_npes-1
   else
      call error_mesg('land_cover_cold_start',&
           'option nearest_point_search="'//trim(nearest_point_search)//&
@@ -778,24 +774,24 @@ subroutine land_cover_cold_start(lnd)
   call horiz_remap(map,lnd%domain,glac)
   call horiz_remap(map,lnd%domain,lake)
   call horiz_remap(map,lnd%domain,soil)
-  allocate(rbuffer(size(soil,1), size(soil,2), size(soil,3)))
+  allocate(rbuffer(size(soil,1), size(soil,2)))
   ! ZMS This is awkward: perhaps horiz_remap should handle integers?
-  rbuffer(:,:,:) = real(soiltags(:,:,:))
+  rbuffer(:,:) = real(soiltags(:,:))
   call horiz_remap(map,lnd%domain,rbuffer)
-  soiltags(:,:,:) = nint(rbuffer(:,:,:))
-  rbuffer(:,:,:) = real(hlsp_pos(:,:,:))
+  soiltags(:,:) = nint(rbuffer(:,:))
+  rbuffer(:,:) = real(hlsp_pos(:,:))
   call horiz_remap(map,lnd%domain,rbuffer)
-  hlsp_pos(:,:,:) = nint(rbuffer(:,:,:))
-  rbuffer(:,:,:) = real(hlsp_par(:,:,:))
+  hlsp_pos(:,:) = nint(rbuffer(:,:))
+  rbuffer(:,:) = real(hlsp_par(:,:))
   call horiz_remap(map,lnd%domain,rbuffer)
-  hlsp_par(:,:,:) = nint(rbuffer(:,:,:))
+  hlsp_par(:,:) = nint(rbuffer(:,:))
   call horiz_remap_del(map)
 
 !-zero  ! remove any input lake fraction in coastal cells
-!-zero  do j = lnd%js,lnd%je
-!-zero  do i = lnd%is,lnd%ie
+!-zero  do j = lnd_sg%js,lnd_sg%je
+!-zero  do i = lnd_sg%is,lnd_sg%ie
 !-zero     call set_current_point(i,j,1)
-!-zero     if (lnd%landfrac(i,j) < 1-gfrac_tol) then
+!-zero     if (lnd_sg%landfrac(i,j) < 1-gfrac_tol) then
 !-zero        lake(i,j,:) = 0.0
 !-zero        if(is_watch_point())then
 !-zero           write(*,*)'###### land_cover_cold_start: lake fraction is set to zero #####'
@@ -805,16 +801,14 @@ subroutine land_cover_cold_start(lnd)
 !-zero  enddo
 
   ! reconcile vegetation fractions with the land mask within compute domain
-  valid_data = sum(vegn,3) > 0
+  valid_data = sum(vegn,2) > 0
   invalid_data = .FALSE.
-  do j = 1,size(land_mask,2)
-  do i = 1,size(land_mask,1)
-     if(.not.land_mask(i,j)) cycle ! skip ocean points
-     if(valid_data(i,j)) cycle ! don't need to do anything with valid points
-     if(sum(glac(i,j,:))+sum(lake(i,j,:))>=1) &
+  do l = 1,size(land_mask(:))
+     if(.not.land_mask(l)) cycle ! skip ocean points
+     if(valid_data(l)) cycle ! don't need to do anything with valid points
+     if(sum(glac(l,:))+sum(lake(l,:))>=1) &
           cycle                ! skip points fully covered by glaciers or lakes
-     invalid_data(i,j)=.TRUE.
-  enddo
+     invalid_data(l)=.TRUE.
   enddo
   call horiz_remap_new(invalid_data,valid_data,lnd%lon,lnd%lat,lnd%domain,&
        lnd%pelist(ps:pe),map)
@@ -823,23 +817,21 @@ subroutine land_cover_cold_start(lnd)
   call horiz_remap_del(map)
 
   ! create tiles
-  do j = 1,size(land_mask,2)
-  do i = 1,size(land_mask,1)
-     if(.not.land_mask(i,j)) cycle ! skip ocean points
-     call set_current_point(i+lnd%is-1,j+lnd%js-1,1)
+  do l = 1,size(land_mask(:))
+     lll = l+lnd%ls-1
+     if(.not.land_mask(l)) cycle ! skip ocean points
+     call set_current_point(lll,1)
      call land_cover_cold_start_0d &
-          (land_tile_map(i+lnd%is-1,j+lnd%js-1),glac(i,j,:),lake(i,j,:),soil(i,j,:),soiltags(i,j,:),&
-               hlsp_pos(i,j,:), hlsp_par(i,j,:), vegn(i,j,:))
-     if(nitems(land_tile_map(i+lnd%is-1,j+lnd%js-1))==0) then
+          (land_tile_map(lll),glac(l,:),lake(l,:),soil(l,:),soiltags(l,:),&
+               hlsp_pos(l,:), hlsp_par(l,:), vegn(l,:))
+     if(nitems(land_tile_map(lll))==0) then
         call error_mesg('land_cover_cold_start',&
              'No tiles were created for a valid land point at i='&
-             //trim(string(lnd%is+i-1))//' j='//trim(string(lnd%js+j-1))//' face='//trim(string(lnd%face)), FATAL)
+             //trim(string(lnd%i_index(lll)))//' j='//trim(string(lnd%j_index(lll)))//' face='//trim(string(lnd%face)), FATAL)
      endif
-  enddo
   enddo
 
   deallocate(glac,lake,soil,soiltags,hlsp_pos,hlsp_par,vegn,rbuffer)
-#endif
 end subroutine land_cover_cold_start
 
 ! ============================================================================
@@ -847,32 +839,25 @@ subroutine land_cover_cold_start_predefined(lnd)
   type(land_state_type), intent(inout) :: lnd
 
   ! ---- local vars
-  logical, dimension(lnd%ie-lnd%is+1,lnd%je-lnd%js+1) :: &
-       land_mask
-  integer :: i,j,h5id
+  logical, dimension(lnd%le-lnd%ls+1) :: land_mask
+  integer :: l,h5id
   real, dimension(:,:,:), pointer :: soil
   real :: t0,t1
-#ifdef COMPILE_THIS
   ! calculate the global land mask
   land_mask = lnd%area > 0
 
   ! Open access to model input database
   call open_database_predefined_tiles(h5id)
   
-  do j = 1,size(land_mask,2)
-   do i = 1,size(land_mask,1)
-    if(.not.land_mask(i,j)) cycle ! skip ocean points
-    call set_current_point(i+lnd%is-1,j+lnd%js-1,1)
-    call cpu_time(t0)
-    call land_cover_cold_start_0d_predefined_tiles(land_tile_map(i+lnd%is-1,j+lnd%js-1),&
-         lnd,i,j,h5id)
-    call cpu_time(t1)
-   enddo
+  do l = lnd%ls, lnd%le
+    if(.not.land_mask(l)) cycle ! skip ocean points
+    call set_current_point(l,1)
+    call land_cover_cold_start_0d_predefined_tiles(land_tile_map(l),&
+         lnd,l,h5id)
   enddo
 
   ! Close access to model input database
   call close_database_predefined_tiles(h5id)
-#endif  
 end subroutine land_cover_cold_start_predefined
 
 ! ============================================================================
@@ -1027,11 +1012,11 @@ subroutine land_cover_warm_start_new (restart)
   ntiles = size(restart%tidx)
   allocate(glac(ntiles), lake(ntiles), soil(ntiles), vegn(ntiles), frac(ntiles))
 
-  call read_compressed(restart%basename,'frac',frac,domain=lnd%domain, timelevel=1)
-  call read_compressed(restart%basename,'glac',glac,domain=lnd%domain, timelevel=1)
-  call read_compressed(restart%basename,'lake',lake,domain=lnd%domain, timelevel=1)
-  call read_compressed(restart%basename,'soil',soil,domain=lnd%domain, timelevel=1)
-  call read_compressed(restart%basename,'vegn',vegn,domain=lnd%domain, timelevel=1)
+  call read_compressed(restart%basename,'frac',frac,domain=lnd_sg%domain, timelevel=1)
+  call read_compressed(restart%basename,'glac',glac,domain=lnd_sg%domain, timelevel=1)
+  call read_compressed(restart%basename,'lake',lake,domain=lnd_sg%domain, timelevel=1)
+  call read_compressed(restart%basename,'soil',soil,domain=lnd_sg%domain, timelevel=1)
+  call read_compressed(restart%basename,'vegn',vegn,domain=lnd_sg%domain, timelevel=1)
 
   npts = lnd%nlon*lnd%nlat
   ! create tiles
@@ -1039,8 +1024,8 @@ subroutine land_cover_warm_start_new (restart)
      k = restart%tidx(it)
      if (k<0) cycle ! skip negative indices
      g = modulo(k,npts)+1 
-     if (g<lnd_ug%gs.or.g>lnd_ug%ge) return ! skip points outside of domain
-     l = lnd_ug%l_index(g)
+     if (g<lnd%gs.or.g>lnd%ge) return ! skip points outside of domain
+     l = lnd%l_index(g)
      ! the size of the tile set at the point (i,j) must be equal to k
      tile=>new_land_tile(frac=frac(it),&
               glac=glac(it),lake=lake(it),soil=soil(it),vegn=vegn(it))
@@ -1104,8 +1089,8 @@ subroutine land_cover_warm_start_orig (restart)
        k = idx(it)
        if (k<0) cycle ! skip negative indices
        g = modulo(k,npts)+1
-       if (g<lnd_ug%gs.or.g>lnd_ug%ge) cycle ! skip points outside of domain
-       l = lnd_ug%l_index(g)
+       if (g<lnd%gs.or.g>lnd%ge) cycle ! skip points outside of domain
+       l = lnd%l_index(g)
        ! the size of the tile set at the point (i,j) must be equal to k
        tile=>new_land_tile(frac=frac(it),&
                 glac=glac(it),lake=lake(it),soil=soil(it),vegn=vegn(it))
@@ -1119,8 +1104,8 @@ end subroutine
 
 ! ============================================================================
 subroutine update_land_model_fast ( cplr2land, land2cplr )
-  type(atmos_land_boundary_type_ug), intent(in)    :: cplr2land
-  type(land_data_type_ug)          , intent(inout) :: land2cplr
+  type(atmos_land_boundary_type), intent(in)    :: cplr2land
+  type(land_data_type)          , intent(inout) :: land2cplr
 
   ! ---- local vars
   real :: &
@@ -1138,12 +1123,12 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      lake_LMASS, lake_FMASS, lake_HEAT, &
      soil_LMASS, soil_FMASS, soil_HEAT
 
-  real, dimension(lnd_ug%ls:lnd_ug%le) :: &
+  real, dimension(lnd%ls:lnd%le) :: &
        runoff,           & ! total (liquid+snow) runoff accumulated over tiles in cell
        heat_frac_liq,    & ! fraction of runoff heat in liquid
        discharge_l,      & ! discharge of liquid water to ocean
        discharge_sink      ! container to collect small/negative values for later accounting
-  real, dimension(lnd_ug%ls:lnd_ug%le,n_river_tracers) :: &
+  real, dimension(lnd%ls:lnd%le,n_river_tracers) :: &
        runoff_c,         & ! runoff of tracers accumulated over tiles in cell (including ice and heat)
        discharge_c         ! discharge of tracers to ocean
   logical :: used          ! return value of send_data diagnostics routine
@@ -1156,7 +1141,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   type(land_tile_type), pointer :: tile ! pointer to current tile
 
   ! variables for data override
-  real, allocatable :: phot_co2_data(:,:), phot_co2_data_ug(:)  ! buffer for data
+  real, allocatable :: phot_co2_data(:)    ! buffer for data
   logical           :: phot_co2_overridden ! flag indicating successful override
   
 
@@ -1169,13 +1154,12 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   call write_static_vegn()
 
   ! override data at the beginning of the time step
-  is= lnd%is ; ie = lnd%ie
-  js= lnd%js ; je = lnd%je
-  allocate(phot_co2_data(is:ie,js:je), phot_co2_data_ug(lnd_ug%ls:lnd_ug%le))
+  is= lnd_sg%is ; ie = lnd_sg%ie
+  js= lnd_sg%js ; je = lnd_sg%je
+  allocate(phot_co2_data(lnd%ls:lnd%le))
   phot_co2_data = 0
-  call data_override('LND','phot_co2',phot_co2_data,lnd%time, &
+  call data_override_ug('LND','phot_co2',phot_co2_data,lnd%time, &
        override=phot_co2_overridden)
-  call mpp_pass_SG_to_UG(lnd_ug%domain, phot_co2_data, phot_co2_data_ug)
 
   ! clear the runoff values, for accumulation over the tiles
 
@@ -1185,10 +1169,10 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
   ! main tile loop
 !$OMP parallel do schedule(dynamic) default(shared) private(i1,i,j,k,ce,te,tile,ISa_dn_dir,ISa_dn_dif)
-  do l = lnd_ug%ls, lnd_ug%le
-     i = lnd_ug%i_index(l)
-     j = lnd_ug%j_index(l)
-!     __DEBUG4__(is,js,i-is+lnd%is,j-js+lnd%js)
+  do l = lnd%ls, lnd%le
+     i = lnd%i_index(l)
+     j = lnd%j_index(l)
+!     __DEBUG4__(is,js,i-is+lnd_sg%is,j-js+lnd_sg%js)
      ce = first_elmt(land_tile_map(l))
      te = tail_elmt (land_tile_map(l))
      k = 0
@@ -1211,14 +1195,14 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
            cplr2land%tr_flux(l,k,:), cplr2land%dfdtr(l,k,:), &
            ISa_dn_dir, ISa_dn_dif, cplr2land%lwdn_flux(l,k), &
            cplr2land%ustar(l,k), cplr2land%p_surf(l,k), cplr2land%drag_q(l,k), &
-           phot_co2_overridden, phot_co2_data_ug(l),&
+           phot_co2_overridden, phot_co2_data(l),&
            runoff(l), runoff_c(l,:) &
         )
         ! some of the diagnostic variables are sent from here, purely for coding
         ! convenience: the compute domain-level 2d and 3d vars are generally not
         ! available inside update_land_model_fast_0d, so the diagnostics for those
         ! was left here.
-        call send_tile_data(id_area, tile%frac*lnd_ug%area(l),        tile%diag)
+        call send_tile_data(id_area, tile%frac*lnd%area(l),        tile%diag)
         call send_tile_data(id_z0m,  land2cplr%rough_mom(l,k),     tile%diag)
         call send_tile_data(id_z0s,  land2cplr%rough_heat(l,k),    tile%diag)
         call send_tile_data(id_Trad, land2cplr%t_surf(l,k),        tile%diag)
@@ -1235,17 +1219,17 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
 !=================================================================================
 
-  discharge_l = discharge_l/lnd_ug%cellarea
+  discharge_l = discharge_l/lnd%cellarea
   do i_species = 1, n_river_tracers
-     discharge_c(:,i_species) =  discharge_c(:,i_species)/lnd_ug%cellarea
+     discharge_c(:,i_species) =  discharge_c(:,i_species)/lnd%cellarea
   enddo
 
   ! pass through to ocean the runoff that was not seen by river module because of land_frac diffs.
   ! need to multiply by gfrac to spread over whole cell
-  where (missing_rivers) discharge_l = (runoff-runoff_c(:,i_river_ice))*lnd_ug%landfrac
+  where (missing_rivers) discharge_l = (runoff-runoff_c(:,i_river_ice))*lnd%landfrac
   do i_species = 1, n_river_tracers
     where (missing_rivers) &
-     discharge_c(:,i_species) = runoff_c(:,i_species)*lnd_ug%landfrac
+     discharge_c(:,i_species) = runoff_c(:,i_species)*lnd%landfrac
   enddo
 
   ! don't send negatives or insignificant values to ocean. put them in the sink instead.
@@ -1270,32 +1254,32 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   ! scale up fluxes sent to ocean to compensate for non-ocean fraction of discharge cell.
   ! split heat into liquid and solid streams
 
-  where (lnd_ug%landfrac.lt.1.)
-      land2cplr%discharge           = discharge_l        / (1-lnd_ug%landfrac)
-      land2cplr%discharge_snow      = discharge_c(:,i_river_ice) / (1-lnd_ug%landfrac)
-      land2cplr%discharge_heat      = heat_frac_liq*discharge_c(:,i_river_heat) / (1-lnd_ug%landfrac)
-      land2cplr%discharge_snow_heat =               discharge_c(:,i_river_heat) / (1-lnd_ug%landfrac) &
-                                     - land2cplr%discharge_heat
+  where (lnd%landfrac.lt.1.)
+      land2cplr%discharge_ug           = discharge_l        / (1-lnd%landfrac)
+      land2cplr%discharge_snow_ug      = discharge_c(:,i_river_ice) / (1-lnd%landfrac)
+      land2cplr%discharge_heat_ug      = heat_frac_liq*discharge_c(:,i_river_heat) / (1-lnd%landfrac)
+      land2cplr%discharge_snow_heat_ug =               discharge_c(:,i_river_heat) / (1-lnd%landfrac) &
+                                     -   land2cplr%discharge_heat_ug
   end where
 
 #ifdef ZMSDEBUG
-   do j=lnd%js,lnd%je
-      do i=lnd%is,lnd%ie
-         call set_current_point(i, j, 1)
-         call check_var_range(land2cplr%discharge(i,j), -10., 10., 'gcell DISCHARGE CHECK', &
+   do j=lnd%ls,lnd%le
+         i = lnd%i_index(l)
+         j = lnd%j_index(l)
+         call set_current_point(i, j, 1, l)
+         call check_var_range(land2cplr%discharge_ug(l), -10., 10., 'gcell DISCHARGE CHECK', &
                               'Liquid Discharge (mm/s)', WARNING)
-         call check_var_range(land2cplr%discharge_snow(i,j), -10., 10., 'gcell DISCHARGE CHECK', &
+         call check_var_range(land2cplr%discharge_snow_ug(l), -10., 10., 'gcell DISCHARGE CHECK', &
                               'Snow Discharge (mm/s)', WARNING)
-         call check_var_range(land2cplr%discharge_heat(i,j), -1000., 1000., 'gcell DISCHARGE CHECK', &
+         call check_var_range(land2cplr%discharge_heat_ug(l), -1000., 1000., 'gcell DISCHARGE CHECK', &
                               'Discharge Heat (W/m^2/s)', WARNING)
-         call check_var_range(land2cplr%discharge_snow_heat(i,j), -1000., 1000., 'gcell DISCHARGE CHECK', &
+         call check_var_range(land2cplr%discharge_snow_heat_ug(l), -1000., 1000., 'gcell DISCHARGE CHECK', &
                               'Discharge Snow Heat (W/m^2/s)', WARNING)
       end do
    end do
 #endif
 
-  ce = first_elmt(land_tile_map,             &
-              ls=lbound(cplr2land%t_flux,1) )
+  ce = first_elmt(land_tile_map, ls=lbound(cplr2land%t_flux,1) )
   do while(loop_over_tiles(ce,tile,l,k))
      cana_VMASS = 0. ;                   cana_HEAT = 0.
      vegn_LMASS = 0. ; vegn_FMASS = 0. ; vegn_HEAT = 0.
@@ -1386,7 +1370,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   call send_cellfrac_data(id_c4pftFrac,    is_C4)
 
   ! deallocate override buffer
-  deallocate(phot_co2_data, phot_co2_data_ug)
+  deallocate(phot_co2_data)
 
   call mpp_clock_end(landFastClock)
   call mpp_clock_end(landClock)
@@ -1403,7 +1387,7 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
    runoff, runoff_c &
    )
   type (land_tile_type), pointer :: tile
-  type(land_data_type_ug), intent(inout) :: land2cplr
+  type(land_data_type), intent(inout) :: land2cplr
   integer, intent(in) :: l,k ! coordinates
   real, intent(in) :: &
        precip_l, precip_s, & ! liquid and solid precipitation, kg/(m2 s)
@@ -1522,8 +1506,8 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
   real :: lmass1, fmass1, heat1, cmass1
   character(64) :: tag
 
-  i = lnd_ug%i_index(l)
-  j = lnd_ug%j_index(l)
+  i = lnd%i_index(l)
+  j = lnd%j_index(l)
 
   ! sanity checks of some input values
   call check_var_range(precip_l, precip_warning_tol, HUGE(1.0), 'land model input', 'precip_l', WARNING)
@@ -1559,7 +1543,7 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
      grnd_rh_psi = 0
   else if (associated(tile%lake)) then
      call lake_step_1 ( ustar, p_surf, &
-          lnd_ug%lat(l), tile%lake, &
+          lnd%lat(l), tile%lake, &
           grnd_T, grnd_rh, grnd_liq, grnd_ice, grnd_subl, grnd_tf, &
           snow_G_Z, snow_G_TZ)
      grnd_E_min = -HUGE(grnd_E_min)
@@ -2300,11 +2284,9 @@ end subroutine update_land_model_fast_0d
 
 
 ! ============================================================================
-subroutine update_land_model_slow ( cplr2land, land2cplr, cplr2land_ug, land2cplr_ug )
+subroutine update_land_model_slow ( cplr2land, land2cplr )
   type(atmos_land_boundary_type), intent(inout) :: cplr2land
   type(land_data_type)          , intent(inout) :: land2cplr
-  type(atmos_land_boundary_type_ug), intent(inout) :: cplr2land_ug
-  type(land_data_type_ug)          , intent(inout) :: land2cplr_ug
 
   ! ---- local vars
   integer :: i, j, k, l
@@ -2323,19 +2305,14 @@ subroutine update_land_model_slow ( cplr2land, land2cplr, cplr2land_ug, land2cpl
   ! boundary conditions, if necessary
   call realloc_cplr2land( cplr2land )
   call realloc_land2cplr( land2cplr )
-  call realloc_cplr2land_ug( cplr2land_ug )
-  call realloc_land2cplr_ug( land2cplr_ug )
 
   ! set the land mask to FALSE everywhere -- update_land_bc_fast will set it to
   ! true where necessary
   land2cplr%mask = .FALSE.
   land2cplr%tile_size = 0.0
-  land2cplr_ug%mask = .FALSE.
-  land2cplr_ug%tile_size = 0.0
-
 
   ! get the current state of the land boundary for the coupler
-  ce = first_elmt(land_tile_map, ls=lnd_ug%ls)
+  ce = first_elmt(land_tile_map, ls=lnd%ls)
   te = tail_elmt(land_tile_map)
   do while(ce /= te)
      ! calculate indices of the current tile in the input arrays;
@@ -2348,10 +2325,16 @@ subroutine update_land_model_slow ( cplr2land, land2cplr, cplr2land_ug, land2cpl
      ! advance enumerator to the next tile
      ce=next_elmt(ce)
 
-     call update_land_bc_fast (tile, l,k, land2cplr_ug, is_init=.true.)
+     call update_land_bc_fast (tile, l,k, land2cplr, is_init=.true.)
   enddo
 
-  call update_land_bc_slow( land2cplr_ug )
+  call update_land_bc_slow( land2cplr )
+
+  call mpp_pass_UG_to_SG(lnd%domain, land2cplr%discharge_ug, land2cplr%discharge)
+  call mpp_pass_UG_to_SG(lnd%domain, land2cplr%discharge_heat_ug, land2cplr%discharge_heat)
+  call mpp_pass_UG_to_SG(lnd%domain, land2cplr%discharge_snow_ug, land2cplr%discharge_snow)
+  call mpp_pass_UG_to_SG(lnd%domain, land2cplr%discharge_snow_heat_ug, land2cplr%discharge_snow_heat)
+
 
   call mpp_clock_end(landClock)
   call mpp_clock_end(landSlowClock)
@@ -2560,7 +2543,7 @@ end subroutine land_radiation
 subroutine update_land_bc_fast (tile, l ,k, land2cplr, is_init)
   type(land_tile_type), intent(inout) :: tile
   integer             , intent(in) :: l,k
-  type(land_data_type_ug), intent(inout) :: land2cplr
+  type(land_data_type), intent(inout) :: land2cplr
   logical, optional :: is_init
 
   ! ---- local vars
@@ -2599,19 +2582,19 @@ subroutine update_land_bc_fast (tile, l ,k, land2cplr, is_init)
   integer :: i, j
   vegn_Tv = 0
 
-  i = lnd_ug%i_index(l)
-  j = lnd_ug%j_index(l)
+  i = lnd%i_index(l)
+  j = lnd%j_index(l)
   do_update = .not.present(is_init)
 
   ! on initialization the albedos are calculated for the current time step ( that is, interval
-  ! lnd%time, lnd%time+lnd%dt_fast); in the course of the run this subroutine is called
+  ! lnd_sg%time, lnd_sg%time+lnd_sg%dt_fast); in the course of the run this subroutine is called
   ! at the end of time step (but before time is advanced) to calculate the radiative properties
   ! for the _next_ time step
   if (do_update) then
-     call diurnal_solar(lnd_ug%lat(l), lnd_ug%lon(l), lnd%time+lnd%dt_fast, &
+     call diurnal_solar(lnd%lat(l), lnd%lon(l), lnd%time+lnd%dt_fast, &
           cosz, fracday, rrsun, lnd%dt_fast)
   else
-     call diurnal_solar(lnd_ug%lat(l), lnd_ug%lon(l), lnd%time, &
+     call diurnal_solar(lnd%lat(l), lnd%lon(l), lnd%time, &
           cosz, fracday, rrsun, lnd%dt_fast)
   endif
 
@@ -2764,7 +2747,7 @@ subroutine update_land_bc_fast (tile, l ,k, land2cplr, is_init)
   land2cplr%rough_mom      (l,k) = tile%land_z0m
   land2cplr%rough_heat     (l,k) = tile%land_z0s
 
-  if (use_coast_rough .and. lnd_ug%landfrac(l)<max_coast_frac) then
+  if (use_coast_rough .and. lnd%landfrac(l)<max_coast_frac) then
      land2cplr%rough_mom   (l,k) = coast_rough_mom
      land2cplr%rough_heat  (l,k) = coast_rough_heat
   endif
@@ -2806,7 +2789,7 @@ end subroutine update_land_bc_fast
 
 ! ============================================================================
 subroutine update_land_bc_slow (land2cplr)
-  type(land_data_type_ug), intent(inout) :: land2cplr
+  type(land_data_type), intent(inout) :: land2cplr
 
   ! ---- local vars
   integer :: i,j,k,face,l ! coordinates of the watch point, for debug printout
@@ -2816,13 +2799,13 @@ subroutine update_land_bc_slow (land2cplr)
        land2cplr%rough_scale = max(land2cplr%rough_mom,land2cplr%rough_scale)
   if (.not.use_coast_topo_rough) then
      do k = 1, size(land2cplr%rough_mom,2)
-        where(lnd_ug%landfrac<max_coast_frac) &
+        where(lnd%landfrac<max_coast_frac) &
             land2cplr%rough_scale(:,k) = land2cplr%rough_mom(:,k)
      enddo
   endif
   call get_watch_point(i,j,k,face,l)
-  if ( lnd_ug%face==face.and.                   &
-       lnd_ug%ls<=l.and.l<=lnd_ug%le.and.          &
+  if ( lnd%face==face.and.                   &
+       lnd%ls<=l.and.l<=lnd%le.and.          &
        k<=size(land2cplr%rough_scale,2).and. &
        is_watch_time()) then
      write(*,*)'#### update_land_bc_slow ### output ####'
@@ -2844,7 +2827,7 @@ integer :: i,j,n
 type(land_tile_enum_type)     :: ce,te
 type(land_tile_type), pointer :: tile
 character(len=128) :: message
-integer :: is,ie,js,je,ls,le,l
+integer :: ls,le,l
 real :: area_factor, river_value
 ! *_twd are tile water densities (kg water per m2 of tile)
 real twd_gas_cana,               twd_liq_glac, twd_sol_glac, &
@@ -2864,17 +2847,13 @@ v_soil = 0.
 v_snow = 0.
 v_vegn = 0.
 if(.not.bnd%pe) return
-is = lnd%is
-ie = lnd%ie
-js = lnd%js
-je = lnd%je
-ls = lnd_ug%ls
-le = lnd_ug%le
+ls = lnd%ls
+le = lnd%le
 ! The following is a dirty getaround
-if(lnd_ug%cellarea(ls) < 1.0) then
-  area_factor = 4*pi*radius**2 ! lnd%area is fraction of globe
+if(lnd%cellarea(ls) < 1.0) then
+  area_factor = 4*pi*radius**2 ! lnd_sg%area is fraction of globe
 else
-  area_factor = 1.0 ! lnd%area is actual area (m**2)
+  area_factor = 1.0 ! lnd_sg%area is actual area (m**2)
 endif
 
 select case(index)
@@ -2914,12 +2893,12 @@ case(ISTOCK_WATER)
       gcwd_vegn = gcwd_vegn + (twd_liq_vegn + twd_sol_vegn) * tile%frac
       ce=next_elmt(ce)
     enddo
-    v_cana = v_cana + gcwd_cana * lnd_ug%area(l)*area_factor
-    v_glac = v_glac + gcwd_glac * lnd_ug%area(l)*area_factor
-    v_lake = v_lake + gcwd_lake * lnd_ug%area(l)*area_factor
-    v_soil = v_soil + gcwd_soil * lnd_ug%area(l)*area_factor
-    v_snow = v_snow + gcwd_snow * lnd_ug%area(l)*area_factor
-    v_vegn = v_vegn + gcwd_vegn * lnd_ug%area(l)*area_factor
+    v_cana = v_cana + gcwd_cana * lnd%area(l)*area_factor
+    v_glac = v_glac + gcwd_glac * lnd%area(l)*area_factor
+    v_lake = v_lake + gcwd_lake * lnd%area(l)*area_factor
+    v_soil = v_soil + gcwd_soil * lnd%area(l)*area_factor
+    v_snow = v_snow + gcwd_snow * lnd%area(l)*area_factor
+    v_vegn = v_vegn + gcwd_vegn * lnd%area(l)*area_factor
   enddo
   value  = v_cana + v_glac + v_lake + v_soil + v_snow + v_vegn
 a_globe = 4. * pi * radius**2
@@ -2948,7 +2927,7 @@ case(ISTOCK_HEAT)
 !     grid_cell_heat_density = grid_cell_heat_density + tile_heat_density * tile%frac
 !     ce=next_elmt(ce)
 !   enddo
-!   grid_cell_heat = grid_cell_heat_density * lnd%area(i,j)*area_factor
+!   grid_cell_heat = grid_cell_heat_density * lnd_sg%area(i,j)*area_factor
 !   value = value + grid_cell_heat
 ! enddo
 ! enddo
@@ -3020,7 +2999,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
   nlon = size(clon)
   nlat = size(clat)
 
-  if(mpp_get_ntile_count(lnd%domain)==1) then
+  if(mpp_get_ntile_count(lnd_sg%domain)==1) then
      ! grid has just one tile, so we assume that the grid is regular lat-lon
      ! define longitude axes and its edges
      id_lonb = diag_axis_init ( &
@@ -3461,12 +3440,12 @@ subroutine send_cellfrac_data(id, f)
   logical :: used
   type(land_tile_type), pointer :: tile
   type(land_tile_enum_type) :: ce, te
-  real :: frac(lnd_ug%ls:lnd_ug%le)
+  real :: frac(lnd%ls:lnd%le)
 
   if (.not.id>0) return ! do nothing if the field was not registered
 
   frac(:) = 0.0
-  ce = first_elmt(land_tile_map, ls=lnd_ug%ls)
+  ce = first_elmt(land_tile_map, ls=lnd%ls)
   te = tail_elmt(land_tile_map)
   do while(ce /= te)
      ! calculate indices of the current tile in the input arrays;
@@ -3480,7 +3459,7 @@ subroutine send_cellfrac_data(id, f)
      ce=next_elmt(ce)
      ! accumulate fractions
      if (f(tile)) then
-        frac(l) = frac(l)+tile%frac*100.0*lnd_ug%landfrac(l)
+        frac(l) = frac(l)+tile%frac*100.0*lnd%landfrac(l)
      endif
   enddo
   used=send_data_ug(id, frac, lnd%time)
@@ -3619,8 +3598,6 @@ function is_glacier(tile) result(answer); logical :: answer
   answer = associated(tile%glac)
 end function is_glacier
 
-! ============================================================================
-! allocates boundary data for land domain and current number of tiles
 subroutine realloc_land2cplr ( bnd )
   type(land_data_type), intent(inout) :: bnd     ! data to allocate
 
@@ -3629,133 +3606,25 @@ subroutine realloc_land2cplr ( bnd )
 
   call dealloc_land2cplr(bnd, dealloc_discharges=.FALSE.)
 
-  bnd%domain = lnd%domain
-!  n_tiles = max_n_tiles()
-  n_tiles = max_ntiles
-  ! allocate data according to the domain boundaries
-  allocate( bnd%mask(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
-
-  allocate( bnd%tile_size(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
-  allocate( bnd%t_surf(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
-  allocate( bnd%t_ca(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
-  allocate( bnd%tr(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles,ntcana) )
-  allocate( bnd%albedo(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
-  allocate( bnd%albedo_vis_dir(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
-  allocate( bnd%albedo_nir_dir(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
-  allocate( bnd%albedo_vis_dif(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
-  allocate( bnd%albedo_nir_dif(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
-  allocate( bnd%rough_mom(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
-  allocate( bnd%rough_heat(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
-  allocate( bnd%rough_scale(lnd%is:lnd%ie,lnd%js:lnd%je,n_tiles) )
-
-  bnd%mask              = .FALSE.
-  bnd%tile_size         = init_value
-  bnd%t_surf            = init_value
-  bnd%t_ca              = init_value
-  bnd%tr                = init_value
-  bnd%albedo            = init_value
-  bnd%albedo_vis_dir    = init_value
-  bnd%albedo_nir_dir    = init_value
-  bnd%albedo_vis_dif    = init_value
-  bnd%albedo_nir_dif    = init_value
-  bnd%rough_mom         = init_value
-  bnd%rough_heat        = init_value
-  bnd%rough_scale       = init_value
-
-  ! in contrast to the rest of the land boundary condition fields, discharges
-  ! are specified per grid cell, not per tile; therefore they should not be
-  ! re-allocated when the number of tiles changes. In fact, they must not be
-  ! changed at all here because their values are assigned in update_land_model_fast,
-  ! not in update_land_bc_*, and therefore would be lost if re-allocated.
-  if (.not.associated(bnd%discharge)) then
-     allocate( bnd%discharge          (lnd%is:lnd%ie,lnd%js:lnd%je) )
-     allocate( bnd%discharge_heat     (lnd%is:lnd%ie,lnd%js:lnd%je) )
-     allocate( bnd%discharge_snow     (lnd%is:lnd%ie,lnd%js:lnd%je) )
-     allocate( bnd%discharge_snow_heat(lnd%is:lnd%ie,lnd%js:lnd%je) )
-
-     ! discharge and dischargee_snow must be, in contrast to the rest of the boundary
-     ! values, filled with zeroes. The reason is because not all of the usable elements
-     ! are updated by the land model (only coastal points are).
-     bnd%discharge           = 0.0
-     bnd%discharge_heat      = 0.0
-     bnd%discharge_snow      = 0.0
-     bnd%discharge_snow_heat = 0.0
-  endif
-
-end subroutine realloc_land2cplr
-
-subroutine pass_land2cplr_to_sg(bnd, bnd_ug )
-  type(land_data_type), intent(inout) :: bnd     ! data to allocate
-  type(land_data_type_ug), intent(inout) :: bnd_ug
-  real :: mask_ug(lnd_ug%ls:lnd_ug%le,size(bnd_ug%mask,2)), mask_sg(lnd%is:lnd%ie,lnd%js:lnd%je,size(bnd%mask,3))
-  integer :: k
-
-  mask_ug = 0.0
-  mask_sg = 0.0
-  do k = 1, size(bnd_ug%mask,2)
-     where(bnd_ug%mask(:,k))
-       mask_ug(:,k) = 1.0
-     end where
-  enddo  
-
-  call pass_to_sg(mask_ug, mask_sg)
-  bnd%mask = .false.
-  do k = 1, size(bnd%mask,3)
-     where(mask_sg(:,:,k)>0)
-       bnd%mask(:,:,k) = .true.
-     end where
-  enddo
-  
-  call pass_to_sg(bnd_ug%tile_size, bnd%tile_size)
-  call pass_to_sg(bnd_ug%t_surf, bnd%t_surf)
-  call pass_to_sg(bnd_ug%t_ca, bnd%t_ca)
-  call pass_to_sg(bnd_ug%albedo, bnd%albedo)
-  call pass_to_sg(bnd_ug%albedo_vis_dir, bnd%albedo_vis_dir)
-  call pass_to_sg(bnd_ug%albedo_nir_dir, bnd%albedo_nir_dir)
-  call pass_to_sg(bnd_ug%albedo_vis_dif, bnd%albedo_vis_dif)
-  call pass_to_sg(bnd_ug%albedo_nir_dif, bnd%albedo_nir_dif)
-  call pass_to_sg(bnd_ug%rough_mom, bnd%rough_mom)
-  call pass_to_sg(bnd_ug%rough_heat, bnd%rough_heat)
-  call pass_to_sg(bnd_ug%rough_scale, bnd%rough_scale)
-  call mpp_pass_UG_to_SG(lnd_ug%domain, bnd_ug%discharge, bnd%discharge)
-  call mpp_pass_UG_to_SG(lnd_ug%domain, bnd_ug%discharge_heat, bnd%discharge_heat)
-  call mpp_pass_UG_to_SG(lnd_ug%domain, bnd_ug%discharge_snow, bnd%discharge_snow)
-  call mpp_pass_UG_to_SG(lnd_ug%domain, bnd_ug%discharge_snow_heat, bnd%discharge_snow_heat)
-  do k = 1, size(bnd%tr,4)
-     call pass_to_sg(bnd_ug%tr(:,:,k), bnd%tr(:,:,:,k))
-  enddo
-
-end subroutine pass_land2cplr_to_sg
-
-
-
-
-subroutine realloc_land2cplr_ug ( bnd )
-  type(land_data_type_ug), intent(inout) :: bnd     ! data to allocate
-
-  ! ---- local vars
-  integer :: n_tiles
-
-  call dealloc_land2cplr_ug(bnd, dealloc_discharges=.FALSE.)
-
-  bnd%domain = lnd_ug%domain
+  bnd%domain = lnd_sg%domain
+  bnd%ug_domain = lnd%domain
   n_tiles = max_n_tiles()
 
 
   ! allocate data according to the domain boundaries
-  allocate( bnd%mask(lnd_ug%ls:lnd_ug%le,n_tiles) )
-  allocate( bnd%tile_size(lnd_ug%ls:lnd_ug%le,n_tiles) )
-  allocate( bnd%t_surf(lnd_ug%ls:lnd_ug%le,n_tiles) )
-  allocate( bnd%t_ca(lnd_ug%ls:lnd_ug%le,n_tiles) )
-  allocate( bnd%tr(lnd_ug%ls:lnd_ug%le,n_tiles,ntcana) )
-  allocate( bnd%albedo(lnd_ug%ls:lnd_ug%le,n_tiles) )
-  allocate( bnd%albedo_vis_dir(lnd_ug%ls:lnd_ug%le,n_tiles) )
-  allocate( bnd%albedo_nir_dir(lnd_ug%ls:lnd_ug%le,n_tiles) )
-  allocate( bnd%albedo_vis_dif(lnd_ug%ls:lnd_ug%le,n_tiles) )
-  allocate( bnd%albedo_nir_dif(lnd_ug%ls:lnd_ug%le,n_tiles) )
-  allocate( bnd%rough_mom(lnd_ug%ls:lnd_ug%le,n_tiles) )
-  allocate( bnd%rough_heat(lnd_ug%ls:lnd_ug%le,n_tiles) )
-  allocate( bnd%rough_scale(lnd_ug%ls:lnd_ug%le,n_tiles) )
+  allocate( bnd%mask(lnd%ls:lnd%le,n_tiles) )
+  allocate( bnd%tile_size(lnd%ls:lnd%le,n_tiles) )
+  allocate( bnd%t_surf(lnd%ls:lnd%le,n_tiles) )
+  allocate( bnd%t_ca(lnd%ls:lnd%le,n_tiles) )
+  allocate( bnd%tr(lnd%ls:lnd%le,n_tiles,ntcana) )
+  allocate( bnd%albedo(lnd%ls:lnd%le,n_tiles) )
+  allocate( bnd%albedo_vis_dir(lnd%ls:lnd%le,n_tiles) )
+  allocate( bnd%albedo_nir_dir(lnd%ls:lnd%le,n_tiles) )
+  allocate( bnd%albedo_vis_dif(lnd%ls:lnd%le,n_tiles) )
+  allocate( bnd%albedo_nir_dif(lnd%ls:lnd%le,n_tiles) )
+  allocate( bnd%rough_mom(lnd%ls:lnd%le,n_tiles) )
+  allocate( bnd%rough_heat(lnd%ls:lnd%le,n_tiles) )
+  allocate( bnd%rough_scale(lnd%ls:lnd%le,n_tiles) )
 
   bnd%mask              = .FALSE.
   bnd%tile_size         = init_value
@@ -3777,10 +3646,14 @@ subroutine realloc_land2cplr_ug ( bnd )
   ! changed at all here because their values are assigned in update_land_model_fast,
   ! not in update_land_bc_*, and therefore would be lost if re-allocated.
   if (.not.associated(bnd%discharge)) then
-     allocate( bnd%discharge          (lnd_ug%ls:lnd_ug%le) )
-     allocate( bnd%discharge_heat     (lnd_ug%ls:lnd_ug%le) )
-     allocate( bnd%discharge_snow     (lnd_ug%ls:lnd_ug%le) )
-     allocate( bnd%discharge_snow_heat(lnd_ug%ls:lnd_ug%le) )
+     allocate( bnd%discharge_ug          (lnd%ls:lnd%le) )
+     allocate( bnd%discharge_heat_ug     (lnd%ls:lnd%le) )
+     allocate( bnd%discharge_snow_ug     (lnd%ls:lnd%le) )
+     allocate( bnd%discharge_snow_heat_ug(lnd%ls:lnd%le) )
+     allocate( bnd%discharge          (lnd_sg%is:lnd_sg%ie, lnd_sg%js:lnd_sg%je) )
+     allocate( bnd%discharge_heat     (lnd_sg%is:lnd_sg%ie, lnd_sg%js:lnd_sg%je) )
+     allocate( bnd%discharge_snow     (lnd_sg%is:lnd_sg%ie, lnd_sg%js:lnd_sg%je) )
+     allocate( bnd%discharge_snow_heat(lnd_sg%is:lnd_sg%ie, lnd_sg%js:lnd_sg%je) )
 
      ! discharge and dischargee_snow must be, in contrast to the rest of the boundary
      ! values, filled with zeroes. The reason is because not all of the usable elements
@@ -3789,9 +3662,13 @@ subroutine realloc_land2cplr_ug ( bnd )
      bnd%discharge_heat      = 0.0
      bnd%discharge_snow      = 0.0
      bnd%discharge_snow_heat = 0.0
+     bnd%discharge_ug           = 0.0
+     bnd%discharge_heat_ug      = 0.0
+     bnd%discharge_snow_ug      = 0.0
+     bnd%discharge_snow_heat_ug = 0.0
   endif
 
-end subroutine realloc_land2cplr_ug
+end subroutine realloc_land2cplr
 
 ! ============================================================================
 ! deallocates boundary data memory
@@ -3824,37 +3701,13 @@ subroutine dealloc_land2cplr ( bnd, dealloc_discharges )
      __DEALLOC__( bnd%discharge_heat      )
      __DEALLOC__( bnd%discharge_snow      )
      __DEALLOC__( bnd%discharge_snow_heat )
+     __DEALLOC__( bnd%discharge_ug           )
+     __DEALLOC__( bnd%discharge_heat_ug      )
+     __DEALLOC__( bnd%discharge_snow_ug      )
+     __DEALLOC__( bnd%discharge_snow_heat_ug )
   end if
 
 end subroutine dealloc_land2cplr
-
-subroutine dealloc_land2cplr_ug ( bnd, dealloc_discharges )
-  type(land_data_type_ug), intent(inout) :: bnd  ! data to de-allocate
-  logical, intent(in) :: dealloc_discharges
-
-  __DEALLOC__( bnd%tile_size )
-  __DEALLOC__( bnd%tile_size )
-  __DEALLOC__( bnd%t_surf )
-  __DEALLOC__( bnd%t_ca )
-  __DEALLOC__( bnd%tr )
-  __DEALLOC__( bnd%albedo )
-  __DEALLOC__( bnd%albedo_vis_dir )
-  __DEALLOC__( bnd%albedo_nir_dir )
-  __DEALLOC__( bnd%albedo_vis_dif )
-  __DEALLOC__( bnd%albedo_nir_dif )
-  __DEALLOC__( bnd%rough_mom )
-  __DEALLOC__( bnd%rough_heat )
-  __DEALLOC__( bnd%rough_scale )
-  __DEALLOC__( bnd%mask )
-
-  if (dealloc_discharges) then
-     __DEALLOC__( bnd%discharge           )
-     __DEALLOC__( bnd%discharge_heat      )
-     __DEALLOC__( bnd%discharge_snow      )
-     __DEALLOC__( bnd%discharge_snow_heat )
-  end if
-
-end subroutine dealloc_land2cplr_ug
 ! ============================================================================
 ! allocates boundary data for land domain and current number of tiles;
 ! initializes data for data override.
@@ -3869,35 +3722,35 @@ subroutine realloc_cplr2land( bnd )
   call dealloc_cplr2land(bnd)
 
   ! allocate data according to the domain boundaries
-!  kd = max_n_tiles()
-  kd = max_ntiles
-  allocate( bnd%t_flux(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-  allocate( bnd%lw_flux(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-  allocate( bnd%sw_flux(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-  allocate( bnd%lprec(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-  allocate( bnd%fprec(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-  allocate( bnd%tprec(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-  allocate( bnd%dhdt(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-  allocate( bnd%dhdq(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-  allocate( bnd%drdt(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-  allocate( bnd%p_surf(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-  allocate( bnd%tr_flux(lnd%is:lnd%ie,lnd%js:lnd%je,kd,ntcana) )
-  allocate( bnd%dfdtr(lnd%is:lnd%ie,lnd%js:lnd%je,kd,ntcana) )
+  kd = max_n_tiles()
 
-  allocate( bnd%lwdn_flux(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-  allocate( bnd%swdn_flux(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-  allocate( bnd%sw_flux_down_vis_dir(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-  allocate( bnd%sw_flux_down_total_dir(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-  allocate( bnd%sw_flux_down_vis_dif(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-  allocate( bnd%sw_flux_down_total_dif(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-  allocate( bnd%cd_t(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-  allocate( bnd%cd_m(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-  allocate( bnd%bstar(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-  allocate( bnd%ustar(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-  allocate( bnd%wind(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
-  allocate( bnd%z_bot(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
+  allocate( bnd%t_flux(lnd%ls:lnd%le,kd) )
+  allocate( bnd%lw_flux(lnd%ls:lnd%le,kd) )
+  allocate( bnd%sw_flux(lnd%ls:lnd%le,kd) )
+  allocate( bnd%lprec(lnd%ls:lnd%le,kd) )
+  allocate( bnd%fprec(lnd%ls:lnd%le,kd) )
+  allocate( bnd%tprec(lnd%ls:lnd%le,kd) )
+  allocate( bnd%dhdt(lnd%ls:lnd%le,kd) )
+  allocate( bnd%dhdq(lnd%ls:lnd%le,kd) )
+  allocate( bnd%drdt(lnd%ls:lnd%le,kd) )
+  allocate( bnd%p_surf(lnd%ls:lnd%le,kd) )
+  allocate( bnd%tr_flux(lnd%ls:lnd%le,kd,ntcana) )
+  allocate( bnd%dfdtr(lnd%ls:lnd%le,kd,ntcana) )
 
-  allocate( bnd%drag_q(lnd%is:lnd%ie,lnd%js:lnd%je,kd) )
+  allocate( bnd%lwdn_flux(lnd%ls:lnd%le,kd) )
+  allocate( bnd%swdn_flux(lnd%ls:lnd%le,kd) )
+  allocate( bnd%sw_flux_down_vis_dir(lnd%ls:lnd%le,kd) )
+  allocate( bnd%sw_flux_down_total_dir(lnd%ls:lnd%le,kd) )
+  allocate( bnd%sw_flux_down_vis_dif(lnd%ls:lnd%le,kd) )
+  allocate( bnd%sw_flux_down_total_dif(lnd%ls:lnd%le,kd) )
+  allocate( bnd%cd_t(lnd%ls:lnd%le,kd) )
+  allocate( bnd%cd_m(lnd%ls:lnd%le,kd) )
+  allocate( bnd%bstar(lnd%ls:lnd%le,kd) )
+  allocate( bnd%ustar(lnd%ls:lnd%le,kd) )
+  allocate( bnd%wind(lnd%ls:lnd%le,kd) )
+  allocate( bnd%z_bot(lnd%ls:lnd%le,kd) )
+
+  allocate( bnd%drag_q(lnd%ls:lnd%le,kd) )
 
   bnd%t_flux                 = init_value
   bnd%lw_flux                = init_value
@@ -3928,156 +3781,6 @@ subroutine realloc_cplr2land( bnd )
   bnd%drag_q                 = init_value
 
 end subroutine realloc_cplr2land
-
-subroutine pass_to_ug(data_ug, data_sg)
-  real, dimension(:,:,:), intent(in) :: data_sg
-  real, dimension(:,:), intent(out) :: data_ug
-  real :: tmp_sg(size(data_sg,1), size(data_sg,2), max_ntiles)
-  real :: tmp_ug(size(data_ug,1), max_ntiles)
-  integer :: k
-
-  tmp_sg = init_value
-  tmp_ug = init_value
-  do k = 1, size(data_sg,3)
-     tmp_sg(:,:,k) = data_sg(:,:,k)
-  enddo
-  
-  call mpp_pass_SG_to_UG(lnd_ug%domain, tmp_sg, tmp_ug)
-
-  do k = 1, size(data_ug,2)
-     data_ug(:,k) = tmp_ug(:,k)
-  enddo
-
-
-end subroutine pass_to_ug
-
-subroutine pass_to_sg(data_ug, data_sg)
-  real, dimension(:,:,:), intent(out) :: data_sg
-  real, dimension(:,:), intent(in) :: data_ug
-  real :: tmp_sg(size(data_sg,1), size(data_sg,2), max_ntiles)
-  real :: tmp_ug(size(data_ug,1), max_ntiles)
-  integer :: k,j
-
-  tmp_sg = init_value
-  tmp_ug = init_value
-
-  do k = 1, size(data_ug,2)
-     tmp_ug(:,k) = data_ug(:,k)
-  enddo
-  call mpp_pass_UG_to_SG(lnd_ug%domain, tmp_ug, tmp_sg)
-
-  do k = 1, size(data_sg,3)
-     data_sg(:,:,k) = tmp_sg(:,:,k)
-  enddo
-
-end subroutine pass_to_sg
-
-subroutine pass_cplr2land_to_ug( bnd, bnd_ug )
-  type(atmos_land_boundary_type), intent(inout) :: bnd
-  type(atmos_land_boundary_type_ug), intent(inout) :: bnd_ug
-  integer :: l
-
-  
-  call pass_to_ug(bnd_ug%t_flux, bnd%t_flux)
-  call pass_to_ug(bnd_ug%lw_flux, bnd%lw_flux)
-  call pass_to_ug(bnd_ug%sw_flux, bnd%sw_flux)
-  call pass_to_ug(bnd_ug%lprec, bnd%lprec)
-  call pass_to_ug(bnd_ug%fprec, bnd%fprec)
-  call pass_to_ug(bnd_ug%tprec, bnd%tprec)
-  call pass_to_ug(bnd_ug%dhdt, bnd%dhdt)
-  call pass_to_ug(bnd_ug%dhdq, bnd%dhdq)
-  call pass_to_ug(bnd_ug%drdt, bnd%drdt)
-  call pass_to_ug(bnd_ug%p_surf, bnd%p_surf)
-  do l = 1, size(bnd%tr_flux,4)
-    call pass_to_ug(bnd_ug%tr_flux(:,:,l), bnd%tr_flux(:,:,:,l))
-    call pass_to_ug(bnd_ug%dfdtr(:,:,l), bnd%dfdtr(:,:,:,l))
-  enddo
-  call pass_to_ug(bnd_ug%lwdn_flux, bnd%lwdn_flux)
-  call pass_to_ug(bnd_ug%swdn_flux, bnd%swdn_flux)
-  call pass_to_ug(bnd_ug%sw_flux_down_vis_dir, bnd%sw_flux_down_vis_dir)
-  call pass_to_ug(bnd_ug%sw_flux_down_total_dir, bnd%sw_flux_down_total_dir)
-  call pass_to_ug(bnd_ug%sw_flux_down_vis_dif, bnd%sw_flux_down_vis_dif)
-  call pass_to_ug(bnd_ug%sw_flux_down_total_dif, bnd%sw_flux_down_total_dif)
-  call pass_to_ug(bnd_ug%cd_t, bnd%cd_t)
-  call pass_to_ug(bnd_ug%cd_m, bnd%cd_m)
-  call pass_to_ug(bnd_ug%bstar, bnd%bstar)
-  call pass_to_ug(bnd_ug%ustar, bnd%ustar)
-  call pass_to_ug(bnd_ug%wind, bnd%wind)
-  call pass_to_ug(bnd_ug%z_bot, bnd%z_bot)
-  call pass_to_ug(bnd_ug%drag_q, bnd%drag_q)
-
-
-
-end subroutine pass_cplr2land_to_ug
-
-subroutine realloc_cplr2land_ug( bnd )
-  type(atmos_land_boundary_type_ug), intent(inout) :: bnd
-
-  ! ---- local vars
-  integer :: kd
-
-  call dealloc_cplr2land_ug(bnd)
-
-  ! allocate data according to the domain boundaries
-  kd = max_n_tiles()
-
-  allocate( bnd%t_flux(lnd_ug%ls:lnd_ug%le,kd) )
-  allocate( bnd%lw_flux(lnd_ug%ls:lnd_ug%le,kd) )
-  allocate( bnd%sw_flux(lnd_ug%ls:lnd_ug%le,kd) )
-  allocate( bnd%lprec(lnd_ug%ls:lnd_ug%le,kd) )
-  allocate( bnd%fprec(lnd_ug%ls:lnd_ug%le,kd) )
-  allocate( bnd%tprec(lnd_ug%ls:lnd_ug%le,kd) )
-  allocate( bnd%dhdt(lnd_ug%ls:lnd_ug%le,kd) )
-  allocate( bnd%dhdq(lnd_ug%ls:lnd_ug%le,kd) )
-  allocate( bnd%drdt(lnd_ug%ls:lnd_ug%le,kd) )
-  allocate( bnd%p_surf(lnd_ug%ls:lnd_ug%le,kd) )
-  allocate( bnd%tr_flux(lnd_ug%ls:lnd_ug%le,kd,ntcana) )
-  allocate( bnd%dfdtr(lnd_ug%ls:lnd_ug%le,kd,ntcana) )
-
-  allocate( bnd%lwdn_flux(lnd_ug%ls:lnd_ug%le,kd) )
-  allocate( bnd%swdn_flux(lnd_ug%ls:lnd_ug%le,kd) )
-  allocate( bnd%sw_flux_down_vis_dir(lnd_ug%ls:lnd_ug%le,kd) )
-  allocate( bnd%sw_flux_down_total_dir(lnd_ug%ls:lnd_ug%le,kd) )
-  allocate( bnd%sw_flux_down_vis_dif(lnd_ug%ls:lnd_ug%le,kd) )
-  allocate( bnd%sw_flux_down_total_dif(lnd_ug%ls:lnd_ug%le,kd) )
-  allocate( bnd%cd_t(lnd_ug%ls:lnd_ug%le,kd) )
-  allocate( bnd%cd_m(lnd_ug%ls:lnd_ug%le,kd) )
-  allocate( bnd%bstar(lnd_ug%ls:lnd_ug%le,kd) )
-  allocate( bnd%ustar(lnd_ug%ls:lnd_ug%le,kd) )
-  allocate( bnd%wind(lnd_ug%ls:lnd_ug%le,kd) )
-  allocate( bnd%z_bot(lnd_ug%ls:lnd_ug%le,kd) )
-
-  allocate( bnd%drag_q(lnd_ug%ls:lnd_ug%le,kd) )
-
-  bnd%t_flux                 = init_value
-  bnd%lw_flux                = init_value
-  bnd%sw_flux                = init_value
-  bnd%lprec                  = init_value
-  bnd%fprec                  = init_value
-  bnd%tprec                  = init_value
-  bnd%dhdt                   = init_value
-  bnd%dhdq                   = init_value
-  bnd%drdt                   = init_value
-  bnd%p_surf                 = init_value
-  bnd%tr_flux                = init_value
-  bnd%dfdtr                  = init_value
-
-  bnd%lwdn_flux              = init_value
-  bnd%swdn_flux              = init_value
-  bnd%sw_flux_down_vis_dir   = init_value
-  bnd%sw_flux_down_total_dir = init_value
-  bnd%sw_flux_down_vis_dif   = init_value
-  bnd%sw_flux_down_total_dif = init_value
-  bnd%cd_t                   = init_value
-  bnd%cd_m                   = init_value
-  bnd%bstar                  = init_value
-  bnd%ustar                  = init_value
-  bnd%wind                   = init_value
-  bnd%z_bot                  = init_value
-
-  bnd%drag_q                 = init_value
-
-end subroutine realloc_cplr2land_ug
 
 ! ============================================================================
 subroutine dealloc_cplr2land( bnd )
@@ -4110,37 +3813,6 @@ subroutine dealloc_cplr2land( bnd )
   __DEALLOC__( bnd%drag_q )
 
 end subroutine dealloc_cplr2land
-
-subroutine dealloc_cplr2land_ug( bnd )
-  type(atmos_land_boundary_type_ug), intent(inout) :: bnd
-
-  __DEALLOC__( bnd%t_flux )
-  __DEALLOC__( bnd%lw_flux )
-  __DEALLOC__( bnd%sw_flux )
-  __DEALLOC__( bnd%lprec )
-  __DEALLOC__( bnd%fprec )
-  __DEALLOC__( bnd%tprec )
-  __DEALLOC__( bnd%dhdt )
-  __DEALLOC__( bnd%dhdq )
-  __DEALLOC__( bnd%drdt )
-  __DEALLOC__( bnd%p_surf )
-  __DEALLOC__( bnd%lwdn_flux )
-  __DEALLOC__( bnd%swdn_flux )
-  __DEALLOC__( bnd%sw_flux_down_vis_dir )
-  __DEALLOC__( bnd%sw_flux_down_total_dir )
-  __DEALLOC__( bnd%sw_flux_down_vis_dif )
-  __DEALLOC__( bnd%sw_flux_down_total_dif )
-  __DEALLOC__( bnd%cd_t )
-  __DEALLOC__( bnd%cd_m )
-  __DEALLOC__( bnd%bstar )
-  __DEALLOC__( bnd%ustar )
-  __DEALLOC__( bnd%wind )
-  __DEALLOC__( bnd%z_bot )
-  __DEALLOC__( bnd%tr_flux )
-  __DEALLOC__( bnd%dfdtr )
-  __DEALLOC__( bnd%drag_q )
-
-end subroutine dealloc_cplr2land_ug
 #undef __DEALLOC__
 
 ! ===========================================================================
@@ -4179,11 +3851,11 @@ subroutine atm_lnd_bnd_type_chksum(id, timestep, albt)
     write(outunit,100) 'albt%z_bot                 ', mpp_chksum( albt%z_bot)
     write(outunit,100) 'albt%drag_q                ', mpp_chksum( albt%drag_q)
     write(outunit,100) 'albt%p_surf                ', mpp_chksum( albt%p_surf)
-    do n = 1,size(albt%tr_flux,4)
-    write(outunit,100) 'albt%tr_flux               ', mpp_chksum( albt%tr_flux(:,:,:,n))
+    do n = 1,size(albt%tr_flux,3)
+    write(outunit,100) 'albt%tr_flux               ', mpp_chksum( albt%tr_flux(:,:,n))
     enddo
-    do n = 1,size(albt%dfdtr,4)
-    write(outunit,100) 'albt%dfdtr                 ', mpp_chksum( albt%dfdtr(:,:,:,n))
+    do n = 1,size(albt%dfdtr,3)
+    write(outunit,100) 'albt%dfdtr                 ', mpp_chksum( albt%dfdtr(:,:,n))
     enddo
 
 100 FORMAT("CHECKSUM::",A32," = ",Z20)
@@ -4217,8 +3889,8 @@ subroutine land_data_type_chksum(id, timestep, land)
     write(outunit,100) 'land%rough_heat        ',mpp_chksum(land%rough_heat)
     write(outunit,100) 'land%rough_scale       ',mpp_chksum(land%rough_scale)
 
-    do n = 1, size(land%tr,4)
-    write(outunit,100) 'land%tr                ',mpp_chksum(land%tr(:,:,:,n))
+    do n = 1, size(land%tr,3)
+    write(outunit,100) 'land%tr                ',mpp_chksum(land%tr(:,:,n))
     enddo
     write(outunit,100) 'land%discharge         ',mpp_chksum(land%discharge)
     write(outunit,100) 'land%discharge_snow    ',mpp_chksum(land%discharge_snow)

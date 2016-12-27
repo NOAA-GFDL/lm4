@@ -29,7 +29,7 @@ use time_manager_mod, only : time_type, set_date, get_date, set_time, &
      valid_calendar_types, get_calendar_type
 use get_cal_time_mod, only : get_cal_time
 use horiz_interp_mod, only : horiz_interp_type, horiz_interp_init, &
-     horiz_interp_new, horiz_interp_del, horiz_interp
+     horiz_interp_new, horiz_interp_del
 use time_interp_mod, only : time_interp
 use diag_manager_mod, only : register_diag_field, send_data
 
@@ -52,7 +52,7 @@ use land_tile_mod, only : land_tile_map, &
      get_tile_water, land_tile_carbon, land_tile_heat
 use land_tile_io_mod, only : print_netcdf_error
 
-use land_data_mod, only : land_data_type, lnd, log_version, lnd_ug, send_data_ug
+use land_data_mod, only : land_data_type, lnd_sg, log_version, lnd, send_data_ug, horiz_interp_ug
 use vegn_tile_mod, only : vegn_tile_type, vegn_tile_bwood
 use vegn_harvesting_mod, only : vegn_cut_forest
 
@@ -428,7 +428,7 @@ l1:do k1 = 1,size(input_tran,1)
 
   ! initialize horizontal interpolator
   call horiz_interp_new(interp, lon_in*PI/180,lat_in*PI/180, &
-       lnd%lonb, lnd%latb, &
+       lnd_sg%lonb, lnd_sg%latb, &
        interp_method='conservative',&
        mask_in=mask_in, is_latlon_in=.TRUE. )
 
@@ -532,7 +532,6 @@ subroutine get_varset_data(ncid,varset,rec,frac)
    integer, intent(in) :: rec
    real, intent(out) :: frac(:)
    
-   real :: frac_sg(lnd%is:lnd%ie,lnd%js:lnd%je)
    real :: buff0(nlon_in,nlat_in)
    real :: buff1(nlon_in,nlat_in)
    integer :: i
@@ -545,8 +544,7 @@ subroutine get_varset_data(ncid,varset,rec,frac)
         buff1 = buff1 + buff0
      endif
    enddo
-   call horiz_interp(interp,buff1*norm_in,frac_sg)
-   call mpp_pass_ug_to_sg(lnd_ug%domain, frac, frac_sg)
+   call horiz_interp_ug(interp,buff1*norm_in,frac)
 end subroutine get_varset_data
 
 
@@ -573,7 +571,7 @@ subroutine land_transitions (time)
 
   ! ---- local vars.
   integer :: i,j,k1,k2,i1,i2,l
-  real    :: frac(lnd_ug%ls:lnd_ug%le)
+  real    :: frac(lnd%ls:lnd%le)
   type(tran_type), pointer :: transitions(:,:)
   integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
   real    :: w
@@ -612,9 +610,9 @@ subroutine land_transitions (time)
   enddo
 
   ! perform the transitions
-  do l = lnd_ug%ls,lnd_ug%le
-     i = lnd_ug%i_index(l)
-     j = lnd_ug%j_index(l)
+  do l = lnd%ls,lnd%le
+     i = lnd%i_index(l)
+     j = lnd%j_index(l)
      ! set current point for debugging
      call set_current_point(i,j,1,l)
      ! transition land area between different tile types
@@ -1126,7 +1124,7 @@ end function vegn_tran_priority
 ! ============================================================================
 
 subroutine add_to_transitions(frac, time0,time1,k1,k2,tran)
-  real, intent(in) :: frac(lnd_ug%ls:lnd_ug%le)
+  real, intent(in) :: frac(lnd%ls:lnd%le)
   type(time_type), intent(in) :: time0       ! time of previous calculation of
     ! transitions (the integral transitions will be calculated between time0
     ! and time)
@@ -1141,9 +1139,9 @@ subroutine add_to_transitions(frac, time0,time1,k1,k2,tran)
   logical :: used
 
   ! allocate array of transitions, if necessary
-  if (.not.associated(tran)) allocate(tran(lnd_ug%ls:lnd_ug%le,1))
+  if (.not.associated(tran)) allocate(tran(lnd%ls:lnd%le,1))
 
-  do l = lnd_ug%ls, lnd_ug%le
+  do l = lnd%ls, lnd%le
      if(frac(l) == 0) cycle ! skip points where transition rate is zero
      ! find the first empty transition element for the current indices
      k = 1
@@ -1154,7 +1152,7 @@ subroutine add_to_transitions(frac, time0,time1,k1,k2,tran)
 
      if (k>size(tran,2)) then
         ! if there is no room, make the array of transitions larger
-        allocate(ptr(lnd_ug%ls:lnd_ug%le,size(tran,2)*2))
+        allocate(ptr(lnd%ls:lnd%le,size(tran,2)*2))
         ptr(:,1:size(tran,2)) = tran
         deallocate(tran)
         tran => ptr
@@ -1230,9 +1228,9 @@ subroutine integral_transition(t1, t2, tran, frac, err_msg)
   frac = sum+frac*w*dt
   ! check the transition rate validity
   do l = 1,size(frac(:))
-     i = lnd_ug%i_index(l+lnd_ug%ls-1)
-     j = lnd_ug%j_index(l+lnd_ug%ls-1)
-     call set_current_point(i,j,1,l+lnd_ug%ls-1)
+     i = lnd%i_index(l+lnd%ls-1)
+     j = lnd%j_index(l+lnd%ls-1)
+     call set_current_point(i,j,1,l+lnd%ls-1)
      call check_var_range(frac(l),0.0,HUGE(1.0),'integral_transition',tran%name, FATAL)
   enddo
 end subroutine integral_transition
