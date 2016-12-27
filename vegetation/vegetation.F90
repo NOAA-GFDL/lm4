@@ -571,11 +571,11 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
        'm/s', missing_value=-1.0 )
 
   id_cgain = register_tiled_diag_field ( module_name, 'cgain', (/id_lon,id_lat/), &
-       time, 'carbon gain', 'kg C', missing_value=-100.0 )
+       time, 'carbon gain', 'kg C/m2', missing_value=-100.0 )
   id_closs = register_tiled_diag_field ( module_name, 'closs', (/id_lon,id_lat/), &
-       time, 'carbon loss', 'kg C', missing_value=-100.0 )
+       time, 'carbon loss', 'kg C/m2', missing_value=-100.0 )
   id_wdgain = register_tiled_diag_field ( module_name, 'wdgain', (/id_lon,id_lat/), &
-       time, 'wood biomass gain', 'kg C', missing_value=-100.0 )
+       time, 'wood biomass gain', 'kg C/m2', missing_value=-100.0 )
 
   id_t_ann  = register_tiled_diag_field ( module_name, 't_ann', (/id_lon,id_lat/), &
        time, 'annual mean temperature', 'degK', missing_value=-999.0 )
