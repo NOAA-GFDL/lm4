@@ -6,8 +6,8 @@ use mpp_io_mod, only : fieldtype, axistype, mpp_get_atts, mpp_open, MPP_RDONLY, 
       MPP_NETCDF, MPP_MULTI, MPP_SINGLE, mpp_get_axis_by_name, default_axis, &
       mpp_get_info, mpp_get_times, mpp_get_fields, mpp_get_axis_data, mpp_get_axis_data, &
       validtype, mpp_is_valid, mpp_get_time_axis
-use fms_io_mod, only : register_restart_axis, restart_file_type,  &
-     register_restart_field, save_restart, read_compressed, get_field_size, get_file_name
+use fms_io_mod, only : restart_file_type, set_domain, nullify_domain, &
+     get_file_name
 use time_manager_mod,   only : time_type, set_date, time_type_to_real, &
      get_calendar_type, valid_calendar_types, operator(-), get_date
 use get_cal_time_mod,   only : get_cal_time
@@ -37,6 +37,12 @@ use vegn_cohort_mod,    only : vegn_cohort_type
 use cohort_io_mod,      only : create_cohort_dimension_new, create_cohort_dimension_orig, gather_cohort_data, &
      write_cohort_data_i0d_fptr, write_cohort_data_r0d_fptr
 
+use fms_io_mod, only: fms_io_unstructured_register_restart_axis
+use fms_io_mod, only: fms_io_unstructured_register_restart_field
+use fms_io_mod, only: fms_io_unstructured_save_restart
+use fms_io_mod, only: HIDX
+use fms_io_mod, only: fms_io_unstructured_get_field_size
+use fms_io_mod, only: fms_io_unstructured_read
 
 implicit none
 private
@@ -287,10 +293,23 @@ subroutine static_vegn_init( )
              call mpp_get_atts(Cohort_axis, len=dimlens(4))
              ! Note: The input file used for initial testing had
              ! lon = 144, lat = 90, tile = 2, cohort = 1
-             call get_field_size(trim(input_file),'cohort_index',siz, domain=lnd_sg%domain)
+
+             call fms_io_unstructured_get_field_size(trim(input_file), &
+                                                     "cohort_index", &
+                                                     siz, &
+                                                     lnd%domain)
              allocate(cidx(siz(1)), idata(siz(1)))
-             call read_compressed(trim(input_file),'cohort_index',cidx,timelevel=1)
-             call read_compressed(trim(input_file),'species', idata,timelevel=1)
+!----------
+             call fms_io_unstructured_read(trim(input_file), &
+                                           "cohort_index", &
+                                           cidx, &
+                                           lnd%domain, &
+                                           timelevel=1)
+             call fms_io_unstructured_read(trim(input_file), &
+                                           "species", &
+                                           idata, &
+                                           lnd%domain, &
+                                           timelevel=1)
              do n = 1,size(cidx)
                 m = cidx(n)
                 i = modulo(m,dimlens(1))+1
@@ -456,30 +475,86 @@ subroutine static_vegn_init( )
         base_time = set_date(year, month, day, hour, minute, sec)
         units = ' '
         write(units, 11) year, month, day, hour, minute, sec
-        call register_restart_axis(static_veg_file,'static_veg_out.nc','time',(/0.0/),'T', &
-                            units=units, calendar=valid_calendar_types(get_calendar_type()))
+        call fms_io_unstructured_register_restart_axis(static_veg_file, &
+                                                       "static_veg_out.nc", &
+                                                       "time", &
+                                                       (/0.0/), &
+                                                       "T", &
+                                                       lnd%domain, &
+                                                       units=units, &
+                                                       calendar=valid_calendar_types(get_calendar_type()))
         csize = size(cidx)
         allocate(species(csize),status(csize),bl(csize), blv(csize), br(csize), bsw(csize), bwood(csize), bliving(csize))
-        id = register_restart_field(static_veg_file,'static_veg_out.nc','species', &
-             species, longname='vegetation species', compressed_axis='H')
-        id = register_restart_field(static_veg_file,'static_veg_out.nc','bl', &
-             bl, longname='biomass of leaves per individual', units='kg C/m2', compressed_axis='H')
-        id = register_restart_field(static_veg_file,'static_veg_out.nc','blv', &
-             blv, longname='biomass of virtual leaves (labile store) per individual', units='kg C/m2', compressed_axis='H')
-        id = register_restart_field(static_veg_file,'static_veg_out.nc','br', &
-             br, longname='biomass of fine roots per individual', units='kg C/m2', compressed_axis='H')
-        id = register_restart_field(static_veg_file,'static_veg_out.nc','bsw', &
-             bsw, longname='biomass of sapwood per individual', units='kg C/m2', compressed_axis='H')
-        id = register_restart_field(static_veg_file,'static_veg_out.nc','bwood', &
-             bwood, longname='biomass of heartwood per individual', units='kg C/m2', compressed_axis='H')
-        id = register_restart_field(static_veg_file,'static_veg_out.nc','bliving', &
-             bliving, longname='total living biomass per individual', units='', compressed_axis='H')
-        id = register_restart_field(static_veg_file,'static_veg_out.nc','status', &
-             status, longname='leaf status', units='', compressed_axis='H')
-        call save_restart(static_veg_file,directory='',time_level=-1.0)
+        id = fms_io_unstructured_register_restart_field(static_veg_file, &
+                                                        "static_veg_out.nc", &
+                                                        "species", &
+                                                        species, &
+                                                        (/HIDX/), &
+                                                        lnd%domain, &
+                                                        longname="vegetation species")
+        id = fms_io_unstructured_register_restart_field(static_veg_file, &
+                                                        "static_veg_out.nc", &
+                                                        "bl", &
+                                                        bl, &
+                                                        (/HIDX/), &
+                                                        lnd%domain, &
+                                                        longname="biomass of leaves per individual", &
+                                                        units="kg C/m2")
+        id = fms_io_unstructured_register_restart_field(static_veg_file, &
+                                                        "static_veg_out.nc", &
+                                                        "blv", &
+                                                        blv, &
+                                                        (/HIDX/), &
+                                                        lnd%domain, &
+                                                        longname="biomass of virtual leaves (labile store) per individual", &
+                                                        units="kg C/m2")
+        id = fms_io_unstructured_register_restart_field(static_veg_file, &
+                                                        "static_veg_out.nc", &
+                                                        "br", &
+                                                        br, &
+                                                        (/HIDX/), &
+                                                        lnd%domain, &
+                                                        longname="biomass of fine roots per individual", &
+                                                        units="kg C/m2")
+        id = fms_io_unstructured_register_restart_field(static_veg_file, &
+                                                        "static_veg_out.nc", &
+                                                        "bsw", &
+                                                        bsw, &
+                                                        (/HIDX/), &
+                                                        lnd%domain, &
+                                                        longname="biomass of sapwood per individual", &
+                                                        units="kg C/m2")
+        id = fms_io_unstructured_register_restart_field(static_veg_file, &
+                                                        "static_veg_out.nc", &
+                                                        "bwood", &
+                                                        bwood, &
+                                                        (/HIDX/), &
+                                                        lnd%domain, &
+                                                        longname="biomass of heartwood per individual", &
+                                                        units="kg C/m2")
+        id = fms_io_unstructured_register_restart_field(static_veg_file, &
+                                                        "static_veg_out.nc", &
+                                                        "bliving", &
+                                                        bliving, &
+                                                        (/HIDX/), &
+                                                        lnd%domain, &
+                                                        longname="total living biomass per individual", &
+                                                        units="")
+        id = fms_io_unstructured_register_restart_field(static_veg_file, &
+                                                        "static_veg_out.nc", &
+                                                        "status", &
+                                                        status, &
+                                                        (/HIDX/), &
+                                                        lnd%domain, &
+                                                        longname="leaf status", &
+                                                        units="")
+        call fms_io_unstructured_save_restart(static_veg_file, &
+                                              directory="", &
+                                              time_level=-1.0)
+!----------
      else
         call create_tile_out_file(ncid2,'static_veg_out.nc', &
-             lnd_sg%coord_glon, lnd_sg%coord_glat, vegn_tile_exists, tile_dim_length)
+             lnd%coord_glon, lnd%coord_glat, vegn_tile_exists, tile_dim_length)
         ! create compressed dimension for vegetation cohorts
         call create_cohort_dimension_orig(ncid2)
         ! get the base date of the simulation
@@ -511,7 +586,7 @@ subroutine static_vegn_end()
      __NF_ASRT__(nf_close(ncid))
      deallocate(time_line,map_i,map_j)
   endif
-  if(write_static_veg) then
+  if(write_static_veg .and.  mpp_pe()==lnd%io_pelist(1) ) then
      __NF_ASRT__(nf_close(ncid2))
   endif
   module_is_initialized = .false.
@@ -549,25 +624,67 @@ subroutine read_static_vegn (time, err_msg)
 
   ! read the data into cohort variables
   if(new_land_io) then
-     call get_field_size(trim(input_file),'cohort_index',siz, domain=lnd_sg%domain)
+     call fms_io_unstructured_get_field_size(trim(input_file), &
+                                             "cohort_index", &
+                                             siz, &
+                                             lnd%domain)
+!----------
      allocate(cidx(siz(1)), idata(siz(1)), rdata(siz(1)))
-     call read_compressed(trim(input_file),'cohort_index',cidx, domain=lnd_sg%domain, timelevel=index1)
-     call read_compressed(trim(input_file),'species', idata, domain=lnd_sg%domain, timelevel=index1)
+!----------
+     call fms_io_unstructured_read(trim(input_file), &
+                                   "cohort_index", &
+                                   cidx, &
+                                   lnd%domain, &
+                                   timelevel=index1)
+     call fms_io_unstructured_read(trim(input_file), &
+                                   "species", &
+                                   idata, &
+                                   lnd%domain, &
+                                   timelevel=index1)
      call read_remap_cohort_data_i0d_new(Fields(ispecies), cohort_species_ptr, map_i, map_j, cidx, idata)
-     call read_compressed(trim(input_file),'bl', rdata, domain=lnd_sg%domain, timelevel=index1)
+     call fms_io_unstructured_read(trim(input_file), &
+                                   "bl", &
+                                   rdata, &
+                                   lnd%domain, &
+                                   timelevel=index1)
      call read_remap_cohort_data_r0d_new(Fields(ibl), cohort_bl_ptr, map_i, map_j, cidx, rdata)
-     call read_compressed(trim(input_file),'blv', rdata, domain=lnd_sg%domain, timelevel=index1)
+     call fms_io_unstructured_read(trim(input_file), &
+                                   "blv", &
+                                   rdata, &
+                                   lnd%domain, &
+                                   timelevel=index1)
      call read_remap_cohort_data_r0d_new(Fields(iblv), cohort_blv_ptr, map_i, map_j, cidx, rdata)
-     call read_compressed(trim(input_file),'br', rdata, domain=lnd_sg%domain, timelevel=index1)
+     call fms_io_unstructured_read(trim(input_file), &
+                                   "br", &
+                                   rdata, &
+                                   lnd%domain, &
+                                   timelevel=index1)
      call read_remap_cohort_data_r0d_new(Fields(ibr), cohort_br_ptr, map_i, map_j, cidx, rdata)
-     call read_compressed(trim(input_file),'bsw', rdata, domain=lnd_sg%domain, timelevel=index1)
+     call fms_io_unstructured_read(trim(input_file), &
+                                   "bsw", &
+                                   rdata, &
+                                   lnd%domain, &
+                                   timelevel=index1)
      call read_remap_cohort_data_r0d_new(Fields(ibsw), cohort_bsw_ptr, map_i, map_j, cidx, rdata)
-     call read_compressed(trim(input_file),'bwood', rdata, domain=lnd_sg%domain, timelevel=index1)
+     call fms_io_unstructured_read(trim(input_file), &
+                                   "bwood", &
+                                   rdata, &
+                                   lnd%domain, &
+                                   timelevel=index1)
      call read_remap_cohort_data_r0d_new(Fields(ibwood), cohort_bwood_ptr, map_i, map_j, cidx, rdata)
-     call read_compressed(trim(input_file),'bliving', rdata, domain=lnd_sg%domain, timelevel=index1)
+     call fms_io_unstructured_read(trim(input_file), &
+                                   "bliving", &
+                                   rdata, &
+                                   lnd%domain, &
+                                   timelevel=index1)
      call read_remap_cohort_data_r0d_new(Fields(ibliving), cohort_bliving_ptr, map_i, map_j, cidx, rdata)
-     call read_compressed(trim(input_file),'status', idata, domain=lnd_sg%domain, timelevel=index1)
+     call fms_io_unstructured_read(trim(input_file), &
+                                   "status", &
+                                   idata, &
+                                   lnd%domain, &
+                                   timelevel=index1)
      call read_remap_cohort_data_i0d_new(Fields(istatus), cohort_status_ptr, map_i, map_j, cidx, idata)
+!----------
      deallocate(cidx, idata, rdata)
   else
      call read_remap_cohort_data_i0d_fptr(ncid, 'species' , cohort_species_ptr , map_i, map_j, index1)
@@ -613,7 +730,11 @@ subroutine write_static_vegn()
      call gather_cohort_data(cohort_bwood_ptr,cidx,tile_dim_length,bwood)
      call gather_cohort_data(cohort_bliving_ptr,cidx,tile_dim_length,bliving)
      call gather_cohort_data(cohort_status_ptr,cidx,tile_dim_length,status)
-     call save_restart(static_veg_file,directory='',time_level=t,append=.true.)
+
+     call fms_io_unstructured_save_restart(static_veg_file, &
+                                           directory="", &
+                                           append=.true., &
+                                           time_level=t)
   else
      ! get the current number of records in the output file, rec is only needed by the io_pelist root pe.
      rec = 0

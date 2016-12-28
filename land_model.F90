@@ -17,9 +17,8 @@ use fms_mod, only: open_namelist_file
 #endif
 
 use mpp_mod, only : mpp_max, mpp_sum, mpp_chksum, MPP_FILL_INT, MPP_FILL_DOUBLE
-use fms_io_mod, only : read_compressed, restart_file_type, free_restart_type
-use fms_io_mod, only : field_exist, get_field_size, save_restart
-use fms_io_mod, only : register_restart_axis, register_restart_field
+use fms_io_mod, only : restart_file_type, free_restart_type
+use fms_io_mod, only : set_domain, nullify_domain
 use fms_mod, only : error_mesg, FATAL, WARNING, NOTE, mpp_pe, &
      mpp_root_pe, file_exist, check_nml_error, close_file, &
      stdlog, stderr, mpp_clock_id, mpp_clock_begin, mpp_clock_end, string, &
@@ -115,6 +114,8 @@ use vegn_data_mod, only : LU_CROP, LU_PAST, LU_NTRL, LU_SCND, &
 use predefined_tiles_mod, only: land_cover_cold_start_0d_predefined_tiles,&
                                 open_database_predefined_tiles,&
                                 close_database_predefined_tiles
+
+use fms_io_mod, only: fms_io_unstructured_read
 
 implicit none
 private
@@ -1012,11 +1013,31 @@ subroutine land_cover_warm_start_new (restart)
   ntiles = size(restart%tidx)
   allocate(glac(ntiles), lake(ntiles), soil(ntiles), vegn(ntiles), frac(ntiles))
 
-  call read_compressed(restart%basename,'frac',frac,domain=lnd_sg%domain, timelevel=1)
-  call read_compressed(restart%basename,'glac',glac,domain=lnd_sg%domain, timelevel=1)
-  call read_compressed(restart%basename,'lake',lake,domain=lnd_sg%domain, timelevel=1)
-  call read_compressed(restart%basename,'soil',soil,domain=lnd_sg%domain, timelevel=1)
-  call read_compressed(restart%basename,'vegn',vegn,domain=lnd_sg%domain, timelevel=1)
+  call fms_io_unstructured_read(restart%basename, &
+                                "frac", &
+                                frac, &
+                                lnd%domain, &
+                                timelevel=1)
+  call fms_io_unstructured_read(restart%basename, &
+                                "glac", &
+                                glac, &
+                                lnd%domain, &
+                                timelevel=1)
+  call fms_io_unstructured_read(restart%basename, &
+                                "lake", &
+                                lake, &
+                                lnd%domain, &
+                                timelevel=1)
+  call fms_io_unstructured_read(restart%basename, &
+                                "soil", &
+                                soil, &
+                                lnd%domain, &
+                                timelevel=1)
+  call fms_io_unstructured_read(restart%basename, &
+                                "vegn", &
+                                vegn, &
+                                lnd%domain, &
+                                timelevel=1)
 
   npts = lnd%nlon*lnd%nlat
   ! create tiles
@@ -1024,7 +1045,7 @@ subroutine land_cover_warm_start_new (restart)
      k = restart%tidx(it)
      if (k<0) cycle ! skip negative indices
      g = modulo(k,npts)+1 
-     if (g<lnd%gs.or.g>lnd%ge) return ! skip points outside of domain
+     if (g<lnd%gs.or.g>lnd%ge) cycle ! skip points outside of domain
      l = lnd%l_index(g)
      ! the size of the tile set at the point (i,j) must be equal to k
      tile=>new_land_tile(frac=frac(it),&

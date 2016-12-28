@@ -34,7 +34,7 @@ use land_io_mod, only : read_field
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_restart_axis, add_tile_data, add_int_tile_data, add_scalar_data, &
-     get_scalar_data, get_tile_data, get_int_tile_data, field_exists
+     get_tile_data, get_int_tile_data, field_exists
 
 use vegn_data_mod, only : SP_C4GRASS, LEAF_ON, LU_NTRL, read_vegn_data_namelist, &
      tau_drip_l, tau_drip_s, T_transp_min, cold_month_threshold, soil_carbon_depth_scale, &
@@ -63,6 +63,8 @@ use vegn_harvesting_mod, only : &
 use soil_carbon_mod, only : add_litter, poolTotalCarbon, cull_cohorts, &
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE
 use soil_mod, only : add_root_litter, redistribute_peat_carbon
+
+use fms_io_mod, only: fms_io_unstructured_read
 
 implicit none
 private
@@ -299,8 +301,15 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      call get_cohort_data(restart1, 'ws', cohort_ws_ptr)
 
      ! read global variables
-     call get_scalar_data(restart2,'n_accum',n_accum)
-     call get_scalar_data(restart2,'nmn_acm',nmn_acm)
+     call fms_io_unstructured_read(restart2%basename, &
+                                   "n_accum", &
+                                   n_accum, &
+                                   lnd%domain)
+     call fms_io_unstructured_read(restart2%basename, &
+                                   "nmn_acm", &
+                                   nmn_acm, &
+                                   lnd%domain)
+!----------
 
      call get_int_cohort_data(restart2, 'species', cohort_species_ptr)
      call get_cohort_data(restart2, 'hite', cohort_height_ptr)

@@ -1,8 +1,7 @@
 module cohort_io_mod
 
 use fms_mod,          only : error_mesg, FATAL, WARNING, get_mosaic_tile_file
-use fms_io_mod,       only : register_restart_axis, restart_file_type, get_instance_filename, &
-   get_field_size, register_restart_field, read_compressed
+use fms_io_mod,       only : restart_file_type, get_instance_filename
 use mpp_mod,          only : mpp_pe, mpp_max, mpp_send, mpp_recv, mpp_sync, &
                              COMM_TAG_1, COMM_TAG_2, COMM_TAG_3, COMM_TAG_4, &
                              mpp_sync_self, stdout
@@ -21,6 +20,11 @@ use land_tile_io_mod, only: land_restart_type, &
 
 use vegn_cohort_mod, only: vegn_cohort_type
 use land_data_mod, only : lnd_sg, lnd
+
+use fms_io_mod, only: fms_io_unstructured_register_restart_axis
+use fms_io_mod, only: fms_io_unstructured_register_restart_field
+use fms_io_mod, only: HIDX
+use fms_io_mod, only: fms_io_unstructured_read
 
 implicit none
 private
@@ -227,6 +231,13 @@ subroutine read_create_cohorts_new(idx,ntiles)
         ce=next_elmt(ce)
      enddo
      tile=>current_tile(ce)
+
+     if (.not. associated(tile)) then
+         call error_mesg("read_create_cohorts_new", &
+                         "current tile returned null pointer", &
+                         FATAL)
+     endif
+
      if(.not.associated(tile%vegn)) then
         info = ''
         write(info,'("(",3i3,")")')i,j,t
@@ -453,10 +464,20 @@ subroutine create_cohort_out_file_idx(rhandle,name,cidx,cohorts_dim_length)
   ! the size of tile dimension really does not matter for the output, but it does
   ! matter for uncompressing utility, since it uses it as a size of the array to
   ! unpack to create tile index dimension and variable.
-  call register_restart_axis(rhandle,name,trim(cohort_index_name),cidx(:),compressed='cohort tile lat lon',&
-                             compressed_axis='H', dimlen=cohorts_dim_length, dimlen_name='cohort',&
-                             dimlen_lname='cohort number within tile', units='none',&
-                             longname='compressed vegetation cohort index',imin=0)
+  call fms_io_unstructured_register_restart_axis(rhandle, &
+                                                 name, &
+                                                 trim(cohort_index_name), &
+                                                 cidx, &
+                                                 "cohort tile lat lon", &
+                                                 "H", &
+                                                 cohorts_dim_length, &
+                                                 lnd%domain, &
+                                                 dimlen_name="cohort", &
+                                                 dimlen_lname="cohort number within tile", &
+                                                 units="none", &
+                                                 longname="compressed vegetation cohort index", &
+                                                 imin=0)
+
 end subroutine create_cohort_out_file_idx
 
 subroutine assemble_cohorts_i0d(fptr,idx,ntiles,data)
@@ -576,8 +597,15 @@ subroutine add_cohort_data(restart,varname,fptr,longname,units)
   if (new_land_io) then
      allocate(r(size(restart%cidx)))
      call gather_cohort_data_r0d(fptr,restart%cidx,restart%tile_dim_length,r)
-     id_restart = register_restart_field(restart%rhandle,restart%basename,varname,r, &
-          longname=longname, units=units, compressed_axis='H', restart_owns_data=.true.)
+     id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, &
+                                                             restart%basename, &
+                                                             varname, &
+                                                             r, &
+                                                             (/HIDX/), &
+                                                             lnd%domain, &
+                                                             longname=longname, &
+                                                             units=units, &
+                                                             restart_owns_data=.true.)
   else
      call write_cohort_data_r0d_fptr(restart%ncid,varname,fptr,longname,units)
   endif
@@ -596,8 +624,16 @@ subroutine add_int_cohort_data(restart,varname,fptr,longname,units)
   if (new_land_io) then
      allocate(r(size(restart%cidx)))
      call gather_cohort_data_i0d(fptr,restart%cidx,restart%tile_dim_length,r)
-     id_restart = register_restart_field(restart%rhandle,restart%basename,varname,r, &
-          longname=longname, units=units, compressed_axis='H', restart_owns_data=.true.)
+     id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, &
+                                                             restart%basename, &
+                                                             varname, &
+                                                             r, &
+                                                             (/HIDX/), &
+                                                             lnd%domain, &
+                                                             longname=longname, &
+                                                             units=units, &
+                                                             restart_owns_data=.true.)
+!----------
   else
      call write_cohort_data_i0d_fptr(restart%ncid,varname,fptr,longname,units)
   endif
@@ -614,7 +650,11 @@ subroutine get_cohort_data(restart,varname,fptr)
      if (.not.allocated(restart%cidx)) call error_mesg('read_create_cohorts', &
         'cohort index not found in file "'//restart%filename//'"',FATAL)
      allocate(r(size(restart%cidx)))
-     call read_compressed(restart%basename, varname, r, domain=lnd_sg%domain, timelevel=1)
+     call fms_io_unstructured_read(restart%basename, &
+                                   varname, &
+                                   r, &
+                                   lnd%domain, &
+                                   timelevel=1)
      call assemble_cohorts_r0d(fptr,restart%cidx,restart%tile_dim_length,r)
      deallocate(r)
   else
@@ -633,7 +673,12 @@ subroutine get_int_cohort_data(restart,varname,fptr)
      if (.not.allocated(restart%cidx)) call error_mesg('read_create_cohorts', &
         'cohort index not found in file "'//restart%filename//'"',FATAL)
      allocate(r(size(restart%cidx)))
-     call read_compressed(restart%basename, varname, r, domain=lnd_sg%domain, timelevel=1)
+!----------
+     call fms_io_unstructured_read(restart%basename, &
+                                   varname, &
+                                   r, &
+                                   lnd%domain, &
+                                   timelevel=1)
      call assemble_cohorts_i0d(fptr,restart%cidx,restart%tile_dim_length,r)
      deallocate(r)
   else
