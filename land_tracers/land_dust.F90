@@ -14,8 +14,8 @@ use land_constants_mod, only : d608, kBoltz
 use fms_mod, only : error_mesg, FATAL, NOTE, file_exist, &
      close_file, check_nml_error, mpp_pe, mpp_root_pe, stdlog, stdout, string, lowercase
 use time_manager_mod, only: time_type, time_type_to_real
-use diag_manager_mod, only : diag_axis_init, register_static_field, &
-     register_diag_field, send_data
+use diag_manager_mod, only : register_static_field, &
+     send_data
 use field_manager_mod, only : parse, MODEL_ATMOS, MODEL_LAND
 use tracer_manager_mod, only : get_tracer_index, get_tracer_names, query_method, NO_TRACER
 
@@ -26,12 +26,13 @@ use vegn_tile_mod, only : vegn_tile_LAI, vegn_tile_SAI
 use vegn_data_mod, only:  LU_PAST, LU_CROP, LU_SCND, LU_NTRL
 use land_tile_mod, only : land_tile_type, land_tile_grnd_T
 use land_tile_diag_mod, only : register_tiled_diag_field, send_tile_data
-use land_data_mod, only : land_state_type, lnd, log_version, lnd_ug, send_data_ug
+use land_data_mod, only : land_state_type, lnd, log_version, lnd_ug
 use land_io_mod, only : read_field
 use land_tracers_mod, only : ntcana, isphum
-use land_tile_diag_mod, only : &
-     register_tiled_diag_field, set_default_diag_filter, &
-     send_tile_data
+!----------
+!ug support
+use land_tile_diag_mod, only: set_default_diag_filter
+!----------
 use land_debug_mod, only : is_watch_point
 use table_printer_mod
 
@@ -115,10 +116,12 @@ integer :: id_soil_wetness, id_soil_iceness, id_dust_emis, id_dust_source, &
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-subroutine land_dust_init (id_lon, id_lat, mask)
-  integer, intent(in) :: id_lon  ! ID of land longitude (X) axis
-  integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
-  logical, intent(inout) :: mask(:)
+!----------
+!ug support
+subroutine land_dust_init (mask, id_ug)
+  logical,intent(inout) :: mask(:)
+  integer,intent(in) :: id_ug !<Unstructured axis id.
+!----------
 
   ! ---- local vars
   logical :: used ! return value from send_data
@@ -246,69 +249,77 @@ subroutine land_dust_init (id_lon, id_lat, mask)
   call set_default_diag_filter('land')
 
   ! initialize diagnostic fields
-  id_soil_wetness = register_tiled_diag_field(diag_name, 'soil_wetness', (/id_lon,id_lat/),  &
+!----------
+!ug support
+  id_soil_wetness = register_tiled_diag_field(diag_name, 'soil_wetness', (/id_ug/),  &
        lnd%time, 'soil wetness for dust emission calculations', 'unitless', missing_value=-1.0)
-  id_soil_iceness = register_tiled_diag_field(diag_name, 'soil_iceness', (/id_lon,id_lat/),  &
+  id_soil_iceness = register_tiled_diag_field(diag_name, 'soil_iceness', (/id_ug/),  &
        lnd%time, 'soil ice content for dust emission calculations', 'unitless', missing_value=-1.0)
-  id_dust_emis = register_tiled_diag_field(diag_name, 'dust_emis', (/id_lon,id_lat/),  &
+  id_dust_emis = register_tiled_diag_field(diag_name, 'dust_emis', (/id_ug/),  &
        lnd%time, 'dust emission', 'kg/(m2 s)', missing_value=-1.0)
-  id_u_ts = register_tiled_diag_field(diag_name, 'u_ts', (/id_lon,id_lat/),  &
+  id_u_ts = register_tiled_diag_field(diag_name, 'u_ts', (/id_ug/),  &
        lnd%time, 'threshold of wind erosion', 'm/s', missing_value=-1.0)
-  id_bareness = register_tiled_diag_field(diag_name, 'bareness', (/id_lon,id_lat/),  &
+  id_bareness = register_tiled_diag_field(diag_name, 'bareness', (/id_ug/),  &
        lnd%time, 'bareness measure', 'unitless', missing_value=-1.0)
-  id_ddep_tot = register_tiled_diag_field(diag_name, 'dust_ddep', (/id_lon,id_lat/),  &
+  id_ddep_tot = register_tiled_diag_field(diag_name, 'dust_ddep', (/id_ug/),  &
        lnd%time, 'total dust dry deposition', 'kg/(m2 s)', missing_value=-1.0)
-  id_wdep_tot = register_tiled_diag_field(diag_name, 'dust_wdep', (/id_lon,id_lat/),  &
+  id_wdep_tot = register_tiled_diag_field(diag_name, 'dust_wdep', (/id_ug/),  &
        lnd%time, 'total dust wet deposition in canopy air', 'kg/(m2 s)', missing_value=-1.0)
-  id_fatm_tot = register_tiled_diag_field(diag_name, 'dust_fatm', (/id_lon,id_lat/),  &
+  id_fatm_tot = register_tiled_diag_field(diag_name, 'dust_fatm', (/id_ug/),  &
        lnd%time, 'total dust flux to the atmosphere', 'kg/(m2 s)', missing_value=-1.0)
-  id_cana_dens = register_tiled_diag_field(diag_name, 'cana_dens', (/id_lon,id_lat/),  &
+  id_cana_dens = register_tiled_diag_field(diag_name, 'cana_dens', (/id_ug/),  &
        lnd%time, 'density of canopy air', 'kg/m3', missing_value=-1.0)
 
-  id_dust_source = register_static_field ( diag_name, 'dust_source', (/id_lon, id_lat/), &
+  id_dust_source = register_static_field ( diag_name, 'dust_source', (/id_ug/), &
        'topographical dust source', missing_value = -1.0 )
-  if (id_dust_source > 0 ) used = send_data_ug( id_dust_source, dust_source, lnd%time )
+
+  if (id_dust_source .gt. 0) then
+      used = send_data(id_dust_source, &
+                       dust_source, &
+                       lnd%time)
+  endif
 
   do i = 1,n_dust_tracers
      name = trdata(i)%name
      trdata(i)%id_emis = register_tiled_diag_field(diag_name, trim(name)//'_emis', &
-       (/id_lon,id_lat/),  lnd%time, trim(name)//' emission', &
+       (/id_ug/),  lnd%time, trim(name)//' emission', &
        'kg/(m2 s)', missing_value=-1.0)
      trdata(i)%id_ddep = register_tiled_diag_field(diag_name, trim(name)//'_ddep', &
-       (/id_lon,id_lat/),  lnd%time, trim(name)//' dry deposition', 'kg/(m2 s)', &
+       (/id_ug/),  lnd%time, trim(name)//' dry deposition', 'kg/(m2 s)', &
        missing_value=-1.0)
      trdata(i)%id_wdep = register_tiled_diag_field(diag_name, trim(name)//'_wdep', &
-       (/id_lon,id_lat/),  lnd%time, trim(name)//' wet deposition in canopy air', 'kg/(m2 s)', &
+       (/id_ug/),  lnd%time, trim(name)//' wet deposition in canopy air', 'kg/(m2 s)', &
        missing_value=-1.0)
      trdata(i)%id_flux_atm = &
        register_tiled_diag_field(diag_name, trim(name)//'_flux_atm', &
-       (/id_lon,id_lat/),  lnd%time, trim(name)//' flux to the atmosphere', &
+       (/id_ug/),  lnd%time, trim(name)//' flux to the atmosphere', &
        'kg/(m2 s)', missing_value=-1.0)
      trdata(i)%id_dfdtr = &
        register_tiled_diag_field(diag_name, trim(name)//'_dfdtr', &
-       (/id_lon,id_lat/),  lnd%time,'derivative of '//trim(name)//' flux to the atmosphere', &
+       (/id_ug/),  lnd%time,'derivative of '//trim(name)//' flux to the atmosphere', &
        'kg/(m2 s)', missing_value=-1.0)
      trdata(i)%id_con_v_lam = &
        register_tiled_diag_field(diag_name, trim(name)//'_con_v_lam', &
-       (/id_lon,id_lat/),  lnd%time, 'quasi-laminar conductance between canopy and canopy air for '//trim(name), &
+       (/id_ug/),  lnd%time, 'quasi-laminar conductance between canopy and canopy air for '//trim(name), &
        'm/s', missing_value=-1.0)
      trdata(i)%id_con_g_lam = &
        register_tiled_diag_field(diag_name, trim(name)//'_con_g_lam', &
-       (/id_lon,id_lat/),  lnd%time, 'quasi-laminar conductance between ground and canopy air for '//trim(name), &
+       (/id_ug/),  lnd%time, 'quasi-laminar conductance between ground and canopy air for '//trim(name), &
        'm/s', missing_value=-1.0)
      trdata(i)%id_con_v = &
        register_tiled_diag_field(diag_name, trim(name)//'_con_v', &
-       (/id_lon,id_lat/),  lnd%time, 'total conductance between canopy and canopy air for'//trim(name), &
+       (/id_ug/),  lnd%time, 'total conductance between canopy and canopy air for'//trim(name), &
        'm/s', missing_value=-1.0)
      trdata(i)%id_con_g = &
        register_tiled_diag_field(diag_name, trim(name)//'_con_g', &
-       (/id_lon,id_lat/),  lnd%time, 'total conductance between ground and canopy air for '//trim(name), &
+       (/id_ug/),  lnd%time, 'total conductance between ground and canopy air for '//trim(name), &
        'm/s', missing_value=-1.0)
      trdata(i)%id_vdep = &
        register_tiled_diag_field(diag_name, trim(name)//'_vdep', &
-       (/id_lon,id_lat/),  lnd%time, 'sedimentation velocity in canopy air for '//trim(name), &
+       (/id_ug/),  lnd%time, 'sedimentation velocity in canopy air for '//trim(name), &
        'm/s', missing_value=-1.0)
   enddo
+!----------
 
   module_is_initialized = .TRUE.
 

@@ -112,9 +112,10 @@ end subroutine read_cana_namelist
 
 ! ============================================================================
 ! initialize canopy air
-subroutine cana_init ( id_lon, id_lat )
-  integer, intent(in) :: id_lon  ! ID of land longitude (X) axis
-  integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
+!----------
+!ug support
+subroutine cana_init()
+!----------
 
   ! ---- local vars ----------------------------------------------------------
   type(land_tile_enum_type)     :: te,ce ! last and current tile

@@ -146,6 +146,11 @@ character(len=*), parameter :: tagname = '$Name$'
   integer :: id_depth_old, id_width_old, id_vel_old
   integer :: id_r_t_rivr, id_i_t_rivr, id_o_t_rivr, id_lot_rivr, id_s_t_rivr, id_dot_rivr
   integer :: id_r_frazil, id_i_frazil, id_o_frazil, id_lofrazil, id_s_frazil, id_dofrazil
+!----------
+!ug support
+  integer :: id_geolon_t
+  integer :: id_geolat_t
+!----------
   ! ***
   integer :: maxtravel
   real    :: missing = -1.e8
@@ -1182,6 +1187,16 @@ end subroutine print_river_tracer_data
     real, dimension(isc:iec,jsc:jec) :: tmp
     logical                          :: sent
     integer                          :: i
+
+  ! register auxiliary coordinate variables
+
+!----------
+!ug support
+  id_geolon_t = register_static_field ( mod_name, 'geolon_t', (/id_lon,id_lat/), &
+       'longitude of grid cell centers', 'degrees_E', missing_value = -1.0e+20 )
+  id_geolat_t = register_static_field ( mod_name, 'geolat_t', (/id_lon,id_lat/), &
+       'latitude of grid cell centers', 'degrees_N', missing_value = -1.0e+20 )
+!----------
 
 ! regular diagnostic fields
     do i = 0, num_species

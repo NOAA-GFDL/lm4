@@ -557,9 +557,11 @@ end subroutine retrieve_hlsp_indices
 
 ! ============================================================================
 ! initialize hillslope model
-subroutine hlsp_init ( id_lon, id_lat )
-  integer, intent(in)  :: id_lon  ! ID of land longitude (X) axis
-  integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
+!----------
+!ug support
+subroutine hlsp_init(id_ug)
+  integer,intent(in) :: id_ug !<Unstructured axis id.
+!----------
 
   ! ---- local vars
   integer :: unit         ! unit for various i/o
@@ -602,7 +604,10 @@ subroutine hlsp_init ( id_lon, id_lat )
   end if
 
   ! initialize hillslope-dependent diagnostic fields
-!  call hlsp_diag_init ( id_lon, id_lat )
+!----------
+!ug support
+!  call hlsp_diag_init(id_ug)
+!----------
 
   ! -------- initialize state --------
   lis = lnd_ug%ls
@@ -788,9 +793,11 @@ end subroutine hlsp_init
 
 ! ============================================================================
 ! initialize hillslope model
-subroutine hlsp_init_predefined ( id_lon, id_lat )
-  integer, intent(in)  :: id_lon  ! ID of land longitude (X) axis  
-  integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
+!----------
+!ug support
+subroutine hlsp_init_predefined(id_ug)
+  integer,intent(in) :: id_ug !<Unstructured axis id.
+!----------
 
   ! ---- local vars
   integer :: unit         ! unit for various i/o
@@ -806,7 +813,10 @@ subroutine hlsp_init_predefined ( id_lon, id_lat )
   module_is_initialized = .TRUE.
 
   ! initialize hillslope-dependent diagnostic fields
-  call hlsp_diag_init ( id_lon, id_lat )
+!----------
+!ug support
+  call hlsp_diag_init(id_ug)
+!----------
 
   call open_land_restart(restart,hlsp_rst_ifname,restart_exists)
   if (restart_exists) then
@@ -869,10 +879,12 @@ end subroutine hlsp_init_predefined
 
 ! ============================================================================
 ! initialize hillslope model (Predefined tiles)
-!subroutine hlsp_init_predefined ( id_lon, id_lat)
+!----------
+!ug support
+!subroutine hlsp_init_predefined(id_ug)
 !
-!  integer, intent(in)  :: id_lon  ! ID of land longitude (X) axis  
-!  integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
+!  integer,intent(in) :: id_ug !<Unstructured axis id.
+!----------
 !
 !  ! ---- local vars
 !  type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
@@ -888,7 +900,10 @@ end subroutine hlsp_init_predefined
 !  module_is_initialized = .TRUE.
 !
 !  ! initialize hillslope-dependent diagnostic fields
-!  call hlsp_diag_init ( id_lon, id_lat )
+!----------
+!ug support
+!  call hlsp_diag_init(id_ug)
+!----------
 !
 !  call get_input_restart_name(hlsp_rst_ifname,restart_exists,restart_file_name)
 !  if (restart_exists) then
@@ -912,8 +927,7 @@ end subroutine hlsp_init_predefined
 !             NOTE)
 !        __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
 !        call read_tile_data_i0d_fptr(unit, 'HIDX_J'       , soil_hidx_j_ptr  )
-!        call read_tile_data_i0d_fptr(unit, 'HIDX_K'       , soil_hidx_k_ptr  )
-!        __NF_ASRT__(nf_close(unit))     
+
 !        if (cold_start) &
 !           call error_mesg(module_name, 'hlsp_init: coldfracs subroutine called even though restart file '// &
 !                                'exists! Inconsistency of "cold_start" in hillslope_mod.', FATAL)
@@ -967,15 +981,23 @@ end subroutine hlsp_init_predefined
 !end subroutine hlsp_init_predefined
 
 ! ============================================================================
-subroutine hlsp_diag_init ( id_lon, id_lat )
-   integer, intent(in) :: id_lon  ! ID of land longitude (X) axis
-   integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
+!----------
+!ug support
+subroutine hlsp_diag_init(id_ug)
+   integer,intent(in) :: id_ug !<Unstructured axis id.
+!----------
 
    ! ---- local vars
-   integer :: axes(2)
+!----------
+!ug support
+   integer :: axes(1)
+!----------
 
    ! define array of axis indices
-   axes = (/ id_lon, id_lat /)
+!----------
+!ug support
+   axes = (/id_ug/)
+!----------
 
    ! set the default sub-sampling filter for the fields below
    call set_default_diag_filter('soil')

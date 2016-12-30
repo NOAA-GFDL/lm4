@@ -60,11 +60,13 @@ integer :: id_gpp_cmor, id_npp_cmor, id_ra, id_rgrowth
 contains
 
 ! ============================================================================
-subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
-  integer        , intent(in) :: id_lon ! ID of land longitude (X) axis
-  integer        , intent(in) :: id_lat ! ID of land latitude (Y) axis
-  type(time_type), intent(in) :: time       ! initial time for diagnostic fields
-  real           , intent(in) :: delta_time ! fast time step, s
+!----------
+!ug support
+subroutine vegn_dynamics_init(id_ug,time,delta_time)
+  integer        ,intent(in) :: id_ug      !<Unstructured axis id.
+  type(time_type),intent(in) :: time       ! initial time for diagnostic fields
+  real           ,intent(in) :: delta_time ! fast time step, s
+!----------
 
   call log_version(version, module_name, __FILE__, tagname)
 
@@ -75,46 +77,52 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
   call set_default_diag_filter('soil')
 
   ! register diagnostic fields
+!----------
+!ug support
   id_gpp = register_tiled_diag_field ( module_name, 'gpp',  &
-       (/id_lon,id_lat/), time, 'gross primary productivity', 'kg C/(m2 year)', &
+       (/id_ug/), time, 'gross primary productivity', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_npp = register_tiled_diag_field ( module_name, 'npp',  &
-       (/id_lon,id_lat/), time, 'net primary productivity', 'kg C/(m2 year)', &
+       (/id_ug/), time, 'net primary productivity', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_nep = register_tiled_diag_field ( module_name, 'nep',  &
-       (/id_lon,id_lat/), time, 'net ecosystem productivity', 'kg C/(m2 year)', &
+       (/id_ug/), time, 'net ecosystem productivity', 'kg C/(m2 year)', &
        missing_value=-100.0 )
-  id_litter = register_tiled_diag_field (module_name, 'litter', (/id_lon,id_lat/), &
+  id_litter = register_tiled_diag_field (module_name, 'litter', (/id_ug/), &
        time, 'litter productivity', 'kg C/(m2 year)', missing_value=-100.0)
-  id_resp = register_tiled_diag_field ( module_name, 'resp', (/id_lon,id_lat/), &
+  id_resp = register_tiled_diag_field ( module_name, 'resp', (/id_ug/), &
        time, 'respiration', 'kg C/(m2 year)', missing_value=-100.0 )
-  id_resl = register_tiled_diag_field ( module_name, 'resl', (/id_lon,id_lat/), &
+  id_resl = register_tiled_diag_field ( module_name, 'resl', (/id_ug/), &
        time, 'leaf respiration', 'kg C/(m2 year)', missing_value=-100.0 )
-  id_resr = register_tiled_diag_field ( module_name, 'resr', (/id_lon,id_lat/), &
+  id_resr = register_tiled_diag_field ( module_name, 'resr', (/id_ug/), &
        time, 'root respiration', 'kg C/(m2 year)', missing_value=-100.0 )
-  id_resg = register_tiled_diag_field ( module_name, 'resg', (/id_lon,id_lat/), &
+  id_resg = register_tiled_diag_field ( module_name, 'resg', (/id_ug/), &
        time, 'growth respiration', 'kg C/(m2 year)', missing_value=-100.0 )
   id_soilt = register_tiled_diag_field ( module_name, 'tsoil_av',  &
-       (/id_lon,id_lat/), time, 'average soil temperature for carbon decomposition', 'degK', &
+       (/id_ug/), time, 'average soil temperature for carbon decomposition', 'degK', &
        missing_value=-100.0 )
   id_theta = register_tiled_diag_field ( module_name, 'theta',  &
-       (/id_lon,id_lat/), time, 'average soil wetness for carbon decomposition', 'm3/m3', &
+       (/id_ug/), time, 'average soil wetness for carbon decomposition', 'm3/m3', &
        missing_value=-100.0 )
+!----------
 
   ! set the default sub-sampling filter for CMOR variables
   call set_default_diag_filter('land')
-  id_gpp_cmor = register_tiled_diag_field ( cmor_name, 'gpp', (/id_lon,id_lat/), &
+!----------
+!ug support
+  id_gpp_cmor = register_tiled_diag_field ( cmor_name, 'gpp', (/id_ug/), &
        time, 'Gross Primary Production', 'kg C m-2 s-1', missing_value=-1.0, &
        standard_name='gross_primary_production', fill_missing=.TRUE.)
-  id_npp_cmor = register_tiled_diag_field ( cmor_name, 'npp', (/id_lon,id_lat/), &
+  id_npp_cmor = register_tiled_diag_field ( cmor_name, 'npp', (/id_ug/), &
        time, 'Net Primary Production', 'kg C m-2 s-1', missing_value=-1.0, &
        standard_name='net_primary_production', fill_missing=.TRUE.)
-  id_ra = register_tiled_diag_field ( cmor_name, 'ra', (/id_lon,id_lat/), &
+  id_ra = register_tiled_diag_field ( cmor_name, 'ra', (/id_ug/), &
        time, 'Autotrophic (Plant) Respiration', 'kg C m-2 s-1', missing_value=-1.0, &
        standard_name='autotrophic_plant_respiration', fill_missing=.TRUE.)
-  id_rgrowth = register_tiled_diag_field ( cmor_name, 'rGrowth', (/id_lon,id_lat/), &
+  id_rgrowth = register_tiled_diag_field ( cmor_name, 'rGrowth', (/id_ug/), &
        time, 'Growth Autotrophic Respiration', 'kg C m-2 s-1', missing_value=-1.0, &
        standard_name='growth_autotrophic_respiration', fill_missing=.TRUE.)
+!----------
 
 end subroutine vegn_dynamics_init
 

@@ -26,7 +26,6 @@ use field_manager_mod, only : MODEL_LAND, MODEL_ATMOS
 use data_override_mod, only : data_override
 use diag_manager_mod, only : diag_axis_init, register_static_field, &
      register_diag_field, send_data, diag_field_add_attribute
-use land_data_mod, only : send_data_ug
 use constants_mod, only : radius, hlf, hlv, hls, tfreeze, pi, rdgas, rvgas, cp_air, &
      stefan
 use astronomy_mod, only : astronomy_init, diurnal_solar
@@ -116,7 +115,11 @@ use predefined_tiles_mod, only: land_cover_cold_start_0d_predefined_tiles,&
 
 !----------
 !ug support
-use fms_io_mod, only: fms_io_unstructured_read
+use fms_io_mod,      only: fms_io_unstructured_read
+use mpp_domains_mod, only: domainUG
+use mpp_domains_mod, only: mpp_get_UG_compute_domain
+use mpp_domains_mod, only: mpp_get_UG_domain_grid_index
+use diag_axis_mod,   only: diag_axis_add_attribute
 !----------
 
 implicit none
@@ -341,6 +344,10 @@ subroutine land_model_init &
   integer :: ncid, varid
   integer :: unit, ierr, io
   integer :: id_lon, id_lat, id_band, id_zfull ! IDs of land diagnostic axes
+!----------
+!ug support
+  integer :: id_ug !<Unstructured axis id.
+!----------
   logical :: used                        ! return value of send_data diagnostics routine
   integer :: i,j,k,l
   type(land_tile_type), pointer :: tile
@@ -447,40 +454,83 @@ subroutine land_model_init &
 
   ! [6] initialize land model diagnostics -- must be before *_data_init so that
   ! *_data_init can write static fields if necessary
-  call land_diag_init( lnd%coord_glonb, lnd%coord_glatb, lnd%coord_glon, lnd%coord_glat, time, lnd%domain, &
-       id_lon, id_lat, id_band )
+!----------
+!ug support
+  call land_diag_init(lnd%coord_glon, &
+                      lnd%coord_glat, &
+                      time, &
+                      lnd_ug%domain, &
+                      id_lon, &
+                      id_lat, &
+                      id_band, &
+                      id_ug)
+!----------
+
   ! set the land diagnostic axes ids for the flux exchange
   land2cplr%axes = (/id_lon,id_lat/)
   ! send some static diagnostic fields to output
-  if ( id_cellarea > 0 ) used = send_data ( id_cellarea, lnd%cellarea, lnd%time )
-  if ( id_landarea > 0 ) used = send_data ( id_landarea, lnd%area, lnd%time )
-  if ( id_landfrac > 0 ) used = send_data ( id_landfrac, lnd%landfrac,     lnd%time )
-  if ( id_geolon_t > 0 ) used = send_data ( id_geolon_t, lnd%lon*180.0/PI, lnd%time )
-  if ( id_geolat_t > 0 ) used = send_data ( id_geolat_t, lnd%lat*180.0/PI, lnd%time )
+!----------
+!ug support
+  if (id_cellarea .gt. 0) then
+      used = send_data(id_cellarea, &
+                       lnd_ug%cellarea, &
+                       lnd%time)
+  endif
+ !This is never registered with register_diag_field or register_static_field.
+! if (id_landarea .gt. 0) then
+!     used = send_data(id_landarea, &
+!                      lnd_ug%area, &
+!                      lnd%time)
+! endif
+  if (id_landfrac .gt. 0) then
+      used = send_data(id_landfrac, &
+                       lnd_ug%landfrac, &
+                       lnd%time)
+  endif
+  if (id_geolon_t > 0) then
+      used = send_data(id_geolon_t, &
+                       lnd%lon*180.0/PI, &
+                       lnd%time)
+  endif
+  if (id_geolat_t > 0) then
+      used = send_data(id_geolat_t, &
+                       lnd%lat*180.0/PI, &
+                       lnd%time)
+  endif
+!----------
   ! CMOR variables
   if ( id_sftgif > 0 ) call send_cellfrac_data(id_sftgif,is_glacier)
-  if ( id_sftlf > 0 )  used = send_data(id_sftlf,lnd%landfrac*100, lnd%time)
-
+!----------
+!ug support
+  if (id_sftlf .gt. 0) then
+      used = send_data(id_sftlf, &
+                       lnd_ug%landfrac*100, &
+                       lnd%time)
+  endif
+!----------
   ! [7] initialize individual sub-models
+!----------
+!ug support
   if (predefined_tiles .eq. .False.)then
-   call hlsp_init ( id_lon, id_lat) ! Must be called before soil_init
-   call soil_init ( id_lon, id_lat, id_band, id_zfull)
+   call hlsp_init(id_ug) ! Must be called before soil_init
+   call soil_init(id_ug,id_band,id_zfull)
   else if (predefined_tiles .eq. .True.)then
-   call hlsp_init_predefined ( id_lon, id_lat) ! Must be called before soil_init
-   call soil_init_predefined ( id_lon, id_lat, id_band, id_zfull)
+   call hlsp_init_predefined(id_ug) ! Must be called before soil_init
+   call soil_init_predefined(id_ug,id_band,id_zfull)
   endif
-  call hlsp_hydro_init (id_lon, id_lat, id_zfull) ! Must be called after soil_init
-  call vegn_init ( id_lon, id_lat, id_band)
+  call hlsp_hydro_init(id_ug,id_zfull) ! Must be called after soil_init
+  call vegn_init(id_ug,id_band)
   if (predefined_tiles .eq. .False.)then
-   call lake_init ( id_lon, id_lat) 
+   call lake_init(id_ug)
   else if (predefined_tiles .eq. .True.)then
-   call lake_init_predefined ( id_lon, id_lat)
+   call lake_init_predefined(id_ug)
   endif
-  call glac_init ( id_lon, id_lat)
-  call snow_init ( id_lon, id_lat)
-  call cana_init ( id_lon, id_lat)
-  call topo_rough_init( lnd%time, lnd%lonb, lnd%latb, &
-       lnd%domain, lnd_ug%domain, id_lon, id_lat)
+  call glac_init(id_ug)
+  call snow_init()
+  call cana_init()
+  call topo_rough_init(lnd%time,lnd%lonb,lnd%latb, &
+                       lnd%domain,lnd_ug%domain,id_ug)
+!----------
   allocate (river_land_mask_sg(lnd%is:lnd%ie,lnd%js:lnd%je))
   allocate (missing_rivers_sg (lnd%is:lnd%ie,lnd%js:lnd%je))
   allocate (no_riv_sg         (lnd%is:lnd%ie,lnd%js:lnd%je))
@@ -492,9 +542,16 @@ subroutine land_model_init &
   missing_rivers_sg = lnd%landfrac.gt.0. .and. .not.river_land_mask_sg
   no_riv_sg = 0.
   where (missing_rivers_sg) no_riv_sg = 1.
-  if ( id_no_riv > 0 ) used = send_data( id_no_riv, no_riv_sg, lnd%time )
   allocate(no_riv(lnd_ug%ls:lnd_ug%le), missing_rivers(lnd_ug%ls:lnd_ug%le))
   call mpp_pass_SG_to_UG(lnd_ug%domain, no_riv_sg, no_riv)
+!----------
+!ug support
+  if (id_no_riv .gt. 0.) then
+      used = send_data(id_no_riv, &
+                       no_riv, &
+                       lnd%time)
+  endif
+!----------
   where(no_riv > 0.)
      missing_rivers = .true.
   else where
@@ -509,9 +566,12 @@ subroutine land_model_init &
   if (i_river_ice  == NO_TRACER) call error_mesg ('land_model_init','required river tracer for ice not found', FATAL)
   if (i_river_heat == NO_TRACER) call error_mesg ('land_model_init','required river tracer for heat not found', FATAL)
 
-  call land_transitions_init (id_lon, id_lat)
+!----------
+!ug support
+  call land_transitions_init(id_ug)
+  call land_tracer_driver_init(id_ug)
+!----------
 
-  call land_tracer_driver_init (id_lon, id_lat)
   ! [8] initialize boundary data
   ! [8.1] allocate storage for the boundary data
   call hlsp_config_check () ! Needs to be done after land_transitions_init and vegn_init
@@ -1393,11 +1453,34 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   ! send the accumulated diagnostics to the output
   call dump_tile_diag_fields(land_tile_map, lnd%time)
 
-  if (id_dis_liq > 0)  used = send_data_ug (id_dis_liq,  discharge_l, lnd%time)
-  if (id_dis_ice > 0)  used = send_data_ug (id_dis_ice,  discharge_c(:,i_river_ice), lnd%time)
-  if (id_dis_heat > 0) used = send_data_ug (id_dis_heat, discharge_c(:,i_river_heat), lnd%time)
-  if (id_dis_sink > 0) used = send_data_ug (id_dis_sink, discharge_sink, lnd%time)
-  if (id_dis_DOC > 0)  used = send_data_ug (id_dis_DOC,  discharge_c(:,i_river_DOC), lnd%time)
+!----------
+!ug support
+  if (id_dis_liq .gt. 0) then
+      used = send_data(id_dis_liq, &
+                       discharge_l, &
+                       lnd%time)
+  endif
+  if (id_dis_ice .gt. 0) then
+      used = send_data(id_dis_ice, &
+                       discharge_c(:,i_river_ice), &
+                       lnd%time)
+  endif
+  if (id_dis_heat .gt. 0) then
+      used = send_data(id_dis_heat, &
+                       discharge_c(:,i_river_heat), &
+                       lnd%time)
+  endif
+  if (id_dis_sink .gt. 0) then
+      used = send_data(id_dis_sink, &
+                       discharge_sink, &
+                       lnd%time)
+  endif
+  if (id_dis_DOC .gt. 0)  then
+      used = send_data(id_dis_DOC, &
+                       discharge_c(:,i_river_DOC), &
+                       lnd%time)
+  endif
+!----------
 
   ! send CMOR cell fraction fields
   call send_cellfrac_data(id_cropFrac,     is_crop)
@@ -3026,107 +3109,122 @@ end subroutine Lnd_stock_pe
 ! ============================================================================
 ! initialize horizontal axes for land grid so that all sub-modules can use them,
 ! instead of creating their own
-subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
-     id_lon, id_lat, id_band)
-  real, intent(in) :: &
-       clonb(:), clatb(:), & ! longitudes and latitudes of grid cells vertices,
-                             ! specified for the global grid
-       clon(:),  clat(:)     ! lon and lat of respective grid cell centers
-  type(time_type), intent(in) :: time ! initial time for diagnostic fields
-  type(domain2d), intent(in)  :: domain
-  integer, intent(out) :: &
-       id_lon, id_lat, id_band   ! IDs of respective diag. manager axes
+!----------
+!ug support
+subroutine land_diag_init(clon, &
+                          clat, &
+                          time, &
+                          domain, &
+                          id_lon, &
+                          id_lat, &
+                          id_band, &
+                          id_ug)
+ !Inputs/outputs
+  real,dimension(:),intent(in) :: clon    !<Longitude of grid cell centers.
+  real,dimension(:),intent(in) :: clat    !<Latitude of grid cell centers
+  type(time_type),intent(in)   :: time    !<Initial time for diagnostic fields.
+  type(domainUG), intent(in)   :: domain  !<
+  integer,intent(out)          :: id_lon  !<"grid_xt" axis id.
+  integer,intent(out)          :: id_lat  !<"grid_yt" axis id.
+  integer,intent(out)          :: id_band !<"band" axis id.
+  integer,intent(out)          :: id_ug   !<Unstructured axis id.
+!----------
 
   ! ---- local vars ----------------------------------------------------------
-  integer :: id_lonb, id_latb ! IDs for cell boundaries
   integer :: nlon, nlat       ! sizes of respective axes
-  integer :: axes(2)          ! array of axes for 2-D fields
+!----------
+!ug support
+  integer,dimension(1)             :: axes        !Array of axes for 1-D unstructured fields.
+  integer                          :: ug_dim_size !Size of the unstructured axis
+  integer,dimension(:),allocatable :: ug_dim_data !Unstructured axis data.
+  integer                          :: id_lon_ug   !Unstructured longitude axis.
+  integer                          :: id_lat_ug   !Unstructured latituted axis.
+!----------
   integer :: i
   character(32) :: name       ! tracer name
-
-  nlon = size(clon)
-  nlat = size(clat)
 
 !----------
 !ug support
 
-  call mpp_get_UG_compute_domain(lnd_ug%domain, &
-                                 ug_dim_size)
+ !Register the unstructured axis for the unstructured domain.
+  call mpp_get_UG_compute_domain(domain, &
+                                 size=ug_dim_size)
   if (.not. allocated(ug_dim_data)) then
       allocate(ug_dim_data(ug_dim_size))
   endif
-  call mpp_get_UG_domain_grid_index(lnd_ug%domain, &
+  call mpp_get_UG_domain_grid_index(domain, &
                                     ug_dim_data)
   id_ug = diag_axis_init("unstructured_axis",  &
                          real(ug_dim_data), &
                          "none", &
                          "U", &
                          long_name="unstructured_indices", &
-                         domain=lnd_ug%domain)
+                         set_name="land", &
+                         DomainU=domain)
   call diag_axis_add_attribute(id_ug, &
                                "compress", &
-                               "grid_xt grid_yt")
-
-  id_lon = diag_axis_init("grid_xt", &
-                          
-
-  if (mpp_get_ntile_count(lnd%domain) .eq. 1) then
-
-     !Grid has just one tile, so we assume that the grid is regular lat-lon
-     !Define longitude axes and its edges
-      id_lonb = diag_axis_init('lonb', &
-                               clonb, &
-                               'degrees_E', &
-                               'X', &
-                               'longitude edges', &
-                               set_name='land', &
-                               domain2=domain)
-      id_lon = diag_axis_init('lon', &
-                              clon, &
-                              'degrees_E', &
-                              'X',  &
-                              'longitude', &
-                              set_name='land', &
-                              edges=id_lonb, &
-                              domain2=domain)
-
-     !Define latitude axes and its edges
-      id_latb = diag_axis_init('latb', &
-                               clatb, &
-                               'degrees_N', &
-                               'Y', &
-                               'latitude edges', &
-                               set_name='land', &
-                               domain2=domain)
-      id_lat = diag_axis_init('lat', &
-                              clat, &
-                              'degrees_N', &
-                              'Y', &
-                              'latitude', &
-                              set_name='land', &
-                              edges=id_latb, &
-                              domain2=domain)
-  else
-      id_lon = diag_axis_init('grid_xt', &
-                              (/(real(i),i=1,nlon)/), 'degrees_E', 'X', &
-          'T-cell longitude', set_name='land',  domain2=domain, aux='geolon_t' )
-     id_lat = diag_axis_init ( 'grid_yt', (/(real(i),i=1,nlat)/), 'degrees_N', 'Y', &
-          'T-cell latitude', set_name='land',  domain2=domain, aux='geolat_t' )
+                               "grid_xt_ug grid_yt_ug")
+  if (allocated(ug_dim_data)) then
+      deallocate(ug_dim_data)
   endif
+
+ !Register a "grid_xt" and "grid_yt" axis, which are required to
+ !by the post-processing so that the output files may be
+ !"decompressed" (converted from unstructured back to lon-lat).
+ !The "grid_xt" and "grid_yt" axes should run from 1 to the
+ !total number of x- and y-points on a domain tile.  It is assumed
+ !that all domain tiles contain the same number of x- and y-points.
+  nlon = size(clon)
+  id_lon_ug = diag_axis_init("grid_xt_ug", &
+                             (/(real(i),i=1,nlon)/), &
+                             "degrees_E", &
+                             "X", &
+                             long_name="T-cell longitude", &
+                             set_name="land", &
+                             aux="geolon_t")
+  nlat = size(clat)
+  id_lat_ug = diag_axis_init("grid_yt_ug", &
+                             (/(real(i),i=1,nlat)/), &
+                             "degrees_N", &
+                             "Y", &
+                             long_name="T-cell latitude", &
+                             set_name="land", &
+                             aux="geolat_t")
+
+ !Register longitude and latitude axes for the river diagnostics.
+  id_lon = diag_axis_init("grid_xt", &
+                          (/(real(i),i=1,nlon)/), &
+                          "degrees_E", &
+                          "X", &
+                          long_name="T-cell longitude", &
+                          set_name="land", &
+                          domain2=lnd%domain, &
+                          aux="geolon_t")
+  id_lat = diag_axis_init("grid_yt", &
+                          (/(real(i),i=1,nlat)/), &
+                          "degrees_N", &
+                          "Y", &
+                          long_name="T-cell latitude", &
+                          set_name="land", &
+                          domain2=lnd%domain, &  !remove this line later.
+                          aux="geolat_t")
 !----------
+
   id_band = diag_axis_init (                                                &
        'band',  (/1.0,2.0/), 'unitless', 'Z', &
        'spectral band', set_name='land' )
 
-  ! set up an array of axes, for convenience
-! axes = (/id_lon, id_lat/)
-  axes = (/id_ug/)
+!----------
+!ug support
+ !Set up an array of axes ids, for convenience.
+  axes(1) = id_ug
+!----------
 
   ! register auxiliary coordinate variables
 
-  id_geolon_t = register_static_field ( module_name, 'geolon_t', axes, &
+  id_geolon_t = register_static_field ( module_name, 'geolon_t', (/id_lon_ug,id_lat_ug/), &
        'longitude of grid cell centers', 'degrees_E', missing_value = -1.0e+20 )
-  id_geolat_t = register_static_field ( module_name, 'geolat_t', axes, &
+  id_geolat_t = register_static_field ( module_name, 'geolat_t', (/id_lon_ug,id_lat_ug/), &
        'latitude of grid cell centers', 'degrees_N', missing_value = -1.0e+20 )
 
   ! register static diagnostic fields
@@ -3135,6 +3233,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
        'total area in grid cell', 'm2', missing_value=-1.0 )
   id_landfrac = register_static_field ( module_name, 'land_frac', axes, &
        'fraction of land in grid cell','unitless', missing_value=-1.0, area=id_cellarea)
+
   id_no_riv = register_static_field ( module_name, 'no_riv', axes, &
        'indicator of land without rivers','unitless', missing_value=-1.0 )
 
@@ -3147,7 +3246,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
 
   ! register regular (dynamic) diagnostic fields
 
-  id_ntiles = register_tiled_diag_field(module_name,'ntiles',axes,  &
+  id_ntiles = register_tiled_diag_field(module_name,'ntiles', axes,  &
        time, 'number of tiles', 'unitless', missing_value=-1.0, op=OP_SUM)
 
 
@@ -3383,54 +3482,60 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
              'canopy-air CO2 dry volumetric mixing ratio', 'mol CO2/mol air', missing_value=-1.0 )
   id_fco2    = register_tiled_diag_field ( module_name, 'fco2', axes, time, &
              'flux of CO2 to canopy air', 'kg C/(m2 s)', missing_value=-1.0 )
-  id_swdn_dir = register_tiled_diag_field ( module_name, 'swdn_dir', (/id_lon,id_lat,id_band/), time, &
-       'downward direct short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0)
-  id_swdn_dif = register_tiled_diag_field ( module_name, 'swdn_dif', (/id_lon,id_lat,id_band/), time, &
-       'downward diffuse short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0)
-  id_swup_dir = register_tiled_diag_field ( module_name, 'swup_dir', (/id_lon,id_lat,id_band/), time, &
-       'direct short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=-999.0)
-  id_swup_dif = register_tiled_diag_field ( module_name, 'swup_dif', (/id_lon,id_lat,id_band/), time, &
-       'diffuse short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=-999.0)
+!----------
+!ug support
+   id_swdn_dir = register_tiled_diag_field ( module_name, 'swdn_dir', (/id_ug,id_band/), time, &
+        'downward direct short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0)
+   id_swdn_dif = register_tiled_diag_field ( module_name, 'swdn_dif', (/id_ug,id_band/), time, &
+        'downward diffuse short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0)
+   id_swup_dir = register_tiled_diag_field ( module_name, 'swup_dir', (/id_ug,id_band/), time, &
+        'direct short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=-999.0)
+   id_swup_dif = register_tiled_diag_field ( module_name, 'swup_dif', (/id_ug,id_band/), time, &
+        'diffuse short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=-999.0)
+!----------
   id_lwdn = register_tiled_diag_field ( module_name, 'lwdn', axes, time, &
        'downward long-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0)
   id_vegn_cover = register_tiled_diag_field ( module_name, 'vegn_cover', axes, time, &
              'fraction covered by vegetation', missing_value=-1.0 )
   id_cosz = register_tiled_diag_field ( module_name, 'coszen', axes, time, &
        'cosine of zenith angle', missing_value=-2.0 )
+!----------
+!ug support
   id_albedo_dir = register_tiled_diag_field ( module_name, 'albedo_dir', &
-       (/id_lon,id_lat,id_band/), time, &
+       (/id_ug,id_band/), time, &
        'land surface albedo for direct light', missing_value=-1.0 )
   id_albedo_dif = register_tiled_diag_field ( module_name, 'albedo_dif', &
-       (/id_lon,id_lat,id_band/), time, &
+       (/id_ug,id_band/), time, &
        'land surface albedo for diffuse light', missing_value=-1.0 )
   id_vegn_refl_dir = register_tiled_diag_field(module_name, 'vegn_refl_dir', &
-       (/id_lon, id_lat, id_band/), time, &
+       (/id_ug,id_band/), time, &
        'black-background canopy reflectivity for direct light',missing_value=-1.0)
   id_vegn_refl_dif = register_tiled_diag_field(module_name, 'vegn_refl_dif', &
-       (/id_lon, id_lat, id_band/), time, &
+       (/id_ug,id_band/), time, &
        'black-background canopy reflectivity for diffuse light',missing_value=-1.0)
   id_vegn_refl_lw = register_tiled_diag_field ( module_name, 'vegn_refl_lw', axes, time, &
        'canopy reflectivity for thermal radiation', missing_value=-1.0)
   id_vegn_tran_dir = register_tiled_diag_field(module_name, 'vegn_tran_dir', &
-       (/id_lon, id_lat, id_band/), time, &
+       (/id_ug,id_band/), time, &
        'part of direct light that passes through canopy unscattered',missing_value=-1.0)
   id_vegn_tran_dif = register_tiled_diag_field(module_name, 'vegn_tran_dif', &
-       (/id_lon, id_lat, id_band/), time, &
+       (/id_ug,id_band/), time, &
        'black-background canopy transmittance for diffuse light',missing_value=-1.0)
   id_vegn_tran_lw = register_tiled_diag_field ( module_name, 'vegn_tran_lw', axes, time, &
        'canopy transmittance for thermal radiation', missing_value=-1.0)
   id_vegn_sctr_dir = register_tiled_diag_field(module_name, 'vegn_sctr_dir', &
-       (/id_lon, id_lat, id_band/), time, &
+       (/id_ug,id_band/), time, &
        'part of direct light scattered downward by canopy',missing_value=-1.0)
   id_subs_refl_dir = register_tiled_diag_field(module_name, 'subs_refl_dir', &
-       (/id_lon, id_lat, id_band/), time, &
+       (/id_ug,id_band/), time, &
        'substrate reflectivity for direct light',missing_value=-1.0)
   id_subs_refl_dif = register_tiled_diag_field(module_name, 'subs_refl_dif', &
-       (/id_lon, id_lat, id_band/), time, &
+       (/id_ug,id_band/), time, &
        'substrate reflectivity for diffuse light',missing_value=-1.0)
   id_subs_emis = register_tiled_diag_field(module_name, 'subs_emis', &
-       (/id_lon, id_lat/), time, &
+       axes, time, &
        'substrate emissivity for long-wave radiation',missing_value=-1.0)
+!----------
   id_grnd_T = register_tiled_diag_field ( module_name, 'Tgrnd', axes, time, &
        'ground surface temperature', 'degK', missing_value=-1.0 )
   id_total_C = register_tiled_diag_field ( module_name, 'Ctot', axes, time, &
@@ -3555,7 +3660,12 @@ subroutine send_cellfrac_data(id, f)
         frac(l) = frac(l)+tile%frac*100.0*lnd_ug%landfrac(l)
      endif
   enddo
-  used=send_data_ug(id, frac, lnd%time)
+!----------
+!ug support
+  used = send_data(id, &
+                   frac, &
+                   lnd%time)
+!----------
 end subroutine send_cellfrac_data
 
 ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

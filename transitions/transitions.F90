@@ -52,7 +52,7 @@ use land_tile_mod, only : land_tile_map, &
      get_tile_water, land_tile_carbon, land_tile_heat
 use land_tile_io_mod, only : print_netcdf_error
 
-use land_data_mod, only : land_data_type, lnd, log_version, lnd_ug, send_data_ug
+use land_data_mod, only : land_data_type, lnd, log_version, lnd_ug
 use vegn_tile_mod, only : vegn_tile_type, vegn_tile_bwood
 use vegn_harvesting_mod, only : vegn_cut_forest
 
@@ -178,8 +178,11 @@ namelist/landuse_nml/do_landuse_change, input_file, state_file, static_file, dat
 contains ! ###################################################################
 
 ! ============================================================================
-subroutine land_transitions_init(id_lon, id_lat)
-  integer, intent(in) :: id_lon, id_lat ! the IDs of land diagnostic axes
+!----------
+!ug support
+subroutine land_transitions_init(id_ug)
+  integer,intent(in) :: id_ug !<Unstructured axis id.
+!----------
 
   ! ---- local vars
   integer        :: unit, ierr, io, ncid1
@@ -283,9 +286,12 @@ subroutine land_transitions_init(id_lon, id_lat)
      if(landuse_name(k2)=='')cycle
      ! construct a name of input field and register the field
      fieldname = trim(landuse_name(k1))//'2'//trim(landuse_name(k2))
-     diag_ids(k1,k2) = register_diag_field(diag_mod_name,fieldname,(/id_lon,id_lat/), lnd%time, &
+!----------
+!ug support
+     diag_ids(k1,k2) = register_diag_field(diag_mod_name,fieldname,(/id_ug/), lnd%time, &
           'rate of transition from '//trim(landuse_longname(k1))//' to '//trim(landuse_longname(k2)),&
           units='1/year', missing_value=-1.0)
+!----------
   enddo
   enddo
 
@@ -1169,7 +1175,12 @@ subroutine add_to_transitions(frac, time0,time1,k1,k2,tran)
   if(diag_ids(k1,k2)>0) then
      call get_time(time1-time0, sec,days)
      part_of_year = (days+sec/86400.0)/days_in_year(time0)
-     used = send_data_ug(diag_ids(k1,k2),frac/part_of_year,time1)
+!----------
+!ug support
+     used = send_data(diag_ids(k1,k2), &
+                      frac/part_of_year, &
+                      time1)
+!----------
   endif
 
 end subroutine add_to_transitions

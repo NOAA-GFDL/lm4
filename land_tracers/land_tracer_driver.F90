@@ -76,8 +76,11 @@ type(tracer_data_type), allocatable :: trdata(:)
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
-subroutine land_tracer_driver_init(id_lon, id_lat)
-  integer, intent(in) :: id_lon, id_lat  ! IDs of longitude and latitude diagnostic axis
+!----------
+!ug support
+subroutine land_tracer_driver_init(id_ug)
+  integer,intent(in) :: id_ug !<Unstructured axis id.
+!----------
 
   integer :: tr ! tracer index
   real    :: value ! temporary storage for parsing input
@@ -99,7 +102,11 @@ subroutine land_tracer_driver_init(id_lon, id_lat)
   trdata(ico2)%is_generic   = .FALSE.
 
   ! initialize non-generic tracers, e.g.:
-  ! call land_dust_init(id_lon, id_lat, trdata(:)%is_generic)
+!----------
+!ug support
+  ! call land_dust_init(id_ug,trdata(:)%is_generic)
+!----------
+
   ! NOTE that (1) the non-generic tracer init must skip all non-generic tracers
   ! that have already been initialized (in case there is a conflict), and
   ! (2) it must set trdata(:)%is_generic to FALSE for the tracers it claims
@@ -151,41 +158,44 @@ subroutine land_tracer_driver_init(id_lon, id_lat)
 
      funits = flux_units(units)
      trdata(tr)%id_flux_atm = &
+!----------
+!ug support
        register_tiled_diag_field(diag_name, trim(name)//'_flux_atm', &
-       (/id_lon,id_lat/),  lnd%time, trim(name)//' flux to the atmosphere', &
+       (/id_ug/),  lnd%time, trim(name)//' flux to the atmosphere', &
        trim(funits), missing_value=-1.0)
      ! TODO: verify units of dfdtr
      trdata(tr)%id_dfdtr = &
        register_tiled_diag_field(diag_name, trim(name)//'_dfdtr', &
-       (/id_lon,id_lat/),  lnd%time,'derivative of '//trim(name)//' flux to the atmosphere', &
+       (/id_ug/),  lnd%time,'derivative of '//trim(name)//' flux to the atmosphere', &
        trim(funits), missing_value=-1.0)
      if (trdata(tr)%do_deposition) then
         ! TODO: initialize parameters of generic dry deposition here
 
         trdata(tr)%id_ddep = &
           register_tiled_diag_field(diag_name, trim(name)//'_ddep', &
-          (/id_lon,id_lat/),  lnd%time, trim(name)//' dry deposition', 'kg/(m2 s)', &
+          (/id_ug/),  lnd%time, trim(name)//' dry deposition', 'kg/(m2 s)', &
           missing_value=-1.0)
         trdata(tr)%id_con_v_lam = &
           register_tiled_diag_field(diag_name, trim(name)//'_con_v_lam', &
-          (/id_lon,id_lat/),  lnd%time, 'quasi-laminar conductance between canopy and canopy air for '//trim(name), &
+          (/id_ug/),  lnd%time, 'quasi-laminar conductance between canopy and canopy air for '//trim(name), &
           'm/s', missing_value=-1.0)
         trdata(tr)%id_con_g_lam = &
           register_tiled_diag_field(diag_name, trim(name)//'_con_g_lam', &
-          (/id_lon,id_lat/),  lnd%time, 'quasi-laminar conductance between ground and canopy air for '//trim(name), &
+          (/id_ug/),  lnd%time, 'quasi-laminar conductance between ground and canopy air for '//trim(name), &
           'm/s', missing_value=-1.0)
         trdata(tr)%id_con_v = &
           register_tiled_diag_field(diag_name, trim(name)//'_con_v', &
-          (/id_lon,id_lat/),  lnd%time, 'total conductance between canopy and canopy air for'//trim(name), &
+          (/id_ug/),  lnd%time, 'total conductance between canopy and canopy air for'//trim(name), &
           'm/s', missing_value=-1.0)
         trdata(tr)%id_con_g = &
           register_tiled_diag_field(diag_name, trim(name)//'_con_g', &
-          (/id_lon,id_lat/),  lnd%time, 'total conductance between ground and canopy air for '//trim(name), &
+          (/id_ug/),  lnd%time, 'total conductance between ground and canopy air for '//trim(name), &
           'm/s', missing_value=-1.0)
         trdata(tr)%id_conc = &
           register_tiled_diag_field(diag_name, trim(name), &
-          (/id_lon,id_lat/),  lnd%time, 'concentration or '//trim(name)//' in canopy air', &
+          (/id_ug/),  lnd%time, 'concentration or '//trim(name)//' in canopy air', &
           units, missing_value=-1.0)
+!----------
      endif
   enddo
   module_is_initialized = .TRUE.

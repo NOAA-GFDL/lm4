@@ -124,9 +124,11 @@ end subroutine read_glac_namelist
 
 ! ============================================================================
 ! initialize glacier model
-subroutine glac_init ( id_lon, id_lat )
-  integer, intent(in)  :: id_lon  ! ID of land longitude (X) axis
-  integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
+!----------
+!ug support
+subroutine glac_init (id_ug)
+  integer, intent(in)  :: id_ug !<Unstructured axis id.
+!----------
 
   ! ---- local vars
   type(land_tile_enum_type)     :: te,ce ! last and current tile list elements
@@ -188,7 +190,10 @@ subroutine glac_init ( id_lon, id_lat )
           FATAL)
   endif
 
-  call glac_diag_init ( id_lon, id_lat, zfull(1:num_l), zhalf(1:num_l+1) )
+!----------
+!ug support
+  call glac_diag_init (id_ug, zfull(1:num_l), zhalf(1:num_l+1) )
+!----------
 
 end subroutine glac_init
 
@@ -805,14 +810,19 @@ ENDIF  !************************************************************************
 end subroutine glac_step_2
 
 ! ============================================================================
-subroutine glac_diag_init ( id_lon, id_lat, zfull, zhalf )
-  integer,         intent(in) :: id_lon  ! ID of land longitude (X) axis
-  integer,         intent(in) :: id_lat  ! ID of land longitude (X) axis
+!----------
+!ug support
+subroutine glac_diag_init (id_ug, zfull, zhalf )
+  integer,         intent(in) :: id_ug   !<Unstructured axis id.
   real,            intent(in) :: zfull(:)! Full levels, m
   real,            intent(in) :: zhalf(:)! Half levels, m
+!----------
 
   ! ---- local vars ----------------------------------------------------------
-  integer :: axes(3)
+!----------
+!ug support
+  integer :: axes(2)
+!----------
 
   ! define vertical axis
   id_zhalf = diag_axis_init ( &
@@ -822,7 +832,10 @@ subroutine glac_diag_init ( id_lon, id_lat, zfull, zhalf )
        edges=id_zhalf )
 
   ! define array of axis indices
-  axes = (/ id_lon, id_lat, id_zfull /)
+!----------
+!ug support
+  axes = (/id_ug,id_zfull/)
+!----------
 
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('glac')
@@ -835,18 +848,21 @@ subroutine glac_diag_init ( id_lon, id_lat, zfull, zhalf )
   id_temp  = register_tiled_diag_field ( module_name, 'glac_T',  axes,       &
        lnd%time, 'temperature',            'degK',  missing_value=-100.0 )
   if (.not.lm2) then
-     id_ie  = register_tiled_diag_field ( module_name, 'glac_rie',  axes(1:2),  &
+!----------
+!ug support
+     id_ie  = register_tiled_diag_field ( module_name, 'glac_rie',  axes(1:1),  &
           lnd%time, 'inf exc runf',            'kg/(m2 s)',  missing_value=-100.0 )
-     id_sn  = register_tiled_diag_field ( module_name, 'glac_rsn',  axes(1:2),  &
+     id_sn  = register_tiled_diag_field ( module_name, 'glac_rsn',  axes(1:1),  &
           lnd%time, 'satn runf',            'kg/(m2 s)',  missing_value=-100.0 )
-     id_bf  = register_tiled_diag_field ( module_name, 'glac_rbf',  axes(1:2),  &
+     id_bf  = register_tiled_diag_field ( module_name, 'glac_rbf',  axes(1:1),  &
           lnd%time, 'baseflow',            'kg/(m2 s)',  missing_value=-100.0 )
-     id_hie  = register_tiled_diag_field ( module_name, 'glac_hie',  axes(1:2), &
+     id_hie  = register_tiled_diag_field ( module_name, 'glac_hie',  axes(1:1), &
           lnd%time, 'heat ie runf',            'W/m2',  missing_value=-100.0 )
-     id_hsn  = register_tiled_diag_field ( module_name, 'glac_hsn',  axes(1:2), &
+     id_hsn  = register_tiled_diag_field ( module_name, 'glac_hsn',  axes(1:1), &
           lnd%time, 'heat sn runf',            'W/m2',  missing_value=-100.0 )
-     id_hbf  = register_tiled_diag_field ( module_name, 'glac_hbf',  axes(1:2), &
+     id_hbf  = register_tiled_diag_field ( module_name, 'glac_hbf',  axes(1:1), &
           lnd%time, 'heat bf runf',            'W/m2',  missing_value=-100.0 )
+!----------
   endif
 
 end subroutine glac_diag_init
