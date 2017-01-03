@@ -256,6 +256,7 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   if(psyn < 0.and.stomatal_cond>b) stomatal_cond=b
   if (is_watch_point()) then
      __DEBUG4__(w_scale, stomatal_cond, psyn, b)
+     __DEBUG2__(gs,stomatal_cond)
   endif
   ! store the calculated photosynthesis and photorespiration for future use
   ! in carbon_int
@@ -453,8 +454,9 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   acl  = -Resp/lai
 
   if (is_watch_point()) then
-     __DEBUG3__(gs, apot, acl)
+     __DEBUG4__(gs, apot, acl, ds)
   endif
+  !write (*,*) 'apot  ',apot,  'ag_rb ', ag_rb,'vm ', vm, 'ci_f ', (ci-capgam)/(ci+coef1)
 end subroutine gs_Leuning
 
 
@@ -543,6 +545,7 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
   else
      DEtDpl = rho * fdry * gb/(gs+gb) * ( gs*qsat*Vm/(Rugas*cc%Tv)*RHi +      &
                                   DgsDpl*gb/(gs+gb)*(qsat*Rhi-cana_q)  )
+     !dTl derivative is not used
      DEtDTl = rho * fdry * gs*gb/(gs+gb)*RHi*(DqsatDT - qsat*cc%psi_l*Vm/(Rugas*vegn_T**2))
 
      ! TODO: generalize for linear water uptake
@@ -597,6 +600,9 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
                                              - gammaU((cc%psi_l/sp%dl)**sp%cl, 1/sp%cl))
      DulDpx =  cc%Kli*exp(-(cc%psi_x/sp%dl)**sp%cl)
      DulDpl = -cc%Kli*exp(-(cc%psi_l/sp%dl)**sp%cl)
+
+     cc%Kli = ul0/(cc%psi_x-cc%psi_l) !ens added this line
+     cc%Kxi = ux0/(   psi_r-cc%psi_x) !ens added this line
   
      ! do forward elimination
      gamma_r = 1/(DuxDpr - DurDpr)
@@ -623,11 +629,12 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
   call check_var_range(cc%psi_l,-HUGE(1.0),0.0,'vegn_hydraulics','psi_l',WARNING)
   call check_var_range(cc%psi_x,-HUGE(1.0),0.0,'vegn_hydraulics','psi_x',WARNING)
   call check_var_range(cc%psi_r,-HUGE(1.0),0.0,'vegn_hydraulics','psi_r',WARNING)
-
   w_scale = exp(-(cc%psi_l/sp%dl)**sp%cl)
   if (is_watch_point()) then
 !     __DEBUG1__(ur0_)
 !     __DEBUG1__(DurDpr_)
+     __DEBUG3__(cc%Kli, cc%Kxi, CSAsw)
+     __DEBUG3__(sp%alphaCSASW, cc%DBH, sp%thetaCSASW)
      __DEBUG2__(ur0, DurDpr)
      __DEBUG3__(ux0, DuxDpr, DuxDpx)
      __DEBUG3__(ul0, DulDpx, DulDpl)
