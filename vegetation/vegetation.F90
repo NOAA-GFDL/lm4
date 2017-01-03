@@ -2302,20 +2302,20 @@ subroutine read_remap_species(restart)
   type(land_tile_enum_type)     :: te,ce ! current and tail tile list elements
   type(land_tile_type), pointer :: tile  ! pointer to current tile
 
-  if (field_exists(restart, 'species_names')) then
+  if (.not.field_exists(restart, 'species_names')) then
      call error_mesg('vegn_init','variable "species_names" is not found in the restart, not remapping species',NOTE)
      return
      ! TODO: perhaps we still need to remap in this case, but using the prescribed
      ! list of LM3 species 
   endif
 
-  nsp = spnames_len(2)
-  allocate(text(spnames_len(1),0:nsp), spnames(0:nsp-1), sptable(0:nsp-1))
   call get_text_data(restart, 'species_names', text)
+  nsp = size(text,2)
+  allocate(spnames(0:nsp-1), sptable(0:nsp-1))
   sptable(:) = -1
   do i = 0, nsp-1
      ! convert character array to strings
-     call array2str(text(:,i),spnames(i))
+     call array2str(text(:,i+1),spnames(i))
      ! find corresponding species in the spdata array
      do sp = 0,size(spdata)-1
          if (trim(spdata(sp)%name)==trim(spnames(i))) then

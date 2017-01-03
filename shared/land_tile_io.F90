@@ -661,16 +661,22 @@ subroutine get_scalar_data(restart,varname,datum)
   endif
 end subroutine get_scalar_data
 
-subroutine get_text_data(restart,varname,datum)
+subroutine get_text_data(restart,varname,text)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
-  character,        intent(out) :: datum(:,:)
+  character, allocatable, intent(out) :: text(:,:)
+
+  integer :: dimlens(NF_MAX_VAR_DIMS), ndims
 
   if (new_land_io) then
      ! call read_data(restart%basename,varname,datum,domain=lnd%domain)
      call error_mesg('get_text_data','does not work with new io yet', FATAL)
   else
-     __NF_ASRT__(nfu_get_var(restart%ncid,varname,datum))
+     __NF_ASRT__(nfu_inq_var(restart%ncid,varname,dimlens=dimlens,ndims=ndims))
+     if (ndims==1) dimlens(2) = 1
+     if (ndims>2) call error_mesg('get_text_data','input text has more than two dimensions',FATAL)
+     allocate(text(dimlens(1),dimlens(2)))
+     __NF_ASRT__(nfu_get_var(restart%ncid,varname,text))
   endif
 end subroutine get_text_data
 
