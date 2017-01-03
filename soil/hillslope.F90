@@ -548,9 +548,8 @@ end subroutine retrieve_hlsp_indices
 
 ! ============================================================================
 ! initialize hillslope model
-subroutine hlsp_init ( id_lon, id_lat )
-  integer, intent(in)  :: id_lon  ! ID of land longitude (X) axis
-  integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
+subroutine hlsp_init(id_ug)
+  integer,intent(in) :: id_ug !<Unstructured axis id.
 
   ! ---- local vars
   integer :: unit         ! unit for various i/o
@@ -593,7 +592,7 @@ subroutine hlsp_init ( id_lon, id_lat )
   end if
 
   ! initialize hillslope-dependent diagnostic fields
-!  call hlsp_diag_init ( id_lon, id_lat )
+  call hlsp_diag_init(id_ug)
 
   ! -------- initialize state --------
   lis = lnd%ls
@@ -779,9 +778,8 @@ end subroutine hlsp_init
 
 ! ============================================================================
 ! initialize hillslope model
-subroutine hlsp_init_predefined ( id_lon, id_lat )
-  integer, intent(in)  :: id_lon  ! ID of land longitude (X) axis  
-  integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
+subroutine hlsp_init_predefined(id_ug)
+  integer,intent(in) :: id_ug !<Unstructured axis id.
 
   ! ---- local vars
   integer :: unit         ! unit for various i/o
@@ -797,7 +795,7 @@ subroutine hlsp_init_predefined ( id_lon, id_lat )
   module_is_initialized = .TRUE.
 
   ! initialize hillslope-dependent diagnostic fields
-  call hlsp_diag_init ( id_lon, id_lat )
+  call hlsp_diag_init(id_ug)
 
   call open_land_restart(restart,hlsp_rst_ifname,restart_exists)
   if (restart_exists) then
@@ -859,114 +857,14 @@ subroutine hlsp_init_predefined ( id_lon, id_lat )
 end subroutine hlsp_init_predefined
 
 ! ============================================================================
-! initialize hillslope model (Predefined tiles)
-!subroutine hlsp_init_predefined ( id_lon, id_lat)
-!
-!  integer, intent(in)  :: id_lon  ! ID of land longitude (X) axis  
-!  integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
-!
-!  ! ---- local vars
-!  type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
-!  type(land_tile_type), pointer :: tile   ! pointer to current tile
-!  integer :: unit         ! unit for various i/o
-!  character(len=256) :: restart_file_name, mesg
-!  logical :: restart_exists
-!  logical :: found
-!  integer :: siz(4), tsize
-!  integer, allocatable :: i0d(:), idx(:)
-!
-!  ! change the initialization flag to true
-!  module_is_initialized = .TRUE.
-!
-!  ! initialize hillslope-dependent diagnostic fields
-!  call hlsp_diag_init ( id_lon, id_lat )
-!
-!  call get_input_restart_name(hlsp_rst_ifname,restart_exists,restart_file_name)
-!  if (restart_exists) then
-!     if (new_land_io) then
-!        ! fms read routine expect the "original" restart file name, not the one
-!        ! modified with the get_input_restart_name
-!        restart_file_name = hlsp_rst_ifname
-!        call error_mesg('vegn_init', 'Using new hlsp restart read', NOTE)
-!        call get_field_size(restart_file_name, 'tile_index', siz, field_found=found, domain=lnd_sg%domain)
-!        if (.not.found) call error_mesg(trim(module_name), 'tile axis not found in '//trim(restart_file_name), FATAL)
-!        tsize = siz(1)
-!        allocate(idx(tsize), i0d(tsize))
-!        call read_compressed(restart_file_name,'tile_index',idx, domain=lnd_sg%domain, timelevel=1)
-!        call read_compressed(restart_file_name,'HIDX_J',i0d, domain=lnd_sg%domain, timelevel=1)
-!        call assemble_tiles(soil_hidx_j_ptr,idx,i0d)
-!        call read_compressed(restart_file_name,'HIDX_K',i0d, domain=lnd_sg%domain, timelevel=1)
-!        call assemble_tiles(soil_hidx_k_ptr,idx,i0d)
-!     else
-!        call error_mesg(module_name, 'hlsp_init, '// &
-!             'reading NetCDF restart "'//trim(restart_file_name)//'"', &
-!             NOTE)
-!        __NF_ASRT__(nf_open(restart_file_name,NF_NOWRITE,unit))
-!        call read_tile_data_i0d_fptr(unit, 'HIDX_J'       , soil_hidx_j_ptr  )
-!        call read_tile_data_i0d_fptr(unit, 'HIDX_K'       , soil_hidx_k_ptr  )
-!        __NF_ASRT__(nf_close(unit))     
-!        if (cold_start) &
-!           call error_mesg(module_name, 'hlsp_init: coldfracs subroutine called even though restart file '// &
-!                                'exists! Inconsistency of "cold_start" in hillslope_mod.', FATAL)
-!     endif
-!  else
-!     call error_mesg(module_name, 'hlsp_init: '// &
-!          'cold-starting hillslope model',&
-!          NOTE)
-!  endif
-!
-!  ! ---- static [for now] diagnostic section
-!  ! List of fields:
-!   !id_soil_e_depth, id_microtopo, id_tile_hlsp_length, id_tile_hlsp_slope, &
-!   !id_tile_hlsp_elev, id_tile_hlsp_hpos, id_tile_hlsp_width, id_transm_bedrock, &
-!   !id_hidx_j, id_hidx_k
-!   ! soil_e_depth and k_sat_gw will be done in soil_init.
-!   call send_tile_data_i0d_fptr(id_hidx_j,         land_tile_map,     soil_hidx_j_ptr)
-!   call send_tile_data_i0d_fptr(id_hidx_k,         land_tile_map,     soil_hidx_k_ptr)
-!!   call send_tile_data_r0d_fptr(id_soil_e_depth,   land_tile_map,     soil_soil_e_depth_ptr)
-!   call send_tile_data_r0d_fptr(id_microtopo,      land_tile_map,     soil_microtopo_ptr)
-!   call send_tile_data_r0d_fptr(id_tile_hlsp_length,land_tile_map,    soil_tile_hlsp_length_ptr)
-!   call send_tile_data_r0d_fptr(id_tile_hlsp_slope, land_tile_map,    soil_tile_hlsp_slope_ptr)
-!   call send_tile_data_r0d_fptr(id_tile_hlsp_elev,  land_tile_map,    soil_tile_hlsp_elev_ptr)
-!   call send_tile_data_r0d_fptr(id_tile_hlsp_hpos,  land_tile_map,    soil_tile_hlsp_hpos_ptr)
-!   call send_tile_data_r0d_fptr(id_tile_hlsp_width, land_tile_map,    soil_tile_hlsp_width_ptr)
-!!   call send_tile_data_r0d_fptr(id_transm_bedrock,  land_tile_map,    soil_transm_bedrock_ptr)
-! 
-! !Print out parameters
-! if (is_watch_point()) then
-!   te = tail_elmt(land_tile_map)
-!   ce = first_elmt(land_tile_map)
-!   do while(ce /= te)
-!
-!      tile=>current_tile(ce)  ! get pointer to current tile
-!      ce=next_elmt(ce)        ! advance position to the next tile
-!      if ((associated(tile%soil)) .eqv. .False.)cycle
-!      print*,'soil_e_depth',tile%soil%pars%soil_e_depth
-!      print*,'microtopo',tile%soil%pars%microtopo
-!      print*,'k_sat_gw',tile%soil%pars%k_sat_gw
-!      print*,'hlsp_elev',tile%soil%pars%tile_hlsp_elev
-!      print*,'hlsp_hpos',tile%soil%pars%tile_hlsp_hpos
-!      print*,'hlsp_width',tile%soil%pars%tile_hlsp_width
-!      print*,'hlsp_slope',tile%soil%pars%tile_hlsp_slope
-!      print*,'hlsp_length',tile%soil%pars%tile_hlsp_length
-!      print*,'microtopo',tile%soil%pars%microtopo
-!      print*,'hidx_j',tile%soil%hidx_j
-!      print*,'hidx_k',tile%soil%hidx_k
-!   end do
-! endif
-!
-!end subroutine hlsp_init_predefined
-
-! ============================================================================
-subroutine hlsp_diag_init ( id_lon, id_lat )
-   integer, intent(in) :: id_lon  ! ID of land longitude (X) axis
-   integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
+subroutine hlsp_diag_init(id_ug)
+   integer,intent(in) :: id_ug !<Unstructured axis id.
 
    ! ---- local vars
-   integer :: axes(2)
+   integer :: axes(1)
 
    ! define array of axis indices
-   axes = (/ id_lon, id_lat /)
+   axes = (/id_ug/)
 
    ! set the default sub-sampling filter for the fields below
    call set_default_diag_filter('soil')

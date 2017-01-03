@@ -82,12 +82,12 @@ include 'netcdf.inc'
 
 contains ! ###################################################################
 
-subroutine topo_rough_init(time, lonb, latb, SG_domain, UG_domain, id_lon,id_lat)
+subroutine topo_rough_init(time, lonb, latb, SG_domain, UG_domain, id_ug)
   type(time_type), intent(in) :: time            ! current time
   type(domain2d) , intent(in) :: SG_domain       ! our domain
   type(domainUG) , intent(in) :: UG_domain
   real           , intent(in) :: latb(:,:),lonb(:,:) ! boundaries of the grid cells
-  integer        , intent(in) :: id_lon,id_lat   ! IDs of diagnostic axes
+  integer        , intent(in) :: id_ug !<Unstructured axis id.
 !   <ERROR MSG="could not read topography data" STATUS="FATAL">
 !     get_topog_stdev failed to provide topography variance data.
 !   </ERROR>
@@ -165,10 +165,13 @@ subroutine topo_rough_init(time, lonb, latb, SG_domain, UG_domain, id_lon,id_lat
   endif
 
   ! diag output : send topo_stdev to diagnostics
-  id = register_static_field(diag_mod_name,'topo_rough',(/id_lon,id_lat/), &
+  id = register_static_field(diag_mod_name,'topo_rough',(/id_ug/), &
        'momentum drag coefficient scaling lenght','m',missing_value=-1.0 )
-  if(id > 0) &
-       used = send_data(id,topo_stdev_sg,time)
+  if (id .gt. 0) then
+       used = send_data(id, &
+                        topo_stdev, &
+                        time)
+  endif
   module_is_initialized = .TRUE.
 end subroutine topo_rough_init
 

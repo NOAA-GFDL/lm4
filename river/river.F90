@@ -197,7 +197,7 @@ contains
 
 !#####################################################################
   subroutine river_init( land_lon, land_lat, time, dt_fast, land_domain, land_UG_domain, &
-                         land_frac, id_lon, id_lat, id_area_land, river_land_mask )
+                         land_frac, river_land_mask )
     real,            intent(in) :: land_lon(:,:)     ! geographical longitude of cell center
     real,            intent(in) :: land_lat(:,:)     ! geographical latitude of cell center
     type(time_type), intent(in) :: time              ! current time
@@ -205,15 +205,13 @@ contains
     type(domain2d),  intent(in), target :: land_domain       ! land domain
     type(domainUG), intent(in), target :: land_UG_domain
     real,            intent(in) :: land_frac(:,:)       ! land area fraction from land model on UG_domain
-    integer,         intent(in) :: id_lon, id_lat       ! IDs of diagnostic axes
-    integer,         intent(in) :: id_area_land         ! IDs of the and area diag field
     logical,         intent(out):: river_land_mask(:,:) ! land mask seen by rivers
 
     integer              :: unit, io_status, ierr, id_restart
     integer              :: sec, day, i, j, i_species
     integer              :: nxc, nyc
     character(len=128)   :: filename
-
+    integer              :: id_lon, id_lat, id_lonb, id_latb
     type(Leo_Mad_trios)   :: DHG_exp            ! downstream equation exponents
     type(Leo_Mad_trios)   :: DHG_coef           ! downstream equation coefficients
     type(Leo_Mad_trios)   :: AAS_exp            ! at-a-station equation exponents
@@ -324,7 +322,31 @@ contains
 !    if (do_age) store_units(3)                  = 'kg-s/m2'
 
 !--- register diag field
-    call river_diag_init (id_lon, id_lat, id_area_land)
+    if(mpp_get_ntile_count(domain)==1) then
+       ! grid has just one tile, so we assume that the grid is regular lat-lon
+       ! define longitude axes and its edges
+       id_lonb = diag_axis_init ( &
+            'lonb', lnd_sg%coord_glonb, 'degrees_E', 'X', 'longitude edges', &
+            set_name='land', domain2=domain )
+       id_lon  = diag_axis_init (                                                &
+            'lon',  lnd_sg%coord_glon, 'degrees_E', 'X',  &
+            'longitude', set_name='land',  edges=id_lonb, domain2=domain )
+
+       ! define latitude axes and its edges
+       id_latb = diag_axis_init ( &
+            'latb', lnd_sg%coord_glatb, 'degrees_N', 'Y', 'latitude edges',  &
+            set_name='land',  domain2=domain   )
+       id_lat = diag_axis_init (                                                &
+            'lat',  lnd_sg%coord_glat, 'degrees_N', 'Y', &
+            'latitude', set_name='land', edges=id_latb, domain2=domain   )
+    else
+       id_lon = diag_axis_init ( 'grid_xt', (/(real(i),i=1,River%nlon)/), 'degrees_E', 'X', &
+            'T-cell longitude', set_name='land',  domain2=domain, aux='geolon_t' )
+       id_lat = diag_axis_init ( 'grid_yt', (/(real(i),i=1,River%nlat)/), 'degrees_N', 'Y', &
+            'T-cell latitude', set_name='land',  domain2=domain, aux='geolat_t' )
+    endif
+
+    call river_diag_init (id_lon, id_lat)
 
 !--- read restart file
     call get_instance_filename('INPUT/river.res.nc', filename)
@@ -1177,15 +1199,15 @@ end subroutine print_river_tracer_data
 
 !#####################################################################
 
-  subroutine river_diag_init(id_lon, id_lat, id_area_land)
+  subroutine river_diag_init(id_lon, id_lat)
     integer, intent(in) :: id_lon  ! ID of land longitude (X) diag axis
     integer, intent(in) :: id_lat  ! ID of land latitude (Y) diag axis
-    integer, intent(in) :: id_area_land  ! ID of land area diag field
 
     character(len=11)                :: mod_name = 'river'
     real, dimension(isc:iec,jsc:jec) :: tmp
     logical                          :: sent
     integer                          :: i
+    integer :: id_geolon_t, id_geolat_t, id_area_land
 
 ! regular diagnostic fields
     do i = 0, num_species
@@ -1295,16 +1317,27 @@ end subroutine print_river_tracer_data
   call diag_field_add_attribute(id_meltr,'cell_methods', 'area: mean')
 
 ! static fields
-    id_dx = register_static_field ( mod_name, 'rv_length', (/id_lon, id_lat/), &
+  id_geolon_t = register_static_field ( mod_name, 'geolon_t', (/id_lon,id_lat/), &
+       'longitude of grid cell centers', 'degrees_E', missing_value = -1.0e+20 )
+  id_geolat_t = register_static_field ( mod_name, 'geolat_t', (/id_lon,id_lat/), &
+       'latitude of grid cell centers', 'degrees_N', missing_value = -1.0e+20 )
+  id_area_land = register_static_field ( module_name, 'land_area', (/id_lon, id_lat/), &
+       'land area', 'm2', missing_value = -1.0e+20 )
+
+  id_dx = register_static_field ( mod_name, 'rv_length', (/id_lon, id_lat/), &
          'river reach length', 'm', missing_value=missing )
-    id_basin = register_static_field ( mod_name, 'rv_basin', (/id_lon, id_lat/), &
+  id_basin = register_static_field ( mod_name, 'rv_basin', (/id_lon, id_lat/), &
          'river basin id', 'none', missing_value=missing )
-    id_So = register_static_field ( mod_name, 'So', (/id_lon, id_lat/), &
+  id_So = register_static_field ( mod_name, 'So', (/id_lon, id_lat/), &
          'Slope', 'none', missing_value=missing )
-    id_travel = register_static_field ( mod_name, 'rv_trav', (/id_lon, id_lat/), &
+  id_travel = register_static_field ( mod_name, 'rv_trav', (/id_lon, id_lat/), &
          'cells left to travel before reaching ocean', 'none', missing_value=missing )
-    id_tocell = register_static_field ( mod_name, 'rv_dir', (/id_lon, id_lat/), &
+  id_tocell = register_static_field ( mod_name, 'rv_dir', (/id_lon, id_lat/), &
          'outflow direction code', 'none', missing_value=missing )
+
+  if(id_geolon_t>0) sent=send_data(id_geolon_t, River%lon*180.0/PI, River%time )
+  if(id_geolat_t>0) sent=send_data(id_geolat_t, River%lat*180.0/PI, River%time )
+  if(id_area_land>0) sent=send_data(id_area_land, lnd_sg%area, River%time )
 
     if (id_dx>0) sent=send_data(id_dx, River%reach_length, River%Time, mask=River%mask )
     if (id_basin>0) then

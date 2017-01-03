@@ -766,27 +766,25 @@ end subroutine hlsp_hydrology_1
 
 ! Initialize diagnostic fields.
 ! ============================================================================
-subroutine hlsp_hydro_init (id_lon, id_lat, id_zfull)
-   integer, intent(in) :: id_lon  ! ID of land longitude (X) axis
-   integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
-   integer, intent(in) :: id_zfull ! ID of vertical soil axis
+subroutine hlsp_hydro_init(id_ug,id_zfull)
+   integer,intent(in) :: id_ug    !<Unstructured axis id.
+   integer,intent(in) :: id_zfull ! ID of vertical soil axis
 
    ! ---- local vars
-   integer :: axes(3)
+   integer :: axes(2)
 
    if (.not. do_hillslope_model) return
 
    ! define array of axis indices
-   axes = (/ id_lon, id_lat, id_zfull /)
+   axes = (/id_ug,id_zfull/)
 
    ! set the default sub-sampling filter for the fields below
    call set_default_diag_filter('soil')
 
    ! define diagnostic fields
-
-!   id_gtos_hlsp = register_tiled_diag_field ( module_name, 'grnd_to_stream_water', axes(1:2), &
+!   id_gtos_hlsp = register_tiled_diag_field ( module_name, 'grnd_to_stream_water', axes(1:1), &
 !       Time, 'groundwater flux to stream at hillslope bottom, normalized by hillslope area', 'mm/s',  missing_value=initval )
-!   id_gtosh_hlsp = register_tiled_diag_field ( module_name, 'grnd_to_stream_heat', axes(1:2), &
+!   id_gtosh_hlsp = register_tiled_diag_field ( module_name, 'grnd_to_stream_heat', axes(1:1), &
 !       Time, 'advected groundwater heat flux to stream at hillslope bottom, normalized by hillslope area', 'W/m^2',  missing_value=initval )
 
    id_gdiv = register_tiled_diag_field ( module_name, 'groundwater_divergence', axes, &

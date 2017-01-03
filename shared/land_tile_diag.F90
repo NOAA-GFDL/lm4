@@ -808,26 +808,20 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
 
   ! ---- local vars
   integer :: l ! iterators
-  integer :: is,ie,js,je,ks,ke ! array boundaries
+  integer :: ks,ke ! array boundaries
   integer :: ls, le
   logical :: used ! value returned from send_data (ignored)
   real, allocatable :: buffer(:,:), weight(:,:), var(:,:)
-  real, allocatable :: buffer_sg(:,:,:)
-  logical, allocatable :: mask(:,:), mask_sg(:,:,:)
+  logical, allocatable :: mask(:,:)
   type(land_tile_enum_type)     :: ce, te
   type(land_tile_type), pointer :: tile
 
   ! calculate array boundaries
   ls = lbound(tiles,1); le = ubound(tiles,1)
-  is = lnd_sg%is; ie = lnd_sg%ie
-  js = lnd_sg%js; je = lnd_sg%je
   ks = field%offset   ; ke = field%offset + field%size - 1
 
   ! allocate and initialize temporary buffers
-  allocate(buffer_sg(is:ie,js:je,ks:ke), mask_sg(is:ie,js:je,ks:ke))
   allocate(buffer(ls:le,ks:ke), weight(ls:le,ks:ke), mask(ls:le,ks:ke))
-  buffer_sg(:,:,:) = 0.0
-  mask_sg(:,:,:) = .false.
   weight(:,:) = 0.0
   buffer(:,:) = 0.0
 
@@ -894,20 +888,15 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
      deallocate(var)
   endif
 
-  ! fill missing data, if necessary
-  call mpp_pass_UG_to_SG(lnd%domain, buffer, buffer_sg)
-  call mpp_pass_UG_to_SG(lnd%domain, mask, mask_sg)
-
   if (field%fill_missing) then
-     where (.not.mask_sg) buffer_sg = 0.0
-     mask_sg = .TRUE.
+      where (.not. mask) buffer = 0.0
+      mask = .true.
   endif
   ! send diag field
-  used = send_data ( id, buffer_sg, time, mask=mask_sg )
+  used = send_data(id,buffer,time,mask=mask)
 
   ! clean up temporary data
   deallocate(buffer,weight,mask)
-  deallocate(buffer_sg, mask_sg)
 
 end subroutine
 

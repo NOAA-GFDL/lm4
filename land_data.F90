@@ -18,7 +18,6 @@ use time_manager_mod  , only : time_type
 use grid_mod          , only : get_grid_ntiles, get_grid_size, get_grid_cell_vertices, &
      get_grid_cell_centers, get_grid_cell_area, get_grid_comp_area, &
      define_cube_mosaic
-use diag_manager_mod, only : send_data
 use horiz_interp_mod, only : horiz_interp_type, horiz_interp
 
 implicit none
@@ -38,14 +37,6 @@ public :: land_data_type ! container for information passed from land to
 public :: land_state_type, land_state_type_sg
 public :: horiz_interp_ug
 ! ==== end of public interfaces ==============================================
-
-! temporary public interface for unstructured grid.
-public :: send_data_ug
-
-interface send_data_ug
-  module procedure send_data_ug_1d
-  module procedure send_data_ug_2d
-end interface
 
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: module_name = 'land_data_mod'
@@ -132,7 +123,7 @@ type :: land_data_type
 
    logical, pointer, dimension(:,:):: &
         mask => NULL()               ! true if land
-   integer :: axes(2)        ! IDs of diagnostic axes for structured domain
+   integer :: axes(1)        ! IDs of diagnostic axes for unstructured domain
    type(domain2D) :: domain
    type(domainUG) :: ug_domain  ! our computation domain
    integer, pointer, dimension(:) :: pelist
@@ -525,48 +516,6 @@ subroutine land_data_end()
   module_is_initialized = .FALSE.
 
 end subroutine land_data_end
-
-  LOGICAL FUNCTION send_data_ug_1d(diag_field_id, field, time, mask)
-    INTEGER, INTENT(in) :: diag_field_id
-    REAL, INTENT(in), DIMENSION(:) :: field
-    TYPE (time_type), INTENT(in), OPTIONAL :: time
-    LOGICAL, INTENT(in), DIMENSION(:), OPTIONAL :: mask
-    real :: field_sg(lnd_sg%is:lnd_sg%ie, lnd_sg%js:lnd_sg%je)
-    logical :: mask_sg(lnd_sg%is:lnd_sg%ie, lnd_sg%js:lnd_sg%je)
-
-    field_sg = 0.0
-    call mpp_pass_ug_to_sg(lnd%domain, field, field_sg)
-
-    if( present(mask)) then
-       mask_sg = .false.
-       call mpp_pass_ug_to_sg(lnd%domain, mask, mask_sg)
-       send_data_ug_1d=send_data(diag_field_id, field_sg, time, mask=mask_sg)
-    else
-       send_data_ug_1d=send_data(diag_field_id, field_sg, time)
-    endif
-
-  end FUNCTION send_data_ug_1d
-
-  LOGICAL FUNCTION send_data_ug_2d(diag_field_id, field, time, mask)
-    INTEGER, INTENT(in) :: diag_field_id
-    REAL, INTENT(in), DIMENSION(:,:) :: field
-    TYPE (time_type), INTENT(in), OPTIONAL :: time
-    LOGICAL, INTENT(in), DIMENSION(:,:), OPTIONAL :: mask
-    real :: field_sg(lnd_sg%is:lnd_sg%ie, lnd_sg%js:lnd_sg%je, size(field,2))
-    logical :: mask_sg(lnd_sg%is:lnd_sg%ie, lnd_sg%js:lnd_sg%je, size(field,2))
-
-    field_sg = 0.0
-    call mpp_pass_ug_to_sg(lnd%domain, field, field_sg)
-
-    if( present(mask)) then
-       mask_sg = .false.
-       call mpp_pass_ug_to_sg(lnd%domain, mask, mask_sg)
-       send_data_ug_2d=send_data(diag_field_id, field_sg, time, mask=mask_sg)
-    else
-       send_data_ug_2d=send_data(diag_field_id, field_sg, time)
-    endif
-
-  end FUNCTION send_data_ug_2d
 
   subroutine horiz_interp_ug(Interp, data_in, data_out, verbose, &
                              mask_in, mask_out, missing_value, missing_permit, &

@@ -12,8 +12,7 @@ use fms_mod, only: open_namelist_file
 use fms_mod, only : error_mesg, file_exist, read_data, check_nml_error, &
      stdlog,close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
 use time_manager_mod, only: time_type_to_real
-use diag_manager_mod, only: diag_axis_init, register_diag_field, &
-     register_static_field, send_data
+use diag_manager_mod, only: diag_axis_init
 use constants_mod, only: tfreeze, hlv, hlf, dens_h2o, PI, grav, vonkarm, &
      rdgas
 
@@ -165,9 +164,8 @@ end subroutine read_lake_namelist
 
 ! ============================================================================
 ! initialize lake model
-subroutine lake_init_predefined ( id_lon, id_lat)
-  integer, intent(in) :: id_lon  ! ID of land longitude (X) axis  
-  integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
+subroutine lake_init_predefined(id_ug)
+  integer,intent(in) :: id_ug !<Unstructured axis id.
 
   ! ---- local vars 
   type(land_tile_enum_type)     :: te,ce ! last and current tile list elements
@@ -281,7 +279,8 @@ subroutine lake_init_predefined ( id_lon, id_lat)
   endif
   call free_land_restart(restart)
 
-  call lake_diag_init ( id_lon, id_lat )
+  call lake_diag_init(id_ug)
+
   ! ---- static diagnostic section
   call send_tile_data_r0d_fptr(id_sillw, land_tile_map, lake_width_sill_ptr)
   call send_tile_data_r0d_fptr(id_silld, land_tile_map, lake_depth_sill_ptr)
@@ -292,9 +291,10 @@ end subroutine lake_init_predefined
 
 ! ============================================================================
 ! initialize lake model
-subroutine lake_init ( id_lon, id_lat )
-  integer, intent(in) :: id_lon  ! ID of land longitude (X) axis  
-  integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
+!----------
+subroutine lake_init (id_ug)
+  integer,intent(in) :: id_ug !<Unstructured axis id.
+!----------
 
   ! ---- local vars 
   type(land_tile_enum_type)     :: te,ce ! last and current tile list elements
@@ -419,7 +419,7 @@ subroutine lake_init ( id_lon, id_lat )
   endif
   call free_land_restart(restart)
 
-  call lake_diag_init ( id_lon, id_lat )
+  call lake_diag_init(id_ug)
   ! ---- static diagnostic section
   call send_tile_data_r0d_fptr(id_sillw, land_tile_map, lake_width_sill_ptr)
   call send_tile_data_r0d_fptr(id_silld, land_tile_map, lake_depth_sill_ptr)
@@ -1023,12 +1023,11 @@ end subroutine lake_step_2
   end subroutine lake_relayer
 
 ! ============================================================================
-subroutine lake_diag_init ( id_lon, id_lat )
-  integer,         intent(in) :: id_lon  ! ID of land longitude (X) axis
-  integer,         intent(in) :: id_lat  ! ID of land longitude (X) axis
+subroutine lake_diag_init(id_ug)
+  integer,intent(in) :: id_ug !<Unstructured axis id.
 
   ! ---- local vars
-  integer :: axes(3)
+  integer :: axes(2)
   integer :: id_zhalf, id_zfull
 
   ! define vertical axis
@@ -1039,20 +1038,21 @@ subroutine lake_diag_init ( id_lon, id_lat )
        edges=id_zhalf )
 
   ! define array of axis indices
-  axes = (/ id_lon, id_lat, id_zfull /)
+  axes = (/id_ug,id_zfull/)
 
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('lake')
 
   ! define static diagnostic fields
   id_sillw = register_tiled_static_field ( module_name, 'lake_width', &
-       axes(1:2), 'lake width at outflow', 'm', missing_value=-100.0 )
+       axes(1:1), 'lake width at outflow', 'm', missing_value=-100.0 )
   id_silld = register_tiled_static_field ( module_name, 'lake_depth', &
-       axes(1:2), 'lake depth below sill', 'm', missing_value=-100.0 )
+       axes(1:1), 'lake depth below sill', 'm', missing_value=-100.0 )
   id_backw = register_tiled_static_field ( module_name, 'backwater', &
-       axes(1:2), 'backwater flag', '-', missing_value=-100.0 )
+       axes(1:1), 'backwater flag', '-', missing_value=-100.0 )
   id_back1 = register_tiled_static_field ( module_name, 'backwater_1', &
-       axes(1:2), 'backwater1 flag', '-', missing_value=-100.0 )
+       axes(1:1), 'backwater1 flag', '-', missing_value=-100.0 )
+!----------
   ! define dynamic diagnostic fields
   id_dz  = register_tiled_diag_field ( module_name, 'lake_dz', axes,         &
        lnd%time, 'nominal layer thickness', 'm', missing_value=-100.0 )
@@ -1072,10 +1072,10 @@ subroutine lake_diag_init ( id_lon, id_lat )
        lnd%time, 'lake evap',            'kg/(m2 s)',  missing_value=-100.0 )
 
   call add_tiled_static_field_alias (id_silld, module_name, 'sill_depth', &
-       axes(1:2), 'obsolete, pls use lake_depth (static)','m', &
+       axes(1:1), 'obsolete, pls use lake_depth (static)','m', &
        missing_value=-100.0 )
   call add_tiled_static_field_alias (id_sillw, module_name, 'sill_width', &
-       axes(1:2), 'obsolete, pls use lake_width (static)','m', &
+       axes(1:1), 'obsolete, pls use lake_width (static)','m', &
        missing_value=-100.0 )
 
 end subroutine lake_diag_init
