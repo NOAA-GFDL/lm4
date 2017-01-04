@@ -253,7 +253,7 @@ integer :: &
   id_sens,     id_sensv,    id_senss,    id_sensg,                         &
 !
   id_e_res_1,  id_e_res_2,  id_cd_m,     id_cd_t,                          &
-  id_cellarea, id_landarea, id_landfrac, id_no_riv,                        &
+  id_cellarea, id_landfrac, id_no_riv,                                     &
   id_geolon_t, id_geolat_t,                                                &
   id_frac,     id_area,     id_ntiles,                                     &
   id_dis_liq,  id_dis_ice,  id_dis_heat, id_dis_sink,                      &
@@ -434,7 +434,6 @@ subroutine land_model_init &
   land2cplr%axes = (/id_lon,id_lat/)
   ! send some static diagnostic fields to output
   if ( id_cellarea > 0 ) used = send_data ( id_cellarea, lnd%cellarea, lnd%time )
-  if ( id_landarea > 0 ) used = send_data ( id_landarea, lnd%area, lnd%time )
   if ( id_landfrac > 0 ) used = send_data ( id_landfrac, lnd%landfrac,     lnd%time )
   if ( id_geolon_t > 0 ) used = send_data ( id_geolon_t, lnd%lon*180.0/PI, lnd%time )
   if ( id_geolat_t > 0 ) used = send_data ( id_geolat_t, lnd%lat*180.0/PI, lnd%time )
