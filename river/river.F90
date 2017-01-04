@@ -327,23 +327,23 @@ contains
        ! define longitude axes and its edges
        id_lonb = diag_axis_init ( &
             'lonb', lnd_sg%coord_glonb, 'degrees_E', 'X', 'longitude edges', &
-            set_name='land', domain2=domain )
+            set_name='river', domain2=domain )
        id_lon  = diag_axis_init (                                                &
             'lon',  lnd_sg%coord_glon, 'degrees_E', 'X',  &
-            'longitude', set_name='land',  edges=id_lonb, domain2=domain )
+            'longitude', set_name='river',  edges=id_lonb, domain2=domain )
 
        ! define latitude axes and its edges
        id_latb = diag_axis_init ( &
             'latb', lnd_sg%coord_glatb, 'degrees_N', 'Y', 'latitude edges',  &
-            set_name='land',  domain2=domain   )
+            set_name='river',  domain2=domain   )
        id_lat = diag_axis_init (                                                &
             'lat',  lnd_sg%coord_glat, 'degrees_N', 'Y', &
-            'latitude', set_name='land', edges=id_latb, domain2=domain   )
+            'latitude', set_name='river', edges=id_latb, domain2=domain   )
     else
        id_lon = diag_axis_init ( 'grid_xt', (/(real(i),i=1,River%nlon)/), 'degrees_E', 'X', &
-            'T-cell longitude', set_name='land',  domain2=domain, aux='geolon_t' )
+            'T-cell longitude', set_name='river',  domain2=domain, aux='geolon_t' )
        id_lat = diag_axis_init ( 'grid_yt', (/(real(i),i=1,River%nlat)/), 'degrees_N', 'Y', &
-            'T-cell latitude', set_name='land',  domain2=domain, aux='geolat_t' )
+            'T-cell latitude', set_name='river',  domain2=domain, aux='geolat_t' )
     endif
 
     call river_diag_init (id_lon, id_lat)
@@ -1209,6 +1209,14 @@ end subroutine print_river_tracer_data
     integer                          :: i
     integer :: id_geolon_t, id_geolat_t, id_area_land
 
+! static fields
+    id_geolon_t = register_static_field ( mod_name, 'geolon_t', (/id_lon,id_lat/), &
+         'longitude of grid cell centers', 'degrees_E', missing_value = -1.0e+20 )
+    id_geolat_t = register_static_field ( mod_name, 'geolat_t', (/id_lon,id_lat/), &
+         'latitude of grid cell centers', 'degrees_N', missing_value = -1.0e+20 )
+    id_area_land = register_static_field ( mod_name, 'area_land', (/id_lon, id_lat/), &
+         'land area', 'm2', missing_value = -1.0e+20 )
+
 ! regular diagnostic fields
     do i = 0, num_species
       id_inflow(i) = register_diag_field ( mod_name, 'rv_i_'//trim(trdata(i)%name),      &
@@ -1303,26 +1311,20 @@ end subroutine print_river_tracer_data
 
   ! fields that historically were in the the land_model.F90. They are registered
   ! for module 'land' to preserve compatibility with older diag tables
-  id_LWSr   = register_diag_field ( 'land', 'LWSr', (/id_lon, id_lat/), &
+  id_LWSr   = register_diag_field ( mod_name, 'LWSr', (/id_lon, id_lat/), &
        River%Time, 'river liquid mass storage', 'kg/m2', missing_value=-1.0e+20, area=id_area_land )
   call diag_field_add_attribute(id_LWSr,'cell_methods', 'area: mean')
-  id_FWSr   = register_diag_field ( 'land', 'FWSr', (/id_lon, id_lat/), &
+  id_FWSr   = register_diag_field ( mod_name, 'FWSr', (/id_lon, id_lat/), &
        River%Time, 'river ice mass storage', 'kg/m2', missing_value=-1.0e+20, area=id_area_land )
   call diag_field_add_attribute(id_FWSr,'cell_methods', 'area: mean')
-  id_HSr   = register_diag_field ( 'land', 'HSr', (/id_lon, id_lat/), &
+  id_HSr   = register_diag_field ( mod_name, 'HSr', (/id_lon, id_lat/), &
        River%Time, 'river heat storage', 'J/m2', missing_value=-1.0e+20, area=id_area_land )
   call diag_field_add_attribute(id_HSr,'cell_methods', 'area: mean')
-  id_meltr   = register_diag_field ( 'land', 'meltr', (/id_lon, id_lat/), &
+  id_meltr   = register_diag_field ( mod_name, 'meltr', (/id_lon, id_lat/), &
        River%Time, 'melt in river system', 'kg/m2/s', missing_value=-1.0e+20, area=id_area_land )
   call diag_field_add_attribute(id_meltr,'cell_methods', 'area: mean')
 
 ! static fields
-  id_geolon_t = register_static_field ( mod_name, 'geolon_t', (/id_lon,id_lat/), &
-       'longitude of grid cell centers', 'degrees_E', missing_value = -1.0e+20 )
-  id_geolat_t = register_static_field ( mod_name, 'geolat_t', (/id_lon,id_lat/), &
-       'latitude of grid cell centers', 'degrees_N', missing_value = -1.0e+20 )
-  id_area_land = register_static_field ( module_name, 'land_area', (/id_lon, id_lat/), &
-       'land area', 'm2', missing_value = -1.0e+20 )
 
   id_dx = register_static_field ( mod_name, 'rv_length', (/id_lon, id_lat/), &
          'river reach length', 'm', missing_value=missing )
