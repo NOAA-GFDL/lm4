@@ -3083,8 +3083,8 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   integer,dimension(1)             :: axes        !Array of axes for 1-D unstructured fields.
   integer                          :: ug_dim_size !Size of the unstructured axis
   integer,dimension(:),allocatable :: ug_dim_data !Unstructured axis data.
-  integer                          :: id_lon, id_lonb
-  integer                          :: id_lat, id_latb
+  integer                          :: id_lon, id_lonb, id_fld_lon
+  integer                          :: id_lat, id_latb, id_fld_lat
   integer :: i
   character(32) :: name       ! tracer name
 
@@ -3095,7 +3095,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
       allocate(ug_dim_data(ug_dim_size))
   endif
   call mpp_get_UG_domain_grid_index(domain, &
-                                    ug_dim_data)
+                                    ug_dim_data)   
   id_ug = diag_axis_init("unstructured_axis",  &
                          real(ug_dim_data), &
                          "none", &
@@ -3141,6 +3141,10 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
      id_lat = diag_axis_init ( 'grid_yt', (/(real(i),i=1,nlat)/), 'degrees_N', 'Y', &
           'T-cell latitude', set_name='land',  aux='geolat_t' )
   endif
+  id_fld_lon = register_static_field(module_name, 'dummy_lon', (/id_lon/), 'T-cell longitude', &
+               'degrees_E')
+  id_fld_lat = register_static_field(module_name, 'dummy_lat', (/id_lat/), 'T-cell latitude', &
+               'degrees_N')
 
   id_band = diag_axis_init (                                                &
        'band',  (/1.0,2.0/), 'unitless', 'Z', &
