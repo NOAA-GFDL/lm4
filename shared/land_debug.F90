@@ -58,6 +58,7 @@ interface set_current_point
    module procedure set_current_point_sg
    module procedure set_current_point_ug
 end interface set_current_point
+public :: log_date
 
 ! conservation tolerances for use across the code. This module doesn't use
 ! them, just serves as a convenient place to share them across all land code
@@ -65,9 +66,8 @@ public :: water_cons_tol
 public :: carbon_cons_tol
 public :: do_check_conservation
 ! ==== module constants ======================================================
-character(len=*), parameter :: module_name = 'land_debug'
+character(len=*), parameter :: module_name = 'land_debug_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 ! ==== module variables ======================================================
 integer, allocatable :: current_debug_level(:)
@@ -110,7 +110,8 @@ subroutine land_debug_init()
   integer :: unit, ierr, io, ntiles
   integer :: max_threads
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=land_debug_nml, iostat=io)
@@ -371,12 +372,29 @@ subroutine check_var_range_1d(value, lo, hi, tag, varname, severity)
   integer     , intent(in) :: severity ! severity of the non-conservation error:
          ! Can be WARNING, FATAL, or negative. Negative means check is not done.
 
+  ! ---- local vars
   integer :: i
+  integer :: y,mo,d,h,m,s ! components of date
+  integer :: thread
+  character(512) :: message
 
   if (severity<0) return
 
   do i = 1,size(value)
-     call check_var_range_0d(value(i), lo, hi, tag, trim(varname)//'('//trim(string(i))//')', severity)
+     if(lo<=value(i).and.value(i)<=hi) then
+        cycle
+     else
+        thread = 1
+!$      thread = OMP_GET_THREAD_NUM()+1
+        call get_date(lnd%time,y,mo,d,h,m,s)
+        write(message,'(a,g23.16,2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
+             trim(varname)//'('//trim(string(i))//')'//' out of range: value=', value(i),&
+             'at lon=',lnd%lon(curr_l(thread))*180.0/PI, &
+             'lat=',lnd%lat(curr_l(thread))*180.0/PI, &
+             'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
+             'time=',y,mo,d,h,m,s
+        call error_mesg(trim(tag),message,severity)
+     endif
   enddo
 end subroutine check_var_range_1d
 
@@ -505,5 +523,14 @@ subroutine check_conservation(tag, substance, d1, d2, tolerance, severity)
      call error_mesg(tag,message,severity_)
   endif
 end subroutine
+
+subroutine log_date(tag,time)
+  character(*),    intent(in) :: tag
+  type(time_type), intent(in) :: time
+  integer :: y,mo,d,h,m,s ! components of date for debug printout
+
+  call get_date(lnd%time,y,mo,d,h,m,s)
+  write(*,'(a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))') tag,y,mo,d,h,m,s
+end subroutine log_date
 
 end module land_debug_mod

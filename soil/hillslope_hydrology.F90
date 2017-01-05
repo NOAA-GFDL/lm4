@@ -9,7 +9,8 @@ use fms_mod, only : error_mesg, FATAL, NOTE
 use soil_tile_mod, only : &
      soil_tile_type, clw, initval, soil_data_hydraulic_properties
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), nitems, max_n_tiles
+     first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), nitems, max_n_tiles, &
+     loop_over_tiles
 use fms_mod, only : write_version_number
 use land_data_mod, only : lnd, log_version
 use land_debug_mod, only : is_watch_point, set_current_point, get_current_point, &
@@ -18,8 +19,7 @@ use hillslope_mod, only : do_hillslope_model, strm_depth_penetration, use_hlsp_a
                           use_geohydrodata, stiff_do_explicit, dammed_strm_bc, simple_inundation, &
                           surf_flow_velocity, limit_intertile_flow, flow_ratio_limit, exp_inundation, &
                           tiled_DOC_flux
-use constants_mod,      only: tfreeze, &
-                              dens_h2o, epsln
+use constants_mod, only : tfreeze, dens_h2o, epsln
       ! Use global tfreeze in energy flux calculations, not local freezing-point-depression temperature.
 use fms_mod, only: error_mesg, FATAL
 use time_manager_mod, only : time_type, time_type_to_real
@@ -42,7 +42,6 @@ public :: stiff_explicit_gwupdate
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'hillslope_hydrology'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 ! ---- diagnostic field IDs
 !integer :: id_gtos_hlsp, & ! ground to stream runoff for hillslope area
@@ -70,7 +69,8 @@ subroutine hlsp_hydro_lev_init(num_l_in, dz_in, zfull_in)
        dz_in(:), &  ! layer thickness
        zfull_in(:)  ! layer centers
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
   module_is_initialized =.TRUE.
 
   num_l = num_l_in
@@ -184,7 +184,7 @@ subroutine hlsp_hydrology_1(num_species)
 
    integer ::     j,i,l,k,s
    type(land_tile_type), pointer :: tile, tile2 ! pointers to tile list elements
-   type(land_tile_enum_type)     :: te, ce, ce2  ! tail and current tile list elements
+   type(land_tile_enum_type)     :: ce, ce2  ! tail and current tile list elements
    type(soil_tile_type), pointer :: soil, soil2 ! pointers to soil tiles
 
    ! Tile fractional area sums, needed for normalizing flux into tile.
@@ -261,7 +261,6 @@ subroutine hlsp_hydrology_1(num_species)
    allocate(gtos_bytile(numtiles, num_l), gtosh_bytile(numtiles, num_l), &
              gtost_bytile(numtiles, num_l, num_species) )
    do ll=lnd%ls,lnd%le
-         te = tail_elmt (land_tile_map(ll))
          i = lnd%i_index(ll)
          j = lnd%j_index(ll)
          ! Initial loop over tile list
@@ -269,9 +268,7 @@ subroutine hlsp_hydrology_1(num_species)
          ! This will need to be consolidated later.
          ce = first_elmt(land_tile_map(ll))
          k = 0
-         do while(ce /= te)
-            tile=>current_tile(ce)  ! get pointer to current tile
-            ce = next_elmt(ce); k = k+1
+         do while(loop_over_tiles(ce,tile,k=k))
             if (.not.associated(tile%soil)) cycle
             soil => tile%soil
             call set_current_point(i,j,k,ll)
@@ -310,24 +307,15 @@ subroutine hlsp_hydrology_1(num_species)
          ! ZMS Add diagnostic for hillslope-specific streamflow?
 !         area_stream = 0.
 
-         ! Get first pointer to tile list.
-         ce = first_elmt(land_tile_map(ll))
-         k = 1
-
          ! Allocate and initialize gtos_bytile
          numtiles = nitems(land_tile_map(ll))
          gtos_bytile(1:numtiles,:) = 0.
          gtosh_bytile(1:numtiles,:) = 0.
          gtost_bytile(1:numtiles,:,:) = 0.
 
-         do while(ce /= te)
-            tile=>current_tile(ce)  ! get pointer to current tile
-            ! advance position to the next tile at bottom of loop, as ce needed in comparison
-            if (.not.associated(tile%soil)) then
-               ce = next_elmt(ce)
-               k=k+1
-               cycle
-            end if
+         ce = first_elmt(land_tile_map(ll))
+         do while(loop_over_tiles(ce,tile,k=k))
+            if (.not.associated(tile%soil)) cycle
 
             soil => tile%soil
 
@@ -356,16 +344,10 @@ subroutine hlsp_hydrology_1(num_species)
             tdiv_level(:,:) = 0.
             tdiv_below(:,:) = 0.
 
-            ! Get pointer to second tile list
-            ce2 = first_elmt(land_tile_map(ll))
-
             ! Loop over second tile list, and calculate fluxes
-            do while (ce2 /= te)
-               tile2=>current_tile(ce2)
-               if (.not.associated(tile2%soil)) then
-                  ce2=next_elmt(ce2)
-                  cycle
-               end if
+            ce2 = first_elmt(land_tile_map(ll))
+            do while (loop_over_tiles(ce2,tile2))
+               if (.not.associated(tile2%soil)) cycle
 
                soil2 => tile2%soil
 
@@ -552,8 +534,6 @@ subroutine hlsp_hydrology_1(num_species)
                   end if ! hidx_j
 
                end if ! hidx_k
-
-               ce2=next_elmt(ce2)
             end do ! loop over second tile list
 
             ! Initialize outputs
@@ -686,10 +666,6 @@ subroutine hlsp_hydrology_1(num_species)
                end if
 
             end if ! Stream
-
-
-            ce=next_elmt(ce)
-            k=k+1
          end do  ! loop over first tile list
 
          ! Normalize flows to stream
@@ -709,11 +685,7 @@ subroutine hlsp_hydrology_1(num_species)
          ebal = 0.
          tbal(:) = 0.
 
-         k = 0
-         do while(ce /= te)
-            k = k + 1
-            tile=>current_tile(ce)  ! get pointer to current tile
-            ce = next_elmt(ce)
+         do while(loop_over_tiles(ce,tile,k=k))
             if (.not.associated(tile%soil)) cycle
 
             do l=1,num_l

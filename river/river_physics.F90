@@ -50,7 +50,6 @@ module river_physics_mod
 !--- version information ---------------------------------------------
 character(len=*), parameter :: module_name = 'river_physics_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 
 ! ---- public interfaces -----------------------------------------------------
@@ -119,7 +118,6 @@ character(len=*), parameter :: tagname = '$Name$'
 
   ! ---- diag field IDs
   integer :: id_temp, id_ice
-  integer :: id_temp_old, id_ice_old ! for compatibility with older diagTables
 
 contains
 
@@ -152,7 +150,8 @@ contains
 #endif
 
 !--- write version and namelist info to logfile --------------------
-    call log_version(version, module_name, __FILE__, tagname)
+    call log_version(version, module_name, &
+    __FILE__)
     unit=stdlog()
     write (unit, river_physics_nml)
 
@@ -185,13 +184,6 @@ contains
          mask_variant=.TRUE. )
     id_temp = register_diag_field ( 'river', 'rv_T', (/id_lon, id_lat/), &
          River%Time, 'river temperature', 'K', missing_value=missing, &
-         mask_variant=.TRUE. )
-
-    id_ice_old = register_diag_field ( 'river', 'ice', (/id_lon, id_lat/), &
-         River%Time, 'obsolete, pls use rv_ice', '-', missing_value=missing, &
-         mask_variant=.TRUE. )
-    id_temp_old = register_diag_field ( 'river', 'temp', (/id_lon, id_lat/), &
-         River%Time, 'obsolete, pls use rv_T', 'K', missing_value=missing, &
          mask_variant=.TRUE. )
   end subroutine river_physics_init
 
@@ -564,11 +556,6 @@ contains
     if (id_temp > 0) used = send_data (id_temp, &
          temperature(isc:iec,jsc:jec), River%Time, mask=diag_mask)
     ! for compatibility with old diag table
-    if (id_ice_old > 0) used = send_data (id_ice_old, &
-         ice(isc:iec,jsc:jec), River%Time, mask=diag_mask)
-    if (id_temp_old > 0) used = send_data (id_temp_old, &
-         temperature(isc:iec,jsc:jec), River%Time, mask=diag_mask)
-
   end subroutine river_physics_step
 
 !#####################################################################

@@ -25,9 +25,8 @@ public :: darcy2d_uptake, darcy2d_uptake_solver
 
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: module_name = 'uptake'
+character(len=*), parameter :: module_name = 'uptake_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 ! values for internal soil uptake option selector
 integer, parameter ::   &
@@ -41,6 +40,27 @@ integer :: num_l ! # of water layers
 real    :: dz    (max_lev)    ! thicknesses of layers
 real    :: zfull (max_lev)
 
+
+abstract  interface
+   subroutine uptake_calc_subr ( soil, psi, VRL, K_r, r_r, uptake_oneway, &
+        uptake_from_sat, uptake, duptake)
+   use soil_tile_mod, only : soil_tile_type
+     type(soil_tile_type), intent(in) :: soil
+     real, intent(in) :: &
+          psi,    &   ! water potential inside roots (in xylem) at zero depth, m
+          VRL(:), &   ! Volumetric Root Length (root length per unit volume), m/m3
+          K_r,    &   ! permeability of the root skin per unit area, kg/(m3 s)
+          r_r         ! radius of the roots, m
+     logical, intent(in) :: &
+          uptake_oneway, & ! if true, then the roots can only take up water, but
+          ! never loose it to the soil
+          uptake_from_sat   ! if false, uptake from saturated soil is prohibited
+     real, intent(out) :: &
+          uptake(:), & ! water uptake by roots
+          duptake(:)   ! derivative of water uptake w.r.t. psi_root
+   end subroutine uptake_calc_subr
+end interface
+
 contains
 
 ! ============================================================================
@@ -50,7 +70,8 @@ subroutine uptake_init(num_l_in, dz_in, zfull_in)
        dz_in(:), &  ! layer thickness
        zfull_in(:)  ! layer centers
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
   module_is_initialized =.TRUE.
 
   num_l = num_l_in
@@ -88,7 +109,7 @@ subroutine darcy2d_flow_nonlin (psi_x, psi_soil, K_sat, psi_sat, b, K_r, r_r, R,
   real :: n
   real :: C_r !
   real :: K_s
-  real :: K_root ! root membrane prmeability per unit length, kg/(m2 s)
+  real :: K_root ! root membrane permeability per unit length, kg/(m2 s)
   real :: pl, ph ! brackets of the solution
   real :: psi_root0 ! previous guess for root water potential
   real :: dpsi
@@ -145,7 +166,7 @@ subroutine darcy2d_flow_nonlin (psi_x, psi_soil, K_sat, psi_sat, b, K_r, r_r, R,
   enddo
 
   u = u_root;
-  ! calcilate derivalive of u w.r.t psi_x
+  ! calculate derivative of u w.r.t psi_x
   K_s = C_r*K_sat*(min(psi_root,psi_sat)/psi_sat)**(n-1)
   du = -K_root*K_s/(K_root+K_s)
 
@@ -218,7 +239,7 @@ subroutine darcy2d_uptake_nonlin ( soil, psi_x0, VRL, K_r, r_r, uptake_oneway, &
   real :: psi_x     ! water potential inside roots (psi_x0+z), m
   real :: psi_soil  ! water potential of soil, m
   real :: psi_sat   ! saturation soil water potential, m
-  real :: k_sat     ! hyraulic conductivity of saturated soil, kg/(m2 s)
+  real :: k_sat     ! hydraulic conductivity of saturated soil, kg/(m2 s)
   real :: R         ! characteristic half-distance between roots, m
 
   real :: u         ! water uptake by roots at the current layer, kg/(m2 s)
@@ -337,7 +358,7 @@ end subroutine darcy2d_uptake_solver_nonlin
 ! =============================================================================
 ! kernel of the uptake solver: given the input and a subroutine that calculates
 ! the uptake vertical profile for given water potential at the surface, returns
-! a soulution
+! a solution
 subroutine uptake_solver_K (soil, vegn_uptk, VRL, K_r, r_r, uptake_oneway, &
      uptake_from_sat, uptake, psi_x0, n_iter, uptake_subr)
   type(soil_tile_type), intent(in) :: soil
@@ -354,26 +375,7 @@ subroutine uptake_solver_K (soil, vegn_uptk, VRL, K_r, r_r, uptake_oneway, &
        uptake(:), & ! vertical distribution of soil uptake
        psi_x0       ! water potential inside roots (in xylem) at zero depth, m
   integer, intent(out) :: n_iter ! # of iterations made, for diagnostics only
-
-  interface
-     subroutine uptake_subr ( soil, psi_x0, VRL, K_r, r_r, uptake_oneway, &
-          uptake_from_sat, uptake, duptake)
-     use soil_tile_mod, only : soil_tile_type
-       type(soil_tile_type), intent(in) :: soil
-       real, intent(in) :: &
-            psi_x0, &   ! water potential inside roots (in xylem) at zero depth, m
-            VRL(:), &   ! Volumetric Root Length (root length per unit volume), m/m3
-            K_r,    &   ! permeability of the root skin per unit area, kg/(m3 s)
-            r_r         ! radius of the roots, m
-       logical, intent(in) :: &
-            uptake_oneway, & ! if true, then the roots can only take up water, but
-            ! never loose it to the soil
-            uptake_from_sat   ! if false, uptake from saturated soil is prohibited
-       real, intent(out) :: &
-            uptake(:), & ! water uptake by roots
-            duptake(:)   ! derivative of water uptake w.r.t. psi_root
-     end subroutine uptake_subr
-  end interface
+  procedure(uptake_calc_subr) :: uptake_subr
 
   ! ---- local constants
   ! parameters of uptake equation solver:
@@ -387,11 +389,12 @@ subroutine uptake_solver_K (soil, vegn_uptk, VRL, K_r, r_r, uptake_oneway, &
 
   n_iter = 0
 
+  psi_x0 = psi_wilt
   xl = psi_wilt
   xh = maxval(soil%psi(1:num_l)-zfull(1:num_l))
 
   ! find the lower upper boundary of the interval that contains solution
-  incr = 100.0 ! inital psi increment for the lower bracket search
+  incr = 100.0 ! initial psi increment for the lower bracket search
   do i = 1,20
      call uptake_subr ( soil, xl, VRL, K_r, r_r, uptake_oneway, uptake_from_sat, &
           uptake, duptake )
@@ -405,11 +408,12 @@ subroutine uptake_solver_K (soil, vegn_uptk, VRL, K_r, r_r, uptake_oneway, &
         write(*,*)'###### failed to reach lower bracket of uptake #####'
         __DEBUG2__(xl,uptake)
      endif
+     psi_x0 = xl
      return
   endif
 
   ! find upper boundary of the interval that contains solution
-  incr = 1.0 ! inital psi increment for the upper bracket search
+  incr = 1.0 ! initial psi increment for the upper bracket search
   do i = 1,20
      call uptake_subr ( soil, xh, VRL, K_r, r_r, uptake_oneway, &
           uptake_from_sat, uptake, duptake)
@@ -431,10 +435,7 @@ subroutine uptake_solver_K (soil, vegn_uptk, VRL, K_r, r_r, uptake_oneway, &
   DfDx = sum(duptake)
   do n_iter = 1, max_iter
      ! check if we already reached the desired precision
-     if(abs(f)<eps) then
-         psi_x0 = x2
-         exit
-       endif
+     if(abs(f)<eps) exit ! from loop
 
      if (is_watch_point()) then
         write(*,*)'##### solution iteration iter=',n_iter
@@ -468,6 +469,7 @@ subroutine uptake_solver_K (soil, vegn_uptk, VRL, K_r, r_r, uptake_oneway, &
         __DEBUG2__(vegn_uptk,sum(uptake))
      endif
   enddo
+  psi_x0 = x2
 
 end subroutine uptake_solver_K
 
@@ -482,7 +484,7 @@ subroutine darcy2d_flow_lin (psi_x, psi_soil, psi_root0, K_sat, psi_sat, b, K_r,
        psi_soil, & ! soil water potential, m
        psi_root0,& ! value of psi_root we linearize around, m
        K_sat,    & ! saturated soil hydraulic conductivity, kg/(m2 s)
-       psi_sat,  & ! saturates soil water potential, m
+       psi_sat,  & ! saturated soil water potential, m
        b,        & ! power of soil moisture characteristic function
        K_r,      & ! root membrane permeability per unit area, kg/(m3 s)
        r_r,      & ! radius of root, m
@@ -497,7 +499,7 @@ subroutine darcy2d_flow_lin (psi_x, psi_soil, psi_root0, K_sat, psi_sat, b, K_r,
   real :: du_soil ! its derivative w.r.t. psi_root
   real :: C_r !
   real :: n
-  real :: K_root  ! root membrane prmeability per unit length, kg/(m2 s)
+  real :: K_root  ! root membrane permeability per unit length, kg/(m2 s)
 
   C_r=2*PI/(log(R/r_r))
   n = -(1+3/b)
@@ -543,7 +545,7 @@ subroutine darcy2d_uptake_lin ( soil, psi_x0, VRL, K_r, r_r,uptake_oneway, &
   real :: psi_x     ! water potential inside roots (psi_x0+z), m
   real :: psi_soil  ! water potential of soil, m
   real :: psi_sat   ! saturation soil water potential, m
-  real :: K_sat     ! hyraulic conductivity of saturated soil, kg/(m2 s)
+  real :: K_sat     ! hydraulic conductivity of saturated soil, kg/(m2 s)
   real :: R         ! characteristic half-distance between roots, m
 
   real :: psi_root  ! water potential at the root/soil interface, m

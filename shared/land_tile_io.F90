@@ -23,9 +23,9 @@ use nf_utils_mod, only : nfu_inq_dim, nfu_inq_var, nfu_def_dim, nfu_def_var, &
      nfu_get_var, nfu_put_var, nfu_put_att
 use land_io_mod, only : print_netcdf_error, read_field, input_buf_size, new_land_io
 use land_tile_mod, only : land_tile_type, land_tile_list_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, current_tile, get_elmt_indices, operator(/=), &
+     first_elmt, tail_elmt, next_elmt, current_tile, loop_over_tiles, operator(/=), &
      tile_exists_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk, &
-     land_tile_map
+     land_tile_map, get_elmt_indices
 
 use land_data_mod, only  : lnd_sg, lnd
 use land_utils_mod, only : put_to_tiles_r0d_fptr
@@ -98,8 +98,6 @@ end interface
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'land_tile_io_mod'
-#include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 ! name of the "compressed" dimension (and dimension variable) in the output
 ! netcdf files -- that is, the dimensions written out using compression by
@@ -175,6 +173,7 @@ subroutine open_land_restart(restart,filename,restart_exists)
   ! ---- local vars
   integer :: flen(4) ! length of the index
   logical :: found   ! true if field exists
+  integer :: ierr
 
   restart%basename = filename
   call get_input_restart_name(restart%basename,restart_exists,restart%filename)
@@ -237,7 +236,9 @@ subroutine open_land_restart(restart,filename,restart_exists)
      !       just constants, no sense to make them namelists vars
   else ! old i/o
       __NF_ASRT__(nf_open(restart%filename,NF_NOWRITE,restart%ncid))
-      __NF_ASRT__(nfu_inq_dim(restart%ncid,'tile',len=restart%tile_dim_length))
+      ierr = nfu_inq_dim(restart%ncid,'tile',len=restart%tile_dim_length)
+      if (ierr/=NF_NOERR) call error_mesg('open_land_restart', &
+           'dimension "tile" not found in file "'//trim(filename)//'"', FATAL)
   endif
 end subroutine open_land_restart
 
@@ -1191,22 +1192,22 @@ subroutine create_tile_out_file_fptr(ncid, name, glon, glat, tile_exists, &
       ! the total number of qualifying tiles in this domain is equal to zero
 
   ! ---- local vars
-  type(land_tile_enum_type) :: ce, te ! tile list elements
+  type(land_tile_enum_type) :: ce,te  ! tile list enumerator
+  type(land_tile_type), pointer :: tile
   integer, allocatable :: idx(:)   ! integer compressed index of tiles
-  integer :: i,j,k,n
+  integer :: i,j,l,k,n
 
   ! count total number of tiles in this domain
   ce = first_elmt(land_tile_map, lnd%ls)
-  te = tail_elmt (land_tile_map)
   n  = 0
-  do while (ce/=te)
-     if (tile_exists(current_tile(ce))) n = n+1
-     ce=next_elmt(ce)
+  do while (loop_over_tiles(ce,tile))
+     if (tile_exists(tile)) n = n+1
   end do
 
   ! calculate compressed tile index to be written to the restart file;
   allocate(idx(max(n,1))); idx(:) = -1 ! set init value to a known invalid index
   ce = first_elmt(land_tile_map, lnd%ls)
+  te = tail_elmt (land_tile_map)
   n = 1
   do while (ce/=te)
      call get_elmt_indices(ce,i,j,k)
@@ -1312,21 +1313,21 @@ subroutine create_tile_out_file_fptr_new(rhandle,idx,name,tile_exists,tile_dim_l
       ! the total number of qualifying tiles in this domain is equal to zero
 
   ! ---- local vars
-  type(land_tile_enum_type) :: ce, te ! tile list elements
+  type(land_tile_enum_type) :: ce, te ! tile list enumerator
+  type(land_tile_type), pointer :: tile
   integer :: i,j,k,n
 
   ! count total number of tiles in this domain
   ce = first_elmt(land_tile_map, lnd%ls)
-  te = tail_elmt (land_tile_map)
   n  = 0
-  do while (ce/=te)
-     if (tile_exists(current_tile(ce))) n = n+1
-     ce=next_elmt(ce)
+  do while (loop_over_tiles(ce,tile))
+     if (tile_exists(tile)) n = n+1
   end do
 
   ! calculate compressed tile index to be written to the restart file;
   allocate(idx(max(n,1))); idx(:) = -1 ! set init value to a known invalid index
   ce = first_elmt(land_tile_map, lnd%ls)
+  te = tail_elmt (land_tile_map)
   n = 1
   do while (ce/=te)
      call get_elmt_indices(ce,i,j,k)
@@ -1359,7 +1360,7 @@ subroutine get_tile_by_idx(idx,nlon,nlat,tiles,ls,gs,ge,ptr)
 
    ! ---- local vars
    integer :: g,k,npts,l
-   type(land_tile_enum_type) :: ce,te
+   type(land_tile_enum_type) :: ce
 
    ptr=>null()
 
@@ -1378,15 +1379,11 @@ subroutine get_tile_by_idx(idx,nlon,nlat,tiles,ls,gs,ge,ptr)
       call error_mesg("land_tile_io", "l < lnd%ls .OR. l > lnd%le", FATAL)
    endif
    ce = first_elmt (tiles(l))
-   te = tail_elmt  (tiles(l))
-   do while(ce/=te.and.k>0)
-     ce=next_elmt(ce); k = k-1
+   do while(loop_over_tiles(ce, ptr).and.k>0)
+      k = k-1
    enddo
-   ! set the returned pointer
-   ! NOTE that if (ce==te) at the end of the loop (that is, there are less
-   ! tiles in the list then requested by the idx), current_tile(ce) returns
-   ! NULL
-   ptr=>current_tile(ce)
+   ! NOTE that at the end of the loop (that is, if there are less tiles in the list 
+   ! then requested by the idx), loop_over_tiles(ce,ptr) returns NULL
 
 end subroutine get_tile_by_idx
 

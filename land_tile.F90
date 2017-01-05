@@ -128,11 +128,6 @@ interface nitems
    module procedure n_items_in_list
 end interface
 
-
-! ==== module constants ======================================================
-#include "shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
-
 ! ==== data types ============================================================
 ! land_tile_type describes the structure of the land model tile; basically
 ! it is a container for tile-specific data, plus some information common to
@@ -977,7 +972,7 @@ function loop_over_tiles(ce, tile, l, k) result(R); logical R
   integer, intent(out), optional :: l,k ! indices of the tile
 
   if (present(tile)) tile=>current_tile(ce)
-  call get_elmt_indices(ce,l,k)
+  call get_elmt_indices(ce,l=l,k=k)
   ! advance enumerator to the next element
   ce = next_elmt(ce)
   R  = associated(tile)

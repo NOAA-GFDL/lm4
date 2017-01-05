@@ -23,11 +23,10 @@ use soil_tile_mod, only: soil_tile_type, soil_ave_temp, &
 use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, mol_air, &
      seconds_per_year
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
-     get_elmt_indices, land_tile_heat, land_tile_carbon, get_tile_water
+     first_elmt, loop_over_tiles, land_tile_heat, land_tile_carbon, get_tile_water
 use land_tile_diag_mod, only : register_tiled_static_field, register_tiled_diag_field, &
-     send_tile_data, diag_buff_type, OP_STD, OP_VAR, set_default_diag_filter, &
-     cmor_name
+     add_tiled_diag_field_alias, set_default_diag_filter, send_tile_data, diag_buff_type, &
+     OP_STD, OP_VAR, cmor_name
 use land_data_mod, only : lnd, log_version
 use land_io_mod, only : read_field
 
@@ -42,8 +41,7 @@ use vegn_data_mod, only : SP_C4GRASS, LEAF_ON, LU_NTRL, read_vegn_data_namelist,
      N_HARV_POOLS, HARV_POOL_NAMES, HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, &
      HARV_POOL_WOOD_FAST, HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, agf_bs
 use vegn_cohort_mod, only : vegn_cohort_type, &
-     update_species,&
-     vegn_data_heat_capacity, vegn_data_intrcptn_cap, &
+     vegn_data_heat_capacity, vegn_data_intrcptn_cap, update_species,&
      get_vegn_wet_frac, vegn_data_cover
 use canopy_air_mod, only : cana_turbulence
 
@@ -57,7 +55,8 @@ use static_vegn_mod, only : read_static_vegn_namelist, static_vegn_init, static_
      read_static_vegn
 use vegn_dynamics_mod, only : vegn_dynamics_init, vegn_carbon_int, vegn_growth, &
      vegn_daily_npp, vegn_phenology, vegn_biogeography
-use vegn_disturbance_mod, only : vegn_nat_mortality, vegn_disturbance, update_fuel
+use vegn_disturbance_mod, only : vegn_disturbance_init, vegn_nat_mortality, &
+     vegn_disturbance, update_fuel
 use vegn_harvesting_mod, only : &
      vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting
 use soil_carbon_mod, only : add_litter, poolTotalCarbon, cull_cohorts, &
@@ -89,7 +88,6 @@ public :: update_vegn_slow
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'vegn'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 ! values for internal selector of CO2 option used for photosynthesis
 integer, parameter :: VEGN_PHOT_CO2_PRESCRIBED  = 1
@@ -181,7 +179,7 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
    id_lambda, id_afire, id_atfall, id_closs, id_cgain, id_wdgain, id_leaf_age, &
    id_phot_co2, id_theph, id_psiph, id_evap_demand
 ! CMOR variables
-integer :: id_lai_cmor, id_btot_cmor, id_cproduct, &
+integer :: id_cproduct, &
    id_fFire, id_fGrazing, id_fHarvest, id_fLuc, &
    id_cLeaf, id_cWood, id_cRoot, id_cMisc
 ! ==== end of module variables ===============================================
@@ -199,7 +197,8 @@ subroutine read_vegn_namelist()
   call read_vegn_data_namelist()
   call read_static_vegn_namelist(use_static_veg)
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
     read (input_nml_file, nml=vegn_nml, iostat=io)
     ierr = check_nml_error(io, 'vegn_nml')
@@ -266,7 +265,7 @@ subroutine vegn_init(id_ug,id_band)
 
   ! ---- local vars
   integer :: unit         ! unit for various i/o
-  type(land_tile_enum_type)     :: te,ce ! current and tail tile list elements
+  type(land_tile_enum_type)     :: ce    ! tile list enumerator
   type(land_tile_type), pointer :: tile  ! pointer to current tile
   type(vegn_cohort_type), pointer :: cohort! pointer to initial cohort for cold-start
   integer :: n_accum
@@ -412,12 +411,8 @@ subroutine vegn_init(id_ug,id_band)
   ! Go through all tiles and initialize the cohorts that have not been initialized yet --
   ! this allows to read partial restarts. Also initialize accumulation counters to zero
   ! or the values from the restarts.
-  te = tail_elmt(land_tile_map)
   ce = first_elmt(land_tile_map, ls=lnd%ls)
-  do while(ce /= te)
-     tile=>current_tile(ce)  ! get pointer to current tile
-     call get_elmt_indices(ce,l=l)
-     ce=next_elmt(ce)       ! advance position to the next tile
+  do while(loop_over_tiles(ce,tile,l))
      if (.not.associated(tile%vegn)) cycle
 
      tile%vegn%n_accum = n_accum
@@ -466,17 +461,16 @@ subroutine vegn_init(id_ug,id_band)
   ! initialize harvesting options
   call vegn_harvesting_init()
 
+  ! initialize distrurbances 
+  call vegn_disturbance_init()
+  
   ! initialize vegetation diagnostic fields
   call vegn_diag_init(id_ug,id_band,lnd%time)
 
   ! ---- diagnostic section
   ce = first_elmt(land_tile_map, ls=lnd%ls)
-  te  = tail_elmt(land_tile_map)
-  do while(ce /= te)
-     tile => current_tile(ce)
-     ce=next_elmt(ce)
+  do while(loop_over_tiles(ce, tile))
      if (.not.associated(tile%vegn)) cycle ! skip non-vegetation tiles
-     ! send the data
      call send_tile_data(id_vegn_type,  real(tile%vegn%tag), tile%diag)
   enddo
 
@@ -587,11 +581,11 @@ subroutine vegn_diag_init(id_ug,id_band,time)
        'm/s', missing_value=-1.0 )
 
   id_cgain = register_tiled_diag_field ( module_name, 'cgain', (/id_ug/), &
-       time, 'carbon gain', 'kg C', missing_value=-100.0 )
+       time, 'carbon gain', 'kg C/m2', missing_value=-100.0 )
   id_closs = register_tiled_diag_field ( module_name, 'closs', (/id_ug/), &
-       time, 'carbon loss', 'kg C', missing_value=-100.0 )
+       time, 'carbon loss', 'kg C/m2', missing_value=-100.0 )
   id_wdgain = register_tiled_diag_field ( module_name, 'wdgain', (/id_ug/), &
-       time, 'wood biomass gain', 'kg C', missing_value=-100.0 )
+       time, 'wood biomass gain', 'kg C/m2', missing_value=-100.0 )
 
   id_t_ann  = register_tiled_diag_field ( module_name, 't_ann', (/id_ug/), &
        time, 'annual mean temperature', 'degK', missing_value=-999.0 )
@@ -682,13 +676,18 @@ subroutine vegn_diag_init(id_ug,id_band,time)
   ! CMOR variables
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('land')
-!----------
-  id_lai_cmor = register_tiled_diag_field ( cmor_name, 'lai',  (/id_ug/), &
-       time, 'Leaf Area Fraction', '%', missing_value=-1.0, &
-       standard_name='leaf_area_index', fill_missing=.TRUE.)
-  id_btot_cmor = register_tiled_diag_field ( cmor_name, 'cVeg', (/id_ug/), &
-       time, 'Carbon in Vegetation', 'kg C m-2', missing_value=-1.0, &
+  call add_tiled_diag_field_alias(id_lai, cmor_name, 'lai', (/id_ug/), &
+       time, 'Leaf Area Index', '1', missing_value = -1.0, &
+       standard_name = 'leaf_area_index', fill_missing = .TRUE.)
+  call add_tiled_diag_field_alias(id_lai, cmor_name, 'laiLut', (/id_ug/), &
+       time, 'leaf area index on land use tile', '1', missing_value = -1.0, &
+       standard_name = 'leaf_area_index_lut', fill_missing = .FALSE.)
+  call add_tiled_diag_field_alias ( id_btot, cmor_name, 'cVeg', (/id_ug/), &
+       time, 'Carbon Mass in Vegetation', 'kg C m-2', missing_value=-1.0, &
        standard_name='vegetation_carbon_content', fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias (id_btot, cmor_name, 'cVegLut', (/id_ug/), &
+       time, 'Carbon Mass in Vegetation', 'kg C m-2', missing_value=-1.0, &
+       standard_name='vegetation_carbon_content', fill_missing=.FALSE.)
   id_cproduct = register_tiled_diag_field( cmor_name, 'cProduct', (/id_ug/), &
        time, 'Carbon in Products of Land Use Change', 'kg C m-2', missing_value=-999.0, &
        standard_name='carbon_in_producs_of_luc', fill_missing=.TRUE.)
@@ -742,7 +741,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
 
   ! ---- local vars
   integer ::  i
-  type(land_tile_enum_type) :: ce, te
+  type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
   integer :: n_accum, nmn_acm
 
@@ -775,9 +774,8 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   ! store global variables
   ! find first tile and get n_accum and nmn_acm from it
   n_accum = 0; nmn_acm = 0
-  ce = first_elmt(land_tile_map) ; te = tail_elmt(land_tile_map)
-  do while ( ce /= te )
-     tile => current_tile(ce) ; ce=next_elmt(ce)
+  ce = first_elmt(land_tile_map)
+  do while ( loop_over_tiles(ce,tile))
      if(associated(tile%vegn)) then
         n_accum = tile%vegn%n_accum
         nmn_acm = tile%vegn%nmn_acm
@@ -1272,8 +1270,6 @@ subroutine vegn_step_2 ( vegn, diag, &
   call send_tile_data(id_leaf_tran, cohort%leaf_tran, diag)
   call send_tile_data(id_leaf_emis, cohort%leaf_emis, diag)
   call send_tile_data(id_snow_crit, cohort%snow_crit, diag)
-  ! CMOR variables
-  call send_tile_data(id_lai_cmor, cohort%lai*100.0, diag)
 end subroutine vegn_step_2
 
 
@@ -1356,7 +1352,7 @@ subroutine update_vegn_slow( )
 
   ! ---- local vars ----------------------------------------------------------
   integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
-  type(land_tile_enum_type) :: ce, te
+  type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
   integer :: i,j,k,l ! current point indices
   integer :: ii ! pool iterator
@@ -1379,10 +1375,9 @@ subroutine update_vegn_slow( )
      call error_mesg('update_vegn_slow',trim(timestamp),NOTE)
   endif
 
-  ce = first_elmt(land_tile_map, lnd%ls) ; te = tail_elmt(land_tile_map)
-  do while ( ce /= te )
-     call get_elmt_indices(ce,i,j,k,l) ; call set_current_point(i,j,k,l) ! this is for debug output only
-     tile => current_tile(ce) ; ce=next_elmt(ce)
+  ce = first_elmt(land_tile_map, lnd%ls)
+  do while (loop_over_tiles(ce,tile, l,k))
+     call set_current_point(l,k) ! this is for debug output only
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
 
      if(do_check_conservation) then
@@ -1540,11 +1535,12 @@ subroutine update_vegn_slow( )
      call send_tile_data(id_br,      sum(tile%vegn%cohorts(1:n)%br),     tile%diag)
      call send_tile_data(id_bsw,     sum(tile%vegn%cohorts(1:n)%bsw),    tile%diag)
      call send_tile_data(id_bwood,   sum(tile%vegn%cohorts(1:n)%bwood),  tile%diag)
-     call send_tile_data(id_btot,    sum(tile%vegn%cohorts(1:n)%bl    &
-                                        +tile%vegn%cohorts(1:n)%blv   &
-                                        +tile%vegn%cohorts(1:n)%br    &
-                                        +tile%vegn%cohorts(1:n)%bsw   &
-                                        +tile%vegn%cohorts(1:n)%bwood ), tile%diag)
+     if (id_btot>0) call send_tile_data(id_btot, &
+                sum(tile%vegn%cohorts(1:n)%bl    &
+                   +tile%vegn%cohorts(1:n)%blv   &
+                   +tile%vegn%cohorts(1:n)%br    &
+                   +tile%vegn%cohorts(1:n)%bsw   &
+                   +tile%vegn%cohorts(1:n)%bwood ), tile%diag)
 
      call send_tile_data(id_fuel,    tile%vegn%fuel, tile%diag)
      call send_tile_data(id_species, real(tile%vegn%cohorts(1)%species), tile%diag)
@@ -1561,18 +1557,17 @@ subroutine update_vegn_slow( )
      call send_tile_data(id_veg_out, tile%vegn%veg_out, tile%diag)
 
      ! CMOR variables
-     if(id_btot_cmor>0) call send_tile_data(id_btot_cmor, &
-                   sum(tile%vegn%cohorts(1:n)%bl    &
-                      +tile%vegn%cohorts(1:n)%blv   &
-                      +tile%vegn%cohorts(1:n)%br    &
-                      +tile%vegn%cohorts(1:n)%bsw   &
-                      +tile%vegn%cohorts(1:n)%bwood ), tile%diag)
-     if (id_cproduct>0) call send_tile_data(id_cproduct,&
-                   sum(tile%vegn%harv_pool(:)), tile%diag)
+     if (id_cproduct>0) then
+        cmass1 = 0.0
+        do i = 1, N_HARV_POOLS
+           if (i/=HARV_POOL_CLEARED) cmass1 = cmass1 + tile%vegn%harv_pool(i)
+        enddo
+        call send_tile_data(id_cproduct, cmass1, tile%diag)
+     endif
      call send_tile_data(id_fFire, tile%vegn%csmoke_rate/seconds_per_year, tile%diag)
      call send_tile_data(id_fGrazing, tile%vegn%harv_rate(HARV_POOL_PAST)/seconds_per_year, tile%diag)
      call send_tile_data(id_fHarvest, tile%vegn%harv_rate(HARV_POOL_CROP)/seconds_per_year, tile%diag)
-     call send_tile_data(id_fHarvest, &
+     call send_tile_data(id_fLuc, &
          (tile%vegn%harv_rate(HARV_POOL_CLEARED) &
          +tile%vegn%harv_rate(HARV_POOL_WOOD_FAST) &
          +tile%vegn%harv_rate(HARV_POOL_WOOD_MED) &
@@ -1632,7 +1627,7 @@ end subroutine update_vegn_slow
 subroutine vegn_seed_transport()
 
   ! local vars
-  type(land_tile_enum_type) :: ce, te
+  type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
   integer :: l ! current point indices
   real :: total_seed_supply
@@ -1640,11 +1635,9 @@ subroutine vegn_seed_transport()
   real :: f_supply ! fraction of the supply that gets spent
   real :: f_demand ! fraction of the demand that gets satisfied
 
-  ce = first_elmt(land_tile_map, lnd%ls) ; te = tail_elmt(land_tile_map)
   total_seed_supply = 0.0; total_seed_demand = 0.0
-  do while ( ce /= te )
-     call get_elmt_indices(ce,l=l)
-     tile => current_tile(ce) ; ce=next_elmt(ce)
+  ce = first_elmt(land_tile_map, lnd%ls)
+  do while (loop_over_tiles(ce,tile,l))
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
 
      total_seed_supply = total_seed_supply + vegn_seed_supply(tile%vegn)*tile%frac*lnd%area(l)
@@ -1668,12 +1661,9 @@ subroutine vegn_seed_transport()
 
   ! redistribute part (or possibly all) of the supply to satisfy part (or possibly all)
   ! of the demand
-  ce = first_elmt(land_tile_map) ; te = tail_elmt(land_tile_map)
-  do while ( ce /= te )
-     tile => current_tile(ce) ; ce=next_elmt(ce)
-     if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
-
-     call vegn_add_bliving(tile%vegn, &
+  ce = first_elmt(land_tile_map)
+  do while (loop_over_tiles(ce,tile))
+     if(associated(tile%vegn)) call vegn_add_bliving(tile%vegn, &
           f_demand*vegn_seed_demand(tile%vegn)-f_supply*vegn_seed_supply(tile%vegn))
   enddo
 end subroutine vegn_seed_transport

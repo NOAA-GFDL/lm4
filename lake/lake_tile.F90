@@ -58,7 +58,6 @@ end interface
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'lake_tile_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 integer, parameter :: max_lev          = 80
 integer, parameter :: n_dim_lake_types = 1  ! size of lookup table
@@ -249,7 +248,8 @@ subroutine read_lake_data_namelist(lake_n_lev)
   integer :: i
   real    :: z
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
      read (input_nml_file, nml=lake_data_nml, iostat=io)
      ierr = check_nml_error(io, 'lake_data_nml')

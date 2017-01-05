@@ -53,8 +53,7 @@ end interface assemble_cohorts
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'cohort_io_mod'
-#include "../shared/version_variable.inc"
-
+! name of the "compressed" dimension (and dimension variable) in the output
 ! netcdf files -- that is, the dimensions written out using compression by
 ! gathering, as described in CF conventions.
 character(len=*),   parameter :: cohort_index_name   = 'cohort_index'
@@ -126,31 +125,38 @@ subroutine read_create_cohorts(restart)
         'cohort index not found in file "'//restart%filename//'"',FATAL)
      call read_create_cohorts_new(restart%cidx,restart%tile_dim_length)
   else
-     call read_create_cohorts_orig(restart%ncid)
+     call read_create_cohorts_orig(restart%ncid,restart%filename)
   endif
 end subroutine
 
 ! ============================================================================
-subroutine read_create_cohorts_orig(ncid)
+subroutine read_create_cohorts_orig(ncid, filename)
   integer, intent(in) :: ncid
+  character(*), intent(in) :: filename
 
   integer :: ncohorts ! total number of cohorts in restart file
   integer :: nlon, nlat, ntiles ! size of respective dimensions
 
   integer, allocatable :: idx(:)
-  integer :: i,j,t,k,m, n, nn, idxid
-  integer :: bufsize, npts, g, l
+  integer :: i,j,t,k,m, n, nn, idxid, ierr
+  integer :: bufsize, npts,g,l
   type(land_tile_enum_type) :: ce, te
   type(land_tile_type), pointer :: tile
   character(len=64) :: info ! for error message
 
   ! get the size of dimensions
   nlon = lnd%nlon ; nlat = lnd%nlat
-  __NF_ASRT__(nfu_inq_dim(ncid,'tile',len=ntiles))
+  ierr = nfu_inq_dim(ncid,'tile',len=ntiles)
+  if (ierr/=NF_NOERR) call error_mesg('read_create_cohorts_orig', &
+              'dimension "tile" not found in file "'//trim(filename)//'"', FATAL)
 
   ! read the cohort index
-  __NF_ASRT__(nfu_inq_dim(ncid,cohort_index_name,len=ncohorts))
-  __NF_ASRT__(nfu_inq_var(ncid,cohort_index_name,id=idxid))
+  ierr = nfu_inq_dim(ncid,cohort_index_name,len=ncohorts)
+  if (ierr/=NF_NOERR) call error_mesg('read_create_cohorts_orig', &
+              'dimension "'//trim(cohort_index_name)//'" not found in file "'//trim(filename)//'"', FATAL)
+  ierr = nfu_inq_var(ncid,cohort_index_name,id=idxid)
+  if (ierr/=NF_NOERR) call error_mesg('read_create_cohorts_orig', &
+              'variable "'//trim(cohort_index_name)//'" not found in file "'//trim(filename)//'"', FATAL)
   bufsize = min(input_buf_size,ncohorts)
   allocate(idx(bufsize))
 

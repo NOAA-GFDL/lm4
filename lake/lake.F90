@@ -10,7 +10,7 @@ use fms_mod, only: open_namelist_file
 #endif
 
 use fms_mod, only : error_mesg, file_exist, read_data, check_nml_error, &
-     stdlog,close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
+     stdlog,close_file, mpp_pe, mpp_root_pe, FATAL, NOTE, lowercase
 use time_manager_mod, only: time_type_to_real
 use diag_manager_mod, only: diag_axis_init
 use constants_mod, only: tfreeze, hlv, hlf, dens_h2o, PI, grav, vonkarm, &
@@ -24,7 +24,7 @@ use lake_tile_mod, only : &
      lake_specific_width, n_outlet, outlet_face, outlet_i, outlet_j, &
      outlet_width, use_brdf
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
+     first_elmt, tail_elmt, next_elmt, loop_over_tiles, operator(/=), current_tile
 use land_tile_diag_mod, only : register_tiled_static_field, &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
      send_tile_data_r0d_fptr, add_tiled_static_field_alias, &
@@ -45,7 +45,7 @@ public :: lake_init
 public :: lake_init_predefined
 public :: lake_end
 public :: save_lake_restart
-public :: lake_get_sfc_temp
+public :: lake_sfc_water
 public :: lake_step_1
 public :: lake_step_2
 
@@ -56,14 +56,13 @@ public :: large_dyn_small_stat
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'lake'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 ! ==== module variables ======================================================
 
 !---- namelist ---------------------------------------------------------------
 real    :: init_temp            = 288.        ! cold-start lake T
 real    :: init_w               = 1000.      ! cold-start w(l)/dz(l)
-logical :: use_rh_feedback      = .true.
+character(16) :: rh_feedback_to_use = 'alpha'  ! or 'beta', or 'none'
 logical :: make_all_lakes_wide  = .false.
 logical :: large_dyn_small_stat = .true.
 logical :: relayer_in_step_one  = .false.
@@ -82,13 +81,19 @@ real    :: lake_depth_min       = 1.99
 real    :: max_plain_slope      = -1.e10
 
 namelist /lake_nml/ init_temp, init_w,       &
-                    use_rh_feedback, cpw, clw, csw, &
+                    rh_feedback_to_use, cpw, clw, csw, &
                     make_all_lakes_wide, large_dyn_small_stat, &
                     relayer_in_step_one, float_ice_to_top, &
                     min_rat, do_stratify, albedo_to_use, K_z_large, &
 		    K_z_background, K_z_min, K_z_factor, &
 		    lake_depth_max, lake_depth_min, max_plain_slope
 !---- end of namelist --------------------------------------------------------
+integer, public :: lake_rh_feedback     = -1
+integer, public, parameter :: &
+   LAKE_RH_NONE  = 0, &
+   LAKE_RH_ALPHA = 1, &
+   LAKE_RH_BETA  = 2
+
 real    :: K_z_molec            = 1.4e-7
 real    :: tc_molec             = 0.59052 ! dens_h2o*clw*K_z_molec
 real    :: tc_molec_ice         = 2.5
@@ -119,7 +124,8 @@ subroutine read_lake_namelist()
 
   call read_lake_data_namelist(num_l)
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
      read (input_nml_file, nml=lake_nml, iostat=io)
      ierr = check_nml_error(io, 'lake_nml')
@@ -159,6 +165,14 @@ subroutine read_lake_namelist()
           '" is invalid, use "brdf-params", or nothing ("")',&
           FATAL)
   endif
+
+  if (trim(lowercase(rh_feedback_to_use))=='alpha') then
+     lake_rh_feedback = LAKE_RH_ALPHA
+  else if (trim(lowercase(rh_feedback_to_use))=='beta') then
+     lake_rh_feedback = LAKE_RH_BETA
+  else
+     lake_rh_feedback = LAKE_RH_NONE
+  endif  
 
 end subroutine read_lake_namelist
 
@@ -282,10 +296,10 @@ subroutine lake_init_predefined(id_ug)
   call lake_diag_init(id_ug)
 
   ! ---- static diagnostic section
-  call send_tile_data_r0d_fptr(id_sillw, land_tile_map, lake_width_sill_ptr)
-  call send_tile_data_r0d_fptr(id_silld, land_tile_map, lake_depth_sill_ptr)
-  call send_tile_data_r0d_fptr(id_backw, land_tile_map, lake_backwater_ptr)
-  call send_tile_data_r0d_fptr(id_back1, land_tile_map, lake_backwater_1_ptr)
+  call send_tile_data_r0d_fptr(id_sillw, lake_width_sill_ptr)
+  call send_tile_data_r0d_fptr(id_silld, lake_depth_sill_ptr)
+  call send_tile_data_r0d_fptr(id_backw, lake_backwater_ptr)
+  call send_tile_data_r0d_fptr(id_back1, lake_backwater_1_ptr)
 end subroutine lake_init_predefined
 
 
@@ -294,11 +308,10 @@ end subroutine lake_init_predefined
 !----------
 subroutine lake_init (id_ug)
   integer,intent(in) :: id_ug !<Unstructured axis id.
-!----------
 
-  ! ---- local vars 
-  type(land_tile_enum_type)     :: te,ce ! last and current tile list elements
-  type(land_tile_type), pointer :: tile  ! pointer to current tile
+  ! ---- local vars
+  type(land_tile_enum_type)     :: ce   ! tile list enumerator
+  type(land_tile_type), pointer :: tile ! pointer to current tile
   type(land_restart_type) :: restart
   logical :: restart_exists
   real, allocatable :: buffer(:),bufferc(:),buffert(:)
@@ -387,12 +400,8 @@ subroutine lake_init (id_ug)
   deallocate (buffer, bufferc, buffert)
 
   ! -------- initialize lake state --------
-  te = tail_elmt (land_tile_map)
   ce = first_elmt(land_tile_map)
-  do while(ce /= te)
-     tile=>current_tile(ce)  ! get pointer to current tile
-     ce=next_elmt(ce)        ! advance position to the next tile
-
+  do while (loop_over_tiles(ce,tile))
      if (.not.associated(tile%lake)) cycle
 
      tile%lake%dz = tile%lake%pars%depth_sill/num_l
@@ -421,10 +430,10 @@ subroutine lake_init (id_ug)
 
   call lake_diag_init(id_ug)
   ! ---- static diagnostic section
-  call send_tile_data_r0d_fptr(id_sillw, land_tile_map, lake_width_sill_ptr)
-  call send_tile_data_r0d_fptr(id_silld, land_tile_map, lake_depth_sill_ptr)
-  call send_tile_data_r0d_fptr(id_backw, land_tile_map, lake_backwater_ptr)
-  call send_tile_data_r0d_fptr(id_back1, land_tile_map, lake_backwater_1_ptr)
+  call send_tile_data_r0d_fptr(id_sillw, lake_width_sill_ptr)
+  call send_tile_data_r0d_fptr(id_silld, lake_depth_sill_ptr)
+  call send_tile_data_r0d_fptr(id_backw, lake_backwater_ptr)
+  call send_tile_data_r0d_fptr(id_back1, lake_backwater_1_ptr)
 end subroutine lake_init
 
 
@@ -452,7 +461,7 @@ subroutine save_lake_restart (tile_dim_length, timestamp)
   filename = trim(timestamp)//'lake.res.nc'
   call init_land_restart(restart, filename, lake_tile_exists, tile_dim_length)
   call add_restart_axis(restart,'zfull',zfull(1:num_l),'Z','m','full level',sense=-1)
-  
+
   ! write out fields
   call add_tile_data(restart,'dz',   'zfull', num_l, lake_dz_ptr,   'layer thickness','m')
   call add_tile_data(restart,'temp', 'zfull', num_l, lake_temp_ptr, 'lake temperature','degrees_K')
@@ -464,31 +473,40 @@ subroutine save_lake_restart (tile_dim_length, timestamp)
   call free_land_restart(restart)
 end subroutine save_lake_restart
 
+! ============================================================================
+subroutine lake_sfc_water(lake, grnd_liq, grnd_ice, grnd_subl, grnd_tf)
+  type(lake_tile_type), intent(in) :: lake
+  real, intent(out) :: &
+     grnd_liq, grnd_ice, & ! surface liquid and ice, respectively, kg/m2
+     grnd_subl, &          ! fraction of vapor flux that sublimates
+     grnd_tf               ! freezing temperature
+
+  grnd_liq  = max(lake%wl(1), 0.)
+  grnd_ice  = max(lake%ws(1), 0.)
+  grnd_subl = lake_subl_frac(lake)
+  ! set the freezing temperature of the lake
+  grnd_tf = tfreeze
+end subroutine lake_sfc_water
 
 ! ============================================================================
-subroutine lake_get_sfc_temp(lake, lake_T)
+real function lake_subl_frac(lake)
   type(lake_tile_type), intent(in) :: lake
-  real, intent(out) :: lake_T
 
-  lake_T = lake%T(1)
-end subroutine lake_get_sfc_temp
-
+  lake_subl_frac = 0
+  if (lake%ws(1)>0) lake_subl_frac = 1
+end function lake_subl_frac
 
 ! ============================================================================
 ! update lake properties explicitly for time step.
 ! integrate lake-heat conduction equation upward from bottom of lake
 ! to surface, delivering linearization of surface ground heat flux.
 subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
-                         lake_T, &
-                         lake_rh, lake_liq, lake_ice, lake_subl, lake_tf, lake_G0, &
-                         lake_DGDT )
+                         lake_rh, lake_G0, lake_DGDT )
 
   real, intent(in)   :: u_star_a, p_surf, latitude
   type(lake_tile_type), intent(inout) :: lake
   real, intent(out)  :: &
-       lake_T, &
-       lake_rh, lake_liq, lake_ice, lake_subl, &
-       lake_tf, & ! freezing temperature of lake, degK
+       lake_rh, &
        lake_G0, &
        lake_DGDT
 
@@ -508,11 +526,7 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
   if(is_watch_point()) then
      write(*,*) 'lake_step_1 checkpoint 1'
      write(*,*) 'mask    ', .true.
-     write(*,*) 'T       ', lake_T
      write(*,*) 'rh      ', lake_rh
-     write(*,*) 'liq     ', lake_liq
-     write(*,*) 'ice     ', lake_ice
-     write(*,*) 'subl    ', lake_subl
      write(*,*) 'G0      ', lake_G0
      write(*,*) 'DGDT    ', lake_DGDT
     do l = 1, num_l
@@ -529,25 +543,24 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
   if (relayer_in_step_one) call lake_relayer ( lake )
 
   lake%K_z = 0.
-  lake_T = lake%T(1)
-  if (use_rh_feedback) then
-      lake_depth = (sum(lake%wl(:))+sum(lake%ws(:))) / DENS_H2O
-    else
-      lake_depth = lake%pars%depth_sill
-    endif
+  if (lake_rh_feedback == LAKE_RH_NONE) then
+     lake_depth = lake%pars%depth_sill
+  else
+     lake_depth = (sum(lake%wl(:))+sum(lake%ws(:))) / DENS_H2O
+  endif
   call lake_data_thermodynamics ( lake%pars, lake_depth, lake_rh, &
                                   lake%heat_capacity_dry, thermal_cond )
 ! Ignore air humidity in converting atmospheric friction velocity to lake value
-  rho_a = p_surf/(rdgas*lake_T)
+  rho_a = p_surf/(rdgas*lake%T(1))
 ! No momentum transfer through ice cover
   if (lake%ws(1).le.0. .or. wind_penetrates_ice) then
-      u_star = u_star_a*sqrt(rho_a/dens_h2o)
-      k_star = 2.79e-5*sqrt(sin(abs(latitude)))*u_star**(-1.84)
-      k_star = k_star*(c_drag/1.2e-3)**1.84
-    else
-      u_star = 0.
-      k_star = 1.
-    endif
+     u_star = u_star_a*sqrt(rho_a/dens_h2o)
+     k_star = 2.79e-5*sqrt(sin(abs(latitude)))*u_star**(-1.84)
+     k_star = k_star*(c_drag/1.2e-3)**1.84
+  else
+     u_star = 0.
+     k_star = 1.
+  endif
 ! k_star from B. Henderson-Sellers (1985, Appl. Math. Mod., 9)
 !  k_star = 2.79e-5*sqrt(sin(abs(latitude)))*u_star**(-1.84)
   z_cum = 0.
@@ -561,14 +574,6 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
 ! is a call available in fms?
     rho_t(l) = 1. - 1.9549e-5*abs(lake%T(l)-277.)**1.68
     enddo
-
-  lake_liq  = max(lake%wl(1), 0.)
-  lake_ice  = max(lake%ws(1), 0.)
-  if (lake_ice > 0) then
-     lake_subl = 1
-  else
-     lake_subl = 0
-  endif
 
   if(num_l > 1) then
     if (do_stratify) then
@@ -639,17 +644,10 @@ subroutine lake_step_1 ( u_star_a, p_surf, latitude, lake, &
      lake_DGDT  = 1. / denom
   end if
 
-  ! set the freezing temperature of the lake
-  lake_tf = tfreeze
-
   if(is_watch_point()) then
      write(*,*) 'lake_step_1 checkpoint 2'
      write(*,*) 'mask    ', .true.
-     write(*,*) 'T       ', lake_T
      write(*,*) 'rh      ', lake_rh
-     write(*,*) 'liq     ', lake_liq
-     write(*,*) 'ice     ', lake_ice
-     write(*,*) 'subl    ', lake_subl
      write(*,*) 'G0      ', lake_G0
      write(*,*) 'dz_alt   ', dz_alt
      write(*,*) 'dz_mid   ', dz_mid
@@ -669,15 +667,13 @@ end subroutine lake_step_1
 
 ! ============================================================================
 ! apply boundary flows to lake water and move lake water vertically.
-  subroutine lake_step_2 ( lake, diag, lake_subl, snow_lprec, snow_hlprec,  &
+  subroutine lake_step_2 ( lake, diag, snow_lprec, snow_hlprec,  &
                            subs_DT, subs_M_imp, subs_evap, &
                            use_tfreeze_in_grnd_latent, &
                            lake_levap, lake_fevap, lake_melt, &
                            lake_Ttop, lake_Ctop )
   type(lake_tile_type), intent(inout) :: lake
   type(diag_buff_type), intent(inout) :: diag
-  real, intent(in) :: &
-     lake_subl     !
   real, intent(in) :: &
      snow_lprec, &
      snow_hlprec, &
@@ -697,7 +693,7 @@ end subroutine lake_step_1
   real, dimension(num_l  ) :: div
   real :: ice_to_move, h_upper, h_lower, h_to_move_up, &
      lprec_eff, hlprec_eff, hcap, dheat, &
-     melt_per_deg, melt, lshc1, lshc2
+     melt_per_deg, melt, lshc1, lshc2, lake_subl
   real, dimension(num_l-1) :: del_z
   real :: jj
   integer :: l
@@ -723,6 +719,7 @@ end subroutine lake_step_1
   endif
 
   ! ---- record fluxes ---------
+  lake_subl = lake_subl_frac(lake)
   lake_levap  = subs_evap*(1-lake_subl)
   lake_fevap  = subs_evap*   lake_subl
   lake_melt   = subs_M_imp / delta_time

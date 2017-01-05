@@ -41,7 +41,6 @@ public :: horiz_interp_ug
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: module_name = 'land_data_mod'
 #include "shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 interface prt_max_min_sum
   module procedure prt_max_min_sum_1d
@@ -278,7 +277,8 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table,
                                           ! processors are used.
 
   ! write the version and tag name to the logfile
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
   ! define the processor layout information according to the global grid size
   call get_grid_ntiles('LND',ntiles)

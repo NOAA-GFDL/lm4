@@ -62,15 +62,18 @@ integer, public, parameter :: & ! status of leaves
  LEAF_OFF     = 5     ! leaves are dropped
 
 integer, public, parameter :: & ! land use types
- N_LU_TYPES = 4, & ! number of different land use types
+ N_LU_TYPES = 5, & ! number of different land use types
  LU_PAST    = 1, & ! pasture
  LU_CROP    = 2, & ! crops
  LU_NTRL    = 3, & ! natural vegetation
- LU_SCND    = 4    ! secondary vegetation
+ LU_SCND    = 4, & ! secondary vegetation
+ LU_URBN    = 5, & ! urban
+ LU_PSL     = 1001 ! primary and secondary land, for LUMIP
+
 character(len=4), public, parameter  :: &
-     landuse_name (N_LU_TYPES) = (/ 'past','crop','ntrl','scnd'/)
+     landuse_name (N_LU_TYPES) = (/ 'past','crop','ntrl','scnd', 'urbn'/)
 character(len=32), public, parameter :: &
-     landuse_longname (N_LU_TYPES) = (/ 'pasture  ', 'crop     ', 'natural  ', 'secondary' /)
+     landuse_longname (N_LU_TYPES) = (/ 'pasture  ', 'crop     ', 'natural  ', 'secondary', 'urban    '/)
 
 integer, public, parameter :: & ! harvesing pools paraneters
  N_HARV_POOLS        = 6, & ! number of harvesting pools
@@ -114,7 +117,6 @@ public :: read_vegn_data_namelist
 ! ==== constants =============================================================
 character(len=*), parameter :: module_name = 'vegn_data_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 real, parameter :: TWOTHIRDS  = 2.0/3.0
 
@@ -456,7 +458,8 @@ subroutine read_vegn_data_namelist()
 
   type(table_printer_type) :: table
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=vegn_data_nml, iostat=io)
   ierr = check_nml_error(io, 'vegn_data_nml')
@@ -554,6 +557,8 @@ subroutine read_vegn_data_namelist()
      call register_tile_selector(landuse_name(i), long_name=landuse_longname(i),&
           tag = SEL_VEGN, idata1 = LU_SEL_TAG, idata2 = i )
   enddo
+  call register_tile_selector('psl', 'primary and secondary land',&
+       tag = SEL_VEGN, idata1 = LU_SEL_TAG, idata2 = LU_PSL )
 
   ! register selectors for species-specific diagnostics
   do i=0,NSPECIES-1

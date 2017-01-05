@@ -17,8 +17,7 @@ use fms_mod, only : file_exist, check_nml_error, &
      close_file, stdlog, read_data, error_mesg, FATAL
 use constants_mod, only : &
      pi, tfreeze, rvgas, grav, dens_h2o, hlf, epsln
-use land_constants_mod, only : &
-     BAND_VIS, BAND_NIR, NBANDS
+use land_constants_mod, only : BAND_VIS, BAND_NIR, NBANDS
 use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_SOIL, register_tile_selector
 use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, &
@@ -89,7 +88,6 @@ end interface
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'soil_tile_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 integer, parameter :: max_lev          = 100
 integer, parameter, public :: n_dim_soil_types = 14      ! max size of lookup table
@@ -563,7 +561,8 @@ subroutine read_soil_data_namelist(soil_num_l, soil_dz, soil_single_geo, &
   type(fieldtype), allocatable :: Fields(:)
   type(axistype),  allocatable :: axes(:)
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=soil_data_nml, iostat=io)
   ierr = check_nml_error(io, 'soil_data_nml')
@@ -1811,28 +1810,18 @@ end subroutine soil_roughness
 
 ! ============================================================================
 ! compute soil thermodynamic properties.
-subroutine soil_data_thermodynamics ( soil, vlc, vsc, &
-                                      soil_E_max, thermal_cond)
+subroutine soil_data_thermodynamics ( soil, vlc, vsc, thermal_cond )
   type(soil_tile_type), intent(inout) :: soil
   real,                 intent(in)  :: vlc(:)
   real,                 intent(in)  :: vsc(:)
-  real,                 intent(out) :: soil_E_max
   real,                 intent(out) :: thermal_cond(:)
-  real s, w, a, n, f
 
+  real s, w, a, n, f
   integer l
 
-  ! assign some index of water availability for snow-free soil
-
-  soil_E_max = (soil%pars%k_sat_ref*soil%alpha(1)**2) &
-               * (-soil%pars%psi_sat_ref/soil%alpha(1)) &
-               * ((4.+soil%pars%chb)*vlc(1)/ &
-                ((3.+soil%pars%chb)*soil%pars%vwc_sat))**(3.+soil%pars%chb) &
-                / ((1.+3./soil%pars%chb)*dz(1))
-
-     w = soil%pars%thermal_cond_weight
-     a = soil%pars%thermal_cond_scale
-     n = soil%pars%thermal_cond_exp
+  w = soil%pars%thermal_cond_weight
+  a = soil%pars%thermal_cond_scale
+  n = soil%pars%thermal_cond_exp
   do l = 1, num_sfc_layers
      soil%heat_capacity_dry(l) = sfc_heat_factor*soil%pars%heat_capacity_dry
      s = (vlc(l)+vsc(l))/soil%pars%vwc_sat

@@ -37,7 +37,6 @@ public :: update_cana_tracers
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: module_name = 'land_tracer_driver_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 character(len=*), parameter :: diag_name   = 'land_tracers'
 
 real :: diffusivity_h2o = 0.282e-4 ! diffusivity of water vapor m2/s,
@@ -89,7 +88,8 @@ subroutine land_tracer_driver_init(id_ug)
   type(table_printer_type) :: table
 
   ! write the version and tag name to the logfile
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
   ! calculate time step
   dt  = time_type_to_real(lnd%dt_fast) ! store in a module variable for convenience

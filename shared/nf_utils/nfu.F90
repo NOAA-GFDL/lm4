@@ -62,10 +62,6 @@ interface nfu_is_valid
    module procedure nfu_is_valid_r
 end interface
 #undef __INTERFACE_SECTION__
-! ---- module constants ------------------------------------------------------
-character(len=*), parameter :: module_name = 'nf_utils_mod'
-#include "../../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 ! ---- module types ----------------------------------------------------------
 type nfu_validtype
