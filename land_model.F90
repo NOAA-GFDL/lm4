@@ -3088,28 +3088,6 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   integer :: i
   character(32) :: name       ! tracer name
 
- !Register the unstructured axis for the unstructured domain.
-  call mpp_get_UG_compute_domain(domain, &
-                                 size=ug_dim_size)
-  if (.not. allocated(ug_dim_data)) then
-      allocate(ug_dim_data(ug_dim_size))
-  endif
-  call mpp_get_UG_domain_grid_index(domain, &
-                                    ug_dim_data)   
-  id_ug = diag_axis_init("unstructured_axis",  &
-                         real(ug_dim_data), &
-                         "none", &
-                         "U", &
-                         long_name="unstructured_indices", &
-                         set_name="land", &
-                         DomainU=domain)
-  call diag_axis_add_attribute(id_ug, &
-                               "compress", &
-                               "grid_xt grid_yt")
-  if (allocated(ug_dim_data)) then
-      deallocate(ug_dim_data)
-  endif
-
  !Register a "grid_xt" and "grid_yt" axis, which are required to
  !by the post-processing so that the output files may be
  !"decompressed" (converted from unstructured back to lon-lat).
@@ -3141,6 +3119,29 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
      id_lat = diag_axis_init ( 'grid_yt', (/(real(i),i=1,nlat)/), 'degrees_N', 'Y', &
           'T-cell latitude', set_name='land',  aux='geolat_t' )
   endif
+
+ !Register the unstructured axis for the unstructured domain.
+  call mpp_get_UG_compute_domain(domain, &
+                                 size=ug_dim_size)
+  if (.not. allocated(ug_dim_data)) then
+      allocate(ug_dim_data(ug_dim_size))
+  endif
+  call mpp_get_UG_domain_grid_index(domain, &
+                                    ug_dim_data)   
+  id_ug = diag_axis_init("grid_index",  &
+                         real(ug_dim_data), &
+                         "none", &
+                         "U", &
+                         long_name="grid indices", &
+                         set_name="land", &
+                         DomainU=domain)
+  call diag_axis_add_attribute(id_ug, &
+                               "compress", &
+                               "grid_yt grid_xt")
+  if (allocated(ug_dim_data)) then
+      deallocate(ug_dim_data)
+  endif
+
   id_fld_lon = register_static_field(module_name, 'dummy_lon', (/id_lon/), 'T-cell longitude', &
                'degrees_E')
   id_fld_lat = register_static_field(module_name, 'dummy_lat', (/id_lat/), 'T-cell latitude', &
