@@ -103,17 +103,17 @@ subroutine READ_REMAP_SUB(Field, fptr, map_i, map_j, cidx, compressed_data)
      ce = first_elmt (land_tile_map(i,j))
      te = tail_elmt  (land_tile_map(i,j))
      k = 1
-tile_loop:  do while(ce/=te.and.k<=dimlens(3))
+tile_loop:  do while(ce/=te.and.k<=dimlens(2))
         tile=>current_tile(ce); ce=next_elmt(ce);
         if (.not.associated(tile%vegn)) cycle
         ! find index of the next valid tile in the input data
         do while(.not.any(mask(ii,jj,k,:)))
            k=k+1 ! go to the next tile if there's no data (i.e. all mask 
                  ! values are false for this tile)
-           if(k>dimlens(3)) exit tile_loop 
+           if(k>dimlens(2)) exit tile_loop 
         enddo
         
-        do n = 1,min(size(tile%vegn%cohorts(:)),dimlens(4))
+        do n = 1,min(size(tile%vegn%cohorts(:)),dimlens(1))
            cohort=>tile%vegn%cohorts(n)
            call fptr(cohort,ptr)
            if(associated(ptr).and.mask(ii,jj,k,n)) ptr = expanded_data(ii,jj,k,n)

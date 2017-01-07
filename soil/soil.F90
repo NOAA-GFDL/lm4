@@ -151,6 +151,7 @@ logical :: use_coldstart_wtt_data = .false. ! read additional data for soil init
 character(len=256)  :: coldstart_datafile = 'INPUT/soil_wtt.nc'
 logical :: allow_neg_rnu        = .false.   ! Refill from stream if wl < 0 with warning, i.e. during spinup.
 logical :: allow_neg_wl         = .false.   ! Warn rather than abort if wl < 0, even if .not. allow_neg_rnu
+logical :: fix_neg_wl           = .false.
 logical :: prohibit_negative_water_div = .false. ! if TRUE, div_bf abd dif_if are
   ! set to zero in case water content of *any* layer is negative
 real    :: zeta_bar_override    = -1.
@@ -162,7 +163,7 @@ integer :: layer_for_gw_switch = 1000000 ! to accelerate permafrost gw shutoff
 real    :: eps_trans     = 1.e-7 ! convergence crit for psi_crown_min
 logical :: supercooled_rnu = .true. ! Excess ice converted to supercooled water for runoff.
 real    :: wet_depth = 0.6 ! [m] water table depth threshold for diagnosing wetland fraction
-real    :: thetathresh = -0.01 ! [-] threshold for negative soil liquid water volume
+real    :: thetathresh = -0.01 ! [-] threshold for negative soil liquid water saturation
   ! before warning or abort
 real    :: negrnuthresh = -0.1 ! [mm/s] threshold for negative lrunf_nu
   ! before warning or abort
@@ -190,7 +191,7 @@ namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     active_layer_drainage_acceleration, hlf_factor, &
                     gw_flux_max, aquifer_heat_cap, use_tridiag_foradvec, &
                     horiz_init_wt, use_coldstart_wtt_data, coldstart_datafile, &
-                    allow_neg_rnu, allow_neg_wl, prohibit_negative_water_div, &
+                    allow_neg_rnu, allow_neg_wl, fix_neg_wl, prohibit_negative_water_div, &
                     zeta_bar_override, &
                     cold_depth, Wl_min, &
                     bwood_macinf, &
@@ -3508,9 +3509,9 @@ end subroutine soil_push_down_excess
   real, intent(out), dimension(num_l+1) :: flow
   real, intent(out)                     :: lrunf_ie
   ! ---- local vars ----------------------------------------------------------
-  integer l, ipt, jpt, kpt, fpt, l_internal
+  integer l, ipt, jpt, kpt, fpt, l_dest
   real, dimension(num_l-1) :: del_z, K, DKDPm, DKDPp, grad, eee, fff
-  real aaa, bbb, ccc, ddd, xxx, dpsi_alt, dW_l_internal, w_to_move_up, adj
+  real aaa, bbb, ccc, ddd, xxx, dpsi_alt, w_shortage, adj
   logical flag
 
   flag = .false.
@@ -3669,32 +3670,28 @@ end subroutine soil_push_down_excess
      enddo
   endif
 
+! Check/adjust for negative water content at surface.
   if (dPsi(1).lt.Dpsi_min) then
      if (verbose) then
          call get_current_point(ipt,jpt,kpt,fpt)
          write(*,*) '=== warning: dPsi=',dPsi(1),'<min=',dPsi_min,'at',ipt,jpt,kpt,fpt
        endif
-     l_internal = 1
-     dW_l_internal = -1.e20
-     do l = 2, num_l
-        if (dW_l(l).gt.dW_l_internal) then
-           l_internal = l
-           dW_l_internal = dW_l(l)
-        endif
-     enddo
-     w_to_move_up = min(dW_l_internal, -(soil%wl(1)+dW_l(1)))
-     w_to_move_up = max(w_to_move_up, 0.)
-     write(*,*) 'l_internal=',l_internal
-     write(*,*) 'dW_l(l_internal)=',dW_l(l_internal)
-     write(*,*) 'soil%wl(1)+dW_l(1)',soil%wl(1)+dW_l(1)
-     write(*,*) 'w_to_move_up=',w_to_move_up
-     if (l_internal.gt.1) then
-        dW_l(1) = dW_l(1) + w_to_move_up
-        dW_l(l_internal) = dW_l(l_internal) - w_to_move_up
-        do l = 2, l_internal
-           flow(l) = flow(l) - w_to_move_up
-        enddo
-     endif
+     w_shortage = -(soil%wl(1)+dW_l(1))
+     l_dest = 1
+     call move_up(dW_l, flow, w_shortage, num_l, l_dest)
+  endif
+
+! Adjust for negative water content in subsurface.
+  if (fix_neg_wl) then
+    do l=2, num_l
+      if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
+        call get_current_point(ipt,jpt,kpt,fpt)
+        write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
+        l_dest = l
+        w_shortage = -(soil%wl(l_dest)+dW_l(l_dest))
+        call move_up(dW_l, flow, w_shortage, num_l, l_dest)
+      endif
+    enddo
   endif
 
   if(is_watch_point().or.(flag.and.write_when_flagged)) then
@@ -3732,6 +3729,37 @@ end subroutine soil_push_down_excess
 end subroutine richards_clean
 
 ! ============================================================================
+  subroutine move_up(dW_l, flow, w_shortage, num_l, l_dest)
+  real, intent(inout), dimension(num_l)   :: dW_l
+  real, intent(inout), dimension(num_l+1) :: flow
+  real, intent(in)                        ::  w_shortage
+  integer, intent(in)                     ::  num_l, l_dest
+  ! ---- local vars ----------------------------------------------------------
+  integer l, l_source
+  real dW_l_source, w_to_move_up
+     l_source = l_dest
+     dW_l_source = -1.e20
+     do l = l_dest+1, num_l
+        if (dW_l(l).gt.dW_l_source) then
+           l_source = l
+           dW_l_source = dW_l(l)
+        endif
+     enddo
+     w_to_move_up = min(dW_l_source, w_shortage)
+     w_to_move_up = max(w_to_move_up, 0.)
+     write(*,*) 'l_dest,l_source=',l_dest,l_source
+     write(*,*) 'dW_l_source=',dW_l_source
+     write(*,*) 'w_shortage',w_shortage
+     write(*,*) 'w_to_move_up=',w_to_move_up
+     if (l_source.gt.l_dest) then
+        dW_l(l_dest)   = dW_l(l_dest)   + w_to_move_up
+        dW_l(l_source) = dW_l(l_source) - w_to_move_up
+        do l = l_dest+1, l_source
+           flow(l) = flow(l) - w_to_move_up
+        enddo
+     endif
+  end subroutine move_up
+! ============================================================================
   subroutine RICHARDS(soil, psi, DThDP, hyd_cond, DKDP, div, &
                 lprec_eff, Dpsi_min, Dpsi_max, dt_richards, &
                  dPsi, dW_l, flow, lrunf_ie)
@@ -3745,9 +3773,9 @@ end subroutine richards_clean
   real, intent(out), dimension(num_l+1) :: flow
   real, intent(out)                     :: lrunf_ie
   ! ---- local vars ----------------------------------------------------------
-  integer l, ipt, jpt, kpt, fpt, l_internal
+  integer l, ipt, jpt, kpt, fpt, l_dest
   real, dimension(num_l-1) :: del_z, K, DKDPm, DKDPp, grad, eee, fff
-  real aaa, bbb, ccc, ddd, xxx, dpsi_alt, dW_l_internal, w_to_move_up, adj
+  real aaa, bbb, ccc, ddd, xxx, dpsi_alt, w_shortage, adj
   logical flag
 
   flag = .false.
@@ -3956,28 +3984,24 @@ end subroutine richards_clean
   endif
 
   if (flag) then
-     l_internal = 1
-     dW_l_internal = -1.e20
-     do l = 2, num_l
-        if (dW_l(l).gt.dW_l_internal) then
-           l_internal = l
-           dW_l_internal = dW_l(l)
-        endif
-     enddo
-     w_to_move_up = min(dW_l_internal, -(soil%wl(1)+dW_l(1)))
-     w_to_move_up = max(w_to_move_up, 0.)
-     write(*,*) 'l_internal=',l_internal
-     write(*,*) 'dW_l(l_internal)=',dW_l(l_internal)
-     write(*,*) 'soil%wl(1)+dW_l(1)',soil%wl(1)+dW_l(1)
-     write(*,*) 'w_to_move_up=',w_to_move_up
-     if (l_internal.gt.1) then
-        dW_l(1) = dW_l(1) + w_to_move_up
-        dW_l(l_internal) = dW_l(l_internal) - w_to_move_up
-        do l = 2, l_internal
-           flow(l) = flow(l) - w_to_move_up
-        enddo
-     endif
+     w_shortage=-(soil%wl(1)+dW_l(1))
+     l_dest = 1
+     call move_up(dW_l, flow, w_shortage, num_l, l_dest)
   endif
+
+! Adjust for negative water content in subsurface.
+  if (fix_neg_wl) then
+    do l=2, num_l
+      if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
+        call get_current_point(ipt,jpt,kpt,fpt)
+        write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
+        l_dest = l
+        w_shortage = -(soil%wl(l_dest)+dW_l(l_dest))
+        call move_up(dW_l, flow, w_shortage, num_l, l_dest)
+      endif
+    enddo
+  endif
+
 
   if(is_watch_point().or.(flag.and.write_when_flagged)) then
      write(*,*) ' ##### soil_step_2 checkpoint 3.22 #####'
@@ -4189,7 +4213,7 @@ subroutine advection_tri(soil, flow, dW_l, tflow, d_GW, div, delta_time, t_soil_
 
    ! Upstream weighting of advection. Preserving u_plus here for now.
    u_minus = 1.0; u_plus = 0.0
-   where (flow.lt.0.) u_minus = 0.
+   where (flow(1:num_l).lt.0.) u_minus = 0.
    do l = 1, num_l-1
       u_plus(l) = 1. - u_minus(l+1)
    enddo

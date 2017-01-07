@@ -894,16 +894,16 @@ end subroutine print_river_tracer_data
 
     if(.not.do_rivers) return ! do nothing further if rivers are turned off
     if(new_land_io) then
-       id_restart = register_restart_field(river_restart,'river.res.nc','storage', River%storage, domain)
-       id_restart = register_restart_field(river_restart,'river.res.nc','discharge2ocean', discharge2ocean_next, domain)
+       id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','storage', River%storage, domain)
+       id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','discharge2ocean', discharge2ocean_next, domain)
        do tr = 1, num_species
-          id_restart = register_restart_field(river_restart,'river.res.nc','storage_'//trdata(tr)%name, &
+          id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','storage_'//trdata(tr)%name, &
                        River%storage_c(:,:,tr),domain)
-          id_restart = register_restart_field(river_restart,'river.res.nc','disch2ocn_'//trdata(tr)%name, &
+          id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','disch2ocn_'//trdata(tr)%name, &
                        discharge2ocean_next_c(:,:,tr),domain)
        enddo
-       id_restart = register_restart_field(river_restart,'river.res.nc','Omean', River%outflowmean, domain)
-       id_restart = register_restart_field(river_restart,'river.res.nc','depth', River%depth, domain, mandatory=.false.)
+       id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','Omean', River%outflowmean, domain)
+       id_restart = register_restart_field(river_restart,trim(timestamp)//'river.res.nc','depth', River%depth, domain, mandatory=.false.)
        call save_restart(river_restart)
        call free_restart_type(river_restart)
     else
