@@ -3115,9 +3115,9 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
           'latitude', set_name='land', edges=id_latb)
   else
      id_lon = diag_axis_init ( 'grid_xt', (/(real(i),i=1,nlon)/), 'degrees_E', 'X', &
-          'T-cell longitude', set_name='land',  aux='geolon_t' )
+          'T-cell longitude', set_name='land' )
      id_lat = diag_axis_init ( 'grid_yt', (/(real(i),i=1,nlat)/), 'degrees_N', 'Y', &
-          'T-cell latitude', set_name='land',  aux='geolat_t' )
+          'T-cell latitude', set_name='land' )
   endif
 
  !Register the unstructured axis for the unstructured domain.
@@ -3134,7 +3134,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
                          "U", &
                          long_name="grid indices", &
                          set_name="land", &
-                         DomainU=domain)
+                         DomainU=domain, aux="geolon_t geolat_t")
   call diag_axis_add_attribute(id_ug, &
                                "compress", &
                                "grid_yt grid_xt")

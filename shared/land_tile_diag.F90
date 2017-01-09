@@ -540,7 +540,7 @@ function reg_field(static, module_name, field_name, init_time, axes, &
      ! reserve space in per-tile buffers. We assume that the first two axes
      ! are horizontal coordinates, so their size is not taken into account
      fields(id)%size = 1
-     do i = 3, size(axes(:))
+     do i = 2, size(axes(:))
         fields(id)%size = fields(id)%size * get_axis_length(axes(i))
      enddo
      ! if offset is present in the list of the arguments, it means that we do not
