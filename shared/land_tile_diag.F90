@@ -814,7 +814,7 @@ subroutine dump_tile_diag_fields(time)
   total_n_sends(:) = fields(1:n_fields)%n_sends
   call mpp_sum(total_n_sends, n_fields, pelist=lnd%pelist)
 
-!!!!$OMP parallel do schedule(dynamic) default(shared) private(ifld,isel)
+!$OMP parallel do schedule(dynamic) default(shared) private(ifld,isel)
   do ifld = 1, n_fields
      if (total_n_sends(ifld) == 0) cycle ! no data to send
      do isel = 1, n_selectors
@@ -858,8 +858,8 @@ subroutine dump_tile_diag_field(id, time)
   total_n_sends = fields(ifld)%n_sends
   call mpp_sum(total_n_sends, pelist=lnd%pelist)
 
-!!!$OMP parallel do schedule(dynamic) default(shared) private(isel)
   if (total_n_sends == 0) return ! no data to send
+!$OMP parallel do schedule(dynamic) default(shared) private(isel)
   do isel = 1, n_selectors
      if (fields(ifld)%ids(isel) <= 0) cycle
      call dump_diag_field_with_sel ( fields(ifld)%ids(isel), &
