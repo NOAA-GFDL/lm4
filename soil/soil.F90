@@ -58,7 +58,7 @@ use land_tile_io_mod, only: land_restart_type, &
 use vegn_data_mod, only: K1, K2
 use vegn_tile_mod, only : vegn_tile_type, vegn_uptake_profile, vegn_hydraulic_properties
 use land_debug_mod, only : is_watch_point, get_current_point, set_current_point, &
-     check_conservation, is_watch_cell
+     check_conservation, check_var_range, is_watch_cell
 use uptake_mod, only : UPTAKE_LINEAR, UPTAKE_DARCY2D, UPTAKE_DARCY2D_LIN, &
      uptake_init, darcy2d_uptake, darcy2d_uptake_solver
 
@@ -2761,7 +2761,8 @@ end subroutine soil_step_1
              ' ws=', soil%ws(l),&
              ' gw=', soil%groundwater(l)
      enddo
-     call debug_pool(soil%leafLitter, 'leafLitter')
+     if (soil_carbon_option==SOILC_CORPSE) &
+         call debug_pool(soil%leafLitter, 'leafLitter')
   endif
 
   active_layer_thickness = 0.
@@ -2798,12 +2799,14 @@ end subroutine soil_step_1
       __DEBUG1__(div)
       __DEBUG1__(wl_before)
       __DEBUG1__(gw_option)
-      call debug_pool(soil%leafLitter,       'leafLitter')
-      call debug_pool(soil%fineWoodLitter,   'fineWoodLitter')
-      call debug_pool(soil%coarseWoodLitter, 'coarseWoodLitter')
-      do l = 1, num_l
-         call debug_pool(soil%soil_C(l), 'soil_C(l)')
-      enddo
+      if (soil_carbon_option==SOILC_CORPSE) then
+         call debug_pool(soil%leafLitter,       'leafLitter')
+         call debug_pool(soil%fineWoodLitter,   'fineWoodLitter')
+         call debug_pool(soil%coarseWoodLitter, 'coarseWoodLitter')
+         do l = 1, num_l
+            call debug_pool(soil%soil_C(l), 'soil_C(l)')
+         enddo
+      endif
       do l = 1, size(soil%div_hlsp_DOC,2)
          __DEBUG1__(soil%div_hlsp_DOC(:,l))
       enddo
@@ -2837,14 +2840,16 @@ end subroutine soil_step_1
        soil_tr_runf(i_river_DOC) = total_DOC_div
 
    if (is_watch_point()) then
-      write(*,*)'##### soil_step_2 checkpoint 7 #####'
-      call debug_pool(soil%leafLitter,       'leafLitter')
-      call debug_pool(soil%fineWoodLitter,   'fineWoodLitter')
-      call debug_pool(soil%coarseWoodLitter, 'coarseWoodLitter')
-      __DEBUG3__(leaflitter_DOC_loss,woodlitter_DOC_loss,total_DOC_div)
-      do l = 1, num_l
-         call debug_pool(soil%soil_C(l), 'soil_C(l)')
-      enddo
+      if (soil_carbon_option==SOILC_CORPSE) then
+         write(*,*)'##### soil_step_2 checkpoint 7 #####'
+         call debug_pool(soil%leafLitter,       'leafLitter')
+         call debug_pool(soil%fineWoodLitter,   'fineWoodLitter')
+         call debug_pool(soil%coarseWoodLitter, 'coarseWoodLitter')
+         __DEBUG3__(leaflitter_DOC_loss,woodlitter_DOC_loss,total_DOC_div)
+         do l = 1, num_l
+            call debug_pool(soil%soil_C(l), 'soil_C(l)')
+         enddo
+      endif
    endif
 
 ! ----------------------------------------------------------------------------
@@ -4348,26 +4353,37 @@ end subroutine add_root_litter
 ! Spread root exudate C through profile, using vertical root profile from vegn_uptake_profile
 ! Differs from add_root_litter -- C is distributed through existing cohorts, not deposited as new cohort
 subroutine add_root_exudates(soil,vegn,exudateC)
-    type(soil_tile_type), intent(inout)  :: soil
-    type(vegn_tile_type), intent(in)     :: vegn
-    real,intent(in) :: exudateC
+  type(soil_tile_type), intent(inout)  :: soil
+  type(vegn_tile_type), intent(in)     :: vegn
+  real,intent(in) :: exudateC
 
-    real,dimension(num_l) :: uptake_frac_max, vegn_uptake_term
-    integer :: nn
+  real,dimension(num_l) :: uptake_frac_max, vegn_uptake_term
+  integer :: nn
+  real, parameter :: tol = 1e-10 ! tolerance of profile integral test.
 
-    call vegn_uptake_profile (vegn, dz(1:num_l), uptake_frac_max, vegn_uptake_term )
-    if(abs(sum(uptake_frac_max(1:num_l)) - 1.0) > 1e-10 ) then
-        print *,'1 - sum(vegn_uptake_frac_max)',1.0-sum(uptake_frac_max(1:num_l))
-        call error_mesg('add_root_litter','total of vegn_uptake_frac_max not 1',FATAL)
-    endif
+  select case (soil_carbon_option)
+  case (SOILC_CENTURY)
+     soil%fast_soil_C(1) = soil%fast_soil_C(1) + exudateC
 
-    if (is_watch_point()) then
-       write (*,*) '##### add_root_exudates #####'
-       __DEBUG1__(exudateC)
-       __DEBUG1__(uptake_frac_max)
-    endif
+  case (SOILC_CENTURY_BY_LAYER)
+     call vegn_uptake_profile (vegn, dz(1:num_l), uptake_frac_max, vegn_uptake_term )
+     call check_var_range(sum(uptake_frac_max)-1.0, -tol,+tol, 'add_root_exudates', 'sum(vegn_uptake_frac_max)-1', FATAL)
 
-    do nn=1,num_l
+     do nn=1,num_l
+        soil%fast_soil_C(nn) = soil%fast_soil_C(nn) + exudateC*uptake_frac_max(nn)
+     enddo
+
+  case (SOILC_CORPSE)
+     call vegn_uptake_profile (vegn, dz(1:num_l), uptake_frac_max, vegn_uptake_term )
+     call check_var_range(sum(uptake_frac_max)-1.0, -tol,+tol, 'add_root_exudates', 'sum(vegn_uptake_frac_max)-1', FATAL)
+
+     if (is_watch_point()) then
+        write (*,*) '##### add_root_exudates #####'
+        __DEBUG1__(exudateC)
+        __DEBUG1__(uptake_frac_max)
+     endif
+
+     do nn=1,num_l
         if (is_watch_point()) then
            call debug_pool(soil%soil_C(nn),'soil_C(nn) before')
         endif
@@ -4376,8 +4392,8 @@ subroutine add_root_exudates(soil,vegn,exudateC)
         if (is_watch_point()) then
            call debug_pool(soil%soil_C(nn),'soil_C(nn) after ')
         endif
-    enddo
-
+     enddo
+  end select
 end subroutine add_root_exudates
 
 
