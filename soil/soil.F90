@@ -151,7 +151,7 @@ logical :: use_coldstart_wtt_data = .false. ! read additional data for soil init
 character(len=256)  :: coldstart_datafile = 'INPUT/soil_wtt.nc'
 logical :: allow_neg_rnu        = .false.   ! Refill from stream if wl < 0 with warning, i.e. during spinup.
 logical :: allow_neg_wl         = .false.   ! Warn rather than abort if wl < 0, even if .not. allow_neg_rnu
-logical :: fix_neg_wl           = .false.
+logical :: fix_neg_subsurface_wl       = .false.
 logical :: prohibit_negative_water_div = .false. ! if TRUE, div_bf abd dif_if are
   ! set to zero in case water content of *any* layer is negative
 real    :: zeta_bar_override    = -1.
@@ -191,7 +191,7 @@ namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     active_layer_drainage_acceleration, hlf_factor, &
                     gw_flux_max, aquifer_heat_cap, use_tridiag_foradvec, &
                     horiz_init_wt, use_coldstart_wtt_data, coldstart_datafile, &
-                    allow_neg_rnu, allow_neg_wl, fix_neg_wl, prohibit_negative_water_div, &
+                    allow_neg_rnu, allow_neg_wl, fix_neg_subsurface_wl, prohibit_negative_water_div, &
                     zeta_bar_override, &
                     cold_depth, Wl_min, &
                     bwood_macinf, &
@@ -3687,7 +3687,7 @@ end subroutine soil_push_down_excess
   endif
 
 ! Adjust for negative water content in subsurface.
-  if (fix_neg_wl) then
+  if (fix_neg_subsurface_wl) then
     do l=2, num_l
       if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
         call get_current_point(ipt,jpt,kpt,fpt)
@@ -3995,7 +3995,7 @@ end subroutine richards_clean
   endif
 
 ! Adjust for negative water content in subsurface.
-  if (fix_neg_wl) then
+  if (fix_neg_subsurface_wl) then
     do l=2, num_l
       if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
         call get_current_point(ipt,jpt,kpt,fpt)
