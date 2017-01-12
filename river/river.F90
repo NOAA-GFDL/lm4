@@ -118,6 +118,7 @@ character(len=*), parameter :: module_name = 'river_mod'
   ! ZMS
   logical :: tracers_from_runoff = .false. ! if true, use runoff_c(:,:,num_phys+1:num_species)
           ! rather than source concentration and flux files
+
   namelist /river_nml/ dt_slow, diag_freq, debug_river,                      &
                        Somin, outflowmean_min, ave_DHG_exp, ave_AAS_exp,     &
                        ave_DHG_coef, do_rivers, sinuosity, channel_tau,      &
@@ -145,16 +146,18 @@ character(len=*), parameter :: module_name = 'river_mod'
   real,    parameter :: epsln = 1.e-6
   real,    parameter :: sec_in_day = 86400.
 
+  real     :: discharge_tol=0.0, clw=0.0, csw=0.0  ! will get these values from land model
+  integer  :: i_river_ice, i_river_heat, i_river_DOC
+  logical, allocatable, dimension(:,:) :: missing_rivers
   real,  allocatable, dimension(:,:)   :: discharge2ocean_next   ! store discharge value
   real,  allocatable, dimension(:,:,:) :: discharge2ocean_next_c ! store discharge value
-  real,  allocatable, dimension(:)     :: discharge2ocean_next_ug   ! store discharge value on UG_domain
-  real,  allocatable, dimension(:,:)   :: discharge2ocean_next_c_ug ! store discharge value on UG_domain
   ! IDs of diag fields normalized per land area
   integer, allocatable, dimension(:)   :: id_infloc,  id_storage, id_stordis, id_inflow, &
         id_run_stor, id_outflow, id_removal, id_dis, id_lake_outflow
   ! IDs of diag fields normalized per cell area
   integer, allocatable, dimension(:)   :: id_infloc_c,  id_storage_c, id_stordis_c, id_inflow_c, &
         id_run_stor_c, id_outflow_c, id_removal_c, id_dis_c, id_lake_outflow_c
+  integer :: id_dis_liq,  id_dis_ice,  id_dis_heat, id_dis_sink, id_dis_DOC, id_no_riv
   integer                       :: num_fast_calls
   integer                       :: slow_step = 0          ! record number of slow time step run.
   type(domain2d),        pointer :: domain => NULL()
@@ -190,7 +193,7 @@ contains
 
 !#####################################################################
   subroutine river_init( land_lon, land_lat, time, dt_fast, land_domain, land_UG_domain, &
-                         land_frac, river_land_mask )
+                         land_frac, discharge_tol_in, clw_in, csw_in )
     real,            intent(in) :: land_lon(:,:)     ! geographical longitude of cell center
     real,            intent(in) :: land_lat(:,:)     ! geographical latitude of cell center
     type(time_type), intent(in) :: time              ! current time
@@ -198,7 +201,7 @@ contains
     type(domain2d),  intent(in), target :: land_domain       ! land domain
     type(domainUG), intent(in), target :: land_UG_domain
     real,            intent(in) :: land_frac(:,:)       ! land area fraction from land model on UG_domain
-    logical,         intent(out):: river_land_mask(:,:) ! land mask seen by rivers
+    real,            intent(in) :: discharge_tol_in, clw_in, csw_in
 
     integer              :: unit, io_status, ierr, id_restart
     integer              :: sec, day, i, j, i_species
@@ -240,7 +243,6 @@ contains
     unit=stdlog()
     write(unit, river_nml)
 
-    river_land_mask = .false.
     if(.not.do_rivers) return ! do nothing further if the rivers are turned off
 
 !--- check name list variables
@@ -268,6 +270,10 @@ contains
     if ( mod(River%dt_slow,River%dt_fast) .ne. 0  ) call mpp_error(FATAL, &
          'river_mod: river slow time step dt_slow should be multiple of land model fast time step dt_fast')
 
+    discharge_tol = discharge_tol_in
+    clw = clw_in
+    csw = csw_in
+
 !--- get the domain decompsition, river and land will be on the same grid and have the same domain decomposition.
     domain => land_domain
     UG_domain => land_UG_domain
@@ -288,18 +294,15 @@ contains
     if(size(land_lat,1) .NE. nxc .OR. size(land_lat,2) .NE. nyc ) call mpp_error(FATAL, &
         "river_mod: land_lat should be on the compute domain")
 
+    allocate(missing_rivers        (isc:iec,jsc:jec            ))
     allocate(discharge2ocean_next  (isc:iec,jsc:jec            ))
     allocate(discharge2ocean_next_c(isc:iec,jsc:jec,num_species))
-    allocate(discharge2ocean_next_ug  (lsc:lec            ))
-    allocate(discharge2ocean_next_c_ug(lsc:lec,num_species))
     allocate(id_infloc (0:num_species), id_storage(0:num_species))
     allocate(id_inflow (0:num_species), id_outflow(0:num_species))
     allocate(id_dis    (0:num_species), id_lake_outflow (0:num_species))
     allocate(id_removal(0:num_species), id_stordis(0:num_species), id_run_stor(0:num_species))
     discharge2ocean_next = 0
     discharge2ocean_next_c = 0
-    discharge2ocean_next_ug = 0
-    discharge2ocean_next_c_ug = 0
     ! IDs of diag fields normalized per cell area
     allocate(id_infloc_c (0:num_species), id_storage_c(0:num_species))
     allocate(id_inflow_c (0:num_species), id_outflow_c(0:num_species))
@@ -308,7 +311,14 @@ contains
 
 !--- read the data from the file river_src_file -- has all static river network data
     call get_river_data(land_lon, land_lat, land_frac)
-    river_land_mask = River%mask
+
+    missing_rivers = (lnd_sg%landfrac .gt. 0 .and. .not. River%mask)
+
+    i_river_ice  = river_tracer_index('ice')
+    i_river_heat = river_tracer_index('het')
+    i_river_DOC  = river_tracer_index('doc')
+    if (i_river_ice  == NO_TRACER) call mpp_error(FATAL, 'river_mod: required river tracer for ice not found')
+    if (i_river_heat == NO_TRACER) call mpp_error(FATAL, 'river_mod: required river tracer for heat not found')
 
 ! TODO: get rid of the parameters below in "River" data structure and use trdata
 ! directly
@@ -412,9 +422,6 @@ contains
                 ! call mpp_error(WARNING, 'river_init : "depth" is not present in '//trim(filename))
            endif
         endif
-        !--- pass the data to UG_domain
-        call mpp_pass_SG_to_UG(UG_domain, discharge2ocean_next, discharge2ocean_next_UG)
-        call mpp_pass_SG_to_UG(UG_domain, discharge2ocean_next_c, discharge2ocean_next_c_UG)
     else
         call mpp_error(NOTE, 'river_init : cold start, set data to 0')
         River%storage    = 0.0
@@ -588,62 +595,119 @@ subroutine print_river_tracer_data(unit)
 end subroutine print_river_tracer_data
 
 !#####################################################################
-  subroutine update_river ( runoff, runoff_c, discharge2ocean,  &
-                                              discharge2ocean_c )
-    real, dimension(:),   intent(in)  :: runoff
-    real, dimension(:,:), intent(in)  :: runoff_c
-    real, dimension(:),   intent(out) :: discharge2ocean
-    real, dimension(:,:), intent(out) :: discharge2ocean_c
+  subroutine update_river ( runoff, runoff_c, land2cplr)
+    real, dimension(:,:),   intent(in)  :: runoff
+    real, dimension(:,:,:), intent(in)  :: runoff_c
+    type(land_data_type), intent(inout) :: land2cplr
+    real, dimension(size(runoff,1),size(runoff,2)) :: &
+        heat_frac_liq,    & ! fraction of runoff heat in liquid
+        discharge_l,      & ! discharge of liquid water to ocean
+        discharge_sink      ! container to collect small/negative values for later accounting                                              
+    real, dimension(size(runoff,1),size(runoff,2),num_species) ::  &
+        discharge_c    ! runoff of tracers accumulated over tiles in cell (including ice and heat)
 
     integer, save :: n = 0  ! fast time step with each slow time step
+    integer       :: i_species
+    logical       :: used
 
     call mpp_clock_begin(riverclock)
     if (.not.do_rivers) then
-        discharge2ocean = 0; discharge2ocean_c = 0
         call mpp_clock_end(riverclock)  !needed for early exit when do_rivers=.false.
         return
     endif
 
-    discharge2ocean   = discharge2ocean_next_ug
-
-    discharge2ocean_c(:,1:num_species) = discharge2ocean_next_c_ug(:,1:num_species)
-    ! TODO: I don't think the size of the discarge is ever going to be larger than
-    ! num_species
-    if (size(discharge2ocean_c,2) > num_species) &
-       discharge2ocean_c(:,num_species+1:size(discharge2ocean_c,2)) = 0.
+    discharge_l   = discharge2ocean_next
+    discharge_c(:,:,1:num_species) = discharge2ocean_next_c(:,:,1:num_species)
 ! deplete the discharge storage pools
-    River%stordis_c(:,:,1:num_species) = River%stordis_c(:,:,1:num_species) &
-         - River%dt_fast * discharge2ocean_next_c(:,:,1:num_species)/DENS_H2O
+    River%stordis_c = River%stordis_c &
+         - River%dt_fast * discharge_c/DENS_H2O
     River%stordis   = River%stordis   &
-         - River%dt_fast *(discharge2ocean_next + &
-                           discharge2ocean_next_c(:,:,1))/DENS_H2O
+         - River%dt_fast *(discharge_l + &
+                           discharge_c(:,:,1))/DENS_H2O
 
 !  increment time
     River%Time = increment_time(River%Time, River%dt_fast, 0)
     n = n + 1
 !--- accumulate runoff ---------------------
-    River%run_stor_ug   = River%run_stor_ug   + runoff
-    River%run_stor_c_ug = River%run_stor_c_ug + runoff_c
+    River%run_stor   = River%run_stor   + runoff
+    River%run_stor_c = River%run_stor_c + runoff_c
 
     if(n == num_fast_calls) then
         call mpp_clock_begin(slowclock)
-        call mpp_pass_UG_to_SG(UG_domain, River%run_stor_ug, River%run_stor)
-        call mpp_pass_UG_to_SG(UG_domain, River%run_stor_c_ug, River%run_stor_c)
         call update_river_slow(River%run_stor/real(num_fast_calls), &
              River%run_stor_c(:,:,:)/real(num_fast_calls) )
-        !--- update discharge2ocean_next, discharge2ocean_next_c to UG_domain
         call mpp_clock_end(slowclock)
         call mpp_clock_begin(bndslowclock)
         call update_river_bnd_slow
         call mpp_clock_end(bndslowclock)
-        call mpp_pass_SG_to_UG(UG_domain, discharge2ocean_next, discharge2ocean_next_ug)
-        call mpp_pass_SG_to_UG(UG_domain, discharge2ocean_next_c, discharge2ocean_next_c_ug)
         n = 0
         River%run_stor = 0
         River%run_stor_c = 0
-        River%run_stor_ug = 0
-        River%run_stor_c_ug = 0
     endif
+
+    discharge_l = discharge_l/lnd_sg%cellarea
+    do i_species = 1, num_species
+       discharge_c(:,:,i_species) =  discharge_c(:,:,i_species)/lnd_sg%cellarea
+    enddo
+
+    ! pass through to ocean the runoff that was not seen by river module because of land_frac diffs.
+    ! need to multiply by gfrac to spread over whole cell
+    where (missing_rivers) discharge_l = (runoff-runoff_c(:,:,i_river_ice))*lnd_sg%landfrac
+    do i_species = 1, num_species
+       where (missing_rivers) &
+          discharge_c(:,:,i_species) = runoff_c(:,:,i_species)*lnd_sg%landfrac
+    enddo
+
+    ! don't send negatives or insignificant values to ocean. put them in the sink instead.
+    ! this code does not seem necessary, and default discharge_tol value should be used.
+    discharge_sink = 0.0
+    where (discharge_l.le.discharge_tol)
+       discharge_sink = discharge_sink + discharge_l
+       discharge_l    = 0.0
+    end where
+    where (discharge_c(:,:,i_river_ice).le.discharge_tol)
+       discharge_sink     = discharge_sink + discharge_c(:,:,i_river_ice)
+       discharge_c(:,:,i_river_ice) = 0.0
+    end where
+
+    ! find phase partitioning ratio for discharge sensible heat flux
+    where (discharge_l.gt.0. .or. discharge_c(:,:,i_river_ice).gt.0.)
+       heat_frac_liq = clw*discharge_l / (clw*discharge_l+csw*discharge_c(:,:,i_river_ice))
+    elsewhere
+       heat_frac_liq = 1.0
+    end where
+
+    ! scale up fluxes sent to ocean to compensate for non-ocean fraction of discharge cell.
+    ! split heat into liquid and solid streams
+    where (lnd_sg%landfrac.lt.1.)
+       land2cplr%discharge           = discharge_l        / (1-lnd_sg%landfrac)
+       land2cplr%discharge_snow      = discharge_c(:,:,i_river_ice) / (1-lnd_sg%landfrac)
+       land2cplr%discharge_heat      = heat_frac_liq*discharge_c(:,:,i_river_heat) / (1-lnd_sg%landfrac)
+       land2cplr%discharge_snow_heat =               discharge_c(:,:,i_river_heat) / (1-lnd_sg%landfrac) &
+                                      - land2cplr%discharge_heat
+    end where
+
+#ifdef ZMSDEBUG
+    do j=lnd_sg%js,lnd_sg%je
+       do i=lnd_sg%is,lnd_sg%ie
+          call set_current_point(i, j, 1)
+          call check_var_range(land2cplr%discharge(i,j), -10., 10., 'gcell DISCHARGE CHECK', &
+                               'Liquid Discharge (mm/s)', WARNING)
+          call check_var_range(land2cplr%discharge_snow(i,j), -10., 10., 'gcell DISCHARGE CHECK', &
+                               'Snow Discharge (mm/s)', WARNING)
+          call check_var_range(land2cplr%discharge_heat(i,j), -1000., 1000., 'gcell DISCHARGE CHECK', &
+                               'Discharge Heat (W/m^2/s)', WARNING)
+          call check_var_range(land2cplr%discharge_snow_heat(i,j), -1000., 1000., 'gcell DISCHARGE CHECK', &
+                               'Discharge Snow Heat (W/m^2/s)', WARNING)
+       end do
+    end do
+#endif
+
+    if (id_dis_liq > 0)  used = send_data (id_dis_liq,  discharge_l, lnd%time)
+    if (id_dis_ice > 0)  used = send_data (id_dis_ice,  discharge_c(:,:,i_river_ice), lnd%time)
+    if (id_dis_heat > 0) used = send_data (id_dis_heat, discharge_c(:,:,i_river_heat), lnd%time)
+    if (id_dis_sink > 0) used = send_data (id_dis_sink, discharge_sink, lnd%time)
+    if (id_dis_DOC > 0)  used = send_data (id_dis_DOC,  discharge_c(:,:,i_river_DOC), lnd%time)
 
     call mpp_clock_end(riverclock)
 
@@ -936,7 +1000,7 @@ end subroutine print_river_tracer_data
 
 !--- release memory
     deallocate(discharge2ocean_next, discharge2ocean_next_c,&
-         River%run_stor, River%run_stor_c, River%run_stor_ug, River%run_stor_c_ug)
+         River%run_stor, River%run_stor_c)
 
     deallocate( River%lon, River%lat)
     deallocate(River%land_area ,     River%basinid        )
@@ -1065,7 +1129,6 @@ end subroutine print_river_tracer_data
     allocate(River%storage   (isc:iec, jsc:jec) )
     allocate(River%stordis   (isc:iec, jsc:jec) )
     allocate(River%run_stor  (isc:iec, jsc:jec) )
-    allocate(River%run_stor_ug(lsc:lec) )
     allocate(River%melt      (isc:iec, jsc:jec) )
     allocate(River%disw2o    (isc:iec, jsc:jec) )
     allocate(River%infloc    (isc:iec, jsc:jec))
@@ -1078,7 +1141,6 @@ end subroutine print_river_tracer_data
     allocate(River%storage_c (isc:iec, jsc:jec, num_species) )
     allocate(River%stordis_c (isc:iec, jsc:jec, num_species) )
     allocate(River%run_stor_c (isc:iec, jsc:jec, num_species) )
-    allocate(River%run_stor_c_ug (lsc:lec, num_species) )
     allocate(River%outflow_c (isc:iec, jsc:jec, num_species) )
     allocate(River%lake_outflow_c (isc:iec, jsc:jec, num_species) )
     allocate(River%removal_c (isc:iec, jsc:jec, num_species) )
@@ -1110,10 +1172,8 @@ end subroutine print_river_tracer_data
     River%storage_c = 0.0
     River%stordis   = 0.0
     River%run_stor  = 0.0
-    River%run_stor_ug  = 0.0
     River%stordis_c = 0.0
     River%run_stor_c= 0.0
-    River%run_stor_c_ug = 0.0
     River%removal_c = 0.0
     River%depth     = 0.
     River%width     = 0.
@@ -1195,7 +1255,7 @@ end subroutine print_river_tracer_data
     integer, intent(in) :: id_lat  ! ID of land latitude (Y) diag axis
 
     character(len=11)                :: mod_name = 'river'
-    real, dimension(isc:iec,jsc:jec) :: tmp
+    real, dimension(isc:iec,jsc:jec) :: tmp, no_riv
     logical                          :: sent
     integer                          :: i
     integer :: id_geolon_t, id_geolat_t, id_area_land, id_cellarea
@@ -1324,6 +1384,22 @@ end subroutine print_river_tracer_data
        River%Time, 'melt in river system', 'kg/m2/s', missing_value=-1.0e+20, area=id_area_land )
   call diag_field_add_attribute(id_meltr,'cell_methods', 'area: mean')
 
+  id_dis_liq   = register_diag_field ( mod_name, 'dis_liq', (/id_lon, id_lat/), &
+       River%time, 'liquid discharge to ocean', 'kg/(m2 s)', missing_value=-1.0e+20, area=id_cellarea )
+  call diag_field_add_attribute(id_dis_liq,'cell_methods', 'area: mean')
+  id_dis_ice   = register_diag_field ( mod_name, 'dis_ice', (/id_lon, id_lat/), &
+       River%time, 'ice discharge to ocean', 'kg/(m2 s)', missing_value=-1.0e+20, area=id_cellarea )
+  call diag_field_add_attribute(id_dis_ice,'cell_methods', 'area: mean')
+  id_dis_heat   = register_diag_field ( mod_name, 'dis_heat', (/id_lon, id_lat/), &
+       River%time, 'heat of mass discharge to ocean', 'W/m2', missing_value=-1.0e+20, area=id_cellarea )
+  call diag_field_add_attribute(id_dis_heat,'cell_methods', 'area: mean')
+  id_dis_sink   = register_diag_field ( mod_name, 'dis_sink', (/id_lon, id_lat/), &
+       River%time, 'burial rate of small/negative discharge', 'kg/(m2 s)', missing_value=-1.0e+20, area=id_cellarea )
+  call diag_field_add_attribute(id_dis_sink,'cell_methods', 'area: mean')
+  id_dis_DOC    = register_diag_field ( mod_name, 'dis_DOC', (/id_lon, id_lat/), &
+       River%time, 'DOC discharge to ocean', 'kgC/m^2/s', missing_value=-1.0e+20 )
+  call diag_field_add_attribute(id_dis_sink,'cell_methods', 'area: mean')
+
 ! static fields
 
   id_dx = register_static_field ( mod_name, 'rv_length', (/id_lon, id_lat/), &
@@ -1336,6 +1412,8 @@ end subroutine print_river_tracer_data
          'cells left to travel before reaching ocean', 'none', missing_value=missing )
   id_tocell = register_static_field ( mod_name, 'rv_dir', (/id_lon, id_lat/), &
          'outflow direction code', 'none', missing_value=missing )
+  id_no_riv = register_static_field ( mod_name, 'no_riv', (/id_lon, id_lat/), &
+       'indicator of land without rivers','unitless', missing_value=-1.0 )
 
   if(id_geolon_t>0) sent=send_data(id_geolon_t, River%lon*180.0/PI, River%time )
   if(id_geolat_t>0) sent=send_data(id_geolat_t, River%lat*180.0/PI, River%time )
@@ -1356,6 +1434,11 @@ end subroutine print_river_tracer_data
         tmp = River%tocell(isc:iec,jsc:jec)
         sent=send_data(id_tocell, tmp, River%Time, mask=River%mask )
       end if
+
+    no_riv = 0.
+    where ( lnd_sg%landfrac .gt. 0 .and. .not. River%mask ) no_riv = 1.
+    if ( id_no_riv > 0 ) sent = send_data( id_no_riv, no_riv, River%time )
+
 
   end subroutine river_diag_init
 

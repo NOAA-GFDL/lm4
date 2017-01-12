@@ -48,11 +48,9 @@ module river_type_mod
      real, dimension(:,:),      pointer :: storage       => NULL()
      real, dimension(:,:),      pointer :: stordis       => NULL()
      real, dimension(:,:),      pointer :: run_stor      => NULL()  ! runoff storage
-     real, dimension(:),        pointer :: run_stor_ug   => NULL()  ! runoff storage on unstructured grid
      real, dimension(:,:,:),    pointer :: storage_c     => NULL()
      real, dimension(:,:,:),    pointer :: stordis_c     => NULL()
      real, dimension(:,:,:),    pointer :: run_stor_c    => NULL()  ! tracer runoff storage
-     real, dimension(:,:),      pointer :: run_stor_c_ug => NULL()  ! tracer runoff storage on unstructured grid
      real, dimension(:,:),      pointer :: inflow        => NULL()
      real, dimension(:,:,:),    pointer :: inflow_c      => NULL()
      real, dimension(:,:),      pointer :: infloc        => NULL()

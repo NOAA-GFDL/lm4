@@ -230,7 +230,6 @@ logical  :: stock_warning_issued  = .FALSE.
 logical  :: update_cana_co2 ! if false, cana_co2 is not updated during the model run.
 character(len=256) :: grid_spec_file="INPUT/grid_spec.nc"
 real     :: delta_time ! duration of main land time step (s)
-logical, allocatable :: missing_rivers(:)
 
 ! ---- indices of river tracers
 integer  :: n_river_tracers
@@ -267,10 +266,9 @@ integer :: &
   id_sens,     id_sensv,    id_senss,    id_sensg,                         &
 !
   id_e_res_1,  id_e_res_2,  id_cd_m,     id_cd_t,                          &
-  id_cellarea, id_landfrac, id_no_riv,                                     &
+  id_cellarea, id_landfrac,                                                &
   id_geolon_t, id_geolat_t,                                                &
   id_frac,     id_area,     id_ntiles,                                     &
-  id_dis_liq,  id_dis_ice,  id_dis_heat, id_dis_sink,                      &
   id_z0m,      id_z0s,      id_con_g_h,                                    &
   id_transp,                id_wroff,    id_sroff,                         &
   id_htransp,  id_huptake,  id_hroff,    id_gsnow,    id_gequil,           &
@@ -286,7 +284,7 @@ integer :: &
   id_vegn_tran_dir, id_vegn_tran_dif, id_vegn_tran_lw,                     &
   id_vegn_sctr_dir,                                                        &
   id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T,             &
-  id_water_cons,    id_carbon_cons, id_DOCrunf, id_dis_DOC
+  id_water_cons,    id_carbon_cons, id_DOCrunf
 ! diagnostic ids for canopy air tracers (moist mass ratio)
 integer, allocatable :: id_cana_tr(:)
 ! diag IDs of CMOR variables
@@ -356,9 +354,6 @@ subroutine land_model_init &
 
   ! IDs of local clocks
   integer :: landInitClock
-  logical, allocatable :: river_land_mask_sg(:,:), missing_rivers_sg(:,:)
-  real,    allocatable :: no_riv_sg(:,:), no_riv(:)
-
 
   module_is_initialized = .TRUE.
 
@@ -486,24 +481,10 @@ subroutine land_model_init &
   call cana_init()
   call topo_rough_init(lnd%time,lnd_sg%lonb,lnd_sg%latb, &
                        lnd_sg%domain,lnd%domain,id_ug)
-  allocate (river_land_mask_sg(lnd_sg%is:lnd_sg%ie,lnd_sg%js:lnd_sg%je))
-  allocate (missing_rivers_sg (lnd_sg%is:lnd_sg%ie,lnd_sg%js:lnd_sg%je))
-  allocate (no_riv_sg         (lnd_sg%is:lnd_sg%ie,lnd_sg%js:lnd_sg%je))
   call river_init( lnd_sg%lon, lnd_sg%lat, &
                    lnd%time, lnd%dt_fast, lnd_sg%domain,     &
-                   lnd%domain, lnd_sg%landfrac, &
-                   river_land_mask_sg                     )
-  missing_rivers_sg = lnd_sg%landfrac.gt.0. .and. .not.river_land_mask_sg
-  no_riv_sg = 0.
-  where (missing_rivers_sg) no_riv_sg = 1.
-  allocate(no_riv(lnd%ls:lnd%le), missing_rivers(lnd%ls:lnd%le))
-  call mpp_pass_SG_to_UG(lnd%domain, no_riv_sg, no_riv)
-  if ( id_no_riv > 0 ) used = send_data( id_no_riv, no_riv, lnd%time )
-  where(no_riv > 0.)
-     missing_rivers = .true.
-  else where
-     missing_rivers = .false.
-  end where
+                   lnd%domain, lnd_sg%landfrac,              &
+                   discharge_tol, clw, csw )
 
   ! initialize river tracer indices
   n_river_tracers = num_river_tracers()
@@ -560,7 +541,6 @@ subroutine land_model_init &
   end if
 
   call mpp_clock_end(landInitClock)
-  deallocate(river_land_mask_sg, missing_rivers_sg, no_riv_sg, no_riv)
 
 
 end subroutine land_model_init
@@ -595,7 +575,6 @@ subroutine land_model_end (cplr2land, land2cplr)
   ! deallocate storage allocated for tracers
   deallocate(id_cana_tr)
 
-  deallocate(missing_rivers)
   call dealloc_land2cplr(land2cplr, dealloc_discharges=.TRUE.)
   call dealloc_cplr2land(cplr2land)
 
@@ -1140,14 +1119,13 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      lake_LMASS, lake_FMASS, lake_HEAT, &
      soil_LMASS, soil_FMASS, soil_HEAT
 
+  real, dimension(lnd_sg%is:lnd_sg%ie,lnd_sg%js:lnd_sg%je) :: runoff_sg
+  real, dimension(lnd_sg%is:lnd_sg%ie,lnd_sg%js:lnd_sg%je,n_river_tracers) :: runoff_c_sg
+
   real, dimension(lnd%ls:lnd%le) :: &
-       runoff,           & ! total (liquid+snow) runoff accumulated over tiles in cell
-       heat_frac_liq,    & ! fraction of runoff heat in liquid
-       discharge_l,      & ! discharge of liquid water to ocean
-       discharge_sink      ! container to collect small/negative values for later accounting
+       runoff            ! total (liquid+snow) runoff accumulated over tiles in cell
   real, dimension(lnd%ls:lnd%le,n_river_tracers) :: &
-       runoff_c,         & ! runoff of tracers accumulated over tiles in cell (including ice and heat)
-       discharge_c         ! discharge of tracers to ocean
+       runoff_c          ! runoff of tracers accumulated over tiles in cell (including ice and heat)
   logical :: used          ! return value of send_data diagnostics routine
   real, allocatable :: runoff_1d(:),runoff_snow_1d(:),runoff_heat_1d(:)
   integer :: i,j,k,l     ! lon, lat, and tile indices
@@ -1226,71 +1204,13 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
     enddo
   enddo
 
+  !--- pass runoff from unstructured grid to structured grid.
+  call mpp_pass_UG_to_SG(lnd%domain, runoff, runoff_sg)
+  call mpp_pass_UG_to_SG(lnd%domain, runoff_c, runoff_c_sg)
+
 !=================================================================================
   ! update river state
-  call update_river(runoff, runoff_c, discharge_l, discharge_c)
-
-!=================================================================================
-
-  discharge_l = discharge_l/lnd%cellarea
-  do i_species = 1, n_river_tracers
-     discharge_c(:,i_species) =  discharge_c(:,i_species)/lnd%cellarea
-  enddo
-
-  ! pass through to ocean the runoff that was not seen by river module because of land_frac diffs.
-  ! need to multiply by gfrac to spread over whole cell
-  where (missing_rivers) discharge_l = (runoff-runoff_c(:,i_river_ice))*lnd%landfrac
-  do i_species = 1, n_river_tracers
-    where (missing_rivers) &
-     discharge_c(:,i_species) = runoff_c(:,i_species)*lnd%landfrac
-  enddo
-
-  ! don't send negatives or insignificant values to ocean. put them in the sink instead.
-  ! this code does not seem necessary, and default discharge_tol value should be used.
-  discharge_sink = 0.0
-  where (discharge_l.le.discharge_tol)
-      discharge_sink = discharge_sink + discharge_l
-      discharge_l    = 0.0
-  end where
-  where (discharge_c(:,i_river_ice).le.discharge_tol)
-      discharge_sink     = discharge_sink + discharge_c(:,i_river_ice)
-      discharge_c(:,i_river_ice) = 0.0
-  end where
-
-  ! find phase partitioning ratio for discharge sensible heat flux
-  where (discharge_l.gt.0. .or. discharge_c(:,i_river_ice).gt.0.)
-      heat_frac_liq = clw*discharge_l / (clw*discharge_l+csw*discharge_c(:,i_river_ice))
-  elsewhere
-      heat_frac_liq = 1.0
-  end where
-
-  ! scale up fluxes sent to ocean to compensate for non-ocean fraction of discharge cell.
-  ! split heat into liquid and solid streams
-
-  where (lnd%landfrac.lt.1.)
-      land2cplr%discharge_ug           = discharge_l        / (1-lnd%landfrac)
-      land2cplr%discharge_snow_ug      = discharge_c(:,i_river_ice) / (1-lnd%landfrac)
-      land2cplr%discharge_heat_ug      = heat_frac_liq*discharge_c(:,i_river_heat) / (1-lnd%landfrac)
-      land2cplr%discharge_snow_heat_ug =               discharge_c(:,i_river_heat) / (1-lnd%landfrac) &
-                                     -   land2cplr%discharge_heat_ug
-  end where
-
-#ifdef ZMSDEBUG
-   do j=lnd%ls,lnd%le
-         i = lnd%i_index(l)
-         j = lnd%j_index(l)
-         call set_current_point(i, j, 1, l)
-         call check_var_range(land2cplr%discharge_ug(l), -10., 10., 'gcell DISCHARGE CHECK', &
-                              'Liquid Discharge (mm/s)', WARNING)
-         call check_var_range(land2cplr%discharge_snow_ug(l), -10., 10., 'gcell DISCHARGE CHECK', &
-                              'Snow Discharge (mm/s)', WARNING)
-         call check_var_range(land2cplr%discharge_heat_ug(l), -1000., 1000., 'gcell DISCHARGE CHECK', &
-                              'Discharge Heat (W/m^2/s)', WARNING)
-         call check_var_range(land2cplr%discharge_snow_heat_ug(l), -1000., 1000., 'gcell DISCHARGE CHECK', &
-                              'Discharge Snow Heat (W/m^2/s)', WARNING)
-      end do
-   end do
-#endif
+  call update_river(runoff_sg, runoff_c_sg, land2cplr)
 
   ce = first_elmt(land_tile_map, ls=lbound(cplr2land%t_flux,1) )
   do while(loop_over_tiles(ce,tile,l,k))
@@ -1362,12 +1282,6 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
   ! send the accumulated diagnostics to the output
   call dump_tile_diag_fields(lnd%time)
-
-  if (id_dis_liq > 0)  used = send_data (id_dis_liq,  discharge_l, lnd%time)
-  if (id_dis_ice > 0)  used = send_data (id_dis_ice,  discharge_c(:,i_river_ice), lnd%time)
-  if (id_dis_heat > 0) used = send_data (id_dis_heat, discharge_c(:,i_river_heat), lnd%time)
-  if (id_dis_sink > 0) used = send_data (id_dis_sink, discharge_sink, lnd%time)
-  if (id_dis_DOC > 0)  used = send_data (id_dis_DOC,  discharge_c(:,i_river_DOC), lnd%time)
 
   ! send CMOR cell fraction fields
   call send_cellfrac_data(id_cropFrac,     is_crop)
@@ -2337,12 +2251,6 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
 
   call update_land_bc_slow( land2cplr )
 
-  call mpp_pass_UG_to_SG(lnd%domain, land2cplr%discharge_ug, land2cplr%discharge)
-  call mpp_pass_UG_to_SG(lnd%domain, land2cplr%discharge_heat_ug, land2cplr%discharge_heat)
-  call mpp_pass_UG_to_SG(lnd%domain, land2cplr%discharge_snow_ug, land2cplr%discharge_snow)
-  call mpp_pass_UG_to_SG(lnd%domain, land2cplr%discharge_snow_heat_ug, land2cplr%discharge_snow_heat)
-
-
   call mpp_clock_end(landClock)
   call mpp_clock_end(landSlowClock)
 end subroutine update_land_model_slow
@@ -3168,9 +3076,6 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   id_landfrac = register_static_field ( module_name, 'land_frac', axes, &
        'fraction of land in grid cell','unitless', missing_value=-1.0, area=id_cellarea)
 
-  id_no_riv = register_static_field ( module_name, 'no_riv', axes, &
-       'indicator of land without rivers','unitless', missing_value=-1.0 )
-
   ! register areas and fractions for the rest of the diagnostic fields
   call register_tiled_area_fields(module_name, axes, time, id_area, id_frac)
 
@@ -3214,22 +3119,6 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
              'ground heat storage', 'J/m2', missing_value=-1.0e+20 )
   id_HSc     = register_tiled_diag_field ( module_name, 'HSc', axes, time, &
              'canopy-air heat storage', 'J/m2', missing_value=-1.0e+20 )
-
-  id_dis_liq   = register_diag_field ( module_name, 'dis_liq', axes, &
-       time, 'liquid discharge to ocean', 'kg/(m2 s)', missing_value=-1.0e+20, area=id_cellarea )
-  call diag_field_add_attribute(id_dis_liq,'cell_methods', 'area: mean')
-  id_dis_ice   = register_diag_field ( module_name, 'dis_ice', axes, &
-       time, 'ice discharge to ocean', 'kg/(m2 s)', missing_value=-1.0e+20, area=id_cellarea )
-  call diag_field_add_attribute(id_dis_ice,'cell_methods', 'area: mean')
-  id_dis_heat   = register_diag_field ( module_name, 'dis_heat', axes, &
-       time, 'heat of mass discharge to ocean', 'W/m2', missing_value=-1.0e+20, area=id_cellarea )
-  call diag_field_add_attribute(id_dis_heat,'cell_methods', 'area: mean')
-  id_dis_sink   = register_diag_field ( module_name, 'dis_sink', axes, &
-       time, 'burial rate of small/negative discharge', 'kg/(m2 s)', missing_value=-1.0e+20, area=id_cellarea )
-  call diag_field_add_attribute(id_dis_sink,'cell_methods', 'area: mean')
-  id_dis_DOC    = register_diag_field ( module_name, 'dis_DOC', axes, &
-       time, 'DOC discharge to ocean', 'kgC/m^2/s', missing_value=-1.0e+20 )
-  call diag_field_add_attribute(id_dis_sink,'cell_methods', 'area: mean')
 
   id_precip = register_tiled_diag_field ( module_name, 'precip', axes, time, &
              'precipitation rate', 'kg/(m2 s)', missing_value=-1.0e+20 )
@@ -3839,10 +3728,6 @@ subroutine realloc_land2cplr ( bnd )
   ! changed at all here because their values are assigned in update_land_model_fast,
   ! not in update_land_bc_*, and therefore would be lost if re-allocated.
   if (.not.associated(bnd%discharge)) then
-     allocate( bnd%discharge_ug          (lnd%ls:lnd%le) )
-     allocate( bnd%discharge_heat_ug     (lnd%ls:lnd%le) )
-     allocate( bnd%discharge_snow_ug     (lnd%ls:lnd%le) )
-     allocate( bnd%discharge_snow_heat_ug(lnd%ls:lnd%le) )
      allocate( bnd%discharge          (lnd_sg%is:lnd_sg%ie, lnd_sg%js:lnd_sg%je) )
      allocate( bnd%discharge_heat     (lnd_sg%is:lnd_sg%ie, lnd_sg%js:lnd_sg%je) )
      allocate( bnd%discharge_snow     (lnd_sg%is:lnd_sg%ie, lnd_sg%js:lnd_sg%je) )
@@ -3855,10 +3740,6 @@ subroutine realloc_land2cplr ( bnd )
      bnd%discharge_heat      = 0.0
      bnd%discharge_snow      = 0.0
      bnd%discharge_snow_heat = 0.0
-     bnd%discharge_ug           = 0.0
-     bnd%discharge_heat_ug      = 0.0
-     bnd%discharge_snow_ug      = 0.0
-     bnd%discharge_snow_heat_ug = 0.0
   endif
 
 end subroutine realloc_land2cplr
@@ -3894,10 +3775,6 @@ subroutine dealloc_land2cplr ( bnd, dealloc_discharges )
      __DEALLOC__( bnd%discharge_heat      )
      __DEALLOC__( bnd%discharge_snow      )
      __DEALLOC__( bnd%discharge_snow_heat )
-     __DEALLOC__( bnd%discharge_ug           )
-     __DEALLOC__( bnd%discharge_heat_ug      )
-     __DEALLOC__( bnd%discharge_snow_ug      )
-     __DEALLOC__( bnd%discharge_snow_heat_ug )
   end if
 
 end subroutine dealloc_land2cplr
