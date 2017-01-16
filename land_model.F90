@@ -3075,6 +3075,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
        'total area in grid cell', 'm2', missing_value=-1.0 )
   id_landfrac = register_static_field ( module_name, 'land_frac', axes, &
        'fraction of land in grid cell','unitless', missing_value=-1.0, area=id_cellarea)
+  call diag_field_add_attribute(id_landfrac,'ocean_fillvalue',0)
 
   ! register areas and fractions for the rest of the diagnostic fields
   call register_tiled_area_fields(module_name, axes, time, id_area, id_frac)
