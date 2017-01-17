@@ -3036,6 +3036,8 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   endif
   call mpp_get_UG_domain_grid_index(domain, &
                                     ug_dim_data)   
+  !--- grid_index needs to be starting from 0.
+  ug_dim_data = ug_dim_data - 1
   id_ug = diag_axis_init("grid_index",  &
                          real(ug_dim_data), &
                          "none", &
