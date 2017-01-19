@@ -64,7 +64,7 @@ real :: init_temp = 260.   ! cold-start snow T
 real :: init_pack_ws   =   0.
 real :: init_pack_wl   =   0.
 real :: min_snow_mass = 0.
-logical :: prevent_tiny_snow = .true. ! if true, tiny snow is removed at the 
+logical :: prevent_tiny_snow = .FALSE. ! if true, tiny snow is removed at the 
    ! beginning of fast time step to avoid numerical issues. There is no harm
    ! in doing that, but it changes answers, so for compatibility with older code 
    ! turn it off.
