@@ -60,7 +60,7 @@ use land_tile_io_mod, only: land_restart_type, &
 use vegn_data_mod, only: K1, K2
 use vegn_tile_mod, only : vegn_tile_type, vegn_uptake_profile, vegn_hydraulic_properties
 use land_debug_mod, only : is_watch_point, get_current_point, set_current_point, &
-     check_conservation, is_watch_cell
+     check_conservation, check_var_range, is_watch_cell
 use uptake_mod, only : UPTAKE_LINEAR, UPTAKE_DARCY2D, UPTAKE_DARCY2D_LIN, &
      uptake_init, darcy2d_uptake, darcy2d_uptake_solver
 
@@ -154,6 +154,7 @@ logical :: use_coldstart_wtt_data = .false. ! read additional data for soil init
 character(len=256)  :: coldstart_datafile = 'INPUT/soil_wtt.nc'
 logical :: allow_neg_rnu        = .false.   ! Refill from stream if wl < 0 with warning, i.e. during spinup.
 logical :: allow_neg_wl         = .false.   ! Warn rather than abort if wl < 0, even if .not. allow_neg_rnu
+logical :: fix_neg_subsurface_wl       = .false.
 logical :: prohibit_negative_water_div = .false. ! if TRUE, div_bf abd dif_if are
   ! set to zero in case water content of *any* layer is negative
 real    :: zeta_bar_override    = -1.
@@ -165,7 +166,7 @@ integer :: layer_for_gw_switch = 1000000 ! to accelerate permafrost gw shutoff
 real    :: eps_trans     = 1.e-7 ! convergence crit for psi_crown_min
 logical :: supercooled_rnu = .true. ! Excess ice converted to supercooled water for runoff.
 real    :: wet_depth = 0.6 ! [m] water table depth threshold for diagnosing wetland fraction
-real    :: thetathresh = -0.01 ! [-] threshold for negative soil liquid water volume
+real    :: thetathresh = -0.01 ! [-] threshold for negative soil liquid water saturation
   ! before warning or abort
 real    :: negrnuthresh = -0.1 ! [mm/s] threshold for negative lrunf_nu
   ! before warning or abort
@@ -193,7 +194,7 @@ namelist /soil_nml/ lm2, use_E_min, use_E_max,           &
                     active_layer_drainage_acceleration, hlf_factor, &
                     gw_flux_max, aquifer_heat_cap, use_tridiag_foradvec, &
                     horiz_init_wt, use_coldstart_wtt_data, coldstart_datafile, &
-                    allow_neg_rnu, allow_neg_wl, prohibit_negative_water_div, &
+                    allow_neg_rnu, allow_neg_wl, fix_neg_subsurface_wl, prohibit_negative_water_div, &
                     zeta_bar_override, &
                     cold_depth, Wl_min, &
                     bwood_macinf, &
@@ -3292,7 +3293,8 @@ end subroutine soil_step_1
              ' ws=', soil%ws(l),&
              ' gw=', soil%groundwater(l)
      enddo
-     call debug_pool(soil%leafLitter, 'leafLitter')
+     if (soil_carbon_option==SOILC_CORPSE) &
+         call debug_pool(soil%leafLitter, 'leafLitter')
   endif
 
   active_layer_thickness = 0.
@@ -3329,12 +3331,14 @@ end subroutine soil_step_1
       __DEBUG1__(div)
       __DEBUG1__(wl_before)
       __DEBUG1__(gw_option)
-      call debug_pool(soil%leafLitter,       'leafLitter')
-      call debug_pool(soil%fineWoodLitter,   'fineWoodLitter')
-      call debug_pool(soil%coarseWoodLitter, 'coarseWoodLitter')
-      do l = 1, num_l
-         call debug_pool(soil%soil_C(l), 'soil_C(l)')
-      enddo
+      if (soil_carbon_option==SOILC_CORPSE) then
+         call debug_pool(soil%leafLitter,       'leafLitter')
+         call debug_pool(soil%fineWoodLitter,   'fineWoodLitter')
+         call debug_pool(soil%coarseWoodLitter, 'coarseWoodLitter')
+         do l = 1, num_l
+            call debug_pool(soil%soil_C(l), 'soil_C(l)')
+         enddo
+      endif
       do l = 1, size(soil%div_hlsp_DOC,2)
          __DEBUG1__(soil%div_hlsp_DOC(:,l))
       enddo
@@ -3368,14 +3372,16 @@ end subroutine soil_step_1
        soil_tr_runf(i_river_DOC) = total_DOC_div
 
    if (is_watch_point()) then
-      write(*,*)'##### soil_step_2 checkpoint 7 #####'
-      call debug_pool(soil%leafLitter,       'leafLitter')
-      call debug_pool(soil%fineWoodLitter,   'fineWoodLitter')
-      call debug_pool(soil%coarseWoodLitter, 'coarseWoodLitter')
-      __DEBUG3__(leaflitter_DOC_loss,woodlitter_DOC_loss,total_DOC_div)
-      do l = 1, num_l
-         call debug_pool(soil%soil_C(l), 'soil_C(l)')
-      enddo
+      if (soil_carbon_option==SOILC_CORPSE) then
+         write(*,*)'##### soil_step_2 checkpoint 7 #####'
+         call debug_pool(soil%leafLitter,       'leafLitter')
+         call debug_pool(soil%fineWoodLitter,   'fineWoodLitter')
+         call debug_pool(soil%coarseWoodLitter, 'coarseWoodLitter')
+         __DEBUG3__(leaflitter_DOC_loss,woodlitter_DOC_loss,total_DOC_div)
+         do l = 1, num_l
+            call debug_pool(soil%soil_C(l), 'soil_C(l)')
+         enddo
+      endif
    endif
 
 ! ----------------------------------------------------------------------------
@@ -3706,8 +3712,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
             leaflitter_deadmic_produced, leaflitter_protected_produced, leaflitter_protected_turnover_rate, leaflitter_C_dissolved, leaflitter_C_deposited, badCohort)
   IF (badCohort.ne.0) THEN
         call get_current_point(point_i,point_j,point_k,point_face)
-        WRITE (*,*)  'Found bad cohort in leaf litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
-        WRITE (*,*)  'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
+        WRITE (*,*), 'Found bad cohort in leaf litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
+        WRITE (*,*), 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
         call error_mesg('Dsdt','Found bad cohort in leaf litter',FATAL)
   ENDIF
 
@@ -3717,8 +3723,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
             fineWoodlitter_deadmic_produced, fineWoodlitter_protected_produced, fineWoodlitter_protected_turnover_rate, fineWoodlitter_C_dissolved, fineWoodlitter_C_deposited, badCohort)
   IF (badCohort.ne.0) THEN
         call get_current_point(point_i,point_j,point_k,point_face)
-        WRITE (*,*)  'Found bad cohort in fineWood litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
-        WRITE (*,*)  'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
+        WRITE (*,*), 'Found bad cohort in fineWood litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
+        WRITE (*,*), 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
         call error_mesg('Dsdt','Found bad cohort in fineWood litter',FATAL)
   ENDIF
 
@@ -3728,8 +3734,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
             coarseWoodlitter_deadmic_produced, coarseWoodlitter_protected_produced, coarseWoodlitter_protected_turnover_rate, coarseWoodlitter_C_dissolved, coarseWoodlitter_C_deposited, badCohort)
   IF (badCohort.ne.0) THEN
         call get_current_point(point_i,point_j,point_k,point_face)
-        WRITE (*,*)  'Found bad cohort in coarseWood litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
-        WRITE (*,*)  'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
+        WRITE (*,*), 'Found bad cohort in coarseWood litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
+        WRITE (*,*), 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
         call error_mesg('Dsdt','Found bad cohort in coarseWood litter',FATAL)
   ENDIF
 
@@ -3791,8 +3797,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
     deadmic_produced(k),protected_produced(:,k),protected_turnover_rate(:,k),C_dissolved(:,k),C_deposited(:,k),badCohort)
     IF (badCohort.ne.0) THEN
         call get_current_point(point_i,point_j,point_k,point_face)
-        WRITE (*,*)  'Found bad cohort in layer',k,'Point i,j,k,face:',point_i,point_j,point_k,point_face
-        WRITE (*,*)  'T=',decomp_T(k),'theta=',decomp_theta(k),'dt=',dt_fast_yr
+        WRITE (*,*), 'Found bad cohort in layer',k,'Point i,j,k,face:',point_i,point_j,point_k,point_face
+        WRITE (*,*), 'T=',decomp_T(k),'theta=',decomp_theta(k),'dt=',dt_fast_yr
         call error_mesg('Dsdt','Found bad cohort',FATAL)
     ENDIF
 
@@ -4040,9 +4046,9 @@ end subroutine soil_push_down_excess
   real, intent(out), dimension(num_l+1) :: flow
   real, intent(out)                     :: lrunf_ie
   ! ---- local vars ----------------------------------------------------------
-  integer l, ipt, jpt, kpt, fpt, l_internal
+  integer l, ipt, jpt, kpt, fpt, l_dest
   real, dimension(num_l-1) :: del_z, K, DKDPm, DKDPp, grad, eee, fff
-  real aaa, bbb, ccc, ddd, xxx, dpsi_alt, dW_l_internal, w_to_move_up, adj
+  real aaa, bbb, ccc, ddd, xxx, dpsi_alt, w_shortage, adj
   logical flag
 
   flag = .false.
@@ -4201,32 +4207,28 @@ end subroutine soil_push_down_excess
      enddo
   endif
 
+! Check/adjust for negative water content at surface.
   if (dPsi(1).lt.Dpsi_min) then
      if (verbose) then
          call get_current_point(ipt,jpt,kpt,fpt)
          write(*,*) '=== warning: dPsi=',dPsi(1),'<min=',dPsi_min,'at',ipt,jpt,kpt,fpt
        endif
-     l_internal = 1
-     dW_l_internal = -1.e20
-     do l = 2, num_l
-        if (dW_l(l).gt.dW_l_internal) then
-           l_internal = l
-           dW_l_internal = dW_l(l)
-        endif
-     enddo
-     w_to_move_up = min(dW_l_internal, -(soil%wl(1)+dW_l(1)))
-     w_to_move_up = max(w_to_move_up, 0.)
-     write(*,*) 'l_internal=',l_internal
-     write(*,*) 'dW_l(l_internal)=',dW_l(l_internal)
-     write(*,*) 'soil%wl(1)+dW_l(1)',soil%wl(1)+dW_l(1)
-     write(*,*) 'w_to_move_up=',w_to_move_up
-     if (l_internal.gt.1) then
-        dW_l(1) = dW_l(1) + w_to_move_up
-        dW_l(l_internal) = dW_l(l_internal) - w_to_move_up
-        do l = 2, l_internal
-           flow(l) = flow(l) - w_to_move_up
-        enddo
-     endif
+     w_shortage = -(soil%wl(1)+dW_l(1))
+     l_dest = 1
+     call move_up(dW_l, flow, w_shortage, num_l, l_dest)
+  endif
+
+! Adjust for negative water content in subsurface.
+  if (fix_neg_subsurface_wl) then
+    do l=2, num_l
+      if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
+        call get_current_point(ipt,jpt,kpt,fpt)
+        write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
+        l_dest = l
+        w_shortage = -(soil%wl(l_dest)+dW_l(l_dest))
+        call move_up(dW_l, flow, w_shortage, num_l, l_dest)
+      endif
+    enddo
   endif
 
   if(is_watch_point().or.(flag.and.write_when_flagged)) then
@@ -4264,6 +4266,37 @@ end subroutine soil_push_down_excess
 end subroutine richards_clean
 
 ! ============================================================================
+  subroutine move_up(dW_l, flow, w_shortage, num_l, l_dest)
+  real, intent(inout), dimension(num_l)   :: dW_l
+  real, intent(inout), dimension(num_l+1) :: flow
+  real, intent(in)                        ::  w_shortage
+  integer, intent(in)                     ::  num_l, l_dest
+  ! ---- local vars ----------------------------------------------------------
+  integer l, l_source
+  real dW_l_source, w_to_move_up
+     l_source = l_dest
+     dW_l_source = -1.e20
+     do l = l_dest+1, num_l
+        if (dW_l(l).gt.dW_l_source) then
+           l_source = l
+           dW_l_source = dW_l(l)
+        endif
+     enddo
+     w_to_move_up = min(dW_l_source, w_shortage)
+     w_to_move_up = max(w_to_move_up, 0.)
+     write(*,*) 'l_dest,l_source=',l_dest,l_source
+     write(*,*) 'dW_l_source=',dW_l_source
+     write(*,*) 'w_shortage',w_shortage
+     write(*,*) 'w_to_move_up=',w_to_move_up
+     if (l_source.gt.l_dest) then
+        dW_l(l_dest)   = dW_l(l_dest)   + w_to_move_up
+        dW_l(l_source) = dW_l(l_source) - w_to_move_up
+        do l = l_dest+1, l_source
+           flow(l) = flow(l) - w_to_move_up
+        enddo
+     endif
+  end subroutine move_up
+! ============================================================================
   subroutine RICHARDS(soil, psi, DThDP, hyd_cond, DKDP, div, &
                 lprec_eff, Dpsi_min, Dpsi_max, dt_richards, &
                  dPsi, dW_l, flow, lrunf_ie)
@@ -4277,9 +4310,9 @@ end subroutine richards_clean
   real, intent(out), dimension(num_l+1) :: flow
   real, intent(out)                     :: lrunf_ie
   ! ---- local vars ----------------------------------------------------------
-  integer l, ipt, jpt, kpt, fpt, l_internal
+  integer l, ipt, jpt, kpt, fpt, l_dest
   real, dimension(num_l-1) :: del_z, K, DKDPm, DKDPp, grad, eee, fff
-  real aaa, bbb, ccc, ddd, xxx, dpsi_alt, dW_l_internal, w_to_move_up, adj
+  real aaa, bbb, ccc, ddd, xxx, dpsi_alt, w_shortage, adj
   logical flag
 
   flag = .false.
@@ -4488,28 +4521,24 @@ end subroutine richards_clean
   endif
 
   if (flag) then
-     l_internal = 1
-     dW_l_internal = -1.e20
-     do l = 2, num_l
-        if (dW_l(l).gt.dW_l_internal) then
-           l_internal = l
-           dW_l_internal = dW_l(l)
-        endif
-     enddo
-     w_to_move_up = min(dW_l_internal, -(soil%wl(1)+dW_l(1)))
-     w_to_move_up = max(w_to_move_up, 0.)
-     write(*,*) 'l_internal=',l_internal
-     write(*,*) 'dW_l(l_internal)=',dW_l(l_internal)
-     write(*,*) 'soil%wl(1)+dW_l(1)',soil%wl(1)+dW_l(1)
-     write(*,*) 'w_to_move_up=',w_to_move_up
-     if (l_internal.gt.1) then
-        dW_l(1) = dW_l(1) + w_to_move_up
-        dW_l(l_internal) = dW_l(l_internal) - w_to_move_up
-        do l = 2, l_internal
-           flow(l) = flow(l) - w_to_move_up
-        enddo
-     endif
+     w_shortage=-(soil%wl(1)+dW_l(1))
+     l_dest = 1
+     call move_up(dW_l, flow, w_shortage, num_l, l_dest)
   endif
+
+! Adjust for negative water content in subsurface.
+  if (fix_neg_subsurface_wl) then
+    do l=2, num_l
+      if ((soil%wl(l)+dW_l(l))/(dens_h2o*dz(l)*soil%pars%vwc_sat) < thetathresh) then
+        call get_current_point(ipt,jpt,kpt,fpt)
+        write(*,*) '=== warning: fixing neg wl=',soil%wl(l)+dW_l(l),'at',l,ipt,jpt,kpt,fpt
+        l_dest = l
+        w_shortage = -(soil%wl(l_dest)+dW_l(l_dest))
+        call move_up(dW_l, flow, w_shortage, num_l, l_dest)
+      endif
+    enddo
+  endif
+
 
   if(is_watch_point().or.(flag.and.write_when_flagged)) then
      write(*,*) ' ##### soil_step_2 checkpoint 3.22 #####'
@@ -4856,26 +4885,37 @@ end subroutine add_root_litter
 ! Spread root exudate C through profile, using vertical root profile from vegn_uptake_profile
 ! Differs from add_root_litter -- C is distributed through existing cohorts, not deposited as new cohort
 subroutine add_root_exudates(soil,vegn,exudateC)
-    type(soil_tile_type), intent(inout)  :: soil
-    type(vegn_tile_type), intent(in)     :: vegn
-    real,intent(in) :: exudateC
+  type(soil_tile_type), intent(inout)  :: soil
+  type(vegn_tile_type), intent(in)     :: vegn
+  real,intent(in) :: exudateC
 
-    real,dimension(num_l) :: uptake_frac_max, vegn_uptake_term
-    integer :: nn
+  real,dimension(num_l) :: uptake_frac_max, vegn_uptake_term
+  integer :: nn
+  real, parameter :: tol = 1e-10 ! tolerance of profile integral test.
 
-    call vegn_uptake_profile (vegn, dz(1:num_l), uptake_frac_max, vegn_uptake_term )
-    if(abs(sum(uptake_frac_max(1:num_l)) - 1.0) > 1e-10 ) then
-        print *,'1 - sum(vegn_uptake_frac_max)',1.0-sum(uptake_frac_max(1:num_l))
-        call error_mesg('add_root_litter','total of vegn_uptake_frac_max not 1',FATAL)
-    endif
+  select case (soil_carbon_option)
+  case (SOILC_CENTURY)
+     soil%fast_soil_C(1) = soil%fast_soil_C(1) + exudateC
 
-    if (is_watch_point()) then
-       write (*,*) '##### add_root_exudates #####'
-       __DEBUG1__(exudateC)
-       __DEBUG1__(uptake_frac_max)
-    endif
+  case (SOILC_CENTURY_BY_LAYER)
+     call vegn_uptake_profile (vegn, dz(1:num_l), uptake_frac_max, vegn_uptake_term )
+     call check_var_range(sum(uptake_frac_max)-1.0, -tol,+tol, 'add_root_exudates', 'sum(vegn_uptake_frac_max)-1', FATAL)
 
-    do nn=1,num_l
+     do nn=1,num_l
+        soil%fast_soil_C(nn) = soil%fast_soil_C(nn) + exudateC*uptake_frac_max(nn)
+     enddo
+
+  case (SOILC_CORPSE)
+     call vegn_uptake_profile (vegn, dz(1:num_l), uptake_frac_max, vegn_uptake_term )
+     call check_var_range(sum(uptake_frac_max)-1.0, -tol,+tol, 'add_root_exudates', 'sum(vegn_uptake_frac_max)-1', FATAL)
+
+     if (is_watch_point()) then
+        write (*,*) '##### add_root_exudates #####'
+        __DEBUG1__(exudateC)
+        __DEBUG1__(uptake_frac_max)
+     endif
+
+     do nn=1,num_l
         if (is_watch_point()) then
            call debug_pool(soil%soil_C(nn),'soil_C(nn) before')
         endif
@@ -4884,8 +4924,8 @@ subroutine add_root_exudates(soil,vegn,exudateC)
         if (is_watch_point()) then
            call debug_pool(soil%soil_C(nn),'soil_C(nn) after ')
         endif
-    enddo
-
+     enddo
+  end select
 end subroutine add_root_exudates
 
 
