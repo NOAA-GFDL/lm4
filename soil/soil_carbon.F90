@@ -368,11 +368,11 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
                         Prate_limited,dt,tempresp,temp_deadmic,temp_protected,temp_protected_turnover_rate,tempCO2)
         IF (.NOT. check_cohort(pool%litterCohorts(n))) THEN
             if(present(badCohort)) badCohort=n
-            WRITE (*,*),'UPDATE_POOL: Cohort',n,'of',pool%n_cohorts,'bad'
+            WRITE (*,*) 'UPDATE_POOL: Cohort',n,'of',pool%n_cohorts,'bad'
             call print_cohort(pool%litterCohorts(n))
-            WRITE (*,*),'Dissolved carbon =',pool%dissolved_carbon
-            WRITE (*,*),'Latest respiration:',tempResp*dt
-            WRITE (*,*),'Previous unprotected C:',prevC
+            WRITE (*,*) 'Dissolved carbon =',pool%dissolved_carbon
+            WRITE (*,*) 'Latest respiration:',tempResp*dt
+            WRITE (*,*) 'Previous unprotected C:',prevC
         ENDIF
 
         resp=resp+tempresp
@@ -633,19 +633,19 @@ end subroutine debug_pool
 subroutine print_cohort(cohort)
     type(litterCohort)::cohort
 
-    WRITE (*,*),'----------------'
-    WRITE (*,*),'Original C =',cohort%originalLitterC
-    WRITE (*,*),'Unprotected C=',cohort%litterC
-    WRITE (*,*),'Living microbial C =',cohort%livingMicrobeC
-    !WRITE (*,*),'Microbial products =',cohort%microbProdC
-    WRITE (*,*),'Protected C =',cohort%protectedC
+    WRITE (*,*) '----------------'
+    WRITE (*,*) 'Original C =',cohort%originalLitterC
+    WRITE (*,*) 'Unprotected C=',cohort%litterC
+    WRITE (*,*) 'Living microbial C =',cohort%livingMicrobeC
+    !WRITE (*,*) 'Microbial products =',cohort%microbProdC
+    WRITE (*,*) 'Protected C =',cohort%protectedC
 
-    !WRITE (*,*),'Mineral complex C =',cohort%minC
-    WRITE (*,*),'CO2 =',cohort%CO2
-    WRITE (*,*),'Rtot =',cohort%Rtot
-    !WRITE (*,*),'Volume fraction =',cohort%cohortVolume
-    WRITE (*,*),'Sum of carbon =',cohortCsum(cohort)
-    WRITE (*,*),'----------------'
+    !WRITE (*,*) 'Mineral complex C =',cohort%minC
+    WRITE (*,*) 'CO2 =',cohort%CO2
+    WRITE (*,*) 'Rtot =',cohort%Rtot
+    !WRITE (*,*) 'Volume fraction =',cohort%cohortVolume
+    WRITE (*,*) 'Sum of carbon =',cohortCsum(cohort)
+    WRITE (*,*) '----------------'
 end subroutine
 
 
@@ -823,7 +823,7 @@ subroutine add_carbon_to_rhizosphere(pool,newCarbon,rhizosphere_frac)
     call add_cohort(pool,rhizosphere)
     do n=1,pool%n_cohorts
        IF (.NOT. check_cohort(pool%litterCohorts(n))) THEN
-            WRITE (*,*),'add_carbon_to_rhizosphere: Cohort',n,'of',pool%n_cohorts,'bad'
+            WRITE (*,*) 'add_carbon_to_rhizosphere: Cohort',n,'of',pool%n_cohorts,'bad'
             call print_cohort(pool%litterCohorts(n))
             call error_mesg('add_carbon_to_rhizosphere','Bad cohort',FATAL)
        ENDIF
@@ -1440,7 +1440,7 @@ subroutine litter_leaching(litterLayer,topSoilLayer,flow,dt,DOC_loss)
     IF(.NOT. allocated(litterLayer%litterCohorts)) return
 
     IF(.NOT. check_cohort(litterLayer%litterCohorts(1))) THEN
-         WRITE (*,*),'LITTER_LEACHING: Cohort bad'
+         WRITE (*,*) 'LITTER_LEACHING: Cohort bad'
             call print_cohort(litterLayer%litterCohorts(1))
             call error_mesg('litter_leaching','Bad cohort after leaching',FATAL)
     ENDIF
