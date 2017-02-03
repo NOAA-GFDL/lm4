@@ -76,7 +76,7 @@ subroutine READ_0D_FPTR(ncid,name,fptr,rec)
      ! distribute data over cohorts
      do i = 1, size(idx)
         call get_cohort_by_idx ( idx(i), lnd%nlon, lnd%nlat, ntiles,&
-             land_tile_map, lnd%is, lnd%js,cohort)
+             land_tile_map, lnd%ls, lnd%gs, lnd%ge, cohort)
         if (associated(cohort)) then
            call fptr(cohort, ptr)
            if(associated(ptr)) ptr = data(i)
@@ -116,25 +116,22 @@ subroutine WRITE_0D_FPTR(ncid,name,fptr,long_name,units,record)
   type(vegn_cohort_type), pointer :: cohort 
   integer :: dimids(2), ndims
 
-  ! get the length of cohort compressed index
-  __NF_ASRT__(nfu_inq_dim(ncid,cohort_index_name,len=ncohorts))
-
-  ! get the length of tile dimension
-  __NF_ASRT__(nfu_inq_dim(ncid,'tile',len=ntiles))
+  ncohorts = ncohort_saved  
+  ntiles = ntiles_saved
 
   ! allocate data
   allocate(data(ncohorts),idx(ncohorts),mask(ncohorts))
   data = NF_FILL_VALUE
   mask = 0
+  idx = idx2_saved
 
   ! read cohort index
   i = nf_enddef(ncid) ! ignore errors (the file may be in data mode already)
-  __NF_ASRT__(nfu_get_var(ncid,cohort_index_name,idx))
 
   ! gather data into an array along the cohort dimension
   do i = 1, size(idx)
      call get_cohort_by_idx ( idx(i), lnd%nlon, lnd%nlat, ntiles,&
-                             land_tile_map, lnd%is, lnd%js,cohort)
+                             land_tile_map, lnd%ls, lnd%gs, lnd%ge, cohort)
      if (associated(cohort)) then
         call fptr(cohort, ptr)
         if(associated(ptr)) then 

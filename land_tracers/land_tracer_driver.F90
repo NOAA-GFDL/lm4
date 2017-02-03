@@ -11,7 +11,7 @@ use table_printer_mod
 
 use land_constants_mod, only : d608, kBoltz
 use land_debug_mod, only : is_watch_point
-use land_data_mod, only : land_state_type, lnd, log_version
+use land_data_mod, only : lnd, log_version
 use land_tracers_mod, only : ntcana, isphum, ico2
 use land_tile_mod, only : land_tile_type, land_tile_grnd_T
 use land_tile_diag_mod, only : set_default_diag_filter, &
@@ -37,7 +37,6 @@ public :: update_cana_tracers
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: module_name = 'land_tracer_driver_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 character(len=*), parameter :: diag_name   = 'land_tracers'
 
 real :: diffusivity_h2o = 0.282e-4 ! diffusivity of water vapor m2/s,
@@ -76,8 +75,9 @@ type(tracer_data_type), allocatable :: trdata(:)
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
-subroutine land_tracer_driver_init(id_lon, id_lat)
-  integer, intent(in) :: id_lon, id_lat  ! IDs of longitude and latitude diagnostic axis
+subroutine land_tracer_driver_init(id_ug)
+  integer,intent(in) :: id_ug !<Unstructured axis id.
+!----------
 
   integer :: tr ! tracer index
   real    :: value ! temporary storage for parsing input
@@ -88,7 +88,8 @@ subroutine land_tracer_driver_init(id_lon, id_lat)
   type(table_printer_type) :: table
 
   ! write the version and tag name to the logfile
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
   ! calculate time step
   dt  = time_type_to_real(lnd%dt_fast) ! store in a module variable for convenience
@@ -99,7 +100,8 @@ subroutine land_tracer_driver_init(id_lon, id_lat)
   trdata(ico2)%is_generic   = .FALSE.
 
   ! initialize non-generic tracers, e.g.:
-  ! call land_dust_init(id_lon, id_lat, trdata(:)%is_generic)
+  ! call land_dust_init(id_ug,trdata(:)%is_generic)
+
   ! NOTE that (1) the non-generic tracer init must skip all non-generic tracers
   ! that have already been initialized (in case there is a conflict), and
   ! (2) it must set trdata(:)%is_generic to FALSE for the tracers it claims
@@ -152,39 +154,39 @@ subroutine land_tracer_driver_init(id_lon, id_lat)
      funits = flux_units(units)
      trdata(tr)%id_flux_atm = &
        register_tiled_diag_field(diag_name, trim(name)//'_flux_atm', &
-       (/id_lon,id_lat/),  lnd%time, trim(name)//' flux to the atmosphere', &
+       (/id_ug/),  lnd%time, trim(name)//' flux to the atmosphere', &
        trim(funits), missing_value=-1.0)
      ! TODO: verify units of dfdtr
      trdata(tr)%id_dfdtr = &
        register_tiled_diag_field(diag_name, trim(name)//'_dfdtr', &
-       (/id_lon,id_lat/),  lnd%time,'derivative of '//trim(name)//' flux to the atmosphere', &
+       (/id_ug/),  lnd%time,'derivative of '//trim(name)//' flux to the atmosphere', &
        trim(funits), missing_value=-1.0)
      if (trdata(tr)%do_deposition) then
         ! TODO: initialize parameters of generic dry deposition here
 
         trdata(tr)%id_ddep = &
           register_tiled_diag_field(diag_name, trim(name)//'_ddep', &
-          (/id_lon,id_lat/),  lnd%time, trim(name)//' dry deposition', 'kg/(m2 s)', &
+          (/id_ug/),  lnd%time, trim(name)//' dry deposition', 'kg/(m2 s)', &
           missing_value=-1.0)
         trdata(tr)%id_con_v_lam = &
           register_tiled_diag_field(diag_name, trim(name)//'_con_v_lam', &
-          (/id_lon,id_lat/),  lnd%time, 'quasi-laminar conductance between canopy and canopy air for '//trim(name), &
+          (/id_ug/),  lnd%time, 'quasi-laminar conductance between canopy and canopy air for '//trim(name), &
           'm/s', missing_value=-1.0)
         trdata(tr)%id_con_g_lam = &
           register_tiled_diag_field(diag_name, trim(name)//'_con_g_lam', &
-          (/id_lon,id_lat/),  lnd%time, 'quasi-laminar conductance between ground and canopy air for '//trim(name), &
+          (/id_ug/),  lnd%time, 'quasi-laminar conductance between ground and canopy air for '//trim(name), &
           'm/s', missing_value=-1.0)
         trdata(tr)%id_con_v = &
           register_tiled_diag_field(diag_name, trim(name)//'_con_v', &
-          (/id_lon,id_lat/),  lnd%time, 'total conductance between canopy and canopy air for'//trim(name), &
+          (/id_ug/),  lnd%time, 'total conductance between canopy and canopy air for'//trim(name), &
           'm/s', missing_value=-1.0)
         trdata(tr)%id_con_g = &
           register_tiled_diag_field(diag_name, trim(name)//'_con_g', &
-          (/id_lon,id_lat/),  lnd%time, 'total conductance between ground and canopy air for '//trim(name), &
+          (/id_ug/),  lnd%time, 'total conductance between ground and canopy air for '//trim(name), &
           'm/s', missing_value=-1.0)
         trdata(tr)%id_conc = &
           register_tiled_diag_field(diag_name, trim(name), &
-          (/id_lon,id_lat/),  lnd%time, 'concentration or '//trim(name)//' in canopy air', &
+          (/id_ug/),  lnd%time, 'concentration or '//trim(name)//' in canopy air', &
           units, missing_value=-1.0)
      endif
   enddo
@@ -231,10 +233,9 @@ end function laminar_conductance
 ! ============================================================================
 ! updates concentration of tracers in the canopy air, taking into account dry
 ! deposition and exchange with the atmosphere
-subroutine update_cana_tracers(tile, i, j, tr_flux, dfdtr, &
+subroutine update_cana_tracers(tile, tr_flux, dfdtr, &
      precip_l, precip_s, pressure, ustar, con_g, con_v, stomatal_cond )
   type(land_tile_type), intent(inout) :: tile
-  integer :: i,j ! grid cell indices (global)
   real, intent(in) :: tr_flux(:) ! fluxes of tracers
   real, intent(in) :: dfdtr  (:) ! derivatives of tracer fluxes w.r.t. concentrations
   real, intent(in) :: pressure   ! atmospheric pressure, N/m2

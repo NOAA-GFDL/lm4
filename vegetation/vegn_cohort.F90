@@ -2,8 +2,7 @@ module vegn_cohort_mod
 
 use constants_mod, only: PI
 
-use land_constants_mod, only: NBANDS, &
-     mol_h2o, mol_air
+use land_constants_mod, only: NBANDS, mol_h2o, mol_air
 use vegn_data_mod, only : spdata, &
    use_mcm_masking, use_bucket, critical_root_density, &
    tg_c4_thresh, tg_c3_thresh, l_fract, fsc_liv, &
@@ -35,9 +34,6 @@ public :: lai_from_biomass
 public :: update_bio_living_fraction
 public :: update_biomass_pools
 ! ==== end of public interfaces ==============================================
-
-! ==== module constants ======================================================
-#include "../shared/version_variable.inc"
 
 ! ==== types =================================================================
 ! vegn_cohort_type describes the data that belong to a vegetation cohort
@@ -141,7 +137,6 @@ type :: vegn_cohort_type
 end type vegn_cohort_type
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-
 
 ! ============================================================================
 subroutine vegn_data_heat_capacity ( cohort, mcv )

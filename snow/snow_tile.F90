@@ -48,7 +48,6 @@ end interface
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'snow_tile_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 integer, parameter :: max_lev = 10
 
@@ -141,7 +140,8 @@ subroutine read_snow_data_namelist(snow_num_l, snow_dz, snow_mc_fict)
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=snow_data_nml, iostat=io)
   ierr = check_nml_error(io, 'snow_data_nml')

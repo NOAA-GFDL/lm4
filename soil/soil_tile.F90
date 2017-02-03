@@ -17,14 +17,15 @@ use fms_mod, only : file_exist, check_nml_error, &
      close_file, stdlog, read_data, error_mesg, FATAL
 use constants_mod, only : &
      pi, tfreeze, rvgas, grav, dens_h2o, hlf, epsln
-use land_constants_mod, only : &
-     BAND_VIS, BAND_NIR, NBANDS
+use land_constants_mod, only : BAND_VIS, BAND_NIR, NBANDS
 use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_SOIL, register_tile_selector
 use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, &
     soil_carbon_pool, combine_pools, init_soil_carbon, poolTotalCarbon, n_c_types
 use land_data_mod, only : log_version
 use land_debug_mod, only : check_var_range
+use tiling_input_types_mod, only : soil_predefined_type
+use land_debug_mod, only : is_watch_point
 
 implicit none
 private
@@ -34,6 +35,7 @@ public :: soil_pars_type
 public :: soil_tile_type
 
 public :: new_soil_tile, delete_soil_tile
+public :: new_soil_tile_predefined
 public :: soil_tiles_can_be_merged, merge_soil_tiles
 public :: soil_is_selected
 public :: get_soil_tile_tag
@@ -78,10 +80,14 @@ interface new_soil_tile
    module procedure soil_tile_copy_ctor
 end interface
 
+interface new_soil_tile_predefined
+   module procedure soil_tile_ctor_predefined
+   module procedure soil_tile_copy_ctor
+end interface
+
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'soil_tile_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 integer, parameter :: max_lev          = 100
 integer, parameter, public :: n_dim_soil_types = 14      ! max size of lookup table
@@ -555,7 +561,8 @@ subroutine read_soil_data_namelist(soil_num_l, soil_dz, soil_single_geo, &
   type(fieldtype), allocatable :: Fields(:)
   type(axistype),  allocatable :: axes(:)
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=soil_data_nml, iostat=io)
   ierr = check_nml_error(io, 'soil_data_nml')
@@ -756,6 +763,80 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
   call init_soil_carbon(ptr%coarseWoodLitter,protectionRate=0.0,Qmax=0.0,max_cohorts=1)
 end function soil_tile_ctor
 
+! ============================================================================
+function soil_tile_ctor_predefined(hidx_j, hidx_k, tile_parameters, &
+                                   itile) result(ptr)
+  type(soil_tile_type), pointer :: ptr ! return value
+  integer, intent(in)  :: hidx_j, hidx_k ! hillslope indices
+  type(soil_predefined_type), intent(in) :: tile_parameters
+  integer, intent(in) :: itile
+  integer :: i
+
+  allocate(ptr)
+  ptr%hidx_j = hidx_j
+  ptr%hidx_k = hidx_k
+  !allocate(ptr%dz(num_l))
+  !ptr%dz = dz(1:num_l)
+  ! allocate storage for tile data
+  ! allocate storage for tile data
+  allocate( ptr%wl                (num_l),  &
+            ptr%ws                (num_l),  &
+            ptr%T                 (num_l),  &
+            ptr%groundwater       (num_l),  &
+            ptr%groundwater_T     (num_l),  &
+            ptr%w_fc              (num_l),  &
+            ptr%w_wilt            (num_l),  &
+            ptr%d_trans           (num_l),  &
+            ptr%alpha             (num_l),  &
+            ptr%k_macro_z         (num_l),  &
+            ptr%k_macro_x         (num_l),  &
+            ptr%vwc_max           (num_l),  &
+            ptr%uptake_frac       (num_l),  &
+            ptr%heat_capacity_dry (num_l),  &
+            ptr%e                 (num_l),  &
+            ptr%f                 (num_l),  &
+            ptr%psi               (num_l),  &
+            ptr%gw_flux_norm      (num_storage_pts),  &
+            ptr%gw_area_norm      (num_storage_pts),  &
+            ptr%hyd_cond_horz     (num_l),  &
+            ptr%div_hlsp          (num_l),  &
+            ptr%div_hlsp_heat     (num_l),  &
+            ptr%fast_soil_C       (num_l),  &
+            ptr%slow_soil_C       (num_l),  &
+            ptr%fsc_in            (num_l),  & 
+            ptr%ssc_in            (num_l),  & 
+            ptr%asoil_in          (num_l),   &
+            ptr%is_peat           (num_l),  &
+            ptr%fast_protected_in        (num_l),  &
+            ptr%slow_protected_in        (num_l),  &
+            ptr%deadmic_protected_in        (num_l),  &
+            ptr%deadmic_in        (num_l),  &
+            ptr%fast_turnover_accumulated(num_l), &
+            ptr%slow_turnover_accumulated(num_l), &
+            ptr%deadmic_turnover_accumulated(num_l), &
+            ptr%fast_protected_turnover_accumulated(num_l), &
+            ptr%slow_protected_turnover_accumulated(num_l), &
+            ptr%deadmic_protected_turnover_accumulated(num_l), &
+            ptr%soil_C            (num_l),  &
+            ptr%div_hlsp_DOC      (n_c_types, num_l)   )
+
+  ! Initialize to catch use before appropriate
+  !ptr%psi(:) = initval
+  ptr%hyd_cond_horz(:) = initval
+  ptr%div_hlsp(:)      = initval
+  ptr%div_hlsp_heat(:) = initval
+  ptr%div_hlsp_DOC(:,:) = initval
+
+  call soil_data_init_0d_predefined(ptr,tile_parameters,itile)
+  do i=1,num_l
+     call init_soil_carbon(ptr%soil_C(i),Qmax=ptr%pars%Qmax)
+  enddo
+  call init_soil_carbon(ptr%leafLitter,protectionRate=0.0,Qmax=0.0,max_cohorts=1)
+  call init_soil_carbon(ptr%fineWoodLitter,protectionRate=0.0,Qmax=0.0,max_cohorts=1)
+  call init_soil_carbon(ptr%coarseWoodLitter,protectionRate=0.0,Qmax=0.0,max_cohorts=1)
+
+end function soil_tile_ctor_predefined
+
 
 ! ============================================================================
 function soil_tile_copy_ctor(soil) result(ptr)
@@ -929,7 +1010,208 @@ subroutine soil_data_init_0d(soil)
   else
       soil%pars%Qmax = max(0.0,10**(.4833*log10(clay(k))+2.3282)*(1.0-dat_w_sat(k))*2650*1e-6)
   endif
+  !Print out the parameter values 
+  if (is_watch_point()) then
+   print*,'vwc_sat',soil%pars%vwc_sat
+   print*,'awc_lm2',soil%pars%awc_lm2
+   print*,'k_sat_ref',soil%pars%k_sat_ref         
+   print*,'psi_sat_ref',soil%pars%psi_sat_ref      
+   print*,'chb',soil%pars%chb               
+   print*,'heat_capacity_dry',soil%pars%heat_capacity_dry
+   print*,'thermal_cond_dry',soil%pars%thermal_cond_dry 
+   print*,'thermal_cond_sat',soil%pars%thermal_cond_sat
+   print*,'thermal_cond_exp',soil%pars%thermal_cond_exp
+   print*,'thermal_cond_scale',soil%pars%thermal_cond_scale  
+   print*,'thermal_cond_weight',soil%pars%thermal_cond_weight
+   print*,'refl_dry_dir',soil%pars%refl_dry_dir   
+   print*,'refl_dry_dif',soil%pars%refl_dry_dif    
+   print*,'refl_sat_dir',soil%pars%refl_sat_dir   
+   print*,'refl_sat_dif',soil%pars%refl_sat_dif      
+   print*,'emis_dry',soil%pars%emis_dry      
+   print*,'emis_sat',soil%pars%emis_sat         
+   print*,'z0_momentum',soil%pars%z0_momentum     
+   print*,'tfreeze',soil%pars%tfreeze   
+   print*,'rsa_exp',soil%pars%rsa_exp       
+   print*,'tau_groundwater',soil%pars%tau_groundwater 
+   print*,'hillslope_length',soil%pars%hillslope_length 
+   print*,'hillslope_zeta_bar',soil%pars%hillslope_zeta_bar 
+   print*,'hillslope_relief',soil%pars%hillslope_relief 
+   print*,'soil_e_depth',soil%pars%soil_e_depth    
+   print*,'hillslope_a',soil%pars%hillslope_a 
+   print*,'hillslope_n',soil%pars%hillslope_n
+   print*,'k_sat_gw',soil%pars%k_sat_gw   
+   print*,'storage_index',soil%pars%storage_index
+   print*,'alpha',soil%alpha
+   print*,'fast_soil_C',soil%fast_soil_C
+   print*,'slow_soil_C',soil%slow_soil_C
+   print*,'asoil_in',soil%asoil_in
+   print*,'fsc_in',soil%fsc_in
+   print*,'ssc_in',soil%ssc_in
+   print*,'tile_hlsp_length',soil%pars%tile_hlsp_length 
+   print*,'tile_hlsp_slope',soil%pars%tile_hlsp_slope
+   print*,'tile_hlsp_elev',soil%pars%tile_hlsp_elev
+   print*,'tile_hlsp_hpos',soil%pars%tile_hlsp_hpos
+   print*,'tile_hlsp_width',soil%pars%tile_hlsp_width 
+  endif
+
 end subroutine soil_data_init_0d
+
+! ============================================================================
+subroutine soil_data_init_0d_predefined(soil,tile_parameters,itile)
+  type(soil_tile_type), intent(inout) :: soil
+  type(soil_predefined_type), intent(in) :: tile_parameters
+  integer, intent(in) :: itile
+  
+!  real tau_groundwater
+!  real rsa_exp         ! riparian source-area exponent
+  integer :: i, l, code, m_zeta, m_tau
+  real    :: alpha_inf_sq, alpha_sfc_sq, comp_local
+  real    :: single_log_zeta_s, single_log_tau, frac_zeta, frac_tau
+  real    :: z ! depth at top of current layer
+
+  soil%pars%vwc_sat           = tile_parameters%dat_w_sat(itile)
+  soil%pars%awc_lm2           = tile_parameters%dat_awc_lm2(itile)
+  soil%pars%k_sat_ref         = tile_parameters%dat_k_sat_ref(itile)
+  soil%pars%psi_sat_ref       = tile_parameters%dat_psi_sat_ref(itile)
+  soil%pars%chb               = tile_parameters%dat_chb(itile)
+  soil%pars%heat_capacity_dry = tile_parameters%dat_heat_capacity_dry(itile)
+  soil%pars%thermal_cond_dry  = tile_parameters%dat_thermal_cond_dry(itile)
+  soil%pars%thermal_cond_sat  = tile_parameters%dat_thermal_cond_sat(itile)
+  soil%pars%thermal_cond_exp  = tile_parameters%dat_thermal_cond_exp(itile)
+  soil%pars%thermal_cond_scale  = tile_parameters%dat_thermal_cond_scale(itile)
+  soil%pars%thermal_cond_weight  = tile_parameters%dat_thermal_cond_weight(itile)
+  soil%pars%refl_dry_dir      = tile_parameters%dat_refl_dry_dir(itile,:)
+  soil%pars%refl_dry_dif      = tile_parameters%dat_refl_dry_dif(itile,:)
+  soil%pars%refl_sat_dir      = tile_parameters%dat_refl_sat_dir(itile,:)
+  soil%pars%refl_sat_dif      = tile_parameters%dat_refl_sat_dif(itile,:)
+  soil%pars%emis_dry          = tile_parameters%dat_emis_dry(itile)
+  soil%pars%emis_sat          = tile_parameters%dat_emis_sat(itile)
+  soil%pars%z0_momentum       = tile_parameters%dat_z0_momentum(itile)
+  soil%pars%tfreeze           = tfreeze - tile_parameters%dat_tf_depr(itile)
+  soil%pars%rsa_exp           = tile_parameters%rsa_exp_global(itile)
+  soil%pars%tau_groundwater   = tile_parameters%gw_res_time(itile)
+  soil%pars%hillslope_length  = tile_parameters%gw_hillslope_length(itile)&
+                                *tile_parameters%gw_scale_length(itile)
+  soil%pars%hillslope_zeta_bar = tile_parameters%gw_hillslope_zeta_bar(itile)
+  soil%pars%hillslope_relief  = tile_parameters%gw_hillslope_relief(itile)&
+                                *tile_parameters%gw_scale_relief(itile)
+  soil%pars%soil_e_depth      = tile_parameters%gw_soil_e_depth(itile)&
+                                *tile_parameters%gw_scale_soil_depth(itile)
+  !soil%pars%hillslope_a       = tile_parameters%gw_hillslope_a(itile)
+  !soil%pars%hillslope_n       = tile_parameters%gw_hillslope_n(itile)
+  soil%pars%k_sat_gw          = tile_parameters%gw_perm(itile)&
+                                *tile_parameters%gw_scale_perm(itile)*9.8e9  !m^2 to kg/(m2 s)
+  soil%pars%storage_index     = 1
+  soil%alpha                  = 1.0
+  soil%fast_soil_C(:)         = 0.0
+  soil%slow_soil_C(:)         = 0.0
+  soil%asoil_in(:)            = 0.0
+  soil%fsc_in(:)              = 0.0
+  soil%ssc_in(:)              = 0.0
+
+  comp_local = 0.0
+  if (use_comp_for_push) comp_local = comp
+  do l = 1, num_l
+    z=zfull(l)
+    if (k0_macro_bug) z=zhalf(l)-dz(l)*0.5
+    soil%k_macro_z(l) = k0_macro_z &
+                        * exp(-z/soil%pars%soil_e_depth)
+    soil%k_macro_x(l) = k0_macro_x &
+                        * exp(-z/soil%pars%soil_e_depth)
+    soil%vwc_max(l)   = soil%pars%vwc_sat + comp_local*zfull(l)
+  enddo
+
+  select case(gw_option)
+  case(GW_HILL_AR5)
+     if (use_single_geo) then
+        soil%gw_flux_norm = gw_flux_norm_zeta_s_04
+        soil%gw_area_norm = gw_area_norm_zeta_s_04
+     endif
+    soil%pars%zeta = soil%pars%soil_e_depth / soil%pars%hillslope_relief
+  case(GW_HILL, GW_TILED)
+     if (use_single_geo) &
+         call soil_data_init_derive_subsurf_pars ( soil )
+  case default
+     ! do nothing
+  end select
+
+  ! ---- derived constant soil parameters
+  ! w_fc (field capacity) set to w at which hydraulic conductivity equals
+  ! a nominal drainage rate "rate_fc"
+  ! w_wilt set to w at which psi is psi_wilt
+  if (use_lm2_awc) then
+     soil%w_wilt(:) = 0.15
+     soil%w_fc  (:) = 0.15 + soil%pars%awc_lm2
+  else
+     soil%w_wilt(:) = soil%pars%vwc_sat &
+          *(soil%pars%psi_sat_ref/(psi_wilt*soil%alpha(:)))**(1/soil%pars%chb)
+     soil%w_fc  (:) = soil%pars%vwc_sat &
+          *(rate_fc/(soil%pars%k_sat_ref*soil%alpha(:)**2))**(1/(3+2*soil%pars%chb))
+  endif
+
+  soil%pars%vwc_wilt = soil%w_wilt(1)
+  soil%pars%vwc_fc   = soil%w_fc  (1)
+
+  soil%pars%vlc_min = soil%pars%vwc_sat*K_rel_min**(1/(3+2*soil%pars%chb))
+
+  soil%z0_scalar = soil%pars%z0_momentum * exp(-k_over_B)
+
+  soil%geothermal_heat_flux = geothermal_heat_flux_constant
+
+  ! Init hlsp variables to initval to flag use before appropriate initialization
+  soil%pars%microtopo = tile_parameters%microtopo(itile)
+  soil%pars%tile_hlsp_length = tile_parameters%tile_hlsp_length(itile)
+  soil%pars%tile_hlsp_slope = tile_parameters%tile_hlsp_slope(itile)
+  soil%pars%tile_hlsp_elev = tile_parameters%tile_hlsp_elev(itile)
+  soil%pars%tile_hlsp_hpos = tile_parameters%tile_hlsp_hpos(itile)
+  soil%pars%tile_hlsp_width = tile_parameters%tile_hlsp_width(itile)
+
+  !Print out the parameter values 
+  if (is_watch_point()) then
+   print*,'vwc_sat',soil%pars%vwc_sat
+   print*,'awc_lm2',soil%pars%awc_lm2
+   print*,'k_sat_ref',soil%pars%k_sat_ref         
+   print*,'psi_sat_ref',soil%pars%psi_sat_ref      
+   print*,'chb',soil%pars%chb               
+   print*,'heat_capacity_dry',soil%pars%heat_capacity_dry
+   print*,'thermal_cond_dry',soil%pars%thermal_cond_dry 
+   print*,'thermal_cond_sat',soil%pars%thermal_cond_sat
+   print*,'thermal_cond_exp',soil%pars%thermal_cond_exp
+   print*,'thermal_cond_scale',soil%pars%thermal_cond_scale  
+   print*,'thermal_cond_weight',soil%pars%thermal_cond_weight
+   print*,'refl_dry_dir',soil%pars%refl_dry_dir   
+   print*,'refl_dry_dif',soil%pars%refl_dry_dif    
+   print*,'refl_sat_dir',soil%pars%refl_sat_dir   
+   print*,'refl_sat_dif',soil%pars%refl_sat_dif      
+   print*,'emis_dry',soil%pars%emis_dry      
+   print*,'emis_sat',soil%pars%emis_sat         
+   print*,'z0_momentum',soil%pars%z0_momentum     
+   print*,'tfreeze',soil%pars%tfreeze   
+   print*,'rsa_exp',soil%pars%rsa_exp       
+   print*,'tau_groundwater',soil%pars%tau_groundwater 
+   print*,'hillslope_length',soil%pars%hillslope_length 
+   print*,'hillslope_zeta_bar',soil%pars%hillslope_zeta_bar 
+   print*,'hillslope_relief',soil%pars%hillslope_relief 
+   print*,'soil_e_depth',soil%pars%soil_e_depth    
+   print*,'hillslope_a',soil%pars%hillslope_a 
+   print*,'hillslope_n',soil%pars%hillslope_n
+   print*,'k_sat_gw',soil%pars%k_sat_gw   
+   print*,'microtopo',soil%pars%microtopo
+   print*,'storage_index',soil%pars%storage_index
+   print*,'alpha',soil%alpha
+   print*,'fast_soil_C',soil%fast_soil_C
+   print*,'slow_soil_C',soil%slow_soil_C
+   print*,'asoil_in',soil%asoil_in
+   print*,'fsc_in',soil%fsc_in
+   print*,'ssc_in',soil%ssc_in
+   print*,'tile_hlsp_length',soil%pars%tile_hlsp_length 
+   print*,'tile_hlsp_slope',soil%pars%tile_hlsp_slope
+   print*,'tile_hlsp_elev',soil%pars%tile_hlsp_elev
+   print*,'tile_hlsp_hpos',soil%pars%tile_hlsp_hpos
+   print*,'tile_hlsp_width',soil%pars%tile_hlsp_width 
+  endif
+
+end subroutine soil_data_init_0d_predefined
 
 ! ============================================================================
 subroutine soil_data_init_derive_subsurf_pars ( soil )
@@ -1528,28 +1810,18 @@ end subroutine soil_roughness
 
 ! ============================================================================
 ! compute soil thermodynamic properties.
-subroutine soil_data_thermodynamics ( soil, vlc, vsc, &
-                                      soil_E_max, thermal_cond)
+subroutine soil_data_thermodynamics ( soil, vlc, vsc, thermal_cond )
   type(soil_tile_type), intent(inout) :: soil
   real,                 intent(in)  :: vlc(:)
   real,                 intent(in)  :: vsc(:)
-  real,                 intent(out) :: soil_E_max
   real,                 intent(out) :: thermal_cond(:)
-  real s, w, a, n, f
 
+  real s, w, a, n, f
   integer l
 
-  ! assign some index of water availability for snow-free soil
-
-  soil_E_max = (soil%pars%k_sat_ref*soil%alpha(1)**2) &
-               * (-soil%pars%psi_sat_ref/soil%alpha(1)) &
-               * ((4.+soil%pars%chb)*vlc(1)/ &
-                ((3.+soil%pars%chb)*soil%pars%vwc_sat))**(3.+soil%pars%chb) &
-                / ((1.+3./soil%pars%chb)*dz(1))
-
-     w = soil%pars%thermal_cond_weight
-     a = soil%pars%thermal_cond_scale
-     n = soil%pars%thermal_cond_exp
+  w = soil%pars%thermal_cond_weight
+  a = soil%pars%thermal_cond_scale
+  n = soil%pars%thermal_cond_exp
   do l = 1, num_sfc_layers
      soil%heat_capacity_dry(l) = sfc_heat_factor*soil%pars%heat_capacity_dry
      s = (vlc(l)+vsc(l))/soil%pars%vwc_sat

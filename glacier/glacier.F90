@@ -11,9 +11,8 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only : error_mesg, file_exist, check_nml_error, stdlog, close_file, &
      mpp_pe, mpp_root_pe, FATAL, NOTE
-use fms_io_mod, only : set_domain, nullify_domain
 
-use time_manager_mod,   only: time_type, time_type_to_real
+use time_manager_mod,   only: time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o, PI
 
@@ -23,11 +22,11 @@ use glac_tile_mod,      only: glac_tile_type, &
 
 use land_constants_mod, only : NBANDS
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
+     first_elmt, current_tile, operator(/=), loop_over_tiles
 use land_tile_diag_mod, only : &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
      set_default_diag_filter
-use land_data_mod, only : land_state_type, lnd, log_version
+use land_data_mod, only : lnd, log_version
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_restart_axis, add_tile_data, get_tile_data
@@ -41,7 +40,7 @@ public :: read_glac_namelist
 public :: glac_init
 public :: glac_end
 public :: save_glac_restart
-public :: glac_get_sfc_temp
+public :: glac_sfc_water
 public :: glac_step_1
 public :: glac_step_2
 ! =====end of public interfaces ==============================================
@@ -50,7 +49,6 @@ public :: glac_step_2
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'glacier'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 ! ==== module variables ======================================================
 
@@ -91,7 +89,8 @@ subroutine read_glac_namelist()
 
   call read_glac_data_namelist(num_l, dz)
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
      read (input_nml_file, nml=glac_nml, iostat=io)
      ierr = check_nml_error(io, 'glac_nml')
@@ -124,13 +123,12 @@ end subroutine read_glac_namelist
 
 ! ============================================================================
 ! initialize glacier model
-subroutine glac_init ( id_lon, id_lat )
-  integer, intent(in)  :: id_lon  ! ID of land longitude (X) axis
-  integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
+subroutine glac_init (id_ug)
+  integer, intent(in)  :: id_ug !<Unstructured axis id.
 
   ! ---- local vars
-  type(land_tile_enum_type)     :: te,ce ! last and current tile list elements
-  type(land_tile_type), pointer :: tile  ! pointer to current tile
+  type(land_tile_enum_type)     :: ce   ! tile list enumerator
+  type(land_tile_type), pointer :: tile ! pointer to current tile
   type(land_restart_type) :: restart
   logical :: restart_exists
   character(*), parameter :: restart_file_name='INPUT/glac.res.nc'
@@ -151,12 +149,8 @@ subroutine glac_init ( id_lon, id_lat )
      call error_mesg('glac_init',&
           'cold-starting glacier',&
           NOTE)
-     te = tail_elmt (land_tile_map)
      ce = first_elmt(land_tile_map)
-     do while(ce /= te)
-        tile=>current_tile(ce) ! get pointer to current tile
-        ce=next_elmt(ce)       ! advance position to the next tile
-
+     do while(loop_over_tiles(ce,tile))
         if (.not.associated(tile%glac)) cycle
 
         if (init_temp.ge.tfreeze.or.lm2) then      ! USE glac TFREEZE HERE
@@ -188,7 +182,7 @@ subroutine glac_init ( id_lon, id_lat )
           FATAL)
   endif
 
-  call glac_diag_init ( id_lon, id_lat, zfull(1:num_l), zhalf(1:num_l+1) )
+  call glac_diag_init (id_ug, zfull(1:num_l), zhalf(1:num_l+1) )
 
 end subroutine glac_init
 
@@ -211,47 +205,64 @@ subroutine save_glac_restart (tile_dim_length, timestamp)
 
   call error_mesg('glac_end','writing NetCDF restart',NOTE)
 ! must set domain so that io_domain is available
-  call set_domain(lnd%domain)
 ! Note that filename is updated for tile & rank numbers during file creation
   filename = trim(timestamp)//'glac.res.nc'
   call init_land_restart(restart, filename, glac_tile_exists, tile_dim_length)
   call add_restart_axis(restart,'zfull',zfull(1:num_l),'Z','m','full level',sense=-1)
 
   ! Output data provides signature
-  call add_tile_data(restart,'temp', 'zfull', glac_temp_ptr, longname='glacier temperature',  units='degrees_K')
-  call add_tile_data(restart,'wl',   'zfull', glac_wl_ptr,   longname='liquid water content', units='kg/m2')
-  call add_tile_data(restart,'ws',   'zfull', glac_ws_ptr,   longname='solid water content',  units='kg/m2')
+  call add_tile_data(restart,'temp', 'zfull', num_l, glac_temp_ptr, longname='glacier temperature',  units='degrees_K')
+  call add_tile_data(restart,'wl',   'zfull', num_l, glac_wl_ptr,   longname='liquid water content', units='kg/m2')
+  call add_tile_data(restart,'ws',   'zfull', num_l, glac_ws_ptr,   longname='solid water content',  units='kg/m2')
 
   ! save performs io domain aggregation through mpp_io as with regular domain data
   call save_land_restart(restart)
   call free_land_restart(restart)
-  call nullify_domain()
 end subroutine save_glac_restart
 
+! ============================================================================
+subroutine glac_sfc_water(glac, grnd_liq, grnd_ice, grnd_subl, grnd_tf)
+  type(glac_tile_type), intent(in)  :: glac
+  real, intent(out) :: &
+     grnd_liq, grnd_ice, & ! surface liquid and ice, respectively, kg/m2
+     grnd_subl, &          ! fraction of vapor flux that sublimates
+     grnd_tf               ! freezing temperature at the surface, degK
+
+  if (lm2) then
+     grnd_liq = 0
+     grnd_ice = 1.e6
+  else
+     grnd_liq  = max(glac%wl(1), 0.0)
+     grnd_ice  = max(glac%ws(1), 0.0)
+  endif
+  if (grnd_liq + grnd_ice > 0 ) then
+     grnd_subl = grnd_ice / (grnd_liq + grnd_ice)
+  else
+     grnd_subl = 0
+  endif
+
+  grnd_tf = glac%pars%tfreeze
+end subroutine glac_sfc_water
 
 ! ============================================================================
-! returns glacier surface temperature
-subroutine glac_get_sfc_temp ( glac, glac_T )
+function glac_subl_frac(glac); real glac_subl_frac
   type(glac_tile_type), intent(in)  :: glac
-  real,                 intent(out) :: glac_T
 
-  glac_T = glac%T(1)
-end subroutine glac_get_sfc_temp
-
+  real :: grnd_liq, grnd_ice, grnd_subl, grnd_tf
+  call glac_sfc_water(glac, grnd_liq, grnd_ice, grnd_subl, grnd_tf)
+  glac_subl_frac = grnd_subl
+end function glac_subl_frac
 
 ! ============================================================================
 ! update glac properties explicitly for time step.
 ! integrate glac-heat conduction equation upward from bottom of glac
 ! to surface, delivering linearization of surface ground heat flux.
 subroutine glac_step_1 ( glac, &
-                         glac_T, glac_rh, glac_liq, glac_ice, glac_subl, &
-                         glac_tf, glac_G0, &
+                         glac_rh, glac_G0, &
                          glac_DGDT, conserve_glacier_mass_out )
   type(glac_tile_type),intent(inout) :: glac
   real, intent(out) :: &
-       glac_T, &
-       glac_rh, glac_liq, glac_ice, glac_subl, &
-       glac_tf, & ! freezing temperature of glacier, degK
+       glac_rh, &
        glac_G0, &
        glac_DGDT
   logical, intent(out) :: conserve_glacier_mass_out
@@ -274,14 +285,6 @@ subroutine glac_step_1 ( glac, &
     write(*,*) 'T       ', glac%T(1)
   endif
 
-  glac_T = glac%T(1)
-
-  if(is_watch_point()) then
-     write(*,*) 'checkpoint gs1 b'
-     write(*,*) 'mask    ', .TRUE.
-     write(*,*) 'glac_T       ', glac_T
-  endif
-
   do l = 1, num_l
      vlc(l) = max(0.0, glac%wl(l) / (dens_h2o * dz(l)))
      vsc(l) = max(0.0, glac%ws(l) / (dens_h2o * dz(l)))
@@ -294,19 +297,6 @@ subroutine glac_step_1 ( glac, &
      heat_capacity(l) = glac%heat_capacity_dry(l)*dz(l) &
           + clw*glac%wl(l) + csw*glac%ws(l)
   enddo
-
-  if (lm2) then
-     glac_liq = 0
-     glac_ice = 1.e6
-  else
-     glac_liq  = max(glac%wl(1), 0.0)
-     glac_ice  = max(glac%ws(1), 0.0)
-  endif
-  if (glac_liq + glac_ice > 0 ) then
-     glac_subl = glac_ice / (glac_liq + glac_ice)
-  else
-     glac_subl = 0
-  endif
 
   if(num_l > 1) then
      do l = 1, num_l-1
@@ -340,17 +330,10 @@ subroutine glac_step_1 ( glac, &
      glac_DGDT  = 1. / denom
   endif
 
-  ! set freezing temperature of glaciers
-  glac_tf = glac%pars%tfreeze
-
   if(is_watch_point())then
      write(*,*) 'checkpoint gs1 c'
      write(*,*) 'mask    ', .TRUE.
-     write(*,*) 'T       ', glac_T
      write(*,*) 'rh      ', glac_rh
-     write(*,*) 'liq     ', glac_liq
-     write(*,*) 'ice     ', glac_ice
-     write(*,*) 'subl    ', glac_subl
      write(*,*) 'G0      ', glac_G0
      write(*,*) 'DGDT    ', glac_DGDT
      do l = 1, num_l
@@ -363,7 +346,7 @@ end subroutine glac_step_1
 
 ! ============================================================================
 ! apply boundary flows to glac water and move glac water vertically.
-  subroutine glac_step_2 ( glac, diag, glac_subl, snow_lprec, snow_hlprec,  &
+  subroutine glac_step_2 ( glac, diag, snow_lprec, snow_hlprec,  &
                            subs_DT, subs_M_imp, subs_evap, &
                            glac_levap, glac_fevap, glac_melt, &
                            glac_lrunf, glac_hlrunf, glac_Ttop, glac_Ctop )
@@ -379,8 +362,6 @@ end subroutine glac_step_1
 
   type(glac_tile_type), intent(inout) :: glac
   type(diag_buff_type), intent(inout) :: diag
-  real, intent(in) :: &
-     glac_subl     !
   real, intent(in) :: &
      snow_lprec, &
      snow_hlprec, &
@@ -399,7 +380,7 @@ end subroutine glac_step_1
   real, dimension(num_l  ) :: div
   real :: &
      lprec_eff, hlprec_eff, tflow, hcap,cap_flow, &
-     melt_per_deg, melt,&
+     melt_per_deg, melt, glac_subl, &
      lrunf_sn,lrunf_ie,lrunf_bf, hlrunf_sn,hlrunf_ie,hlrunf_bf, &
      Qout, DQoutDP,&
      tau_gw, c0, c1, c2, x, aaa, bbb, ccc, ddd, xxx, Dpsi_min, Dpsi_max
@@ -431,12 +412,13 @@ end subroutine glac_step_1
   endif
 
   ! ---- record fluxes ---------
+  glac_subl = glac_subl_frac(glac)
   IF (LM2) THEN ! EVAP SHOULD BE ZERO ANYWAY, BUT THIS IS JUST TO BE SURE...
-  glac_levap  = 0.
-  glac_fevap  = 0.
+     glac_levap  = 0.
+     glac_fevap  = 0.
   ELSE
-  glac_levap  = subs_evap*(1-glac_subl)
-  glac_fevap  = subs_evap*   glac_subl
+     glac_levap  = subs_evap*(1-glac_subl)
+     glac_fevap  = subs_evap*   glac_subl
   ENDIF
   glac_melt   = subs_M_imp / delta_time
 
@@ -805,14 +787,13 @@ ENDIF  !************************************************************************
 end subroutine glac_step_2
 
 ! ============================================================================
-subroutine glac_diag_init ( id_lon, id_lat, zfull, zhalf )
-  integer,         intent(in) :: id_lon  ! ID of land longitude (X) axis
-  integer,         intent(in) :: id_lat  ! ID of land longitude (X) axis
+subroutine glac_diag_init (id_ug, zfull, zhalf )
+  integer,         intent(in) :: id_ug   !<Unstructured axis id.
   real,            intent(in) :: zfull(:)! Full levels, m
   real,            intent(in) :: zhalf(:)! Half levels, m
 
   ! ---- local vars ----------------------------------------------------------
-  integer :: axes(3)
+  integer :: axes(2)
 
   ! define vertical axis
   id_zhalf = diag_axis_init ( &
@@ -822,7 +803,7 @@ subroutine glac_diag_init ( id_lon, id_lat, zfull, zhalf )
        edges=id_zhalf )
 
   ! define array of axis indices
-  axes = (/ id_lon, id_lat, id_zfull /)
+  axes = (/id_ug,id_zfull/)
 
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('glac')
@@ -835,17 +816,17 @@ subroutine glac_diag_init ( id_lon, id_lat, zfull, zhalf )
   id_temp  = register_tiled_diag_field ( module_name, 'glac_T',  axes,       &
        lnd%time, 'temperature',            'degK',  missing_value=-100.0 )
   if (.not.lm2) then
-     id_ie  = register_tiled_diag_field ( module_name, 'glac_rie',  axes(1:2),  &
+     id_ie  = register_tiled_diag_field ( module_name, 'glac_rie',  axes(1:1),  &
           lnd%time, 'inf exc runf',            'kg/(m2 s)',  missing_value=-100.0 )
-     id_sn  = register_tiled_diag_field ( module_name, 'glac_rsn',  axes(1:2),  &
+     id_sn  = register_tiled_diag_field ( module_name, 'glac_rsn',  axes(1:1),  &
           lnd%time, 'satn runf',            'kg/(m2 s)',  missing_value=-100.0 )
-     id_bf  = register_tiled_diag_field ( module_name, 'glac_rbf',  axes(1:2),  &
+     id_bf  = register_tiled_diag_field ( module_name, 'glac_rbf',  axes(1:1),  &
           lnd%time, 'baseflow',            'kg/(m2 s)',  missing_value=-100.0 )
-     id_hie  = register_tiled_diag_field ( module_name, 'glac_hie',  axes(1:2), &
+     id_hie  = register_tiled_diag_field ( module_name, 'glac_hie',  axes(1:1), &
           lnd%time, 'heat ie runf',            'W/m2',  missing_value=-100.0 )
-     id_hsn  = register_tiled_diag_field ( module_name, 'glac_hsn',  axes(1:2), &
+     id_hsn  = register_tiled_diag_field ( module_name, 'glac_hsn',  axes(1:1), &
           lnd%time, 'heat sn runf',            'W/m2',  missing_value=-100.0 )
-     id_hbf  = register_tiled_diag_field ( module_name, 'glac_hbf',  axes(1:2), &
+     id_hbf  = register_tiled_diag_field ( module_name, 'glac_hbf',  axes(1:1), &
           lnd%time, 'heat bf runf',            'W/m2',  missing_value=-100.0 )
   endif
 

@@ -11,7 +11,6 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only : error_mesg, file_exist, check_nml_error, &
      stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
-use fms_io_mod, only : set_domain, nullify_domain
 use time_manager_mod,   only: time_type_to_real
 use constants_mod,      only: tfreeze, hlv, hlf, PI
 
@@ -19,11 +18,12 @@ use land_constants_mod, only : NBANDS
 use snow_tile_mod, only : &
      snow_tile_type, read_snow_data_namelist, &
      snow_data_thermodynamics, snow_data_area, &
+     snow_active, &
      snow_data_hydraulics, max_lev, cpw, clw, csw, use_brdf
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
-use land_data_mod, only : land_state_type, lnd, log_version
+     first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), loop_over_tiles
+use land_data_mod, only : lnd, log_version
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_restart_axis, add_tile_data, get_tile_data
@@ -37,8 +37,9 @@ public :: read_snow_namelist
 public :: snow_init
 public :: snow_end
 public :: save_snow_restart
-public :: snow_get_sfc_temp
 public :: snow_get_depth_area
+public :: snow_sfc_water
+public :: sweep_tiny_snow
 public :: snow_step_1
 public :: snow_step_2
 ! =====end of public interfaces ==============================================
@@ -47,7 +48,6 @@ public :: snow_step_2
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'snow_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 ! ==== module variables ======================================================
 
@@ -56,18 +56,22 @@ logical :: retro_heat_capacity  = .false.
 logical :: lm2  = .false.
 logical :: steal = .false.
 character(len=16):: albedo_to_use = ''  ! or 'brdf-params'
-real    :: max_snow             = 1000.
-real    :: wet_max              = 0.0  ! TEMP, move to snow_data
-real    :: snow_density         = 300. ! TEMP, move to snow_data and generalize
-   real :: init_temp = 260.   ! cold-start snow T
-   real :: init_pack_ws   =   0.
-   real :: init_pack_wl   =   0.
-   real :: min_snow_mass = 0.
+real :: max_snow       = 1000.
+real :: wet_max        = 0.0  ! TEMP, move to snow_data
+real :: snow_density   = 300. ! TEMP, move to snow_data and generalize
+real :: init_temp = 260.   ! cold-start snow T
+real :: init_pack_ws   =   0.
+real :: init_pack_wl   =   0.
+real :: min_snow_mass = 0.
+logical :: prevent_tiny_snow = .FALSE. ! if true, tiny snow is removed at the 
+   ! beginning of fast time step to avoid numerical issues. There is no harm
+   ! in doing that, but it changes answers, so for compatibility with older code 
+   ! turn it off.
 
 namelist /snow_nml/ retro_heat_capacity, lm2, steal, albedo_to_use, &
                     max_snow, wet_max, snow_density, &
                     init_temp, init_pack_ws, init_pack_wl, &
-                    min_snow_mass
+                    min_snow_mass, prevent_tiny_snow
 !---- end of namelist --------------------------------------------------------
 
 logical         :: module_is_initialized =.FALSE.
@@ -94,7 +98,8 @@ subroutine read_snow_namelist()
 
   call read_snow_data_namelist(num_l,dz,mc_fict)
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=snow_nml, iostat=io)
   ierr = check_nml_error(io, 'snow_nml')
@@ -127,13 +132,11 @@ end subroutine read_snow_namelist
 
 ! ============================================================================
 ! initialize snow model
-subroutine snow_init (id_lon, id_lat)
-  integer, intent(in) :: id_lon  ! ID of land longitude (X) axis
-  integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
+subroutine snow_init()
 
   ! ---- local vars ----------------------------------------------------------
   integer :: k
-  type(land_tile_enum_type)     :: te,ce ! tail and current tile list elements
+  type(land_tile_enum_type)     :: ce    ! tile list enumerator
   type(land_tile_type), pointer :: tile  ! pointer to current tile
   character(*), parameter :: restart_file_name='INPUT/snow.res.nc'
   type(land_restart_type) :: restart
@@ -151,12 +154,8 @@ subroutine snow_init (id_lon, id_lat)
      call get_tile_data(restart, 'ws'  , 'zfull', snow_ws_ptr)
   else
      call error_mesg('snow_init', 'cold-starting snow', NOTE)
-     te = tail_elmt (land_tile_map)
      ce = first_elmt(land_tile_map)
-     do while(ce /= te)
-        tile=>current_tile(ce)  ! get pointer to current tile
-        ce=next_elmt(ce)       ! advance position to the next tile
-
+     do while(loop_over_tiles(ce, tile))
         if (.not.associated(tile%snow)) cycle
         do k = 1,num_l
            tile%snow%wl(k) = init_pack_wl * dz(k)
@@ -199,30 +198,19 @@ subroutine save_snow_restart (tile_dim_length, timestamp)
   type(land_restart_type) :: restart ! restart file i/o object
 
   call error_mesg('snow_end','writing NetCDF restart',NOTE)
-  call set_domain(lnd%domain)
 ! Note that filename is updated for tile & rank numbers during file creation
   filename = trim(timestamp)//'snow.res.nc'
   call init_land_restart(restart, filename, snow_tile_exists, tile_dim_length)
   call add_restart_axis(restart,'zfull',zz(1:num_l),'Z',longname='depth of level centers',sense=-1)
 
-  call add_tile_data(restart,'temp','zfull',snow_temp_ptr, 'snow temperature','degrees_K')
-  call add_tile_data(restart,'wl'  ,'zfull',snow_wl_ptr,   'snow liquid water content','kg/m2')
-  call add_tile_data(restart,'ws'  ,'zfull',snow_ws_ptr,   'snow solid water content','kg/m2')
+  call add_tile_data(restart,'temp','zfull',num_l, snow_temp_ptr, 'snow temperature','degrees_K')
+  call add_tile_data(restart,'wl'  ,'zfull',num_l, snow_wl_ptr,   'snow liquid water content','kg/m2')
+  call add_tile_data(restart,'ws'  ,'zfull',num_l, snow_ws_ptr,   'snow solid water content','kg/m2')
 
   call save_land_restart(restart)
   call free_land_restart(restart)
-  call nullify_domain()
 
 end subroutine save_snow_restart
-
-! ============================================================================
-subroutine snow_get_sfc_temp(snow, snow_T)
-  type(snow_tile_type), intent(in) :: snow
-  real, intent(out) :: snow_T
-
-  snow_T = snow%T(1)
-end subroutine
-
 
 ! ============================================================================
 subroutine snow_get_depth_area(snow, snow_depth, snow_area)
@@ -241,19 +229,42 @@ end subroutine
 
 
 ! ============================================================================
+! if snow amount is below specified limit, sweeps it into runoff
+subroutine sweep_tiny_snow(snow, lrunf, frunf, hlrunf, hfrunf)
+  type(snow_tile_type), intent(inout) :: snow
+  real, intent(out) :: lrunf, frunf, hlrunf, hfrunf
+
+  real :: snow_mass
+  integer :: l
+
+  lrunf=0 ; frunf=0 ; hlrunf=0 ; hfrunf=0
+  if (.not.prevent_tiny_snow) return ! do nothing, return zeros
+
+  snow_mass  = sum(snow%ws)
+  ! check if the snow is small enough to warrant sweeping
+  if ( snow_mass<0 .or. snow_mass >= min_snow_mass ) return
+
+  lrunf  = sum(snow%wl) ; frunf  = snow_mass
+  hlrunf = 0.0 ; hfrunf = 0.0
+  do l = 1, num_l
+     hlrunf = hlrunf + clw*snow%wl(l)*(snow%T(l)-tfreeze)
+     hfrunf = hfrunf + csw*snow%ws(l)*(snow%T(l)-tfreeze)
+  enddo
+  snow%ws = 0 ; snow%wl = 0
+end subroutine sweep_tiny_snow
+
+! ============================================================================
 ! update snow properties explicitly for time step.
 ! integrate snow-heat conduction equation upward from bottom of snow
 ! to surface, delivering linearization of surface ground heat flux.
 subroutine snow_step_1 ( snow, snow_G_Z, snow_G_TZ, &
-                         snow_active, snow_T, snow_rh, snow_liq, snow_ice, &
-                         snow_subl, snow_area, snow_G0, snow_DGDT )
+                         snow_rh, &
+                         snow_area, snow_G0, snow_DGDT )
   type(snow_tile_type), intent(inout) :: snow
   real,                 intent(in) :: snow_G_Z
   real,                 intent(in) :: snow_G_TZ
-  logical,              intent(out):: snow_active
   real,                 intent(out):: &
-       snow_T, snow_rh, snow_liq, snow_ice, &
-       snow_subl, snow_area, snow_G0, snow_DGDT
+       snow_rh, snow_area, snow_G0, snow_DGDT
 
   ! ---- local vars
   real :: snow_depth, bbb, denom, dt_e
@@ -265,9 +276,6 @@ subroutine snow_step_1 ( snow, snow_G_Z, snow_G_TZ, &
 ! of water availability, so that vapor fluxes will not exceed mass limits
 ! ----------------------------------------------------------------------------
 
-  snow_T = tfreeze
-  snow_T = snow%T(1)
-
   call snow_data_thermodynamics ( snow_rh, thermal_cond )
   snow_depth= 0.0
   do l = 1, num_l
@@ -275,25 +283,6 @@ subroutine snow_step_1 ( snow, snow_G_Z, snow_G_TZ, &
   enddo
   snow_depth = snow_depth / snow_density
   call snow_data_area (snow_depth, snow_area )
-  ! ---- only liquid in the top snow layer is available to freeze implicitly
-  snow_liq =     snow%wl(1)
-  ! ---- snow in any layer can be melted implicitly
-  snow_ice = sum(snow%ws(:))
-
-! ---- fractionate evaporation/sublimation according to sfc phase ratios
-!  where (max(snow%ws(1),0.)+max(snow%wl(1),0.)>0)
-!      snow_subl = max(snow%ws(1),0.) &
-!       /(max(snow%ws(1),0.)+max(snow%wl(1),0.))
-!    elsewhere
-!      snow_subl = 0
-!    endwhere
-!  snow_active = snow_subl>0.
-  if (snow_depth>0) then
-     snow_subl = 1.
-  else
-     snow_subl = 0
-  endif
-  snow_active = snow_subl>0.
 
   do l = 1, num_l
      dz_phys(l) = dz(l)*snow_depth
@@ -356,11 +345,7 @@ subroutine snow_step_1 ( snow, snow_G_Z, snow_G_TZ, &
      write(*,*) 'snow_depth', snow_depth
      write(*,*) '############ snow_step_1 output'
      write(*,*) 'mask      ', .true.
-     write(*,*) 'snow_T    ', snow_T
      write(*,*) 'snow_rh   ', snow_rh
-     write(*,*) 'snow_liq  ', snow_liq
-     write(*,*) 'snow_ice  ', snow_ice
-     write(*,*) 'snow_subl ', snow_subl
      write(*,*) 'snow_area ', snow_area
      write(*,*) 'snow_G_Z  ', snow_G_Z
      write(*,*) 'snow_G_TZ ', snow_G_TZ
@@ -374,7 +359,7 @@ end subroutine snow_step_1
 
 ! ============================================================================
 ! apply boundary flows to snow water and move snow water vertically.
-  subroutine snow_step_2 ( snow, snow_subl,                     &
+  subroutine snow_step_2 ( snow,                     &
                            vegn_lprec, vegn_fprec, vegn_hlprec, vegn_hfprec, &
                            DTg,  Mg_imp,  evapg,  fswg,  flwg,  sensg,  &
                            use_tfreeze_in_grnd_latent, subs_DT, &
@@ -386,7 +371,7 @@ end subroutine snow_step_1
                            snow_avrg_T )
   type(snow_tile_type), intent(inout) :: snow
   real, intent(in) :: &
-     snow_subl, vegn_lprec, vegn_fprec, vegn_hlprec, vegn_hfprec
+     vegn_lprec, vegn_fprec, vegn_hlprec, vegn_hfprec
   real, intent(in) :: &
      DTg, Mg_imp, evapg, fswg, flwg, sensg
   logical, intent(in) :: use_tfreeze_in_grnd_latent
@@ -399,7 +384,7 @@ end subroutine snow_step_1
 
   ! ---- local vars
   real, dimension(num_l) :: del_t, M_layer
-  real :: depth, &
+  real :: depth, snow_subl, &
          cap0, dW_l, dW_s, dcap, dheat,&
          melt, melt_per_deg, drain,       &
          snow_mass, sum_liq, &
@@ -415,6 +400,7 @@ end subroutine snow_step_1
   real :: new_T(num_l)
   ! --------------------------------------------------------------------------
 
+  snow_subl = snow_subl_frac(snow)
   depth= 0.
   do l = 1, num_l
     depth = depth + snow%ws(l)
@@ -750,6 +736,7 @@ end subroutine snow_step_1
      enddo
   endif
 
+
 ! ---- remove any isolated snow molecules (!) or sweep any excess snow from top of pack ----
 
   snow_lrunf  = 0.
@@ -957,6 +944,32 @@ end subroutine snow_step_1
   endif
 
 end subroutine snow_step_2
+
+! ============================================================================
+subroutine snow_sfc_water(snow, grnd_liq, grnd_ice, grnd_subl, grnd_tf)
+  type(snow_tile_type), intent(in) :: snow
+  real, intent(out) :: &
+     grnd_liq, grnd_ice, & ! surface liquid and ice, respectively, kg/m2
+     grnd_subl, &          ! fraction of vapor flux that sublimates
+     grnd_tf               ! freezing temperature at the surface, degK
+
+  grnd_liq = snow%wl(1) ! only liquid in the top snow layer is available to freeze implicitly
+  grnd_ice = sum(snow%ws(:)) ! snow in any layer can be melted implicitly
+  if (snow_active(snow)) then
+     grnd_subl = 1.0
+  else
+     grnd_subl = 0
+  endif
+  grnd_tf = tfreeze
+end subroutine snow_sfc_water
+
+! ============================================================================
+real function snow_subl_frac(snow)
+  type(snow_tile_type), intent(in) :: snow
+
+  snow_subl_frac = 0
+  if (snow_active(snow)) snow_subl_frac = 1.0
+end function snow_subl_frac
 
 ! ============================================================================
 ! tile existence detector: returns a logical value indicating wether component

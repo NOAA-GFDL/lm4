@@ -14,8 +14,8 @@
 subroutine READ_REMAP_SUB(ncid,name,fptr,map_i,map_j,rec)
   integer           , intent(in) :: ncid ! netcdf id
   character(len=*)  , intent(in) :: name ! name of the variable to read
-  integer           , intent(in) :: map_i(lnd%is:,lnd%js:) ! re-mapping index
-  integer           , intent(in) :: map_j(lnd%is:,lnd%js:) ! re-mapping index
+  integer           , intent(in) :: map_i(lnd%ls:) ! re-mapping index
+  integer           , intent(in) :: map_j(lnd%ls:) ! re-mapping index
   integer, optional , intent(in) :: rec  ! record number (in case there are 
                                          ! several in the file) 
   ! subroutine returning the pointer to the data to be written
@@ -31,7 +31,7 @@ subroutine READ_REMAP_SUB(ncid,name,fptr,map_i,map_j,rec)
   character(*), parameter :: module_name = "read_remap_cohort_data"
 
   ! ---- local vars
-  integer :: i,j,k,n,ii,jj,ndims, iret
+  integer :: i,j,k,n,ii,jj,ndims, iret, l
   integer :: rec_     ! record number
   type(land_tile_enum_type) :: ce, te
   type(land_tile_type)   , pointer :: tile
@@ -77,14 +77,13 @@ subroutine READ_REMAP_SUB(ncid,name,fptr,map_i,map_j,rec)
   ! distribute data over cohorts. NOTE that this is slightly different from the restart
   ! reading procedure. On reading the restart, all the tiles are counted in sequence,
   ! while here only tne vegetation tiles.
-  do j = lnd%js, lnd%je
-  do i = lnd%is, lnd%ie
-     ii = map_i(i,j); jj = map_j(i,j)
+  do l = lnd%ls, lnd%le
+     ii = map_i(l); jj = map_j(l)
      if ((ii.le.0).or.(jj.le.0)) cycle ! skip un-mapped points
      if (.not.any(mask(ii,jj,:,:))) cycle ! skip points where there is no data 
 
-     ce = first_elmt (land_tile_map(i,j))
-     te = tail_elmt  (land_tile_map(i,j))
+     ce = first_elmt (land_tile_map(l))
+     te = tail_elmt  (land_tile_map(l))
      k = 1
 tile_loop:  do while(ce/=te.and.k<=dimlens(3))
         tile=>current_tile(ce); ce=next_elmt(ce);
@@ -103,7 +102,6 @@ tile_loop:  do while(ce/=te.and.k<=dimlens(3))
         enddo
         k = k+1 ! go to the next tile in input data
      enddo tile_loop
-  enddo
   enddo
   
   ! free allocated memory

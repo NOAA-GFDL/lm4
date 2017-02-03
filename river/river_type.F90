@@ -25,10 +25,6 @@ module river_type_mod
   implicit none
   private
 
-!--- version information ---------------------------------------------
-#include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
-
 !--- public interface ------------------------------------------------
   public :: river_type, Leo_Mad_trios
   integer, public, parameter :: NO_RIVER_FLAG = -9999
@@ -88,6 +84,7 @@ character(len=*), parameter :: tagname = '$Name$'
      type (time_type)                   :: Time
      integer                            :: dt_fast, dt_slow
      integer                            :: nlon, nlat, num_species, num_c
+     integer                            :: isc, iec, jsc, jec
      integer                            :: num_phys
      integer                            :: i_age ! index of the age tracer (or NO_TRACER)
   end type river_type

@@ -1,6 +1,7 @@
 module land_tile_diag_mod
 
 use mpp_mod,            only : mpp_sum
+use mpp_domains_mod,    only : mpp_pass_ug_to_sg
 use time_manager_mod,   only : time_type
 use diag_axis_mod,      only : get_axis_length
 use diag_manager_mod,   only : register_diag_field, register_static_field, &
@@ -12,10 +13,10 @@ use land_tile_selectors_mod, only : tile_selectors_init, tile_selectors_end, &
      tile_selector_type, register_tile_selector, selector_suffix, &
      n_selectors, selectors
 use land_tile_mod,      only : land_tile_type, diag_buff_type, &
-     land_tile_list_type, first_elmt, tail_elmt, next_elmt, get_elmt_indices, &
+     land_tile_list_type, first_elmt, tail_elmt, next_elmt, &
      land_tile_enum_type, operator(/=), current_tile, &
-     tile_is_selected, fptr_i0, fptr_r0, fptr_r0i
-use land_data_mod,      only : lnd, log_version
+     tile_is_selected, fptr_i0, fptr_r0, fptr_r0i, land_tile_map, loop_over_tiles
+use land_data_mod,      only : lnd_sg, log_version, lnd
 use tile_diag_buff_mod, only : diag_buff_type, realloc_diag_buff
 
 implicit none
@@ -37,6 +38,7 @@ public :: register_tiled_diag_field
 public :: register_tiled_static_field
 public :: add_tiled_diag_field_alias
 public :: add_tiled_static_field_alias
+
 public :: send_tile_data
 public :: send_tile_data_r0d_fptr, send_tile_data_r1d_fptr
 public :: send_tile_data_i0d_fptr
@@ -49,6 +51,7 @@ public :: OP_AVERAGE, OP_SUM, OP_VAR, OP_STD
 interface send_tile_data
    module procedure send_tile_data_0d
    module procedure send_tile_data_1d
+   module procedure send_tile_data_0d_array
 end interface
 
 public :: get_area_id
@@ -62,7 +65,6 @@ real, public, parameter      :: cmor_mrsos_depth=0.1 ! depth of mrsos soil moist
 ! ==== module constants ======================================================
 character(len=*), parameter :: mod_name = 'land_tile_diag_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname  = '$Name$'
 
 integer, parameter :: INIT_FIELDS_SIZE     = 1     ! initial size of the fields array
 integer, parameter :: BASE_TILED_FIELD_ID  = 65536 ! base value for tiled field
@@ -79,7 +81,6 @@ integer, parameter :: OP_STD     = 3 ! standard deviation of tile values
 integer, parameter :: FLD_STATIC    = 0
 integer, parameter :: FLD_DYNAMIC   = 1
 integer, parameter :: FLD_LIKE_AREA = 2
-
 
 ! ==== derived types =========================================================
 type :: tiled_diag_field_type
@@ -116,7 +117,8 @@ subroutine tile_diag_init()
   if (module_is_initialized) return
 
   module_is_initialized = .true.
-  call log_version(version, mod_name, __FILE__, tagname)
+  call log_version(version, mod_name, &
+  __FILE__)
 
   ! initialize diag selectors
   call tile_selectors_init()
@@ -317,7 +319,7 @@ function register_tiled_diag_field(module_name, field_name, axes, init_time, &
          units, missing_value, range, op=op, standard_name=standard_name, fill_missing=fill_missing)
   call add_cell_measures(id)
   call add_cell_methods(id)
-end function
+end function register_tiled_diag_field
 
 ! ============================================================================
 function register_tiled_static_field(module_name, field_name, axes, &
@@ -345,7 +347,7 @@ function register_tiled_static_field(module_name, field_name, axes, &
          fill_missing=fill_missing)
   call add_cell_measures(id)
   call add_cell_methods(id)
-end function
+end function register_tiled_static_field
 
 
 ! ============================================================================
@@ -368,12 +370,12 @@ subroutine add_tiled_static_field_alias(id0, module_name, field_name, axes, &
 
   call reg_field_alias(id0, FLD_STATIC, module_name, field_name, axes, init_time, &
      long_name, units, missing_value, range, op, standard_name=standard_name)
-end subroutine
+end subroutine add_tiled_static_field_alias
 
 
 ! ============================================================================
 subroutine add_tiled_diag_field_alias(id0, module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, op, standard_name)
+     long_name, units, missing_value, range, op, standard_name, fill_missing)
   integer,          intent(inout) :: id0 ! id of the original diag field on input;
    ! if negative then it may be replaced with the alias id on output
   character(len=*), intent(in) :: module_name
@@ -386,14 +388,16 @@ subroutine add_tiled_diag_field_alias(id0, module_name, field_name, axes, init_t
   real,             intent(in), optional :: range(2)
   integer,          intent(in), optional :: op ! aggregation operation code
   character(len=*), intent(in), optional :: standard_name
+  logical,          intent(in), optional :: fill_missing
 
   call reg_field_alias(id0, FLD_DYNAMIC, module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, op, standard_name=standard_name)
-end subroutine
+     long_name, units, missing_value, range, op, standard_name=standard_name, &
+     fill_missing=fill_missing)
+end subroutine add_tiled_diag_field_alias
 
 ! ============================================================================
 subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, op, standard_name)
+     long_name, units, missing_value, range, op, standard_name, fill_missing)
 
 
   integer,          intent(inout) :: id0 ! id of the original diag field on input;
@@ -409,6 +413,7 @@ subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time
   real,             intent(in), optional :: range(2)
   integer,          intent(in), optional :: op ! aggregation operation code
   character(len=*), intent(in), optional :: standard_name
+  logical,          intent(in), optional :: fill_missing
 
   ! local vars
   integer :: id1
@@ -421,7 +426,10 @@ subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time
                     ' in definition of tiled diag field alias "'//&
                     trim(module_name)//'/'//trim(field_name)//'"', FATAL)
     id1 = reg_field(static, module_name, field_name, init_time, axes, long_name, &
-          units, missing_value, range, op=op, offset=fields(ifld0)%offset)
+          units, missing_value, range, op=op, offset=fields(ifld0)%offset, &
+          fill_missing=fill_missing)
+    call add_cell_measures(id1)
+    call add_cell_methods(id1)
     if (id1>0) then
       ifld1 = id1-BASE_TILED_FIELD_ID
       ! check that sizes of the fields are identical
@@ -446,7 +454,10 @@ subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time
     ! the "main" field has not been registered, so simply register the alias
     ! as a diag field
     id0 = reg_field(static, module_name, field_name, init_time, axes, long_name, &
-          units, missing_value, range, op=op, standard_name=standard_name)
+          units, missing_value, range, op=op, standard_name=standard_name,&
+          fill_missing=fill_missing)
+    call add_cell_measures(id0)
+    call add_cell_methods(id0)
   endif
 end subroutine reg_field_alias
 
@@ -529,10 +540,10 @@ function reg_field(static, module_name, field_name, init_time, axes, &
      ! reserve space in per-tile buffers. We assume that the first two axes
      ! are horizontal coordinates, so their size is not taken into account
      fields(id)%size = 1
-     do i = 3, size(axes(:))
+     do i = 2, size(axes(:))
         fields(id)%size = fields(id)%size * get_axis_length(axes(i))
      enddo
-     ! if offset is present in the list of the arguments, it means that we don't
+     ! if offset is present in the list of the arguments, it means that we do not
      ! want to increase the current_offset -- this is an alias field
      if (.not.present(offset)) &
         current_offset = current_offset + fields(id)%size
@@ -621,6 +632,9 @@ subroutine send_tile_data_0d(id, x, buffer)
   type(diag_buff_type), intent(inout) :: buffer
 
   integer :: idx, i
+#ifdef DEBUG_LAND_TILE_DIAG
+  real*4 r4
+#endif
 
   if (id <= 0) return
 
@@ -631,6 +645,11 @@ subroutine send_tile_data_0d(id, x, buffer)
   ! calculate offset for the current diagnostic field in the buffer
   i = id - BASE_TILED_FIELD_ID
   idx = fields(i)%offset
+
+#ifdef DEBUG_LAND_TILE_DIAG
+  ! DEBUG : check validity of input data
+  call check_var_range(x,REAL(-HUGE(r4)),REAL(HUGE(r4)),'send_tile_data_0d',fields(i)%name, FATAL)
+#endif
 
   ! store the diagnostic data
   buffer%data(idx) = x
@@ -652,6 +671,10 @@ subroutine send_tile_data_1d(id, x, buffer)
   type(diag_buff_type), intent(inout) :: buffer
 
   integer :: is, ie, i
+#ifdef DEBUG_LAND_TILE_DIAG
+  real*4 r4
+#endif
+
   if (id <= 0) return
 
   ! reallocate diagnostic buffer according to the current number and size of
@@ -661,6 +684,11 @@ subroutine send_tile_data_1d(id, x, buffer)
   ! calculate offset for the current diagnostic field in the buffer
   i = id - BASE_TILED_FIELD_ID ! index in the array of fields
   is = fields(i)%offset ; ie = is+fields(i)%size-1
+
+#ifdef DEBUG_LAND_TILE_DIAG
+  ! DEBUG : check validity of input data
+  call check_var_range(x,REAL(-HUGE(r4)),REAL(HUGE(r4)),'send_tile_data_1d',fields(i)%name, FATAL)
+#endif
 
   ! store the data
   buffer%data(is:ie) = x(:)
@@ -678,93 +706,110 @@ end subroutine send_tile_data_1d
 ! NOTE: 2-d fields can be handled similarly to 1-d with reshape
 
 ! ============================================================================
-subroutine send_tile_data_r0d_fptr(id, tile_map, fptr)
+subroutine send_tile_data_0d_array(id, x, send_immediately)
   integer, intent(in) :: id
-  type(land_tile_list_type), intent(inout) :: tile_map(:,:)
+  real   , intent(in) :: x(:,:)
+  logical, intent(in), optional :: send_immediately ! if true, send data to diag_manager
+    ! right avay, instead of waiting for the next tiled diag fields dump
+
+  integer :: l,k
+  type(land_tile_enum_type)     :: ce
+  type(land_tile_type), pointer :: tileptr
+
+  ce = first_elmt( land_tile_map )
+  do while(loop_over_tiles(ce,tileptr,l,k))
+     call send_tile_data(id,x(l,k),tileptr%diag)
+  enddo
+  if(present(send_immediately)) then
+     ! TODO: perhaps need to add time to the arguments, instead of using lnd%time?
+     ! not clear if this will have any effect
+     if(send_immediately) call dump_tile_diag_field(id, lnd%time)
+  endif
+end subroutine send_tile_data_0d_array
+
+! ============================================================================
+subroutine send_tile_data_r0d_fptr(id, fptr)
+  integer, intent(in) :: id
   procedure(fptr_r0)  :: fptr
 
-  type(land_tile_enum_type)     :: te,ce   ! tail and current tile list elements
+  type(land_tile_enum_type)     :: ce      ! tile list enumerator
   type(land_tile_type), pointer :: tileptr ! pointer to tile
   real                , pointer :: ptr     ! pointer to the data element within a tile
 
   if(id <= 0) return
-  ce = first_elmt( tile_map )
-  te = tail_elmt ( tile_map )
-  do while(ce /= te)
-     tileptr => current_tile(ce)
+  ce = first_elmt( land_tile_map )
+  do while(loop_over_tiles(ce,tileptr))
      call fptr(tileptr,ptr)
      if(associated(ptr)) call send_tile_data(id,ptr,tileptr%diag)
-     ce=next_elmt(ce)
   enddo
 end subroutine send_tile_data_r0d_fptr
 
 
 ! ============================================================================
-subroutine send_tile_data_r1d_fptr(id, tile_map, fptr)
+subroutine send_tile_data_r1d_fptr(id, fptr)
   integer, intent(in) :: id
-  type(land_tile_list_type), intent(inout) :: tile_map(:,:)
   procedure(fptr_r0i) :: fptr
 
-  type(land_tile_enum_type)     :: te,ce   ! tail and current tile list elements
+  type(land_tile_enum_type)     :: ce      ! tile list enumerator
   type(land_tile_type), pointer :: tileptr ! pointer to tile
   real                , pointer :: ptr     ! pointer to the data element within a tile
   real,             allocatable :: buffer(:) ! buffer for accumulating data
-  integer :: i, k
+  integer :: i, i2,i3, k
+  logical :: have_data
 
   if(id <= 0) return
   i = id - BASE_TILED_FIELD_ID ! index in the array of fields
 
   allocate(buffer(fields(i)%size))
-  ce = first_elmt( tile_map )
-  te = tail_elmt ( tile_map )
-  do while(ce /= te)
-     tileptr => current_tile(ce)
+  ce = first_elmt( land_tile_map, ls=lnd%ls )
+  do while(loop_over_tiles(ce, tileptr,i2,i3))
+#ifdef DEBUG_LAND_TILE_DIAG
+     call set_current_point(i2,i3)
+#endif
+     have_data = .FALSE.
      do k = 1,fields(i)%size
         call fptr(tileptr,k,ptr)
-        if(associated(ptr)) buffer(k) = ptr
+        if(associated(ptr)) then
+            buffer(k) = ptr
+            have_data = .TRUE.
+        else
+            buffer(k) = 0.0
+        endif
      enddo
-     call send_tile_data(id,buffer,tileptr%diag)
-     ce=next_elmt(ce)
+     if (have_data) call send_tile_data(id,buffer,tileptr%diag)
   enddo
   deallocate(buffer)
 end subroutine send_tile_data_r1d_fptr
 
 
 ! ============================================================================
-subroutine send_tile_data_i0d_fptr(id, tile_map, fptr)
+subroutine send_tile_data_i0d_fptr(id, fptr)
   integer, intent(in) :: id
-  type(land_tile_list_type), intent(inout) :: tile_map(:,:)
   procedure(fptr_i0)  :: fptr
 
-  type(land_tile_enum_type)     :: te,ce   ! tail and current tile list elements
+  type(land_tile_enum_type)     :: ce      ! tile list enumerator
   type(land_tile_type), pointer :: tileptr ! pointer to tile
   integer             , pointer :: ptr     ! pointer to the data element within a tile
 
   if(id <= 0) return
-  ce = first_elmt( tile_map )
-  te = tail_elmt ( tile_map )
-  do while(ce /= te)
-     tileptr => current_tile(ce)
+  ce = first_elmt( land_tile_map )
+  do while(loop_over_tiles(ce,tileptr))
      call fptr(tileptr,ptr)
      if(associated(ptr)) call send_tile_data(id,real(ptr),tileptr%diag)
-     ce=next_elmt(ce)
   enddo
 end subroutine send_tile_data_i0d_fptr
 
 
 ! ============================================================================
-subroutine dump_tile_diag_fields(tiles, time)
-  type(land_tile_list_type), intent(in) :: tiles(:,:) !
+subroutine dump_tile_diag_fields(time)
   type(time_type)          , intent(in) :: time       ! current time
 
   ! ---- local vars
   integer :: ifld ! field number
   integer :: isel ! selector number
-  type(land_tile_enum_type)     :: ce, te
+  type(land_tile_enum_type)     :: ce
   type(land_tile_type), pointer :: tile
   integer :: total_n_sends(n_fields)
-  ! ---- local static variables -- saved between calls
-  logical :: first_dump = .TRUE.
 
   total_n_sends(:) = fields(1:n_fields)%n_sends
   call mpp_sum(total_n_sends, n_fields, pelist=lnd%pelist)
@@ -774,7 +819,7 @@ subroutine dump_tile_diag_fields(tiles, time)
      if (total_n_sends(ifld) == 0) cycle ! no data to send
      do isel = 1, n_selectors
         if (fields(ifld)%ids(isel) <= 0) cycle
-        call dump_diag_field_with_sel ( fields(ifld)%ids(isel), tiles, &
+        call dump_diag_field_with_sel ( fields(ifld)%ids(isel), &
              fields(ifld), selectors(isel), time )
      enddo
   enddo
@@ -783,66 +828,97 @@ subroutine dump_tile_diag_fields(tiles, time)
 
   ! all the data are sent to the output, so set the data presence tag to FALSE
   ! in all diag buffers in preparation for the next time step
-  ce = first_elmt(tiles)
-  te = tail_elmt (tiles)
-  do while(ce /= te)
-    tile => current_tile(ce)       ! get the pointer to the current tile
+  ce = first_elmt(land_tile_map)
+  do while(loop_over_tiles(ce,tile))
     tile%diag%mask(:) = .FALSE.
-    ce = next_elmt(ce)            ! move to the next position
   enddo
-  ! reset the first_dump flag
-  first_dump = .FALSE.
-
 end subroutine dump_tile_diag_fields
 
 ! ============================================================================
-subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
+! dumps a single field
+! TODO: perhaps need dump aliases as well
+! TODO: perhaps total_n_sends check can be removed to avoid communication
+subroutine dump_tile_diag_field(id, time)
+  integer, intent(in) :: id ! diag id of the field
+  type(time_type), intent(in) :: time       ! current time
+
+  ! ---- local vars
+  integer :: ifld ! field number
+  integer :: isel ! selector number
+  type(land_tile_enum_type)     :: ce
+  type(land_tile_type), pointer :: tile
+  integer :: total_n_sends
+
+  if (id<=0) return ! do nothing if field not registered
+
+  ifld = id-BASE_TILED_FIELD_ID
+  if (ifld<1.or.ifld>n_fields) &
+     call error_mesg(mod_name, 'incorrect field id '//string(id)//' in dump_tile_diag_field ', FATAL)
+
+  total_n_sends = fields(ifld)%n_sends
+  call mpp_sum(total_n_sends, pelist=lnd%pelist)
+
+  if (total_n_sends == 0) return ! no data to send
+!$OMP parallel do schedule(dynamic) default(shared) private(isel)
+  do isel = 1, n_selectors
+     if (fields(ifld)%ids(isel) <= 0) cycle
+     call dump_diag_field_with_sel ( fields(ifld)%ids(isel), &
+          fields(ifld), selectors(isel), time )
+  enddo
+  ! zero out the number of data points sent to the field
+  fields(ifld)%n_sends=0
+
+  ! all the data are sent to the output, so set the data presence tag to FALSE
+  ! in all diag buffers in preparation for the next time step
+  ce = first_elmt(land_tile_map)
+  do while(loop_over_tiles(ce,tile))
+    tile%diag%mask(fields(ifld)%offset:fields(ifld)%offset+fields(ifld)%size-1) = .FALSE.
+  enddo
+
+end subroutine dump_tile_diag_field
+
+! ============================================================================
+subroutine dump_diag_field_with_sel(id, field, sel, time)
   integer :: id
-  type(land_tile_list_type),   intent(in) :: tiles(:,:)
   type(tiled_diag_field_type), intent(in) :: field
   type(tile_selector_type)   , intent(in) :: sel
   type(time_type)            , intent(in) :: time ! current time
 
   ! ---- local vars
-  integer :: i,j ! iterators
-  integer :: is,ie,js,je,ks,ke ! array boundaries
+  integer :: l ! iterators
+  integer :: ks,ke ! array boundaries
+  integer :: ls, le
   logical :: used ! value returned from send_data (ignored)
-  real, allocatable :: buffer(:,:,:), weight(:,:,:), var(:,:,:)
-  logical, allocatable :: mask(:,:,:)
-  type(land_tile_enum_type)     :: ce, te
+  real, allocatable :: buffer(:,:), weight(:,:), var(:,:)
+  logical, allocatable :: mask(:,:)
+  type(land_tile_enum_type)     :: ce
   type(land_tile_type), pointer :: tile
 
   ! calculate array boundaries
-  is = lbound(tiles,1); ie = ubound(tiles,1)
-  js = lbound(tiles,2); je = ubound(tiles,2)
+  ls = lbound(land_tile_map,1); le = ubound(land_tile_map,1)
   ks = field%offset   ; ke = field%offset + field%size - 1
 
   ! allocate and initialize temporary buffers
-  allocate(buffer(is:ie,js:je,ks:ke), weight(is:ie,js:je,ks:ke), mask(is:ie,js:je,ks:ke))
-  buffer(:,:,:) = 0.0
-  weight(:,:,:) = 0.0
+  allocate(buffer(ls:le,ks:ke), weight(ls:le,ks:ke), mask(ls:le,ks:ke))
+  weight(:,:) = 0.0
+  buffer(:,:) = 0.0
 
   ! accumulate data
-  ce = first_elmt(tiles, is=is, js=js)
-  te = tail_elmt (tiles)
-  do while(ce /= te)
-    tile => current_tile(ce)      ! get the pointer to current tile
-    call get_elmt_indices(ce,i,j) ! get the indices of current tile
-    ce = next_elmt(ce)           ! move to the next position
-
+  ce = first_elmt(land_tile_map, ls=ls)
+  do while(loop_over_tiles(ce, tile, l))
     if ( size(tile%diag%data) < ke )       cycle ! do nothing if there is no data in the buffer
     if ( .not.tile_is_selected(tile,sel) ) cycle ! do nothing if tile is not selected
     select case (field%op)
     case (OP_AVERAGE,OP_VAR,OP_STD)
        where(tile%diag%mask(ks:ke))
-          buffer(i,j,:) = buffer(i,j,:) + tile%diag%data(ks:ke)*tile%frac
+          buffer(l,:) = buffer(l,:) + tile%diag%data(ks:ke)*tile%frac
        end where
-       weight(i,j,:) = weight(i,j,:) + tile%frac
+       weight(l,:) = weight(l,:) + tile%frac
     case (OP_SUM)
        where(tile%diag%mask(ks:ke))
-          buffer(i,j,:) = buffer(i,j,:) + tile%diag%data(ks:ke)
+          buffer(l,:) = buffer(l,:) + tile%diag%data(ks:ke)
        end where
-       weight(i,j,:) = 1
+       weight(l,:) = 1
     end select
   enddo
 
@@ -856,25 +932,19 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
      ! algorithm from http://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
      ! code her is more straightforward. buffer(:,:,:) already contains the mean,
      ! and weight(:,:,:) -- sum of  tile fractions
-     allocate(var(is:ie,js:je,ks:ke))
-     var(:,:,:) = 0.0
+     allocate(var(ls:le,ks:ke))
+     var(:,:) = 0.0
      ! the loop is somewhat different from the first, for no particular reason:
      ! perhaps this way is better for performance?
-     do j = js,je
-     do i = is,ie
-        ce = first_elmt(tiles(i,j))
-        te = tail_elmt (tiles(i,j))
-        do while(ce /= te)
-           tile => current_tile(ce) ! get the pointer to current tile
-           ce = next_elmt(ce)       ! move to the next position
-
+     do l = ls, le
+        ce = first_elmt(land_tile_map(l))
+        do while(loop_over_tiles(ce,tile))
            if ( size(tile%diag%data) < ke )       cycle ! do nothing if there is no data in the buffer
            if ( .not.tile_is_selected(tile,sel) ) cycle ! do nothing if tile is not selected
            where(tile%diag%mask(ks:ke))
-              var(i,j,:) = var(i,j,:) + tile%frac*(tile%diag%data(ks:ke)-buffer(i,j,:))**2
+              var(l,:) = var(l,:) + tile%frac*(tile%diag%data(ks:ke)-buffer(l,:))**2
            end where
         enddo
-     enddo
      enddo
      ! renormalize the variance or standard deviation. note that weight is
      ! calculated in the first loop
@@ -887,18 +957,17 @@ subroutine dump_diag_field_with_sel(id, tiles, field, sel, time)
      deallocate(var)
   endif
 
-  ! fill missing data, if necessary
   if (field%fill_missing) then
-     where (.not.mask) buffer = 0.0
-     mask = .TRUE.
+      where (.not. mask) buffer = 0.0
+      mask = .true.
   endif
   ! send diag field
-  used = send_data ( id, buffer, time, mask=mask )
+  used = send_data(id,buffer,time,mask=mask)
 
   ! clean up temporary data
   deallocate(buffer,weight,mask)
 
-end subroutine
+end subroutine dump_diag_field_with_sel
 
 
 end module land_tile_diag_mod
