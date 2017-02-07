@@ -312,6 +312,8 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table)
   ! initialize the land model processor list
   allocate(lnd%pelist(0:mpp_npes()-1))
   call mpp_get_current_pelist(lnd%pelist)
+
+  module_is_initialized = .TRUE.
 end subroutine land_data_init
 
 ! ============================================================================
