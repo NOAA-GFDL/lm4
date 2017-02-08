@@ -89,7 +89,7 @@ end type atmos_land_boundary_type
 type :: land_data_type
    ! data passed from the surface to the coupler
    logical :: pe ! data presence indicator for stock calculations
-   real, pointer, dimension(:,:)   :: &  ! (lon, lat, tile)
+   real, pointer, dimension(:,:)   :: &  ! (ug, tile)
         tile_size      => NULL(),  & ! fractional coverage of cell by tile, dimensionless
         t_surf         => NULL(),  & ! ground surface temperature, degK
         t_ca           => NULL(),  & ! canopy air temperature, degK
@@ -102,7 +102,7 @@ type :: land_data_type
         rough_heat     => NULL(),  & ! roughness length for tracers and heat, m
         rough_scale    => NULL()     ! topographic scaler for momentum drag, m
 
-   real, pointer, dimension(:,:,:)   :: &  ! (lon, lat, tile, tracer)
+   real, pointer, dimension(:,:,:)   :: &  ! (ug, tile, tracer)
         tr    => NULL()              ! tracers, including canopy air specific humidity
 
    ! NOTE that in contrast to most of the other fields in this structure, the discharges
@@ -113,12 +113,6 @@ type :: land_data_type
      discharge_heat      => NULL(),  & ! sensible heat of discharge (0 C datum)
      discharge_snow      => NULL(),  & ! solid water flux from land to ocean
      discharge_snow_heat => NULL()     ! sensible heat of discharge_snow (0 C datum)
-
-   real, pointer, dimension(:) :: &  ! (unstructured grid)
-     discharge_ug           => NULL(),  & ! liquid water flux from land to ocean
-     discharge_heat_ug      => NULL(),  & ! sensible heat of discharge (0 C datum)
-     discharge_snow_ug      => NULL(),  & ! solid water flux from land to ocean
-     discharge_snow_heat_ug => NULL()     ! sensible heat of discharge_snow (0 C datum)
 
    logical, pointer, dimension(:,:):: &
         mask => NULL()               ! true if land

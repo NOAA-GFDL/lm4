@@ -263,7 +263,7 @@ end interface
 ! ==== module data ===========================================================
 integer :: n_created_land_tiles = 0 ! total number of created tiles
 integer :: n_deleted_land_tiles = 0 ! total number of deleted tiles
-type(land_tile_list_type), pointer :: land_tile_map(:) ! map of tiles
+type(land_tile_list_type), allocatable :: land_tile_map(:) ! map of tiles
 
 contains
 
@@ -975,7 +975,11 @@ function loop_over_tiles(ce, tile, l, k) result(R); logical R
   call get_elmt_indices(ce,l=l,k=k)
   ! advance enumerator to the next element
   ce = next_elmt(ce)
-  R  = associated(tile)
+  if(present(tile)) then
+    R  = associated(tile)
+  else
+    R = .false.
+  endif
 end function loop_over_tiles
 
 ! ============================================================================

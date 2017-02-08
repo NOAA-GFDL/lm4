@@ -723,7 +723,7 @@ subroutine send_tile_data_0d_array(id, x, send_immediately)
   if(present(send_immediately)) then
      ! TODO: perhaps need to add time to the arguments, instead of using lnd%time?
      ! not clear if this will have any effect
-     if(send_immediately) call dump_tile_diag_field(id, lnd%time)
+     if(send_immediately) call dump_tile_diag_field(land_tile_map, id, lnd%time)
   endif
 end subroutine send_tile_data_0d_array
 
@@ -801,7 +801,10 @@ end subroutine send_tile_data_i0d_fptr
 
 
 ! ============================================================================
-subroutine dump_tile_diag_fields(time)
+!pass in land_tile_map into this routine to temporarily solve the crash issue
+!with Intel compiler when running with multiple openmp threads.
+subroutine dump_tile_diag_fields(land_tile_map,time)
+ type(land_tile_list_type), intent(in)  :: land_tile_map(:)
   type(time_type)          , intent(in) :: time       ! current time
 
   ! ---- local vars
@@ -814,12 +817,12 @@ subroutine dump_tile_diag_fields(time)
   total_n_sends(:) = fields(1:n_fields)%n_sends
   call mpp_sum(total_n_sends, n_fields, pelist=lnd%pelist)
 
-!$OMP parallel do schedule(dynamic) default(shared) private(ifld,isel)
+!$OMP parallel do default(none) shared(land_tile_map,n_fields,total_n_sends,n_selectors,fields,selectors,time)
   do ifld = 1, n_fields
      if (total_n_sends(ifld) == 0) cycle ! no data to send
      do isel = 1, n_selectors
         if (fields(ifld)%ids(isel) <= 0) cycle
-        call dump_diag_field_with_sel ( fields(ifld)%ids(isel), &
+        call dump_diag_field_with_sel (land_tile_map, fields(ifld)%ids(isel), &
              fields(ifld), selectors(isel), time )
      enddo
   enddo
@@ -838,7 +841,10 @@ end subroutine dump_tile_diag_fields
 ! dumps a single field
 ! TODO: perhaps need dump aliases as well
 ! TODO: perhaps total_n_sends check can be removed to avoid communication
-subroutine dump_tile_diag_field(id, time)
+!pass in land_tile_map into this routine to temporarily solve the crash issue
+!with Intel compiler when running with multiple openmp threads.
+subroutine dump_tile_diag_field(land_tile_map, id, time)
+ type(land_tile_list_type), intent(in) :: land_tile_map(:)  
   integer, intent(in) :: id ! diag id of the field
   type(time_type), intent(in) :: time       ! current time
 
@@ -859,10 +865,10 @@ subroutine dump_tile_diag_field(id, time)
   call mpp_sum(total_n_sends, pelist=lnd%pelist)
 
   if (total_n_sends == 0) return ! no data to send
-!$OMP parallel do schedule(dynamic) default(shared) private(isel)
+!$OMP parallel do default(none) shared(land_tile_map,n_selectors,fields,ifld,selectors,time) private(isel)
   do isel = 1, n_selectors
      if (fields(ifld)%ids(isel) <= 0) cycle
-     call dump_diag_field_with_sel ( fields(ifld)%ids(isel), &
+     call dump_diag_field_with_sel (land_tile_map, fields(ifld)%ids(isel), &
           fields(ifld), selectors(isel), time )
   enddo
   ! zero out the number of data points sent to the field
@@ -878,7 +884,8 @@ subroutine dump_tile_diag_field(id, time)
 end subroutine dump_tile_diag_field
 
 ! ============================================================================
-subroutine dump_diag_field_with_sel(id, field, sel, time)
+subroutine dump_diag_field_with_sel(land_tile_map, id, field, sel, time)
+  type(land_tile_list_type), intent(in) :: land_tile_map(:)
   integer :: id
   type(tiled_diag_field_type), intent(in) :: field
   type(tile_selector_type)   , intent(in) :: sel
