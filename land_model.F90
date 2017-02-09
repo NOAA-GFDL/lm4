@@ -599,7 +599,7 @@ subroutine land_model_restart(timestamp)
   call mpp_max(tile_dim_length)
   if (tile_dim_length==0) then
      call error_mesg('land_model_restart',&
-       'No land points exist (tile_dim_length=0), therefore no land restarts will be saved',&
+       'No land points exist in global domain (either entire map, or cubic sphere face), therefore no land restarts will be saved',&
        WARNING)
      return
   endif
@@ -1105,7 +1105,6 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   do i1 = 0,(ie-is+1)*(je-js+1)-1
      i = mod(i1,ie-is+1)+is
      j = i1/(ie-is+1)+js
-!     __DEBUG4__(is,js,i-is+lnd%is,j-js+lnd%js)
      ce = first_elmt(land_tile_map(i-is+lnd%is,j-js+lnd%js))
      do while (loop_over_tiles(ce,tile,k=k))
         ! set this point coordinates as current for debug output
@@ -1276,7 +1275,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   lnd%time = lnd%time + lnd%dt_fast
 
   ! send the accumulated diagnostics to the output
-  call dump_tile_diag_fields(lnd%time)
+  call dump_tile_diag_fields(land_tile_map,lnd%time)
 
   if (id_dis_liq > 0)  used = send_data (id_dis_liq,  discharge_l, lnd%time)
   if (id_dis_ice > 0)  used = send_data (id_dis_ice,  discharge_c(:,:,i_river_ice), lnd%time)
@@ -2229,7 +2228,7 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   call land_transitions( lnd%time )
   call update_vegn_slow( )
   ! send the accumulated diagnostics to the output
-  call dump_tile_diag_fields(lnd%time)
+  call dump_tile_diag_fields(land_tile_map, lnd%time)
 
   ! land_transitions may have changed the number of tiles per grid cell: reallocate
   ! boundary conditions, if necessary

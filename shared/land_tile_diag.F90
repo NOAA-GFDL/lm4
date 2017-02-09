@@ -11,7 +11,7 @@ use fms_mod,            only : error_mesg, string, FATAL
 use land_tile_selectors_mod, only : tile_selectors_init, tile_selectors_end, &
      tile_selector_type, register_tile_selector, selector_suffix, &
      n_selectors, selectors
-use land_tile_mod,      only : land_tile_type, diag_buff_type, &
+use land_tile_mod,      only : land_tile_type, diag_buff_type, land_tile_list_type, &
      land_tile_enum_type, first_elmt, loop_over_tiles, &
      land_tile_map, tile_is_selected, fptr_i0, fptr_r0, fptr_r0i
 use land_data_mod,      only : lnd, log_version
@@ -722,7 +722,7 @@ subroutine send_tile_data_0d_array(id, x, send_immediately)
   if(present(send_immediately)) then
      ! TODO: perhaps need to add time to the arguments, instead of using lnd%time?
      ! not clear if this will have any effect
-     if(send_immediately) call dump_tile_diag_field(id, lnd%time)
+     if(send_immediately) call dump_tile_diag_field(land_tile_map, id, lnd%time)
   endif
 end subroutine send_tile_data_0d_array
 
@@ -800,7 +800,8 @@ end subroutine send_tile_data_i0d_fptr
 
 
 ! ============================================================================
-subroutine dump_tile_diag_fields(time)
+subroutine dump_tile_diag_fields(land_tile_map,time)
+  type(land_tile_list_type), intent(in) :: land_tile_map(:,:) ! map of tiles
   type(time_type)          , intent(in) :: time       ! current time
 
   ! ---- local vars
@@ -813,12 +814,12 @@ subroutine dump_tile_diag_fields(time)
   total_n_sends(:) = fields(1:n_fields)%n_sends
   call mpp_sum(total_n_sends, n_fields, pelist=lnd%pelist)
 
-!$OMP parallel do schedule(dynamic) default(shared) private(ifld,isel)
+!$OMP parallel do default(none) shared(land_tile_map,n_fields,total_n_sends,n_selectors,fields,selectors,time)
   do ifld = 1, n_fields
      if (total_n_sends(ifld) == 0) cycle ! no data to send
      do isel = 1, n_selectors
         if (fields(ifld)%ids(isel) <= 0) cycle
-        call dump_diag_field_with_sel ( fields(ifld)%ids(isel), &
+        call dump_diag_field_with_sel ( land_tile_map, fields(ifld)%ids(isel), &
              fields(ifld), selectors(isel), time )
      enddo
   enddo
@@ -837,7 +838,8 @@ end subroutine dump_tile_diag_fields
 ! dumps a single field
 ! TODO: perhaps need dump aliases as well
 ! TODO: perhaps total_n_sends check can be removed to avoid communication
-subroutine dump_tile_diag_field(id, time)
+subroutine dump_tile_diag_field(land_tile_map, id, time)
+  type(land_tile_list_type), intent(in) :: land_tile_map(:,:) ! map of tiles
   integer, intent(in) :: id ! diag id of the field
   type(time_type), intent(in) :: time       ! current time
 
@@ -858,10 +860,10 @@ subroutine dump_tile_diag_field(id, time)
   call mpp_sum(total_n_sends, pelist=lnd%pelist)
 
   if (total_n_sends == 0) return ! no data to send
-!$OMP parallel do schedule(dynamic) default(shared) private(isel)
+!$OMP parallel do default(none) shared(land_tile_map,n_selectors,fields,ifld,selectors,time) private(isel)
   do isel = 1, n_selectors
      if (fields(ifld)%ids(isel) <= 0) cycle
-     call dump_diag_field_with_sel ( fields(ifld)%ids(isel), &
+     call dump_diag_field_with_sel ( land_tile_map, fields(ifld)%ids(isel), &
           fields(ifld), selectors(isel), time )
   enddo
   ! zero out the number of data points sent to the field
@@ -877,11 +879,18 @@ subroutine dump_tile_diag_field(id, time)
 end subroutine dump_tile_diag_field
 
 ! ============================================================================
-subroutine dump_diag_field_with_sel(id, field, sel, time)
+subroutine dump_diag_field_with_sel(land_tile_map, id, field, sel, time)
   integer :: id
+  type(land_tile_list_type)  , intent(in) :: land_tile_map(:,:) ! map of tiles
   type(tiled_diag_field_type), intent(in) :: field
   type(tile_selector_type)   , intent(in) :: sel
   type(time_type)            , intent(in) :: time ! current time
+
+! NOTE that passing in land_tile_map (despite the fact that this array is also globally
+! available) is a work around (apparent) compiler issue, when with multiple openmp threads
+! *and* debug flags Intel compilers (15 and 16) report index errors, as if global
+! land_tile_map array started from 1,1 instead of is,js. Passing it in as argument solves
+! this issue.
 
   ! ---- local vars
   integer :: i,j ! iterators
@@ -933,19 +942,13 @@ subroutine dump_diag_field_with_sel(id, field, sel, time)
      ! and weight(:,:,:) -- sum of  tile fractions
      allocate(var(is:ie,js:je,ks:ke))
      var(:,:,:) = 0.0
-     ! the loop is somewhat different from the first, for no particular reason:
-     ! perhaps this way is better for performance?
-     do j = js,je
-     do i = is,ie
-        ce = first_elmt(land_tile_map(i,j))
-        do while(loop_over_tiles(ce,tile))
-           if ( size(tile%diag%data) < ke )       cycle ! do nothing if there is no data in the buffer
-           if ( .not.tile_is_selected(tile,sel) ) cycle ! do nothing if tile is not selected
-           where(tile%diag%mask(ks:ke))
-              var(i,j,:) = var(i,j,:) + tile%frac*(tile%diag%data(ks:ke)-buffer(i,j,:))**2
-           end where
-        enddo
-     enddo
+     ce = first_elmt(land_tile_map, is=is, js=js)
+     do while(loop_over_tiles(ce, tile, i,j))
+        if ( size(tile%diag%data) < ke )       cycle ! do nothing if there is no data in the buffer
+        if ( .not.tile_is_selected(tile,sel) ) cycle ! do nothing if tile is not selected
+        where(tile%diag%mask(ks:ke))
+           var(i,j,:) = var(i,j,:) + tile%frac*(tile%diag%data(ks:ke)-buffer(i,j,:))**2
+        end where
      enddo
      ! renormalize the variance or standard deviation. note that weight is
      ! calculated in the first loop
