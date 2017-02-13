@@ -1443,7 +1443,7 @@ subroutine update_land_model_fast_0d(tile, i,j,k, land2cplr, &
   call check_temp_range(atmos_T,                   'land model input', 'atmos_T')
   call check_var_range(ISa_dn_dir, 0.0, 1360.0,    'land model input', 'sw.down.dir', WARNING)
   call check_var_range(ISa_dn_dif, 0.0, 1360.0,    'land model input', 'sw.down.dif', WARNING)
-  call check_var_range(ISa_dn_dir, 0.0, 1360.0,    'land model input', 'lw.down',     WARNING)
+  call check_var_range(ILa_dn,     0.0, 1360.0,    'land model input', 'lw.down',     WARNING)
   call check_var_range(ustar,      0.0, HUGE(1.0), 'land model input', 'ustar',       WARNING)
   call check_var_range(drag_q,     0.0, HUGE(1.0), 'land model input', 'drag_q',      WARNING)
   call check_var_range(p_surf,     0.0, HUGE(1.0), 'land model input', 'p_surf',      WARNING)
