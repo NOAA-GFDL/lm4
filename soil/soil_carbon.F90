@@ -185,7 +185,7 @@ real :: Knitr_ref=0.01                 ! Nitirification constant at reference te
 real :: Kdenitr_ref=0.01               ! Denitirification constant at reference temperature  (yr-1)
 real, dimension(N_C_TYPES) :: vmaxref_denitrif=(/450e0,2.5e0,60e0/) ! Organic matter decomp rates with denitrification as electron acceptor
 real :: k_denitrif=1e-2                ! Half saturation constant for denitrification (kgNO3-N/kgNO3-N demand/year)
-real :: denitrif_NO3_factor=0.18
+real :: denitrif_NO3_factor=0.93       ! g N denitrified per g C decomposed. Determined by 4/5 N:C stoichiometry of reaction (Heinen, 2006)
 real :: CN_microb=8                    ! Fixed microbial C:N ratio
 real :: deadmic_slow_frac=0.0     ! Fraction of microbial turnover that goes to slow pool
 
