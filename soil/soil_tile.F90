@@ -155,7 +155,7 @@ type :: soil_pars_type
   real hillslope_n         ! exponent in z(x) relationship for hillslopes
   real hillslope_zeta_bar  ! hillslope area-normalized elevation
   real zeta                ! soil depth normalized by hillslope elevation
-  real tau                 ! effective residence time (1/s)
+  real :: tau = 0.0        ! effective residence time (1/s)
   integer storage_index
   real rsa_exp          ! riparian source-area exponent
   ! Used with full tiled Hillslope Model Hydrology:
