@@ -1308,6 +1308,12 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
 #endif
 
   ! CMOR variables
+  ! tsl (soil temperature) should be reported as missing for the non-soil grid cells;
+  ! also averaging over non-soil tiles does not make sense and therefore is not done.
+  ! The only difference with soil_T is metadata (units and standard_name).
+  call add_tiled_diag_field_alias ( id_temp, cmor_name, 'tsl', axes(1:3),  &
+       lnd%time, 'Temperature of Soil', 'K', missing_value=-100.0, &
+       standard_name='soil_temperature', fill_missing=.FALSE.)
   ! set up weights for mrsos averaging
   allocate(mrsos_weight(num_l))
   do l = 1,num_l
