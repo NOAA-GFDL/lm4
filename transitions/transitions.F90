@@ -51,6 +51,7 @@ use land_tile_mod, only : land_tile_map, &
      empty, erase, remove, insert, land_tiles_can_be_merged, merge_land_tiles, &
      get_tile_water, land_tile_carbon, land_tile_heat
 use land_tile_io_mod, only : print_netcdf_error
+use land_tile_diag_mod, only : get_area_id 
 
 use land_data_mod, only : land_data_type, lnd, log_version
 use vegn_tile_mod, only : vegn_tile_type, vegn_tile_bwood
@@ -149,6 +150,16 @@ data (luh2name(idata), luh2type(idata), idata = 1, 12) / &
    'pastr', LU_PAST, &
    'range', LU_PAST  /
 
+! variables for LUMIP diagnostics
+integer, parameter :: N_LUMIP_TYPES = 4, &
+   LUMIP_PSL = 1, LUMIP_PST = 2, LUMIP_CRP = 3, LUMIP_URB = 4
+character(4), parameter :: lumip_name(N_LUMIP_TYPES) = ['psl ','past','crop','urbn']
+integer :: &
+   id_frac_in (N_LUMIP_TYPES) = -1, &
+   id_frac_out(N_LUMIP_TYPES) = -1
+! translation table: model land use types -> LUMIP types: for each of the model
+! LU types it lists the corresponding LUMIP type.
+integer, parameter :: lu2lumip(N_LU_TYPES) = [LUMIP_PST, LUMIP_CRP, LUMIP_PSL, LUMIP_PSL, LUMIP_URB] 
 
 ! ---- namelist variables ---------------------------------------------------
 logical, public :: do_landuse_change = .FALSE. ! if true, then the landuse changes with time
@@ -283,10 +294,21 @@ subroutine land_transitions_init(id_lon, id_lat)
      if(landuse_name(k2)=='')cycle
      ! construct a name of input field and register the field
      fieldname = trim(landuse_name(k1))//'2'//trim(landuse_name(k2))
-     diag_ids(k1,k2) = register_diag_field(diag_mod_name,fieldname,(/id_lon,id_lat/), lnd%time, &
+     diag_ids(k1,k2) = register_diag_field(diag_mod_name,fieldname,[id_lon,id_lat], lnd%time, &
           'rate of transition from '//trim(landuse_longname(k1))//' to '//trim(landuse_longname(k2)),&
           units='1/year', missing_value=-1.0)
   enddo
+  enddo
+  ! register CMIP/LUMIP transition fields
+  do k1 = 1,N_LUMIP_TYPES
+     id_frac_in(k1) = register_diag_field ('cmor_land', &
+         'fracInLut_'//trim(lumip_name(k1)), [id_lon,id_lat], lnd%time, &
+         'Gross Fraction That Was Transferred into This Tile From Other Land Use Tiles', &
+         units='fraction', area = get_area_id('land'))
+     id_frac_out(k1) = register_diag_field('cmor_land', &
+         'fracOutLut_'//trim(lumip_name(k1)), [id_lon,id_lat], lnd%time, &
+         'Gross Fraction of Land Use Tile That Was Transferred into Other Land Use Tiles', &
+         units='fraction', area = get_area_id('land'))
   enddo
 
   if (.not.do_landuse_change) return ! do nothing more if no land use requested
@@ -575,6 +597,8 @@ subroutine land_transitions (time)
   type(tran_type), pointer :: transitions(:,:,:)
   integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
   real    :: w
+  real    :: diag(lnd%is:lnd%ie,lnd%js:lnd%je)
+  logical :: used
 
   if (.not.do_landuse_change) &
        return ! do nothing if landuse change not requested
@@ -607,6 +631,40 @@ subroutine land_transitions (time)
      endif
      call add_to_transitions(frac,time0,time,k1,k2,transitions)
   enddo
+  enddo
+
+  ! save the "in" and "out" diagnostics for the transitions
+  do k1 = 1, N_LUMIP_TYPES
+     if (id_frac_out(k1) > 0) then
+        diag(:,:) = 0.0
+        do k2 = 1, size(transitions,3)
+        do j = lnd%js,lnd%je
+        do i = lnd%is,lnd%ie
+           if (transitions(i,j,k2)%donor>0) then
+              if (lu2lumip(transitions(i,j,k2)%donor) == k1) &
+                    diag(i,j) = diag(i,j) + transitions(i,j,k2)%frac
+           endif
+        enddo
+        enddo
+        enddo
+        used=send_data(id_frac_out(k1), diag, time)
+     endif
+  enddo
+  do k1 = 1, N_LUMIP_TYPES
+     if (id_frac_in(k1) > 0) then
+        diag(:,:) = 0.0
+        do k2 = 1, size(transitions,3)
+        do j = lnd%js,lnd%je
+        do i = lnd%is,lnd%ie
+           if (transitions(i,j,k2)%acceptor>0) then
+              if (lu2lumip(transitions(i,j,k2)%acceptor) == k1) &
+                    diag(i,j) = diag(i,j) + transitions(i,j,k2)%frac
+           endif
+        enddo
+        enddo
+        enddo
+        used=send_data(id_frac_in(k1), diag, time)
+     endif
   enddo
 
   ! perform the transitions
