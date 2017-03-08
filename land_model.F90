@@ -278,8 +278,8 @@ integer, allocatable :: id_cana_tr(:)
 ! diag IDs of CMOR variables
 integer :: id_sftlf, id_sftgif
 integer :: id_pcp, id_prra, id_prveg, id_tran, id_evspsblveg, id_evspsblsoi, id_nbp, &
-           id_snw, id_lwsnl, id_snm, id_cLand, id_hflsLut, id_rlusLut, id_rsusLut, &
-           id_tslsiLut
+           id_snw, id_snd, id_snc, id_lwsnl, id_snm, id_sweLut, id_cLand, &
+           id_hflsLut, id_rlusLut, id_rsusLut, id_tslsiLut
 integer :: id_cropFrac, id_cropFracC3, id_cropFracC4, id_pastureFrac, id_residualFrac, &
            id_grassFrac, id_grassFracC3, id_grassFracC4, &
            id_treeFrac, id_c3pftFrac, id_c4pftFrac, id_nwdFracLut, &
@@ -1269,6 +1269,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      ! CMOR variables
      call send_tile_data(id_snw, snow_FMASS, tile%diag)
      call send_tile_data(id_lwsnl, snow_LMASS, tile%diag)
+     ! factor 1000.0 kg/m3 is the liquid water density; it converts mass of water into depth
+     call send_tile_data(id_sweLut, max(snow_FMASS+snow_LMASS,0.0)/1000.0, tile%diag)
   enddo
 
   ! advance land model time
@@ -2740,7 +2742,9 @@ subroutine update_land_bc_fast (tile, i,j,k, land2cplr, is_init)
   call send_tile_data(id_subs_refl_dir, subs_refl_dir, tile%diag)
   call send_tile_data(id_subs_refl_dif, subs_refl_dif, tile%diag)
   call send_tile_data(id_grnd_T,  land_grnd_T(tile),   tile%diag)
-
+  ! CMOR variables
+  call send_tile_data(id_snd, max(snow_depth,0.0),     tile%diag)
+  call send_tile_data(id_snc, snow_area*100,           tile%diag)
   ! --- debug section
   call check_temp_range(land2cplr%t_ca(i,j,k),'update_land_bc_fast','T_ca')
 
@@ -3384,6 +3388,12 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
   id_snw = register_tiled_diag_field ( cmor_name, 'snw', axes, time, &
              'Surface Snow Amount','kg m-2', standard_name='surface_snow_amount', &
              missing_value=-1.0e+20, fill_missing=.TRUE.)
+  id_snd = register_tiled_diag_field ( cmor_name, 'snd', axes, time, &
+             'Snow Depth','m', standard_name='surface_snow_thickness', &
+             missing_value=-1.0e+20, fill_missing=.TRUE.)
+  id_snc = register_tiled_diag_field ( cmor_name, 'snc', axes, time, &
+             'Snow Area Fraction','%', standard_name='surface_snow_area_fraction', &
+             missing_value=-1.0e+20, fill_missing=.TRUE.)
   id_lwsnl = register_tiled_diag_field ( cmor_name, 'lwsnl', axes, time, &
              'Liquid Water Content of Snow Layer','kg m-2', &
              standard_name='liquid_water_content_of_snow_layer', &
@@ -3394,6 +3404,10 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, &
   call add_tiled_diag_field_alias(id_sens, cmor_name, 'hfssLut', axes, time, &
       'Sensible Heat Flux on Land Use Tile', 'W m-2', missing_value=-1.0e+20, &
       standard_name='surface_upward_sensible_heat_flux')
+
+  id_sweLut = register_tiled_diag_field ( cmor_name, 'sweLut', axes, time, &
+             'Snow Water Equivalent on Land Use Tile','m', standard_name='snow_water_equivalent_lut', &
+             missing_value=-1.0e+20, fill_missing=.FALSE. )
 
   id_cLand = register_tiled_diag_field ( cmor_name, 'cLand', axes, time, &
              'Total carbon in all terrestrial carbon pools', 'kg C m-2', &
