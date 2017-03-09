@@ -554,7 +554,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      enddo
   enddo
   
-  ! Initialize cohort structure if it wasn't in the restart
+  ! Initialize cohort structure if it was not in the restart
   if (do_ppa.and..not.did_read_cohort_structure) then
      te = tail_elmt(land_tile_map) ; ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js)
      do while(ce /= te)
@@ -1833,7 +1833,7 @@ subroutine update_derived_vegn_data(vegn)
   where (VRL(:) > 0)
      vegn%root_distance(1:num_l) = 1.0/sqrt(PI*VRL(:))
   elsewhere
-     vegn%root_distance(1:num_l) = 1.0 ! the value doesn't matter since uptake is 0 anyway 
+     vegn%root_distance(1:num_l) = 1.0 ! the value does not matter since uptake is 0 anyway 
   end where
 
   deallocate(layer_area)
@@ -1871,7 +1871,7 @@ subroutine update_vegn_slow( )
 
   if(month0 /= month1) then
      ! heartbeat
-     write(str,'("Current date is ",i4.4,"-",i2.2,"-",i2.2)'),year0,month0,day0
+     write(str,'("Current date is ",i4.4,"-",i2.2,"-",i2.2)') year0,month0,day0
      call error_mesg('update_vegn_slow',trim(str),NOTE)
   endif
 
@@ -2257,7 +2257,7 @@ subroutine vegn_seed_transport()
   ! sum totals globally
   call mpp_sum(total_seed_demand, pelist=lnd%pelist)
   call mpp_sum(total_seed_supply, pelist=lnd%pelist)
-  ! if either demand or supply are zeros we don't need (or can't) transport anything
+  ! if either demand or supply are zeros we do not need (or cannot) transport anything
   if (total_seed_demand==0.or.total_seed_supply==0)then
      return
   end if

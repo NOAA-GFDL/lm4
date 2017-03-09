@@ -2874,8 +2874,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
             leaflitter_C_dissolved, leaflitter_C_deposited, badCohort)
   IF (badCohort.ne.0) THEN
         call get_current_point(point_i,point_j,point_k,point_face)
-        WRITE (*,*), 'Found bad cohort in leaf litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
-        WRITE (*,*), 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
+        WRITE (*,*) 'Found bad cohort in leaf litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
+        WRITE (*,*) 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
         call error_mesg('Dsdt','Found bad cohort in leaf litter',FATAL)
   ENDIF  
   vegn%rh=vegn%rh + CO2prod/dt_fast_yr ! accumulate loss of C to atmosphere
@@ -2886,8 +2886,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
             fineWoodlitter_C_dissolved, fineWoodlitter_C_deposited, badCohort)
   IF (badCohort.ne.0) THEN
         call get_current_point(point_i,point_j,point_k,point_face)
-        WRITE (*,*), 'Found bad cohort in fineWood litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
-        WRITE (*,*), 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
+        WRITE (*,*) 'Found bad cohort in fineWood litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
+        WRITE (*,*) 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
         call error_mesg('Dsdt','Found bad cohort in fineWood litter',FATAL)
   ENDIF
   vegn%rh=vegn%rh + CO2prod/dt_fast_yr ! accumulate loss of C to atmosphere
@@ -2898,8 +2898,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
             coarseWoodlitter_C_dissolved, coarseWoodlitter_C_deposited, badCohort)
   IF (badCohort.ne.0) THEN
         call get_current_point(point_i,point_j,point_k,point_face)
-        WRITE (*,*), 'Found bad cohort in coarseWood litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
-        WRITE (*,*), 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
+        WRITE (*,*) 'Found bad cohort in coarseWood litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
+        WRITE (*,*) 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
         call error_mesg('Dsdt','Found bad cohort in coarseWood litter',FATAL)
   ENDIF
   vegn%rh=vegn%rh + CO2prod/dt_fast_yr ! accumulate loss of C to atmosphere  
@@ -2912,8 +2912,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
         C_dissolved(:,k),C_deposited(:,k),badCohort)
     IF (badCohort.ne.0) THEN
         call get_current_point(point_i,point_j,point_k,point_face)
-        WRITE (*,*), 'Found bad cohort in layer',k,'Point i,j,k,face:',point_i,point_j,point_k,point_face
-        WRITE (*,*), 'T=',decomp_T(k),'theta=',decomp_theta(k),'dt=',dt_fast_yr
+        WRITE (*,*) 'Found bad cohort in layer',k,'Point i,j,k,face:',point_i,point_j,point_k,point_face
+        WRITE (*,*) 'T=',decomp_T(k),'theta=',decomp_theta(k),'dt=',dt_fast_yr
         call error_mesg('Dsdt','Found bad cohort',FATAL)
     ENDIF
 
