@@ -429,6 +429,13 @@ subroutine vegn_nat_mortality(vegn, soil, deltat)
         call add_root_litter(soil,vegn,  (/fsc_wood *delta*(1.0-agf_bs),(1-fsc_wood)*delta*(1.0-agf_bs),0.0/),&
         (/(fsc_wood *cc%wood_N+spdata(sp)%fsc_liv*cc%sapwood_N)*fraction_lost*(1.0-agf_bs),((1-fsc_wood)*cc%wood_N+(1-spdata(sp)%fsc_liv)*cc%sapwood_N)*fraction_lost*(1.0-agf_bs),0.0/))
 
+     cc%wood_N = cc%wood_N * (1-fraction_lost)
+     cc%sapwood_N = cc%sapwood_N*(1-fraction_lost)
+
+        if(cc%stored_N+cc%leaf_N+cc%wood_N+cc%root_N+cc%sapwood_N<0) then
+            __DEBUG5__(cc%stored_N,cc%leaf_N,cc%wood_N,cc%root_N,cc%sapwood_N)
+            call error_mesg('vegn_nat_mortality','Cohort total N < 0',FATAL)
+        endif
     case (SOILC_CORPSE)
         !Add above ground fraction to top soil layer, and the rest to the soil profile
         call add_litter(soil%coarseWoodLitter,(/fsc_wood *delta*agf_bs,(1-fsc_wood)*delta*agf_bs,0.0/),&
@@ -445,13 +452,6 @@ subroutine vegn_nat_mortality(vegn, soil, deltat)
 
      cc%bwood = cc%bwood * (1-fraction_lost);
      cc%bsw   = cc%bsw   * (1-fraction_lost);
-     cc%wood_N = cc%wood_N * (1-fraction_lost)
-     cc%sapwood_N = cc%sapwood_N*(1-fraction_lost)
-
-        if(cc%stored_N+cc%leaf_N+cc%wood_N+cc%root_N+cc%sapwood_N<0) then
-            __DEBUG5__(cc%stored_N,cc%leaf_N,cc%wood_N,cc%root_N,cc%sapwood_N)
-            call error_mesg('vegn_nat_mortality','Cohort total N < 0',FATAL)
-        endif
      ! for budget tracking -temporarily
      ! It doesn't look correct to me: ssc_in should probably include factor
      ! (1-fsc_wood) and the whole calculations should be moved up in front

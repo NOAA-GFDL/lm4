@@ -610,7 +610,11 @@ total_myc_Nmin = 0.0
             if(cc%scav_myc_C_reservoir<0) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger C reservoir < 0',FATAL)
             if(cc%mine_myc_C_reservoir<0) call error_mesg('vegn_carbon_int','Mycorrhizal miner C reservoir < 0',FATAL)
             if(cc%N_fixer_C_reservoir<0) call error_mesg('vegn_carbon_int','N fixer C reservoir < 0',FATAL)
-            if(cc%scav_myc_N_reservoir<0) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger N reservoir < 0',FATAL)
+            if(cc%scav_myc_N_reservoir<0) then 
+                __DEBUG4__(cc%scav_myc_N_reservoir,cc%scav_myc_C_reservoir,cc%myc_scavenger_biomass_C,cc%myc_scavenger_biomass_N)
+                __DEBUG4__(cc%species,cc%total_N,cc%leaf_N,cc%stored_N)
+                call error_mesg('vegn_carbon_int','Mycorrhizal scavenger N reservoir < 0',FATAL)
+            endif
             if(cc%mine_myc_N_reservoir<0) then
                 __DEBUG4__(cc%mine_myc_N_reservoir,cc%mine_myc_C_reservoir,cc%myc_miner_biomass_C,cc%myc_miner_biomass_N)
                 __DEBUG4__(cc%species,cc%total_N,cc%leaf_N,cc%stored_N)
@@ -686,7 +690,11 @@ total_myc_Nmin = 0.0
           scavenger_myc_N_allocated = scavenger_myc_C_allocated*root_exudate_N_frac
 
           ! Make sure N allocation doesn't completely deplete stored N
-          if (N_fixer_N_allocated+miner_myc_N_allocated+scavenger_myc_N_allocated > 0.0 .AND. &
+          if (cc%stored_N<=0.0) then
+             N_fixer_N_allocated=0.0
+             miner_myc_N_allocated=0.0
+             scavenger_myc_N_allocated=0.0
+          elseif (N_fixer_N_allocated+miner_myc_N_allocated+scavenger_myc_N_allocated > 0.0 .AND. &
                     N_limits_live_biomass .AND. &
                     N_fixer_N_allocated+miner_myc_N_allocated+scavenger_myc_N_allocated > cc%stored_N*0.9) then
              lim_factor=cc%stored_N/(N_fixer_N_allocated+miner_myc_N_allocated+scavenger_myc_N_allocated)*0.9
