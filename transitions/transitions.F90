@@ -51,7 +51,6 @@ use land_tile_mod, only : land_tile_map, &
      empty, erase, remove, insert, land_tiles_can_be_merged, merge_land_tiles, &
      get_tile_water, land_tile_carbon, land_tile_heat
 use land_tile_io_mod, only : print_netcdf_error
-use land_tile_diag_mod, only : get_area_id 
 
 use land_data_mod, only : land_data_type, lnd, log_version
 use vegn_tile_mod, only : vegn_tile_type, vegn_tile_bwood
@@ -188,8 +187,9 @@ namelist/landuse_nml/do_landuse_change, input_file, state_file, static_file, dat
 contains ! ###################################################################
 
 ! ============================================================================
-subroutine land_transitions_init(id_lon, id_lat)
+subroutine land_transitions_init(id_lon, id_lat, id_cellarea)
   integer, intent(in) :: id_lon, id_lat ! the IDs of land diagnostic axes
+  integer, intent(in) :: id_cellarea
 
   ! ---- local vars
   integer        :: unit, ierr, io, ncid1
@@ -304,11 +304,11 @@ subroutine land_transitions_init(id_lon, id_lat)
      id_frac_in(k1) = register_diag_field ('cmor_land', &
          'fracInLut_'//trim(lumip_name(k1)), [id_lon,id_lat], lnd%time, &
          'Gross Fraction That Was Transferred into This Tile From Other Land Use Tiles', &
-         units='fraction', area = get_area_id('land'))
+         units='fraction', area = id_cellarea)
      id_frac_out(k1) = register_diag_field('cmor_land', &
          'fracOutLut_'//trim(lumip_name(k1)), [id_lon,id_lat], lnd%time, &
          'Gross Fraction of Land Use Tile That Was Transferred into Other Land Use Tiles', &
-         units='fraction', area = get_area_id('land'))
+         units='fraction', area = id_cellarea)
   enddo
 
   if (.not.do_landuse_change) return ! do nothing more if no land use requested
@@ -647,7 +647,7 @@ subroutine land_transitions (time)
         enddo
         enddo
         enddo
-        used=send_data(id_frac_out(k1), diag, time)
+        used=send_data(id_frac_out(k1), diag*lnd%landfrac, time)
      endif
   enddo
   do k1 = 1, N_LUMIP_TYPES
@@ -663,7 +663,7 @@ subroutine land_transitions (time)
         enddo
         enddo
         enddo
-        used=send_data(id_frac_in(k1), diag, time)
+        used=send_data(id_frac_in(k1), diag*lnd%landfrac, time)
      endif
   enddo
 

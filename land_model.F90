@@ -472,7 +472,7 @@ subroutine land_model_init &
   if (i_river_ice  == NO_TRACER) call error_mesg ('land_model_init','required river tracer for ice not found', FATAL)
   if (i_river_heat == NO_TRACER) call error_mesg ('land_model_init','required river tracer for heat not found', FATAL)
 
-  call land_transitions_init (id_lon, id_lat)
+  call land_transitions_init (id_lon, id_lat, id_cellarea)
 
   call land_tracer_driver_init (id_lon, id_lat)
   ! [8] initialize boundary data
