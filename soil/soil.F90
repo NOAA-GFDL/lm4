@@ -268,7 +268,7 @@ integer :: id_fast_soil_C, id_slow_soil_C, id_protected_C, id_fsc, id_ssc,&
 
 ! diag IDs of CMOR variables
 integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, id_mrfso, &
-    id_mrro, id_mrros, id_csoil, id_rh, &
+    id_mrs1mLut, id_mrro, id_mrros, id_csoil, id_rh, &
     id_csoilfast, id_csoilmedium, id_csoilslow
 
 ! test tridiagonal solver for advection
@@ -276,6 +276,7 @@ integer :: id_st_diff
 
 integer, allocatable, dimension(:,:,:), private :: soil_tags ! module copy of soil tags for cold start
 real, allocatable :: mrsos_weight(:) ! weights for mrsos averaging
+real, allocatable :: mrs1m_weight(:) ! weights for mrs1m averaging
 ! ==== end of module variables ===============================================
 
 contains
@@ -1315,9 +1316,10 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
        lnd%time, 'Temperature of Soil', 'K', missing_value=-100.0, &
        standard_name='soil_temperature', fill_missing=.FALSE.)
   ! set up weights for mrsos averaging
-  allocate(mrsos_weight(num_l))
+  allocate(mrsos_weight(num_l), mrs1m_weight(num_l))
   do l = 1,num_l
      mrsos_weight(l) = min(1.0,max(0.0,(cmor_mrsos_depth-zhalf(l))/dz(l)))
+     mrs1m_weight(l) = min(1.0,max(0.0,(1.0             -zhalf(l))/dz(l)))
   enddo
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('land')
@@ -1387,6 +1389,10 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
        lnd%time, 'Soil Heterotrophic Respiration On Land Use Tile', 'kg m-2 s-1', &
        standard_name='heterotrophic_respiration_carbon_flux', fill_missing=.FALSE., &
        missing_value=-100.0)
+  id_mrs1mLut = register_tiled_diag_field ( cmor_name, 'mrs1mLut', (/id_lon,id_lat/), &
+       lnd%time, 'Moisture in Top 1 Meter of Land Use Tile Soil Column', 'kg m-2', &
+       missing_value=-100.0, standard_name='moisture_content_of_soil_layer', &
+       fill_missing=.FALSE.)
 
 end subroutine soil_diag_init
 
@@ -2875,6 +2881,7 @@ end subroutine soil_step_1
   if (id_mrsol > 0) call send_tile_data(id_mrsol, soil%wl+soil%ws, diag)
   if (id_mrso > 0)  call send_tile_data(id_mrso,  sum(soil%wl+soil%ws), diag)
   if (id_mrsos > 0) call send_tile_data(id_mrsos, sum((soil%wl+soil%ws)*mrsos_weight), diag)
+  if (id_mrs1mLut > 0) call send_tile_data(id_mrs1mLut, sum((soil%wl+soil%ws)*mrs1m_weight), diag)
   if (id_mrfso > 0) call send_tile_data(id_mrfso, sum(soil%ws), diag)
   if (id_mrlso > 0) call send_tile_data(id_mrlso, sum(soil%wl), diag)
   call send_tile_data(id_mrros, lrunf_ie+lrunf_sn, diag)
