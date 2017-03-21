@@ -90,9 +90,9 @@ namelist/land_debug_nml/ watch_point, &
    temp_lo, temp_hi, &
    print_hex_debug, label_len, trim_labels
 
-logical :: do_check_conservation = .FALSE.
-real    :: water_cons_tol  = 1e-11 ! tolerance of water conservation checks
-real    :: carbon_cons_tol = 1e-13 ! tolerance of carbon conservation checks
+logical, protected :: do_check_conservation = .FALSE.
+real, protected    :: water_cons_tol  = 1e-11 ! tolerance of water conservation checks
+real, protected    :: carbon_cons_tol = 1e-13 ! tolerance of carbon conservation checks
 namelist/land_conservation_nml/ do_check_conservation, water_cons_tol, carbon_cons_tol
 
 contains

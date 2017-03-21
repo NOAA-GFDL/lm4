@@ -161,7 +161,7 @@ integer :: &
 integer, parameter :: lu2lumip(N_LU_TYPES) = [LUMIP_PST, LUMIP_CRP, LUMIP_PSL, LUMIP_PSL, LUMIP_URB] 
 
 ! ---- namelist variables ---------------------------------------------------
-logical, public :: do_landuse_change = .FALSE. ! if true, then the landuse changes with time
+logical, protected, public :: do_landuse_change = .FALSE. ! if true, then the landuse changes with time
 character(len=1024) :: input_file  = '' ! input data set of transition dates
 character(len=1024) :: state_file  = '' ! input data set of LU states (for initial transition only)
 character(len=1024) :: static_file = '' ! static data file, for input land fraction

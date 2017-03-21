@@ -16,10 +16,7 @@ implicit none
 private
 
 ! ==== public interfaces =====================================================
-public :: UPTAKE_LINEAR, UPTAKE_DARCY2D, UPTAKE_DARCY2D_LIN
-
 public :: uptake_init
-
 public :: darcy2d_uptake, darcy2d_uptake_solver
 ! =====end of public interfaces ==============================================
 
@@ -29,7 +26,7 @@ character(len=*), parameter :: module_name = 'uptake_mod'
 #include "../shared/version_variable.inc"
 
 ! values for internal soil uptake option selector
-integer, parameter ::   &
+integer, parameter, public ::   &
      UPTAKE_LINEAR         = 1, &
      UPTAKE_DARCY2D        = 2, &
      UPTAKE_DARCY2D_LIN    = 3
@@ -262,7 +259,7 @@ subroutine darcy2d_uptake_nonlin ( soil, psi_x0, VRL, K_r, r_r, uptake_oneway, &
      if (VRL(l) > 0) then
         R     = 1.0/sqrt(PI*VRL(l)) ! characteristic half-distance between roots, m
      else
-        R     = 1.0 ! the value doesn't matter since uptake is 0 anyway
+        R     = 1.0 ! the value does not matter since uptake is 0 anyway
      endif
 
      if ( soil%ws(l) > 0 ) &
@@ -562,7 +559,7 @@ subroutine darcy2d_uptake_lin ( soil, psi_x0, VRL, K_r, r_r,uptake_oneway, &
      if (VRL(k)>0) then
         R     = 1.0/sqrt(PI*VRL(k)) ! characteristic half-distance between roots, m
      else
-        R     = 1.0 ! the value doesn't matter since uptake is 0 anyway (no roots)
+        R     = 1.0 ! the value does not matter since uptake is 0 anyway (no roots)
      endif
      if ( soil%ws(k) > 0 ) &
           cycle ! skip layers with ice

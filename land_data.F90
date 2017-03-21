@@ -145,7 +145,8 @@ type :: land_state_type
 end type land_state_type
 
 ! ---- public module variables -----------------------------------------------
-type(land_state_type), save :: lnd
+type(land_state_type), save :: lnd ! It is not protected because lnd%time is updated
+! in other module
 
 ! ---- private module variables ----------------------------------------------
 logical :: module_is_initialized = .FALSE.

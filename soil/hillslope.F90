@@ -76,12 +76,12 @@ integer, parameter :: max_vc = 30 ! Max num_vertclusters that can be input from 
 ! ==== module variables ======================================================
 
 !---- namelist ---------------------------------------------------------------
-logical, public     :: do_hillslope_model                  ! Activates model
+logical, protected, public :: do_hillslope_model = .false. ! Activates model
 logical             :: fixed_num_vertclusters    = .true.  ! False ==> adaptive hillslope "grid"
                                                            ! Hardwired for now
-integer, public     :: num_vertclusters          = 5       ! Number of vertical clusters (initial, if
+integer, protected, public :: num_vertclusters   = 5       ! Number of vertical clusters (initial, if
                                                            ! fixed_num_vertclusters == .false.)
-integer, public     :: max_num_topo_hlsps        = 3       ! Global maximum # allowed actively modeled
+integer, protected, public :: max_num_topo_hlsps = 3       ! Global maximum # allowed actively modeled
                                                            ! hillslopes in each gridcell.
 logical             :: hillslope_horz_subdiv     = .true.  ! Allow tiles in the same hillslope position
                                                            ! to be subdivided for landuse change, etc.
@@ -92,17 +92,17 @@ logical             :: hillslope_topo_subdiv     = .false. ! Allow multiple inst
 logical             :: soil_types_by_hlsp        = .false. ! Assign soil types to each hillslope
                                                            ! based on hillslope input datafile.
 ! ZMS Could add option to have equal area rather than equal length tiles.
-real, public        :: strm_depth_penetration    = 1.5     ! (m) depth to which streams communicate
+real, protected, public :: strm_depth_penetration = 1.5    ! (m) depth to which streams communicate
                                                            ! with lowland tiles
-logical, public     :: use_hlsp_aspect_in_gwflow = .false. ! True ==> head gradients effectively
+logical, protected, public :: use_hlsp_aspect_in_gwflow = .false. ! True ==> head gradients effectively
                        ! reduced by sin(hillslope angle).
-logical, public     :: use_geohydrodata          = .true.  ! True ==> input some gridcell-level data
+logical, protected, public :: use_geohydrodata   = .true.  ! True ==> input some gridcell-level data
                        ! from the "geohydrology.nc" dataset to initialize hillslope soil properties,
                        ! and keep some of the diagnostic hydrology calculations based on the gridcell
                        ! values.
-!real, public        :: pond                      = 0.      ! [mm] water / ice allowed to pool on
+!real, protected, public   :: pond               = 0.      ! [mm] water / ice allowed to pool on
 !                       ! surface before run-off
-logical, public     :: stiff_do_explicit         = .false.  ! update water profile explicitly
+logical, protected, public :: stiff_do_explicit = .false.  ! update water profile explicitly
                        ! due to inter-tile flows in case becomes stiff during timestep.
                        ! Hard-wired for now.
 logical             :: diagnostics_by_cluster    = .false.  ! True ==> create diagnostics for
@@ -112,18 +112,18 @@ logical             :: init_wt_strmelev      = .true.    ! initialize water tabl
 logical             :: equal_length_tiles    = .true.    ! .false. ==> tile lengths input from namelist
 real, dimension(max_vc) :: dl = 0.0  ! [-] vector of length fractions input from namelist for tile horizontal grid
                                ! Ordered from stream-most tile to hilltop.
-logical, public     :: dammed_strm_bc = .false.  ! True ==> Hydraulic head increases with stream
+logical, protected, public :: dammed_strm_bc = .false.  ! True ==> Hydraulic head increases with stream
                        !depth, limiting outflow with large strm_depth_penetration
-logical, public     :: simple_inundation = .false. ! True ==> simple inundation scheme based on
+logical, protected, public :: simple_inundation = .false. ! True ==> simple inundation scheme based on
                        ! microtopography
-logical, public     :: exp_inundation = .false. ! Use inun_frac based on exp{-zwt_b/microtopo} even
+logical, protected, public :: exp_inundation = .false. ! Use inun_frac based on exp{-zwt_b/microtopo} even
                                                 ! if .not. simple_inundation
-real, public        :: surf_flow_velocity = 1.  ! [m/s] Assumed nominal surface runoff velocity at a slope
+real, protected, public    :: surf_flow_velocity = 1.  ! [m/s] Assumed nominal surface runoff velocity at a slope
                     ! (tangent) of 1. (for simple_inundation)
-logical, public     :: limit_intertile_flow = .false. ! True ==> Limit explicit inter-tile flows
+logical, protected, public :: limit_intertile_flow = .false. ! True ==> Limit explicit inter-tile flows
                        ! to improve numerical stability
-real, public        :: flow_ratio_limit = 1.    ! max delta psi to length ratio allowed, if limit_intertile_flow
-logical, public     :: tiled_DOC_flux = .false. ! True ==> Calculate DOC fluxes for soil carbon model
+real, protected, public    :: flow_ratio_limit = 1.    ! max delta psi to length ratio allowed, if limit_intertile_flow
+logical, protected, public :: tiled_DOC_flux = .false. ! True ==> Calculate DOC fluxes for soil carbon model
 
 character(len=256)  :: hillslope_surfdata = 'INPUT/hillslope.nc'
 character(len=24)   :: hlsp_interpmethod = 'nearest'
@@ -141,11 +141,10 @@ namelist /hlsp_nml/ num_vertclusters, max_num_topo_hlsps, hillslope_horz_subdiv,
 !---- end of namelist --------------------------------------------------------
 
 logical             :: module_is_initialized = .false.
-!logical, public     :: hillslope_compatible_with_landuse = .false.
 character(len=24)   :: hlsp_surf_dimname = 'nhlsps'
 
 ! ---- diagnostic field IDs
-integer, public :: &!id_soil_e_depth,
+integer, protected, public :: &!id_soil_e_depth,
                     id_microtopo, id_tile_hlsp_length, id_tile_hlsp_slope, &
                     id_tile_hlsp_elev, id_tile_hlsp_hpos, id_tile_hlsp_width, & !id_transm_bedrock, &
                     id_hidx_j, id_hidx_k
