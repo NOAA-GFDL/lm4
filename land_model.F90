@@ -49,7 +49,7 @@ use lake_mod, only : lake_init_predefined
 use soil_mod, only : soil_init_predefined
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, &
      snow_get_depth_area, snow_step_1, snow_step_2, &
-     save_snow_restart, sweep_tiny_snow, snow_sfc_water 
+     save_snow_restart, sweep_tiny_snow, snow_sfc_water
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, vegn_get_cover, &
      vegn_radiation, vegn_properties, vegn_step_1, vegn_step_2, vegn_step_3, &
      update_vegn_slow, save_vegn_restart
@@ -829,7 +829,7 @@ subroutine land_cover_cold_start_predefined(lnd)
 
   ! Open access to model input database
   call open_database_predefined_tiles(h5id)
-  
+
   do l = lnd%ls, lnd%le
     if(.not.land_mask(l)) cycle ! skip ocean points
     call set_current_point(l,1)
@@ -1019,7 +1019,7 @@ subroutine land_cover_warm_start_new (restart)
   do it = 1,ntiles
      k = restart%tidx(it)
      if (k<0) cycle ! skip negative indices
-     g = modulo(k,npts)+1 
+     g = modulo(k,npts)+1
      if (g<lnd%gs.or.g>lnd%ge) cycle ! skip points outside of domain
      l = lnd%l_index(g)
      ! the size of the tile set at the point (i,j) must be equal to k
@@ -1138,7 +1138,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   ! variables for data override
   real, allocatable :: phot_co2_data(:)    ! buffer for data
   logical           :: phot_co2_overridden ! flag indicating successful override
-  
+
 
   ! start clocks
   call mpp_clock_begin(landClock)
@@ -1466,7 +1466,7 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
      ! - end of conservation check, part 1
   endif
 
-  ! if requested (in snow_nml), sweep tiny snow before calling step_1 subroutines to 
+  ! if requested (in snow_nml), sweep tiny snow before calling step_1 subroutines to
   ! avoid numerical issues.
   call sweep_tiny_snow(tile%snow, lswept, fswept, hlswept, hfswept)
 
@@ -1577,7 +1577,7 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
   DHgDTc   = -rho*cp_air*con_g_h
 
   if (associated(tile%lake).and.lake_rh_feedback == LAKE_RH_BETA) then
-     ! adjust the conductance so that the water vapor flux to the atmopshere is 
+     ! adjust the conductance so that the water vapor flux to the atmopshere is
      ! E = beta*rho*CD*|v|*(qsat - qatm), with beta=grnd_rh
      grnd_rh  = min(grnd_rh, 1-1.0e-6) ! to protect from infinite conductance
      con_g_v  = grnd_rh/(1-grnd_rh)*DEaDqc/rho
@@ -1928,7 +1928,7 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
        snow_hlrunf, snow_hfrunf, snow_Tbot, snow_Cbot, snow_C, snow_avrg_T )
        snow_lrunf  = snow_lrunf  + lswept/delta_time
        snow_frunf  = snow_frunf  + fswept/delta_time
-       snow_hlrunf = snow_hlrunf + hlswept/delta_time 
+       snow_hlrunf = snow_hlrunf + hlswept/delta_time
        snow_hfrunf = snow_hfrunf + hfswept/delta_time
   if(is_watch_point()) then
      write(*,*) 'subs_M_imp', subs_M_imp
@@ -2999,6 +2999,25 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   integer :: i
   character(32) :: name       ! tracer name
 
+ !Register the unstructured axis for the unstructured domain.
+  call mpp_get_UG_compute_domain(domain, size=ug_dim_size)
+  if (.not. allocated(ug_dim_data)) then
+      allocate(ug_dim_data(ug_dim_size))
+  endif
+  call mpp_get_UG_domain_grid_index(domain, ug_dim_data)
+  !--- grid_index needs to be starting from 0.
+  ug_dim_data = ug_dim_data - 1
+  id_ug = diag_axis_init("grid_index",  &
+                         real(ug_dim_data), &
+                         "none", &
+                         "U", &
+                         long_name="grid indices", &
+                         set_name="land", &
+                         DomainU=domain, aux="geolon_t geolat_t")
+  if (allocated(ug_dim_data)) then
+      deallocate(ug_dim_data)
+  endif
+
  !Register a "grid_xt" and "grid_yt" axis, which are required to
  !by the post-processing so that the output files may be
  !"decompressed" (converted from unstructured back to lon-lat).
@@ -3009,50 +3028,20 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   nlat = size(clat)
   if(mpp_get_UG_domain_ntiles(lnd%domain)==1) then
      ! grid has just one tile, so we assume that the grid is regular lat-lon
-     ! define longitude axes and its edges
-     id_lonb = diag_axis_init ( &
-          'lonb', clonb, 'degrees_E', 'X', 'longitude edges', &
-          set_name='land')
-     id_lon  = diag_axis_init (                                                &
-          'lon',  clon, 'degrees_E', 'X',  &
-          'longitude', set_name='land',  edges=id_lonb)
-
-     ! define latitude axes and its edges
-     id_latb = diag_axis_init ( &
-          'latb', clatb, 'degrees_N', 'Y', 'latitude edges',  &
-          set_name='land')
-     id_lat = diag_axis_init (                                                &
-          'lat',  clat, 'degrees_N', 'Y', &
-          'latitude', set_name='land', edges=id_latb)
+     ! define geographic axes and its edges
+     id_lonb = diag_axis_init ('lonb', clonb, 'degrees_E', 'X', 'longitude edges', set_name='land')
+     id_lon  = diag_axis_init ('lon',  clon,  'degrees_E', 'X', 'longitude', set_name='land',  edges=id_lonb)
+     id_latb = diag_axis_init ('latb', clatb, 'degrees_N', 'Y', 'latitude edges', set_name='land')
+     id_lat  = diag_axis_init ('lat',  clat,  'degrees_N', 'Y', 'latitude', set_name='land', edges=id_latb)
+     ! add "compress" attribute to the unstructured grid axis
+     call diag_axis_add_attribute(id_ug, "compress", "lat lon")
   else
      id_lon = diag_axis_init ( 'grid_xt', (/(real(i),i=1,nlon)/), 'degrees_E', 'X', &
           'T-cell longitude', set_name='land' )
      id_lat = diag_axis_init ( 'grid_yt', (/(real(i),i=1,nlat)/), 'degrees_N', 'Y', &
           'T-cell latitude', set_name='land' )
-  endif
-
- !Register the unstructured axis for the unstructured domain.
-  call mpp_get_UG_compute_domain(domain, &
-                                 size=ug_dim_size)
-  if (.not. allocated(ug_dim_data)) then
-      allocate(ug_dim_data(ug_dim_size))
-  endif
-  call mpp_get_UG_domain_grid_index(domain, &
-                                    ug_dim_data)   
-  !--- grid_index needs to be starting from 0.
-  ug_dim_data = ug_dim_data - 1
-  id_ug = diag_axis_init("grid_index",  &
-                         real(ug_dim_data), &
-                         "none", &
-                         "U", &
-                         long_name="grid indices", &
-                         set_name="land", &
-                         DomainU=domain, aux="geolon_t geolat_t")
-  call diag_axis_add_attribute(id_ug, &
-                               "compress", &
-                               "grid_yt grid_xt")
-  if (allocated(ug_dim_data)) then
-      deallocate(ug_dim_data)
+     ! add "compress" attribute to the unstructured grid axis
+     call diag_axis_add_attribute(id_ug, "compress", "grid_yt grid_xt")
   endif
 
   id_fld_lon = register_static_field(module_name, 'dummy_lon', (/id_lon/), 'T-cell longitude', &
@@ -3060,11 +3049,9 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   id_fld_lat = register_static_field(module_name, 'dummy_lat', (/id_lat/), 'T-cell latitude', &
                'degrees_N')
 
-  id_band = diag_axis_init (                                                &
-       'band',  (/1.0,2.0/), 'unitless', 'Z', &
-       'spectral band', set_name='land' )
+  id_band = diag_axis_init ('band',  (/1.0,2.0/), 'unitless', 'Z', 'spectral band', set_name='land' )
 
- !Set up an array of axes ids, for convenience.
+  ! Set up an array of axes ids, for convenience.
   axes(1) = id_ug
 
   ! register auxiliary coordinate variables
@@ -3505,7 +3492,7 @@ end subroutine land_diag_init
 subroutine send_cellfrac_data(id, f, scale)
   integer, intent(in) :: id ! id of the diagnostic field
   procedure(tile_exists_func) :: f ! existence detector function
-  real, intent(in), optional  :: scale ! scaling factor, for unit conversions 
+  real, intent(in), optional  :: scale ! scaling factor, for unit conversions
 
   ! ---- local vars
   integer :: l,k
