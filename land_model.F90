@@ -436,10 +436,10 @@ subroutine land_model_init &
      call error_mesg('land_model_init',&
           'cold-starting land cover map',&
           NOTE)
-     if (predefined_tiles .eq. .False.) then
-      call land_cover_cold_start(lnd_sg)
-     else if (predefined_tiles .eq. .True.) then
-      call land_cover_cold_start_predefined(lnd)
+     if (predefined_tiles) then
+        call land_cover_cold_start_predefined(lnd)
+     else
+        call land_cover_cold_start(lnd_sg)
      endif
   endif
   call free_land_restart(restart)
@@ -462,19 +462,19 @@ subroutine land_model_init &
   if ( id_sftlf > 0 )  used = send_data(id_sftlf,lnd%landfrac*100, lnd%time)
 
   ! [7] initialize individual sub-models
-  if (predefined_tiles .eq. .False.)then
-   call hlsp_init(id_ug) ! Must be called before soil_init
-   call soil_init(id_ug,id_band,id_zfull)
-  else if (predefined_tiles .eq. .True.)then
-   call hlsp_init_predefined(id_ug) ! Must be called before soil_init
-   call soil_init_predefined(id_ug,id_band,id_zfull)
+  if (predefined_tiles) then
+     call hlsp_init_predefined(id_ug) ! Must be called before soil_init
+     call soil_init_predefined(id_ug,id_band,id_zfull)
+  else
+     call hlsp_init(id_ug) ! Must be called before soil_init
+     call soil_init(id_ug,id_band,id_zfull)
   endif
   call hlsp_hydro_init(id_ug,id_zfull) ! Must be called after soil_init
   call vegn_init(id_ug,id_band)
-  if (predefined_tiles .eq. .False.)then
-   call lake_init(id_ug)
-  else if (predefined_tiles .eq. .True.)then
-   call lake_init_predefined(id_ug)
+  if (predefined_tiles) then
+     call lake_init_predefined(id_ug)
+  else
+     call lake_init(id_ug)
   endif
   call glac_init(id_ug)
   call snow_init()
