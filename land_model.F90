@@ -2994,8 +2994,8 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   integer,dimension(1)             :: axes        !Array of axes for 1-D unstructured fields.
   integer                          :: ug_dim_size !Size of the unstructured axis
   integer,dimension(:),allocatable :: ug_dim_data !Unstructured axis data.
-  integer                          :: id_lon, id_lonb, id_fld_lon
-  integer                          :: id_lat, id_latb, id_fld_lat
+  integer                          :: id_lon, id_lonb
+  integer                          :: id_lat, id_latb
   integer :: i
   character(32) :: name       ! tracer name
 
@@ -3043,11 +3043,6 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
      ! add "compress" attribute to the unstructured grid axis
      call diag_axis_add_attribute(id_ug, "compress", "grid_yt grid_xt")
   endif
-
-  id_fld_lon = register_static_field(module_name, 'dummy_lon', (/id_lon/), 'T-cell longitude', &
-               'degrees_E')
-  id_fld_lat = register_static_field(module_name, 'dummy_lat', (/id_lat/), 'T-cell latitude', &
-               'degrees_N')
 
   id_band = diag_axis_init ('band',  (/1.0,2.0/), 'unitless', 'Z', 'spectral band', set_name='land' )
 

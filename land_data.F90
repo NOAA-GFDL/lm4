@@ -388,19 +388,19 @@ subroutine set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
   ! On root pe reading the land_area to decide number of land points.
   allocate(num_lnd(ntiles))
 
-  if(file_exist("INPUT/land_domain.nc", no_domain=.true.)) then
-     write(stdout(),*)"set_land_state_ug: read land information from INPUT/land_domain.nc "// &
-                      "and consider number tiles when doing domain decomposition"
-     call read_data("INPUT/land_domain.nc", "nland_face", num_lnd, no_domain=.true.)
+  if(file_exist('INPUT/land_domain.nc', no_domain=.true.)) then
+     write(stdout(),*)'set_land_state_ug: reading land information from "INPUT/land_domain.nc" '// &
+                      'to use number of land tiles per grid cell for efficient domain decomposition.'
+     call read_data('INPUT/land_domain.nc', 'nland_face', num_lnd, no_domain=.true.)
      nland = sum(num_lnd)
      allocate(grid_index(nland))
      allocate(ntiles_grid(nland))
-     call read_data("INPUT/land_domain.nc", "grid_index", grid_index, no_domain=.true.)
-     call read_data("INPUT/land_domain.nc", "grid_ntile", ntiles_grid, no_domain=.true.)
+     call read_data('INPUT/land_domain.nc', 'grid_index', grid_index, no_domain=.true.)
+     call read_data('INPUT/land_domain.nc', 'grid_ntile', ntiles_grid, no_domain=.true.)
      grid_index = grid_index + 1
   else
-     write(stdout(),*)"set_land_state_ug: read land/sea mask from grid file and "// &
-                      "not sonsider number tiles when doing domain decomposition"
+     write(stdout(),*)'set_land_state_ug: read land/sea mask from grid file: '// &
+                      'number of land tiles per grid cell is not used for domain decomposition'
      if(mpp_pe() == mpp_root_pe()) then
         allocate(lnd_area(nlon,nlat,ntiles))
         do n = 1, ntiles
