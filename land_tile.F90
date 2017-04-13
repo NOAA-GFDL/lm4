@@ -971,15 +971,14 @@ function loop_over_tiles(ce, tile, l, k) result(R); logical R
   type(land_tile_type)     , pointer, optional :: tile
   integer, intent(out), optional :: l,k ! indices of the tile
 
-  if (present(tile)) tile=>current_tile(ce)
+  type(land_tile_type), pointer :: tile_
+
+  tile_=>current_tile(ce)
+  if (present(tile)) tile=>tile_
   call get_elmt_indices(ce,l=l,k=k)
   ! advance enumerator to the next element
   ce = next_elmt(ce)
-  if(present(tile)) then
-    R  = associated(tile)
-  else
-    R = .false.
-  endif
+  R  = associated(tile_)
 end function loop_over_tiles
 
 ! ============================================================================

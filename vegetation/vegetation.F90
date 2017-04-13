@@ -179,7 +179,7 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
    id_lambda, id_afire, id_atfall, id_closs, id_cgain, id_wdgain, id_leaf_age, &
    id_phot_co2, id_theph, id_psiph, id_evap_demand
 ! CMOR variables
-integer :: id_cproduct, &
+integer :: id_cProduct, id_cAnt, &
    id_fFire, id_fGrazing, id_fHarvest, id_fLuc, &
    id_cLeaf, id_cWood, id_cRoot, id_cMisc
 ! ==== end of module variables ===============================================
@@ -688,9 +688,15 @@ subroutine vegn_diag_init(id_ug,id_band,time)
   call add_tiled_diag_field_alias (id_btot, cmor_name, 'cVegLut', (/id_ug/), &
        time, 'Carbon Mass in Vegetation', 'kg C m-2', missing_value=-1.0, &
        standard_name='vegetation_carbon_content', fill_missing=.FALSE.)
-  id_cproduct = register_tiled_diag_field( cmor_name, 'cProduct', (/id_ug/), &
+  id_cProduct = register_tiled_diag_field( cmor_name, 'cProduct', (/id_ug/), &
        time, 'Carbon in Products of Land Use Change', 'kg C m-2', missing_value=-999.0, &
        standard_name='carbon_in_producs_of_luc', fill_missing=.TRUE.)
+  id_cAnt = register_tiled_diag_field( cmor_name, 'cAnt', (/id_ug/), &
+       time, 'Carbon in Anthropogenic Pool', 'kg C m-2', missing_value=-999.0, &
+       fill_missing=.TRUE.) ! standard_name not known at this time
+  call add_tiled_diag_field_alias(id_cAnt, cmor_name, 'cAntLut', (/id_ug/), &
+       time, 'Carbon in Anthropogenic Pools Associated with Land Use Tiles', 'kg C m-2', &
+       missing_value=-999.0, fill_missing = .TRUE.) ! standard_name not known at this time
   id_fFire = register_tiled_diag_field ( cmor_name, 'fFire', (/id_ug/), &
        time, 'CO2 Emission from Fire', 'kg C m-2 s-1', missing_value=-1.0, &
        standard_name='co2_emission_from_fire', fill_missing=.TRUE.)
@@ -1557,12 +1563,15 @@ subroutine update_vegn_slow( )
      call send_tile_data(id_veg_out, tile%vegn%veg_out, tile%diag)
 
      ! CMOR variables
-     if (id_cproduct>0) then
+     if (id_cProduct>0) then
         cmass1 = 0.0
         do i = 1, N_HARV_POOLS
            if (i/=HARV_POOL_CLEARED) cmass1 = cmass1 + tile%vegn%harv_pool(i)
         enddo
-        call send_tile_data(id_cproduct, cmass1, tile%diag)
+        call send_tile_data(id_cProduct, cmass1, tile%diag)
+     endif
+     if (id_cAnt>0) then
+        call send_tile_data(id_cAnt, sum(tile%vegn%harv_pool(:)), tile%diag)
      endif
      call send_tile_data(id_fFire, tile%vegn%csmoke_rate/seconds_per_year, tile%diag)
      call send_tile_data(id_fGrazing, tile%vegn%harv_rate(HARV_POOL_PAST)/seconds_per_year, tile%diag)

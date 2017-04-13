@@ -11,8 +11,8 @@ private
 ! ==== public interfaces =====================================================
 public :: land_tracers_init, land_tracers_end
 
-integer, public :: ntcana ! number of prognostic land tracers in canopy air
-integer, public :: isphum, ico2 ! indices of specific humidity and CO2
+integer, protected, public :: ntcana ! number of prognostic land tracers in canopy air
+integer, protected, public :: isphum, ico2 ! indices of specific humidity and CO2
 ! ==== end of public interfaces ==============================================
 
 ! ---- module constants ------------------------------------------------------

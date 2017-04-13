@@ -169,7 +169,7 @@ character(len=*), parameter :: module_name = 'river_mod'
 
 !--- tracer-related constants, types, and data
 character(*), parameter :: trtable='/land_mod/river_tracer' ! name of the field manager tracer table
-integer, public    :: num_species  ! number of river tracers, public for test_river_solo
+integer, protected, public :: num_species  ! number of river tracers, public for test_river_solo
 integer, parameter :: num_phys = 2 ! number of "physical" tracres: currently they are ice and heat content
 
 type tracer_data_type

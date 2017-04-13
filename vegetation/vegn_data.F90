@@ -19,10 +19,11 @@ implicit none
 private
 
 ! ==== public interfaces =====================================================
-! ---- public constants
-integer, public, parameter :: LU_SEL_TAG = 1 ! tag for the land use selectors
-integer, public, parameter :: SP_SEL_TAG = 2 ! tag for the species selectors
-integer, public, parameter :: NG_SEL_TAG = 3 ! tag for natural grass selector
+! ---- constants
+integer, public, parameter :: &
+ LU_SEL_TAG = 1, & ! tag for the land use selectors
+ SP_SEL_TAG = 2, & ! tag for the species selectors
+ NG_SEL_TAG = 3    ! tag for natural grass selector
   ! by "natural" it means non-human-maintained, so secondary vegetation
   ! grassland will be included.
 
@@ -83,13 +84,14 @@ integer, public, parameter :: & ! harvesing pools paraneters
  HARV_POOL_WOOD_FAST = 4, &
  HARV_POOL_WOOD_MED  = 5, &
  HARV_POOL_WOOD_SLOW = 6
-character(len=9), public :: HARV_POOL_NAMES(N_HARV_POOLS)
+character(len=9), public, protected :: HARV_POOL_NAMES(N_HARV_POOLS)
 data HARV_POOL_NAMES &
  / 'past', 'crop', 'cleared', 'wood_fast', 'wood_med', 'wood_slow' /
 
 real, public, parameter :: C2B = 2.0  ! carbon to biomass conversion factor
 
 real, public, parameter :: BSEED = 5e-5 ! seed density for supply/demand calculations, kg C/m2
+
 ! ---- public types
 public :: spec_data_type
 
@@ -204,24 +206,24 @@ end type
 integer :: idata,jdata ! iterators used in data initialization statements
 
 ! ---- namelist --------------------------------------------------------------
-type(spec_data_type), save :: spdata(0:MSPECIES)
+type(spec_data_type), protected, save :: spdata(0:MSPECIES)
 
-logical :: use_bucket = .false.
-logical :: use_mcm_masking = .false.
-real    :: mcv_min = 5.   * 4218.
-real    :: mcv_lai = 0.15 * 4218.
+logical, protected :: use_bucket = .false.
+logical, protected :: use_mcm_masking = .false.
+real, protected :: mcv_min = 5.   * 4218.
+real, protected :: mcv_lai = 0.15 * 4218.
 
 ! ---- remainder are used only for cold start
-character(len=16):: vegn_to_use     = 'single-tile'
+character(len=16), protected :: vegn_to_use = 'single-tile'
        ! 'multi-tile' for tiled vegetation
        ! 'single-tile' for geographically varying vegetation with single type per
        !     model grid cell
        ! 'uniform' for global constant vegetation, e.g., to reproduce MCM
-integer :: vegn_index_constant   = 1         ! index of global constant vegn,
-                                             ! used when vegn_to_use is 'uniform'
-real    :: critical_root_density = 0.125
+integer, protected :: vegn_index_constant   = 1 ! index of global constant vegetetion,
+       ! used when vegn_to_use is set to 'uniform'
+real, protected    :: critical_root_density = 0.125
 
-integer, dimension(1:MSPECIES) :: &
+integer, protected, dimension(1:MSPECIES) :: &
  input_cover_types=(/          -1,   -1,   -1,   -1, &
                           1,    2,    3,    4,    5,    6,    7,    8,    9/)
 !character(len=4), dimension(n_dim_vegn_types) :: &
@@ -321,7 +323,7 @@ real :: leaf_emis(0:MSPECIES)= & ! leaf emissivity
        (/   1.00,        1.00,         1.00,         1.00,         1.00,   0.98,   0.96,  0.97,  0.98,  0.96, 0.96,   1.0,  0.96,  0.96  /)
 real :: ksi(0:MSPECIES)= & ! leaf inclination index
        (/      0.,          0.,           0.,           0.,          0.,     0.,     0.,    0.,    0.,    0.,    0.,    0.,    0.,   0.  /)
-real :: min_cosz = 0.01 ! minimum allowed value of cosz for vegetation radiation
+real, protected :: min_cosz = 0.01 ! minimum allowed value of cosz for vegetation radiation
    ! properties calculations.
    ! It probably doesn't make sense to set it any less than the default value, because the angular
    ! diameter of the sun is about 0.01 radian (0.5 degree), so the spread of the direct radiation
@@ -337,7 +339,7 @@ real :: csc_lai(0:MSPECIES)= & ! maximum canopy snow conntent per unit LAI
        (/    0.1,         0.1,          0.1,          0.1,          0.1,    0.1,    0.1,   0.1,   0.1,   0.1,   0.1,   0.1,   0.1,  0.1  /)
 real :: csc_pow(0:MSPECIES)= & ! power of the snow-covered fraction relation
   (/   TWOTHIRDS,   TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,    TWOTHIRDS,     1.,     1.,    1.,    1.,    1.,    1.,    1.,    1.,   1.  /)
-real :: cmc_eps = 0.01 ! value of w/w_max for transition to linear function;
+real, protected :: cmc_eps = 0.01 ! value of w/w_max for transition to linear function;
                        ! the same value is used for liquid and snow
 
 real :: fuel_intensity(0:MSPECIES) ; data fuel_intensity(0:NSPECIES-1) &
@@ -378,41 +380,41 @@ real :: leaf_age_tau(0:MSPECIES) = &  ! e-folding time of Vmax decrease due to l
 real :: root_exudate_frac(0:MSPECIES) = & ! Fraction of NPP that goes into root exudates
         (/   0.0,         0.0,          0.0,           0.0,         0.0,    0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0,   0.0  /)
 
-real :: soil_carbon_depth_scale = 0.2   ! depth of active soil for carbon decomposition
-real :: cold_month_threshold    = 283.0 ! monthly temperature threshold for calculations of number of cold months
+real, protected :: soil_carbon_depth_scale = 0.2   ! depth of active soil for carbon decomposition
+real, protected :: cold_month_threshold    = 283.0 ! monthly temperature threshold for calculations of number of cold months
 real :: smoke_fraction(0:MSPECIES) = & ! fration of carbon lost as smoke
        (/    0.9,         0.9,          0.9,           0.9,         0.9,    0.9,   0.9,   0.9,   0.9,   0.9,   0.9,   0.9,   0.9,   0.9  /)
 real :: tracer_cuticular_cond(0:MSPECIES)= & ! cuticular conductance for tracer dry deposition, m/s
        (/   5e-4,        5e-4,         5e-4,          5e-4,        5e-4,   5e-4,  5e-4,  5e-4,  5e-4,  5e-4,  5e-4,  5e-4,  5e-4,  5e-4  /)
-real :: agf_bs         = 0.8 ! ratio of above ground stem to total stem
-real :: K1 = 10.0, K2 = 0.05 ! soil decomposition parameters
-real :: fsc_liv        = 0.8
-real :: fsc_wood       = 0.2
-real :: fsc_froot      = 0.3
-real :: tau_drip_l     = 21600.0 ! canopy water residence time, for drip calculations
-real :: tau_drip_s     = 86400.0 ! canopy snow residence time, for drip calculations
-real :: GR_factor = 0.33 ! growth respiration factor
+real, protected :: agf_bs         = 0.8 ! ratio of above ground stem to total stem
+real, protected :: K1 = 10.0, K2 = 0.05 ! soil decomposition parameters
+real, protected :: fsc_liv        = 0.8
+real, protected :: fsc_wood       = 0.2
+real, protected :: fsc_froot      = 0.3
+real, protected :: tau_drip_l     = 21600.0 ! canopy water residence time, for drip calculations
+real, protected :: tau_drip_s     = 86400.0 ! canopy snow residence time, for drip calculations
+real, protected :: GR_factor = 0.33 ! growth respiration factor
 
-real :: tg_c3_thresh = 1.5 ! threshold biomass between tree and grass for C3 plants
-real :: tg_c4_thresh = 2.0 ! threshold biomass between tree and grass for C4 plants
-real :: fsc_pool_spending_time = 1.0 ! time (yrs) during which intermediate pool of
+real, protected :: tg_c3_thresh = 1.5 ! threshold biomass between tree and grass for C3 plants
+real, protected :: tg_c4_thresh = 2.0 ! threshold biomass between tree and grass for C4 plants
+real, protected :: fsc_pool_spending_time = 1.0 ! time (yrs) during which intermediate pool of
                   ! fast soil carbon is entirely converted to the fast soil carbon
-real :: ssc_pool_spending_time = 1.0 ! time (yrs) during which intermediate pool of
+real, protected :: ssc_pool_spending_time = 1.0 ! time (yrs) during which intermediate pool of
                   ! slow soil carbon is entirely converted to the slow soil carbon
-real :: harvest_spending_time(N_HARV_POOLS) = &
+real, protected :: harvest_spending_time(N_HARV_POOLS) = &
      (/1.0, 1.0, 1.0, 1.0, 10.0, 100.0/)
      ! time (yrs) during which intermediate pool of harvested carbon is completely
      ! released to the atmosphere.
      ! NOTE: a year in the above *_spending_time definitions is exactly 365*86400 seconds
-real :: l_fract      = 0.5 ! fraction of the leaves retained after leaf drop
-real :: T_transp_min = 0.0 ! lowest temperature at which transporation is enabled
+real, protected :: l_fract      = 0.5 ! fraction of the leaves retained after leaf drop
+real, protected :: T_transp_min = 0.0 ! lowest temperature at which transporation is enabled
                            ! 0 means no limit, lm3v value is 268.0
 ! boundaries of wood biomass bins for secondary veg. (kg C/m2); used to decide
 ! whether secondary vegetation tiles can be merged or not. MUST BE IN ASCENDING
 ! ORDER.
-real  :: scnd_biomass_bins(10) &
+real, protected :: scnd_biomass_bins(10) &
      = (/ 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0, 1000.0 /)
-real :: phen_ev1 = 0.5, phen_ev2 = 0.9 ! thresholds for evergreen/decidious
+real, protected :: phen_ev1 = 0.5, phen_ev2 = 0.9 ! thresholds for evergreen/decidious
       ! differentiation (see phenology_type in cohort.F90)
 
 namelist /vegn_data_nml/ &

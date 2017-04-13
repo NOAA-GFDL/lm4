@@ -172,7 +172,8 @@ end type land_state_type
 
 ! ---- public module variables -----------------------------------------------
 type(land_state_type_sg), save :: lnd_sg
-type(land_state_type),    save :: lnd
+type(land_state_type),    save :: lnd ! It is not protected because lnd%time is updated
+                                      ! in other module
 
 ! ---- private module variables ----------------------------------------------
 logical :: module_is_initialized = .FALSE.
@@ -363,6 +364,7 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table,
 
   call set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
 
+  module_is_initialized = .TRUE.
 end subroutine land_data_init
 
 
@@ -502,8 +504,8 @@ subroutine set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
   allocate(lnd%pelist(0:mpp_npes()-1))
   call mpp_get_current_pelist(lnd%pelist)
 
-
 end subroutine set_land_state_ug
+
 
 ! ============================================================================
 subroutine land_data_end()
