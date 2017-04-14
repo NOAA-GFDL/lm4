@@ -1138,6 +1138,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   ! variables for data override
   real, allocatable :: phot_co2_data(:)    ! buffer for data
   logical           :: phot_co2_overridden ! flag indicating successful override
+  integer           :: iwatch,jwatch,kwatch,face
 
 
   ! start clocks
@@ -1157,8 +1158,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
        override=phot_co2_overridden)
 
   ! clear the runoff values, for accumulation over the tiles
-
   runoff = 0 ; runoff_c = 0
+
   ! Calculate groundwater and associated heat fluxes between tiles within each gridcell.
   call hlsp_hydrology_1(n_c_types)
 
@@ -1208,8 +1209,16 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   enddo
 
   !--- pass runoff from unstructured grid to structured grid.
-  call mpp_pass_UG_to_SG(lnd%domain, runoff, runoff_sg)
+  runoff_sg = 0 ; runoff_c_sg = 0
+  call mpp_pass_UG_to_SG(lnd%domain, runoff,   runoff_sg  )
   call mpp_pass_UG_to_SG(lnd%domain, runoff_c, runoff_c_sg)
+
+  call get_watch_point(iwatch,jwatch,kwatch,face)
+  if (face==lnd%face.and.(lnd_sg%is<=iwatch.and.iwatch<=lnd_sg%ie).and.&
+                         (lnd_sg%js<=jwatch.and.jwatch<=lnd_sg%je)) then
+     __DEBUG1__(runoff_sg(iwatch,jwatch))
+     __DEBUG1__(runoff_c_sg(iwatch,jwatch,:))
+  endif
 
 !=================================================================================
   ! update river state
