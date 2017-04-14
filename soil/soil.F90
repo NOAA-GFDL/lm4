@@ -13,8 +13,6 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only: error_mesg, file_exist, check_nml_error, &
      stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, WARNING, NOTE
-use fms_io_mod, only: restart_file_type, free_restart_type, &
-      set_domain, nullify_domain
 use time_manager_mod,   only: time_type, increment_time, time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o
@@ -51,7 +49,7 @@ use land_tile_diag_mod, only : diag_buff_type, &
      send_tile_data_i0d_fptr, &
      add_tiled_diag_field_alias, add_tiled_static_field_alias, &
      set_default_diag_filter, cmor_name, cmor_mrsos_depth
-use land_data_mod, only : lnd_sg, log_version, lnd
+use land_data_mod, only : lnd, lnd_sg, log_version
 use land_io_mod, only : read_field
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
@@ -359,9 +357,8 @@ end subroutine read_soil_namelist
 ! initialize soil model
 subroutine soil_init (id_ug,id_band,id_zfull)
   integer,intent(in)  :: id_ug    !<Unstructured axis id.
-  integer,intent(in)  :: id_band  ! ID of spectral band axis
-  integer,intent(out) :: id_zfull ! ID of vertical soil axis
-!----------
+  integer,intent(in)  :: id_band  !<ID of spectral band axis
+  integer,intent(out) :: id_zfull !<ID of vertical soil axis
 
   ! ---- local vars
   type(land_tile_enum_type)     :: ce, te   ! tile list enumerator
@@ -452,11 +449,8 @@ subroutine soil_init (id_ug,id_band,id_zfull)
                                             soil_k_sat_gw_ptr )
         endif
         deallocate(gw_param, gw_param2, gw_param3)
-        te = tail_elmt (land_tile_map)
         ce = first_elmt(land_tile_map)
-        do while(ce /= te)
-            tile=>current_tile(ce)  ! get pointer to current tile
-            ce=next_elmt(ce)        ! advance position to the next tile
+        do while(loop_over_tiles(ce,tile))
             if (.not.associated(tile%soil)) cycle
             select case (gw_option)
             case (GW_HILL)
@@ -466,11 +460,8 @@ subroutine soil_init (id_ug,id_band,id_zfull)
             end select
         enddo
      case (GW_TILED)
-        te = tail_elmt (land_tile_map)
         ce = first_elmt(land_tile_map)
-        do while(ce /= te)
-            tile=>current_tile(ce)  ! get pointer to current tile
-            ce=next_elmt(ce)        ! advance position to the next tile
+        do while(loop_over_tiles(ce,tile))
             if (.not.associated(tile%soil)) cycle
             call soil_data_init_derive_subsurf_pars_tiled(tile%soil, use_geohydrodata)
         end do
@@ -554,15 +545,10 @@ subroutine soil_init (id_ug,id_band,id_zfull)
   end if
 
   ! -------- initialize soil state --------
-  te = tail_elmt (land_tile_map)
   ce = first_elmt(land_tile_map, ls=lnd%ls) ! Use global indices here because element indices
                                             ! needed.
-  do while(ce /= te)
-     tile=>current_tile(ce)  ! get pointer to current tile
-     ce=next_elmt(ce)        ! advance position to the next tile
+  do while(loop_over_tiles(ce,tile,k=k,l=ll))
      if (.not.associated(tile%soil)) cycle
-     ! Retrieve indices
-     call get_elmt_indices(prev_elmt(ce),k=k,l=ll)
      call set_current_point(ll,k)
      if (init_wtdep .gt. 0.) then
         if (.not. use_coldstart_wtt_data) then
@@ -647,11 +633,8 @@ subroutine soil_init (id_ug,id_band,id_zfull)
 
      if (field_exists(restart,'fast_soil_C')) then
         ! we are dealing with CORPSE restart
-        te = tail_elmt (land_tile_map)
         ce = first_elmt(land_tile_map)
-        do while(ce /= te)
-            tile=>current_tile(ce)  ! get pointer to current tile
-            ce=next_elmt(ce)        ! advance position to the next tile
+        do while(loop_over_tiles(ce,tile))
             if (.not.associated(tile%soil)) cycle
             call adjust_pool_ncohorts(tile%soil%leafLitter)
             call adjust_pool_ncohorts(tile%soil%fineWoodLitter)

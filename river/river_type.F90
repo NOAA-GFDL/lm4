@@ -84,7 +84,6 @@ module river_type_mod
      type (time_type)                   :: Time
      integer                            :: dt_fast, dt_slow
      integer                            :: nlon, nlat, num_species, num_c
-     integer                            :: isc, iec, jsc, jec
      integer                            :: num_phys
      integer                            :: i_age ! index of the age tracer (or NO_TRACER)
   end type river_type

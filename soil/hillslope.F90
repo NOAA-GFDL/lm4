@@ -18,8 +18,7 @@ use fms_mod, only: error_mesg, file_exist, close_file, check_nml_error, &
 use fms_io_mod, only: restart_file_type, free_restart_type, &
       set_domain, nullify_domain
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, next_elmt, tail_elmt, loop_over_tiles, get_elmt_indices, &
-     operator(/=), current_tile
+     first_elmt, loop_over_tiles, get_elmt_indices
 use land_utils_mod, only : put_to_tiles_r0d_fptr
 use land_tile_diag_mod, only : diag_buff_type, &
      register_tiled_static_field, set_default_diag_filter, &
@@ -774,7 +773,7 @@ subroutine hlsp_init_predefined(id_ug)
 
   ! ---- local vars
   integer :: unit         ! unit for various i/o
-  type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
+  type(land_tile_enum_type)     :: ce  ! tail and current tile list elements
   type(land_tile_type), pointer :: tile   ! pointer to current tile
   character(len=256) :: mesg
   logical :: restart_exists
@@ -825,12 +824,9 @@ subroutine hlsp_init_predefined(id_ug)
 
  !Print out parameters
  if (is_watch_point()) then
-   te = tail_elmt(land_tile_map)
    ce = first_elmt(land_tile_map)
-   do while(ce /= te)
-      tile=>current_tile(ce)  ! get pointer to current tile
-      ce=next_elmt(ce)        ! advance position to the next tile
-      if ((associated(tile%soil)) .eqv. .False.)cycle
+   do while (loop_over_tiles(ce,tile))
+      if (.not.associated(tile%soil))cycle
       print*,'soil_e_depth',tile%soil%pars%soil_e_depth
       print*,'microtopo',tile%soil%pars%microtopo
       print*,'k_sat_gw',tile%soil%pars%k_sat_gw

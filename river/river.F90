@@ -68,8 +68,7 @@ module river_mod
   use constants_mod,       only : PI, RADIAN, tfreeze, DENS_H2O, hlf
   use stock_constants_mod, only : ISTOCK_WATER, ISTOCK_HEAT
   use land_tile_mod,       only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, current_tile, &
-     operator(/=), loop_over_tiles
+     first_elmt, loop_over_tiles
   use land_data_mod,       only : land_data_type, lnd_sg, log_version, lnd
   use lake_tile_mod,       only : num_l
   use field_manager_mod, only: fm_field_name_len, fm_string_len, &
@@ -158,11 +157,11 @@ character(len=*), parameter :: module_name = 'river_mod'
   integer, allocatable, dimension(:)   :: id_infloc_c,  id_storage_c, id_stordis_c, id_inflow_c, &
         id_run_stor_c, id_outflow_c, id_removal_c, id_dis_c, id_lake_outflow_c
   integer :: id_dis_liq,  id_dis_ice,  id_dis_heat, id_dis_sink, id_dis_DOC, id_no_riv
-  integer                       :: num_fast_calls
-  integer                       :: slow_step = 0          ! record number of slow time step run.
-  type(domain2d),        pointer :: domain => NULL()
+  integer :: num_fast_calls
+  integer :: slow_step = 0          ! record number of slow time step run.
+  type(domain2d), pointer :: domain    => NULL()
   type(domainUG), pointer :: UG_domain => NULL()
-  type(river_type) ,       save :: River
+  type(river_type), save :: River
 
 !--- clock id variable
   integer :: slowclock, bndslowclock, physicsclock, diagclock, riverclock
@@ -281,7 +280,6 @@ contains
     call mpp_get_compute_domain(domain, isc, iec, jsc, jec)
     call mpp_get_data_domain   (domain, isd, ied, jsd, jed)
     call mpp_get_UG_compute_domain(UG_domain, lsc, lec)
-    River%isc=isc; River%iec=iec; River%jsc=jsc; River%jec=jec
 
 !---- make sure the halo size is 1
     if( ied-iec .NE. 1 .OR. isc-isd .NE. 1 .OR. jed-jec .NE. 1 .OR. jsc-jsd .NE. 1 ) &
@@ -599,6 +597,8 @@ end subroutine print_river_tracer_data
     real, dimension(:,:),   intent(in)  :: runoff
     real, dimension(:,:,:), intent(in)  :: runoff_c
     type(land_data_type), intent(inout) :: land2cplr
+
+    ! --- local vars
     real, dimension(size(runoff,1),size(runoff,2)) :: &
         heat_frac_liq,    & ! fraction of runoff heat in liquid
         discharge_l,      & ! discharge of liquid water to ocean

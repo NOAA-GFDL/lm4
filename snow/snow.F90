@@ -22,7 +22,7 @@ use snow_tile_mod, only : &
      snow_data_hydraulics, max_lev, cpw, clw, csw, use_brdf
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), loop_over_tiles
+     first_elmt, loop_over_tiles
 use land_data_mod, only : lnd, log_version
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &

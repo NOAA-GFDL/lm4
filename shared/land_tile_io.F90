@@ -11,11 +11,7 @@ use mpp_mod, only : COMM_TAG_1,  COMM_TAG_2,  COMM_TAG_3,  COMM_TAG_4
 use mpp_mod, only : COMM_TAG_5,  COMM_TAG_6,  COMM_TAG_7,  COMM_TAG_8
 use fms_mod, only : error_mesg, FATAL, NOTE, mpp_pe, get_mosaic_tile_file
 use fms_io_mod, only : restart_file_type, free_restart_type, &
-     get_instance_filename, &
-     read_data
-use fms_mod, only : error_mesg, file_exist,     &
-     check_nml_error, stdlog, write_version_number, &
-     close_file, mpp_pe, mpp_root_pe, FATAL, NOTE
+     get_instance_filename, read_data
 use time_manager_mod, only : time_type
 use data_override_mod, only : data_override_ug
 use mpp_domains_mod,   only : mpp_pass_SG_to_UG
@@ -23,9 +19,9 @@ use nf_utils_mod, only : nfu_inq_dim, nfu_inq_var, nfu_def_dim, nfu_def_var, &
      nfu_get_var, nfu_put_var, nfu_put_att
 use land_io_mod, only : print_netcdf_error, read_field, input_buf_size, new_land_io
 use land_tile_mod, only : land_tile_type, land_tile_list_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, current_tile, loop_over_tiles, operator(/=), &
+     first_elmt, loop_over_tiles, &
      tile_exists_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk, &
-     land_tile_map, get_elmt_indices
+     land_tile_map
 
 use land_data_mod, only  : lnd_sg, lnd
 use land_utils_mod, only : put_to_tiles_r0d_fptr
@@ -135,7 +131,6 @@ include 'netcdf.inc'
 !     Adding these variables to avoid reading data from the restart file written from
 !     io root pe.
 integer :: ntidx2_saved = 0  
-integer :: nlevel_saved = 0
 integer, allocatable :: tidx2_saved(:)
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -300,9 +295,6 @@ subroutine add_restart_axis(restart,name,data,cartesian,units,longname,sense)
                                                    sense=sense)
 !----------
   else
-     if(trim(name) == "zfull" ) then
-        nlevel_saved = size(data(:))
-     endif
      if (mpp_pe()==lnd%io_pelist(1)) then
         __NF_ASRT__(nfu_def_dim(restart%ncid,name,data(:),longname,units))
         if (present(sense)) then
@@ -1192,7 +1184,7 @@ subroutine create_tile_out_file_fptr(ncid, name, glon, glat, tile_exists, &
       ! the total number of qualifying tiles in this domain is equal to zero
 
   ! ---- local vars
-  type(land_tile_enum_type) :: ce,te  ! tile list enumerator
+  type(land_tile_enum_type) :: ce  ! tile list enumerator
   type(land_tile_type), pointer :: tile
   integer, allocatable :: idx(:)   ! integer compressed index of tiles
   integer :: i,j,l,k,n
@@ -1207,16 +1199,12 @@ subroutine create_tile_out_file_fptr(ncid, name, glon, glat, tile_exists, &
   ! calculate compressed tile index to be written to the restart file;
   allocate(idx(max(n,1))); idx(:) = -1 ! set init value to a known invalid index
   ce = first_elmt(land_tile_map, lnd%ls)
-  te = tail_elmt (land_tile_map)
   n = 1
-  do while (ce/=te)
-     call get_elmt_indices(ce,i,j,k)
-
-     if(tile_exists(current_tile(ce))) then
+  do while (loop_over_tiles(ce,tile,i=i,j=j,k=k))
+     if(tile_exists(tile)) then
         idx (n) = (k-1)*lnd%nlon*lnd%nlat + (j-1)*lnd%nlon + (i-1)
         n = n+1
      endif
-     ce=next_elmt(ce)
   end do
   ! create tile output file, defining horizontal coordinate and compressed
   ! dimension
@@ -1313,7 +1301,7 @@ subroutine create_tile_out_file_fptr_new(rhandle,idx,name,tile_exists,tile_dim_l
       ! the total number of qualifying tiles in this domain is equal to zero
 
   ! ---- local vars
-  type(land_tile_enum_type) :: ce, te ! tile list enumerator
+  type(land_tile_enum_type) :: ce ! tile list enumerator
   type(land_tile_type), pointer :: tile
   integer :: i,j,k,n
 
@@ -1327,16 +1315,12 @@ subroutine create_tile_out_file_fptr_new(rhandle,idx,name,tile_exists,tile_dim_l
   ! calculate compressed tile index to be written to the restart file;
   allocate(idx(max(n,1))); idx(:) = -1 ! set init value to a known invalid index
   ce = first_elmt(land_tile_map, lnd%ls)
-  te = tail_elmt (land_tile_map)
   n = 1
-  do while (ce/=te)
-     call get_elmt_indices(ce,i,j,k)
-
-     if(tile_exists(current_tile(ce))) then
+  do while (loop_over_tiles(ce,tile,i=i,j=j,k=k))
+     if(tile_exists(tile)) then
         idx(n) = (k-1)*lnd%nlon*lnd%nlat + (j-1)*lnd%nlon + (i-1)
         n = n+1
      endif
-     ce=next_elmt(ce)
   end do
   ! create tile output file, defining horizontal coordinate and compressed
   ! dimension

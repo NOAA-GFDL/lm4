@@ -257,11 +257,9 @@ end subroutine read_vegn_namelist
 
 ! ============================================================================
 ! initialize vegetation
-!----------
 subroutine vegn_init(id_ug,id_band)
   integer,intent(in) :: id_ug   !<Unstructured axis id.
   integer,intent(in) :: id_band ! ID of spectral band axis
-!----------
 
   ! ---- local vars
   integer :: unit         ! unit for various i/o
@@ -309,7 +307,6 @@ subroutine vegn_init(id_ug,id_band)
                                    "nmn_acm", &
                                    nmn_acm, &
                                    lnd%domain)
-!----------
 
      call get_int_cohort_data(restart2, 'species', cohort_species_ptr)
      call get_cohort_data(restart2, 'hite', cohort_height_ptr)
@@ -486,7 +483,6 @@ subroutine vegn_diag_init(id_ug,id_band,time)
   integer        ,intent(in) :: id_ug   !<Unstructured axis id.
   integer        ,intent(in) :: id_band ! ID of spectral band axis
   type(time_type),intent(in) :: time    ! initial time for diagnostic fields
-!----------
 
   ! ---- local vars
   integer :: i
@@ -494,7 +490,6 @@ subroutine vegn_diag_init(id_ug,id_band,time)
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('soil')
 
-!----------
   id_vegn_type = register_tiled_static_field ( module_name, 'vegn_type',  &
        (/id_ug/), 'vegetation type', missing_value=-1.0 )
 
@@ -671,7 +666,6 @@ subroutine vegn_diag_init(id_ug,id_band,time)
   id_phot_co2 = register_tiled_diag_field (module_name, 'qco2_phot',(/id_ug/), &
        time, 'CO2 mixing ratio for photosynthesis calculations', 'mol CO2/mol dry air', &
        missing_value=-1.0)
-!----------
 
   ! CMOR variables
   ! set the default sub-sampling filter for the fields below
@@ -721,8 +715,6 @@ subroutine vegn_diag_init(id_ug,id_band,time)
   id_cMisc = register_tiled_diag_field ( cmor_name, 'cMisc',  (/id_ug/), &
        time, 'Carbon in Other Living Compartments', 'kg C m-2', missing_value=-1.0, &
        standard_name='carbon_in_other_living_compartments', fill_missing=.TRUE.)
-!----------
-
 end subroutine
 
 

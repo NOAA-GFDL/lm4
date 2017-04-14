@@ -18,7 +18,6 @@ use fms_mod, only: open_namelist_file
 
 use mpp_mod, only : mpp_max, mpp_sum, mpp_chksum, MPP_FILL_INT, MPP_FILL_DOUBLE
 use fms_io_mod, only : restart_file_type, free_restart_type
-use fms_io_mod, only : set_domain, nullify_domain
 use fms_mod, only : error_mesg, FATAL, WARNING, NOTE, mpp_pe, &
      mpp_root_pe, file_exist, check_nml_error, close_file, &
      stdlog, stderr, mpp_clock_id, mpp_clock_begin, mpp_clock_end, string, &
@@ -82,8 +81,8 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
      get_tile_water, init_tile_map, free_tile_map, max_n_tiles, &
      tile_exists_func, loop_over_tiles
 use land_data_mod, only : land_data_type, atmos_land_boundary_type, &
-     land_state_type, land_data_init, land_data_end, lnd_sg, log_version, &
-     lnd, land_state_type_sg
+     land_state_type, land_state_type_sg, land_data_init, land_data_end, lnd, lnd_sg, &
+     log_version
 use nf_utils_mod,  only : nfu_inq_var, nfu_inq_dim, nfu_get_var
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
@@ -306,7 +305,6 @@ real, parameter :: init_value = 0.0
 
 ! ---- global clock IDs
 integer :: landClock, landFastClock, landSlowClock
-integer :: max_ntiles = 1
 
 ! ==== NetCDF declarations ===================================================
 include 'netcdf.inc'
@@ -495,13 +493,12 @@ subroutine land_model_init &
   if (i_river_heat == NO_TRACER) call error_mesg ('land_model_init','required river tracer for heat not found', FATAL)
 
   call land_transitions_init(id_ug, id_cellarea)
+
   call land_tracer_driver_init(id_ug)
 
   ! [8] initialize boundary data
   ! [8.1] allocate storage for the boundary data
   call hlsp_config_check () ! Needs to be done after land_transitions_init and vegn_init
-  max_ntiles = max_n_tiles()
-  call mpp_max(max_ntiles)
   call realloc_land2cplr ( land2cplr )
   call realloc_cplr2land ( cplr2land )
 
@@ -512,7 +509,7 @@ subroutine land_model_init &
   ! [8.3] get the current state of the land boundary for the coupler
   ce = first_elmt(land_tile_map, ls=lnd%ls )
   do while(loop_over_tiles(ce,tile, l,k))
-     call set_current_point(i,j,k,l)
+     call set_current_point(l,k)
      call update_land_bc_fast (tile, l,k, land2cplr, is_init=.true.)
   enddo
 
@@ -664,7 +661,7 @@ end subroutine land_model_restart
 
 ! ============================================================================
 subroutine land_cover_cold_start(lnd_sg)
-  type(land_state_type_sg), intent(inout) :: lnd_sg
+  type(land_state_type_sg), intent(in) :: lnd_sg
 
   ! ---- local vars
   real, dimension(:,:), pointer :: &
@@ -786,7 +783,7 @@ subroutine land_cover_cold_start(lnd_sg)
   invalid_data = .FALSE.
   do l = 1,size(land_mask(:))
      if(.not.land_mask(l)) cycle ! skip ocean points
-     if(valid_data(l)) cycle ! don't need to do anything with valid points
+     if(valid_data(l)) cycle ! do not need to do anything with valid points
      if(sum(glac(l,:))+sum(lake(l,:))>=1) &
           cycle                ! skip points fully covered by glaciers or lakes
      invalid_data(l)=.TRUE.
@@ -930,7 +927,7 @@ subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,soiltags0,&
   if (factor/=0) factor = 1/factor
   factor = factor*(1-sum(glac)-sum(lake))
   ! vegetation tiles, if any, are inserted in front of non-vegetated tiles;
-  ! this really doesn't matter except for the static vegetation override
+  ! this really does not matter except for the static vegetation override
   ! case with the data saved by lm3v -- there the vegetation tiles are
   ! in front, so it works more consistently where lad2 has more than
   ! one tile (e.g. glac/soil or lake/soil), if lad2 vegetation tiles are
@@ -988,31 +985,11 @@ subroutine land_cover_warm_start_new (restart)
   ntiles = size(restart%tidx)
   allocate(glac(ntiles), lake(ntiles), soil(ntiles), vegn(ntiles), frac(ntiles))
 
-  call fms_io_unstructured_read(restart%basename, &
-                                "frac", &
-                                frac, &
-                                lnd%domain, &
-                                timelevel=1)
-  call fms_io_unstructured_read(restart%basename, &
-                                "glac", &
-                                glac, &
-                                lnd%domain, &
-                                timelevel=1)
-  call fms_io_unstructured_read(restart%basename, &
-                                "lake", &
-                                lake, &
-                                lnd%domain, &
-                                timelevel=1)
-  call fms_io_unstructured_read(restart%basename, &
-                                "soil", &
-                                soil, &
-                                lnd%domain, &
-                                timelevel=1)
-  call fms_io_unstructured_read(restart%basename, &
-                                "vegn", &
-                                vegn, &
-                                lnd%domain, &
-                                timelevel=1)
+  call fms_io_unstructured_read(restart%basename, "frac", frac, lnd%domain, timelevel=1)
+  call fms_io_unstructured_read(restart%basename, "glac", glac, lnd%domain, timelevel=1)
+  call fms_io_unstructured_read(restart%basename, "lake", lake, lnd%domain, timelevel=1)
+  call fms_io_unstructured_read(restart%basename, "soil", soil, lnd%domain, timelevel=1)
+  call fms_io_unstructured_read(restart%basename, "vegn", vegn, lnd%domain, timelevel=1)
 
   npts = lnd%nlon*lnd%nlat
   ! create tiles
@@ -1904,14 +1881,14 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
      ! heat accumulating in near-zero-mass snow; however it does not seem to make a
      ! difference.
      if(vegn_hfprec>0)then
-        ! solid precipitation from vegetation carries positive energy -- we can't have
+        ! solid precipitation from vegetation carries positive energy -- we cannot have
         ! that, because that would bring snow T above tfreeze, so convert excess to
         ! liquid
         delta_fprec = min(vegn_fprec,vegn_hfprec/hlf)
         vegn_fprec = vegn_fprec - delta_fprec
         vegn_lprec = vegn_lprec + delta_fprec
         vegn_hfprec = vegn_hfprec - hlf*delta_fprec
-        ! we don't need to correct the vegn_hlprec since the temperature of additional
+        ! we do not need to correct the vegn_hlprec since the temperature of additional
         ! liquid precip is tfreeze, and therefore its contribution to vegn_hlprec is
         ! exactly zero
      endif
@@ -2087,6 +2064,7 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
    !      heat1, 1e-16)
      ! - end of conservation check, part 2
   endif
+
   ! ---- diagnostic section ----------------------------------------------
   call send_tile_data(id_frac,    tile%frac,                          tile%diag)
   call send_tile_data(id_ntiles,  1.0,                                tile%diag)
@@ -2206,7 +2184,7 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
   call send_tile_data(id_tran,  vegn_uptk,                            tile%diag)
   ! evspsblsoi is evaporation from *soil*, so we send zero from glaciers and lakes;
   ! the result is averaged over the entire land surface, as required by CMIP. evspsblveg
-  ! doesn't need this distinction because it is already zero over glaciers and lakes.
+  ! does not need this distinction because it is already zero over glaciers and lakes.
   if (associated(tile%soil)) then
      call send_tile_data(id_evspsblsoi, subs_levap+subs_fevap,        tile%diag)
   else
@@ -2541,7 +2519,7 @@ subroutine update_land_bc_fast (tile, l ,k, land2cplr, is_init)
   real :: snow_emis ! snow emissivity
   real :: grnd_emis ! ground emissivity
   ! NOTE :  grnd_emis is used only to satisfy xxxx_radiation interfaces; its value is ignored, but
-  ! 1-refl is used instead. snow_emis is used in the the vegn_radiation, but it shouldn't be since
+  ! 1-refl is used instead. snow_emis is used in the the vegn_radiation, but it should not be since
   ! properties of intercepted snowpack are, in general, different from the snow on the ground
   real :: snow_area_rad ! "snow area for radiation calculations" -- introduced
                         ! to reproduce lm2 behavior
@@ -2699,7 +2677,7 @@ subroutine update_land_bc_fast (tile, l ,k, land2cplr, is_init)
   land2cplr%rough_mom      (l,k) = 0.1
   land2cplr%rough_heat     (l,k) = 0.1
 
-  ! Calculate radiative surface temperature. lwup can't be calculated here
+  ! Calculate radiative surface temperature. lwup cannot be calculated here
   ! based on the available temperatures because it's a result of the implicit
   ! time step: lwup = lwup0 + DlwupDTg*delta_Tg + ..., so we have to carry it
   ! from the update_land_fast
@@ -3004,15 +2982,15 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
 
   ! ---- local vars ----------------------------------------------------------
   integer :: nlon, nlat       ! sizes of respective axes
-  integer,dimension(1)             :: axes        !Array of axes for 1-D unstructured fields.
-  integer                          :: ug_dim_size !Size of the unstructured axis
-  integer,dimension(:),allocatable :: ug_dim_data !Unstructured axis data.
-  integer                          :: id_lon, id_lonb
-  integer                          :: id_lat, id_latb
+  integer             :: axes(1)        ! Array of axes for 1-D unstructured fields.
+  integer             :: ug_dim_size    ! Size of the unstructured axis
+  integer,allocatable :: ug_dim_data(:) ! Unstructured axis data.
+  integer             :: id_lon, id_lonb
+  integer             :: id_lat, id_latb
   integer :: i
   character(32) :: name       ! tracer name
 
- !Register the unstructured axis for the unstructured domain.
+  ! Register the unstructured axis for the unstructured domain.
   call mpp_get_UG_compute_domain(domain, size=ug_dim_size)
   if (.not. allocated(ug_dim_data)) then
       allocate(ug_dim_data(ug_dim_size))
@@ -3020,23 +2998,17 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   call mpp_get_UG_domain_grid_index(domain, ug_dim_data)
   !--- grid_index needs to be starting from 0.
   ug_dim_data = ug_dim_data - 1
-  id_ug = diag_axis_init("grid_index",  &
-                         real(ug_dim_data), &
-                         "none", &
-                         "U", &
-                         long_name="grid indices", &
-                         set_name="land", &
-                         DomainU=domain, aux="geolon_t geolat_t")
+  id_ug = diag_axis_init("grid_index",  real(ug_dim_data), "none", "U", long_name="grid indices", &
+                         set_name="land", DomainU=domain, aux="geolon_t geolat_t")
   if (allocated(ug_dim_data)) then
       deallocate(ug_dim_data)
   endif
 
- !Register a "grid_xt" and "grid_yt" axis, which are required to
- !by the post-processing so that the output files may be
- !"decompressed" (converted from unstructured back to lon-lat).
- !The "grid_xt" and "grid_yt" axes should run from 1 to the
- !total number of x- and y-points on a domain tile.  It is assumed
- !that all domain tiles contain the same number of x- and y-points.
+ ! Register horizontal axes that are required by the post-processing so that the output 
+ ! files can be "decompressed": converted from unstructured back to lon-lat or cubic sphere.
+ ! The "grid_xt" and "grid_yt" axes should run from 1 to the total number of x- and 
+ ! y-points on cubic sphere face. It is assumed that all faces tiles contain the same 
+ ! number of x- and y-points.
   nlon = size(clon)
   nlat = size(clat)
   if(mpp_get_UG_domain_ntiles(lnd%domain)==1) then
@@ -3307,13 +3279,13 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   id_fco2    = register_tiled_diag_field ( module_name, 'fco2', axes, time, &
              'flux of CO2 to canopy air', 'kg C/(m2 s)', missing_value=-1.0 )
    id_swdn_dir = register_tiled_diag_field ( module_name, 'swdn_dir', (/id_ug,id_band/), time, &
-        'downward direct short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0)
+       'downward direct short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0)
    id_swdn_dif = register_tiled_diag_field ( module_name, 'swdn_dif', (/id_ug,id_band/), time, &
-        'downward diffuse short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0)
+       'downward diffuse short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0)
    id_swup_dir = register_tiled_diag_field ( module_name, 'swup_dir', (/id_ug,id_band/), time, &
-        'direct short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=-999.0)
+       'direct short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=-999.0)
    id_swup_dif = register_tiled_diag_field ( module_name, 'swup_dif', (/id_ug,id_band/), time, &
-        'diffuse short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=-999.0)
+       'diffuse short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=-999.0)
   id_lwdn = register_tiled_diag_field ( module_name, 'lwdn', axes, time, &
        'downward long-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0)
   id_vegn_cover = register_tiled_diag_field ( module_name, 'vegn_cover', axes, time, &
@@ -3351,10 +3323,8 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   id_subs_refl_dif = register_tiled_diag_field(module_name, 'subs_refl_dif', &
        (/id_ug,id_band/), time, &
        'substrate reflectivity for diffuse light',missing_value=-1.0)
-  id_subs_emis = register_tiled_diag_field(module_name, 'subs_emis', &
-       axes, time, &
+  id_subs_emis = register_tiled_diag_field(module_name, 'subs_emis', axes, time, &
        'substrate emissivity for long-wave radiation',missing_value=-1.0)
-!----------
   id_grnd_T = register_tiled_diag_field ( module_name, 'Tgrnd', axes, time, &
        'ground surface temperature', 'degK', missing_value=-1.0 )
 
@@ -3532,10 +3502,7 @@ subroutine send_cellfrac_data(id, f, scale)
         frac(l) = frac(l)+tile%frac*scale_*lnd%landfrac(l)
      endif
   enddo
-  used = send_data(id, &
-                   frac, &
-                   lnd%time)
-!----------
+  used = send_data(id, frac, lnd%time)
 end subroutine send_cellfrac_data
 
 ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

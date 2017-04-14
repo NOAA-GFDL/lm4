@@ -167,7 +167,7 @@ end subroutine land_debug_init
 
 ! ============================================================================
 subroutine land_debug_end()
-  deallocate(curr_i,curr_j,curr_k)
+  deallocate(curr_i,curr_j,curr_k,curr_l)
   deallocate(current_debug_level)
 end subroutine
 
