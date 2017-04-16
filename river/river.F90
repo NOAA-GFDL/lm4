@@ -707,7 +707,8 @@ end subroutine print_river_tracer_data
     if (id_dis_ice > 0)  used = send_data (id_dis_ice,  discharge_c(:,:,i_river_ice), lnd%time)
     if (id_dis_heat > 0) used = send_data (id_dis_heat, discharge_c(:,:,i_river_heat), lnd%time)
     if (id_dis_sink > 0) used = send_data (id_dis_sink, discharge_sink, lnd%time)
-    if (id_dis_DOC > 0)  used = send_data (id_dis_DOC,  discharge_c(:,:,i_river_DOC), lnd%time)
+    if (id_dis_DOC > 0.and.i_river_DOC/=NO_TRACER) &
+                         used = send_data (id_dis_DOC,  discharge_c(:,:,i_river_DOC), lnd%time)
 
     call mpp_clock_end(riverclock)
 
@@ -1366,59 +1367,57 @@ end subroutine print_river_tracer_data
     id_vel       = register_diag_field ( mod_name, 'rv_veloc', (/id_lon, id_lat/), &
          River%Time, 'river flow velocity', 'm/s', missing_value=missing )
 
-  ! fields that historically were in the the land_model.F90. They are registered
-  ! for module 'land' to preserve compatibility with older diag tables
-  id_LWSr   = register_diag_field ( mod_name, 'LWSr', (/id_lon, id_lat/), &
-       River%Time, 'river liquid mass storage', 'kg/m2', missing_value=-1.0e+20, area=id_area_land )
-  call diag_field_add_attribute(id_LWSr,'cell_methods', 'area: mean')
+    id_LWSr   = register_diag_field ( mod_name, 'LWSr', (/id_lon, id_lat/), &
+         River%Time, 'river liquid mass storage', 'kg/m2', missing_value=-1.0e+20, area=id_area_land )
+    call diag_field_add_attribute(id_LWSr,'cell_methods', 'area: mean')
 
-  id_FWSr   = register_diag_field ( mod_name, 'FWSr', (/id_lon, id_lat/), &
-       River%Time, 'river ice mass storage', 'kg/m2', missing_value=-1.0e+20, area=id_area_land )
-  call diag_field_add_attribute(id_FWSr,'cell_methods', 'area: mean')
+    id_FWSr   = register_diag_field ( mod_name, 'FWSr', (/id_lon, id_lat/), &
+         River%Time, 'river ice mass storage', 'kg/m2', missing_value=-1.0e+20, area=id_area_land )
+    call diag_field_add_attribute(id_FWSr,'cell_methods', 'area: mean')
 
-  id_HSr   = register_diag_field ( mod_name, 'HSr', (/id_lon, id_lat/), &
-       River%Time, 'river heat storage', 'J/m2', missing_value=-1.0e+20, area=id_area_land )
-  call diag_field_add_attribute(id_HSr,'cell_methods', 'area: mean')
+    id_HSr   = register_diag_field ( mod_name, 'HSr', (/id_lon, id_lat/), &
+         River%Time, 'river heat storage', 'J/m2', missing_value=-1.0e+20, area=id_area_land )
+    call diag_field_add_attribute(id_HSr,'cell_methods', 'area: mean')
 
-  id_meltr   = register_diag_field ( mod_name, 'meltr', (/id_lon, id_lat/), &
-       River%Time, 'melt in river system', 'kg/m2/s', missing_value=-1.0e+20, area=id_area_land )
-  call diag_field_add_attribute(id_meltr,'cell_methods', 'area: mean')
+    id_meltr   = register_diag_field ( mod_name, 'meltr', (/id_lon, id_lat/), &
+         River%Time, 'melt in river system', 'kg/m2/s', missing_value=-1.0e+20, area=id_area_land )
+    call diag_field_add_attribute(id_meltr,'cell_methods', 'area: mean')
 
-  id_dis_liq   = register_diag_field ( mod_name, 'dis_liq', (/id_lon, id_lat/), &
-       River%time, 'liquid discharge to ocean', 'kg/(m2 s)', missing_value=-1.0e+20, area=id_cellarea )
-  call diag_field_add_attribute(id_dis_liq,'cell_methods', 'area: mean')
-  id_dis_ice   = register_diag_field ( mod_name, 'dis_ice', (/id_lon, id_lat/), &
-       River%time, 'ice discharge to ocean', 'kg/(m2 s)', missing_value=-1.0e+20, area=id_cellarea )
-  call diag_field_add_attribute(id_dis_ice,'cell_methods', 'area: mean')
-  id_dis_heat   = register_diag_field ( mod_name, 'dis_heat', (/id_lon, id_lat/), &
-       River%time, 'heat of mass discharge to ocean', 'W/m2', missing_value=-1.0e+20, area=id_cellarea )
-  call diag_field_add_attribute(id_dis_heat,'cell_methods', 'area: mean')
-  id_dis_sink   = register_diag_field ( mod_name, 'dis_sink', (/id_lon, id_lat/), &
-       River%time, 'burial rate of small/negative discharge', 'kg/(m2 s)', missing_value=-1.0e+20, area=id_cellarea )
-  call diag_field_add_attribute(id_dis_sink,'cell_methods', 'area: mean')
-  id_dis_DOC    = register_diag_field ( mod_name, 'dis_DOC', (/id_lon, id_lat/), &
-       River%time, 'DOC discharge to ocean', 'kgC/m^2/s', missing_value=-1.0e+20 )
-  call diag_field_add_attribute(id_dis_sink,'cell_methods', 'area: mean')
+    id_dis_liq   = register_diag_field ( mod_name, 'dis_liq', (/id_lon, id_lat/), &
+         River%time, 'liquid discharge to ocean', 'kg/(m2 s)', missing_value=-1.0e+20, area=id_cellarea )
+    call diag_field_add_attribute(id_dis_liq,'cell_methods', 'area: mean')
+    id_dis_ice   = register_diag_field ( mod_name, 'dis_ice', (/id_lon, id_lat/), &
+         River%time, 'ice discharge to ocean', 'kg/(m2 s)', missing_value=-1.0e+20, area=id_cellarea )
+    call diag_field_add_attribute(id_dis_ice,'cell_methods', 'area: mean')
+    id_dis_heat   = register_diag_field ( mod_name, 'dis_heat', (/id_lon, id_lat/), &
+         River%time, 'heat of mass discharge to ocean', 'W/m2', missing_value=-1.0e+20, area=id_cellarea )
+    call diag_field_add_attribute(id_dis_heat,'cell_methods', 'area: mean')
+    id_dis_sink   = register_diag_field ( mod_name, 'dis_sink', (/id_lon, id_lat/), &
+         River%time, 'burial rate of small/negative discharge', 'kg/(m2 s)', missing_value=-1.0e+20, area=id_cellarea )
+    call diag_field_add_attribute(id_dis_sink,'cell_methods', 'area: mean')
+    id_dis_DOC    = register_diag_field ( mod_name, 'dis_DOC', (/id_lon, id_lat/), &
+         River%time, 'DOC discharge to ocean', 'kgC/m^2/s', missing_value=-1.0e+20 )
+    call diag_field_add_attribute(id_dis_sink,'cell_methods', 'area: mean')
 
-! static fields
+    ! static fields
 
-  id_dx = register_static_field ( mod_name, 'rv_length', (/id_lon, id_lat/), &
-         'river reach length', 'm', missing_value=missing )
-  id_basin = register_static_field ( mod_name, 'rv_basin', (/id_lon, id_lat/), &
-         'river basin id', 'none', missing_value=missing )
-  id_So = register_static_field ( mod_name, 'So', (/id_lon, id_lat/), &
-         'Slope', 'none', missing_value=missing )
-  id_travel = register_static_field ( mod_name, 'rv_trav', (/id_lon, id_lat/), &
-         'cells left to travel before reaching ocean', 'none', missing_value=missing )
-  id_tocell = register_static_field ( mod_name, 'rv_dir', (/id_lon, id_lat/), &
-         'outflow direction code', 'none', missing_value=missing )
-  id_no_riv = register_static_field ( mod_name, 'no_riv', (/id_lon, id_lat/), &
-       'indicator of land without rivers','unitless', missing_value=-1.0 )
+    id_dx = register_static_field ( mod_name, 'rv_length', (/id_lon, id_lat/), &
+           'river reach length', 'm', missing_value=missing )
+    id_basin = register_static_field ( mod_name, 'rv_basin', (/id_lon, id_lat/), &
+           'river basin id', 'none', missing_value=missing )
+    id_So = register_static_field ( mod_name, 'So', (/id_lon, id_lat/), &
+           'Slope', 'none', missing_value=missing )
+    id_travel = register_static_field ( mod_name, 'rv_trav', (/id_lon, id_lat/), &
+           'cells left to travel before reaching ocean', 'none', missing_value=missing )
+    id_tocell = register_static_field ( mod_name, 'rv_dir', (/id_lon, id_lat/), &
+           'outflow direction code', 'none', missing_value=missing )
+    id_no_riv = register_static_field ( mod_name, 'no_riv', (/id_lon, id_lat/), &
+         'indicator of land without rivers','unitless', missing_value=-1.0 )
 
-  if(id_geolon_t>0) sent=send_data(id_geolon_t, River%lon*180.0/PI, River%time )
-  if(id_geolat_t>0) sent=send_data(id_geolat_t, River%lat*180.0/PI, River%time )
-  if(id_area_land>0) sent=send_data(id_area_land, lnd_sg%area, River%time )
-  if(id_cellarea>0) sent=send_data(id_cellarea, lnd_sg%cellarea, River%time )
+    if(id_geolon_t>0) sent=send_data(id_geolon_t, River%lon*180.0/PI, River%time )
+    if(id_geolat_t>0) sent=send_data(id_geolat_t, River%lat*180.0/PI, River%time )
+    if(id_area_land>0) sent=send_data(id_area_land, lnd_sg%area, River%time )
+    if(id_cellarea>0) sent=send_data(id_cellarea, lnd_sg%cellarea, River%time )
 
     if (id_dx>0) sent=send_data(id_dx, River%reach_length, River%Time, mask=River%mask )
     if (id_basin>0) then
