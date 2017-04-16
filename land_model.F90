@@ -97,8 +97,7 @@ use land_tile_diag_mod, only : tile_diag_init, tile_diag_end, &
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, get_watch_point, check_temp_range, current_face, &
      get_current_point, check_conservation, water_cons_tol, carbon_cons_tol, &
-     is_watch_cell, is_watch_time, do_check_conservation, check_var_range,  &
-     set_watch_point_UG, log_date
+     is_watch_cell, is_watch_time, do_check_conservation, check_var_range, log_date
 use static_vegn_mod, only : write_static_vegn
 use land_transitions_mod, only : &
      land_transitions_init, land_transitions_end, land_transitions, &
@@ -369,6 +368,9 @@ subroutine land_model_init &
 
   call astronomy_init ! in case it is not initialized, e.g. when using atmos_null
 
+  ! [ ] initialize land state data, including grid geometry and processor decomposition
+  call land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table,npes_io_group)
+
   ! [ ] initialize land debug output
   call land_debug_init()
 
@@ -413,9 +415,6 @@ subroutine land_model_init &
   call read_snow_namelist()
   call read_cana_namelist()
 
-  ! [ ] initialize land state data, including grid geometry and processor decomposition
-  call land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table,npes_io_group)
-  call set_watch_point_UG(lnd%face)
   delta_time  = time_type_to_real(lnd%dt_fast) ! store in a module variable for convenience
   call init_tile_map()
 
@@ -2545,6 +2544,11 @@ subroutine update_land_bc_fast (tile, l ,k, land2cplr, is_init)
   i = lnd%i_index(l)
   j = lnd%j_index(l)
   do_update = .not.present(is_init)
+
+  if (is_watch_point()) then
+     write(*,*)
+     call log_date('#### update_land_bc_fast begins:',lnd%time)
+  endif
 
   ! on initialization the albedos are calculated for the current time step ( that is, interval
   ! lnd_sg%time, lnd_sg%time+lnd_sg%dt_fast); in the course of the run this subroutine is called

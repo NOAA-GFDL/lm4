@@ -38,7 +38,6 @@ public :: check_var_range
 public :: check_conservation
 
 public :: dpri
-public :: set_watch_point_UG
 
 interface dpri
    module procedure debug_printout_r0d
@@ -162,6 +161,8 @@ subroutine land_debug_init()
                               start_watching(4), start_watching(5), start_watching(6)  )
   stop_watch_time  = set_date( stop_watching(1),  stop_watching(2),  stop_watching(3), &
                                stop_watching(4),  stop_watching(5),  stop_watching(6)  )
+
+  call set_watch_point_UG(lnd%face)
 
 end subroutine land_debug_init
 
