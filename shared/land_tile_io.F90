@@ -33,7 +33,6 @@ use fms_io_mod, only: CIDX,ZIDX,CCIDX
 use fms_io_mod, only: fms_io_unstructured_get_field_size
 use fms_io_mod, only: fms_io_unstructured_read
 use fms_io_mod, only: fms_io_unstructured_field_exist
-!----------
 
 implicit none
 private
@@ -130,7 +129,7 @@ include 'netcdf.inc'
 ! --- The following is for new_land_io=.false. Will be removed in the future.
 !     Adding these variables to avoid reading data from the restart file written from
 !     io root pe.
-integer :: ntidx2_saved = 0  
+integer :: ntidx2_saved = 0
 integer, allocatable :: tidx2_saved(:)
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -438,29 +437,41 @@ subroutine add_tile_data_r0d_fptr_r0i(restart,varname,fptr,index,longname,units)
   endif
 end subroutine add_tile_data_r0d_fptr_r0i
 
-subroutine add_tile_data_i1d_fptr_i0i(restart,varname,zdim,zdim_size,fptr,longname,units)
+
+! given restart and name of the dimension, returns the size of this dimension
+integer function dimlen(restart,dimname)
+  type(land_restart_type), intent(in) :: restart ! restart data structure
+  character(*),            intent(in) :: dimname ! name of the dimansion
+
+  integer :: i
+  dimlen = -1
+  do i = 1,restart%nax
+     if (trim(restart%ax(i)%name) == trim(dimname)) then
+        dimlen=restart%ax(i)%len
+        return
+     endif
+  enddo
+  if (dimlen<1) call error_mesg('dimlen', 'axis "'//trim(dimname)//'" not found', FATAL)
+end
+
+
+subroutine add_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr,longname,units)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
   character(len=*), intent(in) :: zdim      ! name of the z-dimension
-  integer,          intent(in) :: zdim_size ! size of the z-dimension
   procedure(fptr_i0i)          :: fptr    ! subroutine returning pointer to the data
   character(len=*), intent(in), optional :: units, longname
 
   integer :: id_restart
   integer, pointer :: data(:,:) ! needs to be pointer; we are passing ownership to restart object
-  integer :: i,n
+  integer :: i,nlev
 
+  nlev = dimlen(restart,zdim)
   if (new_land_io) then
      if (.not.allocated(restart%tidx)) call error_mesg('add_tile_data_i1d_fptr_i0i', &
            'tidx not allocated: looks like land restart was not initialized',FATAL)
 
-     n = -1
-     do i = 1,restart%nax
-        if (restart%ax(i)%name == zdim) n=restart%ax(i)%len
-     enddo
-     if (n<1) call error_mesg('add_tile_data_r0d_fptr_r0i', 'axis "'//trim(zdim)//'" not found', FATAL)
-
-     allocate(data(size(restart%tidx),n))
+     allocate(data(size(restart%tidx),nlev))
      call gather_tile_data_i1d(fptr,restart%tidx,data)
      id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, &
                                                              restart%basename, &
@@ -472,41 +483,35 @@ subroutine add_tile_data_i1d_fptr_i0i(restart,varname,zdim,zdim_size,fptr,longna
                                                              units=units, &
                                                              restart_owns_data=.true.)
   else ! old land io
-     call write_tile_data_i1d_fptr_i0i(restart%ncid,varname,fptr,zdim,zdim_size,longname,units)
+     call write_tile_data_i1d_fptr_i0i(restart%ncid,varname,fptr,zdim,nlev,longname,units)
   endif
 end subroutine add_tile_data_i1d_fptr_i0i
 
-subroutine add_tile_data_r1d_fptr_r0i(restart,varname,zdim,zdim_size,fptr,longname,units)
+subroutine add_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr,longname,units)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
   character(len=*), intent(in) :: zdim      ! name of the z-dimension
-  integer,          intent(in) :: zdim_size ! size of the z-dimension
   procedure(fptr_r0i)          :: fptr    ! subroutine returning pointer to the data
   character(len=*), intent(in), optional :: units, longname
 
   integer :: id_restart
   real, pointer :: data(:,:) ! needs to be pointer; we are passing ownership to restart object
-  integer :: i,n
+  integer :: i,nlev
 
+  nlev = dimlen(restart,zdim)
   if (new_land_io) then
      if (.not.allocated(restart%tidx)) call error_mesg('add_tile_data_r0d_fptr_r0i', &
            'tidx not allocated: looks like land restart was not initialized',FATAL)
 
-     n = -1
-     do i = 1,restart%nax
-        if (restart%ax(i)%name == zdim) n=restart%ax(i)%len
-     enddo
-     if (n<1) call error_mesg('add_tile_data_r0d_fptr_r0i', 'axis "'//trim(zdim)//'" not found', FATAL)
-
-     allocate(data(size(restart%tidx),n))
+     allocate(data(size(restart%tidx),nlev))
      call gather_tile_data_r1d(fptr,restart%tidx,data)
      ! checking name of the dimension here is a dirty trick, which is sure to
-     ! bite us in the future, but it is necessary because fms_io has no way to 
-     ! figure out what the additional dimension of the variable is. A better way 
-     ! to fix that is to rewrite fms_io so that it allows to specify the dimensions 
+     ! bite us in the future, but it is necessary because fms_io has no way to
+     ! figure out what the additional dimension of the variable is. A better way
+     ! to fix that is to rewrite fms_io so that it allows to specify the dimensions
      ! of the variable in a sane way.
      if (trim(zdim)=='soilCCohort') then
-        ! write (*,*) 'writing "',trim(varname),'" with C_CC' 
+        ! write (*,*) 'writing "',trim(varname),'" with C_CC'
         id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, &
                                                                 restart%basename, &
                                                                 varname, &
@@ -528,15 +533,14 @@ subroutine add_tile_data_r1d_fptr_r0i(restart,varname,zdim,zdim_size,fptr,longna
                                                                 restart_owns_data=.true.)
      endif
   else ! old land io
-     call write_tile_data_r1d_fptr_r0i(restart%ncid,varname,fptr,zdim,zdim_size,longname,units)
+     call write_tile_data_r1d_fptr_r0i(restart%ncid,varname,fptr,zdim,nlev,longname,units)
   endif
 end subroutine add_tile_data_r1d_fptr_r0i
 
-subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,zdim_size,fptr,index,longname,units)
+subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index,longname,units)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
   character(len=*), intent(in) :: zdim      ! name of the z-dimension
-  integer,          intent(in) :: zdim_size ! size of the z-dimension
   procedure(fptr_r0ij)         :: fptr    ! subroutine returning pointer to the data
   integer         , intent(in) :: index   ! index of the array element to write
   character(len=*), intent(in), optional :: units, longname
@@ -547,15 +551,11 @@ subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,zdim_size,fptr,index
   real, pointer :: ptr ! pointer to the tile data
   integer :: i,n,nlev
 
+  nlev = dimlen(restart,zdim)
   if (new_land_io) then
      if (.not.allocated(restart%tidx)) call error_mesg('add_tile_data_r0d_fptr_r0i', &
            'tidx not allocated: looks like land restart was not initialized',FATAL)
 
-     nlev = -1
-     do i = 1,restart%nax
-        if (restart%ax(i)%name == zdim) nlev=restart%ax(i)%len
-     enddo
-     if (nlev<1) call error_mesg('add_tile_data_r0d_fptr_r0i', 'axis "'//trim(zdim)//'" not found', FATAL)
 
      allocate(data(size(restart%tidx),nlev))
      data = NF_FILL_DOUBLE
@@ -573,12 +573,12 @@ subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,zdim_size,fptr,index
         enddo
      enddo
      ! checking name of the dimension here is a dirty trick, which is sure to
-     ! bite us in the future, but it is necessary because fms_io has no way to 
-     ! figure out what the additional dimension of the variable is. A better way 
-     ! to fix that is to rewrite fms_io so that it allows to specify the dimensions 
+     ! bite us in the future, but it is necessary because fms_io has no way to
+     ! figure out what the additional dimension of the variable is. A better way
+     ! to fix that is to rewrite fms_io so that it allows to specify the dimensions
      ! of the variable in a sane way.
      if (trim(zdim)=='soilCCohort') then
-        ! write (*,*) 'writing "',trim(varname),'" with C_CC' 
+        ! write (*,*) 'writing "',trim(varname),'" with C_CC'
         id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, &
                                                                 restart%basename, &
                                                                 varname, &
@@ -600,35 +600,28 @@ subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,zdim_size,fptr,index
                                                                 restart_owns_data=.true.)
      endif
   else ! old land io
-     call write_tile_data_r1d_fptr_r0ij(restart%ncid,varname,fptr,index,zdim,zdim_size,longname,units)
+     call write_tile_data_r1d_fptr_r0ij(restart%ncid,varname,fptr,index,zdim,nlev,longname,units)
   endif
 end subroutine add_tile_data_r1d_fptr_r0ij
 
-subroutine add_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,dim1_size,dim2_size,fptr,longname,units)
+subroutine add_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr,longname,units)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
   character(len=*), intent(in) :: dim1,dim2 ! names of extra dimensions
-  integer,          intent(in) :: dim1_size,dim2_size ! size of extra dimensions
   procedure(fptr_r0ij)         :: fptr    ! subroutine returning pointer to the data
   character(len=*), intent(in), optional :: units, longname
 
   integer :: id_restart
   real, pointer :: data(:,:,:) ! needs to be pointer; we are passing ownership to restart object
-  integer :: i,n,m
+  integer :: i,dim1len,dim2len
 
+  dim1len = dimlen(restart,dim1)
+  dim2len = dimlen(restart,dim2)
   if (new_land_io) then
      if (.not.allocated(restart%tidx)) call error_mesg('add_tile_data_r2d_fptr_r0ijk', &
            'tidx not allocated: looks like land restart was not initialized',FATAL)
 
-     n = -1; m=-1
-     do i = 1,restart%nax
-        if (restart%ax(i)%name == dim1) n=restart%ax(i)%len
-        if (restart%ax(i)%name == dim2) m=restart%ax(i)%len
-     enddo
-     if (n<1) call error_mesg('add_tile_data_r2d_fptr_r0ijk', 'axis "'//trim(dim1)//'" not found', FATAL)
-     if (n<1) call error_mesg('add_tile_data_r2d_fptr_r0ijk', 'axis "'//trim(dim2)//'" not found', FATAL)
-
-     allocate(data(size(restart%tidx),n,m))
+     allocate(data(size(restart%tidx),dim1len,dim2len))
      call gather_tile_data_r2d(fptr,restart%tidx,data)
      id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, &
                                                              restart%basename, &
@@ -640,36 +633,29 @@ subroutine add_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,dim1_size,dim2_
                                                              units=units, &
                                                              restart_owns_data=.true.)
   else ! old land io
-     call write_tile_data_r2d_fptr_r0ij(restart%ncid,varname,fptr,dim1,dim2,dim1_size,dim2_size,longname,units)
+     call write_tile_data_r2d_fptr_r0ij(restart%ncid,varname,fptr,dim1,dim2,dim1len,dim2len,longname,units)
   endif
 end subroutine add_tile_data_r2d_fptr_r0ij
 
-subroutine add_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,dim1_size,dim2_size,fptr,index,longname,units)
+subroutine add_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index,longname,units)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
   character(len=*), intent(in) :: dim1,dim2 ! names of extra dimensions
-  integer,          intent(in) :: dim1_size,dim2_size ! size of extra dimensions
   procedure(fptr_r0ijk)        :: fptr    ! subroutine returning pointer to the data
   integer         , intent(in) :: index   ! index of the array element to write
   character(len=*), intent(in), optional :: units, longname
 
   integer :: id_restart
   real, pointer :: data(:,:,:) ! needs to be pointer; we are passing ownership to restart object
-  integer :: i,n,m
+  integer :: i,dim1len,dim2len
 
+  dim1len = dimlen(restart,dim1)
+  dim2len = dimlen(restart,dim2)
   if (new_land_io) then
      if (.not.allocated(restart%tidx)) call error_mesg('add_tile_data_r2d_fptr_r0ijk', &
            'tidx not allocated: looks like land restart was not initialized',FATAL)
 
-     n = -1; m=-1
-     do i = 1,restart%nax
-        if (restart%ax(i)%name == dim1) n=restart%ax(i)%len
-        if (restart%ax(i)%name == dim2) m=restart%ax(i)%len
-     enddo
-     if (n<1) call error_mesg('add_tile_data_r2d_fptr_r0ijk', 'axis "'//trim(dim1)//'" not found', FATAL)
-     if (n<1) call error_mesg('add_tile_data_r2d_fptr_r0ijk', 'axis "'//trim(dim2)//'" not found', FATAL)
-
-     allocate(data(size(restart%tidx),n,m))
+     allocate(data(size(restart%tidx),dim1len,dim2len))
      call gather_tile_data_r2d_idx(fptr,index,restart%tidx,data)
      id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, &
                                                              restart%basename, &
@@ -681,7 +667,7 @@ subroutine add_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,dim1_size,dim2
                                                              units=units, &
                                                              restart_owns_data=.true.)
   else ! old land io
-     call write_tile_data_r2d_fptr_r0ijk(restart%ncid,varname,fptr,index,dim1,dim2,dim1_size,dim2_size,longname,units)
+     call write_tile_data_r2d_fptr_r0ijk(restart%ncid,varname,fptr,index,dim1,dim2,dim1len,dim2len,longname,units)
   endif
 end subroutine add_tile_data_r2d_fptr_r0ijk
 
@@ -1366,7 +1352,7 @@ subroutine get_tile_by_idx(idx,nlon,nlat,tiles,ls,gs,ge,ptr)
    do while(loop_over_tiles(ce, ptr).and.k>0)
       k = k-1
    enddo
-   ! NOTE that at the end of the loop (that is, if there are less tiles in the list 
+   ! NOTE that at the end of the loop (that is, if there are less tiles in the list
    ! then requested by the idx), loop_over_tiles(ce,ptr) returns NULL
 
 end subroutine get_tile_by_idx

@@ -209,9 +209,9 @@ subroutine save_glac_restart (tile_dim_length, timestamp)
   call add_restart_axis(restart,'zfull',zfull(1:num_l),'Z','m','full level',sense=-1)
 
   ! Output data provides signature
-  call add_tile_data(restart,'temp', 'zfull', num_l, glac_temp_ptr, longname='glacier temperature',  units='degrees_K')
-  call add_tile_data(restart,'wl',   'zfull', num_l, glac_wl_ptr,   longname='liquid water content', units='kg/m2')
-  call add_tile_data(restart,'ws',   'zfull', num_l, glac_ws_ptr,   longname='solid water content',  units='kg/m2')
+  call add_tile_data(restart,'temp', 'zfull', glac_temp_ptr, longname='glacier temperature',  units='degrees_K')
+  call add_tile_data(restart,'wl',   'zfull', glac_wl_ptr,   longname='liquid water content', units='kg/m2')
+  call add_tile_data(restart,'ws',   'zfull', glac_ws_ptr,   longname='solid water content',  units='kg/m2')
 
   ! save performs io domain aggregation through mpp_io as with regular domain data
   call save_land_restart(restart)
