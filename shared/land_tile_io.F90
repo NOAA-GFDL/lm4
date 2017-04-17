@@ -354,7 +354,7 @@ subroutine add_tile_data_r0d_fptr_r0(restart,varname,fptr,longname,units)
             varname, data, (/CIDX/), lnd%domain, longname=longname, units=units, &
             restart_owns_data=.true.)
   else ! old land io
-     call write_tile_data_r0d_fptr_r0(restart%ncid,varname,fptr,longname,units)
+     call write_tile_data_r0d_fptr_r0(restart%ncid,varname,fptr,restart%tidx,longname,units)
   endif
 end subroutine add_tile_data_r0d_fptr_r0
 
@@ -377,7 +377,7 @@ subroutine add_tile_data_r0d_fptr_r0i(restart,varname,fptr,index,longname,units)
             varname, data, (/CIDX/), lnd%domain, longname=longname, units=units, &
             restart_owns_data=.true.)
   else ! old land io
-     call write_tile_data_r0d_fptr_r0i(restart%ncid,varname,fptr,index,longname,units)
+     call write_tile_data_r0d_fptr_r0i(restart%ncid,varname,fptr,restart%tidx,index,longname,units)
   endif
 end subroutine add_tile_data_r0d_fptr_r0i
 
@@ -1658,42 +1658,44 @@ end subroutine write_tile_data_i1d
 
 ! ============================================================================
 ! writes out 1-d real tiled data using "compression by gathering"
-subroutine write_tile_data_r1d(ncid,name,data,mask,long_name,units)
+subroutine write_tile_data_r1d(ncid,name,data,long_name,units)
   integer         , intent(in) :: ncid    ! netcdf ID
   character(len=*), intent(in) :: name    ! name of the variable
-  real            , intent(inout) :: data(:) ! data to write
-  integer         , intent(inout) :: mask(:) ! mask of valid data
+  real            , intent(in) :: data(:) ! data to write
   character(len=*), intent(in), optional :: units, long_name ! attributes
-  ! data and mask are "inout" to save the memory on send-receive buffers. On the
-  ! root io_domain PE mask is destroyed and data is filled with the information
-  ! from other PEs in our io_domain. On other PEs these arrays reman intact.
 
   ! ---- local vars
-  integer :: varid,iret,p
+  integer :: varid,iret,p,k
   real,    allocatable :: buffer(:) ! data buffer
+  integer, allocatable :: ntiles(:) ! list of land tile numbers for each of PEs in io_domain
 
-  ! if our PE doesn't do io (that is, it isn't the root io_domain processor),
-  ! simply send the data and mask of valid data to the root IO processor
+  ! if our PE doesn't do IO (that is, it isn't the root io_domain processor),
+  ! simply send data size and data the root IO processor
   if (mpp_pe()/=lnd%io_pelist(1)) then
-     call mpp_send(data(1), plen=size(data), to_pe=lnd%io_pelist(1), tag=COMM_TAG_5)
-     call mpp_send(mask(1), plen=size(data), to_pe=lnd%io_pelist(1), tag=COMM_TAG_6)
+     call mpp_send(size(data), plen=1,          to_pe=lnd%io_pelist(1), tag=COMM_TAG_6)
+     call mpp_send(data(1),    plen=size(data), to_pe=lnd%io_pelist(1), tag=COMM_TAG_5)
   else
-     ! gather data and masks from the processors in io_domain
-     allocate(buffer(size(data)))
+     allocate(ntiles(size(lnd%io_pelist)))
+     ntiles(1) = size(data)
      do p = 2,size(lnd%io_pelist)
-        call mpp_recv(buffer(1), glen=size(data), from_pe=lnd%io_pelist(p), tag=COMM_TAG_5)
-        call mpp_recv(mask(1),   glen=size(data), from_pe=lnd%io_pelist(p), tag=COMM_TAG_6)
-        where(mask>0) data = buffer
+        call mpp_recv(ntiles(p), from_pe=lnd%io_pelist(p), glen=1, tag=COMM_TAG_6)
      enddo
-     ! clean up allocated memory
-     deallocate(buffer)
+     ! gather data and masks from the processors in io_domain
+     allocate(buffer(sum(ntiles(:))))
+     buffer(1:ntiles(1)) = data(:)
+     k=ntiles(1)+1
+     do p = 2,size(lnd%io_pelist)
+        call mpp_recv(buffer(k), glen=ntiles(p), from_pe=lnd%io_pelist(p), tag=COMM_TAG_5)
+        k = k+ntiles(p)
+     enddo
      ! create variable, if it does not exist
      if(nf_inq_varid(ncid,name,varid)/=NF_NOERR) then
         __NF_ASRT__(nfu_def_var(ncid,name,NF_DOUBLE,(/tile_index_name/),long_name,units,varid))
      endif
      ! write data
      iret = nf_enddef(ncid) ! ignore errors (file may be in data mode already)
-     __NF_ASRT__(nf_put_var_double(ncid,varid,data))
+     __NF_ASRT__(nf_put_var_double(ncid,varid,buffer))
+     deallocate(buffer,ntiles)
   endif
   ! wait for all PEs to finish: necessary because mpp_send doesn't seem to
   ! copy the data, and therefore on non-root io_domain PE there would be a chance
@@ -1916,75 +1918,52 @@ end subroutine write_tile_data_i0d_fptr
 
 
 ! ============================================================================
-subroutine write_tile_data_r0d_fptr_r0(ncid,name,fptr,long_name,units)
+subroutine write_tile_data_r0d_fptr_r0(ncid,name,fptr,idx,long_name,units)
   integer         , intent(in) :: ncid ! netcdf id
+  integer         , intent(in) :: idx(:) ! index dimension data
   character(len=*), intent(in) :: name ! name of the variable to write
   procedure(fptr_r0) :: fptr ! subroutine returning the pointer to the data to be written
   character(len=*), intent(in), optional :: units, long_name
 
   ! ---- local vars
-  integer, allocatable :: mask(:)   ! mask of valid data
-  integer, allocatable :: idx(:)    ! index dimension
-  real   , allocatable :: data(:)   ! data to be written
+  real, allocatable :: data(:)   ! data to be written
   type(land_tile_type), pointer :: tileptr ! pointer to tiles
-  real   , pointer :: ptr ! pointer to the tile data
-  integer :: ntiles  ! total number of tiles (length of compressed dimension)
+  real, pointer :: ptr ! pointer to the tile data
   integer :: i
 
-  ntiles = ntidx2_saved
-
-  ! allocate data
-  allocate(data(ntiles),idx(ntiles),mask(ntiles))
-  data = NF_FILL_DOUBLE
-  mask = 0
-
-  idx(:) = tidx2_saved(:)
-
-  ! gather data into an array along the tile dimension. It is assumed that
-  ! the tile dimension spans all the tiles that need to be written.
+  allocate(data(size(idx)))
+  ! gather data into an array along the tile dimension.
   do i = 1, size(idx)
      call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
                           lnd%ls,lnd%gs,lnd%ge, tileptr)
      call fptr(tileptr, ptr)
      if(associated(ptr)) then
         data(i) = ptr
-        mask(i) = 1
+     else
+        data(i) = NF_FILL_DOUBLE
      endif
   enddo
-
-  ! write data
-  call write_tile_data_r1d(ncid,name,data,mask,long_name,units)
-
-  ! free allocated memory
-  deallocate(data,idx,mask)
+  call write_tile_data_r1d(ncid,name,data,long_name,units)
+  deallocate(data)
 end subroutine write_tile_data_r0d_fptr_r0
 
-subroutine write_tile_data_r0d_fptr_r0i(ncid,name,fptr,index,long_name,units)
+subroutine write_tile_data_r0d_fptr_r0i(ncid,name,fptr,idx,index,long_name,units)
   integer         , intent(in) :: ncid  ! netcdf id
   character(len=*), intent(in) :: name  ! name of the variable to write
   procedure(fptr_r0i)          :: fptr  ! subroutine returning the pointer to the
                                         ! data to be written
+  integer         , intent(in) :: idx(:) ! index dimension data
   integer         , intent(in) :: index ! index of the fptr array element to
                                         ! write out
   character(len=*), intent(in), optional :: units, long_name
 
   ! ---- local vars
-  integer, allocatable :: idx(:)    ! index dimension
-  real   , allocatable :: data(:)   ! data to be written
-  integer, allocatable :: mask(:)   ! mask of valid data
+  real, allocatable :: data(:)   ! data to be written
   type(land_tile_type), pointer :: tileptr ! pointer to tiles
-  real   , pointer :: ptr ! pointer to the tile data
-  integer :: ntiles  ! total number of tiles (length of compressed dimension)
+  real, pointer :: ptr ! pointer to the tile data
   integer :: i
 
-  ntiles =ntidx2_saved
-
-  ! allocate data
-  allocate(data(ntiles),idx(ntiles),mask(ntiles))
-  data = NF_FILL_DOUBLE
-  mask = 0
-
-  idx(:) = tidx2_saved(:)
+  allocate(data(size(idx)))
 
   ! gather data into an array along the tile dimension. It is assumed that
   ! the tile dimension spans all the tiles that need to be written.
@@ -1994,15 +1973,12 @@ subroutine write_tile_data_r0d_fptr_r0i(ncid,name,fptr,index,long_name,units)
      call fptr(tileptr,index,ptr)
      if(associated(ptr)) then
         data(i) = ptr
-        mask(i) = 1
+     else
+        data(i) = NF_FILL_DOUBLE
      endif
   enddo
-
-  ! write data
-  call write_tile_data_r1d(ncid,name,data,mask,long_name,units)
-
-  ! free allocated memory
-  deallocate(data,idx)
+  call write_tile_data_r1d(ncid,name,data,long_name,units)
+  deallocate(data)
 end subroutine write_tile_data_r0d_fptr_r0i
 
 subroutine write_tile_data_i1d_fptr_i0i(ncid,name,fptr,zdim,zdim_size,long_name,units)
