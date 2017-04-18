@@ -2434,7 +2434,6 @@ subroutine land_sw_radiation (lm2, &
      snow_area, &
      vegn_refl_dif, vegn_tran_dif, &
      vegn_refl_dir, vegn_tran_dir, vegn_tran_dir_dir,  &
-     vegn_cover, &
      ! output
      Sg_dir, Sg_dif, Sv_dir, Sv_dif, &
      land_albedo_dir, land_albedo_dif )
@@ -2444,10 +2443,9 @@ subroutine land_sw_radiation (lm2, &
        subs_refl_dir(NBANDS), subs_refl_dif(NBANDS), subs_refl_lw,  & ! sub-snow reflectances for direct, diffuse, and LW radiation respectively
        snow_refl_dir(NBANDS), snow_refl_dif(NBANDS), snow_refl_lw,  & ! snow reflectances for direct, diffuse, and LW radiation respectively
        snow_area, &
-       vegn_refl_dir(NBANDS), vegn_tran_dir(NBANDS), & ! vegn reflectance & transmittance for direct light
-       vegn_tran_dir_dir(NBANDS), & !
        vegn_refl_dif(NBANDS), vegn_tran_dif(NBANDS), & ! vegn reflectance & transmittance for diffuse light
-       vegn_cover
+       vegn_refl_dir(NBANDS), vegn_tran_dir(NBANDS), & ! vegn reflectance & transmittance for direct light
+       vegn_tran_dir_dir(NBANDS)
 
   real, intent(out) :: &
      Sg_dir(NBANDS), Sg_dif(NBANDS), & ! fraction of downward short-wave absorbed by ground and snow
@@ -2646,7 +2644,6 @@ subroutine update_land_bc_fast (tile, l ,k, land2cplr, is_init)
        snow_area_rad,  &
        vegn_refl_dif, vegn_tran_dif, &
        vegn_refl_dir, vegn_tran_dir, vegn_tran_dir_dir, &
-       vegn_cover, &
        ! output
        tile%Sg_dir, tile%Sg_dif, tile%Sv_dir, tile%Sv_dif, &
        tile%land_refl_dir, tile%land_refl_dif )
