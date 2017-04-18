@@ -127,12 +127,6 @@ end type land_restart_type
 include 'netcdf.inc'
 #define __NF_ASRT__(x) call print_netcdf_error((x),module_name,__LINE__)
 
-! --- The following is for new_land_io=.false. Will be removed in the future.
-!     Adding these variables to avoid reading data from the restart file written from
-!     io root pe.
-integer :: ntidx2_saved = 0
-integer, allocatable :: tidx2_saved(:)
-
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ==============================================================================
@@ -264,7 +258,6 @@ subroutine add_restart_axis(restart,name,data,cartesian,units,longname,sense)
      data_(:) = data(:)
      call fms_io_unstructured_register_restart_axis(restart%rhandle, restart%basename, &
                name, data_, cartesian, lnd%domain, units=units, longname=longname, sense=sense)
-!----------
   else
      if (mpp_pe()==lnd%io_pelist(1)) then
         __NF_ASRT__(nfu_def_dim(restart%ncid,name,data(:),longname,units))
@@ -938,7 +931,6 @@ subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, tile_dim_lengt
      ! gather tile indices from all processors in our io_domain
      allocate(tidx2(sum(ntiles(:))))
      tidx2(1:ntiles(1))=tidx(:)
-     ntidx2_saved = sum(ntiles(:))
      k=ntiles(1)+1
      do p = 2,size(lnd%io_pelist)
         call mpp_recv(tidx2(k), from_pe=lnd%io_pelist(p), glen=ntiles(p), tag=COMM_TAG_2)
@@ -967,13 +959,6 @@ subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, tile_dim_lengt
      __NF_ASRT__(nfu_put_att(ncid,tile_index_name,'compress','tile lat lon'))
      __NF_ASRT__(nfu_put_att(ncid,tile_index_name,'valid_min',0))
 
-     ntidx2_saved = size(tidx2(:))
-     if(allocated(tidx2_saved)) deallocate(tidx2_saved)
-     allocate(tidx2_saved(ntidx2_saved))
-     tidx2_saved(:) = tidx2(:)
-     ! release the data we no longer need
-     deallocate(ntiles, tidx2)
-
      ! determine the local value of space reserved in the header; by default 16K
      reserve_ = 1024*16
      if(present(reserve)) reserve_ = reserve
@@ -985,21 +970,6 @@ subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, tile_dim_lengt
      ! The above call reserves some space at the end of the netcdf header for
      ! future expansion without library's having to rewrite the entire file. See
      ! manual pages netcdf(3f) or netcdf(3) for more information.
-  endif
-
-  !--- send the tidx2 information to other processors.
-  if (mpp_pe() == lnd%io_pelist(1)) then
-     do p = 2,size(lnd%io_pelist)
-        call mpp_send(ntidx2_saved, lnd%io_pelist(p), tag=COMM_TAG_3)
-     enddo
-     do p = 2,size(lnd%io_pelist)
-        call mpp_send(tidx2_saved(1), plen=ntidx2_saved, to_pe=lnd%io_pelist(p), tag=COMM_TAG_4)
-     enddo
-  else
-     call mpp_recv(ntidx2_saved, lnd%io_pelist(1), tag=COMM_TAG_3)
-     if(allocated(tidx2_saved)) deallocate(tidx2_saved)
-     allocate(tidx2_saved(ntidx2_saved))
-     call mpp_recv(tidx2_saved(1), glen=ntidx2_saved, from_pe=lnd%io_pelist(1), tag=COMM_TAG_4)
   endif
 
   call mpp_sync()
