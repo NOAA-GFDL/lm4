@@ -240,7 +240,7 @@ subroutine vegn_data_cover ( cohort, snow_depth, vegn_cover, &
   real, intent(out) :: vegn_cover
   real, intent(out) :: vegn_cover_snow_factor
 
-  cohort%cover = 1 - exp(-cohort%lai)
+  cohort%cover = 1 - exp(-max(cohort%lai, cohort%sai))
   if (use_mcm_masking) then
      vegn_cover_snow_factor =  &
            (1 - min(1., 0.5*sqrt(max(snow_depth,0.)/cohort%snow_crit)))

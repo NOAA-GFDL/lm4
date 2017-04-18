@@ -227,7 +227,7 @@ subroutine vegn_rad_properties_twostream( cohort, cosz, &
      leaf_tran = (1-fs)*cohort%leaf_tran(i)
 
      call twostream ( max(cosz, min_cosz), &
-          spdata(sp)%mu_bar, cohort%lai, albedo_surf, &
+          spdata(sp)%mu_bar, max(cohort%lai,cohort%sai), albedo_surf, &
           spdata(sp)%phi1, spdata(sp)%phi2, &
           leaf_refl, leaf_tran, &
           vegn_tran_dir(i), vegn_sctr_dir(i), vegn_refl_dir(i), &

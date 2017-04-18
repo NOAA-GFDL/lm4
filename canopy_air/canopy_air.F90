@@ -281,7 +281,7 @@ subroutine cana_turbulence (u_star,&
      a = a_max
      wind=u_star/VONKARM*log((height-land_d)/land_z0m) ! normalized wind on top of the canopy
 
-     con_v_h = (2*max(vegn_lai,lai_min_turb)*leaf_co*(1-exp(-a/2))/a)*sqrt(wind/vegn_d_leaf)
+     con_v_h = (2*max(vegn_lai,vegn_sai,lai_min_turb)*leaf_co*(1-exp(-a/2))/a)*sqrt(wind/vegn_d_leaf)
 
      if (land_d > 0.06 .and. vegn_idx > 0.25) then
         Kh_top = VONKARM*u_star*(height-land_d)
