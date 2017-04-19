@@ -47,6 +47,7 @@ public :: add_restart_axis
 public :: add_tile_data, add_int_tile_data, add_scalar_data
 public :: get_tile_data, get_int_tile_data, get_scalar_data
 public :: field_exists
+public :: gather_tile_index
 
 public :: read_field
 
@@ -58,10 +59,8 @@ public :: print_netcdf_error
 
 ! ==== end of public interfaces ==============================================
 interface create_tile_out_file
-   module procedure create_tile_out_file_idx
-   module procedure create_tile_out_file_fptr
+   module procedure create_tile_out_file_idx_old
    module procedure create_tile_out_file_idx_new
-   module procedure create_tile_out_file_fptr_new
 end interface
 
 interface add_tile_data
@@ -144,15 +143,15 @@ subroutine init_land_restart(restart,filename,tile_exists,tile_dim_length)
   ! max number of tiles per grid cell
   restart%tile_dim_length = tile_dim_length
   ! allocate and fill tile compression index
-  call get_tile_index(tile_exists,restart%tidx)
+  call gather_tile_index(tile_exists,restart%tidx)
 
   if (new_land_io) then
      call create_tile_out_file_idx_new(restart%rhandle,restart%basename,restart%tidx, &
           restart%tile_dim_length)
      restart%should_free_rhandle = .TRUE.
   else
-     call create_tile_out_file_idx(restart%ncid,'RESTART/'//trim(restart%basename), &
-          lnd%coord_glon, lnd%coord_glat, restart%tidx, restart%tile_dim_length)
+     call create_tile_out_file_idx_old(restart%ncid,'RESTART/'//trim(restart%basename), &
+          restart%tidx, restart%tile_dim_length, lnd%coord_glon, lnd%coord_glat)
   endif
 end subroutine init_land_restart
 
@@ -878,7 +877,7 @@ end subroutine get_input_restart_name
 !
 ! The file is actually created only by root processor of our io_domain; the rest
 ! of the processors just open the created file in NOWRITE mode.
-subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, tile_dim_length, reserve)
+subroutine create_tile_out_file_idx_old(ncid, name, tidx, tile_dim_length, glon, glat, reserve)
   integer          , intent(out) :: ncid      ! resulting NetCDF id
   character(len=*) , intent(in)  :: name      ! name of the file to create
   real             , intent(in)  :: glon(:)   ! longitudes of the grid centers
@@ -973,54 +972,7 @@ subroutine create_tile_out_file_idx(ncid, name, glon, glat, tidx, tile_dim_lengt
   endif
 
   call mpp_sync()
-end subroutine create_tile_out_file_idx
-
-! =============================================================================
-subroutine create_tile_out_file_fptr(ncid, name, glon, glat, tile_exists, &
-     tile_dim_length, reserve, created)
-  integer          , intent(out) :: ncid      ! resulting NetCDF id
-  character(len=*) , intent(in)  :: name      ! name of the file to create
-  real             , intent(in)  :: glon(:)   ! longitudes of the grid centers
-  real             , intent(in)  :: glat(:)   ! latitudes of the grid centers
-  procedure(tile_exists_func)    :: tile_exists ! existence detector function:
-      ! returns true if specific tile exists (hence should be written to restart)
-  integer          , intent(in)  :: tile_dim_length ! length of tile axis
-  integer, optional, intent(in)  :: reserve   ! amount of space to reserve for
-  logical, optional, intent(out) :: created   ! indicates wether the file was
-      ! created; it is set to false if no restart needs to be written, in case
-      ! the total number of qualifying tiles in this domain is equal to zero
-
-  ! ---- local vars
-  type(land_tile_enum_type) :: ce  ! tile list enumerator
-  type(land_tile_type), pointer :: tile
-  integer, allocatable :: idx(:)   ! integer compressed index of tiles
-  integer :: i,j,l,k,n
-
-  ! count total number of tiles in this domain
-  ce = first_elmt(land_tile_map, lnd%ls)
-  n  = 0
-  do while (loop_over_tiles(ce,tile))
-     if (tile_exists(tile)) n = n+1
-  end do
-
-  ! calculate compressed tile index to be written to the restart file;
-  allocate(idx(max(n,1))); idx(:) = -1 ! set init value to a known invalid index
-  ce = first_elmt(land_tile_map, lnd%ls)
-  n = 1
-  do while (loop_over_tiles(ce,tile,i=i,j=j,k=k))
-     if(tile_exists(tile)) then
-        idx (n) = (k-1)*lnd%nlon*lnd%nlat + (j-1)*lnd%nlon + (i-1)
-        n = n+1
-     endif
-  end do
-  ! create tile output file, defining horizontal coordinate and compressed
-  ! dimension
-  call create_tile_out_file_idx(ncid, name, glon, glat, idx, tile_dim_length, reserve)
-  deallocate(idx)
-
-  if (present(created)) created = .true.
-end subroutine create_tile_out_file_fptr
-
+end subroutine create_tile_out_file_idx_old
 
 subroutine create_tile_out_file_idx_new(rhandle,name,tidx,tile_dim_length,zaxis_data,soilCCohort_data)
   type(restart_file_type), intent(inout) :: rhandle     ! restart file handle
@@ -1058,29 +1010,9 @@ subroutine create_tile_out_file_idx_new(rhandle,name,tidx,tile_dim_length,zaxis_
   endif
 end subroutine create_tile_out_file_idx_new
 
-subroutine create_tile_out_file_fptr_new(rhandle,idx,name,tile_exists,tile_dim_length,zaxis_data,created,soilCCohort_data)
-  type(restart_file_type),intent(out) :: rhandle            ! resulting NetCDF id
-  integer, allocatable,   intent(out) :: idx(:)             ! rank local tile index vector
-  character(len=*),      intent(in)  :: name                ! name of the file to create
-  procedure(tile_exists_func)    :: tile_exists ! existence detector function:
-      ! returns true if specific tile exists (hence should be written to restart)
-  integer              , intent(in)  :: tile_dim_length     ! length of tile axis
-  real,        optional, intent(in)  :: zaxis_data(:)       ! data for the Z-axis
-  logical,     optional, intent(out) :: created   ! indicates wether the file was
-      ! created; it is set to false if no restart needs to be written, in case
-      ! the total number of qualifying tiles in this domain is equal to zero
-  real,        optional, intent(in)  :: soilCCohort_data(:)
-
-  call get_tile_index(tile_exists,idx)
-  ! create tile output file, defining horizontal coordinate and compressed dimension
-  call create_tile_out_file_idx_new(rhandle,name,idx,tile_dim_length,zaxis_data,soilCCohort_data)
-
-  if (present(created)) created = .true.
-end subroutine create_tile_out_file_fptr_new
-
 ! ============================================================================
 ! given a tile existence detection function, allocates and fills the tile index vector
-subroutine get_tile_index(tile_exists,idx)
+subroutine gather_tile_index(tile_exists,idx)
   procedure(tile_exists_func) :: tile_exists   ! existence detector function:
          ! returns true if specific tile exists (hence should be written to restart)
   integer, allocatable,  intent(out) :: idx(:) ! rank local tile index vector
@@ -1107,7 +1039,7 @@ subroutine get_tile_index(tile_exists,idx)
         n = n+1
      endif
   end do
-end subroutine get_tile_index
+end subroutine gather_tile_index
 
 ! ============================================================================
 ! given compressed index, sizes of the global grid, 2D array of tile lists
@@ -1611,7 +1543,7 @@ subroutine write_tile_data_i1d(ncid,name,data,long_name,units)
      do p = 2,size(lnd%io_pelist)
         call mpp_recv(ntiles(p), from_pe=lnd%io_pelist(p), glen=1, tag=COMM_TAG_3)
      enddo
-     ! gather data and masks from all processors in io_domain
+     ! gather data from all processors in io_domain
      allocate(buffer(sum(ntiles(:))))
      buffer(1:ntiles(1)) = data(:)
      k=ntiles(1)+1
@@ -1657,7 +1589,7 @@ subroutine write_tile_data_r1d(ncid,name,data,long_name,units)
      do p = 2,size(lnd%io_pelist)
         call mpp_recv(ntiles(p), from_pe=lnd%io_pelist(p), glen=1, tag=COMM_TAG_5)
      enddo
-     ! gather data and masks from the processors in io_domain
+     ! gather data from the processors in io_domain
      allocate(buffer(sum(ntiles(:))))
      buffer(1:ntiles(1)) = data(:)
      k=ntiles(1)+1
@@ -1826,7 +1758,7 @@ subroutine write_tile_data_r3d(ncid,name,data,dim1,dim2,long_name,units)
      enddo
      allocate(buff3(sum(ntiles),size(data,2),size(data,3)),&
               buff1(maxval(ntiles)*size(data,2)*size(data,3)))
-     ! gather data and masks from the processors in our io_domain
+     ! gather data from the processors in our io_domain
      buff3(1:ntiles(1),:,:) = data(:,:,:)
      k=ntiles(1)
      do p = 2,size(lnd%io_pelist)
