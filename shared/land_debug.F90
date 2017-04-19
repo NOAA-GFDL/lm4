@@ -62,8 +62,7 @@ end interface check_temp_range
 ! conservation tolerances for use across the code. This module doesn't use
 ! them, just serves as a convenient place to share them across all land code
 public :: water_cons_tol
-public :: carbon_cons_tol
-public :: nitrogen_cons_tol
+public :: carbon_cons_tol, nitrogen_cons_tol
 public :: do_check_conservation
 
 ! ==== module constants ======================================================

@@ -92,6 +92,7 @@ data HARV_POOL_NAMES &
 real, public, parameter :: C2B = 2.0  ! carbon to biomass conversion factor
 
 real, public, parameter :: BSEED = 5e-5 ! seed density for supply/demand calculations, kg C/m2
+real, public, parameter :: C2N_SEED = 50 ! seed C:N ratio
 
 ! ---- public types
 public :: spec_data_type
@@ -121,7 +122,9 @@ public :: &
     N_fixer_turnover_time, N_fixer_C_efficiency, &
     c2n_N_fixer, N_limits_live_biomass, &
     root_NH4_uptake_rate, root_NO3_uptake_rate, &
-    k_ammonium_root_uptake, k_nitrate_root_uptake, excess_stored_N_leakage_rate, calc_SLA_from_lifespan
+    k_ammonium_root_uptake, k_nitrate_root_uptake, excess_stored_N_leakage_rate, calc_SLA_from_lifespan, &
+    myc_growth_rate,myc_N_to_plant_rate,et_myc
+
 
 logical, public :: do_ppa = .FALSE.
 logical, public :: do_alt_allometry = .FALSE.
@@ -256,7 +259,6 @@ type spec_data_type
 
   real    :: root_exudate_frac = 0.0 ! fraction of NPP that ends up in root exudates
   real    :: root_exudate_N_frac = 0.0 ! N fraction of root exudates. See e.g. Drake et al 2013
-  real    :: root_exudate_frac_max = 0.5     ! Maximum fraction of NPP that can be allocated to mycorrhizae and root exudation
   logical :: dynamic_root_exudation = .FALSE. ! Whether to dynamically determine root exudation rate from plant N limitation
 
   real    :: fsc_liv    = 0.8 ! Species-specific fsc_liv, separate for backwards compatibility
@@ -367,6 +369,9 @@ real :: root_NO3_uptake_rate = 0.1      ! kg/m3/year (assumes rhizosphere only, 
 real :: k_ammonium_root_uptake = 3e-2   ! Half-saturation for root NH4 uptake (kgN/m3)
 real :: k_nitrate_root_uptake = 3e-2    ! Half-saturation for root NO3 uptake (kgN/m3)
 real :: excess_stored_N_leakage_rate = 1.0 ! Leaking of excess cohort stored N back to soil (Fraction per year)
+real :: myc_growth_rate = 100.0        ! Rate at which mycorrhizae convert reservoir to biomass (Fraction per year)
+real :: myc_N_to_plant_rate = 100.0    ! Rate at which plants send N from reservoir to plant (Fraction per year)
+real :: et_myc = 0.7                   ! Fraction of mycorrhizal turnover NOT mineralized to CO2 and NH4
 
 logical :: calc_SLA_from_lifespan      ! In LM3, whether to calculate SLA from leaf lifespan or use namelist value
 
@@ -398,7 +403,9 @@ namelist /vegn_data_nml/ &
   N_fixer_turnover_time, N_fixer_C_efficiency, &
   c2n_N_fixer, N_limits_live_biomass, &
   root_NH4_uptake_rate, root_NO3_uptake_rate, &
-  k_ammonium_root_uptake, k_nitrate_root_uptake, excess_stored_N_leakage_rate, calc_SLA_from_lifespan
+  k_ammonium_root_uptake, k_nitrate_root_uptake, excess_stored_N_leakage_rate, calc_SLA_from_lifespan,&
+  myc_growth_rate,myc_N_to_plant_rate,et_myc
+
 
 
 contains ! ###################################################################
@@ -763,7 +770,6 @@ subroutine read_species_data(name, sp, errors_found)
 
   __GET_SPDATA_REAL__(root_exudate_frac)
   __GET_SPDATA_REAL__(root_exudate_N_frac)
-  __GET_SPDATA_REAL__(root_exudate_frac_max)
   __GET_SPDATA_LOGICAL__(dynamic_root_exudation)
   ! nitrogen-related parameters
   __GET_SPDATA_REAL__(fsc_liv)
@@ -1022,7 +1028,6 @@ subroutine print_species_data(unit)
 
   call add_row(table, 'root_exudate_frac', spdata(:)%root_exudate_frac)
   call add_row(table, 'root_exudate_N_frac', spdata(:)%root_exudate_N_frac)
-  call add_row(table, 'root_exudate_frac_max', spdata(:)%root_exudate_frac_max)
   call add_row(table, 'dynamic_root_exudation', spdata(:)%dynamic_root_exudation)
   ! nitrogen-related parameters
   call add_row(table, 'fsc_liv',       spdata(:)%fsc_liv)

@@ -16,7 +16,7 @@ use vegn_data_mod, only : &
      MSPECIES, spdata, &
      vegn_to_use,  input_cover_types, vegn_index_constant, &
      mcv_min, mcv_lai, &
-     BSEED, LU_NTRL, LU_SCND, N_HARV_POOLS, &
+     BSEED, C2N_SEED, LU_NTRL, LU_SCND, N_HARV_POOLS, &
      LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, &
      FORM_GRASS, &
      scnd_biomass_bins, do_ppa
@@ -25,6 +25,8 @@ use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
      cohorts_can_be_merged, leaf_area_from_biomass, biomass_of_individual
 
 use soil_tile_mod, only : max_lev, N_LITTER_POOLS
+
+use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE_N
 
 implicit none
 private
@@ -52,6 +54,7 @@ public :: vegn_cover_cold_start
 
 public :: vegn_seed_supply
 public :: vegn_seed_demand
+public :: vegn_seed_N_supply
 
 public :: vegn_tran_priority ! returns transition priority for land use
 
@@ -567,7 +570,29 @@ function vegn_seed_supply ( vegn )
 end function vegn_seed_supply
 
 ! ============================================================================
-! TODO: do vegn_seed_demand and vegn_seed_supply make sense for PPA? or even the entire seed transport method?
+
+function vegn_seed_N_supply ( vegn )
+  real :: vegn_seed_N_supply
+  type(vegn_tile_type), intent(in) :: vegn
+
+  ! ---- local vars
+  real :: vegn_storedN
+  integer :: i
+
+  if(soil_carbon_option .NE. SOILC_CORPSE_N) then
+     vegn_seed_N_supply=0.0
+     return
+  endif
+
+  vegn_storedN = 0
+  do i = 1,vegn%n_cohorts
+     vegn_storedN = vegn_storedN + vegn%cohorts(i)%stored_N
+  enddo
+  vegn_seed_N_supply = MAX (vegn_storedN-BSEED/C2N_SEED, 0.0)
+
+end function vegn_seed_N_supply
+
+! ============================================================================
 function vegn_seed_demand ( vegn )
   real :: vegn_seed_demand
   type(vegn_tile_type), intent(in) :: vegn
@@ -583,12 +608,14 @@ function vegn_seed_demand ( vegn )
 end function vegn_seed_demand
 
 ! ============================================================================
-subroutine vegn_add_bliving ( vegn, delta )
+subroutine vegn_add_bliving ( vegn, delta ,deltaN)
   type(vegn_tile_type), intent(inout) :: vegn
   real :: delta ! increment of bliving
+  real,optional :: deltaN
 
   vegn%cohorts(1)%bliving = vegn%cohorts(1)%bliving + delta
-
+  if(present(deltaN)) vegn%cohorts(1)%stored_N = vegn%cohorts(1)%stored_N+deltaN
+  if(soil_carbon_option==SOILC_CORPSE_N .AND. vegn%cohorts(1)%stored_N<0) call error_mesg('vegn_add_bliving','resulting stored_N is less then 0', FATAL)
   if (vegn%cohorts(1)%bliving < 0)then
      call error_mesg('vegn_add_bliving','resulting bliving is less then 0', FATAL)
   endif
@@ -769,10 +796,11 @@ function vegn_tile_nitrogen(vegn) result(nitrogen) ; real nitrogen
            (vegn%cohorts(i)%root_N + vegn%cohorts(i)%sapwood_N + &
             vegn%cohorts(i)%wood_N + vegn%cohorts(i)%leaf_N + &
             vegn%cohorts(i)%stored_N + &
-            ! Symbiotes are counted as part of veg, not part of soil
+            ! Symbionts are counted as part of veg, not part of soil
             vegn%cohorts(i)%N_fixer_biomass_N + &
             vegn%cohorts(i)%myc_miner_biomass_N + &
-            vegn%cohorts(i)%myc_scavenger_biomass_N &
+            vegn%cohorts(i)%myc_scavenger_biomass_N + &
+            vegn%cohorts(i)%scav_myc_N_reservoir + vegn%cohorts(i)%mine_myc_N_reservoir + vegn%cohorts(i)%N_fixer_N_reservoir &
            )*vegn%cohorts(i)%nindivs
   enddo
   nitrogen = nitrogen + &    ! Harvest pools currently don't keep track of nitrogen

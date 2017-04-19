@@ -19,11 +19,12 @@ use vegn_data_mod, only : &
      HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, &
      HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
      spdata, agf_bs
-use soil_tile_mod, only : LEAF, CWOOD
-use vegn_tile_mod, only : vegn_tile_type
+use soil_tile_mod, only : LEAF, CWOOD, soil_tile_type
+use soil_mod, only : add_root_litter
+use vegn_tile_mod, only : vegn_tile_type, vegn_tile_lai
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools
 use soil_carbon_mod, only: soil_carbon_option, &
-     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N
+     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, N_C_TYPES, add_litter
 
 implicit none
 private
@@ -45,6 +46,7 @@ public :: do_harvesting
 character(len=*), parameter :: module_name = 'vegn_harvesting_mod'
 #include "../shared/version_variable.inc"
 real, parameter :: ONETHIRD = 1.0/3.0
+integer, parameter :: DAILY = 1, ANNUAL = 2
 
 ! ==== module data ===========================================================
 
@@ -60,10 +62,15 @@ real :: frac_wood_fast         = ONETHIRD ! fraction of wood consumed fast
 real :: frac_wood_med          = ONETHIRD ! fraction of wood consumed with medium speed
 real :: frac_wood_slow         = ONETHIRD ! fraction of wood consumed slowly
 real :: crop_seed_density      = 0.1     ! biomass of seeds left after crop harvesting, kg/m2
+real :: min_lai_for_grazing    = 0.0     ! no grazing if LAI lower than this threshold
+character(16) :: grazing_frequency = 'annual' ! or 'daily'
 namelist/harvesting_nml/ do_harvesting, grazing_intensity, grazing_residue, &
      frac_wood_wasted_harv, frac_wood_wasted_clear, waste_below_ground_wood, &
      frac_wood_fast, frac_wood_med, frac_wood_slow, &
-     crop_seed_density
+     crop_seed_density, &
+     grazing_frequency, min_lai_for_grazing
+
+integer :: grazing_freq = -1 ! inidicator of grazing frequency (ANNUAL or DAILY)
 
 contains ! ###################################################################
 
@@ -100,6 +107,17 @@ subroutine vegn_harvesting_init
           'sum of frac_wood_fast, frac_wood_med, and frac_wood_slow must be 1.0',&
           FATAL)
   endif
+  ! parse the grazing frequency parameter
+  select case(grazing_frequency)
+  case('annual')
+     grazing_freq = ANNUAL
+  case('daily')
+     grazing_freq = DAILY
+     ! scale grazing intensity for daily frequency
+     grazing_intensity = grazing_intensity/365.0
+  case default
+     call error_mesg('vegn_harvesting_init','grazing_frequency must be "annual" or "daily"',FATAL)
+  end select
 end subroutine vegn_harvesting_init
 
 
@@ -110,15 +128,16 @@ end subroutine vegn_harvesting_end
 
 ! ============================================================================
 ! harvest vegetation in a tile
-subroutine vegn_harvesting(vegn)
+subroutine vegn_harvesting(vegn,soil)
   type(vegn_tile_type), intent(inout) :: vegn
+  type(soil_tile_type), intent(inout) :: soil
 
   if (.not.do_harvesting) &
        return ! do nothing if no harvesting requested
 
   select case(vegn%landuse)
   case(LU_PAST)  ! pasture
-     call vegn_graze_pasture    (vegn)
+     call vegn_graze_pasture    (vegn,soil)
   case(LU_CROP)  ! crop
      call vegn_harvest_cropland (vegn)
   end select
@@ -126,8 +145,9 @@ end subroutine
 
 
 ! ============================================================================
-subroutine vegn_graze_pasture(vegn)
+subroutine vegn_graze_pasture(vegn,soil)
   type(vegn_tile_type), intent(inout) :: vegn
+  type(soil_tile_type), intent(inout) :: soil
 
   ! ---- local vars
   real ::  bdead0, balive0, bleaf0, blv0, bfroot0 ! initial combined biomass pools
@@ -135,10 +155,24 @@ subroutine vegn_graze_pasture(vegn)
   integer :: i
   real :: carbon_lost
   real :: delta_leaf, delta_root, delta_wood
+  real,dimension(n_C_types) :: leaflitter_C,woodlitter_C,bglitter_C,leaflitter_N,woodlitter_N,bglitter_N
+  real :: wood_n2c
 
   ! update biomass pools for each cohort according to harvested fraction
   do i = 1,vegn%n_cohorts
      associate (cc=>vegn%cohorts(i), sp=>spdata(vegn%cohorts(i)%species))
+
+  if ( vegn_tile_LAI(vegn) .lt. min_lai_for_grazing ) return
+
+     ! This makes sure biomass pools are correct before calculating changes
+     ! in leaf biomass and such, just in case it wasn't called before
+     call update_biomass_pools(cc);
+
+         if(cc%bwood>0) then
+           wood_n2c=cc%wood_N/cc%bwood
+         else
+           wood_n2c=0.0
+         endif
      ! calculate total biomass pools for the patch
      balive0 =  cc%bl + cc%blv + cc%br
      bleaf0  =  cc%bliving*cc%Pl  !cc%bl + cc%blv
@@ -189,31 +223,49 @@ subroutine vegn_graze_pasture(vegn)
           delta_wood=bdead0-bdead1
         endif
 
-        vegn%litter_buff_C(:,LEAF) = vegn%litter_buff_C(:,LEAF) + &
-             [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*(delta_leaf)*grazing_residue
-        vegn%litter_buff_C(:,CWOOD) = vegn%litter_buff_C(:,CWOOD) + &
-             [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*agf_bs*(delta_wood)*grazing_residue
-        vegn%fsc_pool_bg = vegn%fsc_pool_bg + grazing_residue*( &
-              sp%fsc_froot*(delta_root) + &
-              sp%fsc_liv*(delta_leaf) + &
-              (1-agf_bs)*sp%fsc_wood*(delta_wood))
-        vegn%ssc_pool_bg = vegn%ssc_pool_bg + grazing_residue*(&
-              (1-sp%fsc_froot)*(delta_root) + &
-              (1-sp%fsc_liv)*(delta_leaf) + &
-              (1-agf_bs)*(1-sp%fsc_wood)*(delta_wood))
-        if (soil_carbon_option == SOILC_CORPSE_N) then
-           vegn%litter_buff_N(:,LEAF) = vegn%litter_buff_N(:,LEAF) + &
-              [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*(delta_leaf)*grazing_residue/sp%leaf_live_c2n
-           vegn%litter_buff_N(:,CWOOD) = vegn%litter_buff_N(:,CWOOD) + &
-              [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*agf_bs*(delta_wood)*grazing_residue/sp%wood_c2n
 
-           vegn%fsn_pool_bg=vegn%fsn_pool_bg + grazing_residue*(&
-                  sp%fsc_froot*(delta_root)/sp%froot_live_c2n + &
-                  (1-agf_bs)*sp%fsc_wood*(delta_wood)/sp%wood_c2n)
-           vegn%ssn_pool_bg = vegn%ssn_pool_bg + grazing_residue*(&
-                  (1-sp%fsc_froot)*(delta_root)/sp%froot_live_c2n + &
-                  (1-agf_bs)*(1-sp%fsc_wood)*(delta_wood)/sp%wood_c2n)
-        endif
+       leaflitter_C=(/(delta_leaf)*sp%fsc_liv,(delta_leaf)*(1-sp%fsc_liv),0.0/)*grazing_residue
+       woodlitter_C=(/(delta_wood)*sp%fsc_wood,(delta_wood)*(1-sp%fsc_wood),0.0/)*agf_bs*grazing_residue
+       bglitter_C=(/(sp%fsc_froot*(delta_root) +(1-agf_bs)*sp%fsc_wood*(delta_wood)),&
+                     (1.0-sp%fsc_froot)*(delta_root) +(1-agf_bs)*(1.0-sp%fsc_wood)*(delta_wood),0.0/)*grazing_residue
+
+       if(soil_carbon_option == SOILC_CORPSE_N) then
+         leaflitter_N=leaflitter_C/sp%leaf_live_c2n
+         woodlitter_N=woodlitter_C/sp%leaf_live_c2n
+         bglitter_N=(/grazing_residue*(sp%fsc_froot*(delta_root)/sp%froot_live_c2n +(1-agf_bs)*sp%fsc_wood*(delta_wood)*wood_n2c),&
+                      grazing_residue*((1-sp%fsc_froot)*(delta_root)/sp%froot_live_c2n +  (1-agf_bs)*(1-sp%fsc_wood)*(delta_wood)*wood_n2c),&
+                      0.0/)
+       else
+         leaflitter_N=(/0.0,0.0,0.0/)
+         woodlitter_N=(/0.0,0.0,0.0/)
+         bglitter_N=(/0.0,0.0,0.0/)
+       endif
+
+       if (grazing_freq==DAILY) then
+         ! Put carbon directly in soil pools
+         call add_litter(soil%litter(LEAF),leaflitter_C,leaflitter_N)
+         call add_litter(soil%litter(CWOOD),woodlitter_C,woodlitter_N)
+         call add_root_litter(soil,vegn,bglitter_C,bglitter_N)
+       else
+         vegn%litter_buff_C(:,LEAF) = vegn%litter_buff_C(:,LEAF) + &
+              [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*(delta_leaf)*grazing_residue
+         vegn%litter_buff_C(:,CWOOD) = vegn%litter_buff_C(:,CWOOD) + &
+              [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*agf_bs*(delta_wood)*grazing_residue
+
+         vegn%fsc_pool_bg=vegn%fsc_pool_bg + bglitter_C(1)
+         vegn%ssc_pool_bg = vegn%ssc_pool_bg + bglitter_C(2)
+
+
+         vegn%litter_buff_N(:,LEAF) = vegn%litter_buff_N(:,LEAF) + &
+            [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*(delta_leaf)*grazing_residue/sp%leaf_live_c2n
+         vegn%litter_buff_N(:,CWOOD) = vegn%litter_buff_N(:,CWOOD) + &
+            [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*agf_bs*(delta_wood)*grazing_residue/sp%wood_c2n
+
+
+         vegn%fsn_pool_bg=vegn%fsn_pool_bg + bglitter_N(1)
+         vegn%ssn_pool_bg = vegn%ssn_pool_bg + bglitter_N(2)
+
+       endif
      case default
         call error_mesg('vegn_graze_pasture','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
      end select

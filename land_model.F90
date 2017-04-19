@@ -253,8 +253,19 @@ integer :: &
   id_vegn_tran_dir, id_vegn_tran_dif, id_vegn_tran_lw,                     &
   id_vegn_sctr_dir,                                                        &
   id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T, id_total_C, id_total_N, &
-  id_water_cons, id_carbon_cons, id_nitrogen_cons, id_parnet, id_grnd_rh, id_cana_rh
+  id_water_cons, id_carbon_cons, id_nitrogen_cons, id_parnet, id_grnd_rh, id_cana_rh, &
+  id_DOCrunf, id_dis_DOC, id_DONrunf, id_dis_DON, &
+  id_NH4runf, id_dis_NH4,id_NO3runf, id_dis_NO3
+! diagnostic ids for canopy air tracers (moist mass ratio)
+integer, allocatable :: id_cana_tr(:)
 integer, allocatable :: id_runf_tr(:), id_dis_tr(:)
+! diag IDs of CMOR variables
+integer :: id_sftlf, id_sftgif
+integer :: id_prveg, id_tran, id_evspsblveg, id_evspsblsoi, id_nbr, &
+           id_snw, id_lwsnl, id_snm
+integer :: id_cropFrac, id_cropFracC3, id_cropFracC4, id_pastureFrac, id_residualFrac, &
+           id_grassFrac, id_grassFracC3, id_grassFracC4, &
+           id_treeFrac, id_c3pftFrac, id_c4pftFrac
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
 ! It is supposed to be double-precision signaling NaN, to trigger a trap when
@@ -1444,7 +1455,7 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   real :: lmass0, fmass0, heat0, cmass0, v0, nmass0, nflux0
   real :: lmass1, fmass1, heat1, cmass1, nmass1, nflux1
   logical :: calc_water_cons, calc_carbon_cons, calc_nitrogen_cons
-  character(64) :: tag
+  character(*), parameter :: tag = 'update_land_model_fast_0d'
 
   calc_water_cons  = do_check_conservation.or.(id_water_cons>0)
   calc_carbon_cons = do_check_conservation.or.(id_carbon_cons>0)
@@ -2187,7 +2198,6 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
   ! + conservation check, part 2: calculate totals in final state, and compare
   ! with previous totals
   if (calc_water_cons) then
-     tag = 'update_land_model_fast_0d'
      call get_tile_water(tile,lmass1,fmass1)
      if (do_check_conservation) call check_conservation (tag,'water', &
          lmass0+fmass0+(precip_l+precip_s-land_evap-(snow_frunf+subs_lrunf+snow_lrunf))*delta_time, &
@@ -2210,6 +2220,7 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
      else
        nflux1=0.0
      endif
+
      if (do_check_conservation) call check_conservation (tag,'nitrogen', &
         nmass0, nmass1 + (nflux0 - nflux1), nitrogen_cons_tol)
      call send_tile_data(id_nitrogen_cons, (nmass1-nflux1-nmass0+nflux0)/delta_time, tile%diag)
@@ -2345,6 +2356,20 @@ subroutine update_land_model_fast_0d ( tile, ix,iy,itile, N, land2cplr, &
      associate(c=>tile%vegn%cohorts)
      call send_cohort_data(id_parnet, tile%diag, c(1:N), swnet(:,BAND_VIS), weight=c(1:N)%layerfrac, op=OP_SUM)
      end associate
+   endif
+
+
+  ! CMOR variables
+  call send_tile_data(id_prveg, (precip_l+precip_s)*vegn_ifrac,       tile%diag)
+  call send_tile_data(id_tran,  vegn_uptk,                            tile%diag)
+  ! evspsblsoi is evaporation from *soil*, so we send zero from glaciers and lakes;
+  ! the result is averaged over the entire land surface, as required by CMIP. evspsblveg
+  ! doesn't need this distinction because it is already zero over glaciers and lakes.
+  if (associated(tile%soil)) then
+     call send_tile_data(id_evspsblsoi, subs_levap+subs_fevap,        tile%diag)
+  else
+     call send_tile_data(id_evspsblsoi, 0.0,                          tile%diag)
+
   endif
 
 end subroutine update_land_model_fast_0d

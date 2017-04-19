@@ -7,7 +7,7 @@ use constants_mod, only: PI
 use land_constants_mod, only: NBANDS, mol_h2o, mol_air
 use vegn_data_mod, only : spdata, &
    use_mcm_masking, use_bucket, critical_root_density, &
-   tg_c4_thresh, tg_c3_thresh, T_cold_tropical, l_fract, &
+   tg_c4_thresh, tg_c3_thresh, T_cold_tropical, &
    phen_ev1, phen_ev2, cmc_eps, N_limits_live_biomass, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
    LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDUOUS, FORM_GRASS, &
@@ -173,8 +173,13 @@ type :: vegn_cohort_type
   real :: N_fixer_biomass_C = 0.0
   real :: N_fixer_biomass_N = 0.0
 
-  ! Buffer pool for root exudation (so it's smoother than daily NPP fluctuations)
-  real :: root_exudate_buffer_C = 0.0
+  ! C and N reservoirs of symbiotic microbes (used for growth and transfers to plants)
+  real :: scav_myc_N_reservoir = 0.0
+  real :: scav_myc_C_reservoir = 0.0
+  real :: mine_myc_N_reservoir = 0.0
+  real :: mine_myc_C_reservoir = 0.0
+  real :: N_fixer_N_reservoir = 0.0
+  real :: N_fixer_C_reservoir = 0.0
 
   ! Nitrogen vegetation pools
   real :: stored_N = 0.0
@@ -205,7 +210,7 @@ real function biomass_of_individual(cohort)
           cohort%myc_scavenger_biomass_C + &
           cohort%myc_miner_biomass_C + &
           cohort%N_fixer_biomass_C + &
-          cohort%root_exudate_buffer_C
+          cohort%scav_myc_C_reservoir + cohort%mine_myc_C_reservoir + cohort%N_fixer_C_reservoir
 end function biomass_of_individual
 
 ! ============================================================================
@@ -656,8 +661,11 @@ subroutine update_biomass_pools(c)
 
   if(N_limits_live_biomass) then
 
-    if(c%total_N<0.0) call error_mesg('update_biomass_pools','totalN<0',FATAL)
-
+    if(c%total_N<0.0) then
+      __DEBUG4__(c%leaf_N,c%wood_N,c%root_N,c%sapwood_N)
+      __DEBUG3__(c%status,c%stored_N,c%total_N)
+      call error_mesg('update_biomass_pools','totalN<0',FATAL)
+    endif
       available_N = max(0.0,(c%total_N - c%bwood/spdata(c%species)%wood_c2n))
       N_demand = &
           (c%bl/spdata(c%species)%leaf_live_c2n+c%bsw/spdata(c%species)%sapwood_c2n+c%br/spdata(c%species)%froot_live_c2n)
@@ -686,6 +694,14 @@ subroutine update_biomass_pools(c)
   c%sapwood_N=c%bsw/spdata(c%species)%sapwood_c2n
   c%root_N=c%br/spdata(c%species)%froot_live_c2n
   c%stored_N=c%total_N-(c%leaf_N+c%wood_N+c%root_N+c%sapwood_N)
+
+  ! In rare cases wood N content growth could cause stored N to go below zero
+  ! In that case, make sure stored N is zero by reducing wood N
+  if (c%stored_N<0 .AND. N_limits_live_biomass) then
+     c%wood_N=c%wood_N+c%stored_N
+     c%stored_N=0.0
+  endif
+
 end subroutine update_biomass_pools
 
 

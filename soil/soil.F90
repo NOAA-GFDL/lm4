@@ -42,9 +42,8 @@ use soil_carbon_mod, only: poolTotals, poolTotals1, soilMaxCohorts, litterDensit
      update_pool, add_litter, add_C_N_to_rhizosphere, add_C_N_to_cohorts, &
      tracer_leaching_with_litter,transfer_pool_fraction, n_c_types, &
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
-     C_FAST, C_SLOW, C_MIC, c_shortname, c_longname, &
-     A_function, debug_pool, adjust_pool_ncohorts, &
-     mycorrhizal_decomposition, mycorrhizal_mineral_n_uptake_rate
+     C_FAST, C_SLOW, C_MIC, A_function, debug_pool, adjust_pool_ncohorts, c_shortname, c_longname, &
+     mycorrhizal_mineral_N_uptake_rate, mycorrhizal_decomposition, ammonium_solubility, nitrate_solubility
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, prev_elmt, current_tile, get_elmt_indices, &
@@ -253,15 +252,17 @@ integer ::  &
     id_excess, id_deficit, id_deficit_2, id_deficit_3, id_deficit_4, id_zeta, id_tau, &
     id_psi_bot, id_sat_frac, id_sat_depth, id_sat_dept2, &
     id_cf_1, id_cf_3, id_wt_1, id_wt_2, id_wt_2a, id_wt_2b, id_wt_3, id_wt2_3, id_wt_4, &
-    id_div_bf, id_div_if, id_div_al, &
+    id_div_bf, id_div_if, id_div_al, id_div, &
     id_z_cap, id_active_layer, id_surface_water, id_inun_frac, id_rsn_frac, id_flow, id_reflux, &
     id_protected_C_leaching, id_livemic_C_leaching, &
     id_protected_total_C, id_protected_total_N, &
     id_asoil,id_rsoil,&
     id_fast_DOC_div_loss,id_slow_DOC_div_loss,id_deadmic_DOC_div_loss, &
+    id_fast_DON_div_loss,id_slow_DON_div_loss,id_deadmic_DON_div_loss, &
     id_wet_frac, id_macro_infilt, &
     id_surf_DOC_loss, id_total_C_leaching, id_total_DOC_div_loss, &
-    id_total_DON_div_loss, id_total_NO3_div_loss, id_total_NH4_div_loss, id_passive_N_uptake
+    id_total_DON_div_loss, id_total_NO3_div_loss, id_total_NH4_div_loss, id_passive_N_uptake,&
+    id_Qmax
 
 integer :: &
     id_protected_C, id_livemic_total_C, id_deadmic_total_C, id_fsc, id_ssc, &
@@ -272,7 +273,7 @@ integer :: &
 
 integer, dimension(N_LITTER_POOLS) :: id_nlittercohorts, &
     id_litter_livemic_C, id_litter_total_C, &
-    id_litter_livemic_N, id_litter_total_N
+    id_litter_livemic_N, id_litter_total_N, id_litter_nitrate, id_litter_ammonium
 integer, dimension(N_C_TYPES) :: &
     id_soil_C,           id_soil_N, &
     id_soil_dissolved_C, id_soil_dissolved_N, &
@@ -283,7 +284,7 @@ integer, dimension(N_LITTER_POOLS,N_C_TYPES) :: &
     id_litter_C, id_litter_N, id_litter_dissolved_C, id_litter_dissolved_N, &
     id_litter_protected_C, id_litter_protected_N, &
     id_litter_rsoil_C,     id_litter_rsoil_N, &
-    id_litter_C_leaching !, id_litter_N_leaching
+    id_litter_C_leaching, id_litter_N_leaching
 
 ! FIXME: add N leaching terms to diagnostics?
 
@@ -292,6 +293,12 @@ integer :: &
     id_soil_NO3,id_soil_NH4,&
     id_total_denitrification_rate,id_soil_denitrification_rate,id_NO3_div_loss,&
     id_NH4_div_loss,id_total_N_mineralization_rate,id_total_N_immobilization_rate,id_total_nitrification_rate
+
+        ! diag IDs of CMOR variables
+    integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, id_mrfso, &
+        id_mrro, id_mrros, id_csoil, id_rh, &
+        id_csoilfast, id_csoilmedium, id_csoilslow
+
 
 ! test tridiagonal solver for advection
 integer :: id_st_diff
@@ -813,6 +820,7 @@ subroutine soil_init ( id_lon, id_lat, id_band, id_zfull )
   call send_tile_data_r0d_fptr(id_vwc_sat,      land_tile_map, soil_vwc_sat_ptr)
   call send_tile_data_r0d_fptr(id_K_sat,        land_tile_map, soil_k_sat_ref_ptr)
   call send_tile_data_r0d_fptr(id_K_gw,         land_tile_map, soil_k_sat_gw_ptr)
+  call send_tile_data_r0d_fptr(id_Qmax,         land_tile_map, soil_Qmax_ptr)
   call send_tile_data_r1d_fptr(id_w_fc,         land_tile_map, soil_w_fc_ptr)
   call send_tile_data_r1d_fptr(id_alpha,        land_tile_map, soil_alpha_ptr)
   call send_tile_data_r1d_fptr(id_refl_dry_dir, land_tile_map, soil_refl_dry_dir_ptr)
@@ -978,6 +986,13 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
        lnd%time, 'total rate of NH4 divergence loss', 'kg N/m^2/s', missing_value=initval)
    id_passive_N_uptake = register_cohort_diag_field ( 'vegn', 'passive_N_uptake',  &
         (/id_lon,id_lat/), lnd%time, 'Plant N uptake by root water flow', 'kg N/m2/year', missing_value=-1.0 )
+id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water divergence rate by layer','kg/m2/s',missing_value=-100.0)
+       id_fast_DON_div_loss = register_tiled_diag_field ( module_name, 'fast_DON_div_loss', (/id_lon,id_lat/),  &
+            lnd%time, 'total fast DON divergence loss', 'kg N/m2', missing_value=-100.0 )
+       id_slow_DON_div_loss = register_tiled_diag_field ( module_name, 'slow_DON_div_loss', (/id_lon,id_lat/),  &
+            lnd%time, 'total slow DON divergence loss', 'kg N/m2', missing_value=-100.0 )
+       id_deadmic_DON_div_loss = register_tiled_diag_field ( module_name, 'deadmic_DON_div_loss', (/id_lon,id_lat/),  &
+            lnd%time, 'total dead microbe DON divergence loss', 'kg N/m2', missing_value=-100.0 )
 
   id_rsoil = register_tiled_diag_field ( module_name, 'rsoil',  &
        axes(1:2), lnd%time, 'soil respiration', 'kg C/(m2 year)', missing_value=-100.0 )
@@ -1045,6 +1060,10 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
        axes(1:2),  lnd%time, 'live microbe <ltype> litter nitrogen', 'kg N/m2', missing_value=-100.0 )
   id_litter_total_N(:) = register_litter_diag_fields ( module_name, '<ltype>litter_total_N', &
        axes(1:2),  lnd%time, '<ltype> litter total nitrogen', 'kg N/m2', missing_value=-100.0 )
+ id_litter_ammonium(:) = register_litter_diag_fields ( module_name, '<ltype>litter_ammonium', &
+      axes(1:2),  lnd%time, '<ltype> litter ammonium', 'kg N/m2', missing_value=-100.0 )
+  id_litter_nitrate(:) = register_litter_diag_fields ( module_name, '<ltype>litter_nitrate', &
+       axes(1:2),  lnd%time, '<ltype> litter nitrate', 'kg N/m2', missing_value=-100.0 )
 
 
   id_total_NH4 = register_tiled_diag_field ( module_name, 'total_soil_NH4', axes(1:2),  &
@@ -1071,8 +1090,11 @@ subroutine soil_diag_init ( id_lon, id_lat, id_band, id_zfull)
       (/id_lon,id_lat/), lnd%time, 'Total N immobilization', 'kg N/(m2 year)', &
       missing_value=-100.0 )
   id_total_nitrification_rate = register_tiled_diag_field ( module_name, 'total_nitrification_rate',  &
-   (/id_lon,id_lat/), lnd%time, 'Total nitrification', 'kg N/(m2 year)', &
-   missing_value=-100.0 )
+       (/id_lon,id_lat/), lnd%time, 'Total nitrification', 'kg N/(m2 year)', &
+       missing_value=-100.0 )
+
+  id_Qmax = register_tiled_diag_field ( module_name, 'soil_Qmax', axes(1:2),  &
+       lnd%time, 'Maximum clay sorptive capacity', 'kg C/m3', missing_value=-100.0 )
 
   id_nsoilcohorts = register_tiled_diag_field ( module_name, 'n_soil_cohorts', axes,  &
        lnd%time, 'number of soil cohorts', missing_value=-100.0 )
@@ -2749,9 +2771,33 @@ end subroutine soil_step_1
    endif
 
 
-   ! New version that combines the two leaching steps and should do a better job of moving DOC from litter layer
-   ! For now, we are assuming that only leaf litter gets leached
-   ! ZMS Edited to allow for tiled fluxes. Also pass in water content before Richards.
+! Do plant nitrogen uptake
+! Passive uptake by roots, equal to N concentration times root water uptake
+! units of uptake: kg/m2/s
+! units of wl_before: mm = kg/m2
+! units of N: kg/m2
+! N/wl_before -> kg N/kg H2O
+where(wl_before>1.0e-4)
+  passive_ammonium_uptake = min(soil%soil_organic_matter(:)%ammonium,max(0.0,uptake*soil%soil_organic_matter(:)%ammonium*ammonium_solubility/wl_before*delta_time))
+  passive_nitrate_uptake = min(soil%soil_organic_matter(:)%nitrate,max(0.0,uptake*soil%soil_organic_matter(:)%nitrate*nitrate_solubility/wl_before*delta_time))
+elsewhere
+  passive_ammonium_uptake=0.0
+  passive_nitrate_uptake=0.0
+endwhere
+
+  soil%soil_organic_matter(:)%ammonium=soil%soil_organic_matter(:)%ammonium-passive_ammonium_uptake
+  soil%soil_organic_matter(:)%nitrate=soil%soil_organic_matter(:)%nitrate-passive_nitrate_uptake
+
+  ! FIXME This needs to be updated to work with PPA cohorts!
+  vegn%cohorts(1)%stored_N = vegn%cohorts(1)%stored_N+sum(passive_ammonium_uptake+passive_nitrate_uptake)
+
+  call send_tile_data(id_passive_N_uptake,sum(passive_ammonium_uptake+passive_nitrate_uptake)/dt_fast_yr,diag)
+
+
+
+!New version that combines the two leaching steps and should do a better job of moving DOC from litter layer
+!Note: fine wood litter currently not included, just because we haven't implemented anything with it anywhere
+!ZMS Edited to allow for tiled fluxes. Also pass in water content before Richards.
    if (gw_option == GW_TILED) then
       call tracer_leaching_with_litter(soil=soil%soil_organic_matter(:),&
                                         wl=wl_before,&
@@ -2874,6 +2920,7 @@ end subroutine soil_step_1
   call send_tile_data(id_div_bf, div_bf, diag)
   call send_tile_data(id_div_if, div_if, diag)
   call send_tile_data(id_div_al, div_al, diag)
+  call send_tile_data(id_div,div,diag)
 
   call send_tile_data(id_ie,   lrunf_ie, diag)
   call send_tile_data(id_sn,   lrunf_sn, diag)
@@ -2991,6 +3038,9 @@ subroutine soil_step_3(soil, diag)
      call send_tile_data(id_fast_DOC_div_loss,    soil%fast_DOC_leached,    diag)
      call send_tile_data(id_slow_DOC_div_loss,    soil%slow_DOC_leached,    diag)
      call send_tile_data(id_deadmic_DOC_div_loss, soil%deadmic_DOC_leached, diag)
+     call send_tile_data(id_fast_DON_div_loss,    soil%fast_DON_leached,    diag)
+     call send_tile_data(id_slow_DON_div_loss,    soil%slow_DON_leached,    diag)
+     call send_tile_data(id_deadmic_DON_div_loss, soil%deadmic_DON_leached, diag)
 
      call send_tile_data(id_soil_NO3, soil%soil_organic_matter(1:num_l)%nitrate/dz(1:num_l),diag)
      call send_tile_data(id_soil_NH4, soil%soil_organic_matter(1:num_l)%ammonium/dz(1:num_l),diag)
@@ -3018,6 +3068,8 @@ subroutine soil_step_3(soil, diag)
         call send_tile_data(id_litter_livemic_N(k), litter_livemic_N, diag)
         call send_tile_data(id_litter_total_C(k), litter_total_C, diag)
         call send_tile_data(id_litter_total_N(k), litter_total_N, diag)
+        call send_tile_data(id_litter_nitrate(k), soil%litter(k)%nitrate, diag)
+        call send_tile_data(id_litter_ammonium(k), soil%litter(k)%ammonium, diag)
         do i = 1, N_C_TYPES
            call send_tile_data(id_litter_C(k,i), litter_C(i), diag)
            call send_tile_data(id_litter_N(k,i), litter_N(i), diag)
@@ -3075,9 +3127,6 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   type(soil_tile_type), intent(inout) :: soil
   type(diag_buff_type), intent(inout) :: diag
 
-  real :: C_loss_rate(N_C_TYPES,num_l), N_loss_rate(N_C_TYPES, num_l)
-  real, dimension(num_l) :: decomp_T,decomp_theta,ice_porosity
-  real :: A(num_l) ! decomp rate reduction due to moisture and temperature
   real :: leaflitter_deadmic_C_produced, leaflitter_deadmic_N_produced
   real :: fineWoodlitter_deadmic_C_produced, fineWoodlitter_deadmic_N_produced
   real :: coarseWoodlitter_deadmic_C_produced, coarseWoodlitter_deadmic_N_produced
@@ -3095,6 +3144,16 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   real :: deadmic_C_produced(num_l)
   real :: deadmic_N_produced(num_l)
   real :: soil_nitrif(num_l), soil_denitrif(num_l), soil_N_mineralization(num_l), soil_N_immobilization(num_l)
+  real :: leaflitter_C_loss_rate(N_C_TYPES)
+  real :: finewoodlitter_C_loss_rate(N_C_TYPES)
+  real :: coarsewoodlitter_C_loss_rate(N_C_TYPES)
+  real :: leaflitter_N_loss_rate(N_C_TYPES)
+  real :: finewoodlitter_N_loss_rate(N_C_TYPES)
+  real :: coarsewoodlitter_N_loss_rate(N_C_TYPES)
+  real :: C_loss_rate(size(soil%soil_organic_matter),N_C_TYPES)
+  real :: N_loss_rate(size(soil%soil_organic_matter),N_C_TYPES)
+  real, dimension(size(soil%soil_organic_matter)) :: decomp_T,decomp_theta,ice_porosity
+  real :: A          (size(soil%soil_organic_matter)) ! decomp rate reduction due to moisture and temperature
 
   integer :: badCohort   ! For soil carbon pool carbon balance and invalid number check
   integer :: i,k
@@ -3112,7 +3171,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
   do k = 1,N_LITTER_POOLS
      call update_pool(pool=soil%litter(k),T=decomp_T(1),theta=decomp_theta(1),air_filled_porosity=1.0-(decomp_theta(1)+ice_porosity(1)),&
             liquid_water=soil%wl(1),frozen_water=soil%ws(1),dt=dt_fast_yr,layerThickness=dz(1),&
-            C_loss_rate=C_loss_rate(:,1), N_loss_rate=N_loss_rate(:,1), CO2prod=CO2prod, &
+            C_loss_rate=leaflitter_C_loss_rate, CO2prod=CO2prod, &
+            N_loss_rate=leaflitter_N_loss_rate, &
             deadmic_C_produced=leaflitter_deadmic_C_produced, protected_C_produced=leaflitter_protected_C_produced, protected_turnover_rate=leaflitter_protected_C_turnover_rate, &
             deadmic_N_produced=leaflitter_deadmic_N_produced, protected_N_produced=leaflitter_protected_N_produced, protected_N_turnover_rate=leaflitter_protected_N_turnover_rate, &
             badCohort=badCohort,&
@@ -3135,11 +3195,14 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
      vegn%deadmic_out = vegn%deadmic_out + C_loss_rate(C_MIC,1) *dt_fast_yr
   enddo
 
+
   ! Next we have to go through layers and decompose the soil carbon pools
   do k=1,num_l
       call update_pool(pool=soil%soil_organic_matter(k),T=decomp_T(k),theta=decomp_theta(k),air_filled_porosity=1.0-(decomp_theta(k)+ice_porosity(k)),&
                 liquid_water=soil%wl(k),frozen_water=soil%ws(k),dt=dt_fast_yr,layerThickness=dz(k),&
-                C_loss_rate=C_loss_rate(:,k), N_loss_rate=N_loss_rate(:,k), CO2prod=CO2prod, &
+                C_loss_rate=C_loss_rate(k,:), &
+                CO2prod=CO2prod, &
+                N_loss_rate=N_loss_rate(k,:), &
                 deadmic_C_produced=deadmic_C_produced(k), protected_C_produced=protected_C_produced(:,k), &
                 protected_turnover_rate=protected_C_turnover_rate(:,k), &
                 deadmic_N_produced=deadmic_N_produced(k), protected_N_produced=protected_N_produced(:,k), &
@@ -3890,32 +3953,44 @@ end subroutine add_root_litter
 ! ============================================================================
 ! Spread root exudate C through profile, using vertical root profile from vegn_uptake_profile
 ! Differs from add_root_litter -- C is distributed through existing cohorts, not deposited as new cohort
-subroutine add_root_exudates_0(soil,exudateC,exudateN)
-  type(soil_tile_type),   intent(inout)  :: soil
-  real, dimension(num_l), intent(in)     :: exudateC, exudateN ! kgC or kgN per m2 of soil
+subroutine add_root_exudates_0(soil,exudateC,exudateN,ammonium)
+    type(soil_tile_type), intent(inout)  :: soil
+    real,dimension(num_l),intent(in) :: exudateC,exudateN
+    real,dimension(num_l),intent(in),optional :: ammonium
 
   integer :: k
+  real,dimension(num_l) :: NH4
+
+  NH4(:)=0.0
+  if(present(ammonium)) NH4=ammonium
 
   do k=1,num_l
      call add_C_N_to_rhizosphere(soil%soil_organic_matter(k),   &
                              newCarbon=[exudateC(k),0.0,0.0], &
                              newNitrogen=[exudateN(k),0.0,0.0]  )
+     soil%soil_organic_matter(k)%ammonium = soil%soil_organic_matter(k)%ammonium+NH4(k)
   enddo
 end subroutine add_root_exudates_0
 
 
 ! ============================================================================
-subroutine add_root_exudates_1(soil,cohort,exudateC)
+subroutine add_root_exudates_1(soil,cohort,exudateC,exudateN,ammonium)
   type(soil_tile_type), intent(inout)  :: soil
   type(vegn_cohort_type), intent(in)   :: cohort
-  real,intent(in) :: exudateC ! kgC/m2 of tile
+  real,intent(in) :: exudateC,exudateN ! kgC/m2 or kgN/m2 of tile
+  real,intent(in),optional :: ammonium ! kgN/m2 of tile
 
   real    :: profile(num_l)
   integer :: k
+  real :: NH4
+
+  NH4=0.0
+  if (present(ammonium)) NH4=ammonium
 
   call cohort_root_exudate_profile (cohort, dz(1:num_l), profile)
   do k=1,num_l
-      call add_C_N_to_rhizosphere(soil%soil_organic_matter(k),newCarbon=(/exudateC*profile(k),0.0,0.0/))
+      call add_C_N_to_rhizosphere(soil%soil_organic_matter(k),newCarbon=(/exudateC*profile(k),0.0,0.0/),newNitrogen=[exudateN*profile(k),0.0,0.0])
+      soil%soil_organic_matter(k)%ammonium=soil%soil_organic_matter(k)%ammonium+NH4*profile(k)
   enddo
 end subroutine add_root_exudates_1
 

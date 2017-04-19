@@ -259,6 +259,10 @@ type :: soil_tile_type
    real                   :: fast_DOC_leached !Carbon that has been leached out of the column
    real                   :: slow_DOC_leached !Carbon that has been leached out of the column
    real                   :: deadmic_DOC_leached !Carbon that has been leached out of the column
+   real                   :: fast_DON_leached !Nitrogen that has been leached out of the column
+   real                   :: slow_DON_leached !Nitrogen that has been leached out of the column
+   real                   :: deadmic_DON_leached !Nitrogen that has been leached out of the column
+   real                   :: NO3_leached, NH4_leached ! Mineral nitrogen that has been leached out of the column
 
    ! For nitrogen conservation checking, because there are a lot of fluxes in and out of land to keep track of
    real                   :: gross_nitrogen_flux_into_tile
@@ -268,7 +272,67 @@ type :: soil_tile_type
    real, allocatable :: &
        asoil_in(:), &
        fsc_in(:), &
-       ssc_in(:)
+       fsn_in(:), &
+       ssc_in(:), &
+       ssn_in(:), &
+       deadmic_C_in(:), &
+       deadmic_N_in(:), &
+       fast_protected_C_in(:), &
+       fast_protected_N_in(:), &
+       slow_protected_C_in(:), &
+       slow_protected_N_in(:), &
+       deadmic_protected_C_in(:), &
+       deadmic_protected_N_in(:), &
+       fast_protected_C_turnover_accumulated(:), &
+       slow_protected_C_turnover_accumulated(:), &
+       deadmic_protected_C_turnover_accumulated(:), &
+       fast_protected_N_turnover_accumulated(:), &
+       slow_protected_N_turnover_accumulated(:), &
+       deadmic_protected_N_turnover_accumulated(:), &
+       fast_C_turnover_accumulated(:), &
+       slow_C_turnover_accumulated(:), &
+       deadmic_C_turnover_accumulated(:), &
+       fast_N_turnover_accumulated(:), &
+       slow_N_turnover_accumulated(:), &
+       deadmic_N_turnover_accumulated(:)
+   real :: leaflitter_fast_C_turnover_accumulated
+   real :: leaflitter_slow_C_turnover_accumulated
+   real :: leaflitter_deadmic_C_turnover_accumulated
+   real :: leaflitter_fast_N_turnover_accumulated
+   real :: leaflitter_slow_N_turnover_accumulated
+   real :: leaflitter_deadmic_N_turnover_accumulated
+   real :: leaflitter_fsc_in
+   real :: leaflitter_ssc_in
+   real :: leaflitter_deadmic_C_in
+   real :: leaflitter_fsn_in
+   real :: leaflitter_ssn_in
+   real :: leaflitter_deadmic_N_in
+
+   real :: finewoodlitter_fast_C_turnover_accumulated
+   real :: finewoodlitter_slow_C_turnover_accumulated
+   real :: finewoodlitter_deadmic_C_turnover_accumulated
+   real :: finewoodlitter_fsc_in
+   real :: finewoodlitter_ssc_in
+   real :: finewoodlitter_deadmic_C_in
+   real :: finewoodlitter_fast_N_turnover_accumulated
+   real :: finewoodlitter_slow_N_turnover_accumulated
+   real :: finewoodlitter_deadmic_N_turnover_accumulated
+   real :: finewoodlitter_fsn_in
+   real :: finewoodlitter_ssn_in
+   real :: finewoodlitter_deadmic_N_in
+
+   real :: coarsewoodlitter_fast_C_turnover_accumulated
+   real :: coarsewoodlitter_slow_C_turnover_accumulated
+   real :: coarsewoodlitter_deadmic_C_turnover_accumulated
+   real :: coarsewoodlitter_fsc_in
+   real :: coarsewoodlitter_ssc_in
+   real :: coarsewoodlitter_deadmic_C_in
+   real :: coarsewoodlitter_fast_N_turnover_accumulated
+   real :: coarsewoodlitter_slow_N_turnover_accumulated
+   real :: coarsewoodlitter_deadmic_N_turnover_accumulated
+   real :: coarsewoodlitter_fsn_in
+   real :: coarsewoodlitter_ssn_in
+   real :: coarsewoodlitter_deadmic_N_in
 
    ! For storing DOC fluxes in tiled model
    real, allocatable :: div_hlsp_DOC(:,:) ! dimension (n_c_types, num_l) [kg C/m^2/s] net flux of carbon pools
@@ -691,8 +755,30 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
             ptr%slow_soil_C       (num_l),  &
             ptr%fsc_in            (num_l),  &
             ptr%ssc_in            (num_l),  &
+            ptr%fsn_in            (num_l),  &
+            ptr%ssn_in            (num_l),  &
             ptr%asoil_in          (num_l),  &
             ptr%is_peat           (num_l),  &
+            ptr%fast_protected_C_in        (num_l),  &
+            ptr%slow_protected_C_in        (num_l),  &
+            ptr%fast_protected_N_in        (num_l),  &
+            ptr%slow_protected_N_in        (num_l),  &
+            ptr%deadmic_protected_C_in        (num_l),  &
+            ptr%deadmic_protected_N_in        (num_l),  &
+            ptr%deadmic_C_in        (num_l),  &
+            ptr%deadmic_N_in        (num_l),  &
+            ptr%fast_C_turnover_accumulated(num_l), &
+            ptr%slow_C_turnover_accumulated(num_l), &
+            ptr%deadmic_C_turnover_accumulated(num_l), &
+            ptr%fast_N_turnover_accumulated(num_l), &
+            ptr%slow_N_turnover_accumulated(num_l), &
+            ptr%deadmic_N_turnover_accumulated(num_l), &
+            ptr%fast_protected_C_turnover_accumulated(num_l), &
+            ptr%slow_protected_C_turnover_accumulated(num_l), &
+            ptr%deadmic_protected_C_turnover_accumulated(num_l), &
+            ptr%fast_protected_N_turnover_accumulated(num_l), &
+            ptr%slow_protected_N_turnover_accumulated(num_l), &
+            ptr%deadmic_protected_N_turnover_accumulated(num_l), &
             ptr%soil_organic_matter(num_l),  &
             ptr%div_hlsp_DOC      (N_C_TYPES, num_l), &
             ptr%div_hlsp_DON      (N_C_TYPES, num_l), &
@@ -787,13 +873,80 @@ subroutine soil_data_init_0d(soil)
   soil%is_peat(:)             = 0
   soil%fsc_in(:)              = 0.0
   soil%ssc_in(:)              = 0.0
+  soil%fsn_in(:)              = 0.0
+  soil%ssn_in(:)              = 0.0
+  soil%deadmic_C_in(:)          = 0.0
+  soil%deadmic_N_in(:)          = 0.0
+  soil%fast_protected_C_in(:)        = 0.0
+  soil%slow_protected_C_in(:)        = 0.0
+  soil%deadmic_protected_C_in(:)        = 0.0
+  soil%fast_protected_N_in(:)        = 0.0
+  soil%slow_protected_N_in(:)        = 0.0
+  soil%deadmic_protected_N_in(:)        = 0.0
+  soil%fast_C_turnover_accumulated(:) = 0.0
+  soil%slow_C_turnover_accumulated(:)  = 0.0
+  soil%deadmic_C_turnover_accumulated(:) = 0.0
+  soil%fast_N_turnover_accumulated(:) = 0.0
+  soil%slow_N_turnover_accumulated(:)  = 0.0
+  soil%deadmic_N_turnover_accumulated(:) = 0.0
+  soil%fast_protected_C_turnover_accumulated(:) = 0.0
+  soil%slow_protected_C_turnover_accumulated(:)  = 0.0
+  soil%deadmic_protected_C_turnover_accumulated(:) = 0.0
+  soil%fast_protected_N_turnover_accumulated(:) = 0.0
+  soil%slow_protected_N_turnover_accumulated(:)  = 0.0
+  soil%deadmic_protected_N_turnover_accumulated(:) = 0.0
 
-  soil%fast_DOC_leached      = 0.0
-  soil%slow_DOC_leached      = 0.0
-  soil%deadmic_DOC_leached   = 0.0
+  soil%leaflitter_fast_C_turnover_accumulated = 0.0
+  soil%leaflitter_slow_C_turnover_accumulated = 0.0
+  soil%leaflitter_deadmic_C_turnover_accumulated = 0.0
+  soil%leaflitter_fsc_in = 0.0
+  soil%leaflitter_ssc_in = 0.0
+  soil%leaflitter_deadmic_C_in = 0.0
+  soil%leaflitter_fast_N_turnover_accumulated = 0.0
+  soil%leaflitter_slow_N_turnover_accumulated = 0.0
+  soil%leaflitter_deadmic_N_turnover_accumulated = 0.0
+  soil%leaflitter_fsn_in = 0.0
+  soil%leaflitter_ssn_in = 0.0
+  soil%leaflitter_deadmic_N_in = 0.0
+
+  soil%finewoodlitter_fast_C_turnover_accumulated = 0.0
+  soil%finewoodlitter_slow_C_turnover_accumulated = 0.0
+  soil%finewoodlitter_deadmic_C_turnover_accumulated = 0.0
+  soil%finewoodlitter_fsc_in = 0.0
+  soil%finewoodlitter_ssc_in = 0.0
+  soil%finewoodlitter_deadmic_C_in = 0.0
+  soil%finewoodlitter_fast_N_turnover_accumulated = 0.0
+  soil%finewoodlitter_slow_N_turnover_accumulated = 0.0
+  soil%finewoodlitter_deadmic_N_turnover_accumulated = 0.0
+  soil%finewoodlitter_fsn_in = 0.0
+  soil%finewoodlitter_ssn_in = 0.0
+  soil%finewoodlitter_deadmic_N_in = 0.0
+
+  soil%coarsewoodlitter_fast_C_turnover_accumulated = 0.0
+  soil%coarsewoodlitter_slow_C_turnover_accumulated = 0.0
+  soil%coarsewoodlitter_deadmic_C_turnover_accumulated = 0.0
+  soil%coarsewoodlitter_fsc_in = 0.0
+  soil%coarsewoodlitter_ssc_in = 0.0
+  soil%coarsewoodlitter_deadmic_C_in = 0.0
+  soil%coarsewoodlitter_fast_N_turnover_accumulated = 0.0
+  soil%coarsewoodlitter_slow_N_turnover_accumulated = 0.0
+  soil%coarsewoodlitter_deadmic_N_turnover_accumulated = 0.0
+  soil%coarsewoodlitter_fsn_in = 0.0
+  soil%coarsewoodlitter_ssn_in = 0.0
+  soil%coarsewoodlitter_deadmic_N_in = 0.0
+
+  soil%fast_DOC_leached=0.0
+  soil%slow_DOC_leached=0.0
+  soil%deadmic_DOC_leached=0.0
+  soil%fast_DON_leached=0.0
+  soil%slow_DON_leached=0.0
+  soil%deadmic_DON_leached=0.0
 
   soil%gross_nitrogen_flux_into_tile = 0.0
   soil%gross_nitrogen_flux_out_of_tile = 0.0
+
+  soil%NO3_leached=0.0
+  soil%NH4_leached=0.0
 
   comp_local = 0.0
   if (use_comp_for_push) comp_local = comp
@@ -1192,13 +1345,84 @@ subroutine merge_soil_tiles(s1,w1,s2,w2)
   s2%asoil_in(:)    = s1%asoil_in(:)*x1 + s2%asoil_in(:)*x2
   s2%fsc_in(:)      = s1%fsc_in(:)*x1 + s2%fsc_in(:)*x2
   s2%ssc_in(:)      = s1%ssc_in(:)*x1 + s2%ssc_in(:)*x2
+  s2%fsn_in(:)      = s1%fsn_in(:)*x1 + s2%fsn_in(:)*x2
+  s2%ssn_in(:)      = s1%ssn_in(:)*x1 + s2%ssn_in(:)*x2
+  s2%fast_protected_C_in(:) = s1%fast_protected_C_in(:)*x1 + s2%fast_protected_C_in(:)*x2
+  s2%slow_protected_C_in(:) = s1%slow_protected_C_in(:)*x1 + s2%slow_protected_C_in(:)*x2
+  s2%deadmic_protected_C_in(:) = s1%deadmic_protected_C_in(:)*x1 + s2%deadmic_protected_C_in(:)*x2
+  s2%fast_protected_N_in(:) = s1%fast_protected_N_in(:)*x1 + s2%fast_protected_N_in(:)*x2
+  s2%slow_protected_N_in(:) = s1%slow_protected_N_in(:)*x1 + s2%slow_protected_N_in(:)*x2
+  s2%deadmic_protected_N_in(:) = s1%deadmic_protected_N_in(:)*x1 + s2%deadmic_protected_N_in(:)*x2
+  s2%deadmic_C_in(:) = s1%deadmic_C_in(:)*x1 + s2%deadmic_C_in(:)*x2
+  s2%deadmic_N_in(:) = s1%deadmic_N_in(:)*x1 + s2%deadmic_N_in(:)*x2
+  s2%fast_C_turnover_accumulated(:) = s1%fast_C_turnover_accumulated(:)*x1 + s2%fast_C_turnover_accumulated(:)*x2
+  s2%slow_C_turnover_accumulated(:) = s1%slow_C_turnover_accumulated(:)*x1 + s2%slow_C_turnover_accumulated(:)*x2
+  s2%deadmic_C_turnover_accumulated(:) = s1%deadmic_C_turnover_accumulated(:)*x1 + s2%deadmic_C_turnover_accumulated(:)*x2
+  s2%fast_N_turnover_accumulated(:) = s1%fast_N_turnover_accumulated(:)*x1 + s2%fast_N_turnover_accumulated(:)*x2
+  s2%slow_N_turnover_accumulated(:) = s1%slow_N_turnover_accumulated(:)*x1 + s2%slow_N_turnover_accumulated(:)*x2
+  s2%deadmic_N_turnover_accumulated(:) = s1%deadmic_N_turnover_accumulated(:)*x1 + s2%deadmic_N_turnover_accumulated(:)*x2
+
+  s2%fast_protected_C_turnover_accumulated(:) = s1%fast_protected_C_turnover_accumulated(:)*x1 + s2%fast_protected_C_turnover_accumulated(:)*x2
+  s2%slow_protected_C_turnover_accumulated(:) = s1%slow_protected_C_turnover_accumulated(:)*x1 + s2%slow_protected_C_turnover_accumulated(:)*x2
+  s2%deadmic_protected_C_turnover_accumulated(:) = s1%deadmic_protected_C_turnover_accumulated(:)*x1 + s2%deadmic_protected_C_turnover_accumulated(:)*x2
+  s2%fast_protected_N_turnover_accumulated(:) = s1%fast_protected_N_turnover_accumulated(:)*x1 + s2%fast_protected_N_turnover_accumulated(:)*x2
+  s2%slow_protected_N_turnover_accumulated(:) = s1%slow_protected_N_turnover_accumulated(:)*x1 + s2%slow_protected_N_turnover_accumulated(:)*x2
+  s2%deadmic_protected_N_turnover_accumulated(:) = s1%deadmic_protected_N_turnover_accumulated(:)*x1 + s2%deadmic_protected_N_turnover_accumulated(:)*x2
+
+
+  s2%leaflitter_fast_C_turnover_accumulated = s1%leaflitter_fast_C_turnover_accumulated*x1 + s2%leaflitter_fast_C_turnover_accumulated*x2
+  s2%leaflitter_slow_C_turnover_accumulated = s1%leaflitter_slow_C_turnover_accumulated*x1 + s2%leaflitter_slow_C_turnover_accumulated*x2
+  s2%leaflitter_deadmic_C_turnover_accumulated = s1%leaflitter_deadmic_C_turnover_accumulated*x1 + s2%leaflitter_deadmic_C_turnover_accumulated*x2
+  s2%leaflitter_fsc_in = s1%leaflitter_fsc_in*x1 + s2%leaflitter_fsc_in*x2
+  s2%leaflitter_ssc_in = s1%leaflitter_ssc_in*x1 + s2%leaflitter_ssc_in*x2
+  s2%leaflitter_deadmic_C_in = s1%leaflitter_deadmic_C_in*x1 + s2%leaflitter_deadmic_C_in*x2
+  s2%leaflitter_fast_N_turnover_accumulated = s1%leaflitter_fast_N_turnover_accumulated*x1 + s2%leaflitter_fast_N_turnover_accumulated*x2
+  s2%leaflitter_slow_N_turnover_accumulated = s1%leaflitter_slow_N_turnover_accumulated*x1 + s2%leaflitter_slow_N_turnover_accumulated*x2
+  s2%leaflitter_deadmic_N_turnover_accumulated = s1%leaflitter_deadmic_N_turnover_accumulated*x1 + s2%leaflitter_deadmic_N_turnover_accumulated*x2
+  s2%leaflitter_fsn_in = s1%leaflitter_fsn_in*x1 + s2%leaflitter_fsn_in*x2
+  s2%leaflitter_ssn_in = s1%leaflitter_ssn_in*x1 + s2%leaflitter_ssn_in*x2
+  s2%leaflitter_deadmic_N_in = s1%leaflitter_deadmic_N_in*x1 + s2%leaflitter_deadmic_N_in*x2
+
+  s2%finewoodlitter_fast_C_turnover_accumulated = s1%finewoodlitter_fast_C_turnover_accumulated*x1 + s2%finewoodlitter_fast_C_turnover_accumulated*x2
+  s2%finewoodlitter_slow_C_turnover_accumulated = s1%finewoodlitter_slow_C_turnover_accumulated*x1 + s2%finewoodlitter_slow_C_turnover_accumulated*x2
+  s2%finewoodlitter_deadmic_C_turnover_accumulated = s1%finewoodlitter_deadmic_C_turnover_accumulated*x1 + s2%finewoodlitter_deadmic_C_turnover_accumulated*x2
+  s2%finewoodlitter_fsc_in = s1%finewoodlitter_fsc_in*x1 + s2%finewoodlitter_fsc_in*x2
+  s2%finewoodlitter_ssc_in = s1%finewoodlitter_ssc_in*x1 + s2%finewoodlitter_ssc_in*x2
+  s2%finewoodlitter_deadmic_C_in = s1%finewoodlitter_deadmic_C_in*x1 + s2%finewoodlitter_deadmic_C_in*x2
+  s2%finewoodlitter_fast_N_turnover_accumulated = s1%finewoodlitter_fast_N_turnover_accumulated*x1 + s2%finewoodlitter_fast_N_turnover_accumulated*x2
+  s2%finewoodlitter_slow_N_turnover_accumulated = s1%finewoodlitter_slow_N_turnover_accumulated*x1 + s2%finewoodlitter_slow_N_turnover_accumulated*x2
+  s2%finewoodlitter_deadmic_N_turnover_accumulated = s1%finewoodlitter_deadmic_N_turnover_accumulated*x1 + s2%finewoodlitter_deadmic_N_turnover_accumulated*x2
+  s2%finewoodlitter_fsn_in = s1%finewoodlitter_fsn_in*x1 + s2%finewoodlitter_fsn_in*x2
+  s2%finewoodlitter_ssn_in = s1%finewoodlitter_ssn_in*x1 + s2%finewoodlitter_ssn_in*x2
+  s2%finewoodlitter_deadmic_N_in = s1%finewoodlitter_deadmic_N_in*x1 + s2%finewoodlitter_deadmic_N_in*x2
+
+
+  s2%coarsewoodlitter_fast_C_turnover_accumulated = s1%coarsewoodlitter_fast_C_turnover_accumulated*x1 + s2%coarsewoodlitter_fast_C_turnover_accumulated*x2
+  s2%coarsewoodlitter_slow_C_turnover_accumulated = s1%coarsewoodlitter_slow_C_turnover_accumulated*x1 + s2%coarsewoodlitter_slow_C_turnover_accumulated*x2
+  s2%coarsewoodlitter_deadmic_C_turnover_accumulated = s1%coarsewoodlitter_deadmic_C_turnover_accumulated*x1 + s2%coarsewoodlitter_deadmic_C_turnover_accumulated*x2
+  s2%coarsewoodlitter_fsc_in = s1%coarsewoodlitter_fsc_in*x1 + s2%coarsewoodlitter_fsc_in*x2
+  s2%coarsewoodlitter_ssc_in = s1%coarsewoodlitter_ssc_in*x1 + s2%coarsewoodlitter_ssc_in*x2
+  s2%coarsewoodlitter_deadmic_C_in = s1%coarsewoodlitter_deadmic_C_in*x1 + s2%coarsewoodlitter_deadmic_C_in*x2
+  s2%coarsewoodlitter_fast_N_turnover_accumulated = s1%coarsewoodlitter_fast_N_turnover_accumulated*x1 + s2%coarsewoodlitter_fast_N_turnover_accumulated*x2
+  s2%coarsewoodlitter_slow_N_turnover_accumulated = s1%coarsewoodlitter_slow_N_turnover_accumulated*x1 + s2%coarsewoodlitter_slow_N_turnover_accumulated*x2
+  s2%coarsewoodlitter_deadmic_N_turnover_accumulated = s1%coarsewoodlitter_deadmic_N_turnover_accumulated*x1 + s2%coarsewoodlitter_deadmic_N_turnover_accumulated*x2
+  s2%coarsewoodlitter_fsn_in = s1%coarsewoodlitter_fsn_in*x1 + s2%coarsewoodlitter_fsn_in*x2
+  s2%coarsewoodlitter_ssn_in = s1%coarsewoodlitter_ssn_in*x1 + s2%coarsewoodlitter_ssn_in*x2
+  s2%coarsewoodlitter_deadmic_N_in = s1%coarsewoodlitter_deadmic_N_in*x1 + s2%coarsewoodlitter_deadmic_N_in*x2
+
 
   s2%fast_DOC_leached=s1%fast_DOC_leached*x1 + s2%fast_DOC_leached*x2
   s2%slow_DOC_leached=s1%slow_DOC_leached*x1 + s2%slow_DOC_leached*x2
   s2%deadmic_DOC_leached=s1%deadmic_DOC_leached*x1 + s2%deadmic_DOC_leached*x2
+  s2%fast_DON_leached=s1%fast_DON_leached*x1 + s2%fast_DON_leached*x2
+  s2%slow_DON_leached=s1%slow_DON_leached*x1 + s2%slow_DON_leached*x2
+  s2%deadmic_DON_leached=s1%deadmic_DON_leached*x1 + s2%deadmic_DON_leached*x2
+  s2%NO3_leached=s1%NO3_leached*x1 + s2%NO3_leached*x2
+  s2%NH4_leached=s1%NH4_leached*x1 + s2%NH4_leached*x2
 
   s2%gross_nitrogen_flux_into_tile=s1%gross_nitrogen_flux_into_tile*x1 + s2%gross_nitrogen_flux_into_tile*x2
   s2%gross_nitrogen_flux_out_of_tile=s1%gross_nitrogen_flux_out_of_tile*x1 + s2%gross_nitrogen_flux_out_of_tile*x2
+
 end subroutine merge_soil_tiles
 
 ! =============================================================================
