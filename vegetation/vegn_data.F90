@@ -110,8 +110,8 @@ public :: &
     root_exudate_N_frac,& !x2z - ens: lets get rid of c2n?
     dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
     N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, N_limits_live_biomass, root_NH4_uptake_rate, root_NO3_uptake_rate,&
-    k_ammonium_root_uptake,k_nitrate_root_uptake,excess_stored_N_leakage_rate,myc_growth_rate,myc_N_to_plant_rate,et_myc,&
-    do_N_mining_strategy,do_N_scavenging_strategy,do_N_fixation_strategy
+    k_ammonium_root_uptake,k_nitrate_root_uptake,excess_stored_N_leakage_rate,myc_growth_rate,kM_myc_growth,myc_N_to_plant_rate,et_myc,&
+    do_N_mining_strategy,do_N_scavenging_strategy,do_N_fixation_strategy,N_stress_root_factor
 
 
 ! ---- public subroutine
@@ -214,6 +214,8 @@ type spec_data_type
   real    :: froot_retranslocation_frac
   real    :: wood_c2n
   real    :: sapwood_c2n
+
+  real    :: N_stress_root_factor
 
 end type
 
@@ -459,6 +461,8 @@ real :: wood_c2n(0:MSPECIES)=	&	!x2z Wiki  http://en.wikipedia.org/wiki/Carbon-t
 real :: sapwood_c2n(0:MSPECIES)=  &  ! C:N ratio of sapwood.
         (/100     ,    100   ,     100      ,    100    ,   100      ,  50,    50,     50,  50,     50,     50,    50,    50,   50/)
 real :: root_exudate_N_frac = 0.0 ! N fraction of root exudates. See e.g. Drake et al 2013
+real :: N_stress_root_factor(0:MSPECIES)=  &  ! How much sapwood moves to roots as a function of N stress
+        (/0.02     ,    0.02   ,     0.02      ,    0.02    ,   0.02      ,  0.02,    0.02,     0.02,  0.02,     0.02,     0.02,    0.02,    0.02,   0.02/)
 
 logical :: do_N_mining_strategy(0:MSPECIES) = &
         (/ .TRUE.  ,    .TRUE. ,   .TRUE.   ,   .TRUE.  ,   .TRUE.  ,  .TRUE. , .TRUE. , .TRUE. , .TRUE. , .TRUE. , .TRUE., .TRUE., .TRUE., .TRUE./)
@@ -483,7 +487,8 @@ real :: root_NO3_uptake_rate = 0.1      ! kg/m3/year (assumes rhizosphere only, 
 real :: k_ammonium_root_uptake = 3e-2   ! Half-saturation for root NH4 uptake (kgN/m3)
 real :: k_nitrate_root_uptake = 3e-2    ! Half-saturation for root NO3 uptake (kgN/m3)
 real :: excess_stored_N_leakage_rate = 1.0 ! Leaking of excess cohort stored N back to soil (Fraction per year)
-real :: myc_growth_rate = 100.0        ! Rate at which mycorrhizae convert reservoir to biomass (Fraction per year)
+real :: myc_growth_rate = 1.0        ! Max rate at which mycorrhizae gain biomass (kgC/m2/year)
+real :: kM_myc_growth = 1e-3           ! Half-saturation of buffer pool for mycorrhizal growth (kgC/m2)
 real :: myc_N_to_plant_rate = 100.0    ! Rate at which plants send N from reservoir to plant (Fraction per year)
 real :: et_myc = 0.7                   ! Fraction of mycorrhizal turnover NOT mineralized to CO2 and NH4
 
@@ -517,8 +522,8 @@ namelist /vegn_data_nml/ &
   leaf_retranslocation_frac, leaf_live_c2n,froot_live_c2n, froot_retranslocation_frac, wood_c2n, sapwood_c2n, root_exudate_N_frac,&
   dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
   N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, N_limits_live_biomass, root_NH4_uptake_rate, root_NO3_uptake_rate,&
-  k_nitrate_root_uptake,k_ammonium_root_uptake,excess_stored_N_leakage_rate,myc_growth_rate,myc_N_to_plant_rate,et_myc,&
-  do_N_mining_strategy,do_N_scavenging_strategy,do_N_fixation_strategy
+  k_nitrate_root_uptake,k_ammonium_root_uptake,excess_stored_N_leakage_rate,myc_growth_rate,kM_myc_growth,myc_N_to_plant_rate,et_myc,&
+  do_N_mining_strategy,do_N_scavenging_strategy,do_N_fixation_strategy,N_stress_root_factor
 
 
 contains ! ###################################################################
@@ -631,6 +636,8 @@ subroutine read_vegn_data_namelist()
   spdata%wood_c2n = wood_c2n
   spdata%sapwood_c2n = sapwood_c2n
 
+  spdata%N_stress_root_factor = N_stress_root_factor
+
   spdata%tracer_cuticular_cond = tracer_cuticular_cond
 
   do i = 0, MSPECIES
@@ -730,6 +737,7 @@ subroutine read_vegn_data_namelist()
   call add_row(table,'do_N_mining_strategy',spdata(:)%do_N_mining_strategy)
   call add_row(table,'do_N_scavenging_strategy',spdata(:)%do_N_scavenging_strategy)
   call add_row(table,'do_N_fixation_strategy',spdata(:)%do_N_fixation_strategy)
+  call add_row(table,'N_stress_root_factor',spdata(:)%N_stress_root_factor)
 
   call add_row(table,'tracer_cuticular_cond',spdata(:)%tracer_cuticular_cond)
 

@@ -298,13 +298,13 @@ integer :: id_fast_soil_C, id_slow_soil_C, id_protected_C, id_fsc, id_ssc,&
     id_N_dissolve_rate_fast,id_N_dissolve_rate_slow,id_N_dissolve_rate_deadmic,&
     id_C_deposition_fast,id_C_deposition_slow,id_C_deposition_deadmic, &
     id_N_deposition_fast,id_N_deposition_slow,id_N_deposition_deadmic, &
-    id_leaflitter_fast_C_leaching,id_leaflitter_slow_C_leaching,id_leaflitter_deadmic_C_leaching,&
+    id_leaflitter_fast_C_leaching,id_leaflitter_slow_C_leaching,id_leaflitter_deadmic_C_leaching,id_leaflitter_total_C_leaching,&
     id_finewoodlitter_fast_C_leaching,id_finewoodlitter_slow_C_leaching,id_finewoodlitter_deadmic_C_leaching,&
-    id_coarsewoodlitter_fast_C_leaching,id_coarsewoodlitter_slow_C_leaching,id_coarsewoodlitter_deadmic_C_leaching,&
+    id_coarsewoodlitter_fast_C_leaching,id_coarsewoodlitter_slow_C_leaching,id_coarsewoodlitter_deadmic_C_leaching,id_coarsewoodlitter_total_C_leaching,&
     id_fast_DOC_div_loss,id_slow_DOC_div_loss,id_deadmic_DOC_div_loss, &
-    id_leaflitter_fast_N_leaching,id_leaflitter_slow_N_leaching,id_leaflitter_deadmic_N_leaching,&
+    id_leaflitter_fast_N_leaching,id_leaflitter_slow_N_leaching,id_leaflitter_deadmic_N_leaching,id_leaflitter_total_ON_leaching,&
     id_finewoodlitter_fast_N_leaching,id_finewoodlitter_slow_N_leaching,id_finewoodlitter_deadmic_N_leaching,&
-    id_coarsewoodlitter_fast_N_leaching,id_coarsewoodlitter_slow_N_leaching,id_coarsewoodlitter_deadmic_N_leaching,&
+    id_coarsewoodlitter_fast_N_leaching,id_coarsewoodlitter_slow_N_leaching,id_coarsewoodlitter_deadmic_N_leaching,id_coarsewoodlitter_total_ON_leaching,&
     id_fast_DON_div_loss,id_slow_DON_div_loss,id_deadmic_DON_div_loss, &
     id_NO3_leaching, id_leaflitter_NO3_leaching, id_finewoodlitter_NO3_leaching, id_coarsewoodlitter_NO3_leaching,&
     id_NH4_leaching, id_leaflitter_NH4_leaching, id_finewoodlitter_NH4_leaching, id_coarsewoodlitter_NH4_leaching,&
@@ -1530,12 +1530,16 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water diver
         lnd%time, 'Leaf litter slow C leaching','kg/(m2 s)', missing_value=-100.0)
   id_leaflitter_deadmic_C_leaching = register_tiled_diag_field ( module_name, 'deadmic_leaflitter_C_leaching', axes(1:2), &
         lnd%time, 'Leaf litter dead microbe C leaching','kg/(m2 s)', missing_value=-100.0)
+  id_leaflitter_total_C_leaching = register_tiled_diag_field ( module_name, 'total_leaflitter_C_leaching', axes(1:2), &
+        lnd%time, 'Leaf litter total C leaching','kg/(m2 s)', missing_value=-100.0)
   id_coarsewoodlitter_fast_C_leaching = register_tiled_diag_field ( module_name, 'fast_coarsewoodlitter_C_leaching', axes(1:2), &
         lnd%time, 'Coarse wood litter fast C leaching','kg/(m2 s)', missing_value=-100.0)
   id_coarsewoodlitter_slow_C_leaching = register_tiled_diag_field ( module_name, 'slow_coarsewoodlitter_C_leaching', axes(1:2), &
         lnd%time, 'Coarse wood litter slow C leaching','kg/(m2 s)', missing_value=-100.0)
   id_coarsewoodlitter_deadmic_C_leaching = register_tiled_diag_field ( module_name, 'deadmic_coarsewoodlitter_C_leaching', axes(1:2), &
         lnd%time, 'Coarse wood litter dead microbe C leaching','kg/(m2 s)', missing_value=-100.0)
+  id_coarsewoodlitter_total_C_leaching = register_tiled_diag_field ( module_name, 'total_coarsewoodlitter_C_leaching', axes(1:2), &
+        lnd%time, 'Coarse wood litter total C leaching','kg/(m2 s)', missing_value=-100.0)
   id_finewoodlitter_fast_C_leaching = register_tiled_diag_field ( module_name, 'fast_finewoodlitter_C_leaching', axes(1:2), &
         lnd%time, 'Fine wood litter fast C leaching','kg/(m2 s)', missing_value=-100.0)
   id_finewoodlitter_slow_C_leaching = register_tiled_diag_field ( module_name, 'slow_finewoodlitter_C_leaching', axes(1:2), &
@@ -1549,12 +1553,16 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water diver
               lnd%time, 'Leaf litter slow N leaching','kg/(m2 s)', missing_value=-100.0)
         id_leaflitter_deadmic_N_leaching = register_tiled_diag_field ( module_name, 'deadmic_leaflitter_N_leaching', axes(1:2), &
               lnd%time, 'Leaf litter dead microbe N leaching','kg/(m2 s)', missing_value=-100.0)
+        id_leaflitter_total_ON_leaching = register_tiled_diag_field ( module_name, 'total_leaflitter_ON_leaching', axes(1:2), &
+              lnd%time, 'Leaf litter total ON leaching','kg/(m2 s)', missing_value=-100.0)
         id_coarsewoodlitter_fast_N_leaching = register_tiled_diag_field ( module_name, 'fast_coarsewoodlitter_N_leaching', axes(1:2), &
               lnd%time, 'Coarse wood litter fast N leaching','kg/(m2 s)', missing_value=-100.0)
         id_coarsewoodlitter_slow_N_leaching = register_tiled_diag_field ( module_name, 'slow_coarsewoodlitter_N_leaching', axes(1:2), &
               lnd%time, 'Coarse wood litter slow N leaching','kg/(m2 s)', missing_value=-100.0)
-        id_coarsewoodlitter_deadmic_C_leaching = register_tiled_diag_field ( module_name, 'deadmic_coarsewoodlitter_C_leaching', axes(1:2), &
+        id_coarsewoodlitter_deadmic_N_leaching = register_tiled_diag_field ( module_name, 'deadmic_coarsewoodlitter_N_leaching', axes(1:2), &
               lnd%time, 'Coarse wood litter dead microbe N leaching','kg/(m2 s)', missing_value=-100.0)
+        id_coarsewoodlitter_total_ON_leaching = register_tiled_diag_field ( module_name, 'total_coarsewoodlitter_ON_leaching', axes(1:2), &
+              lnd%time, 'Coarse wood litter total N leaching','kg/(m2 s)', missing_value=-100.0)
         id_finewoodlitter_fast_N_leaching = register_tiled_diag_field ( module_name, 'fast_finewoodlitter_N_leaching', axes(1:2), &
               lnd%time, 'Fine wood litter fast N leaching','kg/(m2 s)', missing_value=-100.0)
         id_finewoodlitter_slow_N_leaching = register_tiled_diag_field ( module_name, 'slow_finewoodlitter_N_leaching', axes(1:2), &
@@ -3651,22 +3659,26 @@ endwhere
    if (id_leaflitter_fast_C_leaching > 0) call send_tile_data(id_leaflitter_fast_C_leaching,leaflitter_DOC_loss(1)/delta_time,diag)
    if (id_leaflitter_slow_C_leaching > 0) call send_tile_data(id_leaflitter_slow_C_leaching,leaflitter_DOC_loss(2)/delta_time,diag)
    if (id_leaflitter_deadmic_C_leaching > 0) call send_tile_data(id_leaflitter_deadmic_C_leaching,leaflitter_DOC_loss(3)/delta_time,diag)
+   if (id_leaflitter_total_C_leaching > 0) call send_tile_data(id_leaflitter_total_C_leaching,sum(leaflitter_DOC_loss(:))/delta_time,diag)
 
    if (id_leaflitter_fast_N_leaching > 0) call send_tile_data(id_leaflitter_fast_N_leaching,leaflitter_DON_loss(1)/delta_time,diag)
    if (id_leaflitter_slow_N_leaching > 0) call send_tile_data(id_leaflitter_slow_N_leaching,leaflitter_DON_loss(2)/delta_time,diag)
    if (id_leaflitter_deadmic_N_leaching > 0) call send_tile_data(id_leaflitter_deadmic_N_leaching,leaflitter_DON_loss(3)/delta_time,diag)
    if (id_leaflitter_NO3_leaching > 0) call send_tile_data(id_leaflitter_NO3_leaching,leaflitter_NO3_loss/delta_time,diag)
    if (id_leaflitter_NH4_leaching > 0) call send_tile_data(id_leaflitter_NH4_leaching,leaflitter_NH4_loss/delta_time,diag)
+   if (id_leaflitter_total_ON_leaching > 0) call send_tile_data(id_leaflitter_total_ON_leaching,sum(leaflitter_DON_loss(:))/delta_time,diag)
 
    if (id_coarsewoodlitter_fast_C_leaching > 0) call send_tile_data(id_coarsewoodlitter_fast_C_leaching,woodlitter_DOC_loss(1)/delta_time,diag)
    if (id_coarsewoodlitter_slow_C_leaching > 0) call send_tile_data(id_coarsewoodlitter_slow_C_leaching,woodlitter_DOC_loss(2)/delta_time,diag)
    if (id_coarsewoodlitter_deadmic_C_leaching > 0) call send_tile_data(id_coarsewoodlitter_deadmic_C_leaching,woodlitter_DOC_loss(3)/delta_time,diag)
+   if (id_coarsewoodlitter_total_C_leaching > 0) call send_tile_data(id_coarsewoodlitter_total_C_leaching,sum(woodlitter_DOC_loss(:))/delta_time,diag)
 
    if (id_coarsewoodlitter_fast_N_leaching > 0) call send_tile_data(id_coarsewoodlitter_fast_N_leaching,woodlitter_DON_loss(1)/delta_time,diag)
    if (id_coarsewoodlitter_slow_N_leaching > 0) call send_tile_data(id_coarsewoodlitter_slow_N_leaching,woodlitter_DON_loss(2)/delta_time,diag)
    if (id_coarsewoodlitter_deadmic_N_leaching > 0) call send_tile_data(id_coarsewoodlitter_deadmic_N_leaching,woodlitter_DON_loss(3)/delta_time,diag)
    if (id_coarsewoodlitter_NO3_leaching > 0) call send_tile_data(id_coarsewoodlitter_NO3_leaching,woodlitter_NO3_loss/delta_time,diag)
    if (id_coarsewoodlitter_NH4_leaching > 0) call send_tile_data(id_coarsewoodlitter_NH4_leaching,woodlitter_NH4_loss/delta_time,diag)
+   if (id_coarsewoodlitter_total_ON_leaching > 0) call send_tile_data(id_coarsewoodlitter_total_ON_leaching,sum(woodlitter_DON_loss(:))/delta_time,diag)
 
    !Skipping fine wood litter since it's not set up
 
@@ -5531,11 +5543,11 @@ end subroutine add_root_litter
 ! ============================================================================
 ! Spread root exudate C through profile, using vertical root profile from vegn_uptake_profile
 ! Differs from add_root_litter -- C is distributed through existing cohorts, not deposited as new cohort
-subroutine add_root_exudates(soil,vegn,exudateC,exudateN,ammonium)
+subroutine add_root_exudates(soil,vegn,exudateC,exudateN,ammonium,nitrate)
     type(soil_tile_type), intent(inout)  :: soil
     type(vegn_tile_type), intent(in)     :: vegn
     real,intent(in) :: exudateC,exudateN
-    real,intent(in),optional :: ammonium
+    real,intent(in),optional :: ammonium,nitrate
 
     real,dimension(num_l) :: uptake_frac_max, vegn_uptake_term
     integer :: nn
@@ -5561,6 +5573,7 @@ subroutine add_root_exudates(soil,vegn,exudateC,exudateN,ammonium)
         endif
         call add_C_N_to_rhizosphere(soil%soil_organic_matter(nn),(/exudateC*uptake_frac_max(nn),0.0,0.0/),(/exudateN*uptake_frac_max(nn),0.0,0.0/))
         if(present(ammonium)) soil%soil_organic_matter(nn)%ammonium = soil%soil_organic_matter(nn)%ammonium+ammonium*uptake_frac_max(nn)
+        if(present(nitrate)) soil%soil_organic_matter(nn)%nitrate = soil%soil_organic_matter(nn)%nitrate+nitrate*uptake_frac_max(nn)
         soil%fsc_in(nn)=soil%fsc_in(nn)+exudateC*uptake_frac_max(nn)
         soil%fsn_in(nn)=soil%fsn_in(nn)+exudateN*uptake_frac_max(nn)
         if (is_watch_point()) then

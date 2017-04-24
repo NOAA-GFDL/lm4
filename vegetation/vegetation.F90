@@ -181,7 +181,7 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
    id_myc_scavenger_biomass_C,id_myc_scavenger_biomass_N,id_N_fixer_biomass_C,id_N_fixer_biomass_N,&
    id_cohort_stored_N,id_cohort_wood_N,id_cohort_sapwood_N,id_cohort_leaf_N,id_cohort_root_N,id_cohort_total_N,&
    id_myc_miner_biomass_C,id_myc_miner_biomass_N,&
-   id_con_v_h, id_con_v_v, id_fuel, id_harv_pool(N_HARV_POOLS), &
+   id_con_v_h, id_con_v_v, id_fuel, id_harv_pool(N_HARV_POOLS), id_harv_pool_nitrogen(N_HARV_POOLS), &
    id_harv_rate(N_HARV_POOLS), id_t_harv_pool, id_t_harv_rate, &
    id_csmoke_pool, id_csmoke_rate, id_fsc_in, id_fsc_out, id_ssc_in, &
    id_ssc_out, id_deadmic_in, id_deadmic_out, id_veg_in, id_veg_out, &
@@ -436,6 +436,8 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
              call get_tile_data(restart2,trim(HARV_POOL_NAMES(i))//'_harv_pool',vegn_harv_pool_ptr,i)
         if (field_exists(restart2,trim(HARV_POOL_NAMES(i))//'_harv_rate')) &
              call get_tile_data(restart2,trim(HARV_POOL_NAMES(i))//'_harv_rate',vegn_harv_rate_ptr,i)
+        if (field_exists(restart2,trim(HARV_POOL_NAMES(i))//'_harv_pool_nitrogen')) &
+             call get_tile_data(restart2,trim(HARV_POOL_NAMES(i))//'_harv_pool_nitrogen',vegn_harv_pool_nitrogen_ptr,i)
      enddo
   else
      call error_mesg('vegn_init',&
@@ -725,6 +727,9 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
           trim(HARV_POOL_NAMES(i))//'_harv_rate', (/id_lon,id_lat/), time, &
           'rate of release of harvested carbon to the atmosphere', 'kg C/(m2 year)', &
           missing_value=-999.0)
+     id_harv_pool_nitrogen(i) = register_tiled_diag_field( module_name, &
+           trim(HARV_POOL_NAMES(i))//'_harv_pool_nitrogen', (/id_lon,id_lat/), time, &
+           'harvested nitrogen', 'kg N/m2', missing_value=-999.0)
   enddo
 
 
@@ -1039,6 +1044,8 @@ call add_tile_data(restart2,'coarsewoodlitter_buffer_rate_slow_N',vegn_coarsewoo
   do i = 1, N_HARV_POOLS
      call add_tile_data(restart2, trim(HARV_POOL_NAMES(i))//'_harv_pool', &
           vegn_harv_pool_ptr, i, 'harvested carbon','kg C/m2')
+     call add_tile_data(restart2, trim(HARV_POOL_NAMES(i))//'_harv_pool_nitrogen', &
+          vegn_harv_pool_nitrogen_ptr, i, 'harvested nitrogen','kg N/m2')
      call add_tile_data(restart2, trim(HARV_POOL_NAMES(i))//'_harv_rate', &
           vegn_harv_rate_ptr, i, 'rate of release of harvested carbon to the atmosphere','kg C/(m2 yr)')
   enddo
@@ -1480,7 +1487,7 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
   real :: psist ! psi stress index
   real :: depth_ave! depth for averaging soil moisture based on Jackson function for root distribution
   real :: percentile = 0.95
-  real :: N_filter_weight
+  real :: harv_pool_nitrogen_loss(N_HARV_POOLS)
 
   tsoil = soil_ave_temp (soil,soil_carbon_depth_scale)
   ! depth for 95% of root according to Jackson distribution
@@ -1514,6 +1521,17 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
   vegn_fco2 = -vegn%nep + vegn%csmoke_rate + sum(vegn%harv_rate(:))
   ! --- convert it to kg CO2/(m2 s)
   vegn_fco2 = vegn_fco2*mol_CO2/(mol_C*seconds_per_year)
+
+  ! What to do with harvested nitrogen??
+  where(harvest_spending_time(:)>0)
+     harv_pool_nitrogen_loss = &
+          vegn%harv_pool_nitrogen(:)/harvest_spending_time(:)
+  elsewhere
+     harv_pool_nitrogen_loss(:) = 0.0
+  end where
+  vegn%harv_pool_nitrogen = vegn%harv_pool_nitrogen - harv_pool_nitrogen_loss*dt_fast_yr
+  soil%gross_nitrogen_flux_out_of_tile = soil%gross_nitrogen_flux_out_of_tile+sum(harv_pool_nitrogen_loss)*dt_fast_yr
+
 
   ! --- accumulate values for climatological averages
   vegn%tc_av     = vegn%tc_av + cana_T
@@ -1643,6 +1661,8 @@ call check_conservation ('update_vegn_slow: averaging','carbon'      , cmass0, c
 
 cmass1 = land_tile_carbon(tile)
 call check_conservation ('vegn_biogeography','carbon'      , cmass0, cmass1, carbon_cons_tol)
+nmass1 = land_tile_nitrogen(tile)
+call check_conservation ('vegn_biogeography','nitrogen'      , nmass0, nmass1, nitrogen_cons_tol)
 
      if (year1 /= year0 .and. do_peat_redistribution) then
         call redistribute_peat_carbon(tile%soil)
@@ -1680,6 +1700,8 @@ call check_conservation ('update_fuel','carbon'      , cmass0, cmass1, carbon_co
 
 cmass1 = land_tile_carbon(tile)
 call check_conservation ('growth and mortality','carbon'      , cmass0, cmass1, carbon_cons_tol)
+nmass1 = land_tile_nitrogen(tile)
+call check_conservation ('growth and mortality','nitrogen'      , nmass0, nmass1, nitrogen_cons_tol)
 
      if  (month1 /= month0 .and. do_phenology) then
         call vegn_phenology (tile%vegn, tile%soil)
@@ -1689,6 +1711,8 @@ call check_conservation ('growth and mortality','carbon'      , cmass0, cmass1, 
 
 cmass1 = land_tile_carbon(tile)
 call check_conservation ('vegn_phenology','carbon'      , cmass0, cmass1, carbon_cons_tol)
+nmass1 = land_tile_nitrogen(tile)
+call check_conservation ('vegn_phenology','nitrogen'      , nmass0, nmass1, nitrogen_cons_tol)
 
      if (year1 /= year0 .and. do_patch_disturbance) then
         call vegn_disturbance(tile%vegn, tile%soil, seconds_per_year)
@@ -1697,6 +1721,9 @@ call check_conservation ('vegn_phenology','carbon'      , cmass0, cmass1, carbon
 
 cmass1 = land_tile_carbon(tile)
 call check_conservation ('vegn_disturbance','carbon'      , cmass0, cmass1, carbon_cons_tol)
+nmass1 = land_tile_nitrogen(tile)
+call check_conservation ('vegn_disturbance','nitrogen'      , nmass0, nmass1, nitrogen_cons_tol)
+
      call vegn_harvesting(tile%vegn, tile%soil, year0/=year1, month0/=month1, day0/=day1)
 
 
@@ -1704,6 +1731,8 @@ call check_conservation ('vegn_disturbance','carbon'      , cmass0, cmass1, carb
         ! update rates of carbon transfer from intermediate pools to soil and litter
         tile%vegn%fsc_rate_bg = tile%vegn%fsc_pool_bg/fsc_pool_spending_time
         tile%vegn%ssc_rate_bg = tile%vegn%ssc_pool_bg/ssc_pool_spending_time
+        tile%vegn%fsn_rate_bg = tile%vegn%fsn_pool_bg/fsc_pool_spending_time
+        tile%vegn%ssn_rate_bg = tile%vegn%ssn_pool_bg/ssc_pool_spending_time
 
         tile%vegn%leaflitter_buffer_rate_fast = tile%vegn%leaflitter_buffer_fast/fsc_pool_spending_time
         tile%vegn%coarsewoodlitter_buffer_rate_fast = tile%vegn%coarsewoodlitter_buffer_fast/fsc_pool_spending_time
@@ -1727,6 +1756,8 @@ call check_conservation ('vegn_disturbance','carbon'      , cmass0, cmass1, carb
 
 cmass1 = land_tile_carbon(tile)
 call check_conservation ('vegn_harvesting','carbon'      , cmass0, cmass1, carbon_cons_tol)
+nmass1 = land_tile_nitrogen(tile)
+call check_conservation ('vegn_harvesting','nitrogen'      , nmass0, nmass1, nitrogen_cons_tol)
 
      if (do_check_conservation) then
         ! + conservation check, part 2: calculate totals in final state, and compare
@@ -1741,7 +1772,7 @@ call check_conservation ('vegn_harvesting','carbon'      , cmass0, cmass1, carbo
         call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
         call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
         ! Need to include source/sink terms including vegetation inputs for N conservation to add up
-        !call check_conservation (tag,'nitrogen'      , nmass0, nmass1, carbon_cons_tol)
+        call check_conservation (tag,'nitrogen'      , nmass0, nmass1, nitrogen_cons_tol)
         ! call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16)
         ! - end of conservation check, part 2
      endif
@@ -1757,6 +1788,7 @@ call check_conservation ('vegn_harvesting','carbon'      , cmass0, cmass1, carbo
 
      do ii = 1,N_HARV_POOLS
         call send_tile_data(id_harv_pool(ii),tile%vegn%harv_pool(ii),tile%diag)
+        call send_tile_data(id_harv_pool_nitrogen(ii),tile%vegn%harv_pool_nitrogen(ii),tile%diag)
         call send_tile_data(id_harv_rate(ii),tile%vegn%harv_rate(ii),tile%diag)
      enddo
      if (id_t_harv_pool>0) call send_tile_data(id_t_harv_pool,sum(tile%vegn%harv_pool(:)),tile%diag)
@@ -2038,6 +2070,7 @@ DEFINE_VEGN_ACCESSOR_0D(real,csmoke_pool)
 DEFINE_VEGN_ACCESSOR_0D(real,csmoke_rate)
 
 DEFINE_VEGN_ACCESSOR_1D(real,harv_pool)
+DEFINE_VEGN_ACCESSOR_1D(real,harv_pool_nitrogen)
 DEFINE_VEGN_ACCESSOR_1D(real,harv_rate)
 
 DEFINE_COHORT_ACCESSOR(integer,species)
