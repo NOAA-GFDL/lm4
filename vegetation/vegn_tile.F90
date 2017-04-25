@@ -99,6 +99,7 @@ type :: vegn_tile_type
 
    real :: harv_pool(N_HARV_POOLS) = 0.0 ! pools of harvested carbon, kg C/m2
    real :: harv_rate(N_HARV_POOLS) = 0.0 ! rates of spending (release to the atmosphere), kg C/(m2 yr)
+   real :: harv_pool_nitrogen(N_HARV_POOLS) = 0.0 ! Harvested nitrogen pool
 
    ! uptake-related variables
    real :: root_distance(max_lev) ! characteristic half-distance between fine roots, m
@@ -335,6 +336,7 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
 
   __MERGE__(harv_pool)
   __MERGE__(harv_rate)
+  __MERGE__(harv_pool_nitrogen)
 
   ! do we need to merge these?
   __MERGE__(ssc_out)
@@ -803,7 +805,7 @@ function vegn_tile_nitrogen(vegn) result(nitrogen) ; real nitrogen
             vegn%cohorts(i)%scav_myc_N_reservoir + vegn%cohorts(i)%mine_myc_N_reservoir + vegn%cohorts(i)%N_fixer_N_reservoir &
            )*vegn%cohorts(i)%nindivs
   enddo
-  nitrogen = nitrogen + &    ! Harvest pools currently don't keep track of nitrogen
+  nitrogen = nitrogen  + sum(vegn%harv_pool_nitrogen) + &
            vegn%fsn_pool_bg + vegn%ssn_pool_bg
 
   ! Pools associated with aboveground litter CORPSE pools

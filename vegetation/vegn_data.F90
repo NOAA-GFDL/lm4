@@ -121,9 +121,8 @@ public :: &
     myc_scav_C_efficiency, myc_mine_C_efficiency, &
     N_fixer_turnover_time, N_fixer_C_efficiency, &
     c2n_N_fixer, N_limits_live_biomass, &
-    root_NH4_uptake_rate, root_NO3_uptake_rate, &
-    k_ammonium_root_uptake, k_nitrate_root_uptake, excess_stored_N_leakage_rate, calc_SLA_from_lifespan, &
-    myc_growth_rate,myc_N_to_plant_rate,et_myc
+    excess_stored_N_leakage_rate, calc_SLA_from_lifespan, &
+    et_myc
 
 
 logical, public :: do_ppa = .FALSE.
@@ -256,6 +255,13 @@ type spec_data_type
   logical :: do_N_scavenging_strategy = .TRUE.
   logical :: do_N_fixation_strategy = .TRUE.
   real    :: N_fixation_rate = 0.1 ! N fixation rate per unit fixer biomass (kgN/kg fixer C/year)
+  real    :: kM_myc_growth = 1e-3  ! Half-saturation constant for mycorrhizal growth (on C reservoir)
+  real    :: myc_growth_rate = 1.0        ! Max rate at which mycorrhizae gain biomass (kgC/m2/year)
+  real    :: myc_N_to_plant_rate = 100.0    ! Rate at which plants send N from reservoir to plant (Fraction per year)
+  real    :: root_NH4_uptake_rate = 0.1   ! Max rate of root NH4 uptake (kgN/m3/year)
+  real    :: root_NO3_uptake_rate = 0.1   ! Max rate of root NO3 uptake
+  real    :: k_ammonium_root_uptake = 3e-2   ! Half-saturation for root NH4 uptake (kgN/m3)
+  real    :: k_nitrate_root_uptake = 3e-2    ! Half-saturation for root NO3 uptake (kgN/m3)
 
   real    :: root_exudate_frac = 0.0 ! fraction of NPP that ends up in root exudates
   real    :: root_exudate_N_frac = 0.0 ! N fraction of root exudates. See e.g. Drake et al 2013
@@ -275,6 +281,7 @@ type spec_data_type
   real    :: froot_retranslocation_frac = 0.0 ! Fraction of fine root N retranslocated before senescence.
 
   real    :: branch_wood_frac = 0.25 ! fraction of total wood biomass in branches
+  real    :: N_stress_root_factor = 0.02 ! Amount of sapwood C that goes to roots instead as N stress increases
 end type
 
 ! ==== module data ===========================================================
@@ -364,13 +371,7 @@ real :: c2n_N_fixer           = 10      ! C:N ratio of N-fixing microbe biomass
 real :: N_fixer_turnover_time = 0.1     ! Mean residence time of live N fixer biomass (yr)
 real :: N_fixer_C_efficiency  = 0.5     ! Efficiency of C allocation to N fixers (remainder goes to CO2)
 logical :: N_limits_live_biomass = .FALSE.  ! Option to have N uptake limit max biomass.  Only relevant with CORPSE_N
-real :: root_NH4_uptake_rate = 0.1      ! kg/m3/year (assumes rhizosphere only, which accounts for root length)
-real :: root_NO3_uptake_rate = 0.1      ! kg/m3/year (assumes rhizosphere only, which accounts for root length)
-real :: k_ammonium_root_uptake = 3e-2   ! Half-saturation for root NH4 uptake (kgN/m3)
-real :: k_nitrate_root_uptake = 3e-2    ! Half-saturation for root NO3 uptake (kgN/m3)
 real :: excess_stored_N_leakage_rate = 1.0 ! Leaking of excess cohort stored N back to soil (Fraction per year)
-real :: myc_growth_rate = 100.0        ! Rate at which mycorrhizae convert reservoir to biomass (Fraction per year)
-real :: myc_N_to_plant_rate = 100.0    ! Rate at which plants send N from reservoir to plant (Fraction per year)
 real :: et_myc = 0.7                   ! Fraction of mycorrhizal turnover NOT mineralized to CO2 and NH4
 
 logical :: calc_SLA_from_lifespan      ! In LM3, whether to calculate SLA from leaf lifespan or use namelist value
@@ -402,9 +403,8 @@ namelist /vegn_data_nml/ &
   myc_scav_C_efficiency, myc_mine_C_efficiency, &
   N_fixer_turnover_time, N_fixer_C_efficiency, &
   c2n_N_fixer, N_limits_live_biomass, &
-  root_NH4_uptake_rate, root_NO3_uptake_rate, &
-  k_ammonium_root_uptake, k_nitrate_root_uptake, excess_stored_N_leakage_rate, calc_SLA_from_lifespan,&
-  myc_growth_rate,myc_N_to_plant_rate,et_myc
+   excess_stored_N_leakage_rate, calc_SLA_from_lifespan,&
+  et_myc
 
 
 
@@ -771,6 +771,13 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(root_exudate_frac)
   __GET_SPDATA_REAL__(root_exudate_N_frac)
   __GET_SPDATA_LOGICAL__(dynamic_root_exudation)
+  __GET_SPDATA_REAL__(kM_myc_growth)
+  __GET_SPDATA_REAL__(myc_growth_rate)
+  __GET_SPDATA_REAL__(myc_N_to_plant_rate)
+  __GET_SPDATA_REAL__(root_NH4_uptake_rate)
+  __GET_SPDATA_REAL__(root_NO3_uptake_rate)
+  __GET_SPDATA_REAL__(k_ammonium_root_uptake)
+  __GET_SPDATA_REAL__(k_nitrate_root_uptake)
   ! nitrogen-related parameters
   __GET_SPDATA_REAL__(fsc_liv)
   __GET_SPDATA_REAL__(fsc_froot)
@@ -1029,6 +1036,13 @@ subroutine print_species_data(unit)
   call add_row(table, 'root_exudate_frac', spdata(:)%root_exudate_frac)
   call add_row(table, 'root_exudate_N_frac', spdata(:)%root_exudate_N_frac)
   call add_row(table, 'dynamic_root_exudation', spdata(:)%dynamic_root_exudation)
+  call add_row(table, 'kM_myc_growth', spdata(:)%kM_myc_growth)
+  call add_row(table, 'myc_growth_rate', spdata(:)%myc_growth_rate)
+  call add_row(table, 'myc_N_to_plant_rate', spdata(:)%myc_N_to_plant_rate)
+  call add_row(table, 'root_NH4_uptake_rate', spdata(:)%root_NH4_uptake_rate)
+  call add_row(table, 'root_NO3_uptake_rate', spdata(:)%root_NO3_uptake_rate)
+  call add_row(table, 'k_ammonium_root_uptake', spdata(:)%k_ammonium_root_uptake)
+  call add_row(table, 'k_nitrate_root_uptake', spdata(:)%k_nitrate_root_uptake)
   ! nitrogen-related parameters
   call add_row(table, 'fsc_liv',       spdata(:)%fsc_liv)
   call add_row(table, 'fsc_froot',     spdata(:)%fsc_froot)

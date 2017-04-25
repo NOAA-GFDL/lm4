@@ -162,11 +162,13 @@ subroutine vegn_graze_pasture(vegn,soil)
   do i = 1,vegn%n_cohorts
      associate (cc=>vegn%cohorts(i), sp=>spdata(vegn%cohorts(i)%species))
 
-  if ( vegn_tile_LAI(vegn) .lt. min_lai_for_grazing ) return
 
      ! This makes sure biomass pools are correct before calculating changes
      ! in leaf biomass and such, just in case it wasn't called before
      call update_biomass_pools(cc);
+
+     ! In multiple-cohort scenario, should we be adding over all cohorts?
+     if(cc%bliving*cc%Pl/sp%LMA .lt. min_lai_for_grazing) continue
 
          if(cc%bwood>0) then
            wood_n2c=cc%wood_N/cc%bwood
@@ -188,7 +190,6 @@ subroutine vegn_graze_pasture(vegn,soil)
      vegn%harv_pool(HARV_POOL_PAST) = vegn%harv_pool(HARV_POOL_PAST) + &
           carbon_lost*(1-grazing_residue) ;
      cc%bliving = cc%bliving - carbon_lost;
-     cc%stored_N = cc%stored_N - carbon_lost/sp%leaf_live_c2n
 
      ! redistribute leftover biomass between biomass pools
      call update_biomass_pools(cc);
@@ -229,12 +230,19 @@ subroutine vegn_graze_pasture(vegn,soil)
        bglitter_C=(/(sp%fsc_froot*(delta_root) +(1-agf_bs)*sp%fsc_wood*(delta_wood)),&
                      (1.0-sp%fsc_froot)*(delta_root) +(1-agf_bs)*(1.0-sp%fsc_wood)*(delta_wood),0.0/)*grazing_residue
 
+       ! We're not removing belowground portion of what was grazed, so that needs to be clawed back from harvest pool
+       vegn%harv_pool(HARV_POOL_PAST) = vegn%harv_pool(HARV_POOL_PAST) - (1.0-grazing_residue)*(delta_root+(1-agf_bs)*delta_wood)
+
        if(soil_carbon_option == SOILC_CORPSE_N) then
          leaflitter_N=leaflitter_C/sp%leaf_live_c2n
          woodlitter_N=woodlitter_C/sp%leaf_live_c2n
          bglitter_N=(/grazing_residue*(sp%fsc_froot*(delta_root)/sp%froot_live_c2n +(1-agf_bs)*sp%fsc_wood*(delta_wood)*wood_n2c),&
                       grazing_residue*((1-sp%fsc_froot)*(delta_root)/sp%froot_live_c2n +  (1-agf_bs)*(1-sp%fsc_wood)*(delta_wood)*wood_n2c),&
                       0.0/)
+
+        cc%stored_N = cc%stored_N - delta_leaf/sp%leaf_live_c2n - delta_wood*wood_n2c - delta_root/sp%froot_live_c2n
+        vegn%harv_pool_nitrogen(HARV_POOL_PAST) = vegn%harv_pool_nitrogen(HARV_POOL_PAST) + &
+             delta_leaf/sp%leaf_live_c2n*(1-grazing_residue) + delta_wood*agf_bs*wood_n2c*(1-grazing_residue)
        else
          leaflitter_N=(/0.0,0.0,0.0/)
          woodlitter_N=(/0.0,0.0,0.0/)
@@ -330,19 +338,21 @@ subroutine vegn_harvest_cropland(vegn)
            vegn%ssn_pool_bg = vegn%ssn_pool_bg + fraction_harvested*(&
                    (1-sp%fsc_froot)*cc%root_N + &
                    (1-agf_bs)*(cc%wood_N*(1-sp%fsc_wood) + cc%sapwood_N*(1-sp%fsc_liv)))
+
+           vegn%harv_pool_nitrogen(HARV_POOL_CROP) = vegn%harv_pool_nitrogen(HARV_POOL_CROP) + &
+                (cc%bliving*cc%Pl/sp%leaf_live_c2n + agf_bs*cc%sapwood_N + cc%stored_N)*fraction_harvested
         endif
      case default
         call error_mesg('vegn_harvest_cropland','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
      end select
 
-    !  cc%stored_N = cc%stored_N - cc%bliving*cc%Pl*(1-fraction_harvested)/spdata(sp)%leaf_live_c2n
-    !  cc%stored_N = cc%stored_N - cc%bliving*cc%Pr*(1-fraction_harvested)/spdata(sp)%froot_live_c2n
-      cc%stored_N = cc%stored_N*(1-fraction_harvested)
-      cc%leaf_N=cc%leaf_N*(1-fraction_harvested)
-      cc%root_N=cc%root_N*(1-fraction_harvested)
-     cc%wood_N = cc%wood_N*(1-fraction_harvested)
+     ! Subtract N lost from N pools. Leaf and root can get subtracted from stored and things will be rebalanced later.
+     ! Some stored N also was lost
+     cc%stored_N = cc%stored_N*(1-fraction_harvested) &
+                - cc%bliving*fraction_harvested*(cc%Pl/sp%leaf_live_c2n + cc%Pr/sp%froot_live_c2n)
      cc%sapwood_N = cc%sapwood_N*(1-fraction_harvested)
-     ! Should stored N be lost or retained?
+     cc%wood_N = cc%wood_N*(1-fraction_harvested)
+
      ! redistribute leftover biomass between biomass pools
 
      cc%bliving = cc%bliving * (1-fraction_harvested);
@@ -476,8 +486,24 @@ subroutine vegn_cut_forest(vegn, new_landuse)
               vegn%fsn_pool_bg = vegn%fsn_pool_bg + (cc%wood_N*sp%fsc_wood+(cc%sapwood_N+cc%stored_N)*sp%fsc_liv)*frac_harvested*(1-agf_bs)
             endif
         endif
-     case default
-        call error_mesg('vegn_phenology','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
+
+        ! distribute harvested wood between pools
+        if (new_landuse==LU_SCND) then
+           ! this is harvesting, distribute between 3 different wood pools
+           vegn%harv_pool_nitrogen(HARV_POOL_WOOD_FAST) = vegn%harv_pool_nitrogen(HARV_POOL_WOOD_FAST) &
+                + (cc%bwood/sp%wood_c2n+cc%bsw/sp%sapwood_c2n)*frac_harvested*(1-frac_wood_wasted)*frac_wood_fast
+           vegn%harv_pool_nitrogen(HARV_POOL_WOOD_MED) = vegn%harv_pool_nitrogen(HARV_POOL_WOOD_MED) &
+                + (cc%bwood/sp%wood_c2n+cc%bsw/sp%sapwood_c2n)*frac_harvested*(1-frac_wood_wasted)*frac_wood_med
+           vegn%harv_pool_nitrogen(HARV_POOL_WOOD_SLOW) = vegn%harv_pool_nitrogen(HARV_POOL_WOOD_SLOW) &
+                + (cc%bwood/sp%wood_c2n+cc%bsw/sp%sapwood_c2n)*frac_harvested*(1-frac_wood_wasted)*frac_wood_slow
+        else
+           ! this is land clearance: everything goes into "cleared" pool
+           vegn%harv_pool_nitrogen(HARV_POOL_CLEARED) = vegn%harv_pool_nitrogen(HARV_POOL_CLEARED) &
+                + (cc%bwood/sp%wood_c2n+cc%bsw/sp%sapwood_c2n)*frac_harvested*(1-frac_wood_wasted)
+        endif
+
+    case default
+        call error_mesg('vegn_cut_forest','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
      end select
 
      cc%bliving = cc%bliving*(1-frac_harvested);

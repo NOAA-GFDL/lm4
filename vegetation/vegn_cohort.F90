@@ -606,7 +606,7 @@ subroutine update_biomass_pools(c)
   ! biomass_N_demand=(c%bliving*c%Pl/leaf_live_c2n + c%bliving*c%Pr/froot_live_c2n + c%bliving*c%Psw/wood_fast_c2n)
   ! Elena suggests using 2*(root N + leaf N) as storage target
   biomass_N_demand=(c%bliving*c%Pl/spdata(c%species)%leaf_live_c2n + c%bliving*c%Pr/spdata(c%species)%froot_live_c2n)
-  potential_stored_N = c%total_N - biomass_N_demand - c%bwood/spdata(c%species)%wood_c2n-c%bsw/spdata(c%species)%sapwood_c2n
+  potential_stored_N = c%total_N - biomass_N_demand - c%bwood/spdata(c%species)%wood_c2n-c%bliving*c%Psw/spdata(c%species)%sapwood_c2n
   ! c%nitrogen_stress = biomass_N_demand/c%total_N
 
   ! Spring physical analogy -- restoring force proportional to distance from target (equal to demand*2.0)
@@ -630,21 +630,10 @@ subroutine update_biomass_pools(c)
   c%nitrogen_stress = min(c%nitrogen_stress,5.0)
   c%nitrogen_stress = max(c%nitrogen_stress,0.05)
 
-  ! This calculates relative allocation based on nitrogen stress
-  ! Should match results from update_living_bio_fraction at 0 stress and skew toward root and wood growth as N stress increases
-  ! x_wood = c%Psw*(c%nitrogen_stress**2+1.0)
-  ! x_leaf = c%Pl
-  ! x_root = c%Pr*exp(c%nitrogen_stress*0.5)
 
-
-! __DEBUG3__(x_wood,x_leaf,x_root)
-! __DEBUG5__(c%stored_N,c%leaf_N,c%wood_N,c%root_N,c%nitrogen_stress)
-
-  ! if(N_limits_live_biomass) then
-  !   c%Psw=x_wood/(x_wood+x_leaf+x_root)
-  !   c%Pl=x_leaf/(x_wood+x_leaf+x_root)
-  !   c%Pr=x_root/(x_wood+x_leaf+x_root)
-  ! endif
+  ! Move some biomass from sapwood to root based on N stress
+  c%Pr=c%Pr+c%Psw*c%nitrogen_stress*spdata(c%species)%N_stress_root_factor
+  c%Psw=c%Psw-c%Psw*c%nitrogen_stress*spdata(c%species)%N_stress_root_factor
 
   c%bsw = c%Psw*c%bliving;
   if(c%status == LEAF_OFF) then

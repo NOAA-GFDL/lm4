@@ -1371,18 +1371,11 @@ pure function Resp_myc(Ctotal,Chet,T,theta,air_filled_porosity)
     ENDIF
 
     where(Cavail>0)
-      Resp_myc=Vmax_myc(T)*theta**substrate_diffusion_exp*(Cavail)*enz/(Cavail*k_myc_decomp+enz)*max((air_filled_porosity)**gas_diffusion_exp,min_anaerobic_resp_factor*aerobic_max)/aerobic_max
+      Resp_myc=Vmax_myc(T)*theta**substrate_diffusion_exp*(Cavail)*enz/(sum(Cavail)*k_myc_decomp+enz)*max((air_filled_porosity)**gas_diffusion_exp,min_anaerobic_resp_factor*aerobic_max)/aerobic_max
     elsewhere
       Resp_myc=0.0
     endwhere
 
-    !ox_avail=oxygen_concentration(Ox,sum(tempresp)/sum(Cavail)*theta*oxPerC)
-    !print *,sum(tempresp)/sum(Cavail)
-    !print *,ox_avail/(kO+ox_avail)
-    !print *,tempresp*(1.0-theta)+theta*tempresp*ox_avail/(kO+ox_avail)
-
-    ! Assumes pores are either saturated or not oxygen limited, divided according to theta
-    ! Resp=tempresp*(1.0-theta)+theta*tempresp*ox_avail/(kO+ox_avail)
 end function Resp_myc
 
 

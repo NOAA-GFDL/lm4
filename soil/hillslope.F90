@@ -19,7 +19,7 @@ use fms_io_mod, only: set_domain, nullify_domain
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, tail_elmt, next_elmt, current_tile, get_elmt_indices, operator(/=)
-use land_utils_mod, only : put_to_tiles_r0d_fptr 
+use land_utils_mod, only : put_to_tiles_r0d_fptr
 use land_tile_diag_mod, only : diag_buff_type, &
      register_tiled_static_field, set_default_diag_filter, &
      send_tile_data_r0d_fptr, &
@@ -32,8 +32,8 @@ use land_tile_io_mod, only: land_restart_type, &
      print_netcdf_error
 use nf_utils_mod,  only : nfu_inq_dim
 use land_debug_mod, only : is_watch_point, is_watch_cell, set_current_point
-use land_transitions_mod, only : do_landuse_change
-use vegn_harvesting_mod , only : do_harvesting
+! use land_transitions_mod, only : do_landuse_change
+! use vegn_harvesting_mod , only : do_harvesting
 use hillslope_tile_mod , only : register_hlsp_selectors
 use constants_mod, only : tfreeze
 use soil_tile_mod, only : gw_option, GW_TILED, initval, soil_tile_type, &
@@ -71,7 +71,7 @@ private :: meanelev ! used by calculate_wt_init
 character(len=*), parameter :: module_name = 'hillslope'
 #include "../shared/version_variable.inc"
 
-integer, parameter :: max_vc = 30 ! Max num_vertclusters that can be input from namelist for 
+integer, parameter :: max_vc = 30 ! Max num_vertclusters that can be input from namelist for
                                   ! tile horizontal grid.
 ! ==== module variables ======================================================
 
@@ -100,10 +100,10 @@ logical, public     :: use_geohydrodata          = .true.  ! True ==> input some
                        ! from the "geohydrology.nc" dataset to initialize hillslope soil properties,
                        ! and keep some of the diagnostic hydrology calculations based on the gridcell
                        ! values.
-!real, public        :: pond                      = 0.      ! [mm] water / ice allowed to pool on 
+!real, public        :: pond                      = 0.      ! [mm] water / ice allowed to pool on
 !                       ! surface before run-off
 logical, public     :: stiff_do_explicit         = .false.  ! update water profile explicitly
-                       ! due to inter-tile flows in case becomes stiff during timestep. 
+                       ! due to inter-tile flows in case becomes stiff during timestep.
                        ! Hard-wired for now.
 logical             :: diagnostics_by_cluster    = .false.  ! True ==> create diagnostics for
                                                             ! every tile cluster from 1:num_vertclusters
@@ -145,7 +145,7 @@ logical             :: module_is_initialized = .false.
 character(len=24)   :: hlsp_surf_dimname = 'nhlsps'
 
 ! ---- diagnostic field IDs
-integer, public :: &!id_soil_e_depth, 
+integer, public :: &!id_soil_e_depth,
                     id_microtopo, id_tile_hlsp_length, id_tile_hlsp_slope, &
                     id_tile_hlsp_elev, id_tile_hlsp_hpos, id_tile_hlsp_width, & !id_transm_bedrock, &
                     id_hidx_j, id_hidx_k
@@ -186,7 +186,7 @@ subroutine read_hlsp_namelist()
 #else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
-     ierr = 1;  
+     ierr = 1;
      do while (ierr /= 0)
         read (unit, nml=hlsp_nml, iostat=io, end=10)
         ierr = check_nml_error (io, 'hlsp_nml')
@@ -382,7 +382,7 @@ subroutine hlsp_coldfracs ( tile_frac, n_dim_soil_types )
         call error_mesg(module_name, 'Error: bad input dl in hlsp_nml. dl must match num_vertclusters.', &
                         FATAL)
   end if
-  
+
   allocate(num_topo_hlsps(lis:lie, ljs:lje), frac_topo_hlsps(lis:lie, ljs:lje, max_num_topo_hlsps), &
             soil_e_depth(lis:lie, ljs:lje, max_num_topo_hlsps), &
             microtopo(lis:lie, ljs:lje, max_num_topo_hlsps), &
@@ -420,7 +420,7 @@ subroutine hlsp_coldfracs ( tile_frac, n_dim_soil_types )
   ! clumps of repeating sets of topographically adjacent tiles. (So if there are multiple
   ! soil types, these will be repeated in each topographic bin. See how "soiltags" is set
   ! in soil_tile_mod.)
-  
+
   allocate(soilfracs0(n_dim_soil_types))
 
   ! Walk through land model grid and reassign fractions. Distribute the n_dim_soil_types
@@ -461,7 +461,7 @@ subroutine hlsp_coldfracs ( tile_frac, n_dim_soil_types )
                  call error_mesg(module_name, mesg, FATAL)
               end if
               ! Converging hillslopes have value > 1; diverging < 1.
-              
+
               sum_l = 0 ! running sum of dl
               do n = 1, num_vertclusters ! Order from lowest elevation to highest in each hillslope.
                  ! Calculate fractions for topo bin
@@ -520,7 +520,7 @@ subroutine hlsp_coldfracs ( tile_frac, n_dim_soil_types )
 
      end do ! lat
   end do ! lon
-  
+
   deallocate(num_topo_hlsps, frac_topo_hlsps, soil_e_depth, &
              microtopo, hlsp_length, &
              hlsp_slope, hlsp_slope_exp, &!hlsp_stream_width, &
@@ -556,7 +556,7 @@ end subroutine retrieve_hlsp_indices
 ! ============================================================================
 ! initialize hillslope model
 subroutine hlsp_init ( id_lon, id_lat )
-  integer, intent(in)  :: id_lon  ! ID of land longitude (X) axis  
+  integer, intent(in)  :: id_lon  ! ID of land longitude (X) axis
   integer, intent(in)  :: id_lat  ! ID of land latitude (Y) axis
 
   ! ---- local vars
@@ -607,7 +607,7 @@ subroutine hlsp_init ( id_lon, id_lat )
   ljs = lnd%js
   lje = lnd%je
   NN = real(num_vertclusters)
-  
+
   allocate(num_topo_hlsps(lis:lie, ljs:lje), frac_topo_hlsps(lis:lie, ljs:lje, max_num_topo_hlsps), &
             soil_e_depth(lis:lie, ljs:lje, max_num_topo_hlsps), &
             microtopo(lis:lie, ljs:lje, max_num_topo_hlsps), &
@@ -640,7 +640,7 @@ subroutine hlsp_init ( id_lon, id_lat )
      if (.not. cold_start) &
         call error_mesg(module_name, 'hlsp_init: coldfracs subroutine not called even though restart file '// &
                              'does not exist! Inconsistency of "cold_start" in hillslope_mod.', FATAL)
-        
+
   endif
   call free_land_restart(restart)
 
@@ -654,7 +654,7 @@ subroutine hlsp_init ( id_lon, id_lat )
      call get_elmt_indices(ce,i=li,j=lj,k=lk)
      call set_current_point(li, lj, lk)
      ce=next_elmt(ce)        ! advance position to the next tile
-     
+
      if (.not.associated(tile%soil)) cycle
 
      hj = tile%soil%hidx_j
@@ -665,7 +665,7 @@ subroutine hlsp_init ( id_lon, id_lat )
 
      ! ZMS Note: If code to be used to allow different properties based on vertical position
      ! WITHIN hillslopes, it would be done here...
-     if (.not. use_geohydrodata) then 
+     if (.not. use_geohydrodata) then
         tile%soil%pars%soil_e_depth = soil_e_depth(li,lj,hk)
         tile%soil%pars%k_sat_gw = k_sat_gw(li,lj,hk)
 
@@ -784,7 +784,7 @@ end subroutine hlsp_init
 
 ! ============================================================================
 subroutine hlsp_diag_init ( id_lon, id_lat )
-   integer, intent(in) :: id_lon  ! ID of land longitude (X) axis  
+   integer, intent(in) :: id_lon  ! ID of land longitude (X) axis
    integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
 
    ! ---- local vars
@@ -871,12 +871,14 @@ subroutine hlsp_config_check()
 
   if (.not. do_hillslope_model) return
 
+  ! FIXME: harvesting dependence here is causing circular dependencies (because harvesting_mod depends on soil_mod which uses hillslope_mod)
   ! Error checking
-  if ( (do_landuse_change .or. do_harvesting) .and. (.not. hillslope_horz_subdiv) .and. &
-        (.not. hillslope_topo_subdiv) ) &
-     call error_mesg(module_name, 'Land use change and harvesting require '// &
-                     'the hillslope model to allow horizontal or topographic hillslope subdivision.',&
-                     FATAL)
+  ! if ( (do_landuse_change .or. do_harvesting) .and. (.not. hillslope_horz_subdiv) .and. &
+  ! if ( (do_landuse_change) .and. (.not. hillslope_horz_subdiv) .and. &
+  !       (.not. hillslope_topo_subdiv) ) &
+  !    call error_mesg(module_name, 'Land use change and harvesting require '// &
+  !                    'the hillslope model to allow horizontal or topographic hillslope subdivision.',&
+  !                    FATAL)
 
   if ((.not. fixed_num_vertclusters) .or. hillslope_topo_subdiv) &
      call error_mesg(module_name, 'hlsp_init: fixed_num_vertclusters == .true.,'// &
@@ -885,9 +887,10 @@ subroutine hlsp_config_check()
                      FATAL)
 
   ! ZMS fill in this function
-  if ((do_landuse_change .or. do_harvesting) .and. hillslope_horz_subdiv) then
-      call transitions_disturbance_length_init()
-  end if
+  ! if ((do_landuse_change .or. do_harvesting) .and. hillslope_horz_subdiv) then
+  ! if ((do_landuse_change) .and. hillslope_horz_subdiv) then
+  !     call transitions_disturbance_length_init()
+  ! end if
 
   ! Deallocate variables used during init, as this function is called at end of land_model init
   ! sequence.
@@ -938,7 +941,7 @@ subroutine horiz_wt_depth_to_init (soil, ce, init_wt, dry)
    ! Local variables
    integer :: li,lj,hk,hj,t ! coordinates of current tile
    logical :: drylocal = .false.
-   
+
    if (present(dry)) drylocal = dry
 
    if (cold_start) then
@@ -1046,7 +1049,7 @@ subroutine calculate_wt_init(wtdep_requested)
                end do !hk
             end do  !lj
          end do !li
-                        
+
          deallocate(depth, elev, fracs)
       end if ! init_wt_strmelev
    end if ! cold_start
@@ -1093,6 +1096,3 @@ DEFINE_SOIL_COMPONENT_ACCESSOR_0D(real,pars, tile_hlsp_width)
 
 
 end module hillslope_mod
-
-
-
