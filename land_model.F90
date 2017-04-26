@@ -366,23 +366,7 @@ subroutine land_model_init &
 
   call mpp_clock_begin(landInitClock)
 
-  call astronomy_init ! in case it is not initialized, e.g. when using atmos_null
-
-  ! [ ] initialize land state data, including grid geometry and processor decomposition
-  call land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table,npes_io_group)
-
-  ! [ ] initialize land debug output
-  call land_debug_init()
-
-  ! [ ] initialize tile-specific diagnostics internals
-  call tile_diag_init()
-
-  ! initialize some tracer indices
-  call land_tracers_init()
-  call river_tracers_init()
-
-  ! [2] read namelists
-  ! [2.1] read land model namelist
+  ! [2] read land model namelist
 #ifdef INTERNAL_FILE_NML
      read (input_nml_file, nml=land_model_nml, iostat=io)
      ierr = check_nml_error(io, 'land_model_nml')
@@ -403,8 +387,27 @@ subroutine land_model_init &
      write (unit, nml=land_model_nml)
      call close_file (unit)
   endif
-  ! [2.2] read sub-model namelists: then need to be read before initialization
+
+  ! initialize astronomy, in case it is not initialized, e.g. when using atmos_null
+  call astronomy_init()
+
+  ! initialize land state data, including grid geometry and processor decomposition
+  call land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table,npes_io_group)
+
+  ! initialize land debug output
+  call land_debug_init()
+
+  ! initialize tile-specific diagnostics internals
+  call tile_diag_init()
+
+  ! initialize some tracer indices
+  call land_tracers_init()
+  call river_tracers_init()
+
+  ! read sub-model namelists: then need to be read before component initialization
   ! because they can affect the way cover and tiling is initialized on cold start.
+  ! Also, some of them register diagnostic sub-sampling selectors, so they better
+  ! be after land_tile_diag_init
   call read_land_io_namelist()
   call read_soil_namelist()
   call read_hlsp_namelist() ! Must be called after read_soil_namelist
@@ -418,7 +421,7 @@ subroutine land_model_init &
   delta_time  = time_type_to_real(lnd%dt_fast) ! store in a module variable for convenience
   call init_tile_map()
 
-  ! [5] initialize tiling
+  ! initialize subgrid tile distribution
   call open_land_restart(restart,restart_file_name,restart_exists)
   if(restart_exists) then
      ! read map of tiles -- retrieve information from
@@ -430,26 +433,24 @@ subroutine land_model_init &
   else
      ! initialize map of tiles -- construct it by combining tiles
      ! from component models
-     call error_mesg('land_model_init',&
-          'cold-starting land cover map',&
-          NOTE)
+     call error_mesg('land_model_init', 'cold-starting land cover map', NOTE)
      if (predefined_tiles) then
-        call land_cover_cold_start_predefined(lnd)
+        call land_cover_cold_start_predefined()
      else
-        call land_cover_cold_start(lnd_sg)
+        call land_cover_cold_start()
      endif
   endif
   call free_land_restart(restart)
 
-  ! [6] initialize land model diagnostics -- must be before *_data_init so that
+  ! initialize land model diagnostics -- must be before *_data_init so that
   ! *_data_init can write static fields if necessary
-  call land_diag_init( lnd%coord_glonb, lnd%coord_glatb, lnd%coord_glon, lnd%coord_glat, time, lnd%domain, &
-      id_band, id_ug )
+  call land_diag_init( lnd%coord_glonb, lnd%coord_glatb, lnd%coord_glon, lnd%coord_glat, &
+      time, lnd%domain, id_band, id_ug )
 
   ! set the land diagnostic axes ids for the flux exchange
   land2cplr%axes = (/id_ug/)
   ! send some static diagnostic fields to output
-  if ( id_cellarea > 0 ) used = send_data ( id_cellarea, lnd%cellarea, lnd%time )
+  if ( id_cellarea > 0 ) used = send_data ( id_cellarea, lnd%cellarea,     lnd%time )
   if ( id_landfrac > 0 ) used = send_data ( id_landfrac, lnd%landfrac,     lnd%time )
   if ( id_geolon_t > 0 ) used = send_data ( id_geolon_t, lnd%lon*180.0/PI, lnd%time )
   if ( id_geolat_t > 0 ) used = send_data ( id_geolat_t, lnd%lat*180.0/PI, lnd%time )
@@ -458,7 +459,7 @@ subroutine land_model_init &
   if ( id_sftgif > 0 ) call send_cellfrac_data(id_sftgif,is_glacier)
   if ( id_sftlf > 0 )  used = send_data(id_sftlf,lnd%landfrac*100, lnd%time)
 
-  ! [7] initialize individual sub-models
+  ! initialize individual sub-models
   if (predefined_tiles) then
      call hlsp_init_predefined(id_ug) ! Must be called before soil_init
      call soil_init_predefined(id_ug,id_band,id_zfull)
@@ -476,8 +477,7 @@ subroutine land_model_init &
   call glac_init(id_ug)
   call snow_init()
   call cana_init()
-  call topo_rough_init(lnd%time,lnd_sg%lonb,lnd_sg%latb, &
-                       lnd_sg%domain,lnd%domain,id_ug)
+  call topo_rough_init(lnd%time, lnd_sg%lonb, lnd_sg%latb, lnd_sg%domain, lnd%domain, id_ug)
   call river_init( lnd_sg%lon, lnd_sg%lat, &
                    lnd%time, lnd%dt_fast, lnd_sg%domain,     &
                    lnd%domain, lnd_sg%landfrac,              &
@@ -488,16 +488,19 @@ subroutine land_model_init &
   i_river_ice  = river_tracer_index('ice')
   i_river_heat = river_tracer_index('het')
   i_river_DOC  = river_tracer_index('doc')
-  if (i_river_ice  == NO_TRACER) call error_mesg ('land_model_init','required river tracer for ice not found', FATAL)
-  if (i_river_heat == NO_TRACER) call error_mesg ('land_model_init','required river tracer for heat not found', FATAL)
+  if (i_river_ice  == NO_TRACER) call error_mesg ('land_model_init', &
+                                      'required river tracer for ice not found', FATAL)
+  if (i_river_heat == NO_TRACER) call error_mesg ('land_model_init', &
+                                      'required river tracer for heat not found', FATAL)
 
   call land_transitions_init(id_ug, id_cellarea)
 
+  call hlsp_config_check () ! Needs to be done after land_transitions_init and vegn_init
+
   call land_tracer_driver_init(id_ug)
 
-  ! [8] initialize boundary data
-  ! [8.1] allocate storage for the boundary data
-  call hlsp_config_check () ! Needs to be done after land_transitions_init and vegn_init
+  ! initialize boundary data
+  ! allocate storage for the boundary data
   call realloc_land2cplr ( land2cplr )
   call realloc_cplr2land ( cplr2land )
 
@@ -597,15 +600,14 @@ subroutine land_model_restart(timestamp)
   type(land_restart_type) :: restart ! restart file i/o object
   integer :: tile_dim_length ! length of tile dimension in output files
                              ! global max of number of tiles per gridcell
-  integer :: i,j,k, l
+  integer :: l
   character(256) :: timestamp_
 
   ! [1] count all land tiles and determine the length of tile dimension
   ! sufficient for the current domain
   tile_dim_length = 0
   do l = lnd%ls, lnd%le
-     k = nitems(land_tile_map(l))
-     tile_dim_length = max(tile_dim_length,k)
+     tile_dim_length = max(tile_dim_length,nitems(land_tile_map(l)))
   enddo
 
   ! [2] calculate the tile dimension length by taking the max across all domains
@@ -659,10 +661,7 @@ subroutine land_model_restart(timestamp)
 end subroutine land_model_restart
 
 ! ============================================================================
-subroutine land_cover_cold_start(lnd_sg)
-  type(land_state_type_sg), intent(in) :: lnd_sg
-
-  ! ---- local vars
+subroutine land_cover_cold_start()
   real, dimension(:,:), pointer :: &
        glac, soil, lake, vegn ! arrays of fractions for respective sub-models
   integer, pointer, dimension(:,:) :: soiltags ! array of soil type tags
@@ -672,7 +671,7 @@ subroutine land_cover_cold_start(lnd_sg)
   logical, dimension(lnd%le-lnd%ls+1) :: &
        land_mask, valid_data, invalid_data
   integer :: iwatch,jwatch,kwatch,face,lwatch
-  integer :: i,j,l,p,lll
+  integer :: l,p,lll
   integer :: tile_root_pe,tile_npes
   integer :: ps,pe ! boundaries of PE list for remapping
   type(horiz_remap_type) :: map
@@ -812,25 +811,16 @@ subroutine land_cover_cold_start(lnd_sg)
 end subroutine land_cover_cold_start
 
 ! ============================================================================
-subroutine land_cover_cold_start_predefined(lnd)
-  type(land_state_type), intent(inout) :: lnd
-
-  ! ---- local vars
-  logical, dimension(lnd%le-lnd%ls+1) :: land_mask
+subroutine land_cover_cold_start_predefined()
   integer :: l,h5id
-  real, dimension(:,:,:), pointer :: soil
-  real :: t0,t1
-  ! calculate the global land mask
-  land_mask = lnd%area > 0
 
   ! Open access to model input database
   call open_database_predefined_tiles(h5id)
 
   do l = lnd%ls, lnd%le
-    if(.not.land_mask(l)) cycle ! skip ocean points
+    if(.not.lnd%area(l)>0) cycle ! skip ocean points
     call set_current_point(l,1)
-    call land_cover_cold_start_0d_predefined_tiles(land_tile_map(l),&
-         lnd,l,h5id)
+    call land_cover_cold_start_0d_predefined_tiles(land_tile_map(l),lnd,l,h5id)
   enddo
 
   ! Close access to model input database
@@ -1196,8 +1186,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      __DEBUG1__(runoff_c_sg(iwatch,jwatch,:))
   endif
 
-!=================================================================================
-  ! update river state
+  !--- update river state
   call update_river(runoff_sg, runoff_c_sg, land2cplr)
 
   ce = first_elmt(land_tile_map, ls=lbound(cplr2land%t_flux,1) )
@@ -1223,24 +1212,24 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
          snow_HEAT = snow_tile_heat(tile%snow)
      endif
      if (associated(tile%glac)) then
-         call glac_tile_stock_pe(tile%glac, subs_LMASS, subs_FMASS)
-         subs_HEAT  = glac_tile_heat(tile%glac)
-         glac_LMASS = subs_LMASS
-         glac_FMASS = subs_FMASS
-         glac_HEAT  = subs_HEAT
-       else if (associated(tile%lake)) then
-         call lake_tile_stock_pe(tile%lake, subs_LMASS, subs_FMASS)
-         subs_HEAT  = lake_tile_heat(tile%lake)
-         lake_LMASS = subs_LMASS
-         lake_FMASS = subs_FMASS
-         lake_HEAT  = subs_HEAT
-       else if (associated(tile%soil)) then
-         call soil_tile_stock_pe(tile%soil, subs_LMASS, subs_FMASS)
-         subs_HEAT  = soil_tile_heat(tile%soil)
-         soil_LMASS = subs_LMASS
-         soil_FMASS = subs_FMASS
-         soil_HEAT  = subs_HEAT
-       endif
+        call glac_tile_stock_pe(tile%glac, subs_LMASS, subs_FMASS)
+        subs_HEAT  = glac_tile_heat(tile%glac)
+        glac_LMASS = subs_LMASS
+        glac_FMASS = subs_FMASS
+        glac_HEAT  = subs_HEAT
+     else if (associated(tile%lake)) then
+        call lake_tile_stock_pe(tile%lake, subs_LMASS, subs_FMASS)
+        subs_HEAT  = lake_tile_heat(tile%lake)
+        lake_LMASS = subs_LMASS
+        lake_FMASS = subs_FMASS
+        lake_HEAT  = subs_HEAT
+     else if (associated(tile%soil)) then
+        call soil_tile_stock_pe(tile%soil, subs_LMASS, subs_FMASS)
+        subs_HEAT  = soil_tile_heat(tile%soil)
+        soil_LMASS = subs_LMASS
+        soil_FMASS = subs_FMASS
+        soil_HEAT  = subs_HEAT
+     endif
 
      call send_tile_data(id_VWS,  cana_VMASS, tile%diag)
      call send_tile_data(id_VWSc, cana_VMASS, tile%diag)
