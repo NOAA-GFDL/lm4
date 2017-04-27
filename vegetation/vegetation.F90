@@ -183,7 +183,7 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
    id_myc_miner_biomass_C,id_myc_miner_biomass_N,&
    id_con_v_h, id_con_v_v, id_fuel, id_harv_pool(N_HARV_POOLS), id_harv_pool_nitrogen(N_HARV_POOLS), &
    id_harv_rate(N_HARV_POOLS), id_t_harv_pool, id_t_harv_rate, &
-   id_csmoke_pool, id_csmoke_rate, id_fsc_in, id_fsc_out, id_ssc_in, &
+   id_csmoke_pool, id_nsmoke_pool, id_csmoke_rate, id_fsc_in, id_fsc_out, id_ssc_in, &
    id_ssc_out, id_deadmic_in, id_deadmic_out, id_veg_in, id_veg_out, &
    id_fsc_pool_bg, id_fsc_rate_bg,&
    id_ssc_pool_bg, id_ssc_rate_bg,&
@@ -430,6 +430,8 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
           call get_tile_data(restart2,'csmoke_pool',vegn_csmoke_pool_ptr)
      if(field_exists(restart2,'csmoke_rate')) &
           call get_tile_data(restart2,'csmoke_rate',vegn_csmoke_rate_ptr)
+     if(field_exists(restart2,'nsmoke_pool')) &
+          call get_tile_data(restart2,'nsmoke_pool',vegn_nsmoke_pool_ptr)
      ! harvesting pools and rates
      do i = 1, N_HARV_POOLS
         if (field_exists(restart2,trim(HARV_POOL_NAMES(i))//'_harv_pool')) &
@@ -789,6 +791,8 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
   id_csmoke_rate = register_tiled_diag_field ( module_name, 'csmoke_rate', (/id_lon, id_lat/), &
        time, 'rate of release of carbon lost through fire to the atmosphere', &
        'kg C/(m2 yr)', missing_value=-999.0)
+  id_nsmoke_pool = register_tiled_diag_field ( module_name, 'nsmoke', (/id_lon, id_lat/), &
+       time, 'nitrogen lost through fire', 'kg N/m2', missing_value=-999.0)
 
   id_ssc_in = register_tiled_diag_field ( module_name, 'ssc_in',  (/id_lon, id_lat/), &
      time,  'soil slow carbon in', 'kg C/m2', missing_value=-999.0 )
@@ -1039,6 +1043,7 @@ call add_tile_data(restart2,'coarsewoodlitter_buffer_rate_slow_N',vegn_coarsewoo
   ! burned carbon pool and rate
   call add_tile_data(restart2,'csmoke_pool',vegn_csmoke_pool_ptr,'carbon lost through fires', 'kg C/m2')
   call add_tile_data(restart2,'csmoke_rate',vegn_csmoke_rate_ptr,'rate of release of carbon lost through fires to the atmosphere', 'kg C/(m2 yr)')
+  call add_tile_data(restart2,'nsmoke_pool',vegn_nsmoke_pool_ptr,'nitrogen lost through fires', 'kg N/m2')
 
   ! harvesting pools and rates
   do i = 1, N_HARV_POOLS
@@ -1510,6 +1515,8 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
   ! update smoke pool -- stored amount of carbon lost to fire
   vegn%csmoke_pool = vegn%csmoke_pool - &
        vegn%csmoke_rate*dt_fast_yr
+  soil%gross_nitrogen_flux_out_of_tile = soil%gross_nitrogen_flux_out_of_tile+vegn%nsmoke_pool*dt_fast_yr
+  vegn%nsmoke_pool = vegn%nsmoke_pool - vegn%nsmoke_pool*dt_fast_yr ! Following csmoke_rate, which is set to equal csmoke_pool in vegn_disturbance
   ! decrease harvested rates so that pools are not depleted below zero
   vegn%harv_rate(:) = max( 0.0, &
                            min(vegn%harv_rate(:), vegn%harv_pool(:)/dt_fast_yr) &
@@ -1795,6 +1802,7 @@ call check_conservation ('vegn_harvesting','nitrogen'      , nmass0, nmass1, nit
      if (id_t_harv_rate>0) call send_tile_data(id_t_harv_rate,sum(tile%vegn%harv_rate(:)),tile%diag)
      call send_tile_data(id_csmoke_pool,tile%vegn%csmoke_pool,tile%diag)
      call send_tile_data(id_csmoke_rate,tile%vegn%csmoke_rate,tile%diag)
+     call send_tile_data(id_nsmoke_pool,tile%vegn%nsmoke_pool,tile%diag)
 
      call send_tile_data(id_fsc_pool_bg,tile%vegn%fsc_pool_bg,tile%diag)
      call send_tile_data(id_fsc_rate_bg,tile%vegn%fsc_rate_bg,tile%diag)
@@ -2068,6 +2076,7 @@ DEFINE_VEGN_ACCESSOR_0D(real,t_cold_acm)
 DEFINE_VEGN_ACCESSOR_0D(real,ncm_acm)
 DEFINE_VEGN_ACCESSOR_0D(real,csmoke_pool)
 DEFINE_VEGN_ACCESSOR_0D(real,csmoke_rate)
+DEFINE_VEGN_ACCESSOR_0D(real,nsmoke_pool)
 
 DEFINE_VEGN_ACCESSOR_1D(real,harv_pool)
 DEFINE_VEGN_ACCESSOR_1D(real,harv_pool_nitrogen)

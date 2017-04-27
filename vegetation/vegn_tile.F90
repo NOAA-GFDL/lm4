@@ -91,6 +91,7 @@ type :: vegn_tile_type
 
    real :: csmoke_pool=0.0 ! carbon lost through fires, kg C/m2
    real :: csmoke_rate=0.0 ! rate of release of the above to atmosphere, kg C/(m2 yr)
+   real :: nsmoke_pool=0.0 ! nitrogen lost through fires, kg N/m2
 
    real :: harv_pool(N_HARV_POOLS) = 0.0 ! pools of harvested carbon, kg C/m2
    real :: harv_rate(N_HARV_POOLS) = 0.0 ! rates of spending (release to the atmosphere), kg C/(m2 yr)
@@ -298,6 +299,7 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2)
 
   __MERGE__(csmoke_pool)
   __MERGE__(csmoke_rate)
+  __MERGE__(nsmoke_pool)
 
   __MERGE__(harv_pool)
   __MERGE__(harv_rate)
@@ -675,7 +677,7 @@ function vegn_tile_nitrogen(vegn) result(nitrogen) ; real nitrogen
 
   enddo
   nitrogen = nitrogen  + sum(vegn%harv_pool_nitrogen) + &
-           vegn%fsn_pool_bg + vegn%ssn_pool_bg
+           vegn%fsn_pool_bg + vegn%ssn_pool_bg + vegn%nsmoke_pool
 
   ! Pools associated with aboveground litter CORPSE pools
   nitrogen = nitrogen + vegn%leaflitter_buffer_fast_N + vegn%leaflitter_buffer_slow_N + &

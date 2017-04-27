@@ -85,40 +85,44 @@ subroutine vegn_disturbance(vegn, soil, dt)
      case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
         soil%slow_soil_C(1) = soil%slow_soil_C(1) + (1.0-spdata(sp)%smoke_fraction)*delta*(1-fsc_wood);
         soil%fast_soil_C(1) = soil%fast_soil_C(1) + (1.0-spdata(sp)%smoke_fraction)*delta*   fsc_wood;
-    case (SOILC_CORPSE_N)
-        call add_litter(soil%coarseWoodLitter,(/(1.0-spdata(sp)%smoke_fraction)*delta*fsc_wood*agf_bs,&
-                       (1.0-spdata(sp)%smoke_fraction)*delta*(1.0-fsc_wood)*agf_bs,0.0/), &
-                       (/(1.0-spdata(sp)%smoke_fraction)*(cc%wood_N*fsc_wood+cc%sapwood_N*spdata(sp)%fsc_liv)*fraction_lost*agf_bs,&
-                                      (1.0-spdata(sp)%smoke_fraction)*(cc%wood_N*(1.0-fsc_wood)+cc%sapwood_N*(1-spdata(sp)%fsc_liv))*fraction_lost*agf_bs,0.0/))
-        soil%coarsewoodlitter_fsc_in=soil%coarsewoodlitter_fsc_in+(1.0-spdata(sp)%smoke_fraction)*delta*fsc_wood*agf_bs
-        soil%coarsewoodlitter_ssc_in=soil%coarsewoodlitter_ssc_in+(1.0-spdata(sp)%smoke_fraction)*delta*(1.0-fsc_wood)*agf_bs
-        soil%coarsewoodlitter_fsn_in=soil%coarsewoodlitter_fsn_in+(1.0-spdata(sp)%smoke_fraction)*(cc%wood_N*fsc_wood+cc%sapwood_N*spdata(sp)%fsc_liv)*fraction_lost*agf_bs
-        soil%coarsewoodlitter_ssn_in=soil%coarsewoodlitter_ssn_in+(1.0-spdata(sp)%smoke_fraction)*(cc%wood_N*(1.0-fsc_wood)+cc%sapwood_N*(1.0-spdata(sp)%fsc_liv))*fraction_lost*agf_bs
+    case (SOILC_CORPSE,SOILC_CORPSE_N)
+        new_fast_C_ag=(1.0-spdata(sp)%smoke_fraction)*fraction_lost*agf_bs*(cc%bwood*fsc_wood+cc%bsw*spdata(sp)%fsc_liv)
+        new_slow_C_ag=(1.0-spdata(sp)%smoke_fraction)*fraction_lost*agf_bs*(cc%bwood*(1-fsc_wood)+cc%bsw*(1-spdata(sp)%fsc_liv))
+        new_fast_C_bg=(1.0-spdata(sp)%smoke_fraction)*fraction_lost*(1-agf_bs)*(cc%bwood*fsc_wood+cc%bsw*spdata(sp)%fsc_liv)
+        new_slow_C_bg=(1.0-spdata(sp)%smoke_fraction)*fraction_lost*(1-agf_bs)*(cc%bwood*(1-fsc_wood)+cc%bsw*(1-spdata(sp)%fsc_liv))
+
+        if(soil_carbon_option==SOILC_CORPSE_N) then
+            new_fast_N_ag=(1.0-spdata(sp)%smoke_fraction)*(cc%wood_N*fsc_wood+cc%sapwood_N*spdata(sp)%fsc_liv)*fraction_lost*agf_bs
+            new_slow_N_ag=(1.0-spdata(sp)%smoke_fraction)*(cc%wood_N*(1.0-fsc_wood)+cc%sapwood_N*(1-spdata(sp)%fsc_liv))*fraction_lost*agf_bs
+            new_fast_N_bg=(1.0-spdata(sp)%smoke_fraction)*(cc%wood_N*fsc_wood+cc%sapwood_N*spdata(sp)%fsc_liv)*fraction_lost*(1.0-agf_bs)
+            new_slow_N_bg=(1.0-spdata(sp)%smoke_fraction)*(cc%wood_N*(1.0-fsc_wood)+cc%sapwood_N*(1.0-spdata(sp)%fsc_liv))*fraction_lost*(1.0-agf_bs)
+            
+            vegn%Nsmoke_pool = vegn%nsmoke_pool + (cc%wood_N+cc%sapwood_N)*fraction_lost*spdata(sp)%smoke_fraction
+            cc%wood_N = cc%wood_N*(1-fraction_lost)
+            cc%sapwood_N = cc%sapwood_N*(1-fraction_lost)
+        else
+            new_fast_N_ag=0.0
+            new_slow_N_ag=0.0
+            new_fast_N_bg=0.0
+            new_slow_N_bg=0.0
+        endif
+
+        call add_litter(soil%coarseWoodLitter,(/new_fast_C_ag,new_slow_C_ag,0.0/),(/new_fast_N_ag,new_slow_N_ag,0.0/))
+
+        soil%coarsewoodlitter_fsc_in=soil%coarsewoodlitter_fsc_in+new_fast_C_ag
+        soil%coarsewoodlitter_ssc_in=soil%coarsewoodlitter_ssc_in+new_slow_C_ag
+        soil%coarsewoodlitter_fsn_in=soil%coarsewoodlitter_fsn_in+new_fast_N_ag
+        soil%coarsewoodlitter_ssn_in=soil%coarsewoodlitter_ssn_in+new_slow_N_ag
 
         !fsc_in and ssc_in are updated in add_root_litter
-        call add_root_litter(soil,vegn,(/(1.0-spdata(sp)%smoke_fraction)*delta*fsc_wood*(1.0-agf_bs),&
-                       (1.0-spdata(sp)%smoke_fraction)*delta*(1.0-fsc_wood)*(1.0-agf_bs),0.0/), &
-                       (/(1.0-spdata(sp)%smoke_fraction)*(cc%wood_N*fsc_wood+cc%sapwood_N*spdata(sp)%fsc_liv)*fraction_lost*(1.0-agf_bs),&
-                                      (1.0-spdata(sp)%smoke_fraction)*(cc%wood_N*(1.0-fsc_wood)+cc%sapwood_N*(1.0-spdata(sp)%fsc_liv))*fraction_lost*(1.0-agf_bs),0.0/))
-      case (SOILC_CORPSE)
-          call add_litter(soil%coarseWoodLitter,(/(1.0-spdata(sp)%smoke_fraction)*delta*fsc_wood*agf_bs,&
-                         (1.0-spdata(sp)%smoke_fraction)*delta*(1.0-fsc_wood)*agf_bs,0.0/), &
-                         (/0.0,0.0,0.0/))
-          soil%coarsewoodlitter_fsc_in=soil%coarsewoodlitter_fsc_in+(1.0-spdata(sp)%smoke_fraction)*delta*fsc_wood*agf_bs
-          soil%coarsewoodlitter_ssc_in=soil%coarsewoodlitter_ssc_in+(1.0-spdata(sp)%smoke_fraction)*delta*(1.0-fsc_wood)*agf_bs
-
-          !fsc_in and ssc_in are updated in add_root_litter
-          call add_root_litter(soil,vegn,(/(1.0-spdata(sp)%smoke_fraction)*delta*fsc_wood*(1.0-agf_bs),&
-                         (1.0-spdata(sp)%smoke_fraction)*delta*(1.0-fsc_wood)*(1.0-agf_bs),0.0/), &
-                         (/0.0,0.0,0.0/))
+        call add_root_litter(soil,vegn,(/new_fast_C_bg,new_slow_C_bg,0.0/),(/new_fast_N_bg,new_slow_N_bg,0.0/))
      case default
         call error_mesg('vegn_disturbance','soil_carbon_option is invalid. This should never happen. Contact developer.', FATAL)
      end select
 
      cc%bwood = cc%bwood * (1-fraction_lost);
      cc%bsw   = cc%bsw   * (1-fraction_lost);
-     cc%wood_N = cc%wood_N*(1-fraction_lost)
-     cc%sapwood_N = cc%sapwood_N*(1-fraction_lost)
+
 
      vegn%csmoke_pool = vegn%csmoke_pool + spdata(sp)%smoke_fraction*delta;
 
@@ -147,7 +151,7 @@ subroutine vegn_disturbance(vegn, soil, dt)
         if (soil_carbon_option == SOILC_CORPSE_N) then
             new_fast_N_ag=cc%leaf_N*fraction_lost*spdata(sp)%fsc_liv*(1.0-spdata(sp)%smoke_fraction)
             new_slow_N_ag=cc%leaf_N*fraction_lost*(1.0-spdata(sp)%fsc_liv)*(1.0-spdata(sp)%smoke_fraction)
-            new_fast_N_bg=cc%root_N*fraction_lost*spdata(sp)%fsc_froot*(1.0-spdata(sp)%smoke_fraction)
+            new_fast_N_bg=cc%root_N*fraction_lost*spdata(sp)%fsc_froot*(1.0-spdata(sp)%smoke_fraction)+cc%stored_N*fraction_lost*(1.0-spdata(sp)%smoke_fraction)
             new_slow_N_bg=cc%root_N*fraction_lost*(1.0-spdata(sp)%fsc_froot)*(1.0-spdata(sp)%smoke_fraction)
         else
             new_fast_N_ag = 0.0
@@ -163,6 +167,11 @@ subroutine vegn_disturbance(vegn, soil, dt)
         soil%leaflitter_ssn_in=soil%leaflitter_ssn_in+new_slow_N_ag
         !fsc_in and ssc_in updated in add_root_litter
         call add_root_litter(soil,vegn,(/new_fast_C_bg,new_slow_C_bg,0.0/),(/new_fast_N_bg,new_slow_N_bg,0.0/))
+     
+        vegn%nsmoke_pool = vegn%nsmoke_pool + spdata(sp)%smoke_fraction*(cc%leaf_N+cc%root_N+cc%stored_N)*fraction_lost
+        cc%leaf_N = cc%leaf_N*(1-fraction_lost);
+        cc%root_N = cc%root_N*(1-fraction_lost);
+        cc%stored_N = cc%stored_N*(1-fraction_lost)
 
      case default
         call error_mesg('vegn_disturbance','soil_carbon_option is invalid. This should never happen. Contact developer.', FATAL)
@@ -171,9 +180,6 @@ subroutine vegn_disturbance(vegn, soil, dt)
      cc%bl  = cc%bl  * (1-fraction_lost);
      cc%blv = cc%blv * (1-fraction_lost);
      cc%br  = cc%br  * (1-fraction_lost);
-     cc%leaf_N = cc%leaf_N*(1-fraction_lost);
-     cc%root_N = cc%root_N*(1-fraction_lost);
-
 
      vegn%csmoke_pool = vegn%csmoke_pool + spdata(sp)%smoke_fraction*delta;
 
@@ -419,14 +425,14 @@ subroutine vegn_nat_mortality(vegn, soil, deltat)
             __DEBUG5__(cc%stored_N,cc%leaf_N,cc%wood_N,cc%root_N,cc%sapwood_N)
             call error_mesg('vegn_nat_mortality','Cohort total N < 0',FATAL)
         endif
-        call add_litter(soil%coarseWoodLitter,(/fsc_wood *delta*agf_bs,(1-fsc_wood)*delta*agf_bs,0.0/),&
+        call add_litter(soil%coarseWoodLitter,(/(cc%bwood*fsc_wood+cc%bsw*spdata(sp)%fsc_liv )*fraction_lost*agf_bs,((1-fsc_wood)*cc%bwood+(1-spdata(sp)%fsc_liv)*cc%bsw)*fraction_lost*agf_bs,0.0/),&
         (/(fsc_wood *cc%wood_N+spdata(sp)%fsc_liv*cc%sapwood_N)*fraction_lost*agf_bs,((1-fsc_wood)*cc%wood_N+(1-spdata(sp)%fsc_liv)*cc%sapwood_N)*fraction_lost*agf_bs,0.0/))
-        soil%coarseWoodlitter_fsc_in=soil%coarseWoodlitter_fsc_in+fsc_wood *delta*agf_bs
-        soil%coarseWoodlitter_ssc_in=soil%coarseWoodlitter_ssc_in+(1-fsc_wood)*delta*agf_bs
+        soil%coarseWoodlitter_fsc_in=soil%coarseWoodlitter_fsc_in+(fsc_wood*cc%bwood+spdata(sp)%fsc_liv*cc%bsw)*fraction_lost*agf_bs
+        soil%coarseWoodlitter_ssc_in=soil%coarseWoodlitter_ssc_in+((1-fsc_wood)*cc%bwood+(1-spdata(sp)%fsc_liv)*cc%bsw)*fraction_lost*agf_bs
         soil%coarseWoodlitter_fsn_in=soil%coarseWoodlitter_fsn_in+(fsc_wood *cc%wood_N+spdata(sp)%fsc_liv*cc%sapwood_N)*fraction_lost*agf_bs
         soil%coarseWoodlitter_ssn_in=soil%coarseWoodlitter_ssn_in+((1-fsc_wood)*cc%wood_N+(1-spdata(sp)%fsc_liv)*cc%sapwood_N)*fraction_lost*agf_bs
         !fsc_in and ssc_in updated in add_root_litter
-        call add_root_litter(soil,vegn,  (/fsc_wood *delta*(1.0-agf_bs),(1-fsc_wood)*delta*(1.0-agf_bs),0.0/),&
+        call add_root_litter(soil,vegn,  (/(cc%bwood*fsc_wood+cc%bsw*spdata(sp)%fsc_liv )*fraction_lost*(1.0-agf_bs),((1-fsc_wood)*cc%bwood+(1-spdata(sp)%fsc_liv)*cc%bsw)*fraction_lost*(1-agf_bs),0.0/),&
         (/(fsc_wood *cc%wood_N+spdata(sp)%fsc_liv*cc%sapwood_N)*fraction_lost*(1.0-agf_bs),((1-fsc_wood)*cc%wood_N+(1-spdata(sp)%fsc_liv)*cc%sapwood_N)*fraction_lost*(1.0-agf_bs),0.0/))
 
      cc%wood_N = cc%wood_N * (1-fraction_lost)
@@ -438,13 +444,15 @@ subroutine vegn_nat_mortality(vegn, soil, deltat)
         endif
     case (SOILC_CORPSE)
         !Add above ground fraction to top soil layer, and the rest to the soil profile
-        call add_litter(soil%coarseWoodLitter,(/fsc_wood *delta*agf_bs,(1-fsc_wood)*delta*agf_bs,0.0/),&
+        call add_litter(soil%coarseWoodLitter,(/(cc%bwood*fsc_wood+cc%bsw*spdata(sp)%fsc_liv )*fraction_lost*agf_bs,&
+                            ((1-fsc_wood)*cc%bwood+(1-spdata(sp)%fsc_liv)*cc%bsw)*fraction_lost*agf_bs,0.0/),&
                     (/0.0,0.0,0.0/))
-        soil%coarseWoodlitter_fsc_in=soil%coarseWoodlitter_fsc_in+fsc_wood *delta*agf_bs
-        soil%coarseWoodlitter_ssc_in=soil%coarseWoodlitter_ssc_in+(1-fsc_wood)*delta*agf_bs
+        soil%coarseWoodlitter_fsc_in=soil%coarseWoodlitter_fsc_in+(cc%bwood*fsc_wood+cc%bsw*spdata(sp)%fsc_liv )*fraction_lost*agf_bs
+        soil%coarseWoodlitter_ssc_in=soil%coarseWoodlitter_ssc_in+((1-fsc_wood)*cc%bwood+(1-spdata(sp)%fsc_liv)*cc%bsw)*fraction_lost*agf_bs
 
         !fsc_in and ssc_in updated in add_root_litter
-        call add_root_litter(soil,vegn,  (/fsc_wood *delta*(1.0-agf_bs),(1-fsc_wood)*delta*(1.0-agf_bs),0.0/),&
+        call add_root_litter(soil,vegn,  (/(cc%bwood*fsc_wood+cc%bsw*spdata(sp)%fsc_liv )*fraction_lost*(1.0-agf_bs),&
+                                           ((1-fsc_wood)*cc%bwood+(1-spdata(sp)%fsc_liv)*cc%bsw)*fraction_lost,0.0/),&
                     (/0.0,0.0,0.0/))
     case default
         call error_mesg('vegn_nat_mortality','soil_carbon_option is invalid. This should never happen. Contact developer.', FATAL)
