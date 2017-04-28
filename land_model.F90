@@ -45,7 +45,6 @@ use soil_mod, only : read_soil_namelist, soil_init, soil_end, &
      soil_sfc_water, soil_evap_limits, soil_step_1, soil_step_2, soil_step_3, save_soil_restart
 use soil_carbon_mod, only : read_soil_carbon_namelist, n_c_types
 use lake_mod, only : lake_init_predefined
-use soil_mod, only : soil_init_predefined
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, &
      snow_get_depth_area, snow_step_1, snow_step_2, &
      save_snow_restart, sweep_tiny_snow, snow_sfc_water
@@ -462,11 +461,11 @@ subroutine land_model_init &
   ! initialize individual sub-models
   if (predefined_tiles) then
      call hlsp_init_predefined(id_ug) ! Must be called before soil_init
-     call soil_init_predefined(id_ug,id_band,id_zfull)
   else
      call hlsp_init(id_ug) ! Must be called before soil_init
-     call soil_init(id_ug,id_band,id_zfull)
   endif
+  call soil_init(predefined_tiles,id_ug,id_band,id_zfull)
+
   call hlsp_hydro_init(id_ug,id_zfull) ! Must be called after soil_init
   call vegn_init(id_ug,id_band)
   if (predefined_tiles) then
