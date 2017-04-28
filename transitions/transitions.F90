@@ -41,7 +41,7 @@ use vegn_data_mod, only : &
 
 use cana_tile_mod, only : cana_tile_heat
 use snow_tile_mod, only : snow_tile_heat
-use vegn_tile_mod, only : vegn_tile_heat
+use vegn_tile_mod, only : vegn_tile_heat, vegn_tile_type, vegn_tile_bwood
 use soil_tile_mod, only : soil_tile_heat
 
 use land_tile_mod, only : land_tile_map, &
@@ -52,11 +52,11 @@ use land_tile_mod, only : land_tile_map, &
      get_tile_water, land_tile_carbon, land_tile_heat
 use land_tile_io_mod, only : print_netcdf_error
 
-use land_data_mod, only : land_data_type, lnd_sg, log_version, lnd, horiz_interp_ug
-use vegn_tile_mod, only : vegn_tile_type, vegn_tile_bwood
+use land_data_mod, only : lnd, lnd_sg, log_version, horiz_interp_ug
 use vegn_harvesting_mod, only : vegn_cut_forest
 
-use land_debug_mod, only : set_current_point, is_watch_cell, get_current_point, check_var_range
+use land_debug_mod, only : set_current_point, is_watch_cell, get_current_point, check_var_range, &
+     log_date
 use land_numerics_mod, only : rank_descending
 
 implicit none
@@ -344,12 +344,14 @@ subroutine land_transitions_init(id_ug, id_cellarea)
      do n2 = 1,size(luh2type)
         k1 = luh2type(n1)
         k2 = luh2type(n2)
+        input_tran(k1,k2)%name=trim(landuse_name(k1))//'2'//trim(landuse_name(k2))
         if (k1==k2.and.k1/=LU_SCND) cycle ! skip transitions to the same LM3 LU type, except scnd2scnd
         call add_var_to_varset(input_tran(k1,k2),tran_ncid,input_file,luh2name(n1)//'_to_'//luh2name(n2))
      enddo
      enddo
 
      if (time0==set_date(0001,01,01)) then
+        call error_mesg('land_transitions_init','setting up initial land use transitions', NOTE)
         ! initialize state input for initial transition from all-natural state.
         if (trim(state_file)=='') call error_mesg('land_transitions_init',&
             'starting land use transitions, but land use state file is not specified',FATAL)
@@ -363,6 +365,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
         do n2 = 1,size(luh2type)
            k2 = luh2type(n2)
            if (k2==LU_NTRL) cycle
+           input_state(LU_NTRL,k2)%name='initial '//trim(landuse_name(LU_NTRL))//'2'//trim(landuse_name(k2))
            call add_var_to_varset(input_state(LU_NTRL,k2),state_ncid,state_file,luh2name(n2))
         enddo
      endif
@@ -532,12 +535,16 @@ subroutine add_var_to_varset(varset,ncid,filename,varname)
    ierr = nfu_inq_var(ncid, trim(varname), id=varid)
    select case(ierr)
    case (NF_NOERR)
+      call error_mesg('land_transitions_init',&
+           'adding field "'//trim(varname)//'" from file "'//trim(filename)//'"'//&
+           ' to transition "'//trim(varset%name)//'"',&
+           NOTE)
       varset%nvars = varset%nvars+1
       varset%id(varset%nvars) = varid
    case (NF_ENOTVAR)
-      call error_mesg('land_transitions_init',&
-           'field "'//trim(varname)//'" not found in file "'//trim(filename)//'"',&
-           NOTE)
+!       call error_mesg('land_transitions_init',&
+!            'field "'//trim(varname)//'" not found in file "'//trim(filename)//'"',&
+!            NOTE)
    case default
       call error_mesg('land_transitions_init',&
            'error initializing field "'//varname//&
@@ -610,6 +617,9 @@ subroutine land_transitions (time)
   if(year0 == year1) &
 !!$  if(day0 == day1) &
        return ! do nothing during a year
+
+  if (mpp_pe()==mpp_root_pe()) &
+       call log_date('land_transitions: applying land use transitions on ', time)
 
   ! get transition rates for current time: read map of transitions, and accumulate
   ! as many time steps in array of transitions as necessary. Note that "transitions"
