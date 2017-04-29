@@ -5,6 +5,8 @@ module land_model_mod
 
 #include "shared/debug.inc"
 
+use hdf5, only: hid_t
+
 use time_manager_mod, only : time_type, get_time, increment_time, time_type_to_real, &
      operator(+)
 use mpp_domains_mod, only : domain2d, mpp_get_ntile_count, mpp_pass_SG_to_UG, mpp_pass_ug_to_sg, &
@@ -811,7 +813,8 @@ end subroutine land_cover_cold_start
 
 ! ============================================================================
 subroutine land_cover_cold_start_predefined()
-  integer :: l,h5id
+  integer :: l
+  integer(hid_t) :: h5id
 
   ! Open access to model input database
   call open_database_predefined_tiles(h5id)
