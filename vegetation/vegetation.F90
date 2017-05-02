@@ -299,13 +299,13 @@ subroutine vegn_init(id_ug,id_band)
      call get_cohort_data(restart1, 'tv', cohort_tv_ptr)
      call get_cohort_data(restart1, 'wl', cohort_wl_ptr)
      call get_cohort_data(restart1, 'ws', cohort_ws_ptr)
-	 
-	 !#### MODIFIED BY PPG 2016-12-01
-	 if (field_exists(restart2,'Anlayer_acm')) &
+
+     !#### MODIFIED BY PPG 2016-12-01
+     if (field_exists(restart2,'Anlayer_acm')) &
         call get_cohort_data(restart2, 'Anlayer_acm', cohort_Anlayer_acm_ptr )
      if (field_exists(restart2,'bl_previous')) &
         call get_cohort_data(restart2, 'bl_previous', cohort_bl_previous_ptr )
-     
+
      ! read global variables
      call fms_io_unstructured_read(restart2%basename, &
                                    "n_accum", &
@@ -443,11 +443,11 @@ subroutine vegn_init(id_ug,id_band)
      cohort%npp_previous_day = 0.0
      cohort%status  = LEAF_ON
      cohort%leaf_age = 0.0
-     
+
      !#### MODIFIED BY PPG 2016-12-01
-     cohort%Anlayer_acm = 0.0 
+     cohort%Anlayer_acm = 0.0
      cohort%bl_previous = 0.0
-     
+
      if(did_read_biodata.and.do_biogeography) then
         call update_species(cohort,t_ann(l),t_cold(l),p_ann(l),ncm(l),LU_NTRL)
         if (.not.biodata_bug) then
@@ -471,9 +471,9 @@ subroutine vegn_init(id_ug,id_band)
   ! initialize harvesting options
   call vegn_harvesting_init()
 
-  ! initialize distrurbances 
+  ! initialize distrurbances
   call vegn_disturbance_init()
-  
+
   ! initialize vegetation diagnostic fields
   call vegn_diag_init(id_ug,id_band,lnd%time)
 
@@ -552,17 +552,17 @@ subroutine vegn_diag_init(id_ug,id_band,time)
   id_an_cl = register_tiled_diag_field ( module_name, 'an_cl',  &
        (/id_ug/), time, 'net photosynthesis with closed stomata', &
        '(mol CO2)(m2 of leaf)^-1 year^-1', missing_value=-1e20 )
-  
+
   !Modified from PPG-2016-12-01
   id_lai_kok = register_tiled_diag_field ( module_name, 'lai_kok',  &
-       (/id_lon,id_lat/), time, 'leaf area index at kok effect', 'm2/m2', missing_value=-1.0 )
+       (/id_ug/), time, 'leaf area index at kok effect', 'm2/m2', missing_value=-1.0 )
   id_Anlayer_acm = register_tiled_diag_field ( module_name, 'Anlayer_acm',  &
-       (/id_lon,id_lat/), time, 'Cumulative Net photosynthesis for LAI layer', '(mol CO2)(m2 of leaf)^-1 year^-1', missing_value=-1.0 )
+       (/id_ug/), time, 'Cumulative Net photosynthesis for LAI layer', '(mol CO2)(m2 of leaf)^-1 year^-1', missing_value=-1.0 )
   id_Anlayer= register_tiled_diag_field ( module_name, 'Anlayer',  &
-       (/id_lon,id_lat/), time, 'Anet from LAI Layer', 'm2/m2', missing_value=-1.0 )
+       (/id_ug/), time, 'Anet from LAI Layer', 'm2/m2', missing_value=-1.0 )
   id_bl_previous = register_tiled_diag_field ( module_name, 'bl_previous',  &
-       (/id_lon,id_lat/), time, 'leaf biomass from previous day', 'm2/m2', missing_value=-1.0 )
-       
+       (/id_ug/), time, 'leaf biomass from previous day', 'm2/m2', missing_value=-1.0 )
+
   id_bl = register_tiled_diag_field ( module_name, 'bl',  &
        (/id_ug/), time, 'biomass of leaves', 'kg C/m2', missing_value=-1.0 )
   id_blv = register_tiled_diag_field ( module_name, 'blv',  &
@@ -822,7 +822,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   !#### MODIFIED BY PPG 2016-12-01
   call add_cohort_data(restart2, 'Anlayer_acm', cohort_Anlayer_acm_ptr,  ' Cumulative Net Photosynthesis for new Lai layer', 'kg C/(m2 year)')
   call add_cohort_data(restart2, 'bl_previous', cohort_bl_previous_ptr, 'Previous leaf biomass','kg C/(m2 year)')
-  
+
   call add_cohort_data(restart2,'npp_prev_day', cohort_npp_previous_day_ptr, 'previous day NPP','kg C/(m2 year)')
 
   call add_int_tile_data(restart2,'landuse',vegn_landuse_ptr,'vegetation land use type')
@@ -1057,12 +1057,12 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
      soil_beta, soil_water_supply, &
      evap_demand, stomatal_cond, photosynt, photoresp, &
      lai_kok, Anlayer) !#### MODIFIED BY PPG 2016-12-01
-  
+
   !#### MODIFIED BY PPG 2016-12-01
   cohort%Anlayer_acm = cohort%Anlayer_acm + Anlayer
-  
+
   !write(*,*) 'Anlayer', Anlayer, 'Anlayer_acm', cohort%Anlayer_acm
-  
+
   call get_vegn_wet_frac ( cohort, fw, DfwDwl, DfwDwf, fs, DfsDwl, DfsDwf )
   ! transpiring fraction and its derivatives
   ft     = 1 - fw - fs
@@ -1433,7 +1433,7 @@ subroutine update_vegn_slow( )
         tile%vegn%tsoil_av  = tile%vegn%tsoil_av  / tile%vegn%n_accum
         tile%vegn%theta_av_phen  = tile%vegn%theta_av_phen  / tile%vegn%n_accum
         tile%vegn%theta_av_fire  = tile%vegn%theta_av_fire  / tile%vegn%n_accum
-	tile%vegn%psist_av  = tile%vegn%psist_av  / tile%vegn%n_accum
+        tile%vegn%psist_av  = tile%vegn%psist_av  / tile%vegn%n_accum
         tile%vegn%precip_av = tile%vegn%precip_av / tile%vegn%n_accum
         ! accumulate annual values
         tile%vegn%p_ann_acm = tile%vegn%p_ann_acm+tile%vegn%precip_av
@@ -1490,9 +1490,9 @@ subroutine update_vegn_slow( )
         call vegn_growth(tile%vegn)
         call vegn_nat_mortality(tile%vegn,tile%soil,86400.0)
         tile%vegn%cohorts(1)%Anlayer_acm = 0.0
-        call send_tile_data(id_lai, tile%vegn%cohorts(1)%lai, tile%diag)
-  	    call send_tile_data(id_sai, tile%vegn%cohorts(1)%sai, tile%diag)
-  	    call send_tile_data(id_Anlayer_acm, tile%vegn%cohorts(1)%Anlayer_acm, tile%diag)
+!         call send_tile_data(id_lai, tile%vegn%cohorts(1)%lai, tile%diag)
+!         call send_tile_data(id_sai, tile%vegn%cohorts(1)%sai, tile%diag)
+!         call send_tile_data(id_Anlayer_acm, tile%vegn%cohorts(1)%Anlayer_acm, tile%diag)
      endif
 
      if  (month1 /= month0 .and. do_phenology) then

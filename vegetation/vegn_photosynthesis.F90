@@ -198,16 +198,16 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   real :: dum2;
   real, parameter :: light_crit = 0;
   real, parameter :: gs_lim = 0.25;
-  
+
   !Parameter for Respiration in the light
   real, parameter :: light_kok = 0.00004;!mol_of_quanta/(m^2s) PAR
   real, parameter :: Inib_factor=0.5;
-  real :: Par_dn_kok; 
-  
+  real :: Par_dn_kok;
+
   !#### MODIFIED BY PPG 2016-12-01
   real :: Ag_layer
   real :: layer_light
-    
+
   ! new average computations
   real :: lai_eq;
   real, parameter :: rad_phot = 0.0000046 ! PAR conversion factor of J -> mol of quanta
@@ -224,16 +224,16 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   real, parameter :: p_sea = 1.0e5 ! sea level pressure, Pa
   ! soil water stress
   real :: an_w,gs_w;
-  
+
   !########MODIFIED BY PPG 2016-12-05
   real :: TempFactP
-  real :: TmaxP 
-  real :: ToptP 
+  real :: TmaxP
+  real :: ToptP
   real :: tshrP
   real :: tshlP
   real :: TempFactR
-  real :: TmaxR 
-  real :: ToptR 
+  real :: TmaxR
+  real :: ToptR
   real :: tshrR
   real :: tshlR
 
@@ -260,20 +260,20 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
 
   !######MODIFIED BY PPG 2016-12-05
   !Parameters T-response for Photosynthesis
-  TmaxP=45.0; 
-  ToptP=35.0; 
+  TmaxP=45.0;
+  ToptP=35.0;
   TempFactP=(TmaxP-(tl-273.15))/(TmaxP-ToptP);
   if (TempFactP < 0.) TempFactP=0.;
-  tshrP=0.6; 
+  tshrP=0.6;
   tshlP=1.4;
-  
-  
-  !Parameters T-response for Respiration 
-  TmaxR=65.0; 
-  ToptR=47.0; 
+
+
+  !Parameters T-response for Respiration
+  TmaxR=65.0;
+  ToptR=47.0;
   TempFactR=(TmaxR-(tl-273.15))/(TmaxR-ToptR);
   if (TempFactR < 0.) TempFactR=0.;
-  tshrR=1.4; 
+  tshrR=1.4;
   tshlR=1;
   !#########
 
@@ -291,7 +291,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   ko=0.25   *exp(1400.0*(1.0/288.2-1.0/tl))*p_sea/p_surf;
   kc=0.00015*exp(6000.0*(1.0/288.2-1.0/tl))*p_sea/p_surf;
   vm=spdata(pft)%Vmax*exp(3000.0*(1.0/288.2-1.0/tl));
-  
+
   !decrease Vmax due to aging of temperate deciduous leaves
   !(based on Wilson, Baldocchi and Hanson (2001)."Plant,Cell, and Environment", vol 24, 571-583)
   if (spdata(pft)%leaf_age_tau>0 .and. leaf_age>spdata(pft)%leaf_age_onset) then
@@ -313,16 +313,16 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   Resp=(1-Inib_factor)*spdata(pft)%gamma_resp*vm*lai_kok+spdata(pft)%gamma_resp*vm*(lai-lai_kok); !modify vm for Vmax later and add a temperature function to it.
   !Resp=Resp/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE)))); ! This function limit resp between 5 and 45C other wise it is null.
   Anlayer=(-spdata(pft)%gamma_resp*vm*(layer)/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE)))))/0.01
-  
+
   !#####MODIFIED PPG 2016-12-05
   Resp=Resp*((TempFactR**tshrR)*exp((tshrR/tshlR)*(1.-(TempFactR**tshlR))))
-  
+
   Ag_l=0.;
   Ag_rb=0.;
   Ag=0.;
   anbar=-Resp/lai;
   gsbar=b;
-  
+
   ! find the LAI level at which gross photosynthesis rates are equal
   ! only if PAR is positive
   if ( light_top > light_crit ) then
@@ -349,15 +349,15 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
            !#####MODIFIED BY PPG 2016-12-05
            Ag=(Ag_l+Ag_rb)*((TempFactP**tshrP)*exp((tshrP/tshlP)*(1.-TempFactP**tshlP)))
            !write(*,*) ((TempFactP**tshrP)*exp((tshrP/tshlP)*(1.-TempFactP**tshlP)))
-           
+
            An=Ag-Resp;
            anbar=An/lai;
-           
+
            !#### MODIFIED BY PPG 2016-12-01
            !write(*,*) 'par_net', par_net
            layer_light=par_net*(exp(-kappa*lai)-exp(-kappa*(lai+layer)))/(1-exp(-(lai+layer)*kappa))
-		   !write(*,*) 'layer light', layer_light
-		   Ag_layer= spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * layer_light
+           !write(*,*) 'layer light', layer_light
+           Ag_layer= spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * layer_light
            Anlayer=((Ag_layer-spdata(pft)%gamma_resp*vm*(layer))/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE)))))/0.01
 
 
@@ -383,18 +383,18 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
                 * (exp(-lai_eq*kappa)-exp(-lai*kappa))/(1-exp(-lai*kappa))
            ! gross photosynthesis for rubisco-limited part of the canopy
            Ag_rb  = dum2*lai_eq
-           
+
            !#### Modified by PPG 2016-12-01
            !write(*,*) 'par_net', par_net
            layer_light=par_net*(exp(-kappa*lai)-exp(-kappa*(lai+layer)))/(1-exp(-(lai+layer)*kappa))
-		   !write(*,*) 'layer light', layer_light
-		   Ag_layer= spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * layer_light
+           !write(*,*) 'layer light', layer_light
+           Ag_layer= spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * layer_light
            Anlayer=((Ag_layer-spdata(pft)%gamma_resp*vm*(layer))/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE)))))/0.01
 
            !Ag=(Ag_l+Ag_rb)/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))));
            !#####MODIFIED BY PPG 2016-12-05
            Ag=(Ag_l+Ag_rb)*((TempFactP**tshrP)*exp((tshrP/tshlP)*(1.-TempFactP**tshlP)))
-           
+
            An=Ag-Resp;
            anbar=An/lai;
 
@@ -404,8 +404,8 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
         endif ! ci>capgam
      endif
   endif ! light is available for photosynthesis
-  
-  
+
+
   an_w=anbar;
   if (an_w > 0.) then
      an_w=an_w*(1-spdata(pft)%wet_leaf_dreg*leaf_wet);

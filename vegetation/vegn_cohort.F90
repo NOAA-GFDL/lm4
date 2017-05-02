@@ -109,7 +109,7 @@ type :: vegn_cohort_type
   !#### MODIFIED BY PPG 2016-12-01
   real :: Anlayer_acm = 0.0
   real :: bl_previous = 0.0
-  
+
   ! used in fast time scale calculations
   real :: npp_previous_day     = 0.0
   real :: npp_previous_day_tmp = 0.0
@@ -525,21 +525,21 @@ subroutine update_biomass_pools(c)
      c%br  = 0;
   else
      !write(*,*) 'cohort', c%Anlayer_acm
-  	 if (c%Anlayer_acm>0) then
-  	    !write(*,*) 'yes'
-     	c%blv = 0;
-     	c%bl  = c%Pl*c%bliving;
-     	c%br  = c%Pr*c%bliving;
-	 else
-	    !write(*,*) 'no'
-	    c%blv =0
-	    c%br  = c%Pr*c%bliving
-	    if (c%bl_previous>0) then
-	    	c%bsw = c%Psw*c%bliving + c%Pl*c%bliving - c%bl_previous
-    		c%bl= c%bl_previous
-    	else 
-     		c%bl  = c%Pl*c%bliving;
-     	endif
+     if (c%Anlayer_acm>0) then
+        !write(*,*) 'yes'
+        c%blv = 0;
+        c%bl  = c%Pl*c%bliving;
+        c%br  = c%Pr*c%bliving;
+     else
+        !write(*,*) 'no'
+        c%blv =0
+        c%br  = c%Pr*c%bliving
+        if (c%bl_previous>0) then
+            c%bsw = c%Psw*c%bliving + c%Pl*c%bliving - c%bl_previous
+            c%bl= c%bl_previous
+        else
+            c%bl  = c%Pl*c%bliving;
+        endif
      endif
   endif
   !write(*,*) 'bl', c%bl, 'bl_previous', c%bl_previous
