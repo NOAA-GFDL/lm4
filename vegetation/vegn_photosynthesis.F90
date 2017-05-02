@@ -2,7 +2,7 @@ module vegn_photosynthesis_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod,            only : error_mesg, FATAL
+use fms_mod,            only : error_mesg, lowercase, FATAL
 use constants_mod,      only : TFREEZE
 use sphum_mod,          only : qscomp
 
@@ -25,29 +25,59 @@ public :: vegn_photosynthesis
 character(len=*), parameter :: module_name = 'vegn_photosynthesis_mod'
 #include "../shared/version_variable.inc"
 
+! values for selector of CO2 option used for photosynthesis
+integer, public, parameter :: &
+    VEGN_PHOT_CO2_PRESCRIBED  = 1, &
+    VEGN_PHOT_CO2_INTERACTIVE = 2
+
 ! values for internal vegetation photosynthesis option selector
-integer, parameter :: VEGN_PHOT_SIMPLE  = 1 ! zero photosynthesis
-integer, parameter :: VEGN_PHOT_LEUNING = 2 ! photosynthesis according to simplified Leuning model
+integer, parameter :: &
+    VEGN_PHOT_SIMPLE  = 1, & ! zero photosynthesis
+    VEGN_PHOT_LEUNING = 2    ! photosynthesis according to simplified Leuning model
+
+! values for internal vegetation respiration option selector
+integer, parameter :: &
+    VEGN_RESP_LM3      = 1, &
+    VEGN_RESP_GAUTHIER = 2
 
 ! ==== module variables ======================================================
 integer :: vegn_phot_option = -1 ! selector of the photosynthesis option
+integer :: vegn_resp_option = -1 ! selector of the photosynthesis option
 
+character(32) :: photosynthesis_to_use = 'simple' ! or 'leuning'
+character(32) :: respiration_to_use = 'lm3' ! or 'gauthier'
+logical       :: light_saber = .FALSE. ! if true, canopy layer that can't support itself 
+   ! by photosynthesis is allowed to die.
+logical       :: light_Kok   = .FALSE.
+character(32) :: co2_to_use_for_photosynthesis = 'prescribed' ! or 'interactive'
+   ! specifies what co2 concentration to use for photosynthesis calculations:
+   ! 'prescribed'  : a prescribed value is used, equal to co2_for_photosynthesis
+   !      specified below.
+   ! 'interactive' : concentration of co2 in canopy air is used
+real, public, protected :: co2_for_photosynthesis = 350.0e-6 ! concentration of co2 for 
+   ! photosynthesis calculations, mol/mol. Ignored if co2_to_use_for_photosynthesis is 
+   ! not 'prescribed'
+
+namelist /photosynthesis_nml/ &
+    photosynthesis_to_use, respiration_to_use, &
+    light_saber, light_kok, &
+    co2_to_use_for_photosynthesis, co2_for_photosynthesis
+
+integer, public, protected :: vegn_phot_co2_option = -1 ! selector of co2 option used for photosynthesis
 
 contains
 
-
 ! ============================================================================
-subroutine vegn_photosynthesis_init(photosynthesis_to_use)
-  character(*), intent(in) :: photosynthesis_to_use
+subroutine vegn_photosynthesis_init()
 
   call log_version(version, module_name, &
   __FILE__)
 
   ! convert symbolic names of photosynthesis options into numeric IDs to
   ! speed up selection during run-time
-  if (trim(photosynthesis_to_use)=='simple') then
+  if (trim(lowercase(photosynthesis_to_use))=='simple') then
      vegn_phot_option = VEGN_PHOT_SIMPLE
-  else if (trim(photosynthesis_to_use)=='leuning') then
+  else if (trim(lowercase(photosynthesis_to_use))=='leuning') then
      vegn_phot_option = VEGN_PHOT_LEUNING
   else
      call error_mesg('vegn_photosynthesis_init',&
@@ -56,6 +86,29 @@ subroutine vegn_photosynthesis_init(photosynthesis_to_use)
           FATAL)
   endif
 
+  ! convert symbolic names of photosynthesis CO2 options into numeric IDs to
+  ! speed up selection during run-time
+  if (trim(lowercase(co2_to_use_for_photosynthesis))=='prescribed') then
+     vegn_phot_co2_option = VEGN_PHOT_CO2_PRESCRIBED
+  else if (trim(lowercase(co2_to_use_for_photosynthesis))=='interactive') then
+     vegn_phot_co2_option = VEGN_PHOT_CO2_INTERACTIVE
+  else
+     call error_mesg('vegn_photosynthesis_init',&
+          'vegetation photosynthesis option co2_to_use_for_photosynthesis="'//&
+          trim(co2_to_use_for_photosynthesis)//'" is invalid, use "prescribed" or "interactive"',&
+          FATAL)
+  endif
+
+  if (trim(lowercase(respiration_to_use))=='lm3') then
+     vegn_resp_option = VEGN_RESP_LM3
+  else if (trim(lowercase(respiration_to_use))=='gauthier') then
+     vegn_resp_option = VEGN_RESP_GAUTHIER
+  else
+     call error_mesg('vegn_photosynthesis_init',&
+          'vegetation photosynthesis option respiration_to_use="'//&
+          trim(co2_to_use_for_photosynthesis)//'" is invalid, use "lm3" or "gauthier"',&
+          FATAL)
+  endif
 end subroutine vegn_photosynthesis_init
 
 

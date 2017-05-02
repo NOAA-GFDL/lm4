@@ -50,7 +50,9 @@ use cohort_io_mod, only :  read_create_cohorts, create_cohort_dimension, &
 use land_debug_mod, only : is_watch_point, set_current_point, check_temp_range, &
      carbon_cons_tol, water_cons_tol, check_conservation, do_check_conservation
 use vegn_radiation_mod, only : vegn_radiation_init, vegn_radiation
-use vegn_photosynthesis_mod, only : vegn_photosynthesis_init, vegn_photosynthesis
+use vegn_photosynthesis_mod, only : vegn_photosynthesis_init, vegn_photosynthesis, &
+     co2_for_photosynthesis, vegn_phot_co2_option, &
+     VEGN_PHOT_CO2_PRESCRIBED, VEGN_PHOT_CO2_INTERACTIVE
 use static_vegn_mod, only : read_static_vegn_namelist, static_vegn_init, static_vegn_end, &
      read_static_vegn
 use vegn_dynamics_mod, only : vegn_dynamics_init, vegn_carbon_int, vegn_growth, &
@@ -89,10 +91,6 @@ public :: update_vegn_slow
 character(len=*), parameter :: module_name = 'vegn'
 #include "../shared/version_variable.inc"
 
-! values for internal selector of CO2 option used for photosynthesis
-integer, parameter :: VEGN_PHOT_CO2_PRESCRIBED  = 1
-integer, parameter :: VEGN_PHOT_CO2_INTERACTIVE = 2
-
 
 ! ==== module variables ======================================================
 
@@ -109,14 +107,6 @@ real    :: init_cohort_bwood = 0.05 ! initial biomass of heartwood, kg C/m2
 real    :: init_cohort_cmc   = 0.0  ! initial intercepted water
 character(32) :: rad_to_use = 'big-leaf' ! or 'two-stream'
 character(32) :: snow_rad_to_use = 'ignore' ! or 'paint-leaves'
-character(32) :: photosynthesis_to_use = 'simple' ! or 'leuning'
-character(32) :: co2_to_use_for_photosynthesis = 'prescribed' ! or 'interactive'
-   ! specifies what co2 concentration to use for photosynthesis calculations:
-   ! 'prescribed'  : a prescribed value is used, equal to co2_for_photosynthesis
-   !      specified below.
-   ! 'interactive' : concentration of co2 in canopy air is used
-real    :: co2_for_photosynthesis = 350.0e-6 ! concentration of co2 for photosynthesis
-   ! calculations, mol/mol. Ignored if co2_to_use_for_photosynthesis is not 'prescribed'
 logical :: do_cohort_dynamics   = .TRUE. ! if true, do vegetation growth
 logical :: do_patch_disturbance = .TRUE. !
 logical :: do_phenology         = .TRUE.
@@ -144,8 +134,7 @@ namelist /vegn_nml/ &
     lm2, init_Wl, init_Ws, init_Tv, cpw, clw, csw, &
     init_cohort_bl, init_cohort_blv, init_cohort_br, init_cohort_bsw, &
     init_cohort_bwood, init_cohort_cmc, &
-    rad_to_use, snow_rad_to_use, photosynthesis_to_use, &
-    co2_to_use_for_photosynthesis, co2_for_photosynthesis, &
+    rad_to_use, snow_rad_to_use, &
     do_cohort_dynamics, do_patch_disturbance, do_phenology, &
     xwilt_available, &
     do_biogeography, do_seed_transport, &
@@ -160,8 +149,7 @@ logical         :: module_is_initialized =.FALSE.
 type(time_type) :: time ! *** NOT YET USED
 real            :: delta_time      ! fast time step
 real            :: dt_fast_yr      ! fast time step in years
-integer         :: vegn_phot_co2_option = -1 ! internal selector of co2 option
-                                   ! used for photosynthesis
+
 ! diagnostic field ids
 integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
    id_lai, id_sai, id_lai_var, id_lai_std, id_leaf_size, &
@@ -235,24 +223,11 @@ subroutine read_vegn_namelist()
      write(unit, nml=vegn_nml)
   endif
 
-  ! convert symbolic names of photosynthesis CO2 options into numeric IDs to
-  ! speed up selection during run-time
-  if (trim(co2_to_use_for_photosynthesis)=='prescribed') then
-     vegn_phot_co2_option = VEGN_PHOT_CO2_PRESCRIBED
-  else if (trim(co2_to_use_for_photosynthesis)=='interactive') then
-     vegn_phot_co2_option = VEGN_PHOT_CO2_INTERACTIVE
-  else
-     call error_mesg('vegn_init',&
-          'vegetation photosynthesis option co2_to_use_for_photosynthesis="'//&
-          trim(co2_to_use_for_photosynthesis)//'" is invalid, use "prescribed" or "interactive"',&
-          FATAL)
-  endif
-
   ! ---- initialize vegetation radiation options
   call vegn_radiation_init(rad_to_use, snow_rad_to_use)
 
   ! ---- initialize vegetation photosynthesis options
-  call vegn_photosynthesis_init(photosynthesis_to_use)
+  call vegn_photosynthesis_init()
 
 end subroutine read_vegn_namelist
 
