@@ -6,7 +6,7 @@ use land_constants_mod, only: NBANDS, mol_h2o, mol_air
 use vegn_data_mod, only : spdata, &
    use_mcm_masking, use_bucket, critical_root_density, &
    tg_c4_thresh, tg_c3_thresh, l_fract, fsc_liv, &
-   phen_ev1, phen_ev2, cmc_eps
+   phen_ev1, phen_ev2, cmc_eps, use_light_saber
 use vegn_data_mod, only : PT_C3, PT_C4, CMPT_ROOT, CMPT_LEAF, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
    LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDIOUS
@@ -524,25 +524,15 @@ subroutine update_biomass_pools(c)
      c%bl  = 0;
      c%br  = 0;
   else
-     !write(*,*) 'cohort', c%Anlayer_acm
-     if (c%Anlayer_acm>0) then
-        !write(*,*) 'yes'
-        c%blv = 0;
-        c%bl  = c%Pl*c%bliving;
-        c%br  = c%Pr*c%bliving;
+     c%blv = 0
+     c%br  = c%Pr*c%bliving
+     if (use_light_saber .and. c%Anlayer_acm<=0 .and. c%bl_previous>0) then
+        c%bsw = c%Psw*c%bliving + c%Pl*c%bliving - c%bl_previous
+        c%bl  = c%bl_previous
      else
-        !write(*,*) 'no'
-        c%blv =0
-        c%br  = c%Pr*c%bliving
-        if (c%bl_previous>0) then
-            c%bsw = c%Psw*c%bliving + c%Pl*c%bliving - c%bl_previous
-            c%bl= c%bl_previous
-        else
-            c%bl  = c%Pl*c%bliving;
-        endif
+        c%bl  = c%Pl*c%bliving
      endif
   endif
-  !write(*,*) 'bl', c%bl, 'bl_previous', c%bl_previous
   c%lai = lai_from_biomass(c%bl,c%species)
   c%sai = 0.035*c%height ! Federer and Lash,1978
 end subroutine
