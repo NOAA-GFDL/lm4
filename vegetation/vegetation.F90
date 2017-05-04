@@ -50,7 +50,9 @@ use cohort_io_mod, only :  read_create_cohorts, create_cohort_dimension, &
 use land_debug_mod, only : is_watch_point, set_current_point, check_temp_range, &
      carbon_cons_tol, water_cons_tol, check_conservation, do_check_conservation
 use vegn_radiation_mod, only : vegn_radiation_init, vegn_radiation
-use vegn_photosynthesis_mod, only : vegn_photosynthesis_init, vegn_photosynthesis
+use vegn_photosynthesis_mod, only : vegn_photosynthesis_init, vegn_photosynthesis, &
+     co2_for_photosynthesis, vegn_phot_co2_option, &
+     VEGN_PHOT_CO2_PRESCRIBED, VEGN_PHOT_CO2_INTERACTIVE
 use static_vegn_mod, only : read_static_vegn_namelist, static_vegn_init, static_vegn_end, &
      read_static_vegn
 use vegn_dynamics_mod, only : vegn_dynamics_init, vegn_carbon_int, vegn_growth, &
@@ -89,10 +91,6 @@ public :: update_vegn_slow
 character(len=*), parameter :: module_name = 'vegn'
 #include "../shared/version_variable.inc"
 
-! values for internal selector of CO2 option used for photosynthesis
-integer, parameter :: VEGN_PHOT_CO2_PRESCRIBED  = 1
-integer, parameter :: VEGN_PHOT_CO2_INTERACTIVE = 2
-
 
 ! ==== module variables ======================================================
 
@@ -109,14 +107,6 @@ real    :: init_cohort_bwood = 0.05 ! initial biomass of heartwood, kg C/m2
 real    :: init_cohort_cmc   = 0.0  ! initial intercepted water
 character(32) :: rad_to_use = 'big-leaf' ! or 'two-stream'
 character(32) :: snow_rad_to_use = 'ignore' ! or 'paint-leaves'
-character(32) :: photosynthesis_to_use = 'simple' ! or 'leuning'
-character(32) :: co2_to_use_for_photosynthesis = 'prescribed' ! or 'interactive'
-   ! specifies what co2 concentration to use for photosynthesis calculations:
-   ! 'prescribed'  : a prescribed value is used, equal to co2_for_photosynthesis
-   !      specified below.
-   ! 'interactive' : concentration of co2 in canopy air is used
-real    :: co2_for_photosynthesis = 350.0e-6 ! concentration of co2 for photosynthesis
-   ! calculations, mol/mol. Ignored if co2_to_use_for_photosynthesis is not 'prescribed'
 logical :: do_cohort_dynamics   = .TRUE. ! if true, do vegetation growth
 logical :: do_patch_disturbance = .TRUE. !
 logical :: do_phenology         = .TRUE.
@@ -144,8 +134,7 @@ namelist /vegn_nml/ &
     lm2, init_Wl, init_Ws, init_Tv, cpw, clw, csw, &
     init_cohort_bl, init_cohort_blv, init_cohort_br, init_cohort_bsw, &
     init_cohort_bwood, init_cohort_cmc, &
-    rad_to_use, snow_rad_to_use, photosynthesis_to_use, &
-    co2_to_use_for_photosynthesis, co2_for_photosynthesis, &
+    rad_to_use, snow_rad_to_use, &
     do_cohort_dynamics, do_patch_disturbance, do_phenology, &
     xwilt_available, &
     do_biogeography, do_seed_transport, &
@@ -160,8 +149,7 @@ logical         :: module_is_initialized =.FALSE.
 type(time_type) :: time ! *** NOT YET USED
 real            :: delta_time      ! fast time step
 real            :: dt_fast_yr      ! fast time step in years
-integer         :: vegn_phot_co2_option = -1 ! internal selector of co2 option
-                                   ! used for photosynthesis
+
 ! diagnostic field ids
 integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
    id_lai, id_sai, id_lai_var, id_lai_std, id_leaf_size, &
@@ -177,7 +165,9 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
    id_leaflitter_buffer_ag, id_coarsewoodlitter_buffer_ag,id_leaflitter_buffer_rate_ag, id_coarsewoodlitter_buffer_rate_ag,& ! id_coarsewoodlitter_buffer_rate_ag is 34 characters long (pjp)
    id_t_ann, id_t_cold, id_p_ann, id_ncm, &
    id_lambda, id_afire, id_atfall, id_closs, id_cgain, id_wdgain, id_leaf_age, &
-   id_phot_co2, id_theph, id_psiph, id_evap_demand
+   id_phot_co2, id_theph, id_psiph, id_evap_demand, &
+   id_lai_kok, id_Anlayer, id_Anlayer_acm, id_bl_previous !Modified PPG-2016-11-29
+
 ! CMOR variables
 integer :: id_cproduct, &
    id_fFire, id_fGrazing, id_fHarvest, id_fLuc, &
@@ -233,24 +223,11 @@ subroutine read_vegn_namelist()
      write(unit, nml=vegn_nml)
   endif
 
-  ! convert symbolic names of photosynthesis CO2 options into numeric IDs to
-  ! speed up selection during run-time
-  if (trim(co2_to_use_for_photosynthesis)=='prescribed') then
-     vegn_phot_co2_option = VEGN_PHOT_CO2_PRESCRIBED
-  else if (trim(co2_to_use_for_photosynthesis)=='interactive') then
-     vegn_phot_co2_option = VEGN_PHOT_CO2_INTERACTIVE
-  else
-     call error_mesg('vegn_init',&
-          'vegetation photosynthesis option co2_to_use_for_photosynthesis="'//&
-          trim(co2_to_use_for_photosynthesis)//'" is invalid, use "prescribed" or "interactive"',&
-          FATAL)
-  endif
-
   ! ---- initialize vegetation radiation options
   call vegn_radiation_init(rad_to_use, snow_rad_to_use)
 
   ! ---- initialize vegetation photosynthesis options
-  call vegn_photosynthesis_init(photosynthesis_to_use)
+  call vegn_photosynthesis_init()
 
 end subroutine read_vegn_namelist
 
@@ -299,6 +276,12 @@ subroutine vegn_init(id_ug,id_band)
      call get_cohort_data(restart1, 'tv', cohort_tv_ptr)
      call get_cohort_data(restart1, 'wl', cohort_wl_ptr)
      call get_cohort_data(restart1, 'ws', cohort_ws_ptr)
+
+     !#### MODIFIED BY PPG 2016-12-01
+     if (field_exists(restart2,'Anlayer_acm')) &
+        call get_cohort_data(restart2, 'Anlayer_acm', cohort_Anlayer_acm_ptr )
+     if (field_exists(restart2,'bl_previous')) &
+        call get_cohort_data(restart2, 'bl_previous', cohort_bl_previous_ptr )
 
      ! read global variables
      call fms_io_unstructured_read(restart2%basename, &
@@ -438,6 +421,11 @@ subroutine vegn_init(id_ug,id_band)
      cohort%npp_previous_day = 0.0
      cohort%status  = LEAF_ON
      cohort%leaf_age = 0.0
+
+     !#### MODIFIED BY PPG 2016-12-01
+     cohort%Anlayer_acm = 0.0
+     cohort%bl_previous = 0.0
+
      if(did_read_biodata.and.do_biogeography) then
         call update_species(cohort,t_ann(l),t_cold(l),p_ann(l),ncm(l),LU_NTRL)
         if (.not.biodata_bug) then
@@ -544,6 +532,16 @@ subroutine vegn_diag_init(id_ug,id_band,time)
   id_an_cl = register_tiled_diag_field ( module_name, 'an_cl',  &
        (/id_ug/), time, 'net photosynthesis with closed stomata', &
        '(mol CO2)(m2 of leaf)^-1 year^-1', missing_value=-1e20 )
+
+  !Modified from PPG-2016-12-01
+  id_lai_kok = register_tiled_diag_field ( module_name, 'lai_kok',  &
+       (/id_ug/), time, 'leaf area index at kok effect', 'm2/m2', missing_value=-1.0 )
+  id_Anlayer_acm = register_tiled_diag_field ( module_name, 'Anlayer_acm',  &
+       (/id_ug/), time, 'Cumulative Net photosynthesis for LAI layer', '(mol CO2)(m2 of leaf)^-1 year^-1', missing_value=-1.0 )
+  id_Anlayer= register_tiled_diag_field ( module_name, 'Anlayer',  &
+       (/id_ug/), time, 'Anet from LAI Layer', 'm2/m2', missing_value=-1.0 )
+  id_bl_previous = register_tiled_diag_field ( module_name, 'bl_previous',  &
+       (/id_ug/), time, 'leaf biomass from previous day', 'm2/m2', missing_value=-1.0 )
 
   id_bl = register_tiled_diag_field ( module_name, 'bl',  &
        (/id_ug/), time, 'biomass of leaves', 'kg C/m2', missing_value=-1.0 )
@@ -798,6 +796,10 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_int_cohort_data(restart2,'status', cohort_status_ptr, 'leaf status')
   call add_cohort_data(restart2,'leaf_age',cohort_leaf_age_ptr, 'age of leaves since bud burst', 'days')
 
+  !#### MODIFIED BY PPG 2016-12-01
+  call add_cohort_data(restart2, 'Anlayer_acm', cohort_Anlayer_acm_ptr,  ' Cumulative Net Photosynthesis for new Lai layer', 'kg C/(m2 year)')
+  call add_cohort_data(restart2, 'bl_previous', cohort_bl_previous_ptr, 'Previous leaf biomass','kg C/(m2 year)')
+
   call add_cohort_data(restart2,'npp_prev_day', cohort_npp_previous_day_ptr, 'previous day NPP','kg C/(m2 year)')
 
   call add_int_tile_data(restart2,'landuse',vegn_landuse_ptr,'vegetation land use type')
@@ -963,7 +965,8 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
        phot_co2,  & ! co2 mixing ratio for photosynthesis, mol CO2/mol dry air
        evap_demand, & ! evaporative water demand, kg/(m2 s)
        photosynt, & ! photosynthesis
-       photoresp    ! photo-respiration
+       photoresp, &    ! photo-respiration
+       lai_kok, Anlayer
   real :: litter_fast_C, litter_slow_C, litter_deadmic_C ! For rav_lit calculations
   type(vegn_cohort_type), pointer :: cohort
 
@@ -1029,7 +1032,13 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   call vegn_photosynthesis ( vegn, &
      SWdn(BAND_VIS), RSv(BAND_VIS), cana_q, phot_co2, p_surf, drag_q, &
      soil_beta, soil_water_supply, &
-     evap_demand, stomatal_cond, photosynt, photoresp )
+     evap_demand, stomatal_cond, photosynt, photoresp, &
+     lai_kok, Anlayer) !#### MODIFIED BY PPG 2016-12-01
+
+  !#### MODIFIED BY PPG 2016-12-01
+  cohort%Anlayer_acm = cohort%Anlayer_acm + Anlayer
+
+  !write(*,*) 'Anlayer', Anlayer, 'Anlayer_acm', cohort%Anlayer_acm
 
   call get_vegn_wet_frac ( cohort, fw, DfwDwl, DfwDwf, fs, DfsDwl, DfsDwf )
   ! transpiring fraction and its derivatives
@@ -1137,7 +1146,9 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   call send_tile_data(id_con_v_h, con_v_h, diag)
   call send_tile_data(id_con_v_v, con_v_v, diag)
   call send_tile_data(id_phot_co2, phot_co2, diag)
-
+  call send_tile_data(id_lai_kok, lai_kok, diag)
+  call send_tile_data(id_Anlayer, Anlayer, diag)
+  call send_tile_data(id_Anlayer_acm, cohort%Anlayer_acm, diag)
 end subroutine vegn_step_1
 
 
@@ -1450,8 +1461,15 @@ subroutine update_vegn_slow( )
         call send_tile_data(id_cgain,sum(tile%vegn%cohorts(1:n)%carbon_gain),tile%diag)
         call send_tile_data(id_closs,sum(tile%vegn%cohorts(1:n)%carbon_loss),tile%diag)
         call send_tile_data(id_wdgain,sum(tile%vegn%cohorts(1:n)%bwood_gain),tile%diag)
+        call send_tile_data(id_bl_previous, tile%vegn%cohorts(1)%bl, tile%diag)
+        tile%vegn%cohorts(1)%bl_previous=tile%vegn%cohorts(1)%bl
+        !write(*,*) 'Anlayer_acm', tile%vegn%cohorts(1)%Anlayer_acm, 'bl_prev', tile%vegn%cohorts(1)%bl
         call vegn_growth(tile%vegn)
         call vegn_nat_mortality(tile%vegn,tile%soil,86400.0)
+        tile%vegn%cohorts(1)%Anlayer_acm = 0.0
+!         call send_tile_data(id_lai, tile%vegn%cohorts(1)%lai, tile%diag)
+!         call send_tile_data(id_sai, tile%vegn%cohorts(1)%sai, tile%diag)
+!         call send_tile_data(id_Anlayer_acm, tile%vegn%cohorts(1)%Anlayer_acm, tile%diag)
      endif
 
      if  (month1 /= month0 .and. do_phenology) then
@@ -1745,6 +1763,10 @@ DEFINE_COHORT_ACCESSOR(real,bliving)
 DEFINE_COHORT_ACCESSOR(integer,status)
 DEFINE_COHORT_ACCESSOR(real,leaf_age)
 DEFINE_COHORT_ACCESSOR(real,npp_previous_day)
+
+!#### MODIFIED BY PPG 2016-12-01
+DEFINE_COHORT_ACCESSOR(real, Anlayer_acm)
+DEFINE_COHORT_ACCESSOR(real, bl_previous)
 
 DEFINE_COHORT_ACCESSOR(real,tv)
 DEFINE_COHORT_ACCESSOR(real,wl)

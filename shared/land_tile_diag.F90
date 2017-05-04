@@ -9,6 +9,7 @@ use diag_manager_mod,   only : register_diag_field, register_static_field, &
 use diag_util_mod,      only : log_diag_field_info
 use fms_mod,            only : error_mesg, string, FATAL
 
+use land_debug_mod, only : set_current_point, check_var_range
 use land_tile_selectors_mod, only : tile_selectors_init, tile_selectors_end, &
      tile_selector_type, register_tile_selector, selector_suffix, &
      n_selectors, selectors

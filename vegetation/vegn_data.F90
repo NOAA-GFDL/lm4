@@ -108,7 +108,8 @@ public :: &
     fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
     l_fract, T_transp_min, soil_carbon_depth_scale, &
     cold_month_threshold, scnd_biomass_bins, &
-    phen_ev1, phen_ev2, cmc_eps
+    phen_ev1, phen_ev2, cmc_eps, &
+    use_light_saber
 
 ! ---- public subroutine
 public :: read_vegn_data_namelist
@@ -415,6 +416,10 @@ real  :: scnd_biomass_bins(10) &
 real :: phen_ev1 = 0.5, phen_ev2 = 0.9 ! thresholds for evergreen/decidious
       ! differentiation (see phenology_type in cohort.F90)
 
+logical, protected :: use_light_saber = .FALSE. ! if TRUE, then the leaves at the bottom
+    ! of the canopy that cannot support themselves by photosynthesis are mercilessly
+    ! cut off.
+
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
   mcv_min, mcv_lai, &
@@ -441,7 +446,8 @@ namelist /vegn_data_nml/ &
   l_fract, T_transp_min,  tc_crit, psi_stress_crit_phen, &
   cnst_crit_phen, fact_crit_phen, cnst_crit_fire, fact_crit_fire, &
   scnd_biomass_bins, phen_ev1, phen_ev2, &
-  root_exudate_frac, tracer_cuticular_cond
+  root_exudate_frac, tracer_cuticular_cond, &
+  use_light_saber
 
 
 contains ! ###################################################################
