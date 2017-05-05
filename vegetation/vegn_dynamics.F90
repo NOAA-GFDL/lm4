@@ -676,9 +676,9 @@ N_leakage = 0.0
          cc%mine_myc_N_reservoir = cc%mine_myc_N_reservoir - mine_N_to_plant
 
          if (root_exudate_C>1e-10) then
-           rhiz_exud_marginal_gain = (root_active_N_uptake/dt_fast_yr)/(root_exudate_C)+(myc_mine_marginal_gain+myc_scav_marginal_gain)*0.5
+           rhiz_exud_marginal_gain = (root_active_N_uptake/dt_fast_yr)/(root_exudate_C)!+(myc_mine_marginal_gain+myc_scav_marginal_gain)*0.5
          else
-           rhiz_exud_marginal_gain = (myc_mine_marginal_gain+myc_scav_marginal_gain)*0.5
+           rhiz_exud_marginal_gain = (myc_mine_marginal_gain+myc_scav_marginal_gain)*0.25
          endif
 
          if(N_fixer_C_efficiency == 0 .OR. .NOT. spdata(sp)%do_N_fixation_strategy) then

@@ -16,7 +16,7 @@ use mpp_io_mod, only : axistype, mpp_get_atts, mpp_get_axis_data, &
 use vegn_data_mod, only : N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, &
      HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, &
      HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
-     agf_bs, fsc_wood, fsc_liv, spdata
+     agf_bs, fsc_wood, fsc_liv, spdata, LEAF_OFF
 use soil_carbon_mod, only: soil_carbon_option, &
      SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N,n_c_types,add_litter
 use soil_mod, only: add_root_litter
@@ -367,7 +367,27 @@ subroutine vegn_harvest_cropland(vegn)
                    (1-agf_bs)*(cc%wood_N*(1-fsc_wood) + cc%sapwood_N*(1-spdata(sp)%fsc_liv)))
 
            vegn%harv_pool_nitrogen(HARV_POOL_CROP) = vegn%harv_pool_nitrogen(HARV_POOL_CROP) + &
-                (cc%bliving*cc%Pl/spdata(sp)%leaf_live_c2n + agf_bs*cc%sapwood_N + cc%stored_N)*fraction_harvested
+                (cc%bliving*cc%Pl/spdata(sp)%leaf_live_c2n + agf_bs*cc%sapwood_N)*fraction_harvested
+
+           ! Make sure stored nitrogen loss is sensible when leaves are off:
+           ! Amounts harvested should be determined by potential leaf tissues, but this N would still be in stored pool so needs to be subtracted
+           if (cc%status == LEAF_OFF) then
+             vegn%harv_pool_nitrogen(HARV_POOL_CROP) = vegn%harv_pool_nitrogen(HARV_POOL_CROP) + &
+                (cc%stored_N-(cc%bliving*cc%Pl/spdata(sp)%leaf_live_c2n + cc%bliving*cc%Pr/spdata(cc%species)%froot_live_c2n))*fraction_harvested
+             cc%stored_N = cc%stored_N - &
+                (cc%stored_N-(cc%bliving*cc%Pl/spdata(sp)%leaf_live_c2n + cc%bliving*cc%Pr/spdata(cc%species)%froot_live_c2n))*fraction_harvested
+           else
+             ! In this case stored N can just be lost because it doesn't contain N from harvested potential leaves and roots
+             vegn%harv_pool_nitrogen(HARV_POOL_CROP) = vegn%harv_pool_nitrogen(HARV_POOL_CROP) + cc%stored_N*fraction_harvested
+             cc%stored_N = cc%stored_N*(1-fraction_harvested)
+           endif
+
+             ! Subtract N lost from N pools. Leaf and root can get subtracted from stored and things will be rebalanced later.
+             ! Some stored N also was lost
+             cc%stored_N = cc%stored_N -  &
+                        cc%bliving*fraction_harvested*(cc%Pl/spdata(sp)%leaf_live_c2n + cc%Pr/spdata(sp)%froot_live_c2n)
+             cc%sapwood_N = cc%sapwood_N*(1-fraction_harvested)
+             cc%wood_N = cc%wood_N*(1-fraction_harvested)
 
        endif
 
@@ -375,12 +395,6 @@ subroutine vegn_harvest_cropland(vegn)
         call error_mesg('vegn_harvest_cropland','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
      end select
 
-     ! Subtract N lost from N pools. Leaf and root can get subtracted from stored and things will be rebalanced later.
-     ! Some stored N also was lost
-     cc%stored_N = cc%stored_N*(1-fraction_harvested) &
-                - cc%bliving*fraction_harvested*(cc%Pl/spdata(sp)%leaf_live_c2n + cc%Pr/spdata(sp)%froot_live_c2n)
-     cc%sapwood_N = cc%sapwood_N*(1-fraction_harvested)
-     cc%wood_N = cc%wood_N*(1-fraction_harvested)
 
      ! redistribute leftover biomass between biomass pools
 
