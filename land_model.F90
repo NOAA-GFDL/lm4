@@ -94,7 +94,7 @@ use land_tile_diag_mod, only : tile_diag_init, tile_diag_end, &
      register_tiled_diag_field, register_tiled_area_fields, &
      add_tiled_diag_field_alias, &
      send_tile_data, dump_tile_diag_fields, &
-     OP_AVERAGE, OP_SUM, cmor_name
+     OP_AVERAGE, OP_SUM, cmor_name, send_global_land_diag
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, get_watch_point, check_temp_range, current_face, &
      get_current_point, check_conservation, water_cons_tol, carbon_cons_tol, &
@@ -138,6 +138,7 @@ public :: Lnd_stock_pe          ! return stocks of conservative quantities
 
 ! re-export land diagnostic subroutines for tiled diag in flux exchange
 public set_default_diag_filter, register_tiled_diag_field, send_tile_data
+public send_global_land_diag
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================

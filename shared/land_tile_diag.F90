@@ -1,6 +1,7 @@
 module land_tile_diag_mod
 
 use mpp_mod,            only : mpp_sum
+use mpp_efp_mod,        only : mpp_reproducing_sum
 use mpp_domains_mod,    only : mpp_pass_ug_to_sg
 use time_manager_mod,   only : time_type
 use diag_axis_mod,      only : get_axis_length
@@ -16,7 +17,7 @@ use land_tile_selectors_mod, only : tile_selectors_init, tile_selectors_end, &
 use land_tile_mod,      only : land_tile_type, diag_buff_type, land_tile_list_type, &
      land_tile_enum_type, first_elmt, loop_over_tiles, &
      land_tile_map, tile_is_selected, fptr_i0, fptr_r0, fptr_r0i
-use land_data_mod,      only : lnd, lnd_sg, log_version
+use land_data_mod,      only : lnd, lnd_sg, log_version, land_data_type
 use land_debug_mod,     only : check_var_range, set_current_point
 use tile_diag_buff_mod, only : diag_buff_type, realloc_diag_buff
 
@@ -45,6 +46,7 @@ public :: send_tile_data_r0d_fptr, send_tile_data_r1d_fptr
 public :: send_tile_data_i0d_fptr
 
 public :: dump_tile_diag_fields
+public :: send_global_land_diag
 
 ! codes of tile aggregation operations
 public :: OP_AVERAGE, OP_SUM, OP_VAR, OP_STD
@@ -982,6 +984,50 @@ subroutine dump_diag_field_with_sel(land_tile_map, id, field, sel, time)
   deallocate(buffer,weight,mask)
 
 end subroutine dump_diag_field_with_sel
+
+  !#######################################################################
+  !> \brief Send out the land model field on unstructured grid for global integral
+  logical function send_global_land_diag( id, diag, Time, tile, mask, Land )
+  integer,                 intent(in) :: id
+  real,    dimension(:,:), intent(in) :: diag, tile
+  type(time_type),         intent(in) :: Time
+  logical, dimension(:,:), intent(in) :: mask
+  type(land_data_type),    intent(in) :: Land
+
+  real,    dimension(size(diag,1),1)    :: diag_ug, tile_ug, area_ug
+  logical, dimension(size(mask,1))    :: mask_ug
+  integer :: k
+  real    :: area_sum, diag_sum
+
+    ! sum over tiles on unstructured grid
+    diag_ug = 0.0
+    tile_ug = 0.0
+    do k = 1, size(diag,2)
+      where (mask(:,k))
+        diag_ug(:,1) = diag_ug(:,1) + diag(:,k)*tile(:,k)
+        tile_ug(:,1) = tile_ug(:,1) + tile(:,k)
+      endwhere
+    enddo
+    ! average on unstructured grid
+    where (tile_ug > 0.0)
+      diag_ug = diag_ug/tile_ug
+    endwhere
+    mask_ug(:) = ANY(mask,dim=2)
+
+    where(mask_ug)
+       diag_ug(:,1) = diag_ug(:,1) * lnd%area
+       area_ug(:,1) = lnd%area
+    elsewhere
+       diag_ug(:,1) = 0.0
+       area_ug(:,1) = 0.0
+    endwhere
+
+    area_sum = mpp_reproducing_sum(diag_ug) !, overflow_check=.true.)
+    diag_sum = mpp_reproducing_sum(area_ug) !, overflow_check=.true.)
+
+    send_global_land_diag = send_data( id, diag_sum/area_sum, Time)
+
+  end function send_global_land_diag
 
 
 end module land_tile_diag_mod
