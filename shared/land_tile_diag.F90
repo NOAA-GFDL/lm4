@@ -19,6 +19,7 @@ use land_tile_mod,      only : land_tile_type, diag_buff_type, &
      tile_is_selected, fptr_i0, fptr_r0, fptr_r0i, land_tile_map, loop_over_tiles
 use land_data_mod,      only : lnd_sg, log_version, lnd, land_data_type
 use tile_diag_buff_mod, only : diag_buff_type, realloc_diag_buff
+use land_debug_mod,     only : check_var_range, set_current_point
 
 implicit none
 private

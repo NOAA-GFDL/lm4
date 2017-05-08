@@ -3049,9 +3049,15 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
                          long_name="grid indices", &
                          set_name="land", &
                          DomainU=domain, aux="geolon_t geolat_t")
-  call diag_axis_add_attribute(id_ug, &
+  if(mpp_get_UG_domain_ntiles(lnd%domain)==1) then
+     call diag_axis_add_attribute(id_ug, &
+                               "compress", &
+                               "lat lon")
+  else
+     call diag_axis_add_attribute(id_ug, &
                                "compress", &
                                "grid_yt grid_xt")
+  endif
   if (allocated(ug_dim_data)) then
       deallocate(ug_dim_data)
   endif
