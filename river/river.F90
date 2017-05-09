@@ -333,18 +333,18 @@ contains
        ! grid has just one tile, so we assume that the grid is regular lat-lon
        ! define longitude axes and its edges
        id_lonb = diag_axis_init ( &
-            'lonb', lnd_sg%coord_glonb, 'degrees_E', 'X', 'longitude edges', &
+            'lonb', lnd%coord_glonb, 'degrees_E', 'X', 'longitude edges', &
             set_name='river', domain2=domain )
        id_lon  = diag_axis_init (                                                &
-            'lon',  lnd_sg%coord_glon, 'degrees_E', 'X',  &
+            'lon',  lnd%coord_glon, 'degrees_E', 'X',  &
             'longitude', set_name='river',  edges=id_lonb, domain2=domain )
 
        ! define latitude axes and its edges
        id_latb = diag_axis_init ( &
-            'latb', lnd_sg%coord_glatb, 'degrees_N', 'Y', 'latitude edges',  &
+            'latb', lnd%coord_glatb, 'degrees_N', 'Y', 'latitude edges',  &
             set_name='river',  domain2=domain   )
        id_lat = diag_axis_init (                                                &
-            'lat',  lnd_sg%coord_glat, 'degrees_N', 'Y', &
+            'lat',  lnd%coord_glat, 'degrees_N', 'Y', &
             'latitude', set_name='river', edges=id_latb, domain2=domain   )
     else
        id_lon = diag_axis_init ( 'grid_xt', (/(real(i),i=1,River%nlon)/), 'degrees_E', 'X', &
@@ -602,7 +602,7 @@ end subroutine print_river_tracer_data
     real, dimension(size(runoff,1),size(runoff,2)) :: &
         heat_frac_liq,    & ! fraction of runoff heat in liquid
         discharge_l,      & ! discharge of liquid water to ocean
-        discharge_sink      ! container to collect small/negative values for later accounting                                              
+        discharge_sink      ! container to collect small/negative values for later accounting
     real, dimension(size(runoff,1),size(runoff,2),num_species) ::  &
         discharge_c    ! runoff of tracers accumulated over tiles in cell (including ice and heat)
 
@@ -901,7 +901,7 @@ end subroutine print_river_tracer_data
     call mpp_pass_SG_to_UG(lnd%domain, lake_T, lake_T_ug)
     call mpp_pass_SG_to_UG(lnd%domain, lake_wl, lake_wl_ug)
     call mpp_pass_SG_to_UG(lnd%domain, lake_ws, lake_ws_ug)
-   
+
     ce = first_elmt(land_tile_map, ls=lnd%ls)
     do while(loop_over_tiles(ce, tile, l,k))
        if (.not.associated(tile%lake)) cycle
