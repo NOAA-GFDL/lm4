@@ -10,7 +10,7 @@ use mpp_domains_mod   , only : domain2d, mpp_get_compute_domain, &
      domainUG, mpp_define_unstruct_domain, mpp_get_UG_domain_tile_id, &
      mpp_get_UG_io_domain, mpp_get_UG_domain_npes, mpp_get_ug_domain_pelist, &
      mpp_get_ug_compute_domain, mpp_get_ug_domain_grid_index, mpp_pass_sg_to_ug, &
-     mpp_pass_ug_to_sg
+     mpp_pass_ug_to_sg, mpp_get_io_domain_UG_layout
 use fms_mod           , only : write_version_number, mpp_npes, stdout, &
      file_exist, error_mesg, FATAL, read_data
 use fms_io_mod        , only : parse_mask_table
@@ -154,7 +154,7 @@ type :: land_state_type
 
    real, allocatable  :: area(:)      ! land area per grid cell, m2
    real, allocatable  :: cellarea(:)  ! fraction of land in the grid cell
-   real, allocatable  :: landfrac(:)  ! grid cell area, m2
+   real, allocatable  :: landfrac(:)  ! fraction of land in the grid cell
    real, allocatable  :: coord_glon(:), coord_glonb(:) ! longitudes for use in diag axis and such, degrees East
    real, allocatable  :: coord_glat(:), coord_glatb(:) ! latitudes for use in diag axis and such, degrees North
    real, allocatable  :: lon(:), lat(:) ! grid center coordinates, radian
@@ -380,7 +380,7 @@ subroutine set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
   !--- variables for unstructure grid domain.
   integer, allocatable :: num_lnd(:), grid_index(:), ntiles_grid(:)
   real,    allocatable :: lnd_area(:,:,:)
-  integer              :: i, j, n, l, nland
+  integer              :: i, j, n, l, nland, ug_io_layout
 
   !-------------------------------------------------------------------
   !   set up for unstructure domain and land state data
@@ -446,7 +446,8 @@ subroutine set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
   allocate(lnd%io_pelist(n_io_pes))
   call mpp_get_UG_domain_pelist(io_domain,lnd%io_pelist)
   lnd%io_id = mpp_get_UG_domain_tile_id(io_domain)
-  lnd%append_io_id = (npes_io_group /= 0)
+  ug_io_layout = mpp_get_io_domain_UG_layout(lnd%domain)
+  lnd%append_io_id = (ug_io_layout>1)
 
   ! get the domain information for unstructure domain
   call mpp_get_UG_compute_domain(lnd%domain, lnd%ls,lnd%le)
