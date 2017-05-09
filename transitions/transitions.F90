@@ -254,7 +254,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
      tran_distr_opt = DISTR_MIN
   case default
      call error_mesg('land_transitions_init','distribute_transitions value "'//&
-          trim(overshoot_handling)//'" is incorrect, use "lm3" or "min-n-tiles"',&
+          trim(distribute_transitions)//'" is incorrect, use "lm3" or "min-n-tiles"',&
           FATAL)
   end select
 
