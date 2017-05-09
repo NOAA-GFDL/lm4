@@ -42,11 +42,6 @@ public :: horiz_interp_ug
 character(len=*), parameter :: module_name = 'land_data_mod'
 #include "shared/version_variable.inc"
 
-interface prt_max_min_sum
-  module procedure prt_max_min_sum_1d
-  module procedure prt_max_min_sum_2d
-end interface
-
 ! ---- types -----------------------------------------------------------------
 type :: atmos_land_boundary_type
    ! data passed from the coupler to the surface
@@ -135,8 +130,6 @@ type :: land_state_type_sg
    real, allocatable  :: area(:,:)  ! land area per grid cell, m2
    real, allocatable  :: cellarea(:,:)  ! grid cell area, m2
    real, allocatable  :: landfrac(:,:)  ! fraction of land in the grid cell
-   real, allocatable  :: coord_glon(:), coord_glonb(:) ! longitudes for use in diag axis and such, degrees East
-   real, allocatable  :: coord_glat(:), coord_glatb(:) ! latitudes for use in diag axis and such, degrees North
 
    integer :: face  ! the current mosaic face
    type(domain2D) :: domain ! our domain -- should be the last since it simplifies
@@ -192,15 +185,15 @@ subroutine log_version(version, modname, filename, tag, unit)
   character(len=*), intent(in), optional :: &
           modname, filename, tag
   integer, intent(in), optional :: unit
-  
+
   character(512) :: message
   integer :: i
   message=''
-  
+
   if (present(filename)) then
      ! remove the directory part of the name
      i = scan(filename,'/',back=.true.)
-     
+
      message = trim(filename(i+1:))
   endif
   if (present(modname)) then
@@ -209,45 +202,6 @@ subroutine log_version(version, modname, filename, tag, unit)
   call write_version_number (trim(message)//': '//trim(version),tag,unit)
 end subroutine log_version
 
-! ============================================================================
-subroutine prt_max_min_sum_1d(name, q)
-  character(len=*), intent(in)::  name
-  real, intent(in)::    q(:)
-
-  real qmin, qmax, qsum
-
-  qmin = minval(q)
-  qmax = maxval(q)
-  qsum = sum(q)
-
-  call mpp_min(qmin)
-  call mpp_max(qmax)
-  call mpp_sum(qsum)
-
-  if(mpp_pe() == mpp_root_pe() ) then
-        write(*,*) trim(name), ' max = ', qmax, ' min = ', qmin, 'sum = ', qsum
-  endif
-end subroutine prt_max_min_sum_1d
-
-! ============================================================================
-subroutine prt_max_min_sum_2d(name, q)
-  character(len=*), intent(in)::  name
-  real, intent(in)::    q(:,:)
-
-  real qmin, qmax, qsum
-
-  qmin = minval(q)
-  qmax = maxval(q)
-  qsum = sum(q)
-
-  call mpp_min(qmin)
-  call mpp_max(qmax)
-  call mpp_sum(qsum)
-
-  if(mpp_pe() == mpp_root_pe() ) then
-        write(*,*) trim(name), ' max = ', qmax, ' min = ', qmin, 'sum = ', qsum
-  endif
-end subroutine prt_max_min_sum_2d
 
 ! ============================================================================
 subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table, npes_io_group)
@@ -340,12 +294,8 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table,
   allocate(lnd_sg%area    (lnd_sg%is:lnd_sg%ie,   lnd_sg%js:lnd_sg%je))
   allocate(lnd_sg%cellarea(lnd_sg%is:lnd_sg%ie,   lnd_sg%js:lnd_sg%je))
   allocate(lnd_sg%landfrac(lnd_sg%is:lnd_sg%ie,   lnd_sg%js:lnd_sg%je))
-  allocate(lnd_sg%coord_glon(nlon), lnd_sg%coord_glonb(nlon+1))
-  allocate(lnd_sg%coord_glat(nlat), lnd_sg%coord_glatb(nlat+1))
 
   ! initialize coordinates
-  call get_grid_cell_vertices('LND',lnd_sg%face,lnd_sg%coord_glonb,lnd_sg%coord_glatb)
-  call get_grid_cell_centers ('LND',lnd_sg%face,lnd_sg%coord_glon, lnd_sg%coord_glat)
   call get_grid_cell_area    ('LND',lnd_sg%face,lnd_sg%cellarea, domain=lnd_sg%domain)
   call get_grid_comp_area    ('LND',lnd_sg%face,lnd_sg%area,     domain=lnd_sg%domain)
   lnd_sg%landfrac = lnd_sg%area/lnd_sg%cellarea
@@ -429,15 +379,15 @@ subroutine set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
      if(mpp_pe() .NE. mpp_root_pe()) then
         nland = sum(num_lnd)
         allocate(grid_index(nland))
-     endif 
+     endif
      call mpp_broadcast( grid_index, nland, mpp_root_pe() )
      allocate(ntiles_grid(nland))
      ntiles_grid = 1
   endif
   call mpp_define_unstruct_domain(lnd%domain, lnd_sg%domain, num_lnd, ntiles_grid, mpp_npes(), &
-                                  npes_io_group, grid_index, name = 'LAND MODEL') 
+                                  npes_io_group, grid_index, name = 'LAND MODEL')
   deallocate(grid_index, num_lnd)
-  
+
   ! set up list of processors  ! set up list of processors for collective io: only the first processor in this
   ! for collective io: only the first processor in this
   ! list actually writes data, the rest just send the data to it.
@@ -456,10 +406,10 @@ subroutine set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
   allocate(grid_index(lnd%ls:lnd%le))
   call mpp_get_UG_domain_grid_index(lnd%domain, grid_index)
   !--- make sure grid_index is monotone increasing.
-  do l = lnd%ls+1,lnd%le 
+  do l = lnd%ls+1,lnd%le
      if(grid_index(l) .LE. grid_index(l-1)) call error_mesg('land_model_init', &
          'grid_index is not monotone increasing', FATAL)
-  enddo 
+  enddo
   lnd%gs = grid_index(lnd%ls)
   lnd%ge = grid_index(lnd%le)
   allocate(lnd%l_index(lnd%gs:lnd%ge))
@@ -534,7 +484,7 @@ end subroutine land_data_end
     call horiz_interp(Interp, data_in, data_sg, verbose, &
                                    mask_in, mask_out, missing_value, missing_permit, &
                                    err_msg, new_missing_handle )
-    call mpp_pass_sg_to_ug(lnd%domain, data_sg, data_out)                           
+    call mpp_pass_sg_to_ug(lnd%domain, data_sg, data_out)
 
   end subroutine horiz_interp_ug
 
