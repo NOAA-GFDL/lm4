@@ -17,7 +17,7 @@ use land_tile_selectors_mod, only : tile_selectors_init, tile_selectors_end, &
 use land_tile_mod,      only : land_tile_type, diag_buff_type, land_tile_list_type, &
      land_tile_enum_type, first_elmt, loop_over_tiles, &
      land_tile_map, tile_is_selected, fptr_i0, fptr_r0, fptr_r0i
-use land_data_mod,      only : lnd, lnd_sg, log_version
+use land_data_mod,      only : lnd, lnd_sg, log_version, land_data_type
 use land_debug_mod,     only : check_var_range, set_current_point
 use tile_diag_buff_mod, only : diag_buff_type, realloc_diag_buff
 use land_debug_mod,     only : check_var_range, set_current_point
