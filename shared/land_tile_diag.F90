@@ -20,6 +20,7 @@ use land_tile_mod,      only : land_tile_type, diag_buff_type, land_tile_list_ty
 use land_data_mod,      only : lnd, lnd_sg, log_version
 use land_debug_mod,     only : check_var_range, set_current_point
 use tile_diag_buff_mod, only : diag_buff_type, realloc_diag_buff
+use land_debug_mod,     only : check_var_range, set_current_point
 
 implicit none
 private

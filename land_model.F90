@@ -47,7 +47,7 @@ use soil_carbon_mod, only : read_soil_carbon_namelist, n_c_types
 use lake_mod, only : lake_init_predefined
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, &
      snow_get_depth_area, snow_step_1, snow_step_2, &
-     save_snow_restart, sweep_tiny_snow, snow_sfc_water
+     save_snow_restart, sweep_tiny_snow, snow_sfc_water 
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, vegn_get_cover, &
      vegn_radiation, vegn_properties, vegn_step_1, vegn_step_2, vegn_step_3, &
      update_vegn_slow, save_vegn_restart
@@ -450,7 +450,7 @@ subroutine land_model_init &
   ! set the land diagnostic axes ids for the flux exchange
   land2cplr%axes = (/id_ug/)
   ! send some static diagnostic fields to output
-  if ( id_cellarea > 0 ) used = send_data ( id_cellarea, lnd%cellarea,     lnd%time )
+  if ( id_cellarea > 0 ) used = send_data ( id_cellarea, lnd%cellarea, lnd%time )
   if ( id_landfrac > 0 ) used = send_data ( id_landfrac, lnd%landfrac,     lnd%time )
   if ( id_geolon_t > 0 ) used = send_data ( id_geolon_t, lnd%lon*180.0/PI, lnd%time )
   if ( id_geolat_t > 0 ) used = send_data ( id_geolat_t, lnd%lat*180.0/PI, lnd%time )
@@ -463,7 +463,7 @@ subroutine land_model_init &
   if (predefined_tiles) then
      call hlsp_init_predefined(id_ug) ! Must be called before soil_init
   else
-     call hlsp_init(id_ug) ! Must be called before soil_init
+   call hlsp_init(id_ug) ! Must be called before soil_init
   endif
   call soil_init(predefined_tiles,id_ug,id_band,id_zfull)
 
@@ -472,7 +472,7 @@ subroutine land_model_init &
   if (predefined_tiles) then
      call lake_init_predefined(id_ug)
   else
-     call lake_init(id_ug)
+   call lake_init(id_ug)
   endif
   call glac_init(id_ug)
   call snow_init()
@@ -816,7 +816,7 @@ subroutine land_cover_cold_start_predefined()
 
   ! Open access to model input database
   call open_database_predefined_tiles(h5id)
-
+  
   do l = lnd%ls, lnd%le
     if(.not.lnd%area(l)>0) cycle ! skip ocean points
     call set_current_point(l,1)
@@ -985,7 +985,7 @@ subroutine land_cover_warm_start_new (restart)
   do it = 1,ntiles
      k = restart%tidx(it)
      if (k<0) cycle ! skip negative indices
-     g = modulo(k,npts)+1
+     g = modulo(k,npts)+1 
      if (g<lnd%gs.or.g>lnd%ge) cycle ! skip points outside of domain
      l = lnd%l_index(g)
      ! the size of the tile set at the point (i,j) must be equal to k
@@ -1105,7 +1105,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   real, allocatable :: phot_co2_data(:)    ! buffer for data
   logical           :: phot_co2_overridden ! flag indicating successful override
   integer           :: iwatch,jwatch,kwatch,face
-
+  
 
   ! start clocks
   call mpp_clock_begin(landClock)
@@ -1212,24 +1212,24 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
          snow_HEAT = snow_tile_heat(tile%snow)
      endif
      if (associated(tile%glac)) then
-        call glac_tile_stock_pe(tile%glac, subs_LMASS, subs_FMASS)
-        subs_HEAT  = glac_tile_heat(tile%glac)
-        glac_LMASS = subs_LMASS
-        glac_FMASS = subs_FMASS
-        glac_HEAT  = subs_HEAT
-     else if (associated(tile%lake)) then
-        call lake_tile_stock_pe(tile%lake, subs_LMASS, subs_FMASS)
-        subs_HEAT  = lake_tile_heat(tile%lake)
-        lake_LMASS = subs_LMASS
-        lake_FMASS = subs_FMASS
-        lake_HEAT  = subs_HEAT
-     else if (associated(tile%soil)) then
-        call soil_tile_stock_pe(tile%soil, subs_LMASS, subs_FMASS)
-        subs_HEAT  = soil_tile_heat(tile%soil)
-        soil_LMASS = subs_LMASS
-        soil_FMASS = subs_FMASS
-        soil_HEAT  = subs_HEAT
-     endif
+         call glac_tile_stock_pe(tile%glac, subs_LMASS, subs_FMASS)
+         subs_HEAT  = glac_tile_heat(tile%glac)
+         glac_LMASS = subs_LMASS
+         glac_FMASS = subs_FMASS
+         glac_HEAT  = subs_HEAT
+       else if (associated(tile%lake)) then
+         call lake_tile_stock_pe(tile%lake, subs_LMASS, subs_FMASS)
+         subs_HEAT  = lake_tile_heat(tile%lake)
+         lake_LMASS = subs_LMASS
+         lake_FMASS = subs_FMASS
+         lake_HEAT  = subs_HEAT
+       else if (associated(tile%soil)) then
+         call soil_tile_stock_pe(tile%soil, subs_LMASS, subs_FMASS)
+         subs_HEAT  = soil_tile_heat(tile%soil)
+         soil_LMASS = subs_LMASS
+         soil_FMASS = subs_FMASS
+         soil_HEAT  = subs_HEAT
+       endif
 
      call send_tile_data(id_VWS,  cana_VMASS, tile%diag)
      call send_tile_data(id_VWSc, cana_VMASS, tile%diag)
@@ -1442,7 +1442,7 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
      ! - end of conservation check, part 1
   endif
 
-  ! if requested (in snow_nml), sweep tiny snow before calling step_1 subroutines to
+  ! if requested (in snow_nml), sweep tiny snow before calling step_1 subroutines to 
   ! avoid numerical issues.
   call sweep_tiny_snow(tile%snow, lswept, fswept, hlswept, hfswept)
 
@@ -1553,7 +1553,7 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
   DHgDTc   = -rho*cp_air*con_g_h
 
   if (associated(tile%lake).and.lake_rh_feedback == LAKE_RH_BETA) then
-     ! adjust the conductance so that the water vapor flux to the atmopshere is
+     ! adjust the conductance so that the water vapor flux to the atmopshere is 
      ! E = beta*rho*CD*|v|*(qsat - qatm), with beta=grnd_rh
      grnd_rh  = min(grnd_rh, 1-1.0e-6) ! to protect from infinite conductance
      con_g_v  = grnd_rh/(1-grnd_rh)*DEaDqc/rho
@@ -1904,7 +1904,7 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
        snow_hlrunf, snow_hfrunf, snow_Tbot, snow_Cbot, snow_C, snow_avrg_T )
        snow_lrunf  = snow_lrunf  + lswept/delta_time
        snow_frunf  = snow_frunf  + fswept/delta_time
-       snow_hlrunf = snow_hlrunf + hlswept/delta_time
+       snow_hlrunf = snow_hlrunf + hlswept/delta_time 
        snow_hfrunf = snow_hfrunf + hfswept/delta_time
   if(is_watch_point()) then
      write(*,*) 'subs_M_imp', subs_M_imp
@@ -3019,7 +3019,35 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
      call diag_axis_add_attribute(id_ug, "compress", "grid_yt grid_xt")
   endif
 
-  id_band = diag_axis_init ('band',  (/1.0,2.0/), 'unitless', 'Z', 'spectral band', set_name='land' )
+ !Register the unstructured axis for the unstructured domain.
+  call mpp_get_UG_compute_domain(domain, &
+                                 size=ug_dim_size)
+  if (.not. allocated(ug_dim_data)) then
+      allocate(ug_dim_data(ug_dim_size))
+  endif
+  call mpp_get_UG_domain_grid_index(domain, &
+                                    ug_dim_data)   
+  !--- grid_index needs to be starting from 0.
+  ug_dim_data = ug_dim_data - 1
+  id_ug = diag_axis_init("grid_index",  &
+                         real(ug_dim_data), &
+                         "none", &
+                         "U", &
+                         long_name="grid indices", &
+                         set_name="land", &
+                         DomainU=domain, aux="geolon_t geolat_t")
+  if(mpp_get_UG_domain_ntiles(lnd%domain)==1) then
+     call diag_axis_add_attribute(id_ug, &
+                               "compress", &
+                               "lat lon")
+  else
+     call diag_axis_add_attribute(id_ug, &
+                               "compress", &
+                               "grid_yt grid_xt")
+  endif
+  if (allocated(ug_dim_data)) then
+      deallocate(ug_dim_data)
+  endif
 
   ! Set up an array of axes ids, for convenience.
   axes(1) = id_ug
@@ -3269,13 +3297,13 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   id_fco2    = register_tiled_diag_field ( module_name, 'fco2', axes, time, &
              'flux of CO2 to canopy air', 'kg C/(m2 s)', missing_value=-1.0 )
    id_swdn_dir = register_tiled_diag_field ( module_name, 'swdn_dir', (/id_ug,id_band/), time, &
-       'downward direct short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0)
+        'downward direct short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0)
    id_swdn_dif = register_tiled_diag_field ( module_name, 'swdn_dif', (/id_ug,id_band/), time, &
-       'downward diffuse short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0)
+        'downward diffuse short-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0)
    id_swup_dir = register_tiled_diag_field ( module_name, 'swup_dir', (/id_ug,id_band/), time, &
-       'direct short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=-999.0)
+        'direct short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=-999.0)
    id_swup_dif = register_tiled_diag_field ( module_name, 'swup_dif', (/id_ug,id_band/), time, &
-       'diffuse short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=-999.0)
+        'diffuse short-wave radiation flux reflected by the land surface', 'W/m2', missing_value=-999.0)
   id_lwdn = register_tiled_diag_field ( module_name, 'lwdn', axes, time, &
        'downward long-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0)
   id_vegn_cover = register_tiled_diag_field ( module_name, 'vegn_cover', axes, time, &
@@ -3470,7 +3498,7 @@ end subroutine land_diag_init
 subroutine send_cellfrac_data(id, f, scale)
   integer, intent(in) :: id ! id of the diagnostic field
   procedure(tile_exists_func) :: f ! existence detector function
-  real, intent(in), optional  :: scale ! scaling factor, for unit conversions
+  real, intent(in), optional  :: scale ! scaling factor, for unit conversions 
 
   ! ---- local vars
   integer :: l,k
