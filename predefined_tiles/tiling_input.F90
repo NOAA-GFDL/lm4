@@ -99,6 +99,7 @@ subroutine load_group_into_memory(tile,is,js,h5id,buf_ptr,buf_len,image_ptr)
   !character(100) :: cellid_string
   character(100) :: tile_string,is_string,js_string,cellid_string
   integer(hid_t) :: fapl
+  integer(size_t), parameter :: memory_increment = 1000000
 
  !Open access to the group in the database that contains all the group information
  call h5gopen_f(h5id,"grid_data",grpid,status)
@@ -119,7 +120,7 @@ subroutine load_group_into_memory(tile,is,js,h5id,buf_ptr,buf_len,image_ptr)
  !Ensure that we are always working in memory
  call h5pcreate_f(H5P_FILE_ACCESS_F,fapl,status)
  !Setting the third parameter to false ensures that we never write this file to disk
- call h5pset_fapl_core_f(fapl,1000000,.False.,status)
+ call h5pset_fapl_core_f(fapl,memory_increment,.False.,status)
  !Although we create this file it is always in memory. It never gets written to disk
  call h5fcreate_f("buffer.hdf5",H5F_ACC_TRUNC_F,dstid,status,access_prp=fapl)
  !Close access to the property list

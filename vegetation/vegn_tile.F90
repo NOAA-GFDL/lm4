@@ -132,7 +132,7 @@ type :: vegn_tile_type
 end type vegn_tile_type
 
 ! ==== module data ===========================================================
-real, public :: &
+real, public :: & ! not protected because vegetation.F90 reads them from the namelist
      cpw = 1952.0, & ! specific heat of water vapor at constant pressure
      clw = 4218.0, & ! specific heat of water (liquid)
      csw = 2106.0    ! specific heat of water (ice)

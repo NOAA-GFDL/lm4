@@ -13,10 +13,7 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only : error_mesg, FATAL, NOTE, file_exist, &
      close_file, check_nml_error, mpp_pe, mpp_root_pe, stdlog, string
-use fms_io_mod, only : restart_file_type, free_restart_type
-use fms_io_mod, only : set_domain, nullify_domain
-use time_manager_mod, only : time_type, time_type_to_real
-use constants_mod, only : rdgas, rvgas, cp_air, PI, VONKARM
+use constants_mod, only : VONKARM
 use sphum_mod, only : qscomp
 use field_manager_mod, only : parse, MODEL_ATMOS, MODEL_LAND
 use tracer_manager_mod, only : get_tracer_index, get_tracer_names, &
@@ -27,12 +24,11 @@ use land_tracers_mod, only : ntcana, isphum, ico2
 use cana_tile_mod, only : cana_tile_type, &
      canopy_air_mass, canopy_air_mass_for_tracers, cpw
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, current_tile, operator(/=), loop_over_tiles
+     first_elmt, loop_over_tiles
 use land_data_mod, only : log_version
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_tile_data, get_tile_data, field_exists
-use land_debug_mod, only : is_watch_point, check_temp_range
 
 implicit none
 private

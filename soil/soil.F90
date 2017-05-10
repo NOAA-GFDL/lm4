@@ -13,9 +13,7 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only: error_mesg, file_exist, check_nml_error, &
      stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, WARNING, NOTE
-use fms_io_mod, only: restart_file_type, free_restart_type, &
-      set_domain, nullify_domain
-use time_manager_mod,   only: time_type, increment_time, time_type_to_real
+use time_manager_mod,   only: time_type_to_real
 use diag_manager_mod,   only: diag_axis_init
 use constants_mod,      only: tfreeze, hlv, hlf, dens_h2o
 use tracer_manager_mod, only: NO_TRACER
@@ -42,8 +40,7 @@ use soil_carbon_mod, only: poolTotalCarbon, soilMaxCohorts, &
      C_CEL, C_LIG, C_MIC, A_function, debug_pool, adjust_pool_ncohorts
 
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, prev_elmt, loop_over_tiles, tail_elmt, current_tile, next_elmt, &
-     operator(/=), get_elmt_indices
+     first_elmt, prev_elmt, loop_over_tiles
 use land_utils_mod, only : put_to_tiles_r0d_fptr, put_to_tiles_r1d_fptr
 use land_tile_diag_mod, only : diag_buff_type, &
      register_tiled_static_field, register_tiled_diag_field, &
@@ -51,7 +48,7 @@ use land_tile_diag_mod, only : diag_buff_type, &
      send_tile_data_i0d_fptr, &
      add_tiled_diag_field_alias, add_tiled_static_field_alias, &
      set_default_diag_filter, cmor_name, cmor_mrsos_depth
-use land_data_mod, only : lnd_sg, log_version, lnd
+use land_data_mod, only : lnd, lnd_sg, log_version
 use land_io_mod, only : read_field
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
@@ -85,7 +82,6 @@ public :: read_soil_namelist
 public :: soil_cover_cold_start
 public :: retrieve_soil_tags
 public :: soil_init
-public :: soil_init_predefined
 public :: soil_end
 public :: save_soil_restart
 
@@ -253,7 +249,7 @@ integer :: id_fast_soil_C, id_slow_soil_C, id_protected_C, id_fsc, id_ssc,&
     id_rsoil_leaflitter_deadmic, id_rsoil_leaflitter_fast, id_rsoil_leaflitter_slow, &
     id_rsoil_finewoodlitter_deadmic, id_rsoil_finewoodlitter_fast, id_rsoil_finewoodlitter_slow, &
     id_rsoil_coarsewoodlitter_deadmic, id_rsoil_coarsewoodlitter_fast, id_rsoil_coarsewoodlitter_slow, &
-    id_rsoil_fast, id_rsoil_slow, id_resp,id_rsoil_deadmic,id_asoil,id_rsoil,&
+    id_rsoil_fast, id_rsoil_slow,id_rsoil_deadmic,id_asoil,id_rsoil,&
     id_leaflitter_dissolved_fast,id_leaflitter_dissolved_slow,id_leaflitter_dissolved_deadmic,&
     id_leaflitter_deposited_fast,id_leaflitter_deposited_slow,id_leaflitter_deposited_deadmic,&
         id_finewoodlitter_dissolved_fast,id_finewoodlitter_dissolved_slow,id_finewoodlitter_dissolved_deadmic,&
@@ -271,7 +267,7 @@ integer :: id_fast_soil_C, id_slow_soil_C, id_protected_C, id_fsc, id_ssc,&
 
 ! diag IDs of CMOR variables
 integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, id_mrfso, &
-    id_mrro, id_mrros, id_csoil, id_rh, &
+    id_mrs1mLut, id_mrro, id_mrros, id_csoil, id_rh, &
     id_csoilfast, id_csoilmedium, id_csoilslow
 
 ! test tridiagonal solver for advection
@@ -279,6 +275,7 @@ integer :: id_st_diff
 
 integer, allocatable, dimension(:,:), private :: soil_tags ! module copy of soil tags for cold start
 real, allocatable :: mrsos_weight(:) ! weights for mrsos averaging
+real, allocatable :: mrs1m_weight(:) ! weights for mrs1m averaging
 ! ==== end of module variables ===============================================
 
 contains
@@ -356,14 +353,16 @@ end subroutine read_soil_namelist
 
 ! ============================================================================
 ! initialize soil model
-subroutine soil_init (id_ug,id_band,id_zfull)
+subroutine soil_init (predefined_tiles, id_ug,id_band,id_zfull)
+  logical,intent(in)  :: predefined_tiles !<If true, this subroutine assumes that 
+        ! the distribution of basic soil parameters is set from external data set, 
+        ! and only initializes derived soil properties
   integer,intent(in)  :: id_ug    !<Unstructured axis id.
-  integer,intent(in)  :: id_band  ! ID of spectral band axis
-  integer,intent(out) :: id_zfull ! ID of vertical soil axis
-!----------
+  integer,intent(in)  :: id_band  !<ID of spectral band axis
+  integer,intent(out) :: id_zfull !<ID of vertical soil axis
 
   ! ---- local vars
-  type(land_tile_enum_type)     :: ce, te   ! tile list enumerator
+  type(land_tile_enum_type)     :: ce   ! tile list enumerator
   type(land_tile_type), pointer :: tile ! pointer to current tile
   ! input data buffers for respective variables:
   real, allocatable :: gw_param(:), gw_param2(:), gw_param3(:), albedo(:,:)
@@ -371,9 +370,9 @@ subroutine soil_init (id_ug,id_band,id_zfull)
 
   real :: local_wt_depth ! [m] water table depth for tile (+ for below surface)
   real, allocatable :: ref_soil_t(:) ! reference soil temperature (based on 5 m or surface air temperature)
-                                       ! for cold-start initialization
+                                     ! for cold-start initialization
   real, allocatable :: wetmask(:)    ! input mask for zones with high water table
-  logical :: drypoint                  ! This point is predicted to have a falling water table.
+  logical :: drypoint                ! This point is predicted to have a falling water table.
 
   integer :: i, k, ll ! indices
   real :: psi(num_l), mwc(num_l)
@@ -395,8 +394,28 @@ subroutine soil_init (id_ug,id_band,id_zfull)
   ! -------- initialize soil model diagnostic fields
   call soil_diag_init(id_ug,id_band,id_zfull)
 
-  ! -------- read spatially distributed fields for groundwater parameters, if requested
-  if (.not.use_single_geo) then
+  if (predefined_tiles) then
+     ! Initialize the soil derived parameters
+     ce = first_elmt(land_tile_map)
+     do while(loop_over_tiles(ce,tile))
+        if (.not.associated(tile%soil)) cycle
+        call soil_data_init_derive_subsurf_pars_tiled(tile%soil, use_geohydrodata)
+     end do
+  else if (use_single_geo) then
+     if (gw_option == GW_TILED) then ! and use_single_geo
+        ! Error checking
+        if (.not. use_geohydrodata) then
+           call error_mesg(module_name, 'soil_init: incompatible namelist options selected. gw_option =='// &
+                           ' tiled, use_geohydrodata == .false., and use_single_geo == .true.', FATAL)
+        else
+           call error_mesg(module_name, 'soil_init: Warning: using tiled hillslope groundwater model '// &
+                           'with single global values for soil hydrological properties (i.e. "use_single_geo).', &
+                           WARNING)
+        endif
+     endif
+  else 
+     ! NOT predefined soil parameters and NOT use_single_geo:
+     ! read spatially distributed fields for groundwater parameters, as requested
      select case (gw_option)
      case (GW_LINEAR,GW_LM2)
         allocate(gw_param(lnd%ls:lnd%le))
@@ -451,11 +470,8 @@ subroutine soil_init (id_ug,id_band,id_zfull)
                                             soil_k_sat_gw_ptr )
         endif
         deallocate(gw_param, gw_param2, gw_param3)
-        te = tail_elmt (land_tile_map)
         ce = first_elmt(land_tile_map)
-        do while(ce /= te)
-            tile=>current_tile(ce)  ! get pointer to current tile
-            ce=next_elmt(ce)        ! advance position to the next tile
+        do while(loop_over_tiles(ce,tile))
             if (.not.associated(tile%soil)) cycle
             select case (gw_option)
             case (GW_HILL)
@@ -465,26 +481,44 @@ subroutine soil_init (id_ug,id_band,id_zfull)
             end select
         enddo
      case (GW_TILED)
-        te = tail_elmt (land_tile_map)
+        if (use_geohydrodata) then
+           allocate(gw_param (lnd%ls:lnd%le), gw_param2(lnd%ls:lnd%le))
+           call read_field( 'INPUT/geohydrology.nc','hillslope_length',  lnd%lon, lnd%lat, &
+             gw_param, interp='bilinear' )
+           call put_to_tiles_r0d_fptr( gw_param*gw_scale_length, land_tile_map, soil_hillslope_length_ptr )
+           call read_field( 'INPUT/geohydrology.nc','slope', lnd%lon, lnd%lat, &
+             gw_param2, interp='bilinear' )
+           gw_param = gw_param*gw_param2
+           call put_to_tiles_r0d_fptr( gw_param*gw_scale_relief, land_tile_map, soil_hillslope_relief_ptr )
+           call read_field( 'INPUT/geohydrology.nc','hillslope_zeta_bar', &
+             lnd%lon, lnd%lat, gw_param, interp='bilinear' )
+           if (zeta_bar_override.gt.0.) gw_param=zeta_bar_override
+           call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_zeta_bar_ptr )
+           call read_field( 'INPUT/geohydrology.nc','soil_e_depth', &
+             lnd%lon, lnd%lat, gw_param, interp='bilinear' )
+
+           if (slope_exp.gt.0.01) then
+           ! ZMS It's probably inconsistent to leave in this if statement.
+               call error_mesg(module_name, 'soil_init: "slope_exp" > 0.0 requested even though '// &
+                               'running with tiled hillslope model.  This may be inconsistent.', WARNING)
+               call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth*(0.08/gw_param2)**slope_exp, &
+                                                     land_tile_map, soil_soil_e_depth_ptr )
+           else
+               call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth, land_tile_map, soil_soil_e_depth_ptr )
+           endif
+           call read_field( 'INPUT/geohydrology.nc','perm', lnd%lon, lnd%lat, &
+                  gw_param, interp='bilinear' )
+           call put_to_tiles_r0d_fptr(9.8e9*gw_scale_perm*gw_param, land_tile_map, &
+                                          soil_k_sat_gw_ptr )
+           deallocate(gw_param, gw_param2)
+        end if
         ce = first_elmt(land_tile_map)
-        do while(ce /= te)
-            tile=>current_tile(ce)  ! get pointer to current tile
-            ce=next_elmt(ce)        ! advance position to the next tile
+        do while(loop_over_tiles(ce,tile))
             if (.not.associated(tile%soil)) cycle
             call soil_data_init_derive_subsurf_pars_tiled(tile%soil, use_geohydrodata)
         end do
      end select ! gw_option
-  else if (gw_option == GW_TILED) then ! and use_single_geo
-     ! Error checking
-     if (.not. use_geohydrodata) then
-        call error_mesg(module_name, 'soil_init: incompatible namelist options selected. gw_option =='// &
-                        ' tiled, use_geohydrodata == .false., and use_single_geo == .true.', FATAL)
-     else
-        call error_mesg(module_name, 'soil_init: Warning: using tiled hillslope groundwater model '// &
-                        'with single global values for soil hydrological properties (i.e. "use_single_geo).', &
-                        WARNING)
-     end if
-  endif ! single geo
+  endif
 
   ! -------- set dry soil albedo values, if requested
   if (trim(albedo_to_use)=='albedo-map') then
@@ -553,15 +587,10 @@ subroutine soil_init (id_ug,id_band,id_zfull)
   end if
 
   ! -------- initialize soil state --------
-  te = tail_elmt (land_tile_map)
   ce = first_elmt(land_tile_map, ls=lnd%ls) ! Use global indices here because element indices
                                             ! needed.
-  do while(ce /= te)
-     tile=>current_tile(ce)  ! get pointer to current tile
-     ce=next_elmt(ce)        ! advance position to the next tile
+  do while(loop_over_tiles(ce,tile,k=k,l=ll))
      if (.not.associated(tile%soil)) cycle
-     ! Retrieve indices
-     call get_elmt_indices(prev_elmt(ce),k=k,l=ll)
      call set_current_point(ll,k)
      if (init_wtdep .gt. 0.) then
         if (.not. use_coldstart_wtt_data) then
@@ -646,11 +675,8 @@ subroutine soil_init (id_ug,id_band,id_zfull)
 
      if (field_exists(restart,'fast_soil_C')) then
         ! we are dealing with CORPSE restart
-        te = tail_elmt (land_tile_map)
         ce = first_elmt(land_tile_map)
-        do while(ce /= te)
-            tile=>current_tile(ce)  ! get pointer to current tile
-            ce=next_elmt(ce)        ! advance position to the next tile
+        do while(loop_over_tiles(ce,tile))
             if (.not.associated(tile%soil)) cycle
             call adjust_pool_ncohorts(tile%soil%leafLitter)
             call adjust_pool_ncohorts(tile%soil%fineWoodLitter)
@@ -806,474 +832,6 @@ end subroutine soil_init
 
 
 ! ============================================================================
-! initialize soil model
-subroutine soil_init_predefined(id_ug,id_band,id_zfull)
-  integer,intent(in)  :: id_ug    !<Unstructured axis id.
-  integer,intent(in)  :: id_band  ! ID of spectral band axis
-  integer,intent(out) :: id_zfull ! ID of vertical soil axis
-!----------
-
-  ! ---- local vars
-  type(land_tile_enum_type)     :: te,ce  ! tail and current tile list elements
-  type(land_tile_type), pointer :: tile   ! pointer to current tile
-  ! input data buffers for respective variables:
-  real, allocatable :: gw_param(:), gw_param2(:), gw_param3(:), albedo(:,:)
-  real, allocatable :: f_iso(:,:), f_vol(:,:), f_geo(:,:), refl_dif(:,:)
-
-  real :: local_wt_depth ! [m] water table depth for tile (+ for below surface)
-  real, allocatable :: ref_soil_t(:) ! reference soil temperature (based on 5 m or surface air temperature)
-                                       ! for cold-start initialization
-  real, allocatable :: wetmask(:)    ! input mask for zones with high water table
-  logical :: drypoint                  ! This point is predicted to have a falling water table.
-
-  integer :: i, li, lj, k, ll ! indices
-  real :: psi(num_l), mwc(num_l)
-
-  type(land_restart_type) :: restart, restart1
-  logical :: restart_exists
-  character(*), parameter :: restart_file_name = 'INPUT/soil.res.nc'
-
-  module_is_initialized = .TRUE.
-  delta_time = time_type_to_real(lnd%dt_fast)
-  dt_fast_yr = delta_time/seconds_per_year
-
-  call uptake_init(num_l,dz,zfull)
-  call hlsp_hydro_lev_init(num_l,dz,zfull)
-
-  ! initialize river tracer indices
-  i_river_DOC  = river_tracer_index('doc')
-
-  ! -------- initialize soil model diagnostic fields
-  call soil_diag_init(id_ug,id_band,id_zfull)
-
-  ! -------- read spatially distributed fields for groundwater parameters, if requested
-  if (.not.use_single_geo) then
-     select case (gw_option)
-     case (GW_LINEAR,GW_LM2)
-        allocate(gw_param(lnd%ls:lnd%le))
-        call read_field( 'INPUT/groundwater_residence.nc','tau', lnd%lon, lnd%lat, &
-             gw_param, interp='bilinear' )
-        call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_tau_groundwater_ptr )
-        deallocate(gw_param)
-     case (GW_HILL, GW_HILL_AR5)
-        allocate(gw_param (lnd%ls:lnd%le))
-        allocate(gw_param2(lnd%ls:lnd%le))
-        allocate(gw_param3(lnd%ls:lnd%le))
-        call read_field( 'INPUT/geohydrology.nc','hillslope_length',  lnd%lon, lnd%lat, &
-          gw_param, interp='bilinear' )
-        call put_to_tiles_r0d_fptr( gw_param*gw_scale_length, land_tile_map, soil_hillslope_length_ptr )
-        call read_field( 'INPUT/geohydrology.nc','slope', lnd%lon, lnd%lat, &
-          gw_param2, interp='bilinear' )
-        gw_param = gw_param*gw_param2
-        call put_to_tiles_r0d_fptr( gw_param*gw_scale_relief, land_tile_map, soil_hillslope_relief_ptr )
-
-        if (retro_a0n1 .or. gw_option.eq.GW_HILL_AR5) then
-            gw_param = 0.
-            call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_a_ptr )
-            gw_param = 1.
-            call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_n_ptr )
-!            call read_field( 'INPUT/geohydrology.nc','hillslope_zeta_bar', &
-!              lnd_sg%lon, lnd_sg%lat, gw_param, interp='bilinear' )
-            gw_param = 0.5
-            call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_zeta_bar_ptr )
-        else
-            call read_field( 'INPUT/geohydrology.nc','hillslope_a', &
-              lnd%lon, lnd%lat, gw_param, interp='bilinear' )
-            call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_a_ptr )
-            call read_field( 'INPUT/geohydrology.nc','hillslope_n', &
-              lnd%lon, lnd%lat, gw_param2, interp='bilinear' )
-            call put_to_tiles_r0d_fptr( gw_param2, land_tile_map, soil_hillslope_n_ptr )
-            gw_param3 = (1./(gw_param2+1.)+gw_param/(gw_param2+2.))/(1.+gw_param/2.)
-            call put_to_tiles_r0d_fptr( gw_param3, land_tile_map, soil_hillslope_zeta_bar_ptr )
-        endif
-
-        call read_field( 'INPUT/geohydrology.nc','soil_e_depth', &
-          lnd%lon, lnd%lat, gw_param, interp='bilinear' )
-        if (slope_exp.gt.0.01) then
-            call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth*(0.08/gw_param2)**slope_exp, &
-                                                  land_tile_map, soil_soil_e_depth_ptr )
-        else
-            call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth, land_tile_map, soil_soil_e_depth_ptr )
-        endif
-        if (gw_option /= GW_HILL_AR5) then
-            call read_field( 'INPUT/geohydrology.nc','perm', lnd%lon, lnd%lat, &
-                 gw_param, interp='bilinear' )
-            call put_to_tiles_r0d_fptr(9.8e9*gw_scale_perm*gw_param, land_tile_map, &
-                                            soil_k_sat_gw_ptr )
-        endif
-        deallocate(gw_param, gw_param2, gw_param3)
-        ce = first_elmt(land_tile_map)
-        do while(loop_over_tiles(ce,tile))
-            if (.not.associated(tile%soil)) cycle
-            select case (gw_option)
-            case (GW_HILL)
-                call soil_data_init_derive_subsurf_pars(tile%soil)
-            case (GW_HILL_AR5)
-                call soil_data_init_derive_subsurf_pars_ar5(tile%soil)
-            end select
-        enddo
-     case (GW_TILED)
-        if (use_geohydrodata) then
-           allocate(gw_param (lnd%ls:lnd%le))
-           allocate(gw_param2(lnd%ls:lnd%le))
-           call read_field( 'INPUT/geohydrology.nc','hillslope_length',  lnd%lon, lnd%lat, &
-             gw_param, interp='bilinear' )
-           call put_to_tiles_r0d_fptr( gw_param*gw_scale_length, land_tile_map, soil_hillslope_length_ptr )
-           call read_field( 'INPUT/geohydrology.nc','slope', lnd%lon, lnd%lat, &
-             gw_param2, interp='bilinear' )
-           gw_param = gw_param*gw_param2
-           call put_to_tiles_r0d_fptr( gw_param*gw_scale_relief, land_tile_map, soil_hillslope_relief_ptr )
-           call read_field( 'INPUT/geohydrology.nc','hillslope_zeta_bar', &
-             lnd%lon, lnd%lat, gw_param, interp='bilinear' )
-           if (zeta_bar_override.gt.0.) gw_param=zeta_bar_override
-           call put_to_tiles_r0d_fptr( gw_param, land_tile_map, soil_hillslope_zeta_bar_ptr )
-           call read_field( 'INPUT/geohydrology.nc','soil_e_depth', &
-             lnd%lon, lnd%lat, gw_param, interp='bilinear' )
-
-           if (slope_exp.gt.0.01) then
-           ! ZMS It's probably inconsistent to leave in this if statement.
-               call error_mesg(module_name, 'soil_init: "slope_exp" > 0.0 requested even though '// &
-                               'running with tiled hillslope model.  This may be inconsistent.', WARNING)
-               call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth*(0.08/gw_param2)**slope_exp, &
-                                                     land_tile_map, soil_soil_e_depth_ptr )
-           else
-               call put_to_tiles_r0d_fptr( gw_param*gw_scale_soil_depth, land_tile_map, soil_soil_e_depth_ptr )
-           endif
-           call read_field( 'INPUT/geohydrology.nc','perm', lnd%lon, lnd%lat, &
-                  gw_param, interp='bilinear' )
-           call put_to_tiles_r0d_fptr(9.8e9*gw_scale_perm*gw_param, land_tile_map, &
-                                          soil_k_sat_gw_ptr )
-           deallocate(gw_param, gw_param2)
-        end if
-        ce = first_elmt(land_tile_map)
-        do while(loop_over_tiles(ce,tile))
-            if (.not.associated(tile%soil)) cycle
-            call soil_data_init_derive_subsurf_pars_tiled(tile%soil, use_geohydrodata)
-        end do
-     end select ! gw_option
-  else if (gw_option == GW_TILED) then ! and use_single_geo
-     ! Error checking
-     if (.not. use_geohydrodata) then
-        call error_mesg(module_name, 'soil_init: incompatible namelist options selected. gw_option =='// &
-                        ' tiled, use_geohydrodata == .false., and use_single_geo == .true.', FATAL)
-     else
-        call error_mesg(module_name, 'soil_init: Warning: using tiled hillslope groundwater model '// &
-                        'with single global values for soil hydrological properties (i.e. "use_single_geo).', &
-                        WARNING)
-     end if
-  endif ! single geo
-
-  ! -------- set dry soil albedo values, if requested
-  if (trim(albedo_to_use)=='albedo-map') then
-     allocate(albedo(lnd%ls:lnd%le,NBANDS))
-     call read_field( 'INPUT/soil_albedo.nc','SOIL_ALBEDO_VIS',&
-          lnd%lon, lnd%lat, albedo(:,BAND_VIS),'bilinear')
-     call read_field( 'INPUT/soil_albedo.nc','SOIL_ALBEDO_NIR',&
-          lnd%lon, lnd%lat, albedo(:,BAND_NIR),'bilinear')
-     call put_to_tiles_r1d_fptr( albedo, land_tile_map, soil_refl_dry_dir_ptr )
-     call put_to_tiles_r1d_fptr( albedo, land_tile_map, soil_refl_dry_dif_ptr )
-     ! for now, put the same value into the saturated soil albedo, so that
-     ! the albedo does not depend on soil wetness
-     call put_to_tiles_r1d_fptr( albedo, land_tile_map, soil_refl_sat_dir_ptr )
-     call put_to_tiles_r1d_fptr( albedo, land_tile_map, soil_refl_sat_dif_ptr )
-     deallocate(albedo)
-  else if (trim(albedo_to_use)=='brdf-maps') then
-     use_brdf = .true.
-     allocate(   f_iso(lnd%ls:lnd%le,NBANDS))
-     allocate(   f_vol(lnd%ls:lnd%le,NBANDS))
-     allocate(   f_geo(lnd%ls:lnd%le,NBANDS))
-     allocate(refl_dif(lnd%ls:lnd%le,NBANDS))
-     call read_field( 'INPUT/soil_brdf.nc','f_iso_vis',&
-          lnd%lon, lnd%lat, f_iso(:,BAND_VIS),'bilinear')
-     call read_field( 'INPUT/soil_brdf.nc','f_vol_vis',&
-          lnd%lon, lnd%lat, f_vol(:,BAND_VIS),'bilinear')
-     call read_field( 'INPUT/soil_brdf.nc','f_geo_vis',&
-          lnd%lon, lnd%lat, f_geo(:,BAND_VIS),'bilinear')
-     call read_field( 'INPUT/soil_brdf.nc','f_iso_nir',&
-          lnd%lon, lnd%lat, f_iso(:,BAND_NIR),'bilinear')
-     call read_field( 'INPUT/soil_brdf.nc','f_vol_nir',&
-          lnd%lon, lnd%lat, f_vol(:,BAND_NIR),'bilinear')
-     call read_field( 'INPUT/soil_brdf.nc','f_geo_nir',&
-          lnd%lon, lnd%lat, f_geo(:,BAND_NIR),'bilinear')
-     refl_dif = g_iso*f_iso + g_vol*f_vol + g_geo*f_geo
-     call put_to_tiles_r1d_fptr( f_iso,    land_tile_map, soil_f_iso_dry_ptr )
-     call put_to_tiles_r1d_fptr( f_vol,    land_tile_map, soil_f_vol_dry_ptr )
-     call put_to_tiles_r1d_fptr( f_geo,    land_tile_map, soil_f_geo_dry_ptr )
-     call put_to_tiles_r1d_fptr( refl_dif, land_tile_map, soil_refl_dry_dif_ptr )
-     ! for now, put the same value into the saturated soil albedo, so that
-     ! the albedo does not depend on soil wetness
-     call put_to_tiles_r1d_fptr( f_iso,    land_tile_map, soil_f_iso_sat_ptr )
-     call put_to_tiles_r1d_fptr( f_vol,    land_tile_map, soil_f_vol_sat_ptr )
-     call put_to_tiles_r1d_fptr( f_geo,    land_tile_map, soil_f_geo_sat_ptr )
-     call put_to_tiles_r1d_fptr( refl_dif, land_tile_map, soil_refl_sat_dif_ptr )
-     deallocate(f_iso, f_vol, f_geo, refl_dif)
-  else if (trim(albedo_to_use)=='') then
-     ! do nothing, that is leave soil albedo parameters as defined based on the data table
-  else
-     call error_mesg('soil_init',&
-          'option albedo_to_use="'// trim(albedo_to_use)//&
-          '" is invalid, use "albedo-map", "brdf-maps", or empty line ("")',&
-          FATAL)
-  endif
-
-  ! Call calculate_wt_init outside tile loop so that it is done once per hillslope
-  if (init_wtdep .gt. 0. .and. gw_option == GW_TILED) then
-     call calculate_wt_init(init_wtdep)
-  end if
-
-  if (use_coldstart_wtt_data) then
-     allocate(ref_soil_t(lnd%ls:lnd%le), wetmask(lnd%ls:lnd%le))
-     call read_field( coldstart_datafile, 'REFSOILT', &
-             lnd%lon, lnd%lat, ref_soil_t, interp='bilinear' )
-     call read_field( coldstart_datafile, 'WETMASK', &
-             lnd%lon, lnd%lat, wetmask, interp='bilinear' )
-  end if
-
-  ! -------- initialize soil state --------
-  ce = first_elmt(land_tile_map, ls=lnd%ls) ! Use global indices here because element indices needed
-  do while(loop_over_tiles(ce,tile,l=ll,k=k))
-     if (.not.associated(tile%soil)) cycle
-     call set_current_point(ll,k)
-     if (init_wtdep .gt. 0.) then
-        if (.not. use_coldstart_wtt_data) then
-           if (horiz_init_wt .and. gw_option == GW_TILED) then
-              call horiz_wt_depth_to_init(tile%soil, prev_elmt(ce), local_wt_depth)
-              ! Note: if restart_exists, then this function returns dummy local_wt_depth == 0.
-              ! prev_elmt(ce) passed because indices will be needed.
-              psi = zfull(1:num_l) - local_wt_depth
-           else
-              psi = zfull(1:num_l) - init_wtdep
-           end if
-        else
-           if (wetmask(ll) > 0.5) then ! wet point
-              drypoint = .false.
-           else
-              drypoint = .true.
-           end if
-           if (gw_option == GW_TILED) then
-              call horiz_wt_depth_to_init(tile%soil, prev_elmt(ce), local_wt_depth, dry=drypoint)
-              psi = zfull(1:num_l) - local_wt_depth
-           else if (drypoint) then
-              psi = zfull(1:num_l) - tile%soil%pars%hillslope_relief*tile%soil%pars%hillslope_zeta_bar
-           else
-              psi = zfull(1:num_l) - init_wtdep
-           end if
-        end if
-        call soil_data_vwc_for_init_only(tile%soil, psi, mwc)
-        mwc = mwc * dens_h2o
-     else if (init_w .ge. 0.) then
-        mwc = init_w
-     else ! negative init_w is to be intrepreted as prescribed saturation
-        mwc = -init_w*tile%soil%pars%vwc_sat*dens_h2o
-     endif
-     if (.not. use_coldstart_wtt_data) then
-        if (init_temp.ge.tile%soil%pars%tfreeze) then
-           tile%soil%wl = mwc*dz(1:num_l)
-           tile%soil%ws = 0
-        else
-           tile%soil%wl = 0
-           tile%soil%ws = mwc*dz(1:num_l)
-        endif
-        tile%soil%T             = init_temp
-        tile%soil%groundwater   = init_groundwater
-        tile%soil%groundwater_T = init_temp
-        tile%soil%uptake_T           = init_temp
-     else
-        call init_soil_twc(tile%soil, ref_soil_t(ll), mwc)
-     end if
-  end do
-
-  if (use_coldstart_wtt_data) then
-     deallocate(ref_soil_t, wetmask)
-  end if
-
-  call open_land_restart(restart,restart_file_name,restart_exists)
-  if (restart_exists) then
-     call error_mesg('soil_init', 'reading NetCDF restart "'//trim(restart_file_name)//'"', NOTE)
-     call get_tile_data(restart, 'temp', 'zfull', soil_T_ptr  )
-     call get_tile_data(restart, 'wl', 'zfull', soil_wl_ptr )
-     call get_tile_data(restart, 'ws', 'zfull', soil_ws_ptr )
-     call get_tile_data(restart, 'groundwater', 'zfull', soil_groundwater_ptr )
-     call get_tile_data(restart, 'groundwater_T', 'zfull', soil_groundwater_T_ptr)
-     if(field_exists(restart, 'uptake_T')) &
-          call get_tile_data(restart, 'uptake_T', soil_uptake_T_ptr)
-
-     if (soil_carbon_option==SOILC_CENTURY.or.soil_carbon_option==SOILC_CENTURY_BY_LAYER) then
-        if(field_exists(restart, 'fsc')) then
-           call get_tile_data(restart,'fsc','zfull',soil_fast_soil_C_ptr)
-           call get_tile_data(restart,'ssc','zfull',soil_slow_soil_C_ptr)
-        else
-           ! try to read fsc and ssc from vegetation restart
-           call open_land_restart(restart1,'INPUT/vegn2.res.nc',restart_exists)
-           if (restart_exists) then
-              ! read old (scalar) fsc and ssc into the first element of the fast_soil_C
-              ! and slow_soil_C arrays
-              call get_tile_data(restart1,'fsc',soil_fast_soil_C_ptr,1)
-              call get_tile_data(restart1,'ssc',soil_slow_soil_C_ptr,1)
-           endif
-           call free_land_restart(restart1)
-        endif
-     endif
-
-     if (field_exists(restart,'fast_soil_C')) then
-        ! we are dealing with CORPSE restart
-        ce = first_elmt(land_tile_map)
-        do while(loop_over_tiles(ce,tile))
-            if (.not.associated(tile%soil)) cycle
-            call adjust_pool_ncohorts(tile%soil%leafLitter)
-            call adjust_pool_ncohorts(tile%soil%fineWoodLitter)
-            call adjust_pool_ncohorts(tile%soil%coarseWoodLitter)
-            do i = 1,num_l
-               call adjust_pool_ncohorts(tile%soil%soil_C(i))
-            enddo
-        end do
-
-        call get_tile_data(restart, 'fast_soil_C', 'zfull','soilCCohort', sc_soil_C_ptr, C_CEL)
-        call get_tile_data(restart, 'slow_soil_C', 'zfull','soilCCohort', sc_soil_C_ptr, C_LIG)
-        call get_tile_data(restart, 'deadMic',     'zfull','soilCCohort', sc_soil_C_ptr, C_MIC)
-        call get_tile_data(restart, 'fastProtectedC', 'zfull','soilCCohort', sc_protected_C_ptr, C_CEL)
-        call get_tile_data(restart, 'slowProtectedC', 'zfull','soilCCohort', sc_protected_C_ptr, C_LIG)
-        call get_tile_data(restart, 'deadMicrobeProtectedC', 'zfull','soilCCohort', sc_protected_C_ptr, C_MIC)
-
-        call get_tile_data(restart,'liveMic', 'zfull','soilCCohort',soilc_livingMicrobeC_ptr)
-        call get_tile_data(restart,'CO2', 'zfull','soilCCohort',soilc_CO2_ptr)
-        call get_tile_data(restart,'Rtot', 'zfull','soilCCohort',soilc_Rtot_ptr)
-        call get_tile_data(restart,'originalCohortC', 'zfull','soilCCohort', soilc_originalLitterC_ptr)
-
-        call get_tile_data(restart, 'soil_DOC_fast', 'zfull',soil_fast_DOC_ptr)
-        call get_tile_data(restart, 'soil_DOC_slow', 'zfull',soil_slow_DOC_ptr)
-        call get_tile_data(restart, 'soil_DOC_deadmic', 'zfull',soil_deadmicrobe_DOC_ptr)
-
-        if(field_exists(restart, 'fast_DOC_leached')) then
-           call get_tile_data(restart,'fast_DOC_leached', soil_fast_DOC_leached_ptr)
-           call get_tile_data(restart,'slow_DOC_leached', soil_slow_DOC_leached_ptr)
-           call get_tile_data(restart,'deadmic_DOC_leached', soil_deadmic_DOC_leached_ptr)
-        endif
-
-        call get_tile_data(restart, 'leaf_litter_fast_C', 'soilCCohort', soilc_leafLitter_litterC_ptr, C_CEL)
-        call get_tile_data(restart, 'leaf_litter_slow_C', 'soilCCohort', soilc_leafLitter_litterC_ptr, C_LIG)
-        call get_tile_data(restart, 'leaf_litter_deadMic_C', 'soilCCohort', soilc_leafLitter_litterC_ptr, C_MIC)
-        call get_tile_data(restart, 'leaf_litter_liveMic_C', 'soilCCohort', soilc_leafLitter_livingMicrobeC_ptr)
-        call get_tile_data(restart, 'leaf_litter_CO2', 'soilCCohort', soilc_leafLitter_CO2_ptr)
-        call get_tile_data(restart, 'leaf_litter_Rtot', 'soilCCohort', soilc_leafLitter_Rtot_ptr)
-        call get_tile_data(restart, 'leaf_litter_originalCohortC', 'soilCCohort',soilc_leafLitter_originalLitterC_ptr)
-        call get_tile_data(restart, 'leaf_litter_fastProtectedC', 'soilCCohort',soilc_leafLitter_protectedC_ptr, C_CEL)
-        call get_tile_data(restart, 'leaf_litter_slowProtectedC', 'soilCCohort',soilc_leafLitter_protectedC_ptr, C_LIG)
-        call get_tile_data(restart, 'leaf_litter_deadMicrobeProtectedC', 'soilCCohort', soilc_leafLitter_protectedC_ptr, C_MIC)
-
-        call get_tile_data(restart, 'leaf_litter_DOC_fast',soilc_leaflitter_DOC_ptr, C_CEL)
-        call get_tile_data(restart, 'leaf_litter_DOC_slow',soilc_leaflitter_DOC_ptr, C_LIG)
-        call get_tile_data(restart, 'leaf_litter_DOC_deadmic',soilc_leaflitter_DOC_ptr, C_MIC)
-
-        call get_tile_data(restart, 'fineWood_litter_fast_C', 'soilCCohort', soilc_fineWoodLitter_litterC_ptr, C_CEL)
-        call get_tile_data(restart, 'fineWood_litter_slow_C', 'soilCCohort', soilc_fineWoodLitter_litterC_ptr, C_LIG)
-        call get_tile_data(restart, 'fineWood_litter_deadMic_C', 'soilCCohort' , soilc_fineWoodLitter_litterC_ptr, C_MIC)
-        call get_tile_data(restart, 'fineWood_litter_liveMic_C', 'soilCCohort' , soilc_fineWoodLitter_livingMicrobeC_ptr)
-        call get_tile_data(restart, 'fineWood_litter_CO2', 'soilCCohort', soilc_fineWoodLitter_CO2_ptr)
-        call get_tile_data(restart, 'fineWood_litter_Rtot', 'soilCCohort', soilc_fineWoodLitter_Rtot_ptr)
-        call get_tile_data(restart, 'fineWood_litter_originalCohortC', 'soilCCohort',soilc_fineWoodLitter_originalLitterC_ptr)
-        call get_tile_data(restart, 'fineWood_litter_fastProtectedC', 'soilCCohort',soilc_fineWoodLitter_protectedC_ptr, C_CEL)
-        call get_tile_data(restart, 'fineWood_litter_slowProtectedC', 'soilCCohort',soilc_fineWoodLitter_protectedC_ptr, C_LIG)
-        call get_tile_data(restart, 'fineWood_litter_deadMicrobeProtectedC', 'soilCCohort',soilc_fineWoodLitter_protectedC_ptr, C_MIC)
-
-        call get_tile_data(restart, 'fineWood_litter_DOC_fast',soilc_fineWoodlitter_DOC_ptr, C_CEL)
-        call get_tile_data(restart, 'fineWood_litter_DOC_slow',soilc_fineWoodlitter_DOC_ptr, C_LIG)
-        call get_tile_data(restart, 'fineWood_litter_DOC_deadmic',soilc_fineWoodlitter_DOC_ptr, C_MIC)
-
-        call get_tile_data(restart, 'coarseWood_litter_fast_C', 'soilCCohort', soilc_coarseWoodLitter_litterC_ptr, C_CEL)
-        call get_tile_data(restart, 'coarseWood_litter_slow_C', 'soilCCohort', soilc_coarseWoodLitter_litterC_ptr, C_LIG)
-        call get_tile_data(restart, 'coarseWood_litter_deadMic_C', 'soilCCohort', soilc_coarseWoodLitter_litterC_ptr, C_MIC)
-        call get_tile_data(restart, 'coarseWood_litter_liveMic_C', 'soilCCohort', soilc_coarseWoodLitter_livingMicrobeC_ptr)
-        call get_tile_data(restart, 'coarseWood_litter_CO2', 'soilCCohort', soilc_coarseWoodLitter_CO2_ptr)
-        call get_tile_data(restart, 'coarseWood_litter_Rtot', 'soilCCohort', soilc_coarseWoodLitter_Rtot_ptr)
-        call get_tile_data(restart, 'coarseWood_litter_originalCohortC', 'soilCCohort', soilc_coarseWoodLitter_originalLitterC_ptr)
-        call get_tile_data(restart, 'coarseWood_litter_fastProtectedC', 'soilCCohort', soilc_coarseWoodLitter_protectedC_ptr, C_CEL)
-        call get_tile_data(restart, 'coarseWood_litter_slowProtectedC', 'soilCCohort', soilc_coarseWoodLitter_protectedC_ptr, C_LIG)
-        call get_tile_data(restart, 'coarseWood_litter_deadMicrobeProtectedC', 'soilCCohort', soilc_coarseWoodLitter_protectedC_ptr, C_MIC)
-
-        call get_tile_data(restart, 'coarseWood_litter_DOC_fast',soilc_coarseWoodlitter_DOC_ptr, C_CEL)
-        call get_tile_data(restart, 'coarseWood_litter_DOC_slow',soilc_coarseWoodlitter_DOC_ptr, C_LIG)
-        call get_tile_data(restart, 'coarseWood_litter_DOC_deadmic',soilc_coarseWoodlitter_DOC_ptr, C_MIC)
-
-        if(field_exists(restart, 'is_peat')) then
-           call get_int_tile_data(restart, 'is_peat','zfull', soil_is_peat_ptr)
-        endif
-     endif
-  else
-     call error_mesg('soil_init', 'cold-starting soil', NOTE)
-  endif
-  call free_land_restart(restart)
-
-  ! read soil carbon restart, if present
-  call open_land_restart(restart,'INPUT/soil_carbon.res.nc',restart_exists)
-  if (restart_exists) then
-     call error_mesg('veg_data_init','reading soil_carbon restart',NOTE)
-     call get_tile_data(restart,'asoil_in','zfull',soil_asoil_in_ptr)
-     call get_tile_data(restart,'fsc_in','zfull',soil_fsc_in_ptr)
-     call get_tile_data(restart,'ssc_in','zfull',soil_ssc_in_ptr)
-     if (soil_carbon_option==SOILC_CORPSE .and. field_exists(restart, 'deadmic_in')) then
-        call get_tile_data(restart,'deadmic_in','zfull',soil_deadmic_in_ptr)
-        call get_tile_data(restart,'fast_protected_in','zfull',soil_fast_protected_in_ptr)
-        call get_tile_data(restart,'slow_protected_in','zfull', soil_slow_protected_in_ptr)
-        call get_tile_data(restart,'deadmic_protected_in','zfull', soil_deadmic_protected_in_ptr)
-        call get_tile_data(restart,'leaflitter_fsc_in', soil_leaflitter_fsc_in_ptr)
-        call get_tile_data(restart,'leaflitter_ssc_in', soil_leaflitter_ssc_in_ptr)
-        call get_tile_data(restart,'leaflitter_deadmic_in', soil_leaflitter_deadmic_in_ptr)
-        call get_tile_data(restart,'finewoodlitter_fsc_in', soil_finewoodlitter_fsc_in_ptr)
-        call get_tile_data(restart,'finewoodlitter_ssc_in', soil_finewoodlitter_ssc_in_ptr)
-        call get_tile_data(restart,'finewoodlitter_deadmic_in', soil_finewoodlitter_deadmic_in_ptr)
-        call get_tile_data(restart,'coarsewoodlitter_fsc_in', soil_coarsewoodlitter_fsc_in_ptr)
-        call get_tile_data(restart,'coarsewoodlitter_ssc_in', soil_coarsewoodlitter_ssc_in_ptr)
-        call get_tile_data(restart,'coarsewoodlitter_deadmic_in', soil_coarsewoodlitter_deadmic_in_ptr)
-        call get_tile_data(restart,'fast_turnover_accumulated','zfull', soil_fast_turnover_accumulated_ptr)
-        call get_tile_data(restart,'slow_turnover_accumulated','zfull', soil_slow_turnover_accumulated_ptr)
-        call get_tile_data(restart,'deadmic_turnover_accumulated','zfull', soil_deadmic_turnover_accumulated_ptr)
-        call get_tile_data(restart,'fast_protected_turnover_accumulated','zfull', soil_fast_protected_turnover_accumulated_ptr)
-        call get_tile_data(restart,'slow_protected_turnover_accumulated','zfull', soil_slow_protected_turnover_accumulated_ptr)
-        call get_tile_data(restart,'deadmic_protected_turnover_accumulated','zfull', soil_deadmic_protected_turnover_accumulated_ptr)
-        call get_tile_data(restart,'leaflitter_fast_turnover_accumulated', soil_leaflitter_fast_turnover_accumulated_ptr)
-        call get_tile_data(restart,'leaflitter_slow_turnover_accumulated', soil_leaflitter_slow_turnover_accumulated_ptr)
-        call get_tile_data(restart,'leaflitter_deadmic_turnover_accumulated', soil_leaflitter_deadmic_turnover_accumulated_ptr)
-        call get_tile_data(restart,'finewoodlitter_fast_turnover_accumulated', soil_finewoodlitter_fast_turnover_accumulated_ptr)
-        call get_tile_data(restart,'finewoodlitter_slow_turnover_accumulated', soil_finewoodlitter_slow_turnover_accumulated_ptr)
-        call get_tile_data(restart,'finewoodlitter_deadmic_turnover_accumulated', soil_finewoodlitter_deadmic_turnover_accumulated_ptr)
-        call get_tile_data(restart,'coarsewoodlitter_fast_turnover_accumulated', soil_coarsewoodlitter_fast_turnover_accumulated_ptr)
-        call get_tile_data(restart,'coarsewoodlitter_slow_turnover_accumulated', soil_coarsewoodlitter_slow_turnover_accumulated_ptr)
-        call get_tile_data(restart,'coarsewoodlitter_deadmic_turnover_accumulated', soil_coarsewoodlitter_deadmic_turnover_accumulated_ptr)
-     endif
-  endif
-  call free_land_restart(restart)
-
-  ! ---- static diagnostic section
-  call send_tile_data_r0d_fptr(id_tau_gw,        soil_tau_groundwater_ptr)
-  call send_tile_data_r0d_fptr(id_slope_l,       soil_hillslope_length_ptr)
-  call send_tile_data_r0d_fptr(id_slope_Z,       soil_hillslope_relief_ptr)
-  call send_tile_data_r0d_fptr(id_zeta_bar,      soil_hillslope_zeta_bar_ptr)
-  call send_tile_data_r0d_fptr(id_e_depth,       soil_soil_e_depth_ptr)
-  call send_tile_data_r0d_fptr(id_zeta,          soil_zeta_ptr)
-  call send_tile_data_r0d_fptr(id_tau,           soil_tau_ptr)
-  call send_tile_data_r0d_fptr(id_vwc_wilt,      soil_vwc_wilt_ptr)
-  call send_tile_data_r0d_fptr(id_vwc_fc,        soil_vwc_fc_ptr)
-  call send_tile_data_r0d_fptr(id_vwc_sat,       soil_vwc_sat_ptr)
-  call send_tile_data_r0d_fptr(id_K_sat,         soil_k_sat_ref_ptr)
-  call send_tile_data_r0d_fptr(id_K_gw,          soil_k_sat_gw_ptr)
-  call send_tile_data_r1d_fptr(id_w_fc,          soil_w_fc_ptr)
-  call send_tile_data_r1d_fptr(id_alpha,         soil_alpha_ptr)
-  call send_tile_data_r1d_fptr(id_refl_dry_dir,  soil_refl_dry_dir_ptr)
-  call send_tile_data_r1d_fptr(id_refl_dry_dif,  soil_refl_dry_dif_ptr)
-  call send_tile_data_r1d_fptr(id_refl_sat_dir,  soil_refl_sat_dir_ptr)
-  call send_tile_data_r1d_fptr(id_refl_sat_dif,  soil_refl_sat_dif_ptr)
-  call send_tile_data_r1d_fptr(id_f_iso_dry,     soil_f_iso_dry_ptr)
-  call send_tile_data_r1d_fptr(id_f_vol_dry,     soil_f_vol_dry_ptr)
-  call send_tile_data_r1d_fptr(id_f_geo_dry,     soil_f_geo_dry_ptr)
-  call send_tile_data_r1d_fptr(id_f_iso_sat,     soil_f_iso_sat_ptr)
-  call send_tile_data_r1d_fptr(id_f_vol_sat,     soil_f_vol_sat_ptr)
-  call send_tile_data_r1d_fptr(id_f_geo_sat,     soil_f_geo_sat_ptr)
-  call send_tile_data_i0d_fptr(id_type,          soil_tag_ptr)
-
-end subroutine soil_init_predefined
-
-! ============================================================================
 subroutine soil_diag_init(id_ug,id_band,id_zfull)
   integer,intent(in)  :: id_ug    !<Unstructured axis id.
   integer,intent(in)  :: id_band  ! ID of spectral band axis
@@ -1327,18 +885,14 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'total dead microbe DOC divergence loss', 'kg C/m2', missing_value=-100.0 )
   id_total_DOC_div_loss = register_tiled_diag_field ( module_name, 'total_DOC_div', axes(1:1), &
        lnd%time, 'total rate of DOC divergence loss', 'kg C/m^2/s', missing_value=initval)
-  id_rsoil = register_tiled_diag_field ( module_name, 'rsoil',  &
-       (/id_ug/), lnd%time, 'soil respiration', 'kg C/(m2 year)', &
-       missing_value=-100.0 )
-  id_rsoil_fast = register_tiled_diag_field ( module_name, 'rsoil_fast',  &
-       axes, lnd%time, 'fast soil carbon respiration', 'kg C/(m3 year)', &
-       missing_value=-100.0 )
-  id_rsoil_slow = register_tiled_diag_field ( module_name, 'rsoil_slow',  &
-       axes, lnd%time, 'slow soil carbon respiration', 'kg C/(m3 year)', &
-       missing_value=-100.0 )
-  id_rsoil_deadmic = register_tiled_diag_field ( module_name, 'rsoil_deadmic',  &
-       axes, lnd%time, 'dead microbe soil carbon respiration', 'kg C/(m3 year)', &
-       missing_value=-100.0 )
+  id_rsoil = register_tiled_diag_field ( module_name, 'rsoil', (/id_ug/), &
+       lnd%time, 'soil respiration', 'kg C/(m2 year)', missing_value=-100.0 )
+  id_rsoil_fast = register_tiled_diag_field ( module_name, 'rsoil_fast',  axes, &
+       lnd%time, 'fast soil carbon respiration', 'kg C/(m3 year)', missing_value=-100.0 )
+  id_rsoil_slow = register_tiled_diag_field ( module_name, 'rsoil_slow',  axes, &
+       lnd%time, 'slow soil carbon respiration', 'kg C/(m3 year)', missing_value=-100.0 )
+  id_rsoil_deadmic = register_tiled_diag_field ( module_name, 'rsoil_deadmic',  axes, &
+       lnd%time, 'dead microbe soil carbon respiration', 'kg C/(m3 year)', missing_value=-100.0 )
   id_rsoil_leaflitter_fast = register_tiled_diag_field ( module_name, 'rsoil_leaflitter_fast',  &
        (/id_ug/), lnd%time, 'surface leaf litter fast C respiration', 'kg C/(m2 year)', &
        missing_value=-100.0 )
@@ -1438,8 +992,6 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
   id_coarsewoodlitter_deposited_deadmic = register_tiled_diag_field ( module_name, 'coarsewoodlitter_deadmic_deposition_rate',  &
        axes(1:1), lnd%time, 'dead microbe coarse wood litter carbon deposition from DOC rate', 'kg C/(m2 year)', &
        missing_value=-100.0 )
-  id_resp = register_tiled_diag_field ( module_name, 'resp', (/id_ug/), &
-       lnd%time, 'Total soil respiration', 'kg C/(m2 year)', missing_value=-100.0 )
   id_Qmax = register_tiled_diag_field ( module_name, 'Qmax', axes(1:1),  &
        lnd%time, 'Maximum clay sorptive capacity', 'kg C/m3', missing_value=-100.0 )
   id_leaflitter_fast_C = register_tiled_diag_field ( module_name, 'fast_leaflitter_C', axes(1:1),  &
@@ -1766,10 +1318,17 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
 #endif
 
   ! CMOR variables
+  ! tsl (soil temperature) should be reported as missing for the non-soil grid cells;
+  ! also averaging over non-soil tiles does not make sense and therefore is not done.
+  ! The only difference with soil_T is metadata (units and standard_name).
+  call add_tiled_diag_field_alias ( id_temp, cmor_name, 'tsl', axes(1:2),  &
+       lnd%time, 'Temperature of Soil', 'K', missing_value=-100.0, &
+       standard_name='soil_temperature', fill_missing=.FALSE.)
   ! set up weights for mrsos averaging
-  allocate(mrsos_weight(num_l))
+  allocate(mrsos_weight(num_l), mrs1m_weight(num_l))
   do l = 1,num_l
      mrsos_weight(l) = min(1.0,max(0.0,(cmor_mrsos_depth-zhalf(l))/dz(l)))
+     mrs1m_weight(l) = min(1.0,max(0.0,(1.0             -zhalf(l))/dz(l)))
   enddo
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('land')
@@ -1838,6 +1397,10 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        lnd%time, 'Soil Heterotrophic Respiration On Land Use Tile', 'kg m-2 s-1', &
        standard_name='heterotrophic_respiration_carbon_flux', fill_missing=.FALSE., &
        missing_value=-100.0)
+  id_mrs1mLut = register_tiled_diag_field ( cmor_name, 'mrs1mLut', axes(1:1), &
+       lnd%time, 'Moisture in Top 1 Meter of Land Use Tile Soil Column', 'kg m-2', &
+       missing_value=-100.0, standard_name='moisture_content_of_soil_layer', &
+       fill_missing=.FALSE.)
 
 end subroutine soil_diag_init
 
@@ -1873,16 +1436,16 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   endif
 
   ! write out fields
-  call add_tile_data(restart,'temp'         , 'zfull', num_l, soil_T_ptr,  'soil temperature','degrees_K')
-  call add_tile_data(restart,'wl'           , 'zfull', num_l, soil_wl_ptr, 'liquid water content','kg/m2')
-  call add_tile_data(restart,'ws'           , 'zfull', num_l, soil_ws_ptr, 'solid water content','kg/m2')
-  call add_tile_data(restart,'groundwater'  , 'zfull', num_l, soil_groundwater_ptr, units='kg/m2' )
-  call add_tile_data(restart,'groundwater_T', 'zfull', num_l, soil_groundwater_T_ptr, 'groundwater temperature','degrees_K' )
+  call add_tile_data(restart,'temp'         , 'zfull', soil_T_ptr,  'soil temperature','degrees_K')
+  call add_tile_data(restart,'wl'           , 'zfull', soil_wl_ptr, 'liquid water content','kg/m2')
+  call add_tile_data(restart,'ws'           , 'zfull', soil_ws_ptr, 'solid water content','kg/m2')
+  call add_tile_data(restart,'groundwater'  , 'zfull', soil_groundwater_ptr, units='kg/m2' )
+  call add_tile_data(restart,'groundwater_T', 'zfull', soil_groundwater_T_ptr, 'groundwater temperature','degrees_K' )
   call add_tile_data(restart,'uptake_T', soil_uptake_T_ptr, 'temperature of transpiring water', 'degrees_K')
   select case(soil_carbon_option)
   case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
-     call add_tile_data(restart,'fsc', 'zfull', num_l, soil_fast_soil_C_ptr ,'fast soil carbon', 'kg C/m2')
-     call add_tile_data(restart,'ssc', 'zfull', num_l, soil_slow_soil_C_ptr ,'slow soil carbon', 'kg C/m2')
+     call add_tile_data(restart,'fsc', 'zfull', soil_fast_soil_C_ptr ,'fast soil carbon', 'kg C/m2')
+     call add_tile_data(restart,'ssc', 'zfull', soil_slow_soil_C_ptr ,'slow soil carbon', 'kg C/m2')
   case (SOILC_CORPSE)
      ce = first_elmt(land_tile_map)
      do while(loop_over_tiles(ce,tile))
@@ -1895,31 +1458,31 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
         enddo
      end do
 
-     call add_tile_data(restart,'fast_soil_C','zfull','soilCCohort',num_l, soilMaxCohorts, &
+     call add_tile_data(restart,'fast_soil_C','zfull','soilCCohort', &
                         sc_soil_C_ptr,C_CEL,'Fast soil carbon','kg/m2')
-     call add_tile_data(restart,'slow_soil_C', 'zfull','soilCCohort',num_l, soilMaxCohorts, &
+     call add_tile_data(restart,'slow_soil_C', 'zfull','soilCCohort', &
                         sc_soil_C_ptr,C_LIG,'Slow soil carbon','kg/m2')
-     call add_tile_data(restart,'deadMic', 'zfull','soilCCohort',num_l, soilMaxCohorts, &
+     call add_tile_data(restart,'deadMic', 'zfull','soilCCohort', &
                         sc_soil_C_ptr,C_MIC,'Dead microbe carbon','kg/m2')
-     call add_tile_data(restart,'fastProtectedC', 'zfull','soilCCohort',num_l, soilMaxCohorts, &
+     call add_tile_data(restart,'fastProtectedC', 'zfull','soilCCohort', &
                         sc_protected_C_ptr,C_CEL,'Protected fast carbon','kg/m2')
-     call add_tile_data(restart,'slowProtectedC', 'zfull','soilCCohort',num_l, soilMaxCohorts, &
+     call add_tile_data(restart,'slowProtectedC', 'zfull','soilCCohort', &
                         sc_protected_C_ptr,C_LIG,'Protected slow carbon','kg/m2')
-     call add_tile_data(restart,'deadMicrobeProtectedC', 'zfull','soilCCohort',num_l, soilMaxCohorts, &
+     call add_tile_data(restart,'deadMicrobeProtectedC', 'zfull','soilCCohort', &
                         sc_protected_C_ptr,C_MIC,'Protected dead microbe carbon','kg/m2')
 
-     call add_tile_data(restart,'liveMic', 'zfull','soilCCohort', num_l, soilMaxCohorts, &
+     call add_tile_data(restart,'liveMic', 'zfull','soilCCohort', &
                         soilc_livingMicrobeC_ptr,'Living microbial carbon','kg/m2')
-     call add_tile_data(restart,'CO2', 'zfull','soilCCohort', num_l, soilMaxCohorts, &
+     call add_tile_data(restart,'CO2', 'zfull','soilCCohort', &
                         soilc_CO2_ptr,'Cohort CO2 generated','kg/m2')
-     call add_tile_data(restart,'Rtot', 'zfull','soilCCohort', num_l, soilMaxCohorts, &
+     call add_tile_data(restart,'Rtot', 'zfull','soilCCohort', &
                         soilc_Rtot_ptr,'Total degradation','kg/m2')
-     call add_tile_data(restart,'originalCohortC', 'zfull','soilCCohort', num_l, soilMaxCohorts, &
+     call add_tile_data(restart,'originalCohortC', 'zfull','soilCCohort', &
                         soilc_originalLitterC_ptr,'Cohort original carbon','g/m2')
 
-     call add_tile_data(restart,'soil_DOC_fast', 'zfull', num_l, soil_fast_DOC_ptr ,'Dissolved fast carbon','kg/m2')
-     call add_tile_data(restart,'soil_DOC_slow', 'zfull', num_l, soil_slow_DOC_ptr ,'Dissolved slow carbon','kg/m2')
-     call add_tile_data(restart,'soil_DOC_deadmic', 'zfull', num_l, &
+     call add_tile_data(restart,'soil_DOC_fast', 'zfull', soil_fast_DOC_ptr ,'Dissolved fast carbon','kg/m2')
+     call add_tile_data(restart,'soil_DOC_slow', 'zfull', soil_slow_DOC_ptr ,'Dissolved slow carbon','kg/m2')
+     call add_tile_data(restart,'soil_DOC_deadmic', 'zfull', &
                         soil_deadmicrobe_DOC_ptr ,'Dissolved dead microbe carbon','kg/m2')
 
      call add_tile_data(restart,'fast_DOC_leached',     soil_fast_DOC_leached_ptr, &
@@ -1929,50 +1492,50 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
      call add_tile_data(restart,'deadmic_DOC_leached',     soil_deadmic_DOC_leached_ptr, &
                         'Cumulative dead microbe DOC leached out of the column', 'kg/m2')
 
-     call add_tile_data(restart,'leaf_litter_fast_C', 'soilCCohort', soilMaxCohorts, &
+     call add_tile_data(restart,'leaf_litter_fast_C', 'soilCCohort', &
                         soilc_leafLitter_litterC_ptr,C_CEL,'Leaf litter fast C','kg/m2')
-     call add_tile_data(restart,'leaf_litter_slow_C', 'soilCCohort', soilMaxCohorts, &
+     call add_tile_data(restart,'leaf_litter_slow_C', 'soilCCohort', &
                         soilc_leafLitter_litterC_ptr,C_LIG,'Leaf litter slow C','kg/m2')
-     call add_tile_data(restart,'leaf_litter_deadMic_C', 'soilCCohort', soilMaxCohorts, &
+     call add_tile_data(restart,'leaf_litter_deadMic_C', 'soilCCohort', &
                         soilc_leafLitter_litterC_ptr,C_MIC,'Leaf litter dead microbe C','kg/m2')
-     call add_tile_data(restart,'leaf_litter_liveMic_C','soilCCohort', soilMaxCohorts, &
+     call add_tile_data(restart,'leaf_litter_liveMic_C','soilCCohort', &
                         soilc_leafLitter_livingMicrobeC_ptr,'Leaf litter live microbe C','kg/m2')
-     call add_tile_data(restart,'leaf_litter_CO2','soilCCohort',soilMaxCohorts, &
+     call add_tile_data(restart,'leaf_litter_CO2','soilCCohort', &
                         soilc_leafLitter_CO2_ptr,'Leaf litter CO2 generated','kg/m2')
-     call add_tile_data(restart,'leaf_litter_Rtot','soilCCohort', soilMaxCohorts, &
+     call add_tile_data(restart,'leaf_litter_Rtot','soilCCohort', &
                         soilc_leafLitter_Rtot_ptr,'Leaf litter total degradation','kg/m2')
-     call add_tile_data(restart,'leaf_litter_originalCohortC','soilCCohort',soilMaxCohorts, &
+     call add_tile_data(restart,'leaf_litter_originalCohortC','soilCCohort', &
                         soilc_leafLitter_originalLitterC_ptr,'Leaf litter cohort original carbon','kg/m2')
-     call add_tile_data(restart,'leaf_litter_fastProtectedC', 'soilCCohort', soilMaxCohorts, &
+     call add_tile_data(restart,'leaf_litter_fastProtectedC', 'soilCCohort', &
                         soilc_leafLitter_protectedC_ptr,C_CEL,'Leaf litter fast protected C','kg/m2')
-     call add_tile_data(restart,'leaf_litter_slowProtectedC', 'soilCCohort', soilMaxCohorts, &
+     call add_tile_data(restart,'leaf_litter_slowProtectedC', 'soilCCohort', &
                         soilc_leafLitter_protectedC_ptr,C_LIG,'Leaf litter slow protected C','kg/m2')
-     call add_tile_data(restart,'leaf_litter_deadMicrobeProtectedC','soilCCohort', soilMaxCohorts, &
+     call add_tile_data(restart,'leaf_litter_deadMicrobeProtectedC','soilCCohort', &
                         soilc_leafLitter_protectedC_ptr,C_MIC,'Leaf litter dead microbe protected C','kg/m2')
 
      call add_tile_data(restart,'leaf_litter_DOC_fast',soilc_leafLitter_DOC_ptr,C_CEL,'Dissolved leaf litter fast carbon','kg/m2')
      call add_tile_data(restart,'leaf_litter_DOC_slow',soilc_leafLitter_DOC_ptr,C_LIG,'Dissolved leaf litter slow carbon','kg/m2')
      call add_tile_data(restart,'leaf_litter_DOC_deadmic',soilc_leafLitter_DOC_ptr,C_MIC,'Dissolved leaf litter dead microbe carbon','kg/m2')
 
-     call add_tile_data(restart,'fineWood_litter_fast_C', 'soilCCohort', soilMaxCohorts, &
+     call add_tile_data(restart,'fineWood_litter_fast_C', 'soilCCohort', &
                         soilc_fineWoodLitter_litterC_ptr,C_CEL,'Fine wood litter fast C','kg/m2')
-     call add_tile_data(restart,'fineWood_litter_slow_C', 'soilCCohort', soilMaxCohorts, &
+     call add_tile_data(restart,'fineWood_litter_slow_C', 'soilCCohort', &
                         soilc_fineWoodLitter_litterC_ptr,C_LIG,'Fine wood litter slow C','kg/m2')
-     call add_tile_data(restart,'fineWood_litter_deadMic_C', 'soilCCohort', soilMaxCohorts, &
+     call add_tile_data(restart,'fineWood_litter_deadMic_C', 'soilCCohort', &
                         soilc_fineWoodLitter_litterC_ptr,C_MIC,'Fine wood litter dead microbe C','kg/m2')
-     call add_tile_data(restart,'fineWood_litter_liveMic_C', 'soilCCohort', soilMaxCohorts, &
+     call add_tile_data(restart,'fineWood_litter_liveMic_C', 'soilCCohort', &
                         soilc_fineWoodLitter_livingMicrobeC_ptr,'Fine wood litter live microbe C','kg/m2')
-     call add_tile_data(restart,'fineWood_litter_CO2','soilCCohort', soilMaxCohorts, &
+     call add_tile_data(restart,'fineWood_litter_CO2','soilCCohort', &
                         soilc_fineWoodLitter_CO2_ptr,'Fine wood litter CO2 generated','kg/m2')
-     call add_tile_data(restart,'fineWood_litter_Rtot','soilCCohort',soilMaxCohorts, &
+     call add_tile_data(restart,'fineWood_litter_Rtot','soilCCohort', &
                         soilc_fineWoodLitter_Rtot_ptr,'Fine wood litter total degradation','kg/m2')
-     call add_tile_data(restart,'fineWood_litter_originalCohortC','soilCCohort',soilMaxCohorts, &
+     call add_tile_data(restart,'fineWood_litter_originalCohortC','soilCCohort', &
                         soilc_fineWoodLitter_originalLitterC_ptr,'Fine wood litter cohort original carbon','kg/m2')
-     call add_tile_data(restart,'fineWood_litter_fastProtectedC', 'soilCCohort', soilMaxCohorts, &
+     call add_tile_data(restart,'fineWood_litter_fastProtectedC', 'soilCCohort', &
                         soilc_fineWoodLitter_protectedC_ptr,C_CEL,'Fine wood litter fast protected C','kg/m2')
-     call add_tile_data(restart,'fineWood_litter_slowProtectedC', 'soilCCohort', soilMaxCohorts, &
+     call add_tile_data(restart,'fineWood_litter_slowProtectedC', 'soilCCohort', &
                         soilc_fineWoodLitter_protectedC_ptr,C_LIG,'Fine wood litter slow protected C','kg/m2')
-     call add_tile_data(restart,'fineWood_litter_deadMicrobeProtectedC', 'soilCCohort', soilMaxCohorts, &
+     call add_tile_data(restart,'fineWood_litter_deadMicrobeProtectedC', 'soilCCohort', &
                         soilc_fineWoodLitter_protectedC_ptr,C_MIC,'Fine wood litter dead microbe protected C','kg/m2')
 
      call add_tile_data(restart,'fineWood_litter_DOC_fast',soilc_fineWoodLitter_DOC_ptr,C_CEL,&
@@ -1982,25 +1545,25 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
      call add_tile_data(restart,'fineWood_litter_DOC_deadmic',soilc_fineWoodLitter_DOC_ptr,C_MIC,&
                         'Dissolved fine wood litter dead microbe carbon','kg/m2')
 
-     call add_tile_data(restart,'coarseWood_litter_fast_C', 'soilCCohort', soilMaxCohorts, &
+     call add_tile_data(restart,'coarseWood_litter_fast_C', 'soilCCohort', &
                         soilc_coarseWoodLitter_litterC_ptr,C_CEL,'Coarse wood litter fast C','kg/m2')
-     call add_tile_data(restart,'coarseWood_litter_slow_C', 'soilCCohort', soilMaxCohorts, &
+     call add_tile_data(restart,'coarseWood_litter_slow_C', 'soilCCohort', &
                         soilc_coarseWoodLitter_litterC_ptr,C_LIG,'Coarse wood litter slow C','kg/m2')
-     call add_tile_data(restart,'coarseWood_litter_deadMic_C', 'soilCCohort', soilMaxCohorts, &
+     call add_tile_data(restart,'coarseWood_litter_deadMic_C', 'soilCCohort', &
                         soilc_coarseWoodLitter_litterC_ptr,C_MIC,'Coarse wood litter dead microbe C','kg/m2')
-     call add_tile_data(restart,'coarseWood_litter_liveMic_C', 'soilCCohort', soilMaxCohorts, &
+     call add_tile_data(restart,'coarseWood_litter_liveMic_C', 'soilCCohort', &
                         soilc_coarseWoodLitter_livingMicrobeC_ptr,'Coarse wood litter live microbe C','kg/m2')
-     call add_tile_data(restart,'coarseWood_litter_CO2','soilCCohort',soilMaxCohorts, &
+     call add_tile_data(restart,'coarseWood_litter_CO2','soilCCohort', &
                         soilc_coarseWoodLitter_CO2_ptr,'Coarse wood litter CO2 generated','kg/m2')
-     call add_tile_data(restart,'coarseWood_litter_Rtot','soilCCohort',soilMaxCohorts, &
+     call add_tile_data(restart,'coarseWood_litter_Rtot','soilCCohort', &
                         soilc_coarseWoodLitter_Rtot_ptr,'Coarse wood litter total degradation','kg/m2')
-     call add_tile_data(restart,'coarseWood_litter_originalCohortC','soilCCohort',soilMaxCohorts, &
+     call add_tile_data(restart,'coarseWood_litter_originalCohortC','soilCCohort', &
                         soilc_coarseWoodLitter_originalLitterC_ptr,'Coarse wood litter cohort original carbon','kg/m2')
-     call add_tile_data(restart,'coarseWood_litter_fastProtectedC', 'soilCCohort', soilMaxCohorts, &
+     call add_tile_data(restart,'coarseWood_litter_fastProtectedC', 'soilCCohort', &
                         soilc_coarseWoodLitter_protectedC_ptr,C_CEL,'Coarse wood litter fast protected C','kg/m2')
-     call add_tile_data(restart,'coarseWood_litter_slowProtectedC', 'soilCCohort', soilMaxCohorts, &
+     call add_tile_data(restart,'coarseWood_litter_slowProtectedC', 'soilCCohort', &
                         soilc_coarseWoodLitter_protectedC_ptr,C_LIG,'Coarse wood litter slow protected C','kg/m2')
-     call add_tile_data(restart,'coarseWood_litter_deadMicrobeProtectedC', 'soilCCohort', soilMaxCohorts, &
+     call add_tile_data(restart,'coarseWood_litter_deadMicrobeProtectedC', 'soilCCohort', &
                         soilc_coarseWoodLitter_protectedC_ptr,C_MIC,'Coarse wood litter dead microbe protected C','kg/m2')
 
      call add_tile_data(restart,'coarseWood_litter_DOC_fast',soilc_coarseWoodLitter_DOC_ptr,C_CEL, &
@@ -2010,7 +1573,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
      call add_tile_data(restart,'coarseWood_litter_DOC_deadmic',soilc_coarseWoodLitter_DOC_ptr,C_MIC, &
                         'Dissolved coarse wood litter dead microbe carbon','kg/m2')
 
-     call add_int_tile_data(restart,'is_peat', 'zfull', num_l, soil_is_peat_ptr ,'Is layer peat?','Boolean')
+     call add_int_tile_data(restart,'is_peat', 'zfull', soil_is_peat_ptr ,'Is layer peat?','Boolean')
   case default
      call error_mesg('save_soil_restart','soil_carbon_option is invalid. This should never happen. Contact developer', FATAL)
   end select
@@ -2022,29 +1585,29 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
      call init_land_restart(restart, filename, soil_tile_exists, tile_dim_length)
      call add_restart_axis(restart,'zfull',zfull(1:num_l),'Z','m','full level',sense=-1)
 
-     call add_tile_data(restart,'asoil_in', 'zfull', num_l, soil_asoil_in_ptr ,'aerobic activity modifier', 'unitless')
-     call add_tile_data(restart,'fsc_in', 'zfull', num_l, soil_fsc_in_ptr ,'fast soil carbon input', 'kg C/m2')
-     call add_tile_data(restart,'ssc_in', 'zfull', num_l, soil_ssc_in_ptr ,'slow soil carbon input', 'kg C/m2')
+     call add_tile_data(restart,'asoil_in', 'zfull', soil_asoil_in_ptr ,'aerobic activity modifier', 'unitless')
+     call add_tile_data(restart,'fsc_in', 'zfull', soil_fsc_in_ptr ,'fast soil carbon input', 'kg C/m2')
+     call add_tile_data(restart,'ssc_in', 'zfull', soil_ssc_in_ptr ,'slow soil carbon input', 'kg C/m2')
      if (soil_carbon_option == SOILC_CORPSE) then
-        call add_tile_data(restart,'deadmic_in', 'zfull', num_l, &
+        call add_tile_data(restart,'deadmic_in', 'zfull', &
                            soil_deadmic_in_ptr ,'dead microbe soil carbon input', 'kg C/m2')
-        call add_tile_data(restart,'fast_protected_in', 'zfull', num_l, &
+        call add_tile_data(restart,'fast_protected_in', 'zfull', &
                            soil_fast_protected_in_ptr ,'protected fast soil carbon input', 'kg C/m2')
-        call add_tile_data(restart,'slow_protected_in', 'zfull', num_l, &
+        call add_tile_data(restart,'slow_protected_in', 'zfull', &
                            soil_slow_protected_in_ptr ,'protected slow soil carbon input', 'kg C/m2')
-        call add_tile_data(restart,'deadmic_protected_in', 'zfull', num_l, &
+        call add_tile_data(restart,'deadmic_protected_in', 'zfull', &
                            soil_deadmic_protected_in_ptr ,'protected dead microbe soil carbon input', 'kg C/m2')
-        call add_tile_data(restart,'fast_turnover_accumulated', 'zfull', num_l, &
+        call add_tile_data(restart,'fast_turnover_accumulated', 'zfull', &
                            soil_fast_turnover_accumulated_ptr ,'fast soil carbon turnover', 'year-1')
-        call add_tile_data(restart,'slow_turnover_accumulated', 'zfull', num_l, &
+        call add_tile_data(restart,'slow_turnover_accumulated', 'zfull', &
                            soil_slow_turnover_accumulated_ptr ,'slow soil carbon turnover', 'year-1')
-        call add_tile_data(restart,'deadmic_turnover_accumulated', 'zfull', num_l, &
+        call add_tile_data(restart,'deadmic_turnover_accumulated', 'zfull', &
                            soil_deadmic_turnover_accumulated_ptr ,'dead microbe soil carbon turnover', 'year-1')
-        call add_tile_data(restart,'fast_protected_turnover_accumulated', 'zfull', num_l, &
+        call add_tile_data(restart,'fast_protected_turnover_accumulated', 'zfull', &
                            soil_fast_protected_turnover_accumulated_ptr ,'fast protected soil carbon turnover', 'year-1')
-        call add_tile_data(restart,'slow_protected_turnover_accumulated', 'zfull', num_l, &
+        call add_tile_data(restart,'slow_protected_turnover_accumulated', 'zfull', &
                            soil_slow_protected_turnover_accumulated_ptr ,'slow protected soil carbon turnover', 'year-1')
-        call add_tile_data(restart,'deadmic_protected_turnover_accumulated', 'zfull', num_l, &
+        call add_tile_data(restart,'deadmic_protected_turnover_accumulated', 'zfull', &
              soil_deadmic_protected_turnover_accumulated_ptr ,'dead microbe protected soil carbon turnover', 'year-1')
 
         call add_tile_data(restart,'leaflitter_fast_turnover_accumulated',&
@@ -3401,6 +2964,7 @@ end subroutine soil_step_1
   if (id_mrsol > 0) call send_tile_data(id_mrsol, soil%wl+soil%ws, diag)
   if (id_mrso > 0)  call send_tile_data(id_mrso,  sum(soil%wl+soil%ws), diag)
   if (id_mrsos > 0) call send_tile_data(id_mrsos, sum((soil%wl+soil%ws)*mrsos_weight), diag)
+  if (id_mrs1mLut > 0) call send_tile_data(id_mrs1mLut, sum((soil%wl+soil%ws)*mrs1m_weight), diag)
   if (id_mrfso > 0) call send_tile_data(id_mrfso, sum(soil%ws), diag)
   if (id_mrlso > 0) call send_tile_data(id_mrlso, sum(soil%wl), diag)
   call send_tile_data(id_mrros, lrunf_ie+lrunf_sn, diag)

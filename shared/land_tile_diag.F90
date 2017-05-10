@@ -10,14 +10,15 @@ use diag_manager_mod,   only : register_diag_field, register_static_field, &
 use diag_util_mod,      only : log_diag_field_info
 use fms_mod,            only : error_mesg, string, FATAL
 
+use land_debug_mod, only : set_current_point, check_var_range
 use land_tile_selectors_mod, only : tile_selectors_init, tile_selectors_end, &
      tile_selector_type, register_tile_selector, selector_suffix, &
      n_selectors, selectors
-use land_tile_mod,      only : land_tile_type, diag_buff_type, &
-     land_tile_list_type, first_elmt, tail_elmt, next_elmt, &
-     land_tile_enum_type, operator(/=), current_tile, &
-     tile_is_selected, fptr_i0, fptr_r0, fptr_r0i, land_tile_map, loop_over_tiles
-use land_data_mod,      only : lnd_sg, log_version, lnd, land_data_type
+use land_tile_mod,      only : land_tile_type, diag_buff_type, land_tile_list_type, &
+     land_tile_enum_type, first_elmt, loop_over_tiles, &
+     land_tile_map, tile_is_selected, fptr_i0, fptr_r0, fptr_r0i
+use land_data_mod,      only : lnd, lnd_sg, log_version
+use land_debug_mod,     only : check_var_range, set_current_point
 use tile_diag_buff_mod, only : diag_buff_type, realloc_diag_buff
 
 implicit none
@@ -806,7 +807,7 @@ end subroutine send_tile_data_i0d_fptr
 !pass in land_tile_map into this routine to temporarily solve the crash issue
 !with Intel compiler when running with multiple openmp threads.
 subroutine dump_tile_diag_fields(land_tile_map,time)
- type(land_tile_list_type), intent(in)  :: land_tile_map(:)
+  type(land_tile_list_type), intent(in) :: land_tile_map(:) ! map of tiles
   type(time_type)          , intent(in) :: time       ! current time
 
   ! ---- local vars
@@ -843,10 +844,10 @@ end subroutine dump_tile_diag_fields
 ! dumps a single field
 ! TODO: perhaps need dump aliases as well
 ! TODO: perhaps total_n_sends check can be removed to avoid communication
-!pass in land_tile_map into this routine to temporarily solve the crash issue
-!with Intel compiler when running with multiple openmp threads.
+! pass in land_tile_map into this routine to temporarily solve the crash issue
+! with Intel compiler when running with multiple openmp threads.
 subroutine dump_tile_diag_field(land_tile_map, id, time)
- type(land_tile_list_type), intent(in) :: land_tile_map(:)  
+  type(land_tile_list_type), intent(in) :: land_tile_map(:)   ! map of tiles
   integer, intent(in) :: id ! diag id of the field
   type(time_type), intent(in) :: time       ! current time
 
@@ -887,11 +888,17 @@ end subroutine dump_tile_diag_field
 
 ! ============================================================================
 subroutine dump_diag_field_with_sel(land_tile_map, id, field, sel, time)
-  type(land_tile_list_type), intent(in) :: land_tile_map(:)
-  integer :: id
+  type(land_tile_list_type)  , intent(in) :: land_tile_map(:)
+  integer                    , intent(in) :: id
   type(tiled_diag_field_type), intent(in) :: field
   type(tile_selector_type)   , intent(in) :: sel
   type(time_type)            , intent(in) :: time ! current time
+
+! NOTE that passing in land_tile_map (despite the fact that this array is also globally
+! available) is a work around (apparent) compiler issue, when with multiple openmp threads
+! *and* debug flags Intel compilers (15 and 16) report index errors, as if global
+! land_tile_map array started from 1,1 instead of is,js. Passing it in as argument solves
+! this issue.
 
   ! ---- local vars
   integer :: l ! iterators

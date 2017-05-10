@@ -12,7 +12,7 @@ use fms_mod, only: open_namelist_file
 #endif
 
 use fms_mod, only : file_exist, check_nml_error, read_data, close_file, stdlog
-use constants_mod, only : pi, tfreeze, hlf
+use constants_mod, only : PI, tfreeze, hlf
 use land_constants_mod, only : NBANDS
 use land_data_mod, only : log_version, lnd_sg, lnd
 use land_io_mod, only : init_cover_field
@@ -428,8 +428,8 @@ subroutine init_lake_data_0d_predefined(lake,lake_predefined,itile)
 
   ! below made use of phi_e from parlange via entekhabi
   lake%Eg_part_ref = (-4*lake%w_fc(1)**2*lake%pars%k_sat_ref*lake%pars%psi_sat_ref*lake%pars%chb &
-       /(pi*lake%pars%w_sat)) * (lake%w_fc(1)/lake%pars%w_sat)**(2+lake%pars%chb)   &
-       *(2*pi/(3*lake%pars%chb**2*(1+3/lake%pars%chb)*(1+4/lake%pars%chb)))/2
+       /(PI*lake%pars%w_sat)) * (lake%w_fc(1)/lake%pars%w_sat)**(2+lake%pars%chb)   &
+       *(2*PI/(3*lake%pars%chb**2*(1+3/lake%pars%chb)*(1+4/lake%pars%chb)))/2
 
   lake%z0_scalar = lake%pars%z0_momentum * exp(-k_over_B)
   lake%z0_scalar_ice = lake%pars%z0_momentum_ice * exp(-k_over_B_ice)
@@ -506,8 +506,8 @@ subroutine init_lake_data_0d(lake)
 
   ! below made use of phi_e from parlange via entekhabi
   lake%Eg_part_ref = (-4*lake%w_fc(1)**2*lake%pars%k_sat_ref*lake%pars%psi_sat_ref*lake%pars%chb &
-       /(pi*lake%pars%w_sat)) * (lake%w_fc(1)/lake%pars%w_sat)**(2+lake%pars%chb)   &
-       *(2*pi/(3*lake%pars%chb**2*(1+3/lake%pars%chb)*(1+4/lake%pars%chb)))/2
+       /(PI*lake%pars%w_sat)) * (lake%w_fc(1)/lake%pars%w_sat)**(2+lake%pars%chb)   &
+       *(2*PI/(3*lake%pars%chb**2*(1+3/lake%pars%chb)*(1+4/lake%pars%chb)))/2
 
   lake%z0_scalar = lake%pars%z0_momentum * exp(-k_over_B)
   lake%z0_scalar_ice = lake%pars%z0_momentum_ice * exp(-k_over_B_ice)

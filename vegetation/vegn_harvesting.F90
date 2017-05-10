@@ -45,7 +45,7 @@ integer, parameter :: DAILY = 1, ANNUAL = 2
 ! ==== module data ===========================================================
 
 ! ---- namelist variables ----------------------------------------------------
-logical, public :: do_harvesting       = .TRUE.  ! if true, then harvesting of crops and pastures is done
+logical, public, protected :: do_harvesting = .TRUE.  ! if true, then harvesting of crops and pastures is done
 real :: grazing_intensity      = 0.25    ! fraction of leaf biomass removed by grazing annually.
   ! NOTE that for daily grazing, grazing_intensity/365 fraction of leaf biomass is removed 
   ! every day. E.g. if the desired intensity is 1% of leaves per day, set grazing_intensity 

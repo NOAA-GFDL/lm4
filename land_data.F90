@@ -26,8 +26,8 @@ private
 ! ==== public interfaces =====================================================
 public :: land_data_init
 public :: land_data_end
-public :: lnd_sg         ! global data
-public :: lnd
+public :: lnd            ! global data
+public :: lnd_sg         ! global data related to structured (rectangular) grid
 public :: log_version    ! prints version number
 
 public :: atmos_land_boundary_type ! container for information passed from the
@@ -50,7 +50,7 @@ end interface
 ! ---- types -----------------------------------------------------------------
 type :: atmos_land_boundary_type
    ! data passed from the coupler to the surface
-   real, dimension(:,:), pointer :: & ! (lon, lat, tile)
+   real, dimension(:,:), pointer :: & ! (grid index, tile)
         t_flux    => NULL(), &   ! sensible heat flux, W/m2
         lw_flux   => NULL(), &   ! net longwave radiation flux, W/m2
         lwdn_flux => NULL(), &   ! downward longwave radiation flux, W/m2
@@ -78,7 +78,7 @@ type :: atmos_land_boundary_type
         drag_q    => NULL(), &   ! product of cd_q by wind
         p_surf    => NULL()      ! surface pressure, Pa
 
-   real, dimension(:,:,:), pointer :: & ! (lon, lat, tile, tracer)
+   real, dimension(:,:,:), pointer :: & ! (grid index, tile, tracer)
         tr_flux => NULL(),   &   ! tracer flux, including water vapor flux
         dfdtr   => NULL()        ! derivative of the flux w.r.t. tracer surface value,
                                  ! including evap over surface specific humidity
@@ -86,10 +86,11 @@ type :: atmos_land_boundary_type
    integer :: xtype             !REGRID, REDIST or DIRECT
 end type atmos_land_boundary_type
 
+
 type :: land_data_type
    ! data passed from the surface to the coupler
    logical :: pe ! data presence indicator for stock calculations
-   real, pointer, dimension(:,:)   :: &  ! (ug, tile)
+   real, pointer, dimension(:,:)   :: &  ! (grid index, tile)
         tile_size      => NULL(),  & ! fractional coverage of cell by tile, dimensionless
         t_surf         => NULL(),  & ! ground surface temperature, degK
         t_ca           => NULL(),  & ! canopy air temperature, degK
@@ -102,7 +103,7 @@ type :: land_data_type
         rough_heat     => NULL(),  & ! roughness length for tracers and heat, m
         rough_scale    => NULL()     ! topographic scaler for momentum drag, m
 
-   real, pointer, dimension(:,:,:)   :: &  ! (ug, tile, tracer)
+   real, pointer, dimension(:,:,:)   :: &  ! (grid index, tile, tracer)
         tr    => NULL()              ! tracers, including canopy air specific humidity
 
    ! NOTE that in contrast to most of the other fields in this structure, the discharges
@@ -115,18 +116,20 @@ type :: land_data_type
      discharge_snow_heat => NULL()     ! sensible heat of discharge_snow (0 C datum)
 
    logical, pointer, dimension(:,:):: &
-        mask => NULL()               ! true if land
-   integer :: axes(1)        ! IDs of diagnostic axes for unstructured domain
-   type(domain2D) :: domain
+        mask => NULL()          ! true if land
+
+   integer :: axes(1)           ! ID of diagnostic axes for unstructured grid
+   type(domain2D) :: domain     ! structured grid domain
    type(domainUG) :: ug_domain  ! our computation domain
    integer, pointer, dimension(:) :: pelist
 end type land_data_type
+
 
 ! land_state_type combines the general information about state of the land model:
 ! domain, coordinates, time steps, etc. There is only one variable of this type,
 ! and it is public in this module.
 type :: land_state_type_sg
-   integer        :: is,ie,js,je ! compute domain boundaries of structure domain
+   integer        :: is,ie,js,je ! compute domain boundaries of structured grid domain
    real, allocatable  :: lon (:,:), lat (:,:) ! domain grid center coordinates, radian
    real, allocatable  :: lonb(:,:), latb(:,:) ! domain grid vertices, radian
    real, allocatable  :: area(:,:)  ! land area per grid cell, m2
@@ -136,24 +139,26 @@ type :: land_state_type_sg
    real, allocatable  :: coord_glat(:), coord_glatb(:) ! latitudes for use in diag axis and such, degrees North
 
    integer :: face  ! the current mosaic face
-   type(domain2d) :: domain ! our domain -- should be the last since it simplifies
+   type(domain2D) :: domain ! our domain -- should be the last since it simplifies
                             ! debugging in totalview
 end type land_state_type_sg
 
 type :: land_state_type
-   integer        :: ls,le       ! domain boundaries of unstructure domain
-   integer        :: gs,ge       ! min and max value of grid index ( j*nx+i )
-   integer        :: nlon,nlat   ! size of global grid
-   type(time_type):: dt_fast     ! fast (physical) time step
-   type(time_type):: dt_slow     ! slow time step
-   type(time_type):: time        ! current land model time
-   real, allocatable  :: area(:)      ! grid cell area, m2
+   integer            :: ls,le       ! domain boundaries of unstructure domain
+   integer            :: gs,ge       ! min and max value of grid index ( j*nx+i )
+   integer            :: nlon,nlat   ! size of global grid
+   type(time_type)    :: dt_fast     ! fast (physical) time step
+   type(time_type)    :: dt_slow     ! slow time step
+
+   type(time_type)    :: time        ! current land model time
+
+   real, allocatable  :: area(:)      ! land area per grid cell, m2
    real, allocatable  :: cellarea(:)  ! fraction of land in the grid cell
-   real, allocatable  :: landfrac(:)  ! fraction of land in the grid cell
+   real, allocatable  :: landfrac(:)  ! grid cell area, m2
    real, allocatable  :: coord_glon(:), coord_glonb(:) ! longitudes for use in diag axis and such, degrees East
    real, allocatable  :: coord_glat(:), coord_glatb(:) ! latitudes for use in diag axis and such, degrees North
-   real, allocatable  :: lon(:), lat(:) ! domain grid center coordinates, radian
-   real, allocatable  :: lonb(:,:), latb(:,:) ! domain grid vertices, radian
+   real, allocatable  :: lon(:), lat(:) ! grid center coordinates, radian
+   real, allocatable  :: lonb(:,:), latb(:,:) ! grid vertices, radian
 
    integer :: nfaces ! number of mosaic faces
    integer :: face  ! the current mosaic face
@@ -171,8 +176,9 @@ end type land_state_type
 
 
 ! ---- public module variables -----------------------------------------------
-type(land_state_type_sg), save :: lnd_sg
-type(land_state_type),    save :: lnd
+type(land_state_type_sg), protected, save :: lnd_sg
+type(land_state_type),    save :: lnd ! It is not protected because lnd%time is updated
+                                      ! in other module
 
 ! ---- private module variables ----------------------------------------------
 logical :: module_is_initialized = .FALSE.
@@ -203,47 +209,45 @@ subroutine log_version(version, modname, filename, tag, unit)
   call write_version_number (trim(message)//': '//trim(version),tag,unit)
 end subroutine log_version
 
- subroutine prt_max_min_sum_1d(name, q)
-      character(len=*), intent(in)::  name
-      real, intent(in)::    q(:)
+! ============================================================================
+subroutine prt_max_min_sum_1d(name, q)
+  character(len=*), intent(in)::  name
+  real, intent(in)::    q(:)
 
-      real qmin, qmax, qsum
+  real qmin, qmax, qsum
 
-      qmin = minval(q)
-      qmax = maxval(q)
-      qsum = sum(q)
+  qmin = minval(q)
+  qmax = maxval(q)
+  qsum = sum(q)
 
-      call mpp_min(qmin)
-      call mpp_max(qmax)
-      call mpp_sum(qsum)
+  call mpp_min(qmin)
+  call mpp_max(qmax)
+  call mpp_sum(qsum)
 
-      if(mpp_pe() == mpp_root_pe() ) then
-            write(*,*) trim(name), ' max = ', qmax, ' min = ', qmin, 'sum = ', qsum
-      endif
+  if(mpp_pe() == mpp_root_pe() ) then
+        write(*,*) trim(name), ' max = ', qmax, ' min = ', qmin, 'sum = ', qsum
+  endif
+end subroutine prt_max_min_sum_1d
 
- end subroutine prt_max_min_sum_1d
+! ============================================================================
+subroutine prt_max_min_sum_2d(name, q)
+  character(len=*), intent(in)::  name
+  real, intent(in)::    q(:,:)
 
- subroutine prt_max_min_sum_2d(name, q)
-      character(len=*), intent(in)::  name
-      real, intent(in)::    q(:,:)
+  real qmin, qmax, qsum
 
-      real qmin, qmax, qsum
+  qmin = minval(q)
+  qmax = maxval(q)
+  qsum = sum(q)
 
-      qmin = minval(q)
-      qmax = maxval(q)
-      qsum = sum(q)
+  call mpp_min(qmin)
+  call mpp_max(qmax)
+  call mpp_sum(qsum)
 
-      call mpp_min(qmin)
-      call mpp_max(qmax)
-      call mpp_sum(qsum)
-
-      if(mpp_pe() == mpp_root_pe() ) then
-            write(*,*) trim(name), ' max = ', qmax, ' min = ', qmin, 'sum = ', qsum
-      endif
-
- end subroutine prt_max_min_sum_2d
-
-
+  if(mpp_pe() == mpp_root_pe() ) then
+        write(*,*) trim(name), ' max = ', qmax, ' min = ', qmin, 'sum = ', qsum
+  endif
+end subroutine prt_max_min_sum_2d
 
 ! ============================================================================
 subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table, npes_io_group)
@@ -298,8 +302,6 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table,
   if( io_layout(1) == 0 .AND. io_layout(2) == 0 ) io_layout = layout
 
   ! define land model domain
-
-
   if (ntiles==1) then
      if( mask_table_exist ) then
         call mpp_define_domains ((/1,nlon, 1, nlat/), layout, lnd_sg%domain, xhalo=1, yhalo=1,&
@@ -363,6 +365,7 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table,
 
   call set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
 
+  module_is_initialized = .TRUE.
 end subroutine land_data_init
 
 
@@ -388,19 +391,19 @@ subroutine set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
   ! On root pe reading the land_area to decide number of land points.
   allocate(num_lnd(ntiles))
 
-  if(file_exist("INPUT/land_domain.nc", no_domain=.true.)) then
-     write(stdout(),*)"set_land_state_ug: read land information from INPUT/land_domain.nc "// &
-                      "and consider number tiles when doing domain decomposition"
-     call read_data("INPUT/land_domain.nc", "nland_face", num_lnd, no_domain=.true.)
+  if(file_exist('INPUT/land_domain.nc', no_domain=.true.)) then
+     write(stdout(),*)'set_land_state_ug: reading land information from "INPUT/land_domain.nc" '// &
+                      'to use number of land tiles per grid cell for efficient domain decomposition.'
+     call read_data('INPUT/land_domain.nc', 'nland_face', num_lnd, no_domain=.true.)
      nland = sum(num_lnd)
      allocate(grid_index(nland))
      allocate(ntiles_grid(nland))
-     call read_data("INPUT/land_domain.nc", "grid_index", grid_index, no_domain=.true.)
-     call read_data("INPUT/land_domain.nc", "grid_ntile", ntiles_grid, no_domain=.true.)
+     call read_data('INPUT/land_domain.nc', 'grid_index', grid_index, no_domain=.true.)
+     call read_data('INPUT/land_domain.nc', 'grid_ntile', ntiles_grid, no_domain=.true.)
      grid_index = grid_index + 1
   else
-     write(stdout(),*)"set_land_state_ug: read land/sea mask from grid file and "// &
-                      "not sonsider number tiles when doing domain decomposition"
+     write(stdout(),*)'set_land_state_ug: read land/sea mask from grid file: '// &
+                      'number of land tiles per grid cell is not used for domain decomposition'
      if(mpp_pe() == mpp_root_pe()) then
         allocate(lnd_area(nlon,nlat,ntiles))
         do n = 1, ntiles
@@ -502,8 +505,8 @@ subroutine set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
   allocate(lnd%pelist(0:mpp_npes()-1))
   call mpp_get_current_pelist(lnd%pelist)
 
-
 end subroutine set_land_state_ug
+
 
 ! ============================================================================
 subroutine land_data_end()

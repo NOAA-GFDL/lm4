@@ -57,9 +57,10 @@ end type tile_selector_type
 logical :: module_is_initialized = .false.
 
 ! ==== module public data ====================================================
-! array of registered selectors
+! array of registered selectors: not protected because land_tile_diag sets
+! is_default and area_id
 type(tile_selector_type), pointer :: selectors(:) => NULL()
-integer :: n_selectors = 0 ! number of registered selectors
+integer, protected :: n_selectors = 0 ! number of registered selectors
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
