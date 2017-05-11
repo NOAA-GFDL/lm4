@@ -649,11 +649,11 @@ end function vegn_tran_priority
 ! ============================================================================
 function vegn_cover_cold_start(land_mask, lonb, latb) result (vegn_frac)
 ! creates and initializes a field of fractional vegn coverage
-  logical, intent(in) :: land_mask(:,:)    ! land mask
+  logical, intent(in) :: land_mask(:)    ! land mask
   real,    intent(in) :: lonb(:,:), latb(:,:)! boundaries of the grid cells
-  real,    pointer    :: vegn_frac (:,:,:) ! output: map of vegn fractional coverage
+  real,    pointer    :: vegn_frac (:,:) ! output: map of vegn fractional coverage
 
-  allocate( vegn_frac(size(land_mask,1),size(land_mask,2),MSPECIES))
+  allocate( vegn_frac(size(land_mask(:)),MSPECIES))
 
   call init_cover_field(vegn_to_use, 'INPUT/cover_type.nc', 'cover','frac', &
        lonb, latb, vegn_index_constant, input_cover_types, vegn_frac)

@@ -79,7 +79,7 @@ public :: print_land_tile_statistics
 ! abstract interfaces for accessor functions
 public :: tile_exists_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk
 
-public :: land_tile_map ! array of tile lists 
+public :: land_tile_map ! array of tile lists
 ! ==== end of public interfaces ==============================================
 
 interface new_land_tile
@@ -89,11 +89,11 @@ end interface
 
 interface first_elmt
    module procedure land_tile_list_begin_0d
-   module procedure land_tile_list_begin_2d
+   module procedure land_tile_list_begin_1d
 end interface
 interface tail_elmt
    module procedure land_tile_list_end_0d
-   module procedure land_tile_list_end_2d
+   module procedure land_tile_list_end_1d
 end interface
 
 interface operator(==)
@@ -118,10 +118,10 @@ end interface
 
 ! ==== data types ============================================================
 ! land_tile_type describes the structure of the land model tile; basically
-! it is a container for tile-specific data, plus some information common to 
+! it is a container for tile-specific data, plus some information common to
 ! all of them: fraction of tile area, etc.
 type :: land_tile_type
-   integer :: tag = 0   ! defines type of the tile 
+   integer :: tag = 0   ! defines type of the tile
 
    real    :: frac      ! fractional tile area, dimensionless
    type(glac_tile_type), pointer :: glac => NULL() ! glacier model data
@@ -132,18 +132,18 @@ type :: land_tile_type
    type(vegn_tile_type), pointer :: vegn => NULL() ! vegetation model data
 
    type(diag_buff_type) :: diag ! diagnostic data storage
-   
+
    ! data that are carried from update_land_bc_fast to update_land_fast:
-   real :: Sg_dir(NBANDS), Sg_dif(NBANDS) ! fractions of downward direct and 
+   real :: Sg_dir(NBANDS), Sg_dif(NBANDS) ! fractions of downward direct and
        ! diffuse short-wave radiation absorbed by ground and snow
-   ! fractions of downward direct and diffuse radiation absorbed by the 
+   ! fractions of downward direct and diffuse radiation absorbed by the
    ! vegetation; dimensions are (NCOHORTS,NBANDS).
    real, allocatable :: Sv_dir(:,:), Sv_dif(:,:)
    ! fractions of downward direct and diffuse radiation on top of each cohort
    ! dimensions are (NCOHORTS,NBANDS).
-   real, allocatable :: Sdn_dir(:,:), Sdn_dif(:,:) 
+   real, allocatable :: Sdn_dir(:,:), Sdn_dif(:,:)
    real :: land_refl_dir(NBANDS), land_refl_dif(NBANDS)
-   
+
    real :: land_d, land_z0m, land_z0s
    real :: surf_refl_lw ! long-wave reflectivity of the ground surface (possibly snow-covered)
    ! black-background long-wave radiative properties of the vegetation cohorts
@@ -168,15 +168,16 @@ type :: land_tile_list_type
 end type land_tile_list_type
 
 ! land_tile_enum_type provides a enumerator of tiles -- a data structure
-! that allows to walk through all tiles in a container (or a 2D array of 
+! that allows to walk through all tiles in a container (or a 2D array of
 ! containers) without bothering with details of container implementation
 type :: land_tile_enum_type
    private
    type(land_tile_list_type), pointer :: &
-        tiles(:,:) => NULL()  ! pointer to array of tiles to walk -- may be disassociated
-   integer :: i=0,j=0 ! indices in the above array
+        tiles(:) => NULL()  ! pointer to array of tiles to walk -- may be disassociated
+   integer :: i=0,j=0 ! i,j indices in the above array
+   integer :: l=0     ! index in the unstructured domain
    integer :: k=0     ! number of the current tile in its container
-   integer :: io,jo   ! offsets of indices (to keep track of non-1 ubounds of tiles array)
+   integer :: lo=0    ! offsets of indices (to keep track of non-1 ubounds of tiles array)
    type(land_tile_list_node_type), pointer :: node => NULL() ! pointer to the current container node
 end type land_tile_enum_type
 
@@ -189,8 +190,8 @@ end type land_tile_list_node_type
 
 ! ==== abstract interfaces ===================================================
 abstract interface
-  ! the following interface describes the "detector function", which is passed 
-  ! through the argument list and must return true for any tile to be written 
+  ! the following interface describes the "detector function", which is passed
+  ! through the argument list and must return true for any tile to be written
   ! to the specific restart, false otherwise
   logical function tile_exists_func(tile)
      import land_tile_type
@@ -198,8 +199,8 @@ abstract interface
   end function tile_exists_func
   ! the following interfaces describe various accessor subroutines, used to access
   ! data im massive operations on tiles, such as i/o or (sometimes) diagnostics
-  
-  ! given land tile, returns pointer to some scalar real data 
+
+  ! given land tile, returns pointer to some scalar real data
   ! within this tile, or an unassociated pointer if there is no data
   subroutine fptr_r0(tile, ptr)
      import land_tile_type
@@ -231,7 +232,7 @@ abstract interface
      real                , pointer :: ptr  ! returned pointer to the data
   end subroutine fptr_r0ijk
 
-  ! given land tile, returns pointer to some scalar integer data 
+  ! given land tile, returns pointer to some scalar integer data
   ! within this tile, or an unassociated pointer if there is no data
   subroutine fptr_i0(tile, ptr)
      import land_tile_type
@@ -255,34 +256,30 @@ end interface
 ! ==== module data ===========================================================
 integer :: n_created_land_tiles = 0 ! total number of created tiles
 integer :: n_deleted_land_tiles = 0 ! total number of deleted tiles
-type(land_tile_list_type), pointer :: land_tile_map(:,:) ! map of tiles
+type(land_tile_list_type), allocatable :: land_tile_map(:) ! map of tiles
 
-contains 
+contains
 
 ! #### land_tile_type and operations #########################################
 
 ! ============================================================================
 ! initialize land tile map
 subroutine init_tile_map()
-  integer :: i,j
-
-  allocate(land_tile_map (lnd%is:lnd%ie, lnd%js:lnd%je))
-  do j = lnd%js,lnd%je
-  do i = lnd%is,lnd%ie
-     call land_tile_list_init(land_tile_map(i,j))
-  enddo
+  integer :: l
+ 
+  allocate(land_tile_map(lnd%ls:lnd%le))
+  do l = lnd%ls,lnd%le
+     call land_tile_list_init(land_tile_map(l))
   enddo
 end subroutine init_tile_map
 
 ! ============================================================================
 ! deallocate land tile map
 subroutine free_tile_map()
-  integer :: i,j
-  
-  do j = lnd%js,lnd%je
-  do i = lnd%is,lnd%ie
-     call land_tile_list_end(land_tile_map(i,j))
-  enddo
+  integer :: l
+
+  do l = lnd%ls,lnd%le
+     call land_tile_list_end(land_tile_map(l))
   enddo
 end subroutine free_tile_map
 
@@ -290,13 +287,11 @@ end subroutine free_tile_map
 ! get max number of tiles in the domain
 function max_n_tiles() result(n)
   integer :: n
-  integer :: i,j
+  integer :: l
 
   n=1
-  do j=lnd%js,lnd%je
-  do i=lnd%is,lnd%ie
-     n=max(n, nitems(land_tile_map(i,j)))
-  enddo
+  do l=lnd%ls,lnd%le
+     n=max(n, nitems(land_tile_map(l)))
   enddo
 end function max_n_tiles
 
@@ -314,13 +309,13 @@ function land_tile_ctor(frac,glac,lake,soil,vegn,tag,htag_j,htag_k) result(tile)
 
   ! ---- local vars
   integer :: glac_, lake_, soil_, vegn_
-  
+
   ! initialize internal variables
   glac_ = -1 ; if(present(glac)) glac_ = glac
   lake_ = -1 ; if(present(lake)) lake_ = lake
   soil_ = -1 ; if(present(soil)) soil_ = soil
   vegn_ = -1 ; if(present(vegn)) vegn_ = vegn
-  
+
   allocate(tile)
   ! fill common fields
   tile%frac = 0.0 ; if(present(frac)) tile%frac = frac
@@ -380,10 +375,10 @@ subroutine delete_land_tile(tile)
   if (associated(tile%snow)) call delete_snow_tile(tile%snow)
   if (associated(tile%cana)) call delete_cana_tile(tile%cana)
   if (associated(tile%vegn)) call delete_vegn_tile(tile%vegn)
-  
+
   ! release the tile memory
   deallocate(tile)
-  
+
   ! increment the number of deleted files for tile statistics
   n_deleted_land_tiles = n_deleted_land_tiles + 1
 
@@ -499,12 +494,12 @@ end function land_tile_heat
 
 
 ! ============================================================================
-! returns true if two land tiles can be merged 
+! returns true if two land tiles can be merged
 function land_tiles_can_be_merged(tile1,tile2) result (answer)
    logical :: answer ! returned value
    type(land_tile_type), intent(in) :: tile1, tile2
-   
-   ! make sure that the two tiles have the same components. For 
+
+   ! make sure that the two tiles have the same components. For
    ! uniformity every component is checked, even though snow and
    ! cana are always present in current design
    answer = (associated(tile1%glac).eqv.associated(tile2%glac)).and. &
@@ -513,7 +508,7 @@ function land_tiles_can_be_merged(tile1,tile2) result (answer)
             (associated(tile1%snow).eqv.associated(tile2%snow)).and. &
             (associated(tile1%cana).eqv.associated(tile2%cana)).and. &
             (associated(tile1%vegn).eqv.associated(tile2%vegn))
-     
+
    if (answer.and.associated(tile1%glac)) &
       answer = answer.and.glac_tiles_can_be_merged(tile1%glac,tile2%glac)
    if (answer.and.associated(tile1%lake)) &
@@ -526,7 +521,7 @@ function land_tiles_can_be_merged(tile1,tile2) result (answer)
       answer = answer.and.snow_tiles_can_be_merged(tile1%snow,tile2%snow)
    if (answer.and.associated(tile1%vegn)) &
       answer = answer.and.vegn_tiles_can_be_merged(tile1%vegn,tile2%vegn)
-   
+
 end function land_tiles_can_be_merged
 
 ! ============================================================================
@@ -546,7 +541,7 @@ subroutine merge_land_tiles(tile1,tile2)
        call merge_lake_tiles(tile1%lake, tile1%frac, tile2%lake, tile2%frac)
   if(associated(tile1%soil)) &
        call merge_soil_tiles(tile1%soil, tile1%frac, tile2%soil, tile2%frac)
-  
+
   if(associated(tile1%cana)) &
        call merge_cana_tiles(tile1%cana, tile1%frac, tile2%cana, tile2%frac)
   if(associated(tile1%snow)) &
@@ -577,7 +572,7 @@ end subroutine merge_land_tiles
 
 ! ==============================================================================
 ! given a pointer to a tile and a tile list, insert the tile into the list so that
-! if tile can be merged with any one already present, it is merged; otherwise 
+! if tile can be merged with any one already present, it is merged; otherwise
 ! the tile is added to the list
 subroutine merge_land_tile_into_list(tile, list)
   type(land_tile_type), pointer :: tile
@@ -586,7 +581,7 @@ subroutine merge_land_tile_into_list(tile, list)
   ! ---- local vars
   type(land_tile_type), pointer :: ptr
   type(land_tile_enum_type) :: ct
-  
+
   ! try to find a tile that we can merge to
   ct = first_elmt(list)
   do while(loop_over_tiles(ct,ptr))
@@ -635,7 +630,7 @@ subroutine check_tile_list_inited(list)
 
   if (.not.associated(list%head)) &
      call error_mesg('land_tile_mod','tile container was not initialized before use', FATAL)
-     
+
 end subroutine check_tile_list_inited
 
 
@@ -659,7 +654,7 @@ function n_items_in_list(list) result (n)
 
   type(land_tile_list_node_type), pointer :: node
 
-  n=0; 
+  n=0;
   if(.not.associated(list%head)) return
 
   node => list%head%next
@@ -697,7 +692,7 @@ end subroutine insert_in_list
 ! ============================================================================
 subroutine remove_all_from_list(list)
   type(land_tile_list_type), intent(inout) :: list
-  
+
   type(land_tile_enum_type) :: ce
   ce=first_elmt(list)
   do while(ce/=tail_elmt(list))
@@ -709,7 +704,7 @@ end subroutine remove_all_from_list
 ! ============================================================================
 subroutine erase_all_from_list(list)
   type(land_tile_list_type), intent(inout) :: list
-  
+
   type(land_tile_enum_type) :: ce
   ce=first_elmt(list)
   do while(ce/=tail_elmt(list))
@@ -729,82 +724,79 @@ function land_tile_list_begin_0d(list) result(ce)
 
   call check_tile_list_inited(list)
   ce%node=>list%head%next
-  ce%i = 1 ; ce%j = 1 ; ce%k = 1 
+  ce%i = 1 ; ce%j = 1 ; ce%k = 1 ; ce%l = 1
 end function land_tile_list_begin_0d
 
 
 ! ============================================================================
-! returns enumerator pointing to the first element of the 2D array of 
-! containers 
-function land_tile_list_begin_2d(tiles, is, js) result(ce)
+! returns enumerator pointing to the first element of the 2D array of
+! containers
+function land_tile_list_begin_1d(tiles, ls) result(ce)
   type(land_tile_enum_type) :: ce  ! return value
-  type(land_tile_list_type), intent(in), target :: tiles(:,:)
-  integer, intent(in), optional :: is,js ! origin of the array
-  
-  integer :: i,j
+  type(land_tile_list_type), intent(in), target :: tiles(:)
+  integer, intent(in), optional :: ls ! origin of the array
+
+  integer :: l
 
   ! list up pointer to the array of containers
   ce%tiles=>tiles
 
   ! initialize offsets of indices
-  ce%io = 0; ce%jo = 0;
-  if(present(is)) ce%io = is-lbound(tiles,1)
-  if(present(js)) ce%jo = js-lbound(tiles,2)
+  ce%lo = 0
+  if(present(ls)) ce%lo = ls-1
 
   ! initialize current position in the array of containers -- find
   ! first non-empty container and list the pointer to the current
   ! container node
   ce%k = 1
-  do j = lbound(tiles,2),ubound(tiles,2)
-  do i = lbound(tiles,1),ubound(tiles,1)
-     call check_tile_list_inited(tiles(i,j))
-     ce%node => tiles(i,j)%head%next
-     ce%i = i ; ce%j = j
+  do l = 1,size(tiles(:))
+     call check_tile_list_inited(tiles(l))
+     ce%node => tiles(l)%head%next
+     ce%l = l
+     ce%i = lnd%i_index(l+lnd%ls-1)
+     ce%j = lnd%j_index(l+lnd%ls-1)
      if(associated(ce%node%data)) return
   enddo
-  enddo
-end function land_tile_list_begin_2d
+end function land_tile_list_begin_1d
 
 
 ! ============================================================================
-! returns enumerator pointing to the end of container: actually the next element 
+! returns enumerator pointing to the end of container: actually the next element
 ! behind the last element of the container
 function land_tile_list_end_0d(list) result (ce)
   type(land_tile_enum_type) :: ce ! return value
   type(land_tile_list_type), intent(in) :: list
-  
+
   call check_tile_list_inited(list)
   ce%node=>list%head
-  ce%i = 1 ; ce%j = 1 ; ce%k = nitems(list)+1
+  ce%i = 1 ; ce%j = 1 ; ce%l=1 ; ce%k = nitems(list)+1
 end function land_tile_list_end_0d
 
 
 ! ============================================================================
-! returns enumerator pointing to the end of 2D array of containers: actually 
+! returns enumerator pointing to the end of 2D array of containers: actually
 ! the next element behind the last element of the last container
-function land_tile_list_end_2d(tiles,is,js) result (ce)
+function land_tile_list_end_1d(tiles) result (ce)
   type(land_tile_enum_type) :: ce ! return value
-  type(land_tile_list_type), intent(in), target :: tiles(:,:)
-  integer, intent(in), optional :: is,js ! lower boundaries of the array
+  type(land_tile_list_type), intent(in), target :: tiles(:)
 
   ! list up pointer to the array of containers
   ce%tiles=>tiles
 
   ! initialize offsets of indices
-  ce%io = 0; ce%jo = 0;
-  if(present(is)) ce%io = is-lbound(tiles,1)
-  if(present(js)) ce%jo = js-lbound(tiles,2)
+  ce%lo = 0
 
-  ! initialize current position in the array of containers 
-  ce%i = ubound(tiles,1)
-  ce%j = ubound(tiles,2)
-  ce%k = nitems(tiles(ce%i,ce%j))+1
+  ! initialize current position in the array of containers
+  ce%l = ubound(tiles,1)
+  ce%i = lnd%i_index(ce%l+lnd%ls-1)
+  ce%j = lnd%j_index(ce%l+lnd%ls-1)
+  ce%k = nitems(tiles(ce%l))+1
 
   ! list the pointer to the current tile
-  call check_tile_list_inited(tiles(ce%i,ce%j))
-  ce%node=>tiles(ce%i,ce%j)%head
+  call check_tile_list_inited(tiles(ce%l))
+  ce%node=>tiles(ce%l)%head
 
-end function land_tile_list_end_2d
+end function land_tile_list_end_1d
 
 
 ! ============================================================================
@@ -813,25 +805,23 @@ function next_elmt(pos0) result(ce)
   type(land_tile_enum_type) :: ce ! return value
   type(land_tile_enum_type), intent(in) :: pos0
 
-  integer :: is,ie,js,je
+  integer :: le
 
   ce = pos0
   ce%node => ce%node%next ; ce%k = ce%k+1
   if(associated(ce%tiles)) then
-     is = lbound(ce%tiles,1); ie = ubound(ce%tiles,1)
-     js = lbound(ce%tiles,2); je = ubound(ce%tiles,2)
+     le = ubound(ce%tiles,1)
      do while(.not.associated(ce%node%data))
         ce%k = 1; ! reset tile index
-        if(ce%i<ie)then
-           ce%i = ce%i+1
-        else if(ce%j<je) then
-           ce%i = is
-           ce%j = ce%j + 1
+        if(ce%l<le)then
+           ce%l = ce%l+1
+           ce%i = lnd%i_index(ce%l+lnd%ls-1)
+           ce%j = lnd%j_index(ce%l+lnd%ls-1)
         else
            return
         endif
-        call check_tile_list_inited(ce%tiles(ce%i,ce%j))
-        ce%node => ce%tiles(ce%i,ce%j)%head%next
+        call check_tile_list_inited(ce%tiles(ce%l))
+        ce%node => ce%tiles(ce%l)%head%next
      enddo
   endif
 end function next_elmt
@@ -843,26 +833,24 @@ function prev_elmt(pos0) result(ce)
   type(land_tile_enum_type) :: ce ! return value
   type(land_tile_enum_type), intent(in) :: pos0
 
-  integer :: is,ie,js,je
+  integer :: ls
 
   ce = pos0
   ce%node => ce%node%prev ; ce%k = ce%k - 1
   if(associated(ce%tiles)) then
-     is = lbound(ce%tiles,1); ie = ubound(ce%tiles,1)
-     js = lbound(ce%tiles,2); je = ubound(ce%tiles,2)
+     ls = lbound(ce%tiles,1)
      do while(.not.associated(ce%node%data))
         ce%k = 1; ! reset tile index
-        if(ce%i>is)then
-           ce%i = ce%i - 1
-        else if(ce%j>js) then
-           ce%i = ie
-           ce%j = ce%j - 1
+        if(ce%l>ls)then
+           ce%l = ce%l - 1
+           ce%i = lnd%i_index(ce%l+lnd%ls-1)
+           ce%j = lnd%j_index(ce%l+lnd%ls-1)
         else
            return
         endif
-        call check_tile_list_inited(ce%tiles(ce%i,ce%j))
-        ce%node => ce%tiles(ce%i,ce%j)%head%prev
-        ce%k    =  nitems(ce%tiles(ce%i,ce%j))
+        call check_tile_list_inited(ce%tiles(ce%l))
+        ce%node => ce%tiles(ce%l)%head%prev
+        ce%k    =  nitems(ce%tiles(ce%l))
      enddo
   endif
 
@@ -870,11 +858,11 @@ end function prev_elmt
 
 ! ============================================================================
 ! returns TRUE if both enums refer to the same list node (and, therefore, tile)
-! or if both do not refer to anything. 
+! or if both do not refer to anything.
 function enums_are_equal(pos1,pos2) result(ret)
   logical :: ret ! return value
   type(land_tile_enum_type), intent(in) :: pos1,pos2
-  
+
   if(associated(pos1%node)) then
      ret = associated(pos1%node,pos2%node)
   else
@@ -895,22 +883,23 @@ end function enums_are_not_equal
 ! returns pointer to the tile currently addressed by the enumerator
 function current_tile(ce) result(ptr)
   type(land_tile_type), pointer :: ptr ! return value
-  type(land_tile_enum_type), intent(in) :: ce 
+  type(land_tile_enum_type), intent(in) :: ce
 
   ptr => ce%node%data
 end function current_tile
 
 ! ============================================================================
 ! returns indices corresponding to the enumerator; for enumerator associated
-! with a single tile list (not with 2D array of lists) returned i and j are 
+! with a single tile list (not with 2D array of lists) returned i and j are
 ! equal to 1
-subroutine get_elmt_indices(ce,i,j,k)
-  type(land_tile_enum_type), intent(in) :: ce 
-  integer, intent(out), optional :: i,j,k
+subroutine get_elmt_indices(ce,i,j,k,l)
+  type(land_tile_enum_type), intent(in) :: ce
+  integer, intent(out), optional :: i, j, l, k
 
-  if (present(i)) i = ce%i+ce%io
-  if (present(j)) j = ce%j+ce%jo
+  if (present(i)) i = lnd%i_index(ce%l+lnd%ls-1)
+  if (present(j)) j = lnd%j_index(ce%l+lnd%ls-1)
   if (present(k)) k = ce%k
+  if (present(l)) l = ce%l+ce%lo
 
 end subroutine get_elmt_indices
 
@@ -919,21 +908,24 @@ end subroutine get_elmt_indices
 ! attempts to advance enumerator to the next tile. If enumerator was already at
 ! the end of the tile list, returns FALSE; in this case pointer "tile" and
 ! indices i,j,k are not defined.
-function loop_over_tiles(ce, tile, i,j,k) result(R); logical R
+function loop_over_tiles(ce, tile, l, k, i, j) result(R); logical R
   type(land_tile_enum_type), intent(inout) :: ce
   type(land_tile_type)     , pointer, optional :: tile
-  integer, intent(out), optional :: i,j,k ! indices of the tile
+  integer, intent(out), optional :: i,j,l,k ! indices of the tile
 
-  if (present(tile)) tile=>current_tile(ce)
-  call get_elmt_indices(ce,i,j,k)
+  type(land_tile_type), pointer :: tile_
+
+  tile_=>current_tile(ce)
+  if (present(tile)) tile=>tile_
+  call get_elmt_indices(ce,i=i,j=j,l=l,k=k)
   ! advance enumerator to the next element
   ce = next_elmt(ce)
-  R  = associated(tile)
+  R  = associated(tile_)
 end function loop_over_tiles
 
 ! ============================================================================
-! inserts tile at the position indicated by enumerator: in fact right in front 
-! of it. 
+! inserts tile at the position indicated by enumerator: in fact right in front
+! of it.
 subroutine insert_at_position(tile,ce)
   type(land_tile_type),         pointer :: tile
   type(land_tile_enum_type), intent(in) :: ce
@@ -948,7 +940,7 @@ subroutine insert_at_position(tile,ce)
 
   node%next=>n ; node%prev=>p
   n%prev=>node ; p%next=>node
-  
+
 end subroutine insert_at_position
 
 ! ============================================================================
@@ -957,18 +949,18 @@ subroutine remove_at_position(enum)
 
   type(land_tile_list_node_type),pointer :: n,p
   type(land_tile_enum_type) :: next
-  
+
   if(.not.associated(enum%node)) &
      call error_mesg('remove_at_position','attempt to remove tail element of a list', FATAL)
 
   next = next_elmt(enum)
-  
+
   n => enum%node%next
   p => enum%node%prev
 
   n%prev=>p ; p%next=>n
   deallocate(enum%node)
-  
+
   enum=next
   if(enum%k>1) enum%k = enum%k-1
 
@@ -997,7 +989,7 @@ function tile_is_selected(tile, sel)
   tile_is_selected = .FALSE.
   select case(sel%tag)
   case(SEL_SOIL)
-     if(associated(tile%soil)) & 
+     if(associated(tile%soil)) &
           tile_is_selected = soil_is_selected(tile%soil,sel)
   case(SEL_VEGN)
      if(associated(tile%vegn)) &
@@ -1027,7 +1019,7 @@ end function tile_is_selected
 ! ============================================================================
 subroutine print_land_tile_info(tile)
   type(land_tile_type), intent(in) :: tile
-  
+
   write(*,'("(tag =",i3,", frac =",f7.4)',advance='no') tile%tag, tile%frac
   if(associated(tile%lake)) write(*,'(a,i3)',advance='no')', lake =',tile%lake%tag
   if(associated(tile%soil)) write(*,'(a,i3)',advance='no')', soil =',tile%soil%tag
@@ -1036,7 +1028,7 @@ subroutine print_land_tile_info(tile)
   if(associated(tile%cana)) write(*,'(a)',advance='no')', cana'
   if(associated(tile%vegn)) write(*,'(a)',advance='no')', vegn'
   write(*,'(")")',advance='no')
-  
+
 end subroutine print_land_tile_info
 
 

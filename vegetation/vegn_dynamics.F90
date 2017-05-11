@@ -63,17 +63,15 @@ real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 da
 
 ! diagnostic field IDs
 integer :: id_npp, id_nep, id_gpp, id_wood_prod, id_leaf_root_gr, id_sw_seed_gr
-integer :: id_rsoil, id_rsoil_fast, id_rsoil_slow
-integer :: id_resp, id_resl, id_resr, id_ress, id_resg, id_asoil
+integer :: id_resp, id_resl, id_resr, id_ress, id_resg
 integer :: id_soilt, id_theta, id_litter, id_age, id_exudate, id_dbh_growth
 
 
 contains
 
 ! ============================================================================
-subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
-  integer        , intent(in) :: id_lon ! ID of land longitude (X) axis 
-  integer        , intent(in) :: id_lat ! ID of land latitude (Y) axis
+subroutine vegn_dynamics_init(id_ug, time, delta_time)
+  integer        , intent(in) :: id_ug   !<Unstructured axis id.
   type(time_type), intent(in) :: time       ! initial time for diagnostic fields
   real           , intent(in) :: delta_time ! fast time step, s
 
@@ -88,48 +86,48 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
 
   ! register diagnostic fields
   id_gpp = register_cohort_diag_field ( diag_mod_name, 'gpp',  &
-       (/id_lon,id_lat/), time, 'gross primary productivity', 'kg C/(m2 year)', &
+       (/id_ug/), time, 'gross primary productivity', 'kg C/(m2 year)', &
        missing_value=-100.0)
   id_npp = register_cohort_diag_field ( diag_mod_name, 'npp',  &
-       (/id_lon,id_lat/), time, 'net primary productivity', 'kg C/(m2 year)', &
+       (/id_ug/), time, 'net primary productivity', 'kg C/(m2 year)', &
        missing_value=-100.0)
   id_nep = register_tiled_diag_field ( diag_mod_name, 'nep',  &
-       (/id_lon,id_lat/), time, 'net ecosystem productivity', 'kg C/(m2 year)', &
+       (/id_ug/), time, 'net ecosystem productivity', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_wood_prod = register_cohort_diag_field ( diag_mod_name, 'wood_prod',  &
-       (/id_lon,id_lat/), time, 'total wood (heartwood+sapwood) production', 'kgC/(m2 year)', &
+       (/id_ug/), time, 'total wood (heartwood+sapwood) production', 'kgC/(m2 year)', &
        missing_value=-100.0)
   id_leaf_root_gr = register_cohort_diag_field ( diag_mod_name, 'leaf_root_gr',  &
-       (/id_lon,id_lat/), time, 'C allocated to leaves & fine roots', 'kgC/(m2 year)', &
+       (/id_ug/), time, 'C allocated to leaves & fine roots', 'kgC/(m2 year)', &
        missing_value=-100.0)
   id_sw_seed_gr = register_cohort_diag_field ( diag_mod_name, 'sw_seed_gr',  &
-       (/id_lon,id_lat/), time, 'C respired in seeds and sapwood growth', 'kgC/(m2 year)', &
+       (/id_ug/), time, 'C respired in seeds and sapwood growth', 'kgC/(m2 year)', &
        missing_value=-100.0)    
   id_dbh_growth = register_cohort_diag_field ( diag_mod_name, 'dbh_gr',  &
-       (/id_lon,id_lat/), time, 'growth rathe of DBH', 'm/year', &
+       (/id_ug/), time, 'growth rathe of DBH', 'm/year', &
        missing_value=-100.0)    
-  id_litter = register_tiled_diag_field (diag_mod_name, 'litter', (/id_lon,id_lat/), &
+  id_litter = register_tiled_diag_field (diag_mod_name, 'litter', (/id_ug/), &
        time, 'litter productivity', 'kg C/(m2 year)', missing_value=-100.0)
-  id_resp = register_cohort_diag_field ( diag_mod_name, 'resp', (/id_lon,id_lat/), &
+  id_resp = register_cohort_diag_field ( diag_mod_name, 'resp', (/id_ug/), &
        time, 'respiration', 'kg C/(m2 year)', missing_value=-100.0)
-  id_resl = register_cohort_diag_field ( diag_mod_name, 'resl', (/id_lon,id_lat/), &
+  id_resl = register_cohort_diag_field ( diag_mod_name, 'resl', (/id_ug/), &
        time, 'leaf respiration', 'kg C/(m2 year)', missing_value=-100.0)
-  id_resr = register_cohort_diag_field ( diag_mod_name, 'resr', (/id_lon,id_lat/), &
+  id_resr = register_cohort_diag_field ( diag_mod_name, 'resr', (/id_ug/), &
        time, 'root respiration', 'kg C/(m2 year)', missing_value=-100.0)
-  id_ress = register_cohort_diag_field ( diag_mod_name, 'ress', (/id_lon,id_lat/), &
+  id_ress = register_cohort_diag_field ( diag_mod_name, 'ress', (/id_ug/), &
        time, 'stem respiration', 'kg C/(m2 year)', missing_value=-100.0)
-  id_resg = register_cohort_diag_field ( diag_mod_name, 'resg', (/id_lon,id_lat/), &
+  id_resg = register_cohort_diag_field ( diag_mod_name, 'resg', (/id_ug/), &
        time, 'growth respiration', 'kg C/(m2 year)', missing_value=-100.0)
   id_soilt = register_tiled_diag_field ( diag_mod_name, 'tsoil_av',  &
-       (/id_lon,id_lat/), time, 'average soil temperature for carbon decomposition', 'degK', &
+       (/id_ug/), time, 'average soil temperature for carbon decomposition', 'degK', &
        missing_value=-100.0 )
   id_theta = register_tiled_diag_field ( diag_mod_name, 'theta',  &
-       (/id_lon,id_lat/), time, 'average soil wetness for carbon decomposition', 'm3/m3', &
+       (/id_ug/), time, 'average soil wetness for carbon decomposition', 'm3/m3', &
        missing_value=-100.0 )
   id_age = register_cohort_diag_field ( diag_mod_name, 'age',  &
-       (/id_lon,id_lat/), time, 'average cohort age', 'years', &
+       (/id_ug/), time, 'average cohort age', 'years', &
        missing_value=-100.0)
-  id_exudate = register_cohort_diag_field ( diag_mod_name, 'exudate', (/id_lon,id_lat/), &
+  id_exudate = register_cohort_diag_field ( diag_mod_name, 'exudate', (/id_ug/), &
        time, 'carbon root exudates', 'kg C/(m2 year)', missing_value=-100.0)
 end subroutine vegn_dynamics_init
 

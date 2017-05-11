@@ -157,8 +157,8 @@ real, dimension(n_dim_glac_types, NBANDS) :: &
      dat_refl_max_dir, dat_refl_max_dif, &
      dat_refl_min_dir, dat_refl_min_dif
                       !  VIS    NIR
-data dat_refl_max_dir / 0.800, 0.800 /, & 
-     dat_refl_max_dif / 0.800, 0.800 /, & 
+data dat_refl_max_dir / 0.800, 0.800 /, &
+     dat_refl_max_dif / 0.800, 0.800 /, &
      dat_refl_min_dir / 0.650, 0.650 /, &
      dat_refl_min_dif / 0.650, 0.650 /
 integer, dimension(n_dim_glac_types) :: &
@@ -186,7 +186,7 @@ namelist /glac_data_nml/ &
      dat_refl_min_dir,  dat_refl_min_dif,  &
      dat_emis_dry,              dat_emis_sat,              &
      dat_z0_momentum,           dat_tf_depr, &
-     f_iso_cold, f_vol_cold, f_geo_cold, f_iso_warm, f_vol_warm, f_geo_warm 
+     f_iso_cold, f_vol_cold, f_geo_cold, f_iso_warm, f_vol_warm, f_geo_warm
 
 ! ---- end of namelist
 
@@ -214,7 +214,7 @@ subroutine read_glac_data_namelist(glac_n_lev, glac_dz)
 #else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
-     ierr = 1;  
+     ierr = 1;
      do while (ierr /= 0)
         read (unit, nml=glac_data_nml, iostat=io, end=10)
         ierr = check_nml_error (io, 'glac_data_nml')
@@ -269,7 +269,7 @@ function glac_tile_ctor(tag) result(ptr)
   ! set initial values of the tile data
   call glacier_data_init_0d(ptr)
 end function glac_tile_ctor
-  
+
 
 ! ============================================================================
 function glac_tile_copy_ctor(glac) result(ptr)
@@ -278,7 +278,7 @@ function glac_tile_copy_ctor(glac) result(ptr)
 
   allocate(ptr)
   ptr = glac ! copy all non-allocatable data
-  ! no need to allocate storage for allocatable components of the tile, because 
+  ! no need to allocate storage for allocatable components of the tile, because
   ! F2003 takes care of that, and also takes care of copying data
  end function glac_tile_copy_ctor
 
@@ -337,22 +337,22 @@ subroutine glacier_data_init_0d(glac)
 
   glac%z0_scalar = glac%pars%z0_momentum * exp(-k_over_B)
   glac%geothermal_heat_flux = geothermal_heat_flux_constant
-  
+
 end subroutine glacier_data_init_0d
 
 
 ! ============================================================================
 function glac_cover_cold_start(land_mask, lonb, latb) result (glac_frac)
-  logical, intent(in) :: land_mask(:,:)    ! land mask
+  logical, intent(in) :: land_mask(:)    ! land mask
   real,    intent(in) :: lonb(:,:), latb(:,:) ! boundaries of the grid cells
-  real,    pointer    :: glac_frac (:,:,:) ! output: map of fractional coverage
+  real,    pointer    :: glac_frac (:,:) ! output: map of fractional coverage
 
-  allocate( glac_frac(size(land_mask,1),size(land_mask,2),n_dim_glac_types))
+  allocate( glac_frac(size(land_mask(:)),n_dim_glac_types))
 
   call init_cover_field(glac_to_use, input_glac_file, 'cover','frac', &
        lonb, latb, glac_index_constant, input_cover_types, glac_frac)
   where (glac_frac<min_glac_frac) glac_frac = 0.0
-  
+
 end function glac_cover_cold_start
 
 ! =============================================================================
@@ -366,23 +366,23 @@ end function glac_tiles_can_be_merged
 ! =============================================================================
 ! combine two glacier states with specified weights; the result goes into
 ! the second one.
-! t1 does not change; the properties of t2 (that is, heat capacity, etc) do not 
+! t1 does not change; the properties of t2 (that is, heat capacity, etc) do not
 ! change either -- that might be not good in the long run
 subroutine merge_glac_tiles(g1,w1,g2,w2)
   type(glac_tile_type), intent(in)    :: g1
-  type(glac_tile_type), intent(inout) :: g2     
+  type(glac_tile_type), intent(inout) :: g2
   real                , intent(in)    :: w1, w2 ! relative weights
-  
+
   ! ---- local vars
   real    :: x1, x2 ! normalized relative weights
   real    :: HEAT1, HEAT2 ! temporaries for heat
   integer :: i
   real    :: C1(num_l), C2(num_l) ! heat capacities of dry glacier
-  
+
   ! calculate normalized weights
   x1 = w1/(w1+w2)
   x2 = 1.0 - x1
-  
+
   ! calculate dry heat capacities of the glaciers
   call glac_dry_heat_cap(g1,C1)
   call glac_dry_heat_cap(g2,C2)
@@ -404,7 +404,7 @@ subroutine merge_glac_tiles(g1,w1,g2,w2)
     g2%T(i) = (HEAT1*x1+HEAT2*x2) / &
       (C2(i)*dz(i)+clw*g2%wl(i)+csw*g2%ws(i)) + tfreeze
   enddo
-  
+
 end subroutine
 
 ! =============================================================================
@@ -423,7 +423,7 @@ end function glac_is_selected
 function get_glac_tile_tag(glac) result(tag)
   integer :: tag
   type(glac_tile_type), intent(in) :: glac
-  
+
   tag = glac%tag
 end function
 
@@ -456,7 +456,7 @@ subroutine glac_data_radiation ( glac, cosz, use_brdf, &
   logical,              intent(in) :: use_brdf
   real,                 intent(out):: glac_refl_dir(:), glac_refl_dif(:), glac_emis
 
-  ! ---- local vars 
+  ! ---- local vars
   real  :: blend, t_crit
   real :: warm_value_dir(NBANDS), cold_value_dir(NBANDS)
   real :: warm_value_dif(NBANDS), cold_value_dif(NBANDS)
@@ -504,7 +504,7 @@ end subroutine glac_roughness
 
 ! ============================================================================
 ! compute glacier thermodynamic properties.
-subroutine glac_data_thermodynamics ( glac_pars, vlc_sfc, vsc_sfc, &  
+subroutine glac_data_thermodynamics ( glac_pars, vlc_sfc, vsc_sfc, &
      glac_rh, heat_capacity_dry, thermal_cond)
   type(glac_pars_type), intent(in)  :: glac_pars
   real,                 intent(in)  :: vlc_sfc
@@ -630,7 +630,7 @@ subroutine glac_tile_stock_pe (glac, twd_liq, twd_sol  )
   type(glac_tile_type),  intent(in)    :: glac
   real,                  intent(out)   :: twd_liq, twd_sol
   integer n
-  
+
   twd_liq = 0.
   twd_sol = 0.
   do n=1, size(glac%wl)

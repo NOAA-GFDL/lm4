@@ -10,7 +10,6 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only: error_mesg, NOTE, WARNING, FATAL, file_exist, &
                    close_file, check_nml_error, stdlog, string 
-use fms_io_mod, only: set_domain, nullify_domain
 use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe
 use time_manager_mod, only: time_type, time_type_to_real, get_date, operator(-)
 use field_manager_mod, only: fm_field_name_len
@@ -28,7 +27,7 @@ use soil_tile_mod, only: soil_tile_type, num_l, dz, zhalf, zfull, &
 use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, mol_air, &
      seconds_per_year, MPa_per_m
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
+     first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), loop_over_tiles, &
      get_elmt_indices, land_tile_heat, land_tile_carbon, get_tile_water
 use land_tile_diag_mod, only : OP_SUM, OP_MEAN, OP_MAX, OP_DOMINANT, &
      register_tiled_static_field, register_tiled_diag_field, &
@@ -291,23 +290,22 @@ end subroutine read_vegn_namelist
 
 ! ============================================================================
 ! initialize vegetation
-subroutine vegn_init ( id_lon, id_lat, id_band )
-  integer, intent(in) :: id_lon  ! ID of land longitude (X) axis  
-  integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
+subroutine vegn_init ( id_ug, id_band )
+  integer, intent(in) :: id_ug   !<Unstructured axis id.
   integer, intent(in) :: id_band ! ID of spectral band axis
 
   ! ---- local vars
   integer :: unit         ! unit for various i/o
-  type(land_tile_enum_type)     :: te,ce ! current and tail tile list elements
+  type(land_tile_enum_type)     :: ce    ! current tile list element
   type(land_tile_type), pointer :: tile  ! pointer to current tile
   integer :: n_accum
   integer :: nmn_acm
   type(land_restart_type) :: restart1, restart2
   logical :: restart_1_exists, restart_2_exists
-  real, allocatable :: t_ann(:,:),t_cold(:,:),p_ann(:,:),ncm(:,:) ! buffers for biodata reading 
+  real, allocatable :: t_ann(:),t_cold(:),p_ann(:),ncm(:) ! buffers for biodata reading
   logical :: did_read_biodata
   logical :: did_read_cohort_structure = .FALSE.
-  integer :: i,j,n ! indices of current tile
+  integer :: i,j,l,n ! indices of current tile
   integer :: init_cohort_spp(MAX_INIT_COHORTS)
 
   module_is_initialized = .TRUE.
@@ -471,14 +469,14 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
   ! read climatological fields for initialization of species distribution
   if (file_exist('INPUT/biodata.nc'))then
      allocate(&
-          t_ann (lnd%is:lnd%ie,lnd%js:lnd%je),&
-          t_cold(lnd%is:lnd%ie,lnd%js:lnd%je),&
-          p_ann (lnd%is:lnd%ie,lnd%js:lnd%je),&
-          ncm   (lnd%is:lnd%ie,lnd%js:lnd%je) )
-     call read_field( 'INPUT/biodata.nc','T_ANN',  lnd%lon, lnd%lat, t_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','T_COLD', lnd%lon, lnd%lat, t_cold, interp='nearest')
-     call read_field( 'INPUT/biodata.nc','P_ANN',  lnd%lon, lnd%lat, p_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','NCM',    lnd%lon, lnd%lat, ncm,    interp='nearest')
+          t_ann (lnd%ls:lnd%le),&
+          t_cold(lnd%ls:lnd%le),&
+          p_ann (lnd%ls:lnd%le),&
+          ncm   (lnd%ls:lnd%le) )
+     call read_field( 'INPUT/biodata.nc','T_ANN',  lnd%ug_lon, lnd%ug_lat, t_ann,  interp='nearest')
+     call read_field( 'INPUT/biodata.nc','T_COLD', lnd%ug_lon, lnd%ug_lat, t_cold, interp='nearest')
+     call read_field( 'INPUT/biodata.nc','P_ANN',  lnd%ug_lon, lnd%ug_lat, p_ann,  interp='nearest')
+     call read_field( 'INPUT/biodata.nc','NCM',    lnd%ug_lon, lnd%ug_lat, ncm,    interp='nearest')
      did_read_biodata = .TRUE.
      call error_mesg('vegn_init','did read INPUT/biodata.nc',NOTE)     
   else
@@ -498,12 +496,8 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
   ! Go through all tiles and initialize the cohorts that have not been initialized yet --
   ! this allows to read partial restarts. Also initialize accumulation counters to zero
   ! or the values from the restarts.
-  te = tail_elmt(land_tile_map)
-  ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js)
-  do while(ce /= te)
-     tile=>current_tile(ce)  ! get pointer to current tile
-     call get_elmt_indices(ce,i,j)
-     ce=next_elmt(ce)       ! advance position to the next tile
+  ce = first_elmt(land_tile_map, ls=lnd%ls)
+  do while(loop_over_tiles(ce,tile,l))
      if (.not.associated(tile%vegn)) cycle
 
      tile%vegn%n_accum = n_accum
@@ -540,11 +534,11 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
            if (cc%species < 0) call error_mesg('vegn_init','species "'//trim(init_cohort_species(n))//&
                    '" needed for initialization, but not found in the list of species parameters', FATAL)
         else if(did_read_biodata.and.do_biogeography) then
-           call update_species(cc,t_ann(i,j),t_cold(i,j),p_ann(i,j),ncm(i,j),LU_NTRL)
-           tile%vegn%t_ann  = t_ann (i,j)
-           tile%vegn%t_cold = t_cold(i,j)
-           tile%vegn%p_ann  = p_ann (i,j)
-           tile%vegn%ncm    = ncm   (i,j)
+           call update_species(cc,t_ann(l),t_cold(l),p_ann(l),ncm(l),LU_NTRL)
+           tile%vegn%t_ann  = t_ann (l)
+           tile%vegn%t_cold = t_cold(l)
+           tile%vegn%p_ann  = p_ann (l)
+           tile%vegn%ncm    = ncm   (l)
         else
            cc%species = tile%vegn%tag
         endif
@@ -556,10 +550,8 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
   
   ! Initialize cohort structure if it was not in the restart
   if (do_ppa.and..not.did_read_cohort_structure) then
-     te = tail_elmt(land_tile_map) ; ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js)
-     do while(ce /= te)
-        tile=>current_tile(ce)  ! get pointer to current tile
-        ce=next_elmt(ce)        ! advance position to the next tile
+     ce = first_elmt(land_tile_map, ls=lnd%ls)
+     do while (loop_over_tiles(ce,tile))
         if (.not.associated(tile%vegn)) cycle
         do n = 1, tile%vegn%n_cohorts
            call init_cohort_allometry_ppa(tile%vegn%cohorts(n), init_cohort_height(n), init_cohort_nsc_frac(n))
@@ -574,7 +566,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
   endif
     
   ! initialize carbon integrator
-  call vegn_dynamics_init ( id_lon, id_lat, lnd%time, delta_time )
+  call vegn_dynamics_init ( id_ug, lnd%time, delta_time )
 
   ! initialize static vegetation
   call static_vegn_init ()
@@ -584,14 +576,11 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
   call vegn_harvesting_init()
 
   ! initialize vegetation diagnostic fields
-  call vegn_diag_init ( id_lon, id_lat, id_band, lnd%time )
+  call vegn_diag_init ( id_ug, id_band, lnd%time )
 
   ! ---- diagnostic section
-  ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js)
-  te  = tail_elmt(land_tile_map)
-  do while(ce /= te)
-     tile => current_tile(ce)
-     ce=next_elmt(ce)     
+  ce = first_elmt(land_tile_map, ls=lnd%ls)
+  do while(loop_over_tiles(ce,tile))
      if (.not.associated(tile%vegn)) cycle ! skip non-vegetation tiles
      ! send the data
      call send_tile_data(id_vegn_type,  real(tile%vegn%tag), tile%diag)
@@ -605,9 +594,8 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
 end subroutine vegn_init
 
 ! ============================================================================
-subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
-  integer        , intent(in) :: id_lon  ! ID of land longitude (X) axis  
-  integer        , intent(in) :: id_lat  ! ID of land latitude (Y) axis
+subroutine vegn_diag_init ( id_ug, id_band, time )
+  integer        , intent(in) :: id_ug   !<Unstructured axis id.
   integer        , intent(in) :: id_band ! ID of spectral band axis
   type(time_type), intent(in) :: time    ! initial time for diagnostic fields
   
@@ -618,245 +606,245 @@ subroutine vegn_diag_init ( id_lon, id_lat, id_band, time )
   call set_default_diag_filter('soil')
 
   id_vegn_type = register_tiled_static_field ( module_name, 'vegn_type',  &
-       (/id_lon,id_lat/), 'vegetation type', missing_value=-1.0 )
+       (/id_ug/), 'vegetation type', missing_value=-1.0 )
 
   id_ncohorts = register_cohort_diag_field( module_name, 'ncohorts', &
-       (/id_lon,id_lat/), time, 'number of cohorts', 'unitless', missing_value=-1.0)
+       (/id_ug/), time, 'number of cohorts', 'unitless', missing_value=-1.0)
   id_nindivs = register_cohort_diag_field( module_name, 'nindivs', &
-       (/id_lon,id_lat/), time, 'density of individuals', 'individuals/m2', missing_value=-1.0)
+       (/id_ug/), time, 'density of individuals', 'individuals/m2', missing_value=-1.0)
   id_nlayers = register_tiled_diag_field( module_name, 'nlayers', &
-       (/id_lon,id_lat/), time, 'number of canopy layers', 'unitless', missing_value=-1.0 )
+       (/id_ug/), time, 'number of canopy layers', 'unitless', missing_value=-1.0 )
   id_dbh = register_cohort_diag_field( module_name, 'dbh', &
-       (/id_lon,id_lat/), time, 'diameter at breast height', 'm', missing_value=-1.0)
+       (/id_ug/), time, 'diameter at breast height', 'm', missing_value=-1.0)
   id_dbh_max = register_cohort_diag_field( module_name, 'dbh_max', &
-       (/id_lon,id_lat/), time, 'maximum diameter at breast height', 'm', missing_value=-1.0)
+       (/id_ug/), time, 'maximum diameter at breast height', 'm', missing_value=-1.0)
   id_crownarea = register_cohort_diag_field( module_name, 'crownarea', &
-       (/id_lon,id_lat/), time, 'mean area of individuals crown', 'm2', missing_value=-1.0)
+       (/id_ug/), time, 'mean area of individuals crown', 'm2', missing_value=-1.0)
 
   id_temp = register_cohort_diag_field ( module_name, 'temp',  &
-       (/id_lon,id_lat/), time, 'canopy temperature', 'degK', missing_value=-1.0)
+       (/id_ug/), time, 'canopy temperature', 'degK', missing_value=-1.0)
   id_wl = register_cohort_diag_field ( module_name, 'wl',  &
-       (/id_lon,id_lat/), time, 'canopy liquid water content', 'kg/m2', missing_value=-1.0)
+       (/id_ug/), time, 'canopy liquid water content', 'kg/m2', missing_value=-1.0)
   id_ws = register_cohort_diag_field ( module_name, 'ws',  &
-       (/id_lon,id_lat/), time, 'canopy solid water content', 'kg/m2', missing_value=-1.0)
+       (/id_ug/), time, 'canopy solid water content', 'kg/m2', missing_value=-1.0)
 
 
   id_height = register_tiled_diag_field ( module_name, 'height',  &
-       (/id_lon,id_lat/), time, 'height of tallest vegetation', 'm', missing_value=-1.0)
+       (/id_ug/), time, 'height of tallest vegetation', 'm', missing_value=-1.0)
   id_height_ave = register_cohort_diag_field ( module_name, 'height_ave',  &
-       (/id_lon,id_lat/), time, 'average height of the trees', 'm', missing_value=-1.0)
+       (/id_ug/), time, 'average height of the trees', 'm', missing_value=-1.0)
 
   id_height1 = register_tiled_diag_field ( module_name, 'height1',  &
-       (/id_lon,id_lat/), time, 'height of first cohort', 'm', missing_value=-1.0 )
+       (/id_ug/), time, 'height of first cohort', 'm', missing_value=-1.0 )
   id_lai    = register_cohort_diag_field ( module_name, 'lai',  &
-       (/id_lon,id_lat/), time, 'leaf area index', 'm2/m2', missing_value=-1.0)
+       (/id_ug/), time, 'leaf area index', 'm2/m2', missing_value=-1.0)
   id_lai_var = register_cohort_diag_field ( module_name, 'lai_var',  &
-       (/id_lon,id_lat/), time, 'variance of leaf area index across tiles in grid cell', 'm4/m4', &
+       (/id_ug/), time, 'variance of leaf area index across tiles in grid cell', 'm4/m4', &
        missing_value=-1.0 , opt='variance')
   id_lai_std = register_cohort_diag_field ( module_name, 'lai_std',  &
-       (/id_lon,id_lat/), time, 'standard deviation of leaf area index across tiles in grid cell', 'm2/m2', &
+       (/id_ug/), time, 'standard deviation of leaf area index across tiles in grid cell', 'm2/m2', &
        missing_value=-1.0, opt='stdev')
   id_sai    = register_cohort_diag_field ( module_name, 'sai',  &
-       (/id_lon,id_lat/), time, 'stem area index', 'm2/m2', missing_value=-1.0)
+       (/id_ug/), time, 'stem area index', 'm2/m2', missing_value=-1.0)
   id_leafarea = register_cohort_diag_field ( module_name, 'leafarea',  &
-       (/id_lon,id_lat/), time, 'leaf area per individual', 'm2', missing_value=-1.0)
+       (/id_ug/), time, 'leaf area per individual', 'm2', missing_value=-1.0)
   id_laii   = register_cohort_diag_field ( module_name, 'laii',  &
-       (/id_lon,id_lat/), time, 'leaf area index per individual', 'm2/m2', missing_value=-1.0)
+       (/id_ug/), time, 'leaf area index per individual', 'm2/m2', missing_value=-1.0)
 
   id_leaf_size = register_tiled_diag_field ( module_name, 'leaf_size',  &
-       (/id_lon,id_lat/), time, missing_value=-1.0 )
+       (/id_ug/), time, missing_value=-1.0 )
   id_root_density = register_tiled_diag_field ( module_name, 'root_density',  &
-       (/id_lon,id_lat/), time, 'total biomass below ground', 'kg/m2', missing_value=-1.0 )
+       (/id_ug/), time, 'total biomass below ground', 'kg/m2', missing_value=-1.0 )
   id_root_zeta = register_tiled_diag_field ( module_name, 'root_zeta',  &
-       (/id_lon,id_lat/), time, 'e-folding depth of root biomass', 'm',missing_value=-1.0 )
+       (/id_ug/), time, 'e-folding depth of root biomass', 'm',missing_value=-1.0 )
   id_rs_min = register_tiled_diag_field ( module_name, 'rs_min',  &
-       (/id_lon,id_lat/), time, missing_value=-1.0 )
+       (/id_ug/), time, missing_value=-1.0 )
   id_leaf_refl = register_tiled_diag_field ( module_name, 'leaf_refl',  &
-       (/id_lon,id_lat,id_band/), time, 'reflectivity of leaf', missing_value=-1.0 )
+       (/id_ug,id_band/), time, 'reflectivity of leaf', missing_value=-1.0 )
   id_leaf_tran = register_tiled_diag_field ( module_name, 'leaf_tran',  &
-       (/id_lon,id_lat,id_band/), time, 'transmittance of leaf', missing_value=-1.0 )
+       (/id_ug,id_band/), time, 'transmittance of leaf', missing_value=-1.0 )
   id_leaf_emis = register_tiled_diag_field ( module_name, 'leaf_emis',  &
-       (/id_lon,id_lat/), time, 'leaf emissivity', missing_value=-1.0 )
+       (/id_ug/), time, 'leaf emissivity', missing_value=-1.0 )
   id_snow_crit = register_tiled_diag_field ( module_name, 'snow_crit',  &
-       (/id_lon,id_lat/), time, missing_value=-1.0 )
+       (/id_ug/), time, missing_value=-1.0 )
   id_stomatal = register_tiled_diag_field ( module_name, 'stomatal_cond',  &
-       (/id_lon,id_lat/), time, 'vegetation stomatal conductance', 'm/s', missing_value=-1.0 )
+       (/id_ug/), time, 'vegetation stomatal conductance', 'm/s', missing_value=-1.0 )
   id_evap_demand = register_tiled_diag_field ( module_name, 'evap_demand',  &
-       (/id_lon,id_lat/), time, 'plant evaporative water demand',&
+       (/id_ug/), time, 'plant evaporative water demand',&
        'kg/(m2 s)', missing_value=-1e20 )
   id_an_op = register_cohort_diag_field ( module_name, 'an_op',  &
-       (/id_lon,id_lat/), time, 'net photosynthesis with open stomata', &
+       (/id_ug/), time, 'net photosynthesis with open stomata', &
        '(mol CO2)(m2 of leaf)^-1 year^-1', missing_value=-1e20)
   id_an_cl = register_cohort_diag_field ( module_name, 'an_cl',  &
-       (/id_lon,id_lat/), time, 'net photosynthesis with closed stomata', &
+       (/id_ug/), time, 'net photosynthesis with closed stomata', &
        '(mol CO2)(m2 of leaf)^-1 year^-1', missing_value=-1e20)
   id_psi_r  = register_cohort_diag_field ( module_name, 'psi_r',  &
-       (/id_lon,id_lat/), time, 'root water potential', 'MPa', missing_value=-1e20)
+       (/id_ug/), time, 'root water potential', 'MPa', missing_value=-1e20)
   id_psi_x  = register_cohort_diag_field ( module_name, 'psi_x',  &
-       (/id_lon,id_lat/), time, 'stem water potential', 'MPa', missing_value=-1e20)
+       (/id_ug/), time, 'stem water potential', 'MPa', missing_value=-1e20)
   id_psi_l  = register_cohort_diag_field ( module_name, 'psi_l', &
-       (/id_lon,id_lat/), time, 'leaf water potential', 'MPa', missing_value=-1e20)
+       (/id_ug/), time, 'leaf water potential', 'MPa', missing_value=-1e20)
   id_Kxi  = register_cohort_diag_field ( module_name, 'Kxi',  &
-       (/id_lon,id_lat/), time, 'stem conductance', 'kg/(indiv s MPa)', missing_value=-1e20)
+       (/id_ug/), time, 'stem conductance', 'kg/(indiv s MPa)', missing_value=-1e20)
   id_Kli  = register_cohort_diag_field ( module_name, 'Kli',  &
-       (/id_lon,id_lat/), time, 'leaf conductance', 'kg/(indiv s MPa)', missing_value=-1e20)
+       (/id_ug/), time, 'leaf conductance', 'kg/(indiv s MPa)', missing_value=-1e20)
   id_w_scale  = register_cohort_diag_field ( module_name, 'w_scale',  &
-       (/id_lon,id_lat/), time, 'reduction of stomatal conductance due to water stress', 'unitless', &
+       (/id_ug/), time, 'reduction of stomatal conductance due to water stress', 'unitless', &
        missing_value=-1e20)
   id_RHi  = register_cohort_diag_field ( module_name, 'RHi',  &
-       (/id_lon,id_lat/), time, 'relative humidity inside leaf', 'percent', missing_value=-1e20)
+       (/id_ug/), time, 'relative humidity inside leaf', 'percent', missing_value=-1e20)
 
   id_bl = register_cohort_diag_field ( module_name, 'bl',  &
-       (/id_lon,id_lat/), time, 'biomass of leaves', 'kg C/m2', missing_value=-1.0)
+       (/id_ug/), time, 'biomass of leaves', 'kg C/m2', missing_value=-1.0)
   id_blv = register_cohort_diag_field ( module_name, 'blv',  &
-       (/id_lon,id_lat/), time, 'biomass in labile store', 'kg C/m2', missing_value=-1.0)
+       (/id_ug/), time, 'biomass in labile store', 'kg C/m2', missing_value=-1.0)
   id_br = register_cohort_diag_field ( module_name, 'br',  &
-       (/id_lon,id_lat/), time, 'biomass of fine roots', 'kg C/m2', missing_value=-1.0)
+       (/id_ug/), time, 'biomass of fine roots', 'kg C/m2', missing_value=-1.0)
   id_bsw = register_cohort_diag_field ( module_name, 'bsw',  &
-       (/id_lon,id_lat/), time, 'biomass of sapwood', 'kg C/m2', missing_value=-1.0)
+       (/id_ug/), time, 'biomass of sapwood', 'kg C/m2', missing_value=-1.0)
   id_bwood = register_cohort_diag_field ( module_name, 'bwood',  &
-       (/id_lon,id_lat/), time, 'biomass of heartwood', 'kg C/m2', missing_value=-1.0)
+       (/id_ug/), time, 'biomass of heartwood', 'kg C/m2', missing_value=-1.0)
   id_btot = register_cohort_diag_field ( module_name, 'btot',  &
-       (/id_lon,id_lat/), time, 'total biomass', 'kg C/m2', missing_value=-1.0)
+       (/id_ug/), time, 'total biomass', 'kg C/m2', missing_value=-1.0)
   id_bseed = register_cohort_diag_field ( module_name, 'bseed',  &
-       (/id_lon,id_lat/), time, 'biomass of seed', 'kg C/m2', missing_value=-1.0)
+       (/id_ug/), time, 'biomass of seed', 'kg C/m2', missing_value=-1.0)
   id_nsc = register_cohort_diag_field ( module_name, 'nsc',  &
-       (/id_lon,id_lat/), time, 'biomass in non-structural pool', 'kg C/m2', missing_value=-1.0)
+       (/id_ug/), time, 'biomass in non-structural pool', 'kg C/m2', missing_value=-1.0)
 
   id_bl_max = register_cohort_diag_field ( module_name, 'bl_max',  &
-       (/id_lon,id_lat/), time, 'max biomass of leaves', 'kg C/m2', missing_value=-1.0)
+       (/id_ug/), time, 'max biomass of leaves', 'kg C/m2', missing_value=-1.0)
   id_br_max = register_cohort_diag_field ( module_name, 'br_max',  &
-       (/id_lon,id_lat/), time, 'max biomass of fine roots', 'kg C/m2', missing_value=-1.0)
+       (/id_ug/), time, 'max biomass of fine roots', 'kg C/m2', missing_value=-1.0)
 
 
   id_fuel = register_tiled_diag_field ( module_name, 'fuel',  &
-       (/id_lon,id_lat/), time, 'mass of fuel', 'kg C/m2', missing_value=-1.0 )
-  id_lambda = register_tiled_diag_field (module_name, 'lambda',(/id_lon,id_lat/), &
+       (/id_ug/), time, 'mass of fuel', 'kg C/m2', missing_value=-1.0 )
+  id_lambda = register_tiled_diag_field (module_name, 'lambda',(/id_ug/), &
        time, 'drought', 'months', missing_value=-100.0)
 
   id_species = register_tiled_diag_field ( module_name, 'species',  &
-       (/id_lon,id_lat/), time, 'vegetation species number', missing_value=-1.0 )
+       (/id_ug/), time, 'vegetation species number', missing_value=-1.0 )
   id_dominant_by_n = register_cohort_diag_field ( module_name, 'dominant_by_n',  &
-       (/id_lon,id_lat/), time, 'dominant vegetation species by number of individuals', missing_value=-1.0 )
+       (/id_ug/), time, 'dominant vegetation species by number of individuals', missing_value=-1.0 )
   id_dominant_by_b = register_cohort_diag_field ( module_name, 'dominant_by_b',  &
-       (/id_lon,id_lat/), time, 'dominant vegetation species by biomass', missing_value=-1.0 )
+       (/id_ug/), time, 'dominant vegetation species by biomass', missing_value=-1.0 )
   id_status = register_tiled_diag_field ( module_name, 'status',  &
-       (/id_lon,id_lat/), time, 'status of leaves', missing_value=-1.0 )
+       (/id_ug/), time, 'status of leaves', missing_value=-1.0 )
   id_theph = register_tiled_diag_field ( module_name, 'theph',  &
-       (/id_lon,id_lat/), time, 'theta for phenology', missing_value=-1.0 )
+       (/id_ug/), time, 'theta for phenology', missing_value=-1.0 )
   id_psiph = register_tiled_diag_field ( module_name, 'psiph',  &
-       (/id_lon,id_lat/), time, 'psi stress for phenology', missing_value=-1.0 )
+       (/id_ug/), time, 'psi stress for phenology', missing_value=-1.0 )
   id_leaf_age = register_tiled_diag_field ( module_name, 'leaf_age',  &
-       (/id_lon,id_lat/), time, 'age of leaves since bud burst', 'days', missing_value=-1.0 )!ens
+       (/id_ug/), time, 'age of leaves since bud burst', 'days', missing_value=-1.0 )!ens
 
-  id_con_v_h = register_tiled_diag_field ( module_name, 'con_v_h', (/id_lon,id_lat/), &
+  id_con_v_h = register_tiled_diag_field ( module_name, 'con_v_h', (/id_ug/), &
        time, 'conductance for sensible heat between canopy and canopy air', &
        'm/s', missing_value=-1.0 )
-  id_con_v_v = register_tiled_diag_field ( module_name, 'con_v_v', (/id_lon,id_lat/), &
+  id_con_v_v = register_tiled_diag_field ( module_name, 'con_v_v', (/id_ug/), &
        time, 'conductance for water vapor between canopy and canopy air', &
        'm/s', missing_value=-1.0 )
   id_soil_water_supply = register_tiled_diag_field ( module_name, 'soil_water_supply', &
-       (/id_lon, id_lat/), time, 'maximum rate of soil water supply to vegetation', &
+       (/id_ug/), time, 'maximum rate of soil water supply to vegetation', &
        'kg/(m2 s)', missing_value=-1e20)
 
-  id_cgain = register_tiled_diag_field ( module_name, 'cgain', (/id_lon,id_lat/), &
+  id_cgain = register_tiled_diag_field ( module_name, 'cgain', (/id_ug/), &
        time, 'carbon gain', 'kg C', missing_value=-100.0 )
-  id_closs = register_tiled_diag_field ( module_name, 'closs', (/id_lon,id_lat/), &
+  id_closs = register_tiled_diag_field ( module_name, 'closs', (/id_ug/), &
        time, 'carbon loss', 'kg C', missing_value=-100.0 )
-  id_wdgain = register_tiled_diag_field ( module_name, 'wdgain', (/id_lon,id_lat/), &
+  id_wdgain = register_tiled_diag_field ( module_name, 'wdgain', (/id_ug/), &
        time, 'wood biomass gain', 'kg C', missing_value=-100.0 )
 
-  id_t_ann  = register_tiled_diag_field ( module_name, 't_ann', (/id_lon,id_lat/), &
+  id_t_ann  = register_tiled_diag_field ( module_name, 't_ann', (/id_ug/), &
        time, 'annual mean temperature', 'degK', missing_value=-999.0 )
-  id_t_cold  = register_tiled_diag_field ( module_name, 't_cold', (/id_lon,id_lat/), &
+  id_t_cold  = register_tiled_diag_field ( module_name, 't_cold', (/id_ug/), &
        time, 'average temperature of the coldest month', 'degK', missing_value=-999.0 )
-  id_p_ann  = register_tiled_diag_field ( module_name, 'p_ann', (/id_lon,id_lat/), &
+  id_p_ann  = register_tiled_diag_field ( module_name, 'p_ann', (/id_ug/), &
        time, 'annual mean precipitation', 'kg/(m2 s)', missing_value=-999.0 )
-  id_ncm = register_tiled_diag_field ( module_name, 'ncm', (/id_lon,id_lat/), &
+  id_ncm = register_tiled_diag_field ( module_name, 'ncm', (/id_ug/), &
        time, 'number of cold months', 'dimensionless', missing_value=-999.0 )
 
-  id_t_harv_pool = register_tiled_diag_field( module_name, 'harv_pool', (/id_lon,id_lat/), &
+  id_t_harv_pool = register_tiled_diag_field( module_name, 'harv_pool', (/id_ug/), &
        time, 'total harvested carbon', 'kg C/m2', missing_value=-999.0)
-  id_t_harv_rate = register_tiled_diag_field( module_name, 'harv_rate', (/id_lon,id_lat/), &
+  id_t_harv_rate = register_tiled_diag_field( module_name, 'harv_rate', (/id_ug/), &
        time, 'total rate of release of harvested carbon to the atmosphere', &
        'kg C/(m2 year)', missing_value=-999.0)
   do i = 1,N_HARV_POOLS
      id_harv_pool(i) = register_tiled_diag_field( module_name, &
-          trim(HARV_POOL_NAMES(i))//'_harv_pool', (/id_lon,id_lat/), time, &
+          trim(HARV_POOL_NAMES(i))//'_harv_pool', (/id_ug/), time, &
           'harvested carbon', 'kg C/m2', missing_value=-999.0)
      id_harv_rate(i) = register_tiled_diag_field( module_name, &
-          trim(HARV_POOL_NAMES(i))//'_harv_rate', (/id_lon,id_lat/), time, &
+          trim(HARV_POOL_NAMES(i))//'_harv_rate', (/id_ug/), time, &
           'rate of release of harvested carbon to the atmosphere', 'kg C/(m2 year)', &
           missing_value=-999.0)
   enddo
 
-  id_fsc_pool_ag = register_tiled_diag_field (module_name, 'fsc_pool_ag', (/id_lon, id_lat/), &
+  id_fsc_pool_ag = register_tiled_diag_field (module_name, 'fsc_pool_ag', (/id_ug/), &
        time, 'intermediate pool of above-ground fast soil carbon', 'kg C/m2', missing_value=-999.0)
-  id_fsc_rate_ag = register_tiled_diag_field (module_name, 'fsc_rate_ag', (/id_lon, id_lat/), &
+  id_fsc_rate_ag = register_tiled_diag_field (module_name, 'fsc_rate_ag', (/id_ug/), &
        time, 'rate of conversion of above-ground fsc_pool to the fast soil_carbon', 'kg C/(m2 yr)', &
        missing_value=-999.0)
-  id_ssc_pool_ag = register_tiled_diag_field (module_name, 'ssc_pool_ag', (/id_lon, id_lat/), &
+  id_ssc_pool_ag = register_tiled_diag_field (module_name, 'ssc_pool_ag', (/id_ug/), &
        time, 'intermediate pool of above-ground slow soil carbon', 'kg C/m2', missing_value=-999.0)
-  id_ssc_rate_ag = register_tiled_diag_field (module_name, 'ssc_rate_ag', (/id_lon, id_lat/), &
+  id_ssc_rate_ag = register_tiled_diag_field (module_name, 'ssc_rate_ag', (/id_ug/), &
        time, 'rate of conversion of above-ground ssc_pool to the fast soil_carbon', 'kg C/(m2 yr)', &
        missing_value=-999.0)
-  id_leaflitter_buffer_ag = register_tiled_diag_field (module_name, 'leaflitter_buffer_ag', (/id_lon, id_lat/), &
+  id_leaflitter_buffer_ag = register_tiled_diag_field (module_name, 'leaflitter_buffer_ag', (/id_ug/), &
        time, 'intermediate pool of leaf litter carbon', 'kg C/m2', missing_value=-999.0)
-  id_leaflitter_buffer_rate_ag = register_tiled_diag_field (module_name, 'leaflitter_buffer_rate_ag', (/id_lon, id_lat/), &
+  id_leaflitter_buffer_rate_ag = register_tiled_diag_field (module_name, 'leaflitter_buffer_rate_ag', (/id_ug/), &
        time, 'rate of conversion of above-ground leaf litter buffer to the fast soil_carbon', 'kg C/(m2 yr)', &
        missing_value=-999.0)
-  id_coarsewoodlitter_buffer_ag = register_tiled_diag_field (module_name, 'coarsewoodlitter_buffer_ag', (/id_lon, id_lat/), &
+  id_coarsewoodlitter_buffer_ag = register_tiled_diag_field (module_name, 'coarsewoodlitter_buffer_ag', (/id_ug/), &
        time, 'intermediate pool of coarsewood litter carbon', 'kg C/m2', missing_value=-999.0)
-  id_coarsewoodlitter_buffer_rate_ag = register_tiled_diag_field (module_name, 'coarsewoodlitter_buffer_rate_ag', (/id_lon, id_lat/), &
+  id_coarsewoodlitter_buffer_rate_ag = register_tiled_diag_field (module_name, 'coarsewoodlitter_buffer_rate_ag', (/id_ug/), &
        time, 'rate of conversion of above-ground coarsewood litter buffer to the fast soil_carbon', 'kg C/(m2 yr)', &
        missing_value=-999.0)
-  id_fsc_pool_bg = register_tiled_diag_field (module_name, 'fsc_pool_bg', (/id_lon, id_lat/), &
+  id_fsc_pool_bg = register_tiled_diag_field (module_name, 'fsc_pool_bg', (/id_ug/), &
        time, 'intermediate pool of below-ground fast soil carbon', 'kg C/m2', missing_value=-999.0)
-  id_fsc_rate_bg = register_tiled_diag_field (module_name, 'fsc_rate_bg', (/id_lon, id_lat/), &
+  id_fsc_rate_bg = register_tiled_diag_field (module_name, 'fsc_rate_bg', (/id_ug/), &
        time, 'rate of conversion of below-ground fsc_pool to the fast soil_carbon', 'kg C/(m2 yr)', &
        missing_value=-999.0)
-  id_ssc_pool_bg = register_tiled_diag_field (module_name, 'ssc_pool_bg', (/id_lon, id_lat/), &
+  id_ssc_pool_bg = register_tiled_diag_field (module_name, 'ssc_pool_bg', (/id_ug/), &
        time, 'intermediate pool of below-ground slow soil carbon', 'kg C/m2', missing_value=-999.0)
-  id_ssc_rate_bg = register_tiled_diag_field (module_name, 'ssc_rate_bg', (/id_lon, id_lat/), &
+  id_ssc_rate_bg = register_tiled_diag_field (module_name, 'ssc_rate_bg', (/id_ug/), &
        time, 'rate of conversion of below-ground ssc_pool to the fast soil_carbon', 'kg C/(m2 yr)', &
        missing_value=-999.0)
 
-  id_csmoke_pool = register_tiled_diag_field ( module_name, 'csmoke', (/id_lon, id_lat/), &
+  id_csmoke_pool = register_tiled_diag_field ( module_name, 'csmoke', (/id_ug/), &
        time, 'carbon lost through fire', 'kg C/m2', missing_value=-999.0)
-  id_csmoke_rate = register_tiled_diag_field ( module_name, 'csmoke_rate', (/id_lon, id_lat/), &
+  id_csmoke_rate = register_tiled_diag_field ( module_name, 'csmoke_rate', (/id_ug/), &
        time, 'rate of release of carbon lost through fire to the atmosphere', &
        'kg C/(m2 yr)', missing_value=-999.0)
 
-  id_ssc_in = register_tiled_diag_field ( module_name, 'ssc_in',  (/id_lon, id_lat/), &
+  id_ssc_in = register_tiled_diag_field ( module_name, 'ssc_in',  (/id_ug/), &
      time,  'soil slow carbon in', 'kg C/m2', missing_value=-999.0 )
-  id_ssc_out = register_tiled_diag_field ( module_name, 'ssc_out',  (/id_lon, id_lat/), &
+  id_ssc_out = register_tiled_diag_field ( module_name, 'ssc_out',  (/id_ug/), &
      time,  'soil slow carbon out', 'kg C/m2', missing_value=-999.0 )
-  id_deadmic_out = register_tiled_diag_field ( module_name, 'deadmic_out',  (/id_lon, id_lat/), &
+  id_deadmic_out = register_tiled_diag_field ( module_name, 'deadmic_out',  (/id_ug/), &
      time,  'daed microbe carbon out', 'kg C/m2', missing_value=-999.0 )
-  id_fsc_in = register_tiled_diag_field ( module_name, 'fsc_in',  (/id_lon, id_lat/), &
+  id_fsc_in = register_tiled_diag_field ( module_name, 'fsc_in',  (/id_ug/), &
      time,  'soil fast carbon in', 'kg C/m2', missing_value=-999.0 )
-  id_fsc_out = register_tiled_diag_field ( module_name, 'fsc_out',  (/id_lon, id_lat/), &
+  id_fsc_out = register_tiled_diag_field ( module_name, 'fsc_out',  (/id_ug/), &
      time,  'soil fast carbon out', 'kg C/m2', missing_value=-999.0 )
-  id_veg_in = register_tiled_diag_field ( module_name, 'veg_in',  (/id_lon, id_lat/), &
+  id_veg_in = register_tiled_diag_field ( module_name, 'veg_in',  (/id_ug/), &
      time,  'vegetation carbon in', 'kg C/m2', missing_value=-999.0 )
-  id_veg_out = register_tiled_diag_field ( module_name, 'veg_out',  (/id_lon, id_lat/), &
+  id_veg_out = register_tiled_diag_field ( module_name, 'veg_out',  (/id_ug/), &
      time,  'vegetation carbon out', 'kg C/m2', missing_value=-999.0 )
 
-  id_afire = register_tiled_diag_field (module_name, 'afire', (/id_lon,id_lat/), &
+  id_afire = register_tiled_diag_field (module_name, 'afire', (/id_ug/), &
        time, 'area been fired', missing_value=-100.0)
-  id_atfall = register_tiled_diag_field (module_name, 'atfall',(/id_lon,id_lat/), &
+  id_atfall = register_tiled_diag_field (module_name, 'atfall',(/id_ug/), &
        time, 'area been disturbed', missing_value=-100.0)
 
-  id_gdd = register_tiled_diag_field (module_name, 'gdd', (/id_lon,id_lat/), &
+  id_gdd = register_tiled_diag_field (module_name, 'gdd', (/id_ug/), &
        time, 'growing degree days','degK day', missing_value=-999.0)
-  id_tc_pheno = register_tiled_diag_field (module_name, 'tc_pheno', (/id_lon,id_lat/), &
+  id_tc_pheno = register_tiled_diag_field (module_name, 'tc_pheno', (/id_ug/), &
        time, 'smoothed canopy air temperature for phenology','degK', missing_value=-999.0)
 
-  id_phot_co2 = register_tiled_diag_field (module_name, 'qco2_phot',(/id_lon,id_lat/), &
+  id_phot_co2 = register_tiled_diag_field (module_name, 'qco2_phot',(/id_ug/), &
        time, 'CO2 mixing ratio for photosynthesis calculations', 'mol CO2/mol dry air', &
        missing_value=-1.0)
 
-  id_zstar_1 = register_tiled_diag_field (module_name, 'zstar_1',(/id_lon,id_lat/), &
+  id_zstar_1 = register_tiled_diag_field (module_name, 'zstar_1',(/id_ug/), &
        time, 'critical depth for the top layer', 'm', &
        missing_value=-1.0)
 end subroutine
@@ -883,7 +871,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
 
   ! ---- local vars
   integer ::  i, j
-  type(land_tile_enum_type) :: ce, te
+  type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
   integer :: n_accum, nmn_acm
 
@@ -894,7 +882,6 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
 
   call error_mesg('vegn_end','writing NetCDF restart',NOTE)
 
-  call set_domain(lnd%domain) ! must set domain so that io_domain is available
   ! create output file, including internal structure necessary for tile output
   filename = trim(timestamp)//'vegn1.res.nc'
   call init_land_restart(restart1, filename, vegn_tile_exists, tile_dim_length)
@@ -931,9 +918,8 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   ! store global variables
   ! find first tile and get n_accum and nmn_acm from it
   n_accum = 0; nmn_acm = 0
-  ce = first_elmt(land_tile_map) ; te = tail_elmt(land_tile_map)
-  do while ( ce /= te )
-     tile => current_tile(ce) ; ce=next_elmt(ce)
+  ce = first_elmt(land_tile_map)
+  do while (loop_over_tiles(ce,tile))
      if(associated(tile%vegn)) then
         n_accum = tile%vegn%n_accum
         nmn_acm = tile%vegn%nmn_acm
@@ -1049,7 +1035,6 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
 
   call save_land_restart(restart2)
   call free_land_restart(restart2)
-  call nullify_domain()
 end subroutine save_vegn_restart
 
 
@@ -1846,9 +1831,9 @@ subroutine update_vegn_slow( )
 
   ! ---- local vars ----------------------------------------------------------
   integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
-  type(land_tile_enum_type) :: ce, te
+  type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
-  integer :: i,j,k ! current point indices
+  integer :: i,j,k,l ! current point indices
   integer :: ii ! pool and cohort iterator
   integer :: N ! number of cohorts
   integer :: steps_per_day ! number of fast time steps per day
@@ -1875,10 +1860,9 @@ subroutine update_vegn_slow( )
      call error_mesg('update_vegn_slow',trim(str),NOTE)
   endif
 
-  ce = first_elmt(land_tile_map, lnd%is, lnd%js) ; te = tail_elmt(land_tile_map)
-  do while ( ce /= te )
-     call get_elmt_indices(ce,i,j,k) ; call set_current_point(i,j,k) ! this is for debug output only
-     tile => current_tile(ce) ; ce=next_elmt(ce)
+  ce = first_elmt(land_tile_map, lnd%ls)
+  do while (loop_over_tiles(ce,tile,l,k))
+     call set_current_point(l,k) ! this is for debug output only
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
 
      if (do_check_conservation) then
@@ -2236,23 +2220,22 @@ end subroutine check_conservation_2
 subroutine vegn_seed_transport()
 
   ! local vars
-  type(land_tile_enum_type) :: ce, te
+  type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
-  integer :: i,j ! current point indices
+  integer ::  l ! current point index
   real :: total_seed_supply
   real :: total_seed_demand
   real :: f_supply ! fraction of the supply that gets spent
   real :: f_demand ! fraction of the demand that gets satisfied
 
-  ce = first_elmt(land_tile_map, lnd%is, lnd%js) ; te = tail_elmt(land_tile_map)
   total_seed_supply = 0.0; total_seed_demand = 0.0
-  do while ( ce /= te )
-     call get_elmt_indices(ce,i,j)
+  ce = first_elmt(land_tile_map, lnd%ls)
+  do while (loop_over_tiles(ce,tile,l))
      tile => current_tile(ce) ; ce=next_elmt(ce)
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
 
-     total_seed_supply = total_seed_supply + vegn_seed_supply(tile%vegn)*tile%frac*lnd%area(i,j)
-     total_seed_demand = total_seed_demand + vegn_seed_demand(tile%vegn)*tile%frac*lnd%area(i,j)
+     total_seed_supply = total_seed_supply + vegn_seed_supply(tile%vegn)*tile%frac*lnd%ug_area(l)
+     total_seed_demand = total_seed_demand + vegn_seed_demand(tile%vegn)*tile%frac*lnd%ug_area(l)
   enddo
   ! sum totals globally
   call mpp_sum(total_seed_demand, pelist=lnd%pelist)
@@ -2272,10 +2255,8 @@ subroutine vegn_seed_transport()
 
   ! redistribute part (or possibly all) of the supply to satisfy part (or possibly all) 
   ! of the demand
-  ce = first_elmt(land_tile_map) ; te = tail_elmt(land_tile_map)
-  do while ( ce /= te )
-     call get_elmt_indices(ce,i,j)
-     tile => current_tile(ce) ; ce=next_elmt(ce)
+  ce = first_elmt(land_tile_map)
+  do while (loop_over_tiles(ce,tile))
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
      
      call vegn_add_bliving(tile%vegn, &
@@ -2327,11 +2308,8 @@ subroutine read_remap_species(restart)
   ! Go through all tiles and initialize the cohorts that have not been initialized yet --
   ! this allows to read partial restarts. Also initialize accumulation counters to zero
   ! or the values from the restarts.
-  te = tail_elmt(land_tile_map)
-  ce = first_elmt(land_tile_map, is=lnd%is, js=lnd%js)
-  do while(ce /= te)
-     tile=>current_tile(ce)  ! get pointer to current tile
-     ce=next_elmt(ce)        ! advance position to the next tile
+  ce = first_elmt(land_tile_map, ls=lnd%is)
+  do while(loop_over_tiles(ce,tile))
      if (.not.associated(tile%vegn)) cycle
      if (tile%vegn%n_cohorts<=0) cycle ! skip uninitialized tiles
      do i = 1,tile%vegn%n_cohorts

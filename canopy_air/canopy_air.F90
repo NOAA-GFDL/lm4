@@ -13,8 +13,7 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only : error_mesg, FATAL, NOTE, file_exist, &
      close_file, check_nml_error, mpp_pe, mpp_root_pe, stdlog, string
-use fms_io_mod, only : set_domain, nullify_domain
-use constants_mod, only : rdgas, rvgas, cp_air, PI, VONKARM
+use constants_mod, only : VONKARM
 use field_manager_mod, only : parse, MODEL_ATMOS, MODEL_LAND
 use tracer_manager_mod, only : get_tracer_index, get_tracer_names, &
      query_method, NO_TRACER
@@ -24,8 +23,8 @@ use land_tracers_mod, only : ntcana, isphum, ico2
 use cana_tile_mod, only : cana_tile_type, &
      canopy_air_mass, canopy_air_mass_for_tracers, cpw
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
-use land_data_mod, only : lnd, log_version
+     first_elmt, loop_over_tiles
+use land_data_mod, only : log_version
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_tile_data, get_tile_data, field_exists
@@ -69,7 +68,7 @@ namelist /cana_nml/ &
 !---- end of namelist --------------------------------------------------------
 
 logical :: module_is_initialized =.FALSE.
-integer :: turbulence_option ! selected option of turbulence parameters 
+integer :: turbulence_option ! selected option of turbulence parameters
      ! calculations
 
 contains
@@ -89,7 +88,7 @@ subroutine read_cana_namelist()
 #else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
-     ierr = 1;  
+     ierr = 1;
      do while (ierr /= 0)
         read (unit, nml=cana_nml, iostat=io, end=10)
         ierr = check_nml_error (io, 'cana_nml')
@@ -106,9 +105,7 @@ end subroutine read_cana_namelist
 
 ! ============================================================================
 ! initialize canopy air
-subroutine cana_init ( id_lon, id_lat )
-  integer, intent(in)          :: id_lon  ! ID of land longitude (X) axis  
-  integer, intent(in)          :: id_lat  ! ID of land latitude (Y) axis
+subroutine cana_init ()
 
   ! ---- local vars ----------------------------------------------------------
   type(land_tile_enum_type)     :: te,ce ! last and current tile
@@ -130,7 +127,7 @@ subroutine cana_init ( id_lon, id_lat )
   ! get the initial conditions for tracers
 
   ! For  now, we get the initial value from the surface_value parameter of the
-  ! *atmospheric* tracer vertical profile, except for co2 and sphum. init_q in 
+  ! *atmospheric* tracer vertical profile, except for co2 and sphum. init_q in
   ! the cana_nml sets the initial value of the specific humidity, and init_co2
   ! sets the initial value of the dry volumetric mixing ration for co2.
   ! If surface_value is not defined in tracer table, then initial condition is zero
@@ -148,16 +145,12 @@ subroutine cana_init ( id_lon, id_lat )
   enddo
   init_tr(isphum) = init_q
   init_tr(ico2)   = init_co2*mol_CO2/mol_air*(1-init_tr(isphum)) ! convert to kg CO2/kg wet air
-  
+
   ! first, set the initial values
-  te = tail_elmt (land_tile_map)
   ce = first_elmt(land_tile_map)
-  do while(ce /= te)
-     tile=>current_tile(ce)  ! get pointer to current tile
-     ce=next_elmt(ce)       ! advance position to the next tile
-     
+  do while(loop_over_tiles(ce, tile))
      if (.not.associated(tile%cana)) cycle
-     
+
      if (associated(tile%glac)) then
         tile%cana%T = init_T_cold
      else
@@ -190,7 +183,7 @@ subroutine cana_init ( id_lon, id_lat )
   endif
   call free_land_restart(restart)
 
-  ! initialize options, to avoid expensive character comparisons during 
+  ! initialize options, to avoid expensive character comparisons during
   ! run-time
   if (trim(turbulence_to_use)=='lm3v') then
      turbulence_option = TURB_LM3V
@@ -220,11 +213,9 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
   type(land_restart_type) :: restart ! restart file i/o object
   character(len=32)  :: name,units
   character(len=128) :: longname
-  integer :: tr 
+  integer :: tr
 
   call error_mesg('cana_end','writing NetCDF restart',NOTE)
-! must set domain so that io_domain is available
-  call set_domain(lnd%domain)
 ! Note that filename is updated for tile & rank numbers during file creation
   filename = trim(timestamp)//'cana.res.nc'
   call init_land_restart(restart, filename, cana_tile_exists, tile_dim_length)
@@ -238,7 +229,6 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
   enddo
   call save_land_restart(restart)
   call free_land_restart(restart)
-  call nullify_domain()
 end subroutine save_cana_restart
 
 ! ============================================================================
@@ -248,7 +238,7 @@ subroutine cana_turbulence (u_star,&
      con_v_h, con_v_v, con_g_h, con_g_v )
   real, intent(in) :: &
        u_star, & ! friction velocity, m/s
-       land_d, land_z0m, land_z0s, grnd_z0s, & 
+       land_d, land_z0m, land_z0s, grnd_z0s, &
        vegn_cover, vegn_height(:), vegn_layerfrac(:), &
        vegn_bottom(:), & ! height of the bottom of the canopy, m
        vegn_lai(:), vegn_sai(:), vegn_d_leaf(:)
@@ -262,7 +252,7 @@ subroutine cana_turbulence (u_star,&
                                     ! leaf_co = g_b(z)/sqrt(wind(z)/d_leaf)
   real, parameter :: min_thickness = 0.01 ! thickness for switching to thin-canopy approximation, m
   real, parameter :: min_height = 0.1 ! min height of the canopy in TURB_LM3V case, m
-  ! ---- local vars 
+  ! ---- local vars
   real :: a        ! parameter of exponential wind profile within canopy:
                    ! u = u(ztop)*exp(-a*(1-z/ztop))
   real :: height   ! height of the current vegetation cohort, m
@@ -283,7 +273,7 @@ subroutine cana_turbulence (u_star,&
   case(TURB_LM3W)
      if(vegn_cover > 0) then
         ztop   = vegn_height(1)
-        
+
         wind  = u_star/VONKARM*log((ztop-land_d)/land_z0m) ! normalized wind on top of the canopy
         a     = vegn_cover*a_max
         do i = 1,size(vegn_lai)
@@ -307,10 +297,10 @@ subroutine cana_turbulence (u_star,&
      con_v_v = con_v_h
   case(TURB_LM3V)
      ztop = max(vegn_height(1),min_height)
-     
+
      a = a_max
      wind=u_star/VONKARM*log((ztop-land_d)/land_z0m) ! normalized wind on top of the canopy
-  
+
      do i = 1,size(vegn_lai)
         height = max(vegn_height(i),min_height) ! effective height of the vegetation
         h0     = vegn_bottom(i) ! height of the canopy bottom above ground
@@ -381,7 +371,7 @@ subroutine cana_roughness(lm2, &
   real, parameter :: d_h_max = 2./3.
   real, parameter :: z0m_h_max = 1/7.35
 
-  ! ---- local vars 
+  ! ---- local vars
   real :: d_h      ! ratio of displacement height to vegetation height
   real :: z0m_h    ! ratio of roughness length to vegetation height
   real :: grnd_z0m, grnd_z0s
@@ -417,7 +407,7 @@ subroutine cana_roughness(lm2, &
         land_z0m = grnd_z0m
         land_z0s = grnd_z0s
      endif
-     
+
   case(TURB_LM3V)
      height = max(vegn_height,0.1) ! effective height of the vegetation
      vegn_idx = vegn_lai+vegn_sai  ! total vegetation index
@@ -428,11 +418,11 @@ subroutine cana_roughness(lm2, &
         else
            land_z0m = grnd_z0m + 0.3*height*sqrt(0.07*vegn_idx)
         endif
-     else 
+     else
         land_d   = 0
         land_z0m = grnd_z0m
      endif
-     land_z0s = land_z0m*exp(-2.0) 
+     land_z0s = land_z0m*exp(-2.0)
 
   end select
 
@@ -446,7 +436,7 @@ subroutine cana_state ( cana, cana_T, cana_q, cana_co2 )
   if (present(cana_T))   cana_T   = cana%T
   if (present(cana_q))   cana_q   = cana%tr(isphum)
   if (present(cana_co2)) cana_co2 = cana%tr(ico2)
-  
+
 end subroutine cana_state
 
 ! ============================================================================

@@ -21,7 +21,7 @@ use land_tile_mod,   only : land_tile_map, land_tile_type, land_tile_enum_type, 
      empty, first_elmt, tail_elmt, next_elmt, merge_land_tile_into_list, &
      current_tile, operator(==), operator(/=), remove, insert, new_land_tile, &
      land_tile_heat, land_tile_carbon, get_tile_water, nitems
-use land_data_mod,   only : lnd
+use land_data_mod,   only : lnd, log_version
 use soil_carbon_mod, only : add_litter, soil_carbon_option, &
      SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, N_C_TYPES, C_CEL
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
@@ -39,6 +39,9 @@ public :: kill_plants_ppa
 ! =====end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
+character(len=*), parameter :: module_name = 'vegn_disturbance_mod'
+#include "../shared/version_variable.inc"
+
 ! TODO: possibly move all definition of cpw,clw,csw in one place
 real, parameter :: &
      cpw = 1952.0, & ! specific heat of water vapor at constant pressure
@@ -46,6 +49,12 @@ real, parameter :: &
      csw = 2106.0    ! specific heat of water (ice)
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+! =============================================================================
+subroutine vegn_disturbance_init()
+  call log_version(version, module_name, &
+  __FILE__)
+end subroutine vegn_disturbance_init
 
 subroutine vegn_disturbance(vegn, soil, dt)
   type(vegn_tile_type), intent(inout) :: vegn ! vegetation data
@@ -297,7 +306,7 @@ subroutine vegn_nat_mortality_ppa ( )
   type(land_tile_type), pointer :: t0,t1
   type(land_tile_enum_type) :: ts, te
   type(land_tile_list_type) :: disturbed_tiles
-  integer :: i,j,k
+  integer :: k,l
   real, allocatable :: ndead(:)
   ! variable used for conservation check:
   type(land_tile_type), pointer :: ptr
@@ -314,17 +323,16 @@ subroutine vegn_nat_mortality_ppa ( )
 
   call land_tile_list_init(disturbed_tiles)
 
-  do j = lnd%js,lnd%je
-  do i = lnd%is,lnd%ie
-     if(empty(land_tile_map(i,j))) cycle ! skip cells where there is no land
+  do l = lnd%ls,lnd%le
+     if(empty(land_tile_map(l))) cycle ! skip cells where there is no land
      ! set current point for debugging
-     call set_current_point(i,j,1)
+     call set_current_point(l,1)
 
      if (do_check_conservation) then
         ! conservation check code, part 1: calculate the pre-transition grid
         ! cell totals
         lmass0 = 0 ; fmass0 = 0 ; cmass0 = 0 ; heat0 = 0
-        ts = first_elmt(land_tile_map(i,j)) ; te=tail_elmt(land_tile_map(i,j))
+        ts = first_elmt(land_tile_map(l)) ; te=tail_elmt(land_tile_map(l))
         do while (ts /= te)
            ptr=>current_tile(ts); ts=next_elmt(ts)
            call get_tile_water(ptr,lm,fm)
@@ -334,7 +342,7 @@ subroutine vegn_nat_mortality_ppa ( )
         enddo
      endif
 
-     ts = first_elmt(land_tile_map(i,j)) ; te=tail_elmt(land_tile_map(i,j))
+     ts = first_elmt(land_tile_map(l)) ; te=tail_elmt(land_tile_map(l))
      do while (ts /= te)
         t0=>current_tile(ts); ts=next_elmt(ts)
         if (.not.associated(t0%vegn)) cycle ! do nothing for non-vegetated cycles
@@ -350,7 +358,7 @@ subroutine vegn_nat_mortality_ppa ( )
      enddo
      if (is_watch_cell()) then
         write(*,*) '#### vegn_nat_mortality_ppa ####'
-        write(*,*) 'N tiles before merge = ', nitems(land_tile_map(i,j))
+        write(*,*) 'N tiles before merge = ', nitems(land_tile_map(l))
         write(*,*) 'N of disturbed tiles = ',    nitems(disturbed_tiles)
      endif
      ! merge disturbed tiles back into the original list
@@ -359,10 +367,10 @@ subroutine vegn_nat_mortality_ppa ( )
         ts = first_elmt(disturbed_tiles)
         if (ts == te) exit ! reached the end of the list
         t0=>current_tile(ts)
-        call remove(ts) ; call merge_land_tile_into_list(t0,land_tile_map(i,j))
+        call remove(ts) ; call merge_land_tile_into_list(t0,land_tile_map(l))
      enddo
      if (is_watch_cell()) then
-        write(*,*) 'N tiles after merge = ', nitems(land_tile_map(i,j))
+        write(*,*) 'N tiles after merge = ', nitems(land_tile_map(l))
      endif
      ! at this point the list of disturbed tiles must be empty
      if (.not.empty(disturbed_tiles)) call error_mesg('vegn_nat_mortality_ppa', &
@@ -372,7 +380,7 @@ subroutine vegn_nat_mortality_ppa ( )
         ! conservation check part 2: calculate grid cell totals in final state, and
         ! compare them with pre-transition totals
         lmass1 = 0 ; fmass1 = 0 ; cmass1 = 0 ; heat1 = 0
-        ts = first_elmt(land_tile_map(i,j)) ; te=tail_elmt(land_tile_map(i,j))
+        ts = first_elmt(land_tile_map(l)) ; te=tail_elmt(land_tile_map(l))
         do while (ts /= te)
            ptr=>current_tile(ts); ts=next_elmt(ts)
            call get_tile_water(ptr,lm,fm)
@@ -385,7 +393,6 @@ subroutine vegn_nat_mortality_ppa ( )
         call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
         call check_conservation (tag,'heat content', heat0 , heat1 , heat_cons_tol)
      endif
-  enddo
   enddo
 
   call land_tile_list_end(disturbed_tiles)

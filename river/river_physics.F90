@@ -1,20 +1,20 @@
-module river_physics_mod 
+module river_physics_mod
 
 !-----------------------------------------------------------------------
-!                   GNU General Public License                        
-!                                                                      
-! This program is free software; you can redistribute it and/or modify it and  
-! are expected to follow the terms of the GNU General Public License  
-! as published by the Free Software Foundation; either version 2 of   
-! the License, or (at your option) any later version.                 
-!                                                                      
-! For the full text of the GNU General Public License,               
-! write to: Free Software Foundation, Inc.,                           
-!           675 Mass Ave, Cambridge, MA 02139, USA.                   
-! or see:   http://www.gnu.org/licenses/gpl.html                      
+!                   GNU General Public License
+!
+! This program is free software; you can redistribute it and/or modify it and
+! are expected to follow the terms of the GNU General Public License
+! as published by the Free Software Foundation; either version 2 of
+! the License, or (at your option) any later version.
+!
+! For the full text of the GNU General Public License,
+! write to: Free Software Foundation, Inc.,
+!           675 Mass Ave, Cambridge, MA 02139, USA.
+! or see:   http://www.gnu.org/licenses/gpl.html
 !-----------------------------------------------------------------------
-! <CONTACT EMAIL="klf@gfdl.noaa.gov"> Kirsten Findell </CONTACT> 
-! <CONTACT EMAIL="z1l@gfdl.noaa.gov"> Zhi Liang </CONTACT> 
+! <CONTACT EMAIL="klf@gfdl.noaa.gov"> Kirsten Findell </CONTACT>
+! <CONTACT EMAIL="z1l@gfdl.noaa.gov"> Zhi Liang </CONTACT>
 
 #ifdef INTERNAL_FILE_NML
   use mpp_mod, only: input_nml_file
@@ -27,7 +27,7 @@ module river_physics_mod
   use mpp_mod,         only : mpp_root_pe, mpp_pe, mpp_max
   use mpp_mod,         only : COMM_TAG_1, COMM_TAG_2, COMM_TAG_3, COMM_TAG_4
   use mpp_domains_mod, only : domain2d, mpp_get_compute_domain, mpp_get_data_domain
-  use mpp_domains_mod, only : ZERO, NINETY, MINUS_NINETY, mpp_update_domains 
+  use mpp_domains_mod, only : ZERO, NINETY, MINUS_NINETY, mpp_update_domains
   use mpp_domains_mod, only : mpp_get_compute_domains
   use mpp_domains_mod, only : mpp_get_num_overlap, mpp_get_overlap
   use mpp_domains_mod, only : mpp_get_update_size, mpp_get_update_pelist
@@ -96,7 +96,7 @@ character(len=*), parameter :: module_name = 'river_physics'
   integer                          :: maxtravel
   integer                          :: npes
   integer                          :: num_species
- 
+
   type comm_type
      integer          :: count
      integer          :: pe
@@ -154,7 +154,7 @@ contains
     call log_version(version, module_name, &
     __FILE__)
     unit=stdlog()
-    write (unit, river_physics_nml)  
+    write (unit, river_physics_nml)
 
     npes     = mpp_npes()
 
@@ -166,7 +166,7 @@ contains
     maxtravel = maxval(River%travel)
     call mpp_max(maxtravel)
 
-!--- set up the halo update 
+!--- set up the halo update
     call setup_halo_update(River, domain)
 
     River%i_tocell = NO_RIVER_FLAG; River%j_tocell = NO_RIVER_FLAG
@@ -178,20 +178,13 @@ contains
           end if
        end do
     end do
- 
+
     ! ---- register diagnostic fields
     id_ice  = register_diag_field ( 'river', 'rv_ice', (/id_lon, id_lat/), &
          River%Time, 'river ice mass fraction', '-', missing_value=missing, &
          mask_variant=.TRUE. )
     id_temp = register_diag_field ( 'river', 'rv_T', (/id_lon, id_lat/), &
          River%Time, 'river temperature', 'K', missing_value=missing, &
-         mask_variant=.TRUE. )
-
-    id_ice_old = register_diag_field ( 'river', 'ice', (/id_lon, id_lat/), &
-         River%Time, 'obsolete, pls use rv_ice', '-', missing_value=missing, &
-         mask_variant=.TRUE. )
-    id_temp_old = register_diag_field ( 'river', 'temp', (/id_lon, id_lat/), &
-         River%Time, 'obsolete, pls use rv_T', 'K', missing_value=missing, &
          mask_variant=.TRUE. )
   end subroutine river_physics_init
 
@@ -224,16 +217,16 @@ contains
     logical, dimension(isc:iec,jsc:jec) :: &
          diag_mask ! mask of valid ice and temperature values fo diagnostics
     real, dimension(isc:iec,jsc:jec) :: &
-         ice, temperature ! variables for diag output (were in River_type) 
+         ice, temperature ! variables for diag output (were in River_type)
     logical :: used ! flag returned by the send_data
 
     ! invalidate diag_mask everywhere
     diag_mask = .FALSE.
 
     ! do for all cells at current number of steps from river mouth
-    do j = jsc, jec 
+    do j = jsc, jec
       do i = isc, iec
-        call set_current_point(i,j,1) ! for debug output
+        call set_current_point(i,j,1,0) ! for debug output
         if (River%travel(i,j)==cur_travel.and.&
             ((.not.zero_frac_bug).or.(River%landfrac(i,j).gt.0))) then
             ! if zero_frac_bug is FALSE, the second line of condition is
@@ -242,7 +235,7 @@ contains
             ! River%landfrac(i,j).gt.0, so we get quebec (buggy) condition
 
             ! FIRST COMPUTE LAKE MASS BALANCE (FROM INFLOC AND INFLOW TO LAKE_OUTFLOW)
-          
+
             lake_area = lake_sfc_A(i,j)
             influx   =(River%inflow  (i,j)  +River%infloc  (i,j))  *DENS_H2O*River%dt_slow
             influx_c =(River%inflow_c(i,j,:)+River%infloc_c(i,j,:))*DENS_H2O*River%dt_slow
@@ -250,7 +243,7 @@ contains
 !            ! ZMS Simple update for storage_c. Skip over lakes.
             if (River%num_c > 0) then
 !               River%storage_c(i,j,River%num_phys+1:River%num_species) = &
-!                     River%storage_c(i,j,River%num_phys+1:River%num_species) + influx_c(River%num_phys+1:River%num_species)        
+!                     River%storage_c(i,j,River%num_phys+1:River%num_species) + influx_c(River%num_phys+1:River%num_species)
 
                if (is_watch_cell()) then
                   write(*,*)'infloc_c(num_phys+1:num_species), inflow_c(numphys+1:num_species) for watch_cell:', &
@@ -390,7 +383,7 @@ contains
             end if
 
             ! NEXT COMPUTE RIVER-REACH MASS BALANCE (FROM LAKE_OUTFLOW TO OUTFLOW)
-          
+
             if (River%tocell(i,j).gt.0 .or. River%landfrac(i,j).lt.1.) then
                 ! avail is volume to be split between outflow and new storage
                 avail = River%storage(i,j) + River%lake_outflow(i,j) / DENS_H2O
@@ -417,7 +410,7 @@ contains
                              (River%lake_outflow(i,j)/(DENS_H2O*River%dt_slow)-Q0) &
                              /(1.+dQ_dV*(River%dt_slow+lake_whole_area(i,j)*dh_dQ))
                         endif
-                      else if (algor.eq.'nonlin') then   ! assume all inflow at start of step 
+                      else if (algor.eq.'nonlin') then   ! assume all inflow at start of step
                         if (avail .gt. 0.) then
                             River%storage(i,j) = (avail**(1.-River%o_exp) &
                                  + River%o_coef(i,j)*(River%o_exp-1.)*River%dt_slow) &
@@ -491,7 +484,7 @@ contains
                     conc(1) = River%storage_c(i,j,1)/River%storage(i,j)
                     conc(2) = tfreeze + River%storage_c(i,j,2) /  &
                        ( clw*River%storage(i,j) + (csw-clw)*River%storage_c(i,j,1))
-                    diag_mask(i,j) = .TRUE. 
+                    diag_mask(i,j) = .TRUE.
                   else
                     conc(1) = missing
                     conc(2) = missing
@@ -540,7 +533,7 @@ contains
               endif
 
             ! FINALLY, REDEFINE OUTFLOW AS DISCHARGE IF WE HAVE OCEAN HERE
-          
+
             if (River%landfrac(i,j).lt.1.) then
                 River%disw2o(i,j) = River%outflow(i,j)
                 River%outflow(i,j) = 0.
@@ -554,21 +547,16 @@ contains
         enddo
       enddo
 
-    
+
 
     if (cur_travel .gt. 0) call do_halo_update(River, halo_update(cur_travel))
-    
+
     ! ---- diagnostic section
     if (id_ice > 0) used = send_data (id_ice, &
          ice(isc:iec,jsc:jec), River%Time, mask=diag_mask)
     if (id_temp > 0) used = send_data (id_temp, &
          temperature(isc:iec,jsc:jec), River%Time, mask=diag_mask)
     ! for compatibility with old diag table
-    if (id_ice_old > 0) used = send_data (id_ice_old, &
-         ice(isc:iec,jsc:jec), River%Time, mask=diag_mask)
-    if (id_temp_old > 0) used = send_data (id_temp_old, &
-         temperature(isc:iec,jsc:jec), River%Time, mask=diag_mask)
-
   end subroutine river_physics_step
 
 !#####################################################################
@@ -592,13 +580,13 @@ contains
     integer, allocatable, dimension(:,:) :: rot_send, rot_recv, dir_send, dir_recv
     integer, allocatable, dimension(:)   :: send_pelist, recv_pelist, pelist_r, pelist_s
     integer, allocatable, dimension(:)   :: send_count, recv_count, recv_size2
-    integer, allocatable, dimension(:)   :: isl, iel, jsl, jel  
+    integer, allocatable, dimension(:)   :: isl, iel, jsl, jel
     integer, allocatable, dimension(:)   :: sbuf, rbuf
     type(comm_type), pointer             :: send => NULL()
     integer, allocatable, dimension(:,:,:) :: i_send, j_send, t_send, p_send, n_send
 
     call mpp_get_data_domain   (domain, isd, ied, jsd, jed)
-    
+
     !--- first get the travel and tocell information onto data domain
     allocate(tocell(isd:ied,jsd:jed))
     allocate(isl(0:npes-1), iel(0:npes-1), jsl(0:npes-1), jel(0:npes-1) )
@@ -630,7 +618,7 @@ contains
        total_recv = sum(recv_count)
        allocate(sbuf(4*total_recv))
     endif
- 
+
     !--- pre-post recv
     rpos = 0
     if(nsend > 0) then
@@ -642,7 +630,7 @@ contains
        allocate(js2_send(nsend,max_send), je2_send(nsend,max_send) )
        allocate(dir_send(nsend,max_send), rot_send(nsend,max_send) )
        call mpp_get_update_pelist(domain, EVENT_SEND, pelist_s)
-       do p = 1, nsend    
+       do p = 1, nsend
           call mpp_get_overlap(domain, EVENT_SEND, p, is1_send(p,1:send_count(p)), ie1_send(p,1:send_count(p)), &
                js1_send(p,1:send_count(p)), je1_send(p,1:send_count(p)), dir_send(p,1:send_count(p)), &
                rot_send(p,1:send_count(p)) )
@@ -686,7 +674,7 @@ contains
           je2_send(p,n) = rbuf(rpos+(n-1)*4+4)
        end do
     end do
-        
+
     call mpp_sync_self()
 
     is_my_recv = .false.
@@ -768,7 +756,7 @@ contains
        !--- (i1,j1) --- neighbor index of (i,j) on the pe sent to, on neighbor pe compute domain
        !--- (i2,j2) --- my index corresponding to (i,j), on my compute domain
        !--- (i3,j3) --- neighbor index of (i2,j2), on my data domain
-       !--- (i4,j4) --- index of (i1,j1) tocell. 
+       !--- (i4,j4) --- index of (i1,j1) tocell.
        do n = 1, send_count(p)
           select case ( dir_send(p,n) )
           case(1)  ! east
@@ -793,7 +781,7 @@ contains
                    if(River%travel(i3,j3) >0) then
                       toc = tocell(i3,j3)
                       i4 = i1 + di(toc)
-                      j4 = j1 + dj(toc) 
+                      j4 = j1 + dj(toc)
                       if(i4 == i .AND. j4 == j) then
                          call add_single_overlap(halo_update(River%travel(i3,j3))%recv(p+roff), i2, j2)
                       end if
@@ -808,7 +796,7 @@ contains
              i2 = is1_send(p,n)  ! is1_send(p,n) == ie1_send(p,n)
              j2 = js1_send(p,n)  ! js1_send(p,n) == je1_send(p,n)
              select case(rot_send(p,n))
-             case (ZERO) ! nw->se 
+             case (ZERO) ! nw->se
                 i3 = i2 - 1
                 j3 = j2 + 1
              case (NINETY)
@@ -817,11 +805,11 @@ contains
              case (MINUS_NINETY)
                 i3 = i2 + 1
                 j3 = j2 + 1
-             end select  
+             end select
              if(River%travel(i3,j3) >0) then
                 toc = tocell(i3,j3)
                 i4 = i1 + di(toc)
-                j4 = j1 + dj(toc) 
+                j4 = j1 + dj(toc)
                 if(i4 == i .AND. j4 == j) then
                    call add_single_overlap(halo_update(River%travel(i3,j3))%recv(p+roff), i2, j2)
                 end if
@@ -848,7 +836,7 @@ contains
                    if(River%travel(i3,j3) >0) then
                       toc = tocell(i3,j3)
                       i4 = i1 + di(toc)
-                      j4 = j1 + dj(toc) 
+                      j4 = j1 + dj(toc)
                       if(i4 == i .AND. j4 == j) then
                          call add_single_overlap(halo_update(River%travel(i3,j3))%recv(p+roff), i2, j2)
                       end if
@@ -863,20 +851,20 @@ contains
              i2 = is1_send(p,n)  ! is1_send(p,n) == ie1_send(p,n)
              j2 = js1_send(p,n)  ! js1_send(p,n) == je1_send(p,n)
              select case(rot_send(p,n))
-             case (ZERO) ! ne->sw 
+             case (ZERO) ! ne->sw
                 i3 = i2 + 1
                 j3 = j2 + 1
-             case (NINETY) !  
+             case (NINETY) !
                 i3 = i2 - 1
                 j3 = j2 + 1
              case (MINUS_NINETY)
                 i3 = i2 + 1
                 j3 = j2 - 1
-             end select  
+             end select
              if(River%travel(i3,j3) >0) then
                 toc = tocell(i3,j3)
                 i4 = i1 + di(toc)
-                j4 = j1 + dj(toc) 
+                j4 = j1 + dj(toc)
                 if(i4 == i .AND. j4 == j) then
                    call add_single_overlap(halo_update(River%travel(i3,j3))%recv(p+roff), i2, j2)
                 end if
@@ -903,7 +891,7 @@ contains
                    if(River%travel(i3,j3) >0) then
                       toc = tocell(i3,j3)
                       i4 = i1 + di(toc)
-                      j4 = j1 + dj(toc) 
+                      j4 = j1 + dj(toc)
                       if(i4 == i .AND. j4 == j) then
                          call add_single_overlap(halo_update(River%travel(i3,j3))%recv(p+roff), i2, j2)
                       end if
@@ -918,20 +906,20 @@ contains
              i2 = is1_send(p,n)  ! is1_send(p,n) == ie1_send(p,n)
              j2 = js1_send(p,n)  ! js1_send(p,n) == je1_send(p,n)
              select case(rot_send(p,n))
-             case (ZERO) ! se->nw 
+             case (ZERO) ! se->nw
                 i3 = i2 + 1
                 j3 = j2 - 1
-             case (NINETY) !  
+             case (NINETY) !
                 i3 = i2 + 1
                 j3 = j2 + 1
              case (MINUS_NINETY)
                 i3 = i2 - 1
                 j3 = j2 - 1
-             end select  
+             end select
              if(River%travel(i3,j3) >0) then
                 toc = tocell(i3,j3)
                 i4 = i1 + di(toc)
-                j4 = j1 + dj(toc) 
+                j4 = j1 + dj(toc)
                 if(i4 == i .AND. j4 == j) then
                    call add_single_overlap(halo_update(River%travel(i3,j3))%recv(p+roff), i2, j2)
                 end if
@@ -958,7 +946,7 @@ contains
                    if(River%travel(i3,j3) >0) then
                       toc = tocell(i3,j3)
                       i4 = i1 + di(toc)
-                      j4 = j1 + dj(toc) 
+                      j4 = j1 + dj(toc)
                       if(i4 == i .AND. j4 == j) then
                          call add_single_overlap(halo_update(River%travel(i3,j3))%recv(p+roff), i2, j2)
                       end if
@@ -973,26 +961,26 @@ contains
              i2 = is1_send(p,n)  ! is1_send(p,n) == ie1_send(p,n)
              j2 = js1_send(p,n)  ! js1_send(p,n) == je1_send(p,n)
              select case(rot_send(p,n))
-             case (ZERO) ! sw->ne 
+             case (ZERO) ! sw->ne
                 i3 = i2 - 1
                 j3 = j2 - 1
-             case (NINETY) !  
+             case (NINETY) !
                 i3 = i2 + 1
                 j3 = j2 - 1
              case (MINUS_NINETY)
                 i3 = i2 - 1
                 j3 = j2 + 1
-             end select  
+             end select
              if(River%travel(i3,j3) >0) then
                 toc = tocell(i3,j3)
                 i4 = i1 + di(toc)
-                j4 = j1 + dj(toc) 
+                j4 = j1 + dj(toc)
                 if(i4 == i .AND. j4 == j) then
                    call add_single_overlap(halo_update(River%travel(i3,j3))%recv(p+roff), i2, j2)
                 end if
              end if
           end select
-       end do       
+       end do
     enddo
 
     do p = 1, nrecv
@@ -1010,7 +998,7 @@ contains
                    j1 = j + l
                    if(j1<jsc .OR. j1 > jec .OR. River%travel(i1,j1) < 1) cycle
                    i2 = i1 + di(tocell(i1,j1))
-                   j2 = j1 + dj(tocell(i1,j1)) 
+                   j2 = j1 + dj(tocell(i1,j1))
                    if(i2 == i .AND. j2 == j) then
                       call add_single_overlap(halo_update(River%travel(i1,j1))%send(p+soff), i1, j1)
                    end if
@@ -1023,7 +1011,7 @@ contains
              j1 = j + 1
              if(River%travel(i1,j1) > 0) then
                 i2 = i1 + di(tocell(i1,j1))
-                j2 = j1 + dj(tocell(i1,j1)) 
+                j2 = j1 + dj(tocell(i1,j1))
                 if(i2 == i .AND. j2 == j) then
                    call add_single_overlap(halo_update(River%travel(i1,j1))%send(p+soff), i1, j1)
                 end if
@@ -1036,7 +1024,7 @@ contains
                    i1 = i + l
                    if(i1<isc .OR. i1 > iec .OR. River%travel(i1,j1) < 1) cycle
                    i2 = i1 + di(tocell(i1,j1))
-                   j2 = j1 + dj(tocell(i1,j1)) 
+                   j2 = j1 + dj(tocell(i1,j1))
                    if(i2 == i .AND. j2 == j) then
                       call add_single_overlap(halo_update(River%travel(i1,j1))%send(p+soff), i1, j1)
                    end if
@@ -1049,7 +1037,7 @@ contains
              j1 = j + 1
              if( River%travel(i1,j1) > 0) then
                 i2 = i1 + di(tocell(i1,j1))
-                j2 = j1 + dj(tocell(i1,j1)) 
+                j2 = j1 + dj(tocell(i1,j1))
                 if(i2 == i .AND. j2 == j) then
                    call add_single_overlap(halo_update(River%travel(i1,j1))%send(p+soff), i1, j1)
                 end if
@@ -1062,7 +1050,7 @@ contains
                    j1 = j + l
                    if(j1<jsc .OR. j1 > jec .OR. River%travel(i1,j1) < 1) cycle
                    i2 = i1 + di(tocell(i1,j1))
-                   j2 = j1 + dj(tocell(i1,j1)) 
+                   j2 = j1 + dj(tocell(i1,j1))
                    if(i2 == i .AND. j2 == j) then
                       call add_single_overlap(halo_update(River%travel(i1,j1))%send(p+soff), i1, j1)
                    end if
@@ -1075,7 +1063,7 @@ contains
              j1 = j - 1
              if( River%travel(i1,j1) > 0) then
                 i2 = i1 + di(tocell(i1,j1))
-                j2 = j1 + dj(tocell(i1,j1)) 
+                j2 = j1 + dj(tocell(i1,j1))
                 if(i2 == i .AND. j2 == j) then
                    call add_single_overlap(halo_update(River%travel(i1,j1))%send(p+soff), i1, j1)
                 end if
@@ -1088,7 +1076,7 @@ contains
                    i1 = i + l
                    if(i1<isc .OR. i1 > iec .OR. River%travel(i1,j1) < 1) cycle
                    i2 = i1 + di(tocell(i1,j1))
-                   j2 = j1 + dj(tocell(i1,j1)) 
+                   j2 = j1 + dj(tocell(i1,j1))
                    if(i2 == i .AND. j2 == j) then
                       call add_single_overlap(halo_update(River%travel(i1,j1))%send(p+soff), i1, j1)
                    end if
@@ -1101,13 +1089,13 @@ contains
              j1 = j - 1
              if( River%travel(i1,j1) > 0) then
                 i2 = i1 + di(tocell(i1,j1))
-                j2 = j1 + dj(tocell(i1,j1)) 
+                j2 = j1 + dj(tocell(i1,j1))
                 if(i2 == i .AND. j2 == j) then
                    call add_single_overlap(halo_update(River%travel(i1,j1))%send(p+soff), i1, j1)
                 end if
              end if
           end select
-       end do       
+       end do
     end do
 
     allocate(in_domain(isc:iec,jsc:jec))
@@ -1117,14 +1105,14 @@ contains
           if(River%tocell(i,j) > 0) then
              i_dest = i + di(River%tocell(i,j))
              j_dest = j + dj(River%tocell(i,j))
-             if(i_dest < isc .OR. i_dest > iec .OR. j_dest < jsc .OR. j_dest > jec) then 
+             if(i_dest < isc .OR. i_dest > iec .OR. j_dest < jsc .OR. j_dest > jec) then
                 LOOP_TRAVEL: do travelnow = 1, maxtravel
                    do p = 1, nrecv
                       send => halo_update(travelnow)%send(p+soff)
                       do n = 1, send%count
                          if(send%i(n) == i .AND. send%j(n) == j) then
                             in_domain(i,j) = .false.
-                            exit LOOP_TRAVEL 
+                            exit LOOP_TRAVEL
                          end if
                       end do
                    end do
@@ -1166,8 +1154,8 @@ contains
     enddo
 
     call mpp_sync_self(check=EVENT_RECV)
-    do p=1, nrecv_update 
-       recv_size = 0   
+    do p=1, nrecv_update
+       recv_size = 0
        do m = 1, maxtravel
           recv_size = recv_size + halo_update(m)%recv(p)%count
        end do
@@ -1214,7 +1202,7 @@ contains
        msgsize = pos - buffer_pos
        if(msgsize >0) then
           call mpp_send(send_buffer(buffer_pos+1), plen = msgsize, to_pe = send_pelist(p), tag=COMM_TAG_3)
-       end if      
+       end if
     end do
 
     call mpp_sync_self(check=EVENT_RECV)
@@ -1253,14 +1241,14 @@ contains
                 j_send(i,j,k) = j1
                 p_send(i,j,k) = p
                 t_send(i,j,k) = m
-                n_send(i,j,k) = n         
-                halo_update(m)%recv(p)%k(n) = k               
+                n_send(i,j,k) = n
+                halo_update(m)%recv(p)%k(n) = k
              end do
           end do
        end if
     end do
 
-    call mpp_sync_self()    
+    call mpp_sync_self()
     if(allocated(send_buffer)) deallocate(send_buffer)
     if(allocated(recv_buffer)) deallocate(recv_buffer)
     if(allocated(recv_size2 )) deallocate(recv_size2 )
@@ -1290,11 +1278,24 @@ contains
 
     deallocate(tocell)
     deallocate(isl, iel, jsl, jel )
-    deallocate(sbuf, rbuf)
-    deallocate(is_recv, ie_recv, js_recv, je_recv)
-    deallocate(is1_send, ie1_send, js1_send, je1_send)
-    deallocate(is2_send, ie2_send, js2_send, je2_send)
-    deallocate(rot_send, rot_recv, send_count, recv_count)
+    if(allocated(sbuf)) deallocate(sbuf)
+    if(allocated(rbuf)) deallocate(rbuf)
+    if(allocated(is_recv)) deallocate(is_recv)
+    if(allocated(ie_recv)) deallocate(ie_recv)
+    if(allocated(js_recv)) deallocate(js_recv)
+    if(allocated(je_recv)) deallocate(je_recv)
+    if(allocated(is1_send)) deallocate(is1_send)
+    if(allocated(ie1_send)) deallocate(ie1_send)
+    if(allocated(js1_send)) deallocate(js1_send)
+    if(allocated(je1_send)) deallocate(je1_send)
+    if(allocated(is2_send)) deallocate(is2_send)
+    if(allocated(ie2_send)) deallocate(ie2_send)
+    if(allocated(js2_send)) deallocate(js2_send)
+    if(allocated(je2_send)) deallocate(je2_send)
+    if(allocated(rot_send)) deallocate(rot_send)
+    if(allocated(rot_recv)) deallocate(rot_recv)
+    if(allocated(send_count)) deallocate(send_count)
+    if(allocated(recv_count)) deallocate(recv_count)
     if(ALLOCATED(pelist_r)) deallocate(pelist_r)
     if(ALLOCATED(pelist_s)) deallocate(pelist_s)
     if(ALLOCATED(send_pelist)) deallocate(send_pelist)
@@ -1320,7 +1321,7 @@ contains
         recv => update%recv(p)
         count = recv%count
         if(count == 0) cycle
-        call mpp_recv(recv_buffer(pos+1), glen=count*(num_species+1), from_pe=recv%pe, block=.FALSE., tag=COMM_TAG_4 )            
+        call mpp_recv(recv_buffer(pos+1), glen=count*(num_species+1), from_pe=recv%pe, block=.FALSE., tag=COMM_TAG_4 )
         pos = pos + count*(num_species+1)
      enddo
      recv_buffer_pos = pos
@@ -1342,7 +1343,7 @@ contains
               send_buffer(pos) = River%outflow_c(i,j,l)
            end do
         end do
-        call mpp_send(send_buffer(buffer_pos+1), plen=count*(num_species+1), to_pe = send%pe, tag=COMM_TAG_4 ) 
+        call mpp_send(send_buffer(buffer_pos+1), plen=count*(num_species+1), to_pe = send%pe, tag=COMM_TAG_4 )
      end do
 
      call mpp_sync_self(check=EVENT_RECV)
@@ -1388,8 +1389,8 @@ contains
 
 
 !###############################################################################
-!  This routine will add one point for send/recv into the data type, allocate 
-!  memory or expand memory if needed 
+!  This routine will add one point for send/recv into the data type, allocate
+!  memory or expand memory if needed
 
   subroutine add_single_overlap(comm, i, j)
     type(comm_type), intent(inout) :: comm
@@ -1398,7 +1399,7 @@ contains
     integer                        :: count, maxcount
     integer, allocatable           :: tmp(:)
 
-    count = comm%count 
+    count = comm%count
     count = count + 1
     if(count == 1) then ! assign default space to hold index
        allocate(comm%i(DEFAULT_SIZE))
@@ -1422,11 +1423,11 @@ contains
        allocate(comm%k(2*maxcount))
     end if
     comm%i(count) = i
-    comm%j(count) = j    
+    comm%j(count) = j
     comm%k(count) = 0
     comm%count    = count
 
-    return    
+    return
 
   end subroutine add_single_overlap
 
