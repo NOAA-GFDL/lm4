@@ -485,6 +485,8 @@ subroutine gather_cohort_data_i0d(fptr,idx,ntiles,data)
         else
            data(i) = NF_FILL_INT
         endif
+     else
+        data(i) = NF_FILL_INT
      endif
   enddo
 end subroutine gather_cohort_data_i0d
@@ -511,6 +513,8 @@ subroutine gather_cohort_data_r0d(fptr,idx,ntiles,data)
         else
            data(i) = NF_FILL_DOUBLE
         endif
+     else
+        data(i) = NF_FILL_DOUBLE
      endif
   enddo
 end subroutine gather_cohort_data_r0d
