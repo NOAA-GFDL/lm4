@@ -567,6 +567,13 @@ function reg_field(static, module_name, field_name, init_time, axes, &
      ! store the filler flag
      fields(id)%fill_missing = .FALSE.
      if(present(fill_missing))fields(id)%fill_missing = fill_missing
+     ! set ocean filler attributes for the unstructured grid output
+     if (fields(id)%fill_missing) then
+        do i = 1, n_selectors
+           if (fields(id)%ids(i) <= 0) cycle
+           call diag_field_add_attribute(fields(id)%ids(i),'ocean_fillvalue',0.0)
+        enddo
+     endif
      ! increment the field id by some (large) number to distinguish it from the
      ! IDs of regular FMS diagnostic fields
      id = id + BASE_TILED_FIELD_ID
