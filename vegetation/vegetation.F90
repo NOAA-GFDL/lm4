@@ -2231,7 +2231,6 @@ subroutine vegn_seed_transport()
   total_seed_supply = 0.0; total_seed_demand = 0.0
   ce = first_elmt(land_tile_map, lnd%ls)
   do while (loop_over_tiles(ce,tile,l))
-     tile => current_tile(ce) ; ce=next_elmt(ce)
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
 
      total_seed_supply = total_seed_supply + vegn_seed_supply(tile%vegn)*tile%frac*lnd%ug_area(l)
