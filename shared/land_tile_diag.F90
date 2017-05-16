@@ -73,9 +73,9 @@ real,         public, parameter :: cmor_mrsos_depth=0.1 ! depth of mrsos soil
 character(len=*), parameter :: mod_name = 'land_tile_diag_mod'
 #include "../shared/version_variable.inc"
 
-integer, parameter :: INIT_FIELDS_SIZE      = 1       ! initial size of the fields array
-integer, parameter :: BASE_TILED_FIELD_ID   = 65536   ! base value for tiled field
-integer, parameter :: BASE_COHORT_FIELD_ID  = 65536*2 ! base value for cohort field ids
+integer, parameter :: INIT_FIELDS_SIZE     = 1       ! initial size of the fields array
+integer, parameter :: BASE_TILED_FIELD_ID  = 65536   ! base value for tiled field
+integer, parameter :: BASE_COHORT_FIELD_ID = 65536*2 ! base value for cohort field ids
 ! ids, to distinguish them from regular diagnostic fields. All IDs of tiled
 ! (that is, registered by register_*tiled_field functions) are larger than
 ! BASE_TILED_FIELD_ID. All cohort field IDs are larger than BASE_COHORT_FIELD_ID
@@ -121,6 +121,8 @@ type :: tiled_diag_field_type
    integer :: size   ! size of the field data in the per-tile buffers
    integer :: opcode ! aggregation operation
    integer :: static ! static/dynamic indicator, one of FLD_STATIC/FLD_DYNAMIC/FLD_LIKE_AREA
+   logical :: fill_missing ! if TRUE, missing values (e.g. ocean points) are
+                     ! filled with zeros, as per CMIP requirements
    integer :: n_sends! number of data points sent to the field since last dump
    integer :: alias = 0 ! ID of the first alias in the chain
    character(32) :: module,name ! for debugging purposes only
@@ -356,7 +358,8 @@ end function string2opcode
 
 ! ============================================================================
 function register_tiled_diag_field(module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, op, standard_name) result (id)
+     long_name, units, missing_value, range, op, standard_name, fill_missing) &
+     result (id)
 
   integer :: id
 
@@ -370,16 +373,19 @@ function register_tiled_diag_field(module_name, field_name, axes, init_time, &
   real,             intent(in), optional :: range(2)
   character(len=*), intent(in), optional :: op ! aggregation operation
   character(len=*), intent(in), optional :: standard_name
+  logical,          intent(in), optional :: fill_missing
 
   id = reg_field(FLD_DYNAMIC, module_name, field_name, init_time, axes, long_name, &
-         units, missing_value, range, op=op, standard_name=standard_name)
+         units, missing_value, range, op=op, standard_name=standard_name, &
+         fill_missing=fill_missing)
   call add_cell_measures(id)
   call add_cell_methods(id)
 end function register_tiled_diag_field
 
 ! ============================================================================
 function register_tiled_static_field(module_name, field_name, axes, &
-     long_name, units, missing_value, range, require, op, standard_name) result (id)
+     long_name, units, missing_value, range, require, op, standard_name, &
+     fill_missing) result (id)
 
   integer :: id
 
@@ -393,12 +399,14 @@ function register_tiled_static_field(module_name, field_name, axes, &
   logical,          intent(in), optional :: require
   character(len=*), intent(in), optional :: op ! aggregation operation
   character(len=*), intent(in), optional :: standard_name
+  logical,          intent(in), optional :: fill_missing
 
   ! --- local vars
   type(time_type) :: init_time
 
   id = reg_field(FLD_STATIC, module_name, field_name, init_time, axes, long_name, &
-         units, missing_value, range, require, op, standard_name=standard_name)
+         units, missing_value, range, require, op, standard_name=standard_name, &
+         fill_missing=fill_missing)
   call add_cell_measures(id)
   call add_cell_methods(id)
 end function register_tiled_static_field
@@ -406,7 +414,7 @@ end function register_tiled_static_field
 
 ! ============================================================================
 subroutine add_tiled_static_field_alias(id0, module_name, field_name, axes, &
-     long_name, units, missing_value, range, op, standard_name)
+     long_name, units, missing_value, range, op, standard_name, fill_missing)
   integer,          intent(inout) :: id0 ! id of the original diag field on input;
    ! if negative then it may be replaced with the alias id on output
   character(len=*), intent(in) :: module_name
@@ -418,18 +426,20 @@ subroutine add_tiled_static_field_alias(id0, module_name, field_name, axes, &
   real,             intent(in), optional :: range(2)
   character(len=*), intent(in), optional :: op ! aggregation operation
   character(len=*), intent(in), optional :: standard_name
+  logical,          intent(in), optional :: fill_missing
 
   ! --- local vars
   type(time_type) :: init_time
 
   call reg_field_alias(id0, FLD_STATIC, module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, op, standard_name=standard_name)
+     long_name, units, missing_value, range, op, standard_name=standard_name, &
+     fill_missing=fill_missing)
 end subroutine add_tiled_static_field_alias
 
 
 ! ============================================================================
 subroutine add_tiled_diag_field_alias(id0, module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, op, standard_name)
+     long_name, units, missing_value, range, op, standard_name, fill_missing)
   integer,          intent(inout) :: id0 ! id of the original diag field on input;
    ! if negative then it may be replaced with the alias id on output
   character(len=*), intent(in) :: module_name
@@ -442,14 +452,16 @@ subroutine add_tiled_diag_field_alias(id0, module_name, field_name, axes, init_t
   real,             intent(in), optional :: range(2)
   character(len=*), intent(in), optional :: op ! aggregation operation
   character(len=*), intent(in), optional :: standard_name
+  logical,          intent(in), optional :: fill_missing
 
   call reg_field_alias(id0, FLD_DYNAMIC, module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, op, standard_name=standard_name)
+     long_name, units, missing_value, range, op, standard_name=standard_name, &
+     fill_missing=fill_missing)
 end subroutine add_tiled_diag_field_alias
 
 ! ============================================================================
 subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, op, standard_name)
+     long_name, units, missing_value, range, op, standard_name, fill_missing)
 
 
   integer,          intent(inout) :: id0 ! id of the original diag field on input;
@@ -465,6 +477,7 @@ subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time
   real,             intent(in), optional :: range(2)
   character(len=*), intent(in), optional :: op ! aggregation operation
   character(len=*), intent(in), optional :: standard_name
+  logical,          intent(in), optional :: fill_missing
 
   ! local vars
   integer :: id1
@@ -477,7 +490,8 @@ subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time
                     ' in definition of tiled diag field alias "'//          &
                     trim(module_name)//'/'//trim(field_name)//'"', FATAL)
     id1 = reg_field(static, module_name, field_name, init_time, axes, long_name, &
-          units, missing_value, range, op=op, offset=fields(ifld0)%offset)
+          units, missing_value, range, op=op, offset=fields(ifld0)%offset, &
+          fill_missing=fill_missing)
     call add_cell_measures(id1)
     call add_cell_methods(id1)
     if (id1>0) then
@@ -504,7 +518,8 @@ subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time
     ! the "main" field has not been registered, so simply register the alias
     ! as a diag field
     id0 = reg_field(static, module_name, field_name, init_time, axes, long_name, &
-          units, missing_value, range, op=op, standard_name=standard_name)
+          units, missing_value, range, op=op, standard_name=standard_name, &
+          fill_missing=fill_missing)
     call add_cell_measures(id0)
     call add_cell_methods(id0)
   endif
@@ -515,7 +530,7 @@ end subroutine reg_field_alias
 ! of selectors
 function reg_field(static, module_name, field_name, init_time, axes, &
      long_name, units, missing_value, range, require, op, offset, &
-     area, cell_methods, standard_name) result(id)
+     area, cell_methods, standard_name, fill_missing) result(id)
 
   integer :: id
 
@@ -534,6 +549,8 @@ function reg_field(static, module_name, field_name, init_time, axes, &
   character(len=*), intent(in), optional :: area ! name of the area associated with this field, if not default
   character(len=*), intent(in), optional :: cell_methods ! cell_methods associated with this field, if not default
   character(len=*), intent(in), optional :: standard_name
+  logical,          intent(in), optional :: fill_missing ! if true, missing values (e.g. ocean points)
+                                                         ! are filled with zeros, as per CMIP requirements
 
   ! ---- local vars
   integer, pointer :: diag_ids(:) ! ids returned by FMS diag manager for each selector
@@ -615,6 +632,16 @@ function reg_field(static, module_name, field_name, init_time, axes, &
      ! in the debugger
      fields(id)%module=module_name
      fields(id)%name=field_name
+     ! store the filler flag
+     fields(id)%fill_missing = .FALSE.
+     if(present(fill_missing))fields(id)%fill_missing = fill_missing
+     ! set ocean filler attributes for the unstructured grid output
+     if (fields(id)%fill_missing) then
+        do i = 1, n_selectors
+           if (fields(id)%ids(i) <= 0) cycle
+           call diag_field_add_attribute(fields(id)%ids(i),'ocean_fillvalue',0.0)
+        enddo
+     endif
      ! increment the field id by some (large) number to distinguish it from the
      ! IDs of regular FMS diagnostic fields
      id = id + BASE_TILED_FIELD_ID
@@ -1031,6 +1058,10 @@ subroutine dump_diag_field_with_sel(land_tile_map, id, field, sel, time)
      deallocate(var)
   endif
 
+  if (field%fill_missing) then
+      where (.not. mask) buffer = 0.0
+      mask = .true.
+  endif
   ! send diag field
   used = send_data(id,buffer,time,mask=mask)
 
