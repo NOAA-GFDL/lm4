@@ -243,7 +243,9 @@ type spec_data_type
   real    :: psi_tlp=0.0                  ! psi at turgor loss point
 
   real    :: root_exudate_frac = 0.0 ! fraction of NPP that ends up in root exudates
-  real    :: branch_wood_frac = 0.25 ! fraction of total wood biomass in branches
+  real    :: branch_wood_frac = 0.1525 ! fraction of total wood biomass in branches,
+                                       !  corresponds to 0.18 of trunk ( boule) biomass
+                                       ! estimated by Isa from the observations
 end type
 
 ! ==== module data ===========================================================
@@ -801,10 +803,13 @@ subroutine init_derived_species_data(sp)
       sp%thetaBM = sp%thetaHT + 2
       ! calculate alphaBM parameter of allometry
       ! note that rho_wood was re-introduced for this calculation
+      !Isa changed for cross sectional area
       sp%alphaBM = sp%taperfactor * PI/4. * sp%alphaHT
+      sp%alphaCSASW = sp%phiCSA*sp%LAImax*sp%alphaCA
+   !sp%thetaCSASW = sp%thetaCA
    end select
-   sp%alphaCSASW = sp%phiCSA*sp%LAImax*sp%alphaCA
-   sp%thetaCSASW = sp%thetaCA
+   !sp%alphaCSASW = sp%phiCSA*sp%LAImax*sp%alphaCA
+   !sp%thetaCSASW = sp%thetaCA
 
   ! Convert units: from MPa to Pa
   sp%Kxam = sp%Kxam * 1e-6

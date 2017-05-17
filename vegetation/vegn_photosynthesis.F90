@@ -12,7 +12,9 @@ use land_debug_mod,     only : is_watch_point, check_var_range
 use land_data_mod,      only : log_version
 use soil_tile_mod,      only : soil_tile_type, psi_wilt
 use vegn_tile_mod,      only : vegn_tile_type
-use vegn_data_mod,      only : PT_C4, FORM_GRASS, spdata, T_transp_min
+!use vegn_data_mod,      only : PT_C4, FORM_GRASS, spdata, T_transp_min
+use vegn_data_mod,      only : PT_C4, FORM_GRASS, spdata, T_transp_min, &
+                               ALLOM_EW, ALLOM_EW1, ALLOM_HML
 use vegn_cohort_mod,    only : vegn_cohort_type, get_vegn_wet_frac
 use uptake_mod,         only : darcy2d_uptake, darcy2d_uptake_solver
 implicit none
@@ -175,7 +177,7 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
      cohort%An_cl  = 0
      stomatal_cond = 0 
      evap_demand   = 0
-     RHi           = 1.0
+     !RHi           = 1.0
      ! TODO: call vegn_hydraulics?
      return
   endif
@@ -586,7 +588,17 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
      endif
 
      ! calculate stem flow and its derivatives
-     CSAsw  = sp%alphaCSASW * cc%DBH**sp%thetaCSASW ! cross-section area of sapwood
+     !CSAsw  = sp%alphaCSASW * cc%DBH**sp%thetaCSASW ! cross-section area of sapwood
+     
+     ! calculate stem flow and its derivatives
+     ! isa and es 201701 - CSAsw different for ALLOM_HML
+     select case(sp%allomt)
+       case (ALLOM_EW,ALLOM_EW1)
+         CSAsw  = sp%alphaCSASW * cc%DBH**sp%thetaCSASW ! cross-section area of sapwood
+       case (ALLOM_HML)
+         CSAsw = sp%phiCSA * cc%DBH**(sp%thetaCA + sp%thetaHT) / (sp%gammaHT + cc%DBH** sp%thetaHT)
+     end select
+     
      cc%Kxi    =  sp%Kxam / cc%height * CSAsw
      ux0    = -cc%Kxi*sp%dx/sp%cx*gamma(1/sp%cx)*( &
                      gammaU((   psi_r/sp%dx)**sp%cx, 1/sp%cx) - &
@@ -601,8 +613,8 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
      DulDpx =  cc%Kli*exp(-(cc%psi_x/sp%dl)**sp%cl)
      DulDpl = -cc%Kli*exp(-(cc%psi_l/sp%dl)**sp%cl)
      
-     cc%Kli = ul0/(cc%psi_x-cc%psi_l) !ens added this line
-     cc%Kxi = ux0/(   psi_r-cc%psi_x) !ens added this line
+     !cc%Kli = ul0/(cc%psi_x-cc%psi_l) !ens added this line
+     !cc%Kxi = ux0/(   psi_r-cc%psi_x) !ens added this line
   
      ! do forward elimination
      gamma_r = 1/(DuxDpr - DurDpr)
@@ -629,8 +641,8 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
   call check_var_range(cc%psi_l,-HUGE(1.0),0.0,'vegn_hydraulics','psi_l',WARNING)
   call check_var_range(cc%psi_x,-HUGE(1.0),0.0,'vegn_hydraulics','psi_x',WARNING)
   call check_var_range(cc%psi_r,-HUGE(1.0),0.0,'vegn_hydraulics','psi_r',WARNING)
-     cc%Kli = ul0/(cc%psi_x-cc%psi_l) !ens added this line
-     cc%Kxi = ux0/(   psi_r-cc%psi_x) !ens added this line
+     !cc%Kli = ul0/(cc%psi_x-cc%psi_l) !ens added this line
+     !cc%Kxi = ux0/(   psi_r-cc%psi_x) !ens added this line
   w_scale = exp(-(cc%psi_l/sp%dl)**sp%cl)
   if (is_watch_point()) then
 !     __DEBUG1__(ur0_)
