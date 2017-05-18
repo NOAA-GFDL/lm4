@@ -4,16 +4,16 @@ module topo_rough_mod
 ! </CONTACT>
 
   use time_manager_mod,   only : time_type
-  use mpp_domains_mod,    only : domain2d
+  use mpp_domains_mod,    only : domain2d, domainUG, mpp_pass_SG_to_UG, mpp_get_ug_compute_domain, &
+                                 mpp_get_compute_domain
 
 #ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
 #else
 use fms_mod, only: open_namelist_file
 #endif
-
   use fms_mod,            only : error_mesg, FATAL, NOTE, &
-       open_restart_file, set_domain, read_data, &
+       open_restart_file, read_data, &
        write_data, close_file, file_exist, check_nml_error, mpp_pe, &
        mpp_root_pe, stdlog
   use diag_manager_mod,   only : register_static_field, send_data
@@ -68,13 +68,11 @@ namelist/topo_rough_nml/ use_topo_rough, topo_rough_factor, max_topo_rough, &
      topo_rough_source, topo_rough_file, topo_rough_var
 
 ! ==== module constants ======================================================
-character(len=*), parameter :: module_name   = 'topo_rough_mod'
-character(len=*), parameter :: diag_mod_name = 'topo_rough'
+character(len=*), parameter :: module_name = 'topo_rough'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 ! ==== module private data ===================================================
-real, allocatable, save ::topo_stdev(:,:)
+real, allocatable, save ::topo_stdev(:)
 logical :: module_is_initialized = .FALSE.
 
 ! ==== NetCDF declarations ===================================================
@@ -82,11 +80,12 @@ include 'netcdf.inc'
 
 contains ! ###################################################################
 
-subroutine topo_rough_init(time, lonb, latb, domain, id_lon,id_lat)
+subroutine topo_rough_init(time, lonb, latb, SG_domain, UG_domain, id_ug)
   type(time_type), intent(in) :: time            ! current time
-  type(domain2d) , intent(in) :: domain          ! our domain
+  type(domain2d) , intent(in) :: SG_domain       ! our domain
+  type(domainUG) , intent(in) :: UG_domain
   real           , intent(in) :: latb(:,:),lonb(:,:) ! boundaries of the grid cells
-  integer        , intent(in) :: id_lon,id_lat   ! IDs of diagnostic axes
+  integer        , intent(in) :: id_ug !<Unstructured axis id.
 !   <ERROR MSG="could not read topography data" STATUS="FATAL">
 !     get_topog_stdev failed to provide topography variance data.
 !   </ERROR>
@@ -101,11 +100,12 @@ subroutine topo_rough_init(time, lonb, latb, domain, id_lon,id_lat)
 !   </ERROR>
   ! --- local vars
   integer :: ierr,io,unit
-  integer :: id
+  integer :: id, is, ie, js, je, ls, le
+  real, allocatable :: topo_stdev_SG(:,:)
   logical :: used, got_stdev
 
-  ! write the version and tagname to the logfile
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
   ! read and write (to logfile) namelist variables
 #ifdef INTERNAL_FILE_NML
@@ -130,40 +130,46 @@ subroutine topo_rough_init(time, lonb, latb, domain, id_lon,id_lat)
   endif
 
   ! allocate topo_stdev according to specified domain
-  allocate(topo_stdev(size(lonb,1)-1, size(lonb,2)-1))
+  call mpp_get_UG_compute_domain(UG_domain, ls, le)
+  allocate(topo_stdev(ls:le))
 
   if (use_topo_rough) then
-
+     call mpp_get_compute_domain(SG_domain, is, ie, js, je)
+     allocate(topo_stdev_SG(is:ie,js:je))
      if(trim(topo_rough_source) == 'computed') then
         call error_mesg('topo_rough_init','computing topography standard deviation',NOTE)
-        got_stdev = get_topog_stdev(lonb,latb,topo_stdev)
+        got_stdev = get_topog_stdev(lonb,latb,topo_stdev_SG)
         if (.not.got_stdev) &
              call error_mesg ('topo_rough_init', &
              'could not read topography data', FATAL)
      else if (trim(topo_rough_source)=='input') then
         call error_mesg('topo_rough_init','reading topography standard deviation from "'&
              //trim(topo_rough_file)//'"',NOTE)
-        if(.not.file_exist(topo_rough_file,domain))&
+        if(.not.file_exist(topo_rough_file,SG_domain))&
              call error_mesg('topo_rough_init',            &
              'input file for topography standard deviation "'// &
              trim(topo_rough_file)//'" does not exist', FATAL)
 
-        call set_domain(domain)
-        call read_data(topo_rough_file,topo_rough_var,topo_stdev)
+        call read_data(topo_rough_file,topo_rough_var,topo_stdev_SG,domain=SG_domain)
      else
         call error_mesg('topo_rough_init','"'//trim(topo_rough_source)//&
              '" is not a valid value for topo_rough_source', FATAL)
      endif
+     call mpp_pass_SG_to_UG(UG_domain, topo_stdev_SG, topo_stdev)
+     deallocate(topo_stdev_SG)
      topo_stdev = min(topo_stdev*topo_rough_factor,max_topo_rough)
   else
      topo_stdev = 0.0
   endif
 
   ! diag output : send topo_stdev to diagnostics
-  id = register_static_field(diag_mod_name,'topo_rough',(/id_lon,id_lat/), &
+  id = register_static_field(module_name,'topo_rough',(/id_ug/), &
        'momentum drag coefficient scaling lenght','m',missing_value=-1.0 )
-  if(id > 0) &
-       used = send_data(id,topo_stdev,time)
+  if (id .gt. 0) then
+       used = send_data(id, &
+                        topo_stdev, &
+                        time)
+  endif
   module_is_initialized = .TRUE.
 end subroutine topo_rough_init
 
@@ -175,15 +181,15 @@ end subroutine
 
 ! ============================================================================
 subroutine update_topo_rough(topo_rough)
-  real, intent(out) :: topo_rough(:,:,:)
+  real, intent(out) :: topo_rough(:,:)
 
   ! ---- local vars
   integer :: k
 
   ! just assign standard deviation (scaled and trimmed according to namelist
   ! parameters) to the output field
-  do k = 1, size(topo_rough,3)
-     topo_rough(:,:,k) = topo_stdev(:,:)
+  do k = 1, size(topo_rough,2)
+     topo_rough(:,k) = topo_stdev(:)
   enddo
 end subroutine
 

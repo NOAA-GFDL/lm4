@@ -1,10 +1,8 @@
 module cana_tile_mod
 
 use land_tracers_mod, only : ntcana, isphum, ico2
-use land_tile_selectors_mod, only : &
-     tile_selector_type
-use constants_mod, only : &
-     cp_air, tfreeze
+use land_tile_selectors_mod, only : tile_selector_type
+use constants_mod, only : cp_air, tfreeze
 use land_constants_mod, only : mol_C, mol_co2
 
 implicit none
@@ -31,15 +29,12 @@ real, public :: canopy_air_mass_for_tracers = 0.0 ! mass of wet air in the canop
 ! tightly coupled with the heat capacity of the canopy air and therefore with
 ! the equations for heat. We assume that other tracers do not contribute to
 ! the heat capacity of the canopy air.
-real, public :: cpw             = 1952.0 ! specific heat of water vapor at constant pressure, J/(kg K)
+real, public :: cpw = 1952.0 ! specific heat of water vapor at constant pressure, J/(kg K)
 ! ==== end of public interfaces ==============================================
 interface new_cana_tile
    module procedure cana_tile_ctor
    module procedure cana_tile_copy_ctor
 end interface
-
-! ==== version string ========================================================
-#include "../shared/version_variable.inc"
 
 ! ==== data types ======================================================
 type :: cana_tile_type

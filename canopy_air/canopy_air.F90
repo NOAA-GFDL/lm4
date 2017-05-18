@@ -13,28 +13,22 @@ use fms_mod, only: open_namelist_file
 
 use fms_mod, only : error_mesg, FATAL, NOTE, file_exist, &
      close_file, check_nml_error, mpp_pe, mpp_root_pe, stdlog, string
-use fms_io_mod, only : read_compressed, restart_file_type, free_restart_type
-use fms_io_mod, only : field_exist, get_field_size, save_restart
-use fms_io_mod, only : register_restart_axis, register_restart_field, set_domain, nullify_domain
-use time_manager_mod, only : time_type, time_type_to_real
-use constants_mod, only : rdgas, rvgas, cp_air, PI, VONKARM
+use constants_mod, only : VONKARM
 use sphum_mod, only : qscomp
 use field_manager_mod, only : parse, MODEL_ATMOS, MODEL_LAND
-use tracer_manager_mod, only : get_number_tracers, get_tracer_index, get_tracer_names
-use tracer_manager_mod, only : get_tracer_index, query_method, NO_TRACER
+use tracer_manager_mod, only : get_tracer_index, get_tracer_names, &
+     query_method, NO_TRACER
 
-use nf_utils_mod, only : nfu_inq_var
-use land_constants_mod, only : NBANDS,d608,mol_CO2,mol_air
+use land_constants_mod, only : mol_CO2, mol_air
 use land_tracers_mod, only : ntcana, isphum, ico2
 use cana_tile_mod, only : cana_tile_type, &
      canopy_air_mass, canopy_air_mass_for_tracers, cpw
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, current_tile, operator(/=)
-use land_data_mod, only : land_state_type, lnd, log_version
+     first_elmt, loop_over_tiles
+use land_data_mod, only : log_version
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
-     add_restart_axis, add_tile_data, get_tile_data, field_exists
-use land_debug_mod, only : is_watch_point, check_temp_range
+     add_tile_data, get_tile_data, field_exists
 
 implicit none
 private
@@ -47,14 +41,12 @@ public :: save_cana_restart
 public :: cana_turbulence
 public :: cana_roughness
 public :: cana_state
-public :: cana_step_1
 public :: cana_step_2
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'canopy_air_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 ! options for turbulence parameter calculations
 integer, parameter :: TURB_LM3W = 1, TURB_LM3V = 2
@@ -89,7 +81,8 @@ subroutine read_cana_namelist()
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
      read (input_nml_file, nml=cana_nml, iostat=io)
      ierr = check_nml_error(io, 'cana_nml')
@@ -113,13 +106,11 @@ end subroutine read_cana_namelist
 
 ! ============================================================================
 ! initialize canopy air
-subroutine cana_init ( id_lon, id_lat )
-  integer, intent(in) :: id_lon  ! ID of land longitude (X) axis
-  integer, intent(in) :: id_lat  ! ID of land latitude (Y) axis
+subroutine cana_init()
 
   ! ---- local vars ----------------------------------------------------------
-  type(land_tile_enum_type)     :: te,ce ! last and current tile
-  type(land_tile_type), pointer :: tile   ! pointer to current tile
+  type(land_tile_enum_type)     :: ce   ! tile list enumerator
+  type(land_tile_type), pointer :: tile ! pointer to current tile
   character(*), parameter :: restart_file_name='INPUT/cana.res.nc'
   type(land_restart_type) :: restart
   logical :: restart_exists
@@ -157,12 +148,8 @@ subroutine cana_init ( id_lon, id_lat )
   init_tr(ico2)   = init_co2*mol_CO2/mol_air*(1-init_tr(isphum)) ! convert to kg CO2/kg wet air
 
   ! first, set the initial values
-  te = tail_elmt (land_tile_map)
   ce = first_elmt(land_tile_map)
-  do while(ce /= te)
-     tile=>current_tile(ce)  ! get pointer to current tile
-     ce=next_elmt(ce)       ! advance position to the next tile
-
+  do while(loop_over_tiles(ce, tile))
      if (.not.associated(tile%cana)) cycle
 
      if (associated(tile%glac)) then
@@ -230,8 +217,6 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
   integer :: tr
 
   call error_mesg('cana_end','writing NetCDF restart',NOTE)
-! must set domain so that io_domain is available
-  call set_domain(lnd%domain)
 ! Note that filename is updated for tile & rank numbers during file creation
   filename = trim(timestamp)//'cana.res.nc'
   call init_land_restart(restart, filename, cana_tile_exists, tile_dim_length)
@@ -245,7 +230,6 @@ subroutine save_cana_restart (tile_dim_length, timestamp)
   enddo
   call save_land_restart(restart)
   call free_land_restart(restart)
-  call nullify_domain()
 end subroutine save_cana_restart
 
 ! ============================================================================
@@ -419,54 +403,6 @@ subroutine cana_state ( cana, cana_T, cana_q, cana_co2 )
   if (present(cana_q))   cana_q   = cana%tr(isphum)
   if (present(cana_co2)) cana_co2 = cana%tr(ico2)
 end subroutine
-
-! ============================================================================
-subroutine cana_step_1 ( cana,&
-     p_surf, con_g_h, con_g_v, grnd_T, grnd_rh, grnd_rh_psi, &
-     Hge,  DHgDTg, DHgDTc,    &
-     Ege,  DEgDTg, DEgDqc, DEgDpsig     )
-  type(cana_tile_type), intent(in) :: cana
-  real, intent(in) :: &
-     p_surf,  & ! surface pressure, Pa
-     con_g_h, & ! conductivity between ground and CAS for heat
-     con_g_v, & ! conductivity between ground and CAS for vapor
-     grnd_T,  & ! ground temperature, degK
-     grnd_rh, & ! ground relative humidity
-     grnd_rh_psi ! psi derivative of ground relative humidity
-  real, intent(out) ::   &
-     Hge,  DHgDTg, DHgDTc, & ! linearization of the sensible heat flux from ground
-     Ege,  DEgDTg, DEgDqc, DEgDpsig    ! linearization of evaporation from ground
-
-  ! ---- local vars
-  real :: rho, grnd_q, qsat, DqsatDTg
-
-  call check_temp_range(grnd_T,'cana_step_1','grnd_T')
-
-  call qscomp(grnd_T,p_surf,qsat,DqsatDTg)
-  grnd_q = grnd_rh * qsat
-
-  rho      =  p_surf/(rdgas*cana%T*(1+d608*cana%tr(isphum)))
-  Hge      =  rho*cp_air*con_g_h*(grnd_T - cana%T)
-  DHgDTg   =  rho*cp_air*con_g_h
-  DHgDTc   = -rho*cp_air*con_g_h
-  Ege      =  rho*con_g_v*(grnd_q  - cana%tr(isphum))
-  DEgDTg   =  rho*con_g_v*DqsatDTg*grnd_rh
-  DEgDqc   = -rho*con_g_v
-  DEgDpsig =  rho*con_g_v*qsat*grnd_rh_psi
-  if(is_watch_point())then
-     write(*,*)'#### cana_step_1 input ####'
-     __DEBUG1__(p_surf)
-     __DEBUG2__(con_g_h,con_g_v)
-     __DEBUG2__(grnd_T,grnd_rh)
-     write(*,*)'#### cana_step_1 internals ####'
-     __DEBUG4__(rho, grnd_q, qsat, DqsatDTg)
-     __DEBUG2__(cana%T,cana%tr(isphum))
-     write(*,*)'#### cana_step_1 output ####'
-     __DEBUG3__(Hge,  DHgDTg, DHgDTc)
-     __DEBUG4__(Ege,  DEgDTg, DEgDqc, DEgDpsig)
-  endif
-end subroutine cana_step_1
-
 
 ! ============================================================================
 subroutine cana_step_2 ( cana, delta_Tc, delta_qc )

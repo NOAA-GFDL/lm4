@@ -54,7 +54,8 @@ public :: A_function
 #endif
 public :: debug_pool
 
-public :: soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE
+! public data
+public :: soil_carbon_option
 ! =====end of public interfaces ==============================================
 
 
@@ -67,11 +68,11 @@ integer, parameter, public :: & ! indices of carbon chemical species
 
 character(len=*), parameter :: module_name = 'soil_carbon_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
-integer, parameter :: SOILC_CENTURY          = 1
-integer, parameter :: SOILC_CENTURY_BY_LAYER = 2
-integer, parameter :: SOILC_CORPSE           = 3
+integer, parameter, public :: &
+    SOILC_CENTURY          = 1, &
+    SOILC_CENTURY_BY_LAYER = 2, &
+    SOILC_CORPSE           = 3
 integer, parameter :: init_n_cohorts = 3 ! initial number of cohorts in a litter pool
 
 #ifdef STANDALONE_SOIL_CARBON
@@ -145,7 +146,7 @@ namelist /soil_carbon_nml/ &
             litterDensity,protected_relative_solubility,min_anaerobic_resp_factor
 
 !---- end-of-namelist --------------------------------------------------------
-integer :: soil_carbon_option = 0    ! flag specifying which soil carbon to use,
+integer, protected :: soil_carbon_option = 0    ! flag specifying which soil carbon to use,
         ! one of SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE
 
 
@@ -179,7 +180,8 @@ subroutine read_soil_carbon_namelist
   integer :: i
   real    :: z
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=soil_carbon_nml, iostat=io)
   ierr = check_nml_error(io, 'soil_carbon_nml')

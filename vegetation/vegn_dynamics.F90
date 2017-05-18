@@ -9,8 +9,8 @@ use fms_mod, only: error_mesg, FATAL
 use time_manager_mod, only: time_type
 
 use land_constants_mod, only : seconds_per_year, mol_C
-use land_tile_diag_mod, only : register_tiled_diag_field, send_tile_data, &
-     set_default_diag_filter, diag_buff_type, cmor_name
+use land_tile_diag_mod, only : register_tiled_diag_field, add_tiled_diag_field_alias, &
+     send_tile_data, set_default_diag_filter, diag_buff_type, cmor_name
 
 use vegn_data_mod, only : spdata, &
      CMPT_VLEAF, CMPT_SAPWOOD, CMPT_ROOT, CMPT_WOOD, CMPT_LEAF, LEAF_ON, LEAF_OFF, &
@@ -44,7 +44,6 @@ public :: vegn_biogeography !
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'vegn'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 real, parameter :: GROWTH_RESP=0.333  ! fraction of npp lost as growth respiration
 
@@ -55,18 +54,18 @@ real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 da
 integer :: id_npp, id_nep, id_gpp, id_resp, id_resl, id_resr, id_resg, &
     id_soilt, id_theta, id_litter
 ! CMOR diagnostic field IDs
-integer :: id_gpp_cmor, id_npp_cmor, id_ra, id_rgrowth
+integer :: id_gpp_cmor, id_npp_cmor, id_nep_cmor, id_ra, id_rgrowth
 
 contains
 
 ! ============================================================================
-subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
-  integer        , intent(in) :: id_lon ! ID of land longitude (X) axis
-  integer        , intent(in) :: id_lat ! ID of land latitude (Y) axis
-  type(time_type), intent(in) :: time       ! initial time for diagnostic fields
-  real           , intent(in) :: delta_time ! fast time step, s
+subroutine vegn_dynamics_init(id_ug,time,delta_time)
+  integer        ,intent(in) :: id_ug      !<Unstructured axis id.
+  type(time_type),intent(in) :: time       ! initial time for diagnostic fields
+  real           ,intent(in) :: delta_time ! fast time step, s
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, 'vegn_dynamics_mod', &
+  __FILE__)
 
   ! set up global variables
   dt_fast_yr = delta_time/seconds_per_year
@@ -76,43 +75,59 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
 
   ! register diagnostic fields
   id_gpp = register_tiled_diag_field ( module_name, 'gpp',  &
-       (/id_lon,id_lat/), time, 'gross primary productivity', 'kg C/(m2 year)', &
+       (/id_ug/), time, 'gross primary productivity', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_npp = register_tiled_diag_field ( module_name, 'npp',  &
-       (/id_lon,id_lat/), time, 'net primary productivity', 'kg C/(m2 year)', &
+       (/id_ug/), time, 'net primary productivity', 'kg C/(m2 year)', &
        missing_value=-100.0 )
   id_nep = register_tiled_diag_field ( module_name, 'nep',  &
-       (/id_lon,id_lat/), time, 'net ecosystem productivity', 'kg C/(m2 year)', &
+       (/id_ug/), time, 'net ecosystem productivity', 'kg C/(m2 year)', &
        missing_value=-100.0 )
-  id_litter = register_tiled_diag_field (module_name, 'litter', (/id_lon,id_lat/), &
+  id_litter = register_tiled_diag_field (module_name, 'litter', (/id_ug/), &
        time, 'litter productivity', 'kg C/(m2 year)', missing_value=-100.0)
-  id_resp = register_tiled_diag_field ( module_name, 'resp', (/id_lon,id_lat/), &
+  id_resp = register_tiled_diag_field ( module_name, 'resp', (/id_ug/), &
        time, 'respiration', 'kg C/(m2 year)', missing_value=-100.0 )
-  id_resl = register_tiled_diag_field ( module_name, 'resl', (/id_lon,id_lat/), &
+  id_resl = register_tiled_diag_field ( module_name, 'resl', (/id_ug/), &
        time, 'leaf respiration', 'kg C/(m2 year)', missing_value=-100.0 )
-  id_resr = register_tiled_diag_field ( module_name, 'resr', (/id_lon,id_lat/), &
+  id_resr = register_tiled_diag_field ( module_name, 'resr', (/id_ug/), &
        time, 'root respiration', 'kg C/(m2 year)', missing_value=-100.0 )
-  id_resg = register_tiled_diag_field ( module_name, 'resg', (/id_lon,id_lat/), &
+  id_resg = register_tiled_diag_field ( module_name, 'resg', (/id_ug/), &
        time, 'growth respiration', 'kg C/(m2 year)', missing_value=-100.0 )
   id_soilt = register_tiled_diag_field ( module_name, 'tsoil_av',  &
-       (/id_lon,id_lat/), time, 'average soil temperature for carbon decomposition', 'degK', &
+       (/id_ug/), time, 'average soil temperature for carbon decomposition', 'degK', &
        missing_value=-100.0 )
   id_theta = register_tiled_diag_field ( module_name, 'theta',  &
-       (/id_lon,id_lat/), time, 'average soil wetness for carbon decomposition', 'm3/m3', &
+       (/id_ug/), time, 'average soil wetness for carbon decomposition', 'm3/m3', &
        missing_value=-100.0 )
 
   ! set the default sub-sampling filter for CMOR variables
   call set_default_diag_filter('land')
-  id_gpp_cmor = register_tiled_diag_field ( cmor_name, 'gpp', (/id_lon,id_lat/), &
-       time, 'Gross Primary Production', 'kg C m-2 s-1', missing_value=-1.0, &
-       standard_name='gross_primary_production', fill_missing=.TRUE.)
-  id_npp_cmor = register_tiled_diag_field ( cmor_name, 'npp', (/id_lon,id_lat/), &
-       time, 'Net Primary Production', 'kg C m-2 s-1', missing_value=-1.0, &
-       standard_name='net_primary_production', fill_missing=.TRUE.)
-  id_ra = register_tiled_diag_field ( cmor_name, 'ra', (/id_lon,id_lat/), &
-       time, 'Autotrophic (Plant) Respiration', 'kg C m-2 s-1', missing_value=-1.0, &
+  id_gpp_cmor = register_tiled_diag_field ( cmor_name, 'gpp', (/id_ug/), &
+       time, 'Carbon Mass Flux out of Atmosphere due to Gross Primary Production on Land', 'kg C m-2 s-1', missing_value=-1.0, &
+       standard_name='gross_primary_productivity_of_carbon', fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias ( id_gpp_cmor, cmor_name, 'gppLut', (/id_ug/), &
+       time, 'Gross Primary Productivity on Land Use Tile', 'kg C m-2 s-1', missing_value=-1.0, &
+       standard_name='gross_primary_land_productivity_of_carbon_lut', fill_missing=.FALSE.)
+  id_npp_cmor = register_tiled_diag_field ( cmor_name, 'npp', (/id_ug/), &
+       time, 'Carbon Mass Flux out of Atmosphere due to Net Primary Production on Land', &
+       'kg C m-2 s-1', missing_value=-1.0, fill_missing=.TRUE., &
+       standard_name='net_primary_productivity_of_carbon')
+  call add_tiled_diag_field_alias ( id_npp_cmor, cmor_name, 'nppLut', (/id_ug/), &
+       time, 'Carbon Mass Flux out of Atmosphere due to Net Primary Production on Land', &
+       'kg C m-2 s-1', missing_value=-1.0, fill_missing=.FALSE., &
+       standard_name='net_primary_productivity_of_carbon')
+  id_nep_cmor = register_tiled_diag_field ( cmor_name, 'nep', (/id_ug/), &
+       time, 'Net Carbon Mass Flux out of Atmophere due to Net Ecosystem Productivity on Land.', &
+       'kg C m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_net_downward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_all_land_processes_excluding_anthropogenic_land_use_change', &
+       fill_missing=.TRUE.)
+  id_ra = register_tiled_diag_field ( cmor_name, 'ra', (/id_ug/), &
+       time, 'Carbon Mass Flux into Atmosphere due to Autotrophic (Plant) Respiration on Land', 'kg C m-2 s-1', missing_value=-1.0, &
        standard_name='autotrophic_plant_respiration', fill_missing=.TRUE.)
-  id_rgrowth = register_tiled_diag_field ( cmor_name, 'rGrowth', (/id_lon,id_lat/), &
+  call add_tiled_diag_field_alias (id_ra, cmor_name, 'raLut', (/id_ug/), &
+       time, 'Carbon Mass Flux into Atmosphere due to Autotrophic (Plant) Respiration on Land', 'kg C m-2 s-1', missing_value=-1.0, &
+       standard_name='autotrophic_plant_respiration', fill_missing=.FALSE.)
+  id_rgrowth = register_tiled_diag_field ( cmor_name, 'rGrowth', (/id_ug/), &
        time, 'Growth Autotrophic Respiration', 'kg C m-2 s-1', missing_value=-1.0, &
        standard_name='growth_autotrophic_respiration', fill_missing=.TRUE.)
 
@@ -286,6 +301,7 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, diag)
   ! ---- CMOR diagnostics
   call send_tile_data(id_gpp_cmor, gpp/seconds_per_year, diag)
   call send_tile_data(id_npp_cmor, vegn%npp/seconds_per_year, diag)
+  call send_tile_data(id_nep_cmor, vegn%nep/seconds_per_year, diag)
   call send_tile_data(id_ra, (resp-resg)/seconds_per_year, diag)
   call send_tile_data(id_rgrowth, resg/seconds_per_year, diag)
 

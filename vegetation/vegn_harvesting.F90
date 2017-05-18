@@ -7,7 +7,7 @@ use fms_mod, only: open_namelist_file
 #endif
 
 use fms_mod, only : string, error_mesg, FATAL, NOTE, &
-     mpp_pe, write_version_number, file_exist, close_file, &
+     mpp_pe, file_exist, close_file, &
      check_nml_error, stdlog, mpp_root_pe
 use mpp_io_mod, only : axistype, mpp_get_atts, mpp_get_axis_data, &
      mpp_open, mpp_close, MPP_RDONLY, MPP_WRONLY, MPP_ASCII
@@ -39,15 +39,17 @@ public :: vegn_cut_forest
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'vegn_harvesting_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 real, parameter :: ONETHIRD = 1.0/3.0
 integer, parameter :: DAILY = 1, ANNUAL = 2
 
 ! ==== module data ===========================================================
 
 ! ---- namelist variables ----------------------------------------------------
-logical, public :: do_harvesting       = .TRUE.  ! if true, then harvesting of crops and pastures is done
-real :: grazing_intensity      = 0.25    ! fraction of biomass removed each time by grazing
+logical, public, protected :: do_harvesting = .TRUE.  ! if true, then harvesting of crops and pastures is done
+real :: grazing_intensity      = 0.25    ! fraction of leaf biomass removed by grazing annually.
+  ! NOTE that for daily grazing, grazing_intensity/365 fraction of leaf biomass is removed 
+  ! every day. E.g. if the desired intensity is 1% of leaves per day, set grazing_intensity 
+  ! to 3.65
 real :: grazing_residue        = 0.1     ! fraction of the grazed biomass transferred into soil pools
 character(16) :: grazing_frequency = 'annual' ! or 'daily'
 real :: min_lai_for_grazing    = 0.0     ! no grazing if LAI lower than this threshold
@@ -78,7 +80,8 @@ contains ! ###################################################################
 subroutine vegn_harvesting_init
   integer :: unit, ierr, io
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=harvesting_nml, iostat=io)

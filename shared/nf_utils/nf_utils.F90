@@ -22,8 +22,4 @@ public :: nfu_put_compressed_var
 public :: nfu_get_compressed_rec
 ! ==== end of public interfaces ==============================================
 
-! ==== module constants ======================================================
-#include "../../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
-
 end module nf_utils_mod

@@ -35,9 +35,6 @@ public :: snow_data_hydraulics
 public :: snow_data_area
 public :: snow_radiation
 public :: snow_roughness
-
-public :: max_lev
-public :: cpw, clw, csw
 ! ==== end of public interfaces ==============================================
 interface new_snow_tile
    module procedure snow_tile_ctor
@@ -48,9 +45,8 @@ end interface
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'snow_tile_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
-integer, parameter :: max_lev = 10
+integer, parameter, public :: max_lev = 10
 
 ! from the modis brdf/albedo product user's guide:
 real, parameter :: g_iso  = 1.
@@ -80,7 +76,7 @@ type :: snow_tile_type
 end type snow_tile_type
 
 ! ==== module data ===========================================================
-logical, public :: use_brdf
+logical, public :: use_brdf ! not protected because it is set in snow.F90
 
 !---- namelist ---------------------------------------------------------------
 logical :: use_mcm_masking       = .false.   ! MCM snow mask fn
@@ -102,9 +98,10 @@ integer :: num_l                 = 3         ! number of snow levels
 real    :: dz(max_lev)           = (/0.1,0.8,0.1,0.,0.,0.,0.,0.,0.,0./)
                                               ! rel. thickness of model layers,
                                               ! from top down
-real    :: cpw = 1952.  ! specific heat of water vapor at constant pressure
-real    :: clw = 4218.  ! specific heat of water (liquid)
-real    :: csw = 2106.  ! specific heat of water (ice)
+real, protected, public :: &
+   cpw = 1952.0, &  ! specific heat of water vapor at constant pressure
+   clw = 4218.0, &  ! specific heat of water (liquid)
+   csw = 2106.0     ! specific heat of water (ice)
 real    :: mc_fict = 10. * 4218 ! additional (fictitious) soil heat capacity (for numerical stability?).
 ! from analysis of modis data (ignoring temperature dependence):
   real :: f_iso_cold(NBANDS) = (/ 0.354, 0.530 /)
@@ -141,7 +138,8 @@ subroutine read_snow_data_namelist(snow_num_l, snow_dz, snow_mc_fict)
   integer :: io           ! i/o status for the namelist
   integer :: ierr         ! error code, returned by i/o routines
 
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=snow_data_nml, iostat=io)
   ierr = check_nml_error(io, 'snow_data_nml')

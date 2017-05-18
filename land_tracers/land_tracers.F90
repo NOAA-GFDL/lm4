@@ -11,14 +11,13 @@ private
 ! ==== public interfaces =====================================================
 public :: land_tracers_init, land_tracers_end
 
-integer, public :: ntcana ! number of prognostic land tracers in canopy air
-integer, public :: isphum, ico2 ! indices of specific humidity and CO2
+integer, protected, public :: ntcana ! number of prognostic land tracers in canopy air
+integer, protected, public :: isphum, ico2 ! indices of specific humidity and CO2
 ! ==== end of public interfaces ==============================================
 
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: module_name = 'land_tracers_mod'
 #include "../shared/version_variable.inc"
-character(len=*), parameter :: tagname     = '$Name$'
 
 ! ---- private module variables ----------------------------------------------
 logical :: module_is_initialized = .FALSE.
@@ -31,7 +30,8 @@ subroutine land_tracers_init()
   character(32) :: name
 
   ! write the version and tag name to the logfile
-  call log_version(version, module_name, __FILE__, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 
   call register_tracers ( MODEL_LAND, ntracers, ntcana, ndiag )
 

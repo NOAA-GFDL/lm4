@@ -32,9 +32,6 @@ end interface
 #include "getput_compressed.inc"
 
 #undef __INTERFACE_SECTION__
-! ---- module constants ------------------------------------------------------
-#include "../../shared/version_variable.inc"
-character(len=*), parameter :: tagname = '$Name$'
 
 ! ---- private type - used to hold dimension/packing information during unpacking
 ! (see get_compressed_var_i_r8)
