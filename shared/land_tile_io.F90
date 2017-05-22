@@ -1065,7 +1065,7 @@ subroutine get_tile_by_idx(idx,nlon,nlat,tiles,ls,gs,ge,ptr)
    k = idx
    npts = nlon*nlat
    g = modulo(k,npts)+1 ; k = k/npts
-   ! do nothing if the indices is outside of our domain
+   ! do nothing if the index is outside of our domain
    if (g<gs.or.g>ge) return ! skip points outside of domain
    ! loop through the list of tiles at the given point to find k+1st tile
    l = lnd%l_index(g)
@@ -1074,8 +1074,9 @@ subroutine get_tile_by_idx(idx,nlon,nlat,tiles,ls,gs,ge,ptr)
       call error_mesg("land_tile_io", "l < lnd%ls .OR. l > lnd%le", FATAL)
    endif
    ce = first_elmt (tiles(l))
-   do while(loop_over_tiles(ce, ptr).and.k>0)
+   do while(loop_over_tiles(ce, ptr))
       k = k-1
+      if (k<0) exit ! from loop
    enddo
    ! NOTE that at the end of the loop (that is, if there are less tiles in the list
    ! then requested by the idx), loop_over_tiles(ce,ptr) returns NULL
