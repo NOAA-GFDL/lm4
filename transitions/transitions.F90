@@ -31,7 +31,7 @@ use get_cal_time_mod, only : get_cal_time
 use horiz_interp_mod, only : horiz_interp_type, horiz_interp_init, &
      horiz_interp_new, horiz_interp_del
 use time_interp_mod, only : time_interp
-use diag_manager_mod, only : register_diag_field, send_data
+use diag_manager_mod, only : register_diag_field, send_data, diag_field_add_attribute
 
 use nfu_mod, only : nfu_validtype, nfu_inq_var, nfu_get_dim_bounds, nfu_get_rec, &
      nfu_get_dim, nfu_get_var, nfu_get_valid_range, nfu_is_valid
@@ -305,10 +305,12 @@ subroutine land_transitions_init(id_ug, id_cellarea)
          'fracInLut_'//trim(lumip_name(k1)), (/id_ug/), lnd%time, &
          'Gross Fraction That Was Transferred into This Tile From Other Land Use Tiles', &
          units='fraction', area = id_cellarea)
+     call diag_field_add_attribute(id_frac_in(k1),'ocean_fillvalue',0.0)
      id_frac_out(k1) = register_diag_field('cmor_land', &
          'fracOutLut_'//trim(lumip_name(k1)), (/id_ug/), lnd%time, &
          'Gross Fraction of Land Use Tile That Was Transferred into Other Land Use Tiles', &
          units='fraction', area = id_cellarea)
+     call diag_field_add_attribute(id_frac_out(k1),'ocean_fillvalue',0.0)
   enddo
 
   if (.not.do_landuse_change) return ! do nothing more if no land use requested
