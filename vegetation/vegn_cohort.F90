@@ -6,7 +6,7 @@ use land_constants_mod, only: NBANDS, mol_h2o, mol_air
 use vegn_data_mod, only : spdata, &
    use_mcm_masking, use_bucket, critical_root_density, &
    tg_c4_thresh, tg_c3_thresh, l_fract, fsc_liv, &
-   phen_ev1, phen_ev2, cmc_eps, use_light_saber
+   phen_ev1, phen_ev2, cmc_eps, use_light_saber, sai_cover
 use vegn_data_mod, only : PT_C3, PT_C4, CMPT_ROOT, CMPT_LEAF, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
    LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDIOUS
@@ -244,7 +244,11 @@ subroutine vegn_data_cover ( cohort, snow_depth, vegn_cover, &
   real, intent(out) :: vegn_cover
   real, intent(out) :: vegn_cover_snow_factor
 
-  cohort%cover = 1 - exp(-cohort%lai)
+  if(sai_cover) then
+     cohort%cover = 1 - exp(-max(cohort%lai, cohort%sai))
+  else
+     cohort%cover = 1 - exp(-cohort%lai)
+  endif
   if (use_mcm_masking) then
      vegn_cover_snow_factor =  &
            (1 - min(1., 0.5*sqrt(max(snow_depth,0.)/cohort%snow_crit)))
