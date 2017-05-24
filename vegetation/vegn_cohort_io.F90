@@ -478,13 +478,10 @@ subroutine gather_cohort_data_i0d(fptr,idx,ntiles,data)
   do i = 1, size(idx)
      call get_cohort_by_idx ( idx(i), lnd%nlon, lnd%nlat, ntiles,&
                              land_tile_map, lnd%ls, lnd%gs, lnd%ge, cohort)
+     data(i) = NF_FILL_INT
      if (associated(cohort)) then
         call fptr(cohort, ptr)
-        if(associated(ptr)) then
-           data(i) = ptr
-        else
-           data(i) = NF_FILL_INT
-        endif
+        if(associated(ptr)) data(i) = ptr
      endif
   enddo
 end subroutine gather_cohort_data_i0d
@@ -504,13 +501,10 @@ subroutine gather_cohort_data_r0d(fptr,idx,ntiles,data)
   do i = 1, size(idx)
      call get_cohort_by_idx ( idx(i), lnd%nlon, lnd%nlat, ntiles,&
                              land_tile_map, lnd%ls, lnd%gs, lnd%ge, cohort)
+     data(i) = NF_FILL_DOUBLE
      if (associated(cohort)) then
         call fptr(cohort, ptr)
-        if(associated(ptr)) then
-           data(i) = ptr
-        else
-           data(i) = NF_FILL_DOUBLE
-        endif
+        if(associated(ptr)) data(i) = ptr
      endif
   enddo
 end subroutine gather_cohort_data_r0d
