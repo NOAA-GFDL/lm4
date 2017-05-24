@@ -43,6 +43,7 @@ use fms_io_mod, only: fms_io_unstructured_save_restart
 use fms_io_mod, only: HIDX
 use fms_io_mod, only: fms_io_unstructured_get_field_size
 use fms_io_mod, only: fms_io_unstructured_read
+use fms_io_mod, only: get_field_size,read_compressed
 
 implicit none
 private
@@ -294,22 +295,11 @@ subroutine static_vegn_init( )
              ! Note: The input file used for initial testing had
              ! lon = 144, lat = 90, tile = 2, cohort = 1
 
-             call fms_io_unstructured_get_field_size(trim(input_file), &
-                                                     "cohort_index", &
-                                                     siz, &
-                                                     lnd%domain)
+             call get_field_size(trim(input_file),'cohort_index',siz, domain=lnd_sg%domain)
              allocate(cidx(siz(1)), idata(siz(1)))
-!----------
-             call fms_io_unstructured_read(trim(input_file), &
-                                           "cohort_index", &
-                                           cidx, &
-                                           lnd%domain, &
-                                           timelevel=1)
-             call fms_io_unstructured_read(trim(input_file), &
-                                           "species", &
-                                           idata, &
-                                           lnd%domain, &
-                                           timelevel=1)
+             call set_domain(lnd_sg%domain)
+             call read_compressed(trim(input_file),'cohort_index',cidx,timelevel=1)
+             call read_compressed(trim(input_file),'species',idata,timelevel=1)
              do n = 1,size(cidx)
                 m = cidx(n)
                 i = modulo(m,dimlens(1))+1
@@ -624,65 +614,63 @@ subroutine read_static_vegn (time, err_msg)
 
   ! read the data into cohort variables
   if(new_land_io) then
-     call fms_io_unstructured_get_field_size(trim(input_file), &
-                                             "cohort_index", &
-                                             siz, &
-                                             lnd%domain)
-!----------
+     call get_field_size(trim(input_file), &
+                         "cohort_index", &
+                         siz, &
+                         domain=lnd_sg%domain)
      allocate(cidx(siz(1)), idata(siz(1)), rdata(siz(1)))
-!----------
-     call fms_io_unstructured_read(trim(input_file), &
-                                   "cohort_index", &
-                                   cidx, &
-                                   lnd%domain, &
-                                   timelevel=index1)
-     call fms_io_unstructured_read(trim(input_file), &
-                                   "species", &
-                                   idata, &
-                                   lnd%domain, &
-                                   timelevel=index1)
+     call read_compressed(trim(input_file), &
+                          "cohort_index", &
+                          cidx, &
+                          domain=lnd_sg%domain, &
+                          timelevel=index1)
+     call read_compressed(trim(input_file), &
+                          "species", &
+                          idata, &
+                          domain=lnd_sg%domain, &
+                          timelevel=index1)
      call read_remap_cohort_data_i0d_new(Fields(ispecies), cohort_species_ptr, map_i, map_j, cidx, idata)
-     call fms_io_unstructured_read(trim(input_file), &
-                                   "bl", &
-                                   rdata, &
-                                   lnd%domain, &
-                                   timelevel=index1)
+     call read_compressed(trim(input_file), &
+                          "bl", &
+                          rdata, &
+                          domain=lnd_sg%domain, &
+                          timelevel=index1)
      call read_remap_cohort_data_r0d_new(Fields(ibl), cohort_bl_ptr, map_i, map_j, cidx, rdata)
-     call fms_io_unstructured_read(trim(input_file), &
-                                   "blv", &
-                                   rdata, &
-                                   lnd%domain, &
-                                   timelevel=index1)
+     call read_compressed(trim(input_file), &
+                          "blv", &
+                          rdata, &
+                          domain=lnd_sg%domain, &
+                          timelevel=index1)
      call read_remap_cohort_data_r0d_new(Fields(iblv), cohort_blv_ptr, map_i, map_j, cidx, rdata)
-     call fms_io_unstructured_read(trim(input_file), &
-                                   "br", &
-                                   rdata, &
-                                   lnd%domain, &
-                                   timelevel=index1)
+     call read_compressed(trim(input_file), &
+                          "br", &
+                          rdata, &
+                          domain=lnd_sg%domain, &
+                          timelevel=index1)
      call read_remap_cohort_data_r0d_new(Fields(ibr), cohort_br_ptr, map_i, map_j, cidx, rdata)
-     call fms_io_unstructured_read(trim(input_file), &
-                                   "bsw", &
-                                   rdata, &
-                                   lnd%domain, &
-                                   timelevel=index1)
+     call read_compressed(trim(input_file), &
+                          "bsw", &
+                          rdata, &
+                          domain=lnd_sg%domain, &
+                          timelevel=index1)
      call read_remap_cohort_data_r0d_new(Fields(ibsw), cohort_bsw_ptr, map_i, map_j, cidx, rdata)
-     call fms_io_unstructured_read(trim(input_file), &
-                                   "bwood", &
-                                   rdata, &
-                                   lnd%domain, &
-                                   timelevel=index1)
+     call read_compressed(trim(input_file), &
+                          "bwood", &
+                          rdata, &
+                          domain=lnd_sg%domain, &
+                          timelevel=index1)
      call read_remap_cohort_data_r0d_new(Fields(ibwood), cohort_bwood_ptr, map_i, map_j, cidx, rdata)
-     call fms_io_unstructured_read(trim(input_file), &
-                                   "bliving", &
-                                   rdata, &
-                                   lnd%domain, &
-                                   timelevel=index1)
+     call read_compressed(trim(input_file), &
+                          "bliving", &
+                          rdata, &
+                          domain=lnd_sg%domain, &
+                          timelevel=index1)
      call read_remap_cohort_data_r0d_new(Fields(ibliving), cohort_bliving_ptr, map_i, map_j, cidx, rdata)
-     call fms_io_unstructured_read(trim(input_file), &
-                                   "status", &
-                                   idata, &
-                                   lnd%domain, &
-                                   timelevel=index1)
+     call read_compressed(trim(input_file), &
+                          "status", &
+                          idata, &
+                          domain=lnd_sg%domain, &
+                          timelevel=index1)
      call read_remap_cohort_data_i0d_new(Fields(istatus), cohort_status_ptr, map_i, map_j, cidx, idata)
 !----------
      deallocate(cidx, idata, rdata)
