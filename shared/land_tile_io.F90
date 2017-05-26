@@ -982,26 +982,23 @@ subroutine create_tile_out_file_idx_new(rhandle,name,tidx,tile_dim_length,zaxis_
   real,        optional, intent(in)  :: zaxis_data(:)       ! data for the Z-axis
   real,        optional, intent(in)  :: soilCCohort_data(:)
 
-  ! ---- local vars
-  character(256) :: file_name ! full name of the file, including the processor number
-
-  call fms_io_unstructured_register_restart_axis(rhandle, file_name, "lon", lnd%coord_glon, "X", &
+  call fms_io_unstructured_register_restart_axis(rhandle, trim(name), "lon", lnd%coord_glon, "X", &
           lnd%domain, units="degrees_east", longname="longitude")
-  call fms_io_unstructured_register_restart_axis(rhandle, file_name, "lat", lnd%coord_glat, "Y", &
+  call fms_io_unstructured_register_restart_axis(rhandle, trim(name), "lat", lnd%coord_glat, "Y", &
           lnd%domain, units="degrees_north", longname="latitude")
   ! the size of tile dimension really does not matter for the output, but it does
   ! matter for uncompressing utility, since it uses it as a size of the array to
   ! unpack to create tile index dimension and variable.
-  call fms_io_unstructured_register_restart_axis(rhandle, file_name, trim(tile_index_name), &
+  call fms_io_unstructured_register_restart_axis(rhandle, trim(name), trim(tile_index_name), &
           tidx, "tile lat lon", "C", tile_dim_length, lnd%domain, dimlen_name="tile", &
           dimlen_lname="tile number within grid cell", longname="compressed land point index", imin=0)
   if (present(zaxis_data)) then
-      call fms_io_unstructured_register_restart_axis(rhandle, file_name, "zfull", zaxis_data, "Z", &
+      call fms_io_unstructured_register_restart_axis(rhandle, trim(name), "zfull", zaxis_data, "Z", &
           lnd%domain, units="m", longname="full level", sense=-1)
   endif
 
   if (present(soilCCohort_data)) then
-      call fms_io_unstructured_register_restart_axis(rhandle, file_name, "soilCCohort", soilCCohort_data, "CC", &
+      call fms_io_unstructured_register_restart_axis(rhandle, trim(name), "soilCCohort", soilCCohort_data, "CC", &
           lnd%domain, longname="Soil carbon cohort")
   endif
 end subroutine create_tile_out_file_idx_new
