@@ -10,13 +10,11 @@ use fms_mod, only: open_namelist_file
 #endif
 
 use fms_mod, only : error_mesg, file_exist, read_data, check_nml_error, &
-     stdlog,close_file, mpp_pe, mpp_root_pe, FATAL, NOTE, lowercase
+     stdlog, close_file, mpp_pe, mpp_root_pe, FATAL, NOTE, lowercase
 use time_manager_mod, only: time_type_to_real
 use diag_manager_mod, only: diag_axis_init
-use constants_mod, only: tfreeze, hlv, hlf, dens_h2o, PI, grav, vonkarm, &
-     rdgas
+use constants_mod, only: tfreeze, hlv, hlf, dens_h2o, grav, vonkarm, rdgas
 
-use land_constants_mod, only : NBANDS
 use lake_tile_mod, only : &
      lake_tile_type, read_lake_data_namelist, &
      lake_data_thermodynamics, &
@@ -463,10 +461,10 @@ subroutine save_lake_restart (tile_dim_length, timestamp)
   call add_restart_axis(restart,'zfull',zfull(1:num_l),'Z','m','full level',sense=-1)
 
   ! write out fields
-  call add_tile_data(restart,'dz',   'zfull', num_l, lake_dz_ptr,   'layer thickness','m')
-  call add_tile_data(restart,'temp', 'zfull', num_l, lake_temp_ptr, 'lake temperature','degrees_K')
-  call add_tile_data(restart,'wl',   'zfull', num_l, lake_wl_ptr,   'liquid water content','kg/m2')
-  call add_tile_data(restart,'ws',   'zfull', num_l, lake_ws_ptr,   'solid water content','kg/m2')
+  call add_tile_data(restart,'dz',   'zfull', lake_dz_ptr,   'layer thickness','m')
+  call add_tile_data(restart,'temp', 'zfull', lake_temp_ptr, 'lake temperature','degrees_K')
+  call add_tile_data(restart,'wl',   'zfull', lake_wl_ptr,   'liquid water content','kg/m2')
+  call add_tile_data(restart,'ws',   'zfull', lake_ws_ptr,   'solid water content','kg/m2')
   
   ! save performs io domain aggregation through mpp_io as with regular domain data
   call save_land_restart(restart)

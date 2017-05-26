@@ -966,20 +966,19 @@ end subroutine get_elmt_indices
 ! attempts to advance enumerator to the next tile. If enumerator was already at
 ! the end of the tile list, returns FALSE; in this case pointer "tile" and
 ! indices i,j,k are not defined.
-function loop_over_tiles(ce, tile, l, k) result(R); logical R
+function loop_over_tiles(ce, tile, l, k, i, j) result(R); logical R
   type(land_tile_enum_type), intent(inout) :: ce
   type(land_tile_type)     , pointer, optional :: tile
-  integer, intent(out), optional :: l,k ! indices of the tile
+  integer, intent(out), optional :: i,j,l,k ! indices of the tile
 
-  if (present(tile)) tile=>current_tile(ce)
-  call get_elmt_indices(ce,l=l,k=k)
+  type(land_tile_type), pointer :: tile_
+
+  tile_=>current_tile(ce)
+  if (present(tile)) tile=>tile_
+  call get_elmt_indices(ce,i=i,j=j,l=l,k=k)
   ! advance enumerator to the next element
   ce = next_elmt(ce)
-  if(present(tile)) then
-    R  = associated(tile)
-  else
-    R = .false.
-  endif
+  R  = associated(tile_)
 end function loop_over_tiles
 
 ! ============================================================================

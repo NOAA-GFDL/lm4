@@ -41,7 +41,7 @@ use vegn_data_mod, only : &
 
 use cana_tile_mod, only : cana_tile_heat
 use snow_tile_mod, only : snow_tile_heat
-use vegn_tile_mod, only : vegn_tile_heat
+use vegn_tile_mod, only : vegn_tile_heat, vegn_tile_type, vegn_tile_bwood
 use soil_tile_mod, only : soil_tile_heat
 
 use land_tile_mod, only : land_tile_map, &
@@ -52,11 +52,11 @@ use land_tile_mod, only : land_tile_map, &
      get_tile_water, land_tile_carbon, land_tile_heat
 use land_tile_io_mod, only : print_netcdf_error
 
-use land_data_mod, only : land_data_type, lnd_sg, log_version, lnd, horiz_interp_ug
-use vegn_tile_mod, only : vegn_tile_type, vegn_tile_bwood
+use land_data_mod, only : lnd, lnd_sg, log_version, horiz_interp_ug
 use vegn_harvesting_mod, only : vegn_cut_forest
 
-use land_debug_mod, only : set_current_point, is_watch_cell, get_current_point, check_var_range
+use land_debug_mod, only : set_current_point, is_watch_cell, get_current_point, check_var_range, &
+     log_date
 use land_numerics_mod, only : rank_descending
 
 implicit none
@@ -149,9 +149,19 @@ data (luh2name(idata), luh2type(idata), idata = 1, 12) / &
    'pastr', LU_PAST, &
    'range', LU_PAST  /
 
+! variables for LUMIP diagnostics
+integer, parameter :: N_LUMIP_TYPES = 4, &
+   LUMIP_PSL = 1, LUMIP_PST = 2, LUMIP_CRP = 3, LUMIP_URB = 4
+character(4), parameter :: lumip_name(N_LUMIP_TYPES) = ['psl ','past','crop','urbn']
+integer :: &
+   id_frac_in (N_LUMIP_TYPES) = -1, &
+   id_frac_out(N_LUMIP_TYPES) = -1
+! translation table: model land use types -> LUMIP types: for each of the model
+! LU types it lists the corresponding LUMIP type.
+integer, parameter :: lu2lumip(N_LU_TYPES) = [LUMIP_PST, LUMIP_CRP, LUMIP_PSL, LUMIP_PSL, LUMIP_URB] 
 
 ! ---- namelist variables ---------------------------------------------------
-logical, public :: do_landuse_change = .FALSE. ! if true, then the landuse changes with time
+logical, protected, public :: do_landuse_change = .FALSE. ! if true, then the landuse changes with time
 character(len=1024) :: input_file  = '' ! input data set of transition dates
 character(len=1024) :: state_file  = '' ! input data set of LU states (for initial transition only)
 character(len=1024) :: static_file = '' ! static data file, for input land fraction
@@ -177,9 +187,9 @@ namelist/landuse_nml/do_landuse_change, input_file, state_file, static_file, dat
 contains ! ###################################################################
 
 ! ============================================================================
-subroutine land_transitions_init(id_ug)
-  integer,intent(in) :: id_ug !<Unstructured axis id.
-!----------
+subroutine land_transitions_init(id_ug, id_cellarea)
+  integer, intent(in) :: id_ug !<Unstructured axis id.
+  integer, intent(in) :: id_cellarea !<id of cell area diagnostic fields
 
   ! ---- local vars
   integer        :: unit, ierr, io, ncid1
@@ -284,11 +294,21 @@ subroutine land_transitions_init(id_ug)
      if(landuse_name(k2)=='')cycle
      ! construct a name of input field and register the field
      fieldname = trim(landuse_name(k1))//'2'//trim(landuse_name(k2))
-
      diag_ids(k1,k2) = register_diag_field(diag_mod_name,fieldname,(/id_ug/), lnd%time, &
           'rate of transition from '//trim(landuse_longname(k1))//' to '//trim(landuse_longname(k2)),&
           units='1/year', missing_value=-1.0)
   enddo
+  enddo
+  ! register CMIP/LUMIP transition fields
+  do k1 = 1,N_LUMIP_TYPES
+     id_frac_in(k1) = register_diag_field ('cmor_land', &
+         'fracInLut_'//trim(lumip_name(k1)), (/id_ug/), lnd%time, &
+         'Gross Fraction That Was Transferred into This Tile From Other Land Use Tiles', &
+         units='fraction', area = id_cellarea)
+     id_frac_out(k1) = register_diag_field('cmor_land', &
+         'fracOutLut_'//trim(lumip_name(k1)), (/id_ug/), lnd%time, &
+         'Gross Fraction of Land Use Tile That Was Transferred into Other Land Use Tiles', &
+         units='fraction', area = id_cellarea)
   enddo
 
   if (.not.do_landuse_change) return ! do nothing more if no land use requested
@@ -324,12 +344,14 @@ subroutine land_transitions_init(id_ug)
      do n2 = 1,size(luh2type)
         k1 = luh2type(n1)
         k2 = luh2type(n2)
+        input_tran(k1,k2)%name=trim(landuse_name(k1))//'2'//trim(landuse_name(k2))
         if (k1==k2.and.k1/=LU_SCND) cycle ! skip transitions to the same LM3 LU type, except scnd2scnd
         call add_var_to_varset(input_tran(k1,k2),tran_ncid,input_file,luh2name(n1)//'_to_'//luh2name(n2))
      enddo
      enddo
 
      if (time0==set_date(0001,01,01)) then
+        call error_mesg('land_transitions_init','setting up initial land use transitions', NOTE)
         ! initialize state input for initial transition from all-natural state.
         if (trim(state_file)=='') call error_mesg('land_transitions_init',&
             'starting land use transitions, but land use state file is not specified',FATAL)
@@ -343,6 +365,7 @@ subroutine land_transitions_init(id_ug)
         do n2 = 1,size(luh2type)
            k2 = luh2type(n2)
            if (k2==LU_NTRL) cycle
+           input_state(LU_NTRL,k2)%name='initial '//trim(landuse_name(LU_NTRL))//'2'//trim(landuse_name(k2))
            call add_var_to_varset(input_state(LU_NTRL,k2),state_ncid,state_file,luh2name(n2))
         enddo
      endif
@@ -512,12 +535,16 @@ subroutine add_var_to_varset(varset,ncid,filename,varname)
    ierr = nfu_inq_var(ncid, trim(varname), id=varid)
    select case(ierr)
    case (NF_NOERR)
+      call error_mesg('land_transitions_init',&
+           'adding field "'//trim(varname)//'" from file "'//trim(filename)//'"'//&
+           ' to transition "'//trim(varset%name)//'"',&
+           NOTE)
       varset%nvars = varset%nvars+1
       varset%id(varset%nvars) = varid
    case (NF_ENOTVAR)
-      call error_mesg('land_transitions_init',&
-           'field "'//trim(varname)//'" not found in file "'//trim(filename)//'"',&
-           NOTE)
+!       call error_mesg('land_transitions_init',&
+!            'field "'//trim(varname)//'" not found in file "'//trim(filename)//'"',&
+!            NOTE)
    case default
       call error_mesg('land_transitions_init',&
            'error initializing field "'//varname//&
@@ -577,6 +604,8 @@ subroutine land_transitions (time)
   type(tran_type), pointer :: transitions(:,:)
   integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
   real    :: w
+  real    :: diag(lnd%ls:lnd%le)
+  logical :: used
 
   if (.not.do_landuse_change) &
        return ! do nothing if landuse change not requested
@@ -588,6 +617,9 @@ subroutine land_transitions (time)
   if(year0 == year1) &
 !!$  if(day0 == day1) &
        return ! do nothing during a year
+
+  if (mpp_pe()==mpp_root_pe()) &
+       call log_date('land_transitions: applying land use transitions on ', time)
 
   ! get transition rates for current time: read map of transitions, and accumulate
   ! as many time steps in array of transitions as necessary. Note that "transitions"
@@ -609,6 +641,36 @@ subroutine land_transitions (time)
      endif
      call add_to_transitions(frac,time0,time,k1,k2,transitions)
   enddo
+  enddo
+
+  ! save the "in" and "out" diagnostics for the transitions
+  do k1 = 1, N_LUMIP_TYPES
+     if (id_frac_out(k1) > 0) then
+        diag(:) = 0.0
+        do k2 = 1, size(transitions,2)
+        do i = lnd%ls,lnd%le
+           if (transitions(i,k2)%donor>0) then
+              if (lu2lumip(transitions(i,k2)%donor) == k1) &
+                    diag(i) = diag(i) + transitions(i,k2)%frac
+           endif
+        enddo
+        enddo
+        used=send_data(id_frac_out(k1), diag*lnd%landfrac, time)
+     endif
+  enddo
+  do k1 = 1, N_LUMIP_TYPES
+     if (id_frac_in(k1) > 0) then
+        diag(:) = 0.0
+        do k2 = 1, size(transitions,2)
+        do i = lnd%ls,lnd%le
+           if (transitions(i,k2)%acceptor>0) then
+              if (lu2lumip(transitions(i,k2)%acceptor) == k1) &
+                    diag(i) = diag(i) + transitions(i,k2)%frac
+           endif
+        enddo
+        enddo
+        used=send_data(id_frac_in(k1), diag*lnd%landfrac, time)
+     endif
   enddo
 
   ! perform the transitions
