@@ -60,8 +60,6 @@ real          :: Inib_factor = 0.5
 real :: TmaxP=45.0, ToptP=35.0,  tshrP=0.6, tshlP=1.4 ! Parameters of T-response for photosynthesis
 real :: TmaxR=65.0, ToptR=47.0,  tshrR=1.4, tshlR=1.0 ! Parameters of T-response for respiration
 
-
-
 character(32) :: co2_to_use_for_photosynthesis = 'prescribed' ! or 'interactive'
    ! specifies what co2 concentration to use for photosynthesis calculations:
    ! 'prescribed'  : a prescribed value is used, equal to co2_for_photosynthesis
@@ -70,7 +68,6 @@ character(32) :: co2_to_use_for_photosynthesis = 'prescribed' ! or 'interactive'
 real, public, protected :: co2_for_photosynthesis = 350.0e-6 ! concentration of co2 for
    ! photosynthesis calculations, mol/mol. Ignored if co2_to_use_for_photosynthesis is
    ! not 'prescribed'
-
 
 namelist /photosynthesis_nml/ &
     photosynthesis_to_use, respiration_to_use, &
