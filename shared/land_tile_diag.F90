@@ -1029,8 +1029,8 @@ end subroutine dump_diag_field_with_sel
        area_ug(:,1) = 0.0
     endwhere
 
-    area_sum = mpp_reproducing_sum(diag_ug) !, overflow_check=.true.)
-    diag_sum = mpp_reproducing_sum(area_ug) !, overflow_check=.true.)
+    diag_sum = mpp_reproducing_sum(diag_ug) !, overflow_check=.true.)
+    area_sum = mpp_reproducing_sum(area_ug) !, overflow_check=.true.)
 
     send_global_land_diag = send_data( id, diag_sum/area_sum, Time)
 
