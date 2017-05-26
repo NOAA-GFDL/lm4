@@ -527,8 +527,8 @@ subroutine update_biomass_pools(c)
      c%blv = 0
      c%br  = c%Pr*c%bliving
      if (use_light_saber .and. c%Anlayer_acm<=0 .and. c%bl_previous>0) then
-        c%bsw = c%Psw*c%bliving + c%Pl*c%bliving - c%bl_previous
-        c%bl  = c%bl_previous
+        c%bl  = max(min(c%bl_previous,c%Pl*c%bliving),0.0)
+        c%bsw = c%Psw*c%bliving + c%Pl*c%bliving - c%bl
      else
         c%bl  = c%Pl*c%bliving
      endif
