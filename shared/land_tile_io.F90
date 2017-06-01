@@ -6,13 +6,18 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use mpp_mod, only : mpp_send, mpp_recv, mpp_sync
-use mpp_mod, only : COMM_TAG_1,  COMM_TAG_2,  COMM_TAG_3,  COMM_TAG_4
-use mpp_mod, only : COMM_TAG_5,  COMM_TAG_6,  COMM_TAG_7,  COMM_TAG_8
-use mpp_mod, only : COMM_TAG_9,  COMM_TAG_10
+use mpp_mod, only : mpp_send, mpp_recv, mpp_sync, &
+     COMM_TAG_1,  COMM_TAG_2,  COMM_TAG_3,  COMM_TAG_4, &
+     COMM_TAG_5,  COMM_TAG_6,  COMM_TAG_7,  COMM_TAG_8, &
+     COMM_TAG_9,  COMM_TAG_10
 use fms_mod, only : error_mesg, FATAL, NOTE, mpp_pe, get_mosaic_tile_file
-use fms_io_mod, only : restart_file_type, free_restart_type, &
-     get_instance_filename, read_data
+use fms_io_mod, only : &
+     restart_file_type, free_restart_type, get_instance_filename, read_data, &
+     fms_io_unstructured_save_restart, fms_io_unstructured_register_restart_axis, &
+     fms_io_unstructured_register_restart_field, CIDX,ZIDX,CCIDX, &
+     fms_io_unstructured_get_field_size, fms_io_unstructured_read, &
+     fms_io_unstructured_field_exist
+
 use time_manager_mod, only : time_type
 use data_override_mod, only : data_override_ug
 use mpp_domains_mod,   only : mpp_pass_SG_to_UG
@@ -24,16 +29,9 @@ use land_tile_mod, only : land_tile_type, land_tile_list_type, land_tile_enum_ty
      tile_exists_func, fptr_i0, fptr_i0i, fptr_r0, fptr_r0i, fptr_r0ij, fptr_r0ijk, &
      land_tile_map
 
-use land_data_mod, only  : lnd_sg, lnd
+use land_data_mod, only  : lnd
 use land_utils_mod, only : put_to_tiles_r0d_fptr
 
-use fms_io_mod, only: fms_io_unstructured_save_restart
-use fms_io_mod, only: fms_io_unstructured_register_restart_axis
-use fms_io_mod, only: fms_io_unstructured_register_restart_field
-use fms_io_mod, only: CIDX,ZIDX,CCIDX
-use fms_io_mod, only: fms_io_unstructured_get_field_size
-use fms_io_mod, only: fms_io_unstructured_read
-use fms_io_mod, only: fms_io_unstructured_field_exist
 
 implicit none
 private
@@ -172,7 +170,7 @@ subroutine open_land_restart(restart,filename,restart_exists)
 
   if (new_land_io) then
     !Get the size of the tile dimension from the file.
-     call fms_io_unstructured_get_field_size(filename, "tile", flen, lnd%domain, &
+     call fms_io_unstructured_get_field_size(filename, "tile", flen, lnd%ug_domain, &
                                              field_found=found)
      if (.not. found) then
          call error_mesg("open_land_restart", "dimension 'tile' not found in file '" &
@@ -181,7 +179,7 @@ subroutine open_land_restart(restart,filename,restart_exists)
      restart%tile_dim_length = flen(1)
 
     !Get the size of the tile index dimension from the file.
-     call fms_io_unstructured_get_field_size(filename, "tile_index", flen, lnd%domain, &
+     call fms_io_unstructured_get_field_size(filename, "tile_index", flen, lnd%ug_domain, &
                                              field_found=found)
      if (.not. found) then
          call error_mesg("open_land_restart", "'tile_index' not found in file '" &
@@ -190,17 +188,17 @@ subroutine open_land_restart(restart,filename,restart_exists)
      allocate(restart%tidx(flen(1)))
 
      ! Read in the tile_index field from the file.
-     call fms_io_unstructured_read(filename, "tile_index", restart%tidx, lnd%domain, &
+     call fms_io_unstructured_read(filename, "tile_index", restart%tidx, lnd%ug_domain, &
                         timelevel=1)
 
      ! Get the size of the cohort_index dimension from the file.
      call fms_io_unstructured_get_field_size(restart%basename, "cohort_index", flen, &
-                        lnd%domain, field_found=found)
+                        lnd%ug_domain, field_found=found)
      if (found) then
         ! Read in the cohort_index field from the file.
         allocate(restart%cidx(flen(1)))
         call fms_io_unstructured_read(restart%basename, "cohort_index", restart%cidx, &
-                                      lnd%domain, timelevel=1)
+                                      lnd%ug_domain, timelevel=1)
      endif
      ! TODO: possibly make tile index and cohort index names parameters in this module
      !       just constants, no sense to make them namelists vars
@@ -256,7 +254,7 @@ subroutine add_restart_axis(restart,name,data,cartesian,units,longname,sense)
      allocate(data_(size(data)))
      data_(:) = data(:)
      call fms_io_unstructured_register_restart_axis(restart%rhandle, restart%basename, &
-               name, data_, cartesian, lnd%domain, units=units, longname=longname, sense=sense)
+               name, data_, cartesian, lnd%ug_domain, units=units, longname=longname, sense=sense)
   else
      if (mpp_pe()==lnd%io_pelist(1)) then
         __NF_ASRT__(nfu_def_dim(restart%ncid,name,data(:),longname,units))
@@ -279,7 +277,8 @@ logical function field_exists(restart,name)
   character(len=*),        intent(in) :: name
 
   if (new_land_io) then
-     field_exists = fms_io_unstructured_field_exist(restart%basename, name, domain=lnd%domain)
+     field_exists = fms_io_unstructured_field_exist(restart%basename, name, &
+                    domain=lnd%ug_domain)
   else
      field_exists = (nfu_inq_var(restart%ncid,trim(name))==NF_NOERR)
   endif
@@ -296,7 +295,8 @@ subroutine add_scalar_data(restart,varname,datum,longname,units)
 
   if (new_land_io) then
      id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, &
-            restart%basename, varname, datum, lnd%domain, longname=longname, units=units)
+            restart%basename, varname, datum, lnd%ug_domain, longname=longname, &
+            units=units)
   else
      if(mpp_pe()==lnd%io_pelist(1)) then
         ierr = nf_redef(restart%ncid)
@@ -322,7 +322,7 @@ subroutine add_tile_data_i0d_fptr_i0(restart,varname,fptr,longname,units)
   call gather_tile_data_i0d(fptr,restart%tidx,data)
   if (new_land_io) then
      id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, restart%basename, &
-            varname, data, (/CIDX/), lnd%domain, longname=longname, units=units, &
+            varname, data, (/CIDX/), lnd%ug_domain, longname=longname, units=units, &
             restart_owns_data=.true.)
   else ! old land io
      call write_tile_data_i1d(restart%ncid,varname,data,longname,units)
@@ -345,7 +345,7 @@ subroutine add_tile_data_r0d_fptr_r0(restart,varname,fptr,longname,units)
   call gather_tile_data_r0d(fptr,restart%tidx,data)
   if (new_land_io) then
      id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, restart%basename, &
-            varname, data, (/CIDX/), lnd%domain, longname=longname, units=units, &
+            varname, data, (/CIDX/), lnd%ug_domain, longname=longname, units=units, &
             restart_owns_data=.true.)
   else ! old land io
      call write_tile_data_r1d(restart%ncid,varname,data,longname,units)
@@ -369,7 +369,7 @@ subroutine add_tile_data_r0d_fptr_r0i(restart,varname,fptr,index,longname,units)
   call gather_tile_data_r0d_idx(fptr,index,restart%tidx,data)
   if (new_land_io) then
      id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, restart%basename, &
-            varname, data, (/CIDX/), lnd%domain, longname=longname, units=units, &
+            varname, data, (/CIDX/), lnd%ug_domain, longname=longname, units=units, &
             restart_owns_data=.true.)
   else ! old land io
      call write_tile_data_r1d(restart%ncid,varname,data,longname,units)
@@ -415,7 +415,7 @@ subroutine add_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr,longname,units)
 
   if (new_land_io) then
      id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, restart%basename, &
-            varname, data, (/CIDX,ZIDX/), lnd%domain, longname=longname, units=units, &
+            varname, data, (/CIDX,ZIDX/), lnd%ug_domain, longname=longname, units=units, &
             restart_owns_data=.true.)
   else ! old land io
      call write_tile_data_i2d(restart%ncid,varname,data,zdim,longname,units)
@@ -450,11 +450,11 @@ subroutine add_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr,longname,units)
      if (trim(zdim)=='soilCCohort') then
         ! write (*,*) 'writing "',trim(varname),'" with C_CC'
         id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, restart%basename, &
-              varname, data, (/CIDX,CCIDX/), lnd%domain, longname=longname, units=units, &
+              varname, data, (/CIDX,CCIDX/), lnd%ug_domain, longname=longname, units=units, &
               restart_owns_data=.true.)
      else
         id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, restart%basename, &
-              varname, data, (/CIDX,ZIDX/), lnd%domain, longname=longname, units=units, &
+              varname, data, (/CIDX,ZIDX/), lnd%ug_domain, longname=longname, units=units, &
               restart_owns_data=.true.)
      endif
   else ! old land io
@@ -505,11 +505,11 @@ subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index,longname,
      if (trim(zdim)=='soilCCohort') then
         ! write (*,*) 'writing "',trim(varname),'" with C_CC'
         id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, restart%basename, &
-                varname, data, (/CIDX,CCIDX/), lnd%domain, longname=longname, units=units, &
+                varname, data, (/CIDX,CCIDX/), lnd%ug_domain, longname=longname, units=units, &
                 restart_owns_data=.true.)
      else
         id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, restart%basename, &
-                varname, data, (/CIDX,ZIDX/), lnd%domain, longname=longname, units=units, &
+                varname, data, (/CIDX,ZIDX/), lnd%ug_domain, longname=longname, units=units, &
                 restart_owns_data=.true.)
      endif
   else ! old land io
@@ -529,7 +529,7 @@ subroutine add_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr,longname,u
   real, pointer :: data(:,:,:) ! needs to be pointer; we are passing ownership to restart object
   integer :: i,dim1len,dim2len
 
-  if (.not.allocated(restart%tidx)) call error_mesg('add_tile_data_r2d_fptr_r0ijk', &
+  if (.not.allocated(restart%tidx)) call error_mesg('add_tile_data_r2d_fptr_r0ij', &
         'tidx not allocated: looks like land restart was not initialized',FATAL)
 
   dim1len = dimlen(restart,dim1)
@@ -539,7 +539,7 @@ subroutine add_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr,longname,u
 
   if (new_land_io) then
      id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, restart%basename, &
-            varname, data, (/CIDX,ZIDX,CCIDX/), lnd%domain, longname=longname, units=units, &
+            varname, data, (/CIDX,ZIDX,CCIDX/), lnd%ug_domain, longname=longname, units=units, &
             restart_owns_data=.true.)
   else ! old land io
      call write_tile_data_r3d(restart%ncid,varname,data,dim1,dim2,longname,units)
@@ -569,7 +569,7 @@ subroutine add_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index,lon
 
   if (new_land_io) then
      id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, restart%basename, &
-            varname, data, (/CIDX,ZIDX,CCIDX/), lnd%domain, longname=longname, units=units, &
+            varname, data, (/CIDX,ZIDX,CCIDX/), lnd%ug_domain, longname=longname, units=units, &
             restart_owns_data=.true.)
   else ! old land io
      call write_tile_data_r3d(restart%ncid,varname,data,dim1,dim2,longname,units)
@@ -584,7 +584,7 @@ subroutine get_scalar_data(restart,varname,datum)
   integer,          intent(out) :: datum
 
   if (new_land_io) then
-     call read_data(restart%basename,varname,datum,domain=lnd_sg%domain)
+     call read_data(restart%basename,varname,datum,domain=lnd%sg_domain)
   else
      __NF_ASRT__(nfu_get_var(restart%ncid,varname,datum))
   endif
@@ -601,7 +601,7 @@ subroutine get_tile_data_i0d_fptr_i0(restart,varname,fptr)
 
   if (new_land_io) then
      allocate(r(size(restart%tidx)))
-     call fms_io_unstructured_read(restart%basename, varname, r, lnd%domain, timelevel=1)
+     call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
      call assemble_tiles_i0d(fptr,restart%tidx,r)
      deallocate(r)
   else ! old land io
@@ -620,7 +620,7 @@ subroutine get_tile_data_r0d_fptr_r0(restart,varname,fptr)
 
   if (new_land_io) then
      allocate(r(size(restart%tidx)))
-     call fms_io_unstructured_read(restart%basename, varname, r, lnd%domain, timelevel=1)
+     call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
      call assemble_tiles_r0d(fptr,restart%tidx,r)
      deallocate(r)
   else ! old land io
@@ -640,7 +640,7 @@ subroutine get_tile_data_r0d_fptr_r0i(restart,varname,fptr,index)
 
   if (new_land_io) then
      allocate(r(size(restart%tidx)))
-     call fms_io_unstructured_read(restart%basename, varname, r, lnd%domain, timelevel=1)
+     call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
      call assemble_tiles_r0d_idx(fptr,index,restart%tidx,r)
      deallocate(r)
   else ! old land io
@@ -661,7 +661,7 @@ subroutine get_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr)
 
   if (new_land_io) then
     !Get the size of z-dimension from the file.
-     call fms_io_unstructured_get_field_size(restart%basename, zdim, flen, lnd%domain, &
+     call fms_io_unstructured_get_field_size(restart%basename, zdim, flen, lnd%ug_domain, &
                                              field_found=found)
      if (.not. found) then
          call error_mesg("get_tile_data_r0d_fptr_r0i", &
@@ -671,7 +671,7 @@ subroutine get_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr)
 
     !Read in the field from the file.
      allocate(r(size(restart%tidx),flen(1)))
-     call fms_io_unstructured_read(restart%basename, varname, r, lnd%domain, timelevel=1)
+     call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
      call assemble_tiles_r1d(fptr,restart%tidx,r)
      deallocate(r)
   else ! old land io
@@ -692,7 +692,7 @@ subroutine get_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr)
 
   if (new_land_io) then
     !Get the size of z-dimension from the file.
-     call fms_io_unstructured_get_field_size(restart%basename, zdim, flen, lnd%domain, &
+     call fms_io_unstructured_get_field_size(restart%basename, zdim, flen, lnd%ug_domain, &
                                              field_found=found)
      if (.not. found) then
          call error_mesg("get_tile_data_i1d_fptr_i0i", &
@@ -702,7 +702,7 @@ subroutine get_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr)
 
     !Read in the field data from the file.
      allocate(r(size(restart%tidx),flen(1)))
-     call fms_io_unstructured_read(restart%basename, varname, r, lnd%domain, timelevel=1)
+     call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
      call assemble_tiles_i1d(fptr,restart%tidx,r)
      deallocate(r)
   else ! old land io
@@ -724,17 +724,15 @@ subroutine get_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index)
 
   if (new_land_io) then
     !Get the size of z-dimension from the file.
-     call fms_io_unstructured_get_field_size(restart%basename, zdim, flen, lnd%domain, &
+     call fms_io_unstructured_get_field_size(restart%basename, zdim, flen, lnd%ug_domain, &
                                              field_found=found)
-     if (.not. found) then
-         call error_mesg("get_tile_data_r1d_fptr_r0ij", &
+     if (.not. found) call error_mesg("get_tile_data_r1d_fptr_r0ij", &
                          "axis '"//trim(zdim)//"' was not found in file '"//trim(restart%basename)//"'.", &
                          FATAL)
-     endif
 
     !Read in the field from the file.
      allocate(r(size(restart%tidx),flen(1)))
-     call fms_io_unstructured_read(restart%basename, varname, r, lnd%domain, timelevel=1)
+     call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
      call assemble_tiles_r1d_idx(fptr,index,restart%tidx,r)
      deallocate(r)
   else ! old land io
@@ -755,7 +753,7 @@ subroutine get_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr)
 
   if (new_land_io) then
     !Get the size of the first dimension of the field.
-     call fms_io_unstructured_get_field_size(restart%basename, dim1, flen, lnd%domain, &
+     call fms_io_unstructured_get_field_size(restart%basename, dim1, flen, lnd%ug_domain, &
                                              field_found=found)
      if (.not. found) then
          call error_mesg("get_tile_data_r0d_fptr_r0i", &
@@ -765,7 +763,7 @@ subroutine get_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr)
      n = flen(1)
 
     !Get the size of the second dimension of the field.
-     call fms_io_unstructured_get_field_size(restart%basename, dim2, flen, lnd%domain, &
+     call fms_io_unstructured_get_field_size(restart%basename, dim2, flen, lnd%ug_domain, &
                                              field_found=found)
      if (.not. found) then
          call error_mesg("get_tile_data_r0d_fptr_r0i", &
@@ -776,7 +774,7 @@ subroutine get_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr)
 
     !Read in the field data from the file.
      allocate(r(size(restart%tidx),n,m))
-     call fms_io_unstructured_read(restart%basename, varname, r, lnd%domain, timelevel=1)
+     call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
      call assemble_tiles_r2d(fptr,restart%tidx,r)
      deallocate(r)
   else ! old land io
@@ -798,7 +796,7 @@ subroutine get_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index)
 
   if (new_land_io) then
     !Get the size of the z-dimension from the file.
-     call fms_io_unstructured_get_field_size(restart%basename, dim1, flen, lnd%domain, &
+     call fms_io_unstructured_get_field_size(restart%basename, dim1, flen, lnd%ug_domain, &
                                              field_found=found)
      if (.not. found) then
          call error_mesg("get_tile_data_r0d_fptr_r0i", &
@@ -808,7 +806,7 @@ subroutine get_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index)
      n = flen(1)
 
     !Get the size of the 3rd dimension of the field.
-     call fms_io_unstructured_get_field_size(restart%basename, dim2, flen, lnd%domain, &
+     call fms_io_unstructured_get_field_size(restart%basename, dim2, flen, lnd%ug_domain, &
                                              field_found=found)
      if (.not. found) then
          call error_mesg("get_tile_data_r0d_fptr_r0i", &
@@ -819,7 +817,7 @@ subroutine get_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index)
 
     !Read in the field from the file.
      allocate(r(size(restart%tidx),n,m))
-     call fms_io_unstructured_read(restart%basename, varname, r, lnd%domain, timelevel=1)
+     call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
      call assemble_tiles_r2d_idx(fptr,index,restart%tidx,r)
      deallocate(r)
   else ! old land io
@@ -843,7 +841,7 @@ subroutine get_input_restart_name(name, restart_exists, actual_name, new_land_io
 
   ! Build the restart file name.
   call get_instance_filename(trim(name), actual_name)
-  call get_mosaic_tile_file(trim(actual_name),actual_name, lnd%domain)
+  call get_mosaic_tile_file(trim(actual_name),actual_name, lnd%ug_domain)
   ! we can't use fms file_exist function here, because it lies: it checks not
   ! just the original name, but the name with PE suffix, and returns true if
   ! either of those exist
@@ -904,7 +902,7 @@ subroutine create_tile_out_file_idx_old(ncid, name, tidx, tile_dim_length, glon,
 
   ! form the full name of the file
   call get_instance_filename(trim(name), full_name)
-  call get_mosaic_tile_file(trim(full_name),full_name,lnd%domain)
+  call get_mosaic_tile_file(trim(full_name),full_name,lnd%ug_domain)
   if (lnd%append_io_id) then
       write(PE_suffix,'(".",I4.4)') lnd%io_id
   else
@@ -987,26 +985,26 @@ subroutine create_tile_out_file_idx_new(rhandle,name,tidx,tile_dim_length,zaxis_
 
   ! form the full name of the file
   call get_instance_filename(trim(name), file_name)
-  call get_mosaic_tile_file(trim(file_name),file_name,lnd%domain)
+  call get_mosaic_tile_file(trim(file_name),file_name,lnd%ug_domain)
 
   call fms_io_unstructured_register_restart_axis(rhandle, file_name, "lon", lnd%coord_glon, "X", &
-          lnd%domain, units="degrees_east", longname="longitude")
+          lnd%ug_domain, units="degrees_east", longname="longitude")
   call fms_io_unstructured_register_restart_axis(rhandle, file_name, "lat", lnd%coord_glat, "Y", &
-          lnd%domain, units="degrees_north", longname="latitude")
+          lnd%ug_domain, units="degrees_north", longname="latitude")
   ! the size of tile dimension really does not matter for the output, but it does
   ! matter for uncompressing utility, since it uses it as a size of the array to
   ! unpack to create tile index dimension and variable.
   call fms_io_unstructured_register_restart_axis(rhandle, file_name, trim(tile_index_name), &
-          tidx, "tile lat lon", "C", tile_dim_length, lnd%domain, dimlen_name="tile", &
+          tidx, "tile lat lon", "C", tile_dim_length, lnd%ug_domain, dimlen_name="tile", &
           dimlen_lname="tile number within grid cell", longname="compressed land point index", imin=0)
   if (present(zaxis_data)) then
       call fms_io_unstructured_register_restart_axis(rhandle, file_name, "zfull", zaxis_data, "Z", &
-          lnd%domain, units="m", longname="full level", sense=-1)
+          lnd%ug_domain, units="m", longname="full level", sense=-1)
   endif
 
   if (present(soilCCohort_data)) then
       call fms_io_unstructured_register_restart_axis(rhandle, file_name, "soilCCohort", soilCCohort_data, "CC", &
-          lnd%domain, longname="Soil carbon cohort")
+          lnd%ug_domain, longname="Soil carbon cohort")
   endif
 end subroutine create_tile_out_file_idx_new
 

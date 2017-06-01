@@ -19,7 +19,7 @@ use land_tile_io_mod, only: land_restart_type, &
      get_tile_by_idx
 
 use vegn_cohort_mod, only: vegn_cohort_type
-use land_data_mod, only : lnd_sg, lnd
+use land_data_mod, only : lnd
 
 use fms_io_mod, only: fms_io_unstructured_register_restart_axis
 use fms_io_mod, only: fms_io_unstructured_register_restart_field
@@ -349,7 +349,7 @@ subroutine create_cohort_out_file_idx(rhandle,name,cidx,cohorts_dim_length)
 
   ! form the full name of the file
   call get_instance_filename(trim(name), file_name)
-  call get_mosaic_tile_file(trim(file_name),file_name,lnd%domain)
+  call get_mosaic_tile_file(trim(file_name),file_name,lnd%ug_domain)
 
   ! the size of tile dimension really does not matter for the output, but it does
   ! matter for uncompressing utility, since it uses it as a size of the array to
@@ -361,7 +361,7 @@ subroutine create_cohort_out_file_idx(rhandle,name,cidx,cohorts_dim_length)
                                                  "cohort tile lat lon", &
                                                  "H", &
                                                  cohorts_dim_length, &
-                                                 lnd%domain, &
+                                                 lnd%ug_domain, &
                                                  dimlen_name="cohort", &
                                                  dimlen_lname="cohort number within tile", &
                                                  units="none", &
@@ -523,7 +523,7 @@ subroutine add_cohort_data(restart,varname,fptr,longname,units)
   call gather_cohort_data_r0d(fptr,restart%cidx,restart%tile_dim_length,r)
   if (new_land_io) then
      id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, &
-          restart%basename, varname, r, (/HIDX/), lnd%domain, &
+          restart%basename, varname, r, (/HIDX/), lnd%ug_domain, &
           longname=longname, units=units, restart_owns_data=.true.)
   else
      call write_cohort_data_r0d(restart%ncid,varname,r,longname,units)
@@ -545,7 +545,7 @@ subroutine add_int_cohort_data(restart,varname,fptr,longname,units)
   call gather_cohort_data_i0d(fptr,restart%cidx,restart%tile_dim_length,r)
   if (new_land_io) then
      id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, &
-         restart%basename, varname, r, (/HIDX/), lnd%domain, &
+         restart%basename, varname, r, (/HIDX/), lnd%ug_domain, &
          longname=longname, units=units, restart_owns_data=.true.)
   else
      call write_cohort_data_i0d(restart%ncid,varname,r,longname,units)
@@ -564,7 +564,7 @@ subroutine get_cohort_data(restart,varname,fptr)
      if (.not.allocated(restart%cidx)) call error_mesg('read_create_cohorts', &
         'cohort index not found in file "'//restart%filename//'"',FATAL)
      allocate(r(size(restart%cidx)))
-     call fms_io_unstructured_read(restart%basename, varname, r, lnd%domain, timelevel=1)
+     call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
      call assemble_cohorts_r0d(fptr,restart%cidx,restart%tile_dim_length,r)
      deallocate(r)
   else
@@ -583,7 +583,7 @@ subroutine get_int_cohort_data(restart,varname,fptr)
      if (.not.allocated(restart%cidx)) call error_mesg('read_create_cohorts', &
         'cohort index not found in file "'//restart%filename//'"',FATAL)
      allocate(r(size(restart%cidx)))
-     call fms_io_unstructured_read(restart%basename, varname, r, lnd%domain, timelevel=1)
+     call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
      call assemble_cohorts_i0d(fptr,restart%cidx,restart%tile_dim_length,r)
      deallocate(r)
   else

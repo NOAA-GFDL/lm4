@@ -52,11 +52,11 @@ use land_tile_mod, only : land_tile_map, &
      get_tile_water, land_tile_carbon, land_tile_heat
 use land_tile_io_mod, only : print_netcdf_error
 
-use land_data_mod, only : lnd, lnd_sg, log_version, horiz_interp_ug
+use land_data_mod, only : lnd, log_version, horiz_interp_ug
 use vegn_harvesting_mod, only : vegn_cut_forest
 
-use land_debug_mod, only : set_current_point, is_watch_cell, get_current_point, check_var_range, &
-     log_date
+use land_debug_mod, only : set_current_point, is_watch_cell, &
+     get_current_point, check_var_range, log_date
 use land_numerics_mod, only : rank_descending
 
 implicit none
@@ -455,7 +455,7 @@ l1:do k1 = 1,size(input_tran,1)
 
   ! initialize horizontal interpolator
   call horiz_interp_new(interp, lon_in*PI/180,lat_in*PI/180, &
-       lnd_sg%lonb, lnd_sg%latb, &
+       lnd%sg_lonb, lnd%sg_latb, &
        interp_method='conservative',&
        mask_in=mask_in, is_latlon_in=.TRUE. )
 
@@ -657,7 +657,7 @@ subroutine land_transitions (time)
            endif
         enddo
         enddo
-        used=send_data(id_frac_out(k1), diag*lnd%landfrac, time)
+        used=send_data(id_frac_out(k1), diag*lnd%ug_landfrac, time)
      endif
   enddo
   do k1 = 1, N_LUMIP_TYPES
@@ -671,16 +671,14 @@ subroutine land_transitions (time)
            endif
         enddo
         enddo
-        used=send_data(id_frac_in(k1), diag*lnd%landfrac, time)
+        used=send_data(id_frac_in(k1), diag*lnd%ug_landfrac, time)
      endif
   enddo
 
   ! perform the transitions
   do l = lnd%ls,lnd%le
-     i = lnd%i_index(l)
-     j = lnd%j_index(l)
      ! set current point for debugging
-     call set_current_point(i,j,1,l)
+     call set_current_point(l,1)
      ! transition land area between different tile types
      call land_transitions_0d(land_tile_map(l), &
           transitions(l,:)%donor, &
@@ -1296,9 +1294,7 @@ subroutine integral_transition(t1, t2, tran, frac, err_msg)
   frac = sum+frac*w*dt
   ! check the transition rate validity
   do l = 1,size(frac(:))
-     i = lnd%i_index(l+lnd%ls-1)
-     j = lnd%j_index(l+lnd%ls-1)
-     call set_current_point(i,j,1,l+lnd%ls-1)
+     call set_current_point(l+lnd%ls-1,1)
      call check_var_range(frac(l),0.0,HUGE(1.0),'integral_transition',tran%name, FATAL)
   enddo
 end subroutine integral_transition

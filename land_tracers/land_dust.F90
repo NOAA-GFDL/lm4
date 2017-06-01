@@ -237,7 +237,7 @@ subroutine land_dust_init (mask, id_ug)
   ! read dust source field
   allocate(dust_source(lnd%ls:lnd%le))
   call read_field( input_file_name, input_field_name, &
-       lnd%lon, lnd%lat, dust_source, interp='bilinear' )
+       lnd%ug_lon, lnd%ug_lat, dust_source, interp='bilinear' )
 
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('land')
@@ -266,9 +266,7 @@ subroutine land_dust_init (mask, id_ug)
        'topographical dust source', missing_value = -1.0 )
 
   if (id_dust_source .gt. 0) then
-      used = send_data(id_dust_source, &
-                       dust_source, &
-                       lnd%time)
+      used = send_data(id_dust_source, dust_source, lnd%time)
   endif
 
   do i = 1,n_dust_tracers

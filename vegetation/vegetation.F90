@@ -285,11 +285,11 @@ subroutine vegn_init(id_ug,id_band)
      call fms_io_unstructured_read(restart2%basename, &
                                    "n_accum", &
                                    n_accum, &
-                                   lnd%domain)
+                                   lnd%ug_domain)
      call fms_io_unstructured_read(restart2%basename, &
                                    "nmn_acm", &
                                    nmn_acm, &
-                                   lnd%domain)
+                                   lnd%ug_domain)
 
      call get_int_cohort_data(restart2, 'species', cohort_species_ptr)
      call get_cohort_data(restart2, 'hite', cohort_height_ptr)
@@ -378,10 +378,10 @@ subroutine vegn_init(id_ug,id_band)
           t_cold(lnd%ls:lnd%le),&
           p_ann (lnd%ls:lnd%le),&
           ncm   (lnd%ls:lnd%le) )
-     call read_field( 'INPUT/biodata.nc','T_ANN', lnd%lon, lnd%lat, t_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','T_COLD',lnd%lon, lnd%lat, t_cold, interp='nearest')
-     call read_field( 'INPUT/biodata.nc','P_ANN', lnd%lon, lnd%lat, p_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','NCM',   lnd%lon, lnd%lat, ncm,    interp='nearest')
+     call read_field( 'INPUT/biodata.nc','T_ANN', lnd%ug_lon, lnd%ug_lat, t_ann,  interp='nearest')
+     call read_field( 'INPUT/biodata.nc','T_COLD',lnd%ug_lon, lnd%ug_lat, t_cold, interp='nearest')
+     call read_field( 'INPUT/biodata.nc','P_ANN', lnd%ug_lon, lnd%ug_lat, p_ann,  interp='nearest')
+     call read_field( 'INPUT/biodata.nc','NCM',   lnd%ug_lon, lnd%ug_lat, ncm,    interp='nearest')
      did_read_biodata = .TRUE.
      call error_mesg('vegn_init','did read INPUT/biodata.nc',NOTE)
   else
@@ -1659,8 +1659,8 @@ subroutine vegn_seed_transport()
   do while (loop_over_tiles(ce,tile,l))
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
 
-     total_seed_supply = total_seed_supply + vegn_seed_supply(tile%vegn)*tile%frac*lnd%area(l)
-     total_seed_demand = total_seed_demand + vegn_seed_demand(tile%vegn)*tile%frac*lnd%area(l)
+     total_seed_supply = total_seed_supply + vegn_seed_supply(tile%vegn)*tile%frac*lnd%ug_area(l)
+     total_seed_demand = total_seed_demand + vegn_seed_demand(tile%vegn)*tile%frac*lnd%ug_area(l)
   enddo
   ! sum totals globally
   call mpp_sum(total_seed_demand, pelist=lnd%pelist)

@@ -204,15 +204,15 @@ subroutine land_cover_cold_start_0d_predefined_tiles(tiles,lnd,l,h5id)
   !Determine the lat/lon of the grid cell (degrees)
   is = lnd%i_index(l)
   js = lnd%j_index(l)
-  lon = 180.0*lnd%lon(l)/pi
-  lat = 180.0*lnd%lat(l)/pi
+  lon = 180.0*lnd%ug_lon(l)/pi
+  lat = 180.0*lnd%ug_lat(l)/pi
 
   !Determine the cell id (I/O core)
   !call determine_cell_id(is,js,h5id,cellid)
 
   !Retrieve buffer and buffer length of desired group (I/O core)
   !call load_group_into_memory(cellid,h5id,buf_ptr,buf_len,image_ptr)
-  call load_group_into_memory(lnd%face,is,js,h5id,buf_ptr,buf_len,image_ptr)
+  call load_group_into_memory(lnd%ug_face,is,js,h5id,buf_ptr,buf_len,image_ptr)
 
   !Use buffer and buffer length to open new image file (Land model core)
   call open_image_file(buf_ptr,buf_len,image_ptr,dstid)

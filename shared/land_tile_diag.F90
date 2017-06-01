@@ -17,7 +17,7 @@ use land_tile_selectors_mod, only : tile_selectors_init, tile_selectors_end, &
 use land_tile_mod,      only : land_tile_type, diag_buff_type, land_tile_list_type, &
      land_tile_enum_type, first_elmt, loop_over_tiles, &
      land_tile_map, tile_is_selected, fptr_i0, fptr_r0, fptr_r0i
-use land_data_mod,      only : lnd, lnd_sg, log_version, land_data_type
+use land_data_mod,      only : lnd, log_version, land_data_type
 use land_debug_mod,     only : check_var_range, set_current_point
 use tile_diag_buff_mod, only : diag_buff_type, realloc_diag_buff
 
@@ -61,7 +61,8 @@ public :: get_area_id
 
 ! name of the table used for CMOR-compatible variables
 character(*), public, parameter :: cmor_name='cmor_land'
-real, public, parameter      :: cmor_mrsos_depth=0.1 ! depth of mrsos soil moisture averaging, m
+real,         public, parameter :: cmor_mrsos_depth=0.1 ! depth of mrsos soil 
+                                    ! moisture averaging, m
 ! ==== end of public interface ===============================================
 
 
@@ -319,14 +320,16 @@ function register_tiled_diag_field(module_name, field_name, axes, init_time, &
   logical,          intent(in), optional :: fill_missing
 
   id = reg_field(FLD_DYNAMIC, module_name, field_name, init_time, axes, long_name, &
-         units, missing_value, range, op=op, standard_name=standard_name, fill_missing=fill_missing)
+         units, missing_value, range, op=op, standard_name=standard_name, &
+         fill_missing=fill_missing)
   call add_cell_measures(id)
   call add_cell_methods(id)
 end function register_tiled_diag_field
 
 ! ============================================================================
 function register_tiled_static_field(module_name, field_name, axes, &
-     long_name, units, missing_value, range, require, op, standard_name, fill_missing) result (id)
+     long_name, units, missing_value, range, require, op, standard_name, &
+     fill_missing) result (id)
 
   integer :: id
 
@@ -355,7 +358,7 @@ end function register_tiled_static_field
 
 ! ============================================================================
 subroutine add_tiled_static_field_alias(id0, module_name, field_name, axes, &
-     long_name, units, missing_value, range, op, standard_name)
+     long_name, units, missing_value, range, op, standard_name, fill_missing)
   integer,          intent(inout) :: id0 ! id of the original diag field on input;
    ! if negative then it may be replaced with the alias id on output
   character(len=*), intent(in) :: module_name
@@ -367,12 +370,14 @@ subroutine add_tiled_static_field_alias(id0, module_name, field_name, axes, &
   real,             intent(in), optional :: range(2)
   integer,          intent(in), optional :: op ! aggregation operation code
   character(len=*), intent(in), optional :: standard_name
+  logical,          intent(in), optional :: fill_missing
 
   ! --- local vars
   type(time_type) :: init_time
 
   call reg_field_alias(id0, FLD_STATIC, module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, op, standard_name=standard_name)
+     long_name, units, missing_value, range, op, standard_name=standard_name, &
+     fill_missing=fill_missing)
 end subroutine add_tiled_static_field_alias
 
 
@@ -1022,8 +1027,8 @@ end subroutine dump_diag_field_with_sel
     mask_ug(:) = ANY(mask,dim=2)
 
     where(mask_ug)
-       diag_ug(:,1) = diag_ug(:,1) * lnd%area
-       area_ug(:,1) = lnd%area
+       diag_ug(:,1) = diag_ug(:,1) * lnd%ug_area
+       area_ug(:,1) = lnd%ug_area
     elsewhere
        diag_ug(:,1) = 0.0
        area_ug(:,1) = 0.0
