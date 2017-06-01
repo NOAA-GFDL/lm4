@@ -367,7 +367,11 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   capgam=0.5*kc/ko*0.21*0.209; ! Farquhar & Caemmerer 1982
 
   ! Find respiration for the whole canopy layer
-  lai_kok=min(max(-log(light_kok/light_top)/kappa,0.0),lai)
+  if (light_top>light_kok) then
+     lai_kok=min(log(light_top/light_kok)/kappa,lai)
+  else
+     lai_kok = 0.0
+  endif
   if (Kok_effect) then
      ! modify vm for Vmax later and add a temperature function to it.
      Resp=(1-Inib_factor)*spdata(pft)%gamma_resp*vm*lai_kok+spdata(pft)%gamma_resp*vm*(lai-lai_kok)
