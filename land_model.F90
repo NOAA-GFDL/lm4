@@ -651,7 +651,7 @@ subroutine land_cover_cold_start()
   invalid_data = land_mask.and..not.valid_data
 
   call get_watch_point(iwatch,jwatch,kwatch,face)
-  if (face==lnd%face.and.(lnd%ls<=lwatch.and.lwatch<=lnd%le) ) then
+  if (face==lnd%ug_face.and.(lnd%ls<=lwatch.and.lwatch<=lnd%le) ) then
      write(*,*)'###### land_cover_cold_start: input data #####'
      write(*,'(99(a,i4.2,x))')'iwatch=',iwatch,'jwatch=',jwatch,'face=',face
      write(*,'(99(a,g23.16,x))')'lon=',lnd%ug_lon(lwatch)*180/PI,'lat=',lnd%ug_lat(lwatch)*180/PI
@@ -741,7 +741,8 @@ subroutine land_cover_cold_start()
      if(nitems(land_tile_map(lll))==0) then
         call error_mesg('land_cover_cold_start',&
              'No tiles were created for a valid land point at i='&
-             //trim(string(lnd%i_index(lll)))//' j='//trim(string(lnd%j_index(lll)))//' face='//trim(string(lnd%face)), FATAL)
+             //trim(string(lnd%i_index(lll)))//' j='//trim(string(lnd%j_index(lll)))&
+             //' face='//trim(string(lnd%ug_face)), FATAL)
      endif
   enddo
 
@@ -1118,8 +1119,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   call mpp_pass_UG_to_SG(lnd%ug_domain, runoff_c, runoff_c_sg)
 
   call get_watch_point(iwatch,jwatch,kwatch,face)
-  if (face==lnd%face.and.(lnd%is<=iwatch.and.iwatch<=lnd%ie).and.&
-                         (lnd%js<=jwatch.and.jwatch<=lnd%je)) then
+  if (face==lnd%sg_face.and.(lnd%is<=iwatch.and.iwatch<=lnd%ie).and.&
+                            (lnd%js<=jwatch.and.jwatch<=lnd%je)) then
      __DEBUG1__(runoff_sg(iwatch,jwatch))
      __DEBUG1__(runoff_c_sg(iwatch,jwatch,:))
   endif
@@ -3143,7 +3144,7 @@ subroutine update_land_bc_slow (land2cplr)
   where (land2cplr%mask) &
        land2cplr%rough_scale = max(land2cplr%rough_mom,land2cplr%rough_scale)
   call get_watch_point(i,j,k,face,l)
-  if ( lnd%face==face.and.                   &
+  if ( lnd%ug_face==face.and.                &
        lnd%ls<=l.and.l<=lnd%le.and.          &
        k<=size(land2cplr%rough_scale,2).and. &
        is_watch_time()) then

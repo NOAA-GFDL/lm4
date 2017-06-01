@@ -127,28 +127,30 @@ type :: land_state_type
    integer :: gs,ge       ! min and max value of grid index ( j*nx+i )
    integer :: nlon,nlat   ! size of global grid
    integer :: nfaces ! number of mosaic faces
-   integer :: face   ! current mosaic face
+
+   integer :: sg_face ! current mosaic face on structured grid
+   integer :: ug_face ! current mosaic face on unstructured grid
 
    type(time_type) :: dt_fast     ! fast (physical) time step
    type(time_type) :: dt_slow     ! slow time step
    type(time_type) :: time        ! current land model time
 
    ! geometry on structured grid
-   real, allocatable  :: sg_lon (:,:), sg_lat (:,:) ! domain grid center coordinates, radian
-   real, allocatable  :: sg_lonb(:,:), sg_latb(:,:) ! domain grid vertices, radian
    real, allocatable  :: sg_area(:,:)  ! land area per grid cell, m2
    real, allocatable  :: sg_cellarea(:,:)  ! grid cell area, m2
    real, allocatable  :: sg_landfrac(:,:)  ! fraction of land in the grid cell
-   ! coordinates for use in diag axis and such
-   real, allocatable  :: coord_glon(:), coord_glonb(:) ! longitudes, degrees East
-   real, allocatable  :: coord_glat(:), coord_glatb(:) ! latitudes, degrees North
+   real, allocatable  :: sg_lon (:,:), sg_lat (:,:) ! domain grid center coordinates, radian
+   real, allocatable  :: sg_lonb(:,:), sg_latb(:,:) ! domain grid vertices, radian
 
    ! geometry on unstructured grid
-   real, allocatable  :: ug_lon(:),    ug_lat(:) ! grid center coordinates, radian
-   real, allocatable  :: ug_lonb(:,:), ug_latb(:,:) ! grid vertices, radian
    real, allocatable  :: ug_area(:)      ! land area per grid cell, m2
    real, allocatable  :: ug_cellarea(:)  ! fraction of land in the grid cell
    real, allocatable  :: ug_landfrac(:)  ! fraction of land in the grid cell
+   real, allocatable  :: ug_lon(:),    ug_lat(:) ! grid center coordinates, radian
+   real, allocatable  :: ug_lonb(:,:), ug_latb(:,:) ! grid vertices, radian
+   ! coordinates for use in diag axis and such
+   real, allocatable  :: coord_glon(:), coord_glonb(:) ! longitudes, degrees East
+   real, allocatable  :: coord_glat(:), coord_glatb(:) ! latitudes, degrees North
 
    integer, allocatable :: pelist(:) ! list of processors that run land model
    integer, allocatable :: io_pelist(:) ! list of processors in our io_domain
@@ -268,7 +270,6 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table,
         call define_cube_mosaic ('LND', lnd%sg_domain, layout, halo=1)
      endif
   endif
-  if(mask_table_exist) deallocate(maskmap)
 
   ! define io domain
   call mpp_define_io_domain(lnd%sg_domain, io_layout)
@@ -282,7 +283,7 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table,
   ! mosaic tile per PE.
   allocate(tile_ids(mpp_get_current_ntile(lnd%sg_domain)))
   tile_ids = mpp_get_tile_id(lnd%sg_domain)
-  lnd%face = tile_ids(1)
+  lnd%sg_face = tile_ids(1)
   deallocate(tile_ids)
 
   allocate(lnd%sg_lonb    (lnd%is:lnd%ie+1, lnd%js:lnd%je+1))
@@ -292,20 +293,16 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table,
   allocate(lnd%sg_area    (lnd%is:lnd%ie,   lnd%js:lnd%je))
   allocate(lnd%sg_cellarea(lnd%is:lnd%ie,   lnd%js:lnd%je))
   allocate(lnd%sg_landfrac(lnd%is:lnd%ie,   lnd%js:lnd%je))
-  allocate(lnd%coord_glon(nlon), lnd%coord_glonb(nlon+1))
-  allocate(lnd%coord_glat(nlat), lnd%coord_glatb(nlat+1))
 
   ! initialize coordinates
-  call get_grid_cell_vertices('LND',lnd%face,lnd%coord_glonb,lnd%coord_glatb)
-  call get_grid_cell_centers ('LND',lnd%face,lnd%coord_glon, lnd%coord_glat)
-  call get_grid_cell_area    ('LND',lnd%face,lnd%sg_cellarea, domain=lnd%sg_domain)
-  call get_grid_comp_area    ('LND',lnd%face,lnd%sg_area,     domain=lnd%sg_domain)
+  call get_grid_cell_area    ('LND',lnd%sg_face,lnd%sg_cellarea, domain=lnd%sg_domain)
+  call get_grid_comp_area    ('LND',lnd%sg_face,lnd%sg_area,     domain=lnd%sg_domain)
   lnd%sg_landfrac = lnd%sg_area/lnd%sg_cellarea
 
   ! set local coordinates arrays -- temporary, till such time as the global arrays
   ! are not necessary
-  call get_grid_cell_vertices('LND',lnd%face,lnd%sg_lonb,lnd%sg_latb, domain=lnd%sg_domain)
-  call get_grid_cell_centers ('LND',lnd%face,lnd%sg_lon, lnd%sg_lat,  domain=lnd%sg_domain)
+  call get_grid_cell_vertices('LND',lnd%sg_face,lnd%sg_lonb,lnd%sg_latb, domain=lnd%sg_domain)
+  call get_grid_cell_centers ('LND',lnd%sg_face,lnd%sg_lon, lnd%sg_lat,  domain=lnd%sg_domain)
   ! convert coordinates to radian; note that 1D versions stay in degrees
   lnd%sg_lonb = lnd%sg_lonb*pi/180.0 ; lnd%sg_lon = lnd%sg_lon*pi/180.0
   lnd%sg_latb = lnd%sg_latb*pi/180.0 ; lnd%sg_lat = lnd%sg_lat*pi/180.0
@@ -321,9 +318,8 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table,
 end subroutine land_data_init
 
 
-!-------------------------------------------------------------------
+! ============================================================================
 !   set up for unstructure domain and land state data
-!-------------------------------------------------------------------
 subroutine set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
   integer, intent(in) :: npes_io_group, ntiles, nlon, nlat
 
@@ -422,24 +418,28 @@ subroutine set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
   deallocate(grid_index)
   ! get the mosaic tile number for this processor: this assumes that there is only one
   ! mosaic tile per PE.
-  lnd%face = mpp_get_UG_domain_tile_id(lnd%ug_domain)
+  lnd%ug_face = mpp_get_UG_domain_tile_id(lnd%ug_domain)
+  allocate(lnd%ug_area    (lnd%ls:lnd%le) )
+  allocate(lnd%ug_cellarea(lnd%ls:lnd%le) )
+  allocate(lnd%ug_landfrac(lnd%ls:lnd%le))
   allocate(lnd%ug_lonb (lnd%ls:lnd%le, 4))
   allocate(lnd%ug_latb (lnd%ls:lnd%le, 4))
   allocate(lnd%ug_lon  (lnd%ls:lnd%le))
   allocate(lnd%ug_lat  (lnd%ls:lnd%le))
-  allocate(lnd%ug_area    (lnd%ls:lnd%le) )
-  allocate(lnd%ug_cellarea(lnd%ls:lnd%le) )
-  allocate(lnd%ug_landfrac(lnd%ls:lnd%le))
+  allocate(lnd%coord_glon(nlon), lnd%coord_glonb(nlon+1))
+  allocate(lnd%coord_glat(nlat), lnd%coord_glatb(nlat+1))
 
   ! initialize coordinates
-  call get_grid_cell_area    ('LND',lnd%face,lnd%ug_cellarea, lnd%sg_domain, lnd%ug_domain)
-  call get_grid_comp_area    ('LND',lnd%face,lnd%ug_area,     lnd%sg_domain, lnd%ug_domain)
+  call get_grid_cell_vertices('LND',lnd%ug_face,lnd%coord_glonb,lnd%coord_glatb)
+  call get_grid_cell_centers ('LND',lnd%ug_face,lnd%coord_glon, lnd%coord_glat)
+  call get_grid_cell_area    ('LND',lnd%sg_face,lnd%ug_cellarea, lnd%sg_domain, lnd%ug_domain)
+  call get_grid_comp_area    ('LND',lnd%sg_face,lnd%ug_area,     lnd%sg_domain, lnd%ug_domain)
   lnd%ug_landfrac = lnd%ug_area/lnd%ug_cellarea
 
   ! set local coordinates arrays -- temporary, till such time as the global arrays
   ! are not necessary
-  call get_grid_cell_vertices('LND',lnd%face, lnd%ug_lonb,lnd%ug_latb, lnd%sg_domain, lnd%ug_domain)
-  call get_grid_cell_centers ('LND',lnd%face, lnd%ug_lon, lnd%ug_lat,  lnd%sg_domain, lnd%ug_domain)
+  call get_grid_cell_vertices('LND',lnd%sg_face, lnd%ug_lonb,lnd%ug_latb, lnd%sg_domain, lnd%ug_domain)
+  call get_grid_cell_centers ('LND',lnd%sg_face, lnd%ug_lon, lnd%ug_lat,  lnd%sg_domain, lnd%ug_domain)
 
 !  call mpp_pass_SG_to_UG(lnd%ug_domain, lnd%lon, lnd%lon)
 !  call mpp_pass_SG_to_UG(lnd%ug_domain, lnd%lat, lnd%lat)
@@ -479,6 +479,9 @@ subroutine horiz_interp_ug(Interp, data_in, data_out, verbose, &
   call horiz_interp(Interp, data_in, data_sg, verbose, &
                                  mask_in, mask_out, missing_value, missing_permit, &
                                  err_msg, new_missing_handle )
+  if (trim(err_msg)/='') then
+     call error_mesg('horiz_interp_ug',trim(err_msg), FATAL)
+  endif
   call mpp_pass_sg_to_ug(lnd%ug_domain, data_sg, data_out)
 
 end subroutine horiz_interp_ug

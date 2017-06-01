@@ -218,7 +218,7 @@ subroutine lake_init ( id_ug )
      if (lake_specific_width) then
          do i = 1, n_outlet
            g = outlet_j(i)*lnd%nlon + outlet_i(i)
-           if(lnd%face.eq.outlet_face(i).and.lnd%gs.le.g.and.lnd%ge.ge.g) then
+           if(lnd%ug_face.eq.outlet_face(i).and.lnd%gs.le.g.and.lnd%ge.ge.g) then
              l = lnd%l_index(g)
              buffer(l) = outlet_width(i)
            endif

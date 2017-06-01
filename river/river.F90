@@ -1603,7 +1603,7 @@ end subroutine river_stock_pe
 function coordinates(i,j) result(s); character(128) :: s
    integer, intent(in) :: i,j
    s ='('//trim(string(i))//','//trim(string(j))//')'
-   if (lnd%nfaces>1) s=trim(s)//' on cubic sphere face '//string(lnd%face)
+   if (lnd%nfaces>1) s=trim(s)//' on cubic sphere face '//string(lnd%sg_face)
 end function coordinates
 
 end module river_mod

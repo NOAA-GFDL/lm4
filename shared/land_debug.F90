@@ -172,7 +172,7 @@ subroutine land_debug_init()
                                stop_watching(4),  stop_watching(5),  stop_watching(6)  )
 
   ! Set up the unstructure grid index of the watch point.
-  mosaic_tile_ug = lnd%face
+  mosaic_tile_ug = lnd%ug_face
   watch_point_lindex = 0
   do l = lnd%ls, lnd%le
      if(watch_point(1) == lnd%i_index(l) .AND. watch_point(2) == lnd%j_index(l)) then
