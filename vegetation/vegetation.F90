@@ -26,7 +26,7 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles, land_tile_heat, land_tile_carbon, get_tile_water
 use land_tile_diag_mod, only : register_tiled_static_field, register_tiled_diag_field, &
      add_tiled_diag_field_alias, set_default_diag_filter, send_tile_data, diag_buff_type, &
-     OP_STD, OP_VAR, cmor_name
+     cmor_name
 use land_data_mod, only : lnd, log_version
 use land_io_mod, only : read_field
 
@@ -494,10 +494,10 @@ subroutine vegn_diag_init(id_ug,id_band,time)
        (/id_ug/), time, 'leaf area index', 'm2/m2', missing_value=-1.0 )
   id_lai_var = register_tiled_diag_field ( module_name, 'lai_var',  &
        (/id_ug/), time, 'variance of leaf area index across tiles in grid cell', 'm4/m4', &
-       missing_value=-1.0 , op=OP_VAR)
+       missing_value=-1.0 , op='variance')
   id_lai_std = register_tiled_diag_field ( module_name, 'lai_std',  &
        (/id_ug/), time, 'standard deviation of leaf area index across tiles in grid cell', 'm2/m2', &
-       missing_value=-1.0, op=OP_STD)
+       missing_value=-1.0, op='stdev')
   id_sai    = register_tiled_diag_field ( module_name, 'sai',  &
        (/id_ug/), time, 'stem area index', 'm2/m2', missing_value=-1.0 )
   id_leaf_size = register_tiled_diag_field ( module_name, 'leaf_size',  &

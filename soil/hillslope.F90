@@ -20,8 +20,7 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
 use land_utils_mod, only : put_to_tiles_r0d_fptr
 use land_tile_diag_mod, only : diag_buff_type, &
      register_tiled_static_field, set_default_diag_filter, &
-     send_tile_data_r0d_fptr, &
-     send_tile_data_i0d_fptr, OP_SUM
+     send_tile_data_r0d_fptr, send_tile_data_i0d_fptr
 use land_data_mod, only : lnd, log_version
 use land_io_mod, only : read_field
 use land_tile_io_mod, only: land_restart_type, &
@@ -882,9 +881,9 @@ subroutine hlsp_diag_init(id_ug)
 !   id_transm_bedrock = register_tiled_static_field ( module_name, 'bedrock_transmissivity', &
 !      axes, 'bedrock hydraulic transmissivity', 'm^2/s', missing_value=-100.0 )
    id_hidx_j = register_tiled_static_field ( module_name, 'hillslope_position', &
-      axes, 'horizontal position index along hillslope', missing_value=0., op=OP_SUM )
+      axes, 'horizontal position index along hillslope', missing_value=0., op='sum' )
    id_hidx_k = register_tiled_static_field ( module_name, 'hillslope_parent', &
-      axes, 'index of hillslope parent', missing_value=0., op=OP_SUM )
+      axes, 'index of hillslope parent', missing_value=0., op='sum' )
 
 end subroutine hlsp_diag_init
 

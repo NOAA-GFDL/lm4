@@ -71,6 +71,7 @@ public :: water_cons_tol
 public :: carbon_cons_tol
 public :: heat_cons_tol
 public :: do_check_conservation
+
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'land_debug_mod'
 #include "../shared/version_variable.inc"
@@ -80,7 +81,7 @@ integer, allocatable :: current_debug_level(:)
 integer              :: mosaic_tile_sg = 0, mosaic_tile_ug = 0
 integer, allocatable :: curr_i(:), curr_j(:), curr_k(:), curr_l(:)
 type(time_type)      :: start_watch_time, stop_watch_time
-character(128) :: fixed_format
+character(128)       :: fixed_format
 
 !---- namelist ---------------------------------------------------------------
 integer :: watch_point(4)=(/0,0,0,1/) ! coordinates of the point of interest,
@@ -230,7 +231,6 @@ subroutine set_current_point_ug(l,k)
   endif
 end subroutine set_current_point_ug
 
-
 ! ============================================================================
 subroutine get_current_point(i,j,k,face)
   integer, intent(out), optional :: i,j,k,face
@@ -333,8 +333,8 @@ end subroutine check_temp_range_1d
 subroutine check_var_range_0d(value, lo, hi, tag, varname, severity)
   real        , intent(in) :: value    ! value to check
   real        , intent(in) :: lo,hi    ! lower and upper bounds of acceptable range
-  character(*), intent(in) :: tag ! tag to print
-  character(*), intent(in) :: varname ! name of the variable for printout
+  character(*), intent(in) :: tag      ! tag to print
+  character(*), intent(in) :: varname  ! name of the variable for printout
   integer     , intent(in) :: severity ! severity of the non-conservation error:
          ! Can be WARNING, FATAL, or negative. Negative means check is not done.
 
@@ -354,7 +354,7 @@ subroutine check_var_range_0d(value, lo, hi, tag, varname, severity)
      call get_date(lnd%time,y,mo,d,h,m,s)
      call get_current_coordinates(thread, lon, lat, face)
 
-        write(message,'(a,g23.16,2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
+     write(message,'(a,g23.16,2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
           trim(varname)//' out of range: value=', value, 'at lon=',lon, 'lat=',lat, &
           'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',face, &
           'time=',y,mo,d,h,m,s

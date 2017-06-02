@@ -91,9 +91,8 @@ use land_tile_io_mod, only: land_restart_type, &
 use land_tile_diag_mod, only : tile_diag_init, tile_diag_end, &
      set_default_diag_filter, get_area_id, &
      register_tiled_diag_field, register_tiled_area_fields, &
-     add_tiled_diag_field_alias, &
-     send_tile_data, dump_tile_diag_fields, &
-     OP_AVERAGE, OP_SUM, cmor_name, send_global_land_diag
+     add_tiled_diag_field_alias, send_tile_data, dump_tile_diag_fields, &
+     cmor_name, send_global_land_diag
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, get_watch_point, check_temp_range, current_face, &
      get_current_point, check_conservation, water_cons_tol, carbon_cons_tol, &
@@ -3052,7 +3051,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   ! register regular (dynamic) diagnostic fields
 
   id_ntiles = register_tiled_diag_field(module_name,'ntiles', axes,  &
-       time, 'number of tiles', 'unitless', missing_value=-1.0, op=OP_SUM)
+       time, 'number of tiles', 'unitless', missing_value=-1.0, op='sum')
 
 
   id_VWS = register_tiled_diag_field ( module_name, 'VWS', axes, time, &

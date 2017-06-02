@@ -130,6 +130,7 @@ type :: vegn_cohort_type
                             ! retirement rate of sapwood into wood
   real :: extinct = 0.0     ! light extinction coefficient in the canopy for photosynthesis calculations
 
+  integer :: layer = 1      ! the layer of this cohort (always 1 in LM3)
 ! in LM3V the cohort structure has a handy pointer to the tile it belongs to;
 ! so operations on cohort can update tile-level variables. In this code, it is
 ! probably impossible to have this pointer here: it needs to be of type
