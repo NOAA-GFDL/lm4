@@ -42,8 +42,8 @@ private
 public :: land_restart_type
 public :: init_land_restart, open_land_restart, save_land_restart, free_land_restart
 public :: add_restart_axis
-public :: add_tile_data, add_int_tile_data, add_scalar_data
-public :: get_tile_data, get_int_tile_data, get_scalar_data
+public :: add_tile_data, add_int_tile_data, add_scalar_data, add_text_data
+public :: get_tile_data, get_int_tile_data, get_scalar_data, get_text_data
 public :: field_exists
 public :: gather_tile_index
 
@@ -64,8 +64,10 @@ end interface
 interface add_tile_data
    module procedure add_tile_data_r0d_fptr_r0
    module procedure add_tile_data_r0d_fptr_r0i
+   module procedure add_tile_data_r0d_fptr_r0ij
    module procedure add_tile_data_r1d_fptr_r0i
    module procedure add_tile_data_r1d_fptr_r0ij
+   module procedure add_tile_data_r1d_fptr_r0ijk
    module procedure add_tile_data_r2d_fptr_r0ij
    module procedure add_tile_data_r2d_fptr_r0ijk
 end interface
@@ -78,8 +80,10 @@ end interface
 interface get_tile_data
    module procedure get_tile_data_r0d_fptr_r0
    module procedure get_tile_data_r0d_fptr_r0i
+   module procedure get_tile_data_r0d_fptr_r0ij
    module procedure get_tile_data_r1d_fptr_r0i
    module procedure get_tile_data_r1d_fptr_r0ij
+   module procedure get_tile_data_r1d_fptr_r0ijk
    module procedure get_tile_data_r2d_fptr_r0ij
    module procedure get_tile_data_r2d_fptr_r0ijk
 end interface
@@ -307,6 +311,29 @@ subroutine add_scalar_data(restart,varname,datum,longname,units)
   endif
 end subroutine add_scalar_data
 
+subroutine add_text_data(restart,varname,dim1,dim2,datum,longname)
+  type(land_restart_type), intent(inout) :: restart
+  character(len=*), intent(in) :: varname ! name of the variable to write
+  character(len=*), intent(in) :: dim1, dim2 ! name of the text dimensions
+  character,        intent(in) :: datum(:,:)
+  character(len=*), intent(in), optional :: longname
+
+  integer :: id_restart, ierr
+  character(NF_MAX_NAME)::dimnames(2)
+
+  if (new_land_io) then
+     call error_mesg('add_text_data','does not work with new io yet', FATAL)
+  else
+     if(mpp_pe()==lnd%io_pelist(1)) then
+        ierr = nf_redef(restart%ncid)
+        dimnames(1) = dim1; dimnames(2) = dim2
+        __NF_ASRT__(nfu_def_var(restart%ncid,varname,NF_CHAR,dimnames,long_name=longname))
+        ierr = nf_enddef(restart%ncid)
+        __NF_ASRT__(nfu_put_var(restart%ncid,varname,datum))
+     end if
+  endif
+end subroutine add_text_data
+
 subroutine add_tile_data_i0d_fptr_i0(restart,varname,fptr,longname,units)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
@@ -366,7 +393,7 @@ subroutine add_tile_data_r0d_fptr_r0i(restart,varname,fptr,index,longname,units)
   if (.not.allocated(restart%tidx)) call error_mesg('add_tile_data_r0d_fptr_r0', &
         'tidx not allocated: looks like land restart was not initialized',FATAL)
   allocate(data(size(restart%tidx)))
-  call gather_tile_data_r0d_idx(fptr,index,restart%tidx,data)
+  call gather_tile_data_r0i(fptr,index,restart%tidx,data)
   if (new_land_io) then
      id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, restart%basename, &
             varname, data, (/CIDX/), lnd%ug_domain, longname=longname, units=units, &
@@ -377,6 +404,29 @@ subroutine add_tile_data_r0d_fptr_r0i(restart,varname,fptr,index,longname,units)
   endif
 end subroutine add_tile_data_r0d_fptr_r0i
 
+subroutine add_tile_data_r0d_fptr_r0ij(restart,varname,fptr,idx1,idx2,longname,units)
+  type(land_restart_type), intent(inout) :: restart
+  character(len=*), intent(in) :: varname ! name of the variable to write
+  procedure(fptr_r0ij)         :: fptr ! subroutine returning pointer to the data
+  integer ,         intent(in) :: idx1,idx2 ! indices of the fptr array element to write
+  character(len=*), intent(in), optional :: units, longname
+
+  integer :: id_restart
+  real, pointer :: data(:)
+
+  if (.not.allocated(restart%tidx)) call error_mesg('add_tile_data_r0d_fptr_r0ij', &
+        'tidx not allocated: looks like land restart was not initialized',FATAL)
+  allocate(data(size(restart%tidx)))
+  call gather_tile_data_r0ij(fptr,idx1,idx2,restart%tidx,data)
+
+  if (new_land_io) then
+     id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, restart%basename, &
+            varname, data, (/CIDX/), lnd%ug_domain, longname=longname, units=units, &
+            restart_owns_data=.true.)
+  else ! old land io
+     call write_tile_data_r1d(restart%ncid,varname,data,longname,units)
+  endif
+end subroutine add_tile_data_r0d_fptr_r0ij
 
 ! given restart and name of the dimension, returns the size of this dimension
 integer function dimlen(restart,dimname)
@@ -518,6 +568,66 @@ subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index,longname,
   endif
 end subroutine add_tile_data_r1d_fptr_r0ij
 
+subroutine add_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2,longname,units)
+  type(land_restart_type), intent(inout) :: restart
+  character(len=*), intent(in) :: varname ! name of the variable to write
+  character(len=*), intent(in) :: zdim    ! name of the z-dimension
+  procedure(fptr_r0ijk)        :: fptr    ! subroutine returning pointer to the data
+  integer         , intent(in) :: idx1,idx2  ! indices of the array element to write
+  character(len=*), intent(in), optional :: units, longname
+
+  integer :: id_restart
+  type(land_tile_type), pointer :: tileptr ! pointer to tiles
+  real, pointer :: data(:,:) ! needs to be pointer; we are passing ownership to restart object
+  real, pointer :: ptr ! pointer to the tile data
+  integer :: i,n,nlev
+
+  if (.not.allocated(restart%tidx)) call error_mesg('add_tile_data_r0d_fptr_r0i', &
+        'tidx not allocated: looks like land restart was not initialized',FATAL)
+
+  nlev = -1
+  do i = 1,restart%nax
+     if (restart%ax(i)%name == zdim) nlev=restart%ax(i)%len
+  enddo
+  if (nlev<1) call error_mesg('add_tile_data_r0d_fptr_r0i', 'axis "'//trim(zdim)//'" not found', FATAL)
+
+  allocate(data(size(restart%tidx),nlev))
+  data = NF_FILL_DOUBLE
+
+  ! gather data into an array along the tile dimension. It is assumed that
+  ! the tile dimension spans all the tiles that need to be written.
+  do i = 1, size(restart%tidx)
+     call get_tile_by_idx(restart%tidx(i),lnd%nlon,lnd%nlat,land_tile_map,&
+                          lnd%ls, lnd%gs, lnd%ge, tileptr)
+     do n = 1,nlev
+        call fptr(tileptr,n,idx1,idx2, ptr)
+        if(associated(ptr)) then
+           data(i,n) = ptr
+        endif
+     enddo
+  enddo
+  if (new_land_io) then
+     ! checking name of the dimension here is a dirty trick, which is sure to
+     ! bite us in the future, but it is necessary because fms_io has no way to
+     ! figure out what the additional dimension of the variable is. A better way
+     ! to fix that is to rewrite fms_io so that it allows to specify the dimensions
+     ! of the variable in a sane way.
+     if (trim(zdim)=='soilCCohort') then
+        ! write (*,*) 'writing "',trim(varname),'" with C_CC'
+        id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, restart%basename, &
+             varname, data, (/CIDX,CCIDX/), lnd%ug_domain, longname=longname, units=units, &
+             restart_owns_data=.true.)
+     else
+        id_restart = fms_io_unstructured_register_restart_field(restart%rhandle, restart%basename, &
+                varname, data, (/CIDX,ZIDX/), lnd%ug_domain, longname=longname, units=units, &
+                restart_owns_data=.true.)
+     endif
+  else ! old land io
+     call write_tile_data_r2d(restart%ncid,varname,data,zdim,longname,units)
+     deallocate(data)
+  endif
+end subroutine add_tile_data_r1d_fptr_r0ijk
+
 subroutine add_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr,longname,units)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
@@ -590,6 +700,25 @@ subroutine get_scalar_data(restart,varname,datum)
   endif
 end subroutine get_scalar_data
 
+subroutine get_text_data(restart,varname,text)
+  type(land_restart_type), intent(inout) :: restart
+  character(len=*), intent(in) :: varname ! name of the variable to write
+  character, allocatable, intent(out) :: text(:,:)
+
+  integer :: dimlens(NF_MAX_VAR_DIMS), ndims
+
+  if (new_land_io) then
+     ! call read_data(restart%basename,varname,datum,domain=lnd%domain)
+     call error_mesg('get_text_data','does not work with new io yet', FATAL)
+  else
+     __NF_ASRT__(nfu_inq_var(restart%ncid,varname,dimlens=dimlens,ndims=ndims))
+     if (ndims==1) dimlens(2) = 1
+     if (ndims>2) call error_mesg('get_text_data','input text has more than two dimensions',FATAL)
+     allocate(text(dimlens(1),dimlens(2)))
+     __NF_ASRT__(nfu_get_var(restart%ncid,varname,text))
+  endif
+end subroutine get_text_data
+
 subroutine get_tile_data_i0d_fptr_i0(restart,varname,fptr)
   type(land_restart_type), intent(inout) :: restart
   character(len=*), intent(in) :: varname ! name of the variable to write
@@ -647,6 +776,26 @@ subroutine get_tile_data_r0d_fptr_r0i(restart,varname,fptr,index)
      call read_tile_data_r0d_fptr_r0i(restart%ncid,varname,fptr,index)
   endif
 end subroutine get_tile_data_r0d_fptr_r0i
+
+subroutine get_tile_data_r0d_fptr_r0ij(restart,varname,fptr,i1, i2)
+  type(land_restart_type), intent(inout) :: restart
+  character(len=*), intent(in) :: varname ! name of the variable to write
+  procedure(fptr_r0ij)         :: fptr    ! subroutine returning pointer to the data
+  integer,          intent(in) :: i1,i2   ! index where to read the data
+
+  ! ---- local vars
+  real, allocatable :: r(:) ! input data buffer
+  logical :: found
+
+  if (new_land_io) then
+     allocate(r(size(restart%tidx)))
+     call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
+     call assemble_tiles_r0d_ij(fptr,i1,i2,restart%tidx,r)
+     deallocate(r)
+  else ! old land io
+     call read_tile_data_r0d_fptr_r0ij(restart%ncid,varname,fptr,i1,i2)
+  endif
+end subroutine get_tile_data_r0d_fptr_r0ij
 
 subroutine get_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr)
   type(land_restart_type), intent(inout) :: restart
@@ -739,6 +888,36 @@ subroutine get_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index)
      call read_tile_data_r1d_fptr_r0ij(restart%ncid,varname,fptr,index)
   endif
 end subroutine get_tile_data_r1d_fptr_r0ij
+
+subroutine get_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2)
+  type(land_restart_type), intent(inout) :: restart
+  character(len=*), intent(in) :: varname ! name of the variable to write
+  character(len=*), intent(in) :: zdim ! name of the z-dimension
+  procedure(fptr_r0ijk)        :: fptr    ! subroutine returning pointer to the data
+  integer ,         intent(in) :: idx1,idx2
+
+  ! ---- local vars
+  integer :: flen(4) ! size of the input field
+  real, allocatable :: r(:,:) ! input data buffer
+  logical :: found
+
+  if (new_land_io) then
+     ! get the size of zdim
+     call fms_io_unstructured_get_field_size(restart%basename, zdim, flen, lnd%ug_domain, &
+                                             field_found=found)
+     if (.not.found) call error_mesg('get_tile_data_r1d_fptr_r0ijk', &
+        'axis "'//trim(zdim)//'" was not found in file "'//trim(restart%basename)//'"', &
+        FATAL)
+
+     ! read the data
+     allocate(r(size(restart%tidx),flen(1)))
+     call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
+     ! call assemble_tiles_r1d_idx(fptr,idx1,idx2,restart%tidx,r)
+     deallocate(r)
+  else ! old land io
+     call read_tile_data_r1d_fptr_r0ijk(restart%ncid,varname,fptr,idx1,idx2)
+  endif
+end subroutine get_tile_data_r1d_fptr_r0ijk
 
 subroutine get_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr)
   type(land_restart_type), intent(inout) :: restart
@@ -1234,6 +1413,56 @@ subroutine read_tile_data_r0d_fptr_r0i (ncid,name,fptr,index)
    deallocate(idx,x1d)
 end subroutine read_tile_data_r0d_fptr_r0i
 
+subroutine read_tile_data_r0d_fptr_r0ij (ncid,name,fptr,idx1,idx2)
+   integer     , intent(in) :: ncid ! netcdf file id
+   character(*), intent(in) :: name ! name of the variable to read
+   procedure(fptr_r0ij)     :: fptr ! subroutine returning the pointer to the
+                                    ! data to be written
+   integer     , intent(in) :: idx1,idx2 ! index where to read the data
+
+   ! ---- local constants
+   character(*), parameter :: module_name='read_tile_data_r0d_fptr_r0i'
+   ! ---- local vars
+   integer :: ndims     ! number of the variable dimensions
+   integer :: dimids(1) ! IDs of the variable dimensions
+   integer :: dimlen(1) ! size of the variable dimensions
+   character(NF_MAX_NAME) :: idxname ! name of the index variable
+   integer, allocatable :: idx(:) ! storage for compressed index
+   real   , allocatable :: x1d(:) ! storage for the data
+   integer :: i,j,bufsize
+   integer :: varid, idxid
+   type(land_tile_type), pointer :: tileptr ! pointer to tile
+   real, pointer :: ptr
+
+   ! get the number of variable dimensions, and their lengths
+   __NF_ASRT__(nfu_inq_var(ncid,name,id=varid,ndims=ndims,dimids=dimids,dimlens=dimlen))
+   if(ndims/=1) then
+      call error_mesg(module_name,'variable "'//trim(name)//'" has incorrect number of dimensions -- must be 1-dimensional', FATAL)
+   endif
+   ! get the name of compressed dimension and ID of corresponding variable
+   __NF_ASRT__(nfu_inq_dim(ncid,dimids(1),idxname))
+   __NF_ASRT__(nfu_inq_var(ncid,idxname,id=idxid))
+   ! allocate input buffers for compression index and the variable
+   bufsize=min(input_buf_size,dimlen(1))
+   allocate(idx(bufsize),x1d(bufsize))
+   ! read the input buffer-by-buffer
+   do j = 1,dimlen(1),bufsize
+      ! read the index variable
+      __NF_ASRT__(nf_get_vara_int(ncid,idxid,(/j/),(/min(bufsize,dimlen(1)-j+1)/),idx))
+      ! read the data
+      __NF_ASRT__(nf_get_vara_double(ncid,varid,(/j/),(/min(bufsize,dimlen(1)-j+1)/),x1d))
+      ! distribute the data over the tiles
+      do i = 1, min(bufsize,dimlen(1)-j+1)
+         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
+                              lnd%ls,lnd%gs, lnd%ge, tileptr)
+         call fptr(tileptr, idx1,idx2, ptr)
+         if(associated(ptr)) ptr = x1d(i)
+      enddo
+   enddo
+   ! release allocated memory
+   deallocate(idx,x1d)
+end subroutine read_tile_data_r0d_fptr_r0ij
+
 subroutine read_tile_data_i1d_fptr_i0i(ncid,name,fptr)
    integer     , intent(in) :: ncid ! netcdf file id
    character(*), intent(in) :: name ! name of the variable to read
@@ -1396,6 +1625,61 @@ subroutine read_tile_data_r1d_fptr_r0ij(ncid,name,fptr,index)
    ! release allocated memory
    deallocate(idx,x1d)
 end subroutine read_tile_data_r1d_fptr_r0ij
+
+subroutine read_tile_data_r1d_fptr_r0ijk(ncid,name,fptr,idx1,idx2)
+   integer     , intent(in) :: ncid ! netcdf file id
+   character(*), intent(in) :: name ! name of the variable to read
+   procedure(fptr_r0ijk)    :: fptr ! subroutine returning the pointer to the data
+   integer     , intent(in) :: idx1,idx2
+
+   ! ---- local constants
+   character(*), parameter :: module_name='read_tile_data_r1d_fptr_r0ijk'
+   ! ---- local vars
+   integer :: ndims     ! number of the variable dimensions
+   integer :: dimids(2) ! IDs of the variable dimensions
+   integer :: dimlen(2) ! size of the variable dimensions
+   character(NF_MAX_NAME) :: idxname ! name of the index variable
+   integer, allocatable :: idx(:)   ! storage for compressed index
+   real   , allocatable :: x1d(:)   ! storage for the data
+   integer :: i, j, n, bufsize
+   integer :: varid,idxid
+   integer :: start(2), count(2) ! input slab parameters
+   type(land_tile_type), pointer :: tileptr ! pointer to tile
+   real, pointer :: ptr
+
+   ! get the number of variable dimensions, and their lengths
+   __NF_ASRT__(nfu_inq_var(ncid,name,id=varid,ndims=ndims,dimids=dimids,dimlens=dimlen))
+   if(ndims/=2) then
+      call error_mesg(module_name,'variable "'//trim(name)//'" has incorrect number of dimensions -- must be 2-dimensional', FATAL)
+   endif
+   ! get the name of compressed dimension and ID of corresponding variable
+   __NF_ASRT__(nfu_inq_dim(ncid,dimids(1),idxname))
+   __NF_ASRT__(nfu_inq_var(ncid,idxname,id=idxid))
+   ! allocate input buffers for compression index and the variable
+   bufsize=min(input_buf_size,dimlen(1))
+   allocate(idx(bufsize),x1d(bufsize*dimlen(2)))
+   ! read the input buffer-by-buffer
+   do j = 1,dimlen(1),bufsize
+      ! set up slab parameters
+      start(1) = j ; count(1) = min(bufsize,dimlen(1)-j+1)
+      start(2) = 1 ; count(2) = dimlen(2)
+      ! read the index variable
+      __NF_ASRT__(nf_get_vara_int(ncid,idxid,start(1),count(1),idx))
+      ! read the data
+      __NF_ASRT__(nf_get_vara_double(ncid,varid,start,count,x1d))
+      ! distribute the data over the tiles
+      do i = 1, min(bufsize,dimlen(1)-j+1)
+         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
+                              lnd%ls,lnd%gs,lnd%ge, tileptr)
+         do n = 1,count(2)
+            call fptr(tileptr, n, idx1,idx2, ptr)
+            if(associated(ptr)) ptr = x1d(i+count(1)*(n-1))
+         enddo
+      enddo
+   enddo
+   ! release allocated memory
+   deallocate(idx,x1d)
+end subroutine read_tile_data_r1d_fptr_r0ijk
 
 subroutine read_tile_data_r2d_fptr_r0ij (ncid,name,fptr)
    integer     , intent(in) :: ncid ! netcdf file id
@@ -1834,7 +2118,7 @@ subroutine gather_tile_data_r0d(fptr,idx,data)
   enddo
 end subroutine gather_tile_data_r0d
 
-subroutine gather_tile_data_r0d_idx(fptr,n,idx,data)
+subroutine gather_tile_data_r0i(fptr,n,idx,data)
   procedure(fptr_r0i) :: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: n   ! additional index argument for fptr
   integer, intent(in) :: idx(:)  ! local vector of tile indices
@@ -1855,7 +2139,30 @@ subroutine gather_tile_data_r0d_idx(fptr,n,idx,data)
      call fptr(tileptr, n, ptr)
      if(associated(ptr)) data(i)=ptr
   enddo
-end subroutine gather_tile_data_r0d_idx
+end subroutine gather_tile_data_r0i
+
+subroutine gather_tile_data_r0ij(fptr,n,m,idx,data)
+  procedure(fptr_r0ij):: fptr ! subroutine returning pointer to the data
+  integer, intent(in) :: n, m   ! additional index arguments for fptr
+  integer, intent(in) :: idx(:)  ! local vector of tile indices
+  real, intent(out) :: data(:) ! local tile data
+
+  ! ---- local vars
+  type(land_tile_type), pointer :: tileptr ! pointer to tiles
+  real   , pointer :: ptr ! pointer to the tile data
+  integer :: i
+
+  data = NF_FILL_DOUBLE
+
+! gather data into an array along the tile dimension. It is assumed that
+! the tile dimension spans all the tiles that need to be written.
+  do i = 1, size(idx)
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
+                          lnd%ls,lnd%gs,lnd%ge, tileptr)
+     call fptr(tileptr, n, m, ptr)
+     if(associated(ptr)) data(i)=ptr
+  enddo
+end subroutine gather_tile_data_r0ij
 
 subroutine gather_tile_data_r1d(fptr,idx,data)
   procedure(fptr_r0i) :: fptr ! subroutine returning pointer to the data
@@ -2015,6 +2322,26 @@ subroutine assemble_tiles_r0d_idx(fptr,n,idx,data)
      if(associated(ptr)) ptr=data(i)
   enddo
 end subroutine assemble_tiles_r0d_idx
+
+subroutine assemble_tiles_r0d_ij(fptr,n,m,idx,data)
+  procedure(fptr_r0ij):: fptr ! subroutine returning pointer to the data
+  integer, intent(in) :: n,m ! additional index arguments for fptr
+  integer, intent(in) :: idx(:)  ! local vector of tile indices
+  real,    intent(in) :: data(:) ! local tile data
+
+  ! ---- local vars
+  type(land_tile_type), pointer :: tileptr ! pointer to tiles
+  real   , pointer :: ptr ! pointer to the tile data
+  integer :: i
+
+! distribute the data over the tiles
+  do i = 1, size(idx)
+     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
+                          lnd%ls,lnd%gs,lnd%ge, tileptr)
+     call fptr(tileptr, n, m, ptr)
+     if(associated(ptr)) ptr=data(i)
+  enddo
+end subroutine assemble_tiles_r0d_ij
 
 subroutine assemble_tiles_i1d(fptr,idx,data)
   procedure(fptr_i0i) :: fptr ! subroutine returning pointer to the data
