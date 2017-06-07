@@ -27,8 +27,7 @@ use soil_tile_mod, only: soil_tile_type, num_l, dz, zhalf, zfull, &
 use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, mol_air, &
      seconds_per_year, MPa_per_m
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), loop_over_tiles, &
-     get_elmt_indices, land_tile_heat, land_tile_carbon, get_tile_water
+     first_elmt, loop_over_tiles, land_tile_heat, land_tile_carbon, get_tile_water
 use land_tile_diag_mod, only : OP_SUM, OP_MEAN, OP_MAX, OP_DOMINANT, &
      register_tiled_static_field, register_tiled_diag_field, &
      send_tile_data, diag_buff_type, register_cohort_diag_field, send_cohort_data, &

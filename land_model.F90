@@ -73,8 +73,8 @@ use land_numerics_mod, only : ludcmp, lubksb, lubksb_and_improve, nearest, &
 use land_io_mod, only : read_land_io_namelist, input_buf_size, new_land_io
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
      land_tile_enum_type, new_land_tile, insert, remove, empty, nitems, &
-     first_elmt, tail_elmt, next_elmt, current_tile, operator(/=), &
-     get_elmt_indices, get_tile_tags, get_tile_water, land_tile_heat, &
+     first_elmt, current_tile, &
+     get_tile_tags, get_tile_water, land_tile_heat, &
      land_tile_carbon, max_n_tiles, init_tile_map, free_tile_map, &
      loop_over_tiles, land_tile_list_init, land_tile_list_end, &
      merge_land_tile_into_list
@@ -767,7 +767,7 @@ subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,soiltags0,&
   real :: factor ! normalizing factor for the tile areas
   real :: frac
   type(land_tile_enum_type) :: first_non_vegn ! position of first non-vegetated tile in the list
-  type(land_tile_enum_type) :: ce, te
+  type(land_tile_enum_type) :: ce
   real :: athresh = 1.e-10 ! area threshold allowable for deviation from 1
   real :: area ! area sum for gridcell
 
@@ -861,13 +861,9 @@ subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,soiltags0,&
 
   ! Check that fractions are set correctly.
   ce = first_elmt(set)
-  te = tail_elmt(set)
   area = 0.
-
-  do while (ce /= te)
-     tile => current_tile(ce)
+  do while (loop_over_tiles(ce,tile))
      area = area + tile%frac
-     ce = next_elmt(ce)
   end do
 
   if (abs(area - 1.) > athresh) then
@@ -1026,7 +1022,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   integer :: i_species ! river tracer iterator
   integer :: i1        ! index used to iterate over grid cells efficiently
   integer :: is,ie,js,je ! horizontal bounds of the override buffer
-  type(land_tile_enum_type) :: ce, te ! tile enumerator
+  type(land_tile_enum_type) :: ce ! tile enumerator
   type(land_tile_type), pointer :: tile ! pointer to current tile
   integer :: n_cohorts ! number of cohorts per tile
   integer :: iwatch,jwatch,kwatch,face
@@ -1129,11 +1125,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   call update_river(runoff_sg, runoff_c_sg, land2cplr)
 
   ce = first_elmt(land_tile_map, ls=lbound(cplr2land%t_flux,1) )
-  te = tail_elmt(land_tile_map)
-  do while(ce /= te)
-     call get_elmt_indices(ce,i,j,k)
-     tile => current_tile(ce)
-     ce=next_elmt(ce)
+  do while(loop_over_tiles(ce,tile,l,k))
      cana_VMASS = 0. ;                   cana_HEAT = 0.
      vegn_LMASS = 0. ; vegn_FMASS = 0. ; vegn_HEAT = 0.
      snow_LMASS = 0. ; snow_FMASS = 0. ; snow_HEAT = 0.
@@ -1191,7 +1183,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      call send_tile_data(id_HSc, cana_HEAT, tile%diag)
      call send_tile_data(id_water, subs_LMASS+subs_FMASS, tile%diag)
      call send_tile_data(id_snow,  snow_LMASS+snow_FMASS, tile%diag)
-     enddo
+  enddo
 
   ! advance land model time
   lnd%time = lnd%time + lnd%dt_fast
@@ -3242,30 +3234,6 @@ case(ISTOCK_HEAT)
     call error_mesg('Lnd_stock_pe','Heat stock not yet implemented',NOTE)
     stock_warning_issued = .true.
   endif
-! do j = js, je
-! do i = is, ie
-!   ce = first_elmt(land_tile_map(i,j))
-!   te = tail_elmt (land_tile_map(i,j))
-!   grid_cell_heat_density = 0.0
-!   do while(ce /= te)
-!     tile => current_tile(ce)
-!     tile_heat_density = 0.0
-!     if(associated(tile%soil)) then
-!       do n=1, size(tile%soil%T)
-!       tile_heat_density = tile_heat_density + (tile%soil%T(n)-tfreeze)* &
-!                  (tile%soil%heat_capacity_dry(n)*dz(n) + &
-!                   clw*tile%soil%wl(n)             + &
-!                   csw*tile%soil%ws(n))
-!       enddo
-!       tile_heat_density = tile_heat_density + clw*soil%groundwater(1)*(soil%groundwater_T(1)-tfreeze) ! Why is this outside n loop?
-!     endif
-!     grid_cell_heat_density = grid_cell_heat_density + tile_heat_density * tile%frac
-!     ce=next_elmt(ce)
-!   enddo
-!   grid_cell_heat = grid_cell_heat_density * lnd%area(i,j)*area_factor
-!   value = value + grid_cell_heat
-! enddo
-! enddo
 case(ISTOCK_SALT)
   if(.not.stock_warning_issued) then
     call error_mesg('Lnd_stock_pe','Salt stock not yet implemented',NOTE)

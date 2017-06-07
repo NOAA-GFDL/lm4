@@ -18,7 +18,7 @@ use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_
 use soil_tile_mod,   only : soil_tile_type, num_l, dz, add_soil_carbon
 use land_tile_mod,   only : land_tile_map, land_tile_type, land_tile_enum_type, &
      land_tile_list_type, land_tile_list_init, land_tile_list_end, &
-     empty, first_elmt, tail_elmt, next_elmt, merge_land_tile_into_list, &
+     empty, first_elmt, tail_elmt, merge_land_tile_into_list, loop_over_tiles, &
      current_tile, operator(==), operator(/=), remove, insert, new_land_tile, &
      land_tile_heat, land_tile_carbon, get_tile_water, nitems
 use land_data_mod,   only : lnd, log_version
@@ -332,9 +332,8 @@ subroutine vegn_nat_mortality_ppa ( )
         ! conservation check code, part 1: calculate the pre-transition grid
         ! cell totals
         lmass0 = 0 ; fmass0 = 0 ; cmass0 = 0 ; heat0 = 0
-        ts = first_elmt(land_tile_map(l)) ; te=tail_elmt(land_tile_map(l))
-        do while (ts /= te)
-           ptr=>current_tile(ts); ts=next_elmt(ts)
+        ts = first_elmt(land_tile_map(l))
+        do while (loop_over_tiles(ts,ptr))
            call get_tile_water(ptr,lm,fm)
            lmass0 = lmass0 + lm*ptr%frac ; fmass0 = fmass0 + fm*ptr%frac
            heat0  = heat0  + land_tile_heat  (ptr)*ptr%frac
@@ -342,9 +341,8 @@ subroutine vegn_nat_mortality_ppa ( )
         enddo
      endif
 
-     ts = first_elmt(land_tile_map(l)) ; te=tail_elmt(land_tile_map(l))
-     do while (ts /= te)
-        t0=>current_tile(ts); ts=next_elmt(ts)
+     ts = first_elmt(land_tile_map(l))
+     do while (loop_over_tiles(ts,t0))
         if (.not.associated(t0%vegn)) cycle ! do nothing for non-vegetated cycles
         ! calculate death rate for each of the cohorts
         allocate(ndead(t0%vegn%n_cohorts))
@@ -380,9 +378,8 @@ subroutine vegn_nat_mortality_ppa ( )
         ! conservation check part 2: calculate grid cell totals in final state, and
         ! compare them with pre-transition totals
         lmass1 = 0 ; fmass1 = 0 ; cmass1 = 0 ; heat1 = 0
-        ts = first_elmt(land_tile_map(l)) ; te=tail_elmt(land_tile_map(l))
-        do while (ts /= te)
-           ptr=>current_tile(ts); ts=next_elmt(ts)
+        ts = first_elmt(land_tile_map(l))
+        do while (loop_over_tiles(ts,ptr))
            call get_tile_water(ptr,lm,fm)
            lmass1 = lmass1 + lm*ptr%frac ; fmass1 = fmass1 + fm*ptr%frac
            heat1  = heat1  + land_tile_heat  (ptr)*ptr%frac
