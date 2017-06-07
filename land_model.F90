@@ -3227,7 +3227,6 @@ case(ISTOCK_WATER)
       gcwd_soil = gcwd_soil + (twd_liq_soil + twd_sol_soil) * tile%frac
       gcwd_snow = gcwd_snow + (twd_liq_snow + twd_sol_snow) * tile%frac
       gcwd_vegn = gcwd_vegn + (twd_liq_vegn + twd_sol_vegn) * tile%frac
-      ce=next_elmt(ce)
     enddo
     v_cana = v_cana + gcwd_cana * lnd%ug_area(l)*area_factor
     v_glac = v_glac + gcwd_glac * lnd%ug_area(l)*area_factor
