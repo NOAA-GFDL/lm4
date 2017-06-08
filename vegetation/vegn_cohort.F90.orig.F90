@@ -534,12 +534,7 @@ subroutine update_biomass_pools(c)
         c%bl  = max(min(c%bl_previous,c%Pl*c%bliving),0.0)
         c%bsw = c%Psw*c%bliving + c%Pl*c%bliving - c%bl
      else
-     	if (use_light_saber .and. c%Anlayer_acm>0 .and. c%bl_previous<c%Pl*c%bliving) then
-     		c%bl  = 0.75*c%Pl*c%bliving
-     		c%bsw = c%Psw*c%bliving + c%Pl*c%bliving - c%bl
-     	else
-        	c%bl  = c%Pl*c%bliving
-        endif
+        c%bl  = c%Pl*c%bliving 
      endif
   endif
   c%lai = lai_from_biomass(c%bl,c%species)
