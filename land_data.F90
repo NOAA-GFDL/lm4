@@ -123,7 +123,7 @@ end type land_data_type
 ! and it is public in this module.
 type :: land_state_type
    integer :: is,ie,js,je ! compute domain boundaries
-   integer :: ls,le       ! domain boundaries of unstructured domain
+   integer :: ls,le       ! boundaries of unstructured domain
    integer :: gs,ge       ! min and max value of grid index ( j*nx+i )
    integer :: nlon,nlat   ! size of global grid
    integer :: nfaces ! number of mosaic faces
@@ -131,9 +131,10 @@ type :: land_state_type
    integer :: sg_face ! current mosaic face on structured grid
    integer :: ug_face ! current mosaic face on unstructured grid
 
-   type(time_type) :: dt_fast     ! fast (physical) time step
-   type(time_type) :: dt_slow     ! slow time step
-   type(time_type) :: time        ! current land model time
+   type(time_type)    :: dt_fast     ! fast (physical) time step
+   type(time_type)    :: dt_slow     ! slow time step
+
+   type(time_type)    :: time        ! current land model time
 
    ! geometry on structured grid
    real, allocatable  :: sg_area(:,:)  ! land area per grid cell, m2
@@ -166,6 +167,7 @@ type :: land_state_type
    type(domain2D) :: sg_domain ! structured grid domain
    type(domainUG) :: ug_domain ! unstructured grid domain
 end type land_state_type
+
 
 ! ---- public module variables -----------------------------------------------
 type(land_state_type), save :: lnd
@@ -456,7 +458,6 @@ end subroutine set_land_state_ug
 ! ============================================================================
 subroutine land_data_end()
   module_is_initialized = .FALSE.
-
 end subroutine land_data_end
 
 ! ============================================================================
@@ -483,7 +484,6 @@ subroutine horiz_interp_ug(Interp, data_in, data_out, verbose, &
      call error_mesg('horiz_interp_ug',trim(err_msg), FATAL)
   endif
   call mpp_pass_sg_to_ug(lnd%ug_domain, data_sg, data_out)
-
 end subroutine horiz_interp_ug
 
 end module land_data_mod

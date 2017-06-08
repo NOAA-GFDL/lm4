@@ -52,4 +52,27 @@ subroutine realloc_diag_buff(buffer, m)
   call move_alloc(new_mask,buffer%mask)
 end subroutine realloc_diag_buff
 
+! =============================================================================
+subroutine merge_diag_buffs(t1,w1,t2,w2)
+  type(diag_buff_type), intent(in)    :: t1
+  type(diag_buff_type), intent(inout) :: t2
+  real, intent(in) :: w1, w2 ! relative weights
+
+  ! ---- local vars
+  real :: x1, x2 ! normalized relative weights
+  real :: y1, y2
+  integer :: i
+
+  ! calculate normalized weights
+  x1 = w1/(w1+w2)
+  x2 = 1.0 - x1
+
+  do i = 1,size(t2%data)
+     y1 = 0.0 ; if (t1%mask(i)) y1 = t1%data(i)
+     y2 = 0.0 ; if (t2%mask(i)) y2 = t2%data(i)
+     t2%data(i) = y1*x1 + y2*x2
+     t2%mask(i) = t1%mask(i).or.t1%mask(i)
+  enddo
+end subroutine
+
 end module tile_diag_buff_mod

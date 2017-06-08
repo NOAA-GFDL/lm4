@@ -67,15 +67,18 @@ integer, public, parameter :: & ! status of leaves
  LEAF_OFF     = 5     ! leaves are dropped
 
 integer, public, parameter :: & ! land use types
- N_LU_TYPES = 4, & ! number of different land use types
+ N_LU_TYPES = 5, & ! number of different land use types
  LU_PAST    = 1, & ! pasture
  LU_CROP    = 2, & ! crops
  LU_NTRL    = 3, & ! natural vegetation
- LU_SCND    = 4    ! secondary vegetation
+ LU_SCND    = 4, & ! secondary vegetation
+ LU_URBN    = 5, & ! urban
+ LU_PSL     = 1001 ! primary and secondary land, for LUMIP
+
 character(len=4), public, parameter  :: &
-     landuse_name (N_LU_TYPES) = (/ 'past','crop','ntrl','scnd'/)
+     landuse_name (N_LU_TYPES) = (/ 'past','crop','ntrl','scnd', 'urbn'/)
 character(len=32), public, parameter :: &
-     landuse_longname (N_LU_TYPES) = (/ 'pasture  ', 'crop     ', 'natural  ', 'secondary' /)
+     landuse_longname (N_LU_TYPES) = (/ 'pasture  ', 'crop     ', 'natural  ', 'secondary', 'urban    '/)
 
 integer, public, parameter :: & ! harvesting pools parameters
  N_HARV_POOLS        = 6, & ! number of harvesting pools
@@ -235,6 +238,8 @@ type spec_data_type
   real    :: phiCSA        = 2.5e-4 ! ratio of sapwood CSA to target leaf area
   real    :: SRA           = 44.45982 ! specific fine root area, m2/kg C
   real    :: tauNSC        = 0.8    ! residence time of C in NSC (to define storage capacity)
+
+  real    :: tracer_cuticular_cond = 0.0 ! cuticular conductance for all tracers, m/s
 
   ! for hydraulics, wolf
   real    :: Kxam=0.0, Klam=0.0 ! Conductivity, max, per tissue area: units kg/m2 tissue/s/MPa

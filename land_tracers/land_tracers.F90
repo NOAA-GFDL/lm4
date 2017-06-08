@@ -1,10 +1,10 @@
 module land_tracers_mod
 
-use fms_mod, only : mpp_npes, string, error_mesg, FATAL, NOTE, stdout
+use fms_mod           , only : mpp_npes, string, error_mesg, FATAL, NOTE, stdout
 use field_manager_mod , only : MODEL_LAND
 use tracer_manager_mod, only : register_tracers, get_number_tracers, &
    get_tracer_index, get_tracer_names, NO_TRACER
-use land_data_mod, only : log_version
+use land_data_mod     , only : log_version
 
 implicit none
 private
@@ -12,8 +12,8 @@ private
 ! ==== public interfaces =====================================================
 public :: land_tracers_init, land_tracers_end
 
-integer, public :: ntcana ! number of prognostic land tracers in canopy air
-integer, public :: isphum, ico2 ! indices of specific humidity and CO2
+integer, protected, public :: ntcana ! number of prognostic land tracers in canopy air
+integer, protected, public :: isphum, ico2 ! indices of specific humidity and CO2
 ! ==== end of public interfaces ==============================================
 
 ! ---- module constants ------------------------------------------------------

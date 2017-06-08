@@ -48,7 +48,7 @@ module river_physics_mod
   real    :: missing = -1.e8
 
 !--- version information ---------------------------------------------
-character(len=*), parameter :: module_name = 'river_physics'
+character(len=*), parameter :: module_name = 'river_physics_mod'
 #include "../shared/version_variable.inc"
 
 
@@ -118,7 +118,6 @@ character(len=*), parameter :: module_name = 'river_physics'
 
   ! ---- diag field IDs
   integer :: id_temp, id_ice
-  integer :: id_temp_old, id_ice_old ! for compatibility with older diagTables
 
 contains
 
@@ -333,9 +332,9 @@ contains
                               write(*,*) 'ql/A,qs/A,A',ql/lake_area,qs/lake_area,lake_area
                          do lev = 1, num_lake_lev
                            if (is_watch_cell() .and. lev.le.10) &
-                                write(*,'(a,i3,99(x,a,g23.16))')'l=',lev,&
-                                    'wl(1)=',lake_wl(i,j,1),'ws(1)=',lake_ws(i,j,1), &
-                                    'wl(l)=',lake_wl(i,j,lev),'ws(l)=',lake_ws(i,j,lev)
+                               write(*,'(a,i3,99(x,a,g23.16))')'l=',lev,&
+                                   'wl(1)=',lake_wl(i,j,1),'ws(1)=',lake_ws(i,j,1), &
+                                   'wl(l)=',lake_wl(i,j,lev),'ws(l)=',lake_ws(i,j,lev)
                            liq_this_lev = max(0.,min(liq_to_flow, lake_area*lake_wl(i,j,lev)))
                            ice_this_lev = max(0.,min(ice_to_flow, lake_area*lake_ws(i,j,lev)))
                            lake_wl(i,j,lev) = lake_wl(i,j,lev) - liq_this_lev/lake_area
@@ -355,9 +354,9 @@ contains
                                             /(clw*lake_wl(i,j,lev)+csw*lake_ws(i,j,lev))
                            endif
                            if (is_watch_cell() .and. lev.le.10) &
-                                write(*,'(a,i3,99(x,a,g23.16))')'l=',lev,&
-                                    'wl(1)=',lake_wl(i,j,1),'ws(1)=',lake_ws(i,j,1), &
-                                    'wl(l)=',lake_wl(i,j,lev),'ws(l)=',lake_ws(i,j,lev)
+                               write(*,'(a,i3,99(x,a,g23.16))')'l=',lev,&
+                                   'wl(1)=',lake_wl(i,j,1),'ws(1)=',lake_ws(i,j,1), &
+                                   'wl(l)=',lake_wl(i,j,lev),'ws(l)=',lake_ws(i,j,lev)
                            if (liq_to_flow.eq.0..and.ice_to_flow.eq.0.) exit
                            enddo
                          River%lake_outflow  (i,j)   = qt
@@ -497,7 +496,7 @@ contains
                     River%removal_c(i,j,River%i_age) = -River%storage(i,j)/sec_in_day
                     River%storage_c(i,j,River%i_age) = River%storage_c(i,j,River%i_age) &
                        - River%removal_c(i,j,River%i_age)*River%dt_slow
-                  endif
+                endif
 
                 if (River%storage(i,j) .gt. 0.) then
                     conc(River%num_phys+1:River%num_species) = &
@@ -530,7 +529,7 @@ contains
                            River%removal_c(i,j,River%num_species-River%num_c+1:River%num_species)
                   end if
               end if
-              endif
+            endif
 
             ! FINALLY, REDEFINE OUTFLOW AS DISCHARGE IF WE HAVE OCEAN HERE
 
@@ -1314,6 +1313,8 @@ contains
      integer                            :: p, n, i, j, count, l, k
      real                               :: wrk_c(isc:iec,jsc:jec,num_species, 8)
      real                               :: wrk  (isc:iec,jsc:jec, 8)
+     wrk = 0.0
+     wrk_c = 0.0
 
      !--- pre-post recv data
      pos = 0

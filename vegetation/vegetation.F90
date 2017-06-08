@@ -28,7 +28,7 @@ use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, mol_air, 
      seconds_per_year, MPa_per_m
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles, land_tile_heat, land_tile_carbon, get_tile_water
-use land_tile_diag_mod, only : OP_SUM, OP_MEAN, OP_MAX, OP_DOMINANT, &
+use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, OP_MAX, OP_DOMINANT, &
      register_tiled_static_field, register_tiled_diag_field, &
      send_tile_data, diag_buff_type, register_cohort_diag_field, send_cohort_data, &
      set_default_diag_filter
@@ -1410,8 +1410,8 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   call send_tile_data(id_stomatal, total_stomatal_cond, diag)
   ! An_op and An_cl is per unit area of leaf, so we average over the leaf area
   N = vegn%n_cohorts
-  call send_cohort_data(id_an_op, diag, cc(:), cc(:)%An_op, weight=cc(:)%layerfrac*cc(:)%lai, op=OP_MEAN)
-  call send_cohort_data(id_an_cl, diag, cc(:), cc(:)%An_cl, weight=cc(:)%layerfrac*cc(:)%lai, op=OP_MEAN)
+  call send_cohort_data(id_an_op, diag, cc(:), cc(:)%An_op, weight=cc(:)%layerfrac*cc(:)%lai, op=OP_AVERAGE)
+  call send_cohort_data(id_an_cl, diag, cc(:), cc(:)%An_cl, weight=cc(:)%layerfrac*cc(:)%lai, op=OP_AVERAGE)
   ! con_v_h and con_v_v are per unit area of cohort -- output is per unit tile area
   call send_tile_data(id_con_v_h, sum(con_v_h(:)*cc(:)%layerfrac), diag)
   call send_tile_data(id_con_v_v, sum(con_v_v(:)*cc(:)%layerfrac), diag)
@@ -1419,15 +1419,15 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   call send_tile_data(id_soil_water_supply, sum(soil_water_supply(:)*cc(:)%nindivs), diag)
   call send_tile_data(id_evap_demand, sum(evap_demand(:)*cc(:)%nindivs), diag)
   ! plant hydraulics diagnostics
-  call send_cohort_data(id_Kxi   , diag, cc(:), cc(:)%Kxi, weight=cc(:)%nindivs, op=OP_MEAN)
-  call send_cohort_data(id_Kli   , diag, cc(:), cc(:)%Kli, weight=cc(:)%nindivs, op=OP_MEAN)
+  call send_cohort_data(id_Kxi   , diag, cc(:), cc(:)%Kxi, weight=cc(:)%nindivs, op=OP_AVERAGE)
+  call send_cohort_data(id_Kli   , diag, cc(:), cc(:)%Kli, weight=cc(:)%nindivs, op=OP_AVERAGE)
   ! TODO: perhaps use something else for averaging weight
   ! factor 1e-6 converts Pa to MPa
-  call send_cohort_data(id_psi_r , diag, cc(:), cc(:)%psi_r*1e-6, weight=cc(:)%nindivs, op=OP_MEAN)
-  call send_cohort_data(id_psi_x , diag, cc(:), cc(:)%psi_x*1e-6, weight=cc(:)%nindivs, op=OP_MEAN)
-  call send_cohort_data(id_psi_l , diag, cc(:), cc(:)%psi_l*1e-6, weight=cc(:)%nindivs, op=OP_MEAN)
-  call send_cohort_data(id_w_scale,diag, cc(:), cc(:)%w_scale,    weight=cc(:)%nindivs, op=OP_MEAN)
-  call send_cohort_data(id_RHi,    diag, cc(:), RHi(:)*100,  weight=cc(:)%layerfrac*cc(:)%lai, op=OP_MEAN)
+  call send_cohort_data(id_psi_r , diag, cc(:), cc(:)%psi_r*1e-6, weight=cc(:)%nindivs, op=OP_AVERAGE)
+  call send_cohort_data(id_psi_x , diag, cc(:), cc(:)%psi_x*1e-6, weight=cc(:)%nindivs, op=OP_AVERAGE)
+  call send_cohort_data(id_psi_l , diag, cc(:), cc(:)%psi_l*1e-6, weight=cc(:)%nindivs, op=OP_AVERAGE)
+  call send_cohort_data(id_w_scale,diag, cc(:), cc(:)%w_scale,    weight=cc(:)%nindivs, op=OP_AVERAGE)
+  call send_cohort_data(id_RHi,    diag, cc(:), RHi(:)*100,  weight=cc(:)%layerfrac*cc(:)%lai, op=OP_AVERAGE)
 
 end subroutine vegn_step_1
 
@@ -1576,9 +1576,9 @@ subroutine vegn_step_2 ( vegn, diag, &
   ! snow_crit???
   N = vegn%n_cohorts
   associate(c=>vegn%cohorts)
-  call send_cohort_data(id_height_ave, diag, c(1:N), c(1:N)%height, weight=c(1:N)%nindivs, op=OP_MEAN)
+  call send_cohort_data(id_height_ave, diag, c(1:N), c(1:N)%height, weight=c(1:N)%nindivs, op=OP_AVERAGE)
   ! TODO: calculate vegetation temperature as total sensible heat/total heat capacity
-  call send_cohort_data(id_temp, diag, c(1:N), c(1:N)%Tv, weight=c(1:N)%nindivs, op=OP_MEAN)
+  call send_cohort_data(id_temp, diag, c(1:N), c(1:N)%Tv, weight=c(1:N)%nindivs, op=OP_AVERAGE)
   call send_cohort_data(id_wl,   diag, c(1:N), c(1:N)%Wl, weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_ws,   diag, c(1:N), c(1:N)%Ws, weight=c(1:N)%nindivs, op=OP_SUM)
 
@@ -1587,14 +1587,14 @@ subroutine vegn_step_2 ( vegn, diag, &
   ! in principle, the first cohort must be the tallest, but since cohorts are
   ! rearranged only once a year, that may not be true for part of the year
   call send_cohort_data(id_lai,     diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac, op=OP_SUM)
-  call send_cohort_data(id_laii,    diag, c(1:N), c(1:N)%lai, weight=c(1:N)%nindivs,   op=OP_MEAN)
+  call send_cohort_data(id_laii,    diag, c(1:N), c(1:N)%lai, weight=c(1:N)%nindivs,   op=OP_AVERAGE)
   call send_cohort_data(id_lai_var, diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac, op=OP_SUM)
   ! these are LAI variance and standard deviation among *tiles*, not cohorts. So the same data is sent
   ! as for average LAI, but they are aggregated differently by the diagnostics
   call send_cohort_data(id_lai_std, diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac, op=OP_SUM)
   call send_cohort_data(id_sai,     diag, c(1:N), c(1:N)%sai, weight=c(1:N)%layerfrac, op=OP_SUM)
 !  call send_cohort_data(id_leafarea,  diag, c(1:N), c(1:N)%leafarea, weight=c(1:N)%nindivs, op=OP_SUM) -- same as LAI (checked)
-  call send_cohort_data(id_leafarea, diag, c(1:N), c(1:N)%leafarea, weight=c(1:N)%nindivs, op=OP_MEAN)
+  call send_cohort_data(id_leafarea, diag, c(1:N), c(1:N)%leafarea, weight=c(1:N)%nindivs, op=OP_AVERAGE)
 
   end associate
   ! TODO: fix the diagnostics below
@@ -2102,8 +2102,8 @@ subroutine update_vegn_slow( )
      call send_cohort_data(id_bl_max, tile%diag, cc(1:N), cc(1:N)%bl_max, weight=cc(1:N)%nindivs, op=OP_SUM)
      call send_cohort_data(id_br_max, tile%diag, cc(1:N), cc(1:N)%br_max, weight=cc(1:N)%nindivs, op=OP_SUM)
 
-     call send_cohort_data(id_dbh,       tile%diag, cc(1:N), cc(1:N)%dbh,        weight=cc(1:N)%nindivs, op=OP_MEAN)
-     call send_cohort_data(id_crownarea, tile%diag, cc(1:N), cc(1:N)%crownarea,  weight=cc(1:N)%nindivs, op=OP_MEAN)
+     call send_cohort_data(id_dbh,       tile%diag, cc(1:N), cc(1:N)%dbh,        weight=cc(1:N)%nindivs, op=OP_AVERAGE)
+     call send_cohort_data(id_crownarea, tile%diag, cc(1:N), cc(1:N)%crownarea,  weight=cc(1:N)%nindivs, op=OP_AVERAGE)
      call send_cohort_data(id_dbh_max,   tile%diag, cc(1:N), cc(1:N)%dbh, op=OP_MAX)
 
      call send_tile_data(id_fsc_pool_ag,tile%vegn%fsc_pool_ag,tile%diag)

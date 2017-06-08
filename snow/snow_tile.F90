@@ -26,6 +26,7 @@ public :: snow_is_selected
 public :: get_snow_tile_tag
 public :: snow_tile_stock_pe
 public :: snow_tile_heat
+public :: snow_active
 
 public :: read_snow_data_namelist
 
@@ -400,5 +401,12 @@ function snow_tile_heat (snow) result(heat) ; real heat
                                       * (snow%T(i)-tfreeze)
   enddo
 end function
+
+! ============================================================================
+! returns true if snow plays a role
+function snow_active(snow) ; logical snow_active
+  type(snow_tile_type), intent(in)  :: snow
+  snow_active = ( sum(snow%ws(1:num_l)) > 0 )
+end function snow_active
 
 end module snow_tile_mod

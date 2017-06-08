@@ -10,7 +10,6 @@ use diag_manager_mod,   only : register_diag_field, register_static_field, &
 use diag_util_mod,      only : log_diag_field_info
 use fms_mod,            only : error_mesg, string, FATAL
 
-use land_debug_mod, only : set_current_point, check_var_range
 use land_tile_selectors_mod, only : tile_selectors_init, tile_selectors_end, &
      tile_selector_type, register_tile_selector, selector_suffix, &
      n_selectors, selectors
@@ -19,6 +18,7 @@ use land_tile_mod,      only : land_tile_type, diag_buff_type, land_tile_list_ty
      land_tile_map, tile_is_selected, fptr_i0, fptr_r0, fptr_r0i
 use vegn_cohort_mod,    only : vegn_cohort_type
 use land_data_mod,      only : lnd, log_version, land_data_type
+use land_debug_mod,     only : check_var_range, set_current_point
 use tile_diag_buff_mod, only : diag_buff_type, realloc_diag_buff
 
 implicit none
@@ -50,13 +50,17 @@ public :: send_cohort_data
 
 public :: dump_tile_diag_fields
 
+public :: get_area_id
+
 public :: send_global_land_diag
+
 
 interface send_tile_data
    module procedure send_tile_data_0d
    module procedure send_tile_data_1d
    module procedure send_tile_data_0d_array
 end interface
+
 interface send_cohort_data
   module procedure send_cohort_data_with_weight
   module procedure send_cohort_data_without_weight
@@ -83,12 +87,12 @@ integer, parameter :: BASE_COHORT_FIELD_ID = 65536*2 ! base value for cohort fie
 integer, parameter :: MIN_DIAG_BUFFER_SIZE = 1     ! min size of the per-tile diagnostic buffer
 ! operations used for tile data aggregation
 integer, parameter, public :: &
-    OP_MEAN = 1, & ! weighted average of tile values
-    OP_SUM  = 2, & ! sum of all tile values
-    OP_MAX  = 3, & ! maximum of all  values
-    OP_MIN  = 4, & ! minimum of all  values
-    OP_VAR  = 5, & ! variance of tile values
-    OP_STD  = 6, & ! standard deviation of tile values
+    OP_AVERAGE  = 1, & ! weighted average of values
+    OP_SUM      = 2, & ! sum of all tile values
+    OP_MAX      = 3, & ! maximum of all  values
+    OP_MIN      = 4, & ! minimum of all  values
+    OP_VAR      = 5, & ! variance of tile values
+    OP_STD      = 6, & ! standard deviation of tile values
     OP_DOMINANT = 7 ! dominant value (only for cohorts now)
 character(32), parameter :: opstrings(6) = (/ & ! symbolica names of the aggregation operations
    'mean                            ' , &
@@ -320,7 +324,7 @@ subroutine add_cell_methods(id,cell_methods)
      cell_methods_ = cell_methods
   else
      select case (fields(i)%opcode)
-     case (OP_MEAN)
+     case (OP_AVERAGE)
         cell_methods_ = 'area: mean'
      case (OP_SUM)
         cell_methods_ = 'area: sum'
@@ -622,7 +626,7 @@ function reg_field(static, module_name, field_name, init_time, axes, &
               //trim(module_name)//'/'//trim(field_name)//'"is incorrect, use "mean", "sum", "variance", or "stdev"',&
               FATAL)
      else
-        fields(id)%opcode = OP_MEAN
+        fields(id)%opcode = OP_AVERAGE
      endif
      ! store the static field flag
      fields(id)%static = static
@@ -1010,7 +1014,7 @@ subroutine dump_diag_field_with_sel(land_tile_map, id, field, sel, time)
     if ( size(tile%diag%data) < ke )       cycle ! do nothing if there is no data in the buffer
     if ( .not.tile_is_selected(tile,sel) ) cycle ! do nothing if tile is not selected
     select case (field%opcode)
-    case (OP_MEAN,OP_VAR,OP_STD)
+    case (OP_AVERAGE,OP_VAR,OP_STD)
        where(tile%diag%mask(ks:ke))
           buffer(l,:) = buffer(l,:) + tile%diag%data(ks:ke)*tile%frac
        end where
@@ -1196,6 +1200,42 @@ subroutine send_cohort_data_with_weight (id, buffer, cc, data, weight, op)
 end subroutine send_cohort_data_with_weight
 
 ! ============================================================================
+function aggregate(data,weight,opcode,mask) result(ret)
+  real :: ret
+  real, intent(in) :: data(:),weight(:)
+  integer, intent(in) :: opcode
+  logical, intent(in) :: mask(:)
+
+  real :: w
+  integer :: i
+
+  select case(opcode)
+  case(OP_SUM)
+     ret = sum(data*weight,mask=mask)
+  case(OP_AVERAGE)
+     w = sum(weight,mask=mask)
+     ret = sum(data*weight,mask=mask)
+     if (w/=0) ret = ret/w
+  case(OP_MAX)
+     ret = 0.0
+     if (any(mask)) ret = maxval(data,mask)
+  case(OP_MIN)
+     ret = 0.0
+     if (any(mask)) ret = minval(data,mask)
+  case(OP_DOMINANT)
+     ret = 0.0
+     w=-HUGE(1.0)
+     do i = 1,size(weight)
+        if (mask(i).and.weight(i)>w) then
+           ret = data(i); w = weight(i)
+        endif
+     enddo
+  case default
+     call error_mesg(mod_name, 'unrecognized cohort data aggregation opcode', FATAL)
+  end select
+end function aggregate
+
+! ============================================================================
 !> \brief Send out the land model field on unstructured grid for global integral
 logical function send_global_land_diag( id, diag, Time, tile, mask, Land )
   integer,                 intent(in) :: id
@@ -1232,48 +1272,12 @@ logical function send_global_land_diag( id, diag, Time, tile, mask, Land )
      area_ug(:,1) = 0.0
   endwhere
 
-  area_sum = mpp_reproducing_sum(diag_ug) !, overflow_check=.true.)
-  diag_sum = mpp_reproducing_sum(area_ug) !, overflow_check=.true.)
+  diag_sum = mpp_reproducing_sum(diag_ug) !, overflow_check=.true.)
+  area_sum = mpp_reproducing_sum(area_ug) !, overflow_check=.true.)
 
   send_global_land_diag = send_data( id, diag_sum/area_sum, Time)
 
 end function send_global_land_diag
-
-! ============================================================================
-function aggregate(data,weight,opcode,mask) result(ret)
-  real :: ret
-  real, intent(in) :: data(:),weight(:)
-  integer, intent(in) :: opcode
-  logical, intent(in) :: mask(:)
-
-  real :: w
-  integer :: i
-
-  select case(opcode)
-  case(OP_SUM)
-     ret = sum(data*weight,mask=mask)
-  case(OP_MEAN)
-     w = sum(weight,mask=mask)
-     ret = sum(data*weight,mask=mask)
-     if (w/=0) ret = ret/w
-  case(OP_MAX)
-     ret = 0.0
-     if (any(mask)) ret = maxval(data,mask)
-  case(OP_MIN)
-     ret = 0.0
-     if (any(mask)) ret = minval(data,mask)
-  case(OP_DOMINANT)
-     ret = 0.0
-     w=-HUGE(1.0)
-     do i = 1,size(weight)
-        if (mask(i).and.weight(i)>w) then
-           ret = data(i); w = weight(i)
-        endif
-     enddo
-  case default
-     call error_mesg(mod_name, 'unrecognized cohort data aggregation opcode', FATAL)
-  end select
-end function aggregate
 
 
 end module land_tile_diag_mod

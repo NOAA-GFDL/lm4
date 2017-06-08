@@ -16,6 +16,7 @@ real, public, parameter :: d378 = 1.0-d622
 real, public, parameter :: d608 = d378/d622
 
 real, public, parameter :: Rugas = 8.314472 ! universal gas constant, J K-1 mol-1
+real, public, parameter :: kBoltz= 1.3807e-23 ! Boltzmann's constant, J K-1 Rugas/Avogadro number
 
 real, public, parameter :: days_per_year = 365.0
 real, public, parameter :: seconds_per_year = 86400.0*days_per_year
@@ -25,7 +26,5 @@ real, public, parameter :: mol_CO2 = 44.00995e-3 ! molar mass of CO2,kg
 real, public, parameter :: mol_h2o = 18.0e-3 ! molar mass of water, kg
 
 real, public, parameter :: MPa_per_m = dens_h2o*grav*1.0e-6 ! pressure of one meter of water, Mega Pascal
-
-! ==== end of public interfaces ==============================================
 
 end module

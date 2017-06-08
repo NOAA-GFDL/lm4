@@ -12,7 +12,7 @@ use constants_mod, only : PI,tfreeze
 use land_constants_mod, only : days_per_year, seconds_per_year, mol_C
 use land_data_mod, only : log_version
 use land_debug_mod, only : is_watch_point, check_var_range
-use land_tile_diag_mod, only : OP_SUM, OP_MEAN, &
+use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
      register_cohort_diag_field, send_cohort_data, set_default_diag_filter, OP_SUM
 use vegn_data_mod, only : spdata, &
@@ -463,8 +463,8 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   call send_cohort_data(id_resg, diag, c(1:N), resg(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
   call send_tile_data(id_soilt,tsoil,diag)
   call send_tile_data(id_theta,theta,diag)
-  call send_cohort_data(id_age, diag, c(1:N), c(1:N)%age, weight=c(1:N)%nindivs, op=OP_MEAN)
-  call send_cohort_data(id_exudate, diag, c(1:N), root_exudate_C(1:N), weight=c(1:N)%nindivs, op=OP_MEAN)
+  call send_cohort_data(id_age, diag, c(1:N), c(1:N)%age, weight=c(1:N)%nindivs, op=OP_AVERAGE)
+  call send_cohort_data(id_exudate, diag, c(1:N), root_exudate_C(1:N), weight=c(1:N)%nindivs, op=OP_AVERAGE)
 end subroutine vegn_carbon_int_ppa
 !*****************************************************************************
 
@@ -546,7 +546,7 @@ subroutine vegn_growth (vegn, diag)
   call send_cohort_data(id_leaf_root_gr,diag,vegn%cohorts(1:N),leaf_root_gr(:), weight=vegn%cohorts(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_sw_seed_gr,diag,vegn%cohorts(1:N),sw_seed_gr(:), weight=vegn%cohorts(1:N)%nindivs, op=OP_SUM)
   ! conversion of DBH_growth assumes that vegn_growth is called daily
-  call send_cohort_data(id_DBH_growth,diag,vegn%cohorts(1:N),deltaDBH(:)*days_per_year, weight=vegn%cohorts(1:N)%nindivs, op=OP_MEAN)
+  call send_cohort_data(id_DBH_growth,diag,vegn%cohorts(1:N),deltaDBH(:)*days_per_year, weight=vegn%cohorts(1:N)%nindivs, op=OP_AVERAGE)
 
   if (is_watch_point()) then
      cmass1 = vegn_tile_carbon(vegn)

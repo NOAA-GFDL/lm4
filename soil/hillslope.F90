@@ -20,8 +20,7 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
 use land_utils_mod, only : put_to_tiles_r0d_fptr
 use land_tile_diag_mod, only : diag_buff_type, &
      register_tiled_static_field, set_default_diag_filter, &
-     send_tile_data_r0d_fptr, &
-     send_tile_data_i0d_fptr
+     send_tile_data_r0d_fptr, send_tile_data_i0d_fptr
 use land_data_mod, only : lnd, log_version
 use land_io_mod, only : read_field
 use land_tile_io_mod, only: land_restart_type, &
