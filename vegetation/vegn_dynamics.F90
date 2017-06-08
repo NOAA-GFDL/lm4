@@ -414,21 +414,21 @@ subroutine  update_mycorrhizae(cc,sp,dt_fast_yr,&
       cc%N_fixer_C_reservoir = cc%N_fixer_C_reservoir - cc%N_fixer_C_reservoir*dt_fast_yr*365
 
 
-      if(abs(cc%mine_myc_N_reservoir)<1e-30) cc%mine_myc_N_reservoir = 0.0
-      if(abs(cc%mine_myc_C_reservoir)<1e-30) cc%mine_myc_C_reservoir = 0.0
-      if(abs(cc%scav_myc_N_reservoir)<1e-30) cc%scav_myc_N_reservoir = 0.0
-      if(abs(cc%scav_myc_C_reservoir)<1e-30) cc%scav_myc_C_reservoir = 0.0
+      if(abs(cc%mine_myc_N_reservoir)<1e-20) cc%mine_myc_N_reservoir = 0.0
+      if(abs(cc%mine_myc_C_reservoir)<1e-20) cc%mine_myc_C_reservoir = 0.0
+      if(abs(cc%scav_myc_N_reservoir)<1e-20) cc%scav_myc_N_reservoir = 0.0
+      if(abs(cc%scav_myc_C_reservoir)<1e-20) cc%scav_myc_C_reservoir = 0.0
 
-      if(cc%scav_myc_C_reservoir<0) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger C reservoir < 0',FATAL)
-      if(cc%mine_myc_C_reservoir<0) call error_mesg('vegn_carbon_int','Mycorrhizal miner C reservoir < 0',FATAL)
-      if(cc%N_fixer_C_reservoir<0) call error_mesg('vegn_carbon_int','N fixer C reservoir < 0',FATAL)
-      if(cc%scav_myc_N_reservoir<0) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger N reservoir < 0',FATAL)
-      if(cc%mine_myc_N_reservoir<0) then
+      if(cc%scav_myc_C_reservoir<-1e-10) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger C reservoir < 0',FATAL)
+      if(cc%mine_myc_C_reservoir<-1e-10) call error_mesg('vegn_carbon_int','Mycorrhizal miner C reservoir < 0',FATAL)
+      if(cc%N_fixer_C_reservoir<-1e-10) call error_mesg('vegn_carbon_int','N fixer C reservoir < 0',FATAL)
+      if(cc%scav_myc_N_reservoir<-1e-10) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger N reservoir < 0',FATAL)
+      if(cc%mine_myc_N_reservoir<-1e-10) then
           __DEBUG4__(cc%mine_myc_N_reservoir,cc%mine_myc_C_reservoir,cc%myc_miner_biomass_C,cc%myc_miner_biomass_N)
           __DEBUG4__(cc%species,cc%total_N,cc%leaf_N,cc%stored_N)
           call error_mesg('vegn_carbon_int','Mycorrhizal miner N reservoir < 0',FATAL)
       endif
-      if(cc%N_fixer_N_reservoir<0) call error_mesg('vegn_carbon_int','N fixer N reservoir < 0',FATAL)
+      if(cc%N_fixer_N_reservoir<-1e-10) call error_mesg('vegn_carbon_int','N fixer N reservoir < 0',FATAL)
 
       ! Calculate N released to plant
       scav_N_to_plant = cc%scav_myc_N_reservoir*sp%myc_N_to_plant_rate*dt_fast_yr
@@ -465,9 +465,9 @@ subroutine  update_mycorrhizae(cc,sp,dt_fast_yr,&
 
       ! Root uptake of nitrogen
       if (C_allocation_to_N_acq>0) then
-         rhiz_exud_marginal_gain = (root_N_uptake/dt_fast_yr)/(C_allocation_to_N_acq)+(myc_mine_marginal_gain+myc_scav_marginal_gain)*0.5
+         rhiz_exud_marginal_gain = (root_N_uptake/dt_fast_yr)/(C_allocation_to_N_acq)!+(myc_mine_marginal_gain+myc_scav_marginal_gain)*0.5
       else
-         rhiz_exud_marginal_gain = (myc_mine_marginal_gain+myc_scav_marginal_gain)*0.5
+         rhiz_exud_marginal_gain = (myc_mine_marginal_gain+myc_scav_marginal_gain)*0.25
       endif
 
       ! N fixer
@@ -532,6 +532,7 @@ subroutine  update_mycorrhizae(cc,sp,dt_fast_yr,&
 
    cc%stored_N = cc%stored_N + total_plant_N_uptake
 
+   root_exudate_N = C_allocation_to_N_acq*dt_fast_yr*sp%root_exudate_N_frac - scavenger_myc_N_allocated - N_fixer_N_allocated - miner_myc_N_allocated
 
  else  ! If nitrogen turned off, everything is zero
 
@@ -551,12 +552,11 @@ subroutine  update_mycorrhizae(cc,sp,dt_fast_yr,&
       myc_turnover_C = 0.0
       myc_turnover_N = 0.0
       total_plant_N_uptake = 0.0
-
+      root_exudate_N = 0.0
  endif
 
    !root_exudate_N=(current_root_exudation*root_exudate_N_frac*dt_fast_yr - scavenger_myc_N_allocated - N_fixer_N_allocated - miner_myc_N_allocated)/dt_fast_yr
    root_exudate_C = C_allocation_to_N_acq*dt_fast_yr - scavenger_myc_C_allocated - miner_myc_C_allocated - N_fixer_C_allocated + reservoir_C_leakage
-   root_exudate_N = C_allocation_to_N_acq*dt_fast_yr*sp%root_exudate_N_frac - scavenger_myc_N_allocated - N_fixer_N_allocated - miner_myc_N_allocated
 
 
    if(root_exudate_N<0) then
@@ -776,7 +776,7 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
      total_root_exudate_N(:) = total_root_exudate_N(:) + profile(:)*root_exudate_N(i)*cc%nindivs
 
      ! To prevent excess stored N buildup under high soil N, leak stored N when stress is zero
-     if(cc%nitrogen_stress<=0 .AND. cc%stored_N>0) then
+     if(cc%nitrogen_stress<=0.05 .AND. cc%stored_N>0 .AND. soil_carbon_option == SOILC_CORPSE_N) then
        total_N_leakage(:) = total_N_leakage(:) + cc%stored_N*excess_stored_N_leakage_rate*profile(:)*cc%nindivs
        cc%stored_N=cc%stored_N - cc%stored_N*excess_stored_N_leakage_rate*dt_fast_yr
      endif

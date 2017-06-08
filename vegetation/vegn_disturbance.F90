@@ -110,18 +110,20 @@ subroutine vegn_disturbance(vegn, soil, dt)
         cc%wood_N    = cc%wood_N    * (1-fraction_lost)
         cc%sapwood_N = cc%sapwood_N * (1-fraction_lost)
 
+        vegn%Nsmoke_pool = vegn%Nsmoke_pool + sp%smoke_fraction*delta_N
         vegn%csmoke_pool = vegn%csmoke_pool + sp%smoke_fraction*delta_C
         vegn%veg_out = vegn%veg_out+delta_C
 
         !"alive" biomass: leaves, roots, and virtual pool
-        delta_C = (cc%bl+cc%blv+cc%br)*fraction_lost;
-        leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*(cc%bl+cc%blv)*fraction_lost*(1-sp%smoke_fraction)
-        leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*cc%leaf_N*fraction_lost*(1-sp%smoke_fraction)
+        delta_C = (cc%bl+cc%blv+cc%br)*fraction_lost*cc%nindivs;
+        delta_N = (cc%leaf_N+cc%stored_N+cc%root_N)*fraction_lost*cc%nindivs
+        leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*(cc%bl+cc%blv)*fraction_lost*(1-sp%smoke_fraction)*cc%nindivs
+        leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*cc%leaf_N*fraction_lost*(1-sp%smoke_fraction)*cc%nindivs
         do l = 1, num_l
            root_litt_C(l,:) = root_litt_C(l,:) + [sp%fsc_froot, 1-sp%fsc_froot, 0.0] * &
-                            profile(l)*cc%br*fraction_lost*(1-sp%smoke_fraction)
+                            profile(l)*cc%br*fraction_lost*(1-sp%smoke_fraction)*cc%nindivs
            root_litt_N(l,:) = root_litt_N(l,:) + [sp%fsc_froot, 1-sp%fsc_froot, 0.0] * &
-                            profile(l)*cc%root_N*fraction_lost*(1-sp%smoke_fraction)
+                            profile(l)*(cc%root_N+cc%stored_N)*fraction_lost*(1-sp%smoke_fraction)*cc%nindivs
         enddo
 
         cc%bl     = cc%bl      * (1-fraction_lost)
@@ -129,7 +131,9 @@ subroutine vegn_disturbance(vegn, soil, dt)
         cc%br     = cc%br      * (1-fraction_lost)
         cc%leaf_N = cc%leaf_N  * (1-fraction_lost)
         cc%root_N = cc%root_N  * (1-fraction_lost)
+        cc%stored_N = cc%stored_N * (1-fraction_lost)
 
+        vegn%Nsmoke_pool = vegn%Nsmoke_pool + sp%smoke_fraction*delta_N
         vegn%csmoke_pool = vegn%csmoke_pool + sp%smoke_fraction*delta_C
         vegn%veg_out = vegn%veg_out+delta_C
 
@@ -288,16 +292,20 @@ subroutine vegn_nat_mortality_lm3(vegn, soil, deltat)
      delta_C = bdead*fraction_lost
      delta_N = (cc%wood_N+cc%sapwood_N)*fraction_lost
 
-     wood_litt_C(:) = wood_litt_C(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*delta_C*agf_bs
-     wood_litt_N(:) = wood_litt_N(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*delta_N*agf_bs
+     wood_litt_C(:) = wood_litt_C(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*cc%bwood*fraction_lost*agf_bs + &
+        [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*cc%bsw*fraction_lost*agf_bs
+     wood_litt_N(:) = wood_litt_N(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*cc%wood_N*fraction_lost*agf_bs + &
+        [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*cc%sapwood_N*fraction_lost*agf_bs
      if (sp%mortality_kills_balive) then
         leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*fraction_lost*(cc%bl+cc%blv)
         leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*fraction_lost*(cc%leaf_N+cc%stored_N)
      endif
      call cohort_root_litter_profile(cc, dz, profile)
      do l = 1, num_l
-        root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*(1-agf_bs)*delta_C*[sp%fsc_wood, 1-sp%fsc_wood, 0.0]
-        root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*(1-agf_bs)*delta_N*[sp%fsc_wood, 1-sp%fsc_wood, 0.0]
+        root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*(1-agf_bs)*fraction_lost* &
+            (cc%bwood*[sp%fsc_wood, 1-sp%fsc_wood, 0.0]+cc%bsw*[sp%fsc_liv, 1-sp%fsc_liv, 0.0])
+        root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*(1-agf_bs)*fraction_lost* &
+            (cc%wood_N*[sp%fsc_wood, 1-sp%fsc_wood, 0.0]+cc%sapwood_N*[sp%fsc_liv, 1-sp%fsc_liv, 0.0])
         if (sp%mortality_kills_balive) then
            root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*[sp%fsc_froot, 1-sp%fsc_froot, 0.0]*fraction_lost*cc%br
            root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*[sp%fsc_froot, 1-sp%fsc_froot, 0.0]*fraction_lost*cc%root_N

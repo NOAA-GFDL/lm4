@@ -759,7 +759,7 @@ subroutine update_cohort(cohort,nitrate,ammonium,cohortVolume,T,theta,air_filled
         end where
 
 
-        cohort%IMM_N_max=min((ammonium+nitrate)/dt-denitrif_NO3_demand,cohort%livingMicrobeC*(V_NH4(T)*ammonium+V_NO3(T)*nitrate)*(theta**3)*max((air_filled_porosity)**gas_diffusion_exp,min_anaerobic_resp_factor))   ! kg/m2/yr
+        cohort%IMM_N_max=min((ammonium+nitrate)/dt-denitrif_NO3_demand,max_immobilization_rate(ammonium,nitrate,T,theta,air_filled_porosity))   ! kg/m2/yr
         nitrogen_supply=sum(pot_tempN_decomposed*mup)
         nitrogen_supply_denitrif=sum(pot_tempN_decomposed_denitrif*mup)
         temp_N_microbes=cohort%livingMicrobeN
@@ -1378,6 +1378,26 @@ pure function Resp_myc(Ctotal,Chet,T,theta,air_filled_porosity)
 
 end function Resp_myc
 
+! Maximum total (NO3+NH4) immmobilization rate per unit microbial biomass
+pure function max_immobilization_rate(NH4,NO3,T,theta,air_filled_porosity)
+    real,intent(in)::NO3,NH4
+    real,intent(in)::T,theta             ! temperature (k), theta (fraction of 1.0)
+    real,intent(in)::air_filled_porosity ! Fraction of 1.0.  Different from theta since it includes ice
+    real:: max_immobilization_rate       ! Per unit microbial biomass!
+    real :: aerobic_max, theta_resp_max  ! Maximum soil-moisture factor under ideal conditions
+
+    ! From solving theta dependence for maximum:
+    theta_resp_max=substrate_diffusion_exp/(gas_diffusion_exp*(1.0+substrate_diffusion_exp/gas_diffusion_exp))
+    aerobic_max=theta_resp_max**substrate_diffusion_exp*(1.0-theta_resp_max)**gas_diffusion_exp
+
+    IF((NO3+NH4).eq.0.0 .OR. theta.eq.0.0) THEN
+        max_immobilization_rate=0.0
+        return
+    ENDIF
+
+    max_immobilization_rate=(V_NH4(T)*NH4+V_NO3(T)*NO3)*theta**substrate_diffusion_exp*max((air_filled_porosity)**gas_diffusion_exp,min_anaerobic_resp_factor*aerobic_max)/aerobic_max
+
+end function max_immobilization_rate
 
 pure function Vmax(T)
     real,intent(in)::T
@@ -2569,7 +2589,8 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
     ! Probably should include wood litter in this too
     ! Ammonium should be less soluble than nitrate, probably.  Could use retrieve_dissolved_mineral_N to standardize that --BNS
     if (leaflitter%ammonium + woodlitter%ammonium>0) then
-       leaf_NH4_frac = leaflitter%ammonium/(leaflitter%ammonium + woodlitter%ammonium)
+      !  leaf_NH4_frac = leaflitter%ammonium/(leaflitter%ammonium + woodlitter%ammonium)
+      leaf_NH4_frac = leaflitterTotalC/(leaflitterTotalC+woodlitterTotalC)
     else
        leaf_NH4_frac = 0.5 ! slm: does it make sense?
     endif
@@ -2581,7 +2602,8 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
     soil(:)%ammonium=soil(:)%ammonium*(1-ammonium_solubility)
 
     if (leaflitter%nitrate + woodlitter%nitrate > 0) then
-       leaf_NO3_frac = leaflitter%nitrate/(leaflitter%nitrate + woodlitter%nitrate)
+      !  leaf_NO3_frac = leaflitter%nitrate/(leaflitter%nitrate + woodlitter%nitrate)
+      leaf_NO3_frac = leaflitterTotalC/(leaflitterTotalC+woodlitterTotalC)
     else
        leaf_NO3_frac = 0.0
     endif
@@ -2969,7 +2991,7 @@ function Kdenitr(T)
 end function Kdenitr
 
 
-function V_NH4(T)
+pure function V_NH4(T)
     real,intent(in)::T
     real,parameter::Tref=293.15   !LA TEMPERATURA É IN KELVIN ED EQUIVALE A 20ºC
     real::alpha,V_NH4
@@ -2979,7 +3001,7 @@ function V_NH4(T)
 
 end function V_NH4
 
-function V_NO3(T)
+pure function V_NO3(T)
     real,intent(in)::T
     real,parameter::Tref=293.15   !Tref is in kelvin not celcus
     real::alpha,V_NO3
