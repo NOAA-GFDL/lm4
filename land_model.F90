@@ -55,8 +55,7 @@ use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, vegn_get_cov
      update_vegn_slow, save_vegn_restart
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, cana_state,&
-     cana_step_2, cana_roughness, &
-     save_cana_restart
+     cana_roughness, save_cana_restart
 use river_mod, only : river_init, river_end, update_river, river_stock_pe, &
      save_river_restart, river_tracers_init, num_river_tracers, river_tracer_index
 use topo_rough_mod, only : topo_rough_init, topo_rough_end, update_topo_rough
@@ -647,7 +646,7 @@ subroutine land_model_restart(timestamp)
   call save_land_restart(restart)
   call free_land_restart(restart)
 
-  ! [6] save component models' restarts
+  ! [6] save component models restarts
   call save_land_transitions_restart(timestamp_)
   call save_glac_restart(tile_dim_length,timestamp_)
   call save_lake_restart(tile_dim_length,timestamp_)
@@ -1380,10 +1379,10 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
        cana_co2_mol, & ! co2 dry mixing ratio in canopy air, mol CO2/mol dry air
        fswg, evapg, sensg, &
        subs_G, subs_G2, Mg_imp, snow_G_Z, snow_G_TZ, &
-       snow_avrg_T, delta_T_snow,  & ! vertically-average snow temperature and it's change due to s
+       snow_avrg_T, delta_T_snow,  & ! vertically-average snow temperature and its change due to s
        vegn_ovfl_l,  vegn_ovfl_s,  & ! overflow of liquid and solid water from the canopy
        vegn_ovfl_Hl, vegn_ovfl_Hs, & ! heat flux from canopy due to overflow
-       delta_fprec, & ! correction of below-canopy solid precip in case it's average T > tfreeze
+       delta_fprec, & ! correction of below-canopy solid precip in case its average T > tfreeze
 
        hprec,              & ! sensible heat flux carried by precipitation
        hevap,              & ! sensible heat flux carried by total evapotranspiration
@@ -1848,7 +1847,10 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
      if (.not.redo_leaf_water) exit ! from loop
   enddo ! canopy_water_step
 
-  call cana_step_2 ( tile%cana, delta_Tc, delta_qc )
+  ! [*] start of step_2 updates
+  ! update canopy air temperature and specific humidity
+  tile%cana%T = tile%cana%T + delta_Tc
+  tile%cana%tr(isphum) = tile%cana%tr(isphum) + delta_qc
 
   if(associated(tile%vegn)) then
      call vegn_step_2 ( tile%vegn, tile%diag, &
@@ -2043,7 +2045,7 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
      call send_tile_data(id_carbon_cons, (cmass1-v0)/delta_time, tile%diag)
 
      heat1  = land_tile_heat(tile)
-     ! latent heat is missing below, and it's not trivial to add, because there are
+     ! latent heat is missing below, and it is not trivial to add, because there are
      ! multiple components with their own vaporization heat
    !  call check_conservation (tag,'heat content', &
    !      heat0+(hprec-land_sens-hevap &
@@ -2670,7 +2672,7 @@ subroutine update_land_bc_fast (tile, l ,k, land2cplr, is_init)
   land2cplr%rough_heat     (l,k) = 0.1
 
   ! Calculate radiative surface temperature. lwup cannot be calculated here
-  ! based on the available temperatures because it's a result of the implicit
+  ! based on the available temperatures because it is a result of the implicit
   ! time step: lwup = lwup0 + DlwupDTg*delta_Tg + ..., so we have to carry it
   ! from the update_land_fast
   ! Consequence: since update_landbc_fast is called once at the very beginning of
@@ -2996,10 +2998,10 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
       deallocate(ug_dim_data)
   endif
 
- ! Register horizontal axes that are required by the post-processing so that the output 
+ ! Register horizontal axes that are required by the post-processing so that the output
  ! files can be "decompressed": converted from unstructured back to lon-lat or cubic sphere.
- ! The "grid_xt" and "grid_yt" axes should run from 1 to the total number of x- and 
- ! y-points on cubic sphere face. It is assumed that all faces tiles contain the same 
+ ! The "grid_xt" and "grid_yt" axes should run from 1 to the total number of x- and
+ ! y-points on cubic sphere face. It is assumed that all faces tiles contain the same
  ! number of x- and y-points.
   nlon = size(clon)
   nlat = size(clat)

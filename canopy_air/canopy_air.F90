@@ -41,7 +41,6 @@ public :: save_cana_restart
 public :: cana_turbulence
 public :: cana_roughness
 public :: cana_state
-public :: cana_step_2
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
@@ -410,17 +409,6 @@ subroutine cana_state ( cana, cana_T, cana_q, cana_co2 )
   if (present(cana_q))   cana_q   = cana%tr(isphum)
   if (present(cana_co2)) cana_co2 = cana%tr(ico2)
 end subroutine
-
-! ============================================================================
-subroutine cana_step_2 ( cana, delta_Tc, delta_qc )
-  type(cana_tile_type), intent(inout) :: cana
-  real, intent(in) ::  &
-     delta_Tc, & ! change in canopy air temperature
-     delta_qc    ! change in canopy air humidity
-
-  cana%T = cana%T + delta_Tc
-  cana%tr(isphum) = cana%tr(isphum) + delta_qc
-end subroutine cana_step_2
 
 ! ============================================================================
 ! tile existence detector: returns a logical value indicating wether component
