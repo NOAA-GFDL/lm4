@@ -10,7 +10,7 @@ use vegn_tile_mod,      only : vegn_tile_type
 use vegn_cohort_mod,    only : vegn_cohort_type, vegn_data_cover, get_vegn_wet_frac
 use snow_mod,           only : snow_radiation
 
-use land_debug_mod,     only : is_watch_point 
+use land_debug_mod,     only : is_watch_point
 use land_data_mod,      only : log_version
 
 implicit none
@@ -32,7 +32,7 @@ integer, parameter :: VEGN_RAD_TWOSTREAM = 2 ! two-stream radiation code
 ! values for internal intercepted snow radiation properties selector -- currently
 ! works only for VEGN_RAD_TWOSTREAM
 integer, parameter :: SNOW_RAD_IGNORE       = 1 ! no influence of intercepted snow
-integer, parameter :: SNOW_RAD_PAINT_LEAVES = 2 ! intecepted snow modifies leaf 
+integer, parameter :: SNOW_RAD_PAINT_LEAVES = 2 ! intecepted snow modifies leaf
    ! reflectance and transmittance
 
 ! ==== module variables ======================================================
@@ -82,7 +82,7 @@ end subroutine vegn_radiation_init
 
 
 ! ============================================================================
-! compute vegetation-only properties needed to do soil-canopy-atmos 
+! compute vegetation-only properties needed to do soil-canopy-atmos
 ! energy balance. in this version, also derive the aerodynamic soil-canopy
 ! variables, but probably this should be separated, like radiation is.
 subroutine vegn_radiation ( vegn, &
@@ -90,7 +90,7 @@ subroutine vegn_radiation ( vegn, &
      vegn_refl_dif, vegn_tran_dif, vegn_refl_dir, vegn_sctr_dir, vegn_tran_dir, &
      vegn_refl_lw, vegn_tran_lw )
 
-  type(vegn_tile_type), intent(inout) :: vegn ! it is only inout because 
+  type(vegn_tile_type), intent(inout) :: vegn ! it is only inout because
                                 ! vegn_data_cover modifies cohort; cane we avoid this?
   real, intent(in)  :: cosz     ! cosine of zenith angle of direct (solar) beam
   real, intent(in)  :: snow_depth
@@ -102,10 +102,10 @@ subroutine vegn_radiation ( vegn, &
        vegn_refl_dir(:,:), & ! reflectance of canopy for direct light
        vegn_sctr_dir(:,:), & ! part of direct light that is scattered downward
        vegn_tran_dir(:,:), & ! part of direct light that passes through the canopy unmolested
-       vegn_refl_lw(:), & ! reflectance of canopy for long-wave (thermal) radiation 
+       vegn_refl_lw(:), & ! reflectance of canopy for long-wave (thermal) radiation
        vegn_tran_lw(:)    ! transmittance of canopy for long-wave (thermal) radiation
 
-  ! ---- local vars 
+  ! ---- local vars
   real :: vegn_cover, vegn_cover_snow_factor, vegn_lai, &
        vegn_leaf_refl(NBANDS), vegn_leaf_emis, vegn_K
   integer :: i
@@ -136,7 +136,7 @@ subroutine vegn_radiation ( vegn, &
              vegn_leaf_refl, vegn_leaf_emis, vegn_lai, vegn_K )
         vegn_refl_dif(i,:) = vegn_cover * vegn_leaf_refl
         vegn_refl_dir(i,:) = vegn_cover * vegn_leaf_refl
-        vegn_tran_dif(i,:) = 1 - vegn_cover 
+        vegn_tran_dif(i,:) = 1 - vegn_cover
         vegn_sctr_dir(i,:) = 0
         vegn_tran_dir(i,:) = 1 - vegn_cover
      case(VEGN_RAD_TWOSTREAM)
@@ -162,7 +162,7 @@ subroutine vegn_radiation ( vegn, &
      vegn_refl_lw(i)       = vegn_cover * (1-vegn_leaf_emis)
      vegn_tran_lw(i)       = 1 - vegn_cover
 
-     ! store the extinction coefficients for use in photosynthesis calculations -- 
+     ! store the extinction coefficients for use in photosynthesis calculations --
      ! currently calculated as if all light were direct
      vegn%cohorts(i)%extinct = &
           (spdata(vegn%cohorts(i)%species)%phi1+spdata(vegn%cohorts(i)%species)%phi2*cosz)&
@@ -171,7 +171,7 @@ subroutine vegn_radiation ( vegn, &
 end subroutine vegn_radiation
 
 ! ============================================================================
-! compute vegetation-only properties needed to do soil-canopy-atmos 
+! compute vegetation-only properties needed to do soil-canopy-atmos
 ! energy balance.
 subroutine vegn_rad_properties_bigleaf ( cohort, snow_refl, snow_emis, &
      vegn_leaf_refl, vegn_leaf_emis, vegn_lai, vegn_K )
@@ -179,7 +179,7 @@ subroutine vegn_rad_properties_bigleaf ( cohort, snow_refl, snow_emis, &
   real, intent(in)  :: snow_refl(NBANDS), snow_emis
   real, intent(out) :: vegn_leaf_refl(NBANDS), vegn_leaf_emis, vegn_lai, vegn_K
 
-  ! ---- local vars 
+  ! ---- local vars
   real :: a_vs
 
   if ( cohort%Ws_max > 0 ) then
@@ -210,11 +210,11 @@ subroutine vegn_rad_properties_twostream( cohort, cosz, &
   real, intent(in) :: cosz ! cosine of direct light zenith angle
   real, intent(out), dimension(NBANDS) :: &
        vegn_refl_dif, & ! reflectance for diffuse light
-       vegn_tran_dif, & ! transmittance for diffuse light 
+       vegn_tran_dif, & ! transmittance for diffuse light
        vegn_refl_dir, & ! reflectance for direct light
-       vegn_sctr_dir, & ! part of direct light scattered downward (source of 
+       vegn_sctr_dir, & ! part of direct light scattered downward (source of
                         ! diffuse due to direct light scattering)
-       vegn_tran_dir    ! transmittance of direct light 
+       vegn_tran_dir    ! transmittance of direct light
   real, intent(out) :: &
        vegn_leaf_emis   ! emissivity of leaves
 
@@ -223,7 +223,7 @@ subroutine vegn_rad_properties_twostream( cohort, cosz, &
 
   ! ---- local vars
   integer :: i
-  integer :: sp ! current species, solely to shorten the notation 
+  integer :: sp ! current species, solely to shorten the notation
   real :: leaf_refl, leaf_tran ! optical properties of partially snow-covered leaves
   real :: snow_refl_dif(NBANDS) ! snow reflectances
   real :: snow_refl_dir(NBANDS), snow_refl_lw, snow_emis ! snow rad. properies (unused)
@@ -231,7 +231,7 @@ subroutine vegn_rad_properties_twostream( cohort, cosz, &
 
   ! get the snow fraction
   select case (snow_rad_option)
-  case(SNOW_RAD_PAINT_LEAVES) 
+  case(SNOW_RAD_PAINT_LEAVES)
      call get_vegn_wet_frac(cohort, fs=fs)
   case default
      fs = 0
@@ -264,7 +264,7 @@ end subroutine vegn_rad_properties_twostream
 subroutine twostream( &
    mu, mu_bar, LAI, albedo_g, phi1, phi2, rl, tl, transm_dir, scatter_dir, albedo_dir, &
    transm_dif, albedo_dif )
-   
+
   real, intent(in)  :: mu         ! cosine of direct light zenith angle
   real, intent(in)  :: mu_bar     ! average inverse diffuse optical depth per unit leaf area
   real, intent(in)  :: LAI        ! leaf area index
@@ -273,16 +273,16 @@ subroutine twostream( &
   real, intent(in)  :: rl         ! reflectivity of leaves
   real, intent(in)  :: tl         ! transmittance of leaves
   ! output
-  real, intent(out) :: transm_dir ! canopy transmittance for direct beam -- that 
-                                  ! is, the part of the beam that passes through 
+  real, intent(out) :: transm_dir ! canopy transmittance for direct beam -- that
+                                  ! is, the part of the beam that passes through
                                   ! the canopy untouched
-  real, intent(out) :: scatter_dir! part of direct beam scattered down, at the 
-                                  ! bottom of the canopy 
-  real, intent(out) :: albedo_dir ! overall land surface albedo for direct beam 
+  real, intent(out) :: scatter_dir! part of direct beam scattered down, at the
+                                  ! bottom of the canopy
+  real, intent(out) :: albedo_dir ! overall land surface albedo for direct beam
   real, intent(out) :: transm_dif ! canopy transmittance for diffuse incident light
   real, intent(out) :: albedo_dif ! overall land surface albedo for diffuse incident light
 
-  ! ---- local vars 
+  ! ---- local vars
   real :: G_mu        ! relative projected leaf area in direction of direct beam
   real :: K           ! optical depth for direct beam per unit LAI
   real :: g1,g2,g3,g4 ! coefficients in the two-stream equation
@@ -294,10 +294,10 @@ subroutine twostream( &
   real :: D           ! determinant of the matrix
   real :: A,B         ! coefficients of diffuse light function
   real :: dif_dn_bot, dif_up_bot, dif_up_top
-   
-  real, parameter :: eta = 6.0; ! this value is suitable only for uniform leaf 
+
+  real, parameter :: eta = 6.0; ! this value is suitable only for uniform leaf
                                 ! angular distribution !!!
-   
+
   if(is_watch_point()) then
 !     write(*,*)'############ twostream input ############'
 !     __DEBUG__(mu)
@@ -309,21 +309,21 @@ subroutine twostream( &
 !     __DEBUG__(rl)
 !     __DEBUG__(tl)
 !     write(*,*)'############ twostream input ############'
-  endif    
+  endif
   ! calculate coefficients of optical path
   G_mu=phi1+phi2*mu;
   K = G_mu/mu;
- 
+
   ! given optical parameters, calculate coefficients of basic equation
   g1 = (1-(rl+tl)/2+(rl-tl)/eta)/mu_bar;
   g2 = (  (rl+tl)/2+(rl-tl)/eta)/mu_bar;
   g3 = G_mu*((rl+tl)/2+mu*(rl-tl)/eta/G_mu);
   g4 = G_mu*((rl+tl)/2-mu*(rl-tl)/eta/G_mu);
-   
-  ! calculate eigenvalue of free solution (=exponent coefficient of 
+
+  ! calculate eigenvalue of free solution (=exponent coefficient of
   ! free solution, notes 12)
   kappa = sqrt(g1**2-g2**2);
-   
+
   ! calculate forced term coefficients for diffuse light intensity
   c_up = ( K*g3-g1*g3-g2*g4)/(K*K-g1*g1+g2*g2);
   c_dn = (-K*g4-g1*g4-g2*g3)/(K*K-g1*g1+g2*g2);
@@ -331,27 +331,27 @@ subroutine twostream( &
   x1 = g1+g2+kappa; x2 = g1+g2-kappa;
 
   !write(*,*)mu,K,g1,g2,g3,g4,c_up,c_dn
-   
+
   ! calculate coefficients of the matrix
-  a11 = x2; 
-  a12 = x1; 
+  a11 = x2;
+  a12 = x1;
   d1  = -c_dn;
   a21 = exp(kappa*LAI)*(x1-albedo_g*x2);
   a22 = exp(-kappa*LAI)*(x2-albedo_g*x1);
   d2  = exp(-K*LAI)*(albedo_g*c_dn + albedo_g*mu - c_up);
-  ! solve the equation system 
+  ! solve the equation system
   D = a11*a22-a12*a21;
   A = (d1*a22-d2*a12)/D;
   B = (a11*d2-a21*d1)/D;
-  
+
   ! calculate coefficients of the diffuse light solution
   a_up = A*x1; b_up=B*x2;
   a_dn = A*x2; b_dn=B*x1;
-  
+
   ! calculate downward diffuse light at the bottom of the canopy
   dif_dn_bot = a_dn*exp(kappa*LAI) + b_dn*exp(-kappa*LAI)+c_dn*exp(-K*LAI);
   dif_up_bot = a_up*exp(kappa*LAI) + b_up*exp(-kappa*LAI)+c_up*exp(-K*LAI);
-  
+
   ! calculate canopy transmittance and scattered part for direct light
   scatter_dir = dif_dn_bot/mu; ! scatter
   transm_dir  = exp(-K*LAI); ! transmittance for unmolested direct light
@@ -359,7 +359,7 @@ subroutine twostream( &
   ! calculate canopy reflectance for direct light
   dif_up_top = a_up + b_up + c_up;
   albedo_dir = dif_up_top/mu;
-     
+
   ! calculate upward diffuse light at the top of the canopy
   ! no need to recalculate D, since the matrix is the same
   d1 = 1.0;
@@ -370,7 +370,7 @@ subroutine twostream( &
   ! calculate coefficients of the diffuse light solution
   a_up = A*x1; b_up=B*x2;
   a_dn = A*x2; b_dn=B*x1;
-  
+
   transm_dif = a_dn*exp(kappa*LAI) + b_dn*exp(-kappa*LAI);
   albedo_dif = a_up + b_up;
 

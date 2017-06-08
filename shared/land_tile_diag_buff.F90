@@ -22,7 +22,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 ! ============================================================================
 subroutine init_diag_buff(buffer)
   type(diag_buff_type), intent(inout) :: buffer
-  
+
   allocate(buffer%data(MIN_DIAG_BUFF_SIZE), buffer%mask(MIN_DIAG_BUFF_SIZE))
   ! initialize buffer content
   buffer%mask(:) = .FALSE.
@@ -33,7 +33,7 @@ end subroutine init_diag_buff
 ! reallocates buffer to have at least m elements
 subroutine realloc_diag_buff(buffer, m)
   type(diag_buff_type), intent(inout) :: buffer
-  integer             , intent(in)    :: m 
+  integer             , intent(in)    :: m
 
   real    , allocatable :: new_data(:)
   logical , allocatable :: new_mask(:)

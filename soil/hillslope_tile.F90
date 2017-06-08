@@ -45,7 +45,7 @@ subroutine register_hlsp_selectors(max_num_topo_hlsps, num_vertclusters, diagnos
          selector_name= 'hlspcluster' // trim(adjustl(jchar))
          call register_tile_selector(selector_name, long_name='tiles in hillslope cluster '//trim(adjustl(jchar)),&
                 tag = SEL_HLSP, idata1 = j )
-      
+
       end do
    end if
 

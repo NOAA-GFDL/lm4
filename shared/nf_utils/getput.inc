@@ -29,16 +29,16 @@
 ! necessary because of the preprocessor argument pre-scan rules. See, for example,
 ! http://gcc.gnu.org/onlinedocs/cpp/Argument-Prescan.html
 #define NF_GET_VAR_(T) CONCAT2(nf_get_var_,T)
-#define NF_GET_VAR_T NF_GET_VAR_(NF_TYPE) 
+#define NF_GET_VAR_T NF_GET_VAR_(NF_TYPE)
 
 #define NF_PUT_VAR_(T) CONCAT2(nf_put_var_,T)
-#define NF_PUT_VAR_T NF_PUT_VAR_(NF_TYPE) 
+#define NF_PUT_VAR_T NF_PUT_VAR_(NF_TYPE)
 
 #define NF_GET_VARA_(T) CONCAT2(nf_get_vara_,T)
-#define NF_GET_VARA_T NF_GET_VARA_(NF_TYPE) 
+#define NF_GET_VARA_T NF_GET_VARA_(NF_TYPE)
 
 #define NF_PUT_VARA_(T) CONCAT2(nf_put_vara_,T)
-#define NF_PUT_VARA_T NF_PUT_VARA_(NF_TYPE) 
+#define NF_PUT_VARA_T NF_PUT_VARA_(NF_TYPE)
 
 ! #### Interface definition ###################################################
 ! define specific names of the subroutines
@@ -101,7 +101,7 @@ end interface
 
 ! #### Implementation definition ##############################################
 
-#ifdef __BODY_SECTION__ 
+#ifdef __BODY_SECTION__
 ! ============================================================================
 ! nfu_get_var implemenatation
 ! ============================================================================
@@ -313,7 +313,7 @@ function GET_REC_D1I(ncid,varid,rec,var,start,count) result(iret)
   integer :: start_(NF_MAX_VAR_DIMS)
   integer :: count_(NF_MAX_VAR_DIMS)
   integer :: i
-      
+
   __NF_TRY__(nf_inq_unlimdim(ncid,unlimdim),iret,7)
   __NF_TRY__(nf_inq_varndims(ncid,varid,ndims),iret,7)
   __NF_TRY__(nf_inq_vardimid(ncid,varid,dimids),iret,7)
@@ -331,7 +331,7 @@ function GET_REC_D1I(ncid,varid,rec,var,start,count) result(iret)
         endif
         if (present(count)) then
            count_(i) = count(i)
-        endif 
+        endif
      endif
      ! write(*,*) i, dimids(i), start_(i), count_(i)
   enddo
@@ -458,7 +458,7 @@ function PUT_REC_D1I(ncid,varid,rec,var) result(iret)
   integer :: start(NF_MAX_VAR_DIMS)
   integer :: count(NF_MAX_VAR_DIMS)
   integer :: i
-      
+
   __NF_TRY__(nf_inq_unlimdim(ncid,unlimdim),iret,7)
   __NF_TRY__(nf_inq_varndims(ncid,varid,ndims),iret,7)
   __NF_TRY__(nf_inq_vardimid(ncid,varid,dimids),iret,7)

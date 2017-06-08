@@ -3314,10 +3314,10 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
       deallocate(ug_dim_data)
   endif
 
- ! Register horizontal axes that are required by the post-processing so that the output 
+ ! Register horizontal axes that are required by the post-processing so that the output
  ! files can be "decompressed": converted from unstructured back to lon-lat or cubic sphere.
- ! The "grid_xt" and "grid_yt" axes should run from 1 to the total number of x- and 
- ! y-points on cubic sphere face. It is assumed that all faces tiles contain the same 
+ ! The "grid_xt" and "grid_yt" axes should run from 1 to the total number of x- and
+ ! y-points on cubic sphere face. It is assumed that all faces tiles contain the same
  ! number of x- and y-points.
   nlon = size(clon)
   nlat = size(clat)

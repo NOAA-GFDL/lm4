@@ -266,7 +266,7 @@ contains
 ! initialize land tile map
 subroutine init_tile_map()
   integer :: l
- 
+
   allocate(land_tile_map(lnd%ls:lnd%le))
   do l = lnd%ls,lnd%le
      call land_tile_list_init(land_tile_map(l))

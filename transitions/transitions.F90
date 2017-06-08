@@ -480,7 +480,7 @@ subroutine get_time_axis(ncid, time_in)
 !   do i = 1, size(time)
 !      call print_date(time_in(i),'Transition date:')
 !   enddo
-  
+
   deallocate(time)
 end subroutine get_time_axis
 
@@ -539,7 +539,7 @@ subroutine get_varset_data(ncid,varset,rec,frac)
    type(var_set_type), intent(in) :: varset
    integer, intent(in) :: rec
    real, intent(out) :: frac(:)
-   
+
    real :: buff0(nlon_in,nlat_in)
    real :: buff1(nlon_in,nlat_in)
    integer :: i

@@ -42,7 +42,7 @@ public :: vegn_dynamics_init
 public :: vegn_carbon_int_lm3   ! fast time-scale integrator of carbon balance
 public :: vegn_carbon_int_ppa   ! fast time-scale integrator of carbon balance
 public :: vegn_growth           ! slow time-scale redistributor of accumulated carbon
-public :: vegn_phenology_lm3 
+public :: vegn_phenology_lm3
 public :: vegn_phenology_ppa
 public :: vegn_biogeography
 
@@ -102,10 +102,10 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
        missing_value=-100.0)
   id_sw_seed_gr = register_cohort_diag_field ( diag_mod_name, 'sw_seed_gr',  &
        (/id_ug/), time, 'C respired in seeds and sapwood growth', 'kgC/(m2 year)', &
-       missing_value=-100.0)    
+       missing_value=-100.0)
   id_dbh_growth = register_cohort_diag_field ( diag_mod_name, 'dbh_gr',  &
        (/id_ug/), time, 'growth rathe of DBH', 'm/year', &
-       missing_value=-100.0)    
+       missing_value=-100.0)
   id_litter = register_tiled_diag_field (diag_mod_name, 'litter', (/id_ug/), &
        time, 'litter productivity', 'kg C/(m2 year)', missing_value=-100.0)
   id_resp = register_cohort_diag_field ( diag_mod_name, 'resp', (/id_ug/), &
@@ -170,15 +170,15 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
 
   !  update plant carbon
   leaf_litt = 0 ; wood_litt = 0; root_litt = 0 ; total_root_exudate_C = 0
-  do i = 1, vegn%n_cohorts   
+  do i = 1, vegn%n_cohorts
      cc => vegn%cohorts(i)
      sp = cc%species
 
      call plant_respiration(cc,soilt, resp(i), resl(i), resr(i), ress(i))
-   
+
      gpp(i) = (cc%An_op - cc%An_cl)*mol_C*cc%leafarea;
      npp(i) = gpp(i) - resp(i)
-   
+
      if(cc%npp_previous_day > 0) then
         resg(i) = GROWTH_RESP*cc%npp_previous_day
         npp(i)  = npp(i)  - GROWTH_RESP*cc%npp_previous_day
@@ -187,13 +187,13 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
         resg(i) = 0
      endif
      ! accumulate npp for the current day
-     cc%npp_previous_day_tmp = cc%npp_previous_day_tmp + npp(i); 
-     
+     cc%npp_previous_day_tmp = cc%npp_previous_day_tmp + npp(i);
+
      root_exudate_C = max(npp(i),0.0)*spdata(sp)%root_exudate_frac
      call cohort_root_exudate_profile(cc,dz,profile)
      total_root_exudate_C = total_root_exudate_C + profile*root_exudate_C*cc%nindivs*dt_fast_yr
      cc%carbon_gain = cc%carbon_gain + (npp(i)-root_exudate_C)*dt_fast_yr
-          
+
      ! check if leaves/roots are present and need to be accounted in maintenance
      if(cc%status == LEAF_ON) then
         md_leaf = cc%Pl * spdata(sp)%alpha_leaf*cc%bliving*dt_fast_yr
@@ -202,16 +202,16 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
         md_leaf  = 0
         md_froot = 0
      endif
-     
+
      ! compute branch and coarse wood losses for tree types
      if (spdata(sp)%lifeform==FORM_WOODY) then
         md_wood = 0.6 * cc%bwood * spdata(sp)%alpha_wood*dt_fast_yr
      else
         md_wood = 0
      endif
-        
+
      md = md_leaf + md_froot + cc%Psw_alphasw * cc%bliving * dt_fast_yr
-      
+
      cc%bwood_gain = cc%bwood_gain + cc%Psw_alphasw * cc%bliving * dt_fast_yr;
      cc%bwood_gain = cc%bwood_gain - md_wood;
 !     if (cc%bwood_gain < 0.0) cc%bwood_gain=0.0; ! potential non-conservation ?
@@ -285,13 +285,13 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   call send_cohort_data(id_resg, diag, c(1:N), resg(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
   call send_tile_data(id_soilt,soilt,diag)
   call send_tile_data(id_theta,theta,diag)
-  
+
 end subroutine vegn_carbon_int_lm3
 
 
 ! ============================================================================
 subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
-  ! TODO: possibly get rid of tsoil, theta, since they can be calculated here 
+  ! TODO: possibly get rid of tsoil, theta, since they can be calculated here
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
   real, intent(in) :: tsoil ! average temperature of soil for soil carbon decomposition, deg K
@@ -313,7 +313,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   real, dimension(vegn%n_cohorts) :: resp, resl, resr, ress, resg, gpp, npp
   real, dimension(vegn%n_cohorts) :: root_exudate_C ! root exudate, kgC/(year indiv)
   real :: total_root_exudate_C(num_l) ! total root exudate per tile, kgC/m2
-  
+
 
   c=>vegn%cohorts(1:vegn%n_cohorts)
   N = vegn%n_cohorts
@@ -341,7 +341,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   endif
   ! update plant carbon for all cohorts
   leaf_litt = 0 ; wood_litt = 0; root_litt = 0 ; total_root_exudate_C = 0
-  ! TODO: add root exudates to the balance. in LM3 it's a fraction of npp; 
+  ! TODO: add root exudates to the balance. in LM3 it's a fraction of npp;
   !       in PPA perhaps it might be proportional to NSC, with some decay
   !       time?
   do i = 1, vegn%n_cohorts
@@ -349,15 +349,15 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 
      ! that was in eddy_npp_PPA
      call plant_respiration(cc,tsoil,resp(i),resl(i),resr(i),ress(i))
-     
-     gpp(i)  = (cc%An_op - cc%An_cl)*mol_C*cc%leafarea     
+
+     gpp(i)  = (cc%An_op - cc%An_cl)*mol_C*cc%leafarea
      ! growth respiration comes from nsc pool not gpp now
      resg(i) = cc%growth_previous_day_tmp ! kg C per individual per year
 
      cc%growth_previous_day = cc%growth_previous_day - resg(i)*dt_fast_yr
-     
-     cc%carbon_gain  = cc%carbon_gain + gpp(i)*dt_fast_yr - resp(i)*dt_fast_yr  
-     
+
+     cc%carbon_gain  = cc%carbon_gain + gpp(i)*dt_fast_yr - resp(i)*dt_fast_yr
+
      resp(i) = resp(i) + resg(i) ! add growth respiration and maintenance respiration
      npp(i)  = gpp(i) - resp(i)
      root_exudate_C(i) = max(npp(i),0.0)*sp%root_exudate_frac
@@ -367,43 +367,43 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
              profile(l)*root_exudate_C(i)*cc%nindivs*dt_fast_yr
      enddo
      npp(i) = npp(i) - root_exudate_C(i)
-                      
+
      cc%carbon_gain = cc%carbon_gain-root_exudate_C(i)*dt_fast_yr
      !print *, ' npp ',  npp(i),' root_ex ',  root_exudate_C(i), 'cgain ', cc%carbon_gain
-     
+
      ! Weng, 2013-01-28
      ! Turnover regardless of STATUS
      deltaBL = cc%bl * sp%alpha_leaf * dt_fast_yr
      deltaBR = cc%br * sp%alpha_root * dt_fast_yr
-     
+
      cc%bl = cc%bl - deltaBL
      cc%br = cc%br - deltaBR
 
      ! compute branch and coarse wood losses for tree types
-     md_wood = 0.0 
+     md_wood = 0.0
      md_branch_sw = 0.0
-     if (spdata(cc%species)%lifeform == FORM_WOODY) then 
+     if (spdata(cc%species)%lifeform == FORM_WOODY) then
         md_wood      = sp%branch_wood_frac * Max(cc%bwood,0.0) * sp%alpha_wood * dt_fast_yr
         md_branch_sw = sp%branch_wood_frac * Max(cc%bsw,0.0)   * sp%alpha_wood * dt_fast_yr
-  
+
         cc%branch_sw_loss = cc%branch_sw_loss + md_branch_sw !remember how much was lost over the day
-        cc%branch_wood_loss = cc%branch_wood_loss + md_wood   
-       
+        cc%branch_wood_loss = cc%branch_wood_loss + md_wood
+
      endif
-     
+
      cc%bsw = cc%bsw - md_branch_sw
      cc%bwood = cc%bwood - md_wood
      !reduce nsc by the amount of root exudates during the date
      ! TODO: when merging with N code take exudates from NSC not carbon gained
      ! TODO: need different than a fraction of NPP formulation
      !cc%nsc = cc%nsc-root_exudate_C(i)*dt_fast_yr
-     
+
      ! accumulate liter and soil carbon inputs across all cohorts
-     leaf_litt(:) = leaf_litt(:) + (/fsc_liv,  1.-fsc_liv,  0.0/)*deltaBL*cc%nindivs 
+     leaf_litt(:) = leaf_litt(:) + (/fsc_liv,  1.-fsc_liv,  0.0/)*deltaBL*cc%nindivs
      !wood_litt(:) = wood_litt(:) + (/fsc_wood, 1.-fsc_wood, 0.0/)*(md_wood+md_branch_sw)*agf_bs*cc%nindivs
-     
+
      wood_litt(:) = wood_litt(:) + (/fsc_wood, 1.-fsc_wood, 0.0/)*(md_wood+md_branch_sw)*cc%nindivs
-     
+
      call cohort_root_litter_profile(cc, dz, profile)
      do l = 1, num_l
         root_litt(l,:) = root_litt(l,:) + profile(l)*cc%nindivs*(/ &
@@ -417,7 +417,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      cc%age = cc%age + dt_fast_yr
      ! resg(i) = 0 ! slm: that doesn't make much sense to me... why?
      end associate
-  enddo 
+  enddo
 
   ! add litter and exudates accumulated over the cohorts
   call add_root_exudates(soil, total_root_exudate_C)
@@ -470,7 +470,7 @@ end subroutine vegn_carbon_int_ppa
 
 
 ! ============================================================================
-! updates cohort biomass pools, LAI, SAI, and height using accumulated 
+! updates cohort biomass pools, LAI, SAI, and height using accumulated
 ! carbon_gain and bwood_gain
 subroutine vegn_growth (vegn, diag)
   type(vegn_tile_type), intent(inout) :: vegn
@@ -482,25 +482,25 @@ subroutine vegn_growth (vegn, diag)
   integer :: i, N
   real, dimension(vegn%n_cohorts) :: &
      wood_prod, leaf_root_gr, sw_seed_gr, deltaDBH
-  
+
   if (is_watch_point()) then
      cmass0 = vegn_tile_carbon(vegn)
   endif
  ! write(*,*) 'counting cohorts: ', vegn%n_cohorts
-  do i = 1, vegn%n_cohorts   
+  do i = 1, vegn%n_cohorts
      cc => vegn%cohorts(i)
 
      if (do_ppa) then
-     
-     ! write(*,*)"############## in vegn_growth before #################" 
+
+     ! write(*,*)"############## in vegn_growth before #################"
      !__DEBUG1__(cc%carbon_gain)
-      
+
         cc%nsc=cc%nsc+cc%carbon_gain
         call biomass_allocation_ppa(cc,wood_prod(i),leaf_root_gr(i),sw_seed_gr(i),deltaDBH(i))
-         
-   
+
+
      !write(*,*)"############## in vegn_growth #################"
-    
+
      !__DEBUG1__(cc%carbon_gain)
      !__DEBUG1__(cc%bl)
      !__DEBUG1__(cc%blv)
@@ -508,7 +508,7 @@ subroutine vegn_growth (vegn, diag)
      !__DEBUG1__(cc%bsw)
      !__DEBUG1__(cc%bwood)
      !__DEBUG1__(cc%nsc)
-     
+
         cc%carbon_gain = 0.0
      else
         cc%bwood   = cc%bwood   + cc%bwood_gain
@@ -520,34 +520,34 @@ subroutine vegn_growth (vegn, diag)
            if (cc%bwood < 0) &
                 cc%bwood = 0 ! in principle, that's not conserving carbon
         endif
-        
+
         call update_biomass_pools(cc)
-        
+
         ! reset carbon accumulation terms
         cc%carbon_gain = 0
         cc%carbon_loss = 0
         cc%bwood_gain  = 0
-        
+
         wood_prod(i) = -100.0 ! missing value
      endif
 
      if (cc%status == LEAF_ON) then
         cc%leaf_age = cc%leaf_age + 1.0
-        ! limit the maximum leaf age by the leaf time span (reciprocal of leaf 
+        ! limit the maximum leaf age by the leaf time span (reciprocal of leaf
         ! turnover rate alpha) for given species. alpha is in 1/year, factor of
         ! 365 converts the result to days.
         if (spdata(cc%species)%alpha_leaf > 0) &
              cc%leaf_age = min(cc%leaf_age,365.0/spdata(cc%species)%alpha_leaf)
-        
+
      endif
   end do
-  N = vegn%n_cohorts   
+  N = vegn%n_cohorts
   call send_cohort_data(id_wood_prod,diag,vegn%cohorts(1:N),wood_prod(:), weight=vegn%cohorts(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_leaf_root_gr,diag,vegn%cohorts(1:N),leaf_root_gr(:), weight=vegn%cohorts(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_sw_seed_gr,diag,vegn%cohorts(1:N),sw_seed_gr(:), weight=vegn%cohorts(1:N)%nindivs, op=OP_SUM)
   ! conversion of DBH_growth assumes that vegn_growth is called daily
   call send_cohort_data(id_DBH_growth,diag,vegn%cohorts(1:N),deltaDBH(:)*days_per_year, weight=vegn%cohorts(1:N)%nindivs, op=OP_MEAN)
-  
+
   if (is_watch_point()) then
      cmass1 = vegn_tile_carbon(vegn)
      write(*,*)"############## vegn_growth #################"
@@ -618,7 +618,7 @@ subroutine vegn_starvation_ppa (vegn, soil)
         endif
      enddo
 
-     if (k==0) then 
+     if (k==0) then
         ! Most of the code assumes that there is at least one cohort present.
         ! So if all cohorts die, preserve single cohort with zero individuals.
         ! It probably doesn't matter which, but let's pick the shortest here.
@@ -641,7 +641,7 @@ end subroutine vegn_starvation_ppa
 
 
 ! ==============================================================================
-! updates cohort vegetation structure, biomass pools, LAI, SAI, and height  
+! updates cohort vegetation structure, biomass pools, LAI, SAI, and height
 ! using accumulated carbon_gain
 subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH)
   type(vegn_cohort_type), intent(inout) :: cc
@@ -682,7 +682,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
 !  real ::   b_ca = 1.18162        ! thetaCA
 !  real ::   alpha_s = 0.559       ! alphaBM
 
-  
+
   associate (sp => spdata(cc%species)) ! F2003
 
   ! TODO: what if carbon_gain is not 0, but leaves are OFF (marginal case? or
@@ -745,7 +745,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      wood_prod = deltaBSW*365.0 ! conversion from kgC/day to kgC/year
      leaf_root_gr = G_LFR*365.0 ! conversion from kgC/day to kgC/year
      sw_seed_gr = (G_WF+delta_bsw_branch )*GROWTH_RESP*days_per_year ! conversion from kgC/day to kgC/year
-     
+
      call check_var_range(cc%nsc,0.0,HUGE(1.0),'vegn_dynamics','cc%nsc', WARNING)
 
      !ens --compute daily growth to compute respiration, apply it next day, use npp_previous day variable, units kg C/(m2 *year)
@@ -857,7 +857,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
   cc%carbon_loss = 0
 
   end associate ! F2003
-  
+
 end subroutine biomass_allocation_ppa
 
 
@@ -868,7 +868,7 @@ end subroutine biomass_allocation_ppa
 elemental function A_function(soilt, theta) result(A)
   real :: A                 ! return value, resulting reduction in decomposition rate
   real, intent(in) :: soilt ! effective temperature for soil carbon decomposition
-  real, intent(in) :: theta 
+  real, intent(in) :: theta
 
   real :: soil_temp; ! temperature of the soil, deg C
   real :: Td; ! rate multiplier due to temp
@@ -895,14 +895,14 @@ elemental function A_function(soilt, theta) result(A)
   ! EFFECT OF MOISTURE
   ! Linn and Doran, 1984, Soil Sci. Amer. J. 48:1267-1272
   ! This differs from the Century Wd
-  ! was modified by slm/ens based on the figures from the above paper 
+  ! was modified by slm/ens based on the figures from the above paper
   !     (not the reported function)
 
   if(theta <= 0.3) then
      Wd = 0.2;
   else if(theta <= 0.6) then
      Wd = 0.2+0.8*(theta-0.3)/0.3;
-  else 
+  else
      Wd = exp(2.3*(0.6-theta));
   endif
 
@@ -915,7 +915,7 @@ end function A_function
 ! calculated thermal inhibition factor depending on temperature
 function thermal_inhibition(T) result(tfs); real tfs
   real, intent(in) :: T ! temperature, degK
-  
+
   tfs = exp(3000.0*(1.0/288.16-1.0/T));
   tfs = tfs / ( &
               (1.0+exp(0.4*(5.0-T+273.16)))* &
@@ -932,11 +932,11 @@ subroutine plant_respiration(cc, tsoil, resp, r_leaf, r_root, r_stem)
   real, intent(out) :: r_leaf ! leaf respiration
   real, intent(out) :: r_root ! fine root respiration
   real, intent(out) :: r_stem ! stem respiration
-  
+
   real :: tf,tfs ! thermal inhibition factors for above- and below-ground biomass
   real :: r_vleaf ! virtual leaf respiration (perhaps need to be reported, too?)
   real :: Acambium  ! cambium area, m2
-  
+
   integer :: sp ! shorthand for cohort species
   sp = cc%species
 
@@ -965,7 +965,7 @@ subroutine vegn_phenology_lm3(vegn, soil)
 
   ! ---- local vars
   type(vegn_cohort_type), pointer :: cc
-  real :: leaf_litter,root_litter;    
+  real :: leaf_litter,root_litter;
   real :: theta_crit; ! critical ratio of average soil water to sat. water
   real :: psi_stress_crit ! critical soil-water-stress index
   real :: wilt ! ratio of wilting to saturated water content
@@ -973,15 +973,15 @@ subroutine vegn_phenology_lm3(vegn, soil)
   real :: root_litt(num_l,n_c_types) ! root litter per soil layer, kgC/m2
   real :: profile(num_l) ! storage for vertical profile of root litter
   integer :: i, l
-  
+
   wilt = soil%w_wilt(1)/soil%pars%vwc_sat
   vegn%litter = 0
 
   leaf_litt = 0 ; root_litt = 0
-  do i = 1,vegn%n_cohorts   
+  do i = 1,vegn%n_cohorts
      associate ( cc => vegn%cohorts(i),   &
                  sp => spdata(vegn%cohorts(i)%species) )
-     
+
      if(is_watch_point())then
         write(*,*)'####### vegn_phenology #######'
         __DEBUG4__(vegn%theta_av_phen, wilt, sp%cnst_crit_phen, sp%fact_crit_phen)
@@ -990,11 +990,11 @@ subroutine vegn_phenology_lm3(vegn, soil)
         __DEBUG2__(vegn%tc_av,sp%tc_crit)
      endif
      ! if drought-deciduous or cold-deciduous species
-     ! temp=10 degrees C gives good growing season pattern        
+     ! temp=10 degrees C gives good growing season pattern
      ! spp=0 is c3 grass,1 c3 grass,2 deciduous, 3 evergreen
      ! assumption is that no difference between drought and cold deciduous
      cc%status = LEAF_ON; ! set status to indicate no leaf drop
-      
+
      if(sp%phent == PHEN_DECIDUOUS) then ! deciduous species
         ! actually either fact_crit_phen or cnst_crit_phen is zero, enforced
         ! by logic in the vegn_data.F90
@@ -1005,9 +1005,9 @@ subroutine vegn_phenology_lm3(vegn, soil)
         if (      (psi_stress_crit <= 0. .and. vegn%theta_av_phen < theta_crit) &
              .or. (psi_stress_crit  > 0. .and. vegn%psist_av > psi_stress_crit) &
              .or. (vegn%tc_av < sp%tc_crit) ) then
-           cc%status = LEAF_OFF; ! set status to indicate leaf drop 
+           cc%status = LEAF_OFF; ! set status to indicate leaf drop
            cc%leaf_age = 0;
-           
+
            leaf_litter = (1.0-l_fract)*cc%bl*cc%nindivs;
            root_litter = (1.0-l_fract)*cc%br*cc%nindivs;
            leaf_litt(:) = leaf_litt(:)+(/fsc_liv*leaf_litter,(1-fsc_liv)*leaf_litter,0.0/)
@@ -1021,15 +1021,15 @@ subroutine vegn_phenology_lm3(vegn, soil)
 
            vegn%litter = vegn%litter + leaf_litter + root_litter
            vegn%veg_out = vegn%veg_out + leaf_litter+root_litter;
-           
+
            cc%blv = cc%blv + l_fract*(cc%bl+cc%br);
            cc%bl  = 0.0;
            cc%br  = 0.0;
            cc%lai = 0.0;
-           
+
            ! update state
            cc%bliving = cc%blv + cc%br + cc%bl + cc%bsw;
-           call update_bio_living_fraction(cc);   
+           call update_bio_living_fraction(cc);
         endif
      endif ! phenology type
      end associate
@@ -1056,14 +1056,14 @@ subroutine vegn_phenology_ppa(vegn, soil)
 
   leaf_fall_rate = 0.075
   root_mort_rate = 0.0
-  
+
   vegn%litter = 0; leaf_litt(:) = 0.0
-  do i = 1,vegn%n_cohorts   
+  do i = 1,vegn%n_cohorts
      associate ( cc => vegn%cohorts(i),   &
                  sp => spdata(vegn%cohorts(i)%species) )
 
      ! if drought-deciduous or cold-deciduous species
-     ! temp=10 degrees C gives good growing season pattern        
+     ! temp=10 degrees C gives good growing season pattern
      ! spp=0 is c3 grass,1 c3 grass,2 deciduous, 3 evergreen
      ! assumption is that no difference between drought and cold deciduous
 
@@ -1101,7 +1101,7 @@ end subroutine vegn_phenology_ppa
 
 
 ! ===========================================================================
-! leaf falling at LEAF_OFF -- it is unused; why is it here? is there anything 
+! leaf falling at LEAF_OFF -- it is unused; why is it here? is there anything
 ! in new Ensheng's code that uses it?
   subroutine vegn_leaf_fall_ppa(vegn,soil)
   type(vegn_tile_type), intent(inout) :: vegn
@@ -1113,7 +1113,7 @@ end subroutine vegn_phenology_ppa
   real    :: leaf_fall, leaf_fall_rate ! per day
 
   vegn%litter = 0 ! slm: why is it set to 0 here?
-  leaf_fall_rate = 0.075 
+  leaf_fall_rate = 0.075
   leaf_litt(:) = 0.0
   do i = 1,vegn%n_cohorts
      associate ( cc => vegn%cohorts(i),   &
@@ -1145,14 +1145,14 @@ subroutine vegn_biogeography(vegn)
   ! ---- local vars
   integer :: i
 
-  do i = 1, vegn%n_cohorts   
+  do i = 1, vegn%n_cohorts
      call update_species(vegn%cohorts(i), vegn%t_ann, vegn%t_cold, &
           vegn%p_ann*seconds_per_year, vegn%ncm, vegn%landuse)
   enddo
 end subroutine
 
 ! =============================================================================
-! The stuff below comes from she_update.c -- it looks like it belongs here, 
+! The stuff below comes from she_update.c -- it looks like it belongs here,
 ! since it is essentially a part of the carbon integration (update_patch_fast
 ! is only called immediately after carbon_int in lm3v)
 ! =============================================================================
@@ -1162,7 +1162,7 @@ end subroutine
 subroutine update_soil_pools(vegn, soil)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
-  
+
   ! ---- local vars
   real :: delta;
   real :: deltafast, deltaslow;
@@ -1170,7 +1170,7 @@ subroutine update_soil_pools(vegn, soil)
   select case (soil_carbon_option)
   case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
      ! update fsc input rate so that intermediate fsc pool is never
-     ! depleted below zero; on the other hand the pool can be only 
+     ! depleted below zero; on the other hand the pool can be only
      ! depleted, never increased
      vegn%fsc_rate_bg = MAX( 0.0, MIN(vegn%fsc_rate_bg, vegn%fsc_pool_bg/dt_fast_yr));
      delta = vegn%fsc_rate_bg*dt_fast_yr;
@@ -1178,7 +1178,7 @@ subroutine update_soil_pools(vegn, soil)
      vegn%fsc_pool_bg    = vegn%fsc_pool_bg    - delta;
 
      ! update ssc input rate so that intermediate ssc pool is never
-     ! depleted below zero; on the other hand the pool can be only 
+     ! depleted below zero; on the other hand the pool can be only
      ! depleted, never increased
      vegn%ssc_rate_bg = MAX(0.0, MIN(vegn%ssc_rate_bg, vegn%ssc_pool_bg/dt_fast_yr));
      delta = vegn%ssc_rate_bg*dt_fast_yr;
@@ -1186,14 +1186,14 @@ subroutine update_soil_pools(vegn, soil)
      vegn%ssc_pool_bg    = vegn%ssc_pool_bg    - delta;
   case (SOILC_CORPSE)
      ! update fsc input rate so that intermediate fsc pool is never
-     ! depleted below zero; on the other hand the pool can be only 
+     ! depleted below zero; on the other hand the pool can be only
      ! depleted, never increased
      vegn%fsc_rate_ag = MAX( 0.0, MIN(vegn%fsc_rate_ag, vegn%fsc_pool_ag/dt_fast_yr));
      deltafast = vegn%fsc_rate_ag*dt_fast_yr;
      vegn%fsc_pool_ag       = vegn%fsc_pool_ag       - deltafast;
 
      ! update ssc input rate so that intermediate ssc pool is never
-     ! depleted below zero; on the other hand the pool can be only 
+     ! depleted below zero; on the other hand the pool can be only
      ! depleted, never increased
      vegn%ssc_rate_ag = MAX(0.0, MIN(vegn%ssc_rate_ag, vegn%ssc_pool_ag/dt_fast_yr));
      deltaslow = vegn%ssc_rate_ag*dt_fast_yr;
@@ -1206,16 +1206,16 @@ subroutine update_soil_pools(vegn, soil)
      vegn%litter_rate_C = MAX(0.0, MIN(vegn%litter_rate_C, vegn%litter_buff_C/dt_fast_yr))
      call add_litter(soil%leafLitter,vegn%litter_rate_C(:,LEAF)*dt_fast_yr)
      call add_litter(soil%coarsewoodLitter,vegn%litter_rate_C(:,CWOOD)*dt_fast_yr)
-  
+
      ! update fsc input rate so that intermediate fsc pool is never
-     ! depleted below zero; on the other hand the pool can be only 
+     ! depleted below zero; on the other hand the pool can be only
      ! depleted, never increased
      vegn%fsc_rate_bg = MAX( 0.0, MIN(vegn%fsc_rate_bg, vegn%fsc_pool_bg/dt_fast_yr));
      deltafast = vegn%fsc_rate_bg*dt_fast_yr;
      vegn%fsc_pool_bg    = vegn%fsc_pool_bg    - deltafast;
 
      ! update ssc input rate so that intermediate ssc pool is never
-     ! depleted below zero; on the other hand the pool can be only 
+     ! depleted below zero; on the other hand the pool can be only
      ! depleted, never increased
      vegn%ssc_rate_bg = MAX(0.0, MIN(vegn%ssc_rate_bg, vegn%ssc_pool_bg/dt_fast_yr));
      deltaslow = vegn%ssc_rate_bg*dt_fast_yr;
@@ -1224,7 +1224,7 @@ subroutine update_soil_pools(vegn, soil)
      ! TODO: figure out how to distribute the additional soil litter vertically.
      ! Strictly speaking we need to keep pools and rates distributed vertically,
      ! For now, add belowground litter using vertical profile of the first cohort.
-     ! perhaps we can use average cohort root profile... 
+     ! perhaps we can use average cohort root profile...
      call add_root_litter(soil, vegn%cohorts(1), (/deltafast,deltaslow,0.0/))
   case default
      call error_mesg('update_soil_pools','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
@@ -1235,7 +1235,7 @@ end subroutine update_soil_pools
 ! ============================================================================
 function cohort_can_reproduce(cc); logical cohort_can_reproduce
   type(vegn_cohort_type), intent(in) :: cc
-  
+
   cohort_can_reproduce = (cc%layer == 1 .and. cc%age > spdata(cc%species)%maturalage)
 end function cohort_can_reproduce
 
@@ -1280,7 +1280,7 @@ subroutine vegn_reproduction_ppa (vegn,soil)
     if (.not.cohort_can_reproduce(vegn%cohorts(i))) cycle ! nothing to do
 
     k = k+1 ! increment new cohort index
-    
+
     ! update child cohort parameters
     associate (cc     => vegn%cohorts(k), &  ! F2003
                parent => vegn%cohorts(i), &
@@ -1306,16 +1306,16 @@ subroutine vegn_reproduction_ppa (vegn,soil)
     parent%bseed = 0.0
 
     ! we assume that the newborn cohort is dry; since nindivs of the parent
-    ! doesn't change we don't need to do anything with its Wl and Ws to 
+    ! doesn't change we don't need to do anything with its Wl and Ws to
     ! conserve water (since Wl and Ws are per individual)
     cc%Wl = 0 ; cc%Ws = 0
     ! TODO: make sure that energy is conserved in reproduction
     cc%Tv = parent%Tv
-    
+
     end associate   ! F2003
   enddo
   call add_soil_carbon(soil, leaf_litter=litt)
-  
+
   vegn%n_cohorts = k
   if(is_watch_point()) then
      write(*,*)'##### vegn_reproduction_ppa #####'
@@ -1324,7 +1324,7 @@ subroutine vegn_reproduction_ppa (vegn,soil)
      __DEBUG1__(vegn%cohorts%Tv)
   endif
 !  write(*,*)'vegn_reproduction_ppa n_cohorts after: ', vegn%n_cohorts
-  
+
 end subroutine vegn_reproduction_ppa
 
 
@@ -1369,7 +1369,7 @@ subroutine kill_small_cohorts_ppa(vegn,soil)
         endif
      enddo
 
-     if (k==0) then 
+     if (k==0) then
         ! Most of the code assumes that there is at least one cohort present.
         ! So if all cohorts die, preserve single cohort with zero individuals.
         ! It probably doesn't matter which, but let's pick the shortest here.

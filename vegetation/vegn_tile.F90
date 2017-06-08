@@ -53,7 +53,7 @@ public :: vegn_cover_cold_start
 public :: vegn_seed_supply
 public :: vegn_seed_demand
 
-public :: vegn_tran_priority ! returns transition priority for land use 
+public :: vegn_tran_priority ! returns transition priority for land use
 
 public :: vegn_add_bliving
 ! =====end of public interfaces ==============================================
@@ -70,24 +70,24 @@ type :: vegn_tile_type
 
    integer :: n_cohorts = 0
    type(vegn_cohort_type), pointer :: cohorts(:)=>NULL()
-   
+
    ! buffers holding amounts of stuff dropped by dead trees, etc
    real :: drop_wl=0, drop_ws=0 ! buffer accumulating amount of dropped water, kg/m2
    real :: drop_hl=0, drop_hs=0 ! buffer accumulating heat of dropped water, J/m2
 
    real :: age=0.0 ! tile age
 
-   ! fields for smoothing out the contribution of the spike-type processes (e.g. 
+   ! fields for smoothing out the contribution of the spike-type processes (e.g.
    ! harvesting) to the soil carbon pools over some period of time
    real :: fsc_pool_ag=0.0, fsc_rate_ag=0.0 ! for fast soil carbon above ground
    real :: ssc_pool_ag=0.0, ssc_rate_ag=0.0 ! for slow soil carbon above ground
    real :: fsc_pool_bg=0.0, fsc_rate_bg=0.0 ! for fast soil carbon below ground
    real :: ssc_pool_bg=0.0, ssc_rate_bg=0.0 ! for slow soil carbon below ground
-   
+
    real, dimension(N_C_TYPES, N_LITTER_POOLS) :: &
        litter_buff_C = 0.0, litter_rate_C = 0.0
 
-   real :: csmoke_pool=0.0 ! carbon lost through fires, kg C/m2 
+   real :: csmoke_pool=0.0 ! carbon lost through fires, kg C/m2
    real :: csmoke_rate=0.0 ! rate of release of the above to atmosphere, kg C/(m2 yr)
 
    real :: harv_pool(N_HARV_POOLS) = 0.0 ! pools of harvested carbon, kg C/m2
@@ -95,7 +95,7 @@ type :: vegn_tile_type
 
    ! uptake-related variables
    real :: root_distance(max_lev) ! characteristic half-distance between fine roots, m
-   
+
    ! values for the diagnostic of carbon budget and soil carbon acceleration
    real :: ssc_out=0.0
    real :: fsc_out=0.0
@@ -187,7 +187,7 @@ function vegn_tiles_can_be_merged(vegn1,vegn2) result(response)
   logical :: response
   type(vegn_tile_type), intent(in) :: vegn1,vegn2
 
-  real    :: b1, b2 
+  real    :: b1, b2
   integer :: i, i1, i2
 
   if (vegn1%landuse /= vegn2%landuse) then
@@ -195,7 +195,7 @@ function vegn_tiles_can_be_merged(vegn1,vegn2) result(response)
   else if (vegn1%landuse == LU_SCND.or.vegn1%landuse == LU_NTRL) then
      ! merging unmanaged (natural or secondary) vegetation tiles is allowed if
      ! the wood biomasses are close enough
-     
+
      ! get tile wood biomasses
      b1 = vegn_tile_bwood(vegn1)
      b2 = vegn_tile_bwood(vegn2)
@@ -220,14 +220,14 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
   type(vegn_tile_type), intent(inout) :: t2
   real, intent(in) :: w1, w2 ! relative weights
   real, intent(out) :: dheat ! heat content change due to cohort merge, J/m2
-  
+
   ! ---- local vars
   real :: x1, x2 ! normalized relative weights
   real :: HEAT1, HEAT2 ! heat stored in respective canopies
   type(vegn_cohort_type), pointer :: c1, c2
   type(vegn_cohort_type), pointer :: ccold(:)
   integer :: i,j
-  
+
   ! calculate normalized weights
   x1 = w1/(w1+w2)
   x2 = 1.0 - x1
@@ -252,7 +252,7 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
      call vegn_relayer_cohorts_ppa(t2)
      call vegn_mergecohorts_ppa(t2, dheat)
   else
-     ! the following assumes that there is one, and only one, cohort per tile 
+     ! the following assumes that there is one, and only one, cohort per tile
      c1 => t1%cohorts(1)
      c2 => t2%cohorts(1)
      ! define macro for merging cohort values
@@ -281,7 +281,7 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
 
      ! calculate the resulting dry heat capacity
      c2%mcv_dry = max(mcv_min,mcv_lai*c2%lai)
-     ! update canopy temperature -- just merge it based on area weights if the heat 
+     ! update canopy temperature -- just merge it based on area weights if the heat
      ! capacities are zero, or merge it based on the heat content if the heat contents
      ! are non-zero
      if(HEAT1==0.and.HEAT2==0) then
@@ -300,12 +300,12 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
   __MERGE__(drop_hs)
 
   __MERGE__(age);
-  
+
   __MERGE__(fsc_pool_ag); __MERGE__(fsc_rate_ag)
   __MERGE__(ssc_pool_ag); __MERGE__(ssc_rate_ag)
   __MERGE__(fsc_pool_bg); __MERGE__(fsc_rate_bg)
   __MERGE__(ssc_pool_bg); __MERGE__(ssc_rate_bg)
-  
+
   __MERGE__(litter_buff_C); __MERGE__(litter_rate_C)
 
   __MERGE__(csmoke_pool)
@@ -319,7 +319,7 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
   __MERGE__(fsc_out)
   __MERGE__(deadmic_out)
   __MERGE__(veg_in); __MERGE__(veg_out)
-  
+
   ! or these?
   __MERGE__(disturbance_rate)
   __MERGE__(lambda)     ! cumulative drought months per year
@@ -383,7 +383,7 @@ subroutine vegn_mergecohorts_ppa(vegn, dheat)
      write(*,*)'#### end of vegn_mergecohorts_ppa input ####'
   endif
   merged(:)=.FALSE. ; k = 0
-  do i = 1, vegn%n_cohorts 
+  do i = 1, vegn%n_cohorts
      if(merged(i)) cycle ! skip cohorts that were already merged
      k = k+1
      cc(k) = vegn%cohorts(i)
@@ -432,7 +432,7 @@ end subroutine vegn_mergecohorts_ppa
 subroutine merge_cohorts(c1,c2)
   type(vegn_cohort_type), intent(in) :: c1
   type(vegn_cohort_type), intent(inout) :: c2
-  
+
   real :: x1, x2 ! normalized relative weights
   real :: HEAT1, HEAT2 ! heat stored in respective canopies
   real :: hcap1, hcap2, hcap
@@ -446,13 +446,13 @@ subroutine merge_cohorts(c1,c2)
      x1 = c1%nindivs/(c1%nindivs+c2%nindivs)
   endif
   x2 = 1-x1
-  
+
 #define __MERGE__(field) c2%field = x1*c1%field + x2*c2%field
   hcap1 = clw*c1%Wl + csw*c1%Ws + c1%mcv_dry; HEAT1 = hcap1*(c1%Tv-tfreeze)
   hcap2 = clw*c2%Wl + csw*c2%Ws + c2%mcv_dry; HEAT2 = hcap2*(c2%Tv-tfreeze)
   __MERGE__(Wl)
   __MERGE__(Ws)
- 
+
   __MERGE__(bl)      ! biomass of leaves, kg C/indiv
   __MERGE__(blv)     ! biomass of virtual leaves (labile store), kg C/indiv
   __MERGE__(br)      ! biomass of fine roots, kg C/indiv
@@ -504,57 +504,57 @@ subroutine vegn_relayer_cohorts_ppa (vegn)
   type(vegn_tile_type), intent(inout) :: vegn ! input cohorts
 
   ! ---- local constants
-  real, parameter :: tolerance = 1e-6 
-  real, parameter :: layer_vegn_cover = 1.0   
-  
+  real, parameter :: tolerance = 1e-6
+  real, parameter :: layer_vegn_cover = 1.0
+
   ! ---- local vars
   integer :: idx(vegn%n_cohorts) ! indices of cohorts in decreasing height order
   integer :: i ! new cohort index
   integer :: k ! old cohort index
   integer :: L ! layer index (top-down)
-  integer :: N0,N1 ! initial and final number of cohorts 
+  integer :: N0,N1 ! initial and final number of cohorts
   real    :: frac ! fraction of the layer covered so far by the canopies
   type(vegn_cohort_type), pointer :: cc(:),new(:)
   real    :: nindivs
 
 !  write(*,*)'vegn_relayer_cohorts_ppa n_cohorts before: ', vegn%n_cohorts
-  
-  ! rank cohorts in descending order by height. For now, assume that they are 
+
+  ! rank cohorts in descending order by height. For now, assume that they are
   ! in order
   N0 = vegn%n_cohorts; cc=>vegn%cohorts
   call rank_descending(cc(1:N0)%height,idx)
-  
+
   ! calculate max possible number of new cohorts : it is equal to the number of
-  ! old cohorts, plus the number of layers -- since the number of full layers is 
-  ! equal to the maximum number of times an input cohort can be split by a layer 
+  ! old cohorts, plus the number of layers -- since the number of full layers is
+  ! equal to the maximum number of times an input cohort can be split by a layer
   ! boundary.
   N1 = vegn%n_cohorts + int(sum(cc(1:N0)%nindivs*cc(1:N0)%crownarea))
   allocate(new(N1))
 
-  ! copy cohort information to the new cohorts, splitting the old cohorts that 
+  ! copy cohort information to the new cohorts, splitting the old cohorts that
   ! stride the layer boundaries
   i = 1 ; k = 1 ; L = 1 ; frac = 0.0 ; nindivs = cc(idx(k))%nindivs
-  do 
+  do
      new(i)         = cc(idx(k))
      new(i)%nindivs = min(nindivs,(1-frac)/cc(idx(k))%crownarea)
      new(i)%layer   = L
      if (L==1) new(i)%firstlayer = 1
      frac = frac+new(i)%nindivs*new(i)%crownarea
      nindivs = nindivs - new(i)%nindivs
-     
+
      if (abs(nindivs*cc(idx(k))%crownarea)<tolerance) then
        new(i)%nindivs = new(i)%nindivs + nindivs ! allocate the remainder of individuals to the last cohort
        if (k==N0) exit ! end of loop
        k = k+1 ; nindivs = cc(idx(k))%nindivs  ! go to the next input cohort
      endif
-     
+
      if (abs(1-frac)<tolerance) then
        L = L+1 ; frac = 0.0              ! start new layer
      endif
 
      i = i+1
   enddo
-  
+
   ! replace the array of cohorts
   deallocate(vegn%cohorts)
   vegn%cohorts => new ; vegn%n_cohorts = i
@@ -566,16 +566,16 @@ function vegn_seed_supply ( vegn )
   real :: vegn_seed_supply
   type(vegn_tile_type), intent(in) :: vegn
 
-  ! ---- local vars 
+  ! ---- local vars
   real :: vegn_bliving
   integer :: i
-  
+
   vegn_bliving = 0
   do i = 1,vegn%n_cohorts
      vegn_bliving = vegn_bliving + vegn%cohorts(i)%bliving
   enddo
   vegn_seed_supply = MAX (vegn_bliving-BSEED, 0.0)
-  
+
 end function vegn_seed_supply
 
 ! ============================================================================
@@ -612,7 +612,7 @@ end subroutine vegn_add_bliving
 
 
 ! ============================================================================
-! given a vegetation patch, destination kind of transition, and "transition 
+! given a vegetation patch, destination kind of transition, and "transition
 ! intensity" value, this function returns a fraction of tile that will
 ! participate in transition.
 !
@@ -620,12 +620,12 @@ end subroutine vegn_add_bliving
 ! interval [0,1]
 !
 ! this function is used to determine what part of each tile is to be converted
-! to another land use kind; the equation is solved to get "transition intensity" 
+! to another land use kind; the equation is solved to get "transition intensity"
 ! tau for which total area is equal to requested. Tau is, therefore, a dummy
-! parameter, and only relative values of the priority functions for tiles 
-! participating in transition have any meaning. For most transitions the priority 
+! parameter, and only relative values of the priority functions for tiles
+! participating in transition have any meaning. For most transitions the priority
 ! function is just equal to tau: therefore there is no preference, and all tiles
-! contribute equally to converted area. For secondary vegetation harvesting, 
+! contribute equally to converted area. For secondary vegetation harvesting,
 ! however, priority also depends on wood biomass, and therefore tiles
 ! with high wood biomass are harvested first.
 function vegn_tran_priority(vegn, dst_kind, tau) result(pri)
@@ -657,7 +657,7 @@ function vegn_cover_cold_start(land_mask, lonb, latb) result (vegn_frac)
 
   call init_cover_field(vegn_to_use, 'INPUT/cover_type.nc', 'cover','frac', &
        lonb, latb, vegn_index_constant, input_cover_types, vegn_frac)
-  
+
 end function vegn_cover_cold_start
 
 ! =============================================================================
@@ -668,7 +668,7 @@ function vegn_is_selected(vegn, sel)
   type(vegn_tile_type),      intent(in) :: vegn
 
   integer :: sp ! shorthand for vegetation species
-  
+
   select case (sel%idata1)
   case (LU_SEL_TAG)
      vegn_is_selected = (sel%idata2 == vegn%landuse)
@@ -689,12 +689,12 @@ function vegn_is_selected(vegn, sel)
      endif
   case default
      vegn_is_selected = .FALSE.
-  end select  
-     
+  end select
+
 end function vegn_is_selected
 
 ! ============================================================================
-! returns total wood biomass per tile 
+! returns total wood biomass per tile
 function vegn_tile_bwood(vegn) result(bwood)
   real :: bwood
   type(vegn_tile_type), intent(in) :: vegn
@@ -739,7 +739,7 @@ subroutine vegn_tile_stock_pe (vegn, twd_liq, twd_sol  )
   type(vegn_tile_type),  intent(in)    :: vegn
   real,                  intent(out)   :: twd_liq, twd_sol
   integer i
-  
+
   twd_liq = vegn%drop_wl ; twd_sol = vegn%drop_ws
   do i=1, vegn%n_cohorts
     twd_liq = twd_liq + vegn%cohorts(i)%wl * vegn%cohorts(i)%nindivs
@@ -793,7 +793,7 @@ end function vegn_tile_heat
 function vegn_tile_tag(vegn) result(tag)
   integer :: tag
   type(vegn_tile_type), intent(in) :: vegn
-  
+
   tag = vegn%tag
 end function vegn_tile_tag
 

@@ -3,7 +3,7 @@ module sphum_mod
 use constants_mod,      only: rdgas, rvgas
 use sat_vapor_pres_mod, only: escomp
 
-implicit none 
+implicit none
 private
 
 public :: qscomp
@@ -35,7 +35,7 @@ subroutine qscomp(T, p, qsat, DqsatDT )
   ! if requested, calculate the derivative of qsat w.r.t. temperature
   if (present(DqsatDT)) then
      call escomp(T+del_temp,esat)
-     DqsatDT = (d622*esat/(p-d378*esat)-qsat)/del_temp 
+     DqsatDT = (d622*esat/(p-d378*esat)-qsat)/del_temp
   endif
 end subroutine qscomp
 

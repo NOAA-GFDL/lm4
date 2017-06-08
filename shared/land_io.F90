@@ -606,7 +606,7 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
   character(len=256) :: file_name
   real    :: minlat, maxlat
   integer :: jstart, jend, start(4), count(4)
-  real    :: lon_2D(size(lon(:)),1), lat_2D(size(lat(:)),1) 
+  real    :: lon_2D(size(lon(:)),1), lat_2D(size(lat(:)),1)
   real    :: data2(size(data,1),1)
   interpolation = "bilinear"
   if(present(interp)) interpolation = interp

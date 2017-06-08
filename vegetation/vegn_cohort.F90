@@ -27,7 +27,7 @@ public :: cohort_root_properties
 public :: cohort_uptake_profile
 public :: cohort_root_litter_profile
 public :: cohort_root_exudate_profile
- 
+
 public :: btotal ! returns cohort total biomass
 public :: c3c4   ! returns physiology type for given biomasses and conditions
 public :: phenology_type ! returns type of phenology for given conditions
@@ -83,7 +83,7 @@ type :: vegn_cohort_type
   real    :: snow_crit    = 0.0 ! later parameterize this as snow_mask_fac*height
 
 ! ---- PPA-related variables
-  real    :: age          = 0.0 ! age of cohort, years 
+  real    :: age          = 0.0 ! age of cohort, years
   real    :: dbh          = 0.0 ! diameter at breast height, m
   real    :: crownarea    = 1.0 ! crown area, m2/individual
   real    :: leafarea     = 0.0 ! total area of leaves, m2/individual
@@ -94,10 +94,10 @@ type :: vegn_cohort_type
   real    :: bl_max       = 0.0 ! Max. leaf biomass, kg C/individual
   real    :: br_max       = 0.0 ! Max. fine root biomass, kg C/individual
   real    :: topyear      = 0.0 ! the years that a plant in top layer
-  
+
   ! TODO: figure out how to do starvation mortality without hard-coded assumption
   !       of the mortality call time step
-  real    :: BM_ys        = 0.0 ! bwood + bsw at the end the previous year, for starvation 
+  real    :: BM_ys        = 0.0 ! bwood + bsw at the end the previous year, for starvation
                                 ! mortality calculation.
   real    :: DBH_ys
 
@@ -109,7 +109,7 @@ type :: vegn_cohort_type
   real    :: Kla    = 0.0 ! conductivity of leaf kg/m2 leaf /s /Pa
   real    :: Kxi    = 0.0 ! conductivity of stem kg/indiv /s /(Pa/m Pa)
   real    :: Kli    = 0.0 ! conductivity of leaf kg/indiv /s /Pa
-  
+
   real    :: w_scale = 1.0 ! water stress reduction of stomatal conductance, unitless,
                           ! for diagnostics only
 
@@ -119,7 +119,7 @@ type :: vegn_cohort_type
   real    :: r_r = 0.0 ! radius of fine roots, m
   real    :: uptake_frac(max_lev) = 0.0 ! normalized vertical distribution of uptake
 
-! ---- auxiliary variables 
+! ---- auxiliary variables
   real    :: Wl_max  = 0.0 ! maximum liquid water content of canopy, kg/individual
   real    :: Ws_max  = 0.0 ! maximum solid water content of canopy, kg/individual
   real    :: mcv_dry = 0.0 ! heat capacity of dry canopy J/(K individual)
@@ -127,7 +127,7 @@ type :: vegn_cohort_type
 
   real :: An_op = 0.0 ! mol C/(m2 of leaf per year)
   real :: An_cl = 0.0 ! mol C/(m2 of leaf per year)
-  
+
   real :: carbon_gain = 0.0 ! carbon gain since last growth, kg C/individual
   real :: carbon_loss = 0.0 ! carbon loss since last growth, kg C/individual
   real :: bwood_gain  = 0.0 ! wood gain since last growth, kg C/individual
@@ -140,17 +140,17 @@ type :: vegn_cohort_type
   real :: Pl = 0.0          ! fraction of living biomass in leaves
   real :: Pr = 0.0          ! fraction of living biomass in fine roots
   real :: Psw= 0.0          ! fraction of living biomass in sapwood
-  real :: Psw_alphasw = 0.0 ! fraction of sapwood times 
+  real :: Psw_alphasw = 0.0 ! fraction of sapwood times
                             ! retirement rate of sapwood into wood
   real :: extinct = 0.0     ! light extinction coefficient in the canopy for photosynthesis calculations
-  
+
   ! ens introduce for growth respiration
    real :: growth_previous_day     = 0.0 ! kgC/individual, pool of growth respiration
-   real :: growth_previous_day_tmp = 0.0 ! kgC/individual per year, rate of release of 
+   real :: growth_previous_day_tmp = 0.0 ! kgC/individual per year, rate of release of
                                          ! growth respiration to the atmosphere
    real :: branch_sw_loss   = 0.0
    real :: branch_wood_loss = 0.0
-   
+
 ! for phenology
   real :: gdd = 0.0
 
@@ -158,8 +158,8 @@ type :: vegn_cohort_type
 ! so operations on cohort can update tile-level variables. In this code, it is
 ! probably impossible to have this pointer here: it needs to be of type
 ! "type(vegn_tile_type), pointer", which means that the vegn_cohort_mod needs to
-! use vegn_tile_mod. But the vegn_tile_mod itself uses vegn_cohort_mod, and 
-! this would create a circular dependency of modules, something that's 
+! use vegn_tile_mod. But the vegn_tile_mod itself uses vegn_cohort_mod, and
+! this would create a circular dependency of modules, something that's
 ! prohibited in FORTRAN.
 !  type(vegn_tile_type), pointer :: cp
 end type vegn_cohort_type
@@ -178,10 +178,10 @@ real function biomass_of_individual(cohort)
           cohort%carbon_gain + cohort%bwood_gain + &
           cohort%growth_previous_day
 end function biomass_of_individual
-         
+
 ! ============================================================================
-! calculates functional dependence of wet canopy function f = x**p and its 
-! derivative, but approximates it with linear function in the vicinity 
+! calculates functional dependence of wet canopy function f = x**p and its
+! derivative, but approximates it with linear function in the vicinity
 ! of zero, to make sure that derivative doesn't become infinite
 subroutine wet_frac(w, w_max, p, eps, f, DfDw)
   real, intent(in) :: &
@@ -193,7 +193,7 @@ subroutine wet_frac(w, w_max, p, eps, f, DfDw)
        f, & ! function value
        DfDw ! it's derivative
 
-  if ( w > w_max ) then 
+  if ( w > w_max ) then
      f = 1; DfDw = 0;
   else if ( w < 0 ) then
      f = 0; DfDw = 0;
@@ -232,7 +232,7 @@ subroutine get_vegn_wet_frac (cohort, &
      fsL = 0.0; DfsDwsL=0.0
   endif
   DfsDwlL = 0
-     
+
   ! wet fraction
   if(cohort%Wl_max > 0) then
      call wet_frac(cohort%Wl, cohort%Wl_max, spdata(sp)%cmc_pow, cmc_eps, fw0, DfwDwlL)
@@ -251,7 +251,7 @@ subroutine get_vegn_wet_frac (cohort, &
   if (present(fs))     fs = fsL
   if (present(DfsDwl)) DfsDwl = DfsDwlL
   if (present(DfsDws)) DfsDws = DfsDwsL
-  
+
 end subroutine get_vegn_wet_frac
 
 
@@ -333,11 +333,11 @@ subroutine cohort_uptake_profile(cohort, dz, uptake_frac_max, vegn_uptake_term)
   real, intent(out) :: vegn_uptake_term(:)
 
   real, parameter :: res_scaler = mol_air/mol_h2o  ! scaling factor for water supply
-  ! NOTE: there is an inconsistency there between the 
+  ! NOTE: there is an inconsistency there between the
   ! units of stomatal conductance [mol/(m2 s)], and the units of humidity deficit [kg/kg],
-  ! in the calculations of water demand. Since the uptake options other than LINEAR can't 
+  ! in the calculations of water demand. Since the uptake options other than LINEAR can't
   ! use res_scaler, in this code the units of humidity deficit are converted to mol/mol,
-  ! and the additional factor is introduced in res_scaler to ensure that the LINEAR uptake 
+  ! and the additional factor is introduced in res_scaler to ensure that the LINEAR uptake
   ! gives the same results.
 
   integer :: l
@@ -368,14 +368,14 @@ subroutine cohort_uptake_profile(cohort, dz, uptake_frac_max, vegn_uptake_term)
      enddo
 
   endif
-  
+
   sum_rf = sum(uptake_frac_max)
   if(sum_rf>0) &
        uptake_frac_max(:) = uptake_frac_max(:)/sum_rf
-  
+
   if (cohort%br <= 0) then
      vegn_uptake_term(:) = 0.0
-  else   
+  else
      vegn_uptake_term(:) = uptake_frac_max(:) * &
           res_scaler * spdata(cohort%species)%dfr * cohort%br
   endif
@@ -392,13 +392,13 @@ subroutine cohort_root_litter_profile(cohort, dz, profile)
 
   real :: z
   integer :: l
-  
+
   z = 0
   do l = 1, size(profile)
      profile(l) = (exp(-z/cohort%root_zeta) - exp(-(z+dz(l))/cohort%root_zeta))
      z = z + dz(l)
   enddo
-  profile(:) = profile(:)/sum(profile)  
+  profile(:) = profile(:)/sum(profile)
 end subroutine cohort_root_litter_profile
 
 ! ============================================================================
@@ -415,7 +415,7 @@ end subroutine cohort_root_exudate_profile
 function btotal(c)
   real :: btotal ! returned value
   type(vegn_cohort_type), intent(in) :: c
-  
+
   btotal = c%bliving+c%bwood
 end function btotal
 
@@ -428,20 +428,20 @@ function c3c4(c, temp, precip) result (pt)
   real,              intent(in) :: precip ! precipitation, ???
 
   real :: pc4
-  
+
   ! Rule based on analysis of ED global output; equations from JPC, 2/02
   if(btotal(c) < tg_c4_thresh) then
     pc4=exp(-0.0421*(273.16+25.56-temp)-(0.000048*(273.16+25.5-temp)*precip));
   else
     pc4=0.0;
   endif
-  
-  if(pc4>0.5) then 
+
+  if(pc4>0.5) then
     pt=PT_C4
-  else 
+  else
     pt=PT_C3
   endif
-  
+
 end function c3c4
 
 
@@ -451,13 +451,13 @@ function phenology_type(c, cm)
   integer :: phenology_type
   type(vegn_cohort_type), intent(in) :: c  ! cohort (not used???)
   real, intent(in) :: cm ! number of cold months
-   
+
   real :: pe  ! prob evergreen
-   
+
   ! GCH, Rule based on analysis of ED global output; equations from JPC, 2/02
   ! GCH, Parameters updated 2/9/02 from JPC
   pe = 1.0/(1.0+((1.0/0.00144)*exp(-0.7491*cm)));
-  
+
   if(pe>phen_ev1 .and. pe<phen_ev2) then
      phenology_type = PHEN_EVERGREEN ! its evergreen
   else
@@ -467,7 +467,7 @@ end function phenology_type
 
 
 ! ============================================================================
-! given a cohort, climatology, and land use type, determines and updates 
+! given a cohort, climatology, and land use type, determines and updates
 ! physiology type, phenology type, and species of the cohort
 subroutine update_species(c, t_ann, t_cold, p_ann, cm, landuse)
   type(vegn_cohort_type), intent(inout) :: c    ! cohort to update
@@ -482,10 +482,10 @@ subroutine update_species(c, t_ann, t_cold, p_ann, cm, landuse)
   integer :: phent ! type of phenology
 
   pt    = c3c4(c,t_ann,p_ann)
-  phent = phenology_type(c, cm) 
-  
+  phent = phenology_type(c, cm)
+
   if(landuse == LU_CROP) phent = PHEN_DECIDUOUS ! crops can't be evergreen
-  
+
   if(pt==PT_C4) then
      spp=SP_C4GRASS;  ! c4 grass
   else if(phent==1) then
@@ -494,7 +494,7 @@ subroutine update_species(c, t_ann, t_cold, p_ann, cm, landuse)
      spp=SP_C3GRASS;  ! c3 grass
   else if ( t_cold > 278.16 ) then  ! ens,slm Jun 21 2003 to prohibit tropical forest in coastal cells
      spp=SP_TROPICAL; ! tropical deciduous non-grass
-  else 
+  else
      spp=SP_TEMPDEC;  ! temperate deciduous non-grass
   endif
 
@@ -515,7 +515,7 @@ function leaf_area_from_biomass(bl,species,layer,firstlayer) result (area)
   if (layer > 1 .AND. firstlayer == 0) then
      area = bl/(0.5*spdata(species)%LMA) ! half thickness for leaves in understory
   else
-     area = bl/spdata(species)%LMA    
+     area = bl/spdata(species)%LMA
   endif
 end function leaf_area_from_biomass
 
@@ -524,7 +524,7 @@ end function leaf_area_from_biomass
 function height_from_biomass(btotal) result (height)
     real :: height ! return value
     real, intent(in) :: btotal ! total biomass
-    
+
     height = 24.19*(1.0-exp(-0.19*btotal))
 end function height_from_biomass
 
@@ -544,12 +544,12 @@ subroutine update_bio_living_fraction(c)
   c%Pr   = spdata(sp)%c1 * D
   c%Psw  = 1 - c%Pl - c%Pr
   c%Psw_alphasw = spdata(sp)%c3 * spdata(sp)%alpha_leaf * D
-  
+
 end subroutine update_bio_living_fraction
 
 
 ! ============================================================================
-! redistribute living biomass pools in a given cohort, and update related 
+! redistribute living biomass pools in a given cohort, and update related
 ! properties (height, lai, sai)
 subroutine update_biomass_pools(c)
   type(vegn_cohort_type), intent(inout) :: c
@@ -633,10 +633,10 @@ end subroutine init_cohort_allometry_ppa
 
 ! ==============================================================================
 ! adam wolf
-! Stored in cc as K per tissue area. 
+! Stored in cc as K per tissue area.
 !  spdata stores pressure units in m
 !  Potential in units m to be consistent with Sergei's (conversion at namelist read)
-subroutine init_cohort_hydraulics(cc, init_psi)	
+subroutine init_cohort_hydraulics(cc, init_psi)
   type(vegn_cohort_type), intent(inout) :: cc
   real, intent(in) :: init_psi
 
@@ -648,10 +648,10 @@ subroutine init_cohort_hydraulics(cc, init_psi)
   associate(sp=>spdata(cc%species))
   rootarea = cc%br * sp%srl * 2*PI * sp%root_r  ! (kg/indiv)(m/kg)(m2/m)
   stemarea = sp%alphaCSASW * cc%DBH**sp%thetaCSASW
-	
+
   cc%Kxa = sp%Kxam
   cc%Kla = sp%Klam
-		
+
   cc%Kxi = cc%Kxa * stemarea / cc%height
   cc%Kli = cc%Kla * cc%leafarea
 
@@ -673,7 +673,7 @@ function cohorts_can_be_merged(c1,c2); logical cohorts_can_be_merged
    sameLayer   = (c1%layer == c2%layer) .and. (c1%firstlayer == c2%firstlayer)
    sameSize    = (abs(c1%DBH - c2%DBH)/c2%DBH < 0.15 ) .or.  &
                  (abs(c1%DBH - c2%DBH)        < 0.003)
-   lowDensity  = .FALSE. ! c1%nindivs < mindensity 
+   lowDensity  = .FALSE. ! c1%nindivs < mindensity
                          ! Weng, 2014-01-27, turned off
 
    cohorts_can_be_merged = &

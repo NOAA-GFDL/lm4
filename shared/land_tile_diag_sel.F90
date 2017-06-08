@@ -89,7 +89,7 @@ end subroutine tile_selectors_end
 
 
 ! ============================================================================
-! registers a selector to be used for diagnostic output 
+! registers a selector to be used for diagnostic output
 subroutine register_tile_selector( name, long_name, tag, idata1, idata2, rdata1, rdata2, area_depends_on_time )
   character(len=*), intent(in) :: name
   character(len=*), intent(in), optional :: long_name
@@ -108,11 +108,11 @@ subroutine register_tile_selector( name, long_name, tag, idata1, idata2, rdata1,
      if (trim(name)==trim(selectors(i)%name)) then
         call error_mesg(module_name,'attempt to register selector "'&
              //trim(name)//'" which has already been registered',WARNING)
-        return ! just skip it 
+        return ! just skip it
      endif
   enddo
 
-  ! allocate additional space for selectors if necessary 
+  ! allocate additional space for selectors if necessary
   if(n_selectors >= size(selectors)) then
      allocate(new_selectors(max(n_selectors*2,1)))
      new_selectors(1:n_selectors) = selectors(1:n_selectors)
@@ -140,7 +140,7 @@ end subroutine register_tile_selector
 function selector_suffix(selector)
   character(len=SEL_LEN+1) :: selector_suffix
   type(tile_selector_type), intent(in) :: selector
-  
+
   if(selector%is_default) then
      selector_suffix = ''
   else

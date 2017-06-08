@@ -29,13 +29,13 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 subroutine land_tracers_init()
   integer :: ntracers, ndiag, i, tr
   character(32) :: name
-  
+
   ! write the version and tag name to the logfile
   call log_version(version, module_name, &
   __FILE__)
 
   call register_tracers ( MODEL_LAND, ntracers, ntcana, ndiag )
-  
+
   do i = 1,ntcana
      call get_tracer_names(MODEL_LAND,i,name)
      call error_mesg('land_tracers_init','land tracer ('//trim(string(i)) &

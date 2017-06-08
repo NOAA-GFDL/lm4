@@ -3,7 +3,7 @@ module vegn_photosynthesis_mod
 #include "../shared/debug.inc"
 
 use fms_mod,            only : error_mesg, FATAL, WARNING
-use constants_mod,      only : TFREEZE, PI, rdgas, dens_h2o, grav 
+use constants_mod,      only : TFREEZE, PI, rdgas, dens_h2o, grav
 use sphum_mod,          only : qscomp
 
 use land_constants_mod, only : Rugas, seconds_per_year, mol_h2o, mol_air, d608
@@ -99,7 +99,7 @@ subroutine vegn_photosynthesis ( soil, vegn, cohort, &
   type(soil_tile_type),   intent(in)    :: soil
   type(vegn_tile_type),   intent(in)    :: vegn
   type(vegn_cohort_type), intent(inout) :: cohort
-  real, intent(in)  :: PAR_dn   ! downward PAR at the top of the canopy, W/m2 
+  real, intent(in)  :: PAR_dn   ! downward PAR at the top of the canopy, W/m2
   real, intent(in)  :: PAR_net  ! net PAR absorbed by the canopy, W/m2
   real, intent(in)  :: cana_T   ! temperature of canopy air, deg K
   real, intent(in)  :: cana_q   ! specific humidity in canopy air space, kg/kg
@@ -108,7 +108,7 @@ subroutine vegn_photosynthesis ( soil, vegn, cohort, &
   real, intent(in)  :: drag_q   ! drag coefficient for specific humidity
   real, intent(in)  :: soil_beta
   real, intent(in)  :: soil_water_supply ! max supply of water to roots, kg/(indiv s)
-  real, intent(in)  :: con_v_v  ! one-sided foliage-CAS conductance per unit ground area        
+  real, intent(in)  :: con_v_v  ! one-sided foliage-CAS conductance per unit ground area
   real, intent(out) :: evap_demand   ! transpiration water demand, kg/(indiv s)
   real, intent(out) :: stomatal_cond ! stomatal conductance, m/s
   real, intent(out) :: RHi      ! relative humidity inside leaf, at the point of vaporization
@@ -140,7 +140,7 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   type(soil_tile_type),   intent(in)    :: soil
   type(vegn_tile_type),   intent(in)    :: vegn
   type(vegn_cohort_type), intent(inout) :: cohort
-  real, intent(in)  :: PAR_dn   ! downward PAR at the top of the canopy, W/m2 
+  real, intent(in)  :: PAR_dn   ! downward PAR at the top of the canopy, W/m2
   real, intent(in)  :: PAR_net  ! net PAR absorbed by the canopy, W/m2
   real, intent(in)  :: cana_T   ! temperature of canopy air, deg K
   real, intent(in)  :: cana_q   ! specific humidity in canopy air space, kg/kg
@@ -148,7 +148,7 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   real, intent(in)  :: p_surf   ! surface pressure
   real, intent(in)  :: soil_water_supply ! max supply of water to roots per unit
                                 ! active root biomass per second, kg/(indiv s)
-  real, intent(in)  :: con_v_v  ! one-sided foliage-CAS conductance per unit ground area        
+  real, intent(in)  :: con_v_v  ! one-sided foliage-CAS conductance per unit ground area
   real, intent(out) :: evap_demand ! transpiration water demand, kg/(indiv s)
   real, intent(out) :: stomatal_cond ! stomatal conductance, m/s
   real, intent(out) :: RHi      ! relative humidity inside leaf, at the point of vaporization
@@ -165,7 +165,7 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
 
   real    :: rho     ! density of canopy air, kg/m3
   real    :: gs      ! max stomatal conductance per individual, m/s
-  real    :: gb      ! aerodynamic conductance of canopy air per individual, m/s 
+  real    :: gb      ! aerodynamic conductance of canopy air per individual, m/s
   real    :: fdry    ! fraction of canopy not covered by intercepted water/snow
   real    :: evap_demand_old
 
@@ -173,15 +173,15 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
      ! no leaves means no photosynthesis and zero stomatal conductance, of course
      cohort%An_op  = 0
      cohort%An_cl  = 0
-     stomatal_cond = 0 
+     stomatal_cond = 0
      evap_demand   = 0
      RHi           = 1.0
      ! TODO: call vegn_hydraulics?
      return
   endif
-  
+
   sp = cohort%species ! shorthand, for convenience
-  
+
   ! calculate humidity deficit, kg/kg
   call qscomp(cohort%Tv, p_surf, leaf_q)
   ds = max(leaf_q-cana_q,0.0)
@@ -193,12 +193,12 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
        ! output:
        stomatal_cond, psyn, resp )
 
-  ! scale down stomatal conductance and photosynthesis due to leaf wetness 
+  ! scale down stomatal conductance and photosynthesis due to leaf wetness
   ! effect
   call get_vegn_wet_frac (cohort, fw=fw, fs=fs)
   stomatal_cond = stomatal_cond*(1-spdata(sp)%wet_leaf_dreg*fw);
   if (psyn > 0) &
-     psyn = psyn*(1-spdata(sp)%wet_leaf_dreg*fw);  
+     psyn = psyn*(1-spdata(sp)%wet_leaf_dreg*fw);
   ! limit stomatal conductance
   if (stomatal_cond > gs_lim) then
      if(psyn > 0) psyn = psyn*gs_lim/stomatal_cond
@@ -206,29 +206,29 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   endif
 
   ! calculate transpiration water demand
-  RHi = 1.0 ! max relative humidity of in-canopy air  
+  RHi = 1.0 ! max relative humidity of in-canopy air
   ! convert units of stomatal conductance from mol/(m2 s) to m/(s indiv) by
   ! multiplying it by a volume of a mole of gas and by leaf area of individual
   gs = stomatal_cond * Rugas * cohort%Tv / p_surf * cohort%leafarea
   ! mol_h2o/molair = 18.0e-3( molar mass of water, kg/mol_air) /wtmair/1000.0 ( molar mass of air, kg). where wtmair=2.896440E+01
-  
+
   ! aerodynamic conductance per individual
   gb = con_v_v * cohort%crownarea ! foliage-CAS conductance per m2 => per individual
-  
+
   if (psyn > 0) psyn = psyn*gb/(gs+gb) ! decrease photosynthesis due to CO2 supply towards the leaf by 1/gb
-  
+
   rho = p_surf/(rdgas*cana_T*(1+d608*cana_q)) ! canopy air density
   !fdry = 1-fw-fs ! fraction of canopy that is dry
   fdry = 1
-  ! transpiration demand, kg/(indiv s) 
+  ! transpiration demand, kg/(indiv s)
   evap_demand = rho * fdry * gs*gb/(gs+gb) * (leaf_q*RHi-cana_q)
   ! in LM3 old demand = gs_w*ds*mol_air/mol_h2o;
   ! ! calculate humidity deficit, kg/kg
   !  call qscomp(tl, p_surf, hl)
   ! ds = max(hl-ea,0.0)
-  
+
   evap_demand_old = stomatal_cond * ds * 18.0e-3/2.896440E+01/1000.0 * cohort%leafarea
-  
+
    ! ens test evap_demand = rho  * gs * (leaf_q*RHi-cana_q)
   ! scale down stomatal conductance and photosynthesis due to water stress
   select case (water_stress_option)
@@ -238,8 +238,8 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
      else
         w_scale = 1.0
      endif
-     
-     
+
+
   case (WSTRESS_HYDRAULICS)
      call vegn_hydraulics(soil, vegn, cohort, p_surf, cana_T, cana_q, gb, gs, fdry, &
           w_scale, RHi )
@@ -249,8 +249,8 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
      call error_mesg('vegn_stomatal_cond', 'invalid vegetation water stress option', FATAL)
   end select
 !print *, 'w_scale ', w_scale, 'evap_demand', evap_demand, ' old ',evap_demand_old, 'water_supply', &
-!soil_water_supply, ' gb red ', gb/(gs+gb), ' fdry ', fdry, ' rho ', rho 
-  
+!soil_water_supply, ' gb red ', gb/(gs+gb), ' fdry ', fdry, ' rho ', rho
+
   stomatal_cond=w_scale*stomatal_cond
   if(psyn > 0) psyn = psyn*w_scale
   if(psyn < 0.and.stomatal_cond>b) stomatal_cond=b
@@ -265,7 +265,7 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   ! convert units of stomatal conductance from mol/(m2 s) to m/s by
   ! multiplying it by a volume of a mole of gas
   stomatal_cond   = stomatal_cond * Rugas * cohort%Tv / p_surf
-  ! convert stomatal conductance from units per unit area of leaf to the 
+  ! convert stomatal conductance from units per unit area of leaf to the
   ! units per unit area of cohort
   stomatal_cond = stomatal_cond*cohort%lai
   ! store w_scale for diagnostics
@@ -297,7 +297,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   real,    intent(out)   :: apot ! net photosynthesis, mol C/(m2 s)
   real,    intent(out)   :: acl  ! leaf respiration, mol C/(m2 s)
 
-  ! ---- local vars     
+  ! ---- local vars
   ! photosynthesis
   real :: vm;
   real :: kc,ko; ! Michaelis-Menten constants for CO2 and O2, respectively
@@ -310,14 +310,14 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
 
   ! conductance related
   real :: do1;
-  
+
   ! miscellaneous
   real :: dum2;
   real, parameter :: light_crit = 0;
 
   ! new average computations
   real :: lai_eq;
-  real, parameter :: rad_phot = 0.0000046 ! PAR conversion factor of J -> mol of quanta 
+  real, parameter :: rad_phot = 0.0000046 ! PAR conversion factor of J -> mol of quanta
   real :: light_top;
   real :: par_net;
   real :: Ag;
@@ -351,17 +351,17 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   ! empirical relationship from McCree is light=rn*0.0000046
   light_top = rad_top*rad_phot;
   par_net   = rad_net*rad_phot;
-  
+
   ! capgam=0.209/(9000.0*exp(-5000.0*(1.0/288.2-1.0/tl))); - Foley formulation, 1986
 
   ko=0.25   *exp(1400.0*(1.0/288.2-1.0/tl))*p_sea/p_surf;
   kc=0.00015*exp(6000.0*(1.0/288.2-1.0/tl))*p_sea/p_surf;
-  
+
   vm=spdata(pft)%Vmax*exp(3000.0*(1.0/288.2-1.0/tl));
-  
+
   if (layer > 1) vm=vm*spdata(pft)%Vmax_understory_factor ! reduce vmax in the understory
-  
-  !decrease Vmax due to aging of temperate deciduous leaves 
+
+  !decrease Vmax due to aging of temperate deciduous leaves
   !(based on Wilson, Baldocchi and Hanson (2001)."Plant,Cell, and Environment", vol 24, 571-583)
   if (spdata(pft)%leaf_age_tau>0 .and. leaf_age>spdata(pft)%leaf_age_onset) then
      vm=vm*exp(-(leaf_age-spdata(pft)%leaf_age_onset)/spdata(pft)%leaf_age_tau)
@@ -370,24 +370,24 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   capgam=0.5*kc/ko*0.21*0.209; ! Farquhar & Caemmerer 1982
 
   ! Find respiration for the whole canopy layer
-  
+
   Resp=spdata(pft)%gamma_resp*vm*lai !/layer
-  
+
   if (layer > 1) Resp = Resp*spdata(pft)%Resp_understory_factor ! reduce gamma_resp by 50% per Steve's experiments - need a reference
-  
+
   Resp=Resp/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))));
-  
-  
+
+
   ! ignore the difference in concentrations of CO2 near
   !  the leaf and in the canopy air, rb=0.
- 
+
   Ag_l=0.;
   Ag_rb=0.;
   Ag=0.;
   anbar=-Resp/lai;
   gsbar=b;
 
- 
+
   ! find the LAI level at which gross photosynthesis rates are equal
   ! only if PAR is positive
   if ( light_top > light_crit ) then
@@ -396,10 +396,10 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
         ci=(ca+1.6*coef0*capgam)/(1+1.6*coef0);
         if (ci>capgam) then
            f2=vm;
-           f3=18000.0*vm*ci;       
-       
+           f3=18000.0*vm*ci;
+
            dum2=min(f2,f3)
-           
+
            ! find LAI level at which rubisco limited rate is equal to light limited rate
            lai_eq = -log(dum2/(kappa*spdata(pft)%alpha_phot*light_top))/kappa;
            lai_eq = min(max(0.0,lai_eq),lai) ! limit lai_eq to physically possible range
@@ -414,7 +414,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
              ((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))));
            An=Ag-Resp;
            anbar=An/lai;
-     
+
            if(anbar>0.0) then
                gsbar=anbar/(ci-capgam)/coef0;
            endif
@@ -448,7 +448,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
         endif ! ci>capgam
      endif
   endif ! light is available for photosynthesis
-  
+
   apot = anbar
   gs   = gsbar
   acl  = -Resp/lai
@@ -470,7 +470,7 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
   real, intent(in)  :: cana_T   ! canopy air temperature, degK
   real, intent(in)  :: cana_q   ! canopy air specific humidity, kg/kg
   real, intent(in)  :: p_surf   ! surface pressure, N/m2 = kg/m/s2 = Pa
-  real, intent(in)  :: gb       ! aerodynamic conductance of canopy air per individual, m/s 
+  real, intent(in)  :: gb       ! aerodynamic conductance of canopy air per individual, m/s
   real, intent(in)  :: gs0      ! non-water-limited stomatal conductance per individual, m/s
   real, intent(in)  :: fdry     ! fraction of canopy not covered by intercepted water/snow
   real, intent(out) :: w_scale  ! reduction of stomatal conductance due to water stress
@@ -478,10 +478,10 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
 
   ! ---- local constants ----
   real, parameter :: Vm = 18.0e-6 ! m3/mol partial molar volume of liquid water
-  
+
   ! ---- local vars ----
   real :: rho ! density of canopy air, kg/m3
-  real :: gs, DgsDpl, DgsDTl  ! stomatal conductance per individual, m/s, and its derivatives 
+  real :: gs, DgsDpl, DgsDTl  ! stomatal conductance per individual, m/s, and its derivatives
   real :: Et0, DetDpl, DetDTl ! transpiration, kg/(s indiv), and its derivatives
   real :: ur0_(size(soil%wl)), DurDpr_(size(soil%wl)) ! water flux from roots, kg/(s indiv), and its derivatives
   real :: ur0, DurDpr ! water flux from roots, kg/(s indiv), and its derivatives
@@ -494,9 +494,9 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
   real :: psi_r ! psi of root (root-stem interface), Pa
   real :: delta_pr, delta_px, delta_pl ! tendencies of water potentials, Pa
   integer :: n
-  
+
   real, parameter :: m2pa = dens_h2o*grav ! unit conversion factor, pa per m of water
-  real, parameter :: small_Et0 = 1e-10 ! small transpiration value used to get to 
+  real, parameter :: small_Et0 = 1e-10 ! small transpiration value used to get to
   ! to the region of non-zero derivatives w.r.t. psi_r
 
   associate(sp=>spdata(cc%species), vegn_T=>cc%Tv)
@@ -520,7 +520,7 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
   gs = gs0 * exp(-(cc%psi_l/sp%dl)**sp%cl)
   DgsDpl = - gs0 * exp(-(cc%psi_l/sp%dl)**sp%cl)*sp%cl/sp%dl*(cc%psi_l/sp%dl)**(sp%cl-1)
   DgsDTl = 0.0
-  
+
   Et0 = rho * fdry * gs*gb/(gs+gb) * (qsat*RHi-cana_q)
 
   if (is_watch_point()) then
@@ -550,19 +550,19 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
 
      ! TODO: generalize for linear water uptake
 
-     ! calculate water uptake by roots and its derivative w.r.t. water potential at 
+     ! calculate water uptake by roots and its derivative w.r.t. water potential at
      ! root-stem interface
      psi_r = cc%psi_r
      call darcy2d_uptake ( soil, psi_r/m2pa, vegn%root_distance, cc%root_length, &
          cc%K_r, cc%r_r, ur0_, DurDpr_ )
      ur0 = sum(ur0_); DurDpr = sum(DurDpr_)/m2pa ! converting derivative from head (m) to Pascal
      if (ur0<epsilon(1.0).and.abs(DurDpr)<epsilon(1.0)) then
-        ! this can happen if initial psi_r is higher than soil water potential, 
-        ! and uptake_one_way is true. Or there is no water in the soil. Or soil 
+        ! this can happen if initial psi_r is higher than soil water potential,
+        ! and uptake_one_way is true. Or there is no water in the soil. Or soil
         ! is frozen
 
-        ! In this case, we solve for Darcy-flow uptake, find the root water potential 
-        ! to satisfy transpiration by the vegetation, use resulting psi as initial 
+        ! In this case, we solve for Darcy-flow uptake, find the root water potential
+        ! to satisfy transpiration by the vegetation, use resulting psi as initial
         ! condition
         call darcy2d_uptake_solver     (soil, max(Et0,small_Et0), vegn%root_distance, &
                 cc%root_length, cc%K_r, cc%r_r, &
@@ -593,7 +593,7 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
                      gammaU((cc%psi_x/sp%dx)**sp%cx, 1/sp%cx))
      DuxDpr =  cc%Kxi*exp(-(   psi_r/sp%dx)**sp%cx)
      DuxDpx = -cc%Kxi*exp(-(cc%psi_x/sp%dx)**sp%cx)
-  
+
    ! calculate leaf flow and its derivatives
      cc%Kli = cc%Kla * cc%leafarea
      ul0    = -cc%Kli*sp%dl/sp%cl*gamma(1/sp%cl)*(gammaU((cc%psi_x/sp%dl)**sp%cl, 1/sp%cl) &
@@ -603,7 +603,7 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
 
      cc%Kli = ul0/(cc%psi_x-cc%psi_l) !ens added this line
      cc%Kxi = ux0/(   psi_r-cc%psi_x) !ens added this line
-  
+
      ! do forward elimination
      gamma_r = 1/(DuxDpr - DurDpr)
      ar = (ur0-ux0)*gamma_r
@@ -619,7 +619,7 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
      delta_pl = gamma_l*(ul0 - Et0 + ax*DulDpx)
      delta_px = ax+bx*delta_pl
      delta_pr = ar+br*delta_px
-  
+
      ! update water potentials
      cc%psi_r = min(psi_r    + delta_pr,0.0)
      cc%psi_x = min(cc%psi_x + delta_px,cc%psi_r)

@@ -220,7 +220,7 @@ subroutine set_current_point_ug(l,k)
   integer :: thread
     thread = 1
 !$  thread = OMP_GET_THREAD_NUM()+1
-  curr_i(thread) = lnd%i_index(l) ; curr_j(thread) = lnd%j_index(l) 
+  curr_i(thread) = lnd%i_index(l) ; curr_j(thread) = lnd%j_index(l)
   curr_k(thread) = k; curr_l(thread) = l
 
   current_debug_level(thread) = 0

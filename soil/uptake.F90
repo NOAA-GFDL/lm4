@@ -42,7 +42,7 @@ integer, parameter ::   &
      UPTAKE_DARCY2D_LIN    = 3
 
 ! ==== interfaces ============================================================
-abstract interface 
+abstract interface
    subroutine uptake_subr_interface ( soil, psi_x0, R, VRL, K_r, r_r, uptake, duptake)
      use soil_tile_mod, only : soil_tile_type
      type(soil_tile_type), intent(in) :: soil
@@ -72,7 +72,7 @@ integer :: num_l ! # of water layers
 real    :: dz    (max_lev)    ! thicknesses of layers
 real    :: zfull (max_lev)
 
-integer :: uptake_option = -1 
+integer :: uptake_option = -1
 
 contains
 
@@ -92,7 +92,7 @@ subroutine uptake_init(num_l_in, dz_in, zfull_in)
 #else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
-     ierr = 1;  
+     ierr = 1;
      do while (ierr /= 0)
         read (unit, nml=uptake_nml, iostat=io, end=10)
         ierr = check_nml_error (io, 'uptake_nml')
@@ -118,7 +118,7 @@ subroutine uptake_init(num_l_in, dz_in, zfull_in)
      uptake_option = UPTAKE_DARCY2D
   else if (trim(uptake_to_use)=='darcy2d-linearized') then
      uptake_option = UPTAKE_DARCY2D_LIN
-  else 
+  else
      call error_mesg('soil_init',&
           'soil uptake option uptake_to_use="'//&
           trim(uptake_to_use)//'" is invalid, use "linear", "darcy2d" or "darcy2d-linearized"',&
@@ -156,13 +156,13 @@ subroutine darcy2d_flow_nonlin (psi_x, psi_soil, K_sat, psi_sat, b, K_r, r_r, R,
   real :: f ! u_soil - u_root difference; we look for f(psi_root) = 0
   real :: df ! derivative of w.r.t psi_root
   real :: n
-  real :: C_r ! 
+  real :: C_r !
   real :: K_s
   real :: K_root ! root membrane permeability per unit length, kg/(m2 s)
   real :: pl, ph ! brackets of the solution
   real :: psi_root0 ! previous guess for root water potential
   real :: dpsi
-  integer :: iter 
+  integer :: iter
 
   C_r=2*PI/(log(R/r_r))
   n = -(1+3/b)
@@ -176,10 +176,10 @@ subroutine darcy2d_flow_nonlin (psi_x, psi_soil, K_sat, psi_sat, b, K_r, r_r, R,
      ph = psi_soil; pl = psi_x
   endif
   ! choose initial values of f and df so that we always do bisection on the
-  ! first iteration. 
+  ! first iteration.
   ! That means that our first approximation is (psi_soil+psi_x)/2 -- in future,
   ! modify to get something better
-  f=1; df=0; psi_root=pl 
+  f=1; df=0; psi_root=pl
 
   do iter = 1, max_iter
      psi_root0=psi_root
@@ -200,7 +200,7 @@ subroutine darcy2d_flow_nonlin (psi_x, psi_soil, K_sat, psi_sat, b, K_r, r_r, R,
           + max(0.0, psi_soil - psi_sat)          &
           - max(0.0, psi_root - psi_sat)          )
      u_root = K_root*(psi_root-psi_x)
-     
+
      f=u_soil-u_root
      df=-C_r*K_sat*(min(psi_root,psi_sat)/psi_sat)**(n-1)-K_root
 
@@ -214,7 +214,7 @@ subroutine darcy2d_flow_nonlin (psi_x, psi_soil, K_sat, psi_sat, b, K_r, r_r, R,
      if(abs(dpsi)<eps) exit
   enddo
 
-  u = u_root; 
+  u = u_root;
   ! calculate derivative of u w.r.t psi_x
   K_s = C_r*K_sat*(min(psi_root,psi_sat)/psi_sat)**(n-1)
   du = -K_root*K_s/(K_root+K_s)
@@ -280,7 +280,7 @@ subroutine darcy2d_uptake_nonlin ( soil, psi_x0, R, VRL, K_r, r_r, uptake, dupta
   real :: psi_soil  ! water potential of soil, m
   real :: psi_sat   ! saturation soil water potential, m
   real :: k_sat     ! hydraulic conductivity of saturated soil, kg/(m2 s)
-  
+
   real :: u         ! water uptake by roots at the current layer, kg/(m2 s)
   real :: du        ! derivative of u w.r.t. root water potential
   real :: psi_r
@@ -308,7 +308,7 @@ subroutine darcy2d_uptake_nonlin ( soil, psi_x0, R, VRL, K_r, r_r, uptake, dupta
      ! calculates soil term of uptake expression
      call darcy2d_flow_nonlin (psi_x, psi_soil, K_sat, psi_sat, soil%pars%chb, K_r, r_r, R(l), eps, u, du, psi_r)
 
-     ! scale by volumetric root length and thickness of layer to get total uptake 
+     ! scale by volumetric root length and thickness of layer to get total uptake
      ! from the current soil layer
      uptake(l)  = VRL(l)*dz(l)*u ; duptake(l) = VRL(l)*dz(l)*du
      if(is_watch_point()) then
@@ -323,7 +323,7 @@ end subroutine darcy2d_uptake_nonlin
 
 
 ! =============================================================================
-! for Darcy-flow uptake, find the root water potential such to satisfy actual 
+! for Darcy-flow uptake, find the root water potential such to satisfy actual
 ! uptake by the vegetation.
 !
 ! This is a generic subroutine that calls linear or non-linear solver, depending
@@ -352,13 +352,13 @@ subroutine darcy2d_uptake_solver (soil, vegn_uptk, R, VRL, K_r, r_r, &
   case default
       call error_mesg('darcy2d_uptake_solver','incorrect uptake_option value',FATAL)
   end select
-  
+
 end subroutine darcy2d_uptake_solver
 
 
 ! =============================================================================
-! for Darcy-flow uptake, find the root water potential such to satisfy actual 
-! uptake by the vegetation. 
+! for Darcy-flow uptake, find the root water potential such to satisfy actual
+! uptake by the vegetation.
 subroutine darcy2d_uptake_solver_nonlin (soil, vegn_uptk, R, VRL, K_r, r_r, &
                                   uptake, psi_x0, n_iter)
   type(soil_tile_type), intent(in) :: soil
@@ -378,15 +378,15 @@ subroutine darcy2d_uptake_solver_nonlin (soil, vegn_uptk, R, VRL, K_r, r_r, &
   call uptake_solver_K(soil, vegn_uptk, R, VRL, K_r, r_r, uptake, psi_x0, n_iter, &
                        darcy2d_uptake)
 
-  ! since the numerical solution is not exact, adjust the vertical profile 
+  ! since the numerical solution is not exact, adjust the vertical profile
   ! of uptake to ensure that the sum is equal to transpiration exactly
   uptake_tot = sum(uptake(:))
-  uptake(:) = uptake(:)+(vegn_uptk-uptake_tot)/sum(dz(:))*dz(:) 
-  
+  uptake(:) = uptake(:)+(vegn_uptk-uptake_tot)/sum(dz(:))*dz(:)
+
 end subroutine darcy2d_uptake_solver_nonlin
 
 ! =============================================================================
-! kernel of the uptake solver: given the input and a subroutine that calculates 
+! kernel of the uptake solver: given the input and a subroutine that calculates
 ! the uptake vertical profile for given water potential at the surface, returns
 ! a solution
 subroutine uptake_solver_K (soil, vegn_uptk, R, VRL, K_r, r_r, uptake, psi_x0, &
@@ -419,7 +419,7 @@ subroutine uptake_solver_K (soil, vegn_uptk, R, VRL, K_r, r_r, uptake, psi_x0, &
   xl = psi_wilt
   xh = maxval(soil%psi(1:num_l)-zfull(1:num_l))
 
-  psi_x0 = xl 
+  psi_x0 = xl
 
   ! find the lower upper boundary of the interval that contains solution
   incr = 100.0 ! initial psi increment for the lower bracket search
@@ -437,7 +437,7 @@ subroutine uptake_solver_K (soil, vegn_uptk, R, VRL, K_r, r_r, uptake, psi_x0, &
      endif
      return
   endif
-  
+
   ! find upper boundary of the interval that contains solution
   incr = 1.0 ! initial psi increment for the upper bracket search
   do i = 1,20
@@ -446,8 +446,8 @@ subroutine uptake_solver_K (soil, vegn_uptk, R, VRL, K_r, r_r, uptake, psi_x0, &
      xh = xh+incr; incr = incr*2
   enddo
   if (sum(uptake)>= vegn_uptk) then
-     ! Could not reach the psi_root high enough for uptake from soil to be 
-     ! smaller than the transpiration: this can happen when transpiration is 
+     ! Could not reach the psi_root high enough for uptake from soil to be
+     ! smaller than the transpiration: this can happen when transpiration is
      ! negative (due to numerics) and uptake is one-way
      return
   endif
@@ -463,13 +463,13 @@ subroutine uptake_solver_K (soil, vegn_uptk, R, VRL, K_r, r_r, uptake, psi_x0, &
         psi_x0 = x2
         exit
      endif
-           
+
      if (is_watch_point()) then
         write(*,*)'##### solution iteration iter=',n_iter
         __DEBUG5__(f,DfDx,xl,xh,x2)
         __DEBUG2__((x2-xl)*DfDx,(x2-xh)*DfDx)
      endif
-           
+
      if (((x2-xl)*DfDx-f)*((x2-xh)*DfDx-f)>0) then
         ! the Newton-Raphson step would throw us out of the bonds of the interval,
         ! so we do the bisection
@@ -479,17 +479,17 @@ subroutine uptake_solver_K (soil, vegn_uptk, R, VRL, K_r, r_r, uptake, psi_x0, &
         x2 = x2-f/DfDx
         if(is_watch_point()) write(*,*) 'did Newton-Raphson step'
      endif
-           
+
      call uptake_subr ( soil, x2, R, VRL, K_r, r_r, uptake, duptake)
      f = sum(uptake) - vegn_uptk
      DfDx = sum(duptake)
-     
+
      if (f>0) then
         xl = x2
      else
         xh = x2
      endif
-     
+
      if(is_watch_point()) then
         write(*,*)'#### After iteration',n_iter
         __DEBUG2__(vegn_uptk,sum(uptake))
@@ -567,7 +567,7 @@ subroutine darcy2d_uptake_lin ( soil, psi_x0, R, VRL, K_r, r_r, u, du )
   real :: psi_soil  ! water potential of soil, m
   real :: psi_sat   ! saturation soil water potential, m
   real :: K_sat     ! hydraulic conductivity of saturated soil, kg/(m2 s)
-  
+
   real :: psi_root  ! water potential at the root/soil interface, m
   real :: psi_root0 ! initial guess of psi_root, m
 
@@ -590,7 +590,7 @@ subroutine darcy2d_uptake_lin ( soil, psi_x0, R, VRL, K_r, r_r, u, du )
      call darcy2d_flow_lin (psi_x, psi_soil, psi_root0, K_sat, psi_sat, soil%pars%chb, &
           K_r, r_r, R(k), u(k), du(k), psi_root)
 
-     ! scale by volumetric root length and thickness of layer to get total 
+     ! scale by volumetric root length and thickness of layer to get total
      ! uptake from the current soil layer
      u(k)  = VRL(k)*dz(k)*u(k)
      du(k) = VRL(k)*dz(k)*du(k)
@@ -623,17 +623,17 @@ subroutine darcy2d_uptake_solver_lin ( soil, vegn_uptk, R, VRL, K_r, r_r, &
   if (uptake_oneway) then
      call uptake_solver_K(soil, vegn_uptk, R, VRL, K_r, r_r, &
                           uptake, psi_x0, n_iter, darcy2d_uptake_lin )
-     
-     ! since the numerical solution is not exact, adjust the vertical profile 
+
+     ! since the numerical solution is not exact, adjust the vertical profile
      ! of uptake to ensure that the sum is equal to transpiration exactly
      uptake_tot = sum(uptake(:))
-     uptake(:) = uptake(:)+(vegn_uptk-uptake_tot)/sum(dz(1:num_l))*dz(1:num_l) 
+     uptake(:) = uptake(:)+(vegn_uptk-uptake_tot)/sum(dz(1:num_l))*dz(1:num_l)
   else
      psi_x0 = 0.0
      call darcy2d_uptake_lin ( soil, psi_x0, R, VRL, K_r, r_r, uptake, du )
      uptake_tot = sum(uptake)
-     Duptake_tot = sum(du) 
-     
+     Duptake_tot = sum(du)
+
      if (duptake_tot/=0) then
         d_psi_x = (vegn_uptk - uptake_tot)/duptake_tot
         do k = 1,num_l

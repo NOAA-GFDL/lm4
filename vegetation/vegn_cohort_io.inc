@@ -22,8 +22,8 @@
 subroutine READ_0D_FPTR(ncid,name,fptr,rec)
   integer           , intent(in) :: ncid ! netcdf id
   character(len=*)  , intent(in) :: name ! name of the variable to read
-  integer, optional , intent(in) :: rec  ! record number (in case there are 
-                                         ! several in the file) 
+  integer, optional , intent(in) :: rec  ! record number (in case there are
+                                         ! several in the file)
   ! subroutine returning the pointer to the data to be written
   interface ; subroutine fptr(cohort, ptr)
      use vegn_cohort_mod, only : vegn_cohort_type
@@ -72,7 +72,7 @@ subroutine READ_0D_FPTR(ncid,name,fptr,rec)
      ! read the data
      start(1) = n; count(1) = min(bufsize,ncohorts-n+1)
      __NF_ASRT__(nfu_get_rec(ncid,name,rec_,data,start,count))
-     
+
      ! distribute data over cohorts
      do i = 1, size(idx)
         call get_cohort_by_idx ( idx(i), lnd%nlon, lnd%nlat, ntiles,&
@@ -83,10 +83,10 @@ subroutine READ_0D_FPTR(ncid,name,fptr,rec)
         endif
      enddo
   enddo
-  
+
   ! free allocated memory
   deallocate(data,idx)
-  
+
 end subroutine READ_0D_FPTR
 
 ! ============================================================================
@@ -103,7 +103,7 @@ subroutine WRITE_0D(ncid,name,data,long_name,units,record)
   integer,  allocatable :: nc(:) ! number of cohorts per PE in IO domain
   integer :: dimids(2), ndims
 
-  ! if this processor isn't the root IO processor, simply send data to the root 
+  ! if this processor isn't the root IO processor, simply send data to the root
   ! IO processor and return from the subroutine
   if (mpp_pe()/=lnd%io_pelist(1)) then
      call mpp_send(size(data), plen=1,          to_pe=lnd%io_pelist(1), tag=COMM_TAG_1)
@@ -127,7 +127,7 @@ subroutine WRITE_0D(ncid,name,data,long_name,units,record)
      if(nf_inq_varid(ncid,name,varid)/=NF_NOERR) then
         ! get the ID of cohort dimension
         __NF_ASRT__(nf_inq_dimid(ncid,cohort_index_name,dimids(1)))
-        
+
         ndims = 1
         if(present(record)) then
            if(nf_inq_unlimdim(ncid,dimids(2))==NF_NOERR) then
@@ -143,7 +143,7 @@ subroutine WRITE_0D(ncid,name,data,long_name,units,record)
      __NF_ASRT__(nfu_put_rec(ncid,name,record_,buffer))
      deallocate(buffer)
   endif
-  ! wait for all PEs to finish: necessary because mpp_send doesn't seem to 
+  ! wait for all PEs to finish: necessary because mpp_send doesn't seem to
   ! copy the data, and therefore on non-root io_domain PE there would be a chance
   ! that the data and mask are destroyed before they are actually sent.
   call mpp_sync()

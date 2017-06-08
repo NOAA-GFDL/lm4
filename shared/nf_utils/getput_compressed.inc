@@ -26,10 +26,10 @@
 ! necessary because of the preprocessor argument pre-scan rules. See, for example,
 ! http://gcc.gnu.org/onlinedocs/cpp/Argument-Prescan.html
 #define NF_GET_VAR_(T) CONCAT2(nf_get_var_,T)
-#define NF_GET_VAR_T NF_GET_VAR_(NF_TYPE) 
+#define NF_GET_VAR_T NF_GET_VAR_(NF_TYPE)
 
 #define NF_PUT_VAR_(T) CONCAT2(nf_put_var_,T)
-#define NF_PUT_VAR_T NF_PUT_VAR_(NF_TYPE) 
+#define NF_PUT_VAR_T NF_PUT_VAR_(NF_TYPE)
 
 ! #### Interface definition ###################################################
 ! define specific names of the subroutines
@@ -62,7 +62,7 @@ end interface
 
 
 ! #### Implementation definition ##############################################
-#ifdef __BODY_SECTION__ 
+#ifdef __BODY_SECTION__
 
 ! ===========================================================================
 function GET_VAR_D1N(ncid,name,data,mask) result (iret)
@@ -76,7 +76,7 @@ function GET_VAR_D1N(ncid,name,data,mask) result (iret)
   __NF_TRY__(nf_inq_varid(ncid, name, varid), iret, 7)
   iret = GET_VAR(NF_TYPE,D1I)(ncid,varid,data,mask)
 7 return
-end function 
+end function
 
 ! ===========================================================================
 function GET_VAR_D1I(ncid,varid,data,mask) result (iret)
@@ -122,7 +122,7 @@ function GET_VAR_D1I(ncid,varid,data,mask) result (iret)
      diminfo(i)%stride = stride
      stride = stride*length
   enddo
-        
+
   ! get the entire variable
   allocate(buffer(varsize))
   __NF_TRY__(NF_GET_VAR_T(ncid,varid,buffer),iret,7)
@@ -226,7 +226,7 @@ function PUT_VAR_D1I(ncid,varid,src) result (iret)
      diminfo(i)%stride = stride
      stride = stride*length
   enddo
-        
+
   ! get the entire variable
   allocate(buffer(varsize))
 
@@ -280,7 +280,7 @@ function GET_REC_D4N(ncid,name,rec,data,mask) result (iret)
   else
      iret = GET_REC_D1N(ncid,name,rec,data)
   endif
-end function 
+end function
 
 ! ===========================================================================
 function GET_REC_D3N(ncid,name,rec,data,mask) result (iret)
@@ -296,7 +296,7 @@ function GET_REC_D3N(ncid,name,rec,data,mask) result (iret)
   else
      iret = GET_REC_D1N(ncid,name,rec,data)
   endif
-end function 
+end function
 
 ! ===========================================================================
 function GET_REC_D2N(ncid,name,rec,data,mask) result (iret)
@@ -312,7 +312,7 @@ function GET_REC_D2N(ncid,name,rec,data,mask) result (iret)
   else
      iret = GET_REC_D1N(ncid,name,rec,data)
   endif
-end function 
+end function
 
 ! ===========================================================================
 function GET_REC_D1N(ncid,name,rec,data,mask) result (iret)
@@ -328,7 +328,7 @@ function GET_REC_D1N(ncid,name,rec,data,mask) result (iret)
   iret = GET_REC_D1I(ncid,varid,rec,data,mask)
 7 return
 
-end function 
+end function
 
 ! ===========================================================================
 function GET_REC_D1I(ncid,varid,rec,data,mask) result (iret)
@@ -379,7 +379,7 @@ function GET_REC_D1I(ncid,varid,rec,data,mask) result (iret)
      diminfo(i)%stride = stride
      stride = stride*length
   enddo
-        
+
   ! get the entire variable
   allocate(buffer(recsize))
   __NF_TRY__(nfu_get_rec(ncid,varid,rec,buffer),iret,7)
@@ -442,11 +442,11 @@ end function
 #undef NF_PUT_VAR_T
 
 #undef GET_VAR_D1N
-#undef GET_VAR_D1I 
-#undef PUT_VAR_D1N 
-#undef PUT_VAR_D1I 
-#undef GET_REC_D4N 
-#undef GET_REC_D3N 
-#undef GET_REC_D2N 
-#undef GET_REC_D1N 
-#undef GET_REC_D1I 
+#undef GET_VAR_D1I
+#undef PUT_VAR_D1N
+#undef PUT_VAR_D1I
+#undef GET_REC_D4N
+#undef GET_REC_D3N
+#undef GET_REC_D2N
+#undef GET_REC_D1N
+#undef GET_REC_D1I

@@ -644,7 +644,7 @@ subroutine hlsp_hydrology_1(num_species)
 
                if (tiled_DOC_flux) then
                   do s=1,num_species
-                     do l=1,num_l                     
+                     do l=1,num_l
                         if (wflux(l) .GE. 0) then
                            tflux = wflux(l) * DOC(s,l) / max(soil%wl(l), minwl)
                            soil%div_hlsp_DOC(s,l) = soil%div_hlsp_DOC(s,l) + tflux
@@ -653,7 +653,7 @@ subroutine hlsp_hydrology_1(num_species)
                                   + tflux * A1
                         end if
                      end do
-                  end do 
+                  end do
                end if
 
 

@@ -104,7 +104,7 @@ function inq_dim_n(ncid, name, len, dimid, is_compressed) result (iret)
      is_compressed = .FALSE.
      if (nf_inq_varid(ncid,name,varid)==NF_NOERR) then
         is_compressed=(nf_inq_attlen(ncid,varid,'compress',attlen)==NF_NOERR)
-     endif        
+     endif
   endif
 7 return
 end function
@@ -132,7 +132,7 @@ function inq_dim_i(ncid, id, name, len, is_compressed) result (iret)
      is_compressed = .FALSE.
      if (nf_inq_varid(ncid,dname,varid)==NF_NOERR) then
         is_compressed=(nf_inq_attlen(ncid,varid,'compress',attlen)==NF_NOERR)
-     endif        
+     endif
   endif
 7 return
 end function
@@ -163,7 +163,7 @@ function inq_var_n(ncid, name, id, xtype, ndims, dimids, dimlens, natts, &
   iret = inq_var_i(ncid,vid,vname,xtype,ndims,dimids,dimlens,natts,&
        is_dim,has_records,varsize,recsize,nrec)
 
-7 return  
+7 return
 end function
 
 ! ============================================================================
@@ -212,7 +212,7 @@ function inq_var_i(ncid, vid, name, xtype, ndims, dimids, dimlens,natts, &
         if(present(dimlens)) dimlens(i)=dlen
      enddo
      if(present(varsize)) varsize=vsize
-     if(present(recsize)) recsize=vrecsize 
+     if(present(recsize)) recsize=vrecsize
   endif
   if(present(nrec)) then
      nrec=1
@@ -221,7 +221,7 @@ function inq_var_i(ncid, vid, name, xtype, ndims, dimids, dimlens,natts, &
      endif
   endif
 
-7 return  
+7 return
 end function
 
 ! ============================================================================
@@ -242,7 +242,7 @@ function inq_att_i_n(ncid, varid, att, xtype, len, attid) result (iret)
   endif
   if(present(xtype)) xtype = xtype_
   if(present(len))   len   = len_
-  
+
 7 return
 end function
 
@@ -300,7 +300,7 @@ end function
 ! ============================================================================
 function def_dim_0(ncid,name,size,xtype,long_name,units,edges,dimid,varid) &
      result (iret)
-  integer         , intent(in) :: ncid  ! id of NetCDF file to create 
+  integer         , intent(in) :: ncid  ! id of NetCDF file to create
   character(len=*), intent(in) :: name  ! name of the dimension
   integer         , intent(in) :: size  ! size of the dimension
   integer,optional, intent(in) :: xtype ! external type of the associated variable
@@ -342,10 +342,10 @@ function def_dim_r(ncid,name,data,long_name,units,edges,dimid,varid) result (ire
   real            , intent(in) :: data(:)
   character(len=*), intent(in), optional :: long_name, units, edges
   integer,optional,intent(out) :: dimid,varid
-  
+
   integer :: vid
   iret = nf_redef(ncid)
-  
+
   __NF_TRY__(def_dim_0(ncid,name,size(data),NF_DOUBLE,long_name,units,edges,dimid,varid=vid),iret,7)
   iret = nf_enddef(ncid)
   iret = nf_put_var_double(ncid,vid,data)
@@ -361,10 +361,10 @@ function def_dim_i(ncid,name,data,long_name,units,edges,dimid,varid) result (ire
   integer         , intent(in) :: data(:)
   character(len=*), intent(in), optional :: long_name, units, edges
   integer,optional,intent(out) :: dimid,varid
-  
+
   integer :: vid
   iret = nf_redef(ncid)
-  
+
   __NF_TRY__(def_dim_0(ncid,name,size(data),NF_INT,long_name,units,edges,dimid,varid=vid),iret,7)
   iret = nf_enddef(ncid)
   iret = nf_put_var_int(ncid,vid,data)
@@ -378,7 +378,7 @@ function def_var_n(ncid,name,xtype,dims,long_name,units,varid) result(iret)
   character(len=*), intent(in) :: name       ! name of the variable
   integer         , intent(in) :: xtype      ! external type of the var
   character(len=*), intent(in) :: &
-       dims(:)       ! vector of dimension names 
+       dims(:)       ! vector of dimension names
   character(len=*), intent(in), optional :: &
        long_name, &  ! name of the variable
        units         ! name of the variable
@@ -423,7 +423,7 @@ function def_var_scalar(ncid,name,xtype,long_name,units,varid) result(iret)
   if(present(units)) then
      __NF_TRY__(nfu_put_att(ncid,varid_,'units',units),iret,7)
   endif
-  
+
 7 return
 end function
 
@@ -454,7 +454,7 @@ function def_var_i(ncid,name,xtype,dimids,long_name,units,varid) result(iret)
   if(present(units)) then
      __NF_TRY__(nfu_put_att(ncid,varid_,'units',units),iret,7)
   endif
-  
+
 7 return
 end function
 
@@ -463,7 +463,7 @@ function put_att_text_i(ncid,varid,name,text) result (iret)
   integer :: iret
   integer         , intent(in) :: ncid,varid
   character(len=*), intent(in) :: name,text
-  
+
   iret = nf_redef(ncid)
   iret = nf_put_att_text(ncid,varid,name,len(text),text)
 end function
@@ -473,9 +473,9 @@ function put_att_text_n(ncid,varname,name,text) result (iret)
   integer :: iret
   integer         , intent(in) :: ncid
   character(len=*), intent(in) :: varname,name,text
-  
+
   integer :: varid
-  
+
   __NF_TRY__(nf_inq_varid(ncid,varname,varid),iret,7)
   iret = nf_redef(ncid)
   iret = nf_put_att_text(ncid,varid,name,len(text),text)
@@ -488,7 +488,7 @@ function put_att_int_i(ncid,varid,name,value) result (iret)
   integer         , intent(in) :: ncid,varid
   character(len=*), intent(in) :: name
   integer         , intent(in) :: value
-  
+
   iret = nf_redef(ncid)
   iret = nf_put_att_int(ncid,varid,name,NF_INT,1,value)
 end function
@@ -499,9 +499,9 @@ function put_att_int_n(ncid,varname,name,value) result (iret)
   integer         , intent(in) :: ncid
   character(len=*), intent(in) :: varname,name
   integer         , intent(in) :: value
-  
+
   integer :: varid
-  
+
   __NF_TRY__(nf_inq_varid(ncid,varname,varid),iret,7)
   iret = nf_redef(ncid)
   iret = nf_put_att_int(ncid,varid,name,NF_INT,1,value)
@@ -513,10 +513,10 @@ function nfu_get_dim(ncid, dimid, x) result(iret)
   integer, intent(in) :: ncid,dimid
   real   , intent(out) :: x(:)
   integer :: iret
-  
+
   integer :: varid
   character(len=NF_MAX_NAME) :: name
-  
+
   __NF_TRY__(nf_inq_dimname(ncid,dimid,name),iret,7)
   __NF_TRY__(nf_inq_varid(ncid,name,varid),iret,7)
   __NF_TRY__(nf_get_var_double(ncid,varid,x),iret,7)
@@ -529,12 +529,12 @@ function nfu_get_dim_bounds(ncid,dimid,edges)result(iret)
   integer, intent(in) :: ncid,dimid
   real   , intent(out) :: edges(:)
   integer :: iret
-    
+
   ! ---- local vars
   character(len=NF_MAX_NAME) :: name, edges_name
   real    :: x(size(edges)-1)
   integer :: varid, len
-  
+
   __NF_TRY__( nf_inq_dimname(ncid,dimid,name),iret,7 )
   __NF_TRY__( nf_inq_dimlen(ncid,dimid,len),iret,7 )
   __NF_TRY__( nf_inq_varid(ncid,name,varid),iret,7 )
@@ -587,7 +587,7 @@ function get_valid_range_n(ncid, varname, v) result (iret)
 end function
 
 ! ========================================================================
-! based on presence/absence of attributes, defines valid range or missing 
+! based on presence/absence of attributes, defines valid range or missing
 ! value. For details, see section 8.1 of NetCDF User Guide
 function get_valid_range_i(ncid, varid, v) result (iret)
   integer           , intent(in)  :: ncid
@@ -595,10 +595,10 @@ function get_valid_range_i(ncid, varid, v) result (iret)
   type(nfu_validtype), intent(out) :: v ! validator
 
   integer :: iret
-  
+
   integer :: var_T, valid_T, scale_T, T ! types variable and of attributes
   real(kind=8) :: scale, offset, fill, r(2)
-  
+
   ! find the type of the variable
   __NF_TRY__(nfu_inq_var(ncid,varid,xtype=var_T),iret,7)
 
@@ -615,7 +615,7 @@ function get_valid_range_i(ncid, varid, v) result (iret)
      __NF_TRY__(nf_get_att_double(ncid,varid,'add_offset',offset),iret,7)
      scale_T = max(scale_T,T)
   endif
-     
+
   ! examine possible range attributes
   valid_T = 0; v%hasmax=.false. ; v%hasmin=.false.
   if (nfu_inq_att(ncid,varid,'valid_range',xtype=T)==NF_NOERR) then
@@ -632,7 +632,7 @@ function get_valid_range_i(ncid, varid, v) result (iret)
      v%hasmin = .true.
      valid_T = max(valid_T,T)
   else if(nfu_inq_att(ncid,varid,'missing_value',xtype=T)==NF_NOERR) then
-     ! here we always scale, since missing_value is supposed to be in 
+     ! here we always scale, since missing_value is supposed to be in
      ! external representation
      __NF_TRY__(nf_get_att_double(ncid,varid,'missing_value',v%min),iret,7)
      v%min = v%min*scale + offset
@@ -683,7 +683,7 @@ function get_valid_range_i(ncid, varid, v) result (iret)
         end select
      endif
      ! NOTE: if we go through _FillValue branch, valid_T is 0, so values
-     ! are always scaled, as it should be because _FillValue is in external 
+     ! are always scaled, as it should be because _FillValue is in external
      ! representation
   endif
   ! If valid_range is the same type as scale_factor (actually the wider of
@@ -705,7 +705,7 @@ elemental function nfu_is_valid_r(x, v) result (lret)
 
 !  if (x is NaN) then
 !     lret = .false.
-!  else 
+!  else
   if (v%hasmin.or.v%hasmax) then
      lret = .not.(((v%hasmin).and.x<v%min).or.((v%hasmax).and.x>v%max))
   else
@@ -718,7 +718,7 @@ elemental function nfu_is_valid_i(x, v) result (lret)
   integer            , intent(in) :: x ! real value to be examined
   type(nfu_validtype), intent(in) :: v ! validator
   logical :: lret
-  
+
   lret = nfu_is_valid_r(real(x),v)
 end function
 
@@ -733,7 +733,7 @@ function nfu_validtype2ascii(v) result (string)
      write(string,'("[",g23.16,")")') v%min
   else if (v%hasmax) then
      write(string,'("(",g23.16,"]")') v%max
-  else 
+  else
      write(string,'("/=",g23.16)') v%min
   endif
 end function
