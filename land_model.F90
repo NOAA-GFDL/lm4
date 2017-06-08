@@ -287,7 +287,7 @@ integer, allocatable :: id_cana_tr(:)
 ! diag IDs of CMOR variables
 integer :: id_sftlf, id_sftgif
 integer :: id_pcp, id_prra, id_prveg, id_tran, id_evspsblveg, id_evspsblsoi, id_nbp, &
-           id_snw, id_snd, id_snc, id_lwsnl, id_snm, id_sweLut, id_cLand, &
+           id_snw, id_snd, id_snc, id_lwsnl, id_snm, id_tws, id_sweLut, id_cLand, &
            id_hflsLut, id_rlusLut, id_rsusLut, id_tslsiLut
 integer :: id_cropFrac, id_cropFracC3, id_cropFracC4, id_pastureFrac, id_residualFrac, &
            id_grassFrac, id_grassFracC3, id_grassFracC4, &
@@ -1255,6 +1255,12 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      call send_tile_data(id_lwsnl, snow_LMASS, tile%diag)
      ! factor 1000.0 kg/m3 is the liquid water density; it converts mass of water into depth
      call send_tile_data(id_sweLut, max(snow_FMASS+snow_LMASS,0.0)/1000.0, tile%diag)
+     if (id_tws>0) then
+         ! note that subs_LMASS and subs_FMASS are reused here to hold total water masses
+         ! alos note that reported value does not include river storage
+         call get_tile_water(tile, subs_LMASS, subs_FMASS)
+         call send_tile_data(id_tws, subs_LMASS+subs_FMASS, tile%diag)
+     endif
   enddo
 
   ! advance land model time
@@ -3378,6 +3384,10 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
              missing_value=-1.0e+20, fill_missing=.TRUE.)
   id_snm = register_tiled_diag_field ( cmor_name, 'snm', axes, time, &
              'Surface Snow Melt','kg m-2 s-1', standard_name='surface_snow_melt_flux', &
+             missing_value=-1.0e+20, fill_missing=.TRUE.)
+  id_tws = register_tiled_diag_field ( cmor_name, 'tws', axes, time, &
+             'Terrestrial Water Storage','kg m-2', &
+             standard_name='canopy_and_surface_and_subsurface_water_amount', &
              missing_value=-1.0e+20, fill_missing=.TRUE.)
   call add_tiled_diag_field_alias(id_sens, cmor_name, 'hfssLut', axes, time, &
       'Sensible Heat Flux on Land Use Tile', 'W m-2', missing_value=-1.0e+20, &
