@@ -45,11 +45,6 @@ interface gather_cohort_data
    module procedure gather_cohort_data_i0d
 end interface gather_cohort_data
 
-interface assemble_cohorts
-   module procedure assemble_cohorts_r0d
-   module procedure assemble_cohorts_i0d
-end interface assemble_cohorts
-
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'cohort_io_mod'
 ! name of the "compressed" dimension (and dimension variable) in the output
@@ -367,7 +362,7 @@ subroutine create_cohort_out_file_idx(rhandle,name,cidx,cohorts_dim_length)
 
 end subroutine create_cohort_out_file_idx
 
-subroutine assemble_cohorts_i0d(fptr,idx,ntiles,data)
+subroutine distrib_cohort_data_i0d(fptr,idx,ntiles,data)
   integer, intent(in) :: idx(:) ! local vector of cohort indices
   integer, intent(in) :: ntiles ! size of the tile dimension
   integer, intent(in) :: data(:) ! local cohort data
@@ -387,9 +382,9 @@ subroutine assemble_cohorts_i0d(fptr,idx,ntiles,data)
         if(associated(ptr)) ptr = data(i)
      endif
   enddo
-end subroutine assemble_cohorts_i0d
+end subroutine distrib_cohort_data_i0d
 
-subroutine assemble_cohorts_r0d(fptr,idx,ntiles,data)
+subroutine distrib_cohort_data_r0d(fptr,idx,ntiles,data)
   integer, intent(in) :: idx(:) ! local vector of cohort indices
   integer, intent(in) :: ntiles ! size of the tile dimension
   real, intent(in) :: data(:) ! local cohort data
@@ -409,7 +404,7 @@ subroutine assemble_cohorts_r0d(fptr,idx,ntiles,data)
         if(associated(ptr)) ptr = data(i)
      endif
   enddo
-end subroutine assemble_cohorts_r0d
+end subroutine distrib_cohort_data_r0d
 
 ! count max number of cohorts per tile
 integer function global_max_cohorts()
@@ -558,7 +553,7 @@ subroutine get_cohort_data(restart,varname,fptr)
         'cohort index not found in file "'//restart%filename//'"',FATAL)
      allocate(r(size(restart%cidx)))
      call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
-     call assemble_cohorts_r0d(fptr,restart%cidx,restart%tile_dim_length,r)
+     call distrib_cohort_data_r0d(fptr,restart%cidx,restart%tile_dim_length,r)
      deallocate(r)
   else
      call read_cohort_data_r0d_fptr(restart%ncid,varname,fptr)
@@ -577,7 +572,7 @@ subroutine get_int_cohort_data(restart,varname,fptr)
         'cohort index not found in file "'//restart%filename//'"',FATAL)
      allocate(r(size(restart%cidx)))
      call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
-     call assemble_cohorts_i0d(fptr,restart%cidx,restart%tile_dim_length,r)
+     call distrib_cohort_data_i0d(fptr,restart%cidx,restart%tile_dim_length,r)
      deallocate(r)
   else
      call read_cohort_data_i0d_fptr(restart%ncid,varname,fptr)
