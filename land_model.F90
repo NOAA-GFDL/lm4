@@ -57,7 +57,8 @@ use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_til
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, cana_state,&
      cana_roughness, save_cana_restart
 use river_mod, only : river_init, river_end, update_river, river_stock_pe, &
-     save_river_restart, river_tracers_init, num_river_tracers, river_tracer_index
+     save_river_restart, river_tracers_init, num_river_tracers, river_tracer_index,&
+     get_river_water
 use topo_rough_mod, only : topo_rough_init, topo_rough_end, update_topo_rough
 use soil_tile_mod, only : soil_tile_stock_pe, soil_tile_heat, soil_roughness, &
      soil_radiation
@@ -287,7 +288,7 @@ integer, allocatable :: id_cana_tr(:)
 ! diag IDs of CMOR variables
 integer :: id_sftlf, id_sftgif
 integer :: id_pcp, id_prra, id_prveg, id_tran, id_evspsblveg, id_evspsblsoi, id_nbp, &
-           id_snw, id_snd, id_snc, id_lwsnl, id_snm, id_sweLut, id_cLand, &
+           id_snw, id_snd, id_snc, id_lwsnl, id_snm, id_tws, id_sweLut, id_cLand, &
            id_hflsLut, id_rlusLut, id_rsusLut, id_tslsiLut
 integer :: id_cropFrac, id_cropFracC3, id_cropFracC4, id_pastureFrac, id_residualFrac, &
            id_grassFrac, id_grassFracC3, id_grassFracC4, &
@@ -1107,6 +1108,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   logical           :: phot_co2_overridden ! flag indicating successful override
   integer           :: iwatch,jwatch,kwatch,face
 
+  real :: twsr_sg(lnd%is:lnd%ie,lnd%js:lnd%je), tws(lnd%ls:lnd%le)
 
   ! start clocks
   call mpp_clock_begin(landClock)
@@ -1164,7 +1166,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
         ! convenience: the compute domain-level 2d and 3d vars are generally not
         ! available inside update_land_model_fast_0d, so the diagnostics for those
         ! was left here.
-        call send_tile_data(id_area, tile%frac*lnd%ug_area(l),        tile%diag)
+        call send_tile_data(id_area, tile%frac*lnd%ug_area(l),     tile%diag)
         call send_tile_data(id_z0m,  land2cplr%rough_mom(l,k),     tile%diag)
         call send_tile_data(id_z0s,  land2cplr%rough_heat(l,k),    tile%diag)
         call send_tile_data(id_Trad, land2cplr%t_surf(l,k),        tile%diag)
@@ -1189,6 +1191,11 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
   !--- update river state
   call update_river(runoff_sg, runoff_c_sg, land2cplr)
+
+  if(id_tws>0) then
+     call get_river_water(twsr_sg)
+     call mpp_pass_SG_to_UG(lnd%ug_domain, twsr_sg, tws)
+  endif
 
   ce = first_elmt(land_tile_map, ls=lbound(cplr2land%t_flux,1) )
   do while(loop_over_tiles(ce,tile,l,k))
@@ -1255,7 +1262,14 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      call send_tile_data(id_lwsnl, snow_LMASS, tile%diag)
      ! factor 1000.0 kg/m3 is the liquid water density; it converts mass of water into depth
      call send_tile_data(id_sweLut, max(snow_FMASS+snow_LMASS,0.0)/1000.0, tile%diag)
+     if (id_tws>0) then
+         ! note that subs_LMASS and subs_FMASS are reused here to hold total water masses
+         ! alos note that reported value does not include river storage
+         call get_tile_water(tile, subs_LMASS, subs_FMASS)
+         tws(l) = tws(l) + (subs_LMASS+subs_FMASS)*tile%frac
+     endif
   enddo
+  if (id_tws>0) used = send_data(id_tws, tws, lnd%time)
 
   ! advance land model time
   lnd%time = lnd%time + lnd%dt_fast
@@ -3379,6 +3393,13 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   id_snm = register_tiled_diag_field ( cmor_name, 'snm', axes, time, &
              'Surface Snow Melt','kg m-2 s-1', standard_name='surface_snow_melt_flux', &
              missing_value=-1.0e+20, fill_missing=.TRUE.)
+  id_tws = register_diag_field ( cmor_name, 'tws', axes, time, &
+             'Terrestrial Water Storage','kg m-2', &
+             standard_name='canopy_and_surface_and_subsurface_water_amount', &
+             area=get_area_id('land'))
+  call diag_field_add_attribute(id_tws,'cell_methods','area: mean')
+  call diag_field_add_attribute(id_tws,'ocean_fillvalue',0.0)
+
   call add_tiled_diag_field_alias(id_sens, cmor_name, 'hfssLut', axes, time, &
       'Sensible Heat Flux on Land Use Tile', 'W m-2', missing_value=-1.0e+20, &
       standard_name='surface_upward_sensible_heat_flux')
