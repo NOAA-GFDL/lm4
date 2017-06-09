@@ -84,11 +84,9 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 ! and the lower boundaries of this array, returns a pointer to the cohort
 ! corresponding to the compressed index, or NULL is the index is outside
 ! current domain, or such tile does not exist, or such cohort does not exist.
-subroutine get_cohort_by_idx(idx,nlon,nlat,ntiles,tiles,ls,gs,ge,ptr)
+subroutine get_cohort_by_idx(idx,ntiles,ptr)
    integer, intent(in) :: idx ! index
-   integer, intent(in) :: nlon, nlat, ntiles
-   integer, intent(in) :: ls, gs, ge
-   type(land_tile_list_type), intent(in) :: tiles(ls:)
+   integer, intent(in) :: ntiles ! size of tile dimension
    type(vegn_cohort_type), pointer :: ptr
 
    ! ---- local vars
@@ -97,16 +95,15 @@ subroutine get_cohort_by_idx(idx,nlon,nlat,ntiles,tiles,ls,gs,ge,ptr)
 
    ptr=>NULL()
    if ( idx < 0 ) return
-   tile_idx = modulo(idx,nlon*nlat*ntiles)
-   call get_tile_by_idx(tile_idx,nlon,nlat,tiles,ls,gs,ge,tile)
+   tile_idx = modulo(idx,lnd%nlon*lnd%nlat*ntiles)
+   call get_tile_by_idx(tile_idx,tile)
    if(associated(tile)) then
       if (associated(tile%vegn)) then
-         k = idx/(nlon*nlat*ntiles) ! calculate cohort index within a tile
+         k = idx/(lnd%nlon*lnd%nlat*ntiles) ! calculate cohort index within a tile
          ptr=>tile%vegn%cohorts(k+1)
       endif
    endif
-
-end subroutine
+end subroutine get_cohort_by_idx
 
 ! ============================================================================
 subroutine read_create_cohorts(restart)
@@ -384,8 +381,7 @@ subroutine assemble_cohorts_i0d(fptr,idx,ntiles,data)
 
   ! gather data into an array along the cohort dimension
   do i = 1, size(idx)
-     call get_cohort_by_idx ( idx(i), lnd%nlon, lnd%nlat, ntiles,&
-                             land_tile_map, lnd%ls, lnd%gs, lnd%ge, cohort)
+     call get_cohort_by_idx ( idx(i), ntiles, cohort)
      if (associated(cohort)) then
         call fptr(cohort, ptr)
         if(associated(ptr)) ptr = data(i)
@@ -407,8 +403,7 @@ subroutine assemble_cohorts_r0d(fptr,idx,ntiles,data)
 
   ! gather data into an array along the cohort dimension
   do i = 1, size(idx)
-     call get_cohort_by_idx ( idx(i), lnd%nlon, lnd%nlat, ntiles,&
-                             land_tile_map, lnd%ls, lnd%gs, lnd%ge, cohort)
+     call get_cohort_by_idx ( idx(i), ntiles, cohort)
      if (associated(cohort)) then
         call fptr(cohort, ptr)
         if(associated(ptr)) ptr = data(i)
@@ -476,8 +471,7 @@ subroutine gather_cohort_data_i0d(fptr,idx,ntiles,data)
 
   ! gather data into an array along the cohort dimension
   do i = 1, size(idx)
-     call get_cohort_by_idx ( idx(i), lnd%nlon, lnd%nlat, ntiles,&
-                             land_tile_map, lnd%ls, lnd%gs, lnd%ge, cohort)
+     call get_cohort_by_idx ( idx(i), ntiles, cohort)
      data(i) = NF_FILL_INT
      if (associated(cohort)) then
         call fptr(cohort, ptr)
@@ -499,8 +493,7 @@ subroutine gather_cohort_data_r0d(fptr,idx,ntiles,data)
 
   ! gather data into an array along the cohort dimension
   do i = 1, size(idx)
-     call get_cohort_by_idx ( idx(i), lnd%nlon, lnd%nlat, ntiles,&
-                             land_tile_map, lnd%ls, lnd%gs, lnd%ge, cohort)
+     call get_cohort_by_idx ( idx(i), ntiles, cohort)
      data(i) = NF_FILL_DOUBLE
      if (associated(cohort)) then
         call fptr(cohort, ptr)
