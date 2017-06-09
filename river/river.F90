@@ -92,6 +92,7 @@ character(len=*), parameter :: module_name = 'river_mod'
   public :: river_tracers_init
   public :: num_river_tracers
   public :: river_tracer_index
+  public :: get_river_water
 
 !--- namelist interface ----------------------------------------------
   logical            :: do_rivers       = .TRUE.  ! if FALSE, rivers are essentially turned off to save computing time
@@ -1597,6 +1598,16 @@ case default
 end select
 
 end subroutine river_stock_pe
+
+!#####################################################################
+! returns total amount of water (liquid and frozed) in rivers, kg/m2 of land
+subroutine get_river_water(water)
+  real, intent(out) :: water(lnd%is:lnd%ie,lnd%js:lnd%je)
+
+  water(:,:) = River%run_stor*River%dt_fast
+  where (lnd%sg_area > 0.0) &
+      water(:,:) = water(:,:) + DENS_H2O*(River%storage+River%stordis)/lnd%sg_area
+end subroutine get_river_water
 
 !#####################################################################
 ! returns string indicating the coordiantes of the point i,j
