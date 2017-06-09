@@ -731,7 +731,7 @@ subroutine get_tile_data_i0d_fptr_i0(restart,varname,fptr)
   if (new_land_io) then
      allocate(r(size(restart%tidx)))
      call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
-     call assemble_tiles_i0d(fptr,restart%tidx,r)
+     call distrib_tile_data_i0d(fptr,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_i0d_fptr(restart%ncid,varname,fptr)
@@ -750,7 +750,7 @@ subroutine get_tile_data_r0d_fptr_r0(restart,varname,fptr)
   if (new_land_io) then
      allocate(r(size(restart%tidx)))
      call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
-     call assemble_tiles_r0d(fptr,restart%tidx,r)
+     call distrib_tile_data_r0d(fptr,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_r0d_fptr_r0(restart%ncid,varname,fptr)
@@ -770,7 +770,7 @@ subroutine get_tile_data_r0d_fptr_r0i(restart,varname,fptr,index)
   if (new_land_io) then
      allocate(r(size(restart%tidx)))
      call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
-     call assemble_tiles_r0d_idx(fptr,index,restart%tidx,r)
+     call distrib_tile_data_r0d_idx(fptr,index,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_r0d_fptr_r0i(restart%ncid,varname,fptr,index)
@@ -790,7 +790,7 @@ subroutine get_tile_data_r0d_fptr_r0ij(restart,varname,fptr,i1, i2)
   if (new_land_io) then
      allocate(r(size(restart%tidx)))
      call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
-     call assemble_tiles_r0d_ij(fptr,i1,i2,restart%tidx,r)
+     call distrib_tile_data_r0d_ij(fptr,i1,i2,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_r0d_fptr_r0ij(restart%ncid,varname,fptr,i1,i2)
@@ -821,7 +821,7 @@ subroutine get_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr)
     !Read in the field from the file.
      allocate(r(size(restart%tidx),flen(1)))
      call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
-     call assemble_tiles_r1d(fptr,restart%tidx,r)
+     call distrib_tile_data_r1d(fptr,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_r1d_fptr_r0i(restart%ncid,varname,fptr)
@@ -852,7 +852,7 @@ subroutine get_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr)
     !Read in the field data from the file.
      allocate(r(size(restart%tidx),flen(1)))
      call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
-     call assemble_tiles_i1d(fptr,restart%tidx,r)
+     call distrib_tile_data_i1d(fptr,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_i1d_fptr_i0i(restart%ncid,varname,fptr)
@@ -882,7 +882,7 @@ subroutine get_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index)
     !Read in the field from the file.
      allocate(r(size(restart%tidx),flen(1)))
      call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
-     call assemble_tiles_r1d_idx(fptr,index,restart%tidx,r)
+     call distrib_tile_data_r1d_idx(fptr,index,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_r1d_fptr_r0ij(restart%ncid,varname,fptr,index)
@@ -912,7 +912,7 @@ subroutine get_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2)
      ! read the data
      allocate(r(size(restart%tidx),flen(1)))
      call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
-     ! call assemble_tiles_r1d_idx(fptr,idx1,idx2,restart%tidx,r)
+     ! call distrib_tile_data_r1d_idx(fptr,idx1,idx2,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_r1d_fptr_r0ijk(restart%ncid,varname,fptr,idx1,idx2)
@@ -954,7 +954,7 @@ subroutine get_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr)
     !Read in the field data from the file.
      allocate(r(size(restart%tidx),n,m))
      call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
-     call assemble_tiles_r2d(fptr,restart%tidx,r)
+     call distrib_tile_data_r2d(fptr,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_r2d_fptr_r0ij(restart%ncid,varname,fptr)
@@ -997,7 +997,7 @@ subroutine get_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index)
     !Read in the field from the file.
      allocate(r(size(restart%tidx),n,m))
      call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
-     call assemble_tiles_r2d_idx(fptr,index,restart%tidx,r)
+     call distrib_tile_data_r2d_idx(fptr,index,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_r2d_fptr_r0ijk(restart%ncid,varname,fptr,index)
@@ -2265,7 +2265,7 @@ subroutine gather_tile_data_r2d_idx(fptr,n,idx,data)
   enddo
 end subroutine gather_tile_data_r2d_idx
 
-subroutine assemble_tiles_i0d(fptr,idx,data)
+subroutine distrib_tile_data_i0d(fptr,idx,data)
   procedure(fptr_i0) :: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: idx(:)  ! local vector of tile indices
   integer, intent(in) :: data(:) ! local tile data
@@ -2282,9 +2282,9 @@ subroutine assemble_tiles_i0d(fptr,idx,data)
      call fptr(tileptr, ptr)
      if(associated(ptr)) ptr=data(i)
   enddo
-end subroutine assemble_tiles_i0d
+end subroutine distrib_tile_data_i0d
 
-subroutine assemble_tiles_r0d(fptr,idx,data)
+subroutine distrib_tile_data_r0d(fptr,idx,data)
   procedure(fptr_r0) :: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: idx(:)  ! local vector of tile indices
   real,    intent(in) :: data(:) ! local tile data
@@ -2301,9 +2301,9 @@ subroutine assemble_tiles_r0d(fptr,idx,data)
      call fptr(tileptr, ptr)
      if(associated(ptr)) ptr=data(i)
   enddo
-end subroutine assemble_tiles_r0d
+end subroutine distrib_tile_data_r0d
 
-subroutine assemble_tiles_r0d_idx(fptr,n,idx,data)
+subroutine distrib_tile_data_r0d_idx(fptr,n,idx,data)
   procedure(fptr_r0i) :: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: n ! additional index argument for fptr
   integer, intent(in) :: idx(:)  ! local vector of tile indices
@@ -2321,9 +2321,9 @@ subroutine assemble_tiles_r0d_idx(fptr,n,idx,data)
      call fptr(tileptr, n, ptr)
      if(associated(ptr)) ptr=data(i)
   enddo
-end subroutine assemble_tiles_r0d_idx
+end subroutine distrib_tile_data_r0d_idx
 
-subroutine assemble_tiles_r0d_ij(fptr,n,m,idx,data)
+subroutine distrib_tile_data_r0d_ij(fptr,n,m,idx,data)
   procedure(fptr_r0ij):: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: n,m ! additional index arguments for fptr
   integer, intent(in) :: idx(:)  ! local vector of tile indices
@@ -2341,9 +2341,9 @@ subroutine assemble_tiles_r0d_ij(fptr,n,m,idx,data)
      call fptr(tileptr, n, m, ptr)
      if(associated(ptr)) ptr=data(i)
   enddo
-end subroutine assemble_tiles_r0d_ij
+end subroutine distrib_tile_data_r0d_ij
 
-subroutine assemble_tiles_i1d(fptr,idx,data)
+subroutine distrib_tile_data_i1d(fptr,idx,data)
   procedure(fptr_i0i) :: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: idx(:)  ! local vector of tile indices
   integer, intent(in) :: data(:,:) ! local tile data
@@ -2362,9 +2362,9 @@ subroutine assemble_tiles_i1d(fptr,idx,data)
         if(associated(ptr)) ptr=data(i,j)
      enddo
   enddo
-end subroutine assemble_tiles_i1d
+end subroutine distrib_tile_data_i1d
 
-subroutine assemble_tiles_r1d(fptr,idx,data)
+subroutine distrib_tile_data_r1d(fptr,idx,data)
   procedure(fptr_r0i) :: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: idx(:)  ! local vector of tile indices
   real,    intent(in) :: data(:,:) ! local tile data
@@ -2383,9 +2383,9 @@ subroutine assemble_tiles_r1d(fptr,idx,data)
         if(associated(ptr)) ptr=data(i,j)
      enddo
   enddo
-end subroutine assemble_tiles_r1d
+end subroutine distrib_tile_data_r1d
 
-subroutine assemble_tiles_r1d_idx(fptr,n,idx,data)
+subroutine distrib_tile_data_r1d_idx(fptr,n,idx,data)
   procedure(fptr_r0ij) :: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: n ! additional index argument for fptr
   integer, intent(in) :: idx(:)  ! local vector of tile indices
@@ -2405,9 +2405,9 @@ subroutine assemble_tiles_r1d_idx(fptr,n,idx,data)
         if(associated(ptr)) ptr=data(i,j)
      enddo
   enddo
-end subroutine assemble_tiles_r1d_idx
+end subroutine distrib_tile_data_r1d_idx
 
-subroutine assemble_tiles_r2d(fptr,idx,data)
+subroutine distrib_tile_data_r2d(fptr,idx,data)
   procedure(fptr_r0ij):: fptr ! subroutine returning the pointer to the data to be written
   integer, intent(in) :: idx(:)  ! local vector of tile indices
   real,    intent(in) :: data(:,:,:) ! local tile data
@@ -2428,9 +2428,9 @@ subroutine assemble_tiles_r2d(fptr,idx,data)
      enddo
      enddo
   enddo
-end subroutine assemble_tiles_r2d
+end subroutine distrib_tile_data_r2d
 
-subroutine assemble_tiles_r2d_idx(fptr,n,idx,data)
+subroutine distrib_tile_data_r2d_idx(fptr,n,idx,data)
   procedure(fptr_r0ijk) :: fptr ! subroutine returning the pointer to the data
   integer, intent(in) :: n ! additional index argument for fptr
   integer, intent(in) :: idx(:)  ! local vector of tile indices
@@ -2452,7 +2452,7 @@ subroutine assemble_tiles_r2d_idx(fptr,n,idx,data)
      enddo
      enddo
   enddo
-end subroutine assemble_tiles_r2d_idx
+end subroutine distrib_tile_data_r2d_idx
 
 ! ============================================================================
 subroutine override_tile_data_r0d_fptr(fieldname,fptr,time,override)
