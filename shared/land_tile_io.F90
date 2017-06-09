@@ -537,8 +537,7 @@ subroutine add_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index,longname,
   ! gather data into an array along the tile dimension. It is assumed that
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(restart%tidx)
-     call get_tile_by_idx(restart%tidx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%ls, lnd%gs, lnd%ge, tileptr)
+     call get_tile_by_idx(restart%tidx(i), tileptr)
      do n = 1,nlev
         call fptr(tileptr,n,index, ptr)
         if(associated(ptr)) then
@@ -597,8 +596,7 @@ subroutine add_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2,long
   ! gather data into an array along the tile dimension. It is assumed that
   ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(restart%tidx)
-     call get_tile_by_idx(restart%tidx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%ls, lnd%gs, lnd%ge, tileptr)
+     call get_tile_by_idx(restart%tidx(i), tileptr)
      do n = 1,nlev
         call fptr(tileptr,n,idx1,idx2, ptr)
         if(associated(ptr)) then
@@ -731,7 +729,7 @@ subroutine get_tile_data_i0d_fptr_i0(restart,varname,fptr)
   if (new_land_io) then
      allocate(r(size(restart%tidx)))
      call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
-     call assemble_tiles_i0d(fptr,restart%tidx,r)
+     call distrib_tile_data_i0d(fptr,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_i0d_fptr(restart%ncid,varname,fptr)
@@ -750,7 +748,7 @@ subroutine get_tile_data_r0d_fptr_r0(restart,varname,fptr)
   if (new_land_io) then
      allocate(r(size(restart%tidx)))
      call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
-     call assemble_tiles_r0d(fptr,restart%tidx,r)
+     call distrib_tile_data_r0d(fptr,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_r0d_fptr_r0(restart%ncid,varname,fptr)
@@ -770,7 +768,7 @@ subroutine get_tile_data_r0d_fptr_r0i(restart,varname,fptr,index)
   if (new_land_io) then
      allocate(r(size(restart%tidx)))
      call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
-     call assemble_tiles_r0d_idx(fptr,index,restart%tidx,r)
+     call distrib_tile_data_r0d_idx(fptr,index,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_r0d_fptr_r0i(restart%ncid,varname,fptr,index)
@@ -790,7 +788,7 @@ subroutine get_tile_data_r0d_fptr_r0ij(restart,varname,fptr,i1, i2)
   if (new_land_io) then
      allocate(r(size(restart%tidx)))
      call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
-     call assemble_tiles_r0d_ij(fptr,i1,i2,restart%tidx,r)
+     call distrib_tile_data_r0d_ij(fptr,i1,i2,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_r0d_fptr_r0ij(restart%ncid,varname,fptr,i1,i2)
@@ -821,7 +819,7 @@ subroutine get_tile_data_r1d_fptr_r0i(restart,varname,zdim,fptr)
     !Read in the field from the file.
      allocate(r(size(restart%tidx),flen(1)))
      call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
-     call assemble_tiles_r1d(fptr,restart%tidx,r)
+     call distrib_tile_data_r1d(fptr,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_r1d_fptr_r0i(restart%ncid,varname,fptr)
@@ -852,7 +850,7 @@ subroutine get_tile_data_i1d_fptr_i0i(restart,varname,zdim,fptr)
     !Read in the field data from the file.
      allocate(r(size(restart%tidx),flen(1)))
      call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
-     call assemble_tiles_i1d(fptr,restart%tidx,r)
+     call distrib_tile_data_i1d(fptr,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_i1d_fptr_i0i(restart%ncid,varname,fptr)
@@ -882,7 +880,7 @@ subroutine get_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index)
     !Read in the field from the file.
      allocate(r(size(restart%tidx),flen(1)))
      call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
-     call assemble_tiles_r1d_idx(fptr,index,restart%tidx,r)
+     call distrib_tile_data_r1d_idx(fptr,index,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_r1d_fptr_r0ij(restart%ncid,varname,fptr,index)
@@ -912,7 +910,7 @@ subroutine get_tile_data_r1d_fptr_r0ijk(restart,varname,zdim,fptr,idx1,idx2)
      ! read the data
      allocate(r(size(restart%tidx),flen(1)))
      call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
-     ! call assemble_tiles_r1d_idx(fptr,idx1,idx2,restart%tidx,r)
+     ! call distrib_tile_data_r1d_idx(fptr,idx1,idx2,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_r1d_fptr_r0ijk(restart%ncid,varname,fptr,idx1,idx2)
@@ -954,7 +952,7 @@ subroutine get_tile_data_r2d_fptr_r0ij(restart,varname,dim1,dim2,fptr)
     !Read in the field data from the file.
      allocate(r(size(restart%tidx),n,m))
      call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
-     call assemble_tiles_r2d(fptr,restart%tidx,r)
+     call distrib_tile_data_r2d(fptr,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_r2d_fptr_r0ij(restart%ncid,varname,fptr)
@@ -997,7 +995,7 @@ subroutine get_tile_data_r2d_fptr_r0ijk(restart,varname,dim1,dim2,fptr,index)
     !Read in the field from the file.
      allocate(r(size(restart%tidx),n,m))
      call fms_io_unstructured_read(restart%basename, varname, r, lnd%ug_domain, timelevel=1)
-     call assemble_tiles_r2d_idx(fptr,index,restart%tidx,r)
+     call distrib_tile_data_r2d_idx(fptr,index,restart%tidx,r)
      deallocate(r)
   else ! old land io
      call read_tile_data_r2d_fptr_r0ijk(restart%ncid,varname,fptr,index)
@@ -1021,7 +1019,7 @@ subroutine get_input_restart_name(name, restart_exists, actual_name, new_land_io
   ! Build the restart file name.
   call get_instance_filename(trim(name), actual_name)
   call get_mosaic_tile_file(trim(actual_name),actual_name, lnd%ug_domain)
-  ! we can't use fms file_exist function here, because it lies: it checks not
+  ! we cannot use fms file_exist function here, because it lies: it checks not
   ! just the original name, but the name with PE suffix, and returns true if
   ! either of those exist
   inquire (file=trim(actual_name), exist=restart_exists)
@@ -1093,7 +1091,7 @@ subroutine create_tile_out_file_idx_old(ncid, name, tidx, tile_dim_length, glon,
        call error_mesg('create_tile_out_file','tile axis length must be positive', FATAL)
 
   if (mpp_pe()/=lnd%io_pelist(1)) then
-     ! if current PE doesn't do io, we just send the data to the processor that
+     ! if current PE does not do io, we just send the data to the processor that
      ! does
      call mpp_send(size(tidx), plen=1,          to_pe=lnd%io_pelist(1), tag=COMM_TAG_1)
      call mpp_send(tidx(1),    plen=size(tidx), to_pe=lnd%io_pelist(1), tag=COMM_TAG_2)
@@ -1219,15 +1217,11 @@ subroutine gather_tile_index(tile_exists,idx)
 end subroutine gather_tile_index
 
 ! ============================================================================
-! given compressed index, sizes of the global grid, 2D array of tile lists
-! and the lower boundaries of this array returns a pointer to the tile
-! corresponding to the compressed index, or NULL is the index is outside
-! current domain, or such tile does not exist.
-subroutine get_tile_by_idx(idx,nlon,nlat,tiles,ls,gs,ge,ptr)
-   integer, intent(in) :: idx ! index
-   integer, intent(in) :: nlon, nlat
-   integer, intent(in) :: ls,gs,ge
-   type(land_tile_list_type), intent(in) :: tiles(ls:)
+! given compressed index, returns a pointer to the tile corresponding to this 
+! index, or NULL if the index is outside current domain, or if such tile does 
+! not exist.
+subroutine get_tile_by_idx(idx,ptr)
+   integer, intent(in)           :: idx ! compressed-by-gathering tile index
    type(land_tile_type), pointer :: ptr
 
    ! ---- local vars
@@ -1240,17 +1234,17 @@ subroutine get_tile_by_idx(idx,nlon,nlat,tiles,ls,gs,ge,ptr)
 
    ! given tile idx, calculate global lon, lat, and tile indices
    k = idx
-   npts = nlon*nlat
+   npts = lnd%nlon*lnd%nlat
    g = modulo(k,npts)+1 ; k = k/npts
    ! do nothing if the index is outside of our domain
-   if (g<gs.or.g>ge) return ! skip points outside of domain
+   if (g<lnd%gs.or.g>lnd%ge) return ! skip points outside of domain
    ! loop through the list of tiles at the given point to find k+1st tile
    l = lnd%l_index(g)
    if(l < lnd%ls .OR. l > lnd%le) then
       print*, " l= ", l, g, lnd%ls, lnd%le, mpp_pe()
       call error_mesg("land_tile_io", "l < lnd%ls .OR. l > lnd%le", FATAL)
    endif
-   ce = first_elmt (tiles(l))
+   ce = first_elmt(land_tile_map(l))
    do while(loop_over_tiles(ce, ptr))
       k = k-1
       if (k<0) exit ! from loop
@@ -1263,7 +1257,7 @@ end subroutine get_tile_by_idx
 
 ! ============================================================================
 ! given the netcdf file id, name of the variable, and accessor subroutine, this
-! subroutine reads integer 2D data (a scalar value per grid cell, that's why
+! subroutine reads integer 2D data (a scalar value per grid cell, that is why
 ! there is 0d in the name of this subroutine) and assigns the input values to
 ! each tile in respective grid cell.
 subroutine read_tile_data_i0d_fptr(ncid,name,fptr)
@@ -1305,8 +1299,7 @@ subroutine read_tile_data_i0d_fptr(ncid,name,fptr)
       __NF_ASRT__(nf_get_vara_int(ncid,varid,(/j/),(/min(bufsize,dimlen(1)-j+1)/),x1d))
       ! distribute the data over the tiles
       do i = 1, min(input_buf_size,dimlen(1)-j+1)
-         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                              lnd%ls,lnd%gs,lnd%ge, tileptr)
+         call get_tile_by_idx(idx(i), tileptr)
          call fptr(tileptr, ptr)
          if(associated(ptr)) ptr = x1d(i)
       enddo
@@ -1353,8 +1346,7 @@ subroutine read_tile_data_r0d_fptr_r0(ncid,name,fptr)
       __NF_ASRT__(nf_get_vara_double(ncid,varid,(/j/),(/min(bufsize,dimlen(1)-j+1)/),x1d))
       ! distribute the data over the tiles
       do i = 1, min(bufsize,dimlen(1)-j+1)
-         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                              lnd%ls,lnd%gs,lnd%ge, tileptr)
+         call get_tile_by_idx(idx(i), tileptr)
          call fptr(tileptr, ptr)
          if(associated(ptr)) ptr = x1d(i)
       enddo
@@ -1403,8 +1395,7 @@ subroutine read_tile_data_r0d_fptr_r0i (ncid,name,fptr,index)
       __NF_ASRT__(nf_get_vara_double(ncid,varid,(/j/),(/min(bufsize,dimlen(1)-j+1)/),x1d))
       ! distribute the data over the tiles
       do i = 1, min(bufsize,dimlen(1)-j+1)
-         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                              lnd%ls,lnd%gs,lnd%ge, tileptr)
+         call get_tile_by_idx(idx(i), tileptr)
          call fptr(tileptr, index, ptr)
          if(associated(ptr)) ptr = x1d(i)
       enddo
@@ -1453,8 +1444,7 @@ subroutine read_tile_data_r0d_fptr_r0ij (ncid,name,fptr,idx1,idx2)
       __NF_ASRT__(nf_get_vara_double(ncid,varid,(/j/),(/min(bufsize,dimlen(1)-j+1)/),x1d))
       ! distribute the data over the tiles
       do i = 1, min(bufsize,dimlen(1)-j+1)
-         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                              lnd%ls,lnd%gs, lnd%ge, tileptr)
+         call get_tile_by_idx(idx(i), tileptr)
          call fptr(tileptr, idx1,idx2, ptr)
          if(associated(ptr)) ptr = x1d(i)
       enddo
@@ -1505,8 +1495,7 @@ subroutine read_tile_data_i1d_fptr_i0i(ncid,name,fptr)
       __NF_ASRT__(nf_get_vara_int(ncid,varid,start,count,x1d))
       ! distribute the data over the tiles
       do i = 1, min(bufsize,dimlen(1)-j+1)
-         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                              lnd%ls,lnd%gs, lnd%ge, tileptr)
+         call get_tile_by_idx(idx(i), tileptr)
          do n = 1,count(2)
             call fptr(tileptr, n, ptr)
             if(associated(ptr)) ptr = x1d(i+count(1)*(n-1))
@@ -1559,8 +1548,7 @@ subroutine read_tile_data_r1d_fptr_r0i(ncid,name,fptr)
       __NF_ASRT__(nf_get_vara_double(ncid,varid,start,count,x1d))
       ! distribute the data over the tiles
       do i = 1, min(bufsize,dimlen(1)-j+1)
-         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                              lnd%ls,lnd%gs,lnd%ge, tileptr)
+         call get_tile_by_idx(idx(i), tileptr)
          do n = 1,count(2)
             call fptr(tileptr, n, ptr)
             if(associated(ptr)) ptr = x1d(i+count(1)*(n-1))
@@ -1614,8 +1602,7 @@ subroutine read_tile_data_r1d_fptr_r0ij(ncid,name,fptr,index)
       __NF_ASRT__(nf_get_vara_double(ncid,varid,start,count,x1d))
       ! distribute the data over the tiles
       do i = 1, min(bufsize,dimlen(1)-j+1)
-         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                              lnd%ls,lnd%gs,lnd%ge, tileptr)
+         call get_tile_by_idx(idx(i), tileptr)
          do n = 1,count(2)
             call fptr(tileptr, n, index, ptr)
             if(associated(ptr)) ptr = x1d(i+count(1)*(n-1))
@@ -1669,8 +1656,7 @@ subroutine read_tile_data_r1d_fptr_r0ijk(ncid,name,fptr,idx1,idx2)
       __NF_ASRT__(nf_get_vara_double(ncid,varid,start,count,x1d))
       ! distribute the data over the tiles
       do i = 1, min(bufsize,dimlen(1)-j+1)
-         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                              lnd%ls,lnd%gs,lnd%ge, tileptr)
+         call get_tile_by_idx(idx(i), tileptr)
          do n = 1,count(2)
             call fptr(tileptr, n, idx1,idx2, ptr)
             if(associated(ptr)) ptr = x1d(i+count(1)*(n-1))
@@ -1724,8 +1710,7 @@ subroutine read_tile_data_r2d_fptr_r0ij (ncid,name,fptr)
       __NF_ASRT__(nf_get_vara_double(ncid,varid,start,count,x1d))
       ! distribute the data over the tiles
       do i = 1, min(bufsize,dimlen(1)-j+1)
-         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                              lnd%ls,lnd%gs,lnd%ge, tileptr)
+         call get_tile_by_idx(idx(i), tileptr)
          do m = 1,dimlen(2)
          do n = 1,dimlen(3)
             call fptr(tileptr, m, n, ptr)
@@ -1782,8 +1767,7 @@ subroutine read_tile_data_r2d_fptr_r0ijk (ncid,name,fptr,index)
       __NF_ASRT__(nf_get_vara_double(ncid,varid,start,count,x1d))
       ! distribute the data over the tiles
       do i = 1, min(bufsize,dimlen(1)-j+1)
-         call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                              lnd%ls,lnd%gs,lnd%ge, tileptr)
+         call get_tile_by_idx(idx(i), tileptr)
          do m = 1,dimlen(2)
          do n = 1,dimlen(3)
             call fptr(tileptr, m, n, index, ptr)
@@ -1842,7 +1826,7 @@ subroutine write_tile_data_i1d(ncid,name,data,long_name,units)
      iret = nf_enddef(ncid) ! ignore errors (file may be in data mode already)
      __NF_ASRT__(nf_put_var_int(ncid,varid,buffer))
   endif
-  ! wait for all PEs to finish: necessary because mpp_send doesn't seem to
+  ! wait for all PEs to finish: necessary because mpp_send does not seem to
   ! copy the data, and therefore on non-root io_domain PE there would be a chance
   ! that the data and mask are destroyed before they are actually sent.
   call mpp_sync()
@@ -1861,7 +1845,7 @@ subroutine write_tile_data_r1d(ncid,name,data,long_name,units)
   real,    allocatable :: buffer(:) ! data buffer
   integer, allocatable :: ntiles(:) ! list of land tile numbers for each of PEs in io_domain
 
-  ! if our PE doesn't do IO (that is, it isn't the root io_domain processor),
+  ! if our PE does not do IO (that is, it is not the root io_domain processor),
   ! simply send data size and data the root IO processor
   if (mpp_pe()/=lnd%io_pelist(1)) then
      call mpp_send(size(data), plen=1,          to_pe=lnd%io_pelist(1), tag=COMM_TAG_5)
@@ -1889,7 +1873,7 @@ subroutine write_tile_data_r1d(ncid,name,data,long_name,units)
      __NF_ASRT__(nf_put_var_double(ncid,varid,buffer))
      deallocate(buffer,ntiles)
   endif
-  ! wait for all PEs to finish: necessary because mpp_send doesn't seem to
+  ! wait for all PEs to finish: necessary because mpp_send does not seem to
   ! copy the data, and therefore on non-root io_domain PE there would be a chance
   ! that the data and mask are destroyed before they are actually sent.
   call mpp_sync()
@@ -1915,7 +1899,7 @@ subroutine write_tile_data_i2d(ncid,name,data,zdim,long_name,units)
   integer, allocatable :: buff2(:,:), buff1(:) ! send/receive buffers
   integer, allocatable :: ntiles(:)   ! list of land tile numbers for each of PEs in io_domain
 
-  ! if our PE doesn't do io (that is, it isn't the root io_domain processor),
+  ! if our PE does not do io (that is, it is not the root io_domain processor),
   ! simply send the data and mask of valid data to the root IO processor
   if (mpp_pe()/=lnd%io_pelist(1)) then
      call mpp_send(size(data,1), plen=1,          to_pe=lnd%io_pelist(1), tag=COMM_TAG_7)
@@ -1948,7 +1932,7 @@ subroutine write_tile_data_i2d(ncid,name,data,zdim,long_name,units)
      __NF_ASRT__(nf_put_var_double(ncid,varid,buff2))
      deallocate(buff2,buff1,ntiles)
   endif
-  ! wait for all PEs to finish: necessary because mpp_send doesn't seem to
+  ! wait for all PEs to finish: necessary because mpp_send does not seem to
   ! copy the data, and therefore on non-root io_domain PE there would be a chance
   ! that the data and mask are destroyed before they are actually sent.
   call mpp_sync()
@@ -1971,7 +1955,7 @@ subroutine write_tile_data_r2d(ncid,name,data,zdim,long_name,units)
   real,    allocatable :: buff2(:,:), buff1(:) ! send/receive buffers
   integer, allocatable :: ntiles(:)   ! list of land tile numbers for each of PEs in io_domain
 
-  ! if our PE doesn't do io (that is, it isn't the root io_domain processor),
+  ! if our PE does not do io (that is, it is not the root io_domain processor),
   ! simply send the data and mask of valid data to the root IO processor
   if (mpp_pe()/=lnd%io_pelist(1)) then
      call mpp_send(size(data,1), plen=1,          to_pe=lnd%io_pelist(1), tag=COMM_TAG_7)
@@ -2005,7 +1989,7 @@ subroutine write_tile_data_r2d(ncid,name,data,zdim,long_name,units)
      __NF_ASRT__(nf_put_var_double(ncid,varid,buff2))
      deallocate(buff2,buff1,ntiles)
   endif
-  ! wait for all PEs to finish: necessary because mpp_send doesn't seem to
+  ! wait for all PEs to finish: necessary because mpp_send does not seem to
   ! copy the data, and therefore on non-root io_domain PE there would be a chance
   ! that the data and mask are destroyed before they are actually sent.
   call mpp_sync()
@@ -2089,8 +2073,7 @@ subroutine gather_tile_data_i0d(fptr,idx,data)
 ! gather data into an array along the tile dimension. It is assumed that
 ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%ls,lnd%gs,lnd%ge, tileptr)
+     call get_tile_by_idx(idx(i), tileptr)
      call fptr(tileptr, ptr)
      if(associated(ptr)) data(i)=ptr
   enddo
@@ -2111,8 +2094,7 @@ subroutine gather_tile_data_r0d(fptr,idx,data)
 ! gather data into an array along the tile dimension. It is assumed that
 ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%ls,lnd%gs,lnd%ge, tileptr)
+     call get_tile_by_idx(idx(i), tileptr)
      call fptr(tileptr, ptr)
      if(associated(ptr)) data(i)=ptr
   enddo
@@ -2134,8 +2116,7 @@ subroutine gather_tile_data_r0i(fptr,n,idx,data)
 ! gather data into an array along the tile dimension. It is assumed that
 ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%ls,lnd%gs,lnd%ge, tileptr)
+     call get_tile_by_idx(idx(i), tileptr)
      call fptr(tileptr, n, ptr)
      if(associated(ptr)) data(i)=ptr
   enddo
@@ -2157,8 +2138,7 @@ subroutine gather_tile_data_r0ij(fptr,n,m,idx,data)
 ! gather data into an array along the tile dimension. It is assumed that
 ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%ls,lnd%gs,lnd%ge, tileptr)
+     call get_tile_by_idx(idx(i), tileptr)
      call fptr(tileptr, n, m, ptr)
      if(associated(ptr)) data(i)=ptr
   enddo
@@ -2179,8 +2159,7 @@ subroutine gather_tile_data_r1d(fptr,idx,data)
 ! gather data into an array along the tile dimension. It is assumed that
 ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%ls,lnd%gs,lnd%ge, tileptr)
+     call get_tile_by_idx(idx(i), tileptr)
      do j = 1,size(data,2)
         call fptr(tileptr, j, ptr)
         if(associated(ptr)) data(i,j)=ptr
@@ -2203,8 +2182,7 @@ subroutine gather_tile_data_i1d(fptr,idx,data)
 ! gather data into an array along the tile dimension. It is assumed that
 ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%ls,lnd%gs,lnd%ge, tileptr)
+     call get_tile_by_idx(idx(i), tileptr)
      do j = 1,size(data,2)
         call fptr(tileptr, j, ptr)
         if(associated(ptr)) data(i,j)=ptr
@@ -2227,8 +2205,7 @@ subroutine gather_tile_data_r2d(fptr,idx,data)
 ! gather data into an array along the tile dimension. It is assumed that
 ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%ls,lnd%gs,lnd%ge, tileptr)
+     call get_tile_by_idx(idx(i), tileptr)
      do k=1,size(data,2)
      do m=1,size(data,3)
         call fptr(tileptr, k, m, ptr)
@@ -2254,8 +2231,7 @@ subroutine gather_tile_data_r2d_idx(fptr,n,idx,data)
 ! gather data into an array along the tile dimension. It is assumed that
 ! the tile dimension spans all the tiles that need to be written.
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%ls,lnd%gs,lnd%ge, tileptr)
+     call get_tile_by_idx(idx(i), tileptr)
      do k=1,size(data,2)
      do m=1,size(data,3)
         call fptr(tileptr, k, m, n, ptr)
@@ -2265,7 +2241,7 @@ subroutine gather_tile_data_r2d_idx(fptr,n,idx,data)
   enddo
 end subroutine gather_tile_data_r2d_idx
 
-subroutine assemble_tiles_i0d(fptr,idx,data)
+subroutine distrib_tile_data_i0d(fptr,idx,data)
   procedure(fptr_i0) :: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: idx(:)  ! local vector of tile indices
   integer, intent(in) :: data(:) ! local tile data
@@ -2277,14 +2253,13 @@ subroutine assemble_tiles_i0d(fptr,idx,data)
 
 ! distribute the data over the tiles
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%ls,lnd%gs,lnd%ge, tileptr)
+     call get_tile_by_idx(idx(i), tileptr)
      call fptr(tileptr, ptr)
      if(associated(ptr)) ptr=data(i)
   enddo
-end subroutine assemble_tiles_i0d
+end subroutine distrib_tile_data_i0d
 
-subroutine assemble_tiles_r0d(fptr,idx,data)
+subroutine distrib_tile_data_r0d(fptr,idx,data)
   procedure(fptr_r0) :: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: idx(:)  ! local vector of tile indices
   real,    intent(in) :: data(:) ! local tile data
@@ -2296,14 +2271,13 @@ subroutine assemble_tiles_r0d(fptr,idx,data)
 
 ! distribute the data over the tiles
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%ls,lnd%gs,lnd%ge, tileptr)
+     call get_tile_by_idx(idx(i), tileptr)
      call fptr(tileptr, ptr)
      if(associated(ptr)) ptr=data(i)
   enddo
-end subroutine assemble_tiles_r0d
+end subroutine distrib_tile_data_r0d
 
-subroutine assemble_tiles_r0d_idx(fptr,n,idx,data)
+subroutine distrib_tile_data_r0d_idx(fptr,n,idx,data)
   procedure(fptr_r0i) :: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: n ! additional index argument for fptr
   integer, intent(in) :: idx(:)  ! local vector of tile indices
@@ -2316,14 +2290,13 @@ subroutine assemble_tiles_r0d_idx(fptr,n,idx,data)
 
 ! distribute the data over the tiles
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%ls,lnd%gs,lnd%ge, tileptr)
+     call get_tile_by_idx(idx(i), tileptr)
      call fptr(tileptr, n, ptr)
      if(associated(ptr)) ptr=data(i)
   enddo
-end subroutine assemble_tiles_r0d_idx
+end subroutine distrib_tile_data_r0d_idx
 
-subroutine assemble_tiles_r0d_ij(fptr,n,m,idx,data)
+subroutine distrib_tile_data_r0d_ij(fptr,n,m,idx,data)
   procedure(fptr_r0ij):: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: n,m ! additional index arguments for fptr
   integer, intent(in) :: idx(:)  ! local vector of tile indices
@@ -2336,14 +2309,13 @@ subroutine assemble_tiles_r0d_ij(fptr,n,m,idx,data)
 
 ! distribute the data over the tiles
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%ls,lnd%gs,lnd%ge, tileptr)
+     call get_tile_by_idx(idx(i), tileptr)
      call fptr(tileptr, n, m, ptr)
      if(associated(ptr)) ptr=data(i)
   enddo
-end subroutine assemble_tiles_r0d_ij
+end subroutine distrib_tile_data_r0d_ij
 
-subroutine assemble_tiles_i1d(fptr,idx,data)
+subroutine distrib_tile_data_i1d(fptr,idx,data)
   procedure(fptr_i0i) :: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: idx(:)  ! local vector of tile indices
   integer, intent(in) :: data(:,:) ! local tile data
@@ -2355,16 +2327,15 @@ subroutine assemble_tiles_i1d(fptr,idx,data)
 
 ! distribute the data over the tiles
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%ls,lnd%gs,lnd%ge, tileptr)
+     call get_tile_by_idx(idx(i), tileptr)
      do j = 1,size(data,2)
         call fptr(tileptr, j, ptr)
         if(associated(ptr)) ptr=data(i,j)
      enddo
   enddo
-end subroutine assemble_tiles_i1d
+end subroutine distrib_tile_data_i1d
 
-subroutine assemble_tiles_r1d(fptr,idx,data)
+subroutine distrib_tile_data_r1d(fptr,idx,data)
   procedure(fptr_r0i) :: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: idx(:)  ! local vector of tile indices
   real,    intent(in) :: data(:,:) ! local tile data
@@ -2376,16 +2347,15 @@ subroutine assemble_tiles_r1d(fptr,idx,data)
 
 ! distribute the data over the tiles
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%ls,lnd%gs,lnd%ge, tileptr)
+     call get_tile_by_idx(idx(i), tileptr)
      do j = 1,size(data,2)
         call fptr(tileptr, j, ptr)
         if(associated(ptr)) ptr=data(i,j)
      enddo
   enddo
-end subroutine assemble_tiles_r1d
+end subroutine distrib_tile_data_r1d
 
-subroutine assemble_tiles_r1d_idx(fptr,n,idx,data)
+subroutine distrib_tile_data_r1d_idx(fptr,n,idx,data)
   procedure(fptr_r0ij) :: fptr ! subroutine returning pointer to the data
   integer, intent(in) :: n ! additional index argument for fptr
   integer, intent(in) :: idx(:)  ! local vector of tile indices
@@ -2398,16 +2368,15 @@ subroutine assemble_tiles_r1d_idx(fptr,n,idx,data)
 
 ! distribute the data over the tiles
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%ls,lnd%gs,lnd%ge, tileptr)
+     call get_tile_by_idx(idx(i), tileptr)
      do j = 1,size(data,2)
         call fptr(tileptr, j, n, ptr)
         if(associated(ptr)) ptr=data(i,j)
      enddo
   enddo
-end subroutine assemble_tiles_r1d_idx
+end subroutine distrib_tile_data_r1d_idx
 
-subroutine assemble_tiles_r2d(fptr,idx,data)
+subroutine distrib_tile_data_r2d(fptr,idx,data)
   procedure(fptr_r0ij):: fptr ! subroutine returning the pointer to the data to be written
   integer, intent(in) :: idx(:)  ! local vector of tile indices
   real,    intent(in) :: data(:,:,:) ! local tile data
@@ -2419,8 +2388,7 @@ subroutine assemble_tiles_r2d(fptr,idx,data)
 
 ! distribute the data over the tiles
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%ls,lnd%gs,lnd%ge, tileptr)
+     call get_tile_by_idx(idx(i), tileptr)
      do k=1,size(data,2)
      do m=1,size(data,3)
         call fptr(tileptr, k, m, ptr)
@@ -2428,9 +2396,9 @@ subroutine assemble_tiles_r2d(fptr,idx,data)
      enddo
      enddo
   enddo
-end subroutine assemble_tiles_r2d
+end subroutine distrib_tile_data_r2d
 
-subroutine assemble_tiles_r2d_idx(fptr,n,idx,data)
+subroutine distrib_tile_data_r2d_idx(fptr,n,idx,data)
   procedure(fptr_r0ijk) :: fptr ! subroutine returning the pointer to the data
   integer, intent(in) :: n ! additional index argument for fptr
   integer, intent(in) :: idx(:)  ! local vector of tile indices
@@ -2443,8 +2411,7 @@ subroutine assemble_tiles_r2d_idx(fptr,n,idx,data)
 
 ! distribute the data over the tiles
   do i = 1, size(idx)
-     call get_tile_by_idx(idx(i),lnd%nlon,lnd%nlat,land_tile_map,&
-                          lnd%ls,lnd%gs,lnd%ge, tileptr)
+     call get_tile_by_idx(idx(i), tileptr)
      do k=1,size(data,2)
      do m=1,size(data,3)
         call fptr(tileptr, k, m, n, ptr)
@@ -2452,7 +2419,7 @@ subroutine assemble_tiles_r2d_idx(fptr,n,idx,data)
      enddo
      enddo
   enddo
-end subroutine assemble_tiles_r2d_idx
+end subroutine distrib_tile_data_r2d_idx
 
 ! ============================================================================
 subroutine override_tile_data_r0d_fptr(fieldname,fptr,time,override)

@@ -75,8 +75,7 @@ subroutine READ_0D_FPTR(ncid,name,fptr,rec)
      
      ! distribute data over cohorts
      do i = 1, size(idx)
-        call get_cohort_by_idx ( idx(i), lnd%nlon, lnd%nlat, ntiles,&
-             land_tile_map, lnd%ls, lnd%gs, lnd%ge, cohort)
+        call get_cohort_by_idx ( idx(i), ntiles, cohort)
         if (associated(cohort)) then
            call fptr(cohort, ptr)
            if(associated(ptr)) ptr = data(i)
@@ -143,7 +142,7 @@ subroutine WRITE_0D(ncid,name,data,long_name,units,record)
      __NF_ASRT__(nfu_put_rec(ncid,name,record_,buffer))
      deallocate(buffer)
   endif
-  ! wait for all PEs to finish: necessary because mpp_send doesn't seem to 
+  ! wait for all PEs to finish: necessary because mpp_send does not seem to 
   ! copy the data, and therefore on non-root io_domain PE there would be a chance
   ! that the data and mask are destroyed before they are actually sent.
   call mpp_sync()
