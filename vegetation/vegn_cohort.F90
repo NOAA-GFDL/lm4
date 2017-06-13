@@ -1,5 +1,5 @@
 module vegn_cohort_mod
-
+#include "../shared/debug.inc"
 use constants_mod, only: PI
 
 use land_constants_mod, only: NBANDS, mol_h2o, mol_air
@@ -109,6 +109,7 @@ type :: vegn_cohort_type
   !#### MODIFIED BY PPG 2016-12-01
   real :: Anlayer_acm = 0.0
   real :: bl_previous = 0.0
+  real :: lai_light_max = 0.0
 
   ! used in fast time scale calculations
   real :: npp_previous_day     = 0.0
@@ -516,9 +517,14 @@ end subroutine update_bio_living_fraction
 ! ============================================================================
 ! redistribute living biomass pools in a given cohort, and update related
 ! properties (height, lai, sai)
-subroutine update_biomass_pools(c)
+subroutine update_biomass_pools(c, update_bl)
   type(vegn_cohort_type), intent(inout) :: c
+  logical, intent(in), optional :: update_bl
 
+  logical :: update_bl_
+  update_bl_ = .false.
+  if (present(update_bl)) update_bl_ = update_bl
+  
   c%b      = c%bliving + c%bwood;
   c%height = height_from_biomass(c%b);
   call update_bio_living_fraction(c);
@@ -530,16 +536,16 @@ subroutine update_biomass_pools(c)
   else
      c%blv = 0
      c%br  = c%Pr*c%bliving
-     if (use_light_saber .and. c%Anlayer_acm<=0 .and. c%bl_previous>0) then
-        c%bl  = max(min(c%bl_previous,c%Pl*c%bliving),0.0)
+     if (use_light_saber.and.c%bl_previous>0) then
+        if ( c%Anlayer_acm<0 ) then
+           c%bl  = max(min(c%bl_previous,c%Pl*c%bliving),0.0)
+        else 
+           if (update_bl_) c%bl  = c%bl + (c%bliving*c%Pl-c%bl)*0.05 ! dt/tau
+           !__DEBUG3__(c%bl,c%bliving*c%Pl,(c%bliving*c%Pl-c%bl)*0.1)
+        endif
         c%bsw = c%Psw*c%bliving + c%Pl*c%bliving - c%bl
      else
-     	if (use_light_saber .and. c%Anlayer_acm>0 .and. c%bl_previous<c%Pl*c%bliving) then
-     		c%bl  = 0.75*c%Pl*c%bliving
-     		c%bsw = c%Psw*c%bliving + c%Pl*c%bliving - c%bl
-     	else
-        	c%bl  = c%Pl*c%bliving
-        endif
+        c%bl  = c%Pl*c%bliving
      endif
   endif
   c%lai = lai_from_biomass(c%bl,c%species)
