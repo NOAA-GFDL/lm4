@@ -331,7 +331,7 @@ subroutine vegn_growth (vegn)
              cc%bwood = 0 ! in principle, that's not conserving carbon
      endif
 
-     call update_biomass_pools(cc)
+     call update_biomass_pools(cc,.true.)
      cc%root_density = (cc%br + &
             (cc%bsw+cc%bwood+cc%blv)*(1-agf_bs))*C2B
      cc%Wl_max = spdata(cc%species)%cmc_lai*cc%lai

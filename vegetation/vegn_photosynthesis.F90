@@ -434,7 +434,11 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
            layer_light=par_net*(exp(-kappa*lai)-exp(-kappa*(lai+layer)))/(1-exp(-(lai+layer)*kappa))
            !write(*,*) 'layer light', layer_light
            Ag_layer= spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * layer_light
-           Anlayer=((Ag_layer-spdata(pft)%gamma_resp*vm*(layer))/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE)))))/0.01
+           if (Kok_effect .and. layer_light > light_kok) then
+              Anlayer=((Ag_layer-((1-Inib_factor)*spdata(pft)%gamma_resp*vm*(layer)))/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE)))))/0.01
+           else
+              Anlayer=((Ag_layer-spdata(pft)%gamma_resp*vm*(layer))/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE)))))/0.01
+           endif
 
 
            if(anbar>0.0) then
@@ -465,7 +469,11 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
            layer_light=par_net*(exp(-kappa*lai)-exp(-kappa*(lai+layer)))/(1-exp(-(lai+layer)*kappa))
            !write(*,*) 'layer light', layer_light
            Ag_layer= spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * layer_light
-           Anlayer=((Ag_layer-spdata(pft)%gamma_resp*vm*(layer))/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE)))))/0.01
+           if (Kok_effect .and. layer_light > light_kok) then
+              Anlayer=((Ag_layer-((1-Inib_factor)*spdata(pft)%gamma_resp*vm*(layer)))/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE)))))/0.01
+           else
+              Anlayer=((Ag_layer-spdata(pft)%gamma_resp*vm*(layer))/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE)))))/0.01
+           endif
 
            select case (vegn_resp_option)
            case(VEGN_RESP_LM3)

@@ -35,11 +35,11 @@ use land_tile_io_mod, only: land_restart_type, &
      add_restart_axis, add_tile_data, add_int_tile_data, add_scalar_data, &
      get_tile_data, get_int_tile_data, field_exists
 
-use vegn_data_mod, only : SP_C4GRASS, LEAF_ON, LU_NTRL, read_vegn_data_namelist, &
+use vegn_data_mod, only : SP_C4GRASS, LEAF_ON, LU_NTRL, spdata, read_vegn_data_namelist, &
      tau_drip_l, tau_drip_s, T_transp_min, cold_month_threshold, soil_carbon_depth_scale, &
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
      N_HARV_POOLS, HARV_POOL_NAMES, HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, &
-     HARV_POOL_WOOD_FAST, HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, agf_bs
+     HARV_POOL_WOOD_FAST, HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, CMPT_LEAF, agf_bs
 use vegn_cohort_mod, only : vegn_cohort_type, &
      vegn_data_heat_capacity, vegn_data_intrcptn_cap, update_species,&
      get_vegn_wet_frac, vegn_data_cover
@@ -1366,6 +1366,7 @@ subroutine update_vegn_slow( )
   integer :: i,j,k,l ! current point indices
   integer :: ii ! pool iterator
   integer :: n ! number of cohorts
+  integer :: sp
   real    :: weight_ncm ! low-pass filter value for the number of cold months
   character(64) :: timestamp
 
@@ -1373,6 +1374,8 @@ subroutine update_vegn_slow( )
   real :: lmass0, fmass0, heat0, cmass0
   real :: lmass1, fmass1, heat1, cmass1
   character(64) :: tag
+
+  real, parameter :: day = 1/365.0
 
   ! get components of calendar dates for this and previous time step
   call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
@@ -1461,6 +1464,10 @@ subroutine update_vegn_slow( )
         call send_tile_data(id_wdgain,sum(tile%vegn%cohorts(1:n)%bwood_gain),tile%diag)
         call send_tile_data(id_bl_previous, tile%vegn%cohorts(1)%bl, tile%diag)
         tile%vegn%cohorts(1)%bl_previous=tile%vegn%cohorts(1)%bl
+        do i = 1,n
+            sp = tile%vegn%cohorts(i)%species
+            tile%vegn%cohorts(i)%bl_previous=tile%vegn%cohorts(i)%bl*(1-spdata(sp)%alpha(CMPT_LEAF)*day)
+        enddo
         !write(*,*) 'Anlayer_acm', tile%vegn%cohorts(1)%Anlayer_acm, 'bl_prev', tile%vegn%cohorts(1)%bl
         call vegn_growth(tile%vegn)
         call vegn_nat_mortality(tile%vegn,tile%soil,86400.0)
