@@ -166,8 +166,8 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
    id_t_ann, id_t_cold, id_p_ann, id_ncm, &
    id_lambda, id_afire, id_atfall, id_closs, id_cgain, id_wdgain, id_leaf_age, &
    id_phot_co2, id_theph, id_psiph, id_evap_demand, &
-   id_lai_kok, id_Anlayer, id_Anlayer_acm, id_bl_previous !Modified PPG-2016-11-29
-
+   id_lai_kok, id_Anlayer, id_Anlayer_acm, id_bl_previous, id_bl_target, & !Modified PPG-2016-11-29
+   id_lai_light, id_lai_light_max !Modified PPG-2017-06-08
 ! CMOR variables
 integer :: id_cProduct, id_cAnt, &
    id_fFire, id_fGrazing, id_fHarvest, id_fLuc, &
@@ -280,6 +280,9 @@ subroutine vegn_init(id_ug,id_band)
         call get_cohort_data(restart2, 'Anlayer_acm', cohort_Anlayer_acm_ptr )
      if (field_exists(restart2,'bl_previous')) &
         call get_cohort_data(restart2, 'bl_previous', cohort_bl_previous_ptr )
+     if (field_exists(restart2,'lai_light_max')) &
+        call get_cohort_data(restart2, 'lai_light_max', cohort_lai_light_max_ptr )
+
 
      ! read global variables
      call fms_io_unstructured_read(restart2%basename, &
@@ -422,6 +425,7 @@ subroutine vegn_init(id_ug,id_band)
      !#### MODIFIED BY PPG 2016-12-01
      cohort%Anlayer_acm = 0.0
      cohort%bl_previous = 0.0
+     cohort%lai_light_max = 0.0
 
      if(did_read_biodata.and.do_biogeography) then
         call update_species(cohort,t_ann(l),t_cold(l),p_ann(l),ncm(l),LU_NTRL)
@@ -534,9 +538,17 @@ subroutine vegn_diag_init(id_ug,id_band,time)
   id_Anlayer_acm = register_tiled_diag_field ( module_name, 'Anlayer_acm',  &
        (/id_ug/), time, 'Cumulative Net photosynthesis for LAI layer', '(mol CO2)(m2 of leaf)^-1 year^-1', missing_value=-1.0 )
   id_Anlayer= register_tiled_diag_field ( module_name, 'Anlayer',  &
-       (/id_ug/), time, 'Anet from LAI Layer', 'm2/m2', missing_value=-1.0 )
+       (/id_ug/), time, 'Anet from LAI Layer', '(mol CO2)(m2 of leaf)^-1 year^-1', missing_value=-1.0 )
   id_bl_previous = register_tiled_diag_field ( module_name, 'bl_previous',  &
-       (/id_ug/), time, 'leaf biomass from previous day', 'm2/m2', missing_value=-1.0 )
+       (/id_ug/), time, 'leaf biomass from previous day', 'kg/m2', missing_value=-1.0 )
+  id_bl_target = register_tiled_diag_field ( module_name, 'bl_target',  &
+       (/id_ug/), time, 'target leaf biomass', 'kg/m2', missing_value=-1.0 )
+
+  !Modified from PPG-2017-06-08
+  id_lai_light = register_tiled_diag_field ( module_name, 'lai_light',  &
+       (/id_ug/), time, 'leaf area index lower section', 'm2/m2', missing_value=-1.0 )
+  id_lai_light_max = register_tiled_diag_field ( module_name, 'lai_light_max',  &
+       (/id_ug/), time, 'daily max leaf area index lower section', 'm2/m2', missing_value=-1.0 )
 
   id_bl = register_tiled_diag_field ( module_name, 'bl',  &
        (/id_ug/), time, 'biomass of leaves', 'kg C/m2', missing_value=-1.0 )
@@ -797,6 +809,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   !#### MODIFIED BY PPG 2016-12-01
   call add_cohort_data(restart2, 'Anlayer_acm', cohort_Anlayer_acm_ptr,  ' Cumulative Net Photosynthesis for new Lai layer', 'kg C/(m2 year)')
   call add_cohort_data(restart2, 'bl_previous', cohort_bl_previous_ptr, 'Previous leaf biomass','kg C/(m2 year)')
+  call add_cohort_data(restart2,'lai_light_max',cohort_lai_light_max_ptr, 'max LAI for positive net photosynthesis', 'm2/m2')
 
   call add_cohort_data(restart2,'npp_prev_day', cohort_npp_previous_day_ptr, 'previous day NPP','kg C/(m2 year)')
 
@@ -964,7 +977,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
        evap_demand, & ! evaporative water demand, kg/(m2 s)
        photosynt, & ! photosynthesis
        photoresp, &    ! photo-respiration
-       lai_kok, Anlayer
+       lai_kok, Anlayer, lai_light
   real :: litter_fast_C, litter_slow_C, litter_deadmic_C ! For rav_lit calculations
   type(vegn_cohort_type), pointer :: cohort
 
@@ -1031,10 +1044,11 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
      SWdn(BAND_VIS), RSv(BAND_VIS), cana_q, phot_co2, p_surf, drag_q, &
      soil_beta, soil_water_supply, &
      evap_demand, stomatal_cond, photosynt, photoresp, &
-     lai_kok, Anlayer) !#### MODIFIED BY PPG 2016-12-01
+     lai_kok, Anlayer, lai_light) !#### MODIFIED BY PPG 2016-12-01
 
   !#### MODIFIED BY PPG 2016-12-01
   cohort%Anlayer_acm = cohort%Anlayer_acm + Anlayer
+  cohort%lai_light_max = max(0., max(cohort%lai_light_max,lai_light))
 
   !write(*,*) 'Anlayer', Anlayer, 'Anlayer_acm', cohort%Anlayer_acm
 
@@ -1144,6 +1158,8 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   call send_tile_data(id_con_v_h, con_v_h, diag)
   call send_tile_data(id_con_v_v, con_v_v, diag)
   call send_tile_data(id_phot_co2, phot_co2, diag)
+  call send_tile_data(id_lai_light, lai_light, diag) !Modified by PPG 2017-06-08
+  call send_tile_data(id_lai_light_max, cohort%lai_light_max, diag)
   call send_tile_data(id_lai_kok, lai_kok, diag)
   call send_tile_data(id_Anlayer, Anlayer, diag)
   call send_tile_data(id_Anlayer_acm, cohort%Anlayer_acm, diag)
@@ -1366,7 +1382,6 @@ subroutine update_vegn_slow( )
   integer :: i,j,k,l ! current point indices
   integer :: ii ! pool iterator
   integer :: n ! number of cohorts
-  integer :: sp
   real    :: weight_ncm ! low-pass filter value for the number of cold months
   character(64) :: timestamp
 
@@ -1375,7 +1390,8 @@ subroutine update_vegn_slow( )
   real :: lmass1, fmass1, heat1, cmass1
   character(64) :: tag
 
-  real, parameter :: day = 1/365.0
+  real, parameter :: day = 1.0/365.0 ! one day (time step of some processes) in units of years
+  integer :: sp ! species
 
   ! get components of calendar dates for this and previous time step
   call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
@@ -1463,7 +1479,7 @@ subroutine update_vegn_slow( )
         call send_tile_data(id_closs,sum(tile%vegn%cohorts(1:n)%carbon_loss),tile%diag)
         call send_tile_data(id_wdgain,sum(tile%vegn%cohorts(1:n)%bwood_gain),tile%diag)
         call send_tile_data(id_bl_previous, tile%vegn%cohorts(1)%bl, tile%diag)
-        tile%vegn%cohorts(1)%bl_previous=tile%vegn%cohorts(1)%bl
+        call send_tile_data(id_bl_target, tile%vegn%cohorts(1)%bliving*tile%vegn%cohorts(1)%Pl, tile%diag)
         do i = 1,n
             sp = tile%vegn%cohorts(i)%species
             tile%vegn%cohorts(i)%bl_previous=tile%vegn%cohorts(i)%bl*(1-spdata(sp)%alpha(CMPT_LEAF)*day)
@@ -1472,6 +1488,7 @@ subroutine update_vegn_slow( )
         call vegn_growth(tile%vegn)
         call vegn_nat_mortality(tile%vegn,tile%soil,86400.0)
         tile%vegn%cohorts(1)%Anlayer_acm = 0.0
+        tile%vegn%cohorts(1)%lai_light_max = 0.0
 !         call send_tile_data(id_lai, tile%vegn%cohorts(1)%lai, tile%diag)
 !         call send_tile_data(id_sai, tile%vegn%cohorts(1)%sai, tile%diag)
 !         call send_tile_data(id_Anlayer_acm, tile%vegn%cohorts(1)%Anlayer_acm, tile%diag)
@@ -1775,6 +1792,7 @@ DEFINE_COHORT_ACCESSOR(real,npp_previous_day)
 !#### MODIFIED BY PPG 2016-12-01
 DEFINE_COHORT_ACCESSOR(real, Anlayer_acm)
 DEFINE_COHORT_ACCESSOR(real, bl_previous)
+DEFINE_COHORT_ACCESSOR(real,lai_light_max)
 
 DEFINE_COHORT_ACCESSOR(real,tv)
 DEFINE_COHORT_ACCESSOR(real,wl)
