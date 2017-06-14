@@ -69,12 +69,15 @@ real, public, protected :: co2_for_photosynthesis = 350.0e-6 ! concentration of 
    ! photosynthesis calculations, mol/mol. Ignored if co2_to_use_for_photosynthesis is
    ! not 'prescribed'
 
+real :: lai_eps = 0.0 ! threshold for switching to linear approximation for Ag_l
+
 namelist /photosynthesis_nml/ &
     photosynthesis_to_use, respiration_to_use, &
     Kok_effect, light_kok, Inib_factor, &
     TmaxP, ToptP,  tshrP, tshlP, &
     TmaxR, ToptR,  tshrR, tshlR, &
-    co2_to_use_for_photosynthesis, co2_for_photosynthesis
+    co2_to_use_for_photosynthesis, co2_for_photosynthesis, &
+    lai_eps
 
 integer, public, protected :: vegn_phot_co2_option = -1 ! selector of co2 option used for photosynthesis
 
@@ -412,8 +415,15 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
            lai_eq = min(max(0.0,lai_eq),lai) ! limit lai_eq to physically possible range
 
            ! gross photosynthesis for light-limited part of the canopy
-           Ag_l   = spdata(pft)%alpha_phot * par_net &
-                * (exp(-lai_eq*kappa)-exp(-lai*kappa))/(1-exp(-lai*kappa))
+           if (lai>lai_eps) then
+              Ag_l = spdata(pft)%alpha_phot * par_net &
+                   * (exp(-lai_eq*kappa)-exp(-lai*kappa))/(1-exp(-lai*kappa))
+           else
+              ! approximation for very small LAI: needed because the general formula above
+              ! produces division by zero if LAI is very close to zero
+              Ag_l = spdata(pft)%alpha_phot * par_net &
+                   * (lai-lai_eq)/lai
+           endif
            ! gross photosynthesis for rubisco-limited part of the canopy
            Ag_rb  = dum2*lai_eq
 
@@ -459,8 +469,15 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
            lai_eq = min(max(0.0,lai_eq),lai) ! limit lai_eq to physically possible range
 
            ! gross photosynthesis for light-limited part of the canopy
-           Ag_l   = spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * par_net &
-                * (exp(-lai_eq*kappa)-exp(-lai*kappa))/(1-exp(-lai*kappa))
+           if (lai>lai_eps) then
+              Ag_l = spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * par_net &
+                   * (exp(-lai_eq*kappa)-exp(-lai*kappa))/(1-exp(-lai*kappa))
+           else
+              ! approximation for very small LAI: needed because the general formula above
+              ! produces division by zero if LAI is very close to zero
+              Ag_l = spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * par_net &
+                   * (lai-lai_eq)/lai
+           endif
            ! gross photosynthesis for rubisco-limited part of the canopy
            Ag_rb  = dum2*lai_eq
 
