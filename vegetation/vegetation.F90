@@ -1478,8 +1478,8 @@ subroutine update_vegn_slow( )
         call send_tile_data(id_cgain,sum(tile%vegn%cohorts(1:n)%carbon_gain),tile%diag)
         call send_tile_data(id_closs,sum(tile%vegn%cohorts(1:n)%carbon_loss),tile%diag)
         call send_tile_data(id_wdgain,sum(tile%vegn%cohorts(1:n)%bwood_gain),tile%diag)
-        call send_tile_data(id_bl_previous, tile%vegn%cohorts(1)%bl, tile%diag)
-        call send_tile_data(id_bl_target, tile%vegn%cohorts(1)%bliving*tile%vegn%cohorts(1)%Pl, tile%diag)
+        call send_tile_data(id_bl_previous, sum(tile%vegn%cohorts(1:n)%bl), tile%diag)
+        call send_tile_data(id_bl_target, sum(tile%vegn%cohorts(1:n)%bliving*tile%vegn%cohorts(:)%Pl), tile%diag)
         do i = 1,n
             sp = tile%vegn%cohorts(i)%species
             tile%vegn%cohorts(i)%bl_previous=tile%vegn%cohorts(i)%bl*(1-spdata(sp)%alpha(CMPT_LEAF)*day)

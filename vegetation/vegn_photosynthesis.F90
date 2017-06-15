@@ -451,6 +451,10 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
            An=Ag-Resp;
            anbar=An/lai;
 
+           if(anbar>0.0) then
+               gsbar=anbar/(ci-capgam)/coef0;
+           endif
+
            !#### MODIFIED BY PPG 2016-12-01
            !Calculate the amount of light reaching a fine extra layer of leaves
            layer_light=par_net*(exp(-kappa*lai)-exp(-kappa*(lai+layer)))/(1-exp(-(lai+layer)*kappa))
@@ -459,13 +463,9 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
 
            !Calculate Net Photosynthesis in the layer
            if (Kok_effect .and. layer_light > light_kok) then
-                Anlayer=((Ag_layer/TempFuncP-((1-Inib_factor)*spdata(pft)%gamma_resp*vm*(layer))/TempFuncR))/dLAI
+              Anlayer=(Ag_layer/TempFuncP-(1-Inib_factor)*spdata(pft)%gamma_resp*vm*layer/TempFuncR)/dLAI
            else
-                Anlayer=((Ag_layer/TempFuncP-spdata(pft)%gamma_resp*vm*(layer))/TempFuncR)/dLAI
-           endif
-
-           if(anbar>0.0) then
-               gsbar=anbar/(ci-capgam)/coef0;
+              Anlayer=(Ag_layer/TempFuncP-spdata(pft)%gamma_resp*vm*layer/TempFuncR)/dLAI
            endif
         endif ! ci>capgam
      else ! C3 species
@@ -508,6 +508,10 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
            An=Ag-Resp;
            anbar=An/lai;
 
+           if(anbar>0.0) then
+               gsbar=anbar/(ci-capgam)/coef0;
+           endif
+
            !#### MODIFIED BY PPG 2016-12-01
            ! Calculate the amount of light reaching a fine extra layer of leaves
            layer_light=par_net*(exp(-kappa*lai)-exp(-kappa*(lai+layer)))/(1-exp(-(lai+layer)*kappa))
@@ -516,13 +520,9 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
 
            ! Calculate Net Photosynthesis in the layer
            if (Kok_effect .and. layer_light > light_kok) then
-                Anlayer=((Ag_layer/TempFuncP-((1-Inib_factor)*spdata(pft)%gamma_resp*vm*(layer))/TempFuncR))/dLAI
+              Anlayer=(Ag_layer/TempFuncP-(1-Inib_factor)*spdata(pft)%gamma_resp*vm*layer/TempFuncR)/dLAI
            else
-                Anlayer=((Ag_layer/TempFuncP-spdata(pft)%gamma_resp*vm*(layer))/TempFuncR)/dLAI
-           endif
-
-           if(anbar>0.0) then
-               gsbar=anbar/(ci-capgam)/coef0;
+              Anlayer=(Ag_layer/TempFuncP-spdata(pft)%gamma_resp*vm*layer/TempFuncR)/dLAI
            endif
         endif ! ci>capgam
      endif
