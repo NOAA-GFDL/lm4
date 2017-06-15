@@ -1184,7 +1184,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
   call get_watch_point(iwatch,jwatch,kwatch,face)
   if (face==lnd%sg_face.and.(lnd%is<=iwatch.and.iwatch<=lnd%ie).and.&
-                            (lnd%js<=jwatch.and.jwatch<=lnd%je)) then
+                            (lnd%js<=jwatch.and.jwatch<=lnd%je).and.&
+                            is_watch_time()) then
      __DEBUG1__(runoff_sg(iwatch,jwatch))
      __DEBUG1__(runoff_c_sg(iwatch,jwatch,:))
   endif
