@@ -345,14 +345,6 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   do1=0.09 ; ! kg/kg
   if (pft < 2) do1=0.15;
 
-  !######MODIFIED BY PPG 2016-12-05
-  TempFactP=(TmaxP-(tl-273.15))/(TmaxP-ToptP);
-  if (TempFactP < 0.) TempFactP=0.;
-
-  TempFactR=(TmaxR-(tl-273.15))/(TmaxR-ToptR);
-  if (TempFactR < 0.) TempFactR=0.;
-  !#########
-
   ! Convert Solar influx from W/(m^2s) to mol_of_quanta/(m^2s) PAR,
   ! empirical relationship from McCree is light=rn*0.0000046
   light_top = rad_top*rad_phot;
@@ -393,6 +385,11 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
      TempFuncR=(1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE)))
      TempFuncP=(1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE)))
   case(VEGN_RESP_GAUTHIER)
+     TempFactP=(TmaxP-(tl-TFREEZE))/(TmaxP-ToptP)
+     if (TempFactP < 0.) TempFactP=0.
+
+     TempFactR=(TmaxR-(tl-TFREEZE))/(TmaxR-ToptR)
+     if (TempFactR < 0.) TempFactR=0.
      TempFuncR=1/((TempFactR**tshrR)*exp((tshrR/tshlR)*(1.-(TempFactR**tshlR))))
      TempFuncP=1/((TempFactP**tshrP)*exp((tshrP/tshlP)*(1.-(TempFactP**tshlP))))
   end select
