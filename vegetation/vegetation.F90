@@ -17,22 +17,24 @@ use constants_mod,    only: tfreeze, rdgas, rvgas, hlv, hlf, cp_air, PI
 use sphum_mod, only: qscomp
 
 use vegn_tile_mod, only: vegn_tile_type, &
-     vegn_seed_demand, vegn_seed_supply, vegn_add_bliving, &
+     vegn_seed_demand, vegn_seed_supply, vegn_seed_N_supply, vegn_add_bliving, &
      vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa, &
      vegn_tile_LAI, vegn_tile_SAI, &
      cpw, clw, csw
 use soil_tile_mod, only: soil_tile_type, num_l, dz, zhalf, zfull, &
      soil_ave_temp, soil_ave_theta0, soil_ave_theta1, soil_psi_stress, &
-     N_LITTER_POOLS, LEAF, CWOOD, l_shortname, l_longname
+     N_LITTER_POOLS, LEAF, l_shortname, l_longname
 use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, mol_air, &
      seconds_per_year, MPa_per_m
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, loop_over_tiles, land_tile_heat, land_tile_carbon, get_tile_water
+     first_elmt, loop_over_tiles, current_tile, operator(/=), &
+     get_elmt_indices, land_tile_heat, land_tile_carbon, land_tile_nitrogen, &
+     get_tile_water
 use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, OP_MAX, OP_DOMINANT, &
      register_tiled_static_field, register_tiled_diag_field, &
      send_tile_data, diag_buff_type, register_cohort_diag_field, send_cohort_data, &
      set_default_diag_filter
-use land_data_mod,      only : lnd, log_version
+use land_data_mod, only : lnd, log_version
 use land_io_mod, only : read_field
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
@@ -40,24 +42,27 @@ use land_tile_io_mod, only: land_restart_type, &
      get_scalar_data, get_tile_data, get_int_tile_data, field_exists, &
      add_text_data, get_text_data
 use vegn_data_mod, only : read_vegn_data_namelist, &
-     LEAF_ON, LU_NTRL, nspecies, N_HARV_POOLS, HARV_POOL_NAMES, C2B, &
+     LEAF_ON, LU_NTRL, nspecies, C2B, &
      spdata, mcv_min, mcv_lai, agf_bs, tau_drip_l, tau_drip_s, T_transp_min, &
      do_ppa, cold_month_threshold, soil_carbon_depth_scale, &
-     fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time
-
+     fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
+     N_HARV_POOLS, HARV_POOL_NAMES, HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, &
+     HARV_POOL_WOOD_FAST, HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
+     c2n_N_fixer,C2N_SEED, N_limits_live_biomass
 use vegn_cohort_mod, only : vegn_cohort_type, &
      init_cohort_allometry_ppa, init_cohort_hydraulics, &
      update_species, update_bio_living_fraction, get_vegn_wet_frac, &
      vegn_data_cover, btotal, height_from_biomass, leaf_area_from_biomass, &
      cohort_root_properties
 use canopy_air_mod, only : cana_turbulence
-use soil_mod, only : soil_data_beta, get_soil_litter_C
+use soil_mod, only : soil_data_beta, get_soil_litter_C, redistribute_peat_carbon, &
+     register_litter_soilc_diag_fields
 
 use cohort_io_mod, only :  read_create_cohorts, create_cohort_dimension, &
      add_cohort_data, add_int_cohort_data, get_cohort_data, get_int_cohort_data
 use land_debug_mod, only : is_watch_point, set_current_point, check_temp_range, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, &
-     check_var_range
+     nitrogen_cons_tol, check_var_range
 use vegn_radiation_mod, only : vegn_radiation_init, vegn_radiation
 use vegn_photosynthesis_mod, only : vegn_photosynthesis_init, vegn_photosynthesis
 use static_vegn_mod, only : read_static_vegn_namelist, static_vegn_init, static_vegn_end, &
@@ -71,9 +76,10 @@ use vegn_disturbance_mod, only : vegn_nat_mortality_lm3, &
      vegn_disturbance, update_fuel
 use vegn_harvesting_mod, only : &
      vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting
-use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, N_C_TYPES, C_CEL, C_LIG, &
-     add_litter, poolTotalCarbon, cull_cohorts, c_shortname, c_longname
-use soil_mod, only : redistribute_peat_carbon
+use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, SOILC_CORPSE_N, &
+     N_C_TYPES, C_FAST, C_SLOW, c_shortname, c_longname, &
+     add_litter, soil_NH4_deposition, soil_NO3_deposition, soil_org_N_deposition, &
+     cull_cohorts
 
 implicit none
 private
@@ -121,6 +127,12 @@ real    :: init_cohort_blv(MAX_INIT_COHORTS)     = 0.0  ! initial biomass of lab
 real    :: init_cohort_br(MAX_INIT_COHORTS)      = 0.05 ! initial biomass of fine roots, kg C/individual
 real    :: init_cohort_bsw(MAX_INIT_COHORTS)     = 0.05 ! initial biomass of sapwood, kg C/individual
 real    :: init_cohort_bwood(MAX_INIT_COHORTS)   = 0.05 ! initial biomass of heartwood, kg C/individual
+real    :: init_cohort_bseed(MAX_INIT_COHORTS)   = 0.05 ! initial biomass of seeds, kg C/individual
+real    :: init_cohort_nsc(MAX_INIT_COHORTS)     = 0.0  ! initial non-structural biomass, kg C/individual
+real    :: init_cohort_myc_scav(MAX_INIT_COHORTS) = 0.0 ! initial scavenger mycorrhizal biomass, kgC/m2
+real    :: init_cohort_myc_mine(MAX_INIT_COHORTS) = 0.0 ! initial miner mycorrhizal biomass, kgC/m2
+real    :: init_cohort_n_fixer(MAX_INIT_COHORTS)  = 0.0 ! initial N fixer microbe biomass, kgC/m2
+real    :: init_cohort_stored_N_mult(MAX_INIT_COHORTS) = 1.5 ! Multiple of initial leaf N + root N
 real    :: init_cohort_age(MAX_INIT_COHORTS)     = 0.0  ! initial cohort age, year
 real    :: init_cohort_height(MAX_INIT_COHORTS)  = 0.1  ! initial cohort height, m
 real    :: init_cohort_nsc_frac(MAX_INIT_COHORTS)= 3.0  ! initial cohort NSC, as fraction of max. bl
@@ -168,7 +180,10 @@ namelist /vegn_nml/ &
     lm2, init_Wl, init_Ws, init_Tv, cpw, clw, csw, &
     init_n_cohorts, init_cohort_species, init_cohort_nindivs, &
     init_cohort_bl, init_cohort_blv, init_cohort_br, init_cohort_bsw, &
-    init_cohort_bwood, init_cohort_height, &
+    init_cohort_bwood, init_cohort_bseed, init_cohort_nsc, &
+    init_cohort_height, &
+    init_cohort_myc_scav, init_cohort_myc_mine, init_cohort_n_fixer, &
+    init_cohort_stored_N_mult, &
     rad_to_use, snow_rad_to_use, photosynthesis_to_use, &
     co2_to_use_for_photosynthesis, co2_for_photosynthesis, &
     water_stress_to_use, hydraulics_repair, &
@@ -195,15 +210,17 @@ integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_leaf_emis, id_snow_crit, id_stomatal, &
    id_an_op, id_an_cl,&
    id_bl, id_blv, id_br, id_bsw, id_bwood, id_bseed, id_btot, id_nsc, id_bl_max, id_br_max, &
+   id_leaf_N,id_root_N,id_wood_N,id_sapwood_N,id_seed_N,id_stored_N,id_veg_total_N,id_Ngain,id_Nloss,&
+   id_myc_scavenger_C,id_myc_miner_C,id_N_fixer_C,&
+   id_myc_scavenger_N,id_myc_miner_N,id_N_fixer_N,&
    id_species, id_dominant_by_n, id_dominant_by_b, id_status, &
-   id_con_v_h, id_con_v_v, id_fuel, id_harv_pool(N_HARV_POOLS), &
+   id_con_v_h, id_con_v_v, id_fuel, id_harv_pool(N_HARV_POOLS), id_harv_pool_nitrogen(N_HARV_POOLS), &
    id_harv_rate(N_HARV_POOLS), id_t_harv_pool, id_t_harv_rate, &
-   id_csmoke_pool, id_csmoke_rate, id_fsc_in, id_fsc_out, id_ssc_in, &
+   id_csmoke_pool, id_nsmoke_pool, id_csmoke_rate, id_fsc_in, id_fsc_out, id_ssc_in, &
    id_ssc_out, id_deadmic_in, id_deadmic_out, id_veg_in, id_veg_out, &
+   id_tile_nitrogen_gain, id_tile_nitrogen_loss, &
    id_fsc_pool_ag, id_fsc_rate_ag, id_fsc_pool_bg, id_fsc_rate_bg,&
    id_ssc_pool_ag, id_ssc_rate_ag, id_ssc_pool_bg, id_ssc_rate_bg,&
-   id_leaflitter_buffer_ag,      id_coarsewoodlitter_buffer_ag, &
-   id_leaflitter_buffer_rate_ag, id_coarsewoodlitter_buffer_rate_ag, &
    id_t_ann, id_t_cold, id_p_ann, id_ncm, &
    id_lambda, id_afire, id_atfall, id_closs, id_cgain, id_wdgain, id_leaf_age, &
    id_phot_co2, id_theph, id_psiph, id_evap_demand, &
@@ -213,6 +230,13 @@ integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_crownarea, &
    id_soil_water_supply, id_gdd, id_tc_pheno, id_zstar_1, &
    id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi
+integer, dimension(N_LITTER_POOLS, N_C_TYPES) :: &
+   id_litter_buff_C, id_litter_buff_N, &
+   id_litter_rate_C, id_litter_rate_N
+! CMOR variables
+integer :: id_lai_cmor, id_btot_cmor, id_cproduct, &
+   id_fFire, id_fGrazing, id_fHarvest, id_fLuc, &
+   id_cLeaf, id_cWood, id_cRoot, id_cMisc
 ! ==== end of module variables ===============================================
 
 contains
@@ -383,11 +407,32 @@ subroutine vegn_init ( id_ug, id_band )
         did_read_cohort_structure=.FALSE.
      endif
 
-     call get_cohort_data(restart2, 'bliving', cohort_bliving_ptr )
-     call get_int_cohort_data(restart2, 'status', cohort_status_ptr )
+     call get_cohort_data(restart2, 'scav_myc_C_reservoir', cohort_scav_myc_C_reservoir_ptr)
+     call get_cohort_data(restart2, 'scav_myc_N_reservoir', cohort_scav_myc_N_reservoir_ptr)
+     call get_cohort_data(restart2, 'mine_myc_C_reservoir', cohort_mine_myc_C_reservoir_ptr)
+     call get_cohort_data(restart2, 'mine_myc_N_reservoir', cohort_mine_myc_N_reservoir_ptr)
+     call get_cohort_data(restart2, 'N_fixer_C_reservoir', cohort_N_fixer_C_reservoir_ptr)
+     call get_cohort_data(restart2, 'N_fixer_N_reservoir', cohort_N_fixer_N_reservoir_ptr)
+
+     call get_cohort_data(restart2, 'bliving', cohort_bliving_ptr)
+     call get_int_cohort_data(restart2, 'status', cohort_status_ptr)
      if(field_exists(restart2,'leaf_age')) &
           call get_cohort_data(restart2,'leaf_age',cohort_leaf_age_ptr)
      call get_cohort_data(restart2, 'npp_prev_day', cohort_npp_previous_day_ptr )
+
+     call get_cohort_data(restart2, 'myc_scavenger_biomass_C', cohort_myc_scavenger_biomass_C_ptr )
+     call get_cohort_data(restart2, 'myc_scavenger_biomass_N', cohort_myc_scavenger_biomass_N_ptr )
+     call get_cohort_data(restart2, 'myc_miner_biomass_C', cohort_myc_miner_biomass_C_ptr )
+     call get_cohort_data(restart2, 'myc_miner_biomass_N', cohort_myc_miner_biomass_N_ptr )
+     call get_cohort_data(restart2, 'N_fixer_biomass_C', cohort_N_fixer_biomass_C_ptr )
+     call get_cohort_data(restart2, 'N_fixer_biomass_N', cohort_N_fixer_biomass_N_ptr )
+     call get_cohort_data(restart2, 'cohort_stored_N', cohort_stored_N_ptr )
+     call get_cohort_data(restart2, 'cohort_leaf_N', cohort_leaf_N_ptr )
+     call get_cohort_data(restart2, 'cohort_wood_N', cohort_wood_N_ptr )
+     call get_cohort_data(restart2, 'cohort_sapwood_N', cohort_sapwood_N_ptr )
+     call get_cohort_data(restart2, 'cohort_root_N', cohort_root_N_ptr )
+     call get_cohort_data(restart2, 'cohort_total_N', cohort_total_N_ptr )
+     call get_cohort_data(restart2, 'nitrogen_stress', cohort_nitrogen_stress_ptr )
 
      if(field_exists(restart2,'landuse')) &
           call get_int_tile_data(restart2,'landuse',vegn_landuse_ptr)
@@ -403,12 +448,8 @@ subroutine vegn_init ( id_ug, id_band )
         call get_tile_data(restart2,'ssc_rate_bg',vegn_ssc_rate_bg_ptr)
         do j = 1,N_LITTER_POOLS
            do i = 1,N_C_TYPES-1 ! "-1" excludes deadmic (which is currently always 0) from restarts
-              ! TODO: this check is only temporary, to be able to use spun-up ens restarts.
-              ! Should be removed eventually.
-              if (field_exists(restart2,trim(l_shortname(j))//'litter_buffer_'//c_shortname(i))) then
-                 call get_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_'//c_shortname(i),vegn_litter_buff_C_ptr,i,j)
-                 call get_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_rate_'//c_shortname(i),vegn_litter_rate_C_ptr,i,j)
-              endif
+              call get_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_'//c_shortname(i),vegn_litter_buff_C_ptr,i,j)
+              call get_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_rate_'//c_shortname(i),vegn_litter_rate_C_ptr,i,j)
            enddo
         enddo
      else
@@ -450,12 +491,16 @@ subroutine vegn_init ( id_ug, id_band )
           call get_tile_data(restart2,'csmoke_pool',vegn_csmoke_pool_ptr)
      if(field_exists(restart2,'csmoke_rate')) &
           call get_tile_data(restart2,'csmoke_rate',vegn_csmoke_rate_ptr)
+     if(field_exists(restart2,'nsmoke_pool')) &
+          call get_tile_data(restart2,'nsmoke_pool',vegn_nsmoke_pool_ptr)
      ! harvesting pools and rates
      do i = 1, N_HARV_POOLS
         if (field_exists(restart2,trim(HARV_POOL_NAMES(i))//'_harv_pool')) &
              call get_tile_data(restart2,trim(HARV_POOL_NAMES(i))//'_harv_pool',vegn_harv_pool_ptr,i)
         if (field_exists(restart2,trim(HARV_POOL_NAMES(i))//'_harv_rate')) &
              call get_tile_data(restart2,trim(HARV_POOL_NAMES(i))//'_harv_rate',vegn_harv_rate_ptr,i)
+        if (field_exists(restart2,trim(HARV_POOL_NAMES(i))//'_harv_pool_nitrogen')) &
+             call get_tile_data(restart2,trim(HARV_POOL_NAMES(i))//'_harv_pool_nitrogen',vegn_harv_pool_nitrogen_ptr,i)
      enddo
      ! read table of species names, if exists, and remap species as necessary
      call read_remap_species(restart2)
@@ -520,6 +565,17 @@ subroutine vegn_init ( id_ug, id_band )
         cc%br      = init_cohort_br(n)
         cc%bsw     = init_cohort_bsw(n)
         cc%bwood   = init_cohort_bwood(n)
+        cc%bseed   = init_cohort_bseed(n)
+        cc%nsc     = init_cohort_nsc(n)
+        cc%scav_myc_C_reservoir = 0.0
+        cc%scav_myc_N_reservoir = 0.0
+        cc%mine_myc_C_reservoir = 0.0
+        cc%mine_myc_N_reservoir = 0.0
+        cc%N_fixer_C_reservoir = 0.0
+        cc%N_fixer_N_reservoir = 0.0
+        cc%myc_scavenger_biomass_C = init_cohort_myc_scav(n)
+        cc%myc_miner_biomass_C = init_cohort_myc_mine(n)
+        cc%N_fixer_biomass_C = init_cohort_n_fixer(n)
         cc%nindivs = init_cohort_nindivs(n)
         cc%age     = init_cohort_age(n)
         cc%bliving = cc%bl+cc%br+cc%blv+cc%bsw
@@ -541,9 +597,22 @@ subroutine vegn_init ( id_ug, id_band )
         else
            cc%species = tile%vegn%tag
         endif
-        cc%K_r = spdata(cc%species)%root_perm
+        associate(sp=>spdata(cc%species))
+        cc%K_r        = sp%root_perm
+        cc%leaf_N     = (cc%bl+cc%blv)/sp%leaf_live_c2n
+        cc%wood_N     = cc%bwood/sp%wood_c2n
+        cc%sapwood_N  = cc%bsw/sp%sapwood_c2n
+        cc%root_N     = cc%br/sp%froot_live_c2n
+        cc%stored_N   = init_cohort_stored_N_mult(n)*(cc%leaf_N+cc%root_N)
+        cc%total_N    = cc%stored_N+cc%leaf_N+cc%wood_N+cc%root_N+cc%sapwood_N
+        cc%myc_scavenger_biomass_N = cc%myc_scavenger_biomass_C/sp%c2n_mycorrhizae
+        cc%myc_miner_biomass_N     = cc%myc_miner_biomass_C/sp%c2n_mycorrhizae
+        cc%N_fixer_biomass_N       = cc%N_fixer_biomass_C/c2n_N_fixer
+
+        cc%K_r        = sp%root_perm
         !__DEBUG1__(cc%age)
-        end associate
+        end associate ! sp
+        end associate ! cc
      enddo
   enddo
 
@@ -710,11 +779,39 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   id_nsc = register_cohort_diag_field ( module_name, 'nsc',  &
        (/id_ug/), time, 'biomass in non-structural pool', 'kg C/m2', missing_value=-1.0)
 
+  id_leaf_N = register_cohort_diag_field ( module_name, 'leaf_N',  &
+       (/id_ug/), time, 'nitrogen content of leaves', 'kg N/m2', missing_value=-1.0 )
+  id_root_N = register_cohort_diag_field ( module_name, 'root_N',  &
+       (/id_ug/), time, 'nitrogen content of fine roots', 'kg N/m2', missing_value=-1.0 )
+  id_wood_N = register_cohort_diag_field ( module_name, 'wood_N',  &
+       (/id_ug/), time, 'nitrogen content of wood', 'kg N/m2', missing_value=-1.0 )
+  id_sapwood_N = register_cohort_diag_field ( module_name, 'sapwood_N',  &
+       (/id_ug/), time, 'nitrogen content of sapwood', 'kg N/m2', missing_value=-1.0 )
+  id_stored_N = register_cohort_diag_field ( module_name, 'veg_stored_N',  &
+       (/id_ug/), time, 'veg nitrogen storage', 'kg N/m2', missing_value=-1.0 )
+  id_veg_total_N = register_cohort_diag_field ( module_name, 'veg_total_N',  &
+       (/id_ug/), time, 'veg total nitrogen', 'kg N/m2', missing_value=-1.0 )
+  id_seed_N = register_cohort_diag_field ( module_name, 'seed_N',  &
+       (/id_ug/), time, 'nitrogen content of seeds', 'kg N/m2', missing_value=-1.0)
+
+
+  id_myc_scavenger_C = register_cohort_diag_field ( module_name, 'myc_scavenger_biomass_C',  &
+       (/id_ug/), time, 'scavenger mycorrhizal biomass C', 'kg C/m2', missing_value=-1.0 )
+  id_myc_miner_C = register_cohort_diag_field ( module_name, 'myc_miner_biomass_C',  &
+       (/id_ug/), time, 'miner mycorrhizal biomass C', 'kg C/m2', missing_value=-1.0 )
+  id_N_fixer_C = register_cohort_diag_field ( module_name, 'N_fixer_biomass_C',  &
+       (/id_ug/), time, 'symbiotic N fixer biomass C', 'kg C/m2', missing_value=-1.0 )
+   id_myc_scavenger_N = register_cohort_diag_field ( module_name, 'myc_scavenger_biomass_N',  &
+        (/id_ug/), time, 'scavenger mycorrhizal biomass N', 'kg N/m2', missing_value=-1.0 )
+   id_myc_miner_N = register_cohort_diag_field ( module_name, 'myc_miner_biomass_N',  &
+        (/id_ug/), time, 'miner mycorrhizal biomass N', 'kg N/m2', missing_value=-1.0 )
+   id_N_fixer_N = register_cohort_diag_field ( module_name, 'N_fixer_biomass_N',  &
+        (/id_ug/), time, 'symbiotic N fixer biomass N', 'kg N/m2', missing_value=-1.0 )
+
   id_bl_max = register_cohort_diag_field ( module_name, 'bl_max',  &
        (/id_ug/), time, 'max biomass of leaves', 'kg C/m2', missing_value=-1.0)
   id_br_max = register_cohort_diag_field ( module_name, 'br_max',  &
        (/id_ug/), time, 'max biomass of fine roots', 'kg C/m2', missing_value=-1.0)
-
 
   id_fuel = register_tiled_diag_field ( module_name, 'fuel',  &
        (/id_ug/), time, 'mass of fuel', 'kg C/m2', missing_value=-1.0 )
@@ -753,6 +850,11 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   id_wdgain = register_tiled_diag_field ( module_name, 'wdgain', (/id_ug/), &
        time, 'wood biomass gain', 'kg C', missing_value=-100.0 )
 
+   id_Ngain = register_tiled_diag_field ( module_name, 'Ngain', (/id_ug/), &
+        time, 'nitrogen gain', 'kg N', missing_value=-100.0 )
+   id_Nloss = register_tiled_diag_field ( module_name, 'Nloss', (/id_ug/), &
+        time, 'nitrogen loss', 'kg N', missing_value=-100.0 )
+
   id_t_ann  = register_tiled_diag_field ( module_name, 't_ann', (/id_ug/), &
        time, 'annual mean temperature', 'degK', missing_value=-999.0 )
   id_t_cold  = register_tiled_diag_field ( module_name, 't_cold', (/id_ug/), &
@@ -775,7 +877,19 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
           trim(HARV_POOL_NAMES(i))//'_harv_rate', (/id_ug/), time, &
           'rate of release of harvested carbon to the atmosphere', 'kg C/(m2 year)', &
           missing_value=-999.0)
+     id_harv_pool_nitrogen(i) = register_tiled_diag_field( module_name, &
+           trim(HARV_POOL_NAMES(i))//'_harv_pool_nitrogen', (/id_ug/), time, &
+           'harvested nitrogen', 'kg N/m2', missing_value=-999.0)
   enddo
+
+  id_litter_buff_C(:,:) = register_litter_soilc_diag_fields(module_name, '<ltype>litter_buff_C_<ctype>', (/id_ug/), &
+       time, 'intermediate pool of <ltype> <ctype> litter carbon', 'kg C/m2', missing_value=-999.0)
+  id_litter_buff_N(:,:) = register_litter_soilc_diag_fields(module_name, '<ltype>litter_buff_C_<ctype>', (/id_ug/), &
+       time, 'intermediate pool of <ltype> <ctype> litter nitrogen', 'kg N/m2', missing_value=-999.0)
+  id_litter_rate_C(:,:) = register_litter_soilc_diag_fields(module_name, '<ltype>litter_rate_C_<ctype>', (/id_ug/), &
+       time, 'rate of conversion of <ltype> litter buffer to the <ctype> soil carbon', 'kg C/(m2 yr)', missing_value=-999.0)
+  id_litter_rate_N(:,:) = register_litter_soilc_diag_fields(module_name, '<ltype>litter_rate_C_<ctype>', (/id_ug/), &
+       time, 'rate of conversion of <ltype> litter buffer to the <ctype> soil carbon', 'kg C/(m2 yr)', missing_value=-999.0)
 
   id_fsc_pool_ag = register_tiled_diag_field (module_name, 'fsc_pool_ag', (/id_ug/), &
        time, 'intermediate pool of above-ground fast soil carbon', 'kg C/m2', missing_value=-999.0)
@@ -787,16 +901,7 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   id_ssc_rate_ag = register_tiled_diag_field (module_name, 'ssc_rate_ag', (/id_ug/), &
        time, 'rate of conversion of above-ground ssc_pool to the fast soil_carbon', 'kg C/(m2 yr)', &
        missing_value=-999.0)
-  id_leaflitter_buffer_ag = register_tiled_diag_field (module_name, 'leaflitter_buffer_ag', (/id_ug/), &
-       time, 'intermediate pool of leaf litter carbon', 'kg C/m2', missing_value=-999.0)
-  id_leaflitter_buffer_rate_ag = register_tiled_diag_field (module_name, 'leaflitter_buffer_rate_ag', (/id_ug/), &
-       time, 'rate of conversion of above-ground leaf litter buffer to the fast soil_carbon', 'kg C/(m2 yr)', &
-       missing_value=-999.0)
-  id_coarsewoodlitter_buffer_ag = register_tiled_diag_field (module_name, 'coarsewoodlitter_buffer_ag', (/id_ug/), &
-       time, 'intermediate pool of coarsewood litter carbon', 'kg C/m2', missing_value=-999.0)
-  id_coarsewoodlitter_buffer_rate_ag = register_tiled_diag_field (module_name, 'coarsewoodlitter_buffer_rate_ag', (/id_ug/), &
-       time, 'rate of conversion of above-ground coarsewood litter buffer to the fast soil_carbon', 'kg C/(m2 yr)', &
-       missing_value=-999.0)
+
   id_fsc_pool_bg = register_tiled_diag_field (module_name, 'fsc_pool_bg', (/id_ug/), &
        time, 'intermediate pool of below-ground fast soil carbon', 'kg C/m2', missing_value=-999.0)
   id_fsc_rate_bg = register_tiled_diag_field (module_name, 'fsc_rate_bg', (/id_ug/), &
@@ -813,6 +918,8 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   id_csmoke_rate = register_tiled_diag_field ( module_name, 'csmoke_rate', (/id_ug/), &
        time, 'rate of release of carbon lost through fire to the atmosphere', &
        'kg C/(m2 yr)', missing_value=-999.0)
+  id_nsmoke_pool = register_tiled_diag_field ( module_name, 'nsmoke', (/id_ug/), &
+       time, 'nitrogen lost through fire', 'kg N/m2', missing_value=-999.0)
 
   id_ssc_in = register_tiled_diag_field ( module_name, 'ssc_in',  (/id_ug/), &
      time,  'soil slow carbon in', 'kg C/m2', missing_value=-999.0 )
@@ -828,6 +935,11 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
      time,  'vegetation carbon in', 'kg C/m2', missing_value=-999.0 )
   id_veg_out = register_tiled_diag_field ( module_name, 'veg_out',  (/id_ug/), &
      time,  'vegetation carbon out', 'kg C/m2', missing_value=-999.0 )
+
+ id_tile_nitrogen_gain = register_tiled_diag_field ( module_name, 'nitrogen_in',  (/id_ug/), &
+    time,  'tile nitrogen in', 'kg N/m2', missing_value=-999.0 )
+  id_tile_nitrogen_loss = register_tiled_diag_field ( module_name, 'nitrogen_out',  (/id_ug/), &
+     time,  'tile nitrogen out', 'kg N/m2', missing_value=-999.0 )
 
   id_afire = register_tiled_diag_field (module_name, 'afire', (/id_ug/), &
        time, 'area been fired', missing_value=-100.0)
@@ -966,6 +1078,26 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'cohort_age',cohort_age_ptr, 'age of cohort', 'years')
   call add_cohort_data(restart2,'npp_prev_day', cohort_npp_previous_day_ptr, 'previous day NPP','kg C/year')
 
+  call add_cohort_data(restart2,'scav_myc_C_reservoir', cohort_scav_myc_C_reservoir_ptr, 'C in scavenger myc reservoir for growth','kg C/m2')
+  call add_cohort_data(restart2,'scav_myc_N_reservoir', cohort_scav_myc_N_reservoir_ptr, 'N in scavenger myc reservoir for growth','kg C/m2')
+  call add_cohort_data(restart2,'mine_myc_C_reservoir', cohort_mine_myc_C_reservoir_ptr, 'C in miner myc reservoir for growth','kg C/m2')
+  call add_cohort_data(restart2,'mine_myc_N_reservoir', cohort_mine_myc_N_reservoir_ptr, 'N in miner myc reservoir for growth','kg C/m2')
+  call add_cohort_data(restart2,'N_fixer_C_reservoir', cohort_N_fixer_C_reservoir_ptr, 'C in N fixer reservoir for growth','kg C/m2')
+  call add_cohort_data(restart2,'N_fixer_N_reservoir', cohort_N_fixer_N_reservoir_ptr, 'N in N fixer reservoir for growth','kg C/m2')
+  call add_cohort_data(restart2,'myc_scavenger_biomass_C', cohort_myc_scavenger_biomass_C_ptr, 'scavenger mycorrhizal biomass C associated with individual','kg C/m2')
+  call add_cohort_data(restart2,'myc_scavenger_biomass_N', cohort_myc_scavenger_biomass_N_ptr, 'scavenger mycorrhizal biomass N associated with individual','kg N/m2')
+  call add_cohort_data(restart2,'N_fixer_biomass_C', cohort_N_fixer_biomass_C_ptr, 'symbiotic N fixer biomass C associated with individual','kg C/m2')
+  call add_cohort_data(restart2,'N_fixer_biomass_N', cohort_N_fixer_biomass_N_ptr, 'symbiotic N fixer biomass N associated with individual','kg N/m2')
+  call add_cohort_data(restart2,'myc_miner_biomass_C', cohort_myc_miner_biomass_C_ptr, 'miner mycorrhizal biomass C associated with individual','kg C/m2')
+  call add_cohort_data(restart2,'myc_miner_biomass_N', cohort_myc_miner_biomass_N_ptr, 'miner mycorrhizal biomass N associated with individual','kg N/m2')
+  call add_cohort_data(restart2,'cohort_stored_N', cohort_stored_N_ptr, 'stored N pool of individual','kg N/m2')
+  call add_cohort_data(restart2,'cohort_wood_N', cohort_wood_N_ptr, 'wood N pool of individual','kg N/m2')
+  call add_cohort_data(restart2,'cohort_sapwood_N', cohort_sapwood_N_ptr, 'sapwood N pool of individual','kg N/m2')
+  call add_cohort_data(restart2,'cohort_leaf_N', cohort_leaf_N_ptr, 'leaf N pool of individual','kg N/m2')
+  call add_cohort_data(restart2,'cohort_root_N', cohort_root_N_ptr, 'root N pool of individual','kg N/m2')
+  call add_cohort_data(restart2,'cohort_total_N', cohort_total_N_ptr, 'total N pool of individual','kg N/m2')
+  call add_cohort_data(restart2,'nitrogen_stress', cohort_nitrogen_stress_ptr, 'total N pool of individual','kg N/m2')
+
   call add_cohort_data(restart2,'growth_prev_day', cohort_growth_previous_day_ptr, 'pool of growth respiration','kg C')
   call add_cohort_data(restart2,'growth_prev_day_tmp', cohort_growth_previous_day_tmp_ptr, 'rate of growth respiration release to atmos','kg C/year')
   call add_cohort_data(restart2,'branch_sw_loss', cohort_branch_sw_loss_ptr, 'branch_sw_loss','kg C/year')
@@ -1023,11 +1155,14 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   ! burned carbon pool and rate
   call add_tile_data(restart2,'csmoke_pool',vegn_csmoke_pool_ptr,'carbon lost through fires', 'kg C/m2')
   call add_tile_data(restart2,'csmoke_rate',vegn_csmoke_rate_ptr,'rate of release of carbon lost through fires to the atmosphere', 'kg C/(m2 yr)')
+  call add_tile_data(restart2,'nsmoke_pool',vegn_nsmoke_pool_ptr,'nitrogen lost through fires', 'kg N/m2')
 
   ! harvesting pools and rates
   do i = 1, N_HARV_POOLS
      call add_tile_data(restart2, trim(HARV_POOL_NAMES(i))//'_harv_pool', &
           vegn_harv_pool_ptr, i, 'harvested carbon','kg C/m2')
+     call add_tile_data(restart2, trim(HARV_POOL_NAMES(i))//'_harv_pool_nitrogen', &
+          vegn_harv_pool_nitrogen_ptr, i, 'harvested nitrogen','kg N/m2')
      call add_tile_data(restart2, trim(HARV_POOL_NAMES(i))//'_harv_rate', &
           vegn_harv_rate_ptr, i, 'rate of release of harvested carbon to the atmosphere','kg C/(m2 yr)')
   enddo
@@ -1613,11 +1748,13 @@ end subroutine vegn_step_2
 ! ============================================================================
 ! do the vegetation calculations that require updated (end-of-timestep) values
 ! of prognostic land variables
-subroutine vegn_step_3(vegn, soil, cana_T, precip, vegn_fco2, diag)
+subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org, vegn_fco2, diag)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
   real, intent(in) :: cana_T ! canopy temperature, deg K
   real, intent(in) :: precip ! total (rain+snow) precipitation, kg/(m2 s)
+  real, intent(in) :: ndep_nit, ndep_amm, ndep_org ! total nitrate, ammonium,
+      ! and organic nitrogen inputs (deposition plus fertilization), kg N/(m2 yr)
   real, intent(out) :: vegn_fco2 ! co2 flux from vegetation, kg CO2/(m2 s)
   type(diag_buff_type), intent(inout) :: diag
 
@@ -1627,6 +1764,7 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, vegn_fco2, diag)
   real :: psist ! psi stress index
   real :: depth_ave! depth for averaging soil moisture based on Jackson function for root distribution
   real :: percentile = 0.95
+  real :: harv_pool_nitrogen_loss(N_HARV_POOLS)
 
   tsoil = soil_ave_temp (soil,soil_carbon_depth_scale)
   ! depth for 95% of root according to Jackson distribution
@@ -1638,6 +1776,16 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, vegn_fco2, diag)
      write(*,*)'#### vegn_step_3 drought input ####'
      __DEBUG3__(depth_ave, tsoil, theta)
   endif
+
+  ! Do N deposition first. For now, it all goes to leaf litter
+  call check_var_range(ndep_amm, 0.0, HUGE(1.0), 'vegn_step_3', 'ndep_amm', FATAL)
+  call check_var_range(ndep_nit, 0.0, HUGE(1.0), 'vegn_step_3', 'ndep_nit', FATAL)
+  call check_var_range(ndep_org, 0.0, HUGE(1.0), 'vegn_step_3', 'ndep_org', FATAL)
+  call soil_NH4_deposition(ndep_amm*dt_fast_yr,soil%litter(LEAF))
+  call soil_NO3_deposition(ndep_nit*dt_fast_yr,soil%litter(LEAF))
+  call soil_org_N_deposition(ndep_org*dt_fast_yr,soil%litter(LEAF))
+
+  soil%gross_nitrogen_flux_into_tile = soil%gross_nitrogen_flux_into_tile + (ndep_amm+ndep_nit+ndep_org)*dt_fast_yr
 
   if (do_ppa) then
      call vegn_carbon_int_ppa(vegn, soil, tsoil, theta, diag)
@@ -1654,6 +1802,8 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, vegn_fco2, diag)
   ! update smoke pool -- stored amount of carbon lost to fire
   vegn%csmoke_pool = vegn%csmoke_pool - &
        vegn%csmoke_rate*dt_fast_yr
+  soil%gross_nitrogen_flux_out_of_tile = soil%gross_nitrogen_flux_out_of_tile+vegn%nsmoke_pool*dt_fast_yr
+  vegn%nsmoke_pool = vegn%nsmoke_pool - vegn%nsmoke_pool*dt_fast_yr ! Following csmoke_rate, which is set to equal csmoke_pool in vegn_disturbance
   ! decrease harvested rates so that pools are not depleted below zero
   vegn%harv_rate(:) = max( 0.0, &
                            min(vegn%harv_rate(:), vegn%harv_pool(:)/dt_fast_yr) &
@@ -1665,6 +1815,17 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, vegn_fco2, diag)
   vegn_fco2 = -vegn%nep + vegn%csmoke_rate + sum(vegn%harv_rate(:))
   ! --- convert it to kg CO2/(m2 s)
   vegn_fco2 = vegn_fco2*mol_CO2/(mol_C*seconds_per_year)
+
+  ! What to do with harvested nitrogen??
+  where(harvest_spending_time(:)>0)
+     harv_pool_nitrogen_loss = &
+          vegn%harv_pool_nitrogen(:)/harvest_spending_time(:)
+  elsewhere
+     harv_pool_nitrogen_loss(:) = 0.0
+  end where
+  vegn%harv_pool_nitrogen = vegn%harv_pool_nitrogen - harv_pool_nitrogen_loss*dt_fast_yr
+  soil%gross_nitrogen_flux_out_of_tile = soil%gross_nitrogen_flux_out_of_tile+sum(harv_pool_nitrogen_loss)*dt_fast_yr
+
 
   ! --- accumulate values for climatological averages
   vegn%tc_av     = vegn%tc_av + cana_T
@@ -1844,8 +2005,8 @@ subroutine update_vegn_slow( )
   real :: dheat
 
   ! variables for conservation checks
-  real :: lmass0, fmass0, heat0, cmass0
-  real :: lmass1, fmass1, heat1, cmass1
+  real :: lmass0, fmass0, heat0, cmass0, nmass0
+  real :: lmass1, fmass1, heat1, cmass1, nmass1
   character(64) :: tag
   real :: dbh_max_N ! max dbh for understory; diag only
 
@@ -1869,6 +2030,7 @@ subroutine update_vegn_slow( )
         call get_tile_water(tile,lmass0,fmass0)
         heat0  = land_tile_heat  (tile)
         cmass0 = land_tile_carbon(tile)
+        nmass0 = land_tile_nitrogen(tile)
         ! - end of conservation check, part 1
      endif
 
@@ -1892,7 +2054,7 @@ subroutine update_vegn_slow( )
         tile%vegn%daily_t_min =  HUGE(1.0)
      endif
 
-     call check_conservation_2(tile,'update_vegn_slow 1',lmass0,fmass0,cmass0)
+     call check_conservation_2(tile,'update_vegn_slow 1',lmass0,fmass0,cmass0,nmass0)
 
      ! monthly averaging
      if (month1 /= month0) then
@@ -1913,7 +2075,7 @@ subroutine update_vegn_slow( )
         tile%vegn%nmn_acm = tile%vegn%nmn_acm+1 ! increase the number of accumulated months
      endif
 
-     call check_conservation_2(tile,'update_vegn_slow 2',lmass0,fmass0,cmass0)
+     call check_conservation_2(tile,'update_vegn_slow 2',lmass0,fmass0,cmass0,nmass0)
 
      ! annual averaging
      if (year1 /= year0) then
@@ -1939,7 +2101,7 @@ subroutine update_vegn_slow( )
         call vegn_biogeography(tile%vegn)
      endif
 
-     call check_conservation_2(tile,'update_vegn_slow 3',lmass0,fmass0,cmass0)
+     call check_conservation_2(tile,'update_vegn_slow 3',lmass0,fmass0,cmass0,nmass0)
 
      if (year1 /= year0 .and. do_peat_redistribution) then
         call redistribute_peat_carbon(tile%soil)
@@ -1949,8 +2111,7 @@ subroutine update_vegn_slow( )
         call update_fuel(tile%vegn,tile%soil%w_wilt(1)/tile%soil%pars%vwc_sat)
         ! assume that all layers are the same soil type and wilting is vertically homogeneous
      endif
-
-     call check_conservation_2(tile,'update_vegn_slow 4',lmass0,fmass0,cmass0)
+     call check_conservation_2(tile,'update_vegn_slow 4',lmass0,fmass0,cmass0,nmass0)
 
      if (day1 /= day0 .and. do_cohort_dynamics) then
         N = tile%vegn%n_cohorts ; cc=>tile%vegn%cohorts(1:N)
@@ -1958,42 +2119,42 @@ subroutine update_vegn_slow( )
         call send_tile_data(id_closs,sum(cc(1:N)%carbon_loss*cc(1:N)%nindivs),tile%diag)
         call send_tile_data(id_wdgain,sum(cc(1:N)%bwood_gain*cc(1:N)%nindivs),tile%diag)
 
+        call send_tile_data(id_Ngain,sum(cc(1:N)%nitrogen_gain*cc(1:N)%nindivs),tile%diag)
+        call send_tile_data(id_Nloss,sum(cc(1:N)%nitrogen_loss*cc(1:N)%nindivs),tile%diag)
 
         call vegn_growth(tile%vegn, tile%diag) ! selects lm3 or ppa inside
-
-        call check_conservation_2(tile,'update_vegn_slow 4.1',lmass0,fmass0,cmass0)
+        call check_conservation_2(tile,'update_vegn_slow 4.1',lmass0,fmass0,cmass0,nmass0)
 
         if (do_ppa) then
            call vegn_starvation_ppa(tile%vegn, tile%soil)
-           call check_conservation_2(tile,'update_vegn_slow 4.2',lmass0,fmass0,cmass0)
+           call check_conservation_2(tile,'update_vegn_slow 4.2',lmass0,fmass0,cmass0,nmass0)
            call vegn_phenology_ppa (tile%vegn, tile%soil)
-           call check_conservation_2(tile,'update_vegn_slow 4.3',lmass0,fmass0,cmass0)
+           call check_conservation_2(tile,'update_vegn_slow 4.3',lmass0,fmass0,cmass0,nmass0)
         else
            call vegn_nat_mortality_lm3(tile%vegn,tile%soil,86400.0)
         endif
      endif
-     call check_conservation_2(tile,'update_vegn_slow 5',lmass0,fmass0,cmass0)
+     call check_conservation_2(tile,'update_vegn_slow 5',lmass0,fmass0,cmass0,nmass0)
 
      if  (month1 /= month0 .and. do_phenology) then
         if (.not.do_ppa) &
             call vegn_phenology_lm3 (tile%vegn,tile%soil)
         ! assume that all layers are the same soil type and wilting is vertically homogeneous
      endif
-     call check_conservation_2(tile,'update_vegn_slow 6',lmass0,fmass0,cmass0)
+     call check_conservation_2(tile,'update_vegn_slow 6',lmass0,fmass0,cmass0,nmass0)
 
      if (year1 /= year0 .and. do_patch_disturbance) then
         call vegn_disturbance(tile%vegn, tile%soil, seconds_per_year)
      endif
-
-     call check_conservation_2(tile,'update_vegn_slow 7',lmass0,fmass0,cmass0)
+     call check_conservation_2(tile,'update_vegn_slow 7',lmass0,fmass0,cmass0,nmass0)
 
      if (do_ppa.and.year1 /= year0) then
         call vegn_reproduction_ppa(tile%vegn, tile%soil)
-        call check_conservation_2(tile,'update_vegn_slow 7.1',lmass0,fmass0,cmass0)
+        call check_conservation_2(tile,'update_vegn_slow 7.1',lmass0,fmass0,cmass0,nmass0)
         call vegn_relayer_cohorts_ppa(tile%vegn)
-        call check_conservation_2(tile,'update_vegn_slow 7.2',lmass0,fmass0,cmass0)
+        call check_conservation_2(tile,'update_vegn_slow 7.2',lmass0,fmass0,cmass0,nmass0)
         call vegn_mergecohorts_ppa(tile%vegn, dheat)
-        call check_conservation_2(tile,'update_vegn_slow 7.3',lmass0,fmass0,cmass0)
+        call check_conservation_2(tile,'update_vegn_slow 7.3',lmass0,fmass0,cmass0,nmass0)
         call kill_small_cohorts_ppa(tile%vegn,tile%soil)
 
         ! update DBH_ys
@@ -2003,17 +2164,21 @@ subroutine update_vegn_slow( )
                                           tile%vegn%cohorts(ii)%bwood
         enddo
      endif
-     call check_conservation_2(tile,'update_vegn_slow 8',lmass0,fmass0,cmass0)
+     call check_conservation_2(tile,'update_vegn_slow 8',lmass0,fmass0,cmass0,nmass0)
 
      if (year1 /= year0) then
-        call vegn_harvesting(tile%vegn)
+        call vegn_harvesting(tile%vegn,tile%soil)
         tile%vegn%fsc_rate_ag = tile%vegn%fsc_pool_ag/fsc_pool_spending_time
         tile%vegn%ssc_rate_ag = tile%vegn%ssc_pool_ag/ssc_pool_spending_time
         tile%vegn%fsc_rate_bg = tile%vegn%fsc_pool_bg/fsc_pool_spending_time
         tile%vegn%ssc_rate_bg = tile%vegn%ssc_pool_bg/ssc_pool_spending_time
+        tile%vegn%fsn_rate_bg = tile%vegn%fsn_pool_bg/fsc_pool_spending_time
+        tile%vegn%ssn_rate_bg = tile%vegn%ssn_pool_bg/ssc_pool_spending_time
 
-        tile%vegn%litter_rate_C(C_CEL,:) = tile%vegn%litter_buff_C(C_CEL,:)/fsc_pool_spending_time
-        tile%vegn%litter_rate_C(C_LIG,:) = tile%vegn%litter_buff_C(C_CEL,:)/ssc_pool_spending_time
+        tile%vegn%litter_rate_C(C_FAST,:) = tile%vegn%litter_buff_C(C_FAST,:)/fsc_pool_spending_time
+        tile%vegn%litter_rate_C(C_SLOW,:) = tile%vegn%litter_buff_C(C_SLOW,:)/ssc_pool_spending_time
+        tile%vegn%litter_rate_N(C_FAST,:) = tile%vegn%litter_buff_N(C_FAST,:)/fsc_pool_spending_time
+        tile%vegn%litter_rate_N(C_SLOW,:) = tile%vegn%litter_buff_N(C_SLOW,:)/ssc_pool_spending_time
         where(harvest_spending_time(:)>0)
            tile%vegn%harv_rate(:) = &
                 tile%vegn%harv_pool(:)/harvest_spending_time(:)
@@ -2021,7 +2186,7 @@ subroutine update_vegn_slow( )
            tile%vegn%harv_rate(:) = 0.0
         end where
      endif
-     call check_conservation_2(tile,'update_vegn_slow 9',lmass0,fmass0,cmass0)
+     call check_conservation_2(tile,'update_vegn_slow 9',lmass0,fmass0,cmass0,nmass0)
 
      ! + sanity checks
      do ii = 1,tile%vegn%n_cohorts
@@ -2066,12 +2231,14 @@ subroutine update_vegn_slow( )
 
      do ii = 1,N_HARV_POOLS
         call send_tile_data(id_harv_pool(ii),tile%vegn%harv_pool(ii),tile%diag)
+        call send_tile_data(id_harv_pool_nitrogen(ii),tile%vegn%harv_pool_nitrogen(ii),tile%diag)
         call send_tile_data(id_harv_rate(ii),tile%vegn%harv_rate(ii),tile%diag)
      enddo
      call send_tile_data(id_t_harv_pool,sum(tile%vegn%harv_pool(:)),tile%diag)
      call send_tile_data(id_t_harv_rate,sum(tile%vegn%harv_rate(:)),tile%diag)
      call send_tile_data(id_csmoke_pool,tile%vegn%csmoke_pool,tile%diag)
      call send_tile_data(id_csmoke_rate,tile%vegn%csmoke_rate,tile%diag)
+     call send_tile_data(id_nsmoke_pool,tile%vegn%nsmoke_pool,tile%diag)
 
      N=tile%vegn%n_cohorts ; cc=>tile%vegn%cohorts
      call send_cohort_data(id_ncohorts, tile%diag, cc(1:N), (/(1.0,i=1,N)/), op=OP_SUM)
@@ -2085,6 +2252,18 @@ subroutine update_vegn_slow( )
      call send_cohort_data(id_bwood,  tile%diag, cc(1:N), cc(1:N)%bwood,  weight=cc(1:N)%nindivs, op=OP_SUM)
      call send_cohort_data(id_bseed,  tile%diag, cc(1:N), cc(1:N)%bseed,  weight=cc(1:N)%nindivs, op=OP_SUM)
      call send_cohort_data(id_nsc,    tile%diag, cc(1:N), cc(1:N)%nsc,    weight=cc(1:N)%nindivs, op=OP_SUM)
+
+     call send_cohort_data(id_leaf_N,     tile%diag, cc(1:N), cc(1:N)%leaf_N,     weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_stored_N,    tile%diag, cc(1:N), cc(1:N)%stored_N,    weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_root_N,     tile%diag, cc(1:N), cc(1:N)%root_N,     weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_sapwood_N,    tile%diag, cc(1:N), cc(1:N)%sapwood_N,    weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_wood_N,  tile%diag, cc(1:N), cc(1:N)%wood_N,  weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_seed_N,  tile%diag, cc(1:N), cc(1:N)%seed_N,  weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_veg_total_N, tile%diag, cc(1:N), cc(1:N)%total_N, weight=cc(1:N)%nindivs, op=OP_SUM)
+
+     call send_cohort_data(id_myc_scavenger_C,tile%diag, cc(1:N), cc(1:N)%myc_scavenger_biomass_C, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_myc_miner_C,tile%diag, cc(1:N), cc(1:N)%myc_miner_biomass_C, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_N_fixer_C,tile%diag, cc(1:N), cc(1:N)%N_fixer_biomass_C, weight=cc(1:N)%nindivs, op=OP_SUM)
 
      allocate(btot(N)) ! has to be allocated since N cohorts changes inside this subroutine
      btot(1:N) = cc(1:N)%bl    + &
@@ -2115,10 +2294,15 @@ subroutine update_vegn_slow( )
      call send_tile_data(id_ssc_pool_bg,tile%vegn%ssc_pool_ag,tile%diag)
      call send_tile_data(id_ssc_rate_bg,tile%vegn%ssc_rate_ag,tile%diag)
 
-     call send_tile_data(id_leaflitter_buffer_ag,sum(tile%vegn%litter_buff_C(:,LEAF)),tile%diag)
-     call send_tile_data(id_leaflitter_buffer_rate_ag,sum(tile%vegn%litter_rate_C(:,LEAF)),tile%diag)
-     call send_tile_data(id_coarsewoodlitter_buffer_ag,sum(tile%vegn%litter_buff_C(:,CWOOD)),tile%diag)
-     call send_tile_data(id_coarsewoodlitter_buffer_rate_ag,sum(tile%vegn%litter_rate_C(:,CWOOD)),tile%diag)
+     do j = 1,N_LITTER_POOLS
+     do i = 1,N_C_TYPES
+        ! note that order of indices in IDs and buffers/rates is different, due to difference in conventions
+        call send_tile_data(id_litter_buff_C(j,i),tile%vegn%litter_buff_C(i,j),tile%diag)
+        call send_tile_data(id_litter_rate_C(j,i),tile%vegn%litter_rate_C(i,j),tile%diag)
+        call send_tile_data(id_litter_buff_N(j,i),tile%vegn%litter_buff_N(i,j),tile%diag)
+        call send_tile_data(id_litter_rate_N(j,i),tile%vegn%litter_rate_N(i,j),tile%diag)
+     enddo
+     enddo
 
      call send_tile_data(id_fuel,    tile%vegn%fuel, tile%diag)
 
@@ -2136,6 +2320,39 @@ subroutine update_vegn_slow( )
      call send_tile_data(id_deadmic_out, tile%vegn%deadmic_out, tile%diag)
      call send_tile_data(id_veg_in,  tile%vegn%veg_in,  tile%diag)
      call send_tile_data(id_veg_out, tile%vegn%veg_out, tile%diag)
+
+     call send_tile_data(id_tile_nitrogen_gain,tile%soil%gross_nitrogen_flux_into_tile, tile%diag)
+     call send_tile_data(id_tile_nitrogen_loss,tile%soil%gross_nitrogen_flux_out_of_tile, tile%diag)
+
+
+     ! CMOR variables
+     ! BNS: These might need to be updated for PPA
+     if(id_btot_cmor>0) call send_tile_data(id_btot_cmor, &
+                   sum(tile%vegn%cohorts(1:n)%bl    &
+                      +tile%vegn%cohorts(1:n)%blv   &
+                      +tile%vegn%cohorts(1:n)%br    &
+                      +tile%vegn%cohorts(1:n)%bsw   &
+                      +tile%vegn%cohorts(1:n)%bwood ), tile%diag)
+     if (id_cproduct>0) call send_tile_data(id_cproduct,&
+                   sum(tile%vegn%harv_pool(:)), tile%diag)
+     call send_tile_data(id_fFire, tile%vegn%csmoke_rate/seconds_per_year, tile%diag)
+     call send_tile_data(id_fGrazing, tile%vegn%harv_rate(HARV_POOL_PAST)/seconds_per_year, tile%diag)
+     call send_tile_data(id_fHarvest, tile%vegn%harv_rate(HARV_POOL_CROP)/seconds_per_year, tile%diag)
+     call send_tile_data(id_fHarvest, &
+         (tile%vegn%harv_rate(HARV_POOL_CLEARED) &
+         +tile%vegn%harv_rate(HARV_POOL_WOOD_FAST) &
+         +tile%vegn%harv_rate(HARV_POOL_WOOD_MED) &
+         +tile%vegn%harv_rate(HARV_POOL_WOOD_SLOW) &
+         )/seconds_per_year, tile%diag)
+     if (id_cLeaf>0) call send_tile_data(id_cLeaf, sum(tile%vegn%cohorts(1:n)%bl), tile%diag)
+     if (id_cWood>0) call send_tile_data(id_cWood, &
+         (sum(tile%vegn%cohorts(1:n)%bwood)+sum(tile%vegn%cohorts(1:n)%bsw))*agf_bs, tile%diag)
+     if (id_cRoot>0) call send_tile_data(id_cRoot, &
+         (sum(tile%vegn%cohorts(1:n)%bwood)+sum(tile%vegn%cohorts(1:n)%bsw))*(1-agf_bs) &
+            +sum(tile%vegn%cohorts(1:n)%br), &
+         tile%diag)
+     if (id_cMisc>0) call send_tile_data(id_cMisc, sum(tile%vegn%cohorts(1:n)%blv), tile%diag)
+
      ! ---- end of diagnostic section
 
      ! reset averages and number of steps to 0 before the start of new month
@@ -2147,6 +2364,10 @@ subroutine update_vegn_slow( )
         tile%vegn%theta_av_fire = 0.
         tile%vegn%psist_av = 0.
         tile%vegn%precip_av= 0.
+
+        ! Reset nitrogen tracking too
+        tile%soil%gross_nitrogen_flux_into_tile = 0.0
+        tile%soil%gross_nitrogen_flux_out_of_tile = 0.0
      endif
 
      !reset fuel and drought months before the start of new year
@@ -2166,13 +2387,13 @@ subroutine update_vegn_slow( )
      endif
      call send_tile_data(id_zstar_1, zstar, tile%diag)
 
-     if(soil_carbon_option==SOILC_CORPSE) then
+     if(soil_carbon_option==SOILC_CORPSE.or.soil_carbon_option==SOILC_CORPSE_N) then
         !Knock soil carbon cohorts down to their maximum number
-        call cull_cohorts(tile%soil%leafLitter)
-        call cull_cohorts(tile%soil%fineWoodLitter)
-        call cull_cohorts(tile%soil%coarseWoodLitter)
-        do ii=1,size(tile%soil%soil_C)
-              call cull_cohorts(tile%soil%soil_C(ii))
+        do ii = 1,N_LITTER_POOLS
+           call cull_cohorts(tile%soil%litter(ii))
+        enddo
+        do ii=1,num_l
+           call cull_cohorts(tile%soil%soil_organic_matter(ii))
         enddo
      endif
   enddo
@@ -2192,12 +2413,12 @@ end subroutine update_vegn_slow
 ! ============================================================================
 ! + conservation check, part 2: calculate totals in final state, and compare
 ! with previous totals
-subroutine check_conservation_2(tile,tag,lmass,fmass,cmass,heat)
+subroutine check_conservation_2(tile,tag,lmass,fmass,cmass,nmass,heat)
   type(land_tile_type), intent(in) :: tile
   character(*), intent(in) :: tag
-  real, intent(in), optional :: lmass,fmass,cmass,heat ! stocks to check against
+  real, intent(in), optional :: lmass,fmass,cmass,nmass,heat ! stocks to check against
 
-  real :: lmass1,fmass1,cmass1,heat1
+  real :: lmass1,fmass1,cmass1,nmass1,heat1
   if (.not.do_check_conservation) return
 
   if (present(lmass).or.present(fmass)) then
@@ -2209,9 +2430,13 @@ subroutine check_conservation_2(tile,tag,lmass,fmass,cmass,heat)
      cmass1 = land_tile_carbon(tile)
      call check_conservation (tag,'carbon', cmass, cmass1, carbon_cons_tol)
   endif
+  if (present(nmass)) then
+     nmass1  = land_tile_nitrogen(tile)
+     call check_conservation (tag,'nitrogen', nmass, nmass1, nitrogen_cons_tol)
+  endif
   if (present(heat)) then
-     heat1  = land_tile_heat  (tile)
-     call check_conservation (tag,'heat content', heat , heat1 , 1e-16)
+     heat1  = land_tile_heat(tile)
+     call check_conservation (tag,'heat content', heat, heat1, 1e-16)
   endif
 end subroutine check_conservation_2
 
@@ -2222,31 +2447,37 @@ subroutine vegn_seed_transport()
   type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
   integer ::  l ! current point index
-  real :: total_seed_supply
-  real :: total_seed_demand
-  real :: f_supply ! fraction of the supply that gets spent
-  real :: f_demand ! fraction of the demand that gets satisfied
+  real :: total_seed_supply, total_seed_N_supply
+  real :: total_seed_demand, total_seed_N_demand
+  real :: f_supply, f_supply_N ! fraction of the supply that gets spent
+  real :: f_demand, f_demand_N ! fraction of the demand that gets satisfied
 
-  total_seed_supply = 0.0; total_seed_demand = 0.0
+  total_seed_supply = 0.0; total_seed_demand = 0.0; total_seed_N_supply = 0.0
   ce = first_elmt(land_tile_map, lnd%ls)
   do while (loop_over_tiles(ce,tile,l))
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
 
      total_seed_supply = total_seed_supply + vegn_seed_supply(tile%vegn)*tile%frac*lnd%ug_area(l)
+     total_seed_N_supply = total_seed_N_supply + vegn_seed_N_supply(tile%vegn)*tile%frac*lnd%ug_area(l)
      total_seed_demand = total_seed_demand + vegn_seed_demand(tile%vegn)*tile%frac*lnd%ug_area(l)
   enddo
+  total_seed_N_demand = total_seed_demand/C2N_SEED
   ! sum totals globally
   call mpp_sum(total_seed_demand, pelist=lnd%pelist)
   call mpp_sum(total_seed_supply, pelist=lnd%pelist)
-  ! if either demand or supply are zeros we do not need (or cannot) transport anything
+  call mpp_sum(total_seed_N_demand, pelist=lnd%pelist)
+  call mpp_sum(total_seed_N_supply, pelist=lnd%pelist)
+  ! if either demand or supply are zeros we don't need (or can't) transport anything
   if (total_seed_demand==0.or.total_seed_supply==0)then
      return
   end if
 
   ! calculate the fraction of the supply that's going to be used
   f_supply = MIN(total_seed_demand/total_seed_supply, 1.0)
-  ! calculate the fraction of the demand that's going to be satisfied
+  f_supply_N = MIN(total_seed_N_demand/total_seed_N_supply,1.0)
+  ! calculate the fraction of the demand that is going to be satisfied
   f_demand = MIN(total_seed_supply/total_seed_demand, 1.0)
+  f_demand_N = MIN(total_seed_N_supply/total_seed_N_demand,1.0)
   ! note that either f_supply or f_demand is 1; the mass conservation law in the
   ! following calculations is satisfied since
   ! f_demand*total_seed_demand - f_supply*total_seed_supply == 0
@@ -2258,7 +2489,8 @@ subroutine vegn_seed_transport()
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
 
      call vegn_add_bliving(tile%vegn, &
-          f_demand*vegn_seed_demand(tile%vegn)-f_supply*vegn_seed_supply(tile%vegn))
+          f_demand*vegn_seed_demand(tile%vegn)-f_supply*vegn_seed_supply(tile%vegn),&
+          f_demand_N*vegn_seed_demand(tile%vegn)/C2N_seed-f_supply_N*vegn_seed_N_supply(tile%vegn))
   enddo
 end subroutine vegn_seed_transport
 
@@ -2378,7 +2610,9 @@ DEFINE_VEGN_ACCESSOR_0D(real,ssc_pool_bg)
 DEFINE_VEGN_ACCESSOR_0D(real,ssc_rate_bg)
 
 DEFINE_VEGN_ACCESSOR_2D(real,litter_buff_C)
+DEFINE_VEGN_ACCESSOR_2D(real,litter_buff_N)
 DEFINE_VEGN_ACCESSOR_2D(real,litter_rate_C)
+DEFINE_VEGN_ACCESSOR_2D(real,litter_rate_N)
 
 DEFINE_VEGN_ACCESSOR_0D(real,tc_av)
 DEFINE_VEGN_ACCESSOR_0D(real,theta_av_phen)
@@ -2403,8 +2637,10 @@ DEFINE_VEGN_ACCESSOR_0D(real,drop_wl)
 DEFINE_VEGN_ACCESSOR_0D(real,drop_ws)
 DEFINE_VEGN_ACCESSOR_0D(real,drop_hl)
 DEFINE_VEGN_ACCESSOR_0D(real,drop_hs)
+DEFINE_VEGN_ACCESSOR_0D(real,nsmoke_pool)
 
 DEFINE_VEGN_ACCESSOR_1D(real,harv_pool)
+DEFINE_VEGN_ACCESSOR_1D(real,harv_pool_nitrogen)
 DEFINE_VEGN_ACCESSOR_1D(real,harv_rate)
 
 DEFINE_COHORT_ACCESSOR(real,Tv)
@@ -2440,6 +2676,26 @@ DEFINE_COHORT_ACCESSOR(real,DBH_ys)
 DEFINE_COHORT_ACCESSOR(real,topyear)
 DEFINE_COHORT_ACCESSOR(real,gdd)
 DEFINE_COHORT_ACCESSOR(real,height)
+
+DEFINE_COHORT_ACCESSOR(real,scav_myc_C_reservoir)
+DEFINE_COHORT_ACCESSOR(real,scav_myc_N_reservoir)
+DEFINE_COHORT_ACCESSOR(real,mine_myc_C_reservoir)
+DEFINE_COHORT_ACCESSOR(real,mine_myc_N_reservoir)
+DEFINE_COHORT_ACCESSOR(real,N_fixer_C_reservoir)
+DEFINE_COHORT_ACCESSOR(real,N_fixer_N_reservoir)
+DEFINE_COHORT_ACCESSOR(real,myc_scavenger_biomass_C)
+DEFINE_COHORT_ACCESSOR(real,myc_scavenger_biomass_N)
+DEFINE_COHORT_ACCESSOR(real,myc_miner_biomass_C)
+DEFINE_COHORT_ACCESSOR(real,myc_miner_biomass_N)
+DEFINE_COHORT_ACCESSOR(real,N_fixer_biomass_C)
+DEFINE_COHORT_ACCESSOR(real,N_fixer_biomass_N)
+DEFINE_COHORT_ACCESSOR(real,stored_N)
+DEFINE_COHORT_ACCESSOR(real,wood_N)
+DEFINE_COHORT_ACCESSOR(real,sapwood_N)
+DEFINE_COHORT_ACCESSOR(real,leaf_N)
+DEFINE_COHORT_ACCESSOR(real,root_N)
+DEFINE_COHORT_ACCESSOR(real,total_N)
+DEFINE_COHORT_ACCESSOR(real,nitrogen_stress)
 
 ! wolf
 DEFINE_COHORT_ACCESSOR(real,psi_r)

@@ -18,20 +18,24 @@ use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, &
 use vegn_data_mod, only : spdata, &
      PHEN_DECIDUOUS, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, &
-     fsc_liv, fsc_wood, fsc_froot, agf_bs, &
-     l_fract, mcv_min, mcv_lai, do_ppa, tau_seed, &
-     understory_lai_factor, wood_fract_min, do_alt_allometry
-use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon
-use soil_tile_mod, only: num_l, dz, soil_tile_type, clw, csw, add_soil_carbon, LEAF, CWOOD
+     agf_bs, l_fract, mcv_min, mcv_lai, do_ppa, tau_seed, &
+     understory_lai_factor, wood_fract_min, &
+     myc_scav_C_efficiency, myc_mine_C_efficiency, N_fixer_C_efficiency, N_limits_live_biomass, &
+     excess_stored_N_leakage_rate, &
+     c2n_N_fixer, et_myc, &
+     mycorrhizal_turnover_time, N_fixer_turnover_time, spec_data_type
+use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon, vegn_tile_nitrogen
+use soil_tile_mod, only: num_l, dz, soil_tile_type, clw, csw, N_LITTER_POOLS, LEAF, CWOOD, soil_tile_carbon
 use vegn_cohort_mod, only : vegn_cohort_type, &
      update_biomass_pools, update_bio_living_fraction, update_species, &
      leaf_area_from_biomass, biomass_of_individual, init_cohort_allometry_ppa, &
      cohort_root_litter_profile, cohort_root_exudate_profile
 use vegn_disturbance_mod, only : kill_plants_ppa
 use soil_carbon_mod, only: N_C_TYPES, soil_carbon_option, &
-    SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, &
-    add_litter
-use soil_mod, only: add_root_litter, add_root_exudates, Dsdt
+    SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
+    add_litter, debug_pool,soil_NO3_deposition,soil_NH4_deposition,soil_org_N_deposition,deadmic_slow_frac
+use soil_util_mod, only: add_soil_carbon, add_root_litter, add_root_exudates
+use soil_mod, only: Dsdt, root_N_uptake, myc_scavenger_N_uptake, myc_miner_N_uptake
 
 implicit none
 private
@@ -63,8 +67,20 @@ real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 da
 
 ! diagnostic field IDs
 integer :: id_npp, id_nep, id_gpp, id_wood_prod, id_leaf_root_gr, id_sw_seed_gr
-integer :: id_resp, id_resl, id_resr, id_ress, id_resg
-integer :: id_soilt, id_theta, id_litter, id_age, id_exudate, id_dbh_growth
+integer :: id_rsoil, id_rsoil_fast, id_rsoil_slow
+integer :: id_resp, id_resl, id_resr, id_ress, id_resg, id_asoil
+integer :: id_soilt, id_theta, id_litter, id_age, id_dbh_growth
+integer :: &
+    id_mycorrhizal_scav_allocation, id_mycorrhizal_scav_immobilization, &
+    id_mycorrhizal_mine_allocation, id_mycorrhizal_mine_immobilization, &
+    id_N_fixer_allocation, id_total_plant_N_uptake, &
+    id_N_fix_marginal_gain, id_myc_scav_marginal_gain, &
+    id_myc_mine_marginal_gain, id_rhiz_exudation, id_nitrogen_stress, &
+    id_rhiz_exud_marginal_gain,id_myc_scavenger_N_uptake,&
+    id_myc_miner_N_uptake,id_symbiotic_N_fixation,id_active_root_N_uptake,&
+    id_scav_plant_N_uptake, id_mine_plant_N_uptake, id_fix_plant_N_uptake,&
+    id_mycorrhizal_scav_C_res, id_mycorrhizal_scav_N_res, id_mycorrhizal_mine_C_res, id_mycorrhizal_mine_N_res, &
+    id_Nfix_C_res, id_Nfix_N_res, id_exudate
 
 
 contains
@@ -129,8 +145,442 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
        missing_value=-100.0)
   id_exudate = register_cohort_diag_field ( diag_mod_name, 'exudate', (/id_ug/), &
        time, 'carbon root exudates', 'kg C/(m2 year)', missing_value=-100.0)
+! FIXME slm: perhaps the the following fields need to be cohort fields?
+  id_mycorrhizal_scav_allocation = register_cohort_diag_field ( diag_mod_name, 'mycorrhizal_scav_allocation',  &
+       (/id_ug/), time, 'C allocation to scavenger mycorrhizae', 'kg C/(m2 year)', &
+       missing_value=-100.0 )
+  id_mycorrhizal_scav_immobilization = register_cohort_diag_field ( diag_mod_name, 'mycorrhizal_scav_immobilization',  &
+        (/id_ug/), time, 'N immobilization by scavenger mycorrhizae', 'kg N/(m2 year)', &
+        missing_value=-100.0 )
+  id_mycorrhizal_mine_allocation = register_cohort_diag_field ( diag_mod_name, 'mycorrhizal_mine_allocation',  &
+       (/id_ug/), time, 'C allocation to miner mycorrhizae', 'kg C/(m2 year)', &
+       missing_value=-100.0 )
+  id_mycorrhizal_mine_immobilization = register_cohort_diag_field ( diag_mod_name, 'mycorrhizal_mine_immobilization',  &
+       (/id_ug/), time, 'N immobilization by miner mycorrhizae', 'kg N/(m2 year)', &
+       missing_value=-100.0 )
+  id_N_fixer_allocation = register_cohort_diag_field ( diag_mod_name, 'N_fixer_allocation',  &
+       (/id_ug/), time, 'C allocation to N fixers', 'kg C/(m2 year)', &
+       missing_value=-100.0 )
+  id_N_fix_marginal_gain = register_cohort_diag_field ( diag_mod_name, 'N_fix_marginal_gain',  &
+       (/id_ug/), time, 'Extra N fixation per unit C allocation', 'kg N/(m2 year)/kgC', &
+       missing_value=-100.0 )
+  id_myc_scav_marginal_gain = register_cohort_diag_field ( diag_mod_name, 'myc_scav_marginal_gain',  &
+       (/id_ug/), time, 'Extra N acquisition per unit C allocation to scavenger mycorrhizae', 'kg N/(m2 year)/kgC', &
+       missing_value=-100.0 )
+  id_myc_mine_marginal_gain = register_cohort_diag_field ( diag_mod_name, 'myc_mine_marginal_gain',  &
+       (/id_ug/), time, 'Extra N acquisition per unit C allocation to miner mycorrhizae', 'kg N/(m2 year)/kg C', &
+       missing_value=-100.0 )
+  id_rhiz_exudation = register_cohort_diag_field ( diag_mod_name, 'rhiz_exudation',  &
+       (/id_ug/), time, 'C allocation to rhizosphere exudation', 'kg C/(m2 year)', &
+       missing_value=-100.0 )
+  id_nitrogen_stress = register_cohort_diag_field ( diag_mod_name, 'nitrogen_stress',  &
+       (/id_ug/), time, 'Nitrogen stress index', 'Dimensionless', &
+       missing_value=-100.0 )
+  id_total_plant_N_uptake = register_cohort_diag_field ( diag_mod_name, 'plant_N_uptake',  &
+       (/id_ug/), time, 'Plant N uptake rate', 'kg N/(m2 year)', &
+       missing_value=-100.0 )
+  id_rhiz_exud_marginal_gain = register_cohort_diag_field ( diag_mod_name, 'rhiz_exud_marginal_gain',  &
+       (/id_ug/), time, 'Extra N acquisition per unit rhiz C exudation', 'kg N/(m2 year)/kgC', &
+       missing_value=-100.0 )
+  id_scav_plant_N_uptake = register_cohort_diag_field ( diag_mod_name, 'plant_scavenger_N_uptake',  &
+       (/id_ug/), time, 'Plant N uptake from scavenger mycorrhizae', 'kg N/m2/year', missing_value=-1.0 )
+  id_mine_plant_N_uptake = register_cohort_diag_field ( diag_mod_name, 'plant_miner_N_uptake',  &
+       (/id_ug/), time, 'Plant N uptake from miner mycorrhizae', 'kg N/m2/year', missing_value=-1.0 )
+  id_fix_plant_N_uptake = register_cohort_diag_field ( diag_mod_name, 'plant_fixer_N_uptake',  &
+        (/id_ug/), time, 'Plant N uptake from N fixers', 'kg N/m2/year', missing_value=-1.0 )
+  id_mycorrhizal_scav_C_res = register_cohort_diag_field ( diag_mod_name, 'myc_scavenger_C_res',  &
+       (/id_ug/), time, 'Scavenger mycorrhizae C reservoir', 'kg C/m2', missing_value=-1.0 )
+  id_mycorrhizal_scav_N_res = register_cohort_diag_field ( diag_mod_name, 'myc_scavenger_N_res',  &
+       (/id_ug/), time, 'Scavenger mycorrhizae N reservoir', 'kg N/m2', missing_value=-1.0 )
+  id_mycorrhizal_mine_C_res = register_cohort_diag_field ( diag_mod_name, 'myc_miner_C_res',  &
+       (/id_ug/), time, 'Miner mycorrhizae C reservoir', 'kg C/m2', missing_value=-1.0 )
+  id_mycorrhizal_mine_N_res = register_cohort_diag_field ( diag_mod_name, 'myc_miner_N_res',  &
+       (/id_ug/), time, 'Miner mycorrhizae N reservoir', 'kg N/m2', missing_value=-1.0 )
+  id_Nfix_C_res = register_cohort_diag_field ( diag_mod_name, 'N_fixer_C_res',  &
+       (/id_ug/), time, 'N fixer C reservoir', 'kg C/m2', missing_value=-1.0 )
+  id_Nfix_N_res = register_cohort_diag_field ( diag_mod_name, 'N_fixer_N_res',  &
+       (/id_ug/), time, 'N fixer N reservoir', 'kg N/m2', missing_value=-1.0 )
+
+  id_myc_scavenger_N_uptake = register_cohort_diag_field ( diag_mod_name, 'myc_scavenger_N_uptake',  &
+       (/id_ug/), time, 'N uptake by scavenger mycorrhizae', 'kg N/m2/year', missing_value=-1.0 )
+  id_myc_miner_N_uptake = register_cohort_diag_field ( diag_mod_name, 'myc_miner_N_uptake',  &
+       (/id_ug/), time, 'N uptake by miner mycorrhizae', 'kg N/m2/year', missing_value=-1.0 )
+  id_symbiotic_N_fixation = register_cohort_diag_field ( diag_mod_name, 'symbiotic_N_fixation',  &
+       (/id_ug/), time, 'Symbiotic N fixation', 'kg N/m2/year', missing_value=-1.0 )
+  id_active_root_N_uptake = register_cohort_diag_field ( diag_mod_name, 'active_root_N_uptake',  &
+       (/id_ug/), time, 'N uptake by root active transport', 'kg N/m2/year', missing_value=-1.0 )
 end subroutine vegn_dynamics_init
 
+
+subroutine  update_mycorrhizae(cc,sp,dt_fast_yr,&
+                           C_allocation_to_N_acq,myc_scav_N_uptake,myc_mine_N_uptake,myc_mine_C_uptake,root_N_uptake,&
+                           myc_scav_efficiency,myc_mine_efficiency,&
+                           scavenger_myc_C_allocated,miner_myc_C_allocated,N_fixer_C_allocated,&
+                           myc_scav_marginal_gain,myc_mine_marginal_gain,N_fix_marginal_gain,rhiz_exud_marginal_gain,&
+                           root_exudate_C, root_exudate_N,&
+                           scav_N_to_plant,mine_N_to_plant,fix_N_to_plant,&
+                           myc_CO2_prod,N_fixation,total_plant_N_uptake,&
+                           myc_turnover_C,myc_turnover_N,myc_Nmin)
+
+
+   type(vegn_cohort_type), intent(inout) :: cc
+   type(spec_data_type),   intent(in)    :: sp
+   real, intent(in) :: dt_fast_yr
+   real, intent(in) :: myc_scav_N_uptake,myc_mine_N_uptake,myc_mine_C_uptake,root_N_uptake  ! N uptake per individual (kgN/m2)
+   real, intent(in) :: C_allocation_to_N_acq
+   real, intent(in) :: myc_scav_efficiency,myc_mine_efficiency         ! N uptake/myc biomass -- Only used if myc biomass is zero
+   real, intent(out):: scavenger_myc_C_allocated,miner_myc_C_allocated,N_fixer_C_allocated ! Allocation per individual (kgC/m2)
+   real, intent(out):: myc_scav_marginal_gain,myc_mine_marginal_gain,N_fix_marginal_gain,rhiz_exud_marginal_gain ! kgN/kgC allocated
+   real, intent(out):: root_exudate_C, root_exudate_N
+   real, intent(out):: scav_N_to_plant,mine_N_to_plant,fix_N_to_plant
+   real, intent(out):: myc_CO2_prod, myc_Nmin  ! kgC/m2/individual
+   real, intent(out):: N_fixation, total_plant_N_uptake
+   real, intent(out):: myc_turnover_C,myc_turnover_N
+
+   real :: myc_scav_exudate_frac,myc_mine_exudate_frac,N_fixer_exudate_frac,rhiz_exud_frac
+   real :: scavenger_myc_N_allocated,miner_myc_N_allocated,N_fixer_N_allocated
+   real :: fixer_biomass_N_fixation
+   real :: d_scav_C_reservoir,d_scav_N_reservoir,d_mine_C_reservoir,d_mine_N_reservoir,d_N_fixer_C_reservoir,d_N_fixer_N_reservoir
+   real :: scavenger_myc_growth, miner_myc_growth, N_fixer_growth
+   real :: lim_factor
+   real :: wood_n2c
+   real :: reservoir_C_leakage, maint_resp
+
+   myc_CO2_prod = 0.0
+   myc_Nmin = 0.0
+   reservoir_C_leakage = 0.0
+
+
+   if (soil_carbon_option == SOILC_CORPSE_N) then
+
+     ! Update reservoirs with N uptake for this cohort
+     cc%scav_myc_N_reservoir = cc%scav_myc_N_reservoir+myc_scav_N_uptake
+     cc%mine_myc_C_reservoir = cc%mine_myc_C_reservoir+myc_mine_C_uptake
+     cc%mine_myc_N_reservoir = cc%mine_myc_N_reservoir+myc_mine_N_uptake
+     N_fixation = cc%N_fixer_biomass_C*sp%N_fixation_rate*dt_fast_yr
+     cc%N_fixer_N_reservoir = cc%N_fixer_N_reservoir + N_fixation
+
+     if(cc%myc_scavenger_biomass_C<0) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger biomass < 0',FATAL)
+     if(cc%myc_miner_biomass_C<0) then
+       __DEBUG3__(cc%myc_miner_biomass_C,myc_mine_C_uptake,miner_myc_C_allocated)
+       call error_mesg('vegn_carbon_int','Mycorrhizal miner biomass < 0',FATAL)
+     endif
+     if(cc%N_fixer_biomass_C<0) call error_mesg('vegn_carbon_int','N fixer biomass < 0',FATAL)
+
+     if(isnan(cc%myc_scavenger_biomass_C)) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger biomass is NaN',FATAL)
+     if(isnan(cc%myc_miner_biomass_C)) call error_mesg('vegn_carbon_int','Mycorrhizal miner biomass is NaN',FATAL)
+     if(isnan(cc%N_fixer_biomass_C)) call error_mesg('vegn_carbon_int','N fixer biomass is NaN',FATAL)
+
+      if (is_watch_point()) then
+         __DEBUG3__(cc%myc_scavenger_biomass_C,cc%myc_miner_biomass_C,cc%N_fixer_biomass_C)
+       endif
+
+       ! Add mycorrhizal and N fixer turnover to soil C pools
+       myc_turnover_C = ((cc%myc_scavenger_biomass_C+&
+            cc%myc_miner_biomass_C)/mycorrhizal_turnover_time+&
+            (cc%N_fixer_biomass_C)/N_fixer_turnover_time)*dt_fast_yr*et_myc
+      myc_turnover_N = ((cc%myc_scavenger_biomass_N+&
+           cc%myc_miner_biomass_N)/mycorrhizal_turnover_time+&
+           (cc%N_fixer_biomass_N)/N_fixer_turnover_time)*dt_fast_yr*et_myc
+
+      myc_CO2_prod = myc_CO2_prod + (1.0-et_myc)*myc_turnover_C
+      myc_Nmin = myc_Nmin + (1.0-et_myc)*myc_turnover_N
+
+      d_scav_C_reservoir = 0.0
+      d_scav_N_reservoir = 0.0
+      d_mine_C_reservoir = 0.0
+      d_mine_N_reservoir = 0.0
+      d_N_fixer_C_reservoir = 0.0
+      d_N_fixer_N_reservoir = 0.0
+
+      ! Then update biomass of scavenger mycorrhizae and N fixers
+      scavenger_myc_growth = sp%myc_growth_rate*cc%scav_myc_C_reservoir/(cc%scav_myc_C_reservoir+sp%kM_myc_growth)*myc_scav_C_efficiency*dt_fast_yr
+      maint_resp=min(cc%myc_scavenger_biomass_C/mycorrhizal_turnover_time*(1.0-et_myc)*dt_fast_yr,scavenger_myc_growth)
+      if (scavenger_myc_growth-maint_resp>sp%c2n_mycorrhizae*cc%scav_myc_N_reservoir*0.9) then
+
+        ! Not enough nitrogen to support growth. Limit to available N, and leave a little bit left over for plant
+        scavenger_myc_growth=sp%c2n_mycorrhizae*cc%scav_myc_N_reservoir*0.9+maint_resp
+      endif
+      myc_CO2_prod = myc_CO2_prod + scavenger_myc_growth/myc_scav_C_efficiency*(1.0-myc_scav_C_efficiency)
+
+      cc%scav_myc_N_reservoir=cc%scav_myc_N_reservoir+cc%myc_scavenger_biomass_N*(1-et_myc/mycorrhizal_turnover_time*dt_fast_yr)
+      cc%myc_scavenger_biomass_C = cc%myc_scavenger_biomass_C + scavenger_myc_growth - cc%myc_scavenger_biomass_C/mycorrhizal_turnover_time*dt_fast_yr
+      cc%myc_scavenger_biomass_N = cc%myc_scavenger_biomass_C/sp%c2n_mycorrhizae
+      d_scav_C_reservoir = d_scav_C_reservoir - scavenger_myc_growth/myc_scav_C_efficiency
+      cc%scav_myc_N_reservoir=cc%scav_myc_N_reservoir-cc%myc_scavenger_biomass_N
+
+
+      miner_myc_growth = sp%myc_growth_rate*cc%mine_myc_C_reservoir/(cc%mine_myc_C_reservoir+sp%kM_myc_growth)*myc_mine_C_efficiency*dt_fast_yr
+      maint_resp=min(cc%myc_miner_biomass_C/mycorrhizal_turnover_time*(1.0-et_myc)*dt_fast_yr,miner_myc_growth)
+      if (miner_myc_growth-maint_resp>sp%c2n_mycorrhizae*cc%mine_myc_N_reservoir*0.9) then
+        ! Not enough nitrogen to support growth. Limit to available N, and leave a little bit left over for plant
+        miner_myc_growth=sp%c2n_mycorrhizae*cc%mine_myc_N_reservoir*0.9+maint_resp
+      endif
+      myc_CO2_prod = myc_CO2_prod + miner_myc_growth/myc_mine_C_efficiency*(1.0-myc_mine_C_efficiency)
+
+      cc%mine_myc_N_reservoir=cc%mine_myc_N_reservoir+cc%myc_miner_biomass_N*(1-et_myc/mycorrhizal_turnover_time*dt_fast_yr)
+      cc%myc_miner_biomass_C = cc%myc_miner_biomass_C + miner_myc_growth - cc%myc_miner_biomass_C/mycorrhizal_turnover_time*dt_fast_yr
+      cc%myc_miner_biomass_N = cc%myc_miner_biomass_C/sp%c2n_mycorrhizae
+      d_mine_C_reservoir = d_mine_C_reservoir - miner_myc_growth/myc_mine_C_efficiency
+      cc%mine_myc_N_reservoir=cc%mine_myc_N_reservoir-cc%myc_miner_biomass_N
+
+      N_fixer_growth = sp%myc_growth_rate*cc%N_fixer_C_reservoir/(cc%N_fixer_C_reservoir+sp%kM_myc_growth)*N_fixer_C_efficiency*dt_fast_yr
+      maint_resp=min(cc%N_fixer_biomass_C/N_fixer_turnover_time*(1.0-et_myc)*dt_fast_yr,N_fixer_growth)
+      ! if (N_fixer_growth>c2n_mycorrhizae*cc%N_fixer_N_reservoir*0.9) then
+      !   ! Not enough nitrogen to support growth. Limit to available N, and leave a little bit left over for plant
+      !   N_fixer_growth=c2n_mycorrhizae*cc%N_fixer_N_reservoir*0.9
+      ! endif
+
+      myc_CO2_prod = myc_CO2_prod + N_fixer_growth/N_fixer_C_efficiency*(1.0-N_fixer_C_efficiency)
+
+      N_fixation=N_fixation-cc%N_fixer_biomass_N*(1-et_myc/N_fixer_turnover_time*dt_fast_yr)
+      cc%N_fixer_biomass_C = cc%N_fixer_biomass_C + N_fixer_growth - cc%N_fixer_biomass_C/N_fixer_turnover_time*dt_fast_yr
+      cc%N_fixer_biomass_N = cc%N_fixer_biomass_N/c2n_N_fixer
+      d_N_fixer_C_reservoir = d_N_fixer_C_reservoir - N_fixer_growth/N_fixer_C_efficiency
+      ! d_N_fixer_N_reservoir = d_N_fixer_N_reservoir - N_fixer_growth/c2n_mycorrhizae
+
+      ! N fixers just make all the N they need for their biomass
+      N_fixation=N_fixation+cc%N_fixer_biomass_N
+
+
+         ! Prevent numerical errors from very small numbers if biomass is decreasing exponentially by killing it all at some point
+         if(cc%myc_scavenger_biomass_C < 1e-20) then
+           myc_turnover_C = myc_turnover_C + cc%myc_scavenger_biomass_C
+           myc_turnover_N = myc_turnover_N + cc%myc_scavenger_biomass_N
+           cc%myc_scavenger_biomass_C = 0.0
+           cc%myc_scavenger_biomass_N = 0.0
+         endif
+
+         if(cc%myc_miner_biomass_C < 1e-20) then
+           myc_turnover_C = myc_turnover_C + cc%myc_miner_biomass_C
+           myc_turnover_N = myc_turnover_N + cc%myc_miner_biomass_N
+           cc%myc_miner_biomass_C = 0.0
+           cc%myc_miner_biomass_N = 0.0
+         endif
+
+         if(cc%N_fixer_biomass_C < 1e-20) then
+           myc_turnover_C = myc_turnover_C + cc%N_fixer_biomass_C
+           myc_turnover_N = myc_turnover_N + cc%N_fixer_biomass_N
+           cc%N_fixer_biomass_C = 0.0
+           cc%N_fixer_biomass_N = 0.0
+         endif
+
+
+
+         call check_var_range(cc%myc_scavenger_biomass_C, 0.0, HUGE(1.0), 'vegn_carbon_int_lm3', 'myc_scavenger_C', FATAL)
+         call check_var_range(cc%myc_miner_biomass_C,     0.0, HUGE(1.0), 'vegn_carbon_int_lm3', 'myc_miner_C', FATAL)
+         call check_var_range(cc%N_fixer_biomass_C,       0.0, HUGE(1.0), 'vegn_carbon_int_lm3', 'N_fixer_C', FATAL)
+
+
+         if(is_watch_point()) then
+            __DEBUG3__(cc%myc_scavenger_biomass_C,cc%myc_miner_biomass_C,cc%N_fixer_biomass_C)
+         endif
+
+      if(cc%myc_scavenger_biomass_C<0) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger biomass < 0',FATAL)
+      if(cc%myc_miner_biomass_C<0) then
+        __DEBUG3__(cc%myc_miner_biomass_C,myc_mine_C_uptake,miner_myc_C_allocated)
+        call error_mesg('vegn_carbon_int','Mycorrhizal miner biomass < 0',FATAL)
+      endif
+      if(cc%N_fixer_biomass_C<0) call error_mesg('vegn_carbon_int','N fixer biomass < 0',FATAL)
+
+      if(cc%myc_scavenger_biomass_N<0) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger biomass < 0',FATAL)
+      if(cc%myc_miner_biomass_N<0) then
+        __DEBUG3__(cc%myc_miner_biomass_N,myc_mine_N_uptake,miner_myc_N_allocated)
+        call error_mesg('vegn_carbon_int','Mycorrhizal miner biomass N < 0',FATAL)
+      endif
+      if(cc%N_fixer_biomass_N<0) call error_mesg('vegn_carbon_int','N fixer biomass < 0',FATAL)
+
+
+
+      if(cc%N_fixer_biomass_C<0) call error_mesg('vegn_carbon_int','N fixer biomass < 0',FATAL)
+      if(isnan(cc%myc_scavenger_biomass_C)) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger biomass is NaN',FATAL)
+      if(isnan(cc%myc_miner_biomass_C)) call error_mesg('vegn_carbon_int','Mycorrhizal miner biomass is NaN',FATAL)
+      if(isnan(cc%N_fixer_biomass_C)) call error_mesg('vegn_carbon_int','N fixer biomass is NaN',FATAL)
+
+      if(isnan(cc%myc_scavenger_biomass_N)) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger biomass is NaN',FATAL)
+      if(isnan(cc%myc_miner_biomass_N)) call error_mesg('vegn_carbon_int','Mycorrhizal miner biomass is NaN',FATAL)
+      if(isnan(cc%N_fixer_biomass_N)) call error_mesg('vegn_carbon_int','N fixer biomass is NaN',FATAL)
+
+      cc%scav_myc_C_reservoir = cc%scav_myc_C_reservoir + d_scav_C_reservoir
+      cc%scav_myc_N_reservoir = cc%scav_myc_N_reservoir + d_scav_N_reservoir
+      cc%mine_myc_C_reservoir = cc%mine_myc_C_reservoir + d_mine_C_reservoir
+      cc%mine_myc_N_reservoir = cc%mine_myc_N_reservoir + d_mine_N_reservoir
+      cc%N_fixer_C_reservoir = cc%N_fixer_C_reservoir + d_N_fixer_C_reservoir
+      cc%N_fixer_N_reservoir = cc%N_fixer_N_reservoir + d_N_fixer_N_reservoir
+
+      ! Excess C leaks out of reservoir into root exudates at a time scale of one day
+      reservoir_C_leakage = reservoir_C_leakage + (cc%scav_myc_C_reservoir + cc%mine_myc_C_reservoir + cc%N_fixer_C_reservoir)*dt_fast_yr*365
+      cc%scav_myc_C_reservoir = cc%scav_myc_C_reservoir - cc%scav_myc_C_reservoir*dt_fast_yr*365
+      cc%mine_myc_C_reservoir = cc%mine_myc_C_reservoir - cc%mine_myc_C_reservoir*dt_fast_yr*365
+      cc%N_fixer_C_reservoir = cc%N_fixer_C_reservoir - cc%N_fixer_C_reservoir*dt_fast_yr*365
+
+
+      if(abs(cc%mine_myc_N_reservoir)<1e-20) cc%mine_myc_N_reservoir = 0.0
+      if(abs(cc%mine_myc_C_reservoir)<1e-20) cc%mine_myc_C_reservoir = 0.0
+      if(abs(cc%scav_myc_N_reservoir)<1e-20) cc%scav_myc_N_reservoir = 0.0
+      if(abs(cc%scav_myc_C_reservoir)<1e-20) cc%scav_myc_C_reservoir = 0.0
+
+      if(cc%scav_myc_C_reservoir<-1e-10) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger C reservoir < 0',FATAL)
+      if(cc%mine_myc_C_reservoir<-1e-10) call error_mesg('vegn_carbon_int','Mycorrhizal miner C reservoir < 0',FATAL)
+      if(cc%N_fixer_C_reservoir<-1e-10) call error_mesg('vegn_carbon_int','N fixer C reservoir < 0',FATAL)
+      if(cc%scav_myc_N_reservoir<-1e-10) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger N reservoir < 0',FATAL)
+      if(cc%mine_myc_N_reservoir<-1e-10) then
+          __DEBUG4__(cc%mine_myc_N_reservoir,cc%mine_myc_C_reservoir,cc%myc_miner_biomass_C,cc%myc_miner_biomass_N)
+          __DEBUG4__(cc%species,cc%total_N,cc%leaf_N,cc%stored_N)
+          call error_mesg('vegn_carbon_int','Mycorrhizal miner N reservoir < 0',FATAL)
+      endif
+      if(cc%N_fixer_N_reservoir<-1e-10) call error_mesg('vegn_carbon_int','N fixer N reservoir < 0',FATAL)
+
+      ! Calculate N released to plant
+      scav_N_to_plant = cc%scav_myc_N_reservoir*sp%myc_N_to_plant_rate*dt_fast_yr
+      mine_N_to_plant = cc%mine_myc_N_reservoir*sp%myc_N_to_plant_rate*dt_fast_yr
+      fix_N_to_plant = cc%N_fixer_N_reservoir*sp%myc_N_to_plant_rate*dt_fast_yr
+
+      ! Calculate return on investment for each strategy
+      ! Scavenging (AM-style)
+      ! slm: *_marginal_gain variables have units [kgN/kgC]
+      if(myc_scav_C_efficiency == 0 .OR. .NOT. sp%do_N_scavenging_strategy) then
+         myc_scav_marginal_gain = 0
+         scav_N_to_plant = 0.0
+      else
+         if (cc%myc_scavenger_biomass_C > 0) then
+           myc_scav_marginal_gain = (max(0.0,scav_N_to_plant)/dt_fast_yr)/(cc%myc_scavenger_biomass_C/myc_scav_C_efficiency/mycorrhizal_turnover_time)
+         else ! Use the mycorrhizal N uptake efficiency from myc_scavenger_N_uptake, units of (kgN/kg myc biomass C)
+            myc_scav_marginal_gain = myc_scav_efficiency/(dt_fast_yr*myc_scav_C_efficiency*mycorrhizal_turnover_time)
+         endif
+      endif
+      cc%scav_myc_N_reservoir = cc%scav_myc_N_reservoir - scav_N_to_plant
+
+      ! Mycorrhizal N mining (ECM-style)
+      if(myc_mine_C_efficiency==0 .OR. .NOT. sp%do_N_mining_strategy) then
+         myc_mine_marginal_gain = 0.0
+         mine_N_to_plant = 0.0
+      else
+         if(cc%myc_miner_biomass_C>0) then
+           myc_mine_marginal_gain = (max(0.0,mine_N_to_plant)/dt_fast_yr)/(cc%myc_miner_biomass_C/myc_mine_C_efficiency/mycorrhizal_turnover_time)
+         else
+            myc_mine_marginal_gain = myc_mine_efficiency/(dt_fast_yr*myc_mine_C_efficiency*mycorrhizal_turnover_time)
+         endif
+      endif
+      cc%mine_myc_N_reservoir = cc%mine_myc_N_reservoir - mine_N_to_plant
+
+      ! Root uptake of nitrogen
+      if (C_allocation_to_N_acq>0) then
+         rhiz_exud_marginal_gain = (root_N_uptake/dt_fast_yr)/(C_allocation_to_N_acq)!+(myc_mine_marginal_gain+myc_scav_marginal_gain)*0.5
+      else
+         rhiz_exud_marginal_gain = (myc_mine_marginal_gain+myc_scav_marginal_gain)*0.25
+      endif
+
+      ! N fixer
+      if(N_fixer_C_efficiency == 0 .OR. .NOT. sp%do_N_fixation_strategy) then
+         N_fix_marginal_gain = 0.0
+         fix_N_to_plant = 0.0
+      else
+         if(cc%N_fixer_biomass_C>0) then
+           N_fix_marginal_gain = (fix_N_to_plant/dt_fast_yr)/(cc%N_fixer_biomass_C/N_fixer_C_efficiency/N_fixer_turnover_time)
+         else
+            N_fix_marginal_gain = (cc%br*0.001*sp%N_fixation_rate)/(cc%br*0.001/N_fixer_C_efficiency/N_fixer_turnover_time)
+         endif
+      endif
+      cc%N_fixer_N_reservoir = cc%N_fixer_N_reservoir-fix_N_to_plant
+
+      ! Calculate relative fractions
+      if (myc_scav_marginal_gain+N_fix_marginal_gain+myc_mine_marginal_gain+rhiz_exud_marginal_gain>0) then
+         myc_scav_exudate_frac = myc_scav_marginal_gain/(myc_scav_marginal_gain+myc_mine_marginal_gain+N_fix_marginal_gain+rhiz_exud_marginal_gain)
+         myc_mine_exudate_frac = myc_mine_marginal_gain/(myc_scav_marginal_gain+myc_mine_marginal_gain+N_fix_marginal_gain+rhiz_exud_marginal_gain)
+         N_fixer_exudate_frac  = N_fix_marginal_gain   /(myc_scav_marginal_gain+myc_mine_marginal_gain+N_fix_marginal_gain+rhiz_exud_marginal_gain)
+         rhiz_exud_frac = rhiz_exud_marginal_gain/(myc_scav_marginal_gain+myc_mine_marginal_gain+N_fix_marginal_gain+rhiz_exud_marginal_gain)
+      else
+         ! Divide evenly if there is no marginal gain.  But this probably only happens if C_allocation_to_N_acq is zero
+         myc_scav_exudate_frac = 0.4*0.7
+         myc_mine_exudate_frac = 0.3*0.7
+         N_fixer_exudate_frac = 0.3*0.7
+         rhiz_exud_frac = 0.3
+      endif
+
+      N_fixer_C_allocated = C_allocation_to_N_acq*N_fixer_exudate_frac*dt_fast_yr
+      miner_myc_C_allocated=C_allocation_to_N_acq*myc_mine_exudate_frac*dt_fast_yr
+      scavenger_myc_C_allocated=C_allocation_to_N_acq*myc_scav_exudate_frac*dt_fast_yr
+
+      N_fixer_N_allocated = 0.0
+      miner_myc_N_allocated = miner_myc_C_allocated*sp%root_exudate_N_frac
+      scavenger_myc_N_allocated = scavenger_myc_C_allocated*sp%root_exudate_N_frac
+
+      ! Make sure N allocation doesn't completely deplete stored N
+      if (cc%stored_N<=0.0) then
+         N_fixer_N_allocated=0.0
+         miner_myc_N_allocated=0.0
+         scavenger_myc_N_allocated=0.0
+      elseif (N_fixer_N_allocated+miner_myc_N_allocated+scavenger_myc_N_allocated > 0.0 .AND. &
+                N_limits_live_biomass .AND. &
+                N_fixer_N_allocated+miner_myc_N_allocated+scavenger_myc_N_allocated > cc%stored_N*0.9) then
+         lim_factor=cc%stored_N/(N_fixer_N_allocated+miner_myc_N_allocated+scavenger_myc_N_allocated)*0.9
+         N_fixer_N_allocated=N_fixer_N_allocated*lim_factor
+         miner_myc_N_allocated=miner_myc_N_allocated*lim_factor
+         scavenger_myc_N_allocated=scavenger_myc_N_allocated*lim_factor
+      endif
+
+      cc%scav_myc_C_reservoir = cc%scav_myc_C_reservoir + scavenger_myc_C_allocated
+      cc%scav_myc_N_reservoir = cc%scav_myc_N_reservoir + scavenger_myc_N_allocated
+      cc%mine_myc_C_reservoir = cc%mine_myc_C_reservoir + miner_myc_C_allocated
+      cc%mine_myc_N_reservoir = cc%mine_myc_N_reservoir + miner_myc_N_allocated
+      cc%N_fixer_C_reservoir = cc%N_fixer_C_reservoir + N_fixer_C_allocated
+      cc%N_fixer_N_reservoir = cc%N_fixer_N_reservoir + N_fixer_N_allocated
+
+
+      total_plant_N_uptake = scav_N_to_plant + mine_N_to_plant + fix_N_to_plant + root_N_uptake
+
+
+   cc%stored_N = cc%stored_N + total_plant_N_uptake
+
+   root_exudate_N = C_allocation_to_N_acq*dt_fast_yr*sp%root_exudate_N_frac - scavenger_myc_N_allocated - N_fixer_N_allocated - miner_myc_N_allocated
+
+ else  ! If nitrogen turned off, everything is zero
+
+      scavenger_myc_C_allocated = 0.0
+      miner_myc_C_allocated = 0.0
+      N_fixer_C_allocated = 0.0
+      scavenger_myc_N_allocated = 0.0
+      miner_myc_N_allocated = 0.0
+      N_fixer_N_allocated = 0.0
+      myc_scav_marginal_gain = 0.0
+      myc_mine_marginal_gain = 0.0
+      N_fix_marginal_gain = 0.0
+      rhiz_exud_marginal_gain = 0.0
+      root_exudate_N = 0.0
+      myc_CO2_prod = 0.0
+      N_fixation = 0.0
+      myc_turnover_C = 0.0
+      myc_turnover_N = 0.0
+      total_plant_N_uptake = 0.0
+      root_exudate_N = 0.0
+ endif
+
+   !root_exudate_N=(current_root_exudation*root_exudate_N_frac*dt_fast_yr - scavenger_myc_N_allocated - N_fixer_N_allocated - miner_myc_N_allocated)/dt_fast_yr
+   root_exudate_C = C_allocation_to_N_acq*dt_fast_yr - scavenger_myc_C_allocated - miner_myc_C_allocated - N_fixer_C_allocated + reservoir_C_leakage
+
+
+   if(root_exudate_N<0) then
+     __DEBUG2__(root_exudate_C,root_exudate_N)
+     __DEBUG3__(scavenger_myc_N_allocated , N_fixer_N_allocated , miner_myc_N_allocated)
+     call error_mesg('update_mycorrhizae','Root exudate N < 0',FATAL)
+   endif
+
+   cc%stored_N=cc%stored_N - root_exudate_N - scavenger_myc_N_allocated - N_fixer_N_allocated - miner_myc_N_allocated
+
+
+   if (is_watch_point()) then
+      ! __DEBUG1__(current_root_exudation*dt_fast_yr)
+      __DEBUG1__(root_exudate_C)
+      __DEBUG1__(scavenger_myc_C_allocated)
+      __DEBUG1__(miner_myc_C_allocated)
+      __DEBUG1__(myc_mine_C_uptake)
+      __DEBUG1__(N_fixer_C_allocated)
+      __DEBUG1__(myc_CO2_prod)
+   endif
+
+
+end subroutine update_mycorrhizae
 
 ! ============================================================================
 subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
@@ -143,19 +593,31 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   ! TODO: possibly move soil-related calculations from calling procedure here,
   !       now that we have soil passed as an argument
 
-  type(vegn_cohort_type), pointer :: cc
   type(vegn_cohort_type), pointer :: c(:) ! for debug only
   real :: md_leaf, md_wood, md_froot ! component of maintenance demand
   real :: md ! plant tissue maintenance, kg C/timestep
-  real :: root_exudate_C       ! root exudate, kgC/(year indiv)
   real :: total_root_exudate_C(num_l) ! total root exudate per tile, kgC/m2
-  real :: leaf_litt(n_c_types) ! fine surface litter per tile, kgC/m2
-  real :: wood_litt(n_c_types) ! coarse surface litter per tile, kgC/m2
-  real :: root_litt(num_l, n_c_types) ! root litter per soil layer, kgC/m2
+  real :: total_root_exudate_N(num_l) ! total root exudate per tile, kgN/m2
+  real :: total_myc_Nmin(num_l)
+  real, dimension(N_C_TYPES) :: &
+      leaf_litt_C, leaf_litt_N, & ! fine surface litter per tile, kgC/m2 and kgN/m2
+      wood_litt_C, wood_litt_N    ! coarse surface litter per tile, kgC/m2 and kgN/m2
+  real, dimension(num_l, N_C_TYPES) :: &
+      root_litt_C, root_litt_N ! root litter per soil layer, kgC/m2 and kgN/m2
   real :: profile(num_l) ! storage for vertical profile of exudates and root litter
   real, dimension(vegn%n_cohorts) :: resp, resl, resr, ress, resg, gpp, npp
-  integer :: sp ! shorthand for current cohort specie
+  real, dimension(vegn%n_cohorts) :: myc_scav_N_uptake, myc_mine_N_uptake, myc_mine_C_uptake, root_active_N_uptake
   integer :: i, l, N
+
+  real :: root_exudate_frac, C_allocation_to_N_acq
+  real,dimension(vegn%n_cohorts) :: scavenger_myc_C_allocated,miner_myc_C_allocated, N_fixer_C_allocated
+  real,dimension(vegn%n_cohorts) :: N_fixation, root_exudate_C, root_exudate_N, myc_CO2_prod
+  real,dimension(vegn%n_cohorts) :: myc_scav_marginal_gain,myc_mine_marginal_gain, N_fix_marginal_gain, rhiz_exud_marginal_gain
+  real :: mining_CO2prod,myc_turnover_C,myc_turnover_N
+  real :: myc_N_uptake, myc_C_uptake
+  real,dimension(vegn%n_cohorts) :: total_plant_N_uptake, scav_N_to_plant, mine_N_to_plant, fix_N_to_plant
+  real :: excess_C, current_root_exudation, myc_scav_efficiency, myc_mine_efficiency, total_N_leakage(num_l)
+  real :: total_myc_CO2_prod, myc_Nmin ! additional heterotrophic respiration from mycorrhizae and N fixers
 
   c=>vegn%cohorts(1:vegn%n_cohorts)
   N = vegn%n_cohorts
@@ -169,10 +631,26 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   endif
 
   !  update plant carbon
-  leaf_litt = 0 ; wood_litt = 0; root_litt = 0 ; total_root_exudate_C = 0
+  leaf_litt_C = 0 ; wood_litt_C = 0 ; root_litt_C(:,:) = 0
+  leaf_litt_N = 0 ; wood_litt_N = 0 ; root_litt_N(:,:) = 0
+  total_root_exudate_C(:) = 0 ; total_root_exudate_N(:) = 0
+  total_N_leakage = 0
+
+  total_myc_CO2_prod = 0.0
+
+  ! First calculate total N uptake for each strategy
+  ! The total will then be divided between cohorts based on their relative
+  ! root and mycorrhizal biomass
+
+  if (soil_carbon_option == SOILC_CORPSE_N) then
+    call myc_scavenger_N_uptake(soil,vegn,myc_scav_N_uptake,myc_scav_efficiency,dt_fast_yr,update_pools=.TRUE.)
+    call myc_miner_N_uptake(soil,vegn,myc_mine_N_uptake,myc_mine_C_uptake,mining_CO2prod,myc_mine_efficiency,dt_fast_yr,update_pools=.TRUE.)
+    total_myc_CO2_prod = total_myc_CO2_prod + mining_CO2prod
+    call root_N_uptake(soil,vegn,root_active_N_uptake,dt_fast_yr, update_pools=.TRUE.)
+  endif
+
   do i = 1, vegn%n_cohorts
-     cc => vegn%cohorts(i)
-     sp = cc%species
+     associate(cc=>vegn%cohorts(i), sp=>spdata(vegn%cohorts(i)%species))
 
      call plant_respiration(cc,soilt, resp(i), resl(i), resr(i), ress(i))
 
@@ -189,25 +667,32 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
      ! accumulate npp for the current day
      cc%npp_previous_day_tmp = cc%npp_previous_day_tmp + npp(i);
 
-     root_exudate_C = max(npp(i),0.0)*spdata(sp)%root_exudate_frac
-     call cohort_root_exudate_profile(cc,dz,profile)
-     total_root_exudate_C = total_root_exudate_C + profile*root_exudate_C*cc%nindivs*dt_fast_yr
-     cc%carbon_gain = cc%carbon_gain + (npp(i)-root_exudate_C)*dt_fast_yr
+     if(sp%dynamic_root_exudation .AND. soil_carbon_option==SOILC_CORPSE_N) then
+       ! Initial allocation scheme: root exudation/mycorrhizal allocation depends
+       ! on ratio of leaf biomass to max (as determined by N uptake)
+       ! Root exudation fraction of NPP limited by some maximum value.
+       ! Probably need to rename these parameters and not use a hard-coded value
+       root_exudate_frac = min(0.9,sp%root_exudate_frac*cc%nitrogen_stress)
+     else
+       root_exudate_frac = sp%root_exudate_frac
+     endif
+     C_allocation_to_N_acq = max(npp(i),0.0)*root_exudate_frac
+     cc%carbon_gain = cc%carbon_gain + (npp(i)-C_allocation_to_N_acq)*dt_fast_yr
 
      ! check if leaves/roots are present and need to be accounted in maintenance
      if(cc%status == LEAF_ON) then
-        md_leaf = cc%Pl * spdata(sp)%alpha_leaf*cc%bliving*dt_fast_yr
-        md_froot= cc%Pr * spdata(sp)%alpha_root*cc%bliving*dt_fast_yr
+        md_leaf = cc%Pl * sp%alpha_leaf*cc%bliving*dt_fast_yr
+        md_froot= cc%Pr * sp%alpha_root*cc%bliving*dt_fast_yr
      else
         md_leaf  = 0
         md_froot = 0
      endif
 
      ! compute branch and coarse wood losses for tree types
-     if (spdata(sp)%lifeform==FORM_WOODY) then
-        md_wood = 0.6 * cc%bwood * spdata(sp)%alpha_wood*dt_fast_yr
+     if (sp%lifeform==FORM_WOODY) then
+        md_wood    = 0.6 * cc%bwood * sp%alpha_wood    * dt_fast_yr
      else
-        md_wood = 0
+        md_wood = 0.0
      endif
 
      md = md_leaf + md_froot + cc%Psw_alphasw * cc%bliving * dt_fast_yr
@@ -218,15 +703,28 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
      cc%carbon_gain = cc%carbon_gain - md;
      cc%carbon_loss = cc%carbon_loss + md; ! used in diagnostics only
 
+     ! Should this N be lost or retranslocated?
+     cc%leaf_N = cc%leaf_N - md_leaf /sp%leaf_live_c2n*(1.0-sp%leaf_retranslocation_frac)
+     cc%root_N = cc%root_N - md_froot/sp%froot_live_c2n*(1.0-sp%froot_retranslocation_frac)
+     cc%wood_N = cc%wood_N - md_wood/sp%wood_c2n
+
      ! add maintenance demand from leaf and root pools to fast soil carbon
-     leaf_litt(:) = leaf_litt(:) + (/fsc_liv,  1-fsc_liv,  0.0/)*md_leaf*cc%nindivs
-     wood_litt(:) = wood_litt(:) + (/fsc_wood, 1-fsc_wood, 0.0/)*md_wood*agf_bs*cc%nindivs
+     leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*(md_leaf)*cc%nindivs
+     leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*md_leaf/sp%leaf_live_c2n*cc%nindivs*(1.0-sp%leaf_retranslocation_frac)
+     wood_litt_C(:) = wood_litt_C(:) + cc%nindivs * agf_bs * &
+             [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*md_wood
+     wood_litt_N(:) = wood_litt_N(:) + cc%nindivs * agf_bs * &
+             [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*md_wood/sp%wood_c2n
      call cohort_root_litter_profile(cc, dz, profile)
      do l = 1, num_l
-        root_litt(l,:) = root_litt(l,:) + profile(l)*cc%nindivs*(/ &
-             fsc_froot    *md_froot + fsc_wood    *md_wood*(1-agf_bs), &
-             (1-fsc_froot)*md_froot + (1-fsc_wood)*md_wood*(1-agf_bs), &
-             0.0/)
+        root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*cc%nindivs * ( &
+             [sp%fsc_froot, 1-sp%fsc_froot, 0.0 ]*md_froot + &
+             [sp%fsc_wood,  1-sp%fsc_wood,  0.0 ]*md_wood*(1-agf_bs) &
+             )
+        root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*cc%nindivs*( &
+             [sp%fsc_froot, 1-sp%fsc_froot, 0.0 ]*md_froot/sp%froot_live_c2n*(1.0-sp%froot_retranslocation_frac) + &
+             [sp%fsc_wood,  1-sp%fsc_wood,  0.0 ]*md_wood*(1-agf_bs)/sp%wood_c2n &
+             )
      enddo
 
      vegn%veg_in  = vegn%veg_in  + npp(i)*cc%nindivs*dt_fast_yr;
@@ -234,13 +732,59 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
 
      ! update cohort age
      cc%age = cc%age + dt_fast_yr
+
+     ! Mycorrhizal N uptake
+     ! FIXME slm:
+     !  - uptakes should be calculated per individul, and then scaled with nindivs
+     !  - split uptake code in a separate subroutine (?)
+
+
+     call update_mycorrhizae(cc,sp,dt_fast_yr,&
+                                C_allocation_to_N_acq=C_allocation_to_N_acq,&
+                                myc_scav_N_uptake=myc_scav_N_uptake(i),myc_mine_C_uptake=myc_mine_C_uptake(i),myc_mine_N_uptake=myc_mine_N_uptake(i),&
+                                root_N_uptake=root_active_N_uptake(i),&
+                                myc_scav_efficiency=myc_scav_efficiency,myc_mine_efficiency=myc_mine_efficiency,&
+                                scavenger_myc_C_allocated=scavenger_myc_C_allocated(i),miner_myc_C_allocated=miner_myc_C_allocated(i),&
+                                N_fixer_C_allocated=N_fixer_C_allocated(i),&
+                                myc_scav_marginal_gain=myc_scav_marginal_gain(i),myc_mine_marginal_gain=myc_mine_marginal_gain(i),&
+                                N_fix_marginal_gain=N_fix_marginal_gain(i),rhiz_exud_marginal_gain=rhiz_exud_marginal_gain(i),&
+                                root_exudate_C=root_exudate_C(i), root_exudate_N=root_exudate_N(i),&
+                                myc_CO2_prod=myc_CO2_prod(i),N_fixation=N_fixation(i),&
+                                scav_N_to_plant=scav_N_to_plant(i), mine_N_to_plant=mine_N_to_plant(i), fix_N_to_plant=fix_N_to_plant(i), &
+                                total_plant_N_uptake=total_plant_N_uptake(i), &
+                                myc_turnover_C=myc_turnover_C,myc_turnover_N=myc_turnover_N,myc_Nmin=myc_Nmin)
+
+     ! First add mycorrhizal and N fixer turnover to soil C pools
+     do l = 1, num_l
+        root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*cc%nindivs*([ 0.0, myc_turnover_C*deadmic_slow_frac, myc_turnover_C*(1-deadmic_slow_frac) ])
+        root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*cc%nindivs*([ 0.0, myc_turnover_N*deadmic_slow_frac, myc_turnover_N*(1-deadmic_slow_frac) ])
+     enddo
+
+     ! To do: Figure out excess C if mycorrhizae N-limited and add back to root exudate C
+     call cohort_root_exudate_profile(cc,dz,profile)
+     total_root_exudate_C(:) = total_root_exudate_C(:) + profile(:)*root_exudate_C(i)*cc%nindivs
+     total_root_exudate_N(:) = total_root_exudate_N(:) + profile(:)*root_exudate_N(i)*cc%nindivs
+
+     ! To prevent excess stored N buildup under high soil N, leak stored N when stress is zero
+     if(cc%nitrogen_stress<=0.05 .AND. cc%stored_N>0 .AND. soil_carbon_option == SOILC_CORPSE_N) then
+       total_N_leakage(:) = total_N_leakage(:) + cc%stored_N*excess_stored_N_leakage_rate*profile(:)*cc%nindivs
+       cc%stored_N=cc%stored_N - cc%stored_N*excess_stored_N_leakage_rate*dt_fast_yr
+     endif
+
+     total_myc_CO2_prod = total_myc_CO2_prod + myc_CO2_prod(i)*cc%nindivs
+     total_myc_Nmin(:) = total_myc_Nmin(:) + profile(:)*myc_Nmin*cc%nindivs
+
+     end associate
   enddo
 
+  soil%gross_nitrogen_flux_into_tile = soil%gross_nitrogen_flux_into_tile + sum(N_fixation(1:N)*c(1:N)%nindivs)
+
   ! fsc_in and ssc_in updated in add_root_exudates
-  call add_root_exudates(soil,total_root_exudate_C)
+  call add_root_exudates(soil,total_root_exudate_C,total_root_exudate_N,total_myc_Nmin,total_N_leakage)
 
   ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, leaf_litt, wood_litt, root_litt)
+  call add_soil_carbon(soil, vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
+                                   leaf_litt_N, wood_litt_N, root_litt_N  )
 
   if(is_watch_point()) then
      write(*,*)'#### vegn_carbon_int_lm3 output ####'
@@ -249,6 +793,13 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
      __DEBUG1__(c%br)
      __DEBUG1__(c%bsw)
      __DEBUG1__(c%bwood)
+     __DEBUG1__(c%total_N)
+     __DEBUG1__(c%stored_N)
+     __DEBUG1__(c%leaf_N)
+     __DEBUG1__(c%wood_N)
+     __DEBUG1__(c%root_N)
+     __DEBUG1__(c%sapwood_N)
+     __DEBUG1__(c%nitrogen_stress)
      __DEBUG1__(c%An_op)
      __DEBUG1__(c%An_cl)
      __DEBUG1__(c%lai)
@@ -261,12 +812,16 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
      __DEBUG1__(c%carbon_gain)
      __DEBUG1__(c%carbon_loss)
      __DEBUG1__(c%bwood_gain)
+     __DEBUG1__(sum(total_root_exudate_C))
+     __DEBUG1__(total_myc_CO2_prod)
   endif
 
   ! update soil carbon
   call Dsdt(vegn, soil, diag, soilt, theta)
 
-  ! NEP is equal to NNP minus soil respiration
+  vegn%rh = vegn%rh + total_myc_CO2_prod/dt_fast_yr
+
+  ! NEP is equal to NPP minus soil respiration
   vegn%nep = sum(npp(1:N)*c(1:N)%nindivs) - vegn%rh
 
   call update_soil_pools(vegn, soil)
@@ -285,6 +840,27 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   call send_cohort_data(id_resg, diag, c(1:N), resg(1:N), weight=c(1:N)%nindivs, op=OP_SUM)
   call send_tile_data(id_soilt,soilt,diag)
   call send_tile_data(id_theta,theta,diag)
+
+  ! FIXME slm: some of the fields below probbaly need to cohort diag fields
+  call send_cohort_data(id_mycorrhizal_scav_allocation,diag,c(1:N),scavenger_myc_C_allocated(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_mycorrhizal_mine_allocation,diag,c(1:N),miner_myc_C_allocated(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_N_fixer_allocation,diag,c(1:N),N_fixer_C_allocated(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_myc_scav_marginal_gain,diag,c(1:N),myc_scav_marginal_gain(1:N),weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_myc_mine_marginal_gain,diag,c(1:N),myc_mine_marginal_gain(1:N),weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_N_fix_marginal_gain,diag,c(1:N),N_fix_marginal_gain(1:N),weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_rhiz_exudation,diag,c(1:N),root_exudate_C(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_nitrogen_stress,diag,c(1:N),c(1:N)%nitrogen_stress,weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_total_plant_N_uptake,diag,c(1:N),total_plant_N_uptake(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_rhiz_exud_marginal_gain,diag,c(1:N),rhiz_exud_marginal_gain(1:N),weight=c(1:N)%nindivs, op=OP_SUM)
+
+  call send_cohort_data(id_myc_scavenger_N_uptake,diag,c(1:N),myc_scav_N_uptake(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_myc_miner_N_uptake,diag,c(1:N),myc_mine_N_uptake(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_symbiotic_N_fixation,diag,c(1:N),N_fixation(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_active_root_N_uptake,diag,c(1:N), root_active_N_uptake(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
+
+  call send_cohort_data(id_scav_plant_N_uptake,diag,c(1:N),scav_N_to_plant(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_mine_plant_N_uptake,diag,c(1:N),mine_N_to_plant(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_fix_plant_N_uptake,diag,c(1:N),fix_N_to_plant(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
 
 end subroutine vegn_carbon_int_lm3
 
@@ -313,6 +889,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   real, dimension(vegn%n_cohorts) :: resp, resl, resr, ress, resg, gpp, npp
   real, dimension(vegn%n_cohorts) :: root_exudate_C ! root exudate, kgC/(year indiv)
   real :: total_root_exudate_C(num_l) ! total root exudate per tile, kgC/m2
+  real :: total_root_exudate_N(num_l) ! total root exudate per tile, kgN/m2
 
 
   c=>vegn%cohorts(1:vegn%n_cohorts)
@@ -340,7 +917,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      __DEBUG1__(c%carbon_loss)
   endif
   ! update plant carbon for all cohorts
-  leaf_litt = 0 ; wood_litt = 0; root_litt = 0 ; total_root_exudate_C = 0
+  leaf_litt = 0; wood_litt = 0; root_litt = 0; total_root_exudate_C = 0; total_root_exudate_N = 0
   ! TODO: add root exudates to the balance. in LM3 it's a fraction of npp;
   !       in PPA perhaps it might be proportional to NSC, with some decay
   !       time?
@@ -394,24 +971,20 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      cc%bsw = cc%bsw - md_branch_sw
      cc%bwood = cc%bwood - md_wood
      !reduce nsc by the amount of root exudates during the date
-     ! TODO: when merging with N code take exudates from NSC not carbon gained
-     ! TODO: need different than a fraction of NPP formulation
+     ! FIXME: when merging with N code take exudates from NSC not carbon gained
+     ! FIXME: need different than a fraction of NPP formulation
      !cc%nsc = cc%nsc-root_exudate_C(i)*dt_fast_yr
 
      ! accumulate liter and soil carbon inputs across all cohorts
-     leaf_litt(:) = leaf_litt(:) + (/fsc_liv,  1.-fsc_liv,  0.0/)*deltaBL*cc%nindivs
-     !wood_litt(:) = wood_litt(:) + (/fsc_wood, 1.-fsc_wood, 0.0/)*(md_wood+md_branch_sw)*agf_bs*cc%nindivs
-
-     wood_litt(:) = wood_litt(:) + (/fsc_wood, 1.-fsc_wood, 0.0/)*(md_wood+md_branch_sw)*cc%nindivs
-
+     leaf_litt(:) = leaf_litt(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*deltaBL*cc%nindivs
+     wood_litt(:) = wood_litt(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(md_wood+md_branch_sw)*cc%nindivs
      call cohort_root_litter_profile(cc, dz, profile)
      do l = 1, num_l
         root_litt(l,:) = root_litt(l,:) + profile(l)*cc%nindivs*(/ &
-             fsc_froot    *deltaBR , & ! fast
-             (1-fsc_froot)*deltaBR , & ! slow
+             sp%fsc_froot    *deltaBR , & ! fast
+             (1-sp%fsc_froot)*deltaBR , & ! slow
              0.0/) ! microbes
      enddo
-
 
      ! increment cohort age
      cc%age = cc%age + dt_fast_yr
@@ -420,8 +993,8 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   enddo
 
   ! add litter and exudates accumulated over the cohorts
-  call add_root_exudates(soil, total_root_exudate_C)
-  call add_soil_carbon(soil, leaf_litt, wood_litt, root_litt)
+  call add_root_exudates(soil, total_root_exudate_C, total_root_exudate_N)
+  call add_soil_carbon(soil, vegn, leaf_litt, wood_litt, root_litt)
   ! update soil carbon
   call Dsdt(vegn, soil, diag, tsoil, theta)
 
@@ -447,7 +1020,6 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      __DEBUG1__(c%bsw)
      __DEBUG1__(c%bwood)
      __DEBUG1__(c%nsc)
-     __DEBUG1__(vegn%rh)
      write(*,*)'#### end of vegn_carbon_int_ppa output ####'
   endif
 
@@ -464,9 +1036,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   call send_tile_data(id_soilt,tsoil,diag)
   call send_tile_data(id_theta,theta,diag)
   call send_cohort_data(id_age, diag, c(1:N), c(1:N)%age, weight=c(1:N)%nindivs, op=OP_AVERAGE)
-  call send_cohort_data(id_exudate, diag, c(1:N), root_exudate_C(1:N), weight=c(1:N)%nindivs, op=OP_AVERAGE)
 end subroutine vegn_carbon_int_ppa
-!*****************************************************************************
 
 
 ! ============================================================================
@@ -486,6 +1056,7 @@ subroutine vegn_growth (vegn, diag)
   if (is_watch_point()) then
      cmass0 = vegn_tile_carbon(vegn)
   endif
+
  ! write(*,*) 'counting cohorts: ', vegn%n_cohorts
   do i = 1, vegn%n_cohorts
      cc => vegn%cohorts(i)
@@ -547,14 +1118,8 @@ subroutine vegn_growth (vegn, diag)
   call send_cohort_data(id_sw_seed_gr,diag,vegn%cohorts(1:N),sw_seed_gr(:), weight=vegn%cohorts(1:N)%nindivs, op=OP_SUM)
   ! conversion of DBH_growth assumes that vegn_growth is called daily
   call send_cohort_data(id_DBH_growth,diag,vegn%cohorts(1:N),deltaDBH(:)*days_per_year, weight=vegn%cohorts(1:N)%nindivs, op=OP_AVERAGE)
-
-  if (is_watch_point()) then
-     cmass1 = vegn_tile_carbon(vegn)
-     write(*,*)"############## vegn_growth #################"
-  endif
 end subroutine vegn_growth
 
-!***********************************************************************
 !========================================================================
 ! Starvation due to low NSC
 subroutine vegn_starvation_ppa (vegn, soil)
@@ -567,14 +1132,14 @@ subroutine vegn_starvation_ppa (vegn, soil)
   integer :: i, k
   type(vegn_cohort_type), pointer :: cc(:) ! array to hold new cohorts
   ! accumulators of total input to root litter and soil carbon
-  real :: leaf_litt(N_C_TYPES) ! fine surface litter per tile, kgC/m2
-  real :: wood_litt(N_C_TYPES) ! coarse surface litter per tile, kgC/m2
-  real :: root_litt(num_l, N_C_TYPES) ! root litter per soil layer, kgC/m2
-  real :: profile(num_l) ! storage for vertical profile of exudates and root litter
+  real, dimension(N_C_TYPES) :: &
+     leaf_litt_C, leaf_litt_N, & ! fine surface litter per tile, kg/m2
+     wood_litt_C, wood_litt_N    ! coarse surface litter per tile, kg/m2
+  real :: root_litt_C(num_l, N_C_TYPES) ! root litter per soil layer, kgC/m2
+  real :: root_litt_N(num_l, N_C_TYPES) ! root litter per soil layer, kgN/m2
 
-!  write(*,*)'vegn_starvation_ppa n_cohorts before: ', vegn%n_cohorts
-
-  leaf_litt = 0 ; wood_litt = 0; root_litt = 0
+  leaf_litt_C = 0 ; wood_litt_C = 0; root_litt_C = 0
+  leaf_litt_N = 0 ; wood_litt_N = 0; root_litt_N = 0
   do i = 1, vegn%n_cohorts
      associate ( cc => vegn%cohorts(i)   , &
                  sp => spdata(vegn%cohorts(i)%species)  )  ! F2003
@@ -585,7 +1150,9 @@ subroutine vegn_starvation_ppa (vegn, soil)
 
        deadtrees = min(cc%nindivs*deathrate,cc%nindivs) ! individuals / m2
        ! kill starved plants and add dead C from leaf and root pools to soil carbon
-       call kill_plants_ppa(cc, vegn, deadtrees, 0.0, leaf_litt, wood_litt, root_litt)
+       call kill_plants_ppa(cc, vegn, soil, deadtrees, 0.0, &
+                            leaf_litt_C, wood_litt_C, root_litt_C, &
+                            leaf_litt_N, wood_litt_N, root_litt_N  )
 
        ! for budget tracking - temporary
        vegn%veg_out = deadtrees * (cc%bl+cc%br+cc%bsw+cc%blv+cc%bseed+cc%nsc+cc%bwood)
@@ -633,7 +1200,8 @@ subroutine vegn_starvation_ppa (vegn, soil)
   endif
 
   ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, leaf_litt, wood_litt, root_litt)
+  call add_soil_carbon(soil, vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
+                                   leaf_litt_N, wood_litt_N, root_litt_N  )
 
 !  write(*,*)'vegn_starvation_ppa n_cohorts after: ', vegn%n_cohorts
 end subroutine vegn_starvation_ppa
@@ -862,56 +1430,6 @@ end subroutine biomass_allocation_ppa
 
 
 ! ============================================================================
-! The combined reduction in decomposition rate as a function of TEMP and MOIST
-! Based on CENTURY Parton et al 1993 GBC 7(4):785-809 and Bolker's copy of
-! CENTURY code
-elemental function A_function(soilt, theta) result(A)
-  real :: A                 ! return value, resulting reduction in decomposition rate
-  real, intent(in) :: soilt ! effective temperature for soil carbon decomposition
-  real, intent(in) :: theta
-
-  real :: soil_temp; ! temperature of the soil, deg C
-  real :: Td; ! rate multiplier due to temp
-  real :: Wd; ! rate reduction due to moisture
-
-  ! coefficients and terms used in temperature term
-  real :: Topt,Tmax,t1,t2,tshl,tshr;
-
-  soil_temp = soilt-273.16;
-
-  ! EFFECT OF TEMPERATURE
-  ! from Bolker's century code
-  Tmax=45.0;
-  if (soil_temp > Tmax) soil_temp = Tmax;
-  Topt=35.0;
-  tshr=0.2; tshl=2.63;
-  t1=(Tmax-soil_temp)/(Tmax-Topt);
-  t2=exp((tshr/tshl)*(1.-t1**tshl));
-  Td=t1**tshr*t2;
-
-  if (soil_temp > -10) Td=Td+0.05;
-  if (Td > 1.) Td=1.;
-
-  ! EFFECT OF MOISTURE
-  ! Linn and Doran, 1984, Soil Sci. Amer. J. 48:1267-1272
-  ! This differs from the Century Wd
-  ! was modified by slm/ens based on the figures from the above paper
-  !     (not the reported function)
-
-  if(theta <= 0.3) then
-     Wd = 0.2;
-  else if(theta <= 0.6) then
-     Wd = 0.2+0.8*(theta-0.3)/0.3;
-  else
-     Wd = exp(2.3*(0.6-theta));
-  endif
-
-  A = (Td*Wd); ! the combined (multiplicative) effect of temp and water
-               ! on decomposition rates
-end function A_function
-
-
-! ============================================================================
 ! calculated thermal inhibition factor depending on temperature
 function thermal_inhibition(T) result(tfs); real tfs
   real, intent(in) :: T ! temperature, degK
@@ -964,20 +1482,21 @@ subroutine vegn_phenology_lm3(vegn, soil)
   type(soil_tile_type), intent(inout) :: soil
 
   ! ---- local vars
-  type(vegn_cohort_type), pointer :: cc
-  real :: leaf_litter,root_litter;
+  real :: leaf_litter_C,root_litter_C,leaf_litter_N,root_litter_N
   real :: theta_crit; ! critical ratio of average soil water to sat. water
   real :: psi_stress_crit ! critical soil-water-stress index
   real :: wilt ! ratio of wilting to saturated water content
-  real :: leaf_litt(n_c_types) ! fine surface litter per tile, kgC/m2
-  real :: root_litt(num_l,n_c_types) ! root litter per soil layer, kgC/m2
+  real, dimension(N_C_TYPES) :: &
+      leaf_litt_C, leaf_litt_N ! fine surface litter per tile, kgC/m2 and kgN/m2
+  real, dimension(num_l,n_c_types) :: &
+      root_litt_C, root_litt_N ! root litter per soil layer, kgC/m2 and kgN/m2
   real :: profile(num_l) ! storage for vertical profile of root litter
   integer :: i, l
 
   wilt = soil%w_wilt(1)/soil%pars%vwc_sat
   vegn%litter = 0
 
-  leaf_litt = 0 ; root_litt = 0
+  leaf_litt_C = 0 ; root_litt_C = 0 ; leaf_litt_N = 0 ; root_litt_N = 0
   do i = 1,vegn%n_cohorts
      associate ( cc => vegn%cohorts(i),   &
                  sp => spdata(vegn%cohorts(i)%species) )
@@ -1008,35 +1527,44 @@ subroutine vegn_phenology_lm3(vegn, soil)
            cc%status = LEAF_OFF; ! set status to indicate leaf drop
            cc%leaf_age = 0;
 
-           leaf_litter = (1.0-l_fract)*cc%bl*cc%nindivs;
-           root_litter = (1.0-l_fract)*cc%br*cc%nindivs;
-           leaf_litt(:) = leaf_litt(:)+(/fsc_liv*leaf_litter,(1-fsc_liv)*leaf_litter,0.0/)
+           leaf_litter_C = (1.0-l_fract)*cc%bl*cc%nindivs
+           leaf_litt_C(:) = leaf_litt_C(:)+[sp%fsc_liv,1-sp%fsc_liv,0.0]*leaf_litter_C
+           leaf_litter_N =  cc%leaf_N*cc%nindivs*(1.0-sp%leaf_retranslocation_frac)
+           leaf_litt_N(:) = leaf_litt_N(:)+[sp%fsc_liv,1-sp%fsc_liv,0.0]*leaf_litter_N
+
+           root_litter_C = (1.0-l_fract)*cc%br*cc%nindivs
+           root_litter_N = cc%root_N*cc%nindivs*(1.0-sp%froot_retranslocation_frac)
            call cohort_root_litter_profile(cc, dz, profile)
            do l = 1, num_l
-              root_litt(l,:) = root_litt(l,:) + profile(l)*(/ &
-                   fsc_froot*root_litter, &
-                   (1-fsc_froot)*root_litter, &
-                   0.0/)
+              root_litt_C(l,:) = root_litt_C(l,:) + profile(l)* &
+                   [sp%fsc_froot, 1-sp%fsc_froot, 0.0]*root_litter_C
+              root_litt_N(l,:) = root_litt_N(l,:) + profile(l)* &
+                   [sp%fsc_froot, 1-sp%fsc_froot, 0.0]*root_litter_N
            enddo
 
-           vegn%litter = vegn%litter + leaf_litter + root_litter
-           vegn%veg_out = vegn%veg_out + leaf_litter+root_litter;
+           vegn%litter = vegn%litter + leaf_litter_C + root_litter_C
+           vegn%veg_out = vegn%veg_out + leaf_litter_C + root_litter_C
 
            cc%blv = cc%blv + l_fract*(cc%bl+cc%br);
            cc%bl  = 0.0;
            cc%br  = 0.0;
            cc%lai = 0.0;
 
+           cc%stored_N = cc%stored_N + (cc%leaf_N*sp%leaf_retranslocation_frac+cc%root_N*sp%froot_retranslocation_frac)
+           cc%leaf_N = 0.0
+           cc%root_N = 0.0
+
            ! update state
            cc%bliving = cc%blv + cc%br + cc%bl + cc%bsw;
-           call update_bio_living_fraction(cc);
         endif
      endif ! phenology type
+     call update_biomass_pools(cc); ! BNS: Just do this every time to avoid things getting messed up
      end associate
   enddo
 
   ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, leaf_litter=leaf_litt, root_litter=root_litt)
+  call add_soil_carbon(soil, vegn, leaf_litter_C=leaf_litt_C, root_litter_C=root_litt_C, &
+                                   leaf_litter_N=leaf_litt_N, root_litter_N=root_litt_N  )
 
 end subroutine vegn_phenology_lm3
 
@@ -1049,15 +1577,14 @@ subroutine vegn_phenology_ppa(vegn, soil)
 
   ! ---- local vars
   integer :: i
-  real    :: leaf_litter, leaf_litt(N_C_TYPES)
-  real    :: leaf_fall, leaf_fall_rate ! per day
-  real    :: root_mortality, root_mort_rate
-  real    :: BL_u,BL_c
+  real    :: leaf_litter_C, leaf_litter_N, leaf_litt_C(N_C_TYPES), leaf_litt_N(N_C_TYPES)
+  real    :: dead_leaves_C, dead_leaves_N
+  real    :: dead_roots_C, dead_roots_N
 
-  leaf_fall_rate = 0.075
-  root_mort_rate = 0.0
+  real, parameter :: leaf_fall_rate = 0.075 ! per day
+  real, parameter :: root_mort_rate = 0.0
 
-  vegn%litter = 0; leaf_litt(:) = 0.0
+  vegn%litter = 0 ; leaf_litt_C(:) = 0.0 ; leaf_litt_N(:) = 0.0
   do i = 1,vegn%n_cohorts
      associate ( cc => vegn%cohorts(i),   &
                  sp => spdata(vegn%cohorts(i)%species) )
@@ -1076,65 +1603,80 @@ subroutine vegn_phenology_ppa(vegn, soil)
      endif
 
 !    leaf falling at the end of a growing season
+! slm: why leaf fall and root mortality are computed from max bl and br, not
+!      not actual bl and br?
      if(cc%status == LEAF_OFF .AND. cc%bl > 0.)then
-         leaf_fall = min(leaf_fall_rate * cc%bl_max, cc%bl)
-         root_mortality = min( root_mort_rate* cc%br_max, cc%br)
-         cc%nsc = cc%nsc + l_fract * (leaf_fall+ root_mortality)
-         cc%bl  = cc%bl - leaf_fall
-         cc%br  = cc%br - root_mortality
+         dead_leaves_C = min(leaf_fall_rate * cc%bl_max, cc%bl)
+         dead_leaves_N = cc%leaf_N * dead_leaves_C/cc%bl
+         dead_roots_C = min(root_mort_rate * cc%br_max, cc%br)
+         dead_roots_N = cc%root_N * dead_roots_C/cc%br
+         ! update C and N pools
+         cc%nsc      = cc%nsc      + l_fract * (dead_leaves_C+dead_roots_C)
+         cc%stored_N = cc%stored_N + l_fract * (dead_leaves_N+dead_roots_N)
+         cc%bl       = cc%bl - dead_leaves_C
+         cc%leaf_N   = cc%leaf_N - dead_leaves_N
+         cc%br       = cc%br - dead_roots_C
+         cc%root_N   = cc%root_N - dead_roots_N
+
          cc%lai = leaf_area_from_biomass(cc%bl,cc%species,cc%layer,cc%firstlayer)/ &
                                         (cc%crownarea *(1.0-sp%internal_gap_frac))
          if(cc%bl == 0.)cc%leaf_age = 0.0
          cc%bliving = cc%blv + cc%br + cc%bl + cc%bsw
 
-         leaf_litter = (1.-l_fract) * (leaf_fall+root_mortality) * cc%nindivs
-         leaf_litt(:) = leaf_litt(:)+(/fsc_liv,1-fsc_liv,0.0/)*leaf_litter
-         vegn%litter = vegn%litter + leaf_litter
-         soil%fsc_in(1)  = soil%fsc_in(1)  + leaf_litter
-         vegn%veg_out = vegn%veg_out + leaf_litter
+         leaf_litter_C = (1-l_fract) * (dead_leaves_C+dead_roots_C) * cc%nindivs
+         leaf_litter_N = (1-l_fract) * (dead_leaves_N+dead_roots_N) * cc%nindivs
+         leaf_litt_C(:) = leaf_litt_C(:)+[sp%fsc_liv,1-sp%fsc_liv,0.0]*leaf_litter_C
+         leaf_litt_N(:) = leaf_litt_N(:)+[sp%fsc_liv,1-sp%fsc_liv,0.0]*leaf_litter_N
+         vegn%litter = vegn%litter + leaf_litter_C
+         soil%fsc_in(1)  = soil%fsc_in(1) + leaf_litter_C
+         vegn%veg_out = vegn%veg_out + leaf_litter_C
      endif
      end associate
   enddo
   ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, leaf_litter=leaf_litt)
+  call add_soil_carbon(soil, vegn, leaf_litter_C=leaf_litt_C, leaf_litter_N=leaf_litt_N)
 end subroutine vegn_phenology_ppa
 
 
 ! ===========================================================================
 ! leaf falling at LEAF_OFF -- it is unused; why is it here? is there anything
 ! in new Ensheng's code that uses it?
-  subroutine vegn_leaf_fall_ppa(vegn,soil)
+subroutine vegn_leaf_fall_ppa(vegn,soil)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
 
   ! ---- local vars
   integer :: i
-  real    :: leaf_litt(N_C_TYPES)
-  real    :: leaf_fall, leaf_fall_rate ! per day
+  real    :: leaf_litt_C(N_C_TYPES), leaf_litt_N(N_C_TYPES)
+  real    :: dead_leaves_C, dead_leaves_N
+
+  real, parameter :: leaf_fall_rate = 0.075 ! per day
 
   vegn%litter = 0 ! slm: why is it set to 0 here?
-  leaf_fall_rate = 0.075
-  leaf_litt(:) = 0.0
+  leaf_litt_C(:) = 0.0; leaf_litt_N(:) = 0.0
   do i = 1,vegn%n_cohorts
      associate ( cc => vegn%cohorts(i),   &
                  sp => spdata(vegn%cohorts(i)%species) )
      if(cc%status == LEAF_OFF)then
         cc%nsc = cc%nsc + cc%carbon_gain
-        leaf_fall = MIN(leaf_fall_rate * cc%bl_max, cc%bl)
-        cc%nsc = cc%nsc + l_fract * leaf_fall
-        cc%bl  = cc%bl - leaf_fall
+        dead_leaves_C = MIN(leaf_fall_rate * cc%bl_max, cc%bl)
+        dead_leaves_N = cc%leaf_N * dead_leaves_C/cc%bl
+        cc%nsc = cc%nsc + l_fract * dead_leaves_C
+        cc%stored_N = cc%stored_N + l_fract * dead_leaves_N
+        cc%bl  = cc%bl - dead_leaves_C ; cc%leaf_N  = cc%leaf_N - dead_leaves_N
         cc%lai = leaf_area_from_biomass(cc%bl,cc%species,cc%layer,cc%firstlayer)/ &
                                        (cc%crownarea *(1.0-sp%internal_gap_frac))
-        if(cc%bl == 0.)cc%leaf_age = 0.0
+        if(cc%bl == 0.) cc%leaf_age = 0.0
         cc%bliving = cc%blv + cc%br + cc%bl + cc%bsw
 
-        leaf_litt(:) = leaf_litt(:) + [fsc_liv,1-fsc_liv,0.0]*(1-l_fract) * leaf_fall * cc%nindivs
+        leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv,1-sp%fsc_liv,0.0]*(1-l_fract) * dead_leaves_C * cc%nindivs
+        leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv,1-sp%fsc_liv,0.0]*(1-l_fract) * dead_leaves_N * cc%nindivs
      endif
      end associate
   enddo
-  vegn%litter  = vegn%litter  + sum(leaf_litt)
-  vegn%veg_out = vegn%veg_out + sum(leaf_litt)
-  call add_soil_carbon(soil, leaf_litter=leaf_litt)
+  vegn%litter  = vegn%litter  + sum(leaf_litt_C)
+  vegn%veg_out = vegn%veg_out + sum(leaf_litt_C)
+  call add_soil_carbon(soil, vegn, leaf_litter_C=leaf_litt_C, leaf_litter_N=leaf_litt_N)
 end subroutine vegn_leaf_fall_ppa
 
 
@@ -1143,11 +1685,27 @@ subroutine vegn_biogeography(vegn)
   type(vegn_tile_type), intent(inout) :: vegn
 
   ! ---- local vars
-  integer :: i
+  integer :: i,spp
+  real :: excess_stored_N,target_stored_N
 
   do i = 1, vegn%n_cohorts
-     call update_species(vegn%cohorts(i), vegn%t_ann, vegn%t_cold, &
+    associate (cc=>vegn%cohorts(i))
+    spp=cc%species
+     call update_species(cc, vegn%t_ann, vegn%t_cold, &
           vegn%p_ann*seconds_per_year, vegn%ncm, vegn%landuse)
+    if(spp .ne. cc%species .and. soil_carbon_option .eq. SOILC_CORPSE_N) then
+      ! Reset stored nitrogen when species changes
+      call update_biomass_pools(cc)
+      target_stored_N = 1.5*cc%bliving*(cc%Pl/spdata(cc%species)%leaf_live_c2n+cc%Pr/spdata(cc%species)%froot_live_c2n)
+      if(cc%stored_N > target_stored_N) then
+        excess_stored_N=cc%stored_N - target_stored_N
+        cc%stored_N = cc%stored_N - excess_stored_N
+        ! Deposit the excess N as root litter for now, using params from previous species (i.e. assuming some tissue died during transition)
+        vegn%fsn_pool_bg = vegn%fsn_pool_bg + excess_stored_N*spdata(spp)%fsc_froot
+        vegn%ssn_pool_bg = vegn%ssn_pool_bg + excess_stored_N*(1-spdata(spp)%fsc_froot)
+      endif
+    endif
+    end associate
   enddo
 end subroutine
 
@@ -1164,8 +1722,13 @@ subroutine update_soil_pools(vegn, soil)
   type(soil_tile_type), intent(inout) :: soil
 
   ! ---- local vars
-  real :: delta;
-  real :: deltafast, deltaslow;
+  integer :: i,k
+  real :: delta
+  real :: deltafast, deltaslow, deltafast_N, deltaslow_N
+  real :: profile(num_l), profile1(num_l), psum ! for depostion profile calculation
+  real :: litterC(num_l,N_C_TYPES) ! soil litter C input by layer and type
+  real :: litterN(num_l,N_C_TYPES) ! soil litter N input by layer and type
+  real, dimension(N_C_TYPES,N_LITTER_POOLS) :: delta_C, delta_N
 
   select case (soil_carbon_option)
   case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
@@ -1184,7 +1747,7 @@ subroutine update_soil_pools(vegn, soil)
      delta = vegn%ssc_rate_bg*dt_fast_yr;
      soil%slow_soil_C(1) = soil%slow_soil_C(1) + delta;
      vegn%ssc_pool_bg    = vegn%ssc_pool_bg    - delta;
-  case (SOILC_CORPSE)
+  case (SOILC_CORPSE,SOILC_CORPSE_N)
      ! update fsc input rate so that intermediate fsc pool is never
      ! depleted below zero; on the other hand the pool can be only
      ! depleted, never increased
@@ -1199,33 +1762,77 @@ subroutine update_soil_pools(vegn, soil)
      deltaslow = vegn%ssc_rate_ag*dt_fast_yr;
      vegn%ssc_pool_ag       = vegn%ssc_pool_ag       - deltaslow;
 
-     ! NOTE that this code looks very weird from the point of view of carbon
-     ! balance: we are depleting the {fsc,ssc}_pool_ag, but adding to litter
-     ! from the pools {leaflitter,coarsewoodLitter}_buffer_ag. The latter two
-     ! are not used in the calculations of the total carbon.
      vegn%litter_rate_C = MAX(0.0, MIN(vegn%litter_rate_C, vegn%litter_buff_C/dt_fast_yr))
-     call add_litter(soil%leafLitter,vegn%litter_rate_C(:,LEAF)*dt_fast_yr)
-     call add_litter(soil%coarsewoodLitter,vegn%litter_rate_C(:,CWOOD)*dt_fast_yr)
+     delta_C = vegn%litter_rate_C*dt_fast_yr
+
+     if(soil_carbon_option == SOILC_CORPSE_N) then
+        vegn%litter_rate_N = MAX(0.0, MIN(vegn%litter_rate_N, vegn%litter_buff_N/dt_fast_yr))
+     else
+        vegn%litter_rate_N = 0.0
+     endif
+     delta_N = vegn%litter_rate_N*dt_fast_yr
+
+     do i = 1,N_LITTER_POOLS
+        call add_litter(soil%litter(i), delta_C(:,i), delta_N(:,i))
+     enddo
+     vegn%litter_buff_C = vegn%litter_buff_C - delta_C
+     vegn%litter_buff_N = vegn%litter_buff_N - delta_N
 
      ! update fsc input rate so that intermediate fsc pool is never
      ! depleted below zero; on the other hand the pool can be only
      ! depleted, never increased
      vegn%fsc_rate_bg = MAX( 0.0, MIN(vegn%fsc_rate_bg, vegn%fsc_pool_bg/dt_fast_yr));
-     deltafast = vegn%fsc_rate_bg*dt_fast_yr;
-     vegn%fsc_pool_bg    = vegn%fsc_pool_bg    - deltafast;
+     deltafast        = vegn%fsc_rate_bg*dt_fast_yr;
+     vegn%fsc_pool_bg = vegn%fsc_pool_bg - deltafast;
 
      ! update ssc input rate so that intermediate ssc pool is never
      ! depleted below zero; on the other hand the pool can be only
      ! depleted, never increased
      vegn%ssc_rate_bg = MAX(0.0, MIN(vegn%ssc_rate_bg, vegn%ssc_pool_bg/dt_fast_yr));
-     deltaslow = vegn%ssc_rate_bg*dt_fast_yr;
-     !soil%prog(1)%slow_soil_C = soil%prog(1)%slow_soil_C + delta;
-     vegn%ssc_pool_bg    = vegn%ssc_pool_bg    - deltaslow;
-     ! TODO: figure out how to distribute the additional soil litter vertically.
-     ! Strictly speaking we need to keep pools and rates distributed vertically,
-     ! For now, add belowground litter using vertical profile of the first cohort.
-     ! perhaps we can use average cohort root profile...
-     call add_root_litter(soil, vegn%cohorts(1), (/deltafast,deltaslow,0.0/))
+     deltaslow        = vegn%ssc_rate_bg*dt_fast_yr;
+     vegn%ssc_pool_bg = vegn%ssc_pool_bg - deltaslow;
+
+     if (soil_carbon_option == SOILC_CORPSE_N) then
+        vegn%fsn_rate_bg = MAX( 0.0, MIN(vegn%fsn_rate_bg, vegn%fsn_pool_bg/dt_fast_yr));
+        deltafast_N      = vegn%fsn_rate_bg*dt_fast_yr;
+        vegn%fsn_pool_bg = vegn%fsn_pool_bg - deltafast_N;
+
+        vegn%ssn_rate_bg = MAX(0.0, MIN(vegn%ssn_rate_bg, vegn%ssn_pool_bg/dt_fast_yr));
+        deltaslow_N      = vegn%ssn_rate_bg*dt_fast_yr;
+        vegn%ssn_pool_bg = vegn%ssn_pool_bg - deltaslow_N;
+     else
+        vegn%fsn_rate_bg = 0.0
+        deltafast_N      = 0.0
+        vegn%fsn_pool_bg = 0.0
+
+        vegn%ssn_rate_bg = 0.0
+        deltaslow_N      = 0.0
+        vegn%ssn_pool_bg = 0.0
+     endif
+
+     ! vertical profile of litter is proportional to the average of liiter profiles
+     ! of all cohorts, weighted with biomasses of fine roots. This doesn't seem to
+     ! be a very good assumption, since fine roots sometimes die (mass is zero),
+     ! but profile should not be zero in this case.
+     profile(:) = 0.0
+     do i = 1,vegn%n_cohorts
+        associate(cc=>vegn%cohorts(i))
+        call cohort_root_litter_profile(cc,dz,profile1)
+        profile(:) = profile(:) + profile1(:)*cc%br*cc%nindivs
+        end associate
+     enddo
+     psum = sum(profile)
+     if (psum>0) then
+        profile(:) = profile(:)/psum
+     else
+        profile(:) = 0.0
+        profile(1) = 1.0
+     endif
+     do k = 1,num_l
+        litterC(k,:) = [deltafast,deltaslow,0.0] * profile(k)
+        litterN(k,:) = [deltafast_N,deltaslow_N,0.0] * profile(k)
+     enddo
+     call add_root_litter(soil, vegn, litterC, litterN )
   case default
      call error_mesg('update_soil_pools','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
   end select
@@ -1251,7 +1858,6 @@ subroutine vegn_reproduction_ppa (vegn,soil)
 ! ---- local vars
   type(vegn_cohort_type), pointer :: ccold(:)   ! pointer to old cohort array
   real :: failed_seeds !, prob_g, prob_e
-  logical :: invasion = .FALSE.
   integer :: newcohorts ! number of new cohorts to be created
   integer :: i, k ! cohort indices
   real :: litt(N_C_TYPES)
@@ -1300,7 +1906,7 @@ subroutine vegn_reproduction_ppa (vegn,soil)
 
     failed_seeds = (1.-sp%prob_g*sp%prob_e) * parent%bseed * parent%nindivs
     vegn%litter = vegn%litter + failed_seeds
-    litt(:) = litt(:) + (/fsc_liv,1-fsc_liv,0.0/)*failed_seeds
+    litt(:) = litt(:) + [sp%fsc_liv,1-sp%fsc_liv,0.0]*failed_seeds
     vegn%veg_out = vegn%veg_out + failed_seeds
 
     parent%bseed = 0.0
@@ -1314,7 +1920,8 @@ subroutine vegn_reproduction_ppa (vegn,soil)
 
     end associate   ! F2003
   enddo
-  call add_soil_carbon(soil, leaf_litter=litt)
+  ! FIXME slm: add nitrogen to seedlings, and respectively to the litter
+  call add_soil_carbon(soil, vegn, leaf_litter_C=litt)
 
   vegn%n_cohorts = k
   if(is_watch_point()) then
@@ -1323,8 +1930,6 @@ subroutine vegn_reproduction_ppa (vegn,soil)
      __DEBUG1__(vegn%cohorts%nindivs)
      __DEBUG1__(vegn%cohorts%Tv)
   endif
-!  write(*,*)'vegn_reproduction_ppa n_cohorts after: ', vegn%n_cohorts
-
 end subroutine vegn_reproduction_ppa
 
 
@@ -1337,10 +1942,11 @@ subroutine kill_small_cohorts_ppa(vegn,soil)
   real, parameter :: mindensity = 1.0E-6
 
   type(vegn_cohort_type), pointer :: cc(:) ! array to hold new cohorts
-  real :: leaf_litt(N_C_TYPES) ! fine surface litter per tile, kgC/m2
-  real :: wood_litt(N_C_TYPES) ! coarse surface litter per tile, kgC/m2
-  real :: root_litt(num_l, N_C_TYPES) ! root litter per soil layer, kgC/m2
-  real :: profile(num_l) ! storage for vertical profile of exudates and root litter
+  real, dimension(N_C_TYPES) :: &
+     leaf_litt_C, leaf_litt_N, & ! fine surface litter per tile, kgC/m2 and kgN/m2
+     wood_litt_C, wood_litt_N    ! coarse surface litter per tile, kgC/m2 and kgN/m2
+  real, dimension(num_l, N_C_TYPES) :: &
+     root_litt_C, root_litt_N ! root litter per soil layer, kgC/m2 and kgN/m2
   integer :: i,k
 
 !  write(*,*)'kill_small_cohorts_ppa n_cohorts before: ', vegn%n_cohorts
@@ -1355,7 +1961,8 @@ subroutine kill_small_cohorts_ppa(vegn,soil)
   ! if (k==0) call error_mesg('vegn_mergecohorts_ppa','All cohorts died',WARNING)
 
   ! exclude cohorts that have zero individuals
-  leaf_litt = 0 ; wood_litt = 0; root_litt = 0
+  leaf_litt_C = 0 ; wood_litt_C = 0; root_litt_C = 0
+  leaf_litt_N = 0 ; wood_litt_N = 0; root_litt_N = 0
   if (k < vegn%n_cohorts) then
      allocate(cc(max(k,1)))
      k=0
@@ -1364,8 +1971,9 @@ subroutine kill_small_cohorts_ppa(vegn,soil)
            k=k+1
            cc(k) = vegn%cohorts(i)
         else
-           call kill_plants_ppa(vegn%cohorts(i), vegn, vegn%cohorts(i)%nindivs, 0.0, &
-                                leaf_litt, wood_litt, root_litt)
+           call kill_plants_ppa(vegn%cohorts(i), vegn, soil, vegn%cohorts(i)%nindivs, 0.0, &
+                                leaf_litt_C, wood_litt_C, root_litt_C, &
+                                leaf_litt_N, wood_litt_N, root_litt_N  )
         endif
      enddo
 
@@ -1384,7 +1992,8 @@ subroutine kill_small_cohorts_ppa(vegn,soil)
      vegn%cohorts=>cc
   endif
   ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, leaf_litt, wood_litt, root_litt)
+  call add_soil_carbon(soil, vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
+                                   leaf_litt_N, wood_litt_N, root_litt_N  )
 
   if (is_watch_point()) then
      write(*,*) '##### vegn_mergecohorts_ppa output #####'

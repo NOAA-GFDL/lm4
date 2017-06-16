@@ -1,18 +1,20 @@
 module vegn_cohort_mod
 
+#include "../shared/debug.inc"
+
 use constants_mod, only: PI
 
 use land_constants_mod, only: NBANDS, mol_h2o, mol_air
 use vegn_data_mod, only : spdata, &
    use_mcm_masking, use_bucket, critical_root_density, &
-   tg_c4_thresh, tg_c3_thresh, l_fract, fsc_liv, &
-   phen_ev1, phen_ev2, cmc_eps
-use vegn_data_mod, only : PT_C3, PT_C4, &
+   tg_c4_thresh, tg_c3_thresh, T_cold_tropical, &
+   phen_ev1, phen_ev2, cmc_eps, N_limits_live_biomass, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
    LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDUOUS, FORM_GRASS, &
-   ALLOM_EW, ALLOM_EW1, ALLOM_HML, understory_lai_factor, &
+   ALLOM_EW, ALLOM_EW1, ALLOM_HML, PT_C3, PT_C4, understory_lai_factor, &
    do_ppa
 use soil_tile_mod, only : max_lev
+use fms_mod, only : error_mesg, FATAL
 
 implicit none
 private
@@ -132,6 +134,9 @@ type :: vegn_cohort_type
   real :: carbon_loss = 0.0 ! carbon loss since last growth, kg C/individual
   real :: bwood_gain  = 0.0 ! wood gain since last growth, kg C/individual
 
+  real :: nitrogen_gain = 0.0 ! nitrogen gain since last growth, kg N/individual
+  real :: nitrogen_loss = 0.0 ! nitrogen loss since last growth, kg N/individual
+
   ! used in fast time scale calculations
   real :: npp_previous_day     = 0.0
   real :: npp_previous_day_tmp = 0.0
@@ -154,20 +159,44 @@ type :: vegn_cohort_type
 ! for phenology
   real :: gdd = 0.0
 
-! in LM3V the cohort structure has a handy pointer to the tile it belongs to;
-! so operations on cohort can update tile-level variables. In this code, it is
-! probably impossible to have this pointer here: it needs to be of type
-! "type(vegn_tile_type), pointer", which means that the vegn_cohort_mod needs to
-! use vegn_tile_mod. But the vegn_tile_mod itself uses vegn_cohort_mod, and
-! this would create a circular dependency of modules, something that's
-! prohibited in FORTRAN.
-!  type(vegn_tile_type), pointer :: cp
+  ! BNS: Maximum leaf biomass, to be used in the context of nitrogen limitation as suggested by Elena
+  ! This will be either fixed or calculated as a function of nitrogen uptake or availability
+  real :: nitrogen_stress = 0.0
+
+  ! Biomass of "scavenger" type mycorrhizae (corresponding to Arbuscular mycorrhizae)
+  real :: myc_scavenger_biomass_C = 0.0
+  real :: myc_scavenger_biomass_N = 0.0
+  real :: myc_miner_biomass_C = 0.0
+  real :: myc_miner_biomass_N = 0.0
+
+  ! Biomass of symbiotic N fixing microbes
+  real :: N_fixer_biomass_C = 0.0
+  real :: N_fixer_biomass_N = 0.0
+
+  ! C and N reservoirs of symbiotic microbes (used for growth and transfers to plants)
+  real :: scav_myc_N_reservoir = 0.0
+  real :: scav_myc_C_reservoir = 0.0
+  real :: mine_myc_N_reservoir = 0.0
+  real :: mine_myc_C_reservoir = 0.0
+  real :: N_fixer_N_reservoir = 0.0
+  real :: N_fixer_C_reservoir = 0.0
+
+  ! Nitrogen vegetation pools
+  real :: stored_N = 0.0
+  real :: leaf_N = 0.0
+  real :: wood_N = 0.0
+  real :: sapwood_N = 0.0
+  real :: root_N = 0.0
+  real :: seed_N = 0.0
+  real :: total_N = 0.0 ! sum of plant nitrogen pools (does not includes fixers and mycorrahize)
+
 end type vegn_cohort_type
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
 ! returns biomass of an individual of given cohort, kgC
+! NOTE that it also includes fixers and mycorrhizae. Should it?
 real function biomass_of_individual(cohort)
   type(vegn_cohort_type), intent(in) :: cohort
   biomass_of_individual = &
@@ -176,7 +205,12 @@ real function biomass_of_individual(cohort)
           cohort%bsw + cohort%bseed + &
           cohort%nsc + &
           cohort%carbon_gain + cohort%bwood_gain + &
-          cohort%growth_previous_day
+          cohort%growth_previous_day + &
+          ! Mycorrhizal and N fixer biomass added by B. Sulman
+          cohort%myc_scavenger_biomass_C + &
+          cohort%myc_miner_biomass_C + &
+          cohort%N_fixer_biomass_C + &
+          cohort%scav_myc_C_reservoir + cohort%mine_myc_C_reservoir + cohort%N_fixer_C_reservoir
 end function biomass_of_individual
 
 ! ============================================================================
@@ -492,7 +526,7 @@ subroutine update_species(c, t_ann, t_cold, p_ann, cm, landuse)
      spp=SP_EVERGR;   ! evergreen non-grass
   else if(btotal(c) < tg_c3_thresh) then
      spp=SP_C3GRASS;  ! c3 grass
-  else if ( t_cold > 278.16 ) then  ! ens,slm Jun 21 2003 to prohibit tropical forest in coastal cells
+  else if ( t_cold > T_cold_tropical ) then  ! ens,slm Jun 21 2003 to prohibit tropical forest in coastal cells
      spp=SP_TROPICAL; ! tropical deciduous non-grass
   else
      spp=SP_TEMPDEC;  ! temperate deciduous non-grass
@@ -554,20 +588,109 @@ end subroutine update_bio_living_fraction
 subroutine update_biomass_pools(c)
   type(vegn_cohort_type), intent(inout) :: c
 
+  real :: biomass_N_demand  ! Live biomass in excess of max (used in N limitation system) -- BNS
+  real :: x_wood,x_leaf,x_root ! For N-limited biomass distribution
+  real :: potential_stored_N ! N storage if there is no N-caused change in biomass allocation
+  real :: available_N,N_demand,extra_C
+
   if (do_ppa) return ! in PPA mode, do nothing at all
 
-  c%height = height_from_biomass(btotal(c))
-  call update_bio_living_fraction(c);
+  c%height  = height_from_biomass(btotal(c))
+  c%total_N = c%stored_N+c%leaf_N+c%wood_N+c%root_N+c%sapwood_N
+
+  call update_bio_living_fraction(c)
+
+
+  ! Stress increases as stored N declines relative to total biomass N demand
+  ! N stress is calculated based on "potential pools" without N limitation
+  ! biomass_N_demand=(c%bliving*c%Pl/leaf_live_c2n + c%bliving*c%Pr/froot_live_c2n + c%bliving*c%Psw/wood_fast_c2n)
+  ! Elena suggests using 2*(root N + leaf N) as storage target
+  biomass_N_demand=(c%bliving*c%Pl/spdata(c%species)%leaf_live_c2n + c%bliving*c%Pr/spdata(c%species)%froot_live_c2n)
+  potential_stored_N = c%total_N - biomass_N_demand - c%bwood/spdata(c%species)%wood_c2n-c%bliving*c%Psw/spdata(c%species)%sapwood_c2n
+  ! c%nitrogen_stress = biomass_N_demand/c%total_N
+
+  ! Spring physical analogy -- restoring force proportional to distance from target (equal to demand*2.0)
+  ! Leaving spring constant 1.0 for now
+  ! Stress is normalized by N demand so it's an index that doesn't depend on total biomass
+
+  ! if (c%total_N>0.0) then
+  !  c%nitrogen_stress = -1.0 * ((potential_stored_N) - 2.0*biomass_N_demand)/abs(c%total_N)
+    c%nitrogen_stress = (2.0*biomass_N_demand - potential_stored_N)/abs(biomass_N_demand)
+  ! else
+  !   c%nitrogen_stress = 0.0
+  ! endif
+
+
+  ! if(c%total_N > biomass_N_demand) then
+  !   c%nitrogen_stress = (biomass_N_demand/(c%total_N-biomass_N_demand-c%bwood/wood_fast_c2n))**1 ! This is demand/storage, constrained to be >0
+  !
+  ! else
+  !   c%nitrogen_stress = 5.0
+  ! endif
+  c%nitrogen_stress = min(c%nitrogen_stress,5.0)
+  c%nitrogen_stress = max(c%nitrogen_stress,0.05)
+
+
+  ! Move some biomass from sapwood to root based on N stress
+  c%Pr=c%Pr+c%Psw*c%nitrogen_stress*spdata(c%species)%N_stress_root_factor
+  c%Psw=c%Psw-c%Psw*c%nitrogen_stress*spdata(c%species)%N_stress_root_factor
+
   c%bsw = c%Psw*c%bliving;
   if(c%status == LEAF_OFF) then
      c%blv = c%Pl*c%bliving + c%Pr*c%bliving;
      c%bl  = 0;
      c%br  = 0;
+    !  c%nitrogen_stress = 0
   else
      c%blv = 0;
      c%bl  = c%Pl*c%bliving;
      c%br  = c%Pr*c%bliving;
   endif
+
+
+  if(N_limits_live_biomass) then
+
+    if(c%total_N<0.0) then
+      __DEBUG4__(c%leaf_N,c%wood_N,c%root_N,c%sapwood_N)
+      __DEBUG3__(c%status,c%stored_N,c%total_N)
+      call error_mesg('update_biomass_pools','totalN<0',FATAL)
+    endif
+      available_N = max(0.0,(c%total_N - c%bwood/spdata(c%species)%wood_c2n))
+      N_demand = &
+          (c%bl/spdata(c%species)%leaf_live_c2n+c%bsw/spdata(c%species)%sapwood_c2n+c%br/spdata(c%species)%froot_live_c2n)
+
+      if(N_demand>available_N) then
+        extra_C = (c%bl+c%br+c%bsw)*(1.0-available_N/N_demand)
+        ! __DEBUG3__(available_N/N_demand,extra_C,(c%bl+c%br+c%bsw)*(available_N/N_demand))
+        c%bl=c%bl*available_N/N_demand
+        c%br=c%br*available_N/N_demand
+        c%bsw=c%bsw*available_N/N_demand
+        c%blv=c%blv+extra_C
+        c%Pl=c%Pl*available_N/N_demand
+        c%Pr=c%Pr*available_N/N_demand
+        c%Psw=c%Psw*available_N/N_demand
+        if(c%bsw<0) then
+          __DEBUG3__(c%Pl,c%Pr,c%Psw)
+          __DEBUG5__(N_demand,available_N,c%stored_N,c%total_N,c%bwood/spdata(c%species)%wood_c2n)
+          call error_mesg('update_biomass_pools','bsw<0',FATAL)
+        endif
+      endif
+    endif
+
+
+  c%leaf_N=c%bl/spdata(c%species)%leaf_live_c2n
+  c%wood_N=c%bwood/spdata(c%species)%wood_c2n
+  c%sapwood_N=c%bsw/spdata(c%species)%sapwood_c2n
+  c%root_N=c%br/spdata(c%species)%froot_live_c2n
+  c%stored_N=c%total_N-(c%leaf_N+c%wood_N+c%root_N+c%sapwood_N)
+
+  ! In rare cases wood N content growth could cause stored N to go below zero
+  ! In that case, make sure stored N is zero by reducing wood N
+  if (c%stored_N<0 .AND. N_limits_live_biomass) then
+     c%wood_N=c%wood_N+c%stored_N
+     c%stored_N=0.0
+  endif
+
 end subroutine update_biomass_pools
 
 

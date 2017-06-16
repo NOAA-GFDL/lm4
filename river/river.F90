@@ -91,7 +91,7 @@ character(len=*), parameter :: module_name = 'river_mod'
   public :: save_river_restart
   public :: river_tracers_init
   public :: num_river_tracers
-  public :: river_tracer_index
+  public :: river_tracer_index, river_tracer_names
   public :: get_river_water
 
 !--- namelist interface ----------------------------------------------
@@ -540,6 +540,20 @@ function river_tracer_index(name) result(tr)
       endif
    enddo
 end function river_tracer_index
+
+!#####################################################################
+subroutine river_tracer_names(tr,name,long_name,units,flux_units,store_units)
+   integer, intent(in) :: tr
+   character(*), intent(out), optional :: name, long_name, units, flux_units, store_units
+
+   if (tr<0.or.tr>num_species) call mpp_error( FATAL, &
+      'river_mod: tracer index '//string(tr)//' is outside of range of river tracers')
+   if(present(name))        name        = trdata(tr)%name
+   if(present(long_name))   long_name   = trdata(tr)%longname
+   if(present(units))       units       = trdata(tr)%units
+   if(present(store_units)) store_units = trdata(tr)%store_units
+   if(present(flux_units))  flux_units  = trdata(tr)%flux_units
+end subroutine river_tracer_names
 
 !#####################################################################
 ! reads the field_table entry for specific tracers and fills in

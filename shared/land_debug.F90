@@ -68,7 +68,7 @@ end interface set_current_point
 ! conservation tolerances for use across the code. This module doesn't use
 ! them, just serves as a convenient place to share them across all land code
 public :: water_cons_tol
-public :: carbon_cons_tol
+public :: carbon_cons_tol, nitrogen_cons_tol
 public :: heat_cons_tol
 public :: do_check_conservation
 
@@ -107,8 +107,9 @@ logical, protected :: do_check_conservation = .FALSE.
 real, protected    :: water_cons_tol  = 1e-11 ! tolerance of water conservation checks
 real, protected    :: carbon_cons_tol = 1e-13 ! tolerance of carbon conservation checks
 real, protected    :: heat_cons_tol   = 1e-8  ! tolerance of heat conservation checks
+real, protected    :: nitrogen_cons_tol = 1e-13 ! tolerance of nitrogen conservation checks, kgN/m2
 namelist/land_conservation_nml/ do_check_conservation, &
-      water_cons_tol, carbon_cons_tol, heat_cons_tol
+      water_cons_tol, carbon_cons_tol, heat_cons_tol, nitrogen_cons_tol
 
 contains
 

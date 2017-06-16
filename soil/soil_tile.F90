@@ -17,9 +17,8 @@ use land_data_mod, only : log_version
 use land_tile_selectors_mod, only : &
      tile_selector_type, SEL_SOIL, register_tile_selector
 use land_io_mod, only : print_netcdf_error
-use soil_carbon_mod, only : soil_carbon_option, &
-    N_C_TYPES, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, C_CEL, C_LIG, &
-    soil_carbon_pool, combine_pools, init_soil_carbon, poolTotalCarbon, add_litter
+use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, SOILC_CORPSE_N, &
+    soil_pool, combine_pools, init_soil_pool, poolTotals, N_C_TYPES
 
 implicit none
 private
@@ -37,7 +36,7 @@ public :: soil_tiles_can_be_merged, merge_soil_tiles
 public :: soil_is_selected
 public :: get_soil_tile_tag
 public :: soil_tile_stock_pe
-public :: soil_tile_heat, soil_tile_carbon
+public :: soil_tile_heat, soil_tile_carbon, soil_tile_nitrogen
 
 public :: read_soil_data_namelist
 
@@ -61,8 +60,6 @@ public :: soil_ave_theta1! calculate average soil moisture, ens based on all wat
 public :: soil_ave_wetness ! calculate average soil wetness
 public :: soil_theta     ! returns array of soil moisture, for all layers
 public :: soil_psi_stress ! return soil-water-stress index
-
-public :: add_soil_carbon
 
 ! public data
 public :: max_lev ! max number of soil layers (max dimension of arrays)
@@ -235,7 +232,6 @@ type :: soil_tile_type
    real :: geothermal_heat_flux
    ! data that were local to soil.f90
    real, allocatable ::  &
-       uptake_frac(:),   &
        heat_capacity_dry(:), &
        e(:), f(:),       &
        gw_flux_norm(:),  &
@@ -257,23 +253,92 @@ type :: soil_tile_type
        fast_soil_C(:), & ! fast soil carbon pool, (kg C/m2), per layer
        slow_soil_C(:)    ! slow soil carbon pool, (kg C/m2), per layer
    ! values for CORPSE
-   type(soil_carbon_pool), allocatable :: soil_C(:) ! Soil carbon in soil layers, using soil_carbon_mod soil carbon pool type
+   type(soil_pool) :: litter(N_LITTER_POOLS) ! Surface litter pools, just one layer
+   type(soil_pool), allocatable :: soil_organic_matter(:) ! Soil carbon in soil layers, using soil_carbon_mod soil carbon pool type
    integer, allocatable   :: is_peat(:)             ! Keeps track of whether soil layer is peat, for redistribution
-   type(soil_carbon_pool) :: leafLitter             ! Surface litter pools, just one layer
-   type(soil_carbon_pool) :: fineWoodLitter         ! Separating makes fire modeling easier
-   type(soil_carbon_pool) :: coarseWoodLitter
    real                   :: fast_DOC_leached !Carbon that has been leached out of the column
    real                   :: slow_DOC_leached !Carbon that has been leached out of the column
    real                   :: deadmic_DOC_leached !Carbon that has been leached out of the column
+   real                   :: fast_DON_leached !Nitrogen that has been leached out of the column
+   real                   :: slow_DON_leached !Nitrogen that has been leached out of the column
+   real                   :: deadmic_DON_leached !Nitrogen that has been leached out of the column
+   real                   :: NO3_leached, NH4_leached ! Mineral nitrogen that has been leached out of the column
+
+   ! For nitrogen conservation checking, because there are a lot of fluxes in and out of land to keep track of
+   real                   :: gross_nitrogen_flux_into_tile
+   real                   :: gross_nitrogen_flux_out_of_tile
+
    ! values for the diagnostic of carbon budget and soil carbon acceleration
    real, allocatable :: &
        asoil_in(:), &
-       fsc_in(:), &
-       ssc_in(:)
+       fsc_in(:), ssc_in(:), &
+       fsn_in(:), ssn_in(:), &
+       deadmic_C_in(:), &
+       deadmic_N_in(:), &
+       fast_protected_C_in(:), &
+       fast_protected_N_in(:), &
+       slow_protected_C_in(:), &
+       slow_protected_N_in(:), &
+       deadmic_protected_C_in(:), &
+       deadmic_protected_N_in(:), &
+       fast_protected_C_turnover_accumulated(:), &
+       slow_protected_C_turnover_accumulated(:), &
+       deadmic_protected_C_turnover_accumulated(:), &
+       fast_protected_N_turnover_accumulated(:), &
+       slow_protected_N_turnover_accumulated(:), &
+       deadmic_protected_N_turnover_accumulated(:), &
+       fast_C_turnover_accumulated(:), &
+       slow_C_turnover_accumulated(:), &
+       deadmic_C_turnover_accumulated(:), &
+       fast_N_turnover_accumulated(:), &
+       slow_N_turnover_accumulated(:), &
+       deadmic_N_turnover_accumulated(:)
+   real :: leaflitter_fast_C_turnover_accumulated
+   real :: leaflitter_slow_C_turnover_accumulated
+   real :: leaflitter_deadmic_C_turnover_accumulated
+   real :: leaflitter_fast_N_turnover_accumulated
+   real :: leaflitter_slow_N_turnover_accumulated
+   real :: leaflitter_deadmic_N_turnover_accumulated
+   real :: leaflitter_fsc_in
+   real :: leaflitter_ssc_in
+   real :: leaflitter_deadmic_C_in
+   real :: leaflitter_fsn_in
+   real :: leaflitter_ssn_in
+   real :: leaflitter_deadmic_N_in
+
+   real :: finewoodlitter_fast_C_turnover_accumulated
+   real :: finewoodlitter_slow_C_turnover_accumulated
+   real :: finewoodlitter_deadmic_C_turnover_accumulated
+   real :: finewoodlitter_fsc_in
+   real :: finewoodlitter_ssc_in
+   real :: finewoodlitter_deadmic_C_in
+   real :: finewoodlitter_fast_N_turnover_accumulated
+   real :: finewoodlitter_slow_N_turnover_accumulated
+   real :: finewoodlitter_deadmic_N_turnover_accumulated
+   real :: finewoodlitter_fsn_in
+   real :: finewoodlitter_ssn_in
+   real :: finewoodlitter_deadmic_N_in
+
+   real :: coarsewoodlitter_fast_C_turnover_accumulated
+   real :: coarsewoodlitter_slow_C_turnover_accumulated
+   real :: coarsewoodlitter_deadmic_C_turnover_accumulated
+   real :: coarsewoodlitter_fsc_in
+   real :: coarsewoodlitter_ssc_in
+   real :: coarsewoodlitter_deadmic_C_in
+   real :: coarsewoodlitter_fast_N_turnover_accumulated
+   real :: coarsewoodlitter_slow_N_turnover_accumulated
+   real :: coarsewoodlitter_deadmic_N_turnover_accumulated
+   real :: coarsewoodlitter_fsn_in
+   real :: coarsewoodlitter_ssn_in
+   real :: coarsewoodlitter_deadmic_N_in
 
    ! For storing DOC fluxes in tiled model
    real, allocatable :: div_hlsp_DOC(:,:) ! dimension (n_c_types, num_l) [kg C/m^2/s] net flux of carbon pools
                                       ! out of tile
+   real, allocatable :: div_hlsp_DON(:,:) ! dimension (n_c_types, num_l) [kg N/m^2/s] net flux of nitrogen pools
+                                     ! out of tile
+   real, allocatable :: div_hlsp_NO3(:)  ! dimension (num_l) [kg N/m^2/s] net flux of nitrate out of tile
+   real, allocatable :: div_hlsp_NH4(:)  ! dimension (num_l) [kg N/m^2/s] net flux of ammonium out of tile
 end type soil_tile_type
 
 ! ==== module data ===========================================================
@@ -345,7 +410,6 @@ character(32) :: geohydrology_to_use = 'hill_ar5'
        ! 'hill' -- for integrated-tile hillslope geohydrology
        ! 'hill_ar5' -- integrated-tile hillslope geohydrology reproducing AR5 simulations
        ! 'tiled' -- for full hillslope-model geohydrology with hillslopes discretized into tiles
-logical :: use_mcm_albedo        = .false.   ! .true. for CLIMAP albedo inputs
 logical :: use_single_geo        = .false.   ! .true. for global gw res time,
                                              ! e.g., to recover MCM
 logical :: use_alpha             = .true.    ! for vertical change in soil properties
@@ -443,9 +507,6 @@ real, dimension(n_dim_soil_types) :: clay = &  ! Clay percentage (for calculatin
 
 real :: peat_soil_e_depth = -1  ! If positive (and GW_TILED or GW_HILL), override soil_e_depth for peat
 real :: peat_kx0 = -1           ! If non-negative (and GW_TILED or GW_HILL), override macroporosity for peat
-logical :: repro_zms = .FALSE. ! if true, changes calculations of zfull to reproduce Zack's hillslope code.
-                               ! The two ways of calculating zfull are mathematically identical, but they differ
-                               ! in the lowest bits of answer.
 namelist /soil_data_nml/ psi_wilt, &
      soil_to_use, soil_type_file, tile_names, input_cover_types, &
      comp, K_min, K_max_matrix, DThDP_max, psi_min, k_over_B, &
@@ -456,7 +517,7 @@ namelist /soil_data_nml/ psi_wilt, &
      use_tau_fix, use_sat_fix, use_comp_for_ic, use_comp_for_push, limit_hi_psi, use_fluid_ice, &
      use_alt3_soil_hydraulics, &
      limit_DThDP, &
-     use_mcm_albedo, use_single_geo, geohydrology_to_use, &
+     use_single_geo, geohydrology_to_use, &
      use_alpha, &
      retro_a0n1, &
      soil_index_constant,         &
@@ -679,7 +740,6 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
             ptr%k_macro_z         (num_l),  &
             ptr%k_macro_x         (num_l),  &
             ptr%vwc_max           (num_l),  &
-            ptr%uptake_frac       (num_l),  &
             ptr%heat_capacity_dry (num_l),  &
             ptr%e                 (num_l),  &
             ptr%f                 (num_l),  &
@@ -693,10 +753,35 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
             ptr%slow_soil_C       (num_l),  &
             ptr%fsc_in            (num_l),  &
             ptr%ssc_in            (num_l),  &
+            ptr%fsn_in            (num_l),  &
+            ptr%ssn_in            (num_l),  &
             ptr%asoil_in          (num_l),  &
             ptr%is_peat           (num_l),  &
-            ptr%soil_C            (num_l),  &
-            ptr%div_hlsp_DOC      (n_c_types, num_l)   )
+            ptr%fast_protected_C_in        (num_l),  &
+            ptr%slow_protected_C_in        (num_l),  &
+            ptr%fast_protected_N_in        (num_l),  &
+            ptr%slow_protected_N_in        (num_l),  &
+            ptr%deadmic_protected_C_in        (num_l),  &
+            ptr%deadmic_protected_N_in        (num_l),  &
+            ptr%deadmic_C_in        (num_l),  &
+            ptr%deadmic_N_in        (num_l),  &
+            ptr%fast_C_turnover_accumulated(num_l), &
+            ptr%slow_C_turnover_accumulated(num_l), &
+            ptr%deadmic_C_turnover_accumulated(num_l), &
+            ptr%fast_N_turnover_accumulated(num_l), &
+            ptr%slow_N_turnover_accumulated(num_l), &
+            ptr%deadmic_N_turnover_accumulated(num_l), &
+            ptr%fast_protected_C_turnover_accumulated(num_l), &
+            ptr%slow_protected_C_turnover_accumulated(num_l), &
+            ptr%deadmic_protected_C_turnover_accumulated(num_l), &
+            ptr%fast_protected_N_turnover_accumulated(num_l), &
+            ptr%slow_protected_N_turnover_accumulated(num_l), &
+            ptr%deadmic_protected_N_turnover_accumulated(num_l), &
+            ptr%soil_organic_matter(num_l),  &
+            ptr%div_hlsp_DOC      (N_C_TYPES, num_l), &
+            ptr%div_hlsp_DON      (N_C_TYPES, num_l), &
+            ptr%div_hlsp_NO3   (num_l) , &
+            ptr%div_hlsp_NH4   (num_l)         )
 
   ! Initialize to catch use before appropriate
   !ptr%psi(:) = initval
@@ -704,14 +789,17 @@ function soil_tile_ctor(tag, hidx_j, hidx_k) result(ptr)
   ptr%div_hlsp(:)      = initval
   ptr%div_hlsp_heat(:) = initval
   ptr%div_hlsp_DOC(:,:) = initval
+  ptr%div_hlsp_DON(:,:) = initval
+  ptr%div_hlsp_NO3(:) = initval
+  ptr%div_hlsp_NH4(:) = initval
 
   call soil_data_init_0d(ptr)
   do i=1,num_l
-     call init_soil_carbon(ptr%soil_C(i),Qmax=ptr%pars%Qmax)
+     call init_soil_pool(ptr%soil_organic_matter(i), Qmax=ptr%pars%Qmax)
   enddo
-  call init_soil_carbon(ptr%leafLitter,protectionRate=0.0,Qmax=0.0,max_cohorts=1)
-  call init_soil_carbon(ptr%fineWoodLitter,protectionRate=0.0,Qmax=0.0,max_cohorts=1)
-  call init_soil_carbon(ptr%coarseWoodLitter,protectionRate=0.0,Qmax=0.0,max_cohorts=1)
+  do i = 1,N_LITTER_POOLS
+     call init_soil_pool(ptr%litter(i), protectionRate=0.0, Qmax=0.0, max_cohorts=1)
+  enddo
 end function soil_tile_ctor
 
 
@@ -741,11 +829,8 @@ end subroutine delete_soil_tile
 subroutine soil_data_init_0d(soil)
   type(soil_tile_type), intent(inout) :: soil
 
-!  real tau_groundwater
-!  real rsa_exp         ! riparian source-area exponent
-  integer :: k, i, l, code, m_zeta, m_tau
-  real    :: alpha_inf_sq, alpha_sfc_sq, comp_local
-  real    :: single_log_zeta_s, single_log_tau, frac_zeta, frac_tau
+  integer :: k, l
+  real    :: comp_local
   real    :: z ! depth at top of current layer
 
   k = soil%tag
@@ -786,10 +871,80 @@ subroutine soil_data_init_0d(soil)
   soil%is_peat(:)             = 0
   soil%fsc_in(:)              = 0.0
   soil%ssc_in(:)              = 0.0
+  soil%fsn_in(:)              = 0.0
+  soil%ssn_in(:)              = 0.0
+  soil%deadmic_C_in(:)          = 0.0
+  soil%deadmic_N_in(:)          = 0.0
+  soil%fast_protected_C_in(:)        = 0.0
+  soil%slow_protected_C_in(:)        = 0.0
+  soil%deadmic_protected_C_in(:)        = 0.0
+  soil%fast_protected_N_in(:)        = 0.0
+  soil%slow_protected_N_in(:)        = 0.0
+  soil%deadmic_protected_N_in(:)        = 0.0
+  soil%fast_C_turnover_accumulated(:) = 0.0
+  soil%slow_C_turnover_accumulated(:)  = 0.0
+  soil%deadmic_C_turnover_accumulated(:) = 0.0
+  soil%fast_N_turnover_accumulated(:) = 0.0
+  soil%slow_N_turnover_accumulated(:)  = 0.0
+  soil%deadmic_N_turnover_accumulated(:) = 0.0
+  soil%fast_protected_C_turnover_accumulated(:) = 0.0
+  soil%slow_protected_C_turnover_accumulated(:)  = 0.0
+  soil%deadmic_protected_C_turnover_accumulated(:) = 0.0
+  soil%fast_protected_N_turnover_accumulated(:) = 0.0
+  soil%slow_protected_N_turnover_accumulated(:)  = 0.0
+  soil%deadmic_protected_N_turnover_accumulated(:) = 0.0
+
+  soil%leaflitter_fast_C_turnover_accumulated = 0.0
+  soil%leaflitter_slow_C_turnover_accumulated = 0.0
+  soil%leaflitter_deadmic_C_turnover_accumulated = 0.0
+  soil%leaflitter_fsc_in = 0.0
+  soil%leaflitter_ssc_in = 0.0
+  soil%leaflitter_deadmic_C_in = 0.0
+  soil%leaflitter_fast_N_turnover_accumulated = 0.0
+  soil%leaflitter_slow_N_turnover_accumulated = 0.0
+  soil%leaflitter_deadmic_N_turnover_accumulated = 0.0
+  soil%leaflitter_fsn_in = 0.0
+  soil%leaflitter_ssn_in = 0.0
+  soil%leaflitter_deadmic_N_in = 0.0
+
+  soil%finewoodlitter_fast_C_turnover_accumulated = 0.0
+  soil%finewoodlitter_slow_C_turnover_accumulated = 0.0
+  soil%finewoodlitter_deadmic_C_turnover_accumulated = 0.0
+  soil%finewoodlitter_fsc_in = 0.0
+  soil%finewoodlitter_ssc_in = 0.0
+  soil%finewoodlitter_deadmic_C_in = 0.0
+  soil%finewoodlitter_fast_N_turnover_accumulated = 0.0
+  soil%finewoodlitter_slow_N_turnover_accumulated = 0.0
+  soil%finewoodlitter_deadmic_N_turnover_accumulated = 0.0
+  soil%finewoodlitter_fsn_in = 0.0
+  soil%finewoodlitter_ssn_in = 0.0
+  soil%finewoodlitter_deadmic_N_in = 0.0
+
+  soil%coarsewoodlitter_fast_C_turnover_accumulated = 0.0
+  soil%coarsewoodlitter_slow_C_turnover_accumulated = 0.0
+  soil%coarsewoodlitter_deadmic_C_turnover_accumulated = 0.0
+  soil%coarsewoodlitter_fsc_in = 0.0
+  soil%coarsewoodlitter_ssc_in = 0.0
+  soil%coarsewoodlitter_deadmic_C_in = 0.0
+  soil%coarsewoodlitter_fast_N_turnover_accumulated = 0.0
+  soil%coarsewoodlitter_slow_N_turnover_accumulated = 0.0
+  soil%coarsewoodlitter_deadmic_N_turnover_accumulated = 0.0
+  soil%coarsewoodlitter_fsn_in = 0.0
+  soil%coarsewoodlitter_ssn_in = 0.0
+  soil%coarsewoodlitter_deadmic_N_in = 0.0
 
   soil%fast_DOC_leached=0.0
   soil%slow_DOC_leached=0.0
   soil%deadmic_DOC_leached=0.0
+  soil%fast_DON_leached=0.0
+  soil%slow_DON_leached=0.0
+  soil%deadmic_DON_leached=0.0
+
+  soil%gross_nitrogen_flux_into_tile = 0.0
+  soil%gross_nitrogen_flux_out_of_tile = 0.0
+
+  soil%NO3_leached=0.0
+  soil%NH4_leached=0.0
 
   comp_local = 0.0
   if (use_comp_for_push) comp_local = comp
@@ -1178,20 +1333,93 @@ subroutine merge_soil_tiles(s1,w1,s2,w2)
   s2%fast_soil_C(:) = s1%fast_soil_C(:)*x1 + s2%fast_soil_C(:)*x2
   s2%slow_soil_C(:) = s1%slow_soil_C(:)*x1 + s2%slow_soil_C(:)*x2
   do i=1,num_l
-    call combine_pools(s1%soil_C(i),s2%soil_C(i),w1,w2)
+    call combine_pools(s1%soil_organic_matter(i),s2%soil_organic_matter(i),w1,w2)
   enddo
   !is_peat is 1 or 0, so multiplying is like an AND operation
   s2%is_peat(:) = s1%is_peat(:) * s2%is_peat(:)
-  call combine_pools(s1%leafLitter,s2%leafLitter,w1,w2)
-  call combine_pools(s1%fineWoodLitter,s2%fineWoodLitter,w1,w2)
-  call combine_pools(s1%coarseWoodLitter,s2%coarseWoodLitter,w1,w2)
+  do i = 1, N_LITTER_POOLS
+     call combine_pools(s1%litter(i),s2%litter(i),w1,w2)
+  enddo
   s2%asoil_in(:)    = s1%asoil_in(:)*x1 + s2%asoil_in(:)*x2
   s2%fsc_in(:)      = s1%fsc_in(:)*x1 + s2%fsc_in(:)*x2
   s2%ssc_in(:)      = s1%ssc_in(:)*x1 + s2%ssc_in(:)*x2
+  s2%fsn_in(:)      = s1%fsn_in(:)*x1 + s2%fsn_in(:)*x2
+  s2%ssn_in(:)      = s1%ssn_in(:)*x1 + s2%ssn_in(:)*x2
+  s2%fast_protected_C_in(:) = s1%fast_protected_C_in(:)*x1 + s2%fast_protected_C_in(:)*x2
+  s2%slow_protected_C_in(:) = s1%slow_protected_C_in(:)*x1 + s2%slow_protected_C_in(:)*x2
+  s2%deadmic_protected_C_in(:) = s1%deadmic_protected_C_in(:)*x1 + s2%deadmic_protected_C_in(:)*x2
+  s2%fast_protected_N_in(:) = s1%fast_protected_N_in(:)*x1 + s2%fast_protected_N_in(:)*x2
+  s2%slow_protected_N_in(:) = s1%slow_protected_N_in(:)*x1 + s2%slow_protected_N_in(:)*x2
+  s2%deadmic_protected_N_in(:) = s1%deadmic_protected_N_in(:)*x1 + s2%deadmic_protected_N_in(:)*x2
+  s2%deadmic_C_in(:) = s1%deadmic_C_in(:)*x1 + s2%deadmic_C_in(:)*x2
+  s2%deadmic_N_in(:) = s1%deadmic_N_in(:)*x1 + s2%deadmic_N_in(:)*x2
+  s2%fast_C_turnover_accumulated(:) = s1%fast_C_turnover_accumulated(:)*x1 + s2%fast_C_turnover_accumulated(:)*x2
+  s2%slow_C_turnover_accumulated(:) = s1%slow_C_turnover_accumulated(:)*x1 + s2%slow_C_turnover_accumulated(:)*x2
+  s2%deadmic_C_turnover_accumulated(:) = s1%deadmic_C_turnover_accumulated(:)*x1 + s2%deadmic_C_turnover_accumulated(:)*x2
+  s2%fast_N_turnover_accumulated(:) = s1%fast_N_turnover_accumulated(:)*x1 + s2%fast_N_turnover_accumulated(:)*x2
+  s2%slow_N_turnover_accumulated(:) = s1%slow_N_turnover_accumulated(:)*x1 + s2%slow_N_turnover_accumulated(:)*x2
+  s2%deadmic_N_turnover_accumulated(:) = s1%deadmic_N_turnover_accumulated(:)*x1 + s2%deadmic_N_turnover_accumulated(:)*x2
+
+  s2%fast_protected_C_turnover_accumulated(:) = s1%fast_protected_C_turnover_accumulated(:)*x1 + s2%fast_protected_C_turnover_accumulated(:)*x2
+  s2%slow_protected_C_turnover_accumulated(:) = s1%slow_protected_C_turnover_accumulated(:)*x1 + s2%slow_protected_C_turnover_accumulated(:)*x2
+  s2%deadmic_protected_C_turnover_accumulated(:) = s1%deadmic_protected_C_turnover_accumulated(:)*x1 + s2%deadmic_protected_C_turnover_accumulated(:)*x2
+  s2%fast_protected_N_turnover_accumulated(:) = s1%fast_protected_N_turnover_accumulated(:)*x1 + s2%fast_protected_N_turnover_accumulated(:)*x2
+  s2%slow_protected_N_turnover_accumulated(:) = s1%slow_protected_N_turnover_accumulated(:)*x1 + s2%slow_protected_N_turnover_accumulated(:)*x2
+  s2%deadmic_protected_N_turnover_accumulated(:) = s1%deadmic_protected_N_turnover_accumulated(:)*x1 + s2%deadmic_protected_N_turnover_accumulated(:)*x2
+
+
+  s2%leaflitter_fast_C_turnover_accumulated = s1%leaflitter_fast_C_turnover_accumulated*x1 + s2%leaflitter_fast_C_turnover_accumulated*x2
+  s2%leaflitter_slow_C_turnover_accumulated = s1%leaflitter_slow_C_turnover_accumulated*x1 + s2%leaflitter_slow_C_turnover_accumulated*x2
+  s2%leaflitter_deadmic_C_turnover_accumulated = s1%leaflitter_deadmic_C_turnover_accumulated*x1 + s2%leaflitter_deadmic_C_turnover_accumulated*x2
+  s2%leaflitter_fsc_in = s1%leaflitter_fsc_in*x1 + s2%leaflitter_fsc_in*x2
+  s2%leaflitter_ssc_in = s1%leaflitter_ssc_in*x1 + s2%leaflitter_ssc_in*x2
+  s2%leaflitter_deadmic_C_in = s1%leaflitter_deadmic_C_in*x1 + s2%leaflitter_deadmic_C_in*x2
+  s2%leaflitter_fast_N_turnover_accumulated = s1%leaflitter_fast_N_turnover_accumulated*x1 + s2%leaflitter_fast_N_turnover_accumulated*x2
+  s2%leaflitter_slow_N_turnover_accumulated = s1%leaflitter_slow_N_turnover_accumulated*x1 + s2%leaflitter_slow_N_turnover_accumulated*x2
+  s2%leaflitter_deadmic_N_turnover_accumulated = s1%leaflitter_deadmic_N_turnover_accumulated*x1 + s2%leaflitter_deadmic_N_turnover_accumulated*x2
+  s2%leaflitter_fsn_in = s1%leaflitter_fsn_in*x1 + s2%leaflitter_fsn_in*x2
+  s2%leaflitter_ssn_in = s1%leaflitter_ssn_in*x1 + s2%leaflitter_ssn_in*x2
+  s2%leaflitter_deadmic_N_in = s1%leaflitter_deadmic_N_in*x1 + s2%leaflitter_deadmic_N_in*x2
+
+  s2%finewoodlitter_fast_C_turnover_accumulated = s1%finewoodlitter_fast_C_turnover_accumulated*x1 + s2%finewoodlitter_fast_C_turnover_accumulated*x2
+  s2%finewoodlitter_slow_C_turnover_accumulated = s1%finewoodlitter_slow_C_turnover_accumulated*x1 + s2%finewoodlitter_slow_C_turnover_accumulated*x2
+  s2%finewoodlitter_deadmic_C_turnover_accumulated = s1%finewoodlitter_deadmic_C_turnover_accumulated*x1 + s2%finewoodlitter_deadmic_C_turnover_accumulated*x2
+  s2%finewoodlitter_fsc_in = s1%finewoodlitter_fsc_in*x1 + s2%finewoodlitter_fsc_in*x2
+  s2%finewoodlitter_ssc_in = s1%finewoodlitter_ssc_in*x1 + s2%finewoodlitter_ssc_in*x2
+  s2%finewoodlitter_deadmic_C_in = s1%finewoodlitter_deadmic_C_in*x1 + s2%finewoodlitter_deadmic_C_in*x2
+  s2%finewoodlitter_fast_N_turnover_accumulated = s1%finewoodlitter_fast_N_turnover_accumulated*x1 + s2%finewoodlitter_fast_N_turnover_accumulated*x2
+  s2%finewoodlitter_slow_N_turnover_accumulated = s1%finewoodlitter_slow_N_turnover_accumulated*x1 + s2%finewoodlitter_slow_N_turnover_accumulated*x2
+  s2%finewoodlitter_deadmic_N_turnover_accumulated = s1%finewoodlitter_deadmic_N_turnover_accumulated*x1 + s2%finewoodlitter_deadmic_N_turnover_accumulated*x2
+  s2%finewoodlitter_fsn_in = s1%finewoodlitter_fsn_in*x1 + s2%finewoodlitter_fsn_in*x2
+  s2%finewoodlitter_ssn_in = s1%finewoodlitter_ssn_in*x1 + s2%finewoodlitter_ssn_in*x2
+  s2%finewoodlitter_deadmic_N_in = s1%finewoodlitter_deadmic_N_in*x1 + s2%finewoodlitter_deadmic_N_in*x2
+
+
+  s2%coarsewoodlitter_fast_C_turnover_accumulated = s1%coarsewoodlitter_fast_C_turnover_accumulated*x1 + s2%coarsewoodlitter_fast_C_turnover_accumulated*x2
+  s2%coarsewoodlitter_slow_C_turnover_accumulated = s1%coarsewoodlitter_slow_C_turnover_accumulated*x1 + s2%coarsewoodlitter_slow_C_turnover_accumulated*x2
+  s2%coarsewoodlitter_deadmic_C_turnover_accumulated = s1%coarsewoodlitter_deadmic_C_turnover_accumulated*x1 + s2%coarsewoodlitter_deadmic_C_turnover_accumulated*x2
+  s2%coarsewoodlitter_fsc_in = s1%coarsewoodlitter_fsc_in*x1 + s2%coarsewoodlitter_fsc_in*x2
+  s2%coarsewoodlitter_ssc_in = s1%coarsewoodlitter_ssc_in*x1 + s2%coarsewoodlitter_ssc_in*x2
+  s2%coarsewoodlitter_deadmic_C_in = s1%coarsewoodlitter_deadmic_C_in*x1 + s2%coarsewoodlitter_deadmic_C_in*x2
+  s2%coarsewoodlitter_fast_N_turnover_accumulated = s1%coarsewoodlitter_fast_N_turnover_accumulated*x1 + s2%coarsewoodlitter_fast_N_turnover_accumulated*x2
+  s2%coarsewoodlitter_slow_N_turnover_accumulated = s1%coarsewoodlitter_slow_N_turnover_accumulated*x1 + s2%coarsewoodlitter_slow_N_turnover_accumulated*x2
+  s2%coarsewoodlitter_deadmic_N_turnover_accumulated = s1%coarsewoodlitter_deadmic_N_turnover_accumulated*x1 + s2%coarsewoodlitter_deadmic_N_turnover_accumulated*x2
+  s2%coarsewoodlitter_fsn_in = s1%coarsewoodlitter_fsn_in*x1 + s2%coarsewoodlitter_fsn_in*x2
+  s2%coarsewoodlitter_ssn_in = s1%coarsewoodlitter_ssn_in*x1 + s2%coarsewoodlitter_ssn_in*x2
+  s2%coarsewoodlitter_deadmic_N_in = s1%coarsewoodlitter_deadmic_N_in*x1 + s2%coarsewoodlitter_deadmic_N_in*x2
 
   s2%fast_DOC_leached=s1%fast_DOC_leached*x1 + s2%fast_DOC_leached*x2
   s2%slow_DOC_leached=s1%slow_DOC_leached*x1 + s2%slow_DOC_leached*x2
   s2%deadmic_DOC_leached=s1%deadmic_DOC_leached*x1 + s2%deadmic_DOC_leached*x2
+  s2%fast_DON_leached=s1%fast_DON_leached*x1 + s2%fast_DON_leached*x2
+  s2%slow_DON_leached=s1%slow_DON_leached*x1 + s2%slow_DON_leached*x2
+  s2%deadmic_DON_leached=s1%deadmic_DON_leached*x1 + s2%deadmic_DON_leached*x2
+  s2%NO3_leached=s1%NO3_leached*x1 + s2%NO3_leached*x2
+  s2%NH4_leached=s1%NH4_leached*x1 + s2%NH4_leached*x2
+
+  s2%gross_nitrogen_flux_into_tile=s1%gross_nitrogen_flux_into_tile*x1 + s2%gross_nitrogen_flux_into_tile*x2
+  s2%gross_nitrogen_flux_out_of_tile=s1%gross_nitrogen_flux_out_of_tile*x1 + s2%gross_nitrogen_flux_out_of_tile*x2
+
 end subroutine merge_soil_tiles
 
 ! =============================================================================
@@ -1310,7 +1538,7 @@ function soil_theta(soil) result (theta1)
   type(soil_tile_type), intent(in) :: soil
   real :: theta1(num_l)
 
-  theta1(:) = min(max(soil%wl(:)/(dens_h2o*dz(:)),0.0)/(soil%pars%vwc_sat),1.0)
+  theta1(:) = min(max(soil%wl(:)/(dens_h2o*dz(1:num_l)),0.0)/(soil%pars%vwc_sat),1.0)
 end function soil_theta
 
 
@@ -1325,7 +1553,6 @@ function soil_ice_porosity(soil) result(ice_porosity)
     do k=1, num_l
         ice_porosity(k) = min(max(soil%ws(k)/(dens_h2o*dz(k)),0.0)/(soil%pars%vwc_sat),1.0)
     enddo
-
 end function soil_ice_porosity
 
 
@@ -1547,7 +1774,7 @@ subroutine soil_data_hydraulics (soil, vlc, vsc, &
       DPsi_min, DPsi_max, psi_for_rh
   ! ---- local vars ----------------------------------------------------------
   integer l
-  real :: vlc_loc, vlc_k, psi_k, sigma, B, por, psi_s, k_sat, alt_psi_for_rh
+  real :: vlc_loc, k_sat, alt_psi_for_rh
   real :: alpha_sq, f_psi
   logical flag
 
@@ -1932,86 +2159,44 @@ function soil_tile_carbon (soil); real soil_tile_carbon
   integer :: i
 
   select case (soil_carbon_option)
-  case (SOILC_CORPSE)
+  case (SOILC_CORPSE,SOILC_CORPSE_N)
      soil_tile_carbon = 0.0
      do i=1,num_l
-        call poolTotalCarbon(soil%soil_C(i),totalCarbon=temp)
+        call poolTotals(soil%soil_organic_matter(i),totalCarbon=temp)
         soil_tile_carbon=soil_tile_carbon+temp
      enddo
-     call poolTotalCarbon(soil%leafLitter,totalCarbon=temp)
-     soil_tile_carbon=soil_tile_carbon+temp
-     call poolTotalCarbon(soil%fineWoodLitter,totalCarbon=temp)
-     soil_tile_carbon=soil_tile_carbon+temp
-     call poolTotalCarbon(soil%coarseWoodLitter,totalCarbon=temp)
-     soil_tile_carbon=soil_tile_carbon+temp
+     do i = 1,N_LITTER_POOLS
+        call poolTotals(soil%litter(i),totalCarbon=temp)
+        soil_tile_carbon=soil_tile_carbon+temp
+     enddo
   case default
      soil_tile_carbon = sum(soil%fast_soil_C(:))+sum(soil%slow_soil_C(:))
   end select
 end function soil_tile_carbon
 
 ! ============================================================================
-subroutine add_soil_carbon(soil,leaf_litter,wood_litter,root_litter)
-  type(soil_tile_type)   , intent(inout) :: soil
-  real, intent(in), optional :: leaf_litter(N_C_TYPES)
-  real, intent(in), optional :: wood_litter(N_C_TYPES)
-  real, intent(in), optional :: root_litter(num_l,N_C_TYPES)
+! returns soil tile nitrogen content, kg N/m2
+! this should return zero if soil_carbon_option is not SOILC_CORPSE_N
+function soil_tile_nitrogen (soil); real soil_tile_nitrogen
+  type(soil_tile_type),  intent(in)  :: soil
 
-  integer :: l
-  real :: fsc, ssc
-  real :: leaf_litt(N_C_TYPES)
-  real :: wood_litt(N_C_TYPES)
-  real :: root_litt(num_l,N_C_TYPES)
-
-  if (present(leaf_litter)) then
-     leaf_litt(:) = leaf_litter(:)
-  else
-     leaf_litt(:) = 0.0
-  endif
-  if (present(wood_litter)) then
-     wood_litt(:) = wood_litter(:)
-  else
-     wood_litt(:) = 0.0
-  endif
-  if (present(root_litter)) then
-     root_litt(:,:) = root_litter(:,:)
-  else
-     root_litt(:,:) = 0.0
-  endif
-
-  ! CEL=cellulose (fast); LIG=lignin (slow); this function reasonably assumes
-  ! that there are no microbes in litter
+  real    :: temp
+  integer :: i
 
   select case (soil_carbon_option)
-  case (SOILC_CENTURY)
-     fsc = leaf_litt(C_CEL) + wood_litt(C_CEL) + sum(root_litt(:,C_CEL))
-     ssc = leaf_litt(C_LIG) + wood_litt(C_LIG) + sum(root_litt(:,C_LIG))
-     soil%fast_soil_C(1) = soil%fast_soil_C(1) + fsc
-     soil%slow_soil_C(1) = soil%slow_soil_C(1) + ssc
-     ! for budget tracking
-     soil%fsc_in(1) = soil%fsc_in(1) + fsc
-     soil%ssc_in(1) = soil%ssc_in(1) + ssc
-  case (SOILC_CENTURY_BY_LAYER)
-     fsc = leaf_litt(C_CEL) + wood_litt(C_CEL)
-     ssc = leaf_litt(C_LIG) + wood_litt(C_LIG)
-     soil%fast_soil_C(1) = soil%fast_soil_C(1) + fsc
-     soil%slow_soil_C(1) = soil%slow_soil_C(1) + ssc
-     ! for budget tracking
-     soil%fsc_in(1) = soil%fsc_in(1) + fsc
-     soil%ssc_in(1) = soil%ssc_in(1) + ssc
-     do l = 1,num_l
-        soil%fast_soil_C(l) = soil%fast_soil_C(l) + root_litt(l,C_CEL)
-        soil%slow_soil_C(l) = soil%slow_soil_C(l) + root_litt(l,C_LIG)
-        ! for budget tracking
-        soil%fsc_in(l) = soil%fsc_in(l) + root_litt(l,C_CEL)
-        soil%ssc_in(l) = soil%ssc_in(l) + root_litt(l,C_LIG)
+  case (SOILC_CORPSE,SOILC_CORPSE_N)
+     soil_tile_nitrogen = 0.0
+     do i=1,num_l
+        call poolTotals(soil%soil_organic_matter(i),totalNitrogen=temp)
+        soil_tile_nitrogen=soil_tile_nitrogen+temp
      enddo
-  case (SOILC_CORPSE)
-     call add_litter(soil%leafLitter,       leaf_litt)
-     call add_litter(soil%coarseWoodLitter, wood_litt)
-     do l = 1,num_l
-        call add_litter(soil%soil_C(l), root_litt(l,:))
+     do i = 1,N_LITTER_POOLS
+        call poolTotals(soil%litter(i),totalNitrogen=temp)
+        soil_tile_nitrogen=soil_tile_nitrogen+temp
      enddo
+  case default
+     soil_tile_nitrogen = 0.0
   end select
-end subroutine add_soil_carbon
+end function soil_tile_nitrogen
 
 end module soil_tile_mod

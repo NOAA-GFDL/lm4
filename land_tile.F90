@@ -14,7 +14,7 @@ use lake_tile_mod, only : &
 use soil_tile_mod, only : &
      soil_tile_type, new_soil_tile, delete_soil_tile, soil_is_selected, &
      soil_tiles_can_be_merged, merge_soil_tiles, get_soil_tile_tag, &
-     soil_tile_stock_pe, soil_tile_carbon, soil_tile_heat
+     soil_tile_stock_pe, soil_tile_carbon, soil_tile_nitrogen, soil_tile_heat
 use hillslope_tile_mod, only : hlsp_is_selected
 use cana_tile_mod, only : &
      cana_tile_type, new_cana_tile, delete_cana_tile, cana_is_selected, &
@@ -23,7 +23,7 @@ use cana_tile_mod, only : &
 use vegn_tile_mod, only : &
      vegn_tile_type, new_vegn_tile, delete_vegn_tile, vegn_is_selected, &
      vegn_tiles_can_be_merged, merge_vegn_tiles, vegn_tile_tag, &
-     vegn_tile_stock_pe, vegn_tile_carbon, vegn_tile_heat
+     vegn_tile_stock_pe, vegn_tile_carbon, vegn_tile_heat, vegn_tile_nitrogen
 use snow_tile_mod, only : &
      snow_tile_type, new_snow_tile, delete_snow_tile, snow_is_selected, &
      snow_tiles_can_be_merged, merge_snow_tiles, get_snow_tile_tag, &
@@ -53,6 +53,7 @@ public :: land_tiles_can_be_merged, merge_land_tiles, merge_land_tile_into_list
 public :: get_tile_tags ! returns the tags of the sub-model tiles
 public :: get_tile_water ! returns liquid and frozen water masses
 public :: land_tile_carbon ! returns total carbon in the tile
+public :: land_tile_nitrogen ! returns total nitrogen in the tile
 public :: land_tile_heat ! returns tile heat content
 public :: land_tile_grnd_T ! returns temperature of the ground surface
 
@@ -471,6 +472,22 @@ function land_tile_carbon(tile) result(carbon) ; real carbon
   if (associated(tile%soil)) &
      carbon = carbon + soil_tile_carbon(tile%soil)
 end function land_tile_carbon
+
+
+! ============================================================================
+! returns total tile nitrogen, kg N/m2
+function land_tile_nitrogen(tile) result(nitrogen) ; real nitrogen
+  type(land_tile_type), intent(in) :: tile
+
+  nitrogen = 0
+  ! Not implemented for canopy yet
+  ! if (associated(tile%cana)) &
+  !    nitrogen = nitrogen + cana_tile_nitrogen(tile%cana)
+  if (associated(tile%vegn)) &
+     nitrogen = nitrogen + vegn_tile_nitrogen(tile%vegn)
+  if (associated(tile%soil)) &
+     nitrogen = nitrogen + soil_tile_nitrogen(tile%soil)
+end function land_tile_nitrogen
 
 
 ! ============================================================================

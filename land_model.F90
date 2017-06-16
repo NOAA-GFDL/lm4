@@ -57,7 +57,8 @@ use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, cana_state,&
      cana_roughness, &
      save_cana_restart
 use river_mod, only : river_init, river_end, update_river, river_stock_pe, &
-     save_river_restart, river_tracers_init, num_river_tracers, river_tracer_index
+     save_river_restart, river_tracers_init, num_river_tracers, river_tracer_index, &
+     river_tracer_names
 use topo_rough_mod, only : topo_rough_init, topo_rough_end, update_topo_rough
 use soil_tile_mod, only : soil_tile_stock_pe, soil_tile_heat, soil_roughness
 use vegn_tile_mod, only : vegn_cover_cold_start, &
@@ -74,7 +75,7 @@ use land_io_mod, only : read_land_io_namelist, input_buf_size, new_land_io
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
      land_tile_enum_type, new_land_tile, insert, remove, empty, nitems, &
      first_elmt, current_tile, &
-     get_tile_tags, get_tile_water, land_tile_heat, &
+     get_tile_tags, get_tile_water, land_tile_heat, land_tile_nitrogen, &
      land_tile_carbon, max_n_tiles, init_tile_map, free_tile_map, &
      loop_over_tiles, land_tile_list_init, land_tile_list_end, &
      merge_land_tile_into_list
@@ -92,13 +93,15 @@ use land_tile_diag_mod, only : OP_SUM, tile_diag_init, tile_diag_end, &
      set_default_diag_filter, register_tiled_area_fields, send_global_land_diag
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, is_watch_cell, is_watch_time, get_watch_point, get_current_point, &
-     check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, &
+     check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, nitrogen_cons_tol, &
      check_var_range, check_temp_range, current_face, log_date
 use static_vegn_mod, only : write_static_vegn
 use land_transitions_mod, only : &
      land_transitions_init, land_transitions_end, land_transitions, &
      save_land_transitions_restart
 use stock_constants_mod, only: ISTOCK_WATER, ISTOCK_HEAT, ISTOCK_SALT
+use nitrogen_sources_mod, only : nitrogen_sources_init, nitrogen_sources_end, &
+     update_nitrogen_sources, nitrogen_sources
 use hillslope_mod, only: retrieve_hlsp_indices, save_hlsp_restart, hlsp_end, &
                          read_hlsp_namelist, hlsp_init, hlsp_config_check
 use hillslope_hydrology_mod, only: hlsp_hydrology_1, hlsp_hydro_init
@@ -205,7 +208,7 @@ real     :: delta_time ! duration of main land time step (s)
 
 ! ---- indices of river tracers
 integer  :: n_river_tracers
-integer  :: i_river_ice, i_river_heat, i_river_DOC
+integer  :: i_river_ice, i_river_heat
 
 ! ---- diag field IDs --------------------------------------------------------
 integer :: &
@@ -256,9 +259,20 @@ integer :: &
   id_vegn_refl_dir, id_vegn_refl_dif, id_vegn_refl_lw,                     &
   id_vegn_tran_dir, id_vegn_tran_dif, id_vegn_tran_lw,                     &
   id_vegn_sctr_dir,                                                        &
-  id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T, id_total_C, &
-  id_water_cons,    id_carbon_cons,   id_DOCrunf,                          &
-  id_parnet, id_grnd_rh, id_cana_rh
+  id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T, id_total_C, id_total_N, &
+  id_water_cons, id_carbon_cons, id_nitrogen_cons, id_parnet, id_grnd_rh, id_cana_rh, &
+  id_DOCrunf, id_dis_DOC, id_DONrunf, id_dis_DON, &
+  id_NH4runf, id_dis_NH4,id_NO3runf, id_dis_NO3
+! diagnostic ids for canopy air tracers (moist mass ratio)
+integer, allocatable :: id_cana_tr(:)
+integer, allocatable :: id_runf_tr(:), id_dis_tr(:)
+! diag IDs of CMOR variables
+integer :: id_sftlf, id_sftgif
+integer :: id_prveg, id_tran, id_evspsblveg, id_evspsblsoi, id_nbr, &
+           id_snw, id_lwsnl, id_snm
+integer :: id_cropFrac, id_cropFracC3, id_cropFracC4, id_pastureFrac, id_residualFrac, &
+           id_grassFrac, id_grassFracC3, id_grassFracC4, &
+           id_treeFrac, id_c3pftFrac, id_c4pftFrac
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
 ! It is supposed to be double-precision signaling NaN, to trigger a trap when
@@ -429,6 +443,7 @@ subroutine land_model_init &
   call glac_init ( id_ug )
   call snow_init ( id_ug )
   call cana_init ()
+  call nitrogen_sources_init ( lnd%time, id_ug )
   call topo_rough_init( lnd%time, lnd%sg_lonb, lnd%sg_latb, lnd%sg_domain, lnd%ug_domain, id_ug)
 
   call river_init( lnd%sg_lon, lnd%sg_lat, lnd%time, lnd%dt_fast, &
@@ -437,7 +452,6 @@ subroutine land_model_init &
   n_river_tracers = num_river_tracers()
   i_river_ice  = river_tracer_index('ice')
   i_river_heat = river_tracer_index('het')
-  i_river_DOC  = river_tracer_index('doc')
   if (i_river_ice  == NO_TRACER) call error_mesg ('land_model_init','required river tracer for ice not found', FATAL)
   if (i_river_heat == NO_TRACER) call error_mesg ('land_model_init','required river tracer for heat not found', FATAL)
 
@@ -514,6 +528,7 @@ subroutine land_model_end (cplr2land, land2cplr)
   call snow_end ()
   call vegn_end ()
   call cana_end ()
+  call nitrogen_sources_end ()
   call topo_rough_end()
   call river_end()
 
@@ -1009,7 +1024,6 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
      lake_LMASS, lake_FMASS, lake_HEAT, &
      soil_LMASS, soil_FMASS, soil_HEAT
 
-
   real :: runoff(lnd%ls:lnd%le) ! total (liquid+snow) runoff accumulated over tiles in cell
   real :: runoff_c(lnd%ls:lnd%le,n_river_tracers)
                  ! runoff of tracers accumulated over tiles in cell (including ice and heat)
@@ -1046,6 +1060,9 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   allocate(phot_co2_data(lnd%ls:lnd%le))
   call data_override_ug('LND','phot_co2',phot_co2_data,lnd%time, &
        override=phot_co2_overridden)
+
+  ! get the fertilization data
+  call update_nitrogen_sources(lnd%time, lnd%time+lnd%dt_fast)
 
   ! clear the runoff values, for accumulation over the tiles
   runoff = 0 ; runoff_c = 0
@@ -1271,6 +1288,9 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   real :: flwg ! updated value of long-wave ground energy balance
   real :: sum0, sum1, sum2
 
+  real :: ndep_nit, ndep_amm, ndep_org  ! rates of nitrate, ammonium,
+                ! and organic nitrogen input to the soil, kg N/(m2 yr)
+
   integer :: vegn_layer(N) ! layer number of each cohort
   real :: &
        f(N), & ! fraction of each cohort canopy in its layer
@@ -1331,21 +1351,20 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
 
   real :: snow_T, snow_rh, snow_liq, snow_ice, snow_subl
   integer :: k, k1 ! cohort indices
-  integer :: ii, jj ! indices for debug output
+  integer :: i, j, ii, jj ! indices for debug output
   integer :: ierr
   integer :: tr ! tracer index
   logical :: conserve_glacier_mass, snow_active, redo_leaf_water
   integer :: canopy_water_step
   real :: subs_z0m, subs_z0s, snow_z0m, snow_z0s, grnd_z0s
-  ! variables for conservation checks
-  real :: lmass0, fmass0, heat0, cmass0, v0
-  real :: lmass1, fmass1, heat1, cmass1
-  logical :: calc_water_cons, calc_carbon_cons
-  character(64) :: tag
-  integer :: i,j
+  real :: lmass0, fmass0, heat0, cmass0, nmass0, nflux0, v0
+  real :: lmass1, fmass1, heat1, cmass1, nmass1, nflux1
+  logical :: calc_water_cons, calc_carbon_cons, calc_nitrogen_cons
+  character(*), parameter :: tag = 'update_land_model_fast_0d'
 
   calc_water_cons  = do_check_conservation.or.(id_water_cons>0)
   calc_carbon_cons = do_check_conservation.or.(id_carbon_cons>0)
+  calc_nitrogen_cons = do_check_conservation.or.(id_nitrogen_cons>0)
   ! our coordinates in structured grid
   i = lnd%i_index(l); j = lnd%j_index(l)
   if(is_watch_point()) then
@@ -1372,6 +1391,12 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   ! + conservation check, part 1: calculate the pre-transition totals
   if (calc_water_cons)  call get_tile_water(tile,lmass0,fmass0)
   if (calc_carbon_cons) cmass0 = land_tile_carbon(tile)
+  if (calc_nitrogen_cons) nmass0 = land_tile_nitrogen(tile)
+  if(associated(tile%soil)) then
+    nflux0=tile%soil%gross_nitrogen_flux_into_tile - tile%soil%gross_nitrogen_flux_out_of_tile
+  else
+    nflux0=0.0
+  endif
   ! - end of conservation check, part 1
 
   soil_uptake_T(:) = tfreeze ! just to avoid using un-initialized values
@@ -2032,8 +2057,11 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   vegn_fco2 = 0
   if (associated(tile%vegn)) then
      ! do the calculations that require updated land surface prognostic variables
+!      call nitrogen_sources(lnd%time, ix, iy, tile%vegn%p_ann, precip_l+precip_s, &
+!              tile%vegn%landuse, ndep_nit, ndep_amm, ndep_org, tile%diag)
+
      call vegn_step_3 (tile%vegn, tile%soil, tile%cana%T, precip_l+precip_s, &
-          vegn_fco2, tile%diag)
+          ndep_nit, ndep_amm, ndep_org, vegn_fco2, tile%diag)
      ! if vegn is present, then soil must be too
      call soil_step_3(tile%soil, tile%diag)
   endif
@@ -2077,7 +2105,6 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   ! + conservation check, part 2: calculate totals in final state, and compare
   ! with previous totals
   if (calc_water_cons) then
-     tag = 'update_land_model_fast_0d'
      call get_tile_water(tile,lmass1,fmass1)
      if (do_check_conservation) call check_conservation (tag,'water', &
          lmass0+fmass0+(precip_l+precip_s-land_evap-(snow_frunf+subs_lrunf+snow_lrunf))*delta_time, &
@@ -2092,6 +2119,18 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
         cmass1, carbon_cons_tol)
      v0 = cmass0-(fco2_0+Dfco2Dq*delta_co2)*mol_C/mol_CO2*delta_time
      call send_tile_data(id_carbon_cons, (cmass1-v0)/delta_time, tile%diag)
+  endif
+  if(calc_nitrogen_cons) then
+     nmass1 = land_tile_nitrogen(tile)
+     if(associated(tile%soil)) then
+       nflux1=tile%soil%gross_nitrogen_flux_into_tile - tile%soil%gross_nitrogen_flux_out_of_tile
+     else
+       nflux1=0.0
+     endif
+
+     if (do_check_conservation) call check_conservation (tag,'nitrogen', &
+        nmass0, nmass1 + (nflux0 - nflux1), nitrogen_cons_tol)
+     call send_tile_data(id_nitrogen_cons, (nmass1-nflux1-nmass0+nflux0)/delta_time, tile%diag)
   endif
   ! heat1  = land_tile_heat(tile)
   ! latent heat is missing below, and it's not trivial to add, because there are
@@ -2108,7 +2147,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   ! TODO: go through the diagnostics and verify that they do the right thing in PPA case
   ! ---- diagnostic section ----------------------------------------------
   call send_tile_data(id_total_C, cmass1,                             tile%diag)
-
+  call send_tile_data(id_total_N, nmass1,                             tile%diag)
   call send_tile_data(id_frac,    tile%frac,                          tile%diag)
   call send_tile_data(id_ntiles,  1.0,                                tile%diag)
   call send_tile_data(id_precip,  precip_l+precip_s,                  tile%diag)
@@ -2165,8 +2204,10 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   call send_tile_data(id_hfrunf,  snow_hfrunf + subs_hfrunf,          tile%diag)
   call send_tile_data(id_hfrunfs, snow_hfrunf,                        tile%diag)
   ! TODO: generalize diagnostic for runoff of tracers
-  if (i_river_DOC /= NO_TRACER) &
-        call send_tile_data(id_DOCrunf, subs_tr_runf(i_river_DOC),    tile%diag)
+  do tr = 3, n_river_tracers
+     if (id_runf_tr(tr)>0) &
+        call send_tile_data(id_runf_tr(tr), subs_tr_runf(tr),         tile%diag)
+  enddo
   call send_tile_data(id_melt,    vegn_melt+snow_melt+subs_melt,      tile%diag)
   call send_tile_data(id_meltv,   vegn_melt,                          tile%diag)
   call send_tile_data(id_melts,   snow_melt,                          tile%diag)
@@ -2222,6 +2263,19 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      associate(c=>tile%vegn%cohorts)
      call send_cohort_data(id_parnet, tile%diag, c(1:N), swnet(:,BAND_VIS), weight=c(1:N)%layerfrac, op=OP_SUM)
      end associate
+   endif
+
+
+  ! CMOR variables
+  call send_tile_data(id_prveg, (precip_l+precip_s)*vegn_ifrac,       tile%diag)
+  call send_tile_data(id_tran,  vegn_uptk,                            tile%diag)
+  ! evspsblsoi is evaporation from *soil*, so we send zero from glaciers and lakes;
+  ! the result is averaged over the entire land surface, as required by CMIP. evspsblveg
+  ! doesn't need this distinction because it is already zero over glaciers and lakes.
+  if (associated(tile%soil)) then
+     call send_tile_data(id_evspsblsoi, subs_levap+subs_fevap,        tile%diag)
+  else
+     call send_tile_data(id_evspsblsoi, 0.0,                          tile%diag)
   endif
 
 end subroutine update_land_model_fast_0d
@@ -3299,6 +3353,8 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   integer :: id_lon, id_lonb, id_lat, id_latb
   integer :: i
   integer, allocatable :: ug_dim_data(:) ! Unstructured axis data.
+  character(128) :: long_name, flux_units
+  character(32)  :: name
 
   ! Register the unstructured axis for the unstructured domain.
   call mpp_get_UG_compute_domain(lnd%ug_domain, size=ug_dim_size)
@@ -3319,6 +3375,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
  ! The "grid_xt" and "grid_yt" axes should run from 1 to the total number of x- and
  ! y-points on cubic sphere face. It is assumed that all faces tiles contain the same
  ! number of x- and y-points.
+
   nlon = size(clon)
   nlat = size(clat)
   if(mpp_get_UG_domain_ntiles(lnd%ug_domain)==1) then
@@ -3397,6 +3454,20 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
              'ground heat storage', 'J/m2', missing_value=-1.0e+20 )
   id_HSc     = register_tiled_diag_field ( module_name, 'HSc', axes, time, &
              'canopy-air heat storage', 'J/m2', missing_value=-1.0e+20 )
+
+  ! register diag fields for river tracers
+  allocate(id_runf_tr(n_river_tracers))
+  allocate(id_dis_tr(n_river_tracers))
+  id_runf_tr(:) = -1
+  id_dis_tr(:) = -1
+  do i = 3, n_river_tracers
+     call river_tracer_names(i,name=name,long_name=long_name,flux_units=flux_units)
+     id_runf_tr(i) = register_tiled_diag_field ( module_name, 'lrunf_'//trim(name), axes, time, &
+             'total rate of '//trim(long_name)//' runoff', trim(flux_units), missing_value=-1.0e+20 )
+     id_dis_tr(i)  = register_diag_field ( module_name, 'dis_'//trim(name), axes, time, &
+             trim(long_name)//' discharge to ocean', trim(flux_units), missing_value=-1.0e+20, &
+             area = id_cellarea)
+  enddo
 
   id_precip = register_tiled_diag_field ( module_name, 'precip', axes, time, &
              'precipitation rate', 'kg/(m2 s)', missing_value=-1.0e+20 )
@@ -3490,8 +3561,6 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
              'heat of total ice runoff', 'W/m2', missing_value=-1.0e+20 )
   id_hfrunfs  = register_tiled_diag_field ( module_name, 'hfrunfs', axes, time, &
              'heat of sol snow runoff', 'W/m2', missing_value=-1.0e+20 )
-  id_DOCrunf = register_tiled_diag_field ( module_name, 'lrunf_DOC', axes, time, &
-             'total rate of DOC runoff', 'kgC/(m2 s)', missing_value=-1.0e+20 )
   id_melt    = register_tiled_diag_field ( module_name, 'melt', axes, time, &
              'total rate of melt', 'kg/(m2 s)', missing_value=-1.0e+20 )
   id_meltv   = register_tiled_diag_field ( module_name, 'meltv', axes, time, &
@@ -3642,12 +3711,16 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
        'explicit ground relative humidity', missing_value=-1.0 )
   id_total_C = register_tiled_diag_field ( module_name, 'Ctot', axes, time, &
        'total land carbon', 'kg C/m2', missing_value=-1.0 )
+  id_total_N = register_tiled_diag_field ( module_name, 'Ntot', axes, time, &
+       'total land nitrogen', 'kg N/m2', missing_value=-1.0 )
 
 
   id_water_cons = register_tiled_diag_field ( module_name, 'water_cons', axes, time, &
        'water non-conservation in update_land_model_fast_0d', 'kg/(m2 s)', missing_value=-1.0 )
   id_carbon_cons = register_tiled_diag_field ( module_name, 'carbon_cons', axes, time, &
        'carbon non-conservation in update_land_model_fast_0d', 'kgC/(m2 s)', missing_value=-1.0 )
+  id_nitrogen_cons = register_tiled_diag_field ( module_name, 'nitrogen_cons', axes, time, &
+       'nitrogen non-conservation in update_land_model_fast_0d', 'kgN/(m2 s)', missing_value=-1.0 )
 
   id_parnet = register_cohort_diag_field ( module_name, 'parnet', axes, time, &
              'net PAR to the vegetation', 'W/m2', missing_value=-1.0e+20)
@@ -3982,4 +4055,3 @@ DEFINE_TAG_ACCESSOR(soil)
 DEFINE_TAG_ACCESSOR(vegn)
 
 end module land_model_mod
-

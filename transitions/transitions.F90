@@ -980,7 +980,7 @@ subroutine split_changing_tile_parts_by_priority(d_list,d_kind,a_kind,dfrac,a_li
         tile%frac = tile%frac-darea
         ! convert land use type of the tile: cut the forest, if necessary
         if(temp%vegn%landuse==LU_NTRL.or.temp%vegn%landuse==LU_SCND) &
-                call vegn_cut_forest(temp%vegn, a_kind)
+                call vegn_cut_forest(temp%vegn, temp%soil, a_kind)
         ! change landuse type of the tile
         temp%vegn%landuse = a_kind
         ! add the new tile to the resulting list
@@ -1107,7 +1107,7 @@ subroutine split_changing_tile_parts(d_list,d_kind,a_kind,dfrac,a_list)
         ! convert land use type of the tile:
         ! cut the forest, if necessary
         if(temp%vegn%landuse==LU_NTRL.or.temp%vegn%landuse==LU_SCND) &
-             call vegn_cut_forest(temp%vegn, a_kind)
+             call vegn_cut_forest(temp%vegn, temp%soil, a_kind)
         ! change landuse type of the tile
         temp%vegn%landuse = a_kind
         ! add the new tile to the resulting list

@@ -6,8 +6,7 @@ use fms_mod,            only : error_mesg, WARNING, FATAL
 use constants_mod,      only : tfreeze, hlf
 
 use land_constants_mod, only : NBANDS
-use land_debug_mod,     only : is_watch_point, check_conservation, check_var_range, &
-     carbon_cons_tol, water_cons_tol, heat_cons_tol
+use land_debug_mod,     only : is_watch_point, check_var_range
 use land_numerics_mod,  only : rank_descending
 use land_io_mod,        only : init_cover_field
 use land_tile_selectors_mod, only : tile_selector_type
@@ -17,7 +16,7 @@ use vegn_data_mod, only : &
      MSPECIES, spdata, &
      vegn_to_use,  input_cover_types, vegn_index_constant, &
      mcv_min, mcv_lai, &
-     BSEED, LU_NTRL, LU_SCND, N_HARV_POOLS, &
+     BSEED, C2N_SEED, LU_NTRL, LU_SCND, N_HARV_POOLS, &
      LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, &
      FORM_GRASS, &
      scnd_biomass_bins, do_ppa
@@ -26,6 +25,8 @@ use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
      cohorts_can_be_merged, leaf_area_from_biomass, biomass_of_individual
 
 use soil_tile_mod, only : max_lev, N_LITTER_POOLS
+
+use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE_N
 
 implicit none
 private
@@ -38,6 +39,7 @@ public :: vegn_is_selected
 public :: vegn_tile_tag    ! returns tag of the vegetation tile
 public :: vegn_tile_stock_pe
 public :: vegn_tile_carbon ! returns total carbon per tile [kgC/m2]
+public :: vegn_tile_nitrogen ! returns total nitrogen per tile [kgN/m2]
 public :: vegn_tile_bwood  ! returns total woody biomass of tile [kgC/m2]
 public :: vegn_tile_heat   ! returns heat content of the vegetation [J/m2]
 public :: vegn_tile_LAI    ! returns total LAI of vegetation [m2/m2]
@@ -52,6 +54,7 @@ public :: vegn_cover_cold_start
 
 public :: vegn_seed_supply
 public :: vegn_seed_demand
+public :: vegn_seed_N_supply
 
 public :: vegn_tran_priority ! returns transition priority for land use
 
@@ -84,14 +87,20 @@ type :: vegn_tile_type
    real :: fsc_pool_bg=0.0, fsc_rate_bg=0.0 ! for fast soil carbon below ground
    real :: ssc_pool_bg=0.0, ssc_rate_bg=0.0 ! for slow soil carbon below ground
 
+   real :: fsn_pool_bg=0.0, fsn_rate_bg=0.0 ! for fast soil nitrogen below ground
+   real :: ssn_pool_bg=0.0, ssn_rate_bg=0.0 ! for slow soil nitrogen below ground
+
    real, dimension(N_C_TYPES, N_LITTER_POOLS) :: &
-       litter_buff_C = 0.0, litter_rate_C = 0.0
+       litter_buff_C = 0.0, litter_rate_C = 0.0, &
+       litter_buff_N = 0.0, litter_rate_N = 0.0
 
    real :: csmoke_pool=0.0 ! carbon lost through fires, kg C/m2
    real :: csmoke_rate=0.0 ! rate of release of the above to atmosphere, kg C/(m2 yr)
+   real :: nsmoke_pool=0.0 ! nitrogen lost through fires, kg N/m2
 
    real :: harv_pool(N_HARV_POOLS) = 0.0 ! pools of harvested carbon, kg C/m2
    real :: harv_rate(N_HARV_POOLS) = 0.0 ! rates of spending (release to the atmosphere), kg C/(m2 yr)
+   real :: harv_pool_nitrogen(N_HARV_POOLS) = 0.0 ! Harvested nitrogen pool
 
    ! uptake-related variables
    real :: root_distance(max_lev) ! characteristic half-distance between fine roots, m
@@ -276,6 +285,19 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
      __MERGE__(carbon_loss) ! carbon loss during a day, kg C/m2 [diag only]
      __MERGE__(bwood_gain)  ! heartwood gain during a day, kg C/m2
 
+     __MERGE__(stored_N) ! Cohort stored nitrogen
+     __MERGE__(wood_N) ! Cohort wood nitrogen
+     __MERGE__(sapwood_N) ! Cohort wood nitrogen
+     __MERGE__(leaf_N) ! Cohort leaf nitrogen
+     __MERGE__(root_N) ! Cohort root nitrogen
+     __MERGE__(total_N) ! Cohort total nitrogen
+     __MERGE__(myc_scavenger_biomass_C) ! Scavenger mycorrhizal biomass C
+     __MERGE__(myc_scavenger_biomass_N) ! Scavenger mycorrhizal biomass N
+     __MERGE__(myc_miner_biomass_C) ! Miner mycorrhizal biomass C
+     __MERGE__(myc_miner_biomass_N) ! Miner mycorrhizal biomass N
+     __MERGE__(N_fixer_biomass_C) ! N Fixer biomass C
+     __MERGE__(N_fixer_biomass_N) ! N Fixer biomass N
+
      ! should we do update_derived_vegn_data here? to get mcv_dry, etc
      call update_biomass_pools(c2)
 
@@ -306,13 +328,19 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
   __MERGE__(fsc_pool_bg); __MERGE__(fsc_rate_bg)
   __MERGE__(ssc_pool_bg); __MERGE__(ssc_rate_bg)
 
+  __MERGE__(fsn_pool_bg); __MERGE__(fsn_rate_bg)
+  __MERGE__(ssn_pool_bg); __MERGE__(ssn_rate_bg)
+
   __MERGE__(litter_buff_C); __MERGE__(litter_rate_C)
+  __MERGE__(litter_buff_N); __MERGE__(litter_rate_N)
 
   __MERGE__(csmoke_pool)
   __MERGE__(csmoke_rate)
+  __MERGE__(nsmoke_pool)
 
   __MERGE__(harv_pool)
   __MERGE__(harv_rate)
+  __MERGE__(harv_pool_nitrogen)
 
   ! do we need to merge these?
   __MERGE__(ssc_out)
@@ -474,6 +502,19 @@ subroutine merge_cohorts(c1,c2)
   __MERGE__(bwood_gain)  ! heartwood gain during a day, kg C/indiv
   __MERGE__(topyear)     ! the years that a cohort in canopy layer
 
+  __MERGE__(myc_scavenger_biomass_C)
+  __MERGE__(myc_scavenger_biomass_N)
+  __MERGE__(myc_miner_biomass_C)
+  __MERGE__(myc_miner_biomass_N)
+  __MERGE__(N_fixer_biomass_C)
+  __MERGE__(N_fixer_biomass_N)
+  __MERGE__(stored_N)
+  __MERGE__(leaf_N)
+  __MERGE__(wood_N)
+  __MERGE__(sapwood_N)
+  __MERGE__(root_N)
+  __MERGE__(total_N)
+
   ! calculate the resulting dry heat capacity
   c2%leafarea = leaf_area_from_biomass(c2%bl, c2%species, c2%layer, c2%firstlayer)
   c2%mcv_dry = max(mcv_min,mcv_lai*c2%leafarea)
@@ -562,6 +603,8 @@ subroutine vegn_relayer_cohorts_ppa (vegn)
 end subroutine vegn_relayer_cohorts_ppa
 
 ! ============================================================================
+! TODO: do vegn_seed_demand and vegn_seed_supply make sense for PPA? or even 
+! the entire seed transport method?
 function vegn_seed_supply ( vegn )
   real :: vegn_seed_supply
   type(vegn_tile_type), intent(in) :: vegn
@@ -579,7 +622,28 @@ function vegn_seed_supply ( vegn )
 end function vegn_seed_supply
 
 ! ============================================================================
-! TODO: do vegn_seed_demand and vegn_seed_supply make sense for PPA? or even the entire seed transport method?
+function vegn_seed_N_supply ( vegn )
+  real :: vegn_seed_N_supply
+  type(vegn_tile_type), intent(in) :: vegn
+
+  ! ---- local vars
+  real :: vegn_storedN
+  integer :: i
+
+  if(soil_carbon_option .NE. SOILC_CORPSE_N) then
+     vegn_seed_N_supply=0.0
+     return
+  endif
+
+  vegn_storedN = 0
+  do i = 1,vegn%n_cohorts
+     vegn_storedN = vegn_storedN + vegn%cohorts(i)%stored_N
+  enddo
+  vegn_seed_N_supply = MAX (vegn_storedN-BSEED/C2N_SEED, 0.0)
+
+end function vegn_seed_N_supply
+
+! ============================================================================
 function vegn_seed_demand ( vegn )
   real :: vegn_seed_demand
   type(vegn_tile_type), intent(in) :: vegn
@@ -595,12 +659,14 @@ function vegn_seed_demand ( vegn )
 end function vegn_seed_demand
 
 ! ============================================================================
-subroutine vegn_add_bliving ( vegn, delta )
+subroutine vegn_add_bliving ( vegn, delta, deltaN )
   type(vegn_tile_type), intent(inout) :: vegn
   real :: delta ! increment of bliving
+  real, optional :: deltaN
 
   vegn%cohorts(1)%bliving = vegn%cohorts(1)%bliving + delta
-
+  if(present(deltaN)) vegn%cohorts(1)%stored_N = vegn%cohorts(1)%stored_N+deltaN
+  if(soil_carbon_option==SOILC_CORPSE_N .AND. vegn%cohorts(1)%stored_N<0) call error_mesg('vegn_add_bliving','resulting stored_N is less then 0', FATAL)
   if (vegn%cohorts(1)%bliving < 0)then
      call error_mesg('vegn_add_bliving','resulting bliving is less then 0', FATAL)
   endif
@@ -653,7 +719,7 @@ function vegn_cover_cold_start(land_mask, lonb, latb) result (vegn_frac)
   real,    intent(in) :: lonb(:,:), latb(:,:)! boundaries of the grid cells
   real,    pointer    :: vegn_frac (:,:) ! output: map of vegn fractional coverage
 
-  allocate( vegn_frac(size(land_mask(:)),MSPECIES))
+  allocate(vegn_frac(size(land_mask(:)),MSPECIES))
 
   call init_cover_field(vegn_to_use, 'INPUT/cover_type.nc', 'cover','frac', &
        lonb, latb, vegn_index_constant, input_cover_types, vegn_frac)
@@ -767,6 +833,33 @@ function vegn_tile_carbon(vegn) result(carbon) ; real carbon
   ! Pools associated with aboveground litter CORPSE pools
   carbon = carbon + sum(vegn%litter_buff_C)
 end function vegn_tile_carbon
+
+! ============================================================================
+! returns total nitrogen in the tile, kg N/m2
+function vegn_tile_nitrogen(vegn) result(nitrogen) ; real nitrogen
+  type(vegn_tile_type), intent(in)  :: vegn
+
+  integer :: i
+
+  nitrogen = 0
+  do i = 1,vegn%n_cohorts
+     nitrogen = nitrogen + &
+           (vegn%cohorts(i)%root_N + vegn%cohorts(i)%sapwood_N + &
+            vegn%cohorts(i)%wood_N + vegn%cohorts(i)%leaf_N + &
+            vegn%cohorts(i)%stored_N + &
+            ! Symbionts are counted as part of veg, not part of soil
+            vegn%cohorts(i)%N_fixer_biomass_N + &
+            vegn%cohorts(i)%myc_miner_biomass_N + &
+            vegn%cohorts(i)%myc_scavenger_biomass_N + &
+            vegn%cohorts(i)%scav_myc_N_reservoir + vegn%cohorts(i)%mine_myc_N_reservoir + vegn%cohorts(i)%N_fixer_N_reservoir &
+           )*vegn%cohorts(i)%nindivs
+  enddo
+  nitrogen = nitrogen  + sum(vegn%harv_pool_nitrogen) + &
+           vegn%fsn_pool_bg + vegn%ssn_pool_bg + vegn%nsmoke_pool
+
+  ! Pools associated with aboveground litter CORPSE pools
+  nitrogen = nitrogen + sum(vegn%litter_buff_N)
+end function vegn_tile_nitrogen
 
 
 ! ============================================================================

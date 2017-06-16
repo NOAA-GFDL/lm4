@@ -6,24 +6,25 @@ module vegn_disturbance_mod
 #include "../shared/debug.inc"
 
 use fms_mod,         only : error_mesg, WARNING, FATAL
-use time_manager_mod,only : time_type, get_date, operator(-)
+use time_manager_mod,only : get_date, operator(-)
 use constants_mod,   only : tfreeze
 use land_constants_mod, only : seconds_per_year
 use land_debug_mod,  only : is_watch_point, is_watch_cell, set_current_point, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, &
-     heat_cons_tol, check_var_range
-use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, fsc_froot, agf_bs, &
+     heat_cons_tol, nitrogen_cons_tol, check_var_range
+use vegn_data_mod,   only : spdata, agf_bs, &
        do_ppa, LEAF_OFF, DBH_mort, A_mort, B_mort, mortrate_s, nat_mortality_splits_tiles
 use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_bwood
-use soil_tile_mod,   only : soil_tile_type, num_l, dz, add_soil_carbon
+use soil_tile_mod,   only : soil_tile_type, num_l, dz
+use soil_util_mod,   only : add_soil_carbon
 use land_tile_mod,   only : land_tile_map, land_tile_type, land_tile_enum_type, &
      land_tile_list_type, land_tile_list_init, land_tile_list_end, &
      empty, first_elmt, tail_elmt, merge_land_tile_into_list, loop_over_tiles, &
      current_tile, operator(==), operator(/=), remove, insert, new_land_tile, &
-     land_tile_heat, land_tile_carbon, get_tile_water, nitems
+     land_tile_heat, land_tile_carbon, land_tile_nitrogen, get_tile_water, nitems
 use land_data_mod,   only : lnd, log_version
 use soil_carbon_mod, only : add_litter, soil_carbon_option, &
-     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, N_C_TYPES, C_CEL
+     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, N_C_TYPES, C_FAST
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
      cohort_root_litter_profile
 
@@ -64,14 +65,14 @@ subroutine vegn_disturbance(vegn, soil, dt)
   real, parameter :: BMIN = 1e-10; ! should be the same as in growth function
   ! ---- local vars
   real :: precip;
-  real :: delta;
+  real :: delta_C, delta_N
   real :: fraction_lost;
   real :: drought_month;
   real :: deltat
   integer :: i,l
-  real :: leaf_litt(N_C_TYPES) ! fine surface litter per tile, kgC/m2
-  real :: wood_litt(N_C_TYPES) ! coarse surface litter per tile, kgC/m2
-  real :: root_litt(num_l, N_C_TYPES) ! root litter per soil layer, kgC/m2
+  real :: leaf_litt_C(N_C_TYPES),leaf_litt_N(N_C_TYPES) ! fine surface litter per tile, kgC/m2
+  real :: wood_litt_C(N_C_TYPES),wood_litt_N(N_C_TYPES) ! coarse surface litter per tile, kgC/m2
+  real :: root_litt_C(num_l, N_C_TYPES),root_litt_N(num_l, N_C_TYPES) ! root litter per soil layer, kgC/m2
   real :: profile(num_l) ! storage for vertical profile of exudates and root litter
 
   deltat = dt/seconds_per_year ! convert time interval to years
@@ -84,67 +85,86 @@ subroutine vegn_disturbance(vegn, soil, dt)
 
   call calculate_patch_disturbance_rates(vegn)
 
-  leaf_litt = 0 ; wood_litt = 0; root_litt = 0
+  leaf_litt_C = 0 ; wood_litt_C = 0; root_litt_C = 0
+  leaf_litt_N = 0 ; wood_litt_N = 0; root_litt_N = 0
   do i = 1,vegn%n_cohorts
      associate (cc => vegn%cohorts(i), &
                 sp => spdata(vegn%cohorts(i)%species)) ! F2003
 
      fraction_lost = 1.0-exp(-vegn%disturbance_rate(1)*deltat);
      if (do_ppa) then
-        call kill_plants_ppa(cc, vegn, cc%nindivs*fraction_lost, sp%smoke_fraction, &
-                             leaf_litt, wood_litt, root_litt)
+        call kill_plants_ppa(cc, vegn, soil, cc%nindivs*fraction_lost, sp%smoke_fraction, &
+                             leaf_litt_C, wood_litt_C, root_litt_C, &
+                             leaf_litt_N, wood_litt_N, root_litt_N)
      else ! original LM3 treatment
         ! "dead" biomass : wood + sapwood
-        delta = (cc%bwood+cc%bsw)*fraction_lost*cc%nindivs
+        delta_C = fraction_lost*cc%nindivs*(cc%bwood+cc%bsw)
+        delta_N = fraction_lost*cc%nindivs*(cc%wood_N+cc%sapwood_N)
 
         ! accumulate liter and soil carbon inputs across all cohorts
-        wood_litt(:) = wood_litt(:) + [fsc_wood, 1-fsc_wood, 0.0]*agf_bs*delta*(1-sp%smoke_fraction)
+        wood_litt_C(:) = wood_litt_C(:) + agf_bs*(1-sp%smoke_fraction)* &
+                        delta_C*[sp%fsc_wood, 1-sp%fsc_wood, 0.0]
+        wood_litt_N(:) = wood_litt_N(:) + agf_bs*(1-sp%smoke_fraction)* &
+                        delta_N*[sp%fsc_wood, 1-sp%fsc_wood, 0.0]
         call cohort_root_litter_profile(cc, dz, profile)
         do l = 1, num_l
-           root_litt(l,:) = root_litt(l,:) + [fsc_wood, 1-fsc_wood, 0.0] * &
-                            profile(l)*delta*(1-agf_bs)*(1-sp%smoke_fraction)
+           root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*delta_C*(1-agf_bs)*(1-sp%smoke_fraction) * &
+                       [sp%fsc_wood, 1-sp%fsc_wood, 0.0]
+           root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*delta_N*(1-agf_bs)*(1-sp%smoke_fraction) * &
+                       [sp%fsc_wood, 1-sp%fsc_wood, 0.0]
         enddo
 
-        cc%bwood = cc%bwood * (1-fraction_lost);
-        cc%bsw   = cc%bsw   * (1-fraction_lost);
+        cc%bwood     = cc%bwood     * (1-fraction_lost)
+        cc%bsw       = cc%bsw       * (1-fraction_lost)
+        cc%wood_N    = cc%wood_N    * (1-fraction_lost)
+        cc%sapwood_N = cc%sapwood_N * (1-fraction_lost)
 
-        vegn%csmoke_pool = vegn%csmoke_pool + sp%smoke_fraction*delta;
-
-        ! for budget tracking - temporarily not keeping wood and the rest separately,ens
-        !      soil%ssc_in(1)+=delta*(1.0-sp%smoke_fraction)*(1-fsc_wood); */
-        !      soil%fsc_in(1)+=delta*(1.0-sp%smoke_fraction)*fsc_wood; */
-
-        vegn%veg_out = vegn%veg_out+delta;
+        vegn%Nsmoke_pool = vegn%Nsmoke_pool + sp%smoke_fraction*delta_N
+        vegn%csmoke_pool = vegn%csmoke_pool + sp%smoke_fraction*delta_C
+        vegn%veg_out = vegn%veg_out+delta_C
 
         !"alive" biomass: leaves, roots, and virtual pool
-        delta = (cc%bl+cc%blv+cc%br)*fraction_lost;
-        leaf_litt(:) = leaf_litt(:) + [fsc_liv, 1-fsc_liv, 0.0]*(cc%bl+cc%blv)*fraction_lost*(1-sp%smoke_fraction)
+        delta_C = (cc%bl+cc%blv+cc%br)*fraction_lost*cc%nindivs;
+        delta_N = (cc%leaf_N+cc%stored_N+cc%root_N)*fraction_lost*cc%nindivs
+        leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*(cc%bl+cc%blv)*fraction_lost*(1-sp%smoke_fraction)*cc%nindivs
+        leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*cc%leaf_N*fraction_lost*(1-sp%smoke_fraction)*cc%nindivs
         do l = 1, num_l
-           root_litt(l,:) = root_litt(l,:) + [fsc_froot, 1-fsc_froot, 0.0] * &
-                            profile(l)*cc%br*fraction_lost*(1-sp%smoke_fraction)
+           root_litt_C(l,:) = root_litt_C(l,:) + [sp%fsc_froot, 1-sp%fsc_froot, 0.0] * &
+                            profile(l)*cc%br*fraction_lost*(1-sp%smoke_fraction)*cc%nindivs
+           root_litt_N(l,:) = root_litt_N(l,:) + [sp%fsc_froot, 1-sp%fsc_froot, 0.0] * &
+                            profile(l)*(cc%root_N+cc%stored_N)*fraction_lost*(1-sp%smoke_fraction)*cc%nindivs
         enddo
 
-        cc%bl  = cc%bl  * (1-fraction_lost);
-        cc%blv = cc%blv * (1-fraction_lost);
-        cc%br  = cc%br  * (1-fraction_lost);
+        cc%bl     = cc%bl      * (1-fraction_lost)
+        cc%blv    = cc%blv     * (1-fraction_lost)
+        cc%br     = cc%br      * (1-fraction_lost)
+        cc%leaf_N = cc%leaf_N  * (1-fraction_lost)
+        cc%root_N = cc%root_N  * (1-fraction_lost)
+        cc%stored_N = cc%stored_N * (1-fraction_lost)
 
-        vegn%csmoke_pool = vegn%csmoke_pool + sp%smoke_fraction*delta;
-
-        vegn%veg_out = vegn%veg_out+delta;
+        vegn%Nsmoke_pool = vegn%Nsmoke_pool + sp%smoke_fraction*delta_N
+        vegn%csmoke_pool = vegn%csmoke_pool + sp%smoke_fraction*delta_C
+        vegn%veg_out = vegn%veg_out+delta_C
 
         !"living" biomass:leaves, roots and sapwood
-        delta = cc%bliving*fraction_lost;
-        cc%bliving = cc%bliving - delta;
+        delta_C = cc%bliving*fraction_lost;
+        cc%bliving = cc%bliving - delta_C
 
         if(cc%bliving < BMIN) then
            ! remove vegetaion competely
            ! accumulate liter and soil carbon inputs across all cohorts
-           leaf_litt(:) = leaf_litt(:) + [fsc_liv,  1-fsc_liv,  0.0]*(cc%bl+cc%blv)
-           wood_litt(:) = wood_litt(:) + [fsc_wood, 1-fsc_wood, 0.0]*agf_bs*(cc%bwood+cc%bsw)
+           leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*(cc%bl+cc%blv)
+           leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*cc%leaf_N
+           wood_litt_C(:) = wood_litt_C(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*agf_bs*(cc%bwood+cc%bsw)
+           wood_litt_N(:) = wood_litt_N(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*agf_bs*(cc%wood_N+cc%sapwood_N)
            do l = 1, num_l
-              root_litt(l,:) = root_litt(l,:) + profile(l)*[ &
-                   fsc_froot    *cc%br + fsc_wood    *(cc%bwood+cc%bsw)*(1-agf_bs), & ! fast
-                   (1-fsc_froot)*cc%br + (1-fsc_wood)*(cc%bwood+cc%bsw)*(1-agf_bs), & ! slow
+              root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*[ &
+                   sp%fsc_froot    *cc%br + sp%fsc_wood    *(cc%bwood+cc%bsw)*(1-agf_bs), & ! fast
+                   (1-sp%fsc_froot)*cc%br + (1-sp%fsc_wood)*(cc%bwood+cc%bsw)*(1-agf_bs), & ! slow
+                   0.0] ! microbes
+              root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*[ &
+                   cc%root_N*   sp%fsc_froot  + (cc%wood_N+cc%sapwood_N)*   sp%fsc_wood *(1-agf_bs), & ! fast
+                   cc%root_N*(1-sp%fsc_froot) + (cc%wood_N+cc%sapwood_N)*(1-sp%fsc_wood)*(1-agf_bs), & ! slow
                    0.0] ! microbes
            enddo
 
@@ -158,7 +178,8 @@ subroutine vegn_disturbance(vegn, soil, dt)
      end associate
   enddo
 
-  call add_soil_carbon(soil, leaf_litt, wood_litt, root_litt)
+  call add_soil_carbon(soil, vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
+                                   leaf_litt_N, wood_litt_N, root_litt_N  )
 
   vegn%csmoke_rate = vegn%csmoke_pool; ! kg C/(m2 yr)
 end subroutine vegn_disturbance
@@ -247,19 +268,23 @@ subroutine vegn_nat_mortality_lm3(vegn, soil, deltat)
   real, intent(in) :: deltat ! time since last mortality calculations, s
 
   ! ---- local vars
-  type(vegn_cohort_type), pointer :: cc    ! current cohort
-  real :: delta;
-  real :: fraction_lost;
-  real :: bdead, balive; ! combined biomass pools
+  real :: delta_C, delta_N
+  real :: fraction_lost
+  real :: bdead, balive ! combined biomass pools
   integer :: i,l
-  real :: wood_litt(n_c_types) ! coarse surface litter per tile, kgC/m2
-  real :: root_litt(num_l, n_c_types) ! root litter per soil layer, kgC/m2
+  real :: wood_litt_C(n_c_types) ! coarse surface litter per tile, kgC/m2
+  real :: wood_litt_N(n_c_types) ! coarse surface litter nitrogen per tile, kgN/m2
+  real :: leaf_litt_C(n_c_types) ! surface leaf litter per tile, kgC/m2
+  real :: leaf_litt_N(n_c_types) ! surface leaf litter nitrogen per tile, kgN/m2
+  real :: root_litt_C(num_l, n_c_types) ! root litter per soil layer, kgC/m2
+  real :: root_litt_N(num_l, n_c_types) ! root litter nitrogen per soil layer, kgN/m2
   real :: profile(num_l) ! storage for vertical profile of exudates and root litter
 
   vegn%disturbance_rate(0) = 0.0;
-  wood_litt = 0; root_litt = 0
+  wood_litt_C = 0; root_litt_C = 0; leaf_litt_C = 0
+  wood_litt_N = 0; root_litt_N = 0; leaf_litt_N = 0
   do i = 1,vegn%n_cohorts
-     cc => vegn%cohorts(i)
+     associate(cc => vegn%cohorts(i), sp => spdata(vegn%cohorts(i)%species))
      ! Treat treefall disturbance implicitly, i.e. not creating a new tile.
      ! note that this disturbance rate calculation only works for the one cohort per
      ! tile case -- in case of multiple cohort disturbance rate perhaps needs to be
@@ -270,30 +295,59 @@ subroutine vegn_nat_mortality_lm3(vegn, soil, deltat)
      balive = cc%bl + cc%blv + cc%br;
      bdead  = cc%bsw + cc%bwood;
      ! ens need a daily PATCH_FREQ here, for now it is set to 48
-     fraction_lost = 1.0-exp(-vegn%disturbance_rate(0)*deltat/seconds_per_year);
+     fraction_lost = 1.0-exp(-vegn%disturbance_rate(0)*deltat/seconds_per_year)
 
      ! "dead" biomass : wood + sapwood
-     delta = bdead*fraction_lost;
+     delta_C = bdead*fraction_lost
+     delta_N = (cc%wood_N+cc%sapwood_N)*fraction_lost
 
-     wood_litt(:) = wood_litt(:) + [fsc_wood, 1-fsc_wood, 0.0]*delta*agf_bs
+     wood_litt_C(:) = wood_litt_C(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*cc%bwood*fraction_lost*agf_bs + &
+        [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*cc%bsw*fraction_lost*agf_bs
+     wood_litt_N(:) = wood_litt_N(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*cc%wood_N*fraction_lost*agf_bs + &
+        [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*cc%sapwood_N*fraction_lost*agf_bs
+     if (sp%mortality_kills_balive) then
+        leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*fraction_lost*(cc%bl+cc%blv)
+        leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv, 1-sp%fsc_liv, 0.0]*fraction_lost*(cc%leaf_N+cc%stored_N)
+     endif
      call cohort_root_litter_profile(cc, dz, profile)
      do l = 1, num_l
-        root_litt(l,:) = root_litt(l,:) + profile(l)*(1-agf_bs)*delta*[fsc_wood, 1-fsc_wood, 0.0]
+        root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*(1-agf_bs)*fraction_lost* &
+            (cc%bwood*[sp%fsc_wood, 1-sp%fsc_wood, 0.0]+cc%bsw*[sp%fsc_liv, 1-sp%fsc_liv, 0.0])
+        root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*(1-agf_bs)*fraction_lost* &
+            (cc%wood_N*[sp%fsc_wood, 1-sp%fsc_wood, 0.0]+cc%sapwood_N*[sp%fsc_liv, 1-sp%fsc_liv, 0.0])
+        if (sp%mortality_kills_balive) then
+           root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*[sp%fsc_froot, 1-sp%fsc_froot, 0.0]*fraction_lost*cc%br
+           root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*[sp%fsc_froot, 1-sp%fsc_froot, 0.0]*fraction_lost*cc%root_N
+        endif
      enddo
 
-     cc%bwood = cc%bwood * (1-fraction_lost);
-     cc%bsw   = cc%bsw   * (1-fraction_lost);
+     cc%bwood     = cc%bwood     * (1-fraction_lost)
+     cc%bsw       = cc%bsw       * (1-fraction_lost)
+     cc%wood_N    = cc%wood_N    * (1-fraction_lost)
+     cc%sapwood_N = cc%sapwood_N * (1-fraction_lost)
+     if (sp%mortality_kills_balive) then
+        delta_C = delta_C+(cc%br+cc%bl+cc%blv)*(1-fraction_lost) ! For correct vegn%veg_out bookkeeping
+        delta_N = delta_N+(cc%leaf_N+cc%stored_N+cc%root_N)*(1-fraction_lost)
+        cc%br       = cc%br       * (1-fraction_lost)
+        cc%bl       = cc%bl       * (1-fraction_lost)
+        cc%blv      = cc%blv      * (1-fraction_lost)
+        cc%leaf_N   = cc%leaf_N   * (1-fraction_lost)
+        cc%root_N   = cc%root_N   * (1-fraction_lost)
+        cc%stored_N = cc%stored_N * (1-fraction_lost)
+     endif
 
-     vegn%veg_out = vegn%veg_out + delta;
+     vegn%veg_out = vegn%veg_out + delta_C
 
      ! note that fast "living" pools are not included into mortality because their
      ! turnover is calculated separately
 
      cc%bliving = cc%bsw + cc%bl + cc%br + cc%blv;
      call update_biomass_pools(cc);
+     end associate
   enddo
   ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, wood_litter=wood_litt, root_litter=root_litt)
+  call add_soil_carbon(soil, vegn, wood_litter_C=wood_litt_C, leaf_litter_C=leaf_litt_C, root_litter_C=root_litt_C, &
+                                   wood_litter_N=wood_litt_N, leaf_litter_N=leaf_litt_N, root_litter_N=root_litt_N  )
 end subroutine vegn_nat_mortality_lm3
 
 
@@ -357,7 +411,7 @@ subroutine vegn_nat_mortality_ppa ( )
      if (is_watch_cell()) then
         write(*,*) '#### vegn_nat_mortality_ppa ####'
         write(*,*) 'N tiles before merge = ', nitems(land_tile_map(l))
-        write(*,*) 'N of disturbed tiles = ',    nitems(disturbed_tiles)
+        write(*,*) 'N of disturbed tiles = ', nitems(disturbed_tiles)
      endif
      ! merge disturbed tiles back into the original list
      te = tail_elmt(disturbed_tiles)
@@ -444,14 +498,19 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
   real :: dying_crownwarea ! area of the crowns to die, m2/m2
   real :: f0 ! fraction of original tile in the grid cell
   real, dimension(N_C_TYPES) :: &
-     leaf_litt0(N_C_TYPES),  leaf_litt1(N_C_TYPES), & ! accumulated leaf litter, kg C/m2
-     wood_litt0(N_C_TYPES),  wood_litt1(N_C_TYPES)    ! accumulated wood litter, kg C/m2
-  real :: root_litt0(num_l, N_C_TYPES) ! accumulated root litter per soil layer, kgC/m2
-  real :: root_litt1(num_l, N_C_TYPES) ! accumulated root litter per soil layer, kgC/m2
+     leaf_litt0_C,  leaf_litt1_C, & ! accumulated leaf litter, kg C/m2
+     leaf_litt0_N,  leaf_litt1_N, & ! accumulated leaf litter nitrogen, kg N/m2
+     wood_litt0_C,  wood_litt1_C, & ! accumulated wood litter, kg C/m2
+     wood_litt0_N,  wood_litt1_N    ! accumulated wood litter nitrogen, kg N/m2
+  real, dimension(num_l, N_C_TYPES) :: &
+     root_litt0_C, & ! accumulated root litter per soil layer, kg C/m2
+     root_litt0_N, & ! accumulated root litter nitrogen per soil layer, kg N/m2
+     root_litt1_C, & ! accumulated root litter per soil layer, kg C/m2
+     root_litt1_N    ! accumulated root litter nitrogen per soil layer, kg N/m2
   integer :: i
   ! variables for conservation checks:
-  real :: lmass0, fmass0, heat0, cmass0
-  real :: lmass1, fmass1, heat1, cmass1
+  real :: lmass0, fmass0, heat0, cmass0, nmass0
+  real :: lmass1, fmass1, heat1, cmass1, nmass1
   real :: lmass2, fmass2
   character(*),parameter :: tag = 'tile_nat_mortality_ppa'
 
@@ -481,6 +540,7 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
      lmass0 = lmass0*t0%frac; fmass0 = fmass0*t0%frac
      heat0  = land_tile_heat  (t0)*t0%frac
      cmass0 = land_tile_carbon(t0)*t0%frac
+     nmass0 = land_tile_nitrogen(t0)*t0%frac
      ! - end of conservation check, part 1
   endif
 
@@ -495,8 +555,10 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
   enddo
 
   ! zero out litter terms, for accumulation across cohorts
-  leaf_litt0 = 0.0; wood_litt0 = 0.0; root_litt0 = 0.0
-  leaf_litt1 = 0.0; wood_litt1 = 0.0; root_litt1 = 0.0
+  leaf_litt0_C = 0.0; wood_litt0_C = 0.0; root_litt0_C = 0.0
+  leaf_litt0_N = 0.0; wood_litt0_N = 0.0; root_litt0_N = 0.0
+  leaf_litt1_C = 0.0; wood_litt1_C = 0.0; root_litt1_C = 0.0
+  leaf_litt1_N = 0.0; wood_litt1_N = 0.0; root_litt1_N = 0.0
 
   if (n_layers>1.and.dying_crownwarea>0.and.nat_mortality_splits_tiles) then
      ! split the disturbed fraction of vegetation as a new tile. The new tile
@@ -531,16 +593,22 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
            write(*,*)
         enddo
      endif
-     ! kill the individulas affected by natural mortali
+     ! kill the individulas affected by natural mortality
      do i = 1,t0%vegn%n_cohorts
         associate(cc0=>t0%vegn%cohorts(i), cc1=>t1%vegn%cohorts(i))
         if (cc0%layer==1) then
            ! kill all canopy plants in disturbed cohort, but do not touch undisturbed one
-           call kill_plants_ppa(cc1,t1%vegn,cc1%nindivs,0.0,leaf_litt1,wood_litt1,root_litt1)
+           call kill_plants_ppa(cc1, t1%vegn,t1%soil, cc1%nindivs, 0.0, &
+                       leaf_litt1_C, wood_litt1_C, root_litt1_C, &
+                       leaf_litt1_N, wood_litt1_N, root_litt1_N  )
         else
            ! kill understory plants in both tiles
-           call kill_plants_ppa(cc1,t1%vegn,ndead(i),0.0,leaf_litt1,wood_litt1,root_litt1)
-           call kill_plants_ppa(cc0,t0%vegn,ndead(i),0.0,leaf_litt0,wood_litt0,root_litt0)
+           call kill_plants_ppa(cc1, t1%vegn, t1%soil, ndead(i), 0.0, &
+                       leaf_litt1_C, wood_litt1_C, root_litt1_C, &
+                       leaf_litt1_N, wood_litt1_N, root_litt1_N  )
+           call kill_plants_ppa(cc0,t0%vegn,t0%soil,ndead(i),0.0, &
+                       leaf_litt0_C, wood_litt0_C, root_litt0_C, &
+                       leaf_litt0_N, wood_litt0_N, root_litt0_N  )
         endif
         end associate
      enddo
@@ -551,14 +619,17 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
         write(*,*) 'NOT splitting a disturbed tile'
      endif
      do i = 1,t0%vegn%n_cohorts
-        call kill_plants_ppa(t0%vegn%cohorts(i),t0%vegn,ndead(i),0.0,&
-                             leaf_litt0,wood_litt0,root_litt0)
+        call kill_plants_ppa(t0%vegn%cohorts(i), t0%vegn, t0%soil, ndead(i), 0.0,&
+                       leaf_litt0_C, wood_litt0_C, root_litt0_C, &
+                       leaf_litt0_N, wood_litt0_N, root_litt0_N  )
      enddo
   endif
 
-  call add_soil_carbon(t0%soil, leaf_litt0, wood_litt0, root_litt0)
+  call add_soil_carbon(t0%soil, t0%vegn, leaf_litt0_C, wood_litt0_C, root_litt0_C, &
+                                         leaf_litt0_N, wood_litt0_N, root_litt0_N  )
   if (associated(t1)) &
-     call add_soil_carbon(t1%soil, leaf_litt1, wood_litt1, root_litt1)
+     call add_soil_carbon(t1%soil, t1%vegn, leaf_litt1_C, wood_litt1_C, root_litt1_C, &
+                                            leaf_litt1_N, wood_litt1_N, root_litt1_N  )
 
   if (is_watch_point()) then
      write(*,*) '#### tile_mortality_ppa output (before relayering cohorts) ####'
@@ -582,15 +653,18 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
      lmass1 = lmass1*t0%frac; fmass1 = fmass1*t0%frac
      heat1  = land_tile_heat  (t0)*t0%frac
      cmass1 = land_tile_carbon(t0)*t0%frac
+     nmass1 = land_tile_nitrogen(t0)*t0%frac
      if (associated(t1)) then
         call get_tile_water(t1,lmass2,fmass2);
         lmass1 = lmass1 + lmass2*t1%frac; fmass1 = fmass1 + fmass2*t1%frac
         heat1  = heat1  + land_tile_heat  (t1)*t1%frac
         cmass1 = cmass1 + land_tile_carbon(t1)*t1%frac
+        nmass1 = nmass1 + land_tile_nitrogen(t1)*t1%frac
      endif
      call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol)
      call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
      call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
+     call check_conservation (tag,'nitrogen'    , nmass0, nmass1, nitrogen_cons_tol)
      call check_conservation (tag,'heat content', heat0 , heat1 , heat_cons_tol)
      ! - end of conservation check, part 2
   endif
@@ -623,14 +697,17 @@ end subroutine tile_nat_mortality_ppa
 
 ! TODO: ask Elena about burning of below-ground biomass
 
-subroutine kill_plants_ppa(cc, vegn, ndead, fsmoke, leaf_litt, wood_litt, root_litt)
+subroutine kill_plants_ppa(cc, vegn, soil, ndead, fsmoke, &
+                           leaf_litt_C, wood_litt_C, root_litt_C, &
+                           leaf_litt_N, wood_litt_N, root_litt_N  )
   type(vegn_cohort_type), intent(inout) :: cc
   type(vegn_tile_type),   intent(inout) :: vegn
+  type(soil_tile_type),   intent(inout) :: soil
   real,                   intent(in)    :: ndead ! number of individuals to kill, indiv./m2
   real,                   intent(in)    :: fsmoke ! fraction of biomass lost to fire, unitless
-  real, intent(inout) :: leaf_litt(N_C_TYPES) ! accumulated leaf litter, kg C/m2
-  real, intent(inout) :: wood_litt(N_C_TYPES) ! accumulated wood litter, kg C/m2
-  real, intent(inout) :: root_litt(num_l, N_C_TYPES) ! accumulated root litter per soil layer, kgC/m2
+  real, intent(inout) :: leaf_litt_C(N_C_TYPES), leaf_litt_N(N_C_TYPES) ! accumulated leaf litter, kg C/m2 and kg N/m2
+  real, intent(inout) :: wood_litt_C(N_C_TYPES), wood_litt_N(N_C_TYPES) ! accumulated wood litter, kg C/m2 and kg N/m2
+  real, intent(inout) :: root_litt_C(num_l, N_C_TYPES),root_litt_N(num_l, N_C_TYPES) ! accumulated root litter per soil layer, kgC/m2 and kg N/m2
 
   ! ---- local vars
   real :: lost_wood, lost_alive, burned_wood, burned_alive
@@ -661,20 +738,29 @@ subroutine kill_plants_ppa(cc, vegn, ndead, fsmoke, leaf_litt, wood_litt, root_l
   vegn%csmoke_pool = vegn%csmoke_pool + burned_wood + burned_alive
 
   ! add remaining lost C to soil carbon pools
-  leaf_litt(:) = leaf_litt(:) + [fsc_liv,  1-fsc_liv,  0.0]*(cc%bl+cc%bseed+cc%carbon_gain+cc%growth_previous_day)*(1-fsmoke)*ndead
-  wood_litt(:) = wood_litt(:) + [fsc_wood, 1-fsc_wood, 0.0]*(cc%bwood+cc%bsw+cc%bwood_gain)*(1-fsmoke)*agf_bs*ndead
-  wood_litt(C_CEL) = wood_litt(C_CEL)+cc%nsc*(1-fsmoke)*agf_bs*ndead
+  associate(sp=>spdata(cc%species))
+  leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*(cc%bl+cc%bseed+cc%carbon_gain+cc%growth_previous_day)*(1-fsmoke)*ndead
+  wood_litt_C(:) = wood_litt_C(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(cc%bwood+cc%bsw+cc%bwood_gain)*(1-fsmoke)*agf_bs*ndead
+  wood_litt_C(C_FAST) = wood_litt_C(C_FAST)+cc%nsc*(1-fsmoke)*agf_bs*ndead
+  ! FIXME: what is the seed nitrogen? What do we do with nitrogen storage?
+  leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*cc%leaf_N*(1-fsmoke)*ndead
+  wood_litt_N(:) = wood_litt_N(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(cc%wood_N+cc%sapwood_N)*(1-fsmoke)*agf_bs*ndead
+  wood_litt_N(C_FAST) = wood_litt_N(C_FAST)+cc%stored_N*(1-fsmoke)*agf_bs*ndead
   call cohort_root_litter_profile(cc, dz, profile)
   do l = 1, num_l
-     root_litt(l,:) = root_litt(l,:) + profile(l)*ndead*(1-fsmoke)*(/ &
-          fsc_froot    *cc%br + fsc_wood    *(cc%bsw+cc%bwood+cc%bwood_gain)*(1-agf_bs) + cc%nsc*(1-agf_bs), &
-          (1-fsc_froot)*cc%br + (1-fsc_wood)*(cc%bsw+cc%bwood+cc%bwood_gain)*(1-agf_bs), &
+     root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*ndead*(1-fsmoke)*(/ &
+          sp%fsc_froot    *cc%br + sp%fsc_wood    *(cc%bsw+cc%bwood+cc%bwood_gain)*(1-agf_bs) + cc%nsc*(1-agf_bs), &
+          (1-sp%fsc_froot)*cc%br + (1-sp%fsc_wood)*(cc%bsw+cc%bwood+cc%bwood_gain)*(1-agf_bs), &
+          0.0/)
+     root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*ndead*(1-fsmoke)*(/ &
+             sp%fsc_froot *cc%root_N +    sp%fsc_wood *(cc%sapwood_N+cc%wood_N)*(1-agf_bs) + cc%stored_N*(1-agf_bs), &
+          (1-sp%fsc_froot)*cc%root_N + (1-sp%fsc_wood)*(cc%sapwood_N+cc%wood_N)*(1-agf_bs), &
           0.0/)
   enddo
 
   ! reduce the number of individuals in cohort
   cc%nindivs = cc%nindivs-ndead
-
+  end associate
   ! for budget tracking - temporary
   vegn%veg_out = vegn%veg_out + lost_alive + lost_wood + burned_alive + burned_wood
 end subroutine kill_plants_ppa
