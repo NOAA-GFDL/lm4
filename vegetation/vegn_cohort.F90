@@ -605,6 +605,7 @@ subroutine update_biomass_pools(c)
   ! N stress is calculated based on "potential pools" without N limitation
   ! biomass_N_demand=(c%bliving*c%Pl/leaf_live_c2n + c%bliving*c%Pr/froot_live_c2n + c%bliving*c%Psw/wood_fast_c2n)
   ! Elena suggests using 2*(root N + leaf N) as storage target
+  ! bliving is already increased after cgain
   biomass_N_demand=(c%bliving*c%Pl/spdata(c%species)%leaf_live_c2n + c%bliving*c%Pr/spdata(c%species)%froot_live_c2n)
   potential_stored_N = c%total_N - biomass_N_demand - c%bwood/spdata(c%species)%wood_c2n-c%bliving*c%Psw/spdata(c%species)%sapwood_c2n
   ! c%nitrogen_stress = biomass_N_demand/c%total_N

@@ -921,6 +921,16 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   ! TODO: add root exudates to the balance. in LM3 it's a fraction of npp;
   !       in PPA perhaps it might be proportional to NSC, with some decay
   !       time?
+
+  
+! 20170617:  
+!   if (soil_carbon_option == SOILC_CORPSE_N) then
+!     call myc_scavenger_N_uptake(soil,vegn,myc_scav_N_uptake,myc_scav_efficiency,dt_fast_yr,update_pools=.TRUE.)
+!     call myc_miner_N_uptake(soil,vegn,myc_mine_N_uptake,myc_mine_C_uptake,mining_CO2prod,myc_mine_efficiency,dt_fast_yr,update_pools=.TRUE.)
+!     total_myc_CO2_prod = total_myc_CO2_prod + mining_CO2prod
+!     call root_N_uptake(soil,vegn,root_active_N_uptake,dt_fast_yr, update_pools=.TRUE.)
+!   endif
+  
   do i = 1, vegn%n_cohorts
      associate ( cc => vegn%cohorts(i), sp => spdata(vegn%cohorts(i)%species))
 
@@ -938,12 +948,16 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      resp(i) = resp(i) + resg(i) ! add growth respiration and maintenance respiration
      npp(i)  = gpp(i) - resp(i)
      root_exudate_C(i) = max(npp(i),0.0)*sp%root_exudate_frac
+     
+     ! 20170617: modify frac for exudate depending on N state  
      call cohort_root_exudate_profile(cc, dz, profile)
      do l = 1,num_l
         total_root_exudate_C(l) = total_root_exudate_C(l) + &
              profile(l)*root_exudate_C(i)*cc%nindivs*dt_fast_yr
      enddo
      npp(i) = npp(i) - root_exudate_C(i)
+! 20170617: This includes allocation to all N acquisition plus exudates
+!     C_allocation_to_N_acq = max(npp(i),0.0)*root_exudate_frac
 
      cc%carbon_gain = cc%carbon_gain-root_exudate_C(i)*dt_fast_yr
      !print *, ' npp ',  npp(i),' root_ex ',  root_exudate_C(i), 'cgain ', cc%carbon_gain
@@ -955,6 +969,13 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 
      cc%bl = cc%bl - deltaBL
      cc%br = cc%br - deltaBR
+     
+     ! 20170617: retranslocate part of N back to storage and reduce nitrogen pools; put 
+     !           retranslocated N into storage
+     ! Should this N be lost or retranslocated?
+!      cc%leaf_N = cc%leaf_N - md_leaf /sp%leaf_live_c2n*(1.0-sp%leaf_retranslocation_frac)
+!      cc%root_N = cc%root_N - md_froot/sp%froot_live_c2n*(1.0-sp%froot_retranslocation_frac)
+!      cc%wood_N = cc%wood_N - md_wood/sp%wood_c2n
 
      ! compute branch and coarse wood losses for tree types
      md_wood = 0.0
@@ -970,12 +991,15 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 
      cc%bsw = cc%bsw - md_branch_sw
      cc%bwood = cc%bwood - md_wood
+     ! 20170617: update N pools
+
      !reduce nsc by the amount of root exudates during the date
      ! FIXME: when merging with N code take exudates from NSC not carbon gained
      ! FIXME: need different than a fraction of NPP formulation
      !cc%nsc = cc%nsc-root_exudate_C(i)*dt_fast_yr
 
      ! accumulate liter and soil carbon inputs across all cohorts
+     ! 20170617: deposit lost N into litter and soil
      leaf_litt(:) = leaf_litt(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*deltaBL*cc%nindivs
      wood_litt(:) = wood_litt(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(md_wood+md_branch_sw)*cc%nindivs
      call cohort_root_litter_profile(cc, dz, profile)
@@ -985,14 +1009,70 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
              (1-sp%fsc_froot)*deltaBR , & ! slow
              0.0/) ! microbes
      enddo
+! 20170617:
+!      leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*md_leaf/sp%leaf_live_c2n*cc%nindivs*(1.0-sp%leaf_retranslocation_frac)
+!      wood_litt_N(:) = wood_litt_N(:) + cc%nindivs * agf_bs * &
+!              [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*md_wood/sp%wood_c2n
+!      call cohort_root_litter_profile(cc, dz, profile)
+!      do l = 1, num_l
+!         root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*cc%nindivs*( &
+!              [sp%fsc_froot, 1-sp%fsc_froot, 0.0 ]*md_froot/sp%froot_live_c2n*(1.0-sp%froot_retranslocation_frac) + &
+!              [sp%fsc_wood,  1-sp%fsc_wood,  0.0 ]*md_wood*(1-agf_bs)/sp%wood_c2n &
+!              )
+!      enddo
 
      ! increment cohort age
      cc%age = cc%age + dt_fast_yr
      ! resg(i) = 0 ! slm: that doesn't make much sense to me... why?
+! 20170617:
+     ! Mycorrhizal N uptake
+     ! FIXME slm:
+     !  - uptakes should be calculated per individul, and then scaled with nindivs
+     !  - split uptake code in a separate subroutine (?)
+
+     ! this updates N storage in the plant
+!      call update_mycorrhizae(cc,sp,dt_fast_yr,&
+!                                 C_allocation_to_N_acq=C_allocation_to_N_acq,&
+!                                 myc_scav_N_uptake=myc_scav_N_uptake(i),myc_mine_C_uptake=myc_mine_C_uptake(i),myc_mine_N_uptake=myc_mine_N_uptake(i),&
+!                                 root_N_uptake=root_active_N_uptake(i),&
+!                                 myc_scav_efficiency=myc_scav_efficiency,myc_mine_efficiency=myc_mine_efficiency,&
+!                                 scavenger_myc_C_allocated=scavenger_myc_C_allocated(i),miner_myc_C_allocated=miner_myc_C_allocated(i),&
+!                                 N_fixer_C_allocated=N_fixer_C_allocated(i),&
+!                                 myc_scav_marginal_gain=myc_scav_marginal_gain(i),myc_mine_marginal_gain=myc_mine_marginal_gain(i),&
+!                                 N_fix_marginal_gain=N_fix_marginal_gain(i),rhiz_exud_marginal_gain=rhiz_exud_marginal_gain(i),&
+!                                 root_exudate_C=root_exudate_C(i), root_exudate_N=root_exudate_N(i),&
+!                                 myc_CO2_prod=myc_CO2_prod(i),N_fixation=N_fixation(i),&
+!                                 scav_N_to_plant=scav_N_to_plant(i), mine_N_to_plant=mine_N_to_plant(i), fix_N_to_plant=fix_N_to_plant(i), &
+!                                 total_plant_N_uptake=total_plant_N_uptake(i), &
+!                                 myc_turnover_C=myc_turnover_C,myc_turnover_N=myc_turnover_N,myc_Nmin=myc_Nmin)
+!      ! First add mycorrhizal and N fixer turnover to soil C pools
+!      do l = 1, num_l
+!         root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*cc%nindivs*([ 0.0, myc_turnover_C*deadmic_slow_frac, myc_turnover_C*(1-deadmic_slow_frac) ])
+!         root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*cc%nindivs*([ 0.0, myc_turnover_N*deadmic_slow_frac, myc_turnover_N*(1-deadmic_slow_frac) ])
+!      enddo
+! 
+! bns: 0.05 must be consistent with 0.05 in stress calculation
+!      ! To do: Figure out excess C if mycorrhizae N-limited and add back to root exudate C
+!      call cohort_root_exudate_profile(cc,dz,profile)
+!      total_root_exudate_C(:) = total_root_exudate_C(:) + profile(:)*root_exudate_C(i)*cc%nindivs
+!      total_root_exudate_N(:) = total_root_exudate_N(:) + profile(:)*root_exudate_N(i)*cc%nindivs
+! 
+!      ! To prevent excess stored N buildup under high soil N, leak stored N when stress is zero
+!      if(cc%nitrogen_stress<=0.05 .AND. cc%stored_N>0 .AND. soil_carbon_option == SOILC_CORPSE_N) then
+!        total_N_leakage(:) = total_N_leakage(:) + cc%stored_N*excess_stored_N_leakage_rate*profile(:)*cc%nindivs
+!        cc%stored_N=cc%stored_N - cc%stored_N*excess_stored_N_leakage_rate*dt_fast_yr
+!      endif
+! 
+!      total_myc_CO2_prod = total_myc_CO2_prod + myc_CO2_prod(i)*cc%nindivs
+!      total_myc_Nmin(:) = total_myc_Nmin(:) + profile(:)*myc_Nmin*cc%nindivs
      end associate
   enddo
 
+! 20170617:
+!  soil%gross_nitrogen_flux_into_tile = soil%gross_nitrogen_flux_into_tile + sum(N_fixation(1:N)*c(1:N)%nindivs)
+
   ! add litter and exudates accumulated over the cohorts
+  ! 20170617: revisit exudates for allocation to different kind of N startegies
   call add_root_exudates(soil, total_root_exudate_C, total_root_exudate_N)
   call add_soil_carbon(soil, vegn, leaf_litt, wood_litt, root_litt)
   ! update soil carbon
@@ -1263,13 +1343,48 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      ! calculate the carbon spent on growth of leaves and roots
      G_LFR    = max(0.0, min(cc%bl_max+cc%br_max-cc%bl-cc%br,  &
                             0.1*cc%nsc/(1+GROWTH_RESP))) ! don't allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
-
+                            
+    ! BNS: make this the minimum of 10% NSC depletion OR 10% stored N depletion
+    ! Do this every time we do this limitation
+    ! Should sapwood be considered as important as leaves and roots?
+                            
+     ! cal
      ! and distribute it between roots and leaves
      deltaBL  = min(G_LFR, max(0.0, &
           (G_LFR*cc%bl_max + cc%bl_max*cc%br - cc%br_max*cc%bl)/(cc%bl_max + cc%br_max) &
           ))
      deltaBR  = G_LFR - deltaBL
      ! calculate carbon spent on seeds and sapwood growth
+     
+     ! 20170617: calculate N stress (function of stored N) here
+     !           N traget possibly in relation with NSC target
+  ! from update_biomass_pools
+! 
+!   ! Stress increases as stored N declines relative to total biomass N demand
+!   ! N stress is calculated based on "potential pools" without N limitation
+!   ! biomass_N_demand=(c%bliving*c%Pl/leaf_live_c2n + c%bliving*c%Pr/froot_live_c2n + c%bliving*c%Psw/wood_fast_c2n)
+!   ! Elena suggests using 2*(root N + leaf N) as storage target
+!   ! bliving is already increased after cgain
+
+
+!NEW     biomass_N_demand=(deltaBL/spdata(c%species)%leaf_live_c2n + deltaBR/spdata(c%species)%froot_live_c2n)
+
+     
+!   potential_stored_N = c%total_N - biomass_N_demand - c%bwood/spdata(c%species)%wood_c2n-c%bliving*c%Psw/spdata(c%species)%sapwood_c2n
+!    c%nitrogen_stress_storage = biomass_N_demand/c%total_N
+   !  N_storage_target=2*(c%leaf_N+c%root_N)
+   ! Redefine based on NSCtarget (see below)
+   ! Maybe make a function of leaf AND root c2n
+!    N_storage_target = NSCtarget/sp%leaf_live_c2n
+    
+!NEW    c%nitrogen_stress = (N_storage_target-c%stored_N)/N_storage_target
+     ! br_max_Nstress = cc%br_max * (1+cc%nitrogen_stress_storage*sp%N_stress_root_factor)
+     ! N_stress_root_factor is something like 0.05 so br_max increases 25% when N stress is 0.5, i.e. stored N is half of target value
+     ! N stress or this root factor should not go above some max value, so all biomass doesn't end up in roots in some weird situation
+     ! This assumes carbon to build more roots comes from sapwood growth, not leaf growth. But we can make this flexible or have different options
+
+
+     
 
      !ens first replace lost branch sapwood
      delta_bsw_branch  = 0.0
@@ -1292,6 +1407,8 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      G_WF=0.0
      if (NSCtarget < cc%nsc) then ! ens change this
         G_WF = max (0.0, fsf*(cc%nsc - NSCtarget)/(1+GROWTH_RESP))
+        
+     ! make sure that if nsc is not spent because N is limited, sapwood is limited too
      endif
      ! change maturity threashold to a diameter threash-hold
      if (cc%layer == 1 .AND. cc%age > sp%maturalage) then
