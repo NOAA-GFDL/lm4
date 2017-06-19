@@ -281,12 +281,15 @@ type spec_data_type
   real    :: sapwood_c2n    = 50.0    ! C:N ratio of sapwood.
   real    :: wood_c2n       = 500.0   ! x2z Wiki  http://en.wikipedia.org/wiki/Carbon-to-nitrogen_ratio
   real    :: c2n_mycorrhizae= 10.0    ! C:N ratio of mycorrhizal biomass
+  real    :: seed_c2n       = 30.0    ! C:N ratio of leaves
 
   real    :: leaf_retranslocation_frac  = 0.5 ! Fraction of leaf N retranslocated before leaf drop.
   real    :: froot_retranslocation_frac = 0.0 ! Fraction of fine root N retranslocated before senescence.
 
   real    :: branch_wood_frac = 0.25 ! fraction of total wood biomass in branches
   real    :: N_stress_root_factor = 0.02 ! Amount of sapwood C that goes to roots instead as N stress increases
+  real    :: max_n_stress_for_seed_production = 2.0 ! if N stress is higher than this treshold, seeds are not produced
+  real    :: tau_nsc_exudate = 1.0 ! e-folding time for nsc spending to exudates, yr
 end type
 
 ! ==== module data ===========================================================
@@ -792,6 +795,8 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(c2n_mycorrhizae)
   __GET_SPDATA_REAL__(leaf_retranslocation_frac)
   __GET_SPDATA_REAL__(froot_retranslocation_frac)
+  __GET_SPDATA_REAL__(max_n_stress_for_seed_production)
+  __GET_SPDATA_REAL__(tau_nsc_exudate)
 #undef __GET_SPDATA_LOGICAL__
 #undef __GET_SPDATA_REAL__
 
@@ -912,6 +917,8 @@ subroutine init_derived_species_data(sp)
   ! TLP need not be less than mortality threshold
   ! TODO: make mortality threshold a namelist (or species) parameter?
   sp%psi_tlp = max(sp%psi_tlp, sp%dx*(-log(0.1))**(1./sp%cx))
+  
+  ! TODO: calculate seed C:N ratio
 
 end subroutine init_derived_species_data
 

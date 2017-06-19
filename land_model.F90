@@ -2059,7 +2059,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      ! do the calculations that require updated land surface prognostic variables
 !      call nitrogen_sources(lnd%time, ix, iy, tile%vegn%p_ann, precip_l+precip_s, &
 !              tile%vegn%landuse, ndep_nit, ndep_amm, ndep_org, tile%diag)
-
+     ndep_nit=0; ndep_amm=0; ndep_org=0
      call vegn_step_3 (tile%vegn, tile%soil, tile%cana%T, precip_l+precip_s, &
           ndep_nit, ndep_amm, ndep_org, vegn_fco2, tile%diag)
      ! if vegn is present, then soil must be too
