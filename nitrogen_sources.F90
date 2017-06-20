@@ -9,6 +9,7 @@ use fms_mod, only : &
      file_exist, open_namelist_file, &
      check_nml_error, close_file, stdlog, mpp_pe, mpp_root_pe, error_mesg, &
      FATAL, NOTE, string
+use mpp_domains_mod, only : mpp_pass_SG_to_UG
 use time_interp_external_mod, only : init_external_field, time_interp_external, &
      time_interp_external_init
 use horiz_interp_mod, only : horiz_interp_type, horiz_interp_init, &
@@ -116,16 +117,17 @@ namelist/nitrogen_deposition_nml/n_deposition_type, &
 real :: ndep_org_frac, fert_org_frac, manure_org_frac ! fractions of organic
         ! nitrogen in deposition, fertilizer, and manure, respectively
 integer :: n_deposition_option = 0 !selector for deposition options
-real, allocatable ::     & ! buffers for input data
-   ndep_nat(:,:),        & ! natural deposition rate
-   ndep_ant(:,:),        & ! anthropogenic deposition rate
-   ndep_nit_buffer(:,:), & ! nitrate deposition
-   ndep_amm_buffer(:,:), & ! ammonium deposition
-   ndep_org_buffer(:,:), & ! DON source
-   nfml_nit_crop(:,:), nfml_amm_crop(:,:), nfml_org_crop(:,:),  &
-   nfml_nit_past(:,:), nfml_amm_past(:,:), nfml_org_past(:,:),  &
-   nfert_crop(:,:),   nfert_past(:,:), &  ! fertilization for crops and pastures
-   nmanure_crop(:,:), nmanure_past(:,:)   ! manure nitrogen for crops and pastures
+real, allocatable ::   & ! buffers for input data
+   data_SG(:,:),       & ! structured grid input buffer
+   ndep_nat(:),        & ! natural deposition rate
+   ndep_ant(:),        & ! anthropogenic deposition rate
+   ndep_nit_buffer(:), & ! nitrate deposition
+   ndep_amm_buffer(:), & ! ammonium deposition
+   ndep_org_buffer(:), & ! DON source
+   nfml_nit_crop(:), nfml_amm_crop(:), nfml_org_crop(:),  &
+   nfml_nit_past(:), nfml_amm_past(:), nfml_org_past(:),  &
+   nfert_crop(:),    nfert_past(:), &  ! fertilization for crops and pastures
+   nmanure_crop(:),  nmanure_past(:)   ! manure nitrogen for crops and pastures
 
 integer :: &
    id_ndep_nit_in = -1, & ! id of external field for time interpolation
@@ -140,9 +142,9 @@ type :: fert_data_type ! type describing input fertilization data
    real, pointer :: latb_in(:,:) => NULL() ! input latitude boundaries
 
    integer :: curr_rec = -1 ! number of the current record
-   real, pointer :: nfert(:,:) => NULL() ! amount of fertilizer
-   real, pointer :: tfert(:,:) => NULL() ! time of application
-   real, pointer :: mask (:,:) => NULL() ! mask of valid data
+   real, pointer :: nfert(:) => NULL() ! amount of fertilizer
+   real, pointer :: tfert(:) => NULL() ! time of application
+   real, pointer :: mask (:) => NULL() ! mask of valid data
    type(nfu_validtype) :: nfert_v ! valid range for amount of fertilizer
    type(nfu_validtype) :: tfert_v ! valid range for time of fertilizer
 end type
@@ -202,10 +204,8 @@ subroutine nitrogen_sources_init(time, id_ug)
 
   ! do nothing further if no nitrogen in the model
   if (do_nitrogen_deposition) then
-     call error_mesg('nitrogen_sources_init', 'nitrogen sources are not yet implemented',FATAL)
      if(soil_carbon_option .NE. SOILC_CORPSE_N) call error_mesg('nitrogen_sources_init',&
          'WARNING: do_nitrogen_deposition is TRUE but soil_carbon_option is not SOILC_CORPSE_N. N dep will likely have no effect.',NOTE)
-
 
      ! calculate fractions of organic nitrogen in deposition, fertilizer, and  manure
      ndep_org_frac   = 1.0 - ndep_nit_frac   - ndep_amm_frac
@@ -213,68 +213,63 @@ subroutine nitrogen_sources_init(time, id_ug)
      manure_org_frac = 1.0 - manure_nit_frac - manure_amm_frac
 
      ! allocate and initialize buffer for data
-!      allocate(ndep_nit_buffer(lnd%is:lnd%ie,lnd%js:lnd%je))
-!      allocate(ndep_amm_buffer(lnd%is:lnd%ie,lnd%js:lnd%je))
-!      allocate(ndep_org_buffer(lnd%is:lnd%ie,lnd%js:lnd%je))
-!      allocate(nfml_nit_crop  (lnd%is:lnd%ie,lnd%js:lnd%je))
-!      allocate(nfml_amm_crop  (lnd%is:lnd%ie,lnd%js:lnd%je))
-!      allocate(nfml_org_crop  (lnd%is:lnd%ie,lnd%js:lnd%je))
-!      allocate(nfml_nit_past  (lnd%is:lnd%ie,lnd%js:lnd%je))
-!      allocate(nfml_amm_past  (lnd%is:lnd%ie,lnd%js:lnd%je))
-!      allocate(nfml_org_past  (lnd%is:lnd%ie,lnd%js:lnd%je))
-!      allocate(nfert_crop     (lnd%is:lnd%ie,lnd%js:lnd%je))
-!      allocate(nfert_past     (lnd%is:lnd%ie,lnd%js:lnd%je))
-!      allocate(nmanure_crop   (lnd%is:lnd%ie,lnd%js:lnd%je))
-!      allocate(nmanure_past   (lnd%is:lnd%ie,lnd%js:lnd%je))
-! 
-!      ! read the data, if necessary
-!      select case (n_deposition_option)
-!      case (NDEP_INTERP2)
-!        allocate( ndep_nat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-!                  ndep_ant(lnd%is:lnd%ie,lnd%js:lnd%je)  )
+     allocate(data_SG(lnd%is:lnd%ie,lnd%js:lnd%je))
+     allocate(ndep_nit_buffer(lnd%ls:lnd%le))
+     allocate(ndep_amm_buffer(lnd%ls:lnd%le))
+     allocate(ndep_org_buffer(lnd%ls:lnd%le))
+     allocate(nfml_nit_crop  (lnd%ls:lnd%le))
+     allocate(nfml_amm_crop  (lnd%ls:lnd%le))
+     allocate(nfml_org_crop  (lnd%ls:lnd%le))
+     allocate(nfml_nit_past  (lnd%ls:lnd%le))
+     allocate(nfml_amm_past  (lnd%ls:lnd%le))
+     allocate(nfml_org_past  (lnd%ls:lnd%le))
+     allocate(nfert_crop     (lnd%ls:lnd%le))
+     allocate(nfert_past     (lnd%ls:lnd%le))
+     allocate(nmanure_crop   (lnd%ls:lnd%le))
+     allocate(nmanure_past   (lnd%ls:lnd%le))
+
+     ! read the data, if necessary
+     select case (n_deposition_option)
+     case (NDEP_INTERP2)
+       allocate( ndep_nat(lnd%ls:lnd%le), &
+                 ndep_ant(lnd%ls:lnd%le)  )
 !                  print *,'lon',lnd%lon(lnd%is:lnd%ie,lnd%js:lnd%je)
 !                  print *,'lat',lnd%lat(lnd%is:lnd%ie,lnd%js:lnd%je)
-!        call read_field( 'INPUT/nbiodata_nat.nc','ndep', &
-!              lnd%lon(lnd%is:lnd%ie,lnd%js:lnd%je), &
-!              lnd%lat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-!              ndep_nat, interp='nearest')
-!        call read_field( 'INPUT/nbiodata_ant.nc','ndep', &
-!              lnd%lon(lnd%is:lnd%ie,lnd%js:lnd%je), &
-!              lnd%lat(lnd%is:lnd%ie,lnd%js:lnd%je), &
-!              ndep_ant, interp='nearest')
-!      case (NDEP_TIMESERIES)
-!        ! initialize external fields
-!        call time_interp_external_init()
-!        if (trim(ndep_nit_file) /= '') then
-!           ! initilaize external field
-!           id_ndep_nit_in = init_external_field(trim(ndep_nit_file),trim(ndep_nit_field),&
-!                                          domain=lnd%domain,use_comp_domain=.TRUE.,verbose=.FALSE.)
-!        endif
-!        if (trim(ndep_amm_file) /= '') then
-!           ! initilaize external field
-!           id_ndep_amm_in = init_external_field(trim(ndep_amm_file),trim(ndep_amm_field),&
-!                                             domain=lnd%domain,use_comp_domain=.TRUE.)
-!        endif
-!        if (trim(ndep_org_file) /= '') then
-!           ! initilaize external field
-!           id_ndep_org_in = init_external_field(trim(ndep_org_file),trim(ndep_org_field),&
-!                                             domain=lnd%domain,use_comp_domain=.TRUE.)
-!        endif
-!      case default
-!        ! do nothing
-!      end select
-! 
-!      call fert_data_init(  fml_nit_crop_file,   fml_nit_crop)
-!      call fert_data_init(  fml_amm_crop_file,   fml_amm_crop)
-!      call fert_data_init(  fml_org_crop_file,   fml_org_crop)
-!      call fert_data_init(  fml_nit_past_file,   fml_nit_past)
-!      call fert_data_init(  fml_amm_past_file,   fml_amm_past)
-!      call fert_data_init(  fml_org_past_file,   fml_org_past)
-!      call fert_data_init(  fert_crop_file,   fert_crop)
-!      call fert_data_init(manure_crop_file, manure_crop)
-!      call fert_data_init(  fert_past_file,   fert_past)
-!      call fert_data_init(manure_past_file, manure_past)
-! 
+       call read_field( 'INPUT/nbiodata_nat.nc','ndep', lnd%ug_lon, lnd%ug_lat, ndep_nat, interp='nearest')
+       call read_field( 'INPUT/nbiodata_ant.nc','ndep', lnd%ug_lon, lnd%ug_lat, ndep_ant, interp='nearest')
+     case (NDEP_TIMESERIES)
+       ! initialize external fields
+       call time_interp_external_init()
+       if (trim(ndep_nit_file) /= '') then
+          ! initilaize external field
+          id_ndep_nit_in = init_external_field(trim(ndep_nit_file),trim(ndep_nit_field),&
+                                         domain=lnd%sg_domain,use_comp_domain=.TRUE.,verbose=.FALSE.)
+       endif
+       if (trim(ndep_amm_file) /= '') then
+          ! initilaize external field
+          id_ndep_amm_in = init_external_field(trim(ndep_amm_file),trim(ndep_amm_field),&
+                                            domain=lnd%sg_domain,use_comp_domain=.TRUE.)
+       endif
+       if (trim(ndep_org_file) /= '') then
+          ! initilaize external field
+          id_ndep_org_in = init_external_field(trim(ndep_org_file),trim(ndep_org_field),&
+                                            domain=lnd%sg_domain,use_comp_domain=.TRUE.)
+       endif
+     case default
+       ! do nothing
+     end select
+
+     call fert_data_init(  fml_nit_crop_file,   fml_nit_crop)
+     call fert_data_init(  fml_amm_crop_file,   fml_amm_crop)
+     call fert_data_init(  fml_org_crop_file,   fml_org_crop)
+     call fert_data_init(  fml_nit_past_file,   fml_nit_past)
+     call fert_data_init(  fml_amm_past_file,   fml_amm_past)
+     call fert_data_init(  fml_org_past_file,   fml_org_past)
+     call fert_data_init(  fert_crop_file,   fert_crop)
+     call fert_data_init(manure_crop_file, manure_crop)
+     call fert_data_init(  fert_past_file,   fert_past)
+     call fert_data_init(manure_past_file, manure_past)
+
   else ! If do_nitrogen_deposition is not .TRUE.
      call error_mesg('nitrogen_sources_init',&
        'do_nitrogen_deposition=.FALSE.: NOT initializing the nitrogen deposition sources', &
@@ -282,7 +277,7 @@ subroutine nitrogen_sources_init(time, id_ug)
   endif
 
   ! ---- initialize the diagnostics --------------------------------------------
- call set_default_diag_filter('soil')
+  call set_default_diag_filter('soil')
 
   id_ndep_nit = register_tiled_diag_field (diag_mod_name, 'ndep_nit', (/id_ug/), &
        time, 'nitrate deposition', 'kg N/(m2 year)', missing_value=-999.0)
@@ -363,9 +358,9 @@ subroutine update_nitrogen_sources (t0,t1)
   ! update nitrogen deposition
   select case(n_deposition_option)
   case (NDEP_PRESCRIBED)
-     ndep_nit_buffer(:,:) = ndeprate*ndep_nit_frac
-     ndep_amm_buffer(:,:) = ndeprate*ndep_amm_frac
-     ndep_org_buffer(:,:) = ndeprate*ndep_org_frac
+     ndep_nit_buffer(:) = ndeprate*ndep_nit_frac
+     ndep_amm_buffer(:) = ndeprate*ndep_amm_frac
+     ndep_org_buffer(:) = ndeprate*ndep_org_frac
   case (NDEP_INTERP2)
      call get_date(t0, year,month,day,hour,minute,second)
      if (year_ant > year_nat) then
@@ -374,14 +369,23 @@ subroutine update_nitrogen_sources (t0,t1)
      else ! They are the same year, so use the nat one -BNS
        w = 0.0
      endif
-     ndep_nit_buffer(:,:) = (1-w)*ndep_nat(:,:)+w*ndep_ant(:,:)
-     ndep_amm_buffer(:,:) = ndep_nit_buffer(:,:)*ndep_amm_frac
-     ndep_org_buffer(:,:) = ndep_nit_buffer(:,:)*ndep_org_frac
-     ndep_nit_buffer(:,:) = ndep_nit_buffer(:,:)*ndep_nit_frac
+     ndep_nit_buffer(:) = (1-w)*ndep_nat(:)+w*ndep_ant(:)
+     ndep_amm_buffer(:) = ndep_nit_buffer(:)*ndep_amm_frac
+     ndep_org_buffer(:) = ndep_nit_buffer(:)*ndep_org_frac
+     ndep_nit_buffer(:) = ndep_nit_buffer(:)*ndep_nit_frac
   case (NDEP_TIMESERIES)
-     if (id_ndep_nit_in>0) call time_interp_external(id_ndep_nit_in,t0,ndep_nit_buffer)
-     if (id_ndep_amm_in>0) call time_interp_external(id_ndep_amm_in,t0,ndep_amm_buffer)
-     if (id_ndep_org_in>0) call time_interp_external(id_ndep_org_in,t0,ndep_org_buffer)
+     if (id_ndep_nit_in>0) then
+        call time_interp_external(id_ndep_nit_in,t0,data_SG)
+        call mpp_pass_SG_to_UG(lnd%ug_domain, data_SG, ndep_nit_buffer)
+     endif
+     if (id_ndep_amm_in>0) then
+        call time_interp_external(id_ndep_amm_in,t0,data_SG)
+        call mpp_pass_SG_to_UG(lnd%ug_domain, data_SG, ndep_amm_buffer)
+     endif
+     if (id_ndep_org_in>0) then
+        call time_interp_external(id_ndep_org_in,t0,data_SG)
+        call mpp_pass_SG_to_UG(lnd%ug_domain, data_SG, ndep_org_buffer)
+     endif
   case default
     call error_mesg('nitrogen_deposition','n_deposition_option '//&
           string(n_deposition_option)//' is invalid"', FATAL)
@@ -401,9 +405,9 @@ end subroutine update_nitrogen_sources
 
 
 ! ============================================================================
-subroutine nitrogen_sources(time, i, j, p_ann, precip, lu, input_nit, input_amm, input_org, diag)
+subroutine nitrogen_sources(time, l, p_ann, precip, lu, input_nit, input_amm, input_org, diag)
   type(time_type), intent(in)  :: time ! current time, for time interpolation
-  integer, intent(in)  :: i,j     ! coordinates of current point
+  integer, intent(in)  :: l       ! index of current point in unstructured grid
   real   , intent(in)  :: p_ann   ! annual-mean precipitation, kg/(m2 s)
   real   , intent(in)  :: precip  ! current precipitation, kg/(m2 s)
   integer, intent(in)  :: lu      ! land use type
@@ -430,32 +434,32 @@ subroutine nitrogen_sources(time, i, j, p_ann, precip, lu, input_nit, input_amm,
   else
      p = 0.0          ; w = 0.0
   endif
-  ndep_nit = ndep_nit_buffer(i,j)*(1-w) + w*ndep_nit_buffer(i,j)*p
-  ndep_amm = ndep_amm_buffer(i,j)*(1-w) + w*ndep_amm_buffer(i,j)*p
-  ndep_org = ndep_org_buffer(i,j)*(1-w) + w*ndep_org_buffer(i,j)*p
+  ndep_nit = ndep_nit_buffer(l)*(1-w) + w*ndep_nit_buffer(l)*p
+  ndep_amm = ndep_amm_buffer(l)*(1-w) + w*ndep_amm_buffer(l)*p
+  ndep_org = ndep_org_buffer(l)*(1-w) + w*ndep_org_buffer(l)*p
 
   ! add fertilization
   select case(lu)
   case (LU_CROP)
-     fert_nit   = nfert_crop(i,j)   * fert_nit_frac
-     fert_amm   = nfert_crop(i,j)   * fert_amm_frac
-     fert_org   = nfert_crop(i,j)   * fert_org_frac
-     manure_nit = nmanure_crop(i,j) * manure_nit_frac
-     manure_amm = nmanure_crop(i,j) * manure_amm_frac
-     manure_org = nmanure_crop(i,j) * manure_org_frac
-     fml_nit    = nfml_nit_crop(i,j)
-     fml_amm    = nfml_amm_crop(i,j)
-     fml_org    = nfml_org_crop(i,j)
+     fert_nit   = nfert_crop(l)   * fert_nit_frac
+     fert_amm   = nfert_crop(l)   * fert_amm_frac
+     fert_org   = nfert_crop(l)   * fert_org_frac
+     manure_nit = nmanure_crop(l) * manure_nit_frac
+     manure_amm = nmanure_crop(l) * manure_amm_frac
+     manure_org = nmanure_crop(l) * manure_org_frac
+     fml_nit    = nfml_nit_crop(l)
+     fml_amm    = nfml_amm_crop(l)
+     fml_org    = nfml_org_crop(l)
   case (LU_PAST)
-     fert_nit   = nfert_past(i,j)   * fert_nit_frac
-     fert_amm   = nfert_past(i,j)   * fert_amm_frac
-     fert_org   = nfert_past(i,j)   * fert_org_frac
-     manure_nit = nmanure_past(i,j) * manure_nit_frac
-     manure_amm = nmanure_past(i,j) * manure_amm_frac
-     manure_org = nmanure_past(i,j) * manure_org_frac
-     fml_nit    = nfml_nit_past(i,j)
-     fml_amm    = nfml_amm_past(i,j)
-     fml_org    = nfml_org_past(i,j)
+     fert_nit   = nfert_past(l)   * fert_nit_frac
+     fert_amm   = nfert_past(l)   * fert_amm_frac
+     fert_org   = nfert_past(l)   * fert_org_frac
+     manure_nit = nmanure_past(l) * manure_nit_frac
+     manure_amm = nmanure_past(l) * manure_amm_frac
+     manure_org = nmanure_past(l) * manure_org_frac
+     fml_nit    = nfml_nit_past(l)
+     fml_amm    = nfml_amm_past(l)
+     fml_org    = nfml_org_past(l)
   case default
        fert_nit = 0.0 ;   fert_amm = 0.0 ;   fert_org = 0.0
      manure_nit = 0.0 ; manure_amm = 0.0 ; manure_org = 0.0
@@ -467,8 +471,8 @@ subroutine nitrogen_sources(time, i, j, p_ann, precip, lu, input_nit, input_amm,
   input_org = ndep_org + fert_org + manure_org + fml_org
 
   if (is_watch_point()) then
-     __DEBUG2__(i,j)
-     __DEBUG3__(ndep_nit_buffer(i,j),ndep_amm_buffer(i,j),ndep_org_buffer(i,j))
+     call dpri('i=',lnd%i_index(l)); call dpri('j=',lnd%j_index(l))
+     __DEBUG3__(ndep_nit_buffer(l),ndep_amm_buffer(l),ndep_org_buffer(l))
      __DEBUG2__(w,p)
      write(*,*) '#### nitrogen_sources output'
      __DEBUG5__(ndep_nit, fert_nit, manure_nit, input_nit, fml_nit)
@@ -567,10 +571,10 @@ subroutine fert_data_init(filename, fert)
   ierr = nfu_get_valid_range(fert%ncid,'tfert',fert%tfert_v) ! ignore errors here
 
   ! allocate buffers for data
-  allocate(fert%nfert(lnd%is:lnd%ie,lnd%js:lnd%je))
-  allocate(fert%tfert(lnd%is:lnd%ie,lnd%js:lnd%je))
+  allocate(fert%nfert(lnd%ls:lnd%le))
+  allocate(fert%tfert(lnd%ls:lnd%le))
   ! and mask
-  allocate(fert%mask (lnd%is:lnd%ie,lnd%js:lnd%je))
+  allocate(fert%mask (lnd%ls:lnd%le))
   ! set the current record indicator to non-existing record number
   fert%curr_rec = -1
 
@@ -606,7 +610,7 @@ end subroutine
 subroutine fert_data_get(fert, t0,t1,fert_rate)
   type(fert_data_type), intent(inout) :: fert  ! fertilization data
   type(time_type)     , intent(in)    :: t0,t1 ! time interval
-  real                , intent(out)   :: fert_rate(:,:)
+  real                , intent(out)   :: fert_rate(:)
 
   ! ---- local vars
   integer :: i1,i2 ! record indices
@@ -621,7 +625,7 @@ subroutine fert_data_get(fert, t0,t1,fert_rate)
   type(horiz_interp_type) :: interp
 
   ! set initial value
-  fert_rate(:,:) = 0
+  fert_rate(:) = 0
 
   ! do nothing further if the input was not initialized (or initialized with
   ! empty filename)
@@ -662,19 +666,22 @@ subroutine fert_data_get(fert, t0,t1,fert_rate)
            mask_in = mask_in*0
 
      ! construct interpolator
-!      call horiz_interp_new(interp, fert%lonb_in, fert%latb_in, &
-!           lnd%lonb(lnd%is:lnd%ie+1,lnd%js:lnd%je+1), &
-!           lnd%latb(lnd%is:lnd%ie+1,lnd%js:lnd%je+1), &
-!           interp_method='conservative',&
-!           mask_in=mask_in, is_latlon_in=.TRUE. )
+     call horiz_interp_new(interp, fert%lonb_in, fert%latb_in, &
+          lnd%sg_lonb(lnd%is:lnd%ie+1,lnd%js:lnd%je+1), &
+          lnd%sg_latb(lnd%is:lnd%ie+1,lnd%js:lnd%je+1), &
+          interp_method='conservative',&
+          mask_in=mask_in, is_latlon_in=.TRUE. )
      ! note that mask_out does not seem to be set if both input and output grids
      ! are lat-lon (horiz_interp_new_2d, line 546). So it's pretty useless in
      ! this case.
 
      ! interpolate input fields
-     call horiz_interp(interp,nfert_in,fert%nfert)
-     call horiz_interp(interp,tfert_in,fert%tfert)
-     call horiz_interp(interp,mask_in,fert%mask)
+     call horiz_interp(interp,nfert_in,data_SG)
+     call mpp_pass_SG_to_UG(lnd%ug_domain, data_SG, fert%nfert)
+     call horiz_interp(interp,tfert_in,data_SG)
+     call mpp_pass_SG_to_UG(lnd%ug_domain, data_SG, fert%tfert)
+     call horiz_interp(interp,mask_in,data_SG)
+     call mpp_pass_SG_to_UG(lnd%ug_domain, data_SG, fert%mask)
      ! convert time to seconds (from days)
      fert%tfert = fert%tfert*86400
      where(fert%mask==0)
