@@ -1381,14 +1381,14 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        standard_name='soil_carbon_content_lut', fill_missing=.FALSE.)
 
   id_csoilfast = register_tiled_diag_field ( cmor_name, 'cSoilFast', axes(1:1),  &
-       lnd%time, 'Carbon in Fast Soil Pool', 'kg C m-2', missing_value=-100.0, &
-       standard_name='carbon_in_fast_soil_pool', fill_missing=.TRUE.)
+       lnd%time, 'Carbon Mass in Fast Soil Pool', 'kg m-2', missing_value=-100.0, &
+       standard_name='fast_soil_pool_carbon_content', fill_missing=.TRUE.)
   id_csoilmedium = register_tiled_diag_field ( cmor_name, 'cSoilMedium', axes(1:1),  &
-       lnd%time, 'Carbon in Medium Soil Pool', 'kg C m-2', missing_value=-100.0, &
-       standard_name='carbon_in_medium_soil_pool', fill_missing=.TRUE.)
+       lnd%time, 'Carbon Mass in Medium Soil Pool', 'kg m-2', missing_value=-100.0, &
+       standard_name='medium_soil_pool_carbon_content', fill_missing=.TRUE.)
   id_csoilslow = register_tiled_diag_field ( cmor_name, 'cSoilSlow', axes(1:1),  &
-       lnd%time, 'Carbon in Slow Soil Pool', 'kg C m-2', missing_value=-100.0, &
-       standard_name='carbon_in_fast_soil_pool', fill_missing=.TRUE.)
+       lnd%time, 'Carbon Mass in Slow Soil Pool', 'kg m-2', missing_value=-100.0, &
+       standard_name='slow_soil_pool_carbon_content', fill_missing=.TRUE.)
   id_rh = register_tiled_diag_field ( cmor_name, 'rh', (/id_ug/), &
        lnd%time, 'Heterotrophic Respiration', 'kg m-2 s-1', missing_value=-1.0, &
        standard_name='heterotrophic_respiration_carbon_flux', fill_missing=.TRUE.)

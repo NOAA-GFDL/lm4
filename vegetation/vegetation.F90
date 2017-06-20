@@ -687,44 +687,48 @@ subroutine vegn_diag_init(id_ug,id_band,time)
        time, 'leaf area index on land use tile', '1', missing_value = -1.0, &
        standard_name = 'leaf_area_index_lut', fill_missing = .FALSE.)
   call add_tiled_diag_field_alias ( id_btot, cmor_name, 'cVeg', (/id_ug/), &
-       time, 'Carbon Mass in Vegetation', 'kg C m-2', missing_value=-1.0, &
+       time, 'Carbon Mass in Vegetation', 'kg m-2', missing_value=-1.0, &
        standard_name='vegetation_carbon_content', fill_missing=.TRUE.)
   call add_tiled_diag_field_alias (id_btot, cmor_name, 'cVegLut', (/id_ug/), &
-       time, 'Carbon Mass in Vegetation', 'kg C m-2', missing_value=-1.0, &
+       time, 'Carbon Mass in Vegetation', 'kg m-2', missing_value=-1.0, &
        standard_name='vegetation_carbon_content', fill_missing=.FALSE.)
   id_cProduct = register_tiled_diag_field( cmor_name, 'cProduct', (/id_ug/), &
-       time, 'Carbon in Products of Land Use Change', 'kg C m-2', missing_value=-999.0, &
-       standard_name='carbon_in_producs_of_luc', fill_missing=.TRUE.)
+       time, 'Carbon Mass in Products of Landuse Change', 'kg m-2', missing_value=-999.0, &
+       standard_name='carbon_content_of_products_of_anthropogenic_land_use_change', fill_missing=.TRUE.)
   id_cAnt = register_tiled_diag_field( cmor_name, 'cAnt', (/id_ug/), &
-       time, 'Carbon in Anthropogenic Pool', 'kg C m-2', missing_value=-999.0, &
+       time, 'Carbon in Anthropogenic Pool', 'kg m-2', missing_value=-999.0, &
        fill_missing=.TRUE.) ! standard_name not known at this time
   call add_tiled_diag_field_alias(id_cAnt, cmor_name, 'cAntLut', (/id_ug/), &
-       time, 'Carbon in Anthropogenic Pools Associated with Land Use Tiles', 'kg C m-2', &
+       time, 'Carbon in Anthropogenic Pools Associated with Land Use Tiles', 'kg m-2', &
        missing_value=-999.0, fill_missing = .TRUE.) ! standard_name not known at this time
   id_fFire = register_tiled_diag_field ( cmor_name, 'fFire', (/id_ug/), &
-       time, 'CO2 Emission from Fire', 'kg C m-2 s-1', missing_value=-1.0, &
-       standard_name='co2_emission_from_fire', fill_missing=.TRUE.)
+       time, 'Carbon Mass Flux into Atmosphere due to CO2 Emission from Fire', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_fires_excluding_anthropogenic_land_use_change', &
+       fill_missing=.TRUE.)
   id_fGrazing = register_tiled_diag_field( cmor_name, 'fGrazing', (/id_ug/), &
-       time, 'CO2 flux to Atmosphere from Grazing', 'kg C m-2 s-1', missing_value=-1.0, &
-       standard_name='co2_flux_to_atmosphere_from_grazing', fill_missing=.TRUE.)
+       time, 'Carbon Mass Flux into Atmosphere due to Grazing on Land', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_grazing', &
+       fill_missing=.TRUE.)
   id_fHarvest = register_tiled_diag_field( cmor_name, 'fHarvest', (/id_ug/), &
-       time, 'CO2 flux to Atmosphere from Crop Harvesting', 'kg C m-2 s-1', missing_value=-1.0, &
-       standard_name='co2_flux_to_atmosphere_from_crop_harvesting', fill_missing=.TRUE.)
+       time, 'Carbon Mass Flux into Atmosphere due to Crop Harvesting', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_crop_harvesting', &
+       fill_missing=.TRUE.)
   id_fLuc = register_tiled_diag_field( cmor_name, 'fLuc', (/id_ug/), &
-       time, 'CO2 flux to Atmosphere from Land Use Change', 'kg C m-2 s-1', missing_value=-1.0, &
-       standard_name='co2_flux_to_atmosphere_from_land_use_change', fill_missing=.TRUE.)
+       time, 'Net Carbon Mass Flux into Atmosphere due to Land Use Change', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_net_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_anthropogenic_land_use_change', &
+       fill_missing=.TRUE.)
   id_cLeaf = register_tiled_diag_field ( cmor_name, 'cLeaf',  (/id_ug/), &
-       time, 'Carbon in Leaves', 'kg C m-2', missing_value=-1.0, &
-       standard_name='carbon_in_leaves', fill_missing=.TRUE.)
+       time, 'Carbon Mass in Leaves', 'kg m-2', missing_value=-1.0, &
+       standard_name='leaf_carbon_content', fill_missing=.TRUE.)
   id_cWood = register_tiled_diag_field ( cmor_name, 'cWood',  (/id_ug/), &
-       time, 'Carbon in Wood', 'kg C m-2', missing_value=-1.0, &
-       standard_name='carbon_in_wood', fill_missing=.TRUE.)
+       time, 'Carbon Mass in Wood', 'kg m-2', missing_value=-1.0, &
+       standard_name='wood_carbon_content', fill_missing=.TRUE.)
   id_cRoot = register_tiled_diag_field ( cmor_name, 'cRoot',  (/id_ug/), &
-       time, 'Carbon in Roots', 'kg C m-2', missing_value=-1.0, &
-       standard_name='carbon_in_roots', fill_missing=.TRUE.)
+       time, 'Carbon Mass in Roots', 'kg m-2', missing_value=-1.0, &
+       standard_name='root_carbon_content', fill_missing=.TRUE.)
   id_cMisc = register_tiled_diag_field ( cmor_name, 'cMisc',  (/id_ug/), &
-       time, 'Carbon in Other Living Compartments', 'kg C m-2', missing_value=-1.0, &
-       standard_name='carbon_in_other_living_compartments', fill_missing=.TRUE.)
+       time, 'Carbon Mass in Other Living Compartments on Land', 'kg m-2', missing_value=-1.0, &
+       standard_name='miscellaneous_living_matter_carbon_content', fill_missing=.TRUE.)
 end subroutine
 
 

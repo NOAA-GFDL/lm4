@@ -3363,7 +3363,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
              standard_name='surface_upward_latent_heat_flux', fill_missing=.FALSE.)
   id_nbp = register_tiled_diag_field ( cmor_name, 'nbp', axes, time, &
              'Carbon Mass Flux out of Atmosphere due to Net Biospheric Production on Land', &
-             'kg C m-2 s-1', missing_value=-1.0, &
+             'kg m-2 s-1', missing_value=-1.0, &
              standard_name='surface_net_downward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_all_land_processes', &
              fill_missing=.TRUE.)
   id_rlusLut = register_tiled_diag_field ( cmor_name, 'rlusLut', axes, time, &
@@ -3410,7 +3410,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
              missing_value=-1.0e+20, fill_missing=.FALSE. )
 
   id_cLand = register_tiled_diag_field ( cmor_name, 'cLand', axes, time, &
-             'Total carbon in all terrestrial carbon pools', 'kg C m-2', &
+             'Total Carbon in All Terrestrial Carbon Pools', 'kg m-2', &
              standard_name='total_land_carbon', &
              missing_value=-1.0, fill_missing=.TRUE. )
   ! add alias for compatibility with older diag tables
