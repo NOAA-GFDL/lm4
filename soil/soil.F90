@@ -1342,7 +1342,7 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        standard_name='liquid_moisture_content_of_soil_layer', fill_missing=.TRUE.)
   id_mrsol = register_tiled_diag_field ( cmor_name, 'mrsol', axes,  &
        lnd%time, 'Total Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
-       standard_name='total_moisture_content_of_soil_layer', fill_missing=.TRUE.)
+       standard_name='moisture_content_of_soil_layer', fill_missing=.TRUE.)
   id_mrso  = register_tiled_diag_field ( cmor_name, 'mrso', axes(1:1),  &
        lnd%time, 'Total Soil Moisture Content', 'kg m-2', missing_value=-100.0, &
        standard_name='soil_moisture_content', fill_missing=.TRUE.)
@@ -1362,7 +1362,7 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
        standard_name='soil_frozen_water_content', fill_missing=.TRUE.)
   id_mrlso = register_tiled_diag_field ( cmor_name, 'mrlso', axes(1:1),  &
        lnd%time, 'Soil Liquid Water Content', 'kg m-2', missing_value=-100.0, &
-       standard_name='soil_frozen_water_content', fill_missing=.TRUE.)
+       standard_name='soil_liquid_water_content', fill_missing=.TRUE.)
   id_mrros = register_tiled_diag_field ( cmor_name, 'mrros',  axes(1:1),  &
        lnd%time, 'Surface Runoff', 'kg m-2 s-1',  missing_value=-100.0, &
        standard_name='surface_runoff_flux', fill_missing=.TRUE.)
