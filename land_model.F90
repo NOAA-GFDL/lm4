@@ -3432,56 +3432,56 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   call diag_field_add_attribute(id_sftgif,'cell_methods','area: mean')
   call diag_field_add_attribute(id_sftgif,'ocean_fillvalue',0.0)
   id_cropFrac = register_diag_field ( cmor_name, 'cropFrac', axes, time, &
-             'Crop Fraction','%', standard_name='crop_fraction', &
+             'Crop Fraction','%', standard_name='area_fraction', &
              area=id_cellarea)
   call diag_field_add_attribute(id_cropFrac,'cell_methods','area: mean')
   call diag_field_add_attribute(id_cropFrac,'ocean_fillvalue',0.0)
   id_cropFracC3 = register_diag_field ( cmor_name, 'cropFracC3', axes, time, &
-             'C3 Crop Fraction','%', standard_name='crop_fraction_c3', &
+             'C3 Crop Fraction','%', standard_name='area_fraction', &
              area=id_cellarea)
   call diag_field_add_attribute(id_cropFracC3,'cell_methods','area: mean')
   id_cropFracC4 = register_diag_field ( cmor_name, 'cropFracC4', axes, time, &
-             'C4 Crop Fraction','%', standard_name='crop_fraction_c4', &
+             'C4 Crop Fraction','%', standard_name='area_fraction', &
              area=id_cellarea)
   call diag_field_add_attribute(id_cropFracC4,'cell_methods','area: mean')
   call diag_field_add_attribute(id_cropFracC4,'ocean_fillvalue',0.0)
   id_pastureFrac = register_diag_field ( cmor_name, 'pastureFrac', axes, time, &
-             'Anthropogenic Pasture Fraction','%', standard_name='anthropogenic_pasture_fraction', &
+             'Anthropogenic Pasture Fraction','%', standard_name='area_fraction', &
              area=id_cellarea)
   call diag_field_add_attribute(id_pastureFrac,'cell_methods','area: mean')
   call diag_field_add_attribute(id_pastureFrac,'ocean_fillvalue',0.0)
   id_residualFrac = register_static_field ( cmor_name, 'residualFrac', axes, &
              'Fraction of Grid Cell that is Land but Neither Vegetation-Covered nor Bare Soil','%', &
-             standard_name='fraction_of_land_which_is_non_vegetation_and_non_bare_soil', &
+             standard_name='area_fraction', &
              area=id_cellarea)
   call diag_field_add_attribute(id_residualFrac,'cell_methods','area: mean')
   call diag_field_add_attribute(id_residualFrac,'ocean_fillvalue',0.0)
   id_treeFrac = register_diag_field ( cmor_name, 'treeFrac', axes, time, &
-             'Tree Cover Fraction','%', standard_name='tree_cover_fraction', area=id_cellarea)
+             'Tree Cover Fraction','%', standard_name='area_fraction', area=id_cellarea)
   call diag_field_add_attribute(id_treeFrac,'cell_methods','area: mean')
   call diag_field_add_attribute(id_treeFrac,'ocean_fillvalue',0.0)
   id_grassFrac = register_diag_field ( cmor_name, 'grassFrac', axes, time, &
-             'Natural Grass Fraction','%', standard_name='natural_grass_fraction', &
+             'Natural Grass Fraction','%', standard_name='area_fraction', &
              area=id_cellarea)
   call diag_field_add_attribute(id_grassFrac,'cell_methods','area: mean')
   call diag_field_add_attribute(id_grassFrac,'ocean_fillvalue',0.0)
   id_grassFracC3 = register_diag_field ( cmor_name, 'grassFracC3', axes, time, &
-             'C3 Natural Grass Fraction','%', standard_name='natural_grass_fraction_c3', &
+             'C3 Natural Grass Fraction','%', standard_name='area_fraction', &
              area=id_cellarea)
   call diag_field_add_attribute(id_grassFracC3,'cell_methods','area: mean')
   call diag_field_add_attribute(id_grassFracC3,'ocean_fillvalue',0.0)
   id_grassFracC4 = register_diag_field ( cmor_name, 'grassFracC4', axes, time, &
-             'C4 Natural Grass Fraction','%', standard_name='natural_grass_fraction_c4', &
+             'C4 Natural Grass Fraction','%', standard_name='area_fraction', &
              area=id_cellarea)
   call diag_field_add_attribute(id_grassFracC4,'cell_methods','area: mean')
   call diag_field_add_attribute(id_grassFracC4,'ocean_fillvalue',0.0)
   id_c3pftFrac = register_diag_field ( cmor_name, 'c3PftFrac', axes, time, &
-             'Total C3 PFT Cover Fraction','%', standard_name='total_c3_pft_cover_fraction', &
+             'Total C3 PFT Cover Fraction','%', standard_name='area_fraction', &
              area=id_cellarea)
   call diag_field_add_attribute(id_c3pftFrac,'cell_methods','area: mean')
   call diag_field_add_attribute(id_c3pftFrac,'ocean_fillvalue',0.0)
   id_c4pftFrac = register_diag_field ( cmor_name, 'c4PftFrac', axes, time, &
-             'Total C4 PFT Cover Fraction','%', standard_name='total_c4_pft_cover_fraction', &
+             'Total C4 PFT Cover Fraction','%', standard_name='area_fraction', &
              area=id_cellarea)
   call diag_field_add_attribute(id_c4pftFrac,'cell_methods','area: mean')
   call diag_field_add_attribute(id_c4pftFrac,'ocean_fillvalue',0.0)
