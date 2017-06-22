@@ -1604,9 +1604,13 @@ end subroutine river_stock_pe
 subroutine get_river_water(water)
   real, intent(out) :: water(lnd%is:lnd%ie,lnd%js:lnd%je)
 
-  water(:,:) = River%run_stor*River%dt_fast
-  where (lnd%sg_area > 0.0) &
-      water(:,:) = water(:,:) + DENS_H2O*(River%storage+River%stordis)/lnd%sg_area
+  if (do_rivers) then
+     water(:,:) = River%run_stor*River%dt_fast
+     where (lnd%sg_area > 0.0) &
+         water(:,:) = water(:,:) + DENS_H2O*(River%storage+River%stordis)/lnd%sg_area
+  else
+     water(:,:) = 0.0
+  endif
 end subroutine get_river_water
 
 !#####################################################################
