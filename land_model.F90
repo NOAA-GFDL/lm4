@@ -3406,7 +3406,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
       standard_name='surface_upward_sensible_heat_flux')
 
   id_sweLut = register_tiled_diag_field ( cmor_name, 'sweLut', axes, time, &
-             'Snow Water Equivalent on Land Use Tile','m', standard_name='snow_water_equivalent_lut', &
+             'Snow Water Equivalent on Land Use Tile','m', standard_name='snow_water_equivalent', &
              missing_value=-1.0e+20, fill_missing=.FALSE. )
 
   id_cLand = register_tiled_diag_field ( cmor_name, 'cLand', axes, time, &
@@ -3418,7 +3418,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
      'total land carbon', 'kg C/m2', missing_value=-1.0)
 
   id_nwdFracLut = register_tiled_diag_field ( cmor_name, 'nwdFracLut', axes, time, &
-             'Fraction of Land Use Tile Tile That is Non-Woody Vegetation', 'fraction', &
+             'Fraction of Land Use Tile Tile That is Non-Woody Vegetation', '1', &
              standard_name='under_review', missing_value=-1.0)
 
   id_sftlf = register_static_field ( cmor_name, 'sftlf', axes, &

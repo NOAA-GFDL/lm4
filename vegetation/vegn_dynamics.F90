@@ -104,19 +104,19 @@ subroutine vegn_dynamics_init(id_ug,time,delta_time)
   call set_default_diag_filter('land')
   id_gpp_cmor = register_tiled_diag_field ( cmor_name, 'gpp', (/id_ug/), &
        time, 'Carbon Mass Flux out of Atmosphere due to Gross Primary Production on Land', &
-       'kg m-2 s-1', missing_value=-1.0, &
-       standard_name='gross_primary_productivity_of_carbon', fill_missing=.TRUE.)
+       'kg m-2 s-1', missing_value=-1.0, fill_missing=.TRUE., &
+       standard_name='gross_primary_productivity_of_biomass_expressed_as_carbon')
   call add_tiled_diag_field_alias ( id_gpp_cmor, cmor_name, 'gppLut', (/id_ug/), &
        time, 'Gross Primary Productivity on Land Use Tile', 'kg m-2 s-1', missing_value=-1.0, &
-       standard_name='gross_primary_land_productivity_of_carbon_lut', fill_missing=.FALSE.)
+       standard_name='gross_primary_productivity_of_biomass_expressed_as_carbon', fill_missing=.FALSE.)
   id_npp_cmor = register_tiled_diag_field ( cmor_name, 'npp', (/id_ug/), &
        time, 'Carbon Mass Flux out of Atmosphere due to Net Primary Production on Land', &
        'kg m-2 s-1', missing_value=-1.0, fill_missing=.TRUE., &
-       standard_name='net_primary_productivity_of_carbon')
+       standard_name='net_primary_productivity_of_biomass_expressed_as_carbon')
   call add_tiled_diag_field_alias ( id_npp_cmor, cmor_name, 'nppLut', (/id_ug/), &
        time, 'Carbon Mass Flux out of Atmosphere due to Net Primary Production on Land', &
        'kg m-2 s-1', missing_value=-1.0, fill_missing=.FALSE., &
-       standard_name='net_primary_productivity_of_carbon')
+       standard_name='net_primary_productivity_of_biomass_expressed_as_carbon')
   id_nep_cmor = register_tiled_diag_field ( cmor_name, 'nep', (/id_ug/), &
        time, 'Net Carbon Mass Flux out of Atmophere due to Net Ecosystem Productivity on Land.', &
        'kg m-2 s-1', missing_value=-1.0, &
@@ -125,14 +125,15 @@ subroutine vegn_dynamics_init(id_ug,time,delta_time)
   id_ra = register_tiled_diag_field ( cmor_name, 'ra', (/id_ug/), &
        time, 'Carbon Mass Flux into Atmosphere due to Autotrophic (Plant) Respiration on Land', &
        'kg m-2 s-1', missing_value=-1.0, &
-       standard_name='autotrophic_plant_respiration', fill_missing=.TRUE.)
+       standard_name='plant_respiration_carbon_flux', fill_missing=.TRUE.)
   call add_tiled_diag_field_alias (id_ra, cmor_name, 'raLut', (/id_ug/), &
        time, 'Carbon Mass Flux into Atmosphere due to Autotrophic (Plant) Respiration on Land', &
        'kg m-2 s-1', missing_value=-1.0, &
-       standard_name='autotrophic_plant_respiration', fill_missing=.FALSE.)
+       standard_name='plant_respiration_carbon_flux', fill_missing=.FALSE.)
   id_rgrowth = register_tiled_diag_field ( cmor_name, 'rGrowth', (/id_ug/), &
        time, 'Growth Autotrophic Respiration', 'kg m-2 s-1', missing_value=-1.0, &
-       standard_name='growth_autotrophic_respiration', fill_missing=.TRUE.)
+       standard_name='surface_upward_carbon_mass_flux_due_to_plant_respiration_for_biomass_growth',&
+       fill_missing=.TRUE.)
 
 end subroutine vegn_dynamics_init
 

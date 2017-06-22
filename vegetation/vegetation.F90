@@ -681,11 +681,11 @@ subroutine vegn_diag_init(id_ug,id_band,time)
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('land')
   call add_tiled_diag_field_alias(id_lai, cmor_name, 'lai', (/id_ug/), &
-       time, 'Leaf Area Index', '1', missing_value = -1.0, &
+       time, 'Leaf Area Index', '1.0', missing_value = -1.0, &
        standard_name = 'leaf_area_index', fill_missing = .TRUE.)
   call add_tiled_diag_field_alias(id_lai, cmor_name, 'laiLut', (/id_ug/), &
-       time, 'leaf area index on land use tile', '1', missing_value = -1.0, &
-       standard_name = 'leaf_area_index_lut', fill_missing = .FALSE.)
+       time, 'leaf area index on land use tile', '1.0', missing_value = -1.0, &
+       standard_name = 'leaf_area_index', fill_missing = .FALSE.)
   call add_tiled_diag_field_alias ( id_btot, cmor_name, 'cVeg', (/id_ug/), &
        time, 'Carbon Mass in Vegetation', 'kg m-2', missing_value=-1.0, &
        standard_name='vegetation_carbon_content', fill_missing=.TRUE.)
