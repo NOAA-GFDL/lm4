@@ -496,7 +496,7 @@ subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time
                     trim(module_name)//'/'//trim(field_name)//'"', FATAL)
     id1 = reg_field(static, module_name, field_name, init_time, axes, long_name, &
           units, missing_value, range, op=op, offset=fields(ifld0)%offset, &
-          fill_missing=fill_missing)
+          standard_name=standard_name, fill_missing=fill_missing)
     call add_cell_measures(id1)
     call add_cell_methods(id1)
     if (id1>0) then
