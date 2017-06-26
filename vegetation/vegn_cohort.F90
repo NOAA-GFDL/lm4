@@ -145,11 +145,11 @@ type :: vegn_cohort_type
   real :: extinct = 0.0     ! light extinction coefficient in the canopy for photosynthesis calculations
 
   ! ens introduce for growth respiration
-   real :: growth_previous_day     = 0.0 ! kgC/individual, pool of growth respiration
-   real :: growth_previous_day_tmp = 0.0 ! kgC/individual per year, rate of release of
-                                         ! growth respiration to the atmosphere
-   real :: branch_sw_loss   = 0.0
-   real :: branch_wood_loss = 0.0
+  real :: growth_previous_day     = 0.0 ! kgC/individual, pool of growth respiration
+  real :: growth_previous_day_tmp = 0.0 ! kgC/individual per year, rate of release of
+                                        ! growth respiration to the atmosphere
+  !02/08/17
+  real :: brsw = 0.0
 
 ! for phenology
   real :: gdd = 0.0
@@ -594,7 +594,10 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac)
   case (ALLOM_HML)
      cc%dbh = (sp%gammaHT/(sp%alphaHT/height - 1))**(1.0/sp%thetaHT)
      bw = sp%rho_wood * sp%alphaBM * cc%dbh**2 * cc%height
-     Dwood = sqrt(max(0.0,cc%dbh**2 - 4/pi*sp%alphaCSASW * cc%dbh**sp%thetaCSASW))
+     ! isa and es 201701 - CSAsw different for ALLOM_HML
+     !Dwood = sqrt(max(0.0,cc%dbh**2 - 4/pi*sp%alphaCSASW * cc%dbh**sp%thetaCSASW))
+     Dwood = sqrt(max(0.0,cc%dbh**2 - 4/pi* sp%phiCSA * &
+                  cc%DBH**(sp%thetaCA + sp%thetaHT) / (sp%gammaHT + cc%DBH** sp%thetaHT)))
      cc%bwood = sp%rho_wood * sp%alphaBM * Dwood**2 * cc%height
      cc%bsw   = bw - cc%bwood
   end select
@@ -605,6 +608,9 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac)
   cc%br      = 0.0
   BL_u = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac) * understory_lai_factor
   BL_c = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
+  !02/08/17 ens
+  cc%brsw = sp%branch_wood_frac * ( cc%bsw + cc%bwood )
+
   if(sp%lifeform == FORM_GRASS) then
      cc%bl_max = BL_c
   else
@@ -618,8 +624,6 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac)
 
   cc%growth_previous_day     = 0.0
   cc%growth_previous_day_tmp = 0.0
-  cc%branch_sw_loss          = 0.0
-  cc%branch_wood_loss        = 0.0
   cc%carbon_gain = 0.0
   cc%carbon_loss = 0.0
   cc%DBH_ys      = cc%DBH
@@ -647,13 +651,22 @@ subroutine init_cohort_hydraulics(cc, init_psi)
 
   associate(sp=>spdata(cc%species))
   rootarea = cc%br * sp%srl * 2*PI * sp%root_r  ! (kg/indiv)(m/kg)(m2/m)
-  stemarea = sp%alphaCSASW * cc%DBH**sp%thetaCSASW
+
+  ! isa and es 201701 - CSAsw different for ALLOM_HML
+  select case (sp%allomt)
+  case (ALLOM_EW,ALLOM_EW1)
+     stemarea = sp%alphaCSASW * cc%DBH**sp%thetaCSASW
+  case (ALLOM_HML)
+     stemarea = sp%phiCSA * cc%DBH**(sp%thetaCA + sp%thetaHT) / (sp%gammaHT + cc%DBH** sp%thetaHT)
+  end select
 
   cc%Kxa = sp%Kxam
   cc%Kla = sp%Klam
 
   cc%Kxi = cc%Kxa * stemarea / cc%height
   cc%Kli = cc%Kla * cc%leafarea
+
+  !write (*,*) ' Kli  ', cc%Kli
 
   cc%psi_r  = init_psi
   cc%psi_x  = init_psi

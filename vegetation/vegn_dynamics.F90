@@ -380,19 +380,22 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      cc%br = cc%br - deltaBR
 
      ! compute branch and coarse wood losses for tree types
-     md_wood = 0.0
+     !md_wood = 0.0
      md_branch_sw = 0.0
      if (spdata(cc%species)%lifeform == FORM_WOODY) then
-        md_wood      = sp%branch_wood_frac * Max(cc%bwood,0.0) * sp%alpha_wood * dt_fast_yr
-        md_branch_sw = sp%branch_wood_frac * Max(cc%bsw,0.0)   * sp%alpha_wood * dt_fast_yr
-
-        cc%branch_sw_loss = cc%branch_sw_loss + md_branch_sw !remember how much was lost over the day
-        cc%branch_wood_loss = cc%branch_wood_loss + md_wood
-
+        ! md_wood      = sp%branch_wood_frac * Max(cc%bwood,0.0) * sp%alpha_wood * dt_fast_yr
+        ! md_branch_sw = sp%branch_wood_frac * Max(cc%bsw,0.0)   * sp%alpha_wood * dt_fast_yr
+        ! ens 02/07/17
+		md_branch_sw = Max(cc%brsw,0.0) * sp%alpha_wood * dt_fast_yr
+		cc%brsw = cc%brsw - md_branch_sw
+		! do we need to leep track of it here?
+        !cc%branch_sw_loss = cc%branch_sw_loss + md_branch_sw !remember how much was lost over the day
+        !cc%branch_wood_loss = cc%branch_wood_loss + md_wood
      endif
 
      cc%bsw = cc%bsw - md_branch_sw
-     cc%bwood = cc%bwood - md_wood
+     !cc%bwood = cc%bwood - md_wood
+
      !reduce nsc by the amount of root exudates during the date
      ! TODO: when merging with N code take exudates from NSC not carbon gained
      ! TODO: need different than a fraction of NPP formulation
@@ -688,7 +691,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
   ! TODO: what if carbon_gain is not 0, but leaves are OFF (marginal case? or
   ! typical in lm3?)
   delta_bsw_branch = 0.
-  delta_wood_branch  = 0.
+  !delta_wood_branch  = 0.
   ! set init values for diag output, to be returned when the actual calulations are bypassed:
   wood_prod = 0.0 ; leaf_root_gr = 0.0 ; sw_seed_gr = 0.0 ; deltaDBH = 0.0
   if (cc%status == LEAF_ON) then
@@ -704,22 +707,31 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      ! calculate carbon spent on seeds and sapwood growth
 
      !ens first replace lost branch sapwood
-     delta_bsw_branch  = 0.0
-     if (cc%branch_sw_loss > 0) then
-        delta_bsw_branch = max (min(cc%branch_sw_loss, 0.1*cc%nsc/(1+GROWTH_RESP)), 0.0)
-        cc%bsw = cc%bsw+delta_bsw_branch
-        cc%branch_sw_loss = cc%branch_sw_loss - delta_bsw_branch
-     endif
+     !delta_bsw_branch  = 0.0
+     !if (cc%branch_sw_loss > 0) then
+     !   delta_bsw_branch = max (min(cc%branch_sw_loss, 0.1*cc%nsc/(1+GROWTH_RESP)), 0.0)
+     !   cc%bsw = cc%bsw+delta_bsw_branch
+     !   cc%branch_sw_loss = cc%branch_sw_loss - delta_bsw_branch
+     !endif
 
      ! replace lost branch wood from sapwood pool- do we need respiration here?
-     if (cc%branch_wood_loss > 0) then
-        delta_wood_branch = max(min(cc%branch_wood_loss, 0.25*cc%bsw), 0.0)
-        cc%bsw = cc%bsw - delta_wood_branch
-        cc%bwood = cc%bwood + delta_wood_branch
-        cc%branch_wood_loss = cc%branch_wood_loss - delta_wood_branch
-     endif
+     !if (cc%branch_wood_loss > 0) then
+     !   delta_wood_branch = max(min(cc%branch_wood_loss, 0.25*cc%bsw), 0.0)
+     !   cc%bsw = cc%bsw - delta_wood_branch
+     !   cc%bwood = cc%bwood + delta_wood_branch
+     !   cc%branch_wood_loss = cc%branch_wood_loss - delta_wood_branch
+     !endif
 
+	! 02/07/17
+	! should this delta_bsw be updated after updating dbh and height?
+	! check if daily branch increase is nt too abrupt
+	delta_bsw_branch = max (min(sp%branch_wood_frac * sp%alphaBM * sp%rho_wood * &
+	              cc%DBH * cc%DBH * cc%height - cc%brsw, 0.1*cc%nsc/(1+GROWTH_RESP)), 0.0)
+	cc%brsw = cc%brsw+delta_bsw_branch
+	cc%bsw = cc%bsw+delta_bsw_branch
 
+	!ens 02/14/17
+	!update seed and sapwood biomass pools with the new growth (branches were updated above)
      NSCtarget = 4.0*cc%bl_max
      G_WF=0.0
      if (NSCtarget < cc%nsc) then ! ens change this
@@ -740,10 +752,12 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      cc%br     = cc%br    + deltaBR
      cc%bsw    = cc%bsw   + deltaBSW
      cc%bseed  = cc%bseed + deltaSeed
+     ! reduce storage by  growth respiration
      cc%nsc = cc%nsc - (G_LFR + G_WF+delta_bsw_branch )*(1.+GROWTH_RESP)
 
-     wood_prod = deltaBSW*365.0 ! conversion from kgC/day to kgC/year
-     leaf_root_gr = G_LFR*365.0 ! conversion from kgC/day to kgC/year
+     wood_prod = deltaBSW*days_per_year ! conversion from kgC/day to kgC/year
+     ! compute daily respiration fluxes
+     leaf_root_gr = G_LFR*days_per_year ! conversion from kgC/day to kgC/year
      sw_seed_gr = (G_WF+delta_bsw_branch )*GROWTH_RESP*days_per_year ! conversion from kgC/day to kgC/year
 
      call check_var_range(cc%nsc,0.0,HUGE(1.0),'vegn_dynamics','cc%nsc', WARNING)
@@ -788,26 +802,40 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      ! slm 20160523: max biomass of sapwood BSWmax is calculated from allometric
      ! relationships as the B(DBH) - B(DBH of heartwood). DBH of heartwood is
      ! calculated using the allometric relationship for sapwood cross-section
-     CSAsw    = sp%alphaCSASW * cc%DBH**sp%thetaCSASW ! sapwood cross-section
-     CSAtot   = PI * (cc%DBH/2.0)**2 ! total trunk cross-section
-     CSAwd    = max(0.0, CSAtot - CSAsw) ! cross-section of heartwood
-     DBHwd    = 2*sqrt(CSAwd/PI) ! DBH of heartwood
      select case(sp%allomt)
      case (ALLOM_EW,ALLOM_EW1)
+        CSAsw    = sp%alphaCSASW * cc%DBH**sp%thetaCSASW ! sapwood cross-section
+        CSAtot   = PI * (cc%DBH/2.0)**2 ! total trunk cross-section
+        CSAwd    = max(0.0, CSAtot - CSAsw) ! cross-section of heartwood
+        DBHwd    = 2*sqrt(CSAwd/PI) ! DBH of heartwood
+        ! before only BSWmax, 4 lines above from Isa
         BSWmax = sp%alphaBM * sp%rho_wood * (cc%DBH**sp%thetaBM - DBHwd**sp%thetaBM)
      case (ALLOM_HML)
+        CSAsw    = sp%phiCSA * cc%DBH**(sp%thetaCA + sp%thetaHT) / (sp%gammaHT + cc%DBH** sp%thetaHT)
+        CSAtot   = PI * (cc%DBH/2.0)**2 ! total trunk cross-section
+        CSAwd    = max(0.0, CSAtot - CSAsw) ! cross-section of heartwood
+        DBHwd    = 2*sqrt(CSAwd/PI) ! DBH of heartwood
         BSWmax = sp%alphaBM * sp%rho_wood * cc%height * (cc%DBH**2 - DBHwd**2)
      end select
 
      ! Update Kxa, stem conductance if we are tracking past damage
      ! TODO: make hydraulics_repair a namelist parameter?
      if (.not.hydraulics_repair) then
-        deltaCSAsw = CSAsw - (sp%alphaCSASW * (cc%DBH - deltaDBH)**sp%thetaCSASW)
+        !deltaCSAsw = CSAsw - (sp%alphaCSASW * (cc%DBH - deltaDBH)**sp%thetaCSASW)
+         ! isa and es 201701 - CSAsw different for ALLOM_HML - include into previous case?
+        select case(sp%allomt)
+        case (ALLOM_EW,ALLOM_EW1)
+           deltaCSAsw = CSAsw - (sp%alphaCSASW * (cc%DBH - deltaDBH)**sp%thetaCSASW)
+        case (ALLOM_HML)
+           deltaCSAsw = CSAsw - (sp%phiCSA * (cc%DBH - deltaDBH)**( sp%thetaCA + sp%thetaHT) / (sp%gammaHT + (cc%DBH - deltaDBH)** sp%thetaHT) )
+        end select
         cc%Kxa = (cc%Kxa*CSAsw + sp%Kxam*deltaCSAsw)/(CSAsw + deltaCSAsw)
      endif
 
      ! slm 20160523: are we retiring sapwood to wood only if it exceeds max sapwood? why?
-     deltaBwood = max(cc%bsw - BSWmax, 0.0)
+     ! ens 02/14/17 replace wood allocation function
+     !deltaBwood = max(cc%bsw - BSWmax, 0.0)
+     deltaBwood = max(cc%bsw - cc%brsw - (1.0 - ( cc%brsw / cc%bsw ) )*BSWmax, 0.0)
      cc%bwood   = cc%bwood + deltaBwood
      cc%bsw     = cc%bsw   - deltaBwood
 
@@ -819,7 +847,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      if (cc%layer > 1 .and. cc%firstlayer == 0) then ! changed back, Weng 2014-01-23
         cc%topyear = 0.0
         cc%bl_max = BL_u
-        cc%br_max = 0.8*cc%bl_max/(sp%LMA*sp%SRA)
+        cc%br_max = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
      else
         if(cc%layer == 1)cc%topyear = cc%topyear + 1.0/365.0  ! daily step
         if(cc%layer>1)cc%firstlayer = 0 ! Just for the first year, those who were

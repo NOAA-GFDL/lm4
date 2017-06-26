@@ -212,7 +212,8 @@ integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_nlayers, id_dbh, id_dbh_max, &
    id_crownarea, &
    id_soil_water_supply, id_gdd, id_tc_pheno, id_zstar_1, &
-   id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi
+   id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi, &
+   id_brsw
 ! ==== end of module variables ===============================================
 
 contains
@@ -376,8 +377,7 @@ subroutine vegn_init ( id_ug, id_band )
 
         call get_cohort_data(restart2, 'growth_prev_day', cohort_growth_previous_day_ptr )
         call get_cohort_data(restart2, 'growth_prev_day_tmp', cohort_growth_previous_day_tmp_ptr )
-        call get_cohort_data(restart2, 'branch_sw_loss', cohort_branch_sw_loss_ptr )
-        call get_cohort_data(restart2, 'branch_wood_loss', cohort_branch_wood_loss_ptr )
+        call get_cohort_data(restart2, 'brsw', cohort_brsw_ptr)
         did_read_cohort_structure=.TRUE.
      else
         did_read_cohort_structure=.FALSE.
@@ -714,7 +714,9 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        (/id_ug/), time, 'max biomass of leaves', 'kg C/m2', missing_value=-1.0)
   id_br_max = register_cohort_diag_field ( module_name, 'br_max',  &
        (/id_ug/), time, 'max biomass of fine roots', 'kg C/m2', missing_value=-1.0)
-
+  ! ens 021617
+  id_brsw = register_cohort_diag_field ( module_name, 'brsw',  &
+       (/id_ug/), time, 'biomass of branches (only sapwood)', 'kg C/m2', missing_value=-1.0)
 
   id_fuel = register_tiled_diag_field ( module_name, 'fuel',  &
        (/id_ug/), time, 'mass of fuel', 'kg C/m2', missing_value=-1.0 )
@@ -968,8 +970,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
 
   call add_cohort_data(restart2,'growth_prev_day', cohort_growth_previous_day_ptr, 'pool of growth respiration','kg C')
   call add_cohort_data(restart2,'growth_prev_day_tmp', cohort_growth_previous_day_tmp_ptr, 'rate of growth respiration release to atmos','kg C/year')
-  call add_cohort_data(restart2,'branch_sw_loss', cohort_branch_sw_loss_ptr, 'branch_sw_loss','kg C/year')
-  call add_cohort_data(restart2,'branch_wood_loss', cohort_branch_wood_loss_ptr, 'branch_wood_loss','kg C/year')
+  call add_cohort_data(restart2,'brsw', cohort_brsw_ptr, 'biomass of branches (only sapwood)','kg C/individual')
 
   call add_int_tile_data(restart2,'landuse',vegn_landuse_ptr,'vegetation land use type')
   call add_tile_data(restart2,'age',vegn_age_ptr,'vegetation age', 'yr')
@@ -2085,7 +2086,8 @@ subroutine update_vegn_slow( )
      call send_cohort_data(id_bwood,  tile%diag, cc(1:N), cc(1:N)%bwood,  weight=cc(1:N)%nindivs, op=OP_SUM)
      call send_cohort_data(id_bseed,  tile%diag, cc(1:N), cc(1:N)%bseed,  weight=cc(1:N)%nindivs, op=OP_SUM)
      call send_cohort_data(id_nsc,    tile%diag, cc(1:N), cc(1:N)%nsc,    weight=cc(1:N)%nindivs, op=OP_SUM)
-
+     ! ens 021517
+     call send_cohort_data(id_brsw,   tile%diag, cc(1:N), cc(1:N)%brsw,    weight=cc(1:N)%nindivs, op=OP_SUM)
      allocate(btot(N)) ! has to be allocated since N cohorts changes inside this subroutine
      btot(1:N) = cc(1:N)%bl    + &
                  cc(1:N)%blv   + &
@@ -2433,8 +2435,6 @@ DEFINE_COHORT_ACCESSOR(real,age)
 DEFINE_COHORT_ACCESSOR(real,npp_previous_day)
 DEFINE_COHORT_ACCESSOR(real,growth_previous_day)
 DEFINE_COHORT_ACCESSOR(real,growth_previous_day_tmp)
-DEFINE_COHORT_ACCESSOR(real,branch_sw_loss)
-DEFINE_COHORT_ACCESSOR(real,branch_wood_loss)
 DEFINE_COHORT_ACCESSOR(real,BM_ys)
 DEFINE_COHORT_ACCESSOR(real,DBH_ys)
 DEFINE_COHORT_ACCESSOR(real,topyear)
@@ -2447,5 +2447,8 @@ DEFINE_COHORT_ACCESSOR(real,psi_x)
 DEFINE_COHORT_ACCESSOR(real,psi_l)
 DEFINE_COHORT_ACCESSOR(real,Kxa)
 DEFINE_COHORT_ACCESSOR(real,Kla)
+
+! ens for branch sapwood
+DEFINE_COHORT_ACCESSOR(real,brsw)
 
 end module vegetation_mod
