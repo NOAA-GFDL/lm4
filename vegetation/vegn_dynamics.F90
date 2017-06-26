@@ -298,7 +298,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   real, intent(in) :: theta ! average soil wetness, unitless
   type(diag_buff_type), intent(inout) :: diag
 
-  real :: md_wood, md_branch_sw; ! in ppa we are losing and replacing branchwood
+  real :: md_branch_sw; ! in ppa we are losing and replacing branchwood
   real :: deltaBL, deltaBR ! leaf and fine root carbon tendencies
   integer :: i, l, N
   real :: NSC_supply,LR_demand,LR_deficit
@@ -380,21 +380,15 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      cc%br = cc%br - deltaBR
 
      ! compute branch and coarse wood losses for tree types
-     !md_wood = 0.0
      md_branch_sw = 0.0
      if (spdata(cc%species)%lifeform == FORM_WOODY) then
-        ! md_wood      = sp%branch_wood_frac * Max(cc%bwood,0.0) * sp%alpha_wood * dt_fast_yr
-        ! md_branch_sw = sp%branch_wood_frac * Max(cc%bsw,0.0)   * sp%alpha_wood * dt_fast_yr
         ! ens 02/07/17
 		md_branch_sw = Max(cc%brsw,0.0) * sp%alpha_wood * dt_fast_yr
-		cc%brsw = cc%brsw - md_branch_sw
-		! do we need to leep track of it here?
-        !cc%branch_sw_loss = cc%branch_sw_loss + md_branch_sw !remember how much was lost over the day
-        !cc%branch_wood_loss = cc%branch_wood_loss + md_wood
      endif
 
-     cc%bsw = cc%bsw - md_branch_sw
-     !cc%bwood = cc%bwood - md_wood
+     ! brsw is a part of bsw, so when we lose branches, we need to reduce both
+     cc%brsw = cc%brsw - md_branch_sw
+     cc%bsw  = cc%bsw  - md_branch_sw
 
      !reduce nsc by the amount of root exudates during the date
      ! TODO: when merging with N code take exudates from NSC not carbon gained
@@ -403,9 +397,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 
      ! accumulate liter and soil carbon inputs across all cohorts
      leaf_litt(:) = leaf_litt(:) + (/fsc_liv,  1.-fsc_liv,  0.0/)*deltaBL*cc%nindivs
-     !wood_litt(:) = wood_litt(:) + (/fsc_wood, 1.-fsc_wood, 0.0/)*(md_wood+md_branch_sw)*agf_bs*cc%nindivs
-
-     wood_litt(:) = wood_litt(:) + (/fsc_wood, 1.-fsc_wood, 0.0/)*(md_wood+md_branch_sw)*cc%nindivs
+     wood_litt(:) = wood_litt(:) + (/fsc_wood, 1.-fsc_wood, 0.0/)*md_branch_sw*cc%nindivs
 
      call cohort_root_litter_profile(cc, dz, profile)
      do l = 1, num_l
