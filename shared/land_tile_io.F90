@@ -1217,8 +1217,8 @@ subroutine gather_tile_index(tile_exists,idx)
 end subroutine gather_tile_index
 
 ! ============================================================================
-! given compressed index, returns a pointer to the tile corresponding to this 
-! index, or NULL if the index is outside current domain, or if such tile does 
+! given compressed index, returns a pointer to the tile corresponding to this
+! index, or NULL if the index is outside current domain, or if such tile does
 ! not exist.
 subroutine get_tile_by_idx(idx,ptr)
    integer, intent(in)           :: idx ! compressed-by-gathering tile index
@@ -1929,7 +1929,7 @@ subroutine write_tile_data_i2d(ncid,name,data,zdim,long_name,units)
      endif
      ! write data
      iret = nf_enddef(ncid) ! ignore errors: its OK if file is in data mode already
-     __NF_ASRT__(nf_put_var_double(ncid,varid,buff2))
+     __NF_ASRT__(nf_put_var_int(ncid,varid,buff2))
      deallocate(buff2,buff1,ntiles)
   endif
   ! wait for all PEs to finish: necessary because mpp_send does not seem to

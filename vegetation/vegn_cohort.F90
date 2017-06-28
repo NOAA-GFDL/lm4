@@ -607,7 +607,11 @@ subroutine update_biomass_pools(c)
   ! Elena suggests using 2*(root N + leaf N) as storage target
   ! bliving is already increased after cgain
   biomass_N_demand=(c%bliving*c%Pl/spdata(c%species)%leaf_live_c2n + c%bliving*c%Pr/spdata(c%species)%froot_live_c2n)
-  potential_stored_N = c%total_N - biomass_N_demand - c%bwood/spdata(c%species)%wood_c2n-c%bliving*c%Psw/spdata(c%species)%sapwood_c2n
+  if(c%status == LEAF_OFF) then
+    potential_stored_N = c%total_N - biomass_N_demand*2 - c%bwood/spdata(c%species)%wood_c2n-c%bliving*c%Psw/spdata(c%species)%sapwood_c2n
+  else
+    potential_stored_N = c%total_N - biomass_N_demand - c%bwood/spdata(c%species)%wood_c2n-c%bliving*c%Psw/spdata(c%species)%sapwood_c2n
+  endif
   ! c%nitrogen_stress = biomass_N_demand/c%total_N
 
   ! Spring physical analogy -- restoring force proportional to distance from target (equal to demand*2.0)

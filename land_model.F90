@@ -2112,6 +2112,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      call send_tile_data(id_water_cons, (lmass1+fmass1-v0)/delta_time, tile%diag)
   endif
   if(calc_carbon_cons) then
+    ! BNS: Does this take leaching of DOC into account?
      cmass1 = land_tile_carbon(tile)
      if (do_check_conservation) call check_conservation (tag,'carbon', &
         cmass0-(fco2_0+Dfco2Dq*delta_co2)*mol_C/mol_CO2*delta_time, &

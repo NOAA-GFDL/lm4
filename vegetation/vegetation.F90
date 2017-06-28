@@ -213,6 +213,8 @@ integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_leaf_N,id_root_N,id_wood_N,id_sapwood_N,id_seed_N,id_stored_N,id_veg_total_N,id_Ngain,id_Nloss,&
    id_myc_scavenger_C,id_myc_miner_C,id_N_fixer_C,&
    id_myc_scavenger_N,id_myc_miner_N,id_N_fixer_N,&
+   id_mycorrhizal_scav_C_res, id_mycorrhizal_scav_N_res, id_mycorrhizal_mine_C_res, id_mycorrhizal_mine_N_res, &
+   id_Nfix_C_res, id_Nfix_N_res,&
    id_species, id_dominant_by_n, id_dominant_by_b, id_status, &
    id_con_v_h, id_con_v_v, id_fuel, id_harv_pool(N_HARV_POOLS), id_harv_pool_nitrogen(N_HARV_POOLS), &
    id_harv_rate(N_HARV_POOLS), id_t_harv_pool, id_t_harv_rate, &
@@ -807,6 +809,19 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
         (/id_ug/), time, 'miner mycorrhizal biomass N', 'kg N/m2', missing_value=-1.0 )
    id_N_fixer_N = register_cohort_diag_field ( module_name, 'N_fixer_biomass_N',  &
         (/id_ug/), time, 'symbiotic N fixer biomass N', 'kg N/m2', missing_value=-1.0 )
+
+  id_mycorrhizal_scav_C_res = register_cohort_diag_field ( module_name, 'myc_scavenger_C_res',  &
+       (/id_ug/), time, 'Scavenger mycorrhizae C reservoir', 'kg C/m2', missing_value=-1.0 )
+  id_mycorrhizal_scav_N_res = register_cohort_diag_field ( module_name, 'myc_scavenger_N_res',  &
+       (/id_ug/), time, 'Scavenger mycorrhizae N reservoir', 'kg N/m2', missing_value=-1.0 )
+  id_mycorrhizal_mine_C_res = register_cohort_diag_field ( module_name, 'myc_miner_C_res',  &
+       (/id_ug/), time, 'Miner mycorrhizae C reservoir', 'kg C/m2', missing_value=-1.0 )
+  id_mycorrhizal_mine_N_res = register_cohort_diag_field ( module_name, 'myc_miner_N_res',  &
+       (/id_ug/), time, 'Miner mycorrhizae N reservoir', 'kg N/m2', missing_value=-1.0 )
+  id_Nfix_C_res = register_cohort_diag_field ( module_name, 'N_fixer_C_res',  &
+       (/id_ug/), time, 'N fixer C reservoir', 'kg C/m2', missing_value=-1.0 )
+  id_Nfix_N_res = register_cohort_diag_field ( module_name, 'N_fixer_N_res',  &
+       (/id_ug/), time, 'N fixer N reservoir', 'kg N/m2', missing_value=-1.0 )
 
   id_bl_max = register_cohort_diag_field ( module_name, 'bl_max',  &
        (/id_ug/), time, 'max biomass of leaves', 'kg C/m2', missing_value=-1.0)
@@ -2264,6 +2279,16 @@ subroutine update_vegn_slow( )
      call send_cohort_data(id_myc_scavenger_C,tile%diag, cc(1:N), cc(1:N)%myc_scavenger_biomass_C, weight=cc(1:N)%nindivs, op=OP_SUM)
      call send_cohort_data(id_myc_miner_C,tile%diag, cc(1:N), cc(1:N)%myc_miner_biomass_C, weight=cc(1:N)%nindivs, op=OP_SUM)
      call send_cohort_data(id_N_fixer_C,tile%diag, cc(1:N), cc(1:N)%N_fixer_biomass_C, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_myc_scavenger_N,tile%diag, cc(1:N), cc(1:N)%myc_scavenger_biomass_N, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_myc_miner_N,tile%diag, cc(1:N), cc(1:N)%myc_miner_biomass_N, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_N_fixer_N,tile%diag, cc(1:N), cc(1:N)%N_fixer_biomass_N, weight=cc(1:N)%nindivs, op=OP_SUM)
+
+     call send_cohort_data(id_mycorrhizal_scav_C_res,tile%diag,cc(1:N),cc(1:N)%scav_myc_C_reservoir,weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_mycorrhizal_scav_N_res,tile%diag,cc(1:N),cc(1:N)%scav_myc_N_reservoir,weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_mycorrhizal_mine_C_res,tile%diag,cc(1:N),cc(1:N)%mine_myc_C_reservoir,weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_mycorrhizal_mine_N_res,tile%diag,cc(1:N),cc(1:N)%mine_myc_N_reservoir,weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_mycorrhizal_scav_C_res,tile%diag,cc(1:N),cc(1:N)%N_fixer_C_reservoir,weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_mycorrhizal_scav_N_res,tile%diag,cc(1:N),cc(1:N)%N_fixer_N_reservoir,weight=cc(1:N)%nindivs, op=OP_SUM)
 
      allocate(btot(N)) ! has to be allocated since N cohorts changes inside this subroutine
      btot(1:N) = cc(1:N)%bl    + &

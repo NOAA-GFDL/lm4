@@ -2927,8 +2927,8 @@ end subroutine soil_step_1
   end do
   call send_tile_data(id_total_C_leaching, total_C_leaching, diag)
   call send_tile_data(id_total_ON_leaching, total_DON_leaching, diag)
-  call send_tile_data(id_NO3_leaching, NO3_leached, diag)
-  call send_tile_data(id_NH4_leaching, NH4_leached, diag)
+  call send_tile_data(id_NO3_leaching, NO3_leached/delta_time, diag)
+  call send_tile_data(id_NH4_leaching, NH4_leached/delta_time, diag)
   call send_tile_data(id_litter_total_C_leaching(LEAF),sum(leaflitter_DOC_loss)/delta_time,diag)
   call send_tile_data(id_litter_total_ON_leaching(LEAF),sum(leaflitter_DON_loss)/delta_time,diag)
   call send_tile_data(id_litter_NO3_leaching(LEAF),leaflitter_NO3_loss/delta_time,diag)

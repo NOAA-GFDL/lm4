@@ -796,6 +796,7 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(leaf_retranslocation_frac)
   __GET_SPDATA_REAL__(froot_retranslocation_frac)
   __GET_SPDATA_REAL__(max_n_stress_for_seed_production)
+  __GET_SPDATA_REAL__(N_stress_root_factor)
   __GET_SPDATA_REAL__(tau_nsc_exudate)
 #undef __GET_SPDATA_LOGICAL__
 #undef __GET_SPDATA_REAL__
@@ -917,7 +918,7 @@ subroutine init_derived_species_data(sp)
   ! TLP need not be less than mortality threshold
   ! TODO: make mortality threshold a namelist (or species) parameter?
   sp%psi_tlp = max(sp%psi_tlp, sp%dx*(-log(0.1))**(1./sp%cx))
-  
+
   ! TODO: calculate seed C:N ratio
 
 end subroutine init_derived_species_data
@@ -1062,6 +1063,8 @@ subroutine print_species_data(unit)
   call add_row(table, 'c2n_mycorrhizae', spdata(:)%c2n_mycorrhizae)
   call add_row(table, 'leaf_retranslocation_frac',  spdata(:)%leaf_retranslocation_frac)
   call add_row(table, 'froot_retranslocation_frac', spdata(:)%froot_retranslocation_frac)
+  call add_row(table, 'N_stress_root_factor', spdata(:)%N_stress_root_factor)
+  call add_row(table, 'max_n_stress_for_seed_production', spdata(:)%max_n_stress_for_seed_production)
 
   call add_row(table, 'dat_height',       spdata(:)%dat_height)
   call add_row(table, 'dat_lai',          spdata(:)%dat_lai)
