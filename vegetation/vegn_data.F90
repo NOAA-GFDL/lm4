@@ -811,10 +811,11 @@ subroutine init_derived_species_data(sp)
       !Isa changed for cross sectional area
       sp%alphaBM = sp%taperfactor * PI/4. * sp%alphaHT
       sp%alphaCSASW = sp%phiCSA*sp%LAImax*sp%alphaCA
-   !sp%thetaCSASW = sp%thetaCA
+      sp%thetaCSASW = sp%thetaCA
+   case (ALLOM_HML)
+      ! for HML allometry, parameters come directly from the input, so no
+      ! calculations are needed here
    end select
-   !sp%alphaCSASW = sp%phiCSA*sp%LAImax*sp%alphaCA
-   !sp%thetaCSASW = sp%thetaCA
 
   ! Convert units: from MPa to Pa
   sp%Kxam = sp%Kxam * 1e-6
