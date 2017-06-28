@@ -682,7 +682,6 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
 
   ! TODO: what if carbon_gain is not 0, but leaves are OFF (marginal case? or
   ! typical in lm3?)
-  delta_bsw_branch = 0.
   !delta_wood_branch  = 0.
   ! set init values for diag output, to be returned when the actual calulations are bypassed:
   wood_prod = 0.0 ; leaf_root_gr = 0.0 ; sw_seed_gr = 0.0 ; deltaDBH = 0.0
@@ -719,8 +718,13 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      ! 02/07/17
      ! should this delta_bsw be updated after updating dbh and height?
      ! check if daily branch increase is nt too abrupt
-     delta_bsw_branch = max (min(sp%branch_wood_frac * sp%alphaBM * sp%rho_wood * &
-                   cc%DBH * cc%DBH * cc%height - cc%brsw, 0.1*cc%nsc/(1+GROWTH_RESP)), 0.0)
+     select case (sp%allomt)
+     case (ALLOM_EW,ALLOM_EW1)
+        delta_bsw_branch = sp%branch_wood_frac * sp%alphaBM * sp%rho_wood * cc%DBH**sp%thetaBM - cc%brsw
+     case (ALLOM_HML)
+        delta_bsw_branch = sp%branch_wood_frac * sp%alphaBM * sp%rho_wood * cc%DBH**2 * cc%height - cc%brsw
+     end select
+     delta_bsw_branch = max(min(delta_bsw_branch,0.1*cc%nsc/(1+GROWTH_RESP)),0.0)
      cc%brsw = cc%brsw+delta_bsw_branch
      cc%bsw = cc%bsw+delta_bsw_branch
 
@@ -829,19 +833,20 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      endif
 
      call check_var_range(cc%bsw,0.0,HUGE(1.0),'biomass_allocation_ppa #3', 'cc%bsw',FATAL)
-     ! slm 20160523: are we retiring sapwood to wood only if it exceeds max sapwood? why?
      ! ens 02/14/17 replace wood allocation function
-     !deltaBwood = max(cc%bsw - BSWmax, 0.0)
+     ! slm 06/28/17 Why are we retiring sapwood to wood only if the leaves are displayed?
+     !              shouldn't it also happen in leaf-off season?
      deltaBwood = max(cc%bsw - cc%brsw - (1.0 - ( cc%brsw / cc%bsw ) )*BSWmax, 0.0)
      if (cc%bsw-deltaBwood<0) then
-         __DEBUG1__(cc%species)
+         write(*,*)'Berore update:'
+         __DEBUG3__(cc%species, cc%brsw, BSWmax)
          __DEBUG3__(cc%bwood, deltaBwood, cc%bsw)
-         __DEBUG2__(cc%brsw, BSWmax)
      endif
      cc%bwood   = cc%bwood + deltaBwood
      cc%bsw     = cc%bsw   - deltaBwood
 
      if (cc%bsw<0) then
+         write(*,*)'After update:'
          __DEBUG3__(cc%bwood, deltaBwood, cc%bsw)
      endif
      call check_var_range(cc%bsw,0.0,HUGE(1.0),'biomass_allocation_ppa #4', 'cc%bsw',FATAL)
