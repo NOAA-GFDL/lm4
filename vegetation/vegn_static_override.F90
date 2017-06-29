@@ -100,9 +100,12 @@ character(16) :: static_veg_freq = 'daily' ! or 'monthly', or 'annual'
 namelist/static_veg_nml/use_static_veg,input_file,timeline,start_loop,end_loop,&
      fill_land_mask, write_static_veg, static_veg_freq
 
+logical :: input_is_multiface ! TRUE if the input files are face-specific
+
 ! ==== NetCDF declarations ==================================================
 include 'netcdf.inc'
 #define __NF_ASRT__(x) call print_netcdf_error((x),__FILE__,__LINE__)
+
 
 contains
 
@@ -172,7 +175,7 @@ subroutine static_vegn_init( )
   logical                    :: has_records ! true if input variable has records
   integer :: m, n, siz(4), ndim, nvar, natt, l
   character(len=1024) :: actual_input_file, actual_input_file2
-  logical :: input_is_multiface ! TRUE if the input files are face-specific
+!  logical :: input_is_multiface ! TRUE if the input files are face-specific
   logical :: found_file, read_dist, io_domain_exist
   type(axistype) :: Lon_axis, Lat_axis, Tile_axis, Cohort_axis
   type(axistype) :: Time_axis
@@ -566,6 +569,28 @@ subroutine read_static_vegn (time, err_msg)
 
   ! read the data into cohort variables
   if(new_land_io) then
+    if(input_is_multiface) then
+     call fms_io_unstructured_get_field_size(trim(input_file), "cohort_index", siz, lnd%domain)
+     allocate(cidx(siz(1)), idata(siz(1)), rdata(siz(1)))
+     call fms_io_unstructured_read(trim(input_file), "cohort_index", cidx, lnd%domain, timelevel=index1)
+     call fms_io_unstructured_read(trim(input_file), "species", idata, lnd%domain, timelevel=index1)
+     call read_remap_cohort_data_i0d_new(Fields(ispecies), cohort_species_ptr, map_i, map_j, cidx, idata)
+     call fms_io_unstructured_read(trim(input_file), "bl", rdata, lnd%domain, timelevel=index1)
+     call read_remap_cohort_data_r0d_new(Fields(ibl), cohort_bl_ptr, map_i, map_j, cidx, rdata)
+     call fms_io_unstructured_read(trim(input_file), "blv", rdata, lnd%domain, timelevel=index1)
+     call read_remap_cohort_data_r0d_new(Fields(iblv), cohort_blv_ptr, map_i, map_j, cidx, rdata)
+     call fms_io_unstructured_read(trim(input_file), "br", rdata, lnd%domain, timelevel=index1)
+     call read_remap_cohort_data_r0d_new(Fields(ibr), cohort_br_ptr, map_i, map_j, cidx, rdata)
+     call fms_io_unstructured_read(trim(input_file), "bsw", rdata, lnd%domain, timelevel=index1)
+     call read_remap_cohort_data_r0d_new(Fields(ibsw), cohort_bsw_ptr, map_i, map_j, cidx, rdata)
+     call fms_io_unstructured_read(trim(input_file), "bwood", rdata, lnd%domain, timelevel=index1)
+     call read_remap_cohort_data_r0d_new(Fields(ibwood), cohort_bwood_ptr, map_i, map_j, cidx, rdata)
+     call fms_io_unstructured_read(trim(input_file), "bliving", rdata, lnd%domain, timelevel=index1)
+     call read_remap_cohort_data_r0d_new(Fields(ibliving), cohort_bliving_ptr, map_i, map_j, cidx, rdata)
+     call fms_io_unstructured_read(trim(input_file), "status", idata, lnd%domain, timelevel=index1)
+     call read_remap_cohort_data_i0d_new(Fields(istatus), cohort_status_ptr, map_i, map_j, cidx, idata)
+     deallocate(cidx, idata, rdata)
+    else
      call get_field_size(trim(input_file), &
                          "cohort_index", &
                          siz, &
@@ -625,6 +650,7 @@ subroutine read_static_vegn (time, err_msg)
                           timelevel=index1)
      call read_remap_cohort_data_i0d_new(Fields(istatus), cohort_status_ptr, map_i, map_j, cidx, idata)
      deallocate(cidx, idata, rdata)
+    endif
   else
      call read_remap_cohort_data_i0d_fptr(ncid, 'species' , cohort_species_ptr , map_i, map_j, index1)
      call read_remap_cohort_data_r0d_fptr(ncid, 'bl'      , cohort_bl_ptr      , map_i, map_j, index1)
