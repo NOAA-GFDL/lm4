@@ -508,11 +508,18 @@ subroutine merge_cohorts(c1,c2)
   __MERGE__(myc_miner_biomass_N)
   __MERGE__(N_fixer_biomass_C)
   __MERGE__(N_fixer_biomass_N)
+  __MERGE__(scav_myc_N_reservoir)
+  __MERGE__(scav_myc_C_reservoir)
+  __MERGE__(mine_myc_N_reservoir)
+  __MERGE__(mine_myc_C_reservoir)
+  __MERGE__(N_fixer_N_reservoir)
+  __MERGE__(N_fixer_C_reservoir)
   __MERGE__(stored_N)
   __MERGE__(leaf_N)
   __MERGE__(wood_N)
   __MERGE__(sapwood_N)
   __MERGE__(root_N)
+  __MERGE__(seed_N)
   __MERGE__(total_N)
 
   ! calculate the resulting dry heat capacity
@@ -603,7 +610,7 @@ subroutine vegn_relayer_cohorts_ppa (vegn)
 end subroutine vegn_relayer_cohorts_ppa
 
 ! ============================================================================
-! TODO: do vegn_seed_demand and vegn_seed_supply make sense for PPA? or even 
+! TODO: do vegn_seed_demand and vegn_seed_supply make sense for PPA? or even
 ! the entire seed transport method?
 function vegn_seed_supply ( vegn )
   real :: vegn_seed_supply
@@ -845,7 +852,7 @@ function vegn_tile_nitrogen(vegn) result(nitrogen) ; real nitrogen
   do i = 1,vegn%n_cohorts
      nitrogen = nitrogen + &
            (vegn%cohorts(i)%root_N + vegn%cohorts(i)%sapwood_N + &
-            vegn%cohorts(i)%wood_N + vegn%cohorts(i)%leaf_N + &
+            vegn%cohorts(i)%wood_N + vegn%cohorts(i)%leaf_N + vegn%cohorts(i)%seed_N + &
             vegn%cohorts(i)%stored_N + &
             ! Symbionts are counted as part of veg, not part of soil
             vegn%cohorts(i)%N_fixer_biomass_N + &

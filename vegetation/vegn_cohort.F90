@@ -700,11 +700,12 @@ end subroutine update_biomass_pools
 
 
 ! ==============================================================================
-subroutine init_cohort_allometry_ppa(cc, height, nsc_frac)
+subroutine init_cohort_allometry_ppa(cc, height, nsc_frac, nsn_frac)
   type(vegn_cohort_type), intent(inout) :: cc
   real, intent(in) :: height
   real, intent(in) :: nsc_frac ! amount of nsc, as a fraction of bl_max
                                ! NOTE: typically nsc_frac is greater than 1
+  real, intent(in) :: nsn_frac ! nonstructural N as fraction of bl_max N content
 
   real :: bw ! biomass of wood+sapwood, based on allometry and height
   real :: Dwood ! diameter of heartwood
@@ -743,6 +744,28 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac)
   cc%blv     = 0.0
   cc%bseed   = 0.0
   cc%bliving = cc%br + cc%bl + cc%bsw + cc%blv
+
+  cc%stored_N   = nsn_frac * cc%bl_max/sp%leaf_live_c2n
+  cc%seed_N     = 0.0
+  cc%wood_N     = cc%bwood/sp%wood_c2n
+  cc%sapwood_N  = cc%bsw/sp%sapwood_c2n
+  cc%leaf_N     = (cc%bl+cc%blv)/sp%leaf_live_c2n
+  cc%root_N     = cc%br/sp%froot_live_c2n
+  cc%total_N    = cc%stored_N+cc%leaf_N+cc%wood_N+cc%root_N+cc%sapwood_N+cc%seed_N
+
+  ! Should these have nonzero initial values on initialization/reproduction?
+  cc%myc_scavenger_biomass_C = 0.0
+  cc%myc_scavenger_biomass_N = 0.0
+  cc%myc_miner_biomass_C = 0.0
+  cc%myc_miner_biomass_N = 0.0
+  cc%N_fixer_biomass_C = 0.0
+  cc%N_fixer_biomass_N = 0.0
+  cc%scav_myc_N_reservoir = 0.0
+  cc%scav_myc_C_reservoir = 0.0
+  cc%mine_myc_N_reservoir = 0.0
+  cc%mine_myc_C_reservoir = 0.0
+  cc%N_fixer_N_reservoir = 0.0
+  cc%N_fixer_C_reservoir = 0.0
 
   cc%growth_previous_day     = 0.0
   cc%growth_previous_day_tmp = 0.0

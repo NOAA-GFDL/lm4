@@ -386,6 +386,9 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
   i_river_NO3  = river_tracer_index('no3')
   i_river_NH4  = river_tracer_index('nh4')
 
+  if (i_river_DOC == NO_TRACER .and. (soil_carbon_option==SOILC_CORPSE .or. soil_carbon_option==SOILC_CORPSE_N)) &
+      call error_mesg ('soil_init','River tracer for DOC not found while running in CORPSE mode. C conservation checks may fail if there is C leaching', WARNING)
+
   ! -------- initialize soil model diagnostic fields
   call soil_diag_init(id_ug,id_band,id_zfull)
 
@@ -1115,8 +1118,8 @@ id_div = register_tiled_diag_field(module_name, 'div',axes,lnd%time,'Water diver
        lnd%time, 'net layer vertical soil NO3 leaching', 'kg/(m2 s)', missing_value=initval)
   id_NH4_leaching = register_tiled_diag_field ( module_name, 'NH4_leaching', axes, &
        lnd%time, 'net layer vertical soil NH4 leaching', 'kg/(m2 s)', missing_value=initval)
-  id_livemic_C_leaching = register_tiled_diag_field ( module_name, 'livemic_C_leaching', axes, &
-       lnd%time, 'net layer live microbe C leaching',  'kg/(m2 s)', missing_value=-100.0)
+  ! id_livemic_C_leaching = register_tiled_diag_field ( module_name, 'livemic_C_leaching', axes, &
+  !      lnd%time, 'net layer live microbe C leaching',  'kg/(m2 s)', missing_value=-100.0)
   !id_protected_C_leaching = register_tiled_diag_field ( module_name, 'protected_C_leaching', axes, &
   !     lnd%time, 'net layer protected soil C leaching',  'kg/(m2 s)', missing_value=-100.0)
   id_surf_DOC_loss = register_tiled_diag_field ( module_name, 'surf_DOC_loss', axes(1:1), &
@@ -4054,7 +4057,7 @@ subroutine myc_miner_N_uptake(soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_
   logical :: myc_biomass_is_zero
 
 
-  if(sum(vegn%cohorts(:)%myc_scavenger_biomass_C)>0) then
+  if(sum(vegn%cohorts(:)%myc_miner_biomass_C)>0) then
     myc_biomass_is_zero = .FALSE.
     do i=1,vegn%n_cohorts
       call cohort_root_litter_profile (vegn%cohorts(i), dz(1:num_l), profile )

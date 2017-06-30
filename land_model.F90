@@ -208,7 +208,7 @@ real     :: delta_time ! duration of main land time step (s)
 
 ! ---- indices of river tracers
 integer  :: n_river_tracers
-integer  :: i_river_ice, i_river_heat
+integer  :: i_river_ice, i_river_heat, i_river_DOC
 
 ! ---- diag field IDs --------------------------------------------------------
 integer :: &
@@ -452,6 +452,7 @@ subroutine land_model_init &
   n_river_tracers = num_river_tracers()
   i_river_ice  = river_tracer_index('ice')
   i_river_heat = river_tracer_index('het')
+  i_river_DOC  = river_tracer_index('doc')
   if (i_river_ice  == NO_TRACER) call error_mesg ('land_model_init','required river tracer for ice not found', FATAL)
   if (i_river_heat == NO_TRACER) call error_mesg ('land_model_init','required river tracer for heat not found', FATAL)
 
@@ -1359,6 +1360,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   real :: subs_z0m, subs_z0s, snow_z0m, snow_z0s, grnd_z0s
   real :: lmass0, fmass0, heat0, cmass0, nmass0, nflux0, v0
   real :: lmass1, fmass1, heat1, cmass1, nmass1, nflux1
+  real :: DOCloss
   logical :: calc_water_cons, calc_carbon_cons, calc_nitrogen_cons
   character(*), parameter :: tag = 'update_land_model_fast_0d'
 
@@ -2112,12 +2114,15 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      call send_tile_data(id_water_cons, (lmass1+fmass1-v0)/delta_time, tile%diag)
   endif
   if(calc_carbon_cons) then
-    ! BNS: Does this take leaching of DOC into account?
+    ! BNS: This will likely fail if DOC river tracer is not present and running in CORPSE mode with C_leaching_solubility>0
+    DOCloss=0.0
+    i_river_DOC  = river_tracer_index('doc')
+    if (i_river_DOC/=NO_TRACER) DOCloss = subs_tr_runf(i_river_DOC)
      cmass1 = land_tile_carbon(tile)
      if (do_check_conservation) call check_conservation (tag,'carbon', &
-        cmass0-(fco2_0+Dfco2Dq*delta_co2)*mol_C/mol_CO2*delta_time, &
+        cmass0-(fco2_0+Dfco2Dq*delta_co2)*mol_C/mol_CO2*delta_time - DOCloss*delta_time, &
         cmass1, carbon_cons_tol)
-     v0 = cmass0-(fco2_0+Dfco2Dq*delta_co2)*mol_C/mol_CO2*delta_time
+     v0 = cmass0-(fco2_0+Dfco2Dq*delta_co2)*mol_C/mol_CO2*delta_time + DOCloss*delta_time
      call send_tile_data(id_carbon_cons, (cmass1-v0)/delta_time, tile%diag)
   endif
   if(calc_nitrogen_cons) then
@@ -2204,10 +2209,11 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   call send_tile_data(id_hfrunf,  snow_hfrunf + subs_hfrunf,          tile%diag)
   call send_tile_data(id_hfrunfs, snow_hfrunf,                        tile%diag)
   ! TODO: generalize diagnostic for runoff of tracers
-  do tr = 3, n_river_tracers
-     if (id_runf_tr(tr)>0) &
-        call send_tile_data(id_runf_tr(tr), subs_tr_runf(tr),         tile%diag)
-  enddo
+  ! BNS: This fails because id_runf_tr is allocated and set in land_diag_init before n_river_tracers is set in land_model_init
+  ! do tr = 3, n_river_tracers
+  !    if (id_runf_tr(tr)>0) &
+  !       call send_tile_data(id_runf_tr(tr), subs_tr_runf(tr),         tile%diag)
+  ! enddo
   call send_tile_data(id_melt,    vegn_melt+snow_melt+subs_melt,      tile%diag)
   call send_tile_data(id_meltv,   vegn_melt,                          tile%diag)
   call send_tile_data(id_melts,   snow_melt,                          tile%diag)
@@ -3456,6 +3462,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
              'canopy-air heat storage', 'J/m2', missing_value=-1.0e+20 )
 
   ! register diag fields for river tracers
+  ! FIXME: This FAILS because n_river_tracers is not set until after land_diag_init --BNS
   allocate(id_runf_tr(n_river_tracers))
   allocate(id_dis_tr(n_river_tracers))
   id_runf_tr(:) = -1

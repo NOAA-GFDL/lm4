@@ -24,9 +24,9 @@ use land_tile_mod,   only : land_tile_map, land_tile_type, land_tile_enum_type, 
      land_tile_heat, land_tile_carbon, land_tile_nitrogen, get_tile_water, nitems
 use land_data_mod,   only : lnd, log_version
 use soil_carbon_mod, only : add_litter, soil_carbon_option, &
-     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, N_C_TYPES, C_FAST
+     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, N_C_TYPES, C_FAST, deadmic_slow_frac
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
-     cohort_root_litter_profile
+     cohort_root_litter_profile, cohort_root_exudate_profile
 
 implicit none
 private
@@ -710,7 +710,7 @@ subroutine kill_plants_ppa(cc, vegn, soil, ndead, fsmoke, &
   real, intent(inout) :: root_litt_C(num_l, N_C_TYPES),root_litt_N(num_l, N_C_TYPES) ! accumulated root litter per soil layer, kgC/m2 and kg N/m2
 
   ! ---- local vars
-  real :: lost_wood, lost_alive, burned_wood, burned_alive
+  real :: lost_wood, lost_alive, burned_wood, burned_alive, burned_N
   real :: profile(num_l) ! storage for vertical profile of exudates and root litter
   integer :: l
 
@@ -730,20 +730,38 @@ subroutine kill_plants_ppa(cc, vegn, soil, ndead, fsmoke, &
   ! loss to fire
   burned_wood  = fsmoke*lost_wood
   burned_alive = fsmoke*lost_alive
+  ! Belowground N is also burned, consistent with belowground C for now --BNS
+  burned_N = fsmoke*ndead*(cc%leaf_N+cc%seed_N+cc%wood_N+cc%sapwood_N &
+                          + cc%myc_scavenger_biomass_N+cc%myc_miner_biomass_N+&
+                          cc%N_fixer_biomass_N+cc%scav_myc_N_reservoir+&
+                          cc%mine_myc_N_reservoir+cc%N_fixer_N_reservoir)
+
   ! loss to the soil pools
   lost_wood  = lost_wood  - burned_wood
   lost_alive = lost_alive - burned_alive
 
   ! add fire carbon losses to smoke pool
   vegn%csmoke_pool = vegn%csmoke_pool + burned_wood + burned_alive
+  vegn%nsmoke_pool = vegn%nsmoke_pool + burned_N
 
   ! add remaining lost C to soil carbon pools
   associate(sp=>spdata(cc%species))
-  leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*(cc%bl+cc%bseed+cc%carbon_gain+cc%growth_previous_day)*(1-fsmoke)*ndead
+  ! BNS: When leaves are off, carbon_gain can be <0 making this litter <0 and crashing CORPSE
+  ! In this case, lump it in with nsc instead
+  ! Maybe it would also make sense for growth_previous_day to go with nsc instead of leaves all the time?
+  ! Hopefully nsc will not be less than daily growth respiration
+  if(cc%bl+cc%bseed+cc%carbon_gain+cc%growth_previous_day>0) then
+    leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*(cc%bl+cc%bseed+cc%carbon_gain+cc%growth_previous_day)*(1-fsmoke)*ndead
+  else
+    leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*(cc%bl+cc%bseed)*(1-fsmoke)*ndead
+    wood_litt_C(C_FAST) = wood_litt_C(C_FAST)+(cc%carbon_gain+cc%growth_previous_day)*(1-fsmoke)*ndead
+  endif
   wood_litt_C(:) = wood_litt_C(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(cc%bwood+cc%bsw+cc%bwood_gain)*(1-fsmoke)*agf_bs*ndead
   wood_litt_C(C_FAST) = wood_litt_C(C_FAST)+cc%nsc*(1-fsmoke)*agf_bs*ndead
+
   ! FIXME: what is the seed nitrogen? What do we do with nitrogen storage?
-  leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*cc%leaf_N*(1-fsmoke)*ndead
+  leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*(cc%leaf_N+cc%seed_N)*(1-fsmoke)*ndead
+
   wood_litt_N(:) = wood_litt_N(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(cc%wood_N+cc%sapwood_N)*(1-fsmoke)*agf_bs*ndead
   wood_litt_N(C_FAST) = wood_litt_N(C_FAST)+cc%stored_N*(1-fsmoke)*agf_bs*ndead
   call cohort_root_litter_profile(cc, dz, profile)
@@ -756,6 +774,15 @@ subroutine kill_plants_ppa(cc, vegn, soil, ndead, fsmoke, &
              sp%fsc_froot *cc%root_N +    sp%fsc_wood *(cc%sapwood_N+cc%wood_N)*(1-agf_bs) + cc%stored_N*(1-agf_bs), &
           (1-sp%fsc_froot)*cc%root_N + (1-sp%fsc_wood)*(cc%sapwood_N+cc%wood_N)*(1-agf_bs), &
           0.0/)
+  enddo
+
+  ! C and N content of mycorrhizae and associated buffer reservoirs
+  call cohort_root_exudate_profile(cc,dz,profile)
+  do l = 1, num_l
+     root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*ndead*(1-fsmoke)*([ 0.0, deadmic_slow_frac, (1-deadmic_slow_frac) ])* &
+          (cc%myc_scavenger_biomass_C+cc%myc_miner_biomass_C+cc%N_fixer_biomass_C+cc%scav_myc_C_reservoir+cc%mine_myc_C_reservoir+cc%N_fixer_C_reservoir)
+     root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*ndead*(1-fsmoke)*([ 0.0, deadmic_slow_frac, (1-deadmic_slow_frac) ])* &
+         (cc%myc_scavenger_biomass_N+cc%myc_miner_biomass_N+cc%N_fixer_biomass_N+cc%scav_myc_N_reservoir+cc%mine_myc_N_reservoir+cc%N_fixer_N_reservoir)
   enddo
 
   ! reduce the number of individuals in cohort

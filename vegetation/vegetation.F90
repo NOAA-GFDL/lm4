@@ -136,6 +136,7 @@ real    :: init_cohort_stored_N_mult(MAX_INIT_COHORTS) = 1.5 ! Multiple of initi
 real    :: init_cohort_age(MAX_INIT_COHORTS)     = 0.0  ! initial cohort age, year
 real    :: init_cohort_height(MAX_INIT_COHORTS)  = 0.1  ! initial cohort height, m
 real    :: init_cohort_nsc_frac(MAX_INIT_COHORTS)= 3.0  ! initial cohort NSC, as fraction of max. bl
+real    :: init_cohort_nsn_frac(MAX_INIT_COHORTS)= 3.0  ! initial cohort NSN, as fraction of max. bl
 character(32) :: rad_to_use = 'big-leaf' ! or 'two-stream'
 character(32) :: snow_rad_to_use = 'ignore' ! or 'paint-leaves'
 character(32) :: photosynthesis_to_use = 'simple' ! or 'leuning'
@@ -430,6 +431,7 @@ subroutine vegn_init ( id_ug, id_band )
      call get_cohort_data(restart2, 'N_fixer_biomass_N', cohort_N_fixer_biomass_N_ptr )
      call get_cohort_data(restart2, 'cohort_stored_N', cohort_stored_N_ptr )
      call get_cohort_data(restart2, 'cohort_leaf_N', cohort_leaf_N_ptr )
+     call get_cohort_data(restart2, 'cohort_seed_N', cohort_seed_N_ptr )
      call get_cohort_data(restart2, 'cohort_wood_N', cohort_wood_N_ptr )
      call get_cohort_data(restart2, 'cohort_sapwood_N', cohort_sapwood_N_ptr )
      call get_cohort_data(restart2, 'cohort_root_N', cohort_root_N_ptr )
@@ -587,7 +589,7 @@ subroutine vegn_init ( id_ug, id_band )
 
         if (do_ppa) then
            cc%species = init_cohort_spp(n)
-           call init_cohort_allometry_ppa(cc, init_cohort_height(n), init_cohort_nsc_frac(n))
+           call init_cohort_allometry_ppa(cc, init_cohort_height(n), init_cohort_nsc_frac(n), init_cohort_nsn_frac(n))
            if (cc%species < 0) call error_mesg('vegn_init','species "'//trim(init_cohort_species(n))//&
                    '" needed for initialization, but not found in the list of species parameters', FATAL)
         else if(did_read_biodata.and.do_biogeography) then
@@ -624,7 +626,7 @@ subroutine vegn_init ( id_ug, id_band )
      do while (loop_over_tiles(ce,tile))
         if (.not.associated(tile%vegn)) cycle
         do n = 1, tile%vegn%n_cohorts
-           call init_cohort_allometry_ppa(tile%vegn%cohorts(n), init_cohort_height(n), init_cohort_nsc_frac(n))
+           call init_cohort_allometry_ppa(tile%vegn%cohorts(n), init_cohort_height(n), init_cohort_nsc_frac(n),init_cohort_nsn_frac(n))
            call init_cohort_hydraulics(tile%vegn%cohorts(n), tile%soil%pars%psi_sat_ref) ! adam wolf
            ! initialize DBH_ys
            tile%vegn%cohorts(n)%DBH_ys = tile%vegn%cohorts(n)%dbh
@@ -1109,6 +1111,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'cohort_wood_N', cohort_wood_N_ptr, 'wood N pool of individual','kg N/m2')
   call add_cohort_data(restart2,'cohort_sapwood_N', cohort_sapwood_N_ptr, 'sapwood N pool of individual','kg N/m2')
   call add_cohort_data(restart2,'cohort_leaf_N', cohort_leaf_N_ptr, 'leaf N pool of individual','kg N/m2')
+  call add_cohort_data(restart2,'cohort_seed_N', cohort_seed_N_ptr, 'seed N pool of individual','kg N/m2')
   call add_cohort_data(restart2,'cohort_root_N', cohort_root_N_ptr, 'root N pool of individual','kg N/m2')
   call add_cohort_data(restart2,'cohort_total_N', cohort_total_N_ptr, 'total N pool of individual','kg N/m2')
   call add_cohort_data(restart2,'nitrogen_stress', cohort_nitrogen_stress_ptr, 'total N pool of individual','kg N/m2')
@@ -2718,6 +2721,7 @@ DEFINE_COHORT_ACCESSOR(real,stored_N)
 DEFINE_COHORT_ACCESSOR(real,wood_N)
 DEFINE_COHORT_ACCESSOR(real,sapwood_N)
 DEFINE_COHORT_ACCESSOR(real,leaf_N)
+DEFINE_COHORT_ACCESSOR(real,seed_N)
 DEFINE_COHORT_ACCESSOR(real,root_N)
 DEFINE_COHORT_ACCESSOR(real,total_N)
 DEFINE_COHORT_ACCESSOR(real,nitrogen_stress)

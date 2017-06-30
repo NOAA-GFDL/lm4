@@ -124,7 +124,7 @@ public :: &
     myc_scav_C_efficiency, myc_mine_C_efficiency, &
     N_fixer_turnover_time, N_fixer_C_efficiency, &
     c2n_N_fixer, N_limits_live_biomass, &
-    excess_stored_N_leakage_rate, calc_SLA_from_lifespan, &
+    excess_stored_N_leakage_rate, min_N_stress, calc_SLA_from_lifespan, &
     et_myc
 
 
@@ -281,7 +281,7 @@ type spec_data_type
   real    :: sapwood_c2n    = 50.0    ! C:N ratio of sapwood.
   real    :: wood_c2n       = 500.0   ! x2z Wiki  http://en.wikipedia.org/wiki/Carbon-to-nitrogen_ratio
   real    :: c2n_mycorrhizae= 10.0    ! C:N ratio of mycorrhizal biomass
-  real    :: seed_c2n       = 30.0    ! C:N ratio of leaves
+  real    :: seed_c2n       = 30.0    ! C:N ratio of seeds. Note, must contain enough N to support initial sapling
 
   real    :: leaf_retranslocation_frac  = 0.5 ! Fraction of leaf N retranslocated before leaf drop.
   real    :: froot_retranslocation_frac = 0.0 ! Fraction of fine root N retranslocated before senescence.
@@ -380,6 +380,7 @@ real :: N_fixer_turnover_time = 0.1     ! Mean residence time of live N fixer bi
 real :: N_fixer_C_efficiency  = 0.5     ! Efficiency of C allocation to N fixers (remainder goes to CO2)
 logical :: N_limits_live_biomass = .FALSE.  ! Option to have N uptake limit max biomass.  Only relevant with CORPSE_N
 real :: excess_stored_N_leakage_rate = 1.0 ! Leaking of excess cohort stored N back to soil (Fraction per year)
+real :: min_N_stress = 0.05            ! Minimum value for N stress
 real :: et_myc = 0.7                   ! Fraction of mycorrhizal turnover NOT mineralized to CO2 and NH4
 
 logical :: calc_SLA_from_lifespan      ! In LM3, whether to calculate SLA from leaf lifespan or use namelist value
@@ -411,7 +412,7 @@ namelist /vegn_data_nml/ &
   myc_scav_C_efficiency, myc_mine_C_efficiency, &
   N_fixer_turnover_time, N_fixer_C_efficiency, &
   c2n_N_fixer, N_limits_live_biomass, &
-   excess_stored_N_leakage_rate, calc_SLA_from_lifespan,&
+   excess_stored_N_leakage_rate, min_N_stress, calc_SLA_from_lifespan,&
   et_myc
 
 
@@ -1064,6 +1065,7 @@ subroutine print_species_data(unit)
   call add_row(table, 'leaf_retranslocation_frac',  spdata(:)%leaf_retranslocation_frac)
   call add_row(table, 'froot_retranslocation_frac', spdata(:)%froot_retranslocation_frac)
   call add_row(table, 'N_stress_root_factor', spdata(:)%N_stress_root_factor)
+  call add_row(table, 'tau_nsc_exudate', spdata(:)%tau_nsc_exudate)
   call add_row(table, 'max_n_stress_for_seed_production', spdata(:)%max_n_stress_for_seed_production)
 
   call add_row(table, 'dat_height',       spdata(:)%dat_height)
