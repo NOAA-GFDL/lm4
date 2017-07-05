@@ -214,7 +214,7 @@ subroutine vegn_photosynthesis ( vegn, &
              cohort%leaf_age, p_surf, water_supply, sp, cohort%pt, cana_co2, &
              cohort%extinct, fs+fw, stomatal_cond, psyn, resp, Ed, &
              lai_kok, Anlayer,lai_light)
-        ! store the calculated photosythesis and fotorespiration for future use
+        ! store the calculated photosynthesis and fotorespiration for future use
         ! in carbon_int
         cohort%An_op  = psyn * seconds_per_year
         cohort%An_cl  = resp * seconds_per_year
@@ -250,17 +250,17 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
                    kappa, leaf_wet,  &
                    gs, apot, acl, Ed, &
                    lai_kok, Anlayer, lai_light)
-  real,    intent(in)    :: rad_top ! PAR dn on top of the canopy, w/m2
-  real,    intent(in)    :: rad_net ! PAR net on top of the canopy, w/m2
+  real,    intent(in)    :: rad_top ! PAR dn on top of the canopy, W/m2
+  real,    intent(in)    :: rad_net ! Net canopy PAR to the canopy, W/m2
   real,    intent(in)    :: tl   ! leaf temperature, degK
   real,    intent(in)    :: ea   ! specific humidity in the canopy air (?), kg/kg
   real,    intent(in)    :: lai  ! leaf area index
-  real,    intent(in)    :: leaf_age ! age of leaf since budburst (deciduos), days
+  real,    intent(in)    :: leaf_age ! age of leaf since budburst (deciduous), days
   real,    intent(in)    :: p_surf ! surface pressure, Pa
   real,    intent(in)    :: ws   ! water supply, mol H2O/(m2 of leaf s)
   integer, intent(in)    :: pft  ! species
   integer, intent(in)    :: pt   ! physiology type (C3 or C4)
-  real,    intent(in)    :: ca   ! concentartion of CO2 in the canopy air space, mol CO2/mol dry air
+  real,    intent(in)    :: ca   ! concentration of CO2 in the canopy air space, mol CO2/mol dry air
   real,    intent(in)    :: kappa! canopy extinction coefficient (move inside f(pft))
   real,    intent(in)    :: leaf_wet ! fraction of leaf that's wet or snow-covered
   ! note that the output is per area of leaf; to get the quantities per area of
@@ -291,7 +291,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   real :: hl;  ! saturated specific humidity at the leaf temperature, kg/kg
   real :: do1;
 
-  ! misceleneous
+  ! miscellaneous
   real :: dum2;
   real, parameter :: light_crit = 0;
   real, parameter :: gs_lim = 0.25;
@@ -407,7 +407,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
 
   ! find the LAI level at which gross photosynthesis rates are equal
   ! only if PAR is positive
-  if ( light_top > light_crit ) then
+  if ( light_top > light_crit .and. par_net > 0) then
      if (pt==PT_C4) then ! C4 species
         coef0=(1+ds/do1)/spdata(pft)%m_cond;
         ci=(ca+1.6*coef0*capgam)/(1+1.6*coef0);
