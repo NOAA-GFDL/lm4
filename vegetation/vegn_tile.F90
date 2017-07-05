@@ -457,6 +457,7 @@ subroutine merge_cohorts(c1,c2)
   __MERGE__(blv)     ! biomass of virtual leaves (labile store), kg C/indiv
   __MERGE__(br)      ! biomass of fine roots, kg C/indiv
   __MERGE__(bsw)     ! biomass of sapwood, kg C/indiv
+  __MERGE__(brsw)    ! sapwood biomass in branches, kg C/indiv
   __MERGE__(bwood)   ! biomass of heartwood, kg C/indiv
   __MERGE__(bseed)   ! future progeny, kgC/indiv
   __MERGE__(nsc)     ! non-structural carbon, kgC/indiv

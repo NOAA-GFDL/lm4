@@ -386,6 +386,9 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
         md_branch_sw = Max(cc%brsw,0.0) * sp%alpha_wood * dt_fast_yr
      endif
 
+     call check_var_range(cc%bsw,  0.0,HUGE(1.0), 'vegn_carbon_int_ppa', 'cc%bsw', FATAL)
+     call check_var_range(cc%brsw, 0.0,cc%bsw,    'vegn_carbon_int_ppa', 'cc%brsw',FATAL)
+
      ! brsw is a part of bsw, so when we lose branches, we need to reduce both
      cc%brsw = cc%brsw - md_branch_sw
      cc%bsw  = cc%bsw  - md_branch_sw
@@ -713,7 +716,8 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      !   cc%branch_wood_loss = cc%branch_wood_loss - delta_wood_branch
      !endif
 
-     call check_var_range(cc%bsw,0.0,HUGE(1.0),'biomass_allocation_ppa #1', 'cc%bsw',FATAL)
+     call check_var_range(cc%bsw, 0.0,HUGE(1.0),'biomass_allocation_ppa #1', 'cc%bsw', FATAL)
+     call check_var_range(cc%brsw,0.0,cc%bsw,   'biomass_allocation_ppa #1', 'cc%brsw',FATAL)
 
      ! 02/07/17
      ! should this delta_bsw be updated after updating dbh and height?
@@ -728,7 +732,8 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      cc%brsw = cc%brsw+delta_bsw_branch
      cc%bsw = cc%bsw+delta_bsw_branch
 
-     call check_var_range(cc%bsw,0.0,HUGE(1.0),'biomass_allocation_ppa #2', 'cc%bsw',FATAL)
+     call check_var_range(cc%bsw, 0.0,HUGE(1.0),'biomass_allocation_ppa #2', 'cc%bsw',FATAL)
+     call check_var_range(cc%brsw,0.0,cc%bsw,   'biomass_allocation_ppa #2', 'cc%brsw',FATAL)
 
      !ens 02/14/17
      !update seed and sapwood biomass pools with the new growth (branches were updated above)
@@ -760,7 +765,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      leaf_root_gr = G_LFR*days_per_year ! conversion from kgC/day to kgC/year
      sw_seed_gr = (G_WF+delta_bsw_branch )*GROWTH_RESP*days_per_year ! conversion from kgC/day to kgC/year
 
-     call check_var_range(cc%nsc,0.0,HUGE(1.0),'vegn_dynamics','cc%nsc', WARNING)
+     call check_var_range(cc%nsc,0.0,HUGE(1.0),'biomass_allocation_ppa','cc%nsc', WARNING)
 
      !ens --compute daily growth to compute respiration, apply it next day, use npp_previous day variable, units kg C/(m2 *year)
      cc%growth_previous_day = cc%growth_previous_day+(max(0., G_LFR+G_WF)+delta_bsw_branch)*GROWTH_RESP ! this is for growth respiration to come from nsc
@@ -832,24 +837,26 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         cc%Kxa = (cc%Kxa*CSAsw + sp%Kxam*deltaCSAsw)/(CSAsw + deltaCSAsw)
      endif
 
-     call check_var_range(cc%bsw,0.0,HUGE(1.0),'biomass_allocation_ppa #3', 'cc%bsw',FATAL)
+     call check_var_range(cc%bsw,  0.0,HUGE(1.0),'biomass_allocation_ppa #3', 'cc%bsw', FATAL)
+     call check_var_range(cc%brsw, 0.0,cc%bsw,   'biomass_allocation_ppa #3', 'cc%brsw',FATAL)
+
      ! ens 02/14/17 replace wood allocation function
      ! slm 06/28/17 Why are we retiring sapwood to wood only if the leaves are displayed?
      !              shouldn't it also happen in leaf-off season?
-     deltaBwood = max(cc%bsw - cc%brsw - (1.0 - ( cc%brsw / cc%bsw ) )*BSWmax, 0.0)
-     if (cc%bsw-deltaBwood<0) then
-         write(*,*)'Berore update:'
-         __DEBUG3__(cc%species, cc%brsw, BSWmax)
-         __DEBUG3__(cc%bwood, deltaBwood, cc%bsw)
+!     deltaBwood = max(cc%bsw - cc%brsw - (1.0 - ( cc%brsw / cc%bsw ) )*BSWmax, 0.0)
+     if (cc%bsw>0) then
+        deltaBwood = cc%bsw - cc%brsw - (1.0 - ( cc%brsw / cc%bsw ) )*BSWmax
+        ! perhaps it should be min(deltaBwood, cc%bsw-cc%brsw) ?
+        deltaBwood = min(deltaBwood, cc%bsw) ! cannot retire more sapwood than we have
+        deltaBwood = max(deltaBwood, 0.0)    ! conversion of wood to sapwood is prohibited
+     else
+        deltaBwood = 0.0
      endif
      cc%bwood   = cc%bwood + deltaBwood
      cc%bsw     = cc%bsw   - deltaBwood
 
-     if (cc%bsw<0) then
-         write(*,*)'After update:'
-         __DEBUG3__(cc%bwood, deltaBwood, cc%bsw)
-     endif
-     call check_var_range(cc%bsw,0.0,HUGE(1.0),'biomass_allocation_ppa #4', 'cc%bsw',FATAL)
+     call check_var_range(cc%bsw,  0.0,HUGE(1.0),'biomass_allocation_ppa #4', 'cc%bsw',FATAL)
+     call check_var_range(cc%brsw, 0.0,cc%bsw,   'biomass_allocation_ppa #4', 'cc%brsw',FATAL)
 
      ! update bl_max and br_max daily
      ! slm: why are we updating topyear only when the leaves are displayed? The paper

@@ -426,7 +426,7 @@ subroutine vegn_init ( id_ug, id_band )
      else
         call get_tile_data(restart2,'theta_av', vegn_theta_av_phen_ptr)
         call get_tile_data(restart2,'theta_av', vegn_theta_av_fire_ptr)
-	! psist_av remains at initial value (equal to 0)
+        ! psist_av remains at initial value (equal to 0)
      endif
      call get_tile_data(restart2,'tsoil_av', vegn_tsoil_av_ptr)
      call get_tile_data(restart2,'precip_av', vegn_precip_av_ptr)
@@ -1222,7 +1222,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   rav_lit = rav_lit_0 + rav_lit_vi * (vegn_tile_LAI(vegn)+vegn_tile_SAI(vegn)) &
                       + rav_lit_fsc * litter_fast_C &
                       + rav_lit_ssc * litter_slow_C &
-		      + rav_lit_deadmic * litter_deadmic_C &
+                      + rav_lit_deadmic * litter_deadmic_C &
                       + rav_lit_bwood * sum(cc(:)%bwood*cc(:)%nindivs)
   con_g_v = con_g_v/(1.0+rav_lit*con_g_v)
 
@@ -1902,7 +1902,7 @@ subroutine update_vegn_slow( )
         tile%vegn%tsoil_av  = tile%vegn%tsoil_av  / tile%vegn%n_accum
         tile%vegn%theta_av_phen  = tile%vegn%theta_av_phen  / tile%vegn%n_accum
         tile%vegn%theta_av_fire  = tile%vegn%theta_av_fire  / tile%vegn%n_accum
-	tile%vegn%psist_av  = tile%vegn%psist_av  / tile%vegn%n_accum
+        tile%vegn%psist_av  = tile%vegn%psist_av  / tile%vegn%n_accum
         tile%vegn%precip_av = tile%vegn%precip_av / tile%vegn%n_accum
         ! accumulate annual values
         tile%vegn%p_ann_acm = tile%vegn%p_ann_acm+tile%vegn%precip_av
