@@ -188,6 +188,13 @@ subroutine vegn_photosynthesis ( vegn, &
   real    :: Ed ! evaporative demand, mol H2O per m2 of leaves per second
   real    :: fw, fs ! wet and snow-covered fraction of leaves
 
+
+  ! set the default values for outgoing parameters, overriden by the calculations
+  ! in gs_leuning
+  lai_kok   = 0.0
+  Anlayer   = 0.0
+  lai_light = 0.0
+
   ! get the pointer to the first (and, currently, the only) cohort
   cohort => vegn%cohorts(1)
 
@@ -404,6 +411,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ea, lai, leaf_age, &
   Ag=0.;
   anbar=-Resp/lai;
   gsbar=b;
+  lai_light = 0.0
 
   ! find the LAI level at which gross photosynthesis rates are equal
   ! only if PAR is positive
