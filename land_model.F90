@@ -444,13 +444,13 @@ subroutine land_model_init &
 
   ! initialize land model diagnostics -- must be before *_data_init so that
   ! *_data_init can write static fields if necessary
+  call land_sg_diag_init(id_cellarea)
   call land_diag_init( lnd%coord_glonb, lnd%coord_glatb, lnd%coord_glon, lnd%coord_glat, &
       time, lnd%ug_domain, id_band, id_ug )
 
   ! set the land diagnostic axes ids for the flux exchange
   land2cplr%axes = (/id_ug/)
   ! send some static diagnostic fields to output
-  if ( id_cellarea > 0 ) used = send_data ( id_cellarea, lnd%ug_cellarea,     lnd%time )
   if ( id_landfrac > 0 ) used = send_data ( id_landfrac, lnd%ug_landfrac,     lnd%time )
   if ( id_geolon_t > 0 ) used = send_data ( id_geolon_t, lnd%ug_lon*180.0/PI, lnd%time )
   if ( id_geolat_t > 0 ) used = send_data ( id_geolat_t, lnd%ug_lat*180.0/PI, lnd%time )
@@ -2974,6 +2974,44 @@ endif
 
 end subroutine Lnd_stock_pe
 
+! ============================================================================
+! initialize land model output on structured grid
+! currently it is only cell_area, since for interpolation to work correctly it
+! must have correct values over both land and ocean.
+subroutine land_sg_diag_init(id_cellarea)
+  integer, intent(out) :: id_cellarea
+
+  ! local vars
+  integer :: id_lon, id_lat, id_lonb, id_latb
+  integer :: i
+  logical :: used
+
+  if(mpp_get_ntile_count(lnd%sg_domain)==1) then
+     ! grid has just one tile, so we assume that the grid is regular lat-lon
+     ! define longitude axes and its edges
+     id_lonb = diag_axis_init ('lonb', lnd%coord_glonb, 'degrees_E', 'X', 'longitude edges', &
+          set_name='land_sg', domain2=lnd%sg_domain )
+     id_lon  = diag_axis_init ('lon',  lnd%coord_glon, 'degrees_E', 'X',   'longitude', &
+          set_name='land_sg',  edges=id_lonb, domain2=lnd%sg_domain )
+
+     ! define latitude axes and its edges
+     id_latb = diag_axis_init ('latb', lnd%coord_glatb, 'degrees_N', 'Y', 'latitude edges',  &
+          set_name='land_sg',  domain2=lnd%sg_domain   )
+     id_lat = diag_axis_init ('lat',  lnd%coord_glat, 'degrees_N', 'Y', 'latitude', &
+          set_name='land_sg', edges=id_latb, domain2=lnd%sg_domain)
+  else
+     id_lon = diag_axis_init ( 'grid_xt', [(real(i),i=1,size(lnd%coord_glon))], 'degrees_E', 'X', &
+          'T-cell longitude', set_name='land_sg',  domain2=lnd%sg_domain)
+     id_lat = diag_axis_init ( 'grid_yt', [(real(i),i=1,size(lnd%coord_glat))], 'degrees_N', 'Y', &
+          'T-cell latitude', set_name='land_sg',  domain2=lnd%sg_domain)
+  endif
+
+  ! register land area on structured grid
+  id_cellarea = register_static_field ( 'land_sg', 'cell_area', (/id_lon, id_lat/), &
+       'total area in grid cell', 'm2', missing_value=-1.0 )
+  if ( id_cellarea > 0 ) used = send_data ( id_cellarea, lnd%sg_cellarea,     lnd%time )
+
+end subroutine land_sg_diag_init
 
 ! ============================================================================
 ! initialize horizontal axes for land grid so that all sub-modules can use them,
@@ -3044,16 +3082,12 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   axes(1) = id_ug
 
   ! register auxiliary coordinate variables
-
   id_geolon_t = register_static_field ( module_name, 'geolon_t', axes, &
        'longitude of grid cell centers', 'degrees_E', missing_value = -1.0e+20 )
   id_geolat_t = register_static_field ( module_name, 'geolat_t', axes, &
        'latitude of grid cell centers', 'degrees_N', missing_value = -1.0e+20 )
 
   ! register static diagnostic fields
-
-  id_cellarea = register_static_field ( module_name, 'cell_area', axes, &
-       'total area in grid cell', 'm2', missing_value=-1.0 )
   id_landfrac = register_static_field ( module_name, 'land_frac', axes, &
        'fraction of land in grid cell','unitless', missing_value=-1.0, area=id_cellarea)
   call diag_field_add_attribute(id_landfrac,'ocean_fillvalue',0)
