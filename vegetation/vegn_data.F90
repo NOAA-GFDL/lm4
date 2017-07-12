@@ -226,6 +226,11 @@ type spec_data_type
   real    :: maturalage    = 1.0    ! the age that can reproduce
   real    :: fecundity     = 0.0    ! max C allocated to next generation per unit canopy area, kg C/m2
   real    :: v_seed        = 0.1    ! fraction of G_SF to G_F
+  ! seed dispersal and transport: obviously the fraction of seed dispersed to other tiles
+  ! and grid cells would depend on the size of the tiles grid cells. In future, we should
+  ! calculate those fractions, given dispersal radius of seeds for given species, and
+  ! geometry of tiles and grid cells. Characteristic size of tiles may need to be assumed.
+  real    :: frac_seed_dispersed = 0.1 ! fraction of seeds dispersed outside of tile
   real    :: seedling_height   = 0.1 ! height of the seedlings, m
   real    :: seedling_nsc_frac = 3.0 ! initial seedling NSC, as fraction of bl_max (typically > 1)
   real    :: prob_g = 0.45, prob_e = 0.3 ! germination and establishment probabilities
@@ -687,6 +692,7 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(v_seed)
   __GET_SPDATA_REAL__(seedling_height)
   __GET_SPDATA_REAL__(seedling_nsc_frac)
+  __GET_SPDATA_REAL__(frac_seed_dispersed)
   __GET_SPDATA_REAL__(prob_g)
   __GET_SPDATA_REAL__(prob_e)
   __GET_SPDATA_REAL__(mortrate_d_c)
@@ -882,6 +888,7 @@ subroutine print_species_data(unit)
   call add_row(table, 'thetaCSASW', spdata(:)%thetaCSASW)
   call add_row(table, 'maturalage', spdata(:)%maturalage)
   call add_row(table, 'v_seed', spdata(:)%v_seed)
+  call add_row(table, 'frac_seed_dispersed', spdata(:)%frac_seed_dispersed)
   call add_row(table, 'seedling_height', spdata(:)%seedling_height)
   call add_row(table, 'seedling_nsc_frac', spdata(:)%seedling_nsc_frac)
   call add_row(table, 'prob_g', spdata(:)%prob_g)
