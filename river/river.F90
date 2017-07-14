@@ -69,7 +69,7 @@ module river_mod
   use stock_constants_mod, only : ISTOCK_WATER, ISTOCK_HEAT
   use land_tile_mod,       only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles
-  use land_data_mod,       only : land_data_type, lnd_sg, log_version, lnd
+  use land_data_mod,       only : land_data_type, log_version, lnd
   use lake_tile_mod,       only : num_l
   use field_manager_mod, only: fm_field_name_len, fm_string_len, &
      fm_type_name_len, fm_path_name_len, fm_dump_list, fm_get_length, &
@@ -92,6 +92,7 @@ character(len=*), parameter :: module_name = 'river_mod'
   public :: river_tracers_init
   public :: num_river_tracers
   public :: river_tracer_index
+  public :: get_river_water
 
 !--- namelist interface ----------------------------------------------
   logical            :: do_rivers       = .TRUE.  ! if FALSE, rivers are essentially turned off to save computing time
@@ -310,7 +311,7 @@ contains
 !--- read the data from the file river_src_file -- has all static river network data
     call get_river_data(land_lon, land_lat, land_frac)
 
-    missing_rivers = (lnd_sg%landfrac .gt. 0 .and. .not. River%mask)
+    missing_rivers = (lnd%sg_landfrac .gt. 0 .and. .not. River%mask)
 
     i_river_ice  = river_tracer_index('ice')
     i_river_heat = river_tracer_index('het')
@@ -333,18 +334,18 @@ contains
        ! grid has just one tile, so we assume that the grid is regular lat-lon
        ! define longitude axes and its edges
        id_lonb = diag_axis_init ( &
-            'lonb', lnd_sg%coord_glonb, 'degrees_E', 'X', 'longitude edges', &
+            'lonb', lnd%coord_glonb, 'degrees_E', 'X', 'longitude edges', &
             set_name='river', domain2=domain )
        id_lon  = diag_axis_init (                                                &
-            'lon',  lnd_sg%coord_glon, 'degrees_E', 'X',  &
+            'lon',  lnd%coord_glon, 'degrees_E', 'X',  &
             'longitude', set_name='river',  edges=id_lonb, domain2=domain )
 
        ! define latitude axes and its edges
        id_latb = diag_axis_init ( &
-            'latb', lnd_sg%coord_glatb, 'degrees_N', 'Y', 'latitude edges',  &
+            'latb', lnd%coord_glatb, 'degrees_N', 'Y', 'latitude edges',  &
             set_name='river',  domain2=domain   )
        id_lat = diag_axis_init (                                                &
-            'lat',  lnd_sg%coord_glat, 'degrees_N', 'Y', &
+            'lat',  lnd%coord_glat, 'degrees_N', 'Y', &
             'latitude', set_name='river', edges=id_latb, domain2=domain   )
     else
        id_lon = diag_axis_init ( 'grid_xt', (/(real(i),i=1,River%nlon)/), 'degrees_E', 'X', &
@@ -602,7 +603,7 @@ end subroutine print_river_tracer_data
     real, dimension(size(runoff,1),size(runoff,2)) :: &
         heat_frac_liq,    & ! fraction of runoff heat in liquid
         discharge_l,      & ! discharge of liquid water to ocean
-        discharge_sink      ! container to collect small/negative values for later accounting                                              
+        discharge_sink      ! container to collect small/negative values for later accounting
     real, dimension(size(runoff,1),size(runoff,2),num_species) ::  &
         discharge_c    ! runoff of tracers accumulated over tiles in cell (including ice and heat)
 
@@ -645,17 +646,17 @@ end subroutine print_river_tracer_data
         River%run_stor_c = 0
     endif
 
-    discharge_l = discharge_l/lnd_sg%cellarea
+    discharge_l = discharge_l/lnd%sg_cellarea
     do i_species = 1, num_species
-       discharge_c(:,:,i_species) =  discharge_c(:,:,i_species)/lnd_sg%cellarea
+       discharge_c(:,:,i_species) =  discharge_c(:,:,i_species)/lnd%sg_cellarea
     enddo
 
     ! pass through to ocean the runoff that was not seen by river module because of land_frac diffs.
     ! need to multiply by gfrac to spread over whole cell
-    where (missing_rivers) discharge_l = (runoff-runoff_c(:,:,i_river_ice))*lnd_sg%landfrac
+    where (missing_rivers) discharge_l = (runoff-runoff_c(:,:,i_river_ice))*lnd%sg_landfrac
     do i_species = 1, num_species
        where (missing_rivers) &
-          discharge_c(:,:,i_species) = runoff_c(:,:,i_species)*lnd_sg%landfrac
+          discharge_c(:,:,i_species) = runoff_c(:,:,i_species)*lnd%sg_landfrac
     enddo
 
     ! don't send negatives or insignificant values to ocean. put them in the sink instead.
@@ -679,27 +680,27 @@ end subroutine print_river_tracer_data
 
     ! scale up fluxes sent to ocean to compensate for non-ocean fraction of discharge cell.
     ! split heat into liquid and solid streams
-    where (lnd_sg%landfrac.lt.1.)
-       land2cplr%discharge           = discharge_l        / (1-lnd_sg%landfrac)
-       land2cplr%discharge_snow      = discharge_c(:,:,i_river_ice) / (1-lnd_sg%landfrac)
-       land2cplr%discharge_heat      = heat_frac_liq*discharge_c(:,:,i_river_heat) / (1-lnd_sg%landfrac)
-       land2cplr%discharge_snow_heat =               discharge_c(:,:,i_river_heat) / (1-lnd_sg%landfrac) &
+    where (lnd%sg_landfrac.lt.1.)
+       land2cplr%discharge           = discharge_l        / (1-lnd%sg_landfrac)
+       land2cplr%discharge_snow      = discharge_c(:,:,i_river_ice) / (1-lnd%sg_landfrac)
+       land2cplr%discharge_heat      = heat_frac_liq*discharge_c(:,:,i_river_heat) / (1-lnd%sg_landfrac)
+       land2cplr%discharge_snow_heat =               discharge_c(:,:,i_river_heat) / (1-lnd%sg_landfrac) &
                                       - land2cplr%discharge_heat
     end where
 
 #ifdef ZMSDEBUG
-    do j=lnd_sg%js,lnd_sg%je
-       do i=lnd_sg%is,lnd_sg%ie
-          call set_current_point(i, j, 1)
-          call check_var_range(land2cplr%discharge(i,j), -10., 10., 'gcell DISCHARGE CHECK', &
-                               'Liquid Discharge (mm/s)', WARNING)
-          call check_var_range(land2cplr%discharge_snow(i,j), -10., 10., 'gcell DISCHARGE CHECK', &
-                               'Snow Discharge (mm/s)', WARNING)
-          call check_var_range(land2cplr%discharge_heat(i,j), -1000., 1000., 'gcell DISCHARGE CHECK', &
-                               'Discharge Heat (W/m^2/s)', WARNING)
-          call check_var_range(land2cplr%discharge_snow_heat(i,j), -1000., 1000., 'gcell DISCHARGE CHECK', &
-                               'Discharge Snow Heat (W/m^2/s)', WARNING)
-       end do
+    do j=lnd%js,lnd%je
+    do i=lnd%is,lnd%ie
+       call set_current_point(i, j, 1)
+       call check_var_range(land2cplr%discharge(i,j), -10., 10., 'gcell DISCHARGE CHECK', &
+                            'Liquid Discharge (mm/s)', WARNING)
+       call check_var_range(land2cplr%discharge_snow(i,j), -10., 10., 'gcell DISCHARGE CHECK', &
+                            'Snow Discharge (mm/s)', WARNING)
+       call check_var_range(land2cplr%discharge_heat(i,j), -1000., 1000., 'gcell DISCHARGE CHECK', &
+                            'Discharge Heat (W/m^2/s)', WARNING)
+       call check_var_range(land2cplr%discharge_snow_heat(i,j), -1000., 1000., 'gcell DISCHARGE CHECK', &
+                            'Discharge Snow Heat (W/m^2/s)', WARNING)
+    end do
     end do
 #endif
 
@@ -807,9 +808,9 @@ end subroutine print_river_tracer_data
     do while(loop_over_tiles(ce, tile, l,k))
        if (.not.associated(tile%lake)) cycle
        if (lake_area_bug) then
-          lake_sfc_A_ug (l) = tile%frac * lnd%cellarea(l)
+          lake_sfc_A_ug (l) = tile%frac * lnd%ug_cellarea(l)
        else
-          lake_sfc_A_ug (l) = tile%frac * lnd%area(l)
+          lake_sfc_A_ug (l) = tile%frac * lnd%ug_area(l)
        endif
        do lev = 1, num_lake_lev
          lake_T_ug (l,lev)   = tile%lake%T(lev)
@@ -828,17 +829,17 @@ end subroutine print_river_tracer_data
     enddo
 
 !z1l: The following might be changed for performance issue. This might be a temporary solution.
-    call mpp_pass_UG_to_SG(lnd%domain, lake_sfc_A_ug, lake_sfc_A)
-    call mpp_pass_UG_to_SG(lnd%domain, lake_T_ug, lake_T)
-    call mpp_pass_UG_to_SG(lnd%domain, lake_wl_ug, lake_wl)
-    call mpp_pass_UG_to_SG(lnd%domain, lake_ws_ug, lake_ws)
-    call mpp_pass_UG_to_SG(lnd%domain, lake_sfc_bot_ug, lake_sfc_bot)
-    call mpp_pass_UG_to_SG(lnd%domain, lake_depth_sill_ug, lake_depth_sill)
-    call mpp_pass_UG_to_SG(lnd%domain, lake_width_sill_ug, lake_width_sill)
-    call mpp_pass_UG_to_SG(lnd%domain, lake_whole_area_ug, lake_whole_area)
-    call mpp_pass_UG_to_SG(lnd%domain, lake_conn_ug, lake_conn)
-    call mpp_pass_UG_to_SG(lnd%domain, lake_backwater_ug, lake_backwater)
-    call mpp_pass_UG_to_SG(lnd%domain, lake_backwater_1_ug, lake_backwater_1)
+    call mpp_pass_UG_to_SG(lnd%ug_domain, lake_sfc_A_ug, lake_sfc_A)
+    call mpp_pass_UG_to_SG(lnd%ug_domain, lake_T_ug, lake_T)
+    call mpp_pass_UG_to_SG(lnd%ug_domain, lake_wl_ug, lake_wl)
+    call mpp_pass_UG_to_SG(lnd%ug_domain, lake_ws_ug, lake_ws)
+    call mpp_pass_UG_to_SG(lnd%ug_domain, lake_sfc_bot_ug, lake_sfc_bot)
+    call mpp_pass_UG_to_SG(lnd%ug_domain, lake_depth_sill_ug, lake_depth_sill)
+    call mpp_pass_UG_to_SG(lnd%ug_domain, lake_width_sill_ug, lake_width_sill)
+    call mpp_pass_UG_to_SG(lnd%ug_domain, lake_whole_area_ug, lake_whole_area)
+    call mpp_pass_UG_to_SG(lnd%ug_domain, lake_conn_ug, lake_conn)
+    call mpp_pass_UG_to_SG(lnd%ug_domain, lake_backwater_ug, lake_backwater)
+    call mpp_pass_UG_to_SG(lnd%ug_domain, lake_backwater_1_ug, lake_backwater_1)
     call mpp_update_domains (lake_sfc_A,  domain)
     call mpp_update_domains (lake_sfc_bot,domain)
     call mpp_update_domains (lake_wl, domain)
@@ -898,10 +899,10 @@ end subroutine print_river_tracer_data
        call mpp_clock_end(physicsclock)
     enddo
 
-    call mpp_pass_SG_to_UG(lnd%domain, lake_T, lake_T_ug)
-    call mpp_pass_SG_to_UG(lnd%domain, lake_wl, lake_wl_ug)
-    call mpp_pass_SG_to_UG(lnd%domain, lake_ws, lake_ws_ug)
-   
+    call mpp_pass_SG_to_UG(lnd%ug_domain, lake_T, lake_T_ug)
+    call mpp_pass_SG_to_UG(lnd%ug_domain, lake_wl, lake_wl_ug)
+    call mpp_pass_SG_to_UG(lnd%ug_domain, lake_ws, lake_ws_ug)
+
     ce = first_elmt(land_tile_map, ls=lnd%ls)
     do while(loop_over_tiles(ce, tile, l,k))
        if (.not.associated(tile%lake)) cycle
@@ -945,24 +946,24 @@ end subroutine print_river_tracer_data
   ! convert area-integrated river outputs to unit-area quantities,
   ! using land area for stores, cell area for fluxes to ocean
     if (id_LWSr > 0) then
-       where (lnd_sg%area > 0) &
-            rivr_LMASS = rivr_LMASS / lnd_sg%area
-       used = send_data (id_LWSr, rivr_LMASS, River%time, mask=lnd_sg%area>0)
+       where (lnd%sg_area > 0) &
+            rivr_LMASS = rivr_LMASS / lnd%sg_area
+       used = send_data (id_LWSr, rivr_LMASS, River%time, mask=lnd%sg_area>0)
     endif
     if (id_FWSr > 0) then
-       where (lnd_sg%area > 0) &
-            rivr_FMASS = rivr_FMASS / lnd_sg%area
-       used = send_data (id_FWSr, rivr_FMASS, River%time, mask=lnd_sg%area>0)
+       where (lnd%sg_area > 0) &
+            rivr_FMASS = rivr_FMASS / lnd%sg_area
+       used = send_data (id_FWSr, rivr_FMASS, River%time, mask=lnd%sg_area>0)
     endif
     if (id_HSr > 0) then
-       where (lnd_sg%area > 0) &
-            rivr_HEAT = rivr_HEAT / lnd_sg%area
-       used = send_data (id_HSr, rivr_HEAT, River%time, mask=lnd_sg%area>0)
+       where (lnd%sg_area > 0) &
+            rivr_HEAT = rivr_HEAT / lnd%sg_area
+       used = send_data (id_HSr, rivr_HEAT, River%time, mask=lnd%sg_area>0)
     endif
     if (id_meltr > 0) then
-       where (lnd_sg%area > 0) &
-            rivr_MELT = rivr_MELT / lnd_sg%area
-       used = send_data (id_meltr, rivr_MELT, River%time, mask=lnd_sg%area>0)
+       where (lnd%sg_area > 0) &
+            rivr_MELT = rivr_MELT / lnd%sg_area
+       used = send_data (id_meltr, rivr_MELT, River%time, mask=lnd%sg_area>0)
     end if
     if(mod(slow_step, diag_freq) == 0)  call river_diag(lake_depth_sill)
     call mpp_clock_end(diagclock)
@@ -1416,8 +1417,8 @@ end subroutine print_river_tracer_data
 
     if(id_geolon_t>0) sent=send_data(id_geolon_t, River%lon*180.0/PI, River%time )
     if(id_geolat_t>0) sent=send_data(id_geolat_t, River%lat*180.0/PI, River%time )
-    if(id_area_land>0) sent=send_data(id_area_land, lnd_sg%area, River%time )
-    if(id_cellarea>0) sent=send_data(id_cellarea, lnd_sg%cellarea, River%time )
+    if(id_area_land>0) sent=send_data(id_area_land, lnd%sg_area, River%time )
+    if(id_cellarea>0) sent=send_data(id_cellarea, lnd%sg_cellarea, River%time )
 
     if (id_dx>0) sent=send_data(id_dx, River%reach_length, River%Time, mask=River%mask )
     if (id_basin>0) then
@@ -1435,7 +1436,7 @@ end subroutine print_river_tracer_data
       end if
 
     no_riv = 0.
-    where ( lnd_sg%landfrac .gt. 0 .and. .not. River%mask ) no_riv = 1.
+    where ( lnd%sg_landfrac .gt. 0 .and. .not. River%mask ) no_riv = 1.
     if ( id_no_riv > 0 ) sent = send_data( id_no_riv, no_riv, River%time )
 
 
@@ -1450,8 +1451,8 @@ end subroutine print_river_tracer_data
     real diag_factor_2(isc:iec,jsc:jec)
     integer :: tr ! iteratior over river tracers
 
-    diag_factor   = DENS_H2O/lnd_sg%cellarea(:,:)
-    diag_factor_2 = 1.0/(lnd_sg%cellarea(:,:)*River%dt_slow)
+    diag_factor   = DENS_H2O/lnd%sg_cellarea(:,:)
+    diag_factor_2 = 1.0/(lnd%sg_cellarea(:,:)*River%dt_slow)
 
     if (id_inflow_c(0) > 0) used = send_data (id_inflow_c(0), &
             diag_factor*River%inflow(isc:iec,jsc:jec), River%Time, mask=River%mask )
@@ -1462,7 +1463,7 @@ end subroutine print_river_tracer_data
     if (id_stordis_c(0) > 0) used = send_data (id_stordis_c(0), &
             diag_factor*River%stordis(isc:iec,jsc:jec), River%Time, mask=River%mask )
     if (id_run_stor_c(0) > 0) used = send_data (id_run_stor_c(0), &
-            River%dt_fast*River%run_stor(isc:iec,jsc:jec)/lnd_sg%cellarea, River%Time, mask=River%mask )
+            River%dt_fast*River%run_stor(isc:iec,jsc:jec)/lnd%sg_cellarea, River%Time, mask=River%mask )
     if (id_infloc_c(0) > 0) used = send_data (id_infloc_c(0), &
             diag_factor*River%infloc(isc:iec,jsc:jec), River%Time, mask=River%mask )
     if (id_dis_c(0) > 0)    used = send_data (id_dis_c(0), &
@@ -1599,11 +1600,25 @@ end select
 end subroutine river_stock_pe
 
 !#####################################################################
+! returns total amount of water (liquid and frozed) in rivers, kg/m2 of land
+subroutine get_river_water(water)
+  real, intent(out) :: water(lnd%is:lnd%ie,lnd%js:lnd%je)
+
+  if (do_rivers) then
+     water(:,:) = River%run_stor*River%dt_fast
+     where (lnd%sg_area > 0.0) &
+         water(:,:) = water(:,:) + DENS_H2O*(River%storage+River%stordis)/lnd%sg_area
+  else
+     water(:,:) = 0.0
+  endif
+end subroutine get_river_water
+
+!#####################################################################
 ! returns string indicating the coordiantes of the point i,j
 function coordinates(i,j) result(s); character(128) :: s
    integer, intent(in) :: i,j
    s ='('//trim(string(i))//','//trim(string(j))//')'
-   if (lnd%nfaces>1) s=trim(s)//' on cubic sphere face '//string(lnd_sg%face)
+   if (lnd%nfaces>1) s=trim(s)//' on cubic sphere face '//string(lnd%sg_face)
 end function coordinates
 
 end module river_mod
