@@ -7,7 +7,7 @@ module vegn_dynamics_mod
 
 use fms_mod, only: error_mesg, FATAL, WARNING
 use time_manager_mod, only: time_type
-use mpp_domains_mod, only : mpp_pass_UG_to_SG, mpp_pass_SG_to_UG
+use mpp_domains_mod, only : mpp_pass_UG_to_SG, mpp_pass_SG_to_UG, mpp_update_domains
 
 use constants_mod, only : PI,tfreeze
 use land_constants_mod, only : days_per_year, seconds_per_year, mol_C
@@ -1248,9 +1248,10 @@ subroutine vegn_reproduction_ppa(do_seed_transport)
 
   type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
-  real :: dispersed_ug(lnd%ls:lnd%le,0:nspecies-1)  ! dispersed seeds, kgC per m2 of land
-  real :: dispersed_sg(lnd%is:lnd%ie,lnd%js:lnd%je) ! dispersed seeds, kgC per m2 of land
-  real, allocatable :: seeds(:,:)
+  real :: dispersed_ug   (lnd%ls:lnd%le,0:nspecies-1)  ! dispersed seeds, kgC per m2 of land
+  real :: transported_ug (lnd%ls:lnd%le,0:nspecies-1)  ! dispersed seeds, kgC per m2 of land
+  real :: area_factor    (lnd%ls:lnd%le) ! conversion factor from land area to vegetation area
+  real, allocatable :: bseed(:,:)
   integer :: i,k,l,n
 
   ! count total number of vegetation tiles in this domain
@@ -1261,54 +1262,103 @@ subroutine vegn_reproduction_ppa(do_seed_transport)
   end do
 
   ! calculate amount of seeds (kgC per tile area, by species) for each of the vegetation tiles
-  allocate(seeds(n,0:nspecies-1))
-  seeds = 0.0
+  allocate(bseed(n,0:nspecies-1))
+  bseed = 0.0; area_factor = 0.0
   ce = first_elmt(land_tile_map, lnd%ls); k = 1
   do while (loop_over_tiles(ce,tile,l))
      if(.not.associated(tile%vegn)) cycle
      do i = 1,tile%vegn%n_cohorts
         associate(cc=>tile%vegn%cohorts(i))
         if (cohort_can_reproduce(cc)) then
-           seeds(k,cc%species) = seeds(k,cc%species) + cc%bseed * cc%nindivs
+           bseed(k,cc%species) = bseed(k,cc%species) + cc%bseed * cc%nindivs
            cc%bseed = 0.0
         endif
         end associate
      enddo
+     area_factor(l) = area_factor(l) + tile%frac
      k = k+1
   enddo
-  
+  ! calculate conversion factor from land area to vegetation area
+  where(area_factor>0) &
+        area_factor = 1.0/area_factor
+
   ! calculate amount of dispersed seeds, by species, kgC per m2 of land
   dispersed_ug = 0.0
+  transported_ug = 0.0
   if (do_seed_transport) then
      ce = first_elmt(land_tile_map, lnd%ls); k = 1
-     do while (loop_over_tiles(ce,tile,l))
-        if (.not.associated(tile%vegn)) continue
+     do while (loop_over_tiles(ce,tile,l)) ! l is the grid cell index in unstructured grid
+        if (.not.associated(tile%vegn)) cycle
         do i = 0,nspecies-1
-           dispersed_ug(l,i) = dispersed_ug(l,i) + seeds(k,i)*spdata(i)%frac_seed_dispersed*tile%frac
-           seeds(k,i) = seeds(k,i)*(1-spdata(i)%frac_seed_dispersed)
+           dispersed_ug(l,i)   = dispersed_ug(l,i)   + bseed(k,i)*spdata(i)%frac_seed_dispersed*tile%frac
+           transported_ug(l,i) = transported_ug(l,i) + bseed(k,i)*spdata(i)%frac_seed_transported*tile%frac
+           ! correct the amount of seeds remaining in each tile
+           bseed(k,i) = bseed(k,i)*(1-spdata(i)%frac_seed_dispersed-spdata(i)%frac_seed_transported)
         enddo
-        k = k+1 
+        k = k+1
      enddo
      ! diffuse the seeds
      do i = 0,nspecies-1
-        ! move dispersed seeds to structured grid
-        call mpp_pass_UG_to_SG(lnd%ug_domain,dispersed_ug(:,i),dispersed_sg)
-        ! diffuse the field (diffusion coefficient depends on species)
-        ! ....
-        ! move diffused field to unstructured grid
-        call mpp_pass_SG_to_UG(lnd%ug_domain,dispersed_sg,dispersed_ug(:,i))
+        call transport_seeds(transported_ug(:,i))
      enddo
   endif
 
   ! distribute seeds (those that stay in place + dispersed) among tiles
   ce = first_elmt(land_tile_map, lnd%ls); k = 1
   do while (loop_over_tiles(ce,tile,l))
-     if (.not.associated(tile%vegn)) continue
-     call add_seedlings_ppa(tile%vegn,tile%soil,dispersed_ug(l,:)+seeds(k,:))
+     if (.not.associated(tile%vegn)) cycle
+     call add_seedlings_ppa(tile%vegn,tile%soil,(dispersed_ug(l,:)+transported_ug(l,:))*area_factor(l)+bseed(k,:))
      k = k+1
   enddo
 end subroutine vegn_reproduction_ppa
 
+! =======================================================================================
+! Given the total amount of transported seeds per grid cell, kg, on unstructured grid,
+! updates it to take into account transport among grid cells.
+subroutine transport_seeds(bseed_ug)
+  real, intent(inout) :: bseed_ug(lnd%ls:lnd%le) ! amount of dispersed seeds on unstructured grid, kg per m2 of land
+
+  real :: seed(lnd%isd:lnd%ied, lnd%jsd:lnd%jed) ! total amount of dispersed seeds per grid cell on structured grid, kg
+  real :: tend(lnd%isd:lnd%ied, lnd%jsd:lnd%jed)   ! seed mass tendency due to dispersion, kg
+  integer :: i,j,ii,jj
+  real :: delta
+
+  real,    parameter :: stencil(-1:1,-1:1) = reshape([ & ! shape of the dispersal function
+      0.0,  0.25, 0.0,  &
+      0.25, 0.0,  0.25, &
+      0.0,  0.25, 0.0   ],[3,3] )
+
+  ! move dispersed seeds to structured grid
+  seed = 0.0
+  call mpp_pass_UG_to_SG(lnd%ug_domain,bseed_ug*lnd%ug_area,seed)
+  ! seed is multiplied by area, so it is total per grid cell
+
+  ! update halo
+  call mpp_update_domains(seed,lnd%sg_domain)
+
+  tend = 0.0
+  do j = lnd%js, lnd%je
+  do i = lnd%is, lnd%ie
+     do jj = -1,1
+     do ii = -1,1
+         ! transport from grid cell i-ii, j-jj to i, j
+         delta = seed(i-ii,j-jj)*stencil(ii,jj)*lnd%sg_landfrac(i,j)
+         tend(i,j)       = tend(i,j)       - delta
+         tend(i-ii,j-jj) = tend(i-ii,j-jj) + delta
+     enddo
+     enddo
+  enddo
+  enddo
+  ! tendencies and updated seed amounts are only valid within compute domain, but that's OK
+  ! because we only use them there. 
+  seed(:,:) = seed(:,:) + tend(:,:)
+
+  ! move transported field to unstructured grid
+  call mpp_pass_SG_to_UG(lnd%ug_domain,seed(lnd%is:lnd%ie,lnd%js:lnd%je),bseed_ug(:))
+  ! renormalize seed amount from total to kg C per unit land area
+  bseed_ug(:) = bseed_ug(:)/lnd%ug_area(:)
+
+end subroutine transport_seeds
 ! ============================================================================
 ! Given seed biomass for each species (kgC per m2 of tile), add a seedling cohort
 ! for each species for which bseed is greater than zero.
