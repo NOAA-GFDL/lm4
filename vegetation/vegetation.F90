@@ -214,6 +214,7 @@ integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_crownarea, &
    id_soil_water_supply, id_gdd, id_tc_pheno, id_zstar_1, &
    id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi
+integer, allocatable :: id_nindivs_sp(:)
 ! ==== end of module variables ===============================================
 
 contains
@@ -612,6 +613,13 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        (/id_ug/), time, 'number of cohorts', 'unitless', missing_value=-1.0)
   id_nindivs = register_cohort_diag_field( module_name, 'nindivs', &
        (/id_ug/), time, 'density of individuals', 'individuals/m2', missing_value=-1.0)
+
+  allocate(id_nindivs_sp(0:nspecies-1))
+  do i = 0, nspecies-1
+     id_nindivs_sp(i) = register_cohort_diag_field( module_name, 'nindivs'//trim(spdata(i)%name), &
+         (/id_ug/), time, 'density of individuals', 'individuals/m2', missing_value=-1.0)
+  enddo
+
   id_nlayers = register_tiled_diag_field( module_name, 'nlayers', &
        (/id_ug/), time, 'number of canopy layers', 'unitless', missing_value=-1.0 )
   id_dbh = register_cohort_diag_field( module_name, 'dbh', &
@@ -1842,6 +1850,7 @@ subroutine update_vegn_slow( )
   real    :: zstar ! critical depth, for diag only
   character(64) :: str
   real, allocatable :: btot(:) ! storage for total biomass
+  real, allocatable :: spmask(:) ! mask for by-species nindivs output
   real :: dheat
 
   ! variables for conservation checks
@@ -2074,6 +2083,17 @@ subroutine update_vegn_slow( )
      N=tile%vegn%n_cohorts ; cc=>tile%vegn%cohorts
      call send_cohort_data(id_ncohorts, tile%diag, cc(1:N), (/(1.0,i=1,N)/), op=OP_SUM)
      call send_cohort_data(id_nindivs,  tile%diag, cc(1:N), cc(1:N)%nindivs, op=OP_SUM)
+     if (any(id_nindivs_sp(:)>0)) then
+        allocate(spmask(N))
+        do i = 0, nspecies-1
+           if (id_nindivs_sp(i)>0) then
+              spmask = 0.0; where (cc(1:N)%species == i) spmask(:) = 1.0
+              call send_cohort_data(id_nindivs_sp(i),  tile%diag, cc(1:N), cc(1:N)%nindivs, weight=spmask(:), op=OP_SUM)
+           endif
+        enddo
+        deallocate(spmask)
+     endif
+
      call send_tile_data(id_nlayers,  real(cc(N)%layer),    tile%diag)
 
      call send_cohort_data(id_bl,     tile%diag, cc(1:N), cc(1:N)%bl,     weight=cc(1:N)%nindivs, op=OP_SUM)
