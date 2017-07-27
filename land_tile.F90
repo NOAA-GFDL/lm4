@@ -33,10 +33,9 @@ use snow_tile_mod, only : &
      snow_tile_stock_pe, snow_tile_heat, snow_active
 use land_tile_selectors_mod, only : tile_selector_type, &
      SEL_SOIL, SEL_VEGN, SEL_LAKE, SEL_GLAC, SEL_SNOW, SEL_CANA, SEL_HLSP
-use tile_diag_buff_mod, only : &
-     diag_buff_type, new_diag_buff, delete_diag_buff
+use tile_diag_buff_mod, only : diag_buff_type, init_diag_buff
 use land_data_mod, only : lnd
-use tiling_input_types_mod, only : soil_predefined_type,lake_predefined_type, &
+use tiling_input_types_mod, only : soil_predefined_type, lake_predefined_type, &
      glacier_predefined_type
 
 implicit none
@@ -143,9 +142,9 @@ type :: land_tile_type
    type(cana_tile_type), pointer :: cana => NULL() ! canopy air data
    type(vegn_tile_type), pointer :: vegn => NULL() ! vegetation model data
 
-   type(diag_buff_type), pointer :: diag => NULL() ! diagnostic data storage
+   type(diag_buff_type) :: diag ! diagnostic data storage
 
-   ! data that are carried over from the previous time step
+   ! data that are carried from update_land_bc_fast to update_land_fast:
    real :: Sg_dir(NBANDS), Sg_dif(NBANDS) ! fractions of downward direct and
        ! diffuse short-wave radiation absorbed by ground and snow
    real :: Sv_dir(NBANDS), Sv_dif(NBANDS) ! fractions of downward direct and
@@ -158,7 +157,7 @@ type :: land_tile_type
    real :: vegn_tran_lw ! black background long-wave transmissivity of the vegetation canopy
 
    real :: lwup     = 200.0  ! upward long-wave flux from the entire land (W/m2), the result of
-           ! the implicit time step -- used in update_bc_fast to return to the flux exchange.
+           ! the implicit time step -- used in update_land_bc_fast to return to the flux exchange.
    real :: e_res_1  = 0.0 ! energy residual in canopy air EB equation
    real :: e_res_2  = 0.0 ! energy residual in canopy EB equation
    real :: runon_l  = 0.0 ! water discharged by rivers into the tile, kg/(m2 s)
@@ -182,7 +181,7 @@ type :: land_tile_enum_type
    type(land_tile_list_type), pointer :: &
         tiles(:) => NULL()  ! pointer to array of tiles to walk -- may be disassociated
    integer :: i=0,j=0 ! i,j indices in the above array
-   integer :: l=0     ! index in the unstructure domain
+   integer :: l=0     ! index in the unstructured domain
    integer :: k=0     ! number of the current tile in its container
    integer :: lo=0    ! offsets of indices (to keep track of non-1 ubounds of tiles array)
    type(land_tile_list_node_type), pointer :: node => NULL() ! pointer to the current container node
@@ -344,7 +343,7 @@ function land_tile_ctor(frac,glac,lake,soil,vegn,tag,htag_j,htag_k) result(tile)
   if(vegn_>=0) tile%vegn => new_vegn_tile(vegn_)
 
   ! create a buffer for diagnostic output
-  tile%diag=>new_diag_buff()
+  call init_diag_buff(tile%diag)
 
   ! increment total number of created files for tile statistics
   n_created_land_tiles = n_created_land_tiles + 1
@@ -402,7 +401,7 @@ function land_tile_ctor_predefined(frac,glac,lake,soil,vegn,tag,htag_j,htag_k,&
   if(vegn_>=0) tile%vegn => new_vegn_tile(vegn_)
 
   ! create a buffer for diagnostic output
-  tile%diag=>new_diag_buff()
+  call init_diag_buff(tile%diag)
 
   ! increment total number of created files for tile statistics
   n_created_land_tiles = n_created_land_tiles + 1
@@ -423,8 +422,6 @@ function land_tile_copy_ctor(t) result(tile)
   if (associated(t%snow)) tile%snow=>new_snow_tile(t%snow)
   if (associated(t%cana)) tile%cana=>new_cana_tile(t%cana)
   if (associated(t%vegn)) tile%vegn=>new_vegn_tile(t%vegn)
-
-  if (associated(t%diag)) tile%diag=>new_diag_buff(t%diag)
 end function land_tile_copy_ctor
 
 
@@ -442,9 +439,6 @@ subroutine delete_land_tile(tile)
   if (associated(tile%snow)) call delete_snow_tile(tile%snow)
   if (associated(tile%cana)) call delete_cana_tile(tile%cana)
   if (associated(tile%vegn)) call delete_vegn_tile(tile%vegn)
-
-  ! deallocate diagnostic storage
-  call delete_diag_buff(tile%diag)
 
   ! release the tile memory
   deallocate(tile)
@@ -547,7 +541,7 @@ end function land_tile_carbon
 function land_tile_heat(tile) result(heat) ; real heat
   type(land_tile_type), intent(in) :: tile
 
-  heat = 0
+  heat = tile%e_res_1 + tile%e_res_2
   if (associated(tile%cana)) &
        heat = heat+cana_tile_heat(tile%cana)
   if (associated(tile%glac)) &

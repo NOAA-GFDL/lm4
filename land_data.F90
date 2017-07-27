@@ -1,7 +1,6 @@
 module land_data_mod
 
-use mpp_mod           , only : mpp_get_current_pelist, mpp_pe, mpp_root_pe, &
-                               mpp_broadcast, mpp_min, mpp_max, mpp_sum
+use mpp_mod           , only : mpp_get_current_pelist, mpp_pe, mpp_root_pe, mpp_broadcast
 use constants_mod     , only : PI
 use mpp_domains_mod   , only : domain2d, mpp_get_compute_domain, &
      mpp_define_layout, mpp_define_domains, mpp_define_io_domain, &
@@ -27,25 +26,19 @@ private
 public :: land_data_init
 public :: land_data_end
 public :: lnd            ! global data
-public :: lnd_sg         ! global data related to structured (rectangular) grid
 public :: log_version    ! prints version number
 
 public :: atmos_land_boundary_type ! container for information passed from the
                          ! atmosphere to land
 public :: land_data_type ! container for information passed from land to
                          ! the atmosphere
-public :: land_state_type, land_state_type_sg
+public :: land_state_type
 public :: horiz_interp_ug
 ! ==== end of public interfaces ==============================================
 
 ! ---- module constants ------------------------------------------------------
 character(len=*), parameter :: module_name = 'land_data_mod'
 #include "shared/version_variable.inc"
-
-interface prt_max_min_sum
-  module procedure prt_max_min_sum_1d
-  module procedure prt_max_min_sum_2d
-end interface
 
 ! ---- types -----------------------------------------------------------------
 type :: atmos_land_boundary_type
@@ -128,40 +121,38 @@ end type land_data_type
 ! land_state_type combines the general information about state of the land model:
 ! domain, coordinates, time steps, etc. There is only one variable of this type,
 ! and it is public in this module.
-type :: land_state_type_sg
-   integer        :: is,ie,js,je ! compute domain boundaries of structured grid domain
-   real, allocatable  :: lon (:,:), lat (:,:) ! domain grid center coordinates, radian
-   real, allocatable  :: lonb(:,:), latb(:,:) ! domain grid vertices, radian
-   real, allocatable  :: area(:,:)  ! land area per grid cell, m2
-   real, allocatable  :: cellarea(:,:)  ! grid cell area, m2
-   real, allocatable  :: landfrac(:,:)  ! fraction of land in the grid cell
-   real, allocatable  :: coord_glon(:), coord_glonb(:) ! longitudes for use in diag axis and such, degrees East
-   real, allocatable  :: coord_glat(:), coord_glatb(:) ! latitudes for use in diag axis and such, degrees North
-
-   integer :: face  ! the current mosaic face
-   type(domain2D) :: domain ! our domain -- should be the last since it simplifies
-                            ! debugging in totalview
-end type land_state_type_sg
-
 type :: land_state_type
-   integer            :: ls,le       ! domain boundaries of unstructure domain
-   integer            :: gs,ge       ! min and max value of grid index ( j*nx+i )
-   integer            :: nlon,nlat   ! size of global grid
+   integer :: is,ie,js,je ! compute domain boundaries
+   integer :: ls,le       ! boundaries of unstructured domain
+   integer :: gs,ge       ! min and max value of grid index ( j*nx+i )
+   integer :: nlon,nlat   ! size of global grid
+   integer :: nfaces ! number of mosaic faces
+
+   integer :: sg_face ! current mosaic face on structured grid
+   integer :: ug_face ! current mosaic face on unstructured grid
+
    type(time_type)    :: dt_fast     ! fast (physical) time step
    type(time_type)    :: dt_slow     ! slow time step
 
    type(time_type)    :: time        ! current land model time
 
-   real, allocatable  :: area(:)      ! land area per grid cell, m2
-   real, allocatable  :: cellarea(:)  ! fraction of land in the grid cell
-   real, allocatable  :: landfrac(:)  ! grid cell area, m2
-   real, allocatable  :: coord_glon(:), coord_glonb(:) ! longitudes for use in diag axis and such, degrees East
-   real, allocatable  :: coord_glat(:), coord_glatb(:) ! latitudes for use in diag axis and such, degrees North
-   real, allocatable  :: lon(:), lat(:) ! grid center coordinates, radian
-   real, allocatable  :: lonb(:,:), latb(:,:) ! grid vertices, radian
+   ! geometry on structured grid
+   real, allocatable  :: sg_area(:,:)  ! land area per grid cell, m2
+   real, allocatable  :: sg_cellarea(:,:)  ! grid cell area, m2
+   real, allocatable  :: sg_landfrac(:,:)  ! fraction of land in the grid cell
+   real, allocatable  :: sg_lon (:,:), sg_lat (:,:) ! domain grid center coordinates, radian
+   real, allocatable  :: sg_lonb(:,:), sg_latb(:,:) ! domain grid vertices, radian
 
-   integer :: nfaces ! number of mosaic faces
-   integer :: face  ! the current mosaic face
+   ! geometry on unstructured grid
+   real, allocatable  :: ug_area(:)      ! land area per grid cell, m2
+   real, allocatable  :: ug_cellarea(:)  ! fraction of land in the grid cell
+   real, allocatable  :: ug_landfrac(:)  ! fraction of land in the grid cell
+   real, allocatable  :: ug_lon(:),    ug_lat(:) ! grid center coordinates, radian
+   real, allocatable  :: ug_lonb(:,:), ug_latb(:,:) ! grid vertices, radian
+   ! coordinates for use in diag axis and such
+   real, allocatable  :: coord_glon(:), coord_glonb(:) ! longitudes, degrees East
+   real, allocatable  :: coord_glat(:), coord_glatb(:) ! latitudes, degrees North
+
    integer, allocatable :: pelist(:) ! list of processors that run land model
    integer, allocatable :: io_pelist(:) ! list of processors in our io_domain
    ! if io_domain was not defined, then there is just one element in this
@@ -169,16 +160,17 @@ type :: land_state_type
    integer :: io_id     ! suffix in the distributed files.
    logical :: append_io_id ! if FALSE, io_id is not appended to the file names
                            ! (for the case io_layout = 1,1)
-   type(domainUG) :: domain ! unstruct grid domain
-   integer, allocatable :: i_index(:), j_index(:) ! i,j-index of the unstruture grid on current processor
-   integer, allocatable :: l_index(:)             ! l-index (unstructure grid) for idx value.
+
+   integer, allocatable :: i_index(:), j_index(:) ! i,j-index of the unstructured grid on current processor
+   integer, allocatable :: l_index(:)             ! l-index (unstructured grid) for idx value.
+
+   type(domain2D) :: sg_domain ! structured grid domain
+   type(domainUG) :: ug_domain ! unstructured grid domain
 end type land_state_type
 
 
 ! ---- public module variables -----------------------------------------------
-type(land_state_type_sg), protected, save :: lnd_sg
-type(land_state_type),    save :: lnd ! It is not protected because lnd%time is updated
-                                      ! in other module
+type(land_state_type), save :: lnd
 
 ! ---- private module variables ----------------------------------------------
 logical :: module_is_initialized = .FALSE.
@@ -192,15 +184,15 @@ subroutine log_version(version, modname, filename, tag, unit)
   character(len=*), intent(in), optional :: &
           modname, filename, tag
   integer, intent(in), optional :: unit
-  
+
   character(512) :: message
   integer :: i
   message=''
-  
+
   if (present(filename)) then
      ! remove the directory part of the name
      i = scan(filename,'/',back=.true.)
-     
+
      message = trim(filename(i+1:))
   endif
   if (present(modname)) then
@@ -209,45 +201,6 @@ subroutine log_version(version, modname, filename, tag, unit)
   call write_version_number (trim(message)//': '//trim(version),tag,unit)
 end subroutine log_version
 
-! ============================================================================
-subroutine prt_max_min_sum_1d(name, q)
-  character(len=*), intent(in)::  name
-  real, intent(in)::    q(:)
-
-  real qmin, qmax, qsum
-
-  qmin = minval(q)
-  qmax = maxval(q)
-  qsum = sum(q)
-
-  call mpp_min(qmin)
-  call mpp_max(qmax)
-  call mpp_sum(qsum)
-
-  if(mpp_pe() == mpp_root_pe() ) then
-        write(*,*) trim(name), ' max = ', qmax, ' min = ', qmin, 'sum = ', qsum
-  endif
-end subroutine prt_max_min_sum_1d
-
-! ============================================================================
-subroutine prt_max_min_sum_2d(name, q)
-  character(len=*), intent(in)::  name
-  real, intent(in)::    q(:,:)
-
-  real qmin, qmax, qsum
-
-  qmin = minval(q)
-  qmax = maxval(q)
-  qsum = sum(q)
-
-  call mpp_min(qmin)
-  call mpp_max(qmax)
-  call mpp_sum(qsum)
-
-  if(mpp_pe() == mpp_root_pe() ) then
-        write(*,*) trim(name), ' max = ', qmax, ' min = ', qmin, 'sum = ', qsum
-  endif
-end subroutine prt_max_min_sum_2d
 
 ! ============================================================================
 subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table, npes_io_group)
@@ -280,7 +233,10 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table,
 
   ! define the processor layout information according to the global grid size
   call get_grid_ntiles('LND',ntiles)
+  lnd%nfaces = ntiles
   call get_grid_size('LND',1,nlon,nlat)
+  ! set the size of global grid
+  lnd%nlon = nlon; lnd%nlat = nlat
 
   mask_table_exist = .false.
   outunit = stdout()
@@ -304,59 +260,55 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table,
   ! define land model domain
   if (ntiles==1) then
      if( mask_table_exist ) then
-        call mpp_define_domains ((/1,nlon, 1, nlat/), layout, lnd_sg%domain, xhalo=1, yhalo=1,&
+        call mpp_define_domains ((/1,nlon, 1, nlat/), layout, lnd%sg_domain, xhalo=1, yhalo=1,&
              xflags = CYCLIC_GLOBAL_DOMAIN, name = 'LAND MODEL', maskmap=maskmap(:,:,1) )
      else
-        call mpp_define_domains ((/1,nlon, 1, nlat/), layout, lnd_sg%domain, xhalo=1, yhalo=1,&
+        call mpp_define_domains ((/1,nlon, 1, nlat/), layout, lnd%sg_domain, xhalo=1, yhalo=1,&
              xflags = CYCLIC_GLOBAL_DOMAIN, name = 'LAND MODEL')
      endif
   else
      if( mask_table_exist ) then
-        call define_cube_mosaic ('LND', lnd_sg%domain, layout, halo=1, maskmap=maskmap)
+        call define_cube_mosaic ('LND', lnd%sg_domain, layout, halo=1, maskmap=maskmap)
      else
-        call define_cube_mosaic ('LND', lnd_sg%domain, layout, halo=1)
+        call define_cube_mosaic ('LND', lnd%sg_domain, layout, halo=1)
      endif
   endif
 
   ! define io domain
-  call mpp_define_io_domain(lnd_sg%domain, io_layout)
+  call mpp_define_io_domain(lnd%sg_domain, io_layout)
 
   if(mask_table_exist) deallocate(maskmap)
 
-  ! get the domain information of structure domain2d.
-  call mpp_get_compute_domain(lnd_sg%domain, lnd_sg%is,lnd_sg%ie,lnd_sg%js,lnd_sg%je)
+  ! get the domain information of structured domain2D
+  call mpp_get_compute_domain(lnd%sg_domain, lnd%is,lnd%ie,lnd%js,lnd%je)
 
   ! get the mosaic tile number for this processor: this assumes that there is only one
   ! mosaic tile per PE.
-  allocate(tile_ids(mpp_get_current_ntile(lnd_sg%domain)))
-  tile_ids = mpp_get_tile_id(lnd_sg%domain)
-  lnd_sg%face = tile_ids(1)
+  allocate(tile_ids(mpp_get_current_ntile(lnd%sg_domain)))
+  tile_ids = mpp_get_tile_id(lnd%sg_domain)
+  lnd%sg_face = tile_ids(1)
   deallocate(tile_ids)
 
-  allocate(lnd_sg%lonb    (lnd_sg%is:lnd_sg%ie+1, lnd_sg%js:lnd_sg%je+1))
-  allocate(lnd_sg%latb    (lnd_sg%is:lnd_sg%ie+1, lnd_sg%js:lnd_sg%je+1))
-  allocate(lnd_sg%lon     (lnd_sg%is:lnd_sg%ie,   lnd_sg%js:lnd_sg%je))
-  allocate(lnd_sg%lat     (lnd_sg%is:lnd_sg%ie,   lnd_sg%js:lnd_sg%je))
-  allocate(lnd_sg%area    (lnd_sg%is:lnd_sg%ie,   lnd_sg%js:lnd_sg%je))
-  allocate(lnd_sg%cellarea(lnd_sg%is:lnd_sg%ie,   lnd_sg%js:lnd_sg%je))
-  allocate(lnd_sg%landfrac(lnd_sg%is:lnd_sg%ie,   lnd_sg%js:lnd_sg%je))
-  allocate(lnd_sg%coord_glon(nlon), lnd_sg%coord_glonb(nlon+1))
-  allocate(lnd_sg%coord_glat(nlat), lnd_sg%coord_glatb(nlat+1))
+  allocate(lnd%sg_lonb    (lnd%is:lnd%ie+1, lnd%js:lnd%je+1))
+  allocate(lnd%sg_latb    (lnd%is:lnd%ie+1, lnd%js:lnd%je+1))
+  allocate(lnd%sg_lon     (lnd%is:lnd%ie,   lnd%js:lnd%je))
+  allocate(lnd%sg_lat     (lnd%is:lnd%ie,   lnd%js:lnd%je))
+  allocate(lnd%sg_area    (lnd%is:lnd%ie,   lnd%js:lnd%je))
+  allocate(lnd%sg_cellarea(lnd%is:lnd%ie,   lnd%js:lnd%je))
+  allocate(lnd%sg_landfrac(lnd%is:lnd%ie,   lnd%js:lnd%je))
 
   ! initialize coordinates
-  call get_grid_cell_vertices('LND',lnd_sg%face,lnd_sg%coord_glonb,lnd_sg%coord_glatb)
-  call get_grid_cell_centers ('LND',lnd_sg%face,lnd_sg%coord_glon, lnd_sg%coord_glat)
-  call get_grid_cell_area    ('LND',lnd_sg%face,lnd_sg%cellarea, domain=lnd_sg%domain)
-  call get_grid_comp_area    ('LND',lnd_sg%face,lnd_sg%area,     domain=lnd_sg%domain)
-  lnd_sg%landfrac = lnd_sg%area/lnd_sg%cellarea
+  call get_grid_cell_area    ('LND',lnd%sg_face,lnd%sg_cellarea, domain=lnd%sg_domain)
+  call get_grid_comp_area    ('LND',lnd%sg_face,lnd%sg_area,     domain=lnd%sg_domain)
+  lnd%sg_landfrac = lnd%sg_area/lnd%sg_cellarea
 
   ! set local coordinates arrays -- temporary, till such time as the global arrays
   ! are not necessary
-  call get_grid_cell_vertices('LND',lnd_sg%face,lnd_sg%lonb,lnd_sg%latb, domain=lnd_sg%domain)
-  call get_grid_cell_centers ('LND',lnd_sg%face,lnd_sg%lon, lnd_sg%lat, domain=lnd_sg%domain)
+  call get_grid_cell_vertices('LND',lnd%sg_face,lnd%sg_lonb,lnd%sg_latb, domain=lnd%sg_domain)
+  call get_grid_cell_centers ('LND',lnd%sg_face,lnd%sg_lon, lnd%sg_lat,  domain=lnd%sg_domain)
   ! convert coordinates to radian; note that 1D versions stay in degrees
-  lnd_sg%lonb = lnd_sg%lonb*pi/180.0 ; lnd_sg%lon = lnd_sg%lon*pi/180.0
-  lnd_sg%latb = lnd_sg%latb*pi/180.0 ; lnd_sg%lat = lnd_sg%lat*pi/180.0
+  lnd%sg_lonb = lnd%sg_lonb*pi/180.0 ; lnd%sg_lon = lnd%sg_lon*pi/180.0
+  lnd%sg_latb = lnd%sg_latb*pi/180.0 ; lnd%sg_lat = lnd%sg_lat*pi/180.0
 
   ! initialize model's time-related parameters
   lnd%time    = time
@@ -369,6 +321,8 @@ subroutine land_data_init(layout, io_layout, time, dt_fast, dt_slow, mask_table,
 end subroutine land_data_init
 
 
+! ============================================================================
+!   set up for unstructure domain and land state data
 subroutine set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
   integer,          intent(in) :: npes_io_group, ntiles, nlon, nlat
 
@@ -382,12 +336,6 @@ subroutine set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
   real,    allocatable :: lnd_area(:,:,:)
   integer              :: i, j, n, l, nland, ug_io_layout
 
-  !-------------------------------------------------------------------
-  !   set up for unstructure domain and land state data
-  !-------------------------------------------------------------------
-
-  lnd%nlon = nlon; lnd%nlat = nlat
-  lnd%nfaces = ntiles
   ! On root pe reading the land_area to decide number of land points.
   allocate(num_lnd(ntiles))
 
@@ -429,37 +377,37 @@ subroutine set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
      if(mpp_pe() .NE. mpp_root_pe()) then
         nland = sum(num_lnd)
         allocate(grid_index(nland))
-     endif 
+     endif
      call mpp_broadcast( grid_index, nland, mpp_root_pe() )
      allocate(ntiles_grid(nland))
      ntiles_grid = 1
   endif
-  call mpp_define_unstruct_domain(lnd%domain, lnd_sg%domain, num_lnd, ntiles_grid, mpp_npes(), &
-                                  npes_io_group, grid_index, name = 'LAND MODEL') 
+  call mpp_define_unstruct_domain(lnd%ug_domain, lnd%sg_domain, num_lnd, ntiles_grid, mpp_npes(), &
+                                  npes_io_group, grid_index, name = 'LAND MODEL')
   deallocate(grid_index, num_lnd)
-  
+
   ! set up list of processors  ! set up list of processors for collective io: only the first processor in this
   ! for collective io: only the first processor in this
   ! list actually writes data, the rest just send the data to it.
-  io_domain=>mpp_get_UG_io_domain(lnd%domain)
+  io_domain=>mpp_get_UG_io_domain(lnd%ug_domain)
   n_io_pes = mpp_get_UG_domain_npes(io_domain)
   allocate(lnd%io_pelist(n_io_pes))
   call mpp_get_UG_domain_pelist(io_domain,lnd%io_pelist)
   lnd%io_id = mpp_get_UG_domain_tile_id(io_domain)
-  ug_io_layout = mpp_get_io_domain_UG_layout(lnd%domain)
+  ug_io_layout = mpp_get_io_domain_UG_layout(lnd%ug_domain)
   lnd%append_io_id = (ug_io_layout>1)
 
   ! get the domain information for unstructure domain
-  call mpp_get_UG_compute_domain(lnd%domain, lnd%ls,lnd%le)
+  call mpp_get_UG_compute_domain(lnd%ug_domain, lnd%ls,lnd%le)
 
   !--- get the i,j index of each unstructure grid.
   allocate(grid_index(lnd%ls:lnd%le))
-  call mpp_get_UG_domain_grid_index(lnd%domain, grid_index)
+  call mpp_get_UG_domain_grid_index(lnd%ug_domain, grid_index)
   !--- make sure grid_index is monotone increasing.
-  do l = lnd%ls+1,lnd%le 
+  do l = lnd%ls+1,lnd%le
      if(grid_index(l) .LE. grid_index(l-1)) call error_mesg('land_model_init', &
          'grid_index is not monotone increasing', FATAL)
-  enddo 
+  enddo
   lnd%gs = grid_index(lnd%ls)
   lnd%ge = grid_index(lnd%le)
   allocate(lnd%l_index(lnd%gs:lnd%ge))
@@ -473,34 +421,34 @@ subroutine set_land_state_ug(npes_io_group, ntiles, nlon, nlat)
   deallocate(grid_index)
   ! get the mosaic tile number for this processor: this assumes that there is only one
   ! mosaic tile per PE.
-  lnd%face = mpp_get_UG_domain_tile_id(lnd%domain)
-  allocate(lnd%lonb (lnd%ls:lnd%le, 4))
-  allocate(lnd%latb (lnd%ls:lnd%le, 4))
-  allocate(lnd%lon  (lnd%ls:lnd%le))
-  allocate(lnd%lat  (lnd%ls:lnd%le))
-  allocate(lnd%area    (lnd%ls:lnd%le) )
-  allocate(lnd%cellarea(lnd%ls:lnd%le) )
-  allocate(lnd%landfrac(lnd%ls:lnd%le))
+  lnd%ug_face = mpp_get_UG_domain_tile_id(lnd%ug_domain)
+  allocate(lnd%ug_area    (lnd%ls:lnd%le) )
+  allocate(lnd%ug_cellarea(lnd%ls:lnd%le) )
+  allocate(lnd%ug_landfrac(lnd%ls:lnd%le))
+  allocate(lnd%ug_lonb (lnd%ls:lnd%le, 4))
+  allocate(lnd%ug_latb (lnd%ls:lnd%le, 4))
+  allocate(lnd%ug_lon  (lnd%ls:lnd%le))
+  allocate(lnd%ug_lat  (lnd%ls:lnd%le))
   allocate(lnd%coord_glon(nlon), lnd%coord_glonb(nlon+1))
   allocate(lnd%coord_glat(nlat), lnd%coord_glatb(nlat+1))
 
   ! initialize coordinates
-  call get_grid_cell_vertices('LND',lnd%face,lnd%coord_glonb,lnd%coord_glatb)
-  call get_grid_cell_centers ('LND',lnd%face,lnd%coord_glon, lnd%coord_glat)
-  call get_grid_cell_area    ('LND',lnd_sg%face,lnd%cellarea, lnd_sg%domain, lnd%domain)
-  call get_grid_comp_area    ('LND',lnd_sg%face,lnd%area,     lnd_sg%domain, lnd%domain)
-  lnd%landfrac = lnd%area/lnd%cellarea
+  call get_grid_cell_vertices('LND',lnd%ug_face,lnd%coord_glonb,lnd%coord_glatb)
+  call get_grid_cell_centers ('LND',lnd%ug_face,lnd%coord_glon, lnd%coord_glat)
+  call get_grid_cell_area    ('LND',lnd%sg_face,lnd%ug_cellarea, lnd%sg_domain, lnd%ug_domain)
+  call get_grid_comp_area    ('LND',lnd%sg_face,lnd%ug_area,     lnd%sg_domain, lnd%ug_domain)
+  lnd%ug_landfrac = lnd%ug_area/lnd%ug_cellarea
 
   ! set local coordinates arrays -- temporary, till such time as the global arrays
   ! are not necessary
-  call get_grid_cell_vertices('LND',lnd_sg%face,lnd%lonb,lnd%latb, lnd_sg%domain, lnd%domain)
-  call get_grid_cell_centers ('LND',lnd_sg%face,lnd%lon, lnd%lat, lnd_sg%domain, lnd%domain)
+  call get_grid_cell_vertices('LND',lnd%sg_face, lnd%ug_lonb,lnd%ug_latb, lnd%sg_domain, lnd%ug_domain)
+  call get_grid_cell_centers ('LND',lnd%sg_face, lnd%ug_lon, lnd%ug_lat,  lnd%sg_domain, lnd%ug_domain)
 
-!  call mpp_pass_SG_to_UG(lnd%domain, lnd%lon, lnd_sg%lon)
-!  call mpp_pass_SG_to_UG(lnd%domain, lnd%lat, lnd_sg%lat)
+!  call mpp_pass_SG_to_UG(lnd%ug_domain, lnd%lon, lnd%lon)
+!  call mpp_pass_SG_to_UG(lnd%ug_domain, lnd%lat, lnd%lat)
   ! convert coordinates to radian; note that 1D versions stay in degrees
-  lnd%lonb = lnd%lonb*pi/180.0; lnd%lon = lnd%lon*pi/180.0
-  lnd%latb = lnd%latb*pi/180.0; lnd%lat = lnd%lat*pi/180.0
+  lnd%ug_lonb = lnd%ug_lonb*pi/180.0; lnd%ug_lon = lnd%ug_lon*pi/180.0
+  lnd%ug_latb = lnd%ug_latb*pi/180.0; lnd%ug_lat = lnd%ug_lat*pi/180.0
 
   ! initialize the land model processor list
   allocate(lnd%pelist(0:mpp_npes()-1))
@@ -515,27 +463,30 @@ subroutine land_data_end()
 
 end subroutine land_data_end
 
-  subroutine horiz_interp_ug(Interp, data_in, data_out, verbose, &
-                             mask_in, mask_out, missing_value, missing_permit, &
-                             err_msg, new_missing_handle )
-    type (horiz_interp_type),         intent(in) :: Interp
-    real, intent(in),             dimension(:,:) :: data_in
-    real, intent(out),            dimension(:)   :: data_out
-    integer, intent(in),                optional :: verbose
-    real, intent(in),   dimension(:,:), optional :: mask_in
-    real, intent(out),  dimension(:,:), optional :: mask_out
-    real, intent(in),                   optional :: missing_value
-    integer, intent(in),                optional :: missing_permit
-    character(len=*), intent(out),      optional :: err_msg
-    logical, intent(in),                optional :: new_missing_handle
+! ============================================================================
+subroutine horiz_interp_ug(Interp, data_in, data_out, verbose, &
+                           mask_in, mask_out, missing_value, missing_permit, &
+                           err_msg, new_missing_handle )
+  type (horiz_interp_type),         intent(in) :: Interp
+  real, intent(in),             dimension(:,:) :: data_in
+  real, intent(out),            dimension(:)   :: data_out
+  integer, intent(in),                optional :: verbose
+  real, intent(in),   dimension(:,:), optional :: mask_in
+  real, intent(out),  dimension(:,:), optional :: mask_out
+  real, intent(in),                   optional :: missing_value
+  integer, intent(in),                optional :: missing_permit
+  character(len=*), intent(out),      optional :: err_msg
+  logical, intent(in),                optional :: new_missing_handle
 
-    real, dimension(lnd_sg%is:lnd_sg%ie,lnd_sg%js:lnd_sg%je) :: data_sg
+  real, dimension(lnd%is:lnd%ie,lnd%js:lnd%je) :: data_sg
 
-    call horiz_interp(Interp, data_in, data_sg, verbose, &
-                                   mask_in, mask_out, missing_value, missing_permit, &
-                                   err_msg, new_missing_handle )
-    call mpp_pass_sg_to_ug(lnd%domain, data_sg, data_out)                           
-
-  end subroutine horiz_interp_ug
+  call horiz_interp(Interp, data_in, data_sg, verbose, &
+                                 mask_in, mask_out, missing_value, missing_permit, &
+                                 err_msg, new_missing_handle )
+  if (trim(err_msg)/='') then
+     call error_mesg('horiz_interp_ug',trim(err_msg), FATAL)
+  endif
+  call mpp_pass_sg_to_ug(lnd%ug_domain, data_sg, data_out)
+end subroutine horiz_interp_ug
 
 end module land_data_mod

@@ -4,7 +4,7 @@ use fms_mod,            only : error_mesg, FATAL
 use constants_mod,      only : stefan
 
 use land_constants_mod, only : NBANDS
-use vegn_data_mod,      only : spdata, min_cosz
+use vegn_data_mod,      only : spdata, min_cosz, sai_rad
 use vegn_tile_mod,      only : vegn_tile_type
 use vegn_cohort_mod,    only : vegn_cohort_type, vegn_data_cover, get_vegn_wet_frac
 use snow_tile_mod,      only : snow_radiation
@@ -207,6 +207,7 @@ subroutine vegn_rad_properties_twostream( cohort, cosz, &
   real :: snow_refl_dif(NBANDS) ! snow reflectances
   real :: snow_refl_dir(NBANDS), snow_refl_lw, snow_emis ! snow rad. properies (unused)
   real :: fs ! fractional coverage of intercepted snow
+  real :: vegn_idx ! effective vegetation index
 
   ! get the snow fraction
   select case (snow_rad_option)
@@ -226,8 +227,13 @@ subroutine vegn_rad_properties_twostream( cohort, cosz, &
      leaf_refl = (1-fs)*cohort%leaf_refl(i) + fs*snow_refl_dif(i)
      leaf_tran = (1-fs)*cohort%leaf_tran(i)
 
+     if(sai_rad) then
+        vegn_idx = max(cohort%lai,cohort%sai)
+     else
+        vegn_idx = cohort%lai
+     endif
      call twostream ( max(cosz, min_cosz), &
-          spdata(sp)%mu_bar, cohort%lai, albedo_surf, &
+          spdata(sp)%mu_bar, vegn_idx, albedo_surf, &
           spdata(sp)%phi1, spdata(sp)%phi2, &
           leaf_refl, leaf_tran, &
           vegn_tran_dir(i), vegn_sctr_dir(i), vegn_refl_dir(i), &

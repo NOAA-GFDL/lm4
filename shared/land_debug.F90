@@ -12,7 +12,7 @@ use fms_mod, only: error_mesg, file_exist, check_nml_error, stdlog, &
 use time_manager_mod, only : &
      time_type, get_date, set_date, operator(<=), operator(>=)
 use grid_mod, only: get_grid_ntiles
-use land_data_mod, only: lnd_sg, log_version, lnd
+use land_data_mod, only: lnd, log_version
 
 ! NOTE TO SELF: the "!$" sentinels are not comments: they are compiled if OpenMP
 ! support is turned on
@@ -37,6 +37,8 @@ public :: check_temp_range
 public :: check_var_range
 public :: check_conservation
 
+public :: land_error_message
+public :: log_date
 public :: dpri
 
 interface dpri
@@ -53,28 +55,33 @@ interface check_var_range
    module procedure check_var_range_1d
 end interface check_var_range
 
+interface check_temp_range
+   module procedure check_temp_range_0d
+   module procedure check_temp_range_1d
+end interface check_temp_range
+
 interface set_current_point
    module procedure set_current_point_sg
    module procedure set_current_point_ug
 end interface set_current_point
-public :: log_date
 
 ! conservation tolerances for use across the code. This module doesn't use
 ! them, just serves as a convenient place to share them across all land code
 public :: water_cons_tol
 public :: carbon_cons_tol
+public :: heat_cons_tol
 public :: do_check_conservation
+
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'land_debug_mod'
 #include "../shared/version_variable.inc"
 
 ! ==== module variables ======================================================
 integer, allocatable :: current_debug_level(:)
-integer :: mosaic_tile = 0
-integer :: mosaic_tile_sg = 0
+integer              :: mosaic_tile_sg = 0, mosaic_tile_ug = 0
 integer, allocatable :: curr_i(:), curr_j(:), curr_k(:), curr_l(:)
 type(time_type)      :: start_watch_time, stop_watch_time
-character(128) :: fixed_format
+character(128)       :: fixed_format
 
 !---- namelist ---------------------------------------------------------------
 integer :: watch_point(4)=(/0,0,0,1/) ! coordinates of the point of interest,
@@ -99,14 +106,16 @@ namelist/land_debug_nml/ watch_point, &
 logical, protected :: do_check_conservation = .FALSE.
 real, protected    :: water_cons_tol  = 1e-11 ! tolerance of water conservation checks
 real, protected    :: carbon_cons_tol = 1e-13 ! tolerance of carbon conservation checks
-namelist/land_conservation_nml/ do_check_conservation, water_cons_tol, carbon_cons_tol
+real, protected    :: heat_cons_tol   = 1e-8  ! tolerance of heat conservation checks
+namelist/land_conservation_nml/ do_check_conservation, &
+      water_cons_tol, carbon_cons_tol, heat_cons_tol
 
 contains
 
 ! ============================================================================
 subroutine land_debug_init()
   ! ---- local vars
-  integer :: unit, ierr, io, ntiles
+  integer :: unit, ierr, io, ntiles, l
   integer :: max_threads
 
   call log_version(version, module_name, &
@@ -162,22 +171,8 @@ subroutine land_debug_init()
   stop_watch_time  = set_date( stop_watching(1),  stop_watching(2),  stop_watching(3), &
                                stop_watching(4),  stop_watching(5),  stop_watching(6)  )
 
-  call set_watch_point_UG(lnd%face)
-
-end subroutine land_debug_init
-
-! ============================================================================
-subroutine land_debug_end()
-  deallocate(curr_i,curr_j,curr_k,curr_l)
-  deallocate(current_debug_level)
-end subroutine
-
-! === This set up the unstructure grid index of the watch point.
-subroutine set_watch_point_UG(mosaic_tile_in)
-  integer, intent(in) :: mosaic_tile_in
-  integer :: l
-
-  mosaic_tile = mosaic_tile_in
+  ! Set up the unstructure grid index of the watch point.
+  mosaic_tile_ug = lnd%ug_face
   watch_point_lindex = 0
   do l = lnd%ls, lnd%le
      if(watch_point(1) == lnd%i_index(l) .AND. watch_point(2) == lnd%j_index(l)) then
@@ -186,7 +181,13 @@ subroutine set_watch_point_UG(mosaic_tile_in)
   enddo
   call mpp_max(watch_point_lindex)
 
-end subroutine set_watch_point_UG
+end subroutine land_debug_init
+
+! ============================================================================
+subroutine land_debug_end()
+  deallocate(curr_i,curr_j,curr_k,curr_l)
+  deallocate(current_debug_level)
+end subroutine
 
 ! ============================================================================
 subroutine set_current_point_sg(i,j,k,l)
@@ -200,7 +201,7 @@ subroutine set_current_point_sg(i,j,k,l)
   if(l==0) then
      my_mosaic_tile = mosaic_tile_sg
   else
-     my_mosaic_tile = mosaic_tile
+     my_mosaic_tile = mosaic_tile_ug
   endif
 
   current_debug_level(thread) = 0
@@ -225,11 +226,10 @@ subroutine set_current_point_ug(l,k)
   current_debug_level(thread) = 0
   if ( watch_point_lindex==l.and. &
        watch_point(3)==k.and. &
-       watch_point(4)==mosaic_tile) then
+       watch_point(4)==mosaic_tile_ug) then
      current_debug_level(thread) = 1
   endif
 end subroutine set_current_point_ug
-
 
 ! ============================================================================
 subroutine get_current_point(i,j,k,face)
@@ -242,7 +242,7 @@ subroutine get_current_point(i,j,k,face)
   if (present(i)) i = curr_i(thread)
   if (present(j)) j = curr_j(thread)
   if (present(k)) k = curr_k(thread)
-  if (present(face)) face = mosaic_tile
+  if (present(face)) face = mosaic_tile_ug
 end subroutine get_current_point
 
 ! ============================================================================
@@ -267,7 +267,7 @@ integer function current_k()
   current_k = curr_k(thread)
 end function
 
-integer function current_face() ; current_face = mosaic_tile ; end function
+integer function current_face() ; current_face = mosaic_tile_ug ; end function
 
 ! ============================================================================
 function is_watch_time()
@@ -293,7 +293,7 @@ function is_watch_cell()
   logical :: is_watch_cell
   is_watch_cell = ( current_i() == watch_point(1) &
               .and. current_j() == watch_point(2) &
-              .and. mosaic_tile == watch_point(4) &
+              .and. mosaic_tile_ug == watch_point(4) &
               .and. is_watch_time()               )
 end function is_watch_cell
 
@@ -311,13 +311,21 @@ end subroutine get_watch_point
 ! ============================================================================
 ! checks if the temperature within reasonable range, and prints a message
 ! if it isn't
-subroutine check_temp_range(temp, tag, varname)
+subroutine check_temp_range_0d(temp, tag, varname)
   real, intent(in) :: temp ! temperature to check
   character(*), intent(in) :: tag ! tag to print
   character(*), intent(in) :: varname ! name of the variable for printout
 
   call check_var_range(temp,temp_lo,temp_hi,tag,varname,WARNING)
-end subroutine check_temp_range
+end subroutine check_temp_range_0d
+
+subroutine check_temp_range_1d(temp, tag, varname)
+  real, intent(in) :: temp(:) ! temperature to check
+  character(*), intent(in) :: tag ! tag to print
+  character(*), intent(in) :: varname ! name of the variable for printout
+
+  call check_var_range(temp,temp_lo,temp_hi,tag,varname,WARNING)
+end subroutine check_temp_range_1d
 
 ! ============================================================================
 ! checks if the value is within specified range, and prints a message
@@ -325,14 +333,15 @@ end subroutine check_temp_range
 subroutine check_var_range_0d(value, lo, hi, tag, varname, severity)
   real        , intent(in) :: value    ! value to check
   real        , intent(in) :: lo,hi    ! lower and upper bounds of acceptable range
-  character(*), intent(in) :: tag ! tag to print
-  character(*), intent(in) :: varname ! name of the variable for printout
+  character(*), intent(in) :: tag      ! tag to print
+  character(*), intent(in) :: varname  ! name of the variable for printout
   integer     , intent(in) :: severity ! severity of the non-conservation error:
          ! Can be WARNING, FATAL, or negative. Negative means check is not done.
 
   ! ---- local vars
   integer :: y,mo,d,h,m,s ! components of date
-  integer :: thread
+  integer :: thread, face
+  real    :: lon, lat ! current coordinates, degree
   character(512) :: message
 
   if (severity<0) return
@@ -343,22 +352,12 @@ subroutine check_var_range_0d(value, lo, hi, tag, varname, severity)
      thread = 1
 !$   thread = OMP_GET_THREAD_NUM()+1
      call get_date(lnd%time,y,mo,d,h,m,s)
+     call get_current_coordinates(thread, lon, lat, face)
 
-     if(curr_l(thread) == 0) then
-        write(message,'(a,g23.16,2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
-          trim(varname)//' out of range: value=', value,&
-          'at lon=',lnd_sg%lon(curr_i(thread),curr_j(thread))*180.0/PI, &
-          'lat=',lnd_sg%lat(curr_i(thread),curr_j(thread))*180.0/PI, &
-          'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
+     write(message,'(a,g23.16,2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
+          trim(varname)//' out of range: value=', value, 'at lon=',lon, 'lat=',lat, &
+          'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',face, &
           'time=',y,mo,d,h,m,s
-     else
-        write(message,'(a,g23.16,2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
-          trim(varname)//' out of range: value=', value,&
-	  'at lon=',lnd%lon(curr_l(thread))*180.0/PI, &
-	  'lat=',lnd%lat(curr_l(thread))*180.0/PI, &
-	  'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
-          'time=',y,mo,d,h,m,s
-     endif
      call error_mesg(trim(tag),message,severity)
   endif
 end subroutine check_var_range_0d
@@ -376,7 +375,8 @@ subroutine check_var_range_1d(value, lo, hi, tag, varname, severity)
   ! ---- local vars
   integer :: i
   integer :: y,mo,d,h,m,s ! components of date
-  integer :: thread
+  integer :: thread, face
+  real    :: lon, lat ! current coordinates, degree
   character(512) :: message
 
   if (severity<0) return
@@ -388,11 +388,11 @@ subroutine check_var_range_1d(value, lo, hi, tag, varname, severity)
         thread = 1
 !$      thread = OMP_GET_THREAD_NUM()+1
         call get_date(lnd%time,y,mo,d,h,m,s)
+        call get_current_coordinates(thread, lon, lat, face)
         write(message,'(a,g23.16,2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
              trim(varname)//'('//trim(string(i))//')'//' out of range: value=', value(i),&
-             'at lon=',lnd%lon(curr_l(thread))*180.0/PI, &
-             'lat=',lnd%lat(curr_l(thread))*180.0/PI, &
-             'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
+             'at lon=',lon, 'lat=',lat, &
+             'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',face, &
              'time=',y,mo,d,h,m,s
         call error_mesg(trim(tag),message,severity)
      endif
@@ -495,7 +495,8 @@ subroutine check_conservation(tag, substance, d1, d2, tolerance, severity)
 
   ! ---- local vars
   integer :: y,mo,d,h,m,s ! components of date
-  integer :: thread
+  integer :: thread, face
+  real    :: lon, lat ! current coordinates, degree
   character(512) :: message
   integer :: severity_
 
@@ -515,16 +516,62 @@ subroutine check_conservation(tag, substance, d1, d2, tolerance, severity)
      thread = 1
 !$   thread = OMP_GET_THREAD_NUM()+1
      call get_date(lnd%time,y,mo,d,h,m,s)
+     call get_current_coordinates(thread, lon, lat, face)
      write(message,'(3(x,a,g23.16),2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))')&
           'conservation of '//trim(substance)//' is violated; before=', d1, 'after=', d2, 'diff=',d2-d1,&
-	  'at lon=',lnd_sg%lon(curr_i(thread),curr_j(thread))*180.0/PI, &
-	  'lat=',lnd_sg%lat(curr_i(thread),curr_j(thread))*180.0/PI, &
-          'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile, &
+          'at lon=',lon, 'lat=',lat, &
+          'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',mosaic_tile_ug, &
           'time=',y,mo,d,h,m,s
      call error_mesg(tag,message,severity_)
   endif
-end subroutine
+end subroutine check_conservation
 
+! returns coordinates and face of current point
+subroutine get_current_coordinates(thread, lon, lat, face)
+   integer, intent(in)  :: thread   ! our thread
+   real, intent(out)    :: lon, lat ! coordinates of current point, degree
+   integer, intent(out) :: face     ! number of cubic sphere face
+
+   if(curr_l(thread) == 0) then
+      lon = lnd%sg_lon(curr_i(thread),curr_j(thread))*180.0/PI
+      lat = lnd%sg_lat(curr_i(thread),curr_j(thread))*180.0/PI
+      face = mosaic_tile_sg
+   else
+      lon = lnd%ug_lon(curr_l(thread))*180.0/PI
+      lat = lnd%ug_lat(curr_l(thread))*180.0/PI
+      face = mosaic_tile_ug
+   endif
+end subroutine get_current_coordinates
+
+! ============================================================================
+! print a message with current coordinates and time
+subroutine land_error_message(text,severity)
+  character(*), intent(in) :: text
+  integer, intent(in), optional :: severity
+
+  integer :: y,mo,d,h,m,s ! components of date
+  real    :: lon, lat ! current coordinates, degree
+  integer :: thread, face
+  character(512) :: message
+  integer :: severity_
+
+  severity_=WARNING
+  if (present(severity))severity_=severity
+
+  thread = 1
+!$   thread = OMP_GET_THREAD_NUM()+1
+  call get_date(lnd%time,y,mo,d,h,m,s)
+  call get_current_coordinates(thread, lon, lat, face)
+  write(message,'(2(x,a,f9.4),4(x,a,i4),x,a,i4.4,2("-",i2.2),x,i2.2,2(":",i2.2))') &
+       'at lon=',lon, 'lat=',lat, &
+       'i=',curr_i(thread),'j=',curr_j(thread),'tile=',curr_k(thread),'face=',face, &
+       'time=',y,mo,d,h,m,s
+  call error_mesg(text,message,severity_)
+
+end subroutine land_error_message
+
+! ============================================================================
+! print time in the debug output
 subroutine log_date(tag,time)
   character(*),    intent(in) :: tag
   type(time_type), intent(in) :: time

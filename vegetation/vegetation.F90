@@ -26,7 +26,7 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles, land_tile_heat, land_tile_carbon, get_tile_water
 use land_tile_diag_mod, only : register_tiled_static_field, register_tiled_diag_field, &
      add_tiled_diag_field_alias, set_default_diag_filter, send_tile_data, diag_buff_type, &
-     OP_STD, OP_VAR, cmor_name
+     cmor_name
 use land_data_mod, only : lnd, log_version
 use land_io_mod, only : read_field
 
@@ -35,11 +35,11 @@ use land_tile_io_mod, only: land_restart_type, &
      add_restart_axis, add_tile_data, add_int_tile_data, add_scalar_data, &
      get_tile_data, get_int_tile_data, field_exists
 
-use vegn_data_mod, only : SP_C4GRASS, LEAF_ON, LU_NTRL, read_vegn_data_namelist, &
+use vegn_data_mod, only : SP_C4GRASS, LEAF_ON, LU_NTRL, spdata, read_vegn_data_namelist, &
      tau_drip_l, tau_drip_s, T_transp_min, cold_month_threshold, soil_carbon_depth_scale, &
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
      N_HARV_POOLS, HARV_POOL_NAMES, HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, &
-     HARV_POOL_WOOD_FAST, HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, agf_bs
+     HARV_POOL_WOOD_FAST, HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, CMPT_LEAF, agf_bs
 use vegn_cohort_mod, only : vegn_cohort_type, &
      vegn_data_heat_capacity, vegn_data_intrcptn_cap, update_species,&
      get_vegn_wet_frac, vegn_data_cover
@@ -50,7 +50,9 @@ use cohort_io_mod, only :  read_create_cohorts, create_cohort_dimension, &
 use land_debug_mod, only : is_watch_point, set_current_point, check_temp_range, &
      carbon_cons_tol, water_cons_tol, check_conservation, do_check_conservation
 use vegn_radiation_mod, only : vegn_radiation_init, vegn_radiation
-use vegn_photosynthesis_mod, only : vegn_photosynthesis_init, vegn_photosynthesis
+use vegn_photosynthesis_mod, only : vegn_photosynthesis_init, vegn_photosynthesis, &
+     co2_for_photosynthesis, vegn_phot_co2_option, &
+     VEGN_PHOT_CO2_PRESCRIBED, VEGN_PHOT_CO2_INTERACTIVE
 use static_vegn_mod, only : read_static_vegn_namelist, static_vegn_init, static_vegn_end, &
      read_static_vegn
 use vegn_dynamics_mod, only : vegn_dynamics_init, vegn_carbon_int, vegn_growth, &
@@ -89,10 +91,6 @@ public :: update_vegn_slow
 character(len=*), parameter :: module_name = 'vegn'
 #include "../shared/version_variable.inc"
 
-! values for internal selector of CO2 option used for photosynthesis
-integer, parameter :: VEGN_PHOT_CO2_PRESCRIBED  = 1
-integer, parameter :: VEGN_PHOT_CO2_INTERACTIVE = 2
-
 
 ! ==== module variables ======================================================
 
@@ -109,14 +107,6 @@ real    :: init_cohort_bwood = 0.05 ! initial biomass of heartwood, kg C/m2
 real    :: init_cohort_cmc   = 0.0  ! initial intercepted water
 character(32) :: rad_to_use = 'big-leaf' ! or 'two-stream'
 character(32) :: snow_rad_to_use = 'ignore' ! or 'paint-leaves'
-character(32) :: photosynthesis_to_use = 'simple' ! or 'leuning'
-character(32) :: co2_to_use_for_photosynthesis = 'prescribed' ! or 'interactive'
-   ! specifies what co2 concentration to use for photosynthesis calculations:
-   ! 'prescribed'  : a prescribed value is used, equal to co2_for_photosynthesis
-   !      specified below.
-   ! 'interactive' : concentration of co2 in canopy air is used
-real    :: co2_for_photosynthesis = 350.0e-6 ! concentration of co2 for photosynthesis
-   ! calculations, mol/mol. Ignored if co2_to_use_for_photosynthesis is not 'prescribed'
 logical :: do_cohort_dynamics   = .TRUE. ! if true, do vegetation growth
 logical :: do_patch_disturbance = .TRUE. !
 logical :: do_phenology         = .TRUE.
@@ -144,8 +134,7 @@ namelist /vegn_nml/ &
     lm2, init_Wl, init_Ws, init_Tv, cpw, clw, csw, &
     init_cohort_bl, init_cohort_blv, init_cohort_br, init_cohort_bsw, &
     init_cohort_bwood, init_cohort_cmc, &
-    rad_to_use, snow_rad_to_use, photosynthesis_to_use, &
-    co2_to_use_for_photosynthesis, co2_for_photosynthesis, &
+    rad_to_use, snow_rad_to_use, &
     do_cohort_dynamics, do_patch_disturbance, do_phenology, &
     xwilt_available, &
     do_biogeography, do_seed_transport, &
@@ -160,8 +149,7 @@ logical         :: module_is_initialized =.FALSE.
 type(time_type) :: time ! *** NOT YET USED
 real            :: delta_time      ! fast time step
 real            :: dt_fast_yr      ! fast time step in years
-integer         :: vegn_phot_co2_option = -1 ! internal selector of co2 option
-                                   ! used for photosynthesis
+
 ! diagnostic field ids
 integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
    id_lai, id_sai, id_lai_var, id_lai_std, id_leaf_size, &
@@ -177,7 +165,9 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
    id_leaflitter_buffer_ag, id_coarsewoodlitter_buffer_ag,id_leaflitter_buffer_rate_ag, id_coarsewoodlitter_buffer_rate_ag,& ! id_coarsewoodlitter_buffer_rate_ag is 34 characters long (pjp)
    id_t_ann, id_t_cold, id_p_ann, id_ncm, &
    id_lambda, id_afire, id_atfall, id_closs, id_cgain, id_wdgain, id_leaf_age, &
-   id_phot_co2, id_theph, id_psiph, id_evap_demand
+   id_phot_co2, id_theph, id_psiph, id_evap_demand, &
+   id_lai_kok, id_Anlayer, id_Anlayer_acm, id_bl_previous, id_bl_target, & !Modified PPG-2016-11-29
+   id_lai_light, id_lai_light_max !Modified PPG-2017-06-08
 ! CMOR variables
 integer :: id_cProduct, id_cAnt, &
    id_fFire, id_fGrazing, id_fHarvest, id_fLuc, &
@@ -233,24 +223,11 @@ subroutine read_vegn_namelist()
      write(unit, nml=vegn_nml)
   endif
 
-  ! convert symbolic names of photosynthesis CO2 options into numeric IDs to
-  ! speed up selection during run-time
-  if (trim(co2_to_use_for_photosynthesis)=='prescribed') then
-     vegn_phot_co2_option = VEGN_PHOT_CO2_PRESCRIBED
-  else if (trim(co2_to_use_for_photosynthesis)=='interactive') then
-     vegn_phot_co2_option = VEGN_PHOT_CO2_INTERACTIVE
-  else
-     call error_mesg('vegn_init',&
-          'vegetation photosynthesis option co2_to_use_for_photosynthesis="'//&
-          trim(co2_to_use_for_photosynthesis)//'" is invalid, use "prescribed" or "interactive"',&
-          FATAL)
-  endif
-
   ! ---- initialize vegetation radiation options
   call vegn_radiation_init(rad_to_use, snow_rad_to_use)
 
   ! ---- initialize vegetation photosynthesis options
-  call vegn_photosynthesis_init(photosynthesis_to_use)
+  call vegn_photosynthesis_init()
 
 end subroutine read_vegn_namelist
 
@@ -298,15 +275,24 @@ subroutine vegn_init(id_ug,id_band)
      call get_cohort_data(restart1, 'wl', cohort_wl_ptr)
      call get_cohort_data(restart1, 'ws', cohort_ws_ptr)
 
+     !#### MODIFIED BY PPG 2016-12-01
+     if (field_exists(restart2,'Anlayer_acm')) &
+        call get_cohort_data(restart2, 'Anlayer_acm', cohort_Anlayer_acm_ptr )
+     if (field_exists(restart2,'bl_previous')) &
+        call get_cohort_data(restart2, 'bl_previous', cohort_bl_previous_ptr )
+     if (field_exists(restart2,'lai_light_max')) &
+        call get_cohort_data(restart2, 'lai_light_max', cohort_lai_light_max_ptr )
+
+
      ! read global variables
      call fms_io_unstructured_read(restart2%basename, &
                                    "n_accum", &
                                    n_accum, &
-                                   lnd%domain)
+                                   lnd%ug_domain)
      call fms_io_unstructured_read(restart2%basename, &
                                    "nmn_acm", &
                                    nmn_acm, &
-                                   lnd%domain)
+                                   lnd%ug_domain)
 
      call get_int_cohort_data(restart2, 'species', cohort_species_ptr)
      call get_cohort_data(restart2, 'hite', cohort_height_ptr)
@@ -395,10 +381,10 @@ subroutine vegn_init(id_ug,id_band)
           t_cold(lnd%ls:lnd%le),&
           p_ann (lnd%ls:lnd%le),&
           ncm   (lnd%ls:lnd%le) )
-     call read_field( 'INPUT/biodata.nc','T_ANN', lnd%lon, lnd%lat, t_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','T_COLD',lnd%lon, lnd%lat, t_cold, interp='nearest')
-     call read_field( 'INPUT/biodata.nc','P_ANN', lnd%lon, lnd%lat, p_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','NCM',   lnd%lon, lnd%lat, ncm,    interp='nearest')
+     call read_field( 'INPUT/biodata.nc','T_ANN', lnd%ug_lon, lnd%ug_lat, t_ann,  interp='nearest')
+     call read_field( 'INPUT/biodata.nc','T_COLD',lnd%ug_lon, lnd%ug_lat, t_cold, interp='nearest')
+     call read_field( 'INPUT/biodata.nc','P_ANN', lnd%ug_lon, lnd%ug_lat, p_ann,  interp='nearest')
+     call read_field( 'INPUT/biodata.nc','NCM',   lnd%ug_lon, lnd%ug_lat, ncm,    interp='nearest')
      did_read_biodata = .TRUE.
      call error_mesg('vegn_init','did read INPUT/biodata.nc',NOTE)
   else
@@ -435,6 +421,12 @@ subroutine vegn_init(id_ug,id_band)
      cohort%npp_previous_day = 0.0
      cohort%status  = LEAF_ON
      cohort%leaf_age = 0.0
+
+     !#### MODIFIED BY PPG 2016-12-01
+     cohort%Anlayer_acm = 0.0
+     cohort%bl_previous = 0.0
+     cohort%lai_light_max = 0.0
+
      if(did_read_biodata.and.do_biogeography) then
         call update_species(cohort,t_ann(l),t_cold(l),p_ann(l),ncm(l),LU_NTRL)
         if (.not.biodata_bug) then
@@ -458,9 +450,9 @@ subroutine vegn_init(id_ug,id_band)
   ! initialize harvesting options
   call vegn_harvesting_init()
 
-  ! initialize distrurbances 
+  ! initialize distrurbances
   call vegn_disturbance_init()
-  
+
   ! initialize vegetation diagnostic fields
   call vegn_diag_init(id_ug,id_band,lnd%time)
 
@@ -506,10 +498,10 @@ subroutine vegn_diag_init(id_ug,id_band,time)
        (/id_ug/), time, 'leaf area index', 'm2/m2', missing_value=-1.0 )
   id_lai_var = register_tiled_diag_field ( module_name, 'lai_var',  &
        (/id_ug/), time, 'variance of leaf area index across tiles in grid cell', 'm4/m4', &
-       missing_value=-1.0 , op=OP_VAR)
+       missing_value=-1.0 , op='variance')
   id_lai_std = register_tiled_diag_field ( module_name, 'lai_std',  &
        (/id_ug/), time, 'standard deviation of leaf area index across tiles in grid cell', 'm2/m2', &
-       missing_value=-1.0, op=OP_STD)
+       missing_value=-1.0, op='stdev')
   id_sai    = register_tiled_diag_field ( module_name, 'sai',  &
        (/id_ug/), time, 'stem area index', 'm2/m2', missing_value=-1.0 )
   id_leaf_size = register_tiled_diag_field ( module_name, 'leaf_size',  &
@@ -539,6 +531,24 @@ subroutine vegn_diag_init(id_ug,id_band,time)
   id_an_cl = register_tiled_diag_field ( module_name, 'an_cl',  &
        (/id_ug/), time, 'net photosynthesis with closed stomata', &
        '(mol CO2)(m2 of leaf)^-1 year^-1', missing_value=-1e20 )
+
+  !Modified from PPG-2016-12-01
+  id_lai_kok = register_tiled_diag_field ( module_name, 'lai_kok',  &
+       (/id_ug/), time, 'leaf area index at kok effect', 'm2/m2', missing_value=-1.0 )
+  id_Anlayer_acm = register_tiled_diag_field ( module_name, 'Anlayer_acm',  &
+       (/id_ug/), time, 'Cumulative Net photosynthesis for LAI layer', '(mol CO2)(m2 of leaf)^-1 year^-1', missing_value=-1.0 )
+  id_Anlayer= register_tiled_diag_field ( module_name, 'Anlayer',  &
+       (/id_ug/), time, 'Anet from LAI Layer', '(mol CO2)(m2 of leaf)^-1 year^-1', missing_value=-1.0 )
+  id_bl_previous = register_tiled_diag_field ( module_name, 'bl_previous',  &
+       (/id_ug/), time, 'leaf biomass from previous day', 'kg/m2', missing_value=-1.0 )
+  id_bl_target = register_tiled_diag_field ( module_name, 'bl_target',  &
+       (/id_ug/), time, 'target leaf biomass', 'kg/m2', missing_value=-1.0 )
+
+  !Modified from PPG-2017-06-08
+  id_lai_light = register_tiled_diag_field ( module_name, 'lai_light',  &
+       (/id_ug/), time, 'leaf area index lower section', 'm2/m2', missing_value=-1.0 )
+  id_lai_light_max = register_tiled_diag_field ( module_name, 'lai_light_max',  &
+       (/id_ug/), time, 'daily max leaf area index lower section', 'm2/m2', missing_value=-1.0 )
 
   id_bl = register_tiled_diag_field ( module_name, 'bl',  &
        (/id_ug/), time, 'biomass of leaves', 'kg C/m2', missing_value=-1.0 )
@@ -671,50 +681,54 @@ subroutine vegn_diag_init(id_ug,id_band,time)
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('land')
   call add_tiled_diag_field_alias(id_lai, cmor_name, 'lai', (/id_ug/), &
-       time, 'Leaf Area Index', '1', missing_value = -1.0, &
+       time, 'Leaf Area Index', '1.0', missing_value = -1.0, &
        standard_name = 'leaf_area_index', fill_missing = .TRUE.)
   call add_tiled_diag_field_alias(id_lai, cmor_name, 'laiLut', (/id_ug/), &
-       time, 'leaf area index on land use tile', '1', missing_value = -1.0, &
-       standard_name = 'leaf_area_index_lut', fill_missing = .FALSE.)
+       time, 'leaf area index on land use tile', '1.0', missing_value = -1.0, &
+       standard_name = 'leaf_area_index', fill_missing = .FALSE.)
   call add_tiled_diag_field_alias ( id_btot, cmor_name, 'cVeg', (/id_ug/), &
-       time, 'Carbon Mass in Vegetation', 'kg C m-2', missing_value=-1.0, &
+       time, 'Carbon Mass in Vegetation', 'kg m-2', missing_value=-1.0, &
        standard_name='vegetation_carbon_content', fill_missing=.TRUE.)
   call add_tiled_diag_field_alias (id_btot, cmor_name, 'cVegLut', (/id_ug/), &
-       time, 'Carbon Mass in Vegetation', 'kg C m-2', missing_value=-1.0, &
+       time, 'Carbon Mass in Vegetation', 'kg m-2', missing_value=-1.0, &
        standard_name='vegetation_carbon_content', fill_missing=.FALSE.)
   id_cProduct = register_tiled_diag_field( cmor_name, 'cProduct', (/id_ug/), &
-       time, 'Carbon in Products of Land Use Change', 'kg C m-2', missing_value=-999.0, &
-       standard_name='carbon_in_producs_of_luc', fill_missing=.TRUE.)
+       time, 'Carbon Mass in Products of Landuse Change', 'kg m-2', missing_value=-999.0, &
+       standard_name='carbon_content_of_products_of_anthropogenic_land_use_change', fill_missing=.TRUE.)
   id_cAnt = register_tiled_diag_field( cmor_name, 'cAnt', (/id_ug/), &
-       time, 'Carbon in Anthropogenic Pool', 'kg C m-2', missing_value=-999.0, &
+       time, 'Carbon in Anthropogenic Pool', 'kg m-2', missing_value=-999.0, &
        fill_missing=.TRUE.) ! standard_name not known at this time
   call add_tiled_diag_field_alias(id_cAnt, cmor_name, 'cAntLut', (/id_ug/), &
-       time, 'Carbon in Anthropogenic Pools Associated with Land Use Tiles', 'kg C m-2', &
+       time, 'Carbon in Anthropogenic Pools Associated with Land Use Tiles', 'kg m-2', &
        missing_value=-999.0, fill_missing = .TRUE.) ! standard_name not known at this time
   id_fFire = register_tiled_diag_field ( cmor_name, 'fFire', (/id_ug/), &
-       time, 'CO2 Emission from Fire', 'kg C m-2 s-1', missing_value=-1.0, &
-       standard_name='co2_emission_from_fire', fill_missing=.TRUE.)
+       time, 'Carbon Mass Flux into Atmosphere due to CO2 Emission from Fire', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_fires_excluding_anthropogenic_land_use_change', &
+       fill_missing=.TRUE.)
   id_fGrazing = register_tiled_diag_field( cmor_name, 'fGrazing', (/id_ug/), &
-       time, 'CO2 flux to Atmosphere from Grazing', 'kg C m-2 s-1', missing_value=-1.0, &
-       standard_name='co2_flux_to_atmosphere_from_grazing', fill_missing=.TRUE.)
+       time, 'Carbon Mass Flux into Atmosphere due to Grazing on Land', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_grazing', &
+       fill_missing=.TRUE.)
   id_fHarvest = register_tiled_diag_field( cmor_name, 'fHarvest', (/id_ug/), &
-       time, 'CO2 flux to Atmosphere from Crop Harvesting', 'kg C m-2 s-1', missing_value=-1.0, &
-       standard_name='co2_flux_to_atmosphere_from_crop_harvesting', fill_missing=.TRUE.)
+       time, 'Carbon Mass Flux into Atmosphere due to Crop Harvesting', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_crop_harvesting', &
+       fill_missing=.TRUE.)
   id_fLuc = register_tiled_diag_field( cmor_name, 'fLuc', (/id_ug/), &
-       time, 'CO2 flux to Atmosphere from Land Use Change', 'kg C m-2 s-1', missing_value=-1.0, &
-       standard_name='co2_flux_to_atmosphere_from_land_use_change', fill_missing=.TRUE.)
+       time, 'Net Carbon Mass Flux into Atmosphere due to Land Use Change', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_net_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_anthropogenic_land_use_change', &
+       fill_missing=.TRUE.)
   id_cLeaf = register_tiled_diag_field ( cmor_name, 'cLeaf',  (/id_ug/), &
-       time, 'Carbon in Leaves', 'kg C m-2', missing_value=-1.0, &
-       standard_name='carbon_in_leaves', fill_missing=.TRUE.)
+       time, 'Carbon Mass in Leaves', 'kg m-2', missing_value=-1.0, &
+       standard_name='leaf_carbon_content', fill_missing=.TRUE.)
   id_cWood = register_tiled_diag_field ( cmor_name, 'cWood',  (/id_ug/), &
-       time, 'Carbon in Wood', 'kg C m-2', missing_value=-1.0, &
-       standard_name='carbon_in_wood', fill_missing=.TRUE.)
+       time, 'Carbon Mass in Wood', 'kg m-2', missing_value=-1.0, &
+       standard_name='wood_carbon_content', fill_missing=.TRUE.)
   id_cRoot = register_tiled_diag_field ( cmor_name, 'cRoot',  (/id_ug/), &
-       time, 'Carbon in Roots', 'kg C m-2', missing_value=-1.0, &
-       standard_name='carbon_in_roots', fill_missing=.TRUE.)
+       time, 'Carbon Mass in Roots', 'kg m-2', missing_value=-1.0, &
+       standard_name='root_carbon_content', fill_missing=.TRUE.)
   id_cMisc = register_tiled_diag_field ( cmor_name, 'cMisc',  (/id_ug/), &
-       time, 'Carbon in Other Living Compartments', 'kg C m-2', missing_value=-1.0, &
-       standard_name='carbon_in_other_living_compartments', fill_missing=.TRUE.)
+       time, 'Carbon Mass in Other Living Compartments on Land', 'kg m-2', missing_value=-1.0, &
+       standard_name='miscellaneous_living_matter_carbon_content', fill_missing=.TRUE.)
 end subroutine
 
 
@@ -795,6 +809,11 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'bliving', cohort_bliving_ptr, 'total living biomass per individual','kg C/m2')
   call add_int_cohort_data(restart2,'status', cohort_status_ptr, 'leaf status')
   call add_cohort_data(restart2,'leaf_age',cohort_leaf_age_ptr, 'age of leaves since bud burst', 'days')
+
+  !#### MODIFIED BY PPG 2016-12-01
+  call add_cohort_data(restart2, 'Anlayer_acm', cohort_Anlayer_acm_ptr,  ' Cumulative Net Photosynthesis for new Lai layer', 'kg C/(m2 year)')
+  call add_cohort_data(restart2, 'bl_previous', cohort_bl_previous_ptr, 'Previous leaf biomass','kg C/(m2 year)')
+  call add_cohort_data(restart2,'lai_light_max',cohort_lai_light_max_ptr, 'max LAI for positive net photosynthesis', 'm2/m2')
 
   call add_cohort_data(restart2,'npp_prev_day', cohort_npp_previous_day_ptr, 'previous day NPP','kg C/(m2 year)')
 
@@ -961,7 +980,8 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
        phot_co2,  & ! co2 mixing ratio for photosynthesis, mol CO2/mol dry air
        evap_demand, & ! evaporative water demand, kg/(m2 s)
        photosynt, & ! photosynthesis
-       photoresp    ! photo-respiration
+       photoresp, &    ! photo-respiration
+       lai_kok, Anlayer, lai_light
   real :: litter_fast_C, litter_slow_C, litter_deadmic_C ! For rav_lit calculations
   type(vegn_cohort_type), pointer :: cohort
 
@@ -1027,7 +1047,14 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   call vegn_photosynthesis ( vegn, &
      SWdn(BAND_VIS), RSv(BAND_VIS), cana_q, phot_co2, p_surf, drag_q, &
      soil_beta, soil_water_supply, &
-     evap_demand, stomatal_cond, photosynt, photoresp )
+     evap_demand, stomatal_cond, photosynt, photoresp, &
+     lai_kok, Anlayer, lai_light) !#### MODIFIED BY PPG 2016-12-01
+
+  !#### MODIFIED BY PPG 2016-12-01
+  cohort%Anlayer_acm = cohort%Anlayer_acm + Anlayer
+  cohort%lai_light_max = max(0., max(cohort%lai_light_max,lai_light))
+
+  !write(*,*) 'Anlayer', Anlayer, 'Anlayer_acm', cohort%Anlayer_acm
 
   call get_vegn_wet_frac ( cohort, fw, DfwDwl, DfwDwf, fs, DfsDwl, DfsDwf )
   ! transpiring fraction and its derivatives
@@ -1135,7 +1162,11 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   call send_tile_data(id_con_v_h, con_v_h, diag)
   call send_tile_data(id_con_v_v, con_v_v, diag)
   call send_tile_data(id_phot_co2, phot_co2, diag)
-
+  call send_tile_data(id_lai_light, lai_light, diag) !Modified by PPG 2017-06-08
+  call send_tile_data(id_lai_light_max, cohort%lai_light_max, diag)
+  call send_tile_data(id_lai_kok, lai_kok, diag)
+  call send_tile_data(id_Anlayer, Anlayer, diag)
+  call send_tile_data(id_Anlayer_acm, cohort%Anlayer_acm, diag)
 end subroutine vegn_step_1
 
 
@@ -1363,6 +1394,9 @@ subroutine update_vegn_slow( )
   real :: lmass1, fmass1, heat1, cmass1
   character(64) :: tag
 
+  real, parameter :: day = 1.0/365.0 ! one day (time step of some processes) in units of years
+  integer :: sp ! species
+
   ! get components of calendar dates for this and previous time step
   call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
   call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
@@ -1397,7 +1431,7 @@ subroutine update_vegn_slow( )
         tile%vegn%tsoil_av  = tile%vegn%tsoil_av  / tile%vegn%n_accum
         tile%vegn%theta_av_phen  = tile%vegn%theta_av_phen  / tile%vegn%n_accum
         tile%vegn%theta_av_fire  = tile%vegn%theta_av_fire  / tile%vegn%n_accum
-	tile%vegn%psist_av  = tile%vegn%psist_av  / tile%vegn%n_accum
+        tile%vegn%psist_av  = tile%vegn%psist_av  / tile%vegn%n_accum
         tile%vegn%precip_av = tile%vegn%precip_av / tile%vegn%n_accum
         ! accumulate annual values
         tile%vegn%p_ann_acm = tile%vegn%p_ann_acm+tile%vegn%precip_av
@@ -1448,8 +1482,20 @@ subroutine update_vegn_slow( )
         call send_tile_data(id_cgain,sum(tile%vegn%cohorts(1:n)%carbon_gain),tile%diag)
         call send_tile_data(id_closs,sum(tile%vegn%cohorts(1:n)%carbon_loss),tile%diag)
         call send_tile_data(id_wdgain,sum(tile%vegn%cohorts(1:n)%bwood_gain),tile%diag)
+        call send_tile_data(id_bl_previous, sum(tile%vegn%cohorts(1:n)%bl), tile%diag)
+        call send_tile_data(id_bl_target, sum(tile%vegn%cohorts(1:n)%bliving*tile%vegn%cohorts(:)%Pl), tile%diag)
+        do i = 1,n
+            sp = tile%vegn%cohorts(i)%species
+            tile%vegn%cohorts(i)%bl_previous=tile%vegn%cohorts(i)%bl*(1-spdata(sp)%alpha(CMPT_LEAF)*day)
+        enddo
+        !write(*,*) 'Anlayer_acm', tile%vegn%cohorts(1)%Anlayer_acm, 'bl_prev', tile%vegn%cohorts(1)%bl
         call vegn_growth(tile%vegn)
         call vegn_nat_mortality(tile%vegn,tile%soil,86400.0)
+        tile%vegn%cohorts(1)%Anlayer_acm = 0.0
+        tile%vegn%cohorts(1)%lai_light_max = 0.0
+!         call send_tile_data(id_lai, tile%vegn%cohorts(1)%lai, tile%diag)
+!         call send_tile_data(id_sai, tile%vegn%cohorts(1)%sai, tile%diag)
+!         call send_tile_data(id_Anlayer_acm, tile%vegn%cohorts(1)%Anlayer_acm, tile%diag)
      endif
 
      if  (month1 /= month0 .and. do_phenology) then
@@ -1641,8 +1687,8 @@ subroutine vegn_seed_transport()
   do while (loop_over_tiles(ce,tile,l))
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
 
-     total_seed_supply = total_seed_supply + vegn_seed_supply(tile%vegn)*tile%frac*lnd%area(l)
-     total_seed_demand = total_seed_demand + vegn_seed_demand(tile%vegn)*tile%frac*lnd%area(l)
+     total_seed_supply = total_seed_supply + vegn_seed_supply(tile%vegn)*tile%frac*lnd%ug_area(l)
+     total_seed_demand = total_seed_demand + vegn_seed_demand(tile%vegn)*tile%frac*lnd%ug_area(l)
   enddo
   ! sum totals globally
   call mpp_sum(total_seed_demand, pelist=lnd%pelist)
@@ -1746,6 +1792,11 @@ DEFINE_COHORT_ACCESSOR(real,bliving)
 DEFINE_COHORT_ACCESSOR(integer,status)
 DEFINE_COHORT_ACCESSOR(real,leaf_age)
 DEFINE_COHORT_ACCESSOR(real,npp_previous_day)
+
+!#### MODIFIED BY PPG 2016-12-01
+DEFINE_COHORT_ACCESSOR(real, Anlayer_acm)
+DEFINE_COHORT_ACCESSOR(real, bl_previous)
+DEFINE_COHORT_ACCESSOR(real,lai_light_max)
 
 DEFINE_COHORT_ACCESSOR(real,tv)
 DEFINE_COHORT_ACCESSOR(real,wl)

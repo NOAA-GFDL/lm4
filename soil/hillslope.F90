@@ -15,16 +15,13 @@ use mpp_mod, only: mpp_pe, mpp_root_pe
 use fms_mod, only: error_mesg, file_exist, close_file, check_nml_error, &
      stdlog, FATAL, NOTE, WARNING
 
-use fms_io_mod, only: restart_file_type, free_restart_type, &
-      set_domain, nullify_domain
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles, get_elmt_indices
 use land_utils_mod, only : put_to_tiles_r0d_fptr
 use land_tile_diag_mod, only : diag_buff_type, &
      register_tiled_static_field, set_default_diag_filter, &
-     send_tile_data_r0d_fptr, &
-     send_tile_data_i0d_fptr, OP_SUM
-use land_data_mod, only : lnd_sg, log_version, lnd
+     send_tile_data_r0d_fptr, send_tile_data_i0d_fptr
+use land_data_mod, only : lnd, log_version
 use land_io_mod, only : read_field
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
@@ -275,51 +272,51 @@ subroutine read_hillslope_surfdat ( ls, le, num_topo_hlsps, frac_topo_hlsps, soi
   ! Note: this function is not currently a robust "nearest" interpolation for cubic-sphere
   ! grids and will need to be updated.
 
-  call read_field( hillslope_surfdata, 'NUM_TOPO_HLSPS', lnd%lon, lnd%lat, num_topo_hlsps, &
+  call read_field( hillslope_surfdata, 'NUM_TOPO_HLSPS', lnd%ug_lon, lnd%ug_lat, num_topo_hlsps, &
                    interp='nearest' )
 
-  call read_field( hillslope_surfdata, 'FRAC_TOPO_HLSPS', lnd%lon, lnd%lat, rbuffer, &
+  call read_field( hillslope_surfdata, 'FRAC_TOPO_HLSPS', lnd%ug_lon, lnd%ug_lat, rbuffer, &
                    interp='nearest' )
   frac_topo_hlsps(:,:) = rbuffer(:,1:max_num_topo_hlsps)
 
   if (.not. use_geohydrodata) then
-     call read_field( hillslope_surfdata, 'SOIL_E_DEPTH', lnd%lon, lnd%lat, rbuffer, &
+     call read_field( hillslope_surfdata, 'SOIL_E_DEPTH', lnd%ug_lon, lnd%ug_lat, rbuffer, &
                       interp=hlsp_interpmethod )
      soil_e_depth(:,:) = rbuffer(:,1:max_num_topo_hlsps)
   else
      soil_e_depth(:,:) = initval ! will not be used
   end if
-  call read_field( hillslope_surfdata, 'MICROTOPO', lnd%lon, lnd%lat, rbuffer, &
+  call read_field( hillslope_surfdata, 'MICROTOPO', lnd%ug_lon, lnd%ug_lat, rbuffer, &
                    interp=hlsp_interpmethod )
   microtopo(:,:) = rbuffer(:,1:max_num_topo_hlsps)
 
-  call read_field( hillslope_surfdata, 'HLSP_LENGTH', lnd%lon, lnd%lat, rbuffer, &
+  call read_field( hillslope_surfdata, 'HLSP_LENGTH', lnd%ug_lon, lnd%ug_lat, rbuffer, &
                    interp=hlsp_interpmethod )
   hlsp_length(:,:) = rbuffer(:,1:max_num_topo_hlsps)
   if (use_geohydrodata) hlsp_length(:,:) = hlsp_length(:,:)*gw_scale_length
 
-  call read_field( hillslope_surfdata, 'HLSP_SLOPE', lnd%lon, lnd%lat, rbuffer, &
+  call read_field( hillslope_surfdata, 'HLSP_SLOPE', lnd%ug_lon, lnd%ug_lat, rbuffer, &
                    interp=hlsp_interpmethod )
   ! Hillslope elevation at top divided by hillslope length
   hlsp_slope(:,:) = rbuffer(:,1:max_num_topo_hlsps)
   if (use_geohydrodata) hlsp_slope(:,:) = hlsp_slope(:,:)*gw_scale_relief
 
-  call read_field( hillslope_surfdata, 'HLSP_SLOPE_EXP', lnd%lon, lnd%lat, rbuffer, &
+  call read_field( hillslope_surfdata, 'HLSP_SLOPE_EXP', lnd%ug_lon, lnd%ug_lat, rbuffer, &
                    interp=hlsp_interpmethod )
   ! Hillslope profile will follow equation z = H(x/L)^a, where a=hlsp_slope_exp,
   ! H = max elevation, and L = max length from stream.
   hlsp_slope_exp(:,:) = rbuffer(:,1:max_num_topo_hlsps)
 
-!  call read_field( hillslope_surfdata, 'HLSP_STREAM_WIDTH', lnd_sg%lon, lnd_sg%lat, rbuffer, &
+!  call read_field( hillslope_surfdata, 'HLSP_STREAM_WIDTH', lnd%lon, lnd%lat, rbuffer, &
 !                   interp=hlsp_interpmethod )
-!  hlsp_stream_width(:,:) = rbuffer(:,1:max_num_topo_hlsps)
+!  hlsp_stream_width(:,:,:) = rbuffer(:,:,1:max_num_topo_hlsps)
 
-  call read_field( hillslope_surfdata, 'HLSP_TOP_WIDTH', lnd%lon, lnd%lat, rbuffer, &
+  call read_field( hillslope_surfdata, 'HLSP_TOP_WIDTH', lnd%ug_lon, lnd%ug_lat, rbuffer, &
                    interp=hlsp_interpmethod )
   hlsp_top_width(:,:) = rbuffer(:,1:max_num_topo_hlsps)
 
   if (.not. use_geohydrodata) then
-     call read_field( hillslope_surfdata, 'BEDROCK_KSAT', lnd%lon, lnd%lat, rbuffer, &
+     call read_field( hillslope_surfdata, 'BEDROCK_KSAT', lnd%ug_lon, lnd%ug_lat, rbuffer, &
                       interp=hlsp_interpmethod )
      k_sat_gw(:,:) = rbuffer(:,1:max_num_topo_hlsps)
   else
@@ -327,7 +324,7 @@ subroutine read_hillslope_surfdat ( ls, le, num_topo_hlsps, frac_topo_hlsps, soi
   end if
 
   if (present(soiltype)) then
-     call read_field( hillslope_surfdata, 'SOILTYPE', lnd%lon, lnd%lat, ibuffer, &
+     call read_field( hillslope_surfdata, 'SOILTYPE', lnd%ug_lon, lnd%ug_lat, ibuffer, &
                      interp='nearest')
      soiltype(:,:) = ibuffer(:,1:max_num_topo_hlsps)
   end if
@@ -884,9 +881,9 @@ subroutine hlsp_diag_init(id_ug)
 !   id_transm_bedrock = register_tiled_static_field ( module_name, 'bedrock_transmissivity', &
 !      axes, 'bedrock hydraulic transmissivity', 'm^2/s', missing_value=-100.0 )
    id_hidx_j = register_tiled_static_field ( module_name, 'hillslope_position', &
-      axes, 'horizontal position index along hillslope', missing_value=0., op=OP_SUM )
+      axes, 'horizontal position index along hillslope', missing_value=0., op='sum' )
    id_hidx_k = register_tiled_static_field ( module_name, 'hillslope_parent', &
-      axes, 'index of hillslope parent', missing_value=0., op=OP_SUM )
+      axes, 'index of hillslope parent', missing_value=0., op='sum' )
 
 end subroutine hlsp_diag_init
 

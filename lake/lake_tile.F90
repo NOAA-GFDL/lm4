@@ -14,7 +14,7 @@ use fms_mod, only: open_namelist_file
 use fms_mod, only : file_exist, check_nml_error, read_data, close_file, stdlog
 use constants_mod, only : PI, tfreeze, hlf
 use land_constants_mod, only : NBANDS
-use land_data_mod, only : log_version, lnd_sg, lnd
+use land_data_mod, only : lnd, log_version
 use land_io_mod, only : init_cover_field
 use land_tile_selectors_mod, only : tile_selector_type, SEL_LAKE, register_tile_selector
 use tiling_input_types_mod, only : lake_predefined_type
@@ -523,7 +523,7 @@ function lake_cover_cold_start(land_mask, lonb, latb, domain) result (lake_frac)
   real,    intent(in) :: lonb(:,:), latb(:,:)! boundaries of the grid cells
   real,    pointer    :: lake_frac (:,:) ! output: map of lake fractional coverage
   type(domain2d), intent(in) :: domain
-  real :: lake_frac_sg(lnd_sg%is:lnd_sg%ie,lnd_sg%js:lnd_sg%je)
+  real :: lake_frac_sg(lnd%is:lnd%ie,lnd%js:lnd%je)
   allocate( lake_frac(size(land_mask(:)),n_dim_lake_types))
 
   if (trim(lake_to_use)=='from-rivers') then
@@ -531,7 +531,7 @@ function lake_cover_cold_start(land_mask, lonb, latb, domain) result (lake_frac)
      if (file_exist('INPUT/river_data.nc', domain)) then
          call read_data('INPUT/river_data.nc', 'lake_frac', lake_frac_sg, &
                         domain=domain)
-         call mpp_pass_sg_to_ug(lnd%domain, lake_frac_sg, lake_frac(:,1))
+         call mpp_pass_sg_to_ug(lnd%ug_domain, lake_frac_sg, lake_frac(:,1))
      endif
      ! make sure 'missing values' don't get into the result
      where (lake_frac < 0) lake_frac = 0

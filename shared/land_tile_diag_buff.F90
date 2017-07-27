@@ -5,17 +5,13 @@ private
 
 ! ==== public interfaces =====================================================
 public :: diag_buff_type
-public :: new_diag_buff, delete_diag_buff, realloc_diag_buff
+public :: init_diag_buff, realloc_diag_buff
 ! ==== end of public interfaces ==============================================
-interface new_diag_buff
-   module procedure diag_buff_ctor
-   module procedure diag_buff_copy_ctor
-end interface
 
 ! storage for tile diagnostic data
 type :: diag_buff_type
-   real   , pointer :: data(:) => NULL()
-   logical, pointer :: mask(:) => NULL()
+   real   , allocatable :: data(:)
+   logical, allocatable :: mask(:)
 end type diag_buff_type
 
 ! ==== module constants =====================================================
@@ -24,43 +20,14 @@ integer, parameter :: MIN_DIAG_BUFF_SIZE = 1
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ============================================================================
-function diag_buff_ctor() result(buffer)
-  type(diag_buff_type), pointer :: buffer
+subroutine init_diag_buff(buffer)
+  type(diag_buff_type), intent(inout) :: buffer
 
-  integer :: m ! initial size of the buffer
-
-  allocate(buffer)
-  m = MIN_DIAG_BUFF_SIZE
-  allocate(buffer%mask(m),buffer%data(m))
+  allocate(buffer%data(MIN_DIAG_BUFF_SIZE), buffer%mask(MIN_DIAG_BUFF_SIZE))
   ! initialize buffer content
   buffer%mask(:) = .FALSE.
   buffer%data(:) = 0.0
-end function
-
-
-! ============================================================================
-function diag_buff_copy_ctor(buffer) result(ptr)
-  type(diag_buff_type), pointer :: ptr ! return value
-  type(diag_buff_type), intent(in) :: buffer ! buffer to copy
-
-  allocate(ptr)
-  allocate(ptr%mask(size(buffer%mask)),ptr%data(size(buffer%data)))
-  ! initialize buffer content
-  ptr%mask(:) = buffer%mask(:)
-  ptr%data(:) = buffer%data(:)
-end function
-
-
-! ============================================================================
-subroutine delete_diag_buff(buffer)
-  type(diag_buff_type), pointer :: buffer
-
-  if(.not.associated(buffer)) return
-  deallocate(buffer%mask,buffer%data)
-  deallocate(buffer)
-
-end subroutine
-
+end subroutine init_diag_buff
 
 ! ============================================================================
 ! reallocates buffer to have at least m elements
@@ -68,8 +35,8 @@ subroutine realloc_diag_buff(buffer, m)
   type(diag_buff_type), intent(inout) :: buffer
   integer             , intent(in)    :: m
 
-  real    , pointer :: new_data(:)
-  logical , pointer :: new_mask(:)
+  real    , allocatable :: new_data(:)
+  logical , allocatable :: new_mask(:)
   integer           :: n
 
   ! n is size of the original buffer; m is the current size of the buffer
@@ -81,12 +48,9 @@ subroutine realloc_diag_buff(buffer, m)
   allocate(new_data(m), new_mask(m))
   new_data(1:n) = buffer%data(1:n) ; new_data(n+1:m) = 0.0
   new_mask(1:n) = buffer%mask(1:n) ; new_mask(n+1:m) = .FALSE.
-  deallocate(buffer%data, buffer%mask)
-
-  buffer%data=>new_data
-  buffer%mask=>new_mask
-
-end subroutine
+  call move_alloc(new_data,buffer%data)
+  call move_alloc(new_mask,buffer%mask)
+end subroutine realloc_diag_buff
 
 ! =============================================================================
 subroutine merge_diag_buffs(t1,w1,t2,w2)
