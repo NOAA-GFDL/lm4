@@ -1285,8 +1285,8 @@ subroutine vegn_reproduction_ppa(do_seed_transport)
 
   type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
-  real :: dispersed_ug   (lnd%ls:lnd%le,0:nspecies-1)  ! dispersed seeds, kgC per m2 of land
-  real :: transported_ug (lnd%ls:lnd%le,0:nspecies-1)  ! dispersed seeds, kgC per m2 of land
+  real :: ug_dispersed   (lnd%ls:lnd%le,0:nspecies-1)  ! dispersed seeds, kgC per m2 of land
+  real :: ug_transported (lnd%ls:lnd%le,0:nspecies-1)  ! dispersed seeds, kgC per m2 of land
   real, allocatable :: bseed(:,:)
   integer :: n ! total number of vegetated tiles in the domain
   integer :: k ! vegetated tile index
@@ -1333,15 +1333,15 @@ subroutine vegn_reproduction_ppa(do_seed_transport)
   enddo
 
   ! calculate amount of dispersed seeds, by species, kgC per m2 of land
-  dispersed_ug = 0.0
-  transported_ug = 0.0
+  ug_dispersed = 0.0
+  ug_transported = 0.0
   if (do_seed_transport) then
      ce = first_elmt(land_tile_map, lnd%ls); k = 1
      do while (loop_over_tiles(ce,tile,l)) ! l is the grid cell index in unstructured grid
         if (.not.associated(tile%vegn)) cycle
         do s = 0,nspecies-1
-           dispersed_ug(l,s)   = dispersed_ug(l,s)   + bseed(k,s)*spdata(s)%frac_seed_dispersed*tile%frac
-           transported_ug(l,s) = transported_ug(l,s) + bseed(k,s)*spdata(s)%frac_seed_transported*tile%frac
+           ug_dispersed(l,s)   = ug_dispersed(l,s)   + bseed(k,s)*spdata(s)%frac_seed_dispersed*tile%frac
+           ug_transported(l,s) = ug_transported(l,s) + bseed(k,s)*spdata(s)%frac_seed_transported*tile%frac
            ! correct the amount of seeds remaining in each tile
            bseed(k,s) = bseed(k,s)*(1-spdata(s)%frac_seed_dispersed-spdata(s)%frac_seed_transported)
         enddo
@@ -1349,7 +1349,7 @@ subroutine vegn_reproduction_ppa(do_seed_transport)
      enddo
      ! diffuse the seeds
      do s = 0,nspecies-1
-        call transport_seeds(transported_ug(:,s))
+        call transport_seeds(ug_transported(:,s))
      enddo
   endif
 
@@ -1360,11 +1360,11 @@ subroutine vegn_reproduction_ppa(do_seed_transport)
      if (.not.associated(tile%vegn)) cycle
      if (is_watch_point()) then
         __DEBUG3__(l,k,k1)
-        __DEBUG1__(dispersed_ug(l,:))
-        __DEBUG1__(transported_ug(l,:))
+        __DEBUG1__(ug_dispersed(l,:))
+        __DEBUG1__(ug_transported(l,:))
         __DEBUG1__(bseed(k,:))
      endif
-     call add_seedlings_ppa(tile%vegn,tile%soil,(dispersed_ug(l,:)+transported_ug(l,:))*ug_area_factor(l)+bseed(k,:))
+     call add_seedlings_ppa(tile%vegn,tile%soil,(ug_dispersed(l,:)+ug_transported(l,:))*ug_area_factor(l)+bseed(k,:))
      k = k+1
   enddo
 
@@ -1386,13 +1386,14 @@ subroutine vegn_reproduction_ppa(do_seed_transport)
 end subroutine vegn_reproduction_ppa
 
 ! =======================================================================================
-! Given the total amount of transported seeds per grid cell, kg, on unstructured grid,
+! Given the amount seeds undergoing transport (kg per m2 of land), on unstructured grid,
 ! updates it to take into account transport among grid cells.
-subroutine transport_seeds(bseed_ug)
-  real, intent(inout) :: bseed_ug(lnd%ls:lnd%le) ! amount of dispersed seeds on unstructured grid, kg per m2 of land
+subroutine transport_seeds(ug_bseed)
+  real, intent(inout) :: ug_bseed(lnd%ls:lnd%le) ! amount of transported seeds on unstructured 
+       ! grid, kg per m2 of land
 
-  real :: bseed(lnd%isd:lnd%ied, lnd%jsd:lnd%jed) ! total amount of dispersed seeds per grid cell on structured grid, kg
-  real :: tend (lnd%isd:lnd%ied, lnd%jsd:lnd%jed) ! seed mass tendency due to dispersion, kg
+  real :: sg_bseed(lnd%isd:lnd%ied, lnd%jsd:lnd%jed) ! total amount of dispersed seeds per grid cell on structured grid, kg
+  real :: tend    (lnd%isd:lnd%ied, lnd%jsd:lnd%jed) ! seed mass tendency due to dispersion, kg
   integer :: i,j,ii,jj
 
   real :: btot0, btot1 ! total carbon, for conservation check only
@@ -1403,23 +1404,23 @@ subroutine transport_seeds(bseed_ug)
       0.0,  0.25, 0.0   ],[3,3] )
 
   if(do_check_conservation) then
-     btot0 = sum(bseed_ug*lnd%ug_area)
+     btot0 = sum(ug_bseed*lnd%ug_area)
      call mpp_sum(btot0)
   endif
   ! move dispersed seeds to structured grid
-  bseed = 0.0
-  call mpp_pass_UG_to_SG(lnd%ug_domain,bseed_ug*lnd%ug_area,bseed)
-  ! bseed is multiplied by area, so it is total per grid cell
+  sg_bseed = 0.0
+  call mpp_pass_UG_to_SG(lnd%ug_domain,ug_bseed*lnd%ug_area,sg_bseed)
+  ! NOTE that bseed is multiplied by area, so it is total per grid cell
 
   ! update halo
-  call mpp_update_domains(bseed,lnd%sg_domain)
+  call mpp_update_domains(sg_bseed,lnd%sg_domain)
 
   tend = 0.0
   do j = lnd%js, lnd%je
   do i = lnd%is, lnd%ie
      do jj = -1,1
      do ii = -1,1
-         tend(i,j) = tend(i,j) + bseed(i-ii,j-jj)*kernel(ii,jj)*sg_soilfrac(i,j)
+         tend(i,j) = tend(i,j) + sg_bseed(i-ii,j-jj)*kernel(ii,jj)*sg_soilfrac(i,j)
      enddo
      enddo
   enddo
@@ -1428,23 +1429,22 @@ subroutine transport_seeds(bseed_ug)
   do i = lnd%is, lnd%ie
      do jj = -1,1
      do ii = -1,1
-         tend(i,j) = tend(i,j) - bseed(i,j)*kernel(ii,jj)*sg_soilfrac(i+ii,j+jj)
+         tend(i,j) = tend(i,j) - sg_bseed(i,j)*kernel(ii,jj)*sg_soilfrac(i+ii,j+jj)
      enddo
      enddo
   enddo
   enddo
-  ! tendencies and updated seed amounts are only valid within compute domain, but that's OK
+  ! tendency and updated seed amount are only valid within compute domain, but that's OK
   ! because we only use them there.
-  bseed(:,:) = bseed(:,:) + tend(:,:)
+  sg_bseed = sg_bseed + tend
 
   ! move transported field to unstructured grid
-  call mpp_pass_SG_to_UG(lnd%ug_domain,bseed,bseed_ug)
-  ! call mpp_pass_SG_to_UG(lnd%ug_domain,bseed(lnd%is:lnd%ie,lnd%js:lnd%je),bseed_ug)
+  call mpp_pass_SG_to_UG(lnd%ug_domain,sg_bseed,ug_bseed)
   ! renormalize seed amount from total to kg C per unit land area
-  bseed_ug(:) = bseed_ug(:)/lnd%ug_area(:)
+  ug_bseed(:) = ug_bseed(:)/lnd%ug_area(:)
 
   if (do_check_conservation) then
-     btot1 = sum(bseed_ug*lnd%ug_area)
+     btot1 = sum(ug_bseed*lnd%ug_area)
      call mpp_sum(btot1)
      if (mpp_pe()==mpp_root_pe()) then
         call check_conservation ('transport_seeds','total carbon', &
