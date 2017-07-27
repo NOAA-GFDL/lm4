@@ -68,6 +68,7 @@ real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 da
 real, allocatable :: sg_soilfrac(:,:) ! fraction of grid cell area occupied by soil, for
   ! normalization in seed transort
 real, allocatable :: ug_area_factor(:) ! conversion factor from land area to vegetation area
+real :: atot ! global land area for normalization in conservation checks, m2
 
 ! diagnostic field IDs
 integer :: id_npp, id_nep, id_gpp, id_wood_prod, id_leaf_root_gr, id_sw_seed_gr
@@ -86,7 +87,6 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
   type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
   integer :: l ! grid cell index on unstructured gris
-  real, allocatable :: sg_soilfrac0(:,:) ! fraction of grid cell area occupied by soil, for
 
   call log_version(version, module_name, &
   __FILE__)
@@ -103,18 +103,18 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
           ug_area_factor(l) = ug_area_factor(l) + tile%frac
   enddo
   ! calculate soil fraction in a grid cell 
-  allocate (sg_soilfrac0(lnd%is:lnd%ie, lnd%js:lnd%je))
-  sg_soilfrac0 = 0.0
-  call mpp_pass_UG_to_SG(lnd%ug_domain,ug_area_factor*lnd%ug_landfrac,sg_soilfrac0)
   allocate (sg_soilfrac(lnd%isd:lnd%ied, lnd%jsd:lnd%jed))
   sg_soilfrac = 0.0
-  sg_soilfrac(lnd%is:lnd%ie, lnd%js:lnd%je) = sg_soilfrac0(:,:)
-  deallocate(sg_soilfrac0)
+  call mpp_pass_UG_to_SG(lnd%ug_domain,ug_area_factor*lnd%ug_landfrac,sg_soilfrac)
   call mpp_update_domains(sg_soilfrac,lnd%sg_domain)
   ! finish calculating conversion factor from land area to soil area
   where(ug_area_factor>0) &
         ug_area_factor = 1.0/ug_area_factor
-  
+
+  ! calculate total land area for normalization in global conservation checks
+  atot = sum(lnd%ug_area)
+  call mpp_sum(atot)
+
 
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('soil')
@@ -1295,7 +1295,7 @@ subroutine vegn_reproduction_ppa(do_seed_transport)
   integer :: i ! cohort iterator
   integer :: k1
 
-  real :: btot0, btot1, atot ! total carbon and land area, used for conservation check only
+  real :: btot0, btot1 ! total carbon, for conservation check only
 
   ! + conservation check part 1
   if (do_check_conservation) then
@@ -1370,14 +1370,12 @@ subroutine vegn_reproduction_ppa(do_seed_transport)
 
   ! + conservation check part 2
   if (do_check_conservation) then
-     btot1 = 0.0; atot = 0.0
+     btot1 = 0.0
      ce = first_elmt(land_tile_map,lnd%ls)
      do while (loop_over_tiles(ce,tile,l))
         btot1 = btot1 + land_tile_carbon(tile) * lnd%ug_area(l) * tile%frac
      end do
      call mpp_sum(btot1)
-     atot = sum(lnd%ug_area)
-     call mpp_sum(atot)
      if (mpp_pe()==mpp_root_pe()) then
         call check_conservation ('vegn_reproduction_ppa','total carbon', &
              btot0/atot, btot1/atot, carbon_cons_tol, severity=FATAL)
@@ -1396,21 +1394,17 @@ subroutine transport_seeds(bseed_ug)
   real :: bseed(lnd%isd:lnd%ied, lnd%jsd:lnd%jed) ! total amount of dispersed seeds per grid cell on structured grid, kg
   real :: tend (lnd%isd:lnd%ied, lnd%jsd:lnd%jed) ! seed mass tendency due to dispersion, kg
   integer :: i,j,ii,jj
-  real :: delta
-  real :: tmp (lnd%is:lnd%ie, lnd%js:lnd%je) ! seed mass tendency due to dispersion, kg
 
-  real, parameter :: stencil(-1:1,-1:1) = reshape([ & ! shape of the dispersal function
+  real :: btot0, btot1 ! total carbon, for conservation check only
+
+  real, parameter :: kernel(-1:1,-1:1) = reshape([ & ! shape of the dispersal function
       0.0,  0.25, 0.0,  &
       0.25, 0.0,  0.25, &
       0.0,  0.25, 0.0   ],[3,3] )
-  real :: btot0, btot1, atot
-  real :: ctot0, ctot1
 
   if(do_check_conservation) then
      btot0 = sum(bseed_ug*lnd%ug_area)
      call mpp_sum(btot0)
-     atot = sum(lnd%ug_area)
-     call mpp_sum(atot)
   endif
   ! move dispersed seeds to structured grid
   bseed = 0.0
@@ -1420,16 +1414,12 @@ subroutine transport_seeds(bseed_ug)
   ! update halo
   call mpp_update_domains(bseed,lnd%sg_domain)
 
-  ctot0 = sum(bseed(lnd%is:lnd%ie,lnd%js:lnd%je))
-  call mpp_sum(ctot0)
-
   tend = 0.0
   do j = lnd%js, lnd%je
   do i = lnd%is, lnd%ie
      do jj = -1,1
      do ii = -1,1
-         ! transport from grid cell i-ii, j-jj to i, j
-         tend(i,j) = tend(i,j) + bseed(i-ii,j-jj)*stencil(ii,jj)*sg_soilfrac(i,j)
+         tend(i,j) = tend(i,j) + bseed(i-ii,j-jj)*kernel(ii,jj)*sg_soilfrac(i,j)
      enddo
      enddo
   enddo
@@ -1438,7 +1428,7 @@ subroutine transport_seeds(bseed_ug)
   do i = lnd%is, lnd%ie
      do jj = -1,1
      do ii = -1,1
-         tend(i,j) = tend(i,j) - bseed(i,j)*stencil(ii,jj)*sg_soilfrac(i+ii,j+jj)
+         tend(i,j) = tend(i,j) - bseed(i,j)*kernel(ii,jj)*sg_soilfrac(i+ii,j+jj)
      enddo
      enddo
   enddo
@@ -1447,14 +1437,8 @@ subroutine transport_seeds(bseed_ug)
   ! because we only use them there.
   bseed(:,:) = bseed(:,:) + tend(:,:)
 
-  ctot1 = sum(bseed(lnd%is:lnd%ie,lnd%js:lnd%je))
-  call mpp_sum(ctot1)
-  call check_conservation ('transport_seeds','total carbon 1', &
-       ctot0/atot, ctot1/atot, carbon_cons_tol, severity=FATAL)
-
   ! move transported field to unstructured grid
-  tmp = bseed(lnd%is:lnd%ie,lnd%js:lnd%je)
-  call mpp_pass_SG_to_UG(lnd%ug_domain,tmp,bseed_ug)
+  call mpp_pass_SG_to_UG(lnd%ug_domain,bseed,bseed_ug)
   ! call mpp_pass_SG_to_UG(lnd%ug_domain,bseed(lnd%is:lnd%ie,lnd%js:lnd%je),bseed_ug)
   ! renormalize seed amount from total to kg C per unit land area
   bseed_ug(:) = bseed_ug(:)/lnd%ug_area(:)
