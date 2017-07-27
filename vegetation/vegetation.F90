@@ -63,7 +63,7 @@ use vegn_radiation_mod, only : vegn_radiation_init, vegn_radiation
 use vegn_photosynthesis_mod, only : vegn_photosynthesis_init, vegn_photosynthesis
 use static_vegn_mod, only : read_static_vegn_namelist, static_vegn_init, static_vegn_end, &
      read_static_vegn
-use vegn_dynamics_mod, only : vegn_dynamics_init, &
+use vegn_dynamics_mod, only : vegn_dynamics_init, vegn_dynamics_end, &
      vegn_carbon_int_lm3, vegn_carbon_int_ppa,    &
      vegn_phenology_lm3,  vegn_phenology_ppa,     &
      vegn_growth, vegn_starvation_ppa, vegn_biogeography, &
@@ -864,11 +864,9 @@ subroutine vegn_end ()
 
   module_is_initialized =.FALSE.
 
-  ! finalize harvesting
-  call vegn_harvesting_end ()
-
-  ! finalize static vegetation, if necessary
-  call static_vegn_end ()
+  call vegn_harvesting_end()
+  call static_vegn_end()
+  call vegn_dynamics_end()
 end subroutine vegn_end
 
 
