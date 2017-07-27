@@ -495,10 +495,12 @@ subroutine read_vegn_data_namelist()
   enddo
 
   ! register selectors for species-specific diagnostics
-  do i=0,nspecies-1
-     call register_tile_selector(spdata(i)%name, long_name=spdata(i)%longname,&
-          tag = SEL_VEGN, idata1 = SP_SEL_TAG, idata2 = i )
-  enddo
+!   if (.not.do_ppa) then
+!      do i=0,nspecies-1
+!         call register_tile_selector(spdata(i)%name, long_name=spdata(i)%longname,&
+!              tag = SEL_VEGN, idata1 = SP_SEL_TAG, idata2 = i )
+!      enddo
+!   endif
 
   ! register selector for natural grass
   call register_tile_selector('ntrlgrass', long_name='natural (non-human-maintained) grass',&

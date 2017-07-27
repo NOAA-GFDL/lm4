@@ -616,7 +616,7 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
 
   allocate(id_nindivs_sp(0:nspecies-1))
   do i = 0, nspecies-1
-     id_nindivs_sp(i) = register_cohort_diag_field( module_name, 'nindivs'//trim(spdata(i)%name), &
+     id_nindivs_sp(i) = register_cohort_diag_field( module_name, 'nindivs_'//trim(spdata(i)%name), &
          (/id_ug/), time, 'density of individuals', 'individuals/m2', missing_value=-1.0)
   enddo
 
