@@ -226,6 +226,14 @@ type spec_data_type
   real    :: maturalage    = 1.0    ! the age that can reproduce
   real    :: fecundity     = 0.0    ! max C allocated to next generation per unit canopy area, kg C/m2
   real    :: v_seed        = 0.1    ! fraction of G_SF to G_F
+  ! seed dispersal and transport: obviously the fraction of seed dispersed to other tiles
+  ! and grid cells would depend on the size of the tiles grid cells. In future, we should
+  ! calculate those fractions, given dispersal radius of seeds for given species, and
+  ! geometry of tiles and grid cells. Characteristic size of tiles may need to be assumed.
+  real    :: frac_seed_dispersed   = 1e-2 ! fraction of seeds dispersed inside the grid cell (between the tiles)
+  real    :: frac_seed_transported = 1e-4 ! fraction of seeds dispersed outside of grid cell (transported to neighbors)
+  ! total fraction of seeds leaving tile due to dispersion: frac_seed_dispersed+frac_seed_transported
+
   real    :: seedling_height   = 0.1 ! height of the seedlings, m
   real    :: seedling_nsc_frac = 3.0 ! initial seedling NSC, as fraction of bl_max (typically > 1)
   real    :: prob_g = 0.45, prob_e = 0.3 ! germination and establishment probabilities
@@ -489,10 +497,12 @@ subroutine read_vegn_data_namelist()
   enddo
 
   ! register selectors for species-specific diagnostics
-  do i=0,nspecies-1
-     call register_tile_selector(spdata(i)%name, long_name=spdata(i)%longname,&
-          tag = SEL_VEGN, idata1 = SP_SEL_TAG, idata2 = i )
-  enddo
+!   if (.not.do_ppa) then
+!      do i=0,nspecies-1
+!         call register_tile_selector(spdata(i)%name, long_name=spdata(i)%longname,&
+!              tag = SEL_VEGN, idata1 = SP_SEL_TAG, idata2 = i )
+!      enddo
+!   endif
 
   ! register selector for natural grass
   call register_tile_selector('ntrlgrass', long_name='natural (non-human-maintained) grass',&
@@ -689,6 +699,8 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(v_seed)
   __GET_SPDATA_REAL__(seedling_height)
   __GET_SPDATA_REAL__(seedling_nsc_frac)
+  __GET_SPDATA_REAL__(frac_seed_dispersed)
+  __GET_SPDATA_REAL__(frac_seed_transported)
   __GET_SPDATA_REAL__(prob_g)
   __GET_SPDATA_REAL__(prob_e)
   __GET_SPDATA_REAL__(mortrate_d_c)
@@ -888,6 +900,8 @@ subroutine print_species_data(unit)
   call add_row(table, 'thetaCSASW', spdata(:)%thetaCSASW)
   call add_row(table, 'maturalage', spdata(:)%maturalage)
   call add_row(table, 'v_seed', spdata(:)%v_seed)
+  call add_row(table, 'frac_seed_dispersed', spdata(:)%frac_seed_dispersed)
+  call add_row(table, 'frac_seed_transported', spdata(:)%frac_seed_transported)
   call add_row(table, 'seedling_height', spdata(:)%seedling_height)
   call add_row(table, 'seedling_nsc_frac', spdata(:)%seedling_nsc_frac)
   call add_row(table, 'prob_g', spdata(:)%prob_g)

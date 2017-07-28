@@ -7,15 +7,20 @@ module vegn_dynamics_mod
 
 use fms_mod, only: error_mesg, FATAL, WARNING
 use time_manager_mod, only: time_type
+use mpp_mod, only: mpp_sum, mpp_pe, mpp_root_pe
+use mpp_domains_mod, only : mpp_pass_UG_to_SG, mpp_pass_SG_to_UG, mpp_update_domains
 
 use constants_mod, only : PI,tfreeze
 use land_constants_mod, only : days_per_year, seconds_per_year, mol_C
-use land_data_mod, only : log_version
-use land_debug_mod, only : is_watch_point, check_var_range
+use land_data_mod, only : lnd,log_version
+use land_debug_mod, only : is_watch_point, check_var_range, check_conservation, &
+     do_check_conservation, carbon_cons_tol, set_current_point
+use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
+     first_elmt, loop_over_tiles, land_tile_carbon
 use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
-     register_cohort_diag_field, send_cohort_data, set_default_diag_filter, OP_SUM
-use vegn_data_mod, only : spdata, &
+     register_cohort_diag_field, send_cohort_data, set_default_diag_filter
+use vegn_data_mod, only : spdata, nspecies, &
      PHEN_DECIDUOUS, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, &
      fsc_liv, fsc_wood, fsc_froot, agf_bs, &
@@ -37,7 +42,7 @@ implicit none
 private
 
 ! ==== public interfaces =====================================================
-public :: vegn_dynamics_init
+public :: vegn_dynamics_init, vegn_dynamics_end
 
 public :: vegn_carbon_int_lm3   ! fast time-scale integrator of carbon balance
 public :: vegn_carbon_int_ppa   ! fast time-scale integrator of carbon balance
@@ -45,9 +50,9 @@ public :: vegn_growth           ! slow time-scale redistributor of accumulated c
 public :: vegn_phenology_lm3
 public :: vegn_phenology_ppa
 public :: vegn_biogeography
+public :: vegn_reproduction_ppa
 
 public :: vegn_starvation_ppa   !
-public :: vegn_reproduction_ppa ! reproduction for PPA case
 public :: kill_small_cohorts_ppa
 ! ==== end of public interfaces ==============================================
 
@@ -60,6 +65,10 @@ real, parameter :: GROWTH_RESP=0.333  ! fraction of NPP lost as growth respirati
 
 ! ==== module data ===========================================================
 real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 days)
+real, allocatable :: sg_soilfrac(:,:) ! fraction of grid cell area occupied by soil, for
+  ! normalization in seed transort
+real, allocatable :: ug_area_factor(:) ! conversion factor from land area to vegetation area
+real :: atot ! global land area for normalization in conservation checks, m2
 
 ! diagnostic field IDs
 integer :: id_npp, id_nep, id_gpp, id_wood_prod, id_leaf_root_gr, id_sw_seed_gr
@@ -75,11 +84,37 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
   type(time_type), intent(in) :: time       ! initial time for diagnostic fields
   real           , intent(in) :: delta_time ! fast time step, s
 
+  type(land_tile_enum_type) :: ce
+  type(land_tile_type), pointer :: tile
+  integer :: l ! grid cell index on unstructured gris
+
   call log_version(version, module_name, &
   __FILE__)
 
   ! set up global variables
   dt_fast_yr = delta_time/seconds_per_year
+
+  ! calculate fraction of the grid cell occupied by soil in ug_area_factor
+  allocate(ug_area_factor(lnd%ls:lnd%le))
+  ug_area_factor = 0.0
+  ce = first_elmt(land_tile_map,lnd%ls)
+  do while (loop_over_tiles(ce,tile,l))
+     if(associated(tile%vegn)) &
+          ug_area_factor(l) = ug_area_factor(l) + tile%frac
+  enddo
+  ! calculate soil fraction in a grid cell
+  allocate (sg_soilfrac(lnd%isd:lnd%ied, lnd%jsd:lnd%jed))
+  sg_soilfrac = 0.0
+  call mpp_pass_UG_to_SG(lnd%ug_domain,ug_area_factor*lnd%ug_landfrac,sg_soilfrac)
+  call mpp_update_domains(sg_soilfrac,lnd%sg_domain)
+  ! finish calculating conversion factor from land area to soil area
+  where(ug_area_factor>0) &
+        ug_area_factor = 1.0/ug_area_factor
+
+  ! calculate total land area for normalization in global conservation checks
+  atot = sum(lnd%ug_area)
+  call mpp_sum(atot)
+
 
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('soil')
@@ -130,6 +165,11 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
   id_exudate = register_cohort_diag_field ( diag_mod_name, 'exudate', (/id_ug/), &
        time, 'carbon root exudates', 'kg C/(m2 year)', missing_value=-100.0)
 end subroutine vegn_dynamics_init
+
+! ============================================================================
+subroutine vegn_dynamics_end()
+   deallocate(sg_soilfrac, ug_area_factor)
+end subroutine vegn_dynamics_end
 
 
 ! ============================================================================
@@ -1286,54 +1326,226 @@ function cohort_can_reproduce(cc); logical cohort_can_reproduce
   cohort_can_reproduce = (cc%layer == 1 .and. cc%age > spdata(cc%species)%maturalage)
 end function cohort_can_reproduce
 
-
 ! ============================================================================
-! the reproduction of each canopy cohort, yearly time step
-! calculate the new cohorts added in this step and states:
-! tree density, DBH, woody and living biomass
-subroutine vegn_reproduction_ppa (vegn,soil)
-  type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(inout) :: soil
+subroutine vegn_reproduction_ppa(do_seed_transport)
+  logical, intent(in) :: do_seed_transport
 
-! ---- local vars
-  type(vegn_cohort_type), pointer :: ccold(:)   ! pointer to old cohort array
-  real :: failed_seeds !, prob_g, prob_e
-  logical :: invasion = .FALSE.
-  integer :: newcohorts ! number of new cohorts to be created
-  integer :: i, k ! cohort indices
-  real :: litt(N_C_TYPES)
+  type(land_tile_enum_type) :: ce
+  type(land_tile_type), pointer :: tile
+  real :: ug_dispersed   (lnd%ls:lnd%le,0:nspecies-1)  ! dispersed seeds, kgC per m2 of land
+  real :: ug_transported (lnd%ls:lnd%le,0:nspecies-1)  ! dispersed seeds, kgC per m2 of land
+  real, allocatable :: bseed(:,:)
+  integer :: n ! total number of vegetated tiles in the domain
+  integer :: k ! vegetated tile index
+  integer :: l ! grid cell index in unstructured grid
+  integer :: s ! species iterator
+  integer :: i ! cohort iterator
+  integer :: k1
 
-!  write(*,*)'vegn_reproduction_ppa n_cohorts before: ', vegn%n_cohorts
+  real :: btot0, btot1 ! total carbon, for conservation check only
 
-! Check if reproduction happens
-  newcohorts = 0
-  do i = 1, vegn%n_cohorts
-     if (cohort_can_reproduce(vegn%cohorts(i))) newcohorts=newcohorts + 1
+  ! + conservation check part 1
+  if (do_check_conservation) then
+     btot0 = 0.0
+     ce = first_elmt(land_tile_map,lnd%ls)
+     do while (loop_over_tiles(ce,tile,l))
+        btot0 = btot0 + land_tile_carbon(tile) * lnd%ug_area(l) * tile%frac
+     end do
+     call mpp_sum(btot0)
+  end if
+  ! - conservation check part 1
+
+  ! count total number of vegetation tiles in our domain
+  n  = 0
+  ce = first_elmt(land_tile_map,lnd%ls)
+  do while (loop_over_tiles(ce,tile,l))
+     if(associated(tile%vegn)) n = n+1
+  end do
+
+  ! calculate amount of seeds (kgC per tile area, by species) for each of the vegetation tiles
+  allocate(bseed(n,0:nspecies-1))
+  bseed = 0.0
+  ce = first_elmt(land_tile_map, lnd%ls); k = 1
+  do while (loop_over_tiles(ce,tile,l))
+     if(.not.associated(tile%vegn)) cycle
+     do i = 1,tile%vegn%n_cohorts
+        associate(cc=>tile%vegn%cohorts(i))
+        if (cohort_can_reproduce(cc)) then
+           bseed(k,cc%species) = bseed(k,cc%species) + cc%bseed * cc%nindivs
+           cc%bseed = 0.0
+        endif
+        end associate
+     enddo
+     k = k+1
   enddo
 
+  ! calculate amount of dispersed seeds, by species, kgC per m2 of land
+  ug_dispersed = 0.0
+  ug_transported = 0.0
+  if (do_seed_transport) then
+     ce = first_elmt(land_tile_map, lnd%ls); k = 1
+     do while (loop_over_tiles(ce,tile,l)) ! l is the grid cell index in unstructured grid
+        if (.not.associated(tile%vegn)) cycle
+        do s = 0,nspecies-1
+           ug_dispersed(l,s)   = ug_dispersed(l,s)   + bseed(k,s)*spdata(s)%frac_seed_dispersed*tile%frac
+           ug_transported(l,s) = ug_transported(l,s) + bseed(k,s)*spdata(s)%frac_seed_transported*tile%frac
+           ! correct the amount of seeds remaining in each tile
+           bseed(k,s) = bseed(k,s)*(1-spdata(s)%frac_seed_dispersed-spdata(s)%frac_seed_transported)
+        enddo
+        k = k+1
+     enddo
+     ! diffuse the seeds
+     do s = 0,nspecies-1
+        call transport_seeds(ug_transported(:,s))
+     enddo
+  endif
+
+  ! distribute seeds (those that stay in place + dispersed) among tiles
+  ce = first_elmt(land_tile_map, lnd%ls); k = 1
+  do while (loop_over_tiles(ce,tile,l,k1))
+     call set_current_point(l,k1)
+     if (.not.associated(tile%vegn)) cycle
+     if (is_watch_point()) then
+        __DEBUG3__(l,k,k1)
+        __DEBUG1__(ug_dispersed(l,:))
+        __DEBUG1__(ug_transported(l,:))
+        __DEBUG1__(bseed(k,:))
+     endif
+     call add_seedlings_ppa(tile%vegn,tile%soil,(ug_dispersed(l,:)+ug_transported(l,:))*ug_area_factor(l)+bseed(k,:))
+     k = k+1
+  enddo
+
+  ! + conservation check part 2
+  if (do_check_conservation) then
+     btot1 = 0.0
+     ce = first_elmt(land_tile_map,lnd%ls)
+     do while (loop_over_tiles(ce,tile,l))
+        btot1 = btot1 + land_tile_carbon(tile) * lnd%ug_area(l) * tile%frac
+     end do
+     call mpp_sum(btot1)
+     if (mpp_pe()==mpp_root_pe()) then
+        call check_conservation ('vegn_reproduction_ppa','total carbon', &
+             btot0/atot, btot1/atot, carbon_cons_tol, severity=FATAL)
+     endif
+  end if
+  ! TODO: add nitrogen conservation check
+  ! - conservation check part 2
+end subroutine vegn_reproduction_ppa
+
+! =======================================================================================
+! Given the amount seeds undergoing transport (kg per m2 of land), on unstructured grid,
+! updates it to take into account transport among grid cells.
+subroutine transport_seeds(ug_bseed)
+  real, intent(inout) :: ug_bseed(lnd%ls:lnd%le) ! amount of transported seeds on unstructured
+       ! grid, kg per m2 of land
+
+  real :: sg_bseed(lnd%isd:lnd%ied, lnd%jsd:lnd%jed) ! total amount of dispersed seeds per grid cell on structured grid, kg
+  real :: tend    (lnd%isd:lnd%ied, lnd%jsd:lnd%jed) ! seed mass tendency due to dispersion, kg
+  integer :: i,j,ii,jj
+
+  real :: btot0, btot1 ! total carbon, for conservation check only
+
+  real, parameter :: kernel(-1:1,-1:1) = reshape([ & ! shape of the dispersal function
+      0.0,  0.25, 0.0,  &
+      0.25, 0.0,  0.25, &
+      0.0,  0.25, 0.0   ],[3,3] )
+
+  if(do_check_conservation) then
+     btot0 = sum(ug_bseed*lnd%ug_area)
+     call mpp_sum(btot0)
+  endif
+  ! move dispersed seeds to structured grid
+  sg_bseed = 0.0
+  call mpp_pass_UG_to_SG(lnd%ug_domain,ug_bseed*lnd%ug_area,sg_bseed)
+  ! NOTE that bseed is multiplied by area, so it is total per grid cell
+
+  ! update halo
+  call mpp_update_domains(sg_bseed,lnd%sg_domain)
+
+  tend = 0.0
+  do j = lnd%js, lnd%je
+  do i = lnd%is, lnd%ie
+     do jj = -1,1
+     do ii = -1,1
+         tend(i,j) = tend(i,j) + sg_bseed(i-ii,j-jj)*kernel(ii,jj)*sg_soilfrac(i,j)
+     enddo
+     enddo
+  enddo
+  enddo
+  do j = lnd%js, lnd%je
+  do i = lnd%is, lnd%ie
+     do jj = -1,1
+     do ii = -1,1
+         tend(i,j) = tend(i,j) - sg_bseed(i,j)*kernel(ii,jj)*sg_soilfrac(i+ii,j+jj)
+     enddo
+     enddo
+  enddo
+  enddo
+  ! tendency and updated seed amount are only valid within compute domain, but that's OK
+  ! because we only use them there.
+  sg_bseed = sg_bseed + tend
+
+  ! move transported field to unstructured grid
+  call mpp_pass_SG_to_UG(lnd%ug_domain,sg_bseed,ug_bseed)
+  ! renormalize seed amount from total to kg C per unit land area
+  ug_bseed(:) = ug_bseed(:)/lnd%ug_area(:)
+
+  if (do_check_conservation) then
+     btot1 = sum(ug_bseed*lnd%ug_area)
+     call mpp_sum(btot1)
+     if (mpp_pe()==mpp_root_pe()) then
+        call check_conservation ('transport_seeds','total carbon', &
+             btot0/atot, btot1/atot, carbon_cons_tol, severity=FATAL)
+     endif
+  end if
+end subroutine transport_seeds
+
+! ============================================================================
+! Given seed biomass for each species (kgC per m2 of tile), add a seedling cohort
+! for each species for which bseed is greater than zero.
+subroutine add_seedlings_ppa(vegn, soil, bseed)
+  type(vegn_tile_type), intent(inout) :: vegn
+  type(soil_tile_type), intent(inout) :: soil
+  real, intent(in) :: bseed(0:nspecies-1)
+
+  type(vegn_cohort_type), pointer :: ccold(:)   ! pointer to old cohort array
+  real    :: failed_seeds
+  real    :: litt(N_C_TYPES)
+  integer :: newcohorts ! number of new cohorts to be created
+  integer :: k ! seedling cohort index
+  integer :: i ! species index
+  real    :: Tv ! temperature assigned to seedlings
+
+  if(is_watch_point()) then
+     write(*,*)'##### add_seedlings_ppa input #####'
+     __DEBUG1__(bseed)
+  endif
+  call check_var_range(bseed,-carbon_cons_tol,HUGE(1.0),'add_seedlings_ppa','bseed', FATAL)
+
+  newcohorts = count(bseed>0)
   if (newcohorts == 0) return ! do nothing if no cohorts are ready for reproduction
 
-!  write(*,*) 'creating new cohorts: ', newcohorts
+  if (vegn%n_cohorts+newcohorts>size(vegn%cohorts)) then
+     ! increase the size of cohorts array
+     ccold => vegn%cohorts
+     allocate(vegn%cohorts(vegn%n_cohorts+newcohorts))
+     vegn%cohorts(1:vegn%n_cohorts) = ccold(1:vegn%n_cohorts)
+     deallocate (ccold)
+  endif
 
-  ccold => vegn%cohorts ! keep old cohort information
-  allocate(vegn%cohorts(vegn%n_cohorts+newcohorts))
-  vegn%cohorts(1:vegn%n_cohorts) = ccold(1:vegn%n_cohorts) ! copy old cohort information
-  deallocate (ccold)
+  ! use the temperature of the last (shortest) existing cohort for seedlings
+  Tv = vegn%cohorts(vegn%n_cohorts)%Tv
 
   litt(:) = 0.0
   ! set up new cohorts
   k = vegn%n_cohorts
-  do i = 1,vegn%n_cohorts
-    if (.not.cohort_can_reproduce(vegn%cohorts(i))) cycle ! nothing to do
+  do i = 0,nspecies-1
+    if (bseed(i)<=0) cycle ! no seeds for this species, nothing to do
 
     k = k+1 ! increment new cohort index
-
-    ! update child cohort parameters
-    associate (cc     => vegn%cohorts(k), &  ! F2003
-               parent => vegn%cohorts(i), &
-               sp     => spdata(vegn%cohorts(i)%species) )
-    ! copy all parent values into the new cohort then change some of them below
-    cc            = parent
+    ! set seedling cohort parameters
+    associate (cc => vegn%cohorts(k), sp=>spdata(i))
+    cc%species    = i
     cc%status     = LEAF_OFF
     cc%firstlayer = 0
     cc%age        = 0.0
@@ -1341,23 +1553,20 @@ subroutine vegn_reproduction_ppa (vegn,soil)
     call init_cohort_allometry_ppa(cc, sp%seedling_height, sp%seedling_nsc_frac)
 
     ! added germination probability (prob_g) and establishment probability ((prob_e), Weng 2014-01-06
-    cc%nindivs = parent%bseed*parent%nindivs * sp%prob_g * sp%prob_e   &
-                 /biomass_of_individual(cc)
+    cc%nindivs = bseed(i) * sp%prob_g * sp%prob_e/biomass_of_individual(cc)
 !    __DEBUG3__(cc%age, cc%layer, cc%nindivs)
 
-    failed_seeds = (1.-sp%prob_g*sp%prob_e) * parent%bseed * parent%nindivs
+    failed_seeds = (1.0-sp%prob_g*sp%prob_e) * bseed(i)
     vegn%litter = vegn%litter + failed_seeds
     litt(:) = litt(:) + (/fsc_liv,1-fsc_liv,0.0/)*failed_seeds
     vegn%veg_out = vegn%veg_out + failed_seeds
-
-    parent%bseed = 0.0
 
     ! we assume that the newborn cohort is dry; since nindivs of the parent
     ! doesn't change we don't need to do anything with its Wl and Ws to
     ! conserve water (since Wl and Ws are per individual)
     cc%Wl = 0 ; cc%Ws = 0
     ! TODO: make sure that energy is conserved in reproduction
-    cc%Tv = parent%Tv
+    cc%Tv = Tv
 
     end associate   ! F2003
   enddo
@@ -1365,15 +1574,18 @@ subroutine vegn_reproduction_ppa (vegn,soil)
 
   vegn%n_cohorts = k
   if(is_watch_point()) then
-     write(*,*)'##### vegn_reproduction_ppa #####'
+     write(*,*)'##### add_seedlings_ppa output #####'
      __DEBUG2__(newcohorts, vegn%n_cohorts)
-     __DEBUG1__(vegn%cohorts%nindivs)
-     __DEBUG1__(vegn%cohorts%Tv)
+     do k = vegn%n_cohorts-newcohorts+1, vegn%n_cohorts
+        write(*,'(a,i2.2)',advance='NO') 'cohort=', k
+        call dpri(' nindivs=', vegn%cohorts(k)%nindivs)
+        call dpri(' species=', vegn%cohorts(k)%species)
+        call dpri(' Tv=',      vegn%cohorts(k)%Tv)
+        write(*,*)
+     enddo
   endif
-!  write(*,*)'vegn_reproduction_ppa n_cohorts after: ', vegn%n_cohorts
 
-end subroutine vegn_reproduction_ppa
-
+end subroutine add_seedlings_ppa
 
 ! ============================================================================
 subroutine kill_small_cohorts_ppa(vegn,soil)

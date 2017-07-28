@@ -11,6 +11,7 @@ use fms_mod, only: open_namelist_file
 use fms_mod, only: error_mesg, NOTE, WARNING, FATAL, file_exist, &
                    close_file, check_nml_error, stdlog, string
 use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe
+
 use time_manager_mod, only: time_type, time_type_to_real, get_date, operator(-)
 use field_manager_mod, only: fm_field_name_len
 use constants_mod,    only: tfreeze, rdgas, rvgas, hlv, hlf, cp_air, PI
@@ -62,7 +63,7 @@ use vegn_radiation_mod, only : vegn_radiation_init, vegn_radiation
 use vegn_photosynthesis_mod, only : vegn_photosynthesis_init, vegn_photosynthesis
 use static_vegn_mod, only : read_static_vegn_namelist, static_vegn_init, static_vegn_end, &
      read_static_vegn
-use vegn_dynamics_mod, only : vegn_dynamics_init, &
+use vegn_dynamics_mod, only : vegn_dynamics_init, vegn_dynamics_end, &
      vegn_carbon_int_lm3, vegn_carbon_int_ppa,    &
      vegn_phenology_lm3,  vegn_phenology_ppa,     &
      vegn_growth, vegn_starvation_ppa, vegn_biogeography, &
@@ -214,6 +215,7 @@ integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_soil_water_supply, id_gdd, id_tc_pheno, id_zstar_1, &
    id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi, &
    id_brsw
+integer, allocatable :: id_nindivs_sp(:)
 ! ==== end of module variables ===============================================
 
 contains
@@ -611,6 +613,13 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        (/id_ug/), time, 'number of cohorts', 'unitless', missing_value=-1.0)
   id_nindivs = register_cohort_diag_field( module_name, 'nindivs', &
        (/id_ug/), time, 'density of individuals', 'individuals/m2', missing_value=-1.0)
+
+  allocate(id_nindivs_sp(0:nspecies-1))
+  do i = 0, nspecies-1
+     id_nindivs_sp(i) = register_cohort_diag_field( module_name, 'nindivs_'//trim(spdata(i)%name), &
+         (/id_ug/), time, 'density of individuals', 'individuals/m2', missing_value=-1.0)
+  enddo
+
   id_nlayers = register_tiled_diag_field( module_name, 'nlayers', &
        (/id_ug/), time, 'number of canopy layers', 'unitless', missing_value=-1.0 )
   id_dbh = register_cohort_diag_field( module_name, 'dbh', &
@@ -857,11 +866,9 @@ subroutine vegn_end ()
 
   module_is_initialized =.FALSE.
 
-  ! finalize harvesting
-  call vegn_harvesting_end ()
-
-  ! finalize static vegetation, if necessary
-  call static_vegn_end ()
+  call vegn_harvesting_end()
+  call static_vegn_end()
+  call vegn_dynamics_end()
 end subroutine vegn_end
 
 
@@ -1842,6 +1849,7 @@ subroutine update_vegn_slow( )
   real    :: zstar ! critical depth, for diag only
   character(64) :: str
   real, allocatable :: btot(:) ! storage for total biomass
+  real, allocatable :: spmask(:) ! mask for by-species nindivs output
   real :: dheat
 
   ! variables for conservation checks
@@ -1985,26 +1993,7 @@ subroutine update_vegn_slow( )
      if (year1 /= year0 .and. do_patch_disturbance) then
         call vegn_disturbance(tile%vegn, tile%soil, seconds_per_year)
      endif
-
      call check_conservation_2(tile,'update_vegn_slow 7',lmass0,fmass0,cmass0)
-
-     if (do_ppa.and.year1 /= year0) then
-        call vegn_reproduction_ppa(tile%vegn, tile%soil)
-        call check_conservation_2(tile,'update_vegn_slow 7.1',lmass0,fmass0,cmass0)
-        call vegn_relayer_cohorts_ppa(tile%vegn)
-        call check_conservation_2(tile,'update_vegn_slow 7.2',lmass0,fmass0,cmass0)
-        call vegn_mergecohorts_ppa(tile%vegn, dheat)
-        call check_conservation_2(tile,'update_vegn_slow 7.3',lmass0,fmass0,cmass0)
-        call kill_small_cohorts_ppa(tile%vegn,tile%soil)
-
-        ! update DBH_ys
-        do ii = 1, tile%vegn%n_cohorts
-           tile%vegn%cohorts(ii)%DBH_ys = tile%vegn%cohorts(ii)%dbh
-           tile%vegn%cohorts(ii)%BM_ys  = tile%vegn%cohorts(ii)%bsw + &
-                                          tile%vegn%cohorts(ii)%bwood
-        enddo
-     endif
-     call check_conservation_2(tile,'update_vegn_slow 8',lmass0,fmass0,cmass0)
 
      if (year1 /= year0) then
         call vegn_harvesting(tile%vegn)
@@ -2054,6 +2043,22 @@ subroutine update_vegn_slow( )
         ! - end of conservation check, part 2
      endif
 
+     ! perhaps we need to move that either inside vegn_reproduction_ppa, or after that
+     if (do_ppa.and.year1 /= year0) then
+        call vegn_relayer_cohorts_ppa(tile%vegn)
+        call check_conservation_2(tile,'update_vegn_slow 7.2',lmass0,fmass0,cmass0)
+        call vegn_mergecohorts_ppa(tile%vegn, dheat)
+        call check_conservation_2(tile,'update_vegn_slow 7.3',lmass0,fmass0,cmass0)
+        call kill_small_cohorts_ppa(tile%vegn,tile%soil)
+        call check_conservation_2(tile,'update_vegn_slow 8',lmass0,fmass0,cmass0)
+        ! update DBH_ys
+        do ii = 1, tile%vegn%n_cohorts
+           tile%vegn%cohorts(ii)%DBH_ys = tile%vegn%cohorts(ii)%dbh
+           tile%vegn%cohorts(ii)%BM_ys  = tile%vegn%cohorts(ii)%bsw + &
+                                          tile%vegn%cohorts(ii)%bwood
+        enddo
+     endif
+
      ! ---- diagnostic section
      call send_tile_data(id_t_ann,   tile%vegn%t_ann,   tile%diag)
      call send_tile_data(id_t_cold,  tile%vegn%t_cold,  tile%diag)
@@ -2077,6 +2082,17 @@ subroutine update_vegn_slow( )
      N=tile%vegn%n_cohorts ; cc=>tile%vegn%cohorts
      call send_cohort_data(id_ncohorts, tile%diag, cc(1:N), (/(1.0,i=1,N)/), op=OP_SUM)
      call send_cohort_data(id_nindivs,  tile%diag, cc(1:N), cc(1:N)%nindivs, op=OP_SUM)
+     if (any(id_nindivs_sp(:)>0)) then
+        allocate(spmask(N))
+        do i = 0, nspecies-1
+           if (id_nindivs_sp(i)>0) then
+              spmask = 0.0; where (cc(1:N)%species == i) spmask(:) = 1.0
+              call send_cohort_data(id_nindivs_sp(i),  tile%diag, cc(1:N), cc(1:N)%nindivs, weight=spmask(:), op=OP_SUM)
+           endif
+        enddo
+        deallocate(spmask)
+     endif
+
      call send_tile_data(id_nlayers,  real(cc(N)%layer),    tile%diag)
 
      call send_cohort_data(id_bl,     tile%diag, cc(1:N), cc(1:N)%bl,     weight=cc(1:N)%nindivs, op=OP_SUM)
@@ -2158,15 +2174,17 @@ subroutine update_vegn_slow( )
      endif
 
      ! zstar diagnostics
-     do ii = 1, tile%vegn%n_cohorts
-        if ( tile%vegn%cohorts(ii)%layer > 1 ) exit
-     enddo
-     if (ii > tile%vegn%n_cohorts) then
-        zstar = 0.0
-     else
-        zstar = tile%vegn%cohorts(ii)%height
+     if (id_zstar_1 > 0) then
+        do ii = 1, tile%vegn%n_cohorts
+           if ( tile%vegn%cohorts(ii)%layer > 1 ) exit
+        enddo
+        if (ii > tile%vegn%n_cohorts) then
+           zstar = 0.0
+        else
+           zstar = tile%vegn%cohorts(ii)%height
+        endif
+        call send_tile_data(id_zstar_1, zstar, tile%diag)
      endif
-     call send_tile_data(id_zstar_1, zstar, tile%diag)
 
      if(soil_carbon_option==SOILC_CORPSE) then
         !Knock soil carbon cohorts down to their maximum number
@@ -2179,9 +2197,13 @@ subroutine update_vegn_slow( )
      endif
   enddo
 
-  ! seed transport
-  if (year1 /= year0 .and. do_seed_transport) then
-     call vegn_seed_transport()
+  if (do_ppa.and.year1 /= year0) then
+    if (do_ppa) then
+       call vegn_reproduction_ppa(do_seed_transport) ! includes seed transport.
+    else
+       ! seed transport in lm3
+       call vegn_seed_transport_lm3()
+    endif
   endif
 
   ! override with static vegetation
@@ -2189,6 +2211,7 @@ subroutine update_vegn_slow( )
        call  read_static_vegn(lnd%time)
 
 end subroutine update_vegn_slow
+
 
 
 ! ============================================================================
@@ -2218,7 +2241,7 @@ subroutine check_conservation_2(tile,tag,lmass,fmass,cmass,heat)
 end subroutine check_conservation_2
 
 ! ============================================================================
-subroutine vegn_seed_transport()
+subroutine vegn_seed_transport_lm3()
 
   ! local vars
   type(land_tile_enum_type) :: ce
@@ -2262,7 +2285,7 @@ subroutine vegn_seed_transport()
      call vegn_add_bliving(tile%vegn, &
           f_demand*vegn_seed_demand(tile%vegn)-f_supply*vegn_seed_supply(tile%vegn))
   enddo
-end subroutine vegn_seed_transport
+end subroutine vegn_seed_transport_lm3
 
 
 ! ============================================================================
