@@ -246,6 +246,9 @@ type spec_data_type
   real    :: phiCSA        = 2.5e-4 ! ratio of sapwood CSA to target leaf area
   real    :: SRA           = 44.45982 ! specific fine root area, m2/kg C
   real    :: tauNSC        = 0.8    ! residence time of C in NSC (to define storage capacity)
+  !  for PPA, IMC, 1/8/2017
+  real    :: growth_resp   = 0.333  ! fraction of NPP lost as growth respiration
+  real    :: NSC2targetbl  = 4.0    !ratio of NSC to target biomass of leaves
 
   real    :: tracer_cuticular_cond = 0.0 ! cuticular conductance for all tracers, m/s
 
@@ -711,6 +714,9 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(tauNSC)
   __GET_SPDATA_REAL__(phiRL)
   __GET_SPDATA_REAL__(phiCSA)
+  !  for PPA, IMC, 1/8/2017
+  __GET_SPDATA_REAL__(growth_resp)
+  __GET_SPDATA_REAL__(NSC2targetbl)
   ! hydraulics-related parameters
   __GET_SPDATA_REAL__(Kxam)
   __GET_SPDATA_REAL__(dx)
@@ -915,6 +921,8 @@ subroutine print_species_data(unit)
   call add_row(table, 'tauNSC', spdata(:)%tauNSC)
   call add_row(table, 'phiRL', spdata(:)%phiRL)
   call add_row(table, 'SRA', spdata(:)%SRA)
+  call add_row(table, 'growth_resp', spdata(:)%growth_resp)
+  call add_row(table, 'NSC2targetbl', spdata(:)%NSC2targetbl)
 
   call add_row(table, 'Klam', spdata(:)%Klam)
   call add_row(table, 'dl', spdata(:)%dl)

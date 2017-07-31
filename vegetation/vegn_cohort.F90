@@ -94,6 +94,8 @@ type :: vegn_cohort_type
   real    :: bl_max       = 0.0 ! Max. leaf biomass, kg C/individual
   real    :: br_max       = 0.0 ! Max. fine root biomass, kg C/individual
   real    :: topyear      = 0.0 ! the years that a plant in top layer
+  ! isa 20170707 - required to decompose stem of grasses
+  real    :: bsw_max      = 0.0 ! Max. sapwood biomass, kg C/individual
 
   ! TODO: figure out how to do starvation mortality without hard-coded assumption
   !       of the mortality call time step
@@ -590,7 +592,6 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac)
      bw = sp%rho_wood * sp%alphaBM * cc%dbh**sp%thetaBM
      Dwood = sqrt(max(0.0,cc%dbh**2 - 4/pi*sp%alphaCSASW * cc%dbh**sp%thetaCSASW))
      cc%bwood = sp%rho_wood * sp%alphaBM * cc%dbh**sp%thetaBM
-     cc%bsw   = bw - cc%bwood
   case (ALLOM_HML)
      cc%dbh = (sp%gammaHT/(sp%alphaHT/height - 1))**(1.0/sp%thetaHT)
      bw = sp%rho_wood * sp%alphaBM * cc%dbh**2 * cc%height
@@ -599,8 +600,11 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac)
      Dwood = sqrt(max(0.0,cc%dbh**2 - 4/pi* sp%phiCSA * &
                   cc%DBH**(sp%thetaCA + sp%thetaHT) / (sp%gammaHT + cc%DBH** sp%thetaHT)))
      cc%bwood = sp%rho_wood * sp%alphaBM * Dwood**2 * cc%height
-     cc%bsw   = bw - cc%bwood
   end select
+  if (sp%lifeform == FORM_GRASS) then ! isa 20170705 - grasses don't form heartwood
+     cc%bwood = 0.0
+  endif
+  cc%bsw   = bw - cc%bwood
 
   ! update derived quantyties based on the allometry
   cc%crownarea = sp%alphaCA * cc%dbh**sp%thetaCA
@@ -613,8 +617,10 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac)
 
   if(sp%lifeform == FORM_GRASS) then
      cc%bl_max = BL_c
+     cc%bsw_max = sp%rho_wood * sp%alphaBM * cc%height * cc%dbh**2
   else
      cc%bl_max = BL_u + min(cc%topyear/5.0,1.0)*(BL_c - BL_u)
+     cc%bsw_max = 0.0
   endif
   cc%br_max  = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
   cc%nsc     = nsc_frac * cc%bl_max
@@ -659,6 +665,10 @@ subroutine init_cohort_hydraulics(cc, init_psi)
   case (ALLOM_HML)
      stemarea = sp%phiCSA * cc%DBH**(sp%thetaCA + sp%thetaHT) / (sp%gammaHT + cc%DBH** sp%thetaHT)
   end select
+  ! isa 20170715
+  if(sp%lifeform == FORM_GRASS) then
+    stemarea = PI * cc%DBH * cc%DBH / 4.0 ! trunk cross-sectional area
+  endif
 
   cc%Kxa = sp%Kxam
   cc%Kla = sp%Klam
@@ -686,6 +696,9 @@ function cohorts_can_be_merged(c1,c2); logical cohorts_can_be_merged
    sameLayer   = (c1%layer == c2%layer) .and. (c1%firstlayer == c2%firstlayer)
    sameSize    = (abs(c1%DBH - c2%DBH)/c2%DBH < 0.15 ) .or.  &
                  (abs(c1%DBH - c2%DBH)        < 0.003)
+   if (spdata(c1%species)%lifeform == FORM_GRASS) then
+      sameSize = sameSize .and. (abs(c1%nsc - c2%nsc)/c2%nsc < 0.15 )
+   endif
    lowDensity  = .FALSE. ! c1%nindivs < mindensity
                          ! Weng, 2014-01-27, turned off
 

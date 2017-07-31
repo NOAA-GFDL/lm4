@@ -589,12 +589,16 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
      ! calculate stem flow and its derivatives
      ! isa and es 201701 - CSAsw different for ALLOM_HML
      select case(sp%allomt)
-       case (ALLOM_EW,ALLOM_EW1)
-         CSAsw  = sp%alphaCSASW * cc%DBH**sp%thetaCSASW ! cross-section area of sapwood
-       case (ALLOM_HML)
-         CSAsw = sp%phiCSA * cc%DBH**(sp%thetaCA + sp%thetaHT) / (sp%gammaHT + cc%DBH** sp%thetaHT)
+     case (ALLOM_EW,ALLOM_EW1)
+        CSAsw  = sp%alphaCSASW * cc%DBH**sp%thetaCSASW ! cross-section area of sapwood
+     case (ALLOM_HML)
+        CSAsw = sp%phiCSA * cc%DBH**(sp%thetaCA + sp%thetaHT) / (sp%gammaHT + cc%DBH** sp%thetaHT)
      end select
-     
+     ! isa 20170705 - grasses don't form heartwood
+     if (sp%lifeform == FORM_GRASS) then
+        CSAsw = PI * cc%DBH * cc%DBH / 4.0 ! trunk cross-sectional area = sapwood area
+     endif
+
      cc%Kxi    =  sp%Kxam / cc%height * CSAsw
      ux0    = -cc%Kxi*sp%dx/sp%cx*gamma(1/sp%cx)*( &
                      gammaU((   psi_r/sp%dx)**sp%cx, 1/sp%cx) - &

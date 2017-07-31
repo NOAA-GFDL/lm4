@@ -61,8 +61,6 @@ character(len=*), parameter :: module_name = 'vegn_dynamics_mod'
 #include "../shared/version_variable.inc"
 character(len=*), parameter :: diag_mod_name = 'vegn'
 
-real, parameter :: GROWTH_RESP=0.333  ! fraction of NPP lost as growth respiration
-
 ! ==== module data ===========================================================
 real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 days)
 real, allocatable :: sg_soilfrac(:,:) ! fraction of grid cell area occupied by soil, for
@@ -220,9 +218,9 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
      npp(i) = gpp(i) - resp(i)
 
      if(cc%npp_previous_day > 0) then
-        resg(i) = GROWTH_RESP*cc%npp_previous_day
-        npp(i)  = npp(i)  - GROWTH_RESP*cc%npp_previous_day
-        resp(i) = resp(i) + GROWTH_RESP*cc%npp_previous_day
+        resg(i) = spdata(sp)%GROWTH_RESP*cc%npp_previous_day
+        npp(i)  = npp(i)  - spdata(sp)%GROWTH_RESP*cc%npp_previous_day
+        resp(i) = resp(i) + spdata(sp)%GROWTH_RESP*cc%npp_previous_day
      else
         resg(i) = 0
      endif
@@ -692,7 +690,6 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
   real :: CSAsw  ! Sapwood cross sectional area, m2
   real :: CSAwd  ! Heartwood cross sectional area, m2
   real :: DBHwd  ! diameter of heartwood at breast height, m
-  real :: BSWmax ! max sapwood biomass, kg C/individual
   real :: G_LFR  ! amount of carbon spent on leaf and root growth
   real :: G_WF   ! amount of carbon spent on new sapwood growth and seeds
   real :: deltaSeed
@@ -720,6 +717,8 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
 !  real ::   b_ca = 1.18162        ! thetaCA
 !  real ::   alpha_s = 0.559       ! alphaBM
 
+  real, parameter  :: G_AGBmax = 0.125 ! maximum growth rate of above ground biomass in grasses, day^-1
+  real  :: nsctmp ! temporal nsc budget to avoid biomass loss, KgC/individual
 
   associate (sp => spdata(cc%species)) ! F2003
 
@@ -731,7 +730,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
   if (cc%status == LEAF_ON) then
      ! calculate the carbon spent on growth of leaves and roots
      G_LFR    = max(0.0, min(cc%bl_max+cc%br_max-cc%bl-cc%br,  &
-                            0.1*cc%nsc/(1+GROWTH_RESP))) ! don't allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
+                            0.1*cc%nsc/(1+sp%GROWTH_RESP))) ! don't allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
 
      ! and distribute it between roots and leaves
      deltaBL  = min(G_LFR, max(0.0, &
@@ -768,7 +767,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      case (ALLOM_HML)
         delta_bsw_branch = sp%branch_wood_frac * sp%alphaBM * sp%rho_wood * cc%DBH**2 * cc%height - cc%brsw
      end select
-     delta_bsw_branch = max(min(delta_bsw_branch,0.1*cc%nsc/(1+GROWTH_RESP)),0.0)
+     delta_bsw_branch = max(min(delta_bsw_branch,0.1*cc%nsc/(1+sp%GROWTH_RESP)),0.0)
      cc%brsw = cc%brsw+delta_bsw_branch
      cc%bsw = cc%bsw+delta_bsw_branch
 
@@ -780,7 +779,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      NSCtarget = 4.0*cc%bl_max
      G_WF=0.0
      if (NSCtarget < cc%nsc) then ! ens change this
-        G_WF = max (0.0, fsf*(cc%nsc - NSCtarget)/(1+GROWTH_RESP))
+        G_WF = max (0.0, fsf*(cc%nsc - NSCtarget)/(1+sp%GROWTH_RESP))
      endif
      ! change maturity threashold to a diameter threash-hold
      if (cc%layer == 1 .AND. cc%age > sp%maturalage) then
@@ -792,23 +791,65 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         deltaSeed= 0.0
         deltaBSW = G_WF
      endif
+
+     if (sp%lifeform == FORM_GRASS) then ! isa 20170705
+        ! 20170724 - new scheme
+        nsctmp = cc%nsc
+        NSCtarget = sp%NSC2targetbl*cc%bl_max !NSCtarget = 4.0*cc%bl_max
+        G_WF=0.0
+        if (nsctmp - NSCtarget > G_AGBmax * cc%bsw) then
+          G_WF = G_AGBmax * cc%bsw
+          ! avoid devoting growth to fecundity during this phase
+          deltaSeed = 0.0
+          deltaBSW = G_WF
+        else
+          if (NSCtarget < nsctmp) then
+            G_WF = max (0.0, fsf*(nsctmp - NSCtarget)/(1+sp%GROWTH_RESP))
+          endif
+          if (cc%layer == 1 .AND. cc%age > sp%maturalage) then
+            ! deltaSeed=      sp%v_seed * (cc%carbon_gain - G_LFR)
+            ! deltaBSW = (1.0-sp%v_seed)* (cc%carbon_gain - G_LFR)
+            deltaSeed=      sp%v_seed * G_WF
+            deltaBSW = (1.0-sp%v_seed)* G_WF
+          else
+            deltaSeed= 0.0
+            deltaBSW = G_WF
+          endif
+        endif
+        nsctmp = nsctmp - G_WF * (1+sp%GROWTH_RESP)
+
+        ! Allocation to leaves and fine root growth
+        G_LFR    = max(0.0, min( cc%bl_max - cc%bl + max( 0.0, cc%br_max - cc%br ),  &
+                                  0.1*nsctmp/(1+sp%GROWTH_RESP)))
+        ! don't allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
+
+        if ( cc%br > cc%br_max ) then      ! roots larger than target
+            deltaBL = G_LFR
+        else                               ! standard scheme
+            deltaBL  = min(G_LFR, max(0.0, &
+                          (G_LFR*cc%bl_max + cc%bl_max*cc%br - cc%br_max*cc%bl)/(cc%bl_max + cc%br_max) ))
+        end if
+        deltaBR  = G_LFR - deltaBL
+        nsctmp = nsctmp - G_LFR * (1+sp%GROWTH_RESP)
+     endif
+
      ! update biomass pools due to growth
      cc%bl     = cc%bl    + deltaBL  ! updated in vegn_int_ppa
      cc%br     = cc%br    + deltaBR
      cc%bsw    = cc%bsw   + deltaBSW
      cc%bseed  = cc%bseed + deltaSeed
      ! reduce storage by  growth respiration
-     cc%nsc = cc%nsc - (G_LFR + G_WF+delta_bsw_branch )*(1.+GROWTH_RESP)
+     cc%nsc = cc%nsc - (G_LFR + G_WF+delta_bsw_branch )*(1+sp%GROWTH_RESP)
 
      wood_prod = deltaBSW*days_per_year ! conversion from kgC/day to kgC/year
      ! compute daily respiration fluxes
      leaf_root_gr = G_LFR*days_per_year ! conversion from kgC/day to kgC/year
-     sw_seed_gr = (G_WF+delta_bsw_branch )*GROWTH_RESP*days_per_year ! conversion from kgC/day to kgC/year
+     sw_seed_gr = (G_WF+delta_bsw_branch )*sp%GROWTH_RESP*days_per_year ! conversion from kgC/day to kgC/year
 
      call check_var_range(cc%nsc,0.0,HUGE(1.0),'biomass_allocation_ppa','cc%nsc', WARNING)
 
      !ens --compute daily growth to compute respiration, apply it next day, use npp_previous day variable, units kg C/(m2 *year)
-     cc%growth_previous_day = cc%growth_previous_day+(max(0., G_LFR+G_WF)+delta_bsw_branch)*GROWTH_RESP ! this is for growth respiration to come from nsc
+     cc%growth_previous_day = cc%growth_previous_day+(max(0., G_LFR+G_WF)+delta_bsw_branch)*sp%GROWTH_RESP ! this is for growth respiration to come from nsc
 
      select case (sp%allomt)
      case (ALLOM_EW, ALLOM_EW1)
@@ -854,14 +895,19 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         CSAwd    = max(0.0, CSAtot - CSAsw) ! cross-section of heartwood
         DBHwd    = 2*sqrt(CSAwd/PI) ! DBH of heartwood
         ! before only BSWmax, 4 lines above from Isa
-        BSWmax = sp%alphaBM * sp%rho_wood * (cc%DBH**sp%thetaBM - DBHwd**sp%thetaBM)
+        cc%bsw_max = sp%alphaBM * sp%rho_wood * (cc%DBH**sp%thetaBM - DBHwd**sp%thetaBM)
      case (ALLOM_HML)
         CSAsw    = sp%phiCSA * cc%DBH**(sp%thetaCA + sp%thetaHT) / (sp%gammaHT + cc%DBH** sp%thetaHT)
         CSAtot   = PI * (cc%DBH/2.0)**2 ! total trunk cross-section
         CSAwd    = max(0.0, CSAtot - CSAsw) ! cross-section of heartwood
         DBHwd    = 2*sqrt(CSAwd/PI) ! DBH of heartwood
-        BSWmax = sp%alphaBM * sp%rho_wood * cc%height * (cc%DBH**2 - DBHwd**2)
+        cc%bsw_max = sp%alphaBM * sp%rho_wood * cc%height * (cc%DBH**2 - DBHwd**2)
      end select
+     ! isa 20170705 - grasses don't form heartwood
+     if (sp%lifeform == FORM_GRASS) then
+       cc%bsw_max = cc%bsw
+       CSAsw = PI * cc%DBH * cc%DBH / 4.0 ! trunk cross-sectional area = sapwood area
+     endif
 
      ! Update Kxa, stem conductance if we are tracking past damage
      ! TODO: make hydraulics_repair a namelist parameter?
@@ -874,6 +920,10 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         case (ALLOM_HML)
            deltaCSAsw = CSAsw - (sp%phiCSA * (cc%DBH - deltaDBH)**( sp%thetaCA + sp%thetaHT) / (sp%gammaHT + (cc%DBH - deltaDBH)** sp%thetaHT) )
         end select
+       ! isa 20170705 - grasses don't form heartwood
+       if (sp%lifeform == FORM_GRASS) then
+         deltaCSAsw = CSAsw - (PI * (cc%DBH - deltaDBH) * (cc%DBH - deltaDBH) / 4.0 )
+       endif
         cc%Kxa = (cc%Kxa*CSAsw + sp%Kxam*deltaCSAsw)/(CSAsw + deltaCSAsw)
      endif
 
@@ -885,7 +935,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      !              shouldn't it also happen in leaf-off season?
 !     deltaBwood = max(cc%bsw - cc%brsw - (1.0 - ( cc%brsw / cc%bsw ) )*BSWmax, 0.0)
      if (cc%bsw>0) then
-        deltaBwood = cc%bsw - cc%brsw - (1.0 - ( cc%brsw / cc%bsw ) )*BSWmax
+        deltaBwood = cc%bsw - cc%brsw - (1.0 - ( cc%brsw / cc%bsw ) )*cc%bsw_max
         ! perhaps it should be min(deltaBwood, cc%bsw-cc%brsw) ?
         deltaBwood = min(deltaBwood, cc%bsw) ! cannot retire more sapwood than we have
         deltaBwood = max(deltaBwood, 0.0)    ! conversion of wood to sapwood is prohibited
@@ -1139,10 +1189,22 @@ subroutine vegn_phenology_ppa(vegn, soil)
   real    :: leaf_litter, leaf_litt(N_C_TYPES)
   real    :: leaf_fall, leaf_fall_rate ! per day
   real    :: root_mortality, root_mort_rate
+  real    :: stem_mortality, stem_mort_rate ! isa 20170705
   real    :: BL_u,BL_c
+
+  ! isa 20170709 - note that in biomass_allocation_ppa deltaDBH is an output to
+  ! subroutine vegn_growth, where it is saved ...
+  !real, intent(out) :: deltaDBH ! tendency of breast height diameter, m
+  real :: deltaDBH ! tendency of breast height diameter, m
+  real :: deltaCA ! tendency of crown area, m2/individual
+  real :: deltaHeight ! tendency of vegetation height
+  real, parameter :: DBHtp = 0.8 ! m
+  integer :: k
 
   leaf_fall_rate = 0.075
   root_mort_rate = 0.0
+  ! isa 20170705
+  stem_mort_rate = 0.075
 
   vegn%litter = 0; leaf_litt(:) = 0.0
   do i = 1,vegn%n_cohorts
@@ -1157,24 +1219,46 @@ subroutine vegn_phenology_ppa(vegn, soil)
 !    onset of phenology
      if(cc%status==LEAF_OFF .and. cc%gdd>sp%gdd_crit .and. vegn%tc_pheno>sp%tc_crit ) then
         cc%status = LEAF_ON
+        ! isa 201707215 - update target biomass at the satart of the growing season
+        !                 for grasses to avoid using previous year targets
+        if (sp%lifeform == FORM_GRASS) then
+          cc%bl_max = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
+          cc%br_max = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
+        endif
      else if ( cc%status == LEAF_ON .and. vegn%tc_pheno < sp%tc_crit ) then
         cc%status = LEAF_OFF
         cc%gdd = 0.0
      endif
 
-!    leaf falling at the end of a growing season
-     if(cc%status == LEAF_OFF .AND. cc%bl > 0.)then
+     ! leaf falling at the end of a growing season
+     if(cc%status == LEAF_OFF .AND. ( cc%bl > 0. .or. ( sp%lifeform == FORM_GRASS .and. ( cc%bl > 0 .or. cc%bsw > 0. ) ) ) ) then
          leaf_fall = min(leaf_fall_rate * cc%bl_max, cc%bl)
          root_mortality = min( root_mort_rate* cc%br_max, cc%br)
-         cc%nsc = cc%nsc + l_fract * (leaf_fall+ root_mortality)
+         ! isa 20170705
+         stem_mortality = 0.0
+         if (sp%lifeform == FORM_GRASS) then
+            stem_mortality = min(stem_mort_rate * cc%bsw_max, &
+                   cc%bsw - sp%rho_wood * sp%alphaBM * ((sp%gammaHT/(sp%alphaHT/sp%seedling_height - 1.0))**(1.0/sp%thetaHT))**2 * sp%seedling_height)
+
+            ! ToDo - it is necessary to implement anonline adjustment of dbh, height and crown area as the plant shrinks
+            !        otherwise it can happen that, in a year with a short winter, there is a disadjustment between plant
+            !        biomass and its dimensions
+            ! just set initial height
+            cc%height = sp%seedling_height
+            cc%dbh = (sp%gammaHT/(sp%alphaHT/sp%seedling_height - 1.0))**(1.0/sp%thetaHT)
+            cc%crownarea = sp%alphaCA * cc%dbh**sp%thetaCA
+         endif
+
+         cc%nsc = cc%nsc + l_fract * (leaf_fall+ root_mortality + stem_mortality) ! isa 20170705
          cc%bl  = cc%bl - leaf_fall
          cc%br  = cc%br - root_mortality
+         cc%bsw = cc%bsw - stem_mortality ! isa 20170705
          cc%lai = leaf_area_from_biomass(cc%bl,cc%species,cc%layer,cc%firstlayer)/ &
                                         (cc%crownarea *(1.0-sp%internal_gap_frac))
          if(cc%bl == 0.)cc%leaf_age = 0.0
          cc%bliving = cc%blv + cc%br + cc%bl + cc%bsw
 
-         leaf_litter = (1.-l_fract) * (leaf_fall+root_mortality) * cc%nindivs
+         leaf_litter = (1.-l_fract) * (leaf_fall+root_mortality+stem_mortality) * cc%nindivs ! isa20170705, stem and roots become leaf litter
          leaf_litt(:) = leaf_litt(:)+(/fsc_liv,1-fsc_liv,0.0/)*leaf_litter
          vegn%litter = vegn%litter + leaf_litter
          soil%fsc_in(1)  = soil%fsc_in(1)  + leaf_litter

@@ -195,7 +195,8 @@ integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_root_density, id_root_zeta, id_rs_min, id_leaf_refl, id_leaf_tran, &
    id_leaf_emis, id_snow_crit, id_stomatal, &
    id_an_op, id_an_cl,&
-   id_bl, id_blv, id_br, id_bsw, id_bwood, id_bseed, id_btot, id_nsc, id_bl_max, id_br_max, &
+   id_bl, id_blv, id_br, id_bsw, id_bwood, id_bseed, id_btot, id_nsc, &
+   id_bl_max, id_br_max, id_bsw_max, &
    id_species, id_dominant_by_n, id_dominant_by_b, id_status, &
    id_con_v_h, id_con_v_v, id_fuel, id_harv_pool(N_HARV_POOLS), &
    id_harv_rate(N_HARV_POOLS), id_t_harv_pool, id_t_harv_rate, &
@@ -352,6 +353,9 @@ subroutine vegn_init ( id_ug, id_band )
         call get_cohort_data(restart2,'bseed',cohort_bseed_ptr)
         call get_cohort_data(restart2,'bl_max',cohort_bl_max_ptr)
         call get_cohort_data(restart2,'br_max',cohort_br_max_ptr)
+        ! isa 201707
+        if (field_exists(restart2,'bsw_max')) &
+           call get_cohort_data(restart2, 'bsw_max', cohort_bsw_max_ptr)
         call get_cohort_data(restart2,'dbh',cohort_dbh_ptr)
         call get_cohort_data(restart2,'crownarea',cohort_crownarea_ptr)
         call get_cohort_data(restart2,'nindivs',cohort_nindivs_ptr)
@@ -719,6 +723,8 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   id_nsc = register_cohort_diag_field ( module_name, 'nsc',  &
        (/id_ug/), time, 'biomass in non-structural pool', 'kg C/m2', missing_value=-1.0)
 
+  id_bsw_max = register_cohort_diag_field ( module_name, 'bsw_max',  &
+       (/id_ug/), time, 'max biomass of sapwood', 'kg C/m2', missing_value=-1.0)
   id_bl_max = register_cohort_diag_field ( module_name, 'bl_max',  &
        (/id_ug/), time, 'max biomass of leaves', 'kg C/m2', missing_value=-1.0)
   id_br_max = register_cohort_diag_field ( module_name, 'br_max',  &
@@ -949,6 +955,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'bwood', cohort_bwood_ptr, 'biomass of heartwood','kg C/individual')
   call add_cohort_data(restart2,'nsc', cohort_nsc_ptr, 'non-structural biomass','kg C/individual')
   call add_cohort_data(restart2,'bseed', cohort_bseed_ptr, 'biomass reserved for future progeny','kg C/individual')
+  call add_cohort_data(restart2,'bsw_max', cohort_bsw_max_ptr, 'maximum biomass of sapwood','kg C/individual')
   call add_cohort_data(restart2,'bl_max', cohort_bl_max_ptr, 'maximum biomass of leaves','kg C/individual')
   call add_cohort_data(restart2,'br_max', cohort_br_max_ptr, 'maximum biomass of roots','kg C/individual')
   call add_cohort_data(restart2,'dbh', cohort_dbh_ptr, 'diameter at breast height','m')
@@ -2117,6 +2124,7 @@ subroutine update_vegn_slow( )
      call send_cohort_data(id_dominant_by_b, tile%diag, cc(1:N), real(cc(1:N)%species), weight=cc(1:N)%nindivs*btot, op=OP_DOMINANT)
      deallocate(btot)
 
+     call send_cohort_data(id_bsw_max, tile%diag, cc(1:N), cc(1:N)%bsw_max, weight=cc(1:N)%nindivs, op=OP_SUM)
      call send_cohort_data(id_bl_max, tile%diag, cc(1:N), cc(1:N)%bl_max, weight=cc(1:N)%nindivs, op=OP_SUM)
      call send_cohort_data(id_br_max, tile%diag, cc(1:N), cc(1:N)%br_max, weight=cc(1:N)%nindivs, op=OP_SUM)
 
@@ -2444,6 +2452,7 @@ DEFINE_COHORT_ACCESSOR(real,bsw)
 DEFINE_COHORT_ACCESSOR(real,bwood)
 DEFINE_COHORT_ACCESSOR(real,nsc)
 DEFINE_COHORT_ACCESSOR(real,bseed)
+DEFINE_COHORT_ACCESSOR(real,bsw_max)
 DEFINE_COHORT_ACCESSOR(real,bl_max)
 DEFINE_COHORT_ACCESSOR(real,br_max)
 DEFINE_COHORT_ACCESSOR(real,dbh)
