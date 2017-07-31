@@ -13,7 +13,8 @@ use land_debug_mod,  only : is_watch_point, is_watch_cell, set_current_point, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, &
      heat_cons_tol, check_var_range
 use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, fsc_froot, agf_bs, &
-       do_ppa, LEAF_OFF, DBH_mort, A_mort, B_mort, mortrate_s, nat_mortality_splits_tiles
+       do_ppa, LEAF_OFF, DBH_mort, A_mort, B_mort, mortrate_s, nat_mortality_splits_tiles, &
+       FORM_GRASS
 use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_bwood
 use soil_tile_mod,   only : soil_tile_type, num_l, dz, add_soil_carbon
 use land_tile_mod,   only : land_tile_map, land_tile_type, land_tile_enum_type, &
@@ -441,7 +442,7 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
   type(land_tile_type), pointer       :: t1 ! optionally created disturbed tile
 
   integer :: n_layers ! number of canopy layers in the tile
-  real :: dying_crownwarea ! area of the crowns to die, m2/m2
+  real :: dying_crownwarea ! area of the tree crowns to die, m2/m2
   real :: f0 ! fraction of original tile in the grid cell
   real, dimension(N_C_TYPES) :: &
      leaf_litt0(N_C_TYPES),  leaf_litt1(N_C_TYPES), & ! accumulated leaf litter, kg C/m2
@@ -484,20 +485,30 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
      ! - end of conservation check, part 1
   endif
 
-  ! count layers and determine if any vegetation in the canopy layer dies
+  ! count layers and determine if any trees in the canopy layer die. Dying grass does not
+  ! split tiles, so it is not counted in the crownarea that dies. See NOTE below
   n_layers         = 0
   dying_crownwarea = 0
   do i = 1,t0%vegn%n_cohorts
-     n_layers = max(n_layers,t0%vegn%cohorts(i)%layer)
-     if (t0%vegn%cohorts(i)%layer==1) then
-        dying_crownwarea = dying_crownwarea + ndead(i)*t0%vegn%cohorts(i)%crownarea
+     associate ( cc => t0%vegn%cohorts(i),   &
+                 sp => spdata(t0%vegn%cohorts(i)%species) )
+     n_layers = max(n_layers,cc%layer)
+     if (cc%layer==1 .and. sp%lifeform/=FORM_GRASS) then
+        dying_crownwarea = dying_crownwarea + ndead(i)*cc%crownarea
      endif
+     end associate
   enddo
 
   ! zero out litter terms, for accumulation across cohorts
   leaf_litt0 = 0.0; wood_litt0 = 0.0; root_litt0 = 0.0
   leaf_litt1 = 0.0; wood_litt1 = 0.0; root_litt1 = 0.0
 
+  ! NOTE: Perhaps we should not create new tiles at all if trees do not form
+  ! closed canopy -- that is, if not all plants in layer 1 are trees. This is
+  ! tricky though, in case some grasses are very tall, or if due to numerics a tiny
+  ! fraction of grasses happen to be in the canopy layer. For now we use different
+  ! approach: we exclude grasses from dying_crownwarea calculations, and in the
+  ! tile splitting treat them together with understory plants.
   if (n_layers>1.and.dying_crownwarea>0.and.nat_mortality_splits_tiles) then
      ! split the disturbed fraction of vegetation as a new tile. The new tile
      ! will contain all crown area trees that are dying, while the
@@ -514,8 +525,8 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
 
      ! change the density of individuals in the cohorts that we split
      do i = 1,t0%vegn%n_cohorts
-        associate(cc0=>t0%vegn%cohorts(i), cc1=>t1%vegn%cohorts(i))
-        if (cc0%layer==1) then
+        associate(cc0=>t0%vegn%cohorts(i), cc1=>t1%vegn%cohorts(i),sp0=>spdata(t0%vegn%cohorts(i)%species))
+        if (cc0%layer==1 .and. sp0%lifeform/=FORM_GRASS) then
            cc1%nindivs = ndead(i)*f0/t1%frac
            cc0%nindivs = (cc0%nindivs-ndead(i))*f0/t0%frac
         endif
@@ -531,14 +542,14 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
            write(*,*)
         enddo
      endif
-     ! kill the individulas affected by natural mortali
+     ! kill the individulas affected by natural mortality
      do i = 1,t0%vegn%n_cohorts
-        associate(cc0=>t0%vegn%cohorts(i), cc1=>t1%vegn%cohorts(i))
-        if (cc0%layer==1) then
-           ! kill all canopy plants in disturbed cohort, but do not touch undisturbed one
+        associate(cc0=>t0%vegn%cohorts(i), cc1=>t1%vegn%cohorts(i),sp0=>spdata(t0%vegn%cohorts(i)%species))
+        if (cc0%layer==1 .and. sp0%lifeform/=FORM_GRASS) then
+           ! kill all canopy trees in disturbed cohort, but do not touch undisturbed one
            call kill_plants_ppa(cc1,t1%vegn,cc1%nindivs,0.0,leaf_litt1,wood_litt1,root_litt1)
         else
-           ! kill understory plants in both tiles
+           ! kill grasses and understory trees in both tiles
            call kill_plants_ppa(cc1,t1%vegn,ndead(i),0.0,leaf_litt1,wood_litt1,root_litt1)
            call kill_plants_ppa(cc0,t0%vegn,ndead(i),0.0,leaf_litt0,wood_litt0,root_litt0)
         endif
