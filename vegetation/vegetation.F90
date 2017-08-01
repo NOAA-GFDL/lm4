@@ -307,7 +307,6 @@ subroutine vegn_init ( id_ug, id_band )
   logical :: restart_1_exists, restart_2_exists
   real, allocatable :: t_ann(:),t_cold(:),p_ann(:),ncm(:) ! buffers for biodata reading
   logical :: did_read_biodata
-  logical :: did_read_cohort_structure = .FALSE.
   integer :: i,j,l,n ! indices of current tile
   integer :: init_cohort_spp(MAX_INIT_COHORTS)
 
@@ -384,9 +383,6 @@ subroutine vegn_init ( id_ug, id_band )
         call get_cohort_data(restart2, 'growth_prev_day', cohort_growth_previous_day_ptr )
         call get_cohort_data(restart2, 'growth_prev_day_tmp', cohort_growth_previous_day_tmp_ptr )
         call get_cohort_data(restart2, 'brsw', cohort_brsw_ptr)
-        did_read_cohort_structure=.TRUE.
-     else
-        did_read_cohort_structure=.FALSE.
      endif
 
      call get_cohort_data(restart2, 'bliving', cohort_bliving_ptr )
@@ -535,9 +531,13 @@ subroutine vegn_init ( id_ug, id_band )
 
         if (do_ppa) then
            cc%species = init_cohort_spp(n)
-           call init_cohort_allometry_ppa(cc, init_cohort_height(n), init_cohort_nsc_frac(n))
            if (cc%species < 0) call error_mesg('vegn_init','species "'//trim(init_cohort_species(n))//&
                    '" needed for initialization, but not found in the list of species parameters', FATAL)
+           call init_cohort_allometry_ppa(cc, init_cohort_height(n), init_cohort_nsc_frac(n))
+           call init_cohort_hydraulics(tile%vegn%cohorts(n), tile%soil%pars%psi_sat_ref) ! adam wolf
+           ! initialize DBH_ys
+           cc%DBH_ys = cc%dbh
+           cc%BM_ys  = cc%bsw + cc%bwood
         else if(did_read_biodata.and.do_biogeography) then
            call update_species(cc,t_ann(l),t_cold(l),p_ann(l),ncm(l),LU_NTRL)
            tile%vegn%t_ann  = t_ann (l)
@@ -551,24 +551,9 @@ subroutine vegn_init ( id_ug, id_band )
         !__DEBUG1__(cc%age)
         end associate
      enddo
-  enddo
-
-  ! Initialize cohort structure if it was not in the restart
-  if (do_ppa.and..not.did_read_cohort_structure) then
-     ce = first_elmt(land_tile_map, ls=lnd%ls)
-     do while (loop_over_tiles(ce,tile))
-        if (.not.associated(tile%vegn)) cycle
-        do n = 1, tile%vegn%n_cohorts
-           call init_cohort_allometry_ppa(tile%vegn%cohorts(n), init_cohort_height(n), init_cohort_nsc_frac(n))
-           call init_cohort_hydraulics(tile%vegn%cohorts(n), tile%soil%pars%psi_sat_ref) ! adam wolf
-           ! initialize DBH_ys
-           tile%vegn%cohorts(n)%DBH_ys = tile%vegn%cohorts(n)%dbh
-           tile%vegn%cohorts(n)%BM_ys  = tile%vegn%cohorts(n)%bsw + &
-                                         tile%vegn%cohorts(n)%bwood
-        enddo
+     if (do_ppa) &
         call vegn_relayer_cohorts_ppa(tile%vegn) ! this can change the number of cohorts
-     enddo
-  endif
+  enddo
 
   ! initialize carbon integrator
   call vegn_dynamics_init ( id_ug, lnd%time, delta_time )
