@@ -31,7 +31,7 @@ use soil_tile_mod, only: num_l, dz, soil_tile_type, clw, csw, add_soil_carbon, L
 use vegn_cohort_mod, only : vegn_cohort_type, &
      update_biomass_pools, update_bio_living_fraction, update_species, &
      leaf_area_from_biomass, biomass_of_individual, init_cohort_allometry_ppa, &
-     cohort_root_litter_profile, cohort_root_exudate_profile
+     init_cohort_hydraulics, cohort_root_litter_profile, cohort_root_exudate_profile
 use vegn_disturbance_mod, only : kill_plants_ppa
 use soil_carbon_mod, only: N_C_TYPES, soil_carbon_option, &
     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, &
@@ -1635,6 +1635,7 @@ subroutine add_seedlings_ppa(vegn, soil, bseed)
     cc%age        = 0.0
     cc%topyear    = 0.0
     call init_cohort_allometry_ppa(cc, sp%seedling_height, sp%seedling_nsc_frac)
+    call init_cohort_hydraulics(cc, soil%pars%psi_sat_ref)
 
     ! added germination probability (prob_g) and establishment probability ((prob_e), Weng 2014-01-06
     cc%nindivs = bseed(i) * sp%prob_g * sp%prob_e/biomass_of_individual(cc)
