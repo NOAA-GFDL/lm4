@@ -650,7 +650,7 @@ subroutine land_cover_cold_start()
   valid_data = land_mask.and.(sum(glac,2)+sum(lake,2)+sum(soil,2)>0)
   invalid_data = land_mask.and..not.valid_data
 
-  call get_watch_point(iwatch,jwatch,kwatch,face)
+  call get_watch_point(iwatch,jwatch,kwatch,face,lwatch)
   if (face==lnd%ug_face.and.(lnd%ls<=lwatch.and.lwatch<=lnd%le) ) then
      write(*,*)'###### land_cover_cold_start: input data #####'
      write(*,'(99(a,i4.2,x))')'iwatch=',iwatch,'jwatch=',jwatch,'face=',face
@@ -1116,7 +1116,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
   call get_watch_point(iwatch,jwatch,kwatch,face)
   if (face==lnd%sg_face.and.(lnd%is<=iwatch.and.iwatch<=lnd%ie).and.&
-                            (lnd%js<=jwatch.and.jwatch<=lnd%je)) then
+                            (lnd%js<=jwatch.and.jwatch<=lnd%je).and.&
+                            is_watch_time()) then
      __DEBUG1__(runoff_sg(iwatch,jwatch))
      __DEBUG1__(runoff_c_sg(iwatch,jwatch,:))
   endif

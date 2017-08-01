@@ -504,10 +504,13 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
   if (is_watch_point()) then
      write(*,*)'######### vegn_hydraulics input ###########'
      __DEBUG3__(cana_T, cana_q, p_surf)
-     __DEBUG2__(gb,gs0)
+     __DEBUG3__(gb,gs0,fdry)
      __DEBUG3__(cc%psi_l, cc%psi_x, cc%psi_r)
      __DEBUG2__(sp%cl, sp%dl)
      __DEBUG2__(sp%cx, sp%dx)
+     __DEBUG2__(cc%Kla, sp%Kxam)
+     __DEBUG2__(cc%leafarea,cc%height)
+
      write(*,*)'######### end of vegn_hydraulics input ###########'
   endif
 
@@ -529,6 +532,7 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
      __DEBUG2__(gb,gs0)
      __DEBUG2__(gs,DgsDpl)
      __DEBUG2__(qsat,cana_q)
+     __DEBUG1__(Et0)
 !     __DEBUG1__(vegn%root_distance)
 !     __DEBUG1__(soil%psi)
 !     __DEBUG1__(soil%wl)
@@ -565,6 +569,9 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
         ! In this case, we solve for Darcy-flow uptake, find the root water potential
         ! to satisfy transpiration by the vegetation, use resulting psi as initial
         ! condition
+        if (is_watch_point()) then
+           write (*,*)'###### ur0 and DurDpr are 0; adjusting psi_r #####'
+        endif
         call darcy2d_uptake_solver     (soil, max(Et0,small_Et0), vegn%root_distance, &
                 cc%root_length, cc%K_r, cc%r_r, &
                 ur0_, psi_r, n)
@@ -581,7 +588,7 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
             cc%K_r, cc%r_r, ur0_, DurDpr_ )
         ur0 = sum(ur0_); DurDpr = sum(DurDpr_)/m2pa ! converting derivative from head (m) to Pascal
         if (is_watch_point()) then
-           write (*,*)'###### ur0 and DurDpr are 0; adjusting psi_r #####'
+           write (*,*)'###### finished adjusting psi_r #####'
            __DEBUG1__(psi_r)
         endif
      endif
