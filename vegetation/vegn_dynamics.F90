@@ -340,7 +340,6 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   real :: deltaBL, deltaBR ! leaf and fine root carbon tendencies
   integer :: i, l, N
   real :: NSC_supply,LR_demand,LR_deficit
-  real :: NSCtarget
   real :: R_days,fNSC,fLFR,fStem,fSeed
   type(vegn_cohort_type), pointer :: c(:) ! for debug only
   ! accumulators of total input to root litter and soil carbon
@@ -394,7 +393,15 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 
      cc%growth_previous_day = cc%growth_previous_day - resg(i)*dt_fast_yr
 
+     if (is_watch_point()) then
+        write(*,'("vegn_carbon_int_ppa #0, cohort ",i2.2)',advance='NO') i
+        __DEBUG2__(cc%nsc,cc%carbon_gain)
+     endif
      cc%carbon_gain  = cc%carbon_gain + gpp(i)*dt_fast_yr - resp(i)*dt_fast_yr
+     if (is_watch_point()) then
+        write(*,'("vegn_carbon_int_ppa #1, cohort ",i2.2)',advance='NO') i
+        __DEBUG2__(cc%nsc,cc%carbon_gain)
+     endif
 
      resp(i) = resp(i) + resg(i) ! add growth respiration and maintenance respiration
      npp(i)  = gpp(i) - resp(i)
@@ -407,6 +414,10 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      npp(i) = npp(i) - root_exudate_C(i)
 
      cc%carbon_gain = cc%carbon_gain-root_exudate_C(i)*dt_fast_yr
+     if (is_watch_point()) then
+        write(*,'("vegn_carbon_int_ppa #2, cohort ",i2.2)',advance='NO') i
+        __DEBUG2__(cc%nsc,cc%carbon_gain)
+     endif
      !print *, ' npp ',  npp(i),' root_ex ',  root_exudate_C(i), 'cgain ', cc%carbon_gain
 
      ! Weng, 2013-01-28
@@ -527,24 +538,18 @@ subroutine vegn_growth (vegn, diag)
      cc => vegn%cohorts(i)
 
      if (do_ppa) then
-
-     ! write(*,*)"############## in vegn_growth before #################"
-     !__DEBUG1__(cc%carbon_gain)
-
+        if(is_watch_point()) then
+           write(*,*)"############## in vegn_growth before #################"
+           __DEBUG2__(cc%nsc, cc%carbon_gain)
+        endif
         cc%nsc=cc%nsc+cc%carbon_gain
         call biomass_allocation_ppa(cc,wood_prod(i),leaf_root_gr(i),sw_seed_gr(i),deltaDBH(i))
-
-
-     !write(*,*)"############## in vegn_growth #################"
-
-     !__DEBUG1__(cc%carbon_gain)
-     !__DEBUG1__(cc%bl)
-     !__DEBUG1__(cc%blv)
-     !__DEBUG1__(cc%br)
-     !__DEBUG1__(cc%bsw)
-     !__DEBUG1__(cc%bwood)
-     !__DEBUG1__(cc%nsc)
-
+        if(is_watch_point()) then
+           write(*,*)"############## in vegn_growth #################"
+           __DEBUG2__(cc%nsc, cc%carbon_gain)
+           __DEBUG3__(cc%bl, cc%blv, cc%br)
+           __DEBUG2__(cc%bsw, cc%bwood)
+        endif
         cc%carbon_gain = 0.0
      else
         cc%bwood   = cc%bwood   + cc%bwood_gain
@@ -776,7 +781,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
 
      !ens 02/14/17
      !update seed and sapwood biomass pools with the new growth (branches were updated above)
-     NSCtarget = 4.0*cc%bl_max
+     NSCtarget = sp%NSC2targetbl*cc%bl_max
      G_WF=0.0
      if (NSCtarget < cc%nsc) then ! ens change this
         G_WF = max (0.0, fsf*(cc%nsc - NSCtarget)/(1+sp%GROWTH_RESP))
@@ -795,7 +800,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      if (sp%lifeform == FORM_GRASS) then ! isa 20170705
         ! 20170724 - new scheme
         nsctmp = cc%nsc
-        NSCtarget = sp%NSC2targetbl*cc%bl_max !NSCtarget = 4.0*cc%bl_max
+        NSCtarget = sp%NSC2targetbl*cc%bl_max
         G_WF=0.0
         if (nsctmp - NSCtarget > G_AGBmax * cc%bsw) then
           G_WF = G_AGBmax * cc%bsw
@@ -817,6 +822,11 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
           endif
         endif
         nsctmp = nsctmp - G_WF * (1+sp%GROWTH_RESP)
+        if (is_watch_point()) then
+           __DEBUG2__(cc%nsc, nsctmp)
+           __DEBUG3__(G_WF, G_AGBmax, cc%bsw)
+           __DEBUG2__(deltaSeed,deltaBSW)
+        endif
 
         ! Allocation to leaves and fine root growth
         G_LFR    = max(0.0, min( cc%bl_max - cc%bl + max( 0.0, cc%br_max - cc%br ),  &
@@ -830,7 +840,10 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
                           (G_LFR*cc%bl_max + cc%bl_max*cc%br - cc%br_max*cc%bl)/(cc%bl_max + cc%br_max) ))
         end if
         deltaBR  = G_LFR - deltaBL
-        nsctmp = nsctmp - G_LFR * (1+sp%GROWTH_RESP)
+        if (is_watch_point()) then
+           __DEBUG3__(G_LFR, deltaBL, deltaBR)
+           __DEBUG1__(delta_bsw_branch)
+        endif
      endif
 
      ! update biomass pools due to growth
@@ -839,7 +852,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      cc%bsw    = cc%bsw   + deltaBSW
      cc%bseed  = cc%bseed + deltaSeed
      ! reduce storage by  growth respiration
-     cc%nsc = cc%nsc - (G_LFR + G_WF+delta_bsw_branch )*(1+sp%GROWTH_RESP)
+     cc%nsc = cc%nsc - (G_LFR + G_WF + delta_bsw_branch)*(1+sp%GROWTH_RESP)
 
      wood_prod = deltaBSW*days_per_year ! conversion from kgC/day to kgC/year
      ! compute daily respiration fluxes
@@ -897,7 +910,8 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         ! before only BSWmax, 4 lines above from Isa
         cc%bsw_max = sp%alphaBM * sp%rho_wood * (cc%DBH**sp%thetaBM - DBHwd**sp%thetaBM)
      case (ALLOM_HML)
-        CSAsw    = sp%phiCSA * cc%DBH**(sp%thetaCA + sp%thetaHT) / (sp%gammaHT + cc%DBH** sp%thetaHT)
+        CSAsw    = sp%phiCSA * cc%DBH**(sp%thetaCA + sp%thetaHT) / &
+                   (sp%gammaHT + cc%DBH** sp%thetaHT)
         CSAtot   = PI * (cc%DBH/2.0)**2 ! total trunk cross-section
         CSAwd    = max(0.0, CSAtot - CSAsw) ! cross-section of heartwood
         DBHwd    = 2*sqrt(CSAwd/PI) ! DBH of heartwood
