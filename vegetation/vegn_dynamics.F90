@@ -336,7 +336,8 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   real, intent(in) :: theta ! average soil wetness, unitless
   type(diag_buff_type), intent(inout) :: diag
 
-  real :: md_branch_sw; ! in ppa we are losing and replacing branchwood
+  real :: md_branch_sw ! in ppa we are losing and replacing branchwood
+  real :: md_bsw, md_bsw_branch ! we are also overturning sapwood in grasses
   real :: deltaBL, deltaBR ! leaf and fine root carbon tendencies
   integer :: i, l, N
   real :: NSC_supply,LR_demand,LR_deficit
@@ -438,9 +439,18 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      call check_var_range(cc%bsw,  0.0,HUGE(1.0), 'vegn_carbon_int_ppa', 'cc%bsw', FATAL)
      call check_var_range(cc%brsw, 0.0,cc%bsw,    'vegn_carbon_int_ppa', 'cc%brsw',FATAL)
 
+     ! ens, isa, slm 2017-08-03: compute overturning of sapwood in grasses.
+     md_bsw = 0.0; md_bsw_branch = 0.0
+     if (spdata(cc%species)%lifeform == FORM_GRASS) then
+        if (cc%bsw > 0) then
+           md_bsw = Max(cc%bsw,0.0) * sp%alpha_wood * dt_fast_yr
+           md_bsw_branch = cc%brsw/cc%bsw * md_bsw ! overturning in branches, which are part of bsw. Do they even exist in grass?
+        endif
+     endif
+
      ! brsw is a part of bsw, so when we lose branches, we need to reduce both
-     cc%brsw = cc%brsw - md_branch_sw
-     cc%bsw  = cc%bsw  - md_branch_sw
+     cc%brsw = cc%brsw - md_branch_sw - md_bsw_branch
+     cc%bsw  = cc%bsw  - md_branch_sw - md_bsw
 
      !reduce nsc by the amount of root exudates during the date
      ! TODO: when merging with N code take exudates from NSC not carbon gained
@@ -449,7 +459,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 
      ! accumulate liter and soil carbon inputs across all cohorts
      leaf_litt(:) = leaf_litt(:) + (/fsc_liv,  1.-fsc_liv,  0.0/)*deltaBL*cc%nindivs
-     wood_litt(:) = wood_litt(:) + (/fsc_wood, 1.-fsc_wood, 0.0/)*md_branch_sw*cc%nindivs
+     wood_litt(:) = wood_litt(:) + (/fsc_wood, 1.-fsc_wood, 0.0/)*(md_branch_sw+md_bsw)*cc%nindivs
 
      call cohort_root_litter_profile(cc, dz, profile)
      do l = 1, num_l
