@@ -14,6 +14,7 @@ use vegn_data_mod, only : spdata, &
    ALLOM_EW, ALLOM_EW1, ALLOM_HML, PT_C3, PT_C4, understory_lai_factor, &
    do_ppa
 use soil_tile_mod, only : max_lev
+use soil_carbon_mod, only : soil_carbon_option,SOILC_CORPSE_N
 use fms_mod, only : error_mesg, FATAL
 
 implicit none
@@ -745,13 +746,23 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac, nsn_frac)
   cc%bseed   = 0.0
   cc%bliving = cc%br + cc%bl + cc%bsw + cc%blv
 
-  cc%stored_N   = nsn_frac * cc%bl_max/sp%leaf_live_c2n
-  cc%seed_N     = 0.0
-  cc%wood_N     = cc%bwood/sp%wood_c2n
-  cc%sapwood_N  = cc%bsw/sp%sapwood_c2n
-  cc%leaf_N     = (cc%bl+cc%blv)/sp%leaf_live_c2n
-  cc%root_N     = cc%br/sp%froot_live_c2n
-  cc%total_N    = cc%stored_N+cc%leaf_N+cc%wood_N+cc%root_N+cc%sapwood_N+cc%seed_N
+  if (soil_carbon_option==SOILC_CORPSE_N) then
+    cc%stored_N   = nsn_frac * cc%bl_max/sp%leaf_live_c2n
+    cc%seed_N     = 0.0
+    cc%wood_N     = cc%bwood/sp%wood_c2n
+    cc%sapwood_N  = cc%bsw/sp%sapwood_c2n
+    cc%leaf_N     = (cc%bl+cc%blv)/sp%leaf_live_c2n
+    cc%root_N     = cc%br/sp%froot_live_c2n
+    cc%total_N    = cc%stored_N+cc%leaf_N+cc%wood_N+cc%root_N+cc%sapwood_N+cc%seed_N
+  else
+    cc%stored_N   = 0.0
+    cc%seed_N     = 0.0
+    cc%wood_N     = 0.0
+    cc%sapwood_N  = 0.0
+    cc%leaf_N     = 0.0
+    cc%root_N     = 0.0
+    cc%total_N    = 0.0
+  endif
 
   ! Should these have nonzero initial values on initialization/reproduction?
   cc%myc_scavenger_biomass_C = 0.0

@@ -980,7 +980,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      !           retranslocated N into storage
      cc%leaf_N   = cc%leaf_N - deltaNL
      cc%root_N   = cc%root_N - deltaNR
-     cc%stored_N = cc%stored_N + deltaBL/sp%leaf_live_c2n*sp%leaf_retranslocation_frac   &
+     if (soil_carbon_option==SOILC_CORPSE_N) cc%stored_N = cc%stored_N + deltaBL/sp%leaf_live_c2n*sp%leaf_retranslocation_frac   &
                                + deltaBR/sp%froot_live_c2n*sp%froot_retranslocation_frac
       call check_var_range(cc%leaf_N,0.0,HUGE(1.0),'vegn_carbon_int_ppa','cc%leaf_N',FATAL)
       if(N_limits_live_biomass) call check_var_range(cc%stored_N,0.0,HUGE(1.0),'vegn_carbon_int_ppa','cc%stored_N',FATAL)
@@ -998,8 +998,10 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      cc%bwood = cc%bwood - md_wood
      ! 20170617: update N pools. For now, assuming that there is no N re-translocation during
      ! either branch loss or turnover of wood and sapwood.
-     cc%wood_N    = cc%wood_N    - md_wood/sp%wood_c2n
-     cc%sapwood_N = cc%sapwood_N - md_branch_sw/sp%sapwood_c2n
+     if (soil_carbon_option==SOILC_CORPSE_N) then
+       cc%wood_N    = cc%wood_N    - md_wood/sp%wood_c2n
+       cc%sapwood_N = cc%sapwood_N - md_branch_sw/sp%sapwood_c2n
+     endif
 
      !reduce nsc by the amount of root exudates during the date
      ! FIXME: when merging with N code take exudates from NSC not carbon gained
@@ -1012,7 +1014,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*deltaNL*cc%nindivs*(1.0-sp%leaf_retranslocation_frac)
      wood_litt_C(:) = wood_litt_C(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(md_wood+md_branch_sw)*cc%nindivs
 !     wood_litt_N(:) = wood_litt_N(:) + cc%nindivs * agf_bs * & -- FIXME: do we need agf_bs in both C and N wood litter?
-     wood_litt_N(:) = wood_litt_N(:) + cc%nindivs * &
+     if (soil_carbon_option==SOILC_CORPSE_N) wood_litt_N(:) = wood_litt_N(:) + cc%nindivs * &
              [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(md_wood/sp%wood_c2n+md_branch_sw/sp%sapwood_c2n)
      call cohort_root_litter_profile(cc, dz, profile)
      do l = 1, num_l
@@ -1026,6 +1028,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 !            + [sp%fsc_wood,  1-sp%fsc_wood,  0.0 ]*md_wood*(1-agf_bs)/sp%wood_c2n &
              )
      enddo
+
 
      ! resg(i) = 0 ! slm: that doesn't make much sense to me... why?
 ! 20170617:
@@ -1442,16 +1445,21 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
           (G_LFR*cc%bl_max + cc%bl_max*cc%br - br_max_Nstress*cc%bl)/(cc%bl_max + br_max_Nstress) &
           ))
      deltaBR  = G_LFR - deltaBL
-     deltaNL = deltaBL/sp%leaf_live_c2n
-     deltaNR = deltaBR/sp%froot_live_c2n
-     if (deltaNL+deltaNR > 0.1*cc%stored_N.and.N_limits_live_biomass) then
-        ! BNS: make this the minimum of 10% NSC depletion OR 10% stored N depletion
-        ! Do this every time we do this limitation.
-        ! This does not prioritize spending on leaves and roots
-        f = 0.1*cc%stored_N/(deltaNL+deltaNR)
-        deltaBR = deltaBR*f; deltaBL = deltaBL*f
-        deltaNR = deltaNR*f; deltaNL = deltaNL*f
-        G_LFR = deltaBL+deltaBR
+     if (soil_carbon_option==SOILC_CORPSE_N) then
+       deltaNL = deltaBL/sp%leaf_live_c2n
+       deltaNR = deltaBR/sp%froot_live_c2n
+       if (deltaNL+deltaNR > 0.1*cc%stored_N.and.N_limits_live_biomass) then
+          ! BNS: make this the minimum of 10% NSC depletion OR 10% stored N depletion
+          ! Do this every time we do this limitation.
+          ! This does not prioritize spending on leaves and roots
+          f = 0.1*cc%stored_N/(deltaNL+deltaNR)
+          deltaBR = deltaBR*f; deltaBL = deltaBL*f
+          deltaNR = deltaNR*f; deltaNL = deltaNL*f
+          G_LFR = deltaBL+deltaBR
+       endif
+     else
+       deltaNL=0.0
+       deltaNR=0.0
      endif
      cc%stored_N = cc%stored_N - deltaNL - deltaNR
      ! calculate carbon spent on seeds and sapwood growth
@@ -1461,7 +1469,11 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      delta_bsw_branch  = 0.0
      if (cc%branch_sw_loss > 0) then
         delta_bsw_branch = max (min(cc%branch_sw_loss, 0.1*cc%nsc/(1+GROWTH_RESP)), 0.0)
-        delta_nsw_branch = delta_bsw_branch/sp%sapwood_c2n
+        if (soil_carbon_option==SOILC_CORPSE_N) then
+          delta_nsw_branch = delta_bsw_branch/sp%sapwood_c2n
+        else
+          delta_nsw_branch = 0.0
+        endif
         if (delta_nsw_branch>0.1*cc%stored_N.and.N_limits_live_biomass) then
            delta_bsw_branch = delta_bsw_branch*0.1*cc%stored_N/delta_nsw_branch
            delta_nsw_branch = 0.1*cc%stored_N
@@ -1477,9 +1489,11 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         delta_wood_branch = max(min(cc%branch_wood_loss, 0.25*cc%bsw), 0.0)
         cc%bsw = cc%bsw - delta_wood_branch
         cc%bwood = cc%bwood + delta_wood_branch
-        cc%wood_N = cc%wood_N + delta_wood_branch/sp%wood_c2n
-        cc%sapwood_N = cc%sapwood_N - delta_wood_branch/sp%sapwood_c2n
-        cc%stored_N = cc%stored_N - delta_wood_branch/sp%wood_c2n + delta_wood_branch/sp%sapwood_c2n
+        if (soil_carbon_option==SOILC_CORPSE_N) then
+          cc%wood_N = cc%wood_N + delta_wood_branch/sp%wood_c2n
+          cc%sapwood_N = cc%sapwood_N - delta_wood_branch/sp%sapwood_c2n
+          cc%stored_N = cc%stored_N - delta_wood_branch/sp%wood_c2n + delta_wood_branch/sp%sapwood_c2n
+        endif
         cc%branch_wood_loss = cc%branch_wood_loss - delta_wood_branch
      endif
      ! in principle re-building wood and sapwood of branches should be taken into account together
@@ -1497,7 +1511,8 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      if (cc%layer == 1 .AND. cc%age > sp%maturalage) then
         ! deltaSeed=      sp%v_seed * (cc%carbon_gain - G_LFR)
         ! deltaBSW = (1.0-sp%v_seed)* (cc%carbon_gain - G_LFR)
-        if ((cc%nitrogen_stress > sp%max_n_stress_for_seed_production.or.sp%v_seed*g_WF/sp%seed_c2n>0.1*cc%stored_N).and.N_limits_live_biomass) then
+        if ((cc%nitrogen_stress > sp%max_n_stress_for_seed_production.or.sp%v_seed*g_WF/sp%seed_c2n>0.1*cc%stored_N)&
+                                      .and.N_limits_live_biomass.and.soil_carbon_option==SOILC_CORPSE_N) then
            deltaSeed = 0
         else
            deltaSeed = sp%v_seed * G_WF
@@ -1514,12 +1529,13 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      ! update biomass pools due to growth
      cc%bl     = cc%bl    + deltaBL;   cc%leaf_N = cc%leaf_N + deltaNL ! updated in vegn_int_ppa
      cc%br     = cc%br    + deltaBR;   cc%root_N = cc%root_N + deltaNR
-     cc%bsw    = cc%bsw   + deltaBSW;  cc%sapwood_N = cc%sapwood_N + deltaBSW/sp%sapwood_c2n
-     cc%bseed  = cc%bseed + deltaSeed; cc%seed_N = cc%seed_N + deltaSeed/sp%seed_c2n ! TODO: calculate seed_c2n as derived quantity in vegn_data initialization
+     cc%bsw    = cc%bsw   + deltaBSW;  if (soil_carbon_option==SOILC_CORPSE_N) cc%sapwood_N = cc%sapwood_N + deltaBSW/sp%sapwood_c2n
+     cc%bseed  = cc%bseed + deltaSeed;
+     if (soil_carbon_option==SOILC_CORPSE_N) cc%seed_N = cc%seed_N + deltaSeed/sp%seed_c2n ! TODO: calculate seed_c2n as derived quantity in vegn_data initialization
      cc%nsc    = cc%nsc - (deltaBL + deltaBR + deltaSeed + deltaBSW + delta_bsw_branch)*(1.+GROWTH_RESP)
 
-     if(cc%stored_N - deltaBSW/sp%sapwood_c2n - deltaSeed/sp%seed_c2n<0) then;__DEBUG3__(cc%stored_N,deltaBSW/sp%sapwood_c2n,deltaSeed/sp%seed_c2n);endif
-     cc%stored_N = cc%stored_N - deltaBSW/sp%sapwood_c2n - deltaSeed/sp%seed_c2n
+     if(cc%stored_N - deltaBSW/sp%sapwood_c2n - deltaSeed/sp%seed_c2n<0.and.soil_carbon_option==SOILC_CORPSE_N) then;__DEBUG3__(cc%stored_N,deltaBSW/sp%sapwood_c2n,deltaSeed/sp%seed_c2n);endif
+     if (soil_carbon_option==SOILC_CORPSE_N) cc%stored_N = cc%stored_N - deltaBSW/sp%sapwood_c2n - deltaSeed/sp%seed_c2n
 
      wood_prod = deltaBSW*365.0 ! conversion from kgC/day to kgC/year
      leaf_root_gr = G_LFR*365.0 ! conversion from kgC/day to kgC/year
@@ -1590,9 +1606,11 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      deltaBwood = max(cc%bsw - BSWmax, 0.0)
      cc%bwood   = cc%bwood + deltaBwood
      cc%bsw     = cc%bsw   - deltaBwood
-     cc%sapwood_N = cc%sapwood_N - deltaBwood/sp%sapwood_c2n
-     cc%wood_N    = cc%wood_N    + deltaBwood/sp%wood_c2n
-     cc%stored_N  = cc%stored_N  + deltaBwood/sp%sapwood_c2n - deltaBwood/sp%wood_c2n
+     if (soil_carbon_option==SOILC_CORPSE_N) then
+       cc%sapwood_N = cc%sapwood_N - deltaBwood/sp%sapwood_c2n
+       cc%wood_N    = cc%wood_N    + deltaBwood/sp%wood_c2n
+       cc%stored_N  = cc%stored_N  + deltaBwood/sp%sapwood_c2n - deltaBwood/sp%wood_c2n
+     endif
 
      ! update bl_max and br_max daily
      ! slm: why are we updating topyear only when the leaves are displayed? The paper
@@ -1692,6 +1710,7 @@ subroutine plant_respiration(cc, tsoil, resp, r_leaf, r_root, r_stem)
   r_root  = spdata(sp)%beta_root * cc%br*tfs;
 
   resp = r_leaf + r_vleaf + r_stem + r_root
+  ! BNS: Should resp be limited so it's not greater than nsc? Otherwise nsc can go less than zero if gpp is zero
 end subroutine plant_respiration
 
 
