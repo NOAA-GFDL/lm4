@@ -1261,6 +1261,11 @@ subroutine vegn_phenology_ppa(vegn, soil)
          ! isa 20170705
          stem_mortality = 0.0
          if (sp%lifeform == FORM_GRASS) then
+            if (is_watch_point()) then
+               write (*,*) '#### vegn_phenology_ppa resetting grasses ####'
+               write (*,'(a)',advance='NO') 'before : '
+               __DEBUG3__(cc%height,cc%dbh,cc%crownarea)
+            endif
             stem_mortality = min(stem_mort_rate * cc%bsw_max, &
                    cc%bsw - sp%rho_wood * sp%alphaBM * ((sp%gammaHT/(sp%alphaHT/sp%seedling_height - 1.0))**(1.0/sp%thetaHT))**2 * sp%seedling_height)
 
@@ -1271,6 +1276,15 @@ subroutine vegn_phenology_ppa(vegn, soil)
             cc%height = sp%seedling_height
             cc%dbh = (sp%gammaHT/(sp%alphaHT/sp%seedling_height - 1.0))**(1.0/sp%thetaHT)
             cc%crownarea = sp%alphaCA * cc%dbh**sp%thetaCA
+            ! slm 20170804: reconcile bl_max and crownarea, and drop excess leaf biomass
+            !               immediately
+            cc%bl_max = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
+            leaf_fall = max(leaf_fall, cc%bl-cc%bl_max)
+
+            if (is_watch_point()) then
+               write (*,'(a)',advance='NO') 'after  : '
+               __DEBUG3__(cc%height,cc%dbh,cc%crownarea)
+            endif
          endif
 
          cc%nsc = cc%nsc + l_fract * (leaf_fall+ root_mortality + stem_mortality) ! isa 20170705
