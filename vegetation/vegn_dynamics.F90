@@ -539,6 +539,7 @@ subroutine vegn_growth (vegn, diag)
   integer :: i, N
   real, dimension(vegn%n_cohorts) :: &
      wood_prod, leaf_root_gr, sw_seed_gr, deltaDBH
+  real :: f, borrowed
 
   if (is_watch_point()) then
      cmass0 = vegn_tile_carbon(vegn)
@@ -549,16 +550,32 @@ subroutine vegn_growth (vegn, diag)
 
      if (do_ppa) then
         if(is_watch_point()) then
-           write(*,*)"############## in vegn_growth before #################"
+           write(*,*)"############## in vegn_growth before allocation PPA #################"
            __DEBUG2__(cc%nsc, cc%carbon_gain)
         endif
-        cc%nsc=cc%nsc+cc%carbon_gain
+        if (cc%nsc+cc%carbon_gain >= 0) then
+           cc%nsc=cc%nsc+cc%carbon_gain
+        else
+           ! slm, ens 2017-08-02
+           ! if loss of carbon exceeds current nsc, we borrow the carbon from living tissues
+           ! proportionally to the existing amount.
+           f = abs(cc%nsc+cc%carbon_gain)/max(abs(cc%nsc+cc%carbon_gain),cc%bl+cc%br+cc%blv+cc%bsw)
+           borrowed = f*(cc%bl+cc%br+cc%blv+cc%bsw)
+           cc%bl  = (1-f)*cc%bl
+           cc%br  = (1-f)*cc%br
+           cc%blv = (1-f)*cc%blv
+           cc%bsw = (1-f)*cc%bsw
+           ! brsw is part of bsw, and should also be reduced to stay within limits [0,bsw]
+           cc%brsw = (1-f)*cc%brsw
+           ! nsc should become zero, unless there is not enough biomass in all living
+           ! tissues to compensate carbon loss
+           cc%nsc = cc%nsc+cc%carbon_gain+borrowed
+        endif
         call biomass_allocation_ppa(cc,wood_prod(i),leaf_root_gr(i),sw_seed_gr(i),deltaDBH(i))
         if(is_watch_point()) then
-           write(*,*)"############## in vegn_growth #################"
+           write(*,*)"############## in vegn_growth after allocation PPA #################"
            __DEBUG2__(cc%nsc, cc%carbon_gain)
-           __DEBUG3__(cc%bl, cc%blv, cc%br)
-           __DEBUG2__(cc%bsw, cc%bwood)
+           __DEBUG5__(cc%bl, cc%blv, cc%br, cc%bsw, cc%bwood)
         endif
         cc%carbon_gain = 0.0
      else
@@ -869,7 +886,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      leaf_root_gr = G_LFR*days_per_year ! conversion from kgC/day to kgC/year
      sw_seed_gr = (G_WF+delta_bsw_branch )*sp%GROWTH_RESP*days_per_year ! conversion from kgC/day to kgC/year
 
-     call check_var_range(cc%nsc,0.0,HUGE(1.0),'biomass_allocation_ppa','cc%nsc', WARNING)
+     call check_var_range(cc%nsc,-1e-16,HUGE(1.0),'biomass_allocation_ppa','cc%nsc', WARNING)
 
      !ens --compute daily growth to compute respiration, apply it next day, use npp_previous day variable, units kg C/(m2 *year)
      cc%growth_previous_day = cc%growth_previous_day+(max(0., G_LFR+G_WF)+delta_bsw_branch)*sp%GROWTH_RESP ! this is for growth respiration to come from nsc
