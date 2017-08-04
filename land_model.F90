@@ -2889,7 +2889,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
                   ! of orbital ellipse (a) : (a/r)**2
   integer :: face ! for debugging
   integer :: band ! spectral band iterator
-  integer :: i, j
+  integer :: i, j, m
 
   i = lnd%i_index(l) ; j = lnd%j_index(l)
 
@@ -2986,20 +2986,25 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
      __DEBUG2__(vegn_lai,vegn_sai)
      __DEBUG1__(subs_refl_dif)
      __DEBUG1__(subs_refl_dir)
-     do band = 1,NBANDS
-       __DEBUG1__(vegn_refl_dif(:,band))
+     write(*,*)' #### vegn radiative properties (VIS) ####'
+     do m = 1,N
+        write(*,'(i2.2,2x)',advance='NO') m
+        call dpri('refl_dif',vegn_refl_dif(m,BAND_VIS))
+        call dpri('tran_dif',vegn_tran_dif(m,BAND_VIS))
+        call dpri('refl_dir',vegn_refl_dir(m,BAND_VIS))
+        call dpri('tran_dir',vegn_tran_dir(m,BAND_VIS))
+        call dpri('sctr_dir',vegn_sctr_dir(m,BAND_VIS))
+        write(*,*)
      enddo
-     do band = 1,NBANDS
-       __DEBUG1__(vegn_tran_dif(:,band))
-     enddo
-     do band = 1,NBANDS
-       __DEBUG1__(vegn_refl_dir(:,band))
-     enddo
-     do band = 1,NBANDS
-       __DEBUG1__(vegn_sctr_dir(:,band))
-     enddo
-     do band = 1,NBANDS
-       __DEBUG1__(vegn_tran_dir(:,band))
+     write(*,*)' #### vegn radiative properties (NIR) ####'
+     do m = 1,N
+        write(*,'(i2.2,2x)',advance='NO') m
+        call dpri('refl_dif',vegn_refl_dif(m,BAND_NIR))
+        call dpri('tran_dif',vegn_tran_dif(m,BAND_NIR))
+        call dpri('refl_dir',vegn_refl_dir(m,BAND_NIR))
+        call dpri('tran_dir',vegn_tran_dir(m,BAND_NIR))
+        call dpri('sctr_dir',vegn_sctr_dir(m,BAND_NIR))
+        write(*,*)
      enddo
      __DEBUG1__(vegn_refl_lw)
      __DEBUG1__(vegn_tran_lw)
@@ -3031,16 +3036,26 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
 
   if(is_watch_point()) then
      write(*,*) '#### update_land_bc_fast ### checkpoint 2 ####'
-     __DEBUG1__(tile%Sg_dir)
      __DEBUG1__(tile%Sg_dif)
-     do band = 1,NBANDS
-       __DEBUG1__(tile%Sv_dir(:,band))
-       __DEBUG1__(tile%Sv_dif(:,band))
-       __DEBUG1__(tile%Sdn_dir(:,band))
-       __DEBUG1__(tile%Sdn_dif(:,band))
+     __DEBUG1__(tile%Sg_dir)
+     do m = 1, N
+        write(*,'(i2.2,2x)',advance='NO') m
+        call dpri('Sv_dif(VIS)',tile%Sv_dif(m,BAND_VIS))
+        call dpri('Sv_dir(VIS)',tile%Sv_dir(m,BAND_VIS))
+        call dpri('Sdn_dif(VIS)',tile%Sdn_dif(m,BAND_VIS))
+        call dpri('Sdn_dir(VIS)',tile%Sdn_dir(m,BAND_VIS))
+        write(*,*)
      enddo
-     __DEBUG1__(tile%land_refl_dir)
+     do m = 1, N
+        write(*,'(i2.2,2x)',advance='NO') m
+        call dpri('Sv_dif(NIR)',tile%Sv_dif(m,BAND_NIR))
+        call dpri('Sv_dir(NIR)',tile%Sv_dir(m,BAND_NIR))
+        call dpri('Sdn_dif(NIR)',tile%Sdn_dif(m,BAND_NIR))
+        call dpri('Sdn_dir(NIR)',tile%Sdn_dir(m,BAND_NIR))
+        write(*,*)
+     enddo
      __DEBUG1__(tile%land_refl_dif)
+     __DEBUG1__(tile%land_refl_dir)
      __DEBUG1__(tile%land_z0m)
      write(*,*) '#### update_land_bc_fast ### end of checkpoint 2 ####'
   endif
