@@ -2,7 +2,13 @@ module vegn_photosynthesis_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod,            only : error_mesg, FATAL, WARNING
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
+use fms_mod, only: error_mesg, FATAL, WARNING, file_exist, close_file, check_nml_error, stdlog, &
+      mpp_pe, mpp_root_pe, lowercase
 use constants_mod,      only : TFREEZE, PI, rdgas, dens_h2o, grav
 use sphum_mod,          only : qscomp
 
@@ -28,41 +34,89 @@ public :: vegn_photosynthesis
 character(len=*), parameter :: module_name = 'vegn_photosynthesis_mod'
 #include "../shared/version_variable.inc"
 
+! values for selector of CO2 option used for photosynthesis
+integer, public, parameter :: &
+    VEGN_PHOT_CO2_PRESCRIBED  = 1, &
+    VEGN_PHOT_CO2_INTERACTIVE = 2
+
 ! values for internal vegetation photosynthesis option selector
-integer, parameter :: VEGN_PHOT_SIMPLE  = 1 ! zero photosynthesis
-integer, parameter :: VEGN_PHOT_LEUNING = 2 ! photosynthesis according to simplified Leuning model
+integer, parameter :: &
+    VEGN_PHOT_SIMPLE  = 1, &   ! zero photosynthesis
+    VEGN_PHOT_LEUNING = 2      ! photosynthesis according to simplified Leuning model
 
 ! values for internal vegetation water stress option selector
 integer, public, parameter :: & ! water limitation options
-   WSTRESS_NONE       = 1, &  ! no water limitation
-   WSTRESS_LM3        = 2, &  ! LM3-like
-   WSTRESS_HYDRAULICS = 3     ! plant hydraulics formulation
+    WSTRESS_NONE       = 1, &  ! no water limitation
+    WSTRESS_LM3        = 2, &  ! LM3-like
+    WSTRESS_HYDRAULICS = 3     ! plant hydraulics formulation
 
 real, parameter :: gs_lim = 0.25 ! maximum stomatal cond for Leuning, mol/(m2 s)
 real, parameter :: b      = 0.01 ! minimum stomatal cond for Leuning, mol/(m2 s)
 
 ! ==== module variables ======================================================
-integer :: vegn_phot_option    = -1 ! selector of the photosynthesis option
-integer :: water_stress_option = -1 ! selector of the water stress option
-logical :: hydraulics_repair    = .TRUE.
+integer :: vegn_phot_option     = -1 ! selector of the photosynthesis option
+integer, public, protected :: vegn_phot_co2_option = -1 ! internal selector of co2 option for photosynthesis
+integer :: water_stress_option  = -1 ! selector of the water stress option
+
+character(32) :: photosynthesis_to_use = 'simple' ! or 'leuning'
+
+character(32) :: co2_to_use_for_photosynthesis = 'prescribed' ! or 'interactive'
+   ! specifies what co2 concentration to use for photosynthesis calculations:
+   ! 'prescribed'  : a prescribed value is used, equal to co2_for_photosynthesis
+   !      specified below.
+   ! 'interactive' : concentration of co2 in canopy air is used
+real, public, protected :: co2_for_photosynthesis = 350.0e-6 ! concentration of co2 for
+   ! photosynthesis calculations, mol/mol. Ignored if co2_to_use_for_photosynthesis is
+   ! not 'prescribed'
+
+real :: lai_eps = 1e-5 ! threshold for switching to linear approximation for Ag_l, m2/m2
+
+character(32) :: water_stress_to_use = 'lm3' ! type of water stress formulation:
+   ! 'lm3', 'plant-hydraulics', or 'none'
+logical :: hydraulics_repair = .TRUE.
+
+namelist /photosynthesis_nml/ &
+    photosynthesis_to_use, &
+    co2_to_use_for_photosynthesis, co2_for_photosynthesis, &
+    lai_eps, &
+    water_stress_to_use, hydraulics_repair
 
 contains
 
 
 ! ============================================================================
-subroutine vegn_photosynthesis_init(photosynthesis_to_use, water_stress_to_use, hydraulics_repair_in)
-  character(*), intent(in) :: photosynthesis_to_use
-  character(*), intent(in) :: water_stress_to_use
-  logical,      intent(in) :: hydraulics_repair_in
+subroutine vegn_photosynthesis_init()
 
+  integer :: unit, io, ierr
+  
   call log_version(version, module_name, &
   __FILE__)
+#ifdef INTERNAL_FILE_NML
+    read (input_nml_file, nml=photosynthesis_nml, iostat=io)
+    ierr = check_nml_error(io, 'photosynthesis_nml')
+#else
+  if (file_exist('input.nml')) then
+     unit = open_namelist_file()
+     ierr = 1;
+     do while (ierr /= 0)
+        read (unit, nml=photosynthesis_nml, iostat=io, end=10)
+        ierr = check_nml_error (io, 'photosynthesis_nml')
+     enddo
+10   continue
+     call close_file (unit)
+  endif
+#endif
+
+  unit=stdlog()
+  if (mpp_pe() == mpp_root_pe()) then
+     write(unit, nml=photosynthesis_nml)
+  endif
 
   ! convert symbolic names of photosynthesis options into numeric IDs to
   ! speed up selection during run-time
-  if (trim(photosynthesis_to_use)=='simple') then
+  if (trim(lowercase(photosynthesis_to_use))=='simple') then
      vegn_phot_option = VEGN_PHOT_SIMPLE
-  else if (trim(photosynthesis_to_use)=='leuning') then
+  else if (trim(lowercase(photosynthesis_to_use))=='leuning') then
      vegn_phot_option = VEGN_PHOT_LEUNING
   else
      call error_mesg('vegn_photosynthesis_init',&
@@ -71,12 +125,25 @@ subroutine vegn_photosynthesis_init(photosynthesis_to_use, water_stress_to_use, 
           FATAL)
   endif
 
+  ! convert symbolic names of photosynthesis CO2 options into numeric IDs to
+  ! speed up selection during run-time
+  if (trim(lowercase(co2_to_use_for_photosynthesis))=='prescribed') then
+     vegn_phot_co2_option = VEGN_PHOT_CO2_PRESCRIBED
+  else if (trim(lowercase(co2_to_use_for_photosynthesis))=='interactive') then
+     vegn_phot_co2_option = VEGN_PHOT_CO2_INTERACTIVE
+  else
+     call error_mesg('vegn_photosynthesis_init',&
+          'vegetation photosynthesis option co2_to_use_for_photosynthesis="'//&
+          trim(co2_to_use_for_photosynthesis)//'" is invalid, use "prescribed" or "interactive"',&
+          FATAL)
+  endif
+
   ! parse the options for the water stress
-  if (trim(water_stress_to_use)=='none') then
+  if (trim(lowercase(water_stress_to_use))=='none') then
      water_stress_option = WSTRESS_NONE
-  else if (trim(water_stress_to_use)=='lm3') then
+  else if (trim(lowercase(water_stress_to_use))=='lm3') then
      water_stress_option = WSTRESS_LM3
-  else if (trim(water_stress_to_use)=='plant-hydraulics') then
+  else if (trim(lowercase(water_stress_to_use))=='plant-hydraulics') then
      water_stress_option = WSTRESS_HYDRAULICS
   else
      call error_mesg('vegn_photosynthesis_init',&
@@ -84,8 +151,6 @@ subroutine vegn_photosynthesis_init(photosynthesis_to_use, water_stress_to_use, 
         ' "lm3", "plant-hydraulics", or "none"', &
         FATAL)
   endif
-
-  hydraulics_repair = hydraulics_repair_in
 end subroutine vegn_photosynthesis_init
 
 
@@ -315,7 +380,6 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   ! miscellaneous
   real :: dum2;
   real, parameter :: light_crit = 0
-  real, parameter :: lai_eps = 1e-5 ! use linearized formulae below this LAI
 
   ! new average computations
   real :: lai_eq;
