@@ -45,18 +45,6 @@ private
 
 ! slm 
 logical :: force_watch_cell_burning = .false.
-! slm: from vegn_data:
-integer, public, parameter :: &
-    N_TROP_TYPES = 4, &
-    TROP_NOT = 0, &
-    TROP_SHR = 1, &
-    TROP_SAV = 2, &
-    TROP_FOR = 3
-! slm: was in vegn_harvesting
-integer :: adj_nppPrevDay = 2   ! 0 to not do anything.      ! SSR20150716
-                                ! 1 for attempted fix based on burned/killed leaves
-                                ! 2 for attempted fix based on burned/killed bliving
-                                ! 3 to remove all
 
 ! ==== public interfaces =====================================================
 public  ::  vegn_fire_init
@@ -95,6 +83,22 @@ character(len=*), parameter :: module_name = 'fire'
 #include "../shared/version_variable.inc"
 
 character(len=*), parameter  :: diag_mod_name = 'vegn'
+
+! slm: from vegn_data:
+integer, public, parameter :: &
+    N_TROP_TYPES = 4, &
+    TROP_NOT = 0, &
+    TROP_SHR = 1, &
+    TROP_SAV = 2, &
+    TROP_FOR = 3
+! slm: was in vegn_harvesting
+integer :: adj_nppPrevDay = 2   ! 0 to not do anything.      ! SSR20150716
+                                ! 1 for attempted fix based on burned/killed leaves
+                                ! 2 for attempted fix based on burned/killed bliving
+                                ! 3 to remove all
+
+character(3), parameter :: month_name(12) = ['JAN','FEB','MAR','APR','MAY','JUN', &
+                                             'JUL','AUG','SEP','OCT','NOV','DEC'  ]
 
 ! ==== variables =============================================================
 
@@ -383,10 +387,7 @@ real, allocatable :: &
     Fp_in(:,:), &         ! input buffer for Fp
     crop_burn_rate_in(:,:,:),& ! input buffer for monthly Fc values
     past_burn_rate_in(:,:,:),&   ! input buffer for monthly Fp values
-    crop_burn_rate_tmp(:,:),& !!! dsward
-    past_burn_rate_tmp(:,:),& !!! dsward
-    lightning_in_v2(:,:,:),&
-    lightning_in_tmp(:,:)  !!! dsward
+    lightning_in_v2(:,:,:)
 
 integer :: & ! diag field IDs
     id_population, id_lightning, id_GDPpc, &
@@ -449,7 +450,6 @@ subroutine vegn_fire_init(id_lon, id_lat, dt_fast_in, dt_fast_yr_in, dt_slow_in,
 !  logical, allocatable :: burn_rate_mask(:,:,:)
 !  logical, allocatable :: lightning_mask_v2(:,:,:)   ! SSR20151124
   logical, allocatable :: lightning_mask_tmp(:,:)   ! dsward
-  logical, allocatable :: burn_rate_mask_tmp(:,:)
 
   call log_version(version, module_name, &
   __FILE__)
@@ -643,173 +643,22 @@ subroutine vegn_fire_init(id_lon, id_lat, dt_fast_in, dt_fast_yr_in, dt_slow_in,
   ! monthly buffers for the input burn rate data
   allocate(crop_burn_rate_in(lnd%is:lnd%ie,lnd%js:lnd%je,12))
   allocate(past_burn_rate_in(lnd%is:lnd%ie,lnd%js:lnd%je,12))
-  allocate(crop_burn_rate_tmp(lnd%is:lnd%ie,lnd%js:lnd%je)) !!! dsward
-  allocate(past_burn_rate_tmp(lnd%is:lnd%ie,lnd%js:lnd%je)) !!! dsward
 !  allocate(burn_rate_mask(lnd%is:lnd%ie,lnd%js:lnd%je,12))
-  allocate(burn_rate_mask_tmp(lnd%is:lnd%ie,lnd%js:lnd%je)) !!! dsward
 
-!!! dsward added this lengthy code as a temporary work-around to the new land io
   if (.not.FireMIP_ltng) then
+     allocate(lightning_in_v2(lnd%is:lnd%ie,lnd%js:lnd%je,12))
+     do i = 1, 12
+        call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_'//month_name(i), &
+                        lightning_in_v2(:,:,i), interp='conservative', fill=0.0)
+     enddo
+  endif
 
-    allocate(lightning_in_v2(lnd%is:lnd%ie,lnd%js:lnd%je,12))
-    allocate(lightning_in_tmp(lnd%is:lnd%ie,lnd%js:lnd%je))
-    allocate(lightning_mask_tmp(lnd%is:lnd%ie,lnd%js:lnd%je))
-!     call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_JAN', lnd%lonb, lnd%latb, lightning_in_tmp, &
-!                   interp = 'conservative', mask=lightning_mask_tmp)
-!     where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
-!     lightning_in_v2(:,:,1)=lightning_in_tmp
-!     call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_FEB', lnd%lonb, lnd%latb, lightning_in_tmp, &
-!                   interp = 'conservative', mask=lightning_mask_tmp)
-!     where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
-!     lightning_in_v2(:,:,2)=lightning_in_tmp
-!     call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_MAR', lnd%lonb, lnd%latb, lightning_in_tmp, &
-!                   interp = 'conservative', mask=lightning_mask_tmp)
-!     where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
-!     lightning_in_v2(:,:,3)=lightning_in_tmp
-!     call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_APR', lnd%lonb, lnd%latb, lightning_in_tmp, &
-!                   interp = 'conservative', mask=lightning_mask_tmp)
-!     where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
-!     lightning_in_v2(:,:,4)=lightning_in_tmp
-!     call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_MAY', lnd%lonb, lnd%latb, lightning_in_tmp, &
-!                   interp = 'conservative', mask=lightning_mask_tmp)
-!     where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
-!     lightning_in_v2(:,:,5)=lightning_in_tmp
-!     call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_JUN', lnd%lonb, lnd%latb, lightning_in_tmp, &
-!                   interp = 'conservative', mask=lightning_mask_tmp)
-!     where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
-!     lightning_in_v2(:,:,6)=lightning_in_tmp
-!     call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_JUL', lnd%lonb, lnd%latb, lightning_in_tmp, &
-!                   interp = 'conservative', mask=lightning_mask_tmp)
-!     where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
-!     lightning_in_v2(:,:,7)=lightning_in_tmp
-!     call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_AUG', lnd%lonb, lnd%latb, lightning_in_tmp, &
-!                   interp = 'conservative', mask=lightning_mask_tmp)
-!     where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
-!     lightning_in_v2(:,:,8)=lightning_in_tmp
-!     call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_SEP', lnd%lonb, lnd%latb, lightning_in_tmp, &
-!                   interp = 'conservative', mask=lightning_mask_tmp)
-!     where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
-!     lightning_in_v2(:,:,9)=lightning_in_tmp
-!     call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_OCT', lnd%lonb, lnd%latb, lightning_in_tmp, &
-!                   interp = 'conservative', mask=lightning_mask_tmp)
-!     where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
-!     lightning_in_v2(:,:,10)=lightning_in_tmp
-!     call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_NOV', lnd%lonb, lnd%latb, lightning_in_tmp, &
-!                   interp = 'conservative', mask=lightning_mask_tmp)
-!     where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
-!     lightning_in_v2(:,:,11)=lightning_in_tmp
-!     call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_DEC', lnd%lonb, lnd%latb, lightning_in_tmp, &
-!                   interp = 'conservative', mask=lightning_mask_tmp)
-!     where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
-!     lightning_in_v2(:,:,12)=lightning_in_tmp
-!     deallocate(lightning_mask_tmp)
-
-    if (allocated(lightning_in_tmp))  deallocate(lightning_in_tmp)   ! dsward
-  endif !!! FireMIP_ltng
-
-
-!     call read_field('INPUT/Fk.nc', 'Fcrop_JAN', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
-!                   interp = 'conservative', mask=burn_rate_mask_tmp)
-!     where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
-!     crop_burn_rate_in(:,:,1)=crop_burn_rate_tmp
-!     call read_field('INPUT/Fk.nc', 'Fpast_JAN', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
-!                   interp = 'conservative', mask=burn_rate_mask_tmp)
-!     where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
-!     past_burn_rate_in(:,:,1)=past_burn_rate_tmp
-!     call read_field('INPUT/Fk.nc', 'Fcrop_FEB', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
-!                   interp = 'conservative', mask=burn_rate_mask_tmp)
-!     where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
-!     crop_burn_rate_in(:,:,2)=crop_burn_rate_tmp
-!     call read_field('INPUT/Fk.nc', 'Fpast_FEB', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
-!                   interp = 'conservative', mask=burn_rate_mask_tmp)
-!     where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
-!     past_burn_rate_in(:,:,2)=past_burn_rate_tmp
-!     call read_field('INPUT/Fk.nc', 'Fcrop_MAR', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
-!                   interp = 'conservative', mask=burn_rate_mask_tmp)
-!     where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
-!     crop_burn_rate_in(:,:,3)=crop_burn_rate_tmp
-!     call read_field('INPUT/Fk.nc', 'Fpast_MAR', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
-!                   interp = 'conservative', mask=burn_rate_mask_tmp)
-!     where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
-!     past_burn_rate_in(:,:,3)=past_burn_rate_tmp
-!     call read_field('INPUT/Fk.nc', 'Fcrop_APR', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
-!                   interp = 'conservative', mask=burn_rate_mask_tmp)
-!     where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
-!     crop_burn_rate_in(:,:,4)=crop_burn_rate_tmp
-!     call read_field('INPUT/Fk.nc', 'Fpast_APR', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
-!                   interp = 'conservative', mask=burn_rate_mask_tmp)
-!     where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
-!     past_burn_rate_in(:,:,4)=past_burn_rate_tmp
-!     call read_field('INPUT/Fk.nc', 'Fcrop_MAY', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
-!                   interp = 'conservative', mask=burn_rate_mask_tmp)
-!     where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
-!     crop_burn_rate_in(:,:,5)=crop_burn_rate_tmp
-!     call read_field('INPUT/Fk.nc', 'Fpast_MAY', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
-!                   interp = 'conservative', mask=burn_rate_mask_tmp)
-!     where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
-!     past_burn_rate_in(:,:,5)=past_burn_rate_tmp
-!     call read_field('INPUT/Fk.nc', 'Fcrop_JUN', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
-!                   interp = 'conservative', mask=burn_rate_mask_tmp)
-!     where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
-!     crop_burn_rate_in(:,:,6)=crop_burn_rate_tmp
-!     call read_field('INPUT/Fk.nc', 'Fpast_JUN', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
-!                   interp = 'conservative', mask=burn_rate_mask_tmp)
-!     where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
-!     past_burn_rate_in(:,:,6)=past_burn_rate_tmp
-!     call read_field('INPUT/Fk.nc', 'Fcrop_JUL', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
-!                   interp = 'conservative', mask=burn_rate_mask_tmp)
-!     where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
-!     crop_burn_rate_in(:,:,7)=crop_burn_rate_tmp
-!     call read_field('INPUT/Fk.nc', 'Fpast_JUL', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
-!                   interp = 'conservative', mask=burn_rate_mask_tmp)
-!     where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
-!     past_burn_rate_in(:,:,7)=past_burn_rate_tmp
-!     call read_field('INPUT/Fk.nc', 'Fcrop_AUG', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
-!                   interp = 'conservative', mask=burn_rate_mask_tmp)
-!     where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
-!     crop_burn_rate_in(:,:,8)=crop_burn_rate_tmp
-!     call read_field('INPUT/Fk.nc', 'Fpast_AUG', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
-!                   interp = 'conservative', mask=burn_rate_mask_tmp)
-!     where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
-!     past_burn_rate_in(:,:,8)=past_burn_rate_tmp
-!     call read_field('INPUT/Fk.nc', 'Fcrop_SEP', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
-!                   interp = 'conservative', mask=burn_rate_mask_tmp)
-!     where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
-!     crop_burn_rate_in(:,:,9)=crop_burn_rate_tmp
-!     call read_field('INPUT/Fk.nc', 'Fpast_SEP', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
-!                   interp = 'conservative', mask=burn_rate_mask_tmp)
-!     where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
-!     past_burn_rate_in(:,:,9)=past_burn_rate_tmp
-!     call read_field('INPUT/Fk.nc', 'Fcrop_OCT', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
-!                   interp = 'conservative', mask=burn_rate_mask_tmp)
-!     where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
-!     crop_burn_rate_in(:,:,10)=crop_burn_rate_tmp
-!     call read_field('INPUT/Fk.nc', 'Fpast_OCT', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
-!                   interp = 'conservative', mask=burn_rate_mask_tmp)
-!     where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
-!     past_burn_rate_in(:,:,10)=past_burn_rate_tmp
-!     call read_field('INPUT/Fk.nc', 'Fcrop_NOV', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
-!                   interp = 'conservative', mask=burn_rate_mask_tmp)
-!     where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
-!     crop_burn_rate_in(:,:,11)=crop_burn_rate_tmp
-!     call read_field('INPUT/Fk.nc', 'Fpast_NOV', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
-!                   interp = 'conservative', mask=burn_rate_mask_tmp)
-!     where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
-!     past_burn_rate_in(:,:,11)=past_burn_rate_tmp
-!     call read_field('INPUT/Fk.nc', 'Fcrop_DEC', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
-!                   interp = 'conservative', mask=burn_rate_mask_tmp)
-!     where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
-!     crop_burn_rate_in(:,:,12)=crop_burn_rate_tmp
-!     call read_field('INPUT/Fk.nc', 'Fpast_DEC', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
-!                   interp = 'conservative', mask=burn_rate_mask_tmp)
-!     where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
-!     past_burn_rate_in(:,:,12)=past_burn_rate_tmp
-!     deallocate(burn_rate_mask_tmp)
-
-
-    if (allocated(crop_burn_rate_tmp)) deallocate(crop_burn_rate_tmp)   ! dsward
-    if (allocated(past_burn_rate_tmp)) deallocate(past_burn_rate_tmp)   ! dsward
-!!! end dsward monthly data read 
+  do i = 1,12
+     call read_field('INPUT/Fk.nc', 'Fcrop_'//month_name(i), crop_burn_rate_in(:,:,i), &
+                  interp='conservative', fill=0.0)
+     call read_field('INPUT/Fk.nc', 'Fcrop_'//month_name(i), past_burn_rate_in(:,:,i), &
+                  interp='conservative', fill=0.0)
+  enddo
   
   ! get the data for current date
   call update_fire_data(time,lnd%is,lnd%ie,lnd%js,lnd%je)
