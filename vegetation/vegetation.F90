@@ -445,10 +445,10 @@ subroutine vegn_init ( id_ug, id_band )
           t_cold(lnd%ls:lnd%le),&
           p_ann (lnd%ls:lnd%le),&
           ncm   (lnd%ls:lnd%le) )
-     call read_field( 'INPUT/biodata.nc','T_ANN',  lnd%ug_lon, lnd%ug_lat, t_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','T_COLD', lnd%ug_lon, lnd%ug_lat, t_cold, interp='nearest')
-     call read_field( 'INPUT/biodata.nc','P_ANN',  lnd%ug_lon, lnd%ug_lat, p_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','NCM',    lnd%ug_lon, lnd%ug_lat, ncm,    interp='nearest')
+     call read_field( 'INPUT/biodata.nc','T_ANN',  t_ann,  interp='nearest')
+     call read_field( 'INPUT/biodata.nc','T_COLD', t_cold, interp='nearest')
+     call read_field( 'INPUT/biodata.nc','P_ANN',  p_ann,  interp='nearest')
+     call read_field( 'INPUT/biodata.nc','NCM',    ncm,    interp='nearest')
      did_read_biodata = .TRUE.
      call error_mesg('vegn_init','did read INPUT/biodata.nc',NOTE)
   else
