@@ -380,14 +380,14 @@ type(external_ts_type) :: &
     Fc_ts, &         ! input time series of Fc
     Fp_ts            ! input time series of Fp
 real, allocatable :: &
-    population_in(:,:), & ! input buffer for population data
-    lightning_in(:,:),  & ! input buffer for lightning data
-    GDPpc_billion_in(:,:), &! input buffer for GDP data
-    Fc_in(:,:), &         ! input buffer for Fc
-    Fp_in(:,:), &         ! input buffer for Fp
-    crop_burn_rate_in(:,:,:),& ! input buffer for monthly Fc values
-    past_burn_rate_in(:,:,:),&   ! input buffer for monthly Fp values
-    lightning_in_v2(:,:,:)
+    population_in(:), & ! input buffer for population data
+    lightning_in(:),  & ! input buffer for lightning data
+    GDPpc_billion_in(:), &! input buffer for GDP data
+    Fc_in(:), &         ! input buffer for Fc
+    Fp_in(:), &         ! input buffer for Fp
+    crop_burn_rate_in(:,:),& ! input buffer for monthly Fc values
+    past_burn_rate_in(:,:),&   ! input buffer for monthly Fp values
+    lightning_in_v2(:,:)
 
 integer :: & ! diag field IDs
     id_population, id_lightning, id_GDPpc, &
@@ -446,10 +446,7 @@ subroutine vegn_fire_init(id_lon, id_lat, dt_fast_in, dt_fast_yr_in, dt_slow_in,
   type(time_type), intent(in) :: time           ! current time
   
   integer :: io, ierr, unit
-  integer :: i, j   ! SSR
-!  logical, allocatable :: burn_rate_mask(:,:,:)
-!  logical, allocatable :: lightning_mask_v2(:,:,:)   ! SSR20151124
-  logical, allocatable :: lightning_mask_tmp(:,:)   ! dsward
+  integer :: i
 
   call log_version(version, module_name, &
   __FILE__)
@@ -619,44 +616,43 @@ subroutine vegn_fire_init(id_lon, id_lat, dt_fast_in, dt_fast_yr_in, dt_slow_in,
   
   ! initialize external fields
   ! SSR: Does horizontal interpolation
-!   if (use_FpopD_nf .OR. use_FpopD_ba .OR. Ia_alpha_monthly(1)>0.0) then
-!      call init_external_ts(population_ts, 'INPUT/population.nc', 'pop_density',&
-!           lnd%lonb, lnd%latb, 'conservative', lnd%domain)
-!   endif
-!   if (use_Fgdp_nf .OR. use_Fgdp_ba) then
-!      call init_external_ts(GDPpc_billion_ts, 'INPUT/GDP.nc', 'GDPPC', &
-!           lnd%lonb, lnd%latb, 'conservative', lnd%domain)
-!   endif
-!   !!! dsward added code for reading FireMIP monthly lightning timeseries
-!   if (FireMIP_ltng) then
-!      call init_external_ts(lightning_ts, 'INPUT/lightning.nc', 'ltng', &
-!           lnd%lonb, lnd%latb, 'conservative', lnd%domain)
-!   endif
+  if (use_FpopD_nf .OR. use_FpopD_ba .OR. Ia_alpha_monthly(1)>0.0) then
+     call init_external_ts(population_ts, 'INPUT/population.nc', 'pop_density',&
+          'conservative', fill=0.0)
+  endif
+  if (use_Fgdp_nf .OR. use_Fgdp_ba) then
+     call init_external_ts(GDPpc_billion_ts, 'INPUT/GDP.nc', 'GDPPC', &
+          'conservative', fill=0.0)
+  endif
+  !!! dsward added code for reading FireMIP monthly lightning timeseries
+  if (FireMIP_ltng) then
+     call init_external_ts(lightning_ts, 'INPUT/lightning.nc', 'ltng', &
+          'conservative', fill=0.0)
+  endif
 
 
   ! allocate buffers for external data
-  allocate(lightning_in(lnd%is:lnd%ie,lnd%js:lnd%je))
-  allocate(population_in(lnd%is:lnd%ie,lnd%js:lnd%je))
-  allocate(GDPpc_billion_in(lnd%is:lnd%ie,lnd%js:lnd%je))
-  allocate(Fc_in(lnd%is:lnd%ie,lnd%js:lnd%je))
-  allocate(Fp_in(lnd%is:lnd%ie,lnd%js:lnd%je))
+  allocate(lightning_in(lnd%ls:lnd%le))
+  allocate(population_in(lnd%ls:lnd%le))
+  allocate(GDPpc_billion_in(lnd%ls:lnd%le))
+  allocate(Fc_in(lnd%ls:lnd%le))
+  allocate(Fp_in(lnd%ls:lnd%le))
   ! monthly buffers for the input burn rate data
-  allocate(crop_burn_rate_in(lnd%is:lnd%ie,lnd%js:lnd%je,12))
-  allocate(past_burn_rate_in(lnd%is:lnd%ie,lnd%js:lnd%je,12))
-!  allocate(burn_rate_mask(lnd%is:lnd%ie,lnd%js:lnd%je,12))
+  allocate(crop_burn_rate_in(lnd%ls:lnd%le,12))
+  allocate(past_burn_rate_in(lnd%ls:lnd%ie,12))
 
   if (.not.FireMIP_ltng) then
-     allocate(lightning_in_v2(lnd%is:lnd%ie,lnd%js:lnd%je,12))
+     allocate(lightning_in_v2(lnd%ls:lnd%le,12))
      do i = 1, 12
         call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_'//month_name(i), &
-                        lightning_in_v2(:,:,i), interp='conservative', fill=0.0)
+                        lightning_in_v2(:,i), interp='conservative', fill=0.0)
      enddo
   endif
 
   do i = 1,12
-     call read_field('INPUT/Fk.nc', 'Fcrop_'//month_name(i), crop_burn_rate_in(:,:,i), &
+     call read_field('INPUT/Fk.nc', 'Fcrop_'//month_name(i), crop_burn_rate_in(:,i), &
                   interp='conservative', fill=0.0)
-     call read_field('INPUT/Fk.nc', 'Fcrop_'//month_name(i), past_burn_rate_in(:,:,i), &
+     call read_field('INPUT/Fk.nc', 'Fcrop_'//month_name(i), past_burn_rate_in(:,i), &
                   interp='conservative', fill=0.0)
   enddo
   
@@ -987,9 +983,6 @@ end subroutine vegn_fire_end
 ! reads external data for the fire model
 subroutine update_fire_data(time,is,ie,js,je)
   type(time_type), intent(in) :: time
-  logical mask(size(GDPpc_billion_in,1),size(GDPpc_billion_in,2))
-  logical mask_pop(size(population_in,1),size(population_in,2))
-  logical mask_ltn(size(lightning_in,1),size(lightning_in,2))
   integer :: year,month,day,hour,minute,second
   integer, intent(in) :: is, ie, js, je
   integer :: i, j
@@ -1000,39 +993,32 @@ subroutine update_fire_data(time,is,ie,js,je)
   ! and linearly in time.
   ! SSR: Really just does time interpolation
   if (use_FpopD_nf .OR. use_FpopD_ba .OR. Ia_alpha_monthly(1)>0.0) then
-     call read_external_ts(population_ts,time,population_in,mask=mask)
-     !!!write(*,*)"dsward_tmp",size(mask),size(population_in)
-     where (.not.mask) population_in = 0.0 ! fill points where there is no data
+     call read_external_ts(population_ts,time,population_in)
   else
      population_in = 0.0
   endif
   if (use_Fgdp_nf .OR. use_Fgdp_ba) then
-     call read_external_ts(GDPpc_billion_ts,time,GDPpc_billion_in,mask=mask)
-     where (.not.mask) GDPpc_billion_in = 0.0 ! fill points where there is no data
+     call read_external_ts(GDPpc_billion_ts,time,GDPpc_billion_in)
   else
      GDPpc_billion_in = 0.0
   endif
   !!! dsward added code to read in FireMIP monthly lightning
   if (FireMIP_ltng) then
-     call read_external_ts(lightning_ts,time,lightning_in,mask=mask)
-     where (.not.mask) lightning_in = 0.0 ! fill points where there is no data
+     call read_external_ts(lightning_ts,time,lightning_in)
   endif
-
 
 ! SSR20151124  call read_external_ts(lightning_ts,time,lightning_in,mask=mask)
 ! SSR20151124  where (.not.mask) lightning_in = 0.0
   
   call get_date(time,year,month,day,hour,minute,second)
-  Fc_in = crop_burn_rate_in(:,:,month)
-  Fp_in = past_burn_rate_in(:,:,month)
-  if (.not.FireMIP_ltng) lightning_in = lightning_in_v2(:,:,month) 
+  Fc_in = crop_burn_rate_in(:,month)
+  Fp_in = past_burn_rate_in(:,month)
+  if (.not.FireMIP_ltng) lightning_in = lightning_in_v2(:,month) 
 
   
   ! SSR: Check lightning data. (Sergey's suggestion.)
-  do i = lnd%is, lnd%ie
-      do j = lnd%js, lnd%je
-          call check_var_range(lightning_in(i,j), 0.0, 10.**37, 'update_fire_data', 'lightning', FATAL)
-      end do
+  do i = lnd%ls, lnd%le
+     call check_var_range(lightning_in(i), 0.0, 1e37, 'update_fire_data', 'lightning', FATAL)
   end do
   
   if (is_watch_point()) then
@@ -1049,7 +1035,7 @@ end subroutine update_fire_data
 ! ==============================================================================
 subroutine update_fire_fast(vegn,soil,diag, &
                             Tca,q,p_surf,cplr2land_wind, &
-                            i,j,tile_area, &
+                            l,tile_area, &
                             latitude)
     type(vegn_tile_type), intent(inout) :: vegn
     type(soil_tile_type), intent(in) :: soil
@@ -1058,7 +1044,7 @@ subroutine update_fire_fast(vegn,soil,diag, &
     real, intent(in) :: Tca   ! Kelvin
     real, intent(in) :: p_surf
     real, intent(in) :: cplr2land_wind   ! Sheffield's 10-m wind
-    integer, intent(in)  :: i,j   ! Coordinates of current point, for fire data
+    integer, intent(in)  :: l  ! index of current point, for fire data
     real, intent(in)     :: tile_area   ! Area of tile (m2)
     real, intent(in)     :: latitude
     real   ::   lightning  ! Lightning flash density (flashes/km2/day)
@@ -1132,15 +1118,15 @@ subroutine update_fire_fast(vegn,soil,diag, &
     
     ! Could speed things up by only changing these monthly (or even yearly, for
     ! popD and GDPpc).
-    lightning = lightning_in(i,j)
-    if (use_FpopD_nf .OR. use_FpopD_ba .OR. Ia_alpha_monthly(1)>0.0) popD =  population_in(i,j)
-    if (use_Fgdp_nf .OR. use_Fgdp_ba)   GDPpc = GDPpc_billion_in(i,j) * 1.e9   ! Converting to dollars/person.
+    lightning = lightning_in(l)
+    if (use_FpopD_nf .OR. use_FpopD_ba .OR. Ia_alpha_monthly(1)>0.0) popD =  population_in(l)
+    if (use_Fgdp_nf .OR. use_Fgdp_ba)   GDPpc = GDPpc_billion_in(l) * 1.e9   ! Converting to dollars/person.
     
     if (is_watch_point()) then
        write(*,*) '#### checkpoint update_fire_fast #####'
-       if (use_Fgdp_nf .OR. use_Fgdp_ba)   __DEBUG4__(minval(GDPpc_billion_in),maxval(GDPpc_billion_in),GDPpc_billion_in(i,j),GDPpc)
-       if (use_FpopD_nf .OR. use_FpopD_ba .OR. Ia_alpha_monthly(1)>0.0) __DEBUG4__(minval(population_in),maxval(population_in),population_in(i,j),popD)
-       __DEBUG3__(minval(lightning_in),maxval(lightning_in),lightning_in(i,j))
+       if (use_Fgdp_nf .OR. use_Fgdp_ba)   __DEBUG4__(minval(GDPpc_billion_in),maxval(GDPpc_billion_in),GDPpc_billion_in(l),GDPpc)
+       if (use_FpopD_nf .OR. use_FpopD_ba .OR. Ia_alpha_monthly(1)>0.0) __DEBUG4__(minval(population_in),maxval(population_in),population_in(l),popD)
+       __DEBUG3__(minval(lightning_in),maxval(lightning_in),lightning_in(l))
        write(*,*) '######################################'
     endif
     
@@ -1150,7 +1136,7 @@ subroutine update_fire_fast(vegn,soil,diag, &
        call check_var_range(vegn%max_fire_size, max_fire_size_min, 10.**37, 'update_fire_fast', 'vegn%max_fire_size', FATAL)
     endif
     
-    call update_Nfire_BA_fast(diag,i,j,tile_area, &
+    call update_Nfire_BA_fast(diag,l,tile_area, &
                               fire_fn_theta, fire_fn_rh, fire_fn_Tca, fire_fn_agb, &
                               BAperFire_0, &
                               vegn_cohort_1_species, &
@@ -1342,13 +1328,13 @@ subroutine update_fire_agri(vegn,Time,tile_area_km2,BF_mth,BA_mth)
 end subroutine update_fire_agri
 
 
-subroutine update_fire_Fk(vegn,diag,i,j)
+subroutine update_fire_Fk(vegn,diag,l)
   type(vegn_tile_type), intent(inout) :: vegn
   type(diag_buff_type), intent(inout) :: diag
-  integer, intent(in)  :: i,j   ! Coordinates of current point, for fire data
+  integer, intent(in)  :: l   ! index of current point, for fire data
   
-  vegn%Fcrop = Fc_in(i,j)
-  vegn%Fpast = Fp_in(i,j)
+  vegn%Fcrop = Fc_in(l)
+  vegn%Fpast = Fp_in(l)
 
   if (vegn%Fcrop.lt.1.e-9) vegn%Fcrop = 1.e-9
   if (vegn%Fpast.lt.1.e-9) vegn%Fpast = 1.e-9
@@ -2996,7 +2982,7 @@ subroutine vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_mth,BF_mth)
 end subroutine vegn_fire_BA_agri
 
 
-subroutine update_Nfire_BA_fast(diag,i,j,tile_area, &
+subroutine update_Nfire_BA_fast(diag,l,tile_area, &
                                 fire_fn_theta, fire_fn_rh, fire_fn_Tca, fire_fn_agb, &
                                 BAperFire_0, &
                                 vegn_cohort_1_species, &
@@ -3010,7 +2996,7 @@ subroutine update_Nfire_BA_fast(diag,i,j,tile_area, &
                                 ROSmax, gW, fire_dur, HB, LB, rh, theta, C_beta, &   ! SSR20151009
                                 kop ) !!! dsward_kop
   type(diag_buff_type), intent(inout) :: diag
-  integer, intent(in) :: i,j   ! Coordinates of current point, for fire data
+  integer, intent(in) :: l   ! index of current point, for fire data
   real, intent(in)    :: tile_area   ! Area of tile (m2)
   real, intent(in)    :: fire_fn_theta, fire_fn_rh, fire_fn_Tca, fire_fn_agb
   real, intent(in)    :: BAperFire_0

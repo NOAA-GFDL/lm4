@@ -75,6 +75,7 @@ type external_ts_type
    character(64)  :: fieldname
    integer :: id ! ID of external field
    type(horiz_interp_type) :: interp ! interpolator
+   real :: fill ! fill value for missing data
 end type external_ts_type
 
 ! ==== module data ===========================================================
@@ -799,15 +800,18 @@ end subroutine print_netcdf_error
 ! ==============================================================================
 ! simplified interface for the time_inerp_external: takes care of creating
 ! the horizntal interpolator
-! TODO: make it possible to get timeline (?)
-! TODO: make it possible to get the sizes of the input fields and input coordinates
 ! ==============================================================================
-subroutine init_external_ts(ts, filename, fieldname, lonb, latb, interp_method, domain)
+subroutine init_external_ts(ts, filename, fieldname, interp, fill)
   type(external_ts_type), intent(inout) :: ts
   character(*), intent(in) :: filename, fieldname
-  real,         intent(in) :: lonb(:,:), latb(:,:) ! model bound cooordinates for interpolator
-  character(*), intent(in) :: interp_method ! type of interpolation
-  type(domain2d), intent(in) :: domain ! our domain
+  character(*), intent(in) :: interp ! interpolation method
+  real,         intent(in), optional :: fill ! fill value for missing data
+
+! NOTE: filling missing data is not really implemented yet. It is not clear how to get
+! the input data to determine the input valid data mask. Besides, missing input data mask
+! may be different at different times -- not sure if time_interp_external can handle that
+! at all.
+! TODO: really implement missing data masking and filling
 
   integer :: axis_sizes(4)
   type(axistype) :: axis_centers(4), axis_bounds(4)
@@ -816,7 +820,7 @@ subroutine init_external_ts(ts, filename, fieldname, lonb, latb, interp_method, 
   ! initialize external field
   ts%filename = filename
   ts%fieldname = fieldname
-  ts%id = init_external_field(filename,fieldname, domain=domain, &
+  ts%id = init_external_field(filename,fieldname, domain=lnd%sg_domain, &
        axis_centers=axis_centers, axis_sizes=axis_sizes, &
        use_comp_domain=.TRUE., override=.TRUE.)
   !  get lon and lat of the input (source) grid, assuming that axis%data contains
@@ -827,9 +831,19 @@ subroutine init_external_ts(ts, filename, fieldname, lonb, latb, interp_method, 
   allocate(lat_in(axis_sizes(2)+1))
   call mpp_get_axis_data(axis_bounds(1),lon_in)
   call mpp_get_axis_data(axis_bounds(2),lat_in)
-  call horiz_interp_new(ts%interp, lon_in*PI/180, lat_in*PI/180, lonb, latb, &
-       interp_method=interp_method)
+  select case (trim(interp))
+  case ('bilinear')
+     call horiz_interp_new(ts%interp, lon_in*PI/180, lat_in*PI/180, lnd%sg_lon, lnd%sg_lat, &
+          interp_method='bilinear')
+  case ('conservative')
+     call horiz_interp_new(ts%interp, lon_in*PI/180, lat_in*PI/180, lnd%sg_lonb, lnd%sg_latb, &
+          interp_method='conservative')
+  case default
+     call error_mesg('init_external_ts','Unknown interpolation method "'//trim(interp)//'". use "bilinear" or "conservative"', FATAL)
+  end select
   deallocate(lon_in,lat_in)
+  ts%fill = DEFAULT_FILL_REAL
+  if (present(fill)) ts%fill = fill
 end subroutine init_external_ts
 
 
@@ -841,14 +855,15 @@ end subroutine del_external_ts
 
 
 ! ==============================================================================
-subroutine read_external_ts(ts,time,data,mask)
-  type(external_ts_type), intent(in) :: ts
-  type(time_type),        intent(in) :: time
-  real,                   intent(inout) :: data(:,:)
-  logical, optional,      intent(out) :: mask(:,:)
+subroutine read_external_ts(ts,time,data_ug)
+  type(external_ts_type), intent(in)  :: ts
+  type(time_type),        intent(in)  :: time
+  real,                   intent(out) :: data_ug(:)
 
-  call time_interp_external(ts%id, time, data, horz_interp=ts%interp, mask_out=mask)
+  real :: data_sg(lnd%is:lnd%ie,lnd%js:lnd%je)
+
+  call time_interp_external(ts%id, time, data_sg, horz_interp=ts%interp)
+  call mpp_pass_sg_to_ug(lnd%ug_domain, data_sg, data_ug)
 end subroutine read_external_ts
-!!! SSR end
 
 end module
