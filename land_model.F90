@@ -52,6 +52,9 @@ use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
      vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
      update_derived_vegn_data, update_vegn_slow, save_vegn_restart
 use vegn_disturbance_mod, only : vegn_nat_mortality_ppa
+use vegn_fire_mod, only : do_multiday_fires, fire_natural, fire_agri, &
+     update_fire_fast, update_fire_agri, send_tile_data_babf_foragri, &
+     update_fire_fk, update_multiday_fires
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, cana_state,&
      cana_roughness, &
@@ -258,7 +261,8 @@ integer :: &
   id_vegn_sctr_dir,                                                        &
   id_subs_refl_dir, id_subs_refl_dif, id_subs_emis, id_grnd_T, id_total_C, &
   id_water_cons,    id_carbon_cons,   id_DOCrunf,                          &
-  id_parnet, id_grnd_rh, id_cana_rh
+  id_parnet, id_grnd_rh, id_cana_rh,                                       &
+  id_mdf_BA_tot,    id_mdf_Nfires  !!! dsward_mdf
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
 ! It is supposed to be double-precision signaling NaN, to trigger a trap when
@@ -1087,6 +1091,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
         call update_land_model_fast_0d(tile, l,k, n_cohorts, land2cplr, &
            cplr2land%lprec(l,k),  cplr2land%fprec(l,k), cplr2land%tprec(l,k), &
+           cplr2land%wind(l,k), &
            cplr2land%t_flux(l,k), cplr2land%dhdt(l,k), &
            cplr2land%tr_flux(l,k,:), cplr2land%dfdtr(l,k,:), &
            ISa_dn_dir, ISa_dn_dif, cplr2land%lwdn_flux(l,k), &
@@ -1202,7 +1207,7 @@ end subroutine update_land_model_fast
 
 ! ============================================================================
 subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
-   precip_l, precip_s, atmos_T, &
+   precip_l, precip_s, atmos_T, atmos_wind, &
    Ha0, DHaDTc, tr_flux, dfdtr, &
    ISa_dn_dir, ISa_dn_dif, ILa_dn, &
    ustar, p_surf, drag_q, &
@@ -1218,6 +1223,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   real, intent(in) :: &
        precip_l, precip_s, & ! liquid and solid precipitation, kg/(m2 s)
        atmos_T, &        ! incoming precipitation temperature (despite its name), deg K
+       atmos_wind, &     ! magnitude of wind at the bottom of the atmosphere, m/s
        tr_flux(:), dfdtr(:), &  ! tracer flux from canopy air to the atmosphere
        Ha0,   DHaDTc, &  ! sensible heat flux from the canopy air to the atmosphere
        ISa_dn_dir(NBANDS), & ! downward direct sw radiation at the top of the canopy
@@ -1344,6 +1350,12 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   logical :: calc_water_cons, calc_carbon_cons
   character(64) :: tag
   integer :: i,j
+
+  ! For agricultural fire (SSR added 2014-12-08)
+  integer :: year0, month0, day0, hour, minute, second, &
+             year1, month1, day1
+  real    :: BF_mth, BF_mth_mult, &
+             BA_mth, BA_mth_mult
 
   calc_water_cons  = do_check_conservation.or.(id_water_cons>0)
   calc_carbon_cons = do_check_conservation.or.(id_carbon_cons>0)
@@ -2037,7 +2049,45 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
           vegn_fco2, tile%diag)
      ! if vegn is present, then soil must be too
      call soil_step_3(tile%soil, tile%diag)
-  endif
+
+     ! SSR: Get & send Fcrop & Fpast---even for non-agri. tiles! Otherwise throws
+     ! "skipped one time level" error.
+     ! slm: I don't like calling get_date for every tile every time step. Why not 
+     ! do monthly processes inside slow subroutines?
+     call get_date(lnd%time,                year0,month0,day0,hour,minute,second)
+     call get_date(lnd%time-lnd%dt_fast,    year1,month1,day1,hour,minute,second)
+     if (month1/=month0) then
+        call update_fire_Fk(tile%vegn,tile%diag,l)
+     endif
+     
+     if (fire_natural(tile)) then
+        ! Update conditions for fire
+        call update_fire_fast(tile%vegn,tile%soil,tile%diag, &
+              tile%cana%T, cana_q, p_surf, atmos_wind, l, lnd%ug_area(l)*tile%frac, lnd%ug_lat(l))
+        ! Compute multi-day fires (daily) dsward_mdf
+        if (do_multiday_fires .and. day1/=day0) then
+          call update_multiday_fires(tile%vegn,lnd%ug_area(l)*tile%frac)
+        endif
+        call send_tile_data(id_mdf_BA_tot,    tile%vegn%total_BA_mdf,        tile%diag)
+        call send_tile_data(id_mdf_Nfires,    sum(tile%vegn%past_fires_mdf(2:30)), tile%diag)
+     elseif (fire_agri(tile)) then
+        if (month1/=month0) then
+           call update_fire_agri(tile%vegn,lnd%time,lnd%ug_area(l)*tile%frac/1e6,BF_mth,BA_mth)
+           
+           ! Make sure that when today's BA is calculated as the average over all
+           ! fast time steps, it equals the total amount of burning that actually
+           ! occurred. Note that this will make this time step's value look INSANE,
+           ! but that's only a problem when looking at sub-daily diagnostics.
+           BF_mth_mult = BF_mth * 86400./delta_time
+           BA_mth_mult = BA_mth * 86400./delta_time
+        else
+           BF_mth_mult = 0.0
+           BA_mth_mult = 0.0
+        endif
+        call send_tile_data_BABF_forAgri(tile%diag,BF_mth_mult,BA_mth_mult)
+     endif
+  endif ! associated(tile%vegn)
+
   ! update co2 concentration in the canopy air. It would be more consistent to do that
   ! in the same place and fashion as the rest of prognostic variables: that is, have the
   ! vegn_step_1 (and perhaps other *_step_1 procedures) calculate fluxes and their
@@ -3667,6 +3717,15 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
 
   id_parnet = register_cohort_diag_field ( module_name, 'parnet', axes, time, &
              'net PAR to the vegetation', 'W/m2', missing_value=-1.0e+20)
+
+!!! dsward_mdf added
+  id_mdf_BA_tot = register_tiled_diag_field (module_name, 'multiday_fire_BA',(/id_lon,id_lat/), &
+       time, 'Burned area from multiday fires ', 'km2', &
+       missing_value=-1.0, op='sum')
+  id_mdf_Nfires = register_tiled_diag_field (module_name, 'multiday_fire_Nfires',(/id_lon,id_lat/), &
+       time, 'Number of fires from multiday fires ', '', &
+       missing_value=-1.0, op='sum')
+!!! dsward end
 end subroutine land_diag_init
 
 ! ============================================================================

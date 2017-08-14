@@ -16,12 +16,13 @@ use fms_mod, only : &
      file_exist, check_nml_error, error_mesg, &
      close_file, stdlog, stdout, WARNING, FATAL
 
+use land_constants_mod, only : seconds_per_year
 use land_io_mod,     only : external_ts_type, init_external_ts, del_external_ts, &
       read_external_ts, read_field
 use land_debug_mod,  only : check_var_range, is_watch_point, is_watch_cell, &
       carbon_cons_tol
 use land_data_mod,   only : lnd, log_version
-use land_tile_mod,   only : land_tile_type, &
+use land_tile_mod,   only : land_tile_type, land_tile_map, loop_over_tiles, &
       land_tile_list_type, land_tile_enum_type, first_elmt, tail_elmt, next_elmt, &
       operator(/=), operator(==), current_tile
 use land_tile_diag_mod, only : register_tiled_diag_field, send_tile_data, diag_buff_type
@@ -43,17 +44,18 @@ use soil_carbon_mod, only : add_litter, soil_carbon_option, poolTotalCarbon, &
 implicit none
 private
 
-! slm 
+! slm
 logical :: force_watch_cell_burning = .false.
 
 ! ==== public interfaces =====================================================
-public  ::  vegn_fire_init
+public  ::  vegn_fire_init, vegn_fire_end
 public  ::  update_fire_fast
 public  ::  update_fire_agri
 public  ::  update_fire_data ! reads external data for fire model
 public  ::  update_fire_Fk
 public  ::  update_fire_agb
 public  ::  update_multiday_fires !!! dsward_mdf
+public  ::  fire_natural, fire_agri
 public  ::  vegn_burn
 public  ::  vegn_fire_sendtiledata_Cburned
 public  ::  send_tile_data_BABF_forAgri
@@ -116,8 +118,8 @@ logical :: zero_tmf = .TRUE.    ! SSR20150921: If we have to reduce burned area 
                                 ! exceeded the unburned area in the grid cell, or because
                                 ! fire size was larger than that allowed by fragmentation,
                                 ! then if TRUE, set all derivatives to zero.
-character(3) :: order_LU_vegn_fire = 'flv'   ! Refers to order of Land-use transitions, 
-                                             ! Fire, and update_Vegn slow as called in 
+character(3) :: order_LU_vegn_fire = 'flv'   ! Refers to order of Land-use transitions,
+                                             ! Fire, and update_Vegn slow as called in
                                              ! update_land_model_slow_0d. Other valid
                                              ! options: 'lvf' and 'vfl'.
 real   ::   magic_scalar(2) = 1.0   ! SSR20160222 on advice of SLP. !!! dsward added dimension for boreal
@@ -128,7 +130,7 @@ real, public    :: min_BA_to_split = 0.0   ! Km2. If BA < than this, fire tile w
                                            ! Instead, combustion completeness and mortality will
                                            ! be multiplied by burned_frac and applied to the
                                            ! existing tile.
-                                           
+
 ! Incorporate fragmentation effects?
 logical, public  ::  do_fire_fragmentation = .FALSE.
 real             ::  max_fire_size_min = 1e5   ! m2. Default taken from Pfeiffer et al. (2013).
@@ -208,7 +210,7 @@ logical :: use_Fgdp_ba = .TRUE.
 
 ! Can turn off lightning and/or human ignitions using these two parameters
 real :: In_c2g_ign_eff = 0.25       ! From Li et al. (2012) + Corrigendum
-real :: Ia_alpha_monthly(2) = 0.0035   ! From Li et al. (2013). Ignitions/person/month; 
+real :: Ia_alpha_monthly(2) = 0.0035   ! From Li et al. (2013). Ignitions/person/month;
                                     ! converted to daily in fire_init.
 
 ! Fire duration. If species-specific value not specified in namelist,
@@ -341,10 +343,7 @@ namelist /fire_nml/ fire_to_use, fire_for_past, &
                     do_multiday_fires, do_crownfires, FireMIP_ltng, mdf_threshold  !!! dsward_opt
 !---- end of namelist --------------------------------------------------------
 real :: dt_fast      ! fast time step, s
-real :: dt_fast_yr   ! fast time step, yr
-real :: dt_slow      ! slow time step, s
-real :: dt_slow_yr   ! slow time step, yr
-real :: seconds_per_year, days_per_year
+real :: days_per_year
 
 real :: LB_max = -1 ! Maximum length:breadth ratio
 real :: HB_max = -1 ! Maximum head:back ratio
@@ -387,7 +386,10 @@ real, allocatable :: &
     Fp_in(:), &         ! input buffer for Fp
     crop_burn_rate_in(:,:),& ! input buffer for monthly Fc values
     past_burn_rate_in(:,:),&   ! input buffer for monthly Fp values
-    lightning_in_v2(:,:)
+    lightning_in_v2(:,:), &
+    fragmenting_frac(:), & ! fraction of grid cell that can fragment fires
+    burnable_frac(:)       ! burnable fraction of grid cells, used for fragmentation calculations
+
 
 integer :: & ! diag field IDs
     id_population, id_lightning, id_GDPpc, &
@@ -398,7 +400,7 @@ integer :: & ! diag field IDs
     id_fragmenting_frac, id_burnable_frac, &   ! SSR20150811
     id_fire_duration_ave, &
     id_fire_fn_popD_NF, id_fire_fn_popD_BA, id_fire_fn_GDPpc_NF, id_fire_fn_GDPpc_BA, &
-    id_Ia, id_In, id_Nfire_perKm2, id_Nfire_rate, & 
+    id_Ia, id_In, id_Nfire_perKm2, id_Nfire_rate, &
     id_Fcrop, id_Fpast, &
     id_vegn_burned, & !!! dsward_tmp
     id_burn_Cemit, id_burn_Ckill, &
@@ -437,16 +439,17 @@ integer :: & ! diag field IDs
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 ! ==============================================================================
-subroutine vegn_fire_init(id_lon, id_lat, dt_fast_in, dt_fast_yr_in, dt_slow_in, dt_slow_yr_in, time)
-  integer,         intent(in) :: id_lon, id_lat ! ids of diagnostic axes
-  real,            intent(in) :: dt_fast_in        ! fast time step, seconds
-  real,            intent(in) :: dt_fast_yr_in     ! fast time step, years
-  real,            intent(in) :: dt_slow_in        ! slow time step, seconds
-  real,            intent(in) :: dt_slow_yr_in     ! slow time step, years
-  type(time_type), intent(in) :: time           ! current time
-  
+subroutine vegn_fire_init(id_ug, dt_fast_in, time)
+  integer,         intent(in) :: id_ug      ! id of diagnostic axis (unstructured grid)
+  real,            intent(in) :: dt_fast_in ! fast time step, seconds
+  type(time_type), intent(in) :: time       ! current time
+
   integer :: io, ierr, unit
-  integer :: i
+  integer :: i, l
+  integer :: axes(1) ! horizontal axes for diagnostics
+  real, allocatable :: koppen_zone_2000(:)
+  type(land_tile_enum_type)     :: ce
+  type(land_tile_type), pointer :: tile
 
   call log_version(version, module_name, &
   __FILE__)
@@ -456,7 +459,7 @@ subroutine vegn_fire_init(id_lon, id_lat, dt_fast_in, dt_fast_yr_in, dt_slow_in,
 #else
   if (file_exist('input.nml')) then
      unit = open_namelist_file()
-     ierr = 1;  
+     ierr = 1;
      do while (ierr /= 0)
         read (unit, nml=fire_nml, iostat=io, end=10)
         ierr = check_nml_error (io, 'fire_nml')
@@ -470,15 +473,11 @@ subroutine vegn_fire_init(id_lon, id_lat, dt_fast_in, dt_fast_yr_in, dt_slow_in,
      unit=stdlog()
      write(unit, nml=fire_nml)
   endif
-  
+
   ! get dt_*
   dt_fast    = dt_fast_in
-  dt_fast_yr = dt_fast_yr_in
-  dt_slow    = dt_slow_in
-  dt_slow_yr = dt_slow_yr_in
-  seconds_per_year = dt_fast / dt_fast_yr
   days_per_year = seconds_per_year / 86400.
-  
+
   ! parse the fire model options for efficiency.
   select case (trim(fire_to_use))
   case ('none')
@@ -492,7 +491,7 @@ subroutine vegn_fire_init(id_lon, id_lat, dt_fast_in, dt_fast_yr_in, dt_slow_in,
         'option fire_to_use="'//trim(fire_to_use)//'" is invalid, use "lm3", "unpacked", or "none"', &
         FATAL)
   end select
-  
+
   select case (trim(fire_for_past))
   case ('pastfp')
      fire_option_past = FIRE_PASTFP
@@ -503,7 +502,7 @@ subroutine vegn_fire_init(id_lon, id_lat, dt_fast_in, dt_fast_yr_in, dt_slow_in,
         'option fire_for_past="'//trim(fire_for_past)//'" is invalid, use "pastfp" or "pastli"', &
         FATAL)
   end select
-  
+
 !   select case (trim(wind_to_use))
 !   case ('canopy_top')
 !      fire_windType = FIRE_WIND_CANTOP
@@ -516,7 +515,7 @@ subroutine vegn_fire_init(id_lon, id_lat, dt_fast_in, dt_fast_yr_in, dt_slow_in,
 !         'option wind_to_use="'//trim(wind_to_use)//'" is invalid, use "canopy_top", "10m_tmp", or "10m_sheffield"', &
 !         FATAL)
 !   end select
-      
+
   select case (trim(f_agb_style))
   case ('li2012')
      fire_option_fAGB = FIRE_AGB_LI2012
@@ -529,7 +528,7 @@ subroutine vegn_fire_init(id_lon, id_lat, dt_fast_in, dt_fast_yr_in, dt_slow_in,
         'option fire_option_fAGB="'//trim(f_agb_style)//'" is invalid, use "li2012", "logistic", or "gompertz".', &
         FATAL)
   end select
-  
+
   select case (trim(f_rh_style))
   case ('li2012')
      fire_option_fRH = FIRE_RH_LI2012
@@ -542,7 +541,7 @@ subroutine vegn_fire_init(id_lon, id_lat, dt_fast_in, dt_fast_yr_in, dt_slow_in,
         'option fire_option_fRH="'//trim(f_rh_style)//'" is invalid, use "li2012", "logistic", or "gompertz"', &
         FATAL)
   end select
-  
+
   select case (trim(f_theta_style))
   case ('li2012')
      fire_option_fTheta = FIRE_THETA_LI2012
@@ -555,7 +554,7 @@ subroutine vegn_fire_init(id_lon, id_lat, dt_fast_in, dt_fast_yr_in, dt_slow_in,
         'option fire_option_fTheta="'//trim(f_theta_style)//'" is invalid, use "li2012", "logistic", or "gompertz"', &
         FATAL)
   end select
-  
+
   ! parse order_LU_vegn_fire for efficiency
   select case (trim(order_LU_vegn_fire))
   case ('flv')
@@ -569,10 +568,10 @@ subroutine vegn_fire_init(id_lon, id_lat, dt_fast_in, dt_fast_yr_in, dt_slow_in,
         'option order_LU_vegn_fire="'//trim(order_LU_vegn_fire)//'" is invalid, use "flv", "lvf", or "vfl"', &
         FATAL)
   end select
-  
+
   ! SSR20151009
   if (C_beta_params_likeRH) write(*,*) 'C_beta_params_likeRH is .TRUE., so ignoring setting of C_beta_threshUP and C_beta_threshLO.'
-  
+
   ! parse species-specific values for fire_duration
   if (fire_duration_ave_c4 == -1.) fire_duration_ave_c4 = fire_duration_ave
   if (fire_duration_ave_c3 == -1.) fire_duration_ave_c3 = fire_duration_ave
@@ -584,36 +583,36 @@ subroutine vegn_fire_init(id_lon, id_lat, dt_fast_in, dt_fast_yr_in, dt_slow_in,
   fire_duration_array(SP_TEMPDEC) = fire_duration_ave_dt
   fire_duration_array(SP_TROPICAL) = fire_duration_ave_tt
   fire_duration_array(SP_EVERGR) = fire_duration_ave_et
-    
+
   ! fire_biomass_threshold can only be -1 or >=0
   if (fire_biomass_threshold /= -1) then
      call check_var_range(fire_biomass_threshold, 0.0,10.**37,'vegn_fire_init', 'fire_biomass_threshold', FATAL)
   endif
-  
+
   ! depth_for_theta can only be -1 or positive
   if (depth_for_theta /= -1.0) then
      call check_var_range(depth_for_theta, 10.**-37., 10.**37., 'vegn_fire_init', 'depth_for_theta', FATAL)
   endif
-  
+
   ! constant_wind_forFire can only be -1 or >=0
   if (constant_wind_forFire /= -1.0) then
      call check_var_range(constant_wind_forFire, 0.0, 10.**37., 'vegn_fire_init', 'constant_wind_forFire', FATAL)
   endif
-    
+
   if (fire_option /= FIRE_UNPACKED) return ! nothing more to do
-  
+
   ! For rate-of-spread calculation
   LB_max = LBratio_a + LBratio_b
   HB_max = (LB_max + sqrt(LB_max**2. - 1.)) / (LB_max - sqrt(LB_max**2. - 1.))
-  
+
   ! Find daily per-person ignition rate
   Ia_alpha_daily = Ia_alpha_monthly * 12./days_per_year
- 
+
   ! SSR20160131
   if (lock_ROSmaxC3_to_ROSmaxC4) then
      ROS_max_C3GRASS = ROS_max_C4GRASS
   endif
-  
+
   ! initialize external fields
   ! SSR: Does horizontal interpolation
   if (use_FpopD_nf .OR. use_FpopD_ba .OR. Ia_alpha_monthly(1)>0.0) then
@@ -655,314 +654,341 @@ subroutine vegn_fire_init(id_lon, id_lat, dt_fast_in, dt_fast_yr_in, dt_slow_in,
      call read_field('INPUT/Fk.nc', 'Fcrop_'//month_name(i), past_burn_rate_in(:,i), &
                   interp='conservative', fill=0.0)
   enddo
-  
-  ! get the data for current date
-  call update_fire_data(time,lnd%is,lnd%ie,lnd%js,lnd%je)
-  
+
+  !!! dsward_kop begin
+  if (file_exist('INPUT/Koppen_zones_2deg_1950-2000.nc'))then
+     allocate(koppen_zone_2000(lnd%ls:lnd%le) )
+     call read_field('INPUT/Koppen_zones_2deg_1950-2000.nc','Koppen', koppen_zone_2000, &
+                      interp='nearest')
+     do l = lnd%ls, lnd%le
+        ce = first_elmt(land_tile_map(l))
+        do while (loop_over_tiles(ce,tile))
+          if (associated(tile%vegn)) tile%vegn%koppen_zone = koppen_zone_2000(l)
+        enddo
+     enddo
+     deallocate(koppen_zone_2000)
+  endif
+  !!! dsward_kop end
+
+  ! get fire data for current date
+  call update_fire_data(time)
+
+  ! SSR20150810
+  allocate(fragmenting_frac(lnd%ls:lnd%le), burnable_frac(lnd%ls:lnd%le))
+  fragmenting_frac = 0.0
+  burnable_frac    = 0.0
+  if (do_fire_fragmentation) then
+     do l = lnd%ls, lnd%le
+        call fire_fragmentation(land_tile_map(l),lnd%ug_area(l), .TRUE., &
+             fragmenting_frac(l),burnable_frac(l))
+     enddo
+  endif
+
   ! ---- initialize the diagnostics --------------------------------------------
-  
+
   ! set the default sub-sampling filter for the fields below
 
   ! Yearly (although calculated and/or saved daily)
+  axes(:) = [id_ug]
 !  if (use_FpopD_nf .OR. use_FpopD_ba) then
-     id_population = register_tiled_diag_field (diag_mod_name, 'population', (/id_lon,id_lat/), &
+     id_population = register_tiled_diag_field (diag_mod_name, 'population', axes, &
           time, 'population density', 'person/km2', missing_value=-999.0)
 !  endif
-  id_fire_fn_popD_NF = register_tiled_diag_field (diag_mod_name, 'fire_fn_popD_NF',(/id_lon,id_lat/), &
+  id_fire_fn_popD_NF = register_tiled_diag_field (diag_mod_name, 'fire_fn_popD_NF',axes, &
        time, 'Fraction of fires suppressed by popD', 'dimensionless', &
        missing_value=-1.0)
-  id_fire_fn_popD_BA = register_tiled_diag_field (diag_mod_name, 'fire_fn_popD_BA',(/id_lon,id_lat/), &
+  id_fire_fn_popD_BA = register_tiled_diag_field (diag_mod_name, 'fire_fn_popD_BA',axes, &
        time, 'Fraction of potential BA realized via popD', 'dimensionless', &
        missing_value=-1.0)
 !  if (use_Fgdp_nf .OR. use_Fgdp_ba) then
-     id_GDPpc = register_tiled_diag_field (diag_mod_name, 'GDPpc', (/id_lon,id_lat/), &
+     id_GDPpc = register_tiled_diag_field (diag_mod_name, 'GDPpc', axes, &
           time, 'gross domestic product per capita', 'dollars/person', missing_value=-999.0)
 !  endif
-  id_fire_fn_GDPpc_NF = register_tiled_diag_field (diag_mod_name, 'fire_fn_GDPpc_NF',(/id_lon,id_lat/), &
+  id_fire_fn_GDPpc_NF = register_tiled_diag_field (diag_mod_name, 'fire_fn_GDPpc_NF',axes, &
        time, 'Fraction of ignitions becoming fires: GDP per capita', 'dimensionless', &
        missing_value=-1.0)
-  id_fire_fn_GDPpc_BA = register_tiled_diag_field (diag_mod_name, 'fire_fn_GDPpc_BA',(/id_lon,id_lat/), &
+  id_fire_fn_GDPpc_BA = register_tiled_diag_field (diag_mod_name, 'fire_fn_GDPpc_BA',axes, &
        time, 'Fraction of potential BA realized via GDP per capita', 'dimensionless', &
        missing_value=-1.0)
-  id_Ia = register_tiled_diag_field (diag_mod_name, 'Ia',(/id_lon,id_lat/), &
+  id_Ia = register_tiled_diag_field (diag_mod_name, 'Ia',axes, &
        time, 'Number of ignitions: Anthropogenic', 'Ignitions/km2', &
        missing_value=-1.0)
 
   ! Daily (saved daily)
-  id_lightning = register_tiled_diag_field (diag_mod_name, 'lightning', (/id_lon,id_lat/), &
+  id_lightning = register_tiled_diag_field (diag_mod_name, 'lightning', axes, &
        time, 'lightning strike density', 'flashes/km2/day', missing_value=-999.0)
-  id_In = register_tiled_diag_field (diag_mod_name, 'In',(/id_lon,id_lat/), &
+  id_In = register_tiled_diag_field (diag_mod_name, 'In',axes, &
        time, 'Number of ignitions: Natural', 'Ignitions/km2', &
        missing_value=-1.0)
-  id_BAperFire_0 = register_tiled_diag_field (diag_mod_name, 'BAperFire_0',(/id_lon,id_lat/), &
+  id_BAperFire_0 = register_tiled_diag_field (diag_mod_name, 'BAperFire_0',axes, &
        time, 'Burned area per fire, before adjusting for tile size', 'km2/fire', &
        missing_value=-1.0)
-  id_BAperFire_1 = register_tiled_diag_field (diag_mod_name, 'BAperFire_1',(/id_lon,id_lat/), &
+  id_BAperFire_1 = register_tiled_diag_field (diag_mod_name, 'BAperFire_1',axes, &
        time, 'Burned area per fire, after adjusting for tile size', 'km2/fire', &
        missing_value=-1.0)
-  id_BAperFire_2 = register_tiled_diag_field (diag_mod_name, 'BAperFire_2',(/id_lon,id_lat/), &
+  id_BAperFire_2 = register_tiled_diag_field (diag_mod_name, 'BAperFire_2',axes, &
        time, 'Burned area per fire, after max_fire_size limitation', 'km2/fire', &
        missing_value=-1.0)
-  id_BAperFire_3 = register_tiled_diag_field (diag_mod_name, 'BAperFire_3',(/id_lon,id_lat/), &
+  id_BAperFire_3 = register_tiled_diag_field (diag_mod_name, 'BAperFire_3',axes, &
        time, 'Burned area per fire, after suppression', 'km2/fire', &
        missing_value=-1.0)
-  id_BAperFire_max = register_tiled_diag_field (diag_mod_name, 'BAperFire_max',(/id_lon,id_lat/), &
+  id_BAperFire_max = register_tiled_diag_field (diag_mod_name, 'BAperFire_max',axes, &
        time, 'maximum fire size', 'km2', &
        missing_value=-1.0)
-  id_fragmenting_frac = register_tiled_diag_field (diag_mod_name, 'fragmenting_frac',(/id_lon,id_lat/), &
+  id_fragmenting_frac = register_tiled_diag_field (diag_mod_name, 'fragmenting_frac',axes, &
        time, 'fraction of grid cell contributing to fragmentation', 'unitless', &
        missing_value=-1.0)
-  id_burnable_frac = register_tiled_diag_field (diag_mod_name, 'burnable_frac',(/id_lon,id_lat/), &
+  id_burnable_frac = register_tiled_diag_field (diag_mod_name, 'burnable_frac',axes, &
        time, 'fraction of grid cell that could burn but is getting fragmented', 'unitless', &
        missing_value=-1.0)
-  id_fire_agb = register_tiled_diag_field (diag_mod_name, 'fire_agb',(/id_lon,id_lat/), &
+  id_fire_agb = register_tiled_diag_field (diag_mod_name, 'fire_agb',axes, &
        time, 'Average aboveground biomass for fire calc', 'kgC/m2', &
        missing_value=-1.0)
-  id_Nfire_perKm2 = register_tiled_diag_field (diag_mod_name, 'Nfire_perKm2',(/id_lon,id_lat/), &
+  id_Nfire_perKm2 = register_tiled_diag_field (diag_mod_name, 'Nfire_perKm2',axes, &
        time, 'Number of fires per km2', 'Fires/km2', &
        missing_value=-1.0)
-  id_Nfire_rate = register_tiled_diag_field (diag_mod_name, 'Nfire_rate',(/id_lon,id_lat/), &
+  id_Nfire_rate = register_tiled_diag_field (diag_mod_name, 'Nfire_rate',axes, &
        time, 'Number of fires in tile', 'Fires/day', &
        missing_value=-1.0, op='sum')
-  id_BF_rate = register_tiled_diag_field (diag_mod_name, 'BF_rate',(/id_lon,id_lat/), &
+  id_BF_rate = register_tiled_diag_field (diag_mod_name, 'BF_rate',axes, &
      time, 'Burned fraction', '/day', &
      missing_value=-1.0)
-  id_BA_rate = register_tiled_diag_field (diag_mod_name, 'BA_rate',(/id_lon,id_lat/), &
+  id_BA_rate = register_tiled_diag_field (diag_mod_name, 'BA_rate',axes, &
      time, 'Burned area', 'km2/day', &
      missing_value=-1.0, op='sum')
-  id_Fcrop = register_tiled_diag_field (diag_mod_name, 'Fcrop',(/id_lon,id_lat/), &
+  id_Fcrop = register_tiled_diag_field (diag_mod_name, 'Fcrop',axes, &
        time, 'Fraction of crop that burns', '/day', &
        missing_value=-1.0)
-  id_Fpast = register_tiled_diag_field (diag_mod_name, 'Fpast',(/id_lon,id_lat/), &
+  id_Fpast = register_tiled_diag_field (diag_mod_name, 'Fpast',axes, &
        time, 'Fraction of pasture that burns', '/day', &
        missing_value=-1.0)
-  id_burn_Cemit = register_tiled_diag_field (diag_mod_name, 'burn_Cemit',(/id_lon,id_lat/), &
+  id_burn_Cemit = register_tiled_diag_field (diag_mod_name, 'burn_Cemit',axes, &
        time, 'Biomass combusted by fire', 'kg C/day', &
        missing_value=-1.0, op='sum')
-  id_burn_Cemit_noCWL = register_tiled_diag_field (diag_mod_name, 'burn_Cemit_noCWL',(/id_lon,id_lat/), &
+  id_burn_Cemit_noCWL = register_tiled_diag_field (diag_mod_name, 'burn_Cemit_noCWL',axes, &
        time, 'Biomass combusted by fire, excluding coarse woody litter', 'kg C/day', &
        missing_value=-1.0, op='sum')
-  id_burn_Ckill = register_tiled_diag_field (diag_mod_name, 'burn_Ckill',(/id_lon,id_lat/), &
+  id_burn_Ckill = register_tiled_diag_field (diag_mod_name, 'burn_Ckill',axes, &
        time, 'Biomass killed by fire', 'kg C/day', &
        missing_value=-1.0, op='sum')
-  id_vegn_burned = register_tiled_diag_field (diag_mod_name, 'vegn_burned',(/id_lon,id_lat/), &
+  id_vegn_burned = register_tiled_diag_field (diag_mod_name, 'vegn_burned',axes, &
        time, 'Fraction of cell burned', ' ', &
-       missing_value=-1.0)  !!! dsward_tmp 
-!  id_tropType = register_tiled_diag_field (diag_mod_name, 'tropType',(/id_lon,id_lat/), &
+       missing_value=-1.0)  !!! dsward_tmp
+!  id_tropType = register_tiled_diag_field (diag_mod_name, 'tropType',axes, &
 !       time, 'SP_TROPICAL, but what kind?', 'integer', &
 !       missing_value=-1.0)
 
   ! SSR20160224
-  id_burn_Cemit_leaf = register_tiled_diag_field (diag_mod_name, 'burn_Cemit_leaf',(/id_lon,id_lat/), &
+  id_burn_Cemit_leaf = register_tiled_diag_field (diag_mod_name, 'burn_Cemit_leaf',axes, &
      time, 'Biomass combusted by fire: Leaf', 'kg C/day', &
      missing_value=-1.0, op='sum')
-  id_burn_Cemit_stem = register_tiled_diag_field (diag_mod_name, 'burn_Cemit_stem',(/id_lon,id_lat/), &
+  id_burn_Cemit_stem = register_tiled_diag_field (diag_mod_name, 'burn_Cemit_stem',axes, &
      time, 'Biomass combusted by fire: Stem', 'kg C/day', &
      missing_value=-1.0, op='sum')
-  id_burn_Cemit_litter = register_tiled_diag_field (diag_mod_name, 'burn_Cemit_litter',(/id_lon,id_lat/), &
+  id_burn_Cemit_litter = register_tiled_diag_field (diag_mod_name, 'burn_Cemit_litter',axes, &
      time, 'Biomass combusted by fire: Litter', 'kg C/day', &
      missing_value=-1.0, op='sum')
-  id_burn_Cemit_litter_lf = register_tiled_diag_field (diag_mod_name, 'burn_Cemit_litter_lf',(/id_lon,id_lat/), &
+  id_burn_Cemit_litter_lf = register_tiled_diag_field (diag_mod_name, 'burn_Cemit_litter_lf',axes, &
      time, 'Biomass combusted by fire: Leaf litter', 'kg C/day', &
      missing_value=-1.0, op='sum')
-  id_burn_Cemit_litter_cw = register_tiled_diag_field (diag_mod_name, 'burn_Cemit_litter_cw',(/id_lon,id_lat/), &
+  id_burn_Cemit_litter_cw = register_tiled_diag_field (diag_mod_name, 'burn_Cemit_litter_cw',axes, &
      time, 'Biomass combusted by fire: Coarse woody litter', 'kg C/day', &
      missing_value=-1.0, op='sum')
-  id_burn_Ckill_leaf = register_tiled_diag_field (diag_mod_name, 'burn_Ckill_leaf',(/id_lon,id_lat/), &
+  id_burn_Ckill_leaf = register_tiled_diag_field (diag_mod_name, 'burn_Ckill_leaf',axes, &
      time, 'Biomass killed by fire: Leaf', 'kg C/day', &
      missing_value=-1.0, op='sum')
-  id_burn_Ckill_stem = register_tiled_diag_field (diag_mod_name, 'burn_Ckill_stem',(/id_lon,id_lat/), &
+  id_burn_Ckill_stem = register_tiled_diag_field (diag_mod_name, 'burn_Ckill_stem',axes, &
      time, 'Biomass killed by fire: Stem', 'kg C/day', &
      missing_value=-1.0, op='sum')
-  id_burn_Ckill_root = register_tiled_diag_field (diag_mod_name, 'burn_Ckill_root',(/id_lon,id_lat/), &
+  id_burn_Ckill_root = register_tiled_diag_field (diag_mod_name, 'burn_Ckill_root',axes, &
      time, 'Biomass killed by fire: Fine root', 'kg C/day', &
      missing_value=-1.0, op='sum')
-  
-  id_burn_Cemit_CO2 = register_tiled_diag_field (diag_mod_name, 'burn_Cemit_CO2',(/id_lon,id_lat/), &
+
+  id_burn_Cemit_CO2 = register_tiled_diag_field (diag_mod_name, 'burn_Cemit_CO2',axes, &
        time, 'CO2 emitted by fire', 'kg C/m2/s', &
        missing_value=-1.0)
-  id_burn_Cemit_CO = register_tiled_diag_field (diag_mod_name, 'burn_Cemit_CO',(/id_lon,id_lat/), &
+  id_burn_Cemit_CO = register_tiled_diag_field (diag_mod_name, 'burn_Cemit_CO',axes, &
        time, 'CO emitted by fire', 'kg C/m2/s', &
        missing_value=-1.0)
 
   ! Sub-daily, instant values (saved sub-daily)
-  id_fire_q = register_tiled_diag_field (diag_mod_name, 'fire_q',(/id_lon,id_lat/), &
+  id_fire_q = register_tiled_diag_field (diag_mod_name, 'fire_q',axes, &
        time, 'Specific humidity for fire (canopy)', 'kg/kg', &
        missing_value=-1.0)
-  id_fire_rh = register_tiled_diag_field (diag_mod_name, 'fire_rh',(/id_lon,id_lat/), &
+  id_fire_rh = register_tiled_diag_field (diag_mod_name, 'fire_rh',axes, &
        time, 'Relative humidity for fire', 'dimensionless', &
        missing_value=-1.0)
-  id_fire_theta = register_tiled_diag_field (diag_mod_name, 'fire_theta',(/id_lon,id_lat/), &
+  id_fire_theta = register_tiled_diag_field (diag_mod_name, 'fire_theta',axes, &
        time, 'Soil moisture for fire', 'dimensionless', &
        missing_value=-1.0)
-  id_fire_Tca = register_tiled_diag_field (diag_mod_name, 'fire_Tca',(/id_lon,id_lat/), &
+  id_fire_Tca = register_tiled_diag_field (diag_mod_name, 'fire_Tca',axes, &
        time, 'Temperature for fire', 'degC', &
        missing_value=-1.0)
-  id_fire_fn_theta = register_tiled_diag_field (diag_mod_name, 'fire_fn_theta',(/id_lon,id_lat/), &
+  id_fire_fn_theta = register_tiled_diag_field (diag_mod_name, 'fire_fn_theta',axes, &
        time, 'Fraction of ignitions becoming fires: Theta', 'dimensionless', &
        missing_value=-1.0)
-  id_fire_fn_rh = register_tiled_diag_field (diag_mod_name, 'fire_fn_rh',(/id_lon,id_lat/), &
+  id_fire_fn_rh = register_tiled_diag_field (diag_mod_name, 'fire_fn_rh',axes, &
        time, 'Fraction of ignitions becoming fires: RH', 'dimensionless', &
        missing_value=-1.0)
-  id_fire_fn_Tca = register_tiled_diag_field (diag_mod_name, 'fire_fn_Tca',(/id_lon,id_lat/), &
+  id_fire_fn_Tca = register_tiled_diag_field (diag_mod_name, 'fire_fn_Tca',axes, &
        time, 'Fraction of ignitions becoming fires: Canopy air temp.', 'dimensionless', &
        missing_value=-1.0)
-  id_fire_fn_agb = register_tiled_diag_field (diag_mod_name, 'fire_fn_agb',(/id_lon,id_lat/), &
+  id_fire_fn_agb = register_tiled_diag_field (diag_mod_name, 'fire_fn_agb',axes, &
        time, 'Fraction of ignitions becoming fires: AGB', 'dimensionless', &
        missing_value=-1.0)
-  id_fire_wind_forFire = register_tiled_diag_field (diag_mod_name, 'wind_forFire',(/id_lon,id_lat/), &
+  id_fire_wind_forFire = register_tiled_diag_field (diag_mod_name, 'wind_forFire',axes, &
        time, 'Wind speed for use in fire model', 'm/s', &
        missing_value=-1.0)
-  id_ROS = register_tiled_diag_field (diag_mod_name, 'ROS',(/id_lon,id_lat/), &
+  id_ROS = register_tiled_diag_field (diag_mod_name, 'ROS',axes, &
        time, 'Fire rate of spread', 'm/s', &
        missing_value=-1.0)
 !!! dsward_crownfires added
-  id_fire_intensity = register_tiled_diag_field (diag_mod_name, 'fire_intensity',(/id_lon,id_lat/), &
+  id_fire_intensity = register_tiled_diag_field (diag_mod_name, 'fire_intensity',axes, &
        time, 'Intensity of fire front', 'kW/m', &
        missing_value=-1.0)
-  id_crown_scorch_frac = register_tiled_diag_field (diag_mod_name, 'crown_scorch_frac',(/id_lon,id_lat/), &
+  id_crown_scorch_frac = register_tiled_diag_field (diag_mod_name, 'crown_scorch_frac',axes, &
        time, 'Fraction of burned area ', 'dimensionless', &
        missing_value=-1.0)
-  id_fire_rad_power = register_tiled_diag_field (diag_mod_name, 'fire_rad_power',(/id_lon,id_lat/), &
+  id_fire_rad_power = register_tiled_diag_field (diag_mod_name, 'fire_rad_power',axes, &
        time, 'Fire radiative power ', 'W/fire', &
        missing_value=-1.0)
 !!! dsward_crownfires end
-  id_fire_duration_ave = register_tiled_diag_field (diag_mod_name, 'fire_duration_ave',(/id_lon,id_lat/), &
+  id_fire_duration_ave = register_tiled_diag_field (diag_mod_name, 'fire_duration_ave',axes, &
        time, 'Average fire duration', 's', &
        missing_value=-1.0)
-  id_LB = register_tiled_diag_field (diag_mod_name, 'LB',(/id_lon,id_lat/), &
+  id_LB = register_tiled_diag_field (diag_mod_name, 'LB',axes, &
        time, 'Length:breadth ratio', 'dimensionless', &
        missing_value=-1.0)
-  id_HB = register_tiled_diag_field (diag_mod_name, 'HB',(/id_lon,id_lat/), &
+  id_HB = register_tiled_diag_field (diag_mod_name, 'HB',axes, &
        time, 'Head:back ratio', 'dimensionless', &
        missing_value=-1.0)
-  id_gW = register_tiled_diag_field (diag_mod_name, 'gW',(/id_lon,id_lat/), &
+  id_gW = register_tiled_diag_field (diag_mod_name, 'gW',axes, &
        time, 'g(W)', 'dimensionless', &
        missing_value=-1.0)
-  id_fire_depth_ave = register_tiled_diag_field (diag_mod_name, 'fire_depth_ave',(/id_lon,id_lat/), &
+  id_fire_depth_ave = register_tiled_diag_field (diag_mod_name, 'fire_depth_ave',axes, &
        time, 'depth_ave for theta calculation for fire', 'm', &
        missing_value=-1.0)
-  id_BA_DERIVwrt_alphaM = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_alphaM',(/id_lon,id_lat/), &
+  id_BA_DERIVwrt_alphaM = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_alphaM',axes, &
      time, 'Partial derivative of BA w/r/t alpha_m', '(km2/day)/(alpha_monthly_unit)', &
      missing_value=-1.0e+20, op='sum')
-  id_BA_DERIVwrt_thetaE = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_thetaE',(/id_lon,id_lat/), &
+  id_BA_DERIVwrt_thetaE = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_thetaE',axes, &
      time, 'Partial derivative of BA w/r/t theta_extinction', '(km2/day)/(theta_extinction_unit)', &
      missing_value=-1.0e+20, op='sum')
-     
+
   ! SSR20160203
-  id_BA_DERIVwrt_THETAparam1 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_THETAparam1',(/id_lon,id_lat/), &
+  id_BA_DERIVwrt_THETAparam1 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_THETAparam1',axes, &
      time, 'Partial derivative of BA w/r/t theta_psi2 or theta_gom2', '(km2/day)/(THETAparam1_unit)', &
      missing_value=-1.0e+20, op='sum')
-  id_BA_DERIVwrt_THETAparam2 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_THETAparam2',(/id_lon,id_lat/), &
+  id_BA_DERIVwrt_THETAparam2 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_THETAparam2',axes, &
      time, 'Partial derivative of BA w/r/t theta_psi3 or theta_gom3', '(km2/day)/(THETAparam2_unit)', &
      missing_value=-1.0e+20, op='sum')
-     
-  id_BA_DERIVwrt_AGBparam1 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_AGBparam1',(/id_lon,id_lat/), &
+
+  id_BA_DERIVwrt_AGBparam1 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_AGBparam1',axes, &
      time, 'Partial derivative of BA w/r/t agb_lo, agb_psi2, or agb_gom2', '(km2/day)/(AGBparam1_unit)', &
      missing_value=-1.0e+20, op='sum')
-  id_BA_DERIVwrt_AGBparam2 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_AGBparam2',(/id_lon,id_lat/), &
+  id_BA_DERIVwrt_AGBparam2 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_AGBparam2',axes, &
      time, 'Partial derivative of BA w/r/t agb_up, agb_psi3, or agb_gom3', '(km2/day)/(AGBparam2_unit)', &
      missing_value=-1.0e+20, op='sum')
-  id_BA_DERIVwrt_RHparam1 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_RHparam1',(/id_lon,id_lat/), &
+  id_BA_DERIVwrt_RHparam1 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_RHparam1',axes, &
      time, 'Partial derivative of BA w/r/t rh_lo, rh_psi2, or rh_gom2', '(km2/day)/(RHparam1_unit)', &
      missing_value=-1.0e+20, op='sum')
-  id_BA_DERIVwrt_RHparam2 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_RHparam2',(/id_lon,id_lat/), &
+  id_BA_DERIVwrt_RHparam2 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_RHparam2',axes, &
      time, 'Partial derivative of BA w/r/t rh_up, rh_psi3, or rh_gom3', '(km2/day)/(RHparam2_unit)', &
      missing_value=-1.0e+20, op='sum')
-  id_BA_DERIVwrt_IaParam1 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_IaParam1',(/id_lon,id_lat/), &
+  id_BA_DERIVwrt_IaParam1 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_IaParam1',axes, &
      time, 'Partial derivative of BA w/r/t Ia param1', '(km2/day)/(IaParam1_unit)', &
      missing_value=-1.0e+20, op='sum')
-  id_BA_DERIVwrt_IaParam2 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_IaParam2',(/id_lon,id_lat/), &
+  id_BA_DERIVwrt_IaParam2 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_IaParam2',axes, &
      time, 'Partial derivative of BA w/r/t Ia param2', '(km2/day)/(IaParam2_unit)', &
      missing_value=-1.0e+20, op='sum')
-  id_BA_DERIVwrt_popDsupp_NF_eps1 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_popDsupp_NF_eps1',(/id_lon,id_lat/), &
+  id_BA_DERIVwrt_popDsupp_NF_eps1 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_popDsupp_NF_eps1',axes, &
      time, 'Partial derivative of BA w/r/t popDsupp_NF eps1', '(km2/day)/(eps1_unit)', &
      missing_value=-1.0e+20, op='sum')
-  id_BA_DERIVwrt_popDsupp_NF_eps2 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_popDsupp_NF_eps2',(/id_lon,id_lat/), &
+  id_BA_DERIVwrt_popDsupp_NF_eps2 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_popDsupp_NF_eps2',axes, &
      time, 'Partial derivative of BA w/r/t popDsupp_NF eps2', '(km2/day)/(eps2_unit)', &
      missing_value=-1.0e+20, op='sum')
-  id_BA_DERIVwrt_popDsupp_NF_eps3 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_popDsupp_NF_eps3',(/id_lon,id_lat/), &
+  id_BA_DERIVwrt_popDsupp_NF_eps3 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_popDsupp_NF_eps3',axes, &
      time, 'Partial derivative of BA w/r/t popDsupp_NF eps3', '(km2/day)/(eps3_unit)', &
      missing_value=-1.0e+20, op='sum')
-  id_BA_DERIVwrt_fireDur_c4 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_fireDur_c4',(/id_lon,id_lat/), &
+  id_BA_DERIVwrt_fireDur_c4 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_fireDur_c4',axes, &
      time, 'Partial derivative of BA w/r/t mean fire duration for C4 grass', '(km2/day)/second', &
      missing_value=-1.0e+20, op='sum')
-  id_BA_DERIVwrt_fireDur_c3 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_fireDur_c3',(/id_lon,id_lat/), &
+  id_BA_DERIVwrt_fireDur_c3 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_fireDur_c3',axes, &
      time, 'Partial derivative of BA w/r/t mean fire duration for C3 grass', '(km2/day)/second', &
      missing_value=-1.0e+20, op='sum')
-  id_BA_DERIVwrt_fireDur_dt = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_fireDur_dt',(/id_lon,id_lat/), &
+  id_BA_DERIVwrt_fireDur_dt = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_fireDur_dt',axes, &
      time, 'Partial derivative of BA w/r/t mean fire duration for deciduous trees', '(km2/day)/second', &
      missing_value=-1.0e+20, op='sum')
-  id_BA_DERIVwrt_fireDur_tt = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_fireDur_tt',(/id_lon,id_lat/), &
+  id_BA_DERIVwrt_fireDur_tt = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_fireDur_tt',axes, &
      time, 'Partial derivative of BA w/r/t mean fire duration for tropical trees', '(km2/day)/second', &
      missing_value=-1.0e+20, op='sum')
-  id_BA_DERIVwrt_fireDur_et = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_fireDur_et',(/id_lon,id_lat/), &
+  id_BA_DERIVwrt_fireDur_et = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_fireDur_et',axes, &
      time, 'Partial derivative of BA w/r/t mean fire duration for evergreen trees', '(km2/day)/second', &
      missing_value=-1.0e+20, op='sum')
-  id_BA_DERIVwrt_ROSmax_c4 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_ROSmax_c4',(/id_lon,id_lat/), &
+  id_BA_DERIVwrt_ROSmax_c4 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_ROSmax_c4',axes, &
      time, 'Partial derivative of BA w/r/t max. rate of spread for C4 grass', '(km2/day)/(m/s)', &
      missing_value=-1.0e+20, op='sum')
-  id_BA_DERIVwrt_ROSmax_c3 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_ROSmax_c3',(/id_lon,id_lat/), &
+  id_BA_DERIVwrt_ROSmax_c3 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_ROSmax_c3',axes, &
      time, 'Partial derivative of BA w/r/t max. rate of spread for C3 grass', '(km2/day)/(m/s)', &
      missing_value=-1.0e+20, op='sum')
-  id_BA_DERIVwrt_ROSmax_dt = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_ROSmax_dt',(/id_lon,id_lat/), &
+  id_BA_DERIVwrt_ROSmax_dt = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_ROSmax_dt',axes, &
      time, 'Partial derivative of BA w/r/t max. rate of spread for deciduous trees', '(km2/day)/(m/s)', &
      missing_value=-1.0e+20, op='sum')
-  id_BA_DERIVwrt_ROSmax_tt = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_ROSmax_tt',(/id_lon,id_lat/), &
+  id_BA_DERIVwrt_ROSmax_tt = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_ROSmax_tt',axes, &
      time, 'Partial derivative of BA w/r/t max. rate of spread for tropical forest', '(km2/day)/(m/s)', &
      missing_value=-1.0e+20, op='sum')
-!  id_BA_DERIVwrt_ROSmax_ts = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_ROSmax_ts',(/id_lon,id_lat/), &
+!  id_BA_DERIVwrt_ROSmax_ts = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_ROSmax_ts',axes, &
 !     time, 'Partial derivative of BA w/r/t max. rate of spread for tropical savanna', '(km2/day)/(m/s)', &
 !     missing_value=-1.0e+20, op='sum')
-  id_BA_DERIVwrt_ROSmax_tshr = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_ROSmax_tshr',(/id_lon,id_lat/), &
+  id_BA_DERIVwrt_ROSmax_tshr = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_ROSmax_tshr',axes, &
      time, 'Partial derivative of BA w/r/t max. rate of spread for tropical shrubland', '(km2/day)/(m/s)', &
      missing_value=-1.0e+20, op='sum')
-  id_BA_DERIVwrt_ROSmax_tsav = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_ROSmax_tsav',(/id_lon,id_lat/), &
+  id_BA_DERIVwrt_ROSmax_tsav = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_ROSmax_tsav',axes, &
      time, 'Partial derivative of BA w/r/t max. rate of spread for tropical savanna', '(km2/day)/(m/s)', &
      missing_value=-1.0e+20, op='sum')
-  id_BA_DERIVwrt_ROSmax_et = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_ROSmax_et',(/id_lon,id_lat/), &
+  id_BA_DERIVwrt_ROSmax_et = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_ROSmax_et',axes, &
      time, 'Partial derivative of BA w/r/t max. rate of spread for evergreen trees', '(km2/day)/(m/s)', &
      missing_value=-1.0e+20, op='sum')
-  id_BA_DERIVwrt_magicScalar = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_magicScalar',(/id_lon,id_lat/), &
+  id_BA_DERIVwrt_magicScalar = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_magicScalar',axes, &
      time, 'Partial derivative of BA w/r/t magic scalar', 'km2/day', &
      missing_value=-1.0e+20, op='sum')
-  id_Ia_DERIVwrt_alphaM = register_tiled_diag_field (diag_mod_name, 'Ia_DERIVwrt_alphaM',(/id_lon,id_lat/), &
+  id_Ia_DERIVwrt_alphaM = register_tiled_diag_field (diag_mod_name, 'Ia_DERIVwrt_alphaM',axes, &
      time, 'Partial derivative of Ia w/r/t alphaM', '(ignitions/km2)/alphaM_unit', &
      missing_value=-1.0e+20, op='sum')
-  id_Ia_DERIVwrt_IaParam1 = register_tiled_diag_field (diag_mod_name, 'Ia_DERIVwrt_IaParam1',(/id_lon,id_lat/), &
+  id_Ia_DERIVwrt_IaParam1 = register_tiled_diag_field (diag_mod_name, 'Ia_DERIVwrt_IaParam1',axes, &
      time, 'Partial derivative of Ia w/r/t IaParam1', '(ignitions/km2)/IaParam1_unit', &
      missing_value=-1.0e+20, op='sum')
-  id_Ia_DERIVwrt_IaParam2 = register_tiled_diag_field (diag_mod_name, 'Ia_DERIVwrt_IaParam2',(/id_lon,id_lat/), &
+  id_Ia_DERIVwrt_IaParam2 = register_tiled_diag_field (diag_mod_name, 'Ia_DERIVwrt_IaParam2',axes, &
      time, 'Partial derivative of Ia w/r/t IaParam2', '(ignitions/km2)/IaParam2_unit', &
      missing_value=-1.0e+20, op='sum')
-  id_fire_fn_theta_DERIVwrt_thetaE = register_tiled_diag_field (diag_mod_name, 'fire_fn_theta_DERIVwrt_thetaE',(/id_lon,id_lat/), &
+  id_fire_fn_theta_DERIVwrt_thetaE = register_tiled_diag_field (diag_mod_name, 'fire_fn_theta_DERIVwrt_thetaE',axes, &
      time, 'Partial derivative of fTheta w/r/t thetaE', 'fTheta_units/thetaE_unit', &
      missing_value=-1.0e+20, op='sum')
-  id_fire_fn_agb_DERIVwrt_param1 = register_tiled_diag_field (diag_mod_name, 'fire_fn_agb_DERIVwrt_param1',(/id_lon,id_lat/), &
+  id_fire_fn_agb_DERIVwrt_param1 = register_tiled_diag_field (diag_mod_name, 'fire_fn_agb_DERIVwrt_param1',axes, &
      time, 'Partial derivative of fAGB w/r/t AGBparam1', 'fAGB_units/AGBparam1_unit', &
      missing_value=-1.0e+20, op='sum')
-  id_fire_fn_agb_DERIVwrt_param2 = register_tiled_diag_field (diag_mod_name, 'fire_fn_agb_DERIVwrt_param2',(/id_lon,id_lat/), &
+  id_fire_fn_agb_DERIVwrt_param2 = register_tiled_diag_field (diag_mod_name, 'fire_fn_agb_DERIVwrt_param2',axes, &
      time, 'Partial derivative of fAGB w/r/t AGBparam2', 'fAGB_units/AGBparam2_unit', &
      missing_value=-1.0e+20, op='sum')
-  id_popDsupp_NF_DERIVwrt_eps1 = register_tiled_diag_field (diag_mod_name, 'popDsupp_NF_DERIVwrt_eps1',(/id_lon,id_lat/), &
+  id_popDsupp_NF_DERIVwrt_eps1 = register_tiled_diag_field (diag_mod_name, 'popDsupp_NF_DERIVwrt_eps1',axes, &
      time, 'Partial derivative of popDsupp_NF w/r/t eps1', 'popDsupp_NF_units/eps1_unit', &
      missing_value=-1.0e+20, op='sum')
-  id_popDsupp_NF_DERIVwrt_eps2 = register_tiled_diag_field (diag_mod_name, 'popDsupp_NF_DERIVwrt_eps2',(/id_lon,id_lat/), &
+  id_popDsupp_NF_DERIVwrt_eps2 = register_tiled_diag_field (diag_mod_name, 'popDsupp_NF_DERIVwrt_eps2',axes, &
      time, 'Partial derivative of popDsupp_NF w/r/t eps2', 'popDsupp_NF_units/eps2_unit', &
      missing_value=-1.0e+20, op='sum')
-  id_popDsupp_NF_DERIVwrt_eps3 = register_tiled_diag_field (diag_mod_name, 'popDsupp_NF_DERIVwrt_eps3',(/id_lon,id_lat/), &
+  id_popDsupp_NF_DERIVwrt_eps3 = register_tiled_diag_field (diag_mod_name, 'popDsupp_NF_DERIVwrt_eps3',axes, &
      time, 'Partial derivative of popDsupp_NF w/r/t eps3', 'popDsupp_NF_units/eps3_unit', &
      missing_value=-1.0e+20, op='sum')
-  id_fire_fn_rh_DERIVwrt_param1 = register_tiled_diag_field (diag_mod_name, 'fire_fn_rh_DERIVwrt_param1',(/id_lon,id_lat/), &
+  id_fire_fn_rh_DERIVwrt_param1 = register_tiled_diag_field (diag_mod_name, 'fire_fn_rh_DERIVwrt_param1',axes, &
      time, 'Partial derivative of fRH w/r/t RHparam1', 'fRH_units/RHparam1_unit', &
      missing_value=-1.0e+20, op='sum')
-  id_fire_fn_rh_DERIVwrt_param2 = register_tiled_diag_field (diag_mod_name, 'fire_fn_rh_DERIVwrt_param2',(/id_lon,id_lat/), &
+  id_fire_fn_rh_DERIVwrt_param2 = register_tiled_diag_field (diag_mod_name, 'fire_fn_rh_DERIVwrt_param2',axes, &
      time, 'Partial derivative of fRH w/r/t RHparam2', 'fRH_units/RHparam2_unit', &
      missing_value=-1.0e+20, op='sum')
-  id_BAperFire0_DERIVwrt_fireDur = register_tiled_diag_field (diag_mod_name, 'BAperFire0_DERIVwrt_fireDur',(/id_lon,id_lat/), &
+  id_BAperFire0_DERIVwrt_fireDur = register_tiled_diag_field (diag_mod_name, 'BAperFire0_DERIVwrt_fireDur',axes, &
        time, 'Partial derivative of BAperFire_0 w/r/t fire duration', 'm2/s', &
        missing_value=-1.0e+20, op='sum')
-     
+
 end subroutine vegn_fire_init
 
 
@@ -976,19 +1002,19 @@ subroutine vegn_fire_end()
   if (allocated(Fp_in))         deallocate(Fp_in)
   if (allocated(crop_burn_rate_in)) deallocate(crop_burn_rate_in)
   if (allocated(past_burn_rate_in)) deallocate(past_burn_rate_in)
+  deallocate(fragmenting_frac, burnable_frac)
 end subroutine vegn_fire_end
 
 
 ! ==============================================================================
 ! reads external data for the fire model
-subroutine update_fire_data(time,is,ie,js,je)
+subroutine update_fire_data(time)
   type(time_type), intent(in) :: time
   integer :: year,month,day,hour,minute,second
-  integer, intent(in) :: is, ie, js, je
-  integer :: i, j
+  integer :: l
 
   if (fire_option /= FIRE_UNPACKED) return ! we don't need do do anything
-  
+
   ! read_external_ts interpolates data conservatively in space (see init)
   ! and linearly in time.
   ! SSR: Really just does time interpolation
@@ -1002,33 +1028,22 @@ subroutine update_fire_data(time,is,ie,js,je)
   else
      GDPpc_billion_in = 0.0
   endif
-  !!! dsward added code to read in FireMIP monthly lightning
-  if (FireMIP_ltng) then
-     call read_external_ts(lightning_ts,time,lightning_in)
-  endif
 
-! SSR20151124  call read_external_ts(lightning_ts,time,lightning_in,mask=mask)
-! SSR20151124  where (.not.mask) lightning_in = 0.0
-  
   call get_date(time,year,month,day,hour,minute,second)
   Fc_in = crop_burn_rate_in(:,month)
   Fp_in = past_burn_rate_in(:,month)
-  if (.not.FireMIP_ltng) lightning_in = lightning_in_v2(:,month) 
 
-  
-  ! SSR: Check lightning data. (Sergey's suggestion.)
-  do i = lnd%ls, lnd%le
-     call check_var_range(lightning_in(i), 0.0, 1e37, 'update_fire_data', 'lightning', FATAL)
-  end do
-  
-  if (is_watch_point()) then
-     write(*,*) '#### checkpoint update_fire_data #####'
-     if (use_Fgdp_nf .OR. use_Fgdp_ba) __DEBUG2__(minval(GDPpc_billion_in),maxval(GDPpc_billion_in))
-     if (use_FpopD_nf .OR. use_FpopD_ba .OR. Ia_alpha_monthly(1)>0.0) __DEBUG2__(minval(population_in),maxval(population_in))
-     __DEBUG2__(minval(lightning_in),maxval(lightning_in))
-     write(*,*) '######################################'
+  !!! dsward added code to read in FireMIP monthly lightning
+  if (FireMIP_ltng) then
+     call read_external_ts(lightning_ts,time,lightning_in)
+  else
+     lightning_in = lightning_in_v2(:,month)
   endif
 
+  ! SSR: Check lightning data
+  do l = lnd%ls, lnd%le
+     call check_var_range(lightning_in(l), 0.0, 1e37, 'update_fire_data', 'lightning', FATAL)
+  end do
 end subroutine update_fire_data
 
 
@@ -1059,14 +1074,14 @@ subroutine update_fire_fast(vegn,soil,diag, &
     real   ::   ROSmax, fire_dur, C_beta   ! SSR20151009
     real   ::   ROS_surface,crown_scorch_frac,fire_intensity  !!! dsward_crownfires added
     integer::   vegn_cohort_1_species
-    integer::   kop  ! dsward_kop added switch for boreal (1) and non-boreal (2) zones    
-   
+    integer::   kop  ! dsward_kop added switch for boreal (1) and non-boreal (2) zones
+
     kop=1
     if (vegn%koppen_zone .lt. 11) kop=2  ! dsward_kop, switch parameters to non-boreal value
 
     call qscomp(Tca, p_surf, qsat)   ! (For RH) Calculates qsat, which is saturation specific humidity
     rh = q / qsat
-    
+
 !     if (fire_windType == FIRE_WIND_CANTOP) then
 !        wind_forFire = vegn%wind_canaTop
 !     elseif (fire_windType == FIRE_WIND_10MTMP) then
@@ -1074,7 +1089,7 @@ subroutine update_fire_fast(vegn,soil,diag, &
 !     elseif (fire_windType == FIRE_WIND_10MSHEFFIELD) then
        wind_forFire = cplr2land_wind
 !     endif
-    
+
     if (depth_for_theta == -1.0) then
        depth_ave = -log(1.-percentile)*vegn%cohorts(1)%root_zeta   ! (For theta) Note that this is for the one-cohort version of the model.
     elseif (depth_for_theta > 0.0) then
@@ -1085,16 +1100,16 @@ subroutine update_fire_fast(vegn,soil,diag, &
     else
        theta = soil_ave_theta1(soil,depth_ave)
     endif
-    
+
     if (use_Ftheta) then
        call vegn_fire_fn_theta(theta,fire_fn_theta,kop) !!! dsward_kop added kop
     else
        fire_fn_theta = 1.0
     endif
     vegn%fireFtheta_av = vegn%fireFtheta_av + fire_fn_theta   ! SSR20150903
-    
+
     if (use_Frh) then
-       call vegn_fire_fn_rh(rh,fire_fn_rh,kop) !!! dsward_kop added kop 
+       call vegn_fire_fn_rh(rh,fire_fn_rh,kop) !!! dsward_kop added kop
     else
        fire_fn_rh = 1.0
     endif
@@ -1106,22 +1121,22 @@ subroutine update_fire_fast(vegn,soil,diag, &
     call vegn_fire_fn_agb(vegn,soil,fire_fn_agb,kop) !!! dsward_kop added kop
 
     call vegn_fire_ROS(vegn,fire_fn_rh,theta,fire_fn_theta,wind_forFire,ROS_surface,LB,HB,gW,ROSmax,C_beta,kop)   ! SSR20151216 !!! dsward_kop added kop
-   
+
 !!! dsward_crownfires
     call vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,crown_scorch_frac,fire_intensity)
 !!! dsward_crownfires end
- 
+
     vegn_cohort_1_species = vegn%cohorts(1)%species
     call vegn_fire_BAperFire_noAnthro(ROS,LB,HB,vegn_cohort_1_species, &
                                       BAperFire_0, &
                                       fire_dur)   ! SSR20151009
-    
+
     ! Could speed things up by only changing these monthly (or even yearly, for
     ! popD and GDPpc).
     lightning = lightning_in(l)
     if (use_FpopD_nf .OR. use_FpopD_ba .OR. Ia_alpha_monthly(1)>0.0) popD =  population_in(l)
     if (use_Fgdp_nf .OR. use_Fgdp_ba)   GDPpc = GDPpc_billion_in(l) * 1.e9   ! Converting to dollars/person.
-    
+
     if (is_watch_point()) then
        write(*,*) '#### checkpoint update_fire_fast #####'
        if (use_Fgdp_nf .OR. use_Fgdp_ba)   __DEBUG4__(minval(GDPpc_billion_in),maxval(GDPpc_billion_in),GDPpc_billion_in(l),GDPpc)
@@ -1129,13 +1144,13 @@ subroutine update_fire_fast(vegn,soil,diag, &
        __DEBUG3__(minval(lightning_in),maxval(lightning_in),lightning_in(l))
        write(*,*) '######################################'
     endif
-    
+
     ! SSR20160128: If update_fire_fast is getting called, make sure that this
     ! tile has a valid value.
     if (do_fire_fragmentation) then
        call check_var_range(vegn%max_fire_size, max_fire_size_min, 10.**37, 'update_fire_fast', 'vegn%max_fire_size', FATAL)
     endif
-    
+
     call update_Nfire_BA_fast(diag,l,tile_area, &
                               fire_fn_theta, fire_fn_rh, fire_fn_Tca, fire_fn_agb, &
                               BAperFire_0, &
@@ -1152,17 +1167,17 @@ subroutine update_fire_fast(vegn,soil,diag, &
 
     ! Make sure that vegn%burned_frac is within good range
     call check_var_range(vegn%burned_frac, 0.0, 1.0, 'update_fire_fast', 'vegn%burned_frac', FATAL)
-    
+
     if (.NOT. minimal_fire_diagnostics) then
        ! Save state variables for diagnostics
-       
-       
+
+
        call send_tile_data(id_lightning,      lightning,           diag)
        call send_tile_data(id_population, popD,  diag)
 !       if (id_population>0) call send_tile_data(id_population, popD,  diag)
        call send_tile_data(id_GDPpc,      GDPpc, diag)
 !       if (id_GDPpc>0)      call send_tile_data(id_GDPpc,      GDPpc, diag)
-    
+
        ! Save fire stuff for diagnostics
        call send_tile_data(id_fire_q,           q,                diag)
        call send_tile_data(id_fire_rh,          rh,               diag)
@@ -1185,7 +1200,7 @@ subroutine update_fire_fast(vegn,soil,diag, &
        call send_tile_data(id_crown_scorch_frac,    crown_scorch_frac, diag)
        call send_tile_data(id_fire_intensity,    fire_intensity, diag)
     endif
-    
+
     ! Print diagnostics if really small BAperFire_0
     if (0.<BAperFire_0 .AND. BAperFire_0<min_fire_size) then
        if (print_min_fire_violations) then
@@ -1205,7 +1220,7 @@ subroutine update_fire_fast(vegn,soil,diag, &
           write(*,*) 'HB', HB
        endif
     endif
-            
+
 end subroutine update_fire_fast
 
 !!! dsward_mdf added for computing multiday fires
@@ -1220,8 +1235,8 @@ subroutine update_multiday_fires(vegn,tile_area)
     real                 :: mdf_BAperfire_prev=0.   ! Burned area per fire from previous multiday fire burning
     real                 :: adj_duration=0.   ! Adjusted fire duration [s], to compute starting area burned for continuing fire
     integer              :: i = 0
-    integer              :: kop  ! switch for boreal (1) and non-boreal (2) zones    
-   
+    integer              :: kop  ! switch for boreal (1) and non-boreal (2) zones
+
     kop=1
     if (vegn%koppen_zone .lt. 11) kop=2  ! switch magic scalar to non-boreal value
 
@@ -1239,11 +1254,11 @@ subroutine update_multiday_fires(vegn,tile_area)
         if (vegn%BAperfire_ave_mdf.eq.0.0) exit
 
     !!! Adjust the number of fires for coalescence based on results of the toy model
-    !!  that determines rates of fire coalescence for randomly placed ellipses on a 
+    !!  that determines rates of fire coalescence for randomly placed ellipses on a
     !!  square grid.
         adj_Nfires = vegn%past_fires_mdf(i)*(1.0-(sum(vegn%past_areaburned_mdf)/(vegn%past_tilesize_mdf*1.e-6)))**2.
         if (adj_Nfires .gt. vegn%past_fires_mdf(i)) adj_Nfires=vegn%past_fires_mdf(i)
- 
+
         mdf_BAperfire_prev=vegn%past_areaburned_mdf(i)/adj_Nfires
 
     !!! compute area to be added for each day:
@@ -1288,8 +1303,8 @@ subroutine update_multiday_fires(vegn,tile_area)
 
     !!! shift fires from most recent day to one day further in the past
     vegn%past_fires_mdf(2:30) = vegn%past_fires_mdf(1:29)
-!    vegn%past_tilesize_mdf(2:30) = vegn%past_tilesize_mdf(1:29) 
-    vegn%past_areaburned_mdf(2:30) = vegn%past_areaburned_mdf(1:29) 
+!    vegn%past_tilesize_mdf(2:30) = vegn%past_tilesize_mdf(1:29)
+    vegn%past_areaburned_mdf(2:30) = vegn%past_areaburned_mdf(1:29)
     vegn%past_areaburned_mdf(1) = 0.0
 
     !!! add most recent day to past_fire array, past tile size
@@ -1309,13 +1324,13 @@ subroutine update_fire_agri(vegn,Time,tile_area_km2,BF_mth,BA_mth)
   type(time_type), intent(in)  :: Time
   real, intent(in) :: tile_area_km2
   real, intent(out):: BF_mth, BA_mth   ! Total burned area (km2) or burned fraction of tile
-  
+
   ! Calculate burned fraction
   call vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_mth,BF_mth)
-  
+
   ! accumulate burned fraction since last burn (SSR: after vegn_disturbance.F90)
   vegn%burned_frac = vegn%burned_frac + BF_mth
-  
+
   ! dsward added for fire_switch off case
   if (vegn%burned_frac.gt.1.0) then
      vegn%burned_frac=1.0
@@ -1324,7 +1339,7 @@ subroutine update_fire_agri(vegn,Time,tile_area_km2,BF_mth,BA_mth)
 
   ! vegn%burned_frac shouldn't be >1 after having restricted BF_mth in vegn_fire_BA_agri
  ! call check_var_range(vegn%burned_frac, 0.0, 1.0, 'update_fire_agri', 'vegn%burned_frac', FATAL)
- 
+
 end subroutine update_fire_agri
 
 
@@ -1332,26 +1347,54 @@ subroutine update_fire_Fk(vegn,diag,l)
   type(vegn_tile_type), intent(inout) :: vegn
   type(diag_buff_type), intent(inout) :: diag
   integer, intent(in)  :: l   ! index of current point, for fire data
-  
+
   vegn%Fcrop = Fc_in(l)
   vegn%Fpast = Fp_in(l)
 
   if (vegn%Fcrop.lt.1.e-9) vegn%Fcrop = 1.e-9
   if (vegn%Fpast.lt.1.e-9) vegn%Fpast = 1.e-9
-  
+
   call send_tile_data(id_Fcrop, vegn%Fcrop, diag)
   call send_tile_data(id_Fpast, vegn%Fpast, diag)
-  
+
 end subroutine update_fire_Fk
 
+
+! ==============================================================================
+! returns true if tile is subject to natural fire
+function fire_natural(tile) result(answer)
+  type(land_tile_type), intent(in) :: tile
+  logical :: answer
+
+  answer = .FALSE.
+  if (.not.associated(tile%vegn))      return
+  if (.not.fire_option==FIRE_UNPACKED) return
+  answer = tile%vegn%landuse==LU_NTRL &
+     .OR. tile%vegn%landuse==LU_SCND &
+     .OR. (tile%vegn%landuse==LU_PAST .AND. fire_option_past==FIRE_PASTLI)
+end function fire_natural
+
+! ==============================================================================
+! returns true if tile subject to agricultural fire
+function fire_agri(tile) result(answer)
+  type(land_tile_type), intent(in) :: tile
+  logical :: answer
+
+  answer = .FALSE.
+  if (.not.associated(tile%vegn))      return
+  if (.not.fire_option==FIRE_UNPACKED) return
+
+  answer =   tile%vegn%landuse==LU_CROP &
+            .OR. (tile%vegn%landuse==LU_PAST .AND. fire_option_past==FIRE_PASTFP)
+end function fire_agri
 
 ! ==============================================================================
 
 
 subroutine vegn_fire_fn_theta(theta,fire_fn_theta,kop)  !!! dsward_kop added kop
     real, intent(in) :: theta
-    real, intent(out) :: fire_fn_theta   
-    integer, intent(in) :: kop   
+    real, intent(out) :: fire_fn_theta
+    integer, intent(in) :: kop
 
     if (fire_option_fTheta==FIRE_THETA_LI2012) then
        if (.NOT. thetaE_already_squared) then
@@ -1364,14 +1407,14 @@ subroutine vegn_fire_fn_theta(theta,fire_fn_theta,kop)  !!! dsward_kop added kop
     elseif (fire_option_fTheta==FIRE_THETA_GOMPERTZ) then
        fire_fn_theta = exp(-theta_gom2(kop)*exp(-theta_gom3(kop)*theta))
     endif
-    
+
     ! SSR20160203
     ! Avoid craziness resulting from super-tiny values associated with logistic
     ! or Gompertz functions
     if (fire_fn_theta<1e-9 .AND. fire_fn_theta>0.0) then
        fire_fn_theta = 1e-9
     endif
-    
+
     ! SSR20160202; SSR20160203
     if (do_calc_derivs) then
        if (fire_option_fTheta==FIRE_THETA_LI2012) then
@@ -1407,7 +1450,7 @@ subroutine vegn_fire_fn_theta(theta,fire_fn_theta,kop)  !!! dsward_kop added kop
           endif
        endif
     endif
-    
+
     if (is_watch_point()) then
        write(*,*) '######## checkpoint vegn_fire_fn_theta ########'
        write(*,*) 'pi', pi
@@ -1423,9 +1466,9 @@ subroutine vegn_fire_fn_theta(theta,fire_fn_theta,kop)  !!! dsward_kop added kop
        endif
        write(*,*) '#######################################################'
     endif
-    
+
     call check_var_range(fire_fn_theta, 0.0, 1.0, 'vegn_fire_fn_theta', 'fire_fn_theta', FATAL)
-    
+
 end subroutine vegn_fire_fn_theta
 
 
@@ -1433,8 +1476,8 @@ end subroutine vegn_fire_fn_theta
 subroutine vegn_fire_fn_rh(rh,fire_fn_rh,kop)   !!! dsward_kop added kop
     real, intent(in)  :: rh
     real, intent(out) :: fire_fn_rh
-    integer, intent(in) :: kop  
-        
+    integer, intent(in) :: kop
+
     if (fire_option_fRH==FIRE_RH_LI2012) then
        fire_fn_rh = max(0.,min(1., (rh_up(kop)-rh) / (rh_up(kop)-rh_lo(kop))))
        if (do_calc_derivs) then
@@ -1500,13 +1543,13 @@ subroutine vegn_fire_fn_rh(rh,fire_fn_rh,kop)   !!! dsward_kop added kop
            endif
        endif
     endif
-    
+
     ! Avoid craziness resulting from super-tiny values associated with logistic
     ! or Gompertz functions
     if (fire_fn_rh<1e-9 .AND. fire_fn_rh>0.0) then
        fire_fn_rh = 1e-9
     endif
-    
+
     if (is_watch_point()) then
           write(*,*) '######## checkpoint vegn_fire_fn_rh ########'
           write(*,*) 'rh', rh
@@ -1528,7 +1571,7 @@ subroutine vegn_fire_fn_rh(rh,fire_fn_rh,kop)   !!! dsward_kop added kop
           endif
           write(*,*) '#######################################################'
     endif
-        
+
     call check_var_range(fire_fn_rh, 0.0, 1.0, 'vegn_fire_fn_rh', 'fire_fn_rh', FATAL)
     if (do_calc_derivs) then
        call check_var_range(fire_fn_rh_DERIVwrt_param1, -10.**37, 10.**37, 'vegn_fire_fn_rh', 'fire_fn_rh_DERIVwrt_param1', FATAL)
@@ -1536,7 +1579,7 @@ subroutine vegn_fire_fn_rh(rh,fire_fn_rh,kop)   !!! dsward_kop added kop
        call check_var_range(fire_TOTALfn_rh_DERIVwrt_param1, -10.**37, 10.**37, 'vegn_fire_fn_rh', 'fire_TOTALfn_rh_DERIVwrt_param1', FATAL)
        call check_var_range(fire_TOTALfn_rh_DERIVwrt_param2, -10.**37, 10.**37, 'vegn_fire_fn_rh', 'fire_TOTALfn_rh_DERIVwrt_param2', FATAL)
     endif
-    
+
 end subroutine vegn_fire_fn_rh
 
 
@@ -1544,12 +1587,12 @@ end subroutine vegn_fire_fn_rh
 subroutine vegn_fire_fn_Tca(Tca,fire_fn_Tca)
     real, intent(in) :: Tca
     real, intent(out) :: fire_fn_Tca
-    
+
     real :: Tca_celsius
-    
+
     Tca_celsius = Tca - 273.15
     fire_fn_Tca = max(0., min(1., (Tca_celsius - T_lo_celsius)/(T_up_celsius-T_lo_celsius)))
-    
+
     if (is_watch_point()) then
        write(*,*) '######## checkpoint vegn_fire_fn_Tca ########'
        write(*,*) 'Tca_celsius', Tca_celsius
@@ -1558,9 +1601,9 @@ subroutine vegn_fire_fn_Tca(Tca,fire_fn_Tca)
        write(*,*) 'fire_fn_Tca', fire_fn_Tca
        write(*,*) '#######################################################'
     endif
-        
+
     call check_var_range(fire_fn_Tca, 0.0, 1.0, 'vegn_fire_fn_Tca', 'fire_fn_Tca', FATAL)
-    
+
 end subroutine vegn_fire_fn_Tca
 
 
@@ -1571,10 +1614,10 @@ subroutine vegn_fire_fn_agb(vegn,soil,fire_fn_agb,kop)  !!! dsward_kop added kop
     real, intent(out) :: fire_fn_agb
     type(vegn_cohort_type), pointer :: cc    ! current cohort
     integer, intent(in) :: kop ! dsward_kop - use  boreal (1) or non-boreal (2) parameters
-    
-   ! vegn%fire_agb is updated in update_land_model_fast_0d to ensure that it's done for 
-   ! all tiles, since fire_agb is what's used to determine whether tiles can merge when 
-   ! using new fire model. 
+
+   ! vegn%fire_agb is updated in update_land_model_fast_0d to ensure that it's done for
+   ! all tiles, since fire_agb is what's used to determine whether tiles can merge when
+   ! using new fire model.
 
     if (fire_biomass_threshold==-1) then
        if (fire_option_fAGB==FIRE_AGB_LI2012) then
@@ -1618,13 +1661,13 @@ subroutine vegn_fire_fn_agb(vegn,soil,fire_fn_agb,kop)  !!! dsward_kop added kop
           fire_fn_agb = 0.0
        endif
     endif
-    
+
     ! Avoid craziness resulting from super-tiny values associated with logistic
     ! or Gompertz functions
     if (fire_fn_agb<1e-9 .AND. fire_fn_agb>0.0) then
        fire_fn_agb = 1e-9
     endif
-    
+
     if (is_watch_point()) then
           write(*,*) '######## checkpoint vegn_fire_fn_agb ########'
           write(*,*) 'agb', vegn%fire_agb
@@ -1646,13 +1689,13 @@ subroutine vegn_fire_fn_agb(vegn,soil,fire_fn_agb,kop)  !!! dsward_kop added kop
           endif
           write(*,*) '#######################################################'
     endif
-        
+
     call check_var_range(fire_fn_agb, 0.0, 1.0, 'vegn_fire_fn_agb', 'fire_fn_agb', FATAL)
     if (do_calc_derivs) then
        call check_var_range(fire_fn_agb_DERIVwrt_param1, -10.**37, 10.**37, 'vegn_fire_fn_agb', 'fire_fn_agb_DERIVwrt_param1', FATAL)
        call check_var_range(fire_fn_agb_DERIVwrt_param2, -10.**37, 10.**37, 'vegn_fire_fn_agb', 'fire_fn_agb_DERIVwrt_param2', FATAL)
     endif
-    
+
 end subroutine vegn_fire_fn_agb
 
 
@@ -1662,7 +1705,7 @@ subroutine vegn_fire_fn_popD(vegn_cohort_1_species,popD,fire_fn_popD_NF, fire_fn
     real, intent(out)   ::  fire_fn_popD_NF     ! Fraction of potential fires suppressed by popD
     real, intent(out)   ::  fire_fn_popD_BA     ! Fraction of potential BA realized via popD
     integer, intent(in) ::  kop
-        
+
     ! Number of fires
     if (use_FpopD_nf.eqv..TRUE. .AND. popD>0.0) then
        fire_fn_popD_NF = popD_supp_eps1(kop) - popD_supp_eps2(kop)*exp(-popD_supp_eps3(kop)*popD)
@@ -1679,7 +1722,7 @@ subroutine vegn_fire_fn_popD(vegn_cohort_1_species,popD,fire_fn_popD_NF, fire_fn
           popDsupp_NF_DERIVwrt_eps3 = 0.0
        endif
     endif
-    
+
     ! Burned area per fire
     if (use_FpopD_ba.eqv..TRUE.) then
        if (popD <= 0.1) then
@@ -1692,7 +1735,7 @@ subroutine vegn_fire_fn_popD(vegn_cohort_1_species,popD,fire_fn_popD_NF, fire_fn
     else
        fire_fn_popD_BA = 1.0
     endif
-    
+
     if (is_watch_point()) then
        write(*,*) '######## checkpoint vegn_fire_fn_popD ########'
        write(*,*) 'popD_supp_eps1', popD_supp_eps1(kop)
@@ -1709,10 +1752,10 @@ subroutine vegn_fire_fn_popD(vegn_cohort_1_species,popD,fire_fn_popD_NF, fire_fn
        endif
        write(*,*) '#######################################################'
     endif
-    
+
     call check_var_range(fire_fn_popD_NF, 0.0, 1.0, 'vegn_fire_fn_popD_NF', 'fire_fn_popD_NF', FATAL)
     call check_var_range(fire_fn_popD_BA, 0.0, 1.0, 'vegn_fire_fn_popD_BA', 'fire_fn_popD_BA', FATAL)
-    
+
 end subroutine vegn_fire_fn_popD
 
 
@@ -1721,20 +1764,20 @@ subroutine vegn_fire_fn_GDPpc(vegn_cohort_1_species,GDPpc,popD,fire_fn_GDPpc_NF,
     ! they have a separate model for burning there. I may also want to change this so
     ! that the "tree-dominated" ecosystems are better delineated, e.g., through Olson
     ! classifications.
-    
+
     integer, intent(in) :: vegn_cohort_1_species
     real, intent(in)    :: GDPpc   ! $/person
     real, intent(in)    :: popD    ! People/km2
     real, intent(out)   :: fire_fn_GDPpc_NF     ! Fraction of potential fires realized via GDPpc
-    real, intent(out)   :: fire_fn_GDPpc_BA     ! Fraction of potential BA/fire realized via GDPpc  
-    
+    real, intent(out)   :: fire_fn_GDPpc_BA     ! Fraction of potential BA/fire realized via GDPpc
+
     real                :: GDPpc_k   ! k$/person
-    
+
     if (use_Fgdp_nf.eqv..TRUE. .OR. use_Fgdp_ba.eqv..TRUE.) then
        ! Convert GDPpc from $/person to k$/person
        GDPpc_k = GDPpc / 1000.
     endif
-    
+
     ! Number of fires
     if (use_Fgdp_nf.eqv..TRUE.) then
        if (popD <= 0.1) then
@@ -1755,7 +1798,7 @@ subroutine vegn_fire_fn_GDPpc(vegn_cohort_1_species,GDPpc,popD,fire_fn_GDPpc_NF,
     else
        fire_fn_GDPpc_NF = 1.0
     endif
-    
+
     ! Burned area per fire
     if (use_Fgdp_ba.eqv..TRUE.) then
        if (popD <= 0.1) then
@@ -1778,7 +1821,7 @@ subroutine vegn_fire_fn_GDPpc(vegn_cohort_1_species,GDPpc,popD,fire_fn_GDPpc_NF,
     else
        fire_fn_GDPpc_BA = 1.0
     endif
-    
+
     if (is_watch_point()) then
        write(*,*) '######## checkpoint vegn_fire_fn_GDPpc ########'
        write(*,*) 'GDPpc_k', GDPpc_k
@@ -1788,10 +1831,10 @@ subroutine vegn_fire_fn_GDPpc(vegn_cohort_1_species,GDPpc,popD,fire_fn_GDPpc_NF,
        write(*,*) 'fire_fn_GDPpc_BA', fire_fn_GDPpc_BA
        write(*,*) '#######################################################'
     endif
-    
+
     call check_var_range(fire_fn_GDPpc_NF, 0.0, 1.0, 'vegn_fire_fn_GDPpc_NF', 'fire_fn_GDPpc_NF', FATAL)
     call check_var_range(fire_fn_GDPpc_BA, 0.0, 1.0, 'vegn_fire_fn_GDPpc_BA', 'fire_fn_GDPpc_BA', FATAL)
-    
+
 end subroutine vegn_fire_fn_GDPpc
 
 
@@ -1801,7 +1844,7 @@ subroutine vegn_fire_In(latitude,lightning,In)
     real, intent(out)   ::  In          ! Potential ignitions, natural (#/km2)
 
     real :: cloud2ground_frac
-    
+
     cloud2ground_frac = 1. / (5.16 + 2.16*cos(latitude))
     if (FireMIP_ltng) cloud2ground_frac = 1. !!! dsward added for FireMIP lightning file
     In = lightning * cloud2ground_frac * In_c2g_ign_eff
@@ -1817,7 +1860,7 @@ subroutine vegn_fire_In(latitude,lightning,In)
        write(*,*) 'In', In
        write(*,*) '##################################'
     endif
-    
+
     call check_var_range(lightning, 0.0, 10.**37, 'vegn_fire_In', 'lightning', FATAL)
     call check_var_range(cloud2ground_frac, 0.0, 1.0, 'vegn_fire_In', 'cloud2ground_frac', FATAL)
     call check_var_range(In, 0.0, lightning, 'vegn_fire_In', 'In', FATAL)
@@ -1828,7 +1871,7 @@ subroutine vegn_fire_Ia(popD,Ia,kop)  !!! dsward_kop added kop
     real, intent(in)    :: popD   ! People/km2
     real, intent(out)   :: Ia     ! Potential ignitions, anthropogenic (#/km2)
     integer, intent(in) :: kop    ! Boreal or non-boreal zone
-    
+
     if (popD > 0.0) then
        Ia = Ia_alpha_daily(kop) * Ia_param1(kop) * (popD**(1.0-Ia_param2(kop))) * dt_fast/86400.
     else
@@ -1846,7 +1889,7 @@ subroutine vegn_fire_Ia(popD,Ia,kop)  !!! dsward_kop added kop
           Ia_DERIVwrt_IaParam2 = 0.0   ! To avoid log(0)
        endif
     endif
-    
+
     if (is_watch_point()) then
        write(*,*) '#### checkpoint vegn_fire_Ia #####'
        write(*,*) 'popD', popD
@@ -1858,10 +1901,10 @@ subroutine vegn_fire_Ia(popD,Ia,kop)  !!! dsward_kop added kop
        write(*,*) '##################################'
     endif
     call check_var_range(Ia, 0.0, 10.**37, 'vegn_fire_Ia', 'Ia', FATAL)
-    
+
 end subroutine vegn_fire_Ia
 
-subroutine vegn_fire_Nfire(In, Ia, & 
+subroutine vegn_fire_Nfire(In, Ia, &
                                fire_fn_theta, fire_fn_rh, fire_fn_Tca, fire_fn_agb, &
                                fire_fn_popD_NF, fire_fn_GDPpc_NF, &
                                Nfire_perKm2, Nfire_perKm2_NOI)  !!! dsward_noi
@@ -1870,13 +1913,13 @@ subroutine vegn_fire_Nfire(In, Ia, &
                             fire_fn_popD_NF, fire_fn_GDPpc_NF
     real, intent(out)   ::  Nfire_perKm2   ! Number of fires per km2
     real, intent(out)   ::  Nfire_perKm2_NOI
-    
 
-    Nfire_perKm2 = (Ia + In) * fire_fn_theta * fire_fn_rh * fire_fn_Tca * fire_fn_agb & 
+
+    Nfire_perKm2 = (Ia + In) * fire_fn_theta * fire_fn_rh * fire_fn_Tca * fire_fn_agb &
                       * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF
     Nfire_perKm2_NOI = (1.e-5) * fire_fn_theta * fire_fn_rh * fire_fn_Tca * fire_fn_agb &
                         * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF
- 
+
     if(is_watch_point()) then
         write(*,*) '######## checkpoint vegn_fire_NFire ########'
         write(*,*) 'In', In
@@ -1890,7 +1933,7 @@ subroutine vegn_fire_Nfire(In, Ia, &
         write(*,*) 'Nfire_perKm2', Nfire_perKm2
         write(*,*) '############################################'
     endif
-    
+
     call check_var_range(Nfire_perKm2, 0.0, 10.**37, 'vegn_fire_Nfire', 'Nfire_perKm2', FATAL)
 end subroutine vegn_fire_Nfire
 
@@ -1915,18 +1958,18 @@ subroutine vegn_fire_ROS(vegn,fire_fn_rh,theta,&
 !    real    ::  ROS_max
     real, intent(out)    ::  ROS_max, C_beta   ! SSR20151009
     integer, intent(in)  :: kop  !!! dsward_kop
-    
+
     if (constant_wind_forFire >= 0.) then
        wind_forFire = constant_wind_forFire
     endif
     call check_var_range(wind_forFire, 0.0, 10.**37., 'vegn_fire_ROS', 'wind_forFire', FATAL)
-    
+
     ! Calculate length:breadth and head:back ratios
     !!! LB_max and HB_max calculated in fire_init
     LB = LBratio_a + LBratio_b*(1. - exp(-LBratio_c*wind_forFire))
     call check_var_range(LB, LBratio_a, LB_max, 'vegn_fire_ROS', 'LB', FATAL)
-    HB = (LB + sqrt(LB**2. - 1.)) / (LB - sqrt(LB**2. - 1.)) 
-    
+    HB = (LB + sqrt(LB**2. - 1.)) / (LB - sqrt(LB**2. - 1.))
+
     ! Calculate wind multiplier effect
     g0 = (1. + 1./HB_max) / (2.*LB_max) ;
     if (use_Fwind) then
@@ -1934,7 +1977,7 @@ subroutine vegn_fire_ROS(vegn,fire_fn_rh,theta,&
     else
        gW = 1.0
     endif
-    
+
     ! Choose maximum rate of spread, based on species
     ! SSR: At some point, should move this into vegn_data.F90 because these are species-level parameters
     if (vegn%cohorts(1)%species==SP_C4GRASS) then
@@ -1968,7 +2011,7 @@ subroutine vegn_fire_ROS(vegn,fire_fn_rh,theta,&
     elseif (vegn%cohorts(1)%species==SP_EVERGR) then
         ROS_max = ROS_max_EVERGR
     endif
-    
+
     ! Calculate effects of RH and theta on fire ROS
     if (use_Cm) then
        if (theta_ROSeffect_asFnTheta) then
@@ -1984,14 +2027,14 @@ subroutine vegn_fire_ROS(vegn,fire_fn_rh,theta,&
     else
        C_m = 1.0
     endif
-    
+
     ! Calculate downwind rate of spread
     ROS_surface = ROS_max * C_m * gW
-    
+
     if (do_calc_derivs) then
        ROS_DERIVwrt_ROSmax = C_m * gW
     endif
-    
+
     if(is_watch_point()) then
         write(*,*) '######## fire_checkpoint_3 ########'
         write(*,*) 'wind_forFire', wind_forFire
@@ -2009,14 +2052,14 @@ subroutine vegn_fire_ROS(vegn,fire_fn_rh,theta,&
            write(*,*) 'ROS_DERIVwrt_ROSmax', ROS_DERIVwrt_ROSmax
         endif
     endif
-    
+
     call check_var_range(C_m, 0.0, 1.0, 'vegn_fire_ROS', 'C_m', FATAL)
     call check_var_range(gW, 0.0, 1.0, 'vegn_fire_ROS', 'gW', FATAL)
     call check_var_range(ROS_surface, 0.0, 10.**37, 'vegn_fire_ROS', 'ROS_surface', FATAL)
     if (do_calc_derivs) then
        call check_var_range(ROS_DERIVwrt_ROSmax, -10.**37, 10.**37, 'vegn_fire_ROS', 'ROS_DERIVwrt_ROSmax', FATAL)
     endif
-    
+
 end subroutine vegn_fire_ROS
 
 !!! dsward_crownfires
@@ -2026,22 +2069,22 @@ subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,
     real, intent(in)    :: theta,theta_extinction
     real, intent(in)    :: ROS_surface
 
-    real, intent(out)   :: crown_scorch_frac  ! Fraction of burned area that experiences crown scorch (and 
+    real, intent(out)   :: crown_scorch_frac  ! Fraction of burned area that experiences crown scorch (and
                                               ! therefore augmented ROS)
     real, intent(out)   :: fire_intensity     ! Intensity of fire [kJ/kg(DM)]
     real, intent(out)   :: ROS                ! Rate of spread augmented by crown fire amount
     real, parameter     :: CL_parameter = 0.333    ! Crown-length parameter from Thonicke et al. (2010)
     real, parameter     :: H_parameter = 18000.    ! Fuel heat content from Thonicke et al. (2010)
     real                :: F_parameter        ! Fuel bulk density parameter from Thonicke et al. (2010)
-    real                :: FC_parameter       ! Fuel consumption, computed here solely for intensity calculation [kg(DM)/m2] 
+    real                :: FC_parameter       ! Fuel consumption, computed here solely for intensity calculation [kg(DM)/m2]
     real                :: SH_parameter       ! Scorch height, formula from Thonicke et al. (2010)
     real                :: leafLitter_total_C,fineWoodLitter_total_C,coarseWoodLitter_total_C
-    
+
 
   !!! Need litter amount (dry matter if possible, C if all that's available)
   !!! Need vegetation height
   !!! Apply a height limit?  If no crown, can't be any crown scorch (just restrict it to tree species)
-  
+
 
     if (vegn%cohorts(1)%species==SP_C4GRASS) then
         F_parameter  = 0.
@@ -2059,21 +2102,21 @@ subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,
     call poolTotalCarbon(soil%fineWoodLitter,totalCarbon=fineWoodLitter_total_C)
     call poolTotalCarbon(soil%coarseWoodLitter,totalCarbon=coarseWoodLitter_total_C)
 
-  !!! Compute fuel consumption with exponential derived from Thonicke et al. (2010) fuel consumption estimates    
+  !!! Compute fuel consumption with exponential derived from Thonicke et al. (2010) fuel consumption estimates
   !!! Note the factor of 0.45 which is intended to convert kg(C)/m2 to kg(DM)/m2
     FC_parameter = (LOG(theta/theta_extinction+0.63)+0.47)* &
                    (leafLitter_total_C+fineWoodLitter_total_C+coarseWoodLitter_total_C)/0.45
     fire_intensity = ROS_surface * FC_parameter * H_parameter  !!! [kJ/m/s]
     SH_parameter = F_parameter * (fire_intensity)**(0.6667)
-    crown_scorch_frac = ((SH_parameter-vegn%cohorts(1)%height+CL_parameter)/CL_parameter)*0.01 !percent to fraction 
+    crown_scorch_frac = ((SH_parameter-vegn%cohorts(1)%height+CL_parameter)/CL_parameter)*0.01 !percent to fraction
 
     if (crown_scorch_frac.lt.0..or.SH_parameter.eq.0..or.vegn%cohorts(1)%height.eq.0.) &
-      crown_scorch_frac = 0. 
+      crown_scorch_frac = 0.
     if (crown_scorch_frac.gt.1.) crown_scorch_frac = 1.
-  
+
     if (do_crownfires) ROS = ROS_surface*(1.-crown_scorch_frac)+ROS_surface*3.34*(crown_scorch_frac)
     if (.not.do_crownfires) ROS = ROS_surface
-    
+
     vegn%fire_rad_power = vegn%fire_rad_power + fire_intensity * 1.e3 * (1./46.4) * dt_fast / 86400. ! [W/m]
 
 end subroutine vegn_fire_intensity
@@ -2085,7 +2128,7 @@ subroutine vegn_fire_BAperFire_noAnthro(ROS,LB,HB,vegn_cohort_1_species,BAperFir
     integer, intent(in) :: vegn_cohort_1_species
     real, intent(out)   :: BAperFire_0   ! km2
     real, intent(out)   :: fire_dur   ! SSR20151009 (s)
-    
+
 
 !!!!! dsward - track fire-age somehow and it will increase the AB per fire by a quadratic here
 
@@ -2095,7 +2138,7 @@ subroutine vegn_fire_BAperFire_noAnthro(ROS,LB,HB,vegn_cohort_1_species,BAperFir
                          * ((1. + 1./HB)**2.) &
                          * pi &
                          / (4. * LB * (10.**6.))
-                         
+
     if (do_calc_derivs) then
        BAperFire0_DERIVwrt_fireDur = BAperFire_0 &
                                      * (2.*fire_duration_array(vegn_cohort_1_species)) &
@@ -2108,7 +2151,7 @@ subroutine vegn_fire_BAperFire_noAnthro(ROS,LB,HB,vegn_cohort_1_species,BAperFir
           BAperFire0_DERIVwrt_ROSmax = 0.0
        endif
     endif
-                         
+
     if(is_watch_point()) then
        write(*,*) '### vegn_fire_BAperFire_0 ###'
        write(*,*) 'ROS', ROS
@@ -2123,13 +2166,13 @@ subroutine vegn_fire_BAperFire_noAnthro(ROS,LB,HB,vegn_cohort_1_species,BAperFir
        endif
        write(*,*) '####################################'
     endif
-    
+
     call check_var_range(BAperFire_0, 0.0, 10.**37, 'vegn_fire_BAperFire_noAnthro', 'BAperFire_0', FATAL)
     if (do_calc_derivs) then
        call check_var_range(BAperFire0_DERIVwrt_fireDur, -10.**37, 10.**37, 'vegn_fire_BAperFire_noAnthro', 'BAperFire0_DERIVwrt_fireDur', FATAL)
        call check_var_range(BAperFire0_DERIVwrt_ROSmax, -10.**37, 10.**37, 'vegn_fire_BAperFire_noAnthro', 'BAperFire0_DERIVwrt_ROSmax', FATAL)
     endif
-    
+
 end subroutine vegn_fire_BAperFire_noAnthro
 
 
@@ -2160,26 +2203,26 @@ subroutine vegn_fire_BA_ntrlscnd(Nfire_perKm2, Nfire_perKm2_NOI, tile_area_km2, 
                             BA, BF, Nfire
     real, intent(out)   ::  BA_rate, BF_rate, Nfire_rate   ! Rates (per day)
     real, intent(out)   ::  BA_reduction, vegn_unburned_area   ! BA_reduction maybe not needed
-    
+
     real   ::  vegn_unburned_frac, BA_tmp
-    
+
     real   :: Nfire_NOI !!! dsward_noi
     real   :: minimum_mdf_num  !!! dsward_mdf minimum number of fires needed to sustain a multiday fire
                                              !!! right now set to one fire per day per tile
-    integer, intent(in) :: kop !! dsward_kop    
+    integer, intent(in) :: kop !! dsward_kop
 
     minimum_mdf_num = mdf_threshold
 
     if (vegn_burned_frac < 1.0) then
-    
+
        ! # fires, knowing that fire can't happen on land that already burned today
        vegn_unburned_frac = 1.0 - vegn_burned_frac
        vegn_unburned_area = tile_area_km2 * vegn_unburned_frac
        Nfire = Nfire_perKm2 * vegn_unburned_area   ! Number of fires per timestep
        Nfire_NOI = Nfire_perKm2_NOI * vegn_unburned_area  !!! dsward_noi
-       
+
        ! Restrict this time step's burned fraction to amount of unburned area in tile
-       BA_tmp = (Nfire * BAperFire_0) 
+       BA_tmp = (Nfire * BAperFire_0)
        if (BA_tmp > vegn_unburned_area) then
           BA_reduction = (BA_tmp - vegn_unburned_area) / BA_tmp
           BAperFire_1 = (vegn_unburned_area / Nfire)
@@ -2194,7 +2237,7 @@ subroutine vegn_fire_BA_ntrlscnd(Nfire_perKm2, Nfire_perKm2_NOI, tile_area_km2, 
           BAperFire_1 = BAperFire_0
           BA_reduction = 0.0
        endif
-       
+
        ! Restrict based on max fire size
        if (do_fire_fragmentation .AND. BAperFire_1 > max_fire_size*1e-6) then
           BAperFire_2 = max_fire_size*1e-6
@@ -2202,17 +2245,17 @@ subroutine vegn_fire_BA_ntrlscnd(Nfire_perKm2, Nfire_perKm2_NOI, tile_area_km2, 
        else
           BAperFire_2 = BAperFire_1
        endif
-    
+
        ! Incorporate human suppression
        BAperFire_3 = BAperFire_2 * fire_fn_popD_BA * fire_fn_GDPpc_BA
-       
+
 !!! dsward_mdf add code to accumulate Nfires and average BAperfire during the day
-!!! Also include code to extinguish all multi-day fires if the Nfires drops below 
+!!! Also include code to extinguish all multi-day fires if the Nfires drops below
 !!! a termination threshold
        if ((Nfire_NOI*(86400./dt_fast)).lt.minimum_mdf_num) then
           vegn_past_fires_mdf(:) = 0.0
           vegn_past_areaburned_mdf(:) = 0.0
-       endif 
+       endif
        vegn_fires_to_add_mdf = vegn_fires_to_add_mdf + Nfire
        vegn_BAperfire_ave_mdf = vegn_BAperfire_ave_mdf + BAperFire_3*dt_fast/86400.
 !!! end dsward_mdf
@@ -2220,12 +2263,12 @@ subroutine vegn_fire_BA_ntrlscnd(Nfire_perKm2, Nfire_perKm2_NOI, tile_area_km2, 
        ! Calculate BA
        BA = Nfire * BAperFire_3 * magic_scalar(kop)
        BF = BA / tile_area_km2
-     
+
        ! Calculate per-day rates
        BF_rate =    BF    * (86400./dt_fast)
        Nfire_rate = Nfire * (86400./dt_fast)
        BA_rate =    BA    * (86400./dt_fast)
-       
+
        if (0.<BA .AND. BA<min_combined_ba) then
           if (print_min_fire_violations .OR. is_watch_point()) then
              write(*,*) '######## BA<min_combined_ba ########'
@@ -2239,7 +2282,7 @@ subroutine vegn_fire_BA_ntrlscnd(Nfire_perKm2, Nfire_perKm2_NOI, tile_area_km2, 
           BA = 0.
           BAperFire_3 = 0.
        endif
-       
+
        ! Update vegn%burned_frac. Done this way to avoid rounding error resulting in
        ! vegn%burned_frac > 1.0 by <1e-15.
        !!! dsward added dependence on BF being non-zero since many points with BA_reductions
@@ -2257,7 +2300,7 @@ subroutine vegn_fire_BA_ntrlscnd(Nfire_perKm2, Nfire_perKm2_NOI, tile_area_km2, 
 !!!dsward       else
 !!!dsward          vegn_burned_frac = 1.0
 !!!dsward       endif
-       
+
     else ! (So vegn_burned_frac==1.0)
        BF = 0.0
        Nfire = 0.0
@@ -2271,7 +2314,7 @@ subroutine vegn_fire_BA_ntrlscnd(Nfire_perKm2, Nfire_perKm2_NOI, tile_area_km2, 
        BAperFire_3 = 0.0
        vegn_unburned_area = 0.0
     endif ! (vegn_burned_frac < 1.0)
-    
+
     if(is_watch_point()) then
         write(*,*) '######## fire_checkpoint_4 ########'
         write(*,*) 'fire_fn_popD_BA', fire_fn_popD_BA
@@ -2293,12 +2336,12 @@ subroutine vegn_fire_BA_ntrlscnd(Nfire_perKm2, Nfire_perKm2_NOI, tile_area_km2, 
         write(*,*) 'BA', BA
         write(*,*) 'BA_rate', BA_rate
     endif
-    
+
     ! SSR20151208: Add some tolerance for BF at high end
     if (BF>1.0 .AND. BF<1.0+10.**-12) then
        BF = 1.0
     endif
-    
+
     ! Error check
     call check_var_range(BAperFire_0, 0.0, 10.**37, 'vegn_fire_BA_ntrlscnd', 'BAperFire_0', FATAL)
     call check_var_range(BAperFire_1, 0.0, BAperFire_0, 'vegn_fire_BA_ntrlscnd', 'BAperFire_1', FATAL)
@@ -2318,11 +2361,11 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
     type(vegn_tile_type), intent(inout) :: vegn
     type(soil_tile_type), intent(inout) :: soil
     type(vegn_cohort_type), pointer :: cc    ! current cohort
-    
+
     real, intent(in) :: tile_area_m2   ! Area of land in tile, m2
     integer, intent(in) :: days_in_year   ! number of days in year for computing csmoke_rate
     logical, intent(in) :: force_watch_point
-    logical, intent(in) :: is_split    
+    logical, intent(in) :: is_split
 
     real    ::    CC_leaf, CC_stem, CC_litter, CC_living   ! What fraction of tissues get combusted?
     real    ::    CC_litter_leaf, CC_litter_CWD, CC_litter_leaf_inclBF, CC_litter_CWD_inclBF    ! dsward added for zeroing out emissions from CWD on grasslands
@@ -2354,7 +2397,7 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
                   npp_prevDay_inBurn_cc, npp_prevDayTmp_inBurn_cc
     real    ::    bl0, blv0, bwood0, bsw0, br0, Cgain0, Wgain0, &
                   bl1, blv1, bwood1, bsw1, br1, Cgain1, Wgain1
-    real    ::    tile_circum_m2,num_pixel_scale    !!! dsward for fire_rad_power calculation    
+    real    ::    tile_circum_m2,num_pixel_scale    !!! dsward for fire_rad_power calculation
 
     ! SSR20151217
     real    ::    lfl_unpr_fast, lfl_unpr_slow, lfl_unpr_dmic, &
@@ -2432,7 +2475,7 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
         EF_CO = 127.
         EF_CO2 = 1489.
     end if
-    
+
 !!!    if (do_fire_tiling.eqv..FALSE. &
 !!!    .OR. vegn%landuse==LU_CROP &
 !!!    .OR. (vegn%landuse==LU_PAST .AND..NOT. split_past_tiles) &   ! SSR20151118
@@ -2441,13 +2484,13 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
 !!!    else
 !!!       burned_frac = 1.0
 !!!    endif
-   
+
     if (is_split) then
        burned_frac = 1.0
     else
        burned_frac = vegn%burned_frac
     endif
- 
+
     if(is_watch_point() .OR. force_watch_point .OR. (is_watch_cell() .AND. force_watch_cell_burning)) then
         write(*,*) '######## Before vegn_burn - dsward_vb ########'
         write(*,*) 'vegn%burned_frac', vegn%burned_frac
@@ -2465,7 +2508,7 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
 
     ! Burn litter
     if (soil_carbon_option==SOILC_CORPSE) then
-       
+
        ! SSR20151217
        call poolTotalCarbon(soil%leafLitter, &
                             fastC=lfl_unpr_fast,slowC=lfl_unpr_slow,deadMicrobeC=lfl_unpr_dmic, &
@@ -2473,7 +2516,7 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
        call poolTotalCarbon(soil%coarseWoodLitter, &
                             fastC=cwl_unpr_fast,slowC=cwl_unpr_slow,deadMicrobeC=cwl_unpr_dmic, &
                             fast_protectedC=cwl_prot_fast,slow_protectedC=cwl_prot_slow,deadmic_protectedC=cwl_prot_dmic)
-       
+
        !!!! small errors introduced after here (1e-15 or so)
 
        CC_litter_leaf_inclBF = CC_litter_leaf * burned_frac !!! dsward_cwd
@@ -2490,7 +2533,7 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
                                                                                     protected_removed=burnedLitter_2_cw, &
                                                                                     liveMicrobe_removed=burnedLitter_3_cw)
        burned_coarseWoodLitter = sum(burnedLitter_1_cw) + sum(burnedLitter_2_cw) + burnedLitter_3_cw
-       
+
        !!!! small errors introduced before here (1e-15 or so)
 
        ! SSR20151217
@@ -2507,9 +2550,9 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
 !        if (cwl_prot_slow > 0.0) soil%ssr_cwl_prot_slow_Ko_accum = soil%ssr_cwl_prot_slow_Ko_accum + CC_litter_inclBF
 !        if (cwl_prot_dmic > 0.0) soil%ssr_cwl_prot_dmic_Ko_accum = soil%ssr_cwl_prot_dmic_Ko_accum + CC_litter_inclBF
     endif
-    
+
     fire_agb_0 = vegn%fire_agb
-    
+
     ! Burn/kill living vegetation (including "dead" wood)
     !!!!! Note that all species die from fire (i.e., this ignores spdata(cc%species)%mortality_kills_balive)
     burned_bl=0.0 ; burned_bwood=0.0 ; burned_bsw=0.0 ; burned_blv=0.0 ; burned_Cgain = 0.0; burned_Wgain = 0.0;
@@ -2523,7 +2566,7 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
 
     do i = 1,vegn%n_cohorts
         cc => vegn%cohorts(i)
-        
+
         ! Get initial biomass
         bl_inBurn_cc = cc%bl
         bwood_inBurn_cc = cc%bwood
@@ -2552,19 +2595,19 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
         ! Combustion of leaves
         burned_bl_cc = CC_leaf * cc%bl
         burned_bl = burned_bl + burned_bl_cc
-        
+
         ! Combustion of wood
         burned_bwood_cc = CC_stem * cc%bwood
         burned_bwood = burned_bwood + burned_bwood_cc
-        
+
         ! Combustion of sapwood
         burned_bsw_cc = CC_stem * cc%bsw
         burned_bsw = burned_bsw + burned_bsw_cc
-        
+
         ! Combustion of virtual leaf biomass
         burned_blv_cc = CC_stem * cc%blv
         burned_blv = burned_blv + burned_blv_cc
-        
+
         ! Combustion of carbon_gain and bwood_gain
         burned_living_cc = burned_bl_cc + burned_bsw_cc + burned_blv_cc
         CC_living = burned_living_cc / bliving_inBurn_cc
@@ -2584,27 +2627,27 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
         bliving_inBurn_cc = bsw_inBurn_cc + bl_inBurn_cc + br_inBurn_cc + blv_inBurn_cc;
 !!! dsward !!!        Cgain_inBurn_cc = Cgain_inBurn_cc - burned_Cgain_cc
         Wgain_inBurn_cc = Wgain_inBurn_cc - burned_Wgain_cc
-        
+
         ! Mortality of remaining leaves
         killed_bl_cc = fireMort_leaf * bl_inBurn_cc
         killed_bl = killed_bl + killed_bl_cc
-        
+
         ! Mortality of remaining wood
         killed_bwood_cc = fireMort_stem * bwood_inBurn_cc
         killed_bwood = killed_bwood + killed_bwood_cc
-        
+
         ! Mortality of remaining sapwood
         killed_bsw_cc = fireMort_stem * bsw_inBurn_cc
         killed_bsw = killed_bsw + killed_bsw_cc
-        
+
         ! Mortality of remaining virtual leaf biomass
         killed_blv_cc = fireMort_stem * blv_inBurn_cc
         killed_blv = killed_blv + killed_blv_cc
-        
+
         ! Mortality of roots
         killed_br_cc = fireMort_root * br_inBurn_cc
         killed_br = killed_br + killed_br_cc
-        
+
         ! Mortality of carbon_gain and bwood_gain
         killed_living_cc = killed_bl_cc + killed_bsw_cc + killed_blv_cc + killed_br_cc
         fireMort_living = killed_living_cc / bliving_inBurn_cc
@@ -2664,7 +2707,7 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
            cc%npp_previous_day     = (1.0-burned_frac)*cc%npp_previous_day     + burned_frac*((1.0-frac_nppPrevDay_toRemove)*cc%npp_previous_day)
            cc%npp_previous_day_tmp = (1.0-burned_frac)*cc%npp_previous_day_tmp + burned_frac*((1.0-frac_nppPrevDay_toRemove)*cc%npp_previous_day_tmp)
         endif
-        
+
         if(is_watch_point() .OR. force_watch_point .OR. (is_watch_cell() .AND. force_watch_cell_burning)) then
            bliving_1 = bliving_1 + cc%bliving
            bwood_1 = bwood_1 + cc%bwood
@@ -2679,7 +2722,7 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
            Wgain1 = Wgain1 + cc%bwood_gain
         endif
     end do
-    
+
 
     if (burned_frac < 1.0) then
        burned_bl = burned_bl*burned_frac
@@ -2696,7 +2739,7 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
 !!! dsward !!!       killed_Cgain = killed_Cgain*burned_frac
        killed_Wgain = killed_Wgain*burned_frac
     endif
-    
+
     ! Get total combusted, killed
     burned_total = burned_bl + burned_bwood + burned_bsw + burned_blv + burned_Wgain !!! dsward !!! + burned_Cgain
     if (soil_carbon_option==SOILC_CORPSE) then
@@ -2743,11 +2786,11 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
                          )
 !           soil%coarsewoodlitter_fsc_in = soil%coarsewoodlitter_fsc_in +     fsc_wood *killed_wood
 !           soil%coarsewoodlitter_ssc_in = soil%coarsewoodlitter_ssc_in + (1.-fsc_wood)*killed_wood
-          
+
           ! SSR20151217
 !           soil%ssr_cwl_unpr_fast_Ki_accum = soil%ssr_cwl_unpr_fast_Ki_accum +     fsc_wood *killed_wood
 !           soil%ssr_cwl_unpr_slow_Ki_accum = soil%ssr_cwl_unpr_slow_Ki_accum + (1.-fsc_wood)*killed_wood
-          
+
           call add_root_litter(soil, vegn%cohorts(1), &
                                (/     fsc_wood *killed_wood, &   ! Cellulose
                                   (1.-fsc_wood)*killed_wood, &   ! Lignin
@@ -2762,7 +2805,7 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
           call add_litter(soil%leafLitter,(/new_fast_C_ag,new_slow_C_ag,0.0/))
 !           soil%leaflitter_fsc_in = soil%leaflitter_fsc_in + new_fast_C_ag
 !           soil%leaflitter_ssc_in = soil%leaflitter_ssc_in + new_slow_C_ag
-          
+
           ! SSR20151218
 !           soil%ssr_lfl_unpr_fast_Ki_accum = soil%ssr_lfl_unpr_fast_Ki_accum + new_fast_C_ag
 !           soil%ssr_lfl_unpr_slow_Ki_accum = soil%ssr_lfl_unpr_slow_Ki_accum + new_slow_C_ag
@@ -2790,28 +2833,28 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
 !     vegn%csmoke_rate_daily = vegn%csmoke_pool   ! kg C/(m2 day)
 !     vegn%csmoke_rate = vegn%csmoke_rate_daily * days_in_year ! kg C/(m2 yr)
     vegn%csmoke_rate = vegn%csmoke_pool * days_in_year ! kg C/(m2 yr)
-    
+
     tile_circum_m2 = (((tile_area_m2*burned_frac)/3.1415927)**0.5)*2.*3.1415927
     num_pixel_scale = 1.
     if (tile_circum_m2.gt.1.e4) num_pixel_scale = tile_circum_m2/1.e4
 
     vegn%fire_rad_power = vegn%fire_rad_power*tile_circum_m2/num_pixel_scale  !!! [W/pixel]
-    if (vegn%fire_rad_power .eq. 0.0) vegn%fire_rad_power = 1.e7  
+    if (vegn%fire_rad_power .eq. 0.0) vegn%fire_rad_power = 1.e7
 
 
     ! Biomass burned diagnostics   EDITED/UNDONE 2015-12-27
     vegn%burn_Cemit       = burned_total      *tile_area_m2
-    vegn%burn_Cemit_noCWL = burned_total_noCWL*tile_area_m2 
-    vegn%burn_Ckill = killed_total*tile_area_m2 
-   
-   
+    vegn%burn_Cemit_noCWL = burned_total_noCWL*tile_area_m2
+    vegn%burn_Ckill = killed_total*tile_area_m2
+
+
     vegn%burn_Cemit_litter    = (burned_leafLitter+burned_fineWoodLitter+ &
-                                 burned_coarseWoodLitter) *tile_area_m2 
+                                 burned_coarseWoodLitter) *tile_area_m2
     vegn%burn_Cemit_stem      = (burned_bsw+burned_bwood+burned_blv) *tile_area_m2
     vegn%burn_Cemit_leaf      = burned_bl *tile_area_m2
     vegn%burn_Cemit_litter_lf = burned_leafLitter *tile_area_m2
     vegn%burn_Cemit_litter_cw = burned_coarseWoodLitter *tile_area_m2
- 
+
     ! CO2 and CO emissions for FireMIP
     vegn%burn_Cemit_CO = (EF_CO * &
                           (1./(((EF_CO2*12./44.) + (EF_CO*12./28.))*1.E3)) * &
@@ -2823,7 +2866,7 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
 
     call update_fire_agb(vegn,soil)
     fire_agb_1 = vegn%fire_agb
-    
+
     if(is_watch_point() .OR. force_watch_point .OR. (is_watch_cell() .AND. force_watch_cell_burning)) then
         write(*,*) '######## After vegn_burn ########'
         write(*,*) 'burned_bl', burned_bl
@@ -2882,7 +2925,7 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
         write(*,*) 'burn_Cemit'      , vegn%burn_Cemit
         write(*,*) 'burn_Cemit_noCWL', vegn%burn_Cemit_noCWL
         write(*,*) 'burn_Ckill', vegn%burn_Ckill
-        
+
         write(*,*) '##########################################################'
     endif
 
@@ -2891,7 +2934,7 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
     call check_var_range(vegn%burn_Ckill, 0.0, 10.**37, 'vegn_burn', 'burn_Ckill', FATAL)
     call check_var_range(vegn%csmoke_pool, 0.0, 10.**37, 'vegn_burn', 'vegn%csmoke_pool', FATAL)
     call check_var_range(vegn%csmoke_rate, 0.0, 10.**37, 'vegn_burn', 'vegn%csmoke_rate', FATAL)
-    
+
 end subroutine vegn_burn
 
 
@@ -2900,7 +2943,7 @@ subroutine vegn_fire_sendtiledata_Cburned(diag, tile_vegn)
     type(vegn_tile_type), intent(inout),optional :: tile_vegn
 
     real :: num_days
-    
+
     if (present(tile_vegn)) then
        call send_tile_data(id_burn_Cemit,tile_vegn%burn_Cemit,diag)
        call send_tile_data(id_burn_Cemit_noCWL,tile_vegn%burn_Cemit_noCWL,diag)   ! SSR20151227
@@ -2946,7 +2989,7 @@ subroutine vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_mth,BF_mth)
   real :: num_days
 
   num_days = days_in_month(Time)
-  
+
   ! Fcrop and Fpast are per-day rates. Since they're just being called once per month,
   ! they need to be multiplied by the number of days in the month.
   if (vegn%landuse==LU_CROP) then
@@ -2954,7 +2997,7 @@ subroutine vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_mth,BF_mth)
   elseif (vegn%landuse==LU_PAST) then
      BF_mth = vegn%Fpast * num_days
   endif
-  
+
   ! BF can't be > 1!
   if (BF_mth > 1.0) then
      call check_var_range(BF_mth, 0.0, 1.0, 'vegn_fire_BA_agri', 'BF_mth', WARNING)
@@ -2965,9 +3008,9 @@ subroutine vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_mth,BF_mth)
      endif
      BF_mth = 1.0
   endif
-  
+
   BA_mth = BF_mth * tile_area_km2
-  
+
   if (is_watch_point()) then
      write(*,*) '##### checkpoint vegn_fire_BA_agri #####'
      if (vegn%landuse==LU_CROP) then
@@ -2978,7 +3021,7 @@ subroutine vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_mth,BF_mth)
      write(*,*) 'BF_mth', BF_mth
      write(*,*) '########################################'
   endif
-  
+
 end subroutine vegn_fire_BA_agri
 
 
@@ -3013,14 +3056,14 @@ subroutine update_Nfire_BA_fast(diag,l,tile_area, &
   real, dimension(30), intent(inout) :: vegn_past_fires_mdf     !!! dsward_mdf past fire array for multi-day fires
   real, dimension(30), intent(inout) :: vegn_past_areaburned_mdf     !!! dsward_mdf past fire BA for multi-day fires
   real, intent(inout) :: vegn_total_BA_mdf      !!! dsward_mdf total area burned from mdf for the current day
-  integer, intent(in)    :: kop  !!! dsward_kop   
+  integer, intent(in)    :: kop  !!! dsward_kop
 
   real                :: tile_area_km2   ! Area of tile (km2)
   real, intent(in)    :: latitude   ! Latitude (radians)
   real, intent(in)    :: ROSmax, gW, fire_dur, HB, LB, rh, theta, C_beta   ! SSR20151009
   real                :: fire_fn_popD_NF, fire_fn_popD_BA, &
                          fire_fn_GDPpc_NF, fire_fn_GDPpc_BA
-  real                :: In, Ia 
+  real                :: In, Ia
   real                :: Nfire_perKm2
   real                :: Nfire_perKm2_NOI  !!! dsward_noi
   real                :: BA, Nfire, BA_rate, BF, BF_rate, Nfire_rate
@@ -3045,7 +3088,7 @@ subroutine update_Nfire_BA_fast(diag,l,tile_area, &
 
 
   tile_area_km2 = tile_area / 1000000.   ! Convert m2 to km2
-  
+
   call vegn_fire_fn_popD(vegn_cohort_1_species,popD,fire_fn_popD_NF,fire_fn_popD_BA,kop) !!! dsward_kop added kop
   call vegn_fire_fn_GDPpc(vegn_cohort_1_species,GDPpc,popD,fire_fn_GDPpc_NF,fire_fn_GDPpc_BA)
   call vegn_fire_In(latitude,lightning,In)
@@ -3079,7 +3122,7 @@ subroutine update_Nfire_BA_fast(diag,l,tile_area, &
      .AND..NOT.(zero_tmf .AND. tooMuchFire) ) then   ! SSR20150921
         call calc_fire_derivs(& ! input
                                 BA_rate, BAperFire_0, BA_reduction, &
-                                In, Ia, & 
+                                In, Ia, &
                                 fire_fn_theta, fire_fn_rh, fire_fn_Tca, fire_fn_agb, &
                                 fire_fn_popD_NF, fire_fn_GDPpc_NF, &
                                 fire_fn_popD_BA, fire_fn_GDPpc_BA, &
@@ -3128,7 +3171,7 @@ subroutine update_Nfire_BA_fast(diag,l,tile_area, &
         BA_DERIVwrt_magicScalar      = 0.0   ! SSR20160222
      endif
   endif
-  
+
   ! Save fire stuff for diagnostics
   if (.NOT. minimal_fire_diagnostics) then
      call send_tile_data(id_BAperFire_1,        BAperFire_1,        diag)
@@ -3150,11 +3193,11 @@ subroutine update_Nfire_BA_fast(diag,l,tile_area, &
   if (do_calc_derivs) then
      call send_tile_data(id_BA_DERIVwrt_alphaM, BA_DERIVwrt_alphaM, diag)
      call send_tile_data(id_BA_DERIVwrt_thetaE, BA_DERIVwrt_thetaE, diag)
-     
+
      ! SSR20160203
      call send_tile_data(id_BA_DERIVwrt_THETAparam1, BA_DERIVwrt_THETAparam1, diag)
      call send_tile_data(id_BA_DERIVwrt_THETAparam2, BA_DERIVwrt_THETAparam2, diag)
-     
+
      call send_tile_data(id_BA_DERIVwrt_AGBparam1, BA_DERIVwrt_AGBparam1, diag)
      call send_tile_data(id_BA_DERIVwrt_AGBparam2, BA_DERIVwrt_AGBparam2, diag)
      call send_tile_data(id_BA_DERIVwrt_RHparam1, BA_DERIVwrt_RHparam1, diag)
@@ -3199,7 +3242,7 @@ end subroutine update_Nfire_BA_fast
 subroutine send_tile_data_BABF_forAgri(diag,BF_mth,BA_mth)
    type(diag_buff_type), intent(inout) :: diag
    real, intent(in)    :: BF_mth, BA_mth
-  
+
    call send_tile_data(id_BF_rate, BF_mth, diag)   ! Remember, sending BF_mth when it's calculated and 0 otherwise results in a good per-day rate for the month as a whole
    call send_tile_data(id_BA_rate, BA_mth, diag)   ! Remember, sending BA_mth when it's calculated and 0 otherwise results in a good per-day rate for the month as a whole
 
@@ -3257,9 +3300,9 @@ subroutine calc_fire_derivs(&
 !    BA_rate = (In + Ia + Ib) * fire_fn_theta * fire_fn_rh * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF  !!! dsward_opt added "Ib"
 !       * vegn_unburned_area * 86400. / dt_fast &
 !       * (BAperFire_0 * (1.0 - BA_reduction) * fire_fn_popD_BA * fire_fn_GDPpc_BA)
-   
+
    fast_to_daily = 86400. / dt_fast
-   
+
    ! Number of ignitions
    BA_DERIVwrt_alphaM = Ia_DERIVwrt_alphaM * fire_fn_theta * fire_fn_rh * fire_fn_Tca &
                        * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
@@ -3278,25 +3321,25 @@ subroutine calc_fire_derivs(&
                          * fire_fn_popD_BA * fire_fn_GDPpc_BA)
 
    ! Fraction of ignitions becoming fires
-   BA_DERIVwrt_AGBparam1 = (In + Ia) * fire_fn_theta * fire_fn_rh * fire_fn_Tca & 
+   BA_DERIVwrt_AGBparam1 = (In + Ia) * fire_fn_theta * fire_fn_rh * fire_fn_Tca &
                        * fire_fn_agb_DERIVwrt_param1 * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
                        * vegn_unburned_area * fast_to_daily &
                        * (BAperFire_0 * (1.0 - BA_reduction) &
                          * fire_fn_popD_BA * fire_fn_GDPpc_BA)
-   BA_DERIVwrt_AGBparam2 = (In + Ia) * fire_fn_theta * fire_fn_rh * fire_fn_Tca & 
+   BA_DERIVwrt_AGBparam2 = (In + Ia) * fire_fn_theta * fire_fn_rh * fire_fn_Tca &
                        * fire_fn_agb_DERIVwrt_param2 * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
                        * vegn_unburned_area * fast_to_daily &
                        * (BAperFire_0 * (1.0 - BA_reduction) &
                          * fire_fn_popD_BA * fire_fn_GDPpc_BA)
-                         
-                         
-                         
-!   BA_DERIVwrt_RHparam1 = (In + Ia) * fire_fn_theta * fire_fn_rh_DERIVwrt_param1 * fire_fn_Tca &  
+
+
+
+!   BA_DERIVwrt_RHparam1 = (In + Ia) * fire_fn_theta * fire_fn_rh_DERIVwrt_param1 * fire_fn_Tca &
 !                       * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
 !                       * vegn_unburned_area * fast_to_daily &
 !                       * (BAperFire_0 * (1.0 - BA_reduction) &
 !                         * fire_fn_popD_BA * fire_fn_GDPpc_BA)
-!   BA_DERIVwrt_RHparam2 = (In + Ia) * fire_fn_theta * fire_fn_rh_DERIVwrt_param2 * fire_fn_Tca &  
+!   BA_DERIVwrt_RHparam2 = (In + Ia) * fire_fn_theta * fire_fn_rh_DERIVwrt_param2 * fire_fn_Tca &
 !                       * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
 !                       * vegn_unburned_area * fast_to_daily &
 !                       * (BAperFire_0 * (1.0 - BA_reduction) &
@@ -3304,7 +3347,7 @@ subroutine calc_fire_derivs(&
 
 !!    New method of calculating derivative w/r/t RH parameters. Ignores
 !!    fire_fn_rh_DERIVwrt_param[1,2], instead doing everything here.
-!    RHderiv_X = (In + Ia) * fire_fn_theta * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &   
+!    RHderiv_X = (In + Ia) * fire_fn_theta * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
 !                * vegn_unburned_area * fast_to_daily
 !    if ((.NOT. C_beta_params_likeRH) .OR. theta_ROSeffect_asFnTheta) then
 !       RHderiv_Z = ((ROSmax * gW * C_beta * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 10**6)) &
@@ -3319,7 +3362,7 @@ subroutine calc_fire_derivs(&
 !    endif
 
    ! SSR20160202
-   RHderiv_X = (In + Ia) * fire_fn_theta * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &  
+   RHderiv_X = (In + Ia) * fire_fn_theta * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
                * vegn_unburned_area * fast_to_daily &
                * ((ROSmax * gW * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 10**6)) &
                * (1.0 - BA_reduction) * fire_fn_popD_BA * fire_fn_GDPpc_BA
@@ -3332,11 +3375,11 @@ subroutine calc_fire_derivs(&
    endif
    BA_DERIVwrt_RHparam1 = RHderiv_X * fire_TOTALfn_rh_DERIVwrt_param1
    BA_DERIVwrt_RHparam2 = RHderiv_X * fire_TOTALfn_rh_DERIVwrt_param2
-   
+
 !    if (theta_ROSeffect_asFnTheta) then
 !       ! New method of calculating derivative w/r/t theta_extinction. Ignores
 !       ! fire_fn_theta_DERIVwrt_thetaE, instead doing everything here.
-!       THETAderiv_X = (In + Ia) * fire_fn_rh * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF & 
+!       THETAderiv_X = (In + Ia) * fire_fn_rh * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
 !                    * vegn_unburned_area * fast_to_daily
 !       THETAderiv_Z = (ROSmax * gW * fire_fn_rh * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 10**6) &
 !                    * (BAperFire_0 * (1.0 - BA_reduction) * fire_fn_popD_BA * fire_fn_GDPpc_BA)
@@ -3346,16 +3389,16 @@ subroutine calc_fire_derivs(&
 !          BA_DERIVwrt_thetaE = (6*pi*THETAderiv_X*THETAderiv_Z*(theta**2)*exp(-(3*pi*(theta**2))/(theta_extinction**2)))/(theta_extinction**3)
 !       endif
 !    else
-!       BA_DERIVwrt_thetaE = (In + Ia) * fire_fn_theta_DERIVwrt_thetaE * fire_fn_rh * fire_fn_Tca & 
+!       BA_DERIVwrt_thetaE = (In + Ia) * fire_fn_theta_DERIVwrt_thetaE * fire_fn_rh * fire_fn_Tca &
 !                           * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
 !                           * vegn_unburned_area * fast_to_daily &
 !                           * (BAperFire_0 * (1.0 - BA_reduction) &
 !                             * fire_fn_popD_BA * fire_fn_GDPpc_BA)
 !    endif
-   
+
 !   ! SSR20160202
 !   if (theta_ROSeffect_asFnTheta) then
-!      THETAderiv_X = (In + Ia) * fire_fn_rh * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &   
+!      THETAderiv_X = (In + Ia) * fire_fn_rh * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
 !                     * vegn_unburned_area * fast_to_daily &
 !                     * ((ROSmax * gW * fire_fn_rh * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 10**6)) &
 !                     * (1.0 - BA_reduction) * fire_fn_popD_BA * fire_fn_GDPpc_BA
@@ -3364,10 +3407,10 @@ subroutine calc_fire_derivs(&
 !                      'Add code to get RH derivatives for when theta_ROSeffect_asFnTheta==FALSE.', &
 !                      FATAL)
 !   endif
-   
+
    ! SSR20160203
    if (theta_ROSeffect_asFnTheta) then
-      THETAderiv_X = (In + Ia) * fire_fn_rh * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &  
+      THETAderiv_X = (In + Ia) * fire_fn_rh * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
                      * vegn_unburned_area * fast_to_daily &
                      * ((ROSmax * gW * fire_fn_rh * fire_dur * (1 + 1/HB))**2. * pi / (4 * LB * 10**6)) &
                      * (1.0 - BA_reduction) * fire_fn_popD_BA * fire_fn_GDPpc_BA
@@ -3382,23 +3425,23 @@ subroutine calc_fire_derivs(&
                       'Add code to get theta derivatives for when theta_ROSeffect_asFnTheta==FALSE.', &
                       FATAL)
    endif
-   
-   BA_DERIVwrt_popDsupp_NF_eps1 = (In + Ia) * fire_fn_theta * fire_fn_rh * fire_fn_Tca &  
+
+   BA_DERIVwrt_popDsupp_NF_eps1 = (In + Ia) * fire_fn_theta * fire_fn_rh * fire_fn_Tca &
                        * fire_fn_agb * (0.-popDsupp_NF_DERIVwrt_eps1) * fire_fn_GDPpc_NF &
                        * vegn_unburned_area * fast_to_daily &
                        * (BAperFire_0 * (1.0 - BA_reduction) &
                          * fire_fn_popD_BA * fire_fn_GDPpc_BA)
-   BA_DERIVwrt_popDsupp_NF_eps2 = (In + Ia) * fire_fn_theta * fire_fn_rh * fire_fn_Tca &  
+   BA_DERIVwrt_popDsupp_NF_eps2 = (In + Ia) * fire_fn_theta * fire_fn_rh * fire_fn_Tca &
                        * fire_fn_agb * (0.-popDsupp_NF_DERIVwrt_eps2) * fire_fn_GDPpc_NF &
                        * vegn_unburned_area * fast_to_daily &
                        * (BAperFire_0 * (1.0 - BA_reduction) &
                          * fire_fn_popD_BA * fire_fn_GDPpc_BA)
-   BA_DERIVwrt_popDsupp_NF_eps3 = (In + Ia) * fire_fn_theta * fire_fn_rh * fire_fn_Tca & 
+   BA_DERIVwrt_popDsupp_NF_eps3 = (In + Ia) * fire_fn_theta * fire_fn_rh * fire_fn_Tca &
                        * fire_fn_agb * (0.-popDsupp_NF_DERIVwrt_eps3) * fire_fn_GDPpc_NF &
                        * vegn_unburned_area * fast_to_daily &
                        * (BAperFire_0 * (1.0 - BA_reduction) &
                          * fire_fn_popD_BA * fire_fn_GDPpc_BA)
-                         
+
    ! Fire duration
    BA_DERIVwrt_fireDur_c4 = 0.0
    BA_DERIVwrt_fireDur_c3 = 0.0
@@ -3407,7 +3450,7 @@ subroutine calc_fire_derivs(&
    BA_DERIVwrt_fireDur_et = 0.0
    if (BA_reduction==0.0) then   ! Otherwise, the slope of BA w/r/t fire duration should
                                  ! be zero because BAperFire0 is too big anyway.
-      BA_DERIVwrt_fireDur_TMP = (In + Ia) * fire_fn_theta * fire_fn_rh * fire_fn_Tca & 
+      BA_DERIVwrt_fireDur_TMP = (In + Ia) * fire_fn_theta * fire_fn_rh * fire_fn_Tca &
                           * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
                           * vegn_unburned_area * fast_to_daily &
                           * (BAperFire0_DERIVwrt_fireDur * (1.0 - BA_reduction) &
@@ -3418,7 +3461,7 @@ subroutine calc_fire_derivs(&
       if (vegn_cohort_1_species==SP_TROPICAL) BA_DERIVwrt_fireDur_tt = BA_DERIVwrt_fireDur_TMP
       if (vegn_cohort_1_species==SP_EVERGR)   BA_DERIVwrt_fireDur_et = BA_DERIVwrt_fireDur_TMP
    endif
-   
+
    ! Rate of spread
    BA_DERIVwrt_ROSmax_c4 = 0.0
    BA_DERIVwrt_ROSmax_c3 = 0.0
@@ -3430,7 +3473,7 @@ subroutine calc_fire_derivs(&
    BA_DERIVwrt_ROSmax_tsav = 0.0   ! SSR20160211
    if (BA_reduction==0.0) then   ! Otherwise, the slope of BA w/r/t fire duration should
                                  ! be zero because BAperFire0 is too big anyway.
-      BA_DERIVwrt_ROSmax_TMP = (In + Ia) * fire_fn_theta * fire_fn_rh * fire_fn_Tca & 
+      BA_DERIVwrt_ROSmax_TMP = (In + Ia) * fire_fn_theta * fire_fn_rh * fire_fn_Tca &
                           * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF &
                           * vegn_unburned_area * fast_to_daily &
                           * (BAperFire0_DERIVwrt_ROSmax * (1.0 - BA_reduction) &
@@ -3462,7 +3505,7 @@ subroutine calc_fire_derivs(&
       endif
       if (vegn_cohort_1_species==SP_EVERGR)   BA_DERIVwrt_ROSmax_et = BA_DERIVwrt_ROSmax_TMP
    endif
-   
+
    if (is_watch_point()) then
       write(*,*) '### calc_fire_derivs_v2 ###'
       write(*,*) 'BA_rate', BA_rate
@@ -3470,7 +3513,7 @@ subroutine calc_fire_derivs(&
       write(*,*) 'BA_reduction', BA_reduction
       write(*,*) 'dt_fast', dt_fast
       write(*,*) 'fast_to_daily', fast_to_daily
-      __DEBUG2__(In, Ia)  
+      __DEBUG2__(In, Ia)
       __DEBUG2__(fire_fn_popD_NF,fire_fn_GDPpc_NF)
       __DEBUG2__(fire_fn_popD_BA,fire_fn_GDPpc_BA)
       __DEBUG2__(fire_fn_theta,fire_fn_rh)
@@ -3500,7 +3543,7 @@ subroutine calc_fire_derivs(&
       __DEBUG2__(BA_DERIVwrt_ROSmax_tshr,BA_DERIVwrt_ROSmax_tsav)   ! SSR20160211
       write(*,*) '###########################'
    endif
-   
+
    ! Range checks
    call check_var_range(BA_DERIVwrt_alphaM, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_alphaM',   FATAL)
    call check_var_range(BA_DERIVwrt_IaParam1, -10.**37., 10.**37., 'calc_fire_derivs_v2', 'BA_DERIVwrt_IaParam1',   FATAL)
@@ -3542,10 +3585,10 @@ subroutine update_fire_agb(vegn,soil)
    real       ::    leafLitter_total_C, fineWoodLitter_total_C
 
    nv = vegn%n_cohorts
-   
+
    ! When using Ensheng's multi-cohort model, the stats for each cohort are per individual, and
    ! then I would need to multiply by # individuals.
-   vegn%fire_agb = sum(vegn%cohorts(1:nv)%bl    & 
+   vegn%fire_agb = sum(vegn%cohorts(1:nv)%bl    &
                       +vegn%cohorts(1:nv)%blv )  &
                    + agf_bs*sum(vegn%cohorts(1:nv)%bsw     &
                               + vegn%cohorts(1:nv)%bwood )
@@ -3556,7 +3599,7 @@ subroutine update_fire_agb(vegn,soil)
       call poolTotalCarbon(soil%fineWoodLitter,totalCarbon=fineWoodLitter_total_C)
       vegn%fire_agb = vegn%fire_agb + leafLitter_total_C + fineWoodLitter_total_C
    endif
-   
+
 end subroutine update_fire_agb
 
 subroutine fire_fragmentation(tile_list,land_area_m2,recalc,fragmenting_frac, burnable_frac)
@@ -3567,14 +3610,14 @@ subroutine fire_fragmentation(tile_list,land_area_m2,recalc,fragmenting_frac, bu
    type(land_tile_type), pointer :: ptr
    type(land_tile_enum_type) :: ts, te
    integer   ::   k   ! To keep track of tile number for printing watch_cell output.
-   
+
    if (recalc) then
       call get_fragburn_fracs(tile_list,fragmenting_frac,burnable_frac)
       call check_var_range(fragmenting_frac, 0.0, 1.0,'fire_fragmentation', 'fragmenting_frac',   FATAL)
       call check_var_range(burnable_frac,    0.0, 1.0,'fire_fragmentation', 'burnable_frac',      FATAL)
       call get_max_fire_size(tile_list,land_area_m2,fragmenting_frac,burnable_frac)
    endif
-   
+
    if (is_watch_cell()) then
       write(*,*) '### checkpoint fire_fragmentation ###'
       write(*,*) 'fragmenting_frac', fragmenting_frac
@@ -3582,7 +3625,7 @@ subroutine fire_fragmentation(tile_list,land_area_m2,recalc,fragmenting_frac, bu
       write(*,*) 'land_area_m2', land_area_m2
       write(*,*) '#####################################'
    endif
-   
+
    ts = first_elmt(tile_list) ; te=tail_elmt(tile_list) ; k = 0
    do while (ts /= te)
       ptr=>current_tile(ts); ts=next_elmt(ts)
@@ -3590,7 +3633,7 @@ subroutine fire_fragmentation(tile_list,land_area_m2,recalc,fragmenting_frac, bu
       call send_tile_data(id_fragmenting_frac, fragmenting_frac, ptr%diag)
       call send_tile_data(id_burnable_frac, burnable_frac, ptr%diag)
    enddo
-   
+
 end subroutine fire_fragmentation
 
 
@@ -3599,7 +3642,7 @@ subroutine get_fragburn_fracs(tile_list,fragmenting_frac,burnable_frac)
    real, intent(out)  :: fragmenting_frac, burnable_frac
    type(land_tile_type), pointer :: ptr
    type(land_tile_enum_type) :: ts, te
-   
+
    fragmenting_frac = 0.0
    burnable_frac = 0.0
    ts = first_elmt(tile_list) ; te=tail_elmt(tile_list)
@@ -3616,12 +3659,12 @@ subroutine get_fragburn_fracs(tile_list,fragmenting_frac,burnable_frac)
          burnable_frac = burnable_frac + ptr%frac
       endif
    enddo
-   
+
    ! Allow some wiggle room for burnable_frac
    if (burnable_frac>1.0 .AND. burnable_frac<1.000001) then
       burnable_frac = 1.0
    endif
-   
+
 end subroutine get_fragburn_fracs
 
 
@@ -3632,19 +3675,19 @@ subroutine get_max_fire_size(tile_list,lnd_area_m2,fragmenting_frac,burnable_fra
    type(land_tile_type), pointer :: ptr
    type(land_tile_enum_type) :: ts, te
    real   ::   fnat   ! How to calculate the variable that Pfeiffer et al. (2013) call "fnat"
-   
+
    ! Doesn't need to consider vegn%burned_frac because this only ever happens at the end
    ! of the day, AFTER resetting vegn%burned_frac to zero.
-   
+
    ts = first_elmt(tile_list) ; te=tail_elmt(tile_list)
    do while (ts /= te)
       ptr=>current_tile(ts); ts=next_elmt(ts)
-   
+
       if (.not.associated(ptr%vegn)) then
 !         call send_tile_data(id_BAperFire_max, -1.0, ptr%diag)
          cycle
       endif
-   
+
       ! This only needs to be done for tiles where fire size is actually calculated/used.
       if (ptr%vegn%landuse==LU_NTRL .OR. ptr%vegn%landuse==LU_SCND &
       .OR. (ptr%vegn%landuse==LU_PAST .AND. fire_option_past==FIRE_PASTLI)) then
@@ -3678,8 +3721,8 @@ subroutine get_max_fire_size(tile_list,lnd_area_m2,fragmenting_frac,burnable_fra
             write(*,*) '################################'
          endif
       endif
-      
-      
+
+
    enddo
 end subroutine get_max_fire_size
 
@@ -3689,7 +3732,7 @@ subroutine defo_annCalcs(fireFtheta_ann_acm,nmn_acm, &
    real, intent(in)    ::   fireFtheta_ann_acm
    integer, intent(in) ::   nmn_acm
    real, intent(out)   ::   fireFtheta_ann, defoFS
-   
+
    fireFtheta_ann  = fireFtheta_ann_acm/nmn_acm
    defoFS = fs_min + max(0.0,min(1.0,(fireFtheta_ann-fp_lo)/(fp_hi-fp_lo)))*(fs_max-fs_min)
 

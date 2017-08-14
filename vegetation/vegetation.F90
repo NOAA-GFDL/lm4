@@ -74,6 +74,7 @@ use vegn_disturbance_mod, only : vegn_nat_mortality_lm3, &
      vegn_disturbance, update_fuel
 use vegn_harvesting_mod, only : &
      vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting
+use vegn_fire_mod, only : vegn_fire_init, vegn_fire_end, update_fire_data, fire_option, FIRE_LM3
 use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, N_C_TYPES, C_CEL, C_LIG, &
      add_litter, poolTotalCarbon, cull_cohorts, c_shortname, c_longname
 use soil_mod, only : redistribute_peat_carbon
@@ -536,6 +537,9 @@ subroutine vegn_init ( id_ug, id_band )
   ! initialize harvesting options
   call vegn_harvesting_init()
 
+  ! initialize fire
+  call vegn_fire_init(id_ug, delta_time, lnd%time)
+
   ! initialize vegetation diagnostic fields
   call vegn_diag_init ( id_ug, id_band, lnd%time )
 
@@ -828,6 +832,7 @@ subroutine vegn_end ()
 
   module_is_initialized =.FALSE.
 
+  call vegn_fire_end()
   call vegn_harvesting_end()
   call static_vegn_end()
   call vegn_dynamics_end()
@@ -1849,6 +1854,8 @@ subroutine update_vegn_slow( )
      call error_mesg('update_vegn_slow',trim(str),NOTE)
   endif
 
+  call update_fire_data(lnd%time)
+
   ce = first_elmt(land_tile_map, lnd%ls)
   do while (loop_over_tiles(ce,tile,l,k))
      call set_current_point(l,k) ! this is for debug output only
@@ -1971,7 +1978,7 @@ subroutine update_vegn_slow( )
      endif
      call check_conservation_2(tile,'update_vegn_slow 6',lmass0,fmass0,cmass0)
 
-     if (year1 /= year0 .and. do_patch_disturbance) then
+     if (year1 /= year0 .AND. fire_option==FIRE_LM3 .AND. do_patch_disturbance) then
         call vegn_disturbance(tile%vegn, tile%soil, seconds_per_year)
      endif
      call check_conservation_2(tile,'update_vegn_slow 7',lmass0,fmass0,cmass0)
