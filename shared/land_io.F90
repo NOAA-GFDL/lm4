@@ -23,6 +23,11 @@ use fms_mod, only: open_namelist_file
 
 use horiz_interp_mod,  only : horiz_interp_type, &
      horiz_interp_new, horiz_interp_del, horiz_interp
+use time_interp_external_mod, only: time_interp_external_init, &
+     time_interp_external, init_external_field
+use time_manager_mod, only: time_type
+use mpp_domains_mod, only : domain2d
+use axis_utils_mod, only: get_axis_bounds
 
 use land_numerics_mod, only : nearest, bisect
 use nf_utils_mod,      only : nfu_validtype, nfu_get_dim, nfu_get_dim_bounds, &
@@ -36,6 +41,10 @@ private
 public :: init_cover_field
 public :: read_field
 public :: read_land_io_namelist
+
+public :: external_ts_type
+public :: init_external_ts, del_external_ts
+public :: read_external_ts
 
 public :: print_netcdf_error
 
@@ -58,6 +67,15 @@ include 'netcdf.inc'
 character(len=*), parameter :: module_name = 'land_io_mod'
 #include "../shared/version_variable.inc"
 
+! ==== module types ==========================================================
+type external_ts_type
+   character(256) :: filename
+   character(64)  :: fieldname
+   integer :: id ! ID of external field
+   type(horiz_interp_type) :: interp ! interpolator
+end type external_ts_type
+
+! ==== module data ===========================================================
 logical :: module_is_initialized = .false.
 character(len=64)  :: interp_method = "conservative"
 integer :: input_buf_size = 65536 ! input buffer size for tile and cohort reading
@@ -641,9 +659,8 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
           FATAL)
   endif
 
-  allocate (                 &
-       in_lon  (nlon),   in_lat  (nlat),   &
-       in_lonb (nlon+1), in_latb (nlat+1) )
+  allocate (in_lon  (nlon),   in_lat  (nlat),  &
+            in_lonb (nlon+1), in_latb (nlat+1) )
 
   ! read boundaries of the grid cells in longitudinal direction
   call mpp_get_axis_data(varaxes(1), in_lon)
@@ -736,5 +753,60 @@ subroutine print_netcdf_error(ierr, file, line)
      call error_mesg('NetCDF', mesg, FATAL)
   endif
 end subroutine print_netcdf_error
+
+! ==============================================================================
+! simplified interface for the time_inerp_external: takes care of creating
+! the horizntal interpolator
+! TODO: make it possible to get timeline (?)
+! TODO: make it possible to get the sizes of the input fields and input coordinates
+! ==============================================================================
+subroutine init_external_ts(ts, filename, fieldname, lonb, latb, interp_method, domain)
+  type(external_ts_type), intent(inout) :: ts
+  character(*), intent(in) :: filename, fieldname
+  real,         intent(in) :: lonb(:,:), latb(:,:) ! model bound cooordinates for interpolator
+  character(*), intent(in) :: interp_method ! type of interpolation
+  type(domain2d), intent(in) :: domain ! our domain
+
+  integer :: axis_sizes(4)
+  type(axistype) :: axis_centers(4), axis_bounds(4)
+  real, allocatable :: lon_in(:), lat_in(:)
+
+  ! initialize external field
+  ts%filename = filename
+  ts%fieldname = fieldname
+  ts%id = init_external_field(filename,fieldname, domain=domain, &
+       axis_centers=axis_centers, axis_sizes=axis_sizes, &
+       use_comp_domain=.TRUE., override=.TRUE.)
+  !  get lon and lat of the input (source) grid, assuming that axis%data contains
+  !  lat and lon of the input grid (in degrees)
+  call get_axis_bounds(axis_centers(1),axis_bounds(1),axis_centers)
+  call get_axis_bounds(axis_centers(2),axis_bounds(2),axis_centers)
+  allocate(lon_in(axis_sizes(1)+1))
+  allocate(lat_in(axis_sizes(2)+1))
+  call mpp_get_axis_data(axis_bounds(1),lon_in)
+  call mpp_get_axis_data(axis_bounds(2),lat_in)
+  call horiz_interp_new(ts%interp, lon_in*PI/180, lat_in*PI/180, lonb, latb, &
+       interp_method=interp_method)
+  deallocate(lon_in,lat_in)
+end subroutine init_external_ts
+
+
+! ==============================================================================
+subroutine del_external_ts(ts)
+  type(external_ts_type), intent(inout) :: ts
+  call horiz_interp_del(ts%interp)
+end subroutine del_external_ts
+
+
+! ==============================================================================
+subroutine read_external_ts(ts,time,data,mask)
+  type(external_ts_type), intent(in) :: ts
+  type(time_type),        intent(in) :: time
+  real,                   intent(inout) :: data(:,:)
+  logical, optional,      intent(out) :: mask(:,:)
+
+  call time_interp_external(ts%id, time, data, horz_interp=ts%interp, mask_out=mask)
+end subroutine read_external_ts
+!!! SSR end
 
 end module

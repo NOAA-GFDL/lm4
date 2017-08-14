@@ -13,29 +13,23 @@ use fms_mod, only: open_namelist_file
 use constants_mod,   only: PI, VONKARM
 use time_manager_mod, only : time_type, get_date, days_in_month
 use fms_mod, only : &
-     write_version_number, file_exist, check_nml_error, error_mesg, &
+     file_exist, check_nml_error, error_mesg, &
      close_file, stdlog, stdout, WARNING, FATAL
 
 use land_io_mod,     only : external_ts_type, init_external_ts, del_external_ts, &
-     read_external_ts, read_field
-use land_debug_mod,  only : check_conservation, check_var_range, is_watch_point, &
-                            carbon_cons_tol, &
-                            is_watch_cell, force_watch_cell_burning
-use land_data_mod,   only : land_state_type, lnd
-use land_tile_mod,   only : land_tile_type, land_tile_carbon, &
-                            land_tile_list_type, land_tile_enum_type, &
-                            first_elmt, tail_elmt, next_elmt, &
-                            operator(/=), operator(==), current_tile
-use land_tile_diag_mod, only : &
-     register_tiled_diag_field, send_tile_data, diag_buff_type, &
-     OP_SUM 
+      read_external_ts, read_field
+use land_debug_mod,  only : check_var_range, is_watch_point, is_watch_cell, &
+      carbon_cons_tol
+use land_data_mod,   only : lnd, log_version
+use land_tile_mod,   only : land_tile_type, &
+      land_tile_list_type, land_tile_enum_type, first_elmt, tail_elmt, next_elmt, &
+      operator(/=), operator(==), current_tile
+use land_tile_diag_mod, only : register_tiled_diag_field, send_tile_data, diag_buff_type
 
 use vegn_data_mod,   only : agf_bs, fsc_liv, fsc_wood, fsc_froot, &
                             SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
-                            LU_CROP, LU_PAST, LU_NTRL, LU_SCND, &
-                            TROP_SAV, TROP_FOR, thresh_trop_SavFor, &   ! SSR20150831
-                            TROP_SHR, thresh_trop_ShrSav, &   ! SSR20160211
-                            split_past_tiles   ! SSR20151118
+                            LU_CROP, LU_PAST, LU_NTRL, LU_SCND
+!                            split_past_tiles   ! SSR20151118
 use vegn_tile_mod,   only : vegn_tile_type
 use soil_tile_mod,   only : soil_tile_type, soil_ave_theta1, soil_ave_theta2
 use sphum_mod,       only : qscomp
@@ -45,10 +39,24 @@ use soil_carbon_mod, only : add_litter, soil_carbon_option, poolTotalCarbon, &
                             remove_carbon_fraction_from_pool, &
                             SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, &
                             n_c_types
-use vegn_harvesting_mod, only : adj_nppPrevDay
 
 implicit none
 private
+
+! slm 
+logical :: force_watch_cell_burning = .false.
+! slm: from vegn_data:
+integer, public, parameter :: &
+    N_TROP_TYPES = 4, &
+    TROP_NOT = 0, &
+    TROP_SHR = 1, &
+    TROP_SAV = 2, &
+    TROP_FOR = 3
+! slm: was in vegn_harvesting
+integer :: adj_nppPrevDay = 2   ! 0 to not do anything.      ! SSR20150716
+                                ! 1 for attempted fix based on burned/killed leaves
+                                ! 2 for attempted fix based on burned/killed bliving
+                                ! 3 to remove all
 
 ! ==== public interfaces =====================================================
 public  ::  vegn_fire_init
@@ -83,10 +91,10 @@ integer, public, parameter :: NOW_DO_FIRELU = 0, NOW_DO_FIRE = 1, NOW_DO_LU = 2
 ! =====end of public interfaces ==============================================
 
 ! ==== constants =============================================================
-character(len=*), parameter   :: &
-     version     = '$Id: $', &
-     tagname     = '$Name: $', &
-     diag_mod_name = 'vegn'
+character(len=*), parameter :: module_name = 'fire'
+#include "../shared/version_variable.inc"
+
+character(len=*), parameter  :: diag_mod_name = 'vegn'
 
 ! ==== variables =============================================================
 
@@ -443,7 +451,8 @@ subroutine vegn_fire_init(id_lon, id_lat, dt_fast_in, dt_fast_yr_in, dt_slow_in,
   logical, allocatable :: lightning_mask_tmp(:,:)   ! dsward
   logical, allocatable :: burn_rate_mask_tmp(:,:)
 
-  call write_version_number(version, tagname)
+  call log_version(version, module_name, &
+  __FILE__)
 #ifdef INTERNAL_FILE_NML
   read (input_nml_file, nml=fire_nml, iostat=io)
   ierr = check_nml_error(io, 'fire_nml')
@@ -498,18 +507,18 @@ subroutine vegn_fire_init(id_lon, id_lat, dt_fast_in, dt_fast_yr_in, dt_slow_in,
         FATAL)
   end select
   
-  select case (trim(wind_to_use))
-  case ('canopy_top')
-     fire_windType = FIRE_WIND_CANTOP
-  case ('10m_tmp')
-     fire_windType = FIRE_WIND_10MTMP
-  case ('10m_sheffield')
+!   select case (trim(wind_to_use))
+!   case ('canopy_top')
+!      fire_windType = FIRE_WIND_CANTOP
+!   case ('10m_tmp')
+!      fire_windType = FIRE_WIND_10MTMP
+!   case ('10m_sheffield')
      fire_windType = FIRE_WIND_10MSHEFFIELD
-  case default
-     call error_mesg('vegn_fire_init',&
-        'option wind_to_use="'//trim(wind_to_use)//'" is invalid, use "canopy_top", "10m_tmp", or "10m_sheffield"', &
-        FATAL)
-  end select
+!   case default
+!      call error_mesg('vegn_fire_init',&
+!         'option wind_to_use="'//trim(wind_to_use)//'" is invalid, use "canopy_top", "10m_tmp", or "10m_sheffield"', &
+!         FATAL)
+!   end select
       
   select case (trim(f_agb_style))
   case ('li2012')
@@ -610,19 +619,19 @@ subroutine vegn_fire_init(id_lon, id_lat, dt_fast_in, dt_fast_yr_in, dt_slow_in,
   
   ! initialize external fields
   ! SSR: Does horizontal interpolation
-  if (use_FpopD_nf .OR. use_FpopD_ba .OR. Ia_alpha_monthly(1)>0.0) then
-     call init_external_ts(population_ts, 'INPUT/population.nc', 'pop_density',&
-          lnd%lonb, lnd%latb, 'conservative', lnd%domain)
-  endif
-  if (use_Fgdp_nf .OR. use_Fgdp_ba) then
-     call init_external_ts(GDPpc_billion_ts, 'INPUT/GDP.nc', 'GDPPC', &
-          lnd%lonb, lnd%latb, 'conservative', lnd%domain)
-  endif
-  !!! dsward added code for reading FireMIP monthly lightning timeseries
-  if (FireMIP_ltng) then
-     call init_external_ts(lightning_ts, 'INPUT/lightning.nc', 'ltng', &
-          lnd%lonb, lnd%latb, 'conservative', lnd%domain)
-  endif
+!   if (use_FpopD_nf .OR. use_FpopD_ba .OR. Ia_alpha_monthly(1)>0.0) then
+!      call init_external_ts(population_ts, 'INPUT/population.nc', 'pop_density',&
+!           lnd%lonb, lnd%latb, 'conservative', lnd%domain)
+!   endif
+!   if (use_Fgdp_nf .OR. use_Fgdp_ba) then
+!      call init_external_ts(GDPpc_billion_ts, 'INPUT/GDP.nc', 'GDPPC', &
+!           lnd%lonb, lnd%latb, 'conservative', lnd%domain)
+!   endif
+!   !!! dsward added code for reading FireMIP monthly lightning timeseries
+!   if (FireMIP_ltng) then
+!      call init_external_ts(lightning_ts, 'INPUT/lightning.nc', 'ltng', &
+!           lnd%lonb, lnd%latb, 'conservative', lnd%domain)
+!   endif
 
 
   ! allocate buffers for external data
@@ -645,157 +654,157 @@ subroutine vegn_fire_init(id_lon, id_lat, dt_fast_in, dt_fast_yr_in, dt_slow_in,
     allocate(lightning_in_v2(lnd%is:lnd%ie,lnd%js:lnd%je,12))
     allocate(lightning_in_tmp(lnd%is:lnd%ie,lnd%js:lnd%je))
     allocate(lightning_mask_tmp(lnd%is:lnd%ie,lnd%js:lnd%je))
-    call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_JAN', lnd%lonb, lnd%latb, lightning_in_tmp, &
-                  interp = 'conservative', mask=lightning_mask_tmp)
-    where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
-    lightning_in_v2(:,:,1)=lightning_in_tmp
-    call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_FEB', lnd%lonb, lnd%latb, lightning_in_tmp, &
-                  interp = 'conservative', mask=lightning_mask_tmp)
-    where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
-    lightning_in_v2(:,:,2)=lightning_in_tmp
-    call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_MAR', lnd%lonb, lnd%latb, lightning_in_tmp, &
-                  interp = 'conservative', mask=lightning_mask_tmp)
-    where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
-    lightning_in_v2(:,:,3)=lightning_in_tmp
-    call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_APR', lnd%lonb, lnd%latb, lightning_in_tmp, &
-                  interp = 'conservative', mask=lightning_mask_tmp)
-    where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
-    lightning_in_v2(:,:,4)=lightning_in_tmp
-    call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_MAY', lnd%lonb, lnd%latb, lightning_in_tmp, &
-                  interp = 'conservative', mask=lightning_mask_tmp)
-    where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
-    lightning_in_v2(:,:,5)=lightning_in_tmp
-    call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_JUN', lnd%lonb, lnd%latb, lightning_in_tmp, &
-                  interp = 'conservative', mask=lightning_mask_tmp)
-    where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
-    lightning_in_v2(:,:,6)=lightning_in_tmp
-    call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_JUL', lnd%lonb, lnd%latb, lightning_in_tmp, &
-                  interp = 'conservative', mask=lightning_mask_tmp)
-    where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
-    lightning_in_v2(:,:,7)=lightning_in_tmp
-    call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_AUG', lnd%lonb, lnd%latb, lightning_in_tmp, &
-                  interp = 'conservative', mask=lightning_mask_tmp)
-    where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
-    lightning_in_v2(:,:,8)=lightning_in_tmp
-    call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_SEP', lnd%lonb, lnd%latb, lightning_in_tmp, &
-                  interp = 'conservative', mask=lightning_mask_tmp)
-    where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
-    lightning_in_v2(:,:,9)=lightning_in_tmp
-    call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_OCT', lnd%lonb, lnd%latb, lightning_in_tmp, &
-                  interp = 'conservative', mask=lightning_mask_tmp)
-    where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
-    lightning_in_v2(:,:,10)=lightning_in_tmp
-    call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_NOV', lnd%lonb, lnd%latb, lightning_in_tmp, &
-                  interp = 'conservative', mask=lightning_mask_tmp)
-    where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
-    lightning_in_v2(:,:,11)=lightning_in_tmp
-    call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_DEC', lnd%lonb, lnd%latb, lightning_in_tmp, &
-                  interp = 'conservative', mask=lightning_mask_tmp)
-    where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
-    lightning_in_v2(:,:,12)=lightning_in_tmp
-    deallocate(lightning_mask_tmp)
+!     call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_JAN', lnd%lonb, lnd%latb, lightning_in_tmp, &
+!                   interp = 'conservative', mask=lightning_mask_tmp)
+!     where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
+!     lightning_in_v2(:,:,1)=lightning_in_tmp
+!     call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_FEB', lnd%lonb, lnd%latb, lightning_in_tmp, &
+!                   interp = 'conservative', mask=lightning_mask_tmp)
+!     where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
+!     lightning_in_v2(:,:,2)=lightning_in_tmp
+!     call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_MAR', lnd%lonb, lnd%latb, lightning_in_tmp, &
+!                   interp = 'conservative', mask=lightning_mask_tmp)
+!     where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
+!     lightning_in_v2(:,:,3)=lightning_in_tmp
+!     call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_APR', lnd%lonb, lnd%latb, lightning_in_tmp, &
+!                   interp = 'conservative', mask=lightning_mask_tmp)
+!     where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
+!     lightning_in_v2(:,:,4)=lightning_in_tmp
+!     call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_MAY', lnd%lonb, lnd%latb, lightning_in_tmp, &
+!                   interp = 'conservative', mask=lightning_mask_tmp)
+!     where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
+!     lightning_in_v2(:,:,5)=lightning_in_tmp
+!     call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_JUN', lnd%lonb, lnd%latb, lightning_in_tmp, &
+!                   interp = 'conservative', mask=lightning_mask_tmp)
+!     where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
+!     lightning_in_v2(:,:,6)=lightning_in_tmp
+!     call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_JUL', lnd%lonb, lnd%latb, lightning_in_tmp, &
+!                   interp = 'conservative', mask=lightning_mask_tmp)
+!     where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
+!     lightning_in_v2(:,:,7)=lightning_in_tmp
+!     call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_AUG', lnd%lonb, lnd%latb, lightning_in_tmp, &
+!                   interp = 'conservative', mask=lightning_mask_tmp)
+!     where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
+!     lightning_in_v2(:,:,8)=lightning_in_tmp
+!     call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_SEP', lnd%lonb, lnd%latb, lightning_in_tmp, &
+!                   interp = 'conservative', mask=lightning_mask_tmp)
+!     where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
+!     lightning_in_v2(:,:,9)=lightning_in_tmp
+!     call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_OCT', lnd%lonb, lnd%latb, lightning_in_tmp, &
+!                   interp = 'conservative', mask=lightning_mask_tmp)
+!     where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
+!     lightning_in_v2(:,:,10)=lightning_in_tmp
+!     call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_NOV', lnd%lonb, lnd%latb, lightning_in_tmp, &
+!                   interp = 'conservative', mask=lightning_mask_tmp)
+!     where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
+!     lightning_in_v2(:,:,11)=lightning_in_tmp
+!     call read_field('INPUT/lightning.nc', 'LRMTS_COM_FR_DEC', lnd%lonb, lnd%latb, lightning_in_tmp, &
+!                   interp = 'conservative', mask=lightning_mask_tmp)
+!     where (.not.lightning_mask_tmp) lightning_in_tmp = 0.0
+!     lightning_in_v2(:,:,12)=lightning_in_tmp
+!     deallocate(lightning_mask_tmp)
 
     if (allocated(lightning_in_tmp))  deallocate(lightning_in_tmp)   ! dsward
   endif !!! FireMIP_ltng
 
 
-    call read_field('INPUT/Fk.nc', 'Fcrop_JAN', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
-                  interp = 'conservative', mask=burn_rate_mask_tmp)
-    where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
-    crop_burn_rate_in(:,:,1)=crop_burn_rate_tmp
-    call read_field('INPUT/Fk.nc', 'Fpast_JAN', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
-                  interp = 'conservative', mask=burn_rate_mask_tmp)
-    where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
-    past_burn_rate_in(:,:,1)=past_burn_rate_tmp
-    call read_field('INPUT/Fk.nc', 'Fcrop_FEB', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
-                  interp = 'conservative', mask=burn_rate_mask_tmp)
-    where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
-    crop_burn_rate_in(:,:,2)=crop_burn_rate_tmp
-    call read_field('INPUT/Fk.nc', 'Fpast_FEB', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
-                  interp = 'conservative', mask=burn_rate_mask_tmp)
-    where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
-    past_burn_rate_in(:,:,2)=past_burn_rate_tmp
-    call read_field('INPUT/Fk.nc', 'Fcrop_MAR', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
-                  interp = 'conservative', mask=burn_rate_mask_tmp)
-    where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
-    crop_burn_rate_in(:,:,3)=crop_burn_rate_tmp
-    call read_field('INPUT/Fk.nc', 'Fpast_MAR', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
-                  interp = 'conservative', mask=burn_rate_mask_tmp)
-    where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
-    past_burn_rate_in(:,:,3)=past_burn_rate_tmp
-    call read_field('INPUT/Fk.nc', 'Fcrop_APR', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
-                  interp = 'conservative', mask=burn_rate_mask_tmp)
-    where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
-    crop_burn_rate_in(:,:,4)=crop_burn_rate_tmp
-    call read_field('INPUT/Fk.nc', 'Fpast_APR', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
-                  interp = 'conservative', mask=burn_rate_mask_tmp)
-    where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
-    past_burn_rate_in(:,:,4)=past_burn_rate_tmp
-    call read_field('INPUT/Fk.nc', 'Fcrop_MAY', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
-                  interp = 'conservative', mask=burn_rate_mask_tmp)
-    where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
-    crop_burn_rate_in(:,:,5)=crop_burn_rate_tmp
-    call read_field('INPUT/Fk.nc', 'Fpast_MAY', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
-                  interp = 'conservative', mask=burn_rate_mask_tmp)
-    where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
-    past_burn_rate_in(:,:,5)=past_burn_rate_tmp
-    call read_field('INPUT/Fk.nc', 'Fcrop_JUN', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
-                  interp = 'conservative', mask=burn_rate_mask_tmp)
-    where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
-    crop_burn_rate_in(:,:,6)=crop_burn_rate_tmp
-    call read_field('INPUT/Fk.nc', 'Fpast_JUN', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
-                  interp = 'conservative', mask=burn_rate_mask_tmp)
-    where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
-    past_burn_rate_in(:,:,6)=past_burn_rate_tmp
-    call read_field('INPUT/Fk.nc', 'Fcrop_JUL', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
-                  interp = 'conservative', mask=burn_rate_mask_tmp)
-    where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
-    crop_burn_rate_in(:,:,7)=crop_burn_rate_tmp
-    call read_field('INPUT/Fk.nc', 'Fpast_JUL', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
-                  interp = 'conservative', mask=burn_rate_mask_tmp)
-    where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
-    past_burn_rate_in(:,:,7)=past_burn_rate_tmp
-    call read_field('INPUT/Fk.nc', 'Fcrop_AUG', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
-                  interp = 'conservative', mask=burn_rate_mask_tmp)
-    where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
-    crop_burn_rate_in(:,:,8)=crop_burn_rate_tmp
-    call read_field('INPUT/Fk.nc', 'Fpast_AUG', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
-                  interp = 'conservative', mask=burn_rate_mask_tmp)
-    where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
-    past_burn_rate_in(:,:,8)=past_burn_rate_tmp
-    call read_field('INPUT/Fk.nc', 'Fcrop_SEP', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
-                  interp = 'conservative', mask=burn_rate_mask_tmp)
-    where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
-    crop_burn_rate_in(:,:,9)=crop_burn_rate_tmp
-    call read_field('INPUT/Fk.nc', 'Fpast_SEP', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
-                  interp = 'conservative', mask=burn_rate_mask_tmp)
-    where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
-    past_burn_rate_in(:,:,9)=past_burn_rate_tmp
-    call read_field('INPUT/Fk.nc', 'Fcrop_OCT', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
-                  interp = 'conservative', mask=burn_rate_mask_tmp)
-    where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
-    crop_burn_rate_in(:,:,10)=crop_burn_rate_tmp
-    call read_field('INPUT/Fk.nc', 'Fpast_OCT', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
-                  interp = 'conservative', mask=burn_rate_mask_tmp)
-    where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
-    past_burn_rate_in(:,:,10)=past_burn_rate_tmp
-    call read_field('INPUT/Fk.nc', 'Fcrop_NOV', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
-                  interp = 'conservative', mask=burn_rate_mask_tmp)
-    where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
-    crop_burn_rate_in(:,:,11)=crop_burn_rate_tmp
-    call read_field('INPUT/Fk.nc', 'Fpast_NOV', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
-                  interp = 'conservative', mask=burn_rate_mask_tmp)
-    where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
-    past_burn_rate_in(:,:,11)=past_burn_rate_tmp
-    call read_field('INPUT/Fk.nc', 'Fcrop_DEC', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
-                  interp = 'conservative', mask=burn_rate_mask_tmp)
-    where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
-    crop_burn_rate_in(:,:,12)=crop_burn_rate_tmp
-    call read_field('INPUT/Fk.nc', 'Fpast_DEC', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
-                  interp = 'conservative', mask=burn_rate_mask_tmp)
-    where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
-    past_burn_rate_in(:,:,12)=past_burn_rate_tmp
-    deallocate(burn_rate_mask_tmp)
+!     call read_field('INPUT/Fk.nc', 'Fcrop_JAN', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
+!                   interp = 'conservative', mask=burn_rate_mask_tmp)
+!     where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
+!     crop_burn_rate_in(:,:,1)=crop_burn_rate_tmp
+!     call read_field('INPUT/Fk.nc', 'Fpast_JAN', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
+!                   interp = 'conservative', mask=burn_rate_mask_tmp)
+!     where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
+!     past_burn_rate_in(:,:,1)=past_burn_rate_tmp
+!     call read_field('INPUT/Fk.nc', 'Fcrop_FEB', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
+!                   interp = 'conservative', mask=burn_rate_mask_tmp)
+!     where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
+!     crop_burn_rate_in(:,:,2)=crop_burn_rate_tmp
+!     call read_field('INPUT/Fk.nc', 'Fpast_FEB', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
+!                   interp = 'conservative', mask=burn_rate_mask_tmp)
+!     where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
+!     past_burn_rate_in(:,:,2)=past_burn_rate_tmp
+!     call read_field('INPUT/Fk.nc', 'Fcrop_MAR', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
+!                   interp = 'conservative', mask=burn_rate_mask_tmp)
+!     where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
+!     crop_burn_rate_in(:,:,3)=crop_burn_rate_tmp
+!     call read_field('INPUT/Fk.nc', 'Fpast_MAR', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
+!                   interp = 'conservative', mask=burn_rate_mask_tmp)
+!     where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
+!     past_burn_rate_in(:,:,3)=past_burn_rate_tmp
+!     call read_field('INPUT/Fk.nc', 'Fcrop_APR', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
+!                   interp = 'conservative', mask=burn_rate_mask_tmp)
+!     where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
+!     crop_burn_rate_in(:,:,4)=crop_burn_rate_tmp
+!     call read_field('INPUT/Fk.nc', 'Fpast_APR', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
+!                   interp = 'conservative', mask=burn_rate_mask_tmp)
+!     where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
+!     past_burn_rate_in(:,:,4)=past_burn_rate_tmp
+!     call read_field('INPUT/Fk.nc', 'Fcrop_MAY', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
+!                   interp = 'conservative', mask=burn_rate_mask_tmp)
+!     where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
+!     crop_burn_rate_in(:,:,5)=crop_burn_rate_tmp
+!     call read_field('INPUT/Fk.nc', 'Fpast_MAY', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
+!                   interp = 'conservative', mask=burn_rate_mask_tmp)
+!     where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
+!     past_burn_rate_in(:,:,5)=past_burn_rate_tmp
+!     call read_field('INPUT/Fk.nc', 'Fcrop_JUN', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
+!                   interp = 'conservative', mask=burn_rate_mask_tmp)
+!     where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
+!     crop_burn_rate_in(:,:,6)=crop_burn_rate_tmp
+!     call read_field('INPUT/Fk.nc', 'Fpast_JUN', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
+!                   interp = 'conservative', mask=burn_rate_mask_tmp)
+!     where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
+!     past_burn_rate_in(:,:,6)=past_burn_rate_tmp
+!     call read_field('INPUT/Fk.nc', 'Fcrop_JUL', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
+!                   interp = 'conservative', mask=burn_rate_mask_tmp)
+!     where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
+!     crop_burn_rate_in(:,:,7)=crop_burn_rate_tmp
+!     call read_field('INPUT/Fk.nc', 'Fpast_JUL', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
+!                   interp = 'conservative', mask=burn_rate_mask_tmp)
+!     where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
+!     past_burn_rate_in(:,:,7)=past_burn_rate_tmp
+!     call read_field('INPUT/Fk.nc', 'Fcrop_AUG', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
+!                   interp = 'conservative', mask=burn_rate_mask_tmp)
+!     where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
+!     crop_burn_rate_in(:,:,8)=crop_burn_rate_tmp
+!     call read_field('INPUT/Fk.nc', 'Fpast_AUG', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
+!                   interp = 'conservative', mask=burn_rate_mask_tmp)
+!     where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
+!     past_burn_rate_in(:,:,8)=past_burn_rate_tmp
+!     call read_field('INPUT/Fk.nc', 'Fcrop_SEP', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
+!                   interp = 'conservative', mask=burn_rate_mask_tmp)
+!     where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
+!     crop_burn_rate_in(:,:,9)=crop_burn_rate_tmp
+!     call read_field('INPUT/Fk.nc', 'Fpast_SEP', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
+!                   interp = 'conservative', mask=burn_rate_mask_tmp)
+!     where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
+!     past_burn_rate_in(:,:,9)=past_burn_rate_tmp
+!     call read_field('INPUT/Fk.nc', 'Fcrop_OCT', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
+!                   interp = 'conservative', mask=burn_rate_mask_tmp)
+!     where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
+!     crop_burn_rate_in(:,:,10)=crop_burn_rate_tmp
+!     call read_field('INPUT/Fk.nc', 'Fpast_OCT', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
+!                   interp = 'conservative', mask=burn_rate_mask_tmp)
+!     where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
+!     past_burn_rate_in(:,:,10)=past_burn_rate_tmp
+!     call read_field('INPUT/Fk.nc', 'Fcrop_NOV', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
+!                   interp = 'conservative', mask=burn_rate_mask_tmp)
+!     where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
+!     crop_burn_rate_in(:,:,11)=crop_burn_rate_tmp
+!     call read_field('INPUT/Fk.nc', 'Fpast_NOV', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
+!                   interp = 'conservative', mask=burn_rate_mask_tmp)
+!     where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
+!     past_burn_rate_in(:,:,11)=past_burn_rate_tmp
+!     call read_field('INPUT/Fk.nc', 'Fcrop_DEC', lnd%lonb, lnd%latb, crop_burn_rate_tmp, &
+!                   interp = 'conservative', mask=burn_rate_mask_tmp)
+!     where (.not.burn_rate_mask_tmp) crop_burn_rate_tmp = 0.0
+!     crop_burn_rate_in(:,:,12)=crop_burn_rate_tmp
+!     call read_field('INPUT/Fk.nc', 'Fpast_DEC', lnd%lonb, lnd%latb, past_burn_rate_tmp, &
+!                   interp = 'conservative', mask=burn_rate_mask_tmp)
+!     where (.not.burn_rate_mask_tmp) past_burn_rate_tmp = 0.0
+!     past_burn_rate_in(:,:,12)=past_burn_rate_tmp
+!     deallocate(burn_rate_mask_tmp)
 
 
     if (allocated(crop_burn_rate_tmp)) deallocate(crop_burn_rate_tmp)   ! dsward
@@ -869,13 +878,13 @@ subroutine vegn_fire_init(id_lon, id_lat, dt_fast_in, dt_fast_yr_in, dt_slow_in,
        missing_value=-1.0)
   id_Nfire_rate = register_tiled_diag_field (diag_mod_name, 'Nfire_rate',(/id_lon,id_lat/), &
        time, 'Number of fires in tile', 'Fires/day', &
-       missing_value=-1.0, op=OP_SUM)
+       missing_value=-1.0, op='sum')
   id_BF_rate = register_tiled_diag_field (diag_mod_name, 'BF_rate',(/id_lon,id_lat/), &
      time, 'Burned fraction', '/day', &
      missing_value=-1.0)
   id_BA_rate = register_tiled_diag_field (diag_mod_name, 'BA_rate',(/id_lon,id_lat/), &
      time, 'Burned area', 'km2/day', &
-     missing_value=-1.0, op=OP_SUM)
+     missing_value=-1.0, op='sum')
   id_Fcrop = register_tiled_diag_field (diag_mod_name, 'Fcrop',(/id_lon,id_lat/), &
        time, 'Fraction of crop that burns', '/day', &
        missing_value=-1.0)
@@ -884,13 +893,13 @@ subroutine vegn_fire_init(id_lon, id_lat, dt_fast_in, dt_fast_yr_in, dt_slow_in,
        missing_value=-1.0)
   id_burn_Cemit = register_tiled_diag_field (diag_mod_name, 'burn_Cemit',(/id_lon,id_lat/), &
        time, 'Biomass combusted by fire', 'kg C/day', &
-       missing_value=-1.0, op=OP_SUM)
+       missing_value=-1.0, op='sum')
   id_burn_Cemit_noCWL = register_tiled_diag_field (diag_mod_name, 'burn_Cemit_noCWL',(/id_lon,id_lat/), &
        time, 'Biomass combusted by fire, excluding coarse woody litter', 'kg C/day', &
-       missing_value=-1.0, op=OP_SUM)
+       missing_value=-1.0, op='sum')
   id_burn_Ckill = register_tiled_diag_field (diag_mod_name, 'burn_Ckill',(/id_lon,id_lat/), &
        time, 'Biomass killed by fire', 'kg C/day', &
-       missing_value=-1.0, op=OP_SUM)
+       missing_value=-1.0, op='sum')
   id_vegn_burned = register_tiled_diag_field (diag_mod_name, 'vegn_burned',(/id_lon,id_lat/), &
        time, 'Fraction of cell burned', ' ', &
        missing_value=-1.0)  !!! dsward_tmp 
@@ -901,28 +910,28 @@ subroutine vegn_fire_init(id_lon, id_lat, dt_fast_in, dt_fast_yr_in, dt_slow_in,
   ! SSR20160224
   id_burn_Cemit_leaf = register_tiled_diag_field (diag_mod_name, 'burn_Cemit_leaf',(/id_lon,id_lat/), &
      time, 'Biomass combusted by fire: Leaf', 'kg C/day', &
-     missing_value=-1.0, op=OP_SUM)
+     missing_value=-1.0, op='sum')
   id_burn_Cemit_stem = register_tiled_diag_field (diag_mod_name, 'burn_Cemit_stem',(/id_lon,id_lat/), &
      time, 'Biomass combusted by fire: Stem', 'kg C/day', &
-     missing_value=-1.0, op=OP_SUM)
+     missing_value=-1.0, op='sum')
   id_burn_Cemit_litter = register_tiled_diag_field (diag_mod_name, 'burn_Cemit_litter',(/id_lon,id_lat/), &
      time, 'Biomass combusted by fire: Litter', 'kg C/day', &
-     missing_value=-1.0, op=OP_SUM)
+     missing_value=-1.0, op='sum')
   id_burn_Cemit_litter_lf = register_tiled_diag_field (diag_mod_name, 'burn_Cemit_litter_lf',(/id_lon,id_lat/), &
      time, 'Biomass combusted by fire: Leaf litter', 'kg C/day', &
-     missing_value=-1.0, op=OP_SUM)
+     missing_value=-1.0, op='sum')
   id_burn_Cemit_litter_cw = register_tiled_diag_field (diag_mod_name, 'burn_Cemit_litter_cw',(/id_lon,id_lat/), &
      time, 'Biomass combusted by fire: Coarse woody litter', 'kg C/day', &
-     missing_value=-1.0, op=OP_SUM)
+     missing_value=-1.0, op='sum')
   id_burn_Ckill_leaf = register_tiled_diag_field (diag_mod_name, 'burn_Ckill_leaf',(/id_lon,id_lat/), &
      time, 'Biomass killed by fire: Leaf', 'kg C/day', &
-     missing_value=-1.0, op=OP_SUM)
+     missing_value=-1.0, op='sum')
   id_burn_Ckill_stem = register_tiled_diag_field (diag_mod_name, 'burn_Ckill_stem',(/id_lon,id_lat/), &
      time, 'Biomass killed by fire: Stem', 'kg C/day', &
-     missing_value=-1.0, op=OP_SUM)
+     missing_value=-1.0, op='sum')
   id_burn_Ckill_root = register_tiled_diag_field (diag_mod_name, 'burn_Ckill_root',(/id_lon,id_lat/), &
      time, 'Biomass killed by fire: Fine root', 'kg C/day', &
-     missing_value=-1.0, op=OP_SUM)
+     missing_value=-1.0, op='sum')
   
   id_burn_Cemit_CO2 = register_tiled_diag_field (diag_mod_name, 'burn_Cemit_CO2',(/id_lon,id_lat/), &
        time, 'CO2 emitted by fire', 'kg C/m2/s', &
@@ -990,124 +999,124 @@ subroutine vegn_fire_init(id_lon, id_lat, dt_fast_in, dt_fast_yr_in, dt_slow_in,
        missing_value=-1.0)
   id_BA_DERIVwrt_alphaM = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_alphaM',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t alpha_m', '(km2/day)/(alpha_monthly_unit)', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_BA_DERIVwrt_thetaE = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_thetaE',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t theta_extinction', '(km2/day)/(theta_extinction_unit)', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
      
   ! SSR20160203
   id_BA_DERIVwrt_THETAparam1 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_THETAparam1',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t theta_psi2 or theta_gom2', '(km2/day)/(THETAparam1_unit)', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_BA_DERIVwrt_THETAparam2 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_THETAparam2',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t theta_psi3 or theta_gom3', '(km2/day)/(THETAparam2_unit)', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
      
   id_BA_DERIVwrt_AGBparam1 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_AGBparam1',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t agb_lo, agb_psi2, or agb_gom2', '(km2/day)/(AGBparam1_unit)', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_BA_DERIVwrt_AGBparam2 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_AGBparam2',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t agb_up, agb_psi3, or agb_gom3', '(km2/day)/(AGBparam2_unit)', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_BA_DERIVwrt_RHparam1 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_RHparam1',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t rh_lo, rh_psi2, or rh_gom2', '(km2/day)/(RHparam1_unit)', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_BA_DERIVwrt_RHparam2 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_RHparam2',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t rh_up, rh_psi3, or rh_gom3', '(km2/day)/(RHparam2_unit)', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_BA_DERIVwrt_IaParam1 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_IaParam1',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t Ia param1', '(km2/day)/(IaParam1_unit)', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_BA_DERIVwrt_IaParam2 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_IaParam2',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t Ia param2', '(km2/day)/(IaParam2_unit)', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_BA_DERIVwrt_popDsupp_NF_eps1 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_popDsupp_NF_eps1',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t popDsupp_NF eps1', '(km2/day)/(eps1_unit)', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_BA_DERIVwrt_popDsupp_NF_eps2 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_popDsupp_NF_eps2',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t popDsupp_NF eps2', '(km2/day)/(eps2_unit)', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_BA_DERIVwrt_popDsupp_NF_eps3 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_popDsupp_NF_eps3',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t popDsupp_NF eps3', '(km2/day)/(eps3_unit)', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_BA_DERIVwrt_fireDur_c4 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_fireDur_c4',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t mean fire duration for C4 grass', '(km2/day)/second', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_BA_DERIVwrt_fireDur_c3 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_fireDur_c3',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t mean fire duration for C3 grass', '(km2/day)/second', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_BA_DERIVwrt_fireDur_dt = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_fireDur_dt',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t mean fire duration for deciduous trees', '(km2/day)/second', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_BA_DERIVwrt_fireDur_tt = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_fireDur_tt',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t mean fire duration for tropical trees', '(km2/day)/second', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_BA_DERIVwrt_fireDur_et = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_fireDur_et',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t mean fire duration for evergreen trees', '(km2/day)/second', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_BA_DERIVwrt_ROSmax_c4 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_ROSmax_c4',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t max. rate of spread for C4 grass', '(km2/day)/(m/s)', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_BA_DERIVwrt_ROSmax_c3 = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_ROSmax_c3',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t max. rate of spread for C3 grass', '(km2/day)/(m/s)', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_BA_DERIVwrt_ROSmax_dt = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_ROSmax_dt',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t max. rate of spread for deciduous trees', '(km2/day)/(m/s)', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_BA_DERIVwrt_ROSmax_tt = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_ROSmax_tt',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t max. rate of spread for tropical forest', '(km2/day)/(m/s)', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
 !  id_BA_DERIVwrt_ROSmax_ts = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_ROSmax_ts',(/id_lon,id_lat/), &
 !     time, 'Partial derivative of BA w/r/t max. rate of spread for tropical savanna', '(km2/day)/(m/s)', &
-!     missing_value=-1.0e+20, op=OP_SUM)
+!     missing_value=-1.0e+20, op='sum')
   id_BA_DERIVwrt_ROSmax_tshr = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_ROSmax_tshr',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t max. rate of spread for tropical shrubland', '(km2/day)/(m/s)', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_BA_DERIVwrt_ROSmax_tsav = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_ROSmax_tsav',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t max. rate of spread for tropical savanna', '(km2/day)/(m/s)', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_BA_DERIVwrt_ROSmax_et = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_ROSmax_et',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t max. rate of spread for evergreen trees', '(km2/day)/(m/s)', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_BA_DERIVwrt_magicScalar = register_tiled_diag_field (diag_mod_name, 'BA_DERIVwrt_magicScalar',(/id_lon,id_lat/), &
      time, 'Partial derivative of BA w/r/t magic scalar', 'km2/day', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_Ia_DERIVwrt_alphaM = register_tiled_diag_field (diag_mod_name, 'Ia_DERIVwrt_alphaM',(/id_lon,id_lat/), &
      time, 'Partial derivative of Ia w/r/t alphaM', '(ignitions/km2)/alphaM_unit', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_Ia_DERIVwrt_IaParam1 = register_tiled_diag_field (diag_mod_name, 'Ia_DERIVwrt_IaParam1',(/id_lon,id_lat/), &
      time, 'Partial derivative of Ia w/r/t IaParam1', '(ignitions/km2)/IaParam1_unit', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_Ia_DERIVwrt_IaParam2 = register_tiled_diag_field (diag_mod_name, 'Ia_DERIVwrt_IaParam2',(/id_lon,id_lat/), &
      time, 'Partial derivative of Ia w/r/t IaParam2', '(ignitions/km2)/IaParam2_unit', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_fire_fn_theta_DERIVwrt_thetaE = register_tiled_diag_field (diag_mod_name, 'fire_fn_theta_DERIVwrt_thetaE',(/id_lon,id_lat/), &
      time, 'Partial derivative of fTheta w/r/t thetaE', 'fTheta_units/thetaE_unit', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_fire_fn_agb_DERIVwrt_param1 = register_tiled_diag_field (diag_mod_name, 'fire_fn_agb_DERIVwrt_param1',(/id_lon,id_lat/), &
      time, 'Partial derivative of fAGB w/r/t AGBparam1', 'fAGB_units/AGBparam1_unit', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_fire_fn_agb_DERIVwrt_param2 = register_tiled_diag_field (diag_mod_name, 'fire_fn_agb_DERIVwrt_param2',(/id_lon,id_lat/), &
      time, 'Partial derivative of fAGB w/r/t AGBparam2', 'fAGB_units/AGBparam2_unit', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_popDsupp_NF_DERIVwrt_eps1 = register_tiled_diag_field (diag_mod_name, 'popDsupp_NF_DERIVwrt_eps1',(/id_lon,id_lat/), &
      time, 'Partial derivative of popDsupp_NF w/r/t eps1', 'popDsupp_NF_units/eps1_unit', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_popDsupp_NF_DERIVwrt_eps2 = register_tiled_diag_field (diag_mod_name, 'popDsupp_NF_DERIVwrt_eps2',(/id_lon,id_lat/), &
      time, 'Partial derivative of popDsupp_NF w/r/t eps2', 'popDsupp_NF_units/eps2_unit', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_popDsupp_NF_DERIVwrt_eps3 = register_tiled_diag_field (diag_mod_name, 'popDsupp_NF_DERIVwrt_eps3',(/id_lon,id_lat/), &
      time, 'Partial derivative of popDsupp_NF w/r/t eps3', 'popDsupp_NF_units/eps3_unit', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_fire_fn_rh_DERIVwrt_param1 = register_tiled_diag_field (diag_mod_name, 'fire_fn_rh_DERIVwrt_param1',(/id_lon,id_lat/), &
      time, 'Partial derivative of fRH w/r/t RHparam1', 'fRH_units/RHparam1_unit', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_fire_fn_rh_DERIVwrt_param2 = register_tiled_diag_field (diag_mod_name, 'fire_fn_rh_DERIVwrt_param2',(/id_lon,id_lat/), &
      time, 'Partial derivative of fRH w/r/t RHparam2', 'fRH_units/RHparam2_unit', &
-     missing_value=-1.0e+20, op=OP_SUM)
+     missing_value=-1.0e+20, op='sum')
   id_BAperFire0_DERIVwrt_fireDur = register_tiled_diag_field (diag_mod_name, 'BAperFire0_DERIVwrt_fireDur',(/id_lon,id_lat/), &
        time, 'Partial derivative of BAperFire_0 w/r/t fire duration', 'm2/s', &
-       missing_value=-1.0e+20, op=OP_SUM)
+       missing_value=-1.0e+20, op='sum')
      
 end subroutine vegn_fire_init
 
@@ -1223,13 +1232,13 @@ subroutine update_fire_fast(vegn,soil,diag, &
     call qscomp(Tca, p_surf, qsat)   ! (For RH) Calculates qsat, which is saturation specific humidity
     rh = q / qsat
     
-    if (fire_windType == FIRE_WIND_CANTOP) then
-       wind_forFire = vegn%wind_canaTop
-    elseif (fire_windType == FIRE_WIND_10MTMP) then
-       wind_forFire = vegn%wind_10mTmp
-    elseif (fire_windType == FIRE_WIND_10MSHEFFIELD) then
+!     if (fire_windType == FIRE_WIND_CANTOP) then
+!        wind_forFire = vegn%wind_canaTop
+!     elseif (fire_windType == FIRE_WIND_10MTMP) then
+!        wind_forFire = vegn%wind_10mTmp
+!     elseif (fire_windType == FIRE_WIND_10MSHEFFIELD) then
        wind_forFire = cplr2land_wind
-    endif
+!     endif
     
     if (depth_for_theta == -1.0) then
        depth_ave = -log(1.-percentile)*vegn%cohorts(1)%root_zeta   ! (For theta) Note that this is for the one-cohort version of the model.
@@ -2613,7 +2622,7 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
         if (do_fire_tiling) write(*,*) 'do_fire_tiling'
         if (vegn%landuse==LU_CROP) write(*,*) 'landuse_crop'
         if (vegn%landuse==LU_PAST) write(*,*) 'landuse_past'
-        if (split_past_tiles) write(*,*) 'split_past_tiles'
+!         if (split_past_tiles) write(*,*) 'split_past_tiles'
         write(*,*) 'BF_km2', vegn%burned_frac*tile_area_m2*1e-6
         write(*,*) 'min_BA_to_split', min_BA_to_split
     endif
@@ -2650,18 +2659,18 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
        !!!! small errors introduced before here (1e-15 or so)
 
        ! SSR20151217
-       if (lfl_unpr_fast > 0.0) soil%ssr_lfl_unpr_fast_Ko_accum = soil%ssr_lfl_unpr_fast_Ko_accum + CC_litter_inclBF
-       if (lfl_unpr_slow > 0.0) soil%ssr_lfl_unpr_slow_Ko_accum = soil%ssr_lfl_unpr_slow_Ko_accum + CC_litter_inclBF
-       if (lfl_unpr_dmic > 0.0) soil%ssr_lfl_unpr_dmic_Ko_accum = soil%ssr_lfl_unpr_dmic_Ko_accum + CC_litter_inclBF
-       if (lfl_prot_fast > 0.0) soil%ssr_lfl_prot_fast_Ko_accum = soil%ssr_lfl_prot_fast_Ko_accum + CC_litter_inclBF
-       if (lfl_prot_slow > 0.0) soil%ssr_lfl_prot_slow_Ko_accum = soil%ssr_lfl_prot_slow_Ko_accum + CC_litter_inclBF
-       if (lfl_prot_dmic > 0.0) soil%ssr_lfl_prot_dmic_Ko_accum = soil%ssr_lfl_prot_dmic_Ko_accum + CC_litter_inclBF
-       if (cwl_unpr_fast > 0.0) soil%ssr_cwl_unpr_fast_Ko_accum = soil%ssr_cwl_unpr_fast_Ko_accum + CC_litter_inclBF
-       if (cwl_unpr_slow > 0.0) soil%ssr_cwl_unpr_slow_Ko_accum = soil%ssr_cwl_unpr_slow_Ko_accum + CC_litter_inclBF
-       if (cwl_unpr_dmic > 0.0) soil%ssr_cwl_unpr_dmic_Ko_accum = soil%ssr_cwl_unpr_dmic_Ko_accum + CC_litter_inclBF
-       if (cwl_prot_fast > 0.0) soil%ssr_cwl_prot_fast_Ko_accum = soil%ssr_cwl_prot_fast_Ko_accum + CC_litter_inclBF
-       if (cwl_prot_slow > 0.0) soil%ssr_cwl_prot_slow_Ko_accum = soil%ssr_cwl_prot_slow_Ko_accum + CC_litter_inclBF
-       if (cwl_prot_dmic > 0.0) soil%ssr_cwl_prot_dmic_Ko_accum = soil%ssr_cwl_prot_dmic_Ko_accum + CC_litter_inclBF
+!        if (lfl_unpr_fast > 0.0) soil%ssr_lfl_unpr_fast_Ko_accum = soil%ssr_lfl_unpr_fast_Ko_accum + CC_litter_inclBF
+!        if (lfl_unpr_slow > 0.0) soil%ssr_lfl_unpr_slow_Ko_accum = soil%ssr_lfl_unpr_slow_Ko_accum + CC_litter_inclBF
+!        if (lfl_unpr_dmic > 0.0) soil%ssr_lfl_unpr_dmic_Ko_accum = soil%ssr_lfl_unpr_dmic_Ko_accum + CC_litter_inclBF
+!        if (lfl_prot_fast > 0.0) soil%ssr_lfl_prot_fast_Ko_accum = soil%ssr_lfl_prot_fast_Ko_accum + CC_litter_inclBF
+!        if (lfl_prot_slow > 0.0) soil%ssr_lfl_prot_slow_Ko_accum = soil%ssr_lfl_prot_slow_Ko_accum + CC_litter_inclBF
+!        if (lfl_prot_dmic > 0.0) soil%ssr_lfl_prot_dmic_Ko_accum = soil%ssr_lfl_prot_dmic_Ko_accum + CC_litter_inclBF
+!        if (cwl_unpr_fast > 0.0) soil%ssr_cwl_unpr_fast_Ko_accum = soil%ssr_cwl_unpr_fast_Ko_accum + CC_litter_inclBF
+!        if (cwl_unpr_slow > 0.0) soil%ssr_cwl_unpr_slow_Ko_accum = soil%ssr_cwl_unpr_slow_Ko_accum + CC_litter_inclBF
+!        if (cwl_unpr_dmic > 0.0) soil%ssr_cwl_unpr_dmic_Ko_accum = soil%ssr_cwl_unpr_dmic_Ko_accum + CC_litter_inclBF
+!        if (cwl_prot_fast > 0.0) soil%ssr_cwl_prot_fast_Ko_accum = soil%ssr_cwl_prot_fast_Ko_accum + CC_litter_inclBF
+!        if (cwl_prot_slow > 0.0) soil%ssr_cwl_prot_slow_Ko_accum = soil%ssr_cwl_prot_slow_Ko_accum + CC_litter_inclBF
+!        if (cwl_prot_dmic > 0.0) soil%ssr_cwl_prot_dmic_Ko_accum = soil%ssr_cwl_prot_dmic_Ko_accum + CC_litter_inclBF
     endif
     
     fire_agb_0 = vegn%fire_agb
@@ -2897,14 +2906,14 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
                              0.0 &                                        ! Microbial products
                           /)*agf_bs &
                          )
-          soil%coarsewoodlitter_fsc_in = soil%coarsewoodlitter_fsc_in +     fsc_wood *killed_wood
-          soil%coarsewoodlitter_ssc_in = soil%coarsewoodlitter_ssc_in + (1.-fsc_wood)*killed_wood
+!           soil%coarsewoodlitter_fsc_in = soil%coarsewoodlitter_fsc_in +     fsc_wood *killed_wood
+!           soil%coarsewoodlitter_ssc_in = soil%coarsewoodlitter_ssc_in + (1.-fsc_wood)*killed_wood
           
           ! SSR20151217
-          soil%ssr_cwl_unpr_fast_Ki_accum = soil%ssr_cwl_unpr_fast_Ki_accum +     fsc_wood *killed_wood
-          soil%ssr_cwl_unpr_slow_Ki_accum = soil%ssr_cwl_unpr_slow_Ki_accum + (1.-fsc_wood)*killed_wood
+!           soil%ssr_cwl_unpr_fast_Ki_accum = soil%ssr_cwl_unpr_fast_Ki_accum +     fsc_wood *killed_wood
+!           soil%ssr_cwl_unpr_slow_Ki_accum = soil%ssr_cwl_unpr_slow_Ki_accum + (1.-fsc_wood)*killed_wood
           
-          call add_root_litter(soil, vegn, &
+          call add_root_litter(soil, vegn%cohorts(1), &
                                (/     fsc_wood *killed_wood, &   ! Cellulose
                                   (1.-fsc_wood)*killed_wood, &   ! Lignin
                                   0.0 &                                        ! Microbial products
@@ -2916,17 +2925,17 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
           new_slow_C_ag = (1.0-fsc_liv)*(killed_bl + killed_blv + killed_Wgain)  !!! dsward added killed_Wgain
 
           call add_litter(soil%leafLitter,(/new_fast_C_ag,new_slow_C_ag,0.0/))
-          soil%leaflitter_fsc_in = soil%leaflitter_fsc_in + new_fast_C_ag
-          soil%leaflitter_ssc_in = soil%leaflitter_ssc_in + new_slow_C_ag
+!           soil%leaflitter_fsc_in = soil%leaflitter_fsc_in + new_fast_C_ag
+!           soil%leaflitter_ssc_in = soil%leaflitter_ssc_in + new_slow_C_ag
           
           ! SSR20151218
-          soil%ssr_lfl_unpr_fast_Ki_accum = soil%ssr_lfl_unpr_fast_Ki_accum + new_fast_C_ag
-          soil%ssr_lfl_unpr_slow_Ki_accum = soil%ssr_lfl_unpr_slow_Ki_accum + new_slow_C_ag
+!           soil%ssr_lfl_unpr_fast_Ki_accum = soil%ssr_lfl_unpr_fast_Ki_accum + new_fast_C_ag
+!           soil%ssr_lfl_unpr_slow_Ki_accum = soil%ssr_lfl_unpr_slow_Ki_accum + new_slow_C_ag
 
           ! Living biomass, belowground: Roots
           new_fast_C_bg =      fsc_froot *killed_br
           new_slow_C_bg = (1.0-fsc_froot)*killed_br
-          call add_root_litter(soil,vegn,(/new_fast_C_bg,new_slow_C_bg,0.0/)) !fsc_in and ssc_in updated in add_root_litter
+          call add_root_litter(soil,vegn%cohorts(1),(/new_fast_C_bg,new_slow_C_bg,0.0/)) !fsc_in and ssc_in updated in add_root_litter
        case default
           call error_mesg('vegn_burn','soil_carbon_option is invalid. This should never happen. Contact developer.', FATAL)
     end select
@@ -2943,8 +2952,9 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
                                                          ! at the end of the day, but this
                                                          ! ensures no weirdness. (Maybe a
                                                          ! weird restart, e.g.)
-    vegn%csmoke_rate_daily = vegn%csmoke_pool   ! kg C/(m2 day)
-    vegn%csmoke_rate = vegn%csmoke_rate_daily * days_in_year ! kg C/(m2 yr)
+!     vegn%csmoke_rate_daily = vegn%csmoke_pool   ! kg C/(m2 day)
+!     vegn%csmoke_rate = vegn%csmoke_rate_daily * days_in_year ! kg C/(m2 yr)
+    vegn%csmoke_rate = vegn%csmoke_pool * days_in_year ! kg C/(m2 yr)
     
     tile_circum_m2 = (((tile_area_m2*burned_frac)/3.1415927)**0.5)*2.*3.1415927
     num_pixel_scale = 1.
