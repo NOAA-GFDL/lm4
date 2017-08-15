@@ -28,9 +28,9 @@ use land_tile_mod,   only : land_tile_type, land_tile_map, loop_over_tiles, &
       operator(/=), operator(==), current_tile, new_land_tile
 use land_tile_diag_mod, only : register_tiled_diag_field, send_tile_data, diag_buff_type
 
-use vegn_data_mod,   only : agf_bs, fsc_liv, fsc_wood, fsc_froot, &
+use vegn_data_mod,   only : spdata, agf_bs, fsc_liv, fsc_wood, fsc_froot, &
                             SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
-                            LU_CROP, LU_PAST, LU_NTRL, LU_SCND
+                            LU_CROP, LU_PAST, LU_NTRL, LU_SCND, FORM_GRASS
 !                            split_past_tiles   ! SSR20151118
 use vegn_tile_mod,   only : vegn_tile_type
 use soil_tile_mod,   only : soil_tile_type, soil_ave_theta1, soil_ave_theta2
@@ -233,17 +233,11 @@ character(32) :: wind_to_use = '10m_sheffield'
 real    :: constant_wind_forFire = -1   ! -1 means use wind_forFire from canopy_air.F90. Anything else (x) sets wind_forFire to x m/s.
 
 ! Maximum rate of spread for each species. From Li et al. (2012); Doubled according to Corrigendum.
-logical :: lock_ROSmaxC3_to_ROSmaxC4 = .FALSE.
-real    :: ROS_max_C4GRASS  = 0.4
-real    :: ROS_max_C3GRASS  = 0.4
-real    :: ROS_max_TEMPDEC  = 0.22
-! real    :: ROS_max_TROPICAL = 0.22
+! logical :: lock_ROSmaxC3_to_ROSmaxC4 = .FALSE.
 real    :: ROS_max_TROPSHR = -1      ! SSR20160211. vegn_fire_ROS will fall back on
                                      ! ROS_max_TROPICAL if ROS_max_TROPSHR is <=0.
 real    :: ROS_max_TROPSAV = -1      ! SSR20150831. vegn_fire_ROS will fall back on
                                      ! ROS_max_TROPICAL if ROS_max_TROPSAV is <=0.
-real    :: ROS_max_TROPICAL = 0.22   ! SSR20150831
-real    :: ROS_max_EVERGR   = 0.3
 
 ! Dealing with low or high burning
 real :: min_fire_size = 1.E-6   ! Minimum fire size (i.e., BAperFire): km2
@@ -251,39 +245,14 @@ real :: min_combined_ba = 1.E-6   ! Minimum total tile BA (km2)
 logical :: print_min_fire_violations = .FALSE.
 
 ! Combustion completeness (SSR20160223)
-real    :: CC_GRASS_leaf    = 0.85
-real    :: CC_GRASS_stem    = 0.85   ! Li2012 has no value, but LM3 actually can have some wood in grassland.
-real    :: CC_GRASS_litter    = 0.85
-real    :: CC_TEMPDEC_leaf  = 0.70
-real    :: CC_TEMPDEC_stem  = 0.10
-real    :: CC_TEMPDEC_litter  = 0.45
 real    :: CC_TROPSHRSAV_leaf = 0.70
 real    :: CC_TROPSHRSAV_stem = 0.10
 real    :: CC_TROPSHRSAV_litter = 0.50
-real    :: CC_TROPICAL_leaf = 0.70
-real    :: CC_TROPICAL_stem = 0.15
-real    :: CC_TROPICAL_litter = 0.50
-real    :: CC_EVERGR_leaf   = 0.75
-real    :: CC_EVERGR_stem   = 0.20
-real    :: CC_EVERGR_litter   = 0.55
-
 
 ! Post-fire mortality
-real    :: fireMort_GRASS_leaf = 0.85
-real    :: fireMort_GRASS_stem = 0.00      ! Li2012 has no value, but LM3 actually can have some wood in grassland.
-real    :: fireMort_GRASS_root = 0.20
-real    :: fireMort_TEMPDEC_leaf = 0.70
-real    :: fireMort_TEMPDEC_stem = 0.55
-real    :: fireMort_TEMPDEC_root = 0.07
 real    :: fireMort_TROPSHRSAV_leaf = 0.70   ! SSR20160223
 real    :: fireMort_TROPSHRSAV_stem = 0.55   ! SSR20160223
 real    :: fireMort_TROPSHRSAV_root = 0.07   ! SSR20160223
-real    :: fireMort_TROPICAL_leaf = 0.70
-real    :: fireMort_TROPICAL_stem = 0.60
-real    :: fireMort_TROPICAL_root = 0.10
-real    :: fireMort_EVERGR_leaf = 0.75
-real    :: fireMort_EVERGR_stem = 0.65
-real    :: fireMort_EVERGR_root = 0.13
 
 ! For CLMCN-style deforestation (Kloster et al., 2010)
 real    :: fs_min = 0.2
@@ -299,7 +268,14 @@ logical, public  ::  do_crownfires = .FALSE.
 logical, public  ::  FireMIP_ltng = .FALSE.
 real, public     ::  mdf_threshold = 1.0
 
+! slm moved from vegn_data
 logical :: split_past_tiles = .TRUE.
+real :: thresh_trop_ShrSav = 0.0      ! SSR20160211: Below this, "tropical" vegetation
+                                      ! be classified as "tropical shrubland." Above, it
+                                      ! will be classified "tropical savanna."
+real :: thresh_trop_SavFor = 0.0      ! SSR20150831: Below this, "tropical" vegetation
+                                      ! be classified as "tropical savanna." Above, it
+                                      ! will be classified "tropical forest."
 
 namelist /fire_nml/ fire_to_use, fire_for_past, &
                     f_rh_style, rh_up, rh_lo, rh_psi2, rh_psi3, rh_gom2, rh_gom3, &
@@ -322,14 +298,9 @@ namelist /fire_nml/ fire_to_use, fire_for_past, &
                     use_Ftheta, use_Frh, use_Ftemp, use_Fwind, &
                     use_FpopD_nf, use_FpopD_ba, use_Fgdp_nf, use_Fgdp_ba, &
                     theta_include_ice, depth_for_theta, &
-                    fireMort_GRASS_leaf, fireMort_GRASS_stem, fireMort_GRASS_root, &
-                    CC_GRASS_leaf, CC_GRASS_stem, CC_GRASS_litter, &   ! SSR20160223
-                    CC_TEMPDEC_leaf, CC_TEMPDEC_stem, CC_TEMPDEC_litter, &   ! SSR20160223
                     CC_TROPSHRSAV_leaf, CC_TROPSHRSAV_stem, CC_TROPSHRSAV_litter, &   ! SSR20160223
-                    CC_TROPICAL_leaf, CC_TROPICAL_stem, CC_TROPICAL_litter, &   ! SSR20160223
-                    CC_EVERGR_leaf, CC_EVERGR_stem, CC_EVERGR_litter, &   ! SSR20160223
                     constant_wind_forFire, &
-                    ROS_max_C4GRASS, ROS_max_C3GRASS, ROS_max_TEMPDEC, ROS_max_TROPICAL, ROS_max_EVERGR, &
+                    thresh_trop_ShrSav, thresh_trop_SavFor, &
                     ROS_max_TROPSHR, &   ! SSR20160211
                     ROS_max_TROPSAV, &   ! SSR20150831
                     do_calc_derivs, do_fire_tiling, &
@@ -341,7 +312,7 @@ namelist /fire_nml/ fire_to_use, fire_for_past, &
                     fs_min, fs_max, fp_lo, fp_hi, &   ! SSR20150903
                     zero_tmf, &   ! SSR20150921
                     theta_ROSeffect_asFnTheta, &   ! SSR20151216
-                    lock_ROSmaxC3_to_ROSmaxC4, &   ! SSR20160131
+!                    lock_ROSmaxC3_to_ROSmaxC4, &   ! SSR20160131
                     f_theta_style, theta_psi2, theta_psi3, theta_gom2, theta_gom3, &   ! SSR20160203
                     magic_scalar, &   ! SSR20160222
                     split_past_tiles, &
@@ -614,9 +585,9 @@ subroutine vegn_fire_init(id_ug, dt_fast_in, time)
   Ia_alpha_daily = Ia_alpha_monthly * 12./days_per_year
 
   ! SSR20160131
-  if (lock_ROSmaxC3_to_ROSmaxC4) then
-     ROS_max_C3GRASS = ROS_max_C4GRASS
-  endif
+!   if (lock_ROSmaxC3_to_ROSmaxC4) then
+!      ROS_max_C3GRASS = ROS_max_C4GRASS
+!   endif
 
   ! initialize external fields
   ! SSR: Does horizontal interpolation
@@ -1963,6 +1934,7 @@ subroutine vegn_fire_ROS(vegn,fire_fn_rh,theta,&
 !    real    ::  ROS_max
     real, intent(out)    ::  ROS_max, C_beta   ! SSR20151009
     integer, intent(in)  :: kop  !!! dsward_kop
+    integer :: trop_code ! savanna/shrubland/forest code
 
     if (constant_wind_forFire >= 0.) then
        wind_forFire = constant_wind_forFire
@@ -1985,37 +1957,15 @@ subroutine vegn_fire_ROS(vegn,fire_fn_rh,theta,&
 
     ! Choose maximum rate of spread, based on species
     ! SSR: At some point, should move this into vegn_data.F90 because these are species-level parameters
-    if (vegn%cohorts(1)%species==SP_C4GRASS) then
-        ROS_max = ROS_max_C4GRASS
-    elseif (vegn%cohorts(1)%species==SP_C3GRASS) then
-        ROS_max = ROS_max_C3GRASS
-    elseif (vegn%cohorts(1)%species==SP_TEMPDEC) then
-        ROS_max = ROS_max_TEMPDEC
-    elseif (vegn%cohorts(1)%species==SP_TROPICAL) then
-        if (vegn%trop_code == TROP_FOR) then
-           ROS_max = ROS_max_TROPICAL
-!        elseif (ROS_max_TROPSAV > 0.0) then
-!           ROS_max = ROS_max_TROPSAV
-!        else   ! If ROS_max_TROPSAV is nonpositive, then fall back on ROS_max_TROPICAL.
-!           ROS_max = ROS_max_TROPICAL
-!        endif
-        ! SSR20160211
-        elseif (vegn%trop_code == TROP_SHR) then
-           if (ROS_max_TROPSHR > 0.0) then
-              ROS_max = ROS_max_TROPSHR
-           else
-              ROS_max = ROS_max_TROPICAL
-           endif
-        elseif (vegn%trop_code == TROP_SAV) then
-           if (ROS_max_TROPSAV > 0.0) then
-              ROS_max = ROS_max_TROPSAV
-           else
-              ROS_max = ROS_max_TROPICAL
-           endif
-        endif
-    elseif (vegn%cohorts(1)%species==SP_EVERGR) then
-        ROS_max = ROS_max_EVERGR
+    associate(sp=>spdata(vegn%cohorts(1)%species))
+    ROS_max = sp%ROS_max
+    trop_code = tropType(vegn)
+    if (vegn%trop_code == TROP_SHR) then
+       if (ROS_max_TROPSHR > 0.0) ROS_max = ROS_max_TROPSHR
+    elseif (vegn%trop_code == TROP_SAV) then
+       if (ROS_max_TROPSAV > 0.0) ROS_max = ROS_max_TROPSAV
     endif
+    end associate
 
     ! Calculate effects of RH and theta on fire ROS
     if (use_Cm) then
@@ -2361,6 +2311,32 @@ subroutine vegn_fire_BA_ntrlscnd(Nfire_perKm2, Nfire_perKm2_NOI, tile_area_km2, 
 
 end subroutine vegn_fire_BA_ntrlscnd
 
+! ==================================================================================
+function tropType(vegn) result(trop_code); integer :: trop_code
+  type(vegn_tile_type), intent(in) :: vegn
+
+  real    :: AGB_for_species   ! SSR20150831
+
+  ! SSR20150831
+  ! When using Ensheng's multi-cohort model, the stats for each cohort are per individual, and
+  ! then I would need to multiply by # individuals.
+  AGB_for_species = sum(vegn%cohorts(1:vegn%n_cohorts)%bl    &
+                       +vegn%cohorts(1:vegn%n_cohorts)%blv ) &
+                  + agf_bs*sum(vegn%cohorts(1:vegn%n_cohorts)%bsw     &
+                             + vegn%cohorts(1:vegn%n_cohorts)%bwood )
+  if (vegn%cohorts(1)%species/=SP_TROPICAL) then
+     trop_code = TROP_NOT
+  elseif (AGB_for_species < thresh_trop_SavFor) then
+     if (AGB_for_species < thresh_trop_ShrSav) then
+        trop_code = TROP_SHR
+     else
+        trop_code = TROP_SAV
+     endif
+  else
+     trop_code = TROP_FOR
+  endif
+end function tropType
+
 
 subroutine vegn_burn(vegn,soil,tile_area_m2)
     type(vegn_tile_type), intent(inout) :: vegn
@@ -2406,88 +2382,42 @@ subroutine vegn_burn(vegn,soil,tile_area_m2)
                   cwl_unpr_fast, cwl_unpr_slow, cwl_unpr_dmic, &
                   cwl_prot_fast, cwl_prot_slow, cwl_prot_dmic
 
+    integer :: trop_code ! savanna/shrubland/forest code
+
     real    ::    days_in_year   ! number of days in year for computing csmoke_rate
     days_in_year = seconds_per_year/86400.0
 
-    if (vegn%cohorts(1)%species==SP_C4GRASS .OR. vegn%cohorts(1)%species==SP_C3GRASS) then
-        ! Use Li2012 values for C4 = C3 Non-Arctic = C3 Arctic
-        CC_leaf = CC_GRASS_leaf
-        CC_stem = CC_GRASS_stem
-        CC_litter = CC_GRASS_litter
-        CC_litter_leaf = CC_GRASS_litter !!! dsward_cwd
-        CC_litter_CWD = 0.0 !!! dsward_cwd
-        fireMort_leaf = fireMort_GRASS_leaf
-        fireMort_stem = fireMort_GRASS_stem
-        fireMort_root = fireMort_GRASS_root
-        EF_CO = 63.
-        EF_CO2 = 1686.
-    else if (vegn%cohorts(1)%species==SP_TEMPDEC) then
-        ! Use Li2012 values for Broadleaf Deciduous Trees, temperate
-        CC_leaf = CC_TEMPDEC_leaf
-        CC_stem = CC_TEMPDEC_stem
-        CC_litter = CC_TEMPDEC_litter
-        CC_litter_leaf = CC_TEMPDEC_litter
-        CC_litter_CWD = CC_TEMPDEC_litter
-        fireMort_leaf = fireMort_TEMPDEC_leaf
-        fireMort_stem = fireMort_TEMPDEC_stem
-        fireMort_root = fireMort_TEMPDEC_root
-        EF_CO = 89.
-        EF_CO2 = 1637.
-    else if (vegn%cohorts(1)%species==SP_TROPICAL) then
-        ! Use Li2012 values for Broadleaf Evergreen Trees, tropical
-        CC_leaf = CC_TROPICAL_leaf
-        CC_stem = CC_TROPICAL_stem
-        CC_litter = CC_TROPICAL_litter
-        CC_litter_leaf = CC_TROPICAL_litter
-        CC_litter_CWD = CC_TROPICAL_litter
-        fireMort_leaf = fireMort_TROPICAL_leaf
-        fireMort_stem = fireMort_TROPICAL_stem
-        fireMort_root = fireMort_TROPICAL_root
-        EF_CO = 93.
-        EF_CO2 = 1643.
-       if (vegn%trop_code == TROP_SHR .OR. vegn%trop_code == TROP_SAV) then
-          ! Use Li2012 values for Broadleaf Deciduous Trees, tropical
-          CC_leaf = CC_TROPSHRSAV_leaf
-          CC_stem = CC_TROPSHRSAV_stem
-          CC_litter = CC_TROPSHRSAV_litter
-          CC_litter_leaf = CC_TROPSHRSAV_litter
-          CC_litter_CWD = CC_TROPSHRSAV_litter
-          fireMort_leaf = fireMort_TROPSHRSAV_leaf
-          fireMort_stem = fireMort_TROPSHRSAV_stem
-          fireMort_root = fireMort_TROPSHRSAV_root
-       elseif (vegn%trop_code == TROP_FOR) then
-          ! Use Li2012 values for Broadleaf Evergreen Trees, tropical
-          CC_leaf = CC_TROPICAL_leaf
-          CC_stem = CC_TROPICAL_stem
-          CC_litter = CC_TROPICAL_litter
-          CC_litter_leaf = CC_TROPICAL_litter
-          CC_litter_CWD = CC_TROPICAL_litter
-          fireMort_leaf = fireMort_TROPICAL_leaf
-          fireMort_stem = fireMort_TROPICAL_stem
-          fireMort_root = fireMort_TROPICAL_root
-       endif
-    else if (vegn%cohorts(1)%species==SP_EVERGR) then
-        ! Use Li2012 values for Needleleaf Evergreen Trees, boreal
-        CC_leaf = CC_EVERGR_leaf
-        CC_stem = CC_EVERGR_stem
-        CC_litter = CC_EVERGR_litter
-        CC_litter_leaf = CC_EVERGR_litter
-        CC_litter_CWD = CC_EVERGR_litter
-        fireMort_leaf = fireMort_EVERGR_leaf
-        fireMort_stem = fireMort_EVERGR_stem
-        fireMort_root = fireMort_EVERGR_root
-        EF_CO = 127.
-        EF_CO2 = 1489.
-    end if
+    associate(sp=>spdata(vegn%cohorts(1)%species))
+    CC_leaf = sp%CC_leaf
+    CC_stem = sp%CC_stem
+    CC_litter = sp%CC_litter
+    CC_litter_leaf = sp%CC_litter
+    if (sp%lifeform==FORM_GRASS) then
+       CC_litter_CWD = 0.0 ! grass fires do not burn coarse litter?
+    else
+       CC_litter_CWD = sp%CC_litter
+    endif
+    fireMort_leaf = sp%fireMort_leaf
+    fireMort_stem = sp%fireMort_stem
+    fireMort_root = sp%fireMort_root
 
-!!!    if (do_fire_tiling.eqv..FALSE. &
-!!!    .OR. vegn%landuse==LU_CROP &
-!!!    .OR. (vegn%landuse==LU_PAST .AND..NOT. split_past_tiles) &   ! SSR20151118
-!!!    .OR. vegn%burned_frac*tile_area_m2*1e-6 < min_BA_to_split) then
-!!!       burned_frac = vegn%burned_frac
-!!!    else
-!!!       burned_frac = 1.0
-!!!    endif
+    EF_CO2 = sp%EF_CO2
+    EF_CO  = sp%EF_CO
+    end associate
+
+    ! override species values for savanna and shrubland
+    trop_code = tropType(vegn)
+    if (trop_code == TROP_SHR .OR. trop_code == TROP_SAV) then
+       ! Use Li2012 values for Broadleaf Deciduous Trees, tropical
+       CC_leaf = CC_TROPSHRSAV_leaf
+       CC_stem = CC_TROPSHRSAV_stem
+       CC_litter = CC_TROPSHRSAV_litter
+       CC_litter_leaf = CC_TROPSHRSAV_litter
+       CC_litter_CWD = CC_TROPSHRSAV_litter
+       fireMort_leaf = fireMort_TROPSHRSAV_leaf
+       fireMort_stem = fireMort_TROPSHRSAV_stem
+       fireMort_root = fireMort_TROPSHRSAV_root
+    endif
 
     burned_frac = vegn%burned_frac
 
@@ -2930,10 +2860,10 @@ subroutine vegn_burn(vegn,soil,tile_area_m2)
     endif
 
     ! Check values
-    call check_var_range(vegn%burn_Cemit, 0.0, 10.**37, 'vegn_burn', 'burn_Cemit', FATAL)
-    call check_var_range(vegn%burn_Ckill, 0.0, 10.**37, 'vegn_burn', 'burn_Ckill', FATAL)
-    call check_var_range(vegn%csmoke_pool, 0.0, 10.**37, 'vegn_burn', 'vegn%csmoke_pool', FATAL)
-    call check_var_range(vegn%csmoke_rate, 0.0, 10.**37, 'vegn_burn', 'vegn%csmoke_rate', FATAL)
+    call check_var_range(vegn%burn_Cemit, 0.0, 1e37, 'vegn_burn', 'burn_Cemit', FATAL)
+    call check_var_range(vegn%burn_Ckill, 0.0, 1e37, 'vegn_burn', 'burn_Ckill', FATAL)
+    call check_var_range(vegn%csmoke_pool, 0.0, 1e37, 'vegn_burn', 'vegn%csmoke_pool', FATAL)
+    call check_var_range(vegn%csmoke_rate, 0.0, 1e37, 'vegn_burn', 'vegn%csmoke_rate', FATAL)
 
 end subroutine vegn_burn
 
@@ -3480,11 +3410,11 @@ subroutine calc_fire_derivs(&
                             * fire_fn_popD_BA * fire_fn_GDPpc_BA)
       if (vegn_cohort_1_species==SP_C4GRASS)  BA_DERIVwrt_ROSmax_c4 = BA_DERIVwrt_ROSmax_TMP
       if (vegn_cohort_1_species==SP_C3GRASS) then
-         if (lock_ROSmaxC3_to_ROSmaxC4) then
-            BA_DERIVwrt_ROSmax_c4 = BA_DERIVwrt_ROSmax_TMP
-         else
-            BA_DERIVwrt_ROSmax_c3 = BA_DERIVwrt_ROSmax_TMP
-         endif
+!          if (lock_ROSmaxC3_to_ROSmaxC4) then
+!             BA_DERIVwrt_ROSmax_c4 = BA_DERIVwrt_ROSmax_TMP
+!          else
+!             BA_DERIVwrt_ROSmax_c3 = BA_DERIVwrt_ROSmax_TMP
+!          endif
       endif
       if (vegn_cohort_1_species==SP_TEMPDEC)  BA_DERIVwrt_ROSmax_dt = BA_DERIVwrt_ROSmax_TMP
       if (vegn_cohort_1_species==SP_TROPICAL) then
@@ -3750,7 +3680,7 @@ subroutine fire_transitions(time)
   call get_date(time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
 
   if(day0 == day1) return ! do nothing during a day
-  
+
   ! perform the transitions
   do l = lnd%ls,lnd%le
      ! transition land area between different tile types
