@@ -11,7 +11,7 @@ use fms_mod, only: open_namelist_file
 #endif
 
 use constants_mod,   only: PI, VONKARM
-use time_manager_mod, only : time_type, get_date, days_in_month
+use time_manager_mod, only : time_type, get_date, days_in_month, operator(-)
 use fms_mod, only : &
      file_exist, check_nml_error, error_mesg, &
      close_file, stdlog, stdout, WARNING, FATAL
@@ -20,11 +20,12 @@ use land_constants_mod, only : seconds_per_year
 use land_io_mod,     only : external_ts_type, init_external_ts, del_external_ts, &
       read_external_ts, read_field
 use land_debug_mod,  only : check_var_range, is_watch_point, is_watch_cell, &
-      carbon_cons_tol
+      carbon_cons_tol, set_current_point
 use land_data_mod,   only : lnd, log_version
 use land_tile_mod,   only : land_tile_type, land_tile_map, loop_over_tiles, &
       land_tile_list_type, land_tile_enum_type, first_elmt, tail_elmt, next_elmt, &
-      operator(/=), operator(==), current_tile
+      land_tile_list_init, land_tile_list_end, merge_land_tile_into_list, insert, remove, &
+      operator(/=), operator(==), current_tile, new_land_tile
 use land_tile_diag_mod, only : register_tiled_diag_field, send_tile_data, diag_buff_type
 
 use vegn_data_mod,   only : agf_bs, fsc_liv, fsc_wood, fsc_froot, &
@@ -61,6 +62,7 @@ public  ::  vegn_fire_sendtiledata_Cburned
 public  ::  send_tile_data_BABF_forAgri
 public  ::  fire_fragmentation
 public  ::  defo_annCalcs
+public  ::  fire_transitions
 
 integer, public  ::  fire_option = 0
 integer, public, parameter :: FIRE_NONE = 0, FIRE_LM3 = 1, FIRE_UNPACKED = 2
@@ -297,6 +299,8 @@ logical, public  ::  do_crownfires = .FALSE.
 logical, public  ::  FireMIP_ltng = .FALSE.
 real, public     ::  mdf_threshold = 1.0
 
+logical :: split_past_tiles = .TRUE.
+
 namelist /fire_nml/ fire_to_use, fire_for_past, &
                     f_rh_style, rh_up, rh_lo, rh_psi2, rh_psi3, rh_gom2, rh_gom3, &
                     theta_extinction, &
@@ -340,6 +344,7 @@ namelist /fire_nml/ fire_to_use, fire_for_past, &
                     lock_ROSmaxC3_to_ROSmaxC4, &   ! SSR20160131
                     f_theta_style, theta_psi2, theta_psi3, theta_gom2, theta_gom3, &   ! SSR20160203
                     magic_scalar, &   ! SSR20160222
+                    split_past_tiles, &
                     do_multiday_fires, do_crownfires, FireMIP_ltng, mdf_threshold  !!! dsward_opt
 !---- end of namelist --------------------------------------------------------
 real :: dt_fast      ! fast time step, s
@@ -2357,16 +2362,12 @@ subroutine vegn_fire_BA_ntrlscnd(Nfire_perKm2, Nfire_perKm2_NOI, tile_area_km2, 
 end subroutine vegn_fire_BA_ntrlscnd
 
 
-subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_split)
+subroutine vegn_burn(vegn,soil,tile_area_m2)
     type(vegn_tile_type), intent(inout) :: vegn
     type(soil_tile_type), intent(inout) :: soil
-    type(vegn_cohort_type), pointer :: cc    ! current cohort
-
     real, intent(in) :: tile_area_m2   ! Area of land in tile, m2
-    integer, intent(in) :: days_in_year   ! number of days in year for computing csmoke_rate
-    logical, intent(in) :: force_watch_point
-    logical, intent(in) :: is_split
 
+    type(vegn_cohort_type), pointer :: cc    ! current cohort
     real    ::    CC_leaf, CC_stem, CC_litter, CC_living   ! What fraction of tissues get combusted?
     real    ::    CC_litter_leaf, CC_litter_CWD, CC_litter_leaf_inclBF, CC_litter_CWD_inclBF    ! dsward added for zeroing out emissions from CWD on grasslands
     real    ::    CC_litter_inclBF   ! SSR20151217
@@ -2404,6 +2405,9 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
                   lfl_prot_fast, lfl_prot_slow, lfl_prot_dmic, &
                   cwl_unpr_fast, cwl_unpr_slow, cwl_unpr_dmic, &
                   cwl_prot_fast, cwl_prot_slow, cwl_prot_dmic
+
+    real    ::    days_in_year   ! number of days in year for computing csmoke_rate
+    days_in_year = seconds_per_year/86400.0
 
     if (vegn%cohorts(1)%species==SP_C4GRASS .OR. vegn%cohorts(1)%species==SP_C3GRASS) then
         ! Use Li2012 values for C4 = C3 Non-Arctic = C3 Arctic
@@ -2485,13 +2489,9 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
 !!!       burned_frac = 1.0
 !!!    endif
 
-    if (is_split) then
-       burned_frac = 1.0
-    else
-       burned_frac = vegn%burned_frac
-    endif
+    burned_frac = vegn%burned_frac
 
-    if(is_watch_point() .OR. force_watch_point .OR. (is_watch_cell() .AND. force_watch_cell_burning)) then
+    if(is_watch_point()) then
         write(*,*) '######## Before vegn_burn - dsward_vb ########'
         write(*,*) 'vegn%burned_frac', vegn%burned_frac
         write(*,*) 'tile_area_m2', tile_area_m2
@@ -2557,7 +2557,7 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
     !!!!! Note that all species die from fire (i.e., this ignores spdata(cc%species)%mortality_kills_balive)
     burned_bl=0.0 ; burned_bwood=0.0 ; burned_bsw=0.0 ; burned_blv=0.0 ; burned_Cgain = 0.0; burned_Wgain = 0.0;
     killed_bl=0.0 ; killed_bwood=0.0 ; killed_bsw=0.0 ; killed_blv=0.0 ; killed_br=0.0 ; killed_Cgain = 0.0; killed_Wgain = 0.0;
-    if(is_watch_point() .OR. force_watch_point .OR. (is_watch_cell() .AND. force_watch_cell_burning)) then
+    if(is_watch_point()) then
        bliving_0 = 0.0; bwood_0 = 0.0; npp_prevDay_0 = 0.0 ;
        bliving_1 = 0.0; bwood_1 = 0.0; npp_prevDay_1 = 0.0 ;
        bl0 = 0.0; blv0 = 0.0; bwood0 = 0.0; bsw0 = 0.0; br0 = 0.0;
@@ -2578,7 +2578,7 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
         Wgain_inBurn_cc = cc%bwood_gain
         npp_prevDay_inBurn_cc = cc%npp_previous_day
         npp_prevDayTmp_inBurn_cc = cc%npp_previous_day_tmp
-        if(is_watch_point() .OR. force_watch_point .OR. (is_watch_cell() .AND. force_watch_cell_burning)) then
+        if(is_watch_point()) then
            bl0 = bl0 + cc%bl
            blv0 = blv0 + cc%blv
            bwood0 = bwood0 + cc%bwood
@@ -2708,7 +2708,7 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
            cc%npp_previous_day_tmp = (1.0-burned_frac)*cc%npp_previous_day_tmp + burned_frac*((1.0-frac_nppPrevDay_toRemove)*cc%npp_previous_day_tmp)
         endif
 
-        if(is_watch_point() .OR. force_watch_point .OR. (is_watch_cell() .AND. force_watch_cell_burning)) then
+        if(is_watch_point()) then
            bliving_1 = bliving_1 + cc%bliving
            bwood_1 = bwood_1 + cc%bwood
            npp_prevDay_1 = npp_prevDay_1 + cc%npp_previous_day
@@ -2867,7 +2867,7 @@ subroutine vegn_burn(vegn,soil,tile_area_m2,force_watch_point,days_in_year,is_sp
     call update_fire_agb(vegn,soil)
     fire_agb_1 = vegn%fire_agb
 
-    if(is_watch_point() .OR. force_watch_point .OR. (is_watch_cell() .AND. force_watch_cell_burning)) then
+    if(is_watch_point()) then
         write(*,*) '######## After vegn_burn ########'
         write(*,*) 'burned_bl', burned_bl
         write(*,*) 'burned_bwood', burned_bwood
@@ -3738,5 +3738,80 @@ subroutine defo_annCalcs(fireFtheta_ann_acm,nmn_acm, &
 
 end subroutine defo_annCalcs
 
+! =====================================================================================
+subroutine fire_transitions(time)
+  type(time_type), intent(in) :: time
+
+  ! ---- local vars
+  integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
+  integer :: l ! unstructured grid cell iterator
+
+  call get_date(time,             year0,month0,day0,hour,minute,second)
+  call get_date(time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
+
+  if(day0 == day1) return ! do nothing during a day
+  
+  ! perform the transitions
+  do l = lnd%ls,lnd%le
+     ! transition land area between different tile types
+     call fire_transitions_0d(land_tile_map(l), lnd%ug_area(l), l)
+  enddo
+end subroutine fire_transitions
+
+! =====================================================================================
+subroutine fire_transitions_0d(tiles, land_area, l)
+  type(land_tile_list_type), intent(inout) :: tiles
+  real, intent(in) :: land_area ! area of land in current grid cell, m2
+  integer, intent(in) :: l ! grid cell index, for debug purposes only
+
+  ! local vars
+  type(land_tile_list_type) :: burned
+  type(land_tile_type), pointer :: tile, temp
+  type(land_tile_enum_type) :: ts, te
+  integer :: k ! index of the tile
+  real :: BA_km2 ! burned area in km2
+
+  call land_tile_list_init(burned)
+
+  ts = first_elmt(land_tile_map)
+  do while (loop_over_tiles(ts,tile,k=k))
+     call set_current_point(l,k) ! set current point for debugging
+
+     if (.not.associated(tile%vegn)) cycle ! do nothing to non-vegetated tiles
+     BA_km2 = land_area*tile%frac*tile%vegn%burned_frac*1e-6
+     if ( do_fire_tiling &
+         .AND. BA_km2 >= min_BA_to_split &
+         .AND. tile%vegn%landuse/=LU_CROP &
+         .AND. (tile%vegn%landuse/=LU_PAST .OR. (tile%vegn%landuse==LU_PAST .AND. split_past_tiles)) &   ! SSR20151118
+         ) then
+        temp => new_land_tile(tile)
+        temp%frac = tile%frac*tile%vegn%burned_frac ; temp%vegn%burned_frac = 1.0
+        tile%frac = tile%frac-temp%frac ;             tile%vegn%burned_frac = 0.0
+
+        call vegn_burn(temp%vegn,temp%soil,temp%frac*land_area)
+        ! reset fire values for the next period
+        tile%vegn%burned_frac = 0.0 ; tile%vegn%fire_rad_power = 0.0
+        temp%vegn%burned_frac = 0.0 ; temp%vegn%fire_rad_power = 0.0
+        ! add disturbed part to the output list
+        call insert(temp, burned)
+     else
+        call vegn_burn(tile%vegn,tile%soil,tile%frac*land_area)
+        tile%vegn%burned_frac = 0.0 ; tile%vegn%fire_rad_power = 0.0
+     endif
+  enddo
+
+  ! merge burned tiles back into the tile list
+  te = tail_elmt(burned)
+  do
+     ts=first_elmt(burned)
+     if(ts==te) exit ! break out of this loop
+     tile=>current_tile(ts)
+     call remove(ts)
+     call merge_land_tile_into_list(tile,tiles)
+  enddo
+  ! list of burned tiles is empty at this point
+  call land_tile_list_end(burned)
+
+end subroutine fire_transitions_0d
 
 end module vegn_fire_mod

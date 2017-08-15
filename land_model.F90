@@ -54,7 +54,7 @@ use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
 use vegn_disturbance_mod, only : vegn_nat_mortality_ppa
 use vegn_fire_mod, only : do_multiday_fires, fire_natural, fire_agri, &
      update_fire_fast, update_fire_agri, send_tile_data_babf_foragri, &
-     update_fire_fk, update_multiday_fires
+     update_fire_fk, update_multiday_fires, fire_transitions
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, cana_state,&
      cana_roughness, &
@@ -2300,7 +2300,8 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
 
   ! invoke any processes that potentially change tiling
   call vegn_nat_mortality_ppa( )
-  call land_transitions( lnd%time )
+  call fire_transitions(lnd%time)
+  call land_transitions(lnd%time)
 
   ! try to minimize the number of tiles by merging similar ones
   if (year0/=year1) then
