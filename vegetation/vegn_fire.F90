@@ -28,9 +28,9 @@ use land_tile_mod,   only : land_tile_type, land_tile_map, loop_over_tiles, &
       operator(/=), operator(==), current_tile, new_land_tile
 use land_tile_diag_mod, only : register_tiled_diag_field, send_tile_data, diag_buff_type
 
-use vegn_data_mod,   only : spdata, agf_bs, fsc_liv, fsc_wood, fsc_froot, &
-                            SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
-                            LU_CROP, LU_PAST, LU_NTRL, LU_SCND, FORM_GRASS
+use vegn_data_mod,   only : spdata, agf_bs, fsc_liv, fsc_wood, fsc_froot, do_ppa, &
+      SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
+      LU_CROP, LU_PAST, LU_NTRL, LU_SCND, FORM_GRASS
 !                            split_past_tiles   ! SSR20151118
 use vegn_tile_mod,   only : vegn_tile_type
 use soil_tile_mod,   only : soil_tile_type, soil_ave_theta1, soil_ave_theta2
@@ -64,21 +64,10 @@ public  ::  fire_fragmentation
 public  ::  defo_annCalcs
 public  ::  fire_transitions
 
-integer, public  ::  fire_option = 0
+integer, public, protected :: fire_option = 0
 integer, public, parameter :: FIRE_NONE = 0, FIRE_LM3 = 1, FIRE_UNPACKED = 2
-integer, public  ::  fire_option_past = 0
+integer, public, protected :: fire_option_past = 0
 integer, public, parameter :: FIRE_PASTLI = 0, FIRE_PASTFP = 1
-integer, public  ::  fire_windType = 0
-integer, public, parameter :: FIRE_WIND_CANTOP = 0, FIRE_WIND_10MTMP = 1, FIRE_WIND_10MSHEFFIELD = 2
-integer, public :: fire_option_fAGB = 0
-integer, public :: fire_option_fRH = 0
-integer, public :: fire_option_fTheta = 0
-integer, public, parameter :: FIRE_AGB_LI2012 = 0, FIRE_AGB_LOGISTIC = 1, FIRE_AGB_GOMPERTZ = 2
-integer, public, parameter :: FIRE_RH_LI2012 = 0, FIRE_RH_LOGISTIC = 1, FIRE_RH_GOMPERTZ = 2
-integer, public, parameter :: FIRE_THETA_LI2012 = 0, FIRE_THETA_LOGISTIC = 1, FIRE_THETA_GOMPERTZ = 2
-integer, public  ::  order_LU_vegn_fire_option = 0
-integer, public, parameter :: ORDER_FLV = 0, ORDER_LVF = 1, ORDER_VFL = 2
-integer, public, parameter :: NOW_DO_FIRELU = 0, NOW_DO_FIRE = 1, NOW_DO_LU = 2
 
 ! =====end of public interfaces ==============================================
 
@@ -89,22 +78,32 @@ character(len=*), parameter :: module_name = 'fire'
 character(len=*), parameter  :: diag_mod_name = 'vegn'
 
 ! slm: from vegn_data:
-integer, public, parameter :: &
+integer, parameter :: &
     N_TROP_TYPES = 4, &
     TROP_NOT = 0, &
     TROP_SHR = 1, &
     TROP_SAV = 2, &
     TROP_FOR = 3
+integer, parameter ::   FIRE_AGB_LI2012 = 0,   FIRE_AGB_LOGISTIC = 1,   FIRE_AGB_GOMPERTZ = 2
+integer, parameter ::    FIRE_RH_LI2012 = 0,    FIRE_RH_LOGISTIC = 1,    FIRE_RH_GOMPERTZ = 2
+integer, parameter :: FIRE_THETA_LI2012 = 0, FIRE_THETA_LOGISTIC = 1, FIRE_THETA_GOMPERTZ = 2
+
+character(3), parameter :: month_name(12) = ['JAN','FEB','MAR','APR','MAY','JUN', &
+                                             'JUL','AUG','SEP','OCT','NOV','DEC'  ]
+
+integer, parameter :: FIRE_WIND_CANTOP = 0, FIRE_WIND_10MTMP = 1, FIRE_WIND_10MSHEFFIELD = 2
+
+! ==== variables =============================================================
+integer  ::  fire_windType = 0
+integer :: fire_option_fAGB = 0
+integer :: fire_option_fRH = 0
+integer :: fire_option_fTheta = 0
+
 ! slm: was in vegn_harvesting
 integer :: adj_nppPrevDay = 2   ! 0 to not do anything.      ! SSR20150716
                                 ! 1 for attempted fix based on burned/killed leaves
                                 ! 2 for attempted fix based on burned/killed bliving
                                 ! 3 to remove all
-
-character(3), parameter :: month_name(12) = ['JAN','FEB','MAR','APR','MAY','JUN', &
-                                             'JUL','AUG','SEP','OCT','NOV','DEC'  ]
-
-! ==== variables =============================================================
 
 !---- namelist ---------------------------------------------------------------
 
@@ -120,10 +119,6 @@ logical :: zero_tmf = .TRUE.    ! SSR20150921: If we have to reduce burned area 
                                 ! exceeded the unburned area in the grid cell, or because
                                 ! fire size was larger than that allowed by fragmentation,
                                 ! then if TRUE, set all derivatives to zero.
-character(3) :: order_LU_vegn_fire = 'flv'   ! Refers to order of Land-use transitions,
-                                             ! Fire, and update_Vegn slow as called in
-                                             ! update_land_model_slow_0d. Other valid
-                                             ! options: 'lvf' and 'vfl'.
 real   ::   magic_scalar(2) = 1.0   ! SSR20160222 on advice of SLP. !!! dsward added dimension for boreal
 
 ! Create fire tiles?
@@ -215,15 +210,6 @@ real :: In_c2g_ign_eff = 0.25       ! From Li et al. (2012) + Corrigendum
 real :: Ia_alpha_monthly(2) = 0.0035   ! From Li et al. (2013). Ignitions/person/month;
                                     ! converted to daily in fire_init.
 
-! Fire duration. If species-specific value not specified in namelist,
-! vegn_fire_init will set it to fire_duration_ave.
-real :: fire_duration_ave = 60.*60.*24.   ! 24 hours. From Li et al. (2012)
-real :: fire_duration_ave_c4 = -1.   ! C4 grass (vegn%species==0)
-real :: fire_duration_ave_c3 = -1.   ! C3 grass (vegn%species==1)
-real :: fire_duration_ave_dt = -1.   ! Deciduous tree (vegn%species==2)
-real :: fire_duration_ave_tt = -1.   ! Tropical tree (vegn%species==3)
-real :: fire_duration_ave_et = -1.   ! Evergreen tree (vegn%species==4)
-
 ! Wind
 logical :: use_Fwind = .TRUE.   ! If FALSE, ROS_max even with wind=0 (although C_m still matters)
 character(32) :: wind_to_use = '10m_sheffield'
@@ -290,8 +276,6 @@ namelist /fire_nml/ fire_to_use, fire_for_past, &
                     popD_supp_eps1, popD_supp_eps2, popD_supp_eps3, &
                     In_c2g_ign_eff, &
                     Ia_alpha_monthly, Ia_param1, Ia_param2, &
-                    fire_duration_ave, fire_duration_ave_c4, fire_duration_ave_c3, &
-                    fire_duration_ave_dt, fire_duration_ave_tt, fire_duration_ave_et, &
                     min_fire_size, min_combined_ba, &
                     print_min_fire_violations, &
                     fire_biomass_threshold, wind_to_use, &
@@ -304,7 +288,6 @@ namelist /fire_nml/ fire_to_use, fire_for_past, &
                     ROS_max_TROPSHR, &   ! SSR20160211
                     ROS_max_TROPSAV, &   ! SSR20150831
                     do_calc_derivs, do_fire_tiling, &
-                    order_LU_vegn_fire, &
                     min_BA_to_split, &
                     minimal_fire_diagnostics, &
                     do_fire_fragmentation, max_fire_size_min, &
@@ -324,8 +307,6 @@ real :: days_per_year
 real :: LB_max = -1 ! Maximum length:breadth ratio
 real :: HB_max = -1 ! Maximum head:back ratio
 real :: Ia_alpha_daily(2) = -1 ! Daily per-person ignition rate
-
-real, dimension(0:4) :: fire_duration_array
 
 ! Placeholders for derivatives
 real :: Ia_DERIVwrt_alphaM            = -1.0e+20
@@ -531,34 +512,8 @@ subroutine vegn_fire_init(id_ug, dt_fast_in, time)
         FATAL)
   end select
 
-  ! parse order_LU_vegn_fire for efficiency
-  select case (trim(order_LU_vegn_fire))
-  case ('flv')
-     order_LU_vegn_fire_option = ORDER_FLV
-  case ('lvf')
-     order_LU_vegn_fire_option = ORDER_LVF
-  case ('vfl')
-     order_LU_vegn_fire_option = ORDER_VFL
-  case default
-     call error_mesg('vegn_fire_init',&
-        'option order_LU_vegn_fire="'//trim(order_LU_vegn_fire)//'" is invalid, use "flv", "lvf", or "vfl"', &
-        FATAL)
-  end select
-
   ! SSR20151009
   if (C_beta_params_likeRH) write(*,*) 'C_beta_params_likeRH is .TRUE., so ignoring setting of C_beta_threshUP and C_beta_threshLO.'
-
-  ! parse species-specific values for fire_duration
-  if (fire_duration_ave_c4 == -1.) fire_duration_ave_c4 = fire_duration_ave
-  if (fire_duration_ave_c3 == -1.) fire_duration_ave_c3 = fire_duration_ave
-  if (fire_duration_ave_dt == -1.) fire_duration_ave_dt = fire_duration_ave
-  if (fire_duration_ave_tt == -1.) fire_duration_ave_tt = fire_duration_ave
-  if (fire_duration_ave_et == -1.) fire_duration_ave_et = fire_duration_ave
-  fire_duration_array(SP_C4GRASS) = fire_duration_ave_c4
-  fire_duration_array(SP_C3GRASS) = fire_duration_ave_c3
-  fire_duration_array(SP_TEMPDEC) = fire_duration_ave_dt
-  fire_duration_array(SP_TROPICAL) = fire_duration_ave_tt
-  fire_duration_array(SP_EVERGR) = fire_duration_ave_et
 
   ! fire_biomass_threshold can only be -1 or >=0
   if (fire_biomass_threshold /= -1) then
@@ -1051,6 +1006,8 @@ subroutine update_fire_fast(vegn,soil,diag, &
     real   ::   ROS_surface,crown_scorch_frac,fire_intensity  !!! dsward_crownfires added
     integer::   vegn_cohort_1_species
     integer::   kop  ! dsward_kop added switch for boreal (1) and non-boreal (2) zones
+    integer :: k ! cohort iterator
+    real    :: cover ! normalization factor for fire duration averaging
 
     kop=1
     if (vegn%koppen_zone .lt. 11) kop=2  ! dsward_kop, switch parameters to non-boreal value
@@ -1102,10 +1059,21 @@ subroutine update_fire_fast(vegn,soil,diag, &
     call vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,crown_scorch_frac,fire_intensity)
 !!! dsward_crownfires end
 
+    ! calculate fire duration as a weighted average of the species in the
+    ! canopy; the weight is the fraction of canopy occupied by each species. 
+    fire_dur = 0.0; cover = 0.0
+    associate(cc=>vegn%cohorts)
+    do k = 1, vegn%n_cohorts
+       if (cc(k)%layer==1) then
+          fire_dur = fire_dur + cc(k)%nindivs*cc(k)%crownarea * spdata(cc(k)%species)%fire_duration
+          cover    = cover    + cc(k)%nindivs*cc(k)%crownarea
+       endif
+    enddo
+    end associate
+    fire_dur = fire_dur/cover
+
     vegn_cohort_1_species = vegn%cohorts(1)%species
-    call vegn_fire_BAperFire_noAnthro(ROS,LB,HB,vegn_cohort_1_species, &
-                                      BAperFire_0, &
-                                      fire_dur)   ! SSR20151009
+    call vegn_fire_BAperFire_noAnthro(ROS,LB,HB,fire_dur,BAperFire_0)   ! SSR20151009
 
     ! Could speed things up by only changing these monthly (or even yearly, for
     ! popD and GDPpc).
@@ -1167,7 +1135,7 @@ subroutine update_fire_fast(vegn,soil,diag, &
        call send_tile_data(id_BAperFire_0, BAperFire_0,        diag)
        call send_tile_data(id_fire_wind_forFire, wind_forFire, diag)
        call send_tile_data(id_ROS,              ROS,              diag)
-       call send_tile_data(id_fire_duration_ave, fire_duration_array(vegn_cohort_1_species), diag)
+       call send_tile_data(id_fire_duration_ave, fire_dur, diag)
        call send_tile_data(id_LB,               LB,               diag)
        call send_tile_data(id_HB,               HB,               diag)
        call send_tile_data(id_gW,               gW,               diag)
@@ -1914,32 +1882,29 @@ subroutine vegn_fire_Nfire(In, Ia, &
 end subroutine vegn_fire_Nfire
 
 
-subroutine vegn_fire_ROS(vegn,fire_fn_rh,theta,&
-                         fire_fn_theta,&   ! SSR20151216
-                         wind_forFire,ROS_surface,LB,HB,gW, &
+subroutine vegn_fire_ROS(vegn, fire_fn_rh,theta, fire_fn_theta, wind, &
+                         ROS_surface,LB,HB,gW, &
                          ROS_max, C_beta,kop)   ! SSR20151009  !!! dsward_kop added kop
     type(vegn_tile_type), intent(inout) :: vegn
     real, intent(in)    :: fire_fn_rh
     real, intent(in)    :: theta    ! Calculated in subroutine vegn_fire_fn_theta
     real, intent(in)    :: fire_fn_theta    ! SSR20151216
-    real                :: wind_forFire
+    real, intent(in)    :: wind
     real, intent(out)   :: ROS_surface      ! Downwind spread rate, m/s
     real, intent(out)   :: LB, HB   ! Length:breadth and head:back ratios
-    real, intent(out)   :: gW
-!    real                :: C_beta, C_m
-    real                :: C_m   ! SSR20151009
-    real, parameter     ::  vegn_min_height = 0.1
-    real                ::  vegn_height_limited
-    real    ::  g0
-!    real    ::  ROS_max
-    real, intent(out)    ::  ROS_max, C_beta   ! SSR20151009
-    integer, intent(in)  :: kop  !!! dsward_kop
-    integer :: trop_code ! savanna/shrubland/forest code
+    real, intent(out)   :: gW  ! wind multiplier effect
+    real, intent(out)   ::  ROS_max, C_beta   ! SSR20151009
 
-    if (constant_wind_forFire >= 0.) then
-       wind_forFire = constant_wind_forFire
-    endif
-    call check_var_range(wind_forFire, 0.0, 10.**37., 'vegn_fire_ROS', 'wind_forFire', FATAL)
+    real                :: C_m   ! SSR20151009
+    real    ::  g0
+    real    :: wind_forFire
+    integer, intent(in)  :: kop  !!! dsward_kop
+    real    :: cover ! normalization factor for 
+    integer :: trop_code ! savanna/shrubland/forest code
+    integer :: k ! cohort iterator
+
+    wind_forFire = wind
+    if (constant_wind_forFire >= 0.) wind_forFire = constant_wind_forFire
 
     ! Calculate length:breadth and head:back ratios
     !!! LB_max and HB_max calculated in fire_init
@@ -1955,18 +1920,30 @@ subroutine vegn_fire_ROS(vegn,fire_fn_rh,theta,&
        gW = 1.0
     endif
 
-    ! Choose maximum rate of spread, based on species
-    ! SSR: At some point, should move this into vegn_data.F90 because these are species-level parameters
-    associate(sp=>spdata(vegn%cohorts(1)%species))
-    ROS_max = sp%ROS_max
-    trop_code = tropType(vegn)
-    if (vegn%trop_code == TROP_SHR) then
-       if (ROS_max_TROPSHR > 0.0) ROS_max = ROS_max_TROPSHR
-    elseif (vegn%trop_code == TROP_SAV) then
-       if (ROS_max_TROPSAV > 0.0) ROS_max = ROS_max_TROPSAV
-    endif
+    ! calculate maximum rate of spread as a weighted average of the species in the
+    ! canopy; the weight is the fraction of canopy occupied by each species. 
+    ROS_max = 0.0; cover = 0.0
+    associate(cc=>vegn%cohorts)
+    do k = 1, vegn%n_cohorts
+       if (cc(k)%layer==1) then
+          ROS_max = ROS_max + cc(k)%nindivs*cc(k)%crownarea * spdata(cc(k)%species)%ROS_max
+          cover   = cover   + cc(k)%nindivs*cc(k)%crownarea
+       endif
+    enddo
+    ROS_max = ROS_max/cover
     end associate
-
+    ! NOTE that in LM3 case (single cohort, nindivs==1 and crownarea==1) the above 
+    ! calculation gives the exact value from species parameter table
+    if (.not.do_ppa) then
+       ! for LM3, modify the values for savannas and shrub lands
+       trop_code = tropType(vegn)
+       if (trop_code == TROP_SHR) then
+          if (ROS_max_TROPSHR > 0.0) ROS_max = ROS_max_TROPSHR
+       elseif (trop_code == TROP_SAV) then
+          if (ROS_max_TROPSAV > 0.0) ROS_max = ROS_max_TROPSAV
+       endif
+    endif
+    
     ! Calculate effects of RH and theta on fire ROS
     if (use_Cm) then
        if (theta_ROSeffect_asFnTheta) then
@@ -2028,6 +2005,7 @@ subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,
                                               ! therefore augmented ROS)
     real, intent(out)   :: fire_intensity     ! Intensity of fire [kJ/kg(DM)]
     real, intent(out)   :: ROS                ! Rate of spread augmented by crown fire amount
+
     real, parameter     :: CL_parameter = 0.333    ! Crown-length parameter from Thonicke et al. (2010)
     real, parameter     :: H_parameter = 18000.    ! Fuel heat content from Thonicke et al. (2010)
     real                :: F_parameter        ! Fuel bulk density parameter from Thonicke et al. (2010)
@@ -2077,17 +2055,12 @@ subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,
 end subroutine vegn_fire_intensity
 !!! dsward_crownfires end
 
-subroutine vegn_fire_BAperFire_noAnthro(ROS,LB,HB,vegn_cohort_1_species,BAperFire_0, &
-                                        fire_dur)
+subroutine vegn_fire_BAperFire_noAnthro(ROS,LB,HB,fire_dur,BAperFire_0)
     real, intent(in)    :: ROS,LB,HB
-    integer, intent(in) :: vegn_cohort_1_species
+    real, intent(in)    :: fire_dur
     real, intent(out)   :: BAperFire_0   ! km2
-    real, intent(out)   :: fire_dur   ! SSR20151009 (s)
-
 
 !!!!! dsward - track fire-age somehow and it will increase the AB per fire by a quadratic here
-
-    fire_dur = fire_duration_array(vegn_cohort_1_species)
     BAperFire_0 = (ROS**2.) &
                          * (fire_dur**2.) &
                          * ((1. + 1./HB)**2.) &
@@ -2096,8 +2069,8 @@ subroutine vegn_fire_BAperFire_noAnthro(ROS,LB,HB,vegn_cohort_1_species,BAperFir
 
     if (do_calc_derivs) then
        BAperFire0_DERIVwrt_fireDur = BAperFire_0 &
-                                     * (2.*fire_duration_array(vegn_cohort_1_species)) &
-                                     / (fire_duration_array(vegn_cohort_1_species)**2.)
+                                     * (2*fire_dur) &
+                                     / (fire_dur**2)
        if (ROS > 0.0) then
           BAperFire0_DERIVwrt_ROSmax = BAperFire_0 &
                                        * (2.*ROS*ROS_DERIVwrt_ROSmax) &
@@ -2112,8 +2085,6 @@ subroutine vegn_fire_BAperFire_noAnthro(ROS,LB,HB,vegn_cohort_1_species,BAperFir
        write(*,*) 'ROS', ROS
        write(*,*) 'LB ', LB
        write(*,*) 'HB ', HB
-       write(*,*) 'vegn_cohort_1_species', vegn_cohort_1_species
-       write(*,*) 'duration', fire_duration_array(vegn_cohort_1_species)
        write(*,*) 'BAperFire_0', BAperFire_0
        if (do_calc_derivs) then
           write(*,*) 'BAperFire0_DERIVwrt_fireDur', BAperFire0_DERIVwrt_fireDur
@@ -2121,13 +2092,6 @@ subroutine vegn_fire_BAperFire_noAnthro(ROS,LB,HB,vegn_cohort_1_species,BAperFir
        endif
        write(*,*) '####################################'
     endif
-
-    call check_var_range(BAperFire_0, 0.0, 10.**37, 'vegn_fire_BAperFire_noAnthro', 'BAperFire_0', FATAL)
-    if (do_calc_derivs) then
-       call check_var_range(BAperFire0_DERIVwrt_fireDur, -10.**37, 10.**37, 'vegn_fire_BAperFire_noAnthro', 'BAperFire0_DERIVwrt_fireDur', FATAL)
-       call check_var_range(BAperFire0_DERIVwrt_ROSmax, -10.**37, 10.**37, 'vegn_fire_BAperFire_noAnthro', 'BAperFire0_DERIVwrt_ROSmax', FATAL)
-    endif
-
 end subroutine vegn_fire_BAperFire_noAnthro
 
 

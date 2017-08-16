@@ -265,7 +265,8 @@ type spec_data_type
 
   ! SSR fire-related parameters; default values are for tropical trees in his code
   real    :: ROS_max   = 0.22
-  ! combustion completeness; 
+  real    :: fire_duration = 86400.0 ! average fire duration, s
+  ! combustion completeness; unitless
   real    :: CC_leaf   = 0.70
   real    :: CC_stem   = 0.15
   real    :: CC_litter = 0.15
@@ -744,6 +745,7 @@ subroutine read_species_data(name, sp, errors_found)
 
   ! SSR fire parameters
   __GET_SPDATA_REAL__(ROS_max)
+  __GET_SPDATA_REAL__(fire_duration)
   __GET_SPDATA_REAL__(CC_leaf)
   __GET_SPDATA_REAL__(CC_stem)
   __GET_SPDATA_REAL__(CC_litter)
@@ -991,6 +993,7 @@ subroutine print_species_data(unit)
   call add_row(table, 'branch_wood_frac', spdata(:)%branch_wood_frac)
   
   call add_row(table, 'ROS_max',   spdata(:)%ROS_max)
+  call add_row(table, 'fire_duration', spdata(:)%fire_duration)
   call add_row(table, 'CC_leaf',   spdata(:)%CC_leaf)
   call add_row(table, 'CC_stem',   spdata(:)%CC_stem)
   call add_row(table, 'CC_litter', spdata(:)%CC_litter)
