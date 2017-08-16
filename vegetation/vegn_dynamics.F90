@@ -224,6 +224,7 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, ndep_nit, ndep_amm, ndep_or
   real :: myc_mine_N_uptake,myc_mine_C_uptake,total_miner_myc_C_allocated,miner_myc_C_allocated,total_mine_myc_immob,total_myc_mine_C_uptake
   real :: N_fixation, total_N_fixation, total_N_fixer_C_allocated, N_fixer_C_allocated, N_fixer_exudate_frac
   real :: myc_scav_marginal_gain,myc_mine_marginal_gain, N_fix_marginal_gain,rhiz_exud_frac,rhiz_exud_marginal_gain
+  real :: weight_marginal_gain
   real :: root_active_N_uptake, mining_CO2prod,total_mining_CO2prod, excess_mining_C
   real :: N_fixation_2, myc_N_uptake, myc_N_uptake_2, myc_C_uptake, myc_C_uptake_2, dummy1
   real :: total_plant_N_uptake, scavenger_myc_growth, miner_myc_growth, N_fixer_growth
@@ -675,8 +676,8 @@ N_leakage = 0.0
          endif
          cc%mine_myc_N_reservoir = cc%mine_myc_N_reservoir - mine_N_to_plant
 
-         if (root_exudate_C>1e-10) then
-           rhiz_exud_marginal_gain = (root_active_N_uptake/dt_fast_yr)/(root_exudate_C)!+(myc_mine_marginal_gain+myc_scav_marginal_gain)*0.5
+         if (cc%br>0) then
+           rhiz_exud_marginal_gain = (root_active_N_uptake/dt_fast_yr)/(cc%br)!+(myc_mine_marginal_gain+myc_scav_marginal_gain)*0.5
          else
            rhiz_exud_marginal_gain = (myc_mine_marginal_gain+myc_scav_marginal_gain)*0.25
          endif
@@ -692,12 +693,19 @@ N_leakage = 0.0
          endif
          cc%N_fixer_N_reservoir = cc%N_fixer_N_reservoir-fix_N_to_plant
 
+         ! Apply a smoothing filter to marginal gains, so we can control how fast N strategies change at the ecosystem level
+         weight_marginal_gain = 1/(1+spdata(sp)%tau_smooth_marginal_gain/dt_fast_yr)
+         cc%myc_scav_marginal_gain_smoothed=cc%myc_scav_marginal_gain_smoothed*(1.0-weight_marginal_gain) + myc_scav_marginal_gain*weight_marginal_gain
+         cc%myc_mine_marginal_gain_smoothed=cc%myc_mine_marginal_gain_smoothed*(1.0-weight_marginal_gain) + myc_mine_marginal_gain*weight_marginal_gain
+         cc%N_fix_marginal_gain_smoothed=cc%N_fix_marginal_gain_smoothed*(1.0-weight_marginal_gain) + N_fix_marginal_gain*weight_marginal_gain
+         cc%rhiz_exud_marginal_gain_smoothed=cc%rhiz_exud_marginal_gain_smoothed*(1.0-weight_marginal_gain) + rhiz_exud_marginal_gain*weight_marginal_gain
+
          ! Calculate relative fractions
-          if (myc_scav_marginal_gain+N_fix_marginal_gain+myc_mine_marginal_gain+rhiz_exud_marginal_gain>0) then
-            myc_scav_exudate_frac = myc_scav_marginal_gain/(myc_scav_marginal_gain+myc_mine_marginal_gain+N_fix_marginal_gain+rhiz_exud_marginal_gain)
-            myc_mine_exudate_frac = myc_mine_marginal_gain/(myc_scav_marginal_gain+myc_mine_marginal_gain+N_fix_marginal_gain+rhiz_exud_marginal_gain)
-            N_fixer_exudate_frac = N_fix_marginal_gain/(myc_scav_marginal_gain+myc_mine_marginal_gain+N_fix_marginal_gain+rhiz_exud_marginal_gain)
-            rhiz_exud_frac = rhiz_exud_marginal_gain/(myc_scav_marginal_gain+myc_mine_marginal_gain+N_fix_marginal_gain+rhiz_exud_marginal_gain)
+          if (cc%myc_scav_marginal_gain_smoothed+cc%N_fix_marginal_gain_smoothed+cc%myc_mine_marginal_gain_smoothed+cc%rhiz_exud_marginal_gain_smoothed>0) then
+            myc_scav_exudate_frac = cc%myc_scav_marginal_gain_smoothed/(cc%myc_scav_marginal_gain_smoothed+cc%myc_mine_marginal_gain_smoothed+cc%N_fix_marginal_gain_smoothed+cc%rhiz_exud_marginal_gain_smoothed)
+            myc_mine_exudate_frac = cc%myc_mine_marginal_gain_smoothed/(cc%myc_scav_marginal_gain_smoothed+cc%myc_mine_marginal_gain_smoothed+cc%N_fix_marginal_gain_smoothed+cc%rhiz_exud_marginal_gain_smoothed)
+            N_fixer_exudate_frac = cc%N_fix_marginal_gain_smoothed/(cc%myc_scav_marginal_gain_smoothed+cc%myc_mine_marginal_gain_smoothed+cc%N_fix_marginal_gain_smoothed+cc%rhiz_exud_marginal_gain_smoothed)
+            rhiz_exud_frac = cc%rhiz_exud_marginal_gain_smoothed/(cc%myc_scav_marginal_gain_smoothed+cc%myc_mine_marginal_gain_smoothed+cc%N_fix_marginal_gain_smoothed+cc%rhiz_exud_marginal_gain_smoothed)
           else
             ! Divide evenly if there is no marginal gain.  But this probably only happens if root_exudate_C is zero
             myc_scav_exudate_frac = 0.4*0.7
@@ -874,10 +882,10 @@ N_leakage = 0.0
   call send_tile_data(id_mycorrhizal_mine_allocation,total_miner_myc_C_allocated/dt_fast_yr,diag)
   call send_tile_data(id_mycorrhizal_mine_immobilization,total_mine_myc_immob/dt_fast_yr,diag)
   call send_tile_data(id_N_fixer_allocation,total_N_fixer_C_allocated/dt_fast_yr,diag)
-  call send_tile_data(id_myc_scav_marginal_gain,myc_scav_marginal_gain,diag)
-  call send_tile_data(id_myc_mine_marginal_gain,myc_mine_marginal_gain,diag)
-  call send_tile_data(id_N_fix_marginal_gain,N_fix_marginal_gain,diag)
-  call send_tile_data(id_rhiz_exud_marginal_gain,rhiz_exud_marginal_gain,diag)
+  call send_tile_data(id_myc_scav_marginal_gain,vegn%cohorts(1)%myc_scav_marginal_gain_smoothed,diag)
+  call send_tile_data(id_myc_mine_marginal_gain,vegn%cohorts(1)%myc_mine_marginal_gain_smoothed,diag)
+  call send_tile_data(id_N_fix_marginal_gain,vegn%cohorts(1)%N_fix_marginal_gain_smoothed,diag)
+  call send_tile_data(id_rhiz_exud_marginal_gain,vegn%cohorts(1)%rhiz_exud_marginal_gain_smoothed,diag)
   call send_tile_data(id_rhiz_exudation,total_root_exudate_C/dt_fast_yr,diag)
   call send_tile_data(id_nitrogen_stress,vegn%cohorts(1)%nitrogen_stress,diag)
   call send_tile_data(id_total_plant_N_uptake,total_plant_N_uptake/dt_fast_yr,diag)

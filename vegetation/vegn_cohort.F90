@@ -164,6 +164,12 @@ type :: vegn_cohort_type
   real :: root_N = 0.0
   real :: total_N = 0.0
 
+  ! Allows cohorts to remember previous marginal gains so shifts in N allocation can have time scales
+  real :: myc_scav_marginal_gain_smoothed = 0.0
+  real :: myc_mine_marginal_gain_smoothed = 0.0
+  real :: N_fix_marginal_gain_smoothed = 0.0
+  real :: rhiz_exud_marginal_gain_smoothed = 0.0
+
 ! in LM3V the cohort structure has a handy pointer to the tile it belongs to;
 ! so operations on cohort can update tile-level variables. In this code, it is
 ! probably impossible to have this pointer here: it needs to be of type

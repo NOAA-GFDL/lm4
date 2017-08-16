@@ -346,6 +346,14 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      call get_cohort_data(restart2, 'cohort_leaf_N', cohort_leaf_N_ptr)
      call get_cohort_data(restart2, 'cohort_root_N', cohort_root_N_ptr)
      call get_cohort_data(restart2, 'cohort_total_N', cohort_total_N_ptr)
+     if(field_exists(restart2,'myc_scav_marginal_gain_smoothed')) &
+       call get_cohort_data(restart2, 'myc_scav_marginal_gain_smoothed',cohort_myc_scav_marginal_gain_smoothed_ptr)
+     if(field_exists(restart2,'myc_mine_marginal_gain_smoothed')) &
+       call get_cohort_data(restart2, 'myc_mine_marginal_gain_smoothed',cohort_myc_mine_marginal_gain_smoothed_ptr)
+     if(field_exists(restart2,'N_fix_marginal_gain_smoothed')) &
+       call get_cohort_data(restart2, 'N_fix_marginal_gain_smoothed',cohort_N_fix_marginal_gain_smoothed_ptr)
+     if(field_exists(restart2,'rhiz_exud_marginal_gain_smoothed')) &
+       call get_cohort_data(restart2, 'rhiz_exud_marginal_gain_smoothed',cohort_rhiz_exud_marginal_gain_smoothed_ptr)
 
 
 
@@ -514,6 +522,10 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      cohort%myc_miner_biomass_N = init_cohort_miner_myc_biomass/c2n_mycorrhizae
      cohort%N_fixer_biomass_C = init_N_fixer_biomass
      cohort%N_fixer_biomass_N = init_N_fixer_biomass/c2n_N_fixer
+     cohort%myc_scav_marginal_gain_smoothed = 0.0
+     cohort%myc_mine_marginal_gain_smoothed = 0.0
+     cohort%N_fix_marginal_gain_smoothed = 0.0
+     cohort%rhiz_exud_marginal_gain_smoothed = 0.0
 
      if(did_read_biodata.and.do_biogeography) then
         call update_species(cohort,t_ann(i,j),t_cold(i,j),p_ann(i,j),ncm(i,j),LU_NTRL)
@@ -963,6 +975,10 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'cohort_leaf_N', cohort_leaf_N_ptr, 'leaf N pool of individual','kg C/m2')
   call add_cohort_data(restart2,'cohort_root_N', cohort_root_N_ptr, 'root N pool of individual','kg C/m2')
   call add_cohort_data(restart2,'cohort_total_N', cohort_total_N_ptr, 'total N pool of individual','kg C/m2')
+  call add_cohort_data(restart2,'myc_scav_marginal_gain_smoothed', cohort_myc_scav_marginal_gain_smoothed_ptr, 'smoothed marginal gain of scavenging','gN/gC')
+  call add_cohort_data(restart2,'myc_mine_marginal_gain_smoothed', cohort_myc_mine_marginal_gain_smoothed_ptr, 'smoothed marginal gain of mining','gN/gC')
+  call add_cohort_data(restart2,'N_fix_marginal_gain_smoothed', cohort_N_fix_marginal_gain_smoothed_ptr, 'smoothed marginal gain of N fixation','gN/gC')
+  call add_cohort_data(restart2,'rhiz_exud_marginal_gain_smoothed', cohort_rhiz_exud_marginal_gain_smoothed_ptr, 'smoothed marginal gain of root exudation','gN/gC')
 
   call add_cohort_data(restart2,'npp_prev_day', cohort_npp_previous_day_ptr, 'previous day NPP','kg C/(m2 year)')
 
@@ -2111,6 +2127,10 @@ DEFINE_COHORT_ACCESSOR(real,total_N)
 DEFINE_COHORT_ACCESSOR(integer,status)
 DEFINE_COHORT_ACCESSOR(real,leaf_age)
 DEFINE_COHORT_ACCESSOR(real,npp_previous_day)
+DEFINE_COHORT_ACCESSOR(real,myc_scav_marginal_gain_smoothed)
+DEFINE_COHORT_ACCESSOR(real,myc_mine_marginal_gain_smoothed)
+DEFINE_COHORT_ACCESSOR(real,N_fix_marginal_gain_smoothed)
+DEFINE_COHORT_ACCESSOR(real,rhiz_exud_marginal_gain_smoothed)
 
 
 

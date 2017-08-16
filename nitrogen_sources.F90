@@ -232,8 +232,8 @@ subroutine nitrogen_sources_init(time, id_lon, id_lat)
   case (NDEP_INTERP2)
     allocate( ndep_nat(lnd%is:lnd%ie,lnd%js:lnd%je), &
               ndep_ant(lnd%is:lnd%ie,lnd%js:lnd%je)  )
-              print *,'lon',lnd%lon(lnd%is:lnd%ie,lnd%js:lnd%je)
-              print *,'lat',lnd%lat(lnd%is:lnd%ie,lnd%js:lnd%je)
+              ! print *,'lon',lnd%lon(lnd%is:lnd%ie,lnd%js:lnd%je)
+              ! print *,'lat',lnd%lat(lnd%is:lnd%ie,lnd%js:lnd%je)
     call read_field( 'INPUT/nbiodata_nat.nc','ndep', &
           lnd%lon(lnd%is:lnd%ie,lnd%js:lnd%je), &
           lnd%lat(lnd%is:lnd%ie,lnd%js:lnd%je), &

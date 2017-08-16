@@ -111,7 +111,7 @@ public :: &
     dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
     N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, N_limits_live_biomass, root_NH4_uptake_rate, root_NO3_uptake_rate,&
     k_ammonium_root_uptake,k_nitrate_root_uptake,excess_stored_N_leakage_rate,myc_growth_rate,kM_myc_growth,myc_N_to_plant_rate,et_myc,&
-    do_N_mining_strategy,do_N_scavenging_strategy,do_N_fixation_strategy,N_stress_root_factor
+    do_N_mining_strategy,do_N_scavenging_strategy,do_N_fixation_strategy,N_stress_root_factor,tau_smooth_marginal_gain
 
 
 ! ---- public subroutine
@@ -216,6 +216,7 @@ type spec_data_type
   real    :: sapwood_c2n
 
   real    :: N_stress_root_factor
+  real    :: tau_smooth_marginal_gain
 
 end type
 
@@ -463,6 +464,8 @@ real :: sapwood_c2n(0:MSPECIES)=  &  ! C:N ratio of sapwood.
 real :: root_exudate_N_frac = 0.0 ! N fraction of root exudates. See e.g. Drake et al 2013
 real :: N_stress_root_factor(0:MSPECIES)=  &  ! How much sapwood moves to roots as a function of N stress
         (/0.02     ,    0.02   ,     0.02      ,    0.02    ,   0.02      ,  0.02,    0.02,     0.02,  0.02,     0.02,     0.02,    0.02,    0.02,   0.02/)
+real :: tau_smooth_marginal_gain(0:MSPECIES) = &
+        (/0.0      ,    0.0    ,     0.0       ,     0.0    ,    0.0      ,   0.0 ,   0.0,       0.0,    0.0,     0.0,     0.0,     0.0,     0.0,     0.0/)
 
 logical :: do_N_mining_strategy(0:MSPECIES) = &
         (/ .TRUE.  ,    .TRUE. ,   .TRUE.   ,   .TRUE.  ,   .TRUE.  ,  .TRUE. , .TRUE. , .TRUE. , .TRUE. , .TRUE. , .TRUE., .TRUE., .TRUE., .TRUE./)
@@ -523,7 +526,7 @@ namelist /vegn_data_nml/ &
   dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
   N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, N_limits_live_biomass, root_NH4_uptake_rate, root_NO3_uptake_rate,&
   k_nitrate_root_uptake,k_ammonium_root_uptake,excess_stored_N_leakage_rate,myc_growth_rate,kM_myc_growth,myc_N_to_plant_rate,et_myc,&
-  do_N_mining_strategy,do_N_scavenging_strategy,do_N_fixation_strategy,N_stress_root_factor
+  do_N_mining_strategy,do_N_scavenging_strategy,do_N_fixation_strategy,N_stress_root_factor,tau_smooth_marginal_gain
 
 
 contains ! ###################################################################
@@ -637,6 +640,7 @@ subroutine read_vegn_data_namelist()
   spdata%sapwood_c2n = sapwood_c2n
 
   spdata%N_stress_root_factor = N_stress_root_factor
+  spdata%tau_smooth_marginal_gain = tau_smooth_marginal_gain
 
   spdata%tracer_cuticular_cond = tracer_cuticular_cond
 
@@ -738,6 +742,7 @@ subroutine read_vegn_data_namelist()
   call add_row(table,'do_N_scavenging_strategy',spdata(:)%do_N_scavenging_strategy)
   call add_row(table,'do_N_fixation_strategy',spdata(:)%do_N_fixation_strategy)
   call add_row(table,'N_stress_root_factor',spdata(:)%N_stress_root_factor)
+    call add_row(table,'tau_smooth_marginal_gain',spdata(:)%tau_smooth_marginal_gain)
 
   call add_row(table,'tracer_cuticular_cond',spdata(:)%tracer_cuticular_cond)
 
