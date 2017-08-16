@@ -1004,7 +1004,6 @@ subroutine update_fire_fast(vegn,soil,diag, &
     real   ::   ROS, LB, HB, gW, BAperFire_0
     real   ::   ROSmax, fire_dur, C_beta   ! SSR20151009
     real   ::   ROS_surface,crown_scorch_frac,fire_intensity  !!! dsward_crownfires added
-    integer::   vegn_cohort_1_species
     integer::   kop  ! dsward_kop added switch for boreal (1) and non-boreal (2) zones
     integer :: k ! cohort iterator
     real    :: cover ! normalization factor for fire duration averaging
@@ -1060,7 +1059,7 @@ subroutine update_fire_fast(vegn,soil,diag, &
 !!! dsward_crownfires end
 
     ! calculate fire duration as a weighted average of the species in the
-    ! canopy; the weight is the fraction of canopy occupied by each species. 
+    ! canopy; the weight is the fraction of canopy occupied by each species.
     fire_dur = 0.0; cover = 0.0
     associate(cc=>vegn%cohorts)
     do k = 1, vegn%n_cohorts
@@ -1072,7 +1071,6 @@ subroutine update_fire_fast(vegn,soil,diag, &
     end associate
     fire_dur = fire_dur/cover
 
-    vegn_cohort_1_species = vegn%cohorts(1)%species
     call vegn_fire_BAperFire_noAnthro(ROS,LB,HB,fire_dur,BAperFire_0)   ! SSR20151009
 
     ! Could speed things up by only changing these monthly (or even yearly, for
@@ -1095,10 +1093,9 @@ subroutine update_fire_fast(vegn,soil,diag, &
        call check_var_range(vegn%max_fire_size, max_fire_size_min, 10.**37, 'update_fire_fast', 'vegn%max_fire_size', FATAL)
     endif
 
-    call update_Nfire_BA_fast(diag,l,tile_area, &
+    call update_Nfire_BA_fast(vegn, diag,l,tile_area, &
                               fire_fn_theta, fire_fn_rh, fire_fn_Tca, fire_fn_agb, &
                               BAperFire_0, &
-                              vegn_cohort_1_species, &
                               vegn%trop_code, &   ! SSR20150831
                               lightning, popD, GDPpc, &
                               vegn%max_fire_size, &   ! SSR20150727
@@ -1556,7 +1553,6 @@ subroutine vegn_fire_fn_agb(vegn,soil,fire_fn_agb,kop)  !!! dsward_kop added kop
     type(vegn_tile_type), intent(inout) :: vegn
     type(soil_tile_type), intent(in) :: soil
     real, intent(out) :: fire_fn_agb
-    type(vegn_cohort_type), pointer :: cc    ! current cohort
     integer, intent(in) :: kop ! dsward_kop - use  boreal (1) or non-boreal (2) parameters
 
    ! vegn%fire_agb is updated in update_land_model_fast_0d to ensure that it's done for
@@ -1643,12 +1639,16 @@ subroutine vegn_fire_fn_agb(vegn,soil,fire_fn_agb,kop)  !!! dsward_kop added kop
 end subroutine vegn_fire_fn_agb
 
 
-subroutine vegn_fire_fn_popD(vegn_cohort_1_species,popD,fire_fn_popD_NF, fire_fn_popD_BA, kop) !!! dsward_kop added kop
-    integer, intent(in) ::  vegn_cohort_1_species
+subroutine vegn_fire_fn_popD(vegn, popD, fire_fn_popD_NF, fire_fn_popD_BA, kop) !!! dsward_kop added kop
+    type(vegn_tile_type), intent(in) :: vegn
     real, intent(in)    ::  popD
     real, intent(out)   ::  fire_fn_popD_NF     ! Fraction of potential fires suppressed by popD
     real, intent(out)   ::  fire_fn_popD_BA     ! Fraction of potential BA realized via popD
     integer, intent(in) ::  kop
+
+    ! ---- local vars
+    integer :: k ! cohort iterator
+    real    :: cover, f ! for population density factor averaging
 
     ! Number of fires
     if (use_FpopD_nf.eqv..TRUE. .AND. popD>0.0) then
@@ -1668,16 +1668,25 @@ subroutine vegn_fire_fn_popD(vegn_cohort_1_species,popD,fire_fn_popD_NF, fire_fn
     endif
 
     ! Burned area per fire
-    if (use_FpopD_ba.eqv..TRUE.) then
-       if (popD <= 0.1) then
-           fire_fn_popD_BA = 1.
-       else if (vegn_cohort_1_species==SP_C4GRASS .OR. vegn_cohort_1_species==SP_C3GRASS) then
-           fire_fn_popD_BA = 0.2 + 0.8*exp(-pi*sqrt(popD/450.))
-       else
-           fire_fn_popD_BA = 0.4 + 0.6*exp(-pi*popD/125.)
-       endif
-    else
-       fire_fn_popD_BA = 1.0
+    fire_fn_popD_BA = 1.0
+    if (use_FpopD_ba .and. popD>0.1) then
+       ! calculate popD BA function as a weighted average of the species in the
+       ! canopy; the weight is the fraction of canopy occupied by each species.
+       fire_fn_popD_BA = 0.0; cover = 0.0
+       associate(cc=>vegn%cohorts)
+       do k = 1, vegn%n_cohorts
+          if (cc(k)%layer==1) then
+             if (spdata(cc(k)%species)%lifeform==FORM_GRASS) then
+                f = 0.2 + 0.8*exp(-pi*sqrt(popD/450.))
+             else ! trees
+                f = 0.4 + 0.6*exp(-pi*popD/125.)
+             endif
+             fire_fn_popD_BA = fire_fn_popD_BA + cc(k)%nindivs*cc(k)%crownarea * f
+             cover           = cover           + cc(k)%nindivs*cc(k)%crownarea
+          endif
+       enddo
+       end associate
+       fire_fn_popD_BA = fire_fn_popD_BA/cover
     endif
 
     if (is_watch_point()) then
@@ -1686,7 +1695,6 @@ subroutine vegn_fire_fn_popD(vegn_cohort_1_species,popD,fire_fn_popD_NF, fire_fn
        write(*,*) 'popD_supp_eps2', popD_supp_eps2(kop)
        write(*,*) 'popD_supp_eps3', popD_supp_eps3(kop)
        write(*,*) 'popD', popD
-       write(*,*) 'vegn_cohort_1_species', vegn_cohort_1_species
        write(*,*) 'fire_fn_popD_NF', fire_fn_popD_NF
        write(*,*) 'fire_fn_popD_BA', fire_fn_popD_BA
        if (do_calc_derivs) then
@@ -1703,82 +1711,83 @@ subroutine vegn_fire_fn_popD(vegn_cohort_1_species,popD,fire_fn_popD_NF, fire_fn
 end subroutine vegn_fire_fn_popD
 
 
-subroutine vegn_fire_fn_GDPpc(vegn_cohort_1_species,GDPpc,popD,fire_fn_GDPpc_NF,fire_fn_GDPpc_BA)
+subroutine vegn_fire_fn_GDPpc(vegn,GDPpc,popD,fire_fn_GDPpc_NF,fire_fn_GDPpc_BA)
     ! Note that Li et al. (2013) don't apply this to "tropical closed forests," because
     ! they have a separate model for burning there. I may also want to change this so
     ! that the "tree-dominated" ecosystems are better delineated, e.g., through Olson
     ! classifications.
 
-    integer, intent(in) :: vegn_cohort_1_species
+    type(vegn_tile_type), intent(in) :: vegn
     real, intent(in)    :: GDPpc   ! $/person
     real, intent(in)    :: popD    ! People/km2
     real, intent(out)   :: fire_fn_GDPpc_NF     ! Fraction of potential fires realized via GDPpc
     real, intent(out)   :: fire_fn_GDPpc_BA     ! Fraction of potential BA/fire realized via GDPpc
 
-    real                :: GDPpc_k   ! k$/person
+    ! ---- local vars
+    integer :: k ! cohort iterator
+    real    :: cover, f ! for population density factor averaging
+    real    :: GDPpc_k   ! k$/person
 
-    if (use_Fgdp_nf.eqv..TRUE. .OR. use_Fgdp_ba.eqv..TRUE.) then
-       ! Convert GDPpc from $/person to k$/person
-       GDPpc_k = GDPpc / 1000.
-    endif
+    ! Convert GDPpc from $/person to k$/person
+    GDPpc_k = GDPpc / 1000.
 
     ! Number of fires
-    if (use_Fgdp_nf.eqv..TRUE.) then
-       if (popD <= 0.1) then
-           fire_fn_GDPpc_NF = 1.
-       else if (vegn_cohort_1_species==SP_C4GRASS .OR. vegn_cohort_1_species==SP_C3GRASS) then
-           fire_fn_GDPpc_NF = 0.1 + 0.9*exp(-pi*sqrt(GDPpc_k/8.))
-       else
-           if (GDPpc_k < 20.) then
-               fire_fn_GDPpc_NF = 1.
-           else
-               fire_fn_GDPpc_NF = 0.39
-           endif
-       end if
-       if (is_watch_point() .AND. (fire_fn_GDPpc_NF<0. .OR. fire_fn_GDPpc_NF>1.)) then
-           write(*,*) '######## BAD fire_fn_GDPpc_NF ########'
-           write(*,*) 'GDPpc_k', GDPpc_k
-       endif
-    else
-       fire_fn_GDPpc_NF = 1.0
+    fire_fn_GDPpc_NF = 1.0
+    if (use_Fgdp_nf .and. popD>0.1) then
+       ! calculate popD/GDP NF function as a weighted average of the species in the
+       ! canopy layer; the weight is the fraction of canopy occupied by each species.
+       fire_fn_GDPpc_NF = 0.0; cover = 0.0
+       associate(cc=>vegn%cohorts)
+       do k = 1, vegn%n_cohorts
+          if (cc(k)%layer==1) then
+             if (spdata(cc(k)%species)%lifeform==FORM_GRASS) then
+                f = 0.1 + 0.9*exp(-pi*sqrt(GDPpc_k/8))
+             else ! trees
+                if (GDPpc_k < 20.0) then
+                   f = 1.0
+                else
+                   f = 0.39
+                endif
+             endif
+             fire_fn_GDPpc_NF = fire_fn_GDPpc_NF + cc(k)%nindivs*cc(k)%crownarea * f
+             cover            = cover            + cc(k)%nindivs*cc(k)%crownarea
+          endif
+       enddo
+       end associate
+       fire_fn_GDPpc_NF = fire_fn_GDPpc_NF/cover
     endif
 
     ! Burned area per fire
-    if (use_Fgdp_ba.eqv..TRUE.) then
-       if (popD <= 0.1) then
-           fire_fn_GDPpc_BA = 1.
-       else if (vegn_cohort_1_species==SP_C4GRASS .OR. vegn_cohort_1_species==SP_C3GRASS) then
-           fire_fn_GDPpc_BA = 0.2 + 0.8*exp(-pi*GDPpc_k/7.) ;
-       else
-           if (GDPpc_k <= 8.) then
-               fire_fn_GDPpc_BA = 1.
-           else if (GDPpc_k > 8. .AND. GDPpc_k <= 20.) then
-               fire_fn_GDPpc_BA = 0.83
-           else
-               fire_fn_GDPpc_BA = 0.62
-           end if
-       end if
-       if (is_watch_point() .AND. (fire_fn_GDPpc_BA<0. .OR. fire_fn_GDPpc_BA>1.)) then
-           write(*,*) '######## BAD fire_fn_GDPpc_BA ########'
-           write(*,*) 'GDPpc_k', GDPpc_k
-       endif
-    else
-       fire_fn_GDPpc_BA = 1.0
+    fire_fn_GDPpc_BA = 1.0
+    if (use_Fgdp_ba.and.popD>0.1) then
+       fire_fn_GDPpc_BA = 0.0; cover = 0.0
+       associate(cc=>vegn%cohorts)
+       do k = 1, vegn%n_cohorts
+          if (cc(k)%layer==1) then
+             if (spdata(cc(k)%species)%lifeform==FORM_GRASS) then
+                f = 0.2 + 0.8*exp(-pi*GDPpc_k/7)
+             else ! trees
+                if (GDPpc_k <= 8.) then
+                    f = 1.0
+                else if (GDPpc_k > 8. .AND. GDPpc_k <= 20.) then
+                    f = 0.83
+                else
+                    f = 0.62
+                end if
+             endif
+             fire_fn_GDPpc_BA = fire_fn_GDPpc_NF + cc(k)%nindivs*cc(k)%crownarea * f
+             cover            = cover            + cc(k)%nindivs*cc(k)%crownarea
+          endif
+       enddo
+       end associate
+       fire_fn_GDPpc_BA = fire_fn_GDPpc_BA/cover
     endif
 
     if (is_watch_point()) then
-       write(*,*) '######## checkpoint vegn_fire_fn_GDPpc ########'
-       write(*,*) 'GDPpc_k', GDPpc_k
-       write(*,*) 'popD', popD
-       write(*,*) 'vegn_cohort_1_species', vegn_cohort_1_species
-       write(*,*) 'fire_fn_GDPpc_NF', fire_fn_GDPpc_NF
-       write(*,*) 'fire_fn_GDPpc_BA', fire_fn_GDPpc_BA
-       write(*,*) '#######################################################'
+       write(*,*) '######## vegn_fire_fn_GDPpc ########'
+       __DEBUG2__(GDPpc_k,popD)
+       __DEBUG2__(fire_fn_GDPpc_NF, fire_fn_GDPpc_BA)
     endif
-
-    call check_var_range(fire_fn_GDPpc_NF, 0.0, 1.0, 'vegn_fire_fn_GDPpc_NF', 'fire_fn_GDPpc_NF', FATAL)
-    call check_var_range(fire_fn_GDPpc_BA, 0.0, 1.0, 'vegn_fire_fn_GDPpc_BA', 'fire_fn_GDPpc_BA', FATAL)
-
 end subroutine vegn_fire_fn_GDPpc
 
 
@@ -1899,7 +1908,7 @@ subroutine vegn_fire_ROS(vegn, fire_fn_rh,theta, fire_fn_theta, wind, &
     real    ::  g0
     real    :: wind_forFire
     integer, intent(in)  :: kop  !!! dsward_kop
-    real    :: cover ! normalization factor for 
+    real    :: cover ! normalization factor for averaging
     integer :: trop_code ! savanna/shrubland/forest code
     integer :: k ! cohort iterator
 
@@ -1921,7 +1930,7 @@ subroutine vegn_fire_ROS(vegn, fire_fn_rh,theta, fire_fn_theta, wind, &
     endif
 
     ! calculate maximum rate of spread as a weighted average of the species in the
-    ! canopy; the weight is the fraction of canopy occupied by each species. 
+    ! canopy layer; the weight is the fraction of canopy occupied by each species.
     ROS_max = 0.0; cover = 0.0
     associate(cc=>vegn%cohorts)
     do k = 1, vegn%n_cohorts
@@ -1932,7 +1941,7 @@ subroutine vegn_fire_ROS(vegn, fire_fn_rh,theta, fire_fn_theta, wind, &
     enddo
     ROS_max = ROS_max/cover
     end associate
-    ! NOTE that in LM3 case (single cohort, nindivs==1 and crownarea==1) the above 
+    ! NOTE that in LM3 case (single cohort, nindivs==1 and crownarea==1) the above
     ! calculation gives the exact value from species parameter table
     if (.not.do_ppa) then
        ! for LM3, modify the values for savannas and shrub lands
@@ -1943,7 +1952,7 @@ subroutine vegn_fire_ROS(vegn, fire_fn_rh,theta, fire_fn_theta, wind, &
           if (ROS_max_TROPSAV > 0.0) ROS_max = ROS_max_TROPSAV
        endif
     endif
-    
+
     ! Calculate effects of RH and theta on fire ROS
     if (use_Cm) then
        if (theta_ROSeffect_asFnTheta) then
@@ -2919,10 +2928,9 @@ subroutine vegn_fire_BA_agri(vegn,Time,tile_area_km2,BA_mth,BF_mth)
 end subroutine vegn_fire_BA_agri
 
 
-subroutine update_Nfire_BA_fast(diag,l,tile_area, &
+subroutine update_Nfire_BA_fast(vegn, diag, l, tile_area, &
                                 fire_fn_theta, fire_fn_rh, fire_fn_Tca, fire_fn_agb, &
                                 BAperFire_0, &
-                                vegn_cohort_1_species, &
                                 vegn_trop_code, &   ! SSR20150831
                                 lightning, popD, GDPpc, &
                                 max_fire_size, &   ! SSR20150727
@@ -2932,12 +2940,12 @@ subroutine update_Nfire_BA_fast(diag,l,tile_area, &
                                 latitude, &
                                 ROSmax, gW, fire_dur, HB, LB, rh, theta, C_beta, &   ! SSR20151009
                                 kop ) !!! dsward_kop
+  type(vegn_tile_type), intent(in) :: vegn
   type(diag_buff_type), intent(inout) :: diag
   integer, intent(in) :: l   ! index of current point, for fire data
   real, intent(in)    :: tile_area   ! Area of tile (m2)
   real, intent(in)    :: fire_fn_theta, fire_fn_rh, fire_fn_Tca, fire_fn_agb
   real, intent(in)    :: BAperFire_0
-  integer, intent(in) :: vegn_cohort_1_species
   integer, intent(in) :: vegn_trop_code   ! SSR20150831
   real, intent(in)    :: lightning ! Lightning flash density (flashes/km2/day)
   real, intent(in)    :: popD      ! Population density (people/km2)
@@ -2983,8 +2991,8 @@ subroutine update_Nfire_BA_fast(diag,l,tile_area, &
 
   tile_area_km2 = tile_area / 1000000.   ! Convert m2 to km2
 
-  call vegn_fire_fn_popD(vegn_cohort_1_species,popD,fire_fn_popD_NF,fire_fn_popD_BA,kop) !!! dsward_kop added kop
-  call vegn_fire_fn_GDPpc(vegn_cohort_1_species,GDPpc,popD,fire_fn_GDPpc_NF,fire_fn_GDPpc_BA)
+  call vegn_fire_fn_popD(vegn,popD,fire_fn_popD_NF,fire_fn_popD_BA,kop) !!! dsward_kop added kop
+  call vegn_fire_fn_GDPpc(vegn,GDPpc,popD,fire_fn_GDPpc_NF,fire_fn_GDPpc_BA)
   call vegn_fire_In(latitude,lightning,In)
   call vegn_fire_Ia(popD,Ia,kop) !!! dsward_kop added kop
   call vegn_fire_Nfire(In, Ia, &
@@ -3015,12 +3023,13 @@ subroutine update_Nfire_BA_fast(diag,l,tile_area, &
      if (vegn_unburned_area_before > 0.0 &
      .AND..NOT.(zero_tmf .AND. tooMuchFire) ) then   ! SSR20150921
         call calc_fire_derivs(& ! input
+                                vegn, &
                                 BA_rate, BAperFire_0, BA_reduction, &
                                 In, Ia, &
                                 fire_fn_theta, fire_fn_rh, fire_fn_Tca, fire_fn_agb, &
                                 fire_fn_popD_NF, fire_fn_GDPpc_NF, &
                                 fire_fn_popD_BA, fire_fn_GDPpc_BA, &
-                                vegn_cohort_1_species, vegn_unburned_area_before, &
+                                vegn_unburned_area_before, &
                                 vegn_trop_code, &   ! SSR20150831
                                 ROSmax, gW, fire_dur, HB, LB, rh, theta, C_beta, &   ! SSR20151009
                                 ! output
@@ -3145,12 +3154,13 @@ end subroutine send_tile_data_BABF_forAgri
 
 subroutine calc_fire_derivs(&
                             ! input
+                            vegn, &
                             BA_rate, BAperFire_0, BA_reduction, &
                             In, Ia, &
                             fire_fn_theta, fire_fn_rh, fire_fn_Tca, fire_fn_agb, &
                             fire_fn_popD_NF, fire_fn_GDPpc_NF, &
                             fire_fn_popD_BA, fire_fn_GDPpc_BA, &
-                            vegn_cohort_1_species, vegn_unburned_area, &
+                            vegn_unburned_area, &
                             vegn_trop_code, &   ! SSR20150831
                             ROSmax, gW, fire_dur, HB, LB, rh, theta, C_beta, &   ! SSR20151009
                             ! output
@@ -3166,14 +3176,14 @@ subroutine calc_fire_derivs(&
                             BA_DERIVwrt_ROSmax_dt, BA_DERIVwrt_ROSmax_tt, BA_DERIVwrt_ROSmax_et, &
 !                            BA_DERIVwrt_ROSmax_ts)   ! SSR20150831
                             BA_DERIVwrt_ROSmax_tshr, BA_DERIVwrt_ROSmax_tsav)   ! SSR20160211
+   type(vegn_tile_type), intent(in) :: vegn
    real,    intent(in)   ::   BA_rate, BAperFire_0, BA_reduction, In, Ia, &
                               fire_fn_popD_NF, fire_fn_GDPpc_NF, &
                               fire_fn_popD_BA, fire_fn_GDPpc_BA, &
                               fire_fn_theta, fire_fn_rh, fire_fn_Tca, fire_fn_agb, &
                               vegn_unburned_area, &
                               ROSmax, gW, fire_dur, HB, LB, rh, theta, C_beta   ! SSR20151009
-   integer, intent(in)   ::   vegn_cohort_1_species, &
-                              vegn_trop_code   ! SSR20150831
+   integer, intent(in)   ::   vegn_trop_code   ! SSR20150831
    real,    intent(out)  ::   BA_DERIVwrt_alphaM, BA_DERIVwrt_IaParam1, BA_DERIVwrt_IaParam2, &
                               BA_DERIVwrt_AGBparam1, BA_DERIVwrt_AGBparam2, &
                               BA_DERIVwrt_RHparam1, BA_DERIVwrt_RHparam2, &
@@ -3189,6 +3199,11 @@ subroutine calc_fire_derivs(&
    real  ::  BA_DERIVwrt_fireDur_TMP, BA_DERIVwrt_ROSmax_TMP, fast_to_daily
    real  ::  RHderiv_X, RHderiv_Z   ! SSR20151009
    real  ::  THETAderiv_X, THETAderiv_Z   ! SSR20151216
+
+   ! slm: kludge to make derivative function compile.If we use this function, we must
+   ! change it to average over species in the tiles somehow.
+   integer :: vegn_cohort_1_species
+   vegn_cohort_1_species = vegn%cohorts(1)%species
 
 !!!! NOTE:
 !    BA_rate = (In + Ia + Ib) * fire_fn_theta * fire_fn_rh * fire_fn_Tca * fire_fn_agb * (1.-fire_fn_popD_NF) * fire_fn_GDPpc_NF  !!! dsward_opt added "Ib"
