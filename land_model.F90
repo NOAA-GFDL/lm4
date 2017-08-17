@@ -3054,6 +3054,8 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
 
   id_cellarea = register_static_field ( module_name, 'cell_area', axes, &
        'total area in grid cell', 'm2', missing_value=-1.0 )
+  call diag_field_add_attribute(id_cellarea,'cell_methods','area: sum')
+
   id_landfrac = register_static_field ( module_name, 'land_frac', axes, &
        'fraction of land in grid cell','unitless', missing_value=-1.0, area=id_cellarea)
   call diag_field_add_attribute(id_landfrac,'ocean_fillvalue',0)
