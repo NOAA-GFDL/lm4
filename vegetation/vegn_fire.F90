@@ -20,7 +20,7 @@ use land_constants_mod, only : seconds_per_year
 use land_io_mod,     only : external_ts_type, init_external_ts, del_external_ts, &
       read_external_ts, read_field
 use land_debug_mod,  only : check_var_range, is_watch_point, is_watch_cell, &
-      carbon_cons_tol, set_current_point
+      carbon_cons_tol, set_current_point, land_error_message
 use land_data_mod,   only : lnd, log_version
 use land_tile_mod,   only : land_tile_type, land_tile_map, loop_over_tiles, &
       land_tile_list_type, land_tile_enum_type, first_elmt, tail_elmt, next_elmt, &
@@ -32,8 +32,8 @@ use vegn_data_mod,   only : spdata, agf_bs, fsc_liv, fsc_wood, fsc_froot, do_ppa
       SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
       LU_CROP, LU_PAST, LU_NTRL, LU_SCND, FORM_GRASS
 !                            split_past_tiles   ! SSR20151118
-use vegn_tile_mod,   only : vegn_tile_type
-use soil_tile_mod,   only : soil_tile_type, soil_ave_theta1, soil_ave_theta2
+use vegn_tile_mod,   only : vegn_tile_type, vegn_mergecohorts_ppa
+use soil_tile_mod,   only : num_l, soil_tile_type, soil_ave_theta1, soil_ave_theta2, add_soil_carbon
 use sphum_mod,       only : qscomp
 use vegn_cohort_mod, only : vegn_cohort_type
 use soil_mod,        only : add_root_litter
@@ -41,6 +41,7 @@ use soil_carbon_mod, only : add_litter, soil_carbon_option, poolTotalCarbon, &
                             remove_carbon_fraction_from_pool, &
                             SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, &
                             n_c_types
+use vegn_disturbance_mod, only : kill_plants_ppa
 
 implicit none
 private
@@ -57,7 +58,6 @@ public  ::  update_fire_Fk
 public  ::  update_fire_agb
 public  ::  update_multiday_fires !!! dsward_mdf
 public  ::  fire_natural, fire_agri
-public  ::  vegn_burn
 public  ::  vegn_fire_sendtiledata_Cburned
 public  ::  send_tile_data_BABF_forAgri
 public  ::  fire_fragmentation
@@ -92,6 +92,7 @@ character(3), parameter :: month_name(12) = ['JAN','FEB','MAR','APR','MAY','JUN'
                                              'JUL','AUG','SEP','OCT','NOV','DEC'  ]
 
 integer, parameter :: FIRE_WIND_CANTOP = 0, FIRE_WIND_10MTMP = 1, FIRE_WIND_10MSHEFFIELD = 2
+real, parameter    :: days_per_year = seconds_per_year/86400.0  ! number of days in year for computing csmoke_rate
 
 ! ==== variables =============================================================
 integer  ::  fire_windType = 0
@@ -302,7 +303,6 @@ namelist /fire_nml/ fire_to_use, fire_for_past, &
                     do_multiday_fires, do_crownfires, FireMIP_ltng, mdf_threshold  !!! dsward_opt
 !---- end of namelist --------------------------------------------------------
 real :: dt_fast      ! fast time step, s
-real :: days_per_year
 
 real :: LB_max = -1 ! Maximum length:breadth ratio
 real :: HB_max = -1 ! Maximum head:back ratio
@@ -433,7 +433,6 @@ subroutine vegn_fire_init(id_ug, dt_fast_in, time)
 
   ! get dt_*
   dt_fast    = dt_fast_in
-  days_per_year = seconds_per_year / 86400.
 
   ! parse the fire model options for efficiency.
   select case (trim(fire_to_use))
@@ -2310,8 +2309,128 @@ function tropType(vegn) result(trop_code); integer :: trop_code
   endif
 end function tropType
 
+subroutine vegn_burn(tile, tile_area)
+  type(land_tile_type), intent(inout) :: tile
+  real, intent(in) :: tile_area   ! Area of land in tile, m2
 
-subroutine vegn_burn(vegn,soil,tile_area_m2)
+  if (.not.associated(tile%vegn)) call land_error_message('vegn_burn: attempt to burn non-vegetated tile')
+
+  if(do_ppa) then
+     call vegn_burn_ppa(tile)
+  else
+     call vegn_burn_lm3(tile%vegn, tile%soil, tile_area)
+  endif
+end subroutine vegn_burn
+
+subroutine vegn_burn_ppa(tile)
+  type(land_tile_type), intent(inout) :: tile
+  
+  ! local vars
+  real :: BF ! burned fraction, shortcut for convenience
+  real :: CC_leaf_litter, CC_wood_litter ! combustion completeness of leaf and wood litter
+  real :: cover ! weight for combustion completeness averaging
+  real :: burned_litt_1(N_C_TYPES), burned_litt_2(N_C_TYPES), burned_litt_3 ! components of burned litter pools
+  real :: burned_leaf_litt, burned_wood_litt ! total amounts of burned litter
+  real :: leaf_litt(N_C_TYPES), wood_litt(N_C_TYPES) ! accumulated litter, kg C/m2
+  real :: root_litt(num_l, N_C_TYPES) ! accumulated root litter per soil layer, kgC/m2
+  type(vegn_cohort_type), pointer :: bc(:) ! pointer for cohort reallocation, if necessary
+  integer :: N ! initial number of cohorts, shortcut for convenience
+  integer :: ms,me,ns,ne ! starting and ending indices of burned and unburned cohorts
+  integer :: k ! cohort iterator
+  real :: dheat ! heat residual due to cohort merging
+  real :: burned_C ! total amount of burned carbon
+  
+  N  = tile%vegn%n_cohorts
+  BF = max(0.0,min(1.0,tile%vegn%burned_frac))
+
+  leaf_litt = 0.0; wood_litt = 0.0; root_litt = 0.0
+  burned_C = 0.0
+
+  ! Burn litter
+  if (soil_carbon_option==SOILC_CORPSE) then
+     ! define burned litter fractions CC_litter_leaf and CC_litter_cwood as averages
+     ! for current cover
+     CC_leaf_litter = 0.0; CC_wood_litter = 0.0; cover = 0.0
+     associate(cc=>tile%vegn%cohorts)
+     do k = 1, N
+        if (cc(k)%layer==1) then
+           CC_leaf_litter = CC_leaf_litter + cc(k)%nindivs*cc(k)%crownarea * spdata(cc(k)%species)%CC_litter
+           CC_wood_litter = CC_wood_litter + cc(k)%nindivs*cc(k)%crownarea * spdata(cc(k)%species)%CC_litter
+           cover          = cover   + cc(k)%nindivs*cc(k)%crownarea
+        endif
+     enddo
+     end associate
+     CC_leaf_litter = CC_leaf_litter/cover
+     CC_wood_litter = CC_wood_litter/cover
+     call remove_carbon_fraction_from_pool (tile%soil%leafLitter, CC_leaf_litter*BF, &
+         litter_removed=burned_litt_1, protected_removed=burned_litt_2, liveMicrobe_removed=burned_litt_3)
+     burned_leaf_litt = sum(burned_litt_1) + sum(burned_litt_2) + burned_litt_3
+     call remove_carbon_fraction_from_pool (tile%soil%coarseWoodLitter, CC_wood_litter*BF, &
+         litter_removed=burned_litt_1, protected_removed=burned_litt_2, liveMicrobe_removed=burned_litt_3)
+     burned_wood_litt = sum(burned_litt_1) + sum(burned_litt_2) + burned_litt_3
+  endif
+  burned_C = burned_C + burned_leaf_litt + burned_wood_litt
+  ! burn vegetation
+  
+  ! split out burned fraction of vegetation:
+  ! cohorts N0:N1 are not touched by fire (they are outside of burned fraction of tile), 
+  ! cohorts M0:M1 are burned
+  if (BF==0) then ! nothing is burned
+     ns=1;  ne=N; ms=1; me=0
+  else if (BF==1) then ! all is burned; perhaps should be BF>=1-eps for some small eps
+     ns=1;  ne=0; ms=1; me=N
+  else
+     ! reallocate cohorts
+     allocate(bc(2*N))
+     ns=1;  ne=N; ms=N+1; me=2*N
+     bc(ns:ne) = tile%vegn%cohorts(1:N)
+     bc(ms:me) = tile%vegn%cohorts(1:N)
+     deallocate(tile%vegn%cohorts)
+     tile%vegn%cohorts => bc
+  endif
+
+  associate(cc=>tile%vegn%cohorts)
+  do k = ms,me
+     associate (sp=>spdata(cc(k)%species))
+     cc(k)%nindivs = BF*cc(k)%nindivs
+
+     burned_C = burned_C + ( &
+                 sp%CC_leaf * (cc(k)%bl + cc(k)%blv + cc(k)%bseed) + &
+                 sp%CC_stem * (cc(k)%bsw + cc(k)%bwood) &
+                 ) * cc(k)%nindivs
+
+     cc(k)%bl    = (1-sp%CC_leaf) * cc(k)%bl
+     cc(k)%blv   = (1-sp%CC_leaf) * cc(k)%blv
+     cc(k)%bseed = (1-sp%CC_leaf) * cc(k)%bseed
+
+     cc(k)%bsw   = (1-sp%CC_stem) * cc(k)%bsw
+     cc(k)%bwood = (1-sp%CC_stem) * cc(k)%bwood
+     ! not burning roots or nsc
+     
+     ! fire mortality; we use stem fire mortality parameter to represent the plant mortality.
+     ! In principle mortality should depend on species and DBH, possibly on type of fire, 
+     ! scorch height, fire intensity,...
+     call kill_plants_ppa(cc(k), tile%vegn, cc(k)%nindivs*sp%fireMort_stem, 0.0, &
+                          leaf_litt, wood_litt, root_litt)
+     end associate ! sp
+  enddo
+  ! add carbon to soil
+  call add_soil_carbon(tile%soil, leaf_litt, wood_litt, root_litt)
+
+  ! adjust population density in the untouched portion of the grid
+  do k = ns, ne
+     cc(k)%nindivs = (1-BF)*cc(k)%nindivs
+  enddo
+  end associate ! cc
+
+  call vegn_mergecohorts_ppa(tile%vegn, dheat)
+  tile%e_res_2 = tile%e_res_2 - dheat
+  
+  tile%vegn%csmoke_pool = tile%vegn%csmoke_pool + burned_C
+  tile%vegn%csmoke_rate = tile%vegn%csmoke_pool * days_per_year ! kg C/(m2 yr)
+end subroutine vegn_burn_ppa
+
+subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
     type(vegn_tile_type), intent(inout) :: vegn
     type(soil_tile_type), intent(inout) :: soil
     real, intent(in) :: tile_area_m2   ! Area of land in tile, m2
@@ -2356,9 +2475,6 @@ subroutine vegn_burn(vegn,soil,tile_area_m2)
                   cwl_prot_fast, cwl_prot_slow, cwl_prot_dmic
 
     integer :: trop_code ! savanna/shrubland/forest code
-
-    real    ::    days_in_year   ! number of days in year for computing csmoke_rate
-    days_in_year = seconds_per_year/86400.0
 
     associate(sp=>spdata(vegn%cohorts(1)%species))
     CC_leaf = sp%CC_leaf
@@ -2439,19 +2555,6 @@ subroutine vegn_burn(vegn,soil,tile_area_m2)
 
        !!!! small errors introduced before here (1e-15 or so)
 
-       ! SSR20151217
-!        if (lfl_unpr_fast > 0.0) soil%ssr_lfl_unpr_fast_Ko_accum = soil%ssr_lfl_unpr_fast_Ko_accum + CC_litter_inclBF
-!        if (lfl_unpr_slow > 0.0) soil%ssr_lfl_unpr_slow_Ko_accum = soil%ssr_lfl_unpr_slow_Ko_accum + CC_litter_inclBF
-!        if (lfl_unpr_dmic > 0.0) soil%ssr_lfl_unpr_dmic_Ko_accum = soil%ssr_lfl_unpr_dmic_Ko_accum + CC_litter_inclBF
-!        if (lfl_prot_fast > 0.0) soil%ssr_lfl_prot_fast_Ko_accum = soil%ssr_lfl_prot_fast_Ko_accum + CC_litter_inclBF
-!        if (lfl_prot_slow > 0.0) soil%ssr_lfl_prot_slow_Ko_accum = soil%ssr_lfl_prot_slow_Ko_accum + CC_litter_inclBF
-!        if (lfl_prot_dmic > 0.0) soil%ssr_lfl_prot_dmic_Ko_accum = soil%ssr_lfl_prot_dmic_Ko_accum + CC_litter_inclBF
-!        if (cwl_unpr_fast > 0.0) soil%ssr_cwl_unpr_fast_Ko_accum = soil%ssr_cwl_unpr_fast_Ko_accum + CC_litter_inclBF
-!        if (cwl_unpr_slow > 0.0) soil%ssr_cwl_unpr_slow_Ko_accum = soil%ssr_cwl_unpr_slow_Ko_accum + CC_litter_inclBF
-!        if (cwl_unpr_dmic > 0.0) soil%ssr_cwl_unpr_dmic_Ko_accum = soil%ssr_cwl_unpr_dmic_Ko_accum + CC_litter_inclBF
-!        if (cwl_prot_fast > 0.0) soil%ssr_cwl_prot_fast_Ko_accum = soil%ssr_cwl_prot_fast_Ko_accum + CC_litter_inclBF
-!        if (cwl_prot_slow > 0.0) soil%ssr_cwl_prot_slow_Ko_accum = soil%ssr_cwl_prot_slow_Ko_accum + CC_litter_inclBF
-!        if (cwl_prot_dmic > 0.0) soil%ssr_cwl_prot_dmic_Ko_accum = soil%ssr_cwl_prot_dmic_Ko_accum + CC_litter_inclBF
     endif
 
     fire_agb_0 = vegn%fire_agb
@@ -2734,8 +2837,8 @@ subroutine vegn_burn(vegn,soil,tile_area_m2)
                                                          ! ensures no weirdness. (Maybe a
                                                          ! weird restart, e.g.)
 !     vegn%csmoke_rate_daily = vegn%csmoke_pool   ! kg C/(m2 day)
-!     vegn%csmoke_rate = vegn%csmoke_rate_daily * days_in_year ! kg C/(m2 yr)
-    vegn%csmoke_rate = vegn%csmoke_pool * days_in_year ! kg C/(m2 yr)
+!     vegn%csmoke_rate = vegn%csmoke_rate_daily * days_per_year ! kg C/(m2 yr)
+    vegn%csmoke_rate = vegn%csmoke_pool * days_per_year ! kg C/(m2 yr)
 
     tile_circum_m2 = (((tile_area_m2*burned_frac)/3.1415927)**0.5)*2.*3.1415927
     num_pixel_scale = 1.
@@ -2787,7 +2890,6 @@ subroutine vegn_burn(vegn,soil,tile_area_m2)
         write(*,*) 'burned_total_noCWL', burned_total_noCWL
         write(*,*) 'vegn%csmoke_pool', vegn%csmoke_pool
         write(*,*) 'vegn%csmoke_rate', vegn%csmoke_rate
-        write(*,*) 'days_per_year', days_in_year
         write(*,*) 'tile_area_m2', tile_area_m2
         write(*,*) ' '
         write(*,*) 'killed_bl', killed_bl
@@ -2838,7 +2940,7 @@ subroutine vegn_burn(vegn,soil,tile_area_m2)
     call check_var_range(vegn%csmoke_pool, 0.0, 1e37, 'vegn_burn', 'vegn%csmoke_pool', FATAL)
     call check_var_range(vegn%csmoke_rate, 0.0, 1e37, 'vegn_burn', 'vegn%csmoke_rate', FATAL)
 
-end subroutine vegn_burn
+end subroutine vegn_burn_lm3
 
 
 subroutine vegn_fire_sendtiledata_Cburned(diag, tile_vegn)
@@ -3697,14 +3799,14 @@ subroutine fire_transitions_0d(tiles, land_area, l)
         temp%frac = tile%frac*tile%vegn%burned_frac ; temp%vegn%burned_frac = 1.0
         tile%frac = tile%frac-temp%frac ;             tile%vegn%burned_frac = 0.0
 
-        call vegn_burn(temp%vegn,temp%soil,temp%frac*land_area)
+        call vegn_burn(temp,temp%frac*land_area)
         ! reset fire values for the next period
         tile%vegn%burned_frac = 0.0 ; tile%vegn%fire_rad_power = 0.0
         temp%vegn%burned_frac = 0.0 ; temp%vegn%fire_rad_power = 0.0
         ! add disturbed part to the output list
         call insert(temp, burned)
      else
-        call vegn_burn(tile%vegn,tile%soil,tile%frac*land_area)
+        call vegn_burn(tile,tile%frac*land_area)
         tile%vegn%burned_frac = 0.0 ; tile%vegn%fire_rad_power = 0.0
      endif
   enddo
