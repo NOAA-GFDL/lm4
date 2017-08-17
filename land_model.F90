@@ -3009,6 +3009,7 @@ subroutine land_sg_diag_init(id_cellarea)
   ! register land area on structured grid
   id_cellarea = register_static_field ( 'land_sg', 'cell_area', (/id_lon, id_lat/), &
        'total area in grid cell', 'm2', missing_value=-1.0 )
+  call diag_field_add_attribute(id_cellarea,'cell_methods','area: sum')
   if ( id_cellarea > 0 ) used = send_data ( id_cellarea, lnd%sg_cellarea,     lnd%time )
 
 end subroutine land_sg_diag_init
