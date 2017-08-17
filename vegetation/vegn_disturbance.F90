@@ -444,7 +444,7 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
   integer :: n_layers ! number of canopy layers in the tile
   real :: dying_crownwarea ! area of the tree crowns to die, m2/m2
   real :: f0 ! fraction of original tile in the grid cell
-  real, dimension(N_C_TYPES) :: &
+  real :: &
      leaf_litt0(N_C_TYPES),  leaf_litt1(N_C_TYPES), & ! accumulated leaf litter, kg C/m2
      wood_litt0(N_C_TYPES),  wood_litt1(N_C_TYPES)    ! accumulated wood litter, kg C/m2
   real :: root_litt0(num_l, N_C_TYPES) ! accumulated root litter per soil layer, kgC/m2
