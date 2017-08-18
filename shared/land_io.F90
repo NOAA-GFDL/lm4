@@ -704,7 +704,7 @@ subroutine read_field_I_3D(input_unit, varname, data_ug, interp, fill)
   case('conservative')
      ! conservative interpolation is done on structured grid, and then interpolated values
      ! are passed to unstructured grid
-     call jlimits(minval(lnd%sg_latb),maxval(lnd%sg_lonb),in_lat,jstart,jend)
+     call jlimits(minval(lnd%sg_latb),maxval(lnd%sg_latb),in_lat,jstart,jend)
      call read_input() ! allocates and fills in_data, rmask
      ! we create horiz interpolator inside the loop, because data masks may be different for
      ! different levels
