@@ -2028,7 +2028,7 @@ subroutine write_tile_data_r3d(ncid,name,data,dim1,dim2,long_name,units)
         do i = 1,size(data,2)
         do j = 1,size(data,3)
            buff3(k+1:k+ntiles(p),i,j) = buff1(n*ntiles(p)+1:n*ntiles(p))
-           n = n+ntiles(p)
+           n = n+1
         enddo
         enddo
         k = k+ntiles(p)
