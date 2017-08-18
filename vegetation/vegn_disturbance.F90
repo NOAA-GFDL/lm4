@@ -683,6 +683,16 @@ subroutine kill_plants_ppa(cc, vegn, ndead, fsmoke, leaf_litt, wood_litt, root_l
           0.0/)
   enddo
 
+  ! leaf_litt can be below zero if biomasses are very small and carbon_gain is negative:
+  ! try to borrow carbon from wood litter.
+  do l = 1,N_C_TYPES
+     if (leaf_litt(l)<0) then
+        wood_litt(l) = wood_litt(l) + leaf_litt(l)
+        leaf_litt(l) = 0.0
+     endif
+  enddo
+  call check_var_range(wood_litt, 0.0, HUGE(1.0), 'kill_plants_ppa', 'wood_litt',  FATAL)
+
   ! reduce the number of individuals in cohort
   cc%nindivs = cc%nindivs-ndead
 
