@@ -94,7 +94,7 @@ integer, parameter :: FIRE_WIND_CANTOP = 0, FIRE_WIND_10MTMP = 1, FIRE_WIND_10MS
 real, parameter    :: days_per_year = seconds_per_year/86400.0  ! number of days in year for computing csmoke_rate
 
 ! ==== variables =============================================================
-integer  ::  fire_windType = 0
+integer :: fire_windType = 0
 integer :: fire_option_fAGB = 0
 integer :: fire_option_fRH = 0
 integer :: fire_option_fTheta = 0
@@ -1068,8 +1068,14 @@ subroutine update_fire_fast(vegn,soil,diag, &
           cover    = cover    + cc(k)%nindivs*cc(k)%crownarea
        endif
     enddo
+    if (cover>0) then
+       fire_dur = fire_dur/cover
+    else
+       ! this can happen if all vegetation is dead; we still may have fire if there is
+       ! litter, so the parameters need to be set.
+       fire_dur = spdata(cc(1)%species)%fire_duration
+    endif
     end associate
-    fire_dur = fire_dur/cover
 
     call vegn_fire_BAperFire_noAnthro(ROS,LB,HB,fire_dur,BAperFire_0)   ! SSR20151009
 
@@ -1648,7 +1654,7 @@ subroutine vegn_fire_fn_popD(vegn, popD, fire_fn_popD_NF, fire_fn_popD_BA, kop) 
 
     ! ---- local vars
     integer :: k ! cohort iterator
-    real    :: cover, f ! for population density factor averaging
+    real    :: cover, f, f1 ! for population density factor averaging
 
     ! Number of fires
     if (use_FpopD_nf .AND. popD>0.0) then
@@ -1683,31 +1689,26 @@ subroutine vegn_fire_fn_popD(vegn, popD, fire_fn_popD_NF, fire_fn_popD_BA, kop) 
              endif
              fire_fn_popD_BA = fire_fn_popD_BA + cc(k)%nindivs*cc(k)%crownarea * f
              cover           = cover           + cc(k)%nindivs*cc(k)%crownarea
+             if (k==1) f1 = f
           endif
        enddo
        end associate
-       fire_fn_popD_BA = fire_fn_popD_BA/cover
+       if (cover>0) then
+          fire_fn_popD_BA = fire_fn_popD_BA/cover
+       else
+          fire_fn_popD_BA = f1 ! value from the first cohort
+       endif
     endif
 
     if (is_watch_point()) then
        write(*,*) '######## checkpoint vegn_fire_fn_popD ########'
-       write(*,*) 'popD_supp_eps1', popD_supp_eps1(kop)
-       write(*,*) 'popD_supp_eps2', popD_supp_eps2(kop)
-       write(*,*) 'popD_supp_eps3', popD_supp_eps3(kop)
-       write(*,*) 'popD', popD
-       write(*,*) 'fire_fn_popD_NF', fire_fn_popD_NF
-       write(*,*) 'fire_fn_popD_BA', fire_fn_popD_BA
-       if (do_calc_derivs) then
-          write(*,*) 'popDsupp_NF_DERIVwrt_eps1', popDsupp_NF_DERIVwrt_eps1
-          write(*,*) 'popDsupp_NF_DERIVwrt_eps2', popDsupp_NF_DERIVwrt_eps2
-          write(*,*) 'popDsupp_NF_DERIVwrt_eps3', popDsupp_NF_DERIVwrt_eps3
-       endif
-       write(*,*) '#######################################################'
+       __DEBUG2__(popD,kop)
+       __DEBUG3__(popD_supp_eps1(kop), popD_supp_eps2(kop), popD_supp_eps3(kop))
+       __DEBUG2__(fire_fn_popD_NF, fire_fn_popD_BA)
     endif
 
     call check_var_range(fire_fn_popD_NF, 0.0, 1.0, 'vegn_fire_fn_popD_NF', 'fire_fn_popD_NF', FATAL)
     call check_var_range(fire_fn_popD_BA, 0.0, 1.0, 'vegn_fire_fn_popD_BA', 'fire_fn_popD_BA', FATAL)
-
 end subroutine vegn_fire_fn_popD
 
 
@@ -1725,7 +1726,7 @@ subroutine vegn_fire_fn_GDPpc(vegn,GDPpc,popD,fire_fn_GDPpc_NF,fire_fn_GDPpc_BA)
 
     ! ---- local vars
     integer :: k ! cohort iterator
-    real    :: cover, f ! for population density factor averaging
+    real    :: cover, f, f1 ! for population density factor averaging
     real    :: GDPpc_k   ! k$/person
 
 
@@ -1751,10 +1752,15 @@ subroutine vegn_fire_fn_GDPpc(vegn,GDPpc,popD,fire_fn_GDPpc_NF,fire_fn_GDPpc_BA)
              endif
              fire_fn_GDPpc_NF = fire_fn_GDPpc_NF + cc(k)%nindivs*cc(k)%crownarea * f
              cover            = cover            + cc(k)%nindivs*cc(k)%crownarea
+             if (k==1) f1 = f ! save first value in case cover is zero
           endif
        enddo
        end associate
-       fire_fn_GDPpc_NF = fire_fn_GDPpc_NF/cover
+       if (cover>0) then
+          fire_fn_GDPpc_NF = fire_fn_GDPpc_NF/cover
+       else
+          fire_fn_GDPpc_NF = f1
+       endif
     endif
 
     ! Burned area per fire
@@ -1780,10 +1786,15 @@ subroutine vegn_fire_fn_GDPpc(vegn,GDPpc,popD,fire_fn_GDPpc_NF,fire_fn_GDPpc_BA)
              endif
              fire_fn_GDPpc_BA = fire_fn_GDPpc_NF + cc(k)%nindivs*cc(k)%crownarea * f
              cover            = cover            + cc(k)%nindivs*cc(k)%crownarea
+             if (k==1) f1 = f ! save first value in case cover is zero
           endif
        enddo
        end associate
-       fire_fn_GDPpc_BA = fire_fn_GDPpc_BA/cover
+       if (cover>0) then
+          fire_fn_GDPpc_BA = fire_fn_GDPpc_BA/cover
+       else
+          fire_fn_GDPpc_BA = f1
+       endif
     endif
 
     if (is_watch_point()) then
@@ -1942,7 +1953,11 @@ subroutine vegn_fire_ROS(vegn, fire_fn_rh,theta, fire_fn_theta, wind, &
           cover   = cover   + cc(k)%nindivs*cc(k)%crownarea
        endif
     enddo
-    ROS_max = ROS_max/cover
+    if (cover>0) then
+       ROS_max = ROS_max/cover
+    else
+       ROS_max = spdata(cc(1)%species)%ROS_max
+    endif
     end associate
     ! NOTE that in LM3 case (single cohort, nindivs==1 and crownarea==1) the above
     ! calculation gives the exact value from species parameter table
@@ -2328,7 +2343,7 @@ end subroutine vegn_burn
 
 subroutine vegn_burn_ppa(tile)
   type(land_tile_type), intent(inout) :: tile
-  
+
   ! local vars
   real :: BF ! burned fraction, shortcut for convenience
   real :: CC_leaf_litter, CC_wood_litter ! combustion completeness of leaf and wood litter
@@ -2343,7 +2358,7 @@ subroutine vegn_burn_ppa(tile)
   integer :: k ! cohort iterator
   real :: dheat ! heat residual due to cohort merging
   real :: burned_C ! total amount of burned carbon
-  
+
   N  = tile%vegn%n_cohorts
   BF = max(0.0,min(1.0,tile%vegn%burned_frac))
 
@@ -2363,9 +2378,15 @@ subroutine vegn_burn_ppa(tile)
            cover          = cover   + cc(k)%nindivs*cc(k)%crownarea
         endif
      enddo
+     if (cover>0) then
+        CC_leaf_litter = CC_leaf_litter/cover
+        CC_wood_litter = CC_wood_litter/cover
+     else
+        CC_leaf_litter = spdata(cc(1)%species)%CC_litter
+        CC_wood_litter = spdata(cc(1)%species)%CC_litter
+     endif
      end associate
-     CC_leaf_litter = CC_leaf_litter/cover
-     CC_wood_litter = CC_wood_litter/cover
+
      call remove_carbon_fraction_from_pool (tile%soil%leafLitter, CC_leaf_litter*BF, &
          litter_removed=burned_litt_1, protected_removed=burned_litt_2, liveMicrobe_removed=burned_litt_3)
      burned_leaf_litt = sum(burned_litt_1) + sum(burned_litt_2) + burned_litt_3
@@ -2375,9 +2396,9 @@ subroutine vegn_burn_ppa(tile)
   endif
   burned_C = burned_C + burned_leaf_litt + burned_wood_litt
   ! burn vegetation
-  
+
   ! split out burned fraction of vegetation:
-  ! cohorts N0:N1 are not touched by fire (they are outside of burned fraction of tile), 
+  ! cohorts N0:N1 are not touched by fire (they are outside of burned fraction of tile),
   ! cohorts M0:M1 are burned
   if (BF==0) then ! nothing is burned
      ns=1;  ne=N; ms=1; me=0
@@ -2410,9 +2431,9 @@ subroutine vegn_burn_ppa(tile)
      cc(k)%bsw   = (1-sp%CC_stem) * cc(k)%bsw
      cc(k)%bwood = (1-sp%CC_stem) * cc(k)%bwood
      ! not burning roots or nsc
-     
+
      ! fire mortality; we use stem fire mortality parameter to represent the plant mortality.
-     ! In principle mortality should depend on species and DBH, possibly on type of fire, 
+     ! In principle mortality should depend on species and DBH, possibly on type of fire,
      ! scorch height, fire intensity,...
      call kill_plants_ppa(cc(k), tile%vegn, cc(k)%nindivs*sp%fireMort_stem, 0.0, &
                           leaf_litt, wood_litt, root_litt)
@@ -2429,7 +2450,7 @@ subroutine vegn_burn_ppa(tile)
 
   call vegn_mergecohorts_ppa(tile%vegn, dheat)
   tile%e_res_2 = tile%e_res_2 - dheat
-  
+
   tile%vegn%csmoke_pool = tile%vegn%csmoke_pool + burned_C
   tile%vegn%csmoke_rate = tile%vegn%csmoke_pool * days_per_year ! kg C/(m2 yr)
 end subroutine vegn_burn_ppa
