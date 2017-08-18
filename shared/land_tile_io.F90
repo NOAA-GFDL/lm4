@@ -1918,11 +1918,11 @@ subroutine write_tile_data_i2d(ncid,name,data,zdim,long_name,units)
      if(nf_inq_varid(ncid,name,varid)/=NF_NOERR) then
         dimnames(1) = tile_index_name
         dimnames(2) = zdim
-        __NF_ASRT__(nfu_def_var(ncid,name,NF_DOUBLE,dimnames,long_name,units,varid))
+        __NF_ASRT__(nfu_def_var(ncid,name,NF_INT,dimnames,long_name,units,varid))
      endif
      ! write data
      iret = nf_enddef(ncid) ! ignore errors: its OK if file is in data mode already
-     __NF_ASRT__(nf_put_var_double(ncid,varid,buff2))
+     __NF_ASRT__(nf_put_var_int(ncid,varid,buff2))
      deallocate(buff2,buff1,ntiles)
   endif
   ! wait for all PEs to finish: necessary because mpp_send does not seem to
