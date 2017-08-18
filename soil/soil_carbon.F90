@@ -1225,7 +1225,7 @@ subroutine tracer_advection(tracer_mass,flow,div,dz,wl,del_tracer,divergence_los
     nlayers=size(tracer_concentration)
     tracer_concentration=tracer_mass/dz
     if (is_watch_point()) then
-       write(*,*)'### tracer_advegction input ###'
+       write(*,*)'### tracer_advection input ###'
        do i = 1,nlayers
           write(*,'(a,i2.2)',advance='NO') 'level=', i
           call dpri(' tracer_mass=',tracer_mass(i))
@@ -1234,7 +1234,7 @@ subroutine tracer_advection(tracer_mass,flow,div,dz,wl,del_tracer,divergence_los
           if (i<=size(wl))   call dpri(' wl=',wl(i))
           write(*,*)
        enddo
-       write(*,*)'### end of tracer_advegction input ###'
+       write(*,*)'### end of tracer_advection input ###'
     endif
 
     ! ZMS
@@ -1327,7 +1327,7 @@ subroutine tracer_advection(tracer_mass,flow,div,dz,wl,del_tracer,divergence_los
     where(divergence_loss>tracer_mass) divergence_loss=tracer_mass
 
     if (is_watch_point()) then
-       write(*,*)'### tracer_advegction output ###'
+       write(*,*)'### tracer_advection output ###'
        do i = 1,nlayers
           write(*,'(a,i2.2)',advance='NO') 'level=', i
           if (i<=size(tracer_mass)) call dpri(' div_loss=',tracer_mass(i))
@@ -1335,7 +1335,7 @@ subroutine tracer_advection(tracer_mass,flow,div,dz,wl,del_tracer,divergence_los
           if (i<=size(divergence_loss)) call dpri(' div_loss=',divergence_loss(i))
           write(*,*)
        enddo
-       write(*,*)'### end of tracer_advegction output ###'
+       write(*,*)'### end of tracer_advection output ###'
     endif
 
 end subroutine tracer_advection
