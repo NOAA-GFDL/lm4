@@ -55,7 +55,6 @@ public  ::  update_fire_fast
 public  ::  update_fire_agri
 public  ::  update_fire_data ! reads external data for fire model
 public  ::  update_fire_Fk
-public  ::  update_fire_agb
 public  ::  update_multiday_fires !!! dsward_mdf
 public  ::  fire_natural, fire_agri
 public  ::  vegn_fire_sendtiledata_Cburned
@@ -1049,6 +1048,8 @@ subroutine update_fire_fast(vegn,soil,diag, &
     else
        fire_fn_Tca = 1.0
     endif
+
+    call update_fire_agb(vegn,soil)
     call vegn_fire_fn_agb(vegn,soil,fire_fn_agb,kop) !!! dsward_kop added kop
 
     call vegn_fire_ROS(vegn,fire_fn_rh,theta,fire_fn_theta,wind_forFire,ROS_surface,LB,HB,gW,ROSmax,C_beta,kop)   ! SSR20151216 !!! dsward_kop added kop
@@ -2873,7 +2874,6 @@ subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
                           (vegn%csmoke_rate/(86400.*365.))) ![kg C /m2 /s]
 
 
-    call update_fire_agb(vegn,soil)
     fire_agb_1 = vegn%fire_agb
 
     if(is_watch_point()) then
