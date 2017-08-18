@@ -568,7 +568,7 @@ subroutine vegn_fire_init(id_ug, dt_fast_in, time)
   allocate(Fp_in(lnd%ls:lnd%le))
   ! monthly buffers for the input burn rate data
   allocate(crop_burn_rate_in(lnd%ls:lnd%le,12))
-  allocate(past_burn_rate_in(lnd%ls:lnd%ie,12))
+  allocate(past_burn_rate_in(lnd%ls:lnd%le,12))
 
   if (.not.FireMIP_ltng) then
      allocate(lightning_in_v2(lnd%ls:lnd%le,12))
@@ -581,7 +581,7 @@ subroutine vegn_fire_init(id_ug, dt_fast_in, time)
   do i = 1,12
      call read_field('INPUT/Fk.nc', 'Fcrop_'//month_name(i), crop_burn_rate_in(:,i), &
                   interp='conservative', fill=0.0)
-     call read_field('INPUT/Fk.nc', 'Fcrop_'//month_name(i), past_burn_rate_in(:,i), &
+     call read_field('INPUT/Fk.nc', 'Fpast_'//month_name(i), past_burn_rate_in(:,i), &
                   interp='conservative', fill=0.0)
   enddo
 
@@ -1075,8 +1075,8 @@ subroutine update_fire_fast(vegn,soil,diag, &
     ! Could speed things up by only changing these monthly (or even yearly, for
     ! popD and GDPpc).
     lightning = lightning_in(l)
-    if (use_FpopD_nf .OR. use_FpopD_ba .OR. Ia_alpha_monthly(1)>0.0) popD =  population_in(l)
-    if (use_Fgdp_nf .OR. use_Fgdp_ba)   GDPpc = GDPpc_billion_in(l) * 1.e9   ! Converting to dollars/person.
+    popD  = population_in(l)
+    GDPpc = GDPpc_billion_in(l) * 1.e9   ! Converting to dollars/person.
 
     if (is_watch_point()) then
        write(*,*) '#### checkpoint update_fire_fast #####'
@@ -1650,7 +1650,7 @@ subroutine vegn_fire_fn_popD(vegn, popD, fire_fn_popD_NF, fire_fn_popD_BA, kop) 
     real    :: cover, f ! for population density factor averaging
 
     ! Number of fires
-    if (use_FpopD_nf.eqv..TRUE. .AND. popD>0.0) then
+    if (use_FpopD_nf .AND. popD>0.0) then
        fire_fn_popD_NF = popD_supp_eps1(kop) - popD_supp_eps2(kop)*exp(-popD_supp_eps3(kop)*popD)
        if (do_calc_derivs) then
           popDsupp_NF_DERIVwrt_eps1 = 1.0
@@ -1727,12 +1727,12 @@ subroutine vegn_fire_fn_GDPpc(vegn,GDPpc,popD,fire_fn_GDPpc_NF,fire_fn_GDPpc_BA)
     real    :: cover, f ! for population density factor averaging
     real    :: GDPpc_k   ! k$/person
 
-    ! Convert GDPpc from $/person to k$/person
-    GDPpc_k = GDPpc / 1000.
 
     ! Number of fires
     fire_fn_GDPpc_NF = 1.0
     if (use_Fgdp_nf .and. popD>0.1) then
+       ! Convert GDPpc from $/person to k$/person
+       GDPpc_k = GDPpc / 1000.
        ! calculate popD/GDP NF function as a weighted average of the species in the
        ! canopy layer; the weight is the fraction of canopy occupied by each species.
        fire_fn_GDPpc_NF = 0.0; cover = 0.0
@@ -1759,6 +1759,9 @@ subroutine vegn_fire_fn_GDPpc(vegn,GDPpc,popD,fire_fn_GDPpc_NF,fire_fn_GDPpc_BA)
     ! Burned area per fire
     fire_fn_GDPpc_BA = 1.0
     if (use_Fgdp_ba.and.popD>0.1) then
+       ! Convert GDPpc from $/person to k$/person
+       GDPpc_k = GDPpc / 1000.
+
        fire_fn_GDPpc_BA = 0.0; cover = 0.0
        associate(cc=>vegn%cohorts)
        do k = 1, vegn%n_cohorts
