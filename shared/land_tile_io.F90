@@ -1912,6 +1912,7 @@ subroutine write_tile_data_i2d(ncid,name,data,zdim,long_name,units)
         do i = 1,size(data,2)
            buff2(k+1:k+ntiles(p),i) = buff1((i-1)*ntiles(p)+1:i*ntiles(p))
         enddo
+        k = k+ntiles(p)
      enddo
 
      ! create variable, if it does not exist
