@@ -87,7 +87,7 @@ integer, parameter :: BASE_COHORT_FIELD_ID = 65536*2 ! base value for cohort fie
 integer, parameter :: MIN_DIAG_BUFFER_SIZE = 1     ! min size of the per-tile diagnostic buffer
 ! operations used for tile data aggregation
 integer, parameter, public :: &
-    OP_AVERAGE  = 1, & ! weighted average of values
+    OP_AVERAGE  = 1, & ! weighted average of tile values
     OP_SUM      = 2, & ! sum of all tile values
     OP_MAX      = 3, & ! maximum of all  values
     OP_MIN      = 4, & ! minimum of all  values
@@ -495,7 +495,7 @@ subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time
                     trim(module_name)//'/'//trim(field_name)//'"', FATAL)
     id1 = reg_field(static, module_name, field_name, init_time, axes, long_name, &
           units, missing_value, range, op=op, offset=fields(ifld0)%offset, &
-          fill_missing=fill_missing)
+          standard_name=standard_name, fill_missing=fill_missing)
     call add_cell_measures(id1)
     call add_cell_methods(id1)
     if (id1>0) then
