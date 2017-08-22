@@ -33,7 +33,7 @@ use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, OP_MAX, OP_DOMINANT, &
      register_tiled_static_field, register_tiled_diag_field, &
      send_tile_data, diag_buff_type, register_cohort_diag_field, send_cohort_data, &
      set_default_diag_filter
-use land_data_mod,      only : lnd, log_version
+use land_data_mod, only : lnd, log_version
 use land_io_mod, only : read_field
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
@@ -75,7 +75,7 @@ use vegn_disturbance_mod, only : vegn_nat_mortality_lm3, &
 use vegn_harvesting_mod, only : &
      vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting
 use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, N_C_TYPES, C_CEL, C_LIG, &
-     add_litter, poolTotalCarbon, cull_cohorts, c_shortname, c_longname
+     cull_cohorts, c_shortname, c_longname
 use soil_mod, only : redistribute_peat_carbon
 
 implicit none
@@ -2167,16 +2167,6 @@ subroutine update_vegn_slow( )
         endif
         call send_tile_data(id_zstar_1, zstar, tile%diag)
      endif
-
-     if(soil_carbon_option==SOILC_CORPSE) then
-        !Knock soil carbon cohorts down to their maximum number
-        call cull_cohorts(tile%soil%leafLitter)
-        call cull_cohorts(tile%soil%fineWoodLitter)
-        call cull_cohorts(tile%soil%coarseWoodLitter)
-        do ii=1,size(tile%soil%soil_C)
-              call cull_cohorts(tile%soil%soil_C(ii))
-        enddo
-     endif
   enddo
 
   if (do_ppa.and.year1 /= year0) then
@@ -2186,6 +2176,24 @@ subroutine update_vegn_slow( )
        ! seed transport in lm3
        call vegn_seed_transport_lm3()
     endif
+  endif
+
+  if(soil_carbon_option==SOILC_CORPSE) then
+     ! Knock soil carbon cohorts down to their maximum number.
+     ! For reproducibility across restarts, this must be done after all processes
+     ! that can add soil or litter carbon cohorts.
+     ce = first_elmt(land_tile_map, lnd%ls)
+     do while (loop_over_tiles(ce,tile,l,k))
+        call set_current_point(l,k) ! this is for debug output only
+        if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
+
+        call cull_cohorts(tile%soil%leafLitter)
+        call cull_cohorts(tile%soil%fineWoodLitter)
+        call cull_cohorts(tile%soil%coarseWoodLitter)
+        do ii=1,size(tile%soil%soil_C)
+              call cull_cohorts(tile%soil%soil_C(ii))
+        enddo
+     enddo
   endif
 
   ! override with static vegetation
