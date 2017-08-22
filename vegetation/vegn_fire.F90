@@ -14,39 +14,35 @@ use constants_mod,   only: PI, VONKARM
 use time_manager_mod, only : time_type, get_date, days_in_month, operator(-)
 use fms_mod, only : file_exist, check_nml_error, error_mesg, close_file, stdlog, stdout, &
       lowercase, WARNING, FATAL
+use sphum_mod, only : qscomp
 
 use land_constants_mod, only : seconds_per_year
-use land_io_mod,     only : external_ts_type, init_external_ts, del_external_ts, &
+use land_io_mod, only : external_ts_type, init_external_ts, del_external_ts, &
       read_external_ts, read_field
 use land_debug_mod,  only : check_var_range, is_watch_point, is_watch_cell, &
       carbon_cons_tol, set_current_point, land_error_message
-use land_data_mod,   only : lnd, log_version
-use land_tile_mod,   only : land_tile_type, land_tile_map, loop_over_tiles, &
+use land_data_mod, only : lnd, log_version
+use land_tile_mod, only : land_tile_type, land_tile_map, loop_over_tiles, &
       land_tile_list_type, land_tile_enum_type, first_elmt, tail_elmt, next_elmt, &
       land_tile_list_init, land_tile_list_end, merge_land_tile_into_list, insert, remove, &
       operator(/=), operator(==), current_tile, new_land_tile
 use land_tile_diag_mod, only : register_tiled_diag_field, send_tile_data, diag_buff_type
 
-use vegn_data_mod,   only : spdata, agf_bs, fsc_liv, fsc_wood, fsc_froot, do_ppa, &
+use vegn_data_mod, only : spdata, agf_bs, fsc_liv, fsc_wood, fsc_froot, do_ppa, &
       SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
       LU_CROP, LU_PAST, LU_NTRL, LU_SCND, FORM_GRASS
-!                            split_past_tiles   ! SSR20151118
-use vegn_tile_mod,   only : vegn_tile_type, vegn_mergecohorts_ppa
-use soil_tile_mod,   only : num_l, soil_tile_type, soil_ave_theta1, soil_ave_theta2, add_soil_carbon
-use sphum_mod,       only : qscomp
+use vegn_tile_mod, only : vegn_tile_type, vegn_mergecohorts_ppa
+use soil_tile_mod, only : num_l, soil_tile_type, soil_ave_theta1, soil_ave_theta2, &
+      add_soil_carbon
 use vegn_cohort_mod, only : vegn_cohort_type
-use soil_mod,        only : add_root_litter
+use soil_mod, only : add_root_litter
 use soil_carbon_mod, only : add_litter, soil_carbon_option, poolTotalCarbon, &
-                            remove_carbon_fraction_from_pool, &
-                            SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, &
-                            n_c_types
+      remove_carbon_fraction_from_pool, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, &
+      N_C_TYPES
 use vegn_disturbance_mod, only : kill_plants_ppa
 
 implicit none
 private
-
-! slm
-logical :: force_watch_cell_burning = .false.
 
 ! ==== public interfaces =====================================================
 public  ::  vegn_fire_init, vegn_fire_end
@@ -923,14 +919,15 @@ end subroutine vegn_fire_init
 ! ==============================================================================
 subroutine vegn_fire_end()
   if (allocated(population_in)) deallocate(population_in)
-  if (allocated(GDPpc_billion_in))        deallocate(GDPpc_billion_in)
-  if (allocated(lightning_in))  deallocate(lightning_in)
-  if (allocated(lightning_in_v2))  deallocate(lightning_in_v2)   ! SSR20151124
-  if (allocated(Fc_in))         deallocate(Fc_in)
-  if (allocated(Fp_in))         deallocate(Fp_in)
+  if (allocated(GDPpc_billion_in)) deallocate(GDPpc_billion_in)
+  if (allocated(lightning_in)) deallocate(lightning_in)
+  if (allocated(lightning_in_v2)) deallocate(lightning_in_v2)   ! SSR20151124
+  if (allocated(Fc_in)) deallocate(Fc_in)
+  if (allocated(Fp_in)) deallocate(Fp_in)
   if (allocated(crop_burn_rate_in)) deallocate(crop_burn_rate_in)
   if (allocated(past_burn_rate_in)) deallocate(past_burn_rate_in)
-  deallocate(fragmenting_frac, burnable_frac)
+  if (allocated(fragmenting_frac)) deallocate(fragmenting_frac)
+  if (allocated(burnable_frac)) deallocate(burnable_frac)
 end subroutine vegn_fire_end
 
 
@@ -1295,11 +1292,16 @@ subroutine update_fire_Fk(vegn,diag,l)
   type(diag_buff_type), intent(inout) :: diag
   integer, intent(in)  :: l   ! index of current point, for fire data
 
-  vegn%Fcrop = Fc_in(l)
-  vegn%Fpast = Fp_in(l)
+  if (fire_option==FIRE_UNPACKED) then
+     vegn%Fcrop = Fc_in(l)
+     vegn%Fpast = Fp_in(l)
 
-  if (vegn%Fcrop.lt.1.e-9) vegn%Fcrop = 1.e-9
-  if (vegn%Fpast.lt.1.e-9) vegn%Fpast = 1.e-9
+     if (vegn%Fcrop.lt.1.e-9) vegn%Fcrop = 1.e-9
+     if (vegn%Fpast.lt.1.e-9) vegn%Fpast = 1.e-9
+  else
+     vegn%Fcrop = 0.0
+     vegn%Fpast = 0.0
+  endif
 
   call send_tile_data(id_Fcrop, vegn%Fcrop, diag)
   call send_tile_data(id_Fpast, vegn%Fpast, diag)
@@ -2334,10 +2336,12 @@ subroutine vegn_burn(tile, tile_area)
 
   if (.not.associated(tile%vegn)) call land_error_message('vegn_burn: attempt to burn non-vegetated tile')
 
-  if(do_ppa) then
-     call vegn_burn_ppa(tile)
-  else
-     call vegn_burn_lm3(tile%vegn, tile%soil, tile_area)
+  if(fire_option==FIRE_UNPACKED) then
+     if(do_ppa) then
+        call vegn_burn_ppa(tile)
+     else
+        call vegn_burn_lm3(tile%vegn, tile%soil, tile_area)
+     endif
   endif
 end subroutine vegn_burn
 
@@ -3785,6 +3789,7 @@ subroutine fire_transitions(time)
   call get_date(time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
 
   if(day0 == day1) return ! do nothing during a day
+  if(fire_option /= FIRE_UNPACKED) return ! only do transitions for FINAL fire model
 
   ! perform the transitions
   do l = lnd%ls,lnd%le
