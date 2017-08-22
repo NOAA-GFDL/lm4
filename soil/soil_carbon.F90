@@ -151,7 +151,7 @@ real                      :: litterDensity=22.0             !C density of litter
                                                             !22.0 roughly from Gaudinsky et al 2000
 real                      :: min_anaerobic_resp_factor=0.0  !Minimum for high soil moisture Resp limitation
 
-integer                   :: soilMaxCohorts=15              !Maximum number of cohorts in soil carbon pools
+integer, protected        :: soilMaxCohorts=15              !Maximum number of cohorts in soil carbon pools
 real                      :: tol=1e-4                       !Tolerance for cohort carbon check
 
 namelist /soil_carbon_nml/ &
@@ -161,7 +161,7 @@ namelist /soil_carbon_nml/ &
             litterDensity,protected_relative_solubility,min_anaerobic_resp_factor
 
 !---- end-of-namelist --------------------------------------------------------
-integer :: soil_carbon_option = 0    ! flag specifying which soil carbon to use,
+integer, protected :: soil_carbon_option = 0  ! flag specifying which soil carbon to use,
         ! one of SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE
 
 
@@ -1120,7 +1120,7 @@ subroutine cull_cohorts(pool)
         ncombined=ncombined+1
     ENDDO
 
-    Cafter=cohortCsum(totalCarbonCohort(pool))
+    ! Cafter=cohortCsum(totalCarbonCohort(pool))
     !IF(ncombined.gt.0) WRITE (*,*),'Combined',ncombined,'cohorts'
     !totalCombineError=totalCombineError+(Cafter-Cbefore)
 
