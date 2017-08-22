@@ -2354,13 +2354,6 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
 end subroutine update_land_model_slow
 
 ! ============================================================================
-! invokes any processes that can change the tiling of the land model
-subroutine land_disturbances( )
-  call vegn_nat_mortality_ppa( )
-  call land_transitions( lnd%time )
-end subroutine land_disturbances
-
-! ============================================================================
 ! solve for surface temperature. ensure that melt does not exceed available
 ! snow or soil ice (which would create energy-balance problems). also ensure
 ! that melt and temperature are consistent and that evaporation from liquid

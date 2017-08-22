@@ -12,9 +12,8 @@ use fms_mod, only: open_namelist_file
 
 use constants_mod,   only: PI, VONKARM
 use time_manager_mod, only : time_type, get_date, days_in_month, operator(-)
-use fms_mod, only : &
-     file_exist, check_nml_error, error_mesg, &
-     close_file, stdlog, stdout, WARNING, FATAL
+use fms_mod, only : file_exist, check_nml_error, error_mesg, close_file, stdlog, stdout, &
+      lowercase, WARNING, FATAL
 
 use land_constants_mod, only : seconds_per_year
 use land_io_mod,     only : external_ts_type, init_external_ts, del_external_ts, &
@@ -108,7 +107,7 @@ integer :: adj_nppPrevDay = 2   ! 0 to not do anything.      ! SSR20150716
 !---- namelist ---------------------------------------------------------------
 
 ! Overarching settings
-character(32) :: fire_to_use = 'unpacked'
+character(32) :: fire_to_use = 'lm3'
     ! 'LM3' for old once-a-year fire, same as always existed in LM3
     ! 'unpacked' for modern fire parameterization
 character(32) :: fire_for_past = 'pastfp'
@@ -434,7 +433,7 @@ subroutine vegn_fire_init(id_ug, dt_fast_in, time)
   dt_fast    = dt_fast_in
 
   ! parse the fire model options for efficiency.
-  select case (trim(fire_to_use))
+  select case (trim(lowercase(fire_to_use)))
   case ('none')
      fire_option = FIRE_NONE
   case ('lm3')
@@ -447,7 +446,7 @@ subroutine vegn_fire_init(id_ug, dt_fast_in, time)
         FATAL)
   end select
 
-  select case (trim(fire_for_past))
+  select case (trim(lowercase(fire_for_past)))
   case ('pastfp')
      fire_option_past = FIRE_PASTFP
   case ('pastli')
@@ -458,7 +457,7 @@ subroutine vegn_fire_init(id_ug, dt_fast_in, time)
         FATAL)
   end select
 
-!   select case (trim(wind_to_use))
+!   select case (trim(lowercase(wind_to_use)))
 !   case ('canopy_top')
 !      fire_windType = FIRE_WIND_CANTOP
 !   case ('10m_tmp')
@@ -471,7 +470,7 @@ subroutine vegn_fire_init(id_ug, dt_fast_in, time)
 !         FATAL)
 !   end select
 
-  select case (trim(f_agb_style))
+  select case (trim(lowercase(f_agb_style)))
   case ('li2012')
      fire_option_fAGB = FIRE_AGB_LI2012
   case ('logistic')
@@ -484,7 +483,7 @@ subroutine vegn_fire_init(id_ug, dt_fast_in, time)
         FATAL)
   end select
 
-  select case (trim(f_rh_style))
+  select case (trim(lowercase(f_rh_style)))
   case ('li2012')
      fire_option_fRH = FIRE_RH_LI2012
   case ('logistic')
@@ -497,7 +496,7 @@ subroutine vegn_fire_init(id_ug, dt_fast_in, time)
         FATAL)
   end select
 
-  select case (trim(f_theta_style))
+  select case (trim(lowercase(f_theta_style)))
   case ('li2012')
      fire_option_fTheta = FIRE_THETA_LI2012
   case ('logistic')
@@ -1184,6 +1183,8 @@ subroutine update_multiday_fires(vegn,tile_area)
     integer              :: i = 0
     integer              :: kop  ! switch for boreal (1) and non-boreal (2) zones
 
+    real, parameter :: fire_duration = 86400.0 ! always 1 day for the purpose of multi-day fires
+
     kop=1
     if (vegn%koppen_zone .lt. 11) kop=2  ! switch magic scalar to non-boreal value
 
@@ -1214,12 +1215,12 @@ subroutine update_multiday_fires(vegn,tile_area)
     !!        uses the current day's fire count (possily reduced by coalescence) which is
     !!        appropriate since it is the most recent total area burned per fire that we are
     !!        interested in.
-        adj_duration = (mdf_BAperfire_prev*(86400.**2.)/vegn%BAperfire_ave_mdf)**0.5
+        adj_duration = fire_duration*(mdf_BAperfire_prev/vegn%BAperfire_ave_mdf)**0.5
 
     !!  eq2 - Compute the additional area burned this day by adding one day to the "adjusted
     !!        duration" computed in eq1 and subtracting the previous total area burned per
     !!        fire
-        mdf_BAperfire = (vegn%BAperfire_ave_mdf/(86400.**2.)*((adj_duration+86400)**2.)) - mdf_BAperfire_prev
+        mdf_BAperfire = (vegn%BAperfire_ave_mdf/(fire_duration**2)*((adj_duration+fire_duration)**2)) - mdf_BAperfire_prev
 
     !!! Check area burned per fire (multi-day) against max fire size
     !!  if the fire reaches maximum fire size on any day, constrain the fire size but do not extinguish the fire
@@ -1237,7 +1238,6 @@ subroutine update_multiday_fires(vegn,tile_area)
 
         if (vegn%total_BA_mdf .gt. tile_area*1.e-6) vegn%total_BA_mdf = tile_area*1.e-6
         vegn%burned_frac = vegn%burned_frac + mdf_BA/(tile_area*1.e-6)
-
     enddo
 
     !!! If the total burned area is greater than the tile size (unburned by default?), adjust burned area and
