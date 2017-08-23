@@ -54,8 +54,6 @@ public  ::  update_multiday_fires !!! dsward_mdf
 public  ::  fire_natural, fire_agri
 public  ::  vegn_fire_sendtiledata_Cburned
 public  ::  send_tile_data_BABF_forAgri
-public  ::  fire_fragmentation
-public  ::  defo_annCalcs
 public  ::  fire_transitions
 
 integer, public, protected :: fire_option = 0
@@ -337,9 +335,7 @@ real, allocatable :: &
     Fp_in(:), &         ! input buffer for Fp
     crop_burn_rate_in(:,:),& ! input buffer for monthly Fc values
     past_burn_rate_in(:,:),&   ! input buffer for monthly Fp values
-    lightning_in_v2(:,:), &
-    fragmenting_frac(:), & ! fraction of grid cell that can fragment fires
-    burnable_frac(:)       ! burnable fraction of grid cells, used for fragmentation calculations
+    lightning_in_v2(:,:)
 
 
 integer :: & ! diag field IDs
@@ -598,16 +594,12 @@ subroutine vegn_fire_init(id_ug, dt_fast_in, time)
   call update_fire_data(time)
 
   ! SSR20150810
-  allocate(fragmenting_frac(lnd%ls:lnd%le), burnable_frac(lnd%ls:lnd%le))
-  fragmenting_frac = 0.0
-  burnable_frac    = 0.0
   if (do_fire_fragmentation) then
+     ! update max fire size for each vegetation tile
      do l = lnd%ls, lnd%le
-        call fire_fragmentation(land_tile_map(l),lnd%ug_area(l), .TRUE., &
-             fragmenting_frac(l),burnable_frac(l))
+        call fire_fragmentation(land_tile_map(l),lnd%ug_area(l))
      enddo
   endif
-
   ! ---- initialize the diagnostics --------------------------------------------
 
   ! set the default sub-sampling filter for the fields below
@@ -926,8 +918,6 @@ subroutine vegn_fire_end()
   if (allocated(Fp_in)) deallocate(Fp_in)
   if (allocated(crop_burn_rate_in)) deallocate(crop_burn_rate_in)
   if (allocated(past_burn_rate_in)) deallocate(past_burn_rate_in)
-  if (allocated(fragmenting_frac)) deallocate(fragmenting_frac)
-  if (allocated(burnable_frac)) deallocate(burnable_frac)
 end subroutine vegn_fire_end
 
 
@@ -2334,7 +2324,7 @@ subroutine vegn_burn(tile, tile_area)
   type(land_tile_type), intent(inout) :: tile
   real, intent(in) :: tile_area   ! Area of land in tile, m2
 
-  if (.not.associated(tile%vegn)) call land_error_message('vegn_burn: attempt to burn non-vegetated tile')
+  if (.not.associated(tile%vegn)) call land_error_message('vegn_burn: attempt to burn non-vegetated tile', FATAL)
 
   if(fire_option==FIRE_UNPACKED) then
      if(do_ppa) then
@@ -2486,7 +2476,6 @@ subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
                   killed_living_cc, killed_Cgain_cc, killed_Wgain_cc, killed_Cgain, killed_Wgain
     real    ::    bliving_0, bwood_0, npp_prevDay_0, npp_prevDayTmp_0, &
                   bliving_1, bwood_1, npp_prevDay_1, npp_prevDayTmp_1
-    real    ::    fire_agb_0, fire_agb_1
     integer ::    i,sp,j
     real    ::    frac_nppPrevDay_toRemove
     real    ::    burned_frac
@@ -2585,8 +2574,6 @@ subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
        !!!! small errors introduced before here (1e-15 or so)
 
     endif
-
-    fire_agb_0 = vegn%fire_agb
 
     ! Burn/kill living vegetation (including "dead" wood)
     !!!!! Note that all species die from fire (i.e., this ignores spdata(cc%species)%mortality_kills_balive)
@@ -2899,8 +2886,6 @@ subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
                           (vegn%csmoke_rate/(86400.*365.))) ![kg C /m2 /s]
 
 
-    fire_agb_1 = vegn%fire_agb
-
     if(is_watch_point()) then
         write(*,*) '######## After vegn_burn ########'
         write(*,*) 'burned_bl', burned_bl
@@ -2931,8 +2916,6 @@ subroutine vegn_burn_lm3(vegn,soil,tile_area_m2)
         write(*,*) ' '
         write(*,*) 'bliving_0', bliving_0
         write(*,*) 'bliving_1', bliving_1
-        write(*,*) 'fire_agb_0', fire_agb_0
-        write(*,*) 'fire_agb_1', fire_agb_1
         write(*,*) ' '
         write(*,*) '(Each pair below should be equivalent.)'
         write(*,*) 'bl0 - bl1            ', bl0-bl1
@@ -3641,21 +3624,19 @@ subroutine update_fire_agb(vegn,soil)
 
 end subroutine update_fire_agb
 
-subroutine fire_fragmentation(tile_list,land_area_m2,recalc,fragmenting_frac, burnable_frac)
+subroutine fire_fragmentation(tile_list,land_area_m2)
    type(land_tile_list_type), intent(inout)  ::  tile_list
    real, intent(in)     ::  land_area_m2
-   real, intent(inout)  ::  fragmenting_frac, burnable_frac
-   logical, intent(in)  ::  recalc   ! If .TRUE. then actually recalculate. Otherwise just send diagnostics.
-   type(land_tile_type), pointer :: ptr
-   type(land_tile_enum_type) :: ts, te
-   integer   ::   k   ! To keep track of tile number for printing watch_cell output.
 
-   if (recalc) then
-      call get_fragburn_fracs(tile_list,fragmenting_frac,burnable_frac)
-      call check_var_range(fragmenting_frac, 0.0, 1.0,'fire_fragmentation', 'fragmenting_frac',   FATAL)
-      call check_var_range(burnable_frac,    0.0, 1.0,'fire_fragmentation', 'burnable_frac',      FATAL)
-      call get_max_fire_size(tile_list,land_area_m2,fragmenting_frac,burnable_frac)
-   endif
+   type(land_tile_type), pointer :: ptr
+   type(land_tile_enum_type) :: ts
+   real ::  fragmenting_frac, burnable_frac
+
+   call get_fragburn_fracs(tile_list,fragmenting_frac,burnable_frac)
+   call check_var_range(fragmenting_frac, 0.0, 1.0,'fire_fragmentation', 'fragmenting_frac',   FATAL)
+   call check_var_range(burnable_frac,    0.0, 1.0,'fire_fragmentation', 'burnable_frac',      FATAL)
+
+   call update_max_fire_size(tile_list,land_area_m2,fragmenting_frac,burnable_frac)
 
    if (is_watch_cell()) then
       write(*,*) '### checkpoint fire_fragmentation ###'
@@ -3665,28 +3646,29 @@ subroutine fire_fragmentation(tile_list,land_area_m2,recalc,fragmenting_frac, bu
       write(*,*) '#####################################'
    endif
 
-   ts = first_elmt(tile_list) ; te=tail_elmt(tile_list) ; k = 0
-   do while (ts /= te)
-      ptr=>current_tile(ts); ts=next_elmt(ts)
+   ts = first_elmt(tile_list)
+   do while (loop_over_tiles(ts, ptr))
       if (.not.associated(ptr%vegn)) cycle
       call send_tile_data(id_fragmenting_frac, fragmenting_frac, ptr%diag)
       call send_tile_data(id_burnable_frac, burnable_frac, ptr%diag)
    enddo
-
 end subroutine fire_fragmentation
 
-
+! given list of tiles, returns fraction of land area that stops (fragments) fires,
+! and burnable fraction of area
 subroutine get_fragburn_fracs(tile_list,fragmenting_frac,burnable_frac)
-   type(land_tile_list_type), intent(in)   ::   tile_list
-   real, intent(out)  :: fragmenting_frac, burnable_frac
+   type(land_tile_list_type), intent(in) :: tile_list
+   real, intent(out) :: fragmenting_frac ! fraction of land that fragments fires
+   real, intent(out) :: burnable_frac    ! burnable fraction of land
+
+   ! ---- local vars
    type(land_tile_type), pointer :: ptr
-   type(land_tile_enum_type) :: ts, te
+   type(land_tile_enum_type) :: ts
 
    fragmenting_frac = 0.0
    burnable_frac = 0.0
-   ts = first_elmt(tile_list) ; te=tail_elmt(tile_list)
-   do while (ts /= te)
-      ptr=>current_tile(ts); ts=next_elmt(ts)
+   ts = first_elmt(tile_list)
+   do while (loop_over_tiles(ts, ptr))
       if (.not.associated(ptr%vegn)) then
          if (frag_incl_nonveg) fragmenting_frac = fragmenting_frac + ptr%frac
          cycle
@@ -3698,84 +3680,50 @@ subroutine get_fragburn_fracs(tile_list,fragmenting_frac,burnable_frac)
          burnable_frac = burnable_frac + ptr%frac
       endif
    enddo
-
-   ! Allow some wiggle room for burnable_frac
-   if (burnable_frac>1.0 .AND. burnable_frac<1.000001) then
-      burnable_frac = 1.0
-   endif
-
 end subroutine get_fragburn_fracs
 
 
-subroutine get_max_fire_size(tile_list,lnd_area_m2,fragmenting_frac,burnable_frac)
+! given list of tiles in a grid cell, updates max_fire_size for each vegetated tile
+subroutine update_max_fire_size(tile_list,lnd_area_m2,fragmenting_frac,burnable_frac)
    type(land_tile_list_type), intent(inout)   ::   tile_list
    real, intent(in)  :: lnd_area_m2
    real, intent(in)  :: fragmenting_frac, burnable_frac
+
+   ! ---- local vars
    type(land_tile_type), pointer :: ptr
-   type(land_tile_enum_type) :: ts, te
-   real   ::   fnat   ! How to calculate the variable that Pfeiffer et al. (2013) call "fnat"
+   type(land_tile_enum_type) :: ts
+   integer :: k ! tile index, currently only for debug
 
    ! Doesn't need to consider vegn%burned_frac because this only ever happens at the end
    ! of the day, AFTER resetting vegn%burned_frac to zero.
 
-   ts = first_elmt(tile_list) ; te=tail_elmt(tile_list)
-   do while (ts /= te)
-      ptr=>current_tile(ts); ts=next_elmt(ts)
+   if (is_watch_cell()) then
+      write(*,*) '### update_max_fire_size input ###'
+      __DEBUG3__(lnd_area_m2,fragmenting_frac,burnable_frac)
+      __DEBUG1__(max_fire_size_min)
+      write(*,*) '### update_max_fire_size output ###'
+   endif
 
-      if (.not.associated(ptr%vegn)) then
-!         call send_tile_data(id_BAperFire_max, -1.0, ptr%diag)
-         cycle
-      endif
+   ts = first_elmt(tile_list)
+   do while (loop_over_tiles(ts, ptr, k=k))
+      if (.not.associated(ptr%vegn)) cycle ! skip non-vegetated tiles
 
       ! This only needs to be done for tiles where fire size is actually calculated/used.
-      if (ptr%vegn%landuse==LU_NTRL .OR. ptr%vegn%landuse==LU_SCND &
-      .OR. (ptr%vegn%landuse==LU_PAST .AND. fire_option_past==FIRE_PASTLI)) then
+      if (fire_natural(ptr)) then
          ! Based on Pfeiffer et al. (2013), eq. 33.
          ptr%vegn%max_fire_size = ((1.003 + exp(16.607-41.503*burnable_frac))**-2.169)*(ptr%frac*lnd_area_m2)
-         if (is_watch_cell()) then
-            write(*,*) '### get_max_fire_size output ###'
-            if (is_watch_point()) then
-               write(*,*) '(This is watch_point.)'
-            endif
-            write(*,*) 'fragmenting_frac', fragmenting_frac
-            write(*,*) 'burnable_frac', burnable_frac
-            write(*,*) 'lnd_area_m2', lnd_area_m2
-            write(*,*) 'ptr%frac', ptr%frac
-           !!!dsward  write(*,*) 'fnat', fnat
-            write(*,*) 'ptr%vegn%max_fire_size', ptr%vegn%max_fire_size
-            write(*,*) 'max_fire_size_min', max_fire_size_min
-            write(*,*) '################################'
-         endif
          if (ptr%vegn%max_fire_size < max_fire_size_min) then
             ptr%vegn%max_fire_size = max_fire_size_min
          endif
       else
-         ptr%vegn%max_fire_size = -1.0
-         if (is_watch_cell()) then
-            write(*,*) '### get_max_fire_size output ###'
-            if (is_watch_point()) then
-               write(*,*) '(This is watch_point.)'
-            endif
-            write(*,*) 'ptr%vegn%max_fire_size', ptr%vegn%max_fire_size
-            write(*,*) '################################'
-         endif
+         ptr%vegn%max_fire_size = 0.0
       endif
-
-
+      if (is_watch_cell()) then
+         write(*,'(i3.3,x)',advance='NO'),k
+         __DEBUG2__(ptr%frac,ptr%vegn%max_fire_size)
+      endif
    enddo
-end subroutine get_max_fire_size
-
-
-subroutine defo_annCalcs(fireFtheta_ann_acm,nmn_acm, &
-                                 fireFtheta_ann,defoFS)
-   real, intent(in)    ::   fireFtheta_ann_acm
-   integer, intent(in) ::   nmn_acm
-   real, intent(out)   ::   fireFtheta_ann, defoFS
-
-   fireFtheta_ann  = fireFtheta_ann_acm/nmn_acm
-   defoFS = fs_min + max(0.0,min(1.0,(fireFtheta_ann-fp_lo)/(fp_hi-fp_lo)))*(fs_max-fs_min)
-
-end subroutine defo_annCalcs
+end subroutine update_max_fire_size
 
 ! =====================================================================================
 subroutine fire_transitions(time)
@@ -3795,6 +3743,9 @@ subroutine fire_transitions(time)
   do l = lnd%ls,lnd%le
      ! transition land area between different tile types
      call fire_transitions_0d(land_tile_map(l), lnd%ug_area(l), l)
+     ! SSR20150727
+     if (do_fire_fragmentation) &
+         call fire_fragmentation(land_tile_map(l), lnd%ug_area(l))
   enddo
 end subroutine fire_transitions
 
