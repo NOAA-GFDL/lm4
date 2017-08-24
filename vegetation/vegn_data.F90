@@ -111,7 +111,7 @@ public :: &
     l_fract, T_transp_min, soil_carbon_depth_scale, &
     cold_month_threshold, scnd_biomass_bins, &
     phen_ev1, phen_ev2, cmc_eps, &
-    use_light_saber, sai_cover, sai_rad
+    use_light_saber, sai_cover, sai_rad, min_lai
 
 ! ---- public subroutine
 public :: read_vegn_data_namelist
@@ -425,6 +425,8 @@ logical, protected :: sai_cover = .FALSE. ! if true, SAI is taken into account i
     ! cover calculations
 logical, protected :: sai_rad   = .FALSE. ! if true, SAI is taken into account in 
     ! calculation of canopy radiative properties
+real, protected :: min_lai = 0.0 ! minimum lai: if bl in update_biomass_pools brings LAI
+    ! below this threshold, bl is set to zero 
 
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
@@ -453,7 +455,7 @@ namelist /vegn_data_nml/ &
   cnst_crit_phen, fact_crit_phen, cnst_crit_fire, fact_crit_fire, &
   scnd_biomass_bins, phen_ev1, phen_ev2, &
   root_exudate_frac, tracer_cuticular_cond, &
-  use_light_saber, sai_rad, sai_cover
+  use_light_saber, sai_rad, sai_cover, min_lai
 
 
 contains ! ###################################################################
