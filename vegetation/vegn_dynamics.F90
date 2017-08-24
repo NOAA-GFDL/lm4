@@ -1285,7 +1285,7 @@ subroutine vegn_phenology_ppa(vegn, soil)
             endif
             stem_mortality = min(stem_mort_rate * cc%bsw_max, &
                    cc%bsw - sp%rho_wood * sp%alphaBM * ((sp%gammaHT/(sp%alphaHT/sp%seedling_height - 1.0))**(1.0/sp%thetaHT))**2 * sp%seedling_height)
-
+            stem_mortality = max(stem_mortality,0.0)
             ! ToDo - it is necessary to implement anonline adjustment of dbh, height and crown area as the plant shrinks
             !        otherwise it can happen that, in a year with a short winter, there is a disadjustment between plant
             !        biomass and its dimensions
@@ -1314,6 +1314,7 @@ subroutine vegn_phenology_ppa(vegn, soil)
          cc%bliving = cc%blv + cc%br + cc%bl + cc%bsw
 
          leaf_litter = (1.-l_fract) * (leaf_fall+root_mortality+stem_mortality) * cc%nindivs ! isa20170705, stem and roots become leaf litter
+         ! call check_var_range(leaf_litter,0.0,HUGE(1.0),'vegn_phenology_ppa','leaf_litter',FATAL)
          leaf_litt(:) = leaf_litt(:)+(/fsc_liv,1-fsc_liv,0.0/)*leaf_litter
          vegn%litter = vegn%litter + leaf_litter
          soil%fsc_in(1)  = soil%fsc_in(1)  + leaf_litter
