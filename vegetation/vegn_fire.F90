@@ -51,7 +51,7 @@ public  ::  update_fire_agri
 public  ::  update_fire_data ! reads external data for fire model
 public  ::  update_fire_Fk
 public  ::  update_multiday_fires !!! dsward_mdf
-public  ::  fire_natural, fire_agri
+public  ::  burns_as_ntrl, burns_as_agri
 public  ::  vegn_fire_sendtiledata_Cburned
 public  ::  send_tile_data_BABF_forAgri
 public  ::  fire_transitions
@@ -1300,36 +1300,6 @@ end subroutine update_fire_Fk
 
 
 ! ==============================================================================
-! returns true if tile is subject to natural fire
-function fire_natural(tile) result(answer)
-  type(land_tile_type), intent(in) :: tile
-  logical :: answer
-
-  answer = .FALSE.
-  if (.not.associated(tile%vegn))      return
-  if (.not.fire_option==FIRE_UNPACKED) return
-  answer = tile%vegn%landuse==LU_NTRL &
-     .OR. tile%vegn%landuse==LU_SCND &
-     .OR. (tile%vegn%landuse==LU_PAST .AND. fire_option_past==FIRE_PASTLI)
-end function fire_natural
-
-! ==============================================================================
-! returns true if tile subject to agricultural fire
-function fire_agri(tile) result(answer)
-  type(land_tile_type), intent(in) :: tile
-  logical :: answer
-
-  answer = .FALSE.
-  if (.not.associated(tile%vegn))      return
-  if (.not.fire_option==FIRE_UNPACKED) return
-
-  answer =   tile%vegn%landuse==LU_CROP &
-            .OR. (tile%vegn%landuse==LU_PAST .AND. fire_option_past==FIRE_PASTFP)
-end function fire_agri
-
-! ==============================================================================
-
-
 subroutine vegn_fire_fn_theta(theta,fire_fn_theta,kop)  !!! dsward_kop added kop
     real, intent(in) :: theta
     real, intent(out) :: fire_fn_theta
@@ -3625,64 +3595,6 @@ subroutine update_fire_agb(vegn,soil)
 end subroutine update_fire_agb
 
 ! =====================================================================================
-! given list of tiles in a grid cell, updates max_fire_size for each vegetated tile
-subroutine fire_fragmentation(tiles,land_area)
-  type(land_tile_list_type), intent(in) :: tiles ! tiles in a grid cell
-  real, intent(in) :: land_area ! total area of land in the grid cell, m2
-
-  ! local vars
-  type(land_tile_type), pointer :: ptr
-  type(land_tile_enum_type) :: ts
-  real :: fragmenting_frac, burnable_frac
-  integer :: k
-
-  fragmenting_frac = 0.0; burnable_frac = 0.0
-  ts = first_elmt(tiles)
-  do while (loop_over_tiles(ts, ptr))
-     if (.not.associated(ptr%vegn)) then
-        if (frag_incl_nonveg) fragmenting_frac = fragmenting_frac + ptr%frac
-     elseif (fire_agri(ptr)) then
-        fragmenting_frac = fragmenting_frac + ptr%frac
-     elseif (fire_natural(ptr)) then
-        burnable_frac = burnable_frac + ptr%frac
-     endif
-  enddo
-
-  if (is_watch_cell()) then
-     write(*,*) '### update_max_fire_size input ###'
-     __DEBUG3__(land_area,fragmenting_frac,burnable_frac)
-     __DEBUG1__(max_fire_size_min)
-     write(*,*) '### update_max_fire_size output ###'
-  endif
-
-  call check_var_range(fragmenting_frac, 0.0, 1.0,'fire_fragmentation', 'fragmenting_frac',   FATAL)
-  call check_var_range(burnable_frac,    0.0, 1.0,'fire_fragmentation', 'burnable_frac',      FATAL)
-
-  ts = first_elmt(tiles)
-  do while (loop_over_tiles(ts, ptr, k=k))
-     if (.not.associated(ptr%vegn)) cycle ! skip non-vegetated tiles
-
-     ! This only needs to be done for tiles where fire size is actually calculated/used.
-     if (fire_natural(ptr)) then
-        ! Based on Pfeiffer et al. (2013), eq. 33.
-        ptr%vegn%max_fire_size = ((1.003 + exp(16.607-41.503*burnable_frac))**-2.169)*(ptr%frac*land_area)
-        if (ptr%vegn%max_fire_size < max_fire_size_min) then
-           ptr%vegn%max_fire_size = max_fire_size_min
-        endif
-     else
-        ptr%vegn%max_fire_size = 0.0
-     endif
-     if (is_watch_cell()) then
-        write(*,'(i3.3,x)',advance='NO'),k
-        __DEBUG2__(ptr%frac,ptr%vegn%max_fire_size)
-     endif
-
-     call send_tile_data(id_fragmenting_frac, fragmenting_frac, ptr%diag)
-     call send_tile_data(id_burnable_frac, burnable_frac, ptr%diag)
-  enddo
-end subroutine fire_fragmentation
-
-! =====================================================================================
 subroutine fire_transitions(time)
   type(time_type), intent(in) :: time
 
@@ -3699,7 +3611,7 @@ subroutine fire_transitions(time)
   ! perform the transitions
   do l = lnd%ls,lnd%le
      ! transition land area between different tile types
-     call fire_transitions_0d(land_tile_map(l), lnd%ug_area(l), l)
+     call fire_transitions_0D(land_tile_map(l), lnd%ug_area(l), l)
      ! SSR20150727
      if (do_fire_fragmentation) &
          call fire_fragmentation(land_tile_map(l), lnd%ug_area(l))
@@ -3707,7 +3619,7 @@ subroutine fire_transitions(time)
 end subroutine fire_transitions
 
 ! =====================================================================================
-subroutine fire_transitions_0d(tiles, land_area, l)
+subroutine fire_transitions_0D(tiles, land_area, l)
   type(land_tile_list_type), intent(inout) :: tiles
   real, intent(in) :: land_area ! area of land in current grid cell, m2
   integer, intent(in) :: l ! grid cell index, for debug purposes only
@@ -3760,6 +3672,92 @@ subroutine fire_transitions_0d(tiles, land_area, l)
   ! list of burned tiles is empty at this point
   call land_tile_list_end(burned)
 
-end subroutine fire_transitions_0d
+end subroutine fire_transitions_0D
+
+! =====================================================================================
+! given list of tiles in a grid cell, updates max_fire_size for each vegetated tile
+subroutine fire_fragmentation(tiles,land_area)
+  type(land_tile_list_type), intent(in) :: tiles ! tiles in a grid cell
+  real, intent(in) :: land_area ! total area of land in the grid cell, m2
+
+  ! local vars
+  type(land_tile_type), pointer :: ptr
+  type(land_tile_enum_type) :: ts
+  real :: fragmenting_frac, burnable_frac
+  integer :: k
+
+  fragmenting_frac = 0.0; burnable_frac = 0.0
+  ts = first_elmt(tiles)
+  do while (loop_over_tiles(ts, ptr))
+     if (.not.associated(ptr%vegn)) then
+        if (frag_incl_nonveg) fragmenting_frac = fragmenting_frac + ptr%frac
+     elseif (burns_as_agri(ptr)) then
+        fragmenting_frac = fragmenting_frac + ptr%frac
+     elseif (burns_as_ntrl(ptr)) then
+        burnable_frac = burnable_frac + ptr%frac
+     endif
+  enddo
+
+  if (is_watch_cell()) then
+     write(*,*) '### update_max_fire_size input ###'
+     __DEBUG3__(land_area,fragmenting_frac,burnable_frac)
+     __DEBUG1__(max_fire_size_min)
+     write(*,*) '### update_max_fire_size output ###'
+  endif
+
+  call check_var_range(fragmenting_frac, 0.0, 1.0,'fire_fragmentation', 'fragmenting_frac',   FATAL)
+  call check_var_range(burnable_frac,    0.0, 1.0,'fire_fragmentation', 'burnable_frac',      FATAL)
+
+  ts = first_elmt(tiles)
+  do while (loop_over_tiles(ts, ptr, k=k))
+     if (.not.associated(ptr%vegn)) cycle ! skip non-vegetated tiles
+
+     ! This only needs to be done for tiles where fire size is actually calculated/used.
+     if (burns_as_ntrl(ptr)) then
+        ! Based on Pfeiffer et al. (2013), eq. 33.
+        ptr%vegn%max_fire_size = ((1.003 + exp(16.607-41.503*burnable_frac))**-2.169)*(ptr%frac*land_area)
+        if (ptr%vegn%max_fire_size < max_fire_size_min) then
+           ptr%vegn%max_fire_size = max_fire_size_min
+        endif
+     else
+        ptr%vegn%max_fire_size = 0.0
+     endif
+     if (is_watch_cell()) then
+        write(*,'(i3.3,x)',advance='NO'),k
+        __DEBUG2__(ptr%frac,ptr%vegn%max_fire_size)
+     endif
+
+     call send_tile_data(id_fragmenting_frac, fragmenting_frac, ptr%diag)
+     call send_tile_data(id_burnable_frac, burnable_frac, ptr%diag)
+  enddo
+end subroutine fire_fragmentation
+
+! ==============================================================================
+! returns true if tile is subject to natural fire
+function burns_as_ntrl(tile) result(answer)
+  type(land_tile_type), intent(in) :: tile
+  logical :: answer
+
+  answer = .FALSE.
+  if (.not.associated(tile%vegn))      return
+  if (.not.fire_option==FIRE_UNPACKED) return
+  answer = tile%vegn%landuse==LU_NTRL &
+     .OR. tile%vegn%landuse==LU_SCND &
+     .OR. (tile%vegn%landuse==LU_PAST .AND. fire_option_past==FIRE_PASTLI)
+end function burns_as_ntrl
+
+! ==============================================================================
+! returns true if tile subject to agricultural fire
+function burns_as_agri(tile) result(answer)
+  type(land_tile_type), intent(in) :: tile
+  logical :: answer
+
+  answer = .FALSE.
+  if (.not.associated(tile%vegn))      return
+  if (.not.fire_option==FIRE_UNPACKED) return
+
+  answer =   tile%vegn%landuse==LU_CROP &
+            .OR. (tile%vegn%landuse==LU_PAST .AND. fire_option_past==FIRE_PASTFP)
+end function burns_as_agri
 
 end module vegn_fire_mod

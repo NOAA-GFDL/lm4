@@ -52,7 +52,7 @@ use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
      vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
      update_derived_vegn_data, update_vegn_slow, save_vegn_restart
 use vegn_disturbance_mod, only : vegn_nat_mortality_ppa
-use vegn_fire_mod, only : do_multiday_fires, fire_natural, fire_agri, &
+use vegn_fire_mod, only : do_multiday_fires, burns_as_ntrl, burns_as_agri, &
      update_fire_fast, update_fire_agri, send_tile_data_babf_foragri, &
      update_fire_fk, update_multiday_fires, fire_transitions
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat
@@ -2060,7 +2060,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
         call update_fire_Fk(tile%vegn,tile%diag,l)
      endif
      
-     if (fire_natural(tile)) then
+     if (burns_as_ntrl(tile)) then
         ! Update conditions for fire
         call update_fire_fast(tile%vegn,tile%soil,tile%diag, &
               tile%cana%T, cana_q, p_surf, atmos_wind, l, lnd%ug_area(l)*tile%frac, lnd%ug_lat(l))
@@ -2070,7 +2070,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
         endif
         call send_tile_data(id_mdf_BA_tot,    tile%vegn%total_BA_mdf,        tile%diag)
         call send_tile_data(id_mdf_Nfires,    sum(tile%vegn%past_fires_mdf(2:30)), tile%diag)
-     elseif (fire_agri(tile)) then
+     elseif (burns_as_agri(tile)) then
         if (month1/=month0) then
            call update_fire_agri(tile%vegn,lnd%time,lnd%ug_area(l)*tile%frac/1e6,BF_mth,BA_mth)
            
