@@ -355,7 +355,12 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      if(field_exists(restart2,'rhiz_exud_marginal_gain_smoothed')) &
        call get_cohort_data(restart2, 'rhiz_exud_marginal_gain_smoothed',cohort_rhiz_exud_marginal_gain_smoothed_ptr)
 
-
+     if(field_exists(restart2,'myc_scav_alloc_smoothed')) &
+       call get_cohort_data(restart2, 'myc_scav_alloc_smoothed',cohort_myc_scav_alloc_smoothed_ptr)
+     if(field_exists(restart2,'myc_mine_alloc_smoothed')) &
+       call get_cohort_data(restart2, 'myc_mine_alloc_smoothed',cohort_myc_mine_alloc_smoothed_ptr)
+     if(field_exists(restart2,'N_fix_alloc_smoothed')) &
+       call get_cohort_data(restart2, 'N_fix_alloc_smoothed',cohort_N_fix_alloc_smoothed_ptr)
 
      call get_cohort_data(restart2, 'bliving', cohort_bliving_ptr)
      call get_int_cohort_data(restart2, 'status', cohort_status_ptr)
@@ -526,6 +531,9 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      cohort%myc_mine_marginal_gain_smoothed = 0.0
      cohort%N_fix_marginal_gain_smoothed = 0.0
      cohort%rhiz_exud_marginal_gain_smoothed = 0.0
+     cohort%myc_scav_alloc_smoothed = 0.0
+     cohort%myc_mine_alloc_smoothed = 0.0
+     cohort%N_fix_alloc_smoothed = 0.0
 
      if(did_read_biodata.and.do_biogeography) then
         call update_species(cohort,t_ann(i,j),t_cold(i,j),p_ann(i,j),ncm(i,j),LU_NTRL)
@@ -979,6 +987,9 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'myc_mine_marginal_gain_smoothed', cohort_myc_mine_marginal_gain_smoothed_ptr, 'smoothed marginal gain of mining','gN/gC')
   call add_cohort_data(restart2,'N_fix_marginal_gain_smoothed', cohort_N_fix_marginal_gain_smoothed_ptr, 'smoothed marginal gain of N fixation','gN/gC')
   call add_cohort_data(restart2,'rhiz_exud_marginal_gain_smoothed', cohort_rhiz_exud_marginal_gain_smoothed_ptr, 'smoothed marginal gain of root exudation','gN/gC')
+  call add_cohort_data(restart2,'myc_scav_alloc_smoothed', cohort_myc_scav_alloc_smoothed_ptr, 'smoothed allocation to scavenging','kgC/m2/year')
+  call add_cohort_data(restart2,'myc_mine_alloc_smoothed', cohort_myc_mine_alloc_smoothed_ptr, 'smoothed allocation to mining','kgC/m2/year')
+  call add_cohort_data(restart2,'N_fix_alloc_smoothed', cohort_N_fix_alloc_smoothed_ptr, 'smoothed allocation to N fixation','kgC/m2/year')
 
   call add_cohort_data(restart2,'npp_prev_day', cohort_npp_previous_day_ptr, 'previous day NPP','kg C/(m2 year)')
 
@@ -2132,6 +2143,9 @@ DEFINE_COHORT_ACCESSOR(real,myc_mine_marginal_gain_smoothed)
 DEFINE_COHORT_ACCESSOR(real,N_fix_marginal_gain_smoothed)
 DEFINE_COHORT_ACCESSOR(real,rhiz_exud_marginal_gain_smoothed)
 
+DEFINE_COHORT_ACCESSOR(real,myc_scav_alloc_smoothed)
+DEFINE_COHORT_ACCESSOR(real,myc_mine_alloc_smoothed)
+DEFINE_COHORT_ACCESSOR(real,N_fix_alloc_smoothed)
 
 
 DEFINE_COHORT_ACCESSOR(real,tv)

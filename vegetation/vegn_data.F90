@@ -111,7 +111,7 @@ public :: &
     dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
     N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, N_limits_live_biomass, root_NH4_uptake_rate, root_NO3_uptake_rate,&
     k_ammonium_root_uptake,k_nitrate_root_uptake,excess_stored_N_leakage_rate,myc_growth_rate,kM_myc_growth,myc_N_to_plant_rate,et_myc,&
-    do_N_mining_strategy,do_N_scavenging_strategy,do_N_fixation_strategy,N_stress_root_factor,tau_smooth_marginal_gain
+    do_N_mining_strategy,do_N_scavenging_strategy,do_N_fixation_strategy,N_stress_root_factor,tau_smooth_marginal_gain,tau_smooth_alloc,smooth_N_uptake_C_allocation
 
 
 ! ---- public subroutine
@@ -217,6 +217,7 @@ type spec_data_type
 
   real    :: N_stress_root_factor
   real    :: tau_smooth_marginal_gain
+  real    :: tau_smooth_alloc
 
 end type
 
@@ -466,6 +467,8 @@ real :: N_stress_root_factor(0:MSPECIES)=  &  ! How much sapwood moves to roots 
         (/0.02     ,    0.02   ,     0.02      ,    0.02    ,   0.02      ,  0.02,    0.02,     0.02,  0.02,     0.02,     0.02,    0.02,    0.02,   0.02/)
 real :: tau_smooth_marginal_gain(0:MSPECIES) = &
         (/0.0      ,    0.0    ,     0.0       ,     0.0    ,    0.0      ,   0.0 ,   0.0,       0.0,    0.0,     0.0,     0.0,     0.0,     0.0,     0.0/)
+real :: tau_smooth_alloc(0:MSPECIES) = &
+        (/0.0      ,    0.0    ,     0.0       ,     0.0    ,    0.0      ,   0.0 ,   0.0,       0.0,    0.0,     0.0,     0.0,     0.0,     0.0,     0.0/)
 
 logical :: do_N_mining_strategy(0:MSPECIES) = &
         (/ .TRUE.  ,    .TRUE. ,   .TRUE.   ,   .TRUE.  ,   .TRUE.  ,  .TRUE. , .TRUE. , .TRUE. , .TRUE. , .TRUE. , .TRUE., .TRUE., .TRUE., .TRUE./)
@@ -494,6 +497,9 @@ real :: myc_growth_rate = 1.0        ! Max rate at which mycorrhizae gain biomas
 real :: kM_myc_growth = 1e-3           ! Half-saturation of buffer pool for mycorrhizal growth (kgC/m2)
 real :: myc_N_to_plant_rate = 100.0    ! Rate at which plants send N from reservoir to plant (Fraction per year)
 real :: et_myc = 0.7                   ! Fraction of mycorrhizal turnover NOT mineralized to CO2 and NH4
+
+logical :: smooth_N_uptake_C_allocation = .FALSE.
+
 
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
@@ -526,7 +532,7 @@ namelist /vegn_data_nml/ &
   dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
   N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, N_limits_live_biomass, root_NH4_uptake_rate, root_NO3_uptake_rate,&
   k_nitrate_root_uptake,k_ammonium_root_uptake,excess_stored_N_leakage_rate,myc_growth_rate,kM_myc_growth,myc_N_to_plant_rate,et_myc,&
-  do_N_mining_strategy,do_N_scavenging_strategy,do_N_fixation_strategy,N_stress_root_factor,tau_smooth_marginal_gain
+  do_N_mining_strategy,do_N_scavenging_strategy,do_N_fixation_strategy,N_stress_root_factor,tau_smooth_marginal_gain,tau_smooth_alloc,smooth_N_uptake_C_allocation
 
 
 contains ! ###################################################################
@@ -641,6 +647,7 @@ subroutine read_vegn_data_namelist()
 
   spdata%N_stress_root_factor = N_stress_root_factor
   spdata%tau_smooth_marginal_gain = tau_smooth_marginal_gain
+  spdata%tau_smooth_alloc = tau_smooth_alloc
 
   spdata%tracer_cuticular_cond = tracer_cuticular_cond
 
@@ -742,7 +749,8 @@ subroutine read_vegn_data_namelist()
   call add_row(table,'do_N_scavenging_strategy',spdata(:)%do_N_scavenging_strategy)
   call add_row(table,'do_N_fixation_strategy',spdata(:)%do_N_fixation_strategy)
   call add_row(table,'N_stress_root_factor',spdata(:)%N_stress_root_factor)
-    call add_row(table,'tau_smooth_marginal_gain',spdata(:)%tau_smooth_marginal_gain)
+  call add_row(table,'tau_smooth_marginal_gain',spdata(:)%tau_smooth_marginal_gain)
+  call add_row(table,'tau_smooth_alloc',spdata(:)%tau_smooth_alloc)
 
   call add_row(table,'tracer_cuticular_cond',spdata(:)%tracer_cuticular_cond)
 

@@ -20,7 +20,7 @@ use vegn_data_mod, only : spdata, &
      ! BNS: C2N ratios should be temporary fix, which we can get rid of once N is integrated into vegetation code
      dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
      N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, excess_stored_N_leakage_rate, N_limits_live_biomass, &
-     myc_growth_rate, myc_N_to_plant_rate, et_myc, kM_myc_growth
+     myc_growth_rate, myc_N_to_plant_rate, et_myc, kM_myc_growth, smooth_N_uptake_C_allocation
 
 use vegn_tile_mod, only: vegn_tile_type,vegn_tile_carbon, vegn_tile_nitrogen
 use soil_tile_mod, only: soil_tile_type,soil_tile_carbon, soil_tile_nitrogen
@@ -224,7 +224,7 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, ndep_nit, ndep_amm, ndep_or
   real :: myc_mine_N_uptake,myc_mine_C_uptake,total_miner_myc_C_allocated,miner_myc_C_allocated,total_mine_myc_immob,total_myc_mine_C_uptake
   real :: N_fixation, total_N_fixation, total_N_fixer_C_allocated, N_fixer_C_allocated, N_fixer_exudate_frac
   real :: myc_scav_marginal_gain,myc_mine_marginal_gain, N_fix_marginal_gain,rhiz_exud_frac,rhiz_exud_marginal_gain
-  real :: weight_marginal_gain
+  real :: weight_marginal_gain,weight_alloc
   real :: root_active_N_uptake, mining_CO2prod,total_mining_CO2prod, excess_mining_C
   real :: N_fixation_2, myc_N_uptake, myc_N_uptake_2, myc_C_uptake, myc_C_uptake_2, dummy1
   real :: total_plant_N_uptake, scavenger_myc_growth, miner_myc_growth, N_fixer_growth
@@ -714,8 +714,18 @@ N_leakage = 0.0
             rhiz_exud_frac = 0.3
           endif
 
-          N_fixer_C_allocated = root_exudate_C*N_fixer_exudate_frac*dt_fast_yr
-          miner_myc_C_allocated=root_exudate_C*myc_mine_exudate_frac*dt_fast_yr
+          weight_alloc = 1/(1+spdata(sp)%tau_smooth_alloc/dt_fast_yr)
+          cc%N_fix_alloc_smoothed = cc%N_fix_alloc_smoothed*(1.0-weight_alloc) + root_exudate_C*N_fixer_exudate_frac*dt_fast_yr*weight_alloc
+          cc%myc_mine_alloc_smoothed = cc%myc_mine_alloc_smoothed*(1.0-weight_alloc) + root_exudate_C*myc_mine_exudate_frac*dt_fast_yr*weight_alloc
+          cc%myc_scav_alloc_smoothed = cc%myc_scav_alloc_smoothed*(1.0-weight_alloc) + root_exudate_C*myc_scav_exudate_frac*dt_fast_yr*weight_alloc
+
+          if(smooth_N_uptake_C_allocation) then
+            N_fixer_C_allocated = min(root_exudate_C*N_fixer_exudate_frac*dt_fast_yr,cc%N_fix_alloc_smoothed)
+            miner_myc_C_allocated=min(root_exudate_C*myc_mine_exudate_frac*dt_fast_yr,cc%myc_mine_alloc_smoothed)
+          else
+            N_fixer_C_allocated = root_exudate_C*N_fixer_exudate_frac*dt_fast_yr
+            miner_myc_C_allocated=root_exudate_C*myc_mine_exudate_frac*dt_fast_yr
+          endif
           scavenger_myc_C_allocated=root_exudate_C*myc_scav_exudate_frac*dt_fast_yr
 
           N_fixer_N_allocated = 0.0
