@@ -5,13 +5,13 @@ module vegn_disturbance_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod,         only : error_mesg, WARNING, FATAL
+use fms_mod,         only : string, error_mesg, WARNING, FATAL
 use time_manager_mod,only : time_type, get_date, operator(-)
 use constants_mod,   only : tfreeze
 use land_constants_mod, only : seconds_per_year
 use land_debug_mod,  only : is_watch_point, is_watch_cell, set_current_point, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, &
-     heat_cons_tol, check_var_range
+     heat_cons_tol, check_var_range, land_error_message
 use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, fsc_froot, agf_bs, &
        do_ppa, LEAF_OFF, DBH_mort, A_mort, B_mort, mortrate_s, nat_mortality_splits_tiles, &
        FORM_GRASS
@@ -647,6 +647,7 @@ subroutine kill_plants_ppa(cc, vegn, ndead, fsmoke, leaf_litt, wood_litt, root_l
   real :: lost_wood, lost_alive, burned_wood, burned_alive
   real :: profile(num_l) ! storage for vertical profile of exudates and root litter
   integer :: l
+  real :: bp, bn ! positive and negative amounts of litter, used in adjusting litter pools if one is negative 
 
   call check_var_range(ndead,  0.0, cc%nindivs, 'kill_plants_ppa', 'ndead',  FATAL)
   call check_var_range(fsmoke, 0.0, 1.0,        'kill_plants_ppa', 'fsmoke', FATAL)
@@ -691,7 +692,22 @@ subroutine kill_plants_ppa(cc, vegn, ndead, fsmoke, leaf_litt, wood_litt, root_l
         leaf_litt(l) = 0.0
      endif
   enddo
-  call check_var_range(wood_litt, 0.0, HUGE(1.0), 'kill_plants_ppa', 'wood_litt',  FATAL)
+  call check_var_range(wood_litt, 0.0, HUGE(1.0), 'kill_plants_ppa', 'wood_litt',  WARNING)
+  if (any(wood_litt<0.0)) then
+     ! if some wood litter components are negative, try to borrow carbon
+     ! from positive components so that the total carbon is conserved
+     bp = 0.0; bn=0.0
+     do l = 1, N_C_TYPES
+        if (wood_litt(l)>0) bp = bp+wood_litt(l)
+        if (wood_litt(l)<0) bn = bn+abs(wood_litt(l))
+     enddo
+     if (bp<bn) call land_error_message(&
+        'kill_plants_ppa: total wood litter amount is negative ('//string(sum(wood_litt))//')', FATAL)
+     do l = 1, N_C_TYPES
+        if (wood_litt(l)>0) wood_litt(l) = wood_litt(l)+(bp-bn)/bp
+        if (wood_litt(l)<0) wood_litt(l) = 0.0
+     enddo
+  endif
 
   ! reduce the number of individuals in cohort
   cc%nindivs = cc%nindivs-ndead
