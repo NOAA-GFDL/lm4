@@ -697,7 +697,7 @@ function cohorts_can_be_merged(c1,c2); logical cohorts_can_be_merged
    sameSize    = (abs(c1%DBH - c2%DBH)/c2%DBH < 0.15 ) .or.  &
                  (abs(c1%DBH - c2%DBH)        < 0.003)
    if (spdata(c1%species)%lifeform == FORM_GRASS) then
-      sameSize = sameSize .and. (abs(c1%nsc - c2%nsc)/c2%nsc < 0.15 )
+      sameSize = sameSize .and. (abs(c1%nsc - c2%nsc) < 0.15*abs(c2%nsc) )
    endif
    lowDensity  = .FALSE. ! c1%nindivs < mindensity
                          ! Weng, 2014-01-27, turned off
