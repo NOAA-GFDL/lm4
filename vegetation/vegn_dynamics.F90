@@ -69,7 +69,7 @@ integer :: id_npp, id_nep, id_gpp, id_resp, id_resl, id_resr, id_resg, &
     id_myc_scavenger_N_uptake,id_myc_miner_N_uptake,id_symbiotic_N_fixation,id_active_root_N_uptake,&
     id_scav_plant_N_uptake, id_mine_plant_N_uptake, id_fix_plant_N_uptake,&
     id_mycorrhizal_scav_C_res, id_mycorrhizal_scav_N_res, id_mycorrhizal_mine_C_res, id_mycorrhizal_mine_N_res, &
-    id_Nfix_C_res, id_Nfix_N_res
+    id_Nfix_C_res, id_Nfix_N_res,id_N_fix_alloc_smoothed,id_myc_mine_alloc_smoothed,id_myc_scav_alloc_smoothed
 
 ! CMOR diagnostic field IDs
 integer :: id_gpp_cmor, id_npp_cmor, id_ra, id_rgrowth
@@ -180,6 +180,12 @@ subroutine vegn_dynamics_init(id_lon, id_lat, time, delta_time)
          (/id_lon,id_lat/), time, 'N fixer C reservoir', 'kg C/m2', missing_value=-1.0 )
     id_Nfix_N_res = register_tiled_diag_field ( module_name, 'N_fixer_N_res',  &
          (/id_lon,id_lat/), time, 'N fixer N reservoir', 'kg N/m2', missing_value=-1.0 )
+    id_N_fix_alloc_smoothed = register_tiled_diag_field ( module_name, 'N_fix_alloc_smoothed',  &
+         (/id_lon,id_lat/), time, 'Plant C allocation to N fixers smoothed', 'kg N/m2/year', missing_value=-1.0 )
+    id_myc_mine_alloc_smoothed = register_tiled_diag_field ( module_name, 'myc_mine_alloc_smoothed',  &
+         (/id_lon,id_lat/), time, 'Plant C allocation to N miners smoothed', 'kg N/m2/year', missing_value=-1.0 )
+    id_myc_scav_alloc_smoothed = register_tiled_diag_field ( module_name, 'myc_scav_alloc_smoothed',  &
+         (/id_lon,id_lat/), time, 'C allocation to N scavengers smoothed', 'kg N/m2/year', missing_value=-1.0 )
 
   ! set the default sub-sampling filter for CMOR variables
   call set_default_diag_filter('land')
@@ -720,13 +726,14 @@ N_leakage = 0.0
           cc%myc_scav_alloc_smoothed = cc%myc_scav_alloc_smoothed*(1.0-weight_alloc) + root_exudate_C*myc_scav_exudate_frac*dt_fast_yr*weight_alloc
 
           if(smooth_N_uptake_C_allocation) then
-            N_fixer_C_allocated = min(root_exudate_C*N_fixer_exudate_frac*dt_fast_yr,cc%N_fix_alloc_smoothed)
-            miner_myc_C_allocated=min(root_exudate_C*myc_mine_exudate_frac*dt_fast_yr,cc%myc_mine_alloc_smoothed)
+            N_fixer_C_allocated = min(root_exudate_C*N_fixer_exudate_frac*dt_fast_yr,cc%N_fix_alloc_smoothed*3)
+            miner_myc_C_allocated=min(root_exudate_C*myc_mine_exudate_frac*dt_fast_yr,cc%myc_mine_alloc_smoothed*3)
+            scavenger_myc_C_allocated=min(root_exudate_C*myc_scav_exudate_frac*dt_fast_yr,cc%myc_scav_alloc_smoothed*3)
           else
             N_fixer_C_allocated = root_exudate_C*N_fixer_exudate_frac*dt_fast_yr
             miner_myc_C_allocated=root_exudate_C*myc_mine_exudate_frac*dt_fast_yr
+            scavenger_myc_C_allocated=root_exudate_C*myc_scav_exudate_frac*dt_fast_yr
           endif
-          scavenger_myc_C_allocated=root_exudate_C*myc_scav_exudate_frac*dt_fast_yr
 
           N_fixer_N_allocated = 0.0
           miner_myc_N_allocated = miner_myc_C_allocated*root_exudate_N_frac
@@ -906,6 +913,9 @@ N_leakage = 0.0
   call send_tile_data(id_scav_plant_N_uptake,scav_N_to_plant/dt_fast_yr,diag)
   call send_tile_data(id_mine_plant_N_uptake,mine_N_to_plant/dt_fast_yr,diag)
   call send_tile_data(id_fix_plant_N_uptake,fix_N_to_plant/dt_fast_yr,diag)
+  call send_tile_data(id_N_fix_alloc_smoothed,cc%N_fix_alloc_smoothed/dt_fast_yr,diag)
+  call send_tile_data(id_myc_mine_alloc_smoothed,cc%myc_mine_alloc_smoothed/dt_fast_yr,diag)
+  call send_tile_data(id_myc_scav_alloc_smoothed,cc%myc_scav_alloc_smoothed/dt_fast_yr,diag)
 
   ! ---- CMOR diagnostics
   call send_tile_data(id_gpp_cmor, gpp/seconds_per_year, diag)
