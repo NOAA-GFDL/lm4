@@ -1030,6 +1030,7 @@ subroutine vegn_diffusion (vegn, snow_depth, vegn_cover, vegn_height, vegn_lai, 
   ! calculate integral parameters of vegetation
   gaps = 1.0; vegn_lai = 0; vegn_sai = 0
   current_layer = cc(1)%layer ; layer_gaps = 1.0
+  vegn_height = 0.0
   do i = 1,vegn%n_cohorts
     call vegn_data_cover(cc(i), snow_depth)
     vegn_lai = vegn_lai + cc(i)%lai*cc(i)%layerfrac
@@ -1039,9 +1040,9 @@ subroutine vegn_diffusion (vegn, snow_depth, vegn_cover, vegn_height, vegn_lai, 
        gaps = gaps*layer_gaps; layer_gaps = 1.0; current_layer = cc(i)%layer
     endif
     layer_gaps = layer_gaps-cc(i)%layerfrac*cc(i)%cover
+    vegn_height = max(vegn_height,cc(i)%height)
   enddo
   gaps = gaps*layer_gaps ! take the last layer into account
-  vegn_height = cc(1)%height ! return the height of the tallest (first) cohort
   vegn_cover  = 1 - gaps
   end associate ! F2003
 
