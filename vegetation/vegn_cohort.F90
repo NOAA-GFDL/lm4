@@ -170,9 +170,15 @@ type :: vegn_cohort_type
   real :: N_fix_marginal_gain_smoothed = 0.0
   real :: rhiz_exud_marginal_gain_smoothed = 0.0
 
-  real :: N_fix_alloc_smoothed = 0.0
-  real :: myc_scav_alloc_smoothed = 0.0
-  real :: myc_mine_alloc_smoothed = 0.0
+  real :: max_monthly_scav_alloc = 0.0
+  real :: max_monthly_mine_alloc = 0.0
+  real :: max_monthly_Nfix_alloc = 0.0
+  real :: scav_alloc_accum = 0.0
+  real :: mine_alloc_accum = 0.0
+  real :: Nfix_alloc_accum = 0.0
+  real :: max_scav_allocation = 0.0
+  real :: max_mine_allocation = 0.0
+  real :: max_Nfix_allocation = 0.0
 
 
 ! in LM3V the cohort structure has a handy pointer to the tile it belongs to;

@@ -355,12 +355,24 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      if(field_exists(restart2,'rhiz_exud_marginal_gain_smoothed')) &
        call get_cohort_data(restart2, 'rhiz_exud_marginal_gain_smoothed',cohort_rhiz_exud_marginal_gain_smoothed_ptr)
 
-     if(field_exists(restart2,'myc_scav_alloc_smoothed')) &
-       call get_cohort_data(restart2, 'myc_scav_alloc_smoothed',cohort_myc_scav_alloc_smoothed_ptr)
-     if(field_exists(restart2,'myc_mine_alloc_smoothed')) &
-       call get_cohort_data(restart2, 'myc_mine_alloc_smoothed',cohort_myc_mine_alloc_smoothed_ptr)
-     if(field_exists(restart2,'N_fix_alloc_smoothed')) &
-       call get_cohort_data(restart2, 'N_fix_alloc_smoothed',cohort_N_fix_alloc_smoothed_ptr)
+     if(field_exists(restart2,'max_monthly_scav_alloc')) &
+       call get_cohort_data(restart2, 'max_monthly_scav_alloc',cohort_max_monthly_scav_alloc_ptr)
+     if(field_exists(restart2,'max_monthly_mine_alloc')) &
+       call get_cohort_data(restart2, 'max_monthly_mine_alloc',cohort_max_monthly_mine_alloc_ptr)
+     if(field_exists(restart2,'max_monthly_Nfix_alloc')) &
+       call get_cohort_data(restart2, 'max_monthly_Nfix_alloc',cohort_max_monthly_Nfix_alloc_ptr)
+     if(field_exists(restart2,'max_scav_allocation')) &
+       call get_cohort_data(restart2, 'max_scav_allocation',cohort_max_scav_allocation_ptr)
+     if(field_exists(restart2,'max_mine_allocation')) &
+       call get_cohort_data(restart2, 'max_mine_allocation',cohort_max_mine_allocation_ptr)
+     if(field_exists(restart2,'max_Nfix_allocation')) &
+       call get_cohort_data(restart2, 'max_Nfix_allocation',cohort_max_Nfix_allocation_ptr)
+     if(field_exists(restart2,'scav_alloc_accum')) &
+       call get_cohort_data(restart2, 'scav_alloc_accum',cohort_scav_alloc_accum_ptr)
+     if(field_exists(restart2,'mine_alloc_accum')) &
+       call get_cohort_data(restart2, 'mine_alloc_accum',cohort_mine_alloc_accum_ptr)
+     if(field_exists(restart2,'Nfix_alloc_accum')) &
+       call get_cohort_data(restart2, 'Nfix_alloc_accum',cohort_Nfix_alloc_accum_ptr)
 
      call get_cohort_data(restart2, 'bliving', cohort_bliving_ptr)
      call get_int_cohort_data(restart2, 'status', cohort_status_ptr)
@@ -531,9 +543,15 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      cohort%myc_mine_marginal_gain_smoothed = 0.0
      cohort%N_fix_marginal_gain_smoothed = 0.0
      cohort%rhiz_exud_marginal_gain_smoothed = 0.0
-     cohort%myc_scav_alloc_smoothed = 0.0
-     cohort%myc_mine_alloc_smoothed = 0.0
-     cohort%N_fix_alloc_smoothed = 0.0
+     cohort%max_monthly_scav_alloc = 0.0
+     cohort%max_monthly_mine_alloc = 0.0
+     cohort%max_monthly_Nfix_alloc = 0.0
+     cohort%max_scav_allocation = 0.0
+     cohort%max_mine_allocation = 0.0
+     cohort%max_Nfix_allocation = 0.0
+     cohort%scav_alloc_accum = 0.0
+     cohort%mine_alloc_accum = 0.0
+     cohort%Nfix_alloc_accum = 0.0
 
      if(did_read_biodata.and.do_biogeography) then
         call update_species(cohort,t_ann(i,j),t_cold(i,j),p_ann(i,j),ncm(i,j),LU_NTRL)
@@ -987,9 +1005,15 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'myc_mine_marginal_gain_smoothed', cohort_myc_mine_marginal_gain_smoothed_ptr, 'smoothed marginal gain of mining','gN/gC')
   call add_cohort_data(restart2,'N_fix_marginal_gain_smoothed', cohort_N_fix_marginal_gain_smoothed_ptr, 'smoothed marginal gain of N fixation','gN/gC')
   call add_cohort_data(restart2,'rhiz_exud_marginal_gain_smoothed', cohort_rhiz_exud_marginal_gain_smoothed_ptr, 'smoothed marginal gain of root exudation','gN/gC')
-  call add_cohort_data(restart2,'myc_scav_alloc_smoothed', cohort_myc_scav_alloc_smoothed_ptr, 'smoothed allocation to scavenging','kgC/m2/year')
-  call add_cohort_data(restart2,'myc_mine_alloc_smoothed', cohort_myc_mine_alloc_smoothed_ptr, 'smoothed allocation to mining','kgC/m2/year')
-  call add_cohort_data(restart2,'N_fix_alloc_smoothed', cohort_N_fix_alloc_smoothed_ptr, 'smoothed allocation to N fixation','kgC/m2/year')
+  call add_cohort_data(restart2,'max_monthly_scav_alloc', cohort_max_monthly_scav_alloc_ptr, 'smoothed allocation to scavenging','kgC/m2/year')
+  call add_cohort_data(restart2,'max_monthly_mine_alloc', cohort_max_monthly_mine_alloc_ptr, 'smoothed allocation to mining','kgC/m2/year')
+  call add_cohort_data(restart2,'max_monthly_Nfix_alloc', cohort_max_monthly_Nfix_alloc_ptr, 'monthly maximum allocation to N fixation','kgC/m2/year')
+  call add_cohort_data(restart2,'scav_alloc_accum', cohort_scav_alloc_accum_ptr, 'scavenging allocation accumulator','kgC/m2')
+  call add_cohort_data(restart2,'mine_alloc_accum', cohort_mine_alloc_accum_ptr, 'mining allocation accumulator','kgC/m2')
+  call add_cohort_data(restart2,'Nfix_alloc_accum', cohort_Nfix_alloc_accum_ptr, 'N fixation allocation accumulator','kgC/m2')
+  call add_cohort_data(restart2,'max_scav_allocation', cohort_max_scav_allocation_ptr, 'max allowed allocation to scavenging','kgC/m2/year')
+  call add_cohort_data(restart2,'max_mine_allocation', cohort_max_mine_allocation_ptr, 'max allowed allocation to mining','kgC/m2/year')
+  call add_cohort_data(restart2,'max_Nfix_allocation', cohort_max_Nfix_allocation_ptr, 'max allowed allocation to N fixation','kgC/m2/year')
 
   call add_cohort_data(restart2,'npp_prev_day', cohort_npp_previous_day_ptr, 'previous day NPP','kg C/(m2 year)')
 
@@ -1603,6 +1627,7 @@ subroutine update_vegn_slow( )
   integer :: n ! number of cohorts
   real    :: weight_ncm ! low-pass filter value for the number of cold months
   character(64) :: timestamp
+  real :: weight_alloc,monthlyaverage_Nfix_allocation,monthlyaverage_mine_allocation,monthlyaverage_scav_allocation
 
   real :: leaf_N_content,root_N_content
 
@@ -1662,6 +1687,20 @@ call check_conservation ('vegn_daily_npp','nitrogen'      , nmass0, nmass1, nitr
         tile%vegn%t_cold_acm = min(tile%vegn%t_cold_acm, tile%vegn%tc_av)
 
         tile%vegn%nmn_acm = tile%vegn%nmn_acm+1 ! increase the number of accumulated months
+
+        ! Calculate monthly average allocation to each N uptake type
+        ! Then save the maximum month from each year
+        ! So we can then smooth a yearly maximum estimate for limiting the change over time without messing everything up because of seasonality
+        monthlyaverage_Nfix_allocation = tile%vegn%cohorts(1)%Nfix_alloc_accum / tile%vegn%n_accum/dt_fast_yr
+        tile%vegn%cohorts(1)%max_monthly_Nfix_alloc = max(tile%vegn%cohorts(1)%max_monthly_Nfix_alloc,monthlyaverage_Nfix_allocation)
+        monthlyaverage_mine_allocation = tile%vegn%cohorts(1)%mine_alloc_accum / tile%vegn%n_accum/dt_fast_yr
+        tile%vegn%cohorts(1)%max_monthly_mine_alloc = max(tile%vegn%cohorts(1)%max_monthly_mine_alloc,monthlyaverage_mine_allocation)
+        monthlyaverage_scav_allocation = tile%vegn%cohorts(1)%scav_alloc_accum / tile%vegn%n_accum/dt_fast_yr
+        tile%vegn%cohorts(1)%max_monthly_scav_alloc = max(tile%vegn%cohorts(1)%max_monthly_scav_alloc,monthlyaverage_scav_allocation)
+
+        tile%vegn%cohorts(1)%Nfix_alloc_accum = 0.0
+        tile%vegn%cohorts(1)%scav_alloc_accum = 0.0
+        tile%vegn%cohorts(1)%mine_alloc_accum = 0.0
      endif
 
      ! annual averaging
@@ -1683,6 +1722,15 @@ call check_conservation ('vegn_daily_npp','nitrogen'      , nmass0, nmass1, nitr
         endif
 !!$        call calc_miami_npp(tile%vegn)
         tile%vegn%nmn_acm = 0
+
+        weight_alloc = 1/(1+spdata(tile%vegn%cohorts(1)%species)%tau_smooth_alloc)
+        tile%vegn%cohorts(1)%max_Nfix_allocation = weight_alloc*tile%vegn%cohorts(1)%max_monthly_Nfix_alloc + (1-weight_alloc)*tile%vegn%cohorts(1)%max_Nfix_allocation
+        tile%vegn%cohorts(1)%max_mine_allocation = weight_alloc*tile%vegn%cohorts(1)%max_monthly_mine_alloc + (1-weight_alloc)*tile%vegn%cohorts(1)%max_mine_allocation
+        tile%vegn%cohorts(1)%max_scav_allocation = weight_alloc*tile%vegn%cohorts(1)%max_monthly_scav_alloc + (1-weight_alloc)*tile%vegn%cohorts(1)%max_scav_allocation
+
+        tile%vegn%cohorts(1)%max_monthly_Nfix_alloc = 0.0
+        tile%vegn%cohorts(1)%max_monthly_mine_alloc = 0.0
+        tile%vegn%cohorts(1)%max_monthly_scav_alloc = 0.0
      endif
 
 cmass1 = land_tile_carbon(tile)
@@ -2143,9 +2191,15 @@ DEFINE_COHORT_ACCESSOR(real,myc_mine_marginal_gain_smoothed)
 DEFINE_COHORT_ACCESSOR(real,N_fix_marginal_gain_smoothed)
 DEFINE_COHORT_ACCESSOR(real,rhiz_exud_marginal_gain_smoothed)
 
-DEFINE_COHORT_ACCESSOR(real,myc_scav_alloc_smoothed)
-DEFINE_COHORT_ACCESSOR(real,myc_mine_alloc_smoothed)
-DEFINE_COHORT_ACCESSOR(real,N_fix_alloc_smoothed)
+DEFINE_COHORT_ACCESSOR(real,max_monthly_scav_alloc)
+DEFINE_COHORT_ACCESSOR(real,max_monthly_mine_alloc)
+DEFINE_COHORT_ACCESSOR(real,max_monthly_Nfix_alloc)
+DEFINE_COHORT_ACCESSOR(real,Nfix_alloc_accum)
+DEFINE_COHORT_ACCESSOR(real,mine_alloc_accum)
+DEFINE_COHORT_ACCESSOR(real,scav_alloc_accum)
+DEFINE_COHORT_ACCESSOR(real,max_Nfix_allocation)
+DEFINE_COHORT_ACCESSOR(real,max_mine_allocation)
+DEFINE_COHORT_ACCESSOR(real,max_scav_allocation)
 
 
 DEFINE_COHORT_ACCESSOR(real,tv)

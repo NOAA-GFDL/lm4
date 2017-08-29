@@ -230,7 +230,7 @@ subroutine vegn_carbon_int(vegn, soil, soilt, theta, ndep_nit, ndep_amm, ndep_or
   real :: myc_mine_N_uptake,myc_mine_C_uptake,total_miner_myc_C_allocated,miner_myc_C_allocated,total_mine_myc_immob,total_myc_mine_C_uptake
   real :: N_fixation, total_N_fixation, total_N_fixer_C_allocated, N_fixer_C_allocated, N_fixer_exudate_frac
   real :: myc_scav_marginal_gain,myc_mine_marginal_gain, N_fix_marginal_gain,rhiz_exud_frac,rhiz_exud_marginal_gain
-  real :: weight_marginal_gain,weight_alloc
+  real :: weight_marginal_gain
   real :: root_active_N_uptake, mining_CO2prod,total_mining_CO2prod, excess_mining_C
   real :: N_fixation_2, myc_N_uptake, myc_N_uptake_2, myc_C_uptake, myc_C_uptake_2, dummy1
   real :: total_plant_N_uptake, scavenger_myc_growth, miner_myc_growth, N_fixer_growth
@@ -720,20 +720,20 @@ N_leakage = 0.0
             rhiz_exud_frac = 0.3
           endif
 
-          weight_alloc = 1/(1+spdata(sp)%tau_smooth_alloc/dt_fast_yr)
-          cc%N_fix_alloc_smoothed = cc%N_fix_alloc_smoothed*(1.0-weight_alloc) + root_exudate_C*N_fixer_exudate_frac*dt_fast_yr*weight_alloc
-          cc%myc_mine_alloc_smoothed = cc%myc_mine_alloc_smoothed*(1.0-weight_alloc) + root_exudate_C*myc_mine_exudate_frac*dt_fast_yr*weight_alloc
-          cc%myc_scav_alloc_smoothed = cc%myc_scav_alloc_smoothed*(1.0-weight_alloc) + root_exudate_C*myc_scav_exudate_frac*dt_fast_yr*weight_alloc
-
           if(smooth_N_uptake_C_allocation) then
-            N_fixer_C_allocated = min(root_exudate_C*N_fixer_exudate_frac*dt_fast_yr,cc%N_fix_alloc_smoothed*3)
-            miner_myc_C_allocated=min(root_exudate_C*myc_mine_exudate_frac*dt_fast_yr,cc%myc_mine_alloc_smoothed*3)
-            scavenger_myc_C_allocated=min(root_exudate_C*myc_scav_exudate_frac*dt_fast_yr,cc%myc_scav_alloc_smoothed*3)
+            N_fixer_C_allocated = min(root_exudate_C*N_fixer_exudate_frac*dt_fast_yr,cc%max_Nfix_allocation*dt_fast_yr*(1.0+spdata(sp)%alloc_allowed_over_limit))
+            miner_myc_C_allocated=min(root_exudate_C*myc_mine_exudate_frac*dt_fast_yr,cc%max_mine_allocation*dt_fast_yr*(1.0+spdata(sp)%alloc_allowed_over_limit))
+            scavenger_myc_C_allocated=min(root_exudate_C*myc_scav_exudate_frac*dt_fast_yr,cc%max_scav_allocation*dt_fast_yr*(1.0+spdata(sp)%alloc_allowed_over_limit))
           else
             N_fixer_C_allocated = root_exudate_C*N_fixer_exudate_frac*dt_fast_yr
             miner_myc_C_allocated=root_exudate_C*myc_mine_exudate_frac*dt_fast_yr
             scavenger_myc_C_allocated=root_exudate_C*myc_scav_exudate_frac*dt_fast_yr
           endif
+
+          ! We are accumulating potential (not limited/smoothed) allocation so max allocation can increase over time
+          cc%Nfix_alloc_accum = cc%Nfix_alloc_accum+root_exudate_C*N_fixer_exudate_frac*dt_fast_yr
+          cc%scav_alloc_accum = cc%scav_alloc_accum+root_exudate_C*myc_scav_exudate_frac*dt_fast_yr
+          cc%mine_alloc_accum = cc%mine_alloc_accum+root_exudate_C*myc_mine_exudate_frac*dt_fast_yr
 
           N_fixer_N_allocated = 0.0
           miner_myc_N_allocated = miner_myc_C_allocated*root_exudate_N_frac
@@ -913,9 +913,9 @@ N_leakage = 0.0
   call send_tile_data(id_scav_plant_N_uptake,scav_N_to_plant/dt_fast_yr,diag)
   call send_tile_data(id_mine_plant_N_uptake,mine_N_to_plant/dt_fast_yr,diag)
   call send_tile_data(id_fix_plant_N_uptake,fix_N_to_plant/dt_fast_yr,diag)
-  call send_tile_data(id_N_fix_alloc_smoothed,cc%N_fix_alloc_smoothed/dt_fast_yr,diag)
-  call send_tile_data(id_myc_mine_alloc_smoothed,cc%myc_mine_alloc_smoothed/dt_fast_yr,diag)
-  call send_tile_data(id_myc_scav_alloc_smoothed,cc%myc_scav_alloc_smoothed/dt_fast_yr,diag)
+  call send_tile_data(id_N_fix_alloc_smoothed,cc%max_Nfix_allocation,diag)
+  call send_tile_data(id_myc_mine_alloc_smoothed,cc%max_mine_allocation,diag)
+  call send_tile_data(id_myc_scav_alloc_smoothed,cc%max_scav_allocation,diag)
 
   ! ---- CMOR diagnostics
   call send_tile_data(id_gpp_cmor, gpp/seconds_per_year, diag)
