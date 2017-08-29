@@ -2393,6 +2393,7 @@ subroutine vegn_burn_ppa(tile)
      cc(k)%bseed = (1-sp%CC_leaf) * cc(k)%bseed
 
      cc(k)%bsw   = (1-sp%CC_stem) * cc(k)%bsw
+     cc(k)%brsw  = (1-sp%CC_stem) * cc(k)%brsw ! reduce brsw to keep it within [0,bsw] limits
      cc(k)%bwood = (1-sp%CC_stem) * cc(k)%bwood
      ! not burning roots or nsc
 
