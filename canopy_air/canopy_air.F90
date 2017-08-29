@@ -272,7 +272,7 @@ subroutine cana_turbulence (u_star,&
   select case(turbulence_option)
   case(TURB_LM3W)
      if(vegn_cover > 0) then
-        ztop   = vegn_height(1)
+        ztop   = maxval(vegn_height(:))
 
         wind  = u_star/VONKARM*log((ztop-land_d)/land_z0m) ! normalized wind on top of the canopy
         a     = vegn_cover*a_max
@@ -296,7 +296,7 @@ subroutine cana_turbulence (u_star,&
      endif
      con_v_v = con_v_h
   case(TURB_LM3V)
-     ztop = max(vegn_height(1),min_height)
+     ztop = max(maxval(vegn_height(:)),min_height)
 
      a = a_max
      wind=u_star/VONKARM*log((ztop-land_d)/land_z0m) ! normalized wind on top of the canopy
