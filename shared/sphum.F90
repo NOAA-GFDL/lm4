@@ -2,6 +2,8 @@ module sphum_mod
 
 use constants_mod,      only: rdgas, rvgas
 use sat_vapor_pres_mod, only: escomp
+use fms_mod,            only: WARNING
+use land_debug_mod,     only: check_temp_range
 
 implicit none
 private
@@ -23,11 +25,8 @@ subroutine qscomp(T, p, qsat, DqsatDT )
 
   real :: esat ! sat. water vapor pressure
 
-  if(120.0<T.and.T<373.0) then
-     continue
-  else
-     write(*,'(a,g23.16)')'temperature out of range',T
-  endif
+  call check_temp_range(T,'qscomp','temperature')
+
   ! calculate saturated specific humidity
   call escomp(T,esat)
   qsat = d622*esat /(p-d378*esat )
