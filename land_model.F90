@@ -96,7 +96,7 @@ use land_tile_diag_mod, only : OP_SUM, tile_diag_init, tile_diag_end, &
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, is_watch_cell, is_watch_time, get_watch_point, get_current_point, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, &
-     check_var_range, check_temp_range, current_face, log_date
+     check_var_range, check_temp_range, current_face, log_date, land_error_message
 use static_vegn_mod, only : write_static_vegn
 use land_transitions_mod, only : &
      land_transitions_init, land_transitions_end, land_transitions, &
@@ -1777,7 +1777,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      ALUD = A
      call ludcmp(ALUD,indx,ierr)
      if (ierr/=0)&
-          write(*,*) 'Matrix is singular',i,j,itile
+          call land_error_message('update_land_model_fast_0D: Matrix is singular',WARNING)
      if (improve_solution) then
         call lubksb_and_improve(A,ALUD,indx,B0,max_improv_steps,solution_tol,X0)
         call lubksb_and_improve(A,ALUD,indx,B1,max_improv_steps,solution_tol,X1)
