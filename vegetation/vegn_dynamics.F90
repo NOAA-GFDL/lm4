@@ -26,7 +26,8 @@ use vegn_data_mod, only : spdata, nspecies, &
      fsc_liv, fsc_wood, fsc_froot, agf_bs, &
      l_fract, mcv_min, mcv_lai, do_ppa, tau_seed, &
      understory_lai_factor, wood_fract_min, do_alt_allometry
-use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon, vegn_relayer_cohorts_ppa
+use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon, vegn_relayer_cohorts_ppa, &
+     vegn_mergecohorts_ppa
 use soil_tile_mod, only: num_l, dz, soil_tile_type, clw, csw, add_soil_carbon, LEAF, CWOOD
 use vegn_cohort_mod, only : vegn_cohort_type, &
      update_biomass_pools, update_bio_living_fraction, update_species, &
@@ -1221,9 +1222,10 @@ end subroutine vegn_phenology_lm3
 
 ! =============================================================================
 ! Added by Weng 2012-02-29
-subroutine vegn_phenology_ppa(vegn, soil)
+subroutine vegn_phenology_ppa(vegn, soil, dheat)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
+  real,                 intent(out)   :: dheat ! heat residual due to cohort merging
 
   ! ---- local vars
   integer :: i
@@ -1320,14 +1322,15 @@ subroutine vegn_phenology_ppa(vegn, soil)
          soil%fsc_in(1)  = soil%fsc_in(1)  + leaf_litter
          vegn%veg_out = vegn%veg_out + leaf_litter
      endif
-     end associate
+     end associate ! cc, sp
   enddo
   ! add litter accumulated over the cohorts
   call add_soil_carbon(soil, leaf_litter=leaf_litt)
   ! phenology can change cohort heights if the grass dies, and therefore change
   ! layers -- need to relayer lest cohorts remain in wrong order
   call vegn_relayer_cohorts_ppa(vegn)
-  ! call vegn_mergecohorts_ppa(vegn,dheat)! perhaps need merge cohorts too?
+  ! merge similar cohorts, otherwise their number proliferates due to re-layering
+  call vegn_mergecohorts_ppa(vegn, dheat)
 end subroutine vegn_phenology_ppa
 
 

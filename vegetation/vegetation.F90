@@ -1837,7 +1837,7 @@ subroutine update_vegn_slow( )
   character(64) :: str
   real, allocatable :: btot(:) ! storage for total biomass
   real, allocatable :: spmask(:) ! mask for by-species nindivs output
-  real :: dheat
+  real :: dheat ! heat residual due to cohort merging
 
   ! variables for conservation checks
   real :: lmass0, fmass0, heat0, cmass0
@@ -1964,7 +1964,8 @@ subroutine update_vegn_slow( )
         if (do_ppa) then
            call vegn_starvation_ppa(tile%vegn, tile%soil)
            call check_conservation_2(tile,'update_vegn_slow 4.2',lmass0,fmass0,cmass0)
-           call vegn_phenology_ppa (tile%vegn, tile%soil)
+           call vegn_phenology_ppa (tile%vegn, tile%soil, dheat)
+           tile%e_res_2 = tile%e_res_2 - dheat
            call check_conservation_2(tile,'update_vegn_slow 4.3',lmass0,fmass0,cmass0)
         else
            call vegn_nat_mortality_lm3(tile%vegn,tile%soil,86400.0)
@@ -2037,6 +2038,7 @@ subroutine update_vegn_slow( )
         call vegn_relayer_cohorts_ppa(tile%vegn)
         call check_conservation_2(tile,'update_vegn_slow 7.2',lmass0,fmass0,cmass0)
         call vegn_mergecohorts_ppa(tile%vegn, dheat)
+        tile%e_res_2 = tile%e_res_2 - dheat
         call check_conservation_2(tile,'update_vegn_slow 7.3',lmass0,fmass0,cmass0)
         call kill_small_cohorts_ppa(tile%vegn,tile%soil)
         call check_conservation_2(tile,'update_vegn_slow 8',lmass0,fmass0,cmass0)
