@@ -348,7 +348,7 @@ N_leakage = 0.0
         leaflitter_C=(/spdata(sp)%fsc_liv *(md_leaf), (1-spdata(sp)%fsc_liv)*(md_leaf) ,0.0/)
         woodlitter_C=(/fsc_wood *md_wood*agf_bs, (1-fsc_wood)*md_wood*agf_bs, 0.0/)
         woodlitter_C = woodlitter_C + (/spdata(sp)%fsc_liv *md_sapwood*agf_bs, (1-spdata(sp)%fsc_liv)*md_sapwood*agf_bs, 0.0/)
-        rootlitter_C=(/spdata(sp)%fsc_froot*md_froot + fsc_wood*md_wood*(1-agf_bs) + spdata(sp)%fsc_liv*md_sapwood*(1-agf_bs)+md_vleaf,&
+        rootlitter_C=(/spdata(sp)%fsc_froot*md_froot + fsc_wood*md_wood*(1-agf_bs) + spdata(sp)%fsc_liv*md_sapwood*(1-agf_bs),&
  					(1-spdata(sp)%fsc_froot)*md_froot + (1-fsc_wood)*md_wood*(1-agf_bs) + (1-spdata(sp)%fsc_liv)*md_sapwood*(1-agf_bs),0.0/)
      end select
 
@@ -472,7 +472,7 @@ N_leakage = 0.0
         __DEBUG2__(cc%carbon_gain, cc%bwood_gain)
      endif
      ! accumulate tile-level NPP and GPP
-     vegn%npp = vegn%npp + cc%npp
+     vegn%npp = vegn%npp + cc%npp - md_vleaf/dt_fast_yr
      gpp = gpp + cc%gpp
      ! accumulate respiration terms for tile-level reporting
      resp = resp + cc%resp ; resl = resl + cc%resl
