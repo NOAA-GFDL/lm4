@@ -3713,10 +3713,10 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
              'net PAR to the vegetation', 'W/m2', missing_value=-1.0e+20)
 
 !!! dsward_mdf added
-  id_mdf_BA_tot = register_tiled_diag_field (module_name, 'multiday_fire_BA',(/id_lon,id_lat/), &
+  id_mdf_BA_tot = register_tiled_diag_field (module_name, 'multiday_fire_BA',(/id_ug/), &
        time, 'Burned area from multiday fires ', 'km2', &
        missing_value=-1.0, op='sum')
-  id_mdf_Nfires = register_tiled_diag_field (module_name, 'multiday_fire_Nfires',(/id_lon,id_lat/), &
+  id_mdf_Nfires = register_tiled_diag_field (module_name, 'multiday_fire_Nfires',(/id_ug/), &
        time, 'Number of fires from multiday fires ', '', &
        missing_value=-1.0, op='sum')
 !!! dsward end
