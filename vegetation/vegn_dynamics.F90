@@ -1794,7 +1794,7 @@ subroutine kill_small_cohorts_ppa(vegn,soil)
   call add_soil_carbon(soil, leaf_litt, wood_litt, root_litt)
 
   if (is_watch_point()) then
-     write(*,*) '##### vegn_mergecohorts_ppa output #####'
+     write(*,*) '##### kill_small_cohorts_ppa output #####'
      __DEBUG1__(vegn%n_cohorts)
      __DEBUG1__(vegn%cohorts%nindivs)
      __DEBUG1__(vegn%cohorts%Wl)

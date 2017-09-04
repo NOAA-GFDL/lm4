@@ -3706,8 +3706,8 @@ subroutine fire_fragmentation(tiles,land_area)
      write(*,*) '### update_max_fire_size output ###'
   endif
 
-  call check_var_range(fragmenting_frac, 0.0, 1.0,'fire_fragmentation', 'fragmenting_frac',   FATAL)
-  call check_var_range(burnable_frac,    0.0, 1.0,'fire_fragmentation', 'burnable_frac',      FATAL)
+!   call check_var_range(fragmenting_frac, 0.0, 1.0,'fire_fragmentation', 'fragmenting_frac',   FATAL)
+!   call check_var_range(burnable_frac,    0.0, 1.0,'fire_fragmentation', 'burnable_frac',      FATAL)
 
   ts = first_elmt(tiles)
   do while (loop_over_tiles(ts, ptr, k=k))
