@@ -709,8 +709,12 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
      ax = (ux0-ul0+ar*DuxDpr)*gamma_x
      bx = -gamma_x*DulDpl
 
-     gamma_l = 1/(DetDpl - DulDpl - bx*DulDpx)
-
+     if(DetDpl - DulDpl - bx*DulDpx/=0) then
+        gamma_l = 1/(DetDpl - DulDpl - bx*DulDpx)
+     else
+        ! this happened at least once due to precision loss
+        gamma_l = 0.0
+     endif
      ! calculate tendencies
      delta_pl = gamma_l*(ul0 - Et0 + ax*DulDpx)
      delta_px = ax+bx*delta_pl
