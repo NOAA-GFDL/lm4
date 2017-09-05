@@ -56,6 +56,9 @@ public :: vegn_seed_demand
 public :: vegn_tran_priority ! returns transition priority for land use
 
 public :: vegn_add_bliving
+
+integer, public, parameter :: MAX_MDF_LENGTH = 30 ! maximum number of days that multi-day
+          ! fires can burn; dimension of daily history arrays in vegn_tile
 ! =====end of public interfaces ==============================================
 
 interface new_vegn_tile
@@ -172,8 +175,8 @@ type :: vegn_tile_type
    ! dsward - variables for multi-day fires
    real :: fires_to_add_mdf        = 0.0 ! Number of fires, used to compute ignitions from previous day's fires  
    real :: BAperfire_ave_mdf       = 0.0 ! Average burned area per fire  
-   real :: past_fires_mdf(30)      = 0.0 ! Tracking of multi-day fires from the previous 30 days. Max set to 30 but can be changed.
-   real :: past_areaburned_mdf(30) = 0.0 ! Tracking of multi-day fires area burned for computing additional area burned in subsequent days.
+   real :: past_fires_mdf      (MAX_MDF_LENGTH) = 0.0 ! Tracking of multi-day fires from the previous MAX_MDF_LENGTH days.
+   real :: past_areaburned_mdf (MAX_MDF_LENGTH) = 0.0 ! Tracking of multi-day fires area burned for computing additional area burned in subsequent days.
    real :: past_tilesize_mdf       = 0.0 ! Tracking of the tile size of the fire's first day, for computing fire coalescence.
    real :: total_BA_mdf            = 0.0 ! Total burned area from multi-day fires 
 

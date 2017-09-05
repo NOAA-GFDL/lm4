@@ -13,7 +13,7 @@ use fms_mod, only: open_namelist_file
 use constants_mod,   only: PI, VONKARM
 use time_manager_mod, only : time_type, get_date, days_in_month, operator(-)
 use fms_mod, only : file_exist, check_nml_error, error_mesg, close_file, stdlog, stdout, &
-      lowercase, WARNING, FATAL
+      lowercase, WARNING, FATAL, NOTE
 use sphum_mod, only : qscomp
 
 use land_constants_mod, only : seconds_per_year
@@ -26,12 +26,15 @@ use land_tile_mod, only : land_tile_type, land_tile_map, loop_over_tiles, &
       land_tile_list_type, land_tile_enum_type, first_elmt, tail_elmt, next_elmt, &
       land_tile_list_init, land_tile_list_end, merge_land_tile_into_list, insert, remove, &
       operator(/=), operator(==), current_tile, new_land_tile
+use land_tile_io_mod, only: land_restart_type, &
+      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
+      add_restart_axis, add_tile_data, get_tile_data, field_exists
 use land_tile_diag_mod, only : register_tiled_diag_field, send_tile_data, diag_buff_type
 
 use vegn_data_mod, only : spdata, agf_bs, fsc_liv, fsc_wood, fsc_froot, do_ppa, &
       SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
       LU_CROP, LU_PAST, LU_NTRL, LU_SCND, FORM_GRASS
-use vegn_tile_mod, only : vegn_tile_type, vegn_mergecohorts_ppa
+use vegn_tile_mod, only : vegn_tile_type, vegn_mergecohorts_ppa, MAX_MDF_LENGTH
 use soil_tile_mod, only : num_l, soil_tile_type, soil_ave_theta1, soil_ave_theta2, &
       add_soil_carbon
 use vegn_cohort_mod, only : vegn_cohort_type
@@ -45,7 +48,7 @@ implicit none
 private
 
 ! ==== public interfaces =====================================================
-public  ::  vegn_fire_init, vegn_fire_end
+public  ::  vegn_fire_init, vegn_fire_end, save_fire_restart
 public  ::  update_fire_fast
 public  ::  update_fire_agri
 public  ::  update_fire_data ! reads external data for fire model
@@ -56,10 +59,11 @@ public  ::  vegn_fire_sendtiledata_Cburned
 public  ::  send_tile_data_BABF_forAgri
 public  ::  fire_transitions
 
-integer, public, protected :: fire_option = 0
 integer, public, parameter :: FIRE_NONE = 0, FIRE_LM3 = 1, FIRE_UNPACKED = 2
-integer, public, protected :: fire_option_past = 0
 integer, public, parameter :: FIRE_PASTLI = 0, FIRE_PASTFP = 1
+
+integer, public, protected :: fire_option = FIRE_NONE
+integer, public, protected :: fire_option_past = FIRE_PASTLI
 
 ! =====end of public interfaces ==============================================
 
@@ -397,6 +401,8 @@ subroutine vegn_fire_init(id_ug, dt_fast_in, time)
   real, allocatable :: koppen_zone_2000(:)
   type(land_tile_enum_type)     :: ce
   type(land_tile_type), pointer :: tile
+  type(land_restart_type) :: restart
+  logical :: restart_exists
 
   call log_version(version, module_name, &
   __FILE__)
@@ -520,6 +526,18 @@ subroutine vegn_fire_init(id_ug, dt_fast_in, time)
   endif
 
   if (fire_option /= FIRE_UNPACKED) return ! nothing more to do
+
+  call open_land_restart(restart,'INPUT/fire.res.nc',restart_exists)
+  if(restart_exists) then
+     call error_mesg('fire_init','reading NetCDF restart "INPUT/fire.res.nc"', NOTE)
+
+     call get_tile_data(restart,'BAperfire_ave_mdf',   BAperfire_ave_mdf_ptr)
+     call get_tile_data(restart,'fires_to_add_mdf',    fires_to_add_mdf_ptr)
+     call get_tile_data(restart,'past_tilesize_mdf',   past_tilesize_mdf_ptr)
+     call get_tile_data(restart,'past_fires_mdf',      'mdf_day', past_fires_mdf_ptr)
+     call get_tile_data(restart,'past_areaburned_mdf', 'mdf_day', past_areaburned_mdf_ptr)
+  endif
+  call free_land_restart(restart)
 
   ! For rate-of-spread calculation
   LB_max = LBratio_a + LBratio_b
@@ -920,6 +938,31 @@ subroutine vegn_fire_end()
   if (allocated(past_burn_rate_in)) deallocate(past_burn_rate_in)
 end subroutine vegn_fire_end
 
+! ==============================================================================
+subroutine save_fire_restart(tile_dim_length,timestamp)
+  integer, intent(in) :: tile_dim_length ! length of tile dim. in the output file
+  character(*), intent(in) :: timestamp ! timestamp to add to the file name
+
+  character(267) :: filename
+  type(land_restart_type) :: restart ! restart file i/o object
+  integer :: i
+
+  if (fire_option == FIRE_UNPACKED) then
+     call error_mesg('fire_end','writing NetCDF restart',NOTE)
+     filename = trim(timestamp)//'fire.res.nc'
+     call init_land_restart(restart, filename, vegn_tile_exists, tile_dim_length)
+     ! create dimension for multi-day fire duration axis
+     call add_restart_axis(restart,'mdf_day',[(real(i),i=1,MAX_MDF_LENGTH)],'Z')
+
+     call add_tile_data(restart,'BAperfire_ave_mdf', BAperfire_ave_mdf_ptr, 'average burned area per multi-day fire', 'km2')
+     call add_tile_data(restart,'fires_to_add_mdf', fires_to_add_mdf_ptr)
+     call add_tile_data(restart,'past_tilesize_mdf', past_tilesize_mdf_ptr)
+     call add_tile_data(restart,'past_fires_mdf', 'mdf_day', past_fires_mdf_ptr)
+     call add_tile_data(restart,'past_areaburned_mdf', 'mdf_day', past_areaburned_mdf_ptr)
+     call save_land_restart(restart)
+     call free_land_restart(restart)
+  endif
+end subroutine save_fire_restart
 
 ! ==============================================================================
 ! reads external data for the fire model
@@ -1183,7 +1226,7 @@ subroutine update_multiday_fires(vegn,tile_area)
     vegn%total_BA_mdf = 0.0
 
     !!! loop through days and compute area burned
-    do i=1,30
+    do i=1,MAX_MDF_LENGTH
         if (vegn%past_fires_mdf(i).eq.0.0) exit
         if (vegn%past_tilesize_mdf.eq.0.0) exit
         if (vegn%BAperfire_ave_mdf.eq.0.0) exit
@@ -1236,9 +1279,9 @@ subroutine update_multiday_fires(vegn,tile_area)
     endif
 
     !!! shift fires from most recent day to one day further in the past
-    vegn%past_fires_mdf(2:30) = vegn%past_fires_mdf(1:29)
-!    vegn%past_tilesize_mdf(2:30) = vegn%past_tilesize_mdf(1:29)
-    vegn%past_areaburned_mdf(2:30) = vegn%past_areaburned_mdf(1:29)
+    vegn%past_fires_mdf(2:MAX_MDF_LENGTH) = vegn%past_fires_mdf(1:29)
+!    vegn%past_tilesize_mdf(2:MAX_MDF_LENGTH) = vegn%past_tilesize_mdf(1:29)
+    vegn%past_areaburned_mdf(2:MAX_MDF_LENGTH) = vegn%past_areaburned_mdf(1:29)
     vegn%past_areaburned_mdf(1) = 0.0
 
     !!! add most recent day to past_fire array, past tile size
@@ -2103,8 +2146,8 @@ subroutine vegn_fire_BA_ntrlscnd(Nfire_perKm2, Nfire_perKm2_NOI, tile_area_km2, 
 
     real, intent(inout) :: vegn_fires_to_add_mdf     !!! dsward_mdf daily cumulative Nfires
     real, intent(inout) :: vegn_BAperfire_ave_mdf     !!! dsward_mdf daily BAperfire average
-    real, dimension(30), intent(inout) :: vegn_past_fires_mdf     !!! dsward_mdf past fire array for multi-day fires
-    real, dimension(30), intent(inout) :: vegn_past_areaburned_mdf     !!! dsward_mdf past fire BA for multi-day fires
+    real, intent(inout) :: vegn_past_fires_mdf(MAX_MDF_LENGTH)     !!! dsward_mdf past fire array for multi-day fires
+    real, intent(inout) :: vegn_past_areaburned_mdf(MAX_MDF_LENGTH)     !!! dsward_mdf past fire BA for multi-day fires
     real, intent(in)    :: vegn_total_BA_mdf      !!! total area burned from mdf for the current day
 
     real, intent(out)   ::  BAperFire_1, BAperFire_2, BAperFire_3, &
@@ -3039,8 +3082,8 @@ subroutine update_Nfire_BA_fast(vegn, diag, l, tile_area, &
 
   real, intent(inout) :: vegn_fires_to_add_mdf     !!! dsward_mdf daily cumulative Nfires
   real, intent(inout) :: vegn_BAperfire_ave_mdf     !!! dsward_mdf daily BAperfire average
-  real, dimension(30), intent(inout) :: vegn_past_fires_mdf     !!! dsward_mdf past fire array for multi-day fires
-  real, dimension(30), intent(inout) :: vegn_past_areaburned_mdf     !!! dsward_mdf past fire BA for multi-day fires
+  real, intent(inout) :: vegn_past_fires_mdf(MAX_MDF_LENGTH)     !!! dsward_mdf past fire array for multi-day fires
+  real, intent(inout) :: vegn_past_areaburned_mdf(MAX_MDF_LENGTH)  !!! dsward_mdf past fire BA for multi-day fires
   real, intent(inout) :: vegn_total_BA_mdf      !!! dsward_mdf total area burned from mdf for the current day
   integer, intent(in)    :: kop  !!! dsward_kop
 
@@ -3706,9 +3749,6 @@ subroutine fire_fragmentation(tiles,land_area)
      write(*,*) '### update_max_fire_size output ###'
   endif
 
-!   call check_var_range(fragmenting_frac, 0.0, 1.0,'fire_fragmentation', 'fragmenting_frac',   FATAL)
-!   call check_var_range(burnable_frac,    0.0, 1.0,'fire_fragmentation', 'burnable_frac',      FATAL)
-
   ts = first_elmt(tiles)
   do while (loop_over_tiles(ts, ptr, k=k))
      if (.not.associated(ptr%vegn)) cycle ! skip non-vegetated tiles
@@ -3760,5 +3800,27 @@ function burns_as_agri(tile) result(answer)
   answer =   tile%vegn%landuse==LU_CROP &
             .OR. (tile%vegn%landuse==LU_PAST .AND. fire_option_past==FIRE_PASTFP)
 end function burns_as_agri
+
+! ============================================================================
+! tile existence detector: returns a logical value indicating wether component
+! model tile exists or not
+logical function vegn_tile_exists(tile)
+   type(land_tile_type), pointer :: tile
+   vegn_tile_exists = associated(tile%vegn)
+end function vegn_tile_exists
+
+! ============================================================================
+! accessor functions
+
+#define DEFINE_VEGN_ACCESSOR_0D(xtype,x) subroutine x ## _ptr(t,p);\
+type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%vegn))p=>t%vegn%x;endif;end subroutine
+DEFINE_VEGN_ACCESSOR_0D(real,BAperfire_ave_mdf)
+DEFINE_VEGN_ACCESSOR_0D(real,fires_to_add_mdf)
+DEFINE_VEGN_ACCESSOR_0D(real,past_tilesize_mdf)
+
+#define DEFINE_VEGN_ACCESSOR_1D(xtype,x) subroutine x ## _ptr(t,i,p);\
+type(land_tile_type),pointer::t;integer,intent(in)::i;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%vegn))p=>t%vegn%x(i);endif;end subroutine
+DEFINE_VEGN_ACCESSOR_1D(real,past_fires_mdf)
+DEFINE_VEGN_ACCESSOR_1D(real,past_areaburned_mdf)
 
 end module vegn_fire_mod

@@ -54,7 +54,7 @@ use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
 use vegn_disturbance_mod, only : vegn_nat_mortality_ppa
 use vegn_fire_mod, only : do_multiday_fires, burns_as_ntrl, burns_as_agri, &
      update_fire_fast, update_fire_agri, send_tile_data_babf_foragri, &
-     update_fire_fk, update_multiday_fires, fire_transitions
+     update_fire_fk, update_multiday_fires, fire_transitions, save_fire_restart
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, cana_state,&
      cana_roughness, &
@@ -603,6 +603,7 @@ subroutine land_model_restart(timestamp)
   call save_snow_restart(tile_dim_length,timestamp_)
   call save_vegn_restart(tile_dim_length,timestamp_)
   call save_cana_restart(tile_dim_length,timestamp_)
+  call save_fire_restart(tile_dim_length,timestamp_)
   call save_river_restart(timestamp_)
 
 end subroutine land_model_restart
