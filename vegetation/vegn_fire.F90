@@ -1025,7 +1025,7 @@ subroutine update_fire_fast(vegn,soil,diag, &
     real   ::   GDPpc ! GDP per capita ($/person)
     real   ::   fire_fn_theta, fire_fn_rh, fire_fn_Tca, fire_fn_agb
     real   ::   qsat, rh
-    real   ::   percentile = 0.95
+    real, parameter :: percentile = 0.95
     real   ::   depth_ave, theta
     real   ::   wind_forFire
     real   ::   ROS, LB, HB, gW, BAperFire_0
@@ -1116,9 +1116,13 @@ subroutine update_fire_fast(vegn,soil,diag, &
 
     if (is_watch_point()) then
        write(*,*) '#### checkpoint update_fire_fast #####'
-       if (use_Fgdp_nf .OR. use_Fgdp_ba)   __DEBUG4__(minval(GDPpc_billion_in),maxval(GDPpc_billion_in),GDPpc_billion_in(l),GDPpc)
-       if (use_FpopD_nf .OR. use_FpopD_ba .OR. Ia_alpha_monthly(1)>0.0) __DEBUG4__(minval(population_in),maxval(population_in),population_in(l),popD)
-       __DEBUG3__(minval(lightning_in),maxval(lightning_in),lightning_in(l))
+       if (use_Fgdp_nf .OR. use_Fgdp_ba) then
+          __DEBUG4__(minval(GDPpc_billion_in),maxval(GDPpc_billion_in),GDPpc_billion_in(l),GDPpc)
+       endif
+       if (use_FpopD_nf .OR. use_FpopD_ba .OR. Ia_alpha_monthly(1)>0.0) then
+          __DEBUG4__(minval(population_in),maxval(population_in),population_in(l),popD)
+       endif
+       __DEBUG4__(l,lightning_in(l),minval(lightning_in),maxval(lightning_in))
        write(*,*) '######################################'
     endif
 
@@ -1824,13 +1828,9 @@ subroutine vegn_fire_In(latitude,lightning,In)
 
     if (is_watch_point()) then
        write(*,*) '#### checkpoint vegn_fire_In #####'
-       write(*,*) 'latitude', latitude
-       write(*,*) 'cloud2ground_frac', cloud2ground_frac
-       write(*,*) 'lightning', lightning
-       write(*,*) 'dt_fast', dt_fast
-       write(*,*) 'In_c2g_ign_eff', In_c2g_ign_eff
-       write(*,*) 'In', In
-       write(*,*) '##################################'
+       __DEBUG2__(latitude,lightning)
+       __DEBUG2__(cloud2ground_frac, In_c2g_ign_eff)
+       __DEBUG1__(In)
     endif
 
     call check_var_range(lightning, 0.0, 10.**37, 'vegn_fire_In', 'lightning', FATAL)
@@ -2268,24 +2268,16 @@ subroutine vegn_fire_BA_ntrlscnd(Nfire_perKm2, Nfire_perKm2_NOI, tile_area_km2, 
 
     if(is_watch_point()) then
         write(*,*) '######## fire_checkpoint_4 ########'
-        write(*,*) 'fire_fn_popD_BA', fire_fn_popD_BA
-        write(*,*) 'fire_fn_GDPpc_BA', fire_fn_GDPpc_BA
-        write(*,*) 'BAperFire_0', BAperFire_0
-        write(*,*) 'BAperFire_1', BAperFire_1
-        write(*,*) 'BAperFire_2', BAperFire_2
-        write(*,*) 'BAperFire_3', BAperFire_3
+        __DEBUG2__(fire_fn_popD_BA, fire_fn_GDPpc_BA)
+        __DEBUG4__(BAperFire_0, BAperFire_1, BAperFire_2, BAperFire_3)
         if (do_fire_fragmentation) then
-           write(*,*) 'max_fire_size', max_fire_size
+           __DEBUG1__(max_fire_size)
         endif
-        write(*,*) 'tile_area_km2', tile_area_km2
-        write(*,*) 'vegn_unburned_frac', vegn_unburned_frac
-        write(*,*) 'vegn_unburned_area', vegn_unburned_area
-        write(*,*) 'BF', BF
-        write(*,*) 'BF_rate', BF_rate
-        write(*,*) 'Nfire', Nfire
-        write(*,*) 'Nfire_rate', Nfire_rate
-        write(*,*) 'BA', BA
-        write(*,*) 'BA_rate', BA_rate
+        __DEBUG1__(tile_area_km2)
+        __DEBUG2__(vegn_unburned_frac,vegn_unburned_area)
+        __DEBUG2__(BF,BF_rate)
+        __DEBUG2__(Nfire,Nfire_rate)
+        __DEBUG2__(BA,BA_rate)
     endif
 
     ! SSR20151208: Add some tolerance for BF at high end
