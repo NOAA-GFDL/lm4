@@ -604,7 +604,7 @@ subroutine read_field_I_3D(input_unit, varname, data_ug, interp, fill)
   real,    allocatable :: in_data(:,:,:) ! input buffer
   logical, allocatable :: lmask(:,:,:) ! mask of valid input values
   real,    allocatable :: rmask(:,:,:) ! real mask for interpolator
-  real,    allocatable :: data_sg(:,:,:), mask_sg(:,:) ! data and mask on structured grid
+  real,    allocatable :: data_sg(:,:,:) ! data on structured grid
   real,    allocatable :: omask(:,:) ! mask of valid output data
   real,    allocatable :: data2(:,:)
   integer :: k,imap,jmap,l
@@ -708,17 +708,16 @@ subroutine read_field_I_3D(input_unit, varname, data_ug, interp, fill)
      call read_input() ! allocates and fills in_data, rmask
      ! we create horiz interpolator inside the loop, because data masks may be different for
      ! different levels
-     allocate (mask_sg(lnd%is:lnd%ie,lnd%js:lnd%je), & ! mask of valid output data
-               data_sg(lnd%is:lnd%ie,lnd%js:lnd%je,size(data_ug,2))  ) ! data on structured grid
+     allocate (data_sg(lnd%is:lnd%ie,lnd%js:lnd%je,size(data_ug,2))  ) ! data on structured grid
      do k = 1,size(data_ug,2)
         call horiz_interp_new(hinterp, in_lonb, in_latb(jstart:jend+1), lnd%sg_lonb, lnd%sg_latb, &
-             mask_in=rmask(:,:,k), mask_out=mask_sg(:,:), interp_method='conservative')
+             mask_in=rmask(:,:,k), interp_method='conservative')
+        data_sg(:,:,k) = fill_
         call horiz_interp(hinterp,in_data(:,:,k),data_sg(:,:,k))
-        where (mask_sg==0) data_sg(:,:,k) = fill_
         call horiz_interp_del(hinterp)
      enddo
      call mpp_pass_sg_to_ug(lnd%ug_domain, data_sg, data_ug)
-     deallocate(in_data, rmask, data_sg, mask_sg)
+     deallocate(in_data, rmask, data_sg)
   case default
      call error_mesg('read_field','Unknown interpolation method "'//trim(interp_)//'". use "nearest", "bilinear", or "conservative"', FATAL)
   end select
