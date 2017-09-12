@@ -10,7 +10,7 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
-use constants_mod,   only: PI, VONKARM
+use constants_mod,   only: PI
 use time_manager_mod, only : time_type, get_date, days_in_month, operator(-)
 use fms_mod, only : file_exist, check_nml_error, error_mesg, close_file, stdlog, stdout, &
       lowercase, WARNING, FATAL, NOTE
@@ -240,8 +240,6 @@ real    :: fs_max = 0.8
 real    :: fp_lo = 0.01
 real    :: fp_hi = 0.3
 
-logical :: minimal_fire_diagnostics = .FALSE.   ! SSR20150812
-
 !!! dsward switches
 logical  ::  do_multiday_fires = .FALSE.
 logical  ::  do_crownfires = .FALSE.
@@ -283,7 +281,6 @@ namelist /fire_nml/ fire_to_use, fire_for_past, &
                     ROS_max_TROPSAV, &   ! SSR20150831
                     do_calc_derivs, do_fire_tiling, &
                     min_BA_to_split, &
-                    minimal_fire_diagnostics, &
                     do_fire_fragmentation, max_fire_size_min, &
                     frag_incl_PAST, frag_incl_nonveg, &
                     fs_min, fs_max, fp_lo, fp_hi, &   ! SSR20150903
@@ -551,7 +548,7 @@ subroutine vegn_fire_init(id_ug, dt_fast_in, time)
 
   ! initialize external fields
   ! SSR: Does horizontal interpolation
-  if (use_FpopD_nf .OR. use_FpopD_ba .OR. Ia_alpha_monthly(1)>0.0) then
+  if (use_FpopD_nf .OR. use_FpopD_ba) then
      call init_external_ts(population_ts, 'INPUT/population.nc', 'pop_density',&
           'conservative', fill=0.0)
   endif
@@ -646,7 +643,6 @@ subroutine vegn_fire_init(id_ug, dt_fast_in, time)
        time, 'Number of ignitions: Anthropogenic', 'Ignitions/km2', &
        missing_value=-1.0)
 
-  ! Daily (saved daily)
   id_lightning = register_tiled_diag_field (diag_mod_name, 'lightning', axes, &
        time, 'lightning strike density', 'flashes/km2/day', missing_value=-999.0)
   id_In = register_tiled_diag_field (diag_mod_name, 'In',axes, &
@@ -981,7 +977,7 @@ subroutine update_fire_data(time)
   ! read_external_ts interpolates data conservatively in space (see init)
   ! and linearly in time.
   ! SSR: Really just does time interpolation
-  if (use_FpopD_nf .OR. use_FpopD_ba .OR. Ia_alpha_monthly(1)>0.0) then
+  if (use_FpopD_nf .OR. use_FpopD_ba) then
      call read_external_ts(population_ts,time,population_in)
   else
      population_in = 0.0
@@ -1075,6 +1071,8 @@ subroutine update_fire_ntrl(vegn,soil,diag, &
     integer, intent(in)  :: l  ! index of current point, for fire data
     real, intent(in)     :: tile_area   ! Area of tile (m2)
     real, intent(in)     :: latitude
+
+    ! ---- local vars
     real   ::   lightning  ! Lightning flash density (flashes/km2/day)
     real   ::   popD       ! Population density (people/km2)
     real   ::   GDPpc ! GDP per capita ($/person)
@@ -1170,11 +1168,9 @@ subroutine update_fire_ntrl(vegn,soil,diag, &
     GDPpc = GDPpc_billion_in(l) * 1.e9   ! Converting to dollars/person.
 
     if (is_watch_point()) then
-       write(*,*) '#### checkpoint update_fire_fast #####'
+       write(*,*) '#### checkpoint update_fire_ntrl #####'
        if (use_Fgdp_nf .OR. use_Fgdp_ba) then
           __DEBUG4__(minval(GDPpc_billion_in),maxval(GDPpc_billion_in),GDPpc_billion_in(l),GDPpc)
-       endif
-       if (use_FpopD_nf .OR. use_FpopD_ba .OR. Ia_alpha_monthly(1)>0.0) then
           __DEBUG4__(minval(population_in),maxval(population_in),population_in(l),popD)
        endif
        __DEBUG4__(l,lightning_in(l),minval(lightning_in),maxval(lightning_in))
@@ -1203,38 +1199,30 @@ subroutine update_fire_ntrl(vegn,soil,diag, &
     ! Make sure that vegn%burned_frac is within good range
     call check_var_range(vegn%burned_frac, 0.0, 1.0, 'update_fire_fast', 'vegn%burned_frac', FATAL)
 
-    if (.NOT. minimal_fire_diagnostics) then
-       ! Save state variables for diagnostics
+    call send_tile_data(id_lightning,         lightning,         diag)
+    call send_tile_data(id_population,        popD,              diag)
+    call send_tile_data(id_GDPpc,             GDPpc,             diag)
 
-
-       call send_tile_data(id_lightning,      lightning,           diag)
-       call send_tile_data(id_population, popD,  diag)
-!       if (id_population>0) call send_tile_data(id_population, popD,  diag)
-       call send_tile_data(id_GDPpc,      GDPpc, diag)
-!       if (id_GDPpc>0)      call send_tile_data(id_GDPpc,      GDPpc, diag)
-
-       ! Save fire stuff for diagnostics
-       call send_tile_data(id_fire_q,           q,                diag)
-       call send_tile_data(id_fire_rh,          rh,               diag)
-       call send_tile_data(id_fire_theta,       theta,            diag)
-       call send_tile_data(id_fire_Tca,         Tca-273.15,       diag)
-       call send_tile_data(id_fire_fn_theta,    fire_fn_theta,    diag)
-       call send_tile_data(id_fire_fn_rh,       fire_fn_rh,       diag)
-       call send_tile_data(id_fire_fn_Tca,      fire_fn_Tca,      diag)
-       call send_tile_data(id_fire_fn_agb,      fire_fn_agb,      diag)
-       call send_tile_data(id_fire_agb,         vegn%fire_agb,         diag)
-       call send_tile_data(id_BAperFire_0, BAperFire_0,        diag)
-       call send_tile_data(id_fire_wind_forFire, wind_forFire, diag)
-       call send_tile_data(id_ROS,              ROS,              diag)
-       call send_tile_data(id_fire_duration_ave, fire_dur, diag)
-       call send_tile_data(id_LB,               LB,               diag)
-       call send_tile_data(id_HB,               HB,               diag)
-       call send_tile_data(id_gW,               gW,               diag)
-       call send_tile_data(id_fire_depth_ave,   depth_ave, diag)
-       call send_tile_data(id_tropType,    1.0*vegn%trop_code, diag)
-       call send_tile_data(id_crown_scorch_frac,    crown_scorch_frac, diag)
-       call send_tile_data(id_fire_intensity,    fire_intensity, diag)
-    endif
+    call send_tile_data(id_fire_q,            q,                 diag)
+    call send_tile_data(id_fire_rh,           rh,                diag)
+    call send_tile_data(id_fire_theta,        theta,             diag)
+    call send_tile_data(id_fire_Tca,          Tca-273.15,        diag)
+    call send_tile_data(id_fire_fn_theta,     fire_fn_theta,     diag)
+    call send_tile_data(id_fire_fn_rh,        fire_fn_rh,        diag)
+    call send_tile_data(id_fire_fn_Tca,       fire_fn_Tca,       diag)
+    call send_tile_data(id_fire_fn_agb,       fire_fn_agb,       diag)
+    call send_tile_data(id_fire_agb,          vegn%fire_agb,     diag)
+    call send_tile_data(id_BAperFire_0,       BAperFire_0,       diag)
+    call send_tile_data(id_fire_wind_forFire, wind_forFire,      diag)
+    call send_tile_data(id_ROS,               ROS,               diag)
+    call send_tile_data(id_fire_duration_ave, fire_dur,          diag)
+    call send_tile_data(id_LB,                LB,                diag)
+    call send_tile_data(id_HB,                HB,                diag)
+    call send_tile_data(id_gW,                gW,                diag)
+    call send_tile_data(id_fire_depth_ave,    depth_ave,         diag)
+    call send_tile_data(id_tropType,    1.0*vegn%trop_code,      diag)
+    call send_tile_data(id_crown_scorch_frac, crown_scorch_frac, diag)
+    call send_tile_data(id_fire_intensity,    fire_intensity,    diag)
 
     ! Print diagnostics if really small BAperFire_0
     if (0.<BAperFire_0 .AND. BAperFire_0<min_fire_size) then
@@ -1255,7 +1243,6 @@ subroutine update_fire_ntrl(vegn,soil,diag, &
           write(*,*) 'HB', HB
        endif
     endif
-
 end subroutine update_fire_ntrl
 
 !!! dsward_mdf added for computing multiday fires
@@ -3250,22 +3237,20 @@ subroutine update_Nfire_BA_fast(vegn, diag, l, tile_area, &
   endif
 
   ! Save fire stuff for diagnostics
-  if (.NOT. minimal_fire_diagnostics) then
-     call send_tile_data(id_BAperFire_1,        BAperFire_1,        diag)
-     call send_tile_data(id_BAperFire_2,        BAperFire_2,        diag)
-     call send_tile_data(id_BAperFire_3,        BAperFire_3,        diag)
-     call send_tile_data(id_BAperFire_max,    max_fire_size*1e-6, diag)
-     call send_tile_data(id_fire_fn_popD_NF,  fire_fn_popD_NF,  diag)
-     call send_tile_data(id_fire_fn_popD_BA,  fire_fn_popD_BA,  diag)
-     call send_tile_data(id_fire_fn_GDPpc_NF, fire_fn_GDPpc_NF, diag)
-     call send_tile_data(id_fire_fn_GDPpc_BA, fire_fn_GDPpc_BA, diag)
-     call send_tile_data(id_In,               In,               diag)
-     call send_tile_data(id_Ia,               Ia,               diag)
-     call send_tile_data(id_Nfire_perKm2,     Nfire_perKm2,     diag)
-  endif
-  call send_tile_data(id_Nfire_rate,       Nfire_rate,       diag)
-  call send_tile_data(id_BF_rate, BF_rate, diag)
-  call send_tile_data(id_BA_rate, BA_rate, diag)
+  call send_tile_data(id_BAperFire_1,      BAperFire_1,        diag)
+  call send_tile_data(id_BAperFire_2,      BAperFire_2,        diag)
+  call send_tile_data(id_BAperFire_3,      BAperFire_3,        diag)
+  call send_tile_data(id_BAperFire_max,    max_fire_size*1e-6, diag)
+  call send_tile_data(id_fire_fn_popD_NF,  fire_fn_popD_NF,    diag)
+  call send_tile_data(id_fire_fn_popD_BA,  fire_fn_popD_BA,    diag)
+  call send_tile_data(id_fire_fn_GDPpc_NF, fire_fn_GDPpc_NF,   diag)
+  call send_tile_data(id_fire_fn_GDPpc_BA, fire_fn_GDPpc_BA,   diag)
+  call send_tile_data(id_In,               In,                 diag)
+  call send_tile_data(id_Ia,               Ia,                 diag)
+  call send_tile_data(id_Nfire_perKm2,     Nfire_perKm2,       diag)
+  call send_tile_data(id_Nfire_rate,       Nfire_rate,         diag)
+  call send_tile_data(id_BF_rate,          BF_rate,            diag)
+  call send_tile_data(id_BA_rate,          BA_rate,            diag)
 
   if (do_calc_derivs) then
      call send_tile_data(id_BA_DERIVwrt_alphaM, BA_DERIVwrt_alphaM, diag)
