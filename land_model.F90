@@ -2042,8 +2042,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      ! if vegn is present, then soil must be too
      call soil_step_3(tile%soil, tile%diag)
 
-     call update_fire_fast(tile, cana_q, p_surf, atmos_wind, l)
-  endif ! associated(tile%vegn)
+     call update_fire_fast(tile, p_surf, atmos_wind, l)
+  endif
 
   ! update co2 concentration in the canopy air. It would be more consistent to do that
   ! in the same place and fashion as the rest of prognostic variables: that is, have the

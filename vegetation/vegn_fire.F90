@@ -58,8 +58,7 @@ public  ::  fire_transitions
 integer, public, parameter :: FIRE_NONE = 0, FIRE_LM3 = 1, FIRE_UNPACKED = 2
 integer, public, parameter :: FIRE_PASTLI = 0, FIRE_PASTFP = 1
 
-integer, public, protected :: fire_option      = FIRE_NONE
-integer, public, protected :: fire_option_past = FIRE_PASTLI
+integer, public, protected :: fire_option = FIRE_NONE
 
 ! =====end of public interfaces ==============================================
 
@@ -87,6 +86,8 @@ integer, parameter :: FIRE_WIND_CANTOP = 0, FIRE_WIND_10MTMP = 1, FIRE_WIND_10MS
 real, parameter    :: days_per_year = seconds_per_year/86400.0  ! number of days in year for computing csmoke_rate
 
 ! ==== variables =============================================================
+integer :: fire_option_past = FIRE_PASTLI
+
 integer :: fire_windType = 0
 integer :: fire_option_fAGB = 0
 integer :: fire_option_fRH = 0
@@ -115,17 +116,17 @@ logical :: zero_tmf = .TRUE.    ! SSR20150921: If we have to reduce burned area 
 real   ::   magic_scalar(2) = 1.0   ! SSR20160222 on advice of SLP. !!! dsward added dimension for boreal
 
 ! Create fire tiles?
-logical, public :: do_fire_tiling = .TRUE.
-real, public    :: min_BA_to_split = 0.0   ! Km2. If BA < than this, fire tile will not be split.
-                                           ! Instead, combustion completeness and mortality will
-                                           ! be multiplied by burned_frac and applied to the
-                                           ! existing tile.
+logical :: do_fire_tiling = .TRUE.
+real    :: min_BA_to_split = 0.0   ! Km2. If BA < than this, fire tile will not be split.
+                                   ! Instead, combustion completeness and mortality will
+                                   ! be multiplied by burned_frac and applied to the
+                                   ! existing tile.
 
 ! Incorporate fragmentation effects?
-logical, public  ::  do_fire_fragmentation = .FALSE.
-real             ::  max_fire_size_min = 1e5   ! m2. Default taken from Pfeiffer et al. (2013).
-logical          ::  frag_incl_PAST = .TRUE.     ! Include pasture as fragmenting? (When using unpacked PAST)
-logical          ::  frag_incl_nonveg = .TRUE.   ! Include non-vegetated tiles as fragmenting?
+logical ::  do_fire_fragmentation = .FALSE.
+real    ::  max_fire_size_min = 1e5   ! m2. Default taken from Pfeiffer et al. (2013).
+logical ::  frag_incl_PAST = .TRUE.   ! Include pasture as fragmenting? (When using unpacked PAST)
+logical ::  frag_incl_nonveg = .TRUE. ! Include non-vegetated tiles as fragmenting?
 
 ! RH
 !!! dsward added dimensions for boreal
@@ -242,10 +243,10 @@ real    :: fp_hi = 0.3
 logical :: minimal_fire_diagnostics = .FALSE.   ! SSR20150812
 
 !!! dsward switches
-logical, public  ::  do_multiday_fires = .FALSE.
-logical, public  ::  do_crownfires = .FALSE.
-logical, public  ::  FireMIP_ltng = .FALSE.
-real, public     ::  mdf_threshold = 1.0
+logical  ::  do_multiday_fires = .FALSE.
+logical  ::  do_crownfires = .FALSE.
+logical  ::  FireMIP_ltng = .FALSE.
+real     ::  mdf_threshold = 1.0
 
 ! slm moved from vegn_data
 logical :: split_past_tiles = .TRUE.
@@ -1009,10 +1010,9 @@ subroutine update_fire_data(time)
 end subroutine update_fire_data
 
 ! ==============================================================================
-subroutine update_fire_fast(tile, cana_q, p_surf, wind, l)
+subroutine update_fire_fast(tile, p_surf, wind, l)
   type(land_tile_type), intent(inout) :: tile
   real,    intent(in) :: p_surf ! surface pressure, Pa
-  real,    intent(in) :: cana_q ! canopy air specific humidity, kg/kg
   real,    intent(in) :: wind   ! wind at the bottom atmos level, m/s
   integer, intent(in) :: l      ! index of current point (unstructured grid)
 
@@ -1035,7 +1035,7 @@ subroutine update_fire_fast(tile, cana_q, p_surf, wind, l)
   if (burns_as_ntrl(tile)) then
      ! Update conditions for fire
      call update_fire_ntrl(tile%vegn, tile%soil, tile%diag, &
-           tile%cana%T, cana_q, p_surf, wind, l, lnd%ug_area(l)*tile%frac, lnd%ug_lat(l))
+           tile%cana%T, tile%cana%tr(isphum), p_surf, wind, l, lnd%ug_area(l)*tile%frac, lnd%ug_lat(l))
      ! Compute multi-day fires (daily) dsward_mdf
      if (do_multiday_fires .and. day1/=day0) then
        call update_multiday_fires(tile%vegn,lnd%ug_area(l)*tile%frac)
