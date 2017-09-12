@@ -30,6 +30,7 @@ use land_tile_io_mod, only: land_restart_type, &
       init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
       add_restart_axis, add_tile_data, get_tile_data, field_exists
 use land_tile_diag_mod, only : register_tiled_diag_field, send_tile_data, diag_buff_type
+use land_tracers_mod, only : isphum
 
 use vegn_data_mod, only : spdata, agf_bs, fsc_liv, fsc_wood, fsc_froot, do_ppa, &
       SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
@@ -50,19 +51,14 @@ private
 ! ==== public interfaces =====================================================
 public  ::  vegn_fire_init, vegn_fire_end, save_fire_restart
 public  ::  update_fire_fast
-public  ::  update_fire_agri
 public  ::  update_fire_data ! reads external data for fire model
-public  ::  update_fire_Fk
-public  ::  update_multiday_fires !!! dsward_mdf
-public  ::  burns_as_ntrl, burns_as_agri
 public  ::  vegn_fire_sendtiledata_Cburned
-public  ::  send_tile_data_BABF_forAgri
 public  ::  fire_transitions
 
 integer, public, parameter :: FIRE_NONE = 0, FIRE_LM3 = 1, FIRE_UNPACKED = 2
 integer, public, parameter :: FIRE_PASTLI = 0, FIRE_PASTFP = 1
 
-integer, public, protected :: fire_option = FIRE_NONE
+integer, public, protected :: fire_option      = FIRE_NONE
 integer, public, protected :: fire_option_past = FIRE_PASTLI
 
 ! =====end of public interfaces ==============================================
@@ -385,7 +381,8 @@ integer :: & ! diag field IDs
     id_fire_fn_rh_DERIVwrt_param1, id_fire_fn_rh_DERIVwrt_param2, &
     id_BAperFire0_DERIVwrt_fireDur, id_BAperFire0_DERIVwrt_ROSmax, &
     id_tropType, &   ! SSR20160211
-    id_crown_scorch_frac, id_fire_intensity, id_mdf_BA_tot, id_fire_rad_power    !!! dsward added
+    id_mdf_BA_tot,  id_mdf_Nfires, &  !!! dsward_mdf
+    id_crown_scorch_frac, id_fire_intensity, id_fire_rad_power    !!! dsward added
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
@@ -923,6 +920,13 @@ subroutine vegn_fire_init(id_ug, dt_fast_in, time)
        time, 'Partial derivative of BAperFire_0 w/r/t fire duration', 'm2/s', &
        missing_value=-1.0e+20, op='sum')
 
+!!! dsward_mdf added
+  id_mdf_BA_tot = register_tiled_diag_field (diag_mod_name, 'multiday_fire_BA',axes, &
+       time, 'Burned area from multiday fires ', 'km2', missing_value=-1.0, op='sum')
+  id_mdf_Nfires = register_tiled_diag_field (diag_mod_name, 'multiday_fire_Nfires',axes, &
+       time, 'Number of fires from multiday fires ', '', missing_value=-1.0, op='sum')
+!!! dsward end
+
 end subroutine vegn_fire_init
 
 
@@ -1004,9 +1008,60 @@ subroutine update_fire_data(time)
   end do
 end subroutine update_fire_data
 
+! ==============================================================================
+subroutine update_fire_fast(tile, cana_q, p_surf, wind, l)
+  type(land_tile_type), intent(inout) :: tile
+  real,    intent(in) :: p_surf ! surface pressure, Pa
+  real,    intent(in) :: cana_q ! canopy air specific humidity, kg/kg
+  real,    intent(in) :: wind   ! wind at the bottom atmos level, m/s
+  integer, intent(in) :: l      ! index of current point (unstructured grid)
+
+  ! --- local vars
+  integer :: year0, month0, day0, hour, minute, second, &
+             year1, month1, day1
+  real    :: BF_mth, BF_mth_mult, &
+             BA_mth, BA_mth_mult
+
+  ! SSR: Get & send Fcrop & Fpast---even for non-agri. tiles! Otherwise throws
+  ! "skipped one time level" error.
+  ! slm: I don't like calling get_date for every tile every time step. Why not 
+  ! do monthly processes inside slow subroutines?
+  call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
+  call get_date(lnd%time-lnd%dt_fast, year1,month1,day1,hour,minute,second)
+  if (month1/=month0) then
+     call update_fire_Fk(tile%vegn,tile%diag,l)
+  endif
+  
+  if (burns_as_ntrl(tile)) then
+     ! Update conditions for fire
+     call update_fire_ntrl(tile%vegn, tile%soil, tile%diag, &
+           tile%cana%T, cana_q, p_surf, wind, l, lnd%ug_area(l)*tile%frac, lnd%ug_lat(l))
+     ! Compute multi-day fires (daily) dsward_mdf
+     if (do_multiday_fires .and. day1/=day0) then
+       call update_multiday_fires(tile%vegn,lnd%ug_area(l)*tile%frac)
+     endif
+     call send_tile_data(id_mdf_BA_tot, tile%vegn%total_BA_mdf,              tile%diag)
+     call send_tile_data(id_mdf_Nfires, sum(tile%vegn%past_fires_mdf(2:30)), tile%diag)
+  elseif (burns_as_agri(tile)) then
+     if (month1/=month0) then
+        call update_fire_agri(tile%vegn,lnd%time,lnd%ug_area(l)*tile%frac/1e6,BF_mth,BA_mth)
+
+        ! Make sure that when today's BA is calculated as the average over all
+        ! fast time steps, it equals the total amount of burning that actually
+        ! occurred. Note that this will make this time step's value look INSANE,
+        ! but that's only a problem when looking at sub-daily diagnostics.
+        BF_mth_mult = BF_mth * 86400.0/dt_fast
+        BA_mth_mult = BA_mth * 86400.0/dt_fast
+     else
+        BF_mth_mult = 0.0
+        BA_mth_mult = 0.0
+     endif
+     call send_tile_data_BABF_forAgri(tile%diag,BF_mth_mult,BA_mth_mult)
+  endif
+end subroutine update_fire_fast
 
 ! ==============================================================================
-subroutine update_fire_fast(vegn,soil,diag, &
+subroutine update_fire_ntrl(vegn,soil,diag, &
                             Tca,q,p_surf,cplr2land_wind, &
                             l,tile_area, &
                             latitude)
@@ -1201,7 +1256,7 @@ subroutine update_fire_fast(vegn,soil,diag, &
        endif
     endif
 
-end subroutine update_fire_fast
+end subroutine update_fire_ntrl
 
 !!! dsward_mdf added for computing multiday fires
 subroutine update_multiday_fires(vegn,tile_area)
