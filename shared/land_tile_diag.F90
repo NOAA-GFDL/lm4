@@ -258,7 +258,7 @@ subroutine register_tiled_area_fields(module_name, axes, init_time, &
 
   ! register areas for all tiles
   id_area = reg_field(FLD_LIKE_AREA, module_name, 'area', init_time, axes, &
-         'area in the grid cell', 'm2', missing_value=-1.0, op='sum')
+         'area in the grid cell', 'm2', missing_value=-1.0, op='sum', fill_missing=.TRUE.)
   if (id_area>0) then
      call add_cell_methods(id_area,'area: sum')
   endif
@@ -271,7 +271,7 @@ subroutine register_tiled_area_fields(module_name, axes, init_time, &
   endif
   id_frac = reg_field(FLD_LIKE_AREA, module_name, 'frac', init_time, axes, &
          'fraction of land area', 'unitless', missing_value=-1.0, op='sum', &
-         standard_name='area_fraction')
+         standard_name='area_fraction', fill_missing=.TRUE.)
   if (id_frac > 0) then
      call add_cell_measures(id_frac, get_area_id('land'))
      call add_cell_methods(id_frac,'area: mean')
@@ -720,7 +720,7 @@ subroutine send_tile_data_0d(id, x, buffer)
 
   if (id <= 0) return
   if (id < BASE_TILED_FIELD_ID.or. id >= BASE_COHORT_FIELD_ID ) call error_mesg (mod_name, &
-         'tile diag field ID is out of range. Perhaps the field was not registred with some other call then register_tile_diag_field?', &
+         'tile diag field ID ('//string(id)//') is out of range. Perhaps the field was registred with some other call then register_tile_diag_field?', &
          FATAL)
 
   ! reallocate diagnostic buffer according to the current number and size of
@@ -762,7 +762,7 @@ subroutine send_tile_data_1d(id, x, buffer)
 
   if (id <= 0) return
   if (id < BASE_TILED_FIELD_ID.or. id >= BASE_COHORT_FIELD_ID ) call error_mesg (mod_name, &
-         'tile diag field ID is out of range. Perhaps the field was not registred with some other call then register_tile_diag_field?', &
+         'tile diag field ID ('//string(id)//') is out of range. Perhaps the field was registred with some other call then register_tile_diag_field?', &
          FATAL)
 
   ! reallocate diagnostic buffer according to the current number and size of
@@ -847,7 +847,7 @@ subroutine send_tile_data_r1d_fptr(id, fptr)
 
   if(id <= 0) return
   if (id < BASE_TILED_FIELD_ID.or. id >= BASE_COHORT_FIELD_ID ) call error_mesg (mod_name, &
-         'tile diag field ID is out of range. Perhaps the field was registred with some other call then register_tile_diag_field?', &
+         'tile diag field ID ('//string(id)//') is out of range. Perhaps the field was registred with some other call then register_tile_diag_field?', &
          FATAL)
   i = id - BASE_TILED_FIELD_ID ! index in the array of fields
 
