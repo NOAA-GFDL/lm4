@@ -874,8 +874,8 @@ subroutine get_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index)
      call fms_io_unstructured_get_field_size(restart%basename, zdim, flen, lnd%ug_domain, &
                                              field_found=found)
      if (.not. found) call error_mesg("get_tile_data_r1d_fptr_r0ij", &
-                         "axis '"//trim(zdim)//"' was not found in file '"//trim(restart%basename)//"'.", &
-                         FATAL)
+          "axis '"//trim(zdim)//"' was not found in file '"//trim(restart%basename)//"'.", &
+          FATAL)
 
     !Read in the field from the file.
      allocate(r(size(restart%tidx),flen(1)))
@@ -2028,7 +2028,7 @@ subroutine write_tile_data_r3d(ncid,name,data,dim1,dim2,long_name,units)
         n = 0
         do i = 1,size(data,2)
         do j = 1,size(data,3)
-           buff3(k+1:k+ntiles(p),i,j) = buff1(n*ntiles(p)+1:n*ntiles(p))
+           buff3(k+1:k+ntiles(p),i,j) = buff1(n*ntiles(p)+1:(n+1)*ntiles(p))
            n = n+1
         enddo
         enddo
