@@ -262,6 +262,20 @@ type spec_data_type
   real    :: branch_wood_frac = 0.1525 ! fraction of total wood biomass in branches,
                                        ! corresponds to 0.18 of trunk (bole) biomass
                                        ! estimated by Isa from the observations
+
+  ! SSR fire-related parameters; default values are for tropical trees in his code
+  real    :: ROS_max   = 0.22
+  real    :: fire_duration = 86400.0 ! average fire duration, s
+  ! combustion completeness; unitless
+  real    :: CC_leaf   = 0.70
+  real    :: CC_stem   = 0.15
+  real    :: CC_litter = 0.15
+  ! Post-fire mortality
+  real    :: fireMort_leaf = 0.70
+  real    :: fireMort_stem = 0.65
+  real    :: fireMort_root = 0.10
+  ! dsward parameters
+  real    :: EF_CO2 = 1643.0, EF_CO = 63.0
 end type
 
 ! ==== module data ===========================================================
@@ -728,6 +742,18 @@ subroutine read_species_data(name, sp, errors_found)
 
   __GET_SPDATA_REAL__(root_exudate_frac)
   __GET_SPDATA_REAL__(branch_wood_frac)
+
+  ! SSR fire parameters
+  __GET_SPDATA_REAL__(ROS_max)
+  __GET_SPDATA_REAL__(fire_duration)
+  __GET_SPDATA_REAL__(CC_leaf)
+  __GET_SPDATA_REAL__(CC_stem)
+  __GET_SPDATA_REAL__(CC_litter)
+  __GET_SPDATA_REAL__(fireMort_leaf)
+  __GET_SPDATA_REAL__(fireMort_stem)
+  __GET_SPDATA_REAL__(fireMort_root)
+  __GET_SPDATA_REAL__(EF_CO2)
+  __GET_SPDATA_REAL__(EF_CO)
 #undef __GET_SPDATA_REAL__
 
   ! check for typos in the namelist: detects parameters that are listed in the
@@ -965,6 +991,17 @@ subroutine print_species_data(unit)
 
   call add_row(table, 'root_exudate_frac', spdata(:)%root_exudate_frac)
   call add_row(table, 'branch_wood_frac', spdata(:)%branch_wood_frac)
+  
+  call add_row(table, 'ROS_max',   spdata(:)%ROS_max)
+  call add_row(table, 'fire_duration', spdata(:)%fire_duration)
+  call add_row(table, 'CC_leaf',   spdata(:)%CC_leaf)
+  call add_row(table, 'CC_stem',   spdata(:)%CC_stem)
+  call add_row(table, 'CC_litter', spdata(:)%CC_litter)
+  call add_row(table, 'fireMort_leaf', spdata(:)%fireMort_leaf)
+  call add_row(table, 'fireMort_stem', spdata(:)%fireMort_stem)
+  call add_row(table, 'fireMort_root', spdata(:)%fireMort_root)
+  call add_row(table, 'EF_CO2', spdata(:)%EF_CO2)
+  call add_row(table, 'EF_CO', spdata(:)%EF_CO)
 
   call add_row(table, 'dat_height',       spdata(:)%dat_height)
   call add_row(table, 'dat_lai',          spdata(:)%dat_lai)

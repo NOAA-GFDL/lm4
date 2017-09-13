@@ -74,6 +74,7 @@ use vegn_disturbance_mod, only : vegn_nat_mortality_lm3, &
      vegn_disturbance, update_fuel
 use vegn_harvesting_mod, only : &
      vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting
+use vegn_fire_mod, only : vegn_fire_init, vegn_fire_end, update_fire_data, fire_option, FIRE_LM3
 use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, N_C_TYPES, C_CEL, C_LIG, &
      cull_cohorts, c_shortname, c_longname
 use soil_mod, only : redistribute_peat_carbon
@@ -445,10 +446,10 @@ subroutine vegn_init ( id_ug, id_band )
           t_cold(lnd%ls:lnd%le),&
           p_ann (lnd%ls:lnd%le),&
           ncm   (lnd%ls:lnd%le) )
-     call read_field( 'INPUT/biodata.nc','T_ANN',  lnd%ug_lon, lnd%ug_lat, t_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','T_COLD', lnd%ug_lon, lnd%ug_lat, t_cold, interp='nearest')
-     call read_field( 'INPUT/biodata.nc','P_ANN',  lnd%ug_lon, lnd%ug_lat, p_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','NCM',    lnd%ug_lon, lnd%ug_lat, ncm,    interp='nearest')
+     call read_field( 'INPUT/biodata.nc','T_ANN',  t_ann,  interp='nearest')
+     call read_field( 'INPUT/biodata.nc','T_COLD', t_cold, interp='nearest')
+     call read_field( 'INPUT/biodata.nc','P_ANN',  p_ann,  interp='nearest')
+     call read_field( 'INPUT/biodata.nc','NCM',    ncm,    interp='nearest')
      did_read_biodata = .TRUE.
      call error_mesg('vegn_init','did read INPUT/biodata.nc',NOTE)
   else
@@ -535,6 +536,9 @@ subroutine vegn_init ( id_ug, id_band )
 
   ! initialize harvesting options
   call vegn_harvesting_init()
+
+  ! initialize fire
+  call vegn_fire_init(id_ug, delta_time, lnd%time)
 
   ! initialize vegetation diagnostic fields
   call vegn_diag_init ( id_ug, id_band, lnd%time )
@@ -828,6 +832,7 @@ subroutine vegn_end ()
 
   module_is_initialized =.FALSE.
 
+  call vegn_fire_end()
   call vegn_harvesting_end()
   call static_vegn_end()
   call vegn_dynamics_end()
@@ -1025,6 +1030,7 @@ subroutine vegn_diffusion (vegn, snow_depth, vegn_cover, vegn_height, vegn_lai, 
   ! calculate integral parameters of vegetation
   gaps = 1.0; vegn_lai = 0; vegn_sai = 0
   current_layer = cc(1)%layer ; layer_gaps = 1.0
+  vegn_height = 0.0
   do i = 1,vegn%n_cohorts
     call vegn_data_cover(cc(i), snow_depth)
     vegn_lai = vegn_lai + cc(i)%lai*cc(i)%layerfrac
@@ -1034,9 +1040,9 @@ subroutine vegn_diffusion (vegn, snow_depth, vegn_cover, vegn_height, vegn_lai, 
        gaps = gaps*layer_gaps; layer_gaps = 1.0; current_layer = cc(i)%layer
     endif
     layer_gaps = layer_gaps-cc(i)%layerfrac*cc(i)%cover
+    vegn_height = max(vegn_height,cc(i)%height)
   enddo
   gaps = gaps*layer_gaps ! take the last layer into account
-  vegn_height = cc(1)%height ! return the height of the tallest (first) cohort
   vegn_cover  = 1 - gaps
   end associate ! F2003
 
@@ -1831,7 +1837,7 @@ subroutine update_vegn_slow( )
   character(64) :: str
   real, allocatable :: btot(:) ! storage for total biomass
   real, allocatable :: spmask(:) ! mask for by-species nindivs output
-  real :: dheat
+  real :: dheat ! heat residual due to cohort merging
 
   ! variables for conservation checks
   real :: lmass0, fmass0, heat0, cmass0
@@ -1848,6 +1854,8 @@ subroutine update_vegn_slow( )
      write(str,'("Current date is ",i4.4,"-",i2.2,"-",i2.2)') year0,month0,day0
      call error_mesg('update_vegn_slow',trim(str),NOTE)
   endif
+
+  call update_fire_data(lnd%time)
 
   ce = first_elmt(land_tile_map, lnd%ls)
   do while (loop_over_tiles(ce,tile,l,k))
@@ -1956,7 +1964,8 @@ subroutine update_vegn_slow( )
         if (do_ppa) then
            call vegn_starvation_ppa(tile%vegn, tile%soil)
            call check_conservation_2(tile,'update_vegn_slow 4.2',lmass0,fmass0,cmass0)
-           call vegn_phenology_ppa (tile%vegn, tile%soil)
+           call vegn_phenology_ppa (tile%vegn, tile%soil, dheat)
+           tile%e_res_2 = tile%e_res_2 - dheat
            call check_conservation_2(tile,'update_vegn_slow 4.3',lmass0,fmass0,cmass0)
         else
            call vegn_nat_mortality_lm3(tile%vegn,tile%soil,86400.0)
@@ -1971,7 +1980,7 @@ subroutine update_vegn_slow( )
      endif
      call check_conservation_2(tile,'update_vegn_slow 6',lmass0,fmass0,cmass0)
 
-     if (year1 /= year0 .and. do_patch_disturbance) then
+     if (year1 /= year0 .AND. fire_option==FIRE_LM3 .AND. do_patch_disturbance) then
         call vegn_disturbance(tile%vegn, tile%soil, seconds_per_year)
      endif
      call check_conservation_2(tile,'update_vegn_slow 7',lmass0,fmass0,cmass0)
@@ -2029,6 +2038,7 @@ subroutine update_vegn_slow( )
         call vegn_relayer_cohorts_ppa(tile%vegn)
         call check_conservation_2(tile,'update_vegn_slow 7.2',lmass0,fmass0,cmass0)
         call vegn_mergecohorts_ppa(tile%vegn, dheat)
+        tile%e_res_2 = tile%e_res_2 - dheat
         call check_conservation_2(tile,'update_vegn_slow 7.3',lmass0,fmass0,cmass0)
         call kill_small_cohorts_ppa(tile%vegn,tile%soil)
         call check_conservation_2(tile,'update_vegn_slow 8',lmass0,fmass0,cmass0)

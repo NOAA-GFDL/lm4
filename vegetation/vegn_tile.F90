@@ -56,6 +56,9 @@ public :: vegn_seed_demand
 public :: vegn_tran_priority ! returns transition priority for land use
 
 public :: vegn_add_bliving
+
+integer, public, parameter :: MAX_MDF_LENGTH = 30 ! maximum number of days that multi-day
+          ! fires can burn; dimension of daily history arrays in vegn_tile
 ! =====end of public interfaces ==============================================
 
 interface new_vegn_tile
@@ -137,6 +140,45 @@ type :: vegn_tile_type
    real :: tc_pheno = 0.0 ! smoothed canopy air temperature for phenology
    real :: daily_t_max = -HUGE(1.0) ! accumulator for daily max, used in GDD calculations
    real :: daily_t_min =  HUGE(1.0) ! accumulator for daily min, used in GDD calculations
+
+   ! variables for fire model
+   real :: Fcrop = 0.0
+   real :: Fpast = 0.0
+   real :: fire_agb = 0.0 ! above-ground biomass for fire; slm: we can get rid of it eventually
+   real :: max_fire_size = 0.0
+   real :: fireFtheta_av = 0.0    ! SSR20150903
+   real :: burned_frac = 0.0 ! fraction of the tile burned from the last time
+                             ! fire was applied.
+
+   ! SSR20160224
+   ! slm: perhaps *Cemit* and *Ckill* need not be tile variables?
+   real :: burn_Cemit = 0.0   ! Amount of biomass COMBUSTED by fire in this time step. (Not necessarily emitted yet.)
+   real :: burn_Cemit_noCWL = 0.0   ! Amount of biomass COMBUSTED by fire in this time step EXCEPT FOR coarse woody litter. (Not necessarily emitted yet.)
+   real :: burn_Ckill = 0.0   ! Amount of biomass killed by fire in this time step BUT NOT COMBUSTED.
+
+   real :: burn_Cemit_leaf = 0.0
+   real :: burn_Cemit_stem = 0.0
+   real :: burn_Cemit_litter = 0.0
+   real :: burn_Cemit_litter_lf = 0.0
+   real :: burn_Cemit_litter_cw = 0.0
+   real :: burn_Ckill_leaf = 0.0
+   real :: burn_Ckill_stem = 0.0
+   real :: burn_Ckill_root = 0.0
+
+   ! dsward - variables for FireMIP
+   real :: burn_Cemit_CO2 = 0.0
+   real :: burn_Cemit_CO = 0.0
+
+   real :: koppen_zone=0.0 ! Koppen zone for initial determination of boreal tiles - dsward_kop
+   real :: fire_rad_power=0.0 ! Fire radiative power as seen by MODIS [W/pixel]
+   integer :: trop_code = -1 !! dsward
+   ! dsward - variables for multi-day fires
+   real :: fires_to_add_mdf        = 0.0 ! Number of fires, used to compute ignitions from previous day's fires  
+   real :: BAperfire_ave_mdf       = 0.0 ! Average burned area per fire  
+   real :: past_fires_mdf      (MAX_MDF_LENGTH) = 0.0 ! Tracking of multi-day fires from the previous MAX_MDF_LENGTH days.
+   real :: past_areaburned_mdf (MAX_MDF_LENGTH) = 0.0 ! Tracking of multi-day fires area burned for computing additional area burned in subsequent days.
+   real :: past_tilesize_mdf       = 0.0 ! Tracking of the tile size of the fire's first day, for computing fire coalescence.
+   real :: total_BA_mdf            = 0.0 ! Total burned area from multi-day fires 
 
    ! it's probably possible to get rid of the fields below
    real :: nep=0.0 ! net ecosystem productivity

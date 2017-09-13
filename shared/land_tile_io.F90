@@ -1157,30 +1157,23 @@ subroutine create_tile_out_file_idx_new(rhandle,name,tidx,tile_dim_length,zaxis_
   real,        optional, intent(in)  :: zaxis_data(:)       ! data for the Z-axis
   real,        optional, intent(in)  :: soilCCohort_data(:)
 
-  ! ---- local vars
-  character(256) :: file_name ! full name of the file, including the processor number
-
-  ! form the full name of the file
-  call get_instance_filename(trim(name), file_name)
-  call get_mosaic_tile_file(trim(file_name),file_name,lnd%ug_domain)
-
-  call fms_io_unstructured_register_restart_axis(rhandle, file_name, "lon", lnd%coord_glon, "X", &
+  call fms_io_unstructured_register_restart_axis(rhandle, trim(name), "lon", lnd%coord_glon, "X", &
           lnd%ug_domain, units="degrees_east", longname="longitude")
-  call fms_io_unstructured_register_restart_axis(rhandle, file_name, "lat", lnd%coord_glat, "Y", &
+  call fms_io_unstructured_register_restart_axis(rhandle, trim(name), "lat", lnd%coord_glat, "Y", &
           lnd%ug_domain, units="degrees_north", longname="latitude")
   ! the size of tile dimension really does not matter for the output, but it does
   ! matter for uncompressing utility, since it uses it as a size of the array to
   ! unpack to create tile index dimension and variable.
-  call fms_io_unstructured_register_restart_axis(rhandle, file_name, trim(tile_index_name), &
+  call fms_io_unstructured_register_restart_axis(rhandle, trim(name), trim(tile_index_name), &
           tidx, "tile lat lon", "C", tile_dim_length, lnd%ug_domain, dimlen_name="tile", &
           dimlen_lname="tile number within grid cell", longname="compressed land point index", imin=0)
   if (present(zaxis_data)) then
-      call fms_io_unstructured_register_restart_axis(rhandle, file_name, "zfull", zaxis_data, "Z", &
+      call fms_io_unstructured_register_restart_axis(rhandle, trim(name), "zfull", zaxis_data, "Z", &
           lnd%ug_domain, units="m", longname="full level", sense=-1)
   endif
 
   if (present(soilCCohort_data)) then
-      call fms_io_unstructured_register_restart_axis(rhandle, file_name, "soilCCohort", soilCCohort_data, "CC", &
+      call fms_io_unstructured_register_restart_axis(rhandle, trim(name), "soilCCohort", soilCCohort_data, "CC", &
           lnd%ug_domain, longname="Soil carbon cohort")
   endif
 end subroutine create_tile_out_file_idx_new
@@ -2035,7 +2028,7 @@ subroutine write_tile_data_r3d(ncid,name,data,dim1,dim2,long_name,units)
         n = 0
         do i = 1,size(data,2)
         do j = 1,size(data,3)
-           buff3(k+1:k+ntiles(p),i,j) = buff1(n*ntiles(p)+1:n*ntiles(p))
+           buff3(k+1:k+ntiles(p),i,j) = buff1(n*ntiles(p)+1:(n+1)*ntiles(p))
            n = n+1
         enddo
         enddo

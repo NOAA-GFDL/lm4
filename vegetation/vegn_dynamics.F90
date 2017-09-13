@@ -26,7 +26,8 @@ use vegn_data_mod, only : spdata, nspecies, &
      fsc_liv, fsc_wood, fsc_froot, agf_bs, &
      l_fract, mcv_min, mcv_lai, do_ppa, tau_seed, &
      understory_lai_factor, wood_fract_min, do_alt_allometry
-use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon
+use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon, vegn_relayer_cohorts_ppa, &
+     vegn_mergecohorts_ppa
 use soil_tile_mod, only: num_l, dz, soil_tile_type, clw, csw, add_soil_carbon, LEAF, CWOOD
 use vegn_cohort_mod, only : vegn_cohort_type, &
      update_biomass_pools, update_bio_living_fraction, update_species, &
@@ -1221,9 +1222,10 @@ end subroutine vegn_phenology_lm3
 
 ! =============================================================================
 ! Added by Weng 2012-02-29
-subroutine vegn_phenology_ppa(vegn, soil)
+subroutine vegn_phenology_ppa(vegn, soil, dheat)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
+  real,                 intent(out)   :: dheat ! heat residual due to cohort merging
 
   ! ---- local vars
   integer :: i
@@ -1285,7 +1287,7 @@ subroutine vegn_phenology_ppa(vegn, soil)
             endif
             stem_mortality = min(stem_mort_rate * cc%bsw_max, &
                    cc%bsw - sp%rho_wood * sp%alphaBM * ((sp%gammaHT/(sp%alphaHT/sp%seedling_height - 1.0))**(1.0/sp%thetaHT))**2 * sp%seedling_height)
-
+            stem_mortality = max(stem_mortality,0.0)
             ! ToDo - it is necessary to implement anonline adjustment of dbh, height and crown area as the plant shrinks
             !        otherwise it can happen that, in a year with a short winter, there is a disadjustment between plant
             !        biomass and its dimensions
@@ -1314,15 +1316,21 @@ subroutine vegn_phenology_ppa(vegn, soil)
          cc%bliving = cc%blv + cc%br + cc%bl + cc%bsw
 
          leaf_litter = (1.-l_fract) * (leaf_fall+root_mortality+stem_mortality) * cc%nindivs ! isa20170705, stem and roots become leaf litter
+         ! call check_var_range(leaf_litter,0.0,HUGE(1.0),'vegn_phenology_ppa','leaf_litter',FATAL)
          leaf_litt(:) = leaf_litt(:)+(/fsc_liv,1-fsc_liv,0.0/)*leaf_litter
          vegn%litter = vegn%litter + leaf_litter
          soil%fsc_in(1)  = soil%fsc_in(1)  + leaf_litter
          vegn%veg_out = vegn%veg_out + leaf_litter
      endif
-     end associate
+     end associate ! cc, sp
   enddo
   ! add litter accumulated over the cohorts
   call add_soil_carbon(soil, leaf_litter=leaf_litt)
+  ! phenology can change cohort heights if the grass dies, and therefore change
+  ! layers -- need to relayer lest cohorts remain in wrong order
+  call vegn_relayer_cohorts_ppa(vegn)
+  ! merge similar cohorts, otherwise their number proliferates due to re-layering
+  call vegn_mergecohorts_ppa(vegn, dheat)
 end subroutine vegn_phenology_ppa
 
 
@@ -1786,7 +1794,7 @@ subroutine kill_small_cohorts_ppa(vegn,soil)
   call add_soil_carbon(soil, leaf_litt, wood_litt, root_litt)
 
   if (is_watch_point()) then
-     write(*,*) '##### vegn_mergecohorts_ppa output #####'
+     write(*,*) '##### kill_small_cohorts_ppa output #####'
      __DEBUG1__(vegn%n_cohorts)
      __DEBUG1__(vegn%cohorts%nindivs)
      __DEBUG1__(vegn%cohorts%Wl)

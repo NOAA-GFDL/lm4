@@ -1,11 +1,10 @@
 module land_io_mod
 
-use mpp_io_mod, only : fieldtype, mpp_get_info, mpp_get_fields
-use mpp_io_mod, only : mpp_get_axes, mpp_get_axis_data, mpp_read, validtype
-use mpp_io_mod, only : mpp_get_atts, MPP_RDONLY, MPP_NETCDF, MPP_MULTI, MPP_SINGLE
-use mpp_io_mod, only : axistype, mpp_open, mpp_close, mpp_is_valid, mpp_get_file_name
-use mpp_io_mod, only : mpp_get_field_index
-use mpp_io_mod, only : mpp_get_file_name
+use mpp_domains_mod, only : mpp_pass_sg_to_ug
+
+use mpp_io_mod, only : fieldtype, mpp_get_info, mpp_get_fields, mpp_get_axis_data, &
+     mpp_read, validtype, mpp_get_atts, MPP_RDONLY, MPP_NETCDF, MPP_MULTI, MPP_SINGLE, &
+     axistype, mpp_open, mpp_close, mpp_is_valid, mpp_get_file_name, mpp_get_field_index
 
 use axis_utils_mod, only : get_axis_bounds
 
@@ -23,11 +22,16 @@ use fms_mod, only: open_namelist_file
 
 use horiz_interp_mod,  only : horiz_interp_type, &
      horiz_interp_new, horiz_interp_del, horiz_interp
+use time_interp_external_mod, only: time_interp_external_init, &
+     time_interp_external, init_external_field
+use time_manager_mod, only: time_type
+use mpp_domains_mod, only : domain2d
+use axis_utils_mod, only: get_axis_bounds
 
 use land_numerics_mod, only : nearest, bisect
 use nf_utils_mod,      only : nfu_validtype, nfu_get_dim, nfu_get_dim_bounds, &
      nfu_get_valid_range, nfu_is_valid, nfu_inq_var, nfu_get_var
-use land_data_mod, only : log_version, horiz_interp_ug
+use land_data_mod, only : log_version, lnd, horiz_interp_ug
 
 implicit none
 private
@@ -36,6 +40,10 @@ private
 public :: init_cover_field
 public :: read_field
 public :: read_land_io_namelist
+
+public :: external_ts_type
+public :: init_external_ts, del_external_ts
+public :: read_external_ts
 
 public :: print_netcdf_error
 
@@ -58,6 +66,19 @@ include 'netcdf.inc'
 character(len=*), parameter :: module_name = 'land_io_mod'
 #include "../shared/version_variable.inc"
 
+real, parameter :: DEFAULT_FILL_INT  = -HUGE(1)
+real, parameter :: DEFAULT_FILL_REAL = -HUGE(1.0)
+
+! ==== module types ==========================================================
+type external_ts_type
+   character(256) :: filename
+   character(64)  :: fieldname
+   integer :: id ! ID of external field
+   type(horiz_interp_type) :: interp ! interpolator
+   real :: fill ! fill value for missing data
+end type external_ts_type
+
+! ==== module data ===========================================================
 logical :: module_is_initialized = .false.
 character(len=64)  :: interp_method = "conservative"
 integer :: input_buf_size = 65536 ! input buffer size for tile and cohort reading
@@ -446,156 +467,147 @@ end subroutine do_read_cover_field
 end subroutine do_read_fraction_field
 
 ! ============================================================================
-subroutine read_field_N_2D_int(filename, varname, lon, lat, data, interp, mask)
-  character(len=*), intent(in) :: filename
-  character(len=*), intent(in) :: varname
-  real, intent(in)  :: lon(:),lat(:)
-  integer, intent(out) :: data(:)
-  character(len=*), intent(in), optional :: interp
-  logical, intent(out), optional :: mask(:)
+subroutine read_field_N_2D_int(filename, varname, data_ug, interp, fill)
+  character(*), intent(in)  :: filename
+  character(*), intent(in)  :: varname
+  integer,      intent(out) :: data_ug(:)
+  character(*), intent(in), optional :: interp  ! kind of interpolation
+  integer,      intent(in), optional :: fill    ! fill value for missing pints
+  ! ---- local vars
+  real :: data3(size(data_ug,1),1)
+  real :: fill_
 
-  ! ---- local vars ----------------------------------------------------------
-  real    :: data3(size(data,1),1)
-  logical :: mask3(size(data,1),1)
+  fill_ = DEFAULT_FILL_INT
+  if (present(fill)) fill_ = fill
 
-  call read_field_N_3D(filename, varname, lon, lat, data3, interp, mask3)
-  data = nint(data3(:,1))
-  if (present(mask)) &
-     mask = mask3(:,1)
-
+  call read_field_N_3D(filename, varname, data3, interp, fill_)
+  data_ug = nint(data3(:,1))
 end subroutine read_field_N_2D_int
 
 ! ============================================================================
-subroutine read_field_N_3D_int(filename, varname, lon, lat, data, interp, mask)
-  character(len=*), intent(in) :: filename
-  character(len=*), intent(in) :: varname
-  real, intent(in)  :: lon(:),lat(:)
-  integer, intent(out) :: data(:,:)
-  character(len=*), intent(in), optional :: interp
-  logical, intent(out), optional :: mask(:,:)
+subroutine read_field_N_3D_int(filename, varname, data_ug, interp, fill)
+  character(*), intent(in)  :: filename
+  character(*), intent(in)  :: varname
+  integer,      intent(out) :: data_ug(:,:)
+  character(*), intent(in), optional :: interp
+  integer,      intent(in), optional :: fill
+  ! ---- local vars
+  real :: data3(size(data_ug,1),size(data_ug,2))
+  real :: fill_
 
-  ! ---- local vars ----------------------------------------------------------
-  real    :: data3(size(data,1),size(data,2))
+  fill_ = DEFAULT_FILL_INT
+  if (present(fill)) fill_ = fill
 
-  call read_field_N_3D(filename, varname, lon, lat, data3, interp, mask)
-  data = nint(data3(:,:))
-
+  call read_field_N_3D(filename, varname, data3, interp, fill_)
+  data_ug = nint(data3(:,:))
 end subroutine read_field_N_3D_int
 
 ! ============================================================================
-subroutine read_field_I_2D_int(ncid, varname, lon, lat, data, interp, mask)
-  integer, intent(in) :: ncid
-  character(len=*), intent(in) :: varname
-  real, intent(in) :: lon(:),lat(:)
-  integer, intent(out) :: data(:)
-  character(len=*), intent(in), optional  :: interp
-  logical, intent(out), optional :: mask(:)
+subroutine read_field_I_2D_int(ncid, varname, data_ug, interp, fill)
+  integer,      intent(in)  :: ncid
+  character(*), intent(in)  :: varname
+  integer,      intent(out) :: data_ug(:)
+  character(*), intent(in), optional :: interp
+  integer,      intent(in), optional :: fill
   ! ---- local vars
-  real    :: data3(size(data,1),1)
-  logical :: mask3(size(data,1),1)
+  real :: data3(size(data_ug,1),1)
+  real :: fill_
 
-  call read_field_I_3D(ncid, varname, lon, lat, data3, interp, mask3)
-  data = nint(data3(:,1))
-  if (present(mask)) mask = mask3(:,1)
+  fill_ = DEFAULT_FILL_INT
+  if (present(fill)) fill_ = fill
 
+  call read_field_I_3D(ncid, varname, data3, interp, fill_)
+  data_ug = nint(data3(:,1))
 end subroutine read_field_I_2D_int
 
 ! ============================================================================
-subroutine read_field_I_3D_int(ncid, varname, lon, lat, data, interp, mask)
-  integer, intent(in) :: ncid
-  character(len=*), intent(in) :: varname
-  real, intent(in) :: lon(:),lat(:)
-  integer, intent(out) :: data(:,:)
-  character(len=*), intent(in), optional  :: interp
-  logical, intent(out), optional :: mask(:,:)
+subroutine read_field_I_3D_int(ncid, varname, data_ug, interp, fill)
+  integer,      intent(in)  :: ncid
+  character(*), intent(in)  :: varname
+  integer,      intent(out) :: data_ug(:,:)
+  character(*), intent(in), optional :: interp
+  integer,      intent(in), optional :: fill
   ! ---- local vars
-  real    :: data3(size(data,1),size(data,2))
+  real    :: data3(size(data_ug,1),size(data_ug,2))
+  real :: fill_
 
-  call read_field_I_3D(ncid, varname, lon, lat, data3, interp, mask)
-  data = nint(data3(:,:))
+  fill_ = DEFAULT_FILL_INT
+  if (present(fill)) fill_ = fill
 
+  call read_field_I_3D(ncid, varname, data3, interp, fill_)
+  data_ug = nint(data3(:,:))
 end subroutine read_field_I_3D_int
 
 ! ============================================================================
-subroutine read_field_N_2D(filename, varname, lon, lat, data, interp, mask)
-  character(len=*), intent(in) :: filename
-  character(len=*), intent(in) :: varname
-  real, intent(in)  :: lon(:),lat(:)
-  real, intent(out) :: data(:)
-  character(len=*), intent(in), optional :: interp
-  logical, intent(out), optional :: mask(:)
+subroutine read_field_N_2D(filename, varname, data_ug, interp, fill)
+  character(*), intent(in)  :: filename
+  character(*), intent(in)  :: varname
+  real,         intent(out) :: data_ug(:)
+  character(*), intent(in),  optional :: interp
+  real,         intent(in), optional :: fill
+  ! ---- local vars
+  real    :: data3(size(data_ug,1),1)
 
-  ! ---- local vars ----------------------------------------------------------
-  real    :: data3(size(data,1),1)
-  logical :: mask3(size(data,1),1)
-
-  call read_field_N_3D(filename, varname, lon, lat, data3, interp, mask3)
-  data = data3(:,1)
-  if (present(mask)) mask = mask3(:,1)
-
+  call read_field_N_3D(filename, varname, data3, interp, fill)
+  data_ug = data3(:,1)
 end subroutine read_field_N_2D
 
 ! ============================================================================
-subroutine read_field_N_3D(filename, varname, lon, lat, data, interp, mask)
-  character(len=*), intent(in) :: filename
-  character(len=*), intent(in) :: varname
-  real, intent(in)  :: lon(:),lat(:)
-  real, intent(out) :: data(:,:)
-  character(len=*), intent(in), optional :: interp
-  logical, intent(out), optional :: mask(:,:)
-
-  ! ---- local vars ----------------------------------------------------------
+subroutine read_field_N_3D(filename, varname, data_ug, interp, fill)
+  character(*), intent(in)  :: filename
+  character(*), intent(in)  :: varname
+  real,         intent(out) :: data_ug(:,:)
+  character(*), intent(in), optional :: interp
+  real,         intent(in), optional :: fill
+  ! ---- local vars
   integer :: ierr, input_unit
 
   ! Files read: biodata.nc, geohydrology.nc, soil_brdf.nc
   input_unit = -9999
   call mpp_open(input_unit, trim(filename), action=MPP_RDONLY, form=MPP_NETCDF, &
            threading=MPP_MULTI, fileset=MPP_SINGLE, iostat=ierr)
-  call read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
+  call read_field_I_3D(input_unit, varname, data_ug, interp, fill)
   call mpp_sync()
   call mpp_close(input_unit)
-
 end subroutine read_field_N_3D
 
 ! ============================================================================
-subroutine read_field_I_2D(ncid, varname, lon, lat, data, interp, mask)
-  integer, intent(in) :: ncid
-  character(len=*), intent(in) :: varname
-  real, intent(in) :: lon(:),lat(:)
-  real, intent(out) :: data(:)
-  character(len=*), intent(in), optional  :: interp
-  logical, intent(out), optional :: mask(:)
-
+subroutine read_field_I_2D(ncid, varname, data_ug, interp, fill)
+  integer,      intent(in)  :: ncid
+  character(*), intent(in)  :: varname
+  real,         intent(out) :: data_ug(:)
+  character(*), intent(in), optional :: interp
+  real,         intent(in), optional :: fill
   ! ---- local vars
-  real    :: data3(size(data,1),1)
-  logical :: mask3(size(data,1),1)
+  real    :: data3(size(data_ug,1),1)
+  logical :: mask3(size(data_ug,1),1)
 
-  call read_field_I_3D(ncid, varname, lon, lat, data3, interp, mask3)
-  data = data3(:,1)
-  if (present(mask)) mask = mask3(:,1)
-
+  call read_field_I_3D(ncid, varname, data3, interp, fill)
+  data_ug = data3(:,1)
 end subroutine read_field_I_2D
 
 ! ============================================================================
-subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
-  integer, intent(in) :: input_unit
-  character(len=*), intent(in) :: varname
-  real, intent(in) :: lon(:),lat(:)
-  real, intent(out) :: data(:,:)
-  character(len=*), intent(in), optional  :: interp
-  logical, intent(out), optional :: mask(:,:)
+subroutine read_field_I_3D(input_unit, varname, data_ug, interp, fill)
+  integer,      intent(in)  :: input_unit
+  character(*), intent(in)  :: varname
+  real,         intent(out) :: data_ug(lnd%ls:,:)
+  character(*), intent(in), optional :: interp
+  real,         intent(in), optional :: fill
 
-  ! ---- local vars ----------------------------------------------------------
+  ! TODO: possibly check the size of the output array
+
+  ! ---- local vars
   integer :: nlon, nlat, nlev ! size of input grid
   integer :: varndims ! number of variable dimension
   integer :: dimlens(1024) ! sizes of respective dimensions
   real,    allocatable :: in_lonb(:), in_latb(:), in_lon(:), in_lat(:)
-  real,    allocatable :: x(:,:,:) ! input buffer
-  logical, allocatable :: imask(:,:,:) ! mask of valid input values
+  real,    allocatable :: in_data(:,:,:) ! input buffer
+  logical, allocatable :: lmask(:,:,:) ! mask of valid input values
   real,    allocatable :: rmask(:,:,:) ! real mask for interpolator
-  real    :: omask(size(data,1),size(data,2)) ! mask of valid output data
-  character(len=20) :: interpolation
-  integer :: i,j,k,imap,jmap,l
+  real,    allocatable :: data_sg(:,:,:) ! data on structured grid
+  real,    allocatable :: omask(:,:) ! mask of valid output data
+  real,    allocatable :: data2(:,:)
+  integer :: k,imap,jmap,l
   type(validtype) :: v
   type(horiz_interp_type) :: hinterp
   integer :: ndim,nvar,natt,nrec
@@ -604,12 +616,15 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
   type(fieldtype), allocatable :: fields(:)
   type(fieldtype) :: fld
   character(len=256) :: file_name
-  real    :: minlat, maxlat
-  integer :: jstart, jend, start(4), count(4)
-  real    :: lon_2D(size(lon(:)),1), lat_2D(size(lat(:)),1)
-  real    :: data2(size(data,1),1)
-  interpolation = "bilinear"
-  if(present(interp)) interpolation = interp
+  integer :: jstart, jend
+  character(len=20) :: interp_
+  real    :: fill_
+
+  interp_ = 'bilinear'
+  if(present(interp)) interp_ = interp
+
+  fill_ = DEFAULT_FILL_REAL
+  if (present(fill)) fill_=fill
 
   ! find the field in the file
   call mpp_get_info(input_unit,ndim,nvar,natt,nrec)
@@ -634,16 +649,15 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
   nlon = dimlens(1) ; nlat = dimlens(2)
   nlev = 1;
   if (varndims==3) nlev=dimlens(3)
-  if(nlev/=size(data,2)) then
+  if(nlev/=size(data_ug,2)) then
      call error_mesg('read_field','3rd dimension length of the variable "'&
           //trim(varname)//'" ('//trim(string(nlev))//') in file "'//trim(file_name)//&
-          '" is different from the expected size of data ('// trim(string(size(data,2)))//')', &
+          '" is different from the expected size of data ('// trim(string(size(data_ug,2)))//')', &
           FATAL)
   endif
 
-  allocate (                 &
-       in_lon  (nlon),   in_lat  (nlat),   &
-       in_lonb (nlon+1), in_latb (nlat+1) )
+  allocate (in_lon  (nlon),   in_lat  (nlat),  &
+            in_lonb (nlon+1), in_latb (nlat+1) )
 
   ! read boundaries of the grid cells in longitudinal direction
   call mpp_get_axis_data(varaxes(1), in_lon)
@@ -655,68 +669,113 @@ subroutine read_field_I_3D(input_unit, varname, lon, lat, data, interp, mask)
   call mpp_get_axis_data(axis_bnd, in_latb)
   in_lonb = in_lonb*PI/180.0; in_latb = in_latb*PI/180.0
 
-  select case(trim(interpolation))
-  case ("nearest")
-     allocate (x(nlon, nlat, nlev), imask(nlon, nlat, nlev))
-     ! read input data
-     call mpp_read(input_unit, fld, x)
-     imask = mpp_is_valid(x,v)
-     do k = 1,size(data,2)
-       do l = 1,size(data,1)
-          call nearest (imask(:,:,k), in_lon, in_lat, lon(l), lat(l), imap, jmap)
-        if(imap <0 .or. jmap<0) then
-           call error_mesg('read_field', 'imap or jamp is negative' ,FATAL)
-        endif
-           data(l,k) = x(imap,jmap,k)
+  select case(trim(interp_))
+  case('nearest')
+     allocate (in_data(nlon, nlat, nlev), lmask(nlon, nlat, nlev))
+     ! read input data. In case of nearest interpolation we need global fields.
+     call mpp_read(input_unit, fld, in_data)
+     lmask = mpp_is_valid(in_data,v)
+     do k = 1,size(data_ug,2)
+        do l = lnd%ls,lnd%le
+           call nearest (lmask(:,:,k), in_lon, in_lat, lnd%ug_lon(l), lnd%ug_lat(l), imap, jmap)
+           if(imap<0 .or. jmap<0) then
+              call error_mesg('read_field', 'imap or jamp is negative' ,FATAL)
+           endif
+           data_ug(l,k) = in_data(imap,jmap,k)
         enddo
      enddo
-     deallocate(x,imask)
-  case default
-     ! to minimize memory footprint, find the latitudinal boundaries in input
-     ! data grid that cover our domain.
-     minlat = minval(lat)
-     maxlat = maxval(lat)
-     jstart = 1; jend = nlat
-     do j = 1, nlat
-        if(minlat < in_lat(j)) then
-          jstart = j-1
-          exit
-        endif
+     deallocate(in_data,lmask)
+  case('bilinear')
+     ! we do bilinear interpolation directly on unstructured grid
+     call jlimits(minval(lnd%ug_lat),maxval(lnd%ug_lat),in_lat,jstart,jend)
+     call read_input()
+     call horiz_interp_new(hinterp, in_lonb, in_latb(jstart:jend+1), &
+            reshape(lnd%ug_lon,[lnd%le-lnd%ls+1,1]), & ! reshape converts 1D array (N) to array of shape (N,1)
+            reshape(lnd%ug_lat,[lnd%le-lnd%ls+1,1]), &
+            interp_method='bilinear')
+     allocate(omask(size(data_ug,1),1), data2(size(data_ug,1),1))
+     do k = 1,size(data_ug,2)
+        call horiz_interp(hinterp, in_data(:,:,k), data2(:,:), mask_in=rmask(:,:,k), mask_out=omask(:,:))
+        data_ug(:,k) = data2(:,1)
+        where (omask(:,1)==0.0) data_ug(:,k) = fill_
      enddo
-     jstart = max(jstart-1,1)
-     do j = 1, nlat
-        if(maxlat < in_lat(j)) then
-          jend = j
-          exit
-        endif
-     enddo
-     jend = min(jend+1,nlat)
-     allocate(x(nlon,jstart:jend,nlev), imask(nlon,jstart:jend,nlev), &
-              rmask(nlon,jstart:jend,nlev))
-     start(:) = 1
-     count(:) = 1
-     count(1) = nlon
-     start(2) = jstart;  count(2) = jend-jstart+1
-     count(3) = nlev
-     ! read input data
-     call mpp_read(input_unit, fld, x, start, count)
-     imask = mpp_is_valid(x,v)
-     rmask = 1.0
-     where(.not.imask) rmask = 0.0
-     lon_2D(:,1) = lon
-     lat_2D(:,1) = lat
-     call horiz_interp_new(hinterp, in_lonb, in_latb(jstart:jend+1), lon_2D, lat_2D, interp_method=interpolation)
-     do k = 1,size(data,2)
-        call horiz_interp(hinterp,x(:,:,k),data2(:,:),mask_in=rmask(:,:,k), mask_out=omask(:,k:k))
-        data(:,k) = data2(:,1)
-     enddo
-     if (present(mask)) mask(:,:) = (omask(:,:)/=0.0)
      call horiz_interp_del(hinterp)
-     deallocate(x,imask, rmask)
+     deallocate(in_data, rmask, omask, data2)
+  case('conservative')
+     ! conservative interpolation is done on structured grid, and then interpolated values
+     ! are passed to unstructured grid
+     call jlimits(minval(lnd%sg_latb),maxval(lnd%sg_latb),in_lat,jstart,jend)
+     call read_input() ! allocates and fills in_data, rmask
+     ! we create horiz interpolator inside the loop, because data masks may be different for
+     ! different levels
+     allocate (data_sg(lnd%is:lnd%ie,lnd%js:lnd%je,size(data_ug,2))  ) ! data on structured grid
+     do k = 1,size(data_ug,2)
+        call horiz_interp_new(hinterp, in_lonb, in_latb(jstart:jend+1), lnd%sg_lonb, lnd%sg_latb, &
+             mask_in=rmask(:,:,k), interp_method='conservative')
+        data_sg(:,:,k) = fill_
+        call horiz_interp(hinterp,in_data(:,:,k),data_sg(:,:,k))
+        call horiz_interp_del(hinterp)
+     enddo
+     call mpp_pass_sg_to_ug(lnd%ug_domain, data_sg, data_ug)
+     deallocate(in_data, rmask, data_sg)
+  case default
+     call error_mesg('read_field','Unknown interpolation method "'//trim(interp_)//'". use "nearest", "bilinear", or "conservative"', FATAL)
   end select
 
   deallocate(in_lonb, in_latb, in_lon, in_lat)
   deallocate(varaxes, fields)
+
+  contains ! internal subroutines
+
+  subroutine read_input
+    ! Note that it changes data in host subroutine, so it must be internal
+    ! ---- local vars
+    integer :: start(4), count(4)
+
+    allocate(in_data(nlon,jstart:jend,nlev), rmask(nlon,jstart:jend,nlev))
+    start(1)  = 1;       count(1)  = nlon
+    start(2)  = jstart;  count(2)  = jend-jstart+1
+    start(3)  = 1;       count(3)  = nlev
+    start(4:) = 1;       count(4:) = 1
+    ! read input data
+    call mpp_read(input_unit, fld, in_data, start, count)
+    where (mpp_is_valid(in_data,v))
+       rmask = 1.0
+    elsewhere
+       rmask = 0.0
+    end where
+  end subroutine read_input
+
+  subroutine jlimits(minlat, maxlat, in_lat, jstart, jend)
+    ! to minimize memory footprint, find the latitudinal boundaries in input
+    ! data grid that cover our domain.
+
+    ! This subroutine doesn't have to be internal, but it is not used (and perhaps not
+    ! useful) anywhere else
+    real,    intent(in)  :: minlat, maxlat
+    real,    intent(in)  :: in_lat(:)
+    integer, intent(out) :: jstart,jend
+
+    integer :: nlat, j
+    nlat = size(in_lat)
+
+    jstart = 1; jend = nlat
+    do j = 1, nlat
+       if(minlat < in_lat(j)) then
+          jstart = j-1
+          exit
+       endif
+    enddo
+    jstart = max(jstart-1,1)
+
+    do j = 1, nlat
+       if(maxlat < in_lat(j)) then
+          jend = j
+          exit
+       endif
+    enddo
+    jend = min(jend+1,nlat)
+  end subroutine jlimits
 
 end subroutine read_field_I_3D
 
@@ -736,5 +795,74 @@ subroutine print_netcdf_error(ierr, file, line)
      call error_mesg('NetCDF', mesg, FATAL)
   endif
 end subroutine print_netcdf_error
+
+! ==============================================================================
+! simplified interface for the time_inerp_external: takes care of creating
+! the horizntal interpolator
+! ==============================================================================
+subroutine init_external_ts(ts, filename, fieldname, interp, fill)
+  type(external_ts_type), intent(inout) :: ts
+  character(*), intent(in) :: filename, fieldname
+  character(*), intent(in) :: interp ! interpolation method
+  real,         intent(in), optional :: fill ! fill value for missing data
+
+! NOTE: filling missing data is not really implemented yet. It is not clear how to get
+! the input data to determine the input valid data mask. Besides, missing input data mask
+! may be different at different times -- not sure if time_interp_external can handle that
+! at all.
+! TODO: really implement missing data masking and filling
+
+  integer :: axis_sizes(4)
+  type(axistype) :: axis_centers(4), axis_bounds(4)
+  real, allocatable :: lon_in(:), lat_in(:)
+
+  ! initialize external field
+  ts%filename = filename
+  ts%fieldname = fieldname
+  ts%id = init_external_field(filename,fieldname, domain=lnd%sg_domain, &
+       axis_centers=axis_centers, axis_sizes=axis_sizes, &
+       use_comp_domain=.TRUE., override=.TRUE.)
+  !  get lon and lat of the input (source) grid, assuming that axis%data contains
+  !  lat and lon of the input grid (in degrees)
+  call get_axis_bounds(axis_centers(1),axis_bounds(1),axis_centers)
+  call get_axis_bounds(axis_centers(2),axis_bounds(2),axis_centers)
+  allocate(lon_in(axis_sizes(1)+1))
+  allocate(lat_in(axis_sizes(2)+1))
+  call mpp_get_axis_data(axis_bounds(1),lon_in)
+  call mpp_get_axis_data(axis_bounds(2),lat_in)
+  select case (trim(interp))
+  case ('bilinear')
+     call horiz_interp_new(ts%interp, lon_in*PI/180, lat_in*PI/180, lnd%sg_lon, lnd%sg_lat, &
+          interp_method='bilinear')
+  case ('conservative')
+     call horiz_interp_new(ts%interp, lon_in*PI/180, lat_in*PI/180, lnd%sg_lonb, lnd%sg_latb, &
+          interp_method='conservative')
+  case default
+     call error_mesg('init_external_ts','Unknown interpolation method "'//trim(interp)//'". use "bilinear" or "conservative"', FATAL)
+  end select
+  deallocate(lon_in,lat_in)
+  ts%fill = DEFAULT_FILL_REAL
+  if (present(fill)) ts%fill = fill
+end subroutine init_external_ts
+
+
+! ==============================================================================
+subroutine del_external_ts(ts)
+  type(external_ts_type), intent(inout) :: ts
+  call horiz_interp_del(ts%interp)
+end subroutine del_external_ts
+
+
+! ==============================================================================
+subroutine read_external_ts(ts,time,data_ug)
+  type(external_ts_type), intent(in)  :: ts
+  type(time_type),        intent(in)  :: time
+  real,                   intent(out) :: data_ug(:)
+
+  real :: data_sg(lnd%is:lnd%ie,lnd%js:lnd%je)
+
+  call time_interp_external(ts%id, time, data_sg, horz_interp=ts%interp)
+  call mpp_pass_sg_to_ug(lnd%ug_domain, data_sg, data_ug)
+end subroutine read_external_ts
 
 end module
