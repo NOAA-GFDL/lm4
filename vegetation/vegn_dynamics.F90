@@ -1268,7 +1268,7 @@ subroutine vegn_phenology_ppa(vegn, soil, dheat)
           cc%bl_max = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
           cc%br_max = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
         endif
-     else if ( cc%status == LEAF_ON .and. vegn%tc_pheno < sp%tc_crit ) then
+     else if ( cc%status == LEAF_ON .and. vegn%tc_pheno < sp%tc_crit .and. sp%phent==PHEN_DECIDUOUS ) then
         cc%status = LEAF_OFF
         cc%gdd = 0.0
      endif
