@@ -289,7 +289,7 @@ integer, allocatable :: id_cana_tr(:)
 integer :: id_sftlf, id_sftgif
 integer :: id_pcp, id_prra, id_prveg, id_tran, id_evspsblveg, id_evspsblsoi, id_nbp, &
            id_snw, id_snd, id_snc, id_lwsnl, id_snm, id_tws, id_sweLut, id_cLand, &
-           id_hflsLut, id_rlusLut, id_rsusLut, id_tslsiLut
+           id_hflsLut, id_rlusLut, id_rsusLut, id_tslsiLut, id_netAtmosLandCO2Flux
 integer :: id_cropFrac, id_cropFracC3, id_cropFracC4, id_pastureFrac, id_residualFrac, &
            id_grassFrac, id_grassFracC3, id_grassFracC4, id_vegFrac, &
            id_treeFrac, id_treeFracBdlDcd, id_treeFracBdlEvg, id_treeFracNdlDcd, id_treeFracNdlEvg, &
@@ -2216,6 +2216,7 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
   else
      call send_tile_data(id_nwdFracLut,    1.0,                       tile%diag)
   endif
+  call send_tile_data(id_netAtmosLandCO2Flux,  -vegn_fco2*mol_C/mol_co2, tile%diag)
 
 end subroutine update_land_model_fast_0d
 
@@ -3450,7 +3451,11 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   id_sweLut = register_tiled_diag_field ( cmor_name, 'sweLut', axes, time, &
              'Snow Water Equivalent on Land Use Tile','m', standard_name='snow_water_equivalent', &
              missing_value=-1.0e+20, fill_missing=.FALSE. )
-
+  id_netAtmosLandCO2Flux = register_tiled_diag_field ( cmor_name, 'netAtmosLandCO2Flux', axes, time, &
+             'Net flux of CO2 between atmosphere and land (positive into land) as a result of all processes.', &
+             'kg m-2 s-1', &
+             standard_name='surface_net_downward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_all_land_processes', &
+             missing_value=-1.0e+20, fill_missing=.TRUE. )
   id_cLand = register_tiled_diag_field ( cmor_name, 'cLand', axes, time, &
              'Total Carbon in All Terrestrial Carbon Pools', 'kg m-2', &
              standard_name='total_land_carbon', &
