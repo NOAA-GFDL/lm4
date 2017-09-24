@@ -291,8 +291,9 @@ integer :: id_pcp, id_prra, id_prveg, id_tran, id_evspsblveg, id_evspsblsoi, id_
            id_snw, id_snd, id_snc, id_lwsnl, id_snm, id_tws, id_sweLut, id_cLand, &
            id_hflsLut, id_rlusLut, id_rsusLut, id_tslsiLut
 integer :: id_cropFrac, id_cropFracC3, id_cropFracC4, id_pastureFrac, id_residualFrac, &
-           id_grassFrac, id_grassFracC3, id_grassFracC4, &
-           id_treeFrac, id_c3pftFrac, id_c4pftFrac, id_nwdFracLut, &
+           id_grassFrac, id_grassFracC3, id_grassFracC4, id_vegFrac, &
+           id_treeFrac, id_treeFracBdlDcd, id_treeFracBdlEvg, id_treeFracNdlDcd, id_treeFracNdlEvg, &
+           id_c3pftFrac, id_c4pftFrac, id_nwdFracLut, &
            id_fracLut_psl, id_fracLut_crp, id_fracLut_pst, id_fracLut_urb
 
 ! init_value is used to fill most of the allocated boundary condition arrays.
@@ -1279,12 +1280,18 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
   call dump_tile_diag_fields(land_tile_map,lnd%time)
 
   ! send CMOR cell fraction fields
+  call send_cellfrac_data(id_vegFrac,      is_vegn)
   call send_cellfrac_data(id_cropFrac,     is_crop)
   call send_cellfrac_data(id_cropFracC3,   is_crop_C3)
   call send_cellfrac_data(id_cropFracC4,   is_crop_C4)
   call send_cellfrac_data(id_pastureFrac,  is_pasture)
   call send_cellfrac_data(id_residualFrac, is_residual)
   call send_cellfrac_data(id_treeFrac,     is_tree)
+  call send_cellfrac_data(id_treeFracBdlDcd,  is_treeBdlDcd)
+  call send_cellfrac_data(id_treeFracBdlEvg,  is_treeBdlEvg)
+  call send_cellfrac_data(id_treeFracNdlDcd,  is_treeNdlDcd)
+  call send_cellfrac_data(id_treeFracNdlEvg,  is_treeNdlEvg)
+
   call send_cellfrac_data(id_grassFrac,    is_ntrlgrass)
   call send_cellfrac_data(id_grassFracC3,  is_ntrlgrass_C3)
   call send_cellfrac_data(id_grassFracC4,  is_ntrlgrass_C4)
@@ -3491,35 +3498,19 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
              area=id_cellarea)
   call diag_field_add_attribute(id_residualFrac,'cell_methods','area: mean')
   call diag_field_add_attribute(id_residualFrac,'ocean_fillvalue',0.0)
-  id_treeFrac = register_diag_field ( cmor_name, 'treeFrac', axes, time, &
-             'Tree Cover Fraction','%', standard_name='area_fraction', area=id_cellarea)
-  call diag_field_add_attribute(id_treeFrac,'cell_methods','area: mean')
-  call diag_field_add_attribute(id_treeFrac,'ocean_fillvalue',0.0)
-  id_grassFrac = register_diag_field ( cmor_name, 'grassFrac', axes, time, &
-             'Natural Grass Fraction','%', standard_name='area_fraction', &
-             area=id_cellarea)
-  call diag_field_add_attribute(id_grassFrac,'cell_methods','area: mean')
-  call diag_field_add_attribute(id_grassFrac,'ocean_fillvalue',0.0)
-  id_grassFracC3 = register_diag_field ( cmor_name, 'grassFracC3', axes, time, &
-             'C3 Natural Grass Fraction','%', standard_name='area_fraction', &
-             area=id_cellarea)
-  call diag_field_add_attribute(id_grassFracC3,'cell_methods','area: mean')
-  call diag_field_add_attribute(id_grassFracC3,'ocean_fillvalue',0.0)
-  id_grassFracC4 = register_diag_field ( cmor_name, 'grassFracC4', axes, time, &
-             'C4 Natural Grass Fraction','%', standard_name='area_fraction', &
-             area=id_cellarea)
-  call diag_field_add_attribute(id_grassFracC4,'cell_methods','area: mean')
-  call diag_field_add_attribute(id_grassFracC4,'ocean_fillvalue',0.0)
-  id_c3pftFrac = register_diag_field ( cmor_name, 'c3PftFrac', axes, time, &
-             'Total C3 PFT Cover Fraction','%', standard_name='area_fraction', &
-             area=id_cellarea)
-  call diag_field_add_attribute(id_c3pftFrac,'cell_methods','area: mean')
-  call diag_field_add_attribute(id_c3pftFrac,'ocean_fillvalue',0.0)
-  id_c4pftFrac = register_diag_field ( cmor_name, 'c4PftFrac', axes, time, &
-             'Total C4 PFT Cover Fraction','%', standard_name='area_fraction', &
-             area=id_cellarea)
-  call diag_field_add_attribute(id_c4pftFrac,'cell_methods','area: mean')
-  call diag_field_add_attribute(id_c4pftFrac,'ocean_fillvalue',0.0)
+
+  id_vegFrac        = register_cmor_fraction_field ( 'vegFrac',        'Total vegetated fraction' )
+  id_treeFrac       = register_cmor_fraction_field ( 'treeFrac',       'Tree Cover Fraction' )
+  id_treeFracBdlDcd = register_cmor_fraction_field ( 'treeFracBdlDcd', 'Broadleaf deciduous tree fraction' )
+  id_treeFracBdlEvg = register_cmor_fraction_field ( 'treeFracBdlEvg', 'Broadleaf evergreen tree fraction' )
+  id_treeFracNdlDcd = register_cmor_fraction_field ( 'treeFracNdlDcd', 'Needleleaf deciduous tree fraction' )
+  id_treeFracNdlEvg = register_cmor_fraction_field ( 'treeFracNdlEvg', 'Needleleaf evergreen tree fraction' )
+
+  id_grassFrac   = register_cmor_fraction_field ( 'grassFrac', 'Natural Grass Fraction' )
+  id_grassFracC3 = register_cmor_fraction_field ( 'grassFracC3', 'C3 Natural Grass Fraction' )
+  id_grassFracC4 = register_cmor_fraction_field ( 'grassFracC4', 'C4 Natural Grass Fraction' )
+  id_c3pftFrac   = register_cmor_fraction_field ( 'c3PftFrac', 'Total C3 PFT Cover Fraction' )
+  id_c4pftFrac   = register_cmor_fraction_field ( 'c4PftFrac', 'Total C4 PFT Cover Fraction' )
   ! LUMIP land fractions
   id_fracLut_psl = register_diag_field ( cmor_name, 'fracLut_psl', axes, time, &
              'Fraction of Grid Cell for Each Land Use Tile','fraction', &
@@ -3537,6 +3528,18 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   call diag_field_add_attribute(id_fracLut_crp,'cell_methods','area: mean')
   call diag_field_add_attribute(id_fracLut_pst,'cell_methods','area: mean')
   call diag_field_add_attribute(id_fracLut_urb,'cell_methods','area: mean')
+
+contains
+  function register_cmor_fraction_field(field_name, long_name) result(id); integer :: id
+    character(*), intent(in) :: &
+       field_name, long_name
+
+    id = register_diag_field ( cmor_name, field_name, axes, lnd%time, &
+             long_name,'%', standard_name='area_fraction', area=id_cellarea)
+    call diag_field_add_attribute(id,'cell_methods','area: mean')
+    call diag_field_add_attribute(id,'ocean_fillvalue',0.0)
+  end function register_cmor_fraction_field
+
 end subroutine land_diag_init
 
 ! ==============================================================================
@@ -3567,6 +3570,15 @@ subroutine send_cellfrac_data(id, f, scale)
   enddo
   used = send_data(id, frac, lnd%time)
 end subroutine send_cellfrac_data
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+function is_vegn(tile) result(answer); logical :: answer
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+  if (.not.associated(tile)) return
+  answer = associated(tile%vegn)
+end function is_vegn
 
 ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 function is_crop(tile) result(answer); logical :: answer
@@ -3641,6 +3653,43 @@ function is_tree(tile) result(answer); logical :: answer
            (tile%vegn%cohorts(1)%species == SP_TROPICAL).or. &
            (tile%vegn%cohorts(1)%species == SP_EVERGR)
 end function is_tree
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+function is_treeBdlDcd(tile) result(answer); logical :: answer
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+  if (.not.associated(tile)) return
+  if (.not.associated(tile%vegn)) return
+  answer = (tile%vegn%cohorts(1)%species == SP_TEMPDEC)
+end function is_treeBdlDcd
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+function is_treeBdlEvg(tile) result(answer); logical :: answer
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+  if (.not.associated(tile)) return
+  if (.not.associated(tile%vegn)) return
+  answer = (tile%vegn%cohorts(1)%species == SP_TROPICAL)
+end function is_treeBdlEvg
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+function is_treeNdlDcd(tile) result(answer); logical :: answer
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+end function is_treeNdlDcd
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+function is_treeNdlEvg(tile) result(answer); logical :: answer
+  type(land_tile_type), pointer :: tile
+
+  answer = .FALSE.
+  if (.not.associated(tile)) return
+  if (.not.associated(tile%vegn)) return
+  answer = (tile%vegn%cohorts(1)%species == SP_EVERGR)
+end function is_treeNdlEvg
 
 ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 function is_ntrlgrass(tile) result(answer); logical :: answer
