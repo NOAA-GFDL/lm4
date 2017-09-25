@@ -267,7 +267,7 @@ integer :: id_fast_soil_C, id_slow_soil_C, id_protected_C, id_fsc, id_ssc,&
 
 ! diag IDs of CMOR variables
 integer :: id_mrlsl, id_mrsfl, id_mrsll, id_mrsol, id_mrso, id_mrsos, id_mrlso, id_mrfso, &
-    id_mrs1mLut, id_mrro, id_mrros, id_csoil, id_rh, &
+    id_mrsofc, id_mrs1mLut, id_mrro, id_mrros, id_csoil, id_rh, &
     id_csoilfast, id_csoilmedium, id_csoilslow
 
 ! test tridiagonal solver for advection
@@ -368,6 +368,7 @@ subroutine soil_init (predefined_tiles, id_ug,id_band,id_zfull)
   real, allocatable :: gw_param(:), gw_param2(:), gw_param3(:), albedo(:,:)
   real, allocatable :: f_iso(:,:), f_vol(:,:), f_geo(:,:), refl_dif(:,:)
 
+  real :: total_soil_depth ! for diagnostics only, m
   real :: local_wt_depth ! [m] water table depth for tile (+ for below surface)
   real, allocatable :: ref_soil_t(:) ! reference soil temperature (based on 5 m or surface air temperature)
                                      ! for cold-start initialization
@@ -806,6 +807,14 @@ subroutine soil_init (predefined_tiles, id_ug,id_band,id_zfull)
   call send_tile_data_r1d_fptr(id_f_vol_sat, soil_f_vol_sat_ptr)
   call send_tile_data_r1d_fptr(id_f_geo_sat, soil_f_geo_sat_ptr)
   call send_tile_data_i0d_fptr(id_type,         soil_tag_ptr)
+  if (id_mrsofc>0) then
+     total_soil_depth = sum(dz(1:num_l))
+     ce = first_elmt(land_tile_map)
+     do while(loop_over_tiles(ce,tile))
+        if (associated(tile%soil)) &
+           call send_tile_data(id_mrsofc, tile%soil%pars%vwc_sat*total_soil_depth*dens_h2o, tile%diag)
+     end do
+  endif
 end subroutine soil_init
 
 
@@ -1309,6 +1318,9 @@ subroutine soil_diag_init(id_ug,id_band,id_zfull)
   enddo
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('land')
+  id_mrsofc = register_tiled_static_field ( cmor_name, 'mrsofc', axes(1:1),  &
+       'Capacity of Soil to Store Water', 'kg m-2', missing_value=-100.0, &
+       standard_name='soil_moisture_content_at_field_capacity', fill_missing=.TRUE.)
   id_mrlsl = register_tiled_diag_field ( cmor_name, 'mrlsl', axes,  &
        lnd%time, 'Water Content of Soil Layer', 'kg m-2', missing_value=-100.0, &
        standard_name='moisture_content_of_soil_layer', fill_missing=.TRUE.)
