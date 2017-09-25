@@ -289,7 +289,8 @@ integer, allocatable :: id_cana_tr(:)
 integer :: id_sftlf, id_sftgif
 integer :: id_pcp, id_prra, id_prveg, id_tran, id_evspsblveg, id_evspsblsoi, id_nbp, &
            id_snw, id_snd, id_snc, id_lwsnl, id_snm, id_tws, id_sweLut, id_cLand, &
-           id_hflsLut, id_rlusLut, id_rsusLut, id_tslsiLut, id_netAtmosLandCO2Flux
+           id_hflsLut, id_rlusLut, id_rsusLut, id_tslsiLut, id_netAtmosLandCO2Flux, &
+           id_hfdsn
 integer :: id_cropFrac, id_cropFracC3, id_cropFracC4, id_pastureFrac, id_residualFrac, &
            id_grassFrac, id_grassFracC3, id_grassFracC4, id_vegFrac, &
            id_treeFrac, id_treeFracBdlDcd, id_treeFracBdlEvg, id_treeFracNdlDcd, id_treeFracNdlEvg, &
@@ -1433,6 +1434,7 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
   character(*), parameter :: tag = 'update_land_model_fast_0d'
   real :: lswept, fswept, hlswept, hfswept ! amounts of liquid and frozen snow, and corresponding
                                            ! heat swept with tiny snow
+  real :: grnd_latent ! specific heat of vaporization for the ground, for diag only
 
 
   i = lnd%i_index(l)
@@ -1795,7 +1797,7 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
           Eg0   + b0(iqc)*DEgDqc,   DEgDTg   + b1(iqc)*DEgDqc,   DEgDpsig + b2(iqc)*DEgDqc,   &
           G0,                       DGDTg, &
           ! output
-          delta_Tg, delta_psig, Mg_imp )
+          delta_Tg, delta_psig, Mg_imp, grnd_latent )
 
 ! [X.5] calculate final value of other tendencies
      delta_qc = B0(iqc) + B1(iqc)*delta_Tg + B2(iqc)*delta_psig
@@ -2207,6 +2209,19 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
   call send_tile_data(id_evspsblveg,  vegn_levap+vegn_fevap,          tile%diag)
   call send_tile_data(id_nbp,    -vegn_fco2*mol_C/mol_co2,            tile%diag)
   call send_tile_data(id_snm, snow_melt,                              tile%diag)
+  if (id_hfdsn>0) then
+     if (snow) then
+        call send_tile_data(id_hfdsn, &
+            snow_flw + snow_fsw + & ! net radiation
+            - snow_sens & ! turbilent sensible with canopy air
+            + vegn_hfprec + vegn_hlprec & ! sensible heat coming with precipitation
+            - cpw*(snow_fevap+snow_levap)*(snow_T-tfreeze) & ! sensible heat carried away by water vapor
+            - (snow_fevap+snow_levap)*grnd_latent, & ! latent heat
+            tile%diag)
+     else
+        call send_tile_data(id_hfdsn, 0.0, tile%diag)
+     endif
+  endif
   if (id_cLand > 0) &
       call send_tile_data(id_cLand, land_tile_carbon(tile),           tile%diag)
   if (id_tslsiLut>0) &
@@ -2283,7 +2298,7 @@ subroutine land_surface_energy_balance ( tile, &
      G0,    DGDTg,    & ! sub-surface heat
      delta_Tg,        & ! surface temperature change for the time step
      delta_psig,      &
-     Mg_imp          )  ! implicit melt, kg/m2
+     Mg_imp, grnd_latent )  ! implicit melt, kg/m2
 
   type(land_tile_type), intent(in) :: tile
   real, intent(in) :: &
@@ -2295,8 +2310,9 @@ subroutine land_surface_energy_balance ( tile, &
   real, intent(out) :: &
      delta_Tg,        & ! change in surface temperature
      delta_psig,      & ! change in surface soil-water matric head
-     Mg_imp             ! mass of surface ice melted (or water frozen) during the
+     Mg_imp,          & ! mass of surface ice melted (or water frozen) during the
                         ! time step, kg/m2
+     grnd_latent        ! specific heat of vaporization for the ground
 
   real :: grnd_B     ! surface energy balance
   real :: grnd_DBDTg ! full derivative of grnd_B w.r.t. surface temperature
@@ -2307,7 +2323,6 @@ subroutine land_surface_energy_balance ( tile, &
      grnd_E_min,      & ! Eg floor of 0 if condensation is prohibited
      grnd_E_max,      & ! exfiltration rate limit, kg/(m2 s)
      grnd_liq, grnd_ice, & ! amount of water available for freeze or melt on the surface, kg/m2
-     grnd_latent,     & ! specific heat of vaporization for the ground
      grnd_Tf,         & ! ground freezing temperature
      grnd_subl
 
@@ -3437,6 +3452,9 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   id_snm = register_tiled_diag_field ( cmor_name, 'snm', axes, time, &
              'Surface Snow Melt','kg m-2 s-1', standard_name='surface_snow_melt_flux', &
              missing_value=-1.0e+20, fill_missing=.TRUE.)
+  id_hfdsn = register_tiled_diag_field ( cmor_name, 'hfdsn', axes, time, &
+             'Downward Heat Flux into Snow Where Land over Land','W m-2', standard_name='surface_downward_heat_flux_in_snow', &
+             missing_value=-1.0e+20, fill_missing=.TRUE.)
   id_tws = register_diag_field ( cmor_name, 'tws', axes, time, &
              'Terrestrial Water Storage','kg m-2', &
              standard_name='canopy_and_surface_and_subsurface_water_amount', &
@@ -3447,6 +3465,9 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, domain, id_band, id_ug
   call add_tiled_diag_field_alias(id_sens, cmor_name, 'hfssLut', axes, time, &
       'Sensible Heat Flux on Land Use Tile', 'W m-2', missing_value=-1.0e+20, &
       standard_name='surface_upward_sensible_heat_flux')
+  call add_tiled_diag_field_alias(id_fevaps, cmor_name, 'sbl', axes, time, &
+      'Surface Snow and Ice Sublimation Flux', 'kg m-2 s-1', missing_value=-1.0e+20, &
+      standard_name='surface_snow_and_ice_sublimation_flux')
 
   id_sweLut = register_tiled_diag_field ( cmor_name, 'sweLut', axes, time, &
              'Snow Water Equivalent on Land Use Tile','m', standard_name='snow_water_equivalent', &
