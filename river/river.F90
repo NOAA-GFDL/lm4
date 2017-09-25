@@ -1268,10 +1268,12 @@ end subroutine print_river_tracer_data
     id_geolat_t = register_static_field ( mod_name, 'geolat_t', (/id_lon,id_lat/), &
          'latitude of grid cell centers', 'degrees_N', missing_value = -1.0e+20 )
     id_cellarea = register_static_field ( mod_name, 'cell_area', (/id_lon, id_lat/), &
-         'land cell area', 'm2', missing_value = -1.0e+20 )
+         'River Model Grid-Cell Area', 'm2', standard_name='cell_area', missing_value = -1.0e+20 )
+    call diag_field_add_attribute(id_cellarea,'cell_methods','area: sum')
 
     id_area_land = register_static_field ( mod_name, 'area_land', (/id_lon, id_lat/), &
          'land area', 'm2', missing_value = -1.0e+20 )
+    call diag_field_add_attribute(id_area_land,'cell_methods','area: sum')
 
     ! regular diagnostic fields normalized per land area; values outside of land are zeroed
     ! out. This is the traditional way of saving the river diagnostics.
