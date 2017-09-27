@@ -2,7 +2,13 @@ module vegn_photosynthesis_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod,            only : error_mesg, FATAL, WARNING
+#ifdef INTERNAL_FILE_NML
+use mpp_mod, only: input_nml_file
+#else
+use fms_mod, only: open_namelist_file
+#endif
+use fms_mod, only: error_mesg, FATAL, WARNING, file_exist, close_file, check_nml_error, stdlog, &
+      mpp_pe, mpp_root_pe, lowercase
 use constants_mod,      only : TFREEZE, PI, rdgas, dens_h2o, grav
 use sphum_mod,          only : qscomp
 
@@ -12,7 +18,8 @@ use land_debug_mod,     only : is_watch_point, check_var_range
 use land_data_mod,      only : log_version
 use soil_tile_mod,      only : soil_tile_type, psi_wilt
 use vegn_tile_mod,      only : vegn_tile_type
-use vegn_data_mod,      only : PT_C4, FORM_GRASS, spdata, T_transp_min
+use vegn_data_mod,      only : PT_C4, FORM_GRASS, spdata, T_transp_min, &
+                               ALLOM_EW, ALLOM_EW1, ALLOM_HML
 use vegn_cohort_mod,    only : vegn_cohort_type, get_vegn_wet_frac
 use uptake_mod,         only : darcy2d_uptake, darcy2d_uptake_solver
 implicit none
@@ -27,41 +34,89 @@ public :: vegn_photosynthesis
 character(len=*), parameter :: module_name = 'vegn_photosynthesis_mod'
 #include "../shared/version_variable.inc"
 
+! values for selector of CO2 option used for photosynthesis
+integer, public, parameter :: &
+    VEGN_PHOT_CO2_PRESCRIBED  = 1, &
+    VEGN_PHOT_CO2_INTERACTIVE = 2
+
 ! values for internal vegetation photosynthesis option selector
-integer, parameter :: VEGN_PHOT_SIMPLE  = 1 ! zero photosynthesis
-integer, parameter :: VEGN_PHOT_LEUNING = 2 ! photosynthesis according to simplified Leuning model
+integer, parameter :: &
+    VEGN_PHOT_SIMPLE  = 1, &   ! zero photosynthesis
+    VEGN_PHOT_LEUNING = 2      ! photosynthesis according to simplified Leuning model
 
 ! values for internal vegetation water stress option selector
 integer, public, parameter :: & ! water limitation options
-   WSTRESS_NONE       = 1, &  ! no water limitation
-   WSTRESS_LM3        = 2, &  ! LM3-like
-   WSTRESS_HYDRAULICS = 3     ! plant hydraulics formulation
+    WSTRESS_NONE       = 1, &  ! no water limitation
+    WSTRESS_LM3        = 2, &  ! LM3-like
+    WSTRESS_HYDRAULICS = 3     ! plant hydraulics formulation
 
 real, parameter :: gs_lim = 0.25 ! maximum stomatal cond for Leuning, mol/(m2 s)
 real, parameter :: b      = 0.01 ! minimum stomatal cond for Leuning, mol/(m2 s)
 
 ! ==== module variables ======================================================
-integer :: vegn_phot_option    = -1 ! selector of the photosynthesis option
-integer :: water_stress_option = -1 ! selector of the water stress option
-logical :: hydraulics_repair    = .TRUE.
+integer :: vegn_phot_option     = -1 ! selector of the photosynthesis option
+integer, public, protected :: vegn_phot_co2_option = -1 ! internal selector of co2 option for photosynthesis
+integer :: water_stress_option  = -1 ! selector of the water stress option
+
+character(32) :: photosynthesis_to_use = 'simple' ! or 'leuning'
+
+character(32) :: co2_to_use_for_photosynthesis = 'prescribed' ! or 'interactive'
+   ! specifies what co2 concentration to use for photosynthesis calculations:
+   ! 'prescribed'  : a prescribed value is used, equal to co2_for_photosynthesis
+   !      specified below.
+   ! 'interactive' : concentration of co2 in canopy air is used
+real, public, protected :: co2_for_photosynthesis = 350.0e-6 ! concentration of co2 for
+   ! photosynthesis calculations, mol/mol. Ignored if co2_to_use_for_photosynthesis is
+   ! not 'prescribed'
+
+real :: lai_eps = 1e-5 ! threshold for switching to linear approximation for Ag_l, m2/m2
+
+character(32) :: water_stress_to_use = 'lm3' ! type of water stress formulation:
+   ! 'lm3', 'plant-hydraulics', or 'none'
+logical :: hydraulics_repair = .TRUE.
+
+namelist /photosynthesis_nml/ &
+    photosynthesis_to_use, &
+    co2_to_use_for_photosynthesis, co2_for_photosynthesis, &
+    lai_eps, &
+    water_stress_to_use, hydraulics_repair
 
 contains
 
 
 ! ============================================================================
-subroutine vegn_photosynthesis_init(photosynthesis_to_use, water_stress_to_use, hydraulics_repair_in)
-  character(*), intent(in) :: photosynthesis_to_use
-  character(*), intent(in) :: water_stress_to_use
-  logical,      intent(in) :: hydraulics_repair_in
+subroutine vegn_photosynthesis_init()
 
+  integer :: unit, io, ierr
+  
   call log_version(version, module_name, &
   __FILE__)
+#ifdef INTERNAL_FILE_NML
+    read (input_nml_file, nml=photosynthesis_nml, iostat=io)
+    ierr = check_nml_error(io, 'photosynthesis_nml')
+#else
+  if (file_exist('input.nml')) then
+     unit = open_namelist_file()
+     ierr = 1;
+     do while (ierr /= 0)
+        read (unit, nml=photosynthesis_nml, iostat=io, end=10)
+        ierr = check_nml_error (io, 'photosynthesis_nml')
+     enddo
+10   continue
+     call close_file (unit)
+  endif
+#endif
+
+  unit=stdlog()
+  if (mpp_pe() == mpp_root_pe()) then
+     write(unit, nml=photosynthesis_nml)
+  endif
 
   ! convert symbolic names of photosynthesis options into numeric IDs to
   ! speed up selection during run-time
-  if (trim(photosynthesis_to_use)=='simple') then
+  if (trim(lowercase(photosynthesis_to_use))=='simple') then
      vegn_phot_option = VEGN_PHOT_SIMPLE
-  else if (trim(photosynthesis_to_use)=='leuning') then
+  else if (trim(lowercase(photosynthesis_to_use))=='leuning') then
      vegn_phot_option = VEGN_PHOT_LEUNING
   else
      call error_mesg('vegn_photosynthesis_init',&
@@ -70,12 +125,25 @@ subroutine vegn_photosynthesis_init(photosynthesis_to_use, water_stress_to_use, 
           FATAL)
   endif
 
+  ! convert symbolic names of photosynthesis CO2 options into numeric IDs to
+  ! speed up selection during run-time
+  if (trim(lowercase(co2_to_use_for_photosynthesis))=='prescribed') then
+     vegn_phot_co2_option = VEGN_PHOT_CO2_PRESCRIBED
+  else if (trim(lowercase(co2_to_use_for_photosynthesis))=='interactive') then
+     vegn_phot_co2_option = VEGN_PHOT_CO2_INTERACTIVE
+  else
+     call error_mesg('vegn_photosynthesis_init',&
+          'vegetation photosynthesis option co2_to_use_for_photosynthesis="'//&
+          trim(co2_to_use_for_photosynthesis)//'" is invalid, use "prescribed" or "interactive"',&
+          FATAL)
+  endif
+
   ! parse the options for the water stress
-  if (trim(water_stress_to_use)=='none') then
+  if (trim(lowercase(water_stress_to_use))=='none') then
      water_stress_option = WSTRESS_NONE
-  else if (trim(water_stress_to_use)=='lm3') then
+  else if (trim(lowercase(water_stress_to_use))=='lm3') then
      water_stress_option = WSTRESS_LM3
-  else if (trim(water_stress_to_use)=='plant-hydraulics') then
+  else if (trim(lowercase(water_stress_to_use))=='plant-hydraulics') then
      water_stress_option = WSTRESS_HYDRAULICS
   else
      call error_mesg('vegn_photosynthesis_init',&
@@ -83,8 +151,6 @@ subroutine vegn_photosynthesis_init(photosynthesis_to_use, water_stress_to_use, 
         ' "lm3", "plant-hydraulics", or "none"', &
         FATAL)
   endif
-
-  hydraulics_repair = hydraulics_repair_in
 end subroutine vegn_photosynthesis_init
 
 
@@ -313,7 +379,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
 
   ! miscellaneous
   real :: dum2;
-  real, parameter :: light_crit = 0;
+  real, parameter :: light_crit = 0
 
   ! new average computations
   real :: lai_eq;
@@ -405,8 +471,15 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
            lai_eq = min(max(0.0,lai_eq),lai) ! limit lai_eq to physically possible range
 
            ! gross photosynthesis for light-limited part of the canopy
-           Ag_l   = spdata(pft)%alpha_phot * par_net &
-                * (exp(-lai_eq*kappa)-exp(-lai*kappa))/(1-exp(-lai*kappa))
+           if (lai>lai_eps) then
+              Ag_l   = spdata(pft)%alpha_phot * par_net &
+                   * (exp(-lai_eq*kappa)-exp(-lai*kappa))/(1-exp(-lai*kappa))
+           else
+              ! approximation for very small LAI: needed because the general formula above
+              ! produces division by zero if LAI is very close to zero
+              Ag_l = spdata(pft)%alpha_phot * par_net &
+                   * (lai-lai_eq)/lai
+           endif
            ! gross photosynthesis for rubisco-limited part of the canopy
            Ag_rb  = dum2*lai_eq
 
@@ -433,8 +506,16 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
            lai_eq = min(max(0.0,lai_eq),lai) ! limit lai_eq to physically possible range
 
            ! gross photosynthesis for light-limited part of the canopy
-           Ag_l   = spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * par_net &
-                * (exp(-lai_eq*kappa)-exp(-lai*kappa))/(1-exp(-lai*kappa))
+           if (lai>lai_eps) then
+              Ag_l   = spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * par_net &
+                   * (exp(-lai_eq*kappa)-exp(-lai*kappa))/(1-exp(-lai*kappa))
+           else
+              ! approximation for very small LAI: needed because the general formula above
+              ! produces division by zero if LAI is very close to zero
+              Ag_l = spdata(pft)%alpha_phot * (ci-capgam)/(ci+2.*capgam) * par_net &
+                   * (lai-lai_eq)/lai
+           endif
+
            ! gross photosynthesis for rubisco-limited part of the canopy
            Ag_rb  = dum2*lai_eq
 
@@ -503,10 +584,13 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
   if (is_watch_point()) then
      write(*,*)'######### vegn_hydraulics input ###########'
      __DEBUG3__(cana_T, cana_q, p_surf)
-     __DEBUG2__(gb,gs0)
+     __DEBUG3__(gb,gs0,fdry)
      __DEBUG3__(cc%psi_l, cc%psi_x, cc%psi_r)
      __DEBUG2__(sp%cl, sp%dl)
      __DEBUG2__(sp%cx, sp%dx)
+     __DEBUG2__(cc%Kla, sp%Kxam)
+     __DEBUG2__(cc%leafarea,cc%height)
+
      write(*,*)'######### end of vegn_hydraulics input ###########'
   endif
 
@@ -528,6 +612,7 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
      __DEBUG2__(gb,gs0)
      __DEBUG2__(gs,DgsDpl)
      __DEBUG2__(qsat,cana_q)
+     __DEBUG1__(Et0)
 !     __DEBUG1__(vegn%root_distance)
 !     __DEBUG1__(soil%psi)
 !     __DEBUG1__(soil%wl)
@@ -564,6 +649,9 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
         ! In this case, we solve for Darcy-flow uptake, find the root water potential
         ! to satisfy transpiration by the vegetation, use resulting psi as initial
         ! condition
+        if (is_watch_point()) then
+           write (*,*)'###### ur0 and DurDpr are 0; adjusting psi_r #####'
+        endif
         call darcy2d_uptake_solver     (soil, max(Et0,small_Et0), vegn%root_distance, &
                 cc%root_length, cc%K_r, cc%r_r, &
                 ur0_, psi_r, n)
@@ -580,13 +668,24 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
             cc%K_r, cc%r_r, ur0_, DurDpr_ )
         ur0 = sum(ur0_); DurDpr = sum(DurDpr_)/m2pa ! converting derivative from head (m) to Pascal
         if (is_watch_point()) then
-           write (*,*)'###### ur0 and DurDpr are 0; adjusting psi_r #####'
+           write (*,*)'###### finished adjusting psi_r #####'
            __DEBUG1__(psi_r)
         endif
      endif
 
      ! calculate stem flow and its derivatives
-     CSAsw  = sp%alphaCSASW * cc%DBH**sp%thetaCSASW ! cross-section area of sapwood
+     ! isa and es 201701 - CSAsw different for ALLOM_HML
+     select case(sp%allomt)
+     case (ALLOM_EW,ALLOM_EW1)
+        CSAsw  = sp%alphaCSASW * cc%DBH**sp%thetaCSASW ! cross-section area of sapwood
+     case (ALLOM_HML)
+        CSAsw = sp%phiCSA * cc%DBH**(sp%thetaCA + sp%thetaHT) / (sp%gammaHT + cc%DBH** sp%thetaHT)
+     end select
+     ! isa 20170705 - grasses don't form heartwood
+     if (sp%lifeform == FORM_GRASS) then
+        CSAsw = PI * cc%DBH * cc%DBH / 4.0 ! trunk cross-sectional area = sapwood area
+     endif
+
      cc%Kxi    =  sp%Kxam / cc%height * CSAsw
      ux0    = -cc%Kxi*sp%dx/sp%cx*gamma(1/sp%cx)*( &
                      gammaU((   psi_r/sp%dx)**sp%cx, 1/sp%cx) - &
@@ -601,9 +700,6 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
      DulDpx =  cc%Kli*exp(-(cc%psi_x/sp%dl)**sp%cl)
      DulDpl = -cc%Kli*exp(-(cc%psi_l/sp%dl)**sp%cl)
 
-     cc%Kli = ul0/(cc%psi_x-cc%psi_l) !ens added this line
-     cc%Kxi = ux0/(   psi_r-cc%psi_x) !ens added this line
-
      ! do forward elimination
      gamma_r = 1/(DuxDpr - DurDpr)
      ar = (ur0-ux0)*gamma_r
@@ -613,8 +709,12 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
      ax = (ux0-ul0+ar*DuxDpr)*gamma_x
      bx = -gamma_x*DulDpl
 
-     gamma_l = 1/(DetDpl - DulDpl - bx*DulDpx)
-
+     if(DetDpl - DulDpl - bx*DulDpx/=0) then
+        gamma_l = 1/(DetDpl - DulDpl - bx*DulDpx)
+     else
+        ! this happened at least once due to precision loss
+        gamma_l = 0.0
+     endif
      ! calculate tendencies
      delta_pl = gamma_l*(ul0 - Et0 + ax*DulDpx)
      delta_px = ax+bx*delta_pl

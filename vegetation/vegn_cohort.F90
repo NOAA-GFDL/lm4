@@ -71,6 +71,15 @@ type :: vegn_cohort_type
   integer :: status  = 0   ! growth status of plant
   real    :: leaf_age= 0.0 ! age of leaf in days since budburst
 
+  ! Nitrogen vegetation pools
+  real :: stored_N = 0.0
+  real :: leaf_N = 0.0
+  real :: wood_N = 0.0
+  real :: sapwood_N = 0.0
+  real :: root_N = 0.0
+  real :: seed_N = 0.0
+  real :: total_N = 0.0 ! sum of plant nitrogen pools (does not includes fixers and mycorrahize)
+
 ! ---- physical parameters
   real    :: height       = 0.0 ! vegetation height, m
   real    :: zbot         = 0.0 ! height of bottom of the canopy, m
@@ -97,6 +106,8 @@ type :: vegn_cohort_type
   real    :: bl_max       = 0.0 ! Max. leaf biomass, kg C/individual
   real    :: br_max       = 0.0 ! Max. fine root biomass, kg C/individual
   real    :: topyear      = 0.0 ! the years that a plant in top layer
+  ! isa 20170707 - required to decompose stem of grasses
+  real    :: bsw_max      = 0.0 ! Max. sapwood biomass, kg C/individual
 
   ! TODO: figure out how to do starvation mortality without hard-coded assumption
   !       of the mortality call time step
@@ -151,11 +162,11 @@ type :: vegn_cohort_type
   real :: extinct = 0.0     ! light extinction coefficient in the canopy for photosynthesis calculations
 
   ! ens introduce for growth respiration
-   real :: growth_previous_day     = 0.0 ! kgC/individual, pool of growth respiration
-   real :: growth_previous_day_tmp = 0.0 ! kgC/individual per year, rate of release of
-                                         ! growth respiration to the atmosphere
-   real :: branch_sw_loss   = 0.0
-   real :: branch_wood_loss = 0.0
+  real :: growth_previous_day     = 0.0 ! kgC/individual, pool of growth respiration
+  real :: growth_previous_day_tmp = 0.0 ! kgC/individual per year, rate of release of
+                                        ! growth respiration to the atmosphere
+  !02/08/17
+  real :: brsw = 0.0
 
 ! for phenology
   real :: gdd = 0.0
@@ -181,15 +192,6 @@ type :: vegn_cohort_type
   real :: mine_myc_C_reservoir = 0.0
   real :: N_fixer_N_reservoir = 0.0
   real :: N_fixer_C_reservoir = 0.0
-
-  ! Nitrogen vegetation pools
-  real :: stored_N = 0.0
-  real :: leaf_N = 0.0
-  real :: wood_N = 0.0
-  real :: sapwood_N = 0.0
-  real :: root_N = 0.0
-  real :: seed_N = 0.0
-  real :: total_N = 0.0 ! sum of plant nitrogen pools (does not includes fixers and mycorrahize)
 
 end type vegn_cohort_type
 
@@ -720,14 +722,19 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac, nsn_frac)
      bw = sp%rho_wood * sp%alphaBM * cc%dbh**sp%thetaBM
      Dwood = sqrt(max(0.0,cc%dbh**2 - 4/pi*sp%alphaCSASW * cc%dbh**sp%thetaCSASW))
      cc%bwood = sp%rho_wood * sp%alphaBM * cc%dbh**sp%thetaBM
-     cc%bsw   = bw - cc%bwood
   case (ALLOM_HML)
      cc%dbh = (sp%gammaHT/(sp%alphaHT/height - 1))**(1.0/sp%thetaHT)
      bw = sp%rho_wood * sp%alphaBM * cc%dbh**2 * cc%height
-     Dwood = sqrt(max(0.0,cc%dbh**2 - 4/pi*sp%alphaCSASW * cc%dbh**sp%thetaCSASW))
+     ! isa and es 201701 - CSAsw different for ALLOM_HML
+     !Dwood = sqrt(max(0.0,cc%dbh**2 - 4/pi*sp%alphaCSASW * cc%dbh**sp%thetaCSASW))
+     Dwood = sqrt(max(0.0,cc%dbh**2 - 4/pi* sp%phiCSA * &
+                  cc%DBH**(sp%thetaCA + sp%thetaHT) / (sp%gammaHT + cc%DBH** sp%thetaHT)))
      cc%bwood = sp%rho_wood * sp%alphaBM * Dwood**2 * cc%height
-     cc%bsw   = bw - cc%bwood
   end select
+  if (sp%lifeform == FORM_GRASS) then ! isa 20170705 - grasses don't form heartwood
+     cc%bwood = 0.0
+  endif
+  cc%bsw   = bw - cc%bwood
 
   ! update derived quantyties based on the allometry
   cc%crownarea = sp%alphaCA * cc%dbh**sp%thetaCA
@@ -735,10 +742,15 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac, nsn_frac)
   cc%br      = 0.0
   BL_u = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac) * understory_lai_factor
   BL_c = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
+  !02/08/17 ens
+  cc%brsw = sp%branch_wood_frac * ( cc%bsw + cc%bwood )
+
   if(sp%lifeform == FORM_GRASS) then
      cc%bl_max = BL_c
+     cc%bsw_max = sp%rho_wood * sp%alphaBM * cc%height * cc%dbh**2
   else
      cc%bl_max = BL_u + min(cc%topyear/5.0,1.0)*(BL_c - BL_u)
+     cc%bsw_max = 0.0
   endif
   cc%br_max  = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
   cc%nsc     = nsc_frac * cc%bl_max
@@ -780,8 +792,6 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac, nsn_frac)
 
   cc%growth_previous_day     = 0.0
   cc%growth_previous_day_tmp = 0.0
-  cc%branch_sw_loss          = 0.0
-  cc%branch_wood_loss        = 0.0
   cc%carbon_gain = 0.0
   cc%carbon_loss = 0.0
   cc%DBH_ys      = cc%DBH
@@ -809,13 +819,26 @@ subroutine init_cohort_hydraulics(cc, init_psi)
 
   associate(sp=>spdata(cc%species))
   rootarea = cc%br * sp%srl * 2*PI * sp%root_r  ! (kg/indiv)(m/kg)(m2/m)
-  stemarea = sp%alphaCSASW * cc%DBH**sp%thetaCSASW
+
+  ! isa and es 201701 - CSAsw different for ALLOM_HML
+  select case (sp%allomt)
+  case (ALLOM_EW,ALLOM_EW1)
+     stemarea = sp%alphaCSASW * cc%DBH**sp%thetaCSASW
+  case (ALLOM_HML)
+     stemarea = sp%phiCSA * cc%DBH**(sp%thetaCA + sp%thetaHT) / (sp%gammaHT + cc%DBH** sp%thetaHT)
+  end select
+  ! isa 20170715
+  if(sp%lifeform == FORM_GRASS) then
+    stemarea = PI * cc%DBH * cc%DBH / 4.0 ! trunk cross-sectional area
+  endif
 
   cc%Kxa = sp%Kxam
   cc%Kla = sp%Klam
 
   cc%Kxi = cc%Kxa * stemarea / cc%height
   cc%Kli = cc%Kla * cc%leafarea
+
+  !write (*,*) ' Kli  ', cc%Kli
 
   cc%psi_r  = init_psi
   cc%psi_x  = init_psi
@@ -833,8 +856,11 @@ function cohorts_can_be_merged(c1,c2); logical cohorts_can_be_merged
 
    sameSpecies = c1%species == c2%species
    sameLayer   = (c1%layer == c2%layer) .and. (c1%firstlayer == c2%firstlayer)
-   sameSize    = (abs(c1%DBH - c2%DBH)/c2%DBH < 0.15 ) .or.  &
-                 (abs(c1%DBH - c2%DBH)        < 0.003)
+   sameSize    = (abs(c1%DBH - c2%DBH) <= 0.15*max(abs(c1%DBH),abs(c2%DBH))) .or.  &
+                 (abs(c1%DBH - c2%DBH) <  0.003)
+   if (spdata(c1%species)%lifeform == FORM_GRASS) then
+      sameSize = sameSize .and. (abs(c1%nsc - c2%nsc) <= 0.15*max(abs(c1%nsc), abs(c2%nsc)))
+   endif
    lowDensity  = .FALSE. ! c1%nindivs < mindensity
                          ! Weng, 2014-01-27, turned off
 

@@ -7,15 +7,20 @@ module vegn_dynamics_mod
 
 use fms_mod, only: error_mesg, FATAL, WARNING
 use time_manager_mod, only: time_type
+use mpp_mod, only: mpp_sum, mpp_pe, mpp_root_pe
+use mpp_domains_mod, only : mpp_pass_UG_to_SG, mpp_pass_SG_to_UG, mpp_update_domains
 
 use constants_mod, only : PI,tfreeze
 use land_constants_mod, only : days_per_year, seconds_per_year, mol_C
-use land_data_mod, only : log_version
-use land_debug_mod, only : is_watch_point, check_var_range
+use land_data_mod, only : lnd,log_version
+use land_debug_mod, only : is_watch_point, check_var_range, check_conservation, &
+     do_check_conservation, carbon_cons_tol, nitrogen_cons_tol, set_current_point
+use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
+     first_elmt, loop_over_tiles, land_tile_carbon, land_tile_nitrogen
 use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
-     register_cohort_diag_field, send_cohort_data, set_default_diag_filter, OP_SUM
-use vegn_data_mod, only : spdata, &
+     register_cohort_diag_field, send_cohort_data, set_default_diag_filter
+use vegn_data_mod, only : spdata, nspecies, &
      PHEN_DECIDUOUS, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, &
      agf_bs, l_fract, mcv_min, mcv_lai, do_ppa, tau_seed, &
@@ -24,12 +29,13 @@ use vegn_data_mod, only : spdata, &
      excess_stored_N_leakage_rate, min_N_stress, &
      c2n_N_fixer, et_myc, &
      mycorrhizal_turnover_time, N_fixer_turnover_time, spec_data_type
-use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon, vegn_tile_nitrogen
-use soil_tile_mod, only: num_l, dz, soil_tile_type, clw, csw, N_LITTER_POOLS, LEAF, CWOOD, soil_tile_carbon
+use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon, vegn_tile_nitrogen, &
+     vegn_mergecohorts_ppa, vegn_relayer_cohorts_ppa
+use soil_tile_mod, only: num_l, dz, soil_tile_type, clw, csw, N_LITTER_POOLS, LEAF, CWOOD
 use vegn_cohort_mod, only : vegn_cohort_type, &
      update_biomass_pools, update_bio_living_fraction, update_species, &
      leaf_area_from_biomass, biomass_of_individual, init_cohort_allometry_ppa, &
-     cohort_root_litter_profile, cohort_root_exudate_profile
+     init_cohort_hydraulics, cohort_root_litter_profile, cohort_root_exudate_profile
 use vegn_disturbance_mod, only : kill_plants_ppa
 use soil_carbon_mod, only: N_C_TYPES, soil_carbon_option, &
     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
@@ -41,7 +47,7 @@ implicit none
 private
 
 ! ==== public interfaces =====================================================
-public :: vegn_dynamics_init
+public :: vegn_dynamics_init, vegn_dynamics_end
 
 public :: vegn_carbon_int_lm3   ! fast time-scale integrator of carbon balance
 public :: vegn_carbon_int_ppa   ! fast time-scale integrator of carbon balance
@@ -49,9 +55,9 @@ public :: vegn_growth           ! slow time-scale redistributor of accumulated c
 public :: vegn_phenology_lm3
 public :: vegn_phenology_ppa
 public :: vegn_biogeography
+public :: vegn_reproduction_ppa
 
 public :: vegn_starvation_ppa   !
-public :: vegn_reproduction_ppa ! reproduction for PPA case
 public :: kill_small_cohorts_ppa
 ! ==== end of public interfaces ==============================================
 
@@ -60,10 +66,12 @@ character(len=*), parameter :: module_name = 'vegn_dynamics_mod'
 #include "../shared/version_variable.inc"
 character(len=*), parameter :: diag_mod_name = 'vegn'
 
-real, parameter :: GROWTH_RESP=0.333  ! fraction of NPP lost as growth respiration
-
 ! ==== module data ===========================================================
 real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 days)
+real, allocatable :: sg_soilfrac(:,:) ! fraction of grid cell area occupied by soil, for
+  ! normalization in seed transort
+real, allocatable :: ug_area_factor(:) ! conversion factor from land area to vegetation area
+real :: atot ! global land area for normalization in conservation checks, m2
 
 ! diagnostic field IDs
 integer :: id_npp, id_nep, id_gpp, id_wood_prod, id_leaf_root_gr, id_sw_seed_gr
@@ -90,11 +98,37 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
   type(time_type), intent(in) :: time       ! initial time for diagnostic fields
   real           , intent(in) :: delta_time ! fast time step, s
 
+  type(land_tile_enum_type) :: ce
+  type(land_tile_type), pointer :: tile
+  integer :: l ! grid cell index on unstructured gris
+
   call log_version(version, module_name, &
   __FILE__)
 
   ! set up global variables
   dt_fast_yr = delta_time/seconds_per_year
+
+  ! calculate fraction of the grid cell occupied by soil in ug_area_factor
+  allocate(ug_area_factor(lnd%ls:lnd%le))
+  ug_area_factor = 0.0
+  ce = first_elmt(land_tile_map,lnd%ls)
+  do while (loop_over_tiles(ce,tile,l))
+     if(associated(tile%vegn)) &
+          ug_area_factor(l) = ug_area_factor(l) + tile%frac
+  enddo
+  ! calculate soil fraction in a grid cell
+  allocate (sg_soilfrac(lnd%isd:lnd%ied, lnd%jsd:lnd%jed))
+  sg_soilfrac = 0.0
+  call mpp_pass_UG_to_SG(lnd%ug_domain,ug_area_factor*lnd%ug_landfrac,sg_soilfrac)
+  call mpp_update_domains(sg_soilfrac,lnd%sg_domain)
+  ! finish calculating conversion factor from land area to soil area
+  where(ug_area_factor>0) &
+        ug_area_factor = 1.0/ug_area_factor
+
+  ! calculate total land area for normalization in global conservation checks
+  atot = sum(lnd%ug_area)
+  call mpp_sum(atot)
+
 
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('soil')
@@ -197,6 +231,11 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
   id_active_root_N_uptake = register_cohort_diag_field ( diag_mod_name, 'active_root_N_uptake',  &
        (/id_ug/), time, 'N uptake by root active transport', 'kg N/m2/year', missing_value=-1.0 )
 end subroutine vegn_dynamics_init
+
+! ============================================================================
+subroutine vegn_dynamics_end()
+   deallocate(sg_soilfrac, ug_area_factor)
+end subroutine vegn_dynamics_end
 
 
 subroutine  update_mycorrhizae(cc,sp,dt_fast_yr,&
@@ -658,9 +697,9 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
      npp(i) = gpp(i) - resp(i)
 
      if(cc%npp_previous_day > 0) then
-        resg(i) = GROWTH_RESP*cc%npp_previous_day
-        npp(i)  = npp(i)  - GROWTH_RESP*cc%npp_previous_day
-        resp(i) = resp(i) + GROWTH_RESP*cc%npp_previous_day
+        resg(i) = sp%GROWTH_RESP*cc%npp_previous_day
+        npp(i)  = npp(i)  - sp%GROWTH_RESP*cc%npp_previous_day
+        resp(i) = resp(i) + sp%GROWTH_RESP*cc%npp_previous_day
      else
         resg(i) = 0
      endif
@@ -868,11 +907,11 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   real, intent(in) :: theta ! average soil wetness, unitless
   type(diag_buff_type), intent(inout) :: diag
 
-  real :: md_wood, md_branch_sw ! in ppa we are losing and replacing branchwood
+  real :: md_branch_sw ! in ppa we are losing and replacing branchwood
+  real :: md_bsw, md_bsw_branch ! we are also overturning sapwood in grasses
   real :: deltaBL, deltaBR, deltaNL, deltaNR ! leaf and fine root carbon tendencies
   integer :: i, l, M
   real :: NSC_supply,LR_demand,LR_deficit
-  real :: NSCtarget
   real :: R_days,fNSC,fLFR,fStem,fSeed
   type(vegn_cohort_type), pointer :: c(:) ! for debug only
   ! accumulators of total input to root litter and soil carbon
@@ -956,13 +995,18 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 
      cc%growth_previous_day = cc%growth_previous_day - resg(i)*dt_fast_yr
 
+     if (is_watch_point()) then
+        write(*,'("vegn_carbon_int_ppa #0, cohort ",i2.2)',advance='NO') i
+        __DEBUG2__(cc%nsc,cc%carbon_gain)
+     endif
      cc%carbon_gain  = cc%carbon_gain + gpp(i)*dt_fast_yr - resp(i)*dt_fast_yr
+     if (is_watch_point()) then
+        write(*,'("vegn_carbon_int_ppa #1, cohort ",i2.2)',advance='NO') i
+        __DEBUG2__(cc%nsc,cc%carbon_gain)
+     endif
 
      resp(i) = resp(i) + resg(i) ! add growth respiration and maintenance respiration
      npp(i)  = gpp(i) - resp(i)
-
-     !cc%carbon_gain = cc%carbon_gain-root_exudate_C(i)*dt_fast_yr
-     !print *, ' npp ',  npp(i),' root_ex ',  root_exudate_C(i), 'cgain ', cc%carbon_gain
 
      ! Weng, 2013-01-28
      ! Turnover regardless of STATUS
@@ -985,22 +1029,31 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
       call check_var_range(cc%leaf_N,0.0,HUGE(1.0),'vegn_carbon_int_ppa','cc%leaf_N',FATAL)
       if(N_limits_live_biomass) call check_var_range(cc%stored_N,0.0,HUGE(1.0),'vegn_carbon_int_ppa','cc%stored_N',FATAL)
      ! compute branch and coarse wood losses for tree types
-     md_wood = 0.0
      md_branch_sw = 0.0
      if (spdata(cc%species)%lifeform == FORM_WOODY) then
-        md_wood      = sp%branch_wood_frac * Max(cc%bwood,0.0) * sp%alpha_wood * dt_fast_yr
-        md_branch_sw = sp%branch_wood_frac * Max(cc%bsw,0.0)   * sp%alpha_wood * dt_fast_yr
+        ! ens 02/07/17
+        md_branch_sw = Max(cc%brsw,0.0) * sp%alpha_wood * dt_fast_yr
      endif
-     cc%branch_sw_loss   = cc%branch_sw_loss + md_branch_sw !remember how much was lost over the day
-     cc%branch_wood_loss = cc%branch_wood_loss + md_wood
 
-     cc%bsw = cc%bsw - md_branch_sw
-     cc%bwood = cc%bwood - md_wood
+     call check_var_range(cc%bsw,  0.0,HUGE(1.0), 'vegn_carbon_int_ppa', 'cc%bsw', FATAL)
+     call check_var_range(cc%brsw, 0.0,cc%bsw,    'vegn_carbon_int_ppa', 'cc%brsw',FATAL)
+
+     ! ens, isa, slm 2017-08-03: compute overturning of sapwood in grasses.
+     md_bsw = 0.0; md_bsw_branch = 0.0
+     if (spdata(cc%species)%lifeform == FORM_GRASS) then
+        if (cc%bsw > 0) then
+           md_bsw = Max(cc%bsw,0.0) * sp%alpha_wood * dt_fast_yr
+           md_bsw_branch = cc%brsw/cc%bsw * md_bsw ! overturning in branches, which are part of bsw. Do they even exist in grass?
+        endif
+     endif
+
+     ! brsw is a part of bsw, so when we lose branches, we need to reduce both
+     cc%brsw = cc%brsw - md_branch_sw - md_bsw_branch
+     cc%bsw  = cc%bsw  - md_branch_sw - md_bsw
      ! 20170617: update N pools. For now, assuming that there is no N re-translocation during
      ! either branch loss or turnover of wood and sapwood.
      if (soil_carbon_option==SOILC_CORPSE_N) then
-       cc%wood_N    = cc%wood_N    - md_wood/sp%wood_c2n
-       cc%sapwood_N = cc%sapwood_N - md_branch_sw/sp%sapwood_c2n
+        cc%sapwood_N = cc%sapwood_N - (md_branch_sw+md_bsw)/sp%sapwood_c2n
      endif
 
      !reduce nsc by the amount of root exudates during the date
@@ -1012,10 +1065,10 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      ! 20170617: deposit lost N into litter and soil
      leaf_litt_C(:) = leaf_litt_C(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*deltaBL*cc%nindivs
      leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*deltaNL*cc%nindivs*(1.0-sp%leaf_retranslocation_frac)
-     wood_litt_C(:) = wood_litt_C(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(md_wood+md_branch_sw)*cc%nindivs
+     wood_litt_C(:) = wood_litt_C(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(md_branch_sw+md_bsw)*cc%nindivs
 !     wood_litt_N(:) = wood_litt_N(:) + cc%nindivs * agf_bs * & -- FIXME: do we need agf_bs in both C and N wood litter?
      if (soil_carbon_option==SOILC_CORPSE_N) wood_litt_N(:) = wood_litt_N(:) + cc%nindivs * &
-             [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(md_wood/sp%wood_c2n+md_branch_sw/sp%sapwood_c2n)
+             [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(md_branch_sw/sp%sapwood_c2n+md_branch_sw/sp%sapwood_c2n)
      call cohort_root_litter_profile(cc, dz, profile)
      do l = 1, num_l
         root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*cc%nindivs* &
@@ -1028,7 +1081,6 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
 !            + [sp%fsc_wood,  1-sp%fsc_wood,  0.0 ]*md_wood*(1-agf_bs)/sp%wood_c2n &
              )
      enddo
-
 
      ! resg(i) = 0 ! slm: that doesn't make much sense to me... why?
 ! 20170617:
@@ -1189,6 +1241,7 @@ subroutine vegn_growth (vegn, diag)
   integer :: i, N
   real, dimension(vegn%n_cohorts) :: &
      wood_prod, leaf_root_gr, sw_seed_gr, deltaDBH
+  real :: f, borrowed
 
   if (is_watch_point()) then
      cmass0 = vegn_tile_carbon(vegn)
@@ -1199,24 +1252,34 @@ subroutine vegn_growth (vegn, diag)
      cc => vegn%cohorts(i)
 
      if (do_ppa) then
-
-     ! write(*,*)"############## in vegn_growth before #################"
-     !__DEBUG1__(cc%carbon_gain)
-
-        cc%nsc=cc%nsc+cc%carbon_gain
+        if(is_watch_point()) then
+           write(*,*)"############## in vegn_growth before allocation PPA #################"
+           __DEBUG2__(cc%nsc, cc%carbon_gain)
+        endif
+        if (cc%nsc+cc%carbon_gain >= 0) then
+           cc%nsc=cc%nsc+cc%carbon_gain
+        else
+           ! slm, ens 2017-08-02
+           ! if loss of carbon exceeds current nsc, we borrow the carbon from living tissues
+           ! proportionally to the existing amount.
+           f = abs(cc%nsc+cc%carbon_gain)/max(abs(cc%nsc+cc%carbon_gain),cc%bl+cc%br+cc%blv+cc%bsw)
+           borrowed = f*(cc%bl+cc%br+cc%blv+cc%bsw)
+           cc%bl  = (1-f)*cc%bl
+           cc%br  = (1-f)*cc%br
+           cc%blv = (1-f)*cc%blv
+           cc%bsw = (1-f)*cc%bsw
+           ! brsw is part of bsw, and should also be reduced to stay within limits [0,bsw]
+           cc%brsw = (1-f)*cc%brsw
+           ! nsc should become zero, unless there is not enough biomass in all living
+           ! tissues to compensate carbon loss
+           cc%nsc = cc%nsc+cc%carbon_gain+borrowed
+        endif
         call biomass_allocation_ppa(cc,wood_prod(i),leaf_root_gr(i),sw_seed_gr(i),deltaDBH(i))
-
-
-     !write(*,*)"############## in vegn_growth #################"
-
-     !__DEBUG1__(cc%carbon_gain)
-     !__DEBUG1__(cc%bl)
-     !__DEBUG1__(cc%blv)
-     !__DEBUG1__(cc%br)
-     !__DEBUG1__(cc%bsw)
-     !__DEBUG1__(cc%bwood)
-     !__DEBUG1__(cc%nsc)
-
+        if(is_watch_point()) then
+           write(*,*)"############## in vegn_growth after allocation PPA #################"
+           __DEBUG2__(cc%nsc, cc%carbon_gain)
+           __DEBUG5__(cc%bl, cc%blv, cc%br, cc%bsw, cc%bwood)
+        endif
         cc%carbon_gain = 0.0
      else
         cc%bwood   = cc%bwood   + cc%bwood_gain
@@ -1359,7 +1422,6 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
   real :: CSAsw  ! Sapwood cross sectional area, m2
   real :: CSAwd  ! Heartwood cross sectional area, m2
   real :: DBHwd  ! diameter of heartwood at breast height, m
-  real :: BSWmax ! max sapwood biomass, kg C/individual
   real :: G_LFR  ! amount of carbon spent on leaf and root growth
   real :: G_WF   ! amount of carbon spent on new sapwood growth and seeds
   real :: deltaSeed
@@ -1374,24 +1436,17 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
   real :: NSCtarget ! target NSC storage
   real :: N_storage_target
   real :: delta_bsw_branch, delta_nsw_branch
-  real :: delta_wood_branch
   real :: br_max_Nstress
-  real :: f
 
 
   real, parameter :: DBHtp = 0.8 ! m
   logical :: hydraulics_repair = .FALSE.
 
   !ens
-  real :: fsf = 0.2 ! in Weng et al 205, page 2677 units are 0.2 day
-  ! new constants for HML equations
-!  real ::   alpha_z = 60.97697    ! alphaHT
-!  real ::   b_z = 0.8631476       ! thetaHT
-!  real ::   gamma_z = 0.6841742   ! gammaHT
-!  real ::   alpha_ca = 243.7808   ! alphaCA
-!  real ::   b_ca = 1.18162        ! thetaCA
-!  real ::   alpha_s = 0.559       ! alphaBM
+  real :: fsf = 0.2 ! in Weng et al 2005, page 2677 units are 0.2 day
 
+  real, parameter  :: G_AGBmax = 0.125 ! maximum growth rate of above ground biomass in grasses, day^-1
+  real  :: nsctmp ! temporal nsc budget to avoid biomass loss, KgC/individual
 
   associate (sp => spdata(cc%species)) ! F2003
 
@@ -1409,23 +1464,21 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
   ! 20170617: calculate N stress (function of stored N) here
   !           N traget possibly in relation with NSC target
   if (soil_carbon_option==SOILC_CORPSE_N) then
-      if (cc%status == LEAF_ON) then
-       cc%nitrogen_stress = max(min_N_stress,(N_storage_target-cc%stored_N)/N_storage_target)
-      else
+     if (cc%status == LEAF_ON) then
+        cc%nitrogen_stress = max(min_N_stress,(N_storage_target-cc%stored_N)/N_storage_target)
+     else
         ! If leaves are off, our N stress would be lower, since we re-translocate some of leaf+root N
         ! but plant should be saving enough to rebuild leaf+root next time.
         ! In this case, we should adjust the calculation:
         cc%nitrogen_stress = max(min_N_stress,(N_storage_target+(cc%bl_max/sp%leaf_live_c2n+cc%br_max/sp%froot_live_c2n)*0.5-cc%stored_N)/N_storage_target)
         ! __DEBUG4__(cc%bl_max/sp%leaf_live_c2n,cc%br_max/sp%froot_live_c2n,N_storage_target,cc%stored_N)
-      endif
+     endif
   else
      cc%nitrogen_stress = 0.0
   endif
 
   ! TODO: what if carbon_gain is not 0, but leaves are OFF (marginal case? or
   ! typical in lm3?)
-  delta_bsw_branch = 0.
-  delta_wood_branch  = 0.
   ! set init values for diag output, to be returned when the actual calulations are bypassed:
   wood_prod = 0.0 ; leaf_root_gr = 0.0 ; sw_seed_gr = 0.0 ; deltaDBH = 0.0
   if (cc%status == LEAF_ON) then
@@ -1435,117 +1488,156 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      ! This assumes carbon to build more roots comes from sapwood growth, not leaf growth. But we can make this flexible or have different options
      br_max_Nstress = cc%br_max * (1+cc%nitrogen_stress*sp%N_stress_root_factor)
 
-
-     ! calculate the carbon spent on growth of leaves and roots
-     G_LFR    = max(0.0, min(cc%bl_max+br_max_Nstress-cc%bl-cc%br,  &
-                            0.1*cc%nsc/(1+GROWTH_RESP))) ! don't allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
-
-     ! and distribute it between roots and leaves
-     deltaBL  = min(G_LFR, max(0.0, &
-          (G_LFR*cc%bl_max + cc%bl_max*cc%br - br_max_Nstress*cc%bl)/(cc%bl_max + br_max_Nstress) &
-          ))
-     deltaBR  = G_LFR - deltaBL
-     if (soil_carbon_option==SOILC_CORPSE_N) then
-       deltaNL = deltaBL/sp%leaf_live_c2n
-       deltaNR = deltaBR/sp%froot_live_c2n
-       if (deltaNL+deltaNR > 0.1*cc%stored_N.and.N_limits_live_biomass) then
-          ! BNS: make this the minimum of 10% NSC depletion OR 10% stored N depletion
-          ! Do this every time we do this limitation.
-          ! This does not prioritize spending on leaves and roots
-          f = 0.1*cc%stored_N/(deltaNL+deltaNR)
-          deltaBR = deltaBR*f; deltaBL = deltaBL*f
-          deltaNR = deltaNR*f; deltaNL = deltaNL*f
-          G_LFR = deltaBL+deltaBR
-       endif
-     else
-       deltaNL=0.0
-       deltaNR=0.0
-     endif
-     cc%stored_N = cc%stored_N - deltaNL - deltaNR
-     ! calculate carbon spent on seeds and sapwood growth
-     ! Should sapwood be considered as important as leaves and roots?
-
      !ens first replace lost branch sapwood
-     delta_bsw_branch  = 0.0
-     if (cc%branch_sw_loss > 0) then
-        delta_bsw_branch = max (min(cc%branch_sw_loss, 0.1*cc%nsc/(1+GROWTH_RESP)), 0.0)
-        if (soil_carbon_option==SOILC_CORPSE_N) then
-          delta_nsw_branch = delta_bsw_branch/sp%sapwood_c2n
-        else
-          delta_nsw_branch = 0.0
-        endif
-        if (delta_nsw_branch>0.1*cc%stored_N.and.N_limits_live_biomass) then
-           delta_bsw_branch = delta_bsw_branch*0.1*cc%stored_N/delta_nsw_branch
-           delta_nsw_branch = 0.1*cc%stored_N
-        endif
-        cc%bsw = cc%bsw+delta_bsw_branch
-        cc%sapwood_N = cc%sapwood_N+delta_nsw_branch
-        cc%branch_sw_loss = cc%branch_sw_loss - delta_bsw_branch
-        cc%stored_N = cc%stored_N - delta_nsw_branch
-     endif
 
-     ! replace lost branch wood from sapwood pool- do we need respiration here?
-     if (cc%branch_wood_loss > 0) then
-        delta_wood_branch = max(min(cc%branch_wood_loss, 0.25*cc%bsw), 0.0)
-        cc%bsw = cc%bsw - delta_wood_branch
-        cc%bwood = cc%bwood + delta_wood_branch
-        if (soil_carbon_option==SOILC_CORPSE_N) then
-          cc%wood_N = cc%wood_N + delta_wood_branch/sp%wood_c2n
-          cc%sapwood_N = cc%sapwood_N - delta_wood_branch/sp%sapwood_c2n
-          cc%stored_N = cc%stored_N - delta_wood_branch/sp%wood_c2n + delta_wood_branch/sp%sapwood_c2n
-        endif
-        cc%branch_wood_loss = cc%branch_wood_loss - delta_wood_branch
-     endif
      ! in principle re-building wood and sapwood of branches should be taken into account together
      ! since they are the same process and should be limited by the upper limit of
      ! N storage spending rate together.
+     call check_var_range(cc%bsw, 0.0,HUGE(1.0),'biomass_allocation_ppa #1', 'cc%bsw', FATAL)
+     call check_var_range(cc%brsw,0.0,cc%bsw,   'biomass_allocation_ppa #1', 'cc%brsw',FATAL)
 
+     ! 02/07/17
+     ! should this delta_bsw be updated after updating dbh and height?
+     ! check if daily branch increase is nt too abrupt
+     select case (sp%allomt)
+     case (ALLOM_EW,ALLOM_EW1)
+        delta_bsw_branch = sp%branch_wood_frac * sp%alphaBM * sp%rho_wood * cc%DBH**sp%thetaBM - cc%brsw
+     case (ALLOM_HML)
+        delta_bsw_branch = sp%branch_wood_frac * sp%alphaBM * sp%rho_wood * cc%DBH**2 * cc%height - cc%brsw
+     end select
+     delta_bsw_branch = max(min(delta_bsw_branch,0.1*cc%nsc/(1+sp%GROWTH_RESP)),0.0)
+     if (soil_carbon_option==SOILC_CORPSE_N) then
+        delta_nsw_branch = delta_bsw_branch/sp%sapwood_c2n
+     else
+        delta_nsw_branch = 0.0
+     endif
+     if (delta_nsw_branch>0.1*cc%stored_N.AND.N_limits_live_biomass) then
+        delta_bsw_branch = delta_bsw_branch*0.1*cc%stored_N/delta_nsw_branch
+        delta_nsw_branch = 0.1*cc%stored_N
+     endif
+     cc%brsw = cc%brsw + delta_bsw_branch
+     cc%bsw  = cc%bsw  + delta_bsw_branch
+     if (soil_carbon_option==SOILC_CORPSE_N) then
+        cc%sapwood_N = cc%sapwood_N + delta_nsw_branch
+        cc%stored_N  = cc%stored_N  - delta_nsw_branch
+     endif
 
-     G_WF=0.0
-     if (NSCtarget < cc%nsc) then ! ens change this
-        G_WF = max (0.0, fsf*(cc%nsc - NSCtarget)/(1+GROWTH_RESP))
+     call check_var_range(cc%bsw, 0.0,HUGE(1.0),'biomass_allocation_ppa #2', 'cc%bsw',FATAL)
+     call check_var_range(cc%brsw,0.0,cc%bsw,   'biomass_allocation_ppa #2', 'cc%brsw',FATAL)
 
      ! make sure that if nsc is not spent because N is limited, sapwood is limited too
-     endif
-     ! change maturity threashold to a diameter threash-hold
-     if (cc%layer == 1 .AND. cc%age > sp%maturalage) then
-        ! deltaSeed=      sp%v_seed * (cc%carbon_gain - G_LFR)
-        ! deltaBSW = (1.0-sp%v_seed)* (cc%carbon_gain - G_LFR)
-        if ((cc%nitrogen_stress > sp%max_n_stress_for_seed_production.or.sp%v_seed*g_WF/sp%seed_c2n>0.1*cc%stored_N)&
-                                      .and.N_limits_live_biomass.and.soil_carbon_option==SOILC_CORPSE_N) then
-           deltaSeed = 0
-        else
-           deltaSeed = sp%v_seed * G_WF
+
+     ! ens 02/14/17
+     ! update seed and sapwood biomass pools with the new growth (branches were updated above)
+     select case (sp%lifeform)
+     case (FORM_WOODY)
+        NSCtarget = sp%NSC2targetbl*cc%bl_max
+        G_WF=0.0
+        if (cc%nsc > NSCtarget) then ! ens change this
+           G_WF = max (0.0, fsf*(cc%nsc - NSCtarget)/(1+sp%GROWTH_RESP))
         endif
-        deltaBSW = G_WF - deltaSeed
-     else
-        deltaSeed= 0.0
-        deltaBSW = G_WF
-     endif
-     if (deltaBSW/sp%sapwood_c2n>0.1*cc%stored_N.and.N_limits_live_biomass) then
-         deltaBSW = 0.1*cc%stored_N*sp%sapwood_c2n
-         G_WF = deltaBSW+deltaSeed
-     endif
+
+        if (cohort_makes_seeds(cc,G_WF)) then
+           deltaSeed =      sp%v_seed  * G_WF
+           deltaBSW  = (1.0-sp%v_seed) * G_WF
+        else
+           deltaSeed = 0.0
+           deltaBSW  = G_WF
+        endif
+
+        if (deltaBSW/sp%sapwood_c2n>0.1*cc%stored_N.and.N_limits_live_biomass) then
+            deltaBSW = 0.1*cc%stored_N*sp%sapwood_c2n
+            G_WF = deltaBSW + deltaSeed
+        endif
+
+        ! calculate carbon spent on growth of leaves and roots
+        G_LFR = max(0.0, min(cc%bl_max+br_max_Nstress-cc%bl-cc%br,  &
+                             0.1*cc%nsc/(1+sp%GROWTH_RESP))) ! don't allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
+
+        ! and distribute it between roots and leaves
+        deltaBL  = min(G_LFR, max(0.0, &
+             (G_LFR*cc%bl_max + cc%bl_max*cc%br - br_max_Nstress*cc%bl)/(cc%bl_max + br_max_Nstress) &
+             ))
+        deltaBR  = G_LFR - deltaBL
+
+     case (FORM_GRASS) ! isa 20170705
+        ! 20170724 - new scheme
+        NSCtarget = sp%NSC2targetbl*cc%bl_max
+        G_WF=0.0
+        if (cc%nsc > NSCtarget + G_AGBmax * cc%bsw) then
+           G_WF = G_AGBmax * cc%bsw
+           ! avoid devoting growth to fecundity during this phase
+           deltaSeed = 0.0
+           deltaBSW  = G_WF
+        else
+           if (cc%nsc > NSCtarget ) then
+             G_WF = max (0.0, fsf*(cc%nsc - NSCtarget)/(1+sp%GROWTH_RESP))
+           endif
+           if (cohort_makes_seeds(cc,G_WF)) then
+              deltaSeed =      sp%v_seed  * G_WF
+              deltaBSW  = (1.0-sp%v_seed) * G_WF
+           else
+              deltaSeed = 0.0
+              deltaBSW  = G_WF
+           endif
+        endif
+
+        if (deltaBSW/sp%sapwood_c2n>0.1*cc%stored_N.and.N_limits_live_biomass) then
+           deltaBSW = 0.1*cc%stored_N*sp%sapwood_c2n
+           G_WF = deltaBSW+deltaSeed
+        endif
+
+        ! Allocation to leaves and fine root growth
+        nsctmp = cc%nsc - G_WF * (1+sp%GROWTH_RESP)
+        G_LFR    = max(0.0, min( cc%bl_max - cc%bl + max( 0.0, cc%br_max - cc%br ),  &
+                                  0.1*nsctmp/(1+sp%GROWTH_RESP)))
+        ! don't allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
+
+        if ( cc%br > cc%br_max ) then      ! roots larger than target
+            deltaBL = G_LFR
+        else                               ! standard scheme
+            deltaBL = min(G_LFR, max(0.0, &
+                         (G_LFR*cc%bl_max + cc%bl_max*cc%br - cc%br_max*cc%bl)/(cc%bl_max + cc%br_max) ))
+        end if
+        deltaBR  = G_LFR - deltaBL
+     end select
+     ! update leaf and root C tendencies based on N limitations, and calculate
+     ! leaf and root N tendencies
+     call update_LR_tendencies(cc, deltaBL, deltaBR, deltaNL, deltaNR)
+     G_LFR = deltaBL+deltaBR
+
      ! update biomass pools due to growth
      cc%bl     = cc%bl    + deltaBL;   cc%leaf_N = cc%leaf_N + deltaNL ! updated in vegn_int_ppa
      cc%br     = cc%br    + deltaBR;   cc%root_N = cc%root_N + deltaNR
      cc%bsw    = cc%bsw   + deltaBSW;  if (soil_carbon_option==SOILC_CORPSE_N) cc%sapwood_N = cc%sapwood_N + deltaBSW/sp%sapwood_c2n
      cc%bseed  = cc%bseed + deltaSeed;
-     if (soil_carbon_option==SOILC_CORPSE_N) cc%seed_N = cc%seed_N + deltaSeed/sp%seed_c2n ! TODO: calculate seed_c2n as derived quantity in vegn_data initialization
-     cc%nsc    = cc%nsc - (deltaBL + deltaBR + deltaSeed + deltaBSW + delta_bsw_branch)*(1.+GROWTH_RESP)
+     if (soil_carbon_option==SOILC_CORPSE_N) &
+           cc%seed_N = cc%seed_N + deltaSeed/sp%seed_c2n ! TODO: calculate seed_c2n as derived quantity in vegn_data initialization
+     cc%nsc    = cc%nsc - (deltaBL + deltaBR + deltaSeed + deltaBSW + delta_bsw_branch)*(1+sp%GROWTH_RESP)
+     cc%stored_N = cc%stored_N - deltaNL - deltaNR
 
-     if(cc%stored_N - deltaBSW/sp%sapwood_c2n - deltaSeed/sp%seed_c2n<0.and.soil_carbon_option==SOILC_CORPSE_N) then;__DEBUG3__(cc%stored_N,deltaBSW/sp%sapwood_c2n,deltaSeed/sp%seed_c2n);endif
+     if(cc%stored_N - deltaBSW/sp%sapwood_c2n - deltaSeed/sp%seed_c2n<0.and.soil_carbon_option==SOILC_CORPSE_N) then
+         __DEBUG3__(cc%stored_N,deltaBSW/sp%sapwood_c2n,deltaSeed/sp%seed_c2n)
+     endif
      if (soil_carbon_option==SOILC_CORPSE_N) cc%stored_N = cc%stored_N - deltaBSW/sp%sapwood_c2n - deltaSeed/sp%seed_c2n
 
-     wood_prod = deltaBSW*365.0 ! conversion from kgC/day to kgC/year
-     leaf_root_gr = G_LFR*365.0 ! conversion from kgC/day to kgC/year
-     sw_seed_gr = (G_WF+delta_bsw_branch )*GROWTH_RESP*days_per_year ! conversion from kgC/day to kgC/year
+     ! update biomass pools due to growth
+     cc%bl     = cc%bl    + deltaBL  ! updated in vegn_int_ppa
+     cc%br     = cc%br    + deltaBR
+     cc%bsw    = cc%bsw   + deltaBSW
+     cc%bseed  = cc%bseed + deltaSeed
+     ! reduce storage by  growth respiration
+     cc%nsc = cc%nsc - (G_LFR + G_WF + delta_bsw_branch)*(1+sp%GROWTH_RESP)
 
-     call check_var_range(cc%nsc,0.0,HUGE(1.0),'vegn_dynamics','cc%nsc', FATAL)
-!     call check_var_range(cc%stored_N,0.0,HUGE(1.0),'vegn_dynamics','cc%stored_N', FATAL)
+     wood_prod = deltaBSW*days_per_year ! conversion from kgC/day to kgC/year
+     ! compute daily respiration fluxes
+     leaf_root_gr = G_LFR*days_per_year ! conversion from kgC/day to kgC/year
+     sw_seed_gr = (G_WF+delta_bsw_branch )*sp%GROWTH_RESP*days_per_year ! conversion from kgC/day to kgC/year
+
+     call check_var_range(cc%nsc,-1e-16,HUGE(1.0),'biomass_allocation_ppa','cc%nsc', WARNING)
 
      !ens --compute daily growth to compute respiration, apply it next day, use npp_previous day variable, units kg C/(m2 *year)
-     cc%growth_previous_day = cc%growth_previous_day+(max(0., G_LFR+G_WF)+delta_bsw_branch)*GROWTH_RESP ! this is for growth respiration to come from nsc
+     cc%growth_previous_day = cc%growth_previous_day+(max(0., G_LFR+G_WF)+delta_bsw_branch)*sp%GROWTH_RESP ! this is for growth respiration to come from nsc
 
      select case (sp%allomt)
      case (ALLOM_EW, ALLOM_EW1)
@@ -1584,26 +1676,61 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      ! slm 20160523: max biomass of sapwood BSWmax is calculated from allometric
      ! relationships as the B(DBH) - B(DBH of heartwood). DBH of heartwood is
      ! calculated using the allometric relationship for sapwood cross-section
-     CSAsw    = sp%alphaCSASW * cc%DBH**sp%thetaCSASW ! sapwood cross-section
-     CSAtot   = PI * (cc%DBH/2.0)**2 ! total trunk cross-section
-     CSAwd    = max(0.0, CSAtot - CSAsw) ! cross-section of heartwood
-     DBHwd    = 2*sqrt(CSAwd/PI) ! DBH of heartwood
      select case(sp%allomt)
      case (ALLOM_EW,ALLOM_EW1)
-        BSWmax = sp%alphaBM * sp%rho_wood * (cc%DBH**sp%thetaBM - DBHwd**sp%thetaBM)
+        CSAsw    = sp%alphaCSASW * cc%DBH**sp%thetaCSASW ! sapwood cross-section
+        CSAtot   = PI * (cc%DBH/2.0)**2 ! total trunk cross-section
+        CSAwd    = max(0.0, CSAtot - CSAsw) ! cross-section of heartwood
+        DBHwd    = 2*sqrt(CSAwd/PI) ! DBH of heartwood
+        ! before only BSWmax, 4 lines above from Isa
+        cc%bsw_max = sp%alphaBM * sp%rho_wood * (cc%DBH**sp%thetaBM - DBHwd**sp%thetaBM)
      case (ALLOM_HML)
-        BSWmax = sp%alphaBM * sp%rho_wood * cc%height * (cc%DBH**2 - DBHwd**2)
+        CSAsw    = sp%phiCSA * cc%DBH**(sp%thetaCA + sp%thetaHT) / &
+                   (sp%gammaHT + cc%DBH** sp%thetaHT)
+        CSAtot   = PI * (cc%DBH/2.0)**2 ! total trunk cross-section
+        CSAwd    = max(0.0, CSAtot - CSAsw) ! cross-section of heartwood
+        DBHwd    = 2*sqrt(CSAwd/PI) ! DBH of heartwood
+        cc%bsw_max = sp%alphaBM * sp%rho_wood * cc%height * (cc%DBH**2 - DBHwd**2)
      end select
+     ! isa 20170705 - grasses don't form heartwood
+     if (sp%lifeform == FORM_GRASS) then
+       cc%bsw_max = cc%bsw
+       CSAsw = PI * cc%DBH * cc%DBH / 4.0 ! trunk cross-sectional area = sapwood area
+     endif
 
      ! Update Kxa, stem conductance if we are tracking past damage
      ! TODO: make hydraulics_repair a namelist parameter?
      if (.not.hydraulics_repair) then
-        deltaCSAsw = CSAsw - (sp%alphaCSASW * (cc%DBH - deltaDBH)**sp%thetaCSASW)
+        !deltaCSAsw = CSAsw - (sp%alphaCSASW * (cc%DBH - deltaDBH)**sp%thetaCSASW)
+         ! isa and es 201701 - CSAsw different for ALLOM_HML - include into previous case?
+        select case(sp%allomt)
+        case (ALLOM_EW,ALLOM_EW1)
+           deltaCSAsw = CSAsw - (sp%alphaCSASW * (cc%DBH - deltaDBH)**sp%thetaCSASW)
+        case (ALLOM_HML)
+           deltaCSAsw = CSAsw - (sp%phiCSA * (cc%DBH - deltaDBH)**( sp%thetaCA + sp%thetaHT) / (sp%gammaHT + (cc%DBH - deltaDBH)** sp%thetaHT) )
+        end select
+       ! isa 20170705 - grasses don't form heartwood
+       if (sp%lifeform == FORM_GRASS) then
+         deltaCSAsw = CSAsw - (PI * (cc%DBH - deltaDBH) * (cc%DBH - deltaDBH) / 4.0 )
+       endif
         cc%Kxa = (cc%Kxa*CSAsw + sp%Kxam*deltaCSAsw)/(CSAsw + deltaCSAsw)
      endif
 
-     ! slm 20160523: are we retiring sapwood to wood only if it exceeds max sapwood? why?
-     deltaBwood = max(cc%bsw - BSWmax, 0.0)
+     call check_var_range(cc%bsw,  0.0,HUGE(1.0),'biomass_allocation_ppa #3', 'cc%bsw', FATAL)
+     call check_var_range(cc%brsw, 0.0,cc%bsw,   'biomass_allocation_ppa #3', 'cc%brsw',FATAL)
+
+     ! ens 02/14/17 replace wood allocation function
+     ! slm 06/28/17 Why are we retiring sapwood to wood only if the leaves are displayed?
+     !              shouldn't it also happen in leaf-off season?
+!     deltaBwood = max(cc%bsw - cc%brsw - (1.0 - ( cc%brsw / cc%bsw ) )*BSWmax, 0.0)
+     if (cc%bsw>0) then
+        deltaBwood = cc%bsw - cc%brsw - (1.0 - ( cc%brsw / cc%bsw ) )*cc%bsw_max
+        ! perhaps it should be min(deltaBwood, cc%bsw-cc%brsw) ?
+        deltaBwood = min(deltaBwood, cc%bsw) ! cannot retire more sapwood than we have
+        deltaBwood = max(deltaBwood, 0.0)    ! conversion of wood to sapwood is prohibited
+     else
+        deltaBwood = 0.0
+     endif
      cc%bwood   = cc%bwood + deltaBwood
      cc%bsw     = cc%bsw   - deltaBwood
      if (soil_carbon_option==SOILC_CORPSE_N) then
@@ -1611,6 +1738,9 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
        cc%wood_N    = cc%wood_N    + deltaBwood/sp%wood_c2n
        cc%stored_N  = cc%stored_N  + deltaBwood/sp%sapwood_c2n - deltaBwood/sp%wood_c2n
      endif
+
+     call check_var_range(cc%bsw,  0.0,HUGE(1.0),'biomass_allocation_ppa #4', 'cc%bsw',FATAL)
+     call check_var_range(cc%brsw, 0.0,cc%bsw,   'biomass_allocation_ppa #4', 'cc%brsw',FATAL)
 
      ! update bl_max and br_max daily
      ! slm: why are we updating topyear only when the leaves are displayed? The paper
@@ -1620,7 +1750,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      if (cc%layer > 1 .and. cc%firstlayer == 0) then ! changed back, Weng 2014-01-23
         cc%topyear = 0.0
         cc%bl_max = BL_u
-        cc%br_max = 0.8*cc%bl_max/(sp%LMA*sp%SRA)
+        cc%br_max = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
      else
         if(cc%layer == 1)cc%topyear = cc%topyear + 1.0/365.0  ! daily step
         if(cc%layer>1)cc%firstlayer = 0 ! Just for the first year, those who were
@@ -1665,6 +1795,33 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
 
 end subroutine biomass_allocation_ppa
 
+! update leaf and root biomass tendencies based on plant nitrogen state, and calculate
+! leaf and root nitrogen tendencies
+subroutine update_LR_tendencies(cc, deltaBL, deltaBR, deltaNL, deltaNR)
+  type(vegn_cohort_type), intent(in) :: cc
+  real, intent(inout) :: deltaBL, deltaBR
+  real, intent(out)   :: deltaNL, deltaNR
+
+  real :: f
+
+  associate(sp=>spdata(cc%species))
+  if (soil_carbon_option==SOILC_CORPSE_N) then
+     deltaNL = deltaBL/sp%leaf_live_c2n
+     deltaNR = deltaBR/sp%froot_live_c2n
+     if (deltaNL+deltaNR > 0.1*cc%stored_N.and.N_limits_live_biomass) then
+        ! BNS: make this the minimum of 10% NSC depletion OR 10% stored N depletion
+        ! Do this every time we do this limitation.
+        ! This does not prioritize spending on leaves and roots
+        f = 0.1*cc%stored_N/(deltaNL+deltaNR)
+        deltaBR = deltaBR*f; deltaBL = deltaBL*f
+        deltaNR = deltaNR*f; deltaNL = deltaNL*f
+     endif
+  else
+     deltaNL=0.0
+     deltaNR=0.0
+  endif
+  end associate
+end subroutine
 
 ! ============================================================================
 ! calculated thermal inhibition factor depending on temperature
@@ -1809,12 +1966,13 @@ end subroutine vegn_phenology_lm3
 
 ! =============================================================================
 ! Added by Weng 2012-02-29
-subroutine vegn_phenology_ppa(vegn, soil)
+subroutine vegn_phenology_ppa(vegn, soil, dheat)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
+  real,                 intent(out)   :: dheat ! heat residual due to cohort merging
 
   ! ---- local vars
-  integer :: i,l
+  integer :: i,l,k
   real    :: leaf_litter_C, leaf_litter_N, leaf_litt_C(N_C_TYPES), leaf_litt_N(N_C_TYPES)
   real, dimension(num_l,n_c_types) :: &
              root_litt_C, root_litt_N ! root litter per soil layer, kgC/m2 and kgN/m2
@@ -1822,11 +1980,22 @@ subroutine vegn_phenology_ppa(vegn, soil)
   real    :: root_litter_C, root_litter_N
   real    :: dead_leaves_C, dead_leaves_N
   real    :: dead_roots_C, dead_roots_N
+  real    :: dead_stem_C, dead_stem_N ! isa 20170705
+
+  ! isa 20170709 - note that in biomass_allocation_ppa deltaDBH is an output to
+  ! subroutine vegn_growth, where it is saved ...
+  !real, intent(out) :: deltaDBH ! tendency of breast height diameter, m
+  real :: deltaDBH ! tendency of breast height diameter, m
+  real :: deltaCA ! tendency of crown area, m2/individual
+  real :: deltaHeight ! tendency of vegetation height
 
   real, parameter :: leaf_fall_rate = 0.075 ! per day
   real, parameter :: root_mort_rate = 0.0
+  real, parameter :: stem_mort_rate = 0.075 ! per day, isa 20170705
+  real, parameter :: DBHtp = 0.8 ! m
 
   vegn%litter = 0 ; leaf_litt_C(:) = 0.0 ; leaf_litt_N(:) = 0.0
+
   do i = 1,vegn%n_cohorts
      associate ( cc => vegn%cohorts(i),   &
                  sp => spdata(vegn%cohorts(i)%species) )
@@ -1839,35 +2008,60 @@ subroutine vegn_phenology_ppa(vegn, soil)
 !    onset of phenology
      if(cc%status==LEAF_OFF .and. cc%gdd>sp%gdd_crit .and. vegn%tc_pheno>sp%tc_crit ) then
         cc%status = LEAF_ON
-     else if ( cc%status == LEAF_ON .and. vegn%tc_pheno < sp%tc_crit ) then
+        ! isa 201707215 - update target biomass at the satart of the growing season
+        !                 for grasses to avoid using previous year targets
+        if (sp%lifeform == FORM_GRASS) then
+          cc%bl_max = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
+          cc%br_max = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
+        endif
+     else if ( cc%status == LEAF_ON .and. vegn%tc_pheno < sp%tc_crit .and. sp%phent==PHEN_DECIDUOUS ) then
         cc%status = LEAF_OFF
         cc%gdd = 0.0
      endif
 
-!    leaf falling at the end of a growing season
-! slm: why leaf fall and root mortality are computed from max bl and br, not
-!      not actual bl and br?
-     if(cc%status == LEAF_OFF .AND. cc%bl > 0.)then
+     ! leaves falling at the end of a growing season
+     ! slm: why leaf fall and root mortality are computed from max bl and br, not
+     !      not actual bl and br?
+     if(cc%status==LEAF_OFF .AND. ( cc%bl>0 .OR. ( sp%lifeform==FORM_GRASS .AND. ( cc%bl>0 .OR. cc%bsw>0)))) then
          dead_leaves_C = min(leaf_fall_rate * cc%bl_max, cc%bl)
          dead_leaves_N = min(cc%leaf_N * dead_leaves_C/cc%bl, cc%leaf_N)
-         dead_roots_C = min(root_mort_rate * cc%br_max, cc%br)
-         dead_roots_N = min(cc%root_N * dead_roots_C/cc%br, cc%root_N)
+         dead_roots_C  = min(root_mort_rate * cc%br_max, cc%br)
+         dead_roots_N  = min(cc%root_N * dead_roots_C/cc%br, cc%root_N)
+         dead_stem_C   = 0.0
+         ! isa 20170705
+         if (sp%lifeform == FORM_GRASS) then
+            dead_stem_C = min(stem_mort_rate * cc%bsw_max, &
+                   cc%bsw - sp%rho_wood * sp%alphaBM * ((sp%gammaHT/(sp%alphaHT/sp%seedling_height - 1.0))**(1.0/sp%thetaHT))**2 * sp%seedling_height)
+            dead_stem_C = max(dead_stem_C,0.0)
+            ! ToDo - it is necessary to implement anonline adjustment of dbh, height and crown area as the plant shrinks
+            !        otherwise it can happen that, in a year with a short winter, there is a disadjustment between plant
+            !        biomass and its dimensions
+            ! just set initial height
+            cc%height = sp%seedling_height
+            cc%dbh = (sp%gammaHT/(sp%alphaHT/sp%seedling_height - 1.0))**(1.0/sp%thetaHT)
+            cc%crownarea = sp%alphaCA * cc%dbh**sp%thetaCA
+            ! slm 20170804: reconcile bl_max and crownarea, and drop excess leaf biomass
+            !               immediately
+            cc%bl_max = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
+            dead_leaves_C = max(dead_leaves_C, cc%bl-cc%bl_max)
+            dead_leaves_N = min(cc%leaf_N * dead_leaves_C/cc%bl, cc%leaf_N)
+         endif
+         dead_stem_N = min(cc%sapwood_N*dead_stem_C/cc%bsw,cc%sapwood_N)
          ! update C and N pools
-         cc%nsc      = cc%nsc      + l_fract * (dead_leaves_C+dead_roots_C)
+         cc%nsc      = cc%nsc + l_fract*(dead_leaves_C+dead_roots_C+dead_stem_C) ! isa 20170705
          cc%stored_N = cc%stored_N + (sp%leaf_retranslocation_frac*dead_leaves_N+sp%froot_retranslocation_frac*dead_roots_N)
-         cc%bl       = cc%bl - dead_leaves_C
-         cc%leaf_N   = cc%leaf_N - dead_leaves_N
-         cc%br       = cc%br - dead_roots_C
-         cc%root_N   = cc%root_N - dead_roots_N
-
+         cc%bl       = cc%bl - dead_leaves_C ; cc%leaf_N    = cc%leaf_N - dead_leaves_N
+         cc%br       = cc%br - dead_roots_C  ; cc%root_N    = cc%root_N - dead_roots_N
+         cc%bsw      = cc%bsw - dead_stem_C  ; cc%sapwood_N = cc%sapwood_N - dead_stem_N ! isa 20170705
 
          cc%lai = leaf_area_from_biomass(cc%bl,cc%species,cc%layer,cc%firstlayer)/ &
                                         (cc%crownarea *(1.0-sp%internal_gap_frac))
-         if(cc%bl == 0.)cc%leaf_age = 0.0
+         if(cc%bl==0) cc%leaf_age = 0.0
          cc%bliving = cc%blv + cc%br + cc%bl + cc%bsw
 
-         leaf_litter_C = (1-l_fract) * (dead_leaves_C) * cc%nindivs
-         leaf_litter_N = (1-sp%leaf_retranslocation_frac) * dead_leaves_N * cc%nindivs
+         leaf_litter_C = (1-l_fract) * (dead_leaves_C+dead_roots_C+dead_stem_C) * cc%nindivs ! isa20170705, stem and roots become leaf litter
+         leaf_litter_N = (1-sp%leaf_retranslocation_frac) * dead_leaves_N * cc%nindivs &
+                       + dead_stem_N * cc%nindivs
          leaf_litt_C(:) = leaf_litt_C(:)+[sp%fsc_liv,1-sp%fsc_liv,0.0]*leaf_litter_C
          leaf_litt_N(:) = leaf_litt_N(:)+[sp%fsc_liv,1-sp%fsc_liv,0.0]*leaf_litter_N
 
@@ -1884,12 +2078,16 @@ subroutine vegn_phenology_ppa(vegn, soil)
             root_litt_N(l,:) = root_litt_N(l,:) + profile(l)* &
                  [sp%fsc_froot, 1-sp%fsc_froot, 0.0]*root_litter_N
          enddo
-
      endif
-     end associate
+     end associate ! cc, sp
   enddo
   ! add litter accumulated over the cohorts
   call add_soil_carbon(soil, vegn, leaf_litter_C=leaf_litt_C, leaf_litter_N=leaf_litt_N)
+  ! phenology can change cohort heights if the grass dies, and therefore change
+  ! layers -- need to relayer lest cohorts remain in wrong order
+  call vegn_relayer_cohorts_ppa(vegn)
+  ! merge similar cohorts, otherwise their number proliferates due to re-layering
+  call vegn_mergecohorts_ppa(vegn, dheat)
 end subroutine vegn_phenology_ppa
 
 
@@ -2101,111 +2299,325 @@ function cohort_can_reproduce(cc); logical cohort_can_reproduce
   cohort_can_reproduce = (cc%layer == 1 .and. cc%age > spdata(cc%species)%maturalage)
 end function cohort_can_reproduce
 
+! ============================================================================
+! returns TRUE if cohort can allocate carbon to seeds.
+! currently it is the same as cohort_can_reproduce, but it will be different
+! in ppa-N
+function cohort_makes_seeds(cc, G_WF) result(answer); logical answer
+  type(vegn_cohort_type), intent(in) :: cc
+  real, intent(in) :: G_WF ! amount of carbon spent on new sapwood growth and seeds
+
+  answer = (cc%layer == 1 .and. cc%age > spdata(cc%species)%maturalage)
+  if (soil_carbon_option==SOILC_CORPSE_N.AND.N_limits_live_biomass) then
+     associate(sp=>spdata(cc%species))
+     answer = answer .AND. &
+        .NOT.(cc%nitrogen_stress > sp%max_n_stress_for_seed_production &
+              .OR. sp%v_seed*G_WF/sp%seed_c2n>0.1*cc%stored_N )
+     end associate
+  endif
+end function cohort_makes_seeds
 
 ! ============================================================================
-! the reproduction of each canopy cohort, yearly time step
-! calculate the new cohorts added in this step and states:
-! tree density, DBH, woody and living biomass
-subroutine vegn_reproduction_ppa (vegn,soil)
-  type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(inout) :: soil
+subroutine vegn_reproduction_ppa(do_seed_transport)
+  logical, intent(in) :: do_seed_transport
 
-! ---- local vars
-  type(vegn_cohort_type), pointer :: ccold(:)   ! pointer to old cohort array
-  real :: failed_seeds !, prob_g, prob_e
-  integer :: newcohorts ! number of new cohorts to be created
-  integer :: i, k ! cohort indices
-  real :: litt(N_C_TYPES), litt_N(N_C_types)
+  type(land_tile_enum_type) :: ce
+  type(land_tile_type), pointer :: tile
+  real, dimension(lnd%ls:lnd%le,0:nspecies-1) :: &
+     ug_dispersed_C,   ug_dispersed_N,   &  ! dispersed seeds, kg per m2 of land
+     ug_transported_C, ug_transported_N     ! dispersed seeds, kg per m2 of land
+  real, allocatable :: seed_C(:,:), seed_N(:,:)
+  integer :: n ! total number of vegetated tiles in the domain
+  integer :: k ! vegetated tile index
+  integer :: l ! grid cell index in unstructured grid
+  integer :: s ! species iterator
+  integer :: i ! cohort iterator
+  integer :: k1
 
-!  write(*,*)'vegn_reproduction_ppa n_cohorts before: ', vegn%n_cohorts
+  real :: btot0, btot1 ! total carbon, for conservation check only
+  real :: ntot0, ntot1 ! total nitrogen, for conservation check only
 
-! Check if reproduction happens
-  newcohorts = 0
-  do i = 1, vegn%n_cohorts
-     if (cohort_can_reproduce(vegn%cohorts(i))) newcohorts=newcohorts + 1
+  ! + conservation check part 1
+  if (do_check_conservation) then
+     btot0 = 0.0; ntot0 = 0.0
+     ce = first_elmt(land_tile_map,lnd%ls)
+     do while (loop_over_tiles(ce,tile,l))
+        btot0 = btot0 + lnd%ug_area(l) * tile%frac * land_tile_carbon(tile) 
+        ntot0 = ntot0 + lnd%ug_area(l) * tile%frac * land_tile_nitrogen(tile)
+     end do
+     call mpp_sum(btot0); call mpp_sum(ntot0)
+  end if
+  ! - conservation check part 1
+
+  ! count total number of vegetation tiles in our domain
+  n  = 0
+  ce = first_elmt(land_tile_map,lnd%ls)
+  do while (loop_over_tiles(ce,tile,l))
+     if(associated(tile%vegn)) n = n+1
+  end do
+
+  ! calculate amount of seeds (kgC per tile area, by species) for each of the vegetation tiles
+  allocate(seed_C(n,0:nspecies-1), seed_N(n,0:nspecies-1))
+  seed_C = 0.0; seed_N = 0.0
+  ce = first_elmt(land_tile_map, lnd%ls); k = 1
+  do while (loop_over_tiles(ce,tile,l))
+     if(.not.associated(tile%vegn)) cycle
+     do i = 1,tile%vegn%n_cohorts
+        associate(cc=>tile%vegn%cohorts(i))
+        if (cohort_can_reproduce(cc)) then
+           seed_C(k,cc%species) = seed_C(k,cc%species) + cc%nindivs * cc%bseed 
+           seed_N(k,cc%species) = seed_N(k,cc%species) + cc%nindivs * cc%seed_N
+           cc%bseed = 0.0; cc%seed_N = 0.0
+        endif
+        end associate
+     enddo
+     k = k+1
   enddo
 
+  ! calculate amount of dispersed seeds, by species, kgC per m2 of land
+  ug_dispersed_C = 0.0
+  ug_transported_C = 0.0
+  if (do_seed_transport) then
+     ce = first_elmt(land_tile_map, lnd%ls); k = 1
+     do while (loop_over_tiles(ce,tile,l)) ! l is the grid cell index in unstructured grid
+        if (.not.associated(tile%vegn)) cycle
+        do s = 0,nspecies-1
+           ug_dispersed_C(l,s)   = ug_dispersed_C(l,s)   + seed_C(k,s)*spdata(s)%frac_seed_dispersed*tile%frac
+           ug_dispersed_N(l,s)   = ug_dispersed_N(l,s)   + seed_N(k,s)*spdata(s)%frac_seed_dispersed*tile%frac
+           ug_transported_C(l,s) = ug_transported_C(l,s) + seed_C(k,s)*spdata(s)%frac_seed_transported*tile%frac
+           ug_transported_N(l,s) = ug_transported_N(l,s) + seed_N(k,s)*spdata(s)%frac_seed_transported*tile%frac
+           ! correct the amount of seeds remaining in each tile
+           seed_C(k,s) = seed_C(k,s)*(1-spdata(s)%frac_seed_dispersed-spdata(s)%frac_seed_transported)
+           seed_N(k,s) = seed_N(k,s)*(1-spdata(s)%frac_seed_dispersed-spdata(s)%frac_seed_transported)
+        enddo
+        k = k+1
+     enddo
+     ! diffuse the seeds
+     do s = 0,nspecies-1
+        call transport_seeds(ug_transported_C(:,s))
+        call transport_seeds(ug_transported_N(:,s))
+     enddo
+  endif
+
+  ! distribute seeds (those that stay in place + dispersed) among tiles
+  ce = first_elmt(land_tile_map, lnd%ls); k = 1
+  do while (loop_over_tiles(ce,tile,l,k1))
+     call set_current_point(l,k1)
+     if (.not.associated(tile%vegn)) cycle
+     if (is_watch_point()) then
+        __DEBUG3__(l,k,k1)
+        do s = 0,nspecies-1
+           write(*,'(i2.2,x,a32)',advance='NO')s,spdata(s)%name
+           call dpri('dispersed_C',ug_dispersed_C(l,s))
+           call dpri('transported_C',ug_transported_C(l,s))
+           call dpri('seed_C',seed_C(k,s))
+           call dpri('dispersed_N',ug_dispersed_N(l,s))
+           call dpri('transported_N',ug_transported_N(l,s))
+           call dpri('seed_N',seed_N(k,s))
+           write(*,*)
+        enddo
+     endif
+     call add_seedlings_ppa(tile%vegn,tile%soil,(ug_dispersed_C(l,:)+ug_transported_C(l,:))*ug_area_factor(l)+seed_C(k,:), &
+                                                (ug_dispersed_N(l,:)+ug_transported_N(l,:))*ug_area_factor(l)+seed_N(k,:)  )
+     k = k+1
+  enddo
+
+  ! + conservation check part 2
+  if (do_check_conservation) then
+     btot1 = 0.0; ntot1 = 0.0
+     ce = first_elmt(land_tile_map,lnd%ls)
+     do while (loop_over_tiles(ce,tile,l))
+        btot1 = btot1 + lnd%ug_area(l) * tile%frac * land_tile_carbon(tile) 
+        ntot1 = ntot1 + lnd%ug_area(l) * tile%frac * land_tile_nitrogen(tile)
+     end do
+     call mpp_sum(btot1)
+     if (mpp_pe()==mpp_root_pe()) then
+        call check_conservation ('vegn_reproduction_ppa','total carbon', &
+             btot0/atot, btot1/atot, carbon_cons_tol, severity=FATAL)
+        call check_conservation ('vegn_reproduction_ppa','total nitrogen', &
+             ntot0/atot, ntot1/atot, nitrogen_cons_tol, severity=FATAL)
+     endif
+  end if
+  ! - conservation check part 2
+  
+  deallocate(seed_C, seed_N)
+end subroutine vegn_reproduction_ppa
+
+! =======================================================================================
+! Given the amount seeds undergoing transport (kg per m2 of land), on unstructured grid,
+! updates it to take into account transport among grid cells.
+subroutine transport_seeds(ug_bseed)
+  real, intent(inout) :: ug_bseed(lnd%ls:lnd%le) ! amount of transported seeds on unstructured
+       ! grid, kg per m2 of land
+
+  real :: sg_bseed(lnd%isd:lnd%ied, lnd%jsd:lnd%jed) ! total amount of dispersed seeds per grid cell on structured grid, kg
+  real :: tend    (lnd%isd:lnd%ied, lnd%jsd:lnd%jed) ! seed mass tendency due to dispersion, kg
+  integer :: i,j,ii,jj
+
+  real :: btot0, btot1 ! total carbon, for conservation check only
+
+  real, parameter :: kernel(-1:1,-1:1) = reshape([ & ! shape of the dispersal function
+      0.0,  0.25, 0.0,  &
+      0.25, 0.0,  0.25, &
+      0.0,  0.25, 0.0   ],[3,3] )
+
+  if(do_check_conservation) then
+     btot0 = sum(ug_bseed*lnd%ug_area)
+     call mpp_sum(btot0)
+  endif
+  ! move dispersed seeds to structured grid
+  sg_bseed = 0.0
+  call mpp_pass_UG_to_SG(lnd%ug_domain,ug_bseed*lnd%ug_area,sg_bseed)
+  ! NOTE that bseed is multiplied by area, so it is total per grid cell
+
+  ! update halo
+  call mpp_update_domains(sg_bseed,lnd%sg_domain)
+
+  tend = 0.0
+  do j = lnd%js, lnd%je
+  do i = lnd%is, lnd%ie
+     do jj = -1,1
+     do ii = -1,1
+         tend(i,j) = tend(i,j) + sg_bseed(i-ii,j-jj)*kernel(ii,jj)*sg_soilfrac(i,j)
+     enddo
+     enddo
+  enddo
+  enddo
+  do j = lnd%js, lnd%je
+  do i = lnd%is, lnd%ie
+     do jj = -1,1
+     do ii = -1,1
+         tend(i,j) = tend(i,j) - sg_bseed(i,j)*kernel(ii,jj)*sg_soilfrac(i+ii,j+jj)
+     enddo
+     enddo
+  enddo
+  enddo
+  ! tendency and updated seed amount are only valid within compute domain, but that's OK
+  ! because we only use them there.
+  sg_bseed = sg_bseed + tend
+
+  ! move transported field to unstructured grid
+  call mpp_pass_SG_to_UG(lnd%ug_domain,sg_bseed,ug_bseed)
+  ! renormalize seed amount from total to kg C per unit land area
+  ug_bseed(:) = ug_bseed(:)/lnd%ug_area(:)
+
+  if (do_check_conservation) then
+     btot1 = sum(ug_bseed*lnd%ug_area)
+     call mpp_sum(btot1)
+     if (mpp_pe()==mpp_root_pe()) then
+        call check_conservation ('transport_seeds','total carbon', &
+             btot0/atot, btot1/atot, carbon_cons_tol, severity=FATAL)
+     endif
+  end if
+end subroutine transport_seeds
+
+! ============================================================================
+! Given seed biomass for each species (kgC per m2 of tile), add a seedling cohort
+! for each species for which seed_C is greater than zero.
+subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N)
+  type(vegn_tile_type), intent(inout) :: vegn
+  type(soil_tile_type), intent(inout) :: soil
+  real, intent(in) :: seed_C(0:nspecies-1), seed_N(0:nspecies-1)
+
+  type(vegn_cohort_type), pointer :: ccold(:)   ! pointer to old cohort array
+  integer :: newcohorts ! number of new cohorts to be created
+  real :: failed_seed_C,failed_seed_N !, prob_g, prob_e
+  real :: litt_C(N_C_TYPES), litt_N(N_C_types)
+  integer :: k ! seedling cohort index
+  integer :: i ! species index
+  real    :: Tv ! temperature assigned to seedlings
+
+  if(is_watch_point()) then
+     write(*,*)'##### add_seedlings_ppa input #####'
+     __DEBUG1__(seed_C)
+  endif
+  call check_var_range(seed_C,-carbon_cons_tol,HUGE(1.0),'add_seedlings_ppa','seed_C', FATAL)
+
+  newcohorts = count(seed_C>0)
   if (newcohorts == 0) return ! do nothing if no cohorts are ready for reproduction
 
-!  write(*,*) 'creating new cohorts: ', newcohorts
+  if (vegn%n_cohorts+newcohorts>size(vegn%cohorts)) then
+     ! increase the size of cohorts array
+     ccold => vegn%cohorts
+     allocate(vegn%cohorts(vegn%n_cohorts+newcohorts))
+     vegn%cohorts(1:vegn%n_cohorts) = ccold(1:vegn%n_cohorts)
+     deallocate (ccold)
+  endif
 
-  ccold => vegn%cohorts ! keep old cohort information
-  allocate(vegn%cohorts(vegn%n_cohorts+newcohorts))
-  vegn%cohorts(1:vegn%n_cohorts) = ccold(1:vegn%n_cohorts) ! copy old cohort information
-  deallocate (ccold)
+  ! use the temperature of the last (shortest) existing cohort for seedlings
+  Tv = vegn%cohorts(vegn%n_cohorts)%Tv
 
-  litt(:) = 0.0
+  litt_C(:) = 0.0
   litt_N(:) = 0.0
   ! set up new cohorts
   k = vegn%n_cohorts
-  do i = 1,vegn%n_cohorts
-    if (.not.cohort_can_reproduce(vegn%cohorts(i))) cycle ! nothing to do
+  do i = 0,nspecies-1
+    if (seed_C(i)<=0) cycle ! no seeds for this species, nothing to do
 
     k = k+1 ! increment new cohort index
-
-    ! update child cohort parameters
-    associate (cc     => vegn%cohorts(k), &  ! F2003
-               parent => vegn%cohorts(i), &
-               sp     => spdata(vegn%cohorts(i)%species) )
-    ! copy all parent values into the new cohort then change some of them below
-    cc            = parent
+    ! set seedling cohort parameters
+    associate (cc => vegn%cohorts(k), sp=>spdata(i))
+    cc%species    = i
     cc%status     = LEAF_OFF
     cc%firstlayer = 0
     cc%age        = 0.0
     cc%topyear    = 0.0
     ! BNS: Start cohort with zero stored N and then calculate it after we balance the carbon
     call init_cohort_allometry_ppa(cc, sp%seedling_height, sp%seedling_nsc_frac, 0.0)
+    call init_cohort_hydraulics(cc, soil%pars%psi_sat_ref)
 
     ! added germination probability (prob_g) and establishment probability ((prob_e), Weng 2014-01-06
-    cc%nindivs = parent%bseed*parent%nindivs * sp%prob_g * sp%prob_e   &
-                 /biomass_of_individual(cc)
+    cc%nindivs = seed_C(i) * sp%prob_g * sp%prob_e/biomass_of_individual(cc)
 !    __DEBUG3__(cc%age, cc%layer, cc%nindivs)
 
     ! Nitrogen needs to be adjusted at this point so it's conserved, since seedling N isn't necessarily consistent with initial C vals
     ! cc%total_N is set in init_cohort_allometry_ppa so it should be correct
     if(cc%nindivs>0) &
-        cc%stored_N = parent%seed_N*sp%prob_g*sp%prob_e * parent%nindivs/cc%nindivs - cc%total_N
+        cc%stored_N = seed_N(i)*sp%prob_g*sp%prob_e/cc%nindivs - cc%total_N
     ! If nindivs is zero, seedling should be killed by kill_small_cohorts. Otherwise there could be balance problems
     if(cc%stored_N<0 .AND. N_limits_live_biomass) then
-      __DEBUG3__(parent%seed_N*parent%nindivs/cc%nindivs,cc%total_N,cc%stored_N)
-      call error_mesg('vegn_reproduction_ppa','Not enough N in seeds to make seedling',FATAL)
+       __DEBUG3__(seed_N(i)/cc%nindivs,cc%total_N,cc%stored_N)
+       call error_mesg('vegn_reproduction_ppa','Not enough N in seeds to make seedling',FATAL)
     endif
     cc%total_N = cc%total_N + cc%stored_N
 
     ! print *,'Reproduction:'
-    ! __DEBUG4__(parent%nindivs,parent%bseed,parent%seed_N,cc%nsc)
+    ! __DEBUG4__(parent%nindivs,parent%seed_C,parent%seed_N,cc%nsc)
     ! __DEBUG4__(cc%nindivs,cc%stored_N,cc%total_N,cc%total_N-cc%stored_N)
 
-    failed_seeds = (1.-sp%prob_g*sp%prob_e) * parent%bseed * parent%nindivs
-    vegn%litter = vegn%litter + failed_seeds
-    litt(:) = litt(:) + [sp%fsc_liv,1-sp%fsc_liv,0.0]*failed_seeds
-    litt_N(:) = litt_N(:) + [sp%fsc_liv,1-sp%fsc_liv,0.0]*(1.-sp%prob_g*sp%prob_e) * parent%seed_N * parent%nindivs
-    vegn%veg_out = vegn%veg_out + failed_seeds
+    failed_seed_C = (1-sp%prob_g*sp%prob_e) * seed_C(i)
+    failed_seed_N = (1-sp%prob_g*sp%prob_e) * seed_N(i)
 
-    parent%bseed = 0.0
-    parent%seed_N = 0.0
+    vegn%litter = vegn%litter + failed_seed_C
+    litt_C(:) = litt_C(:) + [sp%fsc_liv,1-sp%fsc_liv,0.0]*failed_seed_C
+    litt_N(:) = litt_N(:) + [sp%fsc_liv,1-sp%fsc_liv,0.0]*failed_seed_N
+    vegn%veg_out = vegn%veg_out + failed_seed_C
 
     ! we assume that the newborn cohort is dry; since nindivs of the parent
     ! doesn't change we don't need to do anything with its Wl and Ws to
     ! conserve water (since Wl and Ws are per individual)
     cc%Wl = 0 ; cc%Ws = 0
     ! TODO: make sure that energy is conserved in reproduction
-    cc%Tv = parent%Tv
+    cc%Tv = Tv
 
     end associate   ! F2003
   enddo
 
-  call add_soil_carbon(soil, vegn, leaf_litter_C=litt, leaf_litter_N=litt_N)
+  call add_soil_carbon(soil, vegn, leaf_litter_C=litt_C, leaf_litter_N=litt_N)
 
   vegn%n_cohorts = k
   if(is_watch_point()) then
-     write(*,*)'##### vegn_reproduction_ppa #####'
+     write(*,*)'##### add_seedlings_ppa output #####'
      __DEBUG2__(newcohorts, vegn%n_cohorts)
-     __DEBUG1__(vegn%cohorts%nindivs)
-     __DEBUG1__(vegn%cohorts%Tv)
+     do k = vegn%n_cohorts-newcohorts+1, vegn%n_cohorts
+        write(*,'(a,i2.2)',advance='NO') 'cohort=', k
+        call dpri(' nindivs=', vegn%cohorts(k)%nindivs)
+        call dpri(' species=', vegn%cohorts(k)%species)
+        call dpri(' Tv=',      vegn%cohorts(k)%Tv)
+        write(*,*)
+     enddo
   endif
-end subroutine vegn_reproduction_ppa
-
+end subroutine add_seedlings_ppa
 
 ! ============================================================================
 subroutine kill_small_cohorts_ppa(vegn,soil)
@@ -2270,7 +2682,7 @@ subroutine kill_small_cohorts_ppa(vegn,soil)
                                    leaf_litt_N, wood_litt_N, root_litt_N  )
 
   if (is_watch_point()) then
-     write(*,*) '##### vegn_mergecohorts_ppa output #####'
+     write(*,*) '##### kill_small_cohorts_ppa output #####'
      __DEBUG1__(vegn%n_cohorts)
      __DEBUG1__(vegn%cohorts%nindivs)
      __DEBUG1__(vegn%cohorts%Wl)

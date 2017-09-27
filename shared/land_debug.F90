@@ -89,6 +89,8 @@ integer :: watch_point(4)=(/0,0,0,1/) ! coordinates of the point of interest,
 integer :: watch_point_lindex = 0  ! watch point index in unstructure grid.
 integer :: start_watching(6) = (/    1, 1, 1, 0, 0, 0 /)
 integer :: stop_watching(6)  = (/ 9999, 1, 1, 0, 0, 0 /)
+logical :: watch_conservation = .FALSE. ! if true, conservation check reports are 
+           ! printed for watch_point, in addition to regular debug output
 real    :: temp_lo = 120.0 ! lower limit of "reasonable" temperature range, deg K
 real    :: temp_hi = 373.0 ! upper limit of "reasonable" temperature range, deg K
 logical :: print_hex_debug = .FALSE. ! if TRUE, hex representation of debug
@@ -99,7 +101,7 @@ logical :: trim_labels = .FALSE. ! if TRUE, the length of text labels in debug
            ! trimming of the labels. Set it to TRUE to match earlier debug
            ! printout
 namelist/land_debug_nml/ watch_point, &
-   start_watching, stop_watching, &
+   start_watching, stop_watching, watch_conservation, &
    temp_lo, temp_hi, &
    print_hex_debug, label_len, trim_labels
 
@@ -509,7 +511,7 @@ subroutine check_conservation(tag, substance, d1, d2, tolerance, severity)
   if (severity_<0) return
 
   if (abs(d2-d1)<tolerance) then
-     if (is_watch_point()) then
+     if (is_watch_point().and.watch_conservation) then
      write(*,'(3(x,a,g23.16))')&
           trim(tag)//': conservation of '//trim(substance)//'; before=', d1, 'after=', d2, 'diff=',d2-d1
      endif

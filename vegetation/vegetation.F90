@@ -11,6 +11,7 @@ use fms_mod, only: open_namelist_file
 use fms_mod, only: error_mesg, NOTE, WARNING, FATAL, file_exist, &
                    close_file, check_nml_error, stdlog, string
 use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe
+
 use time_manager_mod, only: time_type, time_type_to_real, get_date, operator(-)
 use field_manager_mod, only: fm_field_name_len
 use constants_mod,    only: tfreeze, rdgas, rvgas, hlv, hlf, cp_air, PI
@@ -64,10 +65,11 @@ use land_debug_mod, only : is_watch_point, set_current_point, check_temp_range, 
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, &
      nitrogen_cons_tol, check_var_range
 use vegn_radiation_mod, only : vegn_radiation_init, vegn_radiation
-use vegn_photosynthesis_mod, only : vegn_photosynthesis_init, vegn_photosynthesis
+use vegn_photosynthesis_mod, only : vegn_photosynthesis_init, vegn_photosynthesis, &
+     co2_for_photosynthesis, vegn_phot_co2_option, VEGN_PHOT_CO2_INTERACTIVE
 use static_vegn_mod, only : read_static_vegn_namelist, static_vegn_init, static_vegn_end, &
      read_static_vegn
-use vegn_dynamics_mod, only : vegn_dynamics_init, &
+use vegn_dynamics_mod, only : vegn_dynamics_init, vegn_dynamics_end, &
      vegn_carbon_int_lm3, vegn_carbon_int_ppa,    &
      vegn_phenology_lm3,  vegn_phenology_ppa,     &
      vegn_growth, vegn_starvation_ppa, vegn_biogeography, &
@@ -76,6 +78,7 @@ use vegn_disturbance_mod, only : vegn_nat_mortality_lm3, &
      vegn_disturbance, update_fuel
 use vegn_harvesting_mod, only : &
      vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting
+use vegn_fire_mod, only : vegn_fire_init, vegn_fire_end, update_fire_data, fire_option, FIRE_LM3
 use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, SOILC_CORPSE_N, &
      N_C_TYPES, C_FAST, C_SLOW, c_shortname, c_longname, &
      add_litter, soil_NH4_deposition, soil_NO3_deposition, soil_org_N_deposition, &
@@ -105,9 +108,6 @@ public :: update_vegn_slow
 character(len=*), parameter :: module_name = 'vegn'
 #include "../shared/version_variable.inc"
 
-! values for internal selector of CO2 option used for photosynthesis
-integer, parameter :: VEGN_PHOT_CO2_PRESCRIBED  = 1
-integer, parameter :: VEGN_PHOT_CO2_INTERACTIVE = 2
 ! size of cohort initial condition array
 integer, parameter :: MAX_INIT_COHORTS = 5
 
@@ -139,17 +139,6 @@ real    :: init_cohort_nsc_frac(MAX_INIT_COHORTS)= 3.0  ! initial cohort NSC, as
 real    :: init_cohort_nsn_frac(MAX_INIT_COHORTS)= 3.0  ! initial cohort NSN, as fraction of max. bl
 character(32) :: rad_to_use = 'big-leaf' ! or 'two-stream'
 character(32) :: snow_rad_to_use = 'ignore' ! or 'paint-leaves'
-character(32) :: photosynthesis_to_use = 'simple' ! or 'leuning'
-character(32) :: co2_to_use_for_photosynthesis = 'prescribed' ! or 'interactive'
-   ! specifies what co2 concentration to use for photosynthesis calculations:
-   ! 'prescribed'  : a prescribed value is used, equal to co2_for_photosynthesis
-   !      specified below.
-   ! 'interactive' : concentration of co2 in canopy air is used
-real    :: co2_for_photosynthesis = 350.0e-6 ! concentration of co2 for photosynthesis
-   ! calculations, mol/mol. Ignored if co2_to_use_for_photosynthesis is not 'prescribed'
-character(32) :: water_stress_to_use = 'lm3' ! type of water stress formulation:
-   ! 'lm3', 'plant-hydraulics', or 'none'
-logical :: hydraulics_repair = .TRUE.
 
 logical :: allow_external_gaps = .TRUE. ! if TRUE, there may be gaps between
    ! cohorts of the canopy layers; otherwise canopies are stretched to fill
@@ -185,9 +174,7 @@ namelist /vegn_nml/ &
     init_cohort_height, &
     init_cohort_myc_scav, init_cohort_myc_mine, init_cohort_n_fixer, &
     init_cohort_stored_N_mult, &
-    rad_to_use, snow_rad_to_use, photosynthesis_to_use, &
-    co2_to_use_for_photosynthesis, co2_for_photosynthesis, &
-    water_stress_to_use, hydraulics_repair, &
+    rad_to_use, snow_rad_to_use, &
     allow_external_gaps, &
     do_cohort_dynamics, do_patch_disturbance, do_phenology, &
     xwilt_available, &
@@ -201,8 +188,7 @@ namelist /vegn_nml/ &
 logical         :: module_is_initialized =.FALSE.
 real            :: delta_time      ! fast time step
 real            :: dt_fast_yr      ! fast time step in years
-integer         :: vegn_phot_co2_option = -1 ! internal selector of co2 option
-                                   ! used for photosynthesis
+
 ! diagnostic field ids
 integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_temp, id_wl, id_ws, &
@@ -210,7 +196,7 @@ integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_root_density, id_root_zeta, id_rs_min, id_leaf_refl, id_leaf_tran, &
    id_leaf_emis, id_snow_crit, id_stomatal, &
    id_an_op, id_an_cl,&
-   id_bl, id_blv, id_br, id_bsw, id_bwood, id_bseed, id_btot, id_nsc, id_bl_max, id_br_max, &
+   id_bl, id_blv, id_br, id_bsw, id_bwood, id_bseed, id_btot, id_nsc, id_bl_max, id_br_max, id_bsw_max, &
    id_leaf_N,id_root_N,id_wood_N,id_sapwood_N,id_seed_N,id_stored_N,id_veg_total_N,id_Ngain,id_Nloss,&
    id_myc_scavenger_C,id_myc_miner_C,id_N_fixer_C,&
    id_myc_scavenger_N,id_myc_miner_N,id_N_fixer_N,&
@@ -232,7 +218,8 @@ integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_nlayers, id_dbh, id_dbh_max, &
    id_crownarea, &
    id_soil_water_supply, id_gdd, id_tc_pheno, id_zstar_1, &
-   id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi
+   id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi, &
+   id_brsw
 integer, dimension(N_LITTER_POOLS, N_C_TYPES) :: &
    id_litter_buff_C, id_litter_buff_N, &
    id_litter_rate_C, id_litter_rate_N
@@ -240,6 +227,7 @@ integer, dimension(N_LITTER_POOLS, N_C_TYPES) :: &
 integer :: id_lai_cmor, id_btot_cmor, id_cproduct, &
    id_fFire, id_fGrazing, id_fHarvest, id_fLuc, &
    id_cLeaf, id_cWood, id_cRoot, id_cMisc
+integer, allocatable :: id_nindivs_sp(:)
 ! ==== end of module variables ===============================================
 
 contains
@@ -291,25 +279,11 @@ subroutine read_vegn_namelist()
      write(unit, nml=vegn_nml)
   endif
 
-  ! convert symbolic names of photosynthesis CO2 options into numeric IDs to
-  ! speed up selection during run-time
-  if (trim(co2_to_use_for_photosynthesis)=='prescribed') then
-     vegn_phot_co2_option = VEGN_PHOT_CO2_PRESCRIBED
-  else if (trim(co2_to_use_for_photosynthesis)=='interactive') then
-     vegn_phot_co2_option = VEGN_PHOT_CO2_INTERACTIVE
-  else
-     call error_mesg('vegn_init',&
-          'vegetation photosynthesis option co2_to_use_for_photosynthesis="'//&
-          trim(co2_to_use_for_photosynthesis)//'" is invalid, use "prescribed" or "interactive"',&
-          FATAL)
-  endif
-
   ! ---- initialize vegetation radiation options
   call vegn_radiation_init(rad_to_use, snow_rad_to_use)
 
   ! ---- initialize vegetation photosynthesis options
-  call vegn_photosynthesis_init(photosynthesis_to_use, water_stress_to_use, &
-         hydraulics_repair)
+  call vegn_photosynthesis_init()
 
 end subroutine read_vegn_namelist
 
@@ -330,7 +304,6 @@ subroutine vegn_init ( id_ug, id_band )
   logical :: restart_1_exists, restart_2_exists
   real, allocatable :: t_ann(:),t_cold(:),p_ann(:),ncm(:) ! buffers for biodata reading
   logical :: did_read_biodata
-  logical :: did_read_cohort_structure = .FALSE.
   integer :: i,j,l,n ! indices of current tile
   integer :: init_cohort_spp(MAX_INIT_COHORTS)
 
@@ -376,6 +349,9 @@ subroutine vegn_init ( id_ug, id_band )
         call get_cohort_data(restart2,'bseed',cohort_bseed_ptr)
         call get_cohort_data(restart2,'bl_max',cohort_bl_max_ptr)
         call get_cohort_data(restart2,'br_max',cohort_br_max_ptr)
+        ! isa 201707
+        if (field_exists(restart2,'bsw_max')) &
+           call get_cohort_data(restart2, 'bsw_max', cohort_bsw_max_ptr)
         call get_cohort_data(restart2,'dbh',cohort_dbh_ptr)
         call get_cohort_data(restart2,'crownarea',cohort_crownarea_ptr)
         call get_cohort_data(restart2,'nindivs',cohort_nindivs_ptr)
@@ -403,11 +379,7 @@ subroutine vegn_init ( id_ug, id_band )
 
         call get_cohort_data(restart2, 'growth_prev_day', cohort_growth_previous_day_ptr )
         call get_cohort_data(restart2, 'growth_prev_day_tmp', cohort_growth_previous_day_tmp_ptr )
-        call get_cohort_data(restart2, 'branch_sw_loss', cohort_branch_sw_loss_ptr )
-        call get_cohort_data(restart2, 'branch_wood_loss', cohort_branch_wood_loss_ptr )
-        did_read_cohort_structure=.TRUE.
-     else
-        did_read_cohort_structure=.FALSE.
+        call get_cohort_data(restart2, 'brsw', cohort_brsw_ptr)
      endif
 
      call get_cohort_data(restart2, 'scav_myc_C_reservoir', cohort_scav_myc_C_reservoir_ptr)
@@ -471,7 +443,7 @@ subroutine vegn_init ( id_ug, id_band )
      else
         call get_tile_data(restart2,'theta_av', vegn_theta_av_phen_ptr)
         call get_tile_data(restart2,'theta_av', vegn_theta_av_fire_ptr)
-	! psist_av remains at initial value (equal to 0)
+        ! psist_av remains at initial value (equal to 0)
      endif
      call get_tile_data(restart2,'tsoil_av', vegn_tsoil_av_ptr)
      call get_tile_data(restart2,'precip_av', vegn_precip_av_ptr)
@@ -521,10 +493,10 @@ subroutine vegn_init ( id_ug, id_band )
           t_cold(lnd%ls:lnd%le),&
           p_ann (lnd%ls:lnd%le),&
           ncm   (lnd%ls:lnd%le) )
-     call read_field( 'INPUT/biodata.nc','T_ANN',  lnd%ug_lon, lnd%ug_lat, t_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','T_COLD', lnd%ug_lon, lnd%ug_lat, t_cold, interp='nearest')
-     call read_field( 'INPUT/biodata.nc','P_ANN',  lnd%ug_lon, lnd%ug_lat, p_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','NCM',    lnd%ug_lon, lnd%ug_lat, ncm,    interp='nearest')
+     call read_field( 'INPUT/biodata.nc','T_ANN',  t_ann,  interp='nearest')
+     call read_field( 'INPUT/biodata.nc','T_COLD', t_cold, interp='nearest')
+     call read_field( 'INPUT/biodata.nc','P_ANN',  p_ann,  interp='nearest')
+     call read_field( 'INPUT/biodata.nc','NCM',    ncm,    interp='nearest')
      did_read_biodata = .TRUE.
      call error_mesg('vegn_init','did read INPUT/biodata.nc',NOTE)
   else
@@ -589,9 +561,13 @@ subroutine vegn_init ( id_ug, id_band )
 
         if (do_ppa) then
            cc%species = init_cohort_spp(n)
-           call init_cohort_allometry_ppa(cc, init_cohort_height(n), init_cohort_nsc_frac(n), init_cohort_nsn_frac(n))
            if (cc%species < 0) call error_mesg('vegn_init','species "'//trim(init_cohort_species(n))//&
                    '" needed for initialization, but not found in the list of species parameters', FATAL)
+           call init_cohort_allometry_ppa(cc, init_cohort_height(n), init_cohort_nsc_frac(n), init_cohort_nsn_frac(n))
+           call init_cohort_hydraulics(tile%vegn%cohorts(n), tile%soil%pars%psi_sat_ref) ! adam wolf
+           ! initialize DBH_ys
+           cc%DBH_ys = cc%dbh
+           cc%BM_ys  = cc%bsw + cc%bwood
         else if(did_read_biodata.and.do_biogeography) then
            call update_species(cc,t_ann(l),t_cold(l),p_ann(l),ncm(l),LU_NTRL)
            tile%vegn%t_ann  = t_ann (l)
@@ -602,7 +578,6 @@ subroutine vegn_init ( id_ug, id_band )
            cc%species = tile%vegn%tag
         endif
         associate(sp=>spdata(cc%species))
-        cc%K_r        = sp%root_perm
         cc%leaf_N     = (cc%bl+cc%blv)/sp%leaf_live_c2n
         cc%wood_N     = cc%bwood/sp%wood_c2n
         cc%sapwood_N  = cc%bsw/sp%sapwood_c2n
@@ -614,28 +589,12 @@ subroutine vegn_init ( id_ug, id_band )
         cc%N_fixer_biomass_N       = cc%N_fixer_biomass_C/c2n_N_fixer
 
         cc%K_r        = sp%root_perm
-        !__DEBUG1__(cc%age)
         end associate ! sp
         end associate ! cc
      enddo
-  enddo
-
-  ! Initialize cohort structure if it was not in the restart
-  if (do_ppa.and..not.did_read_cohort_structure) then
-     ce = first_elmt(land_tile_map, ls=lnd%ls)
-     do while (loop_over_tiles(ce,tile))
-        if (.not.associated(tile%vegn)) cycle
-        do n = 1, tile%vegn%n_cohorts
-           call init_cohort_allometry_ppa(tile%vegn%cohorts(n), init_cohort_height(n), init_cohort_nsc_frac(n),init_cohort_nsn_frac(n))
-           call init_cohort_hydraulics(tile%vegn%cohorts(n), tile%soil%pars%psi_sat_ref) ! adam wolf
-           ! initialize DBH_ys
-           tile%vegn%cohorts(n)%DBH_ys = tile%vegn%cohorts(n)%dbh
-           tile%vegn%cohorts(n)%BM_ys  = tile%vegn%cohorts(n)%bsw + &
-                                         tile%vegn%cohorts(n)%bwood
-        enddo
+     if (do_ppa) &
         call vegn_relayer_cohorts_ppa(tile%vegn) ! this can change the number of cohorts
-     enddo
-  endif
+  enddo
 
   ! initialize carbon integrator
   call vegn_dynamics_init ( id_ug, lnd%time, delta_time )
@@ -646,6 +605,9 @@ subroutine vegn_init ( id_ug, id_band )
 
   ! initialize harvesting options
   call vegn_harvesting_init()
+
+  ! initialize fire
+  call vegn_fire_init(id_ug, delta_time, lnd%time)
 
   ! initialize vegetation diagnostic fields
   call vegn_diag_init ( id_ug, id_band, lnd%time )
@@ -684,6 +646,13 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        (/id_ug/), time, 'number of cohorts', 'unitless', missing_value=-1.0)
   id_nindivs = register_cohort_diag_field( module_name, 'nindivs', &
        (/id_ug/), time, 'density of individuals', 'individuals/m2', missing_value=-1.0)
+
+  allocate(id_nindivs_sp(0:nspecies-1))
+  do i = 0, nspecies-1
+     id_nindivs_sp(i) = register_cohort_diag_field( module_name, 'nindivs_'//trim(spdata(i)%name), &
+         (/id_ug/), time, 'density of individuals', 'individuals/m2', missing_value=-1.0)
+  enddo
+
   id_nlayers = register_tiled_diag_field( module_name, 'nlayers', &
        (/id_ug/), time, 'number of canopy layers', 'unitless', missing_value=-1.0 )
   id_dbh = register_cohort_diag_field( module_name, 'dbh', &
@@ -825,10 +794,15 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   id_Nfix_N_res = register_cohort_diag_field ( module_name, 'N_fixer_N_res',  &
        (/id_ug/), time, 'N fixer N reservoir', 'kg N/m2', missing_value=-1.0 )
 
+  id_bsw_max = register_cohort_diag_field ( module_name, 'bsw_max',  &
+       (/id_ug/), time, 'max biomass of sapwood', 'kg C/m2', missing_value=-1.0)
   id_bl_max = register_cohort_diag_field ( module_name, 'bl_max',  &
        (/id_ug/), time, 'max biomass of leaves', 'kg C/m2', missing_value=-1.0)
   id_br_max = register_cohort_diag_field ( module_name, 'br_max',  &
        (/id_ug/), time, 'max biomass of fine roots', 'kg C/m2', missing_value=-1.0)
+  ! ens 021617
+  id_brsw = register_cohort_diag_field ( module_name, 'brsw',  &
+       (/id_ug/), time, 'biomass of branches (only sapwood)', 'kg C/m2', missing_value=-1.0)
 
   id_fuel = register_tiled_diag_field ( module_name, 'fuel',  &
        (/id_ug/), time, 'mass of fuel', 'kg C/m2', missing_value=-1.0 )
@@ -953,8 +927,8 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   id_veg_out = register_tiled_diag_field ( module_name, 'veg_out',  (/id_ug/), &
      time,  'vegetation carbon out', 'kg C/m2', missing_value=-999.0 )
 
- id_tile_nitrogen_gain = register_tiled_diag_field ( module_name, 'nitrogen_in',  (/id_ug/), &
-    time,  'tile nitrogen in', 'kg N/m2', missing_value=-999.0 )
+  id_tile_nitrogen_gain = register_tiled_diag_field ( module_name, 'nitrogen_in',  (/id_ug/), &
+     time,  'tile nitrogen in', 'kg N/m2', missing_value=-999.0 )
   id_tile_nitrogen_loss = register_tiled_diag_field ( module_name, 'nitrogen_out',  (/id_ug/), &
      time,  'tile nitrogen out', 'kg N/m2', missing_value=-999.0 )
 
@@ -984,11 +958,10 @@ subroutine vegn_end ()
 
   module_is_initialized =.FALSE.
 
-  ! finalize harvesting
-  call vegn_harvesting_end ()
-
-  ! finalize static vegetation, if necessary
-  call static_vegn_end ()
+  call vegn_fire_end()
+  call vegn_harvesting_end()
+  call static_vegn_end()
+  call vegn_dynamics_end()
 end subroutine vegn_end
 
 
@@ -1069,6 +1042,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'bwood', cohort_bwood_ptr, 'biomass of heartwood','kg C/individual')
   call add_cohort_data(restart2,'nsc', cohort_nsc_ptr, 'non-structural biomass','kg C/individual')
   call add_cohort_data(restart2,'bseed', cohort_bseed_ptr, 'biomass reserved for future progeny','kg C/individual')
+  call add_cohort_data(restart2,'bsw_max', cohort_bsw_max_ptr, 'maximum biomass of sapwood','kg C/individual')
   call add_cohort_data(restart2,'bl_max', cohort_bl_max_ptr, 'maximum biomass of leaves','kg C/individual')
   call add_cohort_data(restart2,'br_max', cohort_br_max_ptr, 'maximum biomass of roots','kg C/individual')
   call add_cohort_data(restart2,'dbh', cohort_dbh_ptr, 'diameter at breast height','m')
@@ -1118,8 +1092,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
 
   call add_cohort_data(restart2,'growth_prev_day', cohort_growth_previous_day_ptr, 'pool of growth respiration','kg C')
   call add_cohort_data(restart2,'growth_prev_day_tmp', cohort_growth_previous_day_tmp_ptr, 'rate of growth respiration release to atmos','kg C/year')
-  call add_cohort_data(restart2,'branch_sw_loss', cohort_branch_sw_loss_ptr, 'branch_sw_loss','kg C/year')
-  call add_cohort_data(restart2,'branch_wood_loss', cohort_branch_wood_loss_ptr, 'branch_wood_loss','kg C/year')
+  call add_cohort_data(restart2,'brsw', cohort_brsw_ptr, 'biomass of branches (only sapwood)','kg C/individual')
 
   call add_int_tile_data(restart2,'landuse',vegn_landuse_ptr,'vegetation land use type')
   call add_tile_data(restart2,'age',vegn_age_ptr,'vegetation age', 'yr')
@@ -1207,6 +1180,7 @@ subroutine vegn_diffusion (vegn, snow_depth, vegn_cover, vegn_height, vegn_lai, 
   ! calculate integral parameters of vegetation
   gaps = 1.0; vegn_lai = 0; vegn_sai = 0
   current_layer = cc(1)%layer ; layer_gaps = 1.0
+  vegn_height = 0.0
   do i = 1,vegn%n_cohorts
     call vegn_data_cover(cc(i), snow_depth)
     vegn_lai = vegn_lai + cc(i)%lai*cc(i)%layerfrac
@@ -1216,9 +1190,9 @@ subroutine vegn_diffusion (vegn, snow_depth, vegn_cover, vegn_height, vegn_lai, 
        gaps = gaps*layer_gaps; layer_gaps = 1.0; current_layer = cc(i)%layer
     endif
     layer_gaps = layer_gaps-cc(i)%layerfrac*cc(i)%cover
+    vegn_height = max(vegn_height,cc(i)%height)
   enddo
   gaps = gaps*layer_gaps ! take the last layer into account
-  vegn_height = cc(1)%height ! return the height of the tallest (first) cohort
   vegn_cover  = 1 - gaps
   end associate ! F2003
 
@@ -1374,7 +1348,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   rav_lit = rav_lit_0 + rav_lit_vi * (vegn_tile_LAI(vegn)+vegn_tile_SAI(vegn)) &
                       + rav_lit_fsc * litter_fast_C &
                       + rav_lit_ssc * litter_slow_C &
-		      + rav_lit_deadmic * litter_deadmic_C &
+                      + rav_lit_deadmic * litter_deadmic_C &
                       + rav_lit_bwood * sum(cc(:)%bwood*cc(:)%nindivs)
   con_g_v = con_g_v/(1.0+rav_lit*con_g_v)
 
@@ -1921,6 +1895,9 @@ subroutine update_derived_vegn_data(vegn)
   enddo
 
 
+  if (is_watch_point()) then
+     write(*,*)'#### update_derived_vegn_data ####'
+  endif
   ! given that the cohort state variables are initialized, fill in
   ! the intermediate variables
   do k = 1,vegn%n_cohorts
@@ -1971,6 +1948,21 @@ subroutine update_derived_vegn_data(vegn)
     cc%Wl_max        = spdata(sp)%cmc_lai*cc%leafarea
     cc%Ws_max        = spdata(sp)%csc_lai*cc%leafarea
     cc%mcv_dry       = max(mcv_min, mcv_lai*cc%leafarea)
+    if (is_watch_point()) then
+       write(*,'(i2.2,2x,":")',advance='NO') k
+       call dpri('LAI',cc%lai)
+
+       call dpri('bl',cc%bl)
+       call dpri('leafarea',cc%leafarea)
+       call dpri('crownarea',cc%crownarea)
+       call dpri('nindivs',cc%nindivs)
+       call dpri('gapfrac',spdata(sp)%internal_gap_frac)
+       call dpri('layerarea',layer_area(cc%layer))
+       call dpri('layer',cc%layer)
+       call dpri('species',cc%species)
+
+       write(*,*)
+    endif
   enddo
 
   ! Calculate height of the canopy bottom: equals to the top of the lower layer.
@@ -2020,7 +2012,8 @@ subroutine update_vegn_slow( )
   real    :: zstar ! critical depth, for diag only
   character(64) :: str
   real, allocatable :: btot(:) ! storage for total biomass
-  real :: dheat
+  real, allocatable :: spmask(:) ! mask for by-species nindivs output
+  real :: dheat ! heat residual due to cohort merging
 
   ! variables for conservation checks
   real :: lmass0, fmass0, heat0, cmass0, nmass0
@@ -2037,6 +2030,8 @@ subroutine update_vegn_slow( )
      write(str,'("Current date is ",i4.4,"-",i2.2,"-",i2.2)') year0,month0,day0
      call error_mesg('update_vegn_slow',trim(str),NOTE)
   endif
+
+  call update_fire_data(lnd%time)
 
   ce = first_elmt(land_tile_map, lnd%ls)
   do while (loop_over_tiles(ce,tile,l,k))
@@ -2081,7 +2076,7 @@ subroutine update_vegn_slow( )
         tile%vegn%tsoil_av  = tile%vegn%tsoil_av  / tile%vegn%n_accum
         tile%vegn%theta_av_phen  = tile%vegn%theta_av_phen  / tile%vegn%n_accum
         tile%vegn%theta_av_fire  = tile%vegn%theta_av_fire  / tile%vegn%n_accum
-	tile%vegn%psist_av  = tile%vegn%psist_av  / tile%vegn%n_accum
+        tile%vegn%psist_av  = tile%vegn%psist_av  / tile%vegn%n_accum
         tile%vegn%precip_av = tile%vegn%precip_av / tile%vegn%n_accum
         ! accumulate annual values
         tile%vegn%p_ann_acm = tile%vegn%p_ann_acm+tile%vegn%precip_av
@@ -2146,7 +2141,8 @@ subroutine update_vegn_slow( )
         if (do_ppa) then
            call vegn_starvation_ppa(tile%vegn, tile%soil)
            call check_conservation_2(tile,'update_vegn_slow 4.2',lmass0,fmass0,cmass0,nmass0)
-           call vegn_phenology_ppa (tile%vegn, tile%soil)
+           call vegn_phenology_ppa (tile%vegn, tile%soil, dheat)
+           tile%e_res_2 = tile%e_res_2 - dheat
            call check_conservation_2(tile,'update_vegn_slow 4.3',lmass0,fmass0,cmass0,nmass0)
         else
            call vegn_nat_mortality_lm3(tile%vegn,tile%soil,86400.0)
@@ -2161,28 +2157,10 @@ subroutine update_vegn_slow( )
      endif
      call check_conservation_2(tile,'update_vegn_slow 6',lmass0,fmass0,cmass0,nmass0)
 
-     if (year1 /= year0 .and. do_patch_disturbance) then
+     if (year1 /= year0 .AND. fire_option==FIRE_LM3 .AND. do_patch_disturbance) then
         call vegn_disturbance(tile%vegn, tile%soil, seconds_per_year)
      endif
      call check_conservation_2(tile,'update_vegn_slow 7',lmass0,fmass0,cmass0,nmass0)
-
-     if (do_ppa.and.year1 /= year0) then
-        call vegn_reproduction_ppa(tile%vegn, tile%soil)
-        call check_conservation_2(tile,'update_vegn_slow 7.1',lmass0,fmass0,cmass0,nmass0)
-        call vegn_relayer_cohorts_ppa(tile%vegn)
-        call check_conservation_2(tile,'update_vegn_slow 7.2',lmass0,fmass0,cmass0,nmass0)
-        call vegn_mergecohorts_ppa(tile%vegn, dheat)
-        call check_conservation_2(tile,'update_vegn_slow 7.3',lmass0,fmass0,cmass0,nmass0)
-        call kill_small_cohorts_ppa(tile%vegn,tile%soil)
-
-        ! update DBH_ys
-        do ii = 1, tile%vegn%n_cohorts
-           tile%vegn%cohorts(ii)%DBH_ys = tile%vegn%cohorts(ii)%dbh
-           tile%vegn%cohorts(ii)%BM_ys  = tile%vegn%cohorts(ii)%bsw + &
-                                          tile%vegn%cohorts(ii)%bwood
-        enddo
-     endif
-     call check_conservation_2(tile,'update_vegn_slow 8',lmass0,fmass0,cmass0,nmass0)
 
      if (year1 /= year0) then
         call vegn_harvesting(tile%vegn,tile%soil)
@@ -2236,6 +2214,23 @@ subroutine update_vegn_slow( )
         ! - end of conservation check, part 2
      endif
 
+     ! perhaps we need to move that either inside vegn_reproduction_ppa, or after that
+     if (do_ppa.and.year1 /= year0) then
+        call vegn_relayer_cohorts_ppa(tile%vegn)
+        call check_conservation_2(tile,'update_vegn_slow 7.2',lmass0,fmass0,cmass0)
+        call vegn_mergecohorts_ppa(tile%vegn, dheat)
+        tile%e_res_2 = tile%e_res_2 - dheat
+        call check_conservation_2(tile,'update_vegn_slow 7.3',lmass0,fmass0,cmass0)
+        call kill_small_cohorts_ppa(tile%vegn,tile%soil)
+        call check_conservation_2(tile,'update_vegn_slow 8',lmass0,fmass0,cmass0)
+        ! update DBH_ys
+        do ii = 1, tile%vegn%n_cohorts
+           tile%vegn%cohorts(ii)%DBH_ys = tile%vegn%cohorts(ii)%dbh
+           tile%vegn%cohorts(ii)%BM_ys  = tile%vegn%cohorts(ii)%bsw + &
+                                          tile%vegn%cohorts(ii)%bwood
+        enddo
+     endif
+
      ! ---- diagnostic section
      call send_tile_data(id_t_ann,   tile%vegn%t_ann,   tile%diag)
      call send_tile_data(id_t_cold,  tile%vegn%t_cold,  tile%diag)
@@ -2261,6 +2256,17 @@ subroutine update_vegn_slow( )
      N=tile%vegn%n_cohorts ; cc=>tile%vegn%cohorts
      call send_cohort_data(id_ncohorts, tile%diag, cc(1:N), (/(1.0,i=1,N)/), op=OP_SUM)
      call send_cohort_data(id_nindivs,  tile%diag, cc(1:N), cc(1:N)%nindivs, op=OP_SUM)
+     if (any(id_nindivs_sp(:)>0)) then
+        allocate(spmask(N))
+        do i = 0, nspecies-1
+           if (id_nindivs_sp(i)>0) then
+              spmask = 0.0; where (cc(1:N)%species == i) spmask(:) = 1.0
+              call send_cohort_data(id_nindivs_sp(i),  tile%diag, cc(1:N), cc(1:N)%nindivs, weight=spmask(:), op=OP_SUM)
+           endif
+        enddo
+        deallocate(spmask)
+     endif
+
      call send_tile_data(id_nlayers,  real(cc(N)%layer),    tile%diag)
 
      call send_cohort_data(id_bl,     tile%diag, cc(1:N), cc(1:N)%bl,     weight=cc(1:N)%nindivs, op=OP_SUM)
@@ -2293,6 +2299,9 @@ subroutine update_vegn_slow( )
      call send_cohort_data(id_mycorrhizal_scav_C_res,tile%diag,cc(1:N),cc(1:N)%N_fixer_C_reservoir,weight=cc(1:N)%nindivs, op=OP_SUM)
      call send_cohort_data(id_mycorrhizal_scav_N_res,tile%diag,cc(1:N),cc(1:N)%N_fixer_N_reservoir,weight=cc(1:N)%nindivs, op=OP_SUM)
 
+     ! ens 021517
+     call send_cohort_data(id_brsw,   tile%diag, cc(1:N), cc(1:N)%brsw,    weight=cc(1:N)%nindivs, op=OP_SUM)
+
      allocate(btot(N)) ! has to be allocated since N cohorts changes inside this subroutine
      btot(1:N) = cc(1:N)%bl    + &
                  cc(1:N)%blv   + &
@@ -2306,6 +2315,7 @@ subroutine update_vegn_slow( )
      call send_cohort_data(id_dominant_by_b, tile%diag, cc(1:N), real(cc(1:N)%species), weight=cc(1:N)%nindivs*btot, op=OP_DOMINANT)
      deallocate(btot)
 
+     call send_cohort_data(id_bsw_max, tile%diag, cc(1:N), cc(1:N)%bsw_max, weight=cc(1:N)%nindivs, op=OP_SUM)
      call send_cohort_data(id_bl_max, tile%diag, cc(1:N), cc(1:N)%bl_max, weight=cc(1:N)%nindivs, op=OP_SUM)
      call send_cohort_data(id_br_max, tile%diag, cc(1:N), cc(1:N)%br_max, weight=cc(1:N)%nindivs, op=OP_SUM)
 
@@ -2405,30 +2415,44 @@ subroutine update_vegn_slow( )
      endif
 
      ! zstar diagnostics
-     do ii = 1, tile%vegn%n_cohorts
-        if ( tile%vegn%cohorts(ii)%layer > 1 ) exit
-     enddo
-     if (ii > tile%vegn%n_cohorts) then
-        zstar = 0.0
-     else
-        zstar = tile%vegn%cohorts(ii)%height
+     if (id_zstar_1 > 0) then
+        do ii = 1, tile%vegn%n_cohorts
+           if ( tile%vegn%cohorts(ii)%layer > 1 ) exit
+        enddo
+        if (ii > tile%vegn%n_cohorts) then
+           zstar = 0.0
+        else
+           zstar = tile%vegn%cohorts(ii)%height
+        endif
+        call send_tile_data(id_zstar_1, zstar, tile%diag)
      endif
-     call send_tile_data(id_zstar_1, zstar, tile%diag)
+  enddo
 
-     if(soil_carbon_option==SOILC_CORPSE.or.soil_carbon_option==SOILC_CORPSE_N) then
-        !Knock soil carbon cohorts down to their maximum number
+  if (do_ppa.and.year1 /= year0) then
+    if (do_ppa) then
+       call vegn_reproduction_ppa(do_seed_transport) ! includes seed transport.
+    else
+       ! seed transport in lm3
+       call vegn_seed_transport_lm3()
+    endif
+  endif
+
+  if(soil_carbon_option==SOILC_CORPSE.or.soil_carbon_option==SOILC_CORPSE_N) then
+     ! Knock soil carbon cohorts down to their maximum number.
+     ! For reproducibility across restarts, this must be done after all processes
+     ! that can add soil or litter carbon cohorts.
+     ce = first_elmt(land_tile_map, lnd%ls)
+     do while (loop_over_tiles(ce,tile,l,k))
+        call set_current_point(l,k) ! this is for debug output only
+        if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
+
         do ii = 1,N_LITTER_POOLS
            call cull_cohorts(tile%soil%litter(ii))
         enddo
         do ii=1,num_l
            call cull_cohorts(tile%soil%soil_organic_matter(ii))
         enddo
-     endif
-  enddo
-
-  ! seed transport
-  if (year1 /= year0 .and. do_seed_transport) then
-     call vegn_seed_transport()
+     enddo
   endif
 
   ! override with static vegetation
@@ -2469,7 +2493,7 @@ subroutine check_conservation_2(tile,tag,lmass,fmass,cmass,nmass,heat)
 end subroutine check_conservation_2
 
 ! ============================================================================
-subroutine vegn_seed_transport()
+subroutine vegn_seed_transport_lm3()
 
   ! local vars
   type(land_tile_enum_type) :: ce
@@ -2520,7 +2544,7 @@ subroutine vegn_seed_transport()
           f_demand*vegn_seed_demand(tile%vegn)-f_supply*vegn_seed_supply(tile%vegn),&
           f_demand_N*vegn_seed_demand(tile%vegn)/C2N_seed-f_supply_N*vegn_seed_N_supply(tile%vegn))
   enddo
-end subroutine vegn_seed_transport
+end subroutine vegn_seed_transport_lm3
 
 
 ! ============================================================================
@@ -2683,6 +2707,7 @@ DEFINE_COHORT_ACCESSOR(real,bsw)
 DEFINE_COHORT_ACCESSOR(real,bwood)
 DEFINE_COHORT_ACCESSOR(real,nsc)
 DEFINE_COHORT_ACCESSOR(real,bseed)
+DEFINE_COHORT_ACCESSOR(real,bsw_max)
 DEFINE_COHORT_ACCESSOR(real,bl_max)
 DEFINE_COHORT_ACCESSOR(real,br_max)
 DEFINE_COHORT_ACCESSOR(real,dbh)
@@ -2697,8 +2722,6 @@ DEFINE_COHORT_ACCESSOR(real,age)
 DEFINE_COHORT_ACCESSOR(real,npp_previous_day)
 DEFINE_COHORT_ACCESSOR(real,growth_previous_day)
 DEFINE_COHORT_ACCESSOR(real,growth_previous_day_tmp)
-DEFINE_COHORT_ACCESSOR(real,branch_sw_loss)
-DEFINE_COHORT_ACCESSOR(real,branch_wood_loss)
 DEFINE_COHORT_ACCESSOR(real,BM_ys)
 DEFINE_COHORT_ACCESSOR(real,DBH_ys)
 DEFINE_COHORT_ACCESSOR(real,topyear)
@@ -2732,5 +2755,8 @@ DEFINE_COHORT_ACCESSOR(real,psi_x)
 DEFINE_COHORT_ACCESSOR(real,psi_l)
 DEFINE_COHORT_ACCESSOR(real,Kxa)
 DEFINE_COHORT_ACCESSOR(real,Kla)
+
+! ens for branch sapwood
+DEFINE_COHORT_ACCESSOR(real,brsw)
 
 end module vegetation_mod

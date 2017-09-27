@@ -52,6 +52,7 @@ use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
      vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
      update_derived_vegn_data, update_vegn_slow, save_vegn_restart
 use vegn_disturbance_mod, only : vegn_nat_mortality_ppa
+use vegn_fire_mod, only : update_fire_fast, fire_transitions, save_fire_restart
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat
 use canopy_air_mod, only : read_cana_namelist, cana_init, cana_end, cana_state,&
      cana_roughness, &
@@ -94,7 +95,7 @@ use land_tile_diag_mod, only : OP_SUM, tile_diag_init, tile_diag_end, &
 use land_debug_mod, only : land_debug_init, land_debug_end, set_current_point, &
      is_watch_point, is_watch_cell, is_watch_time, get_watch_point, get_current_point, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, nitrogen_cons_tol, &
-     check_var_range, check_temp_range, current_face, log_date
+     check_var_range, check_temp_range, current_face, log_date, land_error_message
 use static_vegn_mod, only : write_static_vegn
 use land_transitions_mod, only : &
      land_transitions_init, land_transitions_end, land_transitions, &
@@ -615,6 +616,7 @@ subroutine land_model_restart(timestamp)
   call save_snow_restart(tile_dim_length,timestamp_)
   call save_vegn_restart(tile_dim_length,timestamp_)
   call save_cana_restart(tile_dim_length,timestamp_)
+  call save_fire_restart(tile_dim_length,timestamp_)
   call save_river_restart(timestamp_)
 
 end subroutine land_model_restart
@@ -666,7 +668,7 @@ subroutine land_cover_cold_start()
   valid_data = land_mask.and.(sum(glac,2)+sum(lake,2)+sum(soil,2)>0)
   invalid_data = land_mask.and..not.valid_data
 
-  call get_watch_point(iwatch,jwatch,kwatch,face)
+  call get_watch_point(iwatch,jwatch,kwatch,face,lwatch)
   if (face==lnd%ug_face.and.(lnd%ls<=lwatch.and.lwatch<=lnd%le) ) then
      write(*,*)'###### land_cover_cold_start: input data #####'
      write(*,'(99(a,i4.2,x))')'iwatch=',iwatch,'jwatch=',jwatch,'face=',face
@@ -1105,6 +1107,7 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
         call update_land_model_fast_0d(tile, l,k, n_cohorts, land2cplr, &
            cplr2land%lprec(l,k),  cplr2land%fprec(l,k), cplr2land%tprec(l,k), &
+           cplr2land%wind(l,k), &
            cplr2land%t_flux(l,k), cplr2land%dhdt(l,k), &
            cplr2land%tr_flux(l,k,:), cplr2land%dfdtr(l,k,:), &
            ISa_dn_dir, ISa_dn_dif, cplr2land%lwdn_flux(l,k), &
@@ -1134,7 +1137,8 @@ subroutine update_land_model_fast ( cplr2land, land2cplr )
 
   call get_watch_point(iwatch,jwatch,kwatch,face)
   if (face==lnd%sg_face.and.(lnd%is<=iwatch.and.iwatch<=lnd%ie).and.&
-                            (lnd%js<=jwatch.and.jwatch<=lnd%je)) then
+                            (lnd%js<=jwatch.and.jwatch<=lnd%je).and.&
+                            is_watch_time()) then
      __DEBUG1__(runoff_sg(iwatch,jwatch))
      __DEBUG1__(runoff_c_sg(iwatch,jwatch,:))
   endif
@@ -1219,7 +1223,7 @@ end subroutine update_land_model_fast
 
 ! ============================================================================
 subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
-   precip_l, precip_s, atmos_T, &
+   precip_l, precip_s, atmos_T, atmos_wind, &
    Ha0, DHaDTc, tr_flux, dfdtr, &
    ISa_dn_dir, ISa_dn_dif, ILa_dn, &
    ustar, p_surf, drag_q, &
@@ -1235,6 +1239,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   real, intent(in) :: &
        precip_l, precip_s, & ! liquid and solid precipitation, kg/(m2 s)
        atmos_T, &        ! incoming precipitation temperature (despite its name), deg K
+       atmos_wind, &     ! magnitude of wind at the bottom of the atmosphere, m/s
        tr_flux(:), dfdtr(:), &  ! tracer flux from canopy air to the atmosphere
        Ha0,   DHaDTc, &  ! sensible heat flux from the canopy air to the atmosphere
        ISa_dn_dir(NBANDS), & ! downward direct sw radiation at the top of the canopy
@@ -1791,7 +1796,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      ALUD = A
      call ludcmp(ALUD,indx,ierr)
      if (ierr/=0)&
-          write(*,*) 'Matrix is singular',i,j,itile
+          call land_error_message('update_land_model_fast_0D: Matrix is singular',WARNING)
      if (improve_solution) then
         call lubksb_and_improve(A,ALUD,indx,B0,max_improv_steps,solution_tol,X0)
         call lubksb_and_improve(A,ALUD,indx,B1,max_improv_steps,solution_tol,X1)
@@ -2065,7 +2070,10 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
           ndep_nit, ndep_amm, ndep_org, vegn_fco2, tile%diag)
      ! if vegn is present, then soil must be too
      call soil_step_3(tile%soil, tile%diag)
+
+     call update_fire_fast(tile, p_surf, atmos_wind, l)
   endif
+
   ! update co2 concentration in the canopy air. It would be more consistent to do that
   ! in the same place and fashion as the rest of prognostic variables: that is, have the
   ! vegn_step_1 (and perhaps other *_step_1 procedures) calculate fluxes and their
@@ -2309,7 +2317,8 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
 
   ! invoke any processes that potentially change tiling
   call vegn_nat_mortality_ppa( )
-  call land_transitions( lnd%time )
+  call fire_transitions(lnd%time)
+  call land_transitions(lnd%time)
 
   ! try to minimize the number of tiles by merging similar ones
   if (year0/=year1) then
@@ -2360,13 +2369,6 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   call mpp_clock_end(landClock)
   call mpp_clock_end(landSlowClock)
 end subroutine update_land_model_slow
-
-! ============================================================================
-! invokes any processes that can change the tiling of the land model
-subroutine land_disturbances( )
-  call vegn_nat_mortality_ppa( )
-  call land_transitions( lnd%time )
-end subroutine land_disturbances
 
 ! ============================================================================
 ! solve for surface temperature. ensure that melt does not exceed available
@@ -2948,7 +2950,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
                   ! of orbital ellipse (a) : (a/r)**2
   integer :: face ! for debugging
   integer :: band ! spectral band iterator
-  integer :: i, j
+  integer :: i, j, m
 
   i = lnd%i_index(l) ; j = lnd%j_index(l)
 
@@ -3045,20 +3047,25 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
      __DEBUG2__(vegn_lai,vegn_sai)
      __DEBUG1__(subs_refl_dif)
      __DEBUG1__(subs_refl_dir)
-     do band = 1,NBANDS
-       __DEBUG1__(vegn_refl_dif(:,band))
+     write(*,*)' #### vegn radiative properties (VIS) ####'
+     do m = 1,N
+        write(*,'(i2.2,2x)',advance='NO') m
+        call dpri('refl_dif',vegn_refl_dif(m,BAND_VIS))
+        call dpri('tran_dif',vegn_tran_dif(m,BAND_VIS))
+        call dpri('refl_dir',vegn_refl_dir(m,BAND_VIS))
+        call dpri('tran_dir',vegn_tran_dir(m,BAND_VIS))
+        call dpri('sctr_dir',vegn_sctr_dir(m,BAND_VIS))
+        write(*,*)
      enddo
-     do band = 1,NBANDS
-       __DEBUG1__(vegn_tran_dif(:,band))
-     enddo
-     do band = 1,NBANDS
-       __DEBUG1__(vegn_refl_dir(:,band))
-     enddo
-     do band = 1,NBANDS
-       __DEBUG1__(vegn_sctr_dir(:,band))
-     enddo
-     do band = 1,NBANDS
-       __DEBUG1__(vegn_tran_dir(:,band))
+     write(*,*)' #### vegn radiative properties (NIR) ####'
+     do m = 1,N
+        write(*,'(i2.2,2x)',advance='NO') m
+        call dpri('refl_dif',vegn_refl_dif(m,BAND_NIR))
+        call dpri('tran_dif',vegn_tran_dif(m,BAND_NIR))
+        call dpri('refl_dir',vegn_refl_dir(m,BAND_NIR))
+        call dpri('tran_dir',vegn_tran_dir(m,BAND_NIR))
+        call dpri('sctr_dir',vegn_sctr_dir(m,BAND_NIR))
+        write(*,*)
      enddo
      __DEBUG1__(vegn_refl_lw)
      __DEBUG1__(vegn_tran_lw)
@@ -3090,16 +3097,26 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
 
   if(is_watch_point()) then
      write(*,*) '#### update_land_bc_fast ### checkpoint 2 ####'
-     __DEBUG1__(tile%Sg_dir)
      __DEBUG1__(tile%Sg_dif)
-     do band = 1,NBANDS
-       __DEBUG1__(tile%Sv_dir(:,band))
-       __DEBUG1__(tile%Sv_dif(:,band))
-       __DEBUG1__(tile%Sdn_dir(:,band))
-       __DEBUG1__(tile%Sdn_dif(:,band))
+     __DEBUG1__(tile%Sg_dir)
+     do m = 1, N
+        write(*,'(i2.2,2x)',advance='NO') m
+        call dpri('Sv_dif(VIS)',tile%Sv_dif(m,BAND_VIS))
+        call dpri('Sv_dir(VIS)',tile%Sv_dir(m,BAND_VIS))
+        call dpri('Sdn_dif(VIS)',tile%Sdn_dif(m,BAND_VIS))
+        call dpri('Sdn_dir(VIS)',tile%Sdn_dir(m,BAND_VIS))
+        write(*,*)
      enddo
-     __DEBUG1__(tile%land_refl_dir)
+     do m = 1, N
+        write(*,'(i2.2,2x)',advance='NO') m
+        call dpri('Sv_dif(NIR)',tile%Sv_dif(m,BAND_NIR))
+        call dpri('Sv_dir(NIR)',tile%Sv_dir(m,BAND_NIR))
+        call dpri('Sdn_dif(NIR)',tile%Sdn_dif(m,BAND_NIR))
+        call dpri('Sdn_dir(NIR)',tile%Sdn_dir(m,BAND_NIR))
+        write(*,*)
+     enddo
      __DEBUG1__(tile%land_refl_dif)
+     __DEBUG1__(tile%land_refl_dir)
      __DEBUG1__(tile%land_z0m)
      write(*,*) '#### update_land_bc_fast ### end of checkpoint 2 ####'
   endif

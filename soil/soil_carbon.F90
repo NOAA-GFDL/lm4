@@ -37,6 +37,7 @@ public :: update_pool
 public :: add_litter
 public :: add_C_N_to_cohorts
 public :: add_C_N_to_rhizosphere
+public :: remove_C_N_fraction_from_pool
 public :: combine_pools
 public :: poolTotals, poolTotals1
 public :: init_soil_pool
@@ -256,7 +257,7 @@ namelist /soil_carbon_nml/ &
 
 
 !---- end-of-namelist --------------------------------------------------------
-integer :: soil_carbon_option = 0    ! flag specifying which soil carbon to use,
+integer, protected :: soil_carbon_option = 0    ! flag specifying which soil carbon to use,
         ! one of SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N
 
 

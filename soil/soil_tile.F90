@@ -57,6 +57,7 @@ public :: soil_data_init_derive_subsurf_pars_tiled
 public :: soil_ave_temp  ! calculate average soil temeperature
 public :: soil_ave_theta0! calculate average soil moisture, pcm based on available water, zeta input
 public :: soil_ave_theta1! calculate average soil moisture, ens based on all water
+public :: soil_ave_theta2! like soil_ave_theta1, but includes ice. (SSR)
 public :: soil_ave_wetness ! calculate average soil wetness
 public :: soil_theta     ! returns array of soil moisture, for all layers
 public :: soil_psi_stress ! return soil-water-stress index
@@ -1507,6 +1508,27 @@ function soil_ave_theta1(soil, depth) result (A) ; real :: A
   A = A/N
 end function soil_ave_theta1
 
+
+! ============================================================================
+! SSR added 2014-10-23: Includes soil ICE in addition to liquid water
+function soil_ave_theta2(soil, depth) result (A) ; real :: A
+  type(soil_tile_type), intent(in) :: soil
+  real, intent(in)                 :: depth ! averaging depth
+
+  real    :: w ! averaging weight
+  real    :: N ! normalizing factor for averaging
+  integer :: k
+
+  A = 0 ; N = 0 
+  do k = 1, num_l
+     w = dz(k) * exp(-zfull(k)/depth)
+     A = A +min(max((soil%wl(k)+soil%ws(k))/(dens_h2o*dz(k)),0.0)/&
+          (soil%pars%vwc_sat),1.0) * w
+     N = N + w
+     if (zhalf(k+1).gt.depth) exit
+  enddo
+  A = A/N
+end function soil_ave_theta2
 
 ! ============================================================================
 ! returns soil surface "wetness" -- fraction of the pores filled with water

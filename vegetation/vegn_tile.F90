@@ -46,6 +46,7 @@ public :: vegn_tile_LAI    ! returns total LAI of vegetation [m2/m2]
 public :: vegn_tile_SAI    ! returns total SAI of vegetation [m2/m2]
 
 public :: vegn_tiles_can_be_merged, merge_vegn_tiles
+public :: vegn_mergecohorts_lm3 ! merge two cohorts in LM3 mode (one cohort per tile)
 public :: vegn_mergecohorts_ppa ! reduce number of cohorts in given vegetation tile
                            ! by merging as many as possible
 public :: vegn_relayer_cohorts_ppa ! recalculate the cohort layers
@@ -59,6 +60,9 @@ public :: vegn_seed_N_supply
 public :: vegn_tran_priority ! returns transition priority for land use
 
 public :: vegn_add_bliving
+
+integer, public, parameter :: MAX_MDF_LENGTH = 30 ! maximum number of days that multi-day
+          ! fires can burn; dimension of daily history arrays in vegn_tile
 ! =====end of public interfaces ==============================================
 
 interface new_vegn_tile
@@ -147,6 +151,45 @@ type :: vegn_tile_type
    real :: daily_t_max = -HUGE(1.0) ! accumulator for daily max, used in GDD calculations
    real :: daily_t_min =  HUGE(1.0) ! accumulator for daily min, used in GDD calculations
 
+   ! variables for fire model
+   real :: Fcrop = 0.0
+   real :: Fpast = 0.0
+   real :: fire_agb = 0.0 ! above-ground biomass for fire; slm: we can get rid of it eventually
+   real :: max_fire_size = 0.0
+   real :: fireFtheta_av = 0.0    ! SSR20150903
+   real :: burned_frac = 0.0 ! fraction of the tile burned from the last time
+                             ! fire was applied.
+
+   ! SSR20160224
+   ! slm: perhaps *Cemit* and *Ckill* need not be tile variables?
+   real :: burn_Cemit = 0.0   ! Amount of biomass COMBUSTED by fire in this time step. (Not necessarily emitted yet.)
+   real :: burn_Cemit_noCWL = 0.0   ! Amount of biomass COMBUSTED by fire in this time step EXCEPT FOR coarse woody litter. (Not necessarily emitted yet.)
+   real :: burn_Ckill = 0.0   ! Amount of biomass killed by fire in this time step BUT NOT COMBUSTED.
+
+   real :: burn_Cemit_leaf = 0.0
+   real :: burn_Cemit_stem = 0.0
+   real :: burn_Cemit_litter = 0.0
+   real :: burn_Cemit_litter_lf = 0.0
+   real :: burn_Cemit_litter_cw = 0.0
+   real :: burn_Ckill_leaf = 0.0
+   real :: burn_Ckill_stem = 0.0
+   real :: burn_Ckill_root = 0.0
+
+   ! dsward - variables for FireMIP
+   real :: burn_Cemit_CO2 = 0.0
+   real :: burn_Cemit_CO = 0.0
+
+   real :: koppen_zone=0.0 ! Koppen zone for initial determination of boreal tiles - dsward_kop
+   real :: fire_rad_power=0.0 ! Fire radiative power as seen by MODIS [W/pixel]
+   integer :: trop_code = -1 !! dsward
+   ! dsward - variables for multi-day fires
+   real :: fires_to_add_mdf        = 0.0 ! Number of fires, used to compute ignitions from previous day's fires  
+   real :: BAperfire_ave_mdf       = 0.0 ! Average burned area per fire  
+   real :: past_fires_mdf      (MAX_MDF_LENGTH) = 0.0 ! Tracking of multi-day fires from the previous MAX_MDF_LENGTH days.
+   real :: past_areaburned_mdf (MAX_MDF_LENGTH) = 0.0 ! Tracking of multi-day fires area burned for computing additional area burned in subsequent days.
+   real :: past_tilesize_mdf       = 0.0 ! Tracking of the tile size of the fire's first day, for computing fire coalescence.
+   real :: total_BA_mdf            = 0.0 ! Total burned area from multi-day fires 
+
    ! it's probably possible to get rid of the fields below
    real :: nep=0.0 ! net ecosystem productivity
    real :: rh =0.0 ! soil carbon lost to the atmosphere
@@ -232,8 +275,6 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
 
   ! ---- local vars
   real :: x1, x2 ! normalized relative weights
-  real :: HEAT1, HEAT2 ! heat stored in respective canopies
-  type(vegn_cohort_type), pointer :: c1, c2
   type(vegn_cohort_type), pointer :: ccold(:)
   integer :: i,j
 
@@ -262,57 +303,7 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
      call vegn_mergecohorts_ppa(t2, dheat)
   else
      ! the following assumes that there is one, and only one, cohort per tile
-     c1 => t1%cohorts(1)
-     c2 => t2%cohorts(1)
-     ! define macro for merging cohort values
-#define __MERGE__(field) c2%field = x1*c1%field + x2*c2%field
-     HEAT1 = (clw*c1%Wl + csw*c1%Ws + c1%mcv_dry)*(c1%Tv-tfreeze)
-     HEAT2 = (clw*c2%Wl + csw*c2%Ws + c2%mcv_dry)*(c2%Tv-tfreeze)
-     __MERGE__(Wl)
-     __MERGE__(Ws)
-
-     __MERGE__(bl)      ! biomass of leaves, kg C/m2
-     __MERGE__(blv)     ! biomass of virtual leaves (labile store), kg C/m2
-     __MERGE__(br)      ! biomass of fine roots, kg C/m2
-     __MERGE__(bsw)     ! biomass of sapwood, kg C/m2
-     __MERGE__(bwood)   ! biomass of heartwood, kg C/m2
-     __MERGE__(bliving) ! leaves, fine roots, and sapwood biomass
-     __MERGE__(nsc)     ! non-structural carbon, kgC/indiv
-     __MERGE__(bseed)   ! future progeny, kgC/indiv
-     __MERGE__(age)     ! age of individual
-
-     __MERGE__(carbon_gain) ! carbon gain during a day, kg C/m2
-     __MERGE__(carbon_loss) ! carbon loss during a day, kg C/m2 [diag only]
-     __MERGE__(bwood_gain)  ! heartwood gain during a day, kg C/m2
-
-     __MERGE__(stored_N) ! Cohort stored nitrogen
-     __MERGE__(wood_N) ! Cohort wood nitrogen
-     __MERGE__(sapwood_N) ! Cohort wood nitrogen
-     __MERGE__(leaf_N) ! Cohort leaf nitrogen
-     __MERGE__(root_N) ! Cohort root nitrogen
-     __MERGE__(total_N) ! Cohort total nitrogen
-     __MERGE__(myc_scavenger_biomass_C) ! Scavenger mycorrhizal biomass C
-     __MERGE__(myc_scavenger_biomass_N) ! Scavenger mycorrhizal biomass N
-     __MERGE__(myc_miner_biomass_C) ! Miner mycorrhizal biomass C
-     __MERGE__(myc_miner_biomass_N) ! Miner mycorrhizal biomass N
-     __MERGE__(N_fixer_biomass_C) ! N Fixer biomass C
-     __MERGE__(N_fixer_biomass_N) ! N Fixer biomass N
-
-     ! should we do update_derived_vegn_data here? to get mcv_dry, etc
-     call update_biomass_pools(c2)
-
-     ! calculate the resulting dry heat capacity
-     c2%mcv_dry = max(mcv_min,mcv_lai*c2%lai)
-     ! update canopy temperature -- just merge it based on area weights if the heat
-     ! capacities are zero, or merge it based on the heat content if the heat contents
-     ! are non-zero
-     if(HEAT1==0.and.HEAT2==0) then
-        __MERGE__(Tv)
-     else
-        c2%Tv = (HEAT1*x1+HEAT2*x2) / &
-             (clw*c2%Wl + csw*c2%Ws + c2%mcv_dry) + tfreeze
-     endif
-#undef  __MERGE__
+     call vegn_mergecohorts_lm3(t1%cohorts(1), w1, t2%cohorts(1), w2)
   endif
 ! re-define macro for tile values
 #define __MERGE__(field) t2%field = x1*t1%field + x2*t2%field
@@ -378,6 +369,71 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
 
 end subroutine merge_vegn_tiles
 
+! ============================================================================
+! merges two cohorts in LM3 mode
+subroutine vegn_mergecohorts_lm3(c1,w1,c2,w2)
+  type(vegn_cohort_type), intent(in) :: c1
+  type(vegn_cohort_type), intent(inout) :: c2
+  real, intent(in) :: w1, w2 ! relative weights
+
+  ! ---- local vars
+  real :: HEAT1, HEAT2 ! heat stored in respective canopies
+  real :: x1, x2 ! normalized relative weights
+
+  ! calculate normalized weights
+  x1 = w1/(w1+w2)
+  x2 = 1.0 - x1
+
+! define macro for merging cohort values
+#define __MERGE__(field) c2%field = x1*c1%field + x2*c2%field
+  HEAT1 = (clw*c1%Wl + csw*c1%Ws + c1%mcv_dry)*(c1%Tv-tfreeze)
+  HEAT2 = (clw*c2%Wl + csw*c2%Ws + c2%mcv_dry)*(c2%Tv-tfreeze)
+  __MERGE__(Wl)
+  __MERGE__(Ws)
+
+  __MERGE__(bl)      ! biomass of leaves, kg C/m2
+  __MERGE__(blv)     ! biomass of virtual leaves (labile store), kg C/m2
+  __MERGE__(br)      ! biomass of fine roots, kg C/m2
+  __MERGE__(bsw)     ! biomass of sapwood, kg C/m2
+  __MERGE__(bwood)   ! biomass of heartwood, kg C/m2
+  __MERGE__(bliving) ! leaves, fine roots, and sapwood biomass
+  __MERGE__(nsc)     ! non-structural carbon, kgC/indiv
+  __MERGE__(bseed)   ! future progeny, kgC/indiv
+  __MERGE__(age)     ! age of individual
+
+  __MERGE__(carbon_gain) ! carbon gain during a day, kg C/m2
+  __MERGE__(carbon_loss) ! carbon loss during a day, kg C/m2 [diag only]
+  __MERGE__(bwood_gain)  ! heartwood gain during a day, kg C/m2
+
+  __MERGE__(stored_N) ! Cohort stored nitrogen
+  __MERGE__(wood_N) ! Cohort wood nitrogen
+  __MERGE__(sapwood_N) ! Cohort wood nitrogen
+  __MERGE__(leaf_N) ! Cohort leaf nitrogen
+  __MERGE__(root_N) ! Cohort root nitrogen
+  __MERGE__(total_N) ! Cohort total nitrogen
+  __MERGE__(myc_scavenger_biomass_C) ! Scavenger mycorrhizal biomass C
+  __MERGE__(myc_scavenger_biomass_N) ! Scavenger mycorrhizal biomass N
+  __MERGE__(myc_miner_biomass_C) ! Miner mycorrhizal biomass C
+  __MERGE__(myc_miner_biomass_N) ! Miner mycorrhizal biomass N
+  __MERGE__(N_fixer_biomass_C) ! N Fixer biomass C
+  __MERGE__(N_fixer_biomass_N) ! N Fixer biomass N
+
+  ! should we do update_derived_vegn_data here? to get mcv_dry, etc
+  call update_biomass_pools(c2)
+
+  ! calculate the resulting dry heat capacity
+  c2%mcv_dry = max(mcv_min,mcv_lai*c2%lai)
+  ! update canopy temperature -- just merge it based on area weights if the heat
+  ! capacities are zero, or merge it based on the heat content if the heat contents
+  ! are non-zero
+  if(HEAT1==0.and.HEAT2==0) then
+     __MERGE__(Tv)
+  else
+     c2%Tv = (HEAT1*x1+HEAT2*x2) / &
+          (clw*c2%Wl + csw*c2%Ws + c2%mcv_dry) + tfreeze
+  endif
+#undef  __MERGE__
+end subroutine vegn_mergecohorts_lm3
 
 ! ============================================================================
 ! Merge similar cohorts in a tile
@@ -485,6 +541,7 @@ subroutine merge_cohorts(c1,c2)
   __MERGE__(blv)     ! biomass of virtual leaves (labile store), kg C/indiv
   __MERGE__(br)      ! biomass of fine roots, kg C/indiv
   __MERGE__(bsw)     ! biomass of sapwood, kg C/indiv
+  __MERGE__(brsw)    ! sapwood biomass in branches, kg C/indiv
   __MERGE__(bwood)   ! biomass of heartwood, kg C/indiv
   __MERGE__(bseed)   ! future progeny, kgC/indiv
   __MERGE__(nsc)     ! non-structural carbon, kgC/indiv
@@ -492,8 +549,6 @@ subroutine merge_cohorts(c1,c2)
   __MERGE__(dbh)     ! diameter at breast height
   __MERGE__(height)  ! cohort height
   __MERGE__(crownarea)   ! area of cohort crown
-  __MERGE__(branch_sw_loss)
-  __MERGE__(branch_wood_loss)
   __MERGE__(growth_previous_day)
   __MERGE__(growth_previous_day_tmp)
   __MERGE__(age)     ! age of individual

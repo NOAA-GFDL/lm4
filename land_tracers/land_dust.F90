@@ -236,8 +236,7 @@ subroutine land_dust_init (mask, id_ug)
 
   ! read dust source field
   allocate(dust_source(lnd%ls:lnd%le))
-  call read_field( input_file_name, input_field_name, &
-       lnd%ug_lon, lnd%ug_lat, dust_source, interp='bilinear' )
+  call read_field( input_file_name, input_field_name, dust_source, interp='bilinear' )
 
   ! set the default sub-sampling filter for the fields below
   call set_default_diag_filter('land')

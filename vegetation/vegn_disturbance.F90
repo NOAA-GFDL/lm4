@@ -5,15 +5,15 @@ module vegn_disturbance_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod,         only : error_mesg, WARNING, FATAL
-use time_manager_mod,only : get_date, operator(-)
+use fms_mod,         only : string, error_mesg, WARNING, FATAL
+use time_manager_mod,only : time_type, get_date, operator(-)
 use constants_mod,   only : tfreeze
 use land_constants_mod, only : seconds_per_year
 use land_debug_mod,  only : is_watch_point, is_watch_cell, set_current_point, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, &
-     heat_cons_tol, nitrogen_cons_tol, check_var_range
-use vegn_data_mod,   only : spdata, agf_bs, &
-       do_ppa, LEAF_OFF, DBH_mort, A_mort, B_mort, mortrate_s, nat_mortality_splits_tiles
+     heat_cons_tol, nitrogen_cons_tol, check_var_range, land_error_message
+use vegn_data_mod,   only : do_ppa, nat_mortality_splits_tiles, spdata, agf_bs, &
+     FORM_GRASS, LEAF_OFF, DBH_mort, A_mort, B_mort, mortrate_s
 use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_bwood
 use soil_tile_mod,   only : soil_tile_type, num_l, dz
 use soil_util_mod,   only : add_soil_carbon
@@ -495,7 +495,7 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
   type(land_tile_type), pointer       :: t1 ! optionally created disturbed tile
 
   integer :: n_layers ! number of canopy layers in the tile
-  real :: dying_crownwarea ! area of the crowns to die, m2/m2
+  real :: dying_crownwarea ! area of the plant crowns to die, m2/m2
   real :: f0 ! fraction of original tile in the grid cell
   real, dimension(N_C_TYPES) :: &
      leaf_litt0_C,  leaf_litt1_C, & ! accumulated leaf litter, kg C/m2
@@ -544,14 +544,18 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
      ! - end of conservation check, part 1
   endif
 
-  ! count layers and determine if any vegetation in the canopy layer dies
+  ! count layers and determine if any trees in the canopy layer die. Dying grass does not
+  ! split tiles, so it is not counted in the crownarea that dies. See NOTE below
   n_layers         = 0
   dying_crownwarea = 0
   do i = 1,t0%vegn%n_cohorts
-     n_layers = max(n_layers,t0%vegn%cohorts(i)%layer)
-     if (t0%vegn%cohorts(i)%layer==1) then
-        dying_crownwarea = dying_crownwarea + ndead(i)*t0%vegn%cohorts(i)%crownarea
+     associate ( cc => t0%vegn%cohorts(i),   &
+                 sp => spdata(t0%vegn%cohorts(i)%species) )
+     n_layers = max(n_layers,cc%layer)
+     if (cc%layer==1 .and. sp%lifeform/=FORM_GRASS) then
+        dying_crownwarea = dying_crownwarea + ndead(i)*cc%crownarea
      endif
+     end associate
   enddo
 
   ! zero out litter terms, for accumulation across cohorts
@@ -560,6 +564,12 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
   leaf_litt1_C = 0.0; wood_litt1_C = 0.0; root_litt1_C = 0.0
   leaf_litt1_N = 0.0; wood_litt1_N = 0.0; root_litt1_N = 0.0
 
+  ! NOTE: Perhaps we should not create new tiles at all if trees do not form
+  ! closed canopy -- that is, if not all plants in layer 1 are trees. This is
+  ! tricky though, in case some grasses are very tall, or if due to numerics a tiny
+  ! fraction of grasses happen to be in the canopy layer. For now we use different
+  ! approach: we exclude grasses from dying_crownwarea calculations, and in the
+  ! tile splitting treat them together with understory plants.
   if (n_layers>1.and.dying_crownwarea>0.and.nat_mortality_splits_tiles) then
      ! split the disturbed fraction of vegetation as a new tile. The new tile
      ! will contain all crown area trees that are dying, while the
@@ -576,8 +586,8 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
 
      ! change the density of individuals in the cohorts that we split
      do i = 1,t0%vegn%n_cohorts
-        associate(cc0=>t0%vegn%cohorts(i), cc1=>t1%vegn%cohorts(i))
-        if (cc0%layer==1) then
+        associate(cc0=>t0%vegn%cohorts(i), cc1=>t1%vegn%cohorts(i),sp0=>spdata(t0%vegn%cohorts(i)%species))
+        if (cc0%layer==1 .and. sp0%lifeform/=FORM_GRASS) then
            cc1%nindivs = ndead(i)*f0/t1%frac
            cc0%nindivs = (cc0%nindivs-ndead(i))*f0/t0%frac
         endif
@@ -595,8 +605,8 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
      endif
      ! kill the individulas affected by natural mortality
      do i = 1,t0%vegn%n_cohorts
-        associate(cc0=>t0%vegn%cohorts(i), cc1=>t1%vegn%cohorts(i))
-        if (cc0%layer==1) then
+        associate(cc0=>t0%vegn%cohorts(i), cc1=>t1%vegn%cohorts(i),sp0=>spdata(t0%vegn%cohorts(i)%species))
+        if (cc0%layer==1 .and. sp0%lifeform/=FORM_GRASS) then
            ! kill all canopy plants in disturbed cohort, but do not touch undisturbed one
            call kill_plants_ppa(cc1, t1%vegn,t1%soil, cc1%nindivs, 0.0, &
                        leaf_litt1_C, wood_litt1_C, root_litt1_C, &
@@ -713,6 +723,7 @@ subroutine kill_plants_ppa(cc, vegn, soil, ndead, fsmoke, &
   real :: lost_wood, lost_alive, burned_wood, burned_alive, burned_N
   real :: profile(num_l) ! storage for vertical profile of exudates and root litter
   integer :: l
+  real :: bp, bn ! positive and negative amounts of litter, used in adjusting litter pools if one is negative
 
   call check_var_range(ndead,  0.0, cc%nindivs, 'kill_plants_ppa', 'ndead',  FATAL)
   call check_var_range(fsmoke, 0.0, 1.0,        'kill_plants_ppa', 'fsmoke', FATAL)
@@ -776,6 +787,7 @@ subroutine kill_plants_ppa(cc, vegn, soil, ndead, fsmoke, &
           0.0/)
   enddo
 
+! <<<<<<< HEAD
   ! C and N content of mycorrhizae and associated buffer reservoirs
   call cohort_root_exudate_profile(cc,dz,profile)
   do l = 1, num_l
@@ -784,6 +796,32 @@ subroutine kill_plants_ppa(cc, vegn, soil, ndead, fsmoke, &
      root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*ndead*(1-fsmoke)*([ 0.0, deadmic_slow_frac, (1-deadmic_slow_frac) ])* &
          (cc%myc_scavenger_biomass_N+cc%myc_miner_biomass_N+cc%N_fixer_biomass_N+cc%scav_myc_N_reservoir+cc%mine_myc_N_reservoir+cc%N_fixer_N_reservoir)
   enddo
+! =======
+!   ! leaf_litt can be below zero if biomasses are very small and carbon_gain is negative:
+!   ! try to borrow carbon from wood litter.
+!   do l = 1,N_C_TYPES
+!      if (leaf_litt(l)<0) then
+!         wood_litt(l) = wood_litt(l) + leaf_litt(l)
+!         leaf_litt(l) = 0.0
+!      endif
+!   enddo
+!   call check_var_range(wood_litt, 0.0, HUGE(1.0), 'kill_plants_ppa', 'wood_litt',  WARNING)
+!   if (any(wood_litt<0.0)) then
+!      ! if some wood litter components are negative, try to borrow carbon
+!      ! from positive components so that the total carbon is conserved
+!      bp = 0.0; bn=0.0
+!      do l = 1, N_C_TYPES
+!         if (wood_litt(l)>0) bp = bp+wood_litt(l)
+!         if (wood_litt(l)<0) bn = bn+abs(wood_litt(l))
+!      enddo
+!      if (bp<bn) call land_error_message(&
+!         'kill_plants_ppa: total wood litter amount is negative ('//string(sum(wood_litt))//')', FATAL)
+!      do l = 1, N_C_TYPES
+!         if (wood_litt(l)>0) wood_litt(l) = wood_litt(l)+(bp-bn)/bp
+!         if (wood_litt(l)<0) wood_litt(l) = 0.0
+!      enddo
+!   endif
+! >>>>>>> origin/user/slm/ppa
 
   ! reduce the number of individuals in cohort
   cc%nindivs = cc%nindivs-ndead

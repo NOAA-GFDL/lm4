@@ -235,6 +235,14 @@ type spec_data_type
   real    :: maturalage    = 1.0    ! the age that can reproduce
   real    :: fecundity     = 0.0    ! max C allocated to next generation per unit canopy area, kg C/m2
   real    :: v_seed        = 0.1    ! fraction of G_SF to G_F
+  ! seed dispersal and transport: obviously the fraction of seed dispersed to other tiles
+  ! and grid cells would depend on the size of the tiles grid cells. In future, we should
+  ! calculate those fractions, given dispersal radius of seeds for given species, and
+  ! geometry of tiles and grid cells. Characteristic size of tiles may need to be assumed.
+  real    :: frac_seed_dispersed   = 1e-2 ! fraction of seeds dispersed inside the grid cell (between the tiles)
+  real    :: frac_seed_transported = 1e-4 ! fraction of seeds dispersed outside of grid cell (transported to neighbors)
+  ! total fraction of seeds leaving tile due to dispersion: frac_seed_dispersed+frac_seed_transported
+
   real    :: seedling_height   = 0.1 ! height of the seedlings, m
   real    :: seedling_nsc_frac = 3.0 ! initial seedling NSC, as fraction of bl_max (typically > 1)
   real    :: prob_g = 0.45, prob_e = 0.3 ! germination and establishment probabilities
@@ -247,6 +255,9 @@ type spec_data_type
   real    :: phiCSA        = 2.5e-4 ! ratio of sapwood CSA to target leaf area
   real    :: SRA           = 44.45982 ! specific fine root area, m2/kg C
   real    :: tauNSC        = 0.8    ! residence time of C in NSC (to define storage capacity)
+  !  for PPA, IMC, 1/8/2017
+  real    :: growth_resp   = 0.333  ! fraction of NPP lost as growth respiration
+  real    :: NSC2targetbl  = 4.0    ! ratio of NSC to target biomass of leaves
 
   real    :: tracer_cuticular_cond = 0.0 ! cuticular conductance for all tracers, m/s
 
@@ -286,10 +297,26 @@ type spec_data_type
   real    :: leaf_retranslocation_frac  = 0.5 ! Fraction of leaf N retranslocated before leaf drop.
   real    :: froot_retranslocation_frac = 0.0 ! Fraction of fine root N retranslocated before senescence.
 
-  real    :: branch_wood_frac = 0.25 ! fraction of total wood biomass in branches
+  real    :: branch_wood_frac = 0.1525 ! fraction of total wood biomass in branches,
+                                       ! corresponds to 0.18 of trunk (bole) biomass
+                                       ! estimated by Isa from the observations
   real    :: N_stress_root_factor = 0.02 ! Amount of sapwood C that goes to roots instead as N stress increases
   real    :: max_n_stress_for_seed_production = 2.0 ! if N stress is higher than this treshold, seeds are not produced
   real    :: tau_nsc_exudate = 1.0 ! e-folding time for nsc spending to exudates, yr
+
+  ! SSR fire-related parameters; default values are for tropical trees in his code
+  real    :: ROS_max   = 0.22
+  real    :: fire_duration = 86400.0 ! average fire duration, s
+  ! combustion completeness; unitless
+  real    :: CC_leaf   = 0.70
+  real    :: CC_stem   = 0.15
+  real    :: CC_litter = 0.15
+  ! Post-fire mortality
+  real    :: fireMort_leaf = 0.70
+  real    :: fireMort_stem = 0.65
+  real    :: fireMort_root = 0.10
+  ! dsward parameters
+  real    :: EF_CO2 = 1643.0, EF_CO = 63.0
 end type
 
 ! ==== module data ===========================================================
@@ -548,10 +575,12 @@ subroutine read_vegn_data_namelist()
   enddo
 
   ! register selectors for species-specific diagnostics
-  do i=0,nspecies-1
-     call register_tile_selector(spdata(i)%name, long_name=spdata(i)%longname,&
-          tag = SEL_VEGN, idata1 = SP_SEL_TAG, idata2 = i )
-  enddo
+!   if (.not.do_ppa) then
+!      do i=0,nspecies-1
+!         call register_tile_selector(spdata(i)%name, long_name=spdata(i)%longname,&
+!              tag = SEL_VEGN, idata1 = SP_SEL_TAG, idata2 = i )
+!      enddo
+!   endif
 
   ! register selector for natural grass
   call register_tile_selector('ntrlgrass', long_name='natural (non-human-maintained) grass',&
@@ -749,6 +778,8 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(v_seed)
   __GET_SPDATA_REAL__(seedling_height)
   __GET_SPDATA_REAL__(seedling_nsc_frac)
+  __GET_SPDATA_REAL__(frac_seed_dispersed)
+  __GET_SPDATA_REAL__(frac_seed_transported)
   __GET_SPDATA_REAL__(prob_g)
   __GET_SPDATA_REAL__(prob_e)
   __GET_SPDATA_REAL__(mortrate_d_c)
@@ -759,6 +790,9 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(tauNSC)
   __GET_SPDATA_REAL__(phiRL)
   __GET_SPDATA_REAL__(phiCSA)
+  !  for PPA, IMC, 1/8/2017
+  __GET_SPDATA_REAL__(growth_resp)
+  __GET_SPDATA_REAL__(NSC2targetbl)
   ! hydraulics-related parameters
   __GET_SPDATA_REAL__(Kxam)
   __GET_SPDATA_REAL__(dx)
@@ -799,6 +833,17 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(max_n_stress_for_seed_production)
   __GET_SPDATA_REAL__(N_stress_root_factor)
   __GET_SPDATA_REAL__(tau_nsc_exudate)
+  ! SSR fire parameters
+  __GET_SPDATA_REAL__(ROS_max)
+  __GET_SPDATA_REAL__(fire_duration)
+  __GET_SPDATA_REAL__(CC_leaf)
+  __GET_SPDATA_REAL__(CC_stem)
+  __GET_SPDATA_REAL__(CC_litter)
+  __GET_SPDATA_REAL__(fireMort_leaf)
+  __GET_SPDATA_REAL__(fireMort_stem)
+  __GET_SPDATA_REAL__(fireMort_root)
+  __GET_SPDATA_REAL__(EF_CO2)
+  __GET_SPDATA_REAL__(EF_CO)
 #undef __GET_SPDATA_LOGICAL__
 #undef __GET_SPDATA_REAL__
 
@@ -905,10 +950,14 @@ subroutine init_derived_species_data(sp)
       sp%thetaBM = sp%thetaHT + 2
       ! calculate alphaBM parameter of allometry
       ! note that rho_wood was re-introduced for this calculation
+      ! Isa changed for cross sectional area
       sp%alphaBM = sp%taperfactor * PI/4. * sp%alphaHT
+      sp%alphaCSASW = sp%phiCSA*sp%LAImax*sp%alphaCA
+      sp%thetaCSASW = sp%thetaCA
+   case (ALLOM_HML)
+      ! for HML allometry, parameters come directly from the input, so no
+      ! calculations are needed here
    end select
-   sp%alphaCSASW = sp%phiCSA*sp%LAImax*sp%alphaCA
-   sp%thetaCSASW = sp%thetaCA
 
   ! Convert units: from MPa to Pa
   sp%Kxam = sp%Kxam * 1e-6
@@ -983,6 +1032,8 @@ subroutine print_species_data(unit)
   call add_row(table, 'thetaCSASW', spdata(:)%thetaCSASW)
   call add_row(table, 'maturalage', spdata(:)%maturalage)
   call add_row(table, 'v_seed', spdata(:)%v_seed)
+  call add_row(table, 'frac_seed_dispersed', spdata(:)%frac_seed_dispersed)
+  call add_row(table, 'frac_seed_transported', spdata(:)%frac_seed_transported)
   call add_row(table, 'seedling_height', spdata(:)%seedling_height)
   call add_row(table, 'seedling_nsc_frac', spdata(:)%seedling_nsc_frac)
   call add_row(table, 'prob_g', spdata(:)%prob_g)
@@ -996,6 +1047,8 @@ subroutine print_species_data(unit)
   call add_row(table, 'tauNSC', spdata(:)%tauNSC)
   call add_row(table, 'phiRL', spdata(:)%phiRL)
   call add_row(table, 'SRA', spdata(:)%SRA)
+  call add_row(table, 'growth_resp', spdata(:)%growth_resp)
+  call add_row(table, 'NSC2targetbl', spdata(:)%NSC2targetbl)
 
   call add_row(table, 'Klam', spdata(:)%Klam)
   call add_row(table, 'dl', spdata(:)%dl)
@@ -1037,6 +1090,17 @@ subroutine print_species_data(unit)
   call add_row(table, 'smoke_fraction',spdata(:)%smoke_fraction)
 
   call add_row(table, 'branch_wood_frac', spdata(:)%branch_wood_frac)
+  
+  call add_row(table, 'ROS_max',   spdata(:)%ROS_max)
+  call add_row(table, 'fire_duration', spdata(:)%fire_duration)
+  call add_row(table, 'CC_leaf',   spdata(:)%CC_leaf)
+  call add_row(table, 'CC_stem',   spdata(:)%CC_stem)
+  call add_row(table, 'CC_litter', spdata(:)%CC_litter)
+  call add_row(table, 'fireMort_leaf', spdata(:)%fireMort_leaf)
+  call add_row(table, 'fireMort_stem', spdata(:)%fireMort_stem)
+  call add_row(table, 'fireMort_root', spdata(:)%fireMort_root)
+  call add_row(table, 'EF_CO2', spdata(:)%EF_CO2)
+  call add_row(table, 'EF_CO', spdata(:)%EF_CO)
 
   call add_row(table, 'do_N_mining_strategy', spdata(:)%do_N_mining_strategy)
   call add_row(table, 'do_N_scavenging_strategy', spdata(:)%do_N_scavenging_strategy)
