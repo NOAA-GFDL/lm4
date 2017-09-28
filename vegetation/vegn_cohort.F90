@@ -16,6 +16,7 @@ use vegn_data_mod, only : spdata, &
 use soil_tile_mod, only : max_lev
 use soil_carbon_mod, only : soil_carbon_option,SOILC_CORPSE_N
 use fms_mod, only : error_mesg, FATAL
+use land_debug_mod, only : is_watch_point
 
 implicit none
 private
@@ -744,6 +745,7 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac, nsn_frac)
   BL_c = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
   !02/08/17 ens
   cc%brsw = sp%branch_wood_frac * ( cc%bsw + cc%bwood )
+  cc%brsw = min(cc%brsw,cc%bsw)
 
   if(sp%lifeform == FORM_GRASS) then
      cc%bl_max = BL_c
@@ -800,6 +802,14 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac, nsn_frac)
   cc%npp_previous_day_tmp = 0.0
   cc%leaf_age    = 0.0
 
+  if (is_watch_point()) then
+     write(*,*) '#### init_cohort_allometry_ppa output ####'
+     __DEBUG2__(cc%height, cc%dbh)
+     __DEBUG2__(cc%bl, cc%br)
+     __DEBUG2__(cc%blv, cc%nsc)
+     __DEBUG3__(cc%bsw, cc%brsw, cc%bwood)
+     __DEBUG2__(cc%bl_max, cc%br_max)
+  endif
   end associate
 end subroutine init_cohort_allometry_ppa
 
