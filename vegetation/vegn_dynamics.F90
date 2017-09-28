@@ -1409,8 +1409,7 @@ end subroutine vegn_starvation_ppa
 
 
 ! ==============================================================================
-! updates cohort vegetation structure, biomass pools, LAI, SAI, and height
-! using accumulated carbon_gain
+! updates cohort vegetation structure, biomass pools, LAI, SAI, and height spending nsc
 subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH)
   type(vegn_cohort_type), intent(inout) :: cc
   real, intent(out) :: wood_prod ! wood production, kgC/year per individual, diagnostic output
@@ -1437,6 +1436,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
   real :: N_storage_target
   real :: delta_bsw_branch, delta_nsw_branch
   real :: br_max_Nstress
+  real :: b0, b1 ! biomasses for conservation checking
 
 
   real, parameter :: DBHtp = 0.8 ! m
@@ -1450,6 +1450,13 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
 
   associate (sp => spdata(cc%species)) ! F2003
 
+  if (do_check_conservation) b0 = biomass_of_individual(cc)
+  if(is_watch_point()) then
+     write(*,*)'#### biomass_allocation_ppa input ####'
+     __DEBUG5__(cc%bl, cc%br, cc%bsw, cc%bseed, cc%bwood)
+     __DEBUG2__(cc%nsc, cc%npp_previous_day)
+  endif
+  
   ! Stress increases as stored N declines relative to total biomass N demand
   ! N stress is calculated based on "potential pools" without N limitation
   ! Elena suggests using 2*(root N + leaf N) as storage target
@@ -1538,12 +1545,11 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         endif
 
         if (cohort_makes_seeds(cc,G_WF)) then
-           deltaSeed =      sp%v_seed  * G_WF
-           deltaBSW  = (1.0-sp%v_seed) * G_WF
+           deltaSeed = sp%v_seed * G_WF
         else
            deltaSeed = 0.0
-           deltaBSW  = G_WF
         endif
+        deltaBSW = G_WF - deltaSeed
 
         if (deltaBSW/sp%sapwood_c2n>0.1*cc%stored_N.and.N_limits_live_biomass) then
             deltaBSW = 0.1*cc%stored_N*sp%sapwood_c2n
@@ -1620,14 +1626,6 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
          __DEBUG3__(cc%stored_N,deltaBSW/sp%sapwood_c2n,deltaSeed/sp%seed_c2n)
      endif
      if (soil_carbon_option==SOILC_CORPSE_N) cc%stored_N = cc%stored_N - deltaBSW/sp%sapwood_c2n - deltaSeed/sp%seed_c2n
-
-     ! update biomass pools due to growth
-     cc%bl     = cc%bl    + deltaBL  ! updated in vegn_int_ppa
-     cc%br     = cc%br    + deltaBR
-     cc%bsw    = cc%bsw   + deltaBSW
-     cc%bseed  = cc%bseed + deltaSeed
-     ! reduce storage by  growth respiration
-     cc%nsc = cc%nsc - (G_LFR + G_WF + delta_bsw_branch)*(1+sp%GROWTH_RESP)
 
      wood_prod = deltaBSW*days_per_year ! conversion from kgC/day to kgC/year
      ! compute daily respiration fluxes
@@ -1765,15 +1763,13 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
 
      if(is_watch_point()) then
         __DEBUG2__(cc%bl_max, cc%br_max)
-        __DEBUG2__(cc%carbon_gain, G_LFR)
+        __DEBUG2__(G_LFR, G_WF)
         __DEBUG5__(deltaBL, deltaBR, deltaBSW, deltaSeed, deltaBwood)
         __DEBUG5__(cc%bl, cc%br, cc%bsw, cc%bseed, cc%bwood)
+        __DEBUG2__(cc%nsc, cc%npp_previous_day)
      endif
   else  ! cc%status == LEAF_OFF
-    ! ens, after hsc was updated after carbon gain
-    ! cc%nsc = cc%nsc + cc%carbon_gain
-    !should some nsc go into sapwood and wood or seed
-
+    ! should some nsc go into sapwood and wood or seed?
   endif ! cc%status == LEAF_ON
 
   cc%total_N    = cc%stored_N+cc%leaf_N+cc%wood_N+cc%root_N+cc%sapwood_N+cc%seed_N
@@ -1785,14 +1781,13 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
   ! from kgC/day (frequency of this subroutine calls) to kgC/year, the units we
   ! use for other vegetation fluxes
 
-  ! reset carbon accumulation terms
-  cc%carbon_gain = 0
-  cc%carbon_loss = 0
-
   if(N_limits_live_biomass) call check_var_range(cc%stored_N,0.0,HUGE(1.0),'biomass_allocation_ppa','cc%stored_N',FATAL)
 
+  if (do_check_conservation) then
+     b1 = biomass_of_individual(cc)
+     call check_conservation ('biomass_allocation_ppa','carbon', b0, b1, carbon_cons_tol, severity=FATAL)
+  endif
   end associate ! F2003
-
 end subroutine biomass_allocation_ppa
 
 ! update leaf and root biomass tendencies based on plant nitrogen state, and calculate
