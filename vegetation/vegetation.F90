@@ -568,28 +568,30 @@ subroutine vegn_init ( id_ug, id_band )
            ! initialize DBH_ys
            cc%DBH_ys = cc%dbh
            cc%BM_ys  = cc%bsw + cc%bwood
-        else if(did_read_biodata.and.do_biogeography) then
-           call update_species(cc,t_ann(l),t_cold(l),p_ann(l),ncm(l),LU_NTRL)
-           tile%vegn%t_ann  = t_ann (l)
-           tile%vegn%t_cold = t_cold(l)
-           tile%vegn%p_ann  = p_ann (l)
-           tile%vegn%ncm    = ncm   (l)
         else
-           cc%species = tile%vegn%tag
+           if(did_read_biodata.and.do_biogeography) then
+              call update_species(cc,t_ann(l),t_cold(l),p_ann(l),ncm(l),LU_NTRL)
+              tile%vegn%t_ann  = t_ann (l)
+              tile%vegn%t_cold = t_cold(l)
+              tile%vegn%p_ann  = p_ann (l)
+              tile%vegn%ncm    = ncm   (l)
+           else
+              cc%species = tile%vegn%tag
+           endif
+           associate(sp=>spdata(cc%species))
+           cc%leaf_N     = (cc%bl+cc%blv)/sp%leaf_live_c2n
+           cc%wood_N     = cc%bwood/sp%wood_c2n
+           cc%sapwood_N  = cc%bsw/sp%sapwood_c2n
+           cc%root_N     = cc%br/sp%froot_live_c2n
+           cc%stored_N   = init_cohort_stored_N_mult(n)*(cc%leaf_N+cc%root_N)
+           cc%total_N    = cc%stored_N+cc%leaf_N+cc%wood_N+cc%root_N+cc%sapwood_N
+           cc%myc_scavenger_biomass_N = cc%myc_scavenger_biomass_C/sp%c2n_mycorrhizae
+           cc%myc_miner_biomass_N     = cc%myc_miner_biomass_C/sp%c2n_mycorrhizae
+           cc%N_fixer_biomass_N       = cc%N_fixer_biomass_C/c2n_N_fixer
+           end associate ! sp
         endif
-        associate(sp=>spdata(cc%species))
-        cc%leaf_N     = (cc%bl+cc%blv)/sp%leaf_live_c2n
-        cc%wood_N     = cc%bwood/sp%wood_c2n
-        cc%sapwood_N  = cc%bsw/sp%sapwood_c2n
-        cc%root_N     = cc%br/sp%froot_live_c2n
-        cc%stored_N   = init_cohort_stored_N_mult(n)*(cc%leaf_N+cc%root_N)
-        cc%total_N    = cc%stored_N+cc%leaf_N+cc%wood_N+cc%root_N+cc%sapwood_N
-        cc%myc_scavenger_biomass_N = cc%myc_scavenger_biomass_C/sp%c2n_mycorrhizae
-        cc%myc_miner_biomass_N     = cc%myc_miner_biomass_C/sp%c2n_mycorrhizae
-        cc%N_fixer_biomass_N       = cc%N_fixer_biomass_C/c2n_N_fixer
 
-        cc%K_r        = sp%root_perm
-        end associate ! sp
+        cc%K_r = spdata(cc%species)%root_perm
         end associate ! cc
      enddo
      if (do_ppa) &
