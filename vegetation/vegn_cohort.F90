@@ -805,9 +805,9 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac, nsn_frac)
   if (is_watch_point()) then
      write(*,*) '#### init_cohort_allometry_ppa output ####'
      __DEBUG2__(cc%height, cc%dbh)
-     __DEBUG2__(cc%bl, cc%br)
-     __DEBUG2__(cc%blv, cc%nsc)
-     __DEBUG3__(cc%bsw, cc%brsw, cc%bwood)
+     __DEBUG5__(cc%bl, cc%br, cc%bsw, cc%bwood, cc%nsc)
+     __DEBUG5__(cc%leaf_N, cc%root_N, cc%sapwood_N, cc%wood_N, cc%stored_N)
+     __DEBUG3__(cc%bseed, cc%seed_N, cc%blv)
      __DEBUG2__(cc%bl_max, cc%br_max)
   endif
   end associate
