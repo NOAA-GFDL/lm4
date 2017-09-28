@@ -35,7 +35,7 @@ use land_tile_io_mod, only: land_restart_type, &
      add_restart_axis, add_tile_data, add_int_tile_data, add_scalar_data, &
      get_tile_data, get_int_tile_data, field_exists
 
-use vegn_data_mod, only : SP_C4GRASS, LEAF_ON, LU_NTRL, spdata, read_vegn_data_namelist, &
+use vegn_data_mod, only : SP_C4GRASS, LEAF_ON, LU_NTRL, LU_SCND, spdata, read_vegn_data_namelist, &
      tau_drip_l, tau_drip_s, T_transp_min, cold_month_threshold, soil_carbon_depth_scale, &
      fsc_pool_spending_time, ssc_pool_spending_time, harvest_spending_time, &
      N_HARV_POOLS, HARV_POOL_NAMES, HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, &
@@ -169,9 +169,9 @@ integer :: id_vegn_type, id_temp, id_wl, id_ws, id_height, &
    id_lai_kok, id_Anlayer, id_Anlayer_acm, id_bl_previous, id_bl_target, & !Modified PPG-2016-11-29
    id_lai_light, id_lai_light_max !Modified PPG-2017-06-08
 ! CMOR variables
-integer :: id_cProduct, id_cAnt, &
-   id_fFire, id_fGrazing, id_fHarvest, id_fLuc, &
-   id_cLeaf, id_cWood, id_cRoot, id_cMisc
+integer :: id_cProduct, id_cAnt, id_cLeaf, id_cWood, id_cRoot, id_cMisc, &
+   id_fFire, id_fFireNat, id_fGrazing, id_fHarvest, id_fLuc, id_fAnthDisturb, &
+   id_fProductDecomp
 ! ==== end of module variables ===============================================
 
 contains
@@ -381,10 +381,10 @@ subroutine vegn_init(id_ug,id_band)
           t_cold(lnd%ls:lnd%le),&
           p_ann (lnd%ls:lnd%le),&
           ncm   (lnd%ls:lnd%le) )
-     call read_field( 'INPUT/biodata.nc','T_ANN', lnd%ug_lon, lnd%ug_lat, t_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','T_COLD',lnd%ug_lon, lnd%ug_lat, t_cold, interp='nearest')
-     call read_field( 'INPUT/biodata.nc','P_ANN', lnd%ug_lon, lnd%ug_lat, p_ann,  interp='nearest')
-     call read_field( 'INPUT/biodata.nc','NCM',   lnd%ug_lon, lnd%ug_lat, ncm,    interp='nearest')
+     call read_field( 'INPUT/biodata.nc','T_ANN',  t_ann,  interp='nearest')
+     call read_field( 'INPUT/biodata.nc','T_COLD', t_cold, interp='nearest')
+     call read_field( 'INPUT/biodata.nc','P_ANN',  p_ann,  interp='nearest')
+     call read_field( 'INPUT/biodata.nc','NCM',    ncm,    interp='nearest')
      did_read_biodata = .TRUE.
      call error_mesg('vegn_init','did read INPUT/biodata.nc',NOTE)
   else
@@ -713,10 +713,25 @@ subroutine vegn_diag_init(id_ug,id_band,time)
        time, 'Carbon Mass Flux into Atmosphere due to Crop Harvesting', 'kg m-2 s-1', missing_value=-1.0, &
        standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_crop_harvesting', &
        fill_missing=.TRUE.)
+  id_fProductDecomp = register_tiled_diag_field( cmor_name, 'fProductDecomp', (/id_ug/), &
+       time, 'decomposition out of product pools to CO2 in atmos', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='Carbon_flux_out_of_storage_product_pools_into_atmos', &
+       fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias (id_fProductDecomp, cmor_name, 'fProductDecompLut', (/id_ug/), &
+       time, 'flux from wood and agricultural product pools on land use tile into atmosphere', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='tendency_of_atmospheric_mass_content_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_wood_and_agricultural_product_pool', &
+       fill_missing=.FALSE.)
   id_fLuc = register_tiled_diag_field( cmor_name, 'fLuc', (/id_ug/), &
        time, 'Net Carbon Mass Flux into Atmosphere due to Land Use Change', 'kg m-2 s-1', missing_value=-1.0, &
        standard_name='surface_net_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_emission_from_anthropogenic_land_use_change', &
        fill_missing=.TRUE.)
+  id_fAnthDisturb = register_tiled_diag_field( cmor_name, 'fAnthDisturb', (/id_ug/), &
+       time, 'carbon mass flux into atmosphere due to any human activity', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='surface_upward_mass_flux_of_carbon_dioxide_expressed_as_carbon_due_to_anthrogpogenic_emission', &
+       fill_missing=.TRUE.)
+  id_fFireNat = register_tiled_diag_field( cmor_name, 'fFireNat', (/id_ug/), &
+       time, 'Carbon Mass Flux into Atmosphere due to CO2 Emission from natural Fire', 'kg m-2 s-1', missing_value=-1.0, &
+       standard_name='fire_CO2_emissions_from_wildfire', fill_missing=.TRUE.)
   id_cLeaf = register_tiled_diag_field ( cmor_name, 'cLeaf',  (/id_ug/), &
        time, 'Carbon Mass in Leaves', 'kg m-2', missing_value=-1.0, &
        standard_name='leaf_carbon_content', fill_missing=.TRUE.)
@@ -729,6 +744,9 @@ subroutine vegn_diag_init(id_ug,id_band,time)
   id_cMisc = register_tiled_diag_field ( cmor_name, 'cMisc',  (/id_ug/), &
        time, 'Carbon Mass in Other Living Compartments on Land', 'kg m-2', missing_value=-1.0, &
        standard_name='miscellaneous_living_matter_carbon_content', fill_missing=.TRUE.)
+  call add_tiled_diag_field_alias ( id_height, cmor_name, 'vegHeight', (/id_ug/), &
+       time, 'Vegetation height averaged over all vegetation types and over the vegetated fraction of a grid cell.', &
+       'm', missing_value=-1.0, standard_name='canopy_height', fill_missing=.TRUE.)
 end subroutine
 
 
@@ -1614,12 +1632,27 @@ subroutine update_vegn_slow( )
      call send_tile_data(id_fFire, tile%vegn%csmoke_rate/seconds_per_year, tile%diag)
      call send_tile_data(id_fGrazing, tile%vegn%harv_rate(HARV_POOL_PAST)/seconds_per_year, tile%diag)
      call send_tile_data(id_fHarvest, tile%vegn%harv_rate(HARV_POOL_CROP)/seconds_per_year, tile%diag)
+     if (id_fProductDecomp>0) then
+        cmass1 = 0.0
+        do i = 1, N_HARV_POOLS
+           if (i/=HARV_POOL_CLEARED) cmass1 = cmass1 + tile%vegn%harv_rate(i)
+        enddo
+        call send_tile_data(id_fProductDecomp, cmass1/seconds_per_year, tile%diag)
+     endif
      call send_tile_data(id_fLuc, &
          (tile%vegn%harv_rate(HARV_POOL_CLEARED) &
          +tile%vegn%harv_rate(HARV_POOL_WOOD_FAST) &
          +tile%vegn%harv_rate(HARV_POOL_WOOD_MED) &
          +tile%vegn%harv_rate(HARV_POOL_WOOD_SLOW) &
          )/seconds_per_year, tile%diag)
+     if (id_fAnthDisturb>0) then
+         call send_tile_data(id_fAnthDisturb, sum(tile%vegn%harv_rate(:))/seconds_per_year, tile%diag)
+     endif
+     if (tile%vegn%landuse==LU_NTRL.or.tile%vegn%landuse==LU_SCND) then
+         call send_tile_data(id_fFireNat,tile%vegn%csmoke_rate/seconds_per_year, tile%diag)
+     else
+         call send_tile_data(id_fFireNat, 0.0, tile%diag)
+     endif
      if (id_cLeaf>0) call send_tile_data(id_cLeaf, sum(tile%vegn%cohorts(1:n)%bl), tile%diag)
      if (id_cWood>0) call send_tile_data(id_cWood, &
          (sum(tile%vegn%cohorts(1:n)%bwood)+sum(tile%vegn%cohorts(1:n)%bsw))*agf_bs, tile%diag)
