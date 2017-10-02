@@ -7,7 +7,7 @@ module vegn_disturbance_mod
 
 use land_constants_mod, only : seconds_per_year
 use land_data_mod,   only : log_version
-use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, fsc_froot, agf_bs, LEAF_OFF
+use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, fsc_froot, agf_bs, LEAF_OFF,N_limits_live_biomass
 use vegn_tile_mod,   only : vegn_tile_type
 use soil_tile_mod,   only : soil_tile_type
 use vegn_cohort_mod, only : vegn_cohort_type, height_from_biomass, lai_from_biomass, &
@@ -151,7 +151,7 @@ subroutine vegn_disturbance(vegn, soil, dt)
         if (soil_carbon_option == SOILC_CORPSE_N) then
             new_fast_N_ag=cc%leaf_N*fraction_lost*spdata(sp)%fsc_liv*(1.0-spdata(sp)%smoke_fraction)
             new_slow_N_ag=cc%leaf_N*fraction_lost*(1.0-spdata(sp)%fsc_liv)*(1.0-spdata(sp)%smoke_fraction)
-            new_fast_N_bg=cc%root_N*fraction_lost*spdata(sp)%fsc_froot*(1.0-spdata(sp)%smoke_fraction)+cc%stored_N*fraction_lost*(1.0-spdata(sp)%smoke_fraction)
+            new_fast_N_bg=cc%root_N*fraction_lost*spdata(sp)%fsc_froot*(1.0-spdata(sp)%smoke_fraction)+max(cc%stored_N,0.0)*fraction_lost*(1.0-spdata(sp)%smoke_fraction)
             new_slow_N_bg=cc%root_N*fraction_lost*(1.0-spdata(sp)%fsc_froot)*(1.0-spdata(sp)%smoke_fraction)
         else
             new_fast_N_ag = 0.0
@@ -168,7 +168,7 @@ subroutine vegn_disturbance(vegn, soil, dt)
         !fsc_in and ssc_in updated in add_root_litter
         call add_root_litter(soil,vegn,(/new_fast_C_bg,new_slow_C_bg,0.0/),(/new_fast_N_bg,new_slow_N_bg,0.0/))
      
-        vegn%nsmoke_pool = vegn%nsmoke_pool + spdata(sp)%smoke_fraction*(cc%leaf_N+cc%root_N+cc%stored_N)*fraction_lost
+        vegn%nsmoke_pool = vegn%nsmoke_pool + spdata(sp)%smoke_fraction*(cc%leaf_N+cc%root_N+max(cc%stored_N,0.0))*fraction_lost
         cc%leaf_N = cc%leaf_N*(1-fraction_lost);
         cc%root_N = cc%root_N*(1-fraction_lost);
         cc%stored_N = cc%stored_N*(1-fraction_lost)
@@ -215,9 +215,9 @@ subroutine vegn_disturbance(vegn, soil, dt)
            if(soil_carbon_option == SOILC_CORPSE_N) then
 
                new_fast_N_leaflitter=spdata(sp)%fsc_liv*(cc%leaf_N)
-               new_fast_N_coarsewoodlitter=cc%stored_N*spdata(sp)%fsc_liv + (fsc_wood*cc%wood_N+spdata(sp)%fsc_liv*cc%sapwood_N)*agf_bs  ! All stored N goes to fast pool
+               new_fast_N_coarsewoodlitter=max(cc%stored_N,0.0)*spdata(sp)%fsc_liv + (fsc_wood*cc%wood_N+spdata(sp)%fsc_liv*cc%sapwood_N)*agf_bs  ! All stored N goes to fast pool
                new_slow_N_leaflitter=(1-spdata(sp)%fsc_liv)*cc%leaf_N
-               new_slow_N_coarsewoodlitter= cc%stored_N*(1-spdata(sp)%fsc_liv) + ((1-fsc_wood)*cc%wood_N+(1-spdata(sp)%fsc_liv)*cc%sapwood_N)*agf_bs
+               new_slow_N_coarsewoodlitter= max(cc%stored_N,0.0)*(1-spdata(sp)%fsc_liv) + ((1-fsc_wood)*cc%wood_N+(1-spdata(sp)%fsc_liv)*cc%sapwood_N)*agf_bs
 
                new_fast_N_bg=(spdata(sp)%fsc_froot*cc%root_N) + (fsc_wood*cc%wood_N+spdata(sp)%fsc_liv*cc%sapwood_N)*(1-agf_bs)
                new_slow_N_bg=(1-spdata(sp)%fsc_froot)*cc%root_N + ((1-fsc_wood)*cc%wood_N+(1-spdata(sp)%fsc_liv)*cc%sapwood_N)*(1-agf_bs)
@@ -420,8 +420,8 @@ subroutine vegn_nat_mortality(vegn, soil, deltat)
         if(cc%bsw<0) call error_mesg('vegn_nat_mortality','bsw<0',FATAL)
         if(cc%wood_N<0) call error_mesg('vegn_nat_mortality','wood_N<0',FATAL)
         if(cc%sapwood_N<0) call error_mesg('vegn_nat_mortality','sapwood_N<0',FATAL)
-        if(cc%stored_N<0) call error_mesg('vegn_nat_mortality','stored_N<0',FATAL) 
-        if(cc%stored_N+cc%leaf_N+cc%wood_N+cc%root_N+cc%sapwood_N<0) then
+        if(cc%stored_N<0 .AND. N_limits_live_biomass) call error_mesg('vegn_nat_mortality','stored_N<0',FATAL) 
+        if(cc%stored_N+cc%leaf_N+cc%wood_N+cc%root_N+cc%sapwood_N<0 .AND. N_limits_live_biomass) then
             __DEBUG5__(cc%stored_N,cc%leaf_N,cc%wood_N,cc%root_N,cc%sapwood_N)
             call error_mesg('vegn_nat_mortality','Cohort total N < 0',FATAL)
         endif
@@ -438,7 +438,7 @@ subroutine vegn_nat_mortality(vegn, soil, deltat)
      cc%wood_N = cc%wood_N * (1-fraction_lost)
      cc%sapwood_N = cc%sapwood_N*(1-fraction_lost)
 
-        if(cc%stored_N+cc%leaf_N+cc%wood_N+cc%root_N+cc%sapwood_N<0) then
+        if(cc%stored_N+cc%leaf_N+cc%wood_N+cc%root_N+cc%sapwood_N<0 .and. N_limits_live_biomass) then
             __DEBUG5__(cc%stored_N,cc%leaf_N,cc%wood_N,cc%root_N,cc%sapwood_N)
             call error_mesg('vegn_nat_mortality','Cohort total N < 0',FATAL)
         endif
@@ -480,7 +480,7 @@ subroutine vegn_nat_mortality(vegn, soil, deltat)
            soil%fast_soil_C(1) = soil%fast_soil_C(1) +    fsc_liv *delta;
        case (SOILC_CORPSE_N)
            call add_litter(soil%leafLitter,(/(cc%bl+cc%blv)*fraction_lost*spdata(sp)%fsc_liv,(cc%bl+cc%blv)*fraction_lost*(1.0-spdata(sp)%fsc_liv),0.0/),&
-                (/(cc%leaf_N+cc%stored_N)*fraction_lost*spdata(sp)%fsc_liv,(cc%leaf_N+cc%stored_N)*fraction_lost*(1.0-spdata(sp)%fsc_liv),0.0/))
+                (/(cc%leaf_N+max(cc%stored_N,0.0))*fraction_lost*spdata(sp)%fsc_liv,(cc%leaf_N+max(cc%stored_N,0.0))*fraction_lost*(1.0-spdata(sp)%fsc_liv),0.0/))
            call add_root_litter(soil,vegn,(/cc%br*fraction_lost*spdata(sp)%fsc_froot,cc%br*fraction_lost*(1.0-spdata(sp)%fsc_froot),0.0/),&
                 (/cc%root_N*fraction_lost*spdata(sp)%fsc_froot,cc%root_N*fraction_lost*(1.0-spdata(sp)%fsc_froot),0.0/) )
        case (SOILC_CORPSE)
@@ -499,7 +499,7 @@ subroutine vegn_nat_mortality(vegn, soil, deltat)
         cc%root_N = cc%root_N*(1-fraction_lost)
         ! Also kill stored N?
 
-        if(cc%stored_N+cc%leaf_N+cc%wood_N+cc%root_N+cc%sapwood_N<0) then
+        if(cc%stored_N+cc%leaf_N+cc%wood_N+cc%root_N+cc%sapwood_N<0 .and. N_limits_live_biomass) then
             __DEBUG5__(cc%stored_N,cc%leaf_N,cc%wood_N,cc%root_N,cc%sapwood_N)
             call error_mesg('vegn_nat_mortality','Cohort total N < 0',FATAL)
         endif

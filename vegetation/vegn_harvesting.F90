@@ -16,7 +16,7 @@ use mpp_io_mod, only : axistype, mpp_get_atts, mpp_get_axis_data, &
 use vegn_data_mod, only : N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, &
      HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, &
      HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
-     agf_bs, fsc_wood, fsc_liv, spdata, LEAF_OFF
+     agf_bs, fsc_wood, fsc_liv, spdata, LEAF_OFF,N_limits_live_biomass
 use soil_carbon_mod, only: soil_carbon_option, &
      SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N,n_c_types,add_litter
 use soil_mod, only: add_root_litter
@@ -373,13 +373,13 @@ subroutine vegn_harvest_cropland(vegn)
            ! Amounts harvested should be determined by potential leaf tissues, but this N would still be in stored pool so needs to be subtracted
            if (cc%status == LEAF_OFF) then
              vegn%harv_pool_nitrogen(HARV_POOL_CROP) = vegn%harv_pool_nitrogen(HARV_POOL_CROP) + &
-                (cc%stored_N-(cc%bliving*cc%Pl/spdata(sp)%leaf_live_c2n + cc%bliving*cc%Pr/spdata(cc%species)%froot_live_c2n))*fraction_harvested
+                (max(cc%stored_N,0.0)-(cc%bliving*cc%Pl/spdata(sp)%leaf_live_c2n + cc%bliving*cc%Pr/spdata(cc%species)%froot_live_c2n))*fraction_harvested
              cc%stored_N = cc%stored_N - &
-                (cc%stored_N-(cc%bliving*cc%Pl/spdata(sp)%leaf_live_c2n + cc%bliving*cc%Pr/spdata(cc%species)%froot_live_c2n))*fraction_harvested
+                (max(cc%stored_N,0.0)-(cc%bliving*cc%Pl/spdata(sp)%leaf_live_c2n + cc%bliving*cc%Pr/spdata(cc%species)%froot_live_c2n))*fraction_harvested
            else
              ! In this case stored N can just be lost because it doesn't contain N from harvested potential leaves and roots
-             vegn%harv_pool_nitrogen(HARV_POOL_CROP) = vegn%harv_pool_nitrogen(HARV_POOL_CROP) + cc%stored_N*fraction_harvested
-             cc%stored_N = cc%stored_N*(1-fraction_harvested)
+             vegn%harv_pool_nitrogen(HARV_POOL_CROP) = vegn%harv_pool_nitrogen(HARV_POOL_CROP) + max(cc%stored_N,0.0)*fraction_harvested
+             cc%stored_N = max(cc%stored_N,0.0)*(1-fraction_harvested)
            endif
 
              ! Subtract N lost from N pools. Leaf and root can get subtracted from stored and things will be rebalanced later.
@@ -520,16 +520,16 @@ subroutine vegn_cut_forest(vegn, new_landuse)
 
         if(soil_carbon_option == SOILC_CORPSE_N) then
 
-            vegn%coarsewoodlitter_buffer_fast_N=vegn%coarsewoodlitter_buffer_fast_N+(cc%wood_N*fsc_wood+(cc%sapwood_N+cc%stored_N)*spdata(sp)%fsc_liv)*frac_harvested*agf_bs*frac_wood_wasted_ag
-            vegn%coarsewoodlitter_buffer_slow_N=vegn%coarsewoodlitter_buffer_slow_N+(cc%wood_N*(1-fsc_wood)+(cc%sapwood_N+cc%stored_N)*(1-spdata(sp)%fsc_liv))*frac_harvested*agf_bs*frac_wood_wasted_ag
+            vegn%coarsewoodlitter_buffer_fast_N=vegn%coarsewoodlitter_buffer_fast_N+(cc%wood_N*fsc_wood+(cc%sapwood_N+max(cc%stored_N,0.0))*spdata(sp)%fsc_liv)*frac_harvested*agf_bs*frac_wood_wasted_ag
+            vegn%coarsewoodlitter_buffer_slow_N=vegn%coarsewoodlitter_buffer_slow_N+(cc%wood_N*(1-fsc_wood)+(cc%sapwood_N+max(cc%stored_N,0.0))*(1-spdata(sp)%fsc_liv))*frac_harvested*agf_bs*frac_wood_wasted_ag
             vegn%leaflitter_buffer_fast_N=vegn%leaflitter_buffer_fast_N+cc%leaf_N*spdata(sp)%fsc_liv*frac_harvested
             vegn%leaflitter_buffer_slow_N=vegn%leaflitter_buffer_slow_N+cc%leaf_N*(1-spdata(sp)%fsc_liv)*frac_harvested
             vegn%fsn_pool_bg = vegn%fsn_pool_bg + cc%root_N*frac_harvested*spdata(sp)%fsc_froot
             vegn%ssn_pool_bg = vegn%ssn_pool_bg + cc%root_N*frac_harvested*(1-spdata(sp)%fsc_froot)
 
             if(waste_below_ground_wood) then
-              vegn%fsn_pool_bg = vegn%fsn_pool_bg + (cc%wood_N*fsc_wood+(cc%sapwood_N+cc%stored_N)*spdata(sp)%fsc_liv)*frac_harvested*(1-agf_bs)
-              vegn%ssn_pool_bg = vegn%ssn_pool_bg + (cc%wood_N*(1-fsc_wood)+(cc%sapwood_N+cc%stored_N)*(1-spdata(sp)%fsc_liv))*frac_harvested*(1-agf_bs)
+              vegn%fsn_pool_bg = vegn%fsn_pool_bg + (cc%wood_N*fsc_wood+(cc%sapwood_N+max(cc%stored_N,0.0))*spdata(sp)%fsc_liv)*frac_harvested*(1-agf_bs)
+              vegn%ssn_pool_bg = vegn%ssn_pool_bg + (cc%wood_N*(1-fsc_wood)+(cc%sapwood_N+max(cc%stored_N,0.0))*(1-spdata(sp)%fsc_liv))*frac_harvested*(1-agf_bs)
             endif
         endif
 

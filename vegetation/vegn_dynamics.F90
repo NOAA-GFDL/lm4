@@ -740,7 +740,7 @@ N_leakage = 0.0
           scavenger_myc_N_allocated = scavenger_myc_C_allocated*root_exudate_N_frac
 
           ! Make sure N allocation doesn't completely deplete stored N
-          if (cc%stored_N<=0.0) then
+          if (cc%stored_N<=0.0 .and. N_limits_live_biomass) then
              N_fixer_N_allocated=0.0
              miner_myc_N_allocated=0.0
              scavenger_myc_N_allocated=0.0
