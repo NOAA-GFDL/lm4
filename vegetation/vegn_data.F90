@@ -511,9 +511,9 @@ subroutine read_vegn_data_namelist()
   do while (fm_loop_over_list(iter, name, ftype, n))
      if (trim(name) == 'default' ) then
         i = species_slot(name)
-        write(*,*) 'found default =',i
+        ! write(*,*) 'found default =',i
         call read_species_data(name, spdata(i), species_errors)
-        write(*,*) 'read default data =',i, species_errors
+        ! write(*,*) 'read default data =',i, species_errors
         do k = lbound(spdata,1),ubound(spdata,1)
            if (i==k) cycle ! skip the deafult species
            ! set all species data to defaults, except the name
