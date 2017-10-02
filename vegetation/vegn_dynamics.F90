@@ -1961,10 +1961,19 @@ subroutine vegn_phenology_ppa(vegn, soil, dheat)
      !      not actual bl and br?
      if(cc%status==LEAF_OFF .AND. ( cc%bl>0 .OR. ( sp%lifeform==FORM_GRASS .AND. ( cc%bl>0 .OR. cc%bsw>0)))) then
          dead_leaves_C = min(leaf_fall_rate * cc%bl_max, cc%bl)
-         dead_leaves_N = min(cc%leaf_N * dead_leaves_C/cc%bl, cc%leaf_N)
+         if (cc%bl > 0) then
+            dead_leaves_N = min(cc%leaf_N * dead_leaves_C/cc%bl, cc%leaf_N)
+         else
+            dead_leaves_N = 0.0
+         endif
          dead_roots_C  = min(root_mort_rate * cc%br_max, cc%br)
-         dead_roots_N  = min(cc%root_N * dead_roots_C/cc%br, cc%root_N)
+         if (cc%br > 0) then
+            dead_roots_N  = min(cc%root_N * dead_roots_C/cc%br, cc%root_N)
+         else
+            dead_roots_N = 0.0
+         endif
          dead_stem_C   = 0.0
+
          ! isa 20170705
          if (sp%lifeform == FORM_GRASS) then
             dead_stem_C = min(stem_mort_rate * cc%bsw_max, &
@@ -1981,9 +1990,17 @@ subroutine vegn_phenology_ppa(vegn, soil, dheat)
             !               immediately
             cc%bl_max = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
             dead_leaves_C = max(dead_leaves_C, cc%bl-cc%bl_max)
-            dead_leaves_N = min(cc%leaf_N * dead_leaves_C/cc%bl, cc%leaf_N)
+            if (cc%bl > 0) then
+               dead_leaves_N = min(cc%leaf_N * dead_leaves_C/cc%bl, cc%leaf_N)
+            else
+               dead_leaves_N = 0.0
+            endif
          endif
-         dead_stem_N = min(cc%sapwood_N*dead_stem_C/cc%bsw,cc%sapwood_N)
+         if (cc%bsw>0) then
+            dead_stem_N = min(cc%sapwood_N*dead_stem_C/cc%bsw,cc%sapwood_N)
+         else
+            dead_stem_N = 0.0
+         endif
          ! update C and N pools
          cc%nsc      = cc%nsc + l_fract*(dead_leaves_C+dead_roots_C+dead_stem_C) ! isa 20170705
          cc%stored_N = cc%stored_N + (sp%leaf_retranslocation_frac*dead_leaves_N+sp%froot_retranslocation_frac*dead_roots_N)
