@@ -2589,7 +2589,7 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
 !!!!!!!!!!!!!!!!!!xz ADD CH's code for Nitrogen !!!Please Check the unit!!!!! Is the unit of the inputs from the point model the same as the CH's experiment?
     ! Probably should include wood litter in this too
     ! Ammonium should be less soluble than nitrate, probably.  Could use retrieve_dissolved_mineral_N to standardize that --BNS
-    if (leaflitter%ammonium + woodlitter%ammonium>0) then
+    if (leaflitterTotalC+woodlitterTotalC>0) then
       !  leaf_NH4_frac = leaflitter%ammonium/(leaflitter%ammonium + woodlitter%ammonium)
       leaf_NH4_frac = leaflitterTotalC/(leaflitterTotalC+woodlitterTotalC)
     else
@@ -2602,9 +2602,9 @@ IF(soil_carbon_option == SOILC_CORPSE_N) THEN
     NH4_dissolved(2:size(soil)+1)=soil(:)%ammonium*ammonium_solubility  !kg/m2
     soil(:)%ammonium=soil(:)%ammonium*(1-ammonium_solubility)
 
-    if (leaflitter%nitrate + woodlitter%nitrate > 0) then
-      !  leaf_NO3_frac = leaflitter%nitrate/(leaflitter%nitrate + woodlitter%nitrate)
-      leaf_NO3_frac = leaflitterTotalC/(leaflitterTotalC+woodlitterTotalC)
+    if (leaflitterTotalC+woodlitterTotalC > 0) then
+       !  leaf_NO3_frac = leaflitter%nitrate/(leaflitter%nitrate + woodlitter%nitrate)
+       leaf_NO3_frac = leaflitterTotalC/(leaflitterTotalC+woodlitterTotalC)
     else
        leaf_NO3_frac = 0.0
     endif
