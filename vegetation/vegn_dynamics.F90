@@ -1929,7 +1929,9 @@ subroutine vegn_phenology_ppa(vegn, soil, dheat)
   real, parameter :: stem_mort_rate = 0.075 ! per day, isa 20170705
   real, parameter :: DBHtp = 0.8 ! m
 
-  vegn%litter = 0 ; leaf_litt_C(:) = 0.0 ; leaf_litt_N(:) = 0.0
+  vegn%litter = 0 ;
+  leaf_litt_C(:) = 0.0 ; leaf_litt_N(:) = 0.0
+  root_litt_C    = 0.0 ; root_litt_N    = 0.0
 
   do i = 1,vegn%n_cohorts
      associate ( cc => vegn%cohorts(i),   &
