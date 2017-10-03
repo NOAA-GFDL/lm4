@@ -1990,8 +1990,8 @@ end subroutine soil_step_1
      soil%soil_organic_matter(1:num_l)%ammonium=soil%soil_organic_matter(:)%ammonium-passive_ammonium_uptake(1:num_l)
      soil%soil_organic_matter(1:num_l)%nitrate=soil%soil_organic_matter(:)%nitrate-passive_nitrate_uptake(1:num_l)
      passive_N_uptake(ic) = sum(passive_ammonium_uptake + passive_nitrate_uptake)
-     cc%stored_N = cc%stored_N + passive_N_uptake(ic)/cc%nindivs
-
+     if (cc%nindivs>0) &
+           cc%stored_N = cc%stored_N + passive_N_uptake(ic)/cc%nindivs
   enddo
 
   call send_cohort_data(id_passive_N_uptake,diag,vegn%cohorts(1:vegn%n_cohorts),passive_N_uptake/dt_fast_yr,weight=vegn%cohorts(1:vegn%n_cohorts)%nindivs, op=OP_SUM)
@@ -3933,26 +3933,25 @@ subroutine myc_scavenger_N_uptake(soil,vegn,N_uptake_cohorts,myc_efficiency,dt,u
   integer::k,i
   logical :: myc_biomass_is_zero
 
-  if(sum(vegn%cohorts(:)%myc_scavenger_biomass_C)>0) then
-    myc_biomass_is_zero = .FALSE.
+  associate(cc=>vegn%cohorts)
+  myc_biomass_is_zero = (sum(cc(:)%myc_scavenger_biomass_C*cc(:)%nindivs)<=0)
+  if(.not.myc_biomass_is_zero) then
     do i=1,vegn%n_cohorts
-      call cohort_root_litter_profile (vegn%cohorts(i), dz(1:num_l), profile )
-      cohort_myc_scav_biomass(:,i) =  vegn%cohorts(i)%myc_scavenger_biomass_C*vegn%cohorts(i)%nindivs*profile
+      call cohort_root_litter_profile (cc(i), dz(1:num_l), profile )
+      cohort_myc_scav_biomass(:,i) =  cc(i)%myc_scavenger_biomass_C*cc(i)%nindivs*profile
     enddo
-
-  else
+  else ! myc_biomass_is_zero
     ! If there is no mycorrhizal biomass, still do calculation so efficiency can be estimated
     ! This allows plants to grow some biomass from zero
-    if(sum(vegn%cohorts(:)%bliving)==0) then ! No live biomass at all. Assume uptake is zero and skip the rest.
+    if(sum(cc(:)%bliving*cc(:)%nindivs)==0) then ! No live biomass at all. Assume uptake is zero and skip the rest.
       N_uptake_cohorts(:)=0.0
       myc_efficiency=0.0
       return
     endif
 
-    myc_biomass_is_zero = .TRUE.
     do i=1,vegn%n_cohorts
-      call cohort_root_litter_profile (vegn%cohorts(i), dz(1:num_l), profile )
-      cohort_myc_scav_biomass(:,i) =  vegn%cohorts(i)%bliving*vegn%cohorts(i)%nindivs*0.0001*profile
+      call cohort_root_litter_profile (cc(i), dz(1:num_l), profile )
+      cohort_myc_scav_biomass(:,i) =  cc(i)%bliving*cc(i)%nindivs*0.0001*profile
     enddo
   endif
 
@@ -3970,7 +3969,9 @@ subroutine myc_scavenger_N_uptake(soil,vegn,N_uptake_cohorts,myc_efficiency,dt,u
     ! Uptake by each cohort is scaled by the fraction of total mycorrhizal biomass in that layer
     ! that is owned by the cohort
     do i=1,vegn%n_cohorts
-      N_uptake_cohorts(i)=N_uptake_cohorts(i)+(ammonium_uptake+nitrate_uptake)*dt*cohort_myc_scav_biomass(k,i)/total_myc_scav_biomass(k)/vegn%cohorts(i)%nindivs
+      if(cc(i)%nindivs>0) &
+          N_uptake_cohorts(i) = N_uptake_cohorts(i)+&
+              (ammonium_uptake+nitrate_uptake)*dt*cohort_myc_scav_biomass(k,i)/(total_myc_scav_biomass(k)*cc(i)%nindivs)
     enddo
 
     !__DEBUG3__(k,ammonium_uptake/soil%soil_organic_matter(k)%ammonium,nitrate_uptake/soil%soil_organic_matter(k)%nitrate)
@@ -3996,7 +3997,8 @@ subroutine myc_scavenger_N_uptake(soil,vegn,N_uptake_cohorts,myc_efficiency,dt,u
      nitrate_uptake  = min(nitrate_uptake,soil%litter(k)%nitrate/dt)
 
      do i=1,vegn%n_cohorts
-       N_uptake_cohorts(i)=N_uptake_cohorts(i)+(ammonium_uptake+nitrate_uptake)*dt*cohort_myc_scav_biomass(1,i)/total_myc_scav_biomass(1)/vegn%cohorts(i)%nindivs
+       if(cc(i)%nindivs>0) &
+           N_uptake_cohorts(i)=N_uptake_cohorts(i)+(ammonium_uptake+nitrate_uptake)*dt*cohort_myc_scav_biomass(1,i)/(total_myc_scav_biomass(1)*cc(i)%nindivs)
      enddo
 
      if (update_pools .and. .not. myc_biomass_is_zero) then
@@ -4005,13 +4007,12 @@ subroutine myc_scavenger_N_uptake(soil,vegn,N_uptake_cohorts,myc_efficiency,dt,u
      endif
   enddo
 
-  myc_efficiency = sum(N_uptake_cohorts*vegn%cohorts(:)%nindivs)/sum(total_myc_scav_biomass)
-
+  myc_efficiency = sum(N_uptake_cohorts*cc(:)%nindivs)/sum(total_myc_scav_biomass)
   ! If myc biomass was zero, then the calculation used a "virtual" biomass and there is no real uptake
   if (myc_biomass_is_zero) then
-    N_uptake_cohorts(:)=0.0
+     N_uptake_cohorts(:) = 0.0
   endif
-
+  end associate ! cc
 end subroutine myc_scavenger_N_uptake
 
 
@@ -4034,18 +4035,17 @@ subroutine myc_miner_N_uptake(soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_
   integer :: k,i
   logical :: myc_biomass_is_zero
 
-
-  if(sum(vegn%cohorts(:)%myc_miner_biomass_C)>0) then
+  associate(cc=>vegn%cohorts)
+  if(sum(cc(:)%myc_miner_biomass_C*cc(:)%nindivs)>0) then
     myc_biomass_is_zero = .FALSE.
     do i=1,vegn%n_cohorts
-      call cohort_root_litter_profile (vegn%cohorts(i), dz(1:num_l), profile )
-      cohort_myc_mine_biomass(:,i) =  vegn%cohorts(i)%myc_miner_biomass_C*vegn%cohorts(i)%nindivs*profile
+      call cohort_root_litter_profile (cc(i), dz(1:num_l), profile )
+      cohort_myc_mine_biomass(:,i) =  cc(i)%myc_miner_biomass_C*cc(i)%nindivs*profile
     enddo
-
   else
     ! If there is no mycorrhizal biomass, still do calculation so efficiency can be estimated
     ! This allows plants to grow some biomass from zero
-    if(sum(vegn%cohorts(:)%bliving)==0) then ! No live biomass at all. Assume uptake is zero and skip the rest.
+    if(sum(cc(:)%bliving*cc(:)%nindivs)==0) then ! No live biomass at all. Assume uptake is zero and skip the rest.
       N_uptake_cohorts(:)=0.0
       C_uptake_cohorts(:)=0.0
       total_CO2prod=0.0
@@ -4055,11 +4055,10 @@ subroutine myc_miner_N_uptake(soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_
 
     myc_biomass_is_zero = .TRUE.
     do i=1,vegn%n_cohorts
-      call cohort_root_litter_profile (vegn%cohorts(i), dz(1:num_l), profile)
-      cohort_myc_mine_biomass(:,i) =  vegn%cohorts(i)%bliving*vegn%cohorts(i)%nindivs*0.0001*profile
+      call cohort_root_litter_profile (cc(i), dz(1:num_l), profile)
+      cohort_myc_mine_biomass(:,i) =  cc(i)%bliving*cc(i)%nindivs*0.0001*profile
     enddo
   endif
-
 
   T = soil%T(:)
   theta = max(min(soil_theta(soil),1.0),0.0)
@@ -4078,7 +4077,7 @@ subroutine myc_miner_N_uptake(soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_
      total_CO2prod=total_CO2prod+CO2prod
 
      do i=1,vegn%n_cohorts
-       cohort_frac=cohort_myc_mine_biomass(k,i)/total_myc_mine_biomass(k)/vegn%cohorts(i)%nindivs
+       cohort_frac=cohort_myc_mine_biomass(k,i)/total_myc_mine_biomass(k)/cc(i)%nindivs
        N_uptake_cohorts(i)=N_uptake_cohorts(i)+N_uptake*cohort_frac
        C_uptake_cohorts(i)=C_uptake_cohorts(i)+C_uptake*cohort_frac
      enddo
@@ -4093,14 +4092,14 @@ subroutine myc_miner_N_uptake(soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_
      total_CO2prod  = total_CO2prod + CO2prod
 
      do i=1,vegn%n_cohorts
-       cohort_frac=cohort_myc_mine_biomass(k,i)/total_myc_mine_biomass(k)/vegn%cohorts(i)%nindivs
+       cohort_frac=cohort_myc_mine_biomass(k,i)/total_myc_mine_biomass(k)/cc(i)%nindivs
        N_uptake_cohorts(i)=N_uptake_cohorts(i)+N_uptake*cohort_frac
        C_uptake_cohorts(i)=C_uptake_cohorts(i)+C_uptake*cohort_frac
      enddo
 
   enddo
 
-  myc_efficiency = sum(N_uptake_cohorts*vegn%cohorts(:)%nindivs)/sum(total_myc_mine_biomass)
+  myc_efficiency = sum(N_uptake_cohorts*cc(:)%nindivs)/sum(total_myc_mine_biomass)
 
   ! If myc biomass was zero, then the calculation used a tiny "virtual" biomass and there is no real uptake or CO2 production
   if (myc_biomass_is_zero) then
@@ -4108,7 +4107,7 @@ subroutine myc_miner_N_uptake(soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_
     C_uptake_cohorts(:)=0.0
     total_CO2prod      =0.0
   endif
-
+  end associate ! cc
 end subroutine myc_miner_N_uptake
 
 
