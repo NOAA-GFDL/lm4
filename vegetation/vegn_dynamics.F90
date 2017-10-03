@@ -1031,9 +1031,9 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
     ! Maybe redefine as a rate per year?
     ! Allowing to be zero for now.
      if(sp%tau_nsc_exudate>0) then
-       C_allocation_to_N_acq = cc%nsc/sp%tau_nsc_exudate !This is a rate per year, not per time step
+        C_allocation_to_N_acq = max(cc%nsc,0.0)/sp%tau_nsc_exudate !This is a rate per year, not per time step
      else
-       C_allocation_to_N_acq = 0.0
+        C_allocation_to_N_acq = 0.0
      endif
      if (sp%dynamic_root_exudation .AND. soil_carbon_option==SOILC_CORPSE_N) then
         ! 20170617: modify frac for exudate depending on N state
