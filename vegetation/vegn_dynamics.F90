@@ -20,7 +20,7 @@ use vegn_data_mod, only : spdata, &
      ! BNS: C2N ratios should be temporary fix, which we can get rid of once N is integrated into vegetation code
      dynamic_root_exudation, c2n_mycorrhizae, mycorrhizal_turnover_time, myc_scav_C_efficiency,myc_mine_C_efficiency,&
      N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, excess_stored_N_leakage_rate, N_limits_live_biomass, &
-     myc_growth_rate, myc_N_to_plant_rate, et_myc, kM_myc_growth, smooth_N_uptake_C_allocation
+     myc_growth_rate, myc_N_to_plant_rate, et_myc, kM_myc_growth, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton
 
 use vegn_tile_mod, only: vegn_tile_type,vegn_tile_carbon, vegn_tile_nitrogen
 use soil_tile_mod, only: soil_tile_type,soil_tile_carbon, soil_tile_nitrogen
@@ -495,6 +495,11 @@ N_leakage = 0.0
        call root_N_uptake(soil,vegn,root_active_N_uptake,dt_fast_yr,.TRUE.)
       ! N fixation
        N_fixation = cc%N_fixer_biomass_C*N_fixation_rate*dt_fast_yr
+
+      ! T dependence of N fixation from Houlton et al. (2008) Nature paper (normalized to peak at 1.0)
+      ! a=-3.62, b=0.27, c=25.15, T effect = exp(-0.5*b*c+b*Ts*(1-0.5*Ts/c))
+       if(N_fix_Tdep_Houlton) N_fixation=N_fixation*exp(-0.5*0.27*25.15 + 0.27*(soilT-273.15)*(1.0-0.5*(soilT-273.15)/25.15))
+
        cc%N_fixer_N_reservoir = cc%N_fixer_N_reservoir + N_fixation
 
             if(cc%myc_scavenger_biomass_C<0) call error_mesg('vegn_carbon_int','Mycorrhizal scavenger biomass < 0',FATAL)

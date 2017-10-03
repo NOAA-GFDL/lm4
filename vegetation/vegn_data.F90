@@ -112,7 +112,7 @@ public :: &
     N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, N_limits_live_biomass, root_NH4_uptake_rate, root_NO3_uptake_rate,&
     k_ammonium_root_uptake,k_nitrate_root_uptake,excess_stored_N_leakage_rate,myc_growth_rate,kM_myc_growth,myc_N_to_plant_rate,et_myc,&
     do_N_mining_strategy,do_N_scavenging_strategy,do_N_fixation_strategy,N_stress_root_factor,tau_smooth_marginal_gain,tau_smooth_alloc,&
-    alloc_allowed_over_limit,smooth_N_uptake_C_allocation
+    alloc_allowed_over_limit,smooth_N_uptake_C_allocation,N_fix_Tdep_Houlton
 
 
 ! ---- public subroutine
@@ -503,7 +503,7 @@ real :: myc_N_to_plant_rate = 100.0    ! Rate at which plants send N from reserv
 real :: et_myc = 0.7                   ! Fraction of mycorrhizal turnover NOT mineralized to CO2 and NH4
 
 logical :: smooth_N_uptake_C_allocation = .FALSE.
-
+logical :: N_fix_Tdep_Houlton = .FALSE.
 
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
@@ -537,7 +537,7 @@ namelist /vegn_data_nml/ &
   N_fixer_turnover_time, N_fixer_C_efficiency, N_fixation_rate, c2n_N_fixer, N_limits_live_biomass, root_NH4_uptake_rate, root_NO3_uptake_rate,&
   k_nitrate_root_uptake,k_ammonium_root_uptake,excess_stored_N_leakage_rate,myc_growth_rate,kM_myc_growth,myc_N_to_plant_rate,et_myc,&
   do_N_mining_strategy,do_N_scavenging_strategy,do_N_fixation_strategy,N_stress_root_factor,tau_smooth_marginal_gain,&
-  tau_smooth_alloc,smooth_N_uptake_C_allocation,alloc_allowed_over_limit
+  tau_smooth_alloc,smooth_N_uptake_C_allocation,alloc_allowed_over_limit,N_fix_Tdep_Houlton
 
 
 contains ! ###################################################################
