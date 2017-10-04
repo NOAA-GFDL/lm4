@@ -738,14 +738,10 @@ subroutine kill_plants_ppa(cc, vegn, soil, ndead, fsmoke, &
   ! calculate total carbon losses, kgC/m2
   lost_wood  = ndead * (cc%bwood+cc%bsw+cc%bwood_gain)
   lost_alive = ndead * (cc%bl+cc%br+cc%blv+cc%bseed+cc%nsc+cc%carbon_gain+cc%growth_previous_day)
-  ! loss to fire
+  ! loss to fire: note that we are burning roots, which we probably should not (slm).
   burned_wood  = fsmoke*lost_wood
   burned_alive = fsmoke*lost_alive
-  ! Belowground N is also burned, consistent with belowground C for now --BNS
-  burned_N = fsmoke*ndead*(cc%leaf_N+cc%seed_N+cc%wood_N+cc%sapwood_N &
-                          + cc%myc_scavenger_biomass_N+cc%myc_miner_biomass_N+&
-                          cc%N_fixer_biomass_N+cc%scav_myc_N_reservoir+&
-                          cc%mine_myc_N_reservoir+cc%N_fixer_N_reservoir)
+  burned_N     = fsmoke*ndead*(cc%leaf_N + cc%seed_N + cc%wood_N + cc%sapwood_N + cc%stored_N + cc%root_N)
 
   ! loss to the soil pools
   lost_wood  = lost_wood  - burned_wood
@@ -770,58 +766,57 @@ subroutine kill_plants_ppa(cc, vegn, soil, ndead, fsmoke, &
   wood_litt_C(:) = wood_litt_C(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(cc%bwood+cc%bsw+cc%bwood_gain)*(1-fsmoke)*agf_bs*ndead
   wood_litt_C(C_FAST) = wood_litt_C(C_FAST)+cc%nsc*(1-fsmoke)*agf_bs*ndead
 
-  ! FIXME: what is the seed nitrogen? What do we do with nitrogen storage?
   leaf_litt_N(:) = leaf_litt_N(:) + [sp%fsc_liv,  1-sp%fsc_liv,  0.0]*(cc%leaf_N+cc%seed_N)*(1-fsmoke)*ndead
 
   wood_litt_N(:) = wood_litt_N(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(cc%wood_N+cc%sapwood_N)*(1-fsmoke)*agf_bs*ndead
   wood_litt_N(C_FAST) = wood_litt_N(C_FAST)+cc%stored_N*(1-fsmoke)*agf_bs*ndead
+
+  ! leaf_litt_C can be below zero if biomasses are very small and carbon_gain is negative:
+  ! try to borrow carbon from wood litter.
+  do l = 1,N_C_TYPES
+     if (leaf_litt_C(l)<0) then
+        wood_litt_C(l) = wood_litt_C(l) + leaf_litt_C(l)
+        leaf_litt_C(l) = 0.0
+     endif
+  enddo
+  call check_var_range(wood_litt_C, 0.0, HUGE(1.0), 'kill_plants_ppa', 'wood_litt_C',  WARNING)
+  if (any(wood_litt_C<0.0)) then
+     ! if some wood litter components are negative, try to borrow carbon
+     ! from positive components so that the total carbon is conserved
+     bp = 0.0; bn=0.0
+     do l = 1, N_C_TYPES
+        if (wood_litt_C(l)>0) bp = bp+wood_litt_C(l)
+        if (wood_litt_C(l)<0) bn = bn+abs(wood_litt_C(l))
+     enddo
+     if (bp<bn) call land_error_message(&
+        'kill_plants_ppa: total wood litter amount is negative ('//string(sum(wood_litt_C))//')', FATAL)
+     do l = 1, N_C_TYPES
+        if (wood_litt_C(l)>0) wood_litt_C(l) = wood_litt_C(l)+(bp-bn)/bp
+        if (wood_litt_C(l)<0) wood_litt_C(l) = 0.0
+     enddo
+  endif
+
+  ! accumulate root litter
   call cohort_root_litter_profile(cc, dz, profile)
   do l = 1, num_l
-     root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*ndead*(1-fsmoke)*(/ &
+     root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*ndead*(1-fsmoke)*[ &
           sp%fsc_froot    *cc%br + sp%fsc_wood    *(cc%bsw+cc%bwood+cc%bwood_gain)*(1-agf_bs) + cc%nsc*(1-agf_bs), &
           (1-sp%fsc_froot)*cc%br + (1-sp%fsc_wood)*(cc%bsw+cc%bwood+cc%bwood_gain)*(1-agf_bs), &
-          0.0/)
-     root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*ndead*(1-fsmoke)*(/ &
+          0.0]
+     root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*ndead*(1-fsmoke)*[ &
              sp%fsc_froot *cc%root_N +    sp%fsc_wood *(cc%sapwood_N+cc%wood_N)*(1-agf_bs) + cc%stored_N*(1-agf_bs), &
           (1-sp%fsc_froot)*cc%root_N + (1-sp%fsc_wood)*(cc%sapwood_N+cc%wood_N)*(1-agf_bs), &
-          0.0/)
+          0.0]
   enddo
 
-! <<<<<<< HEAD
   ! C and N content of mycorrhizae and associated buffer reservoirs
   call cohort_root_exudate_profile(cc,dz,profile)
   do l = 1, num_l
-     root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*ndead*(1-fsmoke)*([ 0.0, deadmic_slow_frac, (1-deadmic_slow_frac) ])* &
+     root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*ndead*[0.0, deadmic_slow_frac, (1-deadmic_slow_frac)]* &
           (cc%myc_scavenger_biomass_C+cc%myc_miner_biomass_C+cc%N_fixer_biomass_C+cc%scav_myc_C_reservoir+cc%mine_myc_C_reservoir+cc%N_fixer_C_reservoir)
-     root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*ndead*(1-fsmoke)*([ 0.0, deadmic_slow_frac, (1-deadmic_slow_frac) ])* &
-         (cc%myc_scavenger_biomass_N+cc%myc_miner_biomass_N+cc%N_fixer_biomass_N+cc%scav_myc_N_reservoir+cc%mine_myc_N_reservoir+cc%N_fixer_N_reservoir)
+     root_litt_N(l,:) = root_litt_N(l,:) + profile(l)*ndead*[0.0, deadmic_slow_frac, (1-deadmic_slow_frac)]* &
+          (cc%myc_scavenger_biomass_N+cc%myc_miner_biomass_N+cc%N_fixer_biomass_N+cc%scav_myc_N_reservoir+cc%mine_myc_N_reservoir+cc%N_fixer_N_reservoir)
   enddo
-! =======
-!   ! leaf_litt can be below zero if biomasses are very small and carbon_gain is negative:
-!   ! try to borrow carbon from wood litter.
-!   do l = 1,N_C_TYPES
-!      if (leaf_litt(l)<0) then
-!         wood_litt(l) = wood_litt(l) + leaf_litt(l)
-!         leaf_litt(l) = 0.0
-!      endif
-!   enddo
-!   call check_var_range(wood_litt, 0.0, HUGE(1.0), 'kill_plants_ppa', 'wood_litt',  WARNING)
-!   if (any(wood_litt<0.0)) then
-!      ! if some wood litter components are negative, try to borrow carbon
-!      ! from positive components so that the total carbon is conserved
-!      bp = 0.0; bn=0.0
-!      do l = 1, N_C_TYPES
-!         if (wood_litt(l)>0) bp = bp+wood_litt(l)
-!         if (wood_litt(l)<0) bn = bn+abs(wood_litt(l))
-!      enddo
-!      if (bp<bn) call land_error_message(&
-!         'kill_plants_ppa: total wood litter amount is negative ('//string(sum(wood_litt))//')', FATAL)
-!      do l = 1, N_C_TYPES
-!         if (wood_litt(l)>0) wood_litt(l) = wood_litt(l)+(bp-bn)/bp
-!         if (wood_litt(l)<0) wood_litt(l) = 0.0
-!      enddo
-!   endif
-! >>>>>>> origin/user/slm/ppa
 
   ! reduce the number of individuals in cohort
   cc%nindivs = cc%nindivs-ndead
