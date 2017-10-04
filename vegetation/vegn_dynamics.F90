@@ -2329,8 +2329,8 @@ subroutine vegn_reproduction_ppa(do_seed_transport)
   enddo
 
   ! calculate amount of dispersed seeds, by species, kgC per m2 of land
-  ug_dispersed_C = 0.0
-  ug_transported_C = 0.0
+  ug_dispersed_C = 0.0   ; ug_dispersed_N = 0.0
+  ug_transported_C = 0.0 ; ug_transported_N = 0.0
   if (do_seed_transport) then
      ce = first_elmt(land_tile_map, lnd%ls); k = 1
      do while (loop_over_tiles(ce,tile,l)) ! l is the grid cell index in unstructured grid
@@ -2384,7 +2384,7 @@ subroutine vegn_reproduction_ppa(do_seed_transport)
         btot1 = btot1 + lnd%ug_area(l) * tile%frac * land_tile_carbon(tile)
         ntot1 = ntot1 + lnd%ug_area(l) * tile%frac * land_tile_nitrogen(tile)
      end do
-     call mpp_sum(btot1)
+     call mpp_sum(btot1) ; call mpp_sum(ntot1)
      if (mpp_pe()==mpp_root_pe()) then
         call check_conservation ('vegn_reproduction_ppa','total carbon', &
              btot0/atot, btot1/atot, carbon_cons_tol, severity=FATAL)
