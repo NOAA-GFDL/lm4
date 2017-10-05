@@ -266,6 +266,7 @@ subroutine  update_mycorrhizae(cc,&
   real :: scavenger_myc_growth, miner_myc_growth, N_fixer_growth
   real :: lim_factor
   real :: reservoir_C_leakage, maint_resp
+  real :: stored_N_loss ! loss of stored N due to export, kg N
 
   if(is_watch_point()) then
      write(*,*)'#### update_mycorrhizae input ####'
@@ -282,7 +283,7 @@ subroutine  update_mycorrhizae(cc,&
 
   call check_var_range(C_allocation_to_N_acq,0.0,HUGE(0.0),'update_mycorrhizae','C_allocation_to_N_acq',FATAL)
   if(N_limits_live_biomass) &
-       call check_var_range(cc%stored_N,0.0,HUGE(1.0),'update_mycorrhizae','cc%stored_N',FATAL)
+       call check_var_range(cc%stored_N,0.0,HUGE(1.0),'update_mycorrhizae input','cc%stored_N',FATAL)
 
   if (soil_carbon_option == SOILC_CORPSE_N) then
      ! Update reservoirs with N uptake for this cohort
@@ -511,13 +512,14 @@ subroutine  update_mycorrhizae(cc,&
      cc%scav_myc_N_reservoir = cc%scav_myc_N_reservoir + scavenger_myc_N_allocated
      cc%mine_myc_C_reservoir = cc%mine_myc_C_reservoir + miner_myc_C_allocated
      cc%mine_myc_N_reservoir = cc%mine_myc_N_reservoir + miner_myc_N_allocated
-     cc%N_fixer_C_reservoir = cc%N_fixer_C_reservoir + N_fixer_C_allocated
-     cc%N_fixer_N_reservoir = cc%N_fixer_N_reservoir + N_fixer_N_allocated
-
+     cc%N_fixer_C_reservoir  = cc%N_fixer_C_reservoir  + N_fixer_C_allocated
+     cc%N_fixer_N_reservoir  = cc%N_fixer_N_reservoir  + N_fixer_N_allocated
 
      total_plant_N_uptake = scav_N_to_plant + mine_N_to_plant + fix_N_to_plant + root_N_uptake
      cc%stored_N = cc%stored_N + total_plant_N_uptake
-     root_exudate_N = C_allocation_to_N_acq*dt_fast_yr*sp%root_exudate_N_frac - scavenger_myc_N_allocated - N_fixer_N_allocated - miner_myc_N_allocated
+     stored_N_loss = min(C_allocation_to_N_acq*dt_fast_yr*sp%root_exudate_N_frac,cc%stored_N)
+     cc%stored_N = cc%stored_N - stored_N_loss
+     root_exudate_N = stored_N_loss - scavenger_myc_N_allocated - N_fixer_N_allocated - miner_myc_N_allocated
      if(is_watch_point()) then
         __DEBUG4__(scav_N_to_plant, mine_N_to_plant, fix_N_to_plant, root_N_uptake)
         __DEBUG3__(total_plant_N_uptake, cc%stored_N, root_exudate_N)
@@ -534,7 +536,6 @@ subroutine  update_mycorrhizae(cc,&
      myc_mine_marginal_gain = 0.0
      N_fix_marginal_gain = 0.0
      rhiz_exud_marginal_gain = 0.0
-     root_exudate_N = 0.0
      myc_CO2_prod = 0.0
      N_fixation = 0.0
      myc_turnover_C = 0.0
@@ -548,7 +549,6 @@ subroutine  update_mycorrhizae(cc,&
 
   root_exudate_C = C_allocation_to_N_acq*dt_fast_yr - scavenger_myc_C_allocated - miner_myc_C_allocated - N_fixer_C_allocated + reservoir_C_leakage
 
-  cc%stored_N=cc%stored_N - root_exudate_N - scavenger_myc_N_allocated - N_fixer_N_allocated - miner_myc_N_allocated
   if (is_watch_point()) then
      ! __DEBUG1__(current_root_exudation*dt_fast_yr)
      __DEBUG5__(cc%stored_N, root_exudate_N, scavenger_myc_N_allocated, N_fixer_N_allocated, miner_myc_N_allocated)
@@ -973,7 +973,8 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
         __DEBUG5__(cc%bl, cc%br, cc%leaf_N, cc%root_N, cc%stored_N)
      endif
      call check_var_range(cc%leaf_N,0.0,HUGE(1.0),'vegn_carbon_int_ppa','cc%leaf_N',FATAL)
-     if(N_limits_live_biomass) call check_var_range(cc%stored_N,0.0,HUGE(1.0),'vegn_carbon_int_ppa #1','cc%stored_N',FATAL)
+     if(N_limits_live_biomass) &
+          call check_var_range(cc%stored_N,0.0,HUGE(1.0),'vegn_carbon_int_ppa #1','cc%stored_N',FATAL)
      ! compute branch and coarse wood losses for tree types
      md_branch_sw = 0.0
      if (spdata(cc%species)%lifeform == FORM_WOODY) then
