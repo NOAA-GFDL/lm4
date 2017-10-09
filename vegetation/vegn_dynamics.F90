@@ -1511,13 +1511,13 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         ! 20170724 - new scheme
         NSCtarget = sp%NSC2targetbl*cc%bl_max
         G_WF=0.0
-        if (cc%nsc > NSCtarget + G_AGBmax * cc%bsw) then
-           G_WF = G_AGBmax * cc%bsw
+        if (cc%nsc > NSCtarget + G_AGBmax*cc%bsw) then
+           G_WF = G_AGBmax*cc%bsw/(1+sp%GROWTH_RESP)
            ! avoid devoting growth to fecundity during this phase
            deltaSeed = 0.0
            deltaBSW  = G_WF
         else
-           if (cc%nsc > NSCtarget ) then
+           if (cc%nsc > NSCtarget) then
              G_WF = max (0.0, fsf*(cc%nsc - NSCtarget)/(1+sp%GROWTH_RESP))
            endif
            if (cohort_makes_seeds(cc,G_WF)) then
