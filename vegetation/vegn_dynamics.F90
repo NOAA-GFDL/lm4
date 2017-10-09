@@ -937,9 +937,10 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      cc%growth_previous_day = cc%growth_previous_day - resg(i)*dt_fast_yr
 
      if (is_watch_point()) then
-        write(*,'("vegn_carbon_int_ppa #0, cohort ",i2.2)') i
+        write(*,'("####### vegn_carbon_int_ppa #0, cohort ",i2.2)') i
+        __DEBUG1__(cc%nindivs)
         __DEBUG5__(cc%bl, cc%br, cc%bsw, cc%bwood, cc%nsc)
-        __DEBUG5__(cc%leaf_N, cc%root_N, cc%sapwood_N, cc%wood_N, c%stored_N)
+        __DEBUG5__(cc%leaf_N, cc%root_N, cc%sapwood_N, cc%wood_N, cc%stored_N)
      endif
      cc%carbon_gain  = cc%carbon_gain + gpp(i)*dt_fast_yr - resp(i)*dt_fast_yr
      if (is_watch_point()) then
@@ -953,8 +954,10 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      ! Turnover regardless of STATUS
      deltaBL = cc%bl * sp%alpha_leaf * dt_fast_yr
      deltaBR = cc%br * sp%alpha_root * dt_fast_yr
-     deltaNL = cc%leaf_N * sp%alpha_leaf * dt_fast_yr
-     deltaNR = cc%root_N * sp%alpha_root * dt_fast_yr
+!      deltaNL = cc%leaf_N * sp%alpha_leaf * dt_fast_yr
+!      deltaNR = cc%root_N * sp%alpha_root * dt_fast_yr
+     deltaNL = deltaBL/sp%leaf_live_c2n
+     deltaNR = deltaBR/sp%froot_live_c2n
 
      cc%bl = cc%bl - deltaBL
      cc%br = cc%br - deltaBR
@@ -969,7 +972,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
          cc%stored_N = cc%stored_N + deltaBL/sp%leaf_live_c2n*sp%leaf_retranslocation_frac   &
                                    + deltaBR/sp%froot_live_c2n*sp%froot_retranslocation_frac
      if (is_watch_point()) then
-        __DEBUG4__(deltaBL,deltaBR,deltaNL,deltaBR)
+        __DEBUG4__(deltaBL,deltaBR,deltaNL,deltaNR)
         __DEBUG5__(cc%bl, cc%br, cc%leaf_N, cc%root_N, cc%stored_N)
      endif
      call check_var_range(cc%leaf_N,0.0,HUGE(1.0),'vegn_carbon_int_ppa','cc%leaf_N',FATAL)
@@ -1015,7 +1018,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      wood_litt_C(:) = wood_litt_C(:) + [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(md_branch_sw+md_bsw)*cc%nindivs
 !     wood_litt_N(:) = wood_litt_N(:) + cc%nindivs * agf_bs * & -- FIXME: do we need agf_bs in both C and N wood litter?
      if (soil_carbon_option==SOILC_CORPSE_N) wood_litt_N(:) = wood_litt_N(:) + cc%nindivs * &
-             [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(md_branch_sw/sp%sapwood_c2n+md_branch_sw/sp%sapwood_c2n)
+             [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(md_branch_sw+md_bsw)/sp%sapwood_c2n
      call cohort_root_litter_profile(cc, dz, profile)
      do l = 1, num_l
         root_litt_C(l,:) = root_litt_C(l,:) + profile(l)*cc%nindivs* &
