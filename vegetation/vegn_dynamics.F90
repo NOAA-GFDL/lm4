@@ -36,7 +36,7 @@ use vegn_cohort_mod, only : vegn_cohort_type, &
      update_biomass_pools, update_bio_living_fraction, update_species, &
      leaf_area_from_biomass, biomass_of_individual, init_cohort_allometry_ppa, &
      init_cohort_hydraulics, cohort_root_litter_profile, cohort_root_exudate_profile
-use vegn_disturbance_mod, only : kill_plants_ppa
+use vegn_util_mod, only: kill_plants_ppa
 use soil_carbon_mod, only: N_C_TYPES, soil_carbon_option, &
     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
     add_litter, debug_pool,soil_NO3_deposition,soil_NH4_deposition,soil_org_N_deposition,deadmic_slow_frac
@@ -58,7 +58,6 @@ public :: vegn_biogeography
 public :: vegn_reproduction_ppa
 
 public :: vegn_starvation_ppa   !
-public :: kill_small_cohorts_ppa
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
@@ -2576,80 +2575,5 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N)
      enddo
   endif
 end subroutine add_seedlings_ppa
-
-! ============================================================================
-subroutine kill_small_cohorts_ppa(vegn,soil)
-  type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(inout) :: soil
-
-  ! ---- local vars
-  real, parameter :: mindensity = 1.0E-6
-
-  type(vegn_cohort_type), pointer :: cc(:) ! array to hold new cohorts
-  real, dimension(N_C_TYPES) :: &
-     leaf_litt_C, leaf_litt_N, & ! fine surface litter per tile, kgC/m2 and kgN/m2
-     wood_litt_C, wood_litt_N    ! coarse surface litter per tile, kgC/m2 and kgN/m2
-  real, dimension(num_l, N_C_TYPES) :: &
-     root_litt_C, root_litt_N ! root litter per soil layer, kgC/m2 and kgN/m2
-  integer :: i,k
-
-!  write(*,*)'kill_small_cohorts_ppa n_cohorts before: ', vegn%n_cohorts
-
- ! Weng, 2013-09-07
- ! calculate the number of remaining cohorts
-  k = 0
-  do i = 1, vegn%n_cohorts
-     if (vegn%cohorts(i)%nindivs >  mindensity) k=k+1
-  enddo
-
-  ! if (k==0) call error_mesg('vegn_mergecohorts_ppa','All cohorts died',WARNING)
-
-  ! exclude cohorts that have zero individuals
-  leaf_litt_C = 0 ; wood_litt_C = 0; root_litt_C = 0
-  leaf_litt_N = 0 ; wood_litt_N = 0; root_litt_N = 0
-  if (k < vegn%n_cohorts) then
-     allocate(cc(max(k,1)))
-     k=0
-     do i = 1,vegn%n_cohorts
-        if (vegn%cohorts(i)%nindivs > mindensity) then
-           k=k+1
-           cc(k) = vegn%cohorts(i)
-        else
-           call kill_plants_ppa(vegn%cohorts(i), vegn, soil, vegn%cohorts(i)%nindivs, 0.0, &
-                                leaf_litt_C, wood_litt_C, root_litt_C, &
-                                leaf_litt_N, wood_litt_N, root_litt_N  )
-        endif
-     enddo
-
-     if (k==0) then
-        ! Most of the code assumes that there is at least one cohort present.
-        ! So if all cohorts die, preserve single cohort with zero individuals.
-        ! It probably doesn't matter which, but let's pick the shortest here.
-        cc(1) = vegn%cohorts(vegn%n_cohorts)
-        cc(1)%nindivs = 0.0
-        vegn%n_cohorts = 1
-     else
-        vegn%n_cohorts = k
-     endif
-
-     deallocate (vegn%cohorts)
-     vegn%cohorts=>cc
-  endif
-  ! add litter accumulated over the cohorts
-  call add_soil_carbon(soil, vegn, leaf_litt_C, wood_litt_C, root_litt_C, &
-                                   leaf_litt_N, wood_litt_N, root_litt_N  )
-
-  if (is_watch_point()) then
-     write(*,*) '##### kill_small_cohorts_ppa output #####'
-     __DEBUG1__(vegn%n_cohorts)
-     __DEBUG1__(vegn%cohorts%nindivs)
-     __DEBUG1__(vegn%cohorts%Wl)
-     __DEBUG1__(vegn%cohorts%Ws)
-     __DEBUG1__(vegn%cohorts%mcv_dry)
-     __DEBUG1__(vegn%cohorts%Tv)
-  endif
-!  write(*,*)'kill_small_cohorts_ppa n_cohorts after: ', vegn%n_cohorts
-
-end subroutine kill_small_cohorts_ppa
 
 end module vegn_dynamics_mod

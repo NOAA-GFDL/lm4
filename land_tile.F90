@@ -24,6 +24,7 @@ use vegn_tile_mod, only : &
      vegn_tile_type, new_vegn_tile, delete_vegn_tile, vegn_is_selected, &
      vegn_tiles_can_be_merged, merge_vegn_tiles, vegn_tile_tag, &
      vegn_tile_stock_pe, vegn_tile_carbon, vegn_tile_heat, vegn_tile_nitrogen
+use vegn_util_mod, only : kill_small_cohorts_ppa
 use snow_tile_mod, only : &
      snow_tile_type, new_snow_tile, delete_snow_tile, snow_is_selected, &
      snow_tiles_can_be_merged, merge_snow_tiles, get_snow_tile_tag, &
@@ -581,8 +582,10 @@ subroutine merge_land_tiles(tile1,tile2)
        call merge_snow_tiles(tile1%snow, tile1%frac, tile2%snow, tile2%frac)
 
   dheat = 0.0
-  if(associated(tile1%vegn)) &
-       call merge_vegn_tiles(tile1%vegn, tile1%frac, tile2%vegn, tile2%frac, dheat)
+  if (associated(tile1%vegn)) then
+     call merge_vegn_tiles(tile1%vegn, tile1%frac, tile2%vegn, tile2%frac, dheat)
+     call kill_small_cohorts_ppa(tile2%vegn,tile2%soil)
+  endif
 
   ! calculate normalized weights
   x1 = tile1%frac/(tile1%frac+tile2%frac)

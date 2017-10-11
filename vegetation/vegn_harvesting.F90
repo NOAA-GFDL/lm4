@@ -24,7 +24,7 @@ use soil_tile_mod, only : num_l, LEAF, CWOOD, soil_tile_type
 use vegn_tile_mod, only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_lai
 use soil_util_mod, only : add_root_litter
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools
-use vegn_disturbance_mod, only : kill_plants_ppa
+use vegn_util_mod, only : kill_plants_ppa
 use soil_carbon_mod, only: soil_carbon_option, add_litter, C_FAST, C_SLOW, &
      SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, N_C_TYPES
 

@@ -73,7 +73,7 @@ use vegn_dynamics_mod, only : vegn_dynamics_init, vegn_dynamics_end, &
      vegn_carbon_int_lm3, vegn_carbon_int_ppa,    &
      vegn_phenology_lm3,  vegn_phenology_ppa,     &
      vegn_growth, vegn_starvation_ppa, vegn_biogeography, &
-     vegn_reproduction_ppa, kill_small_cohorts_ppa
+     vegn_reproduction_ppa
 use vegn_disturbance_mod, only : vegn_nat_mortality_lm3, &
      vegn_disturbance, update_fuel
 use vegn_harvesting_mod, only : &
@@ -83,6 +83,7 @@ use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, SOILC_CORPSE_N, &
      N_C_TYPES, C_FAST, C_SLOW, c_shortname, c_longname, &
      add_litter, soil_NH4_deposition, soil_NO3_deposition, soil_org_N_deposition, &
      cull_cohorts
+use vegn_util_mod, only: kill_small_cohorts_ppa
 
 implicit none
 private

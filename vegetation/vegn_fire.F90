@@ -42,7 +42,7 @@ use soil_util_mod, only : add_root_litter, add_soil_carbon
 use soil_carbon_mod, only : add_litter, soil_carbon_option, poolTotals, &
       remove_C_N_fraction_from_pool, N_C_TYPES, &
       SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N
-use vegn_disturbance_mod, only : kill_plants_ppa
+use vegn_util_mod, only : kill_plants_ppa
 
 implicit none
 private
