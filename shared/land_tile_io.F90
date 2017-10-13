@@ -874,8 +874,8 @@ subroutine get_tile_data_r1d_fptr_r0ij(restart,varname,zdim,fptr,index)
      call fms_io_unstructured_get_field_size(restart%basename, zdim, flen, lnd%ug_domain, &
                                              field_found=found)
      if (.not. found) call error_mesg("get_tile_data_r1d_fptr_r0ij", &
-                         "axis '"//trim(zdim)//"' was not found in file '"//trim(restart%basename)//"'.", &
-                         FATAL)
+          "axis '"//trim(zdim)//"' was not found in file '"//trim(restart%basename)//"'.", &
+          FATAL)
 
     !Read in the field from the file.
      allocate(r(size(restart%tidx),flen(1)))
@@ -1912,17 +1912,18 @@ subroutine write_tile_data_i2d(ncid,name,data,zdim,long_name,units)
         do i = 1,size(data,2)
            buff2(k+1:k+ntiles(p),i) = buff1((i-1)*ntiles(p)+1:i*ntiles(p))
         enddo
+        k = k+ntiles(p)
      enddo
 
      ! create variable, if it does not exist
      if(nf_inq_varid(ncid,name,varid)/=NF_NOERR) then
         dimnames(1) = tile_index_name
         dimnames(2) = zdim
-        __NF_ASRT__(nfu_def_var(ncid,name,NF_DOUBLE,dimnames,long_name,units,varid))
+        __NF_ASRT__(nfu_def_var(ncid,name,NF_INT,dimnames,long_name,units,varid))
      endif
      ! write data
      iret = nf_enddef(ncid) ! ignore errors: its OK if file is in data mode already
-     __NF_ASRT__(nf_put_var_double(ncid,varid,buff2))
+     __NF_ASRT__(nf_put_var_int(ncid,varid,buff2))
      deallocate(buff2,buff1,ntiles)
   endif
   ! wait for all PEs to finish: necessary because mpp_send does not seem to
@@ -2027,8 +2028,8 @@ subroutine write_tile_data_r3d(ncid,name,data,dim1,dim2,long_name,units)
         n = 0
         do i = 1,size(data,2)
         do j = 1,size(data,3)
-           buff3(k+1:k+ntiles(p),i,j) = buff1(n*ntiles(p)+1:n*ntiles(p))
-           n = n+ntiles(p)
+           buff3(k+1:k+ntiles(p),i,j) = buff1(n*ntiles(p)+1:(n+1)*ntiles(p))
+           n = n+1
         enddo
         enddo
         k = k+ntiles(p)

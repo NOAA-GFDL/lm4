@@ -6,7 +6,7 @@ use land_constants_mod, only: NBANDS, mol_h2o, mol_air
 use vegn_data_mod, only : spdata, &
    use_mcm_masking, use_bucket, critical_root_density, &
    tg_c4_thresh, tg_c3_thresh, l_fract, fsc_liv, &
-   phen_ev1, phen_ev2, cmc_eps, use_light_saber, sai_cover
+   phen_ev1, phen_ev2, cmc_eps, use_light_saber, sai_cover, min_lai
 use vegn_data_mod, only : PT_C3, PT_C4, CMPT_ROOT, CMPT_LEAF, &
    SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
    LEAF_OFF, LU_CROP, PHEN_EVERGREEN, PHEN_DECIDIOUS
@@ -545,6 +545,10 @@ subroutine update_biomass_pools(c, update_bl)
            if (update_bl_) c%bl  = c%bl + (c%bliving*c%Pl-c%bl)*0.05 ! dt/tau
            !__DEBUG3__(c%bl,c%bliving*c%Pl,(c%bliving*c%Pl-c%bl)*0.1)
         endif
+        ! drop all leaves if LAI is too small. Otherwise LAI values become very small
+        ! (seen numbers as low as 1e-299) causing all sorts of numerical instabilities
+        ! in various places in the model.
+        if (lai_from_biomass(c%bl,c%species) < min_lai) c%bl = 0.0
         c%bsw = c%Psw*c%bliving + c%Pl*c%bliving - c%bl
      else
         c%bl  = c%Pl*c%bliving
