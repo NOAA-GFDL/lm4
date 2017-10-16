@@ -1596,11 +1596,12 @@ subroutine vegn_step_2 ( vegn, diag, &
   real :: indiv2area ! conversion factor from values per indiv. to values per unit cohort area
   real :: area2indiv ! reciprocal of the indiv2area conversion factor
 
+  N = vegn%n_cohorts
   if (is_watch_point()) then
      write(*,*)'#### vegn_step_2 input ####'
-     __DEBUG1__(vegn%cohorts%Tv)
-     __DEBUG1__(vegn%cohorts%Wl)
-     __DEBUG1__(vegn%cohorts%Ws)
+     __DEBUG1__(vegn%cohorts(1:N)%Tv)
+     __DEBUG1__(vegn%cohorts(1:N)%Wl)
+     __DEBUG1__(vegn%cohorts(1:N)%Ws)
      __DEBUG1__(delta_Tv)
      __DEBUG1__(delta_wl)
      __DEBUG1__(delta_wf)
@@ -1704,7 +1705,6 @@ subroutine vegn_step_2 ( vegn, diag, &
   ! leaf_size,leaf rad. prop. should probably be averaged with LAI+SAI as weight
   ! root_zeta -- perhaps averaged with root density as weight?
   ! snow_crit???
-  N = vegn%n_cohorts
   associate(c=>vegn%cohorts)
   call send_cohort_data(id_height_ave, diag, c(1:N), c(1:N)%height, weight=c(1:N)%nindivs, op=OP_AVERAGE)
   ! TODO: calculate vegetation temperature as total sensible heat/total heat capacity

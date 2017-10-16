@@ -1347,7 +1347,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   filename = trim(timestamp)//'soil.res.nc'
   call init_land_restart(restart, filename, soil_tile_exists, tile_dim_length)
   call add_restart_axis(restart,'zfull',zfull(1:num_l),'Z','m','full level',sense=-1)
-     if (soil_carbon_option==SOILC_CORPSE.or.soil_carbon_option==SOILC_CORPSE_N) then
+  if (soil_carbon_option==SOILC_CORPSE.or.soil_carbon_option==SOILC_CORPSE_N) then
      call add_restart_axis(restart,'soilCCohort',(/(float(i),i=1,soilMaxCohorts)/),'CC')
   endif
 
@@ -1621,11 +1621,20 @@ subroutine soil_step_1 ( soil, vegn, diag, &
   real :: psi_for_rh
 
   if(is_watch_point()) then
+     write(*,*) '########### soil_step_1 input ###########'
      __DEBUG1__(soil%tag)
      __DEBUG1__(soil%pars%k_sat_ref)
      __DEBUG1__(soil%pars%psi_sat_ref)
      __DEBUG1__(soil%pars%chb)
      __DEBUG1__(soil%pars%vwc_sat)
+!      do l = 1,N_LITTER_POOLS
+!         call debug_pool(soil%litter(l), trim(c_shortname(l))//'_litter')
+!      enddo
+!      do l = 1, num_l
+!         write(*,'(i2.2,x)',advance='NO') l
+!         call debug_pool(soil%soil_organic_matter(l), '')
+!      enddo
+     write(*,*) '########### end of soil_step_1 input ###########'
   endif
 ! ----------------------------------------------------------------------------
 ! in preparation for implicit energy balance, determine various measures
@@ -2726,7 +2735,8 @@ end subroutine soil_step_1
          call debug_pool(soil%litter(l), trim(c_shortname(l))//'_litter')
       enddo
       do l = 1, num_l
-         call debug_pool(soil%soil_organic_matter(l), 'soil_organic_matter(l)')
+         write(*,'(i2.2,x)',advance='NO') l
+         call debug_pool(soil%soil_organic_matter(l), '')
       enddo
       do l = 1, size(soil%div_hlsp_DOC,2)
          __DEBUG1__(soil%div_hlsp_DOC(:,l))
@@ -2820,7 +2830,8 @@ end subroutine soil_step_1
       enddo
       __DEBUG3__(leaflitter_DOC_loss,woodlitter_DOC_loss,total_DOC_div)
       do l = 1, num_l
-         call debug_pool(soil%soil_organic_matter(l), 'soil_organic_matter(l)')
+         write(*,'(i2.2,x)',advance='NO') l
+         call debug_pool(soil%soil_organic_matter(l), '')
       enddo
    endif
 

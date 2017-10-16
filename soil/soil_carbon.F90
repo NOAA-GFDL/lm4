@@ -12,7 +12,8 @@ use fms_mod, only: check_nml_error, file_exist, close_file, &
 use vegn_data_mod, only: K1,K2
 use land_numerics_mod,only: tridiag
 use land_data_mod, only: log_version
-use land_debug_mod, only: get_current_point, is_watch_point, check_var_range
+use land_debug_mod, only: get_current_point, is_watch_point, check_var_range, &
+     check_conservation, carbon_cons_tol
 
 #ifdef INTERNAL_FILE_NML
 use mpp_mod, only: input_nml_file
@@ -390,8 +391,10 @@ subroutine dissolve_carbon(pool,theta)
 
   real :: C_dissolution_rate, N_dissolution_rate
   real :: C_protected_solubility, N_protected_solubility
-  real::C_dissolved(N_C_TYPES),protectedC_dissolved(N_C_TYPES),livemicrobeC_dissolved
-  real::N_dissolved(N_C_TYPES),protectedN_dissolved(N_C_TYPES),livemicrobeN_dissolved
+  real :: C_dissolved(N_C_TYPES),protectedC_dissolved(N_C_TYPES),livemicrobeC_dissolved
+  real :: N_dissolved(N_C_TYPES),protectedN_dissolved(N_C_TYPES),livemicrobeN_dissolved
+  
+  integer :: k ! cohort iterator, for debug only
 
   if (theta <= 0.0) return ! do nothing if water in not positive
 
@@ -402,16 +405,16 @@ subroutine dissolve_carbon(pool,theta)
   if (C_protected_solubility<0.0) C_protected_solubility=0.0
   if (C_protected_solubility>1.0) C_protected_solubility=1.0
 
-  IF(soil_carbon_option == SOILC_CORPSE_N) THEN
+  if(soil_carbon_option == SOILC_CORPSE_N) then
       N_dissolution_rate=N_leaching_solubility*theta
 
       N_protected_solubility=theta**gas_diffusion_exp*N_protected_relative_solubility
       if (N_protected_solubility<0.0) N_protected_solubility=0.0
       if (N_protected_solubility>1.0) N_protected_solubility=1.0
-  ELSE
+  else
       N_dissolution_rate = 0.0
       N_protected_solubility = 0.0
-  ENDIF
+  endif
 
   call remove_C_N_fraction_from_pool(pool,C_dissolution_rate,N_dissolution_rate, &
               litterC_removed=C_dissolved,protectedC_removed=protectedC_dissolved,&
@@ -422,13 +425,12 @@ subroutine dissolve_carbon(pool,theta)
               C_litterMobility=C_flavor_relative_solubility,N_protectedMobility=N_protected_solubility,&
               N_litterMobility=N_flavor_relative_solubility)
 
-  C_dissolved=C_dissolved+protectedC_dissolved
-  ! protected_turnover_rate=protected_turnover_rate+protectedC_dissolved/dt
-  N_dissolved=N_dissolved+protectedN_dissolved
-  ! protected_N_turnover_rate=protected_N_turnover_rate+protectedN_dissolved/dt
-
-  pool%dissolved_carbon=pool%dissolved_carbon+C_dissolved
-  pool%dissolved_nitrogen=pool%dissolved_nitrogen+N_dissolved
+  if(is_watch_point()) then
+     __DEBUG2__(C_dissolved,protectedC_dissolved)
+     __DEBUG2__(N_dissolved,protectedN_dissolved)
+  endif
+  pool%dissolved_carbon   = pool%dissolved_carbon   + C_dissolved + protectedC_dissolved
+  pool%dissolved_nitrogen = pool%dissolved_nitrogen + N_dissolved + protectedN_dissolved
 end subroutine dissolve_carbon
 
 
@@ -1530,8 +1532,22 @@ subroutine debug_pool(p,tag)
    character(*), intent(in) :: tag
 
    integer :: i
-   write(*,'(x,a)',advance='NO')trim(tag)
-   __DEBUG5__(p%max_cohorts,p%n_cohorts,p%protection_rate,p%Qmax,p%dissolved_carbon)
+   real :: litterC(N_C_TYPES),litterN(N_C_TYPES)
+
+   write(*,'(x,a,x,"n_cohorts=",i2.2,x,"max_cohorts=",i2.2)',advance='NO')trim(tag),p%n_cohorts,p%max_cohorts
+   __DEBUG___(p%protection_rate)
+   __DEBUG___(p%Qmax)
+   __DEBUG___(p%dissolved_carbon)
+   
+   litterC = 0.0; litterN = 0.0
+   do i = 1, p%n_cohorts
+      litterC = litterC + p%litterCohorts(i)%litterC
+      litterN = litterN + p%litterCohorts(i)%litterN
+   enddo
+   call dpri('litterC',litterC)
+   call dpri('litterN',litterN)
+   write(*,*)
+
 !   do i = 1, p%n_cohorts
 !      write(*,'(x,i3.3)',advance='NO')i
 !      call debug_cohort(p%litterCohorts(i))
@@ -1891,7 +1907,7 @@ subroutine remove_C_N_fraction_from_pool(pool,fractionC,fractionN,litterC_remove
         C_litterMobility,C_protectedMobility,N_litterMobility,N_protectedMobility,&
         livingMicrobeMobility)
     type(soil_pool),intent(inout) :: pool
-    real,intent(in) :: fractionC,fractionN
+    real,intent(in)  :: fractionC,fractionN
     real,intent(out) :: litterC_removed(N_C_TYPES),protectedC_removed(N_C_TYPES),liveMicrobeC_removed
     real,intent(out) :: litterN_removed(N_C_TYPES),protectedN_removed(N_C_TYPES),liveMicrobeN_removed
     real,intent(in), optional :: C_litterMobility(N_C_TYPES),C_protectedMobility,N_litterMobility(N_C_TYPES),N_protectedMobility,livingMicrobeMobility
@@ -2458,46 +2474,12 @@ subroutine tracer_advection(tracer_mass,flow,div,dz,del_tracer,divergence_loss,w
 
 end subroutine tracer_advection
 
-!
-!    real,intent(out),optional::del_DOC(:,:)
-!
-!    real::litterbefore(N_C_TYPES,size(layers))
-!    real,dimension(N_C_TYPES,size(layers)) :: dissolved_litter
-!    real,dimension(N_C_TYPES,size(layers)) :: div_loss_litter
-!    real::d_litter(N_C_TYPES,size(layers))
-!    integer::ll,ii,badcohort,n
-!    ! ZMS: for debug
-!    integer:: i,j,k,face
-!
-!
-!
-!    do ii=1,N_C_TYPES
-!    litterbefore(ii,:)=layers(:)%dissolved_carbon(ii)
-!    if(any(litterbefore(ii,:)<0)) then
-!        print *,'Carbon flavor',ii
-!        print *,litterbefore(ii,:)
-!        call error_mesg('carbon_leaching','Dissolved litter < 0 (before advection)',FATAL)
-!    endif
-!
-!    call tracer_advection(layers(:)%dissolved_carbon(ii),flow(1:size(layers)),div*dt*0,dz,d_litter(ii,:),div_loss_litter(ii,:))
-!
-!    if(any(layers(:)%dissolved_carbon(ii)<0)) call error_mesg('carbon_leaching','Dissolved litter < 0 (after advection)',FATAL)
-!    enddo
-!
-!    if(present(del_DOC)) del_DOC=d_litter
-!
-!
-! end subroutine tracer_advection_prev
-
-
-
-
 
 subroutine tracer_leaching_with_litter(soil,wl,leaflitter,woodlitter,flow,litterflow,div,dz,dt,del_soil_DOC,&
-                        del_leaflitter_DOC,del_woodlitter_DOC,div_DOC_loss,&
-                        tiled,div_hlsp_DOC,surf_DOC_loss,div_hlsp_DON,surf_DON_loss,div_hlsp_NO3,surf_NO3_loss,div_hlsp_NH4,surf_NH4_loss,&
-                        del_soil_DON,del_leaflitter_DON,del_woodlitter_DON,div_DON_loss,del_soil_NH4,del_soil_NO3,del_leaflitter_NH4,&
-                        del_leaflitter_NO3,del_woodlitter_NH4,del_woodlitter_NO3,div_NH4_loss,div_NO3_loss)
+  del_leaflitter_DOC,del_woodlitter_DOC,div_DOC_loss,&
+  tiled,div_hlsp_DOC,surf_DOC_loss,div_hlsp_DON,surf_DON_loss,div_hlsp_NO3,surf_NO3_loss,div_hlsp_NH4,surf_NH4_loss,&
+  del_soil_DON,del_leaflitter_DON,del_woodlitter_DON,div_DON_loss,del_soil_NH4,del_soil_NO3,del_leaflitter_NH4,&
+  del_leaflitter_NO3,del_woodlitter_NH4,del_woodlitter_NO3,div_NH4_loss,div_NO3_loss)
 
 !xz note: wl soil layer water volumn, mm^3/mm^2, defined by CH ; div, divergent flux or horizontal flow; del is the change along the time dimension
 
@@ -2506,9 +2488,9 @@ subroutine tracer_leaching_with_litter(soil,wl,leaflitter,woodlitter,flow,litter
     type(soil_pool),intent(inout)::leaflitter,woodlitter!xz
 
 !!xz check the unit of flow!!For CH's code, it should be kg/year or kg/dt's unit.!!! I assume here the unit is mm/yr
-    real,dimension(:),intent(in)::flow,div,dz,wl !flow (into layer) and wl in units of mm, downward is >0  !!!xz check the unit of dz (should be m in this subroutine), flow (shoul be mm)
-    real,intent(in)  :: litterflow  !Flow and divergence for litter layer
-    real,intent(in)::dt                       ! time step, s
+    real, intent(in) :: flow(:),div(:),dz(:),wl(:) !flow (into layer) and wl in units of mm, downward is >0  !!!xz check the unit of dz (should be m in this subroutine), flow (shoul be mm)
+    real, intent(in) :: litterflow  !Flow and divergence for litter layer
+    real, intent(in) :: dt                       ! time step, s
 
     real,parameter::dens_h2o=1000.0 !xz
 
@@ -2526,30 +2508,26 @@ subroutine tracer_leaching_with_litter(soil,wl,leaflitter,woodlitter,flow,litter
     real, optional, intent(out) :: surf_NO3_loss,surf_NH4_loss ! [kg N/m^2] loss from top layer to surface runoff
 !!!!!!!xz [end]
 
-    !real,intent(out),optional::del_soil_DOC(:,:),div_DOC_loss(:,:),del_leaflitter_DOC(:),del_woodlitter_DOC(:) !xz
-    real,intent(out),optional::del_soil_DOC(:,:),del_soil_DON(:,:),div_DOC_loss(:,:),del_leaflitter_DOC(:),del_woodlitter_DOC(:),&
-                                                                del_leaflitter_DON(:),del_woodlitter_DON(:),div_DON_loss(:,:),del_soil_NH4(:),del_soil_NO3(:),&
-                                del_leaflitter_NH4,del_leaflitter_NO3, del_woodlitter_NH4,del_woodlitter_NO3,&
-                                                                div_NH4_loss(:),div_NO3_loss(:) !xz
+    real, intent(out), optional :: &
+       del_soil_DOC(:,:),del_soil_DON(:,:),div_DOC_loss(:,:),del_leaflitter_DOC(:),del_woodlitter_DOC(:),&
+       del_leaflitter_DON(:),del_woodlitter_DON(:),div_DON_loss(:,:),del_soil_NH4(:),del_soil_NO3(:),&
+       del_leaflitter_NH4, del_leaflitter_NO3, del_woodlitter_NH4, del_woodlitter_NO3,&
+       div_NH4_loss(:),div_NO3_loss(:) !xz
 
 
 
-    !real::DOC(N_C_TYPES,size(soil)+1)!xz
-    real::DOC(N_C_TYPES,size(soil)+1), DON(N_C_TYPES,size(soil)+1),NH4_dissolved(size(soil)+1),NO3_dissolved(size(soil)+1)!xz
+    real :: DOC(N_C_TYPES,size(soil)+1), DON(N_C_TYPES,size(soil)+1), NH4_dissolved(size(soil)+1), NO3_dissolved(size(soil)+1)!xz
 
 
-!    real,dimension(N_C_TYPES,size(soil)+1) :: div_loss!xz
     real,dimension(N_C_TYPES,size(soil)+1) :: div_loss,div_loss_N!xz
     real,dimension(size(soil)+1)           :: div_loss_NO3,div_loss_NH4
 
-    !real::d_DOC(N_C_TYPES,size(soil)+1)!xz
     real::d_DOC(N_C_TYPES,size(soil)+1),d_DON(N_C_TYPES,size(soil)+1),d_NH4(size(soil)+1),d_NO3(size(soil)+1)!xz
 
     real,dimension(size(soil)+1) :: flow_with_litter, div_with_litter, dz_with_litter ! water flow
     integer::l,ii
 
-    !real::litterThickness,leaflitterTotalC,woodlitterTotalC,DOCbefore(size(soil)+1),leaf_DOC_frac!xz
-    real::litterThickness,leaflitterTotalC,woodlitterTotalC,DOCbefore(size(soil)+1),DONbefore(size(soil)+1),leaf_DOC_frac,leaf_DON_frac,&
+    real::litterThickness,leaflitterTotalC,woodlitterTotalC,DONbefore(size(soil)+1),leaf_DOC_frac,leaf_DON_frac,&
                         NH4before(size(soil)+1),NO3before(size(soil)+1),leaf_NH4_frac,leaf_NO3_frac
 
 !!!!!!!xz Not in CH's code. need to consider add N here as well.
@@ -2557,10 +2535,12 @@ subroutine tracer_leaching_with_litter(soil,wl,leaflitter,woodlitter,flow,litter
     real, parameter :: minwl = 0.1 ! [mm]
 !!!!!!!xz [end]
 
+    real :: mass0, mass1 ! for conservation checks
+
     !For now, use a mininum litter thickness of 5 mm
     call poolTotals(leaflitter, totalCarbon=leaflitterTotalC)
     call poolTotals(woodlitter, totalCarbon=woodlitterTotalC)
-    litterThickness=max((leaflitterTotalC+woodlitterTotalC)/litterDensity,5e-3)
+    litterThickness = max((leaflitterTotalC+woodlitterTotalC)/litterDensity,5e-3)
 
 !!!!!!!xz note: please make sure the unit of flow is ????
     flow_with_litter(1)=0.0
@@ -2742,51 +2722,29 @@ ENDIF
     do ii=1,N_C_TYPES
        DOC(ii,1)=leaflitter%dissolved_carbon(ii)+woodlitter%dissolved_carbon(ii)
 
-
        if(DOC(ii,1)>0) then
            leaf_DOC_frac=leaflitter%dissolved_carbon(ii)/DOC(ii,1)
        else
            leaf_DOC_frac=0.0
        endif
 
-
        DOC(ii,2:size(soil)+1)=soil(:)%dissolved_carbon(ii)
 
-
-       if(any(DOC(ii,:)<0)) then
-           print *,'Carbon flavor',ii
-           print *,DOC(ii,:)
-           call error_mesg('tracer_leaching_with_litter','Dissolved carbon < 0 (before advection)',FATAL)
-       endif
-
-       DOCbefore=DOC(ii,:)
-
-
+       call check_var_range(DOC(ii,:), 0.0, HUGE(1.0), 'tracer_leaching_with_litter', 'DOC('//trim(c_shortname(ii))//',:) before advec.',FATAL)
+       mass0 = sum(DOC(ii,:))
        if (is_watch_point()) then
-          __DEBUG1__(DOCbefore)
+          write (*,'(a,"(",i2,")")') '# carbon flavor "'//trim(c_shortname(ii))//'"', ii 
+          call dpri('DOC before advec:', DOC(ii,:)); write(*,*)
        endif
-
-       !call tracer_advection(DOC(ii,:),flow_with_litter(:),div_with_litter(:),dz_with_litter,wl,d_DOC(ii,:),div_loss(ii,:))!xz
+       
        call tracer_advection(DOC(ii,:),flow_with_litter(:),div_with_litter(:),dz_with_litter,d_DOC(ii,:),div_loss(ii,:),wl(:))!xz
 
        if (is_watch_point()) then
-          __DEBUG1__(DOC(ii,:))
+          call dpri('DOC after  advec:', DOC(ii,:)); write(*,*)
        endif
-
-       if(abs(sum(DOC(ii,:))-sum(DOCbefore)).gt.1e-10) then
-           print *,'Flavor:',ii
-           print *,'Before:'
-           print *,DOCbefore
-           print *,'After:'
-           print *,DOC(ii,:)
-           print *,'Difference:'
-           print *,d_DOC(ii,:)
-           print *,'Flow:'
-           print *,flow_with_litter
-           print *,'Total difference:',sum(DOC(ii,:))-sum(DOCbefore)
-           call error_mesg('tracer_leaching_with_litter','Dissolved carbon not conserved',FATAL)
-       endif
-       if(any(DOC(ii,:)<-1e-11)) call error_mesg('tracer_leaching_with_litter','Dissolved carbon < 0 (after advection)',FATAL)
+       mass1 = sum(DOC(ii,:))
+       call check_conservation('tracer_leaching_with_litter','DOC', mass0,mass1, carbon_cons_tol )
+       call check_var_range(DOC(ii,:), 0.0, HUGE(1.0), 'tracer_leaching_with_litter', 'DOC('//trim(c_shortname(ii))//',:) after advec.',FATAL)
 
        if (tiled) then ! reset div_loss(ii,2:num_l+1) according to values calculated in hlsp_hydrology
           div_loss(ii,2:size(soil)+1) = div_hlsp_DOC(ii,:)*dt
