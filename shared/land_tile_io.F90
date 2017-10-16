@@ -1720,7 +1720,7 @@ subroutine read_tile_data_r2d_fptr_r0ijk (ncid,name,fptr,index)
    integer     , intent(in) :: ncid ! netcdf file id
    character(*), intent(in) :: name ! name of the variable to read
    procedure(fptr_r0ijk)    :: fptr ! subroutine returning the pointer to the data
-   integer, intent(in)      :: index
+   integer, intent(in)      :: index ! additional argument for fptr
 
    ! ---- local constants
    character(*), parameter :: module_name='read_tile_data_r2d_fptr_r0ijk'
@@ -1731,7 +1731,7 @@ subroutine read_tile_data_r2d_fptr_r0ijk (ncid,name,fptr,index)
    character(NF_MAX_NAME) :: idxname ! name of the index variable
    integer, allocatable :: idx(:) ! storage for compressed index
    real   , allocatable :: x1d(:) ! storage for the data
-   integer :: i,j,m,n,bufsize
+   integer :: i,j,k,m,bufsize
    integer :: varid, idxid
    integer :: start(3), count(3) ! input slab parameters
    type(land_tile_type), pointer :: tileptr ! pointer to tile
@@ -1761,10 +1761,10 @@ subroutine read_tile_data_r2d_fptr_r0ijk (ncid,name,fptr,index)
       ! distribute the data over the tiles
       do i = 1, min(bufsize,dimlen(1)-j+1)
          call get_tile_by_idx(idx(i), tileptr)
-         do m = 1,dimlen(2)
-         do n = 1,dimlen(3)
-            call fptr(tileptr, m, n, index, ptr)
-            if(associated(ptr)) ptr = x1d(i+count(1)*(m-1)+count(1)*count(2)*(n-1))
+         do k = 1,count(2)
+         do m = 1,count(3)
+            call fptr(tileptr, k, m, index, ptr)
+            if(associated(ptr)) ptr = x1d(i+count(1)*(k-1)+count(1)*count(2)*(m-1))
          enddo
          enddo
       enddo
@@ -2026,8 +2026,8 @@ subroutine write_tile_data_r3d(ncid,name,data,dim1,dim2,long_name,units)
         call mpp_recv(buff1(1), glen=ntiles(p)*size(data,2)*size(data,3), from_pe=lnd%io_pelist(p),&
                       tag=COMM_TAG_10)
         n = 0
-        do i = 1,size(data,2)
         do j = 1,size(data,3)
+        do i = 1,size(data,2)
            buff3(k+1:k+ntiles(p),i,j) = buff1(n*ntiles(p)+1:(n+1)*ntiles(p))
            n = n+1
         enddo
@@ -2209,9 +2209,9 @@ subroutine gather_tile_data_r2d(fptr,idx,data)
   enddo
 end subroutine gather_tile_data_r2d
 
-subroutine gather_tile_data_r2d_idx(fptr,n,idx,data)
+subroutine gather_tile_data_r2d_idx(fptr,index,idx,data)
   procedure(fptr_r0ijk) :: fptr ! subroutine returning the pointer to the data
-  integer, intent(in) :: n ! additional index argument for fptr
+  integer, intent(in) :: index ! additional index argument for fptr
   integer, intent(in) :: idx(:)  ! local vector of tile indices
   real, intent(out) :: data(:,:,:) ! local tile data
 
@@ -2228,7 +2228,7 @@ subroutine gather_tile_data_r2d_idx(fptr,n,idx,data)
      call get_tile_by_idx(idx(i), tileptr)
      do k=1,size(data,2)
      do m=1,size(data,3)
-        call fptr(tileptr, k, m, n, ptr)
+        call fptr(tileptr, k, m, index, ptr)
         if(associated(ptr)) data(i,k,m)=ptr
      enddo
      enddo
