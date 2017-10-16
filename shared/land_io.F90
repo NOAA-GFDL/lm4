@@ -81,8 +81,8 @@ end type external_ts_type
 ! ==== module data ===========================================================
 logical :: module_is_initialized = .false.
 character(len=64)  :: interp_method = "conservative"
-integer :: input_buf_size = 65536 ! input buffer size for tile and cohort reading
-logical :: new_land_io = .true.
+integer, protected :: input_buf_size = 65536 ! input buffer size for tile and cohort reading
+logical, protected :: new_land_io = .true.
 namelist /land_io_nml/ interp_method, input_buf_size, new_land_io
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
