@@ -1719,15 +1719,23 @@ end subroutine add_cohort
 
 
 ! Adds litter as a new cohort
-subroutine add_litter(pool,newLitterC,newLitterN,rhizosphere_frac)
+subroutine add_litter(pool,newLitterC,newLitterN_,rhizosphere_frac)
   type(soil_pool),intent(inout)::pool
-  real,intent(in) :: newLitterC(N_C_TYPES),newLitterN(N_C_TYPES)
+  real,intent(in) :: newLitterC(N_C_TYPES),newLitterN_(N_C_TYPES)
   real,intent(in),optional :: rhizosphere_frac
 
   type(litterCohort)::newCohort,tempCohort
   real::initialMicrobeC,initialMicrobeN
   real::rhiz_frac
   real,dimension(N_C_TYPES)::N_type_fracs,C_type_fracs
+
+  real :: newLitterN(N_C_TYPES)
+
+  if (soil_carbon_option==SOILC_CORPSE_N) then
+     newLitterN = newLitterN_
+  else
+     newLitterN = 0.0
+  endif
 
   if(sum(newLitterC)>0) then
     C_type_fracs=newLitterC/sum(newLitterC)

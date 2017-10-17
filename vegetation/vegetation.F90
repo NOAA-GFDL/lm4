@@ -2485,7 +2485,7 @@ subroutine check_conservation_2(tile,tag,lmass,fmass,cmass,nmass,heat)
      cmass1 = land_tile_carbon(tile)
      call check_conservation (tag,'carbon', cmass, cmass1, carbon_cons_tol)
   endif
-  if (present(nmass)) then
+  if (present(nmass).and.soil_carbon_option==SOILC_CORPSE_N) then
      nmass1  = land_tile_nitrogen(tile)
      call check_conservation (tag,'nitrogen', nmass, nmass1, nitrogen_cons_tol)
   endif

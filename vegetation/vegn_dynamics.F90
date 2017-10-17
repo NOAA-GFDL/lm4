@@ -953,15 +953,15 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      ! Turnover regardless of STATUS
      deltaBL = cc%bl * sp%alpha_leaf * dt_fast_yr
      deltaBR = cc%br * sp%alpha_root * dt_fast_yr
-!      deltaNL = cc%leaf_N * sp%alpha_leaf * dt_fast_yr
-!      deltaNR = cc%root_N * sp%alpha_root * dt_fast_yr
      deltaNL = deltaBL/sp%leaf_live_c2n
      deltaNR = deltaBR/sp%froot_live_c2n
 
      cc%bl = cc%bl - deltaBL
      cc%br = cc%br - deltaBR
 
-     if(cc%leaf_N-deltaNL<0) then ; __DEBUG2__(cc%leaf_N,deltaNL) ; endif
+     if(N_limits_live_biomass.and.cc%leaf_N-deltaNL<0) then
+         __DEBUG2__(cc%leaf_N,deltaNL)
+     endif
 
      ! 20170617: retranslocate part of N back to storage and reduce nitrogen pools; put
      !           retranslocated N into storage
@@ -974,9 +974,10 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
         __DEBUG4__(deltaBL,deltaBR,deltaNL,deltaNR)
         __DEBUG5__(cc%bl, cc%br, cc%leaf_N, cc%root_N, cc%stored_N)
      endif
-     call check_var_range(cc%leaf_N,0.0,HUGE(1.0),'vegn_carbon_int_ppa','cc%leaf_N',FATAL)
-     if(N_limits_live_biomass) &
+     if(N_limits_live_biomass) then
+          call check_var_range(cc%leaf_N,0.0,HUGE(1.0),'vegn_carbon_int_ppa','cc%leaf_N',FATAL)
           call check_var_range(cc%stored_N,0.0,HUGE(1.0),'vegn_carbon_int_ppa #1','cc%stored_N',FATAL)
+     endif
      ! compute branch and coarse wood losses for tree types
      md_branch_sw = 0.0
      if (spdata(cc%species)%lifeform == FORM_WOODY) then
@@ -1004,11 +1005,6 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      if (soil_carbon_option==SOILC_CORPSE_N) then
         cc%sapwood_N = cc%sapwood_N - (md_branch_sw+md_bsw)/sp%sapwood_c2n
      endif
-
-     !reduce nsc by the amount of root exudates during the date
-     ! FIXME: when merging with N code take exudates from NSC not carbon gained
-     ! FIXME: need different than a fraction of NPP formulation
-     !cc%nsc = cc%nsc-root_exudate_C(i)*dt_fast_yr
 
      ! accumulate liter and soil carbon inputs across all cohorts
      ! 20170617: deposit lost N into litter and soil

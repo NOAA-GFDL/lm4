@@ -44,7 +44,8 @@ use soil_mod, only : read_soil_namelist, soil_init, soil_end, soil_get_sfc_temp,
      soil_radiation, soil_step_1, soil_step_2, soil_step_3, save_soil_restart, &
      ! moved here to eliminate circular dependencies with hillslope mods:
      soil_cover_cold_start, retrieve_soil_tags
-use soil_carbon_mod, only : read_soil_carbon_namelist, n_c_types
+use soil_carbon_mod, only : read_soil_carbon_namelist, N_C_TYPES, soil_carbon_option, &
+    SOILC_CORPSE_N
 use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp, &
      snow_radiation, snow_get_depth_area, snow_step_1, snow_step_2, &
      save_snow_restart
@@ -2141,8 +2142,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
        nflux1=0.0
      endif
 
-     if (do_check_conservation) call check_conservation (tag,'nitrogen', &
-        nmass0, nmass1 + (nflux0 - nflux1), nitrogen_cons_tol)
+     if (do_check_conservation.and.(soil_carbon_option==SOILC_CORPSE_N)) &
+        call check_conservation (tag,'nitrogen', nmass0, nmass1 + (nflux0 - nflux1), nitrogen_cons_tol)
      call send_tile_data(id_nitrogen_cons, (nmass1-nflux1-nmass0+nflux0)/delta_time, tile%diag)
   endif
   ! heat1  = land_tile_heat(tile)
