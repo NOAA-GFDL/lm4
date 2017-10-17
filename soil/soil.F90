@@ -3265,8 +3265,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
             leaflitter_deadmic_produced, leaflitter_protected_produced, leaflitter_protected_turnover_rate, leaflitter_C_dissolved, leaflitter_C_deposited, badCohort)
   IF (badCohort.ne.0) THEN
         call get_current_point(point_i,point_j,point_k,point_face)
-        WRITE (*,*), 'Found bad cohort in leaf litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
-        WRITE (*,*), 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
+        WRITE (*,*) 'Found bad cohort in leaf litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
+        WRITE (*,*) 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
         call error_mesg('Dsdt','Found bad cohort in leaf litter',FATAL)
   ENDIF
 
@@ -3276,8 +3276,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
             fineWoodlitter_deadmic_produced, fineWoodlitter_protected_produced, fineWoodlitter_protected_turnover_rate, fineWoodlitter_C_dissolved, fineWoodlitter_C_deposited, badCohort)
   IF (badCohort.ne.0) THEN
         call get_current_point(point_i,point_j,point_k,point_face)
-        WRITE (*,*), 'Found bad cohort in fineWood litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
-        WRITE (*,*), 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
+        WRITE (*,*) 'Found bad cohort in fineWood litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
+        WRITE (*,*) 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
         call error_mesg('Dsdt','Found bad cohort in fineWood litter',FATAL)
   ENDIF
 
@@ -3287,8 +3287,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
             coarseWoodlitter_deadmic_produced, coarseWoodlitter_protected_produced, coarseWoodlitter_protected_turnover_rate, coarseWoodlitter_C_dissolved, coarseWoodlitter_C_deposited, badCohort)
   IF (badCohort.ne.0) THEN
         call get_current_point(point_i,point_j,point_k,point_face)
-        WRITE (*,*), 'Found bad cohort in coarseWood litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
-        WRITE (*,*), 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
+        WRITE (*,*) 'Found bad cohort in coarseWood litter.  Point i,j,k,face:',point_i,point_j,point_k,point_face
+        WRITE (*,*) 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
         call error_mesg('Dsdt','Found bad cohort in coarseWood litter',FATAL)
   ENDIF
 
@@ -4522,7 +4522,7 @@ subroutine redistribute_peat_carbon(soil)
         endif
 
         if (layer_extra_C < 0 .and. (soil%is_peat(nn).ne.0) .and. (soil%is_peat(nn+1).ne.0)) then
-             call poolTotalCarbon(soil%soil_C(nn+1),totalCarbon=layer_total_C_2)
+    /         call poolTotalCarbon(soil%soil_C(nn+1),totalCarbon=layer_total_C_2)
              fraction_to_remove = -layer_extra_C/layer_total_C_2
              if (fraction_to_remove > 0.5) then
                 soil%is_peat(nn+1)=0
@@ -4763,7 +4763,7 @@ DEFINE_SOIL_ACCESSOR_0D(real,coarsewoodlitter_deadmic_turnover_accumulated)
 #define DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(xtype,x) subroutine soilc_ ## x ## _ptr(t,i,j,p);\
 type(land_tile_type),pointer::t;xtype,pointer::p;integer,intent(in)::i,j;p=>NULL();if(associated(t))then;\
 if(associated(t%soil))p=>t%soil%soil_C(i)%litterCohorts(j)%x;endif;\
-endsubroutine
+end subroutine
 DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,livingMicrobeC)
 DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,Rtot)
 DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(real,CO2)
@@ -4788,7 +4788,7 @@ end subroutine
 #define DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(xtype,pool,x) subroutine soilc_ ## pool ## _ ## x ## _ptr(t,i,p);\
 type(land_tile_type),pointer::t;integer,intent(in)::i;xtype,pointer::p;p=>NULL();if(associated(t))then;\
 if(associated(t%soil))p=>t%soil%pool%litterCohorts(i)%x;endif;\
-endsubroutine
+end subroutine
 
 DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,leafLitter,livingMicrobeC)
 DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,leafLitter,CO2)
@@ -4808,7 +4808,7 @@ DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(real,coarseWoodLitter,originalLitt
 #define DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR1(xtype,pool,x) subroutine soilc_ ## pool ## _ ## x ## _ptr(t,i,j,p);\
 type(land_tile_type),pointer::t;integer,intent(in)::i,j;xtype,pointer::p;p=>NULL();if(associated(t))then;\
 if(associated(t%soil))p=>t%soil%pool%litterCohorts(i)%x(j);endif;\
-endsubroutine
+end subroutine
 
 DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR1(real,leafLitter,litterC)
 DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR1(real,leafLitter,protectedC)
@@ -4821,7 +4821,7 @@ DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR1(real,coarseWoodLitter,protectedC)
 
 #define DEFINE_SOIL_C_POOL_DOC_ACCESSOR(xtype,pool) subroutine soilc_ ## pool ## _DOC_ptr(t,i,p);\
 type(land_tile_type),pointer::t;integer,intent(in)::i;real,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%pool%dissolved_carbon(i);endif;\
-endsubroutine
+end subroutine
 
 DEFINE_SOIL_C_POOL_DOC_ACCESSOR(real,leafLitter)
 DEFINE_SOIL_C_POOL_DOC_ACCESSOR(real,fineWoodLitter)
