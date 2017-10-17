@@ -393,7 +393,7 @@ subroutine dissolve_carbon(pool,theta)
   real :: C_protected_solubility, N_protected_solubility
   real :: C_dissolved(N_C_TYPES),protectedC_dissolved(N_C_TYPES),livemicrobeC_dissolved
   real :: N_dissolved(N_C_TYPES),protectedN_dissolved(N_C_TYPES),livemicrobeN_dissolved
-  
+
   integer :: k ! cohort iterator, for debug only
 
   if (theta <= 0.0) return ! do nothing if water in not positive
@@ -574,14 +574,14 @@ subroutine update_pool(pool,T,theta,air_filled_porosity,liquid_water,frozen_wate
                         CO2prod=tempCO2,IMM_Nprod=tempIMM_N,MINERAL_prod=temp_MINERAL,denitrif=denitrif,livemic_C_produced=temp_livemic_C,livemic_N_produced=temp_livemic_N)
         IF (.NOT. check_cohort(pool%litterCohorts(n))) THEN
             if(present(badCohort)) badCohort=n
-            WRITE (*,*),'UPDATE_POOL: Cohort',n,'of',pool%n_cohorts,'bad'
+            WRITE (*,*) 'UPDATE_POOL: Cohort',n,'of',pool%n_cohorts,'bad'
             call print_cohort(pool%litterCohorts(n))
-            WRITE (*,*),'Dissolved carbon =',pool%dissolved_carbon
-            WRITE (*,*),'Latest respiration:',tempResp*dt
-            WRITE (*,*),'Previous unprotected C:',prevC
-            WRITE (*,*),'Previous unprotected N:',prevN
-            WRITE (*,*),'Pool Nitrate:',pool%nitrate
-            WRITE (*,*),'Pool ammonium:',pool%ammonium
+            WRITE (*,*) 'Dissolved carbon =',pool%dissolved_carbon
+            WRITE (*,*) 'Latest respiration:',tempResp*dt
+            WRITE (*,*) 'Previous unprotected C:',prevC
+            WRITE (*,*) 'Previous unprotected N:',prevN
+            WRITE (*,*) 'Pool Nitrate:',pool%nitrate
+            WRITE (*,*) 'Pool ammonium:',pool%ammonium
         ENDIF
 
         C_loss_rate=C_loss_rate+tempresp
@@ -1538,7 +1538,7 @@ subroutine debug_pool(p,tag)
    __DEBUG___(p%protection_rate)
    __DEBUG___(p%Qmax)
    __DEBUG___(p%dissolved_carbon)
-   
+
    litterC = 0.0; litterN = 0.0
    do i = 1, p%n_cohorts
       litterC = litterC + p%litterCohorts(i)%litterC
@@ -1558,30 +1558,30 @@ end subroutine debug_pool
 subroutine print_cohort(cohort)
     type(litterCohort)::cohort
 
-    WRITE (*,*),'----------------'
-    WRITE (*,*),'Original C =',cohort%originalLitterC
-    WRITE (*,*),'Unprotected C=',cohort%litterC
-    WRITE (*,*),'Living microbial C =',cohort%livingMicrobeC
-    WRITE (*,*),'Protected C =',cohort%protectedC
+    WRITE (*,*) '----------------'
+    WRITE (*,*) 'Original C =',cohort%originalLitterC
+    WRITE (*,*) 'Unprotected C=',cohort%litterC
+    WRITE (*,*) 'Living microbial C =',cohort%livingMicrobeC
+    WRITE (*,*) 'Protected C =',cohort%protectedC
 
-    WRITE (*,*),'CO2 =',cohort%CO2
-    WRITE (*,*),'Rtot =',cohort%Rtot
-    WRITE (*,*),'Sum of carbon =',cohortCsum(cohort)
-    WRITE (*,*),'----------------'
+    WRITE (*,*) 'CO2 =',cohort%CO2
+    WRITE (*,*) 'Rtot =',cohort%Rtot
+    WRITE (*,*) 'Sum of carbon =',cohortCsum(cohort)
+    WRITE (*,*) '----------------'
 
-    WRITE (*,*),'----------------'
-    WRITE (*,*),'Original N =',cohort%originalLitterN
-    WRITE (*,*),'Unprotected N=',cohort%litterN
-    WRITE (*,*),'Living microbial N =',cohort%livingMicrobeN
-    WRITE (*,*),'Protected N =',cohort%protectedN
+    WRITE (*,*) '----------------'
+    WRITE (*,*) 'Original N =',cohort%originalLitterN
+    WRITE (*,*) 'Unprotected N=',cohort%litterN
+    WRITE (*,*) 'Living microbial N =',cohort%livingMicrobeN
+    WRITE (*,*) 'Protected N =',cohort%protectedN
 
-    WRITE (*,*),'gross miner =',cohort%MINER_prod
-    WRITE (*,*),'gross Immobil =',cohort%IMM_Nprod
-    WRITE (*,*),'last miner =',cohort%MINER_gross
-    WRITE (*,*),'last immob =',cohort%IMM_N_gross
-    WRITE (*,*),'Sum of nitrogen =',cohortNsum(cohort)
+    WRITE (*,*) 'gross miner =',cohort%MINER_prod
+    WRITE (*,*) 'gross Immobil =',cohort%IMM_Nprod
+    WRITE (*,*) 'last miner =',cohort%MINER_gross
+    WRITE (*,*) 'last immob =',cohort%IMM_N_gross
+    WRITE (*,*) 'Sum of nitrogen =',cohortNsum(cohort)
 
-    if(cohort%livingMicrobeN>0) WRITE(*,*), 'Microbe C:N =',cohort%livingMicrobeC/cohort%livingMicrobeN
+    if(cohort%livingMicrobeN>0) WRITE(*,*) 'Microbe C:N =',cohort%livingMicrobeC/cohort%livingMicrobeN
 end subroutine
 
 
@@ -1900,7 +1900,7 @@ subroutine add_C_N_to_rhizosphere(pool,newCarbon,newNitrogen)
 
     do n=1,pool%n_cohorts
        IF (.NOT. check_cohort(pool%litterCohorts(n))) THEN
-            WRITE (*,*),'add_C_N_to_rhizosphere: Cohort',n,'of',pool%n_cohorts,'bad'
+            WRITE (*,*) 'add_C_N_to_rhizosphere: Cohort',n,'of',pool%n_cohorts,'bad'
             call print_cohort(pool%litterCohorts(n))
             call error_mesg('add_C_N_to_rhizosphere','Bad cohort',FATAL)
        ENDIF
@@ -2166,7 +2166,7 @@ subroutine transfer_pool_fraction(source, destination, fraction)
 
     do nn=1,source%n_cohorts
          IF (.NOT. check_cohort(source%litterCohorts(nn))) THEN
-              WRITE(*,*),'transfer_pool_fraction: Cohort',nn,'of',source%n_cohorts,'bad'
+              WRITE(*,*) 'transfer_pool_fraction: Cohort',nn,'of',source%n_cohorts,'bad'
             call print_cohort(source%litterCohorts(nn))
             call error_mesg('add_C_N_to_rhizosphere','Bad cohort',FATAL)
        ENDIF
@@ -2175,7 +2175,7 @@ subroutine transfer_pool_fraction(source, destination, fraction)
 
     do nn=1,destination%n_cohorts
          IF (.NOT. check_cohort(destination%litterCohorts(nn))) THEN
-              WRITE(*,*),'transfer_pool_fraction: Cohort',nn,'of',destination%n_cohorts,'bad'
+              WRITE(*,*) 'transfer_pool_fraction: Cohort',nn,'of',destination%n_cohorts,'bad'
             call print_cohort(destination%litterCohorts(nn))
             call error_mesg('add_C_N_to_rhizosphere','Bad cohort',FATAL)
        ENDIF
@@ -2317,7 +2317,7 @@ subroutine cull_cohorts(pool)
     ENDDO
 
     ! Cafter=cohortCsum(totalCarbonCohort(pool))
-    ! IF(ncombined.gt.0) WRITE (*,*),'Combined',ncombined,'cohorts'
+    ! IF(ncombined.gt.0) WRITE (*,*) 'Combined',ncombined,'cohorts'
     ! totalCombineError=totalCombineError+(Cafter-Cbefore)
 
 end subroutine cull_cohorts
@@ -2741,10 +2741,10 @@ ENDIF
        call check_var_range(DOC(ii,:), 0.0, HUGE(1.0), 'tracer_leaching_with_litter', 'DOC('//trim(c_shortname(ii))//',:) before advec.',FATAL)
        mass0 = sum(DOC(ii,:))
        if (is_watch_point()) then
-          write (*,'(a,"(",i2,")")') '# carbon flavor "'//trim(c_shortname(ii))//'"', ii 
+          write (*,'(a,"(",i2,")")') '# carbon flavor "'//trim(c_shortname(ii))//'"', ii
           call dpri('DOC before advec:', DOC(ii,:)); write(*,*)
        endif
-       
+
        call tracer_advection(DOC(ii,:),flow_with_litter(:),div_with_litter(:),dz_with_litter,d_DOC(ii,:),div_loss(ii,:),wl(:))!xz
 
        if (is_watch_point()) then

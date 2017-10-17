@@ -3139,7 +3139,7 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
             nitrification=litter_nitrif(k), denitrification=litter_denitrif(k),&
             N_mineralization=litter_N_mineralization(k), N_immobilization=Litter_N_immobilization(k))
      IF (badCohort.ne.0) THEN
-        WRITE (*,*), 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
+        WRITE (*,*) 'T=',decomp_T(1),'theta=',decomp_theta(1),'dt=',dt_fast_yr
         call land_error_message('Dsdt: Found bad cohort in '//trim(l_longname(k))//' litter.',FATAL)
      ENDIF
      vegn%rh=vegn%rh + CO2prod/dt_fast_yr ! accumulate loss of C to atmosphere
@@ -3171,7 +3171,7 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
                 nitrification=soil_nitrif(k),denitrification=soil_denitrif(k),&
                 N_mineralization=soil_N_mineralization(k),N_immobilization=soil_N_immobilization(k))
     IF (badCohort.ne.0) THEN
-        WRITE (*,*), 'T=',decomp_T(k),'theta=',decomp_theta(k),'dt=',dt_fast_yr
+        WRITE (*,*) 'T=',decomp_T(k),'theta=',decomp_theta(k),'dt=',dt_fast_yr
         call land_error_message('Dsdt: Found bad cohort in layer'//trim(string(k))//' of soil carbon.',FATAL)
     ENDIF
 
