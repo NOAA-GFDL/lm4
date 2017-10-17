@@ -3350,8 +3350,8 @@ subroutine Dsdt_CORPSE(vegn, soil, diag)
     deadmic_produced(k),protected_produced(:,k),protected_turnover_rate(:,k),C_dissolved(:,k),C_deposited(:,k),badCohort)
     IF (badCohort.ne.0) THEN
         call get_current_point(point_i,point_j,point_k,point_face)
-        WRITE (*,*), 'Found bad cohort in layer',k,'Point i,j,k,face:',point_i,point_j,point_k,point_face
-        WRITE (*,*), 'T=',decomp_T(k),'theta=',decomp_theta(k),'dt=',dt_fast_yr
+        WRITE (*,*)  'Found bad cohort in layer',k,'Point i,j,k,face:',point_i,point_j,point_k,point_face
+        WRITE (*,*)  'T=',decomp_T(k),'theta=',decomp_theta(k),'dt=',dt_fast_yr
         call error_mesg('Dsdt','Found bad cohort',FATAL)
     ENDIF
 
@@ -4522,7 +4522,7 @@ subroutine redistribute_peat_carbon(soil)
         endif
 
         if (layer_extra_C < 0 .and. (soil%is_peat(nn).ne.0) .and. (soil%is_peat(nn+1).ne.0)) then
-    /         call poolTotalCarbon(soil%soil_C(nn+1),totalCarbon=layer_total_C_2)
+             call poolTotalCarbon(soil%soil_C(nn+1),totalCarbon=layer_total_C_2)
              fraction_to_remove = -layer_extra_C/layer_total_C_2
              if (fraction_to_remove > 0.5) then
                 soil%is_peat(nn+1)=0
