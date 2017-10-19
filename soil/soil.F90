@@ -4088,7 +4088,9 @@ subroutine myc_miner_N_uptake(soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_
      total_CO2prod=total_CO2prod+CO2prod
 
      do i=1,vegn%n_cohorts
-       cohort_frac=cohort_myc_mine_biomass(k,i)/total_myc_mine_biomass(k)/cc(i)%nindivs
+       cohort_frac = 0.0
+       if(cc(i)%nindivs>0) &
+          cohort_frac = cohort_myc_mine_biomass(k,i)/total_myc_mine_biomass(k)/cc(i)%nindivs
        N_uptake_cohorts(i)=N_uptake_cohorts(i)+N_uptake*cohort_frac
        C_uptake_cohorts(i)=C_uptake_cohorts(i)+C_uptake*cohort_frac
      enddo
@@ -4103,11 +4105,12 @@ subroutine myc_miner_N_uptake(soil,vegn,N_uptake_cohorts,C_uptake_cohorts,total_
      total_CO2prod  = total_CO2prod + CO2prod
 
      do i=1,vegn%n_cohorts
-       cohort_frac=cohort_myc_mine_biomass(k,i)/total_myc_mine_biomass(k)/cc(i)%nindivs
+       cohort_frac = 0.0
+       if(cc(i)%nindivs>0) &
+           cohort_frac = cohort_myc_mine_biomass(k,i)/total_myc_mine_biomass(k)/cc(i)%nindivs
        N_uptake_cohorts(i)=N_uptake_cohorts(i)+N_uptake*cohort_frac
        C_uptake_cohorts(i)=C_uptake_cohorts(i)+C_uptake*cohort_frac
      enddo
-
   enddo
 
   myc_efficiency = sum(N_uptake_cohorts*cc(:)%nindivs)/sum(total_myc_mine_biomass)
