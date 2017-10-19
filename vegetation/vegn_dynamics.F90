@@ -86,8 +86,11 @@ integer :: &
     id_rhiz_exud_marginal_gain,id_myc_scavenger_N_uptake,&
     id_myc_miner_N_uptake,id_symbiotic_N_fixation,id_active_root_N_uptake,&
     id_scav_plant_N_uptake, id_mine_plant_N_uptake, id_fix_plant_N_uptake,&
-    id_exudate
-
+    id_exudate, &
+    id_mycorrhizal_scav_C_res, id_mycorrhizal_scav_N_res, &
+    id_mycorrhizal_mine_C_res, id_mycorrhizal_mine_N_res, &
+    id_Nfix_C_res, id_Nfix_N_res, &
+    id_N_fix_alloc_smoothed, id_myc_mine_alloc_smoothed, id_myc_scav_alloc_smoothed
 
 contains
 
@@ -229,6 +232,26 @@ subroutine vegn_dynamics_init(id_ug, time, delta_time)
        (/id_ug/), time, 'Symbiotic N fixation', 'kg N/m2/year', missing_value=-1.0 )
   id_active_root_N_uptake = register_cohort_diag_field ( diag_mod_name, 'active_root_N_uptake',  &
        (/id_ug/), time, 'N uptake by root active transport', 'kg N/m2/year', missing_value=-1.0 )
+
+  id_mycorrhizal_scav_C_res = register_tiled_diag_field ( module_name, 'myc_scavenger_C_res',  &
+       (/id_ug/), time, 'Scavenger mycorrhizae C reservoir', 'kg C/m2', missing_value=-1.0 )
+  id_mycorrhizal_scav_N_res = register_tiled_diag_field ( module_name, 'myc_scavenger_N_res',  &
+       (/id_ug/), time, 'Scavenger mycorrhizae N reservoir', 'kg N/m2', missing_value=-1.0 )
+  id_mycorrhizal_mine_C_res = register_tiled_diag_field ( module_name, 'myc_miner_C_res',  &
+       (/id_ug/), time, 'Miner mycorrhizae C reservoir', 'kg C/m2', missing_value=-1.0 )
+  id_mycorrhizal_mine_N_res = register_tiled_diag_field ( module_name, 'myc_miner_N_res',  &
+       (/id_ug/), time, 'Miner mycorrhizae N reservoir', 'kg N/m2', missing_value=-1.0 )
+  id_Nfix_C_res = register_tiled_diag_field ( module_name, 'N_fixer_C_res',  &
+       (/id_ug/), time, 'N fixer C reservoir', 'kg C/m2', missing_value=-1.0 )
+  id_Nfix_N_res = register_tiled_diag_field ( module_name, 'N_fixer_N_res',  &
+       (/id_ug/), time, 'N fixer N reservoir', 'kg N/m2', missing_value=-1.0 )
+
+  id_N_fix_alloc_smoothed = register_tiled_diag_field ( module_name, 'N_fix_alloc_smoothed',  &
+       (/id_ug/), time, 'Plant C allocation to N fixers smoothed', 'kg N/m2/year', missing_value=-1.0 )
+  id_myc_mine_alloc_smoothed = register_tiled_diag_field ( module_name, 'myc_mine_alloc_smoothed',  &
+       (/id_ug/), time, 'Plant C allocation to N miners smoothed', 'kg N/m2/year', missing_value=-1.0 )
+  id_myc_scav_alloc_smoothed = register_tiled_diag_field ( module_name, 'myc_scav_alloc_smoothed',  &
+       (/id_ug/), time, 'C allocation to N scavengers smoothed', 'kg N/m2/year', missing_value=-1.0 )
 end subroutine vegn_dynamics_init
 
 ! ============================================================================
@@ -863,9 +886,16 @@ subroutine vegn_carbon_int_lm3(vegn, soil, soilt, theta, diag)
   call send_cohort_data(id_mine_plant_N_uptake,diag,c(1:N),mine_N_to_plant(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_fix_plant_N_uptake,diag,c(1:N),fix_N_to_plant(1:N)/dt_fast_yr,weight=c(1:N)%nindivs, op=OP_SUM)
 
-!   call send_tile_data(id_N_fix_alloc_smoothed,cc%max_Nfix_allocation,diag)
-!   call send_tile_data(id_myc_mine_alloc_smoothed,cc%max_mine_allocation,diag)
-!   call send_tile_data(id_myc_scav_alloc_smoothed,cc%max_scav_allocation,diag)
+  call send_cohort_data(id_mycorrhizal_scav_N_res,  diag, c(1:N), c(1:N)%scav_myc_N_reservoir, weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_mycorrhizal_scav_C_res,  diag, c(1:N), c(1:N)%scav_myc_C_reservoir, weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_mycorrhizal_mine_N_res,  diag, c(1:N), c(1:N)%mine_myc_N_reservoir, weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_mycorrhizal_mine_C_res,  diag, c(1:N), c(1:N)%mine_myc_C_reservoir, weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_Nfix_N_res,              diag, c(1:N), c(1:N)%N_fixer_N_reservoir,  weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_Nfix_C_res,              diag, c(1:N), c(1:N)%N_fixer_C_reservoir,  weight=c(1:N)%nindivs, op=OP_SUM)
+
+  call send_cohort_data(id_N_fix_alloc_smoothed,    diag, c(1:N), c(1:N)%max_Nfix_allocation,  weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_myc_mine_alloc_smoothed, diag, c(1:N), c(1:N)%max_mine_allocation,  weight=c(1:N)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_myc_scav_alloc_smoothed, diag, c(1:N), c(1:N)%max_scav_allocation,  weight=c(1:N)%nindivs, op=OP_SUM)
 
 end subroutine vegn_carbon_int_lm3
 
@@ -1172,9 +1202,9 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   call send_cohort_data(id_mycorrhizal_scav_allocation, diag, c(1:M), scavenger_myc_C_allocated(1:M)/dt_fast_yr, weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_mycorrhizal_mine_allocation, diag, c(1:M), miner_myc_C_allocated(1:M)/dt_fast_yr,     weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_N_fixer_allocation,          diag, c(1:M), N_fixer_C_allocated(1:M)/dt_fast_yr,       weight=c(1:M)%nindivs, op=OP_SUM)
-  call send_cohort_data(id_myc_scav_marginal_gain,      diag, c(1:M), c(1:M)%myc_scav_marginal_gain_smoothed,    weight=c(1:M)%nindivs, op=OP_AVERAGE)
-  call send_cohort_data(id_myc_mine_marginal_gain,      diag, c(1:M), c(1:M)%myc_mine_marginal_gain_smoothed,    weight=c(1:M)%nindivs, op=OP_AVERAGE)
-  call send_cohort_data(id_N_fix_marginal_gain,         diag, c(1:M), c(1:M)%N_fix_marginal_gain_smoothed,       weight=c(1:M)%nindivs, op=OP_AVERAGE)
+  call send_cohort_data(id_myc_scav_marginal_gain,      diag, c(1:M), c(1:M)%myc_scav_marginal_gain_smoothed,    weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_myc_mine_marginal_gain,      diag, c(1:M), c(1:M)%myc_mine_marginal_gain_smoothed,    weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_N_fix_marginal_gain,         diag, c(1:M), c(1:M)%N_fix_marginal_gain_smoothed,       weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_rhiz_exud_marginal_gain,     diag, c(1:M), c(1:M)%rhiz_exud_marginal_gain_smoothed,   weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_rhiz_exudation,              diag, c(1:M), root_exudate_C(1:M)/dt_fast_yr,            weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_nitrogen_stress,             diag, c(1:M), c(1:M)%nitrogen_stress,                    weight=c(1:M)%nindivs, op=OP_AVERAGE)
@@ -1189,9 +1219,16 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   call send_cohort_data(id_mine_plant_N_uptake,         diag, c(1:M), mine_N_to_plant(1:M)/dt_fast_yr,           weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_fix_plant_N_uptake,          diag, c(1:M), fix_N_to_plant(1:M)/dt_fast_yr,            weight=c(1:M)%nindivs, op=OP_SUM)
   
-!   call send_tile_data(id_N_fix_alloc_smoothed,cc%max_Nfix_allocation,diag)
-!   call send_tile_data(id_myc_mine_alloc_smoothed,cc%max_mine_allocation,diag)
-!   call send_tile_data(id_myc_scav_alloc_smoothed,cc%max_scav_allocation,diag)
+  call send_cohort_data(id_mycorrhizal_scav_N_res,      diag, c(1:M), c(1:M)%scav_myc_N_reservoir,               weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_mycorrhizal_scav_C_res,      diag, c(1:M), c(1:M)%scav_myc_C_reservoir,               weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_mycorrhizal_mine_N_res,      diag, c(1:M), c(1:M)%mine_myc_N_reservoir,               weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_mycorrhizal_mine_C_res,      diag, c(1:M), c(1:M)%mine_myc_C_reservoir,               weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_Nfix_N_res,                  diag, c(1:M), c(1:M)%N_fixer_N_reservoir,                weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_Nfix_C_res,                  diag, c(1:M), c(1:M)%N_fixer_C_reservoir,                weight=c(1:M)%nindivs, op=OP_SUM)
+
+  call send_cohort_data(id_N_fix_alloc_smoothed,        diag, c(1:M), c(1:M)%max_Nfix_allocation,                weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_myc_mine_alloc_smoothed,     diag, c(1:M), c(1:M)%max_mine_allocation,                weight=c(1:M)%nindivs, op=OP_SUM)
+  call send_cohort_data(id_myc_scav_alloc_smoothed,     diag, c(1:M), c(1:M)%max_scav_allocation,                weight=c(1:M)%nindivs, op=OP_SUM)
 
 end subroutine vegn_carbon_int_ppa
 
