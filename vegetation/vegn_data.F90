@@ -125,7 +125,8 @@ public :: &
     N_fixer_turnover_time, N_fixer_C_efficiency, &
     c2n_N_fixer, N_limits_live_biomass, &
     excess_stored_N_leakage_rate, min_N_stress, calc_SLA_from_lifespan, &
-    et_myc
+    et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton
+
 
 
 logical, public :: do_ppa = .FALSE.
@@ -304,6 +305,10 @@ type spec_data_type
   real    :: max_n_stress_for_seed_production = 2.0 ! if N stress is higher than this treshold, seeds are not produced
   real    :: tau_nsc_exudate = 1.0 ! e-folding time for nsc spending to exudates, yr
 
+  real    :: tau_smooth_marginal_gain = 0.0
+  real    :: tau_smooth_alloc         = 0.0
+  real    :: alloc_allowed_over_limit = 10.0
+
   ! SSR fire-related parameters; default values are for tropical trees in his code
   real    :: ROS_max   = 0.22
   real    :: fire_duration = 86400.0 ! average fire duration, s
@@ -412,6 +417,9 @@ real :: et_myc = 0.7                   ! Fraction of mycorrhizal turnover NOT mi
 
 logical :: calc_SLA_from_lifespan      ! In LM3, whether to calculate SLA from leaf lifespan or use namelist value
 
+logical :: smooth_N_uptake_C_allocation = .FALSE.
+logical :: N_fix_Tdep_Houlton = .FALSE.
+
 namelist /vegn_data_nml/ &
   vegn_to_use,  input_cover_types, &
   mcv_min, mcv_lai, &
@@ -439,9 +447,8 @@ namelist /vegn_data_nml/ &
   myc_scav_C_efficiency, myc_mine_C_efficiency, &
   N_fixer_turnover_time, N_fixer_C_efficiency, &
   c2n_N_fixer, N_limits_live_biomass, &
-   excess_stored_N_leakage_rate, min_N_stress, calc_SLA_from_lifespan,&
-  et_myc
-
+  excess_stored_N_leakage_rate, min_N_stress, calc_SLA_from_lifespan,&
+  et_myc, smooth_N_uptake_C_allocation, N_fix_Tdep_Houlton
 
 
 contains ! ###################################################################
@@ -833,6 +840,9 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(max_n_stress_for_seed_production)
   __GET_SPDATA_REAL__(N_stress_root_factor)
   __GET_SPDATA_REAL__(tau_nsc_exudate)
+  __GET_SPDATA_REAL__(tau_smooth_marginal_gain)
+  __GET_SPDATA_REAL__(tau_smooth_alloc)
+  __GET_SPDATA_REAL__(alloc_allowed_over_limit)
   ! SSR fire parameters
   __GET_SPDATA_REAL__(ROS_max)
   __GET_SPDATA_REAL__(fire_duration)
@@ -1130,6 +1140,9 @@ subroutine print_species_data(unit)
   call add_row(table, 'froot_retranslocation_frac', spdata(:)%froot_retranslocation_frac)
   call add_row(table, 'N_stress_root_factor', spdata(:)%N_stress_root_factor)
   call add_row(table, 'tau_nsc_exudate', spdata(:)%tau_nsc_exudate)
+  call add_row(table, 'tau_smooth_marginal_gain', spdata(:)%tau_smooth_marginal_gain)
+  call add_row(table, 'tau_smooth_alloc', spdata(:)%tau_smooth_alloc)
+  call add_row(table, 'alloc_allowed_over_limit', spdata(:)%alloc_allowed_over_limit)
   call add_row(table, 'max_n_stress_for_seed_production', spdata(:)%max_n_stress_for_seed_production)
 
   call add_row(table, 'dat_height',       spdata(:)%dat_height)
@@ -1139,7 +1152,7 @@ subroutine print_species_data(unit)
   call add_row(table, 'dat_rs_min',       spdata(:)%dat_rs_min)
   call add_row(table, 'dat_snow_crit',    spdata(:)%dat_snow_crit)
 
-  call print(table,unit)
+  call print(table,unit,head_width=32)
 end subroutine print_species_data
 
 end module

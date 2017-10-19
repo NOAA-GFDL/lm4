@@ -394,23 +394,21 @@ subroutine vegn_harvest_crop_lm3(vegn)
            ! Make sure stored nitrogen loss is sensible when leaves are off:
            ! Amounts harvested should be determined by potential leaf tissues, but this N would still be in stored pool so needs to be subtracted
            if (cc%status == LEAF_OFF) then
-             vegn%harv_pool_nitrogen(HARV_POOL_CROP) = vegn%harv_pool_nitrogen(HARV_POOL_CROP) + &
-                (cc%stored_N-(cc%bliving*cc%Pl/sp%leaf_live_c2n + cc%bliving*cc%Pr/sp%froot_live_c2n))*fraction_harvested
-             cc%stored_N = cc%stored_N - &
-                (cc%stored_N-(cc%bliving*cc%Pl/sp%leaf_live_c2n + cc%bliving*cc%Pr/sp%froot_live_c2n))*fraction_harvested
+              vegn%harv_pool_nitrogen(HARV_POOL_CROP) = vegn%harv_pool_nitrogen(HARV_POOL_CROP) + &
+                 (max(cc%stored_N,0.0)-(cc%bliving*cc%Pl/sp%leaf_live_c2n + cc%bliving*cc%Pr/sp%froot_live_c2n))*fraction_harvested
+              cc%stored_N = cc%stored_N - &
+                 (max(cc%stored_N,0.0)-(cc%bliving*cc%Pl/sp%leaf_live_c2n + cc%bliving*cc%Pr/sp%froot_live_c2n))*fraction_harvested
            else
-             ! In this case stored N can just be lost because it doesn't contain N from harvested potential leaves and roots
-             vegn%harv_pool_nitrogen(HARV_POOL_CROP) = vegn%harv_pool_nitrogen(HARV_POOL_CROP) + cc%stored_N*fraction_harvested
-             cc%stored_N = cc%stored_N*(1-fraction_harvested)
+              ! In this case stored N can just be lost because it doesn't contain N from harvested potential leaves and roots
+              vegn%harv_pool_nitrogen(HARV_POOL_CROP) = vegn%harv_pool_nitrogen(HARV_POOL_CROP) + max(cc%stored_N,0.0)*fraction_harvested
+              cc%stored_N = max(cc%stored_N,0.0)*(1-fraction_harvested)
            endif
-
-             ! Subtract N lost from N pools. Leaf and root can get subtracted from stored and things will be rebalanced later.
-             ! Some stored N also was lost
-             cc%stored_N = cc%stored_N -  &
-                        cc%bliving*fraction_harvested*(cc%Pl/sp%leaf_live_c2n + cc%Pr/sp%froot_live_c2n)
-             cc%sapwood_N = cc%sapwood_N*(1-fraction_harvested)
-             cc%wood_N = cc%wood_N*(1-fraction_harvested)
-
+           ! Subtract N lost from N pools. Leaf and root can get subtracted from stored and things will be rebalanced later.
+           ! Some stored N also was lost
+           cc%stored_N = cc%stored_N -  &
+                      cc%bliving*fraction_harvested*(cc%Pl/sp%leaf_live_c2n + cc%Pr/sp%froot_live_c2n)
+           cc%sapwood_N = cc%sapwood_N*(1-fraction_harvested)
+           cc%wood_N = cc%wood_N*(1-fraction_harvested)
        endif
 
      case default

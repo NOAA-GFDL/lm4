@@ -194,6 +194,22 @@ type :: vegn_cohort_type
   real :: N_fixer_N_reservoir = 0.0
   real :: N_fixer_C_reservoir = 0.0
 
+  ! Allows cohorts to remember previous marginal gains so shifts in N allocation 
+  ! can have time scales
+  real :: myc_scav_marginal_gain_smoothed = 0.0
+  real :: myc_mine_marginal_gain_smoothed = 0.0
+  real :: N_fix_marginal_gain_smoothed = 0.0
+  real :: rhiz_exud_marginal_gain_smoothed = 0.0
+
+  real :: max_monthly_scav_alloc = 0.0
+  real :: max_monthly_mine_alloc = 0.0
+  real :: max_monthly_Nfix_alloc = 0.0
+  real :: scav_alloc_accum = 0.0
+  real :: mine_alloc_accum = 0.0
+  real :: Nfix_alloc_accum = 0.0
+  real :: max_scav_allocation = 0.0
+  real :: max_mine_allocation = 0.0
+  real :: max_Nfix_allocation = 0.0
 end type vegn_cohort_type
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-

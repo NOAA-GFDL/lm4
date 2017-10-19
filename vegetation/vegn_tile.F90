@@ -19,7 +19,7 @@ use vegn_data_mod, only : &
      BSEED, C2N_SEED, LU_NTRL, LU_SCND, N_HARV_POOLS, &
      LU_SEL_TAG, SP_SEL_TAG, NG_SEL_TAG, &
      FORM_GRASS, &
-     scnd_biomass_bins, do_ppa
+     scnd_biomass_bins, do_ppa, N_limits_live_biomass
 
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
      cohorts_can_be_merged, leaf_area_from_biomass, biomass_of_individual
@@ -728,7 +728,8 @@ subroutine vegn_add_bliving ( vegn, delta, deltaN )
 
   vegn%cohorts(1)%bliving = vegn%cohorts(1)%bliving + delta
   if(present(deltaN)) vegn%cohorts(1)%stored_N = vegn%cohorts(1)%stored_N+deltaN
-  if(soil_carbon_option==SOILC_CORPSE_N .AND. vegn%cohorts(1)%stored_N<0) call error_mesg('vegn_add_bliving','resulting stored_N is less then 0', FATAL)
+  if(soil_carbon_option==SOILC_CORPSE_N .and. N_limits_live_biomass .AND. vegn%cohorts(1)%stored_N<0) &
+                call error_mesg('vegn_add_bliving','resulting stored_N is less then 0', FATAL)
   if (vegn%cohorts(1)%bliving < 0)then
      call error_mesg('vegn_add_bliving','resulting bliving is less then 0', FATAL)
   endif
