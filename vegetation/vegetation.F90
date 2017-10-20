@@ -563,9 +563,7 @@ subroutine vegn_init ( id_ug, id_band )
         cc%scav_myc_C_reservoir = 0.0 ; cc%scav_myc_N_reservoir = 0.0
         cc%mine_myc_C_reservoir = 0.0 ; cc%mine_myc_N_reservoir = 0.0
         cc%N_fixer_C_reservoir  = 0.0 ; cc%N_fixer_N_reservoir  = 0.0
-        cc%myc_scavenger_biomass_C = init_cohort_myc_scav(n)
-        cc%myc_miner_biomass_C = init_cohort_myc_mine(n)
-        cc%N_fixer_biomass_C = init_cohort_n_fixer(n)
+
         cc%nindivs = init_cohort_nindivs(n)
         cc%age     = init_cohort_age(n)
         cc%bliving = cc%bl+cc%br+cc%blv+cc%bsw
@@ -613,13 +611,21 @@ subroutine vegn_init ( id_ug, id_band )
            cc%root_N     = cc%br/sp%froot_live_c2n
            cc%stored_N   = init_cohort_stored_N_mult(n)*(cc%leaf_N+cc%root_N)
            cc%total_N    = cc%stored_N+cc%leaf_N+cc%wood_N+cc%root_N+cc%sapwood_N
-           cc%myc_scavenger_biomass_N = cc%myc_scavenger_biomass_C/sp%c2n_mycorrhizae
-           cc%myc_miner_biomass_N     = cc%myc_miner_biomass_C/sp%c2n_mycorrhizae
-           cc%N_fixer_biomass_N       = cc%N_fixer_biomass_C/c2n_N_fixer
            end associate ! sp
         endif
 
+        ! in ppa mode, init_cohort_allometry_ppa sets myc and fixer biomasses to zero, but
+        ! we override them with values from namelist here
+        associate(sp=>spdata(cc%species))
+        cc%myc_scavenger_biomass_C = init_cohort_myc_scav(n)
+        cc%myc_scavenger_biomass_N = cc%myc_scavenger_biomass_C/sp%c2n_mycorrhizae
+        cc%myc_miner_biomass_C     = init_cohort_myc_mine(n)
+        cc%myc_miner_biomass_N     = cc%myc_miner_biomass_C/sp%c2n_mycorrhizae
+        cc%N_fixer_biomass_C       = init_cohort_n_fixer(n)
+        cc%N_fixer_biomass_N       = cc%N_fixer_biomass_C/c2n_N_fixer
+
         cc%K_r = spdata(cc%species)%root_perm
+        end associate ! sp
         end associate ! cc
      enddo
      if (do_ppa) &
