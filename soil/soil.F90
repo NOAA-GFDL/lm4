@@ -5340,10 +5340,6 @@ end subroutine
 
 ! stuff below is for CORPSE
 
-
-
-
-
 subroutine soilc_livingMicrobeC_ptr(t,i,j,p)
     type(land_tile_type),pointer::t
     real,pointer::p
@@ -5401,11 +5397,6 @@ subroutine sc_protected_C_ptr(t,i,j,k,p)
         if(associated(t%soil))p=>t%soil%soil_C(i)%litterCohorts(j)%protectedC(k)
     endif
 end subroutine
-
-
-
-
-
 
 subroutine soilc_leafLitter_livingMicrobeC_ptr(t,i,p)
     type(land_tile_type),pointer::t
@@ -5527,10 +5518,6 @@ subroutine soilc_coarseWoodLitter_originalLitterC_ptr(t,i,p)
     endif
 end subroutine
 
-
-
-
-
 subroutine soilc_leafLitter_litterC_ptr(t,i,j,p)
     type(land_tile_type),pointer::t
     integer,intent(in)::i,j
@@ -5591,10 +5578,6 @@ subroutine soilc_coarseWoodLitter_protectedC_ptr(t,i,j,p)
     endif
 end subroutine
 
-
-
-
-
 subroutine soilc_leafLitter_DOC_ptr(t,i,p)
     type(land_tile_type),pointer::t
     integer,intent(in)::i
@@ -5654,5 +5637,43 @@ subroutine soil_deadMicrobe_DOC_ptr(t,i,p)
         if(associated(t%soil))p=>t%soil%soil_C(i)%dissolved_carbon(3)
     endif
 end subroutine
+
+!! Below are the macros to make the pointer functions.
+! ============================================================================
+! cohort accessor functions: given a pointer to cohort, return a pointer to a
+! specific member of the cohort structure
+#define DEFINE_SOIL_ACCESSOR_0D(xtype,x) subroutine soil_ ## x ## _ptr(t,p);\
+type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%x;endif;\
+end subroutine
+#define DEFINE_SOIL_ACCESSOR_1D(xtype,x) subroutine soil_ ## x ## _ptr(t,i,p);\
+type(land_tile_type),pointer::t;integer,intent(in)::i;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%x(i);endif;\
+end subroutine
+#define DEFINE_SOIL_COMPONENT_ACCESSOR_0D(xtype,component,x) subroutine soil_ ## x ## _ptr(t,p);\
+type(land_tile_type),pointer::t;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%component%x;endif;\
+end subroutine
+#define DEFINE_SOIL_COMPONENT_ACCESSOR_1D(xtype,component,x) subroutine soil_ ## x ## _ptr(t,i,p);\
+type(land_tile_type),pointer::t;integer,intent(in)::i;xtype,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%component%x(i);endif;\
+end subroutine
+
+#define DEFINE_SOIL_LAYER_COHORT_COMPONENT_ACCESSOR1(xtype,x) subroutine soilc_ ## x ## _ptr(t,i,j,p);\
+type(land_tile_type),pointer::t;xtype,pointer::p;integer,intent(in)::i,j;p=>NULL();if(associated(t))then;\
+if(associated(t%soil))p=>t%soil%soil_C(i)%litterCohorts(j)%x;endif;\
+end subroutine
+
+#define DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR0(xtype,pool,x) subroutine soilc_ ## pool ## _ ## x ## _ptr(t,i,p);\
+type(land_tile_type),pointer::t;integer,intent(in)::i;xtype,pointer::p;p=>NULL();if(associated(t))then;\
+if(associated(t%soil))p=>t%soil%pool%litterCohorts(i)%x;endif;\
+end subroutine
+
+#define DEFINE_SOIL_C_POOL_COHORT_COMPONENT_ACCESSOR1(xtype,pool,x) subroutine soilc_ ## pool ## _ ## x ## _ptr(t,i,j,p);\
+type(land_tile_type),pointer::t;integer,intent(in)::i,j;xtype,pointer::p;p=>NULL();if(associated(t))then;\
+if(associated(t%soil))p=>t%soil%pool%litterCohorts(i)%x(j);endif;\
+end subroutine
+
+#define DEFINE_SOIL_C_POOL_DOC_ACCESSOR(xtype,pool) subroutine soilc_ ## pool ## _DOC_ptr(t,i,p);\
+type(land_tile_type),pointer::t;integer,intent(in)::i;real,pointer::p;p=>NULL();if(associated(t))then;if(associated(t%soil))p=>t%soil%pool%dissolved_carbon(i);endif;\
+end subroutine
+
+
 
 end module soil_mod
