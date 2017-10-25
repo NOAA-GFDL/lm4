@@ -1307,10 +1307,10 @@ subroutine check_conservation(name, d1, d2, tolerance)
 
   if (abs(d1-d2)>tolerance) then
      call get_current_point(i=curr_i,j=curr_j,face=face)
-     write(message,'(a,3(x,a,i4), 2(x,a,g23.16))')&
+     write(message,'(a,3(x,a,i4), 3(x,a,g23.16))')&
           'conservation of '//trim(name)//' is violated', &
           'at i=',curr_i,'j=',curr_j,'face=',face, &
-          'value before=', d1, 'after=', d2
+          'value before=', d1, 'after=', d2, 'diff=',d2-d1
      call error_mesg('land_transitions',message,severity)
   endif
 end subroutine check_conservation
