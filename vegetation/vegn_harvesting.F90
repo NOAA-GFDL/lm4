@@ -14,6 +14,8 @@ use fms_mod, only : string, error_mesg, FATAL, NOTE, &
      check_nml_error, stdlog, mpp_root_pe
 use mpp_io_mod, only : axistype, mpp_get_atts, mpp_get_axis_data, &
      mpp_open, mpp_close, MPP_RDONLY, MPP_WRONLY, MPP_ASCII
+
+use land_debug_mod, only : check_conservation, carbon_cons_tol, nitrogen_cons_tol
 use land_data_mod, only : log_version
 use vegn_data_mod, only : do_ppa, &
      N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, &
@@ -21,12 +23,14 @@ use vegn_data_mod, only : do_ppa, &
      HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
      spdata, agf_bs, LEAF_OFF
 use soil_tile_mod, only : num_l, LEAF, CWOOD, soil_tile_type
-use vegn_tile_mod, only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_lai
+use vegn_tile_mod, only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_lai, &
+     vegn_tile_carbon, vegn_tile_nitrogen
 use soil_util_mod, only : add_root_litter
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools
 use vegn_util_mod, only : kill_plants_ppa
-use soil_carbon_mod, only: soil_carbon_option, add_litter, C_FAST, C_SLOW, &
-     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, N_C_TYPES
+use soil_carbon_mod, only: soil_carbon_option, add_litter, C_FAST, C_SLOW, C_MIC, &
+     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, N_C_TYPES, &
+     deadmic_slow_frac
 
 implicit none
 private
@@ -587,31 +591,44 @@ end subroutine vegn_cut_forest_lm3
 subroutine vegn_graze_pasture_ppa(vegn)
   type(vegn_tile_type), intent(inout) :: vegn
 
-  real    :: ag_litt ! accumulated above-ground litter, kg C/m2
+  real    :: littC, littN ! litter from grazing, kg/m2
   integer :: i
+  real :: c1, c2, n1, n2 ! for conservation checks
 
-  ag_litt = 0.0
+  c1 = vegn_tile_carbon(vegn)
+  n1 = vegn_tile_nitrogen(vegn)
+
   do i = 1, vegn%n_cohorts
      associate(cc=>vegn%cohorts(i), sp=>spdata(vegn%cohorts(i)%species))
      vegn%harv_pool(HARV_POOL_PAST) = vegn%harv_pool(HARV_POOL_PAST) + &
           cc%bl*grazing_intensity*(1-grazing_residue)*cc%nindivs
-     ag_litt = cc%bl*grazing_intensity*grazing_residue*cc%nindivs
-     cc%bl = cc%bl*(1-grazing_intensity)
+     vegn%harv_pool_nitrogen(HARV_POOL_PAST) = vegn%harv_pool(HARV_POOL_PAST) + &
+          cc%leaf_N*grazing_intensity*(1-grazing_residue)*cc%nindivs
+     littC = cc%bl     * grazing_intensity*grazing_residue*cc%nindivs
+     littN = cc%leaf_N * grazing_intensity*grazing_residue*cc%nindivs
+     cc%bl     = cc%bl     * (1-grazing_intensity)
+     cc%leaf_N = cc%leaf_N * (1-grazing_intensity)
 
      ! add carbon to intermediate pools
      select case (soil_carbon_option)
      case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
         ! add litter to intermediate carbon pools
-        vegn%fsc_pool_ag = vegn%fsc_pool_ag + ag_litt*sp%fsc_liv
-        vegn%ssc_pool_ag = vegn%ssc_pool_ag + ag_litt*(1-sp%fsc_liv)
+        vegn%fsc_pool_ag = vegn%fsc_pool_ag + littC*sp%fsc_liv
+        vegn%ssc_pool_ag = vegn%ssc_pool_ag + littC*(1-sp%fsc_liv)
         ! note that we assume microbial biomass is zero
-     case (SOILC_CORPSE)
-        vegn%litter_buff_C(:,LEAF) = vegn%litter_buff_C(:,LEAF) + ag_litt*[sp%fsc_liv,1-sp%fsc_liv,0.0]
+     case (SOILC_CORPSE, SOILC_CORPSE_N)
+        vegn%litter_buff_C(:,LEAF) = vegn%litter_buff_C(:,LEAF) + littC*[sp%fsc_liv,1-sp%fsc_liv,0.0]
+        vegn%litter_buff_N(:,LEAF) = vegn%litter_buff_N(:,LEAF) + littN*[sp%fsc_liv,1-sp%fsc_liv,0.0]
      case default
         call error_mesg('vegn_graze_pasture_ppa','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
      end select
      end associate
   enddo
+
+  c2 = vegn_tile_carbon(vegn)
+  call check_conservation('vegn_graze_pasture_ppa','carbon',c1,c2,carbon_cons_tol,FATAL)
+  n2 = vegn_tile_nitrogen(vegn)
+  call check_conservation('vegn_graze_pasture_ppa','nitrogen',n1,n2,nitrogen_cons_tol,FATAL)
 end subroutine vegn_graze_pasture_ppa
 
 ! ============================================================================
@@ -622,12 +639,17 @@ subroutine vegn_harvest_crop_ppa(vegn)
   type(vegn_tile_type), intent(inout) :: vegn
 
   real, dimension(N_C_TYPES) :: &
-     ag_litt(N_C_TYPES), & ! accumulated above-ground litter, kg C/m2
-     bg_litt(N_C_TYPES)    ! accumulated below-ground litter, kg C/m2
+     ag_litt_C(N_C_TYPES), ag_litt_N(N_C_TYPES), & ! accumulated above-ground litter, kg/m2
+     bg_litt_C(N_C_TYPES), bg_litt_N(N_C_TYPES)    ! accumulated below-ground litter, kg/m2
   real :: ndead  ! number of individuals killed in cohort
   integer :: i
+  real :: c1, c2, n1, n2 ! for conservation checks
 
-  ag_litt = 0.0; bg_litt = 0.0
+  c1 = vegn_tile_carbon(vegn)
+  n1 = vegn_tile_nitrogen(vegn)
+
+  ag_litt_C = 0.0 ; bg_litt_C = 0.0
+  ag_litt_N = 0.0 ; bg_litt_N = 0.0
   do i = 1, vegn%n_cohorts
      associate(cc=>vegn%cohorts(i), sp=>spdata(vegn%cohorts(i)%species))
      ndead = cc%nindivs ! harvest everything
@@ -644,11 +666,23 @@ subroutine vegn_harvest_crop_ppa(vegn)
          cc%bl + cc%bseed + cc%carbon_gain + cc%growth_previous_day + &
          cc%bsw*agf_bs + cc%nsc*agf_bs &
          )
-     ag_litt(:) = [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(cc%bwood+cc%bwood_gain)*agf_bs*ndead
-     bg_litt(:) = [ &
-         sp%fsc_froot    *cc%br + sp%fsc_wood    *(cc%bsw+cc%bwood+cc%bwood_gain)*(1-agf_bs) + cc%nsc*(1-agf_bs), &
+     vegn%harv_pool_nitrogen(HARV_POOL_CROP) = vegn%harv_pool_nitrogen(HARV_POOL_CROP) + ndead*( &
+         cc%leaf_N + cc%seed_N + cc%sapwood_N*agf_bs + cc%stored_N*agf_bs &
+         )
+     ag_litt_C(:) = [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*(cc%bwood+cc%bwood_gain)*agf_bs*ndead
+     ag_litt_N(:) = [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*cc%wood_N*agf_bs*ndead
+     bg_litt_C(:) = ndead * [ &
+            sp%fsc_froot *cc%br +    sp%fsc_wood *(cc%bsw+cc%bwood+cc%bwood_gain)*(1-agf_bs) + cc%nsc*(1-agf_bs), &
          (1-sp%fsc_froot)*cc%br + (1-sp%fsc_wood)*(cc%bsw+cc%bwood+cc%bwood_gain)*(1-agf_bs), &
-         0.0 ] * ndead
+         0.0 ] &
+         + ndead * [0.0, deadmic_slow_frac, (1-deadmic_slow_frac)]* &
+         (cc%myc_scavenger_biomass_C+cc%myc_miner_biomass_C+cc%N_fixer_biomass_C+cc%scav_myc_C_reservoir+cc%mine_myc_C_reservoir+cc%N_fixer_C_reservoir)
+     bg_litt_N(:) = ndead * [ &
+            sp%fsc_froot *cc%root_N +    sp%fsc_wood *(cc%sapwood_N+cc%wood_N)*(1-agf_bs) + cc%stored_N*(1-agf_bs), &
+         (1-sp%fsc_froot)*cc%root_N + (1-sp%fsc_wood)*(cc%sapwood_N+cc%wood_N)*(1-agf_bs), &
+         0.0 ] &
+         + ndead * [0.0, deadmic_slow_frac, (1-deadmic_slow_frac)]* &
+          (cc%myc_scavenger_biomass_N+cc%myc_miner_biomass_N+cc%N_fixer_biomass_N+cc%scav_myc_N_reservoir+cc%mine_myc_N_reservoir+cc%N_fixer_N_reservoir)
 
      ! reduce the number of individuals in cohort
      cc%nindivs = cc%nindivs-ndead
@@ -657,20 +691,28 @@ subroutine vegn_harvest_crop_ppa(vegn)
      select case (soil_carbon_option)
      case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
         ! add litter to intermediate carbon pools
-        vegn%fsc_pool_ag = vegn%fsc_pool_ag + ag_litt(C_FAST)
-        vegn%ssc_pool_ag = vegn%ssc_pool_ag + ag_litt(C_SLOW)
+        vegn%fsc_pool_ag = vegn%fsc_pool_ag + ag_litt_C(C_FAST)
+        vegn%ssc_pool_ag = vegn%ssc_pool_ag + ag_litt_C(C_SLOW)
         ! note that we assume microbial biomass is zero
-     case (SOILC_CORPSE)
-        vegn%litter_buff_C(:,CWOOD) = vegn%litter_buff_C(:,CWOOD) + ag_litt(:)
+     case (SOILC_CORPSE,SOILC_CORPSE_N)
+        vegn%litter_buff_C(:,CWOOD) = vegn%litter_buff_C(:,CWOOD) + ag_litt_C(:)
+        vegn%litter_buff_N(:,CWOOD) = vegn%litter_buff_N(:,CWOOD) + ag_litt_N(:)
      case default
         call error_mesg('vegn_harvest_crop_ppa','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
      end select
-     vegn%fsc_pool_bg = vegn%fsc_pool_bg + bg_litt(C_FAST)
-     vegn%ssc_pool_bg = vegn%ssc_pool_bg + bg_litt(C_SLOW)
+     vegn%fsc_pool_bg = vegn%fsc_pool_bg + bg_litt_C(C_FAST)
+     vegn%fsn_pool_bg = vegn%fsn_pool_bg + bg_litt_N(C_FAST)
+     vegn%ssc_pool_bg = vegn%ssc_pool_bg + bg_litt_C(C_SLOW)
+     vegn%ssn_pool_bg = vegn%ssn_pool_bg + bg_litt_N(C_SLOW)
      end associate
   enddo
 
   call vegn_relayer_cohorts_ppa(vegn)
+
+  c2 = vegn_tile_carbon(vegn)
+  call check_conservation('vegn_harvest_crop_ppa','carbon',c1,c2,carbon_cons_tol,FATAL)
+  n2 = vegn_tile_nitrogen(vegn)
+  call check_conservation('vegn_harvest_crop_ppa','nitrogen',n1,n2,nitrogen_cons_tol,FATAL)
 
 end subroutine vegn_harvest_crop_ppa
 
@@ -692,6 +734,10 @@ subroutine vegn_cut_forest_ppa(vegn, soil, new_landuse)
   real :: ndead  ! number of individuals killed in cohort
   real :: dbh_min
   integer :: i
+  real :: c1, c2, n1, n2 ! for conservation checks
+
+  c1 = vegn_tile_carbon(vegn)
+  n1 = vegn_tile_nitrogen(vegn)
 
   ! define fraction of wood wasted, based on the transition type
   if (new_landuse==LU_SCND) then
@@ -729,14 +775,22 @@ subroutine vegn_cut_forest_ppa(vegn, soil, new_landuse)
      ! this is harvesting, distribute between 3 different wood pools
      vegn%harv_pool(HARV_POOL_WOOD_FAST) = vegn%harv_pool(HARV_POOL_WOOD_FAST) &
           + sum(wood_harv_C)*frac_wood_fast*(1-frac_wood_wasted)
+     vegn%harv_pool_nitrogen(HARV_POOL_WOOD_FAST) = vegn%harv_pool_nitrogen(HARV_POOL_WOOD_FAST) &
+          + sum(wood_harv_N)*frac_wood_fast*(1-frac_wood_wasted)
      vegn%harv_pool(HARV_POOL_WOOD_MED) = vegn%harv_pool(HARV_POOL_WOOD_MED) &
           + sum(wood_harv_C)*frac_wood_med*(1-frac_wood_wasted)
+     vegn%harv_pool_nitrogen(HARV_POOL_WOOD_MED) = vegn%harv_pool_nitrogen(HARV_POOL_WOOD_MED) &
+          + sum(wood_harv_N)*frac_wood_med*(1-frac_wood_wasted)
      vegn%harv_pool(HARV_POOL_WOOD_SLOW) = vegn%harv_pool(HARV_POOL_WOOD_SLOW) &
           + sum(wood_harv_C)*frac_wood_slow*(1-frac_wood_wasted)
+     vegn%harv_pool_nitrogen(HARV_POOL_WOOD_SLOW) = vegn%harv_pool_nitrogen(HARV_POOL_WOOD_SLOW) &
+          + sum(wood_harv_N)*frac_wood_slow*(1-frac_wood_wasted)
   else
      ! this is land clearance: everything goes into "cleared" pool
      vegn%harv_pool(HARV_POOL_CLEARED) = vegn%harv_pool(HARV_POOL_CLEARED) &
           + sum(wood_harv_C)*(1-frac_wood_wasted)
+     vegn%harv_pool_nitrogen(HARV_POOL_CLEARED) = vegn%harv_pool_nitrogen(HARV_POOL_CLEARED) &
+          + sum(wood_harv_N)*(1-frac_wood_wasted)
   endif
 
   select case (soil_carbon_option)
@@ -747,18 +801,27 @@ subroutine vegn_cut_forest_ppa(vegn, soil, new_landuse)
      vegn%ssc_pool_ag = vegn%ssc_pool_ag + &
          wood_harv_C(C_SLOW)*frac_wood_wasted + wood_litt_C(C_SLOW) + leaf_litt_C(C_SLOW)
      ! note that we assume microbial biomass is zero
-  case (SOILC_CORPSE)
+  case (SOILC_CORPSE,SOILC_CORPSE_N)
      vegn%litter_buff_C(:,CWOOD) = vegn%litter_buff_C(:,CWOOD) + &
         wood_litt_C(:) + wood_harv_C(:)*frac_wood_wasted
-     vegn%litter_buff_C(:,LEAF) = vegn%litter_buff_C(:,LEAF) + &
-        leaf_litt_C(:)
+     vegn%litter_buff_N(:,CWOOD) = vegn%litter_buff_N(:,CWOOD) + &
+        wood_litt_N(:) + wood_harv_N(:)*frac_wood_wasted
+     vegn%litter_buff_C(:,LEAF) = vegn%litter_buff_C(:,LEAF) + leaf_litt_C(:)
+     vegn%litter_buff_N(:,LEAF) = vegn%litter_buff_N(:,LEAF) + leaf_litt_N(:)
   case default
      call error_mesg('vegn_cut_forest_ppa','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
   end select
-  vegn%fsc_pool_bg = vegn%fsc_pool_bg + sum(root_litt_C(:,C_FAST))
+  vegn%fsc_pool_bg = vegn%fsc_pool_bg + sum(root_litt_C(:,C_FAST))+sum(root_litt_C(:,C_MIC))
+  vegn%fsn_pool_bg = vegn%fsn_pool_bg + sum(root_litt_N(:,C_FAST))+sum(root_litt_N(:,C_MIC))
   vegn%ssc_pool_bg = vegn%ssc_pool_bg + sum(root_litt_C(:,C_SLOW))
+  vegn%ssn_pool_bg = vegn%ssn_pool_bg + sum(root_litt_N(:,C_SLOW))
 
   call vegn_relayer_cohorts_ppa(vegn)
+  
+  c2 = vegn_tile_carbon(vegn)
+  call check_conservation('vegn_cut_forest_ppa','carbon',c1,c2,carbon_cons_tol,FATAL)
+  n2 = vegn_tile_nitrogen(vegn)
+  call check_conservation('vegn_cut_forest_ppa','nitrogen',n1,n2,nitrogen_cons_tol,FATAL)
 
 end subroutine vegn_cut_forest_ppa
 
