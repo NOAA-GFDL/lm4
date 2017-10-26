@@ -2241,8 +2241,9 @@ subroutine update_vegn_slow( )
      endif
      call check_conservation_2(tile,'update_vegn_slow 7',lmass0,fmass0,cmass0,nmass0)
 
+     call vegn_harvesting(tile%vegn, tile%soil, year0/=year1, month0/=month1, day0/=day1)
+
      if (year1 /= year0) then
-        call vegn_harvesting(tile%vegn,tile%soil)
         tile%vegn%fsc_rate_ag = tile%vegn%fsc_pool_ag/fsc_pool_spending_time
         tile%vegn%ssc_rate_ag = tile%vegn%ssc_pool_ag/ssc_pool_spending_time
         tile%vegn%fsc_rate_bg = tile%vegn%fsc_pool_bg/fsc_pool_spending_time
