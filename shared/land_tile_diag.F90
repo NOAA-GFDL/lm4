@@ -2,7 +2,6 @@ module land_tile_diag_mod
 
 use mpp_mod,            only : mpp_sum
 use mpp_efp_mod,        only : mpp_reproducing_sum
-use mpp_domains_mod,    only : mpp_pass_ug_to_sg
 use time_manager_mod,   only : time_type
 use diag_axis_mod,      only : get_axis_length
 use diag_manager_mod,   only : register_diag_field, register_static_field, &
