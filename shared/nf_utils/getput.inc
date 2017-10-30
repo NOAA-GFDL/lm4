@@ -29,16 +29,16 @@
 ! necessary because of the preprocessor argument pre-scan rules. See, for example,
 ! http://gcc.gnu.org/onlinedocs/cpp/Argument-Prescan.html
 #define NF_GET_VAR_(T) CONCAT2(nf_get_var_,T)
-#define NF_GET_VAR_T NF_GET_VAR_(NF_TYPE) 
+#define NF_GET_VAR_T NF_GET_VAR_(NF_TYPE)
 
 #define NF_PUT_VAR_(T) CONCAT2(nf_put_var_,T)
-#define NF_PUT_VAR_T NF_PUT_VAR_(NF_TYPE) 
+#define NF_PUT_VAR_T NF_PUT_VAR_(NF_TYPE)
 
 #define NF_GET_VARA_(T) CONCAT2(nf_get_vara_,T)
-#define NF_GET_VARA_T NF_GET_VARA_(NF_TYPE) 
+#define NF_GET_VARA_T NF_GET_VARA_(NF_TYPE)
 
 #define NF_PUT_VARA_(T) CONCAT2(nf_put_vara_,T)
-#define NF_PUT_VARA_T NF_PUT_VARA_(NF_TYPE) 
+#define NF_PUT_VARA_T NF_PUT_VARA_(NF_TYPE)
 
 ! #### Interface definition ###################################################
 ! define specific names of the subroutines
@@ -46,47 +46,53 @@
 #define GET_VAR_D1 GET_VAR(NF_TYPE, D1)
 #define GET_VAR_D2 GET_VAR(NF_TYPE, D2)
 #define GET_VAR_D3 GET_VAR(NF_TYPE, D3)
+#define GET_VAR_D4 GET_VAR(NF_TYPE, D4)
 
 #define PUT_VAR_D0 PUT_VAR(NF_TYPE, D0)
 #define PUT_VAR_D1 PUT_VAR(NF_TYPE, D1)
 #define PUT_VAR_D2 PUT_VAR(NF_TYPE, D2)
 #define PUT_VAR_D3 PUT_VAR(NF_TYPE, D3)
+#define PUT_VAR_D4 PUT_VAR(NF_TYPE, D4)
 
 #define GET_REC_D0N GET_REC(NF_TYPE, D0N)
 #define GET_REC_D1N GET_REC(NF_TYPE, D1N)
 #define GET_REC_D2N GET_REC(NF_TYPE, D2N)
 #define GET_REC_D3N GET_REC(NF_TYPE, D3N)
+#define GET_REC_D4N GET_REC(NF_TYPE, D4N)
 
 #define GET_REC_D0I GET_REC(NF_TYPE, D0I)
 #define GET_REC_D1I GET_REC(NF_TYPE, D1I)
 #define GET_REC_D2I GET_REC(NF_TYPE, D2I)
 #define GET_REC_D3I GET_REC(NF_TYPE, D3I)
+#define GET_REC_D4I GET_REC(NF_TYPE, D4I)
 
 #define PUT_REC_D0N PUT_REC(NF_TYPE, D0N)
 #define PUT_REC_D1N PUT_REC(NF_TYPE, D1N)
 #define PUT_REC_D2N PUT_REC(NF_TYPE, D2N)
 #define PUT_REC_D3N PUT_REC(NF_TYPE, D3N)
+#define PUT_REC_D4N PUT_REC(NF_TYPE, D4N)
 
 #define PUT_REC_D0I PUT_REC(NF_TYPE, D0I)
 #define PUT_REC_D1I PUT_REC(NF_TYPE, D1I)
 #define PUT_REC_D2I PUT_REC(NF_TYPE, D2I)
 #define PUT_REC_D3I PUT_REC(NF_TYPE, D3I)
+#define PUT_REC_D4I PUT_REC(NF_TYPE, D4I)
 
 #ifdef __INTERFACE_SECTION__
 ! nfu_get_var interface
 interface nfu_get_var
-   module procedure GET_VAR_D0, GET_VAR_D1, GET_VAR_D2, GET_VAR_D3
+   module procedure GET_VAR_D0, GET_VAR_D1, GET_VAR_D2, GET_VAR_D3, GET_VAR_D4
 end interface
 interface nfu_put_var
-   module procedure PUT_VAR_D0, PUT_VAR_D1, PUT_VAR_D2, PUT_VAR_D3
+   module procedure PUT_VAR_D0, PUT_VAR_D1, PUT_VAR_D2, PUT_VAR_D3, PUT_VAR_D4
 end interface
 interface nfu_get_rec
-   module procedure GET_REC_D0N, GET_REC_D1N, GET_REC_D2N, GET_REC_D3N
-   module procedure GET_REC_D0I, GET_REC_D1I, GET_REC_D2I, GET_REC_D3I
+   module procedure GET_REC_D0N, GET_REC_D1N, GET_REC_D2N, GET_REC_D3N, GET_REC_D4N
+   module procedure GET_REC_D0I, GET_REC_D1I, GET_REC_D2I, GET_REC_D3I, GET_REC_D4I
 end interface
 interface nfu_put_rec
-   module procedure PUT_REC_D0N, PUT_REC_D1N, PUT_REC_D2N, PUT_REC_D3N
-   module procedure PUT_REC_D0I, PUT_REC_D1I, PUT_REC_D2I, PUT_REC_D3I
+   module procedure PUT_REC_D0N, PUT_REC_D1N, PUT_REC_D2N, PUT_REC_D3N, PUT_REC_D4N
+   module procedure PUT_REC_D0I, PUT_REC_D1I, PUT_REC_D2I, PUT_REC_D3I, PUT_REC_D4I
 end interface
 #endif
 
@@ -95,7 +101,7 @@ end interface
 
 ! #### Implementation definition ##############################################
 
-#ifdef __BODY_SECTION__ 
+#ifdef __BODY_SECTION__
 ! ============================================================================
 ! nfu_get_var implemenatation
 ! ============================================================================
@@ -137,6 +143,16 @@ function GET_VAR_D3(ncid,name,var) result(iret)
   integer     , intent(in) :: ncid   ! id of netcdf file
   character(*), intent(in) :: name   ! name of the variable
   F90_TYPE    , intent(inout) :: var(:,:,:) ! storage for the variable
+  integer :: iret ! return value
+
+  iret = GET_VAR_D1(ncid,name,var)
+7 return
+end function
+! ============================================================================
+function GET_VAR_D4(ncid,name,var) result(iret)
+  integer     , intent(in) :: ncid   ! id of netcdf file
+  character(*), intent(in) :: name   ! name of the variable
+  F90_TYPE    , intent(inout) :: var(:,:,:,:) ! storage for the variable
   integer :: iret ! return value
 
   iret = GET_VAR_D1(ncid,name,var)
@@ -184,6 +200,18 @@ function PUT_VAR_D3(ncid,name,var) result(iret)
   integer     , intent(in) :: ncid   ! id of netcdf file
   character(*), intent(in) :: name   ! name of the variable
   F90_TYPE    , intent(in) :: var(:,:,:) ! storage for the variable
+  integer :: iret ! return value
+
+  integer :: varid
+  __NF_TRY__(nf_inq_varid(ncid, name, varid), iret, 7)
+  iret = NF_PUT_VAR_T(ncid,varid,var)
+7 return
+end function
+! ============================================================================
+function PUT_VAR_D4(ncid,name,var) result(iret)
+  integer     , intent(in) :: ncid   ! id of netcdf file
+  character(*), intent(in) :: name   ! name of the variable
+  F90_TYPE    , intent(in) :: var(:,:,:,:) ! storage for the variable
   integer :: iret ! return value
 
   integer :: varid
@@ -244,6 +272,17 @@ function GET_REC_D3N(ncid,name,rec,var,start,count) result(iret)
   iret=GET_REC_D1N(ncid,name,rec,var)
 end function
 ! ============================================================================
+function GET_REC_D4N(ncid,name,rec,var,start,count) result(iret)
+  integer      , intent(in)    :: ncid   ! id of netcdf file
+  character(*) , intent(in)    :: name   ! name of the variable
+  integer      , intent(in)    :: rec    ! number of the record to get
+  F90_TYPE     , intent(inout) :: var(:,:,:,:) ! storage for the variable
+  integer, optional, intent(in) :: start(4), count(4) ! slab to read
+  integer :: iret ! return value
+
+  iret=GET_REC_D1N(ncid,name,rec,var)
+end function
+! ============================================================================
 function GET_REC_D0I(ncid,varid,rec,var,start) result(iret)
   integer      , intent(in)    :: ncid   ! id of netcdf file
   integer      , intent(in)    :: varid  ! id of the variable
@@ -274,7 +313,7 @@ function GET_REC_D1I(ncid,varid,rec,var,start,count) result(iret)
   integer :: start_(NF_MAX_VAR_DIMS)
   integer :: count_(NF_MAX_VAR_DIMS)
   integer :: i
-      
+
   __NF_TRY__(nf_inq_unlimdim(ncid,unlimdim),iret,7)
   __NF_TRY__(nf_inq_varndims(ncid,varid,ndims),iret,7)
   __NF_TRY__(nf_inq_vardimid(ncid,varid,dimids),iret,7)
@@ -292,7 +331,7 @@ function GET_REC_D1I(ncid,varid,rec,var,start,count) result(iret)
         endif
         if (present(count)) then
            count_(i) = count(i)
-        endif 
+        endif
      endif
      ! write(*,*) i, dimids(i), start_(i), count_(i)
   enddo
@@ -319,6 +358,18 @@ function GET_REC_D3I(ncid,varid,rec,var,start,count) result(iret)
   integer      , intent(in)    :: rec    ! number of the record to get
   F90_TYPE     , intent(inout) :: var(:,:,:)    ! storage for the variable
   integer      , intent(in), optional :: start(3), count(3) ! definition of
+                                          ! the slab to read
+  integer :: iret ! return value
+
+  iret=GET_REC_D1I(ncid,varid,rec,var,start,count)
+end function
+! ============================================================================
+function GET_REC_D4I(ncid,varid,rec,var,start,count) result(iret)
+  integer      , intent(in)    :: ncid   ! id of netcdf file
+  integer      , intent(in)    :: varid  ! id of the variable
+  integer      , intent(in)    :: rec    ! number of the record to get
+  F90_TYPE     , intent(inout) :: var(:,:,:,:)    ! storage for the variable
+  integer      , intent(in), optional :: start(4), count(4) ! definition of
                                           ! the slab to read
   integer :: iret ! return value
 
@@ -374,6 +425,16 @@ function PUT_REC_D3N(ncid,name,rec,var) result(iret)
   iret=PUT_REC_D1N(ncid,name,rec,var)
 end function
 ! ============================================================================
+function PUT_REC_D4N(ncid,name,rec,var) result(iret)
+  integer      , intent(in) :: ncid   ! id of netcdf file
+  character(*) , intent(in) :: name   ! name of the variable
+  integer      , intent(in) :: rec    ! number of the record to get
+  F90_TYPE     , intent(in) :: var(:,:,:,:) ! data to write
+  integer :: iret ! return value
+
+  iret=PUT_REC_D1N(ncid,name,rec,var)
+end function
+! ============================================================================
 function PUT_REC_D0I(ncid,varid,rec,var) result(iret)
   integer      , intent(in) :: ncid   ! id of netcdf file
   integer      , intent(in) :: varid  ! id of the variable
@@ -397,7 +458,7 @@ function PUT_REC_D1I(ncid,varid,rec,var) result(iret)
   integer :: start(NF_MAX_VAR_DIMS)
   integer :: count(NF_MAX_VAR_DIMS)
   integer :: i
-      
+
   __NF_TRY__(nf_inq_unlimdim(ncid,unlimdim),iret,7)
   __NF_TRY__(nf_inq_varndims(ncid,varid,ndims),iret,7)
   __NF_TRY__(nf_inq_vardimid(ncid,varid,dimids),iret,7)
@@ -437,6 +498,16 @@ function PUT_REC_D3I(ncid,varid,rec,var) result(iret)
 
   iret=PUT_REC_D1I(ncid,varid,rec,var)
 end function
+! ============================================================================
+function PUT_REC_D4I(ncid,varid,rec,var) result(iret)
+  integer      , intent(in) :: ncid   ! id of netcdf file
+  integer      , intent(in) :: varid  ! id of the variable
+  integer      , intent(in) :: rec    ! number of the record to get
+  F90_TYPE     , intent(in) :: var(:,:,:,:) ! data to write
+  integer :: iret ! return value
+
+  iret=PUT_REC_D1I(ncid,varid,rec,var)
+end function
 #endif
 ! #### End of implementation definition ######################################
 #undef CONCAT3
@@ -460,28 +531,34 @@ end function
 #undef GET_VAR_D1
 #undef GET_VAR_D2
 #undef GET_VAR_D3
+#undef GET_VAR_D4
 
 #undef PUT_VAR_D0
 #undef PUT_VAR_D1
 #undef PUT_VAR_D2
 #undef PUT_VAR_D3
+#undef PUT_VAR_D4
 
 #undef GET_REC_D0N
 #undef GET_REC_D1N
 #undef GET_REC_D2N
 #undef GET_REC_D3N
+#undef GET_REC_D4N
 
 #undef GET_REC_D0I
 #undef GET_REC_D1I
 #undef GET_REC_D2I
 #undef GET_REC_D3I
+#undef GET_REC_D4I
 
 #undef PUT_REC_D0N
 #undef PUT_REC_D1N
 #undef PUT_REC_D2N
 #undef PUT_REC_D3N
+#undef PUT_REC_D4N
 
 #undef PUT_REC_D0I
 #undef PUT_REC_D1I
 #undef PUT_REC_D2I
 #undef PUT_REC_D3I
+#undef PUT_REC_D4I

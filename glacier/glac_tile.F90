@@ -363,7 +363,7 @@ subroutine glacier_data_init_0d_predefined(glac,gp,itile)
 
   glac%z0_scalar = glac%pars%z0_momentum * exp(-k_over_B)
   glac%geothermal_heat_flux = geothermal_heat_flux_constant
-  
+
 end subroutine glacier_data_init_0d_predefined
 
 ! ============================================================================
