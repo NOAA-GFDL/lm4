@@ -220,7 +220,7 @@ integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_crownarea, &
    id_soil_water_supply, id_gdd, id_tc_pheno, id_zstar_1, &
    id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi, &
-   id_brsw
+   id_brsw, id_topyear
 integer, dimension(N_LITTER_POOLS, N_C_TYPES) :: &
    id_litter_buff_C, id_litter_buff_N, &
    id_litter_rate_C, id_litter_rate_N
@@ -846,6 +846,8 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   ! ens 021617
   id_brsw = register_cohort_diag_field ( module_name, 'brsw',  &
        (/id_ug/), time, 'biomass of branches (only sapwood)', 'kg C/m2', missing_value=-1.0)
+  id_topyear = register_cohort_diag_field ( module_name, 'topyear',  &
+       (/id_ug/), time, 'time pants spent in top layer', 'year', missing_value=-1.0)
 
   id_fuel = register_tiled_diag_field ( module_name, 'fuel',  &
        (/id_ug/), time, 'mass of fuel', 'kg C/m2', missing_value=-1.0 )
@@ -2420,6 +2422,7 @@ subroutine update_vegn_slow( )
      call send_cohort_data(id_bsw_max, tile%diag, cc(1:N), cc(1:N)%bsw_max, weight=cc(1:N)%nindivs, op=OP_SUM)
      call send_cohort_data(id_bl_max, tile%diag, cc(1:N), cc(1:N)%bl_max, weight=cc(1:N)%nindivs, op=OP_SUM)
      call send_cohort_data(id_br_max, tile%diag, cc(1:N), cc(1:N)%br_max, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_topyear, tile%diag, cc(1:N), cc(1:N)%topyear, weight=cc(1:N)%nindivs, op=OP_AVERAGE)
 
      call send_cohort_data(id_dbh,       tile%diag, cc(1:N), cc(1:N)%dbh,        weight=cc(1:N)%nindivs, op=OP_AVERAGE)
      call send_cohort_data(id_crownarea, tile%diag, cc(1:N), cc(1:N)%crownarea,  weight=cc(1:N)%nindivs, op=OP_AVERAGE)
