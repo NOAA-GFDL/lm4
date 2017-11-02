@@ -1218,7 +1218,7 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
   call send_cohort_data(id_scav_plant_N_uptake,         diag, c(1:M), scav_N_to_plant(1:M)/dt_fast_yr,           weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_mine_plant_N_uptake,         diag, c(1:M), mine_N_to_plant(1:M)/dt_fast_yr,           weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_fix_plant_N_uptake,          diag, c(1:M), fix_N_to_plant(1:M)/dt_fast_yr,            weight=c(1:M)%nindivs, op=OP_SUM)
-  
+
   call send_cohort_data(id_mycorrhizal_scav_N_res,      diag, c(1:M), c(1:M)%scav_myc_N_reservoir,               weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_mycorrhizal_scav_C_res,      diag, c(1:M), c(1:M)%scav_myc_C_reservoir,               weight=c(1:M)%nindivs, op=OP_SUM)
   call send_cohort_data(id_mycorrhizal_mine_N_res,      diag, c(1:M), c(1:M)%mine_myc_N_reservoir,               weight=c(1:M)%nindivs, op=OP_SUM)
@@ -2544,7 +2544,10 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N)
   real :: litt_C(N_C_TYPES), litt_N(N_C_types)
   integer :: k ! seedling cohort index
   integer :: i ! species index
-  real    :: Tv ! temperature assigned to seedlings
+  integer :: l ! seedling layer index
+  integer :: nlayers ! total number of layers in the canopy
+  real, allocatable :: Tv(:)     ! temperature of vegatation in each layer
+  real, allocatable :: height(:) ! height of tallest vegetation in each layer
 
   if(is_watch_point()) then
      write(*,*)'##### add_seedlings_ppa input #####'
@@ -2563,8 +2566,17 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N)
      deallocate (ccold)
   endif
 
-  ! use the temperature of the last (shortest) existing cohort for seedlings
-  Tv = vegn%cohorts(vegn%n_cohorts)%Tv
+  ! store the height and temperature of tallest vegetation within each canopy layer
+  nlayers = maxval(vegn%cohorts(1:vegn%n_cohorts)%layer)
+  allocate(height(nlayers),Tv(nlayers))
+  height = 0.0
+  do k = 1,vegn%n_cohorts
+     if (vegn%cohorts(k)%height>height(vegn%cohorts(k)%layer)) then
+        height(vegn%cohorts(k)%layer) = vegn%cohorts(k)%height
+        Tv    (vegn%cohorts(k)%layer) = vegn%cohorts(k)%Tv
+     endif
+  enddo
+  height(1) = HUGE(1.0) ! guard value so that seedlings are always shorter than the first layer
 
   litt_C(:) = 0.0
   litt_N(:) = 0.0
@@ -2612,12 +2624,20 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N)
     litt_N(:) = litt_N(:) + [sp%fsc_liv,1-sp%fsc_liv,0.0]*failed_seed_N
     vegn%veg_out = vegn%veg_out + failed_seed_C
 
+    ! Find shortest layer that is still taller than the seedling and assign the seedling
+    ! initial layer.
+    do l=nlayers,1, -1
+       if (cc%height<=height(l)) then
+          cc%layer = l
+          cc%Tv = Tv(l) ! TODO: make sure that energy is conserved in reproduction
+          exit ! from loop
+       endif
+    enddo
+
     ! we assume that the newborn cohort is dry; since nindivs of the parent
     ! doesn't change we don't need to do anything with its Wl and Ws to
     ! conserve water (since Wl and Ws are per individual)
     cc%Wl = 0 ; cc%Ws = 0
-    ! TODO: make sure that energy is conserved in reproduction
-    cc%Tv = Tv
 
     end associate   ! F2003
   enddo
@@ -2636,6 +2656,8 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N)
         write(*,*)
      enddo
   endif
+
+  deallocate(Tv,height)
 end subroutine add_seedlings_ppa
 
 end module vegn_dynamics_mod
