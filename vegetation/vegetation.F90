@@ -428,30 +428,36 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         call get_cohort_data(restart2, 'Nfix_alloc_accum',cohort_Nfix_alloc_accum_ptr)
      endif
 
-     if(field_exists(restart2,'landuse')) &
-          call get_int_tile_data(restart2,'landuse',vegn_landuse_ptr)
+     call get_int_tile_data(restart2,'landuse',vegn_landuse_ptr)
+
      call get_tile_data(restart2,'age',vegn_age_ptr)
-     if(field_exists(restart2,'fsc_pool_ag')) then
-        call get_tile_data(restart2,'fsc_pool_ag',vegn_fsc_pool_ag_ptr)
-        call get_tile_data(restart2,'fsc_rate_ag',vegn_fsc_rate_ag_ptr)
-        call get_tile_data(restart2,'fsc_pool_bg',vegn_fsc_pool_bg_ptr)
-        call get_tile_data(restart2,'fsc_rate_bg',vegn_fsc_rate_bg_ptr)
-        call get_tile_data(restart2,'ssc_pool_ag',vegn_ssc_pool_ag_ptr)
-        call get_tile_data(restart2,'ssc_rate_ag',vegn_ssc_rate_ag_ptr)
-        call get_tile_data(restart2,'ssc_pool_bg',vegn_ssc_pool_bg_ptr)
-        call get_tile_data(restart2,'ssc_rate_bg',vegn_ssc_rate_bg_ptr)
+     
+     call get_tile_data(restart2,'fsc_pool_ag',vegn_fsc_pool_ag_ptr)
+     call get_tile_data(restart2,'fsc_rate_ag',vegn_fsc_rate_ag_ptr)
+     call get_tile_data(restart2,'fsc_pool_bg',vegn_fsc_pool_bg_ptr)
+     call get_tile_data(restart2,'fsc_rate_bg',vegn_fsc_rate_bg_ptr)
+     call get_tile_data(restart2,'ssc_pool_ag',vegn_ssc_pool_ag_ptr)
+     call get_tile_data(restart2,'ssc_rate_ag',vegn_ssc_rate_ag_ptr)
+     call get_tile_data(restart2,'ssc_pool_bg',vegn_ssc_pool_bg_ptr)
+     call get_tile_data(restart2,'ssc_rate_bg',vegn_ssc_rate_bg_ptr)
+     do j = 1,N_LITTER_POOLS
+        do i = 1,N_C_TYPES-1 ! "-1" excludes deadmic (which is currently always 0) from restarts
+           call get_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_'//c_shortname(i),vegn_litter_buff_C_ptr,i,j)
+           call get_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_rate_'//c_shortname(i),vegn_litter_rate_C_ptr,i,j)
+        enddo
+     enddo
+     if (soil_carbon_option==SOILC_CORPSE_N.and.field_exists(restart2,'fsn_pool_bg')) then
+        call get_tile_data(restart2,'fsn_pool_bg',vegn_fsn_pool_bg_ptr)
+        call get_tile_data(restart2,'fsn_rate_bg',vegn_fsn_rate_bg_ptr)
+        call get_tile_data(restart2,'ssn_pool_bg',vegn_ssn_pool_bg_ptr)
+        call get_tile_data(restart2,'ssn_rate_bg',vegn_ssn_rate_bg_ptr)
         do j = 1,N_LITTER_POOLS
            do i = 1,N_C_TYPES-1 ! "-1" excludes deadmic (which is currently always 0) from restarts
-              call get_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_'//c_shortname(i),vegn_litter_buff_C_ptr,i,j)
-              call get_tile_data(restart2,trim(l_shortname(j))//'litter_buffer_rate_'//c_shortname(i),vegn_litter_rate_C_ptr,i,j)
+              call get_tile_data(restart2,trim(l_shortname(j))//'litter_buff_N_'//c_shortname(i),vegn_litter_buff_N_ptr,i,j)
+              call get_tile_data(restart2,trim(l_shortname(j))//'litter_rate_N_'//c_shortname(i),vegn_litter_rate_N_ptr,i,j)
            enddo
         enddo
-     else
-        call get_tile_data(restart2,'fsc_pool',vegn_fsc_pool_bg_ptr)
-        call get_tile_data(restart2,'fsc_rate',vegn_fsc_rate_bg_ptr)
-        call get_tile_data(restart2,'ssc_pool',vegn_ssc_pool_bg_ptr)
-        call get_tile_data(restart2,'ssc_rate',vegn_ssc_rate_bg_ptr)
-     endif
+     endif 
      ! monthly-mean values
      call get_tile_data(restart2,'tc_av', vegn_tc_av_ptr)
      if(field_exists(restart2,'theta_av_phen')) then
@@ -1165,6 +1171,21 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
             'conversion rate of '//trim(c_longname(i))//' '//trim(l_longname(j))//' litter to litter carbon pool', 'kg C/(m2 yr)')
      enddo
   enddo
+
+  if (soil_carbon_option==SOILC_CORPSE_N) then
+     call add_tile_data(restart2,'fsn_pool_bg',vegn_fsn_pool_bg_ptr,'intermediate pool for BG fast soil nitrogen input', 'kg N/m2')
+     call add_tile_data(restart2,'fsn_rate_bg',vegn_fsn_rate_bg_ptr,'conversion rate of BG fsn_pool to fast soil nitrogen', 'kg N/(m2 yr)')
+     call add_tile_data(restart2,'ssn_pool_bg',vegn_ssn_pool_bg_ptr,'intermediate pool for BG slow soil nitrogen input', 'kg N/m2')
+     call add_tile_data(restart2,'ssn_rate_bg',vegn_ssn_rate_bg_ptr,'conversion rate of BG ssn_pool to slow soil nitrogen', 'kg N/(m2 yr)')
+     do j = 1,N_LITTER_POOLS
+        do i = 1,N_C_TYPES-1 ! "-1" excludes deadmic from restarts
+           call add_tile_data(restart2,trim(l_shortname(j))//'litter_buff_N_'//trim(c_shortname(i)),vegn_litter_buff_N_ptr, i, j, &
+               'intermediate pool for '//trim(c_longname(i))//' '//trim(l_longname(j))//' litter nitrogen input', 'kg N/m2')
+           call add_tile_data(restart2,trim(l_shortname(j))//'litter_rate_N_'//trim(c_shortname(i)),vegn_litter_rate_N_ptr, i, j, &
+               'conversion rate of '//trim(c_longname(i))//' '//trim(l_longname(j))//' litter to litter nitrogen pool', 'kg N/(m2 yr)')
+        enddo
+     enddo
+  endif
 
   ! water and heat buffers
   call add_tile_data(restart2,'drop_wl',vegn_drop_wl_ptr,'amount of liquid water dropped by dead trees, etc.', 'kg/m2')
@@ -2741,6 +2762,11 @@ DEFINE_VEGN_ACCESSOR_0D(real,fsc_pool_bg)
 DEFINE_VEGN_ACCESSOR_0D(real,fsc_rate_bg)
 DEFINE_VEGN_ACCESSOR_0D(real,ssc_pool_bg)
 DEFINE_VEGN_ACCESSOR_0D(real,ssc_rate_bg)
+
+DEFINE_VEGN_ACCESSOR_0D(real,fsn_pool_bg)
+DEFINE_VEGN_ACCESSOR_0D(real,fsn_rate_bg)
+DEFINE_VEGN_ACCESSOR_0D(real,ssn_pool_bg)
+DEFINE_VEGN_ACCESSOR_0D(real,ssn_rate_bg)
 
 DEFINE_VEGN_ACCESSOR_2D(real,litter_buff_C)
 DEFINE_VEGN_ACCESSOR_2D(real,litter_buff_N)
