@@ -67,18 +67,19 @@ integer, public, parameter :: & ! status of leaves
  LEAF_OFF     = 5     ! leaves are dropped
 
 integer, public, parameter :: & ! land use types
- N_LU_TYPES = 5, & ! number of different land use types
+ N_LU_TYPES = 6, & ! number of different land use types
  LU_PAST    = 1, & ! pasture
  LU_CROP    = 2, & ! crops
  LU_NTRL    = 3, & ! natural vegetation
  LU_SCND    = 4, & ! secondary vegetation
  LU_URBN    = 5, & ! urban
+ LU_RANGE   = 6, & ! rangeland
  LU_PSL     = 1001 ! primary and secondary land, for LUMIP
 
-character(len=4), public, parameter  :: &
-     landuse_name (N_LU_TYPES) = (/ 'past','crop','ntrl','scnd', 'urbn'/)
+character(len=5), public, parameter  :: &
+     landuse_name (N_LU_TYPES) = (/ 'past ','crop ','ntrl ','scnd ', 'urbn ', 'range'/)
 character(len=32), public, parameter :: &
-     landuse_longname (N_LU_TYPES) = (/ 'pasture  ', 'crop     ', 'natural  ', 'secondary', 'urban    '/)
+     landuse_longname (N_LU_TYPES) = (/ 'pasture  ', 'crop     ', 'natural  ', 'secondary', 'urban    ','rangeland'/)
 
 integer, public, parameter :: & ! harvesting pools parameters
  N_HARV_POOLS        = 6, & ! number of harvesting pools
@@ -1100,7 +1101,7 @@ subroutine print_species_data(unit)
   call add_row(table, 'smoke_fraction',spdata(:)%smoke_fraction)
 
   call add_row(table, 'branch_wood_frac', spdata(:)%branch_wood_frac)
-  
+
   call add_row(table, 'ROS_max',   spdata(:)%ROS_max)
   call add_row(table, 'fire_duration', spdata(:)%fire_duration)
   call add_row(table, 'CC_leaf',   spdata(:)%CC_leaf)

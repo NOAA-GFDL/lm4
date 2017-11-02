@@ -35,7 +35,7 @@ use land_tracers_mod, only : isphum
 
 use vegn_data_mod, only : spdata, agf_bs, do_ppa, &
       SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
-      LU_CROP, LU_PAST, LU_NTRL, LU_SCND, FORM_GRASS
+      LU_CROP, LU_PAST, LU_NTRL, LU_SCND, LU_RANGE, FORM_GRASS
 use vegn_tile_mod, only : vegn_tile_type, vegn_mergecohorts_ppa, vegn_mergecohorts_lm3, MAX_MDF_LENGTH
 use soil_tile_mod, only : N_LITTER_POOLS, LEAF, CWOOD, num_l, dz, soil_tile_type, soil_ave_theta1, soil_ave_theta2
 use vegn_cohort_mod, only : vegn_cohort_type, cohort_root_litter_profile
@@ -3467,6 +3467,7 @@ function burns_as_ntrl(tile) result(answer)
   if (.not.fire_option==FIRE_UNPACKED) return
   answer = tile%vegn%landuse==LU_NTRL &
      .OR. tile%vegn%landuse==LU_SCND &
+     .OR. tile%vegn%landuse==LU_RANGE &
      .OR. (tile%vegn%landuse==LU_PAST .AND. fire_option_past==FIRE_PASTLI)
 end function burns_as_ntrl
 

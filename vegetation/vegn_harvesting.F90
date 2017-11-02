@@ -18,7 +18,7 @@ use mpp_io_mod, only : axistype, mpp_get_atts, mpp_get_axis_data, &
 use land_debug_mod, only : check_conservation, carbon_cons_tol, nitrogen_cons_tol
 use land_data_mod, only : log_version
 use vegn_data_mod, only : do_ppa, &
-     N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, &
+     N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, &
      HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, &
      HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
      spdata, agf_bs, LEAF_OFF
@@ -60,38 +60,50 @@ real, parameter :: &
 
 ! ---- namelist variables ----------------------------------------------------
 logical, public, protected  :: do_harvesting       = .TRUE.  ! if true, then harvesting of crops and pastures is done
-real :: grazing_intensity      = 0.25    ! fraction of leaf biomass removed by grazing annually.
+
+character(16) :: grazing_frequency = 'daily' ! or 'annual'
+real :: grazing_intensity_past  = 3.65 ! fraction of leaf biomass removed by grazing annually, roughly 1% per day.
+real :: grazing_intensity_range = 3.65 ! fraction of leaf biomass removed by grazing annually, roughly 1% per day.
   ! NOTE that for daily grazing, grazing_intensity/365 fraction of leaf biomass is removed
   ! every day. E.g. if the desired intensity is 1% of leaves per day, set grazing_intensity
   ! to 3.65
 real :: grazing_residue        = 0.1     ! fraction of the grazed biomass transferred into soil pools
-character(16) :: grazing_frequency = 'annual' ! or 'daily'
-real :: min_lai_for_grazing    = 0.0     ! no grazing if LAI lower than this threshold
+real :: min_lai_for_grazing_past  = 0.0     ! no grazing if LAI lower than this threshold
+real :: min_lai_for_grazing_range = 0.0     ! no grazing if LAI lower than this threshold
   ! NOTE that in CORPSE mode regardless of the grazing frequency soil carbon input from
   ! grazing still goes to intermediate pools, and then it is transferred from
   ! these pools to soil/litter carbon pools with constant rates over the next year.
   ! In CENTURY mode grazing residue is deposited to soil directly in case of daily
   ! grazing frequency; still goes through intermediate pools in case of annual grazing.
-real :: max_grazing_height     = 9999.0  ! no grazing of vegetation above this height.
+real :: max_grazing_height_past  = 9999.0  ! m, no grazing of vegetation above this height.
+real :: max_grazing_height_range = 3.0     ! m, no grazing of vegetation above this height.
+
+real :: wood_harv_DBH          = 0.05    ! DBH above which trees are harvested in PPA, m
+real :: frac_trampled          = 0.9     ! fraction of small trees that get trampled during harvesting in PPA
 real :: frac_wood_wasted_harv  = 0.25    ! fraction of wood wasted while harvesting
 real :: frac_wood_wasted_clear = 0.25    ! fraction of wood wasted while clearing land for pastures or crops
 logical :: waste_below_ground_wood = .TRUE. ! If true, all the wood below ground (1-agf_bs fraction of bwood
         ! and bsw) is wasted. Old behavior assumed this to be FALSE. NOTE that in PPA this option has no
         ! effect; below-ground wood is always wasted.
-real :: wood_harv_DBH          = 0.05    ! DBH above which trees are harvested, m
-real :: frac_trampled          = 0.9     ! fraction of small trees that get trampled during harvesting
 real :: frac_wood_fast         = ONETHIRD ! fraction of wood consumed fast
 real :: frac_wood_med          = ONETHIRD ! fraction of wood consumed with medium speed
 real :: frac_wood_slow         = ONETHIRD ! fraction of wood consumed slowly
 real :: crop_seed_density      = 0.1     ! biomass of seeds left after crop harvesting, kg/m2
-namelist/harvesting_nml/ do_harvesting, grazing_intensity, grazing_residue, &
-     grazing_frequency, min_lai_for_grazing, max_grazing_height, &
-     frac_wood_wasted_harv, frac_wood_wasted_clear, waste_below_ground_wood, &
+namelist/harvesting_nml/ do_harvesting, &
+     ! pasture and rangeland grazing parameters
+     grazing_frequency,  &
+     grazing_residue,    &
+     grazing_intensity_past, grazing_intensity_range, &
+     max_grazing_height_past, max_grazing_height_range, &
+     min_lai_for_grazing_past, min_lai_for_grazing_range, &
+     ! wood harvesting and clearance parameters
      wood_harv_DBH, frac_trampled, &
+     frac_wood_wasted_harv, frac_wood_wasted_clear, waste_below_ground_wood, &
      frac_wood_fast, frac_wood_med, frac_wood_slow, &
+     ! crop harvesting parameters
      crop_seed_density
 
-integer :: grazing_freq = -1 ! inidicator of grazing frequency (ANNUAL or DAILY)
+integer :: grazing_freq = -1 ! indicator of grazing frequency (ANNUAL or DAILY)
 
 contains ! ###################################################################
 
@@ -135,7 +147,8 @@ subroutine vegn_harvesting_init
   case('daily')
      grazing_freq = DAILY
      ! scale grazing intensity for daily frequency
-     grazing_intensity = grazing_intensity/365.0
+     grazing_intensity_past  = grazing_intensity_past/365.0
+     grazing_intensity_range = grazing_intensity_range/365.0
   case default
      call error_mesg('vegn_harvesting_init','grazing_frequency must be "annual" or "daily"',FATAL)
   end select
@@ -162,6 +175,11 @@ subroutine vegn_harvesting(vegn, soil, end_of_year, end_of_month, end_of_day)
          (end_of_year .and. grazing_freq==ANNUAL)) then
         call vegn_graze_pasture (vegn,soil)
      endif
+  case(LU_RANGE)  ! rangeland
+     if ((end_of_day  .and. grazing_freq==DAILY).or. &
+         (end_of_year .and. grazing_freq==ANNUAL)) then
+        call vegn_graze_rangeland (vegn,soil)
+     endif
   case(LU_CROP)  ! crop
      if (end_of_year) call vegn_harvest_cropland (vegn,soil)
   end select
@@ -174,11 +192,24 @@ subroutine vegn_graze_pasture(vegn,soil)
   type(soil_tile_type), intent(inout) :: soil
 
   if (do_ppa) then
-     call vegn_graze_pasture_ppa(vegn, max_grazing_height)
+     call vegn_graze_pasture_ppa(vegn, min_lai_for_grazing_past, grazing_intensity_past, max_grazing_height_past)
   else
-     call vegn_graze_pasture_lm3(vegn,soil)
+     call vegn_graze_pasture_lm3(vegn,soil, min_lai_for_grazing_past, grazing_intensity_past)
   endif
 end subroutine vegn_graze_pasture
+
+
+! ============================================================================
+subroutine vegn_graze_rangeland(vegn,soil)
+  type(vegn_tile_type), intent(inout) :: vegn
+  type(soil_tile_type), intent(inout) :: soil
+
+  if (do_ppa) then
+     call vegn_graze_pasture_ppa(vegn, min_lai_for_grazing_range, grazing_intensity_range, max_grazing_height_range)
+  else
+     call vegn_graze_pasture_lm3(vegn,soil, min_lai_for_grazing_range, grazing_intensity_range)
+  endif
+end subroutine vegn_graze_rangeland
 
 ! ============================================================================
 subroutine vegn_harvest_cropland(vegn, soil)
@@ -207,9 +238,11 @@ subroutine vegn_cut_forest(vegn, soil, new_landuse)
 end subroutine vegn_cut_forest
 
 ! ============================================================================
-subroutine vegn_graze_pasture_lm3(vegn,soil)
+subroutine vegn_graze_pasture_lm3(vegn,soil, min_lai_for_grazing, grazing_intensity)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
+  real, intent(in) :: min_lai_for_grazing
+  real, intent(in) :: grazing_intensity
 
   ! ---- local vars
   real ::  bdead0, balive0, bleaf0, blv0, bfroot0 ! initial combined biomass pools
@@ -232,7 +265,7 @@ subroutine vegn_graze_pasture_lm3(vegn,soil)
      call update_biomass_pools(cc);
 
      ! In multiple-cohort scenario, should we be adding over all cohorts?
-     if(cc%bliving*cc%Pl/sp%LMA .lt. min_lai_for_grazing) continue
+     if(cc%bliving*cc%Pl/sp%LMA < min_lai_for_grazing) continue
 
      if(cc%bwood>0) then
        wood_n2c=cc%wood_N/cc%bwood
@@ -455,6 +488,8 @@ subroutine vegn_cut_forest_lm3(vegn, new_landuse)
   real :: delta
   integer :: i
 
+  if (new_landuse==LU_RANGE) return ! do nothing for the conversion to rangeland
+
   balive = 0 ; bdead = 0 ; bleaf = 0 ; bfroot = 0 ;
   ! calculate initial combined biomass pools for the patch
   do i = 1, vegn%n_cohorts
@@ -595,9 +630,11 @@ subroutine vegn_cut_forest_lm3(vegn, new_landuse)
 end subroutine vegn_cut_forest_lm3
 
 ! ============================================================================
-subroutine vegn_graze_pasture_ppa(vegn, max_grazing_height)
+subroutine vegn_graze_pasture_ppa(vegn, min_lai_for_grazing, grazing_intensity, max_grazing_height)
   type(vegn_tile_type), intent(inout) :: vegn
-  real,  intent(in) :: max_grazing_height ! meters. Vegetation taller than this threshold is not grazed
+  real, intent(in) :: min_lai_for_grazing
+  real, intent(in) :: grazing_intensity
+  real, intent(in) :: max_grazing_height ! meters. Vegetation taller than this threshold is not grazed
 
   real    :: littC, littN ! litter from grazing, kg/m2
   real    :: LAI ! leaf area index of *grazed* vegetation. Does not include plants taller
@@ -613,6 +650,7 @@ subroutine vegn_graze_pasture_ppa(vegn, max_grazing_height)
      if (vegn%cohorts(i)%height < max_grazing_height) &
              LAI = LAI + vegn%cohorts(i)%lai*vegn%cohorts(i)%nindivs
   enddo
+  if (LAI < min_lai_for_grazing) return
 
   do i = 1, vegn%n_cohorts
      associate(cc=>vegn%cohorts(i), sp=>spdata(vegn%cohorts(i)%species))
@@ -750,6 +788,8 @@ subroutine vegn_cut_forest_ppa(vegn, soil, new_landuse)
   real :: dbh_min
   integer :: i
   real :: c1, c2, n1, n2 ! for conservation checks
+
+  if (new_landuse==LU_RANGE) return ! do nothing for the conversion to rangeland
 
   c1 = vegn_tile_carbon(vegn)
   n1 = vegn_tile_nitrogen(vegn)
