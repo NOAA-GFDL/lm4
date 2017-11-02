@@ -657,8 +657,8 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
            call get_tile_data(restart,'soil_DOC_'//trim(c_shortname(i)), 'zfull', sc_DOC_ptr,i)
 
            do k = 1, N_LITTER_POOLS
-              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_C','soilCCohort',sc_litter_litterC_ptr,i,k)
-              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'ProtectedC','soilCCohort',sc_litter_protectedC_ptr,i,k)
+              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_C','litterCCohort',sc_litter_litterC_ptr,i,k)
+              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'ProtectedC','litterCCohort',sc_litter_protectedC_ptr,i,k)
               call get_tile_data(restart,trim(l_shortname(k))//'_litter_DOC_'//trim(c_shortname(i)),sc_litter_dissolved_carbon_ptr,i,k)
            enddo
         enddo
@@ -668,10 +668,10 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
         call get_tile_data(restart,'originalCohortC', 'zfull','soilCCohort', sc_originalLitterC_ptr)
 
         do i = 1,N_LITTER_POOLS
-           call get_tile_data(restart, trim(l_shortname(i))//'_litter_liveMic_C', 'soilCCohort', sc_litter_livingMicrobeC_ptr, i)
-           call get_tile_data(restart, trim(l_shortname(i))//'_litter_CO2',       'soilCCohort', sc_litter_CO2_ptr, i)
-           call get_tile_data(restart, trim(l_shortname(i))//'_litter_Rtot',      'soilCCohort', sc_litter_Rtot_ptr, i)
-           call get_tile_data(restart, trim(l_shortname(i))//'_litter_originalCohortC', 'soilCCohort',sc_litter_originalLitterC_ptr, i)
+           call get_tile_data(restart, trim(l_shortname(i))//'_litter_liveMic_C', 'litterCCohort', sc_litter_livingMicrobeC_ptr, i)
+           call get_tile_data(restart, trim(l_shortname(i))//'_litter_CO2',       'litterCCohort', sc_litter_CO2_ptr, i)
+           call get_tile_data(restart, trim(l_shortname(i))//'_litter_Rtot',      'litterCCohort', sc_litter_Rtot_ptr, i)
+           call get_tile_data(restart, trim(l_shortname(i))//'_litter_originalCohortC', 'litterCCohort',sc_litter_originalLitterC_ptr, i)
         enddo
 
         if(field_exists(restart, 'fast_DOC_leached')) then
@@ -696,8 +696,8 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
            call get_tile_data(restart,'soil_DON_'//trim(c_shortname(i)), 'zfull', sc_DON_ptr,i)
 
            do k = 1, N_LITTER_POOLS
-              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_N','soilCCohort',sc_litter_litterN_ptr,i,k)
-              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'ProtectedN','soilCCohort',sc_litter_protectedN_ptr,i,k)
+              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_N','litterCCohort',sc_litter_litterN_ptr,i,k)
+              call get_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'ProtectedN','litterCCohort',sc_litter_protectedN_ptr,i,k)
               call get_tile_data(restart,trim(l_shortname(k))//'_litter_DON_'//trim(c_shortname(i)),sc_litter_dissolved_nitrogen_ptr,i,k)
            enddo
         enddo
@@ -711,8 +711,8 @@ subroutine soil_init ( id_ug, id_band, id_zfull )
         ! Leaving out cohort-level immobilization and mineralization fields for now -- BNS
 
         do k = 1,N_LITTER_POOLS
-           call get_tile_data(restart, trim(l_shortname(k))//'_litter_liveMic_N', 'soilCCohort', sc_litter_livingMicrobeN_ptr,k)
-           call get_tile_data(restart, trim(l_shortname(k))//'_litter_originalCohortN', 'soilCCohort', sc_litter_originalLitterN_ptr,k)
+           call get_tile_data(restart, trim(l_shortname(k))//'_litter_liveMic_N', 'litterCCohort', sc_litter_livingMicrobeN_ptr,k)
+           call get_tile_data(restart, trim(l_shortname(k))//'_litter_originalCohortN', 'litterCCohort', sc_litter_originalLitterN_ptr,k)
            call get_tile_data(restart, trim(l_shortname(k))//'_litter_NO3', sc_litter_nitrate_ptr,k)
            call get_tile_data(restart, trim(l_shortname(k))//'_litter_NH4', sc_litter_ammonium_ptr,k)
            call get_tile_data(restart, trim(l_shortname(k))//'_litter_nitrif', sc_litter_nitrif_ptr,k)
@@ -1349,6 +1349,7 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
   call add_restart_axis(restart,'zfull',zfull(1:num_l),'Z','m','full level',sense=-1)
   if (soil_carbon_option==SOILC_CORPSE.or.soil_carbon_option==SOILC_CORPSE_N) then
      call add_restart_axis(restart,'soilCCohort',(/(float(i),i=1,soilMaxCohorts)/),'CC')
+     call add_restart_axis(restart,'litterCCohort',(/1.0/),'CC')
   endif
 
   ! write out fields
@@ -1379,8 +1380,8 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
         call add_tile_data(restart,trim(c_shortname(i))//'ProtectedC','zfull','soilCCohort',sc_protected_C_ptr,i,'Protected '//trim(c_longname(i))//' carbon','kg/m2')
         call add_tile_data(restart,'soil_DOC_'//trim(c_shortname(i)),'zfull',sc_DOC_ptr,i,'Dissolved '//trim(c_longname(i))//' carbon','kg/m2')
         do k = 1,N_LITTER_POOLS
-           call add_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_C','soilCCohort',sc_litter_litterC_ptr,i,k,trim(l_longname(k))//' litter '//trim(c_longname(i))//' C','kg/m2')
-           call add_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'ProtectedC','soilCCohort',sc_litter_protectedC_ptr,i,k,trim(l_longname(k))//' litter '//trim(c_longname(i))//' protected C','kg/m2')
+           call add_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_C','litterCCohort',sc_litter_litterC_ptr,i,k,trim(l_longname(k))//' litter '//trim(c_longname(i))//' C','kg/m2')
+           call add_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'ProtectedC','litterCCohort',sc_litter_protectedC_ptr,i,k,trim(l_longname(k))//' litter '//trim(c_longname(i))//' protected C','kg/m2')
            call add_tile_data(restart,trim(l_shortname(k))//'_litter_DOC_'//trim(c_shortname(i)),sc_litter_dissolved_carbon_ptr,i,k,'Dissolved '//trim(l_longname(k))//' litter '//trim(c_longname(i))//' carbon','kg/m2')
         enddo
      enddo
@@ -1390,10 +1391,10 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
      call add_tile_data(restart,'originalCohortC','zfull','soilCCohort',sc_originalLitterC_ptr,'Cohort original carbon','g/m2')
 
      do k = 1,N_LITTER_POOLS
-        call add_tile_data(restart,trim(l_shortname(k))//'_litter_liveMic_C','soilCCohort',sc_litter_livingMicrobeC_ptr,k,trim(l_longname(k))//' litter live microbe C','kg/m2')
-        call add_tile_data(restart,trim(l_shortname(k))//'_litter_CO2','soilCCohort',sc_litter_CO2_ptr,k,trim(l_longname(k))//' litter CO2 generated','kg/m2')
-        call add_tile_data(restart,trim(l_shortname(k))//'_litter_Rtot','soilCCohort',sc_litter_Rtot_ptr,k,trim(l_longname(k))//' litter total degradation','kg/m2')
-        call add_tile_data(restart,trim(l_shortname(k))//'_litter_originalCohortC','soilCCohort',sc_litter_originalLitterC_ptr,k,trim(l_longname(k))//' litter cohort original carbon','kg/m2')
+        call add_tile_data(restart,trim(l_shortname(k))//'_litter_liveMic_C','litterCCohort',sc_litter_livingMicrobeC_ptr,k,trim(l_longname(k))//' litter live microbe C','kg/m2')
+        call add_tile_data(restart,trim(l_shortname(k))//'_litter_CO2','litterCCohort',sc_litter_CO2_ptr,k,trim(l_longname(k))//' litter CO2 generated','kg/m2')
+        call add_tile_data(restart,trim(l_shortname(k))//'_litter_Rtot','litterCCohort',sc_litter_Rtot_ptr,k,trim(l_longname(k))//' litter total degradation','kg/m2')
+        call add_tile_data(restart,trim(l_shortname(k))//'_litter_originalCohortC','litterCCohort',sc_litter_originalLitterC_ptr,k,trim(l_longname(k))//' litter cohort original carbon','kg/m2')
      enddo
 
      call add_int_tile_data(restart,'is_peat','zfull',soil_is_peat_ptr,'Is layer peat?','Boolean')
@@ -1408,8 +1409,8 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
            call add_tile_data(restart,'soil_DON_'//trim(c_shortname(i)), 'zfull', sc_DON_ptr,i,'Dissolved '//trim(c_longname(i))//' nitrogen','kg/m2')
 
            do k = 1,N_LITTER_POOLS
-              call add_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_N','soilCCohort',sc_litter_litterN_ptr,i,k,trim(l_longname(k))//' litter '//trim(c_longname(i))//' N','kg/m2')
-              call add_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'ProtectedN','soilCCohort',sc_litter_protectedN_ptr,i,k,trim(l_longname(k))//' litter '//trim(c_longname(i))//' protected N','kg/m2')
+              call add_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'_N','litterCCohort',sc_litter_litterN_ptr,i,k,trim(l_longname(k))//' litter '//trim(c_longname(i))//' N','kg/m2')
+              call add_tile_data(restart,trim(l_shortname(k))//'_litter_'//trim(c_shortname(i))//'ProtectedN','litterCCohort',sc_litter_protectedN_ptr,i,k,trim(l_longname(k))//' litter '//trim(c_longname(i))//' protected N','kg/m2')
               call add_tile_data(restart,trim(l_shortname(k))//'_litter_DON_'//trim(c_shortname(i)),sc_litter_dissolved_nitrogen_ptr,i,k,'Dissolved '//trim(l_longname(k))//' litter '//trim(c_longname(i))//' nitrogen','kg/m2')
            enddo
         enddo
@@ -1422,8 +1423,8 @@ subroutine save_soil_restart (tile_dim_length, timestamp)
         call add_tile_data(restart,'soil_denitrif', 'zfull', sc_denitrif_ptr,'Soil cumulative denitrification','kg/m2')
 
         do k = 1,N_LITTER_POOLS
-           call add_tile_data(restart,trim(l_shortname(k))//'_litter_liveMic_N', 'soilCCohort', sc_litter_livingMicrobeN_ptr, k, trim(l_longname(k))//' litter live microbe N','kg/m2')
-           call add_tile_data(restart,trim(l_shortname(k))//'_litter_originalCohortN', 'soilCCohort', sc_litter_originalLitterN_ptr, k, trim(l_longname(k))//' litter cohort original N','kg/m2')
+           call add_tile_data(restart,trim(l_shortname(k))//'_litter_liveMic_N', 'litterCCohort', sc_litter_livingMicrobeN_ptr, k, trim(l_longname(k))//' litter live microbe N','kg/m2')
+           call add_tile_data(restart,trim(l_shortname(k))//'_litter_originalCohortN', 'litterCCohort', sc_litter_originalLitterN_ptr, k, trim(l_longname(k))//' litter cohort original N','kg/m2')
            call add_tile_data(restart,trim(l_shortname(k))//'_litter_NO3', sc_litter_nitrate_ptr, k, trim(l_longname(k))//' litter nitrate content','kg/m2')
            call add_tile_data(restart,trim(l_shortname(k))//'_litter_NH4', sc_litter_ammonium_ptr, k, trim(l_longname(k))//' litter ammonium content','kg/m2')
            call add_tile_data(restart,trim(l_shortname(k))//'_litter_nitrif', sc_litter_nitrif_ptr, k, trim(l_longname(k))//' litter cumulative nitrification','kg/m2')
@@ -1627,9 +1628,9 @@ subroutine soil_step_1 ( soil, vegn, diag, &
      __DEBUG1__(soil%pars%psi_sat_ref)
      __DEBUG1__(soil%pars%chb)
      __DEBUG1__(soil%pars%vwc_sat)
-!      do l = 1,N_LITTER_POOLS
-!         call debug_pool(soil%litter(l), trim(c_shortname(l))//'_litter')
-!      enddo
+!     do l = 1,N_LITTER_POOLS
+!        call debug_pool(soil%litter(l), trim(l_shortname(l))//'_litter')
+!     enddo
 !      do l = 1, num_l
 !         write(*,'(i2.2,x)',advance='NO') l
 !         call debug_pool(soil%soil_organic_matter(l), '')
@@ -1889,6 +1890,9 @@ end subroutine soil_step_1
         call dpri(' gw=', soil%groundwater(l))
         write(*,*)
      enddo
+!     do l = 1,N_LITTER_POOLS
+!        call debug_pool(soil%litter(l), trim(l_shortname(l))//'_litter')
+!     enddo
   endif
 
 !  if (do_component_balchecks) then
@@ -2695,7 +2699,7 @@ end subroutine soil_step_1
         call dpri('gw=',soil%groundwater(l))
         write(*,*)
      enddo
-     call debug_pool(soil%litter(LEAF), 'leafLitter')
+     call debug_pool(soil%litter(LEAF), 'leaf_litter')
   endif
 
   active_layer_thickness = 0.
@@ -2732,7 +2736,7 @@ end subroutine soil_step_1
       __DEBUG1__(wl_before)
       __DEBUG1__(gw_option)
       do l = 1,N_LITTER_POOLS
-         call debug_pool(soil%litter(l), trim(c_shortname(l))//'_litter')
+         call debug_pool(soil%litter(l), trim(l_shortname(l))//'_litter')
       enddo
       do l = 1, num_l
          write(*,'(i2.2,x)',advance='NO') l
