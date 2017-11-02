@@ -13,7 +13,8 @@ use land_debug_mod,  only : is_watch_point, is_watch_cell, set_current_point, &
      heat_cons_tol, nitrogen_cons_tol, check_var_range, land_error_message
 use vegn_data_mod,   only : do_ppa, nat_mortality_splits_tiles, spdata, agf_bs, &
      FORM_GRASS, LEAF_OFF, DBH_mort, A_mort, B_mort, mortrate_s
-use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_bwood
+use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_bwood, &
+     vegn_mergecohorts_ppa
 use soil_tile_mod,   only : soil_tile_type, num_l, dz
 use soil_util_mod,   only : add_soil_carbon
 use land_tile_mod,   only : land_tile_map, land_tile_type, land_tile_enum_type, &
@@ -506,6 +507,7 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
   real :: lmass1, fmass1, heat1, cmass1, nmass1
   real :: lmass2, fmass2
   character(*),parameter :: tag = 'tile_nat_mortality_ppa'
+  real :: dheat ! heat residual due to cohort merge
 
   t1=>NULL()
   if(.not.associated(t0%vegn)) &
@@ -673,7 +675,14 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
   endif
 
   call vegn_relayer_cohorts_ppa(t0%vegn)
-  if (associated(t1)) call vegn_relayer_cohorts_ppa(t1%vegn)
+  call vegn_mergecohorts_ppa(t0%vegn, dheat)
+  t0%e_res_2 = t0%e_res_2 - dheat
+
+  if (associated(t1)) then
+     call vegn_relayer_cohorts_ppa(t1%vegn)
+     call vegn_mergecohorts_ppa(t0%vegn, dheat)
+     t1%e_res_2 = t1%e_res_2 - dheat
+  endif
 
 end subroutine tile_nat_mortality_ppa
 
