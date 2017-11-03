@@ -60,6 +60,10 @@ integer :: water_stress_option  = -1 ! selector of the water stress option
 
 character(32) :: photosynthesis_to_use = 'simple' ! or 'leuning'
 
+logical       :: Kok_effect  = .FALSE. ! if TRUE, Kok effect is taken in photosynthesis
+real          :: light_kok   = 0.00004 !mol_of_quanta/(m^2s) PAR
+real          :: Inib_factor = 0.5
+
 character(32) :: co2_to_use_for_photosynthesis = 'prescribed' ! or 'interactive'
    ! specifies what co2 concentration to use for photosynthesis calculations:
    ! 'prescribed'  : a prescribed value is used, equal to co2_for_photosynthesis
@@ -77,6 +81,7 @@ logical :: hydraulics_repair = .TRUE.
 
 namelist /photosynthesis_nml/ &
     photosynthesis_to_use, &
+    Kok_effect, light_kok, Inib_factor, &
     co2_to_use_for_photosynthesis, co2_for_photosynthesis, &
     lai_eps, &
     water_stress_to_use, hydraulics_repair
@@ -161,7 +166,8 @@ subroutine vegn_photosynthesis ( soil, vegn, cohort, &
      PAR_dn, PAR_net, cana_T, cana_q, cana_co2, p_surf, drag_q, &
      soil_beta, soil_water_supply, con_v_v, &
 ! output:
-     evap_demand, stomatal_cond, RHi)
+     evap_demand, stomatal_cond, RHi, &
+     lai_kok, Anlayer,lai_light)
   type(soil_tile_type),   intent(in)    :: soil
   type(vegn_tile_type),   intent(in)    :: vegn
   type(vegn_cohort_type), intent(inout) :: cohort
@@ -178,7 +184,10 @@ subroutine vegn_photosynthesis ( soil, vegn, cohort, &
   real, intent(out) :: evap_demand   ! transpiration water demand, kg/(indiv s)
   real, intent(out) :: stomatal_cond ! stomatal conductance, m/s
   real, intent(out) :: RHi      ! relative humidity inside leaf, at the point of vaporization
-
+  real, intent(out) :: lai_kok  ! LAI value for light inhibition m2/m2
+  real, intent(out) :: Anlayer
+  real, intent(out) :: lai_light ! LAI at which Ag=Resp
+  
   select case (vegn_phot_option)
   case(VEGN_PHOT_SIMPLE)
      ! beta non-unity only for "beta" models
@@ -190,7 +199,8 @@ subroutine vegn_photosynthesis ( soil, vegn, cohort, &
   case(VEGN_PHOT_LEUNING)
      call vegn_photosynthesis_Leuning (soil, vegn, cohort, &
             PAR_dn, PAR_net, cana_T, cana_q, cana_co2, p_surf, &
-            soil_water_supply, con_v_v, evap_demand, stomatal_cond, RHi )
+            soil_water_supply, con_v_v, evap_demand, stomatal_cond, RHi, &
+            lai_kok, Anlayer, lai_light )
   case default
      call error_mesg('vegn_stomatal_cond', &
           'invalid vegetation photosynthesis option', FATAL)
@@ -202,7 +212,8 @@ end subroutine vegn_photosynthesis
 subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
      PAR_dn, PAR_net, cana_T, cana_q, cana_co2, p_surf, &
      soil_water_supply, con_v_v, &
-     evap_demand, stomatal_cond, RHi )
+     evap_demand, stomatal_cond, RHi, &
+     lai_kok, Anlayer, lai_light)
   type(soil_tile_type),   intent(in)    :: soil
   type(vegn_tile_type),   intent(in)    :: vegn
   type(vegn_cohort_type), intent(inout) :: cohort
@@ -218,7 +229,10 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   real, intent(out) :: evap_demand ! transpiration water demand, kg/(indiv s)
   real, intent(out) :: stomatal_cond ! stomatal conductance, m/s
   real, intent(out) :: RHi      ! relative humidity inside leaf, at the point of vaporization
-
+  real, intent(out) :: lai_kok  ! LAI value for light inhibition m2/m2
+  real, intent(out) :: Anlayer
+  real, intent(out) :: lai_light ! LAI at which Ag=Resp
+  
   ! ---- local vars
   integer :: sp      ! shortcut for cohort%species
   real    :: fw, fs  ! wet and snow-covered fraction of leaves, dimensionless
@@ -235,6 +249,12 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
   real    :: fdry    ! fraction of canopy not covered by intercepted water/snow
   real    :: evap_demand_old
 
+  ! set the default values for outgoing parameters, overriden by the calculations
+  ! in gs_leuning
+  lai_kok   = 0.0
+  Anlayer   = 0.0
+  lai_light = 0.0
+  
   if(cohort%lai <= 0) then
      ! no leaves means no photosynthesis and zero stomatal conductance, of course
      cohort%An_op  = 0
@@ -257,7 +277,8 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
        cohort%leaf_age, p_surf, sp, cana_co2, cohort%extinct, &
        cohort%layer, &
        ! output:
-       stomatal_cond, psyn, resp )
+       stomatal_cond, psyn, resp, &
+       lai_kok,Anlayer, lai_light)
 
   ! scale down stomatal conductance and photosynthesis due to leaf wetness
   ! effect
@@ -345,7 +366,8 @@ end subroutine vegn_photosynthesis_Leuning
 ! vertically averaged over the cohort canopy
 subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
                    p_surf, pft, ca, kappa, layer, &
-                   gs, apot, acl)
+                   gs, apot, acl, &
+                   lai_kok, Anlayer, lai_light)
   real,    intent(in)    :: rad_top ! PAR dn on top of the canopy, w/m2
   real,    intent(in)    :: rad_net ! PAR net on top of the canopy, w/m2
   real,    intent(in)    :: tl   ! leaf temperature, degK
@@ -362,7 +384,10 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   real,    intent(out)   :: gs   ! stomatal conductance, mol/(m2 s)
   real,    intent(out)   :: apot ! net photosynthesis, mol C/(m2 s)
   real,    intent(out)   :: acl  ! leaf respiration, mol C/(m2 s)
-
+  !#### Modified by PPG 2017-11-03
+  real,    intent(out)   :: lai_kok ! Lai at which kok effect is considered
+  real,    intent(out)   :: Anlayer
+  real,    intent(out)   :: lai_light ! Lai at which Ag=Resp
   ! ---- local vars
   ! photosynthesis
   real :: vm;
@@ -410,6 +435,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   endif
 
   do1=0.09 ; ! kg/kg
+  
   if (spdata(pft)%lifeform == FORM_GRASS) do1=0.15;
 
 
@@ -437,7 +463,19 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
 
   ! Find respiration for the whole canopy layer
 
-  Resp=spdata(pft)%gamma_resp*vm*lai !/layer
+  !Resp=spdata(pft)%gamma_resp*vm*lai !/layer
+  ! Find respiration for the whole canopy layer
+  if (light_top>light_kok) then
+     lai_kok=min(log(light_top/light_kok)/kappa,lai)
+  else
+     lai_kok = 0.0
+  endif
+  if (Kok_effect) then
+     ! modify vm for Vmax later and add a temperature function to it.
+     Resp=(1-Inib_factor)*spdata(pft)%gamma_resp*vm*lai_kok+spdata(pft)%gamma_resp*vm*(lai-lai_kok)
+  else
+     Resp=spdata(pft)%gamma_resp*vm*lai
+  endif
 
   if (layer > 1) Resp = Resp*spdata(pft)%Resp_understory_factor ! reduce gamma_resp by 50% per Steve's experiments - need a reference
 
@@ -452,7 +490,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   Ag=0.;
   anbar=-Resp/lai;
   gsbar=b;
-
+  lai_light = 0.0
 
   ! find the LAI level at which gross photosynthesis rates are equal
   ! only if PAR is positive
