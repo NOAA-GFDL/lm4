@@ -23,7 +23,7 @@ use vegn_tile_mod, only : vegn_tile_LAI
 use vegn_cohort_mod, only : get_vegn_wet_frac
 
 ! import interfaces from non-generic tracer modules, e.g.:
-! use land_dust_mod, only : land_dust_init, land_dust_end, update_land_dust
+use land_dust_mod, only : land_dust_init, land_dust_end, update_land_dust
 
 implicit none
 private
@@ -100,8 +100,7 @@ subroutine land_tracer_driver_init(id_ug)
   trdata(ico2)%is_generic   = .FALSE.
 
   ! initialize non-generic tracers, e.g.:
-  ! call land_dust_init(id_ug,trdata(:)%is_generic)
-
+  call land_dust_init(id_ug, trdata(:)%is_generic)
   ! NOTE that (1) the non-generic tracer init must skip all non-generic tracers
   ! that have already been initialized (in case there is a conflict), and
   ! (2) it must set trdata(:)%is_generic to FALSE for the tracers it claims
@@ -197,8 +196,8 @@ end subroutine land_tracer_driver_init
 ! ============================================================================
 subroutine land_tracer_driver_end()
   ! call finalizers for all non-generic tracers, e.g.:
-  ! call land_dust_end()
-
+  call land_dust_end()
+  
   deallocate(trdata)
   module_is_initialized = .FALSE.
 end subroutine land_tracer_driver_end
@@ -233,9 +232,10 @@ end function laminar_conductance
 ! ============================================================================
 ! updates concentration of tracers in the canopy air, taking into account dry
 ! deposition and exchange with the atmosphere
-subroutine update_cana_tracers(tile, tr_flux, dfdtr, &
+subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
      precip_l, precip_s, pressure, ustar, con_g, con_v, stomatal_cond )
   type(land_tile_type), intent(inout) :: tile
+  integer :: l ! grid cell indices (global)
   real, intent(in) :: tr_flux(:) ! fluxes of tracers
   real, intent(in) :: dfdtr  (:) ! derivatives of tracer fluxes w.r.t. concentrations
   real, intent(in) :: pressure   ! atmospheric pressure, N/m2
@@ -280,8 +280,8 @@ subroutine update_cana_tracers(tile, tr_flux, dfdtr, &
   endif
 
   ! update non-generic tracers, e.g.:
-  ! call update_land_dust(tile, i, j, tr_flux, dfdtr, &
-  !   precip_l, precip_s, pressure, ustar, wind10, con_g, con_v )
+  call update_land_dust(tile, l, tr_flux, dfdtr, &
+     precip_l, precip_s, pressure, ustar, con_g, con_v )
   ! wind10 is not passed to this subroutine yet
 
   ! update generic tracers
@@ -297,7 +297,7 @@ subroutine update_cana_tracers(tile, tr_flux, dfdtr, &
   ! ustar passed into this subroutine corresponds to the momentum dissipation
   ! (tau = rho*ustar**2) on the entire land surface. If vegetation is present,
   ! momentum dissipates on both leaves and ground; for the momentum conservation
-  ! we need to reduce dissipation per unit surface proportionally to the total
+  ! we need to reduce dissipation per unit surface proportionally to the total 
   ! surface area. Factor of 2 takes into account that the leaves are 2-sided.
    ustar_s = ustar/sqrt(2*LAI+1.0)
 
@@ -317,6 +317,7 @@ subroutine update_cana_tracers(tile, tr_flux, dfdtr, &
      __DEBUG4__(LAI,ustar,ustar_s,con_st)
   endif
 
+  ! loop for generic tracers only
   do tr = 1, ntcana
      if (.not.trdata(tr)%is_generic) cycle
 
@@ -386,8 +387,11 @@ subroutine update_cana_tracers(tile, tr_flux, dfdtr, &
      call send_tile_data(trdata(tr)%id_emis,       emis(tr),   tile%diag)
      call send_tile_data(trdata(tr)%id_ddep,       ddep,       tile%diag)
      call send_tile_data(trdata(tr)%id_flux_atm,   f_atm,      tile%diag)
-     call send_tile_data(trdata(tr)%id_dfdtr,      dfdtr(tr),  tile%diag)
+  enddo
+  ! send concentrations for all tracers, generic or not
+  do tr = 1, ntcana
      call send_tile_data(trdata(tr)%id_conc,       tile%cana%tr(tr), tile%diag)
+     call send_tile_data(trdata(tr)%id_dfdtr,      dfdtr(tr),  tile%diag)
   enddo
 
 end subroutine update_cana_tracers
