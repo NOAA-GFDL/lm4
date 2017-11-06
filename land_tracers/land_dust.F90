@@ -113,7 +113,7 @@ contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 subroutine land_dust_init (id_ug, mask)
   integer, intent(in) :: id_ug
-  logical, intent(inout) :: mask(:)
+  logical,intent(inout) :: mask(:)
 
   ! ---- local vars
   logical :: used ! return value from send_data
@@ -408,7 +408,7 @@ subroutine update_land_dust(tile, l, tr_flux, dfdtr, &
   real    :: LAI     ! leaf area index, m2/m2
   real    :: wind10  ! wind at 10 m above displacement height, m/s
   real    :: ustar_s ! friction velocity at the top of quasi-laminar layer
-  
+
   real    :: mass0, mass1 ! variables for conservation checking
 
   if (.not.do_dust) return ! no dust, do nothing in this case
@@ -493,9 +493,9 @@ subroutine update_land_dust(tile, l, tr_flux, dfdtr, &
   enddo
   call send_tile_data(id_ddep_tot,  ddep_tot,  tile%diag)
   call send_tile_data(id_wdep_tot,  wdep_tot,  tile%diag)
-  call send_tile_data(id_fatm_tot,  fatm_tot,  tile%diag)  
+  call send_tile_data(id_fatm_tot,  fatm_tot,  tile%diag)
   call send_tile_data(id_emis_tot,  emis_tot,  tile%diag)  
-  call send_tile_data(id_cana_dens, rho,       tile%diag)  
+  call send_tile_data(id_cana_dens, rho,       tile%diag)
 
   ! + conservation check, part 2: calculate totals in final state, and compare
   !   with previous totals
@@ -572,7 +572,7 @@ subroutine update_dust_source(tile, l, ustar, wind10, emis)
       dust_emis = ch*bareness*dust_source(l)*(wind10-u_ts)*wind10**2
     endif
   endif
-  
+
   if (lnd%ug_landfrac(l)<0.9) dust_emis = 0
 
   ! distribute dust emission among dust tracers

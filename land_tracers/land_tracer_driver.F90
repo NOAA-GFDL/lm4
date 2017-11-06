@@ -197,7 +197,7 @@ end subroutine land_tracer_driver_init
 subroutine land_tracer_driver_end()
   ! call finalizers for all non-generic tracers, e.g.:
   call land_dust_end()
-  
+
   deallocate(trdata)
   module_is_initialized = .FALSE.
 end subroutine land_tracer_driver_end
@@ -297,7 +297,7 @@ subroutine update_cana_tracers(tile, l, tr_flux, dfdtr, &
   ! ustar passed into this subroutine corresponds to the momentum dissipation
   ! (tau = rho*ustar**2) on the entire land surface. If vegetation is present,
   ! momentum dissipates on both leaves and ground; for the momentum conservation
-  ! we need to reduce dissipation per unit surface proportionally to the total 
+  ! we need to reduce dissipation per unit surface proportionally to the total
   ! surface area. Factor of 2 takes into account that the leaves are 2-sided.
    ustar_s = ustar/sqrt(2*LAI+1.0)
 
