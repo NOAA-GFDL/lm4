@@ -52,7 +52,7 @@ type :: tracer_data_type
    logical :: do_deposition = .TRUE. ! if true, generic dry deposition is used
    ! dry deposition parameters. The default values are set as O3 parameters from (Wesely, 1989)
    real    :: diff_ratio    = 1.6    ! ratio of water vapor molecular diffusivity in the air to that of the tracer, unitless
-   real    :: Henry_const   = 0.01   ! Henry's law constant for the gas, M atm-1
+   real    :: Henry_const   = 0.01   ! Henrys law constant for the gas, M atm-1
    real    :: reactivity    = 1.0    ! normalized reactivity factor
    real    :: r_lw          = 1000.0 ! resistance of wet portion of the leaf, s/m
    real    :: r_ls          = 1000.0 ! resistance of snow covered portion of the leaf, s/m
