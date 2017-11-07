@@ -182,7 +182,7 @@ integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_leaf_emis, id_snow_crit, id_stomatal, &
    id_an_op, id_an_cl,&
    id_bl, id_blv, id_br, id_bsw, id_bwood, id_bseed, id_btot, id_nsc, &
-   id_bl_max, id_br_max, id_bsw_max, &
+   id_bl_max, id_br_max, id_topyear, id_bsw_max, &
    id_species, id_dominant_by_n, id_dominant_by_b, id_status, &
    id_con_v_h, id_con_v_v, id_fuel, id_harv_pool(N_HARV_POOLS), &
    id_harv_rate(N_HARV_POOLS), id_t_harv_pool, id_t_harv_rate, &
@@ -201,7 +201,7 @@ integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_crownarea, &
    id_soil_water_supply, id_gdd, id_tc_pheno, id_zstar_1, &
    id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi, &
-   id_brsw
+   id_brsw, id_growth_prev_day
 integer, allocatable :: id_nindivs_sp(:)
 ! ==== end of module variables ===============================================
 
@@ -692,6 +692,10 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   ! ens 021617
   id_brsw = register_cohort_diag_field ( module_name, 'brsw',  &
        (/id_ug/), time, 'biomass of branches (only sapwood)', 'kg C/m2', missing_value=-1.0)
+  id_growth_prev_day = register_cohort_diag_field ( module_name, 'growth_prev_day',  &
+       (/id_ug/), time, 'growth previous day', 'kg C/m2', missing_value=-1.0)
+  id_topyear = register_cohort_diag_field ( module_name, 'topyear',  &
+       (/id_ug/), time, 'time pants spent in top layer', 'year', missing_value=-1.0)
 
   id_fuel = register_tiled_diag_field ( module_name, 'fuel',  &
        (/id_ug/), time, 'mass of fuel', 'kg C/m2', missing_value=-1.0 )
@@ -2095,6 +2099,7 @@ subroutine update_vegn_slow( )
      call send_cohort_data(id_nsc,    tile%diag, cc(1:N), cc(1:N)%nsc,    weight=cc(1:N)%nindivs, op=OP_SUM)
      ! ens 021517
      call send_cohort_data(id_brsw,   tile%diag, cc(1:N), cc(1:N)%brsw,    weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_growth_prev_day, tile%diag, cc(1:N), cc(1:N)%growth_previous_day, weight=cc(1:N)%nindivs, op=OP_SUM)
      allocate(btot(N)) ! has to be allocated since N cohorts changes inside this subroutine
      btot(1:N) = cc(1:N)%bl    + &
                  cc(1:N)%blv   + &
@@ -2111,6 +2116,7 @@ subroutine update_vegn_slow( )
      call send_cohort_data(id_bsw_max, tile%diag, cc(1:N), cc(1:N)%bsw_max, weight=cc(1:N)%nindivs, op=OP_SUM)
      call send_cohort_data(id_bl_max, tile%diag, cc(1:N), cc(1:N)%bl_max, weight=cc(1:N)%nindivs, op=OP_SUM)
      call send_cohort_data(id_br_max, tile%diag, cc(1:N), cc(1:N)%br_max, weight=cc(1:N)%nindivs, op=OP_SUM)
+     call send_cohort_data(id_topyear, tile%diag, cc(1:N), cc(1:N)%topyear, weight=cc(1:N)%nindivs, op=OP_AVERAGE)
 
      call send_cohort_data(id_dbh,       tile%diag, cc(1:N), cc(1:N)%dbh,        weight=cc(1:N)%nindivs, op=OP_AVERAGE)
      call send_cohort_data(id_crownarea, tile%diag, cc(1:N), cc(1:N)%crownarea,  weight=cc(1:N)%nindivs, op=OP_AVERAGE)
