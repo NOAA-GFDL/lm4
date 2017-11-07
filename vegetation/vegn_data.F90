@@ -252,6 +252,10 @@ type spec_data_type
 
   real    :: tracer_cuticular_cond = 0.0 ! cuticular conductance for all tracers, m/s
 
+  ! for Kok effect, ppg
+  real    :: inib_factor = 0.0 ! default rate of inhibition for leaf respiration
+  real    :: light_kok = 0.00004 ! Light intensity above which light inhibition occurs, umol/m2/s
+  
   ! for hydraulics, wolf
   real    :: Kxam=0.0, Klam=0.0 ! Conductivity, max, per tissue area: units kg/m2 tissue/s/MPa
   real    :: dx=0.0, dl=0.0       ! Breakpoint of Weibull function, MPa
@@ -731,6 +735,9 @@ subroutine read_species_data(name, sp, errors_found)
   !  for PPA, IMC, 1/8/2017
   __GET_SPDATA_REAL__(growth_resp)
   __GET_SPDATA_REAL__(NSC2targetbl)
+  ! for Kok effect, ppg, 17/11/07
+  __GET_SPDATA_REAL__(inib_factor)
+  __GET_SPDATA_REAL__(light_kok)
   ! hydraulics-related parameters
   __GET_SPDATA_REAL__(Kxam)
   __GET_SPDATA_REAL__(dx)
@@ -957,7 +964,11 @@ subroutine print_species_data(unit)
   call add_row(table, 'dx', spdata(:)%dx)
   call add_row(table, 'cx', spdata(:)%cx)
   call add_row(table, 'psi_tlp', spdata(:)%psi_tlp)
-
+  
+  !for kok effect, ppg, 17/11/07
+  call add_row(table, 'inib_factor', spdata(:)%inib_factor)
+  call add_row(table, 'light_kok', spdata(:)%light_kok)
+  
   call add_row(table, 'leaf_refl_vis', spdata(:)%leaf_refl(BAND_VIS))
   call add_row(table, 'leaf_refl_nir', spdata(:)%leaf_refl(BAND_NIR))
   call add_row(table, 'leaf_tran_vis', spdata(:)%leaf_tran(BAND_VIS))

@@ -61,8 +61,8 @@ integer :: water_stress_option  = -1 ! selector of the water stress option
 character(32) :: photosynthesis_to_use = 'simple' ! or 'leuning'
 
 logical       :: Kok_effect  = .FALSE. ! if TRUE, Kok effect is taken in photosynthesis
-real          :: light_kok   = 0.00004 !mol_of_quanta/(m^2s) PAR
-real          :: Inib_factor = 0.5
+!real          :: light_kok   = 0.00004 !mol_of_quanta/(m^2s) PAR
+!real          :: Inib_factor = 0.5
 
 character(32) :: co2_to_use_for_photosynthesis = 'prescribed' ! or 'interactive'
    ! specifies what co2 concentration to use for photosynthesis calculations:
@@ -81,7 +81,7 @@ logical :: hydraulics_repair = .TRUE.
 
 namelist /photosynthesis_nml/ &
     photosynthesis_to_use, &
-    Kok_effect, light_kok, Inib_factor, &
+    Kok_effect,  &
     co2_to_use_for_photosynthesis, co2_for_photosynthesis, &
     lai_eps, &
     water_stress_to_use, hydraulics_repair
@@ -171,8 +171,8 @@ subroutine vegn_photosynthesis ( soil, vegn, cohort, &
   type(soil_tile_type),   intent(in)    :: soil
   type(vegn_tile_type),   intent(in)    :: vegn
   type(vegn_cohort_type), intent(inout) :: cohort
-  real, intent(in)  :: PAR_dn   ! downward PAR at the top of the canopy, W/m2
-  real, intent(in)  :: PAR_net  ! net PAR absorbed by the canopy, W/m2
+  real, intent(in)  :: PAR_dn   ! downward PAR at the top of the cohort, W/m2
+  real, intent(in)  :: PAR_net  ! net PAR absorbed by the cohort, W/m2
   real, intent(in)  :: cana_T   ! temperature of canopy air, deg K
   real, intent(in)  :: cana_q   ! specific humidity in canopy air space, kg/kg
   real, intent(in)  :: cana_co2 ! co2 concentration in canopy air space, mol CO2/mol dry air
@@ -465,14 +465,14 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
 
   !Resp=spdata(pft)%gamma_resp*vm*lai !/layer
   ! Find respiration for the whole canopy layer
-  if (light_top>light_kok) then
-     lai_kok=min(log(light_top/light_kok)/kappa,lai)
+  if (light_top>spdata(pft)%light_kok .and. spdata(pft)%inib_factor>0.0) then
+     lai_kok=min(log(light_top/spdata(pft)%light_kok)/kappa,lai)
   else
      lai_kok = 0.0
   endif
   if (Kok_effect) then
      ! modify vm for Vmax later and add a temperature function to it.
-     Resp=(1-Inib_factor)*spdata(pft)%gamma_resp*vm*lai_kok+spdata(pft)%gamma_resp*vm*(lai-lai_kok)
+     Resp=(1-spdata(pft)%inib_factor)*spdata(pft)%gamma_resp*vm*lai_kok+spdata(pft)%gamma_resp*vm*(lai-lai_kok)
   else
      Resp=spdata(pft)%gamma_resp*vm*lai
   endif
