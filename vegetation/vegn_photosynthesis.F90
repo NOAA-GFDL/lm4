@@ -578,6 +578,7 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
 
   real, parameter :: m2pa = dens_h2o*grav ! unit conversion factor, pa per m of water
   real, parameter :: small_Et0 = 1e-10 ! small transpiration value used to get to
+  real, parameter :: small_psi = 1.0   ! Pa
   ! to the region of non-zero derivatives w.r.t. psi_r
 
   associate(sp=>spdata(cc%species), vegn_T=>cc%Tv)
@@ -601,6 +602,14 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
   call qscomp(vegn_T, p_surf, qsat, DqsatDT)
   rho = p_surf/(rdgas*cana_T*(1+d608*cana_q)) ! canopy air density
   RHi = exp(cc%psi_l*Vm/(Rugas*vegn_T)) ! relative humidity inside the leaf
+  if (cana_q>qsat*RHi) then
+     ! if water vapor flux directed toward the leaf, increase initial leaf water potential
+     !  so that the leaf is less water-stressed
+     if (is_watch_point()) then; __DEBUG2__(cc%psi_l,RHi); endif
+     cc%psi_l = min(Rugas*vegn_T/Vm * log(cana_q/qsat),0.0) - small_psi
+     RHi = exp(cc%psi_l*Vm/(Rugas*vegn_T)) ! relative humidity inside the leaf
+     if (is_watch_point()) then; __DEBUG2__(cc%psi_l,RHi); endif
+  endif
   gs = gs0 * exp(-(cc%psi_l/sp%dl)**sp%cl)
   DgsDpl = - gs0 * exp(-(cc%psi_l/sp%dl)**sp%cl)*sp%cl/sp%dl*(cc%psi_l/sp%dl)**(sp%cl-1)
   DgsDTl = 0.0
@@ -626,7 +635,7 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
      ! set all water potentials to water potential of roots (which is the max
      ! of all water potentials)
      cc%psi_x = cc%psi_r
-     cc%psi_l = cc%psi_r
+     ! cc%psi_l = cc%psi_r
   else
      DEtDpl = rho * fdry * gb/(gs+gb) * ( gs*qsat*Vm/(Rugas*cc%Tv)*RHi +      &
                                   DgsDpl*gb/(gs+gb)*(qsat*Rhi-cana_q)  )
