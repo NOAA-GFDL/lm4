@@ -16,13 +16,15 @@ use diag_manager_mod, only : register_static_field, send_data
 
 use land_io_mod, only : read_field
 use land_debug_mod, only : check_conservation, carbon_cons_tol, nitrogen_cons_tol, &
-     land_error_message
+     land_error_message, do_check_conservation
+use land_utils_mod, only : check_conservation_1, check_conservation_2
 use land_data_mod, only : log_version, lnd
 use vegn_data_mod, only : do_ppa, &
      N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, &
      HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, &
      HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
      nspecies, spdata, agf_bs, LEAF_OFF
+use land_tile_mod, only : land_tile_type
 use soil_tile_mod, only : num_l, LEAF, CWOOD, soil_tile_type, &
      soil_tile_carbon, soil_tile_nitrogen
 use vegn_tile_mod, only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_lai, &
@@ -220,110 +222,105 @@ end subroutine vegn_harvesting_end
 
 ! ============================================================================
 ! harvest vegetation in a tile
-subroutine vegn_harvesting(vegn, soil, end_of_year, end_of_month, end_of_day, day_of_year, l)
-  type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(inout) :: soil
+subroutine vegn_harvesting(tile, end_of_year, end_of_month, end_of_day, day_of_year, l)
+  type(land_tile_type), intent(inout) :: tile
   logical, intent(in) :: end_of_year, end_of_month, end_of_day ! indicators of respective period boundaries
   integer, intent(in) :: day_of_year ! current day of year
   integer, intent(in) :: l ! index of current grid cell in unstructured grid
 
   if (.not.do_harvesting) return ! do nothing if no harvesting requested
 
+  associate(vegn=>tile%vegn)
   select case(vegn%landuse)
   case(LU_PAST)  ! pasture
      if ((end_of_day  .and. grazing_freq==DAILY).or. &
          (end_of_year .and. grazing_freq==ANNUAL)) then
-        call vegn_graze_pasture (vegn,soil)
+        call vegn_graze_pasture (tile)
      endif
   case(LU_RANGE)  ! rangeland
      if ((end_of_day  .and. grazing_freq==DAILY).or. &
          (end_of_year .and. grazing_freq==ANNUAL)) then
-        call vegn_graze_rangeland (vegn,soil)
+        call vegn_graze_rangeland (tile)
      endif
   case(LU_CROP)  ! crop
      select case(crop_schedule_option)
      case (CROP_SCHEDULE_LM3)
-        if (end_of_year) call vegn_harvest_cropland (vegn,soil)
+        if (end_of_year) call vegn_harvest_cropland (tile)
      case (CROP_SCHEDULE_PRESCRIBED)
         if (end_of_day.AND.day_of_year==nint(crop_harvest_day(l))) then
-           call vegn_harvest_cropland (vegn,soil)
+           call vegn_harvest_cropland (tile)
         endif
         if (end_of_day.AND.day_of_year==nint(crop_planting_day(l))) then
-           call vegn_plant_crop (vegn,soil)
+           call vegn_plant_crop (tile)
         endif
      end select ! crop_schedule_option
   end select
+  end associate
 end subroutine vegn_harvesting
 
 
 ! ============================================================================
-subroutine vegn_graze_pasture(vegn,soil)
-  type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(inout) :: soil
+subroutine vegn_graze_pasture(tile)
+  type(land_tile_type), intent(inout) :: tile
 
   if (do_ppa) then
-     call vegn_graze_pasture_ppa(vegn, min_lai_for_grazing_past, grazing_intensity_past, max_grazing_height_past)
+     call vegn_graze_pasture_ppa(tile, min_lai_for_grazing_past, grazing_intensity_past, max_grazing_height_past)
   else
-     call vegn_graze_pasture_lm3(vegn,soil, min_lai_for_grazing_past, grazing_intensity_past)
+     call vegn_graze_pasture_lm3(tile, min_lai_for_grazing_past, grazing_intensity_past)
   endif
 end subroutine vegn_graze_pasture
 
 
 ! ============================================================================
-subroutine vegn_graze_rangeland(vegn,soil)
-  type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(inout) :: soil
+subroutine vegn_graze_rangeland(tile)
+  type(land_tile_type), intent(inout) :: tile
 
   if (do_ppa) then
-     call vegn_graze_pasture_ppa(vegn, min_lai_for_grazing_range, grazing_intensity_range, max_grazing_height_range)
+     call vegn_graze_pasture_ppa(tile, min_lai_for_grazing_range, grazing_intensity_range, max_grazing_height_range)
   else
-     call vegn_graze_pasture_lm3(vegn,soil, min_lai_for_grazing_range, grazing_intensity_range)
+     call vegn_graze_pasture_lm3(tile, min_lai_for_grazing_range, grazing_intensity_range)
   endif
 end subroutine vegn_graze_rangeland
 
 ! ============================================================================
-subroutine vegn_harvest_cropland(vegn, soil)
-  type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(inout) :: soil
+subroutine vegn_harvest_cropland(tile)
+  type(land_tile_type), intent(inout) :: tile
 
   if (do_ppa) then
-     call vegn_harvest_crop_ppa(vegn, soil)
+     call vegn_harvest_crop_ppa(tile)
   else
-     call vegn_harvest_crop_lm3(vegn)
+     call vegn_harvest_crop_lm3(tile)
   endif
 end subroutine vegn_harvest_cropland
 
 
 ! ============================================================================
-subroutine vegn_plant_crop(vegn, soil)
-  type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(inout) :: soil
+subroutine vegn_plant_crop(tile)
+  type(land_tile_type), intent(inout) :: tile
 
   if (do_ppa) then
-     call vegn_plant_crop_ppa(vegn, soil)
+     call vegn_plant_crop_ppa(tile)
   else
      ! do nothing at the moment -- later add turning phenology on
   endif
 end subroutine vegn_plant_crop
 
 ! ============================================================================
-subroutine vegn_cut_forest(vegn, soil, new_landuse)
-  type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(inout) :: soil
+subroutine vegn_cut_forest(tile, new_landuse)
+  type(land_tile_type), intent(inout) :: tile
   integer, intent(in) :: new_landuse ! new land use type that gets assigned to
                                      ! the tile after the wood harvesting
 
   if (do_ppa) then
-     call vegn_cut_forest_ppa(vegn, soil, new_landuse)
+     call vegn_cut_forest_ppa(tile, new_landuse)
   else
-     call vegn_cut_forest_lm3(vegn, new_landuse)
+     call vegn_cut_forest_lm3(tile, new_landuse)
   endif
 end subroutine vegn_cut_forest
 
 ! ============================================================================
-subroutine vegn_graze_pasture_lm3(vegn,soil, min_lai_for_grazing, grazing_intensity)
-  type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(inout) :: soil
+subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
+  type(land_tile_type), intent(inout) :: tile
   real, intent(in) :: min_lai_for_grazing
   real, intent(in) :: grazing_intensity
 
@@ -336,6 +333,7 @@ subroutine vegn_graze_pasture_lm3(vegn,soil, min_lai_for_grazing, grazing_intens
   real,dimension(N_C_TYPES) :: leaflitter_C,woodlitter_C,bglitter_C,leaflitter_N,woodlitter_N,bglitter_N
   real :: wood_n2c
 
+  associate(vegn=>tile%vegn,soil=>tile%soil)
   ! do nothing if the LAI is less that the lower grazing limit
   if ( vegn_tile_LAI(vegn) <= min_lai_for_grazing ) return
 
@@ -455,18 +453,20 @@ subroutine vegn_graze_pasture_lm3(vegn,soil, min_lai_for_grazing, grazing_intens
      end select
      end associate
   enddo
+  end associate ! vegn, soil
 end subroutine vegn_graze_pasture_lm3
 
 
 ! ================================================================================
-subroutine vegn_harvest_crop_lm3(vegn)
-  type(vegn_tile_type), intent(inout) :: vegn
+subroutine vegn_harvest_crop_lm3(tile)
+  type(land_tile_type), intent(inout) :: tile
 
   ! ---- local vars
   real :: fraction_harvested;    ! fraction of biomass harvested this time
   real :: bdead, balive, btotal; ! combined biomass pools
   integer :: i
 
+  associate (vegn=>tile%vegn)
   balive = 0 ; bdead = 0
   ! calculate initial combined biomass pools for the patch
   do i = 1, vegn%n_cohorts
@@ -551,14 +551,15 @@ subroutine vegn_harvest_crop_lm3(vegn)
      call update_biomass_pools(cc);
      end associate
   enddo
+  end associate ! vegn
 end subroutine vegn_harvest_crop_lm3
 
 
 ! ============================================================================
 ! for now cutting forest is the same as harvesting cropland --
 ! we basically cut down everything, leaving only seeds
-subroutine vegn_cut_forest_lm3(vegn, new_landuse)
-  type(vegn_tile_type), intent(inout) :: vegn
+subroutine vegn_cut_forest_lm3(tile, new_landuse)
+  type(land_tile_type), intent(inout) :: tile
   integer, intent(in) :: new_landuse ! new land use type that gets assigned to
                                      ! the tile after the wood harvesting
 
@@ -571,6 +572,7 @@ subroutine vegn_cut_forest_lm3(vegn, new_landuse)
   real :: delta
   integer :: i
 
+  associate (vegn=>tile%vegn)
   if (new_landuse==LU_RANGE) return ! do nothing for the conversion to rangeland
 
   balive = 0 ; bdead = 0 ; bleaf = 0 ; bfroot = 0 ;
@@ -710,11 +712,12 @@ subroutine vegn_cut_forest_lm3(vegn, new_landuse)
      call update_biomass_pools(cc);
      end associate
   enddo
+  end associate ! vegn
 end subroutine vegn_cut_forest_lm3
 
 ! ============================================================================
-subroutine vegn_graze_pasture_ppa(vegn, min_lai_for_grazing, grazing_intensity, max_grazing_height)
-  type(vegn_tile_type), intent(inout) :: vegn
+subroutine vegn_graze_pasture_ppa(tile, min_lai_for_grazing, grazing_intensity, max_grazing_height)
+  type(land_tile_type), intent(inout) :: tile
   real, intent(in) :: min_lai_for_grazing
   real, intent(in) :: grazing_intensity
   real, intent(in) :: max_grazing_height ! meters. Vegetation taller than this threshold is not grazed
@@ -725,8 +728,10 @@ subroutine vegn_graze_pasture_ppa(vegn, min_lai_for_grazing, grazing_intensity, 
   integer :: i
   real    :: c1, c2, n1, n2 ! for conservation checks
 
+  associate (vegn=>tile%vegn)
   c1 = vegn_tile_carbon(vegn)
   n1 = vegn_tile_nitrogen(vegn)
+
 
   LAI = 0.0
   do i = 1,vegn%n_cohorts
@@ -768,15 +773,15 @@ subroutine vegn_graze_pasture_ppa(vegn, min_lai_for_grazing, grazing_intensity, 
   call check_conservation('vegn_graze_pasture_ppa','carbon',c1,c2,carbon_cons_tol,FATAL)
   n2 = vegn_tile_nitrogen(vegn)
   call check_conservation('vegn_graze_pasture_ppa','nitrogen',n1,n2,nitrogen_cons_tol,FATAL)
+  end associate ! vegn
 end subroutine vegn_graze_pasture_ppa
 
 ! ============================================================================
 ! NOTE that the PPA harvest would not work properly if applied only once per year, because
 ! at the end of the year the leaves are down in NH, and therefore harvest amount will be
 ! unrealistically small. The same is true about the grazing.
-subroutine vegn_harvest_crop_ppa(vegn,soil)
-  type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(inout) :: soil
+subroutine vegn_harvest_crop_ppa(tile)
+  type(land_tile_type), intent(inout) :: tile
 
   real, dimension(N_C_TYPES) :: &
      leaf_litt_C, leaf_litt_N, & ! accumulated leaf litter, kg/m2
@@ -787,6 +792,7 @@ subroutine vegn_harvest_crop_ppa(vegn,soil)
   integer :: i
   real :: c1, c2, n1, n2 ! for conservation checks
 
+  associate(vegn=>tile%vegn, soil=>tile%soil)
   c1 = vegn_tile_carbon(vegn)
   n1 = vegn_tile_nitrogen(vegn)
 
@@ -849,13 +855,12 @@ subroutine vegn_harvest_crop_ppa(vegn,soil)
   call check_conservation('vegn_harvest_crop_ppa','carbon',c1,c2,carbon_cons_tol,FATAL)
   n2 = vegn_tile_nitrogen(vegn)
   call check_conservation('vegn_harvest_crop_ppa','nitrogen',n1,n2,nitrogen_cons_tol,FATAL)
-
+  end associate ! vegn, soil
 end subroutine vegn_harvest_crop_ppa
 
 ! ============================================================================
-subroutine vegn_cut_forest_ppa(vegn, soil, new_landuse)
-  type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(inout) :: soil
+subroutine vegn_cut_forest_ppa(tile, new_landuse)
+  type(land_tile_type), intent(inout) :: tile
   integer, intent(in) :: new_landuse ! new land use type that gets assigned to
                                      ! the tile after the wood harvesting
 
@@ -874,6 +879,7 @@ subroutine vegn_cut_forest_ppa(vegn, soil, new_landuse)
 
   if (new_landuse==LU_RANGE) return ! do nothing for the conversion to rangeland
 
+  associate(vegn=>tile%vegn, soil=>tile%soil)
   c1 = vegn_tile_carbon(vegn)
   n1 = vegn_tile_nitrogen(vegn)
 
@@ -960,13 +966,12 @@ subroutine vegn_cut_forest_ppa(vegn, soil, new_landuse)
   call check_conservation('vegn_cut_forest_ppa','carbon',c1,c2,carbon_cons_tol,FATAL)
   n2 = vegn_tile_nitrogen(vegn)
   call check_conservation('vegn_cut_forest_ppa','nitrogen',n1,n2,nitrogen_cons_tol,FATAL)
-
+  end associate ! vegn,soil
 end subroutine vegn_cut_forest_ppa
 
 
-subroutine vegn_plant_crop_ppa(vegn, soil)
-  type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(inout) :: soil
+subroutine vegn_plant_crop_ppa(tile)
+  type(land_tile_type), intent(inout) :: tile
 
   ! list of pools we borrow seeds from, highest priority first
   integer, parameter :: seed_source_pools(4) = &
@@ -977,6 +982,7 @@ subroutine vegn_plant_crop_ppa(vegn, soil)
   real :: deltaC, deltaN ! amount we borrow from harvest pools, kg/m2
   real :: c1,c2,n1,n2 ! for conservation checking
 
+  associate (vegn=>tile%vegn, soil=>tile%soil)
   c1 = vegn_tile_carbon(vegn) + soil_tile_carbon(soil)
   n1 = vegn_tile_nitrogen(vegn) + soil_tile_nitrogen(soil)
 
@@ -1007,6 +1013,7 @@ subroutine vegn_plant_crop_ppa(vegn, soil)
   n2 = vegn_tile_nitrogen(vegn) + soil_tile_nitrogen(soil)
   call check_conservation('vegn_plant_crop_ppa','carbon',   c1,c2,carbon_cons_tol,   FATAL)
   call check_conservation('vegn_plant_crop_ppa','nitrogen', n1,n2,nitrogen_cons_tol, FATAL)
+  end associate ! vegn,soil
 end subroutine vegn_plant_crop_ppa
 
 end module
