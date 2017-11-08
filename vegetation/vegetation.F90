@@ -12,7 +12,7 @@ use fms_mod, only: error_mesg, NOTE, WARNING, FATAL, file_exist, &
                    close_file, check_nml_error, stdlog, string
 use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe
 
-use time_manager_mod, only: time_type, time_type_to_real, get_date, operator(-)
+use time_manager_mod, only: time_type, time_type_to_real, get_date, day_of_year, operator(-)
 use field_manager_mod, only: fm_field_name_len
 use constants_mod,    only: tfreeze, rdgas, rvgas, hlv, hlf, cp_air, PI
 use sphum_mod, only: qscomp
@@ -647,7 +647,7 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   call read_static_vegn ( lnd%time )
 
   ! initialize harvesting options
-  call vegn_harvesting_init()
+  call vegn_harvesting_init(id_ug)
 
   ! initialize fire
   call vegn_fire_init(id_ug, id_cellarea, delta_time, lnd%time)
@@ -2073,7 +2073,7 @@ end subroutine update_derived_vegn_data
 subroutine update_vegn_slow( )
 
   ! ---- local vars ----------------------------------------------------------
-  integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
+  integer :: second, minute, hour, day0, day1, month0, month1, year0, year1, doy
   type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
   integer :: i,j,k,l ! current point indices
@@ -2098,6 +2098,8 @@ subroutine update_vegn_slow( )
   ! get components of calendar dates for this and previous time step
   call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
   call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
+  ! calculate day of year, to avoid re-calculating it in harvesting
+  doy = day_of_year(lnd%time)
 
   if(month0 /= month1) then
      ! heartbeat
@@ -2265,7 +2267,7 @@ subroutine update_vegn_slow( )
      endif
      call check_conservation_2(tile,'update_vegn_slow 7',lmass0,fmass0,cmass0,nmass0)
 
-     call vegn_harvesting(tile%vegn, tile%soil, year0/=year1, month0/=month1, day0/=day1)
+     call vegn_harvesting(tile%vegn, tile%soil, year0/=year1, month0/=month1, day0/=day1, doy, l)
 
      if (year1 /= year0) then
         tile%vegn%fsc_rate_ag = tile%vegn%fsc_pool_ag/fsc_pool_spending_time

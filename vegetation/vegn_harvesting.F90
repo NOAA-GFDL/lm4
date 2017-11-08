@@ -11,23 +11,25 @@ use fms_mod, only: open_namelist_file
 use constants_mod, only : tfreeze
 use fms_mod, only : string, error_mesg, FATAL, NOTE, &
      mpp_pe, file_exist, close_file, &
-     check_nml_error, stdlog, mpp_root_pe
-use mpp_io_mod, only : axistype, mpp_get_atts, mpp_get_axis_data, &
-     mpp_open, mpp_close, MPP_RDONLY, MPP_WRONLY, MPP_ASCII
+     check_nml_error, stdlog, mpp_root_pe, lowercase
+use diag_manager_mod, only : register_static_field, send_data
 
-use land_debug_mod, only : check_conservation, carbon_cons_tol, nitrogen_cons_tol
-use land_data_mod, only : log_version
+use land_io_mod, only : read_field
+use land_debug_mod, only : check_conservation, carbon_cons_tol, nitrogen_cons_tol, &
+     land_error_message
+use land_data_mod, only : log_version, lnd
 use vegn_data_mod, only : do_ppa, &
      N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, &
      HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, &
      HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
-     spdata, agf_bs, LEAF_OFF
-use soil_tile_mod, only : num_l, LEAF, CWOOD, soil_tile_type
+     nspecies, spdata, agf_bs, LEAF_OFF
+use soil_tile_mod, only : num_l, LEAF, CWOOD, soil_tile_type, &
+     soil_tile_carbon, soil_tile_nitrogen
 use vegn_tile_mod, only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_lai, &
      vegn_tile_carbon, vegn_tile_nitrogen
 use soil_util_mod, only : add_root_litter
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools
-use vegn_util_mod, only : kill_plants_ppa
+use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use soil_carbon_mod, only: soil_carbon_option, add_litter, C_FAST, C_SLOW, C_MIC, &
      SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, N_C_TYPES, &
      deadmic_slow_frac
@@ -49,10 +51,10 @@ character(len=*), parameter :: module_name = 'vegn_harvesting_mod'
 #include "../shared/version_variable.inc"
 real, parameter :: ONETHIRD = 1.0/3.0
 integer, parameter :: DAILY = 1, ANNUAL = 2
+integer, parameter :: CROP_SCHEDULE_LM3 = 1, CROP_SCHEDULE_PRESCRIBED = 2
 
 ! TODO: possibly move all definition of cpw,clw,csw in one place
 real, parameter :: &
-     cpw = 1952.0, & ! specific heat of water vapor at constant pressure
      clw = 4218.0, & ! specific heat of water (liquid)
      csw = 2106.0    ! specific heat of water (ice)
 
@@ -88,7 +90,12 @@ logical :: waste_below_ground_wood = .TRUE. ! If true, all the wood below ground
 real :: frac_wood_fast         = ONETHIRD ! fraction of wood consumed fast
 real :: frac_wood_med          = ONETHIRD ! fraction of wood consumed with medium speed
 real :: frac_wood_slow         = ONETHIRD ! fraction of wood consumed slowly
-real :: crop_seed_density      = 0.1     ! biomass of seeds left after crop harvesting, kg/m2
+
+character(16) :: crop_schedule = 'lm3' ! or 'prescribed'
+character(len=1024) :: crop_schedule_file  = '' ! input data set of crop planting and harvesting dates
+real :: crop_seed_density      = 0.1   ! biomass of seeds left after crop harvesting, kg/m2
+character(32) :: crop_species  = ''    ! name of the species used for crops
+
 namelist/harvesting_nml/ do_harvesting, &
      ! pasture and rangeland grazing parameters
      grazing_frequency,  &
@@ -100,16 +107,25 @@ namelist/harvesting_nml/ do_harvesting, &
      wood_harv_DBH, frac_trampled, &
      frac_wood_wasted_harv, frac_wood_wasted_clear, waste_below_ground_wood, &
      frac_wood_fast, frac_wood_med, frac_wood_slow, &
-     ! crop harvesting parameters
-     crop_seed_density
+     ! crop harvesting and planting parameters
+     crop_species, crop_seed_density, crop_schedule, crop_schedule_file
 
 integer :: grazing_freq = -1 ! indicator of grazing frequency (ANNUAL or DAILY)
+integer :: crop_schedule_option = -1 ! selected planting/harvesting schedule option
+real, allocatable :: crop_planting_day(:) ! day of year when planting is done
+real, allocatable :: crop_harvest_day(:)  ! day of year when harvesting is done
+integer :: crop_species_idx = -1 ! index of crop species
+
+integer :: id_crop_planting_day, id_crop_harvest_day
 
 contains ! ###################################################################
 
 ! ============================================================================
-subroutine vegn_harvesting_init
-  integer :: unit, ierr, io
+subroutine vegn_harvesting_init(id_ug)
+  integer, intent(in) :: id_ug ! id of the unstructured grid diagnostic axis
+
+  integer :: unit, ierr, io, i
+  logical :: used
 
   call log_version(version, module_name, &
   __FILE__)
@@ -141,7 +157,7 @@ subroutine vegn_harvesting_init
           FATAL)
   endif
   ! parse the grazing frequency parameter
-  select case(grazing_frequency)
+  select case(lowercase(grazing_frequency))
   case('annual')
      grazing_freq = ANNUAL
   case('daily')
@@ -152,20 +168,64 @@ subroutine vegn_harvesting_init
   case default
      call error_mesg('vegn_harvesting_init','grazing_frequency must be "annual" or "daily"',FATAL)
   end select
+
+  allocate (crop_planting_day(lnd%ls:lnd%le),crop_harvest_day(lnd%ls:lnd%le))
+  select case(trim(lowercase(crop_schedule)))
+  case('lm3')
+     crop_schedule_option = CROP_SCHEDULE_LM3
+     crop_planting_day = 1.0
+     crop_harvest_day  = 1.0
+  case('prescribed')
+     crop_schedule_option = CROP_SCHEDULE_PRESCRIBED
+     ! read input data
+     call read_field( crop_schedule_file, 'plantingdy', crop_planting_day, interp='nearest' )
+     call read_field( crop_schedule_file, 'harvestdy',  crop_harvest_day,  interp='nearest' )
+  case default
+     call error_mesg('vegn_harvesting_init','crop_schedule must be "lm3" or "prescribed"',FATAL)
+  end select
+
+  id_crop_harvest_day = register_static_field ( 'vegn', 'crop_harvest_day', (/id_ug/), &
+         'day of year when cropa are harvested', 'day', missing_value = -1.0 )
+  id_crop_planting_day = register_static_field ( 'vegn', 'crop_planting_day', (/id_ug/), &
+         'day of year when crops are planted', 'day', missing_value = -1.0 )
+
+  if ( id_crop_harvest_day > 0 )  used = send_data ( id_crop_harvest_day, crop_harvest_day, lnd%time )
+  if ( id_crop_planting_day > 0 ) used = send_data ( id_crop_planting_day, crop_planting_day, lnd%time )
+
+  ! find crop species; it's OK if it is not found, perhaps we do not need it -- e.g.
+  ! we are running potential vegetation, or in LM3 mode where it is not used (yet)
+  ! For now, use single species for crop everywhere. This will obviously need to be changed
+  ! when we switch to more sophisticated treatment of agriculture.
+  do i = 0, nspecies-1
+     if (trim(spdata(i)%name)==trim(crop_species)) then
+        crop_species_idx = i
+        exit ! from loop
+     endif
+  enddo
+  if (crop_species_idx<0) then
+     call error_mesg('vegn_harvesting_init','crop species "'//trim(crop_species)//'" not found in the list of species',NOTE)
+  else
+     call error_mesg('vegn_harvesting_init','crop species "'//trim(crop_species)//'" is species #'//string(crop_species_idx)//&
+                     ' in the list of species', NOTE)
+  endif
 end subroutine vegn_harvesting_init
 
 
 ! ============================================================================
 subroutine vegn_harvesting_end
+   if (allocated(crop_harvest_day))  deallocate(crop_harvest_day)
+   if (allocated(crop_planting_day)) deallocate(crop_planting_day)
 end subroutine vegn_harvesting_end
 
 
 ! ============================================================================
 ! harvest vegetation in a tile
-subroutine vegn_harvesting(vegn, soil, end_of_year, end_of_month, end_of_day)
+subroutine vegn_harvesting(vegn, soil, end_of_year, end_of_month, end_of_day, day_of_year, l)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
   logical, intent(in) :: end_of_year, end_of_month, end_of_day ! indicators of respective period boundaries
+  integer, intent(in) :: day_of_year ! current day of year
+  integer, intent(in) :: l ! index of current grid cell in unstructured grid
 
   if (.not.do_harvesting) return ! do nothing if no harvesting requested
 
@@ -181,9 +241,19 @@ subroutine vegn_harvesting(vegn, soil, end_of_year, end_of_month, end_of_day)
         call vegn_graze_rangeland (vegn,soil)
      endif
   case(LU_CROP)  ! crop
-     if (end_of_year) call vegn_harvest_cropland (vegn,soil)
+     select case(crop_schedule_option)
+     case (CROP_SCHEDULE_LM3)
+        if (end_of_year) call vegn_harvest_cropland (vegn,soil)
+     case (CROP_SCHEDULE_PRESCRIBED)
+        if (end_of_day.AND.day_of_year==nint(crop_harvest_day(l))) then
+           call vegn_harvest_cropland (vegn,soil)
+        endif
+        if (end_of_day.AND.day_of_year==nint(crop_planting_day(l))) then
+           call vegn_plant_crop (vegn,soil)
+        endif
+     end select ! crop_schedule_option
   end select
-end subroutine
+end subroutine vegn_harvesting
 
 
 ! ============================================================================
@@ -222,6 +292,19 @@ subroutine vegn_harvest_cropland(vegn, soil)
      call vegn_harvest_crop_lm3(vegn)
   endif
 end subroutine vegn_harvest_cropland
+
+
+! ============================================================================
+subroutine vegn_plant_crop(vegn, soil)
+  type(vegn_tile_type), intent(inout) :: vegn
+  type(soil_tile_type), intent(inout) :: soil
+
+  if (do_ppa) then
+     call vegn_plant_crop_ppa(vegn, soil)
+  else
+     ! do nothing at the moment -- later add turning phenology on
+  endif
+end subroutine vegn_plant_crop
 
 ! ============================================================================
 subroutine vegn_cut_forest(vegn, soil, new_landuse)
@@ -879,5 +962,51 @@ subroutine vegn_cut_forest_ppa(vegn, soil, new_landuse)
   call check_conservation('vegn_cut_forest_ppa','nitrogen',n1,n2,nitrogen_cons_tol,FATAL)
 
 end subroutine vegn_cut_forest_ppa
+
+
+subroutine vegn_plant_crop_ppa(vegn, soil)
+  type(vegn_tile_type), intent(inout) :: vegn
+  type(soil_tile_type), intent(inout) :: soil
+
+  ! list of pools we borrow seeds from, highest priority first
+  integer, parameter :: seed_source_pools(4) = &
+     [ HARV_POOL_CROP, HARV_POOL_PAST, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST ]
+
+  integer :: i, p
+  real, dimension(0:nspecies-1) :: seedC, seedN ! seed biomass, kg/m2
+  real :: deltaC, deltaN ! amount we borrow from harvest pools, kg/m2
+  real :: c1,c2,n1,n2 ! for conservation checking
+
+  c1 = vegn_tile_carbon(vegn) + soil_tile_carbon(soil)
+  n1 = vegn_tile_nitrogen(vegn) + soil_tile_nitrogen(soil)
+
+  if (crop_species_idx<0) then
+     call error_mesg('vegn_plant_crop_ppa','crop species "'//trim(crop_species)//'" not found in the list of species',FATAL)
+  endif
+  
+  ! borrow biomass (crop_seed_density) from harvest pools, in order of preference
+  seedC(:) = 0.0; seedN(:) = 0.0
+  do i = 1, size(seed_source_pools)
+     p = seed_source_pools(i)
+     deltaC = max(crop_seed_density-seedC(crop_species_idx),0.0)
+     deltaC = min(deltaC,vegn%harv_pool(p))
+     if (vegn%harv_pool(p)>0) then
+        deltaN = deltaC*vegn%harv_pool_nitrogen(p)/vegn%harv_pool(p)
+     else
+        deltaN = 0.0
+     endif
+     vegn%harv_pool(p)          = vegn%harv_pool(p)          - deltaC
+     vegn%harv_pool_nitrogen(p) = vegn%harv_pool_nitrogen(p) - deltaN
+     seedC(crop_species_idx) = seedC(crop_species_idx) + deltaC
+     seedN(crop_species_idx) = seedN(crop_species_idx) + deltaN
+     if (seedC(crop_species_idx) >= crop_seed_density) exit ! from loop
+  enddo
+  call add_seedlings_ppa(vegn,soil,seedC,seedN)
+
+  c2 = vegn_tile_carbon(vegn) + soil_tile_carbon(soil)
+  n2 = vegn_tile_nitrogen(vegn) + soil_tile_nitrogen(soil)
+  call check_conservation('vegn_plant_crop_ppa','carbon',   c1,c2,carbon_cons_tol,   FATAL)
+  call check_conservation('vegn_plant_crop_ppa','nitrogen', n1,n2,nitrogen_cons_tol, FATAL)
+end subroutine vegn_plant_crop_ppa
 
 end module
