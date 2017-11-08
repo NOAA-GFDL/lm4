@@ -94,7 +94,7 @@ integer, parameter, public :: &
     OP_MIN      = 4, & ! minimum of all  values
     OP_VAR      = 5, & ! variance of tile values
     OP_STD      = 6    ! standard deviation of tile values
-character(32), parameter :: opstrings(6) = (/ & ! symbolica names of the aggregation operations
+character(32), parameter :: opstrings(6) = (/ & ! symbolic names of the aggregation operations
    'mean                            ' , &
    'sum                             ' , &
    'maximum                         ' , &
@@ -104,15 +104,26 @@ character(32), parameter :: opstrings(6) = (/ & ! symbolica names of the aggrega
 
 ! TODO: generalize treatment of cohort filters. Possible filters include: selected
 ! species, selected species in the canopy, trees above certain age, etc...
-integer, parameter :: N_CHRT_FILTERS = 5 ! number of pssible distinct cohort filters,
+integer, parameter :: N_COHORT_FILTERS = 5 ! number of possible distinct cohort filters,
 ! currently : all vegetation, upper canopy layer, and understory
-character(9),  parameter :: chrt_filter_suffix(N_CHRT_FILTERS) = (/'         ','_1       ','_U       ','_TOP     ', '(species)'/)
-character(32), parameter :: chrt_filter_name(N_CHRT_FILTERS)   = (/&
-    '                                ', &
-    ' in top canopy layer            ', &
-    ' in understory                  ', &
-    ' for the top cohort             ', &
-    ' by species'                       /)
+integer, parameter :: & ! symbolic constants for cohort filter numbers
+   CFILTER_ALL        = 1, &
+   CFILTER_CANOPY     = 2, &
+   CFILTER_UNDERSTORY = 3, &
+   CFILTER_TOP        = 4, &
+   CFILTER_BYSPECIES  = 5
+
+type :: cohort_filter_type
+   character(9)  :: suffix
+   character(32) :: longname
+end type cohort_filter_type
+
+type(cohort_filter_type), parameter :: cohort_filter(N_COHORT_FILTERS) = [ &
+   cohort_filter_type('',          ''), &
+   cohort_filter_type('_1',        'in top canopy layer'), &
+   cohort_filter_type('_U',        'in understory'), &
+   cohort_filter_type('_TOP',      'for the top cohort'), &
+   cohort_filter_type('(species)', 'by species') ]
 
 ! static/dynamic indicators
 integer, parameter :: FLD_STATIC    = 0
@@ -134,7 +145,7 @@ type :: tiled_diag_field_type
 end type tiled_diag_field_type
 
 type :: cohort_diag_field_type
-   integer :: ids(N_CHRT_FILTERS) = -1 ! IDs of tiled diag fields for each of cohort filters
+   integer :: ids(N_COHORT_FILTERS) = -1 ! IDs of tiled diag fields for each of cohort filters
 end type cohort_diag_field_type
 
 
@@ -310,7 +321,7 @@ end subroutine add_cell_measures
 ! ============================================================================
 ! adds cell_methods attribute to all selectors of specified tiled field
 ! if cell_method is present, its value is used for all selectors; otherwise
-! the value is deduced based on aggreagtion opertaion code
+! the value is deduced based on aggregation operation code
 subroutine add_cell_methods(id,cell_methods)
   integer, intent(in) :: id ! id of the tiled diagnostic field
   character(*), intent(in), optional :: cell_methods ! value cell_method attribute
@@ -629,7 +640,7 @@ function reg_field(static, module_name, field_name, init_time, axes, &
         fields(id)%opcode = string2opcode(op)
         if (.not.(fields(id)%opcode > 0)) &
            call error_mesg(mod_name,&
-              'tile aggregarion operation "'//trim(op)//'" for field "'&
+              'tile aggregation operation "'//trim(op)//'" for field "'&
               //trim(module_name)//'/'//trim(field_name)//'"is incorrect, use "mean", "sum", "variance", or "stdev"',&
               FATAL)
      else
@@ -805,7 +816,7 @@ subroutine send_tile_data_0d_array(id, x, send_immediately)
   integer, intent(in) :: id
   real   , intent(in) :: x(:,:)
   logical, intent(in), optional :: send_immediately ! if true, send data to diag_manager
-    ! right avay, instead of waiting for the next tiled diag fields dump
+    ! right away, instead of waiting for the next tiled diag fields dump
 
   integer :: l,k
   type(land_tile_enum_type)     :: ce
@@ -1098,7 +1109,7 @@ function register_cohort_diag_field(module_name, field_name, axes, init_time, &
   character(*),     intent(in), optional :: opt ! tile aggregation operation
 
   integer :: i, n
-  integer :: diag_ids(N_CHRT_FILTERS)
+  integer :: diag_ids(N_COHORT_FILTERS)
   type(cohort_diag_field_type), pointer :: new_fields(:)
   character(256) :: long_name_
   integer :: axes_(size(axes)+1)
@@ -1114,7 +1125,7 @@ function register_cohort_diag_field(module_name, field_name, axes, init_time, &
   axes_(size(axes)+1) = id_species_axis
 
   ! register tiled diag field for each of the samplings
-  do i = 1,N_CHRT_FILTERS
+  do i = 1,N_COHORT_FILTERS
      if (i==5) then ! this is by-species diagnostics
         n = size(axes)+1 ! we have an extra axis for by-species diagnostics
      else
@@ -1122,13 +1133,13 @@ function register_cohort_diag_field(module_name, field_name, axes, init_time, &
      endif
 
      if(present(long_name)) then
-         long_name_ = trim(long_name)//trim(chrt_filter_name(i))
+         long_name_ = trim(long_name)//trim(cohort_filter(i)%longname)
          diag_ids(i) = register_tiled_diag_field( &
-            module_name, trim(field_name)//trim(chrt_filter_suffix(i)), axes_(1:n), init_time, &
+            module_name, trim(field_name)//trim(cohort_filter(i)%suffix), axes_(1:n), init_time, &
             long_name_, units, missing_value, range, opt, do_not_log=.TRUE.)
      else
          diag_ids(i) = register_tiled_diag_field( &
-            module_name, trim(field_name)//trim(chrt_filter_suffix(i)), axes_(1:n), init_time, &
+            module_name, trim(field_name)//trim(cohort_filter(i)%suffix), axes_(1:n), init_time, &
             long_name, units, missing_value, range, opt, do_not_log=.TRUE.)
      endif
   enddo
@@ -1193,22 +1204,22 @@ subroutine send_cohort_data_with_weight (id, buffer, cc, data, weight, op)
 
   i = id - BASE_COHORT_FIELD_ID
   ! TODO: generalize cohort subsampling
-  if (cfields(i)%ids(1) > 0) then
+  if (cfields(i)%ids(CFILTER_ALL) > 0) then
      ! all cohorts
      value = aggregate(data,weight,op,mask=cc(:)%layer>0)
      call send_tile_data(cfields(i)%ids(1), value, buffer)
   endif
-  if (cfields(i)%ids(2) > 0) then
+  if (cfields(i)%ids(CFILTER_CANOPY) > 0) then
      ! canopy cohorts
      value = aggregate(data,weight,op,mask=cc(:)%layer==1)
      call send_tile_data(cfields(i)%ids(2), value, buffer)
   endif
-  if (cfields(i)%ids(3) > 0) then
+  if (cfields(i)%ids(CFILTER_UNDERSTORY) > 0) then
      ! understory cohorts
      value = aggregate(data,weight,op,mask=cc(:)%layer>1)
      call send_tile_data(cfields(i)%ids(3), value, buffer)
   endif
-  if (cfields(i)%ids(4) > 0) then
+  if (cfields(i)%ids(CFILTER_TOP) > 0) then
      ! top cohort: mask out everything but the tallest cohort
      mask(:) = .FALSE.
      ! NOTE that because relayering of cohort occurs infrequently, the tallest
@@ -1221,7 +1232,10 @@ subroutine send_cohort_data_with_weight (id, buffer, cc, data, weight, op)
      value = aggregate(data,weight,op,mask=mask)
      call send_tile_data(cfields(i)%ids(4), value, buffer)
   endif
-  if(cfields(i)%ids(5) > 0) then
+  if(cfields(i)%ids(CFILTER_BYSPECIES) > 0) then
+     ! send by-species data. In principle we should return species mask too, to filter 
+     ! out species that do not exist in a tile. However, send_tile_data does not allow
+     ! to pass mask anyway, so this is something that can be improved in the future.
      value1 = aggregate_by_species(data,weight,cc(:)%species,op)
      call send_tile_data(cfields(i)%ids(5), value1, buffer)
   endif
