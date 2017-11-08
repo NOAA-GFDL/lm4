@@ -817,8 +817,8 @@ subroutine vegn_harvest_crop_ppa(vegn,soil)
      cc%leaf_N = 0.0;  cc%seed_N = 0.0
      cc%sapwood_N=cc%sapwood_N*(1-agf_bs); cc%stored_N = cc%stored_N*(1-agf_bs)
 
-     call kill_plants_ppa(cc,vegn,soil,ndead,0.0, leaf_litt_C, wood_litt_C, root_litt_C, &
-                                                  leaf_litt_N, wood_litt_N, root_litt_N  )
+     call kill_plants_ppa(cc,vegn,ndead,0.0, leaf_litt_C, wood_litt_C, root_litt_C, &
+                                             leaf_litt_N, wood_litt_N, root_litt_N  )
      end associate
   enddo
 
@@ -895,14 +895,14 @@ subroutine vegn_cut_forest_ppa(vegn, soil, new_landuse)
      if (cc%dbh > dbh_min) then
         ! these trees are harvested
         ndead = cc%nindivs
-        call kill_plants_ppa(cc,vegn,soil,ndead,0.0, leaf_litt_C, wood_harv_C, root_litt_C, &
-                                                     leaf_litt_N, wood_harv_N, root_litt_N  )
+        call kill_plants_ppa(cc,vegn,ndead,0.0, leaf_litt_C, wood_harv_C, root_litt_C, &
+                                                leaf_litt_N, wood_harv_N, root_litt_N  )
      else
         ! these trees are too small to be harvested, so a part of them get trampled
         ! and goes to waste, the rest stays
         ndead = cc%nindivs * frac_trampled
-        call kill_plants_ppa(cc,vegn,soil,ndead,0.0, leaf_litt_C, wood_harv_C, root_litt_C, &
-                                                     leaf_litt_N, wood_harv_N, root_litt_N  )
+        call kill_plants_ppa(cc,vegn,ndead,0.0, leaf_litt_C, wood_harv_C, root_litt_C, &
+                                                leaf_litt_N, wood_harv_N, root_litt_N  )
      endif
      end associate
      ! note that below-ground wood all goes to litter, by construction of kill_plants_ppa

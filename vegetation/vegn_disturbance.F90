@@ -87,7 +87,7 @@ subroutine vegn_disturbance(vegn, soil, dt)
 
      fraction_lost = 1.0-exp(-vegn%disturbance_rate(1)*deltat);
      if (do_ppa) then
-        call kill_plants_ppa(cc, vegn, soil, cc%nindivs*fraction_lost, sp%smoke_fraction, &
+        call kill_plants_ppa(cc, vegn, cc%nindivs*fraction_lost, sp%smoke_fraction, &
                              leaf_litt_C, wood_litt_C, root_litt_C, &
                              leaf_litt_N, wood_litt_N, root_litt_N)
      else ! original LM3 treatment
@@ -603,15 +603,15 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
         associate(cc0=>t0%vegn%cohorts(i), cc1=>t1%vegn%cohorts(i),sp0=>spdata(t0%vegn%cohorts(i)%species))
         if (cc0%layer==1 .and. sp0%lifeform/=FORM_GRASS) then
            ! kill all canopy plants in disturbed cohort, but do not touch undisturbed one
-           call kill_plants_ppa(cc1, t1%vegn,t1%soil, cc1%nindivs, 0.0, &
+           call kill_plants_ppa(cc1, t1%vegn, cc1%nindivs, 0.0, &
                        leaf_litt1_C, wood_litt1_C, root_litt1_C, &
                        leaf_litt1_N, wood_litt1_N, root_litt1_N  )
         else
            ! kill understory plants in both tiles
-           call kill_plants_ppa(cc1, t1%vegn, t1%soil, ndead(i), 0.0, &
+           call kill_plants_ppa(cc1, t1%vegn, ndead(i), 0.0, &
                        leaf_litt1_C, wood_litt1_C, root_litt1_C, &
                        leaf_litt1_N, wood_litt1_N, root_litt1_N  )
-           call kill_plants_ppa(cc0,t0%vegn,t0%soil,ndead(i),0.0, &
+           call kill_plants_ppa(cc0, t0%vegn, ndead(i), 0.0, &
                        leaf_litt0_C, wood_litt0_C, root_litt0_C, &
                        leaf_litt0_N, wood_litt0_N, root_litt0_N  )
         endif
@@ -624,7 +624,7 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
         write(*,*) 'NOT splitting a disturbed tile'
      endif
      do i = 1,t0%vegn%n_cohorts
-        call kill_plants_ppa(t0%vegn%cohorts(i), t0%vegn, t0%soil, ndead(i), 0.0,&
+        call kill_plants_ppa(t0%vegn%cohorts(i), t0%vegn, ndead(i), 0.0,&
                        leaf_litt0_C, wood_litt0_C, root_litt0_C, &
                        leaf_litt0_N, wood_litt0_N, root_litt0_N  )
      enddo

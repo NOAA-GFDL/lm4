@@ -1356,7 +1356,7 @@ subroutine vegn_starvation_ppa (vegn, soil)
 
        deadtrees = min(cc%nindivs*deathrate,cc%nindivs) ! individuals / m2
        ! kill starved plants and add dead C from leaf and root pools to soil carbon
-       call kill_plants_ppa(cc, vegn, soil, deadtrees, 0.0, &
+       call kill_plants_ppa(cc, vegn, deadtrees, 0.0, &
                             leaf_litt_C, wood_litt_C, root_litt_C, &
                             leaf_litt_N, wood_litt_N, root_litt_N  )
 

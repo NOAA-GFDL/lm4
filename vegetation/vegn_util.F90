@@ -55,12 +55,11 @@ contains
 
 ! TODO: ask Elena about burning of below-ground biomass
 
-subroutine kill_plants_ppa(cc, vegn, soil, ndead, fsmoke, &
+subroutine kill_plants_ppa(cc, vegn, ndead, fsmoke, &
                            leaf_litt_C, wood_litt_C, root_litt_C, &
                            leaf_litt_N, wood_litt_N, root_litt_N  )
   type(vegn_cohort_type), intent(inout) :: cc
   type(vegn_tile_type),   intent(inout) :: vegn
-  type(soil_tile_type),   intent(inout) :: soil
   real,                   intent(in)    :: ndead ! number of individuals to kill, indiv./m2
   real,                   intent(in)    :: fsmoke ! fraction of biomass lost to fire, unitless
   real, intent(inout) :: leaf_litt_C(N_C_TYPES), leaf_litt_N(N_C_TYPES) ! accumulated leaf litter, kg C/m2 and kg N/m2
@@ -214,7 +213,7 @@ subroutine kill_small_cohorts_ppa(vegn,soil)
            k=k+1
            cc(k) = vegn%cohorts(i)
         else
-           call kill_plants_ppa(vegn%cohorts(i), vegn, soil, vegn%cohorts(i)%nindivs, 0.0, &
+           call kill_plants_ppa(vegn%cohorts(i), vegn, vegn%cohorts(i)%nindivs, 0.0, &
                                 leaf_litt_C, wood_litt_C, root_litt_C, &
                                 leaf_litt_N, wood_litt_N, root_litt_N  )
         endif

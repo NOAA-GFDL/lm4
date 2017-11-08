@@ -2520,7 +2520,7 @@ subroutine vegn_burn_ppa(tile)
      ! In principle mortality should depend on species and DBH, possibly on type of fire,
      ! scorch height, fire intensity,...
      ! NOTE that each call to kill_plants_ppa adds to litter pools, not replaces the values
-     call kill_plants_ppa(cc(k), tile%vegn, tile%soil, cc(k)%nindivs*sp%fireMort_stem, 0.0, &
+     call kill_plants_ppa(cc(k), tile%vegn, cc(k)%nindivs*sp%fireMort_stem, 0.0, &
                           leaf_litt_C, wood_litt_C, root_litt_C, &
                           leaf_litt_N, wood_litt_N, root_litt_N  )
      end associate ! sp
