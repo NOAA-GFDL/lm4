@@ -797,11 +797,6 @@ subroutine vegn_harvest_crop_ppa(tile)
   do i = 1, vegn%n_cohorts
      associate(cc=>vegn%cohorts(i), sp=>spdata(vegn%cohorts(i)%species))
      ndead = cc%nindivs ! harvest everything
-     ! take care of water and energy conservation
-     vegn%drop_wl = vegn%drop_wl + cc%wl*ndead
-     vegn%drop_ws = vegn%drop_ws + cc%ws*ndead
-     vegn%drop_hl = vegn%drop_hl + clw*cc%wl*ndead*(cc%Tv-tfreeze)
-     vegn%drop_hs = vegn%drop_hs + csw*cc%ws*ndead*(cc%Tv-tfreeze)
 
      ! add C to harvest and litter pools. This is slightly different from kill_plants_ppa
      ! because above-ground part of nsc and sapwood are getting harvested, rather than going
