@@ -4,7 +4,7 @@ use mpp_mod,            only : mpp_sum
 use mpp_efp_mod,        only : mpp_reproducing_sum
 use mpp_domains_mod,    only : mpp_pass_ug_to_sg
 use time_manager_mod,   only : time_type
-use diag_axis_mod,      only : get_axis_length
+use diag_axis_mod,      only : get_axis_length, diag_axis_init
 use diag_manager_mod,   only : register_diag_field, register_static_field, &
      diag_field_add_attribute, diag_field_add_cell_measures, send_data
 use diag_util_mod,      only : log_diag_field_info
@@ -16,6 +16,7 @@ use land_tile_selectors_mod, only : tile_selectors_init, tile_selectors_end, &
 use land_tile_mod,      only : land_tile_type, diag_buff_type, land_tile_list_type, &
      land_tile_enum_type, first_elmt, loop_over_tiles, &
      land_tile_map, tile_is_selected, fptr_i0, fptr_r0, fptr_r0i
+use vegn_data_mod,      only : nspecies
 use vegn_cohort_mod,    only : vegn_cohort_type
 use land_data_mod,      only : lnd, log_version, land_data_type
 use land_debug_mod,     only : check_var_range, set_current_point
@@ -103,14 +104,15 @@ character(32), parameter :: opstrings(6) = (/ & ! symbolica names of the aggrega
 
 ! TODO: generalize treatment of cohort filters. Possible filters include: selected
 ! species, selected species in the canopy, trees above certain age, etc...
-integer, parameter :: N_CHRT_FILTERS = 4 ! number of pssible distinct cohort filters,
+integer, parameter :: N_CHRT_FILTERS = 5 ! number of pssible distinct cohort filters,
 ! currently : all vegetation, upper canopy layer, and understory
-character(4),  parameter :: chrt_filter_suffix(N_CHRT_FILTERS) = (/'    ','_1  ','_U  ','_TOP'/)
+character(9),  parameter :: chrt_filter_suffix(N_CHRT_FILTERS) = (/'         ','_1       ','_U       ','_TOP     ', '(species)'/)
 character(32), parameter :: chrt_filter_name(N_CHRT_FILTERS)   = (/&
     '                                ', &
     ' in top canopy layer            ', &
     ' in understory                  ', &
-    ' for the top cohort             '  /)
+    ' for the top cohort             ', &
+    ' by species'                       /)
 
 ! static/dynamic indicators
 integer, parameter :: FLD_STATIC    = 0
@@ -148,7 +150,7 @@ integer :: current_offset = 1 ! current total size of the diag fields per tile
 type(cohort_diag_field_type), pointer :: cfields(:) => NULL()
 integer :: n_cfields     = 0 ! current number of diag fields
 
-
+integer :: id_species_axis = -1 ! id of axis for by-species diagnostics
 
 contains
 
@@ -1118,7 +1120,7 @@ function register_cohort_diag_field(module_name, field_name, axes, init_time, &
      else
         n = size(axes)
      endif
-        
+
      if(present(long_name)) then
          long_name_ = trim(long_name)//trim(chrt_filter_name(i))
          diag_ids(i) = register_tiled_diag_field( &
@@ -1172,7 +1174,7 @@ subroutine send_cohort_data_with_weight (id, buffer, cc, data, weight, op)
   integer,                intent(in)    :: op        ! cohort aggregation operation
 
   integer :: i,k
-  real    :: value
+  real    :: value, value1(nspecies)
   logical :: mask(size(data))
 
   if (id<=0) return
@@ -1219,6 +1221,10 @@ subroutine send_cohort_data_with_weight (id, buffer, cc, data, weight, op)
      value = aggregate(data,weight,op,mask=mask)
      call send_tile_data(cfields(i)%ids(4), value, buffer)
   endif
+  if(cfields(i)%ids(5) > 0) then
+     value1 = aggregate_by_species(data,weight,cc(:)%species,op)
+     call send_tile_data(cfields(i)%ids(5), value1, buffer)
+  endif
 end subroutine send_cohort_data_with_weight
 
 ! ============================================================================
@@ -1244,18 +1250,48 @@ function aggregate(data,weight,opcode,mask) result(ret)
   case(OP_MIN)
      ret = 0.0
      if (any(mask)) ret = minval(data,mask)
-  case(OP_DOMINANT)
-     ret = 0.0
-     w=-HUGE(1.0)
-     do i = 1,size(weight)
-        if (mask(i).and.weight(i)>w) then
-           ret = data(i); w = weight(i)
-        endif
-     enddo
   case default
      call error_mesg(mod_name, 'unrecognized cohort data aggregation opcode', FATAL)
   end select
 end function aggregate
+
+! ============================================================================
+function aggregate_by_species(data,weight,sp,opcode) result(ret)
+  real :: ret(0:nspecies-1)
+  real, intent(in) :: data(:),weight(:)
+  integer, intent(in) :: sp(:)
+  integer, intent(in) :: opcode
+
+  real :: w(0:nspecies-1)
+  integer :: k
+
+  select case(opcode)
+  case(OP_SUM)
+     ret = 0.0
+     do k = 1,size(data)
+        ret(sp(k)) = ret(sp(k)) + data(k)*weight(k)
+     enddo
+  case(OP_AVERAGE)
+     w = 0; ret = 0
+     do k = 1,size(data)
+        w  (sp(k)) = w(sp(k)) + weight(k)
+        ret(sp(k)) = ret(sp(k)) + data(k)*weight(k)
+     enddo
+     where (w/=0) ret = ret/w
+  case(OP_MAX)
+     ret = -HUGE(1.0)
+     do k = 1,size(data)
+        ret(sp(k)) = max(ret(sp(k)),data(k))
+     enddo
+  case(OP_MIN)
+     ret = HUGE(1.0)
+     do k = 1,size(data)
+        ret(sp(k)) = min(ret(sp(k)),data(k))
+     enddo
+  case default
+     call error_mesg(mod_name, 'unrecognized cohort data aggregation opcode', FATAL)
+  end select
+end function aggregate_by_species
 
 ! ============================================================================
 !> \brief Send out the land model field on unstructured grid for global integral
