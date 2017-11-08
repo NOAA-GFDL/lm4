@@ -726,13 +726,12 @@ subroutine vegn_graze_pasture_ppa(tile, min_lai_for_grazing, grazing_intensity, 
   real    :: LAI ! leaf area index of *grazed* vegetation. Does not include plants taller
                  ! than max grazing height.
   integer :: i
-  real    :: c1, c2, n1, n2 ! for conservation checks
+  ! variables for conservation checks
+  real :: lmass0, fmass0, heat0, cmass0, nmass0
+
+  call check_conservation_1(tile, lmass0,fmass0,cmass0,nmass0,heat0)
 
   associate (vegn=>tile%vegn)
-  c1 = vegn_tile_carbon(vegn)
-  n1 = vegn_tile_nitrogen(vegn)
-
-
   LAI = 0.0
   do i = 1,vegn%n_cohorts
      if (vegn%cohorts(i)%height < max_grazing_height) &
@@ -768,12 +767,9 @@ subroutine vegn_graze_pasture_ppa(tile, min_lai_for_grazing, grazing_intensity, 
      end select
      end associate
   enddo
-
-  c2 = vegn_tile_carbon(vegn)
-  call check_conservation('vegn_graze_pasture_ppa','carbon',c1,c2,carbon_cons_tol,FATAL)
-  n2 = vegn_tile_nitrogen(vegn)
-  call check_conservation('vegn_graze_pasture_ppa','nitrogen',n1,n2,nitrogen_cons_tol,FATAL)
   end associate ! vegn
+
+  call check_conservation_2(tile,'vegn_graze_pasture_ppa',lmass0,fmass0,cmass0,nmass0,heat0)
 end subroutine vegn_graze_pasture_ppa
 
 ! ============================================================================
@@ -790,12 +786,12 @@ subroutine vegn_harvest_crop_ppa(tile)
      root_litt_C, root_litt_N    ! accumulated root litter per soil layer, kg/m2
   real :: ndead  ! number of individuals killed in cohort
   integer :: i
-  real :: c1, c2, n1, n2 ! for conservation checks
+  ! variables for conservation checks
+  real :: lmass0, fmass0, heat0, cmass0, nmass0
 
-  associate(vegn=>tile%vegn, soil=>tile%soil)
-  c1 = vegn_tile_carbon(vegn)
-  n1 = vegn_tile_nitrogen(vegn)
+  call check_conservation_1(tile, lmass0,fmass0,cmass0,nmass0,heat0)
 
+  associate(vegn=>tile%vegn)
   leaf_litt_C=0.0; wood_litt_C=0.0; root_litt_C=0.0
   leaf_litt_N=0.0; wood_litt_N=0.0; root_litt_N=0.0
   do i = 1, vegn%n_cohorts
@@ -850,12 +846,9 @@ subroutine vegn_harvest_crop_ppa(tile)
   vegn%ssn_pool_bg = vegn%ssn_pool_bg + sum(root_litt_N(:,C_SLOW))
 
   call vegn_relayer_cohorts_ppa(vegn)
+  end associate ! vegn
 
-  c2 = vegn_tile_carbon(vegn)
-  call check_conservation('vegn_harvest_crop_ppa','carbon',c1,c2,carbon_cons_tol,FATAL)
-  n2 = vegn_tile_nitrogen(vegn)
-  call check_conservation('vegn_harvest_crop_ppa','nitrogen',n1,n2,nitrogen_cons_tol,FATAL)
-  end associate ! vegn, soil
+  call check_conservation_2(tile,'vegn_harvest_crop_ppa',lmass0,fmass0,cmass0,nmass0,heat0)
 end subroutine vegn_harvest_crop_ppa
 
 ! ============================================================================
@@ -875,14 +868,14 @@ subroutine vegn_cut_forest_ppa(tile, new_landuse)
   real :: ndead  ! number of individuals killed in cohort
   real :: dbh_min
   integer :: i
-  real :: c1, c2, n1, n2 ! for conservation checks
+  ! variables for conservation checks
+  real :: lmass0, fmass0, heat0, cmass0, nmass0
 
   if (new_landuse==LU_RANGE) return ! do nothing for the conversion to rangeland
 
-  associate(vegn=>tile%vegn, soil=>tile%soil)
-  c1 = vegn_tile_carbon(vegn)
-  n1 = vegn_tile_nitrogen(vegn)
+  call check_conservation_1(tile, lmass0,fmass0,cmass0,nmass0,heat0)
 
+  associate(vegn=>tile%vegn)
   ! define fraction of wood wasted, based on the transition type
   if (new_landuse==LU_SCND) then
      ! this is wood haresting
@@ -961,12 +954,9 @@ subroutine vegn_cut_forest_ppa(tile, new_landuse)
   vegn%ssn_pool_bg = vegn%ssn_pool_bg + sum(root_litt_N(:,C_SLOW))
 
   call vegn_relayer_cohorts_ppa(vegn)
+  end associate ! vegn
 
-  c2 = vegn_tile_carbon(vegn)
-  call check_conservation('vegn_cut_forest_ppa','carbon',c1,c2,carbon_cons_tol,FATAL)
-  n2 = vegn_tile_nitrogen(vegn)
-  call check_conservation('vegn_cut_forest_ppa','nitrogen',n1,n2,nitrogen_cons_tol,FATAL)
-  end associate ! vegn,soil
+  call check_conservation_2(tile,'vegn_cut_forest_ppa',lmass0,fmass0,cmass0,nmass0,heat0)
 end subroutine vegn_cut_forest_ppa
 
 
@@ -980,12 +970,12 @@ subroutine vegn_plant_crop_ppa(tile)
   integer :: i, p
   real, dimension(0:nspecies-1) :: seedC, seedN ! seed biomass, kg/m2
   real :: deltaC, deltaN ! amount we borrow from harvest pools, kg/m2
-  real :: c1,c2,n1,n2 ! for conservation checking
+  ! variables for conservation checks
+  real :: lmass0, fmass0, heat0, cmass0, nmass0
+
+  call check_conservation_1(tile, lmass0,fmass0,cmass0,nmass0,heat0)
 
   associate (vegn=>tile%vegn, soil=>tile%soil)
-  c1 = vegn_tile_carbon(vegn) + soil_tile_carbon(soil)
-  n1 = vegn_tile_nitrogen(vegn) + soil_tile_nitrogen(soil)
-
   if (crop_species_idx<0) then
      call error_mesg('vegn_plant_crop_ppa','crop species "'//trim(crop_species)//'" not found in the list of species',FATAL)
   endif
@@ -1008,12 +998,9 @@ subroutine vegn_plant_crop_ppa(tile)
      if (seedC(crop_species_idx) >= crop_seed_density) exit ! from loop
   enddo
   call add_seedlings_ppa(vegn,soil,seedC,seedN)
-
-  c2 = vegn_tile_carbon(vegn) + soil_tile_carbon(soil)
-  n2 = vegn_tile_nitrogen(vegn) + soil_tile_nitrogen(soil)
-  call check_conservation('vegn_plant_crop_ppa','carbon',   c1,c2,carbon_cons_tol,   FATAL)
-  call check_conservation('vegn_plant_crop_ppa','nitrogen', n1,n2,nitrogen_cons_tol, FATAL)
   end associate ! vegn,soil
+
+  call check_conservation_2(tile,'vegn_plant_crop_ppa',lmass0,fmass0,cmass0,nmass0,heat0)
 end subroutine vegn_plant_crop_ppa
 
 end module
