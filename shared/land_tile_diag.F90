@@ -92,8 +92,7 @@ integer, parameter, public :: &
     OP_MAX      = 3, & ! maximum of all  values
     OP_MIN      = 4, & ! minimum of all  values
     OP_VAR      = 5, & ! variance of tile values
-    OP_STD      = 6, & ! standard deviation of tile values
-    OP_DOMINANT = 7 ! dominant value (only for cohorts now)
+    OP_STD      = 6    ! standard deviation of tile values
 character(32), parameter :: opstrings(6) = (/ & ! symbolica names of the aggregation operations
    'mean                            ' , &
    'sum                             ' , &
@@ -362,7 +361,8 @@ end function string2opcode
 
 ! ============================================================================
 function register_tiled_diag_field(module_name, field_name, axes, init_time, &
-     long_name, units, missing_value, range, op, standard_name, fill_missing) &
+     long_name, units, missing_value, range, op, standard_name, fill_missing, &
+     do_not_log) &
      result (id)
 
   integer :: id
@@ -378,10 +378,11 @@ function register_tiled_diag_field(module_name, field_name, axes, init_time, &
   character(len=*), intent(in), optional :: op ! aggregation operation
   character(len=*), intent(in), optional :: standard_name
   logical,          intent(in), optional :: fill_missing
+  logical,          intent(in), optional :: do_not_log
 
   id = reg_field(FLD_DYNAMIC, module_name, field_name, init_time, axes, long_name, &
          units, missing_value, range, op=op, standard_name=standard_name, &
-         fill_missing=fill_missing)
+         fill_missing=fill_missing, do_not_log=do_not_log)
   call add_cell_measures(id)
   call add_cell_methods(id)
 end function register_tiled_diag_field
@@ -389,7 +390,7 @@ end function register_tiled_diag_field
 ! ============================================================================
 function register_tiled_static_field(module_name, field_name, axes, &
      long_name, units, missing_value, range, require, op, standard_name, &
-     fill_missing) result (id)
+     fill_missing, do_not_log) result (id)
 
   integer :: id
 
@@ -404,13 +405,14 @@ function register_tiled_static_field(module_name, field_name, axes, &
   character(len=*), intent(in), optional :: op ! aggregation operation
   character(len=*), intent(in), optional :: standard_name
   logical,          intent(in), optional :: fill_missing
+  logical,          intent(in), optional :: do_not_log
 
   ! --- local vars
   type(time_type) :: init_time
 
   id = reg_field(FLD_STATIC, module_name, field_name, init_time, axes, long_name, &
          units, missing_value, range, require, op, standard_name=standard_name, &
-         fill_missing=fill_missing)
+         fill_missing=fill_missing, do_not_log=do_not_log)
   call add_cell_measures(id)
   call add_cell_methods(id)
 end function register_tiled_static_field
@@ -534,7 +536,7 @@ end subroutine reg_field_alias
 ! of selectors
 function reg_field(static, module_name, field_name, init_time, axes, &
      long_name, units, missing_value, range, require, op, offset, &
-     area, cell_methods, standard_name, fill_missing) result(id)
+     area, cell_methods, standard_name, fill_missing, do_not_log) result(id)
 
   integer :: id
 
@@ -555,6 +557,7 @@ function reg_field(static, module_name, field_name, init_time, axes, &
   character(len=*), intent(in), optional :: standard_name
   logical,          intent(in), optional :: fill_missing ! if true, missing values (e.g. ocean points)
                                                          ! are filled with zeros, as per CMIP requirements
+  logical,          intent(in), optional :: do_not_log ! if TRUE, dig field info is not logged
 
   ! ---- local vars
   integer, pointer :: diag_ids(:) ! ids returned by FMS diag manager for each selector
@@ -562,11 +565,13 @@ function reg_field(static, module_name, field_name, init_time, axes, &
   integer :: isel    ! selector iterator
   integer :: opcode  ! code of the tile aggregation operation
   type(tiled_diag_field_type), pointer :: new_fields(:)
+  logical :: do_log
   ! ---- global vars: n_fields, fields, current_offset -- all used and updated
 
   ! log diagnostic field information
-  call log_diag_field_info ( module_name, trim(field_name), axes, long_name, units,&
-                             missing_value, range, dynamic=(static.ne.FLD_STATIC) )
+  do_log = .TRUE.; if (present(do_not_log)) do_log = .NOT.do_not_log
+  if (do_log) call log_diag_field_info ( module_name, trim(field_name), axes, long_name, units,&
+                                         missing_value, range, dynamic=(static.ne.FLD_STATIC) )
 
   ! go through all possible selectors and try to register a diagnostic field
   ! with the name derived from field name and selector; if any of the
@@ -1090,22 +1095,39 @@ function register_cohort_diag_field(module_name, field_name, axes, init_time, &
   real,             intent(in), optional :: range(2)
   character(*),     intent(in), optional :: opt ! tile aggregation operation
 
-  integer :: i
+  integer :: i, n
   integer :: diag_ids(N_CHRT_FILTERS)
   type(cohort_diag_field_type), pointer :: new_fields(:)
   character(256) :: long_name_
+  integer :: axes_(size(axes)+1)
+
+  call log_diag_field_info ( module_name, trim(field_name)//'(c)', axes, long_name, units,&
+                             missing_value, range )
+
+  ! create species axis if necessary
+  if (id_species_axis<0) &
+      id_species_axis = diag_axis_init ( 'species', [(real(i), i=0,nspecies-1)], units='', cart_name='z')
+  ! expand axes array
+  axes_(1:size(axes)) = axes(:)
+  axes_(size(axes)+1) = id_species_axis
 
   ! register tiled diag field for each of the samplings
   do i = 1,N_CHRT_FILTERS
+     if (i==5) then ! this is by-species diagnostics
+        n = size(axes)+1 ! we have an extra axis for by-species diagnostics
+     else
+        n = size(axes)
+     endif
+        
      if(present(long_name)) then
          long_name_ = trim(long_name)//trim(chrt_filter_name(i))
          diag_ids(i) = register_tiled_diag_field( &
-            module_name, trim(field_name)//trim(chrt_filter_suffix(i)), axes, init_time, &
-            long_name_, units, missing_value, range, opt)
+            module_name, trim(field_name)//trim(chrt_filter_suffix(i)), axes_(1:n), init_time, &
+            long_name_, units, missing_value, range, opt, do_not_log=.TRUE.)
      else
          diag_ids(i) = register_tiled_diag_field( &
-            module_name, trim(field_name)//trim(chrt_filter_suffix(i)), axes, init_time, &
-            long_name, units, missing_value, range, opt)
+            module_name, trim(field_name)//trim(chrt_filter_suffix(i)), axes_(1:n), init_time, &
+            long_name, units, missing_value, range, opt, do_not_log=.TRUE.)
      endif
   enddo
   id = 0
