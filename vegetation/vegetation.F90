@@ -205,8 +205,8 @@ integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_mycorrhizal_scav_C_res, id_mycorrhizal_scav_N_res, id_mycorrhizal_mine_C_res, id_mycorrhizal_mine_N_res, &
    id_Nfix_C_res, id_Nfix_N_res,&
    id_species, id_dominant_by_n, id_dominant_by_b, id_status, &
-   id_con_v_h, id_con_v_v, id_fuel, id_harv_pool(N_HARV_POOLS), id_harv_pool_nitrogen(N_HARV_POOLS), &
-   id_harv_rate(N_HARV_POOLS), id_t_harv_pool, id_t_harv_rate, &
+   id_con_v_h, id_con_v_v, id_fuel, id_harv_pool_C(N_HARV_POOLS), id_harv_pool_N(N_HARV_POOLS), &
+   id_harv_rate_C(N_HARV_POOLS), id_tot_harv_pool_C, id_tot_harv_rate_C, id_tot_harv_pool_N, &
    id_csmoke_pool, id_nsmoke_pool, id_csmoke_rate, id_fsc_in, id_fsc_out, id_ssc_in, &
    id_ssc_out, id_deadmic_in, id_deadmic_out, id_veg_in, id_veg_out, &
    id_tile_nitrogen_gain, id_tile_nitrogen_loss, &
@@ -497,11 +497,11 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
      ! harvesting pools and rates
      do i = 1, N_HARV_POOLS
         if (field_exists(restart2,trim(HARV_POOL_NAMES(i))//'_harv_pool')) &
-             call get_tile_data(restart2,trim(HARV_POOL_NAMES(i))//'_harv_pool',vegn_harv_pool_ptr,i)
+             call get_tile_data(restart2,trim(HARV_POOL_NAMES(i))//'_harv_pool',vegn_harv_pool_C_ptr,i)
         if (field_exists(restart2,trim(HARV_POOL_NAMES(i))//'_harv_rate')) &
-             call get_tile_data(restart2,trim(HARV_POOL_NAMES(i))//'_harv_rate',vegn_harv_rate_ptr,i)
+             call get_tile_data(restart2,trim(HARV_POOL_NAMES(i))//'_harv_rate',vegn_harv_rate_C_ptr,i)
         if (field_exists(restart2,trim(HARV_POOL_NAMES(i))//'_harv_pool_nitrogen')) &
-             call get_tile_data(restart2,trim(HARV_POOL_NAMES(i))//'_harv_pool_nitrogen',vegn_harv_pool_nitrogen_ptr,i)
+             call get_tile_data(restart2,trim(HARV_POOL_NAMES(i))//'_harv_pool_nitrogen',vegn_harv_pool_N_ptr,i)
      enddo
      ! read table of species names, if exists, and remap species as necessary
      call read_remap_species(restart2)
@@ -901,21 +901,23 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   id_ncm = register_tiled_diag_field ( module_name, 'ncm', (/id_ug/), &
        time, 'number of cold months', 'dimensionless', missing_value=-999.0 )
 
-  id_t_harv_pool = register_tiled_diag_field( module_name, 'harv_pool', (/id_ug/), &
+  id_tot_harv_pool_C = register_tiled_diag_field( module_name, 'harv_pool_C', (/id_ug/), &
        time, 'total harvested carbon', 'kg C/m2', missing_value=-999.0)
-  id_t_harv_rate = register_tiled_diag_field( module_name, 'harv_rate', (/id_ug/), &
+  id_tot_harv_rate_C = register_tiled_diag_field( module_name, 'harv_rate_C', (/id_ug/), &
        time, 'total rate of release of harvested carbon to the atmosphere', &
        'kg C/(m2 year)', missing_value=-999.0)
+  id_tot_harv_pool_N = register_tiled_diag_field( module_name, 'harv_pool_N', (/id_ug/), &
+       time, 'total harvested nitrogen', 'kg N/m2', missing_value=-999.0)
   do i = 1,N_HARV_POOLS
-     id_harv_pool(i) = register_tiled_diag_field( module_name, &
-          trim(HARV_POOL_NAMES(i))//'_harv_pool', (/id_ug/), time, &
+     id_harv_pool_C(i) = register_tiled_diag_field( module_name, &
+          trim(HARV_POOL_NAMES(i))//'_harv_pool_C', (/id_ug/), time, &
           'harvested carbon', 'kg C/m2', missing_value=-999.0)
-     id_harv_rate(i) = register_tiled_diag_field( module_name, &
-          trim(HARV_POOL_NAMES(i))//'_harv_rate', (/id_ug/), time, &
+     id_harv_rate_C(i) = register_tiled_diag_field( module_name, &
+          trim(HARV_POOL_NAMES(i))//'_harv_rate_C', (/id_ug/), time, &
           'rate of release of harvested carbon to the atmosphere', 'kg C/(m2 year)', &
           missing_value=-999.0)
-     id_harv_pool_nitrogen(i) = register_tiled_diag_field( module_name, &
-           trim(HARV_POOL_NAMES(i))//'_harv_pool_nitrogen', (/id_ug/), time, &
+     id_harv_pool_N(i) = register_tiled_diag_field( module_name, &
+           trim(HARV_POOL_NAMES(i))//'_harv_pool_N', (/id_ug/), time, &
            'harvested nitrogen', 'kg N/m2', missing_value=-999.0)
   enddo
 
@@ -1225,11 +1227,11 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   ! harvesting pools and rates
   do i = 1, N_HARV_POOLS
      call add_tile_data(restart2, trim(HARV_POOL_NAMES(i))//'_harv_pool', &
-          vegn_harv_pool_ptr, i, 'harvested carbon','kg C/m2')
+          vegn_harv_pool_C_ptr, i, 'harvested carbon','kg C/m2')
      call add_tile_data(restart2, trim(HARV_POOL_NAMES(i))//'_harv_pool_nitrogen', &
-          vegn_harv_pool_nitrogen_ptr, i, 'harvested nitrogen','kg N/m2')
+          vegn_harv_pool_N_ptr, i, 'harvested nitrogen','kg N/m2')
      call add_tile_data(restart2, trim(HARV_POOL_NAMES(i))//'_harv_rate', &
-          vegn_harv_rate_ptr, i, 'rate of release of harvested carbon to the atmosphere','kg C/(m2 yr)')
+          vegn_harv_rate_C_ptr, i, 'rate of release of harvested carbon to the atmosphere','kg C/(m2 yr)')
   enddo
 
   call save_land_restart(restart2)
@@ -1871,25 +1873,25 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, ndep_nit, ndep_amm, ndep_org,
   soil%gross_nitrogen_flux_out_of_tile = soil%gross_nitrogen_flux_out_of_tile+vegn%nsmoke_pool*dt_fast_yr
   vegn%nsmoke_pool = vegn%nsmoke_pool - vegn%nsmoke_pool*dt_fast_yr ! Following csmoke_rate, which is set to equal csmoke_pool in vegn_disturbance
   ! decrease harvested rates so that pools are not depleted below zero
-  vegn%harv_rate(:) = max( 0.0, &
-                           min(vegn%harv_rate(:), vegn%harv_pool(:)/dt_fast_yr) &
+  vegn%harv_rate_C(:) = max( 0.0, &
+                           min(vegn%harv_rate_C(:), vegn%harv_pool_C(:)/dt_fast_yr) &
                          )
   ! update harvested pools -- amounts of stored harvested carbon by category
-  vegn%harv_pool(:) = vegn%harv_pool(:) - &
-       vegn%harv_rate(:)*dt_fast_yr
+  vegn%harv_pool_C(:) = vegn%harv_pool_C(:) - &
+       vegn%harv_rate_C(:)*dt_fast_yr
   ! --- calculate total co2 flux from vegetation
-  vegn_fco2 = -vegn%nep + vegn%csmoke_rate + sum(vegn%harv_rate(:))
+  vegn_fco2 = -vegn%nep + vegn%csmoke_rate + sum(vegn%harv_rate_C(:))
   ! --- convert it to kg CO2/(m2 s)
   vegn_fco2 = vegn_fco2*mol_CO2/(mol_C*seconds_per_year)
 
   ! What to do with harvested nitrogen??
   where(harvest_spending_time(:)>0)
      harv_pool_nitrogen_loss = &
-          vegn%harv_pool_nitrogen(:)/harvest_spending_time(:)
+          vegn%harv_pool_N(:)/harvest_spending_time(:)
   elsewhere
      harv_pool_nitrogen_loss(:) = 0.0
   end where
-  vegn%harv_pool_nitrogen = vegn%harv_pool_nitrogen - harv_pool_nitrogen_loss*dt_fast_yr
+  vegn%harv_pool_N = vegn%harv_pool_N - harv_pool_nitrogen_loss*dt_fast_yr
   soil%gross_nitrogen_flux_out_of_tile = soil%gross_nitrogen_flux_out_of_tile+sum(harv_pool_nitrogen_loss)*dt_fast_yr
 
 
@@ -2276,10 +2278,10 @@ subroutine update_vegn_slow( )
         tile%vegn%litter_rate_N(C_FAST,:) = tile%vegn%litter_buff_N(C_FAST,:)/fsc_pool_spending_time
         tile%vegn%litter_rate_N(C_SLOW,:) = tile%vegn%litter_buff_N(C_SLOW,:)/ssc_pool_spending_time
         where(harvest_spending_time(:)>0)
-           tile%vegn%harv_rate(:) = &
-                tile%vegn%harv_pool(:)/harvest_spending_time(:)
+           tile%vegn%harv_rate_C(:) = &
+                tile%vegn%harv_pool_C(:)/harvest_spending_time(:)
         elsewhere
-           tile%vegn%harv_rate(:) = 0.0
+           tile%vegn%harv_rate_C(:) = 0.0
         end where
      endif
      call check_conservation_2(tile,'update_vegn_slow 9',lmass0,fmass0,cmass0,nmass0)
@@ -2331,12 +2333,13 @@ subroutine update_vegn_slow( )
      call send_tile_data(id_tc_pheno,tile%vegn%tc_pheno,tile%diag)
 
      do ii = 1,N_HARV_POOLS
-        call send_tile_data(id_harv_pool(ii),tile%vegn%harv_pool(ii),tile%diag)
-        call send_tile_data(id_harv_pool_nitrogen(ii),tile%vegn%harv_pool_nitrogen(ii),tile%diag)
-        call send_tile_data(id_harv_rate(ii),tile%vegn%harv_rate(ii),tile%diag)
+        call send_tile_data(id_harv_pool_C(ii),tile%vegn%harv_pool_C(ii),tile%diag)
+        call send_tile_data(id_harv_pool_N(ii),tile%vegn%harv_pool_N(ii),tile%diag)
+        call send_tile_data(id_harv_rate_C(ii),tile%vegn%harv_rate_C(ii),tile%diag)
      enddo
-     call send_tile_data(id_t_harv_pool,sum(tile%vegn%harv_pool(:)),tile%diag)
-     call send_tile_data(id_t_harv_rate,sum(tile%vegn%harv_rate(:)),tile%diag)
+     call send_tile_data(id_tot_harv_pool_C,sum(tile%vegn%harv_pool_C(:)),tile%diag)
+     call send_tile_data(id_tot_harv_rate_C,sum(tile%vegn%harv_rate_C(:)),tile%diag)
+     call send_tile_data(id_tot_harv_pool_N,sum(tile%vegn%harv_pool_N(:)),tile%diag)
      call send_tile_data(id_csmoke_pool,tile%vegn%csmoke_pool,tile%diag)
      call send_tile_data(id_csmoke_rate,tile%vegn%csmoke_rate,tile%diag)
      call send_tile_data(id_nsmoke_pool,tile%vegn%nsmoke_pool,tile%diag)
@@ -2461,15 +2464,15 @@ subroutine update_vegn_slow( )
                       +tile%vegn%cohorts(1:n)%bsw   &
                       +tile%vegn%cohorts(1:n)%bwood ), tile%diag)
      if (id_cproduct>0) call send_tile_data(id_cproduct,&
-                   sum(tile%vegn%harv_pool(:)), tile%diag)
+                   sum(tile%vegn%harv_pool_C(:)), tile%diag)
      call send_tile_data(id_fFire, tile%vegn%csmoke_rate/seconds_per_year, tile%diag)
-     call send_tile_data(id_fGrazing, tile%vegn%harv_rate(HARV_POOL_PAST)/seconds_per_year, tile%diag)
-     call send_tile_data(id_fHarvest, tile%vegn%harv_rate(HARV_POOL_CROP)/seconds_per_year, tile%diag)
+     call send_tile_data(id_fGrazing, tile%vegn%harv_rate_C(HARV_POOL_PAST)/seconds_per_year, tile%diag)
+     call send_tile_data(id_fHarvest, tile%vegn%harv_rate_C(HARV_POOL_CROP)/seconds_per_year, tile%diag)
      call send_tile_data(id_fHarvest, &
-         (tile%vegn%harv_rate(HARV_POOL_CLEARED) &
-         +tile%vegn%harv_rate(HARV_POOL_WOOD_FAST) &
-         +tile%vegn%harv_rate(HARV_POOL_WOOD_MED) &
-         +tile%vegn%harv_rate(HARV_POOL_WOOD_SLOW) &
+         (tile%vegn%harv_rate_C(HARV_POOL_CLEARED) &
+         +tile%vegn%harv_rate_C(HARV_POOL_WOOD_FAST) &
+         +tile%vegn%harv_rate_C(HARV_POOL_WOOD_MED) &
+         +tile%vegn%harv_rate_C(HARV_POOL_WOOD_SLOW) &
          )/seconds_per_year, tile%diag)
      if (id_cLeaf>0) call send_tile_data(id_cLeaf, sum(tile%vegn%cohorts(1:n)%bl), tile%diag)
      if (id_cWood>0) call send_tile_data(id_cWood, &
@@ -2756,9 +2759,9 @@ DEFINE_VEGN_ACCESSOR_0D(real,drop_hl)
 DEFINE_VEGN_ACCESSOR_0D(real,drop_hs)
 DEFINE_VEGN_ACCESSOR_0D(real,nsmoke_pool)
 
-DEFINE_VEGN_ACCESSOR_1D(real,harv_pool)
-DEFINE_VEGN_ACCESSOR_1D(real,harv_pool_nitrogen)
-DEFINE_VEGN_ACCESSOR_1D(real,harv_rate)
+DEFINE_VEGN_ACCESSOR_1D(real,harv_pool_C)
+DEFINE_VEGN_ACCESSOR_1D(real,harv_pool_N)
+DEFINE_VEGN_ACCESSOR_1D(real,harv_rate_C)
 
 DEFINE_COHORT_ACCESSOR(real,Tv)
 DEFINE_COHORT_ACCESSOR(real,Wl)

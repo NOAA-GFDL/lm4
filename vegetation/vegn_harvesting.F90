@@ -365,7 +365,7 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
      bdead0  =  cc%bwood + cc%bsw
      ! only potential leaves are consumed
      carbon_lost=cc%bliving*cc%Pl*grazing_intensity
-     vegn%harv_pool(HARV_POOL_PAST) = vegn%harv_pool(HARV_POOL_PAST) + &
+     vegn%harv_pool_C(HARV_POOL_PAST) = vegn%harv_pool_C(HARV_POOL_PAST) + &
           carbon_lost*(1-grazing_residue) ;
      cc%bliving = cc%bliving - carbon_lost;
 
@@ -407,7 +407,7 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
                       (1.0-sp%fsc_froot)*(delta_root) +(1-agf_bs)*(1.0-sp%fsc_wood)*(delta_wood),0.0/)*grazing_residue
 
         ! We're not removing belowground portion of what was grazed, so that needs to be clawed back from harvest pool
-        vegn%harv_pool(HARV_POOL_PAST) = vegn%harv_pool(HARV_POOL_PAST) - (1.0-grazing_residue)*(delta_root+(1-agf_bs)*delta_wood)
+        vegn%harv_pool_C(HARV_POOL_PAST) = vegn%harv_pool_C(HARV_POOL_PAST) - (1.0-grazing_residue)*(delta_root+(1-agf_bs)*delta_wood)
 
         if(soil_carbon_option == SOILC_CORPSE_N) then
            leaflitter_N=leaflitter_C/sp%leaf_live_c2n
@@ -417,7 +417,7 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
                         0.0/)
 
            cc%stored_N = cc%stored_N - delta_leaf/sp%leaf_live_c2n - delta_wood*wood_n2c - delta_root/sp%froot_live_c2n
-           vegn%harv_pool_nitrogen(HARV_POOL_PAST) = vegn%harv_pool_nitrogen(HARV_POOL_PAST) + &
+           vegn%harv_pool_N(HARV_POOL_PAST) = vegn%harv_pool_N(HARV_POOL_PAST) + &
                 delta_leaf/sp%leaf_live_c2n*(1-grazing_residue) + delta_wood*agf_bs*wood_n2c*(1-grazing_residue)
         else
            leaflitter_N = 0.0
@@ -485,7 +485,7 @@ subroutine vegn_harvest_crop_lm3(tile)
   do i = 1, vegn%n_cohorts
      associate(cc=>vegn%cohorts(i), sp=>spdata(vegn%cohorts(i)%species))
      ! use for harvest only aboveg round living biomass and waste the correspondent below living and wood
-     vegn%harv_pool(HARV_POOL_CROP) = vegn%harv_pool(HARV_POOL_CROP) + &
+     vegn%harv_pool_C(HARV_POOL_CROP) = vegn%harv_pool_C(HARV_POOL_CROP) + &
           cc%bliving*(cc%Pl + cc%Psw*agf_bs)*fraction_harvested
      select case (soil_carbon_option)
      case (SOILC_CENTURY, SOILC_CENTURY_BY_LAYER)
@@ -515,19 +515,19 @@ subroutine vegn_harvest_crop_lm3(tile)
                    (1-sp%fsc_froot)*cc%root_N + &
                    (1-agf_bs)*(cc%wood_N*(1-sp%fsc_wood) + cc%sapwood_N*(1-sp%fsc_liv)))
 
-           vegn%harv_pool_nitrogen(HARV_POOL_CROP) = vegn%harv_pool_nitrogen(HARV_POOL_CROP) + &
+           vegn%harv_pool_N(HARV_POOL_CROP) = vegn%harv_pool_N(HARV_POOL_CROP) + &
                 (cc%bliving*cc%Pl/sp%leaf_live_c2n + agf_bs*cc%sapwood_N)*fraction_harvested
 
            ! Make sure stored nitrogen loss is sensible when leaves are off:
            ! Amounts harvested should be determined by potential leaf tissues, but this N would still be in stored pool so needs to be subtracted
            if (cc%status == LEAF_OFF) then
-              vegn%harv_pool_nitrogen(HARV_POOL_CROP) = vegn%harv_pool_nitrogen(HARV_POOL_CROP) + &
+              vegn%harv_pool_N(HARV_POOL_CROP) = vegn%harv_pool_N(HARV_POOL_CROP) + &
                  (max(cc%stored_N,0.0)-(cc%bliving*cc%Pl/sp%leaf_live_c2n + cc%bliving*cc%Pr/sp%froot_live_c2n))*fraction_harvested
               cc%stored_N = cc%stored_N - &
                  (max(cc%stored_N,0.0)-(cc%bliving*cc%Pl/sp%leaf_live_c2n + cc%bliving*cc%Pr/sp%froot_live_c2n))*fraction_harvested
            else
               ! In this case stored N can just be lost because it doesn't contain N from harvested potential leaves and roots
-              vegn%harv_pool_nitrogen(HARV_POOL_CROP) = vegn%harv_pool_nitrogen(HARV_POOL_CROP) + max(cc%stored_N,0.0)*fraction_harvested
+              vegn%harv_pool_N(HARV_POOL_CROP) = vegn%harv_pool_N(HARV_POOL_CROP) + max(cc%stored_N,0.0)*fraction_harvested
               cc%stored_N = max(cc%stored_N,0.0)*(1-fraction_harvested)
            endif
            ! Subtract N lost from N pools. Leaf and root can get subtracted from stored and things will be rebalanced later.
@@ -614,15 +614,15 @@ subroutine vegn_cut_forest_lm3(tile, new_landuse)
      ! distribute harvested wood between pools
      if (new_landuse==LU_SCND) then
         ! this is harvesting, distribute between 3 different wood pools
-        vegn%harv_pool(HARV_POOL_WOOD_FAST) = vegn%harv_pool(HARV_POOL_WOOD_FAST) &
+        vegn%harv_pool_C(HARV_POOL_WOOD_FAST) = vegn%harv_pool_C(HARV_POOL_WOOD_FAST) &
              + wood_harvested*frac_wood_fast
-        vegn%harv_pool(HARV_POOL_WOOD_MED) = vegn%harv_pool(HARV_POOL_WOOD_MED) &
+        vegn%harv_pool_C(HARV_POOL_WOOD_MED) = vegn%harv_pool_C(HARV_POOL_WOOD_MED) &
              + wood_harvested*frac_wood_med
-        vegn%harv_pool(HARV_POOL_WOOD_SLOW) = vegn%harv_pool(HARV_POOL_WOOD_SLOW) &
+        vegn%harv_pool_C(HARV_POOL_WOOD_SLOW) = vegn%harv_pool_C(HARV_POOL_WOOD_SLOW) &
              + wood_harvested*frac_wood_slow
      else
         ! this is land clearance: everything goes into "cleared" pool
-        vegn%harv_pool(HARV_POOL_CLEARED) = vegn%harv_pool(HARV_POOL_CLEARED) &
+        vegn%harv_pool_C(HARV_POOL_CLEARED) = vegn%harv_pool_C(HARV_POOL_CLEARED) &
              + wood_harvested
      endif
 
@@ -684,15 +684,15 @@ subroutine vegn_cut_forest_lm3(tile, new_landuse)
         ! distribute harvested wood between pools
         if (new_landuse==LU_SCND) then
            ! this is harvesting, distribute between 3 different wood pools
-           vegn%harv_pool_nitrogen(HARV_POOL_WOOD_FAST) = vegn%harv_pool_nitrogen(HARV_POOL_WOOD_FAST) &
+           vegn%harv_pool_N(HARV_POOL_WOOD_FAST) = vegn%harv_pool_N(HARV_POOL_WOOD_FAST) &
                 + (cc%bwood/sp%wood_c2n+cc%bsw/sp%sapwood_c2n)*frac_harvested*(1-frac_wood_wasted)*frac_wood_fast
-           vegn%harv_pool_nitrogen(HARV_POOL_WOOD_MED) = vegn%harv_pool_nitrogen(HARV_POOL_WOOD_MED) &
+           vegn%harv_pool_N(HARV_POOL_WOOD_MED) = vegn%harv_pool_N(HARV_POOL_WOOD_MED) &
                 + (cc%bwood/sp%wood_c2n+cc%bsw/sp%sapwood_c2n)*frac_harvested*(1-frac_wood_wasted)*frac_wood_med
-           vegn%harv_pool_nitrogen(HARV_POOL_WOOD_SLOW) = vegn%harv_pool_nitrogen(HARV_POOL_WOOD_SLOW) &
+           vegn%harv_pool_N(HARV_POOL_WOOD_SLOW) = vegn%harv_pool_N(HARV_POOL_WOOD_SLOW) &
                 + (cc%bwood/sp%wood_c2n+cc%bsw/sp%sapwood_c2n)*frac_harvested*(1-frac_wood_wasted)*frac_wood_slow
         else
            ! this is land clearance: everything goes into "cleared" pool
-           vegn%harv_pool_nitrogen(HARV_POOL_CLEARED) = vegn%harv_pool_nitrogen(HARV_POOL_CLEARED) &
+           vegn%harv_pool_N(HARV_POOL_CLEARED) = vegn%harv_pool_N(HARV_POOL_CLEARED) &
                 + (cc%bwood/sp%wood_c2n+cc%bsw/sp%sapwood_c2n)*frac_harvested*(1-frac_wood_wasted)
         endif
 
@@ -743,9 +743,9 @@ subroutine vegn_graze_pasture_ppa(tile, min_lai_for_grazing, grazing_intensity, 
      associate(cc=>vegn%cohorts(i), sp=>spdata(vegn%cohorts(i)%species))
      if (cc%height >= max_grazing_height) continue ! do nothing to vegetation browsers cannot reach.
 
-     vegn%harv_pool(HARV_POOL_PAST) = vegn%harv_pool(HARV_POOL_PAST) + &
+     vegn%harv_pool_C(HARV_POOL_PAST) = vegn%harv_pool_C(HARV_POOL_PAST) + &
           cc%bl*grazing_intensity*(1-grazing_residue)*cc%nindivs
-     vegn%harv_pool_nitrogen(HARV_POOL_PAST) = vegn%harv_pool_nitrogen(HARV_POOL_PAST) + &
+     vegn%harv_pool_N(HARV_POOL_PAST) = vegn%harv_pool_N(HARV_POOL_PAST) + &
           cc%leaf_N*grazing_intensity*(1-grazing_residue)*cc%nindivs
      littC = cc%bl     * grazing_intensity*grazing_residue*cc%nindivs
      littN = cc%leaf_N * grazing_intensity*grazing_residue*cc%nindivs
@@ -801,11 +801,11 @@ subroutine vegn_harvest_crop_ppa(tile)
      ! add C to harvest and litter pools. This is slightly different from kill_plants_ppa
      ! because above-ground part of nsc and sapwood are getting harvested, rather than going
      ! into litter
-     vegn%harv_pool(HARV_POOL_CROP) = vegn%harv_pool(HARV_POOL_CROP) + ndead*( &
+     vegn%harv_pool_C(HARV_POOL_CROP) = vegn%harv_pool_C(HARV_POOL_CROP) + ndead*( &
          cc%bl + cc%bseed + cc%carbon_gain + cc%growth_previous_day + &
          cc%bsw*agf_bs + cc%nsc*agf_bs &
          )
-     vegn%harv_pool_nitrogen(HARV_POOL_CROP) = vegn%harv_pool_nitrogen(HARV_POOL_CROP) + ndead*( &
+     vegn%harv_pool_N(HARV_POOL_CROP) = vegn%harv_pool_N(HARV_POOL_CROP) + ndead*( &
          cc%leaf_N + cc%seed_N + cc%sapwood_N*agf_bs + cc%stored_N*agf_bs &
          )
      ! subtract C and N harvest from cohort
@@ -905,23 +905,23 @@ subroutine vegn_cut_forest_ppa(tile, new_landuse)
   ! distribute harvested wood between pools
   if (new_landuse==LU_SCND) then
      ! this is harvesting, distribute between 3 different wood pools
-     vegn%harv_pool(HARV_POOL_WOOD_FAST) = vegn%harv_pool(HARV_POOL_WOOD_FAST) &
+     vegn%harv_pool_C(HARV_POOL_WOOD_FAST) = vegn%harv_pool_C(HARV_POOL_WOOD_FAST) &
           + sum(wood_harv_C)*frac_wood_fast*(1-frac_wood_wasted)
-     vegn%harv_pool_nitrogen(HARV_POOL_WOOD_FAST) = vegn%harv_pool_nitrogen(HARV_POOL_WOOD_FAST) &
+     vegn%harv_pool_N(HARV_POOL_WOOD_FAST) = vegn%harv_pool_N(HARV_POOL_WOOD_FAST) &
           + sum(wood_harv_N)*frac_wood_fast*(1-frac_wood_wasted)
-     vegn%harv_pool(HARV_POOL_WOOD_MED) = vegn%harv_pool(HARV_POOL_WOOD_MED) &
+     vegn%harv_pool_C(HARV_POOL_WOOD_MED) = vegn%harv_pool_C(HARV_POOL_WOOD_MED) &
           + sum(wood_harv_C)*frac_wood_med*(1-frac_wood_wasted)
-     vegn%harv_pool_nitrogen(HARV_POOL_WOOD_MED) = vegn%harv_pool_nitrogen(HARV_POOL_WOOD_MED) &
+     vegn%harv_pool_N(HARV_POOL_WOOD_MED) = vegn%harv_pool_N(HARV_POOL_WOOD_MED) &
           + sum(wood_harv_N)*frac_wood_med*(1-frac_wood_wasted)
-     vegn%harv_pool(HARV_POOL_WOOD_SLOW) = vegn%harv_pool(HARV_POOL_WOOD_SLOW) &
+     vegn%harv_pool_C(HARV_POOL_WOOD_SLOW) = vegn%harv_pool_C(HARV_POOL_WOOD_SLOW) &
           + sum(wood_harv_C)*frac_wood_slow*(1-frac_wood_wasted)
-     vegn%harv_pool_nitrogen(HARV_POOL_WOOD_SLOW) = vegn%harv_pool_nitrogen(HARV_POOL_WOOD_SLOW) &
+     vegn%harv_pool_N(HARV_POOL_WOOD_SLOW) = vegn%harv_pool_N(HARV_POOL_WOOD_SLOW) &
           + sum(wood_harv_N)*frac_wood_slow*(1-frac_wood_wasted)
   else
      ! this is land clearance: everything goes into "cleared" pool
-     vegn%harv_pool(HARV_POOL_CLEARED) = vegn%harv_pool(HARV_POOL_CLEARED) &
+     vegn%harv_pool_C(HARV_POOL_CLEARED) = vegn%harv_pool_C(HARV_POOL_CLEARED) &
           + sum(wood_harv_C)*(1-frac_wood_wasted)
-     vegn%harv_pool_nitrogen(HARV_POOL_CLEARED) = vegn%harv_pool_nitrogen(HARV_POOL_CLEARED) &
+     vegn%harv_pool_N(HARV_POOL_CLEARED) = vegn%harv_pool_N(HARV_POOL_CLEARED) &
           + sum(wood_harv_N)*(1-frac_wood_wasted)
   endif
 
@@ -980,14 +980,14 @@ subroutine vegn_plant_crop_ppa(tile)
   do i = 1, size(seed_source_pools)
      p = seed_source_pools(i)
      deltaC = max(crop_seed_density-seedC(crop_species_idx),0.0)
-     deltaC = min(deltaC,vegn%harv_pool(p))
-     if (vegn%harv_pool(p)>0) then
-        deltaN = deltaC*vegn%harv_pool_nitrogen(p)/vegn%harv_pool(p)
+     deltaC = min(deltaC,vegn%harv_pool_C(p))
+     if (vegn%harv_pool_C(p)>0) then
+        deltaN = deltaC*vegn%harv_pool_N(p)/vegn%harv_pool_C(p)
      else
         deltaN = 0.0
      endif
-     vegn%harv_pool(p)          = vegn%harv_pool(p)          - deltaC
-     vegn%harv_pool_nitrogen(p) = vegn%harv_pool_nitrogen(p) - deltaN
+     vegn%harv_pool_C(p) = vegn%harv_pool_C(p) - deltaC
+     vegn%harv_pool_N(p) = vegn%harv_pool_N(p) - deltaN
      seedC(crop_species_idx) = seedC(crop_species_idx) + deltaC
      seedN(crop_species_idx) = seedN(crop_species_idx) + deltaN
      if (seedC(crop_species_idx) >= crop_seed_density) exit ! from loop

@@ -102,9 +102,9 @@ type :: vegn_tile_type
    real :: csmoke_rate=0.0 ! rate of release of the above to atmosphere, kg C/(m2 yr)
    real :: nsmoke_pool=0.0 ! nitrogen lost through fires, kg N/m2
 
-   real :: harv_pool(N_HARV_POOLS) = 0.0 ! pools of harvested carbon, kg C/m2
-   real :: harv_rate(N_HARV_POOLS) = 0.0 ! rates of spending (release to the atmosphere), kg C/(m2 yr)
-   real :: harv_pool_nitrogen(N_HARV_POOLS) = 0.0 ! Harvested nitrogen pool
+   real :: harv_pool_C(N_HARV_POOLS) = 0.0 ! pools of harvested carbon, kg C/m2
+   real :: harv_rate_C(N_HARV_POOLS) = 0.0 ! rates of spending (release to the atmosphere), kg C/(m2 yr)
+   real :: harv_pool_N(N_HARV_POOLS) = 0.0 ! harvested nitrogen pool
 
    ! uptake-related variables
    real :: root_distance(max_lev) ! characteristic half-distance between fine roots, m
@@ -329,9 +329,9 @@ subroutine merge_vegn_tiles(t1,w1,t2,w2,dheat)
   __MERGE__(csmoke_rate)
   __MERGE__(nsmoke_pool)
 
-  __MERGE__(harv_pool)
-  __MERGE__(harv_rate)
-  __MERGE__(harv_pool_nitrogen)
+  __MERGE__(harv_pool_C)
+  __MERGE__(harv_rate_C)
+  __MERGE__(harv_pool_N)
 
   ! do we need to merge these?
   __MERGE__(ssc_out)
@@ -910,7 +910,7 @@ function vegn_tile_carbon(vegn) result(carbon) ; real carbon
      carbon = carbon + &
          biomass_of_individual(vegn%cohorts(i))*vegn%cohorts(i)%nindivs
   enddo
-  carbon = carbon + sum(vegn%harv_pool) + &
+  carbon = carbon + sum(vegn%harv_pool_C) + &
            vegn%fsc_pool_ag + vegn%ssc_pool_ag + &
            vegn%fsc_pool_bg + vegn%ssc_pool_bg + vegn%csmoke_pool
 
@@ -938,7 +938,7 @@ function vegn_tile_nitrogen(vegn) result(nitrogen) ; real nitrogen
             vegn%cohorts(i)%scav_myc_N_reservoir + vegn%cohorts(i)%mine_myc_N_reservoir + vegn%cohorts(i)%N_fixer_N_reservoir &
            )*vegn%cohorts(i)%nindivs
   enddo
-  nitrogen = nitrogen  + sum(vegn%harv_pool_nitrogen) + &
+  nitrogen = nitrogen  + sum(vegn%harv_pool_N) + &
            vegn%fsn_pool_bg + vegn%ssn_pool_bg + vegn%nsmoke_pool
 
   ! Pools associated with aboveground litter CORPSE pools
