@@ -256,6 +256,18 @@ type spec_data_type
   real    :: inib_factor = 0.0 ! default rate of inhibition for leaf respiration
   real    :: light_kok = 0.00004 ! Light intensity above which light inhibition occurs, umol/m2/s
   
+  !for Temperature response
+  real    ::  ToptP = 35.0
+  real    ::  TminP = 5.0  
+  real    ::  TmaxP = 45.0
+  real    ::  tshrP = 0.6  
+  real    ::  tshlP = 1.4
+  real    ::  ToptR = 42.0
+  real    ::  TminR = 5.0  
+  real    ::  TmaxR = 45.0
+  real    ::  tshrR = 1.4
+  real    ::  tshlR = 1.0
+  
   ! for hydraulics, wolf
   real    :: Kxam=0.0, Klam=0.0 ! Conductivity, max, per tissue area: units kg/m2 tissue/s/MPa
   real    :: dx=0.0, dl=0.0       ! Breakpoint of Weibull function, MPa
@@ -738,6 +750,18 @@ subroutine read_species_data(name, sp, errors_found)
   ! for Kok effect, ppg, 17/11/07
   __GET_SPDATA_REAL__(inib_factor)
   __GET_SPDATA_REAL__(light_kok)
+  !for Temperature response, ppg, 17/11/08
+    !for Temperature response
+  __GET_SPDATA_REAL__(ToptP)
+  __GET_SPDATA_REAL__(TminP)  
+  __GET_SPDATA_REAL__(TmaxP)
+  __GET_SPDATA_REAL__(tshrP)
+  __GET_SPDATA_REAL__(tshlP)
+  __GET_SPDATA_REAL__(ToptR)
+  __GET_SPDATA_REAL__(TminR)  
+  __GET_SPDATA_REAL__(TmaxR)
+  __GET_SPDATA_REAL__(tshrR)
+  __GET_SPDATA_REAL__(tshlR)
   ! hydraulics-related parameters
   __GET_SPDATA_REAL__(Kxam)
   __GET_SPDATA_REAL__(dx)
@@ -968,6 +992,18 @@ subroutine print_species_data(unit)
   !for kok effect, ppg, 17/11/07
   call add_row(table, 'inib_factor', spdata(:)%inib_factor)
   call add_row(table, 'light_kok', spdata(:)%light_kok)
+  
+  !for Temperature response, ppg, 17/11/08
+  call add_row(table, 'ToptP', spdata(:)%ToptP)
+  call add_row(table, 'TminP', spdata(:)%TminP)  
+  call add_row(table, 'TmaxP', spdata(:)%TmaxP)
+  call add_row(table, 'tshrP', spdata(:)%tshrP)
+  call add_row(table, 'tshlP', spdata(:)%tshlP)
+  call add_row(table, 'ToptR', spdata(:)%ToptR)
+  call add_row(table, 'TminP', spdata(:)%TminP)  
+  call add_row(table, 'TmaxP', spdata(:)%TmaxP)
+  call add_row(table, 'tshrR', spdata(:)%tshrR)
+  call add_row(table, 'tshlR', spdata(:)%tshlR)
   
   call add_row(table, 'leaf_refl_vis', spdata(:)%leaf_refl(BAND_VIS))
   call add_row(table, 'leaf_refl_nir', spdata(:)%leaf_refl(BAND_NIR))

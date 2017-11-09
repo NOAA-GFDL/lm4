@@ -44,6 +44,11 @@ integer, parameter :: &
     VEGN_PHOT_SIMPLE  = 1, &   ! zero photosynthesis
     VEGN_PHOT_LEUNING = 2      ! photosynthesis according to simplified Leuning model
 
+! values for internal vegetation respiration option selector
+integer, parameter :: &
+    VEGN_TRESPONSE_LM3      = 1, &
+    VEGN_TRESPONSE_OPTIMAL = 2
+    
 ! values for internal vegetation water stress option selector
 integer, public, parameter :: & ! water limitation options
     WSTRESS_NONE       = 1, &  ! no water limitation
@@ -55,14 +60,19 @@ real, parameter :: b      = 0.01 ! minimum stomatal cond for Leuning, mol/(m2 s)
 
 ! ==== module variables ======================================================
 integer :: vegn_phot_option     = -1 ! selector of the photosynthesis option
+integer :: vegn_Tresponse_option = -1 ! selector of the photosynthesis option
 integer, public, protected :: vegn_phot_co2_option = -1 ! internal selector of co2 option for photosynthesis
 integer :: water_stress_option  = -1 ! selector of the water stress option
 
 character(32) :: photosynthesis_to_use = 'simple' ! or 'leuning'
+character(32) :: Tresponse_to_use = 'lm3' ! or 'optimal'
 
 logical       :: Kok_effect  = .FALSE. ! if TRUE, Kok effect is taken in photosynthesis
 !real          :: light_kok   = 0.00004 !mol_of_quanta/(m^2s) PAR
 !real          :: Inib_factor = 0.5
+
+!real :: TmaxP=45.0, ToptP=35.0,  tshrP=0.6, tshlP=1.4, TminP=5.0 ! Parameters of T-response for photosynthesis
+!real :: TmaxR=65.0, ToptR=47.0,  tshrR=1.4, tshlR=1.0, TminR=5.0 ! Parameters of T-response for respiration
 
 character(32) :: co2_to_use_for_photosynthesis = 'prescribed' ! or 'interactive'
    ! specifies what co2 concentration to use for photosynthesis calculations:
@@ -80,14 +90,13 @@ character(32) :: water_stress_to_use = 'lm3' ! type of water stress formulation:
 logical :: hydraulics_repair = .TRUE.
 
 namelist /photosynthesis_nml/ &
-    photosynthesis_to_use, &
+    photosynthesis_to_use, Tresponse_to_use, &
     Kok_effect,  &
     co2_to_use_for_photosynthesis, co2_for_photosynthesis, &
     lai_eps, &
     water_stress_to_use, hydraulics_repair
 
 contains
-
 
 ! ============================================================================
 subroutine vegn_photosynthesis_init()
@@ -155,6 +164,18 @@ subroutine vegn_photosynthesis_init()
         'option water_stress_to_use="'//trim(water_stress_to_use)//'" is invalid, use '// &
         ' "lm3", "plant-hydraulics", or "none"', &
         FATAL)
+  endif
+  
+  !Parse the options for temperature response 
+  if (trim(lowercase(Tresponse_to_use))=='lm3') then
+     vegn_Tresponse_option = VEGN_TRESPONSE_LM3
+  else if (trim(lowercase(Tresponse_to_use))=='optimal') then
+     vegn_Tresponse_option = VEGN_TRESPONSE_OPTIMAL
+  else
+     call error_mesg('vegn_photosynthesis_init',&
+          'vegetation photosynthesis option Tresponse_to_use="'//&
+          trim(Tresponse_to_use)//'" is invalid, use "lm3" or "optimal"',&
+          FATAL)
   endif
 end subroutine vegn_photosynthesis_init
 
@@ -391,6 +412,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   ! ---- local vars
   ! photosynthesis
   real :: vm;
+  real :: vm25;
   real :: kc,ko; ! Michaelis-Menten constants for CO2 and O2, respectively
   real :: ci;
   real :: capgam; ! CO2 compensation point
@@ -419,6 +441,12 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   real :: gsbar;
   real :: w_scale;
   real, parameter :: p_sea = 1.0e5 ! sea level pressure, Pa
+  
+  !########MODIFIED BY PPG 2017-11-01
+  real :: TempFactP
+  real :: TempFactR
+  real :: TempFuncP
+  real :: TempFuncR
 
   if (is_watch_point()) then
      write(*,*) '####### gs_leuning input #######'
@@ -435,10 +463,17 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   endif
 
   do1=0.09 ; ! kg/kg
-  
   if (spdata(pft)%lifeform == FORM_GRASS) do1=0.15;
 
+  !Define the different temperature functions to use 
+  !######MODIFIED BY PPG 2017-11-01
+  TempFactP=(spdata(pft)%TmaxP-(tl-273.15))/(spdata(pft)%TmaxP-spdata(pft)%ToptP);
+  if (TempFactP < 0.) TempFactP=0.;
 
+  TempFactR=(spdata(pft)%TmaxR-(tl-273.15))/(spdata(pft)%TmaxR-spdata(pft)%ToptR);
+  if (TempFactR < 0.) TempFactR=0.;
+  !#########
+  
   ! Convert Solar influx from W/(m^2s) to mol_of_quanta/(m^2s) PAR,
   ! empirical relationship from McCree is light=rn*0.0000046
   light_top = rad_top*rad_phot;
@@ -449,10 +484,12 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   ko=0.25   *exp(1400.0*(1.0/288.2-1.0/tl))*p_sea/p_surf;
   kc=0.00015*exp(6000.0*(1.0/288.2-1.0/tl))*p_sea/p_surf;
 
-  vm=spdata(pft)%Vmax*exp(3000.0*(1.0/288.2-1.0/tl));
+  !This is Vmax at 15C, litterature usually use 25C
+  vm=spdata(pft)%Vmax*exp(3000.0*(1.0/288.2-1.0/tl))
+  vm25=spdata(pft)%Vmax*exp(3000.0*(1.0/288.2-1.0/298.2)) !Establish Vmax at 25C
 
   if (layer > 1) vm=vm*spdata(pft)%Vmax_understory_factor ! reduce vmax in the understory
-
+  if (layer > 1) vm25=vm25*spdata(pft)%Vmax_understory_factor 
   !decrease Vmax due to aging of temperate deciduous leaves
   !(based on Wilson, Baldocchi and Hanson (2001)."Plant,Cell, and Environment", vol 24, 571-583)
   if (spdata(pft)%leaf_age_tau>0 .and. leaf_age>spdata(pft)%leaf_age_onset) then
@@ -461,8 +498,6 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
 
   capgam=0.5*kc/ko*0.21*0.209; ! Farquhar & Caemmerer 1982
 
-  ! Find respiration for the whole canopy layer
-
   !Resp=spdata(pft)%gamma_resp*vm*lai !/layer
   ! Find respiration for the whole canopy layer
   if (light_top>spdata(pft)%light_kok .and. spdata(pft)%inib_factor>0.0) then
@@ -470,18 +505,27 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   else
      lai_kok = 0.0
   endif
+  
   if (Kok_effect) then
-     ! modify vm for Vmax later and add a temperature function to it.
      Resp=(1-spdata(pft)%inib_factor)*spdata(pft)%gamma_resp*vm*lai_kok+spdata(pft)%gamma_resp*vm*(lai-lai_kok)
   else
      Resp=spdata(pft)%gamma_resp*vm*lai
   endif
-
   if (layer > 1) Resp = Resp*spdata(pft)%Resp_understory_factor ! reduce gamma_resp by 50% per Steve's experiments - need a reference
 
-  Resp=Resp/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))));
+  !Resp=Resp/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))));
 
-
+  
+  select case (vegn_Tresponse_option)
+  case(VEGN_TRESPONSE_LM3)
+     TempFuncR=(1.0+exp(0.4*(spdata(pft)%TminR-tl+TFREEZE)))*(1.0+exp(0.4*(tl-spdata(pft)%TmaxR-TFREEZE)))
+     TempFuncP=(1.0+exp(0.4*(spdata(pft)%TminP-tl+TFREEZE)))*(1.0+exp(0.4*(tl-spdata(pft)%TmaxP-TFREEZE)))
+  case(VEGN_TRESPONSE_OPTIMAL)
+     TempFuncR=1/((TempFactR**spdata(pft)%tshrR)*exp((spdata(pft)%tshrR/spdata(pft)%tshlR)*(1.-(TempFactR**spdata(pft)%tshlR))))
+     TempFuncP=1/((TempFactP**spdata(pft)%tshrP)*exp((spdata(pft)%tshrP/spdata(pft)%tshlP)*(1.-(TempFactP**spdata(pft)%tshlP))))
+  end select
+  Resp=Resp/TempFuncR
+  
   ! ignore the difference in concentrations of CO2 near
   !  the leaf and in the canopy air, rb=0.
 
@@ -521,8 +565,12 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
            ! gross photosynthesis for rubisco-limited part of the canopy
            Ag_rb  = dum2*lai_eq
 
-           Ag=(Ag_l+Ag_rb)/ &
-             ((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))));
+           !Ag=(Ag_l+Ag_rb)/ &
+            ! ((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))));
+           !#### MODIFIED BY PPG 2017-11-07
+           !Correct gross photosynthesis for Temperature Response
+           Ag = (Ag_l+Ag_rb)/TempFuncP
+           
            An=Ag-Resp;
            anbar=An/lai;
 
@@ -557,7 +605,11 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
            ! gross photosynthesis for rubisco-limited part of the canopy
            Ag_rb  = dum2*lai_eq
 
-           Ag=(Ag_l+Ag_rb)/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))));
+           !Ag=(Ag_l+Ag_rb)/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))));
+           !#### MODIFIED BY PPG 2017-11-01
+           !Correct gross photosynthesis for Temperature Response
+           Ag=(Ag_l+Ag_rb)/TempFuncP
+           
            An=Ag-Resp;
            anbar=An/lai;
 
