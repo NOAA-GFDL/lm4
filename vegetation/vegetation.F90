@@ -28,10 +28,8 @@ use soil_tile_mod, only: soil_tile_type, num_l, dz, zhalf, zfull, &
 use land_constants_mod, only : NBANDS, BAND_VIS, d608, mol_C, mol_CO2, mol_air, &
      seconds_per_year, MPa_per_m
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
-     first_elmt, loop_over_tiles, current_tile, operator(/=), &
-     get_elmt_indices, land_tile_heat, land_tile_carbon, land_tile_nitrogen, &
-     get_tile_water
-use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, OP_MAX, OP_DOMINANT, &
+     first_elmt, loop_over_tiles
+use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, OP_MAX, &
      register_tiled_static_field, register_tiled_diag_field, &
      send_tile_data, diag_buff_type, register_cohort_diag_field, send_cohort_data, &
      set_default_diag_filter
@@ -204,7 +202,7 @@ integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_myc_scavenger_N,id_myc_miner_N,id_N_fixer_N,&
    id_mycorrhizal_scav_C_res, id_mycorrhizal_scav_N_res, id_mycorrhizal_mine_C_res, id_mycorrhizal_mine_N_res, &
    id_Nfix_C_res, id_Nfix_N_res,&
-   id_species, id_dominant_by_n, id_dominant_by_b, id_status, &
+   id_species, id_status, &
    id_con_v_h, id_con_v_v, id_fuel, id_harv_pool_C(N_HARV_POOLS), id_harv_pool_N(N_HARV_POOLS), &
    id_harv_rate_C(N_HARV_POOLS), id_tot_harv_pool_C, id_tot_harv_rate_C, id_tot_harv_pool_N, &
    id_csmoke_pool, id_nsmoke_pool, id_csmoke_rate, id_fsc_in, id_fsc_out, id_ssc_in, &
@@ -221,7 +219,7 @@ integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_crownarea, &
    id_soil_water_supply, id_gdd, id_tc_pheno, id_zstar_1, &
    id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi, &
-   id_brsw, id_topyear
+   id_brsw, id_topyear, id_growth_prev_day
 integer, dimension(N_LITTER_POOLS, N_C_TYPES) :: &
    id_litter_buff_C, id_litter_buff_N, &
    id_litter_rate_C, id_litter_rate_N
@@ -847,6 +845,8 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   ! ens 021617
   id_brsw = register_cohort_diag_field ( module_name, 'brsw',  &
        (/id_ug/), time, 'biomass of branches (only sapwood)', 'kg C/m2', missing_value=-1.0)
+  id_growth_prev_day = register_cohort_diag_field ( module_name, 'growth_prev_day',  &
+       (/id_ug/), time, 'growth previous day', 'kg C/m2', missing_value=-1.0)
   id_topyear = register_cohort_diag_field ( module_name, 'topyear',  &
        (/id_ug/), time, 'time pants spent in top layer', 'year', missing_value=-1.0)
 
@@ -857,10 +857,6 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
 
   id_species = register_tiled_diag_field ( module_name, 'species',  &
        (/id_ug/), time, 'vegetation species number', missing_value=-1.0 )
-  id_dominant_by_n = register_cohort_diag_field ( module_name, 'dominant_by_n',  &
-       (/id_ug/), time, 'dominant vegetation species by number of individuals', missing_value=-1.0 )
-  id_dominant_by_b = register_cohort_diag_field ( module_name, 'dominant_by_b',  &
-       (/id_ug/), time, 'dominant vegetation species by biomass', missing_value=-1.0 )
   id_status = register_tiled_diag_field ( module_name, 'status',  &
        (/id_ug/), time, 'status of leaves', missing_value=-1.0 )
   id_theph = register_tiled_diag_field ( module_name, 'theph',  &
@@ -2392,7 +2388,7 @@ subroutine update_vegn_slow( )
 
      ! ens 021517
      call send_cohort_data(id_brsw,   tile%diag, cc(1:N), cc(1:N)%brsw,    weight=cc(1:N)%nindivs, op=OP_SUM)
-
+     call send_cohort_data(id_growth_prev_day, tile%diag, cc(1:N), cc(1:N)%growth_previous_day, weight=cc(1:N)%nindivs, op=OP_SUM)
      allocate(btot(N)) ! has to be allocated since N cohorts changes inside this subroutine
      btot(1:N) = cc(1:N)%bl    + &
                  cc(1:N)%blv   + &
@@ -2402,8 +2398,6 @@ subroutine update_vegn_slow( )
                  cc(1:N)%bseed + &
                  cc(1:N)%nsc
      call send_cohort_data(id_btot,   tile%diag, cc(1:N),  btot, weight=cc(1:N)%nindivs, op=OP_SUM)
-     call send_cohort_data(id_dominant_by_n, tile%diag, cc(1:N), real(cc(1:N)%species), weight=cc(1:N)%nindivs, op=OP_DOMINANT)
-     call send_cohort_data(id_dominant_by_b, tile%diag, cc(1:N), real(cc(1:N)%species), weight=cc(1:N)%nindivs*btot, op=OP_DOMINANT)
      deallocate(btot)
 
      call send_cohort_data(id_bsw_max, tile%diag, cc(1:N), cc(1:N)%bsw_max, weight=cc(1:N)%nindivs, op=OP_SUM)
