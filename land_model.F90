@@ -409,6 +409,7 @@ subroutine land_model_init &
 
   ! initialize land model diagnostics -- must be before *_data_init so that
   ! *_data_init can write static fields if necessary
+  call land_sg_diag_init(id_cellarea)
   call land_diag_init( lnd%coord_glonb, lnd%coord_glatb, lnd%coord_glon, lnd%coord_glat, &
       time, id_ug, id_band )
 
@@ -1717,8 +1718,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
    ! The residual vegn_Wl and vegn_Ws, if any, are taken care of by the overflow
    ! calculations.
    !
-   ! NOTE: currently vegn_hcap can't be zero if mcv_min namelist parameter is not
-   ! zero (and it's not by default, it's actually pretty big). Also, in non-vegetated
+   ! NOTE: currently vegn_hcap cannot be zero if mcv_min namelist parameter is not
+   ! zero (and it's not by default, it is actually pretty big). Also, in non-vegetated
    ! tiles vegn_hcap is set to 1. So this degenerate case never happens in typical
    ! configurations. The only way for this to happen is to set mcv_min=0 and drop
    ! leaves
@@ -3294,6 +3295,45 @@ endif
 
 end subroutine Lnd_stock_pe
 
+! ============================================================================
+! initialize land model output on structured grid
+! currently it is only cell_area, since for interpolation to work correctly it
+! must have correct values over both land and ocean.
+subroutine land_sg_diag_init(id_cellarea)
+  integer, intent(out) :: id_cellarea
+
+  ! local vars
+  integer :: id_lon, id_lat, id_lonb, id_latb
+  integer :: i
+  logical :: used
+
+  if(mpp_get_ntile_count(lnd%sg_domain)==1) then
+     ! grid has just one tile, so we assume that the grid is regular lat-lon
+     ! define longitude axes and its edges
+     id_lonb = diag_axis_init ('lonb', lnd%coord_glonb, 'degrees_E', 'X', 'longitude edges', &
+          set_name='land_sg', domain2=lnd%sg_domain )
+     id_lon  = diag_axis_init ('lon',  lnd%coord_glon, 'degrees_E', 'X',   'longitude', &
+          set_name='land_sg',  edges=id_lonb, domain2=lnd%sg_domain )
+
+     ! define latitude axes and its edges
+     id_latb = diag_axis_init ('latb', lnd%coord_glatb, 'degrees_N', 'Y', 'latitude edges',  &
+          set_name='land_sg',  domain2=lnd%sg_domain   )
+     id_lat = diag_axis_init ('lat',  lnd%coord_glat, 'degrees_N', 'Y', 'latitude', &
+          set_name='land_sg', edges=id_latb, domain2=lnd%sg_domain)
+  else
+     id_lon = diag_axis_init ( 'grid_xt', [(real(i),i=1,size(lnd%coord_glon))], 'degrees_E', 'X', &
+          'T-cell longitude', set_name='land_sg',  domain2=lnd%sg_domain)
+     id_lat = diag_axis_init ( 'grid_yt', [(real(i),i=1,size(lnd%coord_glat))], 'degrees_N', 'Y', &
+          'T-cell latitude', set_name='land_sg',  domain2=lnd%sg_domain)
+  endif
+
+  ! register land area on structured grid
+  id_cellarea = register_static_field ( 'land_sg', 'cell_area', (/id_lon, id_lat/), &
+       'total area in grid cell', 'm2', missing_value=-1.0 )
+  call diag_field_add_attribute(id_cellarea,'cell_methods','area: sum')
+  if ( id_cellarea > 0 ) used = send_data ( id_cellarea, lnd%sg_cellarea,     lnd%time )
+
+end subroutine land_sg_diag_init
 
 ! ============================================================================
 ! initialize horizontal axes for land grid so that all sub-modules can use them,
@@ -3305,9 +3345,8 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
                              ! specified for the global grid
        clon(:),  clat(:)     ! lon and lat of respective grid cell centers
   type(time_type), intent(in) :: time ! initial time for diagnostic fields
-!   type(domainUG),  intent(in) :: domain  !<
   integer, intent(out) :: &
-       id_ug, id_band   ! IDs of respective diag. manager axes
+       id_ug, id_band        ! IDs of respective diag. manager axes
 
   ! ---- local vars ----------------------------------------------------------
   integer :: nlon, nlat       ! sizes of respective axes
@@ -3362,27 +3401,28 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   axes = (/id_ug/)
 
   ! register auxilary coordinate variables
-
   id_geolon_t = register_static_field ( module_name, 'geolon_t', axes, &
        'longitude of grid cell centers', 'degrees_E', missing_value = -1.0e+20 )
   id_geolat_t = register_static_field ( module_name, 'geolat_t', axes, &
        'latitude of grid cell centers', 'degrees_N', missing_value = -1.0e+20 )
 
   ! register static diagnostic fields
-
-  id_cellarea = register_static_field ( module_name, 'cell_area', axes, &
-       'total area in grid cell', 'm2', missing_value=-1.0 )
   id_landfrac = register_static_field ( module_name, 'land_frac', axes, &
        'fraction of land in grid cell','unitless', missing_value=-1.0, area=id_cellarea)
+  call diag_field_add_attribute(id_landfrac,'ocean_fillvalue',0.0)
 
   ! register areas and fractions for the rest of the diagnostic fields
   call register_tiled_area_fields(module_name, axes, time, id_area, id_frac)
 
-  ! set the deafult filter (for area and subsampling) for consequent calls to
+  ! set the default filter (for area and subsampling) for consequent calls to
   ! register_tiled_diag_field
   call set_default_diag_filter('land')
 
   ! register regular (dynamic) diagnostic fields
+
+  id_ntiles = register_tiled_diag_field(module_name,'ntiles', axes,  &
+       time, 'number of tiles', 'unitless', missing_value=-1.0, op='sum')
+
 
   id_VWS = register_tiled_diag_field ( module_name, 'VWS', axes, time, &
              'vapor storage on land', 'kg/m2', missing_value=-1.0e+20 )
@@ -3549,8 +3589,6 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
        'canopy air energy residual due to nonlinearities', 'W/m2', missing_value=-1e20)
   id_e_res_2 = register_tiled_diag_field ( module_name, 'e_res_2', axes, time, &
        'canopy energy residual due to nonlinearities', 'W/m2', missing_value=-1e20)
-  id_ntiles = register_tiled_diag_field(module_name,'ntiles',axes,  &
-       time, 'number of tiles', 'unitless', missing_value=-1.0, op='sum')
   id_z0m     = register_tiled_diag_field ( module_name, 'z0m', axes, time, &
              'momentum roughness of land', 'm', missing_value=-1.0e+20 )
   id_z0s     = register_tiled_diag_field ( module_name, 'z0s', axes, time, &
@@ -3562,7 +3600,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
        'conductance for water vapor between ground surface and canopy air', &
        'm/s', missing_value=-1.0 )
   id_transp  = register_tiled_diag_field ( module_name, 'transp', axes, time, &
-             'transpiration; = uptake by roots', 'kg/(m2 s)', missing_value=-1.0e+20 )
+             'Transpiration', 'kg/(m2 s)', missing_value=-1.0e+20 )
   id_wroff = register_tiled_diag_field ( module_name, 'wroff', axes, time, &
              'rate of liquid runoff to rivers', 'kg/(m2 s)', missing_value=-1.0e+20 )
   id_sroff = register_tiled_diag_field ( module_name, 'sroff', axes, time, &
@@ -3650,8 +3688,7 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   id_subs_refl_dif = register_tiled_diag_field(module_name, 'subs_refl_dif', &
        (/id_ug, id_band/), time, &
        'substrate reflectivity for diffuse light',missing_value=-1.0)
-  id_subs_emis = register_tiled_diag_field(module_name, 'subs_emis', &
-       (/id_ug/), time, &
+  id_subs_emis = register_tiled_diag_field(module_name, 'subs_emis', axes, time, &
        'substrate emissivity for long-wave radiation',missing_value=-1.0)
   id_grnd_T = register_tiled_diag_field ( module_name, 'Tgrnd', axes, time, &
        'ground surface temperature', 'degK', missing_value=-1.0 )
@@ -3725,7 +3762,7 @@ subroutine realloc_land2cplr ( bnd )
      allocate( bnd%discharge_snow     (lnd%is:lnd%ie,lnd%js:lnd%je) )
      allocate( bnd%discharge_snow_heat(lnd%is:lnd%ie,lnd%js:lnd%je) )
 
-     ! discharge and discaharge_snow must be, in contrast to the rest of the boundary
+     ! discharge and discharge_snow must be, in contrast to the rest of the boundary
      ! values, filled with zeroes. The reason is because not all of the usable elements
      ! are updated by the land model (only coastal points are).
      bnd%discharge           = 0.0
