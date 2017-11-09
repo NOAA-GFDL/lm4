@@ -381,7 +381,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
         ! open state file
         ierr=nf_open(state_file,NF_NOWRITE,state_ncid)
         if(ierr/=NF_NOERR) call error_mesg('land_transitions_init', 'landuse state file "'// &
-             trim(input_file)//'" could not be opened because '//nf_strerror(ierr), FATAL)
+             trim(state_file)//'" could not be opened because '//nf_strerror(ierr), FATAL)
         call get_time_axis(state_ncid, state_time_in)
         ! initialize state variable array
         do n2 = 1,size(luh2type)
