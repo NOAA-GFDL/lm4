@@ -431,7 +431,6 @@ subroutine land_model_init &
   ! set the land diagnostic axes ids for the flux exchange
   land2cplr%axes = (/id_ug/)
   ! send some static diagnostic fields to output
-  if ( id_cellarea > 0 ) used = send_data ( id_cellarea, lnd%ug_cellarea,     lnd%time )
   if ( id_landarea > 0 ) used = send_data ( id_landarea, lnd%ug_area,         lnd%time )
   if ( id_landfrac > 0 ) used = send_data ( id_landfrac, lnd%ug_landfrac,     lnd%time )
   if ( id_geolon_t > 0 ) used = send_data ( id_geolon_t, lnd%ug_lon*180.0/PI, lnd%time )
