@@ -33,8 +33,6 @@ public :: cohort_root_litter_profile
 public :: cohort_root_exudate_profile
 
 public :: btotal ! returns cohort total biomass
-public :: c3c4   ! returns physiology type for given biomasses and conditions
-public :: phenology_type ! returns type of phenology for given conditions
 public :: update_species ! updates cohort physiology, phenology type, and species
 public :: leaf_area_from_biomass ! given leaf biomass, calculates leaf area
 public :: height_from_biomass    ! given total biomass, calculated tree height
