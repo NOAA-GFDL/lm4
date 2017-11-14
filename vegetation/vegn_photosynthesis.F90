@@ -88,7 +88,7 @@ contains
 subroutine vegn_photosynthesis_init()
 
   integer :: unit, io, ierr
-  
+
   call log_version(version, module_name, &
   __FILE__)
 #ifdef INTERNAL_FILE_NML
@@ -604,10 +604,10 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
   RHi = exp(cc%psi_l*Vm/(Rugas*vegn_T)) ! relative humidity inside the leaf
   if (cana_q>qsat*RHi) then
      ! sometimes initial guess of psi_l (value from the previous time step) is too low,
-     ! and resulting RHi = 0 and gs = 0. Prime example of this situation is evergreen 
-     ! forest when the entire soil was frozen on the previous time step. If nothing is 
+     ! and resulting RHi = 0 and gs = 0. Prime example of this situation is evergreen
+     ! forest when the entire soil was frozen on the previous time step. If nothing is
      ! done, then stomata *never* open again and all vegetation dies.
-     ! To address this case, if water vapor flux is directed toward the leaf (as it always 
+     ! To address this case, if water vapor flux is directed toward the leaf (as it always
      ! would when RHi is zero), we increase initial guess of leaf water potential so that
      ! some stomatal conductance exists. Subtracting small_psi makes sure that the
      ! derivatives are non-zero.
@@ -642,6 +642,10 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
      ! do not reset psi_l in case of water flow toward the leaf, otherwise in case of
      ! frozen soil and leaves present stomata shut down and never open again.
      ! cc%psi_l = cc%psi_r
+     if (is_watch_point()) then
+        write (*,*)'###### Water flux is toward the plant, bypassing calculations #####'
+        __DEBUG3__(cc%psi_l, cc%psi_x, cc%psi_r)
+     endif
   else
      DEtDpl = rho * fdry * gb/(gs+gb) * ( gs*qsat*Vm/(Rugas*cc%Tv)*RHi +      &
                                   DgsDpl*gb/(gs+gb)*(qsat*Rhi-cana_q)  )
@@ -739,6 +743,22 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
      cc%psi_r = min(psi_r    + delta_pr,0.0)
      cc%psi_x = min(cc%psi_x + delta_px,cc%psi_r)
      cc%psi_l = min(cc%psi_l + delta_pl,cc%psi_x)
+     if (is_watch_point()) then
+   !     __DEBUG1__(ur0_)
+   !     __DEBUG1__(DurDpr_)
+        __DEBUG3__(cc%Kli, cc%Kxi, CSAsw)
+        __DEBUG3__(sp%alphaCSASW, cc%DBH, sp%thetaCSASW)
+        __DEBUG2__(ur0, DurDpr)
+        __DEBUG3__(ux0, DuxDpr, DuxDpx)
+        __DEBUG3__(ul0, DulDpx, DulDpl)
+        __DEBUG3__(Et0, DetDpl, DetDtl)
+        __DEBUG3__(gamma_r, ar, br)
+        __DEBUG3__(gamma_x, ax, bx)
+        __DEBUG1__(gamma_l)
+        __DEBUG3__(delta_pl, delta_px, delta_pr)
+        __DEBUG3__(cc%psi_l, cc%psi_x, cc%psi_r)
+        __DEBUG1__(w_scale)
+     endif
   endif
 
   call check_var_range(cc%psi_l,-HUGE(1.0),0.0,'vegn_hydraulics','psi_l',WARNING)
@@ -746,19 +766,7 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
   call check_var_range(cc%psi_r,-HUGE(1.0),0.0,'vegn_hydraulics','psi_r',WARNING)
   w_scale = exp(-(cc%psi_l/sp%dl)**sp%cl)
   if (is_watch_point()) then
-!     __DEBUG1__(ur0_)
-!     __DEBUG1__(DurDpr_)
-     __DEBUG3__(cc%Kli, cc%Kxi, CSAsw)
-     __DEBUG3__(sp%alphaCSASW, cc%DBH, sp%thetaCSASW)
-     __DEBUG2__(ur0, DurDpr)
-     __DEBUG3__(ux0, DuxDpr, DuxDpx)
-     __DEBUG3__(ul0, DulDpx, DulDpl)
-     __DEBUG3__(Et0, DetDpl, DetDtl)
-     __DEBUG3__(gamma_r, ar, br)
-     __DEBUG3__(gamma_x, ax, bx)
-     __DEBUG1__(gamma_l)
-     __DEBUG3__(delta_pl, delta_px, delta_pr)
-     __DEBUG3__(cc%psi_l, cc%psi_x, cc%psi_r)
+     write (*,*)'###### vegn_hydraulics output #####'
      __DEBUG1__(w_scale)
   endif
 

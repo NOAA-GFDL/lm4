@@ -1323,6 +1323,9 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
        prec_g_l, prec_g_s, & ! liquid and solid precipitation reaching ground, kg/(m2 s)
        con_g_h, con_g_v  ! aerodynamic conductance between ground and canopy air
 
+  ! ---- local constants
+  real, parameter :: min_reported_psi = -HUGE(1.0_4) ! limit water potential that we send to diagnostics
+  ! "_4" in the above indicates single-precision (real*4) literal
   ! ---- local vars
   real :: &
        ft,DftDwl,DftDwf, & ! fraction of canopy not covered by intercepted water/snow, and its
@@ -1622,9 +1625,15 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   call send_cohort_data(id_Kli   , diag, cc(:), cc(:)%Kli, weight=cc(:)%nindivs, op=OP_AVERAGE)
   ! TODO: perhaps use something else for averaging weight
   ! factor 1e-6 converts Pa to MPa
-  call send_cohort_data(id_psi_r , diag, cc(:), cc(:)%psi_r*1e-6, weight=cc(:)%nindivs, op=OP_AVERAGE)
-  call send_cohort_data(id_psi_x , diag, cc(:), cc(:)%psi_x*1e-6, weight=cc(:)%nindivs, op=OP_AVERAGE)
-  call send_cohort_data(id_psi_l , diag, cc(:), cc(:)%psi_l*1e-6, weight=cc(:)%nindivs, op=OP_AVERAGE)
+  call send_cohort_data(id_psi_r , diag, cc(:), max(cc(:)%psi_r,min_reported_psi)*1e-6, weight=cc(:)%nindivs, op=OP_AVERAGE)
+  call send_cohort_data(id_psi_x , diag, cc(:), max(cc(:)%psi_x,min_reported_psi)*1e-6, weight=cc(:)%nindivs, op=OP_AVERAGE)
+  call send_cohort_data(id_psi_l , diag, cc(:), max(cc(:)%psi_l,min_reported_psi)*1e-6, weight=cc(:)%nindivs, op=OP_AVERAGE)
+  ! limiting the water potentials that we send to diagnostics is a kludge. From time to
+  ! time the solution of hydraulic equation creates very low water potential (~ -1e+109)
+  ! to close the stomata if there is no water in the soil. Those unphysical low potentials
+  ! do not seem to create any problems in the model itself, but sending them to the
+  ! diagnostics causes model to stop to with "out of bounds" check if the diagnostics
+  ! debugging is enabled.
   call send_cohort_data(id_w_scale,diag, cc(:), cc(:)%w_scale,    weight=cc(:)%nindivs, op=OP_AVERAGE)
   call send_cohort_data(id_RHi,    diag, cc(:), RHi(:)*100,  weight=cc(:)%layerfrac*cc(:)%lai, op=OP_AVERAGE)
 
