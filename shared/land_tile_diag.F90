@@ -2,7 +2,6 @@ module land_tile_diag_mod
 
 use mpp_mod,            only : mpp_sum
 use mpp_efp_mod,        only : mpp_reproducing_sum
-use mpp_domains_mod,    only : mpp_pass_ug_to_sg
 use time_manager_mod,   only : time_type
 use diag_axis_mod,      only : get_axis_length, diag_axis_init
 use diag_manager_mod,   only : register_diag_field, register_static_field, &
@@ -120,10 +119,10 @@ end type cohort_filter_type
 
 type(cohort_filter_type), parameter :: cohort_filter(N_COHORT_FILTERS) = [ &
    cohort_filter_type('',          ''), &
-   cohort_filter_type('_1',        'in top canopy layer'), &
-   cohort_filter_type('_U',        'in understory'), &
-   cohort_filter_type('_TOP',      'for the top cohort'), &
-   cohort_filter_type('(species)', 'by species') ]
+   cohort_filter_type('_1',        ' in top canopy layer'), &
+   cohort_filter_type('_U',        ' in understory'), &
+   cohort_filter_type('_TOP',      ' for the top cohort'), &
+   cohort_filter_type('(species)', ' by species') ]
 
 ! static/dynamic indicators
 integer, parameter :: FLD_STATIC    = 0
@@ -1233,7 +1232,7 @@ subroutine send_cohort_data_with_weight (id, buffer, cc, data, weight, op)
      call send_tile_data(cfields(i)%ids(4), value, buffer)
   endif
   if(cfields(i)%ids(CFILTER_BYSPECIES) > 0) then
-     ! send by-species data. In principle we should return species mask too, to filter 
+     ! send by-species data. In principle we should return species mask too, to filter
      ! out species that do not exist in a tile. However, send_tile_data does not allow
      ! to pass mask anyway, so this is something that can be improved in the future.
      value1 = aggregate_by_species(data,weight,cc(:)%species,op)
