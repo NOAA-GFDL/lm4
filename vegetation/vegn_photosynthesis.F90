@@ -514,18 +514,18 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   case(VEGN_TRESPONSE_OPTIMAL)
      !First we will calculate the parameters at Topt.
      ! capgam=0.209/(9000.0*exp(-5000.0*(1.0/288.2-1.0/tl))); - Foley formulation, 1986
-     ko_opt=0.25   *exp(1400.0*(1.0/288.2-1.0/(spdata(pft)%ToptP+273)))*p_sea/p_surf;
-     kc_opt=0.00015*exp(6000.0*(1.0/288.2-1.0/(spdata(pft)%ToptP+273)))*p_sea/p_surf;
+     ko_opt=0.25   *exp(1400.0*(1.0/288.2-1.0/(spdata(pft)%ToptP+TFREEZE)))*p_sea/p_surf;
+     kc_opt=0.00015*exp(6000.0*(1.0/288.2-1.0/(spdata(pft)%ToptP+TFREEZE)))*p_sea/p_surf;
      !This is Vmax at 15C, litterature usually use 25C
-     vm_opt=spdata(pft)%Vmax*exp(3000.0*(1.0/288.2-1.0/(spdata(pft)%ToptP+273)))
+     vm_opt=spdata(pft)%Vmax*exp(3000.0*(1.0/288.2-1.0/(spdata(pft)%ToptP+TFREEZE)))
      vm25=spdata(pft)%Vmax*exp(3000.0*(1.0/288.2-1.0/298.2)) !Establish Vmax at 25C
       ! Farquhar & Caemmerer 1982
      
      !Here we calculate the value at Tleaf using the optimal function or peak function using Param at Topt
      !Medlyn et al 2002 and Bernacchi et al 2001
-     ko=ko_opt*((Hd_ko*exp(Ea_ko*(tl-(spdata(pft)%ToptP+273))/(tl*8.314e-3*(spdata(pft)%ToptP+273))))/(Hd_ko-Ea_ko*(1-exp(Hd_ko*(tl-(spdata(pft)%ToptP+273))/(tl*8.314e-3*(spdata(pft)%ToptP+273))))))
-     kc=kc_opt*((Hd_kc*exp(Ea_kc*(tl-(spdata(pft)%ToptP+273))/(tl*8.314e-3*(spdata(pft)%ToptP+273))))/(Hd_kc-Ea_kc*(1-exp(Hd_kc*(tl-(spdata(pft)%ToptP+273))/(tl*8.314e-3*(spdata(pft)%ToptP+273))))))
-     vm=vm_opt*((Hd_vm*exp(Ea_vm*(tl-(spdata(pft)%ToptP+273))/(tl*8.314e-3*(spdata(pft)%ToptP+273))))/(Hd_vm-Ea_vm*(1-exp(Hd_vm*(tl-(spdata(pft)%ToptP+273))/(tl*8.314e-3*(spdata(pft)%ToptP+273))))))
+     ko=ko_opt*((Hd_ko*exp(Ea_ko*(tl-(spdata(pft)%ToptP+TFREEZE))/(tl*8.314e-3*(spdata(pft)%ToptP+TFREEZE))))/(Hd_ko-Ea_ko*(1-exp(Hd_ko*(tl-(spdata(pft)%ToptP+TFREEZE))/(tl*8.314e-3*(spdata(pft)%ToptP+TFREEZE))))))
+     kc=kc_opt*((Hd_kc*exp(Ea_kc*(tl-(spdata(pft)%ToptP+TFREEZE))/(tl*8.314e-3*(spdata(pft)%ToptP+TFREEZE))))/(Hd_kc-Ea_kc*(1-exp(Hd_kc*(tl-(spdata(pft)%ToptP+TFREEZE))/(tl*8.314e-3*(spdata(pft)%ToptP+TFREEZE))))))
+     vm=vm_opt*((Hd_vm*exp(Ea_vm*(tl-(spdata(pft)%ToptP+TFREEZE))/(tl*8.314e-3*(spdata(pft)%ToptP+TFREEZE))))/(Hd_vm-Ea_vm*(1-exp(Hd_vm*(tl-(spdata(pft)%ToptP+TFREEZE))/(tl*8.314e-3*(spdata(pft)%ToptP+TFREEZE))))))
      TempFuncR=1/((TempFactR**spdata(pft)%tshrR)*exp((spdata(pft)%tshrR/spdata(pft)%tshlR)*(1.-(TempFactR**spdata(pft)%tshlR))))
      !TempFuncP=1/((TempFactP**spdata(pft)%tshrP)*exp((spdata(pft)%tshrP/spdata(pft)%tshlP)*(1.-(TempFactP**spdata(pft)%tshlP))))
      capgam=0.5*kc/ko*0.21*0.209;
