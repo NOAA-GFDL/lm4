@@ -7,7 +7,7 @@ use diag_axis_mod,      only : get_axis_length, diag_axis_init
 use diag_manager_mod,   only : register_diag_field, register_static_field, &
      diag_field_add_attribute, diag_field_add_cell_measures, send_data
 use diag_util_mod,      only : log_diag_field_info
-use fms_mod,            only : error_mesg, string, FATAL
+use fms_mod,            only : error_mesg, string, FATAL, NOTE
 
 use land_tile_selectors_mod, only : tile_selectors_init, tile_selectors_end, &
      tile_selector_type, register_tile_selector, selector_suffix, &
@@ -101,7 +101,38 @@ character(32), parameter :: opstrings(6) = (/ & ! symbolic names of the aggregat
    'variance                        ' , &
    'stdev                           '   /)
 
-! extra axis that some cohort diagnostics need
+
+! How to add new cohort filter or aggregator in few simple steps:
+! 
+! Let's use aggregation by dbh bins as an example.
+! (1) add new unique constant to the list of cohort filters (don't forget to
+!     increase the constant for their number), for example:
+! 
+! integer, parameter :: N_COHORT_FILTERS = 8 ! number of possible distinct cohort filters
+! ....
+!    CFILTER_BY_DBH = 8
+! 
+! (2) add unique ID for dbh axis:
+!    CAXES_DBH = 2    ! species axis
+! 
+! (3) make sure dbh axis is registered, see how it is done for species axis in 
+!     register_cohort_diag_field
+! 
+! (4) add new entry to the array of cohort filter descriptors, e.g.:
+! 
+! type(cohort_filter_type), parameter :: cohort_filter(11) = [ &
+!    ....
+!    cohort_filter_type(CFILTER_BY_DBH, CAXES_DBH, '(dbh)', ' by diameter at breast height'), &
+!    ....
+! 
+! Also add descriptors for canopy and understory trees, if desired
+! 
+! (5) implement aggregation of cohort data by DBH, see how it is done in
+!     aggregate_by_species
+! 
+! (6) add aggregation by DBH to the send_cohort_data_with_weight
+
+! extra axes that some cohort diagnostics need
 integer, parameter :: &
    CAXES_NONE    = 0, & ! no extra axis
    CAXES_SPECIES = 1    ! species axis
@@ -1135,7 +1166,7 @@ function register_cohort_diag_field(module_name, field_name, axes, init_time, &
 
   ! create species axis if necessary
   if (id_species_axis<0) &
-      id_species_axis = diag_axis_init ( 'species', [(real(i), i=0,nspecies-1)], units='', cart_name='z')
+      id_species_axis = diag_axis_init ( 'species', [(real(i), i=1,nspecies)], units='', cart_name='z')
   ! copy common portion of the local axes array
   axes_(1:size(axes)) = axes(:)
 
@@ -1166,7 +1197,9 @@ function register_cohort_diag_field(module_name, field_name, axes, init_time, &
                units, missing_value, range, opt, standard_name, fill_missing, &
                do_not_log=.TRUE.)
      endif
-     write(*,*)'registered cohort field "'//trim(module_name)//'/'//trim(field_name)//trim(cf%suffix)//'" ID=',diag_ids(cf%tag)
+     ! call error_mesg('register_cohort_diag_field', &
+     !     'registered cohort field "'//trim(module_name)//'/'//trim(field_name)//trim(cf%suffix)//'" ID='//string(diag_ids(cf%tag)), &
+     !     NOTE)
      end associate ! cf
   enddo
   id = 0
