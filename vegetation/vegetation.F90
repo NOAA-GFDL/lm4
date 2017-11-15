@@ -373,6 +373,8 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
        call get_cohort_data(restart2, 'mine_alloc_accum',cohort_mine_alloc_accum_ptr)
      if(field_exists(restart2,'Nfix_alloc_accum')) &
        call get_cohort_data(restart2, 'Nfix_alloc_accum',cohort_Nfix_alloc_accum_ptr)
+     if(field_exists(restart2,'N_stress_smoothed')) &
+       call get_cohort_data(restart2, 'N_stress_smoothed',cohort_nitrogen_stress_smoothed_ptr)
 
      call get_cohort_data(restart2, 'bliving', cohort_bliving_ptr)
      call get_int_cohort_data(restart2, 'status', cohort_status_ptr)
@@ -552,6 +554,7 @@ subroutine vegn_init ( id_lon, id_lat, id_band )
      cohort%scav_alloc_accum = 0.0
      cohort%mine_alloc_accum = 0.0
      cohort%Nfix_alloc_accum = 0.0
+     cohort%nitrogen_stress_smoothed = 1.0
 
      if(did_read_biodata.and.do_biogeography) then
         call update_species(cohort,t_ann(i,j),t_cold(i,j),p_ann(i,j),ncm(i,j),LU_NTRL)
@@ -1014,6 +1017,7 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'max_scav_allocation', cohort_max_scav_allocation_ptr, 'max allowed allocation to scavenging','kgC/m2/year')
   call add_cohort_data(restart2,'max_mine_allocation', cohort_max_mine_allocation_ptr, 'max allowed allocation to mining','kgC/m2/year')
   call add_cohort_data(restart2,'max_Nfix_allocation', cohort_max_Nfix_allocation_ptr, 'max allowed allocation to N fixation','kgC/m2/year')
+  call add_cohort_data(restart2,'N_stress_smoothed', cohort_nitrogen_stress_smoothed_ptr, 'Smoothed N stress','Dimensionless')
 
   call add_cohort_data(restart2,'npp_prev_day', cohort_npp_previous_day_ptr, 'previous day NPP','kg C/(m2 year)')
 
@@ -2200,6 +2204,7 @@ DEFINE_COHORT_ACCESSOR(real,scav_alloc_accum)
 DEFINE_COHORT_ACCESSOR(real,max_Nfix_allocation)
 DEFINE_COHORT_ACCESSOR(real,max_mine_allocation)
 DEFINE_COHORT_ACCESSOR(real,max_scav_allocation)
+DEFINE_COHORT_ACCESSOR(real,nitrogen_stress_smoothed)
 
 
 DEFINE_COHORT_ACCESSOR(real,tv)

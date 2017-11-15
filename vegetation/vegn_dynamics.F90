@@ -293,9 +293,11 @@ N_leakage = 0.0
      cc%npp2 = cc%miami_npp;  ! treat miami npp as above+below npp
 
      if(dynamic_root_exudation .AND. soil_carbon_option==SOILC_CORPSE_N) then
-       ! Initial allocation scheme: root exudation/mycorrhizal allocation depends on ratio of leaf biomass to max (as determined by N uptake)
        ! Root exudation fraction of NPP limited by some maximum value.  Probably need to rename these parameters and not use a hard-coded value
-       root_exudate_frac = min(0.9,spdata(sp)%root_exudate_frac*cc%nitrogen_stress)
+       ! Add an optional smoothing filter to nitrogen stress (no smoothing if tau is zero)
+       weight_marginal_gain = 1/(1+spdata(sp)%tau_smooth_nstress/dt_fast_yr)
+       cc%nitrogen_stress_smoothed=cc%nitrogen_stress_smoothed*(1.0-weight_marginal_gain) + cc%nitrogen_stress*weight_marginal_gain
+       root_exudate_frac = min(0.9,spdata(sp)%root_exudate_frac*cc%nitrogen_stress_smoothed)
      else
        root_exudate_frac = spdata(sp)%root_exudate_frac
      endif
@@ -303,7 +305,7 @@ N_leakage = 0.0
      cc%carbon_gain = cc%carbon_gain + (cc%npp-root_exudate_C)*dt_fast_yr
 
      if(root_exudate_frac < 0) then
-         __DEBUG4__(root_exudate_frac,cc%nitrogen_stress,cc%bl+cc%br,cc%npp)
+         __DEBUG4__(root_exudate_frac,cc%nitrogen_stress_smoothed,cc%bl+cc%br,cc%npp)
          call error_mesg('vegn_carbon_int','root_exudate_frac<0',FATAL)
      endif
 

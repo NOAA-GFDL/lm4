@@ -180,6 +180,7 @@ type :: vegn_cohort_type
   real :: max_mine_allocation = 0.0
   real :: max_Nfix_allocation = 0.0
 
+  real :: nitrogen_stress_smoothed = 1.0
 
 ! in LM3V the cohort structure has a handy pointer to the tile it belongs to;
 ! so operations on cohort can update tile-level variables. In this code, it is
