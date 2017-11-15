@@ -820,7 +820,7 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        time, 'CO2 mixing ratio for photosynthesis calculations', 'mol CO2/mol dry air', &
        missing_value=-1.0)
 
-  id_zstar_1 = register_tiled_diag_field (module_name, 'zstar_1',(/id_ug/), &
+  id_zstar_1 = register_tiled_diag_field (module_name, 'zstar:C',(/id_ug/), &
        time, 'critical depth for the top layer', 'm', &
        missing_value=-1.0)
 end subroutine

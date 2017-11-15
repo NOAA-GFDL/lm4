@@ -3651,9 +3651,9 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
        'downward long-wave radiation flux to the land surface', 'W/m2', missing_value=-999.0)
   id_vegn_cover = register_tiled_diag_field ( module_name, 'vegn_cover', axes, time, &
              'fraction covered by vegetation', missing_value=-1.0 )
-  id_vegn_cover_1 = register_tiled_diag_field ( module_name, 'vegn_cover_1', axes, time, &
+  id_vegn_cover_1 = register_tiled_diag_field ( module_name, 'vegn_cover:C', axes, time, &
              'fraction of vegetation in the top layer', missing_value=-1.0 )
-  id_vegn_cover_U = register_tiled_diag_field ( module_name, 'vegn_cover_U', axes, time, &
+  id_vegn_cover_U = register_tiled_diag_field ( module_name, 'vegn_cover:U', axes, time, &
              'fraction of vegetation in the understory', missing_value=-1.0 )
   id_cosz = register_tiled_diag_field ( module_name, 'coszen', axes, time, &
        'cosine of zenith angle', missing_value=-2.0 )
