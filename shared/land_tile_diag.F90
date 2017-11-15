@@ -1272,6 +1272,13 @@ subroutine send_cohort_data_with_weight (id, buffer, cc, data, weight, op)
      value1 = aggregate_by_species(data,weight,cc(:)%species,op, mask=(cc(:)%layer==1))
      call send_tile_data(cfields(i)%ids(CFILTER_BY_SP_CANOPY), value1, buffer)
   endif
+  if(cfields(i)%ids(CFILTER_BY_SP_UNDER) > 0) then
+     ! send by-species data. In principle we should return species mask too, to filter
+     ! out species that do not exist in a tile. However, send_tile_data does not allow
+     ! to pass mask anyway, so this is something that can be improved in the future.
+     value1 = aggregate_by_species(data,weight,cc(:)%species,op, mask=(cc(:)%layer>1))
+     call send_tile_data(cfields(i)%ids(CFILTER_BY_SP_UNDER), value1, buffer)
+  endif
 end subroutine send_cohort_data_with_weight
 
 ! ============================================================================
