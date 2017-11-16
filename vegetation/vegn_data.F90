@@ -152,6 +152,7 @@ type spec_data_type
 
   ! decay rates of plant carbon pools, 1/yr
   real    :: alpha_leaf=1.0, alpha_root=1.0, alpha_wood=1.2e-2
+  real    :: branch_loss_height = 2.0 ! trees do not lose branches till they reach that height, m
   ! respiration rates of plant carbon pools
   real    :: beta_sapwood=0.0, beta_root=1.25, beta_vleaf=0.0
 
@@ -655,6 +656,8 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(alpha_root)
   __GET_SPDATA_REAL__(alpha_wood)
 
+  __GET_SPDATA_REAL__(branch_loss_height)
+
   __GET_SPDATA_REAL__(beta_root)
   __GET_SPDATA_REAL__(beta_vleaf)
   __GET_SPDATA_REAL__(beta_sapwood)
@@ -897,6 +900,8 @@ subroutine print_species_data(unit)
   call add_row(table, 'alpha_root',    spdata(:)%alpha_root)
   call add_row(table, 'alpha_wood',    spdata(:)%alpha_wood)
 
+  call add_row(table, 'branch_loss_height', spdata(:)%branch_loss_height)
+
   call add_row(table, 'beta_root',     spdata(:)%beta_root)
   call add_row(table, 'beta_vleaf',    spdata(:)%beta_vleaf)
   call add_row(table, 'beta_sapwood',  spdata(:)%beta_sapwood)
@@ -1010,7 +1015,7 @@ subroutine print_species_data(unit)
   call add_row(table, 'dat_rs_min',       spdata(:)%dat_rs_min)
   call add_row(table, 'dat_snow_crit',    spdata(:)%dat_snow_crit)
 
-  call print(table,unit)
+  call print(table,unit,head_width=32)
 end subroutine print_species_data
 
 end module
