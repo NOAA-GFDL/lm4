@@ -1037,7 +1037,8 @@ subroutine vegn_carbon_int_ppa (vegn, soil, tsoil, theta, diag)
      endif
      ! compute branch and coarse wood losses for tree types
      md_branch_sw = 0.0
-     if (spdata(cc%species)%lifeform == FORM_WOODY) then
+     if (spdata(cc%species)%lifeform == FORM_WOODY.and.&
+         cc%height > sp%branch_loss_height) then
         ! ens 02/07/17
         md_branch_sw = Max(cc%brsw,0.0) * sp%alpha_wood * dt_fast_yr
      endif
