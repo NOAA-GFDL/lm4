@@ -39,8 +39,7 @@ use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
 use soil_util_mod, only: soil_util_init, rhizosphere_frac
 
 use soil_carbon_mod, only: poolTotals, poolTotals1, soilMaxCohorts, litterDensity,&
-     update_pool, add_litter, add_C_N_to_rhizosphere, add_C_N_to_cohorts, &
-     tracer_leaching_with_litter,transfer_pool_fraction, n_c_types, &
+     update_pool, add_litter, tracer_leaching_with_litter,transfer_pool_fraction, N_C_TYPES, &
      soil_carbon_option, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, &
      C_FAST, C_SLOW, C_MIC, A_function, debug_pool, adjust_pool_ncohorts, c_shortname, c_longname, &
      mycorrhizal_mineral_N_uptake_rate, mycorrhizal_decomposition, ammonium_solubility, nitrate_solubility
@@ -1830,10 +1829,10 @@ end subroutine soil_step_1
   real, dimension(num_l)   :: t_soil_tridiag ! soil temperature based on generic tridiagonal solution [K]
   real, dimension(num_l)   :: t_diff ! difference from original advection subroutine [K]
 
-  real :: DOC_leached(n_c_types,num_l), div_DOC_loss(n_c_types,num_l),  &     ! C leaching
-         leaflitter_DOC_loss(n_c_types),woodlitter_DOC_loss(n_c_types)        ! Surface litter C leaching loss
-  real :: DON_leached(n_c_types,num_l), div_DON_loss(n_c_types,num_l),  &     ! N leaching
-         leaflitter_DON_loss(n_c_types), woodlitter_DON_loss(n_c_types)       ! Surface litter N leaching loss
+  real :: DOC_leached(N_C_TYPES,num_l), div_DOC_loss(N_C_TYPES,num_l),  &     ! C leaching
+         leaflitter_DOC_loss(N_C_TYPES),woodlitter_DOC_loss(N_C_TYPES)        ! Surface litter C leaching loss
+  real :: DON_leached(N_C_TYPES,num_l), div_DON_loss(N_C_TYPES,num_l),  &     ! N leaching
+         leaflitter_DON_loss(N_C_TYPES), woodlitter_DON_loss(N_C_TYPES)       ! Surface litter N leaching loss
   real :: NO3_leached(num_l), div_NO3_loss(num_l), &     ! NO3 leaching
          leaflitter_NO3_loss, woodlitter_NO3_loss        ! Surface litter NO3 leaching loss
   real :: NH4_leached(num_l), div_NH4_loss(num_l), &     ! NH4 leaching
@@ -1858,9 +1857,9 @@ end subroutine soil_step_1
   integer :: ipt, jpt, kpt, fpt ! for debug
   real :: bwood  ! woody biomass, [kgC/m2], used only as macroporosity flag
 
-  real :: surf_DOC_loss(n_c_types)! [kg C/m^2] DOC loss from top soil layer to surface runoff due
+  real :: surf_DOC_loss(N_C_TYPES)! [kg C/m^2] DOC loss from top soil layer to surface runoff due
                                   ! to efflux
-  real :: surf_DON_loss(n_c_types)! [kg N/m^2] DON loss from top soil layer to surface runoff due
+  real :: surf_DON_loss(N_C_TYPES)! [kg N/m^2] DON loss from top soil layer to surface runoff due
                                   ! to efflux
   real :: surf_NO3_loss, surf_NH4_loss ! [kg N/m^2] NH4 and NO3 loss from top soil layer to surface runoff due to efflux
   real :: total_C_leaching(num_l),total_DON_leaching(num_l) ! [kg C/m^2/s] net total vertical DOC leaching by layer

@@ -7,7 +7,7 @@ use land_data_mod, only: log_version
 use soil_carbon_mod, only: N_C_TYPES, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, &
      SOILC_CORPSE, SOILC_CORPSE_N, soil_carbon_option, C_FAST, C_SLOW, add_litter, &
      add_C_N_to_rhizosphere
-use soil_tile_mod, only: soil_tile_type, dz, num_l, LEAF, CWOOD
+use soil_tile_mod, only: soil_tile_type, dz, num_l, LEAF, CWOOD, N_LITTER_POOLS
 use vegn_cohort_mod, only : vegn_cohort_type, cohort_root_exudate_profile
 use vegn_data_mod, only: spdata
 use vegn_tile_mod, only: vegn_tile_type

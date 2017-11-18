@@ -36,7 +36,6 @@ public :: soilMaxCohorts
 
 public :: update_pool
 public :: add_litter
-public :: add_C_N_to_cohorts
 public :: add_C_N_to_rhizosphere
 public :: remove_C_N_fraction_from_pool
 public :: combine_pools
@@ -439,36 +438,22 @@ subroutine deposit_dissolved_C(pool)
   real::deposited_C(N_C_TYPES),deposited_N(N_C_TYPES)
 
   call check_var_range(pool%dissolved_carbon,0.0,HUGE(1.0),'deposit_dissolved_C','pool%dissolved_carbon',FATAL)
-  call check_var_range(DOC_deposition_rate,0.0,HUGE(1.0),'deposit_dissolved_C','DOC_deposition_rate',FATAL)
-  deposited_C(:) = max(0.0, DOC_deposition_rate*pool%dissolved_carbon(:))
+
+  deposited_C(:) = min(pool%dissolved_carbon(:), max(0.0, DOC_deposition_rate*pool%dissolved_carbon(:)))
+  pool%dissolved_carbon=pool%dissolved_carbon-deposited_C
   if (is_watch_point()) then
      __DEBUG1__(pool%dissolved_carbon)
      __DEBUG1__(DOC_deposition_rate)
      __DEBUG1__(deposited_C)
   endif
-  call check_var_range(deposited_C,0.0,HUGE(1.0),'deposit_dissolved_C','deposited_C',FATAL)
 
-  where(deposited_C > pool%dissolved_carbon)
-      deposited_C=pool%dissolved_carbon
-      pool%dissolved_carbon=0.0
-  elsewhere
-      pool%dissolved_carbon=pool%dissolved_carbon-deposited_C
-  end where
+  if (soil_carbon_option == SOILC_CORPSE_N) then
+     deposited_N(:)=min(pool%dissolved_nitrogen(:),max(DOC_deposition_rate*pool%dissolved_nitrogen(:),0.0))
+  else
+     deposited_N=0.0
+  endif
+  pool%dissolved_nitrogen = pool%dissolved_nitrogen-deposited_N   ! xz
 
-  IF (soil_carbon_option == SOILC_CORPSE_N) THEN
-      deposited_N=DOC_deposition_rate*pool%dissolved_nitrogen
-      where(deposited_N > pool%dissolved_nitrogen) ! xz
-          deposited_N=pool%dissolved_nitrogen  ! xz  (kg/m2)
-          pool%dissolved_nitrogen=0.0! xz
-      elsewhere! xz
-          pool%dissolved_nitrogen=pool%dissolved_nitrogen-deposited_N   ! xz
-      end where! xz
-      call check_var_range(deposited_N,0.0,HUGE(1.0),'deposit_dissolved_N','deposited_N',FATAL)
-  ELSE
-      deposited_N=0.0
-  ENDIF
-
-  call check_var_range(deposited_C,0.0,HUGE(1.0),'deposit_dissolved_C','deposited_C',FATAL)
   call add_C_N_to_cohorts(pool,litterC=deposited_C,litterN=deposited_N)
 end subroutine deposit_dissolved_C
 
@@ -1645,52 +1630,39 @@ logical function check_cohort(cohort) result(cohortGood)
 end function check_cohort
 
 
+real function cohortCSum(cohort,only_active)
+  type(litterCohort), intent(in) :: cohort
+  logical, intent(in), optional  :: only_active
 
-function cohortCSum(cohort,only_active)
-    type(litterCohort),intent(in)::cohort
-    logical,intent(in),optional::only_active
-    real::tempSum
-    real::cohortCSum
+  logical :: only_act
 
-    logical::only_act
+  only_act=.FALSE.
+  if(present(only_active)) only_act=only_active
 
-    only_act=.FALSE.
-    if(present(only_active)) only_act=only_active
+  cohortCSum = cohort%livingMicrobeC   &
+             + sum(cohort%litterC)     &
+             + sum(cohort%protectedC)
+
+  if (.NOT. only_act) cohortCSum=cohortCSum + cohort%CO2
+end function cohortCSum
 
 
-    tempSum=0.0
-    tempSum=tempSum+cohort%livingMicrobeC
-    tempSum=tempSum+sum(cohort%litterC)
-    tempSum=tempSum+sum(cohort%protectedC)
-    !tempSum=tempSum+sum(cohort%minC)
-    if (.NOT. only_act) then
-        tempSum=tempSum+cohort%CO2
-    endif
-    cohortCSum=tempSum
-END FUNCTION
+real function cohortNSum(cohort,only_active)
+  type(litterCohort), intent(in) :: cohort
+  logical, intent(in), optional  :: only_active
 
- function cohortNSum(cohort,only_active)
-    type(litterCohort),intent(in)::cohort
-    logical,intent(in),optional::only_active
-    real::tempSum
-    real::cohortNSum
+  logical :: only_act
 
-    logical::only_act
+  only_act=.FALSE.
+  if(present(only_active)) only_act=only_active
 
-    only_act=.FALSE.
-    if(present(only_active)) only_act=only_active
-
-    tempSum=0.0
-    tempSum=tempSum+cohort%livingMicrobeN
-    tempSum=tempSum+sum(cohort%litterN)
-    tempSum=tempSum+sum(cohort%protectedN)
-  !  tempSum=tempSum+(cohort%MINER_gross-cohort%IMM_N_gross)
-    if(.NOT. only_act) then
-      tempSum=tempSum+(cohort%MINER_prod-cohort%IMM_Nprod)
-    endif
-
-    cohortNSum=tempSum
-END FUNCTION
+  cohortNSum = cohort%livingMicrobeN   &
+             + sum(cohort%litterN)     &
+             + sum(cohort%protectedN)
+!  tempSum=tempSum+(cohort%MINER_gross-cohort%IMM_N_gross)
+  if(.NOT. only_act) &
+        cohortNSum = cohortNSum + (cohort%MINER_prod-cohort%IMM_Nprod)
+end function cohortNSum
 
 
 ! Add a cohort to the soil carbon pool
@@ -1804,66 +1776,62 @@ end subroutine add_litter
 ! Add carbon to all cohorts in pool, weighted by cohort size.
 ! For leaching or exudation that is spread evenly in soil instead of new cohort
 subroutine add_C_N_to_cohorts(pool,litterC,protectedC,livingMicrobeC,CO2,litterN,protectedN,livingMicrobeN)
-    type(soil_pool),intent(inout)::pool
-    real,optional,dimension(N_C_TYPES),intent(in)::litterC,protectedC,litterN,protectedN
-    real,optional,intent(in)::livingMicrobeC,CO2,livingMicrobeN
+  type(soil_pool),intent(inout)::pool
+  real,optional,dimension(N_C_TYPES), intent(in) :: litterC,protectedC,litterN,protectedN
+  real,optional,                      intent(in) :: livingMicrobeC,CO2,livingMicrobeN
 
-    real,dimension(N_C_TYPES)::litterCval,protectedCval,litterNval,protectedNval
-    real::livingMicrobeCval,CO2val,livingMicrobeNval
-    real::totalCarbon,weight
-    integer::ii
+  real,dimension(N_C_TYPES) :: litterCval, protectedCval, litterNval, protectedNval
+  real :: livingMicrobeCval, CO2val, livingMicrobeNval
+  real :: totalCarbon, weight
+  integer :: k
 
-    livingMicrobeCval=0.0
-    protectedCval=0.0
-    litterCval=0.0
-    CO2val=0.0
+  livingMicrobeCval = 0.0 ; if (present(livingMicrobeC)) livingMicrobeCval=livingMicrobeC
+  protectedCval     = 0.0 ; if (present(protectedC))     protectedCval=protectedC
+  litterCval        = 0.0 ; if (present(litterC))        litterCval=litterC
+  CO2val            = 0.0 ; if (present(CO2))            CO2val=CO2
 
-    livingMicrobeNval=0.0
-    protectedNval=0.0
-    litterNval=0.0
+  livingMicrobeNval = 0.0 ; if (present(livingMicrobeN)) livingMicrobeNval=livingMicrobeN
+  protectedNval     = 0.0 ; if (present(protectedN))     protectedNval=protectedN
+  litterNval        = 0.0 ; if (present(litterN))        litterNval=litterN
 
-    IF (present(litterC)) litterCval=litterC
-    IF (present(protectedC)) protectedCval=protectedC
-    IF (present(livingMicrobeC)) livingMicrobeCval=livingMicrobeC
-    IF (present(CO2)) CO2val=CO2
+  if (any(litterCval<0) .or. any(protectedCval<0) .or. livingMicrobeCval<0 .or. CO2val<0) &
+            call error_mesg('add_C_N_to_cohorts','Carbon added less than zero',FATAL)
+  if (any(litterNval<0) .or. any(protectedNval<0) .or. livingMicrobeNval<0) &
+            call error_mesg('add_C_N_to_cohorts','Nitrogen added less than zero',FATAL)
 
-    IF (present(litterN)) litterNval=litterN
-    IF (present(protectedN)) protectedNval=protectedN
-    IF (present(livingMicrobeN)) livingMicrobeNval=livingMicrobeN
+  if(.not.allocated(pool%litterCohorts)) call add_litter(pool,[0.0,0.0,0.0],[0.0,0.0,0.0])
 
-    IF (any(litterCval<0) .or. any(protectedCval<0) .or. livingMicrobeCval<0 .or. CO2val<0) &
-          call error_mesg('add_carbon_to_cohorts','Carbon added less than zero',FATAL)
-    IF (any(litterNval<0) .or. any(protectedNval<0) .or. livingMicrobeNval<0) &
-        call error_mesg('add_carbon_to_cohorts','Nitrogen added less than zero',FATAL)
+  totalCarbon = 0.0
+  do k=1,pool%n_cohorts
+     totalCarbon = totalCarbon+cohortCsum(pool%litterCohorts(k),only_active=.TRUE.)
+  enddo
 
-    call poolTotals(pool,totalCarbon=totalCarbon)
-    if(.not.allocated(pool%litterCohorts)) call add_litter(pool,(/0.0,0.0,0.0/),(/0.0,0.0,0.0/))
-    DO ii=1,pool%n_cohorts
-        ! Deposited carbon is just weighted by total cohort carbon, which we assume tracks with soil volume and mass
-        IF(totalCarbon.gt.0) THEN
-           weight=cohortCsum(pool%litterCohorts(ii),only_active=.TRUE.)/totalCarbon
-        ELSE
-           weight=1.0
-        ENDIF
+  do k=1,pool%n_cohorts
+     ! Deposited carbon is just weighted by total cohort carbon, which we assume tracks with soil volume and mass
+     if (totalCarbon>0) then
+        weight=cohortCsum(pool%litterCohorts(k),only_active=.TRUE.)/totalCarbon
+     else
+        weight=1.0/pool%n_cohorts
+     endif
 
-        pool%litterCohorts(ii)%litterC=pool%litterCohorts(ii)%litterC+litterCval*weight
-        pool%litterCohorts(ii)%protectedC=pool%litterCohorts(ii)%protectedC+protectedCval*weight
-        pool%litterCohorts(ii)%livingMicrobeC=pool%litterCohorts(ii)%livingMicrobeC+livingMicrobeCval*weight
-        pool%litterCohorts(ii)%CO2=pool%litterCohorts(ii)%CO2+CO2val*weight
-        pool%litterCohorts(ii)%originalLitterC=pool%litterCohorts(ii)%originalLitterC+(sum(litterCval+protectedCval)+livingMicrobeCval+CO2val)*weight
+     pool%litterCohorts(k)%litterC=pool%litterCohorts(k)%litterC+litterCval*weight
+     pool%litterCohorts(k)%protectedC=pool%litterCohorts(k)%protectedC+protectedCval*weight
+     pool%litterCohorts(k)%livingMicrobeC=pool%litterCohorts(k)%livingMicrobeC+livingMicrobeCval*weight
+     pool%litterCohorts(k)%CO2=pool%litterCohorts(k)%CO2+CO2val*weight
+     pool%litterCohorts(k)%originalLitterC=pool%litterCohorts(k)%originalLitterC+(sum(litterCval+protectedCval)+livingMicrobeCval+CO2val)*weight
 
-        if(soil_carbon_option == SOILC_CORPSE_N) then  ! May be unnecessary to "if" this if these are always zero?
-            pool%litterCohorts(ii)%litterN=pool%litterCohorts(ii)%litterN+litterNval*weight! xz
-            pool%litterCohorts(ii)%protectedN=pool%litterCohorts(ii)%protectedN+protectedNval*weight! xz
-            pool%litterCohorts(ii)%livingMicrobeN=pool%litterCohorts(ii)%livingMicrobeN+livingMicrobeNval*weight! xz
-            pool%litterCohorts(ii)%originalLitterN=pool%litterCohorts(ii)%originalLitterN+(sum(litterNval+protectedNval)+livingMicrobeNval)*weight! xz
-        endif
-    ENDDO
+     if (soil_carbon_option == SOILC_CORPSE_N) then  ! May be unnecessary to "if" this if these are always zero?
+        pool%litterCohorts(k)%litterN=pool%litterCohorts(k)%litterN+litterNval*weight! xz
+        pool%litterCohorts(k)%protectedN=pool%litterCohorts(k)%protectedN+protectedNval*weight! xz
+        pool%litterCohorts(k)%livingMicrobeN=pool%litterCohorts(k)%livingMicrobeN+livingMicrobeNval*weight! xz
+        pool%litterCohorts(k)%originalLitterN=pool%litterCohorts(k)%originalLitterN+(sum(litterNval+protectedNval)+livingMicrobeNval)*weight! xz
+     endif
+  enddo
 
-    pool%C_in(:) = pool%C_in(:) + LitterCval(:) ! slm: should we also add livingMicrobeCval or CO2val?
-    pool%N_in(:) = pool%N_in(:) + LitterNval(:)
-    pool%protected_C_in(:) = pool%protected_C_in(:) + protectedCval(:)
-    pool%protected_N_in(:) = pool%protected_N_in(:) + protectedNval(:)
+  pool%C_in(:) = pool%C_in(:) + LitterCval(:) ! slm: should we also add livingMicrobeCval or CO2val?
+  pool%N_in(:) = pool%N_in(:) + LitterNval(:)
+  pool%protected_C_in(:) = pool%protected_C_in(:) + protectedCval(:)
+  pool%protected_N_in(:) = pool%protected_N_in(:) + protectedNval(:)
 end subroutine add_C_N_to_cohorts
 
 
@@ -2882,8 +2850,6 @@ ENDIF
     do ii=1, size(soil)
       call deposit_dissolved_C(soil(ii))
     enddo
-
-
 end subroutine tracer_leaching_with_litter
 
 
