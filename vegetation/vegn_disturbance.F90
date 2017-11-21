@@ -5,9 +5,8 @@ module vegn_disturbance_mod
 
 #include "../shared/debug.inc"
 
-use fms_mod,         only : string, error_mesg, WARNING, FATAL
-use time_manager_mod,only : time_type, get_date, operator(-)
-use constants_mod,   only : tfreeze
+use fms_mod,         only : error_mesg, WARNING, FATAL
+use time_manager_mod,only : get_date, operator(-)
 use land_constants_mod, only : seconds_per_year
 use land_debug_mod,  only : is_watch_point, is_watch_cell, set_current_point, &
      check_conservation, do_check_conservation, water_cons_tol, carbon_cons_tol, &
@@ -15,7 +14,7 @@ use land_debug_mod,  only : is_watch_point, is_watch_cell, set_current_point, &
 use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, fsc_froot, agf_bs, &
        do_ppa, LEAF_OFF, DBH_mort, A_mort, B_mort, mortrate_s, nat_mortality_splits_tiles, &
        FORM_GRASS
-use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_bwood
+use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa
 use soil_tile_mod,   only : soil_tile_type, num_l, dz
 use soil_util_mod,   only : add_soil_carbon
 use land_tile_mod,   only : land_tile_map, land_tile_type, land_tile_enum_type, &
@@ -24,10 +23,9 @@ use land_tile_mod,   only : land_tile_map, land_tile_type, land_tile_enum_type, 
      current_tile, operator(==), operator(/=), remove, insert, new_land_tile, &
      land_tile_heat, land_tile_carbon, get_tile_water, nitems
 use land_data_mod,   only : lnd, log_version
-use soil_carbon_mod, only : add_litter, soil_carbon_option, &
-     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, N_C_TYPES, C_CEL
-use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, &
-     cohort_root_litter_profile
+use soil_carbon_mod, only : N_C_TYPES
+use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools, cohort_root_litter_profile
+use vegn_util_mod,   only : kill_plants_ppa
 
 implicit none
 private
@@ -37,7 +35,6 @@ public :: vegn_nat_mortality_lm3
 public :: vegn_nat_mortality_ppa
 public :: vegn_disturbance
 public :: update_fuel
-public :: kill_plants_ppa
 ! =====end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
@@ -556,7 +553,6 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
         endif
         end associate
      enddo
-     ! write(*,*)'bwood0=',vegn_tile_bwood(t0%vegn),'bwood1=',vegn_tile_bwood(t1%vegn)
   else
      ! just kill the trees in t0
      if (is_watch_point()) then
@@ -609,112 +605,6 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
 
   call vegn_relayer_cohorts_ppa(t0%vegn)
   if (associated(t1)) call vegn_relayer_cohorts_ppa(t1%vegn)
-
 end subroutine tile_nat_mortality_ppa
-
-
-! ==============================================================================
-! given a cohort, number of individuals to kill, and fraction of smoke, kills
-! specified number of individuals in cohort, putting their biomass into litter
-! and smoke pools.
-!
-! In vegn, this subroutine updates csmoke and intermediate heat and water pools (drop_*)
-! that are taken into account in energy/mass solver on the next time step.
-! *_litt arrays are incremented by this subroutine, so that consecutive calls
-! calculate cumulative amount of litter.
-
-! NOTE that in contrast to LM3 mortality calculation, living biomass is
-! included in losses; does it mean that we double-counting losses in
-! maintenance and here?
-
-! TODO: ask Ensheng and Elena about possible double-counting of live biomass losses.
-
-! we are burning all of biomass (like we did in LM3), including the below-ground
-! part. Perhaps we should leave the below-ground part alone, and add it to soil
-! carbon pools?
-
-! TODO: ask Elena about burning of below-ground biomass
-
-subroutine kill_plants_ppa(cc, vegn, ndead, fsmoke, leaf_litt, wood_litt, root_litt)
-  type(vegn_cohort_type), intent(inout) :: cc
-  type(vegn_tile_type),   intent(inout) :: vegn
-  real,                   intent(in)    :: ndead ! number of individuals to kill, indiv./m2
-  real,                   intent(in)    :: fsmoke ! fraction of biomass lost to fire, unitless
-  real, intent(inout) :: leaf_litt(N_C_TYPES) ! accumulated leaf litter, kg C/m2
-  real, intent(inout) :: wood_litt(N_C_TYPES) ! accumulated wood litter, kg C/m2
-  real, intent(inout) :: root_litt(num_l, N_C_TYPES) ! accumulated root litter per soil layer, kgC/m2
-
-  ! ---- local vars
-  real :: lost_wood, lost_alive, burned_wood, burned_alive
-  real :: profile(num_l) ! storage for vertical profile of exudates and root litter
-  integer :: l
-  real :: bp, bn ! positive and negative amounts of litter, used in adjusting litter pools if one is negative 
-
-  call check_var_range(ndead,  0.0, cc%nindivs, 'kill_plants_ppa', 'ndead',  FATAL)
-  call check_var_range(fsmoke, 0.0, 1.0,        'kill_plants_ppa', 'fsmoke', FATAL)
-
-  ! water from dead trees goes to intermediate buffers, to be added to the
-  ! precipitation reaching ground on the next physical time step
-  vegn%drop_wl = vegn%drop_wl + cc%wl*ndead
-  vegn%drop_ws = vegn%drop_ws + cc%ws*ndead
-  vegn%drop_hl = vegn%drop_hl + clw*cc%wl*ndead*(cc%Tv-tfreeze)
-  vegn%drop_hs = vegn%drop_hs + csw*cc%ws*ndead*(cc%Tv-tfreeze)
-
-  ! calculate total carbon losses, kgC/m2
-  lost_wood  = ndead * (cc%bwood+cc%bsw+cc%bwood_gain)
-  lost_alive = ndead * (cc%bl+cc%br+cc%blv+cc%bseed+cc%nsc+cc%carbon_gain+cc%growth_previous_day)
-  ! loss to fire
-  burned_wood  = fsmoke*lost_wood
-  burned_alive = fsmoke*lost_alive
-  ! loss to the soil pools
-  lost_wood  = lost_wood  - burned_wood
-  lost_alive = lost_alive - burned_alive
-
-  ! add fire carbon losses to smoke pool
-  vegn%csmoke_pool = vegn%csmoke_pool + burned_wood + burned_alive
-
-  ! add remaining lost C to soil carbon pools
-  leaf_litt(:) = leaf_litt(:) + [fsc_liv,  1-fsc_liv,  0.0]*(cc%bl+cc%bseed+cc%carbon_gain+cc%growth_previous_day)*(1-fsmoke)*ndead
-  wood_litt(:) = wood_litt(:) + [fsc_wood, 1-fsc_wood, 0.0]*(cc%bwood+cc%bsw+cc%bwood_gain)*(1-fsmoke)*agf_bs*ndead
-  wood_litt(C_CEL) = wood_litt(C_CEL)+cc%nsc*(1-fsmoke)*agf_bs*ndead
-  call cohort_root_litter_profile(cc, dz, profile)
-  do l = 1, num_l
-     root_litt(l,:) = root_litt(l,:) + profile(l)*ndead*(1-fsmoke)*(/ &
-          fsc_froot    *cc%br + fsc_wood    *(cc%bsw+cc%bwood+cc%bwood_gain)*(1-agf_bs) + cc%nsc*(1-agf_bs), &
-          (1-fsc_froot)*cc%br + (1-fsc_wood)*(cc%bsw+cc%bwood+cc%bwood_gain)*(1-agf_bs), &
-          0.0/)
-  enddo
-
-  ! leaf_litt can be below zero if biomasses are very small and carbon_gain is negative:
-  ! try to borrow carbon from wood litter.
-  do l = 1,N_C_TYPES
-     if (leaf_litt(l)<0) then
-        wood_litt(l) = wood_litt(l) + leaf_litt(l)
-        leaf_litt(l) = 0.0
-     endif
-  enddo
-  call check_var_range(wood_litt, 0.0, HUGE(1.0), 'kill_plants_ppa', 'wood_litt',  WARNING)
-  if (any(wood_litt<0.0)) then
-     ! if some wood litter components are negative, try to borrow carbon
-     ! from positive components so that the total carbon is conserved
-     bp = 0.0; bn=0.0
-     do l = 1, N_C_TYPES
-        if (wood_litt(l)>0) bp = bp+wood_litt(l)
-        if (wood_litt(l)<0) bn = bn+abs(wood_litt(l))
-     enddo
-     if (bp<bn) call land_error_message(&
-        'kill_plants_ppa: total wood litter amount is negative ('//string(sum(wood_litt))//')', FATAL)
-     do l = 1, N_C_TYPES
-        if (wood_litt(l)>0) wood_litt(l) = wood_litt(l)+(bp-bn)/bp
-        if (wood_litt(l)<0) wood_litt(l) = 0.0
-     enddo
-  endif
-
-  ! reduce the number of individuals in cohort
-  cc%nindivs = cc%nindivs-ndead
-
-  ! for budget tracking - temporary
-  vegn%veg_out = vegn%veg_out + lost_alive + lost_wood + burned_alive + burned_wood
-end subroutine kill_plants_ppa
 
 end module vegn_disturbance_mod

@@ -69,12 +69,13 @@ use vegn_dynamics_mod, only : vegn_dynamics_init, vegn_dynamics_end, &
      vegn_carbon_int_lm3, vegn_carbon_int_ppa,    &
      vegn_phenology_lm3,  vegn_phenology_ppa,     &
      vegn_growth, vegn_starvation_ppa, vegn_biogeography, &
-     vegn_reproduction_ppa, kill_small_cohorts_ppa
+     vegn_reproduction_ppa
 use vegn_disturbance_mod, only : vegn_nat_mortality_lm3, &
      vegn_disturbance, update_fuel
 use vegn_harvesting_mod, only : &
      vegn_harvesting_init, vegn_harvesting_end, vegn_harvesting
 use vegn_fire_mod, only : vegn_fire_init, vegn_fire_end, update_fire_data, fire_option, FIRE_LM3
+use vegn_util_mod, only : kill_small_cohorts_ppa
 use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE, N_C_TYPES, C_CEL, C_LIG, &
      cull_cohorts, c_shortname, c_longname
 use soil_mod, only : redistribute_peat_carbon

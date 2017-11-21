@@ -19,7 +19,7 @@ use vegn_data_mod, only : do_ppa, &
      HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
      agf_bs, fsc_liv, fsc_froot, fsc_wood
 use vegn_tile_mod, only : vegn_tile_type, vegn_relayer_cohorts_ppa
-use vegn_disturbance_mod, only : kill_plants_ppa
+use vegn_util_mod, only : kill_plants_ppa
 use vegn_cohort_mod, only : &
      vegn_cohort_type, update_biomass_pools
 use soil_tile_mod, only: num_l, LEAF, CWOOD
