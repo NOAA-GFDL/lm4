@@ -36,10 +36,9 @@ use vegn_data_mod, only : spdata, agf_bs, fsc_liv, fsc_wood, fsc_froot, do_ppa, 
       SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
       LU_CROP, LU_PAST, LU_NTRL, LU_SCND, FORM_GRASS
 use vegn_tile_mod, only : vegn_tile_type, vegn_mergecohorts_ppa, MAX_MDF_LENGTH
-use soil_tile_mod, only : num_l, soil_tile_type, soil_ave_theta1, soil_ave_theta2, &
-      add_soil_carbon
+use soil_tile_mod, only : num_l, soil_tile_type, soil_ave_theta1, soil_ave_theta2
 use vegn_cohort_mod, only : vegn_cohort_type
-use soil_mod, only : add_root_litter
+use soil_util_mod, only : add_root_litter, add_soil_carbon
 use soil_carbon_mod, only : add_litter, soil_carbon_option, poolTotalCarbon, &
       remove_carbon_fraction_from_pool, SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, &
       N_C_TYPES

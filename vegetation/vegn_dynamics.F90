@@ -28,7 +28,7 @@ use vegn_data_mod, only : spdata, nspecies, &
      understory_lai_factor, wood_fract_min, do_alt_allometry
 use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon, vegn_relayer_cohorts_ppa, &
      vegn_mergecohorts_ppa
-use soil_tile_mod, only: num_l, dz, soil_tile_type, clw, csw, add_soil_carbon, LEAF, CWOOD
+use soil_tile_mod, only: num_l, dz, soil_tile_type, clw, csw, LEAF, CWOOD
 use vegn_cohort_mod, only : vegn_cohort_type, &
      update_biomass_pools, update_bio_living_fraction, update_species, &
      leaf_area_from_biomass, biomass_of_individual, init_cohort_allometry_ppa, &
@@ -37,7 +37,8 @@ use vegn_disturbance_mod, only : kill_plants_ppa
 use soil_carbon_mod, only: N_C_TYPES, soil_carbon_option, &
     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, &
     add_litter
-use soil_mod, only: add_root_litter, add_root_exudates, Dsdt
+use soil_mod, only: Dsdt
+use soil_util_mod, only: add_soil_carbon, add_root_litter, add_root_exudates
 
 implicit none
 private

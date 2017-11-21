@@ -33,7 +33,7 @@ use soil_tile_mod, only : num_l, dz, zfull, zhalf, &
      psi_wilt, cpw, clw, csw, g_iso, g_vol, g_geo, g_RT, aspect,&
      gw_scale_length, gw_scale_relief, gw_scale_soil_depth, &
      slope_exp, gw_scale_perm, k0_macro_x, retro_a0n1, &
-     soil_type_file, add_soil_carbon, &
+     soil_type_file, &
      soil_tile_stock_pe, initval, comp, soil_theta, soil_ice_porosity
 
 use soil_carbon_mod, only: poolTotalCarbon, soilMaxCohorts, &
@@ -100,15 +100,8 @@ public :: soil_data_beta
 
 public :: Dsdt
 public :: get_soil_litter_C
-public :: add_root_litter
-public :: add_root_exudates
 public :: redistribute_peat_carbon
 ! =====end of public interfaces ==============================================
-interface add_root_litter
-   module procedure add_root_litter_0
-   module procedure add_root_litter_1
-end interface add_root_litter
-
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'soil'
@@ -3569,62 +3562,6 @@ subroutine get_soil_litter_C(soil, litter_fast_C, litter_slow_C, litter_deadmic_
      call error_mesg('vegn_step_1','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
   end select
 end subroutine get_soil_litter_C
-
-
-! ============================================================================
-! Spread new root C through profile, using vertical root profile from vegn_uptake_profile
-subroutine add_root_litter_0(soil, litterC)
-  type(soil_tile_type) , intent(inout) :: soil
-  real                 , intent(in)    :: litterC(num_l,n_c_types) ! kg C/(m2 of soil)
-
-  integer :: l
-
-  do l = 1,num_l
-     call add_litter(soil%soil_C(l), litterC(l,:))
-  enddo
-end subroutine add_root_litter_0
-
-
-! ============================================================================
-subroutine add_root_litter_1(soil, cohort, newlitterC)
-  type(soil_tile_type)   , intent(inout) :: soil
-  type(vegn_cohort_type) , intent(in)    :: cohort
-  real                   , intent(in)    :: newlitterC(:) ! kg C/m2 of tile
-
-  real    :: profile(num_l)
-  integer :: n
-
-  call cohort_root_litter_profile (cohort, dz(1:num_l), profile)
-  do n=1,num_l
-      call add_litter(soil%soil_C(n), newLitterC*profile(n))
-  enddo
-end subroutine add_root_litter_1
-
-
-! ============================================================================
-! Spread root exudate C through profile, using vertical root profile from vegn_uptake_profile
-! Differs from add_root_litter -- C is distributed through existing cohorts, not deposited as new cohort
-subroutine add_root_exudates(soil,exudateC)
-  type(soil_tile_type), intent(inout)  :: soil
-  real                , intent(in)     :: exudateC(num_l) ! kgC/(m2 of soil)
-
-  integer :: l
-
-  select case (soil_carbon_option)
-  case (SOILC_CENTURY)
-     soil%fast_soil_C(1) = soil%fast_soil_C(1) + sum(exudateC(:))
-     soil%fsc_in(1) = soil%fsc_in(1) + sum(exudateC(:)) ! for budget tracking
-  case (SOILC_CENTURY_BY_LAYER)
-     do l = 1,num_l
-        soil%fast_soil_C(l) = soil%fast_soil_C(l) + exudateC(l)
-        soil%fsc_in(l) = soil%fsc_in(l) + exudateC(l) ! for budget tracking
-     enddo
-  case (SOILC_CORPSE)
-     do l = 1,num_l
-        call add_carbon_to_cohorts(soil%soil_C(l),litterC=(/exudateC(l),0.0,0.0/))
-     enddo
-  end select
-end subroutine add_root_exudates
 
 ! ============================================================================
 subroutine redistribute_peat_carbon(soil)

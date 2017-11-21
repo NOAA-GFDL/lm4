@@ -16,7 +16,8 @@ use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, fsc_froot, agf_bs, &
        do_ppa, LEAF_OFF, DBH_mort, A_mort, B_mort, mortrate_s, nat_mortality_splits_tiles, &
        FORM_GRASS
 use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_bwood
-use soil_tile_mod,   only : soil_tile_type, num_l, dz, add_soil_carbon
+use soil_tile_mod,   only : soil_tile_type, num_l, dz
+use soil_util_mod,   only : add_soil_carbon
 use land_tile_mod,   only : land_tile_map, land_tile_type, land_tile_enum_type, &
      land_tile_list_type, land_tile_list_init, land_tile_list_end, &
      empty, first_elmt, tail_elmt, merge_land_tile_into_list, loop_over_tiles, &
