@@ -104,7 +104,7 @@ character(len=*), parameter :: module_name = 'vegn'
 #include "../shared/version_variable.inc"
 
 ! size of cohort initial condition array
-integer, parameter :: MAX_INIT_COHORTS = 5
+integer, parameter :: MAX_INIT_COHORTS = 10
 
 
 ! ==== module variables ======================================================
