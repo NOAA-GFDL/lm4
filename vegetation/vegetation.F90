@@ -35,6 +35,7 @@ use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, OP_MAX, &
      set_default_diag_filter
 use land_data_mod, only : lnd, log_version
 use land_io_mod, only : read_field
+use land_utils_mod, only : check_conservation_1, check_conservation_2
 use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_restart_axis, add_tile_data, add_int_tile_data, add_scalar_data, &
@@ -1872,13 +1873,8 @@ subroutine update_vegn_slow( )
      call set_current_point(l,k) ! this is for debug output only
      if(.not.associated(tile%vegn)) cycle ! skip the rest of the loop body
 
-     if (do_check_conservation) then
-        ! + conservation check, part 1: calculate the pre-transition totals
-        call get_tile_water(tile,lmass0,fmass0)
-        heat0  = land_tile_heat  (tile)
-        cmass0 = land_tile_carbon(tile)
-        ! - end of conservation check, part 1
-     endif
+     ! + conservation check, part 1: calculate the pre-transition totals
+     call check_conservation_1(tile,lmass0,fmass0,cmass0)
 
      if (day1 /= day0) then
         steps_per_day = 86400.0/delta_time;
@@ -2029,19 +2025,7 @@ subroutine update_vegn_slow( )
      enddo
      ! - sanity checks
 
-     if (do_check_conservation) then
-        ! + conservation check, part 2: calculate totals in final state, and compare
-        ! with previous totals
-        tag = 'update_vegn_slow'
-        call get_tile_water(tile,lmass1,fmass1)
-        heat1  = land_tile_heat  (tile)
-        cmass1 = land_tile_carbon(tile)
-        call check_conservation (tag,'liquid water', lmass0, lmass1, water_cons_tol)
-        call check_conservation (tag,'frozen water', fmass0, fmass1, water_cons_tol)
-        call check_conservation (tag,'carbon'      , cmass0, cmass1, carbon_cons_tol)
-   !     call check_conservation (tag,'heat content', heat0 , heat1 , 1e-16)
-        ! - end of conservation check, part 2
-     endif
+     call check_conservation_2(tile,'update_vegn_slow',lmass0,fmass0,cmass0)
 
      ! perhaps we need to move that either inside vegn_reproduction_ppa, or after that
      if (do_ppa.and.year1 /= year0) then
@@ -2222,33 +2206,6 @@ subroutine update_vegn_slow( )
 
 end subroutine update_vegn_slow
 
-
-
-! ============================================================================
-! + conservation check, part 2: calculate totals in final state, and compare
-! with previous totals
-subroutine check_conservation_2(tile,tag,lmass,fmass,cmass,heat)
-  type(land_tile_type), intent(in) :: tile
-  character(*), intent(in) :: tag
-  real, intent(in), optional :: lmass,fmass,cmass,heat ! stocks to check against
-
-  real :: lmass1,fmass1,cmass1,heat1
-  if (.not.do_check_conservation) return
-
-  if (present(lmass).or.present(fmass)) then
-     call get_tile_water(tile,lmass1,fmass1)
-     if(present(lmass)) call check_conservation (tag,'liquid water', lmass, lmass1, water_cons_tol)
-     if(present(lmass)) call check_conservation (tag,'frozen water', fmass, fmass1, water_cons_tol)
-  endif
-  if (present(cmass)) then
-     cmass1 = land_tile_carbon(tile)
-     call check_conservation (tag,'carbon', cmass, cmass1, carbon_cons_tol)
-  endif
-  if (present(heat)) then
-     heat1  = land_tile_heat  (tile)
-     call check_conservation (tag,'heat content', heat , heat1 , 1e-16)
-  endif
-end subroutine check_conservation_2
 
 ! ============================================================================
 subroutine vegn_seed_transport_lm3()
