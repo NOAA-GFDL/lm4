@@ -834,7 +834,7 @@ subroutine add_carbon_to_cohorts(pool,litterC, protectedC, livingMicrobeC, CO2)
         IF(totalCarbon.gt.0) THEN
            weight=cohortCsum(pool%litterCohorts(ii),only_active=.TRUE.)/totalCarbon
         ELSE
-           weight=1.0
+           weight=1.0/pool%n_cohorts
         ENDIF
 
         pool%litterCohorts(ii)%litterC=pool%litterCohorts(ii)%litterC+litterCval*weight
