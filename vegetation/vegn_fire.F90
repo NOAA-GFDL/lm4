@@ -34,7 +34,7 @@ use land_tracers_mod, only : isphum
 
 use vegn_data_mod, only : spdata, agf_bs, fsc_liv, fsc_wood, fsc_froot, do_ppa, &
       SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
-      LU_CROP, LU_PAST, LU_NTRL, LU_SCND, FORM_GRASS
+      LU_CROP, LU_PAST, LU_NTRL, LU_SCND, FORM_GRASS, FORM_WOODY
 use vegn_tile_mod, only : vegn_tile_type, vegn_mergecohorts_ppa, MAX_MDF_LENGTH
 use soil_tile_mod, only : num_l, soil_tile_type, soil_ave_theta1, soil_ave_theta2
 use vegn_cohort_mod, only : vegn_cohort_type
@@ -2085,23 +2085,28 @@ subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,
     real                :: FC_parameter       ! Fuel consumption, computed here solely for intensity calculation [kg(DM)/m2]
     real                :: SH_parameter       ! Scorch height, formula from Thonicke et al. (2010)
     real                :: leafLitter_total_C,fineWoodLitter_total_C,coarseWoodLitter_total_C
-
+    real :: w ! weight for cohort averaging
+    real :: height ! average height of the vegetation (crown trees only)
+    integer :: i ! cohort index
 
   !!! Need litter amount (dry matter if possible, C if all that's available)
   !!! Need vegetation height
   !!! Apply a height limit?  If no crown, can't be any crown scorch (just restrict it to tree species)
 
-
-    if (vegn%cohorts(1)%species==SP_C4GRASS) then
-        F_parameter  = 0.
-    elseif (vegn%cohorts(1)%species==SP_C3GRASS) then
-        F_parameter  = 0.
-    elseif (vegn%cohorts(1)%species==SP_TEMPDEC) then
-        F_parameter  = 0.094
-    elseif (vegn%cohorts(1)%species==SP_TROPICAL) then
-        F_parameter  = 0.1487
-    elseif (vegn%cohorts(1)%species==SP_EVERGR) then
-        F_parameter  = 0.11
+    height = 0.0; F_parameter = 0.0; w = 0.0
+    do i = 1, vegn%n_cohorts
+       associate(c=>vegn%cohorts(i), sp=>spdata(vegn%cohorts(i)%species))
+       if (sp%lifeform==FORM_WOODY.and.c%layer==1) then
+          height      = height      + c%layerfrac*c%height
+          F_parameter = F_parameter + c%layerfrac*sp%F_scorch_height
+          w           = w           + c%layerfrac
+       endif
+       end associate
+    enddo
+    if (w>0.0) then
+       height = height/w ; F_parameter = F_parameter/w
+    else
+       height = 0.0      ; F_parameter = 0.0
     endif
 
     call poolTotalCarbon(soil%leafLitter,totalCarbon=leafLitter_total_C)
@@ -2113,18 +2118,18 @@ subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,
     FC_parameter = (LOG(theta/theta_extinction+0.63)+0.47)* &
                    (leafLitter_total_C+fineWoodLitter_total_C+coarseWoodLitter_total_C)/0.45
     fire_intensity = ROS_surface * FC_parameter * H_parameter  !!! [kJ/m/s]
-    SH_parameter = F_parameter * (fire_intensity)**(0.6667)
-    crown_scorch_frac = ((SH_parameter-vegn%cohorts(1)%height+CL_parameter)/CL_parameter)*0.01 !percent to fraction
+    SH_parameter = F_parameter * (fire_intensity**0.6667)
+    crown_scorch_frac = ((SH_parameter-height+CL_parameter)/CL_parameter)*0.01 ! percent to fraction
+    if (crown_scorch_frac<0.or.SH_parameter==0.or.height==0) crown_scorch_frac = 0.0
+    if (crown_scorch_frac>1.0) crown_scorch_frac = 1.0
 
-    if (crown_scorch_frac.lt.0..or.SH_parameter.eq.0..or.vegn%cohorts(1)%height.eq.0.) &
-      crown_scorch_frac = 0.
-    if (crown_scorch_frac.gt.1.) crown_scorch_frac = 1.
-
-    if (do_crownfires) ROS = ROS_surface*(1.-crown_scorch_frac)+ROS_surface*3.34*(crown_scorch_frac)
-    if (.not.do_crownfires) ROS = ROS_surface
+    if (do_crownfires) then
+        ROS = ROS_surface*(1.-crown_scorch_frac)+ROS_surface*3.34*(crown_scorch_frac)
+    else
+        ROS = ROS_surface
+    endif
 
     vegn%fire_rad_power = vegn%fire_rad_power + fire_intensity * 1.e3 * (1./46.4) * dt_fast / 86400. ! [W/m]
-
 end subroutine vegn_fire_intensity
 !!! dsward_crownfires end
 
