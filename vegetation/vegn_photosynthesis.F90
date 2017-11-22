@@ -720,11 +720,13 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
      DulDpl = -cc%Kli*exp(-(cc%psi_l/sp%dl)**sp%cl)
 
      ! do forward elimination
-     gamma_r = 1/(DuxDpr - DurDpr)
+     gamma_r = DuxDpr - DurDpr
+     if (gamma_r/=0.0) gamma_r = 1.0/gamma_r
      ar = (ur0-ux0)*gamma_r
      br = -gamma_r*DuxDpx
 
-     gamma_x = 1/(DulDpx - DuxDpx - br*DuxDpr)
+     gamma_x = DulDpx - DuxDpx - br*DuxDpr
+     if (gamma_x/=0.0) gamma_x = 1.0/gamma_x
      ax = (ux0-ul0+ar*DuxDpr)*gamma_x
      bx = -gamma_x*DulDpl
 
@@ -764,7 +766,11 @@ subroutine vegn_hydraulics(soil, vegn, cc, p_surf, cana_T, cana_q, gb, gs0, fdry
   call check_var_range(cc%psi_l,-HUGE(1.0),0.0,'vegn_hydraulics','psi_l',WARNING)
   call check_var_range(cc%psi_x,-HUGE(1.0),0.0,'vegn_hydraulics','psi_x',WARNING)
   call check_var_range(cc%psi_r,-HUGE(1.0),0.0,'vegn_hydraulics','psi_r',WARNING)
-  w_scale = exp(-(cc%psi_l/sp%dl)**sp%cl)
+  if (cc%psi_l/sp%dl>-log(epsilon(1.0))) then
+     w_scale = 0.0
+  else
+     w_scale = exp(-(cc%psi_l/sp%dl)**sp%cl)
+  endif
   if (is_watch_point()) then
      write (*,*)'###### vegn_hydraulics output #####'
      __DEBUG1__(w_scale)
