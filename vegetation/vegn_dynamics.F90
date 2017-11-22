@@ -28,7 +28,7 @@ use vegn_data_mod, only : spdata, nspecies, &
      understory_lai_factor, wood_fract_min, do_alt_allometry
 use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon, vegn_relayer_cohorts_ppa, &
      vegn_mergecohorts_ppa
-use soil_tile_mod, only: num_l, dz, soil_tile_type, clw, csw, LEAF, CWOOD
+use soil_tile_mod, only: num_l, dz, soil_tile_type, clw, csw, LEAF, CWOOD, N_LITTER_POOLS
 use vegn_cohort_mod, only : vegn_cohort_type, &
      update_biomass_pools, update_bio_living_fraction, update_species, &
      leaf_area_from_biomass, biomass_of_individual, init_cohort_allometry_ppa, &
@@ -1332,6 +1332,7 @@ subroutine vegn_phenology_ppa(vegn, soil, dheat)
   call vegn_relayer_cohorts_ppa(vegn)
   ! merge similar cohorts, otherwise their number proliferates due to re-layering
   call vegn_mergecohorts_ppa(vegn, dheat)
+  ! FIXME: dheat is ignored here
 end subroutine vegn_phenology_ppa
 
 
@@ -1401,6 +1402,7 @@ subroutine update_soil_pools(vegn, soil)
   ! ---- local vars
   real :: delta;
   real :: deltafast, deltaslow;
+  real, dimension(N_C_TYPES,N_LITTER_POOLS) :: delta_C
 
   select case (soil_carbon_option)
   case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
@@ -1434,13 +1436,13 @@ subroutine update_soil_pools(vegn, soil)
      deltaslow = vegn%ssc_rate_ag*dt_fast_yr;
      vegn%ssc_pool_ag       = vegn%ssc_pool_ag       - deltaslow;
 
-     ! NOTE that this code looks very weird from the point of view of carbon
-     ! balance: we are depleting the {fsc,ssc}_pool_ag, but adding to litter
-     ! from the pools {leaflitter,coarsewoodLitter}_buffer_ag. The latter two
-     ! are not used in the calculations of the total carbon.
+     ! update litter rate so that litter pool is never depleted below zero
      vegn%litter_rate_C = MAX(0.0, MIN(vegn%litter_rate_C, vegn%litter_buff_C/dt_fast_yr))
-     call add_litter(soil%leafLitter,vegn%litter_rate_C(:,LEAF)*dt_fast_yr)
-     call add_litter(soil%coarsewoodLitter,vegn%litter_rate_C(:,CWOOD)*dt_fast_yr)
+     ! move carbon from litter pool to litter
+     delta_C = vegn%litter_rate_C*dt_fast_yr
+     call add_litter(soil%leafLitter,       delta_C(:,LEAF))
+     call add_litter(soil%coarsewoodLitter, delta_C(:,CWOOD))
+     vegn%litter_buff_C = vegn%litter_buff_C - delta_C
 
      ! update fsc input rate so that intermediate fsc pool is never
      ! depleted below zero; on the other hand the pool can be only
