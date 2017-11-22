@@ -14,7 +14,7 @@ use land_debug_mod,  only : is_watch_point, is_watch_cell, set_current_point, &
 use vegn_data_mod,   only : spdata, fsc_wood, fsc_liv, fsc_froot, agf_bs, &
        do_ppa, LEAF_OFF, DBH_mort, A_mort, B_mort, mortrate_s, nat_mortality_splits_tiles, &
        FORM_GRASS
-use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa
+use vegn_tile_mod,   only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa
 use soil_tile_mod,   only : soil_tile_type, num_l, dz
 use soil_util_mod,   only : add_soil_carbon
 use land_tile_mod,   only : land_tile_map, land_tile_type, land_tile_enum_type, &
@@ -447,6 +447,7 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
      wood_litt0(N_C_TYPES),  wood_litt1(N_C_TYPES)    ! accumulated wood litter, kg C/m2
   real :: root_litt0(num_l, N_C_TYPES) ! accumulated root litter per soil layer, kgC/m2
   real :: root_litt1(num_l, N_C_TYPES) ! accumulated root litter per soil layer, kgC/m2
+  real :: dheat ! heat residual due to cohort merging
   integer :: i
   ! variables for conservation checks:
   real :: lmass0, fmass0, heat0, cmass0
@@ -604,7 +605,14 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
   endif
 
   call vegn_relayer_cohorts_ppa(t0%vegn)
-  if (associated(t1)) call vegn_relayer_cohorts_ppa(t1%vegn)
+  call vegn_mergecohorts_ppa(t0%vegn, dheat)
+  t0%e_res_2 = t0%e_res_2 - dheat
+
+  if (associated(t1)) then
+     call vegn_relayer_cohorts_ppa(t1%vegn)
+     call vegn_mergecohorts_ppa(t1%vegn, dheat)
+     t1%e_res_2 = t1%e_res_2 - dheat
+  endif
 end subroutine tile_nat_mortality_ppa
 
 end module vegn_disturbance_mod
