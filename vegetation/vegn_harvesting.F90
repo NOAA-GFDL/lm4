@@ -6,25 +6,31 @@ use mpp_mod, only: input_nml_file
 use fms_mod, only: open_namelist_file
 #endif
 
+#include "../shared/debug.inc"
+
 use constants_mod, only : tfreeze
 use fms_mod, only : string, error_mesg, FATAL, NOTE, &
      mpp_pe, file_exist, close_file, &
-     check_nml_error, stdlog, mpp_root_pe
-use mpp_io_mod, only : axistype, mpp_get_atts, mpp_get_axis_data, &
-     mpp_open, mpp_close, MPP_RDONLY, MPP_WRONLY, MPP_ASCII
-use land_data_mod, only : log_version
+     check_nml_error, stdlog, mpp_root_pe, lowercase
+use diag_manager_mod, only : register_static_field, send_data
+
+use land_constants_mod, only : seconds_per_year
+use land_io_mod, only : read_field
+use land_debug_mod, only : land_error_message
+use land_utils_mod, only : check_conservation_1, check_conservation_2
+use land_data_mod, only : log_version, lnd
 use vegn_data_mod, only : do_ppa, &
-     N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, &
+     N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, &
      HARV_POOL_PAST, HARV_POOL_CROP, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST, &
-     HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, &
-     agf_bs, fsc_liv, fsc_froot, fsc_wood
-use vegn_tile_mod, only : vegn_tile_type, vegn_relayer_cohorts_ppa
-use vegn_util_mod, only : kill_plants_ppa
-use vegn_cohort_mod, only : &
-     vegn_cohort_type, update_biomass_pools
-use soil_tile_mod, only: num_l, LEAF, CWOOD
+     HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, PT_C3, PT_C4, LEAF_OFF, &
+     nspecies, spdata, agf_bs, fsc_liv, fsc_froot, fsc_wood
+use land_tile_mod, only : land_tile_type
+use soil_tile_mod, only : num_l, LEAF, CWOOD
+use vegn_tile_mod, only : vegn_relayer_cohorts_ppa, vegn_tile_lai, vegn_mergecohorts_ppa
+use vegn_cohort_mod, only : update_biomass_pools
+use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use soil_carbon_mod, only: soil_carbon_option, &
-     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, N_C_TYPES, C_CEL, C_LIG
+     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, N_C_TYPES, C_CEL, C_LIG, C_MIC
 
 implicit none
 private
@@ -35,52 +41,103 @@ public :: vegn_harvesting_end
 
 public :: vegn_harvesting
 
-public :: vegn_graze_pasture
-public :: vegn_harvest_cropland
 public :: vegn_cut_forest
-
-public :: do_harvesting
 ! ==== end of public interface ===============================================
 
 ! ==== module constants ======================================================
 character(len=*), parameter :: module_name = 'vegn_harvesting_mod'
 #include "../shared/version_variable.inc"
 real, parameter :: ONETHIRD = 1.0/3.0
+integer, parameter :: & ! grazing frequency options
+  GRAZING_DAILY  = 1, &
+  GRAZING_ANNUAL = 2
+integer, parameter :: & ! crop scedule options
+  CROP_SCHEDULE_LM3        = 1, &
+  CROP_SCHEDULE_PRESCRIBED = 2
+integer, parameter :: & ! crop type distribution options
+  CROP_DISTR_LM3           = 1, &
+  CROP_DISTR_LUH2_DOMINANT = 2
 
 ! TODO: possibly move all definition of cpw,clw,csw in one place
 real, parameter :: &
-     cpw = 1952.0, & ! specific heat of water vapor at constant pressure
      clw = 4218.0, & ! specific heat of water (liquid)
      csw = 2106.0    ! specific heat of water (ice)
 
 ! ==== module data ===========================================================
 
 ! ---- namelist variables ----------------------------------------------------
-logical :: do_harvesting       = .TRUE.  ! if true, then harvesting of crops and pastures is done
-real :: grazing_intensity      = 0.25    ! fraction of biomass removed each time by grazing
+logical, public, protected  :: do_harvesting       = .TRUE.  ! if true, then harvesting of crops and pastures is done
+
+character(16) :: grazing_frequency = 'daily' ! or 'annual'
+real :: grazing_intensity_past  = 3.65 ! fraction of leaf biomass removed by grazing annually, roughly 1% per day.
+real :: grazing_intensity_range = 3.65 ! fraction of leaf biomass removed by grazing annually, roughly 1% per day.
+  ! NOTE that for daily grazing, grazing_intensity/365 fraction of leaf biomass is removed
+  ! every day. E.g. if the desired intensity is 1% of leaves per day, set grazing_intensity
+  ! to 3.65
 real :: grazing_residue        = 0.1     ! fraction of the grazed biomass transferred into soil pools
+real :: min_lai_for_grazing_past  = 0.0     ! no grazing if LAI lower than this threshold
+real :: min_lai_for_grazing_range = 0.0     ! no grazing if LAI lower than this threshold
+  ! NOTE that in CORPSE mode regardless of the grazing frequency soil carbon input from
+  ! grazing still goes to intermediate pools, and then it is transferred from
+  ! these pools to soil/litter carbon pools with constant rates over the next year.
+  ! In CENTURY mode grazing residue is deposited to soil directly in case of daily
+  ! grazing frequency; still goes through intermediate pools in case of annual grazing.
+real :: max_grazing_height_past  = 9999.0  ! m, no grazing of vegetation above this height.
+real :: max_grazing_height_range = 3.0     ! m, no grazing of vegetation above this height.
+
+real :: wood_harv_DBH          = 0.05    ! DBH above which trees are harvested in PPA, m
+real :: frac_trampled          = 0.9     ! fraction of small trees that get trampled during harvesting in PPA
 real :: frac_wood_wasted_harv  = 0.25    ! fraction of wood wasted while harvesting
 real :: frac_wood_wasted_clear = 0.25    ! fraction of wood wasted while clearing land for pastures or crops
 logical :: waste_below_ground_wood = .TRUE. ! If true, all the wood below ground (1-agf_bs fraction of bwood
         ! and bsw) is wasted. Old behavior assumed this to be FALSE. NOTE that in PPA this option has no
         ! effect; below-ground wood is always wasted.
-real :: wood_harv_DBH          = 0.05    ! DBH above which trees are harvested, m
-real :: frac_trampled          = 0.9     ! fraction of small trees that get trampled during harvesting
 real :: frac_wood_fast         = ONETHIRD ! fraction of wood consumed fast
 real :: frac_wood_med          = ONETHIRD ! fraction of wood consumed with medium speed
 real :: frac_wood_slow         = ONETHIRD ! fraction of wood consumed slowly
-real :: crop_seed_density      = 0.1     ! biomass of seeds left after crop harvesting, kg/m2
-namelist/harvesting_nml/ do_harvesting, grazing_intensity, grazing_residue, &
-     frac_wood_wasted_harv, frac_wood_wasted_clear, waste_below_ground_wood, &
+
+character(16) :: crop_schedule = 'lm3' ! or 'prescribed'
+character(1024) :: crop_schedule_file  = '' ! input data set of crop planting and harvesting dates
+character(32) :: crop_distribution = 'lm3' ! or 'luh2-dominant'
+character(1024) :: luh2_state_file  = '' ! input data set of LU states (for C3/C4 crop distribution in case of 'luh2-dominant' crop species distribution)
+character(32) :: c3_crop_species  = '' ! name of the species used for C3 crops
+character(32) :: c4_crop_species  = '' ! name of the species used for C4 crops
+real :: crop_seed_density      = 0.1   ! biomass of seeds left after crop harvesting, kg/m2
+
+namelist/harvesting_nml/ do_harvesting, &
+     ! pasture and rangeland grazing parameters
+     grazing_frequency,  &
+     grazing_residue,    &
+     grazing_intensity_past, grazing_intensity_range, &
+     max_grazing_height_past, max_grazing_height_range, &
+     min_lai_for_grazing_past, min_lai_for_grazing_range, &
+     ! wood harvesting and clearance parameters
      wood_harv_DBH, frac_trampled, &
+     frac_wood_wasted_harv, frac_wood_wasted_clear, waste_below_ground_wood, &
      frac_wood_fast, frac_wood_med, frac_wood_slow, &
+     ! crop harvesting and planting parameters
+     crop_schedule, crop_schedule_file, &
+     crop_distribution, luh2_state_file, &
+     c3_crop_species, c4_crop_species, &
      crop_seed_density
+
+integer :: grazing_freq = -1 ! indicator of grazing frequency (GRAZING_ANNUAL or GRAZING_DAILY)
+integer :: crop_schedule_option = -1 ! selected planting/harvesting schedule option
+integer :: crop_distribution_option = -1
+real, allocatable :: crop_planting_day(:) ! day of year when planting is done
+real, allocatable :: crop_harvest_day(:)  ! day of year when harvesting is done
+integer :: c3_crop_idx = -1, c4_crop_idx = -1 ! index of crop species
+
+integer :: id_crop_planting_day, id_crop_harvest_day
 
 contains ! ###################################################################
 
 ! ============================================================================
-subroutine vegn_harvesting_init
-  integer :: unit, ierr, io
+subroutine vegn_harvesting_init(id_ug)
+  integer, intent(in) :: id_ug ! id of the unstructured grid diagnostic axis
+
+  integer :: unit, ierr, io, i
+  logical :: used
 
   call log_version(version, module_name, &
   __FILE__)
@@ -111,75 +168,199 @@ subroutine vegn_harvesting_init
           'sum of frac_wood_fast, frac_wood_med, and frac_wood_slow must be 1.0',&
           FATAL)
   endif
+  ! parse the grazing frequency parameter
+  select case(lowercase(grazing_frequency))
+  case('annual')
+     grazing_freq = GRAZING_ANNUAL
+  case('daily')
+     grazing_freq = GRAZING_DAILY
+     ! scale grazing intensity for daily frequency
+     grazing_intensity_past  = grazing_intensity_past/365.0
+     grazing_intensity_range = grazing_intensity_range/365.0
+  case default
+     call error_mesg('vegn_harvesting_init','grazing_frequency must be "annual" or "daily"',FATAL)
+  end select
+
+  allocate (crop_planting_day(lnd%ls:lnd%le),crop_harvest_day(lnd%ls:lnd%le))
+  select case(trim(lowercase(crop_schedule)))
+  case('lm3')
+     crop_schedule_option = CROP_SCHEDULE_LM3
+     crop_planting_day = 1.0
+     crop_harvest_day  = 1.0
+  case('prescribed')
+     crop_schedule_option = CROP_SCHEDULE_PRESCRIBED
+     ! read input data
+     call read_field( crop_schedule_file, 'plantingdy', crop_planting_day, interp='nearest' )
+     call read_field( crop_schedule_file, 'harvestdy',  crop_harvest_day,  interp='nearest' )
+  case default
+     call error_mesg('vegn_harvesting_init','crop_schedule must be "lm3" or "prescribed"',FATAL)
+  end select
+
+  id_crop_harvest_day = register_static_field ( 'vegn', 'crop_harvest_day', (/id_ug/), &
+         'day of year when cropa are harvested', 'day', missing_value = -1.0 )
+  id_crop_planting_day = register_static_field ( 'vegn', 'crop_planting_day', (/id_ug/), &
+         'day of year when crops are planted', 'day', missing_value = -1.0 )
+
+  if ( id_crop_harvest_day > 0 )  used = send_data ( id_crop_harvest_day, crop_harvest_day, lnd%time )
+  if ( id_crop_planting_day > 0 ) used = send_data ( id_crop_planting_day, crop_planting_day, lnd%time )
+
+  ! initialize crop C3/C4 distribution option
+  select case (trim(lowercase(crop_distribution)))
+  case ('lm3')
+     crop_distribution_option = CROP_DISTR_LM3
+  case ('luh2-dominant')
+     crop_distribution_option = CROP_DISTR_LUH2_DOMINANT
+     ! open input state file
+     ! add variables to varset
+     call error_mesg('vegn_harvesting_init','crop_distribution "luh2-dominant" is not implemented yet',FATAL)
+  case default
+     call error_mesg('vegn_harvesting_init','crop_distribution must be "lm3" or "luh2-dominant"',FATAL)
+  end select
+
+  ! find crop species; it's OK if it is not found, perhaps we do not need it -- e.g.
+  ! we are running potential vegetation, or in LM3 mode where it is not used (yet)
+  ! For now, use single species for crop everywhere. This will obviously need to be changed
+  ! when we switch to more sophisticated treatment of agriculture.
+  do i = 0, nspecies-1
+     if (trim(spdata(i)%name)==trim(c3_crop_species)) c3_crop_idx = i
+     if (trim(spdata(i)%name)==trim(c4_crop_species)) c4_crop_idx = i
+  enddo
+  if (c3_crop_idx<0) then
+     call error_mesg('vegn_harvesting_init','C3 crop species "'//trim(c3_crop_species)//'" not found in the list of species',NOTE)
+  else
+     call error_mesg('vegn_harvesting_init','C3 crop species "'//trim(c3_crop_species)//'" is #'//string(c3_crop_idx)//&
+                     ' in the list of species', NOTE)
+  endif
+  if (c4_crop_idx<0) then
+     call error_mesg('vegn_harvesting_init','C4 crop species "'//trim(c4_crop_species)//'" not found in the list of species',NOTE)
+  else
+     call error_mesg('vegn_harvesting_init','C4 crop species "'//trim(c4_crop_species)//'" is #'//string(c4_crop_idx)//&
+                     ' in the list of species', NOTE)
+  endif
 end subroutine vegn_harvesting_init
 
 
 ! ============================================================================
 subroutine vegn_harvesting_end
+   if (allocated(crop_harvest_day))  deallocate(crop_harvest_day)
+   if (allocated(crop_planting_day)) deallocate(crop_planting_day)
 end subroutine vegn_harvesting_end
 
 
 ! ============================================================================
 ! harvest vegetation in a tile
-subroutine vegn_harvesting(vegn)
-  type(vegn_tile_type), intent(inout) :: vegn
+subroutine vegn_harvesting(tile, end_of_year, end_of_month, end_of_day, day_of_year, l)
+  type(land_tile_type), intent(inout) :: tile
+  logical, intent(in) :: end_of_year, end_of_month, end_of_day ! indicators of respective period boundaries
+  integer, intent(in) :: day_of_year ! current day of year
+  integer, intent(in) :: l ! index of current grid cell in unstructured grid
 
   if (.not.do_harvesting) &
        return ! do nothing if no harvesting requested
 
+  associate(vegn=>tile%vegn)
   select case(vegn%landuse)
   case(LU_PAST)  ! pasture
-     call vegn_graze_pasture    (vegn)
+     if ((end_of_day  .and. grazing_freq==GRAZING_DAILY).or. &
+         (end_of_year .and. grazing_freq==GRAZING_ANNUAL)) then
+        call vegn_graze_pasture (tile)
+     endif
+  case(LU_RANGE)  ! rangeland
+     if ((end_of_day  .and. grazing_freq==GRAZING_DAILY).or. &
+         (end_of_year .and. grazing_freq==GRAZING_ANNUAL)) then
+        call vegn_graze_rangeland (tile)
+     endif
   case(LU_CROP)  ! crop
-     call vegn_harvest_cropland (vegn)
+     select case(crop_schedule_option)
+     case (CROP_SCHEDULE_LM3)
+        if (end_of_year) call vegn_harvest_cropland (tile)
+     case (CROP_SCHEDULE_PRESCRIBED)
+        if (end_of_day.AND.day_of_year==nint(crop_harvest_day(l))) then
+           call vegn_harvest_cropland (tile)
+        endif
+        if (end_of_day.AND.day_of_year==nint(crop_planting_day(l))) then
+           call vegn_plant_crop (tile)
+        endif
+     end select ! crop_schedule_option
   end select
-end subroutine
+  end associate
+end subroutine vegn_harvesting
 
 
 ! ============================================================================
-subroutine vegn_graze_pasture(vegn)
-  type(vegn_tile_type), intent(inout) :: vegn
+subroutine vegn_graze_pasture(tile)
+  type(land_tile_type), intent(inout) :: tile
 
   if (do_ppa) then
-     call vegn_graze_pasture_ppa(vegn)
+     call vegn_graze_pasture_ppa(tile, min_lai_for_grazing_past, grazing_intensity_past, max_grazing_height_past)
   else
-     call vegn_graze_pasture_lm3(vegn)
+     call vegn_graze_pasture_lm3(tile, min_lai_for_grazing_past, grazing_intensity_past)
   endif
 end subroutine vegn_graze_pasture
 
 ! ============================================================================
-subroutine vegn_harvest_cropland(vegn)
-  type(vegn_tile_type), intent(inout) :: vegn
+subroutine vegn_graze_rangeland(tile)
+  type(land_tile_type), intent(inout) :: tile
 
   if (do_ppa) then
-     call vegn_harvest_crop_ppa(vegn)
+     call vegn_graze_pasture_ppa(tile, min_lai_for_grazing_range, grazing_intensity_range, max_grazing_height_range)
   else
-     call vegn_harvest_crop_lm3(vegn)
+     call vegn_graze_pasture_lm3(tile, min_lai_for_grazing_range, grazing_intensity_range)
+  endif
+end subroutine vegn_graze_rangeland
+
+! ============================================================================
+subroutine vegn_harvest_cropland(tile)
+  type(land_tile_type), intent(inout) :: tile
+
+  if (do_ppa) then
+     call vegn_harvest_crop_ppa(tile)
+  else
+     call vegn_harvest_crop_lm3(tile)
   endif
 end subroutine vegn_harvest_cropland
 
+
 ! ============================================================================
-subroutine vegn_cut_forest(vegn, new_landuse)
-  type(vegn_tile_type), intent(inout) :: vegn
+subroutine vegn_plant_crop(tile)
+  type(land_tile_type), intent(inout) :: tile
+
+  if (do_ppa) then
+     call vegn_plant_crop_ppa(tile)
+  else
+     ! do nothing at the moment -- later add turning phenology on
+  endif
+end subroutine vegn_plant_crop
+
+! ============================================================================
+subroutine vegn_cut_forest(tile, new_landuse)
+  type(land_tile_type), intent(inout) :: tile
   integer, intent(in) :: new_landuse ! new land use type that gets assigned to
                                      ! the tile after the wood harvesting
 
   if (do_ppa) then
-     call vegn_cut_forest_ppa(vegn, new_landuse)
+     call vegn_cut_forest_ppa(tile, new_landuse)
   else
-     call vegn_cut_forest_lm3(vegn, new_landuse)
+     call vegn_cut_forest_lm3(tile, new_landuse)
   endif
 end subroutine vegn_cut_forest
 
 ! ============================================================================
-subroutine vegn_graze_pasture_lm3(vegn)
-  type(vegn_tile_type), intent(inout) :: vegn
+subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
+  type(land_tile_type), intent(inout) :: tile
+  real, intent(in) :: min_lai_for_grazing
+  real, intent(in) :: grazing_intensity
 
   ! ---- local vars
   real ::  bdead0, balive0, bleaf0, bfroot0, btotal0 ! initial combined biomass pools
   real ::  bdead1, balive1, bleaf1, bfroot1, btotal1 ! updated combined biomass pools
-  type(vegn_cohort_type), pointer :: cc ! shorthand for the current cohort
   integer :: i
+
+  associate(vegn=>tile%vegn,soil=>tile%soil)
+
+  ! do nothing if the LAI is less that the lower grazing limit
+  if ( vegn_tile_LAI(vegn) < min_lai_for_grazing ) &
+        return
 
   balive0 = 0 ; balive1 = 0
   bdead0  = 0 ; bdead1  = 0
@@ -188,7 +369,7 @@ subroutine vegn_graze_pasture_lm3(vegn)
 
   ! update biomass pools for each cohort according to harvested fraction
   do i = 1,vegn%n_cohorts
-     cc=>vegn%cohorts(i)
+     associate (cc=>vegn%cohorts(i))
      ! calculate total biomass pools for the patch
      balive0 = balive0 + cc%bl + cc%blv + cc%br
      bleaf0  = bleaf0  + cc%bl + cc%blv
@@ -207,6 +388,7 @@ subroutine vegn_graze_pasture_lm3(vegn)
      bleaf1  = bleaf1  + cc%bl + cc%blv
      bfroot1 = bfroot1 + cc%br
      bdead1  = bdead1  + cc%bwood + cc%bsw
+     end associate ! cc
   enddo
   btotal0 = balive0 + bdead0
   btotal1 = balive1 + bdead1
@@ -234,25 +416,28 @@ subroutine vegn_graze_pasture_lm3(vegn)
   case default
      call error_mesg('vegn_graze_pasture_lm3','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
   end select
+
+  end associate ! vegn
 end subroutine vegn_graze_pasture_lm3
 
 ! ================================================================================
-subroutine vegn_harvest_crop_lm3(vegn)
-  type(vegn_tile_type), intent(inout) :: vegn
+subroutine vegn_harvest_crop_lm3(tile)
+  type(land_tile_type), intent(inout) :: tile
 
   ! ---- local vars
-  type(vegn_cohort_type), pointer :: cc ! pointer to the current cohort
-  real :: fraction_harvested;    ! fraction of biomass harvested this time
-  real :: bdead, balive, btotal; ! combined biomass pools
+  real :: fraction_harvested    ! fraction of biomass harvested this time
+  real :: bdead, balive, btotal ! combined biomass pools
   integer :: i
 
+  associate (vegn=>tile%vegn)
   balive = 0 ; bdead = 0
   ! calculate initial combined biomass pools for the patch
   do i = 1, vegn%n_cohorts
-     cc=>vegn%cohorts(i)
+     associate(cc=>vegn%cohorts(i))
      ! calculate total biomass pools for the patch
      balive = balive + cc%bl + cc%blv + cc%br
      bdead  = bdead  + cc%bwood + cc%bsw
+     end associate
   enddo
   btotal = balive+bdead
 
@@ -261,7 +446,7 @@ subroutine vegn_harvest_crop_lm3(vegn)
 
   ! update biomass pools for each cohort according to harvested fraction
   do i = 1, vegn%n_cohorts
-     cc=>vegn%cohorts(i)
+     associate(cc=>vegn%cohorts(i))
      ! use for harvest only above-ground living biomass and waste the correspondent below living and wood
      vegn%harv_pool(HARV_POOL_CROP) = vegn%harv_pool(HARV_POOL_CROP) + &
           cc%bliving*(cc%Pl + cc%Psw*agf_bs)*fraction_harvested
@@ -288,36 +473,41 @@ subroutine vegn_harvest_crop_lm3(vegn)
      cc%bwood   = cc%bwood   * (1-fraction_harvested)
      ! redistribute leftover biomass between biomass pools
      call update_biomass_pools(cc)
+     end associate
   enddo
+  end associate ! vegn
 end subroutine vegn_harvest_crop_lm3
 
 ! ============================================================================
 ! for now cutting forest is the same as harvesting cropland --
 ! we basically cut down everything, leaving only seeds
-subroutine vegn_cut_forest_lm3(vegn, new_landuse)
-  type(vegn_tile_type), intent(inout) :: vegn
+subroutine vegn_cut_forest_lm3(tile, new_landuse)
+  type(land_tile_type), intent(inout) :: tile
   integer, intent(in) :: new_landuse ! new land use type that gets assigned to
                                      ! the tile after the wood harvesting
 
   ! ---- local vars
-  type(vegn_cohort_type), pointer :: cc ! pointer to the current cohort
   real :: frac_harvested         ! fraction of biomass harvested this time
   real :: frac_wood_wasted       ! fraction of wood wasted during transition
   real :: frac_wood_wasted_ag    ! fraction of above-ground wood wasted during transition
   real :: wood_harvested         ! amount of harvested wood, kgC/m2
-  real :: bdead, balive, bleaf, bfroot, btotal; ! combined biomass pools
+  real :: bdead, balive, bleaf, bfroot, btotal ! combined biomass pools
   real :: delta
   integer :: i
 
+  if (new_landuse==LU_RANGE) return ! do nothing for the conversion to rangeland
+
+  associate (vegn=>tile%vegn)
   balive = 0 ; bdead = 0 ; bleaf = 0 ; bfroot = 0
   ! calculate initial combined biomass pools for the patch
   do i = 1, vegn%n_cohorts
-     cc=>vegn%cohorts(i)
+     associate (cc=>vegn%cohorts(i))
      ! calculate total biomass pools for the patch
      balive = balive + cc%bl + cc%blv + cc%br
      bleaf  = bleaf  + cc%bl + cc%blv
      bfroot = bfroot + cc%br
      bdead  = bdead  + cc%bwood + cc%bsw
+     end associate
   enddo
   btotal = balive+bdead
 
@@ -339,7 +529,7 @@ subroutine vegn_cut_forest_lm3(vegn, new_landuse)
 
   ! update biomass pools for each cohort according to harvested fraction
   do i = 1, vegn%n_cohorts
-     cc => vegn%cohorts(i)
+     associate(cc => vegn%cohorts(i))
 
      ! calculate total amount of harvested wood, minus the wasted part
      wood_harvested = (cc%bwood+cc%bsw)*frac_harvested*(1-frac_wood_wasted)
@@ -360,7 +550,7 @@ subroutine vegn_cut_forest_lm3(vegn, new_landuse)
      endif
 
      ! distribute wood and living biomass between fast and slow intermediate
-     ! soil carbon pools according to fractions specified thorough the namelists
+     ! soil carbon pools according to fractions specified through the namelists
      delta = (cc%bwood+cc%bsw)*frac_harvested*frac_wood_wasted
      if(delta<0) call error_mesg('vegn_cut_forest_lm3', &
           'harvested amount of dead biomass ('//string(delta)//' kgC/m2) is below zero', &
@@ -405,63 +595,90 @@ subroutine vegn_cut_forest_lm3(vegn, new_landuse)
      cc%bwood   = cc%bwood*(1-frac_harvested)
      ! redistribute leftover biomass between biomass pools
      call update_biomass_pools(cc)
+     end associate
   enddo
+  end associate ! vegn
 end subroutine vegn_cut_forest_lm3
 
 ! ============================================================================
-subroutine vegn_graze_pasture_ppa(vegn)
-  type(vegn_tile_type), intent(inout) :: vegn
+subroutine vegn_graze_pasture_ppa(tile, min_lai_for_grazing, grazing_intensity, max_grazing_height)
+  type(land_tile_type), intent(inout) :: tile
+  real, intent(in) :: min_lai_for_grazing
+  real, intent(in) :: grazing_intensity
+  real, intent(in) :: max_grazing_height ! meters. Vegetation taller than this threshold is not grazed
 
-  real    :: ag_litt ! accumulated above-ground litter, kg C/m2
+  real    :: littC ! litter from grazing, kg/m2
+  real    :: LAI ! leaf area index of *grazed* vegetation. Does not include plants taller
+                 ! than max grazing height.
   integer :: i
+  ! variables for conservation checks
+  real :: lmass0, fmass0, heat0, cmass0
 
-  ag_litt = 0.0
+  call check_conservation_1(tile, lmass0,fmass0,cmass0,heat0)
+
+  associate (vegn=>tile%vegn)
+  LAI = 0.0
+  do i = 1,vegn%n_cohorts
+     if (vegn%cohorts(i)%height < max_grazing_height) &
+             LAI = LAI + vegn%cohorts(i)%lai*vegn%cohorts(i)%nindivs
+  enddo
+  if (LAI < min_lai_for_grazing) return
+
   do i = 1, vegn%n_cohorts
      associate(cc=>vegn%cohorts(i))
+     if (cc%height >= max_grazing_height) continue ! do nothing to vegetation browsers cannot reach.
+
      vegn%harv_pool(HARV_POOL_PAST) = vegn%harv_pool(HARV_POOL_PAST) + &
           cc%bl*grazing_intensity*(1-grazing_residue)*cc%nindivs
-     ag_litt = ag_litt + cc%bl*grazing_intensity*grazing_residue*cc%nindivs
-     cc%bl = cc%bl*(1-grazing_intensity)
+
+     littC = cc%bl * grazing_intensity*grazing_residue*cc%nindivs
+     cc%bl = cc%bl * (1-grazing_intensity)
+
+     ! add carbon to intermediate pools
+     select case (soil_carbon_option)
+     case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
+        ! add litter to intermediate carbon pools
+        vegn%fsc_pool_ag = vegn%fsc_pool_ag + littC*fsc_liv
+        vegn%ssc_pool_ag = vegn%ssc_pool_ag + littC*(1-fsc_liv)
+        ! note that we assume microbial biomass is zero
+     case (SOILC_CORPSE)
+        vegn%litter_buff_C(:,LEAF) = vegn%litter_buff_C(:,LEAF) + littC*[fsc_liv,1-fsc_liv,0.0]
+     case default
+        call error_mesg('vegn_graze_pasture_ppa','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
+     end select
+
      end associate
   enddo
+  end associate ! vegn
 
-  ! add carbon to intermediate pools
-  select case (soil_carbon_option)
-  case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
-     ! add litter to intermediate carbon pools
-     vegn%fsc_pool_ag = vegn%fsc_pool_ag + ag_litt*fsc_liv
-     vegn%ssc_pool_ag = vegn%ssc_pool_ag + ag_litt*(1-fsc_liv)
-     ! note that we assume microbial biomass is zero
-  case (SOILC_CORPSE)
-     vegn%litter_buff_C(:,LEAF) = vegn%litter_buff_C(:,LEAF) + ag_litt*[fsc_liv,1-fsc_liv,0.0]
-  case default
-     call error_mesg('vegn_graze_pasture_ppa','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
-  end select
-
+  call check_conservation_2(tile,'vegn_graze_pasture_ppa',lmass0,fmass0,cmass0,heat0)
 end subroutine vegn_graze_pasture_ppa
 
 ! ============================================================================
 ! NOTE that the PPA harvest would not work properly if applied only once per year, because
 ! at the end of the year the leaves are down in NH, and therefore harvest amount will be
 ! unrealistically small. The same is true about the grazing.
-subroutine vegn_harvest_crop_ppa(vegn)
-  type(vegn_tile_type), intent(inout) :: vegn
+subroutine vegn_harvest_crop_ppa(tile)
+  type(land_tile_type), intent(inout) :: tile
 
   real, dimension(N_C_TYPES) :: &
-     ag_litt(N_C_TYPES), & ! accumulated above-ground litter, kg C/m2
-     bg_litt(N_C_TYPES)    ! accumulated below-ground litter, kg C/m2
-  real :: ndead  ! number of individuals killed in cohort
+     leaf_litt_C, & ! accumulated leaf litter, kg/m2
+     wood_litt_C    ! accumulated wood litter, kg/m2
+  real, dimension(num_l, N_C_TYPES) :: &
+     root_litt_C    ! accumulated root litter per soil layer, kg/m2
+  real :: ndead     ! number of individuals killed in cohort
+  real :: dheat     ! heat residual due to cohort merging
   integer :: i
+  ! variables for conservation checks
+  real :: lmass0, fmass0, heat0, cmass0
 
-  ag_litt = 0.0; bg_litt = 0.0
+  call check_conservation_1(tile, lmass0,fmass0,cmass0,heat0)
+
+  associate(vegn=>tile%vegn)
+  leaf_litt_C=0.0; wood_litt_C=0.0; root_litt_C=0.0
   do i = 1, vegn%n_cohorts
      associate(cc=>vegn%cohorts(i))
      ndead = cc%nindivs ! harvest everything
-     ! take care of water and energy conservation
-     vegn%drop_wl = vegn%drop_wl + cc%wl*ndead
-     vegn%drop_ws = vegn%drop_ws + cc%ws*ndead
-     vegn%drop_hl = vegn%drop_hl + clw*cc%wl*ndead*(cc%Tv-tfreeze)
-     vegn%drop_hs = vegn%drop_hs + csw*cc%ws*ndead*(cc%Tv-tfreeze)
 
      ! add C to harvest and litter pools. This is slightly different from kill_plants_ppa
      ! because above-ground part of nsc and sapwood are getting harvested, rather than going
@@ -470,14 +687,11 @@ subroutine vegn_harvest_crop_ppa(vegn)
          cc%bl + cc%bseed + cc%carbon_gain + cc%growth_previous_day + &
          cc%bsw*agf_bs + cc%nsc*agf_bs &
          )
-     ag_litt(:) = ag_litt(:) + [fsc_wood, 1-fsc_wood, 0.0]*(cc%bwood+cc%bwood_gain)*agf_bs*ndead
-     bg_litt(:) = bg_litt(:) + ndead * [ &
-         fsc_froot    *cc%br + fsc_wood    *(cc%bsw+cc%bwood+cc%bwood_gain)*(1-agf_bs) + cc%nsc*(1-agf_bs), &
-         (1-fsc_froot)*cc%br + (1-fsc_wood)*(cc%bsw+cc%bwood+cc%bwood_gain)*(1-agf_bs), &
-         0.0 ]
+     ! subtract C harvest from cohort
+     cc%bl = 0.0; cc%bseed=0.0; cc%carbon_gain = 0.0; cc%growth_previous_day=0.0
+     cc%bsw = cc%bsw*(1-agf_bs); cc%brsw = cc%brsw*(1-agf_bs); cc%nsc=cc%nsc*(1-agf_bs)
 
-     ! reduce the number of individuals in cohort
-     cc%nindivs = cc%nindivs-ndead
+     call kill_plants_ppa(cc,vegn,ndead,0.0, leaf_litt_C, wood_litt_C, root_litt_C)
      end associate
   enddo
 
@@ -485,38 +699,54 @@ subroutine vegn_harvest_crop_ppa(vegn)
   select case (soil_carbon_option)
   case (SOILC_CENTURY,SOILC_CENTURY_BY_LAYER)
      ! add litter to intermediate carbon pools
-     vegn%fsc_pool_ag = vegn%fsc_pool_ag + ag_litt(C_CEL)
-     vegn%ssc_pool_ag = vegn%ssc_pool_ag + ag_litt(C_LIG)
+     vegn%fsc_pool_ag = vegn%fsc_pool_ag + wood_litt_C(C_CEL) + leaf_litt_C(C_CEL)
+     vegn%ssc_pool_ag = vegn%ssc_pool_ag + wood_litt_C(C_LIG) + leaf_litt_C(C_LIG)
      ! note that we assume microbial biomass is zero
   case (SOILC_CORPSE)
-     vegn%litter_buff_C(:,CWOOD) = vegn%litter_buff_C(:,CWOOD) + ag_litt(:)
+     vegn%litter_buff_C(:,CWOOD) = vegn%litter_buff_C(:,CWOOD) + wood_litt_C(:)
+     vegn%litter_buff_C(:,LEAF)  = vegn%litter_buff_C(:,LEAF)  + leaf_litt_C(:)
   case default
      call error_mesg('vegn_harvest_crop_ppa','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
   end select
-  vegn%fsc_pool_bg = vegn%fsc_pool_bg + bg_litt(C_CEL)
-  vegn%ssc_pool_bg = vegn%ssc_pool_bg + bg_litt(C_LIG)
+
+  vegn%fsc_pool_bg = vegn%fsc_pool_bg + sum(root_litt_C(:,C_CEL))+sum(root_litt_C(:,C_MIC))
+  vegn%ssc_pool_bg = vegn%ssc_pool_bg + sum(root_litt_C(:,C_LIG))
 
   call vegn_relayer_cohorts_ppa(vegn)
+  call vegn_mergecohorts_ppa(vegn, dheat)
+  tile%e_res_2 = tile%e_res_2 - dheat
+  end associate ! vegn
 
+  call check_conservation_2(tile,'vegn_harvest_crop_ppa',lmass0,fmass0,cmass0,heat0)
 end subroutine vegn_harvest_crop_ppa
 
 ! ============================================================================
-subroutine vegn_cut_forest_ppa(vegn, new_landuse)
-  type(vegn_tile_type), intent(inout) :: vegn
+subroutine vegn_cut_forest_ppa(tile, new_landuse)
+  type(land_tile_type), intent(inout) :: tile
   integer, intent(in) :: new_landuse ! new land use type that gets assigned to
                                      ! the tile after the wood harvesting
 
   ! ---- local vars
   real :: frac_wood_wasted       ! fraction of wood wasted during transition
   real, dimension(N_C_TYPES) :: &
-     leaf_litt(N_C_TYPES), & ! accumulated leaf litter, kg C/m2
-     wood_harv(N_C_TYPES), & ! accumulated wood harvest, kg C/m2
-     wood_litt(N_C_TYPES)    ! accumulated wood litter, kg C/m2
-  real :: root_litt(num_l, N_C_TYPES) ! accumulated root litter per soil layer, kgC/m2
-  real :: ndead  ! number of individuals killed in cohort
+     leaf_litt, & ! accumulated leaf litter, kg/m2
+     wood_harv, & ! accumulated wood harvest, kg/m2
+     wood_litt    ! accumulated wood litter, kg/m2
+  real, dimension(num_l, N_C_TYPES) :: &
+     root_litt    ! accumulated root litter per soil layer, kg/m2
+  real :: ndead   ! number of individuals killed in cohort
+  real :: dheat   ! heat residual due to cohort merging
   real :: dbh_min
   integer :: i
+  ! variables for conservation checks
+  real :: lmass0, fmass0, heat0, cmass0
 
+  if (new_landuse==LU_RANGE) &
+     return ! do nothing for the conversion to rangeland
+
+  call check_conservation_1(tile, lmass0,fmass0,cmass0,heat0)
+
+  associate(vegn=>tile%vegn)
   ! define fraction of wood wasted, based on the transition type
   if (new_landuse==LU_SCND) then
      ! this is wood haresting
@@ -580,7 +810,82 @@ subroutine vegn_cut_forest_ppa(vegn, new_landuse)
   vegn%ssc_pool_bg = vegn%ssc_pool_bg + sum(root_litt(:,C_LIG))
 
   call vegn_relayer_cohorts_ppa(vegn)
+  call vegn_mergecohorts_ppa(vegn, dheat)
+  tile%e_res_2 = tile%e_res_2 - dheat
+  end associate ! vegn
 
+  call check_conservation_2(tile,'vegn_cut_forest_ppa',lmass0,fmass0,cmass0,heat0)
 end subroutine vegn_cut_forest_ppa
+
+! ============================================================================
+! this function uses the same rule as LM3 does for biogeographic C3/C4,
+! distribution except it disregards the biomass, that is returns the
+! physiology type for grases that would be optimal for given annual T and P.
+function biogeographic_physiology_type(temp, precip) result (pt)
+  integer :: pt
+  real, intent(in) :: temp   ! temperature, degK
+  real, intent(in) :: precip ! precipitation, ???
+
+  real :: pc4
+
+  ! Rule based on analysis of ED global output; equations from JPC, 2/02
+  pc4=exp(-0.0421*(273.16+25.56-temp)-(0.000048*(273.16+25.5-temp)*precip))
+
+  if(pc4>0.5) then
+    pt=PT_C4
+  else
+    pt=PT_C3
+  endif
+end function biogeographic_physiology_type
+
+! ============================================================================
+subroutine vegn_plant_crop_ppa(tile)
+  type(land_tile_type), intent(inout) :: tile
+
+  ! list of pools we borrow seeds from, highest priority first
+  integer, parameter :: seed_source_pools(4) = &
+     [ HARV_POOL_CROP, HARV_POOL_PAST, HARV_POOL_CLEARED, HARV_POOL_WOOD_FAST ]
+
+  integer :: i, p, pt, crop_species_idx
+  real, dimension(0:nspecies-1) :: seedC ! seed biomass, kg/m2
+  real :: deltaC ! amount we borrow from harvest pools, kg/m2
+  ! variables for conservation checks
+  real :: lmass0, fmass0, heat0, cmass0
+
+  call check_conservation_1(tile, lmass0,fmass0,cmass0,heat0)
+
+  associate (vegn=>tile%vegn, soil=>tile%soil)
+  select case(crop_distribution_option)
+  case (CROP_DISTR_LM3)
+     pt = biogeographic_physiology_type(tile%vegn%t_ann, tile%vegn%p_ann*seconds_per_year)
+     select case(pt)
+     case (PT_C3)
+        crop_species_idx = c3_crop_idx
+        if (crop_species_idx<0) call land_error_message('vegn_plant_crop_ppa: C3 crop species "'//trim(c3_crop_species)//'" not found.', FATAL)
+     case (PT_C4)
+        crop_species_idx = c4_crop_idx
+        if (crop_species_idx<0) call land_error_message('vegn_plant_crop_ppa: C4 crop species "'//trim(c4_crop_species)//'" not found.', FATAL)
+     case default
+        call land_error_message('vegn_plant_crop_ppa: unknown physiology type '//string(pt)//'; this should never happen.', FATAL)
+     end select
+  case default
+     call land_error_message('vegn_plant_crop_ppa: unknown crop distribution option; this should never happen.', FATAL)
+  end select
+
+  ! borrow biomass (crop_seed_density) from harvest pools, in order of preference
+  seedC(:) = 0.0
+  do i = 1, size(seed_source_pools)
+     p = seed_source_pools(i)
+     deltaC = max(crop_seed_density-seedC(crop_species_idx),0.0)
+     deltaC = min(deltaC,vegn%harv_pool(p))
+     vegn%harv_pool(p) = vegn%harv_pool(p) - deltaC
+     seedC(crop_species_idx) = seedC(crop_species_idx) + deltaC
+     if (seedC(crop_species_idx) >= crop_seed_density) exit ! from loop
+  enddo
+  call add_seedlings_ppa(vegn,soil,seedC)
+  end associate ! vegn,soil
+
+  call check_conservation_2(tile,'vegn_plant_crop_ppa', lmass0,fmass0,cmass0,heat0)
+end subroutine vegn_plant_crop_ppa
 
 end module

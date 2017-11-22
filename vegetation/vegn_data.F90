@@ -67,18 +67,19 @@ integer, public, parameter :: & ! status of leaves
  LEAF_OFF     = 5     ! leaves are dropped
 
 integer, public, parameter :: & ! land use types
- N_LU_TYPES = 5, & ! number of different land use types
+ N_LU_TYPES = 6, & ! number of different land use types
  LU_PAST    = 1, & ! pasture
  LU_CROP    = 2, & ! crops
  LU_NTRL    = 3, & ! natural vegetation
  LU_SCND    = 4, & ! secondary vegetation
  LU_URBN    = 5, & ! urban
+ LU_RANGE   = 6, & ! rangeland
  LU_PSL     = 1001 ! primary and secondary land, for LUMIP
 
-character(len=4), public, parameter  :: &
-     landuse_name (N_LU_TYPES) = (/ 'past','crop','ntrl','scnd', 'urbn'/)
+character(len=5), public, parameter  :: &
+     landuse_name (N_LU_TYPES) = (/ 'past ','crop ','ntrl ','scnd ', 'urbn ', 'range'/)
 character(len=32), public, parameter :: &
-     landuse_longname (N_LU_TYPES) = (/ 'pasture  ', 'crop     ', 'natural  ', 'secondary', 'urban    '/)
+     landuse_longname (N_LU_TYPES) = (/ 'pasture  ', 'crop     ', 'natural  ', 'secondary', 'urban    ','rangeland'/)
 
 integer, public, parameter :: & ! harvesting pools parameters
  N_HARV_POOLS        = 6, & ! number of harvesting pools
@@ -249,15 +250,15 @@ type spec_data_type
   real    :: tauNSC        = 0.8    ! residence time of C in NSC (to define storage capacity)
   !  for PPA, IMC, 1/8/2017
   real    :: growth_resp   = 0.333  ! fraction of NPP lost as growth respiration
-  real    :: NSC2targetbl  = 4.0    !ratio of NSC to target biomass of leaves
+  real    :: NSC2targetbl  = 4.0    ! ratio of NSC to target biomass of leaves
 
   real    :: tracer_cuticular_cond = 0.0 ! cuticular conductance for all tracers, m/s
 
   ! for hydraulics, wolf
   real    :: Kxam=0.0, Klam=0.0 ! Conductivity, max, per tissue area: units kg/m2 tissue/s/MPa
-  real    :: dx=0.0, dl=0.0       ! Breakpoint of Weibull function, MPa
-  real    :: cx=1.0, cl=1.0	  ! Exponent of Weibull function, unitless
-  real    :: psi_tlp=0.0                  ! psi at turgor loss point
+  real    :: dx=0.0, dl=0.0     ! Breakpoint of Weibull function, MPa
+  real    :: cx=1.0, cl=1.0	! Exponent of Weibull function, unitless
+  real    :: psi_tlp=0.0        ! psi at turgor loss point
 
   real    :: root_exudate_frac = 0.0 ! fraction of NPP that ends up in root exudates
   real    :: branch_wood_frac = 0.1525 ! fraction of total wood biomass in branches,
@@ -458,9 +459,9 @@ subroutine read_vegn_data_namelist()
   do while (fm_loop_over_list(iter, name, ftype, n))
      if (trim(name) == 'default' ) then
         i = species_slot(name)
-        write(*,*) 'found default =',i
+        ! write(*,*) 'found default =',i
         call read_species_data(name, spdata(i), species_errors)
-        write(*,*) 'read default data =',i, species_errors
+        ! write(*,*) 'read default data =',i, species_errors
         do k = lbound(spdata,1),ubound(spdata,1)
            if (i==k) cycle ! skip the deafult species
            ! set all species data to defaults, except the name

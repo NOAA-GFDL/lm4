@@ -12,7 +12,7 @@ use fms_mod, only: error_mesg, NOTE, WARNING, FATAL, file_exist, &
                    close_file, check_nml_error, stdlog, string
 use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe
 
-use time_manager_mod, only: time_type, time_type_to_real, get_date, operator(-)
+use time_manager_mod, only: time_type, time_type_to_real, get_date, day_of_year, operator(-)
 use field_manager_mod, only: fm_field_name_len
 use constants_mod,    only: tfreeze, rdgas, rvgas, hlv, hlf, cp_air, PI
 use sphum_mod, only: qscomp
@@ -537,7 +537,7 @@ subroutine vegn_init ( id_ug, id_band )
   call read_static_vegn ( lnd%time )
 
   ! initialize harvesting options
-  call vegn_harvesting_init()
+  call vegn_harvesting_init(id_ug)
 
   ! initialize fire
   call vegn_fire_init(id_ug, delta_time, lnd%time)
@@ -1835,7 +1835,7 @@ end subroutine update_derived_vegn_data
 subroutine update_vegn_slow( )
 
   ! ---- local vars ----------------------------------------------------------
-  integer :: second, minute, hour, day0, day1, month0, month1, year0, year1
+  integer :: second, minute, hour, day0, day1, month0, month1, year0, year1, doy
   type(land_tile_enum_type) :: ce
   type(land_tile_type), pointer :: tile
   integer :: i,j,k,l ! current point indices
@@ -1991,8 +1991,9 @@ subroutine update_vegn_slow( )
      endif
      call check_conservation_2(tile,'update_vegn_slow 7',lmass0,fmass0,cmass0)
 
+     call vegn_harvesting(tile, year0/=year1, month0/=month1, day0/=day1, doy, l)
+
      if (year1 /= year0) then
-        call vegn_harvesting(tile%vegn)
         tile%vegn%fsc_rate_ag = tile%vegn%fsc_pool_ag/fsc_pool_spending_time
         tile%vegn%ssc_rate_ag = tile%vegn%ssc_pool_ag/ssc_pool_spending_time
         tile%vegn%fsc_rate_bg = tile%vegn%fsc_pool_bg/fsc_pool_spending_time

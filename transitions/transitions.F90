@@ -37,7 +37,7 @@ use nfu_mod, only : nfu_validtype, nfu_inq_var, nfu_get_dim_bounds, nfu_get_rec,
      nfu_get_dim, nfu_get_var, nfu_get_valid_range, nfu_is_valid
 
 use vegn_data_mod, only : &
-     N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, landuse_name, landuse_longname
+     N_LU_TYPES, LU_PAST, LU_CROP, LU_NTRL, LU_SCND, LU_RANGE, landuse_name, landuse_longname
 
 use cana_tile_mod, only : cana_tile_heat
 use snow_tile_mod, only : snow_tile_heat
@@ -147,7 +147,7 @@ data (luh2name(idata), luh2type(idata), idata = 1, 12) / &
    'c4per', LU_CROP, &
    'c3nfx', LU_CROP, &
    'pastr', LU_PAST, &
-   'range', LU_PAST  /
+   'range', LU_RANGE /
 
 ! variables for LUMIP diagnostics
 integer, parameter :: N_LUMIP_TYPES = 4, &
@@ -158,7 +158,7 @@ integer :: &
    id_frac_out(N_LUMIP_TYPES) = -1
 ! translation table: model land use types -> LUMIP types: for each of the model
 ! LU types it lists the corresponding LUMIP type.
-integer, parameter :: lu2lumip(N_LU_TYPES) = [LUMIP_PST, LUMIP_CRP, LUMIP_PSL, LUMIP_PSL, LUMIP_URB]
+integer, parameter :: lu2lumip(N_LU_TYPES) = [LUMIP_PST, LUMIP_CRP, LUMIP_PSL, LUMIP_PSL, LUMIP_URB, LUMIP_PST]
 
 ! ---- namelist variables ---------------------------------------------------
 logical, protected, public :: do_landuse_change = .FALSE. ! if true, then the landuse changes with time
@@ -171,6 +171,8 @@ character(len=16)  :: data_type  = 'luh1' ! or 'luh2'
 ! tile in equal measure, except secondary-to-secondary); 'min-tiles' applies
 ! transitions to tiles in the order of priority, thereby minimizing the number
 ! of resulting tiles
+logical :: rangeland_is_pasture = .FALSE. ! if true, rangeland is combined with pastures.
+! This only applies to luh2 transitions, since there is no rangeland in luh1 anyway.
 character(len=16)  :: distribute_transitions  = 'lm3' ! or 'min-n-tiles'
 ! sets how to handle transition overshoot: that is, the situation when transition
 ! is larger than available area of the given land use type.
@@ -180,7 +182,8 @@ real :: overshoot_tolerance = 1e-4 ! tolerance interval for overshoots
 character(len=16) :: conservation_handling = 'stop' ! or 'report', or 'ignore'
 
 namelist/landuse_nml/do_landuse_change, input_file, state_file, static_file, data_type, &
-     distribute_transitions, overshoot_handling, overshoot_tolerance, &
+     rangeland_is_pasture, distribute_transitions, &
+     overshoot_handling, overshoot_tolerance, &
      conservation_handling
 
 
@@ -203,6 +206,9 @@ subroutine land_transitions_init(id_ug, id_cellarea)
   integer :: dimids(NF_MAX_VAR_DIMS), dimlens(NF_MAX_VAR_DIMS)
   type(nfu_validtype) :: v ! valid values range
   character(len=12) :: fieldname
+
+  type(land_tile_type), pointer :: tile
+  type(land_tile_enum_type) :: ce
 
   if(module_is_initialized) return
   module_is_initialized = .TRUE.
@@ -313,6 +319,20 @@ subroutine land_transitions_init(id_ug, id_cellarea)
      call diag_field_add_attribute(id_frac_out(k1),'ocean_fillvalue',0.0)
   enddo
 
+  ! change rangeland to pasture.
+  if (rangeland_is_pasture) then
+     ! change the type of transitions
+     do k1 = 1,size(luh2type)
+        if (luh2type(k1)==LU_RANGE) luh2type(k1)=LU_PAST
+     enddo
+     ! change land use type in existing tiles
+     ce = first_elmt(land_tile_map, ls=lnd%ls )
+     do while(loop_over_tiles(ce,tile))
+        if (.not.associated(tile%vegn)) cycle
+        if (tile%vegn%landuse == LU_RANGE) tile%vegn%landuse = LU_PAST
+     enddo
+  endif
+
   if (.not.do_landuse_change) return ! do nothing more if no land use requested
 
   if (trim(input_file)=='') call error_mesg('land_transitions_init', &
@@ -348,7 +368,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
         k2 = luh2type(n2)
         input_tran(k1,k2)%name=trim(landuse_name(k1))//'2'//trim(landuse_name(k2))
         if (k1==k2.and.k1/=LU_SCND) cycle ! skip transitions to the same LM3 LU type, except scnd2scnd
-        call add_var_to_varset(input_tran(k1,k2),tran_ncid,input_file,luh2name(n1)//'_to_'//luh2name(n2))
+        call add_var_to_varset(input_tran(k1,k2),tran_ncid,input_file,trim(luh2name(n1))//'_to_'//trim(luh2name(n2)))
      enddo
      enddo
 
@@ -361,7 +381,7 @@ subroutine land_transitions_init(id_ug, id_cellarea)
         ! open state file
         ierr=nf_open(state_file,NF_NOWRITE,state_ncid)
         if(ierr/=NF_NOERR) call error_mesg('land_transitions_init', 'landuse state file "'// &
-             trim(input_file)//'" could not be opened because '//nf_strerror(ierr), FATAL)
+             trim(state_file)//'" could not be opened because '//nf_strerror(ierr), FATAL)
         call get_time_axis(state_ncid, state_time_in)
         ! initialize state variable array
         do n2 = 1,size(luh2type)
@@ -979,8 +999,8 @@ subroutine split_changing_tile_parts_by_priority(d_list,d_kind,a_kind,dfrac,a_li
         temp%frac = darea
         tile%frac = tile%frac-darea
         ! convert land use type of the tile: cut the forest, if necessary
-        if(temp%vegn%landuse==LU_NTRL.or.temp%vegn%landuse==LU_SCND) &
-                call vegn_cut_forest(temp%vegn, a_kind)
+        if(temp%vegn%landuse==LU_NTRL.or.temp%vegn%landuse==LU_SCND.or.temp%vegn%landuse==LU_RANGE) &
+                call vegn_cut_forest(temp, a_kind)
         ! change landuse type of the tile
         temp%vegn%landuse = a_kind
         ! add the new tile to the resulting list
@@ -1106,8 +1126,8 @@ subroutine split_changing_tile_parts(d_list,d_kind,a_kind,dfrac,a_list)
         tile%frac = tile%frac*(1.0-darea)
         ! convert land use type of the tile:
         ! cut the forest, if necessary
-        if(temp%vegn%landuse==LU_NTRL.or.temp%vegn%landuse==LU_SCND) &
-             call vegn_cut_forest(temp%vegn, a_kind)
+        if(temp%vegn%landuse==LU_NTRL.or.temp%vegn%landuse==LU_SCND.or.temp%vegn%landuse==LU_RANGE) &
+             call vegn_cut_forest(temp, a_kind)
         ! change landuse type of the tile
         temp%vegn%landuse = a_kind
         ! add the new tile to the resulting list
@@ -1307,10 +1327,10 @@ subroutine check_conservation(name, d1, d2, tolerance)
 
   if (abs(d1-d2)>tolerance) then
      call get_current_point(i=curr_i,j=curr_j,face=face)
-     write(message,'(a,3(x,a,i4), 2(x,a,g23.16))')&
+     write(message,'(a,3(x,a,i4), 3(x,a,g23.16))')&
           'conservation of '//trim(name)//' is violated', &
           'at i=',curr_i,'j=',curr_j,'face=',face, &
-          'value before=', d1, 'after=', d2
+          'value before=', d1, 'after=', d2, 'diff=',d2-d1
      call error_mesg('land_transitions',message,severity)
   endif
 end subroutine check_conservation
