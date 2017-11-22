@@ -6,8 +6,7 @@ use fms_mod,            only : error_mesg, WARNING, FATAL
 use constants_mod,      only : tfreeze, hlf
 
 use land_constants_mod, only : NBANDS
-use land_debug_mod,     only : is_watch_point, check_conservation, check_var_range, &
-     carbon_cons_tol, water_cons_tol, heat_cons_tol
+use land_debug_mod,     only : is_watch_point, check_var_range
 use land_numerics_mod,  only : rank_descending
 use land_io_mod,        only : init_cover_field
 use land_tile_selectors_mod, only : tile_selector_type
@@ -173,12 +172,12 @@ type :: vegn_tile_type
    real :: fire_rad_power=0.0 ! Fire radiative power as seen by MODIS [W/pixel]
    integer :: trop_code = -1 !! dsward
    ! dsward - variables for multi-day fires
-   real :: fires_to_add_mdf        = 0.0 ! Number of fires, used to compute ignitions from previous day's fires  
-   real :: BAperfire_ave_mdf       = 0.0 ! Average burned area per fire  
+   real :: fires_to_add_mdf        = 0.0 ! Number of fires, used to compute ignitions from previous day's fires
+   real :: BAperfire_ave_mdf       = 0.0 ! Average burned area per fire
    real :: past_fires_mdf      (MAX_MDF_LENGTH) = 0.0 ! Tracking of multi-day fires from the previous MAX_MDF_LENGTH days.
    real :: past_areaburned_mdf (MAX_MDF_LENGTH) = 0.0 ! Tracking of multi-day fires area burned for computing additional area burned in subsequent days.
    real :: past_tilesize_mdf       = 0.0 ! Tracking of the tile size of the fire's first day, for computing fire coalescence.
-   real :: total_BA_mdf            = 0.0 ! Total burned area from multi-day fires 
+   real :: total_BA_mdf            = 0.0 ! Total burned area from multi-day fires
 
    ! it's probably possible to get rid of the fields below
    real :: nep=0.0 ! net ecosystem productivity
@@ -427,6 +426,7 @@ subroutine vegn_mergecohorts_ppa(vegn, dheat)
   merged(:)=.FALSE. ; k = 0
   do i = 1, vegn%n_cohorts
      if(merged(i)) cycle ! skip cohorts that were already merged
+     if(vegn%cohorts(i)%nindivs <= 0.0) cycle ! skip cohorts with zero individuals
      k = k+1
      cc(k) = vegn%cohorts(i)
      ! try merging the rest of the cohorts into current one
@@ -434,16 +434,23 @@ subroutine vegn_mergecohorts_ppa(vegn, dheat)
         if (merged(j)) cycle ! skip cohorts that are already merged
         if (cohorts_can_be_merged(vegn%cohorts(j),cc(k))) then
            if (is_watch_point()) &
-              write(*,*) 'merging cohorts ',i,' and ',j,' into ',k
+                    write(*,'(3(a,i3))') 'merging cohorts ',i,' and ',j,' into ',k
            call merge_cohorts(vegn%cohorts(j),cc(k))
            merged(j) = .TRUE.
         endif
      enddo
   enddo
   ! at this point, k is the number of new cohorts
-  vegn%n_cohorts = k
-  deallocate(vegn%cohorts)
-  vegn%cohorts=>cc
+  if (k==0) then
+     ! can happen if all cohorts have zero individuals; we still need to keep at least
+     ! one cohort in the tile, even if its nindivs is zero.
+     vegn%n_cohorts = 1
+     deallocate(cc)
+  else
+     vegn%n_cohorts = k
+     deallocate(vegn%cohorts)
+     vegn%cohorts=>cc
+  endif
   ! note that the size of the vegn%cohorts may be larger than vegn%n_cohorts
 
   heat2 = vegn_tile_heat(vegn)
@@ -694,7 +701,7 @@ function vegn_cover_cold_start(land_mask, lonb, latb) result (vegn_frac)
   real,    intent(in) :: lonb(:,:), latb(:,:)! boundaries of the grid cells
   real,    pointer    :: vegn_frac (:,:) ! output: map of vegn fractional coverage
 
-  allocate( vegn_frac(size(land_mask(:)),MSPECIES))
+  allocate(vegn_frac(size(land_mask(:)),MSPECIES))
 
   call init_cover_field(vegn_to_use, 'INPUT/cover_type.nc', 'cover','frac', &
        lonb, latb, vegn_index_constant, input_cover_types, vegn_frac)
