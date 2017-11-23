@@ -39,8 +39,8 @@ use vegn_data_mod, only : spdata, agf_bs, do_ppa, &
 use vegn_tile_mod, only : vegn_tile_type, vegn_mergecohorts_ppa, vegn_mergecohorts_lm3, MAX_MDF_LENGTH
 use soil_tile_mod, only : N_LITTER_POOLS, LEAF, CWOOD, num_l, dz, soil_tile_type, soil_ave_theta1, soil_ave_theta2
 use vegn_cohort_mod, only : vegn_cohort_type, cohort_root_litter_profile
-use soil_util_mod, only : add_root_litter, add_soil_carbon
-use soil_carbon_mod, only : add_litter, soil_carbon_option, poolTotals, &
+use soil_util_mod, only : add_soil_carbon
+use soil_carbon_mod, only : soil_carbon_option, poolTotals, &
       remove_C_N_fraction_from_pool, N_C_TYPES, &
       SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N
 use vegn_util_mod, only : kill_plants_ppa

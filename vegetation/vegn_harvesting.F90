@@ -25,12 +25,11 @@ use vegn_data_mod, only : do_ppa, &
      HARV_POOL_WOOD_MED, HARV_POOL_WOOD_SLOW, PT_C3, PT_C4, LEAF_OFF, &
      nspecies, spdata, agf_bs
 use land_tile_mod, only : land_tile_type
-use soil_tile_mod, only : num_l, LEAF, CWOOD, soil_tile_type, &
-     soil_tile_carbon, soil_tile_nitrogen
-use vegn_tile_mod, only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa, &
-     vegn_tile_lai, vegn_tile_carbon, vegn_tile_nitrogen
+use soil_tile_mod, only : num_l, LEAF, CWOOD
+use vegn_tile_mod, only : vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa, &
+     vegn_tile_lai
 use soil_util_mod, only : add_root_litter
-use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools
+use vegn_cohort_mod, only : update_biomass_pools
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use soil_carbon_mod, only: soil_carbon_option, add_litter, C_FAST, C_SLOW, C_MIC, &
      SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, SOILC_CORPSE_N, N_C_TYPES, &
@@ -515,7 +514,7 @@ subroutine vegn_harvest_crop_lm3(tile)
   ! update biomass pools for each cohort according to harvested fraction
   do i = 1, vegn%n_cohorts
      associate(cc=>vegn%cohorts(i), sp=>spdata(vegn%cohorts(i)%species))
-     ! use for harvest only aboveg round living biomass and waste the correspondent below living and wood
+     ! use for harvest only above-ground living biomass and waste the correspondent below living and wood
      vegn%harv_pool_C(HARV_POOL_CROP) = vegn%harv_pool_C(HARV_POOL_CROP) + &
           cc%bliving*(cc%Pl + cc%Psw*agf_bs)*fraction_harvested
      select case (soil_carbon_option)
@@ -595,7 +594,7 @@ subroutine vegn_cut_forest_lm3(tile, new_landuse)
   real :: frac_harvested         ! fraction of biomass harvested this time
   real :: frac_wood_wasted       ! fraction of wood wasted during transition
   real :: frac_wood_wasted_ag    ! fraction of above-ground wood wasted during transition
-  real :: wood_harvested         ! anount of harvested wood, kgC/m2
+  real :: wood_harvested         ! amount of harvested wood, kgC/m2
   real :: bdead, balive, bleaf, bfroot, btotal ! combined biomass pools
   real :: delta
   integer :: i
@@ -626,7 +625,7 @@ subroutine vegn_cut_forest_lm3(tile, new_landuse)
   else
      frac_wood_wasted = frac_wood_wasted_clear
   endif
-  ! take into accont that all wood below ground is wasted; also the fraction
+  ! take into account that all wood below ground is wasted; also the fraction
   ! of waste calculated above is lost from the above-ground part of the wood
   frac_wood_wasted_ag=frac_wood_wasted
   if (waste_below_ground_wood) then
@@ -928,8 +927,8 @@ subroutine vegn_cut_forest_ppa(tile, new_landuse)
         ! these trees are too small to be harvested, so a part of them get trampled
         ! and goes to waste, the rest stays
         ndead = cc%nindivs * frac_trampled
-        call kill_plants_ppa(cc,vegn,ndead,0.0, leaf_litt_C, wood_harv_C, root_litt_C, &
-                                                leaf_litt_N, wood_harv_N, root_litt_N  )
+        call kill_plants_ppa(cc,vegn,ndead,0.0, leaf_litt_C, wood_litt_C, root_litt_C, &
+                                                leaf_litt_N, wood_litt_N, root_litt_N  )
      endif
      end associate
      ! note that below-ground wood all goes to litter, by construction of kill_plants_ppa
