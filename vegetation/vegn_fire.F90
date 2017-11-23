@@ -959,6 +959,7 @@ subroutine save_fire_restart(tile_dim_length,timestamp)
      call add_tile_data(restart,'past_tilesize_mdf', past_tilesize_mdf_ptr)
      call add_tile_data(restart,'past_fires_mdf', 'mdf_day', past_fires_mdf_ptr)
      call add_tile_data(restart,'past_areaburned_mdf', 'mdf_day', past_areaburned_mdf_ptr)
+
      call save_land_restart(restart)
      call free_land_restart(restart)
   endif
@@ -1258,18 +1259,22 @@ end subroutine update_fire_ntrl
 !!! dsward_mdf added for computing multiday fires
 subroutine update_multiday_fires(vegn,tile_area)
     type(vegn_tile_type), intent(inout) :: vegn
-!    type(diag_buff_type), intent(inout) :: diag
-    real, intent(in)     :: tile_area   ! Area of tile (m2)
-    real                 :: adj_Nfires=0.   ! number of fires after adjusting for fire coalescence
-    real                 :: mdf_BA=0.   ! Burned area from multiday fires for current day
-    real                 :: mdf_BF_tot=0.   ! Total burned area from multi-day fires, for diagnostics
-    real                 :: mdf_BAperfire=0.   ! Burned area per fire from multiday fires for current day
-    real                 :: mdf_BAperfire_prev=0.   ! Burned area per fire from previous multiday fire burning
-    real                 :: adj_duration=0.   ! Adjusted fire duration [s], to compute starting area burned for continuing fire
-    integer              :: i = 0
-    integer              :: kop  ! switch for boreal (1) and non-boreal (2) zones
+    real, intent(in) :: tile_area   ! Area of tile (m2)
+    real :: adj_Nfires   ! number of fires after adjusting for fire coalescence
+    real :: mdf_BA   ! Burned area from multiday fires for current day
+    real :: mdf_BAperfire   ! Burned area per fire from multiday fires for current day
+    real :: mdf_BAperfire_prev   ! Burned area per fire from previous multiday fire burning
+    real :: adj_duration   ! Adjusted fire duration [s], to compute starting area burned for continuing fire
+    integer :: i
+    integer :: kop  ! switch for boreal (1) and non-boreal (2) zones
 
     real, parameter :: fire_duration = 86400.0 ! always 1 day for the purpose of multi-day fires
+
+    adj_Nfires = 0.0
+    mdf_BA = 0.0
+    mdf_BAperfire = 0.0
+    mdf_BAperfire_prev = 0.0
+    adj_duration = 0.0
 
     kop=1
     if (vegn%koppen_zone .lt. 11) kop=2  ! switch magic scalar to non-boreal value
