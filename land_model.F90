@@ -426,7 +426,7 @@ subroutine land_model_init &
   call hlsp_init ( id_ug ) ! Must be called before soil_init
   call soil_init ( id_ug, id_band, id_zfull)
   call hlsp_hydro_init (id_ug, id_zfull) ! Must be called after soil_init
-  call vegn_init ( id_ug, id_band )
+  call vegn_init ( id_ug, id_band, id_cellarea )
   call lake_init ( id_ug )
   call glac_init ( id_ug )
   call snow_init ( id_ug )

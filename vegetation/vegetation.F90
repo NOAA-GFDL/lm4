@@ -267,9 +267,10 @@ end subroutine read_vegn_namelist
 
 ! ============================================================================
 ! initialize vegetation
-subroutine vegn_init ( id_ug, id_band )
+subroutine vegn_init ( id_ug, id_band, id_cellarea )
   integer, intent(in) :: id_ug   !<Unstructured axis id.
   integer, intent(in) :: id_band ! ID of spectral band axis
+  integer, intent(in) :: id_cellarea ! ID of cell area diag field, for cell measures
 
   ! ---- local vars
   integer :: unit         ! unit for various i/o
@@ -540,7 +541,7 @@ subroutine vegn_init ( id_ug, id_band )
   call vegn_harvesting_init(id_ug)
 
   ! initialize fire
-  call vegn_fire_init(id_ug, delta_time, lnd%time)
+  call vegn_fire_init(id_ug, id_cellarea, delta_time, lnd%time)
 
   ! initialize vegetation diagnostic fields
   call vegn_diag_init ( id_ug, id_band, lnd%time )
