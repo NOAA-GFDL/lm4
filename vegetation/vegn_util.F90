@@ -83,7 +83,7 @@ subroutine kill_plants_ppa(cc, vegn, ndead, fsmoke, leaf_litt, wood_litt, root_l
   ! calculate total carbon losses, kgC/m2
   lost_wood  = ndead * (cc%bwood+cc%bsw+cc%bwood_gain)
   lost_alive = ndead * (cc%bl+cc%br+cc%blv+cc%bseed+cc%nsc+cc%carbon_gain+cc%growth_previous_day)
-  ! loss to fire
+  ! loss to fire: note that we are burning roots, which we probably should not (slm).
   burned_wood  = fsmoke*lost_wood
   burned_alive = fsmoke*lost_alive
   ! loss to the soil pools
@@ -143,7 +143,7 @@ subroutine kill_small_cohorts_ppa(vegn,soil)
   type(soil_tile_type), intent(inout) :: soil
 
   ! ---- local vars
-  real, parameter :: mindensity = 1.0E-6
+  real, parameter :: mindensity = 1.0e-10 ! individuals/m2, 1 individual per 10,000 km2
 
   type(vegn_cohort_type), pointer :: cc(:) ! array to hold new cohorts
   real :: leaf_litt(N_C_TYPES) ! fine surface litter per tile, kgC/m2
@@ -161,7 +161,10 @@ subroutine kill_small_cohorts_ppa(vegn,soil)
      if (vegn%cohorts(i)%nindivs >  mindensity) k=k+1
   enddo
 
-  ! if (k==0) call error_mesg('vegn_mergecohorts_ppa','All cohorts died',WARNING)
+  ! do nothing if there are no cohorts below minimum density
+  if (k==vegn%n_cohorts) return
+
+  ! if (k==0) call land_error_message('vegn_mergecohorts_ppa: All cohorts died',WARNING)
 
   ! exclude cohorts that have zero individuals
   leaf_litt = 0 ; wood_litt = 0; root_litt = 0
@@ -222,7 +225,10 @@ subroutine add_seedlings_ppa(vegn, soil, bseed)
   integer :: newcohorts ! number of new cohorts to be created
   integer :: k ! seedling cohort index
   integer :: i ! species index
-  real    :: Tv ! temperature assigned to seedlings
+  integer :: l ! seedling layer index
+  integer :: nlayers ! total number of layers in the canopy
+  real, allocatable :: Tv(:)     ! temperature of vegatation in each layer
+  real, allocatable :: height(:) ! height of tallest vegetation in each layer
 
   if(is_watch_point()) then
      write(*,*)'##### add_seedlings_ppa input #####'
@@ -241,8 +247,17 @@ subroutine add_seedlings_ppa(vegn, soil, bseed)
      deallocate (ccold)
   endif
 
-  ! use the temperature of the last (shortest) existing cohort for seedlings
-  Tv = vegn%cohorts(vegn%n_cohorts)%Tv
+  ! store the height and temperature of tallest vegetation within each canopy layer
+  nlayers = maxval(vegn%cohorts(1:vegn%n_cohorts)%layer)
+  allocate(height(nlayers),Tv(nlayers))
+  height = 0.0
+  do k = 1,vegn%n_cohorts
+     if (vegn%cohorts(k)%height>height(vegn%cohorts(k)%layer)) then
+        height(vegn%cohorts(k)%layer) = vegn%cohorts(k)%height
+        Tv    (vegn%cohorts(k)%layer) = vegn%cohorts(k)%Tv
+     endif
+  enddo
+  height(1) = HUGE(1.0) ! guard value so that seedlings are always shorter than the first layer
 
   litt(:) = 0.0
   ! set up new cohorts
@@ -270,12 +285,20 @@ subroutine add_seedlings_ppa(vegn, soil, bseed)
     litt(:) = litt(:) + (/fsc_liv,1-fsc_liv,0.0/)*failed_seeds
     vegn%veg_out = vegn%veg_out + failed_seeds
 
+    ! Find shortest layer that is still taller than the seedling and assign the seedling
+    ! initial layer.
+    do l=nlayers,1, -1
+       if (cc%height<=height(l)) then
+          cc%layer = l
+          cc%Tv = Tv(l) ! TODO: make sure that energy is conserved in reproduction
+          exit ! from loop
+       endif
+    enddo
+
     ! we assume that the newborn cohort is dry; since nindivs of the parent
     ! doesn't change we don't need to do anything with its Wl and Ws to
     ! conserve water (since Wl and Ws are per individual)
     cc%Wl = 0 ; cc%Ws = 0
-    ! TODO: make sure that energy is conserved in reproduction
-    cc%Tv = Tv
 
     end associate   ! F2003
   enddo
@@ -293,6 +316,8 @@ subroutine add_seedlings_ppa(vegn, soil, bseed)
         write(*,*)
      enddo
   endif
+  
+  deallocate(Tv,height)
 end subroutine add_seedlings_ppa
 
 end module vegn_util_mod
