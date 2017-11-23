@@ -1519,7 +1519,7 @@ function soil_ave_theta2(soil, depth) result (A) ; real :: A
   real    :: N ! normalizing factor for averaging
   integer :: k
 
-  A = 0 ; N = 0 
+  A = 0 ; N = 0
   do k = 1, num_l
      w = dz(k) * exp(-zfull(k)/depth)
      A = A +min(max((soil%wl(k)+soil%ws(k))/(dens_h2o*dz(k)),0.0)/&

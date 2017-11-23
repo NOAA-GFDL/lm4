@@ -39,7 +39,7 @@ subroutine soil_util_init(r)
   real, intent(in) :: r
   call log_version(version, module_name, &
   __FILE__)
-  
+
   r_rhiz = r
 end subroutine soil_util_init
 

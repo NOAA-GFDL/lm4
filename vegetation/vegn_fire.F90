@@ -35,7 +35,7 @@ use land_tracers_mod, only : isphum
 
 use vegn_data_mod, only : spdata, agf_bs, do_ppa, &
       SP_C4GRASS, SP_C3GRASS, SP_TEMPDEC, SP_TROPICAL, SP_EVERGR, &
-      LU_CROP, LU_PAST, LU_NTRL, LU_SCND, LU_RANGE, FORM_GRASS
+      LU_CROP, LU_PAST, LU_NTRL, LU_SCND, LU_RANGE, FORM_GRASS, FORM_WOODY
 use vegn_tile_mod, only : vegn_tile_type, vegn_mergecohorts_ppa, vegn_mergecohorts_lm3, MAX_MDF_LENGTH
 use soil_tile_mod, only : N_LITTER_POOLS, LEAF, CWOOD, num_l, dz, soil_tile_type, soil_ave_theta1, soil_ave_theta2
 use vegn_cohort_mod, only : vegn_cohort_type, cohort_root_litter_profile
@@ -964,6 +964,7 @@ subroutine save_fire_restart(tile_dim_length,timestamp)
      call add_tile_data(restart,'past_tilesize_mdf', past_tilesize_mdf_ptr)
      call add_tile_data(restart,'past_fires_mdf', 'mdf_day', past_fires_mdf_ptr)
      call add_tile_data(restart,'past_areaburned_mdf', 'mdf_day', past_areaburned_mdf_ptr)
+
      call save_land_restart(restart)
      call free_land_restart(restart)
   endif
@@ -1055,14 +1056,14 @@ subroutine update_fire_fast(tile, p_surf, wind, l)
 
   ! SSR: Get & send Fcrop & Fpast---even for non-agri. tiles! Otherwise throws
   ! "skipped one time level" error.
-  ! slm: I don't like calling get_date for every tile every time step. Why not 
+  ! slm: I don't like calling get_date for every tile every time step. Why not
   ! do monthly processes inside slow subroutines?
   call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
   call get_date(lnd%time-lnd%dt_fast, year1,month1,day1,hour,minute,second)
   if (month1/=month0) then
      call update_fire_Fk(tile%vegn,tile%diag,l)
   endif
-  
+
   if (burns_as_ntrl(tile)) then
      ! Update conditions for fire
      call update_fire_ntrl(tile%vegn, tile%soil, tile%diag, &
@@ -1121,7 +1122,7 @@ subroutine update_fire_ntrl(vegn,soil,diag, &
     real   ::   ROS_surface,crown_scorch_frac,fire_intensity  !!! dsward_crownfires added
     integer::   kop  ! dsward_kop added switch for boreal (1) and non-boreal (2) zones
     integer :: k ! cohort iterator
-    real    :: cover ! normalization factor for fire duration averaging
+    real    :: weight ! normalization factor for fire parameter averaging
 
     kop=1
     if (vegn%koppen_zone .lt. 11) kop=2  ! dsward_kop, switch parameters to non-boreal value
@@ -1138,7 +1139,18 @@ subroutine update_fire_ntrl(vegn,soil,diag, &
 !     endif
 
     if (depth_for_theta == -1.0) then
-       depth_ave = -log(1.-percentile)*vegn%cohorts(1)%root_zeta   ! (For theta) Note that this is for the one-cohort version of the model.
+       depth_ave = 0.0; weight = 0.0
+       do k = 1,vegn%n_cohorts
+          depth_ave = depth_ave + vegn%cohorts(k)%br * vegn%cohorts(k)%nindivs * vegn%cohorts(k)%root_zeta
+          weight    = weight    + vegn%cohorts(k)%br * vegn%cohorts(k)%nindivs
+       enddo
+       if (weight>0) then
+          depth_ave = -log(1.-percentile) * depth_ave/weight
+       else
+          ! this can happen if all vegetation is dead; we still may have fire if there is
+          ! litter, so the parameters need to be set.
+          depth_ave = -log(1.-percentile) * vegn%cohorts(1)%root_zeta
+       endif
     elseif (depth_for_theta > 0.0) then
        depth_ave = depth_for_theta
     endif
@@ -1177,16 +1189,16 @@ subroutine update_fire_ntrl(vegn,soil,diag, &
 
     ! calculate fire duration as a weighted average of the species in the
     ! canopy; the weight is the fraction of canopy occupied by each species.
-    fire_dur = 0.0; cover = 0.0
+    fire_dur = 0.0; weight = 0.0
     associate(cc=>vegn%cohorts)
     do k = 1, vegn%n_cohorts
        if (cc(k)%layer==1) then
           fire_dur = fire_dur + cc(k)%nindivs*cc(k)%crownarea * spdata(cc(k)%species)%fire_duration
-          cover    = cover    + cc(k)%nindivs*cc(k)%crownarea
+          weight   = weight   + cc(k)%nindivs*cc(k)%crownarea
        endif
     enddo
-    if (cover>0) then
-       fire_dur = fire_dur/cover
+    if (weight>0) then
+       fire_dur = fire_dur/weight
     else
        ! this can happen if all vegetation is dead; we still may have fire if there is
        ! litter, so the parameters need to be set.
@@ -1285,16 +1297,14 @@ end subroutine update_fire_ntrl
 !!! dsward_mdf added for computing multiday fires
 subroutine update_multiday_fires(vegn,tile_area)
     type(vegn_tile_type), intent(inout) :: vegn
-!    type(diag_buff_type), intent(inout) :: diag
-    real, intent(in)     :: tile_area   ! Area of tile (m2)
-    real                 :: adj_Nfires=0.   ! number of fires after adjusting for fire coalescence
-    real                 :: mdf_BA=0.   ! Burned area from multiday fires for current day
-    real                 :: mdf_BF_tot=0.   ! Total burned area from multi-day fires, for diagnostics
-    real                 :: mdf_BAperfire=0.   ! Burned area per fire from multiday fires for current day
-    real                 :: mdf_BAperfire_prev=0.   ! Burned area per fire from previous multiday fire burning
-    real                 :: adj_duration=0.   ! Adjusted fire duration [s], to compute starting area burned for continuing fire
-    integer              :: i = 0
-    integer              :: kop  ! switch for boreal (1) and non-boreal (2) zones
+    real, intent(in) :: tile_area   ! Area of tile (m2)
+    real :: adj_Nfires   ! number of fires after adjusting for fire coalescence
+    real :: mdf_BA   ! Burned area from multiday fires for current day
+    real :: mdf_BAperfire   ! Burned area per fire from multiday fires for current day
+    real :: mdf_BAperfire_prev   ! Burned area per fire from previous multiday fire burning
+    real :: adj_duration   ! Adjusted fire duration [s], to compute starting area burned for continuing fire
+    integer :: i
+    integer :: kop  ! switch for boreal (1) and non-boreal (2) zones
 
     real, parameter :: fire_duration = 86400.0 ! always 1 day for the purpose of multi-day fires
 
@@ -2123,24 +2133,28 @@ subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,
     real                :: FC_parameter       ! Fuel consumption, computed here solely for intensity calculation [kg(DM)/m2]
     real                :: SH_parameter       ! Scorch height, formula from Thonicke et al. (2010)
     real                :: litter_total_C(N_LITTER_POOLS)
-    integer :: i
-
+    real :: w ! weight for cohort averaging
+    real :: height ! average height of the vegetation (crown trees only)
+    integer :: i ! cohort index
 
   !!! Need litter amount (dry matter if possible, C if all that's available)
   !!! Need vegetation height
   !!! Apply a height limit?  If no crown, can't be any crown scorch (just restrict it to tree species)
 
-
-    if (vegn%cohorts(1)%species==SP_C4GRASS) then
-        F_parameter  = 0.
-    elseif (vegn%cohorts(1)%species==SP_C3GRASS) then
-        F_parameter  = 0.
-    elseif (vegn%cohorts(1)%species==SP_TEMPDEC) then
-        F_parameter  = 0.094
-    elseif (vegn%cohorts(1)%species==SP_TROPICAL) then
-        F_parameter  = 0.1487
-    elseif (vegn%cohorts(1)%species==SP_EVERGR) then
-        F_parameter  = 0.11
+    height = 0.0; F_parameter = 0.0; w = 0.0
+    do i = 1, vegn%n_cohorts
+       associate(c=>vegn%cohorts(i), sp=>spdata(vegn%cohorts(i)%species))
+       if (sp%lifeform==FORM_WOODY.and.c%layer==1) then
+          height      = height      + c%layerfrac*c%height
+          F_parameter = F_parameter + c%layerfrac*sp%F_scorch_height
+          w           = w           + c%layerfrac
+       endif
+       end associate
+    enddo
+    if (w>0.0) then
+       height = height/w ; F_parameter = F_parameter/w
+    else
+       height = 0.0      ; F_parameter = 0.0
     endif
 
     do i = 1, N_LITTER_POOLS
@@ -2151,18 +2165,19 @@ subroutine vegn_fire_intensity(vegn,soil,ROS_surface,ROS,theta,theta_extinction,
   !!! Note the factor of 0.45 which is intended to convert kg(C)/m2 to kg(DM)/m2
     FC_parameter = (LOG(theta/theta_extinction+0.63)+0.47)*sum(litter_total_C)/0.45
     fire_intensity = ROS_surface * FC_parameter * H_parameter  !!! [kJ/m/s]
-    SH_parameter = F_parameter * (fire_intensity)**(0.6667)
-    crown_scorch_frac = ((SH_parameter-vegn%cohorts(1)%height+CL_parameter)/CL_parameter)*0.01 !percent to fraction
 
-    if (crown_scorch_frac.lt.0..or.SH_parameter.eq.0..or.vegn%cohorts(1)%height.eq.0.) &
-      crown_scorch_frac = 0.
-    if (crown_scorch_frac.gt.1.) crown_scorch_frac = 1.
+    SH_parameter = F_parameter * (fire_intensity**0.6667)
+    crown_scorch_frac = ((SH_parameter-height+CL_parameter)/CL_parameter)*0.01 ! percent to fraction
+    if (crown_scorch_frac<0.or.SH_parameter==0.or.height==0) crown_scorch_frac = 0.0
+    if (crown_scorch_frac>1.0) crown_scorch_frac = 1.0
 
-    if (do_crownfires) ROS = ROS_surface*(1.-crown_scorch_frac)+ROS_surface*3.34*(crown_scorch_frac)
-    if (.not.do_crownfires) ROS = ROS_surface
+    if (do_crownfires) then
+        ROS = ROS_surface*(1.-crown_scorch_frac)+ROS_surface*3.34*(crown_scorch_frac)
+    else
+        ROS = ROS_surface
+    endif
 
     vegn%fire_rad_power = vegn%fire_rad_power + fire_intensity * 1.e3 * (1./46.4) * dt_fast / 86400. ! [W/m]
-
 end subroutine vegn_fire_intensity
 !!! dsward_crownfires end
 

@@ -376,7 +376,7 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N)
         write(*,*)
      enddo
   endif
-  
+
   deallocate(Tv,height)
 end subroutine add_seedlings_ppa
 

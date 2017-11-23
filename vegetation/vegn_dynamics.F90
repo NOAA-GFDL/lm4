@@ -1968,10 +1968,8 @@ end subroutine vegn_phenology_lm3
 
 ! =============================================================================
 ! Added by Weng 2012-02-29
-subroutine vegn_phenology_ppa(vegn, soil, dheat)
-  type(vegn_tile_type), intent(inout) :: vegn
-  type(soil_tile_type), intent(inout) :: soil
-  real,                 intent(out)   :: dheat ! heat residual due to cohort merging
+subroutine vegn_phenology_ppa(tile)
+  type(land_tile_type), intent(inout) :: tile
 
   ! ---- local vars
   integer :: i,l,k
@@ -1983,6 +1981,7 @@ subroutine vegn_phenology_ppa(vegn, soil, dheat)
   real    :: dead_leaves_C, dead_leaves_N
   real    :: dead_roots_C, dead_roots_N
   real    :: dead_stem_C, dead_stem_N ! isa 20170705
+  real    :: dheat ! heat residual due to cohort merging
 
   ! isa 20170709 - note that in biomass_allocation_ppa deltaDBH is an output to
   ! subroutine vegn_growth, where it is saved ...
@@ -1996,10 +1995,11 @@ subroutine vegn_phenology_ppa(vegn, soil, dheat)
   real, parameter :: stem_mort_rate = 0.075 ! per day, isa 20170705
   real, parameter :: DBHtp = 0.8 ! m
 
+  associate(vegn=>tile%vegn, soil=>tile%soil)
+
   vegn%litter = 0 ;
   leaf_litt_C(:) = 0.0 ; leaf_litt_N(:) = 0.0
   root_litt_C    = 0.0 ; root_litt_N    = 0.0
-
   do i = 1,vegn%n_cohorts
      associate ( cc => vegn%cohorts(i),   &
                  sp => spdata(vegn%cohorts(i)%species) )
@@ -2109,6 +2109,8 @@ subroutine vegn_phenology_ppa(vegn, soil, dheat)
   call vegn_relayer_cohorts_ppa(vegn)
   ! merge similar cohorts, otherwise their number proliferates due to re-layering
   call vegn_mergecohorts_ppa(vegn, dheat)
+  tile%e_res_2 = tile%e_res_2 - dheat
+  end associate ! vegn, soil
 end subroutine vegn_phenology_ppa
 
 

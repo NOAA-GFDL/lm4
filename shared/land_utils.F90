@@ -1,7 +1,7 @@
 module land_utils_mod
 
 use land_debug_mod, only : check_conservation, water_cons_tol, carbon_cons_tol, &
-     nitrogen_cons_tol, do_check_conservation
+     nitrogen_cons_tol, heat_cons_tol, do_check_conservation
 use soil_carbon_mod, only : soil_carbon_option, SOILC_CORPSE_N
 use land_tile_mod, only : land_tile_type, land_tile_enum_type, land_tile_list_type, &
      first_elmt, loop_over_tiles, fptr_r0, fptr_r0i, &
@@ -103,7 +103,7 @@ subroutine check_conservation_2(tile,tag,lmass,fmass,cmass,nmass,heat)
   endif
   if (present(heat)) then
      heat1  = land_tile_heat(tile)
-     call check_conservation (tag,'heat content', heat, heat1, 1e-16)
+     call check_conservation (tag,'heat content', heat, heat1, heat_cons_tol)
   endif
 end subroutine check_conservation_2
 

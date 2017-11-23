@@ -109,7 +109,7 @@ character(len=*), parameter :: module_name = 'vegn'
 #include "../shared/version_variable.inc"
 
 ! size of cohort initial condition array
-integer, parameter :: MAX_INIT_COHORTS = 5
+integer, parameter :: MAX_INIT_COHORTS = 10
 
 
 ! ==== module variables ======================================================
@@ -2247,8 +2247,7 @@ subroutine update_vegn_slow( )
         if (do_ppa) then
            call vegn_starvation_ppa(tile%vegn, tile%soil)
            call check_conservation_2(tile,'update_vegn_slow 4.2',lmass0,fmass0,cmass0,nmass0)
-           call vegn_phenology_ppa (tile%vegn, tile%soil, dheat)
-           tile%e_res_2 = tile%e_res_2 - dheat
+           call vegn_phenology_ppa (tile)
            call check_conservation_2(tile,'update_vegn_slow 4.3',lmass0,fmass0,cmass0,nmass0)
         else
            call vegn_nat_mortality_lm3(tile%vegn,tile%soil,86400.0)

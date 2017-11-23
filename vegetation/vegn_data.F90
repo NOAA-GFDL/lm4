@@ -324,6 +324,13 @@ type spec_data_type
   real    :: fireMort_root = 0.10
   ! dsward parameters
   real    :: EF_CO2 = 1643.0, EF_CO = 63.0
+  real    :: F_scorch_height = 0.0 ! Fuel bulk density parameter from Thonicke et al. (2010)
+             ! Original values:
+             ! SP_C4GRASS  : 0.
+             ! SP_C3GRASS  : 0.
+             ! SP_TEMPDEC  : 0.094
+             ! SP_TROPICAL : 0.1487
+             ! SP_EVERGR   : 0.11
 end type
 
 ! ==== module data ===========================================================
@@ -858,6 +865,7 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(fireMort_root)
   __GET_SPDATA_REAL__(EF_CO2)
   __GET_SPDATA_REAL__(EF_CO)
+  __GET_SPDATA_REAL__(F_scorch_height)
 #undef __GET_SPDATA_LOGICAL__
 #undef __GET_SPDATA_REAL__
 
@@ -1117,6 +1125,7 @@ subroutine print_species_data(unit)
   call add_row(table, 'fireMort_root', spdata(:)%fireMort_root)
   call add_row(table, 'EF_CO2', spdata(:)%EF_CO2)
   call add_row(table, 'EF_CO', spdata(:)%EF_CO)
+  call add_row(table, 'F_scorch_height', spdata(:)%F_scorch_height)
 
   call add_row(table, 'do_N_mining_strategy', spdata(:)%do_N_mining_strategy)
   call add_row(table, 'do_N_scavenging_strategy', spdata(:)%do_N_scavenging_strategy)

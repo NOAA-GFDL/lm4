@@ -16,8 +16,7 @@ use diag_manager_mod, only : register_static_field, send_data
 
 use land_constants_mod, only : seconds_per_year
 use land_io_mod, only : read_field
-use land_debug_mod, only : check_conservation, carbon_cons_tol, nitrogen_cons_tol, &
-     land_error_message, do_check_conservation
+use land_debug_mod, only : land_error_message
 use land_utils_mod, only : check_conservation_1, check_conservation_2
 use land_data_mod, only : log_version, lnd
 use vegn_data_mod, only : do_ppa, &
@@ -28,8 +27,8 @@ use vegn_data_mod, only : do_ppa, &
 use land_tile_mod, only : land_tile_type
 use soil_tile_mod, only : num_l, LEAF, CWOOD, soil_tile_type, &
      soil_tile_carbon, soil_tile_nitrogen
-use vegn_tile_mod, only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_tile_lai, &
-     vegn_tile_carbon, vegn_tile_nitrogen
+use vegn_tile_mod, only : vegn_tile_type, vegn_relayer_cohorts_ppa, vegn_mergecohorts_ppa, &
+     vegn_tile_lai, vegn_tile_carbon, vegn_tile_nitrogen
 use soil_util_mod, only : add_root_litter
 use vegn_cohort_mod, only : vegn_cohort_type, update_biomass_pools
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
@@ -375,7 +374,7 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
 
      ! This makes sure biomass pools are correct before calculating changes
      ! in leaf biomass and such, just in case it wasn't called before
-     call update_biomass_pools(cc);
+     call update_biomass_pools(cc)
 
      ! In multiple-cohort scenario, should we be adding over all cohorts?
      if(cc%bliving*cc%Pl/sp%LMA < min_lai_for_grazing) continue
@@ -398,11 +397,11 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
      ! only potential leaves are consumed
      carbon_lost=cc%bliving*cc%Pl*grazing_intensity
      vegn%harv_pool_C(HARV_POOL_PAST) = vegn%harv_pool_C(HARV_POOL_PAST) + &
-          carbon_lost*(1-grazing_residue) ;
-     cc%bliving = cc%bliving - carbon_lost;
+          carbon_lost*(1-grazing_residue)
+     cc%bliving = cc%bliving - carbon_lost
 
      ! redistribute leftover biomass between biomass pools
-     call update_biomass_pools(cc);
+     call update_biomass_pools(cc)
 
      ! calculate new combined vegetation biomass pools
      balive1 =  cc%bl + cc%blv + cc%br
@@ -481,7 +480,7 @@ subroutine vegn_graze_pasture_lm3(tile, min_lai_for_grazing, grazing_intensity)
           vegn%ssn_pool_bg = vegn%ssn_pool_bg + bglitter_N(2)
        endif
      case default
-        call error_mesg('vegn_graze_pasture','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
+        call error_mesg('vegn_graze_pasture_lm3','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
      end select
      end associate
   enddo
@@ -494,8 +493,8 @@ subroutine vegn_harvest_crop_lm3(tile)
   type(land_tile_type), intent(inout) :: tile
 
   ! ---- local vars
-  real :: fraction_harvested;    ! fraction of biomass harvested this time
-  real :: bdead, balive, btotal; ! combined biomass pools
+  real :: fraction_harvested    ! fraction of biomass harvested this time
+  real :: bdead, balive, btotal ! combined biomass pools
   integer :: i
 
   associate (vegn=>tile%vegn)
@@ -508,10 +507,10 @@ subroutine vegn_harvest_crop_lm3(tile)
      bdead  = bdead  + cc%bwood + cc%bsw
      end associate
   enddo
-  btotal = balive+bdead;
+  btotal = balive+bdead
 
   ! calculate harvested fraction: cut everything down to seed level
-  fraction_harvested = MIN(MAX((btotal-crop_seed_density)/btotal,0.0),1.0);
+  fraction_harvested = MIN(MAX((btotal-crop_seed_density)/btotal,0.0),1.0)
 
   ! update biomass pools for each cohort according to harvested fraction
   do i = 1, vegn%n_cohorts
@@ -571,16 +570,13 @@ subroutine vegn_harvest_crop_lm3(tile)
        endif
 
      case default
-        call error_mesg('vegn_harvest_cropland','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
+        call error_mesg('vegn_harvest_crop_lm3','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
      end select
 
-
      ! redistribute leftover biomass between biomass pools
-
-     cc%bliving = cc%bliving * (1-fraction_harvested);
-     cc%bwood   = cc%bwood   * (1-fraction_harvested);
-
-     call update_biomass_pools(cc);
+     cc%bliving = cc%bliving * (1-fraction_harvested)
+     cc%bwood   = cc%bwood   * (1-fraction_harvested)
+     call update_biomass_pools(cc)
      end associate
   enddo
   end associate ! vegn
@@ -596,18 +592,19 @@ subroutine vegn_cut_forest_lm3(tile, new_landuse)
                                      ! the tile after the wood harvesting
 
   ! ---- local vars
-  real :: frac_harvested;        ! fraction of biomass harvested this time
+  real :: frac_harvested         ! fraction of biomass harvested this time
   real :: frac_wood_wasted       ! fraction of wood wasted during transition
   real :: frac_wood_wasted_ag    ! fraction of above-ground wood wasted during transition
   real :: wood_harvested         ! anount of harvested wood, kgC/m2
-  real :: bdead, balive, bleaf, bfroot, btotal; ! combined biomass pools
+  real :: bdead, balive, bleaf, bfroot, btotal ! combined biomass pools
   real :: delta
   integer :: i
 
-  associate (vegn=>tile%vegn)
   if (new_landuse==LU_RANGE) return ! do nothing for the conversion to rangeland
 
-  balive = 0 ; bdead = 0 ; bleaf = 0 ; bfroot = 0 ;
+  associate (vegn=>tile%vegn)
+
+  balive = 0 ; bdead = 0 ; bleaf = 0 ; bfroot = 0
   ! calculate initial combined biomass pools for the patch
   do i = 1, vegn%n_cohorts
      associate (cc=>vegn%cohorts(i))
@@ -618,10 +615,10 @@ subroutine vegn_cut_forest_lm3(tile, new_landuse)
      bdead  = bdead  + cc%bwood + cc%bsw
      end associate
   enddo
-  btotal = balive+bdead;
+  btotal = balive+bdead
 
   ! calculate harvested fraction: cut everything down to seed level
-  frac_harvested = MIN(MAX((btotal-crop_seed_density)/btotal,0.0),1.0);
+  frac_harvested = MIN(MAX((btotal-crop_seed_density)/btotal,0.0),1.0)
 
   ! define fraction of wood wasted, based on the transition type
   if (new_landuse==LU_SCND) then
@@ -660,8 +657,8 @@ subroutine vegn_cut_forest_lm3(tile, new_landuse)
 
      ! distribute wood and living biomass between fast and slow intermediate
      ! soil carbon pools according to fractions specified through the namelists
-     delta = (cc%bwood+cc%bsw)*frac_harvested*frac_wood_wasted;
-     if(delta<0) call error_mesg('vegn_cut_forest', &
+     delta = (cc%bwood+cc%bsw)*frac_harvested*frac_wood_wasted
+     if(delta<0) call land_error_message('vegn_cut_forest_lm3: '// &
           'harvested amount of dead biomass ('//string(delta)//' kgC/m2) is below zero', &
           FATAL)
 
@@ -670,19 +667,19 @@ subroutine vegn_cut_forest_lm3(tile, new_landuse)
         vegn%ssc_pool_bg = vegn%ssc_pool_bg + delta*(1-sp%fsc_wood)
         vegn%fsc_pool_bg = vegn%fsc_pool_bg + delta*   sp%fsc_wood
 
-        delta = balive * frac_harvested;
-        if(delta<0) call error_mesg('vegn_cut_forest', &
+        delta = balive * frac_harvested
+        if(delta<0) call land_error_message('vegn_cut_forest_lm3: '// &
              'harvested amount of live biomass ('//string(delta)//' kgC/m2) is below zero', &
              FATAL)
-        vegn%ssc_pool_bg = vegn%ssc_pool_bg + delta*(1-sp%fsc_liv) ;
-        vegn%fsc_pool_bg = vegn%fsc_pool_bg + delta*   sp%fsc_liv  ;
+        vegn%ssc_pool_bg = vegn%ssc_pool_bg + delta*(1-sp%fsc_liv)
+        vegn%fsc_pool_bg = vegn%fsc_pool_bg + delta*   sp%fsc_liv
      case (SOILC_CORPSE, SOILC_CORPSE_N)
-        delta = (cc%bwood+cc%bsw)*frac_harvested*agf_bs*frac_wood_wasted_ag;
+        delta = (cc%bwood+cc%bsw)*frac_harvested*agf_bs*frac_wood_wasted_ag
         vegn%litter_buff_C(:,CWOOD) = vegn%litter_buff_C(:,CWOOD) + &
             [sp%fsc_wood, 1-sp%fsc_wood, 0.0]*delta
 
-        delta = (cc%bl+cc%blv) * frac_harvested;
-        if(delta<0) call error_mesg('vegn_cut_forest', &
+        delta = (cc%bl+cc%blv) * frac_harvested
+        if(delta<0) call land_error_message('vegn_cut_forest_lm3: '// &
                 'harvested amount of live biomass ('//string(delta)//' kgC/m2) is below zero', &
                 FATAL)
 
@@ -729,11 +726,11 @@ subroutine vegn_cut_forest_lm3(tile, new_landuse)
         endif
 
     case default
-        call error_mesg('vegn_cut_forest','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
+        call error_mesg('vegn_cut_forest_lm3','The value of soil_carbon_option is invalid. This should never happen. Contact developer.',FATAL)
      end select
 
-     cc%bliving = cc%bliving*(1-frac_harvested);
-     cc%bwood   = cc%bwood*(1-frac_harvested);
+     cc%bliving = cc%bliving*(1-frac_harvested)
+     cc%bwood   = cc%bwood*(1-frac_harvested)
      cc%leaf_N = cc%leaf_N*(1-frac_harvested)
      cc%root_N = cc%root_N*(1-frac_harvested)
      cc%wood_N = cc%wood_N*(1-frac_harvested)
@@ -741,7 +738,7 @@ subroutine vegn_cut_forest_lm3(tile, new_landuse)
      cc%stored_N = cc%stored_N*(1-frac_harvested)
      ! Should stored N be lost or retained?
      ! redistribute leftover biomass between biomass pools
-     call update_biomass_pools(cc);
+     call update_biomass_pools(cc)
      end associate
   enddo
   end associate ! vegn
@@ -817,6 +814,7 @@ subroutine vegn_harvest_crop_ppa(tile)
   real, dimension(num_l, N_C_TYPES) :: &
      root_litt_C, root_litt_N    ! accumulated root litter per soil layer, kg/m2
   real :: ndead  ! number of individuals killed in cohort
+  real :: dheat  ! heat residual in cohort merge
   integer :: i
   ! variables for conservation checks
   real :: lmass0, fmass0, heat0, cmass0, nmass0
@@ -873,6 +871,8 @@ subroutine vegn_harvest_crop_ppa(tile)
   vegn%ssn_pool_bg = vegn%ssn_pool_bg + sum(root_litt_N(:,C_SLOW))
 
   call vegn_relayer_cohorts_ppa(vegn)
+  call vegn_mergecohorts_ppa(vegn, dheat)
+  tile%e_res_2 = tile%e_res_2 - dheat
   end associate ! vegn
 
   call check_conservation_2(tile,'vegn_harvest_crop_ppa',lmass0,fmass0,cmass0,nmass0,heat0)
@@ -893,7 +893,8 @@ subroutine vegn_cut_forest_ppa(tile, new_landuse)
   real, dimension(num_l, N_C_TYPES) :: &
      root_litt_C, root_litt_N    ! accumulated root litter per soil layer, kg/m2
   real :: ndead  ! number of individuals killed in cohort
-  real :: dbh_min
+  real :: dbh_min ! minimum DBH of harvested trees
+  real :: dheat  ! heat residual in cohort merge
   integer :: i
   ! variables for conservation checks
   real :: lmass0, fmass0, heat0, cmass0, nmass0
@@ -981,6 +982,8 @@ subroutine vegn_cut_forest_ppa(tile, new_landuse)
   vegn%ssn_pool_bg = vegn%ssn_pool_bg + sum(root_litt_N(:,C_SLOW))
 
   call vegn_relayer_cohorts_ppa(vegn)
+  call vegn_mergecohorts_ppa(vegn, dheat)
+  tile%e_res_2 = tile%e_res_2 - dheat
   end associate ! vegn
 
   call check_conservation_2(tile,'vegn_cut_forest_ppa',lmass0,fmass0,cmass0,nmass0,heat0)
@@ -1038,7 +1041,7 @@ subroutine vegn_plant_crop_ppa(tile)
         call land_error_message('vegn_plant_crop_ppa: unknown physiology type '//string(pt)//'; this should never happen.', FATAL)
      end select
   case default
-     call land_error_message('vegn_plant_crop_ppa: unknown crop distribution option; this should never happen.', FATAL)
+     call error_mesg('vegn_plant_crop_ppa','Unknown crop distribution option; this should never happen.', FATAL)
   end select
 
   ! borrow biomass (crop_seed_density) from harvest pools, in order of preference

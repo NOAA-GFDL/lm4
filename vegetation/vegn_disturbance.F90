@@ -680,10 +680,9 @@ subroutine tile_nat_mortality_ppa(t0,ndead,t1)
 
   if (associated(t1)) then
      call vegn_relayer_cohorts_ppa(t1%vegn)
-     call vegn_mergecohorts_ppa(t0%vegn, dheat)
+     call vegn_mergecohorts_ppa(t1%vegn, dheat)
      t1%e_res_2 = t1%e_res_2 - dheat
   endif
-
 end subroutine tile_nat_mortality_ppa
 
 end module vegn_disturbance_mod
