@@ -1085,7 +1085,7 @@ subroutine update_fire_ntrl(vegn,soil,diag, &
     real   ::   ROS_surface,crown_scorch_frac,fire_intensity  !!! dsward_crownfires added
     integer::   kop  ! dsward_kop added switch for boreal (1) and non-boreal (2) zones
     integer :: k ! cohort iterator
-    real    :: cover ! normalization factor for fire duration averaging
+    real    :: weight ! normalization factor for fire parameter averaging
 
     kop=1
     if (vegn%koppen_zone .lt. 11) kop=2  ! dsward_kop, switch parameters to non-boreal value
@@ -1102,7 +1102,18 @@ subroutine update_fire_ntrl(vegn,soil,diag, &
 !     endif
 
     if (depth_for_theta == -1.0) then
-       depth_ave = -log(1.-percentile)*vegn%cohorts(1)%root_zeta   ! (For theta) Note that this is for the one-cohort version of the model.
+       depth_ave = 0.0; weight = 0.0
+       do k = 1,vegn%n_cohorts
+          depth_ave = depth_ave + vegn%cohorts(k)%br * vegn%cohorts(k)%nindivs * vegn%cohorts(k)%root_zeta
+          weight    = weight    + vegn%cohorts(k)%br * vegn%cohorts(k)%nindivs
+       enddo
+       if (weight>0) then
+          depth_ave = - log(1.-percentile) * depth_ave/weight
+       else
+          ! this can happen if all vegetation is dead; we still may have fire if there is
+          ! litter, so the parameters need to be set.
+          depth_ave = -log(1.-percentile) * vegn%cohorts(1)%root_zeta
+       endif
     elseif (depth_for_theta > 0.0) then
        depth_ave = depth_for_theta
     endif
@@ -1141,16 +1152,16 @@ subroutine update_fire_ntrl(vegn,soil,diag, &
 
     ! calculate fire duration as a weighted average of the species in the
     ! canopy; the weight is the fraction of canopy occupied by each species.
-    fire_dur = 0.0; cover = 0.0
+    fire_dur = 0.0; weight = 0.0
     associate(cc=>vegn%cohorts)
     do k = 1, vegn%n_cohorts
        if (cc(k)%layer==1) then
           fire_dur = fire_dur + cc(k)%nindivs*cc(k)%crownarea * spdata(cc(k)%species)%fire_duration
-          cover    = cover    + cc(k)%nindivs*cc(k)%crownarea
+          weight   = weight   + cc(k)%nindivs*cc(k)%crownarea
        endif
     enddo
-    if (cover>0) then
-       fire_dur = fire_dur/cover
+    if (weight>0) then
+       fire_dur = fire_dur/weight
     else
        ! this can happen if all vegetation is dead; we still may have fire if there is
        ! litter, so the parameters need to be set.
