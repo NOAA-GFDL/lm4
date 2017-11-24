@@ -136,9 +136,9 @@ subroutine kill_plants_ppa(cc, vegn, ndead, fsmoke, &
         if (wood_litt_C(l)<0) bn = bn+abs(wood_litt_C(l))
      enddo
      if (bp<bn) call land_error_message(&
-        'kill_plants_ppa: total wood litter amount is negative ('//string(sum(wood_litt_C))//')', FATAL)
+        'kill_plants_ppa: total wood litter amount is negative ('//string(sum(wood_litt_C))//'), rescaling', FATAL)
      do l = 1, N_C_TYPES
-        if (wood_litt_C(l)>0) wood_litt_C(l) = wood_litt_C(l)+(bp-bn)/bp
+        if (wood_litt_C(l)>0) wood_litt_C(l) = wood_litt_C(l)*(bp-bn)/bp
         if (wood_litt_C(l)<0) wood_litt_C(l) = 0.0
      enddo
   endif
