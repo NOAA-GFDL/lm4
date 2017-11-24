@@ -68,7 +68,7 @@ subroutine kill_plants_ppa(cc, vegn, ndead, fsmoke, leaf_litt, wood_litt, root_l
   real :: lost_wood, lost_alive, burned_wood, burned_alive
   real :: profile(num_l) ! storage for vertical profile of exudates and root litter
   integer :: l
-  real :: bp, bn ! positive and negative amounts of litter, used in adjusting litter pools if one is negative 
+  real :: bp, bn ! positive and negative amounts of litter, used in adjusting litter pools if one is negative
 
   call check_var_range(ndead,  0.0, cc%nindivs, 'kill_plants_ppa', 'ndead',  FATAL)
   call check_var_range(fsmoke, 0.0, 1.0,        'kill_plants_ppa', 'fsmoke', FATAL)
@@ -123,9 +123,9 @@ subroutine kill_plants_ppa(cc, vegn, ndead, fsmoke, leaf_litt, wood_litt, root_l
         if (wood_litt(l)<0) bn = bn+abs(wood_litt(l))
      enddo
      if (bp<bn) call land_error_message(&
-        'kill_plants_ppa: total wood litter amount is negative ('//string(sum(wood_litt))//')', FATAL)
+        'kill_plants_ppa: total wood litter amount is negative ('//string(sum(wood_litt))//'), rescaling', FATAL)
      do l = 1, N_C_TYPES
-        if (wood_litt(l)>0) wood_litt(l) = wood_litt(l)+(bp-bn)/bp
+        if (wood_litt(l)>0) wood_litt(l) = wood_litt(l)*(bp-bn)/bp
         if (wood_litt(l)<0) wood_litt(l) = 0.0
      enddo
   endif
@@ -316,7 +316,7 @@ subroutine add_seedlings_ppa(vegn, soil, bseed)
         write(*,*)
      enddo
   endif
-  
+
   deallocate(Tv,height)
 end subroutine add_seedlings_ppa
 
