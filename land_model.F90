@@ -154,8 +154,9 @@ real    :: con_fac_small = 1.e-6
 real    :: tau_snow_T_adj = -1.0 ! time scale of snow temperature adjustment
               ! for the snow-free surface (s); negative means no adjustment
 logical :: prohibit_negative_canopy_water = .TRUE. ! if true, the solution of energy/water
-                                   ! balance is iterated (at most twice) to ensure
-                                   ! water and snow on leaves do not go negative
+              ! balance is iterated (at most max_canopy_water_steps) to ensure
+              ! water and snow on leaves do not go negative
+integer :: max_canopy_water_steps = 2
 character(16) :: nearest_point_search = 'global' ! specifies where to look for
               ! nearest points for missing data, "global" or "face"
 logical :: print_remapping = .FALSE. ! if true, full land cover remapping
@@ -194,7 +195,7 @@ namelist /land_model_nml/ use_old_conservation_equations, &
                           gfrac_tol, discharge_tol, &
                           improve_solution, solution_tol, max_improv_steps, &
                           con_fac_large, con_fac_small, &
-                          tau_snow_T_adj, prohibit_negative_canopy_water, &
+                          tau_snow_T_adj, prohibit_negative_canopy_water, max_canopy_water_steps, &
                           nearest_point_search, print_remapping, &
                           layout, io_layout, npes_io_group, mask_table
 ! ---- end of namelist -------------------------------------------------------
@@ -1550,7 +1551,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
     vT = vegn_T-tfreeze
   endif
 
-  do canopy_water_step = 1,2
+  do canopy_water_step = 1,max_canopy_water_steps
      if(is_watch_point()) then
         write(*,*)'#### input data for the matrix ####'
         __DEBUG1__(canopy_water_step)
