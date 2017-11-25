@@ -79,8 +79,10 @@ real  :: Ea_kc = 80.5! Activation Energy for kc
 real  :: Hd_kc = 200.0! Inactivation Energy for kc
 real  :: Ea_vm = 48.75! Activation Energy for vm
 real  :: Hd_vm = 200.0! Inactivation Energy for vm
-real  :: Ea_gam = 38.3! Activation Energy for vm
-real  :: Hd_gam = 200.0! Inactivation Energy for vm
+real  :: Ea_gam = 24.5! Activation Energy for gamma star
+real  :: Hd_gam = 200.0! Inactivation Energy for gamma star
+real  :: Ea_resp = 46.39! Activation Energy for resp
+real  :: Hd_resp = 200.0! Inactivation Energy for resp
 
 character(32) :: co2_to_use_for_photosynthesis = 'prescribed' ! or 'interactive'
    ! specifies what co2 concentration to use for photosynthesis calculations:
@@ -432,6 +434,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   real :: coef0,coef1;
 
   real :: Resp;
+  real :: Resp25;
 
   ! conductance related
   real :: do1;
@@ -465,6 +468,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   real  :: kc_opt !Kc at Optimal Temperature
   real  :: vm_opt ! Vcmax at Optimal Temperature
   real  :: capgam_opt !Gamma Star at Optimal Temperature
+  real  :: resp_opt !Respiration at Optimal Temperature
 
   if (is_watch_point()) then
      write(*,*) '####### gs_leuning input #######'
@@ -497,6 +501,13 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   light_top = rad_top*rad_phot;
   par_net   = rad_net*rad_phot;
   
+  ! Find the minimum value of Lai where kok effect could happen
+  if (light_top>spdata(pft)%light_kok .and. spdata(pft)%inib_factor>0.0) then
+    lai_kok=min(log(light_top/spdata(pft)%light_kok)/kappa,lai)
+  else
+    lai_kok = 0.0
+  endif
+  
   select case (vegn_Tresponse_option)
   case(VEGN_TRESPONSE_LM3)
      ! capgam=0.209/(9000.0*exp(-5000.0*(1.0/288.2-1.0/tl))); - Foley formulation, 1986
@@ -506,14 +517,29 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
 
      !This is Vmax at 15C, litterature usually use 25C
      vm=spdata(pft)%Vmax*exp(3000.0*(1.0/288.2-1.0/tl))
-     vm25=spdata(pft)%Vmax*exp(3000.0*(1.0/288.2-1.0/298.2)) !Establish Vmax at 25C
      capgam=0.5*kc/ko*0.21*0.209; ! Farquhar & Caemmerer 1982
      
      TempFuncR=(1.0+exp(0.4*(spdata(pft)%TminR-tl+TFREEZE)))*(1.0+exp(0.4*(tl-spdata(pft)%TmaxR-TFREEZE)))
      TempFuncP=(1.0+exp(0.4*(spdata(pft)%TminP-tl+TFREEZE)))*(1.0+exp(0.4*(tl-spdata(pft)%TmaxP-TFREEZE)))
+     
+     if (layer > 1) vm=vm*spdata(pft)%Vmax_understory_factor ! reduce vmax in the understory
+     !decrease Vmax due to aging of temperate deciduous leaves
+     !(based on Wilson, Baldocchi and Hanson (2001)."Plant,Cell, and Environment", vol 24, 571-583)
+     if (spdata(pft)%leaf_age_tau>0 .and. leaf_age>spdata(pft)%leaf_age_onset) then
+     vm=vm*exp(-(leaf_age-spdata(pft)%leaf_age_onset)/spdata(pft)%leaf_age_tau)
+     endif
+
+     if (Kok_effect) then
+        Resp=(1-spdata(pft)%inib_factor)*spdata(pft)%gamma_resp*vm*lai_kok+spdata(pft)%gamma_resp*vm*(lai-lai_kok)
+     else
+        Resp=spdata(pft)%gamma_resp*vm*lai
+     endif
+     
+     Resp=Resp/TempFuncR
+     
   case(VEGN_TRESPONSE_OPTIMAL)
      !First we will calculate the parameters at Topt.
-     ! capgam=0.209/(9000.0*exp(-5000.0*(1.0/288.2-1.0/tl))); - Foley formulation, 1986
+     capgam_opt=0.209/(9000.0*exp(-5000.0*(1.0/288.2-1.0/(spdata(pft)%ToptP+TFREEZE)))); !- Foley formulation, 1986
      ko_opt=0.25   *exp(1400.0*(1.0/288.2-1.0/(spdata(pft)%ToptP+TFREEZE)))*p_sea/p_surf;
      kc_opt=0.00015*exp(6000.0*(1.0/288.2-1.0/(spdata(pft)%ToptP+TFREEZE)))*p_sea/p_surf;
      !This is Vmax at 15C, litterature usually use 25C
@@ -526,37 +552,57 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
      ko=ko_opt*((Hd_ko*exp(Ea_ko*(tl-(spdata(pft)%ToptP+TFREEZE))/(tl*8.314e-3*(spdata(pft)%ToptP+TFREEZE))))/(Hd_ko-Ea_ko*(1-exp(Hd_ko*(tl-(spdata(pft)%ToptP+TFREEZE))/(tl*8.314e-3*(spdata(pft)%ToptP+TFREEZE))))))
      kc=kc_opt*((Hd_kc*exp(Ea_kc*(tl-(spdata(pft)%ToptP+TFREEZE))/(tl*8.314e-3*(spdata(pft)%ToptP+TFREEZE))))/(Hd_kc-Ea_kc*(1-exp(Hd_kc*(tl-(spdata(pft)%ToptP+TFREEZE))/(tl*8.314e-3*(spdata(pft)%ToptP+TFREEZE))))))
      vm=vm_opt*((Hd_vm*exp(Ea_vm*(tl-(spdata(pft)%ToptP+TFREEZE))/(tl*8.314e-3*(spdata(pft)%ToptP+TFREEZE))))/(Hd_vm-Ea_vm*(1-exp(Hd_vm*(tl-(spdata(pft)%ToptP+TFREEZE))/(tl*8.314e-3*(spdata(pft)%ToptP+TFREEZE))))))
-     TempFuncR=1/((TempFactR**spdata(pft)%tshrR)*exp((spdata(pft)%tshrR/spdata(pft)%tshlR)*(1.-(TempFactR**spdata(pft)%tshlR))))
+     !TempFuncR=1/((TempFactR**spdata(pft)%tshrR)*exp((spdata(pft)%tshrR/spdata(pft)%tshlR)*(1.-(TempFactR**spdata(pft)%tshlR))))
      !TempFuncP=1/((TempFactP**spdata(pft)%tshrP)*exp((spdata(pft)%tshrP/spdata(pft)%tshlP)*(1.-(TempFactP**spdata(pft)%tshlP))))
-     capgam=0.5*kc/ko*0.21*0.209;
+     capgam=capgam_opt*((Hd_gam*exp(Ea_gam*(tl-(spdata(pft)%ToptP+TFREEZE))/(tl*8.314e-3*(spdata(pft)%ToptP+TFREEZE))))/(Hd_gam-Ea_gam*(1-exp(Hd_gam*(tl-(spdata(pft)%ToptP+TFREEZE))/(tl*8.314e-3*(spdata(pft)%ToptP+TFREEZE))))))
+     !capgam=0.5*kc/ko*0.21*0.209;
+     
+     if (layer > 1) then 
+        vm=vm*spdata(pft)%Vmax_understory_factor ! reduce vmax in the understory
+        vm25=vm25*spdata(pft)%Vmax_understory_factor ! reduce vmax in the understory 
+     endif   
+     !decrease Vmax due to aging of temperate deciduous leaves
+     !(based on Wilson, Baldocchi and Hanson (2001)."Plant,Cell, and Environment", vol 24, 571-583)
+     if (spdata(pft)%leaf_age_tau>0 .and. leaf_age>spdata(pft)%leaf_age_onset) then
+       vm=vm*exp(-(leaf_age-spdata(pft)%leaf_age_onset)/spdata(pft)%leaf_age_tau)
+       vm25=vm25*exp(-(leaf_age-spdata(pft)%leaf_age_onset)/spdata(pft)%leaf_age_tau)
+     endif
+
+     if (Kok_effect) then
+        Resp25=(1-spdata(pft)%inib_factor)*spdata(pft)%gamma_resp*vm25*lai_kok+spdata(pft)%gamma_resp*vm25*(lai-lai_kok)
+     else
+        Resp25=spdata(pft)%gamma_resp*vm25*lai
+     endif
+     resp_opt=(Resp25*exp((Ea_resp*(spdata(pft)%ToptR-25))/(((TFREEZE+25)*8.314e-3*(spdata(pft)%ToptR+TFREEZE))))) !Arrhenius function
+     Resp=resp_opt*((Hd_resp*exp(Ea_resp*(tl-(spdata(pft)%ToptR+TFREEZE))/(tl*8.314e-3*(spdata(pft)%ToptR+TFREEZE))))/(Hd_resp-Ea_resp*(1-exp(Hd_resp*(tl-(spdata(pft)%ToptR+TFREEZE))/(tl*8.314e-3*(spdata(pft)%ToptR+TFREEZE))))))
      
   end select
   
-  if (layer > 1) vm=vm*spdata(pft)%Vmax_understory_factor ! reduce vmax in the understory
+  !if (layer > 1) vm=vm*spdata(pft)%Vmax_understory_factor ! reduce vmax in the understory
   !if (layer > 1) vm25=vm25*spdata(pft)%Vmax_understory_factor 
   !decrease Vmax due to aging of temperate deciduous leaves
   !(based on Wilson, Baldocchi and Hanson (2001)."Plant,Cell, and Environment", vol 24, 571-583)
-  if (spdata(pft)%leaf_age_tau>0 .and. leaf_age>spdata(pft)%leaf_age_onset) then
-     vm=vm*exp(-(leaf_age-spdata(pft)%leaf_age_onset)/spdata(pft)%leaf_age_tau)
-  endif
+  !if (spdata(pft)%leaf_age_tau>0 .and. leaf_age>spdata(pft)%leaf_age_onset) then
+  !   vm=vm*exp(-(leaf_age-spdata(pft)%leaf_age_onset)/spdata(pft)%leaf_age_tau)
+  !endif
    
   !Resp=spdata(pft)%gamma_resp*vm*lai !/layer
   ! Find respiration for the whole canopy layer
-  if (light_top>spdata(pft)%light_kok .and. spdata(pft)%inib_factor>0.0) then
-     lai_kok=min(log(light_top/spdata(pft)%light_kok)/kappa,lai)
-  else
-     lai_kok = 0.0
-  endif
+  !if (light_top>spdata(pft)%light_kok .and. spdata(pft)%inib_factor>0.0) then
+  !   lai_kok=min(log(light_top/spdata(pft)%light_kok)/kappa,lai)
+  !else
+  !   lai_kok = 0.0
+  !endif
   !VM NEED TO BE MODIFIED TO VCMAX AT 25C, RIGHT RESP HAS SAME TEMPERATURE RESPONSE THAN VM
-  if (Kok_effect) then
-     Resp=(1-spdata(pft)%inib_factor)*spdata(pft)%gamma_resp*vm*lai_kok+spdata(pft)%gamma_resp*vm*(lai-lai_kok)
-  else
-     Resp=spdata(pft)%gamma_resp*vm*lai
-  endif
+  !if (Kok_effect) then
+  !   Resp=(1-spdata(pft)%inib_factor)*spdata(pft)%gamma_resp*vm*lai_kok+spdata(pft)%gamma_resp*vm*(lai-lai_kok)
+  !else
+  !   Resp=spdata(pft)%gamma_resp*vm*lai
+  !endif
   if (layer > 1) Resp = Resp*spdata(pft)%Resp_understory_factor ! reduce gamma_resp by 50% per Steve's experiments - need a reference
 
   !Resp=Resp/((1.0+exp(0.4*(5.0-tl+TFREEZE)))*(1.0+exp(0.4*(tl-45.0-TFREEZE))));
-  Resp=Resp/TempFuncR
+  !Resp=Resp/TempFuncR
   
   ! ignore the difference in concentrations of CO2 near
   !  the leaf and in the canopy air, rb=0.
