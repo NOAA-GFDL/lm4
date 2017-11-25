@@ -36,6 +36,8 @@ use tracer_manager_mod, only : NO_TRACER
 
 use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, mol_air, mol_C, mol_co2, d608
 use land_tracers_mod, only : land_tracers_init, land_tracers_end, ntcana, isphum, ico2
+use land_tracer_driver_mod, only: land_tracer_driver_init, land_tracer_driver_end, &
+     update_cana_tracers
 use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_temp, &
      glac_radiation, glac_step_1, glac_step_2, save_glac_restart
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
@@ -448,6 +450,7 @@ subroutine land_model_init &
   ! [8] initialize boundary data
   ! [8.1] allocate storage for the boundary data
   call hlsp_config_check () ! Needs to be done after land_transitions_init and vegn_init
+  call land_tracer_driver_init(id_ug)
   call realloc_land2cplr ( land2cplr )
   call realloc_cplr2land ( cplr2land )
   ! [8.2] set the land mask to FALSE everywhere -- update_land_bc_fast
@@ -509,6 +512,7 @@ subroutine land_model_end (cplr2land, land2cplr)
   ! if the number of tiles in this domain is zero, in case they are doing
   ! something else besides saving the restart, of if they want to save
   ! restart anyway
+  call land_tracer_driver_end()
   call land_transitions_end()
   call glac_end ()
   call lake_end ()
@@ -2065,6 +2069,9 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      __DEBUG1__(tile%cana%tr(ico2))
      __DEBUG3__(fco2_0,Dfco2Dq,vegn_fco2)
   endif
+
+  call update_cana_tracers(tile, l, tr_flux, dfdtr, &
+           precip_l, precip_s, p_surf, ustar, con_g_v, con_v_v, con_st_v )
 
   call update_land_bc_fast (tile, N, l, itile, land2cplr)
 
