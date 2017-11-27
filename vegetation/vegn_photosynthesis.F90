@@ -462,6 +462,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   real :: TempFactR
   real :: TempFuncP
   real :: TempFuncR
+  real, parameter :: R = 8.314e-3 ! universal gas constant per gram
   
   !########MODIFIED BY PPG 2017-11-09
   real  :: ko_opt !Ko at Optimal Temperature 
@@ -551,12 +552,12 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
      
      !Here we calculate the value at Tleaf using the optimal function or peak function using Param at Topt
      !Medlyn et al 2002 and Bernacchi et al 2001
-     ko=ko_opt*((Hd_ko*exp(Ea_ko*(tl-(sp%ToptP+TFREEZE))/(tl*8.314e-3*(sp%ToptP+TFREEZE))))/(Hd_ko-Ea_ko*(1-exp(Hd_ko*(tl-(sp%ToptP+TFREEZE))/(tl*8.314e-3*(sp%ToptP+TFREEZE))))))
-     kc=kc_opt*((Hd_kc*exp(Ea_kc*(tl-(sp%ToptP+TFREEZE))/(tl*8.314e-3*(sp%ToptP+TFREEZE))))/(Hd_kc-Ea_kc*(1-exp(Hd_kc*(tl-(sp%ToptP+TFREEZE))/(tl*8.314e-3*(sp%ToptP+TFREEZE))))))
-     vm=vm_opt*((Hd_vm*exp(Ea_vm*(tl-(sp%ToptP+TFREEZE))/(tl*8.314e-3*(sp%ToptP+TFREEZE))))/(Hd_vm-Ea_vm*(1-exp(Hd_vm*(tl-(sp%ToptP+TFREEZE))/(tl*8.314e-3*(sp%ToptP+TFREEZE))))))
+     ko=ko_opt*((Hd_ko*exp(Ea_ko*(tl-(sp%ToptP+TFREEZE))/(tl*R*(sp%ToptP+TFREEZE))))/(Hd_ko-Ea_ko*(1-exp(Hd_ko*(tl-(sp%ToptP+TFREEZE))/(tl*R*(sp%ToptP+TFREEZE))))))
+     kc=kc_opt*((Hd_kc*exp(Ea_kc*(tl-(sp%ToptP+TFREEZE))/(tl*R*(sp%ToptP+TFREEZE))))/(Hd_kc-Ea_kc*(1-exp(Hd_kc*(tl-(sp%ToptP+TFREEZE))/(tl*R*(sp%ToptP+TFREEZE))))))
+     vm=vm_opt*((Hd_vm*exp(Ea_vm*(tl-(sp%ToptP+TFREEZE))/(tl*R*(sp%ToptP+TFREEZE))))/(Hd_vm-Ea_vm*(1-exp(Hd_vm*(tl-(sp%ToptP+TFREEZE))/(tl*R*(sp%ToptP+TFREEZE))))))
      !TempFuncR=1/((TempFactR**sp%tshrR)*exp((sp%tshrR/sp%tshlR)*(1.-(TempFactR**sp%tshlR))))
      !TempFuncP=1/((TempFactP**sp%tshrP)*exp((sp%tshrP/sp%tshlP)*(1.-(TempFactP**sp%tshlP))))
-     capgam=capgam_opt*((Hd_gam*exp(Ea_gam*(tl-(sp%ToptP+TFREEZE))/(tl*8.314e-3*(sp%ToptP+TFREEZE))))/(Hd_gam-Ea_gam*(1-exp(Hd_gam*(tl-(sp%ToptP+TFREEZE))/(tl*8.314e-3*(sp%ToptP+TFREEZE))))))
+     capgam=capgam_opt*((Hd_gam*exp(Ea_gam*(tl-(sp%ToptP+TFREEZE))/(tl*R*(sp%ToptP+TFREEZE))))/(Hd_gam-Ea_gam*(1-exp(Hd_gam*(tl-(sp%ToptP+TFREEZE))/(tl*R*(sp%ToptP+TFREEZE))))))
      !capgam=0.5*kc/ko*0.21*0.209;
      
      if (layer > 1) then 
@@ -575,8 +576,8 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
      else
         Resp25=sp%gamma_resp*vm25*lai
      endif
-     resp_opt=(Resp25*exp((Ea_resp*(sp%ToptR-25))/(((TFREEZE+25)*8.314e-3*(sp%ToptR+TFREEZE))))) !Arrhenius function
-     Resp=resp_opt*((Hd_resp*exp(Ea_resp*(tl-(sp%ToptR+TFREEZE))/(tl*8.314e-3*(sp%ToptR+TFREEZE))))/(Hd_resp-Ea_resp*(1-exp(Hd_resp*(tl-(sp%ToptR+TFREEZE))/(tl*8.314e-3*(sp%ToptR+TFREEZE))))))
+     resp_opt=(Resp25*exp((Ea_resp*(sp%ToptR-25))/(((TFREEZE+25)*R*(sp%ToptR+TFREEZE))))) !Arrhenius function
+     Resp=resp_opt*((Hd_resp*exp(Ea_resp*(tl-(sp%ToptR+TFREEZE))/(tl*R*(sp%ToptR+TFREEZE))))/(Hd_resp-Ea_resp*(1-exp(Hd_resp*(tl-(sp%ToptR+TFREEZE))/(tl*R*(sp%ToptR+TFREEZE))))))
      
   end select
   
