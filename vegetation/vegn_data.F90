@@ -762,7 +762,6 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(inib_factor)
   __GET_SPDATA_REAL__(light_kok)
   !for Temperature response, ppg, 17/11/08
-    !for Temperature response
   __GET_SPDATA_REAL__(ToptP)
   __GET_SPDATA_REAL__(TminP)  
   __GET_SPDATA_REAL__(TmaxP)
@@ -1014,8 +1013,8 @@ subroutine print_species_data(unit)
   call add_row(table, 'tshrP', spdata(:)%tshrP)
   call add_row(table, 'tshlP', spdata(:)%tshlP)
   call add_row(table, 'ToptR', spdata(:)%ToptR)
-  call add_row(table, 'TminP', spdata(:)%TminP)  
-  call add_row(table, 'TmaxP', spdata(:)%TmaxP)
+  call add_row(table, 'TminR', spdata(:)%TminR)  
+  call add_row(table, 'TmaxR', spdata(:)%TmaxR)
   call add_row(table, 'tshrR', spdata(:)%tshrR)
   call add_row(table, 'tshlR', spdata(:)%tshlR)
   
