@@ -463,6 +463,8 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   real :: TempFuncP
   real :: TempFuncR
   real, parameter :: R = 8.314e-3 ! universal gas constant per gram
+  real, parameter :: T25 = TFREEZE+25.0 ! 25 C
+
   
   !########MODIFIED BY PPG 2017-11-09
   real  :: ko_opt !Ko at Optimal Temperature 
@@ -492,10 +494,10 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
 
   !Define the different temperature functions to use 
   !######MODIFIED BY PPG 2017-11-01
-  TempFactP=(sp%TmaxP-(tl-TFREEZE))/(sp%TmaxP-sp%ToptP);
+  TempFactP=(sp%TmaxP-tl)/(sp%TmaxP-sp%ToptP);
   if (TempFactP < 0.) TempFactP=0.;
 
-  TempFactR=(sp%TmaxR-(tl-TFREEZE))/(sp%TmaxR-sp%ToptR);
+  TempFactR=(sp%TmaxR-tl)/(sp%TmaxR-sp%ToptR);
   if (TempFactR < 0.) TempFactR=0.;
   !#########
   
@@ -522,8 +524,8 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
      vm=sp%Vmax*exp(3000.0*(1.0/288.2-1.0/tl))
      capgam=0.5*kc/ko*0.21*0.209; ! Farquhar & Caemmerer 1982
      
-     TempFuncR=(1.0+exp(0.4*(sp%TminR-tl+TFREEZE)))*(1.0+exp(0.4*(tl-sp%TmaxR-TFREEZE)))
-     TempFuncP=(1.0+exp(0.4*(sp%TminP-tl+TFREEZE)))*(1.0+exp(0.4*(tl-sp%TmaxP-TFREEZE)))
+     TempFuncR=(1.0+exp(0.4*(sp%TminR-tl)))*(1.0+exp(0.4*(tl-sp%TmaxR)))
+     TempFuncP=(1.0+exp(0.4*(sp%TminP-tl)))*(1.0+exp(0.4*(tl-sp%TmaxP)))
      
      if (layer > 1) vm=vm*sp%Vmax_understory_factor ! reduce vmax in the understory
      !decrease Vmax due to aging of temperate deciduous leaves
@@ -542,22 +544,22 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
      
   case(VEGN_TRESPONSE_OPTIMAL)
      !First we will calculate the parameters at Topt.
-     capgam_opt=0.209/(9000.0*exp(-5000.0*(1.0/288.2-1.0/(sp%ToptP+TFREEZE)))); !- Foley formulation, 1986
-     ko_opt=0.25   *exp(1400.0*(1.0/288.2-1.0/(sp%ToptP+TFREEZE)))*p_sea/p_surf;
-     kc_opt=0.00015*exp(6000.0*(1.0/288.2-1.0/(sp%ToptP+TFREEZE)))*p_sea/p_surf;
+     capgam_opt=0.209/(9000.0*exp(-5000.0*(1.0/288.2-1.0/sp%ToptP))); !- Foley formulation, 1986
+     ko_opt=0.25   *exp(1400.0*(1.0/288.2-1.0/sp%ToptP))*p_sea/p_surf;
+     kc_opt=0.00015*exp(6000.0*(1.0/288.2-1.0/sp%ToptP))*p_sea/p_surf;
      !This is Vmax at 15C, litterature usually use 25C
-     vm_opt=sp%Vmax*exp(3000.0*(1.0/288.2-1.0/(sp%ToptP+TFREEZE)))
+     vm_opt=sp%Vmax*exp(3000.0*(1.0/288.2-1.0/sp%ToptP))
      vm25=sp%Vmax*exp(3000.0*(1.0/288.2-1.0/298.2)) !Establish Vmax at 25C
       ! Farquhar & Caemmerer 1982
      
      !Here we calculate the value at Tleaf using the optimal function or peak function using Param at Topt
      !Medlyn et al 2002 and Bernacchi et al 2001
-     ko=ko_opt*((Hd_ko*exp(Ea_ko*(tl-(sp%ToptP+TFREEZE))/(tl*R*(sp%ToptP+TFREEZE))))/(Hd_ko-Ea_ko*(1-exp(Hd_ko*(tl-(sp%ToptP+TFREEZE))/(tl*R*(sp%ToptP+TFREEZE))))))
-     kc=kc_opt*((Hd_kc*exp(Ea_kc*(tl-(sp%ToptP+TFREEZE))/(tl*R*(sp%ToptP+TFREEZE))))/(Hd_kc-Ea_kc*(1-exp(Hd_kc*(tl-(sp%ToptP+TFREEZE))/(tl*R*(sp%ToptP+TFREEZE))))))
-     vm=vm_opt*((Hd_vm*exp(Ea_vm*(tl-(sp%ToptP+TFREEZE))/(tl*R*(sp%ToptP+TFREEZE))))/(Hd_vm-Ea_vm*(1-exp(Hd_vm*(tl-(sp%ToptP+TFREEZE))/(tl*R*(sp%ToptP+TFREEZE))))))
+     ko=ko_opt*((Hd_ko*exp(Ea_ko*(tl-sp%ToptP)/(tl*R*sp%ToptP)))/(Hd_ko-Ea_ko*(1-exp(Hd_ko*(tl-sp%ToptP)/(tl*R*sp%ToptP)))))
+     kc=kc_opt*((Hd_kc*exp(Ea_kc*(tl-sp%ToptP)/(tl*R*sp%ToptP)))/(Hd_kc-Ea_kc*(1-exp(Hd_kc*(tl-sp%ToptP)/(tl*R*sp%ToptP)))))
+     vm=vm_opt*((Hd_vm*exp(Ea_vm*(tl-sp%ToptP)/(tl*R*sp%ToptP)))/(Hd_vm-Ea_vm*(1-exp(Hd_vm*(tl-sp%ToptP)/(tl*R*sp%ToptP)))))
      !TempFuncR=1/((TempFactR**sp%tshrR)*exp((sp%tshrR/sp%tshlR)*(1.-(TempFactR**sp%tshlR))))
      !TempFuncP=1/((TempFactP**sp%tshrP)*exp((sp%tshrP/sp%tshlP)*(1.-(TempFactP**sp%tshlP))))
-     capgam=capgam_opt*((Hd_gam*exp(Ea_gam*(tl-(sp%ToptP+TFREEZE))/(tl*R*(sp%ToptP+TFREEZE))))/(Hd_gam-Ea_gam*(1-exp(Hd_gam*(tl-(sp%ToptP+TFREEZE))/(tl*R*(sp%ToptP+TFREEZE))))))
+     capgam=capgam_opt*((Hd_gam*exp(Ea_gam*(tl-sp%ToptP)/(tl*R*sp%ToptP)))/(Hd_gam-Ea_gam*(1-exp(Hd_gam*(tl-sp%ToptP)/(tl*R*sp%ToptP)))))
      !capgam=0.5*kc/ko*0.21*0.209;
      
      if (layer > 1) then 
@@ -576,8 +578,8 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
      else
         Resp25=sp%gamma_resp*vm25*lai
      endif
-     resp_opt=(Resp25*exp((Ea_resp*(sp%ToptR-25))/(((TFREEZE+25)*R*(sp%ToptR+TFREEZE))))) !Arrhenius function
-     Resp=resp_opt*((Hd_resp*exp(Ea_resp*(tl-(sp%ToptR+TFREEZE))/(tl*R*(sp%ToptR+TFREEZE))))/(Hd_resp-Ea_resp*(1-exp(Hd_resp*(tl-(sp%ToptR+TFREEZE))/(tl*R*(sp%ToptR+TFREEZE))))))
+     resp_opt=Resp25*exp(Ea_resp*(sp%ToptR-T25)/(T25*R*sp%ToptR)) !Arrhenius function
+     Resp=resp_opt*((Hd_resp*exp(Ea_resp*(tl-sp%ToptR)/(tl*R*sp%ToptR)))/(Hd_resp-Ea_resp*(1-exp(Hd_resp*(tl-sp%ToptR)/(tl*R*sp%ToptR)))))
      
   end select
   
