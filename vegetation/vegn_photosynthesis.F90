@@ -462,7 +462,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   real :: TempFactR
   real :: TempFuncP
   real :: TempFuncR
-  real, parameter :: R = 8.314e-3 ! universal gas constant per gram
+  real, parameter :: R   = Rugas * 1e-3 ! universal gas constant per gram
   real, parameter :: T25 = TFREEZE+25.0 ! 25 C
 
   
