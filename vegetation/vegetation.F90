@@ -1066,7 +1066,9 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
         land_d, land_z0s, land_z0m, grnd_z0s, &
         cana_T, cana_q, cana_co2_mol, &
         ! output
-        con_g_h, con_g_v, & ! aerodynamic conductance between canopy air and canopy, for heat and vapor flux
+        con_g_h, con_g_v, & ! aerodynamic conductance between canopy air and ground, for heat and vapor flux
+        con_v_v, & ! aerodynamic conductance between canopy air and canopy
+        stomatal_cond, & ! integral stomatal conductance of cohort canopy
         vegn_T, vegn_Wl, vegn_Ws, & ! temperature, water and snow mass of the canopy
         vegn_ifrac,               & ! intercepted fraction of liquid and frozen precipitation
         vegn_lai,                 & ! leaf area index
@@ -1096,6 +1098,8 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
        cana_co2_mol ! co2 mixing ratio in the canopy air, mol CO2/mol dry air
   ! output -- coefficients of linearized expressions for fluxes
   real, intent(out), dimension(:) ::   &
+       con_v_v, & ! aerodyn. conductance between canopy and CAS, for vapor (and tracers)
+       stomatal_cond, & ! integral stomatal conductance of cohort canopy
        vegn_T, vegn_Wl, vegn_Ws,& ! temperature, water and snow mass of the canopy
        vegn_ifrac, & ! intercepted fraction of liquid and frozen precipitation
        vegn_lai, & ! vegetation leaf area index
@@ -1124,7 +1128,6 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
                            ! derivatives w.r.t. intercepted water masses
        precip_above_l, precip_above_s, & ! liquid and solid precip on top of the current layer, kg/(m2 s)
        precip_under_l, precip_under_s, & ! liquid and solid precip under the current layer, kg/(m2 s)
-       stomatal_cond, & ! integral stomatal conductance of canopy
        total_stomatal_cond, & ! sum of cohort stomatal conductance values, for diagnostics only
        total_cond, &! overall conductance from inside stomata to canopy air
        qvsat,     & ! sat. specific humidity at the leaf T
@@ -1135,7 +1138,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
        phot_co2, &  ! co2 mixing ratio for photosynthesis, mol CO2/mol dry air
        lai_kok, Anlayer, lai_light
   real, dimension(vegn%n_cohorts) :: &
-       con_v_h, con_v_v, & ! aerodyn. conductance between canopy and CAS, for heat and vapor
+       con_v_h, & ! aerodyn. conductance between canopy and CAS, for heat and vapor
        soil_beta, & ! relative water availability
        soil_water_supply, & ! max rate of water supply to the roots, kg/(indiv s)
        evap_demand, & ! plant evaporative demand, kg/(indiv s)
@@ -1246,14 +1249,14 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
         SWdn(i,BAND_VIS), RSv(i,BAND_VIS), cana_T, cana_q, phot_co2, p_surf, drag_q, &
         soil_beta(i), soil_water_supply(i), con_v_v(i), &
         ! output
-        evap_demand(i), stomatal_cond, RHi(i), &
+        evap_demand(i), stomatal_cond(i), RHi(i), &
         lai_kok, Anlayer, lai_light )
 
      ! accumulate total value of stomatal conductance for diagnostics.
      ! stomatal_cond is per unit area of cohort (multiplied by LAI in the
      ! vegn_photosynthesis), so the total_stomatal_cond is per unit area
      ! of tile
-     total_stomatal_cond = total_stomatal_cond+stomatal_cond*cc(i)%layerfrac
+     total_stomatal_cond = total_stomatal_cond+stomatal_cond(i)*cc(i)%layerfrac
 
      ! get the amount of intercepted water and snow per unir area of cohort
      if (cc(i)%nindivs>0) then
@@ -1313,10 +1316,10 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
      DHvDTv (i) =  2*rho*cp_air*con_v_h(i)
      DHvDTc (i) = -2*rho*cp_air*con_v_h(i)
      ! calculate the coefficients of the transpiration linearization
-     if(con_v_v(i)==0.and.stomatal_cond==0) then
+     if(con_v_v(i)==0.and.stomatal_cond(i)==0) then
         total_cond = 0.0
      else
-        total_cond = stomatal_cond*con_v_v(i)/(stomatal_cond+con_v_v(i))
+        total_cond = stomatal_cond(i)*con_v_v(i)/(stomatal_cond(i)+con_v_v(i))
      endif
 
      if(qvsat>cana_q*RHi(i))then
@@ -2251,9 +2254,9 @@ subroutine vegn_seed_transport_lm3()
      return
   end if
 
-  ! calculate the fraction of the supply that's going to be used
+  ! calculate the fraction of the supply that is going to be used
   f_supply = MIN(total_seed_demand/total_seed_supply, 1.0)
-  ! calculate the fraction of the demand that's going to be satisfied
+  ! calculate the fraction of the demand that is going to be satisfied
   f_demand = MIN(total_seed_supply/total_seed_demand, 1.0)
   ! note that either f_supply or f_demand is 1; the mass conservation law in the
   ! following calculations is satisfied since
