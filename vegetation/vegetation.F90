@@ -219,7 +219,8 @@ integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_crownarea, &
    id_soil_water_supply, id_gdd, id_tc_pheno, id_zstar_1, &
    id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi, &
-   id_brsw, id_topyear, id_growth_prev_day
+   id_brsw, id_topyear, id_growth_prev_day, &
+   id_lai_kok,id_Anlayer, id_lai_light
 integer, dimension(N_LITTER_POOLS, N_C_TYPES) :: &
    id_litter_buff_C, id_litter_buff_N, &
    id_litter_rate_C, id_litter_rate_N
@@ -430,7 +431,7 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
      call get_int_tile_data(restart2,'landuse',vegn_landuse_ptr)
 
      call get_tile_data(restart2,'age',vegn_age_ptr)
-     
+
      call get_tile_data(restart2,'fsc_pool_ag',vegn_fsc_pool_ag_ptr)
      call get_tile_data(restart2,'fsc_rate_ag',vegn_fsc_rate_ag_ptr)
      call get_tile_data(restart2,'fsc_pool_bg',vegn_fsc_pool_bg_ptr)
@@ -456,7 +457,7 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
               call get_tile_data(restart2,trim(l_shortname(j))//'litter_rate_N_'//c_shortname(i),vegn_litter_rate_N_ptr,i,j)
            enddo
         enddo
-     endif 
+     endif
      ! monthly-mean values
      call get_tile_data(restart2,'tc_av', vegn_tc_av_ptr)
      if(field_exists(restart2,'theta_av_phen')) then
@@ -854,6 +855,12 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        (/id_ug/), time, 'mass of fuel', 'kg C/m2', missing_value=-1.0 )
   id_lambda = register_tiled_diag_field (module_name, 'lambda',(/id_ug/), &
        time, 'drought', 'months', missing_value=-100.0)
+
+  !ppg 2017-11-03
+  id_lai_kok = register_tiled_diag_field ( module_name, 'lai_kok',  &
+       (/id_ug/), time, 'leaf area index at kok effect', 'm2/m2', missing_value=-1.0 )
+  id_lai_light = register_tiled_diag_field ( module_name, 'lai_light',  &
+       (/id_ug/), time, 'leaf area index lower section', 'm2/m2', missing_value=-1.0 )
 
   id_species = register_tiled_diag_field ( module_name, 'species',  &
        (/id_ug/), time, 'vegetation species number', missing_value=-1.0 )
@@ -1344,13 +1351,15 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
        rho,       & ! density of canopy air
        gaps,      & ! fraction of gaps in the canopy, used to calculate cover
        layer_gaps,& ! fraction of gaps in the canopy in a single layer, accumulator value
-       phot_co2     ! co2 mixing ratio for photosynthesis, mol CO2/mol dry air
+       phot_co2, &  ! co2 mixing ratio for photosynthesis, mol CO2/mol dry air
+       lai_kok, Anlayer, lai_light
   real, dimension(vegn%n_cohorts) :: &
        con_v_h, con_v_v, & ! aerodyn. conductance between canopy and CAS, for heat and vapor
        soil_beta, & ! relative water availability
        soil_water_supply, & ! max rate of water supply to the roots, kg/(indiv s)
        evap_demand, & ! plant evaporative demand, kg/(indiv s)
        RHi          ! relative humidity inside the leaf, at the point of vaporization
+
   type(vegn_cohort_type), pointer :: cc(:)
   integer :: i, current_layer, band, N
   real :: indiv2area ! conversion factor from X per indiv. to X per unit cohort area
@@ -1456,7 +1465,8 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
         SWdn(i,BAND_VIS), RSv(i,BAND_VIS), cana_T, cana_q, phot_co2, p_surf, drag_q, &
         soil_beta(i), soil_water_supply(i), con_v_v(i), &
         ! output
-        evap_demand(i), stomatal_cond, RHi(i) )
+        evap_demand(i), stomatal_cond, RHi(i), &
+        lai_kok, Anlayer, lai_light )
 
      ! accumulate total value of stomatal conductance for diagnostics.
      ! stomatal_cond is per unit area of cohort (multiplied by LAI in the
@@ -1620,6 +1630,10 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   call send_tile_data(id_phot_co2, phot_co2, diag)
   call send_tile_data(id_soil_water_supply, sum(soil_water_supply(:)*cc(:)%nindivs), diag)
   call send_tile_data(id_evap_demand, sum(evap_demand(:)*cc(:)%nindivs), diag)
+  !Kok effect ppg 2017-11-03
+  call send_tile_data(id_lai_light, lai_light, diag)
+  call send_tile_data(id_lai_kok, lai_kok, diag)
+
   ! plant hydraulics diagnostics
   call send_cohort_data(id_Kxi   , diag, cc(:), cc(:)%Kxi, weight=cc(:)%nindivs, op=OP_AVERAGE)
   call send_cohort_data(id_Kli   , diag, cc(:), cc(:)%Kli, weight=cc(:)%nindivs, op=OP_AVERAGE)
@@ -2164,9 +2178,9 @@ subroutine update_vegn_slow( )
 
         tile%vegn%nmn_acm = tile%vegn%nmn_acm+1 ! increase the number of accumulated months
 
-        ! Calculate monthly average allocation to each N uptake type, then save 
-        ! the maximum month from each year. So we can then smooth a yearly maximum 
-        ! estimate for limiting the change over time without messing everything up 
+        ! Calculate monthly average allocation to each N uptake type, then save
+        ! the maximum month from each year. So we can then smooth a yearly maximum
+        ! estimate for limiting the change over time without messing everything up
         ! because of seasonality
         do i = 1,tile%vegn%n_cohorts
            associate(c=>tile%vegn%cohorts(i))
