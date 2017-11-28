@@ -36,6 +36,8 @@ use tracer_manager_mod, only : NO_TRACER
 
 use land_constants_mod, only : NBANDS, BAND_VIS, BAND_NIR, mol_air, mol_C, mol_co2, d608
 use land_tracers_mod, only : land_tracers_init, land_tracers_end, ntcana, isphum, ico2
+use land_tracer_driver_mod, only: land_tracer_driver_init, land_tracer_driver_end, &
+     update_cana_tracers
 use glacier_mod, only : read_glac_namelist, glac_init, glac_end, glac_get_sfc_temp, &
      glac_radiation, glac_step_1, glac_step_2, save_glac_restart
 use lake_mod, only : read_lake_namelist, lake_init, lake_end, lake_get_sfc_temp, &
@@ -463,6 +465,7 @@ subroutine land_model_init &
   ! [8] initialize boundary data
   ! [8.1] allocate storage for the boundary data
   call hlsp_config_check () ! Needs to be done after land_transitions_init and vegn_init
+  call land_tracer_driver_init(id_ug)
   call realloc_land2cplr ( land2cplr )
   call realloc_cplr2land ( cplr2land )
   ! [8.2] set the land mask to FALSE everywhere -- update_land_bc_fast
@@ -524,6 +527,7 @@ subroutine land_model_end (cplr2land, land2cplr)
   ! if the number of tiles in this domain is zero, in case they are doing
   ! something else besides saving the restart, of if they want to save
   ! restart anyway
+  call land_tracer_driver_end()
   call land_transitions_end()
   call glac_end ()
   call lake_end ()
@@ -609,7 +613,7 @@ subroutine land_model_restart(timestamp)
   call save_land_restart(restart)
   call free_land_restart(restart)
 
-  ! [6] save component models' restarts
+  ! [6] save component model restarts
   call save_land_transitions_restart(timestamp_)
   call save_glac_restart(tile_dim_length,timestamp_)
   call save_lake_restart(tile_dim_length,timestamp_)
@@ -859,7 +863,7 @@ subroutine land_cover_cold_start_0d (set,glac0,lake0,soil0,soiltags0,&
   if (factor/=0) factor = 1/factor
   factor = factor*(1-sum(glac)-sum(lake))
   ! vegetation tiles, if any, are inserted in front of non-vegetated tiles;
-  ! this really doesn't matter except for the static vegetation override
+  ! this really does not matter except for the static vegetation override
   ! case with the data saved by lm3v -- there the vegetation tiles are
   ! in front, so it works more consistently where lad2 has more than
   ! one tile (e.g. glac/soil or lake/soil), if lad2 vegetation tiles are
@@ -1312,6 +1316,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
        vegn_fco2, & ! co2 flux from the vegetation, kg CO2/(m2 s)
        hlv_Tv(N), hlv_Tu(N), & ! latent heat of vaporization at vegn and uptake temperatures, respectively
        hls_Tv(N), &         ! latent heat of sublimation at vegn temperature
+       con_v_v(N), con_st_v(N), & ! aerodynamic and stomatal conductance, respectively
        grnd_T, gT, & ! ground temperature and its value used for sensible heat advection
        grnd_q,         & ! specific humidity at ground surface
        grnd_rh,        & ! explicit relative humidity at ground surface
@@ -1336,10 +1341,10 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
        cana_co2_mol, & ! co2 dry mixing ratio in canopy air, mol CO2/mol dry air
        fswg, evapg, sensg, &
        subs_G, subs_G2, Mg_imp, snow_G_Z, snow_G_TZ, &
-       snow_avrg_T, delta_T_snow,  & ! vertically-averaged snow temperature and it's change due to s?
+       snow_avrg_T, delta_T_snow,  & ! vertically-averaged snow temperature and its change
        vegn_ovfl_l,  vegn_ovfl_s,  & ! overflow of liquid and solid water from the canopy
        vegn_ovfl_Hl, vegn_ovfl_Hs, & ! heat flux from canopy due to overflow
-       delta_fprec, & ! correction of below-canopy solid precip in case it's average T > tfreeze
+       delta_fprec, & ! correction of below-canopy solid precip in case its average T > tfreeze
 
        hprec,              & ! sensible heat flux carried by precipitation
        hevap,              & ! sensible heat flux carried by total evapotranspiration
@@ -1433,7 +1438,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      grnd_E_max = soil_E_max
      grnd_liq = 0 ! sorry, but solver cannot handle implicit melt anymore
      grnd_ice = 0 ! sorry, but solver cannot handle implicit melt anymore
-                  ! no big loss, it's just the surface layer anyway
+                  ! no big loss, it is just the surface layer anyway
   else
      call get_current_point(face=ii)
      call error_mesg('update_land_model_fast','none of the surface tiles exist at ('//&
@@ -1483,6 +1488,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
         cana_T, cana_q, cana_co2_mol, &
         ! output
         con_g_h, con_g_v, &
+        con_v_v, con_st_v, & ! aerodyn. and stomatal conductances
         vegn_T, vegn_Wl, vegn_Ws, & ! temperature, water and snow mass on the canopy
         vegn_ifrac, vegn_lai, &
         vegn_drip_l, vegn_drip_s, &
@@ -1500,6 +1506,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   else ! i.e., no vegetation
      swnet    = 0
      con_g_h = con_fac_large ; con_g_v = con_fac_large
+     con_v_v = 0.0; con_st_v = 0.0 ! does it matter?
      if(associated(tile%glac).and.conserve_glacier_mass.and..not.snow_active) &
           con_g_v = con_fac_small
      vegn_T  = cana_T ; vegn_Wl = 0 ; vegn_Ws = 0
@@ -1747,7 +1754,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
    ! calculations.
    !
    ! NOTE: currently vegn_hcap cannot be zero if mcv_min namelist parameter is not
-   ! zero (and it's not by default, it is actually pretty big). Also, in non-vegetated
+   ! zero (and it is not by default, it is actually pretty big). Also, in non-vegetated
    ! tiles vegn_hcap is set to 1. So this degenerate case never happens in typical
    ! configurations. The only way for this to happen is to set mcv_min=0 and drop
    ! leaves
@@ -2092,6 +2099,9 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      __DEBUG3__(fco2_0,Dfco2Dq,vegn_fco2)
   endif
 
+  call update_cana_tracers(tile, l, tr_flux, dfdtr, &
+           precip_l, precip_s, p_surf, ustar, con_g_v, con_v_v, con_st_v )
+
   call update_land_bc_fast (tile, N, l, itile, land2cplr)
 
   ! accumulate runoff variables over the tiles
@@ -2148,7 +2158,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      call send_tile_data(id_nitrogen_cons, (nmass1-nflux1-nmass0+nflux0)/delta_time, tile%diag)
   endif
   ! heat1  = land_tile_heat(tile)
-  ! latent heat is missing below, and it's not trivial to add, because there are
+  ! latent heat is missing below, and it is not trivial to add, because there are
   ! multiple components with their own vaporization heat
   !  call check_conservation (tag,'heat content', &
   !      heat0+(hprec-land_sens-hevap &
@@ -2922,7 +2932,7 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   real :: snow_emis ! snow emissivity
   real :: grnd_emis ! ground emissivity
   ! NOTE :  grnd_emis is used only to satisfy xxxx_radiation interfaces; its value is ignored, but
-  ! 1-refl is used instead. snow_emis is used in the the vegn_radiation, but it shouldn't be since
+  ! 1-refl is used instead. snow_emis is used in the the vegn_radiation, but it should not be since
   ! properties of intercepted snowpack are, in general, different from the snow on the ground
   real :: snow_area_rad ! "snow area for radiation calculations" -- introduced
                         ! to reproduce lm2 behavior
@@ -3134,8 +3144,8 @@ subroutine update_land_bc_fast (tile, N, l,k, land2cplr, is_init)
   land2cplr%rough_mom      (l,k) = 0.1
   land2cplr%rough_heat     (l,k) = 0.1
 
-  ! Calculate radiative surface temperature. lwup can't be calculated here
-  ! based on the available temperatures because it's a result of the implicit
+  ! Calculate radiative surface temperature. lwup cannot be calculated here
+  ! based on the available temperatures because it is a result of the implicit
   ! time step: lwup = lwup0 + DlwupDTg*delta_Tg + ..., so we have to carry it
   ! from the update_land_fast
   ! Consequence: since update_landbc_fast is called once at the very beginning of
