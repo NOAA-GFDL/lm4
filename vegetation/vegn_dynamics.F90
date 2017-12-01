@@ -22,7 +22,7 @@ use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, &
      register_cohort_diag_field, send_cohort_data, set_default_diag_filter
 use vegn_data_mod, only : spdata, nspecies, &
      PHEN_DECIDUOUS, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
-     ALLOM_EW, ALLOM_EW1, ALLOM_HML, &
+     ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, &
      fsc_liv, fsc_wood, fsc_froot, agf_bs, &
      l_fract, mcv_min, mcv_lai, do_ppa, tau_seed, &
      understory_lai_factor, wood_fract_min, do_alt_allometry
@@ -34,6 +34,7 @@ use vegn_cohort_mod, only : vegn_cohort_type, &
      leaf_area_from_biomass, biomass_of_individual, init_cohort_allometry_ppa, &
      init_cohort_hydraulics, cohort_root_litter_profile, cohort_root_exudate_profile
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
+use vegn_harvesting_mod, only : allow_weeds_on_crops
 use soil_carbon_mod, only: N_C_TYPES, soil_carbon_option, &
     SOILC_CENTURY, SOILC_CENTURY_BY_LAYER, SOILC_CORPSE, &
     add_litter
@@ -1562,7 +1563,14 @@ subroutine vegn_reproduction_ppa(do_seed_transport)
         __DEBUG1__(ug_transported(l,:))
         __DEBUG1__(bseed(k,:))
      endif
-     call add_seedlings_ppa(tile%vegn,tile%soil,(ug_dispersed(l,:)+ug_transported(l,:))*ug_area_factor(l)+bseed(k,:))
+     if (tile%vegn%landuse==LU_CROP .and. .not.allow_weeds_on_crops) then
+        call add_seedlings_ppa(tile%vegn,tile%soil,(ug_dispersed(l,:)+ug_transported(l,:))*ug_area_factor(l)+bseed(k,:), &
+                               germination_factor = 0.0) ! no seeds germinate
+        ! This also means that the crops are not allowed to reproduce by themselves.
+     else
+        call add_seedlings_ppa(tile%vegn,tile%soil,(ug_dispersed(l,:)+ug_transported(l,:))*ug_area_factor(l)+bseed(k,:), &
+                               germination_factor = 1.0) ! do not modify natural seed germination
+     endif
      k = k+1
   enddo
 

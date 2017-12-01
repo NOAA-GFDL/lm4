@@ -103,6 +103,9 @@ character(1024) :: luh2_state_file  = '' ! input data set of LU states (for C3/C
 character(32) :: c3_crop_species  = '' ! name of the species used for C3 crops
 character(32) :: c4_crop_species  = '' ! name of the species used for C4 crops
 real :: crop_seed_density      = 0.1   ! biomass of seeds left after crop harvesting, kg/m2
+logical, public, protected :: allow_weeds_on_crops = .FALSE. ! if TRUE, seeds transported 
+        ! from outside of cropland can start growing on croplands; if FALSE they are not 
+        ! allowed to germinate.
 
 namelist/harvesting_nml/ do_harvesting, &
      ! pasture and rangeland grazing parameters
@@ -119,7 +122,7 @@ namelist/harvesting_nml/ do_harvesting, &
      crop_schedule, crop_schedule_file, &
      crop_distribution, luh2_state_file, &
      c3_crop_species, c4_crop_species, &
-     crop_seed_density
+     crop_seed_density, allow_weeds_on_crops
 
 integer :: grazing_freq = -1 ! indicator of grazing frequency (GRAZING_ANNUAL or GRAZING_DAILY)
 integer :: crop_schedule_option = -1 ! selected planting/harvesting schedule option

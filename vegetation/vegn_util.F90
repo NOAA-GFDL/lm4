@@ -214,10 +214,12 @@ end subroutine kill_small_cohorts_ppa
 ! ============================================================================
 ! Given seed biomass for each species (kgC per m2 of tile), add a seedling cohort
 ! for each species for which bseed is greater than zero.
-subroutine add_seedlings_ppa(vegn, soil, bseed)
+subroutine add_seedlings_ppa(vegn, soil, bseed, germination_factor)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
   real, intent(in) :: bseed(0:nspecies-1)
+  real, intent(in), optional :: germination_factor ! additional multiplier for
+      ! seed germination, use 0.0 to kill weed seeds on cropland
 
   type(vegn_cohort_type), pointer :: ccold(:)   ! pointer to old cohort array
   real    :: failed_seeds
@@ -229,6 +231,10 @@ subroutine add_seedlings_ppa(vegn, soil, bseed)
   integer :: nlayers ! total number of layers in the canopy
   real, allocatable :: Tv(:)     ! temperature of vegatation in each layer
   real, allocatable :: height(:) ! height of tallest vegetation in each layer
+  real    :: germ_f
+
+  germ_f = 1.0
+  if (present(germination_factor)) germ_f = 1.0
 
   if(is_watch_point()) then
      write(*,*)'##### add_seedlings_ppa input #####'
@@ -277,10 +283,10 @@ subroutine add_seedlings_ppa(vegn, soil, bseed)
     call init_cohort_hydraulics(cc, soil%pars%psi_sat_ref)
 
     ! added germination probability (prob_g) and establishment probability ((prob_e), Weng 2014-01-06
-    cc%nindivs = bseed(i) * sp%prob_g * sp%prob_e/biomass_of_individual(cc)
+    cc%nindivs = bseed(i) * sp%prob_g * germ_f * sp%prob_e/biomass_of_individual(cc)
 !    __DEBUG3__(cc%age, cc%layer, cc%nindivs)
 
-    failed_seeds = (1.0-sp%prob_g*sp%prob_e) * bseed(i)
+    failed_seeds = (1.0-sp%prob_g*germ_f*sp%prob_e) * bseed(i)
     vegn%litter = vegn%litter + failed_seeds
     litt(:) = litt(:) + (/fsc_liv,1-fsc_liv,0.0/)*failed_seeds
     vegn%veg_out = vegn%veg_out + failed_seeds
