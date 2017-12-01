@@ -2212,7 +2212,7 @@ subroutine update_land_model_fast_0d(tile, l, k, land2cplr, &
   if (id_hfdsn>0) then
      if (snow) then
         call send_tile_data(id_hfdsn, &
-            snow_flw + snow_fsw + & ! net radiation
+            snow_flw + snow_fsw   & ! net radiation
             - snow_sens & ! turbilent sensible with canopy air
             + vegn_hfprec + vegn_hlprec & ! sensible heat coming with precipitation
             - cpw*(snow_fevap+snow_levap)*(snow_T-tfreeze) & ! sensible heat carried away by water vapor
