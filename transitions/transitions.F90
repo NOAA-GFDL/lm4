@@ -11,13 +11,7 @@ use mpp_mod, only: input_nml_file
 #else
 use fms_mod, only: open_namelist_file
 #endif
-use mpp_domains_mod, only : mpp_pass_ug_to_sg
-use mpp_io_mod, only : fieldtype, mpp_get_info, mpp_get_fields
-use mpp_io_mod, only : mpp_get_axes, mpp_get_axis_data, mpp_read, validtype, mpp_is_valid
-use mpp_io_mod, only : mpp_get_atts, MPP_RDONLY, MPP_NETCDF, MPP_MULTI, MPP_SINGLE, axistype
-use mpp_io_mod, only : mpp_get_times, mpp_open, mpp_close, MPP_ASCII, mpp_get_field_index
-
-use axis_utils_mod, only : get_axis_bounds
+use mpp_io_mod, only : mpp_open, mpp_close, MPP_ASCII, MPP_RDONLY
 
 use fms_mod, only : string, error_mesg, FATAL, WARNING, NOTE, &
      mpp_pe, lowercase, file_exist, close_file, &
