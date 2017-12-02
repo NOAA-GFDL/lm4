@@ -130,7 +130,8 @@ public :: read_vegn_data_namelist
 ! ==== end of public interfaces ==============================================
 
 ! ==== constants =============================================================
-character(len=*), parameter :: module_name = 'vegn_data_mod'
+character(*), parameter :: module_name = 'vegn_data_mod'
+character(*), parameter :: data_error_header = 'VEGETATION DATA FATAL ERROR'
 #include "../shared/version_variable.inc"
 real, parameter :: TWOTHIRDS  = 2.0/3.0
 
@@ -139,7 +140,7 @@ real, parameter :: TWOTHIRDS  = 2.0/3.0
 type spec_data_type
   character(fm_field_name_len) :: name     = '' ! name of the species
   character(fm_string_len)     :: longname = '' ! longname of the species
-  real    :: treefall_disturbance_rate = 0.025;
+  real    :: treefall_disturbance_rate = 0.025
   logical :: mortality_kills_balive    = .false.! if true, then bl, blv, and br are affected by natural mortality
   integer :: pt = PT_C3 ! photosynthetic physiology of species
   integer :: phent = PHEN_DECIDUOUS ! type of phenology
@@ -222,7 +223,7 @@ type spec_data_type
   real    :: dat_snow_crit    = 0.0333
   !  for PPA, Weng, 7/25/2011
   real    :: alphaHT = 20.0,  thetaHT = 0.5, gammaHT = 0.6841742 ! height allometry parameters
-  real    :: alphaCA = 30.0,  thetaCA = 1.5 ! crown area alloametry parameters
+  real    :: alphaCA = 30.0,  thetaCA = 1.5 ! crown area allometry parameters
   real    :: alphaBM = 0.559, thetaBM = 2.5 ! biomass allometry parameters
   real    :: alphaCSASW    = 2.25e-2, thetaCSASW = 1.5 !
   real    :: maturalage    = 1.0    ! the age that can reproduce
@@ -258,17 +259,24 @@ type spec_data_type
   real    :: inib_factor = 0.0 ! default rate of inhibition for leaf respiration
   real    :: light_kok = 0.00004 ! Light intensity above which light inhibition occurs, umol/m2/s
 
-  !for Temperature response
-  real    ::  ToptP = 35.0
-  real    ::  TminP = 5.0
-  real    ::  TmaxP = 45.0
-  real    ::  tshrP = 0.6
-  real    ::  tshlP = 1.4
-  real    ::  ToptR = 42.0
-  real    ::  TminR = 5.0
-  real    ::  TmaxR = 45.0
-  real    ::  tshrR = 1.4
-  real    ::  tshlR = 1.0
+  ! for Temperature response
+  real    :: ToptP = 35.0
+  real    :: TminP = 5.0
+  real    :: TmaxP = 45.0
+  real    :: ToptR = 42.0
+  real    :: TminR = 5.0
+  real    :: TmaxR = 45.0
+
+  real    :: Ea_ko = 14.5! Activation Energy for ko
+  real    :: Hd_ko = 200.0! Inactivation Energy for ko
+  real    :: Ea_kc = 80.5! Activation Energy for kc
+  real    :: Hd_kc = 200.0! Inactivation Energy for kc
+  real    :: Ea_vm = 48.75! Activation Energy for vm
+  real    :: Hd_vm = 200.0! Inactivation Energy for vm
+  real    :: Ea_gam = 24.5! Activation Energy for gamma star
+  real    :: Hd_gam = 200.0! Inactivation Energy for gamma star
+  real    :: Ea_resp = 46.39! Activation Energy for resp
+  real    :: Hd_resp = 200.0! Inactivation Energy for resp
 
   ! for hydraulics, wolf
   real    :: Kxam=0.0, Klam=0.0 ! Conductivity, max, per tissue area: units kg/m2 tissue/s/MPa
@@ -479,7 +487,7 @@ subroutine read_vegn_data_namelist()
         call read_species_data(name, spdata(i), species_errors)
         ! write(*,*) 'read default data =',i, species_errors
         do k = lbound(spdata,1),ubound(spdata,1)
-           if (i==k) cycle ! skip the deafult species
+           if (i==k) cycle ! skip the default species
            ! set all species data to defaults, except the name
            name0 = spdata(k)%name
            spdata(k) = spdata(i)
@@ -494,12 +502,12 @@ subroutine read_vegn_data_namelist()
   do while (fm_loop_over_list(iter, name, ftype, n))
      i = species_slot(name)
      if (i>=nspecies) then
-        call error_mesg(module_name, &
+        call error_mesg(data_error_header, &
           'could not place species "'//trim(name)//'" into species table, check if you are running in LM3 mode and misspelled species name', NOTE)
         total_errors = total_errors+1
      endif
      if (spdata_set(i)) then
-        call error_mesg(module_name, &
+        call error_mesg(data_error_header, &
           'data for species "'//trim(name)//'" are set more than once in the field table',NOTE)
         total_errors = total_errors+1
      endif
@@ -512,7 +520,8 @@ subroutine read_vegn_data_namelist()
      total_errors = total_errors + species_errors
   enddo
   if (total_errors>0) &
-     call error_mesg(module_name, trim(string(total_errors))//' errors found in species parameters tables, see NOTES above', FATAL)
+     call error_mesg(module_name, trim(string(total_errors))//' errors found in species parameters tables, look for "'//&
+                                  data_error_header//'" in this output', FATAL)
 
   if (.not.all(spdata_set)) call error_mesg(module_name,'not all species data were set',FATAL)
   deallocate(spdata_set)
@@ -765,13 +774,20 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(ToptP)
   __GET_SPDATA_REAL__(TminP)
   __GET_SPDATA_REAL__(TmaxP)
-  __GET_SPDATA_REAL__(tshrP)
-  __GET_SPDATA_REAL__(tshlP)
   __GET_SPDATA_REAL__(ToptR)
   __GET_SPDATA_REAL__(TminR)
   __GET_SPDATA_REAL__(TmaxR)
-  __GET_SPDATA_REAL__(tshrR)
-  __GET_SPDATA_REAL__(tshlR)
+
+  __GET_SPDATA_REAL__(Ea_ko)
+  __GET_SPDATA_REAL__(Hd_ko)
+  __GET_SPDATA_REAL__(Ea_kc)
+  __GET_SPDATA_REAL__(Hd_kc)
+  __GET_SPDATA_REAL__(Ea_vm)
+  __GET_SPDATA_REAL__(Hd_vm)
+  __GET_SPDATA_REAL__(Ea_gam)
+  __GET_SPDATA_REAL__(Hd_gam)
+  __GET_SPDATA_REAL__(Ea_resp)
+  __GET_SPDATA_REAL__(Hd_resp)
   ! hydraulics-related parameters
   __GET_SPDATA_REAL__(Kxam)
   __GET_SPDATA_REAL__(dx)
@@ -810,7 +826,7 @@ subroutine read_species_data(name, sp, errors_found)
      enddo
      ! if not found, give an error message
      if (j>n_names) then
-        call error_mesg(module_name,'Input parameter "'//trim(str)//'" for "'//trim(name)//'" is not known',NOTE)
+        call error_mesg(data_error_header,'Input parameter "'//trim(str)//'" for "'//trim(name)//'" is not known',NOTE)
         errors_found = errors_found + 1
      endif
   enddo
@@ -1014,17 +1030,24 @@ subroutine print_species_data(unit)
   call add_row(table, 'inib_factor', spdata(:)%inib_factor)
   call add_row(table, 'light_kok', spdata(:)%light_kok)
 
-  !for Temperature response, ppg, 17/11/08, reprting in degC, same as input
+  !for Temperature response, ppg, 17/11/08, reporting in degC, same as input
   call add_row(table, 'ToptP', spdata(:)%ToptP-TFREEZE)
   call add_row(table, 'TminP', spdata(:)%TminP-TFREEZE)
   call add_row(table, 'TmaxP', spdata(:)%TmaxP-TFREEZE)
-  call add_row(table, 'tshrP', spdata(:)%tshrP)
-  call add_row(table, 'tshlP', spdata(:)%tshlP)
   call add_row(table, 'ToptR', spdata(:)%ToptR-TFREEZE)
   call add_row(table, 'TminR', spdata(:)%TminR-TFREEZE)
   call add_row(table, 'TmaxR', spdata(:)%TmaxR-TFREEZE)
-  call add_row(table, 'tshrR', spdata(:)%tshrR)
-  call add_row(table, 'tshlR', spdata(:)%tshlR)
+
+  call add_row(table, 'Ea_ko', spdata(:)%Ea_ko)
+  call add_row(table, 'Hd_ko', spdata(:)%Hd_ko)
+  call add_row(table, 'Ea_kc', spdata(:)%Ea_kc)
+  call add_row(table, 'Hd_kc', spdata(:)%Hd_kc)
+  call add_row(table, 'Ea_vm', spdata(:)%Ea_vm)
+  call add_row(table, 'Hd_vm', spdata(:)%Hd_vm)
+  call add_row(table, 'Ea_gam', spdata(:)%Ea_gam)
+  call add_row(table, 'Hd_gam', spdata(:)%Hd_gam)
+  call add_row(table, 'Ea_resp', spdata(:)%Ea_resp)
+  call add_row(table, 'Hd_resp', spdata(:)%Hd_resp)
 
   call add_row(table, 'leaf_refl_vis', spdata(:)%leaf_refl(BAND_VIS))
   call add_row(table, 'leaf_refl_nir', spdata(:)%leaf_refl(BAND_NIR))
