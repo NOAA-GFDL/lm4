@@ -253,10 +253,12 @@ end subroutine kill_small_cohorts_ppa
 ! ============================================================================
 ! Given seed biomass for each species (kgC per m2 of tile), add a seedling cohort
 ! for each species for which seed_C is greater than zero.
-subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N)
+subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N, germination_factor)
   type(vegn_tile_type), intent(inout) :: vegn
   type(soil_tile_type), intent(inout) :: soil
   real, intent(in) :: seed_C(0:nspecies-1), seed_N(0:nspecies-1)
+  real, intent(in), optional :: germination_factor ! additional multiplier for
+      ! seed germination, use 0.0 to kill weed seeds on cropland
 
   type(vegn_cohort_type), pointer :: ccold(:)   ! pointer to old cohort array
   integer :: newcohorts ! number of new cohorts to be created
@@ -268,6 +270,10 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N)
   integer :: nlayers ! total number of layers in the canopy
   real, allocatable :: Tv(:)     ! temperature of vegatation in each layer
   real, allocatable :: height(:) ! height of tallest vegetation in each layer
+  real    :: germ_f
+
+  germ_f = 1.0
+  if (present(germination_factor)) germ_f = 1.0
 
   if(is_watch_point()) then
      write(*,*)'##### add_seedlings_ppa input #####'
@@ -318,7 +324,7 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N)
     call init_cohort_hydraulics(cc, soil%pars%psi_sat_ref)
 
     ! added germination probability (prob_g) and establishment probability ((prob_e), Weng 2014-01-06
-    cc%nindivs = seed_C(i) * sp%prob_g * sp%prob_e/biomass_of_individual(cc)
+    cc%nindivs = seed_C(i) * sp%prob_g * germ_f * sp%prob_e/biomass_of_individual(cc)
 !    __DEBUG3__(cc%age, cc%layer, cc%nindivs)
 
     ! Nitrogen needs to be adjusted at this point so it's conserved, since seedling N isn't necessarily consistent with initial C vals
@@ -336,8 +342,8 @@ subroutine add_seedlings_ppa(vegn, soil, seed_C, seed_N)
     ! __DEBUG4__(parent%nindivs,parent%seed_C,parent%seed_N,cc%nsc)
     ! __DEBUG4__(cc%nindivs,cc%stored_N,cc%total_N,cc%total_N-cc%stored_N)
 
-    failed_seed_C = (1-sp%prob_g*sp%prob_e) * seed_C(i)
-    failed_seed_N = (1-sp%prob_g*sp%prob_e) * seed_N(i)
+    failed_seed_C = (1-sp%prob_g*germ_f*sp%prob_e) * seed_C(i)
+    failed_seed_N = (1-sp%prob_g*germ_f*sp%prob_e) * seed_N(i)
 
     vegn%litter = vegn%litter + failed_seed_C
     litt_C(:) = litt_C(:) + [sp%fsc_liv,1-sp%fsc_liv,0.0]*failed_seed_C

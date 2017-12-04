@@ -73,16 +73,6 @@ logical       :: Kok_effect  = .FALSE. ! if TRUE, Kok effect is taken in photosy
 
 !real :: TmaxP=45.0, ToptP=35.0,  tshrP=0.6, tshlP=1.4, TminP=5.0 ! Parameters of T-response for photosynthesis
 !real :: TmaxR=65.0, ToptR=47.0,  tshrR=1.4, tshlR=1.0, TminR=5.0 ! Parameters of T-response for respiration
-real, parameter  :: Ea_ko = 14.5! Activation Energy for ko
-real, parameter  :: Hd_ko = 200.0! Inactivation Energy for ko
-real, parameter  :: Ea_kc = 80.5! Activation Energy for kc
-real, parameter  :: Hd_kc = 200.0! Inactivation Energy for kc
-real, parameter  :: Ea_vm = 48.75! Activation Energy for vm
-real, parameter  :: Hd_vm = 200.0! Inactivation Energy for vm
-real, parameter  :: Ea_gam = 24.5! Activation Energy for gamma star
-real, parameter  :: Hd_gam = 200.0! Inactivation Energy for gamma star
-real, parameter  :: Ea_resp = 46.39! Activation Energy for resp
-real, parameter  :: Hd_resp = 200.0! Inactivation Energy for resp
 
 character(32) :: co2_to_use_for_photosynthesis = 'prescribed' ! or 'interactive'
    ! specifies what co2 concentration to use for photosynthesis calculations:
@@ -547,19 +537,19 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
      capgam_opt=0.209/(9000.0*exp(-5000.0*(1.0/288.2-1.0/sp%ToptP))); !- Foley formulation, 1986
      ko_opt=0.25   *exp(1400.0*(1.0/288.2-1.0/sp%ToptP))*p_sea/p_surf;
      kc_opt=0.00015*exp(6000.0*(1.0/288.2-1.0/sp%ToptP))*p_sea/p_surf;
-     !This is Vmax at 15C, litterature usually use 25C
+     !This is Vmax at 15C, literature usually use 25C
      vm_opt=sp%Vmax*exp(3000.0*(1.0/288.2-1.0/sp%ToptP))
      vm25=sp%Vmax*exp(3000.0*(1.0/288.2-1.0/298.2)) !Establish Vmax at 25C
       ! Farquhar & Caemmerer 1982
 
      !Here we calculate the value at Tleaf using the optimal function or peak function using Param at Topt
      !Medlyn et al 2002 and Bernacchi et al 2001
-     ko=ko_opt*((Hd_ko*exp(Ea_ko*(tl-sp%ToptP)/(tl*R*sp%ToptP)))/(Hd_ko-Ea_ko*(1-exp(Hd_ko*(tl-sp%ToptP)/(tl*R*sp%ToptP)))))
-     kc=kc_opt*((Hd_kc*exp(Ea_kc*(tl-sp%ToptP)/(tl*R*sp%ToptP)))/(Hd_kc-Ea_kc*(1-exp(Hd_kc*(tl-sp%ToptP)/(tl*R*sp%ToptP)))))
-     vm=vm_opt*((Hd_vm*exp(Ea_vm*(tl-sp%ToptP)/(tl*R*sp%ToptP)))/(Hd_vm-Ea_vm*(1-exp(Hd_vm*(tl-sp%ToptP)/(tl*R*sp%ToptP)))))
+     ko=ko_opt*((sp%Hd_ko*exp(sp%Ea_ko*(tl-sp%ToptP)/(tl*R*sp%ToptP)))/(sp%Hd_ko-sp%Ea_ko*(1-exp(sp%Hd_ko*(tl-sp%ToptP)/(tl*R*sp%ToptP)))))
+     kc=kc_opt*((sp%Hd_kc*exp(sp%Ea_kc*(tl-sp%ToptP)/(tl*R*sp%ToptP)))/(sp%Hd_kc-sp%Ea_kc*(1-exp(sp%Hd_kc*(tl-sp%ToptP)/(tl*R*sp%ToptP)))))
+     vm=vm_opt*((sp%Hd_vm*exp(sp%Ea_vm*(tl-sp%ToptP)/(tl*R*sp%ToptP)))/(sp%Hd_vm-sp%Ea_vm*(1-exp(sp%Hd_vm*(tl-sp%ToptP)/(tl*R*sp%ToptP)))))
      !TempFuncR=1/((TempFactR**sp%tshrR)*exp((sp%tshrR/sp%tshlR)*(1.-(TempFactR**sp%tshlR))))
      !TempFuncP=1/((TempFactP**sp%tshrP)*exp((sp%tshrP/sp%tshlP)*(1.-(TempFactP**sp%tshlP))))
-     capgam=capgam_opt*((Hd_gam*exp(Ea_gam*(tl-sp%ToptP)/(tl*R*sp%ToptP)))/(Hd_gam-Ea_gam*(1-exp(Hd_gam*(tl-sp%ToptP)/(tl*R*sp%ToptP)))))
+     capgam=capgam_opt*((sp%Hd_gam*exp(sp%Ea_gam*(tl-sp%ToptP)/(tl*R*sp%ToptP)))/(sp%Hd_gam-sp%Ea_gam*(1-exp(sp%Hd_gam*(tl-sp%ToptP)/(tl*R*sp%ToptP)))))
      !capgam=0.5*kc/ko*0.21*0.209;
 
      if (layer > 1) then
@@ -578,9 +568,8 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
      else
         Resp25=sp%gamma_resp*vm25*lai
      endif
-     resp_opt=Resp25*exp(Ea_resp*(sp%ToptR-T25)/(T25*R*sp%ToptR)) !Arrhenius function
-     Resp=resp_opt*((Hd_resp*exp(Ea_resp*(tl-sp%ToptR)/(tl*R*sp%ToptR)))/(Hd_resp-Ea_resp*(1-exp(Hd_resp*(tl-sp%ToptR)/(tl*R*sp%ToptR)))))
-
+     resp_opt=Resp25*exp(sp%Ea_resp*(sp%ToptR-T25)/(T25*R*sp%ToptR)) !Arrhenius function
+     Resp=resp_opt*((sp%Hd_resp*exp(sp%Ea_resp*(tl-sp%ToptR)/(tl*R*sp%ToptR)))/(sp%Hd_resp-sp%Ea_resp*(1-exp(sp%Hd_resp*(tl-sp%ToptR)/(tl*R*sp%ToptR)))))
   end select
 
   !if (layer > 1) vm=vm*sp%Vmax_understory_factor ! reduce vmax in the understory
