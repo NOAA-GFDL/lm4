@@ -89,7 +89,7 @@ use land_tile_io_mod, only: land_restart_type, &
      init_land_restart, open_land_restart, save_land_restart, free_land_restart, &
      add_tile_data, add_int_tile_data, get_tile_data, &
      field_exists, print_netcdf_error
-use land_tile_diag_mod, only : OP_SUM, tile_diag_init, tile_diag_end, &
+use land_tile_diag_mod, only : OP_SUM, cmor_name, tile_diag_init, tile_diag_end, &
      register_tiled_diag_field, send_tile_data, dump_tile_diag_fields, &
      add_tiled_diag_field_alias, register_cohort_diag_field, send_cohort_data, &
      set_default_diag_filter, register_tiled_area_fields, send_global_land_diag
@@ -264,12 +264,16 @@ integer :: &
   id_water_cons,    id_carbon_cons,   id_DOCrunf,                          &
   id_parnet, id_grnd_rh, id_cana_rh
 
+! IDs of CMOR/CMIP variables
+
+
 ! init_value is used to fill most of the allocated boundary condition arrays.
 ! It is supposed to be double-precision signaling NaN, to trigger a trap when
 ! the program is compiled with trapping non-initialized values.
 ! See http://ftp.uniovi.es/~antonio/uned/ieee754/IEEE-754references.html
 ! real, parameter :: init_value = Z'FFF0000000000001'
 real, parameter :: init_value = 0.0
+integer :: id_pcp, id_prra, id_prveg
 
 ! ---- global clock IDs
 integer :: landClock, landFastClock, landSlowClock
@@ -1334,6 +1338,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
        vegn_fsw, vegn_melt, &
        vegn_lprec,  vegn_fprec,  & ! liquid and frozen precip under canopy, kg/(m2 s)
        vegn_hlprec, vegn_hfprec, & ! heat carried by liquid and frozen precip under canopy, J/(m2 s)
+       prveg, & ! precip intercepted by vegetation, kg/(m2 s), for CMOR/CMIP output
        precip_T,pT,snow_fsw,snow_flw,snow_frunf,snow_hlrunf,&
        snow_hfrunf,subs_fsw,subs_flw,subs_sens,&
        subs_DT, subs_M_imp, subs_evap, snow_Tbot, snow_Cbot, snow_C, subs_levap,&
@@ -1476,6 +1481,9 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      ! assign cohort layer area fractions (calculated in update_derived_vegn_properties)
      f(:) = tile%vegn%cohorts(1:N)%layerfrac
      vegn_layer(:) = tile%vegn%cohorts(1:N)%layer
+     ! calculate precipitation intercepted by vegetation; need to be calculated here
+     ! since vegn_lprec and vegn_fprec get modified with drip and overflow later
+     prveg = precip_l + precip_s - vegn_lprec - vegn_fprec
   else ! i.e., no vegetation
      swnet    = 0
      con_g_h = con_fac_large ; con_g_v = con_fac_large
@@ -1492,6 +1500,7 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      Eli0=0;  DEliDTv=0;  DEliDqc=0;  DEliDwl=0;  DEliDwf=0
      Esi0=0;  DEsiDTv=0;  DEsiDqc=0;  DEsiDwl=0;  DEsiDwf=0
      f(:)=1;  vegn_layer(:) = 1
+     prveg = 0.0
   endif
 
   ! calculate fluxes between canopy and ground surface, and their derivatives
@@ -2243,6 +2252,13 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
      call send_cohort_data(id_parnet, tile%diag, c(1:N), swnet(:,BAND_VIS), weight=c(1:N)%layerfrac, op=OP_SUM)
      end associate
   endif
+
+  ! CMOR/CMIP variables
+  call send_tile_data(id_pcp,    precip_l+precip_s,                   tile%diag)
+  call send_tile_data(id_prra,   precip_l,                            tile%diag)
+  ! have to send prveg from here (rather than from vegn_step_1) to cover places where
+  ! vegetation does not exist
+  call send_tile_data(id_prveg,  prveg, tile%diag)
 
 end subroutine update_land_model_fast_0d
 
@@ -3716,6 +3732,18 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
 
   id_parnet = register_cohort_diag_field ( module_name, 'parnet', axes, time, &
              'net PAR to the vegetation', 'W/m2', missing_value=-1.0e+20)
+
+  ! CMOR/CMIP variables
+  id_pcp = register_tiled_diag_field ( cmor_name, 'pcp', axes, time, &
+             'Total Precipitation', 'kg m-2 s-1', missing_value=-1.0e+20, &
+             standard_name='total_precipitation_flux', fill_missing=.TRUE.)
+  id_prra = register_tiled_diag_field ( cmor_name, 'prra', axes, time, &
+             'Rainfall Rate', 'kg m-2 s-1', missing_value=-1.0e+20, &
+             standard_name='rainfall_flux', fill_missing=.TRUE.)
+  id_prveg = register_tiled_diag_field ( cmor_name, 'prveg', axes, time, &
+             'Precipitation onto Canopy', 'kg m-2 s-1', missing_value=-1.0e+20, &
+             standard_name='precipitation_flux_onto_canopy', fill_missing=.TRUE.)
+
 end subroutine land_diag_init
 
 ! ============================================================================
