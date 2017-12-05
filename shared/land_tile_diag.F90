@@ -582,7 +582,7 @@ subroutine reg_field_alias(id0, static, module_name, field_name, axes, init_time
     ! as a diag field
     id0 = reg_field(static, module_name, field_name, init_time, axes, long_name, &
           units, missing_value, range, op=op, standard_name=standard_name, &
-          fill_missing=fill_missing)
+          fill_missing=fill_missing, do_not_log=do_not_log)
     call add_cell_measures(id0)
     call add_cell_methods(id0)
   endif
@@ -614,7 +614,7 @@ function reg_field(static, module_name, field_name, init_time, axes, &
   character(len=*), intent(in), optional :: standard_name
   logical,          intent(in), optional :: fill_missing ! if true, missing values (e.g. ocean points)
                                                          ! are filled with zeros, as per CMIP requirements
-  logical,          intent(in), optional :: do_not_log ! if TRUE, dig field info is not logged
+  logical,          intent(in), optional :: do_not_log ! if TRUE, diag field info is not logged
 
   ! ---- local vars
   integer, pointer :: diag_ids(:) ! ids returned by FMS diag manager for each selector
