@@ -273,7 +273,7 @@ integer :: &
 ! See http://ftp.uniovi.es/~antonio/uned/ieee754/IEEE-754references.html
 ! real, parameter :: init_value = Z'FFF0000000000001'
 real, parameter :: init_value = 0.0
-integer :: id_pcp, id_prra, id_prveg
+integer :: id_pcp, id_prra, id_prveg, id_evspsblsoi, id_evspsblveg
 
 ! ---- global clock IDs
 integer :: landClock, landFastClock, landSlowClock
@@ -2256,6 +2256,16 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   ! CMOR/CMIP variables
   call send_tile_data(id_pcp,    precip_l+precip_s,                   tile%diag)
   call send_tile_data(id_prra,   precip_l,                            tile%diag)
+  ! evspsblsoi is evaporation from *soil*, so we send zero from glaciers and lakes;
+  ! the result is averaged over the entire land surface, as required by CMIP. evspsblveg
+  ! does not need this distinction because it is already zero over glaciers and lakes.
+  if (associated(tile%soil)) then
+     call send_tile_data(id_evspsblsoi, subs_levap+subs_fevap,        tile%diag)
+  else
+     call send_tile_data(id_evspsblsoi, 0.0,                          tile%diag)
+  endif
+  call send_tile_data(id_evspsblveg, sum(f(:)*(vegn_levap+vegn_fevap)), tile%diag)
+
   ! have to send prveg from here (rather than from vegn_step_1) to cover places where
   ! vegetation does not exist
   call send_tile_data(id_prveg,  prveg, tile%diag)
@@ -3743,6 +3753,19 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   id_prveg = register_tiled_diag_field ( cmor_name, 'prveg', axes, time, &
              'Precipitation onto Canopy', 'kg m-2 s-1', missing_value=-1.0e+20, &
              standard_name='precipitation_flux_onto_canopy', fill_missing=.TRUE.)
+  id_evspsblveg = register_tiled_diag_field ( cmor_name, 'evspsblveg', axes, time, &
+             'Evaporation from Canopy', 'kg m-2 s-1', missing_value=-1.0e+20, &
+             standard_name='water_evaporation_flux_from_canopy', fill_missing=.TRUE.)
+  id_evspsblsoi = register_tiled_diag_field ( cmor_name, 'evspsblsoi', axes, time, &
+             'Water Evaporation from Soil', 'kg m-2 s-1', missing_value=-1.0e+20, &
+             standard_name='water_evaporation_flux_from_soil', fill_missing=.TRUE.)
+
+  call add_tiled_diag_field_alias(id_transp, cmor_name, 'tran', axes, time, &
+      'Transpiration', 'kg m-2 s-1', missing_value=-1.0e+20, &
+      standard_name='transpiration_flux')
+  call add_tiled_diag_field_alias(id_fevaps, cmor_name, 'sbl', axes, time, &
+      'Surface Snow and Ice Sublimation Flux', 'kg m-2 s-1', missing_value=-1.0e+20, &
+      standard_name='surface_snow_and_ice_sublimation_flux')
 
 end subroutine land_diag_init
 
