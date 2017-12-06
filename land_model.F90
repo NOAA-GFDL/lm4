@@ -276,7 +276,8 @@ integer :: &
 ! real, parameter :: init_value = Z'FFF0000000000001'
 real, parameter :: init_value = 0.0
 integer :: id_pcp, id_prra, id_prveg, id_evspsblsoi, id_evspsblveg, &
-  id_snw, id_snd, id_snc, id_snm, id_sweLut, id_lwsnl, id_hfdsn, id_tws
+  id_snw, id_snd, id_snc, id_snm, id_sweLut, id_lwsnl, id_hfdsn, id_tws, &
+  id_hflsLut, id_rlusLut, id_rsusLut, id_tslsiLut
 
 ! ---- global clock IDs
 integer :: landClock, landFastClock, landSlowClock
@@ -2279,6 +2280,16 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
   ! CMOR/CMIP variables
   call send_tile_data(id_pcp,    precip_l+precip_s,                   tile%diag)
   call send_tile_data(id_prra,   precip_l,                            tile%diag)
+  ! need to send prveg from here (rather than from vegn_step_1) to cover places where
+  ! vegetation does not exist
+  call send_tile_data(id_prveg,  prveg, tile%diag)
+  ! note that the expression below gives only approximate value of latent heat
+  ! flux, since in the model specific heat of vaporization is not equal to hlv;
+  ! it depends on temperature and phase state.
+  call send_tile_data(id_hflsLut, land_evap*hlv,                      tile%diag)
+  call send_tile_data(id_rlusLut, tile%lwup,                          tile%diag)
+  if (id_rsusLut>0) call send_tile_data(id_rsusLut, &
+    sum(ISa_dn_dir*tile%land_refl_dir+ISa_dn_dif*tile%land_refl_dif), tile%diag)
   ! evspsblsoi is evaporation from *soil*, so we send zero from glaciers and lakes;
   ! the result is averaged over the entire land surface, as required by CMIP. evspsblveg
   ! does not need this distinction because it is already zero over glaciers and lakes.
@@ -2302,10 +2313,8 @@ subroutine update_land_model_fast_0d ( tile, l,itile, N, land2cplr, &
         call send_tile_data(id_hfdsn, 0.0, tile%diag)
      endif
   endif
-
-  ! have to send prveg from here (rather than from vegn_step_1) to cover places where
-  ! vegetation does not exist
-  call send_tile_data(id_prveg,  prveg, tile%diag)
+  if (id_tslsiLut>0) &
+      call send_tile_data(id_tslsiLut, (tile%lwup/stefan)**0.25,      tile%diag)
 
 end subroutine update_land_model_fast_0d
 
@@ -3801,10 +3810,6 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
              'Water Evaporation from Soil', 'kg m-2 s-1', missing_value=-1.0e+20, &
              standard_name='water_evaporation_flux_from_soil', fill_missing=.TRUE.)
 
-  call add_tiled_diag_field_alias(id_transp, cmor_name, 'tran', axes, time, &
-      'Transpiration', 'kg m-2 s-1', missing_value=-1.0e+20, &
-      standard_name='transpiration_flux')
-
   id_snw = register_tiled_diag_field ( cmor_name, 'snw', axes, time, &
              'Surface Snow Amount','kg m-2', standard_name='surface_snow_amount', &
              missing_value=-1.0e+20, fill_missing=.TRUE.)
@@ -3824,13 +3829,6 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   id_hfdsn = register_tiled_diag_field ( cmor_name, 'hfdsn', axes, time, &
              'Downward Heat Flux into Snow Where Land over Land','W m-2', standard_name='surface_downward_heat_flux_in_snow', &
              missing_value=-1.0e+20, fill_missing=.TRUE.)
-  id_sweLut = register_tiled_diag_field ( cmor_name, 'sweLut', axes, time, &
-             'Snow Water Equivalent on Land Use Tile','m', standard_name='snow_water_equivalent', &
-             missing_value=-1.0e+20, fill_missing=.FALSE. )
-
-  call add_tiled_diag_field_alias(id_fevaps, cmor_name, 'sbl', axes, time, &
-      'Surface Snow and Ice Sublimation Flux', 'kg m-2 s-1', missing_value=-1.0e+20, &
-      standard_name='surface_snow_and_ice_sublimation_flux')
 
   id_tws = register_diag_field(cmor_name, 'tws', axes, time, &
              'Terrestrial Water Storage','kg m-2', &
@@ -3839,6 +3837,31 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
   call diag_field_add_attribute(id_tws,'cell_methods','area: mean')
   call diag_field_add_attribute(id_tws,'ocean_fillvalue',0.0)
 
+  id_hflsLut = register_tiled_diag_field ( cmor_name, 'hflsLut', axes, time, &
+             'Latent Heat Flux on Land Use Tile', 'W m-2', missing_value=-1.0e+20, &
+             standard_name='surface_upward_latent_heat_flux', fill_missing=.FALSE.)
+  id_rlusLut = register_tiled_diag_field ( cmor_name, 'rlusLut', axes, time, &
+             'Surface Upwelling Longwave on Land Use Tile', 'W m-2', &
+             missing_value=-1.0e+20, standard_name='surface_upwelling_longwave_flux_in_air')
+  id_rsusLut = register_tiled_diag_field ( cmor_name, 'rsusLut', axes, time, &
+             'Surface Upwelling Shortwave on Land Use Tile', 'W m-2', &
+             missing_value=-1.0e+20, standard_name='surface_upwelling_shortwave_flux_in_air')
+  id_sweLut = register_tiled_diag_field ( cmor_name, 'sweLut', axes, time, &
+             'Snow Water Equivalent on Land Use Tile','m', standard_name='snow_water_equivalent', &
+             missing_value=-1.0e+20, fill_missing=.FALSE. )
+  id_tslsiLut = register_tiled_diag_field ( cmor_name, 'tslsiLut', axes, time, &
+             'Surface Skin Temperature on Land Use Tile', 'K', &
+             missing_value=-1.0, standard_name='surface_temperature')
+
+  call add_tiled_diag_field_alias(id_transp, cmor_name, 'tran', axes, time, &
+      'Transpiration', 'kg m-2 s-1', missing_value=-1.0e+20, &
+      standard_name='transpiration_flux')
+  call add_tiled_diag_field_alias(id_sens, cmor_name, 'hfssLut', axes, time, &
+      'Sensible Heat Flux on Land Use Tile', 'W m-2', missing_value=-1.0e+20, &
+      standard_name='surface_upward_sensible_heat_flux')
+  call add_tiled_diag_field_alias(id_fevaps, cmor_name, 'sbl', axes, time, &
+      'Surface Snow and Ice Sublimation Flux', 'kg m-2 s-1', missing_value=-1.0e+20, &
+      standard_name='surface_snow_and_ice_sublimation_flux')
 
 end subroutine land_diag_init
 
