@@ -179,7 +179,7 @@ real            :: dt_fast_yr      ! fast time step in years
 ! diagnostic field ids
 integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_temp, id_wl, id_ws, &
-   id_lai, id_lai_var, id_lai_std, id_laii, id_sai, id_leafarea, id_leaf_size, &
+   id_lai, id_laimax, id_lai_var, id_lai_std, id_laii, id_laiimax, id_sai, id_leafarea, id_leaf_size, &
    id_root_density, id_root_zeta, id_rs_min, id_leaf_refl, id_leaf_tran, &
    id_leaf_emis, id_snow_crit, id_stomatal, &
    id_an_op, id_an_cl,&
@@ -614,6 +614,8 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        (/id_ug/), time, 'height of first cohort', 'm', missing_value=-1.0 )
   id_lai    = register_cohort_diag_field ( module_name, 'lai',  &
        (/id_ug/), time, 'leaf area index', 'm2/m2', missing_value=-1.0)
+  id_laimax    = register_cohort_diag_field ( module_name, 'laimax',  &
+       (/id_ug/), time, 'maximum leaf area index', 'm2/m2', missing_value=-1.0)
   id_lai_var = register_cohort_diag_field ( module_name, 'lai_var',  &
        (/id_ug/), time, 'variance of leaf area index across tiles in grid cell', 'm4/m4', &
        missing_value=-1.0 , opt='variance')
@@ -626,6 +628,8 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        (/id_ug/), time, 'leaf area per individual', 'm2', missing_value=-1.0)
   id_laii   = register_cohort_diag_field ( module_name, 'laii',  &
        (/id_ug/), time, 'leaf area index per individual', 'm2/m2', missing_value=-1.0)
+  id_laiimax = register_cohort_diag_field ( module_name, 'laiimax',  &
+       (/id_ug/), time, 'maximum leaf area index per individual', 'm2/m2', missing_value=-1.0)
 
   id_leaf_size = register_tiled_diag_field ( module_name, 'leaf_size',  &
        (/id_ug/), time, missing_value=-1.0 )
@@ -1594,7 +1598,9 @@ subroutine vegn_step_2 ( vegn, diag, &
   ! in principle, the first cohort must be the tallest, but since cohorts are
   ! rearranged only once a year, that may not be true for part of the year
   call send_cohort_data(id_lai,     diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac, op=OP_SUM)
+  call send_cohort_data(id_laimax,  diag, c(1:N), c(1:N)%laimax, weight=c(1:N)%layerfrac, op=OP_SUM)
   call send_cohort_data(id_laii,    diag, c(1:N), c(1:N)%lai, weight=c(1:N)%nindivs,   op=OP_AVERAGE)
+  call send_cohort_data(id_laiimax, diag, c(1:N), c(1:N)%laimax, weight=c(1:N)%nindivs,   op=OP_AVERAGE)
   call send_cohort_data(id_lai_var, diag, c(1:N), c(1:N)%lai, weight=c(1:N)%layerfrac, op=OP_SUM)
   ! these are LAI variance and standard deviation among *tiles*, not cohorts. So the same data is sent
   ! as for average LAI, but they are aggregated differently by the diagnostics

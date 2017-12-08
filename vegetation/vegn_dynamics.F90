@@ -997,7 +997,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      if (cc%An_newleaf_daily > 0 ) then
          cc%laimax = cc%laimax + sp%newleaf_layer
      else
-         if(cc%laimax>1)cc%laimax = cc%laimax - sp%newleaf_layer
+         cc%laimax = max(cc%laimax - sp%newleaf_layer,1.0)
      endif
      cc%An_newleaf_daily = 0.0
      ! update bl_max and br_max daily
