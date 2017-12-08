@@ -102,7 +102,7 @@ type :: vegn_cohort_type
   real    :: BM_ys        = 0.0 ! bwood + bsw at the end the previous year, for starvation
                                 ! mortality calculation.
   real    :: DBH_ys
-
+  
 ! Adam Wolf
   real    :: psi_r  = 0.0 ! psi of root (root-stem interface), m of water
   real    :: psi_x  = 0.0 ! psi of xylem (stem-leaf interface), Pa
@@ -153,8 +153,14 @@ type :: vegn_cohort_type
   !02/08/17
   real :: brsw = 0.0
 
-! for phenology
+  ! for phenology
   real :: gdd = 0.0
+
+  ! for Light Saber
+  real :: laimax = 1.0 
+  real :: An_newleaf = 0.0
+  real :: newleaf_layer = 0.0
+  real :: An_newleaf_daily = 0.0
 
 ! in LM3V the cohort structure has a handy pointer to the tile it belongs to;
 ! so operations on cohort can update tile-level variables. In this code, it is
@@ -605,7 +611,8 @@ subroutine init_cohort_allometry_ppa(cc, height, nsc_frac)
      cc%bwood = 0.0
   endif
   cc%bsw   = bw - cc%bwood
-
+  ! make LAImax prognostic
+  cc%laimax=sp%LAImax
   ! update derived quantyties based on the allometry
   cc%crownarea = sp%alphaCA * cc%dbh**sp%thetaCA
   cc%bl      = 0.0

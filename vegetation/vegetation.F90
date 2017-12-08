@@ -12,7 +12,7 @@ use fms_mod, only: error_mesg, NOTE, WARNING, FATAL, file_exist, &
                    close_file, check_nml_error, stdlog, string
 use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_root_pe
 
-use time_manager_mod, only: time_type, time_type_to_real, get_date, day_of_year, operator(-)
+use time_manager_mod, only: time_type, time_type_to_real, get_date, operator(-)
 use field_manager_mod, only: fm_field_name_len
 use constants_mod,    only: tfreeze, rdgas, rvgas, hlv, hlf, cp_air, PI
 use sphum_mod, only: qscomp
@@ -709,7 +709,7 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
   !ppg 2017-11-03
   id_lai_kok = register_tiled_diag_field ( module_name, 'lai_kok',  &
        (/id_ug/), time, 'leaf area index at kok effect', 'm2/m2', missing_value=-1.0 )
-  id_lai_light = register_tiled_diag_field ( module_name, 'lai_light',  &
+  id_lai_light = register_tiled_diag_field ( module_name, 'light_comp',  &
        (/id_ug/), time, 'leaf area index lower section', 'm2/m2', missing_value=-1.0 )
        
   id_species = register_tiled_diag_field ( module_name, 'species',  &
@@ -1136,7 +1136,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
        gaps,      & ! fraction of gaps in the canopy, used to calculate cover
        layer_gaps,& ! fraction of gaps in the canopy in a single layer, accumulator value
        phot_co2, &  ! co2 mixing ratio for photosynthesis, mol CO2/mol dry air
-       lai_kok, Anlayer, lai_light
+       lai_kok, An_newleaf, light_comp
   real, dimension(vegn%n_cohorts) :: &
        con_v_h, & ! aerodyn. conductance between canopy and CAS, for heat and vapor
        soil_beta, & ! relative water availability
@@ -1250,7 +1250,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
         soil_beta(i), soil_water_supply(i), con_v_v(i), &
         ! output
         evap_demand(i), stomatal_cond(i), RHi(i), &
-        lai_kok, Anlayer, lai_light )
+        lai_kok, An_newleaf, light_comp )
 
      ! accumulate total value of stomatal conductance for diagnostics.
      ! stomatal_cond is per unit area of cohort (multiplied by LAI in the
@@ -1415,7 +1415,7 @@ subroutine vegn_step_1 ( vegn, soil, diag, &
   call send_tile_data(id_soil_water_supply, sum(soil_water_supply(:)*cc(:)%nindivs), diag)
   call send_tile_data(id_evap_demand, sum(evap_demand(:)*cc(:)%nindivs), diag)
   !Kok effect ppg 2017-11-03
-  call send_tile_data(id_lai_light, lai_light, diag) 
+  call send_tile_data(id_lai_light, light_comp, diag) 
   call send_tile_data(id_lai_kok, lai_kok, diag)
   
   

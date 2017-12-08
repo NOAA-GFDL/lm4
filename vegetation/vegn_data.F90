@@ -269,6 +269,9 @@ type spec_data_type
   real    ::  TmaxR = 45.0
   real    ::  tshrR = 1.4
   real    ::  tshlR = 1.0
+  
+  !for Light Saber, ppg, 17/12/07
+  real    ::  newleaf_layer = 0.05
 
   ! for hydraulics, wolf
   real    :: Kxam=0.0, Klam=0.0 ! Conductivity, max, per tissue area: units kg/m2 tissue/s/MPa
@@ -772,6 +775,8 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(TmaxR)
   __GET_SPDATA_REAL__(tshrR)
   __GET_SPDATA_REAL__(tshlR)
+  !for Light Saber, ppg,17/12/07
+  __GET_SPDATA_REAL__(newleaf_layer)
   ! hydraulics-related parameters
   __GET_SPDATA_REAL__(Kxam)
   __GET_SPDATA_REAL__(dx)
@@ -1025,6 +1030,9 @@ subroutine print_species_data(unit)
   call add_row(table, 'TmaxR', spdata(:)%TmaxR-TFREEZE)
   call add_row(table, 'tshrR', spdata(:)%tshrR)
   call add_row(table, 'tshlR', spdata(:)%tshlR)
+  
+  !for light Saberr, ppg, 17/12/07
+  call add_row(table,'newleaf_layer', spdata(:)%newleaf_layer)
 
   call add_row(table, 'leaf_refl_vis', spdata(:)%leaf_refl(BAND_VIS))
   call add_row(table, 'leaf_refl_nir', spdata(:)%leaf_refl(BAND_NIR))

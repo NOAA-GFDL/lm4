@@ -612,6 +612,7 @@ subroutine vegn_growth (vegn, diag)
      endif
   end do
   N = vegn%n_cohorts
+  !write(*,'(99(i2.2,x,g10.3,x,g10.3))') (vegn%cohorts(i)%layer,vegn%cohorts(i)%lai,vegn%cohorts(i)%laimax, i=1,N)
   call send_cohort_data(id_wood_prod,diag,vegn%cohorts(1:N),wood_prod(:), weight=vegn%cohorts(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_leaf_root_gr,diag,vegn%cohorts(1:N),leaf_root_gr(:), weight=vegn%cohorts(1:N)%nindivs, op=OP_SUM)
   call send_cohort_data(id_sw_seed_gr,diag,vegn%cohorts(1:N),sw_seed_gr(:), weight=vegn%cohorts(1:N)%nindivs, op=OP_SUM)
@@ -991,11 +992,19 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      call check_var_range(cc%bsw,  0.0,HUGE(1.0),'biomass_allocation_ppa #4', 'cc%bsw',FATAL)
      call check_var_range(cc%brsw, 0.0,cc%bsw,   'biomass_allocation_ppa #4', 'cc%brsw',FATAL)
 
+!     if (cc%An_newleaf_daily > 0 .and. cc%laimax < sp%LAImax)cc%laimax = cc%laimax + sp%newleaf_layer
+     !write (*,*) 'An_newleaf_daily',cc%An_newleaf_daily,'cc%lai', cc%lai, 'cc%laimax',cc%laimax
+     if (cc%An_newleaf_daily > 0 ) then
+         cc%laimax = cc%laimax + sp%newleaf_layer
+     else
+         if(cc%laimax>1)cc%laimax = cc%laimax - sp%newleaf_layer
+     endif
+     cc%An_newleaf_daily = 0.0
      ! update bl_max and br_max daily
      ! slm: why are we updating topyear only when the leaves are displayed? The paper
      !      never mentions this fact (see eq. A6).
-     BL_u = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac) * understory_lai_factor
-     BL_c = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
+     BL_u = sp%LMA * cc%laimax * cc%crownarea * (1.0-sp%internal_gap_frac) * understory_lai_factor
+     BL_c = sp%LMA * cc%laimax * cc%crownarea * (1.0-sp%internal_gap_frac)
      if (cc%layer > 1 .and. cc%firstlayer == 0) then ! changed back, Weng 2014-01-23
         cc%topyear = 0.0
         cc%bl_max = BL_u
@@ -1011,6 +1020,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         endif
         cc%br_max = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
      endif
+     !write(*,'(a,99g10.3)')'sp%LAImax',sp%LAImax, cc%lai, cc%bl_max/(cc%crownarea*(1.0-sp%internal_gap_frac)*sp%LMA)
 
      if(is_watch_point()) then
         __DEBUG2__(cc%bl_max, cc%br_max)
