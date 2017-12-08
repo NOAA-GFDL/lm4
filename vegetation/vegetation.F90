@@ -41,7 +41,7 @@ use land_tile_io_mod, only: land_restart_type, &
      add_restart_axis, add_tile_data, add_int_tile_data, add_scalar_data, &
      get_scalar_data, get_tile_data, get_int_tile_data, field_exists, &
      add_text_data, get_text_data
-use vegn_data_mod, only : read_vegn_data_namelist, &
+use vegn_data_mod, only : read_vegn_data_namelist, FORM_WOODY, FORM_GRASS, PT_C3, PT_C4, &
      LEAF_ON, LU_NTRL, nspecies, N_HARV_POOLS, HARV_POOL_NAMES, C2B, &
      spdata, mcv_min, mcv_lai, agf_bs, tau_drip_l, tau_drip_s, T_transp_min, &
      do_ppa, cold_month_threshold, soil_carbon_depth_scale, &
@@ -99,6 +99,10 @@ public :: vegn_step_3
 public :: update_derived_vegn_data  ! given state variables, calculate derived values
 
 public :: update_vegn_slow
+
+public :: cohort_area_frac
+public :: cohort_test_func
+public :: any_vegn, is_tree, is_grass, is_c3, is_c4
 ! ==== end of public interfaces ==============================================
 
 ! ==== module constants ======================================================
@@ -108,6 +112,15 @@ character(len=*), parameter :: module_name = 'vegn'
 ! size of cohort initial condition array
 integer, parameter :: MAX_INIT_COHORTS = 10
 
+abstract interface
+  ! the following interface describes the "detector function", which is passed
+  ! through the argument list and must return TRUE for any cohort that meets
+  ! specific condition (e.g. is tree), FALSE otherwise
+  logical function cohort_test_func(cc)
+     import vegn_cohort_type
+     type(vegn_cohort_type), intent(in) :: cc
+  end function cohort_test_func
+end interface
 
 ! ==== module variables ======================================================
 
@@ -2335,6 +2348,62 @@ subroutine read_remap_species(restart)
   deallocate(text, spnames, sptable)
 end subroutine read_remap_species
 
+! =====================================================================================
+! given vegetation tile and cohort test function, returns the fraction of tile area 
+! occupied by the cohorts selected by the test function, as visible from above.
+
+! This is for CMOR/CMIP diagnostic output, e.g. treeFrac 
+
+! Calculations are very similar to the layerfrac calculations in update_derived_vegn_data,
+! except that we do not count internal gaps in the canopy.
+function cohort_area_frac(vegn,test) result(frac); real :: frac
+  type(vegn_tile_type), intent(in) :: vegn
+  procedure(cohort_test_func) :: test ! returns TRUE if cohort fraction is counted
+
+  integer :: n_layers ! number of layers in vegetation
+  real, allocatable :: &
+        layer_area(:), & ! area of _all_ cohorts in the layer
+        c_area(:),     & ! area of _all suitable_ cohorts in the layer
+        norm_area(:)     ! normalisation layer area
+  real :: visible  ! fraction of layer visible from top
+  integer :: k, l
+
+  n_layers = maxval(vegn%cohorts(:)%layer)
+  allocate(layer_area(n_layers),c_area(n_layers),norm_area(n_layers))
+
+  layer_area(:) = 0; c_area(:) = 0.0
+  associate(cc=>vegn%cohorts)
+  do k = 1, vegn%n_cohorts
+     l = cc(k)%layer
+     layer_area(l) = layer_area(l) + cc(k)%crownarea*cc(k)%nindivs
+     if (test(cc(k))) &
+         c_area(l) = c_area(l)     + cc(k)%crownarea*cc(k)%nindivs
+  enddo
+  end associate
+
+  if (allow_external_gaps) then
+     norm_area(:) = max(1.0,layer_area(:))
+  else
+     ! if external gaps are not allowed, we stretch cohorts so that the entire layer area 
+     ! is occupied by the vegetation canopies
+     norm_area(:) = layer_area(:)
+     layer_area(:) = 1.0 ! to disallow gaps
+  endif
+
+  ! protect from zero layer area situation: this can happen if all cohorts die
+  ! due to mortality or starvation. In this case n_layers is 1, of course.
+  do k = 1,n_layers
+     if (layer_area(k)<=0) layer_area(k) = 1.0
+  enddo
+
+  visible = 1.0; frac = 0.0
+  do k = 1,n_layers
+     frac = frac + visible*c_area(k)/norm_area(k)
+     visible = visible*max(1.0-layer_area(k), 0.0)
+  enddo
+
+  deallocate(layer_area,c_area,norm_area)
+end function cohort_area_frac
 
 ! ============================================================================
 ! converts character array to string
@@ -2353,11 +2422,35 @@ end subroutine array2str
 ! ============================================================================
 ! tile existence detector: returns a logical value indicating wether component
 ! model tile exists or not
-logical function vegn_tile_exists(tile)
+function vegn_tile_exists(tile) result(answer); logical answer
    type(land_tile_type), pointer :: tile
-   vegn_tile_exists = associated(tile%vegn)
+   answer = associated(tile%vegn)
 end function vegn_tile_exists
 
+function any_vegn(cc) result(answer); logical answer
+   type(vegn_cohort_type), intent(in) :: cc
+   answer = .TRUE.
+end function
+
+function is_tree(cc) result(answer); logical answer
+   type(vegn_cohort_type), intent(in) :: cc   
+   answer = (spdata(cc%species)%lifeform == FORM_WOODY)
+end function
+
+function is_grass(cc) result(answer); logical answer
+   type(vegn_cohort_type), intent(in) :: cc   
+   answer = (spdata(cc%species)%lifeform == FORM_GRASS)
+end function
+
+function is_c3(cc) result(answer); logical answer
+   type(vegn_cohort_type), intent(in) :: cc   
+   answer = (spdata(cc%species)%pt == PT_C3)
+end function
+
+function is_c4(cc) result(answer); logical answer
+   type(vegn_cohort_type), intent(in) :: cc   
+   answer = (spdata(cc%species)%pt == PT_C4)
+end function
 
 ! ============================================================================
 ! cohort accessor functions: given a pointer to cohort, return a pointer to a

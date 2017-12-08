@@ -52,7 +52,8 @@ use snow_mod, only : read_snow_namelist, snow_init, snow_end, snow_get_sfc_temp,
      save_snow_restart
 use vegetation_mod, only : read_vegn_namelist, vegn_init, vegn_end, &
      vegn_radiation, vegn_diffusion, vegn_step_1, vegn_step_2, vegn_step_3, &
-     update_derived_vegn_data, update_vegn_slow, save_vegn_restart
+     update_derived_vegn_data, update_vegn_slow, save_vegn_restart, &
+     cohort_test_func, cohort_area_frac, any_vegn, is_tree, is_grass, is_c3, is_c4
 use vegn_disturbance_mod, only : vegn_nat_mortality_ppa
 use vegn_fire_mod, only : update_fire_fast, fire_transitions, save_fire_restart
 use cana_tile_mod, only : canopy_air_mass, canopy_air_mass_for_tracers, cana_tile_heat
@@ -81,7 +82,7 @@ use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_list_type, &
      get_tile_tags, get_tile_water, land_tile_heat, &
      land_tile_carbon, max_n_tiles, init_tile_map, free_tile_map, &
      loop_over_tiles, land_tile_list_init, land_tile_list_end, &
-     merge_land_tile_into_list
+     merge_land_tile_into_list, tile_exists_func
 use land_data_mod, only : land_data_type, atmos_land_boundary_type, &
      land_state_type, land_data_init, land_data_end, lnd, log_version
 use nf_utils_mod,  only : nfu_inq_var, nfu_inq_dim, nfu_get_var
@@ -277,7 +278,9 @@ integer :: &
 real, parameter :: init_value = 0.0
 integer :: id_pcp, id_prra, id_prveg, id_evspsblsoi, id_evspsblveg, &
   id_snw, id_snd, id_snc, id_snm, id_sweLut, id_lwsnl, id_hfdsn, id_tws, &
-  id_hflsLut, id_rlusLut, id_rsusLut, id_tslsiLut
+  id_hflsLut, id_rlusLut, id_rsusLut, id_tslsiLut, &
+  id_vegFrac, id_treeFrac, id_c3pftFrac, id_c4pftFrac
+
 
 ! ---- global clock IDs
 integer :: landClock, landFastClock, landSlowClock
@@ -2335,6 +2338,11 @@ subroutine update_land_model_slow ( cplr2land, land2cplr )
   call mpp_clock_begin(landClock)
   call mpp_clock_begin(landSlowClock)
 
+  call send_cellfrac_cohort_data(id_vegFrac, any_vegn)
+  call send_cellfrac_cohort_data(id_treeFrac, is_tree)
+  call send_cellfrac_cohort_data(id_c3pftFrac, is_c3)
+  call send_cellfrac_cohort_data(id_c4pftFrac, is_c4)
+
   ! get components of calendar dates for this and previous time step
   call get_date(lnd%time,             year0,month0,day0,hour,minute,second)
   call get_date(lnd%time-lnd%dt_slow, year1,month1,day1,hour,minute,second)
@@ -3863,7 +3871,83 @@ subroutine land_diag_init(clonb, clatb, clon, clat, time, &
       'Surface Snow and Ice Sublimation Flux', 'kg m-2 s-1', missing_value=-1.0e+20, &
       standard_name='surface_snow_and_ice_sublimation_flux')
 
+  id_vegFrac  = register_cmor_fraction_field('vegFrac',  'Total vegetated fraction', axes)
+  id_treeFrac = register_cmor_fraction_field('treeFrac', 'Tree Cover Fraction', axes)
+
+  id_c3pftFrac = register_cmor_fraction_field('c3PftFrac', 'Total C3 PFT Cover Fraction', axes)
+  id_c4pftFrac = register_cmor_fraction_field('c4PftFrac', 'Total C4 PFT Cover Fraction', axes)
 end subroutine land_diag_init
+
+
+! ==============================================================================
+function register_cmor_fraction_field(field_name, long_name, axes) result(id); integer :: id
+  character(*), intent(in) :: field_name, long_name
+  integer, intent(in) :: axes(:)
+
+  id = register_diag_field ( cmor_name, field_name, axes, lnd%time, &
+           long_name,'%', standard_name='area_fraction', area=id_cellarea)
+  call diag_field_add_attribute(id,'cell_methods','area: mean')
+  call diag_field_add_attribute(id,'ocean_fillvalue',0.0)
+end function register_cmor_fraction_field
+
+
+! ==============================================================================
+subroutine send_cellfrac_data(id, f, scale)
+  integer, intent(in) :: id ! id of the diagnostic field
+  procedure(tile_exists_func) :: f ! existence detector function
+  real, intent(in), optional  :: scale ! scaling factor, for unit conversions
+
+  ! ---- local vars
+  integer :: l,k
+  logical :: used
+  type(land_tile_type), pointer :: tile
+  type(land_tile_enum_type) :: ce
+  real :: frac(lnd%ls:lnd%le)
+  real :: scale_
+
+  if (.not.id>0) return ! do nothing if the field was not registered
+  scale_ = 100.0 ! by fractions are in percent
+  if (present(scale)) scale_ = scale
+
+  frac(:) = 0.0
+  ce = first_elmt(land_tile_map, ls=lnd%ls)
+  do while (loop_over_tiles(ce, tile, l,k))
+     ! accumulate fractions
+     if (f(tile)) then
+        frac(l) = frac(l)+tile%frac*scale_*lnd%ug_landfrac(l)
+     endif
+  enddo
+  used = send_data(id, frac, lnd%time)
+end subroutine send_cellfrac_data
+
+! ==============================================================================
+subroutine send_cellfrac_cohort_data(id, f, scale)
+  integer, intent(in) :: id ! id of the diagnostic field
+  procedure(cohort_test_func) :: f ! returns TRUE if cohort fraction is counted
+  real, intent(in), optional  :: scale ! scaling factor, for unit conversions
+
+  ! ---- local vars
+  integer :: l
+  logical :: used
+  type(land_tile_type), pointer :: tile
+  type(land_tile_enum_type) :: ce
+  real :: frac(lnd%ls:lnd%le)
+  real :: scale_
+
+  if (.not.id>0) return ! do nothing if the field was not registered
+  scale_ = 100.0 ! by fractions are in percent
+  if (present(scale)) scale_ = scale
+
+  frac(:) = 0.0
+  ce = first_elmt(land_tile_map, ls=lnd%ls)
+  do while (loop_over_tiles(ce, tile, l))
+     if (.not.associated(tile%vegn)) cycle
+     ! calculate fraction of area covered by suitable cohorts
+     frac(l) = frac(l) + cohort_area_frac(tile%vegn,f)
+  enddo
+  used = send_data(id, frac, lnd%time)
+end subroutine send_cellfrac_cohort_data
+
 
 ! ============================================================================
 ! allocates boundary data for land domain and current number of tiles
