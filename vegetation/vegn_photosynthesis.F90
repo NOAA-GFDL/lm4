@@ -498,7 +498,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
      write(*,*) '####### end of ### gs_leuning input #######'
   endif
 
-  newleaf_layer = 0.05
+  newleaf_layer = 0.05 !This needs to be modified later 
   do1=0.09 ; ! kg/kg
   if (sp%lifeform == FORM_GRASS) do1=0.15;
 

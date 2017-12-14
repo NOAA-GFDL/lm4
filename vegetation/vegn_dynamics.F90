@@ -62,6 +62,11 @@ character(len=*), parameter :: module_name = 'vegn_dynamics_mod'
 #include "../shared/version_variable.inc"
 character(len=*), parameter :: diag_mod_name = 'vegn'
 
+logical       :: light_saber  = .FALSE.
+!Modified by ppg 2017-12-14
+namelist /photosynthesis_nml/ &
+    light_saber
+
 ! ==== module data ===========================================================
 real    :: dt_fast_yr ! fast (physical) time step, yr (year is defined as 365 days)
 real, allocatable :: sg_soilfrac(:,:) ! fraction of grid cell area occupied by soil, for
@@ -1003,8 +1008,14 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      ! update bl_max and br_max daily
      ! slm: why are we updating topyear only when the leaves are displayed? The paper
      !      never mentions this fact (see eq. A6).
-     BL_u = sp%LMA * cc%laimax * cc%crownarea * (1.0-sp%internal_gap_frac) * understory_lai_factor
-     BL_c = sp%LMA * cc%laimax * cc%crownarea * (1.0-sp%internal_gap_frac)
+     if (light_saber) then 
+        BL_u = sp%LMA * cc%laimax * cc%crownarea * (1.0-sp%internal_gap_frac) * understory_lai_factor
+        BL_c = sp%LMA * cc%laimax * cc%crownarea * (1.0-sp%internal_gap_frac)
+     else
+        BL_u = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac) * understory_lai_factor
+        BL_c = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
+     endif
+    
      if (cc%layer > 1 .and. cc%firstlayer == 0) then ! changed back, Weng 2014-01-23
         cc%topyear = 0.0
         cc%bl_max = BL_u
