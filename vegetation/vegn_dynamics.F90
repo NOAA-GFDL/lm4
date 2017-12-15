@@ -725,6 +725,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
   real :: DBHwd  ! diameter of heartwood at breast height, m
   real :: G_LFR  ! amount of carbon spent on leaf and root growth
   real :: G_WF   ! amount of carbon spent on new sapwood growth and seeds
+  real :: G_WF_max ! max spending rate
   real :: deltaSeed
   real :: deltaBL, deltaBR ! tendencies of leaf and root biomass, kgC/individual
   real :: deltaBSW ! tendency of sapwood biomass, kgC/individual
@@ -748,8 +749,9 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
 !  real ::   alpha_ca = 243.7808   ! alphaCA
 !  real ::   b_ca = 1.18162        ! thetaCA
 !  real ::   alpha_s = 0.559       ! alphaBM
+!  real, parameter :: G_AGBmax = 0.125 ! maximum growth rate of above ground biomass in grasses, day^-1
 
-  real, parameter  :: G_AGBmax = 0.125 ! maximum growth rate of above ground biomass in grasses, day^-1
+  real, parameter :: deltaDBH_max = 0.01 ! max growth rate of the trunk, meters per day
   real  :: nsctmp ! temporal nsc budget to avoid biomass loss, KgC/individual
 
   associate (sp => spdata(cc%species)) ! F2003
@@ -837,36 +839,24 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         ! 20170724 - new scheme
         nsctmp = cc%nsc
         NSCtarget = sp%NSC2targetbl*cc%bl_max
-        G_WF=0.0
-        if (nsctmp - NSCtarget > G_AGBmax * cc%bsw) then
-          G_WF = G_AGBmax * cc%bsw
-          ! avoid devoting growth to fecundity during this phase
-          deltaSeed = 0.0
-          deltaBSW = G_WF
+        G_WF = max(0.0, fsf*(nsctmp - NSCtarget)/(1+sp%GROWTH_RESP))
+        ! note that it is only for HML allometry now
+        G_WF_max = deltaDBH_max/((sp%gammaHT+cc%DBH**sp%thetaHT)**2/(sp%rho_wood * sp%alphaHT * sp%alphaBM * &
+                          (cc%DBH**(1.+sp%thetaHT)*(2.*(sp%gammaHT+cc%DBH**sp%thetaHT)+sp%gammaHT*sp%thetaHT))))
+        G_WF = min(G_WF, G_WF_max)
+        if (cc%layer == 1 .AND. cc%age > sp%maturalage) then
+           deltaSeed=      sp%v_seed * G_WF
+           deltaBSW = (1.0-sp%v_seed)* G_WF
         else
-          if (NSCtarget < nsctmp) then
-            G_WF = max (0.0, fsf*(nsctmp - NSCtarget)/(1+sp%GROWTH_RESP))
-          endif
-          if (cc%layer == 1 .AND. cc%age > sp%maturalage) then
-            ! deltaSeed=      sp%v_seed * (cc%carbon_gain - G_LFR)
-            ! deltaBSW = (1.0-sp%v_seed)* (cc%carbon_gain - G_LFR)
-            deltaSeed=      sp%v_seed * G_WF
-            deltaBSW = (1.0-sp%v_seed)* G_WF
-          else
-            deltaSeed= 0.0
-            deltaBSW = G_WF
-          endif
-        endif
-        nsctmp = nsctmp - G_WF * (1+sp%GROWTH_RESP)
-        if (is_watch_point()) then
-           __DEBUG2__(cc%nsc, nsctmp)
-           __DEBUG3__(G_WF, G_AGBmax, cc%bsw)
-           __DEBUG2__(deltaSeed,deltaBSW)
+           deltaSeed= 0.0
+           deltaBSW = G_WF
         endif
 
+        nsctmp = nsctmp - G_WF * (1+sp%GROWTH_RESP)
+
         ! Allocation to leaves and fine root growth
-        G_LFR    = max(0.0, min( cc%bl_max - cc%bl + max( 0.0, cc%br_max - cc%br ),  &
-                                  0.1*nsctmp/(1+sp%GROWTH_RESP)))
+        G_LFR = max(0.0, min( cc%bl_max - cc%bl + max( 0.0, cc%br_max - cc%br ),  &
+                              0.1*nsctmp/(1+sp%GROWTH_RESP)))
         ! don't allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
 
         if ( cc%br > cc%br_max ) then      ! roots larger than target
@@ -876,10 +866,6 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
                           (G_LFR*cc%bl_max + cc%bl_max*cc%br - cc%br_max*cc%bl)/(cc%bl_max + cc%br_max) ))
         end if
         deltaBR  = G_LFR - deltaBL
-        if (is_watch_point()) then
-           __DEBUG3__(G_LFR, deltaBL, deltaBR)
-           __DEBUG1__(delta_bsw_branch)
-        endif
      endif
 
      ! update biomass pools due to growth
@@ -920,10 +906,6 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         deltaHeight  = deltaDBH* sp%alphaHT *sp%gammaHT*sp%thetaHT/(cc%DBH**(1.-sp%thetaHT) * &
                        (sp%gammaHT + cc%DBH**sp%thetaHT)**2)
         deltaCA      = deltaDBH * sp%alphaCA * sp%thetaCA * cc%DBH**(sp%thetaCA-1.)
-!         __DEBUG4__(cc%bl,cc%br,cc%bsw,cc%bwood)
-!         __DEBUG3__(cc%DBH,cc%height,cc%crownarea)
-!         __DEBUG4__(deltaBL,deltaBR,deltaBSW,deltaSeed)
-!         __DEBUG3__(deltaDBH,deltaHeight,deltaCA)
      case default
         call error_mesg('biomass_allocation_ppa','Unknown allometry type. This should never happen.', FATAL)
      end select
