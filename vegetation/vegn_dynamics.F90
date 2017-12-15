@@ -14,20 +14,20 @@ use constants_mod, only : PI,tfreeze
 use land_constants_mod, only : days_per_year, seconds_per_year, mol_C
 use land_data_mod, only : lnd,log_version
 use land_debug_mod, only : is_watch_point, check_var_range, check_conservation, &
-     do_check_conservation, carbon_cons_tol, set_current_point
+     do_check_conservation, carbon_cons_tol, set_current_point, land_error_message
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles, land_tile_carbon
 use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
      register_cohort_diag_field, send_cohort_data, set_default_diag_filter
 use vegn_data_mod, only : spdata, nspecies, &
-     PHEN_DECIDUOUS, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
+     PHEN_DECIDUOUS, PHEN_EVERGREEN, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, &
      fsc_liv, fsc_wood, fsc_froot, agf_bs, &
      l_fract, do_ppa, understory_lai_factor
 use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon, vegn_relayer_cohorts_ppa, &
      vegn_mergecohorts_ppa
-use soil_tile_mod, only: num_l, dz, soil_tile_type, clw, csw, LEAF, CWOOD, N_LITTER_POOLS
+use soil_tile_mod, only: num_l, dz, soil_tile_type, LEAF, CWOOD, N_LITTER_POOLS
 use vegn_cohort_mod, only : vegn_cohort_type, &
      update_biomass_pools, update_bio_living_fraction, update_species, &
      leaf_area_from_biomass, cohort_root_litter_profile, cohort_root_exudate_profile
@@ -1259,29 +1259,41 @@ subroutine vegn_phenology_ppa(tile)
      associate ( cc => vegn%cohorts(i),   &
                  sp => spdata(vegn%cohorts(i)%species) )
 
+!      if (sp%phent==PHEN_EVERGREEN.and.cc%status==LEAF_OFF) &
+!           call land_error_message('evergreen leaves are off', FATAL)
+     if (sp.phent==PHEN_EVERGREEN) then
+        cc%status = LEAF_ON
+        cycle ! do nothing further for evergreens
+     endif
+
      ! if drought-deciduous or cold-deciduous species
      ! temp=10 degrees C gives good growing season pattern
      ! spp=0 is c3 grass,1 c3 grass,2 deciduous, 3 evergreen
      ! assumption is that no difference between drought and cold deciduous
 
-!    onset of phenology
-     if(cc%status==LEAF_OFF .and. cc%gdd>sp%gdd_crit .and. vegn%tc_pheno>sp%tc_crit ) then
-        cc%status = LEAF_ON
-        ! isa 201707215 - update target biomass at the satart of the growing season
-        !                 for grasses to avoid using previous year targets
-        if (sp%lifeform == FORM_GRASS) then
-          cc%bl_max = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
-          cc%br_max = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
+     ! onset of phenology
+     select case(cc%status)
+     case (LEAF_OFF)
+        if (cc%gdd>sp%gdd_crit .and. vegn%tc_pheno>sp%tc_crit ) then
+           cc%status = LEAF_ON
+           ! isa 201707215 - update target biomass at the satart of the growing season
+           !                 for grasses to avoid using previous year targets
+           if (sp%lifeform == FORM_GRASS) then
+             cc%bl_max = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
+             cc%br_max = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
+           endif
         endif
-     else if ( cc%status == LEAF_ON .and. vegn%tc_pheno < sp%tc_crit .and. sp%phent==PHEN_DECIDUOUS ) then
-        cc%status = LEAF_OFF
-        cc%gdd = 0.0
-     endif
+     case (LEAF_ON)
+        if (vegn%tc_pheno < sp%tc_crit) then
+           cc%status = LEAF_OFF
+           cc%gdd = 0.0
+        endif
+     end select
 
      ! leaf falling at the end of a growing season
      if(cc%status == LEAF_OFF .AND. ( cc%bl > 0. .or. ( sp%lifeform == FORM_GRASS .and. ( cc%bl > 0 .or. cc%bsw > 0. ) ) ) ) then
-         leaf_fall = min(leaf_fall_rate * cc%bl_max, cc%bl)
-         root_mortality = min( root_mort_rate* cc%br_max, cc%br)
+         leaf_fall      = min(leaf_fall_rate * cc%bl_max, cc%bl)
+         root_mortality = min(root_mort_rate * cc%br_max, cc%br)
          ! isa 20170705
          stem_mortality = 0.0
          if (sp%lifeform == FORM_GRASS) then
