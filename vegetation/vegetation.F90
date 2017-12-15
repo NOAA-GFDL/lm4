@@ -151,6 +151,8 @@ logical :: allow_external_gaps = .TRUE. ! if TRUE, there may be gaps between
 logical :: do_cohort_dynamics   = .TRUE. ! if true, do vegetation growth
 logical :: do_patch_disturbance = .TRUE. !
 logical :: do_phenology         = .TRUE.
+logical :: tau_smooth_theta_phen = 30.0  ! days; time scale of low-band-pass-filter of soil moisture
+                                         ! in the drought-deciduous phenology
 logical :: xwilt_available      = .TRUE.
 logical :: do_biogeography      = .TRUE.
 logical :: do_seed_transport    = .TRUE.
@@ -176,7 +178,7 @@ namelist /vegn_nml/ &
     init_cohort_bwood, init_cohort_height, &
     rad_to_use, snow_rad_to_use, &
     allow_external_gaps, &
-    do_cohort_dynamics, do_patch_disturbance, do_phenology, &
+    do_cohort_dynamics, do_patch_disturbance, do_phenology, tau_smooth_theta_phen, &
     xwilt_available, &
     do_biogeography, do_seed_transport, &
     min_Wl, min_Ws, tau_smooth_ncm, &
@@ -188,6 +190,7 @@ namelist /vegn_nml/ &
 logical         :: module_is_initialized =.FALSE.
 real            :: delta_time      ! fast time step
 real            :: dt_fast_yr      ! fast time step in years
+real            :: weight_av_phen  ! weight for low-band-pass soil moisture smoother, for drought-deciduous phenology
 
 ! diagnostic field ids
 integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
@@ -305,6 +308,8 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
   delta_time = time_type_to_real(lnd%dt_fast)
   dt_fast_yr = delta_time/seconds_per_year
 
+  ! --- initialize smoothing parameters for phenology; see http://en.wikipedia.org/wiki/Low-pass_filter
+  weight_av_phen = delta_time/(delta_time+tau_smooth_theta_phen*86400.0)
 
   ! ---- initialize vegn state ---------------------------------------------
   n_accum = 0
@@ -1695,7 +1700,11 @@ subroutine vegn_step_3(vegn, soil, cana_T, precip, vegn_fco2, diag)
   else
      theta = soil_ave_theta0(soil,vegn%cohorts(1)%root_zeta)
   endif
-  vegn%theta_av_phen = vegn%theta_av_phen + theta
+  if (do_ppa) then
+     vegn%theta_av_phen = weight_av_phen*theta + (1-weight_av_phen)*vegn%theta_av_phen
+  else
+     vegn%theta_av_phen = vegn%theta_av_phen + theta
+  endif
   vegn%theta_av_fire = vegn%theta_av_fire + soil_ave_theta1(soil,depth_ave)
   psist = soil_psi_stress(soil,vegn%cohorts(1)%root_zeta)
   vegn%psist_av  = vegn%psist_av + psist
@@ -1935,7 +1944,11 @@ subroutine update_vegn_slow( )
         ! compute averages from accumulated monthly values
         tile%vegn%tc_av     = tile%vegn%tc_av     / tile%vegn%n_accum
         tile%vegn%tsoil_av  = tile%vegn%tsoil_av  / tile%vegn%n_accum
-        tile%vegn%theta_av_phen  = tile%vegn%theta_av_phen  / tile%vegn%n_accum
+        if (do_ppa) then
+           ! do nothing -- theta_av_phen is already smoothed
+        else
+           tile%vegn%theta_av_phen  = tile%vegn%theta_av_phen  / tile%vegn%n_accum
+        endif
         tile%vegn%theta_av_fire  = tile%vegn%theta_av_fire  / tile%vegn%n_accum
         tile%vegn%psist_av  = tile%vegn%psist_av  / tile%vegn%n_accum
         tile%vegn%precip_av = tile%vegn%precip_av / tile%vegn%n_accum
@@ -2179,7 +2192,11 @@ subroutine update_vegn_slow( )
         tile%vegn%n_accum  = 0
         tile%vegn%tc_av    = 0.
         tile%vegn%tsoil_av = 0.
-        tile%vegn%theta_av_phen = 0.
+        if (do_ppa) then
+           ! do nothing -- theta_av_phen is being smoothed with low-band-pass filter
+        else
+           tile%vegn%theta_av_phen = 0.
+        endif
         tile%vegn%theta_av_fire = 0.
         tile%vegn%psist_av = 0.
         tile%vegn%precip_av= 0.

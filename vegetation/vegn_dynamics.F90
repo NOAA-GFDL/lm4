@@ -14,25 +14,23 @@ use constants_mod, only : PI,tfreeze
 use land_constants_mod, only : days_per_year, seconds_per_year, mol_C
 use land_data_mod, only : lnd,log_version
 use land_debug_mod, only : is_watch_point, check_var_range, check_conservation, &
-     do_check_conservation, carbon_cons_tol, set_current_point
+     do_check_conservation, carbon_cons_tol, set_current_point, land_error_message
 use land_tile_mod, only : land_tile_map, land_tile_type, land_tile_enum_type, &
      first_elmt, loop_over_tiles, land_tile_carbon
 use land_tile_diag_mod, only : OP_SUM, OP_AVERAGE, &
      register_tiled_diag_field, send_tile_data, diag_buff_type, &
      register_cohort_diag_field, send_cohort_data, set_default_diag_filter
 use vegn_data_mod, only : spdata, nspecies, &
-     PHEN_DECIDUOUS, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
+     PHEN_DECIDUOUS, PHEN_EVERGREEN, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, &
      fsc_liv, fsc_wood, fsc_froot, agf_bs, &
-     l_fract, mcv_min, mcv_lai, do_ppa, tau_seed, &
-     understory_lai_factor, wood_fract_min, do_alt_allometry
+     l_fract, do_ppa, understory_lai_factor
 use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon, vegn_relayer_cohorts_ppa, &
      vegn_mergecohorts_ppa
-use soil_tile_mod, only: num_l, dz, soil_tile_type, clw, csw, LEAF, CWOOD, N_LITTER_POOLS
+use soil_tile_mod, only: num_l, dz, soil_tile_type, LEAF, CWOOD, N_LITTER_POOLS
 use vegn_cohort_mod, only : vegn_cohort_type, &
      update_biomass_pools, update_bio_living_fraction, update_species, &
-     leaf_area_from_biomass, biomass_of_individual, init_cohort_allometry_ppa, &
-     init_cohort_hydraulics, cohort_root_litter_profile, cohort_root_exudate_profile
+     leaf_area_from_biomass, cohort_root_litter_profile, cohort_root_exudate_profile
 use vegn_util_mod, only : kill_plants_ppa, add_seedlings_ppa
 use vegn_harvesting_mod, only : allow_weeds_on_crops
 use soil_carbon_mod, only: N_C_TYPES, soil_carbon_option, &
@@ -727,6 +725,7 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
   real :: DBHwd  ! diameter of heartwood at breast height, m
   real :: G_LFR  ! amount of carbon spent on leaf and root growth
   real :: G_WF   ! amount of carbon spent on new sapwood growth and seeds
+  real :: G_WF_max ! max spending rate
   real :: deltaSeed
   real :: deltaBL, deltaBR ! tendencies of leaf and root biomass, kgC/individual
   real :: deltaBSW ! tendency of sapwood biomass, kgC/individual
@@ -740,7 +739,6 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
   real :: delta_wood_branch
 
   real, parameter :: DBHtp = 0.8 ! m
-  logical :: hydraulics_repair = .FALSE.
 
   !ens
   real :: fsf = 0.2 ! in Weng et al 205, page 2677 units are 0.2 day
@@ -751,8 +749,9 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
 !  real ::   alpha_ca = 243.7808   ! alphaCA
 !  real ::   b_ca = 1.18162        ! thetaCA
 !  real ::   alpha_s = 0.559       ! alphaBM
+!  real, parameter :: G_AGBmax = 0.125 ! maximum growth rate of above ground biomass in grasses, day^-1
 
-  real, parameter  :: G_AGBmax = 0.125 ! maximum growth rate of above ground biomass in grasses, day^-1
+  real, parameter :: deltaDBH_max = 0.01 ! max growth rate of the trunk, meters per day
   real  :: nsctmp ! temporal nsc budget to avoid biomass loss, KgC/individual
 
   associate (sp => spdata(cc%species)) ! F2003
@@ -763,6 +762,15 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
   ! set init values for diag output, to be returned when the actual calulations are bypassed:
   wood_prod = 0.0 ; leaf_root_gr = 0.0 ; sw_seed_gr = 0.0 ; deltaDBH = 0.0
   if (cc%status == LEAF_ON) then
+     if(is_watch_point()) then
+        write(*,*)'########### biomass_allocation_ppa input ###########'
+        call dpri('species:',sp%name)
+        __DEBUG2__(cc%bl_max, cc%br_max)
+        __DEBUG2__(cc%carbon_gain, cc%nsc)
+        __DEBUG5__(cc%bl, cc%br, cc%bsw, cc%bseed, cc%bwood)
+        __DEBUG3__(cc%dbh, cc%height, cc%crownarea)
+        write(*,*)'########### end of biomass_allocation_ppa input ###########'
+     endif
      ! calculate the carbon spent on growth of leaves and roots
      G_LFR    = max(0.0, min(cc%bl_max+cc%br_max-cc%bl-cc%br,  &
                             0.1*cc%nsc/(1+sp%GROWTH_RESP))) ! don't allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
@@ -831,36 +839,24 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         ! 20170724 - new scheme
         nsctmp = cc%nsc
         NSCtarget = sp%NSC2targetbl*cc%bl_max
-        G_WF=0.0
-        if (nsctmp - NSCtarget > G_AGBmax * cc%bsw) then
-          G_WF = G_AGBmax * cc%bsw
-          ! avoid devoting growth to fecundity during this phase
-          deltaSeed = 0.0
-          deltaBSW = G_WF
+        G_WF = max(0.0, fsf*(nsctmp - NSCtarget)/(1+sp%GROWTH_RESP))
+        ! note that it is only for HML allometry now
+        G_WF_max = deltaDBH_max/((sp%gammaHT+cc%DBH**sp%thetaHT)**2/(sp%rho_wood * sp%alphaHT * sp%alphaBM * &
+                          (cc%DBH**(1.+sp%thetaHT)*(2.*(sp%gammaHT+cc%DBH**sp%thetaHT)+sp%gammaHT*sp%thetaHT))))
+        G_WF = min(G_WF, G_WF_max)
+        if (cc%layer == 1 .AND. cc%age > sp%maturalage) then
+           deltaSeed=      sp%v_seed * G_WF
+           deltaBSW = (1.0-sp%v_seed)* G_WF
         else
-          if (NSCtarget < nsctmp) then
-            G_WF = max (0.0, fsf*(nsctmp - NSCtarget)/(1+sp%GROWTH_RESP))
-          endif
-          if (cc%layer == 1 .AND. cc%age > sp%maturalage) then
-            ! deltaSeed=      sp%v_seed * (cc%carbon_gain - G_LFR)
-            ! deltaBSW = (1.0-sp%v_seed)* (cc%carbon_gain - G_LFR)
-            deltaSeed=      sp%v_seed * G_WF
-            deltaBSW = (1.0-sp%v_seed)* G_WF
-          else
-            deltaSeed= 0.0
-            deltaBSW = G_WF
-          endif
-        endif
-        nsctmp = nsctmp - G_WF * (1+sp%GROWTH_RESP)
-        if (is_watch_point()) then
-           __DEBUG2__(cc%nsc, nsctmp)
-           __DEBUG3__(G_WF, G_AGBmax, cc%bsw)
-           __DEBUG2__(deltaSeed,deltaBSW)
+           deltaSeed= 0.0
+           deltaBSW = G_WF
         endif
 
+        nsctmp = nsctmp - G_WF * (1+sp%GROWTH_RESP)
+
         ! Allocation to leaves and fine root growth
-        G_LFR    = max(0.0, min( cc%bl_max - cc%bl + max( 0.0, cc%br_max - cc%br ),  &
-                                  0.1*nsctmp/(1+sp%GROWTH_RESP)))
+        G_LFR = max(0.0, min( cc%bl_max - cc%bl + max( 0.0, cc%br_max - cc%br ),  &
+                              0.1*nsctmp/(1+sp%GROWTH_RESP)))
         ! don't allow more than 0.1/(1+GROWTH_RESP) of nsc per day to spend
 
         if ( cc%br > cc%br_max ) then      ! roots larger than target
@@ -870,10 +866,6 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
                           (G_LFR*cc%bl_max + cc%bl_max*cc%br - cc%br_max*cc%bl)/(cc%bl_max + cc%br_max) ))
         end if
         deltaBR  = G_LFR - deltaBL
-        if (is_watch_point()) then
-           __DEBUG3__(G_LFR, deltaBL, deltaBR)
-           __DEBUG1__(delta_bsw_branch)
-        endif
      endif
 
      ! update biomass pools due to growth
@@ -914,10 +906,6 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         deltaHeight  = deltaDBH* sp%alphaHT *sp%gammaHT*sp%thetaHT/(cc%DBH**(1.-sp%thetaHT) * &
                        (sp%gammaHT + cc%DBH**sp%thetaHT)**2)
         deltaCA      = deltaDBH * sp%alphaCA * sp%thetaCA * cc%DBH**(sp%thetaCA-1.)
-!         __DEBUG4__(cc%bl,cc%br,cc%bsw,cc%bwood)
-!         __DEBUG3__(cc%DBH,cc%height,cc%crownarea)
-!         __DEBUG4__(deltaBL,deltaBR,deltaBSW,deltaSeed)
-!         __DEBUG3__(deltaDBH,deltaHeight,deltaCA)
      case default
         call error_mesg('biomass_allocation_ppa','Unknown allometry type. This should never happen.', FATAL)
      end select
@@ -953,23 +941,18 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
        CSAsw = PI * cc%DBH * cc%DBH / 4.0 ! trunk cross-sectional area = sapwood area
      endif
 
-     ! Update Kxa, stem conductance if we are tracking past damage
-     ! TODO: make hydraulics_repair a namelist parameter?
-     if (.not.hydraulics_repair) then
-        !deltaCSAsw = CSAsw - (sp%alphaCSASW * (cc%DBH - deltaDBH)**sp%thetaCSASW)
-         ! isa and es 201701 - CSAsw different for ALLOM_HML - include into previous case?
-        select case(sp%allomt)
-        case (ALLOM_EW,ALLOM_EW1)
-           deltaCSAsw = CSAsw - (sp%alphaCSASW * (cc%DBH - deltaDBH)**sp%thetaCSASW)
-        case (ALLOM_HML)
-           deltaCSAsw = CSAsw - (sp%phiCSA * (cc%DBH - deltaDBH)**( sp%thetaCA + sp%thetaHT) / (sp%gammaHT + (cc%DBH - deltaDBH)** sp%thetaHT) )
-        end select
-       ! isa 20170705 - grasses don't form heartwood
-       if (sp%lifeform == FORM_GRASS) then
-         deltaCSAsw = CSAsw - (PI * (cc%DBH - deltaDBH) * (cc%DBH - deltaDBH) / 4.0 )
-       endif
-        cc%Kxa = (cc%Kxa*CSAsw + sp%Kxam*deltaCSAsw)/(CSAsw + deltaCSAsw)
+     ! isa and es 201701 - CSAsw different for ALLOM_HML - include into previous case?
+     select case(sp%allomt)
+     case (ALLOM_EW,ALLOM_EW1)
+        deltaCSAsw = CSAsw - sp%alphaCSASW * (cc%DBH - deltaDBH)**sp%thetaCSASW
+     case (ALLOM_HML)
+        deltaCSAsw = CSAsw - sp%phiCSA * (cc%DBH - deltaDBH)**(sp%thetaCA + sp%thetaHT) / (sp%gammaHT + (cc%DBH - deltaDBH)**sp%thetaHT)
+     end select
+     ! isa 20170705 - grasses don't form heartwood
+     if (sp%lifeform == FORM_GRASS) then
+        deltaCSAsw = CSAsw - (PI * (cc%DBH - deltaDBH) * (cc%DBH - deltaDBH) / 4.0 )
      endif
+     cc%Kxa = (cc%Kxa*CSAsw + sp%Kxam*deltaCSAsw)/(CSAsw + deltaCSAsw)
 
      call check_var_range(cc%bsw,  0.0,HUGE(1.0),'biomass_allocation_ppa #3', 'cc%bsw', FATAL)
      call check_var_range(cc%brsw, 0.0,cc%bsw,   'biomass_allocation_ppa #3', 'cc%brsw',FATAL)
@@ -1014,10 +997,13 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      endif
 
      if(is_watch_point()) then
-        __DEBUG2__(cc%bl_max, cc%br_max)
-        __DEBUG2__(cc%carbon_gain, G_LFR)
+        write(*,*)'########### biomass_allocation_ppa output ###########'
         __DEBUG5__(deltaBL, deltaBR, deltaBSW, deltaSeed, deltaBwood)
-        __DEBUG5__(cc%bl, cc%br, cc%bsw, cc%bseed, cc%bwood)
+        __DEBUG5__(cc%bl,   cc%br,   cc%bsw,   cc%bseed,  cc%bwood)
+        __DEBUG3__(deltaDBH, deltaHeight, deltaCA)
+        __DEBUG3__(cc%dbh,   cc%height,   cc%crownarea)
+        __DEBUG1__(cc%nsc)
+        write(*,*)'########### end of biomass_allocation_ppa output ###########'
      endif
   else  ! cc%status == LEAF_OFF
     ! ens, after hsc was updated after carbon gain
@@ -1242,8 +1228,10 @@ subroutine vegn_phenology_ppa(tile)
   real :: deltaDBH ! tendency of breast height diameter, m
   real :: deltaCA ! tendency of crown area, m2/individual
   real :: deltaHeight ! tendency of vegetation height
-  real, parameter :: DBHtp = 0.8 ! m
   integer :: k
+  real :: wilt       ! vertically-average soil moisture content at wilting point
+  real :: theta_crit ! critical soil moisture for drought-deciduous phenology
+  logical :: drought ! drought indicator
 
   leaf_fall_rate = 0.075
   root_mort_rate = 0.0
@@ -1256,29 +1244,65 @@ subroutine vegn_phenology_ppa(tile)
      associate ( cc => vegn%cohorts(i),   &
                  sp => spdata(vegn%cohorts(i)%species) )
 
+!      if (sp%phent==PHEN_EVERGREEN.and.cc%status==LEAF_OFF) &
+!           call land_error_message('evergreen leaves are off', FATAL)
+     if (sp%phent==PHEN_EVERGREEN) then
+        cc%status = LEAF_ON
+        cycle ! do nothing further for evergreens
+     endif
+
      ! if drought-deciduous or cold-deciduous species
      ! temp=10 degrees C gives good growing season pattern
      ! spp=0 is c3 grass,1 c3 grass,2 deciduous, 3 evergreen
      ! assumption is that no difference between drought and cold deciduous
 
-!    onset of phenology
-     if(cc%status==LEAF_OFF .and. cc%gdd>sp%gdd_crit .and. vegn%tc_pheno>sp%tc_crit ) then
-        cc%status = LEAF_ON
-        ! isa 201707215 - update target biomass at the satart of the growing season
-        !                 for grasses to avoid using previous year targets
-        if (sp%lifeform == FORM_GRASS) then
-          cc%bl_max = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
-          cc%br_max = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
+     wilt = soil%w_wilt(1)/soil%pars%vwc_sat
+     theta_crit = sp%cnst_crit_phen + wilt*sp%fact_crit_phen
+     theta_crit = max(0.0,min(1.0, theta_crit))
+     drought    = (sp%psi_stress_crit_phen <= 0 .and. vegn%theta_av_phen < theta_crit) &
+             .or. (sp%psi_stress_crit_phen  > 0 .and. vegn%psist_av > sp%psi_stress_crit_phen)
+
+     ! onset of phenology
+     select case(cc%status)
+     case (LEAF_OFF)
+        if (cc%gdd > sp%gdd_crit        .and. &
+            vegn%tc_pheno >= sp%tc_crit .and. &
+            .not.drought) then
+           cc%status = LEAF_ON
+           ! isa 201707215 - update target biomass at the satart of the growing season
+           !                 for grasses to avoid using previous year targets
+           if (sp%lifeform == FORM_GRASS) then
+              cc%bl_max = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
+              cc%br_max = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
+           endif
         endif
-     else if ( cc%status == LEAF_ON .and. vegn%tc_pheno < sp%tc_crit .and. sp%phent==PHEN_DECIDUOUS ) then
-        cc%status = LEAF_OFF
-        cc%gdd = 0.0
-     endif
+     case (LEAF_ON)
+        ! cold-deciduous: turn leaves off and reset GDD
+        if (vegn%tc_pheno < sp%tc_crit) then
+           cc%status = LEAF_OFF
+           cc%gdd = 0.0
+        endif
+        ! drought-deciduous: turn leaves off and DO NOT reset GDD
+        if (drought) then
+           cc%status = LEAF_OFF
+           ! Do not reset GDD when leaves drop due to drought, because if we do then
+           ! new leaves would not appear till critical GDD is accumulated again.
+           ! This would not make sense in many warm droughty regions, e.g. in sub-tropics.
+        endif
+     end select
+     ! slm: there is a potential strange corner case above, when leaves drop due to
+     !      autumn drought in a cold region, GDD is not reset and therefore it keeps
+     !      accumulating from the previous year. This will result in too-early onset of
+     !      phenology the next year, probably instantly after the drought ends.
+     !
+     !      On the other hand, resetting GDD every time vegn%tc_pheno < sp%tc_crit
+     !      regardless of the leaf status will not work since it prevent GDD accumulating
+     !      in temperature range gdd_base_T < T < tc_crit.
 
      ! leaf falling at the end of a growing season
      if(cc%status == LEAF_OFF .AND. ( cc%bl > 0. .or. ( sp%lifeform == FORM_GRASS .and. ( cc%bl > 0 .or. cc%bsw > 0. ) ) ) ) then
-         leaf_fall = min(leaf_fall_rate * cc%bl_max, cc%bl)
-         root_mortality = min( root_mort_rate* cc%br_max, cc%br)
+         leaf_fall      = min(leaf_fall_rate * cc%bl_max, cc%bl)
+         root_mortality = min(root_mort_rate * cc%br_max, cc%br)
          ! isa 20170705
          stem_mortality = 0.0
          if (sp%lifeform == FORM_GRASS) then

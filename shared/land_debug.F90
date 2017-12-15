@@ -45,6 +45,7 @@ interface dpri
    module procedure debug_printout_r0d
    module procedure debug_printout_i0d
    module procedure debug_printout_l0d
+   module procedure debug_printout_t0d
    module procedure debug_printout_r1d
    module procedure debug_printout_i1d
    module procedure debug_printout_r2d
@@ -440,6 +441,16 @@ subroutine debug_printout_l0d(description,value)
   endif
 end subroutine
 
+subroutine debug_printout_t0d(description,value)
+  character(*), intent(in) :: description
+  character(*), intent(in) :: value
+
+  if (trim_labels.or.len_trim(description)<label_len) then
+     write(*,fixed_format,advance='NO')trim(description),'"'//trim(value)//'"'
+  else
+     write(*,'(x,a,g23.16)',advance='NO')trim(description),'"'//trim(value)//'"'
+  endif
+end subroutine
 
 subroutine debug_printout_r1d(description,values)
   character(*), intent(in) :: description
