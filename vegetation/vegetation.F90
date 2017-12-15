@@ -204,7 +204,7 @@ integer :: id_vegn_type, id_height, id_height1, id_height_ave, &
    id_soil_water_supply, id_gdd, id_tc_pheno, id_zstar_1, &
    id_psi_r, id_psi_l, id_psi_x, id_Kxi, id_Kli, id_w_scale, id_RHi, &
    id_brsw, id_growth_prev_day, &
-   id_lai_kok,id_Anlayer, id_lai_light
+   id_lai_kok,id_An_newleaf, id_lai_light
 integer, allocatable :: id_nindivs_sp(:)
 ! ==== end of module variables ===============================================
 
@@ -328,6 +328,8 @@ subroutine vegn_init ( id_ug, id_band, id_cellarea )
         call get_cohort_data(restart2,'bseed',cohort_bseed_ptr)
         call get_cohort_data(restart2,'bl_max',cohort_bl_max_ptr)
         call get_cohort_data(restart2,'br_max',cohort_br_max_ptr)
+        !ppg 20171214
+        call get_cohort_data(restart2,'laimax',cohort_laimax_ptr)
         ! isa 201707
         if (field_exists(restart2,'bsw_max')) &
            call get_cohort_data(restart2, 'bsw_max', cohort_bsw_max_ptr)
@@ -715,7 +717,7 @@ subroutine vegn_diag_init ( id_ug, id_band, time )
        (/id_ug/), time, 'leaf area index at kok effect', 'm2/m2', missing_value=-1.0 )
   id_lai_light = register_tiled_diag_field ( module_name, 'light_comp',  &
        (/id_ug/), time, 'leaf area index lower section', 'm2/m2', missing_value=-1.0 )
-       
+
   id_species = register_tiled_diag_field ( module_name, 'species',  &
        (/id_ug/), time, 'vegetation species number', missing_value=-1.0 )
   id_status = register_tiled_diag_field ( module_name, 'status',  &
@@ -939,7 +941,8 @@ subroutine save_vegn_restart(tile_dim_length,timestamp)
   call add_cohort_data(restart2,'DBH_ys', cohort_DBH_ys_ptr, 'DBH at the end of previous year','m')
   call add_cohort_data(restart2,'topyear', cohort_topyear_ptr, 'time spent in the top canopy layer','years')
   call add_cohort_data(restart2,'gdd', cohort_gdd_ptr, 'growing degree days','degC day')
-
+  !ppg 20171214
+  call add_cohort_data(restart2,'laimax',cohort_laimax_ptr, 'prognostic maximum leaf area index','m2/m2')
   ! wolf restart data - psi, Kxa
   call add_cohort_data(restart2, 'psi_r', cohort_psi_r_ptr, 'psi root', 'm')
   call add_cohort_data(restart2, 'psi_x', cohort_psi_x_ptr, 'psi stem', 'm' )
@@ -2439,6 +2442,7 @@ DEFINE_COHORT_ACCESSOR(real,bseed)
 DEFINE_COHORT_ACCESSOR(real,bsw_max)
 DEFINE_COHORT_ACCESSOR(real,bl_max)
 DEFINE_COHORT_ACCESSOR(real,br_max)
+DEFINE_COHORT_ACCESSOR(real,laimax)
 DEFINE_COHORT_ACCESSOR(real,dbh)
 DEFINE_COHORT_ACCESSOR(real,crownarea)
 DEFINE_COHORT_ACCESSOR(real,bliving)
