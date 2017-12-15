@@ -1247,6 +1247,9 @@ subroutine vegn_phenology_ppa(tile)
   real :: deltaCA ! tendency of crown area, m2/individual
   real :: deltaHeight ! tendency of vegetation height
   integer :: k
+  real :: wilt       ! vertically-average soil moisture content at wilting point
+  real :: theta_crit ! critical soil moisture for drought-deciduous phenology
+  logical :: drought ! drought indicator
 
   leaf_fall_rate = 0.075
   root_mort_rate = 0.0
@@ -1261,7 +1264,7 @@ subroutine vegn_phenology_ppa(tile)
 
 !      if (sp%phent==PHEN_EVERGREEN.and.cc%status==LEAF_OFF) &
 !           call land_error_message('evergreen leaves are off', FATAL)
-     if (sp.phent==PHEN_EVERGREEN) then
+     if (sp%phent==PHEN_EVERGREEN) then
         cc%status = LEAF_ON
         cycle ! do nothing further for evergreens
      endif
@@ -1271,24 +1274,48 @@ subroutine vegn_phenology_ppa(tile)
      ! spp=0 is c3 grass,1 c3 grass,2 deciduous, 3 evergreen
      ! assumption is that no difference between drought and cold deciduous
 
+     wilt = soil%w_wilt(1)/soil%pars%vwc_sat
+     theta_crit = sp%cnst_crit_phen + wilt*sp%fact_crit_phen
+     theta_crit = max(0.0,min(1.0, theta_crit))
+     drought    = (sp%psi_stress_crit_phen <= 0 .and. vegn%theta_av_phen < theta_crit) &
+             .or. (sp%psi_stress_crit_phen  > 0 .and. vegn%psist_av > sp%psi_stress_crit_phen)
+
      ! onset of phenology
      select case(cc%status)
      case (LEAF_OFF)
-        if (cc%gdd>sp%gdd_crit .and. vegn%tc_pheno>sp%tc_crit ) then
+        if (cc%gdd > sp%gdd_crit        .and. &
+            vegn%tc_pheno >= sp%tc_crit .and. &
+            .not.drought) then
            cc%status = LEAF_ON
            ! isa 201707215 - update target biomass at the satart of the growing season
            !                 for grasses to avoid using previous year targets
            if (sp%lifeform == FORM_GRASS) then
-             cc%bl_max = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
-             cc%br_max = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
+              cc%bl_max = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
+              cc%br_max = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
            endif
         endif
      case (LEAF_ON)
+        ! cold-deciduous: turn leaves off and reset GDD
         if (vegn%tc_pheno < sp%tc_crit) then
            cc%status = LEAF_OFF
            cc%gdd = 0.0
         endif
+        ! drought-deciduous: turn leaves off and DO NOT reset GDD
+        if (drought) then
+           cc%status = LEAF_OFF
+           ! Do not reset GDD when leaves drop due to drought, because if we do then
+           ! new leaves would not appear till critical GDD is accumulated again.
+           ! This would not make sense in many warm droughty regions, e.g. in sub-tropics.
+        endif
      end select
+     ! slm: there is a potential strange corner case above, when leaves drop due to
+     !      autumn drought in a cold region, GDD is not reset and therefore it keeps
+     !      accumulating from the previous year. This will result in too-early onset of
+     !      phenology the next year, probably instantly after the drought ends.
+     !
+     !      On the other hand, resetting GDD every time vegn%tc_pheno < sp%tc_crit
+     !      regardless of the leaf status will not work since it prevent GDD accumulating
+     !      in temperature range gdd_base_T < T < tc_crit.
 
      ! leaf falling at the end of a growing season
      if(cc%status == LEAF_OFF .AND. ( cc%bl > 0. .or. ( sp%lifeform == FORM_GRASS .and. ( cc%bl > 0 .or. cc%bsw > 0. ) ) ) ) then
