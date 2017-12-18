@@ -107,7 +107,6 @@ public :: &
     mcv_min, mcv_lai, &
     use_bucket, use_mcm_masking, vegn_index_constant, &
     critical_root_density, &
-    ! vegetation data, imported from LM3V
     spdata, &
     min_cosz, &
     agf_bs, K1,K2, fsc_liv, fsc_wood, fsc_froot, &
@@ -117,7 +116,7 @@ public :: &
     l_fract, wood_fract_min, T_transp_min, soil_carbon_depth_scale, &
     cold_month_threshold, scnd_biomass_bins, &
     phen_ev1, phen_ev2, cmc_eps, &
-    b0_growth, tau_seed, understory_lai_factor, min_lai, &
+    b0_growth, tau_seed, understory_lai_factor, min_lai, use_light_saber, &
     DBH_mort, A_mort, B_mort, mortrate_s
 
 logical, public :: do_ppa = .FALSE.
@@ -277,6 +276,8 @@ type spec_data_type
   real    :: Hd_gam = 200.0! Inactivation Energy for gamma star
   real    :: Ea_resp = 46.39! Activation Energy for resp
   real    :: Hd_resp = 200.0! Inactivation Energy for resp
+  !for Light Saber, ppg, 17/12/07
+  real    ::  newleaf_layer = 0.05
 
   ! for hydraulics, wolf
   real    :: Kxam=0.0, Klam=0.0 ! Conductivity, max, per tissue area: units kg/m2 tissue/s/MPa
@@ -377,6 +378,9 @@ real, protected :: understory_lai_factor = 0.25
 
 real, protected :: min_lai = 1e-5 ! minimum lai: if leaf fall brings LAI
     ! below this threshold, bl is set to zero
+logical, protected :: use_light_saber = .FALSE. ! if TRUE, then the leaves at the bottom
+    ! of the canopy that cannot support themselves by photosynthesis are mercilessly
+    ! cut off.
 
 ! boundaries of wood biomass bins for secondary veg. (kg C/m2); used to decide
 ! whether secondary vegetation tiles can be merged or not. MUST BE IN ASCENDING
@@ -416,7 +420,7 @@ namelist /vegn_data_nml/ &
   do_ppa, &
   mortrate_s, cmc_eps, &
   DBH_mort, A_mort, B_mort, &
-  b0_growth, tau_seed, understory_lai_factor, &
+  b0_growth, tau_seed, understory_lai_factor, min_lai, use_light_saber, &
   do_alt_allometry, nat_mortality_splits_tiles
 
 contains ! ###################################################################
@@ -791,6 +795,9 @@ subroutine read_species_data(name, sp, errors_found)
   __GET_SPDATA_REAL__(Hd_gam)
   __GET_SPDATA_REAL__(Ea_resp)
   __GET_SPDATA_REAL__(Hd_resp)
+  !for Light Saber, ppg,17/12/07
+  __GET_SPDATA_REAL__(newleaf_layer)
+
   ! hydraulics-related parameters
   __GET_SPDATA_REAL__(Kxam)
   __GET_SPDATA_REAL__(dx)
@@ -1051,6 +1058,9 @@ subroutine print_species_data(unit)
   call add_row(table, 'Hd_gam', spdata(:)%Hd_gam)
   call add_row(table, 'Ea_resp', spdata(:)%Ea_resp)
   call add_row(table, 'Hd_resp', spdata(:)%Hd_resp)
+
+  !for light Saberr, ppg, 17/12/07
+  call add_row(table,'newleaf_layer', spdata(:)%newleaf_layer)
 
   call add_row(table, 'leaf_refl_vis', spdata(:)%leaf_refl(BAND_VIS))
   call add_row(table, 'leaf_refl_nir', spdata(:)%leaf_refl(BAND_NIR))

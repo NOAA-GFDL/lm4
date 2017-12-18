@@ -24,7 +24,7 @@ use vegn_data_mod, only : spdata, nspecies, &
      PHEN_DECIDUOUS, PHEN_EVERGREEN, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, &
      fsc_liv, fsc_wood, fsc_froot, agf_bs, &
-     l_fract, do_ppa, understory_lai_factor, min_lai
+     l_fract, do_ppa, understory_lai_factor, min_lai, use_light_saber
 use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon, vegn_relayer_cohorts_ppa, &
      vegn_mergecohorts_ppa
 use soil_tile_mod, only: num_l, dz, soil_tile_type, LEAF, CWOOD, N_LITTER_POOLS
@@ -975,11 +975,23 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      call check_var_range(cc%bsw,  0.0,HUGE(1.0),'biomass_allocation_ppa #4', 'cc%bsw',FATAL)
      call check_var_range(cc%brsw, 0.0,cc%bsw,   'biomass_allocation_ppa #4', 'cc%brsw',FATAL)
 
+     if (cc%An_newleaf_daily > 0 ) then
+         cc%laimax = cc%laimax + sp%newleaf_layer
+     else
+         cc%laimax = max(cc%laimax - sp%newleaf_layer,1.0)
+     endif
+     cc%An_newleaf_daily = 0.0
      ! update bl_max and br_max daily
      ! slm: why are we updating topyear only when the leaves are displayed? The paper
      !      never mentions this fact (see eq. A6).
-     BL_u = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac) * understory_lai_factor
-     BL_c = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
+     if (use_light_saber) then 
+        BL_u = sp%LMA * cc%laimax * cc%crownarea * (1.0-sp%internal_gap_frac) * understory_lai_factor
+        BL_c = sp%LMA * cc%laimax * cc%crownarea * (1.0-sp%internal_gap_frac)
+     else
+        BL_u = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac) * understory_lai_factor
+        BL_c = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
+     endif
+    
      if (cc%layer > 1 .and. cc%firstlayer == 0) then ! changed back, Weng 2014-01-23
         cc%topyear = 0.0
         cc%bl_max = BL_u
