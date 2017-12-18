@@ -24,7 +24,7 @@ use vegn_data_mod, only : spdata, nspecies, &
      PHEN_DECIDUOUS, PHEN_EVERGREEN, LEAF_ON, LEAF_OFF, FORM_WOODY, FORM_GRASS, &
      ALLOM_EW, ALLOM_EW1, ALLOM_HML, LU_CROP, &
      fsc_liv, fsc_wood, fsc_froot, agf_bs, &
-     l_fract, do_ppa, understory_lai_factor
+     l_fract, do_ppa, understory_lai_factor, min_lai
 use vegn_tile_mod, only: vegn_tile_type, vegn_tile_carbon, vegn_relayer_cohorts_ppa, &
      vegn_mergecohorts_ppa
 use soil_tile_mod, only: num_l, dz, soil_tile_type, LEAF, CWOOD, N_LITTER_POOLS
@@ -1292,7 +1292,6 @@ subroutine vegn_phenology_ppa(tile)
      if(cc%status == LEAF_OFF) then
          leaf_fall = leaf_fall_rate * max(cc%bl,0.0)
          root_mort = root_mort_rate * max(cc%br,0.0)
-         ! slm: perhaps we should drop all bl and br when they drop below certain small minimum
          stem_mort = 0.0 ! isa 20170705
          if (sp%lifeform == FORM_GRASS) then
             ! grasses also lose their stems
@@ -1310,6 +1309,8 @@ subroutine vegn_phenology_ppa(tile)
             cc%bl_max = sp%LMA * sp%laimax * cc%crownarea * (1.0-sp%internal_gap_frac)
             leaf_fall = max(leaf_fall, cc%bl-cc%bl_max)
          endif
+         ! drop all leaves if LAI is below certain small minimum
+         if (cc%lai<min_lai) leaf_fall = cc%bl
 
          cc%nsc = cc%nsc + l_fract * (leaf_fall+ root_mort + stem_mort) ! isa 20170705
          cc%bl  = cc%bl - leaf_fall

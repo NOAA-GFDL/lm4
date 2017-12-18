@@ -117,7 +117,7 @@ public :: &
     l_fract, wood_fract_min, T_transp_min, soil_carbon_depth_scale, &
     cold_month_threshold, scnd_biomass_bins, &
     phen_ev1, phen_ev2, cmc_eps, &
-    b0_growth, tau_seed, understory_lai_factor, &
+    b0_growth, tau_seed, understory_lai_factor, min_lai, &
     DBH_mort, A_mort, B_mort, mortrate_s
 
 logical, public :: do_ppa = .FALSE.
@@ -373,7 +373,10 @@ real :: tau_seed    = 0.5708 ! characteristic time of nsc spending on seeds, yea
 real :: wood_fract_min = 0.33
 
 ! reduction of bl_max and br_max for the understory vegetation, unitless
-real :: understory_lai_factor = 0.25
+real, protected :: understory_lai_factor = 0.25
+
+real, protected :: min_lai = 1e-5 ! minimum lai: if leaf fall brings LAI
+    ! below this threshold, bl is set to zero
 
 ! boundaries of wood biomass bins for secondary veg. (kg C/m2); used to decide
 ! whether secondary vegetation tiles can be merged or not. MUST BE IN ASCENDING
