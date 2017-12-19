@@ -984,18 +984,11 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
      ! update bl_max and br_max daily
      ! slm: why are we updating topyear only when the leaves are displayed? The paper
      !      never mentions this fact (see eq. A6).
-     if (use_light_saber) then 
-        BL_u = sp%LMA * cc%laimax * cc%crownarea * (1.0-sp%internal_gap_frac) * understory_lai_factor
-        BL_c = sp%LMA * cc%laimax * cc%crownarea * (1.0-sp%internal_gap_frac)
-     else
-        BL_u = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac) * understory_lai_factor
-        BL_c = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
-     endif
-    
+     BL_u = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac) * understory_lai_factor
+     BL_c = sp%LMA * sp%LAImax * cc%crownarea * (1.0-sp%internal_gap_frac)
      if (cc%layer > 1 .and. cc%firstlayer == 0) then ! changed back, Weng 2014-01-23
         cc%topyear = 0.0
         cc%bl_max = BL_u
-        cc%br_max = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
      else
         if(cc%layer == 1)cc%topyear = cc%topyear + 1.0/365.0  ! daily step
         if(cc%layer>1)cc%firstlayer = 0 ! Just for the first year, those who were
@@ -1005,8 +998,13 @@ subroutine biomass_allocation_ppa(cc, wood_prod,leaf_root_gr,sw_seed_gr,deltaDBH
         else
            cc%bl_max = BL_u + min(cc%topyear/5.0,1.0)*(BL_c - BL_u)
         endif
-        cc%br_max = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
      endif
+     ! in case of light saber override bl_max, but the keep the value of firstlayer
+     ! calculated above
+     if (use_light_saber) then
+        cc%bl_max = sp%LMA * cc%laimax * cc%crownarea * (1.0-sp%internal_gap_frac)
+     endif
+     cc%br_max = sp%phiRL*cc%bl_max/(sp%LMA*sp%SRA)
 
      if(is_watch_point()) then
         write(*,*)'########### biomass_allocation_ppa output ###########'
