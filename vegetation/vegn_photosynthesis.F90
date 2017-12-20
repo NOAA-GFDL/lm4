@@ -18,7 +18,7 @@ use land_debug_mod,     only : is_watch_point, check_var_range
 use land_data_mod,      only : log_version
 use soil_tile_mod,      only : soil_tile_type, psi_wilt
 use vegn_tile_mod,      only : vegn_tile_type
-use vegn_data_mod,      only : PT_C4, FORM_GRASS, spdata, T_transp_min, &
+use vegn_data_mod,      only : PT_C4, PT_C3, FORM_GRASS, spdata, T_transp_min, &
                                ALLOM_EW, ALLOM_EW1, ALLOM_HML
 use vegn_cohort_mod,    only : vegn_cohort_type, get_vegn_wet_frac
 use uptake_mod,         only : darcy2d_uptake, darcy2d_uptake_solver
@@ -527,7 +527,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
      vm=vm*exp(-(leaf_age-sp%leaf_age_onset)/sp%leaf_age_tau)
      endif
 
-     if (Kok_effect) then
+     if (Kok_effect .and. sp%pt==PT_C3) then
         Resp=(1-sp%inib_factor)*sp%gamma_resp*vm*lai_kok+sp%gamma_resp*vm*(lai-lai_kok)
      else
         Resp=sp%gamma_resp*vm*lai
@@ -566,7 +566,7 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
        vm25=vm25*exp(-(leaf_age-sp%leaf_age_onset)/sp%leaf_age_tau)
      endif
 
-     if (Kok_effect) then
+     if (Kok_effect .and. sp%pt==PT_C3) then
         Resp25=(1-sp%inib_factor)*sp%gamma_resp*vm25*lai_kok+sp%gamma_resp*vm25*(lai-lai_kok)
      else
         Resp25=sp%gamma_resp*vm25*lai
