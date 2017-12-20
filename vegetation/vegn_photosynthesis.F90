@@ -293,8 +293,7 @@ subroutine vegn_photosynthesis_Leuning (soil, vegn, cohort, &
        cohort%leaf_age, p_surf, sp, cana_co2, cohort%extinct, &
        cohort%layer, &
        ! output:
-       stomatal_cond, psyn, resp, &
-       lai_kok, An_newleaf)
+       stomatal_cond, psyn, resp, lai_kok, An_newleaf)
   cohort%An_newleaf_daily = cohort%An_newleaf_daily + An_newleaf
 
   ! scale down stomatal conductance and photosynthesis due to leaf wetness
@@ -732,7 +731,6 @@ subroutine gs_Leuning(rad_top, rad_net, tl, ds, lai, leaf_age, &
   if (is_watch_point()) then
      __DEBUG4__(gs, apot, acl, ds)
   endif
-  !write (*,*) 'apot  ',apot,  'ag_rb ', ag_rb,'vm ', vm, 'ci_f ', (ci-capgam)/(ci+coef1)
   end associate ! sp
 end subroutine gs_Leuning
 

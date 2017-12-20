@@ -160,15 +160,6 @@ type :: vegn_cohort_type
   real :: laimax = 1.0 
   real :: An_newleaf = 0.0
   real :: An_newleaf_daily = 0.0
-
-! in LM3V the cohort structure has a handy pointer to the tile it belongs to;
-! so operations on cohort can update tile-level variables. In this code, it is
-! probably impossible to have this pointer here: it needs to be of type
-! "type(vegn_tile_type), pointer", which means that the vegn_cohort_mod needs to
-! use vegn_tile_mod. But the vegn_tile_mod itself uses vegn_cohort_mod, and
-! this would create a circular dependency of modules, something that's
-! prohibited in FORTRAN.
-!  type(vegn_tile_type), pointer :: cp
 end type vegn_cohort_type
 
 contains ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-

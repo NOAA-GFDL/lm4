@@ -121,7 +121,6 @@ public :: &
     DBH_mort, A_mort, B_mort, mortrate_s
 
 logical, public :: do_ppa = .FALSE.
-logical, public :: do_alt_allometry = .FALSE.
 logical, public :: nat_mortality_splits_tiles = .FALSE. ! if true, natural mortality
     ! creates disturbed tiles
 
@@ -425,7 +424,7 @@ namelist /vegn_data_nml/ &
   DBH_mort, A_mort, B_mort, &
   b0_growth, tau_seed, understory_lai_factor, min_lai, &
   use_light_saber, laimax_ceiling, laimax_floor, &
-  do_alt_allometry, nat_mortality_splits_tiles
+  nat_mortality_splits_tiles
 
 contains ! ###################################################################
 
